@@ -1,0 +1,12 @@
+{
+  "ignore": [
+    ".venv",
+    "node_modules",
+    "models",
+    "__pycache__",
+    "*.pyc",
+    ".pytest_cache",
+    ".ruff_cache",
+    "cache"
+  ]
+}

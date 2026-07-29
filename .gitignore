@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific - deprecated directories (moved to archive/)
+archive/
+
+# Runtime / Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# Node / Electron
+node_modules/
+frontend/node_modules/
+
+# Android native project
+android-native/.gradle/
+android-native/build/
+android-native/app/build/
+android-native/app/.cxx/
+android-native/local.properties
+android-native/.idea/
+
+# Cache
+cache/
+
+# Live2D SDK (large binary)
+**/libs/live2d-cubism-core.aar
+
+# Pi session dumps (may contain secrets)
+pi-session-dump/

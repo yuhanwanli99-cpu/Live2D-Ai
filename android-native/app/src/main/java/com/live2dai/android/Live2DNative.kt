@@ -1,0 +1,74 @@
+package com.live2dai.android
+
+object Live2DNative {
+    private var nativeLoaded = false
+
+    fun load(): Boolean {
+        if (nativeLoaded) return true
+        return try {
+            System.loadLibrary("live2dcubismcore")
+            nativeLoaded = true
+            android.util.Log.i("Live2DNative", "Native library loaded (Purism Core)")
+            true
+        } catch (e: UnsatisfiedLinkError) {
+            android.util.Log.w("Live2DNative", "Failed to load native: ${e.message}")
+            false
+        }
+    }
+
+    fun isLoaded(): Boolean = nativeLoaded
+
+    fun requireLoaded() {
+        check(nativeLoaded) { "Live2D native library (Purism Core) not loaded" }
+    }
+
+    // Flag constants
+    const val FLAG_ADDITIVE = 1
+    const val FLAG_MULTIPLICATIVE = 2
+    const val FLAG_DOUBLE_SIDED = 4
+    const val FLAG_INVERTED_MASK = 8
+
+    const val DYNAMIC_IS_VISIBLE = 1
+    const val DYNAMIC_VISIBILITY_CHANGED = 2
+    const val DYNAMIC_OPACITY_CHANGED = 4
+    const val DYNAMIC_DRAW_ORDER_CHANGED = 8
+    const val DYNAMIC_RENDER_ORDER_CHANGED = 16
+    const val DYNAMIC_VERTEX_POSITIONS_CHANGED = 32
+    const val DYNAMIC_BLEND_COLOR_CHANGED = 64
+
+    external fun getVersion(): Long
+    external fun getLatestMocVersion(): Long
+    external fun loadModel(mocBytes: ByteArray): Long
+    external fun freeModel(modelPtr: Long)
+    external fun updateModel(modelPtr: Long)
+    external fun getCanvasInfo(modelPtr: Long): FloatArray?
+    external fun getParameterCount(modelPtr: Long): Int
+    external fun getParameterIds(modelPtr: Long): Array<String>?
+    external fun getParameterValues(modelPtr: Long): FloatArray?
+    external fun setParameterValue(modelPtr: Long, index: Int, value: Float)
+    external fun setParameterValues(modelPtr: Long, values: FloatArray)
+    external fun getParameterMinValues(modelPtr: Long): FloatArray?
+    external fun getParameterMaxValues(modelPtr: Long): FloatArray?
+    external fun getParameterDefaultValues(modelPtr: Long): FloatArray?
+    external fun getPartCount(modelPtr: Long): Int
+    external fun getPartIds(modelPtr: Long): Array<String>?
+    external fun getPartOpacities(modelPtr: Long): FloatArray?
+    external fun setPartOpacity(modelPtr: Long, index: Int, value: Float)
+    external fun getDrawableCount(modelPtr: Long): Int
+    external fun getDrawableTextureIndices(modelPtr: Long): IntArray?
+    external fun getDrawableDrawOrders(modelPtr: Long): IntArray?
+    external fun getDrawableOpacities(modelPtr: Long): FloatArray?
+    external fun getDrawableVertexCounts(modelPtr: Long): IntArray?
+    external fun getDrawablePositions(modelPtr: Long, drawableIndex: Int): FloatArray?
+    external fun getDrawableUvs(modelPtr: Long, drawableIndex: Int): FloatArray?
+    external fun getDrawableIndexCounts(modelPtr: Long): IntArray?
+    external fun getDrawableIndices(modelPtr: Long, drawableIndex: Int): ShortArray?
+    external fun getDrawableConstantFlags(modelPtr: Long): ByteArray?
+    external fun getDrawableDynamicFlags(modelPtr: Long): ByteArray?
+    external fun getDrawableMaskCounts(modelPtr: Long): IntArray?
+    external fun getDrawableMasks(modelPtr: Long, drawableIndex: Int): IntArray?
+    external fun getDrawableMultiplyColors(modelPtr: Long): FloatArray?
+    external fun getDrawableScreenColors(modelPtr: Long): FloatArray?
+    external fun getDrawableParentPartIndices(modelPtr: Long): IntArray?
+    external fun getRenderOrders(modelPtr: Long): IntArray?
+}
