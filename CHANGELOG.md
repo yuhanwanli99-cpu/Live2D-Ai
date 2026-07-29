@@ -11,12 +11,12 @@
 
 | # | 文件 | 操作 | 说明 |
 | --- | ------ | ------ | ------ |
-| 1 | `desktop/open-llm-vtuber/conf.yaml` | **重写** | 从 ~230 行精简到 ~94 行，删除 27 个不用的 provider 配置块 |
-| 2 | `desktop/start.ps1` | **增强** | 新增自动检测 Python/venv/ffmpeg/Electron/API Key + 环境摘要面板（~280 行） |
+| 1 | `Live2Dai-pc/open-llm-vtuber/conf.yaml` | **重写** | 从 ~230 行精简到 ~94 行，删除 27 个不用的 provider 配置块 |
+| 2 | `Live2Dai-pc/start.ps1` | **增强** | 新增自动检测 Python/venv/ffmpeg/Electron/API Key + 环境摘要面板（~280 行） |
 | 3 | `docs/plan-task-win-trim.md` | **新增** | 软件架构师设计文档 |
 | 4 | `docs/plan-task-android-deploy.md` | **新增** | 软件架构师设计文档 |
 | 5 | `.pi/spoq-state.json` | **更新** | Phase=done, Wave 0 状态记录 |
-| 6 | `android-native/local.properties` | **新增** | API Keys 配置（DeepSeek + Zhipu） |
+| 6 | `Live2Dai-Android/local.properties` | **新增** | API Keys 配置（DeepSeek + Zhipu） |
 
 ### 📋 task-android-deploy: 暂停 (blocked)
 

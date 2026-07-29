@@ -15,7 +15,7 @@ F:\Live2Dai\
 │   ├── persona.yaml         ← 人设（name/system_prompt/model/temperature）
 │   └── mcp_tools.json       ← MCP 工具定义
 │
-├── android-native/          ← ★ Android 原生应用 (Kotlin + Compose)
+├── Live2Dai-Android/          ← ★ Android 原生应用 (Kotlin + Compose)
 │   ├── app/
 │   │   ├── build.gradle.kts ← AGP 8.7.3, compileSdk 35, NDK 27
 │   │   ├── src/main/
@@ -48,7 +48,7 @@ F:\Live2Dai\
 │   │   └── libs/                 ← 不再需要 Cubism SDK AAR
 │   └── settings.gradle.kts
 │
-├── desktop/                  ← Windows 桌面端
+├── Live2Dai-pc/                  ← Windows 桌面端
 │   ├── open-llm-vtuber/       ← Open-LLM-VTuber (git clone)
 │   │   └── conf.yaml          ← 桌面端配置（API Key, 人设）
 │   ├── start.ps1              ← 一键启动
@@ -274,7 +274,7 @@ AnimationPipeline.update(deltaTime):
 ### 构建命令
 
 ```bash
-cd F:/Live2Dai/android-native
+cd F:/Live2Dai/Live2Dai-Android
 ANDROID_HOME=/opt/android-sdk ANDROID_NDK_HOME=/opt/android-sdk/ndk/27.0.12077973 \
   ./gradlew assembleDebug
 ```
@@ -391,14 +391,14 @@ zhipu_api_key: '...'
 vim shared/persona.yaml
 
 # 同步到 Android
-cp shared/persona.yaml android-native/app/src/main/assets/
+cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
 ```
 
 ### 运行测试
 
 ```bash
 # Android 单元测试（5 个测试类）
-cd android-native
+cd Live2Dai-Android
 ./gradlew test
 
 # 公共测试
@@ -410,7 +410,7 @@ python -m pytest tests/
 
 ```bash
 # Kotlin 源码
-find android-native -name "*.kt" -not -path "*/test/*" -exec wc -l {} + | tail -1
+find Live2Dai-Android -name "*.kt" -not -path "*/test/*" -exec wc -l {} + | tail -1
 
 # 所有文件总计
 find . -name "*.kt" -o -name "*.cpp" -o -name "*.h" | xargs wc -l | tail -1

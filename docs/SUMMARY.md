@@ -138,7 +138,7 @@ cd F:\Live2Dai\desktop
 ### Android 端
 
 ```bash
-cd F:\Live2Dai\android-native
+cd F:\Live2Dai\Live2Dai-Android
 ./gradlew assembleDebug
 # 部署: adb install app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -146,7 +146,7 @@ cd F:\Live2Dai\android-native
 ### 运行测试
 
 ```bash
-cd android-native && ./gradlew test
+cd Live2Dai-Android && ./gradlew test
 cd F:\Live2Dai && python -m pytest tests/
 ```
 
@@ -164,10 +164,10 @@ F:\Live2Dai\
 │   ├── persona.yaml       ← 猫娘人设（单源真理）
 │   ├── mcp_tools.json     ← MCP 工具定义
 │   └── model_dict.json    ← 模型路由表
-├── android-native/        ← ★ Android 原生应用
+├── Live2Dai-Android/        ← ★ Android 原生应用
 │   ├── app/src/main/java/.../  ← Kotlin 源码 (14 个文件)
 │   └── app/src/main/cpp/      ← Purism Core C 源码
-├── desktop/               ← ★ Windows 桌面端
+├── Live2Dai-pc/               ← ★ Windows 桌面端
 │   ├── start.ps1
 │   └── open-llm-vtuber/   ← 上游项目
 ├── docs/                  ← 文档

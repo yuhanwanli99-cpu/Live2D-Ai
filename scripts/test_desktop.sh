@@ -14,9 +14,9 @@ echo "[1/5] Python version: $(python3 --version 2>/dev/null || python --version 
 
 echo "[2/5] Checking conf.yaml ..."
 if [ -f "$CD/conf.yaml" ]; then
-    grep -q "deepseek-v4-flash" "$CD/conf.yaml" && echo "  ✓ Model: deepseek-v4-flash"
-    grep -q "edge_tts" "$CD/conf.yaml" && echo "  ✓ TTS: edge_tts"
-    grep -q "live2d_fps: 120" "$CD/conf.yaml" && echo "  ✓ FPS: 120"
+  grep -q "deepseek-v4-flash" "$CD/conf.yaml" && echo "  ✓ Model: deepseek-v4-flash"
+  grep -q "edge_tts" "$CD/conf.yaml" && echo "  ✓ TTS: edge_tts"
+  grep -q "live2d_fps: 120" "$CD/conf.yaml" && echo "  ✓ FPS: 120"
 fi
 
 echo "[3/5] Checking shared persona ..."
@@ -29,8 +29,8 @@ print(f'  ✓ {d[\"name\"]} | model={d[\"model\"]} | prompt_len={len(d[\"system_
 
 echo "[4/5] Testing DeepSeek API (requires DEEPSEEK_API_KEY env var) ..."
 HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
-    https://api.deepseek.com/v1/models \
-    -H "Authorization: Bearer ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY not set}" 2>/dev/null)
+  https://api.deepseek.com/v1/models \
+  -H "Authorization: Bearer ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY not set}" 2>/dev/null)
 echo "  ✓ HTTP $HTTP_CODE"
 
 echo "[5/5] Live2D models ..."

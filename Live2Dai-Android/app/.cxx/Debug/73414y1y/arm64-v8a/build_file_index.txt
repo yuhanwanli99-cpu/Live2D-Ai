@@ -1,0 +1,1 @@
+/mnt/f/Live2Dai/Live2Dai-Android/app/src/main/cpp/CMakeLists.txt

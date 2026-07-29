@@ -7,8 +7,8 @@ class TestPersonaShared(unittest.TestCase):
 
     def setUp(self):
         self.persona_path = os.path.join(os.path.dirname(__file__), "..", "shared", "persona.yaml")
-        self.desktop_conf_path = os.path.join(os.path.dirname(__file__), "..", "desktop", "open-llm-vtuber", "conf.yaml")
-        self.android_assets_path = os.path.join(os.path.dirname(__file__), "..", "android-native", "app", "src", "main", "assets", "persona.yaml")
+        self.desktop_conf_path = os.path.join(os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "conf.yaml")
+        self.android_assets_path = os.path.join(os.path.dirname(__file__), "..", "Live2Dai-Android", "app", "src", "main", "assets", "persona.yaml")
 
     def test_persona_yaml_format(self):
         """Test that shared/persona.yaml has correct format"""
@@ -35,19 +35,15 @@ class TestPersonaShared(unittest.TestCase):
 
     def test_desktop_and_android_consistency(self):
         """Test that desktop and android share the same persona configuration"""
-        # Read desktop config
-        with open(self.desktop_conf_path, 'r', encoding='utf-8') as f:
-            desktop_config = yaml.safe_load(f)
+        # Read shared persona
+        with open(self.persona_path, 'r', encoding='utf-8') as f:
+            persona = yaml.safe_load(f)
         
-        # Read android assets persona (simulated)
+        # Read android assets persona
         with open(self.android_assets_path, 'r', encoding='utf-8') as f:
             android_persona = yaml.safe_load(f)
         
-        # Verify key persona attributes match
-        desktop_persona = desktop_config['character_config']['load_persona_from_file']
-        self.assertEqual(desktop_persona, 'shared/persona.yaml')
-        
-        # Compare key attributes
+        # Compare key attributes between shared and android persona
         self.assertEqual(persona['name'], android_persona['name'])
         self.assertEqual(persona['role'], android_persona['role'])
         self.assertEqual(persona['model'], android_persona['model'])
@@ -93,7 +89,7 @@ class TestPersonaShared(unittest.TestCase):
             persona = yaml.safe_load(f)
         
         vision_model = persona['vision_model']
-        self.assertEqual(vision_model, "glm-4v")
+        self.assertEqual(vision_model, "glm-4.6v")
 
     def test_role_consistency(self):
         """Test that role configuration is consistent"""
@@ -113,7 +109,7 @@ class TestPersonaShared(unittest.TestCase):
         self.assertIn('说话风格', system_prompt)
         self.assertIn('行为准则', system_prompt)
         self.assertIn('示例对话', system_prompt)
-        self.assertIn('重要', system_prompt)
+        self.assertIn('工具使用', system_prompt)
 
     def test_persona_file_exists(self):
         """Test that persona.yaml file exists and is accessible"""

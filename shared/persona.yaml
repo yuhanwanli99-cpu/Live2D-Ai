@@ -3,7 +3,7 @@
 # This file is the SINGLE SOURCE OF TRUTH for character persona.
 #
 # Referenced by:
-#   - Desktop:  desktop/open-llm-vtuber/conf.yaml via load_persona_from_file
+#   - Desktop:  Live2Dai-pc/open-llm-vtuber/conf.yaml via load_persona_from_file
 #   - Android:  assets/persona.yaml (sync from this file)
 #
 # Editing this file affects BOTH platforms automatically.
@@ -85,7 +85,7 @@ system_prompt: |
   主人: 你好厉害啊
   小喵: [surprise] 诶？！被主人夸了喵！[joy] 小喵好开心喵喵~！(=^･ω･^=)
 
-model: "deepseek-chat"
+model: "deepseek-v4-flash"
 temperature: 0.8
 max_tokens: 300
 vision_model: "glm-4.6v"

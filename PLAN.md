@@ -48,14 +48,14 @@
 
 | 模块 | 变更 | 文件 |
 |------|------|------|
-| Android 框架 | 独立原生 Android 项目 (Kotlin/Compose) | `android-native/` |
+| Android 框架 | 独立原生 Android 项目 (Kotlin/Compose) | `Live2Dai-Android/` |
 | Live2D 渲染 | Cubism SDK 集成 (反射桥接，三级降级) | `Live2DRenderer.kt`, `Live2DView.kt` |
 | 情感系统 | [emotion] 标签 → 表情映射 + LipSync | `EmotionController.kt` |
 | 语音系统 | Edge TTS + TTS降级链 | `EdgeTtsService.kt` |
 | 语音输入 | Android SpeechRecognizer 集成 | `VoiceInputService.kt` |
 | 视觉服务 | GLM-4V 截图分析 | `VisionService.kt` |
 | 人设配置 | SnakeYAML 解析, 跨平台共享 | `PersonaConfig.kt`, `shared/` |
-| 桌面端 | 独立直连启动脚本, conf.yaml 配置 | `desktop/start.ps1` |
+| 桌面端 | 独立直连启动脚本, conf.yaml 配置 | `Live2Dai-pc/start.ps1` |
 | 测试 | Android 单元测试 (5个) | `app/src/test/` |
 | 文档 | 架构文档, 交接文档 | `docs/SUMMARY.md`, `HANDOVER.md` |
 
@@ -66,8 +66,8 @@
 ### Windows 桌面端
 
 ```powershell
-cd desktop/open-llm-vtuber
-# 首次: git clone + uv sync (见 desktop/README.md)
+cd Live2Dai-pc/open-llm-vtuber
+# 首次: git clone + uv sync (见 Live2Dai-pc/README.md)
 .\start.ps1
 # 启动 Open-LLM-VTuber.exe → 右键切换桌宠模式
 ```
@@ -75,7 +75,7 @@ cd desktop/open-llm-vtuber
 ### Android 端
 
 ```bash
-# 用 Android Studio 打开 android-native/ 目录
+# 用 Android Studio 打开 Live2Dai-Android/ 目录
 # 构建运行到设备/模拟器
 ./gradlew installDebug
 ```
@@ -96,13 +96,13 @@ curl http://localhost:12393/health
 | 文件 | 用途 | 位置 |
 |------|------|------|
 | `shared/persona.yaml` | 猫娘人设（单源真理） | `shared/persona.yaml` |
-| `conf.yaml` | 桌面端 Open-LLM-VTuber 配置 | `desktop/open-llm-vtuber/conf.yaml` |
+| `conf.yaml` | 桌面端 Open-LLM-VTuber 配置 | `Live2Dai-pc/open-llm-vtuber/conf.yaml` |
 | `persona.yaml` (root) | 根目录摘要（指向 shared/） | `persona.yaml` |
 | **API Key 配置** | 见下方 | |
 
 ### API Key 设置
 
-**桌面端**: 编辑 `desktop/open-llm-vtuber/conf.yaml`
+**桌面端**: 编辑 `Live2Dai-pc/open-llm-vtuber/conf.yaml`
 ```yaml
 llm_configs:
   openai_compatible_llm:
@@ -111,7 +111,7 @@ llm_configs:
 ```
 
 **Android 端**: 自动读取 `shared/persona.yaml` 中的 model 字段, OKHttp 通过代码配置 API Key
-- 如需覆盖: 在 `android-native/app/src/main/java/com/live2dai/android/ChatService.kt` 中修改 `DEEPSEEK_API_KEY`
+- 如需覆盖: 在 `Live2Dai-Android/app/src/main/java/com/live2dai/android/ChatService.kt` 中修改 `DEEPSEEK_API_KEY`
 
 ---
 

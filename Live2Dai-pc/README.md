@@ -5,19 +5,19 @@
 ## 一键启动
 
 ```powershell
-cd F:\Live2Dai\desktop
+cd F:\Live2Dai\Live2Dai-pc
 .\start.ps1
 ```
 
 启动后浏览器访问 **<http://localhost:12393/>** 即可看到猫娘界面。
 
-双击 `F:\Live2Dai\desktop\启动桌宠.bat` 效果相同。
+双击 `F:\Live2Dai\Live2Dai-pc\启动桌宠.bat` 效果相同。
 
 ## 前置准备
 
 ### 1. API Key
 
-编辑 `F:\Live2Dai\desktop\open-llm-vtuber\conf.yaml`，填入密钥：
+编辑 `F:\Live2Dai\Live2Dai-pc\open-llm-vtuber\conf.yaml`，填入密钥：
 
 ```yaml
 llm_configs:
@@ -38,7 +38,7 @@ vision_config:
 如需手动搭建：
 
 ```powershell
-cd F:\Live2Dai\desktop\open-llm-vtuber
+cd F:\Live2Dai\Live2Dai-pc\open-llm-vtuber
 # 安装 uv（可选，但推荐）
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 # 同步依赖
@@ -91,4 +91,4 @@ temperature: 0.8
 
 ---
 
-详细架构见 `F:\Live2Dai\HANDOVER.md`，Android 端见 `F:\Live2Dai\android-native/`。
+详细架构见 `F:\Live2Dai\HANDOVER.md`，Android 端见 `F:\Live2Dai\Live2Dai-Android/`。

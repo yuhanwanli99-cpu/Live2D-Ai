@@ -17,7 +17,7 @@
 | `docs/renderer-algorithm.md` | Cubism 渲染算法逆向分析 |
 | `docs/mask-premake-algorithm.md` | Mask FBO 渲染算法 |
 | `docs/verification-win.md` | 桌面端配置验证报告 |
-| `android-native/app/libs/README.md` | Live2D SDK 依赖说明 |
+| `Live2Dai-Android/app/libs/README.md` | Live2D SDK 依赖说明 |
 | `.pi/lessons-learned.md` | 经验教训库（新手上路必读） |
 
 ---
@@ -65,13 +65,13 @@ F:\Live2Dai\
 │   ├── mcp_tools.json       ←   MCP 工具定义
 │   └── model_dict.json      ←   模型路由表
 │
-├── android-native/          ← ★ Android 原生应用（主力平台）
+├── Live2Dai-Android/          ← ★ Android 原生应用（主力平台）
 │   └── app/src/main/
 │       ├── cpp/             ←   Purism Core (MIT) 源码
 │       ├── java/com/live2dai/android/  ← Kotlin 源码
 │       └── assets/live2d/   ←   Live2D 模型
 │
-├── desktop/                 ← ★ Windows 桌面端
+├── Live2Dai-pc/                 ← ★ Windows 桌面端
 │   ├── open-llm-vtuber/     ←   Open-LLM-VTuber 后端
 │   ├── start.ps1            ←   一键启动脚本
 │   └── 启动桌宠.bat
@@ -91,16 +91,16 @@ F:\Live2Dai\
 # 编辑人设
 vim shared/persona.yaml
 # 同步到 Android
-cp shared/persona.yaml android-native/app/src/main/assets/
+cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
 
 # 构建 Android APK
-cd android-native && ./gradlew assembleDebug
+cd Live2Dai-Android && ./gradlew assembleDebug
 
 # 桌面端一键启动
 cd desktop && ./start.ps1
 
 # 运行测试
-cd android-native && ./gradlew test
+cd Live2Dai-Android && ./gradlew test
 python -m pytest tests/
 ```
 

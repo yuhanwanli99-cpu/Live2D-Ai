@@ -62,17 +62,17 @@ character_config:
 
 ```powershell
 # 方式 1：双击
-F:\Live2Dai\desktop\启动桌宠.bat
+F:\Live2Dai\Live2Dai-pc\启动桌宠.bat
 
 # 方式 2：PowerShell
-cd F:\Live2Dai\desktop
+cd F:\Live2Dai\Live2Dai-pc
 .\start.ps1
 
 # 方式 3：跳过环境检测（快速启动）
 .\start.ps1 -SkipEnvCheck
 
 # 方式 4：直接启动 Python 后端
-cd F:\Live2Dai\desktop\open-llm-vtuber
+cd F:\Live2Dai\Live2Dai-pc\open-llm-vtuber
 .venv\Scripts\python run_server.py
 ```
 
@@ -121,6 +121,6 @@ shared/mcp_tools.json ───→│  _path()        │──→ MCP 工具注
 curl http://localhost:12393/health
 
 # 查看日志
-cd F:\Live2Dai\desktop\open-llm-vtuber
+cd F:\Live2Dai\Live2Dai-pc\open-llm-vtuber
 .venv\Scripts\python run_server.py  # 前台运行看输出
 ```

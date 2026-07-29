@@ -21,7 +21,7 @@ Write-Host "╚═════════════════════�
 Write-Host ""
 
 $SharedDir = Join-Path $ProjectRoot "shared"
-$AndroidAssetsDir = Join-Path $ProjectRoot "android-native\app\src\main\assets"
+$AndroidAssetsDir = Join-Path $ProjectRoot "Live2Dai-Android\app\src\main\assets"
 $DesktopConf = Join-Path $ProjectRoot "desktop\open-llm-vtuber\conf.yaml"
 
 # ── Check shared/ exists ──

@@ -31,7 +31,7 @@ object PersonaConfig {
 
     private var personaName: String = "小喵"
     private var systemPrompt: String = FALLBACK_PROMPT
-    private var model: String = "deepseek-chat"
+    private var model: String = "deepseek-v4-flash"
     private var visionModel: String = "glm-4.6v"
     private var temperature: Double = 0.8
     private var maxTokens: Int = 300

@@ -19,7 +19,7 @@ F:\Live2Dai\
 │   ├── mcp_tools.json           ← MCP 工具定义（time/ddg-search/weather/...）
 │   └── model_dict.json          ← 模型路由表
 │
-├── desktop/                     ← Windows 桌面端
+├── Live2Dai-pc/                     ← Windows 桌面端
 │   ├── 启动桌宠.bat             ← 一键启动入口
 │   ├── start.ps1                ← PowerShell 启动脚本（自动检测环境）
 │   └── open-llm-vtuber/         ← Open-LLM-VTuber（后端+前端）
@@ -28,7 +28,7 @@ F:\Live2Dai\
 │       ├── frontend/            ← 预编译 React Web 静态文件
 │       └── src/open_llm_vtuber/ ← Python 后端源码
 │
-├── android-native/              ← Android 原生端
+├── Live2Dai-Android/              ← Android 原生端
 │   ├── app/src/main/
 │   │   ├── cpp/                 ← Purism Core 原生层
 │   │   ├── java/com/live2dai/android/  ← Kotlin 源码
@@ -90,14 +90,14 @@ F:\Live2Dai\
 ## 配置流
 
 ```
-shared/persona.yaml ──→ desktop/open-llm-vtuber/conf.yaml (load_persona_from_file)
-                    ──→ android-native/app/src/main/assets/persona.yaml (复制)
+shared/persona.yaml ──→ Live2Dai-pc/open-llm-vtuber/conf.yaml (load_persona_from_file)
+                    ──→ Live2Dai-Android/app/src/main/assets/persona.yaml (复制)
 
-shared/mcp_tools.json ──→ desktop/open-llm-vtuber/mcp_servers.json
-                      ──→ android-native/app/src/main/assets/mcp_tools.json
+shared/mcp_tools.json ──→ Live2Dai-pc/open-llm-vtuber/mcp_servers.json
+                      ──→ Live2Dai-Android/app/src/main/assets/mcp_tools.json
 
-shared/model_dict.json ──→ desktop/open-llm-vtuber/model_dict.json
-                       ──→ android-native/app/src/main/assets/model_dict.json
+shared/model_dict.json ──→ Live2Dai-pc/open-llm-vtuber/model_dict.json
+                       ──→ Live2Dai-Android/app/src/main/assets/model_dict.json
 ```
 
 ---
