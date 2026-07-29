@@ -1,0 +1,96 @@
+# Live2Dai — 独立直连 API 模式配置（精简版）
+# ===========================================================
+# 保留清单: deepseek_llm | zhipu_llm | edge_tts | faster_whisper | silero_vad
+# 不走任何中间 Gateway，直接调 DeepSeek API (对话) 和 智谱 API (视觉)
+# ===========================================================
+
+system_config:
+  conf_version: 'v1.2.1'
+  host: '0.0.0.0'
+  port: 12393
+  live2d_fps: 120
+  config_alts_dir: 'characters'
+  tool_prompts:
+    live2d_expression_prompt: 'live2d_expression_prompt'
+    mcp_prompt: 'mcp_prompt'
+
+character_config:
+  conf_name: 'mao_pro'
+  conf_uid: 'mao_pro_001'
+  live2d_model_name: 'mao_pro'
+  character_name: 'Mao'
+  avatar: 'mao.png'
+  human_name: 'Human'
+  load_persona_from_file: 'shared/persona.yaml'
+
+  agent_config:
+    conversation_agent_choice: 'basic_memory_agent'
+    agent_settings:
+      basic_memory_agent:
+        llm_provider: 'deepseek_llm'
+        faster_first_response: true
+        segment_method: 'pysbd'
+        use_mcpp: true
+        mcp_enabled_servers:
+          - "time"
+          - "ddg-search"
+          - "weather"
+          - "filesystem"
+          - "sequential-thinking"
+
+    llm_configs:
+      deepseek_llm:
+        llm_api_key: '${DEEPSEEK_API_KEY}'
+        model: 'deepseek-v4-flash'
+        temperature: 0.8
+
+      zhipu_llm:
+        llm_api_key: '${ZHIPU_API_KEY}'
+        model: 'glm-4.6v'
+        temperature: 1.0
+
+  asr_config:
+    asr_model: 'faster_whisper'
+    faster_whisper:
+      model_path: 'large-v3-turbo'
+      download_root: 'models/whisper'
+      language: 'zh'
+      device: 'auto'
+      compute_type: 'int8'
+      prompt: ''
+
+  tts_config:
+    tts_model: 'edge_tts'
+    edge_tts:
+      voice: 'zh-CN-XiaoxiaoNeural'
+
+  vad_config:
+    vad_model: 'silero_vad'
+    silero_vad:
+      orig_sr: 16000
+      target_sr: 16000
+      prob_threshold: 0.4
+      db_threshold: 60
+      required_hits: 3
+      required_misses: 24
+      smoothing_window: 5
+
+  tts_preprocessor_config:
+    remove_special_char: true
+    ignore_brackets: true
+    ignore_parentheses: true
+    ignore_asterisks: true
+    ignore_angle_brackets: true
+    translator_config:
+      translate_audio: false
+      translate_provider: 'deeplx'
+
+vision_config:
+  vision_enabled: true
+  provider: 'zhipu'
+  api_key: '${ZHIPU_API_KEY}'
+  model: 'glm-4.6v'
+  capture_interval: 5.0
+
+# MCP 服务定义: 见 mcp_servers.json（与 shared/mcp_tools.json 一致）
+mcp_servers: 'mcp_servers.json'

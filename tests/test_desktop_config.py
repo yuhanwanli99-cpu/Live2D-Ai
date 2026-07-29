@@ -25,7 +25,7 @@ class TestDesktopConfig(unittest.TestCase):
 
         self.assertEqual(
             deepseek_config["llm_api_key"],
-            "sk-***REDACTED-ROTATED***",
+            r"${DEEPSEEK_API_KEY}",
         )
         self.assertEqual(deepseek_config["model"], "deepseek-chat")
         self.assertEqual(deepseek_config["temperature"], 0.8)
@@ -36,7 +36,7 @@ class TestDesktopConfig(unittest.TestCase):
 
         self.assertEqual(
             zhipu_config["llm_api_key"],
-            "***ZHIPU-KEY-REDACTED-ROTATED***",
+            r"${ZHIPU_API_KEY}",
         )
         self.assertEqual(zhipu_config["model"], "glm-4.6v")
 

@@ -43,6 +43,9 @@ android-native/app/.cxx/
 android-native/local.properties
 android-native/.idea/
 
+# Android project - local.properties (API keys)
+Live2Dai-Android/local.properties
+
 # Cache
 cache/
 
