@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android") version "2.1.0"
@@ -45,12 +48,22 @@ android {
 
         // ── API Keys: Read from local.properties (primary), then env vars (fallback) ──
         // local.properties is .gitignored — safe for secrets
+        // Note: project.findProperty() does NOT read custom properties from local.properties
+        // so we must load local.properties explicitly via java.util.Properties.
         // OS env vars are used when local.properties is absent (e.g. CI)
-        val deepseekKey = project.findProperty("DEEPSEEK_API_KEY")?.toString()?.takeIf { it.isNotBlank() }
-            ?: System.getenv("DEEPSEEK_API_KEY")?.takeIf { it.isNotBlank() }
+        val localProps = Properties()
+        val localPropsFile = rootProject.file("local.properties")
+        if (localPropsFile.exists()) {
+            localProps.load(FileInputStream(localPropsFile))
+        }
+
+        val deepseekKey = localProps.getProperty("DEEPSEEK_API_KEY")?.ifBlank { null }
+            ?: (project.findProperty("DEEPSEEK_API_KEY") as? String)?.ifBlank { null }
+            ?: System.getenv("DEEPSEEK_API_KEY")?.ifBlank { null }
             ?: ""
-        val zhipuKey = project.findProperty("ZHIPU_API_KEY")?.toString()?.takeIf { it.isNotBlank() }
-            ?: System.getenv("ZHIPU_API_KEY")?.takeIf { it.isNotBlank() }
+        val zhipuKey = localProps.getProperty("ZHIPU_API_KEY")?.ifBlank { null }
+            ?: (project.findProperty("ZHIPU_API_KEY") as? String)?.ifBlank { null }
+            ?: System.getenv("ZHIPU_API_KEY")?.ifBlank { null }
             ?: ""
 
         buildConfigField("String", "DEEPSEEK_API_KEY", "\"${deepseekKey}\"")
