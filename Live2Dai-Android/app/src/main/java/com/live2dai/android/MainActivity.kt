@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.live2dai.android.ui.SettingsScreen
 import kotlinx.coroutines.*
 
 class MainActivity : ComponentActivity() {
@@ -40,40 +41,56 @@ class MainActivity : ComponentActivity() {
         // 从 assets 加载人设配置
         PersonaConfig.load(this)
 
-        // 初始化服务
-        chatService = ChatService()
+        // 初始化 LLMProviderManager（必须在 ChatService 之前）
+        LLMProviderManager.init(this)
+
+        // 初始化服务（使用动态 Provider）
+        chatService = ChatService(LLMProviderManager.getActiveProvider())
         ttsService = EdgeTtsService(this)
         voiceInputService = VoiceInputService(this)
 
         setContent {
             Live2DaiTheme {
-                MainScreen(
-                    chatService = chatService,
-                    ttsService = ttsService,
-                    voiceInputService = voiceInputService,
-                    onLive2DViewCreated = { view ->
-                        live2DView = view
-                        emotionController = EmotionController(live2DView)
-                    },
-                    /** 处理完整回复（Activity 层，可访问 Live2DView） */
-                    onProcessResponse = { rawText ->
-                        // 1. 解析表情标签，设置 Live2D 表情
-                        val cleanText = emotionController.parseAndApply(rawText)
-                        // 2. TTS 播放 + LipSync
-                        if (cleanText.isNotEmpty()) {
-                            startLipSync()
-                            try {
-                                ttsService.speak(cleanText)
-                            } catch (e: Exception) {
-                                android.util.Log.w("MainActivity", "TTS 播放失败: ${e.message}")
-                            }
-                            stopLipSync()
-                            live2DView.setLipSyncParam(0f)
+                var showSettings by remember { mutableStateOf(false) }
+
+                if (showSettings) {
+                    SettingsScreen(
+                        onBack = {
+                            showSettings = false
+                            // 返回主界面时重建 ChatService 以应用 Provider 切换
+                            chatService = ChatService(LLMProviderManager.getActiveProvider())
                         }
-                        // 3. 返回纯净文本用于 UI 显示
-                        cleanText
-                    }
-                )
+                    )
+                } else {
+                    MainScreen(
+                        chatService = chatService,
+                        ttsService = ttsService,
+                        voiceInputService = voiceInputService,
+                        onLive2DViewCreated = { view ->
+                            live2DView = view
+                            emotionController = EmotionController(live2DView)
+                        },
+                        onOpenSettings = { showSettings = true },
+                        /** 处理完整回复（Activity 层，可访问 Live2DView） */
+                        onProcessResponse = { rawText ->
+                            // 1. 解析表情标签，设置 Live2D 表情
+                            val cleanText = emotionController.parseAndApply(rawText)
+                            // 2. TTS 播放 + LipSync
+                            if (cleanText.isNotEmpty()) {
+                                startLipSync()
+                                try {
+                                    ttsService.speak(cleanText)
+                                } catch (e: Exception) {
+                                    android.util.Log.w("MainActivity", "TTS 播放失败: ${e.message}")
+                                }
+                                stopLipSync()
+                                live2DView.setLipSyncParam(0f)
+                            }
+                            // 3. 返回纯净文本用于 UI 显示
+                            cleanText
+                        }
+                    )
+                }
             }
         }
     }
@@ -147,6 +164,8 @@ fun MainScreen(
     ttsService: EdgeTtsService,
     voiceInputService: VoiceInputService,
     onLive2DViewCreated: (Live2DView) -> Unit = {},
+    /** 打开 LLM 设置界面 */
+    onOpenSettings: () -> Unit = {},
     /** 处理完整回复: 输入带表情标签的原始文本，返回纯净文本（Activity 中实现表情+TTS） */
     onProcessResponse: suspend (String) -> String = { it }
 ) {
@@ -181,6 +200,38 @@ fun MainScreen(
         streamingText = ""
 
         try {
+            // 降级检查：若当前 Provider 是 LOCAL，先做健康检查
+            val provider = LLMProviderManager.getActiveProvider()
+            if (provider.type == ProviderType.LOCAL) {
+                val health = LLMProviderManager.healthCheck(provider.baseUrl)
+                if (health !is HealthResult.Ok) {
+                    val reason = (health as? HealthResult.Error)?.message ?: "连接失败"
+                    android.widget.Toast.makeText(
+                        context,
+                        "本地 LLM 不可用 ($reason)，已自动切换至云端 DeepSeek",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    val fallbackProvider = LLMProviderManager.getDeepSeekProvider()
+                    val tempService = ChatService(fallbackProvider)
+                    val rawBuilder = StringBuilder()
+                    tempService.sendMessage(text).collect { delta ->
+                        rawBuilder.append(delta)
+                        streamingText = EmotionController.stripEmotionTags(rawBuilder.toString())
+                    }
+                    val rawResponse = rawBuilder.toString().trim()
+                    streamingText = ""
+                    if (rawResponse.isNotEmpty()) {
+                        isSpeaking = true
+                        val cleanText = onProcessResponse(rawResponse)
+                        if (cleanText.isNotEmpty()) {
+                            messages.add(ChatBubble(text = cleanText, isUser = false))
+                        }
+                        isSpeaking = false
+                    }
+                    return@sendMessage
+                }
+            }
+
             // 收集流式响应（原始文本，可能含表情标签）
             val rawBuilder = StringBuilder()
             chatService.sendMessage(text).collect { delta ->
@@ -241,53 +292,70 @@ fun MainScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 状态叠加层 — 包含人设名称 + 选择器
-                Column(
+                // 状态叠加层 — 包含人设名称 + 选择器 + 设置按钮
+                Row(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .align(Alignment.TopStart)
-                        .padding(12.dp)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    // 人设名称（可点击打开下拉选择器）
-                    Text(
-                        text = PersonaConfig.getPersonaName(),
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { showPersonaMenu = true }
-                    )
+                    Column {
+                        // 人设名称（可点击打开下拉选择器）
+                        Text(
+                            text = PersonaConfig.getPersonaName(),
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { showPersonaMenu = true }
+                        )
 
-                    // 人设切换下拉菜单
-                    DropdownMenu(
-                        expanded = showPersonaMenu,
-                        onDismissRequest = { showPersonaMenu = false }
-                    ) {
-                        availablePersonas.forEach { (displayName, filePath) ->
-                            val isCurrent = filePath == PersonaConfig.getCurrentPersonaFile()
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = displayName,
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                },
-                                onClick = {
-                                    showPersonaMenu = false
-                                    if (filePath != PersonaConfig.getCurrentPersonaFile()) {
-                                        // 切换人设 → 重新加载配置 + 重置对话
-                                        PersonaConfig.loadFile(context, filePath)
-                                        chatService.resetConversation()
-                                        messages.clear()
+                        // 人设切换下拉菜单
+                        DropdownMenu(
+                            expanded = showPersonaMenu,
+                            onDismissRequest = { showPersonaMenu = false }
+                        ) {
+                            availablePersonas.forEach { (displayName, filePath) ->
+                                val isCurrent = filePath == PersonaConfig.getCurrentPersonaFile()
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = displayName,
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        showPersonaMenu = false
+                                        if (filePath != PersonaConfig.getCurrentPersonaFile()) {
+                                            // 切换人设 → 重新加载配置 + 重置对话
+                                            PersonaConfig.loadFile(context, filePath)
+                                            chatService.resetConversation()
+                                            messages.clear()
+                                        }
                                     }
-                                }
+                                )
+                            }
+                        }
+
+                        if (isSpeaking) {
+                            Text(
+                                text = "正在说话...",
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontSize = 12.sp
                             )
                         }
                     }
 
-                    if (isSpeaking) {
+                    // 设置齿轮按钮
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Text(
-                            text = "正在说话...",
-                            color = MaterialTheme.colorScheme.secondary,
-                            fontSize = 12.sp
+                            text = "⚙",
+                            fontSize = 20.sp,
+                            color = Color.White.copy(alpha = 0.7f)
                         )
                     }
                 }
