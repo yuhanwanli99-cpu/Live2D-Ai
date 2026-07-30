@@ -1,4 +1,0 @@
-/mnt/f/Live2Dai/Live2Dai-Android/app/.cxx/Debug/73414y1y/arm64-v8a/CMakeFiles/purism_core.dir
-/mnt/f/Live2Dai/Live2Dai-Android/app/.cxx/Debug/73414y1y/arm64-v8a/CMakeFiles/live2dcubismcore.dir
-/mnt/f/Live2Dai/Live2Dai-Android/app/.cxx/Debug/73414y1y/arm64-v8a/CMakeFiles/edit_cache.dir
-/mnt/f/Live2Dai/Live2Dai-Android/app/.cxx/Debug/73414y1y/arm64-v8a/CMakeFiles/rebuild_cache.dir
