@@ -23,6 +23,10 @@ class Live2DView(
         setEGLContextClientVersion(2)
         // 4x multisampling for anti-aliased edges
         setEGLConfigChooser(MSAAConfigChooser())
+
+        // 不拦截触摸事件，让 Compose 底层 UI（输入框、按钮）可点击
+        isClickable = false
+        isFocusable = false
     }
 
     /**

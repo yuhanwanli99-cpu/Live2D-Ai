@@ -33,16 +33,18 @@ import com.live2dai.android.data.SettingsRepository
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
-    repository: SettingsRepository = remember { SettingsRepository(LocalContext.current) },
+    repository: SettingsRepository? = null,
 ) {
+    val context = LocalContext.current
+    val repo = repository ?: remember { SettingsRepository(context) }
     // ── State ──
-    var deepseekKey by remember { mutableStateOf(repository.deepseekApiKey) }
-    var zhipuKey by remember { mutableStateOf(repository.zhipuApiKey) }
-    var selectedModel by remember { mutableStateOf(repository.model) }
-    var temperature by remember { mutableStateOf(repository.temperature) }
-    var ttsVoice by remember { mutableStateOf(repository.ttsVoice) }
-    var ttsSpeed by remember { mutableStateOf(repository.ttsSpeed) }
-    var selectedPersona by remember { mutableStateOf(repository.personaName) }
+    var deepseekKey by remember { mutableStateOf(repo.deepseekApiKey) }
+    var zhipuKey by remember { mutableStateOf(repo.zhipuApiKey) }
+    var selectedModel by remember { mutableStateOf(repo.model) }
+    var temperature by remember { mutableStateOf(repo.temperature) }
+    var ttsVoice by remember { mutableStateOf(repo.ttsVoice) }
+    var ttsSpeed by remember { mutableStateOf(repo.ttsSpeed) }
+    var selectedPersona by remember { mutableStateOf(repo.personaName) }
     var deepseekKeyVisible by remember { mutableStateOf(false) }
     var zhipuKeyVisible by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
@@ -50,8 +52,8 @@ fun SettingsScreen(
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
-    val hasCustomDeepseek = repository.hasCustomDeepseekKey
-    val hasCustomZhipu = repository.hasCustomZhipuKey
+    val hasCustomDeepseek = repo.hasCustomDeepseekKey
+    val hasCustomZhipu = repo.hasCustomZhipuKey
 
     Scaffold(
         topBar = {
@@ -174,11 +176,11 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             if (hasCustomDeepseek) {
-                                repository.clearCustomDeepseekKey()
+                                repo.clearCustomDeepseekKey()
                                 deepseekKey = ""
                             }
                             if (hasCustomZhipu) {
-                                repository.clearCustomZhipuKey()
+                                repo.clearCustomZhipuKey()
                                 zhipuKey = ""
                             }
                         }
@@ -219,7 +221,7 @@ fun SettingsScreen(
                             text = { Text(model) },
                             onClick = {
                                 selectedModel = model
-                                repository.model = model
+                                repo.model = model
                                 showModelMenu = false
                             }
                         )
@@ -236,7 +238,7 @@ fun SettingsScreen(
             Slider(
                 value = temperature,
                 onValueChange = { temperature = it },
-                onValueChangeFinished = { repository.temperature = temperature },
+                onValueChangeFinished = { repo.temperature = temperature },
                 valueRange = 0.0f..1.0f,
                 steps = 19,
                 modifier = Modifier.fillMaxWidth()
@@ -274,7 +276,7 @@ fun SettingsScreen(
                             text = { Text(voice) },
                             onClick = {
                                 ttsVoice = voice
-                                repository.ttsVoice = voice
+                                repo.ttsVoice = voice
                                 showTtsVoiceMenu = false
                             }
                         )
@@ -291,7 +293,7 @@ fun SettingsScreen(
             Slider(
                 value = ttsSpeed,
                 onValueChange = { ttsSpeed = it },
-                onValueChangeFinished = { repository.ttsSpeed = ttsSpeed },
+                onValueChangeFinished = { repo.ttsSpeed = ttsSpeed },
                 valueRange = 0.5f..2.0f,
                 steps = 14,
                 modifier = Modifier.fillMaxWidth()
@@ -306,7 +308,7 @@ fun SettingsScreen(
                 currentPersona = selectedPersona,
                 onPersonaSelected = { name ->
                     selectedPersona = name
-                    repository.personaName = name
+                    repo.personaName = name
                     showPersonaDialog = false
                 },
                 showDialog = showPersonaDialog,
@@ -332,13 +334,13 @@ fun SettingsScreen(
     // ── 离开页面时自动保存所有设置 ──
     DisposableEffect(Unit) {
         onDispose {
-            repository.deepseekApiKey = deepseekKey
-            repository.zhipuApiKey = zhipuKey
-            repository.model = selectedModel
-            repository.temperature = temperature
-            repository.ttsVoice = ttsVoice
-            repository.ttsSpeed = ttsSpeed
-            repository.personaName = selectedPersona
+            repo.deepseekApiKey = deepseekKey
+            repo.zhipuApiKey = zhipuKey
+            repo.model = selectedModel
+            repo.temperature = temperature
+            repo.ttsVoice = ttsVoice
+            repo.ttsSpeed = ttsSpeed
+            repo.personaName = selectedPersona
         }
     }
 }
@@ -488,7 +490,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                     appendLine("• Purism Core (Live2D) — MIT")
                     appendLine("• Cubism Java Framework — MIT")
                     appendLine("• Edge TTS — Apache 2.0 / MIT")
-                    appendLine("\nFull license texts are available in the GitHub repository.")
+                    appendLine("\nFull license texts are available in the GitHub repo.")
                 },
                 style = MaterialTheme.typography.bodySmall
             )

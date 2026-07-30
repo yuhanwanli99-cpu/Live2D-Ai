@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.opengl.GLSurfaceView
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.GestureDetector
@@ -281,9 +282,6 @@ class FloatingWindowService : Service() {
         }
     }
 }
-
-// 需要使用 GLSurfaceView
-import android.opengl.GLSurfaceView
 
 /**
  * 可拖拽的 FrameLayout，支持手势检测
