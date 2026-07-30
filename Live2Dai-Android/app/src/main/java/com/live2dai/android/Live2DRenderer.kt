@@ -135,6 +135,9 @@ class Live2DRenderer(
     /** 部件名到索引的映射 */
     private var partNameToIndex: Map<String, Int> = emptyMap()
 
+    /** 模型元配置（从 cdi3.json + pose3.json 解析） */
+    private var modelMeta: ModelMetaConfig? = null
+
     /** 上一帧时间戳（纳秒） */
     private var previousFrameNano: Long = System.nanoTime()
 
@@ -420,20 +423,23 @@ class Live2DRenderer(
         // 5. 缓存参数索引
         buildParameterIndex()
 
-        // 6. 初始化参数和部件
-        initParameters()
+        // 6. 解析模型元配置（cdi3.json + pose3.json）
+        loadModelMetaConfig()
 
-        // 7. 初始更新
+        // 7. 初始化参数（使用元配置替代硬编码）
+        initParameters(modelMeta)
+
+        // 8. 初始更新
         Live2DNative.updateModel(modelPtr)
 
-        // 7.5 创建 PurismModel（动画系统需要）
+        // 9. 创建 PurismModel（动画系统需要）
         purismModel = PurismModel(modelPtr)
 
-        // 8. 构建部件名到索引的映射（必须在 setupAnimationSystem 之前，Pose 需要）
+        // 10. 构建部件名到索引的映射（必须在 setupAnimationSystem 之前，Pose 需要）
         buildPartIndex()
 
-        // 9. 加载动画系统
-        setupAnimationSystem()
+        // 11. 加载动画系统（传入元配置）
+        setupAnimationSystem(modelMeta)
     }
 
     private fun loadTextures() {
@@ -481,8 +487,13 @@ class Live2DRenderer(
         partNameToIndex = map
     }
 
-    /** 初始化所有参数为默认值、所有 part 为全可见 */
-    private fun initParameters() {
+    /**
+     * 初始化参数为默认值，使用模型元配置替代硬编码的字符串比较。
+     *
+     * 元配置优先：如果 modelMeta 可用，用语义索引设置眼睛参数。
+     * 兜底：尝试旧的硬编码参数名（旧模型向后兼容）。
+     */
+    private fun initParameters(meta: ModelMetaConfig?) {
         // 参数设为默认值
         val defaults = Live2DNative.getParameterDefaultValues(modelPtr)
         if (defaults != null) {
@@ -494,11 +505,27 @@ class Live2DRenderer(
         // 之前这里把所有 part 设为 1.0，导致后臂（PartArmLB/PartArmRB）本应不可见却显示
 
         // 设置关键参数为正常显示值
-        val ids = Live2DNative.getParameterIds(modelPtr)
-        if (ids != null) {
-            for (i in ids.indices) {
-                if (ids[i] == "PARAM_EYE_L_OPEN" || ids[i] == "PARAM_EYE_R_OPEN") {
-                    Live2DNative.setParameterValue(modelPtr, i, 1f)
+        // ── 优先使用元配置语义索引 ──
+        if (meta != null) {
+            val si = meta.semantic
+            if (si.eyeLeftOpenIdx >= 0) {
+                Live2DNative.setParameterValue(modelPtr, si.eyeLeftOpenIdx, 1f)
+                android.util.Log.i("Live2DRenderer",
+                    "initParameters: eyeLeftOpen=${meta.parameters.find { it.index == si.eyeLeftOpenIdx }?.id}(idx=${si.eyeLeftOpenIdx}) = 1.0")
+            }
+            if (si.eyeRightOpenIdx >= 0) {
+                Live2DNative.setParameterValue(modelPtr, si.eyeRightOpenIdx, 1f)
+                android.util.Log.i("Live2DRenderer",
+                    "initParameters: eyeRightOpen=${meta.parameters.find { it.index == si.eyeRightOpenIdx }?.id}(idx=${si.eyeRightOpenIdx}) = 1.0")
+            }
+        } else {
+            // ── 兜底：尝试硬编码的名称（旧模型向后兼容） ──
+            val ids = Live2DNative.getParameterIds(modelPtr)
+            if (ids != null) {
+                for (i in ids.indices) {
+                    if (ids[i] == "PARAM_EYE_L_OPEN" || ids[i] == "PARAM_EYE_R_OPEN") {
+                        Live2DNative.setParameterValue(modelPtr, i, 1f)
+                    }
                 }
             }
         }
@@ -792,13 +819,59 @@ class Live2DRenderer(
     }
 
     // ============================================================
-    //  动画系统设置
+    //  模型元配置加载 & 动画系统设置
     // ============================================================
 
     /**
-     * 设置动画系统：加载所有 motion/expression，初始化 AnimationPipeline。
+     * 加载并解析 cdi3.json 配置文件，构建 ModelMetaConfig。
      */
-    private fun setupAnimationSystem() {
+    private fun loadModelMetaConfig() {
+        val setting = modelSettingJson ?: return
+        try {
+            val fileRefs = setting.getJSONObject("FileReferences")
+            val cdi3File = fileRefs.optString("DisplayInfo", "") ?: ""
+            if (cdi3File.isEmpty()) {
+                android.util.Log.i("Live2DRenderer", "No cdi3.json in model — using fallback hardcoded params")
+                return
+            }
+
+            val cdi3Path = "$modelDir/$cdi3File"
+            val cdi3Bytes = context.assets.open(cdi3Path).use { it.readBytes() }
+            val cdi3Json = JSONObject(String(cdi3Bytes))
+
+            // 加载 pose3.json（可选）
+            val poseFile = fileRefs.optString("Pose", "") ?: ""
+            val pose3Json = if (poseFile.isNotEmpty()) {
+                try {
+                    val posePath = "$modelDir/$poseFile"
+                    val poseBytes = context.assets.open(posePath).use { it.readBytes() }
+                    JSONObject(String(poseBytes))
+                } catch (e: Exception) {
+                    null
+                }
+            } else null
+
+            modelMeta = ModelMetaConfig.parse(
+                cdi3Json = cdi3Json,
+                pose3Json = pose3Json,
+                model3Json = setting,
+                paramNameToIndex = paramNameToIndex,
+                partNameToIndex = partNameToIndex
+            )
+
+            android.util.Log.i("Live2DRenderer", "ModelMetaConfig loaded (${modelMeta?.parameters?.size ?: 0} params)")
+        } catch (e: Exception) {
+            android.util.Log.w("Live2DRenderer", "Failed to load ModelMetaConfig: ${e.message}")
+            modelMeta = null
+        }
+    }
+
+    /**
+     * 设置动画系统：加载所有 motion/expression，初始化 AnimationPipeline。
+     *
+     * @param meta 模型元配置（用于替代硬编码参数 ID 查找）
+     */
+    private fun setupAnimationSystem(meta: ModelMetaConfig?) {
         if (modelSettingJson == null || purismModel == null) return
         try {
             val setting = modelSettingJson!!
@@ -822,8 +895,15 @@ class Live2DRenderer(
 
             android.util.Log.i("Live2DRenderer", "Loaded ${loadedMotions.size} motions, ${loadedExpressions.size} expressions")
 
-            // 创建 AnimationPipeline
-            animationPipeline = AnimationPipeline(model, paramNameToIndex, partNameToIndex)
+            // 创建 AnimationPipeline（传入 meta 替代硬编码参数 ID）
+            animationPipeline = AnimationPipeline(model, paramNameToIndex, meta, partNameToIndex)
+
+            // 用 meta 初始化 BreathManager（如果可用）
+            if (meta != null && meta.semantic.breathParams.isNotEmpty()) {
+                animationPipeline?.breath?.initialize(meta)
+                android.util.Log.i("Live2DRenderer",
+                    "BreathManager initialized from meta: ${meta.semantic.breathParams.size} params")
+            }
 
             // 初始化物理
             try {
@@ -850,8 +930,8 @@ class Live2DRenderer(
                     val poseBytes = loadFile(posePath)
                     if (poseBytes != null) {
                         val partIds = Live2DNative.getPartIds(modelPtr)
-                        animationPipeline?.pose?.initialize(poseBytes, partIds)
-                        android.util.Log.i("Live2DRenderer", "Pose loaded from $poseFile")
+                        animationPipeline?.pose?.initialize(poseBytes, partIds, meta)
+                        android.util.Log.i("Live2DRenderer", "Pose loaded from $poseFile (meta=${meta != null})")
                     }
                 }
             } catch (e: Exception) {

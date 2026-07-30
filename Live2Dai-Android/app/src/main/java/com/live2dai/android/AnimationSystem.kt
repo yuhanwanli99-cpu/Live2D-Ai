@@ -508,30 +508,78 @@ class BreathManager {
     /** 累计时间（秒） */
     private var totalTime: Float = 0f
 
-    /** 呼吸参数定义 */
+    /** 呼吸参数定义（硬编码默认值，可由 meta 覆盖） */
     private data class BreathParam(
         val id: String,
+        val index: Int = -1,
         val offset: Float,
         val peak: Float,
         val cycle: Float,
         val weight: Float
+    ) {
+        /** 此参数是否可通过索引在模型中定位 */
+        fun isValid(): Boolean = index >= 0
+    }
+
+    /** 默认呼吸参数（用于模型无可用的 cdi3.json 时） */
+    private val defaultBreathParams = listOf(
+        BreathParam("ParamAngleX", offset = 0.0f, peak = 15.0f, cycle = 6.5345f, weight = 0.5f),
+        BreathParam("ParamAngleY", offset = 0.0f, peak = 8.0f, cycle = 3.5345f, weight = 0.5f),
+        BreathParam("ParamAngleZ", offset = 0.0f, peak = 10.0f, cycle = 5.5345f, weight = 0.5f),
+        BreathParam("ParamBodyAngleX", offset = 0.0f, peak = 4.0f, cycle = 15.5345f, weight = 0.5f),
+        BreathParam("ParamBreath", offset = 0.5f, peak = 0.5f, cycle = 3.2345f, weight = 0.5f)
     )
 
-    private val breathParams = listOf(
-        BreathParam("ParamAngleX", 0.0f, 15.0f, 6.5345f, 0.5f),
-        BreathParam("ParamAngleY", 0.0f, 8.0f, 3.5345f, 0.5f),
-        BreathParam("ParamAngleZ", 0.0f, 10.0f, 5.5345f, 0.5f),
-        BreathParam("ParamBodyAngleX", 0.0f, 4.0f, 15.5345f, 0.5f),
-        BreathParam("ParamBreath", 0.5f, 0.5f, 3.2345f, 0.5f)
-    )
+    /** 当前使用的呼吸参数（默认值，可由 initialize(meta) 覆盖） */
+    private var breathParams: List<BreathParam> = defaultBreathParams
+
+    /**
+     * 是否已通过 meta 初始化（设为 true 后，参数索引直接从 meta 获取，不再按名称查找）。
+     */
+    private var metaInitialized = false
+
+    /**
+     * 用模型元配置初始化呼吸参数。
+     *
+     * 替换默认的硬编码呼吸参数列表，使用从 cdi3.json 自动发现的参数。
+     * 每个参数的 offset/peak/cycle/weight 仍使用 Cubism SDK 参考实现的默认值，
+     * 但参数索引从 meta 获取（确保不遗漏模型中实际存在的参数）。
+     *
+     * @param meta 模型元配置
+     */
+    fun initialize(meta: ModelMetaConfig) {
+        if (meta.semantic.breathParams.isEmpty()) {
+            Log.i(tag, "No breath params in meta — keeping defaults")
+            return
+        }
+
+        // 将 meta 的 BreathParamDef 转换为内部 BreathParam
+        val resolved = meta.semantic.breathParams.map { def ->
+            BreathParam(
+                id = def.id,
+                index = def.index,
+                offset = def.offset,
+                peak = def.peak,
+                cycle = def.cycle,
+                weight = def.weight
+            )
+        }
+
+        breathParams = resolved
+        metaInitialized = true
+
+        Log.i(tag, "BreathManager initialized from meta: ${resolved.size} params")
+        for (bp in resolved) {
+            Log.v(tag, "  BreathParam: ${bp.id}(idx=${bp.index}) " +
+                    "offset=${bp.offset} peak=${bp.peak} cycle=${bp.cycle} weight=${bp.weight}")
+        }
+    }
 
     /**
      * 每帧更新呼吸状态。
      * 需要外部在 motion 更新后、model.update 前调用 apply。
      *
      * @param deltaTime 帧时间差（秒）
-     * @param paramNameToIndex 参数名到索引的映射
-     * @param model 数据模型
      */
     fun update(deltaTime: Float) {
         totalTime += deltaTime
@@ -539,13 +587,23 @@ class BreathManager {
 
     /**
      * 将呼吸效果应用到模型参数。
+     *
+     * 如果已通过 meta 初始化，优先使用 meta 提供的参数索引（比按名称查找更快更可靠）。
+     * 否则使用默认的硬编码参数列表，按名称查找索引。
      */
     fun apply(model: PurismModel, paramNameToIndex: Map<String, Int>) {
         for (bp in breathParams) {
-            val idx = paramNameToIndex[bp.id] ?: continue
+            val idx: Int
+            if (metaInitialized) {
+                if (!bp.isValid()) continue
+                idx = bp.index
+            } else {
+                idx = paramNameToIndex[bp.id] ?: continue
+            }
+
             val cycle = if (bp.cycle > 0f) bp.cycle else 1f
 
-            // 正弦波呼吸：offset + peak * sin(2pi * time / cycle)
+            // 正弦波呼吸：offset + peak * cos(2pi * time / cycle)
             val value = bp.offset + bp.peak * cos(totalTime * (2f * Math.PI.toFloat() / cycle))
             val weighted = value * bp.weight
 
@@ -697,10 +755,20 @@ class PoseManager {
         var fadeProgress: Float = 1f
     )
 
+    /** 驱动参数映射：part group 索引 → 驱动参数索引 */
+    private val driverParamMap = mutableMapOf<Int, Int>()
+
+    /** 驱动参数阈值映射 */
+    private val driverThresholdMap = mutableMapOf<Int, Float>()
+
     /**
      * 从 pose3.json 字节数据初始化。
+     *
+     * @param jsonBytes pose3.json 字节数据
+     * @param partIds MOC3 的所有 part ID 列表
+     * @param meta 模型元配置（可选，用于驱动参数关联）
      */
-    fun initialize(jsonBytes: ByteArray, partIds: Array<String>?) {
+    fun initialize(jsonBytes: ByteArray, partIds: Array<String>?, meta: ModelMetaConfig? = null) {
         try {
             val json = String(jsonBytes)
             val root = JSONObject(json)
@@ -712,6 +780,9 @@ class PoseManager {
             val idList = partIds?.toList() ?: emptyList()
 
             partGroups.clear()
+            driverParamMap.clear()
+            driverThresholdMap.clear()
+
             for (i in 0 until groupsArray.length()) {
                 val group = groupsArray.getJSONArray(i)
 
@@ -726,11 +797,25 @@ class PoseManager {
 
                 if (partIdList.isNotEmpty()) {
                     partGroups.add(PartGroup(partIds = partIdList))
+
+                    // 如果 meta 提供了该组的驱动参数，则记录
+                    if (meta?.poseMeta != null && i < meta.poseMeta.groups.size) {
+                        val poseGroupMeta = meta.poseMeta.groups[i]
+                        if (poseGroupMeta.driverParamIdx >= 0) {
+                            driverParamMap[i] = poseGroupMeta.driverParamIdx
+                            driverThresholdMap[i] = poseGroupMeta.driverThreshold
+                        }
+                    }
                 }
             }
 
             initialized = partGroups.isNotEmpty()
-            Log.i(tag, "Pose initialized with ${partGroups.size} groups")
+
+            if (initialized && driverParamMap.isNotEmpty()) {
+                Log.i(tag, "Pose initialized with ${partGroups.size} groups, ${driverParamMap.size} with driver params")
+            } else {
+                Log.i(tag, "Pose initialized with ${partGroups.size} groups")
+            }
         } catch (e: Exception) {
             Log.w(tag, "Failed to initialize pose: ${e.message}")
         }
@@ -744,6 +829,11 @@ class PoseManager {
     /**
      * 每帧更新部件不透明度。
      *
+     * 使用驱动参数选择可见 part（如果有）：
+     * - 参数值 < 阈值 → partIds[0] 可见
+     * - 参数值 ≥ 阈值 → partIds[1] 可见
+     * - 无驱动参数 → partIds[0] 始终可见（默认行为）
+     *
      * @param model 数据模型
      * @param partNameToIndex 部件名到索引的映射
      * @param deltaTime 帧时间差（秒）
@@ -751,17 +841,41 @@ class PoseManager {
     fun updateParameters(model: PurismModel, partNameToIndex: Map<String, Int>, deltaTime: Float) {
         if (!initialized) return
 
-        for (group in partGroups) {
+        val paramValues = Live2DNative.getParameterValues(modelPtr(model))
+
+        for (groupIdx in partGroups.indices) {
+            val group = partGroups[groupIdx]
             if (group.partIds.isEmpty()) continue
 
-            // 组内第一个 part 设为可见（通过 setPartOpacity 写 native），其余隐藏
-            val firstPartIdx = partNameToIndex[group.partIds[0]] ?: continue
-            model.setPartOpacity(firstPartIdx, 1.0f)
-            for (j in 1 until group.partIds.size) {
-                val otherPartIdx = partNameToIndex[group.partIds[j]] ?: continue
-                model.setPartOpacity(otherPartIdx, 0.0f)
+            // 确定当前应显示哪个 part
+            val activeIdx: Int = if (driverParamMap.containsKey(groupIdx) && paramValues != null) {
+                val driverIdx = driverParamMap[groupIdx]!!
+                val threshold = driverThresholdMap[groupIdx] ?: 0.5f
+
+                if (driverIdx < paramValues.size) {
+                    val driverValue = paramValues[driverIdx]
+                    val rawIdx = if (driverValue < threshold) 0 else 1
+                    if (rawIdx >= group.partIds.size) 0 else rawIdx
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+
+            for (j in group.partIds.indices) {
+                val partIdx = partNameToIndex[group.partIds[j]] ?: continue
+                if (j == activeIdx) {
+                    model.setPartOpacity(partIdx, 1.0f)
+                } else {
+                    model.setPartOpacity(partIdx, 0.0f)
+                }
             }
         }
+    }
+
+    companion object {
+        private fun modelPtr(model: PurismModel): Long = model.modelPtr
     }
 }
 
@@ -788,6 +902,7 @@ class PoseManager {
 class AnimationPipeline(
     private val model: PurismModel,
     private val paramNameToIndex: Map<String, Int>,
+    private val meta: ModelMetaConfig? = null,
     private val partNameToIndex: Map<String, Int> = emptyMap()
 ) {
     private val tag = "AnimationPipeline"
@@ -819,15 +934,25 @@ class AnimationPipeline(
     /** 是否已保存初始快照 */
     private var hasInitialSnapshot: Boolean = false
 
-    /** 预设眨眼参数 ID */
-    private var eyeLOpenIndex: Int = paramNameToIndex["PARAM_EYE_L_OPEN"] ?: -1
-    private var eyeROpenIndex: Int = paramNameToIndex["PARAM_EYE_R_OPEN"] ?: -1
-    private var eyeLOpenIndexAlt: Int = paramNameToIndex["ParamEyeLOpen"] ?: -1
-    private var eyeROpenIndexAlt: Int = paramNameToIndex["ParamEyeROpen"] ?: -1
+    /**
+     * 眨眼参数索引（使用 meta 语义索引优先，硬编码名称兜底）。
+     *
+     * 发现优先级：
+     * 1. ModelMetaConfig.semantic.eyeLeftOpenIdx
+     * 2. 直接查找 "PARAM_EYE_L_OPEN"（旧版 Cubism 3.x 命名）
+     * 3. 查找 "ParamEyeLOpen"（Cubism 4.x/5.x 命名）
+     */
+    private var eyeLOpenIndex: Int = resolveEyeIndex(side = 'L')
+    private var eyeROpenIndex: Int = resolveEyeIndex(side = 'R')
 
-    /** 预设口型同步参数 ID */
-    private var paramAIndex: Int = paramNameToIndex["ParamA"] ?: -1
-    private var paramMouthOpenY: Int = paramNameToIndex["ParamMouthOpenY"] ?: -1
+    /**
+     * 口型同步参数索引（使用 meta 语义索引优先，硬编码名称兜底）。
+     *
+     * mouthOpenIndices 是 List<Int>；取第 0 个为 ParamA 类参数，
+     * 取第 1 个为 ParamMouthOpenY 类参数。
+     */
+    private var paramAIndex: Int = resolveMouthIndex(0)
+    private var paramMouthOpenY: Int = resolveMouthIndex(1)
 
     // ============================================================
     //  表情管理
@@ -981,6 +1106,7 @@ class AnimationPipeline(
 
     /**
      * 应用眨眼到眼睛参数。
+     * 使用已解析的 eyeLOpenIndex / eyeROpenIndex（从 meta 或硬编码兜底）。
      */
     private fun applyEyeBlink() {
         if (!autoBlinkEnabled) return
@@ -988,22 +1114,17 @@ class AnimationPipeline(
         val leftOpen = eyeBlink.getLeftEyeOpen()
         val rightOpen = eyeBlink.getRightEyeOpen()
 
-        // 尝试标准眼参数名
         if (eyeLOpenIndex >= 0) {
             model.setParameterValue(eyeLOpenIndex, leftOpen)
-        } else if (eyeLOpenIndexAlt >= 0) {
-            model.setParameterValue(eyeLOpenIndexAlt, leftOpen)
         }
-
         if (eyeROpenIndex >= 0) {
             model.setParameterValue(eyeROpenIndex, rightOpen)
-        } else if (eyeROpenIndexAlt >= 0) {
-            model.setParameterValue(eyeROpenIndexAlt, rightOpen)
         }
     }
 
     /**
      * 设置口型同步值。
+     * 同时设置所有可用的口型参数（如 ParamA + ParamMouthOpenY）。
      */
     fun setLipSyncValue(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
@@ -1012,6 +1133,54 @@ class AnimationPipeline(
         }
         if (paramMouthOpenY >= 0) {
             model.setParameterValue(paramMouthOpenY, clamped)
+        }
+
+        // 如果还有额外口型参数（meta 提供了多于 2 个），也一并设置
+        if (meta != null) {
+            for (i in 2 until meta.semantic.mouthOpenIndices.size) {
+                val idx = meta.semantic.mouthOpenIndices[i]
+                if (idx >= 0) {
+                    model.setParameterValue(idx, clamped)
+                }
+            }
+        }
+    }
+
+    /**
+     * 从 meta 语义索引或硬编码名称解析眼睛参数索引。
+     */
+    private fun resolveEyeIndex(side: Char): Int {
+        // 一级：meta 语义索引
+        if (meta != null) {
+            val idx = if (side == 'L') meta.semantic.eyeLeftOpenIdx
+                      else meta.semantic.eyeRightOpenIdx
+            if (idx >= 0) return idx
+        }
+
+        // 二级：硬编码名称查找（旧模型向后兼容）
+        val primaryName = "PARAM_EYE_${side}_OPEN"
+        val altName = "ParamEye${side}Open"
+        return paramNameToIndex[primaryName] ?: paramNameToIndex[altName] ?: -1
+    }
+
+    /**
+     * 从 meta 语义索引或硬编码名称解析口型参数索引。
+     *
+     * @param indexInList 在 mouthOpenIndices 列表中的位置
+     */
+    private fun resolveMouthIndex(indexInList: Int): Int {
+        // 一级：meta 语义索引
+        if (meta != null) {
+            if (indexInList < meta.semantic.mouthOpenIndices.size) {
+                return meta.semantic.mouthOpenIndices[indexInList]
+            }
+        }
+
+        // 二级：硬编码名称查找（旧模型向后兼容）
+        return when (indexInList) {
+            0 -> paramNameToIndex["ParamA"] ?: -1
+            1 -> paramNameToIndex["ParamMouthOpenY"] ?: -1
+            else -> -1
         }
     }
 
