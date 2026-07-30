@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -149,12 +151,22 @@ fun MainScreen(
     onProcessResponse: suspend (String) -> String = { it }
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val messages = remember { mutableStateListOf<ChatBubble>() }
     var inputText by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
     var isSpeaking by remember { mutableStateOf(false) }
     var streamingText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    // ── Persona 切换状态 ──
+    var showPersonaMenu by remember { mutableStateOf(false) }
+    var availablePersonas by remember { mutableStateOf(listOf<Pair<String, String>>()) }
+
+    // 首次加载时获取可用人设列表
+    LaunchedEffect(Unit) {
+        availablePersonas = PersonaConfig.getAvailablePersonas(context)
+    }
 
     // Auto-scroll to bottom when new messages arrive
     LaunchedEffect(messages.size, streamingText) {
@@ -219,8 +231,8 @@ fun MainScreen(
                     .background(Color(0xFF16213E))
             ) {
                 AndroidView(
-                    factory = { context ->
-                        Live2DView(context).apply {
+                    factory = { ctx ->
+                        Live2DView(ctx).apply {
                             // 修复: 使用正确路径（不含 "assets/" 前缀，使用 model3.json）
                             initialize("live2d/mao_pro/runtime/mao_pro.model3.json")
                             onLive2DViewCreated(this)
@@ -229,18 +241,48 @@ fun MainScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 状态叠加层
+                // 状态叠加层 — 包含人设名称 + 选择器
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(12.dp)
                 ) {
+                    // 人设名称（可点击打开下拉选择器）
                     Text(
                         text = PersonaConfig.getPersonaName(),
                         color = Color.White,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { showPersonaMenu = true }
                     )
+
+                    // 人设切换下拉菜单
+                    DropdownMenu(
+                        expanded = showPersonaMenu,
+                        onDismissRequest = { showPersonaMenu = false }
+                    ) {
+                        availablePersonas.forEach { (displayName, filePath) ->
+                            val isCurrent = filePath == PersonaConfig.getCurrentPersonaFile()
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = displayName,
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                onClick = {
+                                    showPersonaMenu = false
+                                    if (filePath != PersonaConfig.getCurrentPersonaFile()) {
+                                        // 切换人设 → 重新加载配置 + 重置对话
+                                        PersonaConfig.loadFile(context, filePath)
+                                        chatService.resetConversation()
+                                        messages.clear()
+                                    }
+                                }
+                            )
+                        }
+                    }
+
                     if (isSpeaking) {
                         Text(
                             text = "正在说话...",

@@ -7,25 +7,25 @@ include = ["*.py"]
 
 # 忽略路径（vendor 代码、生成文件）
 exclude = [
-    ".git",
-    "__pycache__",
-    ".pytest_cache",
-    "node_modules",
-    "venv",
-    ".venv",
+  ".git",
+  "__pycache__",
+  ".pytest_cache",
+  "node_modules",
+  "venv",
+  ".venv",
 ]
 
 # 启用规则集
 lint.select = [
-    "F",  # Pyflakes — 逻辑错误
-    "E",  # pycodestyle — 基础格式
-    "W",  # pycodestyle — 警告
-    "I",  # isort — import 排序
+  "F", # Pyflakes — 逻辑错误
+  "E", # pycodestyle — 基础格式
+  "W", # pycodestyle — 警告
+  "I", # isort — import 排序
 ]
 
 # 忽略特定规则（Phase 1 宽松，后续收紧）
 lint.ignore = [
-    "E501",  # 行太长 — 允许 120 字符
+  "E501", # 行太长 — 允许 120 字符
 ]
 
 # 行长度

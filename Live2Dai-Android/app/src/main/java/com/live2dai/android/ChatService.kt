@@ -20,10 +20,26 @@ import java.io.InputStreamReader
  * DeepSeek Chat: non-reasoning model for fast VTuber chat.
  */
 class ChatService(
-    private val apiKey: String = BuildConfig.DEEPSEEK_API_KEY
-        .ifEmpty { System.getenv("DEEPSEEK_API_KEY") ?: "" },
-    private val baseUrl: String = "https://api.deepseek.com/v1"
+    /**
+     * LLM Provider — 可以是 DeepSeek 云端或本地 LLM (Ollama/vLLM)。
+     * 通过 LLMProviderManager 获取或由调用方手动构造。
+     */
+    private val provider: LLMProvider = LLMProvider.deepSeek()
 ) {
+
+    /**
+     * 兼容旧代码的次级构造函数。
+     * 用于简化单元测试和已有调用点迁移。
+     */
+    constructor(apiKey: String, baseUrl: String) : this(
+        LLMProvider(
+            type = ProviderType.DEEPSEEK,
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            modelName = PersonaConfig.getModel(),
+            displayName = "DeepSeek"
+        )
+    )
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true // Include default values
@@ -85,8 +101,14 @@ class ChatService(
             .toRequestBody(mediaType)
 
         val httpRequest = Request.Builder()
-            .url("$baseUrl/chat/completions")
-            .addHeader("Authorization", "Bearer $apiKey")
+            .url("${provider.baseUrl}/chat/completions")
+            .apply {
+                // 仅当 apiKey 非空时添加 Authorization header
+                // Ollama 不需要 API Key，此时不传递 Bearer token
+                if (provider.apiKey.isNotEmpty()) {
+                    addHeader("Authorization", "Bearer ${provider.apiKey}")
+                }
+            }
             .addHeader("Accept", "text/event-stream")
             .post(requestBody)
             .build()
