@@ -290,11 +290,12 @@ adb connect 192.168.0.x:5555
 # 卸载旧版（vivo 必须完全卸载）
 adb uninstall com.live2dai.android
 
-# 安装（需要 tap 安全对话框）
-adb install app/build/outputs/apk/debug/app-debug.apk
-# 然后手机上 tap 确认按钮:
-adb shell input tap 540 2082   # 勾选"未知应用"
-adb shell input tap 540 2229   # 确认安装
+# 安装（已自动化，见 scripts/deploy_android.sh install）：
+# 用 scripts/adb_ui_tap.py 主动 dump UI 树找真实按钮坐标点击安全弹窗，
+# 不再需要手动 tap 固定坐标（不同分辨率/弹窗位置下坐标不可靠）。
+# 手动跑等价流程：
+adb install app/build/outputs/apk/debug/app-debug.apk &
+python3 scripts/adb_ui_tap.py wait-and-tap 192.168.0.x:5555 com.live2dai.android --timeout 90
 
 # 启动
 adb shell am start -n com.live2dai.android/.MainActivity

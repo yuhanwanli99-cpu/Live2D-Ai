@@ -122,6 +122,6 @@ python -m pytest tests/
 
 | 教训 | 说明 |
 | ------ | ------ |
-| vivo 安全拦截 | 安装 APK 需在手机上手动确认安全弹窗 |
+| vivo 安全拦截 | 已自动化：`scripts/deploy_android.sh install` 会用 `scripts/adb_ui_tap.py` dump UI 树找真实按钮坐标自动点掉安全弹窗（不再需要手动确认，也不再用盲点固定坐标）|
 | Purism Core 自动编译 | 无需手动下载 AAR，CMake 自动编译 |
 | Pose 双 update | Pose 必须在第一次 model.update() 之后，并再跑一次 update |
