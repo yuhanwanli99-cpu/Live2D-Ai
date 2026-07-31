@@ -115,11 +115,17 @@ interface ToolDefinition {
 
 ### Wave 2（依赖 Wave 1，验证通过后再排期）
 
-| 任务 ID | 任务 |
-| ------ | ------ |
-| `task-plugin-memory` | 按 `ChatHook`（`beforeSend` 注入记忆摘要 / `afterReceive` 写入）实现记忆插件仓库骨架 |
-| `task-plugin-proactive` | 实现调度器插件，调用 `PluginHost.sendAssistantMessage()` |
-| `task-plugin-agent-tools` | 实现 `ToolDefinition` 形式的手机操作工具，`requiresConfirmation = true` |
+采用 MVP 策略：先按 `docs/plugin-template.md` 交付**统一骨架**（三个 module 均可编译、无功能、无副作用），再分别排期功能实现任务。
+
+| 任务 ID | 任务 | 状态 |
+| ------ | ------ | ------ |
+| `task-plugin-template` | 提炼 `docs/plugin-template.md` 骨架模板（module 结构/build.gradle.kts/Plugin+Config+Test 代码模板/骨架→功能→接入 core 的转换规则） | ✅ 已交付 |
+| `task-plugin-memory-skeleton` | 按模板生成 `live2dai-plugin-memory` 骨架（no-op `onLoad`/`onUnload`，占位 Config，骨架测试） | ✅ 已交付 |
+| `task-plugin-proactive-skeleton` | 按模板生成 `live2dai-plugin-proactive` 骨架 | ✅ 已交付 |
+| `task-plugin-agent-tools-skeleton` | 按模板生成 `live2dai-plugin-agent-tools` 骨架 | ✅ 已交付 |
+| `task-plugin-memory` | 按 `ChatHook`（`beforeSend` 注入记忆摘要 / `afterReceive` 写入）实现记忆插件真实功能 | ⏳ 待排期 |
+| `task-plugin-proactive` | 实现调度器插件，调用 `PluginHost.sendAssistantMessage()` | ⏳ 待排期 |
+| `task-plugin-agent-tools` | 实现 `ToolDefinition` 形式的手机操作工具，`requiresConfirmation = true` | ⏳ 待排期 |
 
 ---
 
