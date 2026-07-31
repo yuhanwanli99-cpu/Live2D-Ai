@@ -25,8 +25,10 @@ interface ChatHook {
      *
      * @param assistantMessage LLM 本轮完整回复文本（已剥离 `[emotion]` 标签）
      * @param emotion 本轮解析出的表情标签，可能为 null
+     * @param context 当前对话上下文（只读快照），与 [beforeSend] 传入的是同一份快照，
+     *                可供插件读取近期对话用于摘要生成等场景
      */
-    suspend fun afterReceive(assistantMessage: String, emotion: String?)
+    suspend fun afterReceive(assistantMessage: String, emotion: String?, context: ChatContext)
 }
 
 /**

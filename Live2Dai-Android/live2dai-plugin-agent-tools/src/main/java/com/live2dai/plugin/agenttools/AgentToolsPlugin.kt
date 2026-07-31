@@ -4,26 +4,29 @@ import com.live2dai.pluginsdk.Live2DaiPlugin
 import com.live2dai.pluginsdk.PluginHost
 
 /**
- * Agent 工具执行插件骨架（对应 `docs/plan-task-plugin-architecture.md` 的 `live2dai-plugin-agent-tools`）。
+ * Agent 工具执行插件——注册三个可操作手机的 [com.live2dai.pluginsdk.ToolDefinition]：
  *
- * 目标能力（`task-plugin-agent-tools` 实现，本骨架不涉及）：
- * - 注册可操作手机的 `ToolDefinition`（如打开 App、点击坐标）
- * - 危险操作 `requiresConfirmation = true`，执行前必须经用户确认 UI（硬约束，不可绕过）
+ * | 工具 | 功能 | requiresConfirmation |
+ * | ---- | ---- | -------------------- |
+ * | `open_app` | 按应用名打开 App | false（仅切前台，无数据风险） |
+ * | `send_notification_reply` | 快捷回复通知消息（真实发送） | **true**（必须经 core 确认 UI） |
+ * | `set_alarm` | 设置系统闹钟 | false（系统页天然二次确认） |
  *
- * 骨架阶段 `onLoad` 为 no-op，不注册任何工具，因此当前**不接入** core
- * （`MainActivity.kt` 尚未装载本插件），不产生任何设备操作能力。
+ * 确认机制是 core 的职责（`ConfirmationGate`，ChatService 统一拦截），插件只负责
+ * 把 `requiresConfirmation=true` 标记在 [com.live2dai.pluginsdk.ToolDefinition] 上
+ * （硬约束：标记缺失则确认流程不会触发，见 `docs/plan-task-plugin-agent-tools.md` §2.1）。
  */
 class AgentToolsPlugin(private val config: AgentToolsPluginConfig) : Live2DaiPlugin {
     override val id: String = "agent-tools"
-    override val version: String = "0.1.0-skeleton"
+    override val version: String = "1.0.0"
 
     override fun onLoad(host: PluginHost) {
-        // TODO(task-plugin-agent-tools): host.registerTool(OpenAppTool(...))
-        // TODO(task-plugin-agent-tools): 危险工具必须设置 requiresConfirmation = true，
-        //   并确保 core 侧在 execute() 前弹出确认 UI（详见架构设计 §3.3 中间件拦截点）
+        host.registerTool(OpenAppTool(config.context))
+        host.registerTool(SendNotificationReplyTool(config.notificationReplyBridge))
+        host.registerTool(SetAlarmTool(config.context))
     }
 
     override fun onUnload() {
-        // TODO(task-plugin-agent-tools): 释放资源（如有）
+        // 三个工具均为无状态实现，无资源需要释放
     }
 }

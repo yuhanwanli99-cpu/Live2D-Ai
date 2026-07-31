@@ -80,8 +80,13 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
     // 插件在冷启动 LaunchedEffect 中装载（依赖 PersonaConfig/SettingsRepository 配置源），
     // ChatService 持有 pluginManager.hooks 的活引用，之后注册的 hook 同样可见。
     val pluginManager = remember { PluginManager() }
+    val confirmationGate = remember { ToolConfirmationGate() }
     val chatService = remember {
-        ChatService(hooks = pluginManager.hooks)
+        ChatService(
+            hooks = pluginManager.hooks,
+            tools = pluginManager.tools,
+            confirmationGate = confirmationGate
+        )
     }
 
     // 冷启动初始化
@@ -264,6 +269,30 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                 }
             }
         }
+    }
+
+    // ── 危险工具确认对话框 ──
+    // requiresConfirmation=true 的工具执行前必须经用户确认（ConfirmationGate 硬约束）：
+    // ChatService 在 IO 协程挂起等待，这里弹 Compose AlertDialog，点击「同意/拒绝」后
+    // 通过 respond() 恢复工具循环。
+    confirmationGate.pending?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { confirmationGate.respond(false) },
+            title = { Text("确认执行") },
+            text = {
+                Text("工具「${pending.toolName}」请求执行以下操作：\n\n${pending.toolDescription}")
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmationGate.respond(true) }) {
+                    Text("同意")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmationGate.respond(false) }) {
+                    Text("拒绝")
+                }
+            }
+        )
     }
 }
 

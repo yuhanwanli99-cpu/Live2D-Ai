@@ -3,12 +3,16 @@ package com.live2dai.android
 import com.live2dai.pluginsdk.ChatContext
 import com.live2dai.pluginsdk.ChatHook
 import com.live2dai.pluginsdk.ChatTurn
+import com.live2dai.pluginsdk.ToolDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -21,6 +25,12 @@ import java.io.InputStreamReader
  * Reads persona from [PersonaConfig] for system prompt injection and model name.
  *
  * DeepSeek Chat: non-reasoning model for fast VTuber chat.
+ *
+ * 工具调用循环（OpenAI 兼容 function-calling）：
+ * - 无工具注册（[tools] 为空）→ 快路径：SSE 流式，行为与旧版完全一致
+ * - 有工具注册 → 慢路径：非流式请求（stream=false）携带 tools，收到 tool_calls 后
+ *   查表执行（requiresConfirmation=true 的工具先过 [ConfirmationGate] 确认），
+ *   结果回填为 tool 消息继续请求，最多 [MAX_TOOL_ROUNDS] 轮
  */
 class ChatService(
     /**
@@ -31,13 +41,18 @@ class ChatService(
     /**
      * 插件注册的对话钩子（来自 [PluginManager.hooks]）。默认空列表，
      * 因此不接插件时行为与重构前完全一致——这是保持向后兼容的关键。
-     *
-     * TODO(task-plugin-agent-tools, Wave 2): 目前仅接入 [ChatHook]，工具调用
-     * （[com.live2dai.pluginsdk.ToolDefinition]）的请求/响应循环需要先扩展
-     * `ApiModels.kt` 的 `ChatRequest`/`ChatResponse` 支持 `tools`/`tool_calls` 字段，
-     * 再在 sendMessage() 里加一层「LLM 返回 tool_call → 执行 → 结果回填 → 继续生成」的循环。
      */
-    private val hooks: List<ChatHook> = emptyList()
+    private val hooks: List<ChatHook> = emptyList(),
+    /**
+     * 插件注册的工具表（来自 [PluginManager.tools] 活引用）。默认空列表，
+     * 为空时发送的请求体不含 tools 字段、保持流式，行为与旧版完全一致。
+     */
+    private val tools: List<ToolDefinition> = emptyList(),
+    /**
+     * 危险工具确认拦截门（core 内部接口，由 MainActivity 注入 Compose 实现）。
+     * null = 拒绝所有 requiresConfirmation=true 的工具（安全默认）。
+     */
+    private val confirmationGate: ConfirmationGate? = null
 ) {
 
     /**
@@ -54,9 +69,15 @@ class ChatService(
         ),
         hooks = emptyList()
     )
+
+    @OptIn(ExperimentalSerializationApi::class)
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true // Include default values
+        // 序列化时省略 null 字段：无工具时请求体不含 "tools"（OpenAI 兼容 API 对
+        // 缺失字段与 null 等效，但显式 null 会污染部分严格实现），同时避免
+        // tool_calls/content 为 null 时发送无意义字段
+        explicitNulls = false
     }
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
@@ -69,11 +90,14 @@ class ChatService(
     // Conversation history
     private val messages = mutableListOf<ChatMessage>()
 
-    // 对话历史最大消息对数（防止 token 超限）
-    // 每对 (user + assistant) 约占用 200-500 tokens
-    // deepseek-v4-flash 上下文窗口 ≈ 128K，保留 100 对也足够安全
     companion object {
+        // 对话历史最大消息对数（防止 token 超限）
+        // 每对 (user + assistant) 约占用 200-500 tokens
+        // deepseek-v4-flash 上下文窗口 ≈ 128K，保留 100 对也足够安全
         private const val MAX_MESSAGE_PAIRS = 50
+
+        // 单次 sendMessage() 中最大工具调用轮次（防止 tool-calling 死循环）
+        private const val MAX_TOOL_ROUNDS = 8
     }
 
     init {
@@ -96,11 +120,14 @@ class ChatService(
     /**
      * Send a user message and receive streaming response as a Flow of text deltas.
      * Direct SSE call to DeepSeek API — no intermediate gateway.
+     *
+     * 有工具注册时走非流式 tool-calling 循环（整段文本一次发射），
+     * 无工具注册时保持 SSE 流式逐 delta 发射（向后兼容）。
      */
     fun sendMessage(userText: String): Flow<String> = flow {
         if (userText.isBlank()) return@flow
 
-        // ── beforeSend hooks：按注册顺序串行执行，非空返回值依次追加为附加上下文 ──
+        // ── Step 1: beforeSend hooks：按注册顺序串行执行，非空返回值依次追加为附加上下文 ──
         // 单个 hook 抛异常不应打断整条对话链路，因此逐个 try/catch，跳过失败的 hook。
         val extraContext = StringBuilder()
         val chatContext = ChatContext(
@@ -117,11 +144,34 @@ class ChatService(
         val effectiveUserText = if (extraContext.isEmpty()) {
             userText
         } else {
-            "$userText\n\n[插件附加上下文]\n$extraContext"
+            "$userText\n\n[插件附加上上下文]\n$extraContext"
         }
 
         messages.add(ChatMessage(role = "user", content = effectiveUserText))
 
+        // ── Step 2: 快/慢路径选择 ──
+        // tools 为空 → 快路径（stream=true，SSE 流式，与旧版完全一致）
+        // tools 非空 → 慢路径（stream=false，非流式 tool-calling 循环）
+        val requestedTools = buildToolsForRequest()
+        if (requestedTools == null) {
+            // 快路径：流式请求，逐 delta 发射；完整回复触发 afterReceive hooks
+            streamResponse { emit(it) }?.let { finalText ->
+                runAfterReceive(finalText, chatContext)
+            }
+        } else {
+            // 慢路径：工具调用循环
+            runToolLoop(requestedTools, chatContext) { emit(it) }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * 快路径：无工具注册时的 SSE 流式请求（行为与旧版完全一致）。
+     *
+     * 逐 delta 发射文本片段，返回完整回复文本；API 错误或空回复返回 null。
+     */
+    private suspend fun streamResponse(
+        onDelta: suspend (String) -> Unit
+    ): String? {
         val modelName = PersonaConfig.getModel()
         val request = ChatRequest(
             model = modelName,
@@ -150,15 +200,15 @@ class ChatService(
         val response = client.newCall(httpRequest).execute()
         if (!response.isSuccessful) {
             val errorBody = response.body?.string() ?: "未知错误"
-            emit("[错误] API请求失败: ${response.code} - $errorBody")
-            return@flow
+            onDelta("[错误] API请求失败: ${response.code} - $errorBody")
+            return null
         }
 
         // 在 API 调用成功后、读取响应前修剪对话历史
         // 避免单次对话累积过多消息导致 token 超限
         trimConversationHistory()
 
-        val body = response.body ?: return@flow
+        val body = response.body ?: return null
         val reader = BufferedReader(InputStreamReader(body.byteStream(), "UTF-8"))
         var line: String?
         val assistantContent = StringBuilder()
@@ -178,7 +228,7 @@ class ChatService(
                     val delta = chunk.choices?.firstOrNull()?.delta?.content ?: ""
                     if (delta.isNotEmpty()) {
                         assistantContent.append(delta)
-                        emit(delta)
+                        onDelta(delta)
                     }
                 } catch (_: Exception) {
                     // Skip malformed chunks (e.g., rate limit info, keep-alive)
@@ -196,22 +246,215 @@ class ChatService(
         // 再次修剪，确保每次请求后不超过限制
         trimConversationHistory()
 
-        // ── afterReceive hooks：本轮对话已完整结束，供记忆等插件写入长期状态 ──
-        if (assistantContent.isNotEmpty()) {
-            val rawText = assistantContent.toString()
-            val emotion = EmotionController.EMOTION_KEYWORDS.firstOrNull { keyword ->
-                rawText.contains("[$keyword]")
+        return if (assistantContent.isNotEmpty()) assistantContent.toString() else null
+    }
+
+    /**
+     * 慢路径：有工具注册时的 tool-calling 循环（非流式请求）。
+     *
+     * 状态机（详见 docs/plan-task-chat-tool-loop.md §7.1）：
+     * 构建请求 → HTTP POST → 解析响应 → 检测 tool_calls
+     *   ├─ 有 tool_calls（round < MAX_TOOL_ROUNDS）→ 执行工具 → 回填结果 → 继续循环
+     *   ├─ 有 tool_calls（round >= MAX_TOOL_ROUNDS）→ 错误退出（循环上限）
+     *   └─ 无 tool_calls → 提取文本 → 退出循环 → 发射最终内容
+     */
+    private suspend fun runToolLoop(
+        requestedTools: List<ToolDef>,
+        chatContext: ChatContext,
+        onDelta: suspend (String) -> Unit
+    ) {
+        val modelName = PersonaConfig.getModel()
+        var finalContent: String? = null
+        var round = 0
+
+        while (round < MAX_TOOL_ROUNDS) {
+            round++
+
+            // ── 构建请求（tools 固定，messages 累积） ──
+            val request = ChatRequest(
+                model = modelName,
+                messages = messages,
+                temperature = PersonaConfig.getTemperature(),
+                max_tokens = PersonaConfig.getMaxTokens(),
+                stream = false,      // 工具循环一律非流式（简化 tool_calls 解析）
+                tools = requestedTools
+                // tool_choice 不设置 → 默认 auto
+            )
+
+            // ── HTTP POST ──
+            val httpResponse = executeNonStreamingRequest(request)
+            if (!httpResponse.isSuccessful) {
+                val errorBody = httpResponse.body?.string() ?: "未知错误"
+                onDelta("[错误] API请求失败: ${httpResponse.code} - $errorBody")
+                return
             }
-            val strippedText = EmotionController.stripEmotionTags(rawText)
-            for (hook in hooks) {
+
+            // ── 解析完整响应 ──
+            val body = httpResponse.body?.string() ?: ""
+            httpResponse.close()
+            val chatResponse = try {
+                json.decodeFromString<ChatResponse>(body)
+            } catch (e: Exception) {
+                onDelta("[错误] 响应解析失败: ${e.message}")
+                return
+            }
+            val choice = chatResponse.choices?.firstOrNull() ?: continue
+            val message = choice.message ?: continue
+
+            // ── 检测 tool_calls ──
+            val toolCalls = message.tool_calls
+            if (toolCalls.isNullOrEmpty()) {
+                // 无工具调用：退出循环，获取文本内容
+                finalContent = message.content ?: ""
+                messages.add(message)
+                break
+            }
+
+            // 第 MAX_TOOL_ROUNDS 轮仍返回 tool_calls → 循环上限，防止死循环
+            if (round >= MAX_TOOL_ROUNDS) {
+                onDelta("[错误] 工具调用超过最大轮次，已终止")
+                return
+            }
+
+            // ── 有工具调用：先记录 assistant 消息（含 tool_calls） ──
+            messages.add(message)
+
+            // ── 逐个串行执行工具（含确认拦截），结果回填为 tool 消息 ──
+            for (toolCall in toolCalls) {
+                val toolName = toolCall.function.name
+                val argsJson = toolCall.function.arguments
+                val result = executeToolSafely(toolName, argsJson)
+                messages.add(
+                    ChatMessage(
+                        role = "tool",
+                        tool_call_id = toolCall.id,
+                        content = result
+                    )
+                )
+            }
+            // 循环继续：messages 中已有 assistant(tool_calls) + tool results，
+            // LLM 看到这些消息后会决定是继续调工具还是生成最终文本
+        }
+
+        // 循环因轮次耗尽而退出且未拿到文本 → 错误终止
+        if (round >= MAX_TOOL_ROUNDS && finalContent == null) {
+            onDelta("[错误] 工具调用超过最大轮次，已终止")
+            return
+        }
+
+        // ── 发射最终内容（慢路径一次性发射整段文本） ──
+        if (finalContent != null) {
+            onDelta(finalContent)
+            // ── afterReceive hooks：本轮对话已完整结束 ──
+            runAfterReceive(finalContent, chatContext)
+        }
+
+        // ── 修剪对话历史（工具相关消息同样参与计数，自然裁剪） ──
+        trimConversationHistory()
+    }
+
+    /**
+     * 查表执行单个工具调用，返回回填给 LLM 的结果文本。
+     *
+     * 安全与容错：
+     * - 未注册的工具 → 返回 "未找到工具" 错误 JSON（不崩溃）
+     * - requiresConfirmation=true → 必须经 [confirmationGate] 确认：
+     *   gate 为 null 或用户拒绝 → 不执行，返回 "用户拒绝执行"（安全默认，不可绕过）
+     * - execute() 抛异常 → 异常信息作为工具结果回填，不中断循环
+     */
+    private suspend fun executeToolSafely(toolName: String, argsJson: String): String {
+        val toolDef = tools.find { it.name == toolName }
+        if (toolDef == null) {
+            return """{"error":"未找到工具: $toolName"}"""
+        }
+
+        val approved = if (toolDef.requiresConfirmation) {
+            val gate = confirmationGate
+            if (gate == null) {
+                false  // 安全默认：未注入确认门 → 拒绝所有危险操作（不变量 I5）
+            } else {
                 try {
-                    hook.afterReceive(strippedText, emotion)
+                    gate.confirm(toolDef, argsJson)
                 } catch (_: Exception) {
-                    // 插件钩子失败不应影响核心对话流程，静默跳过
+                    false  // 确认回调异常按拒绝处理（fail-safe）
                 }
             }
+        } else {
+            true
         }
-    }.flowOn(Dispatchers.IO)
+
+        if (!approved) {
+            return """{"error":"用户拒绝执行 $toolName"}"""
+        }
+
+        return try {
+            toolDef.execute(argsJson)
+        } catch (e: Exception) {
+            """{"error":"工具执行异常: ${e.message}"}"""
+        }
+    }
+
+    /**
+     * 将 [tools] 转换为 LLM API 所需的 tools 格式。
+     * parametersSchema 为 JSON Schema 字符串，解析为 JsonObject 后嵌入 FunctionSpec。
+     *
+     * @return null 表示 tools 为空（请求体不发送 tools 字段，走快路径）
+     */
+    private fun buildToolsForRequest(): List<ToolDef>? {
+        if (tools.isEmpty()) return null
+        return tools.map { tool ->
+            val parameters = try {
+                json.parseToJsonElement(tool.parametersSchema).jsonObject
+            } catch (_: Exception) {
+                // 单个插件 schema 非法不应让整个请求失败，降级为空 Schema
+                buildJsonObject { }
+            }
+            ToolDef(
+                function = FunctionSpec(
+                    name = tool.name,
+                    description = tool.description,
+                    parameters = parameters
+                )
+            )
+        }
+    }
+
+    /**
+     * 执行非流式 HTTP 请求，返回完整响应。
+     * 用于工具调用循环（需要解析完整 tool_calls JSON）。
+     */
+    private fun executeNonStreamingRequest(request: ChatRequest): Response {
+        val requestBody = json.encodeToString(request).toRequestBody(mediaType)
+        val httpRequest = Request.Builder()
+            .url("${provider.baseUrl}/chat/completions")
+            .apply {
+                if (provider.apiKey.isNotEmpty()) {
+                    addHeader("Authorization", "Bearer ${provider.apiKey}")
+                }
+            }
+            .addHeader("Accept", "application/json")
+            .post(requestBody)
+            .build()
+        return client.newCall(httpRequest).execute()
+    }
+
+    /**
+     * 触发 afterReceive hooks（已剥离表情标签）。
+     * 单个 hook 抛异常不打断主链路（逐 try/catch 静默跳过）。
+     */
+    private suspend fun runAfterReceive(rawText: String, chatContext: ChatContext) {
+        val emotion = EmotionController.EMOTION_KEYWORDS.firstOrNull { keyword ->
+            rawText.contains("[$keyword]")
+        }
+        val strippedText = EmotionController.stripEmotionTags(rawText)
+        for (hook in hooks) {
+            try {
+                hook.afterReceive(strippedText, emotion, chatContext)
+            } catch (_: Exception) {
+                // 插件钩子失败不应影响核心对话流程，静默跳过
+            }
+        }
+    }
 
     /**
      * 修剪对话历史：保留 system prompt，然后保留最近的 N 轮对话（user + assistant 对）

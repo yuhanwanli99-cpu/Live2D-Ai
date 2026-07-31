@@ -28,7 +28,7 @@ class VisionDescribeHook(
         } else null
     }
 
-    override suspend fun afterReceive(assistantMessage: String, emotion: String?) {
+    override suspend fun afterReceive(assistantMessage: String, emotion: String?, context: ChatContext) {
         // 视觉插件无需处理 afterReceive
     }
 }

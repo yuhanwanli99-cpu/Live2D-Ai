@@ -112,6 +112,11 @@ dependencies {
     // 视觉插件：截图描述 hook + capture_screen 工具（从 VisionService.kt 迁出）
     implementation(project(":live2dai-plugin-vision"))
 
+    // Agent 工具插件：open_app / send_notification_reply / set_alarm（Wave 2）
+    // 仅编译依赖（实现其 NotificationReplyBridge 接缝）；运行时插件未装载，行为不受影响。
+    // 排期接入时在 MainActivity 的 loadPlugins 中装载（docs/plan-task-plugin-agent-tools.md）
+    implementation(project(":live2dai-plugin-agent-tools"))
+
     // Kotlin Serialization (for API JSON parsing)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 

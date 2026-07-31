@@ -1,17 +1,22 @@
 package com.live2dai.plugin.memory
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.live2dai.pluginsdk.ChatHook
 import com.live2dai.pluginsdk.PersonaSnapshot
 import com.live2dai.pluginsdk.PluginHost
 import com.live2dai.pluginsdk.ToolDefinition
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
- * 骨架阶段的最小验证：只保证插件生命周期方法可安全调用。
- * `task-plugin-memory` 落地真实功能时，应在此基础上补充 hook/tool 注册数量、
- * 记忆检索/写入行为的断言（参考 `live2dai-plugin-vision` 的 `VisionPluginTest`）。
+ * 插件注册流程测试：验证 [MemoryPlugin.onLoad] 向 host 注册 1 个 [ChatHook]
+ * （骨架阶段的"零注册"断言已替换为真实注册数量断言，见 docs/plan-task-plugin-memory.md §5 #13）。
  */
+@RunWith(RobolectricTestRunner::class)
 class MemoryPluginTest {
 
     private class FakeHost : PluginHost {
@@ -25,15 +30,32 @@ class MemoryPluginTest {
     }
 
     @Test
-    fun onLoad_and_onUnload_doNotThrow() {
+    fun onLoad_registersOneHook_andOnUnloadDoesNotThrow() {
         val host = FakeHost()
-        val plugin = MemoryPlugin(MemoryPluginConfig())
+        val plugin = MemoryPlugin(
+            MemoryPluginConfig(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                summaryLlmClient = SummaryLlmClient { _, _ -> null },
+            )
+        )
 
         plugin.onLoad(host)
         plugin.onUnload()
 
-        // 骨架阶段 onLoad 不注册任何 hook/tool；功能任务落地后应改为断言具体数量
-        assertTrue(host.hooks.isEmpty())
-        assertTrue(host.tools.isEmpty())
+        assertEquals("应注册 1 个记忆 hook", 1, host.hooks.size)
+        assertTrue("MVP 不注册工具", host.tools.isEmpty())
+        assertTrue("注册的 hook 应为 MemoryRecallHook", host.hooks.single() is MemoryRecallHook)
+    }
+
+    @Test
+    fun onUnload_withoutOnLoad_doesNotThrow() {
+        val plugin = MemoryPlugin(
+            MemoryPluginConfig(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                summaryLlmClient = SummaryLlmClient { _, _ -> null },
+            )
+        )
+
+        plugin.onUnload() // 未加载时卸载不应抛异常
     }
 }
