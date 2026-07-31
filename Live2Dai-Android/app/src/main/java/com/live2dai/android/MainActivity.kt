@@ -26,6 +26,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.live2dai.android.ui.settings.SettingsScreen
 import com.live2dai.android.ui.theme.Live2DaiTheme
+import com.live2dai.android.data.SettingsRepository
+import com.live2dai.plugin.vision.VisionPlugin
+import com.live2dai.plugin.vision.VisionPluginConfig
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -73,10 +76,32 @@ data class DisplayMessage(
 fun MainChatScreen(onOpenSettings: () -> Unit) {
     val context = LocalContext.current
 
+    // ChatService 实例（整个 Screen 生命周期内保持）
+    // 插件在冷启动 LaunchedEffect 中装载（依赖 PersonaConfig/SettingsRepository 配置源），
+    // ChatService 持有 pluginManager.hooks 的活引用，之后注册的 hook 同样可见。
+    val pluginManager = remember { PluginManager() }
+    val chatService = remember {
+        ChatService(hooks = pluginManager.hooks)
+    }
+
     // 冷启动初始化
     LaunchedEffect(Unit) {
         PersonaConfig.load(context)
         LLMProviderManager.init(context)
+        // 装载视觉插件（依赖上面的配置源：SettingsRepository.zhipuApiKey / PersonaConfig.getVisionModel()）
+        // 截图能力由 core 注入（AndroidScreenshotProvider），当前为空壳（capture()=null），
+        // hook 会静默跳过，对话流程不受影响。参见 docs/plan-task-extract-vision.md
+        pluginManager.loadPlugins(
+            listOf(
+                VisionPlugin(
+                    VisionPluginConfig(
+                        apiKey = SettingsRepository(context.applicationContext).zhipuApiKey,
+                        visionModel = PersonaConfig.getVisionModel(),
+                        screenshotProvider = AndroidScreenshotProvider(context.applicationContext),
+                    )
+                )
+            )
+        )
     }
 
     // ── 聊天状态 ──
@@ -85,11 +110,6 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-
-    // ChatService 实例（整个 Screen 生命周期内保持）
-    val chatService = remember {
-        ChatService()
-    }
 
     Scaffold(
         topBar = {

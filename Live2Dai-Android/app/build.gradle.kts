@@ -106,6 +106,12 @@ android {
 }
 
 dependencies {
+    // 插件 SDK：core 与插件之间的最小契约（Live2DaiPlugin/PluginHost/ChatHook/ToolDefinition）
+    implementation(project(":plugin-sdk"))
+
+    // 视觉插件：截图描述 hook + capture_screen 工具（从 VisionService.kt 迁出）
+    implementation(project(":live2dai-plugin-vision"))
+
     // Kotlin Serialization (for API JSON parsing)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 

@@ -1,5 +1,8 @@
 package com.live2dai.android
 
+import com.live2dai.pluginsdk.ChatContext
+import com.live2dai.pluginsdk.ChatHook
+import com.live2dai.pluginsdk.ChatTurn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -24,7 +27,17 @@ class ChatService(
      * LLM Provider — 可以是 DeepSeek 云端或本地 LLM (Ollama/vLLM)。
      * 通过 LLMProviderManager 获取或由调用方手动构造。
      */
-    private val provider: LLMProvider = LLMProvider.deepSeek()
+    private val provider: LLMProvider = LLMProvider.deepSeek(),
+    /**
+     * 插件注册的对话钩子（来自 [PluginManager.hooks]）。默认空列表，
+     * 因此不接插件时行为与重构前完全一致——这是保持向后兼容的关键。
+     *
+     * TODO(task-plugin-agent-tools, Wave 2): 目前仅接入 [ChatHook]，工具调用
+     * （[com.live2dai.pluginsdk.ToolDefinition]）的请求/响应循环需要先扩展
+     * `ApiModels.kt` 的 `ChatRequest`/`ChatResponse` 支持 `tools`/`tool_calls` 字段，
+     * 再在 sendMessage() 里加一层「LLM 返回 tool_call → 执行 → 结果回填 → 继续生成」的循环。
+     */
+    private val hooks: List<ChatHook> = emptyList()
 ) {
 
     /**
@@ -38,7 +51,8 @@ class ChatService(
             apiKey = apiKey,
             modelName = PersonaConfig.getModel(),
             displayName = "DeepSeek"
-        )
+        ),
+        hooks = emptyList()
     )
     private val json = Json {
         ignoreUnknownKeys = true
@@ -86,7 +100,27 @@ class ChatService(
     fun sendMessage(userText: String): Flow<String> = flow {
         if (userText.isBlank()) return@flow
 
-        messages.add(ChatMessage(role = "user", content = userText))
+        // ── beforeSend hooks：按注册顺序串行执行，非空返回值依次追加为附加上下文 ──
+        // 单个 hook 抛异常不应打断整条对话链路，因此逐个 try/catch，跳过失败的 hook。
+        val extraContext = StringBuilder()
+        val chatContext = ChatContext(
+            recentMessages = messages.takeLast(10).map { ChatTurn(it.role, it.content ?: "") },
+            personaName = PersonaConfig.getPersonaName()
+        )
+        for (hook in hooks) {
+            try {
+                hook.beforeSend(userText, chatContext)?.let { extraContext.appendLine(it) }
+            } catch (_: Exception) {
+                // 插件钩子失败不应影响核心对话流程，静默跳过
+            }
+        }
+        val effectiveUserText = if (extraContext.isEmpty()) {
+            userText
+        } else {
+            "$userText\n\n[插件附加上下文]\n$extraContext"
+        }
+
+        messages.add(ChatMessage(role = "user", content = effectiveUserText))
 
         val modelName = PersonaConfig.getModel()
         val request = ChatRequest(
@@ -161,6 +195,22 @@ class ChatService(
 
         // 再次修剪，确保每次请求后不超过限制
         trimConversationHistory()
+
+        // ── afterReceive hooks：本轮对话已完整结束，供记忆等插件写入长期状态 ──
+        if (assistantContent.isNotEmpty()) {
+            val rawText = assistantContent.toString()
+            val emotion = EmotionController.EMOTION_KEYWORDS.firstOrNull { keyword ->
+                rawText.contains("[$keyword]")
+            }
+            val strippedText = EmotionController.stripEmotionTags(rawText)
+            for (hook in hooks) {
+                try {
+                    hook.afterReceive(strippedText, emotion)
+                } catch (_: Exception) {
+                    // 插件钩子失败不应影响核心对话流程，静默跳过
+                }
+            }
+        }
     }.flowOn(Dispatchers.IO)
 
     /**
