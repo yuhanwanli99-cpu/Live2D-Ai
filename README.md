@@ -195,7 +195,7 @@ onDrawFrame():
 
 ```
 shared/persona.yaml  ← 单源真理 (Single Source of Truth)
-    ├──→ Android: android-native/app/src/main/assets/persona.yaml
+    ├──→ Android: Live2Dai-Android/app/src/main/assets/persona.yaml
     └──→ Desktop:  Live2Dai-pc/conf.yaml
 ```
 
@@ -241,7 +241,7 @@ shared/persona.yaml  ← 单源真理 (Single Source of Truth)
 1. 将 Live2D 模型文件夹（含 `.model3.json` + `.moc3` + 纹理图片）放入：
 
    ```bash
-   android-native/app/src/main/assets/live2d/<model-name>/runtime/
+   Live2Dai-Android/app/src/main/assets/live2d/<model-name>/runtime/
    ```
 
 2. 修改 `Live2DRenderer.kt` 中的模型加载路径：
@@ -274,7 +274,7 @@ temperature: 0.8
 同步到 Android：
 
 ```bash
-cp shared/persona.yaml android-native/app/src/main/assets/
+cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
 ```
 
 > 人设支持 `[neutral]`, `[joy]`, `[anger]`, `[sadness]`, `[fear]`, `[surprise]`, `[smirk]` 七个情感标签。

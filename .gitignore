@@ -62,3 +62,25 @@ cache/
 
 # Pi session dumps (may contain secrets)
 pi-session-dump/
+
+# Agent working dirs (should not be tracked)
+.pi/
+.agents/
+
+# PC frontend runtime binaries — re-fetch via npm / upstream repo
+Live2Dai-pc/open-llm-vtuber/frontend/libs/
+
+# Debug screenshots at repo root
+/chat_test.png
+/install_check.png
+/install_status.png
+/screenshot.png
+/live2dai_screenshot.png
+/live2d_screenshot.png
+/tailscale_config.png
+/test_qr.png
+
+# Misc local test scripts
+/_test_pi.ps1
+/pi_safe.cmd
+

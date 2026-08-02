@@ -35,9 +35,11 @@ F:\Live2Dai\
 │   │   │   │   ├── ChatService.kt           ← DeepSeek API SSE 调用
 │   │   │   │   ├── EdgeTtsService.kt        ← 语音合成（降级链）
 │   │   │   │   ├── VoiceInputService.kt     ← 语音识别
-│   │   │   │   ├── VisionService.kt         ← GLM-4V 截图分析
 │   │   │   │   ├── EmotionController.kt     ← 情感标签 → 表情映射
 │   │   │   │   ├── PersonaConfig.kt         ← 人设 YAML 解析
+│   │   │   │   ├── LLMProvider*.kt          ← LLM 提供商抽象/管理
+│   │   │   │   ├── PluginManager.kt         ← 插件装载（vision/agent-tools 等）
+│   │   │   │   ├── VisionService → live2dai-plugin-vision（已迁出为插件）
 │   │   │   │   └── ApiModels.kt             ← API 数据模型
 │   │   │   ├── assets/
 │   │   │   │   ├── live2d/mao_pro/runtime/  ← 当前使用的 Live2D 模型
@@ -61,7 +63,6 @@ F:\Live2Dai\
 │
 ├── tests/                     ← 公共测试
 ├── scripts/                   ← 辅助脚本
-├── archive/                   ← 旧架构文件归档
 └── HANDOVER.md                ← ← 本文档
 ```
 
