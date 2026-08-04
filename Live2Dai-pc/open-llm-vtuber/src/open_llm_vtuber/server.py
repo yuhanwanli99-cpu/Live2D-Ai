@@ -128,6 +128,10 @@ class WebSocketServer:
             CORSStaticFiles(directory="backgrounds"),
             name="backgrounds",
         )
+        # "avatars" is gitignored (user-uploaded content), so it does not exist
+        # on a fresh clone; create it before mounting to avoid a startup crash.
+        if not os.path.exists("avatars"):
+            os.makedirs("avatars")
         self.app.mount(
             "/avatars",
             AvatarStaticFiles(directory="avatars"),

@@ -106,5 +106,5 @@ vision_config:
   model: 'glm-4.6v'
   capture_interval: 5.0
 
-# MCP 服务定义: 见 mcp_servers.json（与 shared/mcp_tools.json 一致）
-mcp_servers: 'mcp_servers.json'
+# MCP 服务定义: 直接指向跨端共享定义文件（零配置，无需本地手工创建 mcp_servers.json）
+mcp_servers: 'shared/mcp_tools.json'

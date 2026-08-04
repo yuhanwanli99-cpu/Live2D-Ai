@@ -37,6 +37,20 @@ from .config_manager import (
 )
 
 
+def _resolve_mcp_servers_path() -> str:
+    """Resolve the MCP servers config path.
+
+    Live2Dai ships MCP server definitions in the cross-platform shared/mcp_tools.json
+    file rather than requiring a project-local (gitignored) mcp_servers.json, so a
+    fresh clone works out of the box. Falls back to the local file if the shared one
+    is missing (e.g. running upstream Open-LLM-VTuber standalone).
+    """
+    shared_path = os.path.join("..", "..", "shared", "mcp_tools.json")
+    if os.path.exists(shared_path):
+        return shared_path
+    return "mcp_servers.json"
+
+
 class ServiceContext:
     """Initializes, stores, and updates the asr, tts, and llm instances and other
     configurations for a connected client."""
@@ -111,7 +125,7 @@ class ServiceContext:
 
         if use_mcpp and enabled_servers:
             # 1. Initialize ServerRegistry
-            self.mcp_server_registery = ServerRegistry()
+            self.mcp_server_registery = ServerRegistry(_resolve_mcp_servers_path())
             logger.info("ServerRegistry initialized or referenced.")
 
             # 2. Use ToolAdapter to get the MCP prompt and tools
@@ -272,7 +286,7 @@ class ServiceContext:
                 logger.info(
                     "Initializing shared ServerRegistry within load_from_config."
                 )
-                self.mcp_server_registery = ServerRegistry()
+                self.mcp_server_registery = ServerRegistry(_resolve_mcp_servers_path())
             logger.info("Initializing shared ToolAdapter within load_from_config.")
             self.tool_adapter = ToolAdapter(server_registery=self.mcp_server_registery)
 

@@ -75,7 +75,8 @@ async def handle_conversation_trigger(
             process_single_conversation(
                 user_input=user_input,
                 context=context,
-                websocket=websocket,
+                websocket_send=websocket.send_text,
+                client_uid=client_uid,
                 images=images,
                 session_emoji=session_emoji,
                 metadata=metadata,
@@ -87,7 +88,8 @@ async def handle_conversation_trigger(
             process_single_conversation(
                 user_input=user_input,
                 context=context,
-                websocket=websocket,
+                websocket_send=websocket.send_text,
+                client_uid=client_uid,
                 images=images,
                 session_emoji=session_emoji,
                 metadata=metadata,
