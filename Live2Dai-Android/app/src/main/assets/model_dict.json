@@ -17,6 +17,12 @@
     "base_url": "https://open.bigmodel.cn/api/paas/v4",
     "description": "视觉推理模型 — GLM-4.6V（智谱），用于图像理解和视觉问答"
   },
+  "glm-4.7-flash": {
+    "provider": "zhipu",
+    "model_name": "glm-4.7-flash",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "description": "永久免费兜底聊天模型 — 智谱 GLM-4.7-Flash，用于零配置首次体验（个人账号限 1 并发，不适合高并发场景）"
+  },
   "deepseek-r1": {
     "provider": "deepseek",
     "model_name": "deepseek-r1",

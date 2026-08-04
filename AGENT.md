@@ -97,7 +97,7 @@ cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
 cd Live2Dai-Android && ./gradlew assembleDebug
 
 # 桌面端一键启动
-cd desktop && ./start.ps1
+cd Live2Dai-pc && ./start.ps1
 
 # 运行测试
 cd Live2Dai-Android && ./gradlew test

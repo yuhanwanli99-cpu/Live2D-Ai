@@ -9,10 +9,17 @@ import yaml
 class TestDesktopConfig(unittest.TestCase):
     def setUp(self):
         self.conf_path = os.path.join(
-            os.path.dirname(__file__), "..", "desktop", "open-llm-vtuber", "conf.yaml"
+            os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "conf.yaml"
         )
         with open(self.conf_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
+        # Persona is the single source of truth in shared/persona.yaml,
+        # referenced by conf.yaml via load_persona_from_file.
+        self.persona_path = os.path.join(
+            os.path.dirname(__file__), "..", "shared", "persona.yaml"
+        )
+        with open(self.persona_path, "r", encoding="utf-8") as f:
+            self.persona_config = yaml.safe_load(f)
 
     def test_conf_yaml_loading(self):
         self.assertIsNotNone(self.config)
@@ -27,7 +34,7 @@ class TestDesktopConfig(unittest.TestCase):
             deepseek_config["llm_api_key"],
             r"${DEEPSEEK_API_KEY}",
         )
-        self.assertEqual(deepseek_config["model"], "deepseek-chat")
+        self.assertEqual(deepseek_config["model"], "deepseek-v4-flash")
         self.assertEqual(deepseek_config["temperature"], 0.8)
 
     def test_zhipu_llm_configuration(self):
@@ -60,14 +67,14 @@ class TestDesktopConfig(unittest.TestCase):
         self.assertIn("ddg-search", bma["mcp_enabled_servers"])
 
     def test_persona_prompt_content(self):
-        persona = self.config["character_config"]["persona_prompt"]
+        persona = self.persona_config["system_prompt"]
         self.assertTrue(len(persona) > 50)
         self.assertIn("小喵", persona)
         self.assertIn("猫娘", persona)
         self.assertIn("主人", persona)
 
     def test_expression_tags_in_persona(self):
-        persona = self.config["character_config"]["persona_prompt"]
+        persona = self.persona_config["system_prompt"]
         self.assertIn("[joy]", persona)
         self.assertIn("[neutral]", persona)
 

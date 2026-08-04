@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/platform-Android-brightgreen" alt="Platform Android"/>
   <img src="https://img.shields.io/badge/language-Kotlin-blueviolet" alt="Language Kotlin"/>
   <img src="https://img.shields.io/badge/Live2D-Purism%20Core-orange" alt="Live2D Purism Core"/>
-  <img src="https://img.shields.io/badge/LLM-DeepSeek%20%7C%20GLM--4V-blue" alt="LLM"/>
+  <img src="https://img.shields.io/badge/LLM-DeepSeek%20%7C%20GLM--4.7--Flash-blue" alt="LLM"/>
   <img src="https://img.shields.io/badge/status-MVP%20%F0%9F%94%B0-success" alt="MVP ✅"/>
 </p>
 
@@ -41,6 +41,12 @@
 - **说话即聊**：Android SpeechRecognizer 语音输入 → DeepSeek-v4-flash LLM 处理
 - **Edge TTS 语音合成**（降级链：Edge TTS → 系统 TTS → 静默）
 - 对话历史上下文保持
+
+### 💬 零配置聊天 | Zero-Config Chat
+
+- **开箱即用**：安装后无需配置任何 API Key 即可直接开始聊天 —— 默认使用智谱 **GLM-4.7-Flash**（永久免费模型）作为兜底聊天模型
+- **免费档限制**：个人账号限 **1 并发**，适合个人日常使用；请求过于频繁时应用内会提示"请稍后重试"
+- **升级路径**：如需更高并发，可在设置页切换到 **DeepSeek 云端** 并填入你自己的 DeepSeek API Key
 
 ### 👁️ 视觉识别
 
@@ -100,7 +106,7 @@
 ```bash
 # 克隆项目
 git clone https://github.com/your-org/Live2Dai.git
-cd Live2Dai/android-native
+cd Live2Dai-Android
 
 # 构建 Debug APK（NDK 会自动下载）
 ./gradlew assembleDebug
@@ -139,7 +145,7 @@ cd Live2Dai-pc
 
 ```bash
 # Android 端测试
-cd android-native && ./gradlew test
+cd Live2Dai-Android && ./gradlew test
 
 # Windows 端测试
 cd .. && python -m pytest tests/
@@ -312,7 +318,7 @@ cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
 
 ```bash
 # Android 单元测试
-cd android-native && ./gradlew test
+cd Live2Dai-Android && ./gradlew test
 
 # 代码风格检查
 ./gradlew lint

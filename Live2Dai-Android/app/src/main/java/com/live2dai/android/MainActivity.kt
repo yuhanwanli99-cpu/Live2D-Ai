@@ -82,7 +82,11 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
     val pluginManager = remember { PluginManager() }
     val confirmationGate = remember { ToolConfirmationGate() }
     val chatService = remember {
+        // 先初始化 provider 管理器再取活动 provider：零配置（未存过 provider 类型）时
+        // 走智谱 GLM 免费兜底（无 ZHIPU key 则回退 DeepSeek），见 LLMProviderManager。
+        LLMProviderManager.init(context)
         ChatService(
+            provider = LLMProviderManager.getActiveProvider(),
             hooks = pluginManager.hooks,
             tools = pluginManager.tools,
             confirmationGate = confirmationGate
@@ -92,7 +96,7 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
     // 冷启动初始化
     LaunchedEffect(Unit) {
         PersonaConfig.load(context)
-        LLMProviderManager.init(context)
+        // LLMProviderManager.init 已在 ChatService 创建前调用（幂等，此处不再重复）
         // 装载视觉插件（依赖上面的配置源：SettingsRepository.zhipuApiKey / PersonaConfig.getVisionModel()）
         // 截图能力由 core 注入（AndroidScreenshotProvider），当前为空壳（capture()=null），
         // hook 会静默跳过，对话流程不受影响。参见 docs/plan-task-extract-vision.md
@@ -187,9 +191,20 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                                             }
                                         }
                                     } catch (e: Exception) {
+                                        // 离线/网络失败（UnknownHostException / IOException 及其子类）展示中文
+                                        // 友好提示；其他异常保持展示原始信息（null 时给出兜底文案）
+                                        val errorMessage = when (e) {
+                                            is java.net.UnknownHostException ->
+                                                "网络连接失败，请检查网络后重试"
+                                            is java.io.IOException ->
+                                                "网络连接失败，请检查网络后重试"
+                                            else ->
+                                                e.message?.let { "发送失败: $it" }
+                                                    ?: "发生未知错误，请重试"
+                                        }
                                         displayMessages.add(
                                             DisplayMessage(
-                                                content = "发送失败: ${e.message}",
+                                                content = errorMessage,
                                                 isUser = false,
                                                 isError = true
                                             )

@@ -91,11 +91,12 @@ class SettingsRepository(context: Context) {
         const val DEFAULT_TTS_SPEED = 1.0f
         const val DEFAULT_PERSONA = "小喵 (Xiao Miao)"
 
-        /** 可用模型列表 */
+        /** 可用模型列表（供用户在设置页手动选择聊天模型） */
         val AVAILABLE_MODELS = listOf(
             "deepseek-v4-flash",
             "deepseek-chat",
             "deepseek-reasoner",
+            "glm-4.7-flash",
         )
 
         /** 可用 TTS 语音列表 */

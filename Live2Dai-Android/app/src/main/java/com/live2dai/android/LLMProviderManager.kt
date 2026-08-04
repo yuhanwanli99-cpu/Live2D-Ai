@@ -42,6 +42,7 @@ object LLMProviderManager {
     private const val KEY_LOCAL_MODEL = "local_model"
 
     private const val TYPE_DEEPSEEK = "DEEPSEEK"
+    private const val TYPE_ZHIPU = "ZHIPU"
     private const val TYPE_LOCAL = "LOCAL"
 
     // 默认本地配置示例（空字符串表示未配置）
@@ -72,11 +73,30 @@ object LLMProviderManager {
     /**
      * 获取当前选中的 Provider。
      *
+     * 零配置（SharedPreferences 从未保存过 provider 类型）时默认返回智谱 GLM 免费
+     * 兜底模型（LLMProvider.zhipu()）；若编译时未配置 ZHIPU_API_KEY（如其他开发者
+     * 本地构建），安全回退到 DeepSeek，避免无 key/空 baseUrl 的坏默认值。
      * 如果类型为 LOCAL 但本地配置不完整（URL 为空），返回 DeepSeek。
      */
     fun getActiveProvider(): LLMProvider {
+        // 零配置：从未存过 provider 类型 → 智谱 GLM 免费兜底；无 ZHIPU key 时回退 DeepSeek
+        if (!prefs.contains(KEY_TYPE)) {
+            return if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) {
+                LLMProvider.zhipu()
+            } else {
+                LLMProvider.deepSeek()
+            }
+        }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
+            TYPE_ZHIPU -> {
+                // 显式选了 ZHIPU 但没有 key（编译期未配置）→ 安全回退，避免空 key 请求
+                if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) {
+                    LLMProvider.zhipu()
+                } else {
+                    LLMProvider.deepSeek()
+                }
+            }
             TYPE_LOCAL -> {
                 val url = prefs.getString(KEY_LOCAL_URL, EMPTY) ?: EMPTY
                 if (url.isBlank()) {
@@ -129,24 +149,35 @@ object LLMProviderManager {
     }
 
     /**
-     * 切换 Provider 类型（DEEPSEEK / LOCAL）
+     * 切换 Provider 类型（DEEPSEEK / ZHIPU / LOCAL）
      * 不修改本地连接参数。
      */
     fun setProviderType(type: ProviderType) {
         prefs.edit()
             .putString(KEY_TYPE, when (type) {
                 ProviderType.DEEPSEEK -> TYPE_DEEPSEEK
+                ProviderType.ZHIPU -> TYPE_ZHIPU
                 ProviderType.LOCAL -> TYPE_LOCAL
             })
             .apply()
     }
 
     /**
-     * 获取当前配置的 Provider 类型
+     * 获取当前配置的 Provider 类型（与实际生效的 provider 一致：
+     * 零配置时返回免费兜底 provider）。
      */
     fun getProviderType(): ProviderType {
+        // 与 getActiveProvider() 保持一致：零配置时返回实际生效的兜底 provider
+        if (!prefs.contains(KEY_TYPE)) {
+            return if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) {
+                ProviderType.ZHIPU
+            } else {
+                ProviderType.DEEPSEEK
+            }
+        }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
+            TYPE_ZHIPU -> ProviderType.ZHIPU
             TYPE_LOCAL -> ProviderType.LOCAL
             else -> ProviderType.DEEPSEEK
         }

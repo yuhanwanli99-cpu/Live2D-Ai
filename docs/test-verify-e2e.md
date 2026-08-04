@@ -189,7 +189,7 @@ imeControlTarget → com.live2dai.android/.MainActivity
 
 #### C1: 目录重命名后运行 ✅ PASS
 
-- 项目目录 `android-native` → `Live2Dai-Android` 重命名完成
+- 项目目录重命名完成（当前为 `Live2Dai-Android`）
 - APK 构建成功并安装
 - 运行时无路径相关错误
 - logcat 无 `ClassNotFoundException` 或资源加载错误

@@ -65,6 +65,8 @@ pi-session-dump/
 
 # Agent working dirs (should not be tracked)
 .pi/
+# Local, machine-specific MCP tool config (contains absolute host paths) — not shared across clones
+.mcp.json
 .agents/
 
 # PC frontend runtime binaries — re-fetch via npm / upstream repo

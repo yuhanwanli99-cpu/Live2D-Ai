@@ -22,6 +22,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.live2dai.android.BuildConfig
+import com.live2dai.android.LLMProviderManager
+import com.live2dai.android.ProviderType
 import com.live2dai.android.data.SettingsRepository
 
 /**
@@ -192,6 +194,63 @@ fun SettingsScreen(
 
             // ── 模型设置 ──
             SectionHeader("模型设置")
+
+            // Provider 选择（零配置默认 = 智谱 GLM 免费兜底，见 LLMProviderManager）
+            LLMProviderManager.init(context)
+            var selectedProvider by remember { mutableStateOf(LLMProviderManager.getProviderType()) }
+            Text(
+                "服务商 (Provider)",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    ProviderType.DEEPSEEK to "DeepSeek 云端",
+                    ProviderType.ZHIPU to "智谱 GLM（免费）",
+                ).forEach { (type, label) ->
+                    FilterChip(
+                        selected = selectedProvider == type,
+                        onClick = {
+                            selectedProvider = type
+                            LLMProviderManager.setProviderType(type)
+                        },
+                        label = { Text(label) }
+                    )
+                }
+            }
+            val activeProvider = LLMProviderManager.getActiveProvider()
+            when {
+                selectedProvider == ProviderType.ZHIPU && activeProvider.type == ProviderType.ZHIPU -> {
+                    val keySource = if (hasCustomZhipu) "你的自定义智谱 API Key"
+                        else "零配置免费兜底（编译期内置 Key）"
+                    Text(
+                        "当前正在使用免费兜底模型 GLM-4.7-Flash（$keySource）。" +
+                            "个人账号限 1 并发，高并发场景建议切换到 DeepSeek 云端。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+                selectedProvider == ProviderType.ZHIPU -> {
+                    Text(
+                        "未检测到智谱 API Key，已安全回退到 DeepSeek 云端。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+                else -> {
+                    Text(
+                        "使用 DeepSeek 云端（你自己的 API Key）。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+            }
 
             // 模型选择
             Text(

@@ -454,4 +454,44 @@ class ChatServiceTest {
         val bodyString = mockWebServer.takeRequest().body.readUtf8()
         assertFalse("次构造函数不注册工具，请求体不应包含 tools 字段", bodyString.contains("\"tools\""))
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // GLM 429（限 1 并发）友好重试提示（task_42f86a40c1ed 新增的提示文案）
+    // ─────────────────────────────────────────────────────────────
+
+    // 流式路径：无工具注册走 streamResponse()，HTTP 429 时应发射友好重试提示
+    @Test
+    fun testRateLimit429ShowsFriendlyRetryHint_streamingPath() = runBlocking(Dispatchers.IO) {
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(429)
+                .setBody("{\"error\":{\"code\":\"1301\",\"message\":\"用户请求过于频繁\"}}")
+        )
+
+        val result = chatService.sendMessage("test").toList()
+        assertTrue("流式路径 429 应包含友好重试提示", result.isNotEmpty())
+        assertTrue("应提示请求过于频繁", result.first().contains("请求过于频繁"))
+        assertTrue("应提示稍后重试", result.first().contains("稍后重试"))
+        assertTrue("应说明免费模型限 1 并发", result.first().contains("1 并发"))
+    }
+
+    // 非流式路径：有工具注册走 runToolLoop() → executeNonStreamingRequest()，
+    // HTTP 429 时同样应发射友好重试提示（工具不应被执行）
+    @Test
+    fun testRateLimit429ShowsFriendlyRetryHint_nonStreamingPath() = runBlocking(Dispatchers.IO) {
+        val tool = FakeTool(name = "open_app")
+        val service = chatServiceWith(listOf(tool))
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(429)
+                .setBody("{\"error\":{\"code\":\"1301\",\"message\":\"用户请求过于频繁\"}}")
+        )
+
+        val result = service.sendMessage("帮我打开微信").toList()
+        assertTrue("非流式路径 429 应包含友好重试提示", result.isNotEmpty())
+        assertTrue("应提示请求过于频繁", result.first().contains("请求过于频繁"))
+        assertTrue("应提示稍后重试", result.first().contains("稍后重试"))
+        assertEquals("429 时工具不应被执行", 0, tool.executeCount)
+    }
 }

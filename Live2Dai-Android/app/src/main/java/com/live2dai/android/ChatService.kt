@@ -172,7 +172,9 @@ class ChatService(
     private suspend fun streamResponse(
         onDelta: suspend (String) -> Unit
     ): String? {
-        val modelName = PersonaConfig.getModel()
+        // 请求模型取 provider.modelName：DeepSeek 场景与 PersonaConfig.getModel() 一致
+        // （deepSeek() 工厂以人设模型名构造），智谱场景则为 glm-4.7-flash。
+        val modelName = provider.modelName
         val request = ChatRequest(
             model = modelName,
             messages = messages,
@@ -200,7 +202,12 @@ class ChatService(
         val response = client.newCall(httpRequest).execute()
         if (!response.isSuccessful) {
             val errorBody = response.body?.string() ?: "未知错误"
-            onDelta("[错误] API请求失败: ${response.code} - $errorBody")
+            if (response.code == 429) {
+                // 智谱免费模型个人账号限 1 并发：请求过频繁时给出友好重试提示
+                onDelta("[提示] 请求过于频繁，请稍后重试（免费模型限 1 并发）")
+            } else {
+                onDelta("[错误] API请求失败: ${response.code} - $errorBody")
+            }
             return null
         }
 
@@ -263,7 +270,8 @@ class ChatService(
         chatContext: ChatContext,
         onDelta: suspend (String) -> Unit
     ) {
-        val modelName = PersonaConfig.getModel()
+        // 请求模型取 provider.modelName（与 streamResponse 一致）
+        val modelName = provider.modelName
         var finalContent: String? = null
         var round = 0
 
@@ -285,7 +293,12 @@ class ChatService(
             val httpResponse = executeNonStreamingRequest(request)
             if (!httpResponse.isSuccessful) {
                 val errorBody = httpResponse.body?.string() ?: "未知错误"
-                onDelta("[错误] API请求失败: ${httpResponse.code} - $errorBody")
+                if (httpResponse.code == 429) {
+                    // 智谱免费模型个人账号限 1 并发：请求过频繁时给出友好重试提示
+                    onDelta("[提示] 请求过于频繁，请稍后重试（免费模型限 1 并发）")
+                } else {
+                    onDelta("[错误] API请求失败: ${httpResponse.code} - $errorBody")
+                }
                 return
             }
 

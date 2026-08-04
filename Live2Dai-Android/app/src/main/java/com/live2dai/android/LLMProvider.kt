@@ -4,10 +4,12 @@ package com.live2dai.android
  * Provider 类型枚举
  *
  * DEEPSEEK: 云端 DeepSeek API
+ * ZHIPU: 智谱 GLM API（OpenAI 兼容格式，免费兜底聊天模型）
  * LOCAL: 本地 LLM (Ollama / vLLM / 任何 OpenAI 兼容 API)
  */
 enum class ProviderType {
     DEEPSEEK,
+    ZHIPU,
     LOCAL
 }
 
@@ -40,6 +42,21 @@ data class LLMProvider(
                 .ifEmpty { System.getenv("DEEPSEEK_API_KEY") ?: "" },
             modelName = PersonaConfig.getModel(),
             displayName = "DeepSeek 云端"
+        )
+
+        /**
+         * 内置智谱 GLM 云端 Provider（永久免费兜底聊天模型）
+         *
+         * OpenAI 兼容格式，baseUrl 与 shared/model_dict.json 中 glm-4.6v 条目一致。
+         * 用于零配置首次体验：个人账号限 1 并发，不适合高并发场景。
+         */
+        fun zhipu(): LLMProvider = LLMProvider(
+            type = ProviderType.ZHIPU,
+            baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+            apiKey = BuildConfig.ZHIPU_API_KEY
+                .ifEmpty { System.getenv("ZHIPU_API_KEY") ?: "" },
+            modelName = "glm-4.7-flash",
+            displayName = "智谱 GLM（免费）"
         )
     }
 }
