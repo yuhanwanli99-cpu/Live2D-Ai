@@ -78,6 +78,7 @@ data class DisplayMessage(
 @Composable
 fun MainChatScreen(onOpenSettings: () -> Unit) {
     val context = LocalContext.current
+    val repo = remember { SettingsRepository(context) }
 
     // ChatService 实例（整个 Screen 生命周期内保持）
     // 插件在冷启动 LaunchedEffect 中装载（依赖 PersonaConfig/SettingsRepository 配置源），
@@ -122,6 +123,9 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    // ── 首次启动引导（一次性、可跳过、不阻塞聊天） ──
+    var showOnboarding by remember { mutableStateOf(!repo.onboardingCompleted) }
 
     Scaffold(
         topBar = {
@@ -241,7 +245,6 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                 .padding(padding)
         ) {
             // ── 免费共享额度提示（仅零配置默认 Provider 时、且用户未手动关闭时展示） ──
-            val repo = remember { SettingsRepository(context) }
             val showFreeNotice = remember {
                 mutableStateOf(
                     !repo.freeQuotaNoticeDismissed &&
@@ -337,6 +340,46 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
             }
             }
         }
+    }
+
+    // ── 首次启动引导对话框（一次性、可跳过） ──
+    // 设计要点：
+    // - 零配置即聊：默认使用免费 GLM-4.7-Flash 共享额度（无需填 Key），与既有 banner 心智一致
+    // - 免费共享额度一次讲清，不重复弹 banner：点「开始聊天」会同时标记免费额度提示已读
+    // - 不申请任何权限：麦克风/悬浮窗功能尚未接线，等真正使用对应功能时再按需申请
+    // - 可选「以后再说」：直接跳过，保留免费额度 banner 作为后续提醒；聊天全程可用
+    if (showOnboarding) {
+        AlertDialog(
+            onDismissRequest = { showOnboarding = false },
+            title = { Text("欢迎来到 Live2Dai 喵~ (=^・ω・^=)") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("零配置开聊：不用填任何 API Key，默认使用免费的 GLM-4.7-Flash 共享额度（多人共用、限 1 并发）。")
+                    Text("想更稳定/更高并发：在「设置 → 服务商」填你自己的 API Key 即可升级。")
+                    Text("需要麦克风/悬浮窗等权限时，会在真正使用时单独询问，不会一次性轰炸你。")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    repo.onboardingCompleted = true
+                    // 引导里已讲清免费共享额度，避免紧接着再弹 banner 造成重复打扰
+                    repo.freeQuotaNoticeDismissed = true
+                    showOnboarding = false
+                }) {
+                    Text("开始聊天")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    // 「以后再说」= 永久跳过引导弹窗（不再重复打扰），但不代替免费额度 banner 的提醒，
+                    // 因此不设置 freeQuotaNoticeDismissed。
+                    repo.onboardingCompleted = true
+                    showOnboarding = false
+                }) {
+                    Text("以后再说")
+                }
+            }
+        )
     }
 
     // ── 危险工具确认对话框 ──

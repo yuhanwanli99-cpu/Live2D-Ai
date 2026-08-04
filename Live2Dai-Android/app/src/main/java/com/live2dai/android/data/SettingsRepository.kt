@@ -74,6 +74,13 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_FREE_QUOTA_NOTICE, false)
         set(value) = prefs.edit().putBoolean(KEY_FREE_QUOTA_NOTICE, value).apply()
 
+    // ─── 首次启动引导（onboarding wizard） ───
+
+    /** 是否已完成首次启动引导（完成后不再自动弹出） */
+    var onboardingCompleted: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, value).apply()
+
     // ─── 重置所有设置 ───
 
     fun resetAll() {
@@ -91,6 +98,7 @@ class SettingsRepository(context: Context) {
         const val KEY_TTS_SPEED = "tts_speed"
         const val KEY_PERSONA = "persona"
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"
+        const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
 
         const val DEFAULT_MODEL = "deepseek-v4-flash"
         const val DEFAULT_TEMPERATURE = 0.8f

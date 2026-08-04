@@ -8,7 +8,9 @@ param(
     [switch]$Help,
     [string]$Config = "conf.yaml",
     [switch]$SkipEnvCheck,
-    [switch]$SkipFrontendCheck
+    [switch]$SkipFrontendCheck,
+    [switch]$ShowOnboarding,   # 强制再次显示首次启动引导（用于演示/测试）
+    [switch]$ResetOnboarding   # 删除引导完成标记（下次启动重新显示引导）
 )
 
 # ═══════════════════════════════════════════════════════
@@ -408,6 +410,7 @@ function Show-SummaryPanel {
 
     Write-Host "╠══════════════════════════════════════════════════╣" -ForegroundColor Cyan
     Write-Host "║  模式: 独立直连 API | 端口: 12393 | TTS: Edge  ║" -ForegroundColor Cyan
+    Write-Host "║  🖥️ 开始聊天: 浏览器打开 http://localhost:12393  ║" -ForegroundColor Green
     Write-Host "╚══════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
     if ($Script:LaunchMsg) {
@@ -415,6 +418,42 @@ function Show-SummaryPanel {
         Write-Host $Script:LaunchMsg -ForegroundColor Yellow
     }
     Write-Host ""
+}
+
+# ═══════════════════════════════════════════════════════
+# Step 8: 首次启动引导（onboarding，一次性、可跳过、不阻塞）
+# ═══════════════════════════════════════════════════════
+
+function Test-Onboarding {
+    $flagFile = Join-Path $VtuberDir ".onboarding_done"
+
+    # 重置：删除标记，下次启动重新显示
+    if ($ResetOnboarding) {
+        if (Test-Path $flagFile) { Remove-Item $flagFile -Force }
+        Write-Host "[重置] 已删除首次启动引导标记，下次启动将重新显示引导" -ForegroundColor Yellow
+    }
+
+    # 已看过且未强制显示 → 跳过
+    if ((Test-Path $flagFile) -and -not $ShowOnboarding) {
+        return
+    }
+
+    Write-Host ""
+    Write-Host "╔══════════════════════════════════════════════════╗" -ForegroundColor Magenta
+    Write-Host "║          欢迎来到 Live2Dai 喵~ (=^・ω・^=)        ║" -ForegroundColor Magenta
+    Write-Host "╠══════════════════════════════════════════════════╣" -ForegroundColor Magenta
+    Write-Host "║ 1. 零配置开聊：不用填任何 API Key，默认使用       ║" -ForegroundColor Cyan
+    Write-Host "║    免费的 GLM-4.7-Flash 共享额度（多人共用、限    ║" -ForegroundColor Cyan
+    Write-Host "║    1 并发）。                                     ║" -ForegroundColor Cyan
+    Write-Host "║ 2. 想更稳定/更高并发：在 conf.yaml 或环境变量     ║" -ForegroundColor Cyan
+    Write-Host "║    配置你自己的 DeepSeek/Zhipu API Key 即可升级。  ║" -ForegroundColor Cyan
+    Write-Host "║ 3. 开始聊天：浏览器打开 http://localhost:12393     ║" -ForegroundColor Cyan
+    Write-Host "║    （或使用 Electron 前端连接 ws://<PC_IP>:12393）║" -ForegroundColor Cyan
+    Write-Host "╚══════════════════════════════════════════════════╝" -ForegroundColor Magenta
+    Write-Host ""
+
+    # 标记已完成（非阻塞：无论如何都会继续启动服务器）
+    New-Item -ItemType File -Path $flagFile -Force | Out-Null
 }
 
 # ═══════════════════════════════════════════════════════
@@ -467,6 +506,9 @@ if (-not $SkipFrontendCheck) {
 } else {
     Write-Host "[跳过] -SkipFrontendCheck 已指定，跳过前端检测" -ForegroundColor Yellow
 }
+
+# ── 首次启动引导（一次性面板；不影响任何启动流程） ──
+Test-Onboarding
 
 # ── 显示环境摘要 ──
 Show-SummaryPanel
