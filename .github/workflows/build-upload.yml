@@ -67,22 +67,16 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Install NDK r27 (${{ env.ANDROID_NDK_VERSION }})
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          link-to-sdk: true
+          local-cache: true
+
       - name: Set NDK environment
-        run: |
-          echo "ANDROID_NDK_HOME=${{ runner.tool_cache }}/ndk/${{ env.ANDROID_NDK_VERSION }}" >> "$GITHUB_ENV"
-
-      - name: Restore NDK cache
-        id: ndk-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-          key: ndk-${{ runner.os }}-${{ env.ANDROID_NDK_VERSION }}
-
-      - name: Install NDK ${{ env.ANDROID_NDK_VERSION }}
-        if: steps.ndk-cache.outputs.cache-hit != 'true'
-        uses: android-actions/setup-ndk@v1
-        with:
-          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
 
       - name: Grant gradlew execute permission
         run: chmod +x gradlew
