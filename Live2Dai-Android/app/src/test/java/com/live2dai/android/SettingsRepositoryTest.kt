@@ -3,6 +3,7 @@ package com.live2dai.android
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.live2dai.android.data.SettingsRepository
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -55,5 +56,31 @@ class SettingsRepositoryTest {
         repo.freeQuotaNoticeDismissed = true
         val repo2 = SettingsRepository(context)
         assertTrue(repo2.freeQuotaNoticeDismissed)
+    }
+
+    // ── Live2D 形象（selectedModelId）──
+
+    @Test
+    fun selectedModelId_defaultsToMaoPro() {
+        val repo = SettingsRepository(context)
+        assertEquals("首次启动默认形象应为 mao_pro", SettingsRepository.DEFAULT_MODEL_ID, repo.selectedModelId)
+    }
+
+    @Test
+    fun selectedModelId_persistsAcrossRestart() {
+        val repo = SettingsRepository(context)
+        repo.selectedModelId = "shizuku"
+        // 重新创建实例（模拟重启），值应仍为 shizuku
+        val repo2 = SettingsRepository(context)
+        assertEquals("切换后应持久化，重启仍为 shizuku", "shizuku", repo2.selectedModelId)
+    }
+
+    @Test
+    fun selectedModelId_resetAll_restoresDefault() {
+        val repo = SettingsRepository(context)
+        repo.selectedModelId = "shizuku"
+        repo.resetAll()
+        val repo2 = SettingsRepository(context)
+        assertEquals("resetAll 后应回退默认形象", SettingsRepository.DEFAULT_MODEL_ID, repo2.selectedModelId)
     }
 }

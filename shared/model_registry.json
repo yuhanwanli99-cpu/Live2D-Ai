@@ -1,0 +1,64 @@
+{
+  "version": "1.0",
+  "models": [
+    {
+      "id": "mao_pro",
+      "name": "Mao Pro",
+      "description": "猫娘 Mao 的 Live2D PRO 版模型，默认形象（双端资源已就绪）",
+      "model3JsonPath": "mao_pro/runtime/mao_pro.model3.json",
+      "thumbnailPath": null,
+      "available": true,
+      "default": true,
+      "restrictPlatform": null,
+      "metadata": {
+        "creator": "Live2D Inc.",
+        "license": "Live2D Original Character",
+        "version": "1.0"
+      }
+    },
+    {
+      "id": "shizuku",
+      "name": "Shizuku",
+      "description": "Live2D 官方示例角色「しずく」PRO 版，手部精细动作，表情演绎丰富（双端资源已就绪）",
+      "model3JsonPath": "shizuku/runtime/shizuku.model3.json",
+      "thumbnailPath": null,
+      "available": true,
+      "default": false,
+      "restrictPlatform": null,
+      "metadata": {
+        "creator": "Live2D Inc.",
+        "license": "Live2D Original Character"
+      }
+    },
+    {
+      "id": "hiyori",
+      "name": "Hiyori",
+      "description": "预留模型：Live2D 官方示例角色「ひより」（Hiyori），资源未就绪，后续扩展接入",
+      "model3JsonPath": "hiyori/runtime/hiyori.model3.json",
+      "thumbnailPath": null,
+      "available": false,
+      "default": false,
+      "restrictPlatform": null,
+      "metadata": {
+        "creator": "Live2D Inc.",
+        "license": "Live2D Original Character",
+        "status": "planned"
+      }
+    },
+    {
+      "id": "haru",
+      "name": "Haru",
+      "description": "预留模型：Live2D 官方示例角色「ハル」（Haru），资源未就绪，后续扩展接入",
+      "model3JsonPath": "haru/runtime/haru.model3.json",
+      "thumbnailPath": null,
+      "available": false,
+      "default": false,
+      "restrictPlatform": null,
+      "metadata": {
+        "creator": "Live2D Inc.",
+        "license": "Live2D Original Character",
+        "status": "planned"
+      }
+    }
+  ]
+}

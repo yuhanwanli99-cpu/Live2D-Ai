@@ -230,6 +230,40 @@ def test_real_shared_registry_integration():
     assert {e.id for e in registry.get_available()} == {"mao_pro", "shizuku"}
 
 
+# ---- P2-1：已注册但不可用的 id 不能绕过默认回退（plan-e2e §7，task-e2e 修复） ----
+
+def test_resolve_model_name_registered_available_returns_as_is(tmp_path):
+    """请求名已登记且 available=true → 原样返回（mao_pro / shizuku）。"""
+    registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
+    assert registry.resolve_model_name("mao_pro") == "mao_pro"
+    assert registry.resolve_model_name("shizuku") == "shizuku"
+
+
+def test_resolve_model_name_unavailable_registered_falls_back(tmp_path):
+    """P2-1：conf 指向已登记但 unavailable 的 id（hiyori）→ 回退默认 mao_pro。"""
+    registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
+    assert registry.resolve_model_name("hiyori") == "mao_pro"
+    assert registry.resolve_model_name("haru") == "mao_pro"
+
+
+def test_resolve_model_name_unknown_falls_back(tmp_path):
+    """未登记 id → 回退默认 mao_pro（原有行为保持）。"""
+    registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
+    assert registry.resolve_model_name("nonexistent") == "mao_pro"
+
+
+def test_resolve_model_name_all_unavailable_raises_runtime_error(tmp_path):
+    """P2-1 边界：全部 unavailable + conf 指向已注册不可用 id → RuntimeError（服务器拒绝启动）。
+
+    对应 test-pc 报告 P2-1 复现输入（修复前服务器照常启动，修复后按 plan §8
+    「全部 available:false → RuntimeError（服务器启动失败）」上抛）。
+    """
+    models = [dict(m, available=False) for m in _SAMPLE_MODELS]
+    registry = ModelRegistry(_write_registry(tmp_path, models))
+    with pytest.raises(RuntimeError):
+        registry.resolve_model_name("mao_pro")
+
+
 # ---- Live2dModel：registry 兜底链路（schema fallbackChain） ----
 
 def test_live2d_model_dict_hit_uses_full_info(tmp_path):

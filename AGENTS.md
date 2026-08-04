@@ -5,18 +5,38 @@
 > Phase 2: 严格执行（状态机模式）
 > **Phase 切换点：用户确认方案**
 
-## ⚠️ 适用范围说明（与 Orca 编排的关系）
+## ⚠️ 适用范围说明（与 Orca 编排的关系，v7 已更新）
 
 本文件描述的 SPOQ 状态机，是 **Pi agent 自身内部** 派发 sub-agent（architect / developer /
 tester）时使用的编排规则：其状态存于仓库内 `.pi/spoq-state.json`，由 `spoq-enforcer.ts`
 负责状态转换校验与硬性拦截。
 
 它 **不** 管理、也不描述 Pi agent 本身是如何被外部系统（例如 Orca 编排系统）调用、监督或
-派发任务的——那是另一层、由外部编排方（Orca 的 terminal/dispatch 机制）负责的机制。
+派发任务的——那是另一层、由外部编排方（Orca 的 terminal/dispatch 机制）负责的机制，两者
+使用完全独立的通道（SPOQ 状态在 `.pi/spoq-state.json`；Orca 的任务/心跳/上报走它自己的
+task/dispatch 协议），互不冲突、也不会相互干扰。
 
-两者处于不同层级、互不冲突：本文件的 SPOQ 规则仅作用于 Pi agent **作为主代理时** 的
-sub-agent 派发；当 Pi agent 作为 Orca 派发的 worker 运行时，SPOQ 状态机不介入、也不会
-与 Orca 的任务/心跳/上报协议发生交互。
+**v7 修正（2026-08-04）**：v2-v6 曾规定"Pi agent 作为 Orca 派发的 worker 运行时，SPOQ 状态机
+不介入"——这条排除规则已废止。原因：外部协作方（GitHub Copilot CLI）明确指出，本项目让
+Pi agent 承担"团队"角色的核心价值是**成本**（把重活拆给更便宜的 sub-agent 模型并行跑）和
+**可靠性**（Tester 子代理的独立证据门禁能防止"看起来做完了但其实没做对"的假完成），而这
+两个价值只有在 SPOQ 真正被触发时才存在。如果"作为 Orca worker 运行"本身就永久禁用 SPOQ，
+而 Pi agent 事实上**从未**以"完全独立、非 Orca 派发"的方式被使用过，那么 SPOQ 就永远是
+摆设，与它被造出来的目的矛盾。
+
+**新规则**：无论任务来源是用户直接对话、还是 Orca 派发的 worker 任务，一律按任务本身的
+复杂度判断（见下方"简单任务 vs 复杂任务"表）决定是否走 Phase 1/2。命中 complex 时，即使
+当前是作为 Orca worker 运行，也必须：
+
+1. 正常写 `.pi/spoq-state.json`（`phase: "executing"`）、拆 DAG、按 Wave 派发
+   architect/developer/tester 子代理（`Agent(..., run_in_background: true)`），完整走完
+   硬转换表直到该任务 `done`；
+2. 内部 SPOQ 循环运行期间，**不要**提前向 Orca 上报 `worker_done`——Orca 侧看到的仍然只是
+   "这个 worker 任务还在跑"，直到 Pi agent 内部所有子任务 `done/blocked` 后，才产出一次
+   汇总结果并按 Orca 协议正常上报 `worker_done`。对 Orca 而言，内部是否用了 SPOQ 完全透明，
+   它不需要感知、也不应该被内部 Wave/Agent 调度打断心跳。
+3. 简单任务（单文件/单步操作，见判断标准）仍然允许跳过 SPOQ、直接实现——这与之前一致，
+   没有变化。
 
 ## v2 规则来源声明（轻量化）
 
@@ -131,6 +151,24 @@ Phase 1/Phase 2、没有写 `.pi/spoq-state.json`**——这与"简单任务跳�
 验证命令与输出结果（例如 `pytest` 的通过数、`gradlew` 的 BUILD SUCCESSFUL），而不能只
 描述"已修复"。task-tester-evidence-gate 现有的"至少跑过 1 次 bash"仅是弱代理指标，
 不能替代真正针对性的重跑验证。
+
+---
+
+## v7 SPOQ 全场景启用（外部协作方对齐，2026-08-04）
+
+外部协作方进一步反馈：v6 虽然澄清了"Orca worker 模式下 SPOQ 代码本身是真实生效的"，
+但顶部"适用范围说明"里"作为 Orca worker 运行时，SPOQ 状态机不介入"这句话，实质上是一条
+**永久排除规则**——而本仓库迄今所有任务都是通过 Orca 派发的，从未有过"Pi agent 完全脱离
+Orca、作为用户的独立主代理"这种场景。这意味着这条排除规则等价于"SPOQ 永远不介入"，
+是此前两轮验证 SPOQ 始终未触发的**真正根因**（而不是任务粒度粗细、也不是子代理不主动）。
+
+已废止该排除规则（见上方"适用范围说明"v7 更新内容）：现在，判断是否走 Phase 1/2 只看
+任务本身复杂度，不再看任务来源是不是 Orca 派发。Orca 只看到一次 `worker_done`，内部
+是否用了 SPOQ 对它透明。
+
+**铁律 10：任务来源不影响 SPOQ 判断**
+是否进入 Phase 1/2，只依据任务复杂度（见"简单任务 vs 复杂任务"表），与任务是用户直接
+交代、还是 Orca 派发的 worker 任务无关。作为 Orca worker 运行 ≠ 自动跳过 SPOQ。
 
 ---
 

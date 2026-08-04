@@ -68,6 +68,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_PERSONA, DEFAULT_PERSONA) ?: DEFAULT_PERSONA
         set(value) = prefs.edit().putString(KEY_PERSONA, value).apply()
 
+    // ─── Live2D 形象（模型注册表） ───
+
+    /**
+     * 用户选中的 Live2D 模型 ID，与 shared/model_registry.json 的 id 字段对应。
+     * 默认值 "mao_pro" 与注册表 default 条目一致。
+     */
+    var selectedModelId: String
+        get() = prefs.getString(KEY_SELECTED_MODEL_ID, DEFAULT_MODEL_ID) ?: DEFAULT_MODEL_ID
+        set(value) = prefs.edit().putString(KEY_SELECTED_MODEL_ID, value).apply()
+
     // ─── 免费共享额度提示（首次启动一次性提示，可关闭） ───
 
     var freeQuotaNoticeDismissed: Boolean
@@ -97,6 +107,7 @@ class SettingsRepository(context: Context) {
         const val KEY_TTS_VOICE = "tts_voice"
         const val KEY_TTS_SPEED = "tts_speed"
         const val KEY_PERSONA = "persona"
+        const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"
         const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
 
@@ -105,6 +116,9 @@ class SettingsRepository(context: Context) {
         const val DEFAULT_TTS_VOICE = "zh-CN-XiaoxiaoNeural"
         const val DEFAULT_TTS_SPEED = 1.0f
         const val DEFAULT_PERSONA = "小喵 (Xiao Miao)"
+
+        /** Live2D 默认形象 ID（与 shared/model_registry.json 的 default 条目一致） */
+        const val DEFAULT_MODEL_ID = "mao_pro"
 
         /** 可用模型列表（供用户在设置页手动选择聊天模型） */
         val AVAILABLE_MODELS = listOf(

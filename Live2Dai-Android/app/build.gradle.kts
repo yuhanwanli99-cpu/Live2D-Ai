@@ -105,6 +105,46 @@ android {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Pre-build: 复制 shared/model_registry.json → app assets
+//  注册表（shared/model_registry.json）是跨平台唯一真相源，构建时同步到
+//  src/main/assets/model_registry.json，运行时由 ModelRegistry 从 assets 读取。
+//  注意：Gradle 根项目是 Live2Dai-Android/，shared/ 在其父目录（仓库根）下。
+// ═══════════════════════════════════════════════════════════════════
+val registrySourceFile = rootProject.projectDir.parentFile.resolve("shared/model_registry.json")
+val registryTargetFile = file("src/main/assets/model_registry.json")
+
+val copyModelRegistry = tasks.register<Copy>("copyModelRegistry") {
+    group = "live2dai"
+    description = "将 shared/model_registry.json 复制到 app/src/main/assets/（Live2D 模型注册表）"
+    from(registrySourceFile)
+    into(file("src/main/assets"))
+}
+
+// 挂到 preBuild / variant / unitTest 前置任务：
+// - preBuild：命令行 assemble 的必经节点
+// - preDebugBuild / preReleaseBuild：IDE 增量编译可能跳过 preBuild，直接执行变体任务
+// - preDebugUnitTestBuild / preReleaseUnitTestBuild：单测（Robolectric 读 assets）需要文件就绪
+// tasks.matching+configureEach 惰性匹配，任务不存在时静默跳过，不会报错。
+listOf(
+    "preBuild",
+    "preDebugBuild",
+    "preReleaseBuild",
+    "preDebugUnitTestBuild",
+    "preReleaseUnitTestBuild",
+).forEach { taskName ->
+    tasks.matching { it.name == taskName }.configureEach {
+        dependsOn(copyModelRegistry)
+    }
+}
+
+// clean 时一并删除生成的注册表（assets 位于 src/ 下，Gradle clean 不会自动清理）
+tasks.named("clean") {
+    doLast {
+        delete(registryTargetFile)
+    }
+}
+
 dependencies {
     // 插件 SDK：core 与插件之间的最小契约（Live2DaiPlugin/PluginHost/ChatHook/ToolDefinition）
     implementation(project(":plugin-sdk"))
@@ -158,6 +198,10 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
+    // Compose UI 测试（Robolectric 本地运行 ModelSelectorTest）
+    testImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))

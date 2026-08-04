@@ -85,7 +85,7 @@ class Live2DRenderer(
     private var fallbackActive = false
     private var modelPtr: Long = 0
     private var modelSettingJson: JSONObject? = null
-    private val modelDir: String = modelAssetPath.substringBeforeLast("/")
+    private var modelDir: String = modelAssetPath.substringBeforeLast("/")
 
     private var canvasWidth = 0f
     private var canvasHeight = 0f
@@ -177,7 +177,7 @@ class Live2DRenderer(
                 android.util.Log.i("Live2DRenderer", "ShaderManager initialized")
 
                 // 加载模型
-                loadModel()
+                loadModel(modelAssetPath)
             } catch (e: Throwable) {
                 android.util.Log.w("Live2DRenderer", "初始化失败: ${e.message}")
                 e.printStackTrace()
@@ -365,6 +365,26 @@ class Live2DRenderer(
     fun onResume() {}
 
     fun dispose() {
+        // 释放模型资源（native 模型、纹理、动画管线、motions/expressions）
+        releaseModelResources()
+        // 释放 ShaderManager（GL 上下文级资源）
+        shaderManager?.dispose()
+        shaderManager = null
+        // 释放 fallback 着色器
+        if (fallbackProgram != 0) {
+            GLES20.glDeleteProgram(fallbackProgram)
+            fallbackProgram = 0
+        }
+    }
+
+    /**
+     * 释放当前模型占用的资源（必须在 GL 线程调用）。
+     *
+     * 保留 ShaderManager / fallback 着色器等 GL 上下文级资源，供下一次模型加载复用。
+     * 与 [dispose] 的区别：dispose() 在 View 销毁时释放全部资源；
+     * 本方法用于模型热切换（Live2DView.switchModel → swapModel）时只清理模型级资源。
+     */
+    private fun releaseModelResources() {
         // 释放动画管线
         animationPipeline = null
         loadedMotions.clear()
@@ -375,27 +395,69 @@ class Live2DRenderer(
             try { Live2DNative.freeModel(modelPtr) } catch (_: Throwable) { }
             modelPtr = 0L
         }
-        // 释放 ShaderManager
-        shaderManager?.dispose()
-        shaderManager = null
         purismModel = null
-        // 释放 fallback
-        if (fallbackProgram != 0) {
-            GLES20.glDeleteProgram(fallbackProgram)
-            fallbackProgram = 0
-        }
+
         // 释放纹理
         for (id in glTextures.values) GLES20.glDeleteTextures(1, intArrayOf(id), 0)
         glTextures.clear()
+
+        // 重置 per-model 状态（下次加载前恢复初始值）
+        modelSettingJson = null
+        paramNameToIndex = emptyMap()
+        paramAIndex = -1
+        partNameToIndex = emptyMap()
+        modelMeta = null
+        drawables = Collections.emptyList()
+        cachedTextureIndices = null
+        cachedRenderOrders = null
+        cachedOpacities = null
+        cachedVertexCounts = null
+        cachedIndexCounts = null
+        cachedConstantFlags = null
+        cachedDynamicFlags = null
+        cachedMultiplyColors = null
+        cachedScreenColors = null
+        cachedMaskCounts = null
+    }
+
+    /**
+     * 在 GL 线程热切换模型（由 Live2DView.switchModel 在 queueEvent 中调用）。
+     *
+     * 释放当前模型资源 → 加载新模型。失败时设置 fallbackActive=true（渲染兜底
+     * 渐变着色器），不向外抛出。
+     *
+     * @return true=加载成功；false=失败（已启用兜底渲染）
+     */
+    fun swapModel(assetPath: String): Boolean {
+        releaseModelResources()
+        fallbackActive = false
+        isFirstFrame = true
+        hasStartedIdle = false
+        previousFrameNano = System.nanoTime()
+        deltaTime = 0.016f
+
+        if (!nativeAvailable) {
+            fallbackActive = true
+            return false
+        }
+        return try {
+            modelDir = assetPath.substringBeforeLast("/")
+            loadModel(assetPath)
+            true
+        } catch (e: Throwable) {
+            android.util.Log.w("Live2DRenderer", "切换模型失败: ${e.message}")
+            fallbackActive = true
+            false
+        }
     }
 
     // ============================================================
     //  模型加载
     // ============================================================
 
-    private fun loadModel() {
+    private fun loadModel(assetPath: String) {
         // 1. 解析 model3.json
-        val modelBytes = context.assets.open(modelAssetPath).use { it.readBytes() }
+        val modelBytes = context.assets.open(assetPath).use { it.readBytes() }
         val jsonStr = modelBytes.toString(Charsets.UTF_8)
         modelSettingJson = JSONObject(jsonStr)
         val setting = modelSettingJson!!

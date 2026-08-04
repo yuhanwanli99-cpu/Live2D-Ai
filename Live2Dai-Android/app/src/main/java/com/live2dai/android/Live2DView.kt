@@ -19,6 +19,9 @@ class Live2DView(
 
     private var renderer: Live2DRenderer? = null
 
+    /** 当前生效的模型 assets 路径（用于切换失败时回退到上一个模型）。 */
+    private var currentAssetPath: String? = null
+
     init {
         setEGLContextClientVersion(2)
         // 4x multisampling for anti-aliased edges
@@ -65,10 +68,77 @@ class Live2DView(
      *                       例如: "live2d/mao_pro/runtime/mao_pro.model3.json"
      */
     fun initialize(modelAssetPath: String) {
+        currentAssetPath = modelAssetPath
         renderer = Live2DRenderer(context, modelAssetPath)
         setRenderer(renderer)
         // 持续渲染模式，支持 120fps 平滑动画（必须在 setRenderer 之后调用）
         renderMode = RENDERMODE_CONTINUOUSLY
+    }
+
+    /**
+     * 运行时热切换模型（GL 线程 dispose + 重新加载，无需重建 View）。
+     *
+     * @param assetPath 新模型的完整 assets 路径，如 "live2d/shizuku/runtime/shizuku.model3.json"
+     * @param onComplete 切换成功回调（在 GL 线程执行，更新 UI 需 post 到主线程）
+     * @param onError 切换失败回调。失败时已自动尝试回退到上一个模型；
+     *                回退也失败则渲染兜底渐变着色器。同样在 GL 线程执行。
+     *
+     * ## 实现说明（相对设计文档的修正）
+     * 设计文档建议“dispose 旧 renderer → new Live2DRenderer → setRenderer()”。
+     * 但 AOSP GLSurfaceView.setRenderer() 只能调用一次（第二次抛
+     * IllegalStateException: "setRenderer has already been called"，见
+     * frameworks/base/opengl/java/android/opengl/GLSurfaceView.java）。
+     * 因此改为：复用同一个 GLSurfaceView.Renderer 实例，在 GL 线程内
+     * dispose 旧模型资源 + 加载新模型（Live2DRenderer.swapModel），
+     * 不触发 EGL 表面重建，也不会中断 RENDERMODE_CONTINUOUSLY。
+     */
+    fun switchModel(
+        assetPath: String,
+        onComplete: (() -> Unit)? = null,
+        onError: ((Throwable) -> Unit)? = null
+    ) {
+        queueEvent {
+            val previousPath = currentAssetPath
+            val current = renderer
+            if (current == null) {
+                // 视图尚未初始化：首次创建 renderer 并绑定（唯一一次合法 setRenderer）
+                try {
+                    val newRenderer = Live2DRenderer(context, assetPath)
+                    renderer = newRenderer
+                    currentAssetPath = assetPath
+                    setRenderer(newRenderer)
+                    renderMode = RENDERMODE_CONTINUOUSLY
+                    onComplete?.invoke()
+                } catch (e: Throwable) {
+                    android.util.Log.w("Live2DView", "切换模型失败(初始化): ${e.message}")
+                    try { renderer?.dispose() } catch (_: Throwable) { }
+                    renderer = null
+                    currentAssetPath = previousPath
+                    onError?.invoke(e)
+                }
+                return@queueEvent
+            }
+
+            // 热切换：同一 GL 线程内释放旧模型 + 加载新模型
+            if (current.swapModel(assetPath)) {
+                currentAssetPath = assetPath
+                onComplete?.invoke()
+            } else {
+                // 加载失败：回退到上一个模型路径；回退也失败则保留兜底渲染
+                val fallbackOk = previousPath != null && current.swapModel(previousPath)
+                if (fallbackOk) {
+                    currentAssetPath = previousPath
+                } else {
+                    currentAssetPath = null
+                }
+                onError?.invoke(
+                    RuntimeException(
+                        if (fallbackOk) "模型加载失败，已回退到上一个模型: $assetPath"
+                        else "模型加载失败且回退失败: $assetPath"
+                    )
+                )
+            }
+        }
     }
 
     /**

@@ -138,3 +138,22 @@ class ModelRegistry:
         """便捷方法：返回 model3.json 相对路径；模型不存在返回 None。"""
         entry = self.get_by_id(model_id)
         return entry.model3_json_path if entry is not None else None
+
+    def resolve_model_name(self, requested: str) -> str:
+        """按 P2-1 边界解析请求的模型名 → 实际使用的模型名（task-e2e 修复）。
+
+        - 请求名已登记且 available=true → 原样返回。
+        - 请求名未登记 / 已登记但不可用（available=false）→ 回退 get_default()。
+
+        用途：conf.yaml `live2d_model_name` 的消费点（service_context
+        `_resolve_live2d_model_name`）统一走此语义——避免 conf 指向「已注册但
+        不可用」的 id 时绕过默认回退（plan-e2e.md §7 P2-1：全部 unavailable 时
+        get_default() 抛 RuntimeError，服务器按 plan 边界拒绝启动）。
+
+        Raises:
+            RuntimeError: 注册表中无可用模型（get_default 语义）。
+        """
+        entry = self.get_by_id(requested)
+        if entry is not None and entry.available:
+            return requested
+        return self.get_default().id

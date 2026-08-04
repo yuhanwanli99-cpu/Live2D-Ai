@@ -27,6 +27,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.live2dai.android.ui.settings.SettingsScreen
 import com.live2dai.android.ui.theme.Live2DaiTheme
+import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
 import com.live2dai.plugin.vision.VisionPlugin
 import com.live2dai.plugin.vision.VisionPluginConfig
@@ -46,15 +47,65 @@ class MainActivity : ComponentActivity() {
 /**
  * 应用根组件。
  * 管理主界面与设置界面之间的导航。
+ *
+ * Live2D 视图引用提升到 App 级：设置页打开时主聊天界面**保持存活**（以覆盖层方式
+ * 叠在设置页下方），因此设置页切换形象时 Live2DView 实例仍然存在，可以真正热切换
+ * （Live2DView.switchModel），而不是等回到聊天页才重建模型。
  */
 @Composable
 fun Live2DaiApp() {
     var showSettings by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val repo = remember { SettingsRepository(context) }
+    val registry = remember { ModelRegistry.load(context) }
+    // Live2D 视图引用（由 MainChatScreen 创建后上报）
+    val live2DView = remember { mutableStateOf<Live2DView?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    if (showSettings) {
-        SettingsScreen(onNavigateBack = { showSettings = false })
-    } else {
-        MainChatScreen(onOpenSettings = { showSettings = true })
+    // Live2D 视图生命周期：ON_RESUME / ON_PAUSE / ON_DESTROY 转发
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> live2DView.value?.onResume()
+                Lifecycle.Event.ON_PAUSE -> live2DView.value?.onPause()
+                Lifecycle.Event.ON_DESTROY -> live2DView.value?.dispose()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            live2DView.value?.dispose()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 主聊天界面始终存活：设置页以覆盖层打开，Live2D 背景不销毁，形象可热切换
+        MainChatScreen(
+            onOpenSettings = { showSettings = true },
+            onLive2DViewCreated = { live2DView.value = it }
+        )
+
+        if (showSettings) {
+            SettingsScreen(
+                onNavigateBack = { showSettings = false },
+                onSwitchModel = { modelId, onResult ->
+                    val entry = registry.getById(modelId)
+                    val view = live2DView.value
+                    if (entry == null || view == null) {
+                        onResult(false)
+                    } else {
+                        val path = "live2d/${entry.model3JsonPath}"
+                        // 回调在 GL 线程执行；SettingsScreen 内部负责 post 回主线程
+                        view.switchModel(
+                            assetPath = path,
+                            onComplete = { onResult(true) },
+                            onError = { onResult(false) }
+                        )
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -76,7 +127,10 @@ data class DisplayMessage(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainChatScreen(onOpenSettings: () -> Unit) {
+fun MainChatScreen(
+    onOpenSettings: () -> Unit,
+    onLive2DViewCreated: (Live2DView) -> Unit,
+) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository(context) }
 
@@ -284,30 +338,19 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                     .weight(1f)
             ) {
             // ── 背景层：Live2D 模型渲染 ──
-            val live2DView = remember { mutableStateOf<Live2DView?>(null) }
-            val lifecycleOwner = LocalLifecycleOwner.current
-
-            DisposableEffect(lifecycleOwner) {
-                val observer = LifecycleEventObserver { _, event ->
-                    when (event) {
-                        Lifecycle.Event.ON_RESUME -> live2DView.value?.onResume()
-                        Lifecycle.Event.ON_PAUSE -> live2DView.value?.onPause()
-                        Lifecycle.Event.ON_DESTROY -> live2DView.value?.dispose()
-                        else -> {}
-                    }
-                }
-                lifecycleOwner.lifecycle.addObserver(observer)
-                onDispose {
-                    lifecycleOwner.lifecycle.removeObserver(observer)
-                    live2DView.value?.dispose()
-                }
-            }
-
+            // 视图创建后上报给 App 级（Live2DaiApp）持有；生命周期由 App 级统一管理。
+            // 设置页打开时本界面仍存活，因此 Live2DView 可在设置页内热切换形象。
             AndroidView(
                 factory = { ctx ->
                     Live2DView(ctx).also { view ->
-                        view.initialize("live2d/mao_pro/runtime/mao_pro.model3.json")
-                        live2DView.value = view
+                        // 启动时按持久化的 selectedModelId 加载模型；
+                        // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 mao_pro）
+                        val repo = SettingsRepository(ctx)
+                        val registry = ModelRegistry.load(ctx)
+                        val modelId = repo.selectedModelId
+                        val entry = registry.getById(modelId) ?: registry.getDefault()
+                        view.initialize("live2d/${entry.model3JsonPath}")
+                        onLive2DViewCreated(view)
                     }
                 },
                 modifier = Modifier.fillMaxSize()

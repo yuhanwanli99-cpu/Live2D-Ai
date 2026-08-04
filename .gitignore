@@ -86,3 +86,6 @@ Live2Dai-pc/open-llm-vtuber/frontend/libs/
 /_test_pi.ps1
 /pi_safe.cmd
 
+
+# Android — 构建时由 Gradle copyModelRegistry 从 shared/model_registry.json 生成
+Live2Dai-Android/app/src/main/assets/model_registry.json

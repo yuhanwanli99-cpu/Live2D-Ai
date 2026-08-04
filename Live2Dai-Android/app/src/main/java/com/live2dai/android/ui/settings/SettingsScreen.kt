@@ -1,30 +1,41 @@
 package com.live2dai.android.ui.settings
 
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.live2dai.android.BuildConfig
 import com.live2dai.android.LLMProviderManager
 import com.live2dai.android.ProviderType
+import com.live2dai.android.data.ModelEntry
+import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
+import kotlinx.coroutines.launch
 
 /**
  * 设置主页面。
@@ -36,6 +47,17 @@ import com.live2dai.android.data.SettingsRepository
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     repository: SettingsRepository? = null,
+    /**
+     * 形象切换回调（由 MainActivity 注入）：
+     * @param modelId 选中的模型 ID
+     * @param onResult 切换结果回调（success=true 表示新模型已生效）。
+     *                 回调可能在 GL 线程触发，SettingsScreen 内部负责 post 到主线程。
+     *                 null 表示未接入（预览/测试场景），此时仅持久化选择。
+     *
+     * 说明：schema 中 onSwitchModel 签名为 (String) -> Unit，但 UI 需要在切换
+     * 失败时回滚选中态并弹 SnackBar，必须拿到异步结果，故增加 onResult 通道。
+     */
+    onSwitchModel: ((modelId: String, onResult: (Boolean) -> Unit) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val repo = repository ?: remember { SettingsRepository(context) }
@@ -54,6 +76,45 @@ fun SettingsScreen(
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
+    // ── Live2D 形象状态 ──
+    val registry = remember { ModelRegistry.load(context) }
+    var selectedModelId by remember { mutableStateOf(repo.selectedModelId) }
+    var switchingModelId by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    // 点击模型卡片：持久化 + 回调切换（成功才更新选中态与持久化值）
+    val handleSwitch: (String) -> Unit = { modelId ->
+        val entry = registry.getById(modelId)
+        if (entry != null && switchingModelId == null && modelId != selectedModelId) {
+            switchingModelId = modelId
+            if (onSwitchModel == null) {
+                // 未接入切换回调（预览/测试）：仅持久化选择
+                selectedModelId = modelId
+                repo.selectedModelId = modelId
+                switchingModelId = null
+            } else {
+                onSwitchModel(modelId) { success ->
+                    mainHandler.post {
+                        switchingModelId = null
+                        if (success) {
+                            selectedModelId = modelId
+                            repo.selectedModelId = modelId
+                            scope.launch {
+                                snackbarHostState.showSnackbar("已切换为 ${entry.name}")
+                            }
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("形象切换失败，已回退到之前的形象")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val hasCustomDeepseek = repo.hasCustomDeepseekKey
     val hasCustomZhipu = repo.hasCustomZhipuKey
 
@@ -71,7 +132,8 @@ fun SettingsScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -301,6 +363,24 @@ fun SettingsScreen(
                 valueRange = 0.0f..1.0f,
                 steps = 19,
                 modifier = Modifier.fillMaxWidth()
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // ── 形象设置（Live2D 模型选择） ──
+            SectionHeader("形象设置")
+
+            Text(
+                "选择数字人形象，切换即时生效",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+            ModelSelector(
+                registry = registry,
+                selectedModelId = selectedModelId,
+                switchingModelId = switchingModelId,
+                onSwitchModel = handleSwitch
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
@@ -560,4 +640,142 @@ private fun AboutDialog(onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Live2D 形象选择器
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Live2D 模型选择列表：可用条目在前（可点击切换），不可用条目在后（灰显"即将推出"）。
+ */
+@Composable
+fun ModelSelector(
+    registry: ModelRegistry,
+    selectedModelId: String,
+    switchingModelId: String?,
+    onSwitchModel: (String) -> Unit,
+) {
+    val available = remember(registry) { registry.getAvailable() }
+    val unavailable = remember(registry) { registry.getAll().filter { !it.available } }
+    val models = remember(registry, available, unavailable) { available + unavailable }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        models.forEach { model ->
+            ModelCard(
+                model = model,
+                isSelected = model.id == selectedModelId,
+                isSwitchingThis = model.id == switchingModelId,
+                listDisabled = switchingModelId != null,
+                onSwitchModel = onSwitchModel
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelCard(
+    model: ModelEntry,
+    isSelected: Boolean,
+    isSwitchingThis: Boolean,
+    listDisabled: Boolean,
+    onSwitchModel: (String) -> Unit,
+) {
+    // 可用且未在切换中且非当前选中 → 可点击；其余（不可用/切换中/已选中）不可点
+    val clickable = model.available && !listDisabled && !isSelected
+    val containerColor = when {
+        isSelected -> MaterialTheme.colorScheme.primaryContainer
+        model.available -> MaterialTheme.colorScheme.surface
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    }
+
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (clickable) Modifier.clickable { onSwitchModel(model.id) } else Modifier),
+        colors = CardDefaults.outlinedCardColors(containerColor = containerColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 缩略图占位（registry 中 thumbnailPath 当前均为 null，按约定后续放
+            // assets/live2d/<id>/thumbnail.png 后可扩展为 AsyncImage 加载）
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = null,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        model.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (model.available) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (isSelected) {
+                        Spacer(Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        ) {
+                            Text(
+                                "✓ 使用中",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    } else if (!model.available) {
+                        Spacer(Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                "即将推出",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+                if (!model.description.isNullOrEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        model.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            if (isSwitchingThis) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+        }
+    }
 }

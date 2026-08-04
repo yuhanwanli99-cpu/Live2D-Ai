@@ -346,16 +346,23 @@ class ServiceContext:
             logger.critical("Try to proceed without Live2D...")
 
     def _resolve_live2d_model_name(self, live2d_model_name: str) -> str:
-        """校验请求的模型名；未在注册表中登记时回退到注册表默认模型。"""
+        """校验请求的模型名；未登记或已登记但不可用时回退到注册表默认模型。
+
+        P2-1（plan-e2e.md §7）：命中后追加 `entry.available` 检查——conf 指向
+        「已注册但不可用」的 id 时回退 get_default()，不再原样放行（服务器拒绝
+        启动于不可用模型；全部 unavailable 时 get_default() 抛 RuntimeError）。
+        守卫逻辑位于 ModelRegistry.resolve_model_name()，便于在无 fastapi 的
+        轻量测试环境直接单测。
+        """
         if self.model_registry is None:
             return live2d_model_name
-        if self.model_registry.get_by_id(live2d_model_name) is not None:
-            return live2d_model_name
-        logger.warning(
-            f"Live2D model '{live2d_model_name}' not found in model registry; "
-            "falling back to registry default."
-        )
-        return self.model_registry.get_default().id
+        resolved = self.model_registry.resolve_model_name(live2d_model_name)
+        if resolved != live2d_model_name:
+            logger.warning(
+                f"Live2D model '{live2d_model_name}' not found or unavailable in "
+                f"model registry; falling back to registry default '{resolved}'."
+            )
+        return resolved
 
     def _fallback_live2d_model_name(self) -> str:
         """registry 可用时返回默认模型 id；不可用时返回硬编码 'mao_pro'。"""
