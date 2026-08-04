@@ -65,7 +65,6 @@ jobs:
         with:
           ndk-version: r27
           link-to-sdk: true
-          local-cache: true
 
       - name: Set NDK environment
         run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
