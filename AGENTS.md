@@ -172,6 +172,33 @@ Orca、作为用户的独立主代理"这种场景。这意味着这条排除规
 
 ---
 
+## v8 ROMA 角色对齐（2026-08-04）
+
+外部协作方调研了社区的递归多智能体编排先例（CrewAI 56.6K star / AutoGen 50K+ / MetaGPT
+33K+ / LangGraph 25K+，以及专门做"递归元智能体"的 **ROMA**（Sentient AI，2026）），确认
+本文件描述的三层结构（用户 ↔ 外部协作方/架构层 ↔ Pi agent 主智能体的 SPOQ 子代理团队）
+是当前主流范式，不是自研孤例。为了不停留在"精神上像"，这里把 ROMA 的四角色模型显式映射
+进 SPOQ 既有角色，把隐性判断变成显式步骤：
+
+| ROMA 角色 | 职责 | SPOQ 对应 |
+| ------ | ------ | ------ |
+| **Atomizer** | 判断任务是否需要再拆（atomic vs not） | Orchestrator 在 DISPATCH 前的 pending→architecting/developing 判断（见"简单任务 vs 复杂任务"表）。**要求显式化**：判断结果（simple/complex 及理由）必须写进 task 的 `description`/`error` 字段或 transitionLog 的 `note`，不能只是模型内心的隐式决定 |
+| **Planner** | 把非原子任务拆成 MECE、带依赖关系的子任务 DAG | software-architect 子代理（产出 `plan-{id}.md` + `plan-{id}.schema.json`） |
+| **Executor** | 解决原子子任务（可以是 LLM/工具，也可以是嵌套的下一层 agent） | developer 子代理。**新增递归权限**：若 developer 在实现过程中发现分配给自己的"原子任务"其实还不是原子的（范围比预想大、内部还能再拆），允许通过邮箱 `developer→architect-*.md` 请求重新 Atomize/Plan，而不是硬着头皮做完导致范围蔓延、验收标准跑偏 |
+| **Aggregator** | 汇总校验子任务结果，向上层报告前做最终确认 | Orchestrator 的"上报完成门禁"（Completion Report Gate，见 `.pi/agent-loops/orchestrator.md`）就是 Aggregator 角色的具体实现：LOAD 最新状态、确认全部子任务 done/blocked，才允许向用户/Orca 报告完成。**这正是本次修复的 finalize bug 所缺的那一步**——之前没有一个显式的 Aggregator 校验点，才会出现"内部没做完却上报完成" |
+
+**铁律 11：Aggregator 校验是强制的，不是可选项**
+任何"任务完成"的对外汇报（无论是 worker_done 还是直接回复用户），前置条件都是走完一次
+显式的 Aggregator 校验（见上表 + Completion Report Gate），不能凭内存判断或子代理的自我
+汇报直接认为完成。
+
+**铁律 12：Executor 可以请求重新 Atomize（受控递归）**
+developer 子代理如果在实现中发现任务粒度判断错了（该拆的没拆），有权通过邮箱请求
+Orchestrator 把任务打回 architect 重新规划，Orchestrator 不得以"已经派发过就不能回头"
+为由拒绝——防止执行阶段被迫把一个实际上复杂的任务硬凑成"看起来做完了"。
+
+---
+
 ## 🔴 铁律
 
 1. **Phase 0 绝对自由** — 可以读代码、搜索、推理、拆解、搭建框架原型
@@ -183,6 +210,9 @@ Orca、作为用户的独立主代理"这种场景。这意味着这条排除规
 7. **必读文件已自动化** — 角色定义 + 最近教训由 `spoq-enforcer.ts` 在启动时自动注入 systemPrompt（见 v3 说明），子代理无需再手动 `read`；`*→{myRole}.md` 邮箱消息仍需子代理自行读取（内容随时变化，无法预注入）
 8. **含糊需求先问，不猜测实现** — 简单任务直通 Phase 2 不等于可以跳过澄清；需求含糊时无论走哪条路径都必须先问用户/派发方（见 v6）
 9. **完成前必须自证** — 报告完成前必须重新运行相关测试/构建并复核 diff，验证证据必须写进完成报告，不能只凭"已修改"就声称完成（见 v6）
+10. **任务来源不影响 SPOQ 判断** — 是否进入 Phase 1/2 只看任务复杂度，与是否 Orca 派发无关（见 v7）
+11. **Aggregator 校验是强制的** — 对外报告完成前必须走完显式 Completion Report Gate，不能凭内存/子代理自报（见 v8，ROMA 对齐）
+12. **Executor 可以请求重新 Atomize** — developer 发现任务粒度判断错了，有权申请打回 architect 重新规划，受控递归（见 v8，ROMA 对齐）
 
 ---
 
