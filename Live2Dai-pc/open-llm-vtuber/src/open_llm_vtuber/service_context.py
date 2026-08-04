@@ -6,6 +6,7 @@ from fastapi import WebSocket
 
 from prompts import prompt_loader
 from .live2d_model import Live2dModel
+from .model_registry import ModelRegistry
 from .asr.asr_interface import ASRInterface
 from .tts.tts_interface import TTSInterface
 from .vad.vad_interface import VADInterface
@@ -46,6 +47,8 @@ class ServiceContext:
         self.character_config: CharacterConfig = None
 
         self.live2d_model: Live2dModel = None
+        # (NEW) 跨平台模型注册表（shared/model_registry.json），init_live2d 校验/回退用
+        self.model_registry: ModelRegistry | None = None
         self.asr_engine: ASRInterface = None
         self.tts_engine: TTSInterface = None
         self.agent_engine: AgentInterface = None
@@ -253,6 +256,8 @@ class ServiceContext:
         if not self.character_config:
             self.character_config = config.character_config
 
+        # (NEW) 加载跨平台模型注册表（缺失/损坏时返回 None，回退硬编码 mao_pro）
+        self.model_registry = self._load_model_registry()
         self.init_live2d(config.character_config.live2d_model_name)
         self.init_asr(config.character_config.asr_config)
         self.init_tts(config.character_config.tts_config)
@@ -285,14 +290,78 @@ class ServiceContext:
         self.system_config = config.system_config or self.system_config
         self.character_config = config.character_config
 
+    def _load_model_registry(self) -> ModelRegistry | None:
+        """加载 shared/model_registry.json；缺失/损坏时返回 None（回退硬编码 mao_pro）。"""
+        registry_path = _resolve_shared_path("shared/model_registry.json")
+        if not os.path.exists(registry_path):
+            logger.error(
+                f"Model registry file not found at {registry_path}; "
+                "model selection validation disabled (fallback to 'mao_pro')."
+            )
+            return None
+        try:
+            registry = ModelRegistry(registry_path)
+            logger.info(
+                f"Model registry loaded: {len(registry.get_all())} entries "
+                f"from {registry_path}"
+            )
+            return registry
+        except (ValueError, OSError) as e:
+            logger.error(
+                f"Failed to load model registry at {registry_path}: {e}; "
+                "model selection validation disabled (fallback to 'mao_pro')."
+            )
+            return None
+
     def init_live2d(self, live2d_model_name: str) -> None:
         logger.info(f"Initializing Live2D: {live2d_model_name}")
         try:
-            self.live2d_model = Live2dModel(live2d_model_name)
-            self.character_config.live2d_model_name = live2d_model_name
+            model_name = self._resolve_live2d_model_name(live2d_model_name)
+            self.live2d_model = Live2dModel(
+                model_name, registry=self.model_registry
+            )
+            self.character_config.live2d_model_name = model_name
+            return
+        except RuntimeError:
+            # registry 无可用模型 → 服务器启动失败（plan 边界表）
+            raise
         except Exception as e:
             logger.critical(f"Error initializing Live2D: {e}")
+
+        # 回退：registry 可用 → 默认模型；registry 不可用 → 硬编码 'mao_pro'
+        try:
+            fallback_name = self._fallback_live2d_model_name()
+            logger.warning(f"Falling back to Live2D model: {fallback_name}")
+            self.live2d_model = Live2dModel(
+                fallback_name, registry=self.model_registry
+            )
+            self.character_config.live2d_model_name = fallback_name
+        except RuntimeError:
+            # registry 无可用模型 → 服务器启动失败（plan 边界表）
+            raise
+        except Exception as fallback_e:
+            logger.critical(
+                f"Error initializing fallback Live2D model: {fallback_e}"
+            )
             logger.critical("Try to proceed without Live2D...")
+
+    def _resolve_live2d_model_name(self, live2d_model_name: str) -> str:
+        """校验请求的模型名；未在注册表中登记时回退到注册表默认模型。"""
+        if self.model_registry is None:
+            return live2d_model_name
+        if self.model_registry.get_by_id(live2d_model_name) is not None:
+            return live2d_model_name
+        logger.warning(
+            f"Live2D model '{live2d_model_name}' not found in model registry; "
+            "falling back to registry default."
+        )
+        return self.model_registry.get_default().id
+
+    def _fallback_live2d_model_name(self) -> str:
+        """registry 可用时返回默认模型 id；不可用时返回硬编码 'mao_pro'。"""
+        if self.model_registry is not None:
+            return self.model_registry.get_default().id
+        return "mao_pro"
 
     def init_asr(self, asr_config: ASRConfig) -> None:
         if not self.asr_engine or (self.character_config.asr_config != asr_config):
@@ -521,6 +590,36 @@ class ServiceContext:
                 )
             )
             raise e
+
+
+def _find_repo_shared_dir() -> str | None:
+    """向上查找仓库根目录下的 shared/ 目录（不依赖 CWD）。
+
+    从本模块文件位置逐级向上，找到第一个含 shared/ 的目录即返回；
+    找不到返回 None。
+    """
+    current = os.path.dirname(os.path.abspath(__file__))
+    while True:
+        candidate = os.path.join(current, "shared")
+        if os.path.isdir(candidate):
+            return candidate
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def _resolve_shared_path(config_path: str) -> str:
+    """将 'shared/xxx' 解析为仓库 shared/ 目录下的绝对路径。
+
+    与 run_server.py 的 `_resolve_shared_path()` 语义一致（plan 风险 #3）：
+    由调用方解析后再传给 ModelRegistry，ModelRegistry 自身不假设工作目录。
+    """
+    if config_path.startswith("shared/"):
+        shared_dir = _find_repo_shared_dir()
+        if shared_dir is not None:
+            return os.path.join(shared_dir, config_path[len("shared/") :])
+    return config_path
 
 
 def deep_merge(dict1, dict2):

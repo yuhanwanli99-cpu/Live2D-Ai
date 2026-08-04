@@ -26,5 +26,17 @@
                 "": 1
             }
         }
+    },
+    {
+        "name": "shizuku",
+        "description": "Live2D 官方示例角色「しずく」PRO 版",
+        "url": "/live2d-models/shizuku/runtime/shizuku.model3.json",
+        "kScale": 0.5,
+        "initialXshift": 0,
+        "initialYshift": 0,
+        "kXOffset": 1150,
+        "idleMotionGroupName": "Idle",
+        "emotionMap": {},
+        "tapMotions": {}
     }
 ]

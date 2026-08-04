@@ -1,6 +1,9 @@
 import json
+
 import chardet
 from loguru import logger
+
+from .model_registry import ModelEntry, ModelRegistry
 
 # This class will only prepare the payload for the live2d model
 # the process of sending the payload should be done by the caller
@@ -26,10 +29,15 @@ class Live2dModel:
     emo_str: str
 
     def __init__(
-        self, live2d_model_name: str, model_dict_path: str = "model_dict.json"
+        self,
+        live2d_model_name: str,
+        model_dict_path: str = "model_dict.json",
+        registry: ModelRegistry | None = None,
     ):
         self.model_dict_path: str = model_dict_path
         self.live2d_model_name: str = live2d_model_name
+        # 可选：跨平台模型注册表。提供时用于 model_dict.json 未命中/缺失时的兜底
+        self.registry: ModelRegistry | None = registry
         self.set_model(live2d_model_name)
 
     def set_model(self, model_name: str) -> None:
@@ -106,6 +114,16 @@ class Live2dModel:
             file_content = self._load_file_content(self.model_dict_path)
             model_dict = json.loads(file_content)
         except FileNotFoundError as file_e:
+            # model_dict.json 缺失 → 回退到 registry 构造最小 model_info（plan 边界表）
+            if self.registry is not None:
+                entry = self.registry.get_by_id(model_name)
+                if entry is not None:
+                    logger.warning(
+                        f"Model dictionary file not found at "
+                        f"{self.model_dict_path}; using model registry fallback "
+                        f"for '{model_name}'."
+                    )
+                    return self._registry_model_info(entry)
             logger.critical(
                 f"Model dictionary file not found at {self.model_dict_path}."
             )
@@ -132,6 +150,15 @@ class Live2dModel:
         )
 
         if matched_model is None:
+            # model_dict.json 未命中 → 回退到 registry 构造最小 model_info（plan §4.4）
+            if self.registry is not None:
+                entry = self.registry.get_by_id(model_name)
+                if entry is not None:
+                    logger.warning(
+                        f"Model '{model_name}' not found in {self.model_dict_path}; "
+                        "using model registry fallback."
+                    )
+                    return self._registry_model_info(entry)
             logger.critical(f"Unable to find {model_name} in {self.model_dict_path}.")
             raise KeyError(
                 f"{model_name} not found in model dictionary {self.model_dict_path}."
@@ -142,6 +169,21 @@ class Live2dModel:
         logger.info("Model Information Loaded.")
 
         return matched_model
+
+    @staticmethod
+    def _registry_model_info(entry: ModelEntry) -> dict:
+        """从注册表条目构造最小 model_info。
+
+        说明：除 plan 契约中的 name/url 外，额外补 `emotionMap: {}`——
+        `set_model()` 无条件访问 `model_info["emotionMap"]`，缺失会 KeyError。
+        空 emotionMap 对应 plan 边界表「emo_map 为空 → 无表情切换，不影响渲染」
+        的降级行为；前端对缺失字段也有默认值（emotionMap:{}）。
+        """
+        return {
+            "name": entry.id,
+            "url": f"/live2d-models/{entry.model3_json_path}",
+            "emotionMap": {},
+        }
 
     def extract_emotion(self, str_to_check: str) -> list:
         """
