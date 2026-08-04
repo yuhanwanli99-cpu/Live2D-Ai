@@ -100,8 +100,14 @@ jobs:
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
           APK_PATH="app/build/outputs/apk/${BUILD_TYPE}/app-${BUILD_TYPE}.apk"
+          APK_NAME="live2dai-android-${BUILD_TYPE}-${GITHUB_SHA::7}.apk"
 
-          echo "apk_name=live2dai-android-${BUILD_TYPE}-${GITHUB_SHA::7}.apk" >> "$GITHUB_OUTPUT"
+          # Copy the real Gradle output to a friendly, unique name so the
+          # upload step below has a stable path to reference (the raw
+          # app-${BUILD_TYPE}.apk name is overwritten on every build).
+          cp "$APK_PATH" "$APK_NAME"
+
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
           echo "apk_size_bytes=$(stat -c%s "$APK_PATH" 2>/dev/null || echo 0)" >> "$GITHUB_OUTPUT"
           echo "build_duration_seconds=${{ steps.build.outputs.duration }}" >> "$GITHUB_OUTPUT"
           echo "commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
@@ -112,8 +118,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: live2dai-android-${{ github.event.inputs.build_type || 'debug' }}-${{ github.sha }}
-          path: Live2Dai-Android/${{ steps.metadata.outputs.apk_name || 'app/build/outputs/apk/*/app-*.apk' }}
-          if-no-files-found: warn
+          path: Live2Dai-Android/${{ steps.metadata.outputs.apk_name }}
+          if-no-files-found: error
           retention-days: 30
           compression-level: 6
 
