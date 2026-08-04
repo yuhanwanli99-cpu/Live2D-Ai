@@ -37,6 +37,15 @@ class TestDesktopConfig(unittest.TestCase):
         self.assertEqual(deepseek_config["model"], "deepseek-v4-flash")
         self.assertEqual(deepseek_config["temperature"], 0.8)
 
+    def test_zhipu_free_llm_configuration(self):
+        # 零配置默认 Provider：免费 GLM-4.7-Flash 兜底
+        llm_configs = self.config["character_config"]["agent_config"]["llm_configs"]
+        free_cfg = llm_configs["zhipu_free_llm"]
+        self.assertEqual(free_cfg["model"], "glm-4.7-flash")
+        self.assertEqual(free_cfg["temperature"], 0.8)
+        # Key 使用环境变量占位符（真实共享 Key 在代码层 free_glm_defaults.py，不进 yaml/断言）
+        self.assertEqual(free_cfg["llm_api_key"], r"${ZHIPU_API_KEY}")
+
     def test_zhipu_llm_configuration(self):
         llm_configs = self.config["character_config"]["agent_config"]["llm_configs"]
         zhipu_config = llm_configs["zhipu_llm"]
@@ -61,7 +70,8 @@ class TestDesktopConfig(unittest.TestCase):
         ag = self.config["character_config"]["agent_config"]
         self.assertEqual(ag["conversation_agent_choice"], "basic_memory_agent")
         bma = ag["agent_settings"]["basic_memory_agent"]
-        self.assertEqual(bma["llm_provider"], "deepseek_llm")
+        # 零配置默认走免费 GLM-4.7-Flash（与 Android 端一致）
+        self.assertEqual(bma["llm_provider"], "zhipu_free_llm")
         self.assertTrue(bma["use_mcpp"])
         self.assertIn("time", bma["mcp_enabled_servers"])
         self.assertIn("ddg-search", bma["mcp_enabled_servers"])

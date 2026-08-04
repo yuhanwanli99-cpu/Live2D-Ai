@@ -24,6 +24,7 @@ class BasicMemoryAgentConfig(I18nMixin, BaseModel):
         "openai_llm",
         "gemini_llm",
         "zhipu_llm",
+        "zhipu_free_llm",
         "deepseek_llm",
         "groq_llm",
         "mistral_llm",

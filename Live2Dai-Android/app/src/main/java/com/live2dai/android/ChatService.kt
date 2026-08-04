@@ -98,6 +98,44 @@ class ChatService(
 
         // 单次 sendMessage() 中最大工具调用轮次（防止 tool-calling 死循环）
         private const val MAX_TOOL_ROUNDS = 8
+
+        // ── HTTP 错误分类与友好提示 ───────────────────────────────────────
+
+        /** 限流（429）提示：可稍后重试（免费模型个人账号限 1 并发） */
+        const val RATE_LIMIT_MESSAGE = "[提示] 请求过于频繁，请稍后重试（免费模型限 1 并发）"
+
+        /**
+         * 共享免费 Key 额度耗尽/欠费类错误的前缀标记（UI 层据此识别并给出
+         * 「前往设置填写自己的 API Key」入口；展示时该前缀会被剥离）。
+         * 这类错误通常不应重试，应引导用户切换到自己的 Key。
+         */
+        const val QUOTA_EXHAUSTED_MARKER = "[QUOTA_EXHAUSTED]"
+
+        /** 额度耗尽/欠费类错误的友好中文提示（不含重试语义） */
+        const val QUOTA_EXHAUSTED_MESSAGE =
+            "当前使用的是官方免费额度（GLM-4.7-Flash），免费额度已用尽或服务繁忙。" +
+                "可前往「设置 → API 设置」填写你自己的智谱 API Key 继续使用。"
+
+        // 额度耗尽/欠费类错误的识别关键词（智谱错误响应 body 中可能出现的标记）。
+        // 除 HTTP 403 外，命中这些关键词也视为额度耗尽，避免因错误码差异漏判。
+        private val QUOTA_KEYWORDS = listOf(
+            "quota", "balance", "insufficient", "exhausted", "overdue", "frozen",
+            "余额", "额度", "欠费", "冻结", "充值", "已用尽",
+        )
+
+        /**
+         * 把一次非成功 HTTP 响应分类为可展示的友好/错误文案。
+         *
+         * - 429  → 限流：稍后重试
+         * - 403 或 body 命中额度耗尽关键词 → 共享 Key 额度耗尽：引导用户换自己的 Key（不重试）
+         * - 其他 → 通用错误文案
+         */
+        fun httpErrorMessage(code: Int, body: String): String = when {
+            code == 429 -> RATE_LIMIT_MESSAGE
+            code == 403 || QUOTA_KEYWORDS.any { body.contains(it, ignoreCase = true) } ->
+                "$QUOTA_EXHAUSTED_MARKER$QUOTA_EXHAUSTED_MESSAGE"
+            else -> "[错误] API请求失败: $code - $body"
+        }
     }
 
     init {
@@ -202,12 +240,7 @@ class ChatService(
         val response = client.newCall(httpRequest).execute()
         if (!response.isSuccessful) {
             val errorBody = response.body?.string() ?: "未知错误"
-            if (response.code == 429) {
-                // 智谱免费模型个人账号限 1 并发：请求过频繁时给出友好重试提示
-                onDelta("[提示] 请求过于频繁，请稍后重试（免费模型限 1 并发）")
-            } else {
-                onDelta("[错误] API请求失败: ${response.code} - $errorBody")
-            }
+            onDelta(httpErrorMessage(response.code, errorBody))
             return null
         }
 
@@ -293,12 +326,7 @@ class ChatService(
             val httpResponse = executeNonStreamingRequest(request)
             if (!httpResponse.isSuccessful) {
                 val errorBody = httpResponse.body?.string() ?: "未知错误"
-                if (httpResponse.code == 429) {
-                    // 智谱免费模型个人账号限 1 并发：请求过频繁时给出友好重试提示
-                    onDelta("[提示] 请求过于频繁，请稍后重试（免费模型限 1 并发）")
-                } else {
-                    onDelta("[错误] API请求失败: ${httpResponse.code} - $errorBody")
-                }
+                onDelta(httpErrorMessage(httpResponse.code, errorBody))
                 return
             }
 

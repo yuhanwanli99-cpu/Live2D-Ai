@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -63,7 +64,9 @@ fun Live2DaiApp() {
 data class DisplayMessage(
     val content: String,
     val isUser: Boolean,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    /** 共享免费 Key 额度耗尽提示：气泡下方展示「前往设置填写自己的 API Key」入口 */
+    val showSettingsButton: Boolean = false
 )
 
 /**
@@ -166,10 +169,17 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                                 inputText = ""
                                 isLoading = true
 
-                                // 发起 DeepSeek 流式请求
+                                // 发起 LLM 流式请求（零配置默认走 GLM 免费兜底，见 LLMProviderManager）
                                 scope.launch {
                                     try {
                                         chatService.sendMessage(text).collect { delta ->
+                                            // 共享免费 Key 额度耗尽提示：剥离标记、标记为错误并提供设置入口
+                                            val isQuotaExhausted = delta.startsWith(ChatService.QUOTA_EXHAUSTED_MARKER)
+                                            val displayDelta = if (isQuotaExhausted) {
+                                                delta.removePrefix(ChatService.QUOTA_EXHAUSTED_MARKER)
+                                            } else {
+                                                delta
+                                            }
                                             val lastIdx = displayMessages.lastIndex
                                             if (lastIdx >= 0 &&
                                                 !displayMessages[lastIdx].isUser &&
@@ -178,14 +188,16 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                                                 // 追加到已有的助手消息
                                                 displayMessages[lastIdx] =
                                                     displayMessages[lastIdx].copy(
-                                                        content = displayMessages[lastIdx].content + delta
+                                                        content = displayMessages[lastIdx].content + displayDelta
                                                     )
                                             } else {
                                                 // 新助手消息
                                                 displayMessages.add(
                                                     DisplayMessage(
-                                                        content = delta,
-                                                        isUser = false
+                                                        content = displayDelta,
+                                                        isUser = false,
+                                                        isError = isQuotaExhausted,
+                                                        showSettingsButton = isQuotaExhausted
                                                     )
                                                 )
                                             }
@@ -223,11 +235,51 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
             }
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // ── 免费共享额度提示（仅零配置默认 Provider 时、且用户未手动关闭时展示） ──
+            val repo = remember { SettingsRepository(context) }
+            val showFreeNotice = remember {
+                mutableStateOf(
+                    !repo.freeQuotaNoticeDismissed &&
+                        LLMProviderManager.getActiveProvider().type == ProviderType.ZHIPU
+                )
+            }
+            if (showFreeNotice.value) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "当前使用免费共享额度（GLM-4.7-Flash）：多人共用、限 1 并发。" +
+                                "可在「设置 → 服务商」换用自己的 API Key。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = {
+                            repo.freeQuotaNoticeDismissed = true
+                            showFreeNotice.value = false
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭提示")
+                        }
+                    }
+                }
+            }
+
+            // ── 聊天主区域 ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
             // ── 背景层：Live2D 模型渲染 ──
             val live2DView = remember { mutableStateOf<Live2DView?>(null) }
             val lifecycleOwner = LocalLifecycleOwner.current
@@ -271,7 +323,7 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                         items = displayMessages,
                         key = { "msg_${it.hashCode()}_${it.content.length}" }
                     ) { msg ->
-                        ChatBubble(message = msg)
+                        ChatBubble(message = msg, onOpenSettings = onOpenSettings)
                         Spacer(Modifier.height(8.dp))
                     }
                 }
@@ -282,6 +334,7 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
                         listState.animateScrollToItem(displayMessages.size - 1)
                     }
                 }
+            }
             }
         }
     }
@@ -314,9 +367,13 @@ fun MainChatScreen(onOpenSettings: () -> Unit) {
 /**
  * 单条对话气泡组件。
  * 用户消息 → 右侧蓝色；助手消息 → 左侧灰色（半透明）。
+ * 额度耗尽提示气泡会额外展示「前往设置填写自己的 API Key」入口按钮。
  */
 @Composable
-fun ChatBubble(message: DisplayMessage) {
+fun ChatBubble(
+    message: DisplayMessage,
+    onOpenSettings: () -> Unit = {}
+) {
     val alignment = if (message.isUser) Arrangement.End else Arrangement.Start
     val bubbleColor = when {
         message.isError -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f)
@@ -333,16 +390,28 @@ fun ChatBubble(message: DisplayMessage) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = alignment
     ) {
-        Text(
-            text = message.content,
-            color = textColor,
-            fontSize = 15.sp,
-            fontWeight = if (message.isError) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(bubbleColor)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+        Column(
+            modifier = Modifier.widthIn(max = 280.dp)
+        ) {
+            Text(
+                text = message.content,
+                color = textColor,
+                fontSize = 15.sp,
+                fontWeight = if (message.isError) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(bubbleColor)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+            if (message.showSettingsButton) {
+                // 共享免费 Key 额度耗尽：直接跳转设置页（API Key 输入项位于设置页顶部）
+                TextButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text("前往设置填写我的 API Key →", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
     }
 }

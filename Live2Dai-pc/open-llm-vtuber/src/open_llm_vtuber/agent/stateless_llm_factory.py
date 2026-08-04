@@ -9,6 +9,7 @@ from .stateless_llm.stateless_llm_with_template import (
 from .stateless_llm.openai_compatible_llm import AsyncLLM as OpenAICompatibleLLM
 from .stateless_llm.ollama_llm import OllamaLLM
 from .stateless_llm.claude_llm import AsyncLLM as ClaudeLLM
+from ..free_glm_defaults import resolve_llm_api_key
 
 
 class LLMFactory:
@@ -27,15 +28,21 @@ class LLMFactory:
             or llm_provider == "openai_llm"
             or llm_provider == "gemini_llm"
             or llm_provider == "zhipu_llm"
+            or llm_provider == "zhipu_free_llm"
             or llm_provider == "deepseek_llm"
             or llm_provider == "groq_llm"
             or llm_provider == "mistral_llm"
             or llm_provider == "lmstudio_llm"
         ):
+            # 零配置默认 Provider：llm_api_key 为空/未解析的 ${VAR} 占位符时回退到
+            # 内置共享免费 GLM-4.7-Flash Key（free_glm_defaults.py），开箱即用。
+            api_key = kwargs.get("llm_api_key")
+            if llm_provider == "zhipu_free_llm":
+                api_key = resolve_llm_api_key(api_key)
             return OpenAICompatibleLLM(
                 model=kwargs.get("model"),
                 base_url=kwargs.get("base_url"),
-                llm_api_key=kwargs.get("llm_api_key"),
+                llm_api_key=api_key,
                 organization_id=kwargs.get("organization_id"),
                 project_id=kwargs.get("project_id"),
                 temperature=kwargs.get("temperature"),

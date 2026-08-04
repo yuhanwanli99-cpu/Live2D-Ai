@@ -494,4 +494,78 @@ class ChatServiceTest {
         assertTrue("应提示稍后重试", result.first().contains("稍后重试"))
         assertEquals("429 时工具不应被执行", 0, tool.executeCount)
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // 共享免费 Key 额度耗尽/欠费（403 / quota 类错误）：不重试，引导换 Key
+    // ─────────────────────────────────────────────────────────────
+
+    // 流式路径：HTTP 403（智谱额度/余额不足类错误）→ 引导用户前往设置填写自己的 Key
+    @Test
+    fun testQuotaExhausted403ShowsFriendlyGuidance_streamingPath() = runBlocking(Dispatchers.IO) {
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(403)
+                .setBody("{\"error\":{\"code\":\"1002\",\"message\":\"账户余额不足\"}}")
+        )
+
+        val result = chatService.sendMessage("test").toList()
+        assertTrue("403 应输出额度耗尽提示", result.isNotEmpty())
+        val msg = result.first()
+        assertTrue("应带额度耗尽标记", msg.contains(ChatService.QUOTA_EXHAUSTED_MARKER))
+        assertTrue("应说明当前使用的是官方免费额度", msg.contains("免费额度"))
+        assertTrue("应引导前往设置", msg.contains("设置"))
+        assertTrue("应引导填写自己的 API Key", msg.contains("API Key"))
+        assertFalse("额度耗尽不应按限流重试处理", msg.contains("稍后重试"))
+    }
+
+    // 非流式路径（工具循环）：403 → 引导换 Key，工具不应被执行
+    @Test
+    fun testQuotaExhausted403ShowsFriendlyGuidance_nonStreamingPath() = runBlocking(Dispatchers.IO) {
+        val tool = FakeTool(name = "open_app")
+        val service = chatServiceWith(listOf(tool))
+
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(403)
+                .setBody("{\"error\":{\"code\":\"1002\",\"message\":\"账户余额不足\"}}")
+        )
+
+        val result = service.sendMessage("帮我打开微信").toList()
+        assertTrue("非流式路径 403 应输出额度耗尽提示", result.isNotEmpty())
+        val msg = result.first()
+        assertTrue("应带额度耗尽标记", msg.contains(ChatService.QUOTA_EXHAUSTED_MARKER))
+        assertTrue("应引导填写自己的 API Key", msg.contains("API Key"))
+        assertEquals("403 时工具不应被执行", 0, tool.executeCount)
+    }
+
+    // 非 403 但 body 命中额度耗尽关键词（如 400 + 余额不足）→ 同样识别为额度耗尽
+    @Test
+    fun testQuotaExhaustedByBodyKeyword_streamingPath() = runBlocking(Dispatchers.IO) {
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setBody("{\"error\":{\"code\":\"2003\",\"message\":\"该模型的免费额度已用尽，请充值或更换模型\"}}")
+        )
+
+        val result = chatService.sendMessage("test").toList()
+        assertTrue("body 命中额度关键词应输出额度耗尽提示", result.isNotEmpty())
+        val msg = result.first()
+        assertTrue("应带额度耗尽标记", msg.contains(ChatService.QUOTA_EXHAUSTED_MARKER))
+        assertTrue("应引导填写自己的 API Key", msg.contains("API Key"))
+    }
+
+    // 其他错误（如 500）仍走通用错误文案，不带额度耗尽标记
+    @Test
+    fun testGeneric5xxStaysGenericError() = runBlocking(Dispatchers.IO) {
+        mockWebServer.enqueue(
+            MockResponse()
+                .setResponseCode(500)
+                .setBody("{\"error\":{\"code\":\"2000\",\"message\":\"服务器内部错误\"}}")
+        )
+
+        val result = chatService.sendMessage("test").toList()
+        assertTrue("5xx 应输出通用错误文案", result.isNotEmpty())
+        assertTrue("应包含错误前缀", result.first().contains("错误"))
+        assertFalse("5xx 不应被识别为额度耗尽", result.first().contains(ChatService.QUOTA_EXHAUSTED_MARKER))
+    }
 }

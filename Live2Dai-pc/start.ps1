@@ -99,6 +99,7 @@ $Script:FfmpegOk    = $false     # ffmpeg 可用
 $Script:FrontendOk  = $false     # Electron 前端已安装
 $Script:ApiDeepSeek = $false     # DeepSeek API Key 已配置
 $Script:ApiZhipu    = $false     # 智谱 API Key 已配置
+$Script:ApiFreeGLM  = $false     # 零配置免费 GLM 兜底已就绪（zhipu_free_llm 存在即视为开箱即用）
 $Script:VenvPython  = $null      # venv 中 python.exe 路径
 $Script:LaunchMsg   = ""         # 额外的启动前提示
 
@@ -305,17 +306,26 @@ function Get-ApiKeyStatus {
     try {
         $yaml = Get-Content $ConfigPath -Raw -Encoding UTF8
 
-        # DeepSeek
+        # 零配置默认：zhipu_free_llm 存在（免费 GLM-4.7-Flash 兜底，代码层内置共享 Key）
+        # 即视为开箱即用，无需用户先申请/配置任何 Key。
+        if ($yaml -match "zhipu_free_llm:") {
+            $Script:ApiFreeGLM = $true
+        }
+
+        # 占位符（${VAR}）视为未配置，避免把未解析的环境变量误报为“已配置”
+        $placeholderPattern = '^\$\{.*\}$'
+
+        # DeepSeek（可选升级路径）
         if ($yaml -match "deepseek_llm:\s*\n\s+llm_api_key:\s*'([^']+)'") {
             $key = $Matches[1].Trim()
-            if ($key -ne "" -and $key -ne "YOUR API KEY HERE" -and $key -ne "your-api-key") {
+            if ($key -ne "" -and $key -ne "YOUR API KEY HERE" -and $key -ne "your-api-key" -and $key -notmatch $placeholderPattern) {
                 $Script:ApiDeepSeek = $true
             }
         }
         # 智谱
         if ($yaml -match "zhipu_llm:\s*\n\s+llm_api_key:\s*'([^']+)'") {
             $key = $Matches[1].Trim()
-            if ($key -ne "" -and $key -ne "YOUR API KEY HERE" -and $key -ne "your-api-key") {
+            if ($key -ne "" -and $key -ne "YOUR API KEY HERE" -and $key -ne "your-api-key" -and $key -notmatch $placeholderPattern) {
                 $Script:ApiZhipu = $true
             }
         }
@@ -324,14 +334,18 @@ function Get-ApiKeyStatus {
         return
     }
 
+    if ($Script:ApiFreeGLM) { Write-Status "免费 GLM 兜底 (零配置)" $true "已就绪，无需配置 Key" }
+
     if ($Script:ApiDeepSeek) { Write-Status "API Key (DeepSeek)" $true "已配置" }
-    else                     { Write-Status "API Key (DeepSeek)" $false "未配置" }
+    else                     { Write-Status "API Key (DeepSeek)" $false "未配置（可选，升级用）" }
 
     if ($Script:ApiZhipu)    { Write-Status "API Key (智谱 GLM-4V)" $true "已配置" }
-    else                     { Write-Status "API Key (智谱 GLM-4V)" $false "未配置" }
+    else                     { Write-Status "API Key (智谱 GLM-4V)" $false "未配置（可选，视觉用）" }
 
-    if (-not $Script:ApiDeepSeek -and -not $Script:ApiZhipu) {
-        $Script:LaunchMsg = "⚠ 所有 API Key 未配置，请检查 conf.yaml"
+    if ($Script:ApiFreeGLM) {
+        $Script:LaunchMsg = "ℹ 对话使用零配置免费 GLM 兜底（共享额度，限 1 并发）；如需更高并发可在 conf.yaml 配置自己的 DeepSeek/Zhipu Key"
+    } elseif (-not $Script:ApiDeepSeek -and -not $Script:ApiZhipu) {
+        $Script:LaunchMsg = "⚠ 未检测到零配置免费兜底与任何 API Key，请检查 conf.yaml"
     } elseif (-not $Script:ApiDeepSeek) {
         $Script:LaunchMsg = "⚠ DeepSeek API Key 未配置，对话功能可能异常"
     } elseif (-not $Script:ApiZhipu) {

@@ -26,10 +26,77 @@ class LLMProviderManagerTest {
 
     @Before
     fun setUp() {
-        // 每次测试从「零配置」状态开始：清空 provider 偏好
+        // 每次测试从「零配置」状态开始：清空 provider 偏好 + 设置存储（自定义 Key）
         context.getSharedPreferences("llm_provider", Context.MODE_PRIVATE)
             .edit().clear().commit()
+        context.getSharedPreferences("live2dai_settings", Context.MODE_PRIVATE)
+            .edit().clear().commit()
         LLMProviderManager.init(context)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 自定义 Key 优先（共享免费 Key 额度耗尽后，用户在设置页填自己的 Key）
+    // ─────────────────────────────────────────────────────────────
+
+    private fun setCustomZhipuKey(key: String) {
+        context.getSharedPreferences("live2dai_settings", Context.MODE_PRIVATE)
+            .edit().putString("zhipu_api_key", key).commit()
+    }
+
+    private fun setCustomDeepseekKey(key: String) {
+        context.getSharedPreferences("live2dai_settings", Context.MODE_PRIVATE)
+            .edit().putString("deepseek_api_key", key).commit()
+    }
+
+    @Test
+    fun customZhipuKey_takesPrecedenceOverBuiltin_forZeroConfigDefault() {
+        // 用户填了自己的 Key（即使编译期内置 Key 也存在，也应优先用自定义 Key）
+        setCustomZhipuKey("sk-user-custom-zhipu-12345")
+
+        val provider = LLMProviderManager.getActiveProvider()
+        assertEquals(ProviderType.ZHIPU, provider.type)
+        assertEquals("sk-user-custom-zhipu-12345", provider.apiKey)
+        assertEquals("glm-4.7-flash", provider.modelName)
+    }
+
+    @Test
+    fun customZhipuKey_usedForExplicitZhipuSelection() {
+        setCustomZhipuKey("sk-user-custom-zhipu-12345")
+        LLMProviderManager.setProviderType(ProviderType.ZHIPU)
+
+        val provider = LLMProviderManager.getActiveProvider()
+        assertEquals(ProviderType.ZHIPU, provider.type)
+        assertEquals("sk-user-custom-zhipu-12345", provider.apiKey)
+    }
+
+    @Test
+    fun customZhipuKey_letsZeroConfigUseZhipu_evenWithoutBuiltinKey() {
+        // 编译期没有内置 Key 时，只要用户填了自定义 Zhipu Key，零配置默认仍走 Zhipu
+        setCustomZhipuKey("sk-user-custom-zhipu-12345")
+        // 不依赖 BuildConfig：直接断言返回的是 Zhipu 且用自定义 Key
+        val provider = LLMProviderManager.getActiveProvider()
+        assertEquals(ProviderType.ZHIPU, provider.type)
+        assertEquals("sk-user-custom-zhipu-12345", provider.apiKey)
+    }
+
+    @Test
+    fun customDeepseekKey_takesPrecedenceOverBuiltin() {
+        setCustomDeepseekKey("sk-user-custom-deepseek-67890")
+        LLMProviderManager.setProviderType(ProviderType.DEEPSEEK)
+
+        val provider = LLMProviderManager.getActiveProvider()
+        assertEquals(ProviderType.DEEPSEEK, provider.type)
+        assertEquals("sk-user-custom-deepseek-67890", provider.apiKey)
+        // 降级路径同样使用自定义 Key
+        assertEquals("sk-user-custom-deepseek-67890", LLMProviderManager.getDeepSeekProvider().apiKey)
+    }
+
+    @Test
+    fun noCustomKeys_fallsBackToBuiltinWithoutCrashing() {
+        // 设置存储为空、编译期也无 Key 的构建：仍应安全返回非空 baseUrl 的 provider
+        val provider = LLMProviderManager.getActiveProvider()
+        assert(provider.baseUrl.isNotEmpty())
+        assert(provider.modelName.isNotEmpty())
     }
 
     @Test

@@ -36,6 +36,11 @@ object LLMProviderManager {
     // ── SharedPreferences ──
     private const val PREFS_NAME = "llm_provider"
 
+    // 用户自定义 API Key 所在的设置存储（与 SettingsRepository 共用同一份 prefs）
+    private const val SETTINGS_PREFS_NAME = "live2dai_settings"
+    private const val SETTINGS_KEY_DEEPSEEK = "deepseek_api_key"
+    private const val SETTINGS_KEY_ZHIPU = "zhipu_api_key"
+
     private const val KEY_TYPE = "provider_type"
     private const val KEY_LOCAL_URL = "local_base_url"
     private const val KEY_LOCAL_KEY = "local_api_key"
@@ -54,6 +59,7 @@ object LLMProviderManager {
 
     // ── 存储 ──
     private lateinit var prefs: SharedPreferences
+    private lateinit var settingsPrefs: SharedPreferences
 
     // 健康检查专用 Client（短超时）
     private val healthClient = OkHttpClient.Builder()
@@ -68,7 +74,49 @@ object LLMProviderManager {
      */
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        settingsPrefs = context.getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
     }
+
+    // ── 自定义 Key（用户在设置页填写，优先于内置/编译期 Key） ──
+
+    /** 用户在设置页填写的自定义 Zhipu Key（未填写返回空串） */
+    private fun customZhipuKey(): String =
+        settingsPrefs.getString(SETTINGS_KEY_ZHIPU, EMPTY) ?: EMPTY
+
+    /** 用户在设置页填写的自定义 DeepSeek Key（未填写返回空串） */
+    private fun customDeepseekKey(): String =
+        settingsPrefs.getString(SETTINGS_KEY_DEEPSEEK, EMPTY) ?: EMPTY
+
+    /** Zhipu Key 可用性：自定义 Key 或编译期内置 Key 任一存在即视为可用 */
+    private fun zhipuKeyAvailable(): Boolean =
+        customZhipuKey().isNotEmpty() ||
+            BuildConfig.ZHIPU_API_KEY.isNotEmpty() ||
+            !(System.getenv("ZHIPU_API_KEY") ?: "").isNullOrEmpty()
+
+    /**
+     * 构造 Zhipu Provider：优先用户自定义 Key，其次编译期内置共享 Key（free_glm_defaults
+     * 的 Android 对应物），再次环境变量。
+     */
+    private fun zhipuProvider(): LLMProvider = LLMProvider(
+        type = ProviderType.ZHIPU,
+        baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+        apiKey = customZhipuKey()
+            .ifEmpty { BuildConfig.ZHIPU_API_KEY }
+            .ifEmpty { System.getenv("ZHIPU_API_KEY") ?: "" },
+        modelName = "glm-4.7-flash",
+        displayName = "智谱 GLM（免费）"
+    )
+
+    /** 构造 DeepSeek Provider：优先用户自定义 Key，其次编译期/环境变量 Key */
+    private fun deepSeekProvider(): LLMProvider = LLMProvider(
+        type = ProviderType.DEEPSEEK,
+        baseUrl = "https://api.deepseek.com/v1",
+        apiKey = customDeepseekKey()
+            .ifEmpty { BuildConfig.DEEPSEEK_API_KEY }
+            .ifEmpty { System.getenv("DEEPSEEK_API_KEY") ?: "" },
+        modelName = PersonaConfig.getModel(),
+        displayName = "DeepSeek 云端"
+    )
 
     /**
      * 获取当前选中的 Provider。
@@ -77,31 +125,26 @@ object LLMProviderManager {
      * 兜底模型（LLMProvider.zhipu()）；若编译时未配置 ZHIPU_API_KEY（如其他开发者
      * 本地构建），安全回退到 DeepSeek，避免无 key/空 baseUrl 的坏默认值。
      * 如果类型为 LOCAL 但本地配置不完整（URL 为空），返回 DeepSeek。
+     *
+     * Key 解析优先级：用户在设置页填写的自定义 Key > 编译期内置 Key > 环境变量。
+     * 即共享免费 Key 额度耗尽后，用户在设置页填入自己的 Key，下一次请求即可生效。
      */
     fun getActiveProvider(): LLMProvider {
-        // 零配置：从未存过 provider 类型 → 智谱 GLM 免费兜底；无 ZHIPU key 时回退 DeepSeek
+        // 零配置：从未存过 provider 类型 → 智谱 GLM 免费兜底；无 Zhipu Key 时回退 DeepSeek
         if (!prefs.contains(KEY_TYPE)) {
-            return if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) {
-                LLMProvider.zhipu()
-            } else {
-                LLMProvider.deepSeek()
-            }
+            return if (zhipuKeyAvailable()) zhipuProvider() else deepSeekProvider()
         }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
             TYPE_ZHIPU -> {
-                // 显式选了 ZHIPU 但没有 key（编译期未配置）→ 安全回退，避免空 key 请求
-                if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) {
-                    LLMProvider.zhipu()
-                } else {
-                    LLMProvider.deepSeek()
-                }
+                // 显式选了 ZHIPU 但没有 Key → 安全回退，避免空 key 请求
+                if (zhipuKeyAvailable()) zhipuProvider() else deepSeekProvider()
             }
             TYPE_LOCAL -> {
                 val url = prefs.getString(KEY_LOCAL_URL, EMPTY) ?: EMPTY
                 if (url.isBlank()) {
                     // 配置不完整，安全回退
-                    LLMProvider.deepSeek()
+                    deepSeekProvider()
                 } else {
                     LLMProvider(
                         type = ProviderType.LOCAL,
@@ -112,14 +155,14 @@ object LLMProviderManager {
                     )
                 }
             }
-            else -> LLMProvider.deepSeek()
+            else -> deepSeekProvider()
         }
     }
 
     /**
-     * 内置 DeepSeek Provider（用于降级）
+     * 内置 DeepSeek Provider（用于降级；同样优先用户自定义 Key）
      */
-    fun getDeepSeekProvider(): LLMProvider = LLMProvider.deepSeek()
+    fun getDeepSeekProvider(): LLMProvider = deepSeekProvider()
 
     /**
      * 用户配置的本地 Provider，未配置时返回 null
@@ -169,11 +212,7 @@ object LLMProviderManager {
     fun getProviderType(): ProviderType {
         // 与 getActiveProvider() 保持一致：零配置时返回实际生效的兜底 provider
         if (!prefs.contains(KEY_TYPE)) {
-            return if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) {
-                ProviderType.ZHIPU
-            } else {
-                ProviderType.DEEPSEEK
-            }
+            return if (zhipuKeyAvailable()) ProviderType.ZHIPU else ProviderType.DEEPSEEK
         }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
