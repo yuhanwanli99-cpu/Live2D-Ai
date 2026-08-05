@@ -1,5 +1,7 @@
 package com.live2dai.android
 
+import android.util.Log
+
 /**
  * 表情控制器
  *
@@ -20,7 +22,15 @@ package com.live2dai.android
  */
 class EmotionController(private val live2DView: Live2DView) {
 
+    init {
+        // 初始化取证日志：MainActivity 在 Live2DView 创建后实例化本控制器并接线，
+        // logcat 出现本行即证明表情链路已接通（修复 T11 断线缺陷）。
+        logInfo("EmotionController 初始化完成（Live2DView 已接线，等待 emotion 标签触发表情切换）")
+    }
+
     companion object {
+        private const val TAG = "EmotionController"
+
         // 表情关键词 → 表情索引映射表（每个表情单独一个索引）
         private val EMOTION_MAP = mapOf(
             "neutral"  to 0,
@@ -52,6 +62,29 @@ class EmotionController(private val live2DView: Live2DView) {
      * 上次设置的表情索引
      */
     private var currentExpressionIndex: Int = 0
+
+    /**
+     * 日志输出（带单元测试防护）。
+     *
+     * 本地 JVM 单元测试（无 Android 运行时）中 android.util.Log 未被 mock，直接调用会抛
+     * "Method i in android.util.Log not mocked"，因此统一走这里包一层异常防护；
+     * 真机上行为与直接调用一致（Log.i / Log.w）。
+     */
+    private fun logInfo(message: String) {
+        try {
+            Log.i(TAG, message)
+        } catch (_: Throwable) {
+            // 单元测试环境：静默忽略
+        }
+    }
+
+    private fun logWarn(message: String) {
+        try {
+            Log.w(TAG, message)
+        } catch (_: Throwable) {
+            // 单元测试环境：静默忽略
+        }
+    }
 
     /**
      * 获取当前表情索引
@@ -88,6 +121,7 @@ class EmotionController(private val live2DView: Live2DView) {
             if (expressionIndex != currentExpressionIndex) {
                 currentExpressionIndex = expressionIndex
                 live2DView.setExpression(expressionIndex)
+                logInfo("parseAndApply: 标签[$lastValidEmotion] -> expressionIndex=$expressionIndex")
             }
         }
 
@@ -101,10 +135,16 @@ class EmotionController(private val live2DView: Live2DView) {
      */
     fun setEmotion(emotionName: String) {
         val keyword = emotionName.lowercase().trim()
-        val index = EMOTION_MAP[keyword] ?: return
+        val index = EMOTION_MAP[keyword] ?: run {
+            logWarn("setEmotion: 未知表情关键词 '$emotionName'，忽略")
+            return
+        }
         if (index != currentExpressionIndex) {
             currentExpressionIndex = index
             live2DView.setExpression(index)
+            logInfo("setEmotion: $keyword -> expressionIndex=$index")
+        } else {
+            logInfo("setEmotion: $keyword 已是当前表情(index=$index)，跳过")
         }
     }
 
@@ -115,6 +155,7 @@ class EmotionController(private val live2DView: Live2DView) {
         if (currentExpressionIndex != 0) {
             currentExpressionIndex = 0
             live2DView.setExpression(0)
+            logInfo("resetToNeutral: -> expressionIndex=0")
         }
     }
 }

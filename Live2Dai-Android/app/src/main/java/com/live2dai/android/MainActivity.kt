@@ -31,6 +31,9 @@ import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
 import com.live2dai.plugin.vision.VisionPlugin
 import com.live2dai.plugin.vision.VisionPluginConfig
+import com.live2dai.pluginsdk.ChatContext
+import com.live2dai.pluginsdk.ChatHook
+import java.util.UUID
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -113,6 +116,8 @@ fun Live2DaiApp() {
  * 显示在气泡中的单条消息数据。
  */
 data class DisplayMessage(
+    /** 稳定唯一标识：作为 LazyColumn key，保证流式追加（copy 保留 id）时 key 不变且互不冲突 */
+    val id: String = UUID.randomUUID().toString(),
     val content: String,
     val isUser: Boolean,
     val isError: Boolean = false,
@@ -350,6 +355,33 @@ fun MainChatScreen(
                         val modelId = repo.selectedModelId
                         val entry = registry.getById(modelId) ?: registry.getDefault()
                         view.initialize("live2d/${entry.model3JsonPath}")
+                        // ── 表情链路接线（修复 T11：LLM [emotion] 标签 → Live2D 表情切换）──
+                        // ab59b45 插件化重构后 EmotionController 从未被实例化、onAssistantMessage 从未赋值，
+                        // 导致 ChatService.runAfterReceive 解析出的 emotion 无法到达 Live2DView.setExpression。
+                        // 在 Live2DView 创建后（onLive2DViewCreated 触发处）立即接线，视图生命周期内保持：
+                        //   1) 核心 ChatHook：走 ChatService afterReceive 主链路（不依赖插件通道）
+                        //   2) 插件通道 onAssistantMessage：供主动陪伴类插件（PluginHost.sendAssistantMessage）调用
+                        // 注意：ChatService 持有 pluginManager.hooks 活引用，后注册的 hook 立即可见，无需重建 ChatService。
+                        val emotionController = EmotionController(view)
+                        pluginManager.onAssistantMessage = { _, emotion ->
+                            emotion?.let { emotionController.setEmotion(it) }
+                        }
+                        pluginManager.registerHook(object : ChatHook {
+                            override suspend fun beforeSend(
+                                userMessage: String,
+                                context: ChatContext
+                            ): String? = null
+
+                            override suspend fun afterReceive(
+                                assistantMessage: String,
+                                emotion: String?,
+                                context: ChatContext
+                            ) {
+                                // assistantMessage 已剥离 [emotion] 标签，直接用解析出的关键词设置表情；
+                                // emotion 为 null 时跳过，保持当前表情。
+                                emotion?.let { emotionController.setEmotion(it) }
+                            }
+                        })
                         onLive2DViewCreated(view)
                     }
                 },
@@ -367,7 +399,7 @@ fun MainChatScreen(
                 ) {
                     items(
                         items = displayMessages,
-                        key = { "msg_${it.hashCode()}_${it.content.length}" }
+                        key = { "msg_${it.id}" }
                     ) { msg ->
                         ChatBubble(message = msg, onOpenSettings = onOpenSettings)
                         Spacer(Modifier.height(8.dp))
