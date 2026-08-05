@@ -17,11 +17,12 @@ import org.junit.Test
  */
 class MemoryRecallHookTest {
 
-    /** 内存版 [MemoryDao] 替身（记录 insert/update 调用） */
+    /** 内存版 [MemoryDao] 替身（记录 insert/update/deleteOldest 调用） */
     private class FakeDao(initial: List<MemoryFact> = emptyList()) : MemoryDao {
         val facts = initial.toMutableList()
         val inserted = mutableListOf<MemoryFact>()
         val updates = mutableListOf<MemoryFact>()
+        val deleteOldestCalls = mutableListOf<Int>()
 
         override suspend fun insert(fact: MemoryFact): Long {
             val nextId = (facts.maxOfOrNull { it.id } ?: 0L) + 1
@@ -37,6 +38,20 @@ class MemoryRecallHookTest {
             updates += fact
             val idx = facts.indexOfFirst { it.id == fact.id }
             if (idx >= 0) facts[idx] = fact
+        }
+
+        /** 与 Room 版语义一致：按 createdAt 降序（同分取 id 大者）保留最近 [keepCount] 条 */
+        override suspend fun deleteOldest(keepCount: Int) {
+            deleteOldestCalls += keepCount
+            if (keepCount <= 0) {
+                facts.clear()
+                return
+            }
+            val sorted = facts.sortedWith(
+                compareByDescending<MemoryFact> { it.createdAt }.thenByDescending { it.id }
+            )
+            facts.clear()
+            facts.addAll(sorted.take(keepCount))
         }
     }
 
@@ -100,6 +115,7 @@ class MemoryRecallHookTest {
             override suspend fun insert(fact: MemoryFact): Long = throw IllegalStateException("db broken")
             override suspend fun getAll(): List<MemoryFact> = throw IllegalStateException("db broken")
             override suspend fun update(fact: MemoryFact) = throw IllegalStateException("db broken")
+            override suspend fun deleteOldest(keepCount: Int) = throw IllegalStateException("db broken")
         }
         val hook = MemoryRecallHook(brokenDao, SummaryLlmClient { _, _ -> null }, triggerEveryNTurns = 10)
 
@@ -180,6 +196,51 @@ class MemoryRecallHookTest {
         hook.afterReceive("回复", null, chatContext(listOf(ChatTurn("user", "你好"))))
 
         assertTrue("已存在相同内容时不应重复写入", dao.inserted.isEmpty())
+    }
+
+    @Test
+    fun afterReceive_trimsToMaxFactsAfterWrite() = runBlocking {
+        val dao = FakeDao()
+        var t = 1_000L
+        var turn = 0
+        val llm = SummaryLlmClient { _, _ ->
+            turn++
+            "用户喜欢${listOf("咖啡", "茶", "牛奶")[turn - 1]}"
+        }
+        val hook = MemoryRecallHook(dao, llm, triggerEveryNTurns = 1, maxFacts = 2, now = { t++ })
+
+        hook.afterReceive("r1", null, chatContext(listOf(ChatTurn("user", "u1"))))
+        hook.afterReceive("r2", null, chatContext(listOf(ChatTurn("user", "u2"))))
+        hook.afterReceive("r3", null, chatContext(listOf(ChatTurn("user", "u3"))))
+
+        assertEquals("三次写入都发生", 3, dao.inserted.size)
+        assertEquals("每次写入后都应触发 trim", listOf(2, 2, 2), dao.deleteOldestCalls)
+        assertEquals("写入第 4 条前应裁剪到最近 2 条", 2, dao.facts.size)
+        assertEquals(
+            "保留最新的 2 条（茶、牛奶），最旧的（咖啡）被裁剪",
+            listOf("用户喜欢茶", "用户喜欢牛奶"),
+            dao.facts.sortedBy { it.id }.map { it.content }
+        )
+    }
+
+    @Test
+    fun afterReceive_doesNotTrimWhenMaxFactsNonPositive() = runBlocking {
+        val dao = FakeDao()
+        var turn = 0
+        val hook = MemoryRecallHook(
+            dao,
+            SummaryLlmClient { _, _ ->
+                turn++
+                "用户喜欢${listOf("咖啡", "茶", "牛奶")[turn - 1]}"
+            },
+            triggerEveryNTurns = 1,
+            maxFacts = 0, // <= 0 表示不裁剪（无限量）
+        )
+
+        repeat(3) { hook.afterReceive("r$it", null, chatContext(listOf(ChatTurn("user", "u$it")))) }
+
+        assertTrue("maxFacts<=0 时不应调用 deleteOldest", dao.deleteOldestCalls.isEmpty())
+        assertEquals("不裁剪时 3 条全部保留", 3, dao.facts.size)
     }
 
     // ── 关键词匹配工具 ──

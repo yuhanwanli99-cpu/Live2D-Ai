@@ -8,7 +8,7 @@ plugins {
 }
 
 // ─── Wave 2 骨架插件测试隔离（加载门）──────────────────────────────────────
-// settings.gradle.kts 中 live2dai-plugin-memory / -proactive / -agent-tools
+// settings.gradle.kts 中 live2dai-plugin-proactive / -agent-tools
 // 标注为“仅搭建结构，尚未在 app 侧装载”。在全量构建（connectedDebugAndroidTest /
 // test）时，这些模块的测试任务会把其依赖链（如 memory 的 KSP/Room 编译器）拉入
 // 执行图——在无法稳定访问 repo.maven.apache.org 的环境（TLS/证书问题）中，即便这些
@@ -17,8 +17,9 @@ plugins {
 // （等价于命令行 -x 排除，排除会连同其依赖链一起剪枝）。
 // 接入方式：某插件正式装载进 app 后，将其从下方列表移除并同步解除
 // settings.gradle.kts 中的骨架注释，其测试即恢复运行。
+// 注：live2dai-plugin-memory 已于 V1.1 模块3 正式装载进 app（MainActivity loadPlugins），
+// 已从本列表移除，其测试随全量构建恢复运行。
 val unloadedSkeletonModules = listOf(
-    ":live2dai-plugin-memory",
     ":live2dai-plugin-proactive",
     ":live2dai-plugin-agent-tools",
 )

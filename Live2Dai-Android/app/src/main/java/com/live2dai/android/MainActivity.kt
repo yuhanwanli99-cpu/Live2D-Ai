@@ -1,8 +1,13 @@
 package com.live2dai.android
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,6 +16,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -29,12 +37,17 @@ import com.live2dai.android.ui.settings.SettingsScreen
 import com.live2dai.android.ui.theme.Live2DaiTheme
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
+import com.live2dai.plugin.memory.MemoryPlugin
+import com.live2dai.plugin.memory.MemoryPluginConfig
 import com.live2dai.plugin.vision.VisionPlugin
 import com.live2dai.plugin.vision.VisionPluginConfig
 import com.live2dai.pluginsdk.ChatContext
 import com.live2dai.pluginsdk.ChatHook
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,7 +127,11 @@ fun Live2DaiApp() {
 
 /**
  * 显示在气泡中的单条消息数据。
+ *
+ * [Serializable]：V1.1 模块2 聊天历史持久化（ChatHistoryStore 序列化到 JSON）。
+ * `id` 带默认值（UUID），反序列化时缺失 id 的旧数据会自动补默认值，不破坏兼容性。
  */
+@Serializable
 data class DisplayMessage(
     /** 稳定唯一标识：作为 LazyColumn key，保证流式追加（copy 保留 id）时 key 不变且互不冲突 */
     val id: String = UUID.randomUUID().toString(),
@@ -156,6 +173,18 @@ fun MainChatScreen(
         )
     }
 
+    // V1.1 模块1：语音闭环协调器（TTS 说 + ASR 听）。
+    // 用 applicationContext 持有（EdgeTtsService 内部持有 TextToSpeech/MediaPlayer），
+    // 避免泄漏 Activity 引用。
+    val voiceIo = remember { VoiceIoController(context.applicationContext) }
+
+    // V1.1 模块1：Activity 销毁时释放 TTS + ASR 资源
+    DisposableEffect(Unit) {
+        onDispose {
+            voiceIo.release()
+        }
+    }
+
     // 冷启动初始化
     LaunchedEffect(Unit) {
         PersonaConfig.load(context)
@@ -171,6 +200,17 @@ fun MainChatScreen(
                         visionModel = PersonaConfig.getVisionModel(),
                         screenshotProvider = AndroidScreenshotProvider(context.applicationContext),
                     )
+                ),
+                // V1.1 模块3：长期记忆集成（docs/plan-v11-plan.md §3.3）
+                // - 摘要 LLM 由 core 注入（LlmSummaryClient 复用当前活动 Provider，见 §5.3），
+                //   插件自身不接 LLM 客户端；超时/失败静默，不影响对话主链路（架构约束 §8.2-2）
+                // - Room 数据库懒打开：onLoad 的 MemoryDatabase.build 不触达 SQLite，不阻塞启动
+                // - beforeSend 注入相关记忆 → afterReceive 每 10 轮摘要写入（默认）→ 写入后 trim 到 500 条
+                MemoryPlugin(
+                    MemoryPluginConfig(
+                        context = context.applicationContext,
+                        summaryLlmClient = LlmSummaryClient(LLMProviderManager.getActiveProvider()),
+                    )
                 )
             )
         )
@@ -180,8 +220,62 @@ fun MainChatScreen(
     var inputText by remember { mutableStateOf("") }
     val displayMessages = remember { mutableStateListOf<DisplayMessage>() }
     var isLoading by remember { mutableStateOf(false) }
+    // 清空对话确认对话框开关
+    var showClearConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    // ── V1.1 模块1：语音输入（ASR）──
+    // 识别中状态：麦克风按钮切换为 loading 图标，防止重复触发
+    var isListening by remember { mutableStateOf(false) }
+
+    // 启动识别（权限已就绪时调用）：识别成功填入输入框（可编辑后发送），
+    // 失败/空结果静默降级为文本输入（plan §3.1.3 ASR 路径）
+    val startListening: () -> Unit = {
+        isListening = true
+        Toast.makeText(context, "正在聆听，请说话...", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val recognized = voiceIo.listen()
+            isListening = false
+            if (recognized.isNotEmpty()) {
+                inputText = recognized
+            }
+        }
+    }
+
+    // 麦克风权限按需申请（plan §8.2-3）：仅点击麦克风按钮时请求，不在启动时批量申请
+    val requestMicPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startListening()
+        } else {
+            Toast.makeText(context, "需要麦克风权限才能语音输入", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onMicClick: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startListening()
+        } else {
+            requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    // ── 聊天历史恢复（V1.1 模块2）：冷启动从磁盘恢复显示消息 ──
+    // 只恢复 UI 显示消息，不恢复 ChatService.messages（重启后 system prompt 重新注入，
+    // 架构约束 §8.2-4）。IO 线程读取避免卡主线程；若已有消息（如恢复前已发生交互）则不覆盖。
+    // 恢复完成后 displayMessages.size 变化会触发下方自动滚动到底部。
+    LaunchedEffect(Unit) {
+        val restored = withContext(Dispatchers.IO) {
+            ChatHistoryStore.load(context.applicationContext)
+        }
+        if (displayMessages.isEmpty() && restored.isNotEmpty()) {
+            displayMessages.addAll(restored)
+        }
+    }
 
     // ── 首次启动引导（一次性、可跳过、不阻塞聊天） ──
     var showOnboarding by remember { mutableStateOf(!repo.onboardingCompleted) }
@@ -191,6 +285,9 @@ fun MainChatScreen(
             TopAppBar(
                 title = { Text("Live2Dai") },
                 actions = {
+                    IconButton(onClick = { showClearConfirm = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "清空对话")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "设置")
                     }
@@ -221,16 +318,42 @@ fun MainChatScreen(
                         enabled = !isLoading
                     )
                     Spacer(Modifier.width(8.dp))
+                    // ── V1.1 模块1：语音输入（ASR）麦克风按钮 ──
+                    // 识别中：loading 圆环反馈；失败/空结果静默（UI 无变化，降级文本输入）
+                    IconButton(
+                        onClick = onMicClick,
+                        enabled = !isLoading
+                    ) {
+                        if (isListening) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Mic, contentDescription = "语音输入")
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                     FilledTonalButton(
                         onClick = {
                             val text = inputText.trim()
                             if (text.isNotEmpty() && !isLoading) {
+                                // V1.1 模块1：发送新消息前打断当前 TTS 播报（避免新旧播报重叠）
+                                voiceIo.stopSpeaking()
                                 // 显示用户消息
                                 displayMessages.add(
                                     DisplayMessage(content = text, isUser = true)
                                 )
                                 inputText = ""
                                 isLoading = true
+
+                                // V1.1 模块2：用户消息加入即持久化（消息完整时保存，
+                                // 避免流式 delta 高频写盘）
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        ChatHistoryStore.save(context.applicationContext, displayMessages)
+                                    }
+                                }
 
                                 // 发起 LLM 流式请求（零配置默认走 GLM 免费兜底，见 LLMProviderManager）
                                 scope.launch {
@@ -286,6 +409,13 @@ fun MainChatScreen(
                                         )
                                     } finally {
                                         isLoading = false
+                                        // V1.1 模块2：助手回复完整/失败后持久化
+                                        // （流式过程中不写盘，避免每个 delta 都触发磁盘 IO）
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                ChatHistoryStore.save(context.applicationContext, displayMessages)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -363,8 +493,13 @@ fun MainChatScreen(
                         //   2) 插件通道 onAssistantMessage：供主动陪伴类插件（PluginHost.sendAssistantMessage）调用
                         // 注意：ChatService 持有 pluginManager.hooks 活引用，后注册的 hook 立即可见，无需重建 ChatService。
                         val emotionController = EmotionController(view)
-                        pluginManager.onAssistantMessage = { _, emotion ->
+                        pluginManager.onAssistantMessage = { text, emotion ->
                             emotion?.let { emotionController.setEmotion(it) }
+                            // V1.1 模块1：主动陪伴类消息（PluginHost.sendAssistantMessage）
+                            // 同样接入 TTS 播报；插件文本可能含 [emotion] 标签，播报前剥离
+                            scope.launch {
+                                voiceIo.speak(EmotionController.stripEmotionTags(text))
+                            }
                         }
                         pluginManager.registerHook(object : ChatHook {
                             override suspend fun beforeSend(
@@ -379,9 +514,15 @@ fun MainChatScreen(
                             ) {
                                 // assistantMessage 已剥离 [emotion] 标签，直接用解析出的关键词设置表情；
                                 // emotion 为 null 时跳过，保持当前表情。
+                                // V1.1 模块1 TTS 接线（plan §3.1.3 TTS 路径）：与表情切换同一 afterReceive 时机——
+                                // 表情先切换（视觉反馈立即），TTS 随后播报剥离标签后的纯文本（音频延迟 1-3s）。
                                 emotion?.let { emotionController.setEmotion(it) }
+                                voiceIo.speak(assistantMessage)
                             }
                         })
+                        // V1.1 模块4：LipSync 接线——TTS 播放状态回调（EdgeTtsService → VoiceIoController）
+                        // 驱动嘴型开合；视图创建后注入，播放时协程动画、停止时归零。
+                        voiceIo.attachLive2DView(view)
                         onLive2DViewCreated(view)
                     }
                 },
@@ -452,6 +593,35 @@ fun MainChatScreen(
                     showOnboarding = false
                 }) {
                     Text("以后再说")
+                }
+            }
+        )
+    }
+
+    // ── 清空对话确认对话框（V1.1 模块2） ──
+    // 破坏性操作：重置 LLM 上下文 + 清空显示消息 + 删除本地历史文件
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("清空对话") },
+            text = { Text("将清除当前聊天记录（本地历史与 LLM 上下文），且不可恢复。确定清空吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    chatService.resetConversation()
+                    displayMessages.clear()
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            ChatHistoryStore.clear(context.applicationContext)
+                        }
+                    }
+                    showClearConfirm = false
+                }) {
+                    Text("清空")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text("取消")
                 }
             }
         )

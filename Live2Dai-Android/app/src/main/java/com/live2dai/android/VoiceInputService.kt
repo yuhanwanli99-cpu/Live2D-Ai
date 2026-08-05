@@ -31,6 +31,12 @@ class VoiceInputService(private val context: Context) {
         suspendCancellableCoroutine { cont ->
             try {
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                if (speechRecognizer == null) {
+                    // 系统 SpeechRecognizer 创建失败（部分 ROM/权限异常）→ 立即降级为空结果，
+                    // 避免协程永久挂起导致 UI 卡在"识别中"状态（plan §8.1 ASR 不可用→文本输入）
+                    if (!cont.isCompleted) cont.resume("")
+                    return@suspendCancellableCoroutine
+                }
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINESE)

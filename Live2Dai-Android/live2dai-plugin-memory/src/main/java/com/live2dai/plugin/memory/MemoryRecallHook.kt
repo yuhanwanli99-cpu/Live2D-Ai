@@ -1,5 +1,6 @@
 package com.live2dai.plugin.memory
 
+import android.util.Log
 import com.live2dai.pluginsdk.ChatContext
 import com.live2dai.pluginsdk.ChatHook
 
@@ -15,6 +16,8 @@ class MemoryRecallHook(
     private val dao: MemoryDao,
     private val summaryLlmClient: SummaryLlmClient,
     private val triggerEveryNTurns: Int,
+    /** 记忆上限：写入后裁剪到最近 [maxFacts] 条（plan §3.3.2 默认 500）；<= 0 表示不裁剪 */
+    private val maxFacts: Int = 500,
     /** 时钟注入点（测试用），默认取系统时间 */
     private val now: () -> Long = System::currentTimeMillis,
 ) : ChatHook {
@@ -40,6 +43,7 @@ class MemoryRecallHook(
             }
         }
 
+        logInfo("beforeSend 注入 ${relevant.size} 条相关记忆")
         return "[系统: 相关记忆]\n" + relevant.joinToString("\n") { "- ${it.content}" }
     }
 
@@ -75,9 +79,28 @@ class MemoryRecallHook(
                         lastUsedAt = timestamp,
                     )
                 )
+                logInfo("afterReceive 写入新记忆：$content")
+                // 记忆上限（plan §3.3.2）：写入后 trim 最旧记录；<= 0 表示不裁剪
+                if (maxFacts > 0) {
+                    dao.deleteOldest(maxFacts)
+                    logInfo("afterReceive 裁剪记忆到最近 $maxFacts 条")
+                }
             }
         } catch (_: Exception) {
             // 数据库异常不影响对话流程
+        }
+    }
+
+    /**
+     * 日志输出（带单元测试防护）：本地 JVM 单测（无 Android 运行时）中
+     * android.util.Log 未被 mock，直接调用会抛 "Method i in android.util.Log not mocked"。
+     * 真机上行为与直接调用一致（Log.i）。TAG 统一 "Memory"（取证日志，见 V1.1 教训）。
+     */
+    private fun logInfo(message: String) {
+        try {
+            Log.i("Memory", message)
+        } catch (_: Throwable) {
+            // 单元测试环境：静默忽略
         }
     }
 }

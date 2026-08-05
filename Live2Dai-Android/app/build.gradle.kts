@@ -152,6 +152,11 @@ dependencies {
     // 视觉插件：截图描述 hook + capture_screen 工具（从 VisionService.kt 迁出）
     implementation(project(":live2dai-plugin-vision"))
 
+    // 记忆插件：长期记忆（Room 事实存储 + 关键词检索注入），V1.1 模块3 正式装载。
+    // core 注入 SummaryLlmClient 实现（LlmSummaryClient，复用用户配置的 LLM Provider）；
+    // 失败静默：记忆插件任何异常不影响对话核心链路（架构约束 §8.2-2）。
+    implementation(project(":live2dai-plugin-memory"))
+
     // Agent 工具插件：open_app / send_notification_reply / set_alarm（Wave 2）
     // 仅编译依赖（实现其 NotificationReplyBridge 接缝）；运行时插件未装载，行为不受影响。
     // 排期接入时在 MainActivity 的 loadPlugins 中装载（docs/plan-task-plugin-agent-tools.md）

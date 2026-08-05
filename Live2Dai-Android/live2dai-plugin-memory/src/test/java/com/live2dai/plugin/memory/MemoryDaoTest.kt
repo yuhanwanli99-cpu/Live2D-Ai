@@ -86,4 +86,43 @@ class MemoryDaoTest {
     fun getAll_emptyDatabaseReturnsEmptyList() = runBlocking {
         assertEquals(emptyList<MemoryFact>(), dao.getAll())
     }
+
+    @Test
+    fun deleteOldest_keepsNewestNByCreatedAt() = runBlocking {
+        val t0 = 1_720_000_000_000L
+        repeat(5) { i ->
+            dao.insert(
+                MemoryFact(
+                    content = "事实$i",
+                    keywords = "k$i",
+                    createdAt = t0 + i,
+                    lastUsedAt = t0 + i,
+                )
+            )
+        }
+
+        dao.deleteOldest(keepCount = 3)
+
+        val remaining = dao.getAll()
+        assertEquals("应保留最近 3 条", 3, remaining.size)
+        assertEquals(
+            "保留的是 createdAt 最大的 3 条",
+            listOf("事实2", "事实3", "事实4"),
+            remaining.sortedBy { it.createdAt }.map { it.content }
+        )
+    }
+
+    @Test
+    fun deleteOldest_keepCountZero_removesAll() = runBlocking {
+        val t0 = 1_720_000_000_000L
+        repeat(3) { i ->
+            dao.insert(
+                MemoryFact(content = "事实$i", keywords = "k$i", createdAt = t0 + i, lastUsedAt = t0 + i)
+            )
+        }
+
+        dao.deleteOldest(keepCount = 0)
+
+        assertTrue("keepCount=0 应删除全部", dao.getAll().isEmpty())
+    }
 }

@@ -22,4 +22,15 @@ interface MemoryDao {
 
     @Update
     suspend fun update(fact: MemoryFact)
+
+    /**
+     * 记忆上限裁剪：保留最近 [keepCount] 条（按 createdAt 降序，同分取 id 大者），
+     * 超出部分删除；keepCount <= 0 时删除全部。
+     * 见 docs/plan-v11-plan.schema.json → MemoryDao.deleteOldest。
+     */
+    @Query(
+        "DELETE FROM memory_facts WHERE id NOT IN " +
+            "(SELECT id FROM memory_facts ORDER BY createdAt DESC, id DESC LIMIT :keepCount)"
+    )
+    suspend fun deleteOldest(keepCount: Int)
 }

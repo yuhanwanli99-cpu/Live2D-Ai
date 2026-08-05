@@ -12,6 +12,8 @@ data class MemoryPluginConfig(
     val summaryLlmClient: SummaryLlmClient,
     /** 每 N 轮对话触发一次摘要生成（默认 10） */
     val summaryTriggerEveryNTurns: Int = 10,
+    /** 记忆上限：写入后裁剪到最近 N 条（plan §3.3.2 默认 500）；<= 0 表示不裁剪 */
+    val maxFacts: Int = 500,
     /** Room 数据库文件名 */
     val databaseName: String = "live2dai_memory.db",
 )

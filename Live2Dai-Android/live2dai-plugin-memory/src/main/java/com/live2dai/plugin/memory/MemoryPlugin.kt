@@ -1,5 +1,6 @@
 package com.live2dai.plugin.memory
 
+import android.util.Log
 import com.live2dai.pluginsdk.Live2DaiPlugin
 import com.live2dai.pluginsdk.PluginHost
 
@@ -27,7 +28,12 @@ class MemoryPlugin(private val config: MemoryPluginConfig) : Live2DaiPlugin {
                 dao = db.memoryDao(),
                 summaryLlmClient = config.summaryLlmClient,
                 triggerEveryNTurns = config.summaryTriggerEveryNTurns,
+                maxFacts = config.maxFacts,
             )
+        )
+        logInfo(
+            "MemoryPlugin 加载完成，hook 已注册 " +
+                "(db=${config.databaseName}, triggerEvery=${config.summaryTriggerEveryNTurns}, maxFacts=${config.maxFacts})"
         )
     }
 
@@ -35,5 +41,18 @@ class MemoryPlugin(private val config: MemoryPluginConfig) : Live2DaiPlugin {
         // 关闭 Room database 连接，释放文件句柄
         database?.close()
         database = null
+        logInfo("MemoryPlugin 卸载完成（Room database 已关闭）")
+    }
+
+    /**
+     * 日志输出（带单元测试防护）：本地 JVM 单测（无 Android 运行时）中
+     * android.util.Log 未被 mock，直接调用会抛 "Method i in android.util.Log not mocked"。
+     */
+    private fun logInfo(message: String) {
+        try {
+            Log.i("Memory", message)
+        } catch (_: Throwable) {
+            // 单元测试环境：静默忽略
+        }
     }
 }
