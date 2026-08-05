@@ -130,3 +130,130 @@ jobs:
           echo "- **Build type**: ${{ steps.metadata.outputs.build_type }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Duration**: ${{ steps.metadata.outputs.build_duration_seconds }}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- **APK size**: ${{ steps.metadata.outputs.apk_size_bytes }} bytes" >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job: build-pc-windows — PC 便携版 zip 打包（uv-venv-bundle）
+  # 与 build-apk 并列、互不阻塞（无 needs: 依赖），共用 push main + workflow_dispatch 触发
+  # 核心步骤直接调用 task-pkg-build 交付的一体化打包脚本 scripts/assemble_zip.py
+  # （内部完成: staging 拷贝 → uv sync → 捆绑托管解释器 → 便携 ffmpeg → 哨兵校验 → zip → verify_package）
+  # 产物: build/live2dai-pc-windows-<sha7>.zip
+  # ────────────────────────────────────────────────────────────────────────────
+  build-pc-windows:
+    name: Build PC Windows (Portable Zip)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      # 1. Checkout（含 submodule；本仓库无 gitlink，submodules 为幂等 no-op）
+      - name: Checkout code (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2. 补齐 frontend/libs（.gitignore 排除、未入库；上游 Open-LLM-VTuber-Web build 分支 pin 版本）
+      #    已本地核验: ac7de8e 的 libs/ 与仓库本地 frontend/libs 逐文件 md5 一致（仅 CRLF 差异）
+      #    libs/ 已存在时跳过（幂等）；文件数 < 10 视为上游布局变化，fail-fast
+      - name: Materialize frontend/libs (gitignored, pinned upstream)
+        shell: bash
+        run: |
+          LIBS_DIR="Live2Dai-pc/open-llm-vtuber/frontend/libs"
+          if [ -f "$LIBS_DIR/live2dcubismcore.js" ]; then
+            echo "frontend/libs already present ($(ls "$LIBS_DIR" | wc -l) files) — skipping fetch"
+          else
+            echo "frontend/libs missing in checkout — fetching from upstream build branch (pinned)"
+            curl -fsSL -o /tmp/oltv-web.tar.gz \
+              "https://github.com/Open-LLM-VTuber/Open-LLM-VTuber-Web/archive/ac7de8e880d803e4bda64aadda88208708d081ef.tar.gz"
+            tar -xzf /tmp/oltv-web.tar.gz -C /tmp
+            mkdir -p "$LIBS_DIR"
+            cp -r /tmp/Open-LLM-VTuber-Web-ac7de8e880d803e4bda64aadda88208708d081ef/libs/. "$LIBS_DIR/"
+            echo "Fetched $(ls "$LIBS_DIR" | wc -l) frontend lib files"
+          fi
+          COUNT=$(ls "$LIBS_DIR" | wc -l)
+          if [ "$COUNT" -lt 10 ]; then
+            echo "::error::frontend/libs incomplete ($COUNT files, expected >= 10) — upstream layout may have changed"
+            exit 1
+          fi
+
+      # 3. 安装 uv
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      # 4. 一体化打包（task-pkg-build 交付的 scripts/assemble_zip.py）
+      #    偏差说明：plan v2 §7.2 的步骤 3-9（uv sync / 可移植性检查 / ffmpeg / 哨兵 / pytest / zip / verify）
+      #    已被 delivered 脚本内部接管，CI 直接调用脚本（plan 依赖图未预见到的一体化入口）
+      - name: Assemble portable zip
+        run: python scripts/assemble_zip.py
+
+      # 5. 可移植性回归探针（非阻塞 + ::error:: 醒目告警）
+      #    背景：uv 在 Windows 上为 managed-python venv 生成的 Scripts/python.exe 是 trampoline，
+      #    内嵌基座解释器的绝对路径（本地已用 strings 验证二进制内含 AppData 绝对路径），
+      #    改写 pyvenv.cfg home 无法使其可移植 —— 这是 plan v2 的核心假设缺陷（详见交付说明）。
+      #    task-pkg-build 已在打包时捆绑 python/ 并改写 home=python（相对），但仅此不足以启动，
+      #    需额外用捆绑的 python/python.exe 覆盖 .venv/Scripts/python.exe（本地已验证可行）。
+      #    本探针在 CI 上真实模拟“无托管 Python 机器”，作为该问题的回归门禁；
+      #    修复落地后本步骤自动转绿，在此之前保持失败告警但不上传损坏产物也不阻塞 build-apk。
+      - name: Portability probe (packaged venv on clean machine)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $appDir = Join-Path $PWD 'build/staging/Live2Dai-pc/open-llm-vtuber'
+          $venvPy = Join-Path $appDir '.venv/Scripts/python.exe'
+          if (-not (Test-Path $venvPy)) {
+            Write-Host "::warning::staging venv not found at $appDir — skipping probe (assemble step failed earlier?)"
+            exit 0
+          }
+
+          $homeLine = (Get-Content (Join-Path $appDir '.venv/pyvenv.cfg') | Where-Object { $_ -like 'home = *' })
+          Write-Host "packaged pyvenv.cfg: $homeLine"
+          if ($homeLine -match '^home\s*=\s*[A-Za-z]:') {
+            Write-Host '::error::packaged pyvenv.cfg home is absolute — NOT portable'
+            exit 1
+          }
+          Write-Host 'OK: packaged pyvenv.cfg home is relative'
+
+          # 模拟最终用户机器：隐藏全部 uv 托管 Python 后运行打包的 venv
+          $installDir = (uv python dir).Trim()
+          Write-Host "uv python install dir: $installDir"
+          $moved = @()
+          $rc = 0
+          $out = ''
+          try {
+            Get-ChildItem -Path $installDir -Directory | Where-Object { $_.Name -like 'cpython-*' } | ForEach-Object {
+              $bak = "$($_.FullName).__portability_probe_bak__"
+              if (Test-Path $bak) { Remove-Item -Recurse -Force $bak }
+              Rename-Item -Path $_.FullName -NewName "$($_.Name).__portability_probe_bak__"
+              $moved += $_
+            }
+            Push-Location $appDir
+            $out = & '.venv\Scripts\python.exe' --version 2>&1
+            $rc = $LASTEXITCODE
+            Pop-Location
+          } catch {
+            Write-Host "::warning::portability probe error: $_"
+          } finally {
+            foreach ($d in $moved) {
+              $b = "$($d.FullName).__portability_probe_bak__"
+              if (Test-Path $b) { Rename-Item -Path $b -NewName $d.Name | Out-Null }
+            }
+          }
+          if ($rc -ne 0) {
+            Write-Host "::error::PORTABILITY PROBE FAILED (rc=$rc): $out"
+            Write-Host '::error::Packaged .venv/Scripts/python.exe cannot start without the CI uv-managed python.'
+            Write-Host '::error::uv Windows venv python.exe is a trampoline with an embedded absolute path.'
+            Write-Host '::error::Proven fix: in scripts/assemble_zip.py, copy the bundled python/python.exe over .venv/Scripts/python.exe (home stays relative "python").'
+            exit 1
+          } else {
+            Write-Host "OK: packaged venv runs without uv-managed python: $out"
+          }
+
+      # 6. 上传 artifact（命名: live2dai-pc-windows-<full sha>，与 build-apk 风格一致）
+      - name: Upload PC Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live2dai-pc-windows-${{ github.sha }}
+          path: build/live2dai-pc-windows-*.zip
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+

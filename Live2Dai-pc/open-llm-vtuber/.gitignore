@@ -32,6 +32,10 @@ lab.py
 .conda
 conda
 
+# Windows portable packaging (created by scripts/assemble_zip.py)
+/bin/
+/python/
+
 # Sensitive data
 .env
 api_keys.py
