@@ -1,6 +1,15 @@
 # Live2Dai 项目架构文档
 
-> 更新时间: 2026-07-18
+> 更新时间: 2026-08-05 | 架构版本: **V1（2026-08-05 确立，双端验收 PASS）**
+
+---
+
+## V1 验收基线（2026-08-05）
+
+- **V1 定义**：文本输入 → LLM → Live2D 做出相关回应（表情/动作），可正常对话即达成。
+- **Android 真机验收 PASS**：输入文本 → LLM 回复 `[joy]` → `EmotionController: setEmotion: joy -> expressionIndex=5` → 表情切换；多轮对话零崩溃。
+- **PC 验收 PASS**：WS text-input → LLM 回复 `[joy]`/`[anger]` → `audio.actions.expressions=[3]/[2]` → 前端 setExpression → 表情切换；会话闭环正常。
+- **验收修复**：commit `d2f1904`（表情链路接线回归 + LazyColumn key 哈希碰撞崩溃），91 单测全过。
 
 ---
 

@@ -1,6 +1,6 @@
 # Live2Dai — 架构规划
 
-> 更新日期: 2026-07-14 | 当前架构: **两端独立直连**
+> 更新日期: 2026-08-05 | 当前架构: **V1 确立 — 两端独立直连**
 
 ---
 
@@ -9,6 +9,7 @@
 - **Plan A (2026-06)**: Gateway + Bridge 三层架构 → 统一后端管理 AI + 路由
 - **Plan B (2026-07)**: 桌面端直连 API + Bridge 保留 → 去掉 Gateway 层
 - **当前 (2026-07+)**: **两端独立直连** → 桌面/Android 分别直连 LLM API，共享 `shared/persona.yaml` 配置
+- **V1 确立 (2026-08-05)**: 「文本输入 → LLM → Live2D 做出相关回应（表情/动作）」双端验收 PASS（Android 真机 + PC :12393）。核心链路 = 文本 → LLM（零配置 GLM-4.7-Flash 兜底 / DeepSeek 升级路径）→ `[emotion]` 标签 → Live2D 表情切换。验收顺带修复 2 个 P0（commit `d2f1904`：表情链路接线回归 + LazyColumn key 哈希碰撞崩溃）。
 
 ---
 

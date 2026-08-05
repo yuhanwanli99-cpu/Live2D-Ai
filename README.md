@@ -328,14 +328,25 @@ cd Live2Dai-Android && ./gradlew test
 
 ## 🧠 项目状态 | Project Status
 
-**当前阶段：Phase 2 — 执行 & 状态机模式**
+**当前阶段：V1 确立 ✅ — 文本 → LLM → Live2D 回应链路双端验收通过**
 
 | 阶段 | 时间 | 状态 |
 | ------ | ------ | ------ |
 | 初版 (Gateway + Bridge 架构) | 2026-06 | ❌ 已废弃 |
 | Wave 0 (独立直连 + Cubism SDK) | 2026-07 | ✅ 基础可用 |
-| **Wave 1 (Purism Core 迁移)** | **2026-07** | **✅ MVP 验收通过** |
+| Wave 1 (Purism Core 迁移) | 2026-07 | ✅ MVP 验收通过 |
+| **V1 (文本→LLM→Live2D 链路)** | **2026-08-05** | **✅ 双端验收 PASS** |
 | Wave 2+ (悬浮窗/多模型/触摸) | _规划中_ | ⏳ |
+
+### V1 架构定义（2026-08-05 确立）
+
+> **V1 = 「文本输入 → LLM → Live2D 做出相关回应（表情/动作）」，可正常对话即达成。**
+
+- **核心链路**：文本输入 → LLM（零配置 GLM-4.7-Flash 免费兜底 / DeepSeek 升级路径）→ 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
+- **Android 端**：Kotlin + Compose + Purism Core（MIT），真机 vivo V2254A 验收通过——logcat 证据 `EmotionController: setEmotion: joy -> expressionIndex=5`
+- **PC 端**：Open-LLM-VTuber 后端（:12393）+ React 前端，验收通过——WS 证据 `[joy]→expressions[3]`、`[anger]→expressions[2]`
+- **验收顺带修复 2 个 P0**（commit `d2f1904`）：① 表情链路断线（插件化重构回归，EmotionController 未接线）② LazyColumn key 哈希碰撞崩溃
+- **架构不变式**：两端独立直连 LLM API、无中心化后端；`shared/persona.yaml` 人设单源真理；表情切换不依赖插件通道（核心 ChatHook 直驱）
 
 ### MVP 验收数据 (2026-07-22)
 
