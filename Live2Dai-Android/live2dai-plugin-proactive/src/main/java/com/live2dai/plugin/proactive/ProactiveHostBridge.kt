@@ -22,4 +22,11 @@ internal object ProactiveHostBridge {
     /** LLM 问候生成器——fun interface 无法序列化进 WorkRequest inputData，只能走桥。 */
     @Volatile
     var greetingLlmClient: GreetingLlmClient? = null
+
+    /**
+     * 最近长期记忆提供者（V1.2 记忆驱动话题，plan §5.6.3）：core 注入，Worker 触发前读取。
+     * 同样是 suspend lambda，无法序列化进 inputData，只能走桥；读取失败由 Worker 静默降级为空列表。
+     */
+    @Volatile
+    var memoriesProvider: (suspend () -> List<String>)? = null
 }

@@ -36,6 +36,9 @@ dependencies {
     // PeriodicWorkRequest 最小间隔 15 分钟是 Android 平台硬约束
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
+    // androidx.core：主动陪伴通知（NotificationCompat / NotificationManagerCompat / ContextCompat 权限检查）
+    implementation("androidx.core:core-ktx:1.15.0")
+
     // 测试
     // plugin-sdk 为 compileOnly（主源码）；测试需要完整可见性，单独声明 testImplementation
     testImplementation(project(":plugin-sdk"))

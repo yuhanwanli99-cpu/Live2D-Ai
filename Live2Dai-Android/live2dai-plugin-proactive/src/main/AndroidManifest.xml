@@ -1,3 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 主动陪伴插件骨架：纯逻辑模块，无 Activity/Service/权限声明 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<!-- 主动陪伴插件：纯逻辑模块，无 Activity/Service 声明。
+     POST_NOTIFICATIONS：Android 13+ 发送通知栏通知的运行时权限（清单声明；
+     运行时请求由 core（MainActivity）处理，未授予时插件静默跳过通知）。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+</manifest>

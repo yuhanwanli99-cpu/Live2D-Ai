@@ -58,21 +58,29 @@ class ProactiveCheckWorker(
 
         host.sendAssistantMessage(greeting)
         tracker.recordProactiveMessage(now)
+        // 通知栏同步提示（App 在后台/息屏时用户也能看到）：权限缺失/禁用/失败一律静默
+        val personaName = runCatching { host.getPersona().name }.getOrNull().orEmpty()
+        ProactiveNotifier.notify(applicationContext, personaName, greeting)
         return Result.success()
     }
 
     /**
-     * 优先走 LLM 即时生成（结合人设 + 当前时间）；
+     * 优先走 LLM 即时生成（结合人设 + 当前时间 + 最近记忆，plan §5.6.3 记忆驱动话题）；
      * 客户端缺失、调用异常或返回 null 时返回 null，由调用方回退静态文案池。
      */
     private suspend fun generateGreeting(idleMinutes: Long): String? {
         val client = ProactiveHostBridge.greetingLlmClient ?: return null
         val persona = runCatching { ProactiveHostBridge.host?.getPersona() }.getOrNull()
+        // 记忆提供者缺失 / 读取失败 → 空列表（LLM 仅按人设+时间生成，不影响链路）
+        val memories = runCatching {
+            ProactiveHostBridge.memoriesProvider?.invoke().orEmpty()
+        }.getOrDefault(emptyList())
         return runCatching {
             client.generateGreeting(
                 personaName = persona?.name.orEmpty(),
                 systemPrompt = persona?.systemPrompt.orEmpty(),
                 idleMinutes = idleMinutes,
+                memories = memories,
             )
         }.getOrNull()
     }
@@ -90,7 +98,7 @@ class ProactiveCheckWorker(
         const val DEFAULT_QUIET_HOURS_START = ProactivePluginConfig.DEFAULT_QUIET_HOURS_START
         const val DEFAULT_QUIET_HOURS_END = ProactivePluginConfig.DEFAULT_QUIET_HOURS_END
 
-        private const val TAG = "ProactiveCheckWorker"
+        private const val TAG = "Proactive"
 
         /**
          * 判断给定 24 小时制小时是否处于静默时段（纯函数，便于确定性单测）。
