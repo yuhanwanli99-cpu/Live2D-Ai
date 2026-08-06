@@ -2,6 +2,7 @@ package com.live2dai.android.ui.settings
 
 import android.os.Handler
 import android.os.Looper
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -83,7 +84,11 @@ fun SettingsScreen(
     var showTtsVoiceMenu by remember { mutableStateOf(false) }
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showExitDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // ── 返回拦截：滑屏/系统返回键弹出确认（避免误触退出）──
+    BackHandler { showExitDialog = true }
 
     // ── V1.2 模块5：TTS/ASR 引擎选择 + 阿里云 Key + 离线模型下载状态 ──
     // 引擎选择立即持久化（speak/listen 时 VoiceIoController 读取），不随 onDispose 延迟。
@@ -622,6 +627,23 @@ fun SettingsScreen(
     // ── 关于弹窗 ──
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+
+    // ── 退出确认弹窗 ──
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("退出设置") },
+            text = { Text("所有设置会自动保存，确定退出吗？") },
+            confirmButton = {
+                TextButton(onClick = { showExitDialog = false; onNavigateBack() }) {
+                    Text("确定退出")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) { Text("继续设置") }
+            }
+        )
     }
 
     // ── 离开页面时自动保存所有设置 ──
