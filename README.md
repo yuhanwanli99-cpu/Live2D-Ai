@@ -1,8 +1,8 @@
 # Live2Dai 🐱
 
-> **Live2D AI 伴侣** — 用开源 Purism Core 替代闭源 Cubism SDK 的全栈 Android 猫娘。
+> **AI × Live2D 融合引擎** — 1 个极致核心 + 无限扩展（就像 Minecraft 的方块世界，mod 只是玩法）
 >
-> **Live2D AI Companion** — The first MIT full-stack open-source Android Live2D companion. Purism Core replaces the proprietary Cubism SDK.
+> **AI × Live2D Fusion Engine** — one rock-solid core, infinite extensions. Like Minecraft's block engine, mods are just playstyles. The core ships first.
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
@@ -10,14 +10,41 @@
   <img src="https://img.shields.io/badge/language-Kotlin-blueviolet" alt="Language Kotlin"/>
   <img src="https://img.shields.io/badge/Live2D-Purism%20Core-orange" alt="Live2D Purism Core"/>
   <img src="https://img.shields.io/badge/LLM-DeepSeek%20%7C%20GLM--4.7--Flash-blue" alt="LLM"/>
-  <img src="https://img.shields.io/badge/status-MVP%20%F0%9F%94%B0-success" alt="MVP ✅"/>
+  <img src="https://img.shields.io/badge/arch-pi--agent%20core%20%2B%20extensions-lightgrey" alt="Architecture"/>
 </p>
+
+---
+
+## 🎯 项目哲学 | Philosophy
+
+> **像 Minecraft 一样：核心决定一切，mod 只是玩法。**
+
+我们不和 N.E.K.O. 比功能广度（它们选择了强个体 + 与鸿蒙/阿里生态强绑定），也不和 Neuro‑sama 比直播包装（它的技术栈和我们同构，只是包装成了顶流 IP）。
+
+**Live2Dai 走的是"引擎型"路线**——把 AI 与 Live2D 的双向融合打磨到极致：
+
+```
+┌─────────────────────────────────┐
+│         扩展层（mod）             │
+│  多模型 / 多皮肤 / 直播 / 游戏    │  ← 随意装卸，不碰核心
+├─────────────────────────────────┤
+│        pi-agent 核心             │
+│  AI ⟷ Live2D 双向融合引擎        │  ← 只打磨这一层
+│  听 + 说 + 看 + 想 + 表情 + 动作  │
+└─────────────────────────────────┘
+```
+
+- **核心原子**（不可拆）：文本/语音 → LLM 理解 → Live2D 表情/动作/口型回应——这条链路必须打磨到"流畅自然"
+- **扩展（mod）**：视觉、主动陪伴、多模型、多皮肤、直播推流……全部走插件 SDK，不碰核心
+- **对标**：pi-agent 的"最小核心 + 可扩展" × Minecraft 的"强引擎 + 弱内容"——我们做的是 **AI ⊗ Live2D 的融合引擎**，不是又一个功能清单竞赛
+
+Neuro‑sama 证明了**技术栈可以普通，但核心融合得好 = 符合大众对 Live2D 虚拟人物的流畅期待**。我们的目标就是把这个"融合"做到开源界第一。
 
 ---
 
 ## 📖 项目简介 | Overview
 
-**Live2Dai** 是一款运行在 Android 手机上的 **猫娘 AI 伴侣**。她使用 **Live2D 模型**（猫娘角色）与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情。
+**Live2Dai** 是一款运行在 Android 手机上的 **猫娘 AI 伴侣**——但它的真正定位是 **AI × Live2D 融合引擎** 的参考实现。她使用 **Live2D 模型**（猫娘角色）与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。
 
 > "主人好呀喵~！今天想让我做什么呢？(=^･ω･^=)" —— 小喵
 
