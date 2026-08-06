@@ -49,6 +49,41 @@ class EmotionController(private val live2DView: Live2DView) {
         // 正则表达式：[emotion] 标签
         private val EMOTION_TAG_REGEX = Regex("""\[(\w+)]""")
 
+        // ── TTS 播报净化（task-fix-tts-sanitize）──
+        // 用户真机实测：TTS 播报读到 "[joy] ... 等于号 ..."——[emotion] 标签（部分路径）
+        // 与颜文字 (=^･ω･^=) 被朗读。sanitizeForTts 在 speak 统一入口兜底净化。
+
+        // 颜文字括号段：括号内仅含符号（无中文/字母/数字）→ 剥离，如 (=^･ω･^=) (≧▽≦)
+        // 括号内含中文（如（小声说））不匹配 → 保留（保守策略：不清正常中文括号）
+        private val KAOMOJI_PAREN_REGEX = Regex("""[（(][^（）()\u4e00-\u9fa5A-Za-z0-9]+[）)]""")
+
+        // 无括号简单颜文字：^_^ / >_< / =ω= 等三字符符号组合，前后不得紧跟字母/数字（避免误删）
+        private val SIMPLE_KAOMOJI_REGEX =
+            Regex("""(?<![A-Za-z0-9])[\^=<>;~][_·･ω∀≧≦][\^=<>;~](?![A-Za-z0-9])""")
+
+        // markdown 加粗/斜体符号：** 或 __ （2+ 连续）→ 剥离符号、保留文字；单个 * / _ 不动
+        private val MARKDOWN_SYMBOL_REGEX = Regex("""[*_]{2,}""")
+
+        /**
+         * 纯静态方法：TTS 播报前统一净化文本。
+         *
+         * 在 [stripEmotionTags]（剥离 [emotion] 标签）基础上，进一步剥离会被 TTS 朗读的
+         * 符号类内容：颜文字括号段（如 (=^･ω･^=) 会被读成"等于号"）、无括号简单颜文字、
+         * markdown 加粗/斜体符号。
+         *
+         * 保守原则（与 PC 端 tts_preprocessor.py 的 filter_brackets/filter_parentheses 不同）：
+         * 只清"符号类"内容，**不得误删正常中文括号**（（小声说）等括号内含中文 → 保留）。
+         * 仅影响 TTS 播报文本，不影响 UI 显示与字幕。
+         */
+        fun sanitizeForTts(text: String): String {
+            return text
+                .replace(EMOTION_TAG_REGEX, "")          // [joy] 等 [emotion] 标签
+                .replace(KAOMOJI_PAREN_REGEX, "")       // 颜文字括号段 (=^･ω･^=)
+                .replace(SIMPLE_KAOMOJI_REGEX, "")      // 无括号简单颜文字 ^_^ / >_<
+                .replace(MARKDOWN_SYMBOL_REGEX, "")     // **xx** 符号剥离，保留文字
+                .trim()
+        }
+
         /**
          * 纯静态方法：剥离文本中的 [emotion] 标签
          * 用在 UI 层流式显示时，避免用户看到原始标签文本

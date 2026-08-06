@@ -170,6 +170,23 @@ class VoiceIoControllerTest {
         verify(edgeProvider, never()).speak(any())
     }
 
+    @Test
+    fun testSpeakSanitizesBeforeForwardingToProvider() = runTest {
+        // task-fix-tts-sanitize：speak 内部第一行统一净化（[emotion] 标签 + 颜文字），
+        // 到达 Provider 前的文本必须已剥离——覆盖 MainActivity 两条播报路径（统一入口）。
+        controller.speak("[joy] 主人好喵 (=^･ω･^=)")
+        verify(edgeProvider).speak("主人好喵")
+        verify(systemProvider, never()).speak(any())
+    }
+
+    @Test
+    fun testSpeakSkipsProviderWhenSanitizedTextIsBlank() = runTest {
+        // 纯标签/纯颜文字 → 净化后为空 → 不进入降级链（与空文本短路同语义）
+        controller.speak("(=^･ω･^=)")
+        verify(edgeProvider, never()).speak(any())
+        verify(systemProvider, never()).speak(any())
+    }
+
     // ─────────────────────────────────────────────
     // isSpeaking（组合播放状态）
     // ─────────────────────────────────────────────

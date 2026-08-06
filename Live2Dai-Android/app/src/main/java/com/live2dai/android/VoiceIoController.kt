@@ -118,6 +118,12 @@ class VoiceIoController(
     /**
      * TTS 播报纯文本（已剥离 [emotion] 标签）。
      *
+     * task-fix-tts-sanitize：speak 是 TTS 播报统一入口（MainActivity 两条路径
+     * ChatHook.afterReceive / onAssistantMessage 都调这里），第一行统一净化——
+     * [EmotionController.sanitizeForTts] 剥离 [emotion] 标签 + 颜文字括号段
+     * （(=^･ω･^=) 会被 TTS 读成"等于号"）+ markdown 符号，之后所有逻辑用净化后的文本。
+     * 净化后为空文本 → 直接跳过（与空文本短路同语义）。
+     *
      * 降级链（plan §3.1.7）：按序尝试 [providers]，成功即停；失败继续下一个；
      * 全失败静默降级（日志 Log.i 级别记录哪个 Provider 成功/失败）。
      *
@@ -127,7 +133,13 @@ class VoiceIoController(
      */
     suspend fun speak(text: String, providerId: String? = null) {
         if (text.isBlank()) return
-        logD("speak() 开始播报: ${text.take(40)}")
+        // 统一净化：剥离 [emotion] 标签 + 颜文字 + markdown 符号（只影响播报，不影响字幕/UI）
+        val clean = EmotionController.sanitizeForTts(text)
+        if (clean.isBlank()) {
+            logD("speak() 净化后为空文本，跳过播报: ${text.take(40)}")
+            return
+        }
+        logD("speak() 开始播报: ${clean.take(40)}")
         val chain = resolveChain(providerId)
         if (chain.isEmpty()) {
             logW("speak() 无可用 provider（providerId=$providerId），静默降级")
@@ -135,12 +147,12 @@ class VoiceIoController(
         }
         // 模块7 遥测：首选 Provider 的合成开始事件（降级链首元素——无论最终哪个成功）
         VoiceTelemetry.log(
-            VoiceEvent.TtsStarted(chain.first().info.id, text.length, System.currentTimeMillis())
+            VoiceEvent.TtsStarted(chain.first().info.id, clean.length, System.currentTimeMillis())
         )
         for ((index, provider) in chain.withIndex()) {
             val startedAt = System.currentTimeMillis()
             try {
-                provider.speak(text)
+                provider.speak(clean)
                 VoiceTelemetry.log(
                     VoiceEvent.TtsSucceeded(
                         provider.info.id,
