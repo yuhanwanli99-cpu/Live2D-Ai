@@ -61,6 +61,14 @@ android {
             ?: (project.findProperty("DEEPSEEK_API_KEY") as? String)?.ifBlank { null }
             ?: System.getenv("DEEPSEEK_API_KEY")?.ifBlank { null }
             ?: ""
+        val cosyvoiceKey = localProps.getProperty("COSYVOICE_API_KEY")?.ifBlank { null }
+            ?: (project.findProperty("COSYVOICE_API_KEY") as? String)?.ifBlank { null }
+            ?: System.getenv("COSYVOICE_API_KEY")?.ifBlank { null }
+            ?: ""
+        val cosyvoiceWsUrl = localProps.getProperty("COSYVOICE_WS_URL")?.ifBlank { null }
+            ?: (project.findProperty("COSYVOICE_WS_URL") as? String)?.ifBlank { null }
+            ?: System.getenv("COSYVOICE_WS_URL")?.ifBlank { null }
+            ?: ""
         val zhipuKey = localProps.getProperty("ZHIPU_API_KEY")?.ifBlank { null }
             ?: (project.findProperty("ZHIPU_API_KEY") as? String)?.ifBlank { null }
             ?: System.getenv("ZHIPU_API_KEY")?.ifBlank { null }
@@ -68,6 +76,8 @@ android {
 
         buildConfigField("String", "DEEPSEEK_API_KEY", "\"${deepseekKey}\"")
         buildConfigField("String", "ZHIPU_API_KEY", "\"${zhipuKey}\"")
+        buildConfigField("String", "COSYVOICE_API_KEY", "\"${cosyvoiceKey}\"")
+        buildConfigField("String", "COSYVOICE_WS_URL", "\"${cosyvoiceWsUrl}\"")
     }
 
     buildTypes {

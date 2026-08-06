@@ -168,7 +168,7 @@ class SettingsRepositoryTest {
         repo.aliyunApiKey = "sk-test"
         repo.resetAll()
         val repo2 = SettingsRepository(context)
-        assertEquals("resetAll 后应回退空默认值", "", repo2.aliyunApiKey)
+        assertEquals("resetAll 后应回退默认值", SettingsRepository.DEFAULT_COSYVOICE_API_KEY, repo2.aliyunApiKey)
     }
 
     // ── CosyVoice WS 端点（V1.2 模块2 专属服务可选配置）──
@@ -201,7 +201,7 @@ class SettingsRepositoryTest {
         repo.cosyvoiceWsUrl = "wss://custom.example.com/api-ws/v1/inference"
         repo.resetAll()
         val repo2 = SettingsRepository(context)
-        assertEquals("resetAll 后应回退空默认值", "", repo2.cosyvoiceWsUrl)
+        assertEquals("resetAll 后应回退默认值", SettingsRepository.DEFAULT_COSYVOICE_WS_URL, repo2.cosyvoiceWsUrl)
     }
 
     // ── Live2D 形象（selectedModelId）──

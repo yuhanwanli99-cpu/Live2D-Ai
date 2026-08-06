@@ -188,10 +188,10 @@ class SettingsRepository(context: Context) {
         const val DEFAULT_TTS_PROVIDER_ID = "cosyvoice_ws"
 
         /** CosyVoice API Key 默认值：空（用户需自行注册 DashScope 获取） */
-        const val DEFAULT_COSYVOICE_API_KEY = ""
+        val DEFAULT_COSYVOICE_API_KEY: String get() = BuildConfig.COSYVOICE_API_KEY.ifEmpty { "" }
 
         /** CosyVoice WS 端点默认值：空（= 使用 provider 默认公共 inference 端点） */
-        const val DEFAULT_COSYVOICE_WS_URL = ""
+        val DEFAULT_COSYVOICE_WS_URL: String get() = BuildConfig.COSYVOICE_WS_URL.ifEmpty { "" }
 
         /** 首选 ASR 引擎默认值：sherpa_sensevoice（离线优先，plan §4.3） */
         const val DEFAULT_ASR_PROVIDER_ID = "sherpa_sensevoice"
