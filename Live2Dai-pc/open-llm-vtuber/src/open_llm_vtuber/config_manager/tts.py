@@ -232,6 +232,69 @@ class Cosyvoice2TTSConfig(I18nMixin):
     }
 
 
+class CosyVoiceCloudTtsConfig(I18nMixin):
+    """Configuration for CosyVoice Cloud TTS (阿里云 DashScope inference API).
+
+    V1.2 新增: 云端 CosyVoice（中国大陆直连，官方 dashscope SDK + run-task 协议）。
+    V1.2.1 修正: 端点从 /api-ws/v1/realtime 改为 /api-ws/v1/inference（专属服务实测）。
+    api_key 为空或 "${...}" 占位符时，引擎会回退读取环境变量 ALIYUN_API_KEY。
+    """
+
+    api_key: str = Field("", alias="api_key")
+    voice: str = Field("longxiaochun", alias="voice")
+    model: str = Field("cosyvoice-v1", alias="model")
+    format: str = Field("mp3", alias="format")
+    sample_rate: int = Field(22050, alias="sample_rate")
+    volume: int = Field(50, alias="volume")
+    rate: float = Field(1.0, alias="rate")
+    pitch: float = Field(1.0, alias="pitch")
+    ws_url: str = Field(
+        "wss://dashscope.aliyuncs.com/api-ws/v1/inference", alias="ws_url"
+    )
+    timeout: float = Field(60.0, alias="timeout")
+    max_retries: int = Field(2, alias="max_retries")
+
+    DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
+        "api_key": Description(
+            en="Aliyun DashScope API key (or env ALIYUN_API_KEY)",
+            zh="阿里云 DashScope API Key（或环境变量 ALIYUN_API_KEY）",
+        ),
+        "voice": Description(
+            en="Voice name (e.g., longxiaochun)", zh="音色名称（如 longxiaochun）"
+        ),
+        "model": Description(
+            en="CosyVoice model name (e.g., cosyvoice-v1)",
+            zh="CosyVoice 模型名（如 cosyvoice-v1）",
+        ),
+        "format": Description(
+            en="Output audio format (mp3/pcm/wav)", zh="输出音频格式（mp3/pcm/wav）"
+        ),
+        "sample_rate": Description(
+            en="Audio sample rate (e.g., 22050)", zh="音频采样率（如 22050）"
+        ),
+        "volume": Description(
+            en="Speech volume (0-100)", zh="语音音量（0-100）"
+        ),
+        "rate": Description(
+            en="Speech rate multiplier", zh="语速倍数"
+        ),
+        "pitch": Description(
+            en="Speech pitch multiplier", zh="音高倍数"
+        ),
+        "ws_url": Description(
+            en="DashScope inference WebSocket endpoint (run-task protocol)",
+            zh="DashScope inference WebSocket 端点（run-task 协议）",
+        ),
+        "timeout": Description(
+            en="Synthesis timeout in seconds", zh="合成超时时间（秒）"
+        ),
+        "max_retries": Description(
+            en="Max retries for transient network errors",
+            zh="网络瞬时错误的最大重试次数",
+        ),
+    }
+
+
 class MeloTTSConfig(I18nMixin):
     """Configuration for Melo TTS."""
 
@@ -689,6 +752,7 @@ class TTSConfig(I18nMixin):
         "edge_tts",
         "cosyvoice_tts",
         "cosyvoice2_tts",
+        "cosyvoice_cloud",
         "melo_tts",
         "coqui_tts",
         "x_tts",
@@ -709,6 +773,9 @@ class TTSConfig(I18nMixin):
     edge_tts: Optional[EdgeTTSConfig] = Field(None, alias="edge_tts")
     cosyvoice_tts: Optional[CosyvoiceTTSConfig] = Field(None, alias="cosyvoice_tts")
     cosyvoice2_tts: Optional[Cosyvoice2TTSConfig] = Field(None, alias="cosyvoice2_tts")
+    cosyvoice_cloud: Optional[CosyVoiceCloudTtsConfig] = Field(
+        None, alias="cosyvoice_cloud"
+    )
     melo_tts: Optional[MeloTTSConfig] = Field(None, alias="melo_tts")
     coqui_tts: Optional[CoquiTTSConfig] = Field(None, alias="coqui_tts")
     x_tts: Optional[XTTSConfig] = Field(None, alias="x_tts")
@@ -739,6 +806,10 @@ class TTSConfig(I18nMixin):
         ),
         "cosyvoice2_tts": Description(
             en="Configuration for Cosyvoice2 TTS", zh="Cosyvoice2 TTS 配置"
+        ),
+        "cosyvoice_cloud": Description(
+            en="Configuration for CosyVoice Cloud TTS (DashScope)",
+            zh="CosyVoice 云端 TTS 配置（DashScope）",
         ),
         "melo_tts": Description(en="Configuration for Melo TTS", zh="Melo TTS 配置"),
         "coqui_tts": Description(en="Configuration for Coqui TTS", zh="Coqui TTS 配置"),
@@ -786,6 +857,8 @@ class TTSConfig(I18nMixin):
             values.cosyvoice_tts.model_validate(values.cosyvoice_tts.model_dump())
         elif tts_model == "cosyvoice2_tts" and values.cosyvoice2_tts is not None:
             values.cosyvoice2_tts.model_validate(values.cosyvoice2_tts.model_dump())
+        elif tts_model == "cosyvoice_cloud" and values.cosyvoice_cloud is not None:
+            values.cosyvoice_cloud.model_validate(values.cosyvoice_cloud.model_dump())
         elif tts_model == "melo_tts" and values.melo_tts is not None:
             values.melo_tts.model_validate(values.melo_tts.model_dump())
         elif tts_model == "coqui_tts" and values.coqui_tts is not None:

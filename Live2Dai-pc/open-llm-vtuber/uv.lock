@@ -627,6 +627,25 @@ wheels = [
 ]
 
 [[package]]
+name = "dashscope"
+version = "1.26.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "certifi" },
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "typer" },
+    { name = "websocket-client" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/6b/054a5d451ff6bd05f388bfc4d65e69261d364e2592447de29e26d5fdee4d/dashscope-1.26.5-py3-none-any.whl", hash = "sha256:95b74d539b6243306401867cf4dfa78a1cf72c0f666572ac63e111d4960b4ef7", size = 1532012, upload-time = "2026-07-31T07:40:49.005Z" },
+]
+
+[[package]]
 name = "distlib"
 version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1690,6 +1709,7 @@ dependencies = [
     { name = "azure-cognitiveservices-speech" },
     { name = "cartesia" },
     { name = "chardet" },
+    { name = "dashscope" },
     { name = "duckduckgo-mcp-server" },
     { name = "edge-tts" },
     { name = "elevenlabs" },
@@ -1741,6 +1761,7 @@ requires-dist = [
     { name = "brotli", marker = "extra == 'bilibili'", specifier = "~=1.1.0" },
     { name = "cartesia", specifier = ">=2.0.0" },
     { name = "chardet", specifier = ">=5.2.0" },
+    { name = "dashscope", specifier = ">=1.26.0" },
     { name = "duckduckgo-mcp-server", specifier = ">=0.1.1" },
     { name = "edge-tts", specifier = ">=7.0.0" },
     { name = "elevenlabs", specifier = ">=1.0.0" },

@@ -40,6 +40,7 @@ dependencies = [
     "websocket-client>=1.8.0",
     "letta-client>=0.1.100",
     "duckduckgo-mcp-server>=0.1.1",
+    "dashscope>=1.26.0",
     "pillow>=12.3.0",
     "faster-whisper>=1.2.1",
     "silero-vad>=6.2.1",

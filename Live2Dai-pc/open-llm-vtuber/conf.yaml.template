@@ -77,6 +77,24 @@ character_config:
     tts_model: 'edge_tts'
     edge_tts:
       voice: 'zh-CN-XiaoxiaoNeural'
+    # V1.2 新增: 阿里云 DashScope CosyVoice 云端 TTS（中国大陆直连，可选）
+    # 启用方式: 将上方 tts_model 改为 'cosyvoice_cloud'（默认仍为 edge_tts，不破坏现有路径）
+    # API Key 占位符 ${ALIYUN_API_KEY} 未设置时，会回退读取环境变量 ALIYUN_API_KEY
+    # V1.2.1 修正: 使用官方 dashscope SDK（run-task 协议），端点 /api-ws/v1/inference
+    # 专属服务用户: 将 ws_url 改为自己的专属 host（如
+    #   wss://ws-s8erlxkb5f8b1j59.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference）
+    cosyvoice_cloud:
+      api_key: '${ALIYUN_API_KEY}'
+      voice: 'longxiaochun'
+      model: 'cosyvoice-v1'
+      format: 'mp3'
+      sample_rate: 22050
+      volume: 50
+      rate: 1.0
+      pitch: 1.0
+      ws_url: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference'
+      timeout: 60.0
+      max_retries: 2
 
   vad_config:
     vad_model: 'silero_vad'

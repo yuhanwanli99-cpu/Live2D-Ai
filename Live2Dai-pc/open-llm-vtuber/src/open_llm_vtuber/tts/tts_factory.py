@@ -122,5 +122,22 @@ class TTSFactory:
                 pitch=kwargs.get("pitch"),
                 speed=kwargs.get("speed"),
             )
+        elif engine_type == "cosyvoice_cloud":
+            # V1.2 新增: 阿里云 DashScope CosyVoice 云端 TTS（中国大陆直连，可选）
+            from .cosyvoice_cloud_tts import CosyVoiceCloudTTSEngine
+
+            return CosyVoiceCloudTTSEngine(
+                api_key=kwargs.get("api_key", ""),
+                voice=kwargs.get("voice", "longxiaochun"),
+                model=kwargs.get("model", "cosyvoice-v1"),
+                format=kwargs.get("format", "mp3"),
+                sample_rate=kwargs.get("sample_rate", 22050),
+                volume=kwargs.get("volume", 50),
+                rate=kwargs.get("rate", 1.0),
+                pitch=kwargs.get("pitch", 1.0),
+                ws_url=kwargs.get("ws_url", CosyVoiceCloudTTSEngine.DEFAULT_WS_URL),
+                timeout=kwargs.get("timeout", 60.0),
+                max_retries=kwargs.get("max_retries", 2),
+            )
         else:
             raise ValueError(f"Unknown TTS engine type: {engine_type}")
