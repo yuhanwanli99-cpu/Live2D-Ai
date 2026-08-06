@@ -28,7 +28,7 @@ import org.mockito.kotlin.whenever
  *
  * 验证链路（契约 docs/plan-v12-plan.schema.json → functions.VoiceIoController.isSpeaking）：
  * - 构造时收集各 Provider 的 isSpeaking 组合流（替代 V1.1 EdgeTtsService 回调接线）
- * - 任一 Provider 播放开始（isSpeaking=true）→ 嘴型正弦动画协程启动，周期性调用 setLipSyncParam
+ * - 任一 Provider 播放开始（isSpeaking=true）→ 嘴型随机波动动画协程启动，周期性调用 setLipSyncParam
  * - 播放结束（isSpeaking=false）→ 协程取消，嘴型归零 setLipSyncParam(0f)
  * - Live2DView 未接线时动画跳过（不崩溃）
  * - release() 停止动画并解绑
@@ -121,20 +121,27 @@ class VoiceIoControllerLipSyncTest {
     }
 
     @Test
-    fun mouthAnimationFollowsSineFormula() {
+    fun mouthAnimationFollowsRandomizedSmoothedFormula() {
         controller.handlePlaybackState(true)
-        // frame 0/1/2 对应 t=0/100/200ms：值应等于 LipSyncMath 公式输出（证明嘴型在动）
+        // frame 0/1/2 对应 t=0/100/200ms：值应等于 LipSyncMath 随机目标经 smoothMouth
+        // 平滑后的序列（帧号作随机种子 → 测试可精确复算，证明嘴型由新公式驱动且带 lerp 平滑）
         scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 3)
-        verify(view, atLeastOnce()).setLipSyncParam(LipSyncMath.mouthValue(0))
-        verify(view, atLeastOnce()).setLipSyncParam(LipSyncMath.mouthValue(1))
-        verify(view, atLeastOnce()).setLipSyncParam(LipSyncMath.mouthValue(2))
-        // 三个值互不相同（正弦波动，非恒定值）
-        val values = setOf(
-            LipSyncMath.mouthValue(0),
-            LipSyncMath.mouthValue(1),
-            LipSyncMath.mouthValue(2)
+        var expected = 0f
+        // frame 0：首帧从闭嘴起步（randomizedMouth(0, true)=0.0）
+        expected = LipSyncMath.smoothMouth(expected, LipSyncMath.randomizedMouth(0, true))
+        verify(view, atLeastOnce()).setLipSyncParam(expected)
+        // frame 1：向随机目标平滑靠近（factor=0.3）
+        expected = LipSyncMath.smoothMouth(expected, LipSyncMath.randomizedMouth(1, false))
+        verify(view, atLeastOnce()).setLipSyncParam(expected)
+        // frame 2：继续平滑
+        expected = LipSyncMath.smoothMouth(expected, LipSyncMath.randomizedMouth(2, false))
+        verify(view, atLeastOnce()).setLipSyncParam(expected)
+        // 平滑保证嘴型值永不越界、不为负（0=闭嘴, 上限=波动上限）
+        assertTrue("嘴型值不应为负，实际: $expected", expected >= 0f)
+        assertTrue(
+            "嘴型值不应超过波动上限 ${LipSyncMath.MAX_MOUTH}，实际: $expected",
+            expected <= LipSyncMath.MAX_MOUTH
         )
-        assertTrue("嘴型值应有变化，实际: $values", values.size >= 2)
     }
 
     // ─────────────────────────────────────────────
