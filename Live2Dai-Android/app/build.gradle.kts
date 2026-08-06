@@ -106,6 +106,26 @@ android {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  sherpa-onnx 离线引擎（V1.2 模块3/4）— 条件源码集
+//
+//  sherpa-onnx 官方不在 Maven Central 发布 Android AAR（plan §3.3.3 的坐标
+//  `com.k2fsa.sherpa:onnx-tts-engine:1.12.0` 实测不存在），引擎以 GitHub Releases 的
+//  `.aar` 分发。下载到 app/libs/ 后由下方 fileTree 自动引入（与 Live2D SDK 同机制）：
+//
+//    curl -L -o app/libs/sherpa-onnx-1.13.4.aar \
+//      https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.4/sherpa-onnx-1.13.4.aar
+//    （中国大陆网络需镜像，如 https://gh-proxy.com/ 前缀；AAR 已被根 .gitignore 排除）
+//
+//  AAR 缺失时构建仍通过：src/sherpaOnnxEngine/ 条件源码集不参与编译，sherpa 引用
+//  不进入 classpath，SherpaOnnxTtsProvider/AsrProvider 运行时 health=UNAVAILABLE 降级
+//  （SherpaOnnxEngineRegistry.tryBootstrap 的 Class.forName 静默失败）。
+// ═══════════════════════════════════════════════════════════════════
+if (file("libs/sherpa-onnx-1.13.4.aar").exists()) {
+    // AAR 存在 → 编译真实引擎实现（JNI 包装，类型安全）
+    android.sourceSets.getByName("main").java.srcDir("src/sherpaOnnxEngine/kotlin")
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Pre-build: 复制 shared/model_registry.json → app assets
 //  注册表（shared/model_registry.json）是跨平台唯一真相源，构建时同步到
 //  src/main/assets/model_registry.json，运行时由 ModelRegistry 从 assets 读取。
@@ -162,6 +182,18 @@ dependencies {
     // 排期接入时在 MainActivity 的 loadPlugins 中装载（docs/plan-task-plugin-agent-tools.md）
     implementation(project(":live2dai-plugin-agent-tools"))
 
+    // 主动陪伴插件（V1.2 模块6，docs/plan-v12-plan.md §5.6）：
+    // WorkManager 周期检查「距上次对话 + 静默时段 + 冷却」→ 主动话题（LLM + 记忆）→
+    // host.sendAssistantMessage（经 onAssistantMessage → voiceIo.speak 播报）+ 通知栏通知。
+    // core 注入 GreetingLlmClient 实现（ProactiveGreetingClient，复用当前 LLM Provider）
+    // 与 memoriesProvider（ProactiveMemorySource，读记忆插件 Room 库）。
+    implementation(project(":live2dai-plugin-proactive"))
+
+    // Room runtime：ProactiveMemorySource 直接读取记忆插件（live2dai-plugin-memory）的
+    // MemoryDatabase（RoomDatabase 子类）；memory 模块以 implementation 引入 Room，
+    // 不对外暴露编译类路径，此处需显式声明（版本与 memory 模块一致）
+    implementation("androidx.room:room-runtime:2.6.1")
+
     // Kotlin Serialization (for API JSON parsing)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
@@ -189,6 +221,8 @@ dependencies {
     // 从 Live2D 官网下载 Cubism SDK for Android，放入 libs/ 目录即可自动生效
     // 如果未下载 SDK，此行不会报错（fileTree 在目录为空时自动跳过）
     // 代码在运行时会检测 native 库是否可用，不可用时自动降级到占位渲染
+    // sherpa-onnx 引擎 AAR（V1.2 模块3/4，sherpa-onnx-1.13.4.aar）同样经此自动引入：
+    // 缺失时条件源码集不编译（见上方 sherpa-onnx 条件源码集段），构建仍通过。
     implementation(fileTree("libs") { include("*.aar") })
 
     // Core Android

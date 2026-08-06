@@ -30,6 +30,8 @@ include(":live2dai-plugin-vision")
 // 需同步从根 build.gradle.kts 的 unloadedSkeletonModules 中移除对应模块。
 // live2dai-plugin-memory 已于 V1.1 模块3 正式装载进 app（MainActivity loadPlugins），
 // 已从骨架列表除名，其测试随全量构建恢复运行。
+// live2dai-plugin-proactive 已于 V1.2 模块6 正式装载进 app（MainActivity loadPlugins），
+// 已从骨架列表除名，其测试随全量构建恢复运行。
 include(":live2dai-plugin-memory")
 include(":live2dai-plugin-proactive")
 include(":live2dai-plugin-agent-tools")

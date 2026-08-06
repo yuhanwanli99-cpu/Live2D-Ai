@@ -3,36 +3,45 @@ package com.live2dai.android
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import okhttp3.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import java.io.File
 import java.io.FileOutputStream
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
 
 /**
- * Edge TTS 服务
+ * Edge TTS Provider（V1.2 模块1：EdgeTtsService → EdgeTtsProvider 重构）。
  *
- * 三层降级策略：
- *   1. Edge TTS (WebSocket 直连微软 TTS 引擎)
- *   2. Android 系统 TTS (TextToSpeech)
- *   3. 静默降级（不播放任何音频）
+ * 实现 [TtsProvider] 接口，保留原 EdgeTtsService 的 WebSocket 合成 + MediaPlayer
+ * 播放逻辑；Android 系统 TTS 降级逻辑已剥离至 [SystemTtsProvider]（plan §3.1.8），
+ * 原内部三层降级链（Edge → 系统 TTS → 静默）改为注册表外部降级链
+ * （edge_tts → system_tts → 静默，由 VoiceIoController 遍历 [TtsProviderRegistry.cascade]）。
+ *
+ * 契约变化（plan §3.1.3）：speak 失败必须向上抛异常（由降级链捕获继续尝试下一个
+ * Provider），不再内部吞掉后降级到系统 TTS。
  *
  * Edge TTS 使用 `wss://speech.platform.bing.com/` 公共端点，
  * 通过 WebSocket 发送 SSML 并接收 MP3 音频流。
  */
-class EdgeTtsService(private val context: Context) {
+class EdgeTtsProvider(private val context: Context) : TtsProvider {
 
     companion object {
+        private const val TAG = "TtsProvider"
+
+        /** Provider 唯一标识（契约 schema providersV12.edge_tts） */
+        const val PROVIDER_ID = "edge_tts"
+
         private const val EDGE_WSS_URL = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4"
 
         /** 默认中文语音 */
@@ -45,6 +54,22 @@ class EdgeTtsService(private val context: Context) {
         private const val WS_READ_TIMEOUT_SECONDS = 60L
     }
 
+    private val _health = MutableStateFlow(TtsHealth.OK)
+
+    override val info = TtsProviderInfo(
+        id = PROVIDER_ID,
+        name = "Edge TTS",
+        category = TtsProviderCategory.CLOUD_WS,
+        requiresNetwork = true,
+        health = _health,
+        // Wave A：CosyVoice(0) 未注册前 edge 暂占 1；CosyVoice 注册为 0 时按数值自动前移（plan §3.1.6）
+        priority = 1,
+        configurable = false,
+    )
+
+    private val _isSpeaking = MutableStateFlow(false)
+    override val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(WS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(WS_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -53,74 +78,28 @@ class EdgeTtsService(private val context: Context) {
 
     private var mediaPlayer: MediaPlayer? = null
 
-    private var androidTts: TextToSpeech? = null
-    private var androidTtsReady = false
-
     /**
-     * 播放状态回调（V1.1 模块4 LipSync 驱动，契约见 docs/plan-v11-plan.schema.json →
-     * "EdgeTtsService (扩展) onPlaybackStateChanged"）。
+     * 语音合成 + 播放（TtsProvider 契约）。
      *
-     * - true = 开始播放（MediaPlayer onPrepared→start / Android TTS onStart）
-     * - false = 播放结束/中断（MediaPlayer onCompletion/onError / Android TTS onDone/onError / stop()）
+     * 仅执行 Edge TTS WebSocket 合成 → MediaPlayer 播放；任何失败（WebSocket
+     * 异常 / 未返回音频 / 播放器同步错误）向上抛异常，由上层降级链处理
+     * （VoiceIoController → TtsProviderRegistry.cascade）。不再内部降级到系统 TTS。
      *
-     * 契约要求：回调在 Android 主线程执行（[Handler] 主线程 post），负责启停 LipSync 动画协程；
-     * 重复状态不触发（内部 [playbackState] 去重）。
+     * 播放为异步（MediaPlayer.prepareAsync）：本方法在音频开始缓冲后即返回，
+     * 播放状态通过 [isSpeaking] StateFlow 暴露（LipSync/UI 观察）。
      */
-    var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
-
-    /** 当前播放状态（回调可能来自 MediaPlayer(IO)/Android TTS(主线程) 不同线程，@Volatile 去重） */
-    @Volatile
-    private var playbackState = false
-
-    private val mainHandler = Handler(Looper.getMainLooper())
-
-    init {
-        // 初始化 Android 系统 TTS 作为降级方案
-        androidTts = TextToSpeech(context) { status ->
-            androidTtsReady = (status == TextToSpeech.SUCCESS)
-            androidTts?.language = Locale.CHINESE
-        }
-    }
-
-    /**
-     * 广播播放状态变化（仅状态切换时触发；主线程回调）。
-     *
-     * 幂等设计：连续广播同一状态是 no-op（MediaPlayer 完成回调与 stop() 可能竞态，
-     * 重复 false 无意义且会干扰 LipSync 协程启停）。
-     */
-    private fun notifyPlaybackState(playing: Boolean) {
-        if (playing == playbackState) return
-        playbackState = playing
-        val callback = onPlaybackStateChanged ?: return
-        mainHandler.post { callback(playing) }
-    }
-
-    /**
-     * 语音合成 + 播放
-     *
-     * 降级链：
-     *   1. Edge TTS WebSocket → 成功 → 返回
-     *   2. Android 系统 TTS → 成功 → 返回
-     *   3. 静默降级（什么都不做）
-     */
-    suspend fun speak(text: String) = withContext(Dispatchers.IO) {
-        // Tier 1: Edge TTS
+    override suspend fun speak(text: String) = withContext(Dispatchers.IO) {
         try {
             val audioBytes = synthesizeEdgeTts(text)
             if (audioBytes != null) {
                 playAudioBytes(audioBytes)
-                return@withContext
+                _health.value = TtsHealth.OK
+            } else {
+                throw IllegalStateException("Edge TTS 未返回音频数据")
             }
         } catch (e: Exception) {
-            android.util.Log.w("EdgeTtsService", "Edge TTS 失败，降级到系统 TTS: ${e.message}")
-        }
-
-        // Tier 2: Android 系统 TTS
-        try {
-            speakAndroid(text)
-        } catch (e: Exception) {
-            android.util.Log.w("EdgeTtsService", "系统 TTS 也失败，静默降级: ${e.message}")
-            // Tier 3: 静默降级 — 什么都不做
+            _health.value = TtsHealth.DEGRADED
+            throw e
         }
     }
 
@@ -134,7 +113,7 @@ class EdgeTtsService(private val context: Context) {
      * 5. 合并所有分片并返回完整 MP3 数据
      *
      * 超时控制：最多等待 WS_TIMEOUT_SECONDS 秒
-     * 重试逻辑：不在此处重试，由上层降级策略处理
+     * 重试逻辑：不在此处重试，由上层降级链处理
      */
     private fun synthesizeEdgeTts(text: String): ByteArray? {
         val audioParts = ConcurrentLinkedQueue<ByteArray>()
@@ -150,7 +129,7 @@ class EdgeTtsService(private val context: Context) {
 
         val ws = client.newWebSocket(wsRequest, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
-                android.util.Log.d("EdgeTtsService", "WebSocket 已连接")
+                Log.i(TAG, "Edge TTS WebSocket 已连接")
                 sendConfig(ws)
                 sendSsml(ws, text)
             }
@@ -167,18 +146,18 @@ class EdgeTtsService(private val context: Context) {
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                android.util.Log.d("EdgeTtsService", "WebSocket 关闭中: code=$code, reason=$reason")
+                Log.i(TAG, "Edge TTS WebSocket 关闭中: code=$code, reason=$reason")
                 done = true
                 ws.close(1000, null)
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                android.util.Log.d("EdgeTtsService", "WebSocket 已关闭")
+                Log.i(TAG, "Edge TTS WebSocket 已关闭")
                 done = true
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                android.util.Log.e("EdgeTtsService", "WebSocket 连接失败: ${t.message}")
+                Log.e(TAG, "Edge TTS WebSocket 连接失败: ${t.message}")
                 error = t as? Exception ?: RuntimeException(t)
                 done = true
             }
@@ -192,14 +171,14 @@ class EdgeTtsService(private val context: Context) {
 
         if (!done) {
             // 超时关闭
-            android.util.Log.w("EdgeTtsService", "WebSocket 超时 (${WS_TIMEOUT_SECONDS}s)，强制关闭")
+            Log.w(TAG, "Edge TTS WebSocket 超时 (${WS_TIMEOUT_SECONDS}s)，强制关闭")
             ws.close(1000, "Timeout")
             done = true
         }
 
         if (error != null) throw error!!
 
-        // 没有收到音频数据不算异常（可能是空文本或 SSML 格式问题）
+        // 没有收到音频数据不算异常（可能是空文本或 SSML 格式问题）→ 由 speak 抛异常触发降级
         if (audioParts.isEmpty()) return null
 
         // 合并所有音频分片
@@ -283,104 +262,63 @@ $ssml""")
      *
      * 将字节数组写入缓存目录的临时文件，然后使用 MediaPlayer 播放。
      * 播放完成后自动删除临时文件。
+     *
+     * 同步阶段（写文件 / setDataSource）失败向上抛异常 → speak 抛异常触发降级；
+     * 异步阶段（prepareAsync 后）失败通过 onError 置 [isSpeaking]=false 并删除临时文件
+     * （此阶段 speak 已返回，无法再降级——与 V1.1 行为一致）。
      */
     private fun playAudioBytes(audioBytes: ByteArray) {
         stop()
-        try {
-            val tempFile = File(context.cacheDir, "tts_temp.mp3")
-            FileOutputStream(tempFile).use { it.write(audioBytes) }
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                setDataSource(tempFile.absolutePath)
-                setOnPreparedListener {
-                    start()
-                    // 模块4：真实播放开始 → onPlaybackStateChanged(true)
-                    notifyPlaybackState(true)
-                }
-                setOnCompletionListener {
-                    tempFile.delete()
-                    // 模块4：自然播放完成 → onPlaybackStateChanged(false)
-                    notifyPlaybackState(false)
-                }
-                setOnErrorListener { _, what, extra ->
-                    android.util.Log.e("EdgeTtsService", "MediaPlayer 错误: what=$what, extra=$extra")
-                    tempFile.delete()
-                    // 模块4：播放中断 → onPlaybackStateChanged(false)
-                    notifyPlaybackState(false)
-                    true
-                }
-                prepareAsync()
+        val tempFile = File(context.cacheDir, "tts_temp.mp3")
+        FileOutputStream(tempFile).use { it.write(audioBytes) }
+        mediaPlayer = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            setDataSource(tempFile.absolutePath)
+            setOnPreparedListener {
+                start()
+                // 真实播放开始 → isSpeaking(true)（LipSync 驱动）
+                _isSpeaking.value = true
             }
-        } catch (e: Exception) {
-            android.util.Log.e("EdgeTtsService", "播放音频失败: ${e.message}")
-            // 模块4：播放未开始即失败 → 状态归零（幂等，未播放时是 no-op）
-            notifyPlaybackState(false)
+            setOnCompletionListener {
+                tempFile.delete()
+                // 自然播放完成 → isSpeaking(false)
+                _isSpeaking.value = false
+            }
+            setOnErrorListener { _, what, extra ->
+                Log.e(TAG, "Edge TTS MediaPlayer 错误: what=$what, extra=$extra")
+                tempFile.delete()
+                // 播放中断 → isSpeaking(false)
+                _isSpeaking.value = false
+                true
+            }
+            prepareAsync()
         }
     }
 
     /**
-     * 使用 Android 系统 TTS 播放文本
-     * 作为 Edge TTS 失败时的降级方案
+     * 停止当前播放（打断；幂等）。
      */
-    private suspend fun speakAndroid(text: String) = suspendCancellableCoroutine<Unit> { cont ->
-        if (!androidTtsReady) {
-            android.util.Log.w("EdgeTtsService", "Android TTS 未就绪，跳过")
-            cont.resume(Unit)
-            return@suspendCancellableCoroutine
-        }
-        // 先注册监听再 speak：避免 onStart 在监听器设置前触发而漏掉播放开始状态
-        androidTts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                // 模块4：Android TTS 开始发声 → onPlaybackStateChanged(true)
-                notifyPlaybackState(true)
-            }
-            override fun onDone(utteranceId: String?) {
-                // 模块4：播报完成 → onPlaybackStateChanged(false)
-                notifyPlaybackState(false)
-                if (!cont.isCompleted) cont.resume(Unit)
-            }
-            override fun onError(utteranceId: String?) {
-                android.util.Log.w("EdgeTtsService", "Android TTS 播放错误")
-                // 模块4：播报中断 → onPlaybackStateChanged(false)
-                notifyPlaybackState(false)
-                if (!cont.isCompleted) cont.resume(Unit)
-            }
-        })
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            androidTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utterance_id")
-        } else {
-            @Suppress("DEPRECATION")
-            androidTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null)
-        }
-    }
-
-    /**
-     * 停止当前播放
-     */
-    fun stop() {
-        val wasPlaying = playbackState
+    override fun stop() {
         mediaPlayer?.apply {
             if (isPlaying) stop()
             release()
         }
         mediaPlayer = null
-        androidTts?.stop()
-        // 模块4：主动打断（stopSpeaking）→ 播放状态归零；未在播放时是 no-op
-        if (wasPlaying) notifyPlaybackState(false)
+        // StateFlow 自动去重：未在播放时置 false 是 no-op
+        _isSpeaking.value = false
     }
 
     /**
-     * 释放所有资源
+     * 释放所有资源（幂等）。Edge TTS 无 Android TTS/长连接需单独关闭——
+     * WebSocket 每次合成即建即断，OkHttpClient 随 Provider 生命周期。
      */
-    fun release() {
+    override fun release() {
         stop()
-        androidTts?.shutdown()
-        androidTts = null
     }
 
     /**

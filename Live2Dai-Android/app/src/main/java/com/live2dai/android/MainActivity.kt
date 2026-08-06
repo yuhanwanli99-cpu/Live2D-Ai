@@ -2,6 +2,7 @@ package com.live2dai.android
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -39,6 +40,8 @@ import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
 import com.live2dai.plugin.memory.MemoryPlugin
 import com.live2dai.plugin.memory.MemoryPluginConfig
+import com.live2dai.plugin.proactive.ProactivePlugin
+import com.live2dai.plugin.proactive.ProactivePluginConfig
 import com.live2dai.plugin.vision.VisionPlugin
 import com.live2dai.plugin.vision.VisionPluginConfig
 import com.live2dai.pluginsdk.ChatContext
@@ -52,6 +55,13 @@ import kotlinx.serialization.Serializable
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // V1.2 模块1：注册默认 TTS Provider（CosyVoice → sherpa 离线 → Edge TTS → 系统 TTS
+        // 降级链，见 registerDefaultTtsProviders）。必须在 VoiceIoController 构造（组合阶段）
+        // 之前注册；同名覆盖幂等，Activity 重建安全。
+        registerDefaultTtsProviders(applicationContext)
+        // V1.2 模块4：注册默认 ASR Provider（sherpa 离线 → 系统语音识别降级链）。
+        // 同样需在 VoiceIoController 构造前；VoiceIoController init 另有空表兜底。
+        registerDefaultAsrProviders(applicationContext)
         setContent {
             Live2DaiTheme {
                 Live2DaiApp()
@@ -174,9 +184,19 @@ fun MainChatScreen(
     }
 
     // V1.1 模块1：语音闭环协调器（TTS 说 + ASR 听）。
-    // 用 applicationContext 持有（EdgeTtsService 内部持有 TextToSpeech/MediaPlayer），
-    // 避免泄漏 Activity 引用。
+    // 用 applicationContext 持有（TTS Provider 内部持有 TextToSpeech/MediaPlayer），
+    // 避免泄漏 Activity 引用。V1.2：TTS Provider 已由 MainActivity.onCreate 注册到
+    // TtsProviderRegistry，此处构造即取注册表降级链（edge_tts → system_tts）。
     val voiceIo = remember { VoiceIoController(context.applicationContext) }
+
+    // Android 13+ 通知权限 launcher（V1.2 模块6 主动陪伴通知栏通知需要）：
+    // 在装载主动陪伴插件的 LaunchedEffect 中使用，因此必须在组合顺序上先声明。
+    // 未授予时插件静默跳过通知（不影响 TTS 播报/对话链路）
+    val requestNotificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // 授予与否都不影响功能：未授予时 ProactiveNotifier 静默跳过通知
+    }
 
     // V1.1 模块1：Activity 销毁时释放 TTS + ASR 资源
     DisposableEffect(Unit) {
@@ -214,6 +234,42 @@ fun MainChatScreen(
                 )
             )
         )
+
+        // V1.2 模块6：主动陪伴插件（docs/plan-v12-plan.md §5.6，骨架见 plan-task-plugin-proactive.md）
+        // - 链路：WorkManager 周期检查（release 1h / debug 15min 钳制）→ 空闲超阈值 + 非静默时段 + 过冷却
+        //   → LLM 生成主动话题（ProactiveGreetingClient 复用当前 Provider，结合人设 + 最近记忆）
+        //   → host.sendAssistantMessage → onAssistantMessage → voiceIo.speak 播报 + 通知栏通知
+        // - 容错：LLM 失败回退静态文案池；记忆读取失败降级为空；通知无权限/被禁用静默跳过；
+        //   任何异常都不影响主对话链路（架构约束 §8.2-2）
+        // - Debug 短周期开关（§5.6.4）：BuildConfig.DEBUG 下周期 15min（WorkManager 下限）+ 空闲阈值 5min
+        //   + 冷却 2min + 立即检查；release 用生产值（周期 1h、阈值 30min、冷却 6h）
+        // - 总开关：SettingsRepository.proactiveEnabled（默认开）；关闭时不装载、不排后台任务
+        if (repo.proactiveEnabled) {
+            val timing = ProactiveTuning.forDebug(BuildConfig.DEBUG)
+            pluginManager.loadPlugins(
+                listOf(
+                    ProactivePlugin(
+                        ProactivePluginConfig(
+                            context = context.applicationContext,
+                            greetingLlmClient = ProactiveGreetingClient(LLMProviderManager.getActiveProvider()),
+                            memoriesProvider = { ProactiveMemorySource.recentFacts(context.applicationContext) },
+                            idleThresholdMinutes = timing.idleThresholdMinutes,
+                            cooldownMinutes = timing.cooldownMinutes,
+                            workManagerIntervalMinutes = timing.workManagerIntervalMinutes,
+                            debugMode = BuildConfig.DEBUG,
+                        )
+                    )
+                )
+            )
+        }
+        // Android 13+ 通知权限（主动陪伴通知需要）：未授予时插件静默跳过通知，
+        // 授予与否都不影响主对话链路与 TTS 播报
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     // ── 聊天状态 ──
@@ -235,7 +291,9 @@ fun MainChatScreen(
         isListening = true
         Toast.makeText(context, "正在聆听，请说话...", Toast.LENGTH_SHORT).show()
         scope.launch {
-            val recognized = voiceIo.listen()
+            // V1.2 模块5：首选 ASR 引擎（SettingsRepository.asrProviderId）；指定引擎失败后
+            // 仍按降级链自动兜底（VoiceIoController.listen 内部 resolveAsrChain）
+            val recognized = voiceIo.listen(repo.asrProviderId)
             isListening = false
             if (recognized.isNotEmpty()) {
                 inputText = recognized
@@ -497,8 +555,9 @@ fun MainChatScreen(
                             emotion?.let { emotionController.setEmotion(it) }
                             // V1.1 模块1：主动陪伴类消息（PluginHost.sendAssistantMessage）
                             // 同样接入 TTS 播报；插件文本可能含 [emotion] 标签，播报前剥离
+                            // V1.2 模块5：首选 TTS 引擎（SettingsRepository.ttsProviderId）
                             scope.launch {
-                                voiceIo.speak(EmotionController.stripEmotionTags(text))
+                                voiceIo.speak(EmotionController.stripEmotionTags(text), repo.ttsProviderId)
                             }
                         }
                         pluginManager.registerHook(object : ChatHook {
@@ -517,11 +576,14 @@ fun MainChatScreen(
                                 // V1.1 模块1 TTS 接线（plan §3.1.3 TTS 路径）：与表情切换同一 afterReceive 时机——
                                 // 表情先切换（视觉反馈立即），TTS 随后播报剥离标签后的纯文本（音频延迟 1-3s）。
                                 emotion?.let { emotionController.setEmotion(it) }
-                                voiceIo.speak(assistantMessage)
+                                // V1.2 模块5：首选 TTS 引擎（SettingsRepository.ttsProviderId）；
+                                // 指定引擎失败后仍按降级链自动兜底（resolveChain）
+                                voiceIo.speak(assistantMessage, repo.ttsProviderId)
                             }
                         })
-                        // V1.1 模块4：LipSync 接线——TTS 播放状态回调（EdgeTtsService → VoiceIoController）
-                        // 驱动嘴型开合；视图创建后注入，播放时协程动画、停止时归零。
+                        // V1.1 模块4：LipSync 接线——V1.2 起由各 TtsProvider.isSpeaking StateFlow
+                        // 驱动嘴型开合（VoiceIoController 构造时收集组合流）；视图创建后注入，
+                        // 播放时协程动画、停止时归零。
                         voiceIo.attachLive2DView(view)
                         onLive2DViewCreated(view)
                     }

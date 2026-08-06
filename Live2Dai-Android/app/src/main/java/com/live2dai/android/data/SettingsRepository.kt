@@ -62,6 +62,56 @@ class SettingsRepository(context: Context) {
         get() = prefs.getFloat(KEY_TTS_SPEED, DEFAULT_TTS_SPEED)
         set(value) = prefs.edit().putFloat(KEY_TTS_SPEED, value).apply()
 
+    // ─── TTS Provider（V1.2 模块1，契约 schema → Settings 新增 Keys）───
+
+    /**
+     * 首选 TTS 引擎 ID（降级链遍历时的首选，对应 TtsProviderInfo.id）。
+     *
+     * 默认取降级链第一位 cosyvoice_ws（schema 契约 §4.3；CosyVoice 已注册 priority=0）。
+     * API Key 未配置时 CosyVoice 快速失败（health=UNAVAILABLE），降级链自动落入下一层，
+     * 不阻塞播报（plan §3.2.5）。引擎选择 UI（V1.2 模块5）在设置页修改此值。
+     */
+    var ttsProviderId: String
+        get() = prefs.getString(KEY_TTS_PROVIDER_ID, DEFAULT_TTS_PROVIDER_ID)
+            ?: DEFAULT_TTS_PROVIDER_ID
+        set(value) = prefs.edit().putString(KEY_TTS_PROVIDER_ID, value).apply()
+
+    // ─── CosyVoice（V1.2 模块2：阿里云 DashScope API Key）───
+
+    /**
+     * 阿里云 DashScope API Key（CosyVoice 云端 TTS 用；设置页输入，默认空 = 未配置）。
+     * 为空时 CosyVoiceTtsProvider.speak 快速失败（health=UNAVAILABLE），降级链继续。
+     * 设置页输入入口由 V1.2 模块5（引擎选择 UI，Wave B）接入。
+     */
+    var aliyunApiKey: String
+        get() = prefs.getString(KEY_COSYVOICE_API_KEY, DEFAULT_COSYVOICE_API_KEY)
+            ?: DEFAULT_COSYVOICE_API_KEY
+        set(value) = prefs.edit().putString(KEY_COSYVOICE_API_KEY, value).apply()
+
+    /**
+     * CosyVoice WebSocket 端点（可选配置；空 = 使用默认公共端点
+     * `wss://dashscope.aliyuncs.com/api-ws/v1/inference`）。
+     *
+     * 专属服务用户的 host 是用户专属的（如 `ws-sxxx.cn-beijing.maas.aliyuncs.com`），
+     * 不能硬编码进默认值；填写后 provider 以 `wss://{host}/api-ws/v1/inference` 接入。
+     * 留空时回退标准公共端点（普通用户 key 适用）。
+     */
+    var cosyvoiceWsUrl: String
+        get() = prefs.getString(KEY_COSYVOICE_WS_URL, DEFAULT_COSYVOICE_WS_URL)
+            ?: DEFAULT_COSYVOICE_WS_URL
+        set(value) = prefs.edit().putString(KEY_COSYVOICE_WS_URL, value).apply()
+
+    // ─── ASR Provider（V1.2 模块4，契约 schema → Settings 新增 Keys）───
+
+    /**
+     * 首选 ASR 引擎 ID（降级链遍历时的首选，对应 AsrProviderInfo.id）。
+     * 默认 sherpa_sensevoice（离线优先，plan §4.3）；引擎选择 UI 在模块5接入。
+     */
+    var asrProviderId: String
+        get() = prefs.getString(KEY_ASR_PROVIDER_ID, DEFAULT_ASR_PROVIDER_ID)
+            ?: DEFAULT_ASR_PROVIDER_ID
+        set(value) = prefs.edit().putString(KEY_ASR_PROVIDER_ID, value).apply()
+
     // ─── Persona ───
 
     var personaName: String
@@ -91,6 +141,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false)
         set(value) = prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, value).apply()
 
+    // ─── 主动陪伴开关（V1.2 模块6，契约 schema → Settings 新增 Keys）───
+
+    /**
+     * 主动陪伴插件总开关（默认开）。关闭时 MainActivity 不装载 ProactivePlugin，
+     * 不排 WorkManager 周期任务（plan §5.6 R3 的「一键关闭主动陪伴」开关）。
+     */
+    var proactiveEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PROACTIVE_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_PROACTIVE_ENABLED, value).apply()
+
     // ─── 重置所有设置 ───
 
     fun resetAll() {
@@ -106,15 +166,36 @@ class SettingsRepository(context: Context) {
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_TTS_VOICE = "tts_voice"
         const val KEY_TTS_SPEED = "tts_speed"
+        const val KEY_TTS_PROVIDER_ID = "tts_provider_id"
+        const val KEY_COSYVOICE_API_KEY = "cosyvoice_api_key"
+        const val KEY_COSYVOICE_WS_URL = "cosyvoice_ws_url"
+        const val KEY_ASR_PROVIDER_ID = "asr_provider_id"
         const val KEY_PERSONA = "persona"
         const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"
         const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        const val KEY_PROACTIVE_ENABLED = "proactive_enabled"
 
         const val DEFAULT_MODEL = "deepseek-v4-flash"
         const val DEFAULT_TEMPERATURE = 0.8f
         const val DEFAULT_TTS_VOICE = "zh-CN-XiaoxiaoNeural"
         const val DEFAULT_TTS_SPEED = 1.0f
+
+        /**
+         * 首选 TTS 引擎默认值：schema 契约 "cosyvoice_ws"（plan §4.3）。
+         * CosyVoice 已注册（priority=0，降级链第一位）；API Key 未配置时快速失败自动降级。
+         */
+        const val DEFAULT_TTS_PROVIDER_ID = "cosyvoice_ws"
+
+        /** CosyVoice API Key 默认值：空（用户需自行注册 DashScope 获取） */
+        const val DEFAULT_COSYVOICE_API_KEY = ""
+
+        /** CosyVoice WS 端点默认值：空（= 使用 provider 默认公共 inference 端点） */
+        const val DEFAULT_COSYVOICE_WS_URL = ""
+
+        /** 首选 ASR 引擎默认值：sherpa_sensevoice（离线优先，plan §4.3） */
+        const val DEFAULT_ASR_PROVIDER_ID = "sherpa_sensevoice"
+
         const val DEFAULT_PERSONA = "小喵 (Xiao Miao)"
 
         /** Live2D 默认形象 ID（与 shared/model_registry.json 的 default 条目一致） */

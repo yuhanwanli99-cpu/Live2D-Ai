@@ -60,6 +60,9 @@ cache/
 # Live2D SDK (large binary)
 **/libs/live2d-cubism-core.aar
 
+# sherpa-onnx engine AAR (V1.2 离线 TTS/ASR, large binary; 下载见 app/build.gradle.kts 注释)
+**/libs/sherpa-onnx-*.aar
+
 # Pi session dumps (may contain secrets)
 pi-session-dump/
 

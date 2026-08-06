@@ -3,33 +3,33 @@ package com.live2dai.android
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.ArgumentMatchers.anyFloat
-import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.atLeast
 import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import org.mockito.kotlin.whenever
 
 /**
- * VoiceIoController 模块4 LipSync 驱动单元测试（V1.1 方案A：播放状态驱动）。
+ * VoiceIoController 模块4 LipSync 驱动单元测试（V1.1 方案A：播放状态驱动，V1.2 改由
+ * TtsProvider.isSpeaking StateFlow 驱动）。
  *
- * 验证链路（契约 docs/plan-v11-plan.schema.json §5.4）：
- * - 构造时向 EdgeTtsService 注册 onPlaybackStateChanged 回调
- * - 回调 true（播放开始）→ 嘴型正弦动画协程启动，周期性调用 setLipSyncParam
- * - 回调 false（播放结束/中断）→ 协程取消，嘴型归零 setLipSyncParam(0f)
+ * 验证链路（契约 docs/plan-v12-plan.schema.json → functions.VoiceIoController.isSpeaking）：
+ * - 构造时收集各 Provider 的 isSpeaking 组合流（替代 V1.1 EdgeTtsService 回调接线）
+ * - 任一 Provider 播放开始（isSpeaking=true）→ 嘴型正弦动画协程启动，周期性调用 setLipSyncParam
+ * - 播放结束（isSpeaking=false）→ 协程取消，嘴型归零 setLipSyncParam(0f)
  * - Live2DView 未接线时动画跳过（不崩溃）
  * - release() 停止动画并解绑
  *
@@ -39,8 +39,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 class VoiceIoControllerLipSyncTest {
 
     private lateinit var context: Context
-    private lateinit var ttsService: EdgeTtsService
-    private lateinit var asrService: VoiceInputService
+    private lateinit var edgeProvider: TtsProvider
+    private lateinit var systemProvider: TtsProvider
+    private lateinit var edgeSpeaking: MutableStateFlow<Boolean>
+    private lateinit var asrService: AsrProvider
     private lateinit var view: Live2DView
     private lateinit var scheduler: TestCoroutineScheduler
     private lateinit var controller: VoiceIoController
@@ -48,13 +50,23 @@ class VoiceIoControllerLipSyncTest {
     @Before
     fun setUp() {
         context = mock()
-        ttsService = mock()
-        asrService = mock()
+        mockProvider("edge_tts").let {
+            edgeProvider = it.first
+            edgeSpeaking = it.second
+        }
+        mockProvider("system_tts").let { systemProvider = it.first }
+        asrService = mock<AsrProvider>()
+        whenever(asrService.info).thenReturn(
+            AsrProviderInfo(
+                id = "system_speech_recognizer", name = "stub-asr", requiresNetwork = false,
+                health = MutableStateFlow(TtsHealth.OK), priority = 1,
+            )
+        )
         view = mock()
         scheduler = TestCoroutineScheduler()
         Dispatchers.setMain(StandardTestDispatcher(scheduler))
         controller = VoiceIoController(
-            context, ttsService, asrService, view,
+            context, listOf(edgeProvider, systemProvider), listOf(asrService), view,
             CoroutineScope(SupervisorJob() + Dispatchers.Main)
         )
     }
@@ -64,18 +76,36 @@ class VoiceIoControllerLipSyncTest {
         Dispatchers.resetMain()
     }
 
+    /** 构造带 stub info + isSpeaking 的 TtsProvider mock（控制器日志会读 info.id）。 */
+    private fun mockProvider(id: String): Pair<TtsProvider, MutableStateFlow<Boolean>> {
+        val speaking = MutableStateFlow(false)
+        val provider = mock<TtsProvider>()
+        whenever(provider.info).thenReturn(
+            TtsProviderInfo(
+                id = id,
+                name = "stub-$id",
+                category = TtsProviderCategory.LOCAL,
+                requiresNetwork = false,
+                health = MutableStateFlow(TtsHealth.OK),
+                priority = 1,
+                configurable = false,
+            )
+        )
+        whenever(provider.isSpeaking).thenReturn(speaking)
+        return provider to speaking
+    }
+
     // ─────────────────────────────────────────────
-    // 接线
+    // 接线：播放状态收集在构造时即已就绪（V1.2，替代 V1.1 回调注册）
     // ─────────────────────────────────────────────
 
     @Test
-    fun playbackCallbackRegisteredBeforeSpeak() {
-        // speak() 首次播报前注册播放状态回调（契约 schema §5.4）
-        runBlocking { controller.speak("测试") }
-        val captor = argumentCaptor<(Boolean) -> Unit>()
-        verify(ttsService).onPlaybackStateChanged = captor.capture()
-        val callback = captor.firstValue
-        assertNotNull("onPlaybackStateChanged 必须注册回调", callback)
+    fun playbackObserverWiredAtConstruction() {
+        // V1.2：LipSync 由各 Provider 的 isSpeaking StateFlow 驱动；组合收集在构造时
+        // 启动（无需等到首次 speak），speak 前 provider 播放状态变化即可驱动嘴型。
+        edgeSpeaking.value = true
+        scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 3)
+        verify(view, atLeast(2)).setLipSyncParam(anyFloat())
     }
 
     // ─────────────────────────────────────────────
@@ -131,24 +161,18 @@ class VoiceIoControllerLipSyncTest {
     }
 
     // ─────────────────────────────────────────────
-    // 端到端：真实回调路径
+    // 端到端：真实路径（isSpeaking 流 → LipSync）
     // ─────────────────────────────────────────────
 
     @Test
-    fun ttsCallbackStartsAndStopsLipSync() {
-        // 触发真实接线路径：speak() 注册回调 → 捕获回调 → 驱动 LipSync
-        runBlocking { controller.speak("测试") }
-        val captor = argumentCaptor<(Boolean) -> Unit>()
-        verify(ttsService).onPlaybackStateChanged = captor.capture()
-        val callback = captor.firstValue
-
-        // EdgeTtsService 回调 true → LipSync 动画启动
-        callback(true)
+    fun ttsIsSpeakingFlowStartsAndStopsLipSync() {
+        // 真实接线路径：Provider isSpeaking=true → 组合流 → handlePlaybackState(true) → 动画
+        edgeSpeaking.value = true
         scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 3)
         verify(view, atLeast(2)).setLipSyncParam(anyFloat())
 
-        // EdgeTtsService 回调 false → 嘴型归零
-        callback(false)
+        // Provider isSpeaking=false → 组合流 → 嘴型归零
+        edgeSpeaking.value = false
         scheduler.advanceUntilIdle()
         verify(view, atLeastOnce()).setLipSyncParam(0f)
     }
@@ -159,10 +183,13 @@ class VoiceIoControllerLipSyncTest {
 
     @Test
     fun lipSyncSkippedWhenViewNotAttached() {
-        val detached = VoiceIoController(context, ttsService, asrService)
+        // 独立 view mock：验证未接线的控制器不会驱动任何嘴型（与 setUp 中已接线的
+        // 控制器共享 provider mock 但 view 各自独立，互不干扰）
+        val detachedView = mock<Live2DView>()
+        val detached = VoiceIoController(context, listOf(edgeProvider, systemProvider), listOf(asrService))
         detached.handlePlaybackState(true)
         scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 5)
-        verify(view, never()).setLipSyncParam(anyFloat())
+        verify(detachedView, never()).setLipSyncParam(anyFloat())
         detached.release()
     }
 
@@ -172,7 +199,8 @@ class VoiceIoControllerLipSyncTest {
         scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 2)
         controller.release()
         scheduler.advanceUntilIdle()
-        verify(ttsService).release()
+        verify(edgeProvider).release()
+        verify(systemProvider).release()
         verify(asrService).stopListening()
         verify(view, atLeastOnce()).setLipSyncParam(0f)
     }
