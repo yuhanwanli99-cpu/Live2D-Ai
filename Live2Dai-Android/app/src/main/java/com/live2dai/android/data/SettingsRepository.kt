@@ -101,6 +101,28 @@ class SettingsRepository(context: Context) {
             ?: DEFAULT_COSYVOICE_WS_URL
         set(value) = prefs.edit().putString(KEY_COSYVOICE_WS_URL, value).apply()
 
+    // ─── CosyVoice 个性化参数（级2-C：猫娘语气 instruction + 语速 rate + 音调 pitch）───
+
+    /**
+     * CosyVoice instruction（语气/方言/情绪描述，SDK 限制 ≤100 字符；
+     * run-task parameters.instruction 由 CosyVoiceTtsProvider 构造时读取）。
+     * 默认值：猫娘萝莉语气。
+     */
+    var cosyvoiceInstruction: String
+        get() = prefs.getString(KEY_COSYVOICE_INSTRUCTION, DEFAULT_COSYVOICE_INSTRUCTION)
+            ?: DEFAULT_COSYVOICE_INSTRUCTION
+        set(value) = prefs.edit().putString(KEY_COSYVOICE_INSTRUCTION, value).apply()
+
+    /** CosyVoice 语速倍率（run-task parameters.rate，默认 1.2 略快有活力感） */
+    var cosyvoiceRate: Float
+        get() = prefs.getFloat(KEY_COSYVOICE_RATE, DEFAULT_COSYVOICE_RATE)
+        set(value) = prefs.edit().putFloat(KEY_COSYVOICE_RATE, value).apply()
+
+    /** CosyVoice 音调倍率（run-task parameters.pitch，默认 1.1 升高显得更萌） */
+    var cosyvoicePitch: Float
+        get() = prefs.getFloat(KEY_COSYVOICE_PITCH, DEFAULT_COSYVOICE_PITCH)
+        set(value) = prefs.edit().putFloat(KEY_COSYVOICE_PITCH, value).apply()
+
     // ─── ASR Provider（V1.2 模块4，契约 schema → Settings 新增 Keys）───
 
     /**
@@ -169,6 +191,9 @@ class SettingsRepository(context: Context) {
         const val KEY_TTS_PROVIDER_ID = "tts_provider_id"
         const val KEY_COSYVOICE_API_KEY = "cosyvoice_api_key"
         const val KEY_COSYVOICE_WS_URL = "cosyvoice_ws_url"
+        const val KEY_COSYVOICE_INSTRUCTION = "cosyvoice_instruction"
+        const val KEY_COSYVOICE_RATE = "cosyvoice_rate"
+        const val KEY_COSYVOICE_PITCH = "cosyvoice_pitch"
         const val KEY_ASR_PROVIDER_ID = "asr_provider_id"
         const val KEY_PERSONA = "persona"
         const val KEY_SELECTED_MODEL_ID = "selected_model_id"
@@ -192,6 +217,15 @@ class SettingsRepository(context: Context) {
 
         /** CosyVoice WS 端点默认值：空（= 使用 provider 默认公共 inference 端点） */
         val DEFAULT_COSYVOICE_WS_URL: String get() = BuildConfig.COSYVOICE_WS_URL.ifEmpty { "" }
+
+        /** CosyVoice instruction 默认值：猫娘萝莉语气（SDK 限制 ≤100 字符） */
+        const val DEFAULT_COSYVOICE_INSTRUCTION = "用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇"
+
+        /** CosyVoice 语速默认值：1.2（略快有活力感） */
+        const val DEFAULT_COSYVOICE_RATE = 1.2f
+
+        /** CosyVoice 音调默认值：1.1（升高显得更萌） */
+        const val DEFAULT_COSYVOICE_PITCH = 1.1f
 
         /** 首选 ASR 引擎默认值：sherpa_sensevoice（离线优先，plan §4.3） */
         const val DEFAULT_ASR_PROVIDER_ID = "sherpa_sensevoice"
