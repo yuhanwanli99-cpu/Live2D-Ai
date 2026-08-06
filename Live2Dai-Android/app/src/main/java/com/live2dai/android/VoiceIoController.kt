@@ -38,8 +38,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 模块4（LipSync，plan §4.1.4 方案A 播放状态驱动）：
  * V1.2 起 LipSync 由各 Provider 的 [TtsProvider.isSpeaking] StateFlow 驱动（替代 V1.1 的
  * EdgeTtsService.onPlaybackStateChanged 回调）：构造时收集组合流，任一 Provider
- * 播放开始 → 启动正弦波嘴型协程（每 100ms 更新一次 mouth）；播放结束/打断 → 取消协程
- * 并将嘴型归零。不绑定具体 TTS 引擎，只依赖“是否在播放”状态。
+ * 播放开始 → 启动随机波动嘴型协程（级2-B：每 100ms 更新一次 mouth，随机波动 + 停顿模拟 + lerp 平滑）；
+ * 播放结束/打断 → 取消协程并将嘴型归零。不绑定具体 TTS 引擎，只依赖“是否在播放”状态。
  *
  * 容错约束（plan §8.2/§8.3）：TTS/ASR 任何一个失败都不影响文本输入；
  * LipSync 异常 → catch 后 mouth 设为 0.0，不影响 TTS 播放。
@@ -228,7 +228,7 @@ class VoiceIoController(
     /**
      * 模块4：TTS 播放状态回调（组合 isSpeaking 流触发，主线程执行）。
      *
-     * - true=开始播放 → 启动正弦波嘴型动画协程（plan §4.1.4 方案A）
+     * - true=开始播放 → 启动随机波动嘴型动画协程（级2-B：plan §4.1.4 方案A + 随机化）
      * - false=播放结束/中断 → 取消协程，嘴型归零
      *
      * internal 便于单元测试直接驱动（真实路径由 [init] 中的组合流收集触发）。
@@ -241,7 +241,7 @@ class VoiceIoController(
         }
     }
 
-    /** 启动 LipSync 正弦波嘴型动画协程（幂等：先取消旧协程再重启）。 */
+    /** 启动 LipSync 随机波动嘴型动画协程（幂等：先取消旧协程再重启）。 */
     private fun startLipSync() {
         lipSyncJob?.cancel()
         lipSyncJob = null
@@ -253,11 +253,17 @@ class VoiceIoController(
         logLipSync("播放开始")
         lipSyncJob = lipSyncScope.launch {
             var frame = 0L
+            // 级2-B：当前平滑后的嘴型值（从闭嘴起步，逐帧向随机目标 lerp，避免突兀跳动）
+            var currentMouth = 0f
             try {
                 while (isActive) {
-                    val value = LipSyncMath.mouthValue(frame)
-                    view.setLipSyncParam(value)
-                    logLipSync("嘴型更新 frame=$frame mouth=${formatMouth(value)}")
+                    val target = LipSyncMath.randomizedMouth(frame, frame == 0L)
+                    currentMouth = LipSyncMath.smoothMouth(currentMouth, target)
+                    view.setLipSyncParam(currentMouth)
+                    logLipSync(
+                        "嘴型更新 frame=$frame mouth=${formatMouth(currentMouth)} " +
+                            "target=${formatMouth(target)}"
+                    )
                     frame++
                     delay(LIP_SYNC_INTERVAL_MS)
                 }
