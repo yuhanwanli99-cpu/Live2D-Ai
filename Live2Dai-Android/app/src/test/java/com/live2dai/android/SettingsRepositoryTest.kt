@@ -204,6 +204,111 @@ class SettingsRepositoryTest {
         assertEquals("resetAll 后应回退默认值", SettingsRepository.DEFAULT_COSYVOICE_WS_URL, repo2.cosyvoiceWsUrl)
     }
 
+    // ── CosyVoice 个性化参数（级2-C：instruction / rate / pitch）──
+
+    @Test
+    fun cosyvoiceInstruction_defaultsToCatgirlTone() {
+        val repo = SettingsRepository(context)
+        assertEquals(
+            "默认 instruction 应为猫娘萝莉语气（级2-C）",
+            SettingsRepository.DEFAULT_COSYVOICE_INSTRUCTION,
+            repo.cosyvoiceInstruction
+        )
+        assertEquals("用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇", repo.cosyvoiceInstruction)
+    }
+
+    @Test
+    fun cosyvoiceInstruction_persistsAcrossRestart() {
+        val repo = SettingsRepository(context)
+        repo.cosyvoiceInstruction = "用御姐音说话"
+        // 重新创建实例（模拟重启），值应仍为自定义语气
+        val repo2 = SettingsRepository(context)
+        assertEquals("设置后应持久化，重启仍为自定义语气", "用御姐音说话", repo2.cosyvoiceInstruction)
+    }
+
+    @Test
+    fun cosyvoiceInstruction_resetAll_restoresDefault() {
+        val repo = SettingsRepository(context)
+        repo.cosyvoiceInstruction = "自定义语气"
+        repo.resetAll()
+        val repo2 = SettingsRepository(context)
+        assertEquals(
+            "resetAll 后应回退默认猫娘语气",
+            SettingsRepository.DEFAULT_COSYVOICE_INSTRUCTION,
+            repo2.cosyvoiceInstruction
+        )
+    }
+
+    @Test
+    fun cosyvoiceRate_defaultsTo1_2() {
+        val repo = SettingsRepository(context)
+        assertEquals(
+            "默认语速应为 1.2（略快有活力感）",
+            SettingsRepository.DEFAULT_COSYVOICE_RATE,
+            repo.cosyvoiceRate,
+            0.0f
+        )
+        assertEquals(1.2f, repo.cosyvoiceRate, 0.0f)
+    }
+
+    @Test
+    fun cosyvoiceRate_persistsAcrossRestart() {
+        val repo = SettingsRepository(context)
+        repo.cosyvoiceRate = 0.8f
+        // 重新创建实例（模拟重启），值应仍为 0.8
+        val repo2 = SettingsRepository(context)
+        assertEquals("设置后应持久化，重启仍为 0.8", 0.8f, repo2.cosyvoiceRate, 0.0f)
+    }
+
+    @Test
+    fun cosyvoiceRate_resetAll_restoresDefault() {
+        val repo = SettingsRepository(context)
+        repo.cosyvoiceRate = 0.5f
+        repo.resetAll()
+        val repo2 = SettingsRepository(context)
+        assertEquals(
+            "resetAll 后应回退默认语速",
+            SettingsRepository.DEFAULT_COSYVOICE_RATE,
+            repo2.cosyvoiceRate,
+            0.0f
+        )
+    }
+
+    @Test
+    fun cosyvoicePitch_defaultsTo1_1() {
+        val repo = SettingsRepository(context)
+        assertEquals(
+            "默认音调应为 1.1（升高显得更萌）",
+            SettingsRepository.DEFAULT_COSYVOICE_PITCH,
+            repo.cosyvoicePitch,
+            0.0f
+        )
+        assertEquals(1.1f, repo.cosyvoicePitch, 0.0f)
+    }
+
+    @Test
+    fun cosyvoicePitch_persistsAcrossRestart() {
+        val repo = SettingsRepository(context)
+        repo.cosyvoicePitch = 1.5f
+        // 重新创建实例（模拟重启），值应仍为 1.5
+        val repo2 = SettingsRepository(context)
+        assertEquals("设置后应持久化，重启仍为 1.5", 1.5f, repo2.cosyvoicePitch, 0.0f)
+    }
+
+    @Test
+    fun cosyvoicePitch_resetAll_restoresDefault() {
+        val repo = SettingsRepository(context)
+        repo.cosyvoicePitch = 2.0f
+        repo.resetAll()
+        val repo2 = SettingsRepository(context)
+        assertEquals(
+            "resetAll 后应回退默认音调",
+            SettingsRepository.DEFAULT_COSYVOICE_PITCH,
+            repo2.cosyvoicePitch,
+            0.0f
+        )
+    }
+
     // ── Live2D 形象（selectedModelId）──
 
     @Test

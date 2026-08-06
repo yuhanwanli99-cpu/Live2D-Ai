@@ -2,6 +2,7 @@ package com.live2dai.android
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.live2dai.android.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -262,11 +263,16 @@ class CosyVoiceTtsProviderTest {
             assertEquals("parameters.volume 应为 50", 50, params.getInt("volume"))
             assertEquals("parameters.text_type 应为 PlainText", "PlainText", params.getString("text_type"))
             assertEquals("parameters.sample_rate 应为 24000", 24000, params.getInt("sample_rate"))
-            assertEquals("parameters.rate 应为 1.0", 1.0, params.getDouble("rate"), 0.0)
+            assertEquals("parameters.rate 应为 1.2（级2-C 默认语速）", 1.2, params.getDouble("rate"), 0.0)
             assertEquals("parameters.format 应为 mp3", "mp3", params.getString("format"))
-            assertEquals("parameters.pitch 应为 1.0", 1.0, params.getDouble("pitch"), 0.0)
+            assertEquals("parameters.pitch 应为 1.1（级2-C 默认音调）", 1.1, params.getDouble("pitch"), 0.0)
             assertEquals("parameters.seed 应为 0", 0, params.getInt("seed"))
             assertEquals("parameters.type 应为 0", 0, params.getInt("type"))
+            assertEquals(
+                "parameters.instruction 应为默认猫娘萝莉语气（级2-C）",
+                "用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇",
+                params.getString("instruction")
+            )
 
             // 2) 服务端收到的 continue-task（携带待合成文本）
             val continueEvent = receivedContinueTask.get()
@@ -309,6 +315,126 @@ class CosyVoiceTtsProviderTest {
             assertTrue("音频就绪开始播放后 isSpeaking 应为 true", provider.isSpeaking.value)
             shadow.invokeCompletionListener()
             assertFalse("播放完成后 isSpeaking 应为 false", provider.isSpeaking.value)
+        } finally {
+            provider.release()
+            server.shutdown()
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // 级2-C：个性化参数 instruction / rate / pitch
+    // ─────────────────────────────────────────────
+
+    @Test
+    fun speak_customPersonalizationParams_landInRunTaskParameters() = runTest {
+        val server = MockWebServer()
+        server.start()
+        val receivedRunTask = AtomicReference<String?>(null)
+        val fakeAudio = byteArrayOf(
+            0x49, 0x44, 0x33, 0x03.toByte(), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        )
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val message = JSONObject(text)
+                when (message.getJSONObject("header").getString("action")) {
+                    "run-task" -> {
+                        receivedRunTask.set(text)
+                        webSocket.send("""{"header":{"task_id":"t-1","event":"task-started"}}""")
+                    }
+                    "continue-task" -> {
+                        webSocket.send(fakeAudio.toByteString())
+                    }
+                    "finish-task" -> {
+                        webSocket.send("""{"header":{"task_id":"t-1","event":"task-finished"}}""")
+                    }
+                }
+            }
+        }))
+
+        // 显式构造参数应原样进入 run-task parameters（覆盖 SettingsRepository 默认值）
+        val provider = CosyVoiceTtsProvider(
+            context,
+            apiKey = "sk-test",
+            wsUrl = wsUrlOf(server),
+            synthesisTimeoutMs = 5_000,
+            instruction = "用沉稳御姐音说话",
+            rate = 0.8f,
+            pitch = 1.5f,
+        )
+        ShadowMediaPlayer.addMediaInfo(
+            DataSource.toDataSource(File(context.cacheDir, "cosyvoice_tts_temp.mp3").absolutePath),
+            ShadowMediaPlayer.MediaInfo(1000, 0)
+        )
+
+        try {
+            provider.speak("你好喵")
+
+            val params = JSONObject(receivedRunTask.get()!!).getJSONObject("payload").getJSONObject("parameters")
+            assertEquals(
+                "instruction 应为构造参数（覆盖默认猫娘语气）",
+                "用沉稳御姐音说话",
+                params.getString("instruction")
+            )
+            assertEquals("rate 应为构造参数 0.8", 0.8, params.getDouble("rate"), 0.0)
+            assertEquals("pitch 应为构造参数 1.5", 1.5, params.getDouble("pitch"), 0.0)
+        } finally {
+            provider.release()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun speak_readsPersonalizationFromSettingsRepository() = runTest {
+        // 用户设置 → provider 构造时读取（未显式传参时）→ run-task parameters
+        val settings = SettingsRepository(context)
+        settings.cosyvoiceInstruction = "从设置读取的温柔语气"
+        settings.cosyvoiceRate = 2.0f
+        settings.cosyvoicePitch = 0.9f
+
+        val server = MockWebServer()
+        server.start()
+        val receivedRunTask = AtomicReference<String?>(null)
+        val fakeAudio = byteArrayOf(
+            0x49, 0x44, 0x33, 0x03.toByte(), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        )
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val message = JSONObject(text)
+                when (message.getJSONObject("header").getString("action")) {
+                    "run-task" -> {
+                        receivedRunTask.set(text)
+                        webSocket.send("""{"header":{"task_id":"t-1","event":"task-started"}}""")
+                    }
+                    "continue-task" -> webSocket.send(fakeAudio.toByteString())
+                    "finish-task" -> {
+                        webSocket.send("""{"header":{"task_id":"t-1","event":"task-finished"}}""")
+                    }
+                }
+            }
+        }))
+
+        val provider = CosyVoiceTtsProvider(
+            context,
+            apiKey = "sk-test",
+            wsUrl = wsUrlOf(server),
+            synthesisTimeoutMs = 5_000,
+        )
+        ShadowMediaPlayer.addMediaInfo(
+            DataSource.toDataSource(File(context.cacheDir, "cosyvoice_tts_temp.mp3").absolutePath),
+            ShadowMediaPlayer.MediaInfo(1000, 0)
+        )
+
+        try {
+            provider.speak("你好喵")
+
+            val params = JSONObject(receivedRunTask.get()!!).getJSONObject("payload").getJSONObject("parameters")
+            assertEquals(
+                "instruction 应来自 SettingsRepository 用户设置",
+                "从设置读取的温柔语气",
+                params.getString("instruction")
+            )
+            assertEquals("rate 应来自 SettingsRepository 用户设置", 2.0, params.getDouble("rate"), 0.0)
+            assertEquals("pitch 应来自 SettingsRepository 用户设置", 0.9, params.getDouble("pitch"), 0.0)
         } finally {
             provider.release()
             server.shutdown()
