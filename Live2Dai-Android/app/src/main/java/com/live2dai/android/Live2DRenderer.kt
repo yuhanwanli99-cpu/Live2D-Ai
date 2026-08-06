@@ -1113,13 +1113,26 @@ class Live2DRenderer(
     }
 
     /**
-     * 兜底表情设置。
+     * 兜底表情设置（无 Expressions 配置或预加载失败时）。
+     *
+     * 优先走 AnimationPipeline 的 ExpressionManager，使兜底表情与正常表情
+     * 一样获得交叉淡变（旧表情淡出、新表情淡入）；管线不可用时才硬切。
      */
     private fun setExpressionFallback(expressionIndex: Int) {
         val mouthOpen = when (expressionIndex) {
             0 -> 0.0f; 1 -> 0.3f; 2 -> 0.5f; 3 -> 0.8f
             4 -> 0.2f; 5 -> 0.4f; 6 -> 0.6f; 7 -> 0.9f
             else -> 0.0f
+        }
+        val pipeline = animationPipeline
+        if (pipeline != null && paramAIndex >= 0) {
+            // 合成一个只含 ParamA 的表情，交给 ExpressionManager 交叉淡变
+            pipeline.expressionManager.setExpression(
+                ExpressionData(
+                    listOf(ExpressionParameter(id = "ParamA", value = mouthOpen, blend = "Overwrite"))
+                )
+            )
+            return
         }
         if (paramAIndex >= 0) {
             Live2DNative.setParameterValue(modelPtr, paramAIndex, mouthOpen)

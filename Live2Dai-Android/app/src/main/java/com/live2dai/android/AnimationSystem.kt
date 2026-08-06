@@ -966,8 +966,14 @@ class AnimationPipeline(
         /** 当前播放的表情数据 */
         var currentExpression: ExpressionData? = null
 
+        /** 正在淡出的旧表情数据（交叉淡变） */
+        var previousExpression: ExpressionData? = null
+
         /** 表情权重（0~1，用于淡入淡出） */
         var expressionWeight: Float = 0f
+
+        /** 旧表情淡出起始权重（切换瞬间当前表情的显示权重，避免中途切换弹跳） */
+        var previousExpressionStartWeight: Float = 0f
 
         /** 表情淡入时间（秒） */
         var expressionFadeTime: Float = 0.5f
@@ -976,9 +982,25 @@ class AnimationPipeline(
         private var expressionTimer: Float = 0f
 
         /**
-         * 设置表情。
+         * 旧表情当前淡出权重（1→0，仅当存在旧表情且未完成淡出时 > 0）。
+         *
+         * 公式：起始权重 × (1 - timer / fadeTime)，与淡入共用同一计时器，
+         * 保证新旧表情权重之和始终等于起始权重（切换瞬间）。
+         */
+        val previousExpressionWeight: Float
+            get() {
+                if (previousExpression == null) return 0f
+                val t = (expressionTimer / expressionFadeTime).coerceIn(0f, 1f)
+                return previousExpressionStartWeight * (1f - t)
+            }
+
+        /**
+         * 设置表情（与旧表情交叉淡变，旧表情不再瞬间消失）。
          */
         fun setExpression(expression: ExpressionData) {
+            // 当前表情仍在显示（权重 > 0）且与目标不同 → 保留为淡出对象
+            previousExpression = currentExpression?.takeIf { it !== expression && expressionWeight > 0f }
+            previousExpressionStartWeight = expressionWeight
             currentExpression = expression
             expressionTimer = 0f
             expressionWeight = 0f
@@ -989,7 +1011,9 @@ class AnimationPipeline(
          */
         fun clearExpression() {
             currentExpression = null
+            previousExpression = null
             expressionWeight = 0f
+            previousExpressionStartWeight = 0f
             expressionTimer = 0f
         }
 
@@ -1001,21 +1025,51 @@ class AnimationPipeline(
 
             expressionTimer += deltaTime
             expressionWeight = (expressionTimer / expressionFadeTime).coerceIn(0f, 1f)
+
+            // 交叉淡变结束 → 丢弃旧表情
+            if (expressionTimer >= expressionFadeTime) {
+                previousExpression = null
+                previousExpressionStartWeight = 0f
+            }
         }
 
         /**
-         * 将表情应用到参数。
+         * 将表情应用到参数（同时应用新旧表情，分别乘各自的权重）。
          */
         fun apply(model: PurismModel) {
             val exp = currentExpression ?: return
-            if (expressionWeight <= 0f) return
+            if (expressionWeight <= 0f && previousExpression == null) return
 
             val defaults = Live2DNative.getParameterDefaultValues(modelPtr(model)) ?: return
             val paramValues = Live2DNative.getParameterValues(modelPtr(model)) ?: return
             val minValues = Live2DNative.getParameterMinValues(modelPtr(model))
             val maxValues = Live2DNative.getParameterMaxValues(modelPtr(model))
 
-            for (ep in exp.parameters) {
+            // 先应用旧表情（淡出），再应用新表情（淡入）
+            previousExpression?.let { prev ->
+                val prevWeight = previousExpressionWeight
+                if (prevWeight > 0f) {
+                    applyExpression(prev, prevWeight, paramValues, defaults, minValues, maxValues, model)
+                }
+            }
+            if (expressionWeight > 0f) {
+                applyExpression(exp, expressionWeight, paramValues, defaults, minValues, maxValues, model)
+            }
+        }
+
+        /**
+         * 按指定权重把单个表情应用到参数。
+         */
+        private fun applyExpression(
+            expression: ExpressionData,
+            weight: Float,
+            paramValues: FloatArray,
+            defaults: FloatArray,
+            minValues: FloatArray?,
+            maxValues: FloatArray?,
+            model: PurismModel
+        ) {
+            for (ep in expression.parameters) {
                 val idx = paramNameToIndex[ep.id] ?: continue
                 if (idx >= paramValues.size) continue
 
@@ -1025,10 +1079,10 @@ class AnimationPipeline(
                 val maxV = maxValues?.getOrElse(idx) { 1f } ?: 1f
 
                 val newValue = when (ep.blend) {
-                    "Add" -> current + ep.value * expressionWeight
-                    "Multiply" -> current * (1f + ep.value * expressionWeight)
-                    "Overwrite" -> defaultValue + (ep.value - defaultValue) * expressionWeight
-                    else -> current + ep.value * expressionWeight
+                    "Add" -> current + ep.value * weight
+                    "Multiply" -> current * (1f + ep.value * weight)
+                    "Overwrite" -> defaultValue + (ep.value - defaultValue) * weight
+                    else -> current + ep.value * weight
                 }
 
                 model.setParameterValue(idx, newValue.coerceIn(minV, maxV))
