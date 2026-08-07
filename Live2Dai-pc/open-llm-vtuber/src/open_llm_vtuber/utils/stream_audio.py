@@ -3,6 +3,10 @@ from pydub import AudioSegment
 from pydub.utils import make_chunks
 from ..agent.output_types import Actions
 from ..agent.output_types import DisplayText
+from ..tts.pymouth_viseme import PymouthVisemeDriver
+
+# 进程级复用的元音嘴型驱动器：pymouth 缺失/失败时 process_audio 返回 []，静默降级
+_viseme_driver = PymouthVisemeDriver()
 
 
 def _get_volume_by_chunks(audio: AudioSegment, chunk_length_ms: int) -> list:
@@ -54,6 +58,7 @@ def prepare_audio_payload(
             "audio": None,
             "volumes": [],
             "slice_length": chunk_length_ms,
+            "visemes": [],
             "display_text": display_text,
             "actions": actions.to_dict() if actions else None,
             "forwarded": forwarded,
@@ -68,12 +73,15 @@ def prepare_audio_payload(
         )
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
     volumes = _get_volume_by_chunks(audio, chunk_length_ms)
+    # pymouth 元音嘴型：缺失/失败时静默降级为空列表
+    visemes = [frame.to_dict() for frame in _viseme_driver.process_audio(audio_bytes)]
 
     payload = {
         "type": "audio",
         "audio": audio_base64,
         "volumes": volumes,
         "slice_length": chunk_length_ms,
+        "visemes": visemes,
         "display_text": display_text,
         "actions": actions.to_dict() if actions else None,
         "forwarded": forwarded,
