@@ -46,8 +46,9 @@ class EmotionController(private val live2DView: Live2DView) {
         // 所有支持的表情关键词（用于构建提示词）
         val EMOTION_KEYWORDS: List<String> = EMOTION_MAP.keys.sorted()
 
-        // 正则表达式：[emotion] 标签
-        private val EMOTION_TAG_REGEX = Regex("""\[(\w+)]""")
+        // 正则表达式：[emotion] 标签，惰性匹配 + 可选强度后缀 [_数字]
+        // [joy_3] → group1=joy, group2=3（强度）；[joy] → group1=joy, group2=null
+        private val EMOTION_TAG_REGEX = Regex("""\[(\w+?)(?:_(\d+))?]""")
 
         // ── TTS 播报净化（task-fix-tts-sanitize）──
         // 用户真机实测：TTS 播报读到 "[joy] ... 等于号 ..."——[emotion] 标签（部分路径）
@@ -97,6 +98,7 @@ class EmotionController(private val live2DView: Live2DView) {
      * 上次设置的表情索引
      */
     private var currentExpressionIndex: Int = 0
+    private var currentIntensity: Float = 1.0f
 
     /**
      * 日志输出（带单元测试防护）。
@@ -140,6 +142,7 @@ class EmotionController(private val live2DView: Live2DView) {
         if (text.isBlank()) return text
 
         var lastValidEmotion: String? = null
+        var lastIntensity: Int = 3  // 默认满强度
 
         // 查找所有 [emotion] 标签
         val matches = EMOTION_TAG_REGEX.findAll(text)
@@ -147,16 +150,19 @@ class EmotionController(private val live2DView: Live2DView) {
             val keyword = match.groupValues[1].lowercase()
             if (EMOTION_MAP.containsKey(keyword)) {
                 lastValidEmotion = keyword
+                lastIntensity = (match.groupValues[2].toIntOrNull() ?: 3).coerceIn(1, 3)
             }
         }
 
         // 如果找到有效表情，设置到 Live2D 模型
         if (lastValidEmotion != null) {
             val expressionIndex = EMOTION_MAP[lastValidEmotion] ?: 0
-            if (expressionIndex != currentExpressionIndex) {
+            val intensity = lastIntensity / 3.0f
+            if (expressionIndex != currentExpressionIndex || intensity != currentIntensity) {
                 currentExpressionIndex = expressionIndex
-                live2DView.setExpression(expressionIndex)
-                logInfo("parseAndApply: 标签[$lastValidEmotion] -> expressionIndex=$expressionIndex")
+                currentIntensity = intensity
+                live2DView.setExpression(expressionIndex, intensity)
+                logInfo("parseAndApply: 标签[$lastValidEmotion] index=$expressionIndex intensity=${lastIntensity}")
             }
         }
 

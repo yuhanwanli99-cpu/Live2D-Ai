@@ -308,17 +308,17 @@ class Live2DRenderer(
         }
     }
 
-    fun setExpression(expressionIndex: Int) {
+    fun setExpression(expressionIndex: Int, intensity: Float = 1.0f) {
         if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return
         try {
             val pipeline = animationPipeline
             val setting = modelSettingJson!!
             val expressions = setting.getJSONObject("FileReferences").optJSONArray("Expressions") ?: run {
-                setExpressionFallback(expressionIndex)
+                setExpressionFallback(expressionIndex, intensity)
                 return
             }
             if (expressionIndex >= expressions.length()) {
-                setExpressionFallback(expressionIndex)
+                setExpressionFallback(expressionIndex, intensity)
                 return
             }
 
@@ -335,7 +335,7 @@ class Live2DRenderer(
             }
 
             if (expData != null && pipeline != null) {
-                pipeline.expressionManager.setExpression(expData)
+                pipeline.expressionManager.setExpression(expData, intensity)
                 return
             }
 
@@ -1118,7 +1118,7 @@ class Live2DRenderer(
      * 优先走 AnimationPipeline 的 ExpressionManager，使兜底表情与正常表情
      * 一样获得交叉淡变（旧表情淡出、新表情淡入）；管线不可用时才硬切。
      */
-    private fun setExpressionFallback(expressionIndex: Int) {
+    private fun setExpressionFallback(expressionIndex: Int, intensity: Float = 1.0f) {
         val mouthOpen = when (expressionIndex) {
             0 -> 0.0f; 1 -> 0.3f; 2 -> 0.5f; 3 -> 0.8f
             4 -> 0.2f; 5 -> 0.4f; 6 -> 0.6f; 7 -> 0.9f
@@ -1130,7 +1130,8 @@ class Live2DRenderer(
             pipeline.expressionManager.setExpression(
                 ExpressionData(
                     listOf(ExpressionParameter(id = "ParamA", value = mouthOpen, blend = "Overwrite"))
-                )
+                ),
+                intensity
             )
             return
         }

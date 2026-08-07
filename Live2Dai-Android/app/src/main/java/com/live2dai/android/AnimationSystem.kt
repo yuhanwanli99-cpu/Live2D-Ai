@@ -994,10 +994,15 @@ class AnimationPipeline(
                 return previousExpressionStartWeight * (1f - t)
             }
 
+        /** 当前表情的目标强度（0-1），级3 情感强度。默认 1.0=满权重。 */
+        var currentIntensity: Float = 1.0f
+
         /**
-         * 设置表情（与旧表情交叉淡变，旧表情不再瞬间消失）。
+         * 设置表情（与旧表情交叉淡变，支持情感强度）。
+         * @param intensity 表情目标强度 0.33-1.0，默认 1.0（满权重）。控制淡入后的最终权重上限。
          */
-        fun setExpression(expression: ExpressionData) {
+        fun setExpression(expression: ExpressionData, intensity: Float = 1.0f) {
+            currentIntensity = intensity.coerceIn(0f, 1f)
             // 当前表情仍在显示（权重 > 0）且与目标不同 → 保留为淡出对象
             previousExpression = currentExpression?.takeIf { it !== expression && expressionWeight > 0f }
             previousExpressionStartWeight = expressionWeight
@@ -1024,7 +1029,7 @@ class AnimationPipeline(
             val exp = currentExpression ?: return
 
             expressionTimer += deltaTime
-            expressionWeight = (expressionTimer / expressionFadeTime).coerceIn(0f, 1f)
+            expressionWeight = (expressionTimer / expressionFadeTime).coerceIn(0f, 1f) * currentIntensity
 
             // 交叉淡变结束 → 丢弃旧表情
             if (expressionTimer >= expressionFadeTime) {

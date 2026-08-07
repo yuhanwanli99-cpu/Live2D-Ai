@@ -60,7 +60,7 @@ class EmotionControllerTest {
         assertEquals("主人好呀喵~！ 不许偷懒喵！ 小喵去倒茶~", result)
         // Only the last valid emotion tag triggers setExpression
         // neutral(0) == currentExpressionIndex(0) initially, so NOT called
-        verify(mockLive2DView, never()).setExpression(any())
+        verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test
@@ -68,7 +68,7 @@ class EmotionControllerTest {
         val input = "这是一条没有表情标签的普通消息"
         val result = emotionController.parseAndApply(input)
         assertEquals("这是一条没有表情标签的普通消息", result)
-        verify(mockLive2DView, never()).setExpression(any())
+        verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test
@@ -76,7 +76,7 @@ class EmotionControllerTest {
         val input = "[unknown] 这个标签不存在喵~"
         val result = emotionController.parseAndApply(input)
         assertEquals("这个标签不存在喵~", result)
-        verify(mockLive2DView, never()).setExpression(any())
+        verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test
@@ -86,7 +86,7 @@ class EmotionControllerTest {
         assertEquals("主人好！今天天气真好~ 小喵很高兴！", result)
         // Only last valid emotion (neutral → 0) triggers setExpression
         // 0 == currentExpressionIndex(0) initially → NOT called
-        verify(mockLive2DView, never()).setExpression(any())
+        verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test
@@ -94,7 +94,7 @@ class EmotionControllerTest {
         val input = ""
         val result = emotionController.parseAndApply(input)
         assertEquals("", result)
-        verify(mockLive2DView, never()).setExpression(any())
+        verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test
@@ -143,7 +143,7 @@ class EmotionControllerTest {
         val input = "普通文本，没有标签"
         val result = emotionController.parseAndApply(input)
         assertEquals("普通文本，没有标签", result)
-        verify(mockLive2DView, never()).setExpression(any())
+        verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test

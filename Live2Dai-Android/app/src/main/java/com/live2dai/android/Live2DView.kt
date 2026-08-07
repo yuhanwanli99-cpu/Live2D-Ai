@@ -154,8 +154,8 @@ class Live2DView(
      * 设置面部表情
      * @param expressionIndex 表情索引 (0-7, 对应 model3.json 的 Expressions 数组)
      */
-    fun setExpression(expressionIndex: Int = 0) {
-        renderer?.setExpression(expressionIndex)
+    fun setExpression(expressionIndex: Int = 0, intensity: Float = 1.0f) {
+        renderer?.setExpression(expressionIndex, intensity)
     }
 
     /**
