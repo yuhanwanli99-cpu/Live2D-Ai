@@ -130,9 +130,11 @@ object LLMProviderManager {
      * 即共享免费 Key 额度耗尽后，用户在设置页填入自己的 Key，下一次请求即可生效。
      */
     fun getActiveProvider(): LLMProvider {
-        // 零配置：从未存过 provider 类型 → 智谱 GLM 免费兜底；无 Zhipu Key 时回退 DeepSeek
+        // 零配置：DeepSeek key 存在优先用（debug 内置版），否则智谱 GLM 免费兜底
         if (!prefs.contains(KEY_TYPE)) {
-            return if (zhipuKeyAvailable()) zhipuProvider() else deepSeekProvider()
+            return if (BuildConfig.DEEPSEEK_API_KEY.isNotEmpty()) deepSeekProvider()
+                   else if (zhipuKeyAvailable()) zhipuProvider()
+                   else deepSeekProvider()
         }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
