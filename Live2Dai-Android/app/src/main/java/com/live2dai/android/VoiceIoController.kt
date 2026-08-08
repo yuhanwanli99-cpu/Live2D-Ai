@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -82,6 +83,9 @@ class VoiceIoController(
     /** viseme 分析收集协程（CPU 密集 → Dispatchers.Default；口型应用仍在 lipSyncScope/主线程） */
     private var visemeCollectJob: Job? = null
 
+    /** M7 关键词兜底调度协程（contract-M7-android-l3.md §4；同 lipSyncScope 生命周期） */
+    private var keywordMotionJob: Job? = null
+
     /** 播放状态观察协程（组合各 Provider isSpeaking → 更新 [isSpeaking] + 驱动 LipSync） */
     private var playbackObserverJob: Job? = null
 
@@ -136,8 +140,10 @@ class VoiceIoController(
      * @param providerId 指定首选 Provider ID（如 "system_tts"）；指定 Provider 失败后
      *                   仍按 priority 遍历其余 Provider 降级；null = 纯降级链遍历。
      *                   空文本直接跳过；内部异常全部吞掉（契约 throws: []）。
+     * @param keywordMotionEnabled M7：是否允许关键词兜底触发 motion；false = 该次回复已由
+     *                             motionLabel 驱动（contract-M7 §3.2 防线①）；默认 true。
      */
-    suspend fun speak(text: String, providerId: String? = null) {
+    suspend fun speak(text: String, providerId: String? = null, keywordMotionEnabled: Boolean = true) {
         if (text.isBlank()) return
         // 统一净化：剥离 [emotion] 标签 + 颜文字 + markdown 符号（只影响播报，不影响字幕/UI）
         val clean = EmotionController.sanitizeForTts(text)
@@ -174,6 +180,16 @@ class VoiceIoController(
                         }
                     }
                 }
+                // M7：关键词兜底调度（motionLabel 驱动时调用方传 keywordMotionEnabled=false 整体禁用；
+                // 无命中 → 零开销不启动协程）
+                keywordMotionJob?.cancel()
+                val keywordHits =
+                    if (keywordMotionEnabled) KeywordMotionTable.find(clean) else emptyList()
+                keywordMotionJob = if (keywordHits.isNotEmpty()) {
+                    lipSyncScope.launch {
+                        scheduleKeywordMotions(provider, clean, keywordHits)
+                    }
+                } else null
                 provider.speak(clean)
                 VoiceTelemetry.log(
                     VoiceEvent.TtsSucceeded(
@@ -206,9 +222,70 @@ class VoiceIoController(
             } finally {
                 visemeCollectJob?.cancel()
                 visemeCollectJob = null
+                keywordMotionJob?.cancel()
+                keywordMotionJob = null
             }
         }
         logW("speak() 所有 provider 均失败，静默降级")
+    }
+
+    /**
+     * M7 关键词兜底调度（contract-M7-android-l3.md §4.3）。
+     *
+     * 进度源 = provider.audioFrameFlow（sherpa 预分析模式：播放前全量 emit → totalMs 可得）：
+     *   - 有帧 → 计算每个 hit 的触发时间 t(pos) = pos / clean.length × totalMs（匀速近似，无逐字时间戳）
+     *     → 按 t 升序 delay 触发 startMotionByTag(hit.alias, NORMAL)。
+     *   - 无进度源（空流/无帧）→ 降级：播放开始（provider.isSpeaking 变 true）触发首个命中一次。
+     *
+     * 静默降级：任何异常吞掉（不影响 TTS 播放，§4.4 不打断主链路）；Live2DView 未接线 → 跳过。
+     */
+    private suspend fun scheduleKeywordMotions(
+        provider: TtsProvider,
+        clean: String,
+        hits: List<KeywordMotionTable.Hit>,
+    ) {
+        val view = live2DView ?: return
+        try {
+            var totalMs = 0L
+            var frameCount = 0
+            // 帧收集协程（与 viseme collect 同生命周期：speak 执行期间；CPU 密集 → Default）
+            val collectJob = lipSyncScope.launch(Dispatchers.Default) {
+                try {
+                    provider.audioFrameFlow.collect { frame ->
+                        val frameDur = if (frame.sampleRate > 0)
+                            frame.samples.size * 1000L / frame.sampleRate else 0L
+                        totalMs = frame.timestampMs + frameDur
+                        frameCount++
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logW("关键词帧收集异常: ${e.message}")
+                }
+            }
+            // 等待播放开始（sherpa 预分析：帧已在播放前 emit 完 → totalMs 已定稿）
+            provider.isSpeaking.first { it }
+            if (frameCount > 0 && totalMs > 0) {
+                // 进度模式：按匀速近似 t(pos) 调度触发
+                val startMs = SystemClock.uptimeMillis()
+                for (hit in hits) {
+                    val tMs = hit.position.toLong() * totalMs / clean.length.coerceAtLeast(1)
+                    val elapsed = SystemClock.uptimeMillis() - startMs
+                    if (tMs > elapsed) delay(tMs - elapsed)
+                    view.startMotionByTag(hit.alias, MotionPriority.NORMAL)
+                }
+            } else {
+                // 降级：无进度源 → 播放开始触发首个命中一次
+                logI("关键词兜底降级：无进度源（空流/无帧），播放开始触发首个命中一次")
+                view.startMotionByTag(hits.first().alias, MotionPriority.NORMAL)
+            }
+            collectJob.cancel()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 不打断主链路：调度异常静默吞掉（contract-M7 §4.4）
+            logW("关键词兜底调度异常（不影响 TTS 播放）: ${e.message}")
+        }
     }
 
     /**
@@ -467,6 +544,8 @@ class VoiceIoController(
         lipSyncJob = null
         visemeCollectJob?.cancel()
         visemeCollectJob = null
+        keywordMotionJob?.cancel()
+        keywordMotionJob = null
         live2DView = null
         // 释放所有 Provider（幂等）
         providers.forEach { provider ->

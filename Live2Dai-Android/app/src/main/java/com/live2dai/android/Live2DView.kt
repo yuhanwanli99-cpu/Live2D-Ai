@@ -151,6 +151,19 @@ class Live2DView(
     }
 
     /**
+     * 按语义标签（motionLabel 别名）播放 motion（M7 转发，对外公开入口）。
+     * M2/关键词兜底调用此层。
+     *
+     * @param tag     语义别名（M1 §5 别名表；大小写不敏感）
+     * @param priority 播放优先级（默认 NORMAL=2）；解析键以 "Idle_" 开头 → 强制 IDLE
+     * @return true = 已开始播放；false = 未知 tag / 键未加载 / 被更高优先级阻止或同优先级不打断
+     *         （不抛异常，静默降级；renderer 未接线时也返回 false）
+     */
+    fun startMotionByTag(tag: String, priority: Int = MotionPriority.NORMAL): Boolean {
+        return renderer?.startMotionByTag(tag, priority) ?: false
+    }
+
+    /**
      * 设置面部表情
      * @param expressionIndex 表情索引 (0-7, 对应 model3.json 的 Expressions 数组)
      */

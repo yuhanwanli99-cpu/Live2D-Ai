@@ -184,6 +184,14 @@ class MotionManager(private val paramNameToIndex: Map<String, Int>) {
     fun isPlaying(): Boolean = current != null
 
     /**
+     * 当前播放 motion 的优先级（无播放 → null）。
+     * 只读 getter（contract-M7-android-l3.md §1.2）：供 idle 轮换 / 触发回落判断使用，
+     * 不改动 MotionManager 纯 motion 栈引擎的任何构造/签名/行为。
+     */
+    val currentPriority: Int?
+        get() = current?.priority
+
+    /**
      * 当前 motion 是否已播放完成（非循环动作）。
      */
     fun isFinished(): Boolean {

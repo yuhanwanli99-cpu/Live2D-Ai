@@ -375,17 +375,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val controller = EmotionController(view)
         this.emotionController = controller
 
+        // M7：motionLabel 触发接线（contract-M2-M3 §1.3(d) 接缝 → Live2DView.startMotionByTag，
+        // 优先级 NORMAL；contract-M7 §3.1）。applyStructured 的 motionLabel 非 null 时经此触发动作。
+        controller.motionTrigger = { tag ->
+            view.startMotionByTag(tag, MotionPriority.NORMAL)
+        }
+
         // 插件通道 onAssistantMessage：供主动陪伴类插件调用
         // （PluginHost.sendAssistantMessage → 表情 + TTS 播报）
         pluginManager.onAssistantMessage = { text, emotion ->
             val result = controller.parseStructured(text)
             if (result != null) {
                 // 结构化 JSON 优先（M2，contract-M2-M3 §1.4）：应用混合/覆盖/动作，
-                // TTS 播报剥离 JSON 后的干净文本
+                // TTS 播报剥离 JSON 后的干净文本；motionLabel 存在 → 关键词兜底整体禁用（M7 §3.2 防线①）
                 controller.applyStructured(result)
                 val clean = controller.stripStructuredJson(text)
                 viewModelScope.launch {
-                    voiceIo.speak(clean, repo.ttsProviderId)
+                    voiceIo.speak(
+                        clean,
+                        repo.ttsProviderId,
+                        keywordMotionEnabled = result.motionLabel == null
+                    )
                 }
             } else {
                 // 现有路径一字不改：[keyword] 降级（stripEmotionTags + speak 内部 sanitizeForTts）
@@ -414,10 +424,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             ) {
                 val result = controller.parseStructured(assistantMessage)
                 if (result != null) {
-                    // 结构化 JSON 优先（M2）：应用混合/覆盖/动作，TTS 播报剥离 JSON 后的干净文本
+                    // 结构化 JSON 优先（M2）：应用混合/覆盖/动作，TTS 播报剥离 JSON 后的干净文本；
+                    // motionLabel 存在 → 关键词兜底整体禁用（M7 §3.2 防线①）
                     controller.applyStructured(result)
                     val clean = controller.stripStructuredJson(assistantMessage)
-                    voiceIo.speak(clean, repo.ttsProviderId)
+                    voiceIo.speak(
+                        clean,
+                        repo.ttsProviderId,
+                        keywordMotionEnabled = result.motionLabel == null
+                    )
                 } else {
                     // 现有路径一字不改：[keyword] 降级
                     emotion?.let { controller.setEmotion(it) }

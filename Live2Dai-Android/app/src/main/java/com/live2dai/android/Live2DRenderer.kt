@@ -16,6 +16,9 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
 
+/** M7 idle 轮换间隔（毫秒；contract-M7-android-l3.md §5.2-3，锁默认 12s） */
+private const val IDLE_SWITCH_INTERVAL_MS = 12_000L
+
 /**
  * Live2D 渲染器 — 按 CubismRendererAndroid 的 doDrawModel() 算法实现。
  *
@@ -150,6 +153,23 @@ class Live2DRenderer(
     /** 是否已 start idle motion */
     private var hasStartedIdle: Boolean = false
 
+    // ── M7：motion 标签触发回落 + idle 多样化（contract-M7-android-l3.md §1.3-5 / §5）──
+
+    /** 经 startMotionByTag 播放的 motion 回落标记（仅 NORMAL 优先级的 M7 触发路径生效） */
+    private var triggeredMotionActive: Boolean = false
+
+    /** 触发 motion 的时长（秒，播满一轮回落 idle 用） */
+    private var triggeredMotionDuration: Float = 0f
+
+    /** 触发 motion 已播时间（秒，每帧累积） */
+    private var triggeredMotionElapsed: Float = 0f
+
+    /** idle 轮换计时（秒，仅 IDLE 优先级播放时累积） */
+    private var idleElapsed: Float = 0f
+
+    /** idle 轮换器（懒初始化：DEFAULT_POOL ∩ loadedMotions；模型切换后重建） */
+    private var idleSelector: IdleMotionSelector? = null
+
     // ── 兜底渲染 ──
     private var fallbackProgram = 0
     private val fallbackVertices = floatArrayOf(-1f, -1f, 0f, 1f, -1f, 0f, -1f, 1f, 0f, 1f, 1f, 0f)
@@ -246,6 +266,10 @@ class Live2DRenderer(
                     model.update()
                 }
 
+                // ── M7：触发 motion 播满一轮回落 idle + idle 多样化轮换（§1.3-5 / §5.2-3）──
+                checkTriggeredMotionFallback()
+                updateIdleRotation(deltaTime)
+
                 // 刷新 drawable 批量属性缓存
                 refreshCachedAttributes()
 
@@ -306,6 +330,105 @@ class Live2DRenderer(
         } catch (e: Throwable) {
             android.util.Log.w("Live2DRenderer", "动作播放失败: ${e.message}")
         }
+    }
+
+    /**
+     * 按语义标签（motionLabel 别名）播放 motion（M7，contract-M7-android-l3.md §1）。
+     *
+     * 解析链路：tag → MotionAliasTable.resolve() → loadedMotions 键 → MotionData →
+     *           pipeline.motionManager.startMotion(data, priority)
+     *
+     * @param tag     语义别名（M1 §5 别名表；大小写不敏感，trim 后查表）
+     * @param priority 播放优先级（默认 NORMAL=2）；若解析键以 "Idle_" 开头 → 强制 IDLE=1
+     *                （与 Live2DRenderer.startMotion 的 group=="Idle" → IDLE 规则一致）
+     * @return true = 已开始播放；false = 未知 tag / 键未加载 / 被更高优先级阻止或同优先级不打断
+     *         （不抛异常，静默降级）
+     */
+    fun startMotionByTag(tag: String, priority: Int = MotionPriority.NORMAL): Boolean {
+        if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return false
+        try {
+            val key = MotionAliasTable.resolve(tag)
+            if (key == null) {
+                android.util.Log.w("MotionManagerTag", "未知 tag: $tag")
+                return false
+            }
+            val data = loadedMotions[key]
+            if (data == null) {
+                android.util.Log.w("MotionManagerTag", "模型无 motion 键: $key (tag=$tag)")
+                return false
+            }
+            val pipeline = animationPipeline ?: return false
+            val finalPriority = if (key.startsWith("Idle_")) MotionPriority.IDLE else priority
+            val started = pipeline.motionManager.startMotion(data, finalPriority)
+            if (started) {
+                // M7 回落标记：仅对 NORMAL 优先级的 M7 触发路径生效（IDLE 触发回落无意义）
+                triggeredMotionActive = finalPriority == MotionPriority.NORMAL
+                triggeredMotionDuration = data.duration
+                triggeredMotionElapsed = 0f
+            }
+            return started
+        } catch (e: Throwable) {
+            android.util.Log.w("Live2DRenderer", "startMotionByTag 异常: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * M7 触发 motion 回落 idle（contract-M7-android-l3.md §1.3-5）。
+     * mao_pro 全部 motion loop=true → 经 startMotionByTag 触发的 motion 永远循环；
+     * 播满一轮（elapsed >= duration）→ stopAllMotions + startIdleMotion（§5 兜底，idle 轮换随后接管）。
+     * 只对 triggeredMotionActive 标记路径生效——现有 startMotion 路径（非 M7 触发）行为不变，零回归。
+     */
+    private fun checkTriggeredMotionFallback() {
+        if (!triggeredMotionActive) return
+        val pipeline = animationPipeline ?: run {
+            triggeredMotionActive = false
+            return
+        }
+        // 当前无播放 / 优先级不再匹配（被更高优先级打断 / 被新 startMotion 覆盖）→ 清标记，不回落
+        val currentPrio = pipeline.motionManager.currentPriority
+        if (currentPrio == null || currentPrio != MotionPriority.NORMAL) {
+            triggeredMotionActive = false
+            return
+        }
+        triggeredMotionElapsed += deltaTime
+        if (triggeredMotionElapsed >= triggeredMotionDuration) {
+            android.util.Log.i("Live2DRenderer", "M7 触发 motion 播满一轮，回落 idle")
+            triggeredMotionActive = false
+            pipeline.motionManager.stopAllMotions()
+            startIdleMotion()
+        }
+    }
+
+    /**
+     * M7 idle 多样化轮换（contract-M7-android-l3.md §5.2-3）。
+     * IDLE 优先级播放期间累积 idleElapsed，达 IDLE_SWITCH_INTERVAL_MS → 经 IdleMotionSelector
+     * 抽选下一个 idle 键播放（仍 IDLE 优先级）。非 IDLE 播放中 → 不累计。
+     * 轮换只作用于 IDLE 优先级，绝不触碰 NORMAL/FORCE 播放。
+     */
+    private fun updateIdleRotation(deltaTime: Float) {
+        val pipeline = animationPipeline ?: return
+        if (pipeline.motionManager.currentPriority == MotionPriority.IDLE) {
+            idleElapsed += deltaTime
+            if (idleElapsed >= IDLE_SWITCH_INTERVAL_MS / 1000f) {
+                idleElapsed = 0f
+                val nextKey = idleSelectorForCurrentModel().next() ?: return
+                val data = loadedMotions[nextKey] ?: return
+                pipeline.motionManager.startMotion(data, MotionPriority.IDLE)
+            }
+        } else {
+            idleElapsed = 0f
+        }
+    }
+
+    /**
+     * 当前模型 idle 轮换器（懒初始化，模型切换后重建）。
+     * 池 = IdleMotionSelector.DEFAULT_POOL ∩ loadedMotions（未加载键剔除；shizuku 下交集为空 → 池空 → 走兜底）。
+     */
+    private fun idleSelectorForCurrentModel(): IdleMotionSelector {
+        idleSelector?.let { return it }
+        val pool = IdleMotionSelector.DEFAULT_POOL.filter { loadedMotions.containsKey(it) }
+        return IdleMotionSelector(pool).also { idleSelector = it }
     }
 
     fun setExpression(expressionIndex: Int, intensity: Float = 1.0f) {
@@ -445,6 +568,13 @@ class Live2DRenderer(
         animationPipeline = null
         loadedMotions.clear()
         loadedExpressions.clear()
+
+        // M7：重置标签触发 / idle 轮换状态（模型切换后重建）
+        triggeredMotionActive = false
+        triggeredMotionDuration = 0f
+        triggeredMotionElapsed = 0f
+        idleElapsed = 0f
+        idleSelector = null
 
         // 释放 native 模型
         if (modelPtr != 0L) {
