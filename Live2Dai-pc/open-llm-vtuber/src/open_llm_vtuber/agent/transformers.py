@@ -2,7 +2,7 @@ from typing import AsyncIterator, Tuple, Callable, List, Union, Dict, Any
 from functools import wraps
 from .output_types import Actions, SentenceOutput, DisplayText
 from ..utils.tts_preprocessor import tts_filter as filter_text
-from ..live2d_model import Live2dModel
+from ..live2d_model import Live2dModel, PROTOCOL_EMOTION_INDEX
 from ..config_manager import TTSPreprocessorConfig
 from ..utils.sentence_divider import SentenceDivider
 from ..utils.sentence_divider import SentenceWithTags, TagState
@@ -78,14 +78,36 @@ def actions_extractor(live2d_model: Live2dModel):
                 if isinstance(item, SentenceWithTags):
                     sentence = item
                     actions = Actions()
-                    # Only extract emotions for non-tag text
+                    # Only extract actions for non-tag text
                     if not any(
                         tag.state in [TagState.START, TagState.END]
                         for tag in sentence.tags
                     ):
-                        expressions = live2d_model.extract_emotion(sentence.text)
-                        if expressions:
-                            actions.expressions = expressions
+                        # M3 结构化表情 JSON 路径优先（M1 §3.2 + M2-M3 §2.3 接线）
+                        structured = live2d_model.extract_expression_mix(
+                            sentence.text
+                        )
+                        if structured is not None:
+                            # 剥离 JSON 块 → 写回干净文本，下游 display/TTS 自动不读 JSON
+                            sentence.text = live2d_model.strip_expression_json(
+                                sentence.text
+                            )
+                            if structured["expressionMix"]:
+                                actions.expressions = [
+                                    PROTOCOL_EMOTION_INDEX[item["name"]]
+                                    for item in structured["expressionMix"]
+                                ]
+                            if structured["parameterOverrides"]:
+                                actions.parameterOverrides = structured[
+                                    "parameterOverrides"
+                                ]
+                            if structured["motionLabel"]:
+                                actions.motion = structured["motionLabel"]
+                        else:
+                            # 降级：现有关键词路径，行为不变
+                            expressions = live2d_model.extract_emotion(sentence.text)
+                            if expressions:
+                                actions.expressions = expressions
                     yield sentence, actions  # Yield the tuple
                 elif isinstance(item, dict):
                     # Pass through dictionaries

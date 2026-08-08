@@ -10,6 +10,8 @@ class Actions:
     expressions: Optional[List[str] | List[int]] = None
     pictures: Optional[List[str]] = None
     sounds: Optional[List[str]] = None
+    motion: Optional[str] = None  # M1 §3.4 预锁：motionLabel 别名；M3 从 motionLabel 填充，M8 前端消费
+    parameterOverrides: Optional[dict] = None  # M3 透传：parameterOverrides 无损下发；前端消费属 M6/M8 范围
 
     def to_dict(self) -> dict:
         """Convert Actions object to a dictionary for JSON serialization"""

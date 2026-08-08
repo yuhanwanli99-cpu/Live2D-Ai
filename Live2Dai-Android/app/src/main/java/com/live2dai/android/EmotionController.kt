@@ -1,6 +1,8 @@
 package com.live2dai.android
 
 import android.util.Log
+import org.json.JSONException
+import org.json.JSONObject
 
 /**
  * 表情控制器
@@ -20,6 +22,22 @@ import android.util.Log
  *
  * 共 8 个表情文件 (exp_01 ~ exp_08)，每个表情单独占用一个索引。
  */
+
+// ── M2 结构化表情结果（签名锁定自 contract-M1-shared-protocol.md §2.1，禁止改字段）──
+
+/** 单表情权重项 */
+data class ExpressionWeight(
+    val name: String,      // EMOTION_MAP 8 key 之一（小写）
+    val weight: Float      // [0.0, 1.0]
+)
+
+/** parseStructured 的结构化解析结果（null = 解析失败/校验失败，走降级路径） */
+data class EmotionResult(
+    val expressionMix: List<ExpressionWeight>,     // 可能为空（空 = 表情层不动作）
+    val parameterOverrides: Map<String, Float>,    // key ∈ 当前模型 cdi3.json 参数 ID 白名单
+    val motionLabel: String?                       // 别名表别名 或 null
+)
+
 class EmotionController(private val live2DView: Live2DView) {
 
     init {
@@ -49,6 +67,22 @@ class EmotionController(private val live2DView: Live2DView) {
         // 正则表达式：[emotion] 标签，惰性匹配 + 可选强度后缀 [_数字]
         // [joy_3] → group1=joy, group2=3（强度）；[joy] → group1=joy, group2=null
         private val EMOTION_TAG_REGEX = Regex("""\[(\w+?)(?:_(\d+))?]""")
+
+        // ── M2 结构化表情 JSON（emotion-protocol.md B 段）──
+
+        // FENCE 块：```json / ``` 包裹的 JSON 对象（DOT_MATCHES_ALL 跨行；group1 = JSON 子串）
+        private val JSON_FENCE_REGEX =
+            Regex("""```(?:json)?\s*(\{.*?\})\s*```""", RegexOption.DOT_MATCHES_ALL)
+
+        // NAKED：首个 { 到末个 } 的跨行子串
+        private val JSON_NAKED_REGEX = Regex("""\{.*}""", RegexOption.DOT_MATCHES_ALL)
+
+        // motionLabel 别名白名单（emotion-protocol.md F 段：mao_pro 别名表 + shizuku 语义组名；
+        // 未知别名 → 置 null，M1 §1 C4）
+        private val MOTION_LABEL_ALIASES: Set<String> = setOf(
+            "idle", "wave", "special_02", "special_03", "mtn_02", "mtn_03", "mtn_04",
+            "flickup", "tap", "flick3"
+        )
 
         // ── TTS 播报净化（task-fix-tts-sanitize）──
         // 用户真机实测：TTS 播报读到 "[joy] ... 等于号 ..."——[emotion] 标签（部分路径）
@@ -99,6 +133,21 @@ class EmotionController(private val live2DView: Live2DView) {
      */
     private var currentExpressionIndex: Int = 0
     private var currentIntensity: Float = 1.0f
+
+    // ── M2 结构化表情（JSON）状态 ──
+
+    /**
+     * 当前模型 cdi3.json 参数 ID 白名单（parameterOverrides key 校验源，emotion-protocol.md C3）。
+     * 运行时模型加载/切换后同步（Live2DView.getParameterWhitelist()）；留空则 parseStructured
+     * 自动回退查询 live2DView 的当前模型白名单。
+     */
+    var parameterWhitelist: Set<String> = emptySet()
+
+    /**
+     * motionLabel 触发接缝（M7 接线到 Live2DRenderer.startMotionByTag(tag)）。
+     * M7 未接线时 = null → no-op，不抛异常（contract-M2-M3 §1.3(d)）。
+     */
+    var motionTrigger: ((String) -> Unit)? = null
 
     /**
      * 日志输出（带单元测试防护）。
@@ -187,6 +236,163 @@ class EmotionController(private val live2DView: Live2DView) {
         } else {
             logInfo("setEmotion: $keyword 已是当前表情(index=$index)，跳过")
         }
+    }
+
+    // ── M2 结构化表情 JSON 解析 / 应用 / 文本剥离 ──
+
+    /**
+     * 提取 JSON 对象子串：FENCE（```json/```）优先 → NAKED（首个 { 到末个 } 跨行子串）兜底。
+     * 均无 → null。
+     */
+    private fun extractJsonObject(text: String): String? {
+        val fenceMatch = JSON_FENCE_REGEX.find(text)
+        if (fenceMatch != null) {
+            return fenceMatch.groupValues[1]
+        }
+        return JSON_NAKED_REGEX.find(text)?.value
+    }
+
+    /**
+     * 解析当前模型 cdi3.json 参数 ID 白名单：优先使用手动注入的 [parameterWhitelist]
+     * （测试/无 renderer 场景），否则回退查询 live2DView 当前模型白名单。
+     */
+    private fun resolveParameterWhitelist(): Set<String> {
+        if (parameterWhitelist.isNotEmpty()) return parameterWhitelist
+        return runCatching { live2DView.getParameterWhitelist() }.getOrDefault(emptySet())
+    }
+
+    /**
+     * 从 LLM 回复中解析结构化表情 JSON（emotion-protocol.md B 段 schema）。
+     *
+     * 提取顺序（markdown code fence 优先，防正文误匹配）：
+     *   1. ```json ... ``` / ``` ... ``` fence 包裹的 JSON 对象
+     *   2. 无 fence 时，取文本中第一个 '{' 到最后一个 '}' 的跨行子串（裸 JSON）
+     *
+     * 校验规则（与 PC extract_expression_mix 完全一致，双端同输入同输出）：
+     *   - expressionMix.expressions[].name 须 ∈ EMOTION_MAP（8 key，大小写不敏感）
+     *   - weight 非法（<0 或 >1 或非数字）→ 丢弃该项；全部丢弃 → expressionMix 为空（不降级）
+     *   - 权重总和 > 1.0 → 按比例归一化
+     *   - parameterOverrides key ∉ 当前模型 cdi3.json 白名单 → 丢弃该 key
+     *   - motionLabel ∉ 别名表 → 置 null
+     *   - 顶层 JSON 解析失败 / 无 JSON / 无合法字段 → 返回 null（调用方走关键词降级路径）
+     *
+     * @param text LLM 完整回复（可能含正文 + code fence + 旧 [keyword] 标签）
+     * @return EmotionResult 或 null（null = 畸形/无 JSON，降级到 parseAndApply）
+     */
+    fun parseStructured(text: String): EmotionResult? {
+        val jsonStr = extractJsonObject(text) ?: return null
+
+        val root = try {
+            JSONObject(jsonStr)
+        } catch (e: JSONException) {
+            return null
+        }
+
+        // C5 部分生效：至少一个字段存在且结构合法才算解析成功
+        var anyValidField = false
+
+        // ── expressionMix（C1/C2）──
+        val mix = mutableListOf<ExpressionWeight>()
+        val emObj = root.optJSONObject("expressionMix")
+        if (emObj != null) {
+            anyValidField = true
+            val arr = emObj.optJSONArray("expressions")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val item = try {
+                        arr.getJSONObject(i)
+                    } catch (e: JSONException) {
+                        continue
+                    }
+                    val name = item.optString("name", "").lowercase().trim()
+                    if (name !in EMOTION_MAP) continue
+                    val weight = item.optDouble("weight", Double.NaN)
+                    if (weight.isNaN() || weight < 0.0 || weight > 1.0) continue
+                    mix.add(ExpressionWeight(name, weight.toFloat()))
+                }
+            }
+        }
+        // 权重和 > 1.0 → 按比例归一化（每项 / sum；双端比较容差 1e-4）
+        if (mix.isNotEmpty()) {
+            val sum = mix.sumOf { it.weight.toDouble() }
+            if (sum > 1.0) {
+                for (i in mix.indices) {
+                    mix[i] = ExpressionWeight(mix[i].name, (mix[i].weight / sum).toFloat())
+                }
+            }
+        }
+
+        // ── parameterOverrides（C3：key 白名单 = 当前模型 cdi3.json；value = 乘数）──
+        val overrides = mutableMapOf<String, Float>()
+        val ovObj = root.optJSONObject("parameterOverrides")
+        if (ovObj != null) {
+            anyValidField = true
+            val whitelist = resolveParameterWhitelist()
+            val keys = ovObj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (whitelist.isNotEmpty() && key !in whitelist) continue
+                val v = ovObj.optDouble(key, Double.NaN)
+                if (v.isNaN()) continue
+                overrides[key] = v.toFloat()
+            }
+        }
+
+        // ── motionLabel（C4：别名表校验，未知 → null）──
+        var motion: String? = null
+        if (root.has("motionLabel")) {
+            anyValidField = true
+            val label = root.optString("motionLabel", "").lowercase().trim()
+            if (label.isNotEmpty() && label in MOTION_LABEL_ALIASES) {
+                motion = label
+            }
+        }
+
+        if (!anyValidField) return null
+        return EmotionResult(mix, overrides, motion)
+    }
+
+    /**
+     * 应用结构化表情结果（contract-M2-M3 §1.3 锁定行为）。
+     *
+     * (a) expressionMix → name→EMOTION_MAP 索引 → Live2DView.setExpressionMix
+     *     （索引→ExpressionData 解析与 ExpressionManager 加权混合在渲染侧完成；查不到的表情
+     *     跳过，部分生效不降级）
+     * (b) parameterOverrides → 随 setExpressionMix 传入 ExpressionManager（乘数语义，混合后叠加）
+     * (d) motionLabel → motionTrigger 接缝（M7 接线前 no-op，不抛异常）
+     * (e) 空 mix → 表情层不动作，但 overrides/motionLabel 仍生效
+     */
+    fun applyStructured(result: EmotionResult) {
+        val indices = result.expressionMix.mapNotNull { ew ->
+            val index = EMOTION_MAP[ew.name] ?: return@mapNotNull null
+            index to ew.weight
+        }
+        if (result.motionLabel != null) {
+            motionTrigger?.invoke(result.motionLabel)
+        }
+        live2DView.setExpressionMix(indices, result.parameterOverrides)
+    }
+
+    /**
+     * 剥离文本中的结构化 JSON 块（双端一致规则，contract-M2-M3 §1.4）：
+     * ① 含 FENCE（```json/```）块 → 剥离全部 FENCE 块；
+     * ② 无 FENCE 且 NAKED JSON 解析成功 → 剥离该子串（首个 { 到末个 }）；
+     * ③ 其余原样返回。
+     * 保证 TTS 不朗读 JSON、UI 不显示 JSON。
+     */
+    fun stripStructuredJson(text: String): String {
+        if (text.isEmpty()) return text
+        // ① FENCE 块整体剥离
+        if (JSON_FENCE_REGEX.containsMatchIn(text)) {
+            return JSON_FENCE_REGEX.replace(text, "").trim()
+        }
+        // ② 无 FENCE：NAKED 解析成功 → 剥离该子串
+        val nakedMatch = JSON_NAKED_REGEX.find(text)
+        if (nakedMatch != null && parseStructured(text) != null) {
+            return text.replace(nakedMatch.value, "").trim()
+        }
+        // ③ 其余原样返回
+        return text
     }
 
     /**

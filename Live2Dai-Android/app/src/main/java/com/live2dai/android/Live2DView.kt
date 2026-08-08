@@ -159,6 +159,20 @@ class Live2DView(
     }
 
     /**
+     * 结构化表情混合（M2）：多表情加权混合 + 参数覆盖。
+     * @param mix (EMOTION_MAP 索引, weight) 列表，按数组顺序应用；索引查不到的表情跳过（部分生效）。
+     * @param overrides 参数覆盖乘数（key = 参数 ID）
+     */
+    fun setExpressionMix(mix: List<Pair<Int, Float>>, overrides: Map<String, Float>) {
+        renderer?.setExpressionMix(mix, overrides)
+    }
+
+    /**
+     * 当前模型 cdi3.json 参数 ID 白名单（M2 parameterOverrides key 校验源）。
+     */
+    fun getParameterWhitelist(): Set<String> = renderer?.getParameterWhitelist() ?: emptySet()
+
+    /**
      * 设置口型同步参数
      * @param value 0.0 (闭嘴) ~ 1.0 (最大张口)
      */

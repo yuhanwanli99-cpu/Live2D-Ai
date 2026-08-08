@@ -91,6 +91,9 @@ PC_MODEL_REGISTRY_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_
 PC_SERVICE_CONTEXT_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "service_context.py"
 PC_CONF_YAML = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "conf.yaml"
 ANDROID_BUILD_GRADLE = ROOT / "Live2Dai-Android" / "app" / "build.gradle.kts"
+SHARED_EMOTION_PROTOCOL = ROOT / "shared" / "emotion-protocol.md"
+SHARED_PERSONA = ROOT / "shared" / "persona.yaml"
+ANDROID_ASSETS_PERSONA = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "persona.yaml"
 
 # 结果收集：(check_id, title, ok, detail)
 _RESULTS: list[tuple[str, str, bool, str]] = []
@@ -502,6 +505,51 @@ def check_fallback(registry, ModelRegistry) -> None:
 # C20-C21 持久化语义一致性
 # ---------------------------------------------------------------------------
 
+def check_shared_protocol() -> None:
+    """C22-C23: 共享表情协议 + persona 一致性。"""
+
+    # C22: shared/emotion-protocol.md 存在且含 B/C/D/E/F 段落标题
+    c22_ok = False
+    c22_detail = ""
+    if SHARED_EMOTION_PROTOCOL.is_file():
+        content = read_text(SHARED_EMOTION_PROTOCOL)
+        required_sections = [
+            "## B. JSON schema",
+            "## C. 字段约束",
+            "## D. 示例",
+            "## E. 降级规则",
+            "## F. motion 映射表",
+        ]
+        missing = [s for s in required_sections if s not in content]
+        if not missing:
+            c22_ok = True
+            c22_detail = "B/C/D/E/F 全部段落标题存在"
+        else:
+            c22_detail = f"缺少段落标题: {missing}"
+    else:
+        c22_detail = f"文件不存在: {SHARED_EMOTION_PROTOCOL}"
+    record(
+        "C22",
+        "shared/emotion-protocol.md 存在且含 B/C/D/E/F 全部段落标题",
+        c22_ok,
+        c22_detail,
+    )
+
+    # C23: shared/persona.yaml 与 Android assets 副本字节一致
+    if SHARED_PERSONA.is_file() and ANDROID_ASSETS_PERSONA.is_file():
+        c23_ok = SHARED_PERSONA.read_bytes() == ANDROID_ASSETS_PERSONA.read_bytes()
+        c23_detail = "identical bytes" if c23_ok else "bytes differ（persona 同步已过期，请重新同步 shared→assets）"
+    else:
+        c23_ok = False
+        c23_detail = f"文件缺失: shared={'Y' if SHARED_PERSONA.is_file() else 'N'}, assets={'Y' if ANDROID_ASSETS_PERSONA.is_file() else 'N'}"
+    record(
+        "C23",
+        "shared/persona.yaml 与 Android assets/persona.yaml 字节一致（防再次错位）",
+        c23_ok,
+        c23_detail,
+    )
+
+
 def check_persistence() -> None:
     settings_kt = read_text(ANDROID_SETTINGS_KT)
     conf = read_text(PC_CONF_YAML)
@@ -565,6 +613,9 @@ def main() -> int:
 
     print("\n--- 3.6 持久化语义一致性 ---")
     check_persistence()
+
+    print("\n--- 3.7 共享表情协议 + persona 一致性 ---")
+    check_shared_protocol()
 
     print("\n" + "=" * 72)
     fails = [r for r in _RESULTS if not r[2]]

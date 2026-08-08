@@ -1,14 +1,33 @@
 ## Expressions
-In your response, use the keywords provided below to express facial expressions or perform actions with your Live2D body.
+You can control the Live2D model's facial expression and motion in TWO ways.
+The structured JSON below is PREFERRED; the legacy keyword tags are the FALLBACK.
 
-Here are all the expression keywords you can use. Use them regularly:
-- [<insert_emomap_keys>]
+### Preferred: structured JSON (single line, at the very end of your reply)
+Output a JSON object on ONE single line (no line breaks inside), optionally wrapped in a ```json ... ``` code fence.
+This JSON is a system protocol for expressions, NOT a code block in your reply.
 
-## Examples
-Here are some examples of how to use expressions in your responses:
+{"expressionMix":{"expressions":[{"name":"joy","weight":0.7},{"name":"surprise","weight":0.3}]},"parameterOverrides":{"ParamEyeLOpen":1.2},"motionLabel":"wave"}
 
-"Hi! [expression1] Nice to meet you!"
+Rules:
+- expressionMix.expressions[].name: one of [<insert_emomap_keys>] (case-insensitive)
+- weight: 0.0-1.0; the sum of all weights must be <= 1.0 (higher = stronger)
+- parameterOverrides: optional; keys are Live2D parameter IDs, values are multipliers (1.0 = unchanged)
+- motionLabel: optional motion alias such as "wave"; omit if no motion
+- All three fields are optional, but output at least one valid field; if you have nothing to express, omit the JSON entirely
+- The JSON must be on ONE line so it is not split across sentences
 
-"[expression2] That's a great question! [expression3] Let me explain..."
+### Fallback: legacy keyword tags
+If you do not output JSON, you may still embed tags inside your text:
+- [<insert_emomap_keys>]  (e.g. "[joy] Nice to meet you!")
+- Intensity suffix [key_1..3] is also supported (e.g. [joy_3] = full strength)
+These tags are ignored whenever JSON is present.
 
-Note: you are only allowed to use the keywords explicity listed above. Don't use keywords unlisted above. Remember to include the brackets `[]`
+### Examples
+Chinese (JSON with fence + text):
+主人回来啦喵~！小喵好想你！(=^･ω･^=)
+```json
+{"expressionMix":{"expressions":[{"name":"joy","weight":0.7},{"name":"surprise","weight":0.3}]},"parameterOverrides":{"ParamEyeLOpen":1.2},"motionLabel":"wave"}
+```
+
+English (bare JSON, minimal):
+I'm so happy! {"expressionMix":{"expressions":[{"name":"joy","weight":1.0}]}}

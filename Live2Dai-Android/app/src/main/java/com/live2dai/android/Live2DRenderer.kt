@@ -322,18 +322,8 @@ class Live2DRenderer(
                 return
             }
 
-            // 尝试使用预加载的表情
-            val expFileName = expressions.getJSONObject(expressionIndex).optString("File", "")
-            val expName = expressions.getJSONObject(expressionIndex).optString("Name", "")
-
-            // 按名称查找
-            var expData = loadedExpressions[expName]
-            // 按文件名查找
-            if (expData == null && expFileName.isNotEmpty()) {
-                val nameFromFile = expFileName.substringAfterLast("/").substringBeforeLast(".")
-                expData = loadedExpressions[nameFromFile]
-            }
-
+            // 尝试使用预加载的表情（Name → 文件名 stem 查找，M2 起抽取为 resolveExpressionData 复用）
+            val expData = resolveExpressionData(expressionIndex)
             if (expData != null && pipeline != null) {
                 pipeline.expressionManager.setExpression(expData, intensity)
                 return
@@ -347,6 +337,60 @@ class Live2DRenderer(
         } catch (e: Throwable) {
             setExpressionFallback(expressionIndex)
         }
+    }
+
+    /**
+     * 按索引解析 ExpressionData（model3.json Expressions 数组 → loadedExpressions）。
+     * 查找规则（与既有 setExpression 完全一致）：Name → 文件名 stem；
+     * 无 Expressions 数组 / 索引越界 → null。
+     */
+    private fun resolveExpressionData(expressionIndex: Int): ExpressionData? {
+        val setting = modelSettingJson ?: return null
+        val expressions =
+            setting.getJSONObject("FileReferences").optJSONArray("Expressions") ?: return null
+        if (expressionIndex >= expressions.length()) return null
+
+        val expFileName = expressions.getJSONObject(expressionIndex).optString("File", "")
+        val expName = expressions.getJSONObject(expressionIndex).optString("Name", "")
+
+        // 按名称查找
+        var expData = loadedExpressions[expName]
+        // 按文件名查找
+        if (expData == null && expFileName.isNotEmpty()) {
+            val nameFromFile = expFileName.substringAfterLast("/").substringBeforeLast(".")
+            expData = loadedExpressions[nameFromFile]
+        }
+        return expData
+    }
+
+    /**
+     * 结构化表情混合（M2，contract-M2-M3 §1.3）：多表情加权混合 + 参数覆盖。
+     *
+     * @param mix (EMOTION_MAP 索引, weight) 列表，按数组顺序应用；
+     *            索引查不到的表情（模型无此表情文件）→ 跳过该项，其余照常（部分生效，不降级）。
+     * @param overrides 参数覆盖乘数（key = 参数 ID，value = 乘数）
+     */
+    fun setExpressionMix(mix: List<Pair<Int, Float>>, overrides: Map<String, Float>) {
+        if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return
+        try {
+            val pipeline = animationPipeline ?: return
+            val resolved = mutableListOf<Pair<ExpressionData, Float>>()
+            for ((index, weight) in mix) {
+                val expData = resolveExpressionData(index) ?: continue
+                resolved.add(expData to weight)
+            }
+            pipeline.expressionManager.setExpressionMix(resolved, overrides)
+        } catch (e: Throwable) {
+            android.util.Log.w("Live2DRenderer", "结构化表情混合失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 当前模型 cdi3.json 参数 ID 白名单（M2 parameterOverrides key 校验源，emotion-protocol.md C3）。
+     * 模型未加载 / 无 cdi3.json → 空集。
+     */
+    fun getParameterWhitelist(): Set<String> {
+        return modelMeta?.parameters?.mapTo(mutableSetOf()) { it.id } ?: emptySet()
     }
 
     fun setLipSyncParam(value: Float) {

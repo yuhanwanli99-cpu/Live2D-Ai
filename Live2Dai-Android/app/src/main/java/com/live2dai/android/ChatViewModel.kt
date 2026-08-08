@@ -378,17 +378,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // 插件通道 onAssistantMessage：供主动陪伴类插件调用
         // （PluginHost.sendAssistantMessage → 表情 + TTS 播报）
         pluginManager.onAssistantMessage = { text, emotion ->
-            emotion?.let { controller.setEmotion(it) }
-            viewModelScope.launch {
-                voiceIo.speak(
-                    EmotionController.stripEmotionTags(text),
-                    repo.ttsProviderId
-                )
+            val result = controller.parseStructured(text)
+            if (result != null) {
+                // 结构化 JSON 优先（M2，contract-M2-M3 §1.4）：应用混合/覆盖/动作，
+                // TTS 播报剥离 JSON 后的干净文本
+                controller.applyStructured(result)
+                val clean = controller.stripStructuredJson(text)
+                viewModelScope.launch {
+                    voiceIo.speak(clean, repo.ttsProviderId)
+                }
+            } else {
+                // 现有路径一字不改：[keyword] 降级（stripEmotionTags + speak 内部 sanitizeForTts）
+                emotion?.let { controller.setEmotion(it) }
+                viewModelScope.launch {
+                    voiceIo.speak(
+                        EmotionController.stripEmotionTags(text),
+                        repo.ttsProviderId
+                    )
+                }
             }
         }
 
         // 核心 ChatHook.afterReceive：ChatService 每条助手回复后触发
-        // （表情切换 + TTS 播报剥离标签后的纯文本）
+        // （表情切换 + TTS 播报剥离标签后的纯文本；ChatService 已先行 stripEmotionTags，JSON 保留）
         pluginManager.registerHook(object : ChatHook {
             override suspend fun beforeSend(
                 userMessage: String,
@@ -400,8 +412,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 emotion: String?,
                 context: ChatContext
             ) {
-                emotion?.let { controller.setEmotion(it) }
-                voiceIo.speak(assistantMessage, repo.ttsProviderId)
+                val result = controller.parseStructured(assistantMessage)
+                if (result != null) {
+                    // 结构化 JSON 优先（M2）：应用混合/覆盖/动作，TTS 播报剥离 JSON 后的干净文本
+                    controller.applyStructured(result)
+                    val clean = controller.stripStructuredJson(assistantMessage)
+                    voiceIo.speak(clean, repo.ttsProviderId)
+                } else {
+                    // 现有路径一字不改：[keyword] 降级
+                    emotion?.let { controller.setEmotion(it) }
+                    voiceIo.speak(assistantMessage, repo.ttsProviderId)
+                }
             }
         })
 

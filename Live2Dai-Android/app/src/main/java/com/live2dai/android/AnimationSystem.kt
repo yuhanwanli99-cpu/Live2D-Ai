@@ -997,6 +997,12 @@ class AnimationPipeline(
         /** 当前表情的目标强度（0-1），级3 情感强度。默认 1.0=满权重。 */
         var currentIntensity: Float = 1.0f
 
+        /** 结构化混合表情列表：(ExpressionData, 权重)，数组顺序 = 应用顺序（contract-M2-M3 §1.3(a)） */
+        var expressionMix: List<Pair<ExpressionData, Float>> = emptyList()
+
+        /** 结构化参数覆盖乘数：key = 参数 ID，value = 乘数；在 mix 全部应用之后逐 key 叠加（§1.3(b)） */
+        var parameterOverrides: Map<String, Float> = emptyMap()
+
         /**
          * 设置表情（与旧表情交叉淡变，支持情感强度）。
          * @param intensity 表情目标强度 0.33-1.0，默认 1.0（满权重）。控制淡入后的最终权重上限。
@@ -1007,6 +1013,9 @@ class AnimationPipeline(
             previousExpression = currentExpression?.takeIf { it !== expression && expressionWeight > 0f }
             previousExpressionStartWeight = expressionWeight
             currentExpression = expression
+            // 互斥（contract-M2-M3 §1.3(a)3）：单表情路径整体替换结构化混合状态
+            expressionMix = emptyList()
+            parameterOverrides = emptyMap()
             expressionTimer = 0f
             expressionWeight = 0f
         }
@@ -1017,16 +1026,44 @@ class AnimationPipeline(
         fun clearExpression() {
             currentExpression = null
             previousExpression = null
+            expressionMix = emptyList()
+            parameterOverrides = emptyMap()
             expressionWeight = 0f
             previousExpressionStartWeight = 0f
             expressionTimer = 0f
         }
 
         /**
+         * 设置结构化表情混合（contract-M2-M3 §1.3）。
+         *
+         * - 非空 mix → 整体替换单表情状态（互斥）；mix 每项按数组顺序逐帧应用，
+         *   effectiveWeight = item.weight × expressionWeight（与单表情同淡入机制，0.5s）。
+         * - 空 mix → 表情层不动作（不清除当前表情状态）；但 overrides 仍生效（§1.3(e) 部分生效）。
+         * - overrides 乘数语义：final = current × (1 + (multiplier - 1) × expressionWeight)。
+         */
+        fun setExpressionMix(mix: List<Pair<ExpressionData, Float>>, overrides: Map<String, Float>) {
+            parameterOverrides = overrides
+            if (mix.isNotEmpty()) {
+                previousExpression = currentExpression?.takeIf { expressionWeight > 0f }
+                previousExpressionStartWeight = expressionWeight
+                currentExpression = null
+                currentIntensity = 1.0f
+                expressionMix = mix
+                expressionTimer = 0f
+                expressionWeight = 0f
+            } else if (currentExpression == null && expressionMix.isEmpty() && previousExpression == null) {
+                // 空 mix 且无任何表情状态：启动淡入计时，让 overrides 随淡入进度逐步生效
+                expressionTimer = 0f
+                expressionWeight = 0f
+            }
+        }
+
+        /**
          * 每帧更新表情。
          */
         fun update(deltaTime: Float) {
-            val exp = currentExpression ?: return
+            val hasExpression = currentExpression != null || expressionMix.isNotEmpty()
+            if (!hasExpression && parameterOverrides.isEmpty()) return
 
             expressionTimer += deltaTime
             expressionWeight = (expressionTimer / expressionFadeTime).coerceIn(0f, 1f) * currentIntensity
@@ -1039,16 +1076,20 @@ class AnimationPipeline(
         }
 
         /**
-         * 将表情应用到参数（同时应用新旧表情，分别乘各自的权重）。
+         * 将表情应用到参数（同时应用新旧表情，分别乘各自的权重；
+         * 结构化混合按数组顺序逐项应用 + 覆盖叠加）。
          */
         fun apply(model: PurismModel) {
-            val exp = currentExpression ?: return
+            val hasSingle = currentExpression != null
+            val hasMix = expressionMix.isNotEmpty()
+            val hasOverrides = parameterOverrides.isNotEmpty()
+            if (!hasSingle && !hasMix && !hasOverrides) return
             if (expressionWeight <= 0f && previousExpression == null) return
 
-            val defaults = Live2DNative.getParameterDefaultValues(modelPtr(model)) ?: return
-            val paramValues = Live2DNative.getParameterValues(modelPtr(model)) ?: return
-            val minValues = Live2DNative.getParameterMinValues(modelPtr(model))
-            val maxValues = Live2DNative.getParameterMaxValues(modelPtr(model))
+            val defaults = model.getParameterDefaultValues() ?: return
+            val paramValues = model.getParameterValues() ?: return
+            val minValues = model.getParameterMinValues()
+            val maxValues = model.getParameterMaxValues()
 
             // 先应用旧表情（淡出），再应用新表情（淡入）
             previousExpression?.let { prev ->
@@ -1058,7 +1099,17 @@ class AnimationPipeline(
                 }
             }
             if (expressionWeight > 0f) {
-                applyExpression(exp, expressionWeight, paramValues, defaults, minValues, maxValues, model)
+                currentExpression?.let { exp ->
+                    applyExpression(exp, expressionWeight, paramValues, defaults, minValues, maxValues, model)
+                }
+                // 结构化混合：按数组顺序逐项应用（顺序敏感，防参数竞争；Add 累加 / Multiply 连乘 /
+                // Overwrite 后应用者胜，§1.3(a)5）
+                for ((exp, w) in expressionMix) {
+                    if (w <= 0f) continue
+                    applyExpression(exp, w * expressionWeight, paramValues, defaults, minValues, maxValues, model)
+                }
+                // 参数覆盖：混合全部应用后，逐 key：final = current × effective(multiplier)，§1.3(b)
+                applyOverrides(parameterOverrides, expressionWeight, paramValues, minValues, maxValues, model)
             }
         }
 
@@ -1090,7 +1141,40 @@ class AnimationPipeline(
                     else -> current + ep.value * weight
                 }
 
-                model.setParameterValue(idx, newValue.coerceIn(minV, maxV))
+                val clamped = newValue.coerceIn(minV, maxV)
+                model.setParameterValue(idx, clamped)
+                // 回写快照：同一帧内后续表达式/覆盖读到累加后的值
+                // （Add 累加 / Multiply 连乘 / Overwrite 后应用者胜，contract-M2-M3 §1.3(a)5）
+                if (idx < paramValues.size) paramValues[idx] = clamped
+            }
+        }
+
+        /**
+         * 应用参数覆盖乘数（contract-M2-M3 §1.3(b)）。
+         * 在 expressionMix 全部应用之后逐 key：final = current × (1 + (multiplier - 1) × weight)，
+         * clamp 到参数合法范围（无合法范围信息按 [0,1]）。
+         */
+        private fun applyOverrides(
+            overrides: Map<String, Float>,
+            weight: Float,
+            paramValues: FloatArray,
+            minValues: FloatArray?,
+            maxValues: FloatArray?,
+            model: PurismModel
+        ) {
+            for ((paramId, multiplier) in overrides) {
+                val idx = paramNameToIndex[paramId] ?: continue
+                if (idx >= paramValues.size) continue
+
+                val current = paramValues[idx]
+                // 乘数语义：随淡入进度逐步生效（expressionWeight=0 → 乘数 1.0 → 不变）
+                val effective = 1f + (multiplier - 1f) * weight
+                val minV = minValues?.getOrElse(idx) { 0f } ?: 0f
+                val maxV = maxValues?.getOrElse(idx) { 1f } ?: 1f
+
+                val clamped = (current * effective).coerceIn(minV, maxV)
+                model.setParameterValue(idx, clamped)
+                if (idx < paramValues.size) paramValues[idx] = clamped
             }
         }
 
