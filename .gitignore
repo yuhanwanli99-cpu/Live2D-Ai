@@ -94,3 +94,4 @@ Live2Dai-pc/open-llm-vtuber/frontend/libs/
 Live2Dai-Android/app/src/main/assets/model_registry.json
 *.apk
 Live2Dai-debug*.apk
+.kotlin

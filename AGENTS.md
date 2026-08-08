@@ -1,40 +1,18 @@
-# ⛔ SPOQ — 本项目 AGENTS.md（精简版，仅项目专属差异）
+# Live2Dai 项目 AGENTS.md（仅项目专属差异）
 
-> **必读顺序（Orchestrator 在每个 session/Phase 1 开始时必须先后执行两次 read）**：
-> 1. 先 `read` 全局权威版本：`~/.pi/agent/spoq-templates/AGENTS.md`
->    （源码仓库：`G:\git\mypiagent\AGENTS.md`，对所有项目通用，包含完整的 Phase 0/1/2、
->    硬转换表、铁律 0-12、ROMA 角色对齐等全部编排规则）。
-> 2. 再 `read` 本文件——本文件**不重复**全局规则的任何内容，只包含 Live2Dai 项目专属的
->    差异/覆盖/补充。若两者冲突，以本文件为准（项目覆盖优先，与 `.pi/agent-loops/{role}.md`
->    的"项目覆盖 → 全局兜底"机制一致）。
+> 全局权威规则在 `~/.pi/agent/spoq-templates/AGENTS.md` + `SOP.md`，本文件只含 Live2Dai 项目专属差异。冲突时以本文件为准。
 
----
+## 项目专属背景（供主代理参考，非规则）
 
-## 变更历史
-
-- **2026-08-04**：本文件从"完整拷贝 + 本地修改"（v1-v9，585 行）精简为"仅差异"模式。
-  之前的做法导致本项目本地修复（v7：删除"Orca worker 时 SPOQ 不介入"排除规则；v8：
-  ROMA 角色对齐）只停留在本仓库，从未回灌到全局权威版本，是一类容易复发的架构漂移。
-  现已回灌至 `mypiagent` 主仓并部署到全局模板，本文件不再需要保留这些内容。
-  截至本次精简，**本项目目前没有需要覆盖全局规则的专属差异**——以下各节留空，供未来
-  真正出现 Live2Dai 专属规则时使用。
-
----
+- Live2Dai 是 Live2D + AI 语音/形象皮套人主播的 Android/PC 双端项目，目标是比 N.E.K.O 等同类产品门槛更低，做到"动动手指即可配置"的全平台零门槛体验。跨平台一致性优先于跨端实时同步（当前不做云端配置同步）。
+- 双端结构：`Live2Dai-Android/`（Kotlin/Compose）+ `Live2Dai-pc/`（Python/open-llm-vtuber）+ `shared/` + `tts/`。
+- 项目已有级1/级2/级3 分级体系，定义见 `docs/Phase-0-architecture.md`（ROMA 2026 标准：每层选最优方案+一个验证过的降级方案+可观测性）。
+- 项目内有大量前期研究文档（`docs/core-fusion-research.md`、`docs/NEURO_LIVE2D_RESEARCH.md`、`docs/benchmark-neko-vs-neurosama.md` 等）——子代理调研时先读这些避免重复取数。
 
 ## 项目专属覆盖（目前为空）
 
-<!--
-  如果未来 Live2Dai 需要与全局规则不同的行为，在这里追加，例如：
-  - 本项目 Tester 的证据门禁额外要求：Android 改动必须附 `gradlew` 输出，
-    PC 改动必须附 `pytest` 输出（而不满足于全局默认的"至少跑过 1 次 bash"）。
-  - 本项目禁止子代理触碰的目录：见 .pi/agent-loops/orchestrator.md 的项目本地覆盖。
--->
+<!-- 未来 Live2Dai 需要与全局不同的行为时在此追加 -->
 
-## 项目专属背景（供 Orchestrator 参考，非规则）
+## 变更历史
 
-- Live2Dai 是 Live2D + AI 语音/形象皮套人主播的 Android/PC 双端项目，目标是比 N.E.K.O.
-  等同类产品门槛更低（不要求 Steam 等前置条件），做到"动动手指即可配置"的全平台零门槛
-  体验。跨平台一致性优先于跨端实时同步（当前不做云端配置同步）。
-- `.pi/agent-loops/orchestrator.md` 已有项目本地覆盖版本（含"上报完成门禁 Completion
-  Report Gate"和"子代理禁止 git commit/push"两条规则，源于本项目 `6f87069` 违规提交事件），
-  按既有的项目覆盖机制自动优先于全局模板生效，无需在本文件重复。
+- **2026-08-08**：v10 重写——删除旧状态机引用（agent-loops/spoq-state.schema.md 已废），对齐全局三级路由 + LARGE 完整状态机。
