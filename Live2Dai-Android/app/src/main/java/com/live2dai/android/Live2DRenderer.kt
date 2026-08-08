@@ -405,6 +405,18 @@ class Live2DRenderer(
         } catch (_: Throwable) { }
     }
 
+    /**
+     * 按参数 ID 设置 Live2D 参数值（M5 VisemeAnalyzer 集成点）。
+     * 模型无此参数 → 静默跳过；value 自动 coerceIn [0,1]。
+     */
+    fun setParameter(parameterId: String, value: Float) {
+        if (!nativeAvailable || modelPtr == 0L) return
+        try {
+            val idx = paramNameToIndex[parameterId] ?: return
+            Live2DNative.setParameterValue(modelPtr, idx, value.coerceIn(0f, 1f))
+        } catch (_: Throwable) {}
+    }
+
     fun onPause() {}
     fun onResume() {}
 

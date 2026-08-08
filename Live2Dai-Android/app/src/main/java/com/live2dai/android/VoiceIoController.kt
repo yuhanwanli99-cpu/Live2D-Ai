@@ -1,6 +1,7 @@
 package com.live2dai.android
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +56,8 @@ class VoiceIoController(
     private var live2DView: Live2DView? = null,
     /** LipSync 动画协程作用域（主线程；测试注入 TestDispatcher 控制虚拟时间）。 */
     private val lipSyncScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    /** M5：元音分析器；null = 禁用 viseme 驱动（走现有 RMS 随机降级），测试可注入 */
+    private val visemeAnalyzer: VisemeAnalyzer? = null,
 ) {
 
     companion object {
@@ -75,6 +78,9 @@ class VoiceIoController(
 
     /** 当前 LipSync 动画协程（同一时刻至多一个；新播放开始即取消旧协程重启） */
     private var lipSyncJob: Job? = null
+
+    /** viseme 分析收集协程（CPU 密集 → Dispatchers.Default；口型应用仍在 lipSyncScope/主线程） */
+    private var visemeCollectJob: Job? = null
 
     /** 播放状态观察协程（组合各 Provider isSpeaking → 更新 [isSpeaking] + 驱动 LipSync） */
     private var playbackObserverJob: Job? = null
@@ -152,6 +158,22 @@ class VoiceIoController(
         for ((index, provider) in chain.withIndex()) {
             val startedAt = System.currentTimeMillis()
             try {
+                // M5: 在 speak() 前启动 viseme 分析收集（Dispatchers.Default 用于 CPU 密集的 MFCC/DTW）
+                visemeAnalyzer?.reset()
+                visemeCollectJob?.cancel()
+                visemeCollectJob = visemeAnalyzer?.let { analyzer ->
+                    lipSyncScope.launch(Dispatchers.Default) {
+                        try {
+                            provider.audioFrameFlow.collect { frame ->
+                                analyzer.processFrame(frame)
+                            }
+                        } catch (_: CancellationException) {
+                            // 正常取消
+                        } catch (e: Exception) {
+                            logW("viseme collect error: ${e.message}")
+                        }
+                    }
+                }
                 provider.speak(clean)
                 VoiceTelemetry.log(
                     VoiceEvent.TtsSucceeded(
@@ -181,6 +203,9 @@ class VoiceIoController(
                 }
                 // 降级链遍历日志（国产 ROM 抑制 Log.d 教训：用 Log.i 级别）
                 logI("speak() ${provider.info.id} 失败，降级到下一个: $reason")
+            } finally {
+                visemeCollectJob?.cancel()
+                visemeCollectJob = null
             }
         }
         logW("speak() 所有 provider 均失败，静默降级")
@@ -241,7 +266,7 @@ class VoiceIoController(
         }
     }
 
-    /** 启动 LipSync 随机波动嘴型动画协程（幂等：先取消旧协程再重启）。 */
+    /** 启动 LipSync 动画协程（幂等：先取消旧协程再重启）。M5：优先 viseme 驱动，降级走 randomizedMouth。 */
     private fun startLipSync() {
         lipSyncJob?.cancel()
         lipSyncJob = null
@@ -250,10 +275,73 @@ class VoiceIoController(
             logLipSync("播放开始（Live2DView 未接线，跳过嘴型动画）")
             return
         }
-        logLipSync("播放开始")
+
+        // M5 级1：尝试 viseme 驱动
+        val analyzer = visemeAnalyzer
+        if (analyzer != null) {
+            val timeline = analyzer.getVisemeTimeline()
+            if (timeline.isNotEmpty() && timeline.any { it.vowelLabel != "SIL" }) {
+                logLipSync("播放开始（viseme 模式，${timeline.size} 帧）")
+                lipSyncJob = lipSyncScope.launch { startVisemeLoop(view, timeline) }
+                return
+            }
+        }
+        // 级2：RMS 随机降级（现有行为保留）
+        startRandomizedMouthLoop(view)
+    }
+
+    /** 级1：viseme 调度驱动（时间戳调度 + 帧间平滑） */
+    private suspend fun startVisemeLoop(view: Live2DView, timeline: List<VisemeFrame>) {
+        var last: VisemeFrame? = null
+        val startMs = SystemClock.uptimeMillis()
+        try {
+            for (frame in timeline) {
+                val elapsed = SystemClock.uptimeMillis() - startMs
+                if (frame.timestampMs > elapsed) {
+                    delay(frame.timestampMs - elapsed)
+                }
+                applyVisemeFrame(view, frame, last)
+                last = frame
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logLipSync("viseme 动画异常，嘴型归零: ${e.message}")
+        } finally {
+            resetMouth(view)
+        }
+    }
+
+    /** 应用一帧 viseme 五元音参数 */
+    private fun applyVisemeFrame(view: Live2DView, frame: VisemeFrame, last: VisemeFrame?) {
+        try {
+            view.setParameter("ParamA", frame.paramA)
+            view.setParameter("ParamI", frame.paramI)
+            view.setParameter("ParamU", frame.paramU)
+            view.setParameter("ParamE", frame.paramE)
+            view.setParameter("ParamO", frame.paramO)
+        } catch (_: Throwable) {
+            // 单帧失败静默跳过，不影响后续帧
+        }
+    }
+
+    /** viseme 模式结束/异常 → 五元音归零 + setLipSyncParam(0f) */
+    private fun resetMouth(view: Live2DView) {
+        try {
+            view.setParameter("ParamA", 0f)
+            view.setParameter("ParamI", 0f)
+            view.setParameter("ParamU", 0f)
+            view.setParameter("ParamE", 0f)
+            view.setParameter("ParamO", 0f)
+            view.setLipSyncParam(0f)
+        } catch (_: Throwable) {}
+    }
+
+    /** 级2：RMS 随机波动嘴型（现有行为原样保留） */
+    private fun startRandomizedMouthLoop(view: Live2DView) {
+        logLipSync("播放开始（RMS 随机模式）")
         lipSyncJob = lipSyncScope.launch {
             var frame = 0L
-            // 级2-B：当前平滑后的嘴型值（从闭嘴起步，逐帧向随机目标 lerp，避免突兀跳动）
             var currentMouth = 0f
             try {
                 while (isActive) {
@@ -268,22 +356,18 @@ class VoiceIoController(
                     delay(LIP_SYNC_INTERVAL_MS)
                 }
             } catch (e: CancellationException) {
-                // 正常取消（新播报打断 / stopSpeaking / release）——交给 finally 归零
                 throw e
             } catch (e: Exception) {
-                // 容错（plan §8.3）：LipSync 异常不影响 TTS 播放，嘴型归零
                 logLipSync("动画异常，嘴型归零: ${e.message}")
             } finally {
-                // 无论正常结束 / 打断 / 异常，保证嘴型归零
                 try {
                     view.setLipSyncParam(0f)
-                } catch (_: Throwable) {
-                }
+                } catch (_: Throwable) {}
             }
         }
     }
 
-    /** 停止 LipSync 协程并立即将嘴型归零。 */
+    /** 停止 LipSync 协程并立即将嘴型归零（含五元音）。 */
     private fun stopLipSync() {
         logLipSync("播放结束")
         lipSyncJob?.cancel()
@@ -291,6 +375,8 @@ class VoiceIoController(
         val view = live2DView ?: return
         try {
             view.setLipSyncParam(0f)
+            // M5: 五元音归零
+            resetMouth(view)
         } catch (_: Throwable) {
         }
     }
@@ -379,6 +465,8 @@ class VoiceIoController(
         playbackObserverJob = null
         lipSyncJob?.cancel()
         lipSyncJob = null
+        visemeCollectJob?.cancel()
+        visemeCollectJob = null
         live2DView = null
         // 释放所有 Provider（幂等）
         providers.forEach { provider ->

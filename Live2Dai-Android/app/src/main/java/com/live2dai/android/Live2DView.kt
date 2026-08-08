@@ -181,6 +181,14 @@ class Live2DView(
     }
 
     /**
+     * 按参数 ID 设置 Live2D 参数值（M5 VisemeAnalyzer 集成点）。
+     * 模型无此参数 → 静默跳过；value 自动 coerceIn [0,1]。
+     */
+    fun setParameter(parameterId: String, value: Float) {
+        renderer?.setParameter(parameterId, value)
+    }
+
+    /**
      * 释放渲染器资源
      * 在 Activity onDestroy 时调用
      */
