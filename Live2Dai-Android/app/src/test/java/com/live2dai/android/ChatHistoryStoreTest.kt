@@ -2,6 +2,7 @@ package com.live2dai.android
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.live2dai.android.ui.DisplayMessage
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

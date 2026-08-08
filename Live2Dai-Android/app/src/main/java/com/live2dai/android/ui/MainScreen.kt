@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +44,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,10 +55,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.live2dai.android.ChatViewModel
 import com.live2dai.android.Live2DView
-import com.live2dai.android.ModelRegistry
+import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -104,6 +107,15 @@ fun MainChatScreen(
     val viewModel: ChatViewModel = viewModel()
     val listState = rememberLazyListState()
 
+    // ── 收集 ViewModel 状态（StateFlow → Compose 状态，随生命周期暂停/恢复） ──
+    val displayMessages by viewModel.displayMessages.collectAsStateWithLifecycle()
+    val inputText by viewModel.inputText.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isListening by viewModel.isListening.collectAsStateWithLifecycle()
+    val showFreeNotice by viewModel.showFreeNotice.collectAsStateWithLifecycle()
+    val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
+    val showClearConfirm by viewModel.showClearConfirm.collectAsStateWithLifecycle()
+
     // ── 权限启动器（需要 Compose 上下文，保留在 UI 层） ──
 
     // Android 13+ 通知权限（主动陪伴通知需要）：未授予时 ViewModel 内插件静默跳过通知
@@ -147,9 +159,9 @@ fun MainChatScreen(
     }
 
     // ── 新消息时自动滚动到底部 ──
-    LaunchedEffect(viewModel.displayMessages.size) {
-        if (viewModel.displayMessages.isNotEmpty()) {
-            listState.animateScrollToItem(viewModel.displayMessages.size - 1)
+    LaunchedEffect(displayMessages.size) {
+        if (displayMessages.isNotEmpty()) {
+            listState.animateScrollToItem(displayMessages.size - 1)
         }
     }
 
@@ -160,7 +172,7 @@ fun MainChatScreen(
             TopAppBar(
                 title = { Text("Live2Dai") },
                 actions = {
-                    IconButton(onClick = { viewModel.showClearConfirm = true }) {
+                    IconButton(onClick = { viewModel.showClearConfirm.value = true }) {
                         Icon(Icons.Default.Delete, contentDescription = "清空对话")
                     }
                     IconButton(onClick = onOpenSettings) {
@@ -185,20 +197,20 @@ fun MainChatScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
-                        value = viewModel.inputText,
-                        onValueChange = { if (!viewModel.isLoading) viewModel.inputText = it },
+                        value = inputText,
+                        onValueChange = { if (!isLoading) viewModel.inputText.value = it },
                         placeholder = { Text("和小喵聊天...") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        enabled = !viewModel.isLoading
+                        enabled = !isLoading
                     )
                     Spacer(Modifier.width(8.dp))
                     // 语音输入（ASR）麦克风按钮
                     IconButton(
                         onClick = onMicClick,
-                        enabled = !viewModel.isLoading
+                        enabled = !isLoading
                     ) {
-                        if (viewModel.isListening) {
+                        if (isListening) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp
@@ -210,14 +222,14 @@ fun MainChatScreen(
                     Spacer(Modifier.width(8.dp))
                     FilledTonalButton(
                         onClick = {
-                            val text = viewModel.inputText.trim()
-                            if (text.isNotEmpty() && !viewModel.isLoading) {
+                            val text = inputText.trim()
+                            if (text.isNotEmpty() && !isLoading) {
                                 viewModel.sendMessage(text)
                             }
                         },
-                        enabled = viewModel.inputText.isNotBlank() && !viewModel.isLoading
+                        enabled = inputText.isNotBlank() && !isLoading
                     ) {
-                        Text(if (viewModel.isLoading) "..." else "发送")
+                        Text(if (isLoading) "..." else "发送")
                     }
                 }
             }
@@ -229,7 +241,7 @@ fun MainChatScreen(
                 .padding(padding)
         ) {
             // ── 免费共享额度提示（仅零配置默认 Provider 时、且用户未手动关闭时展示） ──
-            if (viewModel.showFreeNotice) {
+            if (showFreeNotice) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f)
@@ -280,7 +292,7 @@ fun MainChatScreen(
                 )
 
                 // ── 前景层：对话气泡列表 ──
-                if (viewModel.displayMessages.isNotEmpty()) {
+                if (displayMessages.isNotEmpty()) {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
@@ -289,7 +301,7 @@ fun MainChatScreen(
                         verticalArrangement = Arrangement.Bottom
                     ) {
                         items(
-                            items = viewModel.displayMessages,
+                            items = displayMessages,
                             key = { "msg_${it.id}" }
                         ) { msg ->
                             ChatBubble(message = msg, onOpenSettings = onOpenSettings)
@@ -306,7 +318,7 @@ fun MainChatScreen(
     // - 零配置即聊：默认使用免费 GLM-4.7-Flash 共享额度
     // - 点「开始聊天」会同时标记免费额度提示已读，避免紧接着弹 banner 造成重复打扰
     // - 「以后再说」：直接跳过，保留免费额度 banner 作为后续提醒
-    if (viewModel.showOnboarding) {
+    if (showOnboarding) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissOnboarding() },
             title = { Text("欢迎来到 Live2Dai 喵~ (=^・ω・^=)") },
@@ -332,9 +344,9 @@ fun MainChatScreen(
 
     // ── 清空对话确认对话框（V1.1 模块2） ──
     // 破坏性操作：重置 LLM 上下文 + 清空显示消息 + 删除本地历史文件
-    if (viewModel.showClearConfirm) {
+    if (showClearConfirm) {
         AlertDialog(
-            onDismissRequest = { viewModel.showClearConfirm = false },
+            onDismissRequest = { viewModel.showClearConfirm.value = false },
             title = { Text("清空对话") },
             text = { Text("将清除当前聊天记录（本地历史与 LLM 上下文），且不可恢复。确定清空吗？") },
             confirmButton = {
@@ -343,7 +355,7 @@ fun MainChatScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.showClearConfirm = false }) {
+                TextButton(onClick = { viewModel.showClearConfirm.value = false }) {
                     Text("取消")
                 }
             }

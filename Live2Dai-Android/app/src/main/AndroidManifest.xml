@@ -34,6 +34,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Robolectric Compose 测试（createComposeRule）需在 manifest 解析 ComponentActivity；
+             debug 变体由 compose ui-tooling 依赖声明，release 变体缺失导致单测失败。
+             exported=false 空壳基类声明，无启动入口，生产无安全影响。 -->
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="false"
+            tools:replace="android:exported" />
+
         <!-- Floating window service -->
         <service
             android:name=".FloatingWindowService"

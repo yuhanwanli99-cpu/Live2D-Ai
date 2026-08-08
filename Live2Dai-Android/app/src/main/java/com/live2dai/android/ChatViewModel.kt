@@ -1,11 +1,6 @@
 package com.live2dai.android
 
 import android.app.Application
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.live2dai.android.data.SettingsRepository
@@ -19,6 +14,7 @@ import com.live2dai.plugin.vision.VisionPluginConfig
 import com.live2dai.pluginsdk.ChatContext
 import com.live2dai.pluginsdk.ChatHook
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -67,30 +63,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var live2DView: Live2DView? = null
     private var emotionController: EmotionController? = null
 
-    // ── 聊天状态（Compose 可观察） ──
+    // ── 聊天状态（StateFlow，UI 层 collectAsStateWithLifecycle 收集） ──
 
     /** 当前会话的显示消息列表（LazyColumn 数据源） */
-    val displayMessages: SnapshotStateList<DisplayMessage> = mutableStateListOf()
+    val displayMessages = MutableStateFlow<List<DisplayMessage>>(emptyList())
 
     /** 输入框文本 */
-    var inputText by mutableStateOf("")
+    val inputText = MutableStateFlow("")
 
     /** LLM 流式请求进行中 */
-    var isLoading by mutableStateOf(false)
+    val isLoading = MutableStateFlow(false)
 
     /** ASR 语音识别进行中 */
-    var isListening by mutableStateOf(false)
+    val isListening = MutableStateFlow(false)
 
-    // ── 对话框状态（Compose 可观察） ──
+    // ── 对话框状态（StateFlow，UI 层 collectAsStateWithLifecycle 收集） ──
 
     /** 清空对话确认对话框 */
-    var showClearConfirm by mutableStateOf(false)
+    val showClearConfirm = MutableStateFlow(false)
 
     /** 首次启动引导对话框 */
-    var showOnboarding by mutableStateOf(false)
+    val showOnboarding = MutableStateFlow(false)
 
     /** 免费共享额度提示 banner */
-    var showFreeNotice by mutableStateOf(false)
+    val showFreeNotice = MutableStateFlow(false)
 
     // ── 初始化 ──
 
@@ -107,8 +103,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         // 对话框初始状态
-        showOnboarding = !repo.onboardingCompleted
-        showFreeNotice = !repo.freeQuotaNoticeDismissed &&
+        showOnboarding.value = !repo.onboardingCompleted
+        showFreeNotice.value = !repo.freeQuotaNoticeDismissed &&
             LLMProviderManager.getActiveProvider().type == ProviderType.ZHIPU
 
         // 冷启动：装载人设 → 装载插件 → 恢复聊天历史
@@ -183,8 +179,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val restored = withContext(Dispatchers.IO) {
             ChatHistoryStore.load(app)
         }
-        if (displayMessages.isEmpty() && restored.isNotEmpty()) {
-            displayMessages.addAll(restored)
+        if (displayMessages.value.isEmpty() && restored.isNotEmpty()) {
+            displayMessages.value = restored
         }
     }
 
@@ -208,14 +204,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         voiceIo.stopSpeaking()
 
         // 显示用户消息
-        displayMessages.add(DisplayMessage(content = text, isUser = true))
-        inputText = ""
-        isLoading = true
+        displayMessages.value =
+            displayMessages.value + DisplayMessage(content = text, isUser = true)
+        inputText.value = ""
+        isLoading.value = true
 
         // 用户消息加入即持久化（完整消息时保存，避免流式 delta 高频写盘）
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                ChatHistoryStore.save(app, displayMessages)
+                ChatHistoryStore.save(app, displayMessages.value)
             }
         }
 
@@ -231,24 +228,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     } else {
                         delta
                     }
-                    val lastIdx = displayMessages.lastIndex
+                    val current = displayMessages.value
+                    val lastIdx = current.lastIndex
                     if (lastIdx >= 0 &&
-                        !displayMessages[lastIdx].isUser &&
-                        !displayMessages[lastIdx].isError
+                        !current[lastIdx].isUser &&
+                        !current[lastIdx].isError
                     ) {
-                        // 追加到已有的助手消息（流式 delta）
-                        displayMessages[lastIdx] = displayMessages[lastIdx].copy(
-                            content = displayMessages[lastIdx].content + displayDelta
-                        )
+                        // 追加到已有的助手消息（流式 delta）：整体替换列表（StateFlow 不可变快照）
+                        displayMessages.value = current.toMutableList().also { list ->
+                            list[lastIdx] = list[lastIdx].copy(
+                                content = list[lastIdx].content + displayDelta
+                            )
+                        }
                     } else {
                         // 新助手消息
-                        displayMessages.add(
-                            DisplayMessage(
-                                content = displayDelta,
-                                isUser = false,
-                                isError = isQuotaExhausted,
-                                showSettingsButton = isQuotaExhausted
-                            )
+                        displayMessages.value = current + DisplayMessage(
+                            content = displayDelta,
+                            isUser = false,
+                            isError = isQuotaExhausted,
+                            showSettingsButton = isQuotaExhausted
                         )
                     }
                 }
@@ -263,19 +261,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         e.message?.let { "发送失败: $it" }
                             ?: "发生未知错误，请重试"
                 }
-                displayMessages.add(
-                    DisplayMessage(
-                        content = errorMessage,
-                        isUser = false,
-                        isError = true
-                    )
+                displayMessages.value = displayMessages.value + DisplayMessage(
+                    content = errorMessage,
+                    isUser = false,
+                    isError = true
                 )
             } finally {
-                isLoading = false
+                isLoading.value = false
                 // 助手回复完整/失败后持久化
                 viewModelScope.launch {
                     withContext(Dispatchers.IO) {
-                        ChatHistoryStore.save(app, displayMessages)
+                        ChatHistoryStore.save(app, displayMessages.value)
                     }
                 }
             }
@@ -294,12 +290,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      *                   仍按降级链自动兜底。通常来自 SettingsRepository.asrProviderId。
      */
     fun startListening(providerId: String) {
-        isListening = true
+        isListening.value = true
         viewModelScope.launch {
             val recognized = voiceIo.listen(providerId)
-            isListening = false
+            isListening.value = false
             if (recognized.isNotEmpty()) {
-                inputText = recognized
+                inputText.value = recognized
             }
         }
     }
@@ -324,13 +320,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun clearConversation() {
         chatService.resetConversation()
-        displayMessages.clear()
+        displayMessages.value = emptyList()
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 ChatHistoryStore.clear(app)
             }
         }
-        showClearConfirm = false
+        showClearConfirm.value = false
     }
 
     // ── 引导 / 提示关闭 ──
@@ -341,7 +337,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun dismissOnboarding() {
         repo.onboardingCompleted = true
-        showOnboarding = false
+        showOnboarding.value = false
     }
 
     /**
@@ -351,8 +347,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissOnboardingAndFreeNotice() {
         repo.onboardingCompleted = true
         repo.freeQuotaNoticeDismissed = true
-        showOnboarding = false
-        showFreeNotice = false
+        showOnboarding.value = false
+        showFreeNotice.value = false
     }
 
     /**
@@ -360,7 +356,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun dismissFreeNotice() {
         repo.freeQuotaNoticeDismissed = true
-        showFreeNotice = false
+        showFreeNotice.value = false
     }
 
     // ── Live2D 视图接线 ──
