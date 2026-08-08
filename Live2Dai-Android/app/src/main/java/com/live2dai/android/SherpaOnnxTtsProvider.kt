@@ -6,8 +6,11 @@ import android.media.MediaPlayer
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -46,6 +49,15 @@ class SherpaOnnxTtsProvider(
 
         /** Provider 唯一标识（契约 schema providersV12.sherpa_onnx_kokoro） */
         const val PROVIDER_ID = "sherpa_onnx_kokoro"
+
+        /** M4：音频分块窗口（ms），与 M5 VisemeAnalyzer 默认分析窗口对齐（contract-M4-M5 §2.3.1）。 */
+        private const val AUDIO_FRAME_MS = 150
+
+        /**
+         * M4：SharedFlow 缓冲容量估算（按块数级；典型语句的 150ms 块数量级）。
+         * 超出部分按契约丢块 + Log.w 一次，不阻塞 speak（见 emitAudioFrames）。
+         */
+        private const val AUDIO_FLOW_BUFFER_CAPACITY = 64
     }
 
     private val _health = MutableStateFlow(
@@ -67,6 +79,27 @@ class SherpaOnnxTtsProvider(
     private val _isSpeaking = MutableStateFlow(false)
     override val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
+    /**
+     * M4：音频帧流（可选能力）。
+     *
+     * synthesize 成功后按 150ms 窗口分块 emit 全部 PCM 帧（contract-M4-M5 §2.2/§2.3）：
+     * - replay=0：消费者必须在 speak() 之前启动 collect，否则丢帧（时序契约 §2.3.6）
+     * - tryEmit 非阻塞：无订阅者 / 缓冲满 → 丢块 + Log.w 一次，不影响 speak 主流程
+     */
+    private val _audioFrameFlow = MutableSharedFlow<AudioFrame>(
+        replay = 0,
+        extraBufferCapacity = AUDIO_FLOW_BUFFER_CAPACITY,
+    )
+    override val audioFrameFlow: Flow<AudioFrame> = _audioFrameFlow.asSharedFlow()
+
+    /** M4：本次 speak 会话内是否已被 stop() 打断（打断后不再 emit）。下次 speak 重置。 */
+    @Volatile
+    private var stopped = false
+
+    /** M4：本次 speak 会话内是否已输出过丢块警告（Log.w 一次）。 */
+    @Volatile
+    private var dropWarned = false
+
     /** 懒加载引擎（首次 speak 时创建；创建失败 → null → UNAVAILABLE） */
     private var engine: SherpaTtsEngine? = null
 
@@ -86,6 +119,9 @@ class SherpaOnnxTtsProvider(
      */
     override suspend fun speak(text: String) = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext
+        // M4：新 speak 会话重置 emit 守卫（允许 emit；stop() 打断后置位跳过 emit）
+        stopped = false
+        dropWarned = false
         if (!isModelReady()) {
             Log.i(TAG, "模型未下载（${modelSpec.id}），快速失败，降级链继续")
             _health.value = TtsHealth.UNAVAILABLE
@@ -99,6 +135,8 @@ class SherpaOnnxTtsProvider(
         try {
             val audio = ttsEngine.synthesize(text, sid, speed)
                 ?: throw IllegalStateException("Kokoro 合成失败（${modelSpec.id}）")
+            // M4：合成成功后按块 emit 全部 PCM 帧（非阻塞；已被 stop() 打断则跳过）
+            if (!stopped) emitAudioFrames(audio)
             playAudio(audio)
             _health.value = TtsHealth.OK
             Log.i(TAG, "Kokoro 播报完成: '${text.take(30)}'（${audio.samples.size} samples @ ${audio.sampleRate}Hz）")
@@ -122,6 +160,42 @@ class SherpaOnnxTtsProvider(
             Log.i(TAG, "Kokoro 引擎初始化成功（${modelSpec.id}）")
         }
         return created
+    }
+
+    /**
+     * M4：合成成功后按 150ms 窗口分块 emit PCM 帧（contract-M4-M5 §2.3 生命周期）。
+     *
+     * - 块长 = sampleRate * AUDIO_FRAME_MS / 1000（150ms 窗口，与 VisemeAnalyzer 对齐；末块截断）
+     * - timestampMs = 块索引 × 块时长（第 0 块 = 0，同次 speak 内单调递增）
+     * - tryEmit 非阻塞：无订阅者 / 缓冲满 → 丢弃该块 + Log.w 一次（不得 suspend 阻塞 speak 主流程）
+     * - 本方法在 speak() 内同步执行：全部块发完后 speak 继续播放流程（预分析先于播放完成）
+     */
+    private fun emitAudioFrames(audio: SherpaTtsAudio) {
+        val samples = audio.samples
+        val sampleRate = audio.sampleRate
+        if (samples.isEmpty() || sampleRate <= 0) return
+        val chunkSize = sampleRate * AUDIO_FRAME_MS / 1000
+        if (chunkSize <= 0) return
+        var offset = 0
+        var index = 0L
+        var dropped = false
+        while (offset < samples.size) {
+            val len = minOf(chunkSize, samples.size - offset)
+            val frame = AudioFrame(
+                samples = samples.copyOfRange(offset, offset + len),
+                sampleRate = sampleRate,
+                timestampMs = index * AUDIO_FRAME_MS.toLong(),
+            )
+            if (!_audioFrameFlow.tryEmit(frame)) {
+                dropped = true
+            }
+            offset += len
+            index++
+        }
+        if (dropped && !dropWarned) {
+            Log.w(TAG, "audioFrameFlow 无订阅者或缓冲满，丢弃部分音频块（不影响播放）")
+            dropWarned = true
+        }
     }
 
     /** PCM float 采样 → WAV 文件 → MediaPlayer 播放（复用 CosyVoice 播放模式）。 */
@@ -199,6 +273,8 @@ class SherpaOnnxTtsProvider(
     }
 
     override fun stop() {
+        // M4：stop() 后本次 speak 会话不得再 emit（emit 守卫置位；下次 speak 重置）
+        stopped = true
         mediaPlayer?.apply {
             try {
                 if (isPlaying) stop()

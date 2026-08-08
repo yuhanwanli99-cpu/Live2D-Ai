@@ -6,9 +6,11 @@ import android.media.MediaPlayer
 import android.util.Log
 import com.live2dai.android.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -140,6 +142,14 @@ class CosyVoiceTtsProvider(
 
     private val _isSpeaking = MutableStateFlow(false)
     override val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
+    /**
+     * M4：音频帧流（v1.0 空流）。
+     *
+     * CosyVoice 输出 MP3 帧；MP3→PCM 客户端解码（MediaCodec）可行性/延迟按 **UNC-4**
+     * 留 M4 之后评估，本版本不实现解码（contract-M4-M5 §2.2 空流策略）。
+     */
+    override val audioFrameFlow: Flow<AudioFrame> = emptyFlow()
 
     private var mediaPlayer: MediaPlayer? = null
 

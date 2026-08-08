@@ -1,6 +1,8 @@
 package com.live2dai.android
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Provider 分类（V1.2 模块1，对标 N.E.K.O. tts_client/workers/ 三分类）。
@@ -77,4 +79,16 @@ interface TtsProvider {
 
     /** 释放引擎资源（音频播放器、WebSocket 连接等）。幂等。 */
     fun release()
+
+    /**
+     * 音频帧流（可选能力）。
+     *
+     * - 有能力暴露 PCM 的 Provider（sherpa-onnx）→ 在 speak() 执行期间 emit AudioFrame
+     * - 无能力的 Provider（Edge/CosyVoice MP3、System TTS）→ 返回空流（emptyFlow()）
+     * - 消费者（VoiceIoController）在调用 speak() **之前**启动 collect（时序契约见 contract-M4-M5 §2.3）
+     *
+     * 默认实现：空流（向后兼容——现有 4 个 Provider 不实现该成员也能编译，285 测试不回退）。
+     */
+    val audioFrameFlow: Flow<AudioFrame>
+        get() = emptyFlow()
 }

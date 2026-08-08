@@ -5,9 +5,11 @@ import android.os.Build
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -46,6 +48,14 @@ class SystemTtsProvider(private val context: Context) : TtsProvider {
 
     private val _isSpeaking = MutableStateFlow(false)
     override val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
+    /**
+     * M4：音频帧流（v1.0 空流）。
+     *
+     * Android TextToSpeech API 不暴露 PCM 音频，无解码头
+     * （contract-M4-M5 §2.2 空流策略）。
+     */
+    override val audioFrameFlow: Flow<AudioFrame> = emptyFlow()
 
     private var androidTts: TextToSpeech? = null
     private var androidTtsReady = false
