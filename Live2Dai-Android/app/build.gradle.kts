@@ -106,6 +106,10 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // 383+ 单测含多个 Robolectric 测试，默认 512MB fork 堆会 OOM（verify-M9-followup P0-1）
+            it.maxHeapSize = "2048m"
+        }
     }
 
     packaging {
@@ -247,6 +251,8 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
+    // org.json 真实实现覆盖 mockable-android.jar 的 stub（EmotionController.parseStructured 依赖，verify-M9-followup P0-2）
+    testImplementation("org.json:json:20231013")
     testImplementation("androidx.test:core:1.6.1")
     // Compose UI 测试（Robolectric 本地运行 ModelSelectorTest）
     testImplementation(platform("androidx.compose:compose-bom:2024.12.01"))

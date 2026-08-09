@@ -124,5 +124,34 @@ class TestPersonaShared(unittest.TestCase):
         except Exception as e:
             self.fail(f"Failed to read persona.yaml: {e}")
 
+    # ---- C-p1: 双端 persona 字节一致（M1 §4.2/7.3，一次性同步后验证） ----
+    def test_shared_and_android_persona_byte_identical(self):
+        """C-p1: shared/persona.yaml 与 Android assets/persona.yaml 字节一致。
+
+        验证 M1 一次性同步生效（强度区块错位修复），diff 为空。
+        """
+        if not os.path.isfile(self.android_assets_path):
+            self.skipTest("Android assets/persona.yaml 不存在，跳过字节一致检查")
+
+        with open(self.persona_path, 'rb') as f:
+            shared_bytes = f.read()
+        with open(self.android_assets_path, 'rb') as f:
+            android_bytes = f.read()
+
+        self.assertEqual(
+            shared_bytes,
+            android_bytes,
+            "shared/persona.yaml 与 Android assets/persona.yaml 字节不一致！"
+            " 请用 M1 一次性同步步骤: cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/persona.yaml",
+        )
+
+        # 额外验证：Android 副本也能被 yaml.safe_load 正常解析（ScannerError 消除）
+        try:
+            with open(self.android_assets_path, 'r', encoding='utf-8') as f:
+                parsed = yaml.safe_load(f)
+            self.assertIsNotNone(parsed, "Android persona.yaml 解析为 None")
+        except Exception as e:
+            self.fail(f"Android persona.yaml 解析失败（可能强度区块仍错位）: {e}")
+
 if __name__ == '__main__':
     unittest.main()

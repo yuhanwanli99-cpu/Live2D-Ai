@@ -268,6 +268,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             } finally {
                 isLoading.value = false
+                // M9 遗留修复：流式 delta 不经 afterReceive hook，完整回复结束时统一剥离
+                // 结构化 JSON（TTS 已不朗读，此处保证 UI 字幕干净，不显示 JSON 块原文）
+                val controller = emotionController
+                if (controller != null) {
+                    val msgs = displayMessages.value
+                    val lastIdx = msgs.lastIndex
+                    if (lastIdx >= 0 && !msgs[lastIdx].isUser && !msgs[lastIdx].isError) {
+                        val stripped = controller.stripStructuredJson(msgs[lastIdx].content)
+                        if (stripped != msgs[lastIdx].content) {
+                            displayMessages.value = msgs.toMutableList().also { list ->
+                                list[lastIdx] = list[lastIdx].copy(content = stripped)
+                            }
+                        }
+                    }
+                }
                 // 助手回复完整/失败后持久化
                 viewModelScope.launch {
                     withContext(Dispatchers.IO) {

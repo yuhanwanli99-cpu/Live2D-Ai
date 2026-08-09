@@ -146,14 +146,15 @@ class VisemeAnalyzer(
     // ── 公开 API ──
 
     /**
-     * 喂入一帧 PCM。
-     * @return 该窗口的 VisemeFrame；缓冲不足一个窗口 → null；
+     * 喂入一帧 PCM。内部缓冲样本，每累积满一个 frameMs 窗口即分析产出；
+     * 单次调用会循环消费缓冲区中全部完整窗口（分批喂入 == 整段喂入，P2-1）。
+     * @return 本次调用最后产出的 VisemeFrame；缓冲区不足一个窗口 → null（不产出帧）；
      *         frame.sampleRate 与构造不一致 → null（忽略该帧）；
      *         内部异常 → null（静默降级，Log.w 一次）
      */
     fun processFrame(frame: AudioFrame): VisemeFrame? {
         if (frame.sampleRate != sampleRate) {
-            Log.w(TAG, "sampleRate mismatch: frame=${frame.sampleRate}, analyzer=$sampleRate — frame ignored")
+            logW("sampleRate mismatch: frame=${frame.sampleRate}, analyzer=$sampleRate — frame ignored")
             return null
         }
         if (frame.samples.isEmpty()) return null
@@ -163,24 +164,27 @@ class VisemeAnalyzer(
             for (s in frame.samples) {
                 sampleBuffer.add(s)
             }
-            // 检查是否到达一个窗口
-            if (sampleBuffer.size < frameSize) return null
+            // 循环消费：缓冲区积累多少完整窗口就产出多少帧，
+            // 分批喂入与整段喂入产出完全一致的 timeline（chunkSizeInvariance，P2-1）。
+            // 返回最后产出的帧；无完整窗口（缓冲不足）→ null（不产出帧）。
+            var last: VisemeFrame? = null
+            while (sampleBuffer.size >= frameSize) {
+                // 提取窗口
+                val window = FloatArray(frameSize)
+                for (i in 0 until frameSize) {
+                    window[i] = sampleBuffer[i]
+                }
+                // 移除已消耗的样本
+                repeat(frameSize) { sampleBuffer.removeAt(0) }
 
-            // 提取窗口
-            val window = FloatArray(frameSize)
-            for (i in 0 until frameSize) {
-                window[i] = sampleBuffer[i]
+                val ts = bufferStartMs
+                bufferStartMs += frameMs.toLong()
+
+                last = analyzeWindow(window, ts)
             }
-            // 移除已消耗的样本
-            repeat(frameSize) { sampleBuffer.removeAt(0) }
-
-            val ts = bufferStartMs
-            bufferStartMs += frameMs.toLong()
-
-            // 分析窗口
-            return analyzeWindow(window, ts)
+            return last
         } catch (e: Exception) {
-            Log.w(TAG, "processFrame error: ${e.message}")
+            logW("processFrame error: ${e.message}")
             return null
         }
     }
@@ -193,6 +197,14 @@ class VisemeAnalyzer(
         sampleBuffer.clear()
         bufferStartMs = 0
         timeline.clear()
+    }
+
+    /** 日志输出带单元测试防护（本地 JVM 测试无 Android 运行时，直接调 Log 抛 "not mocked"）——与 EmotionController/VoiceIoController 同模式。 */
+    private fun logW(message: String) {
+        try {
+            Log.w(TAG, message)
+        } catch (_: Throwable) {
+        }
     }
 
     // ── 内部分析管线 ──

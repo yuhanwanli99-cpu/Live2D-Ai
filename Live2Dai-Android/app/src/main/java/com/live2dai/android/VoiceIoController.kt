@@ -267,10 +267,10 @@ class VoiceIoController(
             provider.isSpeaking.first { it }
             if (frameCount > 0 && totalMs > 0) {
                 // 进度模式：按匀速近似 t(pos) 调度触发
-                val startMs = SystemClock.uptimeMillis()
+                val startMs = nowMillis()
                 for (hit in hits) {
                     val tMs = hit.position.toLong() * totalMs / clean.length.coerceAtLeast(1)
-                    val elapsed = SystemClock.uptimeMillis() - startMs
+                    val elapsed = nowMillis() - startMs
                     if (tMs > elapsed) delay(tMs - elapsed)
                     view.startMotionByTag(hit.alias, MotionPriority.NORMAL)
                 }
@@ -370,10 +370,10 @@ class VoiceIoController(
     /** 级1：viseme 调度驱动（时间戳调度 + 帧间平滑） */
     private suspend fun startVisemeLoop(view: Live2DView, timeline: List<VisemeFrame>) {
         var last: VisemeFrame? = null
-        val startMs = SystemClock.uptimeMillis()
+        val startMs = nowMillis()
         try {
             for (frame in timeline) {
-                val elapsed = SystemClock.uptimeMillis() - startMs
+                val elapsed = nowMillis() - startMs
                 if (frame.timestampMs > elapsed) {
                     delay(frame.timestampMs - elapsed)
                 }
@@ -591,6 +591,19 @@ class VoiceIoController(
         try {
             Log.i(LIP_SYNC_TAG, message)
         } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * 时钟源（P0-3 降级防护）：真机优先 uptimeMillis（不受 suspend/resume 影响），
+     * JVM 单元测试中 SystemClock 未 mock 会抛异常 → 降级 System.currentTimeMillis()。
+     * 真机行为不变；测试环境自动降级。与 logD/logW 同一 try/catch 防护模式。
+     */
+    private fun nowMillis(): Long {
+        return try {
+            SystemClock.uptimeMillis()
+        } catch (_: Throwable) {
+            System.currentTimeMillis()
         }
     }
 }
