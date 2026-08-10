@@ -17,8 +17,8 @@
     },
     "filesystem": {
       "command": "uvx",
-      "args": ["mcp-server-filesystem", "--allowed-directories=F:/Live2Dai/data"],
-      "description": "文件系统读写工具，用于保存笔记、读取文件内容。当用户说'帮我记下来'、'保存这个'、'读取文件'时使用。注意：仅允许操作 F:/Live2Dai/data/ 目录。"
+      "args": ["mcp-server-filesystem", "--allowed-directories=G:/git/Live2Dai/data"],
+      "description": "文件系统读写工具，用于保存笔记、读取文件内容。当用户说'帮我记下来'、'保存这个'、'读取文件'时使用。注意：仅允许操作 G:/git/Live2Dai/data/ 目录。"
     },
     "sequential-thinking": {
       "command": "uvx",

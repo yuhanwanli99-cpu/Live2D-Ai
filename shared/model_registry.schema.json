@@ -52,13 +52,13 @@
           "pattern": "^[a-z0-9_]+$",
           "minLength": 1,
           "maxLength": 64,
-          "description": "唯一标识，小写蛇形命名（如 mao_pro、shizuku）；与 PC model_dict.json 的 name 字段关联。"
+          "description": "唯一标识，小写蛇形命名（如 niziiro_mao）；与 PC model_dict.json 的 name 字段关联。"
         },
         "name": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "用户可见显示名（如 \"Mao Pro\"）。"
+          "description": "用户可见显示名（如 \"Niziiro Mao\"）。"
         },
         "description": {
           "type": ["string", "null"],

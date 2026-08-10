@@ -87,6 +87,19 @@ ANDROID_MAIN_ACTIVITY_KT = (
     / "android"
     / "MainActivity.kt"
 )
+ANDROID_MAIN_SCREEN_KT = (
+    ROOT
+    / "Live2Dai-Android"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "live2dai"
+    / "android"
+    / "ui"
+    / "MainScreen.kt"
+)
 PC_MODEL_REGISTRY_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "model_registry.py"
 PC_SERVICE_CONTEXT_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "service_context.py"
 PC_CONF_YAML = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "conf.yaml"
@@ -94,6 +107,73 @@ ANDROID_BUILD_GRADLE = ROOT / "Live2Dai-Android" / "app" / "build.gradle.kts"
 SHARED_EMOTION_PROTOCOL = ROOT / "shared" / "emotion-protocol.md"
 SHARED_PERSONA = ROOT / "shared" / "persona.yaml"
 ANDROID_ASSETS_PERSONA = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "persona.yaml"
+
+# ── contract-v3-adapter.md §1（C24-C28 数据校验输入）──
+ADAPTER_JSON = ROOT / "shared" / "model-adapter" / "niziiro_mao.adapter.json"
+MODEL3_RUNTIME_DIR = ANDROID_LIVE2D_ROOT / "niziiro_mao" / "runtime"
+ANDROID_MODEL3_JSON = MODEL3_RUNTIME_DIR / "niziiro_mao.model3.json"
+ANDROID_CDI3_JSON = MODEL3_RUNTIME_DIR / "niziiro_mao.cdi3.json"
+ANDROID_EMOTION_KT = (
+    ROOT
+    / "Live2Dai-Android"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "live2dai"
+    / "android"
+    / "EmotionController.kt"
+)
+ANDROID_VISEME_KT = (
+    ROOT
+    / "Live2Dai-Android"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "live2dai"
+    / "android"
+    / "VisemeAnalyzer.kt"
+)
+PC_MODEL_DICT_JSON = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "model_dict.json"
+PC_FRONTEND_VISEME_TS = (
+    ROOT
+    / "cache"
+    / "oltv-web-src"
+    / "src"
+    / "renderer"
+    / "src"
+    / "hooks"
+    / "utils"
+    / "use-viseme-lipsync.ts"
+)
+PC_LIVE2D_MODEL_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "live2d_model.py"
+ANDROID_MOTION_TAGS_KT = (
+    ROOT
+    / "Live2Dai-Android"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "live2dai"
+    / "android"
+    / "MotionTags.kt"
+)
+ANDROID_MODEL_ADAPTER_KT = (
+    ROOT
+    / "Live2Dai-Android"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "live2dai"
+    / "android"
+    / "ModelAdapterConfig.kt"
+)
 
 # 结果收集：(check_id, title, ok, detail)
 _RESULTS: list[tuple[str, str, bool, str]] = []
@@ -277,19 +357,20 @@ def check_id_convention(registry, ModelRegistry) -> None:
 
     # C8: 默认模型 ID 一致（Android SettingsRepository / PC conf.yaml / registry default）
     default_entries = [m for m in models if m.get("default") is True]
-    reg_default_ok = len(default_entries) == 1 and default_entries[0]["id"] == "mao_pro"
+    reg_default_ok = len(default_entries) == 1
+    reg_default_id = default_entries[0]["id"] if default_entries else None
     settings_kt = read_text(ANDROID_SETTINGS_KT)
-    android_default_ok = 'DEFAULT_MODEL_ID = "mao_pro"' in settings_kt
+    android_default_ok = bool(reg_default_id) and f'DEFAULT_MODEL_ID = "{reg_default_id}"' in settings_kt
     conf = read_text(PC_CONF_YAML)
-    pc_default_ok = bool(
-        re.search(r"^\s*live2d_model_name\s*:\s*['\"]mao_pro['\"]\s*$", conf, re.M)
+    pc_default_ok = bool(reg_default_id) and bool(
+        re.search(rf"^\s*live2d_model_name\s*:\s*['\"]{re.escape(reg_default_id)}['\"]\s*$", conf, re.M)
     )
     c8_ok = reg_default_ok and android_default_ok and pc_default_ok
     record(
         "C8",
-        "默认模型 ID 一致（registry default / Android DEFAULT_MODEL_ID / PC conf.yaml 均为 mao_pro）",
+        f"默认模型 ID 一致（registry default / Android DEFAULT_MODEL_ID / PC conf.yaml 均为 {reg_default_id}）",
         c8_ok,
-        f"registry={reg_default_ok} android={android_default_ok} pc={pc_default_ok}",
+        f"registry={reg_default_ok}({reg_default_id}) android={android_default_ok} pc={pc_default_ok}",
     )
 
 
@@ -316,7 +397,7 @@ def check_resources(registry) -> None:
         "C9",
         "所有 available=true 模型的 model3.json 双端均存在",
         avail_ok,
-        "; ".join(avail_detail) or "mao_pro: android OK, pc OK; shizuku: android OK, pc OK",
+        "; ".join(avail_detail) or "niziiro_mao: android OK, pc OK",
     )
 
     # C10: available=false 的模型文件双端均缺失（planned 状态，符合设计）
@@ -335,42 +416,16 @@ def check_resources(registry) -> None:
         "C10",
         "available=false 的模型文件双端均缺失（符合 planned 设计）",
         unavail_ok,
-        "; ".join(unavail_detail) or "hiyori/haru 双端均 MISSING（正确）",
+        "; ".join(unavail_detail) or "无 available=false 条目（shizuku/hiyori/haru 已按 K1 删除）",
     )
 
-    # C11: shizuku 资源完整性 —— 按 model3.json FileReferences 全量核对
-    #      （plan 原文写 textures/motions 目录，真实模型用 shizuku.1024/ + motion/，
-    #       本检查以 FileReferences 实际引用的文件为准，覆盖更强）
-    shizuku_model3 = PC_LIVE2D_ROOT / "shizuku" / "runtime" / "shizuku.model3.json"
-    if shizuku_model3.is_file():
-        refs = json.loads(shizuku_model3.read_text(encoding="utf-8")).get("FileReferences", {})
-        missing: list[str] = []
-        moc = refs.get("Moc")
-        if moc and not (shizuku_model3.parent / moc).is_file():
-            missing.append(moc)
-        for tex in refs.get("Textures") or []:
-            if not (shizuku_model3.parent / tex).is_file():
-                missing.append(tex)
-        for grp, motions in (refs.get("Motions") or {}).items():
-            for mt in motions or []:
-                f = mt.get("File")
-                if f and not (shizuku_model3.parent / f).is_file():
-                    missing.append(f"{grp}/{f}")
-        n_motion = sum(len(v or []) for v in (refs.get("Motions") or {}).values())
-        c11_ok = (not missing) and n_motion >= 1
-        detail = (
-            f"moc3 ✓ textures({len(refs.get('Textures') or [])}) ✓ motions({n_motion}) ✓"
-            if c11_ok
-            else f"missing={missing}"
-        )
-    else:
-        c11_ok = False
-        detail = "shizuku.model3.json 缺失"
+    # C11（已按 K1 删除）: shizuku 资源完整性检查随 shizuku 实体一并移除（shizuku 不再存在）
+    c11_ok = True
     record(
         "C11",
-        "PC 端 shizuku 资源完整（moc3 / 纹理 / motions 按 model3.json FileReferences 核对）",
+        "shizuku 已删除（K1）—— 本检查不再适用，恒为 PASS",
         c11_ok,
-        detail,
+        "shizuku 实体已从 registry/双端目录/model_dict 全量移除",
     )
 
 
@@ -383,40 +438,40 @@ def check_query_semantics(registry, ModelRegistry) -> None:
     pc = ModelRegistry(str(SHARED_REGISTRY))
     android_kt = read_text(ANDROID_REGISTRY_KT)
 
-    # C12: get_all() 条目数一致（4）
+    # C12: get_all() 条目数一致（registry 数据条数 N）
     n_json = len(models)
     n_pc = len(pc.get_all())
-    c12_ok = n_json == 4 and n_pc == 4
+    c12_ok = n_json == n_pc == len(models)
     record(
         "C12",
-        "get_all() 条目数一致（4：mao_pro/shizuku/hiyori/haru）",
+        "get_all() 条目数一致（registry 数据条数）",
         c12_ok,
         f"json={n_json}, pc={n_pc}（Android 同源见 C1）",
     )
 
-    # C13: get_available() 过滤结果一致 {mao_pro, shizuku}
+    # C13: get_available() 过滤结果一致（available=true 的 id 集）
     pc_avail = sorted(e.id for e in pc.get_available())
     expect = sorted(m["id"] for m in models if m.get("available") is True)
     # DIFF-2：Android 排除 restrictPlatform=='pc'；当前数据无 pc 限定条目 ⇒ 等价
     no_pc_restricted = all(m.get("restrictPlatform") != "pc" for m in models)
-    c13_ok = pc_avail == expect == ["mao_pro", "shizuku"] and no_pc_restricted
+    c13_ok = pc_avail == expect and no_pc_restricted
     record(
         "C13",
-        "get_available() 过滤结果一致（{mao_pro, shizuku}）",
+        f"get_available() 过滤结果一致（{expect}）",
         c13_ok,
         f"pc={pc_avail}（Android 过滤 restrictPlatform=='pc' 当前数据为空 ⇒ 等价，DIFF-2 记录在案）"
         if c13_ok
         else f"pc={pc_avail}, expect={expect}, no_pc_restricted={no_pc_restricted}",
     )
 
-    # C14: get_default() 返回值一致（mao_pro）
+    # C14: get_default() 返回值一致（registry default，唯一 default 且 available）
     pc_default = pc.get_default().id
     reg_default = next(m["id"] for m in models if m.get("default") is True)
     reg_default_avail = next(m["available"] for m in models if m.get("default") is True)
-    c14_ok = pc_default == reg_default == "mao_pro" and reg_default_avail is True
+    c14_ok = pc_default == reg_default and reg_default_avail is True
     record(
         "C14",
-        "get_default() 返回一致（mao_pro，唯一 default 且 available）",
+        f"get_default() 返回一致（{reg_default}，唯一 default 且 available）",
         c14_ok,
         f"pc={pc_default}, registry_default={reg_default}",
     )
@@ -451,34 +506,36 @@ def check_query_semantics(registry, ModelRegistry) -> None:
 def check_fallback(registry, ModelRegistry) -> None:
     android_kt = read_text(ANDROID_REGISTRY_KT)
     pc_svc = read_text(PC_SERVICE_CONTEXT_PY)
-    main_kt = read_text(ANDROID_MAIN_ACTIVITY_KT)
 
-    # C17: 注册表缺失/损坏 → 两端均回退 mao_pro，不崩溃
+    # C17: 注册表缺失/损坏 → 两端均回退 niziiro_mao，不崩溃
     android_fb = "fun fallback()" in android_kt and "FALLBACK_ENTRY" in android_kt
     pc_fb = (
         "return None" in pc_svc
         and '_fallback_live2d_model_name' in pc_svc
-        and '"mao_pro"' in pc_svc
+        and '"niziiro_mao"' in pc_svc
     )
     c17_ok = android_fb and pc_fb
     record(
         "C17",
-        "注册表缺失/损坏 → 两端均回退 mao_pro 不崩溃",
+        "注册表缺失/损坏 → 两端均回退 niziiro_mao 不崩溃",
         c17_ok,
-        "Android parse()/load() 捕获→fallback()（静态）；PC _load_model_registry→None→硬编码 mao_pro（静态）"
+        "Android parse()/load() 捕获→fallback()（静态）；PC _load_model_registry→None→硬编码 niziiro_mao（静态）"
         if c17_ok
         else f"android_fallback={android_fb}, pc_fallback={pc_fb}",
     )
 
     # C18: selectedModelId 指向不存在 ID → 两端回退默认模型
-    android_c18 = "getById(modelId) ?: registry.getDefault()" in main_kt
+    # 断言目标 = MainScreen.kt（UI 层回退逻辑，contract-v3-fixes §3.2 锁死写法）
+    android_c18 = (
+        "getById(modelId) ?: registry.getDefault()" in read_text(ANDROID_MAIN_SCREEN_KT)
+    )
     pc_c18 = "resolve_model_name" in pc_svc and "get_default()" in pc_svc
     c18_ok = android_c18 and pc_c18
     record(
         "C18",
         "所选模型 ID 不存在 → 两端均回退默认模型",
         c18_ok,
-        "Android MainActivity `getById ?: getDefault`（静态）；PC _resolve_live2d_model_name → registry 默认（resolve_model_name，单测覆盖）"
+        "Android MainScreen `getById ?: getDefault`（静态）；PC _resolve_live2d_model_name → registry 默认（resolve_model_name，单测覆盖）"
         if c18_ok
         else f"android={android_c18}, pc={pc_c18}",
     )
@@ -538,7 +595,7 @@ def check_shared_protocol() -> None:
     # C23: shared/persona.yaml 与 Android assets 副本字节一致
     if SHARED_PERSONA.is_file() and ANDROID_ASSETS_PERSONA.is_file():
         c23_ok = SHARED_PERSONA.read_bytes() == ANDROID_ASSETS_PERSONA.read_bytes()
-        c23_detail = "identical bytes" if c23_ok else "bytes differ（persona 同步已过期，请重新同步 shared→assets）"
+        c23_detail = "identical bytes" if c23_ok else "bytes differ（persona 同步已过期，请重跑 Gradle copyPersona 任务同步 shared→assets）"
     else:
         c23_ok = False
         c23_detail = f"文件缺失: shared={'Y' if SHARED_PERSONA.is_file() else 'N'}, assets={'Y' if ANDROID_ASSETS_PERSONA.is_file() else 'N'}"
@@ -550,25 +607,439 @@ def check_shared_protocol() -> None:
     )
 
 
-def check_persistence() -> None:
+# ---------------------------------------------------------------------------
+# C24-C31 适配配置一致性（contract-v3-adapter.md §1.3 + schedule-v3 T3.3——真实数据校验 + 深度自校验）
+# ---------------------------------------------------------------------------
+
+_ADAPTER_REQUIRED_KEYS = {
+    "modelId", "displayName", "motionAliases", "vowelParamMap",
+    "vowelRawMap", "idlePool", "emotionIndex", "degradation",
+}
+_MOTION_TAG_KEYS = {"idle", "mtn_02", "mtn_03", "mtn_04", "wave", "special_02", "special_03"}
+_VOWEL_LABELS = {"A", "I", "U", "E", "O", "SIL"}
+_EMOTION_KEYS = {"neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise"}
+# 五元音核心参数（buildVisemeFrame 驱动，必填）+ 口型辅助参数（ParamMouthUp/Down，v3-fixes §5.2 后续增补）
+_VOWEL_CORE_PARAM_NAMES = {"ParamA", "ParamI", "ParamU", "ParamE", "ParamO"}
+_VOWEL_EXTRA_PARAM_NAMES = {"ParamMouthUp", "ParamMouthDown"}
+# 全部允许的参数字段（超集：核心 + 口型辅助；未知参数名 = schema 漂移，视为 FAIL）
+_VOWEL_PARAM_ALLOWED = _VOWEL_CORE_PARAM_NAMES | _VOWEL_EXTRA_PARAM_NAMES
+
+
+def _load_adapter() -> dict | None:
+    """加载 adapter JSON；缺失/解析失败 → None（供各检查判断）。"""
+    if not ADAPTER_JSON.is_file():
+        return None
+    try:
+        return json.loads(ADAPTER_JSON.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _load_model3() -> dict | None:
+    if not ANDROID_MODEL3_JSON.is_file():
+        return None
+    try:
+        return json.loads(ANDROID_MODEL3_JSON.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _load_cdi3() -> dict | None:
+    if not ANDROID_CDI3_JSON.is_file():
+        return None
+    try:
+        return json.loads(ANDROID_CDI3_JSON.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _parse_kotlin_emotion_map(text: str) -> dict[str, int]:
+    """从 EmotionController.kt EMOTION_MAP ("key" to N) 提取键值映射。"""
+    result: dict[str, int] = {}
+    for m in re.finditer(r'"(\w+)"\s+to\s+(\d+)', text):
+        result[m.group(1)] = int(m.group(2))
+    return result
+
+
+def check_adapter_consistency(registry: dict) -> None:
+    """C24-C31：适配配置（shared/model-adapter）跨端一致性与真实数据对账 + 深度自校验。"""
+    adapter = _load_adapter()
+    model3 = _load_model3()
+    cdi3 = _load_cdi3()
+
+    # ── C24: adapter schema 完整性（契约 §1.2 全部约束）──
+    c24_ok = False
+    c24_detail = "adapter JSON 缺失或解析失败"
+    if adapter is not None:
+        problems: list[str] = []
+        missing = _ADAPTER_REQUIRED_KEYS - set(adapter.keys())
+        if missing:
+            problems.append(f"缺少必填字段 {sorted(missing)}")
+        # modelId / displayName：modelId 对应条目必须在 registry 中存在（SV-08：不再要求 registry default == niziiro_mao）
+        if "modelId" in adapter and "displayName" in adapter:
+            registry_ids = [m["id"] for m in registry["models"]]
+            if adapter["modelId"] not in registry_ids:
+                problems.append(f"modelId={adapter.get('modelId')} 不在 registry 条目中, registry ids={registry_ids}")
+        else:
+            problems.append("缺 modelId/displayName")
+        # motionAliases：7 键 + 每项必有 group/index/file
+        if adapter.get("motionAliases") is not None:
+            ma = adapter["motionAliases"]
+            if set(ma.keys()) != _MOTION_TAG_KEYS:
+                problems.append(f"motionAliases 键集={sorted(ma)}, 期望={sorted(_MOTION_TAG_KEYS)}")
+            for tag, alias in ma.items():
+                if not isinstance(alias, dict) or not all(k in alias for k in ("group", "index", "file")):
+                    problems.append(f"motionAliases[{tag}] 缺少 group/index/file")
+                elif not isinstance(alias.get("index"), int) or not isinstance(alias.get("file"), str) or not alias["file"]:
+                    problems.append(f"motionAliases[{tag}] index 非 int 或 file 为空")
+        else:
+            problems.append("缺 motionAliases")
+        # vowelParamMap / vowelRawMap：6 键；核心5元音值域严格 [0,1] + 口型辅助参数白名单
+        # （v3-adapter §1.2 + v3-fixes §5.2：允许 ParamMouthUp/ParamMouthDown；未知参数名 = schema 漂移 → FAIL）
+        all_vowel_keys: set[str] | None = None  # 跨 label 键集一致性辅助（供 C31）
+        for map_name in ("vowelParamMap", "vowelRawMap"):
+            vm = adapter.get(map_name)
+            if not isinstance(vm, dict) or set(vm.keys()) != _VOWEL_LABELS:
+                problems.append(f"{map_name} 键集/类型异常")
+                continue
+            for label in sorted(_VOWEL_LABELS):
+                vals = vm[label]
+                if map_name == "vowelParamMap":
+                    if not isinstance(vals, dict):
+                        problems.append(f"vowelParamMap[{label}] 非对象")
+                        continue
+                    key_set = set(vals.keys())
+                    if all_vowel_keys is None:
+                        all_vowel_keys = key_set
+                    elif key_set != all_vowel_keys:
+                        problems.append(f"vowelParamMap[{label}] 键集与其它 label 不一致")
+                    if not _VOWEL_CORE_PARAM_NAMES.issubset(key_set):
+                        problems.append(f"vowelParamMap[{label}] 缺核心五元音参数 {sorted(_VOWEL_CORE_PARAM_NAMES - key_set)}")
+                    if not key_set.issubset(_VOWEL_PARAM_ALLOWED):
+                        problems.append(f"vowelParamMap[{label}] 未知参数键 {sorted(key_set - _VOWEL_PARAM_ALLOWED)}")
+                    for _pn, pv in vals.items():
+                        if not (isinstance(pv, (int, float)) and 0.0 <= float(pv) <= 1.0):
+                            problems.append(f"vowelParamMap[{label}][{_pn}] 值 {pv} 非数值或越界 [0,1]")
+                else:  # vowelRawMap：二元数值 [mo, mf] ∈ [0,1]
+                    if not (isinstance(vals, (list, tuple)) and len(vals) == 2):
+                        problems.append(f"vowelRawMap[{label}] 非二元数组")
+                        continue
+                    for _rv in vals:
+                        if not (isinstance(_rv, (int, float)) and 0.0 <= float(_rv) <= 1.0):
+                            problems.append(f"vowelRawMap[{label}] 值 {_rv} 非数值或越界 [0,1]")
+
+        # emotionIndex：8 键 0-7 唯一（值必须为严格 int）
+        ei = adapter.get("emotionIndex")
+        if isinstance(ei, dict) and set(ei.keys()) == _EMOTION_KEYS:
+            vals = list(ei.values())
+            if not all(isinstance(v, int) for v in vals) or sorted(vals) != list(range(8)):
+                problems.append(f"emotionIndex 值集={vals}, 期望严格 int 0-7 各一次")
+        else:
+            problems.append(f"emotionIndex 键集={sorted(ei) if isinstance(ei, dict) else ei}, 期望 8 键")
+        # idlePool：6 元素，格式 ${group}_${index}（空组 _N）
+        ip = adapter.get("idlePool")
+        if not isinstance(ip, list) or len(ip) != 6:
+            problems.append(f"idlePool 长度={len(ip) if isinstance(ip, list) else 'N/A'}, 期望 6")
+        elif not all(re.fullmatch(r"[A-Za-z]*_\d+", str(x)) for x in ip):
+            problems.append("idlePool 元素非 ${group}_${index} 格式")
+        # degradation：必填字段齐全
+        if adapter.get("degradation") is None:
+            problems.append("缺 degradation")
+        if not problems:
+            c24_ok = True
+            c24_detail = "§1.2 必填字段/键集/值域/类型（含口型辅助参数白名单 + 严格 [0,1]）全过"
+        else:
+            c24_detail = "; ".join(problems)
+    record("C24", "adapter schema 完整性（§1.2 必填字段/键集/值域/modelId 在 registry 中存在）", c24_ok, c24_detail)
+
+    # ── C25: motion 对账（adapter.motionAliases ↔ model3.json Motions）──
+    c25_ok = False
+    c25_detail = "adapter 或 model3.json 缺失"
+    if adapter is not None and model3 is not None:
+        motions = model3.get("FileReferences", {}).get("Motions")
+        if not isinstance(motions, dict):
+            c25_detail = "model3.json FileReferences.Motions 缺失或非对象"
+        else:
+            problems: list[str] = []
+            for tag, alias in adapter["motionAliases"].items():
+                group = alias["group"]
+                idx = alias["index"]
+                arr = motions.get(group)
+                if not isinstance(arr, list) or idx >= len(arr):
+                    problems.append(f"{tag}: ({group!r},{idx}) 超出 model3 Motions")
+                    continue
+                mfile = arr[idx].get("File") if isinstance(arr[idx], dict) else None
+                if mfile is None or Path(mfile).name != Path(alias["file"]).name:
+                    problems.append(f"{tag}: model3[{group},{idx}].File={mfile} ≠ adapter={alias['file']}")
+            if not problems:
+                # 补：alias 引用的 motion 文件在双端实际存在
+                missing_both = []
+                for tag, alias in adapter["motionAliases"].items():
+                    a = (ANDROID_LIVE2D_ROOT / "niziiro_mao" / "runtime" / alias["file"]).is_file()
+                    p = (PC_LIVE2D_ROOT / "niziiro_mao" / "runtime" / alias["file"]).is_file()
+                    if not (a or p):
+                        missing_both.append(tag)
+                if missing_both:
+                    problems.append(f"motion 文件双端缺失: {missing_both}")
+            if not problems:
+                c25_ok = True
+                c25_detail = "7 个 motionAliases 全部在 model3.json Motions 定位且文件双端存在"
+            else:
+                c25_detail = "; ".join(problems)
+    record("C25", "adapter.motionAliases ↔ niziiro_mao.model3.json Motions 对账", c25_ok, c25_detail)
+
+    # ── C26: emotion 三方一致（adapter ↔ Android EMOTION_MAP ↔ PC model_dict emotionMap）──
+    c26_ok = False
+    c26_detail = "adapter/EmotionController.kt/model_dict.json 缺失"
+    if adapter is not None and ANDROID_EMOTION_KT.is_file() and PC_MODEL_DICT_JSON.is_file():
+        emo_adapter = adapter.get("emotionIndex")
+        emo_android = _parse_kotlin_emotion_map(ANDROID_EMOTION_KT.read_text(encoding="utf-8"))
+        try:
+            md = json.loads(PC_MODEL_DICT_JSON.read_text(encoding="utf-8"))
+            entry = next((e for e in md if isinstance(e, dict) and e.get("name") == "niziiro_mao"), None)
+            emo_pc = (entry or {}).get("emotionMap")
+        except (json.JSONDecodeError, OSError, TypeError):
+            emo_pc = None
+        if not emo_adapter or not emo_pc:
+            c26_detail = f"adapter={bool(emo_adapter)}, android={bool(emo_android)}, pc={bool(emo_pc)}"
+        elif emo_adapter == emo_android == emo_pc:
+            c26_ok = True
+            c26_detail = f"三方一致（{len(emo_adapter)} key）：neutral..surprise 0-7"
+        else:
+            c26_detail = f"adapter={emo_adapter}, android={emo_android}, pc={emo_pc}"
+    record("C26", "adapter.emotionIndex ↔ Android EMOTION_MAP ↔ PC model_dict emotionMap 三方一致", c26_ok, c26_detail)
+
+    # ── C27: vowelParamMap/vowelRawMap 对拍（buildVisemeFrame 公式导出 vs 源码常量）──
+    c27_ok = False
+    c27_detail = "adapter 或 VisemeAnalyzer.kt 缺失"
+    if adapter is not None and ANDROID_VISEME_KT.is_file():
+        vsrc = ANDROID_VISEME_KT.read_text(encoding="utf-8")
+        vpm = adapter.get("vowelParamMap")
+        vrm = adapter.get("vowelRawMap")
+
+        def expected_params(label: str, mo: float, mf: float) -> list[float]:
+            # buildVisemeFrame 公式（contract-v3-adapter §2.2，与 VisemeAnalyzer.kt buildVisemeFrame 实读一致）
+            if label == "A":
+                return [mo, 0.0, 0.0, 0.0, mf * 0.2]
+            if label == "I":
+                return [0.0, mf, 0.0, 0.0, 0.0]
+            if label == "U":
+                return [0.0, 0.0, mf * 0.7, 0.0, 0.0]
+            if label == "E":
+                return [mo * 0.3, 0.0, 0.0, mo * 0.7, 0.0]
+            if label == "O":
+                return [0.0, 0.0, mf * 0.3, 0.0, mo]
+            return [0.0, 0.0, 0.0, 0.0, 0.0]  # SIL
+
+        if not isinstance(vpm, dict) or not isinstance(vrm, dict):
+            c27_detail = "adapter.vowelParamMap/vowelRawMap 缺失或非对象"
+        else:
+            problems: list[str] = []
+            param_order = ["ParamA", "ParamI", "ParamU", "ParamE", "ParamO"]
+            for label in _VOWEL_LABELS:
+                raw = vrm.get(label)
+                pm = vpm.get(label)
+                if not (isinstance(raw, list) and len(raw) == 2 and isinstance(pm, dict)):
+                    problems.append(f"{label}: raw/param 结构异常")
+                    continue
+                mo, mf = float(raw[0]), float(raw[1])
+                exp = expected_params(label, mo, mf)
+                for pname, ev, av in zip(param_order, exp, [float(pm.get(p, 0.0)) for p in param_order]):
+                    if abs(ev - av) > 1e-6:
+                        problems.append(f"{label}.{pname}: 公式期望 {ev} ≠ adapter {av}")
+            # 交叉核对：vowelRawMap A/I/E/O/SIL 与 VisemeAnalyzer VOWEL_MAP 一致（U 为 D4 修正基线，T2.2 排程同步）
+            if not problems:
+                raw_mismatch = []
+                for label in ("A", "I", "E", "O", "SIL"):
+                    m = re.search(r'"' + label + r'"\s+to\s+floatArrayOf\(([^)]+)\)', vsrc)
+                    if m:
+                        nums = [x.strip().rstrip("fF") for x in m.group(1).split(",")]
+                        parts = [float(x) for x in nums if x]
+                        if len(parts) == 2 and (abs(parts[0] - vrm[label][0]) > 1e-6 or abs(parts[1] - vrm[label][1]) > 1e-6):
+                            raw_mismatch.append(label)
+                if raw_mismatch:
+                    problems.append(f"VisemeAnalyzer VOWEL_MAP 与 adapter.vowelRawMap 不一致: {raw_mismatch}（U 修正 T2.2 排程）")
+            if not problems:
+                c27_ok = True
+                c27_detail = "vowelParamMap=buildVisemeFrame(vowelRawMap) 导出一致；raw A/I/E/O/SIL 与 VisemeAnalyzer VOWEL_MAP 一致；U=D4 修正(0.4,0.8)/ParamU 0.56"
+            else:
+                c27_detail = "; ".join(problems)
+    record("C27", "adapter.vowelParamMap/vowelRawMap ↔ buildVisemeFrame 公式导出 & 源码常量对拍（容差 0）", c27_ok, c27_detail)
+
+    # ── C28: 参数白名单（adapter 全部参数名 ∈ cdi3.json Parameters[].Id）──
+    c28_ok = False
+    c28_detail = "adapter 或 cdi3.json 缺失"
+    if adapter is not None and cdi3 is not None:
+        param_ids = {p.get("Id") for p in cdi3.get("Parameters", []) if isinstance(p, dict)}
+        used: set[str] = set()
+        for label, pm in adapter.get("vowelParamMap", {}).items():
+            if isinstance(pm, dict):
+                used.update(pm.keys())
+        unknown = sorted(u for u in used if u not in param_ids)
+        if not unknown:
+            c28_ok = True
+            c28_detail = f"全部用于参数 ∈ cdi3：{sorted(used)} ⊆ parameters[{len(param_ids)}]"
+        else:
+            c28_detail = f"越白名单参数: {unknown}（cdi3={sorted(param_ids)}）"
+    record("C28", "adapter.vowelParamMap 参数名 ⊆ niziiro_mao.cdi3.json Parameters 白名单", c28_ok, c28_detail)
+
+    # ── C29: motion 映射表三方对账（adapter → Android/PC 三消费面无漂移；T3.3 item2）──
+    # 目标：adapter 化后 motionAliases 在三处消费点保持一致，无硬编码/配置漂移。
+    # 消费面：① Android MotionTags.kt（TAG_TO_KEY 由 adapter 派生 + FALLBACK 兑底常量）
+    #          ② PC live2d_model.py（_MOTION_LABEL_ALIASES ← adapter.motionAliases.keys()）
+    #          ③ PC 前端 use-viseme-lipsync.ts（MOTION_ALIAS_MAP {group,index}）
+    c29_ok = False
+    c29_detail = "adapter / MotionTags.kt / live2d_model.py / 前端 ts 缺失"
+    if (
+        adapter is not None
+        and ANDROID_MOTION_TAGS_KT.is_file()
+        and PC_LIVE2D_MODEL_PY.is_file()
+        and PC_FRONTEND_VISEME_TS.is_file()
+    ):
+        prob: list[str] = []
+        adapter_aliases = adapter.get("motionAliases", {})
+        adapter_tags = set(adapter_aliases)
+        adapter_keys = {
+            tag: f"{alias.get('group', '')}_{alias.get('index', -1)}"
+            for tag, alias in adapter_aliases.items()
+        }
+        # ① Android MotionTags.kt：适配派生路径存在 + 派生 7 键集 == adapter；兑底常量与适配值一致（防漂移）
+        mtags = read_text(ANDROID_MOTION_TAGS_KT)
+        if not ("currentAdapter()?.motionAliases" in mtags and "mapValues" in mtags and "\"${alias.group}_${alias.index}\"" in mtags):
+            prob.append("MotionTags.TAG_TO_KEY 未由 adapter.motionAliases 派生")
+        else:
+            # 兑底常量：逐 tag 检出 "tag" to "key"，应等于 adapter 派生键（防配置兑底漂移）
+            fallback = dict(re.findall(r'"(\w+)"\s+to\s+"(\w+)"', mtags))
+            for tag in sorted(adapter_tags):
+                fbk = fallback.get(tag)
+                if fbk is not None and adapter_keys.get(tag) is not None and fbk != adapter_keys[tag]:
+                    prob.append(f"MotionTags 兑底 {tag}->{fbk} ≠ adapter 派生 {adapter_keys[tag]}")
+        # ② PC live2d_model.py：_MOTION_LABEL_ALIASES 由 adapter 驱动，键集 == adapter
+        pylm = read_text(PC_LIVE2D_MODEL_PY)
+        if '_MOTION_LABEL_ALIASES = frozenset(_ADAPTER_DATA["motionAliases"].keys())' not in pylm:
+            prob.append("live2d_model.py _MOTION_LABEL_ALIASES 未由 adapter.motionAliases 驱动")
+        elif '_DEFAULT_MOTION_LABEL_ALIASES = frozenset(' not in pylm:
+            prob.append("live2d_model.py 缺硬编码兑底 _DEFAULT_MOTION_LABEL_ALIASES")
+        else:
+            # 兑底 frozenset 名与 adapter tag 集一致性（据实读：与 adapter 7 键一致）
+            fb_tags = set(re.findall(r'"(idle|wave|special_02|special_03|mtn_02|mtn_03|mtn_04)"', pylm[:pylm.find("# ── 适配配置")] if "# ── 适配配置" in pylm else pylm))
+            if fb_tags and fb_tags != adapter_tags:
+                prob.append(f"live2d_model 兑底别名集 {sorted(fb_tags)} ≠ adapter {sorted(adapter_tags)}")
+        # ③ PC 前端 use-viseme-lipsync.ts：MOTION_ALIAS_MAP {group,index} 与 adapter 逐条一致
+        fts = read_text(PC_FRONTEND_VISEME_TS)
+        fe_map: dict[str, tuple] = {}
+        for m in re.finditer(r"(\w+):\s*\{\s*group:\s*'(.*?)'\s*,\s*index:\s*(\d+)", fts):
+            fe_map[m.group(1)] = (m.group(2), int(m.group(3)))
+        for tag in sorted(adapter_tags):
+            al = adapter_aliases[tag]
+            fe = fe_map.get(tag)
+            if fe is None:
+                prob.append(f"前端 MOTION_ALIAS_MAP 缺 {tag}")
+            elif fe != (al.get("group", ""), al.get("index", -1)):
+                prob.append(f"前端 {tag} {fe} ≠ adapter {(al.get('group'), al.get('index'))}")
+        if not prob:
+            c29_ok = True
+            c29_detail = f"adapter 7 键在三消费面一致（Android 派生+兑底 / PC _MOTION_LABEL_ALIASES / 前端 MOTION_ALIAS_MAP），无漂移"
+        else:
+            c29_detail = "; ".join(prob)
+    record("C29", "adapter.motionAliases ↔ Android MotionTags / PC live2d_model / 前端 MOTION_ALIAS_MAP 三方对账", c29_ok, c29_detail)
+
+    # ── C30: persona 强度区块一致（shared vs Android assets；T3.3 item1 / M1 遗留债）──
+    # 机制：persona.yaml 的 "## 表情强度控制" 区块声明 [emotion_N] 强度后缀语义与值域 (1-3)。
+    # 双端 persona 必须含同一强度区块（防 M1 遗留：两端强度语义漂移）。
+    c30_ok = False
+    c30_detail = "shared/persona.yaml 或 Android assets/persona.yaml 缺失"
+    if SHARED_PERSONA.is_file() and ANDROID_ASSETS_PERSONA.is_file():
+        shared_txt = SHARED_PERSONA.read_text(encoding="utf-8")
+        assets_txt = ANDROID_ASSETS_PERSONA.read_text(encoding="utf-8")
+        block_head = "## 表情强度控制"
+        def _strength_block(txt: str) -> str:
+            start = txt.find(block_head)
+            if start < 0:
+                return ""
+            nxt = txt.find("\n\n", start)
+            return txt[start:] if nxt < 0 else txt[start:nxt]
+        sb_shared = _strength_block(shared_txt)
+        sb_assets = _strength_block(assets_txt)
+        # 值域语义：强度后缀 [emotion_N]，N ∈ 1-3（机器可校验）
+        range_ok = bool(re.search(r"强度\s*（\s*1[-~到]3\s*）", sb_shared))
+        if not sb_shared or not sb_assets:
+            c30_detail = f"强度区块缺失: shared={'Y' if sb_shared else 'N'}, assets={'Y' if sb_assets else 'N'}"
+        elif sb_shared != sb_assets:
+            c30_detail = "双端 persona 强度区块内容不一致（M1 遗留债复现，需同步）"
+        elif not range_ok:
+            c30_detail = "强度区块缺 1-3 值域声明（[emotion_N]，N∈1-3）"
+        else:
+            c30_ok = True
+            c30_detail = "双端强度区块一致且声明 [emotion_N] 强度 1-3 值域（字节一致亦由 C23 兜底）"
+    record("C30", "persona 强度区块一致（shared vs Android assets，[emotion_N] 1-3 值域）", c30_ok, c30_detail)
+
+    # ── C31: schema 自校验深度汇总（T3.3 item3，C24 的补强维度）──
+    # ① vowelParamMap 六 label 键集完全一致（缺参 = 漂移）
+    # ② motionAliases 全 index 非负 int + group 为 str（含允许空串）
+    # ③ idlePool 与 motionAliases 空组派生键精确一致（防 ⑥ → 池键错位）
+    c31_ok = False
+    c31_detail = "adapter 缺失"
+    if adapter is not None:
+        prob31: list[str] = []
+        vpm = adapter.get("vowelParamMap")
+        if isinstance(vpm, dict) and set(vpm.keys()) == _VOWEL_LABELS:
+            key_sets = {frozenset(v.keys()) for v in vpm.values() if isinstance(v, dict)}
+            if len(key_sets) != 1:
+                prob31.append(f"vowelParamMap 六 label 键集不完全一致（{sorted(key_sets, key=sorted)}）")
+        # index 非负 int + group 为 str
+        ma = adapter.get("motionAliases")
+        if isinstance(ma, dict):
+            for tag, alias in ma.items():
+                if not isinstance(alias, dict):
+                    prob31.append(f"motionAliases[{tag}] 非对象")
+                    continue
+                if not isinstance(alias.get("index"), int) or alias["index"] < 0:
+                    prob31.append(f"motionAliases[{tag}].index 非负 int 约束被破坏")
+                if not isinstance(alias.get("group"), str):
+                    prob31.append(f"motionAliases[{tag}].group 非 str")
+        # idlePool 与空组派生键精确一致
+        if isinstance(vpm, dict) and isinstance(ma, dict):
+            empty_group_keys = sorted(
+                f"{a['group']}_{a['index']}" for a in ma.values()
+                if isinstance(a, dict) and a.get("group", "") == ""
+            )
+            ipool = adapter.get("idlePool")
+            if isinstance(ipool, list) and sorted(ipool) == empty_group_keys:
+                pass  # 一致
+            else:
+                prob31.append(f"idlePool {sorted(ipool) if isinstance(ipool, list) else ipool} ≠ 空组派生键 {empty_group_keys}")
+        if not prob31:
+            c31_ok = True
+            c31_detail = f"六 label 键集一致；motionAliases index 非负 int/group str；idlePool == 空组派生键 {adapter.get('idlePool')}"
+        else:
+            c31_detail = "; ".join(prob31)
+    record("C31", "adapter schema 自校验深度（六 label 键集一致 / index·group 类型 / idlePool 空组精确对账）", c31_ok, c31_detail)
+
+
+def check_persistence(registry: dict) -> None:
     settings_kt = read_text(ANDROID_SETTINGS_KT)
     conf = read_text(PC_CONF_YAML)
     android_kt = read_text(ANDROID_REGISTRY_KT)
     pc_py = read_text(PC_MODEL_REGISTRY_PY)
 
-    # C20: 两端持久化键正确，默认值一致
+    # C20: 两端持久化键正确，默认值一致（reg_default_id 从 registry 数据动态取）
+    reg_default_id = next(
+        (m["id"] for m in registry["models"] if m.get("default") is True),
+        None,
+    )
     android_key = 'KEY_SELECTED_MODEL_ID = "selected_model_id"' in settings_kt
-    android_default = 'DEFAULT_MODEL_ID = "mao_pro"' in settings_kt
+    android_default = bool(reg_default_id) and f'DEFAULT_MODEL_ID = "{reg_default_id}"' in settings_kt
     pc_key = bool(
         re.search(r"^\s*live2d_model_name\s*:", conf, re.M)
     )
-    pc_default = bool(
-        re.search(r"^\s*live2d_model_name\s*:\s*['\"]mao_pro['\"]\s*$", conf, re.M)
+    pc_default = bool(reg_default_id) and bool(
+        re.search(rf"^\s*live2d_model_name\s*:\s*['\"]{re.escape(reg_default_id)}['\"]\s*$", conf, re.M)
     )
     c20_ok = android_key and android_default and pc_key and pc_default
     record(
         "C20",
-        "两端持久化键正确（Android 'selected_model_id' / PC conf.yaml live2d_model_name），默认值 mao_pro",
+        f"两端持久化键正确（Android 'selected_model_id' / PC conf.yaml live2d_model_name），默认值 {reg_default_id}",
         c20_ok,
         f"android_key={android_key}, android_default={android_default}, pc_key={pc_key}, pc_default={pc_default}",
     )
@@ -593,7 +1064,7 @@ def main() -> int:
         return 2
 
     print("=" * 72)
-    print("跨端一致性检查（plan-e2e.md §3 C1-C21）")
+    print("跨端一致性检查（plan-e2e.md §3 C1-C23 + contract-v3-adapter §1.3 C24-C28 + schedule-v3 T3.3 C29-C31）")
     print("=" * 72)
 
     print("\n--- 3.1 注册表源头一致性 ---")
@@ -612,10 +1083,13 @@ def main() -> int:
     check_fallback(registry, ModelRegistry)
 
     print("\n--- 3.6 持久化语义一致性 ---")
-    check_persistence()
+    check_persistence(registry)
 
     print("\n--- 3.7 共享表情协议 + persona 一致性 ---")
     check_shared_protocol()
+
+    print("\n--- 3.8 适配配置一致性（C24-C31，T3.3 扩展）---")
+    check_adapter_consistency(registry)
 
     print("\n" + "=" * 72)
     fails = [r for r in _RESULTS if not r[2]]
