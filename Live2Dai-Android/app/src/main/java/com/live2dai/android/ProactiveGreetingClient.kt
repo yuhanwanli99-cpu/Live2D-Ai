@@ -46,7 +46,7 @@ class ProactiveGreetingClient(
          * 只输出这句话本身（LLM 输出会直接经 TTS 播报 + 通知栏展示）。
          */
         private const val SYSTEM_PROMPT =
-            "你是一个会主动关心主人的陪伴型猫娘。请结合人设、距离上次聊天的时长" +
+            "你是一个主动的 AI 助手。请结合人设、距离上次聊天的时长" +
                 "以及关于用户的记忆，生成一句自然、简短（不超过 40 字）的中文主动问候或话题。" +
                 "要像真正在意用户一样，语气贴合人设。只输出这句话本身，" +
                 "不要任何前缀、引号、表情标签或解释。"
@@ -142,7 +142,7 @@ class ProactiveGreetingClient(
         idleMinutes: Long,
         memories: List<String>?,
     ): String = buildString {
-        appendLine("人设名：${personaName.ifBlank { "猫娘" }}")
+        appendLine("人设名：${personaName.ifBlank { "凛" }}")
         if (systemPrompt.isNotBlank()) {
             appendLine("人设设定：$systemPrompt")
         }

@@ -108,6 +108,11 @@ class Live2DRenderer(
     // 渲染矩阵
     private val projectionMatrix = FloatArray(16)
 
+    // ── 半身显示（K5：显示层相机调整，不改模型/rig，contract-v3-rename §2.1）──
+    // 默认值 = 全模型（scale=1f, yOffset=0f）→ 零行为变化；由 UI/配置按需开启半身。
+    private var displayScale = 1f
+    private var displayYOffset = 0f
+
     // ── Purism Core 模型包装 ──
     private var purismModel: PurismModel? = null
 
@@ -217,8 +222,6 @@ class Live2DRenderer(
         GLES20.glViewport(0, 0, width, height)
 
         val viewAspect = width.toFloat() / height.toFloat()
-        val ppu = if (pixelsPerUnit > 0f) pixelsPerUnit else 1f
-        // Canvas half-size in model units (pixels / pixelsPerUnit)
         val halfW = canvasWidth / 2f
         val halfH = canvasHeight / 2f
         val canvasAspect = if (halfH > 0f) halfW / halfH else 1f
@@ -226,7 +229,45 @@ class Live2DRenderer(
         // 模型坐标以原点为中心，范围约[-halfW, halfW]×[-halfH, halfH]
         val viewHalfH = if (canvasAspect > viewAspect) halfW / viewAspect else halfH
         val viewHalfW = if (canvasAspect > viewAspect) halfW else halfH * viewAspect
-        Matrix.orthoM(projectionMatrix, 0, -viewHalfW, viewHalfW, -viewHalfH, viewHalfH, -1f, 1f)
+
+        // 半身显示（K5）：缩放 + 垂直偏移，经 computeProjection 纯函数应用（contract-v3-rename §2.1）。
+        // scale=1f, yOffset=0f（默认）时 bounds == [-viewHalfW, viewHalfW, viewHalfH, -viewHalfH] → 与现状 orthoM 逐位一致，零回归。
+        val bounds = computeProjection(
+            displayScale, displayYOffset,
+            viewHalfW * 2f, viewHalfH * 2f,
+            canvasWidth, canvasHeight
+        )
+        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[2], bounds[3], -1f, 1f)
+    }
+
+    /**
+     * 半身显示：缩放 + 垂直偏移（模型单位）（contract-v3-rename §2.1，K5 定案）。
+     * 实现：修改投影矩阵的 viewHalfW/viewHalfH（scale>1 放大）+ 投影中心上移（裁切下半身，露出上半身）。
+     * 默认值 = 现状（scale=1f, yOffset=0f）→ 零行为变化。
+     */
+    fun setDisplayRegion(scale: Float = 1f, yOffset: Float = 0f) {
+        displayScale = scale
+        displayYOffset = yOffset
+        if (viewportWidth > 0 && viewportHeight > 0) {
+            recomputeProjection()
+        }
+    }
+
+    /** 按当前 displayScale/displayYOffset 重新计算投影矩阵（GL 线程调用）。 */
+    private fun recomputeProjection() {
+        if (viewportWidth <= 0 || viewportHeight <= 0) return
+        val viewAspect = viewportWidth.toFloat() / viewportHeight.toFloat()
+        val halfW = canvasWidth / 2f
+        val halfH = canvasHeight / 2f
+        val canvasAspect = if (halfH > 0f) halfW / halfH else 1f
+        val viewHalfH = if (canvasAspect > viewAspect) halfW / viewAspect else halfH
+        val viewHalfW = if (canvasAspect > viewAspect) halfW else halfH * viewAspect
+        val bounds = computeProjection(
+            displayScale, displayYOffset,
+            viewHalfW * 2f, viewHalfH * 2f,
+            canvasWidth, canvasHeight
+        )
+        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[2], bounds[3], -1f, 1f)
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -375,7 +416,7 @@ class Live2DRenderer(
 
     /**
      * M7 触发 motion 回落 idle（contract-M7-android-l3.md §1.3-5）。
-     * mao_pro 全部 motion loop=true → 经 startMotionByTag 触发的 motion 永远循环；
+     * niziiro_mao 全部 motion loop=true → 经 startMotionByTag 触发的 motion 永远循环；
      * 播满一轮（elapsed >= duration）→ stopAllMotions + startIdleMotion（§5 兜底，idle 轮换随后接管）。
      * 只对 triggeredMotionActive 标记路径生效——现有 startMotion 路径（非 M7 触发）行为不变，零回归。
      */
@@ -423,7 +464,7 @@ class Live2DRenderer(
 
     /**
      * 当前模型 idle 轮换器（懒初始化，模型切换后重建）。
-     * 池 = IdleMotionSelector.DEFAULT_POOL ∩ loadedMotions（未加载键剔除；shizuku 下交集为空 → 池空 → 走兜底）。
+     * 池 = IdleMotionSelector.DEFAULT_POOL ∩ loadedMotions（未加载键剔除；交集为空 → 池空 → 走兜底）。
      */
     private fun idleSelectorForCurrentModel(): IdleMotionSelector {
         idleSelector?.let { return it }
@@ -1433,3 +1474,26 @@ class Live2DRenderer(
         return s
     }
 }
+
+/**
+ * 半身投影边界纯函数（contract-v3-rename §2.1，K5 定案，可 JVM 单测）。
+ *
+ * ⚠️ computeProjection 重复收敛（T1.2）：唯一实现在 `com.live2dai.android.data`
+ * （data/ProjectionMath.kt，ProjectionMathTest 断言目标）。本顶层函数保留仅为源码兼容，
+ * 直接转发到单一实现，行为逐位等价（零回归）。新代码请直接使用 data.computeProjection。
+ */
+fun computeProjection(
+    scale: Float,
+    yOffset: Float,
+    viewWidth: Float,
+    viewHeight: Float,
+    canvasWidth: Float,
+    canvasHeight: Float
+): FloatArray = com.live2dai.android.data.computeProjection(
+    scale = scale,
+    yOffset = yOffset,
+    viewWidth = viewWidth,
+    viewHeight = viewHeight,
+    canvasWidth = canvasWidth,
+    canvasHeight = canvasHeight
+)

@@ -54,11 +54,11 @@ class ProactiveCheckWorkerTest {
         override fun registerTool(tool: ToolDefinition) {}
         override fun sendAssistantMessage(text: String, emotion: String?) { sentMessages += text }
         override fun getPersona(): PersonaSnapshot =
-            PersonaSnapshot(name = "小喵", systemPrompt = "你是小喵，一只黏人的猫娘。", model = "test-model")
+            PersonaSnapshot(name = "凛", systemPrompt = "你是凛，一位18岁的天才少女。", model = "test-model")
     }
 
     private class FakeGreetingClient(
-        var result: String? = "小喵想你啦~",
+        var result: String? = "好久没聊啦~",
         var shouldThrow: Boolean = false,
     ) : GreetingLlmClient {
         var receivedMemories: List<String>? = null
@@ -158,7 +158,7 @@ class ProactiveCheckWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals("文案应来自 mock GreetingLlmClient 的返回值", listOf("小喵想你啦~"), sentMessages())
+        assertEquals("文案应来自 mock GreetingLlmClient 的返回值", listOf("好久没聊啦~"), sentMessages())
     }
 
     // ── 验收标准 4：LLM 抛异常 → 回退 fallbackGreetings，流程不中断 ──
@@ -259,7 +259,7 @@ class ProactiveCheckWorkerTest {
 
         assertEquals(ListenableWorker.Result.success(), result)
         assertEquals("最近记忆应作为话题上下文传给 LLM", listOf("用户喜欢喝美式咖啡", "用户养了一只猫"), client.receivedMemories)
-        assertEquals(listOf("小喵想你啦~"), sentMessages())
+        assertEquals(listOf("好久没聊啦~"), sentMessages())
     }
 
     @Test
@@ -273,7 +273,7 @@ class ProactiveCheckWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals("记忆读取失败应静默降级为空列表，主动消息仍正常发送", listOf("小喵想你啦~"), sentMessages())
+        assertEquals("记忆读取失败应静默降级为空列表，主动消息仍正常发送", listOf("好久没聊啦~"), sentMessages())
         assertEquals(emptyList<String>(), client.receivedMemories)
     }
 
@@ -304,7 +304,7 @@ class ProactiveCheckWorkerTest {
         assertEquals("触发后应弹一条主动陪伴通知", 1, notifications.size)
         val text = notifications[0].notification.extras
             .getCharSequence(Notification.EXTRA_TEXT).toString()
-        assertEquals("通知正文应为主动问候文案", "小喵想你啦~", text)
+        assertEquals("通知正文应为主动问候文案", "好久没聊啦~", text)
     }
 
     @Test
@@ -319,7 +319,7 @@ class ProactiveCheckWorkerTest {
 
         val manager = context.getSystemService(NotificationManager::class.java)
         assertEquals("无 POST_NOTIFICATIONS 权限应静默跳过通知", 0, manager.activeNotifications.size)
-        assertEquals("权限缺失不应影响主动消息发送（TTS 播报照常）", listOf("小喵想你啦~"), sentMessages())
+        assertEquals("权限缺失不应影响主动消息发送（TTS 播报照常）", listOf("好久没聊啦~"), sentMessages())
     }
 
     @Test

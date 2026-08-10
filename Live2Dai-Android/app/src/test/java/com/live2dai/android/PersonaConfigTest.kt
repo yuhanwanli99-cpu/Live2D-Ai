@@ -25,7 +25,7 @@ class PersonaConfigTest {
     @Test
     fun testYamlParsing() {
         val systemPrompt = PersonaConfig.getSystemPrompt()
-        assertTrue("System prompt should contain persona name", systemPrompt.contains("你是小喵"))
+        assertTrue("System prompt should contain persona name", systemPrompt.contains("你是凛"))
         assertTrue("System prompt should mention personality", systemPrompt.contains("可爱"))
     }
 
@@ -46,7 +46,7 @@ class PersonaConfigTest {
 
     @Test
     fun testPersonaNameReading() {
-        assertEquals("小喵", PersonaConfig.getPersonaName())
+        assertEquals("凛", PersonaConfig.getPersonaName())
     }
 
     @Test

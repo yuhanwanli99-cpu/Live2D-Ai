@@ -56,7 +56,7 @@ class MemoryRecallHookTest {
     }
 
     private fun chatContext(turns: List<ChatTurn> = emptyList()) =
-        ChatContext(recentMessages = turns, personaName = "小喵")
+        ChatContext(recentMessages = turns, personaName = "凛")
 
     private fun fact(id: Long, content: String, keywords: String) =
         MemoryFact(id = id, content = content, keywords = keywords, createdAt = id, lastUsedAt = id)

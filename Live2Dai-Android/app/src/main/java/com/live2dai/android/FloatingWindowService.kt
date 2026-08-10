@@ -21,7 +21,7 @@ import android.widget.FrameLayout
 /**
  * 悬浮窗 Service
  *
- * 在 [WindowManager] 上创建一个覆盖层，显示 Live2D 猫娘。
+ * 在 [WindowManager] 上创建一个覆盖层，显示 Live2D 模型。
  * 支持拖拽移动和点击打开主 App。
  *
  * ## 用法
@@ -42,7 +42,7 @@ class FloatingWindowService : Service() {
 
     companion object {
         private const val TAG = "FloatingWindow"
-        private const val MODEL_PATH = "live2d/mao_pro/runtime/mao_pro.model3.json"
+        private const val MODEL_PATH = "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
 
         // 悬浮窗尺寸 (dp)
         private const val WINDOW_WIDTH_DP = 300

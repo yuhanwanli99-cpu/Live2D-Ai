@@ -15,7 +15,7 @@ interface PluginHost {
     fun registerTool(tool: ToolDefinition)
 
     /**
-     * 让猫娘主动说一句话（不经过用户输入触发）。
+     * 让助手主动说一句话（不经过用户输入触发）。
      * 用于 `live2dai-plugin-proactive` 这类主动陪伴插件。
      *
      * @param text 要说的话（会经过 TTS 播放）

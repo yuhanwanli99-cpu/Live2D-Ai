@@ -27,7 +27,7 @@ class AgentToolsPluginTest {
         override fun registerTool(tool: ToolDefinition) { tools += tool }
         override fun sendAssistantMessage(text: String, emotion: String?) {}
         override fun getPersona(): PersonaSnapshot =
-            PersonaSnapshot(name = "小喵", systemPrompt = "prompt", model = "model")
+            PersonaSnapshot(name = "凛", systemPrompt = "prompt", model = "model")
     }
 
     private val testContext get() = ApplicationProvider.getApplicationContext<android.content.Context>()

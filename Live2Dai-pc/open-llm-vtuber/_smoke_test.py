@@ -69,9 +69,9 @@ def test_config_integrity(cfg):
     check("port is 12393", sc["port"] == 12393)
     check("live2d_fps is 120", sc["live2d_fps"] == 120)
     check("persona_prompt not empty", len(cc["persona_prompt"]) > 50)
-    check("persona contains 小喵", "小喵" in cc["persona_prompt"])
-    check("persona contains 猫娘", "猫娘" in cc["persona_prompt"])
-    check("persona contains 主人", "主人" in cc["persona_prompt"])
+    check("persona contains 凛", "凛" in cc["persona_prompt"])
+    check("persona contains 傲娇", "傲娇" in cc["persona_prompt"])
+    check("persona contains 用户", "用户" in cc["persona_prompt"])
 
     llm_cfgs = cc["agent_config"]["llm_configs"]
     check("deepseek_llm has llm_api_key", "llm_api_key" in llm_cfgs["deepseek_llm"])
@@ -241,7 +241,7 @@ async def test_edge_tts():
 
     # Actually synthesize a short audio
     try:
-        text = "主人好呀喵~ 小喵在这里呢！(=^･ω･^=)"
+        text = "你好呀！凛在这里呢！(=^･ω･^=)"
         communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
         temp_path = os.path.join(_project_root, "_test_tts_output.mp3")
         start = time.time()

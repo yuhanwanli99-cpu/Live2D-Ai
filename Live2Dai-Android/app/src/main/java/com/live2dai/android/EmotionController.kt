@@ -50,7 +50,9 @@ class EmotionController(private val live2DView: Live2DView) {
         private const val TAG = "EmotionController"
 
         // 表情关键词 → 表情索引映射表（每个表情单独一个索引）
-        private val EMOTION_MAP = mapOf(
+        // 配置优先：adapter.emotionIndex（T1.2，与 PC model_dict emotionMap 同源）；
+        // 缺失/解析失败 → 硬编码常量兜底（零行为变化，回归门）。
+        private val FALLBACK_EMOTION_MAP: Map<String, Int> = mapOf(
             "neutral"  to 0,
             "fear"     to 1,
             "sadness"  to 2,
@@ -61,8 +63,12 @@ class EmotionController(private val live2DView: Live2DView) {
             "surprise" to 7
         )
 
-        // 所有支持的表情关键词（用于构建提示词）
-        val EMOTION_KEYWORDS: List<String> = EMOTION_MAP.keys.sorted()
+        private val EMOTION_MAP: Map<String, Int>
+            get() = ModelAdapterConfig.currentAdapter()?.emotionIndex ?: FALLBACK_EMOTION_MAP
+
+        // 所有支持的表情关键词（用于构建提示词；与 EMOTION_MAP 同步动态读取）
+        val EMOTION_KEYWORDS: List<String>
+            get() = EMOTION_MAP.keys.sorted()
 
         // 正则表达式：[emotion] 标签，惰性匹配 + 可选强度后缀 [_数字]
         // [joy_3] → group1=joy, group2=3（强度）；[joy] → group1=joy, group2=null
@@ -77,7 +83,7 @@ class EmotionController(private val live2DView: Live2DView) {
         // NAKED：首个 { 到末个 } 的跨行子串
         private val JSON_NAKED_REGEX = Regex("""\{.*}""", RegexOption.DOT_MATCHES_ALL)
 
-        // motionLabel 别名白名单（emotion-protocol.md F 段：mao_pro 别名表 + shizuku 语义组名；
+        // motionLabel 别名白名单（emotion-protocol.md F 段：niziiro_mao 别名表；
         // 未知别名 → 置 null，M1 §1 C4）
         private val MOTION_LABEL_ALIASES: Set<String> = setOf(
             "idle", "wave", "special_02", "special_03", "mtn_02", "mtn_03", "mtn_04",
@@ -184,8 +190,8 @@ class EmotionController(private val live2DView: Live2DView) {
      * 2. 映射为 Live2D 表情索引并设置
      * 3. 移除所有标签，返回纯文本
      *
-     * @param text 可能包含表情标签的文本，如 "[joy] 主人今天心情真好喵~！"
-     * @return 移除了标签后的纯文本，如 "主人今天心情真好喵~！"
+     * @param text 可能包含表情标签的文本，如 "[joy] 今天心情真好！"
+     * @return 移除了标签后的纯文本，如 "今天心情真好！"
      */
     fun parseAndApply(text: String): String {
         if (text.isBlank()) return text

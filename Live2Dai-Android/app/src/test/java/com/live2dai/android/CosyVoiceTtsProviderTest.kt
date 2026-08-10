@@ -141,7 +141,7 @@ class CosyVoiceTtsProviderTest {
 
         var failure: Exception? = null
         try {
-            provider.speak("你好喵")
+            provider.speak("你好呀")
         } catch (e: Exception) {
             failure = e
         }
@@ -239,7 +239,7 @@ class CosyVoiceTtsProviderTest {
         ShadowMediaPlayer.setCreateListener { _, shadow -> capturedShadow.set(shadow) }
 
         try {
-            provider.speak("你好，我是猫娘~")
+            provider.speak("你好，我是凛~")
 
             // 1) 服务端收到的 run-task 事件内容（协议契约：action/streaming/model/parameters）
             val runTaskEvent = receivedRunTask.get()
@@ -269,8 +269,8 @@ class CosyVoiceTtsProviderTest {
             assertEquals("parameters.seed 应为 0", 0, params.getInt("seed"))
             assertEquals("parameters.type 应为 0", 0, params.getInt("type"))
             assertEquals(
-                "parameters.instruction 应为默认猫娘萝莉语气（级2-C）",
-                "用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇",
+                "parameters.instruction 应为默认少女音语气（级2-C）",
+                "用清澈甜美的少女音说话，声音甜美带一点傲娇",
                 params.getString("instruction")
             )
 
@@ -286,7 +286,7 @@ class CosyVoiceTtsProviderTest {
                 continueHeader.getString("task_id")
             )
             val continueInput = JSONObject(continueEvent).getJSONObject("payload").getJSONObject("input")
-            assertEquals("continue-task 的 input.text 应为原文", "你好，我是猫娘~", continueInput.getString("text"))
+            assertEquals("continue-task 的 input.text 应为原文", "你好，我是凛~", continueInput.getString("text"))
 
             // 3) 服务端收到的 finish-task（结束会话）
             val finishEvent = receivedFinishTask.get()
@@ -367,11 +367,11 @@ class CosyVoiceTtsProviderTest {
         )
 
         try {
-            provider.speak("你好喵")
+            provider.speak("你好呀")
 
             val params = JSONObject(receivedRunTask.get()!!).getJSONObject("payload").getJSONObject("parameters")
             assertEquals(
-                "instruction 应为构造参数（覆盖默认猫娘语气）",
+                "instruction 应为构造参数（覆盖默认语气）",
                 "用沉稳御姐音说话",
                 params.getString("instruction")
             )
@@ -425,7 +425,7 @@ class CosyVoiceTtsProviderTest {
         )
 
         try {
-            provider.speak("你好喵")
+            provider.speak("你好呀")
 
             val params = JSONObject(receivedRunTask.get()!!).getJSONObject("payload").getJSONObject("parameters")
             assertEquals(
@@ -570,9 +570,9 @@ class CosyVoiceTtsProviderTest {
             )
 
             val controller = VoiceIoController(context, chain, mock())
-            controller.speak("你好喵")
+            controller.speak("你好呀")
             // CosyVoice（无 Key）快速失败 → 降级链继续 → Edge 收到文本
-            verify(edge).speak("你好喵")
+            verify(edge).speak("你好呀")
             controller.release()
             cosy.release()
         } finally {

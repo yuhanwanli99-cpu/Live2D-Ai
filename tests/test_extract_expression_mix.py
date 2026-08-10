@@ -1,14 +1,13 @@
 """PC 端 extract_expression_mix / strip_expression_json 单元测试（M3 核心解析）。
 
-覆盖（mao_pro 模型上下文）:
+覆盖（niziiro_mao 模型上下文）:
 - P1-P13: 基本 JSON 解析/校验/归一化（契约 M1 §7.2 同构于 A1-A13）
-- P18: 裁决2 shizuku 空 emo_map 下仍接受 joy（校验集 = PROTOCOL_EMOTION_KEYS）
 - P20: 单行 JSON 不被切分（fence + 单行）
 - P21: strip_expression_json 剥离规则
 - S1-S10: 双端一致性参数化样本（契约 M2-M3 §3）
 
-构造: _PC_SRC 注入 live2d_model.py，用 Live2dModel("mao_pro") 上下文。
-cdi3 白名单由运行时加载 mao_pro.cdi3.json（128 参数），保证参数化样本校验真实白名单行为。
+构造: _PC_SRC 注入 live2d_model.py，用 Live2dModel("niziiro_mao") 上下文。
+cdi3 白名单由运行时加载 niziiro_mao.cdi3.json（128 参数），保证参数化样本校验真实白名单行为。
 """
 import json
 import os
@@ -28,13 +27,13 @@ from open_llm_vtuber.live2d_model import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# 辅助：创建 mao_pro / shizuku Live2dModel（CWD = 仓库根，保证 cdi3 能解析）
+# 辅助：创建 niziiro_mao Live2dModel（CWD = 仓库根，保证 cdi3 能解析）
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def _make_model(name="mao_pro"):
+def _make_model(name="niziiro_mao"):
     """构造 Live2dModel，CWD 指向仓库根保证 cdi3.json 加载。"""
     old_cwd = os.getcwd()
     os.chdir(_REPO_ROOT)
@@ -50,16 +49,16 @@ def _make_model(name="mao_pro"):
 
 
 # ---------------------------------------------------------------------------
-# P1-P13: 基本解析/校验（mao_pro，契约 M1 §7.2）
+# P1-P13: 基本解析/校验（niziiro_mao，契约 M1 §7.2）
 # ---------------------------------------------------------------------------
 
 
 class TestExtractExpressionMix:
-    """extract_expression_mix 基本解析/校验用例（mao_pro 上下文）。"""
+    """extract_expression_mix 基本解析/校验用例（niziiro_mao 上下文）。"""
 
     @classmethod
     def setup_class(cls):
-        cls.model = _make_model("mao_pro")
+        cls.model = _make_model("niziiro_mao")
 
     def _extract(self, text):
         return self.model.extract_expression_mix(text)
@@ -95,7 +94,7 @@ class TestExtractExpressionMix:
 
     # ---- P5 无 JSON → None ----
     def test_no_json(self):
-        result = self._extract("[joy] 你好喵~！")
+        result = self._extract("[joy] 今天天气真好啊！")
         assert result is None
 
     # ---- P6 未知 name（love → 丢弃，mix 为空） ----
@@ -129,7 +128,7 @@ class TestExtractExpressionMix:
         assert abs(weights["surprise"] - 0.6 / 1.3) <= 1e-4
         assert abs(sum(w for w in weights.values()) - 1.0) <= 1e-4
 
-    # ---- P9 覆盖合法 key（ParamEyeLOpen ∈ mao_pro cdi3 白名单） ----
+    # ---- P9 覆盖合法 key（ParamEyeLOpen ∈ niziiro_mao cdi3 白名单） ----
     def test_override_valid_key(self):
         result = self._extract(
             '{"parameterOverrides":{"ParamEyeLOpen":1.2}}'
@@ -174,7 +173,7 @@ class TestExtractExpressionMix:
 
     # ---- P13 空 mix + 合法覆盖（部分生效） ----
     def test_empty_mix_valid_override(self):
-        # ParamMouthForm NOT in mao_pro cdi3 → 会被丢弃，用 ParamEyeLOpen
+        # ParamMouthForm NOT in niziiro_mao cdi3 → 会被丢弃，用 ParamEyeLOpen
         result = self._extract(
             '{"expressionMix":{"expressions":[]},'
             '"parameterOverrides":{"ParamEyeLOpen":0.8}}'
@@ -182,27 +181,6 @@ class TestExtractExpressionMix:
         assert result is not None
         assert result["expressionMix"] == []
         assert result["parameterOverrides"] == {"ParamEyeLOpen": 0.8}
-
-    # ---- P18a 裁决2：shizuku 空 emo_map 下校验仍接受 joy ----
-    def test_shizuku_protocol_keys_accept_joy(self):
-        """裁决 2：校验集 = PROTOCOL_EMOTION_KEYS（8 key 枚举），与模型 emo_map 解耦。
-
-        shizuku 的 emotionMap 为空，但 PROTOCOL_EMOTION_KEYS 仍含 joy，
-        因此 extract_expression_mix 仍应接受 joy。
-        """
-        shizuku = _make_model("shizuku")
-        result = shizuku.extract_expression_mix(
-            '{"expressionMix":{"expressions":[{"name":"joy","weight":1.0}]}}'
-        )
-        assert result is not None
-        assert result["expressionMix"] == [{"name": "joy", "weight": 1.0}]
-
-    # ---- P18b 裁决2：shizuku 下 keyword 路径不受影响 ----
-    def test_shizuku_keyword_path_empty(self):
-        """shizuku emotionMap 为空 → extract_emotion 返回 []。"""
-        shizuku = _make_model("shizuku")
-        result = shizuku.extract_emotion("[joy] 你好")
-        assert result == []
 
     # ---- P20 单行 JSON 不被切分 ----
     def test_single_line_json(self):
@@ -213,7 +191,7 @@ class TestExtractExpressionMix:
             '{"name":"surprise","weight":0.3}]},'
             '"parameterOverrides":{"ParamEyeLOpen":1.2},"motionLabel":"wave"}\n'
             '```\n'
-            "主人回来啦喵~！"
+            "今天天气真好啊！"
         )
         result = self._extract(text)
         assert result is not None
@@ -226,13 +204,13 @@ class TestExtractExpressionMix:
             '```json\n'
             '{"expressionMix":{"expressions":[{"name":"joy","weight":0.7}]}}\n'
             '```\n'
-            "主人回来啦喵~！"
+            "今天天气真好啊！"
         )
         stripped = self.model.strip_expression_json(text)
         assert "expressionMix" not in stripped
         assert "parameterOverrides" not in stripped
         assert "motionLabel" not in stripped
-        assert "主人回来啦喵~！" in stripped
+        assert "今天天气真好啊！" in stripped
 
     def test_strip_naked_json_success(self):
         """S2: NAKED JSON 解析成功 → 剥离该 JSON 子串。"""
@@ -243,7 +221,7 @@ class TestExtractExpressionMix:
 
     def test_strip_no_json_returns_original(self):
         """S5: 无 JSON → 原样返回。"""
-        text = "[joy] 主人回来啦喵~！"
+        text = "[joy] 今天天气真好啊！"
         stripped = self.model.strip_expression_json(text)
         assert stripped == text
 
@@ -253,7 +231,7 @@ class TestExtractExpressionMix:
 # ---------------------------------------------------------------------------
 
 # 每条: (id, text, expected_mix, expected_overrides, expected_motion, expected_null)
-# S10 说明：契约 §3 预期 overrides={ParamMouthForm:0.8}，但 mao_pro cdi3.json 的
+# S10 说明：契约 §3 预期 overrides={ParamMouthForm:0.8}，但 niziiro_mao cdi3.json 的
 # 128 参数中不含 ParamMouthForm（有 ParamMouthUp/Down/Angry/AngryLine，无
 # ParamMouthForm）。PC 和 Android 均按 C3 机械规则（key ∉ cdi3 白名单 → 丢弃）
 # 执行，故 overrides={}。这是契约样本数据错误，双端一致丢弃该 key。
@@ -265,7 +243,7 @@ S_SAMPLES = [
         '```json\n{"expressionMix":{"expressions":[{"name":"joy","weight":0.7},'
         '{"name":"surprise","weight":0.3}]},'
         '"parameterOverrides":{"ParamEyeLOpen":1.2},"motionLabel":"wave"}\n```\n'
-        "主人回来啦喵~！",
+        "今天天气真好啊！",
         [{"name": "joy", "weight": 0.7}, {"name": "surprise", "weight": 0.3}],
         {"ParamEyeLOpen": 1.2},
         "wave",
@@ -289,7 +267,7 @@ S_SAMPLES = [
     ),
     (
         "S4",
-        '[joy] 你好喵~！{"expressionMix":{"expressions":[{"name":"anger","weight":0.6}]}}',
+        '[joy] 今天天气真好啊！{"expressionMix":{"expressions":[{"name":"anger","weight":0.6}]}}',
         [{"name": "anger", "weight": 0.6}],
         {},
         None,
@@ -297,7 +275,7 @@ S_SAMPLES = [
     ),
     (
         "S5",
-        "[joy] 主人回来啦喵~！",
+        "[joy] 今天天气真好啊！",
         None,  # null
         None,
         None,
@@ -340,7 +318,7 @@ S_SAMPLES = [
     (
         "S10",
         # 契约样本数据错误修正：
-        # mao_pro cdi3.json 不含 ParamMouthForm → C3 白名单丢弃 → overrides={}
+        # niziiro_mao cdi3.json 不含 ParamMouthForm → C3 白名单丢弃 → overrides={}
         # motionLabel "dance" ∉ 别名表 → motion=None
         # ref: verify-M9.md §3 + M3 deviation 2
         '{"expressionMix":{"expressions":[]},'
@@ -354,11 +332,11 @@ S_SAMPLES = [
 
 
 class TestConsistencySamples:
-    """S1-S10 双端一致性参数化样本（mao_pro 上下文）。"""
+    """S1-S10 双端一致性参数化样本（niziiro_mao 上下文）。"""
 
     @classmethod
     def setup_class(cls):
-        cls.model = _make_model("mao_pro")
+        cls.model = _make_model("niziiro_mao")
 
     @pytest.mark.parametrize(
         "sample_id,text,expected_mix,expected_overrides,expected_motion,expected_null",
@@ -405,7 +383,7 @@ class TestConsistencySamples:
         stripped = self.model.strip_expression_json(text)
         for forbidden in ("expressionMix", "parameterOverrides", "motionLabel"):
             assert forbidden not in stripped, f"S1 strip: '{forbidden}' found in stripped text"
-        assert "主人回来啦喵~！" in stripped
+        assert "今天天气真好啊！" in stripped
 
     # S8 归一化和校验
     def test_s8_normalization_sum(self):

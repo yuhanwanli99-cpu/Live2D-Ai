@@ -199,7 +199,7 @@ fun MainChatScreen(
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { if (!isLoading) viewModel.inputText.value = it },
-                        placeholder = { Text("和小喵聊天...") },
+                        placeholder = { Text("和凛聊天...") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         enabled = !isLoading
@@ -276,7 +276,7 @@ fun MainChatScreen(
                     factory = { ctx ->
                         Live2DView(ctx).also { view ->
                             // 启动时按持久化的 selectedModelId 加载模型；
-                            // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 mao_pro）
+                            // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 niziiro_mao）
                             val ctxRepo = SettingsRepository(ctx)
                             val registry = ModelRegistry.load(ctx)
                             val modelId = ctxRepo.selectedModelId

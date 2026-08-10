@@ -31,7 +31,7 @@ class TestPersonaShared(unittest.TestCase):
         
         system_prompt = persona['system_prompt']
         self.assertTrue(len(system_prompt.strip()) > 0)
-        self.assertIn('你是小喵', system_prompt)
+        self.assertIn('你是凛', system_prompt)
 
     def test_desktop_and_android_consistency(self):
         """Test that desktop and android share the same persona configuration"""
@@ -57,7 +57,7 @@ class TestPersonaShared(unittest.TestCase):
             persona = yaml.safe_load(f)
         
         name = persona['name']
-        self.assertEqual(name, "小喵 (Xiao Miao)")
+        self.assertEqual(name, "凛 (Lin)")
 
     def test_model_consistency(self):
         """Test that model configuration is consistent"""
@@ -97,7 +97,7 @@ class TestPersonaShared(unittest.TestCase):
             persona = yaml.safe_load(f)
         
         role = persona['role']
-        self.assertEqual(role, "cat-girl maid companion")
+        self.assertEqual(role, "tsundere genius assistant companion")
 
     def test_system_prompt_structure(self):
         """Test that system_prompt has the required structure"""
@@ -108,7 +108,7 @@ class TestPersonaShared(unittest.TestCase):
         self.assertIn('性格特点', system_prompt)
         self.assertIn('说话风格', system_prompt)
         self.assertIn('行为准则', system_prompt)
-        self.assertIn('示例对话', system_prompt)
+        self.assertIn('使用示例', system_prompt)
         self.assertIn('工具使用', system_prompt)
 
     def test_persona_file_exists(self):

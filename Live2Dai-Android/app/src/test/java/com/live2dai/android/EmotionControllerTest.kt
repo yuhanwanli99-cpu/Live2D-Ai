@@ -35,9 +35,9 @@ class EmotionControllerTest {
 
     @Test
     fun testJoyTagStrippedAndExpressionSet() {
-        val input = "[joy] 主人今天心情真好喵~！"
+        val input = "[joy] 今天心情真好！"
         val result = emotionController.parseAndApply(input)
-        assertEquals("主人今天心情真好喵~！", result)
+        assertEquals("今天心情真好！", result)
         verify(mockLive2DView).setExpression(5) // joy → index 5
     }
 
@@ -46,18 +46,18 @@ class EmotionControllerTest {
         // First set to a non-neutral emotion so neutral triggers a change
         emotionController.parseAndApply("[joy] init")
 
-        val input = "[neutral] 小喵也很开心喵！(=^･ω･^=)"
+        val input = "[neutral] 凛也很开心！(=^･ω･^=)"
         val result = emotionController.parseAndApply(input)
-        assertEquals("小喵也很开心喵！(=^･ω･^=)", result)
+        assertEquals("凛也很开心！(=^･ω･^=)", result)
         verify(mockLive2DView).setExpression(0) // neutral → index 0
     }
 
     @Test
     fun testMultipleEmotionTagsLastWins() {
-        val input = "[joy] 主人好呀喵~！[anger] 不许偷懒喵！[neutral] 小喵去倒茶~"
+        val input = "[joy] 今天天气真好！[anger] 不许偷懒！[neutral] 凛去倒茶~"
         val result = emotionController.parseAndApply(input)
         // Tags are stripped by regex, leaving whitespace where tags were
-        assertEquals("主人好呀喵~！ 不许偷懒喵！ 小喵去倒茶~", result)
+        assertEquals("今天天气真好！ 不许偷懒！ 凛去倒茶~", result)
         // Only the last valid emotion tag triggers setExpression
         // neutral(0) == currentExpressionIndex(0) initially, so NOT called
         verify(mockLive2DView, never()).setExpression(any(), any())
@@ -73,17 +73,17 @@ class EmotionControllerTest {
 
     @Test
     fun testUnknownEmotionTag() {
-        val input = "[unknown] 这个标签不存在喵~"
+        val input = "[unknown] 这个标签不存在~"
         val result = emotionController.parseAndApply(input)
-        assertEquals("这个标签不存在喵~", result)
+        assertEquals("这个标签不存在~", result)
         verify(mockLive2DView, never()).setExpression(any(), any())
     }
 
     @Test
     fun testMixedTextAndTags() {
-        val input = "主人好[joy]！今天天气真好[smirk]~ 小喵很高兴[neutral]！"
+        val input = "你好[joy]！今天天气真好[smirk]~ 凛很高兴[neutral]！"
         val result = emotionController.parseAndApply(input)
-        assertEquals("主人好！今天天气真好~ 小喵很高兴！", result)
+        assertEquals("你好！今天天气真好~ 凛很高兴！", result)
         // Only last valid emotion (neutral → 0) triggers setExpression
         // 0 == currentExpressionIndex(0) initially → NOT called
         verify(mockLive2DView, never()).setExpression(any(), any())
@@ -111,10 +111,10 @@ class EmotionControllerTest {
 
     @Test
     fun testStaticStripEmotionTags() {
-        val text = "[joy] 你好喵~ [sadness] 不开心"
+        val text = "[joy] 你好~ [sadness] 不开心"
         val result = EmotionController.stripEmotionTags(text)
         // stripEmotionTags removes only [tag] markers, leaving surrounding whitespace
-        assertEquals("你好喵~  不开心", result)
+        assertEquals("你好~  不开心", result)
     }
 
     @Test

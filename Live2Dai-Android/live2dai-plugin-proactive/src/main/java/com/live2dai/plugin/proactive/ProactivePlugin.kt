@@ -13,7 +13,7 @@ import com.live2dai.pluginsdk.PluginHost
 import java.util.concurrent.TimeUnit
 
 /**
- * 主动陪伴插件：让猫娘在用户长时间没理她时主动开口（docs/plan-task-plugin-proactive.md）。
+ * 主动陪伴插件：让助手在用户长时间没理她时主动开口（docs/plan-task-plugin-proactive.md）。
  *
  * 能力：
  * - 定时问候：距上次对话超过 [ProactivePluginConfig.idleThresholdMinutes] 分钟 → 触发

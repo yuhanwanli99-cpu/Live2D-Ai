@@ -210,11 +210,11 @@ class SettingsRepositoryTest {
     fun cosyvoiceInstruction_defaultsToCatgirlTone() {
         val repo = SettingsRepository(context)
         assertEquals(
-            "默认 instruction 应为猫娘萝莉语气（级2-C）",
+            "默认 instruction 应为少女音语气（级2-C）",
             SettingsRepository.DEFAULT_COSYVOICE_INSTRUCTION,
             repo.cosyvoiceInstruction
         )
-        assertEquals("用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇", repo.cosyvoiceInstruction)
+        assertEquals("用清澈甜美的少女音说话，声音甜美带一点傲娇", repo.cosyvoiceInstruction)
     }
 
     @Test
@@ -233,7 +233,7 @@ class SettingsRepositoryTest {
         repo.resetAll()
         val repo2 = SettingsRepository(context)
         assertEquals(
-            "resetAll 后应回退默认猫娘语气",
+            "resetAll 后应回退默认语气",
             SettingsRepository.DEFAULT_COSYVOICE_INSTRUCTION,
             repo2.cosyvoiceInstruction
         )
@@ -312,24 +312,26 @@ class SettingsRepositoryTest {
     // ── Live2D 形象（selectedModelId）──
 
     @Test
-    fun selectedModelId_defaultsToMaoPro() {
+    fun selectedModelId_defaultsToNiziiroMao() {
         val repo = SettingsRepository(context)
-        assertEquals("首次启动默认形象应为 mao_pro", SettingsRepository.DEFAULT_MODEL_ID, repo.selectedModelId)
+        // 契约 v3-rename §1.3：DEFAULT_MODEL_ID 同步为 niziiro_mao（mao_pro→niziiro_mao）
+        assertEquals("首次启动默认形象应为 niziiro_mao", "niziiro_mao", SettingsRepository.DEFAULT_MODEL_ID)
+        assertEquals("首次启动默认形象应为 niziiro_mao", SettingsRepository.DEFAULT_MODEL_ID, repo.selectedModelId)
     }
 
     @Test
     fun selectedModelId_persistsAcrossRestart() {
         val repo = SettingsRepository(context)
-        repo.selectedModelId = "shizuku"
-        // 重新创建实例（模拟重启），值应仍为 shizuku
+        repo.selectedModelId = "pc_only"
+        // 重新创建实例（模拟重启），值应仍为 pc_only
         val repo2 = SettingsRepository(context)
-        assertEquals("切换后应持久化，重启仍为 shizuku", "shizuku", repo2.selectedModelId)
+        assertEquals("切换后应持久化，重启仍为 pc_only", "pc_only", repo2.selectedModelId)
     }
 
     @Test
     fun selectedModelId_resetAll_restoresDefault() {
         val repo = SettingsRepository(context)
-        repo.selectedModelId = "shizuku"
+        repo.selectedModelId = "pc_only"
         repo.resetAll()
         val repo2 = SettingsRepository(context)
         assertEquals("resetAll 后应回退默认形象", SettingsRepository.DEFAULT_MODEL_ID, repo2.selectedModelId)

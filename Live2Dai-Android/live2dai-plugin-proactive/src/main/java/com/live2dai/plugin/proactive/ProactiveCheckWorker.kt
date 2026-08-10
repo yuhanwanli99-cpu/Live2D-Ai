@@ -7,7 +7,7 @@ import androidx.work.WorkerParameters
 import java.util.Calendar
 
 /**
- * 周期性后台检查任务：到达触发条件时让猫娘主动说一句话。
+ * 周期性后台检查任务：到达触发条件时让助手主动说一句话。
  *
  * 触发条件（**全部**满足才触发，见 docs/plan-task-plugin-proactive.md §2.2）：
  * 1. 不在静默时段（[KEY_QUIET_HOURS_START]~[KEY_QUIET_HOURS_END]，默认 23:00-07:00）

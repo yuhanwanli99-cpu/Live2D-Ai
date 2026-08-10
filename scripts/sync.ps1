@@ -32,7 +32,7 @@ if (-not (Test-Path $SharedDir)) {
 
 # ── Files to sync ──
 $SyncFiles = @(
-    @{Name="persona.yaml";   Desc="猫娘人设配置"},
+    @{Name="persona.yaml";   Desc="人设配置"},
     @{Name="mcp_tools.json"; Desc="MCP 工具配置"},
     @{Name="model_dict.json";Desc="模型路由表"}
 )

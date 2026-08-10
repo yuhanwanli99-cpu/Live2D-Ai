@@ -101,12 +101,12 @@ class SettingsRepository(context: Context) {
             ?: DEFAULT_COSYVOICE_WS_URL
         set(value) = prefs.edit().putString(KEY_COSYVOICE_WS_URL, value).apply()
 
-    // ─── CosyVoice 个性化参数（级2-C：猫娘语气 instruction + 语速 rate + 音调 pitch）───
+    // ─── CosyVoice 个性化参数（级2-C：语气 instruction + 语速 rate + 音调 pitch）───
 
     /**
      * CosyVoice instruction（语气/方言/情绪描述，SDK 限制 ≤100 字符；
      * run-task parameters.instruction 由 CosyVoiceTtsProvider 构造时读取）。
-     * 默认值：猫娘萝莉语气。
+     * 默认值：清澈甜美少女音。
      */
     var cosyvoiceInstruction: String
         get() = prefs.getString(KEY_COSYVOICE_INSTRUCTION, DEFAULT_COSYVOICE_INSTRUCTION)
@@ -144,7 +144,7 @@ class SettingsRepository(context: Context) {
 
     /**
      * 用户选中的 Live2D 模型 ID，与 shared/model_registry.json 的 id 字段对应。
-     * 默认值 "mao_pro" 与注册表 default 条目一致。
+     * 默认值 "niziiro_mao" 与注册表 default 条目一致。
      */
     var selectedModelId: String
         get() = prefs.getString(KEY_SELECTED_MODEL_ID, DEFAULT_MODEL_ID) ?: DEFAULT_MODEL_ID
@@ -218,8 +218,8 @@ class SettingsRepository(context: Context) {
         /** CosyVoice WS 端点默认值：空（= 使用 provider 默认公共 inference 端点） */
         val DEFAULT_COSYVOICE_WS_URL: String get() = BuildConfig.COSYVOICE_WS_URL.ifEmpty { "" }
 
-        /** CosyVoice instruction 默认值：猫娘萝莉语气（SDK 限制 ≤100 字符） */
-        const val DEFAULT_COSYVOICE_INSTRUCTION = "用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇"
+        /** CosyVoice instruction 默认值：清澈甜美少女音（SDK 限制 ≤100 字符） */
+        const val DEFAULT_COSYVOICE_INSTRUCTION = "用清澈甜美的少女音说话，声音甜美带一点傲娇"
 
         /** CosyVoice 语速默认值：1.2（略快有活力感） */
         const val DEFAULT_COSYVOICE_RATE = 1.2f
@@ -230,10 +230,10 @@ class SettingsRepository(context: Context) {
         /** 首选 ASR 引擎默认值：sherpa_sensevoice（离线优先，plan §4.3） */
         const val DEFAULT_ASR_PROVIDER_ID = "sherpa_sensevoice"
 
-        const val DEFAULT_PERSONA = "小喵 (Xiao Miao)"
+        const val DEFAULT_PERSONA = "凛 (Lin)"
 
         /** Live2D 默认形象 ID（与 shared/model_registry.json 的 default 条目一致） */
-        const val DEFAULT_MODEL_ID = "mao_pro"
+        const val DEFAULT_MODEL_ID = "niziiro_mao"
 
         /** 可用模型列表（供用户在设置页手动选择聊天模型） */
         val AVAILABLE_MODELS = listOf(

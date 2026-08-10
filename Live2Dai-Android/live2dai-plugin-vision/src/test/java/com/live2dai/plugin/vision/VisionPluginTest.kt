@@ -36,12 +36,12 @@ class VisionPluginTest {
             sentMessages += text to emotion
         }
         override fun getPersona(): PersonaSnapshot =
-            PersonaSnapshot(name = "小喵", systemPrompt = "prompt", model = "model")
+            PersonaSnapshot(name = "凛", systemPrompt = "prompt", model = "model")
     }
 
     private fun sampleBitmap(): Bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
 
-    private fun chatContext() = ChatContext(recentMessages = emptyList(), personaName = "小喵")
+    private fun chatContext() = ChatContext(recentMessages = emptyList(), personaName = "凛")
 
     // ── 插件注册 ──
 

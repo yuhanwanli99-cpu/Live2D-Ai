@@ -16,7 +16,7 @@ import androidx.core.content.ContextCompat
 /**
  * 主动陪伴通知（docs/plan-v12-plan.md §5.6 + 任务要求「通知栏通知 + 点击回 app」）。
  *
- * 主动问候发送成功后弹一条通知栏消息：App 在后台/息屏时用户也能看到猫娘的主动陪伴；
+ * 主动问候发送成功后弹一条通知栏消息：App 在后台/息屏时用户也能看到助手的主动陪伴；
  * 点击通知回到 App 主界面（用 launcher intent，不依赖 core 的具体 Activity 类，插件保持解耦）。
  *
  * 容错约定（plan §8.2/§8.3）：通知链路任何失败都**静默**——Android 13+ 未授予

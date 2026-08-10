@@ -148,7 +148,7 @@ class ChatService(
                 appendLine("## 表情控制")
                 appendLine("你可以在回复中使用表情标签来表达情绪，标签不会在语音中读出。")
                 appendLine("可用表情关键词: [neutral], [joy], [anger], [sadness], [fear], [surprise], [smirk]")
-                appendLine("使用方法: \"[joy] 主人今天心情真好喵~！\"")
+                appendLine("使用方法: \"[joy] 今天心情真好！\"")
                 appendLine("注意: 表情关键词放在句首，不会在语音中读出")
             }
             messages.add(ChatMessage(role = "system", content = systemPrompt + emotionInstruction))
@@ -541,7 +541,7 @@ class ChatService(
                 appendLine("## 表情控制")
                 appendLine("你可以在回复中使用表情标签来表达情绪，标签不会在语音中读出。")
                 appendLine("可用表情关键词: [neutral], [joy], [anger], [sadness], [fear], [surprise], [smirk]")
-                appendLine("使用方法: \"[joy] 主人今天心情真好喵~！\"")
+                appendLine("使用方法: \"[joy] 今天心情真好！\"")
                 appendLine("注意: 表情关键词放在句首，不会在语音中读出")
             }
             messages.add(ChatMessage(role = "system", content = systemPrompt + emotionInstruction))

@@ -10,7 +10,7 @@ package com.live2dai.plugin.proactive
 fun interface GreetingLlmClient {
 
     /**
-     * @param personaName 人设名称（如"小喵"），供 LLM 称呼用户
+     * @param personaName 人设名称（如"凛"），供 LLM 称呼用户
      * @param systemPrompt 人设 system prompt，让文案贴合语气
      * @param idleMinutes 距上次对话的分钟数（让文案带上时间感，如"好久没理我了"）
      * @param memories 可选的最近长期记忆（来自记忆插件），用于生成个性化话题（V1.2 记忆驱动话题，

@@ -8,9 +8,9 @@ import com.live2dai.pluginsdk.ChatHook
  * （见 docs/plan-task-plugin-proactive.md §4.2 + V1.2 任务要求「beforeSend 记录最后交互时间」）。
  *
  * 两个时点都记录的原因：beforeSend 在 LLM 调用之前触发——即使模型调用失败（无 afterReceive），
- * 「用户刚刚来找过猫娘」这一事实也已持久化，不会被误判为长期空闲；afterReceive 则覆盖
+ * 「用户刚刚来找过助手」这一事实也已持久化，不会被误判为长期空闲；afterReceive 则覆盖
  * 完整对话轮次结束的语义。刻意不注入任何对话内容——主动陪伴的触发判断完全基于时间。
- * 不打扰原则：只要用户最近跟猫娘说过话，[ProactiveCheckWorker] 就不会触发主动消息。
+ * 不打扰原则：只要用户最近跟助手说过话，[ProactiveCheckWorker] 就不会触发主动消息。
  */
 class ProactiveTrackingHook(private val tracker: LastInteractionTracker) : ChatHook {
 

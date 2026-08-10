@@ -2,6 +2,7 @@ package com.live2dai.android
 
 import android.content.Context
 import android.opengl.GLSurfaceView
+import android.opengl.Matrix
 import android.util.AttributeSet
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
@@ -65,10 +66,13 @@ class Live2DView(
     /**
      * 初始化 Live2D 渲染器并加载模型
      * @param modelAssetPath assets 中的模型路径（不含 "assets/" 前缀）
-     *                       例如: "live2d/mao_pro/runtime/mao_pro.model3.json"
+     *                       例如: "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
      */
     fun initialize(modelAssetPath: String) {
         currentAssetPath = modelAssetPath
+        // T1.2：惰性加载共享适配配置（shared/model-adapter → assets，contract-v3-adapter §3.1）。
+        // 失败 → null → MotionTags/VisemeAnalyzer/EmotionController 走硬编码常量兜底（回归门）。
+        ModelAdapterConfig.load(context)
         renderer = Live2DRenderer(context, modelAssetPath)
         setRenderer(renderer)
         // 持续渲染模式，支持 120fps 平滑动画（必须在 setRenderer 之后调用）
@@ -78,7 +82,7 @@ class Live2DView(
     /**
      * 运行时热切换模型（GL 线程 dispose + 重新加载，无需重建 View）。
      *
-     * @param assetPath 新模型的完整 assets 路径，如 "live2d/shizuku/runtime/shizuku.model3.json"
+     * @param assetPath 新模型的完整 assets 路径，如 "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
      * @param onComplete 切换成功回调（在 GL 线程执行，更新 UI 需 post 到主线程）
      * @param onError 切换失败回调。失败时已自动尝试回退到上一个模型；
      *                回退也失败则渲染兜底渐变着色器。同样在 GL 线程执行。
@@ -199,6 +203,14 @@ class Live2DView(
      */
     fun setParameter(parameterId: String, value: Float) {
         renderer?.setParameter(parameterId, value)
+    }
+
+    /**
+     * 半身显示：缩放 + 垂直偏移（模型单位）（contract-v3-rename §2.1，K5）。
+     * 转发到 Live2DRenderer；默认值 = 全模型（现状），零行为变化。
+     */
+    fun setDisplayRegion(scale: Float = 1f, yOffset: Float = 0f) {
+        renderer?.setDisplayRegion(scale, yOffset)
     }
 
     /**

@@ -63,9 +63,9 @@ class CosyVoiceTtsProvider(
     /** 单次合成总超时（连接 + 接收音频；超出抛异常触发降级） */
     private val synthesisTimeoutMs: Long = DEFAULT_SYNTHESIS_TIMEOUT_MS,
     /**
-     * 猫娘语气 instruction（语气/方言/情绪描述，SDK 限制 ≤100 字符；
+     * 语气 instruction（语气/方言/情绪描述，SDK 限制 ≤100 字符；
      * run-task parameters.instruction）。null = 构造时从 SettingsRepository 读取用户配置
-     * （默认「用可爱的猫娘萝莉语气说话，声音甜美带一点傲娇」）；测试可显式注入断言 JSON。
+     * （默认「用清澈甜美的少女音说话，声音甜美带一点傲娇」）；测试可显式注入断言 JSON。
      */
     private val instruction: String? = null,
     /** 语速倍率（run-task parameters.rate，默认 1.2 略快有活力感）；null = 从 SettingsRepository 读取 */
@@ -119,7 +119,7 @@ class CosyVoiceTtsProvider(
     private val resolvedWsUrl: String = wsUrl.ifBlank { DASHSCOPE_WS_URL }
 
     // 个性化参数（级2-C）：显式构造参数优先（测试注入/调用方覆盖），
-    // 否则构造时从 SettingsRepository 读取（默认 instruction=猫娘语气、rate=1.2、pitch=1.1）。
+    // 否则构造时从 SettingsRepository 读取（默认 instruction=清澈甜美少女音、rate=1.2、pitch=1.1）。
     // SharedPreferences 按 name 单例，重复创建 SettingsRepository 无额外开销。
     private val resolvedInstruction: String = instruction ?: SettingsRepository(context).cosyvoiceInstruction
     private val resolvedRate: Float = rate ?: SettingsRepository(context).cosyvoiceRate
@@ -312,7 +312,7 @@ class CosyVoiceTtsProvider(
     /**
      * 发送 run-task 事件（会话开始，input 空；parameters 携带合成参数）。
      * 对照官方 SDK Request.get_start_request。
-     * 级2-C：parameters 增加 instruction（猫娘语气）/rate（语速）/pitch（音调）个性化参数，
+     * 级2-C：parameters 增加 instruction（语气）/rate（语速）/pitch（音调）个性化参数，
      * 与官方 dashscope SDK speech_synthesizer.py（instruction/rate/pitch 均支持）对齐。
      */
     private fun sendRunTask(ws: WebSocket, taskId: String) {

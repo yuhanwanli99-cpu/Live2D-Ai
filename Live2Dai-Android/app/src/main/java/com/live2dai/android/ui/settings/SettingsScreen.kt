@@ -686,7 +686,7 @@ private fun PersonaSelector(
 ) {
     val personas = remember {
         listOf(
-            "小喵 (Xiao Miao)" to "猫娘女仆 — 可爱、活泼、忠诚",
+            "凛 (Lin)" to "傲娇天才少女助手 — 聪明、软萌、傲娇",
             "绫乃 (Ayano)" to "傲娇学姐 — 表面冷漠，内心温柔",
         )
     }

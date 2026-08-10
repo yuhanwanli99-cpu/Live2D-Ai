@@ -45,7 +45,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
 
     用法（与其它 TTS 引擎一致，通过 tts_factory 创建）:
         engine = TTSFactory.get_tts_engine("cosyvoice_cloud", api_key="sk-...")
-        path = await engine.async_generate_audio("你好，我是猫娘~")
+        path = await engine.async_generate_audio("你好，我是凛~")
 
     API Key 解析顺序:
         1. 构造参数 api_key（来自 conf.yaml cosyvoice_cloud.api_key）
@@ -69,6 +69,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
         ws_url: str = DEFAULT_WS_URL,
         timeout: float = 60.0,
         max_retries: int = 2,
+        instruction: str = "",
     ):
         self.api_key = self._resolve_api_key(api_key)
         self.voice = voice
@@ -81,25 +82,37 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
         self.ws_url = ws_url
         self.timeout = timeout
         self.max_retries = max_retries
+        # P4: TTS instruction 文案（自然语言情感/风格指令，≤100 字符）
+        self.instruction = instruction
         self.file_extension = format
 
     # ------------------------------------------------------------------ #
     # TTSInterface 契约
     # ------------------------------------------------------------------ #
 
-    def generate_audio(self, text: str, file_name_no_ext=None) -> str:
+    def generate_audio(
+        self, text: str, file_name_no_ext=None, instruction: str = ""
+    ) -> str:
         """同步生成音频（TTSInterface 抽象方法）。
 
         内部启动一个临时事件循环完成合成。
         异步调用方请使用 async_generate_audio（真正的异步实现，无需线程跳转）。
 
+        Args:
+            instruction: P4 TTS instruction 文案（透传给 SDK，空串=不传）。
+
         Returns:
             str: 生成的音频文件路径；失败时返回空字符串 ""。
         """
-        return asyncio.run(self.async_generate_audio(text, file_name_no_ext))
+        return asyncio.run(self.async_generate_audio(text, file_name_no_ext, instruction))
 
-    async def async_generate_audio(self, text: str, file_name_no_ext=None) -> str:
+    async def async_generate_audio(
+        self, text: str, file_name_no_ext=None, instruction: str = ""
+    ) -> str:
         """异步流式合成音频（官方 SDK 为阻塞式，经 asyncio.to_thread 隔离）。
+
+        Args:
+            instruction: P4 TTS instruction 文案（透传给 SDK，空串=不传）。
 
         Returns:
             str: 生成的音频文件路径；失败时返回空字符串 ""。
@@ -122,7 +135,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
         for attempt in range(1, self.max_retries + 1):
             try:
                 audio_bytes = await asyncio.wait_for(
-                    asyncio.to_thread(self._synthesize_with_sdk, text),
+                    asyncio.to_thread(self._synthesize_with_sdk, text, instruction),
                     timeout=self.timeout,
                 )
             except CosyVoiceSynthesisError as e:
@@ -172,8 +185,12 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
             return str(api_key).strip()
         return os.environ.get("ALIYUN_API_KEY", "").strip()
 
-    def _synthesize_with_sdk(self, text: str) -> bytes:
+    def _synthesize_with_sdk(self, text: str, instruction: str = "") -> bytes:
         """用官方 dashscope SDK 合成（阻塞式，调用方需经 to_thread 隔离）。
+
+        Args:
+            instruction: P4 TTS instruction 文案（非空时透传 SpeechSynthesizer
+                instruction 参数；空串不传，兼容旧 SDK）。
 
         协议流（SDK 内部实现，真实线上实测）:
             Client -> run-task（input 空，parameters: model/voice/volume/format/
@@ -225,7 +242,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
         )
 
         callback = _Callback()
-        synthesizer = SpeechSynthesizer(
+        synthesizer_kwargs = dict(
             model=self.model,
             voice=self.voice,
             format=audio_format,
@@ -235,6 +252,10 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
             callback=callback,
             url=self.ws_url,
         )
+        # P4: instruction 透传（dashscope>=1.26 SpeechSynthesizer 支持；空串不传）
+        if instruction:
+            synthesizer_kwargs["instruction"] = instruction
+        synthesizer = SpeechSynthesizer(**synthesizer_kwargs)
         try:
             # run-task（首帧）+ continue-task（input.text）
             synthesizer.streaming_call(text)
@@ -298,7 +319,7 @@ if __name__ == "__main__":
     # 手动冒烟入口: python -m open_llm_vtuber.tts.cosyvoice_cloud_tts "你好"
     import sys
 
-    text = sys.argv[1] if len(sys.argv) > 1 else "你好，我是猫娘~"
+    text = sys.argv[1] if len(sys.argv) > 1 else "你好，我是凛~"
     engine = CosyVoiceCloudTTSEngine()
     path = engine.generate_audio(text)
     print(f"result: {path}")
