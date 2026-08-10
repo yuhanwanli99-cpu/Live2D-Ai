@@ -7,13 +7,13 @@
 
 ## 项目目标
 
-打造一款跨平台的 **Live2D 猫娘 AI 伴侣**，同时运行在 Windows 桌面和 Android 手机上，提供：
+打造一款跨平台的 **Live2D + AI + TTS 最小验证应用**，同时运行在 Windows 桌面和 Android 手机上，验证「文本/语音 → LLM → 表情/口型/动作」闭环，提供：
 
-- **实时语音对话**：说话即聊，猫娘回答
-- **Live2D 模型渲染**：猫娘在屏幕上活起来
+- **实时语音对话**：说话即聊，语音回复
+- **Live2D 模型渲染**：模型在屏幕上活起来
 - **表情联动**：根据对话情感自动切换表情 + 嘴型同步
-- **视觉识别**：猫娘能看到屏幕/摄像头内容
-- **Always-on**：桌宠模式（Windows 透明穿透）/ 手机悬浮窗
+- **视觉识别**：模型能看到屏幕内容
+- **Always-on**：Live2Dai 应用模式（Windows 透明穿透）/ 手机悬浮窗
 
 ---
 
@@ -161,7 +161,7 @@ F:\Live2Dai\
 ├── PLAN.md               ← 架构规划
 ├── HANDOVER.md            ← ★ 交接文档（首读）
 ├── shared/                ← ★ 跨平台共享配置
-│   ├── persona.yaml       ← 猫娘人设（单源真理）
+│   ├── persona.yaml       ← 人设（单源真理）
 │   ├── mcp_tools.json     ← MCP 工具定义
 │   └── model_dict.json    ← 模型路由表
 ├── Live2Dai-Android/        ← ★ Android 原生应用

@@ -1,12 +1,14 @@
 # Live2Dai 项目架构文档
 
-> 更新时间: 2026-08-05 | 架构版本: **V1（2026-08-05 确立，双端验收 PASS）**
+> 更新时间: 2026-08-05 | 架构版本: **v0（开发中）** | 旧"V1"验收数据见下方历史记录
 
 ---
 
-## V1 验收基线（2026-08-05）
+## 历史里程碑（v0 阶段记录）
 
-- **V1 定义**：文本输入 → LLM → Live2D 做出相关回应（表情/动作），可正常对话即达成。
+> 以下为旧 V1 验收基线，仅作 v0 阶段历史记录保留，**不代表当前 v1 达成**。
+
+- **旧 V1 定义**：文本输入 → LLM → Live2D 做出相关回应（表情/动作），可正常对话即达成。
 - **Android 真机验收 PASS**：输入文本 → LLM 回复 `[joy]` → `EmotionController: setEmotion: joy -> expressionIndex=5` → 表情切换；多轮对话零崩溃。
 - **PC 验收 PASS**：WS text-input → LLM 回复 `[joy]`/`[anger]` → `audio.actions.expressions=[3]/[2]` → 前端 setExpression → 表情切换；会话闭环正常。
 - **验收修复**：commit `d2f1904`（表情链路接线回归 + LazyColumn key 哈希碰撞崩溃），91 单测全过。
@@ -15,7 +17,7 @@
 
 ## 项目定位
 
-通用 Live2D 桌宠——Live2D 皮套 + LLM 语音对话。Windows 桌面端 + Android 手机端，两端独立直连云端 API，无中心化后端。
+**Live2D + AI 最小验证项目** — 验证最小化 AI+Live2D 闭环（文本/语音 → LLM → 表情/口型/动作），留下扩展接口供后续和社区开发 mod。Windows 桌面端 + Android 手机端，两端独立直连云端 API，无中心化后端。当前版本: v0（作者自测，不对外发布）。
 
 ---
 
@@ -29,7 +31,7 @@ F:\Live2Dai\
 │   └── model_dict.json          ← 模型路由表
 │
 ├── Live2Dai-pc/                     ← Windows 桌面端
-│   ├── 启动桌宠.bat             ← 一键启动入口
+│   ├── 启动Live2Dai.bat        ← 一键启动入口
 │   ├── start.ps1                ← PowerShell 启动脚本（自动检测环境）
 │   └── open-llm-vtuber/         ← Open-LLM-VTuber（后端+前端）
 │       ├── conf.yaml            ← 精简配置（deepseek+zhipu+edgetts+fasterwhisper）
@@ -114,6 +116,6 @@ shared/model_dict.json ──→ Live2Dai-pc/open-llm-vtuber/model_dict.json
 ## 已知问题
 
 1. **Android Live2D 渲染**: 模型已加载但角色显示有黑色遮挡，需修复 OpenGL 渲染管线
-2. **Pi tester agent**: 需要 `~/.pi/agent/models.json` 配置 zhipu provider + 重启 Pi
+2. **Pi tester agent**: ~~需要 `~/.pi/agent/models.json` 配置 zhipu provider~~（zhipu provider 已废弃移除，不再需要）
 3. **API Key 管理**: Android 端通过 local.properties (gitignored)，Windows 端在 conf.yaml 中
 4. **MCP 工具**: 仅桌面端可用，Android 端待集成

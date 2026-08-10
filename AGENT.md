@@ -1,7 +1,7 @@
 # Live2Dai — 项目总览
 
 > 更新日期: 2026-08-07
-> 项目定位: **AI × Live2D 融合引擎** — 类似 Minecraft：1 个极致核心（AI ⟷ Live2D 双向融合），mod（扩展）只是玩法层
+> 项目定位: **Live2D + AI 最小验证项目** — 验证最小化 AI+Live2D 闭环（文本/语音 → LLM → 表情/口型/动作），留下扩展接口供后续和社区开发 mod。当前版本: v0（作者自测，不对外发布）
 > 架构理念: **pi-agent 精神** — 最小核心 + 可扩展（核心只装不可拆的原子能力，其余全部走插件 SDK）
 > 当前架构: **两端独立直连**（无中心化后端）
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | **`HANDOVER.md`** | **★ 必读** — 完整项目交接（架构、Bug修复记录、动画系统、构建部署） |
 | **`PLAN.md`** | 架构演进历史（Plan A/B/C → 当前直连架构） |
-| **`AGENTS.md`** | SPOQ 编排规则（Phase 0/1/2 流程） |
+| **`AGENTS.md`** | 项目级通用说明（结构/背景，任何 CLI agent 可读） |
 | `docs/ARCHITECTURE.md` | 技术栈详表 |
 | `docs/renderer-algorithm.md` | Cubism 渲染算法逆向分析 |
 | `docs/mask-premake-algorithm.md` | Mask FBO 渲染算法 |
@@ -75,7 +75,7 @@ F:\Live2Dai\
 ├── Live2Dai-pc/                 ← ★ Windows 桌面端
 │   ├── open-llm-vtuber/     ←   Open-LLM-VTuber 后端
 │   ├── start.ps1            ←   一键启动脚本
-│   └── 启动桌宠.bat
+│   └── 启动Live2Dai.bat
 │
 ├── docs/                    ← 文档
 ├── tests/                   ← 测试

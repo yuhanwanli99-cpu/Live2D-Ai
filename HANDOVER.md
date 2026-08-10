@@ -1,9 +1,9 @@
 # Live2Dai — 项目交接文档
 
 > 更新日期: 2026-07-22  
-> 项目定位: **通用 Live2D 桌宠** — Live2D 角色 + LLM 语音对话  
+> 项目定位: **Live2D + AI 最小验证项目** — 验证最小化 AI+Live2D 闭环（文本/语音 → LLM → 表情/口型/动作），留下扩展接口供后续和社区开发 mod。当前版本: v0（作者自测，不对外发布）  
 > 架构: **两端独立直连云端 API**（无中心化后端）  
-> 当前阶段: **MVP 验收通过 ✅**
+> 当前版本: **v0（作者自测，不对外发布）** — v1 标准见 PLAN.md 版本曲线
 
 ---
 
@@ -42,8 +42,7 @@ F:\Live2Dai\
 │   │   │   │   ├── VisionService → live2dai-plugin-vision（已迁出为插件）
 │   │   │   │   └── ApiModels.kt             ← API 数据模型
 │   │   │   ├── assets/
-│   │   │   │   ├── live2d/mao_pro/runtime/  ← 当前使用的 Live2D 模型
-│   │   │   │   ├── live2d/shizuku/runtime/  ← 第二模型（备用）
+│   │   │   │   ├── live2d/niziiro_mao/runtime/  ← 当前使用的 Live2D 模型（Niziiro Mao）
 │   │   │   │   ├── shaders/                 ← GLES 2.0 着色器（7个文件）
 │   │   │   │   └── persona.yaml             ← 人设（从 shared/ 同步）
 │   │   │   └── res/
@@ -54,7 +53,7 @@ F:\Live2Dai\
 │   ├── open-llm-vtuber/       ← Open-LLM-VTuber (git clone)
 │   │   └── conf.yaml          ← 桌面端配置（API Key, 人设）
 │   ├── start.ps1              ← 一键启动
-│   ├── 启动桌宠.bat
+│   ├── 启动Live2Dai.bat
 │   └── README.md              ← 搭建指南
 │
 ├── docs/
@@ -84,7 +83,7 @@ F:\Live2Dai\
 ### 2.1 数据流
 
 ```
-Android 端（当前 MVP）：
+Android 端（当前 v0）：
 
 onDrawFrame() 每帧调用:
   ┌─────────────────────────────────────┐
@@ -325,7 +324,7 @@ adb pull /sdcard/shot.png /tmp/
 | AnimationPipeline | VERBOSE | 关键动画数据变化 |
 | setPartOpacity | VERBOSE | ★ 调试用，已移除 |
 
-> **当前日志策略**: 生产模式只保留 INFO 级初始化日志。所有 VERBOSE 调试日志已在 MVP 验收前移除。
+> **当前日志策略**: 生产模式只保留 INFO 级初始化日志。所有 VERBOSE 调试日志已在 v0 阶段（旧 MVP 验收前）移除。
 
 ---
 
@@ -341,7 +340,7 @@ adb pull /sdcard/shot.png /tmp/
 | 4 | 无悬浮窗/后台模式 | 应用前台才可见 | Service + 悬浮窗权限 |
 | 5 | 无表情/LipSync 集成 | [emotion] 标签有效但不联动 | EmotionController + Live2DView 绑定 |
 | 6 | 无多模型切换 UI | 只有代码中切换 | Compose UI 模型选择器 |
-| 7 | 无对话文本气泡 | 看不到猫娘在说什么 | Canvas overlay 文本渲染 |
+| 7 | 无对话文本气泡 | 看不到模型在说什么 | Canvas overlay 文本渲染 |
 | 8 | 无 Motion 淡入淡出 | 动作切换生硬 | 已实现交叉淡入但未启用全部特性 |
 
 ### 待验证
@@ -349,7 +348,7 @@ adb pull /sdcard/shot.png /tmp/
 - [ ] Emotion → Live2D 表情联动端到端
 - [ ] TTS 降级链（Edge TTS → Android TTS → 静默）
 - [ ] MCP 工具在 Android 端调用
-- [ ] 多模型（shizuku）切换测试
+- [ ] 多模型切换测试（shizuku 已按 K1 删除，仅剩 niziiro_mao 单模型）
 
 ---
 
@@ -357,8 +356,8 @@ adb pull /sdcard/shot.png /tmp/
 
 ### 当前模型
 
-- **主模型**: `mao_pro` (Cubism 5.0), 260 drawables, 133 visible
-- **备用模型**: `shizuku` (Cubism 4.0?), 已嵌入 assets
+- **主模型**: `niziiro_mao` (Niziiro Mao, Cubism 5.0, Free Material License), 260 drawables, 133 visible
+- **备用模型**: （shizuku 已按 K1 删除，仅保留 niziiro_mao 单模型）
 
 ### 添加新模型步骤
 
@@ -433,7 +432,7 @@ find . -name "*.kt" -o -name "*.cpp" -o -name "*.h" | xargs wc -l | tail -1
 
 ---
 
-## 附录: MVP 验收数据 (2026-07-22)
+## 附录: MVP 验收数据 (2026-07-22，v0 阶段历史记录，不代表当前 v1 达成)
 
 | 检查项 | 结果 |
 | --- | --- |

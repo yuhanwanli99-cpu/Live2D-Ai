@@ -1,6 +1,6 @@
 # Live2Dai — Windows 桌面端
 
-> 基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) 的 Windows 桌宠前端
+> 基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) 的 Windows Live2D 前端
 > 当前架构: 直连 DeepSeek API（无中间 Gateway）
 
 ---
@@ -11,7 +11,7 @@
   ┌─────────────────────────────────────┐
   │  Live2Dai-pc/                       │
   │  ├── start.ps1       ← 一键启动脚本  │
-  │  ├── 启动桌宠.bat    ← 双击入口      │
+  │  ├── 启动Live2Dai.bat  ← 双击入口   │
   │  └── open-llm-vtuber/ ← 上游项目    │
   │      ├── conf.yaml   ← 配置         │
   │      ├── run_server.py              │
@@ -62,7 +62,7 @@ character_config:
 
 ```powershell
 # 方式 1：双击
-F:\Live2Dai\Live2Dai-pc\启动桌宠.bat
+F:\Live2Dai\Live2Dai-pc\启动Live2Dai.bat
 
 # 方式 2：PowerShell
 cd F:\Live2Dai\Live2Dai-pc

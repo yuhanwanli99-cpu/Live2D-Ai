@@ -47,7 +47,7 @@ tts_preprocessor_config:
 | 字段 | 值 | 状态 |
 | ------ | ----- | ------ |
 | `system_config.live2d_fps` | `120` | ✅ |
-| `character_config.conf_name` | `mao_pro` | ✅ |
+| `character_config.conf_name` | `niziiro_mao` | ✅ |
 | `character_config.load_persona_from_file` | `shared/persona.yaml` | ✅ |
 | `agent_config.conversation_agent_choice` | `basic_memory_agent` | ✅ |
 | `agent_config.llm_configs.deepseek_llm.model` | `deepseek-v4-flash` | ✅ |
@@ -104,15 +104,15 @@ tts_preprocessor_config:
 | `frontend/assets/main-nu7uwxNJ.js` | 1.9 MB | ✅ (编译后 React 应用) |
 | `frontend/assets/main-QEkl09-0.css` | 41 KB | ✅ |
 
-### 3.2 Live2D 模型文件 (`live2d-models/mao_pro/runtime/`)
+### 3.2 Live2D 模型文件 (`live2d-models/niziiro_mao/runtime/`)
 
 | 文件 | 状态 |
 | ------ | ------ |
-| `mao_pro.moc3` | ✅ |
-| `mao_pro.model3.json` | ✅ |
-| `mao_pro.cdi3.json` | ✅ |
-| `mao_pro.physics3.json` | ✅ |
-| `mao_pro.pose3.json` | ✅ |
+| `niziiro_mao.moc3` | ✅ |
+| `niziiro_mao.model3.json` | ✅ |
+| `niziiro_mao.cdi3.json` | ✅ |
+| `niziiro_mao.physics3.json` | ✅ |
+| `niziiro_mao.pose3.json` | ✅ |
 | `expressions/` | ✅ |
 | `motions/` | ✅ |
 
@@ -147,7 +147,7 @@ tts_preprocessor_config:
 ### 4.1 脚本链路
 
 ```
-启动桌宠.bat
+启动Live2Dai.bat
   └─→ powershell -ExecutionPolicy Bypass -File .\start.ps1
         └─→ cd open-llm-vtuber
               ├─ [1/6] Python 检测    → python 3.10+ (系统 PATH / .venv)
@@ -192,7 +192,7 @@ tts_preprocessor_config:
 
 ```powershell
 # 方式 1：双击
-F:\Live2Dai\desktop\启动桌宠.bat
+F:\Live2Dai\desktop\启动Live2Dai.bat
 
 # 方式 2：PowerShell
 cd F:\Live2Dai\desktop

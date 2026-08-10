@@ -3,7 +3,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ===================================
-echo   Live2Dai 猫娘桌宠 - 启动中...
+echo   Live2Dai - 启动中...
 echo ===================================
 echo.
 echo DeepSeek V4 Flash ^| 120fps ^| Edge TTS

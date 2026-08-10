@@ -81,11 +81,11 @@ Set-Location $VtuberDir
 
 Write-Host ""
 Write-Host "╔════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║         Live2Dai -- 桌宠后端启动器            ║" -ForegroundColor Cyan
+Write-Host "║         Live2Dai -- 后端启动器                ║" -ForegroundColor Cyan
 Write-Host "╠════════════════════════════════════════════════╣" -ForegroundColor Cyan
 Write-Host "║ LLM: DeepSeek V4 Flash | GLM-4.6V (视觉)    ║" -ForegroundColor Cyan
 Write-Host "║ TTS: Edge TTS (免费)    ASR: faster-whisper  ║" -ForegroundColor Cyan
-Write-Host "║ FPS: 120  端口: 12393  人设: 猫娘女仆       ║" -ForegroundColor Cyan
+Write-Host "║ FPS: 120  端口: 12393  人设: 凛              ║" -ForegroundColor Cyan
 Write-Host "╚════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
@@ -440,7 +440,7 @@ function Test-Onboarding {
 
     Write-Host ""
     Write-Host "╔══════════════════════════════════════════════════╗" -ForegroundColor Magenta
-    Write-Host "║          欢迎来到 Live2Dai 喵~ (=^・ω・^=)        ║" -ForegroundColor Magenta
+    Write-Host "║          欢迎来到 Live2Dai！                    ║" -ForegroundColor Magenta
     Write-Host "╠══════════════════════════════════════════════════╣" -ForegroundColor Magenta
     Write-Host "║ 1. 零配置开聊：不用填任何 API Key，默认使用       ║" -ForegroundColor Cyan
     Write-Host "║    免费的 GLM-4.7-Flash 共享额度（多人共用、限    ║" -ForegroundColor Cyan

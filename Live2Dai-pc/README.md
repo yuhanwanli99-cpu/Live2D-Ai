@@ -1,6 +1,6 @@
 # Live2Dai — Windows 桌面端
 
-基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) 的 Windows 桌宠前端，直连 DeepSeek API。
+基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) 的 Windows Live2D 前端，直连 DeepSeek API。
 
 ## 一键启动
 
@@ -9,9 +9,9 @@ cd F:\Live2Dai\Live2Dai-pc
 .\start.ps1
 ```
 
-启动后浏览器访问 **<http://localhost:12393/>** 即可看到猫娘界面。
+启动后浏览器访问 **<http://localhost:12393/>** 即可看到 Live2D 界面。
 
-双击 `F:\Live2Dai\Live2Dai-pc\启动桌宠.bat` 效果相同。
+双击 `F:\Live2Dai\Live2Dai-pc\启动Live2Dai.bat` 效果相同。
 
 ## 前置准备
 
@@ -53,13 +53,13 @@ Faster-Whisper ASR 需要 ffmpeg 解码音频。如未安装，对话功能仍�
 winget install Gyan.FFmpeg
 ```
 
-## 桌宠功能
+## 功能
 
 | 功能 | 说明 |
 | ------ | ------ |
-| 语音对话 | 说话即聊，猫娘语音回复 |
-| 视觉识别 | 猫娘能看到屏幕内容（需 Zhipu API Key） |
-| 透明穿透 | 桌宠模式，不遮挡操作 |
+| 语音对话 | 说话即聊，语音回复 |
+| 视觉识别 | 能看到屏幕内容（需 Zhipu API Key） |
+| 透明穿透 | 模式，不遮挡操作 |
 | MCP 工具 | 查天气、搜索、记笔记（需 uvx） |
 | 表情联动 | 根据对话情感自动切换表情 + 嘴型同步 |
 
@@ -68,9 +68,10 @@ winget install Gyan.FFmpeg
 编辑 `F:\Live2Dai\shared\persona.yaml`，改动即时生效（需重启后端）。
 
 ```yaml
-name: "小喵 (Xiao Miao)"
+name: "凛 (Lin)"
 system_prompt: |
-  你是小喵，一只可爱的猫娘女仆...
+  你是凛，一位 18 岁的天才少女 AI 助手，傲娇、毒舌但心软，
+  句尾常带"哼"或"笨蛋"（完整设定见 shared/persona.yaml）。
 model: "deepseek-v4-flash"
 temperature: 0.8
 ```
@@ -87,7 +88,7 @@ temperature: 0.8
 | 启动报 Python 版本错误 | 安装 Python 3.10+ (winget install Python.Python.3.12) |
 | 后端启动但网页白屏 | 检查 `frontend/` 目录是否存在，或重新 `git submodule update --init --recursive` |
 | ASR 不工作 | 检查 ffmpeg 是否安装：`winget install Gyan.FFmpeg` |
-| 猫娘不说话 | 检查 DeepSeek API Key 是否正确 |
+| 模型不说话 | 检查 DeepSeek API Key 是否正确 |
 
 ---
 

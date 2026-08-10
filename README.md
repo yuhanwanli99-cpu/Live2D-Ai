@@ -1,8 +1,6 @@
 # Live2Dai 🐱
 
-> **AI × Live2D 融合引擎** — 1 个极致核心 + 无限扩展（就像 Minecraft 的方块世界，mod 只是玩法）
->
-> **AI × Live2D Fusion Engine** — one rock-solid core, infinite extensions. Like Minecraft's block engine, mods are just playstyles. The core ships first.
+> **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2Dai。
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
@@ -17,38 +15,33 @@
 
 ## 🎯 项目哲学 | Philosophy
 
-> **像 Minecraft 一样：核心决定一切，mod 只是玩法。**
+> **不做功能竞赛，只验证一条最小闭环。**
 
-我们不和 N.E.K.O. 比功能广度（它们选择了强个体 + 与鸿蒙/阿里生态强绑定），也不和 Neuro‑sama 比直播包装（它的技术栈和我们同构，只是包装成了顶流 IP）。
-
-**Live2Dai 走的是"引擎型"路线**——把 AI 与 Live2D 的双向融合打磨到极致：
+Live2Dai = Live2D + AI。项目的全部意义只有一件事：**验证「最小化的 AI + Live2D」闭环能跑通**——文本/语音 → LLM → Live2D 表情/口型/动作，用最小代价验证链路可行、可开源、可复制，**并留下扩展接口供后续和社区开发 mod**。刻意不做功能竞赛：不比 N.E.K.O. 生态、不比 Neuro-sama 包装。
 
 ```
-┌─────────────────────────────────┐
-│         扩展层（mod）             │
-│  多模型 / 多皮肤 / 直播 / 游戏    │  ← 随意装卸，不碰核心
-├─────────────────────────────────┤
-│        pi-agent 核心             │
-│  AI ⟷ Live2D 双向融合引擎        │  ← 只打磨这一层
-│  听 + 说 + 看 + 想 + 表情 + 动作  │
-└─────────────────────────────────┘
+┌──────────────────────────────────────┐
+│       扩展层（插件 SDK / 契约接口）      │
+│  视觉 / 语音 / 多模型 / 多皮肤 / 直播    │  ← 后续与社区开发 mod，不碰核心
+├──────────────────────────────────────┤
+│            最小核心闭环               │
+│  文本/语音 → LLM → 表情/口型/动作      │  ← 只打磨这一条链路
+└──────────────────────────────────────┘
 ```
 
-- **核心原子**（不可拆）：文本/语音 → LLM 理解 → Live2D 表情/动作/口型回应——这条链路必须打磨到"流畅自然"
-- **扩展（mod）**：视觉、主动陪伴、多模型、多皮肤、直播推流……全部走插件 SDK，不碰核心
-- **对标**：pi-agent 的"最小核心 + 可扩展" × Minecraft 的"强引擎 + 弱内容"——我们做的是 **AI ⊗ Live2D 的融合引擎**，不是又一个功能清单竞赛
-
-Neuro‑sama 证明了**技术栈可以普通，但核心融合得好 = 符合大众对 Live2D 虚拟人物的流畅期待**。我们的目标就是把这个"融合"做到开源界第一。
+- **核心只留最小闭环**：文本/语音 → LLM 理解 → Live2D 表情/口型/动作回应——这条链路打磨到"可行且可复制"
+- **扩展（mod）**：视觉、语音、多模型、多皮肤、直播……全部走插件 SDK / 共享契约接口，留给后续和社区，不碰核心
+- **不做功能竞赛**：不比 N.E.K.O. 生态、不比 Neuro-sama 包装。项目的全部意义 = 验证最小闭环可行 + 留下扩展接口。
 
 ---
 
 ## 📖 项目简介 | Overview
 
-**Live2Dai** 是一款运行在 Android 手机上的 **猫娘 AI 伴侣**——但它的真正定位是 **AI × Live2D 融合引擎** 的参考实现。她使用 **Live2D 模型**（猫娘角色）与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。
+**Live2Dai** 是一个 **AI × Live2D 最小验证项目**——验证「最小化的 AI + Live2D」闭环能跑通：她使用 **Live2D 模型角色** 与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。核心只留这一条最小闭环，扩展全部走插件 SDK / 契约接口留给后续和社区。
 
-> "主人好呀喵~！今天想让我做什么呢？(=^･ω･^=)" —— 小喵
+> "哼，今天想让我做什么？" —— 凛 (Lin)
 
-**核心亮点**：本项目是**首个 MIT 全栈开源**的 Live2D AI 伴侣方案。我们用 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代了 Live2D 官方的闭源 Cubism SDK，无需注册 Live2D 账号即可编译运行。
+**开源事实**：本项目基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK，无需注册 Live2D 账号即可编译运行，完全开源、可复制。
 
 同时提供 **Windows 桌面端**（基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)）作为扩展平台。
 
@@ -56,43 +49,39 @@ Neuro‑sama 证明了**技术栈可以普通，但核心融合得好 = 符合�
 
 ## ✨ 特性 | Features
 
-### 🎭 Live2D 渲染（开源核心）
+### 🎯 最小核心闭环（v0 现状）
+
+**文本 → LLM → 表情/动作**：
+
+- 零配置聊天：安装后无需配置任何 API Key 即可直接开始聊天——默认使用智谱 **GLM-4.7-Flash**（永久免费模型）作为兜底聊天模型；升级路径为 **DeepSeek**（个人账号限 1 并发；请求过于频繁时应用内会提示"请稍后重试"；应用内设置页开发中/部分实现）
+- LLM 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
+
+**Live2D 渲染（开源核心）**：
 
 - Purism Core (MIT) 替代闭源 Cubism Core，完全开源
 - 完整的 OpenGL ES 2.0 渲染管线：Premultiplied Alpha、裁剪掩码、MSAA 4x
 - 三线性过滤 + Mipmap，呈现光滑边缘
 - 支持 Cubism 5.0 MOC3 模型格式
 
-### 🗣️ 语音对话
+**情感联动**：
 
-- **说话即聊**：Android SpeechRecognizer 语音输入 → DeepSeek-v4-flash LLM 处理
-- **Edge TTS 语音合成**（降级链：Edge TTS → 系统 TTS → 静默）
-- 对话历史上下文保持
-
-### 💬 零配置聊天 | Zero-Config Chat
-
-- **开箱即用**：安装后无需配置任何 API Key 即可直接开始聊天 —— 默认使用智谱 **GLM-4.7-Flash**（永久免费模型）作为兜底聊天模型
-- **免费档限制**：个人账号限 **1 并发**，适合个人日常使用；请求过于频繁时应用内会提示"请稍后重试"
-- **升级路径**：如需更高并发，可在设置页切换到 **DeepSeek 云端** 并填入你自己的 DeepSeek API Key
-
-### 👁️ 视觉识别
-
-- 猫娘能看到屏幕内容：GLM-4.6V 多模态截图分析
-- 主人可以问"看我在做什么"，猫娘会描述画面
-
-### 😊 情感联动
-
-- LLM 回复中的 `[emotion]` 标签（`[joy]`, `[sadness]`, `[anger]` 等）
-- 猫娘说话时实时切换表情和语气
+- LLM 回复中的 `[emotion]` 标签（`[joy]`, `[sadness]`, `[anger]` 等）实时切换表情和语气
 - 完整的眨眼、呼吸、物理效果（辫子摆动）
 
-### 🏠 桌面端同步
+**双端**：
 
-- Windows 桌面端基于 Open-LLM-VTuber，支持 120fps 渲染
-- 共享 `shared/persona.yaml` 人设文件，两端人设统一
-- 猫娘桌宠模式（透明穿透窗口）
+- Android 端（Kotlin + Compose + Purism Core）
+- Windows 桌面端（Open-LLM-VTuber，支持 120fps 渲染；共享 `shared/persona.yaml` 人设文件，两端人设统一）
 
-### 🚀 计划中 | Roadmap
+### 🔌 扩展层（mod 接口，已实现未入 v0 验收）
+
+> 扩展能力全部走插件 SDK / 共享契约接口，不碰核心。以下为已实现的 mod 接口实例。
+
+- **语音输入 ASR**：Android 系统 SpeechRecognizer / Sherpa-Onnx
+- **语音合成 TTS**：Edge TTS / CosyVoice / Sherpa-Onnx 降级链
+- **视觉识别**：GLM-4.6V 多模态截图分析（模型能看到屏幕内容）——已迁出为插件模块 **live2dai-plugin-vision**（mod 接口实例）
+
+### 🚀 Roadmap（计划中，未入当前版本）
 
 - [ ] Android 悬浮窗模式（后台 Service + 悬浮窗权限）
 - [ ] 多模型切换 UI
@@ -110,7 +99,7 @@ Neuro‑sama 证明了**技术栈可以普通，但核心融合得好 = 符合�
 |-----------|---------------|
 | `[screenshot]` | `[screenshot]` |
 
-| 猫娘小喵 | 对话界面 |
+| 凛 (Lin) | 对话界面 |
 |---------|---------|
 | `[screenshot]` | `[screenshot]` |
 
@@ -353,21 +342,37 @@ cd Live2Dai-Android && ./gradlew test
 
 ---
 
-## 🧠 项目状态 | Project Status
+## 🧭 项目状态 | Project Status
 
-**当前阶段：V1 确立 ✅ — 文本 → LLM → Live2D 回应链路双端验收通过**
+### 版本曲线（当前口径）
+
+> 废弃此前所有 V1/V2/MVP/Wave 版本概念，重新确立 v0/v1 两级版本模型。
+
+- **v0（当前）**：仅作者自己测试，不对外发布。v0.1/v0.2 小版本迭代，唯一裁决者 = 项目作者；允许硬编码 API Key；所有改动只提交本地 git，不上交云端（不 push）。
+- **v1（里程碑）**：只有作者说了算，五项标准全部满足才算 v1：
+  1. 跑通 AI+Live2D 完整闭环（文本/语音 → LLM → 表情/口型/动作）
+  2. 扩展接入做好（插件 SDK / 契约接口 → 社区可做 mod）
+  3. 内置设置（应用内可配置）
+  4. 应用内配置改动（不靠改代码/硬编码）
+  5. 支持 Live2D 文件导入 + JSON 配置导入
+
+  **v1 确立后才上交云端（push）。**
+
+### 历史里程碑（v0 阶段记录）
+
+> 以下为旧 V1/MVP/Wave 概念下的历史数据，**仅作 v0 阶段历史里程碑记录保留，不代表当前 v1 达成**。
 
 | 阶段 | 时间 | 状态 |
 | ------ | ------ | ------ |
 | 初版 (Gateway + Bridge 架构) | 2026-06 | ❌ 已废弃 |
 | Wave 0 (独立直连 + Cubism SDK) | 2026-07 | ✅ 基础可用 |
 | Wave 1 (Purism Core 迁移) | 2026-07 | ✅ MVP 验收通过 |
-| **V1 (文本→LLM→Live2D 链路)** | **2026-08-05** | **✅ 双端验收 PASS** |
+| 旧 V1 (文本→LLM→Live2D 链路) | 2026-08-05 | ✅ 双端验收 PASS（v0 阶段历史） |
 | Wave 2+ (悬浮窗/多模型/触摸) | _规划中_ | ⏳ |
 
-### V1 架构定义（2026-08-05 确立）
+#### 旧 V1 架构定义（2026-08-05，v0 阶段历史记录）
 
-> **V1 = 「文本输入 → LLM → Live2D 做出相关回应（表情/动作）」，可正常对话即达成。**
+> **旧 V1 = 「文本输入 → LLM → Live2D 做出相关回应（表情/动作）」，可正常对话即达成。（不代表当前 v1 达成）**
 
 - **核心链路**：文本输入 → LLM（零配置 GLM-4.7-Flash 免费兜底 / DeepSeek 升级路径）→ 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
 - **Android 端**：Kotlin + Compose + Purism Core（MIT），真机 vivo V2254A 验收通过——logcat 证据 `EmotionController: setEmotion: joy -> expressionIndex=5`
@@ -375,7 +380,7 @@ cd Live2Dai-Android && ./gradlew test
 - **验收顺带修复 2 个 P0**（commit `d2f1904`）：① 表情链路断线（插件化重构回归，EmotionController 未接线）② LazyColumn key 哈希碰撞崩溃
 - **架构不变式**：两端独立直连 LLM API、无中心化后端；`shared/persona.yaml` 人设单源真理；表情切换不依赖插件通道（核心 ChatHook 直驱）
 
-### MVP 验收数据 (2026-07-22)
+#### 旧 MVP 验收数据（2026-07-22，v0 阶段历史记录）
 
 | 检查项 | 结果 |
 | -------- | ------ |
@@ -395,7 +400,7 @@ cd Live2Dai-Android && ./gradlew test
 | [HANDOVER.md](./HANDOVER.md) | 🔥 项目交接文档（必读） |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 架构详细说明 |
 | [docs/SUMMARY.md](./docs/SUMMARY.md) | 项目总结 |
-| [shared/persona.yaml](./shared/persona.yaml) | 猫娘人设（单源真理） |
+| [shared/persona.yaml](./shared/persona.yaml) | 人设（单源真理） |
 | [docs/renderer-algorithm.md] | 渲染算法说明 |
 | [docs/mask-premake-algorithm.md] | 裁剪掩码算法 |
 
@@ -421,7 +426,7 @@ cd Live2Dai-Android && ./gradlew test
 
 ### 关于 Live2D 模型
 
-本项目包含的 `.model3.json` / `.moc3` / 纹理文件（如 `mao_pro`、`shizuku`）为 Live2D 模型文件，其使用受 Live2D 许可协议约束。建议替换为你自己的模型。
+本项目包含的 `.model3.json` / `.moc3` / 纹理文件（如 `niziiro_mao`）为 Live2D 官方示例模型（Niziiro Mao，Free Material License），其使用受 Live2D 许可协议约束。建议替换为你自己的模型。
 
 ---
 
@@ -437,9 +442,9 @@ cd Live2Dai-Android && ./gradlew test
 ---
 
 <p align="center">
-  Made with ❤️ and 🐱 (lots of cat ears)
+  Made with ❤️
   <br/>
   <sub>
-    "主人好喵~！今天也要一起开心地度过喵！(=^･ω･^=)"
+    "哼，才、才不是为了你呢！" —— 凛 (Lin)
   </sub>
 </p>
