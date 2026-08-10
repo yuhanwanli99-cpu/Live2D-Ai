@@ -8,7 +8,7 @@ Flow (plan §8.5):
      ``.venv\\Scripts\\python.exe run_server.py`` (the bat-equivalent launch;
      the bat itself is exercised separately).
   3. Poll http://127.0.0.1:12393/ until HTTP 200 + Content-Type text/html,
-     then check /live2d-models/.../mao_pro.model3.json → 200.
+     then check /live2d-models/.../niziiro_mao.model3.json → 200.
   4. WebSocket /client-ws handshake → "Connection established".
   5. Send a text-input message → wait for an LLM full-text reply (a real
      conversation round). TTS audio (edge-tts → pydub → bundled ffmpeg) is
@@ -303,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         # 2. live2d model served
-        status, detail = http_get(args.port, "/live2d-models/mao_pro/runtime/mao_pro.model3.json")
+        status, detail = http_get(args.port, "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json")
         results.append(("GET live2d model3.json -> 200", status == 200, detail))
 
         # 3. conf.yaml generated (from template)

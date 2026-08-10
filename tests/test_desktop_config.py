@@ -58,7 +58,9 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_edge_tts_configuration(self):
         tts_config = self.config["character_config"]["tts_config"]
-        self.assertEqual(tts_config["tts_model"], "edge_tts")
+        self.assertEqual(tts_config["tts_model"], "cosyvoice_cloud")
+        cosyvoice_config = tts_config["cosyvoice_cloud"]
+        self.assertEqual(cosyvoice_config["model"], "cosyvoice-v1")
         edge_tts_config = tts_config["edge_tts"]
         self.assertEqual(edge_tts_config["voice"], "zh-CN-XiaoxiaoNeural")
 
@@ -72,9 +74,8 @@ class TestDesktopConfig(unittest.TestCase):
         bma = ag["agent_settings"]["basic_memory_agent"]
         # 零配置默认走免费 GLM-4.7-Flash（与 Android 端一致）
         self.assertEqual(bma["llm_provider"], "zhipu_free_llm")
-        self.assertTrue(bma["use_mcpp"])
-        self.assertIn("time", bma["mcp_enabled_servers"])
-        self.assertIn("ddg-search", bma["mcp_enabled_servers"])
+        self.assertFalse(bma["use_mcpp"])
+        self.assertEqual(bma["mcp_enabled_servers"], [])
 
     def test_persona_prompt_content(self):
         persona = self.persona_config["system_prompt"]

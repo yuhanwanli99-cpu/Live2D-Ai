@@ -52,7 +52,7 @@ class TestValidateRegistryRobustness(unittest.TestCase):
         registry = {
             "version": "1.0",
             "models": [
-                {"id": "mao_pro", "name": "Mao Pro", "available": True, "default": True}
+                {"id": "niziiro_mao", "name": "Niziiro Mao", "available": True, "default": True}
             ],
         }
         code, out = run_validator(registry)

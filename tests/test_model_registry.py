@@ -1,11 +1,10 @@
-"""PC 端 model_registry.py 单元测试 + Live2dModel registry 兜底测试（task-pc）。
+"""PC 端 model_registry.py 单元测试 + Live2dModel registry 兜底测试（task-pc，契约 v3-rename 更名后同步 T0.1）。
 
-覆盖 plan-pc.md §10.1 的 13 个用例（ModelRegistry 全部公开方法 + 边界），
-并补充：
-- ModelRegistry 与真实 shared/model_registry.json 的集成断言
-- Live2dModel 的 registry 兜底链路（plan §4.4 / schema fallbackChain）：
-  model_dict.json 命中 → 完整 model_info；未命中/缺失 → registry 最小 model_info；
-  两处都无 → KeyError/FileNotFoundError。
+依据 .pi/spoq/contract-v3-rename.md §1.2 / §1.4 / §1.6 / §5（R1-R8）：
+- 模型 id `mao_pro` → `niziiro_mao`（显示名 Niziiro Mao）；
+- shared/model_registry.json 仅 1 条（shizuku/hiyori/haru 删除），available+default；
+- PC model_dict.json live2d 条目 `mao_pro`→`niziiro_mao`，url→`/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json`，
+  shizuku 条目删除（R5 三处零残留）。
 """
 import json
 import os
@@ -22,58 +21,36 @@ if _PC_SRC not in sys.path:
 from open_llm_vtuber.live2d_model import Live2dModel  # noqa: E402
 from open_llm_vtuber.model_registry import ModelRegistry  # noqa: E402
 
-# ---- 样例数据（镜像 shared/model_registry.json 的 4 条结构） ----
+# ---- 样例数据（镜像契约后 registry 结构：niziiro_mao 主 + pc_only 用于平台过滤） ----
 
 _SAMPLE_MODELS = [
     {
-        "id": "mao_pro",
-        "name": "Mao Pro",
-        "description": "猫娘 Mao 的 Live2D PRO 版模型",
-        "model3JsonPath": "mao_pro/runtime/mao_pro.model3.json",
+        "id": "niziiro_mao",
+        "name": "Niziiro Mao",
+        "description": "Niziiro Mao - Live2D Free Material sample, default",
+        "model3JsonPath": "niziiro_mao/runtime/niziiro_mao.model3.json",
         "thumbnailPath": None,
         "available": True,
         "default": True,
         "restrictPlatform": None,
-        "metadata": {"creator": "Live2D Inc."},
+        "metadata": {"creator": "Live2D Inc.", "license": "Free Material License"},
     },
     {
-        "id": "shizuku",
-        "name": "Shizuku",
-        "description": "Live2D 官方示例角色「しずく」PRO 版",
-        "model3JsonPath": "shizuku/runtime/shizuku.model3.json",
+        "id": "pc_only",
+        "name": "PC Only",
+        "description": "pc-only test model",
+        "model3JsonPath": "pc_only/runtime/pc_only.model3.json",
         "thumbnailPath": None,
         "available": True,
         "default": False,
-        "restrictPlatform": None,
-        "metadata": {"creator": "Live2D Inc."},
-    },
-    {
-        "id": "hiyori",
-        "name": "Hiyori",
-        "description": "预留模型",
-        "model3JsonPath": "hiyori/runtime/hiyori.model3.json",
-        "thumbnailPath": None,
-        "available": False,
-        "default": False,
-        "restrictPlatform": None,
-        "metadata": None,
-    },
-    {
-        "id": "haru",
-        "name": "Haru",
-        "description": "预留模型",
-        "model3JsonPath": "haru/runtime/haru.model3.json",
-        "thumbnailPath": None,
-        "available": False,
-        "default": False,
-        "restrictPlatform": None,
+        "restrictPlatform": "pc",
         "metadata": None,
     },
 ]
 
-_MAO_DICT_ENTRY = {
-    "name": "mao_pro",
-    "url": "/live2d-models/mao_pro/runtime/mao_pro.model3.json",
+_NIZIIRO_DICT_ENTRY = {
+    "name": "niziiro_mao",
+    "url": "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json",
     "kScale": 0.5,
     "initialXshift": 0,
     "initialYshift": 0,
@@ -102,24 +79,31 @@ def _write_model_dict(tmp_path, entries):
 # ---- ModelRegistry：加载与查询 ----
 
 def test_load_valid_registry(tmp_path):
-    """从临时 JSON 文件加载，get_all() 返回 4 条。"""
+    """从临时 JSON 文件加载，get_all() 返回全部条目。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
-    assert len(registry.get_all()) == 4
+    assert len(registry.get_all()) == 2
 
 
 def test_get_by_id_exists(tmp_path):
-    """get_by_id('mao_pro') 返回正确条目。"""
+    """get_by_id('niziiro_mao') 返回正确条目。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
-    entry = registry.get_by_id("mao_pro")
+    entry = registry.get_by_id("niziiro_mao")
     assert entry is not None
-    assert entry.id == "mao_pro"
-    assert entry.name == "Mao Pro"
+    assert entry.id == "niziiro_mao"
+    assert entry.name == "Niziiro Mao"
     assert entry.available is True
     assert entry.default is True
-    assert entry.model3_json_path == "mao_pro/runtime/mao_pro.model3.json"
+    assert entry.model3_json_path == "niziiro_mao/runtime/niziiro_mao.model3.json"
     assert entry.thumbnail_path is None
     assert entry.restrict_platform is None
-    assert entry.metadata == {"creator": "Live2D Inc."}
+    assert entry.metadata == {"creator": "Live2D Inc.", "license": "Free Material License"}
+
+
+def test_get_by_id_removed_ids_not_exists(tmp_path):
+    """已删除/改名的 id（mao_pro/shisuku/hiyori/haru）不得再被查到（R5）。"""
+    registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
+    for removed in ("mao_pro", "shizuku", "hiyori", "haru"):
+        assert registry.get_by_id(removed) is None, f"{removed} 不应存在"
 
 
 def test_get_by_id_not_exists(tmp_path):
@@ -128,27 +112,28 @@ def test_get_by_id_not_exists(tmp_path):
     assert registry.get_by_id("nonexistent") is None
 
 
-def test_get_all_count(tmp_path):
-    """get_all() 返回 4 条（含 unavailable），按注册表顺序。"""
+def test_get_all_ids_no_legacy(tmp_path):
+    """get_all() id 列表不得残留 mao_pro/shisuku/hiyori/haru（R5 零残留）。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
-    entries = registry.get_all()
-    assert len(entries) == 4
-    assert [e.id for e in entries] == ["mao_pro", "shizuku", "hiyori", "haru"]
+    ids = [e.id for e in registry.get_all()]
+    assert ids == ["niziiro_mao", "pc_only"]
+    assert not any(x in ids for x in ("mao_pro", "shizuku", "hiyori", "haru"))
 
 
 def test_get_available_filter(tmp_path):
-    """get_available() 返回 2 条（mao_pro, shizuku）。"""
+    """get_available() 按 available=true 过滤（不按 restrictPlatform）→ 返回 2 条。
+    """
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
     available = registry.get_available()
-    assert [e.id for e in available] == ["mao_pro", "shizuku"]
+    assert [e.id for e in available] == ["niziiro_mao", "pc_only"]
     assert all(e.available for e in available)
 
 
 def test_get_default_has_default(tmp_path):
-    """get_default() 返回 mao_pro（default: true）。"""
+    """get_default() 返回 niziiro_mao（default: true）。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
     default = registry.get_default()
-    assert default.id == "mao_pro"
+    assert default.id == "niziiro_mao"
     assert default.default is True
 
 
@@ -156,7 +141,7 @@ def test_get_default_no_default(tmp_path):
     """无 default:true 时，返回第一个 available。"""
     models = [dict(m, default=False) for m in _SAMPLE_MODELS]
     registry = ModelRegistry(_write_registry(tmp_path, models))
-    assert registry.get_default().id == "mao_pro"
+    assert registry.get_default().id == "niziiro_mao"
 
 
 def test_get_default_none_available(tmp_path):
@@ -168,12 +153,19 @@ def test_get_default_none_available(tmp_path):
 
 
 def test_get_model3_json_path(tmp_path):
-    """get_model3_json_path('shizuku') 返回正确路径。"""
+    """get_model3_json_path('niziiro_mao') 返回正确路径。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
     assert (
-        registry.get_model3_json_path("shizuku")
-        == "shizuku/runtime/shizuku.model3.json"
+        registry.get_model3_json_path("niziiro_mao")
+        == "niziiro_mao/runtime/niziiro_mao.model3.json"
     )
+
+
+def test_get_model3_json_path_removed_ids_none(tmp_path):
+    """get_model3_json_path('mao_pro'/'shizuku') 返回 None（R5）。"""
+    registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
+    assert registry.get_model3_json_path("mao_pro") is None
+    assert registry.get_model3_json_path("shizuku") is None
 
 
 def test_get_model3_json_path_not_exists(tmp_path):
@@ -215,53 +207,87 @@ def test_load_missing_required_field(tmp_path):
     }
     registry = ModelRegistry(_write_registry(tmp_path, [*_SAMPLE_MODELS, broken]))
     assert registry.get_by_id("broken") is None
-    assert len(registry.get_all()) == 4
+    assert len(registry.get_all()) == 2
 
 
 def test_real_shared_registry_integration():
-    """与真实 shared/model_registry.json 集成：4 条、mao_pro 默认、shizuku 可用。"""
+    """与真实 shared/model_registry.json 集成：2 条（bai 默认 + niziiro_mao 可切换）；无旧 id 残留。"""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     registry_path = os.path.join(repo_root, "shared", "model_registry.json")
     registry = ModelRegistry(registry_path)
-    assert len(registry.get_all()) == 4
-    assert registry.get_by_id("mao_pro").default is True
-    assert registry.get_by_id("mao_pro").available is True
-    assert registry.get_by_id("shizuku").available is True
-    assert {e.id for e in registry.get_available()} == {"mao_pro", "shizuku"}
+    assert len(registry.get_all()) == 2
+    bai = registry.get_by_id("bai")
+    assert bai.default is True
+    assert bai.available is True
+    assert bai.name == "白-免费版 (Bai Free)"
+    assert bai.model3_json_path == "bai/runtime/bai.model3.json"
+    assert bai.metadata.get("license"), "bai license 应非空"
+    niz = registry.get_by_id("niziiro_mao")
+    assert niz.default is False
+    assert niz.available is True
+    assert niz.name == "Niziiro Mao"
+    assert niz.model3_json_path == "niziiro_mao/runtime/niziiro_mao.model3.json"
+    # license 非空且 = Free Material License
+    license_val = niz.metadata.get("license")
+    assert license_val, "license 应非空"
+    assert license_val == "Free Material License"
+    # description 无 U+FFFD 乱码
+    desc = (bai.description or "") + (niz.description or "")
+    assert "\ufffd" not in desc
+    assert {e.id for e in registry.get_available()} == {"bai", "niziiro_mao"}
+    # 旧 id 零残留
+    for removed in ("mao_pro", "shizuku", "hiyori", "haru"):
+        assert registry.get_by_id(removed) is None, f"shared registry 不应残留 {removed}"
+
+
+def test_real_pc_model_dict_no_legacy_live2d():
+    """PC 仓库 model_dict.json 的 live2d 条目：niziiro_mao 存在，mao_pro/shisuku 零残留（R5/§1.2）。"""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    model_dict_path = os.path.join(
+        repo_root, "Live2Dai-pc", "open-llm-vtuber", "model_dict.json"
+    )
+    with open(model_dict_path, encoding="utf-8") as fh:
+        entries = json.load(fh)
+    names = [e.get("name") for e in entries]
+    assert "niziiro_mao" in names, "model_dict.json 应含 niziiro_mao 的 live2d 条目"
+    for legacy in ("mao_pro", "shizuku"):
+        assert legacy not in names, f"model_dict.json 不应残留 {legacy}"
+    mao = next(e for e in entries if e.get("name") == "niziiro_mao")
+    assert mao["url"] == (
+        "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json"
+    )
+    # emotionMap / tapMotions 值保留
+    assert "emotionMap" in mao
+    assert "tapMotions" in mao
 
 
 # ---- P2-1：已注册但不可用的 id 不能绕过默认回退（plan-e2e §7，task-e2e 修复） ----
 
 def test_resolve_model_name_registered_available_returns_as_is(tmp_path):
-    """请求名已登记且 available=true → 原样返回（mao_pro / shizuku）。"""
+    """请求名已登记且 available=true → 原样返回（niziiro_mao）。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
-    assert registry.resolve_model_name("mao_pro") == "mao_pro"
-    assert registry.resolve_model_name("shizuku") == "shizuku"
+    assert registry.resolve_model_name("niziiro_mao") == "niziiro_mao"
 
 
-def test_resolve_model_name_unavailable_registered_falls_back(tmp_path):
-    """P2-1：conf 指向已登记但 unavailable 的 id（hiyori）→ 回退默认 mao_pro。"""
+def test_resolve_model_name_removed_falls_back(tmp_path):
+    """已删除 id（mao_pro/shisuku/hiyori/haru）→ 回退默认 niziiro_mao（R5）。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
-    assert registry.resolve_model_name("hiyori") == "mao_pro"
-    assert registry.resolve_model_name("haru") == "mao_pro"
+    for removed in ("mao_pro", "shizuku", "hiyori", "haru"):
+        assert registry.resolve_model_name(removed) == "niziiro_mao"
 
 
 def test_resolve_model_name_unknown_falls_back(tmp_path):
-    """未登记 id → 回退默认 mao_pro（原有行为保持）。"""
+    """未登记 id → 回退默认 niziiro_mao（原有行为保持）。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
-    assert registry.resolve_model_name("nonexistent") == "mao_pro"
+    assert registry.resolve_model_name("nonexistent") == "niziiro_mao"
 
 
 def test_resolve_model_name_all_unavailable_raises_runtime_error(tmp_path):
-    """P2-1 边界：全部 unavailable + conf 指向已注册不可用 id → RuntimeError（服务器拒绝启动）。
-
-    对应 test-pc 报告 P2-1 复现输入（修复前服务器照常启动，修复后按 plan §8
-    「全部 available:false → RuntimeError（服务器启动失败）」上抛）。
-    """
+    """P2-1 边界：全部 unavailable + conf 指向已注册不可用 id → RuntimeError（服务器拒绝启动）。"""
     models = [dict(m, available=False) for m in _SAMPLE_MODELS]
     registry = ModelRegistry(_write_registry(tmp_path, models))
     with pytest.raises(RuntimeError):
-        registry.resolve_model_name("mao_pro")
+        registry.resolve_model_name("niziiro_mao")
 
 
 # ---- Live2dModel：registry 兜底链路（schema fallbackChain） ----
@@ -270,26 +296,35 @@ def test_live2d_model_dict_hit_uses_full_info(tmp_path):
     """model_dict.json 命中 → 使用完整 model_info（emotionMap 保留）。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
     model = Live2dModel(
-        "mao_pro",
-        model_dict_path=_write_model_dict(tmp_path, [_MAO_DICT_ENTRY]),
+        "niziiro_mao",
+        model_dict_path=_write_model_dict(tmp_path, [_NIZIIRO_DICT_ENTRY]),
         registry=registry,
     )
-    assert model.model_info["name"] == "mao_pro"
-    assert model.model_info["url"] == "/live2d-models/mao_pro/runtime/mao_pro.model3.json"
+    assert model.model_info["name"] == "niziiro_mao"
+    assert (
+        model.model_info["url"]
+        == "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json"
+    )
     assert model.model_info["emotionMap"] == {"neutral": 0, "joy": 3, "anger": 2}
     assert model.emo_map == {"neutral": 0, "joy": 3, "anger": 2}
 
 
 def test_live2d_model_registry_fallback_minimal(tmp_path):
-    """model_dict.json 未命中 + registry 命中 → 最小 model_info（name+url+空 emotionMap）。"""
+    """model_dict.json 未命中 + registry 命中 → 最小 model_info（name+url+空 emotionMap）。
+
+    覆盖 registry 兜底到 niziiro_mao（没有残留的 shizuku）。
+    """
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
     model = Live2dModel(
-        "shizuku",
-        model_dict_path=_write_model_dict(tmp_path, [_MAO_DICT_ENTRY]),
+        "niziiro_mao",
+        model_dict_path=_write_model_dict(tmp_path, []),
         registry=registry,
     )
-    assert model.model_info["name"] == "shizuku"
-    assert model.model_info["url"] == "/live2d-models/shizuku/runtime/shizuku.model3.json"
+    assert model.model_info["name"] == "niziiro_mao"
+    assert (
+        model.model_info["url"]
+        == "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json"
+    )
     assert model.model_info["emotionMap"] == {}
     assert model.emo_map == {}
     assert model.emo_str == ""
@@ -299,7 +334,7 @@ def test_live2d_model_no_registry_raises_keyerror(tmp_path):
     """无 registry 且 model_dict.json 未命中 → KeyError。"""
     with pytest.raises(KeyError):
         Live2dModel(
-            "shizuku", model_dict_path=_write_model_dict(tmp_path, [_MAO_DICT_ENTRY])
+            "niziiro_mao", model_dict_path=_write_model_dict(tmp_path, [])
         )
 
 
@@ -307,14 +342,17 @@ def test_live2d_model_missing_dict_falls_back_to_registry(tmp_path):
     """model_dict.json 缺失 + registry 命中 → 从 registry 构造最小 model_info。"""
     registry = ModelRegistry(_write_registry(tmp_path, _SAMPLE_MODELS))
     model = Live2dModel(
-        "shizuku",
+        "niziiro_mao",
         model_dict_path=str(tmp_path / "no_model_dict.json"),
         registry=registry,
     )
-    assert model.model_info["url"] == "/live2d-models/shizuku/runtime/shizuku.model3.json"
+    assert (
+        model.model_info["url"]
+        == "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json"
+    )
 
 
 def test_live2d_model_missing_dict_no_registry_raises(tmp_path):
     """model_dict.json 缺失且无 registry → FileNotFoundError。"""
     with pytest.raises(FileNotFoundError):
-        Live2dModel("mao_pro", model_dict_path=str(tmp_path / "no_model_dict.json"))
+        Live2dModel("niziiro_mao", model_dict_path=str(tmp_path / "no_model_dict.json"))
