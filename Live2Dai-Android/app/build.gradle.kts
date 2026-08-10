@@ -155,7 +155,42 @@ val copyModelRegistry = tasks.register<Copy>("copyModelRegistry") {
     into(file("src/main/assets"))
 }
 
-// 挂到 preBuild / variant / unitTest 前置任务：
+// ═══════════════════════════════════════════════════════════════════
+//  Pre-build: 复制 shared/model-adapter/niziiro_mao.adapter.json + bai.adapter.json → app assets
+//  适配配置（contract-v3-adapter §1.1/§1.4，T1.2）是双端唯一运行时适配真相源，构建时同步到
+//  src/main/assets/*.adapter.json，运行时由 ModelAdapterConfig 从 assets 读取。
+//  注意：Gradle 根项目是 Live2Dai-Android/，shared/ 在其父目录（仓库根）下。
+// ═══════════════════════════════════════════════════════════════════
+val adapterSourceDir = rootProject.projectDir.parentFile.resolve("shared/model-adapter")
+val adapterTargetDir = file("src/main/assets")
+val adapterTargetFile = file("src/main/assets/niziiro_mao.adapter.json")
+val baiAdapterTargetFile = file("src/main/assets/bai.adapter.json")
+
+val copyModelAdapter = tasks.register<Copy>("copyModelAdapter") {
+    group = "live2dai"
+    description = "将 shared/model-adapter/niziiro_mao.adapter.json + bai.adapter.json 复制到 app/src/main/assets/（Live2D 模型适配配置）"
+    from(adapterSourceDir)
+    include("niziiro_mao.adapter.json", "bai.adapter.json")
+    into(adapterTargetDir)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Pre-build: 复制 shared/persona.yaml → app assets
+//  persona（shared/persona.yaml，contract-v3-features §2，T4.2）是双端 persona 单源真相，
+//  构建时同步到 src/main/assets/persona.yaml，运行时由 assets 读取（C23 从"校验"升级为"构建强制同步"）。
+//  注意：Gradle 根项目是 Live2Dai-Android/，shared/ 在其父目录（仓库根）下。
+// ═══════════════════════════════════════════════════════════════════
+val personaSourceFile = rootProject.projectDir.parentFile.resolve("shared/persona.yaml")
+val personaTargetFile = file("src/main/assets/persona.yaml")
+
+val copyPersona = tasks.register<Copy>("copyPersona") {
+    group = "live2dai"
+    description = "将 shared/persona.yaml 复制到 app/src/main/assets/（双端 persona 单源同步）"
+    from(personaSourceFile)
+    into(file("src/main/assets"))
+}
+
+// 挂到 preBuild / variant / unitTest 前置任务（contract-v3-adapter §1.4 锁死）：
 // - preBuild：命令行 assemble 的必经节点
 // - preDebugBuild / preReleaseBuild：IDE 增量编译可能跳过 preBuild，直接执行变体任务
 // - preDebugUnitTestBuild / preReleaseUnitTestBuild：单测（Robolectric 读 assets）需要文件就绪
@@ -169,13 +204,17 @@ listOf(
 ).forEach { taskName ->
     tasks.matching { it.name == taskName }.configureEach {
         dependsOn(copyModelRegistry)
+        dependsOn(copyModelAdapter)
+        dependsOn(copyPersona)   // contract-v3-features §2（T4.2）：persona 单源同步
     }
 }
 
-// clean 时一并删除生成的注册表（assets 位于 src/ 下，Gradle clean 不会自动清理）
+// clean 时一并删除生成的注册表与适配配置（assets 位于 src/ 下，Gradle clean 不会自动清理）
 tasks.named("clean") {
     doLast {
         delete(registryTargetFile)
+        delete(adapterTargetFile)
+        delete(baiAdapterTargetFile)
     }
 }
 

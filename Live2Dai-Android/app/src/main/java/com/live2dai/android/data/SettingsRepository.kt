@@ -232,8 +232,8 @@ class SettingsRepository(context: Context) {
 
         const val DEFAULT_PERSONA = "凛 (Lin)"
 
-        /** Live2D 默认形象 ID（与 shared/model_registry.json 的 default 条目一致） */
-        const val DEFAULT_MODEL_ID = "niziiro_mao"
+        /** Live2D 默认形象 ID（与 shared/model_registry.json 的 default 条目一致，registry 默认条目 = bai） */
+        const val DEFAULT_MODEL_ID = "bai"
 
         /** 可用模型列表（供用户在设置页手动选择聊天模型） */
         val AVAILABLE_MODELS = listOf(

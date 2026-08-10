@@ -38,7 +38,17 @@ data class EmotionResult(
     val motionLabel: String?                       // 别名表别名 或 null
 )
 
-class EmotionController(private val live2DView: Live2DView) {
+class EmotionController(
+    private val live2DView: Live2DView,
+    /**
+     * A3 参数帧数据注入点（contract-bai-params-v0 L31：map 注入**或**内部持有 emotionParamMap）。
+     *
+     * 非 null → 优先于 ModelAdapterConfig.currentAdapter() 读取（测试 JVM 环境 currentAdapter() 为
+     * null 时的注入通道）；null → 回退 adapter.emotionParamMap → 硬编码 bai 默认帧兜底
+     * （[DEFAULT_BAI_EMOTION_PARAM_MAP]）。默认 null 保持既有单参构造（ChatViewModel 等）兼容。
+     */
+    private val emotionParamMapOverride: Map<String, Map<String, Map<String, Float>>>? = null,
+) {
 
     init {
         // 初始化取证日志：MainActivity 在 Live2DView 创建后实例化本控制器并接线，
@@ -61,6 +71,57 @@ class EmotionController(private val live2DView: Live2DView) {
             "joy"      to 5,
             "smirk"    to 6,
             "surprise" to 7
+        )
+
+        /**
+         * A3 参数帧硬编码兜底（contract-bai-params-v0 §2 数据锚点，镜像 assets/bai.adapter.json
+         * emotionParamMap，144 值：8 emotion × 3 强度档 × 6 键，值域 [-1.0, 2.0] 实测 min=-0.75 max=1.5）。
+         *
+         * 对齐 [FALLBACK_EMOTION_MAP] 兜底模式：adapter 未加载（测试 JVM）/解析失败场景不丢参数路径；
+         * 运行时可加载的 adapter（bai 单源）优先于本兜底（见 [EmotionController.emotionParamMap]）。
+         * niziiro_mao 无 emotionParamMap 且走 EXPRESSION_INDEX 路径，兜底帧不生效（AP-28 零回归）。
+         */
+        private val DEFAULT_BAI_EMOTION_PARAM_MAP: Map<String, Map<String, Map<String, Float>>> = mapOf(
+            "neutral" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to 0.0f, "ParamBrowRY" to 0.0f, "ParamEyeLOpen" to 0.75f, "ParamEyeROpen" to 0.75f, "ParamMouthForm" to 0.5f, "ParamMouthOpenY" to 0.0f),
+                "_2" to mapOf("ParamBrowLY" to 0.0f, "ParamBrowRY" to 0.0f, "ParamEyeLOpen" to 0.75f, "ParamEyeROpen" to 0.75f, "ParamMouthForm" to 0.55f, "ParamMouthOpenY" to 0.0f),
+                "_3" to mapOf("ParamBrowLY" to 0.0f, "ParamBrowRY" to 0.0f, "ParamEyeLOpen" to 0.8f, "ParamEyeROpen" to 0.8f, "ParamMouthForm" to 0.6f, "ParamMouthOpenY" to 0.0f),
+            ),
+            "fear" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to 0.2f, "ParamBrowRY" to 0.2f, "ParamEyeLOpen" to 0.85f, "ParamEyeROpen" to 0.85f, "ParamMouthForm" to 0.3f, "ParamMouthOpenY" to 0.2f),
+                "_2" to mapOf("ParamBrowLY" to 0.35f, "ParamBrowRY" to 0.35f, "ParamEyeLOpen" to 1.0f, "ParamEyeROpen" to 1.0f, "ParamMouthForm" to 0.2f, "ParamMouthOpenY" to 0.4f),
+                "_3" to mapOf("ParamBrowLY" to 0.55f, "ParamBrowRY" to 0.55f, "ParamEyeLOpen" to 1.3f, "ParamEyeROpen" to 1.3f, "ParamMouthForm" to 0.15f, "ParamMouthOpenY" to 0.65f),
+            ),
+            "sadness" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to 0.15f, "ParamBrowRY" to 0.15f, "ParamEyeLOpen" to 0.55f, "ParamEyeROpen" to 0.55f, "ParamMouthForm" to -0.2f, "ParamMouthOpenY" to 0.1f),
+                "_2" to mapOf("ParamBrowLY" to 0.25f, "ParamBrowRY" to 0.25f, "ParamEyeLOpen" to 0.5f, "ParamEyeROpen" to 0.5f, "ParamMouthForm" to -0.4f, "ParamMouthOpenY" to 0.15f),
+                "_3" to mapOf("ParamBrowLY" to 0.35f, "ParamBrowRY" to 0.35f, "ParamEyeLOpen" to 0.45f, "ParamEyeROpen" to 0.45f, "ParamMouthForm" to -0.55f, "ParamMouthOpenY" to 0.25f),
+            ),
+            "anger" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to -0.2f, "ParamBrowRY" to -0.2f, "ParamEyeLOpen" to 0.65f, "ParamEyeROpen" to 0.65f, "ParamMouthForm" to -0.3f, "ParamMouthOpenY" to 0.05f),
+                "_2" to mapOf("ParamBrowLY" to -0.35f, "ParamBrowRY" to -0.35f, "ParamEyeLOpen" to 0.6f, "ParamEyeROpen" to 0.6f, "ParamMouthForm" to -0.55f, "ParamMouthOpenY" to 0.1f),
+                "_3" to mapOf("ParamBrowLY" to -0.5f, "ParamBrowRY" to -0.5f, "ParamEyeLOpen" to 0.55f, "ParamEyeROpen" to 0.55f, "ParamMouthForm" to -0.75f, "ParamMouthOpenY" to 0.2f),
+            ),
+            "disgust" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to -0.15f, "ParamBrowRY" to -0.15f, "ParamEyeLOpen" to 0.6f, "ParamEyeROpen" to 0.6f, "ParamMouthForm" to -0.3f, "ParamMouthOpenY" to 0.05f),
+                "_2" to mapOf("ParamBrowLY" to -0.25f, "ParamBrowRY" to -0.25f, "ParamEyeLOpen" to 0.55f, "ParamEyeROpen" to 0.55f, "ParamMouthForm" to -0.5f, "ParamMouthOpenY" to 0.1f),
+                "_3" to mapOf("ParamBrowLY" to -0.35f, "ParamBrowRY" to -0.35f, "ParamEyeLOpen" to 0.5f, "ParamEyeROpen" to 0.5f, "ParamMouthForm" to -0.65f, "ParamMouthOpenY" to 0.15f),
+            ),
+            "joy" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to 0.15f, "ParamBrowRY" to 0.15f, "ParamEyeLOpen" to 0.8f, "ParamEyeROpen" to 0.8f, "ParamMouthForm" to 0.7f, "ParamMouthOpenY" to 0.1f),
+                "_2" to mapOf("ParamBrowLY" to 0.25f, "ParamBrowRY" to 0.25f, "ParamEyeLOpen" to 0.85f, "ParamEyeROpen" to 0.85f, "ParamMouthForm" to 0.85f, "ParamMouthOpenY" to 0.2f),
+                "_3" to mapOf("ParamBrowLY" to 0.35f, "ParamBrowRY" to 0.35f, "ParamEyeLOpen" to 0.9f, "ParamEyeROpen" to 0.9f, "ParamMouthForm" to 0.95f, "ParamMouthOpenY" to 0.35f),
+            ),
+            "smirk" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to 0.1f, "ParamBrowRY" to 0.1f, "ParamEyeLOpen" to 0.7f, "ParamEyeROpen" to 0.7f, "ParamMouthForm" to -0.3f, "ParamMouthOpenY" to 0.0f),
+                "_2" to mapOf("ParamBrowLY" to 0.2f, "ParamBrowRY" to 0.2f, "ParamEyeLOpen" to 0.65f, "ParamEyeROpen" to 0.65f, "ParamMouthForm" to -0.5f, "ParamMouthOpenY" to 0.0f),
+                "_3" to mapOf("ParamBrowLY" to 0.3f, "ParamBrowRY" to 0.3f, "ParamEyeLOpen" to 0.6f, "ParamEyeROpen" to 0.6f, "ParamMouthForm" to -0.7f, "ParamMouthOpenY" to 0.05f),
+            ),
+            "surprise" to mapOf(
+                "_1" to mapOf("ParamBrowLY" to 0.25f, "ParamBrowRY" to 0.25f, "ParamEyeLOpen" to 0.95f, "ParamEyeROpen" to 0.95f, "ParamMouthForm" to 0.5f, "ParamMouthOpenY" to 0.3f),
+                "_2" to mapOf("ParamBrowLY" to 0.4f, "ParamBrowRY" to 0.4f, "ParamEyeLOpen" to 1.2f, "ParamEyeROpen" to 1.2f, "ParamMouthForm" to 0.4f, "ParamMouthOpenY" to 0.5f),
+                "_3" to mapOf("ParamBrowLY" to 0.55f, "ParamBrowRY" to 0.55f, "ParamEyeLOpen" to 1.5f, "ParamEyeROpen" to 1.5f, "ParamMouthForm" to 0.3f, "ParamMouthOpenY" to 0.7f),
+            ),
         )
 
         private val EMOTION_MAP: Map<String, Int>
@@ -140,6 +201,167 @@ class EmotionController(private val live2DView: Live2DView) {
     private var currentExpressionIndex: Int = 0
     private var currentIntensity: Float = 1.0f
 
+    // ── A3 参数驱动表情路径（contract-bai-params-v0）──
+
+    /** 双路径分发模式：有 exp3 → 原索引路径（零行为变化）；无 exp3（bai）→ 参数帧路径 */
+    private enum class PathMode { EXPRESSION_INDEX, PARAM_FRAME }
+
+    /** 已记录的 pathMode（仅模式变化时打日志，A3S-01/06 判据源） */
+    private var loggedPathMode: PathMode? = null
+
+    /**
+     * 双路径分发判据（AP-03/04）：渲染层无 exp3（bai）→ PARAM_FRAME；
+     * 有 exp3（niziiro_mao）→ EXPRESSION_INDEX（现状行为）；
+     * hasExpressions 查询异常 → 保守回退 EXPRESSION_INDEX（不引入新异常面）。
+     */
+    private fun pathMode(): PathMode {
+        val mode = try {
+            if (live2DView.hasExpressions()) PathMode.EXPRESSION_INDEX else PathMode.PARAM_FRAME
+        } catch (e: Throwable) {
+            logWarn("pathMode: hasExpressions 查询异常，保守回退 EXPRESSION_INDEX")
+            PathMode.EXPRESSION_INDEX
+        }
+        if (loggedPathMode != mode) {
+            loggedPathMode = mode
+            logInfo("pathMode=$mode")
+        }
+        return mode
+    }
+
+    /**
+     * A3 参数帧数据源（契约 L31：map 注入**或**内部持有，注入优先）：
+     * 构造注入 emotionParamMapOverride > adapter.emotionParamMap（运行时可加载，bai 单源）>
+     * 硬编码 bai 默认帧兜底（[DEFAULT_BAI_EMOTION_PARAM_MAP]）。
+     * 兜底对齐 [FALLBACK_EMOTION_MAP] 模式：adapter 未加载（测试 JVM）/解析失败场景不丢参数路径；
+     * niziiro_mao 无 emotionParamMap 且走 EXPRESSION_INDEX 路径，兜底帧不生效（AP-28 零回归）。
+     */
+    private val emotionParamMap: Map<String, Map<String, Map<String, Float>>>
+        get() = emotionParamMapOverride
+            ?: ModelAdapterConfig.currentAdapter()?.emotionParamMap?.takeIf { it.isNotEmpty() }
+            ?: DEFAULT_BAI_EMOTION_PARAM_MAP
+
+    /** A3 fade：emotionSwitch（协议 H 段 300ms；adapter.fadeMs 单源，缺失 → 默认 300） */
+    private fun emotionSwitchFadeMs(): Int =
+        ModelAdapterConfig.currentAdapter()?.fadeMs?.emotionSwitch ?: 300
+
+    /** A3 fade：emotionToNeutral（协议 H 段 500ms；adapter.fadeMs 单源，缺失 → 默认 500） */
+    private fun emotionToNeutralFadeMs(): Int =
+        ModelAdapterConfig.currentAdapter()?.fadeMs?.emotionToNeutral ?: 500
+
+    /**
+     * A3 参数路径表情应用（AP-05/08/20/21/25/26，D2-A/D3/D4 定案）。
+     *
+     * - 非 neutral 表情 → 对应强度档帧（_1/_2/_3 离散选档，D3）+ fadeMs.emotionSwitch（300ms）+ 暂停自动眨眼
+     * - neutral（回 neutral）→ neutral._1 帧 + fadeMs.emotionToNeutral（500ms）+ 恢复自动眨眼
+     */
+    private fun applyParamFrameEmotion(emotion: String, intensity: Int, isNeutralTransition: Boolean) {
+        val frame = if (isNeutralTransition) {
+            emotionParamMap["neutral"]?.get("_1")
+        } else {
+            emotionParamMap[emotion]?.get("_${intensity}")
+        }
+        if (frame == null) {
+            logWarn("applyParamFrameEmotion: 参数路径无帧 emotion=$emotion 档位=$intensity，忽略")
+            return
+        }
+        val fadeMs = if (isNeutralTransition) emotionToNeutralFadeMs() else emotionSwitchFadeMs()
+        live2DView.setParametricExpression(frame, fadeMs)
+        // D2-A（contract AP-20/21）：非 neutral 表情激活期间暂停自动眨眼（false）；回 neutral 恢复（true）。
+        // 布尔赋值幂等（AP-24 允许重复赋值无副作用）。注意语义：enabled=true = 眨眼开启，故回 neutral → true。
+        live2DView.setAutoBlink(isNeutralTransition)
+        logInfo("applyParamFrameEmotion: emotion=$emotion 帧=${frame.size}键 fade=${fadeMs}ms autoBlink=$isNeutralTransition")
+    }
+
+    /**
+     * A3 D5 加权合成（contract-bai-params-v0 §0）：多表情 mix → 逐参数加权求和单帧。
+     * 每项取 emotionParamMap[emotion]["_3"] 满帧 × 归一化 weight；缺帧项跳过（部分生效，同索引路径）；
+     * 全部缺帧 → null（调用方表情层不动作）。
+     */
+    private fun synthesizeParamFrame(
+        mix: List<ExpressionWeight>,
+        paramMap: Map<String, Map<String, Map<String, Float>>>
+    ): Map<String, Float>? {
+        // Double 中间累积（Float 帧值 × Float weight 提升为 Double 求和，末次转回 Float）：
+        // 避免 float32 逐项舍入误差累积（中间结果更接近协议 D5 十进制算例，最终 float32 位型与
+        // float32 直接累积一致；个别 key 与十进制算例相差 ≤1 ULP，属二进制浮点固有舍入）。
+        val acc = mutableMapOf<String, Double>()
+        for (ew in mix) {
+            val frame = paramMap[ew.name]?.get("_3") ?: continue
+            for ((key, value) in frame) {
+                acc[key] = (acc[key] ?: 0.0) + value.toDouble() * ew.weight.toDouble()
+            }
+        }
+        if (acc.isEmpty()) return null
+        return acc.mapValues { it.value.toFloat() }
+    }
+
+    /**
+     * A3 D5-1 overrides 乘数域：final[p] = 合成帧[p] × multiplier[p] 逐 key；
+     * 仅对合成帧键生效，帧外 key 丢弃（记日志）。
+     */
+    private fun applyOverrideMultipliers(
+        frame: Map<String, Float>,
+        overrides: Map<String, Float>
+    ): Map<String, Float> {
+        if (overrides.isEmpty()) return frame
+        val result = frame.toMutableMap()
+        var dropped = 0
+        for ((key, multiplier) in overrides) {
+            val current = result[key]
+            if (current != null) {
+                result[key] = current * multiplier
+            } else {
+                dropped++
+                logWarn("applyStructured: overrides key '$key' 不在合成帧内，丢弃（D5-1）")
+            }
+        }
+        if (dropped > 0) {
+            logInfo("applyStructured: overrides 丢弃 $dropped 个帧外 key")
+        }
+        return result
+    }
+
+    /**
+     * A3 参数路径 applyStructured（AP-06，D5/D5-1 定案）：
+     * - 非空 mix → 加权合成单帧（_3 满帧 × 归一化 weight）→ overrides 乘数 → setParametricExpression(帧, 300)
+     * - 空 mix + overrides → neutral._1 基底 × overrides → setParametricExpression(帧, 300)
+     * - 空 mix 无 overrides → 表情层不动作（不清除状态）
+     * - autoBlink：mix 含任一非 neutral → 暂停眨眼；否则恢复
+     */
+    private fun applyStructuredParamFrame(result: EmotionResult) {
+        val mix = result.expressionMix
+        val overrides = result.parameterOverrides
+        val paramMap = emotionParamMap
+
+        if (mix.isEmpty()) {
+            if (overrides.isEmpty()) {
+                logInfo("applyStructured: 空 mix 无 overrides，参数路径表情层不动作")
+                return
+            }
+            val base = paramMap["neutral"]?.get("_1")
+            if (base == null) {
+                logWarn("applyStructured: 参数路径 neutral._1 帧缺失，表情层不动作")
+                return
+            }
+            val frame = applyOverrideMultipliers(base, overrides)
+            live2DView.setParametricExpression(frame, emotionSwitchFadeMs())
+            live2DView.setAutoBlink(true)
+            logInfo("applyStructured: 空 mix+overrides → neutral 基底帧（${frame.size} 键）autoBlink 恢复")
+            return
+        }
+
+        val synthesized = synthesizeParamFrame(mix, paramMap)
+        if (synthesized == null) {
+            logWarn("applyStructured: 参数路径合成帧为空（emotionParamMap 缺帧），表情层不动作")
+            return
+        }
+        val frame = if (overrides.isEmpty()) synthesized else applyOverrideMultipliers(synthesized, overrides)
+        live2DView.setParametricExpression(frame, emotionSwitchFadeMs())
+        val anyNonNeutral = mix.any { it.name != "neutral" }
+        live2DView.setAutoBlink(!anyNonNeutral)
+        logInfo("applyStructured: 合成帧 ${frame.size} 键（mix=${mix.size}）autoBlink=${!anyNonNeutral}")
+    }
+
     // ── M2 结构化表情（JSON）状态 ──
 
     /**
@@ -211,13 +433,18 @@ class EmotionController(private val live2DView: Live2DView) {
 
         // 如果找到有效表情，设置到 Live2D 模型
         if (lastValidEmotion != null) {
-            val expressionIndex = EMOTION_MAP[lastValidEmotion] ?: 0
-            val intensity = lastIntensity / 3.0f
-            if (expressionIndex != currentExpressionIndex || intensity != currentIntensity) {
-                currentExpressionIndex = expressionIndex
-                currentIntensity = intensity
-                live2DView.setExpression(expressionIndex, intensity)
-                logInfo("parseAndApply: 标签[$lastValidEmotion] index=$expressionIndex intensity=${lastIntensity}")
+            // A3 双路径分发（contract-bai-params-v0 §1）：无 exp3（bai）→ 参数帧路径；有 exp3 → 原索引路径（零行为变化）
+            if (pathMode() == PathMode.PARAM_FRAME) {
+                applyParamFrameEmotion(lastValidEmotion, lastIntensity, lastValidEmotion == "neutral")
+            } else {
+                val expressionIndex = EMOTION_MAP[lastValidEmotion] ?: 0
+                val intensity = lastIntensity / 3.0f
+                if (expressionIndex != currentExpressionIndex || intensity != currentIntensity) {
+                    currentExpressionIndex = expressionIndex
+                    currentIntensity = intensity
+                    live2DView.setExpression(expressionIndex, intensity)
+                    logInfo("parseAndApply: 标签[$lastValidEmotion] index=$expressionIndex intensity=${lastIntensity}")
+                }
             }
         }
 
@@ -233,6 +460,11 @@ class EmotionController(private val live2DView: Live2DView) {
         val keyword = emotionName.lowercase().trim()
         val index = EMOTION_MAP[keyword] ?: run {
             logWarn("setEmotion: 未知表情关键词 '$emotionName'，忽略")
+            return
+        }
+        // A3 双路径分发：无 exp3（bai）→ 参数帧路径（AP-08：满强度 → _3 帧）；有 exp3 → 原索引路径（零行为变化）
+        if (pathMode() == PathMode.PARAM_FRAME) {
+            applyParamFrameEmotion(keyword, 3, keyword == "neutral")
             return
         }
         if (index != currentExpressionIndex) {
@@ -376,6 +608,11 @@ class EmotionController(private val live2DView: Live2DView) {
         if (result.motionLabel != null) {
             motionTrigger?.invoke(result.motionLabel)
         }
+        // A3 双路径分发：无 exp3（bai）→ 参数帧路径（D5 加权合成）；有 exp3 → 原索引路径（零行为变化）
+        if (pathMode() == PathMode.PARAM_FRAME) {
+            applyStructuredParamFrame(result)
+            return
+        }
         live2DView.setExpressionMix(indices, result.parameterOverrides)
     }
 
@@ -405,10 +642,22 @@ class EmotionController(private val live2DView: Live2DView) {
      * 重置为中性表情
      */
     fun resetToNeutral() {
-        if (currentExpressionIndex != 0) {
-            currentExpressionIndex = 0
-            live2DView.setExpression(0)
-            logInfo("resetToNeutral: -> expressionIndex=0")
+        // A3 双路径分发：无 exp3（bai）→ 参数帧路径（AP-07/26）；有 exp3 → 原索引路径（零行为变化）
+        if (pathMode() == PathMode.PARAM_FRAME) {
+            // neutral._1 帧 + fadeMs.emotionToNeutral（500ms）+ autoBlink 恢复 true
+            val frame = emotionParamMap["neutral"]?.get("_1")
+            live2DView.setAutoBlink(true)
+            if (frame != null) {
+                live2DView.setParametricExpression(frame, emotionToNeutralFadeMs())
+                logInfo("resetToNeutral: 参数路径 neutral._1 fade=${emotionToNeutralFadeMs()}ms autoBlink 恢复")
+            } else {
+                logWarn("resetToNeutral: 参数路径 neutral._1 帧缺失，仅恢复 autoBlink")
+            }
+            return
         }
+        // AP-28：resetToNeutral → setExpression(0)（无条件；重复调用幂等，同现状视觉效果）
+        currentExpressionIndex = 0
+        live2DView.setExpression(0)
+        logInfo("resetToNeutral: -> expressionIndex=0")
     }
 }

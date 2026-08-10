@@ -12,6 +12,20 @@ import kotlinx.serialization.json.Json
  * 字段定义与 `plan-registry.schema.json` 的 ModelEntry 完全一致。
  */
 @Serializable
+data class ModelMetadata(
+    val creator: String? = null,
+    val license: String? = null,
+    val version: String? = null,
+    val status: String? = null
+)
+
+/**
+ * Live2D 模型注册表条目。
+ *
+ * 与 `shared/model_registry.json` 的 models[] 条目一一对应，
+ * 字段定义与 `plan-registry.schema.json` 的 ModelEntry 完全一致。
+ */
+@Serializable
 data class ModelEntry(
     val id: String,
     val name: String,
@@ -21,7 +35,7 @@ data class ModelEntry(
     val available: Boolean,
     val default: Boolean,
     val restrictPlatform: String? = null,
-    val metadata: Map<String, String>? = null
+    val metadata: ModelMetadata? = null
 )
 
 /**
@@ -42,7 +56,7 @@ data class ModelRegistryFile(
  * 实例创建后字段不可变（val），查询方法均为纯内存读操作，天然线程安全。
  *
  * ## 兜底策略（与 plan-registry 决策一致）
- * 注册表缺失 / 损坏 / models 为空 → 返回只含硬编码 `mao_pro` 条目的兜底实例，
+ * 注册表缺失 / 损坏 / models 为空 → 返回只含硬编码 `niziiro_mao` 条目的兜底实例，
  * 保证任何情况下 `getDefault()` 都不抛异常。
  */
 class ModelRegistry private constructor(
@@ -67,7 +81,7 @@ class ModelRegistry private constructor(
      * 默认模型，按优先级：
      * 1. `default=true` 的第一个条目
      * 2. 第一个 `available=true` 且非 pc 限定的条目
-     * 3. 硬编码 `mao_pro` 兜底
+     * 3. 硬编码 `niziiro_mao` 兜底
      * 不抛异常，最坏情况返回硬编码条目。
      */
     fun getDefault(): ModelEntry =
@@ -87,15 +101,19 @@ class ModelRegistry private constructor(
 
         /** 硬编码兜底条目 — 与 shared/model_registry.json 的默认条目保持一致。 */
         val FALLBACK_ENTRY = ModelEntry(
-            id = "mao_pro",
-            name = "Mao Pro",
-            description = "猫娘 Mao 的 Live2D PRO 版模型，默认形象",
-            model3JsonPath = "mao_pro/runtime/mao_pro.model3.json",
+            id = "niziiro_mao",
+            name = "Niziiro Mao",
+            description = "Niziiro Mao — Live2D 官方 Free Material 示例模型（Cubism 5），默认形象",
+            model3JsonPath = "niziiro_mao/runtime/niziiro_mao.model3.json",
             thumbnailPath = null,
             available = true,
             default = true,
             restrictPlatform = null,
-            metadata = null
+            metadata = ModelMetadata(
+                creator = "Live2D Inc.",
+                license = "Free Material License",
+                version = "1.0"
+            )
         )
 
         private val json = Json { ignoreUnknownKeys = true }
@@ -110,7 +128,7 @@ class ModelRegistry private constructor(
                     .use { it.readBytes().toString(Charsets.UTF_8) }
                 parse(raw)
             } catch (e: Exception) {
-                Log.w(TAG, "加载模型注册表失败（assets 缺失或读取异常），使用兜底 mao_pro: ${e.message}")
+                Log.w(TAG, "加载模型注册表失败（assets 缺失或读取异常），使用兜底 niziiro_mao: ${e.message}")
                 fallback()
             }
         }
@@ -123,18 +141,18 @@ class ModelRegistry private constructor(
             return try {
                 val file = json.decodeFromString<ModelRegistryFile>(jsonText)
                 if (file.models.isEmpty()) {
-                    Log.w(TAG, "注册表 models 为空数组，使用兜底 mao_pro")
+                    Log.w(TAG, "注册表 models 为空数组，使用兜底 niziiro_mao")
                     fallback()
                 } else {
                     ModelRegistry(file.models)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "注册表 JSON 解析失败，使用兜底 mao_pro: ${e.message}")
+                Log.w(TAG, "注册表 JSON 解析失败，使用兜底 niziiro_mao: ${e.message}")
                 fallback()
             }
         }
 
-        /** 构造只含硬编码 mao_pro 条目的兜底实例。 */
+        /** 构造只含硬编码 niziiro_mao 条目的兜底实例。 */
         internal fun fallback(): ModelRegistry = ModelRegistry(listOf(FALLBACK_ENTRY))
     }
 }

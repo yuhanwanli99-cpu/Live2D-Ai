@@ -312,10 +312,10 @@ class SettingsRepositoryTest {
     // ── Live2D 形象（selectedModelId）──
 
     @Test
-    fun selectedModelId_defaultsToNiziiroMao() {
+    fun selectedModelId_defaultsToBai() {
         val repo = SettingsRepository(context)
-        // 契约 v3-rename §1.3：DEFAULT_MODEL_ID 同步为 niziiro_mao（mao_pro→niziiro_mao）
-        assertEquals("首次启动默认形象应为 niziiro_mao", "niziiro_mao", SettingsRepository.DEFAULT_MODEL_ID)
+        // 契约 v0 AD-02：DEFAULT_MODEL_ID 同步为 bai（默认形象 = bai 白-免费版）
+        assertEquals("首次启动默认形象应为 bai", "bai", SettingsRepository.DEFAULT_MODEL_ID)
         assertEquals("首次启动默认形象应为 niziiro_mao", SettingsRepository.DEFAULT_MODEL_ID, repo.selectedModelId)
     }
 

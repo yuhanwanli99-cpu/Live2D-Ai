@@ -101,7 +101,8 @@ class VisemeAnalyzerTest {
         val eps = 1e-6f
         assertEquals(0.8f, map["A"]!![0], eps); assertEquals(0.2f, map["A"]!![1], eps)
         assertEquals(0.3f, map["I"]!![0], eps); assertEquals(0.8f, map["I"]!![1], eps)
-        assertEquals(0.2f, map["U"]!![0], eps); assertEquals(0.0f, map["U"]!![1], eps)
+        // U 修正（契约 v3-adapter §2.2 / D4）：(0.2,0.0) → (0.4,0.8)（adapter.vowelRawMap 同步值）
+        assertEquals(0.4f, map["U"]!![0], eps); assertEquals(0.8f, map["U"]!![1], eps)
         assertEquals(0.5f, map["E"]!![0], eps); assertEquals(0.5f, map["E"]!![1], eps)
         assertEquals(0.6f, map["O"]!![0], eps); assertEquals(0.7f, map["O"]!![1], eps)
         assertEquals(0.0f, map["SIL"]!![0], eps); assertEquals(0.0f, map["SIL"]!![1], eps)
@@ -111,6 +112,24 @@ class VisemeAnalyzerTest {
             assertTrue("mo=${v[0]} ∈ [0,1]", v[0] in 0f..1f)
             assertTrue("mf=${v[1]} ∈ [0,1]", v[1] in 0f..1f)
         }
+    }
+
+    // ── A7：U 元音修正（契约 v3-adapter §2.2 / D4）──
+    // buildVisemeFrame("U") 输出 ParamU == 0.56f（VOWEL_MAP["U"].mf × 0.7 = 0.8 × 0.7）
+
+    @Test
+    fun A7_uBuildVisemeFrame_ParamU_isPoint56() {
+        // 数据层：VOWEL_MAP 的 U 已修正为 (0.4, 0.8)（adapter.vowelRawMap 同步值）
+        val mo = VisemeAnalyzer.VOWEL_MAP["U"]!![0]
+        val mf = VisemeAnalyzer.VOWEL_MAP["U"]!![1]
+        assertEquals("U.mo 应 = 0.4（修正值）", 0.4f, mo, 1e-6f)
+        assertEquals("U.mf 应 = 0.8（修正值）", 0.8f, mf, 1e-6f)
+        // 公式（契约 §2.2 表 2 buildVisemeFrame）：ParamU = mf × 0.7 → 0.8×0.7 = 0.56
+        val paramU = mf * 0.7f
+        assertEquals(
+            "buildVisemeFrame(\"U\") 的 ParamU 应 = 0.56f（U 修正值 0.8×0.7，契约 §2.2/D4）",
+            0.56f, paramU, 1e-6f
+        )
     }
 
     // ── MaoProMappingTest ──

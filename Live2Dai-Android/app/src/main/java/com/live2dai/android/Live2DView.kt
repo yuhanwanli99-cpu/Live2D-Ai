@@ -185,6 +185,30 @@ class Live2DView(
     }
 
     /**
+     * 当前模型是否含可用的 Expressions（exp3）配置（A3 双路径分发判据，contract-bai-params-v0 AP-02）。
+     * 转发 renderer；renderer 未接线 → false（保守）。
+     */
+    fun hasExpressions(): Boolean = renderer?.hasExpressions() ?: false
+
+    /**
+     * 参数驱动表情注入（A3，contract-bai-params-v0 AP-18）：以目标绝对值帧注入 ExpressionManager。
+     * 同签名转发 renderer（EmotionController 只依赖 View 层，不直碰 renderer）；renderer 未接线 → 静默。
+     * @param parameters 参数帧（key = 参数 Id，value = 目标绝对值；不 clamp，收敛交渲染层）
+     * @param fadeMs 淡入时长（毫秒，先 coerceIn(20,1000)）
+     */
+    fun setParametricExpression(parameters: Map<String, Float>, fadeMs: Int) {
+        renderer?.setParametricExpression(parameters, fadeMs)
+    }
+
+    /**
+     * 自动眨眼开关（A3 D2-A，contract-bai-params-v0 AP-19）：
+     * 参数驱动表情激活期间暂停自动眨眼，回 neutral 恢复。renderer 未接线 → 静默（null-safe）。
+     */
+    fun setAutoBlink(enabled: Boolean) {
+        renderer?.setAutoBlink(enabled)
+    }
+
+    /**
      * 当前模型 cdi3.json 参数 ID 白名单（M2 parameterOverrides key 校验源）。
      */
     fun getParameterWhitelist(): Set<String> = renderer?.getParameterWhitelist() ?: emptySet()

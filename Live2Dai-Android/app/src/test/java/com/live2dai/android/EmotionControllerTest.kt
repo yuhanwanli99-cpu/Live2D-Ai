@@ -30,6 +30,10 @@ class EmotionControllerTest {
     @Before
     fun setUp() {
         mockLive2DView = mock<Live2DView>()
+        // A3 双路径（contract-bai-params-v0.md AP-03/AP-28）：本测试覆盖「索引路径」行为（niziiro_mao 有表情 exp3），
+        // 必须明确 hasExpressions()=true，否则 mock 默认 boolean=false 会错误走参数路径（PARAM_FRAME）而非 setExpression。
+        // 这是 A3 添加双路径后，随查询时机（构造或首次调用）与否，替代指数路径时均可正确。
+        org.mockito.Mockito.`when`(mockLive2DView.hasExpressions()).thenReturn(true)
         emotionController = EmotionController(mockLive2DView)
     }
 

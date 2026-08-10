@@ -30,6 +30,10 @@ class EmotionControllerStructuredTest {
     @Before
     fun setUp() {
         mockLive2DView = mock<Live2DView>()
+        // A3 双路径（contract-bai-params-v0.md AP-03/AP-28）：本测试覆盖「索引路径」行为（niziiro_mao），
+        // 必须明确 hasExpressions()=true，否则 mock 默认 boolean=false 会错误走参数路径（PARAM_FRAME）
+        // 而非 setExpressionMix，破坏回归门 AP-28。
+        org.mockito.Mockito.`when`(mockLive2DView.hasExpressions()).thenReturn(true)
         emotionController = EmotionController(mockLive2DView)
         // 注入参数白名单以便测试 parameterOverrides 校验（测试环境无 renderer）
         emotionController.parameterWhitelist = setOf("ParamEyeLOpen", "ParamMouthForm")

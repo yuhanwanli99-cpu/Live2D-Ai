@@ -3,21 +3,22 @@ package com.live2dai.android
 /**
  * M7 motion 标签映射 / 关键词兜底 / idle 多样化 —— 决策逻辑纯类。
  *
- * 设计（contract-M7-android-l3.md §2.1）：模型固定（mao_pro 主模型）、无运行时配置需求、
- * M1 §5 表已锁死键值 → 常量对象（非配置文件）；纯类可被本地 JVM 单测直接断言，
+ * 设计（contract-M7-android-l3.md §2.1 + contract-v3-adapter §1.3）：映射值由共享适配配置
+ * （shared/model-adapter/niziiro_mao.adapter.json，经 ModelAdapterConfig 惰性加载）驱动，
+ * 配置缺失/解析失败 → 硬编码常量兜底（零行为变化，回归门）；纯类可被本地 JVM 单测直接断言，
  * renderer 侧仅薄胶水。
  */
 
 /**
  * motionLabel 别名 → loadedMotions 键 映射表。
- * 值来源：contract-M1 §5.3 表（mao_pro Android 键列；键格式 = "${group}_$i"，loadAllMotions L1312）。
- * 注意：mao_pro 空组键形如 "_0"，不是笔误——组名是空字符串（M1 §5.1 实读）。
- * shizuku 模型无这些键 → 解析出的键查 loadedMotions 失败 → 静默忽略，天然按模型适配。
+ * 值来源：contract-M1 §5.3 表（niziiro_mao Android 键列；键格式 = "${group}_$i"，loadAllMotions L1312）。
+ * 注意：niziiro_mao 空组键形如 "_0"，不是笔误——组名是空字符串（M1 §5.1 实读）。
+ * 未加载的键（模型缺少对应 motion）→ 解析出的键查 loadedMotions 失败 → 静默忽略，天然按模型适配。
  */
 object MotionAliasTable {
 
-    /** tag → loadedMotions 键。语义列（wave=special_01 是否"挥手"）[UNSURE-1] 待验证，键映射已锁定。 */
-    val TAG_TO_KEY: Map<String, String> = mapOf(
+    /** 硬编码兜底（adapter 缺失/解析失败时，零行为变化；contract-v3-adapter §1.3 回退门）。 */
+    private val FALLBACK_TAG_TO_KEY: Map<String, String> = mapOf(
         "idle"       to "Idle_0",   // mtn_01（Idle 组）
         "wave"       to "_3",       // special_01（ParamAngleY 摆至 -22.9°，大动作）— 语义 [UNSURE-1]
         "special_02" to "_4",       // special_02（-22.8°）— [UNSURE-1]
@@ -26,6 +27,16 @@ object MotionAliasTable {
         "mtn_03"     to "_1",       // mtn_03（4.40s 普通动作）
         "mtn_04"     to "_2",       // mtn_04（4.20s 普通动作）
     )
+
+    /**
+     * tag → loadedMotions 键。配置优先：由 adapter.motionAliases 生成（Android 键 = "${group}_$index"），
+     * adapter 缺失 → 硬编码常量兜底（逐字节等价，回归门）。语义列（wave=special_01 是否"挥手"）
+     * [UNSURE-1] 待验证，键映射已锁定。
+     */
+    val TAG_TO_KEY: Map<String, String>
+        get() = ModelAdapterConfig.currentAdapter()?.motionAliases
+            ?.mapValues { (_, alias) -> "${alias.group}_${alias.index}" }
+            ?: FALLBACK_TAG_TO_KEY
 
     /**
      * 解析别名 → 键。输入 trim + lowercase 后查表（容错，与 M1 §1-C1 大小写不敏感精神一致）。
@@ -49,8 +60,15 @@ class IdleMotionSelector(
         /** 最近不重复窗口（默认 3：池 6 键时保证 ≥ 50% 新鲜度，又不至于长期饥饿） */
         const val IDLE_NO_REPEAT: Int = 3
 
-        /** 默认 idle 池 = mao_pro 空组 6 个键（mtn_02~04 + special_01~03，M1 §5.3 可用池） */
-        val DEFAULT_POOL: List<String> = listOf("_0", "_1", "_2", "_3", "_4", "_5")
+        /** 硬编码兜底 idle 池（adapter 缺失时，零行为变化） */
+        private val FALLBACK_POOL: List<String> = listOf("_0", "_1", "_2", "_3", "_4", "_5")
+
+        /**
+         * 默认 idle 池 = niziiro_mao 空组 6 个键（mtn_02~04 + special_01~03，M1 §5.3 可用池）。
+         * 配置优先：adapter.idlePool；缺失 → 硬编码常量兜底（回归门）。
+         */
+        val DEFAULT_POOL: List<String>
+            get() = ModelAdapterConfig.currentAdapter()?.idlePool ?: FALLBACK_POOL
     }
 
     /** 最近 noRepeat 次已选键（头部是最旧的） */

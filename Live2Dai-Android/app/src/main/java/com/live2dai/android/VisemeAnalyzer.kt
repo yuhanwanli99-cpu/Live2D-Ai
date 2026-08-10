@@ -12,12 +12,21 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 // ============================================================================
-// VisemeAnalyzer — Kotlin 移植 pymouth（Apache-2.0）VowelAnalyser + PymouthVisemeDriver
+// VisemeAnalyzer — Kotlin 移植 pymouth（MIT）VowelAnalyser + PymouthVisemeDriver
+//
+// Copyright (c) 2026 Sakura Motion Project
+// SPDX-License-Identifier: MIT
+//
+// 本文件移植自 pymouth（https://github.com/organics2016/pymouth）：
+//   VowelAnalyser（MFCC 提取 + DTW 模板匹配 + softmax）与 PymouthVisemeDriver
+//   （VOWEL_MAP 映射）管线，DTW 模板常量逐字拷贝（契约 M4-M5 §3.5）。
+// pymouth 许可：MIT License，Copyright (c) 2024 organics —— 依据其 MIT 条款
+// 保留上游版权声明与许可文本（全文见 CREDITS.md §6.3）。
 // ============================================================================
 
 /**
  * Kotlin 移植 pymouth（Apache-2.0）VowelAnalyser + PymouthVisemeDriver 的元音分析器。
- * 输入 PCM 帧 → 输出 VisemeFrame 序列（label + 五元音参数，直接对齐 mao_pro ParamA/I/U/E/O）。
+ * 输入 PCM 帧 → 输出 VisemeFrame 序列（label + 五元音参数，直接对齐 niziiro_mao ParamA/I/U/E/O）。
  *
  * 线程安全：非线程安全，单协程内使用（VoiceIoController 单收集协程保证）。
  */
@@ -86,16 +95,26 @@ class VisemeAnalyzer(
         /** 全部模板列表（按 SIL, A, I, U, E, O 顺序——与 _audio2vowel prob 字典顺序一致） */
         internal val ALL_TEMPLATES: List<List<FloatArray>> = listOf(V_SILENCE, V_A, V_I, V_U, V_E, V_O)
 
-        // ── pymouth VOWEL_MAP（pymouth_viseme.py，锁死）──
+        // ── pymouth VOWEL_MAP（pymouth_viseme.py，锁死；T2.2 U 修正）──
 
-        internal val VOWEL_MAP: Map<String, FloatArray> = mapOf(
+        /** 硬编码兜底（adapter 缺失/解析失败时，零行为变化；U 为 T2.2/D4 修正值 (0.4,0.8)） */
+        private val FALLBACK_VOWEL_MAP: Map<String, FloatArray> = mapOf(
             "A" to floatArrayOf(0.8f, 0.2f),
             "I" to floatArrayOf(0.3f, 0.8f),
-            "U" to floatArrayOf(0.2f, 0.0f),
+            "U" to floatArrayOf(0.4f, 0.8f),  // T2.2/D4 修正：(0.2,0.0)→(0.4,0.8)，ParamU=0.8×0.7=0.56
             "E" to floatArrayOf(0.5f, 0.5f),
             "O" to floatArrayOf(0.6f, 0.7f),
             "SIL" to floatArrayOf(0.0f, 0.0f),
         )
+
+        /**
+         * 元音嘴型表 (mouthOpen, mouthForm)：配置优先（adapter.vowelRawMap，U 已为修正值 0.4/0.8），
+         * 缺失 → 硬编码常量兜底（回归门）。buildVisemeFrame 公式不变（锁死）。
+         */
+        internal val VOWEL_MAP: Map<String, FloatArray>
+            get() = ModelAdapterConfig.currentAdapter()?.vowelRawMap
+                ?.mapValues { (_, pair) -> floatArrayOf(pair.first, pair.second) }
+                ?: FALLBACK_VOWEL_MAP
 
         // ── MFCC/STFT 参数 ──
 
@@ -226,7 +245,7 @@ class VisemeAnalyzer(
         // Step 4: argmax → label
         val label = LabelPicker.pick(probs)
 
-        // Step 5: VOWEL_MAP + mao_pro → VisemeFrame
+        // Step 5: VOWEL_MAP + niziiro_mao → VisemeFrame
         val frame = buildVisemeFrame(label, timestampMs)
         timeline.add(frame)
         return frame
@@ -573,8 +592,7 @@ internal object VowelClassifier {
                 } else if (i == 0) {
                     curRow[j] = prevRow[j - 1] + 2f * dist  // only horizontal from left
                 } else if (j == 0) {
-                    curRow[j] = curRow[j]  // will be overwritten below
-                    // actually: only vertical from above
+                    // only vertical from above
                     curRow[j] = prevRow[j] + 2f * dist
                 } else {
                     val diag = prevRow[j - 1] + dist           // 1×
@@ -582,11 +600,6 @@ internal object VowelClassifier {
                     val vert = curRow[j - 1] + 2f * dist       // 2×
                     curRow[j] = minOf(diag, minOf(horiz, vert))
                 }
-            }
-            // fix j=0 case when i>0
-            if (i > 0) {
-                val dist = euclidean2d(template[i], query[0])
-                curRow[0] = prevRow[0] + 2f * dist
             }
             prevRow = curRow
         }

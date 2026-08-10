@@ -550,6 +550,77 @@ class Live2DRenderer(
     }
 
     /**
+     * 当前模型是否含可用的 Expressions（exp3）配置（A3 双路径分发判据，contract-bai-params-v0 AP-01）。
+     *
+     * modelSettingJson `FileReferences.Expressions` 缺失/空 或 loadedExpressions 为空 → false；
+     * 模型未加载 → false。bai（无 exp3）→ false；niziiro_mao（8 个 exp3）→ true。
+     */
+    fun hasExpressions(): Boolean {
+        if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return false
+        return try {
+            val setting = modelSettingJson!!
+            val expressions = setting.getJSONObject("FileReferences").optJSONArray("Expressions")
+            if (expressions == null || expressions.length() == 0) return false
+            loadedExpressions.isNotEmpty()
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 参数驱动表情注入（A3 P1，contract-bai-params-v0 AP-11~17）：
+     * 以目标绝对值帧（blend=Overwrite）注入 ExpressionManager，复用淡入淡出管线。
+     *
+     * - native/model 未就绪 → 静默 return（与 setExpression 同风格，不抛异常）
+     * - key ∉ paramNameToIndex（moc3）→ 跳过（静默，防未知/中文名参数写坏；计跳过数记日志）
+     * - 不 clamp、不走 setParameter（fear._3 EyeLOpen=1.3 / surprise._3=1.5 原样进 ExpressionData，
+     *   收敛交给 applyExpression 的 moc3 min/max clamp，AP-15）
+     * - fade：expressionFadeTime = fadeMs/1000f（fadeMs 先 coerceIn(20,1000)，协议 H 段值域）
+     * - 落点：expressionManager.setExpression(expData, 1.0f)（D5-2：帧值已编码强度，intensity 只作 fade 权重上限）
+     * - 全部 key 被过滤（空帧）→ 不调 setExpression（静默 no-op，AP-16）
+     */
+    fun setParametricExpression(parameters: Map<String, Float>, fadeMs: Int) {
+        if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return
+        try {
+            val pipeline = animationPipeline ?: return
+            val fade = fadeMs.coerceIn(20, 1000)
+
+            // 过滤：只保留 moc3 内嵌参数 Id（paramNameToIndex 来源 = native getParameterIds）
+            val params = mutableListOf<ExpressionParameter>()
+            var skipped = 0
+            for ((key, value) in parameters) {
+                if (paramNameToIndex.containsKey(key)) {
+                    params.add(ExpressionParameter(id = key, value = value, blend = "Overwrite"))
+                } else {
+                    skipped++
+                    android.util.Log.w("Live2DRenderer", "setParametricExpression: param not found: $key（跳过）")
+                }
+            }
+            android.util.Log.i(
+                "Live2DRenderer",
+                "setParametricExpression: 参数命中 ${params.size}，跳过 $skipped（fadeMs=$fade）"
+            )
+            if (params.isEmpty()) return
+
+            val expData = ExpressionData(params)
+            pipeline.expressionManager.expressionFadeTime = fade / 1000f
+            pipeline.expressionManager.setExpression(expData, 1.0f)
+        } catch (e: Throwable) {
+            android.util.Log.w("Live2DRenderer", "setParametricExpression 异常: ${e.message}")
+        }
+    }
+
+    /**
+     * 自动眨眼开关（A3 D2-A，contract-bai-params-v0 AP-19）：
+     * 参数驱动表情激活期间暂停自动眨眼（autoBlinkEnabled=false），回 neutral 恢复 true。
+     * pipeline 未就绪 → 静默（null-safe，不抛异常）。
+     */
+    fun setAutoBlink(enabled: Boolean) {
+        val pipeline = animationPipeline ?: return
+        pipeline.autoBlinkEnabled = enabled
+    }
+
+    /**
      * 当前模型 cdi3.json 参数 ID 白名单（M2 parameterOverrides key 校验源，emotion-protocol.md C3）。
      * 模型未加载 / 无 cdi3.json → 空集。
      */
