@@ -6,6 +6,7 @@ from ..transformers import (
     actions_extractor,
     tts_filter,
     display_processor,
+    emo_interceptor,
 )
 from ...config_manager import TTSPreprocessorConfig
 from ..input_types import BatchInput, TextSource
@@ -45,7 +46,7 @@ class LettaAgent(AgentInterface):
                         faster_first_response=self._faster_first_response,
                         segment_method=self._segment_method,
                         valid_tags=["think"],
-                    )(self.chat)
+                    )(emo_interceptor()(self.chat))
                 )
             )
         )

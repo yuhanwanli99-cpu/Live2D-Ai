@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import time
 import uuid
 from datetime import datetime
 from typing import List, Optional, Dict
@@ -9,6 +10,7 @@ from loguru import logger
 from ..agent.output_types import DisplayText, Actions
 from ..live2d_model import Live2dModel
 from ..tts.tts_interface import TTSInterface
+from ..tts.tts_instruction_library import get_instruction
 from ..utils.stream_audio import prepare_audio_payload
 from .types import WebSocketSend
 
@@ -16,7 +18,12 @@ from .types import WebSocketSend
 class TTSTaskManager:
     """Manages TTS tasks and ensures ordered delivery to frontend while allowing parallel TTS generation"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        tts_engine: Optional[TTSInterface] = None,
+        live2d_model: Optional[Live2dModel] = None,
+        concurrency_limit: int = 2,  # PT-01: 构造参数名按契约改名（默认值语义不变）
+    ) -> None:
         self.task_list: List[asyncio.Task] = []
         self._lock = asyncio.Lock()
         # Queue to store ordered payloads
@@ -26,6 +33,113 @@ class TTSTaskManager:
         # Counter for maintaining order
         self._sequence_counter = 0
         self._next_sequence_to_send = 0
+        # 是否已由首个序列号确定 sender 起始发送位置（兼容显式序列号从 1 起始的调用方）
+        self._seq_started = False
+        # 已入队 payload 的最大序列号（flush 排空等待用：next > max 即全部发送完毕）
+        self._max_sequence_seen = 0
+        # P5-04: 段级并发上限（同时进行中的 TTS 合成 ≤ concurrency_limit）
+        self._semaphore = asyncio.Semaphore(concurrency_limit)
+        # TTS 引擎 / Live2D 模型（构造注入，或经 speak() 兼容路径注入）
+        self._tts_engine: Optional[TTSInterface] = tts_engine
+        self._live2d_model: Optional[Live2dModel] = live2d_model
+        # 上一句 emotion（emotion 帧仅当与上一句不同时发送，前端按 emotion 去重）。
+        # 初始为 "neutral"：前端默认表情即 neutral，首句 neutral 不发冗余 emotion 帧
+        # （契约 P5-03：mock WS 发送数 = speak_async 调用数，3 段同 emotion 无额外帧）。
+        self._last_emotion: str = "neutral"
+
+    async def speak_async(
+        self,
+        tts_text: str,
+        display_text: DisplayText,
+        actions: Optional[Actions],
+        emotion: str = "neutral",           # 新增：当前 emotion（用于 instruction 拼接）
+        mood_tier: str = "neutral",         # 新增：当前心情分层
+        sequence_number: Optional[int] = None,
+        websocket_send: Optional[WebSocketSend] = None,
+    ) -> None:
+        """
+        新增方法：异步启动 TTS 合成（不阻塞后续句子）。
+        - 立即发送 emotion 帧（如果 emotion 与上一句不同）
+        - 后台 asyncio.create_task 执行 TTS 合成
+        - 合成完成后入队发送 audio 帧（顺序保持）
+
+        Args:
+            tts_text: 要合成的文本
+            display_text: 前端展示文本
+            actions: Live2D 动作（parameterOverrides 用于 emotion 帧）
+            emotion: 当前句子 emotion（8 key 枚举）
+            mood_tier: 当前心情分层（furious/upset/neutral/happy/ecstatic）
+            sequence_number: 显式序列号（None = 由内部自增分配）
+            websocket_send: WS 发送函数
+        """
+        if websocket_send is None:
+            logger.warning("speak_async: websocket_send 未提供，跳过队列发送")
+            return
+
+        # 兼容 dict 形式的 display_text / actions（测试/调用方可能不经对象构造）：
+        # 仅取 dataclass 已知字段，未知 key 忽略（对既有对象形态零影响）
+        if isinstance(display_text, dict):
+            display_text = DisplayText(
+                **{k: v for k, v in display_text.items()
+                   if k in set(DisplayText.__dataclass_fields__)}
+            )
+        if isinstance(actions, dict):
+            actions = Actions(
+                **{k: v for k, v in actions.items()
+                   if k in set(Actions.__dataclass_fields__)}
+            )
+
+        # 分配序列号（未显式提供时自增；显式提供时由调用方管理）
+        if sequence_number is None:
+            sequence_number = self._sequence_counter
+            self._sequence_counter += 1
+
+        # 首个已分配序列号确定 sender 的起始发送位置：显式序列号调用方（如测试
+        # 传 1,2,3）与自动自增（0,1,2）都能按序发送，不会因起始序列空洞卡死缓冲。
+        if not self._seq_started:
+            self._next_sequence_to_send = sequence_number
+            self._seq_started = True
+
+        # 空文本：直接入队 silent payload（不发引擎、不占并发槽）
+        if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)) == 0:
+            logger.debug("Empty TTS text, sending silent display payload")
+            self._ensure_sender(websocket_send)
+            await self._send_silent_payload(display_text, actions, sequence_number)
+            return
+
+        # 立即发送 emotion 帧（仅当 emotion 与上一句不同）
+        if emotion != self._last_emotion:
+            emotion_payload = {
+                "type": "emotion",
+                "emotion": emotion,
+                "strength": 2,
+                "parameterOverrides": (actions.parameterOverrides if actions else None) or {},
+                "fadeMs": 400,
+            }
+            try:
+                await websocket_send(json.dumps(emotion_payload))
+            except Exception as e:
+                logger.warning(f"speak_async: 发送 emotion 帧失败（忽略）: {e}")
+            self._last_emotion = emotion
+
+        logger.debug(
+            f"🏃Queuing TTS task for: '''{tts_text}''' (by {display_text.name})"
+        )
+
+        self._ensure_sender(websocket_send)
+
+        # 创建后台合成 task（信号量限流并发，create_task 立即返回不阻塞）
+        task = asyncio.create_task(
+            self._process_tts_async(
+                tts_text=tts_text,
+                display_text=display_text,
+                actions=actions,
+                emotion=emotion,
+                mood_tier=mood_tier,
+                sequence_number=sequence_number,
+            )
+        )
+        self.task_list.append(task)
 
     async def speak(
         self,
@@ -37,57 +151,175 @@ class TTSTaskManager:
         websocket_send: WebSocketSend,
     ) -> None:
         """
-        Queue a TTS task while maintaining order of delivery.
+        兼容旧调用：委托 speak_async（默认 neutral 情绪/心情）。
 
-        Args:
-            tts_text: Text to synthesize
-            display_text: Text to display in UI
-            actions: Live2D model actions
-            live2d_model: Live2D model instance
-            tts_engine: TTS engine instance
-            websocket_send: WebSocket send function
+        首次调用时将 tts_engine / live2d_model 注入实例，供后续 speak_async 使用。
         """
-        if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)) == 0:
-            logger.debug("Empty TTS text, sending silent display payload")
-            # Get current sequence number for silent payload
-            current_sequence = self._sequence_counter
-            self._sequence_counter += 1
-
-            # Start sender task if not running
-            if not self._sender_task or self._sender_task.done():
-                self._sender_task = asyncio.create_task(
-                    self._process_payload_queue(websocket_send)
-                )
-
-            await self._send_silent_payload(display_text, actions, current_sequence)
-            return
-
-        logger.debug(
-            f"🏃Queuing TTS task for: '''{tts_text}''' (by {display_text.name})"
+        if self._tts_engine is None and tts_engine is not None:
+            self._tts_engine = tts_engine
+        if self._live2d_model is None and live2d_model is not None:
+            self._live2d_model = live2d_model
+        await self.speak_async(
+            tts_text=tts_text,
+            display_text=display_text,
+            actions=actions,
+            emotion="neutral",
+            mood_tier="neutral",
+            sequence_number=None,
+            websocket_send=websocket_send,
         )
 
-        # Get current sequence number
-        current_sequence = self._sequence_counter
-        self._sequence_counter += 1
+    async def flush(self, timeout: float = 30.0) -> None:
+        """等待所有排队的 TTS task 完成，并确保全部 audio 帧已按序发送。
 
-        # Start sender task if not running
+        Args:
+            timeout: 等待全部 TTS task 完成的总超时（秒）。超时后取消剩余任务并
+                     清空 task_list、不抛异常（幂等，可安全重复调用）。
+        """
+        timed_out = False
+        if self.task_list:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self.task_list, return_exceptions=True),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                # PT-03 超时分支：取消剩余任务 + 清空 task_list、不抛异常、幂等
+                timed_out = True
+                for task in self.task_list:
+                    if not task.done():
+                        task.cancel()
+                try:
+                    await asyncio.gather(*self.task_list, return_exceptions=True)
+                except Exception:
+                    pass
+                self.task_list.clear()
+
+        self.task_list.clear()
+
+        # 等待 sender 把队列中所有已分配序列发送完（next 越过最大已入队序列号 = 全部发完）。
+        # 超时取消后可能产生序列空洞，跳过排空等待，直接停 sender。
+        deadline = time.monotonic() + 30.0
+        while (
+            not timed_out
+            and self._sender_task is not None
+            and not self._sender_task.done()
+            and self._next_sequence_to_send <= self._max_sequence_seen
+            and time.monotonic() < deadline
+        ):
+            await asyncio.sleep(0.01)
+
+        # 发完后停掉 sender（避免残留 while True 后台任务）
+        if self._sender_task and not self._sender_task.done():
+            self._sender_task.cancel()
+            try:
+                await self._sender_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._sender_task = None
+
+        # 新一批次重新对齐序列状态（兼容显式序列号批次：序列号重新从 1 起始）
+        self._seq_started = False
+        self._max_sequence_seen = 0
+
+    # ------------------------------------------------------------------ #
+    # 内部
+    # ------------------------------------------------------------------ #
+
+    def _ensure_sender(self, websocket_send: WebSocketSend) -> None:
+        """确保顺序发送任务在运行（队列消费 + 按序列顺序发帧）。"""
         if not self._sender_task or self._sender_task.done():
             self._sender_task = asyncio.create_task(
                 self._process_payload_queue(websocket_send)
             )
 
-        # Create and queue the TTS task
-        task = asyncio.create_task(
-            self._process_tts(
+    async def _process_tts_async(
+        self,
+        tts_text: str,
+        display_text: DisplayText,
+        actions: Optional[Actions],
+        emotion: str,
+        mood_tier: str,
+        sequence_number: int,
+    ) -> None:
+        """带并发限流的 TTS 合成包装（信号量内执行，保证同时合成数 ≤ 上限）。"""
+        async with self._semaphore:
+            await self._process_tts(
                 tts_text=tts_text,
                 display_text=display_text,
                 actions=actions,
-                live2d_model=live2d_model,
-                tts_engine=tts_engine,
-                sequence_number=current_sequence,
+                emotion=emotion,
+                mood_tier=mood_tier,
+                sequence_number=sequence_number,
             )
-        )
-        self.task_list.append(task)
+
+    async def _process_tts(
+        self,
+        tts_text: str,
+        display_text: DisplayText,
+        actions: Optional[Actions],
+        emotion: str,
+        mood_tier: str,
+        sequence_number: int,
+    ) -> None:
+        """Process TTS generation and queue the result for ordered delivery
+
+        PT-04: `_generate_audio` 异常时重试 1 次（总尝试 ≤ 2；重试在信号量内进行，
+        不破并发上限）；仍失败才入 silent payload（不抛异常，保持队列顺序）。
+        重试仅针对音频生成失败；prepare_audio_payload/入队失败不触发重试
+        （非生成失败，保持改动前语义直接入 silent）。
+        """
+        audio_file_path = None
+        # P4: 按当前 emotion + mood 动态拼接 instruction 传给 TTS 引擎
+        instruction = get_instruction(emotion=emotion, mood_tier=mood_tier)
+        try:
+            audio_file_path = await self._generate_audio_with_retry(
+                self._tts_engine, tts_text, instruction=instruction
+            )
+            payload = prepare_audio_payload(
+                audio_path=audio_file_path,
+                display_text=display_text,
+                actions=actions,
+            )
+            # Queue the payload with its sequence number
+            await self._enqueue_payload(payload, sequence_number)
+
+        except Exception as e:
+            logger.error(f"Error preparing audio payload: {e}")
+            # Queue silent payload for error case
+            payload = prepare_audio_payload(
+                audio_path=None,
+                display_text=display_text,
+                actions=actions,
+            )
+            await self._enqueue_payload(payload, sequence_number)
+
+        finally:
+            if audio_file_path and self._tts_engine is not None:
+                try:
+                    self._tts_engine.remove_file(audio_file_path)
+                except Exception:
+                    pass
+                logger.debug("Audio cache file cleaned.")
+
+    async def _generate_audio_with_retry(
+        self,
+        tts_engine: Optional[TTSInterface],
+        text: str,
+        instruction: str = "",
+    ) -> str:
+        """`_generate_audio` 失败重试 1 次（PT-04）。
+
+        在信号量内调用（调用方 `_process_tts_async` 持有信号量），不破并发上限。
+        两次尝试均失败时异常向上抛，由调用方入 silent payload。
+        """
+        try:
+            return await self._generate_audio(tts_engine, text, instruction=instruction)
+        except Exception as e:
+            logger.error(
+                f"TTS generation failed (attempt 1/2), retrying once: {e}"
+            )
+            return await self._generate_audio(tts_engine, text, instruction=instruction)
 
     async def _process_payload_queue(self, websocket_send: WebSocketSend) -> None:
         """
@@ -125,51 +357,41 @@ class TTSTaskManager:
             display_text=display_text,
             actions=actions,
         )
-        await self._payload_queue.put((audio_payload, sequence_number))
+        await self._enqueue_payload(audio_payload, sequence_number)
 
-    async def _process_tts(
+    async def _enqueue_payload(self, payload: Dict, sequence_number: int) -> None:
+        """入队 payload 并同步最大已入队序列号（供 flush 排空等待判断）。"""
+        if sequence_number > self._max_sequence_seen:
+            self._max_sequence_seen = sequence_number
+        await self._payload_queue.put((payload, sequence_number))
+
+    async def _generate_audio(
         self,
-        tts_text: str,
-        display_text: DisplayText,
-        actions: Optional[Actions],
-        live2d_model: Live2dModel,
-        tts_engine: TTSInterface,
-        sequence_number: int,
-    ) -> None:
-        """Process TTS generation and queue the result for ordered delivery"""
-        audio_file_path = None
-        try:
-            audio_file_path = await self._generate_audio(tts_engine, tts_text)
-            payload = prepare_audio_payload(
-                audio_path=audio_file_path,
-                display_text=display_text,
-                actions=actions,
-            )
-            # Queue the payload with its sequence number
-            await self._payload_queue.put((payload, sequence_number))
-
-        except Exception as e:
-            logger.error(f"Error preparing audio payload: {e}")
-            # Queue silent payload for error case
-            payload = prepare_audio_payload(
-                audio_path=None,
-                display_text=display_text,
-                actions=actions,
-            )
-            await self._payload_queue.put((payload, sequence_number))
-
-        finally:
-            if audio_file_path:
-                tts_engine.remove_file(audio_file_path)
-                logger.debug("Audio cache file cleaned.")
-
-    async def _generate_audio(self, tts_engine: TTSInterface, text: str) -> str:
+        tts_engine: Optional[TTSInterface],
+        text: str,
+        instruction: str = "",
+    ) -> str:
         """Generate audio file from text"""
+        if tts_engine is None:
+            logger.warning("TTS engine not configured, sending silent payload")
+            return ""
         logger.debug(f"🏃Generating audio for '''{text}'''...")
-        return await tts_engine.async_generate_audio(
-            text=text,
-            file_name_no_ext=f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}",
+        file_name = (
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
         )
+        try:
+            return await tts_engine.async_generate_audio(
+                text=text,
+                file_name_no_ext=file_name,
+                instruction=instruction,
+            )
+        except TypeError:
+            # 兼容未实现 instruction 参数的 TTS 引擎（降级为不带 instruction 合成）
+            logger.warning("TTS engine 不支持 instruction 参数，降级合成")
+            return await tts_engine.async_generate_audio(
+                text=text,
+                file_name_no_ext=file_name,
+            )
 
     def clear(self) -> None:
         """Clear all pending tasks and reset state"""
@@ -178,5 +400,8 @@ class TTSTaskManager:
             self._sender_task.cancel()
         self._sequence_counter = 0
         self._next_sequence_to_send = 0
+        self._seq_started = False
+        self._max_sequence_seen = 0
+        self._last_emotion = "neutral"
         # Create a new queue to clear any pending items
         self._payload_queue = asyncio.Queue()

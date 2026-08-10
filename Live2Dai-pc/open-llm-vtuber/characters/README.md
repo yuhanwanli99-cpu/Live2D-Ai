@@ -43,7 +43,7 @@ character_config:
   conf_name: 'Advanced - Cyber Hacker'
   conf_uid: 'cyber_hacker_001' # MUST be a unique ID
   character_name: 'Zero'
-  live2d_model_name: 'mao_pro' # Ensure this model exists in model_dict.json
+  live2d_model_name: 'niziiro_mao' # Ensure this model exists in model_dict.json
   persona_prompt: |
     You are a mysterious hacker who goes by the codename "Zero". You speak in a concise, precise, and slightly robotic tone. You know everything about technology but are puzzled by human emotions.
 
@@ -92,7 +92,7 @@ Here is a breakdown of the core fields under `character_config`:
   - `character_name` (string):
 
       - **Purpose**: The name the AI uses in conversations. This affects group chats and UI display.
-      - **Example**: `'Mao'`
+      - **Example**: `'Niziiro Mao'`
 
   - `avatar` (string, optional):
 

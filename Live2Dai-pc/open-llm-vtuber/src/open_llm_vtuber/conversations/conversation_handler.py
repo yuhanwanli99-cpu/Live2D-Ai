@@ -60,6 +60,14 @@ async def handle_conversation_trigger(
         )
     elif msg_type == "text-input":
         user_input = data.get("text", "")
+        # P7-03：用户消息到达 → mood_engine.on_user_message_sentiment()（mood 触发点）。
+        # 仅文本输入在此触发；mic 输入文本不可得，由 process_single_conversation 在 ASR 后补触发。
+        mood_engine = getattr(context, "mood_engine", None)
+        if mood_engine is not None:
+            try:
+                await mood_engine.on_user_message_sentiment(user_input)
+            except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
+                logger.warning(f"mood sentiment trigger failed (ignored): {e}")
     else:  # mic-audio-end
         user_input = received_data_buffers[client_uid]
         received_data_buffers[client_uid] = np.array([])

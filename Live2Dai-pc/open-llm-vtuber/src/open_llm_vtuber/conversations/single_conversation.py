@@ -17,9 +17,38 @@ from .types import WebSocketSend
 from .tts_manager import TTSTaskManager
 from ..chat_history_manager import store_message
 from ..service_context import ServiceContext
+from ..utils.stream_audio import prepare_emotion_payload
 
 # Import necessary types from agent outputs
 from ..agent.output_types import SentenceOutput, AudioOutput
+
+
+async def _send_emotion_frame(
+    websocket_send: WebSocketSend,
+    emo_data: dict,
+) -> None:
+    """构造并发送 emotion WS 帧（P7-02：检测到 [emo:xxx] 立即发送，先于 audio）。
+
+    parameterOverrides：优先取调用方解析的 Live2D 参数（未来 resolve_emotion_parameters），
+    否则空 dict（前端仍可按 emotion+strength 应用）。所有异常降级为日志，不崩溃（P7-05）。
+    """
+    frame = prepare_emotion_payload(
+        emotion=emo_data.get("emotion", "neutral"),
+        strength=emo_data.get("strength", 2),
+        parameter_overrides=emo_data.get("parameterOverrides") or {},
+        fade_ms=emo_data.get("fadeMs", 400),
+    )
+    await websocket_send(json.dumps(frame))
+
+
+async def _safe_mood(mood_engine, method: str, *args) -> None:
+    """mood 事件调用兜底（P7-05：mood 模块异常不影响对话主链路）。"""
+    if mood_engine is None:
+        return
+    try:
+        await getattr(mood_engine, method)(*args)
+    except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
+        logger.warning(f"mood_engine.{method} failed (ignored): {e}")
 
 
 _VISION_PROMPT = (
@@ -87,16 +116,25 @@ async def process_single_conversation(
     # Create TTSTaskManager for this conversation
     tts_manager = TTSTaskManager()
     full_response = ""  # Initialize full_response here
+    mood_engine = getattr(context, "mood_engine", None)
 
     try:
         # Send initial signals
         await send_conversation_start_signals(websocket_send)
         logger.info(f"New Conversation Chain {session_emoji} started!")
 
+        # P7-03：对话开始 → mood_engine.start()（衰减任务启动；异常降级不阻塞）
+        await _safe_mood(mood_engine, "start")
+
         # Process user input
         input_text = await process_user_input(
             user_input, context.asr_engine, websocket_send
         )
+
+        # P7-03：用户消息到达 → mood_engine.on_user_message_sentiment()。
+        # 文本输入已在 conversation_handler 触发过（防双计）；此处仅补 mic（np 输入）路径。
+        if not isinstance(user_input, str):
+            await _safe_mood(mood_engine, "on_user_message_sentiment", input_text)
 
         # Capture screenshot and inject vision context (if enabled)
         input_text = await _get_vision_context(context, input_text)
@@ -141,6 +179,23 @@ async def process_single_conversation(
                     logger.debug(f"Sending tool status update: {output_item}")
 
                     await websocket_send(json.dumps(output_item))
+
+                elif (
+                    isinstance(output_item, dict)
+                    and output_item.get("type") == "emo_token"
+                ):
+                    # P7-02：StreamInterceptor 命中 [emo:xxx] → 立即发 emotion 帧（先于 audio）
+                    # + mood_engine.on_emotion_event()（流式心情事件）。异常降级为日志（P7-05）。
+                    try:
+                        await _send_emotion_frame(websocket_send, output_item)
+                        await _safe_mood(
+                            mood_engine,
+                            "on_emotion_event",
+                            output_item.get("emotion", "neutral"),
+                            output_item.get("strength", 2),
+                        )
+                    except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
+                        logger.warning(f"emo_token handling failed (ignored): {e}")
 
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
@@ -213,4 +268,6 @@ async def process_single_conversation(
         )
         raise
     finally:
+        # P7-03：对话结束 → mood_engine.stop()（幂等；异常降级不阻塞清理）
+        await _safe_mood(mood_engine, "stop")
         cleanup_conversation(tts_manager, session_emoji)

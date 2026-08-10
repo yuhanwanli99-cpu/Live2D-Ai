@@ -45,6 +45,29 @@ ABBREVIATIONS = [
     "Dr.",
 ]
 
+# ── P2 增强型流式分段：语义边界优先级（契约 contract-pc-pipeline.md §P2）──
+# 优先级常量（硬编码，不可配置）
+BREAK_PRIORITY = [
+    ("\n", 100),  # 换行 = 天然断句
+    ("。", 90),   # 中文句号
+    ("！", 80),   # 中文感叹号
+    ("？", 70),   # 中文问号
+    ("!", 80),    # 英文感叹号
+    ("?", 70),    # 英文问号
+    (".", 60),    # 英文句号（需防缩写/小数）
+    ("；", 50),   # 中文分号
+    (";", 40),    # 英文分号
+    ("，", 30),   # 中文逗号
+    (",", 20),    # 英文逗号
+]
+GOLDEN_MIN_CHARS = 6    # 最短句子字数（中文字符）
+GOLDEN_MAX_CHARS = 40   # 最长句子字数
+
+_BREAK_PRIORITY_MAP = {punct: priority for punct, priority in BREAK_PRIORITY}
+# 强断点阈值：>= 该优先级视为句子终结标点（换行/句号/感叹/问号/英文句号）
+_STRONG_BREAK_THRESHOLD = 60
+
+
 # Set of languages directly supported by pysbd
 SUPPORTED_LANGUAGES = {
     "am",
@@ -457,7 +480,9 @@ class SentenceDivider:
                             )
                     # The part consumed includes sentences + what's left before the tag
                     processed_segment = text_before_tag
-                    self._buffer = self._buffer[len(processed_segment) :]
+                    rest = self._buffer[len(processed_segment) :]
+                    # 未成句的剩余部分保留回 buffer（priority 模式可能未切净）
+                    self._buffer = (remaining_before + rest) if remaining_before else rest
                     processed_something = True
                     continue  # Restart processing loop
 
@@ -489,37 +514,52 @@ class SentenceDivider:
             if original_buffer_len > 0:
                 current_tags = self._get_current_tags()
 
-                # Handle first sentence with comma if enabled
-                if (
-                    self._is_first_sentence
-                    and self.faster_first_response
-                    and contains_comma(self._buffer)
-                ):
-                    sentence, remaining = comma_splitter(self._buffer)
-                    if sentence.strip():
-                        yield SentenceWithTags(
-                            text=sentence.strip(),
-                            tags=current_tags or [TagInfo("", TagState.NONE)],
-                        )
+                if self.segment_method == "priority":
+                    # ── P2 增强型流式分段：语义边界优先级回溯（可无句末标点即切）──
+                    sentence, remaining = self._segment_by_priority(self._buffer)
+                    if sentence is not None:
                         self._buffer = remaining
                         self._is_first_sentence = False
                         processed_something = True
+                        if sentence.strip():
+                            yield SentenceWithTags(
+                                text=sentence.strip(),
+                                tags=current_tags or [TagInfo("", TagState.NONE)],
+                            )
                         continue  # Restart processing loop
+                    # 不够切 → 继续累积（本次不产出，循环退出）
+                else:
+                    # Handle first sentence with comma if enabled
+                    if (
+                        self._is_first_sentence
+                        and self.faster_first_response
+                        and contains_comma(self._buffer)
+                    ):
+                        sentence, remaining = comma_splitter(self._buffer)
+                        if sentence.strip():
+                            yield SentenceWithTags(
+                                text=sentence.strip(),
+                                tags=current_tags or [TagInfo("", TagState.NONE)],
+                            )
+                            self._buffer = remaining
+                            self._is_first_sentence = False
+                            processed_something = True
+                            continue  # Restart processing loop
 
-                # Process normal sentences based on end punctuation
-                if contains_end_punctuation(self._buffer):
-                    sentences, remaining = self._segment_text(self._buffer)
-                    if sentences:  # Only process if segmentation yielded sentences
-                        self._buffer = remaining
-                        self._is_first_sentence = False
-                        processed_something = True
-                        for sentence in sentences:
-                            if sentence.strip():
-                                yield SentenceWithTags(
-                                    text=sentence.strip(),
-                                    tags=current_tags or [TagInfo("", TagState.NONE)],
-                                )
-                        continue  # Restart processing loop
+                    # Process normal sentences based on end punctuation
+                    if contains_end_punctuation(self._buffer):
+                        sentences, remaining = self._segment_text(self._buffer)
+                        if sentences:  # Only process if segmentation yielded sentences
+                            self._buffer = remaining
+                            self._is_first_sentence = False
+                            processed_something = True
+                            for sentence in sentences:
+                                if sentence.strip():
+                                    yield SentenceWithTags(
+                                        text=sentence.strip(),
+                                        tags=current_tags or [TagInfo("", TagState.NONE)],
+                                    )
+                            continue  # Restart processing loop
 
             # If we reached here without processing anything, break the loop
             if not processed_something:
@@ -595,8 +635,99 @@ class SentenceDivider:
         """Get the complete response accumulated so far"""
         return "".join(self._full_response)
 
+    @staticmethod
+    def _is_non_break_dot(text: str, pos: int) -> bool:
+        """
+        判断 '.' 是否为小数（3.14）或缩写（Mr.）的一部分。
+
+        Returns:
+            bool: True = 不应在此断句（是数字/缩写的一部分）
+        """
+        if (
+            pos > 0
+            and text[pos - 1].isdigit()
+            and pos + 1 < len(text)
+            and text[pos + 1].isdigit()
+        ):
+            return True
+        if pos > 0:
+            tail = text[max(0, pos - 4): pos + 1].lower()
+            if any(tail.endswith(abbr.lower()) for abbr in ABBREVIATIONS):
+                return True
+        return False
+
+    def _segment_by_priority(self, text: str) -> Tuple[Optional[str], str]:
+        """
+        按语义边界优先级分段。
+
+        规则（优先级从高到低）：换行 > 句号 > 问号 > 感叹 > 逗号
+          1. 超长（> GOLDEN_MAX_CHARS）→ 必须切：从 GOLDEN_MAX_CHARS 处向前回溯，
+             在黄金区间 [GOLDEN_MIN_CHARS, GOLDEN_MAX_CHARS) 内找最高优先级断点；
+             无断点 → 硬切在 GOLDEN_MAX_CHARS（最后手段）
+          2. 常规：从前往后找第一个强断点（\n 。 ！ ？ ! ? .），标点吸附到前一句；
+             英文句号遇缩写/小数跳过（不在此断句）
+          3. 无强断点且长度 >= GOLDEN_MIN_CHARS → 在黄金区间内找低优先级断点
+             （； ； ， ,）
+          4. 断点不足 → 返回 (None, text) 继续累积（跨 chunk 成句后输出）
+
+        Args:
+            text: 累积待分段文本
+
+        Returns:
+            (sentence, remainder):
+                - sentence: 切出的句子（None = 不够切，继续累积）
+                - remainder: 剩余文本
+        """
+        if not text:
+            return None, ""
+
+        # 1) 超长强制切：从 GOLDEN_MAX_CHARS 处向前回溯找最高优先级断点
+        if len(text) > GOLDEN_MAX_CHARS:
+            best_pos = -1
+            best_prio = -1
+            for pos in range(GOLDEN_MAX_CHARS - 1, GOLDEN_MIN_CHARS - 1, -1):
+                prio = _BREAK_PRIORITY_MAP.get(text[pos])
+                if prio is not None and prio > best_prio:
+                    best_prio = prio
+                    best_pos = pos
+            if best_pos >= 0:
+                return text[: best_pos + 1], text[best_pos + 1:]
+            # 无断点 → 硬切（最后手段）
+            return text[:GOLDEN_MAX_CHARS], text[GOLDEN_MAX_CHARS:]
+
+        # 2) 常规：从前往后找第一个强断点（句子终结标点，标点吸附到前一句）
+        for pos, ch in enumerate(text):
+            prio = _BREAK_PRIORITY_MAP.get(ch)
+            if prio is None or prio < _STRONG_BREAK_THRESHOLD:
+                continue
+            if ch == "." and self._is_non_break_dot(text, pos):
+                continue
+            return text[: pos + 1], text[pos + 1:]
+
+        # 3) 无强断点：长度达到黄金下限 → 在黄金区间内找低优先级断点（分号/逗号）
+        if len(text) >= GOLDEN_MIN_CHARS:
+            best_pos = -1
+            best_prio = -1
+            for pos in range(len(text) - 1, GOLDEN_MIN_CHARS - 1, -1):
+                prio = _BREAK_PRIORITY_MAP.get(text[pos])
+                if (
+                    prio is not None
+                    and prio < _STRONG_BREAK_THRESHOLD
+                    and prio > best_prio
+                ):
+                    best_prio = prio
+                    best_pos = pos
+            if best_pos >= 0:
+                return text[: best_pos + 1], text[best_pos + 1:]
+
+        # 4) 不够切 → 继续累积
+        return None, text
+
     def _segment_text(self, text: str) -> Tuple[List[str], str]:
         """Segment text using the configured method"""
+        if self.segment_method == "priority":
+            sentence, remaining = self._segment_by_priority(text)
+            return ([sentence] if sentence is not None else []), remaining
         if self.segment_method == "regex":
             return segment_text_by_regex(text)
         return segment_text_by_pysbd(text)

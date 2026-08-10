@@ -1,6 +1,6 @@
 """PC 端 pymouth 元音嘴型驱动。
 
-基于 pymouth（Apache-2.0 纯 Python DTW 元音识别，无 AI 模型依赖，移动端 CPU
+基于 pymouth（MIT 纯 Python DTW 元音识别，无 AI 模型依赖，移动端 CPU
 可运行）对 WAV 音频做逐帧元音识别（A/I/U/E/O/SIL），并把每个元音映射为
 Live2D 嘴型参数：
     - mouth_open  -> ParamMouthOpenY

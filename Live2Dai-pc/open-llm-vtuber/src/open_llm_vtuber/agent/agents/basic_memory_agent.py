@@ -20,6 +20,7 @@ from ..transformers import (
     actions_extractor,
     tts_filter,
     display_processor,
+    emo_interceptor,
 )
 from ...config_manager import TTSPreprocessorConfig
 from ..input_types import BatchInput, TextSource
@@ -591,6 +592,7 @@ class BasicMemoryAgent(AgentInterface):
             segment_method=self._segment_method,
             valid_tags=["think"],
         )
+        @emo_interceptor()
         async def chat_with_memory(
             input_data: BatchInput,
         ) -> AsyncIterator[Union[str, Dict[str, Any]]]:

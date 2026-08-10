@@ -29,10 +29,10 @@ system_config:
 
 # 默认角色的配置
 character_config:
-  conf_name: 'mao_pro' # 角色配置文件的名称
-  conf_uid: 'mao_pro_001' # 角色配置的唯一标识符
-  live2d_model_name: 'mao_pro' # Live2D 模型名称
-  character_name: 'Mao' # 将在群聊中使用，并显示为 AI 的名称。
+  conf_name: 'niziiro_mao' # 角色配置文件的名称
+  conf_uid: 'niziiro_mao_001' # 角色配置的唯一标识符
+  live2d_model_name: 'niziiro_mao' # Live2D 模型名称
+  character_name: 'Niziiro Mao' # 将在群聊中使用，并显示为 AI 的名称。
   avatar: 'mao.png' # 建议使用正方形图像作为头像。将其保存到 avatars 文件夹中。留空则使用角色名称的首字母作为头像。
   human_name: 'Human' # 将在群聊中使用，并显示为人类的名称。
 

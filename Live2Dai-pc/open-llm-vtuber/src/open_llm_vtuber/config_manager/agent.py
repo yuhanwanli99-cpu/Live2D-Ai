@@ -31,7 +31,7 @@ class BasicMemoryAgentConfig(I18nMixin, BaseModel):
     ] = Field(..., alias="llm_provider")
 
     faster_first_response: Optional[bool] = Field(True, alias="faster_first_response")
-    segment_method: Literal["regex", "pysbd"] = Field("pysbd", alias="segment_method")
+    segment_method: Literal["regex", "pysbd", "priority"] = Field("pysbd", alias="segment_method")
     use_mcpp: Optional[bool] = Field(False, alias="use_mcpp")
     mcp_enabled_servers: Optional[List[str]] = Field([], alias="mcp_enabled_servers")
 
@@ -156,7 +156,7 @@ class LettaConfig(I18nMixin, BaseModel):
     port: int = Field(8283, alias="port")
     id: str = Field(..., alias="id")
     faster_first_response: Optional[bool] = Field(True, alias="faster_first_response")
-    segment_method: Literal["regex", "pysbd"] = Field("pysbd", alias="segment_method")
+    segment_method: Literal["regex", "pysbd", "priority"] = Field("pysbd", alias="segment_method")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "host": Description(

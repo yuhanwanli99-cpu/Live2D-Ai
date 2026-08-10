@@ -12,6 +12,7 @@ from .tts.tts_interface import TTSInterface
 from .vad.vad_interface import VADInterface
 from .agent.agents.agent_interface import AgentInterface
 from .vision_handler import VisionHandler
+from .mood_engine import MoodEngine
 
 from .mcpp.server_registry import ServerRegistry
 from .mcpp.tool_manager import ToolManager
@@ -61,6 +62,8 @@ class ServiceContext:
         self.character_config: CharacterConfig = None
 
         self.live2d_model: Live2dModel = None
+        # (NEW) P3/P7：流式心情引擎（对话级 start/stop，prompt 注入用）
+        self.mood_engine: MoodEngine = MoodEngine()
         # (NEW) 跨平台模型注册表（shared/model_registry.json），init_live2d 校验/回退用
         self.model_registry: ModelRegistry | None = None
         self.asr_engine: ASRInterface = None
@@ -270,7 +273,7 @@ class ServiceContext:
         if not self.character_config:
             self.character_config = config.character_config
 
-        # (NEW) 加载跨平台模型注册表（缺失/损坏时返回 None，回退硬编码 mao_pro）
+        # (NEW) 加载跨平台模型注册表（缺失/损坏时返回 None，回退硬编码 niziiro_mao）
         self.model_registry = self._load_model_registry()
         self.init_live2d(config.character_config.live2d_model_name)
         self.init_asr(config.character_config.asr_config)
@@ -305,12 +308,12 @@ class ServiceContext:
         self.character_config = config.character_config
 
     def _load_model_registry(self) -> ModelRegistry | None:
-        """加载 shared/model_registry.json；缺失/损坏时返回 None（回退硬编码 mao_pro）。"""
+        """加载 shared/model_registry.json；缺失/损坏时返回 None（回退硬编码 niziiro_mao）。"""
         registry_path = _resolve_shared_path("shared/model_registry.json")
         if not os.path.exists(registry_path):
             logger.error(
                 f"Model registry file not found at {registry_path}; "
-                "model selection validation disabled (fallback to 'mao_pro')."
+                "model selection validation disabled (fallback to 'niziiro_mao')."
             )
             return None
         try:
@@ -323,7 +326,7 @@ class ServiceContext:
         except (ValueError, OSError) as e:
             logger.error(
                 f"Failed to load model registry at {registry_path}: {e}; "
-                "model selection validation disabled (fallback to 'mao_pro')."
+                "model selection validation disabled (fallback to 'niziiro_mao')."
             )
             return None
 
@@ -342,7 +345,7 @@ class ServiceContext:
         except Exception as e:
             logger.critical(f"Error initializing Live2D: {e}")
 
-        # 回退：registry 可用 → 默认模型；registry 不可用 → 硬编码 'mao_pro'
+        # 回退：registry 可用 → 默认模型；registry 不可用 → 硬编码 'niziiro_mao'
         try:
             fallback_name = self._fallback_live2d_model_name()
             logger.warning(f"Falling back to Live2D model: {fallback_name}")
@@ -379,10 +382,10 @@ class ServiceContext:
         return resolved
 
     def _fallback_live2d_model_name(self) -> str:
-        """registry 可用时返回默认模型 id；不可用时返回硬编码 'mao_pro'。"""
+        """registry 可用时返回默认模型 id；不可用时返回硬编码 'niziiro_mao'。"""
         if self.model_registry is not None:
             return self.model_registry.get_default().id
-        return "mao_pro"
+        return "niziiro_mao"
 
     def init_asr(self, asr_config: ASRConfig) -> None:
         if not self.asr_engine or (self.character_config.asr_config != asr_config):
@@ -528,6 +531,14 @@ class ServiceContext:
                 continue
 
             persona_prompt += prompt_content
+
+        # P7-04：mood 注入——mood_engine.get_prompt_injection() 追加到 system prompt 尾部
+        # （neutral 档返回 ""，不污染 prompt；正向/负向档追加心情提示）。
+        if self.mood_engine is not None:
+            try:
+                persona_prompt += self.mood_engine.get_prompt_injection()
+            except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
+                logger.warning(f"mood prompt injection failed (ignored): {e}")
 
         logger.debug("\n === System Prompt ===")
         logger.debug(persona_prompt)

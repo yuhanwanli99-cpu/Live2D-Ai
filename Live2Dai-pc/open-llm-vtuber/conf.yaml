@@ -19,10 +19,10 @@ system_config:
     mcp_prompt: 'mcp_prompt'
 
 character_config:
-  conf_name: 'mao_pro'
-  conf_uid: 'mao_pro_001'
-  live2d_model_name: 'mao_pro'
-  character_name: 'Mao'
+  conf_name: 'niziiro_mao'
+  conf_uid: 'niziiro_mao_001'
+  live2d_model_name: 'bai'
+  character_name: '凛'
   avatar: 'mao.png'
   human_name: 'Human'
   load_persona_from_file: 'shared/persona.yaml'
@@ -35,14 +35,9 @@ character_config:
         # 需要更高并发时可改为 'deepseek_llm' 并配置自己的 DEEPSEEK_API_KEY。
         llm_provider: 'zhipu_free_llm'
         faster_first_response: true
-        segment_method: 'pysbd'
-        use_mcpp: true
-        mcp_enabled_servers:
-          - "time"
-          - "ddg-search"
-          - "weather"
-          - "filesystem"
-          - "sequential-thinking"
+        segment_method: 'priority'
+        use_mcpp: false
+        mcp_enabled_servers: []
 
     llm_configs:
       # 零配置默认聊天 Provider：免费 GLM-4.7-Flash（与 Android 端默认一致）。
@@ -74,12 +69,16 @@ character_config:
       prompt: ''
 
   tts_config:
-    tts_model: 'edge_tts'
+    tts_model: 'cosyvoice_cloud'
+    cosyvoice_cloud:
+      api_key: ''
+      model: 'cosyvoice-v1'
+      ws_url: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference'
     edge_tts:
       voice: 'zh-CN-XiaoxiaoNeural'
 
   vad_config:
-    vad_model: 'silero_vad'
+    vad_model: null
     silero_vad:
       orig_sr: 16000
       target_sr: 16000
@@ -100,7 +99,7 @@ character_config:
       translate_provider: 'deeplx'
 
 vision_config:
-  vision_enabled: true
+  vision_enabled: false
   provider: 'zhipu'
   api_key: '${ZHIPU_API_KEY}'
   model: 'glm-4.6v'

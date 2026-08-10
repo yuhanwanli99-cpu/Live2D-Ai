@@ -6,7 +6,9 @@ from loguru import logger
 
 
 class TTSInterface(metaclass=abc.ABCMeta):
-    async def async_generate_audio(self, text: str, file_name_no_ext=None) -> str:
+    async def async_generate_audio(
+        self, text: str, file_name_no_ext=None, instruction: str = ""
+    ) -> str:
         """
         Asynchronously generate speech audio file using TTS.
 
@@ -17,6 +19,10 @@ class TTSInterface(metaclass=abc.ABCMeta):
             the text to speak
         file_name_no_ext (optional and deprecated): str
             name of the file without file extension
+        instruction (optional): str
+            P4 TTS instruction 文案（情感/风格指令，≤100 字符）。基类默认实现忽略
+            该参数（不传给 generate_audio），仅支持 instruction 的引擎（如
+            CosyVoiceCloudTTSEngine）在覆盖实现中实际使用。
 
         Returns:
         str: the path to the generated audio file

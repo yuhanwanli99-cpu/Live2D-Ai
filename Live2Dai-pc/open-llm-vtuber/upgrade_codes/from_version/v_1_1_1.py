@@ -14,12 +14,14 @@ class to_v_1_2_1:
         self.language = language
 
         # Configuration migration mapping table (language-specific)
+        # 现名（T0.1 K1 定案）：内部 id `niziiro_mao`、显示名 `Niziiro Mao`。
+        # 本表将 v1.1.1 时代（shizuku 主模型）的配置字段迁移到当前默认模型。
         self.migration_map = {
             "zh": {
                 "shizuku.png": "mao.png",
-                "Shizuku": "Mao",
-                "shizuku-local": "mao_pro",
-                "shizuku-local-001": "mao_pro_001",
+                "Shizuku": "Niziiro Mao",
+                "shizuku-local": "niziiro_mao",
+                "shizuku-local-001": "niziiro_mao_001",
                 "distil-medium.en": "large-v3-turbo",
                 "en": "zh",
                 "v1.1.1": "v1.2.1",
@@ -27,9 +29,9 @@ class to_v_1_2_1:
             },
             "en": {
                 "shizuku.png": "mao.png",
-                "Shizuku": "Mao",
-                "shizuku-local": "mao_pro",
-                "shizuku-local-001": "mao_pro_001",
+                "Shizuku": "Niziiro Mao",
+                "shizuku-local": "niziiro_mao",
+                "shizuku-local-001": "niziiro_mao_001",
                 "distil-medium.en": "large-v3-turbo",
                 "v1.1.1": "v1.2.1",
                 "v1.2.0": "v1.2.1",
@@ -53,6 +55,9 @@ class to_v_1_2_1:
             "shizuku-local",
             "shizuku",
         }
+        # 历史遗留（保留原名）：v1.2.x 时代的默认模型 id 为 "mao_pro"
+        # （现名 Niziiro Mao / niziiro_mao，T0.1 K1 改名；此处作为旧配置匹配键保留）。
+        # 命中后改写为当前 id，保证迁移输出与现 model_dict.json 一致。
         upgrades = {"mao_pro"}
         new_models = []
 
@@ -65,8 +70,9 @@ class to_v_1_2_1:
 
             if name in upgrades:
                 if name == "mao_pro":
+                    upgraded["name"] = "niziiro_mao"
                     upgraded["url"] = (
-                        "/live2d-models/mao_pro/runtime/mao_pro.model3.json"
+                        "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json"
                     )
                     upgraded["kScale"] = 0.5
 

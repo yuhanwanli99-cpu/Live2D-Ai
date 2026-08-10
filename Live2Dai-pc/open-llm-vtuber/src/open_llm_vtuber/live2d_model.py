@@ -20,14 +20,17 @@ PROTOCOL_EMOTION_KEYS = (
 )
 
 # 8 索引（裁决 1；与 Android EMOTION_MAP 值一致，joy→5 等）
+# 适配配置优先（v3-adapter §1.3：PROTOCOL_EMOTION_INDEX ← adapter["emotionIndex"]，与 Android 同源）；
+# 加载失败 → 由 PROTOCOL_EMOTION_KEYS 枚举推导（硬编码兑底，行为不变）。
 PROTOCOL_EMOTION_INDEX = {name: i for i, name in enumerate(PROTOCOL_EMOTION_KEYS)}
 
 # 表情 JSON 提取正则（与 Android parseStructured 同规则：FENCE 优先 → NAKED 兜底）
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _JSON_NAKED_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-# motionLabel 别名表（M1 §5.3 F 段 mao_pro 别名 + shizuku 语义组名，大小写不敏感）
-_MOTION_LABEL_ALIASES = frozenset(
+# motionLabel 别名表（M1 §5.3 F 段 niziiro_mao 别名，大小写不敏感）
+# 适配配置优先（v3-adapter §1.3：← adapter["motionAliases"].keys()）；失败 → 硬编码兑底。
+_DEFAULT_MOTION_LABEL_ALIASES = frozenset(
     {
         "idle",
         "wave",
@@ -36,12 +39,79 @@ _MOTION_LABEL_ALIASES = frozenset(
         "mtn_02",
         "mtn_03",
         "mtn_04",
-        # shizuku 语义组名（F 段：可直接用组名）
-        "flickup",
-        "tap",
-        "flick3",
     }
 )
+_MOTION_LABEL_ALIASES = _DEFAULT_MOTION_LABEL_ALIASES
+
+# PC 关键词兜底词表（契约 v3-features §1.1 锁死，[UNSURE-FT1 终裁 2026-08-09]）
+# 与 Android KeywordMotionTable 完全对齐 6 中文词（移除"你好"与英文扩展词，双端一致优先于 kugutu 补充建议）。
+MOTION_KEYWORDS: dict[str, str] = {
+    # 与 Android KeywordMotionTable 完全对齐（D2：同词同义）
+    "挥手": "wave",
+    "招招手": "wave",
+    "打招呼": "wave",
+    "再见": "special_02",
+    "拜拜": "special_02",
+    "掰掰": "special_02",
+}
+
+
+def extract_motion_keyword(text: str) -> str | None:
+    """关键词兜底：从净化后句子文本匹配 MOTION_KEYWORDS 词表，返回 motionLabel 别名。
+
+    契约 v3-features §1.1/§1.2 锁死：
+      - 大小写不敏感子串匹配（text.lower() 后查 lowercase 词表）
+      - 按词表顺序扫描，首个命中的别名返回；同别名只取最早命中
+      - 无命中 → None（前端消费：motion 为空 → 随机 Talk）
+
+    输入：净化后句子文本（sentence.text，非 tag 文本）；输出：motionLabel 别名（小写）或 None。
+    """
+    if not isinstance(text, str) or not text:
+        return None
+    lowered = text.lower()
+    for keyword, label in MOTION_KEYWORDS.items():
+        if keyword.lower() in lowered:
+            return label
+    return None
+
+
+# ── 适配配置（shared/model-adapter/niziiro_mao.adapter.json，双端共享单源）──
+def _load_model_adapter(
+    adapter_path: str = "shared/model-adapter/niziiro_mao.adapter.json",
+) -> dict | None:
+    """读适配配置；缺失/损坏 → None（调用方用现有硬编码兑底，行为不变）。
+
+    返回 dict 形如 adapter JSON（§1.2 schema）：
+      {"modelId", "displayName", "motionAliases"(7 键), "vowelParamMap"(6 键),
+       "vowelRawMap", "idlePool", "emotionIndex"(8 键), "degradation"}
+    """
+    try:
+        with open(adapter_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        logger.warning(
+            f"Failed to load model adapter from {adapter_path}: {e}; "
+            "falling back to hardcoded constants."
+        )
+        return None
+    if not isinstance(data, dict) or "motionAliases" not in data:
+        logger.warning(
+            f"Model adapter at {adapter_path} has invalid schema; "
+            "falling back to hardcoded constants."
+        )
+        return None
+    return data
+
+
+_ADAPTER_DATA = _load_model_adapter()
+
+if _ADAPTER_DATA is not None:
+    _MOTION_LABEL_ALIASES = frozenset(_ADAPTER_DATA["motionAliases"].keys())
+    PROTOCOL_EMOTION_INDEX = dict(_ADAPTER_DATA["emotionIndex"])
+    logger.info(
+        f"Loaded model adapter '{_ADAPTER_DATA.get('modelId')}' with "
+        f"{len(_MOTION_LABEL_ALIASES)} motion aliases."
+    )
 
 # This class will only prepare the payload for the live2d model
 # the process of sending the payload should be done by the caller
@@ -103,8 +173,8 @@ class Live2dModel:
     def _cdi3_rel_path(self) -> str:
         """从 model_info.url 推导当前模型 cdi3.json 的相对路径。
 
-        url 形如 `/live2d-models/mao_pro/runtime/mao_pro.model3.json`
-        → `live2d-models/mao_pro/runtime/mao_pro.cdi3.json`（model3.json → cdi3.json）。
+        url 形如 `/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json`
+        → `live2d-models/niziiro_mao/runtime/niziiro_mao.cdi3.json`（model3.json → cdi3.json）。
         url 缺失（registry 兜底异常）时按约定布局回退。
         """
         url = (self.model_info.get("url") or "").lstrip("/")
@@ -284,6 +354,9 @@ class Live2dModel:
         空 emotionMap 对应 plan 边界表「emo_map 为空 → 无表情切换，不影响渲染」
         的降级行为；前端对缺失字段也有默认值（emotionMap:{}）。
         """
+        # emotionMap：registry 兜底最小结构（{}，现有回归测试锁定：
+        # model_info["emotionMap"]=={} 且 emo_map=={} → 无表情切换，不影响渲染）。
+        # adapter.emotionIndex 与 PC model_dict.json emotionMap 的一致性由 T1.4 C26 校验保证。
         return {
             "name": entry.id,
             "url": f"/live2d-models/{entry.model3_json_path}",
