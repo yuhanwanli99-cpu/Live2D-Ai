@@ -1,6 +1,7 @@
 package com.live2dai.android
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -369,5 +370,75 @@ class EmotionControllerParamPathTest {
         for (v in frame.values) {
             assertTrue("帧值 $v 应 ∈ [-1.0, 2.0]（协议 H 段）", v in -1.0f..2.0f)
         }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // 分区 G — B4 / G5 防回归（contract-M-AND §2.3 + architecture G5）：
+    //   FALLBACK_EMOTION_MAP 恰 8 键且无 Param* 键（C26 块提取基线，防 G5 类误抓）
+    //   DEFAULT_BAI_EMOTION_PARAM_MAP 镜像真实 bai.adapter.json emotionParamMap（144 = 8×3×6）
+    // 注：以下常量在 EmotionController companion 中为 private，测试经 java 反射读取（契约允许
+    //     仅对键集/结构断言，不改任何 src）。这些为「防 C26 破坏」回归门，本就 GREEN（G5 是脚本
+    //     bug，非 impl 缺陷），非本次 RED 信号。
+    // ══════════════════════════════════════════════════════════
+
+    @Test
+    fun B4_fallbackEmotionMap_exactly8EmotionKeys_noParamKeys() {
+        // contract-M-AND §2.3 / §3 B4：FALLBACK_EMOTION_MAP 键集恰为 8 表情键且无 Param* 键。
+        //（C26 提取基线：脚本以它为起点扫块，若误混 Param 键则本断言暴露，防 G5 类回归）
+        val fallback: Map<String, Int> = readCompanionPrivateMap("FALLBACK_EMOTION_MAP")
+        val expected = setOf("neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise")
+        assertEquals("FALLBACK_EMOTION_MAP 应为 8 表情键", expected, fallback.keys)
+        assertTrue("FALLBACK_EMOTION_MAP 不得含 Param* 键（C26 误抓根因）", fallback.keys.none { it.startsWith("Param") })
+        // 8 键（数量锁定）
+        assertEquals("FALLBACK_EMOTION_MAP 应为 8 键", 8, fallback.size)
+    }
+
+    @Test
+    fun B4_defaultBaiEmotionParamMap_mirrorsRealBaiAdapter() {
+        // contract-M-AND + coder-A3：DEFAULT_BAI_EMOTION_PARAM_MAP（companion 硬编码兜底）
+        // 镜像真实 assets/bai.adapter.json emotionParamMap：8 emotion × _1/_2/_3 × 6 键 = 144 值，
+        // 锚点值与真实 asset 一致（surprise._3 EyeLOpen=1.5 / smirk._3 MouthForm=-0.7）。
+        val map: Map<String, Map<String, Map<String, Float>>> =
+            readCompanionPrivateMap("DEFAULT_BAI_EMOTION_PARAM_MAP")
+        val emotions = setOf("neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise")
+        assertEquals("DEFAULT_BAI_EMOTION_PARAM_MAP 应为 8 表情键", emotions, map.keys)
+        val frames = setOf("_1", "_2", "_3")
+        val paramKeys = setOf(
+            "ParamBrowLY", "ParamBrowRY", "ParamEyeLOpen", "ParamEyeROpen",
+            "ParamMouthForm", "ParamMouthOpenY"
+        )
+        var total = 0
+        for (emotion in emotions) {
+            val bands = map[emotion]
+            assertNotNull("emotion=$emotion 应存在强度档", bands)
+            assertEquals("emotion=$emotion 应含 _1/_2/_3 三档", frames, bands!!.keys)
+            for (band in frames) {
+                val frame = bands[band]
+                assertNotNull("emotion=$emotion $band 应非空", frame)
+                assertEquals("emotion=$emotion $band 应为 6 键", paramKeys, frame!!.keys)
+                for (v in frame.values) {
+                    assertTrue("emotion=$emotion $band 值 $v 应 ∈ [-1.0, 2.0]（协议 H 段）", v in -1.0f..2.0f)
+                    total++
+                }
+            }
+        }
+        assertEquals("DEFAULT_BAI_EMOTION_PARAM_MAP 应含 8×3×6=144 值（镜像真实 asset）", 144, total)
+        // 锚点与真实 assets/bai.adapter.json 逐值一致（防硬编码兜底与 adapter 漂移）
+        assertEquals(1.5f, map["surprise"]!!["_3"]!!["ParamEyeLOpen"]!!, 1e-6f)
+        assertEquals(-0.7f, map["smirk"]!!["_3"]!!["ParamMouthForm"]!!, 1e-6f)
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  companion 私有常量的反射读取（测试侧只读断言，不改任何 src）
+    // ─────────────────────────────────────────────────────────────
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> readCompanionPrivateMap(fieldName: String): T {
+        // Kotlin companion object 内 private val 编译为外部类 private static 字段
+        // （javap 实证：EmotionController.class 持有字段，$Companion 类仅 access$ 访问器）
+        // → 反射须从 EmotionController 本体取 static 字段，instance 传 null。
+        val field = EmotionController::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(null) as T
     }
 }

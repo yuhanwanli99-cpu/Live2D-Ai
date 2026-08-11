@@ -189,9 +189,9 @@ class FloatingWindowService : Service() {
         val widthPx = (WINDOW_WIDTH_DP * density).toInt()
         val heightPx = (WINDOW_HEIGHT_DP * density).toInt()
 
-        // 创建 Live2D 渲染 View
+        // 创建 Live2D 渲染 View（浮动窗口模型固定 niziiro_mao，adapter 随 modelId 对齐，G3）
         live2DView = Live2DView(this)
-        live2DView.initialize(MODEL_PATH)
+        live2DView.initialize(MODEL_PATH, "niziiro_mao")
 
         // 设置渲染模式为 WHEN_DIRTY + Handler 定时请求渲染（实现 30fps 节能）
         live2DView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY

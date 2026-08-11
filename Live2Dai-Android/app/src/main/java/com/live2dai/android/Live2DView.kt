@@ -23,6 +23,9 @@ class Live2DView(
     /** 当前生效的模型 assets 路径（用于切换失败时回退到上一个模型）。 */
     private var currentAssetPath: String? = null
 
+    /** 当前生效的模型 ID（用于切换失败回退时恢复对应的 adapter 缓存）。 */
+    private var currentModelId: String? = null
+
     init {
         setEGLContextClientVersion(2)
         // 4x multisampling for anti-aliased edges
@@ -67,12 +70,14 @@ class Live2DView(
      * 初始化 Live2D 渲染器并加载模型
      * @param modelAssetPath assets 中的模型路径（不含 "assets/" 前缀）
      *                       例如: "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
+     * @param modelId 模型 ID（如 "bai" / "niziiro_mao"），用于按模型加载适配配置（G3）
      */
-    fun initialize(modelAssetPath: String) {
+    fun initialize(modelAssetPath: String, modelId: String) {
         currentAssetPath = modelAssetPath
-        // T1.2：惰性加载共享适配配置（shared/model-adapter → assets，contract-v3-adapter §3.1）。
+        currentModelId = modelId
+        // T1.2 + G3：惰性加载当前模型的共享适配配置（shared/model-adapter/{modelId}.adapter.json → assets）。
         // 失败 → null → MotionTags/VisemeAnalyzer/EmotionController 走硬编码常量兜底（回归门）。
-        ModelAdapterConfig.load(context)
+        ModelAdapterConfig.load(context, modelId)
         renderer = Live2DRenderer(context, modelAssetPath)
         setRenderer(renderer)
         // 持续渲染模式，支持 120fps 平滑动画（必须在 setRenderer 之后调用）
@@ -83,6 +88,7 @@ class Live2DView(
      * 运行时热切换模型（GL 线程 dispose + 重新加载，无需重建 View）。
      *
      * @param assetPath 新模型的完整 assets 路径，如 "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
+     * @param modelId 新模型的 ID（如 "bai" / "niziiro_mao"）；切模型时同步刷新 adapter 缓存（G3）
      * @param onComplete 切换成功回调（在 GL 线程执行，更新 UI 需 post 到主线程）
      * @param onError 切换失败回调。失败时已自动尝试回退到上一个模型；
      *                回退也失败则渲染兜底渐变着色器。同样在 GL 线程执行。
@@ -98,11 +104,13 @@ class Live2DView(
      */
     fun switchModel(
         assetPath: String,
+        modelId: String,
         onComplete: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
     ) {
         queueEvent {
             val previousPath = currentAssetPath
+            val previousModelId = currentModelId
             val current = renderer
             if (current == null) {
                 // 视图尚未初始化：首次创建 renderer 并绑定（唯一一次合法 setRenderer）
@@ -110,6 +118,9 @@ class Live2DView(
                     val newRenderer = Live2DRenderer(context, assetPath)
                     renderer = newRenderer
                     currentAssetPath = assetPath
+                    currentModelId = modelId
+                    // G3：adapter 缓存随模型刷新
+                    ModelAdapterConfig.load(context, modelId)
                     setRenderer(newRenderer)
                     renderMode = RENDERMODE_CONTINUOUSLY
                     onComplete?.invoke()
@@ -118,6 +129,7 @@ class Live2DView(
                     try { renderer?.dispose() } catch (_: Throwable) { }
                     renderer = null
                     currentAssetPath = previousPath
+                    currentModelId = previousModelId
                     onError?.invoke(e)
                 }
                 return@queueEvent
@@ -126,14 +138,21 @@ class Live2DView(
             // 热切换：同一 GL 线程内释放旧模型 + 加载新模型
             if (current.swapModel(assetPath)) {
                 currentAssetPath = assetPath
+                currentModelId = modelId
+                // G3：adapter 缓存随模型切换刷新（bai → bai.adapter.json，niziiro_mao → 五元音 adapter）
+                ModelAdapterConfig.load(context, modelId)
                 onComplete?.invoke()
             } else {
                 // 加载失败：回退到上一个模型路径；回退也失败则保留兜底渲染
                 val fallbackOk = previousPath != null && current.swapModel(previousPath)
                 if (fallbackOk) {
                     currentAssetPath = previousPath
+                    currentModelId = previousModelId
+                    // G3：回退成功后恢复上一个模型的 adapter 缓存（与渲染中的模型保持一致）
+                    if (previousModelId != null) ModelAdapterConfig.load(context, previousModelId)
                 } else {
                     currentAssetPath = null
+                    currentModelId = null
                 }
                 onError?.invoke(
                     RuntimeException(

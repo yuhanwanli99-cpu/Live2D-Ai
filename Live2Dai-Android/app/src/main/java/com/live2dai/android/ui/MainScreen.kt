@@ -276,12 +276,12 @@ fun MainChatScreen(
                     factory = { ctx ->
                         Live2DView(ctx).also { view ->
                             // 启动时按持久化的 selectedModelId 加载模型；
-                            // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 niziiro_mao）
+                            // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 bai）
                             val ctxRepo = SettingsRepository(ctx)
                             val registry = ModelRegistry.load(ctx)
                             val modelId = ctxRepo.selectedModelId
                             val entry = registry.getById(modelId) ?: registry.getDefault()
-                            view.initialize("live2d/${entry.model3JsonPath}")
+                            view.initialize("live2d/${entry.model3JsonPath}", entry.id)
                             // 业务接线（EmotionController / ChatHook / LipSync）→ ViewModel
                             viewModel.onLive2DViewCreated(view)
                             // 实例上报 → App 级（Live2DaiApp 持有，支持生命周期与热切换）

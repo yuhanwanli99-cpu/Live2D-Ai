@@ -19,20 +19,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 
 /**
- * ModelAdapterConfig 单元测试（契约 v3-adapter §1.3 / §2 / §5，T1.2 批1）。
+ * ModelAdapterConfig 单元测试（契约 v3-adapter §1.3 / §2 / §5，T1.2 批1；
+ *             contract-M-AND §2.2 / §2.3 / §3 B3，G3 按 modelId 加载）。
  *
- * 依据 .pi/spoq/contract-v3-adapter.md：
+ * 依据 .pi/spoq/contract-v3-adapter.md + contract-M-AND.md：
  * - A1 schema 完整性：adapter JSON 含 §1.2 全部必填字段；键集/值域约束全过。
- * - A2 加载成功：ModelAdapterConfig.load(context) 返回 AdapterData，字段与 §2 基线逐项一致
- *   （motionAliases 7 键 / vowelParamMap 6 键 / vowelRawMap 6 键 / emotionIndex 8 键 /
+ * - A2 加载成功：ModelAdapterConfig.load(context, modelId) 返回 AdapterData，字段与 §2 基线逐项一致
+ *   （nimotionAliases 7 键 / vowelParamMap 6 键 / vowelRawMap 6 键 / emotionIndex 8 键 /
  *    idlePool 6 键 + U=(0.4,0.8) + ParamU=0.56）。
  * - A3 加载失败回退：load 返回 null 时行为等价（null = 降级链第一级 -> 调用方走现有硬编码常量）。
  * - A7 U 修正：vowelParamMap["U"]["ParamU"] == 0.56f（修正值 0.8×0.7，D4 定案）。
+ * - G3（contract-M-AND §2.2）：load(context, modelId) 按 modelId 读 {modelId}.adapter.json，
+ *   缓存随模型切换刷新；bai → bai.adapter.json、niziiro_mao → niziiro_mao.adapter.json；
+ *   未知 modelId（asset 缺失）→ null。
  *
- * 状态说明：实现已就绪（T1.2），asset 已由 Gradle copyModelAdapter 同步到
- * app/src/main/assets/niziiro_mao.adapter.json。A2/A7 读真实 asset；（方案 A）
- * A3 不依赖真实合并 asset（避免与 A2/A7 同产物反向断言冲突），改用受控 fakeContext
- * 使 assets.open() 抛 IOException → load 返回 null（回退门）。只用 app/src/test/，不碰实现。
+ * 状态说明：asset 已由 Gradle copyModelAdapter 同步（bai.adapter.json + niziiro_mao.adapter.json）。
+ * A3 用受控 fakeContext 使 assets.open() 抛 IOException → load 返回 null。只用 app/src/test/，不碰实现。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class, sdk = [34])
@@ -49,8 +51,8 @@ class ModelAdapterConfigTest {
 
     @Test
     fun A2_load_parsesRealAdapterFromAssets() {
-        val data: AdapterData? = ModelAdapterConfig.load(context)
-        assertNotNull("load 应成功解析 adapter（asset 已由 copyModelAdapter 同步）", data)
+        val data: AdapterData? = ModelAdapterConfig.load(context, "niziiro_mao")
+        assertNotNull("load(ctx, modelId) 应成功解析 niziiro_mao adapter（asset 已由 copyModelAdapter 同步）", data)
         val adapter = data!!
         assertNotNull(adapter)
 
@@ -147,8 +149,8 @@ class ModelAdapterConfigTest {
 
     @Test
     fun A7_uParam_isPoint56() {
-        val data: AdapterData? = ModelAdapterConfig.load(context)
-        assertNotNull("load 应成功", data)
+        val data: AdapterData? = ModelAdapterConfig.load(context, "niziiro_mao")
+        assertNotNull("load(ctx, modelId) 应成功", data)
         val u = data!!.vowelParamMap["U"]
         assertNotNull("vowelParamMap 应含 U", u)
         assertEquals(
@@ -175,11 +177,118 @@ class ModelAdapterConfigTest {
         `when`(fakeContext.assets).thenReturn(fakeAssets)
         `when`(fakeAssets.open(anyString())).thenThrow(IOException("asset 缺失/损坏（受控，方案 A）"))
 
-        val data: AdapterData? = ModelAdapterConfig.load(fakeContext)
+        val data: AdapterData? = ModelAdapterConfig.load(fakeContext, "niziiro_mao")
         assertNull(
             "asset 打开抛 IOException → load 应返回 null（回退门，不崩溃）",
             data
         )
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  G3（contract-M-AND §2.2 / §3 B3）：load(context, modelId) 按 modelId 加载
+    //  bai → bai.adapter.json（口型 ParamMouthOpenY/ParamMouthForm，无 ParamA/I/U/E/O，motionAliases={}，idlePool=[]）
+    //  niziiro_mao → niziiro_mao.adapter.json（五元音 + U=(0.4,0.8)/ParamU=0.56，motionAliases 7 键，idlePool 6 键）
+    //  未知 modelId（asset 缺失）→ null；缓存随模型切换刷新
+    // ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun G3_load_bai_readsBaiAdapter_perModelDispatch() {
+        // G3 核心：切 bai → 读 bai.adapter.json（此前硬编码 niziiro_mao.adapter.json 导致口型静默失效）
+        val data: AdapterData? = ModelAdapterConfig.load(context, "bai")
+        assertNotNull("load(ctx, modelId=bai) 应读取 bai.adapter.json", data)
+        assertEquals("bai", data!!.modelId)
+        assertEquals("白-免费版", data.displayName)
+
+        // vowelParamMap：口型键为 ParamMouthOpenY/ParamMouthForm（无 ParamA/I/U/E/O —— bai.cdi3 无这 5 参数）
+        assertEquals(
+            "bai.vowelParamMap 应为 {A,I,U,E,O,SIL} 六元音键",
+            setOf("A", "I", "U", "E", "O", "SIL"),
+            data.vowelParamMap.keys
+        )
+        for (vowel in listOf("A", "I", "U", "E", "O", "SIL")) {
+            val params = data.vowelParamMap[vowel]
+            assertNotNull("bai.vowelParamMap[$vowel] 应存在", params)
+            // 各元音开口度不同（语音学正确：A 大开 / I 扁小 / SIL 闭口）——按真实 adapter 逐值断言
+            val expectedMouth = mapOf(
+                "A" to 0.8f, "I" to 0.5f, "U" to 0.4f,
+                "E" to 0.6f, "O" to 0.7f, "SIL" to 0.0f
+            )
+            val expectedForm = mapOf(
+                "A" to 0.4f, "I" to 0.2f, "U" to 0.1f,
+                "E" to 0.3f, "O" to 0.5f, "SIL" to 0.0f
+            )
+            assertEquals(
+                "bai[$vowel] ParamMouthOpenY 应与 bai.adapter.json 一致",
+                expectedMouth[vowel]!!, params!!["ParamMouthOpenY"]!!, eps
+            )
+            assertEquals(
+                "bai[$vowel] ParamMouthForm 应与 bai.adapter.json 一致",
+                expectedForm[vowel]!!, params["ParamMouthForm"]!!, eps
+            )
+            // 硬约束（§2.2）：bai 口型键不得出现 ParamA/I/U/E/O（写进 cdi3 不存在的参数 = 口型静默失效根因）
+            assertTrue("bai 口型不得含 ParamA", !params.containsKey("ParamA"))
+            assertTrue("bai 口型不得含 ParamI", !params.containsKey("ParamI"))
+            assertTrue("bai 口型不得含 ParamU", !params.containsKey("ParamU"))
+            assertTrue("bai 口型不得含 ParamE", !params.containsKey("ParamE"))
+            assertTrue("bai 口型不得含 ParamO", !params.containsKey("ParamO"))
+        }
+
+        // 无 motion/exp3：motionAliases={}、idlePool=[]（§2.2）
+        assertTrue("bai.motionAliases 应为空 {}（无 motion 目录，MotionLoader 静默跳过）", data.motionAliases.isEmpty())
+        assertTrue("bai.idlePool 应为空 []（无 idle 动画池）", data.idlePool.isEmpty())
+
+        // emotionIndex 8 键（口型/表情索引两源均 8 键，§2.2 + G5）
+        assertEquals(8, data.emotionIndex.size)
+        assertEquals(
+            setOf("neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise"),
+            data.emotionIndex.keys
+        )
+    }
+
+    @Test
+    fun G3_load_niziiroMao_readsNiziiroMaoAdapter_perModelDispatch() {
+        // G3：切回 niziiro_mao → 读 niziiro_mao.adapter.json（五元音口型回归）
+        val data: AdapterData? = ModelAdapterConfig.load(context, "niziiro_mao")
+        assertNotNull("load(ctx, modelId=niziiro_mao) 应读取 niziiro_mao.adapter.json", data)
+        assertEquals("niziiro_mao", data!!.modelId)
+
+        // 五元音口型 ParamA/I/U/E/O 回归 + U 修正 (0.4,0.8)/ParamU=0.56（§2.2 + A7 修正值）
+        val uParams = data.vowelParamMap["U"]
+        assertNotNull("niziiro_mao.U 应存在", uParams)
+        assertEquals(0.56f, uParams!!["ParamU"]!!, eps)
+        assertEquals(0.4f, data.vowelRawMap["U"]!!.first, eps)
+        assertEquals(0.8f, data.vowelRawMap["U"]!!.second, eps)
+        val aParams = data.vowelParamMap["A"]
+        assertEquals(0.8f, aParams!!["ParamA"]!!, eps)
+
+        // motionAliases 7 键 + idlePool 6 键（§2.2）
+        assertEquals("niziiro_mao.motionAliases 应为 7 键", 7, data.motionAliases.size)
+        assertEquals("niziiro_mao.idlePool 应为 6 键 [_0.._5]", listOf("_0", "_1", "_2", "_3", "_4", "_5"), data.idlePool)
+    }
+
+    @Test
+    fun G3_load_unknownModelId_returnsNull_assetMissingPath() {
+        // §2.2/§2.3：modelId 无对应 {modelId}.adapter.json 资产 → load 返回 null（asset 缺失路径，降级链第一级）
+        val data: AdapterData? = ModelAdapterConfig.load(context, "model_that_does_not_exist")
+        assertNull("未知 modelId（无对应 asset）→ load 应返回 null（asset 缺失路径）", data)
+    }
+
+    @Test
+    fun G3_load_cacheRefreshesOnModelSwitch() {
+        // §2.2：缓存随模型切换刷新 —— load(bai) 后 currentAdapter().modelId==bai；再 load(niziiro_mao) 后 ==niziiro_mao
+        //（修旧硬编码：单一缓存仅在首启固定 niziiro_mao，不随模型切换）
+        val bai: AdapterData? = ModelAdapterConfig.load(context, "bai")
+        assertNotNull(bai)
+        assertEquals("切 bai 后 currentAdapter() 应指向 bai.adapter", "bai", ModelAdapterConfig.currentAdapter()?.modelId)
+
+        val mao: AdapterData? = ModelAdapterConfig.load(context, "niziiro_mao")
+        assertNotNull(mao)
+        assertEquals("切 niziiro_mao 后 currentAdapter() 应指向 niziiro_mao.adapter（缓存随模型切换刷新）", "niziiro_mao", ModelAdapterConfig.currentAdapter()?.modelId)
+
+        // 再切回 bai，缓存再次刷新
+        val bai2: AdapterData? = ModelAdapterConfig.load(context, "bai")
+        assertNotNull(bai2)
+        assertEquals("二次切 bai 后 currentAdapter() 应回到 bai.adapter", "bai", ModelAdapterConfig.currentAdapter()?.modelId)
     }
 
     // ─────────────────────────────────────────────────────────────

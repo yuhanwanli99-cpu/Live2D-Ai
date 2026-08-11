@@ -73,6 +73,7 @@ fun Live2DaiApp() {
                         // 回调在 GL 线程执行；SettingsScreen 内部负责 post 回主线程
                         view.switchModel(
                             assetPath = path,
+                            modelId = entry.id,
                             onComplete = { onResult(true) },
                             onError = { onResult(false) }
                         )

@@ -56,8 +56,9 @@ data class ModelRegistryFile(
  * 实例创建后字段不可变（val），查询方法均为纯内存读操作，天然线程安全。
  *
  * ## 兜底策略（与 plan-registry 决策一致）
- * 注册表缺失 / 损坏 / models 为空 → 返回只含硬编码 `niziiro_mao` 条目的兜底实例，
+ * 注册表缺失 / 损坏 / models 为空 → 返回只含硬编码 `bai` 条目的兜底实例，
  * 保证任何情况下 `getDefault()` 都不抛异常。
+ * 兜底默认 = registry 默认 = bai（G4 统一，D3 定案，见 .pi/spoq/architecture-android-fix.md）。
  */
 class ModelRegistry private constructor(
     private val entries: List<ModelEntry>
@@ -81,7 +82,7 @@ class ModelRegistry private constructor(
      * 默认模型，按优先级：
      * 1. `default=true` 的第一个条目
      * 2. 第一个 `available=true` 且非 pc 限定的条目
-     * 3. 硬编码 `niziiro_mao` 兜底
+     * 3. 硬编码 `bai` 兜底（与 shared/model_registry.json 默认条目一致）
      * 不抛异常，最坏情况返回硬编码条目。
      */
     fun getDefault(): ModelEntry =
@@ -99,19 +100,19 @@ class ModelRegistry private constructor(
         /** assets 中的注册表文件名（由 Gradle copyModelRegistry 任务生成）。 */
         private const val ASSET_NAME = "model_registry.json"
 
-        /** 硬编码兜底条目 — 与 shared/model_registry.json 的默认条目保持一致。 */
+        /** 硬编码兜底条目 — 与 shared/model_registry.json 的默认条目（bai）保持一致（G4 定案，D3）。 */
         val FALLBACK_ENTRY = ModelEntry(
-            id = "niziiro_mao",
-            name = "Niziiro Mao",
-            description = "Niziiro Mao — Live2D 官方 Free Material 示例模型（Cubism 5），默认形象",
-            model3JsonPath = "niziiro_mao/runtime/niziiro_mao.model3.json",
+            id = "bai",
+            name = "白-免费版 (Bai Free)",
+            description = "白-免费版 — B站 Live2D 模型（16384 纹理，128 参数，无 motion/exp3），打磨默认形象",
+            model3JsonPath = "bai/runtime/bai.model3.json",
             thumbnailPath = null,
             available = true,
             default = true,
             restrictPlatform = null,
             metadata = ModelMetadata(
-                creator = "Live2D Inc.",
-                license = "Free Material License",
+                creator = "Bilibili",
+                license = "本地使用（D1 裁定，不内置分发）",
                 version = "1.0"
             )
         )
@@ -128,7 +129,7 @@ class ModelRegistry private constructor(
                     .use { it.readBytes().toString(Charsets.UTF_8) }
                 parse(raw)
             } catch (e: Exception) {
-                Log.w(TAG, "加载模型注册表失败（assets 缺失或读取异常），使用兜底 niziiro_mao: ${e.message}")
+                Log.w(TAG, "加载模型注册表失败（assets 缺失或读取异常），使用兜底 bai: ${e.message}")
                 fallback()
             }
         }
@@ -141,18 +142,18 @@ class ModelRegistry private constructor(
             return try {
                 val file = json.decodeFromString<ModelRegistryFile>(jsonText)
                 if (file.models.isEmpty()) {
-                    Log.w(TAG, "注册表 models 为空数组，使用兜底 niziiro_mao")
+                    Log.w(TAG, "注册表 models 为空数组，使用兜底 bai")
                     fallback()
                 } else {
                     ModelRegistry(file.models)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "注册表 JSON 解析失败，使用兜底 niziiro_mao: ${e.message}")
+                Log.w(TAG, "注册表 JSON 解析失败，使用兜底 bai: ${e.message}")
                 fallback()
             }
         }
 
-        /** 构造只含硬编码 niziiro_mao 条目的兜底实例。 */
+        /** 构造只含硬编码 bai 条目的兜底实例。 */
         internal fun fallback(): ModelRegistry = ModelRegistry(listOf(FALLBACK_ENTRY))
     }
 }

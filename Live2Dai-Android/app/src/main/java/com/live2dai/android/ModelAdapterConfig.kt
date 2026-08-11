@@ -8,12 +8,14 @@ import kotlinx.serialization.json.Json
 /**
  * 模型适配配置（contract-v3-adapter §1.3，T1.2）。
  *
- * 读 `shared/model-adapter/niziiro_mao.adapter.json`（Gradle copyModelAdapter 任务同步到
- * `src/main/assets/`，见 app/build.gradle.kts §1.4）。解析失败 → 返回 null（调用方回退
- * 现有硬编码常量，行为不变——降级链第一级）。
+ * 读 `shared/model-adapter/{modelId}.adapter.json`（Gradle copyModelAdapter 任务同步到
+ * `src/main/assets/`，见 app/build.gradle.kts §1.4；bai 与 niziiro_mao 双 adapter 均已复制）。
+ * 解析失败 → 返回 null（调用方回退现有硬编码常量，行为不变——降级链第一级）。
  *
- * 加载语义（contract-v3-adapter §3.1）：
+ * 加载语义（contract-v3-adapter §3.1 + G3 按模型切换）：
  * - 惰性：首次调用 [load] 在 `Live2DView.initialize` 时触发，非类初始化时。
+ * - 按模型：`load(context, modelId)` 读取 `{modelId}.adapter.json`；每次 load 覆盖缓存
+ *   （随模型切换刷新，`Live2DView.switchModel` 切模型时重新 load）。
  * - 缓存：每次 [load] 的结果写入 [cached]，消费方（MotionAliasTable / IdleMotionSelector /
  *   VisemeAnalyzer / EmotionController）经 [currentAdapter] 读取；null → 各自硬编码常量兜底。
  * - 失败不粘滞：本次 [load] 失败 → 清空缓存并返回 null，下次可重试（测试回归门 A2/A3 顺序无关）。
@@ -22,7 +24,8 @@ import kotlinx.serialization.json.Json
  */
 object ModelAdapterConfig {
 
-    /** assets 中的适配配置文件名（Gradle copyModelAdapter 任务同步） */
+    /** assets 中的适配配置文件名（Gradle copyModelAdapter 任务同步；默认模型 niziiro_mao 的历史常量，
+     *  实际加载路径由 [load] 按 modelId 解析为 `{modelId}.adapter.json`）。 */
     const val ASSET_NAME = "niziiro_mao.adapter.json"
 
     private const val TAG = "ModelAdapterConfig"
@@ -57,18 +60,20 @@ object ModelAdapterConfig {
     private val lock = Any()
 
     /**
-     * 从 assets 读取并解析；失败 → null（调用方用现有常量兜底）。
-     * 每次调用都实际读取（生产只在 Live2DView.initialize 调用一次，等价惰性加载+缓存）；
-     * 成功 → 缓存；失败 → 清空缓存并返回 null（回归门 A2/A3 顺序无关，不粘滞）。
+     * 从 assets 读取并解析指定模型的适配配置（G3：按 modelId 加载，`{modelId}.adapter.json`）；
+     * 失败 → null（调用方用现有常量兜底）。
+     * 每次调用都实际读取（生产只在 Live2DView.initialize/switchModel 调用，等价惰性加载+缓存）；
+     * 成功 → 覆盖缓存（随模型切换刷新）；失败 → 清空缓存并返回 null（回归门 A2/A3 顺序无关，不粘滞）。
      * 线程安全。
      */
-    fun load(context: Context): AdapterData? {
+    fun load(context: Context, modelId: String): AdapterData? {
+        val assetName = "$modelId.adapter.json"
         val loaded = try {
-            val raw = context.assets.open(ASSET_NAME)
+            val raw = context.assets.open(assetName)
                 .use { it.readBytes().toString(Charsets.UTF_8) }
             parse(raw)
         } catch (e: Exception) {
-            Log.w(TAG, "加载适配配置失败（assets 缺失/读取异常），使用硬编码常量兜底: ${e.message}")
+            Log.w(TAG, "加载适配配置失败（assets 缺失/读取异常: $assetName），使用硬编码常量兜底: ${e.message}")
             null
         }
         synchronized(lock) { cached = loaded }

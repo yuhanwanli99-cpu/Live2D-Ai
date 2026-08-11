@@ -32,8 +32,9 @@ import org.robolectric.annotation.Config
  * - A12 唯一 default：all.filter{it.default} size==1 && id==`bai`
  * - A13 bai 与 niziiro_mao 的 description 无 U+FFFD、UTF-8 往返一致
  *
- * 兜底（fallback）语义 = FALLBACK_ENTRY 当前值 **niziiro_mao 不变**（契约 §1 明示，
- * A2 模块不改 FALLBACK；仅异常路径，改动最小）。
+ * 兜底（fallback）语义 = FALLBACK_ENTRY 当前值 **bai**（契约 M-AND §2.1 + D3 定案：
+ * 兜底默认 = registry 默认 = SettingsRepository DEFAUTF_MODEL = bai，C32 直通）。
+ * 仅异常路径（load 异常/空数组/损坏 JSON/全不可用）；G4 修复后期望 bai。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class, sdk = [34])
@@ -178,17 +179,18 @@ class ModelRegistryTest {
     }
 
     @Test
-    fun parse_corruptJson_returnsFallbackWithOnlyNiziiroMao() {
-        // 兜底语义 = FALLBACK_ENTRY 当前值 niziiro_mao 不变（契约 §1）
+    fun parse_corruptJson_returnsFallbackWithOnlyBai() {
+        // 兜底语义 = FALLBACK_ENTRY（G4 修复后 = bai）（contract-M-AND §2.1/D3 + D6）
         val registry = ModelRegistry.parse("{ this is not valid json !!!")
         val all = registry.getAll()
         assertEquals(
-            "损坏 JSON 应回退为只含 niziiro_mao 的兜底实例（FALLBACK_ENTRY 不变）",
-            listOf("niziiro_mao"),
+            "损坏 JSON 应回退为只含 bai 的兜底实例（FALLBACK_ENTRY=bai）",
+            listOf("bai"),
             all.map { it.id }
         )
         val fallback = all[0]
-        assertEquals("niziiro_mao/runtime/niziiro_mao.model3.json", fallback.model3JsonPath)
+        assertEquals("bai", fallback.id)
+        assertEquals("bai/runtime/bai.model3.json", fallback.model3JsonPath)
         assertTrue(fallback.available)
         assertTrue(fallback.default)
     }
@@ -196,7 +198,7 @@ class ModelRegistryTest {
     @Test
     fun parse_emptyModelsArray_returnsFallback() {
         val registry = ModelRegistry.parse("""{"version":"1.0","models":[]}""")
-        assertEquals(listOf("niziiro_mao"), registry.getAll().map { it.id })
+        assertEquals("空数组应回退为只含 bai 的兜底实例（FALLBACK_ENTRY=bai）", listOf("bai"), registry.getAll().map { it.id })
     }
 
     @Test
@@ -303,7 +305,7 @@ class ModelRegistryTest {
     }
 
     @Test
-    fun getDefault_allUnavailableOrPcOnly_fallsBackToHardcodedNiziiroMao() {
+    fun getDefault_allUnavailableOrPcOnly_fallsBackToHardcodedBai() {
         val json = """
             {
               "version": "1.0",
@@ -313,17 +315,30 @@ class ModelRegistryTest {
             }
         """.trimIndent()
         val fallback = ModelRegistry.parse(json).getDefault()
-        // 兜底 = FALLBACK_ENTRY 当前值 niziiro_mao 不变（契约 §1）
-        assertEquals("niziiro_mao", fallback.id)
-        assertEquals("niziiro_mao/runtime/niziiro_mao.model3.json", fallback.model3JsonPath)
+        // 兜底 = FALLBACK_ENTRY = bai（G4，contract-M-AND §2.1 + D3）
+        assertEquals("bai", fallback.id)
+        assertEquals("bai/runtime/bai.model3.json", fallback.model3JsonPath)
     }
 
     @Test
-    fun getDefault_onFallbackInstance_returnsNiziiroMao() {
-        // FALLBACK_ENTRY 当前值 niziiro_mao（契约 §1，A2 模块不改 FALLBACK）
+    fun getDefault_onFallbackInstance_returnsBai() {
+        // FALLBACK_ENTRY = bai（G4，contract-M-AND §2.1 + D3）
         val registry = ModelRegistry.fallback()
-        assertEquals("niziiro_mao", registry.getDefault().id)
+        assertEquals("bai", registry.getDefault().id)
         assertTrue(registry.getDefault().available)
+    }
+
+    @Test
+    fun B2_fallbackEntry_matchesRegistryDefault_bai() {
+        // B2/B8 = C32 直通：fallback() 构造的实例 getDefault().id == registry default == "bai"
+        //（契约 M-AND §2.1 约束：FALLBACK_ENTRY.id == "bai"；fallback() 实例 getDefault().id == "bai"）
+        val fallback = ModelRegistry.fallback()
+        assertEquals("fallback() 实例 getDefault().id 应为 bai（FALLBACK_ENTRY），现状 niziiro_mao（G4）", "bai", fallback.getDefault().id)
+        assertEquals("bai/runtime/bai.model3.json", fallback.getDefault().model3JsonPath)
+
+        // 与正常 registry default 一致（C32 三源统一 bai）
+        val registryDefault = ModelRegistry.load(context).getDefault().id
+        assertEquals("FALLBACK 兜底默认应与 registry 正常默认一致（C32 直通）", registryDefault, fallback.getDefault().id)
     }
 
     // ─────────────────────────────────────────────────────────────
