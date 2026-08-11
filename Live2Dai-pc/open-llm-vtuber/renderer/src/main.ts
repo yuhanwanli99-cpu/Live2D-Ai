@@ -24,6 +24,7 @@
  */
 import { Application } from 'pixi.js';
 import { WsBridge } from './ws-bridge';
+import { initChatPanel } from './chat-ui';
 import { ParamArbiter } from './param-arbiter';
 import { EmotionConsumer } from './emotion-consumer';
 import { LipSync } from './lip-sync';
@@ -313,13 +314,35 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   wsBridge.onModelChange = (modelInfo) => {
     void handleModelChange(modelInfo);
   };
-  wsBridge.onSubtitle = (text) => {
-    console.debug(
-      '[renderer] subtitle:',
-      text.name ? `[${text.name}] ` : '',
-      text.text,
-    );
-  };
+
+  // ---- 聊天面板（spoq-fix：双端对话框；直播/微信风格右侧面板） ----
+  const chatHost = document.getElementById('chat');
+  if (chatHost) {
+    const chatPanel = initChatPanel(chatHost, {
+      onSend: (text) => wsBridge.sendText(text),
+    });
+    chatPanel.addMessage({ role: 'system', content: '连接服务器中…（WS 握手）' });
+    wsBridge.onSubtitle = (text) => {
+      if (text?.text) chatPanel.addMessage({ role: 'assistant', content: text.text });
+    };
+    wsBridge.onConnectionChange = (connected) => {
+      chatPanel.setConnected(connected);
+      if (connected) {
+        chatPanel.addMessage({ role: 'system', content: '已连接，可以开始聊天' });
+      } else {
+        chatPanel.addMessage({ role: 'system', content: '连接断开，重连中…' });
+      }
+    };
+  } else {
+    // 无聊天容器（测试环境）→ 字幕仍走 console
+    wsBridge.onSubtitle = (text) => {
+      console.debug(
+        '[renderer] subtitle:',
+        text.name ? `[${text.name}] ` : '',
+        text.text,
+      );
+    };
+  }
   wsBridge.connect();
 
   // ---- 窗口处理：resize 重应用相机（构图跟随）；beforeunload 主动断开 WS ----

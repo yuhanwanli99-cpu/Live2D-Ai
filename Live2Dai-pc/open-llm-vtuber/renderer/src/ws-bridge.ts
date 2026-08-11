@@ -24,6 +24,8 @@ export class WsBridge {
   onModelChange: ((modelInfo: ModelInfo) => void) | null = null;
   /** 字幕回调（"audio" → display_text） */
   onSubtitle: ((text: DisplayText) => void) | null = null;
+  /** 连接状态回调（onopen/onclose，聊天面板状态指示用） */
+  onConnectionChange: ((connected: boolean) => void) | null = null;
 
   private url: string;
   private ws: WebSocket | null = null;
@@ -55,6 +57,7 @@ export class WsBridge {
     this.ws = ws;
     ws.onmessage = (event: MessageEvent) => this._handleRaw(event);
     ws.onclose = () => {
+      this.onConnectionChange?.(false);
       if (this.manuallyClosed) return;
       this.ws = null;
       this._scheduleReconnect();
@@ -65,6 +68,7 @@ export class WsBridge {
     };
     ws.onopen = () => {
       this.reconnectAttempts = 0; // 连接成功：重置退避计数
+      this.onConnectionChange?.(true);
     };
   }
 
@@ -80,6 +84,20 @@ export class WsBridge {
       }
       this.ws = null;
     }
+  }
+
+  /**
+   * 发送聊天文本（spoq-fix：PC 端对话框）。
+   * 后端 WS 协议：{"type":"text-input","text":...}（proxy_handler / ws_utils 处理）。
+   * 未连接时静默丢弃（聊天面板应提示未连接）。
+   * @returns 是否已发送（false = 未连接）
+   */
+  sendText(text: string): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    this.ws.send(JSON.stringify({ type: 'text-input', text }));
+    return true;
   }
 
   /** 是否已建立连接（readyState === WebSocket.OPEN） */
