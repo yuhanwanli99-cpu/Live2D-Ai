@@ -273,6 +273,7 @@ character_config:
   # =================== Text to Speech ===================
   tts_config:
     tts_model: 'edge_tts'
+    concurrency_limit: 2  # 段级 TTS 合成并发上限（spoq-fix P2-3）
     # text to speech model options:
     #   'azure_tts', 'pyttsx3_tts', 'edge_tts', 'bark_tts',
     #   'cosyvoice_tts', 'melo_tts', 'coqui_tts', 'piper_tts',

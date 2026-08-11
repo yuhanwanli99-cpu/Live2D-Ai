@@ -114,7 +114,12 @@ async def process_single_conversation(
         str: Complete response text
     """
     # Create TTSTaskManager for this conversation
-    tts_manager = TTSTaskManager()
+    # P2-3 (spoq-fix): 段级并发上限从 conf 读取（防御 None → 默认 2）
+    _tts_conf = getattr(context, "character_config", None)
+    _tts_conf = getattr(_tts_conf, "tts_config", None) if _tts_conf else None
+    tts_manager = TTSTaskManager(
+        concurrency_limit=getattr(_tts_conf, "concurrency_limit", 2) or 2
+    )
     full_response = ""  # Initialize full_response here
     mood_engine = getattr(context, "mood_engine", None)
 

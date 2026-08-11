@@ -768,6 +768,9 @@ class TTSConfig(I18nMixin):
         "piper_tts",
     ] = Field(..., alias="tts_model")
 
+    # P2-3 (spoq-fix): 段级 TTS 合成并发上限（TTSTaskManager 信号灯），默认 2，≥1
+    concurrency_limit: int = Field(2, alias="concurrency_limit", ge=1)
+
     azure_tts: Optional[AzureTTSConfig] = Field(None, alias="azure_tts")
     bark_tts: Optional[BarkTTSConfig] = Field(None, alias="bark_tts")
     edge_tts: Optional[EdgeTTSConfig] = Field(None, alias="edge_tts")

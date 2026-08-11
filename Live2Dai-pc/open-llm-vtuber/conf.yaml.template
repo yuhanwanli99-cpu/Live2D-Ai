@@ -75,6 +75,7 @@ character_config:
 
   tts_config:
     tts_model: 'edge_tts'
+    concurrency_limit: 2  # 段级 TTS 合成并发上限（spoq-fix P2-3）
     edge_tts:
       voice: 'zh-CN-XiaoxiaoNeural'
     # V1.2 新增: 阿里云 DashScope CosyVoice 云端 TTS（中国大陆直连，可选）

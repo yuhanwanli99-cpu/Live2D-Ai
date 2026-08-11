@@ -495,3 +495,54 @@ class TestOverallTimeout:
         # 超时后应已返回，且远小于慢合成的 10s
         assert elapsed_ms < 1000, f"flush 超时未生效，阻塞了 {elapsed_ms:.0f}ms"
         patcher.stop()
+
+
+# ---------------------------------------------------------------------------
+# spoq-fix P2-3（M-A4/M-A5）：concurrency_limit 配置解析 + 串行行为
+# ---------------------------------------------------------------------------
+
+class TestConcurrencyLimitConfig:
+    """M-A4：conf.yaml tts_config.concurrency_limit 默认 2 / 可覆盖 / ge=1 非法拒绝"""
+
+    def test_default_is_two(self):
+        from open_llm_vtuber.config_manager.tts import TTSConfig
+        cfg = TTSConfig(tts_model="edge_tts")
+        assert cfg.concurrency_limit == 2
+
+    def test_custom_value_accepted(self):
+        from open_llm_vtuber.config_manager.tts import TTSConfig
+        cfg = TTSConfig(tts_model="edge_tts", concurrency_limit=5)
+        assert cfg.concurrency_limit == 5
+
+    def test_ge_one_rejects_zero(self):
+        import pydantic
+        from open_llm_vtuber.config_manager.tts import TTSConfig
+        with pytest.raises(pydantic.ValidationError):
+            TTSConfig(tts_model="edge_tts", concurrency_limit=0)
+
+
+class TestConcurrencyLimitOneSerial:
+    """M-A5：concurrency_limit=1 → 两段并发合成串行（峰值 ≤ 1）"""
+
+    def test_limit_one_serializes_synthesis(self, manager_factory):
+        engine = FakeTTSEngine(delay=0.03)
+        manager, ws_send, messages, patcher = manager_factory(
+            engine, concurrency_limit=1
+        )
+
+        async def scenario():
+            for i in range(1, 3):
+                await manager.speak_async(
+                    tts_text=f"段{i}", display_text=_make_display_text(f"段{i}"),
+                    actions=_make_actions(), emotion="joy", mood_tier="happy",
+                    sequence_number=i, websocket_send=ws_send,
+                )
+            await manager.flush()
+
+        asyncio.run(scenario())
+
+        assert len(engine.calls) == 2
+        assert engine.max_active <= 1, (
+            f"concurrency_limit=1 被突破：观测到 {engine.max_active} 个并行合成"
+        )
+        patcher.stop()
