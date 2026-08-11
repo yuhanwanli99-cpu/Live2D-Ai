@@ -104,4 +104,8 @@ Live2Dai-pc/open-llm-vtuber/frontend/assets/*.css
 .pi-glla/
 .pi-lens.json
 spoq/work/
-renderer/public/libs/
+Live2Dai-pc/open-llm-vtuber/renderer/public/libs/
+
+# renderer 调试/构建残留（spoq-fix 出仓）
+Live2Dai-pc/open-llm-vtuber/renderer/_bcheck.mjs
+Live2Dai-pc/open-llm-vtuber/renderer/public/
