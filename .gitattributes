@@ -1,0 +1,30 @@
+# 行尾归一化（spoq-fix 批次2 P2-7）：文本统一 LF，二进制显式 binary
+* text=auto
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.py text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.ps1 text eol=lf
+*.sh text eol=lf
+*.bat text eol=lf
+*.properties text eol=lf
+*.gradle text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.apk binary
+*.aar binary
+*.jar binary
+*.zip binary
+*.moc3 binary
+*.jsonl binary
