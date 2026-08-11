@@ -37,6 +37,11 @@ class CORSStaticFiles(StarletteStaticFiles):
         if path.endswith(".js"):
             response.headers["Content-Type"] = "application/javascript"
 
+        # spoq-fix：禁用缓存——前端频繁迭代（bundle hash 变化），缓存的 index.html 会引用旧 bundle
+        # 导致用户看到旧版页面（如缺失聊天面板）。etag 协商仍允许 304，但不再长期缓存。
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+
         return response
 
 
