@@ -3,7 +3,7 @@
 	"FileReferences": {
 		"Moc": "bai.moc3",
 		"Textures": [
-			"bai.16384/texture_00.png"
+			"bai.16384/texture_00_4096.png"
 		],
 		"Physics": "bai.physics3.json",
 		"DisplayInfo": "bai.cdi3.json"

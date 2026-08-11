@@ -237,7 +237,10 @@ class Live2DRenderer(
             viewHalfW * 2f, viewHalfH * 2f,
             canvasWidth, canvasHeight
         )
-        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[2], bounds[3], -1f, 1f)
+        // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
+        // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
+        // 之前传 bounds[2]/bounds[3]（top/bottom）→ 投影 y 轴翻转 → 真机渲染上下颠倒（spoq-fix 真机修复）。
+        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[3], bounds[2], -1f, 1f)
     }
 
     /**
@@ -267,7 +270,10 @@ class Live2DRenderer(
             viewHalfW * 2f, viewHalfH * 2f,
             canvasWidth, canvasHeight
         )
-        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[2], bounds[3], -1f, 1f)
+        // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
+        // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
+        // 之前传 bounds[2]/bounds[3]（top/bottom）→ 投影 y 轴翻转 → 真机渲染上下颠倒（spoq-fix 真机修复）。
+        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[3], bounds[2], -1f, 1f)
     }
 
     override fun onDrawFrame(gl: GL10?) {
