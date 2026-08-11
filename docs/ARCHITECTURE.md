@@ -24,7 +24,7 @@
 ## 目录结构
 
 ```
-F:\Live2Dai\
+Live2Dai\
 ├── shared/                      ← 跨平台共享配置（单源真理）
 │   ├── persona.yaml             ← 人设（name/system_prompt/model/temperature）
 │   ├── mcp_tools.json           ← MCP 工具定义（time/ddg-search/weather/...）

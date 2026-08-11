@@ -83,8 +83,8 @@ Write-Host ""
 Write-Host "╔════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║         Live2Dai -- 后端启动器                ║" -ForegroundColor Cyan
 Write-Host "╠════════════════════════════════════════════════╣" -ForegroundColor Cyan
-Write-Host "║ LLM: DeepSeek V4 Flash | GLM-4.6V (视觉)    ║" -ForegroundColor Cyan
-Write-Host "║ TTS: Edge TTS (免费)    ASR: faster-whisper  ║" -ForegroundColor Cyan
+Write-Host "║ LLM: DeepSeek (本地 Key) | GLM-4.7-Flash     ║" -ForegroundColor Cyan
+Write-Host "║ TTS: cosyvoice_cloud   ASR: faster-whisper    ║" -ForegroundColor Cyan
 Write-Host "║ FPS: 120  端口: 12393  人设: 凛              ║" -ForegroundColor Cyan
 Write-Host "╚════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
@@ -409,7 +409,7 @@ function Show-SummaryPanel {
     }
 
     Write-Host "╠══════════════════════════════════════════════════╣" -ForegroundColor Cyan
-    Write-Host "║  模式: 独立直连 API | 端口: 12393 | TTS: Edge  ║" -ForegroundColor Cyan
+    Write-Host "║  模式: 独立直连 API | 端口: 12393 | TTS: cosy  ║" -ForegroundColor Cyan
     Write-Host "║  🖥️ 开始聊天: 浏览器打开 http://localhost:12393  ║" -ForegroundColor Green
     Write-Host "╚══════════════════════════════════════════════════╝" -ForegroundColor Cyan
 

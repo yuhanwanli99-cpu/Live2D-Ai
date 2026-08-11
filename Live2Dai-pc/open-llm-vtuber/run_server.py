@@ -21,10 +21,10 @@ from open_llm_vtuber.config_manager.main import Config
 
 
 def _resolve_shared_path(config_path: str) -> str:
-    """Resolve 'shared/xxx' relative to the actual F:/Live2Dai/shared/ directory.
-    Two levels up from open-llm-vtuber/ -> F:/Live2Dai"""
+    """Resolve 'shared/xxx' relative to the project root shared/ directory.
+    Two levels up from open-llm-vtuber/ -> project root (Live2Dai/)"""
     if config_path.startswith("shared/"):
-        base = os.path.dirname(os.path.dirname(_project_root))  # F:\Live2Dai
+        base = os.path.dirname(os.path.dirname(_project_root))  # 项目根 Live2Dai/
         return os.path.join(base, config_path)
     return config_path
 

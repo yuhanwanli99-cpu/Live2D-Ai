@@ -60,7 +60,7 @@
 ## 项目结构
 
 ```
-F:\Live2Dai\
+Live2Dai\
 ├── shared/                  ← ★ 跨平台共享配置（单源真理）
 │   ├── persona.yaml         ←   人设（编辑此文件影响两端）
 │   ├── mcp_tools.json       ←   MCP 工具定义

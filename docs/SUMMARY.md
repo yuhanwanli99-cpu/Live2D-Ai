@@ -130,7 +130,7 @@
 ### Windows 桌面端
 
 ```powershell
-cd F:\Live2Dai\desktop
+cd Live2Dai\desktop
 .\start.ps1
 # 浏览器访问 http://localhost:12393/
 ```
@@ -138,7 +138,7 @@ cd F:\Live2Dai\desktop
 ### Android 端
 
 ```bash
-cd F:\Live2Dai\Live2Dai-Android
+cd Live2Dai\Live2Dai-Android
 ./gradlew assembleDebug
 # 部署: adb install app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -147,7 +147,7 @@ cd F:\Live2Dai\Live2Dai-Android
 
 ```bash
 cd Live2Dai-Android && ./gradlew test
-cd F:\Live2Dai && python -m pytest tests/
+cd Live2Dai && python -m pytest tests/
 ```
 
 ---
@@ -155,7 +155,7 @@ cd F:\Live2Dai && python -m pytest tests/
 ## 文件结构
 
 ```
-F:\Live2Dai\
+Live2Dai\
 ├── AGENT.md              ← AI 辅助开发指南
 ├── AGENTS.md             ← SPOQ 编排规则
 ├── PLAN.md               ← 架构规划

@@ -270,13 +270,11 @@ dependencies {
     // SnakeYAML for parsing persona.yaml
     implementation("org.yaml:snakeyaml:2.0")
 
-    // Live2D Cubism SDK (local AAR — 放在 app/libs/ 目录下)
-    // 从 Live2D 官网下载 Cubism SDK for Android，放入 libs/ 目录即可自动生效
-    // 如果未下载 SDK，此行不会报错（fileTree 在目录为空时自动跳过）
-    // 代码在运行时会检测 native 库是否可用，不可用时自动降级到占位渲染
-    // sherpa-onnx 引擎 AAR（V1.2 模块3/4，sherpa-onnx-1.13.4.aar）同样经此自动引入：
-    // 缺失时条件源码集不编译（见上方 sherpa-onnx 条件源码集段），构建仍通过。
-    implementation(fileTree("libs") { include("*.aar") })
+// Live2D Cubism native 由 CMake 编译 Purism Core（MIT，app/src/main/cpp/）提供，与 libs/ AAR 无关
+// （spoq-fix G7：历史“AAR 缺失→降级占位”表述已移除——liblive2dcubismcore.so 由 NDK 构建打包进 APK）
+// libs/ 下仅 sherpa-onnx 引擎 AAR（V1.2 模块3/4，sherpa-onnx-1.13.4.aar）经此自动引入：
+// 缺失时条件源码集不编译（见上方 sherpa-onnx 条件源码集段），构建仍通过。
+implementation(fileTree("libs") { include("*.aar") })
 
     // Core Android
     implementation("androidx.core:core-ktx:1.15.0")
