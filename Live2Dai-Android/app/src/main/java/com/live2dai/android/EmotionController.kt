@@ -133,7 +133,7 @@ class EmotionController(
 
         // 正则表达式：[emotion] 标签，惰性匹配 + 可选强度后缀 [_数字]
         // [joy_3] → group1=joy, group2=3（强度）；[joy] → group1=joy, group2=null
-        private val EMOTION_TAG_REGEX = Regex("""\[(\w+?)(?:_(\d+))?]""")
+        private val EMOTION_TAG_REGEX = Regex("""\[(\w+?)(?:_(\d+))?\]""")
 
         // ── M2 结构化表情 JSON（emotion-protocol.md B 段）──
 
@@ -141,8 +141,8 @@ class EmotionController(
         private val JSON_FENCE_REGEX =
             Regex("""```(?:json)?\s*(\{.*?\})\s*```""", RegexOption.DOT_MATCHES_ALL)
 
-        // NAKED：首个 { 到末个 } 的跨行子串
-        private val JSON_NAKED_REGEX = Regex("""\{.*}""", RegexOption.DOT_MATCHES_ALL)
+        // NAKED：首个 { 到末个 } 的跨行子串（\} 必须转义：Android ICU Pattern 对未转义 } 报错，JVM 宽容）
+        private val JSON_NAKED_REGEX = Regex("""\{.*\}""", RegexOption.DOT_MATCHES_ALL)
 
         // motionLabel 别名白名单（emotion-protocol.md F 段：niziiro_mao 别名表；
         // 未知别名 → 置 null，M1 §1 C4）
