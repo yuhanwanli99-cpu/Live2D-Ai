@@ -414,17 +414,14 @@ class ModelMetaConfig(
          * 从所有参数中匹配已知的呼吸参数 ID，使用 SDK 参考实现的默认值。
          */
         private fun resolveBreathParams(paramMetas: List<ParameterMeta>): List<BreathParamDef> {
+            // spoq-fix：呼吸只驱动胸部（ParamBreath）——官方默认把 ParamAngleX/Y/Z（头部旋转）
+            // 也归入呼吸（±15°），在 bai 等模型上视觉为“头部正弦摆动”，用户实锤异常。
+            // 头部姿态由 motion/表情控制，呼吸语义 = 胸部起伏。
             val knownBreathIds = setOf(
-                "ParamAngleX", "ParamAngleY", "ParamAngleZ",
-                "ParamBodyAngleX", "ParamBreath"
+                "ParamBreath"
             )
 
-            // 默认呼吸值（来自 Cubism SDK 参考实现）
             val breathDefaults = mapOf(
-                "ParamAngleX" to BreathParamDef(0, "ParamAngleX", 0.0f, 15.0f, 6.5345f, 0.5f),
-                "ParamAngleY" to BreathParamDef(0, "ParamAngleY", 0.0f, 8.0f, 3.5345f, 0.5f),
-                "ParamAngleZ" to BreathParamDef(0, "ParamAngleZ", 0.0f, 10.0f, 5.5345f, 0.5f),
-                "ParamBodyAngleX" to BreathParamDef(0, "ParamBodyAngleX", 0.0f, 4.0f, 15.5345f, 0.5f),
                 "ParamBreath" to BreathParamDef(0, "ParamBreath", 0.5f, 0.5f, 3.2345f, 0.5f)
             )
 

@@ -530,11 +530,9 @@ class BreathManager {
     }
 
     /** 默认呼吸参数（用于模型无可用的 cdi3.json 时） */
+    // spoq-fix：呼吸只驱动胸部（ParamBreath）——移除 ParamAngleX/Y/Z（头部旋转）与
+    // ParamBodyAngleX：它们在 bai 等模型上表现为头部正弦摆动（用户实锤异常）。
     private val defaultBreathParams = listOf(
-        BreathParam("ParamAngleX", offset = 0.0f, peak = 15.0f, cycle = 6.5345f, weight = 0.5f),
-        BreathParam("ParamAngleY", offset = 0.0f, peak = 8.0f, cycle = 3.5345f, weight = 0.5f),
-        BreathParam("ParamAngleZ", offset = 0.0f, peak = 10.0f, cycle = 5.5345f, weight = 0.5f),
-        BreathParam("ParamBodyAngleX", offset = 0.0f, peak = 4.0f, cycle = 15.5345f, weight = 0.5f),
         BreathParam("ParamBreath", offset = 0.5f, peak = 0.5f, cycle = 3.2345f, weight = 0.5f)
     )
 
