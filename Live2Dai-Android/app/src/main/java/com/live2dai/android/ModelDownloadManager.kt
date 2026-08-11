@@ -138,7 +138,7 @@ class ModelDownloadManager(
             name = "Kokoro 离线 TTS",
             fileName = "kokoro-int8-multi-lang-v1_0.tar.bz2",
             url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2",
-            expectedSha256 = null, // TODO 待验证：下载完成后用 sha256sum 回填
+            expectedSha256 = null, // TODO(sha256-待补)：GitHub 大文件在本地网络下载不稳定（多轮失败）；有稳定网络时下载后 sha256sum 回填（禁止猜 hash）
             sizeBytes = 82L * 1024 * 1024,
             modelFileCandidates = listOf("model.onnx", "model.int8.onnx"),
             requiredCompanions = listOf("tokens.txt"),
@@ -150,7 +150,7 @@ class ModelDownloadManager(
             name = "SenseVoice 离线 ASR",
             fileName = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
             url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-            expectedSha256 = null, // TODO 待验证
+            expectedSha256 = null, // TODO(sha256-待补)：同上——与 Kokoro 同批回填
             sizeBytes = 163L * 1024 * 1024,
             // int8 版本解压后模型文件名为 model.int8.onnx（官方 java 示例确认）
             modelFileCandidates = listOf("model.int8.onnx", "model.onnx"),
