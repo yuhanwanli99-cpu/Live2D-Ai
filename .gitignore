@@ -99,3 +99,9 @@ Live2Dai-debug*.apk
 # 前端编译产物（spoq-fix：出仓，构建时生成）
 Live2Dai-pc/open-llm-vtuber/frontend/assets/*.js
 Live2Dai-pc/open-llm-vtuber/frontend/assets/*.css
+
+# 运行时/agent 状态与产物（spoq-fix 出仓）
+.pi-glla/
+.pi-lens.json
+spoq/work/
+renderer/public/libs/

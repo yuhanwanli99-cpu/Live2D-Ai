@@ -72,8 +72,8 @@ class TestDesktopConfig(unittest.TestCase):
         ag = self.config["character_config"]["agent_config"]
         self.assertEqual(ag["conversation_agent_choice"], "basic_memory_agent")
         bma = ag["agent_settings"]["basic_memory_agent"]
-        # 零配置默认走免费 GLM-4.7-Flash（与 Android 端一致）
-        self.assertEqual(bma["llm_provider"], "zhipu_free_llm")
+        # 默认 DeepSeek（本地 .env 配置 DEEPSEEK_API_KEY；密钥不提交，spoq-fix M-SEC）
+        self.assertEqual(bma["llm_provider"], "deepseek_llm")
         self.assertFalse(bma["use_mcpp"])
         self.assertEqual(bma["mcp_enabled_servers"], [])
 

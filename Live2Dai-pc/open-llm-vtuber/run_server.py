@@ -9,6 +9,10 @@ import os
 import asyncio
 import uvicorn
 import yaml
+from dotenv import load_dotenv
+
+# 本地密钥：仓库根 .env（gitignored；不存在则静默跳过）——必须在读取配置前加载
+load_dotenv()
 
 _project_root = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_project_root)

@@ -34,8 +34,8 @@ class LLMFactory:
             or llm_provider == "mistral_llm"
             or llm_provider == "lmstudio_llm"
         ):
-            # 零配置默认 Provider：llm_api_key 为空/未解析的 ${VAR} 占位符时回退到
-            # 内置共享免费 GLM-4.7-Flash Key（free_glm_defaults.py），开箱即用。
+            # 零配置默认 Provider：llm_api_key 为空/未解析的 ${VAR} 占位符时
+            # resolve_llm_api_key 抛明确报错（本地配置 key，见 free_glm_defaults.py）。
             api_key = kwargs.get("llm_api_key")
             if llm_provider == "zhipu_free_llm":
                 api_key = resolve_llm_api_key(api_key)

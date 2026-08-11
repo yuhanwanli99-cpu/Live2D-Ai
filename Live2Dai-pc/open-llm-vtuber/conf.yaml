@@ -31,9 +31,9 @@ character_config:
     conversation_agent_choice: 'basic_memory_agent'
     agent_settings:
       basic_memory_agent:
-        # 零配置默认：免费 GLM-4.7-Flash 兜底（无需先填 API Key）。
-        # 需要更高并发时可改为 'deepseek_llm' 并配置自己的 DEEPSEEK_API_KEY。
-        llm_provider: 'zhipu_free_llm'
+        # 默认 DeepSeek（本地 .env 配置 DEEPSEEK_API_KEY；密钥不提交）。
+        # 也可改为 'zhipu_free_llm' 并配置自己的 ZHIPU_API_KEY。
+        llm_provider: 'deepseek_llm'
         faster_first_response: true
         segment_method: 'priority'
         use_mcpp: false

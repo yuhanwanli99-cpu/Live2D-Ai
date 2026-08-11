@@ -53,7 +53,7 @@ Live2Dai = Live2D + AI。项目的全部意义只有一件事：**验证「最�
 
 **文本 → LLM → 表情/动作**：
 
-- 零配置聊天：安装后无需配置任何 API Key 即可直接开始聊天——默认使用智谱 **GLM-4.7-Flash**（永久免费模型）作为兜底聊天模型；升级路径为 **DeepSeek**（个人账号限 1 并发；请求过于频繁时应用内会提示"请稍后重试"；应用内设置页开发中/部分实现）
+- 本地配置聊天（密钥不提交）：在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（PC 端）或 `Live2Dai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（Android 端，build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**；也可改 `ZHIPU_API_KEY` 走智谱 **GLM-4.7-Flash**（永久免费模型）。密钥只存在于 gitignored 本地文件，不进入 git 历史
 - LLM 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
 
 **Live2D 渲染（开源核心）**：
@@ -374,7 +374,7 @@ cd Live2Dai-Android && ./gradlew test
 
 > **旧 V1 = 「文本输入 → LLM → Live2D 做出相关回应（表情/动作）」，可正常对话即达成。（不代表当前 v1 达成）**
 
-- **核心链路**：文本输入 → LLM（零配置 GLM-4.7-Flash 免费兜底 / DeepSeek 升级路径）→ 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
+- **核心链路**：文本输入 → LLM（本地配置 key：DeepSeek 默认 / GLM-4.7-Flash 可选）→ 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
 - **Android 端**：Kotlin + Compose + Purism Core（MIT），真机 vivo V2254A 验收通过——logcat 证据 `EmotionController: setEmotion: joy -> expressionIndex=5`
 - **PC 端**：Open-LLM-VTuber 后端（:12393）+ React 前端，验收通过——WS 证据 `[joy]→expressions[3]`、`[anger]→expressions[2]`
 - **验收顺带修复 2 个 P0**（commit `d2f1904`）：① 表情链路断线（插件化重构回归，EmotionController 未接线）② LazyColumn key 哈希碰撞崩溃
