@@ -59,7 +59,7 @@ character_config:
         temperature: 1.0
 
   asr_config:
-    asr_model: 'faster_whisper'
+    asr_model: 'disabled'  # 语音输入默认关闭（避免首次启动下载大模型）；启用改为 faster_whisper 并配置 model_path
     faster_whisper:
       model_path: 'large-v3-turbo'
       download_root: 'models/whisper'

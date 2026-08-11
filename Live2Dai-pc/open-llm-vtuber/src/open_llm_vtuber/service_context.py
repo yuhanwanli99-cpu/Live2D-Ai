@@ -388,6 +388,10 @@ class ServiceContext:
         return "niziiro_mao"
 
     def init_asr(self, asr_config: ASRConfig) -> None:
+        if asr_config.asr_model == "disabled":
+            self.asr_engine = None
+            logger.info("ASR disabled (asr_model='disabled'; 启用需在 conf.yaml 改为 faster_whisper 等并配置模型)")
+            return
         if not self.asr_engine or (self.character_config.asr_config != asr_config):
             logger.info(f"Initializing ASR: {asr_config.asr_model}")
             self.asr_engine = ASRFactory.get_asr_system(

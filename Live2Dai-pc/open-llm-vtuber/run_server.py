@@ -1,5 +1,5 @@
 """Launcher script for Open-LLM-VTuber server (Live2Dai slimmed, no-gateway).
-- Resolves shared/ paths to F:\Live2Dai\shared\ (cross-platform config)
+- Resolves shared/ paths to the project root shared/ (cross-platform config)
 - Pre-loads persona from shared/persona.yaml into persona_prompt
 - All API calls go directly to DeepSeek / GLM (no gateway)
 """
@@ -11,17 +11,20 @@ import uvicorn
 import yaml
 from dotenv import load_dotenv
 
-# 本地密钥：仓库根 .env（gitignored；不存在则静默跳过）——必须在读取配置前加载
-load_dotenv()
-
 _project_root = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_project_root)
+
+# 本地密钥：仓库根 .env（gitignored；不存在则静默跳过）——必须在读取配置前加载。
+# load_dotenv 默认找 cwd（open-llm-vtuber/），而 .env 在项目根 → 显式指定绝对路径。
+_PROJECT_BASE = os.path.dirname(os.path.dirname(_project_root))  # 项目根 Live2Dai/（上两级）
+load_dotenv(os.path.join(_PROJECT_BASE, ".env"))
 
 sys.path.insert(0, os.path.join(_project_root, "src"))
 sys.path.insert(0, _project_root)
 
 from open_llm_vtuber.server import WebSocketServer
 from open_llm_vtuber.config_manager.main import Config
+from open_llm_vtuber.config_manager.utils import read_yaml  # 带 ${VAR} 环境替换的配置读取
 
 
 def _resolve_shared_path(config_path: str) -> str:
@@ -73,8 +76,7 @@ async def main():
     print("[Live2Dai] Starting Open-LLM-VTuber server (direct-API mode, no gateway)...")
     print(f"[Live2Dai] Working directory: {_project_root}")
 
-    with open("conf.yaml", "r", encoding="utf-8") as f:
-        config_dict = yaml.safe_load(f)
+    config_dict = read_yaml("conf.yaml")  # read_yaml 完成 ${DEEPSEEK_API_KEY} 等环境变量替换（yaml.safe_load 不替换）
 
     # Pre-load persona from shared/persona.yaml (no longer injected by gateway)
     persona, model_overrides = _load_persona_from_config(config_dict)
