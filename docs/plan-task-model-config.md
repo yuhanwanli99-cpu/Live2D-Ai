@@ -14,7 +14,7 @@
 
 | 位置 | 硬编码内容 | 问题 |
 | ------ | ----------- | ------ |
-| `Live2DRenderer.initParameters()` | `"PARAM_EYE_L_OPEN"`, `"PARAM_EYE_R_OPEN"` | mao_pro 用 `ParamEyeLOpen` / `ParamEyeROpen`，此代码无声失效 |
+| `Live2DRenderer.initParameters()` | `"PARAM_EYE_L_OPEN"`, `"PARAM_EYE_R_OPEN"` | niziiro_mao 用 `ParamEyeLOpen` / `ParamEyeROpen`，此代码无声失效 |
 | `AnimationPipeline` 构造 | `"PARAM_EYE_L_OPEN"`, `"PARAM_EYE_R_OPEN"` (primary) + `"ParamEyeLOpen"`, `"ParamEyeROpen"` (alt) | 硬编码了两种命名约定，第三种模型可能有第三种命名 |
 | `AnimationPipeline` 构造 | `"ParamA"`, `"ParamMouthOpenY"` | 口型同步参数名因模型而异 |
 | `BreathManager` | `"ParamAngleX"`, `"ParamAngleY"`, `"ParamAngleZ"`, `"ParamBodyAngleX"`, `"ParamBreath"` | 呼吸参数名/数量因模型而异 |
@@ -316,7 +316,7 @@ fun initialize(jsonBytes: ByteArray, partIds: Array<String>?, meta: ModelMetaCon
 
 1. 创建 `ModelMetaConfig.kt` → 实现 `parse()` 方法
 2. 在 `loadModel()` 第 5 步（buildParameterIndex 后）调用 `parse()`
-3. 单元测试：用 mao_pro 的 cdi3.json 验证解析结果
+3. 单元测试：用 niziiro_mao 的 cdi3.json 验证解析结果
 
 ### Phase 2: 替换 initParameters 硬编码
 

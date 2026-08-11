@@ -47,8 +47,8 @@
 
 | 资产 | 状态 | 详情 |
 | ------ | ------ | ------ |
-| `assets/live2d/mao_pro/` | ✅ | 主模型 (Cubism 5.0, 260 drawables) |
-| `assets/live2d/shizuku/` | ✅ | 备用模型 |
+| `assets/live2d/niziiro_mao/` | ✅ | 主模型 Niziiro Mao (Cubism 5.0, 260 drawables) |
+| `assets/live2d/shizuku/` | 🗑️ 已删除 (K1) | 不再分发 |
 | `assets/shaders/` | ✅ | 7 个 GLES 2.0 着色器 |
 | `assets/persona.yaml` | ✅ | 人设配置 |
 | `assets/mcp_tools.json` | ✅ | MCP 工具定义 |
@@ -151,7 +151,7 @@ ls -lh app/build/outputs/apk/debug/app-debug.apk
 unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "\.so$|\.moc3$|\.json$"
 
 # 确认 liblive2dcubismcore.so 在 arm64-v8a 下
-# 确认模型文件在 assets/live2d/mao_pro/ 下
+# 确认模型文件在 assets/live2d/niziiro_mao/ 下
 ```
 
 ### 3.5 Step 5: 运行单元测试 (可选但推荐)

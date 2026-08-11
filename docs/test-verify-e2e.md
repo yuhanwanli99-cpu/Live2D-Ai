@@ -95,7 +95,7 @@
 | 大面积暗块 | 仅 UI 背景区域 (深蓝紫 #0F0F23) | ✅ 预期深色主题 |
 | 红色告警像素 | 0.001% | ✅ 无错误覆盖层 |
 
-**maskCounts 分析**: `maskCounts[0..4]=0,0,0,0,0` — 全部 5 个 FBO mask 槽位为 0，表示当前帧无裁剪 mask 绘制。mao_pro 模型不依赖 FBO mask (该模型 mask drawable 数为 0)，所以 maskCounts 全零是**正常行为**。
+**maskCounts 分析**: `maskCounts[0..4]=0,0,0,0,0` — 全部 5 个 FBO mask 槽位为 0，表示当前帧无裁剪 mask 绘制。niziiro_mao 模型不依赖 FBO mask (该模型 mask drawable 数为 0)，所以 maskCounts 全零是**正常行为**。
 
 ---
 

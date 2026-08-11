@@ -14,11 +14,12 @@
 | Purism Core (cpp/purism/) | ✅ MIT | All files carry SPDX-License-Identifier: MIT |
 | Shaders (assets/shaders/) | ❌ Live2D Open Software License | NOT MIT; adapted from CubismJavaFramework |
 | Cubism SDK AAR (libs/*.aar) | ❌ Live2D Proprietary | Not bundled; user must accept separately |
-| mao_pro model | ❓ Unknown | No license file present |
-| shizuku model | ❌ Live2D Free Material License | Proprietary sample data |
+| niziiro_mao model | ✅ Free Material License | Official Niziiro Mao (PRO Version); PC ReadMe.txt 实读确认 |
+| shizuku model | 🗑️ Removed (K1) | 已删除，不再分发 |
 | Gradle deps (all) | ✅ MIT / Apache 2.0 / EPL-2.0 | All compatible with MIT distribution |
 | Root LICENSE file | ✅ Created (MIT) | `LICENSE` file created at project root |
 | CREDITS.md | ✅ Created | `CREDITS.md` with full third-party license info |
+| NOTICE (root) | ✅ Created | `NOTICE` — Apache-2.0 组件归属（N.E.K.O. 设计参考），见 §9 |
 
 ---
 
@@ -80,43 +81,35 @@ fallback to placeholder rendering.
 
 ---
 
-### 4. mao_pro Model — ❓ Unknown License
+### 4. Niziiro Mao Model — ✅ Free Material License
 
-**Location:** `assets/live2d/mao_pro/`
+**Location:** `assets/live2d/niziiro_mao/`（PC: `live2d-models/niziiro_mao/`）
+**ReadMe:** `ReadMe.txt`（官方原样，双端字节一致）
 
-**Finding:** No license file or ReadMe exists in this directory. The model's origin
-cannot be determined from the project files alone.
-
-**Risks:**
-- If it's a custom/commissioned model, it has its own license terms
-- If it's from a third-party, redistribution may require separate permission
-- Cannot be assumed to be MIT-compatible
-
-**Action required:** Verify the origin and license of the mao_pro model before
-public release.
-
----
-
-### 5. shizuku Model — ❌ Live2D Free Material License
-
-**Location:** `assets/live2d/shizuku/`
-**ReadMe:** `ReadMe.txt` (Japanese)
-
-**Finding:** The ReadMe identifies this as "しずく PRO版" — Live2D's Shizuku Pro
-sample model. It falls under the **Live2D Free Material License Agreement**
-(Live2D Original Character License).
+**Finding:** ReadMe.txt 为官方文件（实读）：模型名 **Niziiro Mao (PRO Version)**，
+许可为 **Free Material License Agreement**（Live2D Original Character），Creator =
+Live2D Inc.（Illustration/Modeling）。双端目录均含该 ReadMe。
 
 **Usage Terms:**
 - **General Users & Small-Scale Enterprises** (annual sales < ¥10M): Can use
   commercially with copyright notice.
-- **Medium/Large Enterprises** (annual sales ≥ ¥10M): **Internal use only** unless
-  a Release License is purchased.
+- **Medium/Large Enterprises** (annual sales ≥ ¥10M): Internal/Supervision use
+  only unless a Release License is purchased.
 - **Redistribution:** Model files cannot be redistributed separately — only as
   part of an integrated Derivative Work (the app).
 - **Copyright notice** must be displayed in the published work.
 
-**Impact:** The model data is proprietary. It CANNOT be released under MIT.
-Users of the project must accept the Live2D Free Material License for this model.
+**Impact:** The model data is Live2D Free Material（非 MIT）。使用须接受 Live2D
+Free Material License（registry metadata.license 已同步更新）。
+
+---
+
+### 5. shizuku Model — 🗑️ Removed (K1)
+
+**Location:** `assets/live2d/shizuku/`（PC: `live2d-models/shizuku/`）
+
+**Finding:** shizuku 实体已按 K1 定案删除（registry 条目、双端资源目录、
+model_dict 条目全量移除）。本报告历史记录保留以说明不再分发。
 
 ---
 
@@ -163,6 +156,22 @@ their licenses, and compatibility status.
 
 ---
 
+### 9. Reused / Referenced Components（复用组件表，NOTICE 联动）
+
+> 源码级「代码复用/设计参考」总表。Apache-2.0 组件的归属声明见 root
+> [`NOTICE`](../NOTICE)（Apache 2.0 §4(d)）。全部条目在 `CREDITS.md` §6 有详注。
+
+| 组件 | 许可 | 使用方式 | 证据 |
+|---|---|---|---|
+| **Open-LLM-VTuber** | MIT | 代码复用（PC 端 fork 上游） | `Live2Dai-pc/open-llm-vtuber/LICENSE`（MIT，Copyright 2025 Yi-Ting Chiu 原样保留） |
+| **N.E.K.O.** | Apache 2.0 | 设计参考（未抄代码）：v3 适配层 `emotionIndex` 借鉴其 emotion_mapping 思想 | root `NOTICE`；`shared/model-adapter/niziiro_mao.adapter.json` |
+| **pymouth** | **MIT**（⚠️ 早前误标 Apache-2.0，已更正） | 代码移植（Android `VisemeAnalyzer.kt`/`VisemeFrame.kt`：MFCC+DTW+softmax 管线、模板常量逐字拷贝，文件头 MIT 归属）+ PC 运行时依赖（pymouth 1.3.3） | `pymouth-1.3.3.dist-info/METADATA`（License :: MIT）+ LICENSE（Copyright 2024 organics） |
+| **kugutu** | MIT | 设计参考（未抄代码）：关键词→动作词表思想（G1 调研蓝本） | `.pi/spoq/search-report-g1-motion.md`；kugutu LICENSE（Copyright 2025 neka-nat） |
+| **Niziiro Mao 模型** | Live2D Free Material License | 模型资源（官方原样，双端字节一致） | `ReadMe.txt`（官方）；https://www.live2d.com/en/download/sample-data/ |
+| **shizuku 模型** | ~~Live2D Free Material License~~ | 🗑️ 已删除（K1），不再分发 | 历史记录 |
+
+---
+
 ## Issues Log
 
 ### 🔴 Issue 1: Shader Files Under Live2D Open Software License (NOT MIT)
@@ -172,11 +181,10 @@ their licenses, and compatibility status.
 - **Severity**: Critical
 - **Fix**: Add license headers to shader files acknowledging Live2D Open Software License
 
-### 🔴 Issue 2: mao_pro Model Has No License
-- **File**: `assets/live2d/mao_pro/`
-- **Problem**: No license file or ReadMe; usage terms unknown
-- **Severity**: High
-- **Fix**: Verify model origin and add license file
+### ~~🔴 Issue 2: mao_pro Model Has No License~~（已解决）
+- **File**: `assets/live2d/niziiro_mao/`
+- **Resolution**: 官方 ReadMe.txt（Niziiro Mao PRO + Free Material License）已补入
+  双端目录；registry metadata.license 已更新为 `Free Material License`
 
 ### 🟡 Issue 3: Incorrect License Mention in docs/renderer-algorithm.md
 - **File**: `docs/renderer-algorithm.md`
@@ -185,13 +193,10 @@ their licenses, and compatibility status.
 - **Severity**: Medium
 - **Fix**: Correct the documentation
 
-### 🟡 Issue 4: shizuku Model Requires Copyright Notice
+### ~~🟡 Issue 4: shizuku Model Requires Copyright Notice~~（已解决）
 - **File**: `assets/live2d/shizuku/`
-- **Problem**: Live2D Free Material License requires copyright notice in
-  published works
-- **Severity**: Medium
-- **Fix**: Ensure the app displays the Live2D copyright notice when using
-  this model
+- **Resolution**: shizuku 已删除（K1），不再分发；如后续引入其他 Live2D Free
+  Material 模型需另行处理版权声明
 
 ---
 
@@ -201,14 +206,15 @@ their licenses, and compatibility status.
 |---|---|
 | `LICENSE` (root) | MIT License for the project |
 | `CREDITS.md` (root) | Third-party license attributions |
+| `NOTICE` (root) | Apache-2.0 组件归属声明（N.E.K.O. 设计参考），与 §9 联动 |
 
 ---
 
 ## Next Steps
 
 1. Add SPDX headers to all shader files with Live2D Open Software License notice
-2. Verify mao_pro model origin and license
+2. ~~Verify mao_pro model origin and license~~（已解决：官方 Niziiro Mao + Free Material License，ReadMe 双端已补）
 3. Correct `docs/renderer-algorithm.md` shader license reference
-4. Add Live2D copyright notice in the app's About screen for shizuku model
+4. ~~Add Live2D copyright notice in the app's About screen for shizuku model~~（shizuku 已删除 K1）
 5. Consider removing sample models for a clean MIT release, or clearly document
    their separate license terms

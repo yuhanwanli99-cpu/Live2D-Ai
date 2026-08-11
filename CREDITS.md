@@ -58,29 +58,18 @@ download and place the AAR, they must accept the **Live2D Proprietary Software L
 
 ---
 
-## 4. Live2D Sample Models — mao_pro
+## 4. Live2D Sample Model — Niziiro Mao
 
-**Source:** `app/src/main/assets/live2d/mao_pro/`
-**License:** Unknown (No License File)
+> 📌 历史：2026-08 K1 更名（内部 id `mao_pro` → `niziiro_mao`，显示名 Niziiro Mao）。
 
-The `mao_pro` model does not contain a license file. Its origin should be verified
-before public distribution. If it is a custom or commissioned model, its own license
-terms apply.
-
-> **⚠️ Potentially not redistributable under MIT:** If the model came from a
-> third-party creator or was commissioned, separate permission or licensing is
-> required for redistribution with the MIT-licensed project.
-
----
-
-## 5. Live2D Sample Models — shizuku
-
-**Source:** `app/src/main/assets/live2d/shizuku/`
+**Source:** `app/src/main/assets/live2d/niziiro_mao/`（PC: `live2d-models/niziiro_mao/`）
 **License:** Live2D Free Material License (Live2D Original Character License)
 **Copyright:** (c) Live2D Inc.
+**Official source:** https://www.live2d.com/en/download/sample-data/
 
-[ReadMe.txt](app/src/main/assets/live2d/shizuku/ReadMe.txt) identifies this as
-"しずく PRO版" — the Shizuku Pro sample model by Live2D Inc.
+[ReadMe.txt](app/src/main/assets/live2d/niziiro_mao/ReadMe.txt)（官方原样，双端字节一致）
+标识模型名为 **Niziiro Mao (PRO Version)**，Creator = Live2D Inc.
+（Illustration/Modeling），发布 2022-06-23 → 修复 2025-03-14。
 
 Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html):
 - **General Users & Small-Scale Enterprises** (annual sales < ¥10M): Can use
@@ -92,11 +81,69 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 
 > **⚠️ Not MIT compatible:** The model data (`.moc3`, textures, motions) is
 > proprietary Live2D content. It must remain under the Live2D Free Material License.
+
+---
+
+## 5. Live2D Sample Model — shizuku（已删除，K1）
+
+**Source:** `app/src/main/assets/live2d/shizuku/`（PC: `live2d-models/shizuku/`）
+**Status:** 🗑️ 已按 K1 定案删除（registry 条目、双端资源目录、model_dict 条目全量移除）。
+本条目保留为历史记录，说明该模型不再分发。
 > A copyright notice must be displayed when the model is used in a published work.
 
 ---
 
-## 6. Kotlin Standard Libraries
+## 6. 源码级复用与设计参考（Source-level Reuse & Design References）
+
+> 覆盖本项目源码中「代码移植」与「设计参考」的第三方项目，全部如实标注使用
+> 方式（不夸大）。Apache-2.0 组件另见 root [`NOTICE`](NOTICE)（Apache 2.0
+> §4(d)），复用组件总表见 `docs/license-report.md` §9。
+
+### 6.1 Open-LLM-VTuber — PC 端 fork 上游（代码复用）
+
+- **License:** MIT
+- **Copyright:** (c) 2025 Yi-Ting Chiu
+- **Source:** https://github.com/YiTingChiu/Open-LLM-VTuber
+- **Usage:** `Live2Dai-pc/open-llm-vtuber/` 为 Open-LLM-VTuber 的 fork；上游
+  `LICENSE`（MIT）原样保留于 `Live2Dai-pc/open-llm-vtuber/LICENSE`。本项目在
+  其上新增/修改模型适配、viseme 口型驱动等。
+
+### 6.2 N.E.K.O. — 适配层设计参考（设计参考，未抄代码）
+
+- **License:** Apache License 2.0
+- **Copyright:** Project-N-E-K-O contributors
+- **Source:** https://github.com/Project-N-E-K-O/N.E.K.O
+- **Usage:** 设计参考。本项目 v3 模型适配层
+  `shared/model-adapter/niziiro_mao.adapter.json` 的 `emotionIndex`（情绪名→
+  表情索引）借鉴 N.E.K.O. 的 emotion_mapping 思想；**未复制其源代码**。
+  已列入 root `NOTICE`（Apache 2.0 §4(d)）。
+
+### 6.3 pymouth — Kotlin 移植 + PC 运行时依赖（代码移植）
+
+- **License:** MIT
+- **Copyright:** (c) 2024 organics
+- **Source:** https://github.com/organics2016/pymouth（PyPI pymouth 1.3.3）
+- **Usage:**
+  - **Android（代码移植）**: `VisemeAnalyzer.kt` + `VisemeFrame.kt` 移植了
+    pymouth `VowelAnalyser`（MFCC 提取 + DTW 模板匹配 + softmax）与
+    `PymouthVisemeDriver`（VOWEL_MAP 映射）管线，DTW 模板常量逐字拷贝
+    （契约 M4-M5 §3.5）。文件头含 MIT 归属声明（保留上游版权）。
+  - **PC（运行时依赖）**: `pymouth>=1.3.3`（`pyproject.toml`），
+    `tts/pymouth_viseme.py` 驱动调用，非代码复制。
+  - ⚠️ 更正：pymouth 实际许可为 **MIT**（早前文档误标 Apache-2.0，已修正）。
+
+### 6.4 kugutu — 关键词→动作设计参考（设计参考，未抄代码）
+
+- **License:** MIT
+- **Copyright:** (c) 2025 neka-nat
+- **Source:** https://github.com/neka-nat/kugutu
+- **Usage:** 设计参考。G1 调研（`.pi/spoq/search-report-g1-motion.md`）以其
+  `gestures.ts` 的 `keywords[]` 词表（关键词→动作）为蓝本评估本项目文本关键
+  词→动作联动；**未复制其词表或代码**。
+
+---
+
+## 7. Kotlin Standard Libraries
 
 | Dependency | License | SPDX |
 |---|---|---|
@@ -106,7 +153,7 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 
 ---
 
-## 7. Jetpack Compose & AndroidX
+## 8. Jetpack Compose & AndroidX
 
 | Dependency | License | SPDX |
 |---|---|---|
@@ -122,7 +169,7 @@ All **MIT compatible** ✅
 
 ---
 
-## 8. Networking
+## 9. Networking
 
 | Dependency | License | SPDX |
 |---|---|---|
@@ -133,7 +180,7 @@ All **MIT compatible** ✅
 
 ---
 
-## 9. YAML Parsing
+## 10. YAML Parsing
 
 | Dependency | License | SPDX |
 |---|---|---|
@@ -143,7 +190,7 @@ All **MIT compatible** ✅
 
 ---
 
-## 10. Testing
+## 11. Testing
 
 | Dependency | License | SPDX | Notes |
 |---|---|---|---|
@@ -158,7 +205,7 @@ All **MIT compatible** ✅
 
 ---
 
-## 11. Compose Plugins (Build-Time)
+## 12. Compose Plugins (Build-Time)
 
 | Plugin | License |
 |---|---|
@@ -178,8 +225,12 @@ All **MIT compatible** ✅
 | Purism Core (`cpp/purism/`) | MIT | ✅ Yes | Same license |
 | Shaders (`assets/shaders/`) | **Live2D Open Software License** | ❌ **No** | Cannot relicense under MIT |
 | Cubism SDK AAR (`libs/*.aar`) | **Live2D Proprietary** | ❌ **No** | Not bundled; user must accept separately |
-| mao_pro model | Unknown | ❌ **Unknown** | Needs origin verification |
-| shizuku model | **Live2D Free Material License** | ❌ **No** | Proprietary content; must keep separate license |
+| niziiro_mao model | **Live2D Free Material License** | ❌ **No** | Official Niziiro Mao (PRO Version); ReadMe 双端已补 |
+| shizuku model | ~~Live2D Free Material License~~ | 🗑️ Removed (K1) | 已删除，不再分发 |
+| Open-LLM-VTuber (PC fork) | MIT | ✅ | Fork 上游；LICENSE 保留于 `Live2Dai-pc/open-llm-vtuber/LICENSE` |
+| N.E.K.O. (design ref) | Apache 2.0 | ✅ | 设计参考（emotionIndex 借鉴），未抄代码；见 root `NOTICE` |
+| pymouth (port + dep) | MIT | ✅ | Android Kotlin 移植 + PC 运行时依赖；文件头 MIT 归属 |
+| kugutu (design ref) | MIT | ✅ | 设计参考（关键词→动作词表思想），未抄代码 |
 | Gradle dependencies (all) | Apache 2.0 / MIT / EPL-2.0 | ✅ | All compatible with MIT distribution |
 
 ---
@@ -198,9 +249,9 @@ License notice to comply with Section 4.2 (copyright notice must not be removed)
 // See: https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html
 ```
 
-### ⛔ Issue 2: Mao Pro Model Has No License
-`assets/live2d/mao_pro/` contains no license file. The model's origin and
-permitted usage must be verified before public release.
+### ~~⛔ Issue 2: Mao Pro Model Has No License~~（已解决）
+`assets/live2d/niziiro_mao/` 现含官方 ReadMe.txt（Niziiro Mao PRO + Free Material
+License）；registry metadata.license 已更新为 `Free Material License`。
 
 ### ⛔ Issue 3: Renderer Algorithm Doc Incorrectly States "Apache 2.0 Shaders"
 `docs/renderer-algorithm.md` mentions "Apache 2.0 着色器" — this is incorrect.
@@ -208,9 +259,11 @@ The shaders are from CubismJavaFramework which uses the **Live2D Open Software
 License**, not Apache 2.0. This should be corrected.
 
 ### ⚠️ Issue 4: Model Data Cannot Be Released Under MIT
-Both included Live2D models (mao_pro, shizuku) are proprietary assets. When
-distributing the project, users must be clearly informed that these model files
-are **not** MIT-licensed but are included under separate licenses.
+The bundled Live2D sample model **Niziiro Mao**（原内部 id `mao_pro`，2026-08
+K1 更名）is a Live2D Free Material asset（非 MIT）。shizuku 已按 K1 删除，不再
+分发。When distributing
+the project, users must be clearly informed that these model files are **not**
+MIT-licensed but are included under separate licenses.
 
 ---
 

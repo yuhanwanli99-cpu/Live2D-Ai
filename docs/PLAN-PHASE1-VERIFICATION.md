@@ -180,7 +180,7 @@ frontend/ 目录：
 
 ### 证据
 **① emotionMap 配置范例（实读 model_dict.json）**
-- mao_pro 完整 emotionMap（8 情感 → 4 表情索引）。
+- niziiro_mao 完整 emotionMap（8 情感 → 4 表情索引，现名 Niziiro Mao）。
 
 **② temperature 配置（实读 conf.ZH.default.yaml）**
 - 各 LLM 默认 temperature 1.0；唯二例外：deepseek_llm 0.7。

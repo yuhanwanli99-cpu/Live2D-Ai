@@ -13,7 +13,7 @@
     },
     "modelName": {
       "type": "string",
-      "description": "模型名称（从 cdi3.json 文件名推断，如 'mao_pro'）"
+      "description": "模型名称（从 cdi3.json 文件名推断，如 'niziiro_mao'）"
     },
     "parameters": {
       "type": "array",
@@ -197,7 +197,7 @@
   "examples": [
     {
       "version": 1,
-      "modelName": "mao_pro",
+      "modelName": "niziiro_mao",
       "parameters": [
         { "id": "ParamEyeLOpen", "groupId": "ParamGroupEyes", "name": "Eye L_Open", "index": 5 },
         { "id": "ParamEyeROpen", "groupId": "ParamGroupEyes", "name": "Eye R_Open", "index": 8 },

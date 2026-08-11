@@ -95,3 +95,7 @@ Live2Dai-Android/app/src/main/assets/model_registry.json
 *.apk
 Live2Dai-debug*.apk
 .kotlin
+
+# 前端编译产物（spoq-fix：出仓，构建时生成）
+Live2Dai-pc/open-llm-vtuber/frontend/assets/*.js
+Live2Dai-pc/open-llm-vtuber/frontend/assets/*.css
