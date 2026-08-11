@@ -178,6 +178,7 @@ export class WsBridge {
         }
         case 'audio': {
           const audio = data as {
+            audio?: string | null;
             volumes?: number[];
             visemes?: VisemeFrame[];
             slice_length?: number;
