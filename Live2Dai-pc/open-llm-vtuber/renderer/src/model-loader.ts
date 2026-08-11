@@ -51,7 +51,12 @@ export async function loadModel(
 
   let model: Live2DModel;
   try {
-    model = await Live2DModel.from(modelUrl, MODEL_LOAD_OPTIONS);
+    // ticker: 传 app.ticker（pixi-live2d-display 默认用 PIXI.Ticker.shared——未启动则模型不自动更新，
+    // 表现为“模型无法移动”。用 app.ticker 保证每帧驱动 Cubism update）
+    model = await Live2DModel.from(modelUrl, {
+      ...MODEL_LOAD_OPTIONS,
+      ticker: app.ticker,
+    });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(

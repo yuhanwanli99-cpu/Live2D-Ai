@@ -176,14 +176,13 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   let currentModel: Live2DModel | null = null;
   let currentModelInfo: ModelInfo | null = null;
 
-  /** 应用相机（RM2 半身构图；live2d 模块缺失时跳过） */
+  /** 应用相机（spoq-fix 返工：自适应 fit——模型完整可见居中；不再用固定 scale=1.8 半身构图） */
   const applyModelCamera = (
     model: Live2DModel,
-    modelInfo: ModelInfo | undefined,
+    _modelInfo: ModelInfo | undefined,
   ): void => {
-    live2dModules?.camera.applyCameraFromModelInfo(
+    live2dModules?.camera.applyFitCamera(
       model,
-      modelInfo,
       canvasWidth(),
       canvasHeight(),
     );

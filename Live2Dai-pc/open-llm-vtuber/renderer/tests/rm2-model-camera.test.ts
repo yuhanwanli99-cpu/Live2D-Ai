@@ -27,6 +27,8 @@ function makeFakeModel() {
     rotation: 0,
     x: 0,
     y: 0,
+    width: 622, // 模型基础宽度（Layout 归一化后，bai 参考）
+    height: 933, // 模型基础高度
     destroyed: false,
     parent: null,
     destroy: vi.fn(function (this: any) {
@@ -59,7 +61,7 @@ vi.mock('pixi.js', () => ({
 }));
 
 import { loadModel, unloadModel } from '../src/model-loader';
-import { applyCamera, resolveCameraConfig } from '../src/camera';
+import { applyCamera, resolveCameraConfig, applyFitCamera } from '../src/camera';
 import { Live2DModel } from 'pixi-live2d-display-lipsyncpatch/cubism4';
 
 const mockFrom = Live2DModel.from as unknown as ReturnType<typeof vi.fn>;
@@ -251,5 +253,47 @@ describe('RM2 camera — applyCamera 半身构图逻辑', () => {
     const cfg = resolveCameraConfig({ xOffset: -30 });
     applyCamera(model, cfg, 800, 600);
     expect(model.x).toBeCloseTo(800 / 2 - 30, 5);
+  });
+});
+
+describe('RM2 camera — applyFitCamera 自适应 fit（spoq-fix 返工：大画布小角色完整可见）', () => {
+  let model: any;
+
+  beforeEach(() => {
+    model = makeFakeModel();
+  });
+
+  it('FIT-01: 模型 fit 到画布内完整可见（scale = min(画布/模型宽, 画布/模型高)×0.95）', () => {
+    // 模型 622×933，画布 800×600 → 限制维度是高：600/933 = 0.643 × 0.95 ≈ 0.611
+    applyFitCamera(model, 800, 600);
+    const expectScale = Math.min(800 / 622, 600 / 933) * (1 - 0.05);
+    expect(model.scale.x).toBeCloseTo(expectScale, 4);
+    expect(model.scale.y).toBeCloseTo(expectScale, 4);
+    expect(model.scale.set).toHaveBeenCalled();
+  });
+
+  it('FIT-02: fit 后模型居中（anchor 0.5 + 画布中心）', () => {
+    applyFitCamera(model, 800, 600);
+    expect(model.anchor.set).toHaveBeenCalledWith(0.5, 0.5);
+    expect(model.x).toBeCloseTo(800 / 2, 5);
+    expect(model.y).toBeCloseTo(600 / 2, 5);
+  });
+
+  it('FIT-03: 无效尺寸（0/NaN）不改变模型状态（防未就绪时崩）', () => {
+    const m0 = makeFakeModel();
+    m0.width = 0;
+    m0.height = 0;
+    applyFitCamera(m0, 800, 600);
+    expect(m0.scale.x).toBe(1); // 未变
+    const mN = makeFakeModel();
+    mN.width = NaN;
+    applyFitCamera(mN, 800, 600);
+    expect(mN.scale.x).toBe(1);
+  });
+
+  it('FIT-04: 大画布小角色不再被固定 1.8 推近（回归：曾只显示局部"大腿"）', () => {
+    // bai: 基础 622×933，画布 800×600；1.8 倍时 1120×1680 超出画布 → 修复后 fit scale < 1
+    applyFitCamera(model, 800, 600);
+    expect(model.scale.x).toBeLessThan(1);
   });
 });

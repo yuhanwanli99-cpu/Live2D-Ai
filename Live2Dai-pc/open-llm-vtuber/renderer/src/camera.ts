@@ -91,3 +91,38 @@ export function applyCameraFromModelInfo(
 ): void {
   applyCamera(model, resolveCameraConfig(modelInfo), canvasWidth, canvasHeight);
 }
+
+/**
+ * 自适应相机（fit 模式，spoq-fix 返工）：模型完整可见且居中。
+ *
+ * 背景：bai.moc3 画布 4000×6000 而角色 bbox 仅占 8.3%×16.8% 偏下；固定 scale=1.8 的
+ * 半身构图对这类“大画布小角色”模型只显示局部（用户实锤“大腿”）。
+ * 本函数按模型基础尺寸（Layout 归一化后的 model.width/height）对画布做 contain-fit，
+ * 保证任意模型首次加载即完整可见。
+ *
+ * @param model        Live2D 模型
+ * @param canvasWidth  画布宽（px）
+ * @param canvasHeight 画布高（px）
+ * @param padding      安全边距比例（0~1，默认 5% 防贴边裁切）
+ */
+export function applyFitCamera(
+  model: Live2DModel,
+  canvasWidth: number,
+  canvasHeight: number,
+  padding = 0.05,
+): void {
+  const baseW = model.width;
+  const baseH = model.height;
+  // 尺寸无效（未就绪/零尺寸）→ 不动，保持调用方既有状态
+  if (!baseW || !baseH || !Number.isFinite(baseW) || !Number.isFinite(baseH)) {
+    return;
+  }
+  const fitScale =
+    Math.min(canvasWidth / baseW, canvasHeight / baseH) * (1 - padding);
+  model.scale.set?.(fitScale);
+  model.scale.x = fitScale;
+  model.scale.y = fitScale;
+  model.anchor.set(0.5, 0.5);
+  model.x = canvasWidth / 2;
+  model.y = canvasHeight / 2;
+}
