@@ -115,6 +115,45 @@ export class WsBridge {
     this.lipSync = lipSync;
   }
 
+  // ── 音频播放（spoq-fix：电脑没声音根因——前端只做口型/表情/字幕，从不播放 audio 帧） ──
+  /** base64 WAV 播放队列 + 顺序播放 */
+  private audioQueue: string[] = [];
+  private audioPlaying = false;
+
+  private playAudioQueue(): void {
+    if (this.audioPlaying || this.audioQueue.length === 0) return;
+    const dataUri = this.audioQueue.shift()!;
+    this.audioPlaying = true;
+    try {
+      const el = new Audio(dataUri);
+      el.onended = () => {
+        this.audioPlaying = false;
+        this.playAudioQueue();
+      };
+      el.onerror = () => {
+        console.warn('[ws-bridge] 音频播放失败（跳过）');
+        this.audioPlaying = false;
+        this.playAudioQueue();
+      };
+      void el.play().catch((err) => {
+        // 浏览器自动播放策略拦截：首次交互后才会放行（用户点过聊天框后 OK）
+        console.warn('[ws-bridge] 音频自动播放被拦截（浏览器策略）:', err?.message ?? err);
+        this.audioPlaying = false;
+        this.playAudioQueue();
+      });
+    } catch (err) {
+      console.warn('[ws-bridge] 音频构造失败（跳过）:', err);
+      this.audioPlaying = false;
+      this.playAudioQueue();
+    }
+  }
+
+  /** 入队并尝试播放（audio 帧 base64 WAV） */
+  private enqueueAudio(base64Wav: string): void {
+    this.audioQueue.push(`data:audio/wav;base64,${base64Wav}`);
+    this.playAudioQueue();
+  }
+
   /** 原始消息入口：JSON 解析（try/catch 兜底，解析失败只记日志不崩溃） */
   private _handleRaw(event: MessageEvent): void {
     let data: unknown;
@@ -156,6 +195,10 @@ export class WsBridge {
           // 字幕
           if (audio?.display_text) {
             this.onSubtitle?.(audio.display_text);
+          }
+          // 音频播放（spoq-fix：audio 帧 base64 WAV → 播放；None 为静默帧跳过）
+          if (typeof audio?.audio === 'string' && audio.audio.length > 0) {
+            this.enqueueAudio(audio.audio);
           }
           break;
         }
