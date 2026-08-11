@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 import sys
@@ -393,11 +394,35 @@ def check_resources(registry) -> None:
         if not (a and p):
             avail_ok = False
             avail_detail.append(f"{m['id']}: android={'Y' if a else 'N'}, pc={'Y' if p else 'N'}")
+    # S1/S6 双端同步（architecture-pc-fix §3 S1/S6 + contract-M-CONS §2.3）：
+    # 默认模型（bai）的 model3.json 双端必须字节一致（Layout 字段双端同内容，M-CONS 只读 PC 文件比对）
+    byte_ok = True
+    byte_detail: list[str] = []
+    for m in models:
+        if m.get("default") is not True or m.get("available") is not True:
+            continue
+        rel = m["model3JsonPath"]
+        a = ANDROID_LIVE2D_ROOT / rel
+        p = PC_LIVE2D_ROOT / rel
+        if not (a.is_file() and p.is_file()):
+            byte_ok = False
+            byte_detail.append(f"{m['id']}: 双端文件缺失，无法字节比对")
+            continue
+        if a.read_bytes() != p.read_bytes():
+            byte_ok = False
+            byte_detail.append(
+                f"{m['id']}: android sha256={hashlib.sha256(a.read_bytes()).hexdigest()[:16]} "
+                f"≠ pc sha256={hashlib.sha256(p.read_bytes()).hexdigest()[:16]}（Layout 未同步？）"
+            )
+    c9_ok = avail_ok and byte_ok
+    c9_detail = "; ".join(avail_detail + byte_detail) or (
+        "niziiro_mao: android OK, pc OK；bai model3.json 双端字节一致（含 Layout）"
+    )
     record(
         "C9",
-        "所有 available=true 模型的 model3.json 双端均存在",
-        avail_ok,
-        "; ".join(avail_detail) or "niziiro_mao: android OK, pc OK",
+        "所有 available=true 模型的 model3.json 双端均存在；默认模型（bai）model3.json 双端字节一致",
+        c9_ok,
+        c9_detail,
     )
 
     # C10: available=false 的模型文件双端均缺失（planned 状态，符合设计）
@@ -653,12 +678,51 @@ def _load_cdi3() -> dict | None:
         return None
 
 
-def _parse_kotlin_emotion_map(text: str) -> dict[str, int]:
-    """从 EmotionController.kt EMOTION_MAP ("key" to N) 提取键值映射。"""
+# C26 接线锚点（contract-M-CONS §2.1：getter 必须经 currentAdapter() 读取 emotionIndex，
+# 再兜底 FALLBACK_EMOTION_MAP —— 防 getter 独立硬编码漂移）
+_EMOTION_WIRING_ANCHOR = "currentAdapter()?.emotionIndex ?: FALLBACK_EMOTION_MAP"
+
+
+def _parse_fallback_emotion_map(text: str) -> dict[str, int] | None:
+    r"""块定界解析 EmotionController.kt 的 FALLBACK_EMOTION_MAP（contract-M-CONS §2.1）。
+
+    以 `private val FALLBACK_EMOTION_MAP: Map<String, Int> = mapOf(` 为起点、
+    配对 `)` 为终点截取源码片段；仅在该块内以 regex `"(\w+)"\s+to\s+(\d+)` 提取键值。
+    返回前断言键集 == 8 个表情键（neutral/fear/sadness/anger/disgust/joy/smirk/surprise）；
+    起点缺失/块未闭合/键集不符 → 返回 None（C26 判 FAIL 并展示差异，防"提取失明"）。
+
+    不得再对全文件扫 regex：否则 `DEFAULT_BAI_EMOTION_PARAM_MAP` 的参数帧键
+    （"ParamBrowLY" to 0.0f 等浮点前缀）会被 `(\d+)` 误抓成整数键 —— C26 历史缺陷回归用例。
+    """
+    marker = "private val FALLBACK_EMOTION_MAP: Map<String, Int> = mapOf("
+    start = text.find(marker)
+    if start < 0:
+        return None
+    i = start + len(marker)
+    depth = 1
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    if depth != 0:
+        return None  # 块未闭合（配对 `)` 缺失）
+    block = text[start : i + 1]
     result: dict[str, int] = {}
-    for m in re.finditer(r'"(\w+)"\s+to\s+(\d+)', text):
+    for m in re.finditer(r'"(\w+)"\s+to\s+(\d+)', block):
         result[m.group(1)] = int(m.group(2))
+    if set(result.keys()) != _EMOTION_KEYS:
+        return None  # 键集不符（≠8 表情键）→ 判 FAIL 不误绿
     return result
+
+
+def _check_emotion_wiring(text: str) -> bool:
+    """C26 接线断言：EmotionController.kt 必须经 currentAdapter() 读取 emotionIndex（兜底 FALLBACK_EMOTION_MAP）。"""
+    return _EMOTION_WIRING_ANCHOR in text
 
 
 def check_adapter_consistency(registry: dict) -> None:
@@ -788,26 +852,71 @@ def check_adapter_consistency(registry: dict) -> None:
                 c25_detail = "; ".join(problems)
     record("C25", "adapter.motionAliases ↔ niziiro_mao.model3.json Motions 对账", c25_ok, c25_detail)
 
-    # ── C26: emotion 三方一致（adapter ↔ Android EMOTION_MAP ↔ PC model_dict emotionMap）──
+    # ── C26: emotion 三方一致（adapter ↔ Android FALLBACK_EMOTION_MAP ↔ PC model_dict emotionMap）+ 接线断言 ──
+    # contract-M-CONS §2.1：解析器改为块定界（_parse_fallback_emotion_map，杜绝 DEFAULT_BAI_EMOTION_PARAM_MAP
+    # 浮点参数帧键误抓）；新增接线断言（getter 必须经 currentAdapter()，防独立硬编码漂移）；
+    # 失败 detail 输出各侧键集差集（替换整 dict 输出）。
     c26_ok = False
     c26_detail = "adapter/EmotionController.kt/model_dict.json 缺失"
     if adapter is not None and ANDROID_EMOTION_KT.is_file() and PC_MODEL_DICT_JSON.is_file():
         emo_adapter = adapter.get("emotionIndex")
-        emo_android = _parse_kotlin_emotion_map(ANDROID_EMOTION_KT.read_text(encoding="utf-8"))
+        android_text = ANDROID_EMOTION_KT.read_text(encoding="utf-8")
+        emo_android = _parse_fallback_emotion_map(android_text)
+        wiring_ok = _check_emotion_wiring(android_text)
         try:
             md = json.loads(PC_MODEL_DICT_JSON.read_text(encoding="utf-8"))
             entry = next((e for e in md if isinstance(e, dict) and e.get("name") == "niziiro_mao"), None)
             emo_pc = (entry or {}).get("emotionMap")
         except (json.JSONDecodeError, OSError, TypeError):
             emo_pc = None
-        if not emo_adapter or not emo_pc:
-            c26_detail = f"adapter={bool(emo_adapter)}, android={bool(emo_android)}, pc={bool(emo_pc)}"
-        elif emo_adapter == emo_android == emo_pc:
+
+        def _side_summary(side: str, m: object) -> str:
+            """各侧键集差集摘要（替换整 dict 输出，C-A2 负例可见）。"""
+            if not isinstance(m, dict):
+                return f"{side}=None"
+            miss = sorted(_EMOTION_KEYS - set(m))
+            extra = sorted(set(m) - _EMOTION_KEYS)
+            parts = [f"{side}({len(m)}key)"]
+            if miss:
+                parts.append(f"缺{miss}")
+            if extra:
+                parts.append(f"多{extra}")
+            return " ".join(parts)
+
+        if not isinstance(emo_adapter, dict) or not isinstance(emo_pc, dict) or emo_android is None:
+            c26_detail = " | ".join(
+                [
+                    _side_summary("adapter", emo_adapter),
+                    _side_summary("android", emo_android),
+                    _side_summary("pc", emo_pc),
+                ]
+            )
+        elif emo_adapter == emo_android == emo_pc and wiring_ok:
             c26_ok = True
-            c26_detail = f"三方一致（{len(emo_adapter)} key）：neutral..surprise 0-7"
+            c26_detail = (
+                f"三方一致（{len(emo_adapter)} key）：neutral..surprise 0-7；"
+                f"接线 {_EMOTION_WIRING_ANCHOR}"
+            )
         else:
-            c26_detail = f"adapter={emo_adapter}, android={emo_android}, pc={emo_pc}"
-    record("C26", "adapter.emotionIndex ↔ Android EMOTION_MAP ↔ PC model_dict emotionMap 三方一致", c26_ok, c26_detail)
+            diffs = [
+                _side_summary("adapter", emo_adapter),
+                _side_summary("android", emo_android),
+                _side_summary("pc", emo_pc),
+            ]
+            # 两两值差异（键集一致但值漂移时给出差异键）
+            for aname, av, bname, bv in (
+                ("adapter", emo_adapter, "android", emo_android),
+                ("adapter", emo_adapter, "pc", emo_pc),
+                ("android", emo_android, "pc", emo_pc),
+            ):
+                if isinstance(av, dict) and isinstance(bv, dict):
+                    vdiff = sorted(k for k in set(av) & set(bv) if av[k] != bv[k])
+                    if vdiff:
+                        diffs.append(f"{aname}≠{bname} 值差{vdiff}")
+            if not wiring_ok:
+                diffs.append(f"接线缺失（{_EMOTION_WIRING_ANCHOR} 未命中）")
+            c26_detail = " | ".join(diffs)
+    record("C26", "adapter.emotionIndex ↔ Android FALLBACK_EMOTION_MAP ↔ PC model_dict emotionMap 三方一致 + 接线", c26_ok, c26_detail)
 
     # ── C27: vowelParamMap/vowelRawMap 对拍（buildVisemeFrame 公式导出 vs 源码常量）──
     c27_ok = False
@@ -1017,6 +1126,81 @@ def check_adapter_consistency(registry: dict) -> None:
     record("C31", "adapter schema 自校验深度（六 label 键集一致 / index·group 类型 / idlePool 空组精确对账）", c31_ok, c31_detail)
 
 
+# ---------------------------------------------------------------------------
+# C32 默认模型 ID 一致性（architecture-gov-fix §5.2 + contract-M-CONS §2.2）
+# ---------------------------------------------------------------------------
+
+def _parse_registry_default_id(registry: dict) -> str | None:
+    """C32：从 registry JSON（dict）提取 default 条目 id。"""
+    for m in registry.get("models", []):
+        if isinstance(m, dict) and m.get("default") is True:
+            return m.get("id")
+    return None
+
+
+def _parse_settings_default_model_id(text: str) -> str | None:
+    """C32：静态提取 SettingsRepository.kt 的 DEFAULT_MODEL_ID 常量值。"""
+    m = re.search(r'DEFAULT_MODEL_ID\s*=\s*"([^"]+)"', text)
+    return m.group(1) if m else None
+
+
+def _parse_fallback_entry_id(text: str) -> str | None:
+    """C32：静态提取 ModelRegistry.kt FALLBACK_ENTRY 块内 id 字段。
+
+    以 `val FALLBACK_ENTRY = ModelEntry(` 为起点、配对 `)` 为终点截取块，
+    块内 regex `id = "..."` 提取（防误抓其它 ModelEntry 的 id）。
+    """
+    marker = "val FALLBACK_ENTRY = ModelEntry("
+    start = text.find(marker)
+    if start < 0:
+        return None
+    i = start + len(marker)
+    depth = 1
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    if depth != 0:
+        return None
+    block = text[start : i + 1]
+    m = re.search(r'\bid\s*=\s*"([^"]+)"', block)
+    return m.group(1) if m else None
+
+
+def _check_default_model_consistency(registry, settings_kt_text: str, model_registry_kt_text: str) -> tuple[bool, str]:
+    """C32：三源默认模型 ID 一致性（registry default / SettingsRepository / ModelRegistry FALLBACK_ENTRY）。
+
+    registry 可为 dict 或 JSON 文本（供单测 mock 文本调用）。返回 (ok, detail)。
+    """
+    if isinstance(registry, str):
+        try:
+            registry = json.loads(registry)
+        except (json.JSONDecodeError, TypeError):
+            return False, "registry JSON 解析失败"
+    rid = _parse_registry_default_id(registry) if isinstance(registry, dict) else None
+    sid = _parse_settings_default_model_id(settings_kt_text)
+    fid = _parse_fallback_entry_id(model_registry_kt_text)
+    detail = f"registry={rid}, settings={sid}, fallback={fid}"
+    ok = rid is not None and rid == sid == fid
+    return ok, detail
+
+
+def check_default_consistency(registry: dict) -> None:
+    """C32：registry default.id == SettingsRepository.DEFAULT_MODEL_ID == ModelRegistry.FALLBACK_ENTRY.id。
+
+    M-AND 落地 FALLBACK=bai（R1 路线）后直通；M-AND 完成前允许 FAIL（contract-M-CONS §5 排班联调点）。
+    """
+    settings_kt = read_text(ANDROID_SETTINGS_KT)
+    model_registry_kt = read_text(ANDROID_REGISTRY_KT)
+    ok, detail = _check_default_model_consistency(registry, settings_kt, model_registry_kt)
+    record("C32", "registry default.id == SettingsRepository.DEFAULT_MODEL_ID == ModelRegistry.FALLBACK_ENTRY.id", ok, detail)
+
+
 def check_persistence(registry: dict) -> None:
     settings_kt = read_text(ANDROID_SETTINGS_KT)
     conf = read_text(PC_CONF_YAML)
@@ -1064,7 +1248,7 @@ def main() -> int:
         return 2
 
     print("=" * 72)
-    print("跨端一致性检查（plan-e2e.md §3 C1-C23 + contract-v3-adapter §1.3 C24-C28 + schedule-v3 T3.3 C29-C31）")
+    print("跨端一致性检查（plan-e2e.md §3 C1-C23 + contract-v3-adapter §1.3 C24-C28 + schedule-v3 T3.3 C29-C31 + gov-fix §5.2 C32）")
     print("=" * 72)
 
     print("\n--- 3.1 注册表源头一致性 ---")
@@ -1090,6 +1274,9 @@ def main() -> int:
 
     print("\n--- 3.8 适配配置一致性（C24-C31，T3.3 扩展）---")
     check_adapter_consistency(registry)
+
+    print("\n--- 3.9 默认模型一致性（C32，gov-fix §5.2）---")
+    check_default_consistency(registry)
 
     print("\n" + "=" * 72)
     fails = [r for r in _RESULTS if not r[2]]
