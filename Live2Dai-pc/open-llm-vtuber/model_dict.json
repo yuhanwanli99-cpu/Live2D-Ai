@@ -31,10 +31,6 @@
         "name": "bai",
         "description": "白-免费版 — B站 Live2D 模型（8192 纹理，128 参数，无 motion/exp3），默认形象",
         "url": "/live2d-models/bai/runtime/bai.model3.json",
-        "kScale": 0.5,
-        "initialXshift": 0,
-        "initialYshift": 0,
-        "kXOffset": 1150,
         "idleMotionGroupName": "",
         "emotionMap": {
             "neutral": 0,

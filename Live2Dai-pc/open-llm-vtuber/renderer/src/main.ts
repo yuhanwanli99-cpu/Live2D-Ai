@@ -231,6 +231,44 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     applyModelCamera(loaded.model, modelInfo);
     applyTextureGuard(loaded.model);
     pipeline = createPipeline(loaded.model, loaded.internalModel);
+
+    // ---- S3 渲染日志探针（contract-M-PC §2.3；只读：不改渲染逻辑/相机应用顺序，仅 console 输出） ----
+    // 1) 模型原始画布尺寸（bai: 4000×6000）
+    console.log(
+      `[probe] originalWidth=${loaded.internalModel.originalWidth} originalHeight=${loaded.internalModel.originalHeight}`,
+    );
+    // 2) 角色实际包围盒：遍历全部 drawable 的 getDrawableVertexPositions 求 min/max
+    //    顶点为模型单位（bai 画布 1.0×1.5）；乘 pixelsPerUnit 归一为画布像素单位（对齐
+    //    architecture E5：x≈[-165,167]、y≈[-994,16]）。若原始值已是画布像素量级（>2）则不再缩放。
+    const probeCoreModel = loaded.internalModel.coreModel;
+    const probeCount = probeCoreModel.getDrawableCount();
+    let probeMinX = Infinity;
+    let probeMaxX = -Infinity;
+    let probeMinY = Infinity;
+    let probeMaxY = -Infinity;
+    for (let i = 0; i < probeCount; i++) {
+      const verts = probeCoreModel.getDrawableVertexPositions(i);
+      if (!verts) continue;
+      for (let j = 0; j < verts.length; j += 2) {
+        const vx = verts[j];
+        const vy = verts[j + 1];
+        if (vx < probeMinX) probeMinX = vx;
+        if (vx > probeMaxX) probeMaxX = vx;
+        if (vy < probeMinY) probeMinY = vy;
+        if (vy > probeMaxY) probeMaxY = vy;
+      }
+    }
+    const probeUnit =
+      Math.max(probeMaxX - probeMinX, probeMaxY - probeMinY) < 2
+        ? loaded.internalModel.pixelsPerUnit
+        : 1;
+    console.log(
+      `[probe] bbox x=[${probeMinX * probeUnit},${probeMaxX * probeUnit}] y=[${probeMinY * probeUnit},${probeMaxY * probeUnit}]`,
+    );
+    // 3) 应用相机后的模型变换/尺寸（scale=1.8，width/height=画布×Layout 缩放）
+    console.log(
+      `[probe] model scale=${loaded.model.scale?.x ?? 'n/a'} width=${loaded.internalModel.width} height=${loaded.internalModel.height}`,
+    );
   };
 
   /** WS "set-model-and-conf" 回调：同模型仅更新相机；不同模型热切换（失败保留旧模型不崩溃） */

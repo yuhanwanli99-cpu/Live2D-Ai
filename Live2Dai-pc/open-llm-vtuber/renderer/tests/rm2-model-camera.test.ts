@@ -172,6 +172,44 @@ describe('RM2 camera — resolveCameraConfig 默认值 + 覆盖', () => {
   });
 });
 
+describe('A4 bai 相机对齐 — 无相机字段回退 DEFAULT_CAMERA（contract-M-PC §3 A4 / §2.2）', () => {
+  it('A4-1: 仅含需求字段(name/url/idleMotionGroupName/emotionMap/description)的 bai model_info → 回退 DEFAULT_CAMERA {scale:1.8,xOffset:0,yOffset:100}', () => {
+    // 契约 §2.2：删除 kScale/initialXshift/initialYshift/kXOffset 四个键后，
+    // resolveCameraConfig(baiModelInfo) 全部字段缺失 → 回退 DEFAULT_CAMERA
+    const baiNoCamera = {
+      name: 'bai',
+      url: '/live2d-models/bai/runtime/bai.model3.json',
+      idleMotionGroupName: '',
+      emotionMap: { neutral: 0 },
+      description: '白-免费版',
+    };
+    const cfg = resolveCameraConfig(baiNoCamera as any);
+    expect(cfg).toEqual({ scale: 1.8, xOffset: 0, yOffset: 100 });
+  });
+
+  it('A4-2: registry 最小 model_info（仅 name/url/emotionMap，架构 E11）→ 同样回退 DEFAULT_CAMERA', () => {
+    // 架构 architecture-pc-fix.md E11：_registry_model_info 只含 name/url/emotionMap
+    const registryMinimal = { name: 'bai', url: '/live2d-models/bai/runtime/bai.model3.json', emotionMap: { neutral: 0 } };
+    const cfg = resolveCameraConfig(registryMinimal as any);
+    expect(cfg).toEqual({ scale: 1.8, xOffset: 0, yOffset: 100 });
+  });
+
+  it('A4-3(回归守门): 若 bai model_info 显式带 kScale=0.5/kXOffset=1150（S2 前冲突配置）仍被覆盖——既有语义不回归', () => {
+    // 契约 A4：resolveCameraConfig({kScale:0.5,...}) 仍被覆盖（既有语义不回归）
+    const conflictConfig = { kScale: 0.5, initialXshift: 0, initialYshift: 0, kXOffset: 1150 };
+    const cfg = resolveCameraConfig(conflictConfig as any);
+    expect(cfg.scale).toBe(0.5);
+    expect(cfg.xOffset).toBe(1150);
+    expect(cfg.yOffset).toBe(0);
+  });
+
+  it('A4-4: resolveCameraConfig 是纯函数——输入不含相机字段时不产生任何相机副作用字段', () => {
+    const cfg = resolveCameraConfig({ name: 'bai' } as any);
+    // 返回对象应恰好等于默认（不新增 kScale/kXOffset 等冗余键）
+    expect(Object.keys(cfg).sort()).toEqual(['scale', 'xOffset', 'yOffset']);
+  });
+});
+
 describe('RM2 camera — applyCamera 半身构图逻辑', () => {
   let model: any;
 
