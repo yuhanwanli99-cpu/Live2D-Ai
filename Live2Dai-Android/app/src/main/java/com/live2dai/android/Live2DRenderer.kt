@@ -10,7 +10,6 @@ import com.live2dai.android.data.BBox
 import com.live2dai.android.data.CharacterFit
 import com.live2dai.android.data.InteractionStore
 import com.live2dai.android.data.Override
-import com.live2dai.android.data.characterBBox
 import com.live2dai.android.data.computeCharacterFit
 import com.live2dai.android.data.dragPxToModel
 import com.live2dai.android.data.pinchScale
@@ -101,8 +100,6 @@ class Live2DRenderer(
     private var canvasWidth = 0f
     private var canvasHeight = 0f
     private var pixelsPerUnit = 1f
-    /** getCanvasInfo[0]：顶点空间画布宽（px）；M1 fit 的 k=canvasWidth/canvasVertexWidth（=1/ppu）换算用 */
-    private var canvasVertexWidth = 0f
     private var viewportWidth = 0
     private var viewportHeight = 0
 
@@ -348,42 +345,59 @@ class Live2DRenderer(
     // ============================================================
 
     /**
-     * load 完成后一次性聚合参与 drawable 的 bbox（模型单位），写入 fit 缓存。
+     * Cubism 逻辑画布尺寸（pixi-live2d-display dist/index.es.js L30-31 LOGICAL_WIDTH/LOGICAL_HEIGHT=2）：
+     * model3.json Layout 的 width/height 以此为归一化基准（layout.width / LOGICAL_WIDTH = 角色占画布比例）。
+     */
+    private companion object {
+        const val LOGICAL_WIDTH = 2.0
+        const val LOGICAL_HEIGHT = 2.0
+    }
+
+    /**
+     * load 完成后按 model3.json `Layout`（美术定稿）换算角色区域 bbox（模型单位），写入 fit 缓存。
      *
-     * 参与规则（与 drawObjectLoop 可见性同源）：isVisible && vertexCount>0 && textureIndex>=0。
-     * 顶点空间 → 模型单位：k = canvasWidth/canvasVertexWidth（=1/ppu，架构 §3.2 ppu 不变式）。
-     * 退化（无参与 drawable / 画布或 ppu 无效 / bbox 非法）→ 缓存置空（fit 不生效 = 现状），logcat 告警。
+     * 换算语义 = pixi-live2d-display setupLayout（renderer/node_modules/pixi-live2d-display-lipsyncpatch/
+     * dist/index.es.js：L1645 localTransform.scale(layout.width/LOGICAL_WIDTH, layout.height/LOGICAL_HEIGHT)；
+     * L1647-1648 width=originalWidth×layout.width/LOGICAL_WIDTH、height=originalHeight×layout.height/LOGICAL_HEIGHT；
+     * L1650-1654 offsetX=center_x 等 → translate(width×offsetX, -height×offsetY)），照搬到 Android 模型单位
+     * 空间（画布 1.0×1.5 模型单位，原点居中，y 向上 = Cubism 顶点空间）：
+     *   bboxW = canvasWidth × layout.width / LOGICAL_WIDTH
+     *   bboxH = canvasHeight × layout.height / LOGICAL_HEIGHT
+     *   中心 = (bboxW × center_x, bboxH × center_y)   // display-unit offset → 模型单位；y 向上取正号
+     * 退化（Layout 缺失 / width·height 缺失或非法 / 画布非法）→ 缓存置空（fit 不生效 = scale 1 现状），
+     * logcat 告警。
      */
     private fun computeFitBBox() {
         fitBBoxModel = null
-        if (canvasVertexWidth <= 0f || canvasWidth <= 0f || pixelsPerUnit <= 0f) {
-            android.util.Log.w("Live2DRenderer", "[fit] degenerate (invalid canvas/ppu)")
+        if (canvasWidth <= 0f || canvasHeight <= 0f ||
+            !canvasWidth.isFinite() || !canvasHeight.isFinite()
+        ) {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (invalid canvas)")
             return
         }
-        val model = purismModel ?: run {
-            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no model)")
+        val setting = modelSettingJson ?: run {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no model3.json)")
             return
         }
-        val count = model.getDrawableCount()
-        if (count <= 0) {
-            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no drawables)")
+        val layout = setting.optJSONObject("Layout") ?: run {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (missing Layout)")
             return
         }
-        val participating = mutableListOf<FloatArray>()
-        for (i in 0 until count) {
-            if (!model.getDrawableDynamicFlagIsVisible(i)) continue
-            if (model.getDrawableVertexCount(i) <= 0) continue
-            if (model.getDrawableTextureIndex(i) < 0) continue
-            participating.add(model.getDrawableVertices(i))
-        }
-        val rawBBox = characterBBox(participating)
-        if (rawBBox == null) {
-            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no participating drawables)")
+        val layoutWidth = layout.optDouble("width", Double.NaN)
+        val layoutHeight = layout.optDouble("height", Double.NaN)
+        if (!layoutWidth.isFinite() || layoutWidth <= 0.0 ||
+            !layoutHeight.isFinite() || layoutHeight <= 0.0
+        ) {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (invalid Layout width/height)")
             return
         }
-        // 顶点空间 → 模型单位（k=1/ppu；bbox 与 computeProjection 输入同空间）
-        val k = canvasWidth / canvasVertexWidth
-        fitBBoxModel = BBox(rawBBox.minX * k, rawBBox.maxX * k, rawBBox.minY * k, rawBBox.maxY * k)
+        val centerX = layout.optDouble("center_x", 0.0)
+        val centerY = layout.optDouble("center_y", 0.0)
+        val bboxW = canvasWidth * (layoutWidth / LOGICAL_WIDTH).toFloat()
+        val bboxH = canvasHeight * (layoutHeight / LOGICAL_HEIGHT).toFloat()
+        val cx = bboxW * centerX.toFloat()
+        val cy = bboxH * centerY.toFloat()
+        fitBBoxModel = BBox(cx - bboxW / 2f, cx + bboxW / 2f, cy - bboxH / 2f, cy + bboxH / 2f)
     }
 
     /**
@@ -931,9 +945,8 @@ class Live2DRenderer(
         // 重置 per-model 状态（下次加载前恢复初始值）
         modelSettingJson = null
 
-        // M1：清 fit bbox 缓存 + 顶点空间画布（防热切换串值；display 值由下次 load/视口重算覆盖）
+        // M1：清 fit bbox 缓存（防热切换串值；display 值由下次 load/视口重算覆盖）
         fitBBoxModel = null
-        canvasVertexWidth = 0f
 
         // C-M5：清用户 override / fit 结果 / 捏合基准（防热切换串值；override 由 view 在 swap 后重新应用）
         userScale = null
@@ -1013,7 +1026,6 @@ class Live2DRenderer(
 
         // 3. 画布信息
         Live2DNative.getCanvasInfo(modelPtr)?.let {
-            canvasVertexWidth = it.getOrElse(0) { 0f }
             canvasWidth = it[0] / it.getOrElse(4) { 1f }
             canvasHeight = it[1] / it.getOrElse(4) { 1f }
             pixelsPerUnit = it.getOrElse(4) { 1f }
