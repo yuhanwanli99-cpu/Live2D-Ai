@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +46,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,6 +108,9 @@ fun MainChatScreen(
     val repo = remember { SettingsRepository(context) }
     val viewModel: ChatViewModel = viewModel()
     val listState = rememberLazyListState()
+
+    // C-M5 重置入口：本地持有 Live2DView 引用（AndroidView factory 上报时一并设置）
+    val live2DView = remember { mutableStateOf<Live2DView?>(null) }
 
     // ── 收集 ViewModel 状态（StateFlow → Compose 状态，随生命周期暂停/恢复） ──
     val displayMessages by viewModel.displayMessages.collectAsStateWithLifecycle()
@@ -174,6 +179,13 @@ fun MainChatScreen(
                 actions = {
                     IconButton(onClick = { viewModel.showClearConfirm.value = true }) {
                         Icon(Icons.Default.Delete, contentDescription = "清空对话")
+                    }
+                    // C-M5 重置入口：清除该模型用户拖拽/缩放 override，回 fit 默认构图
+                    IconButton(onClick = {
+                        live2DView.value?.resetUserInteraction()
+                        Toast.makeText(context, "已重置模型位置与大小", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "重置模型位置与大小")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "设置")
@@ -286,6 +298,8 @@ fun MainChatScreen(
                             viewModel.onLive2DViewCreated(view)
                             // 实例上报 → App 级（Live2DaiApp 持有，支持生命周期与热切换）
                             onLive2DViewCreated(view)
+                            // C-M5 重置入口本地引用（与 App 级引用同一实例）
+                            live2DView.value = view
                         }
                     },
                     modifier = Modifier.fillMaxSize()

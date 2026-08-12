@@ -8,8 +8,12 @@ import android.opengl.GLUtils
 import android.opengl.Matrix
 import com.live2dai.android.data.BBox
 import com.live2dai.android.data.CharacterFit
+import com.live2dai.android.data.InteractionStore
+import com.live2dai.android.data.Override
 import com.live2dai.android.data.characterBBox
 import com.live2dai.android.data.computeCharacterFit
+import com.live2dai.android.data.dragPxToModel
+import com.live2dai.android.data.pinchScale
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -124,6 +128,28 @@ class Live2DRenderer(
     private var displayXOffset = 0f
     private var fitBBoxModel: BBox? = null
 
+    // ── C-M5 用户交互（contract-C-M5 §2.3）──
+    // 优先级：用户 override > fit（M1）> 默认(1f, 0f, 0f)。
+    // fitScale/fitXOffset/fitYOffset = M1 contain-fit 结果（仅无 override 时写状态）；
+    // userScale/userXOffset/userYOffset = 用户调整值（null = 未调整 → 走 fit）；
+    // displayScale/displayXOffset/displayYOffset = 生效值（user ?: fit）。
+    private var fitScale = 1f
+    private var fitXOffset = 0f
+    private var fitYOffset = 0f
+    private var userScale: Float? = null
+    private var userXOffset: Float? = null
+    private var userYOffset: Float? = null
+
+    /** 交互持久化（每模型独立 key，contract-C-M5 §2.2；由 Live2DView 在 load/swap 时绑定 modelId） */
+    private val interactionStore = InteractionStore(context)
+
+    /** 当前模型 ID（override 存储 key） */
+    private var currentModelId: String? = null
+
+    /** 捏合手势基准（双指落下时捕获：当前生效 scale + 起始距离 px） */
+    private var pinchBaseScale = 1f
+    private var pinchStartDistancePx = 0f
+
     // ── Purism Core 模型包装 ──
     private var purismModel: PurismModel? = null
 
@@ -232,30 +258,10 @@ class Live2DRenderer(
         viewportHeight = height
         GLES20.glViewport(0, 0, width, height)
 
-        val viewAspect = width.toFloat() / height.toFloat()
-        val halfW = canvasWidth / 2f
-        val halfH = canvasHeight / 2f
-        val canvasAspect = if (halfH > 0f) halfW / halfH else 1f
-
-        // 模型坐标以原点为中心，范围约[-halfW, halfW]×[-halfH, halfH]
-        val viewHalfH = if (canvasAspect > viewAspect) halfW / viewAspect else halfH
-        val viewHalfW = if (canvasAspect > viewAspect) halfW else halfH * viewAspect
-
-        // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）：视口变化 → 按当前视口重算 fit 值写状态
-        applyCharacterFitToState(viewHalfW, viewHalfH)
-
-        // 半身显示（K5）+ M1 fit：缩放 + 水平/垂直偏移，经 computeProjection 纯函数应用（contract-v3-rename §2.1）。
-        // scale=1f, yOffset=0f, xOffset=0f（默认/退化）时 bounds == [-viewHalfW, viewHalfW, viewHalfH, -viewHalfH] → 与现状 orthoM 逐位一致，零回归。
-        val bounds = computeProjection(
-            displayScale, displayYOffset,
-            viewHalfW * 2f, viewHalfH * 2f,
-            canvasWidth, canvasHeight,
-            displayXOffset
-        )
-        // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
-        // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
-        // 之前传 bounds[2]/bounds[3]（top/bottom）→ 投影 y 轴翻转 → 真机渲染上下颠倒（spoq-fix 真机修复）。
-        Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[3], bounds[2], -1f, 1f)
+        // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）+ C-M5 §2.3 时机 2：
+        // 视口变化 → 仅当无用户 override 才重算 fit；有 override → 保持 override 绝对值。
+        // 随后按生效值（user ?: fit）经 computeProjection 落 orthoM。
+        applyFitAndProjection()
     }
 
     /**
@@ -273,25 +279,68 @@ class Live2DRenderer(
 
     /** 按当前 displayScale/displayYOffset 重新计算投影矩阵（GL 线程调用）。 */
     private fun recomputeProjection() {
-        if (viewportWidth <= 0 || viewportHeight <= 0) return
+        applyFitAndProjection()
+    }
+
+    /**
+     * M1 fit + C-M5 override 优先级下的投影落点（GL 线程）：
+     * 视口变化/重算时，仅当无用户 override 才重算 fit（C-M5 §2.3 时机 2）；
+     * 有 override → 保持 override 绝对值。随后按生效值经 computeProjection 落 orthoM。
+     */
+    private fun applyFitAndProjection() {
+        val (viewHalfW, viewHalfH) = viewHalfExtents() ?: return
+        if (!hasUserOverride()) {
+            applyCharacterFitToState(viewHalfW, viewHalfH)
+        }
+        applyProjection()
+    }
+
+    /** 当前视口下的 viewHalfW/viewHalfH（模型单位；视口/画布未就绪 → null）。 */
+    private fun viewHalfExtents(): Pair<Float, Float>? {
+        if (viewportWidth <= 0 || viewportHeight <= 0 ||
+            canvasWidth <= 0f || canvasHeight <= 0f
+        ) return null
         val viewAspect = viewportWidth.toFloat() / viewportHeight.toFloat()
         val halfW = canvasWidth / 2f
         val halfH = canvasHeight / 2f
         val canvasAspect = if (halfH > 0f) halfW / halfH else 1f
+        // 模型坐标以原点为中心，范围约[-halfW, halfW]×[-halfH, halfH]
         val viewHalfH = if (canvasAspect > viewAspect) halfW / viewAspect else halfH
         val viewHalfW = if (canvasAspect > viewAspect) halfW else halfH * viewAspect
-        // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）：按当前视口重算 fit 值写状态（幂等）
-        applyCharacterFitToState(viewHalfW, viewHalfH)
-        val bounds = computeProjection(
+        return viewHalfW to viewHalfH
+    }
+
+    /** 当前生效 display 状态的投影边界（模型单位 [left, right, top, bottom]；未就绪 → null）。 */
+    private fun currentProjectionBounds(): FloatArray? {
+        val (viewHalfW, viewHalfH) = viewHalfExtents() ?: return null
+        // 半身显示（K5）+ M1 fit + C-M5 override：缩放 + 水平/垂直偏移，经 computeProjection 纯函数应用（contract-v3-rename §2.1）。
+        // scale=1f, yOffset=0f, xOffset=0f（默认/退化）时 bounds == [-viewHalfW, viewHalfW, viewHalfH, -viewHalfH] → 与现状 orthoM 逐位一致，零回归。
+        return computeProjection(
             displayScale, displayYOffset,
             viewHalfW * 2f, viewHalfH * 2f,
             canvasWidth, canvasHeight,
             displayXOffset
         )
+    }
+
+    /** 按生效值写投影矩阵（唯一 orthoM 调用点，参数序不动）。 */
+    private fun applyProjection() {
+        val bounds = currentProjectionBounds() ?: return
         // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
         // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
         // 之前传 bounds[2]/bounds[3]（top/bottom）→ 投影 y 轴翻转 → 真机渲染上下颠倒（spoq-fix 真机修复）。
         Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[3], bounds[2], -1f, 1f)
+    }
+
+    /** 是否有用户 override（任一维度被调整过 → 覆盖 fit）。 */
+    private fun hasUserOverride(): Boolean =
+        userScale != null || userXOffset != null || userYOffset != null
+
+    /** 生效值 = 用户 override ?: fit（C-M5 §2.3 优先级：用户 override > fit > 默认(1,0,0)）。 */
+    private fun refreshEffectiveDisplay() {
+        displayScale = userScale ?: fitScale
+        displayXOffset = userXOffset ?: fitXOffset
+        displayYOffset = userYOffset ?: fitYOffset
     }
 
     // ============================================================
@@ -338,9 +387,10 @@ class Live2DRenderer(
     }
 
     /**
-     * 按当前视口把 fit 缓存 bbox 换算成 contain-fit 值，写入 displayScale/displayXOffset/displayYOffset。
+     * 按当前视口把 fit 缓存 bbox 换算成 contain-fit 值，写入 fitScale/fitXOffset/fitYOffset
+     * 并经 [refreshEffectiveDisplay] 落到生效值（无 override 时 display* == fit*）。
      *
-     * 退化（缓存空）→ 恢复默认（scale=1/xOffset=0/yOffset=0 = 现状，零行为变化）。
+     * 退化（缓存空）→ 恢复默认（fit=scale 1/xOffset 0/yOffset 0 → display* 默认 = 现状，零行为变化）。
      * 非退化 → 输出 logcat 调试行（格式契约，供 E2E 机器对拍）：
      *   [fit] bbox=x:[minX,maxX] y:[minY,maxY] scale=.. xOffset=.. yOffset=..（模型单位）
      *
@@ -349,9 +399,10 @@ class Live2DRenderer(
      */
     private fun applyCharacterFitToState(viewHalfW: Float, viewHalfH: Float) {
         val bbox = fitBBoxModel ?: run {
-            displayScale = 1f
-            displayXOffset = 0f
-            displayYOffset = 0f
+            fitScale = 1f
+            fitXOffset = 0f
+            fitYOffset = 0f
+            refreshEffectiveDisplay()
             return
         }
         val fit: CharacterFit = computeCharacterFit(
@@ -359,14 +410,93 @@ class Live2DRenderer(
             viewHalfW * 2f, viewHalfH * 2f,
             canvasWidth, canvasHeight
         )
-        displayScale = fit.scale
-        displayXOffset = fit.xOffset
-        displayYOffset = fit.yOffset
+        fitScale = fit.scale
+        fitXOffset = fit.xOffset
+        fitYOffset = fit.yOffset
+        refreshEffectiveDisplay()
         android.util.Log.i(
             "Live2DRenderer",
             "[fit] bbox=x:[${bbox.minX},${bbox.maxX}] y:[${bbox.minY},${bbox.maxY}] " +
                 "scale=${fit.scale} xOffset=${fit.xOffset} yOffset=${fit.yOffset}"
         )
+    }
+
+    // ============================================================
+    //  C-M5 用户交互（contract-C-M5 §2.3；GL 线程调用，由 Live2DView 手势接线触发）
+    // ============================================================
+
+    /** 设置当前模型 ID（override 持久化 key；Live2DView load/swap 时调用）。 */
+    fun setCurrentModelId(modelId: String) {
+        currentModelId = modelId
+    }
+
+    /** 应用该模型存储的用户 override（无 → 走 C-M1 fit）。load/swapModel 完成后调用。 */
+    fun applyStoredUserOverride() {
+        val stored = currentModelId?.let { interactionStore.load(it) }
+        setUserOverride(stored)
+    }
+
+    /** 设置用户 override（null = 清除，回 fit）。 */
+    fun setUserOverride(override: Override?) {
+        userScale = override?.scale
+        userXOffset = override?.xOffset
+        userYOffset = override?.yOffset
+        refreshEffectiveDisplay()
+        recomputeProjection()
+    }
+
+    /**
+     * 单指拖拽增量（屏幕像素 → 模型单位内部换算；GL 线程）。
+     *
+     * ★ deviation（契约 §2.3「直接加进 displayXOffset」的符号修正）：offset 平移的是投影窗口——
+     * 窗口 +x → 模型在屏幕上 -x（d(screenX)/d(xOffset) < 0）；yOffset 同理（+yOffset → 模型下移）。
+     * 若按契约字面「+=」应用，角色会与手指反向移动。这里反向应用（-=），保证真机 M5-A9①
+     * 「单指拖拽 → 角色跟随移动」成立；dragPxToModel 纯函数本身与契约 §2.1 逐字一致（M5-A3 锁）。
+     */
+    fun applyUserDragPx(dxPx: Float, dyPx: Float) {
+        val bounds = currentProjectionBounds() ?: return
+        val (dxModel, dyModel) = dragPxToModel(
+            dxPx, dyPx,
+            viewportWidth.toFloat(), viewportHeight.toFloat(),
+            bounds[0], bounds[1], bounds[2], bounds[3]
+        )
+        userXOffset = (userXOffset ?: fitXOffset) - dxModel
+        userYOffset = (userYOffset ?: fitYOffset) - dyModel
+        refreshEffectiveDisplay()
+        recomputeProjection()
+        android.util.Log.i("Live2DRenderer", "[interaction] drag dxModel=$dxModel dyModel=$dyModel")
+    }
+
+    /** 双指捏合开始：捕获基准（当前生效 scale + 起始双指距离 px）。 */
+    fun beginUserPinch(startDistancePx: Float) {
+        pinchBaseScale = displayScale
+        pinchStartDistancePx = startDistancePx
+    }
+
+    /** 双指捏合进行：userScale = pinchScale(基准, 起始距离, 当前距离)，钳制 [0.1, 5.0]。 */
+    fun applyUserPinch(currentDistancePx: Float) {
+        userScale = pinchScale(pinchBaseScale, pinchStartDistancePx, currentDistancePx)
+        refreshEffectiveDisplay()
+        recomputeProjection()
+        android.util.Log.i("Live2DRenderer", "[interaction] pinch scale=${userScale}")
+    }
+
+    /** 手势结束：把当前生效状态写入持久化（仅 view 判定发生了有效调整后调用）。 */
+    fun saveUserOverride() {
+        val id = currentModelId ?: return
+        interactionStore.save(id, Override(displayScale, displayXOffset, displayYOffset))
+    }
+
+    /** 重置入口：清除该模型 override + 立即重算 fit 并生效（回 C-M1 构图）。 */
+    fun resetUserOverride() {
+        val id = currentModelId
+        if (id != null) interactionStore.clear(id)
+        userScale = null
+        userXOffset = null
+        userYOffset = null
+        refreshEffectiveDisplay()
+        recomputeProjection()
+        android.util.Log.i("Live2DRenderer", "[interaction] reset → fit")
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -804,6 +934,16 @@ class Live2DRenderer(
         // M1：清 fit bbox 缓存 + 顶点空间画布（防热切换串值；display 值由下次 load/视口重算覆盖）
         fitBBoxModel = null
         canvasVertexWidth = 0f
+
+        // C-M5：清用户 override / fit 结果 / 捏合基准（防热切换串值；override 由 view 在 swap 后重新应用）
+        userScale = null
+        userXOffset = null
+        userYOffset = null
+        fitScale = 1f
+        fitXOffset = 0f
+        fitYOffset = 0f
+        pinchBaseScale = 1f
+        pinchStartDistancePx = 0f
         paramNameToIndex = emptyMap()
         paramAIndex = -1
         partNameToIndex = emptyMap()

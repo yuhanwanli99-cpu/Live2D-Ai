@@ -4,6 +4,8 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
@@ -25,6 +27,20 @@ class Live2DView(
 
     /** 当前生效的模型 ID（用于切换失败回退时恢复对应的 adapter 缓存）。 */
     private var currentModelId: String? = null
+
+    // ── C-M5 用户交互手势（contract-C-M5 §2.3：单指拖拽 + 双指捏合）──
+    // 设计：DOWN 不消费（视图为背景层，前景 Compose 元素优先命中）；
+    // 移动超平台 touch slop → 判定为拖拽并消费；双指出现 → 捏合模式消费；
+    // UP 未超阈值 = tap → 不消费（Compose 点击语义不破坏）。
+    private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
+    private var gestureDownX = 0f
+    private var gestureDownY = 0f
+    private var lastDragX = 0f
+    private var lastDragY = 0f
+    private var dragging = false
+    private var pinching = false
+    private var gestureAdjusted = false
+    private var pinchStartDistance = 0f
 
     init {
         setEGLContextClientVersion(2)
@@ -82,6 +98,12 @@ class Live2DView(
         setRenderer(renderer)
         // 持续渲染模式，支持 120fps 平滑动画（必须在 setRenderer 之后调用）
         renderMode = RENDERMODE_CONTINUOUSLY
+        // C-M5：绑定模型 ID + 应用该模型存储的用户 override（GL 线程，事件在 surface 创建后处理；
+        // 无 override → C-M1 fit 默认生效；有 override → 覆盖 fit，见 contract-C-M5 §2.3 时机 1）
+        queueEvent {
+            renderer?.setCurrentModelId(modelId)
+            renderer?.applyStoredUserOverride()
+        }
     }
 
     /**
@@ -123,6 +145,9 @@ class Live2DView(
                     ModelAdapterConfig.load(context, modelId)
                     setRenderer(newRenderer)
                     renderMode = RENDERMODE_CONTINUOUSLY
+                    // C-M5：绑定模型 ID + 应用该模型存储的 override（已在 GL 线程；无 → fit）
+                    newRenderer.setCurrentModelId(modelId)
+                    newRenderer.applyStoredUserOverride()
                     onComplete?.invoke()
                 } catch (e: Throwable) {
                     android.util.Log.w("Live2DView", "切换模型失败(初始化): ${e.message}")
@@ -141,6 +166,9 @@ class Live2DView(
                 currentModelId = modelId
                 // G3：adapter 缓存随模型切换刷新（bai → bai.adapter.json，niziiro_mao → 五元音 adapter）
                 ModelAdapterConfig.load(context, modelId)
+                // C-M5：切模型后应用新模型的存储 override（已在 GL 线程；无 → fit）
+                current.setCurrentModelId(modelId)
+                current.applyStoredUserOverride()
                 onComplete?.invoke()
             } else {
                 // 加载失败：回退到上一个模型路径；回退也失败则保留兜底渲染
@@ -149,7 +177,12 @@ class Live2DView(
                     currentAssetPath = previousPath
                     currentModelId = previousModelId
                     // G3：回退成功后恢复上一个模型的 adapter 缓存（与渲染中的模型保持一致）
-                    if (previousModelId != null) ModelAdapterConfig.load(context, previousModelId)
+                    if (previousModelId != null) {
+                        ModelAdapterConfig.load(context, previousModelId)
+                        // C-M5：回退后恢复上一个模型的 override
+                        current.setCurrentModelId(previousModelId)
+                        current.applyStoredUserOverride()
+                    }
                 } else {
                     currentAssetPath = null
                     currentModelId = null
@@ -254,6 +287,131 @@ class Live2DView(
      */
     fun setDisplayRegion(scale: Float = 1f, yOffset: Float = 0f) {
         renderer?.setDisplayRegion(scale, yOffset)
+    }
+
+    // ============================================================
+    //  C-M5 用户交互（contract-C-M5 §2.3）
+    // ============================================================
+
+    /**
+     * 触摸事件：单指拖拽 + 双指捏合 → renderer 交互状态。
+     *
+     * - DOWN 不消费：视图为背景层，前景 Compose 元素（输入框/齿轮/气泡）优先命中（点击语义不破坏）
+     * - 单指移动超过平台 touch slop → 判定为拖拽并消费（参照 N.E.K.O. CLICK_THRESHOLD 10px 量级）
+     * - 双指出现 → 捏合模式消费；UP 未超阈值 = tap → 不消费
+     * - 手势结束（发生了有效调整）→ renderer.saveUserOverride() 持久化
+     *
+     * 渲染状态全部经 queueEvent 在 GL 线程更新（避免主线程与 GL 线程数据竞争）。
+     */
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (renderer == null) return super.onTouchEvent(event)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                gestureDownX = event.x
+                gestureDownY = event.y
+                lastDragX = event.x
+                lastDragY = event.y
+                dragging = false
+                pinching = false
+                gestureAdjusted = false
+                // 不消费 DOWN：tap 语义留给 Compose（前景层先命中）
+                return false
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // 双指出现 → 捏合模式，消费
+                pinching = true
+                dragging = false
+                pinchStartDistance = pointerDistance(event)
+                queueEvent { renderer?.beginUserPinch(pinchStartDistance) }
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (pinching) {
+                    val dist = pointerDistance(event)
+                    if (dist > 0f) {
+                        gestureAdjusted = true
+                        queueEvent { renderer?.applyUserPinch(dist) }
+                    }
+                    return true
+                }
+                if (event.pointerCount == 1) {
+                    val x = event.x
+                    val y = event.y
+                    if (!dragging) {
+                        val dx = x - gestureDownX
+                        val dy = y - gestureDownY
+                        if (dx * dx + dy * dy > touchSlop * touchSlop) {
+                            // 超过平台 touch slop → 判定为拖拽并消费
+                            dragging = true
+                            gestureAdjusted = true
+                        }
+                    }
+                    if (dragging) {
+                        val dxPx = x - lastDragX
+                        val dyPx = y - lastDragY
+                        lastDragX = x
+                        lastDragY = y
+                        if (dxPx != 0f || dyPx != 0f) {
+                            queueEvent { renderer?.applyUserDragPx(dxPx, dyPx) }
+                        }
+                        return true
+                    }
+                }
+                return false
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // 双指结束（剩一指）：结束捏合并保存（简化：不继续单指拖拽）
+                if (pinching) {
+                    pinching = false
+                    dragging = false
+                    val adjusted = gestureAdjusted
+                    gestureAdjusted = false
+                    if (adjusted) {
+                        queueEvent { renderer?.saveUserOverride() }
+                    }
+                    return true
+                }
+                return false
+            }
+            MotionEvent.ACTION_UP -> {
+                val adjusted = gestureAdjusted
+                gestureAdjusted = false
+                dragging = false
+                pinching = false
+                if (adjusted) {
+                    // 有效调整结束 → 持久化 override
+                    queueEvent { renderer?.saveUserOverride() }
+                    performClick()
+                    return true
+                }
+                // 未超阈值 = tap → 不消费（Compose 点击语义不破坏）
+                performClick()
+                return false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                gestureAdjusted = false
+                dragging = false
+                pinching = false
+                return false
+            }
+            else -> return false
+        }
+    }
+
+    /** 双指间距（px；pointerCount < 2 → 0）。 */
+    private fun pointerDistance(event: MotionEvent): Float {
+        if (event.pointerCount < 2) return 0f
+        val dx = event.getX(0) - event.getX(1)
+        val dy = event.getY(0) - event.getY(1)
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
+
+    /**
+     * C-M5 重置入口：清除当前模型的用户 override → 回 C-M1 fit 构图（contract-C-M5 §2.3 时机 4）。
+     * 主页顶部栏按钮调用（行为契约锁定，位置不锁）。
+     */
+    fun resetUserInteraction() {
+        queueEvent { renderer?.resetUserOverride() }
     }
 
     /**
