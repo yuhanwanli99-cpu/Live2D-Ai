@@ -24,31 +24,50 @@
 #include "render.h"
 
 /*
- * C-Perf7: parameter-level dirty short-circuit.
+ * C-Perf7-fix: parameter-level dirty short-circuit (conservative).
  *
  * When no effective input changed since the previous psm__update_model
- * (every resolved parameter value identical — tracked by the param->dirty
- * flags recomputed in psm__resolve_params — and every clamped part opacity
- * identical to the saved snapshot), the deformer/art-mesh keydata
- * interpolation and the warp transforms are skipped: their output buffers
- * (warp grid points, art-mesh vertices, opacities, colors) stay frozen at
- * the previous update's values, which are provably identical because every
- * input feeding those stages is unchanged.
+ * (every resolved parameter value and every clamped part opacity is bit-
+ * identical to the saved snapshot), the ENTIRE vertex/mesh computation
+ * chain is skipped and psm__update_model returns immediately. All output
+ * buffers the renderer reads (art-mesh positions/opacities/colors/draw
+ * order, render order, dynamic flags) keep the previous full update's
+ * values, which are provably correct because every input feeding those
+ * stages is unchanged.
  *
- * Correctness invariant: the skipped stages are exactly the interp -> blend
- * -> apply chain of warps/rotations/art-meshes plus apply_parts_to_meshes
- * (which multiplies art-mesh opacity in place and therefore must not run
- * without a fresh interp_art_meshes reset) and apply_glues (which mutates
- * mesh positions in place on top of the freshly transformed vertices and is
- * non-idempotent when the glue intensity < 1). Skipping both sides of each
- * in-place accumulation keeps every buffer equal to the previous frame.
- * All cheap stages (resolve, enable, gather, parts, glues, offscreens,
- * blend_parts/blend_glues/blend_offscreens, apply_part_opacity,
- * reverse_y, sort_render_order, update_flags) still run on every update,
- * so dynamic flags / render order / visibility semantics are identical to
- * the full path.
+ * Correctness invariant (why "all or nothing" and no partial gating):
+ * the skipped chain is one lockstep in-place accumulation system -
+ *   - interp_* resets its outputs (memset + accumulate from keydata);
+ *   - apply_transforms / apply_transforms_to_meshes transform positions
+ *     in place on top of the freshly interpolated data;
+ *   - apply_glues adds glue deltas to art-mesh positions in place
+ *     (non-idempotent when intensity < 1);
+ *   - apply_parts_to_meshes multiplies art-mesh opacity/colors in place;
+ *   - apply_part_opacity multiplies offscreen opacity in place.
+ * Running any subset of these without the rest would double-apply or
+ * leave stale data (the previous implementation's per-stage gating did
+ * exactly this and produced corrupted frames). Skipping the whole chain
+ * together keeps every buffer identical to the previous frame.
+ *
+ * psm__reverse_y is part of the chain and MUST also be skipped: it
+ * negates the y of every art-mesh vertex in place on each call (m->
+ * y_reversed is a static canvas property, not a runtime latch), so on a
+ * light frame it would flip the frozen (already flipped) vertices back,
+ * corrupting the render - the root cause of the reverted bug.
+ *
+ * The cheap stages before the gate (save_flags, resolve params/key
+ * tables/bindings, part opacity clamp) still run on every update; they
+ * are deterministic functions of the unchanged inputs, so they produce
+ * the same state as the last full update and are safe to run.
+ *
+ * First update / model switch / explicit force_update always take the
+ * full path. The snapshot is saved at the end of each full update
+ * (realloc-adaptive; on OOM the snapshot is invalidated and every update
+ * falls back to the full path - safe, just slower).
  */
 static struct psm__model *s_snap_model = NULL; /* model the snapshot belongs to */
+static psm__f32 *s_snap_params = NULL;         /* resolved param value snapshot */
+static psm__i32 s_snap_params_cap = 0;         /* capacity of s_snap_params */
 static psm__f32 *s_snap_parts = NULL;          /* clamped part opacity snapshot */
 static psm__i32 s_snap_parts_cap = 0;          /* capacity of s_snap_parts */
 static bool s_snap_valid = false;              /* false until first snapshot save */
@@ -63,12 +82,19 @@ psm__inputs_changed(struct psm__model *m)
   if (m != s_snap_model || !s_snap_valid)
     return true;
 
-  /* Parameters: psm__resolve_params already compared each resolved value
-   * against the previous update and set param->dirty accordingly. */
+  /* Parameters: compare resolved values (post-clamp/wrap) exactly.
+   * Values written by Kotlin are stored unchanged in input_value and
+   * normalized by psm__resolve_params into items[i].value; when the
+   * resolved value is bit-identical, the whole keydata/binding resolution
+   * and every downstream stage would reproduce the same output. */
   struct psm__params *params = &m->params;
-  for (psm__i32 i = 0; i < params->count; i++) {
-    if (params->items[i].dirty)
+  if (params->count > 0) {
+    if (!s_snap_params)
       return true;
+    for (psm__i32 i = 0; i < params->count; i++) {
+      if (params->items[i].value != s_snap_params[i])
+        return true;
+    }
   }
 
   /* Parts: clamped input opacities must match the saved snapshot. */
@@ -89,13 +115,32 @@ psm__inputs_changed(struct psm__model *m)
 static void
 psm__save_input_snapshot(struct psm__model *m)
 {
+  struct psm__params *params = &m->params;
+  psm__i32 nparams = params->count;
+  if (nparams > 0) {
+    if (s_snap_params_cap < nparams) {
+      psm__f32 *nw = (psm__f32 *)realloc(s_snap_params,
+          nparams * sizeof(psm__f32));
+      if (!nw) {
+        /* OOM: fall back to always-full path (safe, just slower). */
+        s_snap_params = NULL;
+        s_snap_params_cap = 0;
+        s_snap_valid = false;
+        return;
+      }
+      s_snap_params = nw;
+      s_snap_params_cap = nparams;
+    }
+    for (psm__i32 i = 0; i < nparams; i++)
+      s_snap_params[i] = params->items[i].value;
+  }
+
   psm__i32 nparts = m->parts.count;
   if (nparts > 0) {
     if (s_snap_parts_cap < nparts) {
       psm__f32 *nw = (psm__f32 *)realloc(s_snap_parts,
           nparts * sizeof(psm__f32));
       if (!nw) {
-        /* OOM: fall back to always-full path (safe, just slower). */
         s_snap_parts = NULL;
         s_snap_parts_cap = 0;
         s_snap_valid = false;
@@ -110,6 +155,38 @@ psm__save_input_snapshot(struct psm__model *m)
   s_snap_model = m;
   s_snap_valid = true;
 }
+
+#ifdef __ANDROID__
+#include <android/log.h>
+/*
+ * C-Perf7-fix diagnostic probe: low-frequency counter (no clock reads),
+ * one logcat line every 120 updates (~4s at 30Hz model updates).
+ * Cleanup: remove this block, the include above, and the two
+ * psm__probe_update calls in psm__update_model.
+ */
+static psm__i32 s_probe_updates = 0;
+static psm__i32 s_probe_light = 0;
+static psm__i32 s_probe_full = 0;
+
+static void
+psm__probe_update(bool light)
+{
+  s_probe_updates++;
+  if (light)
+    s_probe_light++;
+  else
+    s_probe_full++;
+  if (s_probe_updates >= 120) {
+    __android_log_print(ANDROID_LOG_INFO, "C-Perf7-fix",
+        "updates=%d light=%d(%d%%) full=%d",
+        s_probe_updates, s_probe_light,
+        (int)(s_probe_light * 100 / s_probe_updates), s_probe_full);
+    s_probe_updates = 0;
+    s_probe_light = 0;
+    s_probe_full = 0;
+  }
+}
+#endif /* __ANDROID__ */
 
 static void
 psm__reverse_y(struct psm__model *m)
@@ -267,11 +344,16 @@ psm__update_model(struct psm__model *m)
       opa[i] = psm__clamp_f32_01(opa[i]);
   }
 
-  /* C-Perf7: short-circuit the heavy deformer stages when no input changed.
-   * All cheap stages below run in both paths; the gated stages are skipped
-   * in the light path and their output buffers stay frozen (see the block
-   * comment at the top of this file). */
-  bool inputs_changed = psm__inputs_changed(m);
+  /* C-Perf7-fix: when no input changed, freeze the whole vertex/mesh
+   * chain and return. Every output buffer the renderer reads still holds
+   * the last full update's values (correct and consistent). No stage is
+   * partially executed. */
+  if (!psm__inputs_changed(m)) {
+#ifdef __ANDROID__
+    psm__probe_update(true);
+#endif
+    return;
+  }
 
   psm__enable_parts(m);
   psm__gather_parts(m);
@@ -280,16 +362,12 @@ psm__update_model(struct psm__model *m)
   psm__enable_deformers(m);
   psm__gather_warps(m);
   psm__gather_rotations(m);
-  if (inputs_changed) {
-    psm__interp_warps(m);
-    psm__interp_rotations(m);
-  }
+  psm__interp_warps(m);
+  psm__interp_rotations(m);
 
   psm__enable_art_meshes(m);
   psm__gather_art_meshes(m);
-  if (inputs_changed) {
-    psm__interp_art_meshes(m);
-  }
+  psm__interp_art_meshes(m);
 
   psm__gather_glues(m);
   psm__interp_glues(m);
@@ -299,26 +377,18 @@ psm__update_model(struct psm__model *m)
   psm__interp_offscreens(m);
 
   psm__blend_parts(m);
-  if (inputs_changed) {
-    psm__blend_warps(m);
-    psm__blend_rotations(m);
-    psm__blend_art_meshes(m);
-  }
+  psm__blend_warps(m);
+  psm__blend_rotations(m);
+  psm__blend_art_meshes(m);
   psm__blend_glues(m);
   psm__blend_offscreens(m);
 
-  if (inputs_changed) {
-    psm__apply_transforms(m);
-    psm__apply_transforms_to_meshes(m);
-  }
+  psm__apply_transforms(m);
+  psm__apply_transforms_to_meshes(m);
   psm__apply_part_opacity(m);
-  if (inputs_changed) {
-    psm__apply_parts_to_meshes(m);
-  }
+  psm__apply_parts_to_meshes(m);
 
-  if (inputs_changed) {
-    psm__apply_glues(m); /* must come before reverse_y! */
-  }
+  psm__apply_glues(m); /* must come before reverse_y! */
 
   psm__reverse_y(m);
   psm__sort_render_order(m);
@@ -339,10 +409,13 @@ psm__update_model(struct psm__model *m)
 
   m->force_update = 0;
 
-  /* C-Perf7: remember the effective inputs for next update's dirty check.
-   * Parameter values are covered by resolve_params' own dirty comparison;
-   * only the clamped part opacities need an explicit snapshot. */
+  /* C-Perf7-fix: remember the effective inputs (resolved param values +
+   * clamped part opacities) for the next update's dirty check. */
   psm__save_input_snapshot(m);
+
+#ifdef __ANDROID__
+  psm__probe_update(false);
+#endif
 }
 
 PSMDEF void

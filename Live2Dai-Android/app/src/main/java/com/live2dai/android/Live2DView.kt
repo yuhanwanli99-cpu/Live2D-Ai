@@ -3,9 +3,12 @@ package com.live2dai.android
 import android.content.Context
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.os.Build
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
+import android.view.Surface
+import android.view.SurfaceHolder
 import android.view.ViewConfiguration
 import com.live2dai.android.data.GestureCommand
 import com.live2dai.android.data.GestureEvent
@@ -60,6 +63,38 @@ class Live2DView(
         // C-Perf5：无 MSAA + 无 depth buffer（Live2D 卡通硬边渲染无抗锯齿需求、
         // 管线不使用 depth 测试）；2K 屏移除 4x MSAA → 填充率降 4 倍，消除 GPU 饱和瓶颈。
         setEGLConfigChooser(MSAAConfigChooser())
+
+        // ── C-Perf8：请求 120Hz 高刷（Surface.setFrameRate，API 30+）──
+        // 背景：Android 15+ 默认锁 60Hz——渲染线程不显式请求高刷则最高 60fps
+        // （即使显示面板处于 120Hz 模式，app 的 vsync 仍被限 60；机器实证：
+        // 设备 mActiveModeId=1 @120Hz 时 C-Perf7 基线帧率仍 55-61.8 = 60Hz vsync 上限）。
+        // 位置选 holder.addCallback.surfaceCreated：GLSurfaceView.Renderer.onSurfaceCreated
+        // 在 Live2DRenderer 内（无 view 引用拿不到 holder.surface）；holder 回调可直接
+        // 取得 Surface 且生命周期与 surface 创建/销毁严格对齐（重入前台会再次触发，幂等）。
+        // FRAME_RATE_COMPATIBILITY_DEFAULT：允许系统按需降（省电/60Hz 显示模式时为 no-op，
+        // 不报错），不强制切显示模式；2-arg 版本 changeFrameRateStrategy 默认 ALWAYS。
+        holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    try {
+                        holder.surface.setFrameRate(
+                            120f,
+                            Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
+                        )
+                        android.util.Log.i(
+                            "Live2DView",
+                            "setFrameRate(120f, DEFAULT) requested on surface"
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.w("Live2DView", "setFrameRate failed: ${e.message}")
+                    }
+                }
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+        })
 
         // 不拦截触摸事件：本 View 仅作背景层，前景 Compose 元素（输入框、按钮）优先命中；
         // 触摸消费策略见 onTouchEvent（M2.2：DOWN 消费保事件链，tap 显式转发交回 Compose）。

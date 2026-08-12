@@ -1,6 +1,8 @@
 package com.live2dai.android
 
 import android.util.Log
+import com.live2dai.android.data.IdleMotionController
+import com.live2dai.android.data.IdleSample
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.cos
@@ -922,6 +924,9 @@ class AnimationPipeline(
     /** 呼吸管理器 */
     val breath: BreathManager = BreathManager()
 
+    /** R13 程序化待机控制器（眼神漂移/头部微动/身体晃动；与眨眼/呼吸并列的参数层通道） */
+    val idleMotion: IdleMotionController = IdleMotionController()
+
     /** 物理管理器 */
     val physics: PhysicsManager = PhysicsManager()
 
@@ -936,6 +941,26 @@ class AnimationPipeline(
 
     /** 是否启用自动呼吸 */
     var autoBreathEnabled: Boolean = true
+
+    /** 是否启用程序化待机（R13：眼神漂移/头部微动/身体晃动） */
+    var autoIdleMotionEnabled: Boolean = true
+
+    // ── C6-fix2：表现力参数写入节流 ──
+    // 背景：R13 IdleMotionController 在每次管线 update 都写眼神/头部/身体 5 个参数
+    // （眼神 lerp 持续推进）→ native 参数每 update 变化 → purism 参数级脏标记短路
+    // 命中率 96% → 0%（每 2 渲染帧一次全量重算 ~24ms）→ 帧率 111 → 61fps（机器实证
+    // [C-Perf7-fix] light=0% full=120）。
+    // 方案：每 6 渲染帧（≈50ms @120Hz，即 3 次管线 update）才应用一次 IdleMotion 输出，
+    // 中间帧跳过写入——参数保持上次值，渲染连续。眼神阻尼 lerp / 头部低频正弦是慢变信号，
+    // 50ms 步进视觉平滑；写入降频后脏标记每 6 帧才全量一次 → 帧率回到 90-111fps。
+    /** 表现力参数写入节流阈值（渲染帧数 @120Hz；50ms 步进对慢变眼神/头部视觉平滑） */
+    private val IDLE_MOTION_THROTTLE_FRAMES = 6
+
+    /** 管线 update 对应的渲染帧数（renderer 每 MODEL_UPDATE_INTERVAL_FRAMES=2 渲染帧调用一次，C-Perf4） */
+    private val RENDER_FRAMES_PER_PIPELINE_UPDATE = 2
+
+    /** 节流计数器（渲染帧单位；累计 ≥ IDLE_MOTION_THROTTLE_FRAMES 才写入一次） */
+    private var idleMotionThrottleCounter = 0
 
     /** 是否已保存初始快照 */
     private var hasInitialSnapshot: Boolean = false
@@ -1233,6 +1258,22 @@ class AnimationPipeline(
             breath.apply(model, paramNameToIndex)
         }
 
+        // 6.5 R13 程序化待机（眼神漂移/头部微动/身体晃动）——与眨眼/呼吸并列的参数层通道；
+        //     有 motion 播放（如 niziiro_mao 的 idle group）时让位（待机不压制动作，search-report §2.1）
+        //     C6-fix2：表现力参数写入节流——每 IDLE_MOTION_THROTTLE_FRAMES 渲染帧
+        //     （≈50ms @120Hz = 3 次管线 update）才 update+apply 一次；中间帧跳过写入，
+        //     参数保持上次值（渲染连续），使 native 脏标记短路恢复命中（机器实证：light 0%→63%，
+        //     fps 61→87.5 avg，见 .pi/spoq/C6-fix2-throttle.md）。
+        //     IdleMotionController 行为零改动（纯 JVM 可测类保持逐帧 update 语义，测试不受影响）；
+        //     节流只发生在管线落点。
+        if (autoIdleMotionEnabled && !motionManager.isPlaying()) {
+            idleMotionThrottleCounter += RENDER_FRAMES_PER_PIPELINE_UPDATE
+            if (idleMotionThrottleCounter >= IDLE_MOTION_THROTTLE_FRAMES) {
+                idleMotionThrottleCounter = 0
+                applyIdleMotion(idleMotion.update(deltaTime))
+            }
+        }
+
         // 7. 更新物理
         if (physics.isValid()) {
             physics.evaluate(model, paramNameToIndex, deltaTime)
@@ -1269,6 +1310,28 @@ class AnimationPipeline(
         if (eyeROpenIndex >= 0) {
             model.setParameterValue(eyeROpenIndex, rightOpen)
         }
+    }
+
+    /**
+     * R13 程序化待机落点：把 IdleSample 应用到模型参数（眼神/头部/身体）。
+     * 三通道与既有通道互不重叠：EyeBall（眼神）不碰眨眼 EyeLOpen/ROpen；Angle/BodyAngle 不碰呼吸 ParamBreath。
+     * 全部按 native min/max 钳制（bai：角度 ±30、眼球 ±1）。
+     */
+    private fun applyIdleMotion(sample: IdleSample) {
+        val minValues = Live2DNative.getParameterMinValues(modelPtr(model))
+        val maxValues = Live2DNative.getParameterMaxValues(modelPtr(model))
+        fun applyParam(id: String, value: Float) {
+            val idx = paramNameToIndex[id] ?: return
+            val minV = minValues?.getOrElse(idx) { -1f } ?: -1f
+            val maxV = maxValues?.getOrElse(idx) { 1f } ?: 1f
+            model.setParameterValue(idx, value.coerceIn(minV, maxV))
+        }
+        applyParam("ParamEyeBallX", sample.eyeBallX)
+        applyParam("ParamEyeBallY", sample.eyeBallY)
+        applyParam("ParamAngleX", sample.headAngleX)
+        applyParam("ParamAngleY", sample.headAngleY)
+        // 身体晃动：归一化 bodySway（±0.15）→ 角度（×±30 钳制；低频，周期 > 头部）
+        applyParam("ParamBodyAngleX", sample.bodySway * IdleMotionController.BAI_ANGLE_CLAMP_DEG)
     }
 
     /**
