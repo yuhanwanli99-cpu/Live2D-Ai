@@ -25,6 +25,11 @@
 import { Application } from 'pixi.js';
 import { WsBridge } from './ws-bridge';
 import { initChatPanel } from './chat-ui';
+import {
+  createInteractionStore,
+  wheelScale,
+  shouldApplyOverride,
+} from './interaction';
 import { ParamArbiter } from './param-arbiter';
 import { EmotionConsumer } from './emotion-consumer';
 import { LipSync } from './lip-sync';
@@ -177,11 +182,35 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   let currentModel: Live2DModel | null = null;
   let currentModelInfo: ModelInfo | null = null;
 
-  /** 应用相机（contract-C-M2：改走 applyCameraMode 分发；默认 CAMERA_MODE='fit' 保持现状；_modelInfo 保留签名（方案 B 预留位）） */
-  const applyModelCamera = (
-    model: Live2DModel,
-    _modelInfo: ModelInfo | undefined,
-  ): void => {
+  // ---- C-M6 用户交互持久化（localStorage；浏览器缺省，node 环境降级 no-op） ----
+  const interactionStore = createInteractionStore(createDefaultStorage());
+
+  /** 模型 key（C-M6 §2.2：model_info.url 的 encodeURIComponent，url 不同 → override 独立） */
+  const modelKeyFor = (modelInfo: ModelInfo): string =>
+    encodeURIComponent(modelInfo.url);
+
+  /** 当前模型 key（无模型 → null） */
+  const currentModelKey = (): string | null =>
+    currentModelInfo ? modelKeyFor(currentModelInfo) : null;
+
+  /**
+   * 统一位姿入口（contract-C-M6 §2.2 优先级：用户 override > 相机模式（C-M2，默认 fit））。
+   * load / window resize / WS 同模型更新三处共用：
+   *   有 override → 应用绝对值（scale/anchor/x/y），resize 不重新 fit（用户锁定优先）；
+   *   无 override → applyCameraMode（fit 随视口重算）。
+   */
+  const applyModelPose = (model: Live2DModel, modelKey: string): void => {
+    const override = interactionStore.load(modelKey);
+    if (shouldApplyOverride(override) && override) {
+      model.scale.set?.(override.scale);
+      model.scale.x = override.scale;
+      model.scale.y = override.scale;
+      model.anchor.set(0.5, 0.5);
+      model.x = override.x;
+      model.y = override.y;
+      return;
+    }
+    // 无 override → 相机模式默认路径（C-M2 applyCameraMode 分发；默认 fit）
     live2dModules?.camera.applyCameraMode(
       model,
       live2dModules.camera.CAMERA_MODE,
@@ -229,7 +258,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     }
     currentModel = loaded.model;
     currentModelInfo = modelInfo;
-    applyModelCamera(loaded.model, modelInfo);
+    applyModelPose(loaded.model, modelKeyFor(modelInfo));
     applyTextureGuard(loaded.model);
     pipeline = createPipeline(loaded.model, loaded.internalModel);
 
@@ -280,8 +309,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
         currentModelInfo &&
         modelInfo.url === currentModelInfo.url
       ) {
-        // 同模型：仅重应用相机参数（后端可能更新 kScale / initialYshift / kXOffset）
-        applyModelCamera(currentModel, modelInfo);
+        // 同模型：仅重应用位姿（override 存在 → 保持用户覆盖；无 → 相机模式重算）
+        applyModelPose(currentModel, modelKeyFor(modelInfo));
         return;
       }
       await loadAndAttach(modelInfo);
@@ -316,12 +345,101 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     void handleModelChange(modelInfo);
   };
 
+  // ---- C-M6 画布交互：拖拽 + 滚轮缩放（→ localStorage 持久化） ----
+  // 面板为独立 fixed 层，画布事件不会干扰聊天输入框/按钮（click 不消费）
+  const view = app.view as HTMLCanvasElement | undefined;
+  if (view?.addEventListener) {
+    const DRAG_THRESHOLD_PX = 10; // N.E.K.O. R08 CLICK_THRESHOLD_DISTANCE
+    const WHEEL_SAVE_DEBOUNCE_MS = 300; // N.E.K.O. _debouncedSnapCheck 语义
+    let pointerDown = false;
+    let dragActive = false;
+    let downX = 0;
+    let downY = 0;
+    let modelStartX = 0;
+    let modelStartY = 0;
+    let wheelSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    /** 保存当前位姿为 override（拖拽结束 / 滚轮防抖后） */
+    const saveOverride = (): void => {
+      const key = currentModelKey();
+      if (!key || !currentModel) return;
+      interactionStore.save(key, {
+        scale: currentModel.scale?.x ?? 1,
+        x: currentModel.x,
+        y: currentModel.y,
+        version: 1,
+      });
+    };
+
+    view.addEventListener('pointerdown', (e) => {
+      if (!currentModel) return;
+      pointerDown = true;
+      dragActive = false;
+      downX = e.clientX;
+      downY = e.clientY;
+      modelStartX = currentModel.x;
+      modelStartY = currentModel.y;
+    });
+    view.addEventListener('pointermove', (e) => {
+      if (!pointerDown || !currentModel) return;
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      // 未超阈值 = click → 不消费（不位移、不持久化）
+      if (!dragActive && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      dragActive = true;
+      // 位置跟随指针（PixiJS 屏幕坐标，y 同向，无符号翻转）；模型中心锚定不变
+      currentModel.x = modelStartX + dx;
+      currentModel.y = modelStartY + dy;
+    });
+    const endDrag = (): void => {
+      if (!pointerDown) return;
+      pointerDown = false;
+      if (dragActive) saveOverride();
+      dragActive = false;
+    };
+    view.addEventListener('pointerup', endDrag);
+    view.addEventListener('pointercancel', endDrag);
+    view.addEventListener(
+      'wheel',
+      (e) => {
+        if (!currentModel) return;
+        e.preventDefault(); // { passive:false }：防止页面滚动
+        const newScale = wheelScale(currentModel.scale?.x ?? 1, e.deltaY);
+        currentModel.scale.set?.(newScale);
+        currentModel.scale.x = newScale;
+        currentModel.scale.y = newScale;
+        // 缩放围绕模型中心（anchor 0.5,0.5，位置不变）→ 防抖保存
+        if (wheelSaveTimer) clearTimeout(wheelSaveTimer);
+        wheelSaveTimer = setTimeout(() => {
+          wheelSaveTimer = null;
+          saveOverride();
+        }, WHEEL_SAVE_DEBOUNCE_MS);
+      },
+      { passive: false },
+    );
+  }
+
   // ---- 聊天面板（spoq-fix：双端对话框；直播/微信风格右侧面板） ----
   const chatHost = document.getElementById('chat');
   if (chatHost) {
     const chatPanel = initChatPanel(chatHost, {
       onSend: (text) => wsBridge.sendText(text),
     });
+    // ---- C-M6 重置入口：聊天面板头部「重置模型位置」按钮（main.ts 接线，不重构面板模块） ----
+    const chatHeader = chatHost.querySelector('.chat-header');
+    if (chatHeader) {
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'chat-reset';
+      resetBtn.textContent = '重置模型位置';
+      resetBtn.addEventListener('click', () => {
+        const key = currentModelKey();
+        if (!key || !currentModel) return;
+        interactionStore.clear(key); // 清 override
+        applyModelPose(currentModel, key); // 回相机模式 fit
+      });
+      chatHeader.appendChild(resetBtn);
+    }
     chatPanel.addMessage({ role: 'system', content: '连接服务器中…（WS 握手）' });
     wsBridge.onSubtitle = (text) => {
       if (text?.text) chatPanel.addMessage({ role: 'assistant', content: text.text });
@@ -349,8 +467,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   // ---- 窗口处理：resize 重应用相机（构图跟随）；beforeunload 主动断开 WS ----
   if (typeof window !== 'undefined') {
     window.addEventListener?.('resize', () => {
-      if (currentModel) {
-        applyModelCamera(currentModel, currentModelInfo ?? undefined);
+      if (currentModel && currentModelInfo) {
+        // override 存在 → 保持绝对值（不重新 fit）；无 → 相机模式随视口重算
+        applyModelPose(currentModel, modelKeyFor(currentModelInfo));
       }
     });
     window.addEventListener?.('beforeunload', () => {
@@ -359,6 +478,32 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   }
 
   return { app, modelLoader, wsBridge, arbiter: pipeline.arbiter };
+}
+
+/**
+ * 默认 storage（C-M6）：浏览器 localStorage；node/隐私模式等不可用场景降级 no-op
+ * （持久化静默禁用，渲染/交互不受影响）。
+ */
+function createDefaultStorage(): Pick<
+  Storage,
+  'getItem' | 'setItem' | 'removeItem'
+> {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage;
+    }
+  } catch {
+    // 隐私模式等场景访问 localStorage 可能抛 SecurityError → 降级 no-op
+  }
+  return {
+    getItem: () => null,
+    setItem: () => {
+      /* no-op */
+    },
+    removeItem: () => {
+      /* no-op */
+    },
+  };
 }
 
 /** live2d 依赖模块（动态导入缓存） */
