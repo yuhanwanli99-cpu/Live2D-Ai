@@ -456,7 +456,7 @@ class ChatServiceTest {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // GLM 429（限 1 并发）友好重试提示（task_42f86a40c1ed 新增的提示文案）
+    // 429（限 1 并发）友好重试提示（task_42f86a40c1ed 新增的提示文案）
     // ─────────────────────────────────────────────────────────────
 
     // 流式路径：无工具注册走 streamResponse()，HTTP 429 时应发射友好重试提示
@@ -499,7 +499,7 @@ class ChatServiceTest {
     // 共享免费 Key 额度耗尽/欠费（403 / quota 类错误）：不重试，引导换 Key
     // ─────────────────────────────────────────────────────────────
 
-    // 流式路径：HTTP 403（智谱额度/余额不足类错误）→ 引导用户前往设置填写自己的 Key
+    // 流式路径：HTTP 403（额度/余额不足类错误）→ 引导用户前往设置填写自己的 Key
     @Test
     fun testQuotaExhausted403ShowsFriendlyGuidance_streamingPath() = runBlocking(Dispatchers.IO) {
         mockWebServer.enqueue(

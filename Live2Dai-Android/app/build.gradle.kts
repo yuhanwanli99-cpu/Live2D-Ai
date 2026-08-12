@@ -69,13 +69,8 @@ android {
             ?: (project.findProperty("COSYVOICE_WS_URL") as? String)?.ifBlank { null }
             ?: System.getenv("COSYVOICE_WS_URL")?.ifBlank { null }
             ?: ""
-        val zhipuKey = localProps.getProperty("ZHIPU_API_KEY")?.ifBlank { null }
-            ?: (project.findProperty("ZHIPU_API_KEY") as? String)?.ifBlank { null }
-            ?: System.getenv("ZHIPU_API_KEY")?.ifBlank { null }
-            ?: ""
 
         buildConfigField("String", "DEEPSEEK_API_KEY", "\"${deepseekKey}\"")
-        buildConfigField("String", "ZHIPU_API_KEY", "\"${zhipuKey}\"")
         buildConfigField("String", "COSYVOICE_API_KEY", "\"${cosyvoiceKey}\"")
         buildConfigField("String", "COSYVOICE_WS_URL", "\"${cosyvoiceWsUrl}\"")
     }

@@ -21,25 +21,12 @@ class SettingsRepository(context: Context) {
             ?: BuildConfig.DEEPSEEK_API_KEY
         set(value) = prefs.edit().putString(KEY_DEEPSEEK, value).apply()
 
-    /** Zhipu / GLM API Key (自定义覆盖) */
-    var zhipuApiKey: String
-        get() = prefs.getString(KEY_ZHIPU, null)
-            ?: BuildConfig.ZHIPU_API_KEY
-        set(value) = prefs.edit().putString(KEY_ZHIPU, value).apply()
-
     /** 用户是否手动输入过自定义 Key */
     val hasCustomDeepseekKey: Boolean
         get() = prefs.contains(KEY_DEEPSEEK) && prefs.getString(KEY_DEEPSEEK, null)!!.isNotEmpty()
 
-    val hasCustomZhipuKey: Boolean
-        get() = prefs.contains(KEY_ZHIPU) && prefs.getString(KEY_ZHIPU, null)!!.isNotEmpty()
-
     fun clearCustomDeepseekKey() {
         prefs.edit().remove(KEY_DEEPSEEK).apply()
-    }
-
-    fun clearCustomZhipuKey() {
-        prefs.edit().remove(KEY_ZHIPU).apply()
     }
 
     // ─── Model ───
@@ -183,7 +170,6 @@ class SettingsRepository(context: Context) {
         private const val PREF_NAME = "live2dai_settings"
 
         const val KEY_DEEPSEEK = "deepseek_api_key"
-        const val KEY_ZHIPU = "zhipu_api_key"
         const val KEY_MODEL = "model"
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_TTS_VOICE = "tts_voice"
@@ -240,7 +226,6 @@ class SettingsRepository(context: Context) {
             "deepseek-v4-flash",
             "deepseek-chat",
             "deepseek-reasoner",
-            "glm-4.7-flash",
         )
 
         /** 可用 TTS 语音列表 */

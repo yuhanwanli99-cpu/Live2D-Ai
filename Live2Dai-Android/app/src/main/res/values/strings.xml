@@ -6,7 +6,6 @@
     <string name="cancel">取消</string>
     <string name="api_settings">API 设置</string>
     <string name="deepseek_api_key">DeepSeek API Key</string>
-    <string name="zhipu_api_key">Zhipu API Key</string>
     <string name="use_default_key">使用默认 Key</string>
     <string name="custom_key">自定义 Key</string>
     <string name="model_settings">模型设置</string>

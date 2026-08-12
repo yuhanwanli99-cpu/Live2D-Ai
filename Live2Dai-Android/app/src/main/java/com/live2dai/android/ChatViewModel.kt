@@ -27,7 +27,7 @@ import java.net.UnknownHostException
  *
  * 职责：
  * - 管理聊天状态：displayMessages、inputText、isLoading、isListening
- * - 管理对话框状态：showClearConfirm、showOnboarding、showFreeNotice
+ * - 管理对话框状态：showClearConfirm、showOnboarding
  * - 初始化与存活期管理：PluginManager、ToolConfirmationGate、ChatService、VoiceIoController
  * - 发送消息 / 流式 delta 处理 / 聊天历史持久化
  * - ASR 语音输入（委托 voiceIo.listen）
@@ -95,9 +95,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** 首次启动引导对话框 */
     val showOnboarding = MutableStateFlow(false)
 
-    /** 免费共享额度提示 banner */
-    val showFreeNotice = MutableStateFlow(false)
-
     // ── 初始化 ──
 
     init {
@@ -114,8 +111,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // 对话框初始状态
         showOnboarding.value = !repo.onboardingCompleted
-        showFreeNotice.value = !repo.freeQuotaNoticeDismissed &&
-            LLMProviderManager.getActiveProvider().type == ProviderType.ZHIPU
 
         // 冷启动：装载人设 → 装载插件 → 恢复聊天历史
         viewModelScope.launch {
@@ -130,7 +125,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * 装载所有插件（suspend：等待 PersonaConfig.load 完成后再读 getVisionModel）。
      *
-     * - VisionPlugin：智谱 GLM 多模态视觉（截图分析）
+     * - VisionPlugin：GLM 多模态视觉（截图分析；Android 截图为空壳 + 无 GLM API Key
+     *   配置 → hook 静默跳过，不产生任何请求，对话流程不受影响）
      * - MemoryPlugin：长期记忆（Room 数据库 + 摘要 LLM）
      * - ProactivePlugin：主动陪伴（WorkManager 周期检查，总开关 repo.proactiveEnabled）
      */
@@ -140,7 +136,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             listOf(
                 VisionPlugin(
                     VisionPluginConfig(
-                        apiKey = repo.zhipuApiKey,
+                        // Android 不再持有 GLM 视觉 API Key（免费兜底提供商已整体移除）：
+                        // 传空串 → 插件正常加载但视觉能力静默禁用（apiKey 为空不截图、不发请求）
+                        apiKey = "",
                         visionModel = PersonaConfig.getVisionModel(),
                         screenshotProvider = AndroidScreenshotProvider(app),
                     )
@@ -366,22 +364,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 关闭首次启动引导对话框（"开始聊天"路径：同时标记 onboarding 完成 +
-     * 免费额度提示已读，避免紧接着再弹 banner 造成重复打扰）。
+     * 关闭首次启动引导对话框（"开始聊天"路径：同时标记 onboarding 完成）。
+     * 免费共享额度 banner 已随免费兜底提供商移除而删除，此处不再联动。
      */
     fun dismissOnboardingAndFreeNotice() {
         repo.onboardingCompleted = true
         repo.freeQuotaNoticeDismissed = true
         showOnboarding.value = false
-        showFreeNotice.value = false
-    }
-
-    /**
-     * 关闭免费共享额度提示 banner。
-     */
-    fun dismissFreeNotice() {
-        repo.freeQuotaNoticeDismissed = true
-        showFreeNotice.value = false
     }
 
     // ── Live2D 视图接线 ──

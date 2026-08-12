@@ -574,9 +574,12 @@ Java_com_live2dai_android_Live2DNative_getDrawableMaskCounts(JNIEnv *env, jclass
 
     jintArray result = env->NewIntArray(count);
     env->SetIntArrayRegion(result, 0, count, maskCounts);
-    // Debug: log first 5 mask counts
-    __android_log_print(ANDROID_LOG_INFO, "Live2DNative", "maskCounts[0..4]=%d,%d,%d,%d,%d", 
-        maskCounts[0], maskCounts[1], maskCounts[2], maskCounts[3], maskCounts[4]);
+    // Debug: log first 5 mask counts, throttled to every 30 frames to avoid per-frame log syscall I/O
+    static int frameCounter = 0;
+    if ((++frameCounter % 30) == 0) {
+        __android_log_print(ANDROID_LOG_INFO, "Live2DNative", "maskCounts[0..4]=%d,%d,%d,%d,%d", 
+            maskCounts[0], maskCounts[1], maskCounts[2], maskCounts[3], maskCounts[4]);
+    }
     return result;
 }
 

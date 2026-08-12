@@ -383,11 +383,10 @@ adb pull /sdcard/shot.png /tmp/
 
 ### API Key 设置
 
-**Android**: `ChatService.kt` 常量:
+**Android**: `local.properties` → `BuildConfig`（智谱 GLM 已移除，仅 DeepSeek）：
 
 ```kotlin
-private const val DEEPSEEK_API_KEY = "sk-..."
-private const val GLM_API_KEY = "..."
+DEEPSEEK_API_KEY=sk-...
 ```
 
 **Windows**: `conf.yaml`:

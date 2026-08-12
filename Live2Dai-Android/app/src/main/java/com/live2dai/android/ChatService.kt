@@ -128,12 +128,12 @@ class ChatService(
          */
         const val QUOTA_EXHAUSTED_MARKER = "[QUOTA_EXHAUSTED]"
 
-        /** 额度耗尽/欠费类错误的友好中文提示（不含重试语义） */
+        /** 额度耗尽/欠费类错误的友好中文提示（不含重试语义，通用文案不指向具体服务商） */
         const val QUOTA_EXHAUSTED_MESSAGE =
-            "当前使用的是官方免费额度（GLM-4.7-Flash），免费额度已用尽或服务繁忙。" +
-                "可前往「设置 → API 设置」填写你自己的智谱 API Key 继续使用。"
+            "当前 API 免费额度已用尽或服务繁忙。" +
+                "可前往「设置 → API 设置」填写你自己的 API Key 继续使用。"
 
-        // 额度耗尽/欠费类错误的识别关键词（智谱错误响应 body 中可能出现的标记）。
+        // 额度耗尽/欠费类错误的识别关键词（服务端错误响应 body 中可能出现的标记）。
         // 除 HTTP 403 外，命中这些关键词也视为额度耗尽，避免因错误码差异漏判。
         private val QUOTA_KEYWORDS = listOf(
             "quota", "balance", "insufficient", "exhausted", "overdue", "frozen",
@@ -241,7 +241,7 @@ class ChatService(
         onDelta: suspend (String) -> Unit
     ): String? {
         // 请求模型取 provider.modelName：DeepSeek 场景与 PersonaConfig.getModel() 一致
-        // （deepSeek() 工厂以人设模型名构造），智谱场景则为 glm-4.7-flash。
+        // （deepSeek() 工厂以人设模型名构造），LOCAL 场景则为用户配置的本地模型名。
         val modelName = provider.modelName
         val request = ChatRequest(
             model = modelName,

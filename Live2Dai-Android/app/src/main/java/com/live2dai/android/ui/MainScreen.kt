@@ -121,7 +121,6 @@ fun MainChatScreen(
     val inputText by viewModel.inputText.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isListening by viewModel.isListening.collectAsStateWithLifecycle()
-    val showFreeNotice by viewModel.showFreeNotice.collectAsStateWithLifecycle()
     val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
     val showClearConfirm by viewModel.showClearConfirm.collectAsStateWithLifecycle()
     // R1-ui M4b：连接状态（对齐 PC chat-header）——ChatService 请求生命周期驱动
@@ -276,30 +275,6 @@ fun MainChatScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ── 免费共享额度提示（仅零配置默认 Provider 时、且用户未手动关闭时展示） ──
-            if (showFreeNotice) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "当前使用免费共享额度（GLM-4.7-Flash）：多人共用、限 1 并发。" +
-                                "可在「设置 → 服务商」换用自己的 API Key。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { viewModel.dismissFreeNotice() }) {
-                            Icon(Icons.Default.Close, contentDescription = "关闭提示")
-                        }
-                    }
-                }
-            }
-
             // ── 聊天主区域 ──
             Box(
                 modifier = Modifier
@@ -353,17 +328,16 @@ fun MainChatScreen(
 
     // ── 首次启动引导对话框（一次性、可跳过） ──
     // 设计要点：
-    // - 零配置即聊：默认使用免费 GLM-4.7-Flash 共享额度
-    // - 点「开始聊天」会同时标记免费额度提示已读，避免紧接着弹 banner 造成重复打扰
-    // - 「以后再说」：直接跳过，保留免费额度 banner 作为后续提醒
+    // - 默认 DeepSeek 云端：首次使用引导用户配置自己的 DeepSeek API Key
+    // - 点「开始聊天」会标记引导完成（不再弹出）
+    // - 「以后再说」：直接跳过，下次启动再次展示
     if (showOnboarding) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissOnboarding() },
             title = { Text("欢迎来到 Live2Dai 喵~ (=^・ω・^=)") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("零配置开聊：不用填任何 API Key，默认使用免费的 GLM-4.7-Flash 共享额度（多人共用、限 1 并发）。")
-                    Text("想更稳定/更高并发：在「设置 → 服务商」填你自己的 API Key 即可升级。")
+                    Text("在「设置 → API 设置」填写你自己的 DeepSeek API Key 即可开始聊天（密钥只保存在本地，不会上传）。")
                     Text("需要麦克风/悬浮窗等权限时，会在真正使用时单独询问，不会一次性轰炸你。")
                 }
             },

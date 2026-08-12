@@ -53,7 +53,7 @@ Live2Dai = Live2D + AI。项目的全部意义只有一件事：**验证「最�
 
 **文本 → LLM → 表情/动作**：
 
-- 本地配置聊天（密钥不提交）：在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（PC 端）或 `Live2Dai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（Android 端，build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**；也可改 `ZHIPU_API_KEY` 走智谱 **GLM-4.7-Flash**（永久免费模型）。密钥只存在于 gitignored 本地文件，不进入 git 历史
+- 本地配置聊天（密钥不提交）：Android 端在 `Live2Dai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**（智谱 GLM 提供商已移除）；PC 端在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（亦可配置 `ZHIPU_API_KEY` 走智谱 GLM，用于视觉/免费兜底，见 `Live2Dai-pc/README.md`）。密钥只存在于 gitignored 本地文件，不进入 git 历史
 - LLM 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
 
 **Live2D 渲染（开源核心）**：

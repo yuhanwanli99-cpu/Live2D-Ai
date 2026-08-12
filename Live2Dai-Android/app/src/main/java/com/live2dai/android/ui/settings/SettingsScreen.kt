@@ -73,14 +73,12 @@ fun SettingsScreen(
     val repo = repository ?: remember { SettingsRepository(context) }
     // ── State ──
     var deepseekKey by remember { mutableStateOf(repo.deepseekApiKey) }
-    var zhipuKey by remember { mutableStateOf(repo.zhipuApiKey) }
     var selectedModel by remember { mutableStateOf(repo.model) }
     var temperature by remember { mutableStateOf(repo.temperature) }
     var ttsVoice by remember { mutableStateOf(repo.ttsVoice) }
     var ttsSpeed by remember { mutableStateOf(repo.ttsSpeed) }
     var selectedPersona by remember { mutableStateOf(repo.personaName) }
     var deepseekKeyVisible by remember { mutableStateOf(false) }
-    var zhipuKeyVisible by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
     var showTtsVoiceMenu by remember { mutableStateOf(false) }
     var showPersonaDialog by remember { mutableStateOf(false) }
@@ -169,7 +167,6 @@ fun SettingsScreen(
     }
 
     val hasCustomDeepseek = repo.hasCustomDeepseekKey
-    val hasCustomZhipu = repo.hasCustomZhipuKey
 
     Scaffold(
         topBar = {
@@ -241,64 +238,17 @@ fun SettingsScreen(
                 )
             }
 
-            // Zhipu Key
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "智谱 (Zhipu) API Key",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(start = 4.dp, top = 8.dp)
-            )
-            OutlinedTextField(
-                value = zhipuKey,
-                onValueChange = { zhipuKey = it },
-                label = {
-                    Text(
-                        if (hasCustomZhipu) "自定义 Key"
-                        else "留空使用编译时默认 Key"
-                    )
-                },
-                singleLine = true,
-                visualTransformation = if (zhipuKeyVisible) VisualTransformation.None
-                    else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { zhipuKeyVisible = !zhipuKeyVisible }) {
-                        Icon(
-                            if (zhipuKeyVisible) Icons.Default.VisibilityOff
-                            else Icons.Default.Visibility,
-                            contentDescription = if (zhipuKeyVisible) "隐藏" else "显示"
-                        )
-                    }
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (!hasCustomZhipu && zhipuKey.isEmpty()) {
-                Text(
-                    "当前使用编译时默认 Key${if (BuildConfig.ZHIPU_API_KEY.isNotEmpty()) " (已配置)" else " (未配置)"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                )
-            }
-
             // 恢复默认按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (hasCustomDeepseek || hasCustomZhipu) {
+                if (hasCustomDeepseek) {
                     OutlinedButton(
                         onClick = {
                             if (hasCustomDeepseek) {
                                 repo.clearCustomDeepseekKey()
                                 deepseekKey = ""
-                            }
-                            if (hasCustomZhipu) {
-                                repo.clearCustomZhipuKey()
-                                zhipuKey = ""
                             }
                         }
                     ) { Text("恢复 API Key 为默认") }
@@ -310,7 +260,7 @@ fun SettingsScreen(
             // ── 模型设置 ──
             SectionHeader("模型设置")
 
-            // Provider 选择（零配置默认 = 智谱 GLM 免费兜底，见 LLMProviderManager）
+            // Provider 选择（零配置默认 = DeepSeek 云端，见 LLMProviderManager）
             LLMProviderManager.init(context)
             var selectedProvider by remember { mutableStateOf(LLMProviderManager.getProviderType()) }
             Text(
@@ -324,7 +274,6 @@ fun SettingsScreen(
             ) {
                 listOf(
                     ProviderType.DEEPSEEK to "DeepSeek 云端",
-                    ProviderType.ZHIPU to "智谱 GLM（免费）",
                 ).forEach { (type, label) ->
                     FilterChip(
                         selected = selectedProvider == type,
@@ -336,36 +285,12 @@ fun SettingsScreen(
                     )
                 }
             }
-            val activeProvider = LLMProviderManager.getActiveProvider()
-            when {
-                selectedProvider == ProviderType.ZHIPU && activeProvider.type == ProviderType.ZHIPU -> {
-                    val keySource = if (hasCustomZhipu) "你的自定义智谱 API Key"
-                        else "零配置免费兜底（编译期内置 Key）"
-                    Text(
-                        "当前正在使用免费兜底模型 GLM-4.7-Flash（$keySource）。" +
-                            "个人账号限 1 并发，高并发场景建议切换到 DeepSeek 云端。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                    )
-                }
-                selectedProvider == ProviderType.ZHIPU -> {
-                    Text(
-                        "未检测到智谱 API Key，已安全回退到 DeepSeek 云端。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                    )
-                }
-                else -> {
-                    Text(
-                        "使用 DeepSeek 云端（你自己的 API Key）。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                    )
-                }
-            }
+            Text(
+                "使用 DeepSeek 云端（你自己的 API Key）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+            )
 
             // 模型选择
             Text(
@@ -651,7 +576,6 @@ fun SettingsScreen(
     DisposableEffect(Unit) {
         onDispose {
             repo.deepseekApiKey = deepseekKey
-            repo.zhipuApiKey = zhipuKey
             repo.model = selectedModel
             repo.temperature = temperature
             repo.ttsVoice = ttsVoice
