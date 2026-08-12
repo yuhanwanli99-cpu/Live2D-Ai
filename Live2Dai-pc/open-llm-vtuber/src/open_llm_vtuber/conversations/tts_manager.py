@@ -59,7 +59,7 @@ class TTSTaskManager:
     ) -> None:
         """
         新增方法：异步启动 TTS 合成（不阻塞后续句子）。
-        - 立即发送 emotion 帧（如果 emotion 与上一句不同）
+        - emotion 帧与 audio 帧一起入队，由发送管线按 sequence 顺序发出（T2 起不再同步发送）
         - 后台 asyncio.create_task 执行 TTS 合成
         - 合成完成后入队发送 audio 帧（顺序保持）
 
@@ -107,7 +107,9 @@ class TTSTaskManager:
             await self._send_silent_payload(display_text, actions, sequence_number)
             return
 
-        # 立即发送 emotion 帧（仅当 emotion 与上一句不同）
+        # emotion 帧去重决策（T2 起不再同步发送：改为与 audio 帧一起入队，由发送管线
+        # 按 sequence 顺序发出。这样 interrupt() 能抑制旧句的 emotion/audio 帧）。
+        emotion_payload = None
         if emotion != self._last_emotion:
             emotion_payload = {
                 "type": "emotion",
@@ -116,10 +118,6 @@ class TTSTaskManager:
                 "parameterOverrides": (actions.parameterOverrides if actions else None) or {},
                 "fadeMs": 400,
             }
-            try:
-                await websocket_send(json.dumps(emotion_payload))
-            except Exception as e:
-                logger.warning(f"speak_async: 发送 emotion 帧失败（忽略）: {e}")
             self._last_emotion = emotion
 
         logger.debug(
@@ -137,6 +135,7 @@ class TTSTaskManager:
                 emotion=emotion,
                 mood_tier=mood_tier,
                 sequence_number=sequence_number,
+                emotion_payload=emotion_payload,
             )
         )
         self.task_list.append(task)
@@ -222,6 +221,46 @@ class TTSTaskManager:
         self._seq_started = False
         self._max_sequence_seen = 0
 
+    async def interrupt(self) -> None:
+        """Barge-in 打断：停止当前播放、取消在途合成、清空待播队列、丢弃旧句。
+
+        T2（spoq-fix）语义，对齐 barge-in 标准五步的 2/3 步：
+            1. 停止 sender：正在发送的 audio 帧即刻中断，已缓冲未发送的帧丢弃；
+            2. 取消所有在途 TTS 合成任务并等待其彻底结束（防取消后仍入队 payload）；
+            3. 丢弃已入队未发送的 payload（重建队列，等价于排空）；
+            4. 重置序列状态（下一句从干净状态开始，不影响后续 speak_async）。
+
+        幂等：无任务 / 已打断时调用安全（各步均为 no-op）。
+        叠加层：不破坏既有并发模型（信号量限流、按 sequence 顺序发送、flush 幂等清理）。
+        """
+        # 1) 停止顺序发送任务（正在发送的帧被中断，sender 局部缓冲的帧随之丢弃）
+        if self._sender_task and not self._sender_task.done():
+            self._sender_task.cancel()
+            try:
+                await self._sender_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._sender_task = None
+
+        # 2) 取消在途 TTS 合成任务（快照后清空列表：并发新句不受影响）
+        pending = list(self.task_list)
+        self.task_list.clear()
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        # 3) 丢弃已入队未发送的 payload（重建队列）
+        self._payload_queue = asyncio.Queue()
+
+        # 4) 重置序列状态（与 flush() 后对齐；_last_emotion 复位，下一句重新宣告情绪）
+        self._sequence_counter = 0
+        self._next_sequence_to_send = 0
+        self._seq_started = False
+        self._max_sequence_seen = 0
+        self._last_emotion = "neutral"
+
     # ------------------------------------------------------------------ #
     # 内部
     # ------------------------------------------------------------------ #
@@ -241,6 +280,7 @@ class TTSTaskManager:
         emotion: str,
         mood_tier: str,
         sequence_number: int,
+        emotion_payload: Optional[Dict] = None,
     ) -> None:
         """带并发限流的 TTS 合成包装（信号量内执行，保证同时合成数 ≤ 上限）。"""
         async with self._semaphore:
@@ -251,6 +291,7 @@ class TTSTaskManager:
                 emotion=emotion,
                 mood_tier=mood_tier,
                 sequence_number=sequence_number,
+                emotion_payload=emotion_payload,
             )
 
     async def _process_tts(
@@ -261,6 +302,7 @@ class TTSTaskManager:
         emotion: str,
         mood_tier: str,
         sequence_number: int,
+        emotion_payload: Optional[Dict] = None,
     ) -> None:
         """Process TTS generation and queue the result for ordered delivery
 
@@ -281,6 +323,9 @@ class TTSTaskManager:
                 display_text=display_text,
                 actions=actions,
             )
+            # T2: emotion 帧先入队（同一 sequence），再入队 audio payload，保持帧序
+            if emotion_payload is not None:
+                await self._enqueue_payload(emotion_payload, sequence_number)
             # Queue the payload with its sequence number
             await self._enqueue_payload(payload, sequence_number)
 
@@ -292,6 +337,8 @@ class TTSTaskManager:
                 display_text=display_text,
                 actions=actions,
             )
+            if emotion_payload is not None:
+                await self._enqueue_payload(emotion_payload, sequence_number)
             await self._enqueue_payload(payload, sequence_number)
 
         finally:
@@ -326,18 +373,21 @@ class TTSTaskManager:
         Process and send payloads in correct order.
         Runs continuously until all payloads are processed.
         """
-        buffered_payloads: Dict[int, Dict] = {}
+        buffered_payloads: Dict[int, List[Dict]] = {}
 
         while True:
             try:
                 # Get payload from queue
                 payload, sequence_number = await self._payload_queue.get()
-                buffered_payloads[sequence_number] = payload
+                # T2: 同一 sequence 可含多条 payload（emotion 帧 + audio 帧），按入队序保持
+                buffered_payloads.setdefault(sequence_number, []).append(payload)
 
                 # Send payloads in order
                 while self._next_sequence_to_send in buffered_payloads:
-                    next_payload = buffered_payloads.pop(self._next_sequence_to_send)
-                    await websocket_send(json.dumps(next_payload))
+                    for next_payload in buffered_payloads.pop(
+                        self._next_sequence_to_send
+                    ):
+                        await websocket_send(json.dumps(next_payload))
                     self._next_sequence_to_send += 1
 
                 self._payload_queue.task_done()

@@ -73,7 +73,7 @@ character_config:
     concurrency_limit: 2  # 段级 TTS 合成并发上限（spoq-fix P2-3）
     cosyvoice_cloud:
       api_key: ''
-      model: 'cosyvoice-v1'
+      model: 'cosyvoice-v3-flash'
       ws_url: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference'
     edge_tts:
       voice: 'zh-CN-XiaoxiaoNeural'

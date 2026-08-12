@@ -60,7 +60,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
         self,
         api_key: str = "",
         voice: str = "longxiaochun",
-        model: str = "cosyvoice-v1",
+        model: str = "cosyvoice-v3-flash",
         format: str = "mp3",
         sample_rate: int = 22050,
         volume: int = 50,

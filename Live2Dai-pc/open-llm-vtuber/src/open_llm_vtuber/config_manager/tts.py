@@ -242,7 +242,7 @@ class CosyVoiceCloudTtsConfig(I18nMixin):
 
     api_key: str = Field("", alias="api_key")
     voice: str = Field("longxiaochun", alias="voice")
-    model: str = Field("cosyvoice-v1", alias="model")
+    model: str = Field("cosyvoice-v3-flash", alias="model")
     format: str = Field("mp3", alias="format")
     sample_rate: int = Field(22050, alias="sample_rate")
     volume: int = Field(50, alias="volume")
@@ -263,8 +263,8 @@ class CosyVoiceCloudTtsConfig(I18nMixin):
             en="Voice name (e.g., longxiaochun)", zh="音色名称（如 longxiaochun）"
         ),
         "model": Description(
-            en="CosyVoice model name (e.g., cosyvoice-v1)",
-            zh="CosyVoice 模型名（如 cosyvoice-v1）",
+            en="CosyVoice model name (e.g., cosyvoice-v3-flash)",
+            zh="CosyVoice 模型名（如 cosyvoice-v3-flash）",
         ),
         "format": Description(
             en="Output audio format (mp3/pcm/wav)", zh="输出音频格式（mp3/pcm/wav）"
