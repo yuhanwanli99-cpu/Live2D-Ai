@@ -45,7 +45,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
 
     用法（与其它 TTS 引擎一致，通过 tts_factory 创建）:
         engine = TTSFactory.get_tts_engine("cosyvoice_cloud", api_key="sk-...")
-        path = await engine.async_generate_audio("你好，我是凛~")
+        path = await engine.async_generate_audio("你好，我是白~")
 
     API Key 解析顺序:
         1. 构造参数 api_key（来自 conf.yaml cosyvoice_cloud.api_key）
@@ -319,7 +319,7 @@ if __name__ == "__main__":
     # 手动冒烟入口: python -m open_llm_vtuber.tts.cosyvoice_cloud_tts "你好"
     import sys
 
-    text = sys.argv[1] if len(sys.argv) > 1 else "你好，我是凛~"
+    text = sys.argv[1] if len(sys.argv) > 1 else "你好，我是白~"
     engine = CosyVoiceCloudTTSEngine()
     path = engine.generate_audio(text)
     print(f"result: {path}")

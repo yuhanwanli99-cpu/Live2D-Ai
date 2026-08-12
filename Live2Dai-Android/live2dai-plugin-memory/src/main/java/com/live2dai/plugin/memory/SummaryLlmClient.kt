@@ -16,7 +16,7 @@ fun interface SummaryLlmClient {
      * 把近期几轮对话浓缩成一条事实摘要。
      *
      * @param recentTurns 近期对话（来自 core 的 `ChatContext.recentMessages` 只读快照）
-     * @param personaName 人设名（可让摘要贴合人设语气，如"凛"）
+     * @param personaName 人设名（可让摘要贴合人设语气，如"白"）
      * @return 事实摘要文本；返回 null / 空白表示本轮无值得记忆的内容（跳过写入）
      */
     suspend fun summarize(recentTurns: List<ChatTurn>, personaName: String): String?

@@ -63,6 +63,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.live2dai.android.ChatViewModel
 import com.live2dai.android.ConnectionState
 import com.live2dai.android.Live2DView
+import com.live2dai.android.PersonaConfig
 import com.live2dai.android.connectionLabel
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
@@ -233,7 +234,8 @@ fun MainChatScreen(
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { if (!isLoading) viewModel.inputText.value = it },
-                        placeholder = { Text("和凛聊天...") },
+                        // M4d：placeholder 随人设联动（PersonaConfig 单一数据源驱动，勿硬编码人名）
+                        placeholder = { Text("和${PersonaConfig.getPersonaName()}聊天...") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         enabled = !isLoading

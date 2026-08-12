@@ -35,6 +35,7 @@ import com.live2dai.android.AsrProviderRegistry
 import com.live2dai.android.BuildConfig
 import com.live2dai.android.DownloadState
 import com.live2dai.android.LLMProviderManager
+import com.live2dai.android.PersonaConfig
 import com.live2dai.android.ModelDownloadManager
 import com.live2dai.android.ModelSpec
 import com.live2dai.android.ProviderType
@@ -684,11 +685,15 @@ private fun PersonaSelector(
     showDialog: Boolean,
     onShowDialogChange: (Boolean) -> Unit,
 ) {
-    val personas = remember {
-        listOf(
-            "凛 (Lin)" to "傲娇天才少女助手 — 聪明、软萌、傲娇",
-            "绫乃 (Ayano)" to "傲娇学姐 — 表面冷漠，内心温柔",
-        )
+    // M4c 单一数据源：人设列表由 PersonaConfig.getAvailablePersonas() 驱动
+    // （assets/persona.yaml + assets/personas/*.yaml 枚举，禁硬编码条目）
+    val context = LocalContext.current
+    val personas = remember { PersonaConfig.getAvailablePersonas(context) }
+
+    // M4c：选择即加载对应人设资产（路径来自 getAvailablePersonas 返回值），随后回调上层持久化
+    val selectPersona: (String) -> Unit = { name ->
+        personas.find { it.first == name }?.second?.let { PersonaConfig.loadFile(context, it) }
+        onPersonaSelected(name)
     }
 
     OutlinedCard(
@@ -732,13 +737,13 @@ private fun PersonaSelector(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onPersonaSelected(name) }
+                                .clickable { selectPersona(name) }
                                 .padding(vertical = 12.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
                                 selected = name == currentPersona,
-                                onClick = { onPersonaSelected(name) }
+                                onClick = { selectPersona(name) }
                             )
                             Spacer(Modifier.width(12.dp))
                             Column {
