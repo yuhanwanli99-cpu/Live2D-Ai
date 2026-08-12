@@ -206,6 +206,69 @@ class Live2DRenderer(
     /** 当前 deltaTime（秒） */
     private var deltaTime: Float = 0.016f
 
+    // ── C-Perf4：模型动画更新降频（每 MODEL_UPDATE_INTERVAL_FRAMES 帧执行一次
+    //    pipeline.update / csmUpdateModel；deltaTime 跨帧累积传递，动画速度
+    //    （呼吸/眨眼/物理/motion）保持真实时间语义；渲染管线每帧执行）──
+
+    /** 模型动画更新间隔（帧数）；主代理裁定 = 2（≈30Hz 模型动画 + 60Hz 渲染） */
+    private val MODEL_UPDATE_INTERVAL_FRAMES = 2
+
+    /** 降频帧计数：0..INTERVAL-1，到 INTERVAL-1 即执行一次 update */
+    private var modelUpdateFrameCounter = 0
+
+    /** 自上次 update 以来的真实时间累积（秒），在 update 帧一次性传给管线 */
+    private var modelUpdateDeltaAccum = 0f
+
+    // ── C-Perf6：GL 状态缓存（state cache）——仅去重"重复设置相同状态"的调用；
+    //    blend/cull/frontFace/texture 按上次实际值脏检查，渲染语义（同帧绘制序/
+    //    混合/裁剪）零变化；context 重建/纹理重载后经 resetGlStateCache() 失效 ──
+
+    /** 上次实际设置的混合模式（-1=未知，首次必设） */
+    private var cachedBlendMode = -1
+
+    /** 上次实际设置的 GL_CULL_FACE 开关（null=未知） */
+    private var cachedCullEnabled: Boolean? = null
+
+    /** 上次实际设置的 glFrontFace 值（0=未知） */
+    private var cachedFrontFace = 0
+
+    /** 上次绑定到 TEXTURE0 的纹理 id（-1=未知） */
+    private var cachedBoundTextureId = -1
+
+    /** 已启用顶点属性数组的着色器类型（null=未启用；循环结束统一禁用） */
+    private var attribsEnabledShaderType: ShaderManager.ShaderType? = null
+
+    /** baseColor uniform 复用缓冲区（避免每 drawable 分配 FloatArray） */
+    private val baseColorScratch = FloatArray(4)
+
+    // ── C-Perf6：GL 调用计数器（诊断插桩；进程级单例，每 60 帧窗口打印平均/帧）──
+    private object GlCounters {
+        var drawElements = 0L
+        var blendFunc = 0L
+        var bindTexture = 0L
+        var activeTexture = 0L
+        var frontFace = 0L
+        var cullFace = 0L
+        var useProgram = 0L
+        var uniform = 0L
+        var vertexAttribPointer = 0L
+        var attribArray = 0L
+    }
+
+    /** C-Perf6 诊断窗口累积（60 帧求平均打印一次，含 fps） */
+    private var glCountWindowFrame = 0
+    private var glCountWindowStartMs = 0L
+    private var glCountWindowDraw = 0L
+    private var glCountWindowBlend = 0L
+    private var glCountWindowBindTex = 0L
+    private var glCountWindowActiveTex = 0L
+    private var glCountWindowFrontFace = 0L
+    private var glCountWindowCullFace = 0L
+    private var glCountWindowUseProgram = 0L
+    private var glCountWindowUniform = 0L
+    private var glCountWindowVap = 0L
+    private var glCountWindowAttribArray = 0L
+
     /** 标记是否为第一帧 */
     private var isFirstFrame: Boolean = true
 
@@ -245,6 +308,9 @@ class Live2DRenderer(
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glEnable(GLES20.GL_CULL_FACE)
         GLES20.glFrontFace(GLES20.GL_CW)
+
+        // C-Perf6：context（重）建后 GL 状态回到驱动默认，状态缓存必须失效
+        resetGlStateCache()
 
         nativeAvailable = Live2DNative.load()
 
@@ -551,15 +617,26 @@ class Live2DRenderer(
                         startIdleMotion()
                         hasStartedIdle = true
                     }
+                    // C-Perf4：新模型（含热切换）从更新帧重新开始计数
+                    modelUpdateFrameCounter = 0
+                    modelUpdateDeltaAccum = 0f
                     isFirstFrame = false
                 }
 
-                // ── 动画更新管线 ──
-                val pipeline = animationPipeline
-                if (pipeline != null) {
-                    pipeline.update(deltaTime)
-                } else {
-                    model.update()
+                // ── 动画更新管线（C-Perf4 降频：每 MODEL_UPDATE_INTERVAL_FRAMES 帧执行一次，
+                //    deltaTime 跨帧累积一次性传入 → 呼吸/眨眼/物理/motion 按真实时间推进，
+                //    速度语义不变；刷新/build/draw 仍每帧执行，参数状态按更新粒度呈现）──
+                modelUpdateDeltaAccum += deltaTime
+                modelUpdateFrameCounter++
+                if (modelUpdateFrameCounter >= MODEL_UPDATE_INTERVAL_FRAMES) {
+                    val pipeline = animationPipeline
+                    if (pipeline != null) {
+                        pipeline.update(modelUpdateDeltaAccum)
+                    } else {
+                        model.update()
+                    }
+                    modelUpdateDeltaAccum = 0f
+                    modelUpdateFrameCounter = 0
                 }
 
                 // ── M7：触发 motion 播满一轮回落 idle + idle 多样化轮换（§1.3-5 / §5.2-3）──
@@ -1054,6 +1131,9 @@ class Live2DRenderer(
         // 4. 加载纹理
         loadTextures()
 
+        // C-Perf6：纹理重载（新 glGenTextures id）后 TEXTURE0 实际绑定未知，缓存失效
+        resetGlStateCache()
+
         // 5. 缓存参数索引
         buildParameterIndex()
 
@@ -1440,6 +1520,9 @@ class Live2DRenderer(
         // 按 renderOrder 排序
         val sortedDrawables = drawables.sortedBy { it.renderOrder }
 
+        // C-Perf6 诊断：帧起始计数器快照（帧末求差 = 本帧 drawObjectLoop 内 GL 调用数）
+        val countStart = glCountersSnapshot()
+
         var currentShaderType: ShaderManager.ShaderType? = null
         var currentShader: ShaderManager.ShaderProgram? = null
 
@@ -1450,12 +1533,29 @@ class Live2DRenderer(
             // 选择着色器类型
             val shaderType = selectShader(d.blendMode, d.isInvertedMask)
 
-            // 仅在着色器类型变化时切换
+            // 仅在着色器类型变化时切换（selectShader 恒 NORMAL → 每帧仅 1 次 glUseProgram；
+            // matrix uniform / s_texture0 采样器常量 0 随 shader 切换设置一次即跨 drawable 复用）
             if (shaderType != currentShaderType) {
                 val newShader = shaderMgr.get(shaderType)
+                GlCounters.useProgram++
                 GLES20.glUseProgram(newShader.programId)
                 // 设置 MVP 矩阵（一旦设置就跨 drawable 复用）
+                GlCounters.uniform++
                 GLES20.glUniformMatrix4fv(newShader.uMatrix, 1, false, projectionMatrix, 0)
+                // C-Perf6：s_texture0 采样器常量 0，仅随 shader 切换设置一次（原每 drawable 重复设）
+                GlCounters.uniform++
+                GLES20.glUniform1i(newShader.uTexture0, 0)
+                // C-Perf6：顶点属性数组启用上提——同一 shader 的属性位置不变，仅首次启用；
+                // 循环结束统一禁用（原每 drawable 启/停 ×2）
+                if (attribsEnabledShaderType != shaderType) {
+                    GlCounters.attribArray++
+                    GLES20.glEnableVertexAttribArray(newShader.aPosition)
+                    if (newShader.aTexCoord >= 0) {
+                        GlCounters.attribArray++
+                        GLES20.glEnableVertexAttribArray(newShader.aTexCoord)
+                    }
+                    attribsEnabledShaderType = shaderType
+                }
                 currentShaderType = shaderType
                 currentShader = newShader
             }
@@ -1463,27 +1563,42 @@ class Live2DRenderer(
             val shader = currentShader ?: continue
 
             // ── 混合模式（预乘 alpha） ──
-            // 对应 CubismShaderAndroid.setupShaderProgramForDrawable 中的 blend 设置
-            when (d.blendMode) {
-                0 -> GLES20.glBlendFuncSeparate(
-                    GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA,
-                    GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA
-                )
-                1 -> GLES20.glBlendFuncSeparate(
-                    GLES20.GL_ONE, GLES20.GL_ONE,
-                    GLES20.GL_ZERO, GLES20.GL_ONE
-                )
-                2 -> GLES20.glBlendFunc(
-                    GLES20.GL_ZERO, GLES20.GL_ONE_MINUS_SRC_COLOR)
+            // C-Perf6 状态缓存：blendMode 与上次相同 → 跳过（GL blend 状态跨帧持久）
+            if (d.blendMode != cachedBlendMode) {
+                GlCounters.blendFunc++
+                when (d.blendMode) {
+                    0 -> GLES20.glBlendFuncSeparate(
+                        GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA,
+                        GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA
+                    )
+                    1 -> GLES20.glBlendFuncSeparate(
+                        GLES20.GL_ONE, GLES20.GL_ONE,
+                        GLES20.GL_ZERO, GLES20.GL_ONE
+                    )
+                    2 -> GLES20.glBlendFunc(
+                        GLES20.GL_ZERO, GLES20.GL_ONE_MINUS_SRC_COLOR)
+                }
+                cachedBlendMode = d.blendMode
             }
 
             // ── 面剔除 ──
-            if (!d.isDoubleSided) {
-                GLES20.glEnable(GLES20.GL_CULL_FACE)
-            } else {
-                GLES20.glDisable(GLES20.GL_CULL_FACE)
+            // C-Perf6 状态缓存：isDoubleSided 与上次相同 → 跳过 enable/disable；
+            // frontFace 恒 CCW，仅与上次不一致时设置
+            val wantCull = !d.isDoubleSided
+            if (cachedCullEnabled != wantCull) {
+                GlCounters.cullFace++
+                if (wantCull) {
+                    GLES20.glEnable(GLES20.GL_CULL_FACE)
+                } else {
+                    GLES20.glDisable(GLES20.GL_CULL_FACE)
+                }
+                cachedCullEnabled = wantCull
             }
-            GLES20.glFrontFace(GLES20.GL_CCW)
+            if (cachedFrontFace != GLES20.GL_CCW) {
+                GlCounters.frontFace++
+                GLES20.glFrontFace(GLES20.GL_CCW)
+                cachedFrontFace = GLES20.GL_CCW
+            }
 
             // ── 绑定主纹理 (s_texture0) ──
             val texId = glTextures[d.textureIndex]
@@ -1493,48 +1608,160 @@ class Live2DRenderer(
                 android.util.Log.w("Live2DRenderer", "[tex] null texId skipped")
                 continue
             }
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
-            GLES20.glUniform1i(shader.uTexture0, 0)
+            // C-Perf6 状态缓存：textureIndex 与上次相同 → 跳过 activeTexture+bindTexture
+            // （renderOrder 排序后同纹理 drawable 相邻，收益最大）
+            if (cachedBoundTextureId != texId) {
+                GlCounters.activeTexture++
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                GlCounters.bindTexture++
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+                cachedBoundTextureId = texId
+            }
 
-            // ── 颜色 uniforms ──
+            // ── 颜色 uniforms（每 drawable 值可变，保持每 drawable 设置）──
             // baseColor: (1,1,1,opacity) — RGB 交由 multiply/screen 控制
-            GLES20.glUniform4fv(shader.uBaseColor, 1, floatArrayOf(1f, 1f, 1f, d.opacity), 0)
+            // C-Perf6：复用 scratch 数组，避免每 drawable 分配 FloatArray
+            baseColorScratch[0] = 1f
+            baseColorScratch[1] = 1f
+            baseColorScratch[2] = 1f
+            baseColorScratch[3] = d.opacity
+            GlCounters.uniform++
+            GLES20.glUniform4fv(shader.uBaseColor, 1, baseColorScratch, 0)
+            GlCounters.uniform++
             GLES20.glUniform4fv(shader.uMultiplyColor, 1, d.multiplyColor, 0)
+            GlCounters.uniform++
             GLES20.glUniform4fv(shader.uScreenColor, 1, d.screenColor, 0)
 
-            // ── 顶点属性 ──
-            GLES20.glEnableVertexAttribArray(shader.aPosition)
+            // ── 顶点属性（pointer 每 drawable 必设——client-side buffer 不同）──
             d.positionsBuffer.position(0)
+            GlCounters.vertexAttribPointer++
             GLES20.glVertexAttribPointer(shader.aPosition, 2, GLES20.GL_FLOAT, false, 0, d.positionsBuffer)
 
             if (shader.aTexCoord >= 0) {
-                GLES20.glEnableVertexAttribArray(shader.aTexCoord)
                 d.uvsBuffer.position(0)
+                GlCounters.vertexAttribPointer++
                 GLES20.glVertexAttribPointer(shader.aTexCoord, 2, GLES20.GL_FLOAT, false, 0, d.uvsBuffer)
             }
 
             // ── 绘制 ──
             d.indicesBuffer.position(0)
+            GlCounters.drawElements++
             GLES20.glDrawElements(GLES20.GL_TRIANGLES, d.indexCount, GLES20.GL_UNSIGNED_SHORT, d.indicesBuffer)
-
-            // 清理 vertex attrib 状态
-            GLES20.glDisableVertexAttribArray(shader.aPosition)
-            if (shader.aTexCoord >= 0) {
-                GLES20.glDisableVertexAttribArray(shader.aTexCoord)
-            }
         }
 
-        // 恢复 OpenGL 默认状态
+        // 恢复 OpenGL 默认状态（C-Perf6：cache-aware——仅在与目标状态不一致时调用，
+        // 最终状态与优化前完全一致：blend normal / cull on / frontFace CW / attribs off / unit0）
+        GlCounters.activeTexture++
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBlendFuncSeparate(
-            GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA,
-            GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA
-        )
-        GLES20.glEnable(GLES20.GL_CULL_FACE)
+        if (cachedBlendMode != 0) {
+            GlCounters.blendFunc++
+            GLES20.glBlendFuncSeparate(
+                GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA,
+                GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA
+            )
+            cachedBlendMode = 0
+        }
+        if (cachedCullEnabled != true) {
+            GlCounters.cullFace++
+            GLES20.glEnable(GLES20.GL_CULL_FACE)
+            cachedCullEnabled = true
+        }
         // M1c 面剔除状态恢复（contract-R1-render §2.3）：循环内 per-drawable 设为 CCW，
         // 结束必须恢复 onSurfaceCreated 初始 glFrontFace(GL_CW)，防状态漂移
-        GLES20.glFrontFace(GLES20.GL_CW)
+        if (cachedFrontFace != GLES20.GL_CW) {
+            GlCounters.frontFace++
+            GLES20.glFrontFace(GLES20.GL_CW)
+            cachedFrontFace = GLES20.GL_CW
+        }
+        // C-Perf6：顶点属性数组恢复禁用（与优化前循环结束状态一致）
+        val lastEnabledShaderType = attribsEnabledShaderType
+        if (lastEnabledShaderType != null) {
+            val lastShader = shaderMgr.get(lastEnabledShaderType)
+            GlCounters.attribArray++
+            GLES20.glDisableVertexAttribArray(lastShader.aPosition)
+            if (lastShader.aTexCoord >= 0) {
+                GlCounters.attribArray++
+                GLES20.glDisableVertexAttribArray(lastShader.aTexCoord)
+            }
+            attribsEnabledShaderType = null
+        }
+
+        // C-Perf6 诊断：窗口累积 + 每 60 帧打印平均每帧 GL 调用数（含 fps）
+        accumulateGlCounters(countStart)
+    }
+
+    // ============================================================
+    //  C-Perf6 — GL 状态缓存/计数辅助
+    // ============================================================
+
+    /**
+     * 使 GL 状态缓存失效（context 重建 / 纹理重载后 GL 实际状态未知，
+     * 下一次 drawObjectLoop 的首个 drawable 无条件重设全部状态）。
+     */
+    private fun resetGlStateCache() {
+        cachedBlendMode = -1
+        cachedCullEnabled = null
+        cachedFrontFace = 0
+        cachedBoundTextureId = -1
+        attribsEnabledShaderType = null
+    }
+
+    /** C-Perf6：快照当前 GL 计数器（drawObjectLoop 帧起始调用，帧末求差） */
+    private fun glCountersSnapshot(): LongArray = longArrayOf(
+        GlCounters.drawElements, GlCounters.blendFunc, GlCounters.bindTexture,
+        GlCounters.activeTexture, GlCounters.frontFace, GlCounters.cullFace,
+        GlCounters.useProgram, GlCounters.uniform, GlCounters.vertexAttribPointer,
+        GlCounters.attribArray
+    )
+
+    /** C-Perf6：帧末累积窗口计数，每 60 帧打印平均每帧 GL 调用数 + fps */
+    private fun accumulateGlCounters(start: LongArray) {
+        if (glCountWindowFrame == 0) glCountWindowStartMs = System.currentTimeMillis()
+        glCountWindowFrame++
+        glCountWindowDraw += GlCounters.drawElements - start[0]
+        glCountWindowBlend += GlCounters.blendFunc - start[1]
+        glCountWindowBindTex += GlCounters.bindTexture - start[2]
+        glCountWindowActiveTex += GlCounters.activeTexture - start[3]
+        glCountWindowFrontFace += GlCounters.frontFace - start[4]
+        glCountWindowCullFace += GlCounters.cullFace - start[5]
+        glCountWindowUseProgram += GlCounters.useProgram - start[6]
+        glCountWindowUniform += GlCounters.uniform - start[7]
+        glCountWindowVap += GlCounters.vertexAttribPointer - start[8]
+        glCountWindowAttribArray += GlCounters.attribArray - start[9]
+        if (glCountWindowFrame >= 60) {
+            val n = glCountWindowFrame.toFloat()
+            val elapsedMs = (System.currentTimeMillis() - glCountWindowStartMs).coerceAtLeast(1)
+            val fps = (n * 1000f) / elapsedMs
+            android.util.Log.i(
+                "Live2DRenderer",
+                "[C-Perf6] GL calls/frame (${glCountWindowFrame}-frame window, fps=$fps): " +
+                    "drawElements=${(glCountWindowDraw / n).toInt()} " +
+                    "blendFunc=${(glCountWindowBlend / n).toInt()} " +
+                    "bindTexture=${(glCountWindowBindTex / n).toInt()} " +
+                    "activeTexture=${(glCountWindowActiveTex / n).toInt()} " +
+                    "frontFace=${(glCountWindowFrontFace / n).toInt()} " +
+                    "cullFace=${(glCountWindowCullFace / n).toInt()} " +
+                    "useProgram=${(glCountWindowUseProgram / n).toInt()} " +
+                    "uniform=${(glCountWindowUniform / n).toInt()} " +
+                    "vertexAttribPointer=${(glCountWindowVap / n).toInt()} " +
+                    "attribArray=${(glCountWindowAttribArray / n).toInt()} " +
+                    "TOTAL=${((glCountWindowDraw + glCountWindowBlend + glCountWindowBindTex +
+                        glCountWindowActiveTex + glCountWindowFrontFace + glCountWindowCullFace +
+                        glCountWindowUseProgram + glCountWindowUniform + glCountWindowVap +
+                        glCountWindowAttribArray) / n).toInt()}"
+            )
+            glCountWindowFrame = 0
+            glCountWindowDraw = 0
+            glCountWindowBlend = 0
+            glCountWindowBindTex = 0
+            glCountWindowActiveTex = 0
+            glCountWindowFrontFace = 0
+            glCountWindowCullFace = 0
+            glCountWindowUseProgram = 0
+            glCountWindowUniform = 0
+            glCountWindowVap = 0
+            glCountWindowAttribArray = 0
+        }
     }
 
     // ============================================================
