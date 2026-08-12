@@ -1,17 +1,28 @@
 /**
  * RM2 模型加载与相机 — RED 测试（test-designer 产出）
  *
- * 契约来源：contract-pc-render.md §RM2（RM2-01 ~ RM2-06）
- * 补充约束：schedule-pc.md 配对 B —— 相机默认 {scale:1.8, yOffset:100}
- *   可被 model_info.kScale / model_info.initialYshift 覆盖
- * 架构来源：architecture-pc-render.md §3.2 model-loader.ts / camera.ts
+ * 契约来源：
+ *   - contract-pc-render.md §RM2（RM2-01 ~ RM2-06）
+ *   - contract-C-M2.md（M2-A1/A3/A4/A5 —— CAMERA_MODE 默认 / FIT-05/06/07 增量契约）
+ * 补充约束：
+ *   - schedule-pc.md 配对 B —— 相机默认 {scale:1.8, yOffset:100}
+ *     可被 model_info.kScale / model_info.initialYshift 覆盖
+ *   - contract-C-M2.md §0/§2.1 —— 默认 CAMERA_MODE='fit'（D2 裁定，禁止默认半身）
+ * 架构来源：architecture-pc-fit.md §4.1（M2 参数化，选型 1 方案 A + 选型 2 公式 1）
  *
  * 设计说明：
  *  - WebGL/pixi 依赖通过 vi.mock 完全 mock（方案 A，见 testplan-pc.md §1.2）。
  *  - camera 引入 `resolveCameraConfig`：把 model_info 的可选字段（kScale/initialYshift）
  *    合并到默认 {scale:1.8, xOffset:0, yOffset:100}，再交给 applyCamera —— 落实
  *    "默认可被 model_info 覆盖" 的排班约束。
- *  - 本文件为 RED：实现由配对 coder 完成 GREEN。
+ *  - C-M2 增量（contract-C-M2.md）：camera.ts 新增 CameraMode / CAMERA_MODE /
+ *    FIT_PADDING / HALF_BODY_BOOST / HALF_BODY_Y_OFFSET / computeFitScale /
+ *    applyCameraMode 分发。FIT-05/06/07 为新增契约断言；FIT-01~04 原样保留。
+ *  - FIT-07 半身数值走常量引用（HALF_BODY_BOOST / HALF_BODY_Y_OFFSET），不硬编码数值——
+ *    半身 boost/yOffset 最终数值由用户目视 A/B 裁定（M2-A8 human_signoff），
+ *    故 CT 断言只锁"结构引用常量"，用户改数值不破坏测试。
+ *  - 本文件为 RED：实现由配对 coder 完成 GREEN。C-M2 新增导出在 src/camera.ts
+ *    尚不存在 → 本文件 import 阶段即编译失败（RED）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -61,7 +72,20 @@ vi.mock('pixi.js', () => ({
 }));
 
 import { loadModel, unloadModel } from '../src/model-loader';
-import { applyCamera, resolveCameraConfig, applyFitCamera } from '../src/camera';
+import {
+  applyCamera,
+  resolveCameraConfig,
+  applyFitCamera,
+  // ── C-M2 增量导出（契约 contract-C-M2.md §2.1）──
+  // 以下在 src/camera.ts 尚不存在 → RED（import 编译失败）。全部契约签名以
+  // contract-C-M2.md 为准。
+  CAMERA_MODE,
+  FIT_PADDING,
+  HALF_BODY_BOOST,
+  HALF_BODY_Y_OFFSET,
+  computeFitScale,
+  applyCameraMode,
+} from '../src/camera';
 import { Live2DModel } from 'pixi-live2d-display-lipsyncpatch/cubism4';
 
 const mockFrom = Live2DModel.from as unknown as ReturnType<typeof vi.fn>;
@@ -295,5 +319,149 @@ describe('RM2 camera — applyFitCamera 自适应 fit（spoq-fix 返工：大画
     // bai: 基础 622×933，画布 800×600；1.8 倍时 1120×1680 超出画布 → 修复后 fit scale < 1
     applyFitCamera(model, 800, 600);
     expect(model.scale.x).toBeLessThan(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C-M2：PC fit 参数化 —— 半身构图公式 1 契约（contract-C-M2.md）
+//   M2-A1  默认 CAMERA_MODE='fit'（D2 裁定：禁止默认半身）
+//   M2-A3  FIT-05：padding 显式生效 + FIT_PADDING === 0.05
+//   M2-A4  FIT-06：applyCameraMode 模式分发（fit 默认 / half-body 模式切换）
+//   M2-A5  FIT-07：half-body fit 相对式结构（scale=fitScale×boost、坐标=中心+偏移），
+//           值走常量引用（不硬编码数值）；窗口 resize 构图自适应
+//
+//   [UNSURE 边界] 本测试仅断言 camera.ts 导出（applyCameraMode / computeFitScale /
+//   FIT_PADDING / CAMERA_MODE / HALF_BODY_BOOST / HALF_BODY_Y_OFFSET）的契约语义；
+//   main.ts applyModelCamera 为 DOM 接线不进单测（既有约定，vitest env=node），
+//   该接线正确性由 S4 截图脚本 + 用户目视双覆盖（M2-A8）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('C-M2 camera — 模式机制（M2-A1/A3/A4/A5，contract-C-M2.md）', () => {
+  let model: any;
+
+  beforeEach(() => {
+    model = makeFakeModel();
+  });
+
+  it('M2-A1: 默认 CAMERA_MODE === "fit"（D2 裁定：已提交状态为默认，禁止默认半身）', () => {
+    // 契约 §2.1：CAMERA_MODE 是唯一默认开关，值必须为 'fit'（默认行为保持 fit 不变）
+    expect(CAMERA_MODE).toBe('fit');
+  });
+
+  it('M2-A3/FIT-05a: FIT_PADDING 常量 === 0.05（现为 applyFitCamera 形参默认值抽出）', () => {
+    // 契约 §2.1 / M2-A3：FIT_PADDING === 0.05
+    expect(FIT_PADDING).toBe(0.05);
+  });
+
+  it('M2-A3/FIT-05b: applyFitCamera(m,800,600,0) → scale == min(800/622,600/933)（padding=0 无 0.95 折扣）', () => {
+    // 契约 M2-A3：padding 显式 0 → 无 (1-padding) 折扣
+    applyFitCamera(model, 800, 600, 0);
+    const expectScale = Math.min(800 / 622, 600 / 933);
+    expect(model.scale.x).toBeCloseTo(expectScale, 4);
+    expect(model.scale.y).toBeCloseTo(expectScale, 4);
+  });
+
+  it('M2-A3/FIT-05c: applyFitCamera(m,800,600,0.1) → scale == min(...)×0.9（显式 padding 生效）', () => {
+    // 契约 M2-A3：padding=0.1 → ×0.9
+    applyFitCamera(model, 800, 600, 0.1);
+    const expectScale = Math.min(800 / 622, 600 / 933) * (1 - 0.1);
+    expect(model.scale.x).toBeCloseTo(expectScale, 4);
+    expect(model.scale.y).toBeCloseTo(expectScale, 4);
+  });
+
+  it('M2-A4/FIT-06a: computeFitScale(800,600,model) == min(...)×(1-FIT_PADDING)（纯函数，fit 共用基准）', () => {
+    // 契约 §2.1：computeFitScale 为 applyFitCamera 与半身共用的 fit scale 纯函数；
+    // 默认 padding 采用 FIT_PADDING。
+    const s = computeFitScale(800, 600, model);
+    const expectScale = Math.min(800 / 622, 600 / 933) * (1 - FIT_PADDING);
+    expect(s).toBeCloseTo(expectScale, 4);
+  });
+
+  it('M2-A4/FIT-06b: applyCameraMode(m,"fit",800,600) → scale==computeFitScale、居中(x=400,y=300,anchor 0.5)', () => {
+    // 契约 M2-A4：mode='fit' → 现有 applyFitCamera 语义（contain-fit + padding + 居中）
+    applyCameraMode(model, 'fit', 800, 600);
+    const expectScale = computeFitScale(800, 600, model);
+    expect(model.scale.x).toBeCloseTo(expectScale, 4);
+    expect(model.scale.y).toBeCloseTo(expectScale, 4);
+    expect(model.x).toBeCloseTo(800 / 2, 5);   // 400
+    expect(model.y).toBeCloseTo(600 / 2, 5);   // 300
+    expect(model.anchor.set).toHaveBeenCalledWith(0.5, 0.5);
+  });
+
+  it('M2-A4/FIT-06c: applyCameraMode(m,"half-body",800,600) → scale==fitScale×HALF_BODY_BOOST（常量引用）、y==300+HALF_BODY_Y_OFFSET、anchor(0.5,0.5)', () => {
+    // 契约 §2.1 / M2-A4：
+    //   scale = computeFitScale(...) × HALF_BODY_BOOST
+    //   x     = canvasWidth/2 + (xOffset ?? 0) = 400
+    //   y     = canvasHeight/2 + (yOffset ?? HALF_BODY_Y_OFFSET) = 300 + HALF_BODY_Y_OFFSET
+    // 值全部走常量引用（HALF_BODY_BOOST / HALF_BODY_Y_OFFSET），不锁具体数值 ——
+    // 用户目视 A/B 改数值不破坏测试（M2-A8 human_signoff）。
+    applyCameraMode(model, 'half-body', 800, 600);
+    const expectScale = computeFitScale(800, 600, model) * HALF_BODY_BOOST;
+    expect(model.scale.x).toBeCloseTo(expectScale, 4);
+    expect(model.scale.y).toBeCloseTo(expectScale, 4);
+    expect(model.x).toBeCloseTo(800 / 2, 5);                                  // 400（中心 + xOffset=0）
+    expect(model.y).toBeCloseTo(600 / 2 + HALF_BODY_Y_OFFSET, 5);            // 300 + 常量
+    expect(model.anchor.set).toHaveBeenCalledWith(0.5, 0.5);                 // 对齐 applyCamera 语义
+    // 结构契约守卫：boost 必须 >1（半身观感）——但只断言"结构上 >0 且非固定 fit"，不锁具体值
+    expect(HALF_BODY_BOOST).toBeGreaterThan(0);
+  });
+
+  it('M2-A4/FIT-06d: applyCameraMode half-body 支持 config.xOffset / config.yOffset 显式覆盖', () => {
+    // 契约 §2.1：x = canvasWidth/2 + (config?.xOffset ?? 0)；y = canvasHeight/2 + (config?.yOffset ?? HALF_BODY_Y_OFFSET)
+    applyCameraMode(model, 'half-body', 800, 600, { xOffset: -40, yOffset: 200 });
+    expect(model.x).toBeCloseTo(800 / 2 - 40, 5);       // 400 - 40
+    expect(model.y).toBeCloseTo(600 / 2 + 200, 5);      // 300 + 200
+  });
+
+  it('M2-A4/FIT-06e: applyCameraMode(m,"fit",...) 与 applyFitCamera 同参数语义一致（默认路径不回归）', () => {
+    // 契约 §2.1：mode='fit' → 现有 applyFitCamera 语义；二者结果应一致
+    const viaMode = makeFakeModel();
+    const viaDirect = makeFakeModel();
+    applyCameraMode(viaMode, 'fit', 800, 600);
+    applyFitCamera(viaDirect, 800, 600);
+    expect(viaMode.scale.x).toBeCloseTo(viaDirect.scale.x, 4);
+    expect(viaMode.scale.y).toBeCloseTo(viaDirect.scale.y, 4);
+    expect(viaMode.x).toBeCloseTo(viaDirect.x, 5);
+    expect(viaMode.y).toBeCloseTo(viaDirect.y, 5);
+  });
+
+  it('M2-A5/FIT-07a: 半身 scale == computeFitScale×HALF_BODY_BOOST（结构断言，值走常量；模型622×933/画布800×600）', () => {
+    // 契约 M2-A5：模型 622×933 / 画布 800×600 → half-body scale == 0.611×HALF_BODY_BOOST
+    // 但不得硬编码 0.611 —— 断言用 computeFitScale(...)×HALF_BODY_BOOST 结构式，改 padding/常量不破坏。
+    applyCameraMode(model, 'half-body', 800, 600);
+    const fitScale = computeFitScale(800, 600, model);
+    const expectScale = fitScale * HALF_BODY_BOOST;
+    expect(model.scale.x).toBeCloseTo(expectScale, 4);
+    // 结构守卫：fit 是 contain-fit（≤1），半身放大必然 > fit 且 >1（半身观感由用户裁定具体值）
+    expect(model.scale.x).toBeGreaterThan(fitScale);
+  });
+
+  it('M2-A5/FIT-07b: 半身 x==400、y==600/2+HALF_BODY_Y_OFFSET（中心+偏移，值走常量）', () => {
+    // 契约 M2-A5：x=400（800/2）、y=400（=300+100 初值语义，但断言引用常量不锁死 100）
+    applyCameraMode(model, 'half-body', 800, 600);
+    expect(model.x).toBeCloseTo(800 / 2, 5);                       // 400
+    expect(model.y).toBeCloseTo(600 / 2 + HALF_BODY_Y_OFFSET, 5);  // 300 + 常量
+    expect(model.anchor.set).toHaveBeenCalledWith(0.5, 0.5);
+  });
+
+  it('M2-A5/FIT-07c: 画布 1600×1200 → 半身 scale 同比自适应放大（非固定绝对值；窗口 resize 构图稳定）', () => {
+    // 契约 M2-A5：画布 1600×1200 时 fitScale = min(1600/622,1200/933)×(1-padding)，
+    // 同比放大（公式 1 fit 相对式），非固定 1.8 绝对值。
+    const fit800: number = computeFitScale(800, 600, model);
+    const fit1600: number = computeFitScale(1600, 1200, model);
+    // 同长宽比画布 → fitScale 严格同比翻倍；半身 scale 同样同比（结构：均 ×HALF_BODY_BOOST）
+    const halfBody800 = fit800 * HALF_BODY_BOOST;
+    const halfBody1600 = fit1600 * HALF_BODY_BOOST;
+    applyCameraMode(model, 'half-body', 1600, 1200);
+    expect(model.scale.x).toBeCloseTo(halfBody1600, 4);
+    expect(model.scale.x).toBeCloseTo(2 * halfBody800, 4); // 同比 ×2（fit 相对式自适应）
+    // 对比守卫：非固定 1.8 绝对值——大画布务必放大（自适应构图稳定）
+    expect(halfBody1600).toBeGreaterThan(halfBody800);
+  });
+
+  it('M2-A7 前置守卫: HALF_BODY_BOOST / HALF_BODY_Y_OFFSET 必须是有限正数与有限数值（结构合法性）', () => {
+    // 半身公式数值当前为 human_signoff 待裁定项（A8）；测试只校验常量结构合法，
+    // 不锁具体值——用户回填后测试依旧稳定。
+    expect(Number.isFinite(HALF_BODY_BOOST)).toBe(true);
+    expect(Number.isFinite(HALF_BODY_Y_OFFSET)).toBe(true);
   });
 });

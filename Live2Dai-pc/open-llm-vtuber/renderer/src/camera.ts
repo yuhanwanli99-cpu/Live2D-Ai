@@ -28,6 +28,21 @@ export const DEFAULT_CAMERA: CameraConfig = {
   yOffset: 100,
 };
 
+/** 相机模式（contract-C-M2 §2.1；C-M6 override 之外的默认路径） */
+export type CameraMode = 'fit' | 'half-body';
+
+/** 唯一默认开关（D2 裁定：默认 fit，禁止默认半身） */
+export const CAMERA_MODE: CameraMode = 'fit';
+
+/** fit 安全边距（现为 applyFitCamera 形参默认值，抽为导出常量供 FIT-05 显式断言） */
+export const FIT_PADDING = 0.05;
+
+/** 半身构图缩放倍数（fit 相对式参考初值；最终数值由用户目视 A/B 裁定后回填，机器不定值） */
+export const HALF_BODY_BOOST = 1.8;
+
+/** 半身构图垂直偏移（px，>0 下移；与旧 DEFAULT_CAMERA 同量级参考初值，同上待用户裁定回填） */
+export const HALF_BODY_Y_OFFSET = 100;
+
 /**
  * 合并相机配置：model_info 的可选字段（kScale/initialYshift/kXOffset）
  * 或部分 CameraConfig 覆盖默认 {scale:1.8, xOffset:0, yOffset:100}。
@@ -93,6 +108,27 @@ export function applyCameraFromModelInfo(
 }
 
 /**
+ * fit scale 纯函数（applyFitCamera 与 half-body 共用，防公式漂移）：
+ *  尺寸无效（0/NaN/非有限值）→ NaN；否则 min(canvasW/model.width, canvasH/model.height) * (1-padding)
+ */
+export function computeFitScale(
+  canvasWidth: number,
+  canvasHeight: number,
+  model: Live2DModel,
+  padding: number = FIT_PADDING,
+): number {
+  const baseW = model.width;
+  const baseH = model.height;
+  // 尺寸无效（未就绪/零尺寸）→ NaN（调用方据此判断不动模型）
+  if (!baseW || !baseH || !Number.isFinite(baseW) || !Number.isFinite(baseH)) {
+    return NaN;
+  }
+  return (
+    Math.min(canvasWidth / baseW, canvasHeight / baseH) * (1 - padding)
+  );
+}
+
+/**
  * 自适应相机（fit 模式，spoq-fix 返工）：模型完整可见且居中。
  *
  * 背景：bai.moc3 画布 4000×6000 而角色 bbox 仅占 8.3%×16.8% 偏下；固定 scale=1.8 的
@@ -109,20 +145,53 @@ export function applyFitCamera(
   model: Live2DModel,
   canvasWidth: number,
   canvasHeight: number,
-  padding = 0.05,
+  padding = FIT_PADDING,
 ): void {
-  const baseW = model.width;
-  const baseH = model.height;
+  const fitScale = computeFitScale(canvasWidth, canvasHeight, model, padding);
   // 尺寸无效（未就绪/零尺寸）→ 不动，保持调用方既有状态
-  if (!baseW || !baseH || !Number.isFinite(baseW) || !Number.isFinite(baseH)) {
+  if (!Number.isFinite(fitScale)) {
     return;
   }
-  const fitScale =
-    Math.min(canvasWidth / baseW, canvasHeight / baseH) * (1 - padding);
   model.scale.set?.(fitScale);
   model.scale.x = fitScale;
   model.scale.y = fitScale;
   model.anchor.set(0.5, 0.5);
   model.x = canvasWidth / 2;
   model.y = canvasHeight / 2;
+}
+
+/**
+ * 模式分发（contract-C-M2 §2.1 唯一入口）：
+ *  mode='fit'       → 现有 applyFitCamera 语义（contain-fit + padding + 居中）
+ *  mode='half-body' → scale = computeFitScale(...) × HALF_BODY_BOOST；
+ *                      x = canvasWidth/2 + (config?.xOffset ?? 0)；
+ *                      y = canvasHeight/2 + (config?.yOffset ?? HALF_BODY_Y_OFFSET)；
+ *                      anchor(0.5, 0.5)（对齐 applyCamera 语义）
+ */
+export function applyCameraMode(
+  model: Live2DModel,
+  mode: CameraMode,
+  canvasWidth: number,
+  canvasHeight: number,
+  config?: { xOffset?: number; yOffset?: number },
+): void {
+  if (mode === 'fit') {
+    applyFitCamera(model, canvasWidth, canvasHeight, FIT_PADDING);
+    return;
+  }
+  // half-body：fit 相对式（公式 1）——以 fit scale 为基准 × boost，中心 + 偏移
+  const fitScale = computeFitScale(canvasWidth, canvasHeight, model, FIT_PADDING);
+  // 尺寸无效 → 不动，保持调用方既有状态（与 applyFitCamera 一致）
+  if (!Number.isFinite(fitScale)) {
+    return;
+  }
+  const scale = fitScale * HALF_BODY_BOOST;
+  const x = canvasWidth / 2 + (config?.xOffset ?? 0);
+  const y = canvasHeight / 2 + (config?.yOffset ?? HALF_BODY_Y_OFFSET);
+  model.scale.set?.(scale);
+  model.scale.x = scale;
+  model.scale.y = scale;
+  model.anchor.set(0.5, 0.5);
+  model.x = x;
+  model.y = y;
 }
