@@ -23,11 +23,6 @@
 #include "offscreen.h"
 #include "render.h"
 
-#ifdef __ANDROID__
-#include <android/log.h>
-#include <time.h>
-#endif
-
 /*
  * C-Perf7: parameter-level dirty short-circuit.
  *
@@ -115,35 +110,6 @@ psm__save_input_snapshot(struct psm__model *m)
   s_snap_model = m;
   s_snap_valid = true;
 }
-
-#ifdef __ANDROID__
-/* C-Perf7 probe: light/full update counters + per-path average update time.
- * One logcat line per 120 updates (~4 s at 30 Hz model update). Overhead is
- * one CLOCK_MONOTONIC read per update + one log line per 120 updates (same
- * class as the maskCounts 30-frame beacon). Remove after measurement. */
-static void
-psm__probe_update(bool light, long long elapsed_ns)
-{
-  static long long light_ns = 0, full_ns = 0;
-  static int light_n = 0, full_n = 0, total = 0;
-  if (light) {
-    light_n++;
-    light_ns += elapsed_ns;
-  } else {
-    full_n++;
-    full_ns += elapsed_ns;
-  }
-  if (++total >= 120) {
-    __android_log_print(ANDROID_LOG_INFO, "C-Perf7",
-        "updates=%d light=%d(%.0f%%) full=%d avg_light=%.3fms avg_full=%.3fms",
-        total, light_n, 100.0f * light_n / total, full_n,
-        light_n ? (double)light_ns / light_n / 1e6 : 0.0,
-        full_n ? (double)full_ns / full_n / 1e6 : 0.0);
-    light_n = full_n = total = 0;
-    light_ns = full_ns = 0;
-  }
-}
-#endif
 
 static void
 psm__reverse_y(struct psm__model *m)
@@ -306,10 +272,6 @@ psm__update_model(struct psm__model *m)
    * in the light path and their output buffers stay frozen (see the block
    * comment at the top of this file). */
   bool inputs_changed = psm__inputs_changed(m);
-#ifdef __ANDROID__
-  struct timespec ts0, ts1;
-  clock_gettime(CLOCK_MONOTONIC, &ts0);
-#endif
 
   psm__enable_parts(m);
   psm__gather_parts(m);
@@ -381,13 +343,6 @@ psm__update_model(struct psm__model *m)
    * Parameter values are covered by resolve_params' own dirty comparison;
    * only the clamped part opacities need an explicit snapshot. */
   psm__save_input_snapshot(m);
-
-#ifdef __ANDROID__
-  clock_gettime(CLOCK_MONOTONIC, &ts1);
-  psm__probe_update(!inputs_changed,
-      (long long)(ts1.tv_sec - ts0.tv_sec) * 1000000000LL +
-      (long long)(ts1.tv_nsec - ts0.tv_nsec));
-#endif
 }
 
 PSMDEF void
