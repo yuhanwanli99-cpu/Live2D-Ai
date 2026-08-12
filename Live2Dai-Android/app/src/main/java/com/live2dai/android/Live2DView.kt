@@ -85,8 +85,8 @@ class Live2DView(
     /**
      * 初始化 Live2D 渲染器并加载模型
      * @param modelAssetPath assets 中的模型路径（不含 "assets/" 前缀）
-     *                       例如: "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
-     * @param modelId 模型 ID（如 "bai" / "niziiro_mao"），用于按模型加载适配配置（G3）
+     *                       例如: "live2d/bai/runtime/bai.model3.json"
+     * @param modelId 模型 ID（如 "bai"），用于按模型加载适配配置（G3）
      */
     fun initialize(modelAssetPath: String, modelId: String) {
         currentAssetPath = modelAssetPath
@@ -109,8 +109,8 @@ class Live2DView(
     /**
      * 运行时热切换模型（GL 线程 dispose + 重新加载，无需重建 View）。
      *
-     * @param assetPath 新模型的完整 assets 路径，如 "live2d/niziiro_mao/runtime/niziiro_mao.model3.json"
-     * @param modelId 新模型的 ID（如 "bai" / "niziiro_mao"）；切模型时同步刷新 adapter 缓存（G3）
+     * @param assetPath 新模型的完整 assets 路径，如 "live2d/bai/runtime/bai.model3.json"
+     * @param modelId 新模型的 ID（如 "bai"）；切模型时同步刷新 adapter 缓存（G3）
      * @param onComplete 切换成功回调（在 GL 线程执行，更新 UI 需 post 到主线程）
      * @param onError 切换失败回调。失败时已自动尝试回退到上一个模型；
      *                回退也失败则渲染兜底渐变着色器。同样在 GL 线程执行。
@@ -164,7 +164,7 @@ class Live2DView(
             if (current.swapModel(assetPath)) {
                 currentAssetPath = assetPath
                 currentModelId = modelId
-                // G3：adapter 缓存随模型切换刷新（bai → bai.adapter.json，niziiro_mao → 五元音 adapter）
+                // G3：adapter 缓存随模型切换刷新（bai → bai.adapter.json）
                 ModelAdapterConfig.load(context, modelId)
                 // C-M5：切模型后应用新模型的存储 override（已在 GL 线程；无 → fit）
                 current.setCurrentModelId(modelId)
@@ -315,6 +315,13 @@ class Live2DView(
                 pinching = false
                 gestureAdjusted = false
                 // 不消费 DOWN：tap 语义留给 Compose（前景层先命中）
+                logGesture(
+                    action = "DOWN",
+                    id = event.getPointerId(0),
+                    count = event.pointerCount,
+                    consumed = false,
+                    state = "idle"
+                )
                 return false
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -323,6 +330,13 @@ class Live2DView(
                 dragging = false
                 pinchStartDistance = pointerDistance(event)
                 queueEvent { renderer?.beginUserPinch(pinchStartDistance) }
+                logGesture(
+                    action = "POINTER_DOWN",
+                    id = event.getPointerId(event.actionIndex),
+                    count = event.pointerCount,
+                    consumed = true,
+                    state = "pinching"
+                )
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -332,6 +346,13 @@ class Live2DView(
                         gestureAdjusted = true
                         queueEvent { renderer?.applyUserPinch(dist) }
                     }
+                    logGesture(
+                        action = "MOVE",
+                        count = event.pointerCount,
+                        ids = pointerIds(event),
+                        consumed = true,
+                        state = "pinching"
+                    )
                     return true
                 }
                 if (event.pointerCount == 1) {
@@ -354,13 +375,28 @@ class Live2DView(
                         if (dxPx != 0f || dyPx != 0f) {
                             queueEvent { renderer?.applyUserDragPx(dxPx, dyPx) }
                         }
+                        logGesture(
+                            action = "MOVE",
+                            count = event.pointerCount,
+                            ids = pointerIds(event),
+                            consumed = true,
+                            state = "dragging"
+                        )
                         return true
                     }
                 }
+                logGesture(
+                    action = "MOVE",
+                    count = event.pointerCount,
+                    ids = pointerIds(event),
+                    consumed = false,
+                    state = "idle"
+                )
                 return false
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 // 双指结束（剩一指）：结束捏合并保存（简化：不继续单指拖拽）
+                val id = event.getPointerId(event.actionIndex)
                 if (pinching) {
                     pinching = false
                     dragging = false
@@ -369,34 +405,97 @@ class Live2DView(
                     if (adjusted) {
                         queueEvent { renderer?.saveUserOverride() }
                     }
+                    logGesture(
+                        action = "POINTER_UP",
+                        id = id,
+                        count = event.pointerCount,
+                        consumed = true,
+                        state = "idle"
+                    )
                     return true
                 }
+                logGesture(
+                    action = "POINTER_UP",
+                    id = id,
+                    count = event.pointerCount,
+                    consumed = false,
+                    state = "idle"
+                )
                 return false
             }
             MotionEvent.ACTION_UP -> {
                 val adjusted = gestureAdjusted
+                val pinchActiveBefore = pinching
                 gestureAdjusted = false
                 dragging = false
                 pinching = false
+                val id = event.getPointerId(0)
                 if (adjusted) {
                     // 有效调整结束 → 持久化 override
                     queueEvent { renderer?.saveUserOverride() }
                     performClick()
+                    logGesture(
+                        action = "UP",
+                        id = id,
+                        count = event.pointerCount,
+                        pinchActive = pinchActiveBefore,
+                        state = "idle"
+                    )
                     return true
                 }
                 // 未超阈值 = tap → 不消费（Compose 点击语义不破坏）
                 performClick()
+                logGesture(
+                    action = "UP",
+                    id = id,
+                    count = event.pointerCount,
+                    pinchActive = pinchActiveBefore,
+                    state = "tap"
+                )
                 return false
             }
             MotionEvent.ACTION_CANCEL -> {
                 gestureAdjusted = false
                 dragging = false
                 pinching = false
+                logGesture(
+                    action = "CANCEL",
+                    count = event.pointerCount,
+                    state = "idle"
+                )
                 return false
             }
             else -> return false
         }
     }
+
+    /**
+     * 诊断波插桩（contract-R1-interaction §2.1 / T2-R1-interaction-red §3）：
+     * `[gesture]` 日志，tag=Live2DView。只读当前状态，零行为影响；
+     * 格式与 PinchInjectionTest 机器对拍字面一致（判据①POINTER_DOWN ②MOVE count=2/ids=[ ③CANCEL）。
+     */
+    private fun logGesture(
+        action: String,
+        count: Int,
+        state: String,
+        id: Int? = null,
+        consumed: Boolean? = null,
+        pinchActive: Boolean? = null,
+        ids: String? = null
+    ) {
+        val sb = StringBuilder("[gesture] action=$action")
+        if (id != null) sb.append(" id=$id")
+        sb.append(" count=$count")
+        if (ids != null) sb.append(" ids=[$ids]")
+        if (consumed != null) sb.append(" consumed=$consumed")
+        if (pinchActive != null) sb.append(" pinchActive=$pinchActive")
+        android.util.Log.i("Live2DView", sb.toString())
+        android.util.Log.i("Live2DView", "[gesture] state=$state slop=$touchSlop")
+    }
+
+    /** 当前事件所有活动 pointer id 列表（判据②：MOVE count=2 ids=[0,1]）。 */
+    private fun pointerIds(event: MotionEvent): String =
+        (0 until event.pointerCount).joinToString(",") { event.getPointerId(it).toString() }
 
     /** 双指间距（px；pointerCount < 2 → 0）。 */
     private fun pointerDistance(event: MotionEvent): Float {

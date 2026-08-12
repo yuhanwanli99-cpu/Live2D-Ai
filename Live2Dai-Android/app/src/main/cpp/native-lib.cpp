@@ -668,7 +668,33 @@ Java_com_live2dai_android_Live2DNative_getRenderOrders(JNIEnv *env, jclass clazz
     csmModel *model = (csmModel*)block[1];
 
     int count = csmGetDrawableCount(model);
-    const int *orders = csmGetDrawableDrawOrders(model);
+    // M1b 渲染顺序对齐（contract-R1-render §2.2，C7 拍板）：改调 csmGetRenderOrders
+    // （render.c:169 桶遍历，含 offscreen 槽桶，对齐 PC getDrawableRenderOrders 语义）。
+    // 注意：render_order 数组 = drawable 部分 + offscreen 槽尾部，仅取前 count 个（drawable 索引）。
+    const int *orders = csmGetRenderOrders(model);
+
+    // [PROBE M1-B1] temporary render-order comparison probe (remove after capture)
+    {
+        static int probe_done = 0;
+        if (!probe_done) {
+            probe_done = 1;
+            const int *draw_orders = csmGetDrawableDrawOrders(model);
+            const int *render_orders = csmGetRenderOrders(model);
+            char buf[8192];
+            int off = 0;
+            off += snprintf(buf + off, sizeof(buf) - off, "[renderOrder] draw_order=");
+            for (int i = 0; i < count && off < (int)sizeof(buf) - 32; i++) {
+                off += snprintf(buf + off, sizeof(buf) - off, "%s%d", i ? "," : "", draw_orders[i]);
+            }
+            __android_log_print(ANDROID_LOG_INFO, "Live2DRenderer", "%s", buf);
+            off = 0;
+            off += snprintf(buf + off, sizeof(buf) - off, "[renderOrder] render_order=");
+            for (int i = 0; i < count && off < (int)sizeof(buf) - 32; i++) {
+                off += snprintf(buf + off, sizeof(buf) - off, "%s%d", i ? "," : "", render_orders[i]);
+            }
+            __android_log_print(ANDROID_LOG_INFO, "Live2DRenderer", "%s", buf);
+        }
+    }
 
     jintArray result = env->NewIntArray(count);
     env->SetIntArrayRegion(result, 0, count, orders);

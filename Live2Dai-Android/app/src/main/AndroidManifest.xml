@@ -28,6 +28,7 @@
             android:exported="true"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:windowSoftInputMode="adjustNothing"
             android:theme="@style/Theme.Live2Dai">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

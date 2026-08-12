@@ -12,9 +12,10 @@ package com.live2dai.android
  *
  * ## 坐标系
  *
- * Purism Core 返回的顶点坐标是 canvas 像素值（如 0~1280）。
- * CubismRendererAndroid 期望的是模型单位（除以 ppu 后）。
- * 本类在 getDrawableVertices / getDrawableVertexPositions 中自动除以 pixelsPerUnit。
+ * 真机实锤（architecture-android-refactor §0.2，2026-08-12）：Purism Core 返回的
+ * 顶点坐标**就是模型单位**（bai 实测 ALL range=[-0.2..0.2, -0.6..0.8]，无 4000× 出域），
+ * **无需除以 pixelsPerUnit**。canvas 像素值（getCanvasWidthPixel）仅供需要
+ * 像素语义的调用方使用；getDrawableVertices 直接返回模型单位坐标，零换算。
  */
 class PurismModel(val modelPtr: Long) {
 
@@ -130,9 +131,9 @@ class PurismModel(val modelPtr: Long) {
         return counts.getOrElse(drawableIndex) { 0 }
     }
 
-    /** 顶点位置（模型单位，已除以 ppu），xy 交错 */
+    /** 顶点位置（模型单位，Purism Core 直接返回，零换算——真机 0.2 实锤） */
     fun getDrawableVertices(drawableIndex: Int): FloatArray {
-        // Purism Core 已返回模型单位坐标（范围约[-0.5,0.5]），无需除以 ppu
+        // Purism Core 已返回模型单位坐标（bai 实测范围约[-0.7,0.7] 内），无需除以 ppu
         return Live2DNative.getDrawablePositions(modelPtr, drawableIndex) ?: FloatArray(0)
     }
 
@@ -229,7 +230,12 @@ class PurismModel(val modelPtr: Long) {
     //  排序数据
     // ============================================================
 
-    /** 渲染顺序数组（索引 = drawableIndex/offscreenIndex，值 = renderOrder） */
+    /**
+     * 渲染顺序数组（索引 = drawableIndex，值 = 渲染位置 pos，小者先绘）。
+     * M1b（contract-R1-render §2.2，C7 拍板）：渲染顺序 = csmGetRenderOrders 桶序
+     * （render.c:169，按 draw_order 分桶、桶内链序、含 offscreen 槽，对齐 PC
+     * getDrawableRenderOrders 语义）。无 mask 模型（bai 真机 maskCounts=0）两序排序结果一致。
+     */
     fun getRenderOrders(): IntArray {
         return Live2DNative.getRenderOrders(modelPtr)
             ?: Live2DNative.getDrawableDrawOrders(modelPtr)

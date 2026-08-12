@@ -12,7 +12,9 @@ import com.live2dai.android.data.InteractionStore
 import com.live2dai.android.data.Override
 import com.live2dai.android.data.characterBBox
 import com.live2dai.android.data.computeCharacterFit
+import com.live2dai.android.data.computeDownsampleTarget
 import com.live2dai.android.data.dragPxToModel
+import com.live2dai.android.data.needsDownsample
 import com.live2dai.android.data.pinchScale
 import org.json.JSONObject
 import java.nio.ByteBuffer
@@ -652,7 +654,7 @@ class Live2DRenderer(
 
     /**
      * M7 触发 motion 回落 idle（contract-M7-android-l3.md §1.3-5）。
-     * niziiro_mao 全部 motion loop=true → 经 startMotionByTag 触发的 motion 永远循环；
+     * 触发类 motion 若 loop=true → 经 startMotionByTag 触发的 motion 会循环播放；
      * 播满一轮（elapsed >= duration）→ stopAllMotions + startIdleMotion（§5 兜底，idle 轮换随后接管）。
      * 只对 triggeredMotionActive 标记路径生效——现有 startMotion 路径（非 M7 触发）行为不变，零回归。
      */
@@ -789,7 +791,7 @@ class Live2DRenderer(
      * 当前模型是否含可用的 Expressions（exp3）配置（A3 双路径分发判据，contract-bai-params-v0 AP-01）。
      *
      * modelSettingJson `FileReferences.Expressions` 缺失/空 或 loadedExpressions 为空 → false；
-     * 模型未加载 → false。bai（无 exp3）→ false；niziiro_mao（8 个 exp3）→ true。
+     * 模型未加载 → false。bai（无 exp3）→ false。
      */
     fun hasExpressions(): Boolean {
         if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return false
@@ -1059,11 +1061,45 @@ class Live2DRenderer(
     private fun loadTextures() {
         val setting = modelSettingJson ?: return
         val textures = setting.getJSONObject("FileReferences").getJSONArray("Textures")
+
+        // M1d 纹理上限防护（contract-R1-render §2.4，C10 拍板：降采样）：加载前探测设备上限
+        val maxTexSize = IntArray(1)
+        GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, maxTexSize, 0)
+        val maxSize = maxTexSize[0]
+        android.util.Log.i("Live2DRenderer", "[tex] maxSize=$maxSize")
+
         for (i in 0 until textures.length()) {
             try {
                 val texFile = textures.getString(i)
                 val path = "$modelDir/$texFile"
-                val bitmap = context.assets.open(path).use { BitmapFactory.decodeStream(it) } ?: continue
+
+                // 先只读边界拿原始尺寸（inJustDecodeBounds），超限则按 2 的幂降采样
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.assets.open(path).use { BitmapFactory.decodeStream(it, null, bounds) }
+                val texW = bounds.outWidth
+                val texH = bounds.outHeight
+
+                val downsample = needsDownsample(texW, texH, maxSize)
+                val sample = if (downsample) {
+                    // 目标尺寸 = ≤ maxSize 的 2 的幂（对齐 PC checkTextureFit 的 targetSize 语义）
+                    val target = computeDownsampleTarget(maxSize)
+                    var s = 1
+                    while (texW / s > target || texH / s > target) s *= 2
+                    s
+                } else {
+                    1
+                }
+
+                // M1a 预乘 alpha（contract-R1-render §2.1，C9 拍板：上传侧预乘，零着色器改动）
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPremultiplied = true
+                }
+                val bitmap = context.assets.open(path).use { BitmapFactory.decodeStream(it, null, options) } ?: continue
+                android.util.Log.i(
+                    "Live2DRenderer",
+                    "[tex] maxSize=$maxSize loaded=${bitmap.width}x${bitmap.height} downsample=$downsample"
+                )
 
                 val texIds = IntArray(1)
                 GLES20.glGenTextures(1, texIds, 0)
@@ -1315,7 +1351,9 @@ class Live2DRenderer(
      *    e. 绑定纹理，设置 uniforms
      *    f. glDrawElements
      *
-     * 简化版本：跳过 offscreen 和掩码处理（当前模型掩码数据为 0）。
+     * 简化版本：跳过 offscreen 和掩码处理（M1f 裁定，contract-R1-render §2.6）：
+     * bai 真机 maskCounts=0，本轮不接线；未来接入 mask 模型时按 d.maskCount>0
+     * 分派 MASKED/MASKED_INVERTED + FBO 渲染（对齐 PC doDrawModel 全接线）。
      */
     private fun drawObjectLoop(shaderMgr: ShaderManager) {
         if (drawables.isEmpty()) return
@@ -1370,11 +1408,15 @@ class Live2DRenderer(
 
             // ── 绑定主纹理 (s_texture0) ──
             val texId = glTextures[d.textureIndex]
-            if (texId != null) {
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
-                GLES20.glUniform1i(shader.uTexture0, 0)
+            if (texId == null) {
+                // M1d 纹理防护（contract-R1-render §2.4）：texId==null → 跳过绘制，
+                // 替代现状"不绑定仍画"的残留纹素风险
+                android.util.Log.w("Live2DRenderer", "[tex] null texId skipped")
+                continue
             }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
+            GLES20.glUniform1i(shader.uTexture0, 0)
 
             // ── 颜色 uniforms ──
             // baseColor: (1,1,1,opacity) — RGB 交由 multiply/screen 控制
@@ -1411,6 +1453,9 @@ class Live2DRenderer(
             GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA
         )
         GLES20.glEnable(GLES20.GL_CULL_FACE)
+        // M1c 面剔除状态恢复（contract-R1-render §2.3）：循环内 per-drawable 设为 CCW，
+        // 结束必须恢复 onSurfaceCreated 初始 glFrontFace(GL_CW)，防状态漂移
+        GLES20.glFrontFace(GLES20.GL_CW)
     }
 
     // ============================================================
@@ -1421,7 +1466,9 @@ class Live2DRenderer(
      * 选择着色器类型。
      *
      * 对应 CubismShaderIndexCalculator.calculateShaderIndex() 的逻辑简化版。
-     * 当前模型无 mask（maskCount == 0），所以始终返回 NORMAL。
+     * M1f 裁定（contract-R1-render §2.6）：mask 裁剪跳过不接线——bai 真机
+     * maskCounts=0，无 mask 可裁剪；本轮 selectShader 恒 NORMAL，零行为变化。
+     * 未来接入 mask 模型时按 d.maskCount>0 分派 MASKED/MASKED_INVERTED + FBO 渲染。
      *
      * @param blendMode 0=normal, 1=additive, 2=multiplicative
      * @param isInvertedMask 是否反向 mask
