@@ -168,6 +168,23 @@ class Live2DRenderer(
     private var cachedScreenColors: FloatArray? = null
     private var cachedMaskCounts: IntArray? = null
 
+    // ── C-Perf2：per-drawable DirectBuffer 对象池 ──
+    // 消除每帧 250×3 次 ByteBuffer.allocateDirect（750 DirectBuffer/帧 → major GC 元凶）。
+    // 每 drawable 常驻 3 个直接缓冲（positions/uvs/indices），容量按首帧顶点/索引数分配，
+    // 后续帧 clear() 后覆盖写入（内容与新建 buffer 逐字节一致）；异常增长时按需扩容。
+    // 池与模型生命周期绑定：releaseModelResources()/dispose() 清空。仅 GL 线程访问。
+    private var pooledPositions: Array<FloatBuffer?> = emptyArray()
+    private var pooledUvs: Array<FloatBuffer?> = emptyArray()
+    private var pooledIndices: Array<ShortBuffer?> = emptyArray()
+
+    // ── C-Perf2：静态 drawable 数据缓存（UV / 顶点索引）──
+    // UV 与顶点索引在 Cubism 模型内恒定（不随参数/动画变化，仅顶点位置动态）：首帧经
+    // model.getDrawableVertexUvs/getDrawableVertexIndices 获取后按 drawable 索引缓存，
+    // 消除每帧 500 次 JNI 往返 + 500 个数组分配。顶点位置（getDrawableVertices）每帧变化，
+    // 必须每帧重取，不缓存。
+    private var cachedUvsData: Array<FloatArray?> = emptyArray()
+    private var cachedIndicesData: Array<ShortArray?> = emptyArray()
+
     // ── 动画管线 ──
     private var animationPipeline: AnimationPipeline? = null
 
@@ -967,6 +984,12 @@ class Live2DRenderer(
         cachedMultiplyColors = null
         cachedScreenColors = null
         cachedMaskCounts = null
+        // C-Perf2：清空 per-drawable 缓冲池与静态数据缓存（模型释放/热切换时，防串模型）
+        pooledPositions = emptyArray()
+        pooledUvs = emptyArray()
+        pooledIndices = emptyArray()
+        cachedUvsData = emptyArray()
+        cachedIndicesData = emptyArray()
     }
 
     /**
@@ -1226,6 +1249,50 @@ class Live2DRenderer(
      * 顶点坐标从 Purism Core 返回的是 canvas 像素值，
      * PurismModel.getDrawableVertices 已自动除以 pixelsPerUnit 转换为模型单位。
      */
+    /**
+     * C-Perf2：确保对象池/静态缓存数组容量 ≥ drawable 数（懒扩容，仅模型首次构建时发生）。
+     */
+    private fun ensureBufferPoolSize(size: Int) {
+        if (pooledPositions.size < size) {
+            pooledPositions = pooledPositions.copyOf(size)
+            pooledUvs = pooledUvs.copyOf(size)
+            pooledIndices = pooledIndices.copyOf(size)
+            cachedUvsData = cachedUvsData.copyOf(size)
+            cachedIndicesData = cachedIndicesData.copyOf(size)
+        }
+    }
+
+    /**
+     * C-Perf2：取（或首次创建）drawable 的 FloatBuffer 池项，并 clear() 到可写状态。
+     * 内容语义与 ByteBuffer.allocateDirect(floatCount*4) 新建后写入完全一致：
+     * clear() 后 position=0 / limit=capacity，写入区外的残留字节不会被 GL 读取
+     * （GL 按 vertexCount/indexCount 精确消费）。
+     */
+    private fun obtainFloatBuffer(pool: Array<FloatBuffer?>, index: Int, floatCount: Int): FloatBuffer {
+        var buf = pool[index]
+        if (buf == null || buf.capacity() < floatCount) {
+            buf = ByteBuffer.allocateDirect(floatCount * 4)
+                .order(ByteOrder.nativeOrder()).asFloatBuffer()
+            pool[index] = buf
+        }
+        buf.clear()
+        return buf
+    }
+
+    /**
+     * C-Perf2：取（或首次创建）drawable 的 ShortBuffer 池项，并 clear() 到可写状态。
+     */
+    private fun obtainShortBuffer(pool: Array<ShortBuffer?>, index: Int, shortCount: Int): ShortBuffer {
+        var buf = pool[index]
+        if (buf == null || buf.capacity() < shortCount) {
+            buf = ByteBuffer.allocateDirect(shortCount * 2)
+                .order(ByteOrder.nativeOrder()).asShortBuffer()
+            pool[index] = buf
+        }
+        buf.clear()
+        return buf
+    }
+
     private fun buildDrawableList() {
         val count = Live2DNative.getDrawableCount(modelPtr)
         if (count == 0) { drawables = Collections.emptyList(); return }
@@ -1241,29 +1308,41 @@ class Live2DRenderer(
         val dynamicFlags = cachedDynamicFlags ?: return
         val maskCounts = cachedMaskCounts ?: return
 
+        // C-Perf2：首帧一次性扩容池/缓存数组到 drawable 数（后续帧零分配）
+        ensureBufferPoolSize(count)
+
         val list = mutableListOf<DrawableRenderData>()
         for (i in 0 until count) {
             // 从 PurismModel 获取顶点数据（已除以 ppu）
             val model = purismModel ?: continue
             val pos = model.getDrawableVertices(i)
-            val uvs = model.getDrawableVertexUvs(i)
-            val idx = model.getDrawableVertexIndices(i)
             val vc = vertexCounts.getOrElse(i) { 0 }
             val ic = indexCounts.getOrElse(i) { 0 }
 
             if (vc <= 0 || ic <= 0) continue
 
-            // 创建 NIO 缓冲（直接字节序）
-            val pb = ByteBuffer.allocateDirect(vc * 2 * 4)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer()
+            // C-Perf2：UV/顶点索引模型内恒定 → 首帧获取后缓存复用（消除 500 次/帧 JNI）；
+            // 顶点位置每帧变化 → 每帧重取（原语义，行为零变化）
+            var uvs = cachedUvsData.getOrNull(i)
+            if (uvs == null) {
+                uvs = model.getDrawableVertexUvs(i)
+                cachedUvsData[i] = uvs
+            }
+            var idx = cachedIndicesData.getOrNull(i)
+            if (idx == null) {
+                idx = model.getDrawableVertexIndices(i)
+                cachedIndicesData[i] = idx
+            }
+
+            // C-Perf2：per-drawable DirectBuffer 对象池复用（消除 750 次/帧 allocateDirect）
+            // 写入语义与原实现一致：position 0 起写 vc*2/ic 个元素，随后 position(0) 供 GL 消费。
+            val pb = obtainFloatBuffer(pooledPositions, i, vc * 2)
             pb.put(pos, 0, vc * 2); pb.position(0)
 
-            val ub = ByteBuffer.allocateDirect(vc * 2 * 4)
-                .order(ByteOrder.nativeOrder()).asFloatBuffer()
+            val ub = obtainFloatBuffer(pooledUvs, i, vc * 2)
             ub.put(uvs, 0, vc * 2); ub.position(0)
 
-            val ib = ByteBuffer.allocateDirect(ic * 2)
-                .order(ByteOrder.nativeOrder()).asShortBuffer()
+            val ib = obtainShortBuffer(pooledIndices, i, ic)
             ib.put(idx, 0, ic); ib.position(0)
 
             val f = constFlags.getOrElse(i) { 0 }.toInt() and 0xFF
