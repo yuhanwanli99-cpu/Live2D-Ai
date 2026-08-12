@@ -6,6 +6,10 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.GLUtils
 import android.opengl.Matrix
+import com.live2dai.android.data.BBox
+import com.live2dai.android.data.CharacterFit
+import com.live2dai.android.data.characterBBox
+import com.live2dai.android.data.computeCharacterFit
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -93,6 +97,8 @@ class Live2DRenderer(
     private var canvasWidth = 0f
     private var canvasHeight = 0f
     private var pixelsPerUnit = 1f
+    /** getCanvasInfo[0]：顶点空间画布宽（px）；M1 fit 的 k=canvasWidth/canvasVertexWidth（=1/ppu）换算用 */
+    private var canvasVertexWidth = 0f
     private var viewportWidth = 0
     private var viewportHeight = 0
 
@@ -112,6 +118,11 @@ class Live2DRenderer(
     // 默认值 = 全模型（scale=1f, yOffset=0f）→ 零行为变化；由 UI/配置按需开启半身。
     private var displayScale = 1f
     private var displayYOffset = 0f
+
+    // ── M1 角色 bbox contain-fit（contract-C-M1 §2.3）──
+    // displayXOffset = 水平平移（模型单位，additive，默认 0 = 现状）；fitBBoxModel = 模型单位 bbox 缓存（load 时算一次）。
+    private var displayXOffset = 0f
+    private var fitBBoxModel: BBox? = null
 
     // ── Purism Core 模型包装 ──
     private var purismModel: PurismModel? = null
@@ -230,12 +241,16 @@ class Live2DRenderer(
         val viewHalfH = if (canvasAspect > viewAspect) halfW / viewAspect else halfH
         val viewHalfW = if (canvasAspect > viewAspect) halfW else halfH * viewAspect
 
-        // 半身显示（K5）：缩放 + 垂直偏移，经 computeProjection 纯函数应用（contract-v3-rename §2.1）。
-        // scale=1f, yOffset=0f（默认）时 bounds == [-viewHalfW, viewHalfW, viewHalfH, -viewHalfH] → 与现状 orthoM 逐位一致，零回归。
+        // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）：视口变化 → 按当前视口重算 fit 值写状态
+        applyCharacterFitToState(viewHalfW, viewHalfH)
+
+        // 半身显示（K5）+ M1 fit：缩放 + 水平/垂直偏移，经 computeProjection 纯函数应用（contract-v3-rename §2.1）。
+        // scale=1f, yOffset=0f, xOffset=0f（默认/退化）时 bounds == [-viewHalfW, viewHalfW, viewHalfH, -viewHalfH] → 与现状 orthoM 逐位一致，零回归。
         val bounds = computeProjection(
             displayScale, displayYOffset,
             viewHalfW * 2f, viewHalfH * 2f,
-            canvasWidth, canvasHeight
+            canvasWidth, canvasHeight,
+            displayXOffset
         )
         // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
         // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
@@ -265,15 +280,93 @@ class Live2DRenderer(
         val canvasAspect = if (halfH > 0f) halfW / halfH else 1f
         val viewHalfH = if (canvasAspect > viewAspect) halfW / viewAspect else halfH
         val viewHalfW = if (canvasAspect > viewAspect) halfW else halfH * viewAspect
+        // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）：按当前视口重算 fit 值写状态（幂等）
+        applyCharacterFitToState(viewHalfW, viewHalfH)
         val bounds = computeProjection(
             displayScale, displayYOffset,
             viewHalfW * 2f, viewHalfH * 2f,
-            canvasWidth, canvasHeight
+            canvasWidth, canvasHeight,
+            displayXOffset
         )
         // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
         // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
         // 之前传 bounds[2]/bounds[3]（top/bottom）→ 投影 y 轴翻转 → 真机渲染上下颠倒（spoq-fix 真机修复）。
         Matrix.orthoM(projectionMatrix, 0, bounds[0], bounds[1], bounds[3], bounds[2], -1f, 1f)
+    }
+
+    // ============================================================
+    //  M1 角色 bbox contain-fit（contract-C-M1 §2.3）
+    // ============================================================
+
+    /**
+     * load 完成后一次性聚合参与 drawable 的 bbox（模型单位），写入 fit 缓存。
+     *
+     * 参与规则（与 drawObjectLoop 可见性同源）：isVisible && vertexCount>0 && textureIndex>=0。
+     * 顶点空间 → 模型单位：k = canvasWidth/canvasVertexWidth（=1/ppu，架构 §3.2 ppu 不变式）。
+     * 退化（无参与 drawable / 画布或 ppu 无效 / bbox 非法）→ 缓存置空（fit 不生效 = 现状），logcat 告警。
+     */
+    private fun computeFitBBox() {
+        fitBBoxModel = null
+        if (canvasVertexWidth <= 0f || canvasWidth <= 0f || pixelsPerUnit <= 0f) {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (invalid canvas/ppu)")
+            return
+        }
+        val model = purismModel ?: run {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no model)")
+            return
+        }
+        val count = model.getDrawableCount()
+        if (count <= 0) {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no drawables)")
+            return
+        }
+        val participating = mutableListOf<FloatArray>()
+        for (i in 0 until count) {
+            if (!model.getDrawableDynamicFlagIsVisible(i)) continue
+            if (model.getDrawableVertexCount(i) <= 0) continue
+            if (model.getDrawableTextureIndex(i) < 0) continue
+            participating.add(model.getDrawableVertices(i))
+        }
+        val rawBBox = characterBBox(participating)
+        if (rawBBox == null) {
+            android.util.Log.w("Live2DRenderer", "[fit] degenerate (no participating drawables)")
+            return
+        }
+        // 顶点空间 → 模型单位（k=1/ppu；bbox 与 computeProjection 输入同空间）
+        val k = canvasWidth / canvasVertexWidth
+        fitBBoxModel = BBox(rawBBox.minX * k, rawBBox.maxX * k, rawBBox.minY * k, rawBBox.maxY * k)
+    }
+
+    /**
+     * 按当前视口把 fit 缓存 bbox 换算成 contain-fit 值，写入 displayScale/displayXOffset/displayYOffset。
+     *
+     * 退化（缓存空）→ 恢复默认（scale=1/xOffset=0/yOffset=0 = 现状，零行为变化）。
+     * 非退化 → 输出 logcat 调试行（格式契约，供 E2E 机器对拍）：
+     *   [fit] bbox=x:[minX,maxX] y:[minY,maxY] scale=.. xOffset=.. yOffset=..（模型单位）
+     *
+     * @param viewHalfW 视口半宽（模型单位，与 onSurfaceChanged/recomputeProjection 同源）
+     * @param viewHalfH 视口半高（模型单位）
+     */
+    private fun applyCharacterFitToState(viewHalfW: Float, viewHalfH: Float) {
+        val bbox = fitBBoxModel ?: run {
+            displayScale = 1f
+            displayXOffset = 0f
+            displayYOffset = 0f
+            return
+        }
+        val fit: CharacterFit = computeCharacterFit(
+            bbox,
+            viewHalfW * 2f, viewHalfH * 2f,
+            canvasWidth, canvasHeight
+        )
+        displayScale = fit.scale
+        displayXOffset = fit.xOffset
+        displayYOffset = fit.yOffset
+        android.util.Log.i(
+            "Live2DRenderer",
+            "[fit] bbox=x:[${bbox.minX},${bbox.maxX}] y:[${bbox.minY},${bbox.maxY}] " +
+                "scale=${fit.scale} xOffset=${fit.xOffset} yOffset=${fit.yOffset}"
+        )
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -707,6 +800,10 @@ class Live2DRenderer(
 
         // 重置 per-model 状态（下次加载前恢复初始值）
         modelSettingJson = null
+
+        // M1：清 fit bbox 缓存 + 顶点空间画布（防热切换串值；display 值由下次 load/视口重算覆盖）
+        fitBBoxModel = null
+        canvasVertexWidth = 0f
         paramNameToIndex = emptyMap()
         paramAIndex = -1
         partNameToIndex = emptyMap()
@@ -776,6 +873,7 @@ class Live2DRenderer(
 
         // 3. 画布信息
         Live2DNative.getCanvasInfo(modelPtr)?.let {
+            canvasVertexWidth = it.getOrElse(0) { 0f }
             canvasWidth = it[0] / it.getOrElse(4) { 1f }
             canvasHeight = it[1] / it.getOrElse(4) { 1f }
             pixelsPerUnit = it.getOrElse(4) { 1f }
@@ -806,6 +904,11 @@ class Live2DRenderer(
 
         // 11. 加载动画系统（传入元配置）
         setupAnimationSystem(modelMeta)
+
+        // 12. M1 contain-fit（contract-C-M1 §2.3，A6 时机 1）：load 完成后一次性聚合 bbox，
+        //     并按当前视口写 fit 值 + 落投影（首帧前视口未知 → recomputeProjection 内部跳过，等 onSurfaceChanged）。
+        computeFitBBox()
+        recomputeProjection()
     }
 
     private fun loadTextures() {
@@ -1565,12 +1668,14 @@ fun computeProjection(
     viewWidth: Float,
     viewHeight: Float,
     canvasWidth: Float,
-    canvasHeight: Float
+    canvasHeight: Float,
+    xOffset: Float = 0f
 ): FloatArray = com.live2dai.android.data.computeProjection(
     scale = scale,
     yOffset = yOffset,
     viewWidth = viewWidth,
     viewHeight = viewHeight,
     canvasWidth = canvasWidth,
-    canvasHeight = canvasHeight
+    canvasHeight = canvasHeight,
+    xOffset = xOffset
 )
