@@ -87,7 +87,7 @@ character_config:
     cosyvoice_cloud:
       api_key: '${ALIYUN_API_KEY}'
       voice: 'longxiaochun'
-      model: 'cosyvoice-v3-flash'
+      model: 'cosyvoice-v1'
       format: 'mp3'
       sample_rate: 22050
       volume: 50
