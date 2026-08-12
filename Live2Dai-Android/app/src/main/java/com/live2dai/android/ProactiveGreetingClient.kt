@@ -142,7 +142,7 @@ class ProactiveGreetingClient(
         idleMinutes: Long,
         memories: List<String>?,
     ): String = buildString {
-        appendLine("人设名：${personaName.ifBlank { "凛" }}")
+        appendLine("人设名：${personaName.ifBlank { "白" }}")
         if (systemPrompt.isNotBlank()) {
             appendLine("人设设定：$systemPrompt")
         }

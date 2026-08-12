@@ -66,7 +66,7 @@ class EmotionControllerParamPathTest {
 
     @Test
     fun AP03_hasExp3_routesToIndexPath() {
-        // 有 exp3（niziiro_mao）→ hasExpressions=true → EXPRESSION_INDEX：走原 setExpression
+        // 有 exp3（bai 无 exp3，此为 mock 强制）→ hasExpressions=true → EXPRESSION_INDEX：走原 setExpression（R1-model §2.3 防御分支）
         `when`(mockLive2DView.hasExpressions()).thenReturn(true)
         emotionController.parseAndApply("[joy_3] 开心！")
         // 回归门：索引路径 setParametricExpression 必须 never 被调（AP-10）
@@ -222,7 +222,7 @@ class EmotionControllerParamPathTest {
 
     @Test
     fun AP22_indexPath_neverTouchesAutoBlink() {
-        // EXPRESSION_INDEX（niziiro_mao）→ setAutoBlink never（眨眼行为零变化，AP-22 回归）
+        // EXPRESSION_INDEX（bai 无 exp3，mock 强制）→ setAutoBlink never（眨眼行为零变化，AP-22 回归）
         `when`(mockLive2DView.hasExpressions()).thenReturn(true)
         emotionController.parseAndApply("[joy] 开心！")
         verify(mockLive2DView, never()).setAutoBlink(any())

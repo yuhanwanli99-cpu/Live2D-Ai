@@ -129,7 +129,7 @@ class TTSFactory:
             return CosyVoiceCloudTTSEngine(
                 api_key=kwargs.get("api_key", ""),
                 voice=kwargs.get("voice", "longxiaochun"),
-                model=kwargs.get("model", "cosyvoice-v3-flash"),
+                model=kwargs.get("model", "cosyvoice-v1"),
                 format=kwargs.get("format", "mp3"),
                 sample_rate=kwargs.get("sample_rate", 22050),
                 volume=kwargs.get("volume", 50),

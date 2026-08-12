@@ -79,7 +79,7 @@ class EmotionController(
          *
          * 对齐 [FALLBACK_EMOTION_MAP] 兜底模式：adapter 未加载（测试 JVM）/解析失败场景不丢参数路径；
          * 运行时可加载的 adapter（bai 单源）优先于本兜底（见 [EmotionController.emotionParamMap]）。
-         * niziiro_mao 无 emotionParamMap 且走 EXPRESSION_INDEX 路径，兜底帧不生效（AP-28 零回归）。
+         * 无 exp3（bai）→ 无 emotionParamMap 时走 PARAM_FRAME 路径，兜底帧生效（AP-28 零回归）。
          */
         private val DEFAULT_BAI_EMOTION_PARAM_MAP: Map<String, Map<String, Map<String, Float>>> = mapOf(
             "neutral" to mapOf(
@@ -144,7 +144,7 @@ class EmotionController(
         // NAKED：首个 { 到末个 } 的跨行子串（\} 必须转义：Android ICU Pattern 对未转义 } 报错，JVM 宽容）
         private val JSON_NAKED_REGEX = Regex("""\{.*\}""", RegexOption.DOT_MATCHES_ALL)
 
-        // motionLabel 别名白名单（emotion-protocol.md F 段：niziiro_mao 别名表；
+        // motionLabel 别名白名单（emotion-protocol.md F 段；bai 无 motion → 空集，别名表保留为通用防御）
         // 未知别名 → 置 null，M1 §1 C4）
         private val MOTION_LABEL_ALIASES: Set<String> = setOf(
             "idle", "wave", "special_02", "special_03", "mtn_02", "mtn_03", "mtn_04",
@@ -211,7 +211,7 @@ class EmotionController(
 
     /**
      * 双路径分发判据（AP-03/04）：渲染层无 exp3（bai）→ PARAM_FRAME；
-     * 有 exp3（niziiro_mao）→ EXPRESSION_INDEX（现状行为）；
+     * 无 exp3（bai）→ PARAM_FRAME（现状行为）；
      * hasExpressions 查询异常 → 保守回退 EXPRESSION_INDEX（不引入新异常面）。
      */
     private fun pathMode(): PathMode {
@@ -233,7 +233,7 @@ class EmotionController(
      * 构造注入 emotionParamMapOverride > adapter.emotionParamMap（运行时可加载，bai 单源）>
      * 硬编码 bai 默认帧兜底（[DEFAULT_BAI_EMOTION_PARAM_MAP]）。
      * 兜底对齐 [FALLBACK_EMOTION_MAP] 模式：adapter 未加载（测试 JVM）/解析失败场景不丢参数路径；
-     * niziiro_mao 无 emotionParamMap 且走 EXPRESSION_INDEX 路径，兜底帧不生效（AP-28 零回归）。
+     * 无 emotionParamMap 且走 EXPRESSION_INDEX 路径，兜底帧不生效（AP-28 零回归）。
      */
     private val emotionParamMap: Map<String, Map<String, Map<String, Float>>>
         get() = emotionParamMapOverride

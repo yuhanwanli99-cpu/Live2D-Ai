@@ -2,10 +2,12 @@
 
 覆盖:
 - P14: extract_emotion 并存回归（关键词路径行为不变）
-- P17: 裁决1 — model_dict.json niziiro_mao emotionMap 8 索引一致（共享+运行时两处）
+- P17: 裁决1 — model_dict.json bai emotionMap 8 索引一致（运行时；共享 model_dict.json 是 LLM 路由表非 live2d dict → skip）
 - P19: prompt 文件内容断言（live2d_expression_prompt.txt 含规格/占位符/示例/单行约束）
 
 构造: _PC_SRC 注入 live2d_model.py。
+bai 唯一化（R1-model D2）：adapter=bai.adapter.json，motionAliases={}（空）、
+vowelParamMap=ParamMouthOpenY/ParamMouthForm 直映射（无五元音公式）。
 """
 import json
 import os
@@ -27,7 +29,7 @@ from open_llm_vtuber.live2d_model import (  # noqa: E402
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def _make_model(name="niziiro_mao"):
+def _make_model(name="bai"):
     old_cwd = os.getcwd()
     os.chdir(_REPO_ROOT)
     try:
@@ -46,7 +48,7 @@ class TestExtractEmotionRegression:
 
     @classmethod
     def setup_class(cls):
-        cls.model = _make_model("niziiro_mao")
+        cls.model = _make_model("bai")
 
     def test_extract_emotion_returns_index_list(self):
         """关键词路径返回索引列表，签名/行为不变。"""
@@ -77,44 +79,43 @@ class TestModelDictConsistency:
     """P17: 裁决1 — model_dict.json emotionMap 8 索引一致。"""
 
     def test_pc_runtime_model_dict_8_index(self):
-        """PC 运行时 model_dict.json niziiro_mao emotionMap == PROTOCOL_EMOTION_INDEX。"""
+        """PC 运行时 model_dict.json bai emotionMap == PROTOCOL_EMOTION_INDEX（bai 唯一化，单条目）。"""
         runtime_path = os.path.join(
             _REPO_ROOT, "Live2Dai-pc", "open-llm-vtuber", "model_dict.json"
         )
         with open(runtime_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        mao = next(m for m in data if m["name"] == "niziiro_mao")
-        emo_map = mao["emotionMap"]
+        bai = next(m for m in data if m["name"] == "bai")
+        emo_map = bai["emotionMap"]
 
-        # 逐 key 断言（字符串 key；值 = 8 索引）
+        # 逐 key 断言（字符串 key；值 = 8 索引）；bai emotionMap 含 8 键（顺序无关，dict 等值）
         assert emo_map == PROTOCOL_EMOTION_INDEX, (
             f"model_dict.json emotionMap:\n{emo_map}\n!=\nPROTOCOL_EMOTION_INDEX:\n{PROTOCOL_EMOTION_INDEX}"
         )
 
     def test_shared_model_dict_8_index(self):
-        """shared/model_dict.json niziiro_mao emotionMap == PROTOCOL_EMOTION_INDEX。"""
+        """shared/model_dict.json 是 LLM 路由表（deepseek/glm），非 live2d dict → skip（bai 唯一化后仅 PC 运行时承载 live2d 条目）。"""
         shared_path = os.path.join(_REPO_ROOT, "shared", "model_dict.json")
         if not os.path.isfile(shared_path):
             pytest.skip("shared/model_dict.json 不存在")
         with open(shared_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # shared/model_dict.json 是 dict 结构（key 为模型名），不同于运行时的 list
+        # 顶层 dict = LLM 路由表（key 为 LLM 模型名，不含 live2d bai）→ 无 live2d emotionMap，skip
         if isinstance(data, dict):
-            # 结构: {"niziiro_mao": {...}, ...}
-            mao = data.get("niziiro_mao")
-            if isinstance(mao, dict) and "emotionMap" in mao:
-                assert mao["emotionMap"] == PROTOCOL_EMOTION_INDEX, (
-                    f"shared emotionMap:\n{mao['emotionMap']}\n!=\n{PROTOCOL_EMOTION_INDEX}"
+            bai = data.get("bai")
+            if isinstance(bai, dict) and "emotionMap" in bai:
+                assert bai["emotionMap"] == PROTOCOL_EMOTION_INDEX, (
+                    f"shared emotionMap:\n{bai['emotionMap']}\n!=\n{PROTOCOL_EMOTION_INDEX}"
                 )
             else:
-                pytest.skip("shared/model_dict.json 结构中未找到 niziiro_mao.emotionMap")
+                pytest.skip("shared/model_dict.json 为 LLM 路由表，无 live2d bai.emotionMap")
         elif isinstance(data, list):
-            mao = next((m for m in data if m.get("name") == "niziiro_mao"), None)
-            if mao:
-                assert mao["emotionMap"] == PROTOCOL_EMOTION_INDEX
+            bai = next((m for m in data if m.get("name") == "bai"), None)
+            if bai:
+                assert bai["emotionMap"] == PROTOCOL_EMOTION_INDEX
             else:
-                pytest.skip("shared/model_dict.json 列表中未找到 niziiro_mao")
+                pytest.skip("shared/model_dict.json 列表中未找到 bai")
 
     def test_protocol_8_keys_ordered(self):
         """PROTOCOL_EMOTION_KEYS 元组顺序符合裁决1索引映射。"""
@@ -127,21 +128,20 @@ class TestModelDictConsistency:
 
 
 ADAPTER_PATH = os.path.join(
-    _REPO_ROOT, "shared", "model-adapter", "niziiro_mao.adapter.json"
+    _REPO_ROOT, "shared", "model-adapter", "bai.adapter.json"
 )
 CDI3_PATH = os.path.join(
     _REPO_ROOT,
     "Live2Dai-pc",
     "open-llm-vtuber",
     "live2d-models",
-    "niziiro_mao",
+    "bai",
     "runtime",
-    "niziiro_mao.cdi3.json",
+    "bai.cdi3.json",
 )
 
-_ADAPTER_MOTION_ALIAS_KEYS = frozenset(
-    {"idle", "mtn_02", "mtn_03", "mtn_04", "wave", "special_02", "special_03"}
-)
+# bai 唯一化（R1-model D2）：adapter.motionAliases = {}（无 motion）
+_ADAPTER_MOTION_ALIAS_KEYS = frozenset()
 _ADAPTER_VOWEL_KEYS = frozenset({"A", "I", "U", "E", "O", "SIL"})
 _ADAPTER_EMOTION_KEYS = (
     "neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise"
@@ -187,13 +187,13 @@ class TestAdapterLoad:
         result = loader()
         assert isinstance(result, dict), "返回 dict"
 
-    def test_motion_aliases_keys_7(self):
-        """A4 — motionAliases 键集 = 7 键（来自 adapter，非旧硬编码）。"""
+    def test_motion_aliases_keys_0(self):
+        """A4 — motionAliases 键集 = 0 键（bai 无 motion；来自 adapter，非旧硬编码 niziiro 7 别名）。"""
         loader = self._loader()
         assert loader is not None, "_load_model_adapter 存在（RED）"
         keys = set(loader()["motionAliases"].keys())
         assert keys == set(_ADAPTER_MOTION_ALIAS_KEYS), (
-            f"motionAliases 键集应 {sorted(_ADAPTER_MOTION_ALIAS_KEYS)}，实际 {sorted(keys)}"
+            f"motionAliases 键集应为空（bai 无 motion），实际 {sorted(keys)}"
         )
 
     def test_vowel_param_map_keys_6(self):
@@ -256,30 +256,29 @@ class TestAdapterVisemeWhitelist:
                 )
 
     def test_cdi3_has_mouth_up_down(self):
-        """前置：cdi3 含 ParamMouthUp/ParamMouthDown（T1.1 已确认）。"""
-        assert "ParamMouthUp" in self.whitelist
-        assert "ParamMouthDown" in self.whitelist
+        """前置：bai.cdi3.json 不含 ParamMouthUp/ParamMouthDown（bai 128 参数无口型上下参数，与 niziiro 不同）。"""
+        assert "ParamMouthUp" not in self.whitelist
+        assert "ParamMouthDown" not in self.whitelist
 
-    def test_mouth_up_down_present_for_each_vowel(self):
-        """V2 — cdi3 含 MouthUp/Down 时：adapter.vowelParamMap 每元音追加
-        ParamMouthUp/Down（当前 adapter 未追加 → RED）。"""
+    def test_mouth_up_down_absent_for_each_vowel(self):
+        """V2 — bai cdi3 无 ParamMouthUp/Down → vowelParamMap 不得含口型上下参数（无追加前提）。"""
         for label in ("A", "I", "U", "E", "O", "SIL"):
             params = self.adapter["vowelParamMap"].get(label, {})
-            assert "ParamMouthUp" in params, (
-                f"vowelParamMap[{label}] 缺 ParamMouthUp（cdi3 含此参数 → 应追加，RED）"
+            assert "ParamMouthUp" not in params, (
+                f"vowelParamMap[{label}] 不应含 ParamMouthUp（bai cdi3 无此参数）"
             )
-            assert "ParamMouthDown" in params, (
-                f"vowelParamMap[{label}] 缺 ParamMouthDown（→ RED）"
+            assert "ParamMouthDown" not in params, (
+                f"vowelParamMap[{label}] 不应含 ParamMouthDown"
             )
 
     def test_mouth_up_down_a_matches_raw(self):
-        """V2/数值 — A 元音 ParamMouthUp/Down == mo(A)（cdi3 含此参数时）。"""
+        """V2/数值 — bai.cdi3.json 无 ParamMouthUp/Down → 跳过（旧 niziiro 口型上下断言不适用）。"""
         if "ParamMouthUp" not in self.whitelist:
-            pytest.skip("cdi3 不含 ParamMouthUp")
+            pytest.skip("bai cdi3 不含 ParamMouthUp/Down")
         mo_a = self.adapter["vowelRawMap"]["A"][0]
         params = self.adapter["vowelParamMap"].get("A", {})
         assert params.get("ParamMouthUp") == pytest.approx(mo_a, abs=1e-6), (
-            "A.ParamMouthUp 应等于 mo(A)（当前缺失 → RED）"
+            "A.ParamMouthUp 应等于 mo(A)"
         )
         assert params.get("ParamMouthDown") == pytest.approx(mo_a, abs=1e-6)
 
@@ -294,11 +293,25 @@ class TestAdapterVisemeWhitelist:
                 assert params[pname] == 0.0, f"SIL.{pname} 应归 0（当前值 {params[pname]}）"
 
     def test_adapter_vowel_param_equals_contract_baseline(self):
-        """A7/U — 五元音参数与契约基线精确一致（0.56 修正值）。"""
+        """C27 — bai vowelParamMap == ParamMouthOpenY/ParamMouthForm 直映射基线（无五元音公式）。"""
         vpm = self.adapter["vowelParamMap"]
-        assert vpm["U"]["ParamU"] == pytest.approx(0.56, abs=1e-6), "U.ParamU=0.56（D4 修正）"
-        assert vpm["O"]["ParamU"] == pytest.approx(0.21, abs=1e-6)
-        assert vpm["E"]["ParamA"] == pytest.approx(0.15, abs=1e-6)
+        assert vpm["A"] == {"ParamMouthOpenY": 0.8, "ParamMouthForm": 0.4}, (
+            f"A 直映射 {vpm['A']}（应 MouthOpenY=0.8/MouthForm=0.4）"
+        )
+        assert vpm["I"] == {"ParamMouthOpenY": 0.5, "ParamMouthForm": 0.2}
+        assert vpm["U"] == {"ParamMouthOpenY": 0.4, "ParamMouthForm": 0.1}
+        assert vpm["E"] == {"ParamMouthOpenY": 0.6, "ParamMouthForm": 0.3}
+        assert vpm["O"] == {"ParamMouthOpenY": 0.7, "ParamMouthForm": 0.5}
+        assert vpm["SIL"] == {"ParamMouthOpenY": 0.0, "ParamMouthForm": 0.0}
+        # 每行必须且仅含口型开合/口型两个参数（bai 直映射，无五元音）
+        for label, params in vpm.items():
+            assert set(params) == {"ParamMouthOpenY", "ParamMouthForm"}, (
+                f"{label} 参数应仅 MouthOpenY/MouthForm，实际 {set(params)}"
+            )
+        # 与 vowelRawMap 一一对拍（直映射语义：MouthOpenY=raw[0], MouthForm=raw[1]，SIL 全 0）
+        for label, raw in self.adapter["vowelRawMap"].items():
+            assert vpm[label]["ParamMouthOpenY"] == pytest.approx(raw[0], abs=1e-6)
+            assert vpm[label]["ParamMouthForm"] == pytest.approx(raw[1], abs=1e-6)
 
 
 class TestPromptContent:
@@ -365,6 +378,9 @@ class TestPromptContent:
 # 终裁 K7（用户定案）：PC 6 中文词与 Android 完全重合（6/6）——词表 = 挥手/招招手/打招呼→wave、
 # 再见/拜拜/掰掰→special_02（无"你好"、无英文词，双端一致优先）。
 # ⚠️ 覆盖旧版 §1.1 的"你好"→wave 与 hello/hi 等英文词（kugutu 蓝本 [UNSURE-FT1] 已被终裁否决）。
+#
+# 注：bai 唯一化后无 motion（adapter.motionAliases={}），此处词表/关键词逻辑属 PC 侧独立语义
+# （MOTION_KEYWORDS 仍可存在，契约 K7 锁词表而非 model 有 motion）。
 _PC_CHINESE_KEYWORDS = frozenset(
     {"挥手", "招招手", "打招呼", "再见", "拜拜", "掰掰"}
 )

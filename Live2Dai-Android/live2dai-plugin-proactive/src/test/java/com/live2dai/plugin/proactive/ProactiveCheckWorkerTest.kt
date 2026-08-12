@@ -54,7 +54,7 @@ class ProactiveCheckWorkerTest {
         override fun registerTool(tool: ToolDefinition) {}
         override fun sendAssistantMessage(text: String, emotion: String?) { sentMessages += text }
         override fun getPersona(): PersonaSnapshot =
-            PersonaSnapshot(name = "凛", systemPrompt = "你是凛，一位18岁的天才少女。", model = "test-model")
+            PersonaSnapshot(name = "白", systemPrompt = "你是白，一位18岁的天才少女。", model = "test-model")
     }
 
     private class FakeGreetingClient(

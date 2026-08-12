@@ -41,7 +41,7 @@ export function initChatPanel(
   panel.className = 'chat-panel';
   panel.innerHTML = `
     <div class="chat-header">
-      <span class="chat-title">凛 · Live2Dai</span>
+      <span class="chat-title">白 · Live2Dai</span>
       <span class="chat-status">未连接</span>
     </div>
     <div class="chat-messages"></div>

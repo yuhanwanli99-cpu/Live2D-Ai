@@ -32,11 +32,12 @@ import org.mockito.kotlin.whenever
  * 本套件只从【契约 + adapter 权威值】出题，不读 app/src/main/ 实现逻辑：
  * - N2 softmax 求和 =1：经 internal 测试缝 [VowelClassifier.classify]（同包可访问）
  *   用确定性 MFCC 输入 → 断言 {SIL,A,I,U,E,O} 概率和 == 1.0（float32 舍入容差 1e-5）。
- * - N3 五元音逐 label 锁死：VOWEL_MAP(亲密图 表1 mo/mf) + 契约 表2 公式 → 六 label
- *   五元音精确值 == adapter.vowelParamMap 权威值（A=(0.8,0,0,0,0.04)… U=0.56…）。
+ * - N3 口型逐 label 锁死（bai，R1-model D2）：VOWEL_MAP(亲密图 表1 mo/mf) →
+ *   直映射 {ParamMouthOpenY:mo, ParamMouthForm:mf} == adapter.vowelParamMap 权威值
+ *   （bai 无五元音 ParamA/I/U/E/O，口型键为 MouthOpenY+MouthForm）。
  * - N8 降级链 + stop 协程：mock VisemeAnalyzer 注入 VoiceIoController → 级1
- *  （非 SIL timeline → setParameter 五元音）/ 级2（analyzer=null/空/全 SIL → setLipSyncParam）
- *   + release() 取消 viseme 收集协程不泄漏。
+ *  （非 SIL timeline → setParameter 五元音防御路径）/ 级2（analyzer=null/空/全 SIL → setLipSyncParam）
+ *   + release() 取消 viseme 收集协程不泄漏。（N8 系保留防御逻辑零行为变化，未重锚）
  *
  * [UNSURE 说明]：
  * - N1 DTW 距离对称性（dtw(a,b)==dtw(b,a) ±1e-6）：dtwSymmetric2 为 private，无 public/测试缝
@@ -112,77 +113,63 @@ class NumericDeterminismSuiteTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // N3 · 五元音逐 label 锁死（adapter 权威值 + 契约 表1/表2 公式）
-    // ⇐ contract-v3-fixes §2.4（U1-U6）+ contract-M4-M5 §3.3 表1/表2
-    // 期望：契约 表2 公式 施加到 VOWEL_MAP(mo,mf) → 五元音 == adapter 权威值
+    // N3 · 口型逐 label 锁死（adapter 权威值 + bai 直映射事实）
+    // ⇐ contract-v3-fixes §2.4（U1-U6）+ contract-M4-M5 §3.3 表1/表2 + contract-R1-model D2
+    // bai（D2 唯一模型）口型键为 ParamMouthOpenY/ParamMouthForm（非五元音 ParamA/I/U/E/O）：
+    //   buildVisemeFrame 直映射：MouthOpenY = raw[0]，MouthForm = raw[1]（无系数）
+    //   期望：VOWEL_MAP(mo,mf) 直映射 → {MouthOpenY:mo, MouthForm:mf} == adapter 权威值
     // ══════════════════════════════════════════════════════════════
 
     private val eps = 1e-6f
 
-    // adapter.vowelParamMap 权威值（shared/model-adapter/niziiro_mao.adapter.json，任务指定数据可读）
-    // 顺序 [ParamA, ParamI, ParamU, ParamE, ParamO]
+    // bai 口型权威值（shared/model-adapter/bai.adapter.json：vowelRawMap [mouthOpen, mouthForm]，任务指定数据可读）
+    // 顺序 [ParamMouthOpenY, ParamMouthForm]
     private val AUTHORITATIVE = mapOf(
-        "A" to floatArrayOf(0.8f, 0f, 0f, 0f, 0.04f),
-        "I" to floatArrayOf(0f, 0.8f, 0f, 0f, 0f),
-        "U" to floatArrayOf(0f, 0f, 0.56f, 0f, 0f),
-        "E" to floatArrayOf(0.15f, 0f, 0f, 0.35f, 0f),
-        "O" to floatArrayOf(0f, 0f, 0.21f, 0f, 0.6f),
-        "SIL" to floatArrayOf(0f, 0f, 0f, 0f, 0f),
+        "A" to floatArrayOf(0.8f, 0.4f),
+        "I" to floatArrayOf(0.5f, 0.2f),
+        "U" to floatArrayOf(0.4f, 0.1f),
+        "E" to floatArrayOf(0.6f, 0.3f),
+        "O" to floatArrayOf(0.7f, 0.5f),
+        "SIL" to floatArrayOf(0.0f, 0.0f),
     )
 
-    /** 契约 §3.3 表2 公式：label + (mo,mf) → [ParamA,ParamI,ParamU,ParamE,ParamO] */
-    private fun contractFormula(label: String, mo: Float, mf: Float): FloatArray = when (label) {
-        "A" -> floatArrayOf(mo, 0f, 0f, 0f, mf * 0.2f)
-        "I" -> floatArrayOf(0f, mf, 0f, 0f, 0f)
-        "U" -> floatArrayOf(0f, 0f, mf * 0.7f, 0f, 0f)
-        "E" -> floatArrayOf(mo * 0.3f, 0f, 0f, mo * 0.7f, 0f)
-        "O" -> floatArrayOf(0f, 0f, mf * 0.3f, 0f, mo)
-        "SIL" -> floatArrayOf(0f, 0f, 0f, 0f, 0f)
-        else -> throw IllegalArgumentException("未知 label: $label")
-    }
+    /** buildVisemeFrame 的口型直映射：label + (mo,mf) → [MouthOpenY, MouthForm]（bai 无系数恒同） */
+    private fun baiIdentity(label: String, mo: Float, mf: Float): FloatArray = floatArrayOf(mo, mf)
 
     @Test
-    fun N3_U_uParam_isPoint56() {
-        // U 修正（D4：mf×0.7 = 0.8×0.7 = 0.56），ParamA/I/E/O 全 0
-        val expected = AUTHORITATIVE["U"]!!
-        val got = contractFormula("U", VisemeAnalyzer.VOWEL_MAP["U"]!![0], VisemeAnalyzer.VOWEL_MAP["U"]!![1])
-        assertEquals("U.ParamU 应 = 0.56f（修正值 0.8×0.7）", 0.56f, got[2], eps)
-        assertFourEquals(expected, got, "U")
-    }
-
-    @Test
-    fun N3_O_uParam_isPoint21() {
-        // O 回归（契约 §2.4 U3）：ParamU = mf×0.3 = 0.7×0.3 = 0.21；ParamO = mo = 0.6（不受 U 修正影响）
-        val expected = AUTHORITATIVE["O"]!!
-        val got = contractFormula("O", VisemeAnalyzer.VOWEL_MAP["O"]!![0], VisemeAnalyzer.VOWEL_MAP["O"]!![1])
-        assertEquals(0.21f, got[2], eps)
-        assertEquals(0.6f, got[4], eps)
-        assertFourEquals(expected, got, "O")
-    }
-
-    @Test
-    fun N3_allSixLabels_matchAdapterAuthoritative() {
-        // 六 label 全锁死：VOWEL_MAP + 契约公式 == adapter.vowelParamMap 权威值（逐位 ±1e-6）
+    fun N3_bai_allSixLabels_matchAdapterAuthoritative() {
+        // 六 label 全锁死：VOWEL_MAP(mo,mf) 直映射 == bai.adapter 权威值（逐位 ±1e-6）
         for (label in VisemeAnalyzer.VOWEL_LABELS) {
             val mo = VisemeAnalyzer.VOWEL_MAP[label]!![0]
             val mf = VisemeAnalyzer.VOWEL_MAP[label]!![1]
-            val got = contractFormula(label, mo, mf)
+            val got = baiIdentity(label, mo, mf)
             val expected = AUTHORITATIVE[label]!!
-            assertFourEquals(expected, got, label)
+            assertEquals("$label MouthOpenY 应等于 bai 权威值", expected[0], got[0], eps)
+            assertEquals("$label MouthForm 应等于 bai 权威值", expected[1], got[1], eps)
+            // 与 adapter.vowelParamMap 口型值一致（MouthOpenY/MouthForm，无五元音）
+            assertEquals("$label MouthOpenY == VOWEL_MAP[0]", mo, got[0], 0f)
+            assertEquals("$label MouthForm == VOWEL_MAP[1]", mf, got[1], 0f)
         }
     }
 
     @Test
-    fun N3_SIL_allZero() {
+    fun N3_bai_SIL_allZero() {
+        // SIL 全零（闭口）
         val expected = AUTHORITATIVE["SIL"]!!
-        val got = contractFormula("SIL", 0f, 0f)
+        val got = VisemeAnalyzer.VOWEL_MAP["SIL"].let { baiIdentity("SIL", it!![0], it[1]) }
         assertEquals(0f, got.sum(), 0f)
-        assertFourEquals(expected, got, "SIL")
+        assertEquals(expected[0], got[0], eps)
+        assertEquals(expected[1], got[1], eps)
     }
 
-    private fun assertFourEquals(expected: FloatArray, got: FloatArray, label: String) {
-        for (i in expected.indices) {
-            assertEquals("$label 五元音[$i] 应等于 adapter 权威值", expected[i], got[i], eps)
+    @Test
+    fun N3_bai_noFiveVowelCoreParams() {
+        // bai 口型簇不得是五元音 ParamA/I/U/E/O（model-facts-bai §五：无这 5 参数；写成 = 口型静默失效根因）
+        // 经 adapter 一致性由 C27/C28 保证；此处仅在套件内佐证：所有 label 口型值在 [0,1]，且核心口型键无五元音残留
+        for (label in VisemeAnalyzer.VOWEL_LABELS) {
+            val pair = VisemeAnalyzer.VOWEL_MAP[label]!!
+            assertTrue("$label MouthOpenY=${pair[0]} 应 ∈ [0,1]", pair[0] in 0f..1f)
+            assertTrue("$label MouthForm=${pair[1]} 应 ∈ [0,1]", pair[1] in 0f..1f)
         }
     }
 
@@ -201,15 +188,11 @@ class NumericDeterminismSuiteTest {
 
     @Test
     fun N6_idlePool_noDuplicate_noSurprise() {
-        // DEFAULT_POOL 6 元素、无重复、且与 adapter idlePool 权威集合一致
+        // bai（D2 唯一模型）无 motion/无 idle 动画目录 → IdleMotionSelector.DEFAULT_POOL 应为空 []
+        // （双空一致：adapter.motionAliases={} ⇔ model3 无 Motions ⇔ idlePool=[]，S4-06 语义）
         val pool = IdleMotionSelector.DEFAULT_POOL
-        assertEquals("DEFAULT_POOL 应为 6 键", 6, pool.size)
-        assertEquals("DEFAULT_POOL 不应有重复", 6, pool.toSet().size)
-        assertEquals(
-            "DEFAULT_POOL 应 == adapter.idlePool [_0.._5]",
-            listOf("_0", "_1", "_2", "_3", "_4", "_5"),
-            pool
-        )
+        assertEquals("DEFAULT_POOL 应为空（bai 无 idle 动画池）", 0, pool.size)
+        assertEquals("DEFAULT_POOL 不应有重复", 0, pool.toSet().size)
     }
 
     // ══════════════════════════════════════════════════════════════

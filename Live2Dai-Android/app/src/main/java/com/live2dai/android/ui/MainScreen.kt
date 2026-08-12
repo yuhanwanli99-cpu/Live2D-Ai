@@ -61,7 +61,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.live2dai.android.ChatViewModel
+import com.live2dai.android.ConnectionState
 import com.live2dai.android.Live2DView
+import com.live2dai.android.connectionLabel
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
 import kotlinx.serialization.Serializable
@@ -121,6 +123,8 @@ fun MainChatScreen(
     val showFreeNotice by viewModel.showFreeNotice.collectAsStateWithLifecycle()
     val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
     val showClearConfirm by viewModel.showClearConfirm.collectAsStateWithLifecycle()
+    // R1-ui M4b：连接状态（对齐 PC chat-header）——ChatService 请求生命周期驱动
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
     // ── 权限启动器（需要 Compose 上下文，保留在 UI 层） ──
 
@@ -176,7 +180,22 @@ fun MainChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Live2Dai") },
+                title = {
+                    // R1-ui M4b：连接状态指示（对齐 PC chat-header 的 chat-status 小字，
+                    // 行为锁：连接/断开时文案即时更新）
+                    Column {
+                        Text("Live2Dai")
+                        Text(
+                            text = connectionLabel(connectionState),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when (connectionState) {
+                                ConnectionState.Connected -> MaterialTheme.colorScheme.primary
+                                ConnectionState.Connecting -> MaterialTheme.colorScheme.onPrimaryContainer
+                                ConnectionState.Disconnected -> MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = { viewModel.showClearConfirm.value = true }) {
                         Icon(Icons.Default.Delete, contentDescription = "清空对话")

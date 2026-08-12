@@ -81,9 +81,11 @@ class TestDesktopConfig(unittest.TestCase):
     def test_persona_prompt_content(self):
         persona = self.persona_config["system_prompt"]
         self.assertTrue(len(persona) > 50)
-        self.assertIn("凛", persona)
-        self.assertIn("傲娇", persona)
-        self.assertIn("天才少女", persona)
+        # R1-persona 定稿：温柔可爱萌萌二次元少女「白」——三关键词 温柔/可爱/萌
+        self.assertIn("白", persona)
+        self.assertIn("温柔", persona)
+        self.assertIn("可爱", persona)
+        self.assertIn("萌", persona)
 
     def test_expression_tags_in_persona(self):
         persona = self.persona_config["system_prompt"]

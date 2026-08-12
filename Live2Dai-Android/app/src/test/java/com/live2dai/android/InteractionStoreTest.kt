@@ -104,7 +104,8 @@ class InteractionStoreTest {
         store.save("bai", Override(2.0f, 0.1f, 0.2f))
 
         // 单独检查另一模型（此前未保存过）→ null；而 bai 自己非空
-        assertNull("未保存的 niziiro_mao 应 → null", store.load("niziiro_mao"))
+        //（R1-model D2 后唯一真实模型为 bai；第二模型用合成 id 保独立 key 语义）
+        assertNull("未保存的 second_model 应 → null", store.load("second_model"))
         assertEquals("bai 自己应保持 2.0", 2.0f, store.load("bai")!!.scale, 1e-6f)
     }
 
@@ -112,22 +113,22 @@ class InteractionStoreTest {
     fun perModelIndependence_twoModels_saveIndependently() {
         val store = InteractionStore(context)
         store.save("bai", Override(2.0f, 0.0f, 0.4f))
-        store.save("niziiro_mao", Override(4.29f, -0.0102f, -0.0933f))
+        store.save("second_model", Override(4.29f, -0.0102f, -0.0933f))
 
         val bai = store.load("bai")!!
-        val niz = store.load("niziiro_mao")!!
+        val second = store.load("second_model")!!
 
         assertEquals("bai scale 独立", 2.0f, bai.scale, 1e-6f)
-        assertEquals("niz scale 独立", 4.29f, niz.scale, 1e-6f)
+        assertEquals("second_model scale 独立", 4.29f, second.scale, 1e-6f)
         assertEquals("bai xOffset 独立", 0.0f, bai.xOffset, 1e-6f)
-        assertEquals("niz xOffset 独立", -0.0102f, niz.xOffset, 1e-6f)
+        assertEquals("second_model xOffset 独立", -0.0102f, second.xOffset, 1e-6f)
         assertEquals("bai yOffset 独立", 0.4f, bai.yOffset, 1e-6f)
-        assertEquals("niz yOffset 独立", -0.0933f, niz.yOffset, 1e-6f)
+        assertEquals("second_model yOffset 独立", -0.0933f, second.yOffset, 1e-6f)
 
         // clear 一个不影响另一个
         store.clear("bai")
         assertNull("clear bai → bai null", store.load("bai"))
-        assertEquals("clear bai 不影响 niziiro_mao", 4.29f, store.load("niziiro_mao")!!.scale, 1e-6f)
+        assertEquals("clear bai 不影响 second_model", 4.29f, store.load("second_model")!!.scale, 1e-6f)
     }
 
     // M5-A5：prefs name 与 key 契约一致（§2.2：name="live2dai_interaction"，key="override_{modelId}"）

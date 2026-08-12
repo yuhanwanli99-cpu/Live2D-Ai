@@ -30,7 +30,9 @@ class EmotionControllerStructuredTest {
     @Before
     fun setUp() {
         mockLive2DView = mock<Live2DView>()
-        // A3 双路径（contract-bai-params-v0.md AP-03/AP-28）：本测试覆盖「索引路径」行为（niziiro_mao），
+        // A3 双路径（contract-bai-params-v0.md AP-03/AP-28 + contract-R1-model §2.3）：本测试用 mock 强制
+        // hasExpressions()=true 跑「索引路径」——bai 无 exp3，真实路径是 PARAM_FRAME；
+        // EXPRESSION_INDEX 是保留的防御分支（行为零变化红线），此处为回归门人工触发。
         // 必须明确 hasExpressions()=true，否则 mock 默认 boolean=false 会错误走参数路径（PARAM_FRAME）
         // 而非 setExpressionMix，破坏回归门 AP-28。
         org.mockito.Mockito.`when`(mockLive2DView.hasExpressions()).thenReturn(true)

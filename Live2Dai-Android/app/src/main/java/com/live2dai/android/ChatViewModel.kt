@@ -15,6 +15,7 @@ import com.live2dai.pluginsdk.ChatContext
 import com.live2dai.pluginsdk.ChatHook
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -57,6 +58,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** LLM 流式聊天服务 */
     private val chatService: ChatService
+
+    /**
+     * 连接状态（R1-ui M4b，对齐 PC chat-header 状态指示）。
+     *
+     * 委托 [ChatService.connectionState]（请求生命周期驱动）：
+     * UI 层 collectAsStateWithLifecycle 收集，连接/断开时文案即时更新。
+     */
+    val connectionState: StateFlow<ConnectionState>
+        get() = chatService.connectionState
 
     // ── Live2D 视图 / 表情（onLive2DViewCreated 接线后持有） ──
 

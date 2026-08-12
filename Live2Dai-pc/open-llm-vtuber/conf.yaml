@@ -19,10 +19,10 @@ system_config:
     mcp_prompt: 'mcp_prompt'
 
 character_config:
-  conf_name: 'niziiro_mao'
-  conf_uid: 'niziiro_mao_001'
+  conf_name: 'bai'
+  conf_uid: 'bai_001'
   live2d_model_name: 'bai'
-  character_name: '凛'
+  character_name: '白'
   avatar: 'mao.png'
   human_name: 'Human'
   load_persona_from_file: 'shared/persona.yaml'

@@ -204,27 +204,27 @@ def test_c26_negative_pc_emotionmap_python_side_diff():
 
 
 def test_c26_negative_pc_emotionmap_subprocess_mutation_and_restore():
-    """脚本级负例（C-A2）：临时改 PC model_dict niziiro_mao emotionMap 一值 →
+    """脚本级负例（C-A2）：临时改 PC model_dict bai emotionMap 一值 →
     一致性脚本 exit 1 且 C26 FAIL；改后还原，脚本恢复全 PASS 集合。
 
     改动在 finally 中原样还原（字节级），不污染真实仓库。
-    契约 §3 C-A2：`临时改 PC model_dict.json niziiro_mao emotionMap 一个值 →
-    C26 FAIL 且 detail 输出键集差集（改后还原）`。
+    契约 §3 C-A2（R1-model D2：niziiro 已移除，负例改锚 bai 条目）：
+    `临时改 PC model_dict.json bai emotionMap 一个值 → C26 FAIL（改后还原）`。
     """
     _PC_MODEL_DICT = _REPO_ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "model_dict.json"
     orig_bytes = _PC_MODEL_DICT.read_bytes()
     try:
         data = json.loads(orig_bytes)
-        # PC model_dict.json 顶层为列表（既有数据基线），逐条找 niziiro_mao 的 emotionMap
+        # PC model_dict.json 顶层为列表（既有数据基线），逐条找 bai 的 emotionMap
         rows = data if isinstance(data, list) else data.get("live2d", data)
-        niz = next(
-            (e for e in rows if isinstance(e, dict) and e.get("name") == "niziiro_mao"),
+        bai = next(
+            (e for e in rows if isinstance(e, dict) and e.get("name") == "bai"),
             None,
         )
-        if niz is None:
-            raise AssertionError("PC model_dict.json 未找到 niziiro_mao 条目，无法实施 C-A2 负例")
-        emo = niz.get("emotionMap")
-        assert isinstance(emo, dict) and emo, "niziiro_mao emotionMap 应为非空 dict"
+        if bai is None:
+            raise AssertionError("PC model_dict.json 未找到 bai 条目，无法实施 C-A2 负例")
+        emo = bai.get("emotionMap")
+        assert isinstance(emo, dict) and emo, "bai emotionMap 应为非空 dict"
         # 改动一个值（契约 C-A2：临时改 emotionMap 一个值外 → C26 FAIL）
         first_key = next(iter(emo))
         emo[first_key] = 12345

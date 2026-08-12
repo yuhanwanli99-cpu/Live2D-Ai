@@ -85,7 +85,7 @@ Write-Host "║         Live2Dai -- 后端启动器                ║" -Foregro
 Write-Host "╠════════════════════════════════════════════════╣" -ForegroundColor Cyan
 Write-Host "║ LLM: DeepSeek (本地 Key) | GLM-4.7-Flash     ║" -ForegroundColor Cyan
 Write-Host "║ TTS: cosyvoice_cloud   ASR: faster-whisper    ║" -ForegroundColor Cyan
-Write-Host "║ FPS: 120  端口: 12393  人设: 凛              ║" -ForegroundColor Cyan
+Write-Host "║ FPS: 120  端口: 12393  人设: 白              ║" -ForegroundColor Cyan
 Write-Host "╚════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 

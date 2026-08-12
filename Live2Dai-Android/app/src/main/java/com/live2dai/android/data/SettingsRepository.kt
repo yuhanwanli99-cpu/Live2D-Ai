@@ -144,7 +144,7 @@ class SettingsRepository(context: Context) {
 
     /**
      * 用户选中的 Live2D 模型 ID，与 shared/model_registry.json 的 id 字段对应。
-     * 默认值 "niziiro_mao" 与注册表 default 条目一致。
+     * 默认值 "bai" 与注册表 default 条目一致（D2：bai 唯一默认形象）。
      */
     var selectedModelId: String
         get() = prefs.getString(KEY_SELECTED_MODEL_ID, DEFAULT_MODEL_ID) ?: DEFAULT_MODEL_ID
@@ -230,7 +230,7 @@ class SettingsRepository(context: Context) {
         /** 首选 ASR 引擎默认值：sherpa_sensevoice（离线优先，plan §4.3） */
         const val DEFAULT_ASR_PROVIDER_ID = "sherpa_sensevoice"
 
-        const val DEFAULT_PERSONA = "凛 (Lin)"
+        const val DEFAULT_PERSONA = "白 (Bai)"
 
         /** Live2D 默认形象 ID（与 shared/model_registry.json 的 default 条目一致，registry 默认条目 = bai） */
         const val DEFAULT_MODEL_ID = "bai"

@@ -1,7 +1,17 @@
 import os
+import re
 import yaml
 import unittest
 from unittest.mock import patch, mock_open
+
+# R1-persona 定稿（contract-R1-persona.md §2.1）：温柔可爱萌萌二次元少女「白 (Bai)」，从简
+# P2 关键词集 / P1 硬锁 name / C30 表情强度区块 regex
+PERSONA_NAME = "白 (Bai)"
+PERSONA_KEYWORDS = ["温柔", "可爱", "萌"]
+VALID_EMOTIONS = {"neutral", "joy", "anger", "sadness", "surprise", "fear", "smirk", "disgust"}
+C30_TEXT = "## 表情强度控制"
+C30_REGEX = r"强度\s*（\s*1[-~到]3\s*）"
+TOOL_SECTION = "可以使用以下工具帮助你"
 
 class TestPersonaShared(unittest.TestCase):
 
@@ -31,7 +41,10 @@ class TestPersonaShared(unittest.TestCase):
         
         system_prompt = persona['system_prompt']
         self.assertTrue(len(system_prompt.strip()) > 0)
-        self.assertIn('你是凛', system_prompt)
+        # P2: 新名「你是白」+ 定稿三关键词 温柔/可爱/萌
+        self.assertIn('你是白', system_prompt)
+        for kw in PERSONA_KEYWORDS:
+            self.assertIn(kw, system_prompt)
 
     def test_desktop_and_android_consistency(self):
         """Test that desktop and android share the same persona configuration"""
@@ -57,7 +70,8 @@ class TestPersonaShared(unittest.TestCase):
             persona = yaml.safe_load(f)
         
         name = persona['name']
-        self.assertEqual(name, "凛 (Lin)")
+        # P1: name 硬锁新值「白 (Bai)」（沿用现格式 短名 (英文)）
+        self.assertEqual(name, PERSONA_NAME)
 
     def test_model_consistency(self):
         """Test that model configuration is consistent"""
@@ -97,7 +111,12 @@ class TestPersonaShared(unittest.TestCase):
             persona = yaml.safe_load(f)
         
         role = persona['role']
-        self.assertEqual(role, "tsundere genius assistant companion")
+        # P3: role 非空字符串且不含 tsundere/凛/Lin（具体英文串由 C5 按定稿起草，不做精确断言）
+        self.assertIsInstance(role, str)
+        self.assertTrue(len(role.strip()) > 0, "role 不得为空")
+        self.assertNotIn('tsundere', role, "定稿非傲娇人设，role 不得含 'tsundere'")
+        self.assertNotIn('凛', role, "role 不得再含 '凛'")
+        self.assertNotIn('Lin', role, "role 不得再含 'Lin'")
 
     def test_system_prompt_structure(self):
         """Test that system_prompt has the required structure"""
@@ -110,6 +129,50 @@ class TestPersonaShared(unittest.TestCase):
         self.assertIn('行为准则', system_prompt)
         self.assertIn('使用示例', system_prompt)
         self.assertIn('工具使用', system_prompt)
+
+    # ---- R1-persona P2: C30 表情强度区块 + 工具章节 + emotion keys ≥6 ----
+    def test_system_prompt_c30_intensity_block(self):
+        """P2/C30: system_prompt 必须保留 「## 表情强度控制」区块且含 强度（1-3） 值域（功能协议）"""
+        with open(self.persona_path, 'r', encoding='utf-8') as f:
+            persona = yaml.safe_load(f)
+        system_prompt = persona['system_prompt']
+        self.assertIn(C30_TEXT, system_prompt, "缺 C30 区块标题 「## 表情强度控制」")
+        self.assertTrue(
+            re.search(C30_REGEX, system_prompt),
+            f"C30 区块须匹配 regex {C30_REGEX!r}（强度 1-3 值域声明）",
+        )
+
+    def test_system_prompt_tool_section(self):
+        """P2: system_prompt 保留工具章节标记「可以使用以下工具帮助你」"""
+        with open(self.persona_path, 'r', encoding='utf-8') as f:
+            persona = yaml.safe_load(f)
+        self.assertIn(TOOL_SECTION, persona['system_prompt'], "缺工具章节标记")
+
+    def test_system_prompt_emotion_keys_at_least_6(self):
+        """P2 / S1-03: system_prompt 含 ≥6 个 emotion key（协议区块保留）"""
+        with open(self.persona_path, 'r', encoding='utf-8') as f:
+            persona = yaml.safe_load(f)
+        prompt = persona['system_prompt']
+        present = {k for k in VALID_EMOTIONS if k in prompt}
+        self.assertGreaterEqual(len(present), 6, f"system_prompt 仅含 {len(present)} 个 emotion key（要求 ≥6）：{present}")
+
+    # ---- R1-persona P3: profile.personality_tags 三关键词 ----
+    def test_personality_tags_three_keywords(self):
+        """P3: profile.personality_tags 含 温柔/可爱/萌 三关键词（定稿）"""
+        with open(self.persona_path, 'r', encoding='utf-8') as f:
+            persona = yaml.safe_load(f)
+        tags = persona.get('profile', {}).get('personality_tags', [])
+        self.assertIsInstance(tags, list)
+        tags_set = set(tags)
+        for kw in PERSONA_KEYWORDS:
+            self.assertIn(kw, tags_set, f"personality_tags 缺定稿关键词『{kw}』，实际 {tags}")
+
+    # ---- R1-persona P1: 单源 persona 内无『凛』残留 ----
+    def test_no_rin_in_persona_yaml(self):
+        """P1: shared/persona.yaml 内『凛』零命中（grep '凛' 零命中）"""
+        with open(self.persona_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        self.assertNotIn('凛', text, "shared/persona.yaml 内仍有『凛』残留")
 
     def test_persona_file_exists(self):
         """Test that persona.yaml file exists and is accessible"""

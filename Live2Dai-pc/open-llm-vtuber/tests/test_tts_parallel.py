@@ -125,7 +125,7 @@ def _make_websocket_log():
 
 def _make_display_text(text: str):
     """构造最小 DisplayText 占位对象（契约类型字段：text/name/avatar）。"""
-    return {"text": text, "name": "凛", "avatar": None}
+    return {"text": text, "name": "白", "avatar": None}
 
 
 def _make_actions(sequencers=None):

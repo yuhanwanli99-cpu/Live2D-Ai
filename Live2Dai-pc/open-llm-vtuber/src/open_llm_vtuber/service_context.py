@@ -273,7 +273,7 @@ class ServiceContext:
         if not self.character_config:
             self.character_config = config.character_config
 
-        # (NEW) 加载跨平台模型注册表（缺失/损坏时返回 None，回退硬编码 niziiro_mao）
+        # (NEW) 加载跨平台模型注册表（缺失/损坏时返回 None，回退硬编码 bai）
         self.model_registry = self._load_model_registry()
         self.init_live2d(config.character_config.live2d_model_name)
         self.init_asr(config.character_config.asr_config)
@@ -308,12 +308,12 @@ class ServiceContext:
         self.character_config = config.character_config
 
     def _load_model_registry(self) -> ModelRegistry | None:
-        """加载 shared/model_registry.json；缺失/损坏时返回 None（回退硬编码 niziiro_mao）。"""
+        """加载 shared/model_registry.json；缺失/损坏时返回 None（回退硬编码 bai）。"""
         registry_path = _resolve_shared_path("shared/model_registry.json")
         if not os.path.exists(registry_path):
             logger.error(
                 f"Model registry file not found at {registry_path}; "
-                "model selection validation disabled (fallback to 'niziiro_mao')."
+                "model selection validation disabled (fallback to 'bai')."
             )
             return None
         try:
@@ -326,7 +326,7 @@ class ServiceContext:
         except (ValueError, OSError) as e:
             logger.error(
                 f"Failed to load model registry at {registry_path}: {e}; "
-                "model selection validation disabled (fallback to 'niziiro_mao')."
+                "model selection validation disabled (fallback to 'bai')."
             )
             return None
 
@@ -345,7 +345,7 @@ class ServiceContext:
         except Exception as e:
             logger.critical(f"Error initializing Live2D: {e}")
 
-        # 回退：registry 可用 → 默认模型；registry 不可用 → 硬编码 'niziiro_mao'
+        # 回退：registry 可用 → 默认模型；registry 不可用 → 硬编码 'bai'
         try:
             fallback_name = self._fallback_live2d_model_name()
             logger.warning(f"Falling back to Live2D model: {fallback_name}")
@@ -382,10 +382,10 @@ class ServiceContext:
         return resolved
 
     def _fallback_live2d_model_name(self) -> str:
-        """registry 可用时返回默认模型 id；不可用时返回硬编码 'niziiro_mao'。"""
+        """registry 可用时返回默认模型 id；不可用时返回硬编码 'bai'（C13：与 Android 兜底一致）。"""
         if self.model_registry is not None:
             return self.model_registry.get_default().id
-        return "niziiro_mao"
+        return "bai"
 
     def init_asr(self, asr_config: ASRConfig) -> None:
         if asr_config.asr_model == "disabled":

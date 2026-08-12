@@ -1,7 +1,7 @@
 # ADAPTER.md（模型适配扩展指南）
 
 > 契约 v3-adapter §4 锁定的扩展指南。适配点 = 单文件配置 + 加载点，**不做多模型注册系统/API/UI**（K3 最小框架）。
-> 本文件随 `niziiro_mao.adapter.json` 一起修订；变更记录见 §4。
+> 本文件随 `bai.adapter.json` 一起修订；变更记录见 §4。
 
 ## 1. 适配点是什么
 
@@ -14,7 +14,7 @@
 
 ## 2. 加新模型要改哪里（清单式）
 
-1. **复制 adapter 文件**：`niziiro_mao.adapter.json` → `{新模型}.adapter.json`，改 `modelId` / `displayName`（与 registry 一致）
+1. **复制 adapter 文件**：`bai.adapter.json` → `{新模型}.adapter.json`，改 `modelId` / `displayName`（与 registry 一致）
 2. **motionAliases**：按新模型 `{模型}.model3.json` FileReferences.Motions **实读**重填（7 键 tag → {group, index, file}；组名可为空串 `""`，不是笔误——空组键格式为 `_N`）。tag 语义（wave=special_01 等）需按新模型动作内容重新验证（[UNSURE-1] 精神：motion3.json 无动作语义标签）
 3. **vowelParamMap / vowelRawMap**：按新模型 `{模型}.cdi3.json` 参数集 + pymouth 表 2 公式导出：
    - `vowelRawMap` = pymouth VOWEL_MAP 原值 `[mo, mf]`
@@ -50,4 +50,4 @@
 
 | 版本 | 日期 | 变更 | 说明 |
 |---|---|---|---|
-| v1.0 | 2026-08-09 | 初始指南（T1.1 产出） | 随 `niziiro_mao.adapter.json` 首版落盘；基线值全部实读提取（model3.json / cdi3.json / MotionTags.kt / VisemeAnalyzer.kt / EmotionController.kt / model_dict.json / live2d_model.py） |
+| v1.0 | 2026-08-09 | 初始指南（T1.1 产出） | 随首版 adapter 落盘；基线值全部实读提取（model3.json / cdi3.json / MotionTags.kt / VisemeAnalyzer.kt / EmotionController.kt / model_dict.json / live2d_model.py）；2026-08-12 R1-model D2 移除旧模型后，基线模型改为 bai（bai.adapter.json） |

@@ -26,7 +26,7 @@ class MemoryPluginTest {
         override fun registerTool(tool: ToolDefinition) { tools += tool }
         override fun sendAssistantMessage(text: String, emotion: String?) {}
         override fun getPersona(): PersonaSnapshot =
-            PersonaSnapshot(name = "凛", systemPrompt = "prompt", model = "model")
+            PersonaSnapshot(name = "白", systemPrompt = "prompt", model = "model")
     }
 
     @Test

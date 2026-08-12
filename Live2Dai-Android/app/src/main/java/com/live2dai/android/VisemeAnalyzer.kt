@@ -26,7 +26,7 @@ import kotlin.math.sqrt
 
 /**
  * Kotlin 移植 pymouth（Apache-2.0）VowelAnalyser + PymouthVisemeDriver 的元音分析器。
- * 输入 PCM 帧 → 输出 VisemeFrame 序列（label + 五元音参数，直接对齐 niziiro_mao ParamA/I/U/E/O）。
+ * 输入 PCM 帧 → 输出 VisemeFrame 序列（label + 五元音参数，直接对齐 bai 的 MouthOpenY/MouthForm 映射）。
  *
  * 线程安全：非线程安全，单协程内使用（VoiceIoController 单收集协程保证）。
  */
@@ -97,18 +97,18 @@ class VisemeAnalyzer(
 
         // ── pymouth VOWEL_MAP（pymouth_viseme.py，锁死；T2.2 U 修正）──
 
-        /** 硬编码兜底（adapter 缺失/解析失败时，零行为变化；U 为 T2.2/D4 修正值 (0.4,0.8)） */
+        /** 硬编码兜底（adapter 缺失/解析失败时，零行为变化；同步 bai raw 值（C27/C4），Bai 口型 = MouthOpenY/MouthForm 对） */
         private val FALLBACK_VOWEL_MAP: Map<String, FloatArray> = mapOf(
-            "A" to floatArrayOf(0.8f, 0.2f),
-            "I" to floatArrayOf(0.3f, 0.8f),
-            "U" to floatArrayOf(0.4f, 0.8f),  // T2.2/D4 修正：(0.2,0.0)→(0.4,0.8)，ParamU=0.8×0.7=0.56
-            "E" to floatArrayOf(0.5f, 0.5f),
-            "O" to floatArrayOf(0.6f, 0.7f),
+            "A" to floatArrayOf(0.8f, 0.4f),
+            "I" to floatArrayOf(0.5f, 0.2f),
+            "U" to floatArrayOf(0.4f, 0.1f),
+            "E" to floatArrayOf(0.6f, 0.3f),
+            "O" to floatArrayOf(0.7f, 0.5f),
             "SIL" to floatArrayOf(0.0f, 0.0f),
         )
 
         /**
-         * 元音嘴型表 (mouthOpen, mouthForm)：配置优先（adapter.vowelRawMap，U 已为修正值 0.4/0.8），
+         * 元音嘴型表 (mouthOpen, mouthForm)：配置优先（adapter.vowelRawMap，已为 bai raw 值），
          * 缺失 → 硬编码常量兜底（回归门）。buildVisemeFrame 公式不变（锁死）。
          */
         internal val VOWEL_MAP: Map<String, FloatArray>
@@ -245,7 +245,7 @@ class VisemeAnalyzer(
         // Step 4: argmax → label
         val label = LabelPicker.pick(probs)
 
-        // Step 5: VOWEL_MAP + niziiro_mao → VisemeFrame
+        // Step 5: VOWEL_MAP + adapter（bai）→ VisemeFrame
         val frame = buildVisemeFrame(label, timestampMs)
         timeline.add(frame)
         return frame

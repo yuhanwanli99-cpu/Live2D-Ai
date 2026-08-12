@@ -30,7 +30,9 @@ class EmotionControllerTest {
     @Before
     fun setUp() {
         mockLive2DView = mock<Live2DView>()
-        // A3 双路径（contract-bai-params-v0.md AP-03/AP-28）：本测试覆盖「索引路径」行为（niziiro_mao 有表情 exp3），
+        // A3 双路径（contract-bai-params-v0.md AP-03/AP-28 + contract-R1-model §2.3）：本测试用 mock 强制
+        // hasExpressions()=true 跑「索引路径」——bai 无 exp3，真实路径是 PARAM_FRAME；
+        // EXPRESSION_INDEX 是保留的防御分支（行为零变化红线，不可达但保留），此处为回归门人工触发。
         // 必须明确 hasExpressions()=true，否则 mock 默认 boolean=false 会错误走参数路径（PARAM_FRAME）而非 setExpression。
         // 这是 A3 添加双路径后，随查询时机（构造或首次调用）与否，替代指数路径时均可正确。
         org.mockito.Mockito.`when`(mockLive2DView.hasExpressions()).thenReturn(true)
@@ -50,18 +52,18 @@ class EmotionControllerTest {
         // First set to a non-neutral emotion so neutral triggers a change
         emotionController.parseAndApply("[joy] init")
 
-        val input = "[neutral] 凛也很开心！(=^･ω･^=)"
+        val input = "[neutral] 白也很开心！(=^･ω･^=)"
         val result = emotionController.parseAndApply(input)
-        assertEquals("凛也很开心！(=^･ω･^=)", result)
+        assertEquals("白也很开心！(=^･ω･^=)", result)
         verify(mockLive2DView).setExpression(0) // neutral → index 0
     }
 
     @Test
     fun testMultipleEmotionTagsLastWins() {
-        val input = "[joy] 今天天气真好！[anger] 不许偷懒！[neutral] 凛去倒茶~"
+        val input = "[joy] 今天天气真好！[anger] 不许偷懒！[neutral] 白去倒茶~"
         val result = emotionController.parseAndApply(input)
         // Tags are stripped by regex, leaving whitespace where tags were
-        assertEquals("今天天气真好！ 不许偷懒！ 凛去倒茶~", result)
+        assertEquals("今天天气真好！ 不许偷懒！ 白去倒茶~", result)
         // Only the last valid emotion tag triggers setExpression
         // neutral(0) == currentExpressionIndex(0) initially, so NOT called
         verify(mockLive2DView, never()).setExpression(any(), any())
@@ -85,9 +87,9 @@ class EmotionControllerTest {
 
     @Test
     fun testMixedTextAndTags() {
-        val input = "你好[joy]！今天天气真好[smirk]~ 凛很高兴[neutral]！"
+        val input = "你好[joy]！今天天气真好[smirk]~ 白很高兴[neutral]！"
         val result = emotionController.parseAndApply(input)
-        assertEquals("你好！今天天气真好~ 凛很高兴！", result)
+        assertEquals("你好！今天天气真好~ 白很高兴！", result)
         // Only last valid emotion (neutral → 0) triggers setExpression
         // 0 == currentExpressionIndex(0) initially → NOT called
         verify(mockLive2DView, never()).setExpression(any(), any())

@@ -19,7 +19,7 @@ import org.junit.Test
  * 生产符号（RED 待实现）：`data/FitMath.characterBBox(vertexArrays)` 与
  * `data/FitMath.computeCharacterFit(bbox, viewWidth, viewHeight, canvasWidth, canvasHeight, padding)`。
  * 所有数值断言以契约 §3 锁定为准（bai：0.0830×0.2525 / 1.0×1.5 → 5.643±0.01；
- * 竖屏 1.0×2.1667 → 8.15±0.01；niziiro：0.2240×0.4886 / 1.0×1.4483）。
+ * 竖屏 1.0×2.1667 → 8.15±0.01；R1-model D2 后唯一模型为 bai，不再含 niziiro）。
  */
 class FitMathTest {
 
@@ -70,7 +70,7 @@ class FitMathTest {
     // ============================================================
     @Test
     fun offsets_bboxCenter() {
-        // ---- bai ----
+        // ---- bai（唯一模型，R1-model D2）----
         // px bbox x∈[-164.8,167.3] y∈[-994.3,16.0]，ppu=4000 → 模型单位 min/max：
         // cx = (-164.8+167.3)/2/4000 = 0.0003125 ≈ 0.0003
         // cy = (-994.3+16.0)/2/4000 = -0.1222875 ≈ -0.122
@@ -78,15 +78,6 @@ class FitMathTest {
         val baiFit = computeCharacterFit(baiBbox, 1.0f, 1.5f, 1.0f, 1.5f)
         assertEquals("bai xOffset(=cx) 应为 0.0003 ± 0.001", 0.0003f, baiFit.xOffset, 0.001f)
         assertEquals("bai yOffset(=cy) 应为 -0.122 ± 0.001", -0.122f, baiFit.yOffset, 0.001f)
-
-        // ---- niziiro_mao ----
-        // px bbox x∈[-708.3,590.6] y∈[-1958.4,876.1]，ppu=5800 → 模型单位：
-        // cx = (-708.3+590.6)/2/5800 = -0.010145 ≈ -0.0102
-        // cy = (-1958.4+876.1)/2/5800 = -0.093305 ≈ -0.0933
-        val niziiroBbox = BBox(-708.3f / 5800f, 590.6f / 5800f, -1958.4f / 5800f, 876.1f / 5800f)
-        val niziiroFit = computeCharacterFit(niziiroBbox, 1.0f, 1.4483f, 1.0f, 1.4483f)
-        assertEquals("niziiro xOffset(=cx) 应为 -0.0102 ± 0.001", -0.0102f, niziiroFit.xOffset, 0.001f)
-        assertEquals("niziiro yOffset(=cy) 应为 -0.0933 ± 0.001", -0.0933f, niziiroFit.yOffset, 0.001f)
     }
 
     // ============================================================

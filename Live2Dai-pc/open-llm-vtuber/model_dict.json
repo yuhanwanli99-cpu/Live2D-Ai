@@ -1,33 +1,5 @@
 [
     {
-        "name": "niziiro_mao",
-        "description": "",
-        "url": "/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json",
-        "kScale": 0.5,
-        "initialXshift": 0,
-        "initialYshift": 0,
-        "kXOffset": 1150,
-        "idleMotionGroupName": "Idle",
-        "emotionMap": {
-            "neutral": 0,
-            "anger": 3,
-            "disgust": 4,
-            "fear": 1,
-            "joy": 5,
-            "smirk": 6,
-            "sadness": 2,
-            "surprise": 7
-        },
-        "tapMotions": {
-            "HitAreaHead": {
-                "": 1
-            },
-            "HitAreaBody": {
-                "": 1
-            }
-        }
-    },
-    {
         "name": "bai",
         "description": "白-免费版 — B站 Live2D 模型（8192 纹理，128 参数，无 motion/exp3），默认形象",
         "url": "/live2d-models/bai/runtime/bai.model3.json",

@@ -18,14 +18,18 @@ class MotionTagsTest {
 
     @Test
     fun A1_knownAlias() {
-        assertEquals("_3", MotionAliasTable.resolve("wave"))
+        // R1-model M3：bai 无 motion → motionAliases={} 空集，任何别名均无映射
+        assertNull(MotionAliasTable.resolve("wave"))
+        assertNull(MotionAliasTable.resolve("idle"))
+        assertNull(MotionAliasTable.resolve("special_02"))
     }
 
     @Test
     fun A2_caseInsensitive_trim() {
-        assertEquals("_3", MotionAliasTable.resolve("WAVE"))
-        assertEquals("Idle_0", MotionAliasTable.resolve(" Idle "))
-        assertEquals("Idle_0", MotionAliasTable.resolve("IDLE"))
+        // R1-model M3：bai 空集 → 大小写/空白规范化后仍无映射
+        assertNull(MotionAliasTable.resolve("WAVE"))
+        assertNull(MotionAliasTable.resolve(" Idle "))
+        assertNull(MotionAliasTable.resolve("IDLE"))
     }
 
     @Test
@@ -41,11 +45,9 @@ class MotionTagsTest {
 
     @Test
     fun A5_tableIntegrity() {
-        val expectedKeys = setOf("idle", "wave", "special_02", "special_03", "mtn_02", "mtn_03", "mtn_04")
-        assertEquals(expectedKeys, MotionAliasTable.TAG_TO_KEY.keys)
-
-        val expectedValues = setOf("Idle_0", "_0", "_1", "_2", "_3", "_4", "_5")
-        assertEquals(expectedValues, MotionAliasTable.TAG_TO_KEY.values.toSet())
+        // R1-model M3：bai.adapter.json 无 Motions ↔ motionAliases 空集（C25/C29 双空一致）
+        assertTrue("motionAliases 应为空集", MotionAliasTable.TAG_TO_KEY.isEmpty())
+        assertTrue("motionAliases 值集应为空", MotionAliasTable.TAG_TO_KEY.values.isEmpty())
     }
 
     // ══════════════════════════════════════════════
@@ -137,9 +139,7 @@ class MotionTagsTest {
 
     @Test
     fun C4_defaultPool() {
-        assertEquals(
-            listOf("_0", "_1", "_2", "_3", "_4", "_5"),
-            IdleMotionSelector.DEFAULT_POOL
-        )
+        // R1-model M3 §2.3：bai 无 motion → idle 池默认空（FALLBACK_POOL=[]）
+        assertTrue("默认 idle 池应为空", IdleMotionSelector.DEFAULT_POOL.isEmpty())
     }
 }

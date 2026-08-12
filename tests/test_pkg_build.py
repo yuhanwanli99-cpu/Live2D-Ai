@@ -40,7 +40,7 @@ class TestCheckResources(unittest.TestCase):
     def test_required_missing_is_reported(self):
         self._touch("shared/persona.yaml")
         self._touch("Live2Dai-pc/open-llm-vtuber/frontend/index.html")
-        self._touch("Live2Dai-pc/open-llm-vtuber/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json")
+        self._touch("Live2Dai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json")
         missing = check_resources.collect_missing(self.root)
         self.assertTrue(any(rel == "shared/mcp_tools.json" for rel, _ in missing))
         # ffmpeg sentinels must be required, not warn

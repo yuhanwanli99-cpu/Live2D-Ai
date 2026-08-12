@@ -39,7 +39,7 @@ Live2Dai = Live2D + AI。项目的全部意义只有一件事：**验证「最�
 
 **Live2Dai** 是一个 **AI × Live2D 最小验证项目**——验证「最小化的 AI + Live2D」闭环能跑通：她使用 **Live2D 模型角色** 与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。核心只留这一条最小闭环，扩展全部走插件 SDK / 契约接口留给后续和社区。
 
-> "哼，今天想让我做什么？" —— 凛 (Lin)
+> "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
 
 **开源事实**：本项目基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK，无需注册 Live2D 账号即可编译运行，完全开源、可复制。
 
@@ -99,7 +99,7 @@ Live2Dai = Live2D + AI。项目的全部意义只有一件事：**验证「最�
 |-----------|---------------|
 | `[screenshot]` | `[screenshot]` |
 
-| 凛 (Lin) | 对话界面 |
+| 白 (Bai) | 对话界面 |
 |---------|---------|
 | `[screenshot]` | `[screenshot]` |
 
@@ -426,7 +426,7 @@ cd Live2Dai-Android && ./gradlew test
 
 ### 关于 Live2D 模型
 
-本项目包含的 `.model3.json` / `.moc3` / 纹理文件（如 `niziiro_mao`）为 Live2D 官方示例模型（Niziiro Mao，Free Material License），其使用受 Live2D 许可协议约束。建议替换为你自己的模型。
+本项目内置的 `.model3.json` / `.moc3` / 纹理文件（`bai`，白-免费版）为 B站公开 Live2D 模型，仅供本地使用（D1 裁定，不内置分发），其使用受模型作者许可协议约束。建议替换为你自己的模型。
 
 ---
 
@@ -445,6 +445,6 @@ cd Live2Dai-Android && ./gradlew test
   Made with ❤️
   <br/>
   <sub>
-    "哼，才、才不是为了你呢！" —— 凛 (Lin)
+    "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
   </sub>
 </p>

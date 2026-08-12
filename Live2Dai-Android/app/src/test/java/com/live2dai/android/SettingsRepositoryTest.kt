@@ -316,7 +316,7 @@ class SettingsRepositoryTest {
         val repo = SettingsRepository(context)
         // 契约 v0 AD-02：DEFAULT_MODEL_ID 同步为 bai（默认形象 = bai 白-免费版）
         assertEquals("首次启动默认形象应为 bai", "bai", SettingsRepository.DEFAULT_MODEL_ID)
-        assertEquals("首次启动默认形象应为 niziiro_mao", SettingsRepository.DEFAULT_MODEL_ID, repo.selectedModelId)
+        assertEquals("首次启动默认形象应为 bai（DEFAULT_MODEL_ID，D2）", SettingsRepository.DEFAULT_MODEL_ID, repo.selectedModelId)
     }
 
     @Test

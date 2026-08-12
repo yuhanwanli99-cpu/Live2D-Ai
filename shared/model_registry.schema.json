@@ -52,7 +52,7 @@
           "pattern": "^[a-z0-9_]+$",
           "minLength": 1,
           "maxLength": 64,
-          "description": "唯一标识，小写蛇形命名（如 niziiro_mao）；与 PC model_dict.json 的 name 字段关联。"
+          "description": "唯一标识，小写蛇形命名（如 bai）；与 PC model_dict.json 的 name 字段关联。"
         },
         "name": {
           "type": "string",

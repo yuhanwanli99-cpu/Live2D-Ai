@@ -11,7 +11,8 @@ package com.live2dai.android
  * 一帧元音嘴型数据（M5 VisemeAnalyzer 输出）。
  *
  * mouthOpen/mouthForm：pymouth VOWEL_MAP 原值（保留——用于调参验证与 PC 端对等测试）；
- * paramA/I/U/E/O：niziiro_mao 五元音参数（由 §3.3 映射表从 vowel_label+mo/mf 计算，直接驱动模型），
+ * paramA/I/U/E/O：五元音参数（由 §3.3 映射表从 vowel_label+mo/mf 计算，直接驱动模型；bai 无 ParamA/I/U/E/O，
+ * 实际经 adapter.vowelParamMap 映射到 MouthOpenY/MouthForm），
  * 各 ∈ [0.0, 1.0]（计算后 coerceIn）。
  */
 data class VisemeFrame(

@@ -239,7 +239,7 @@ class CosyVoiceTtsProviderTest {
         ShadowMediaPlayer.setCreateListener { _, shadow -> capturedShadow.set(shadow) }
 
         try {
-            provider.speak("你好，我是凛~")
+            provider.speak("你好，我是白~")
 
             // 1) 服务端收到的 run-task 事件内容（协议契约：action/streaming/model/parameters）
             val runTaskEvent = receivedRunTask.get()
@@ -286,7 +286,7 @@ class CosyVoiceTtsProviderTest {
                 continueHeader.getString("task_id")
             )
             val continueInput = JSONObject(continueEvent).getJSONObject("payload").getJSONObject("input")
-            assertEquals("continue-task 的 input.text 应为原文", "你好，我是凛~", continueInput.getString("text"))
+            assertEquals("continue-task 的 input.text 应为原文", "你好，我是白~", continueInput.getString("text"))
 
             // 3) 服务端收到的 finish-task（结束会话）
             val finishEvent = receivedFinishTask.get()

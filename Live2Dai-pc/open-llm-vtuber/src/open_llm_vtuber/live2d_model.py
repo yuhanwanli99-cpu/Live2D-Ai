@@ -28,19 +28,10 @@ PROTOCOL_EMOTION_INDEX = {name: i for i, name in enumerate(PROTOCOL_EMOTION_KEYS
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _JSON_NAKED_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-# motionLabel 别名表（M1 §5.3 F 段 niziiro_mao 别名，大小写不敏感）
+# motionLabel 别名表（M1 §5.3 F 段别名，大小写不敏感）
 # 适配配置优先（v3-adapter §1.3：← adapter["motionAliases"].keys()）；失败 → 硬编码兑底。
-_DEFAULT_MOTION_LABEL_ALIASES = frozenset(
-    {
-        "idle",
-        "wave",
-        "special_02",
-        "special_03",
-        "mtn_02",
-        "mtn_03",
-        "mtn_04",
-    }
-)
+# bai 无 motion（D2 白唯一化）→ 空集，与 adapter.motionAliases={} 三方对账一致（C29）。
+_DEFAULT_MOTION_LABEL_ALIASES = frozenset()
 _MOTION_LABEL_ALIASES = _DEFAULT_MOTION_LABEL_ALIASES
 
 # PC 关键词兜底词表（契约 v3-features §1.1 锁死，[UNSURE-FT1 终裁 2026-08-09]）
@@ -75,9 +66,9 @@ def extract_motion_keyword(text: str) -> str | None:
     return None
 
 
-# ── 适配配置（shared/model-adapter/niziiro_mao.adapter.json，双端共享单源）──
+# ── 适配配置（shared/model-adapter/bai.adapter.json，双端共享单源）──
 def _load_model_adapter(
-    adapter_path: str = "shared/model-adapter/niziiro_mao.adapter.json",
+    adapter_path: str = "shared/model-adapter/bai.adapter.json",
 ) -> dict | None:
     """读适配配置；缺失/损坏 → None（调用方用现有硬编码兑底，行为不变）。
 
@@ -173,8 +164,8 @@ class Live2dModel:
     def _cdi3_rel_path(self) -> str:
         """从 model_info.url 推导当前模型 cdi3.json 的相对路径。
 
-        url 形如 `/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json`
-        → `live2d-models/niziiro_mao/runtime/niziiro_mao.cdi3.json`（model3.json → cdi3.json）。
+        url 形如 `/live2d-models/bai/runtime/bai.model3.json`
+        → `live2d-models/bai/runtime/bai.cdi3.json`（model3.json → cdi3.json）。
         url 缺失（registry 兜底异常）时按约定布局回退。
         """
         url = (self.model_info.get("url") or "").lstrip("/")

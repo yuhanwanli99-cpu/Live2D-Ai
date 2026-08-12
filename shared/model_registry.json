@@ -15,21 +15,6 @@
         "license": "本地使用（D1 裁定，不内置分发）",
         "version": "1.0"
       }
-    },
-    {
-      "id": "niziiro_mao",
-      "name": "Niziiro Mao",
-      "description": "Niziiro Mao — Live2D 官方 Free Material 示例模型（Cubism 5），默认形象",
-      "model3JsonPath": "niziiro_mao/runtime/niziiro_mao.model3.json",
-      "thumbnailPath": null,
-      "available": true,
-      "default": false,
-      "restrictPlatform": null,
-      "metadata": {
-        "creator": "Live2D Inc.",
-        "license": "Free Material License",
-        "version": "1.0"
-      }
     }
   ]
 }

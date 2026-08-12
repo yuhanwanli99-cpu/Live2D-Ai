@@ -1,13 +1,14 @@
 """PC 端 extract_expression_mix / strip_expression_json 单元测试（M3 核心解析）。
 
-覆盖（niziiro_mao 模型上下文）:
+覆盖（bai 唯一化上下文，R1-model D2）:
 - P1-P13: 基本 JSON 解析/校验/归一化（契约 M1 §7.2 同构于 A1-A13）
 - P20: 单行 JSON 不被切分（fence + 单行）
 - P21: strip_expression_json 剥离规则
 - S1-S10: 双端一致性参数化样本（契约 M2-M3 §3）
 
-构造: _PC_SRC 注入 live2d_model.py，用 Live2dModel("niziiro_mao") 上下文。
-cdi3 白名单由运行时加载 niziiro_mao.cdi3.json（128 参数），保证参数化样本校验真实白名单行为。
+构造: _PC_SRC 注入 live2d_model.py，用 Live2dModel("bai") 上下文。
+cdi3 白名单由运行时加载 bai.cdi3.json（128 参数），保证参数化样本校验真实白名单行为。
+bai 无 motion（adapter.motionAliases={}）→ 任意 motionLabel 均未知 → None。
 """
 import json
 import os
@@ -27,13 +28,13 @@ from open_llm_vtuber.live2d_model import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# 辅助：创建 niziiro_mao Live2dModel（CWD = 仓库根，保证 cdi3 能解析）
+# 辅助：创建 bai Live2dModel（CWD = 仓库根，保证 cdi3 能解析）
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def _make_model(name="niziiro_mao"):
+def _make_model(name="bai"):
     """构造 Live2dModel，CWD 指向仓库根保证 cdi3.json 加载。"""
     old_cwd = os.getcwd()
     os.chdir(_REPO_ROOT)
@@ -49,16 +50,16 @@ def _make_model(name="niziiro_mao"):
 
 
 # ---------------------------------------------------------------------------
-# P1-P13: 基本解析/校验（niziiro_mao，契约 M1 §7.2）
+# P1-P13: 基本解析/校验（bai，契约 M1 §7.2）
 # ---------------------------------------------------------------------------
 
 
 class TestExtractExpressionMix:
-    """extract_expression_mix 基本解析/校验用例（niziiro_mao 上下文）。"""
+    """extract_expression_mix 基本解析/校验用例（bai 上下文）。"""
 
     @classmethod
     def setup_class(cls):
-        cls.model = _make_model("niziiro_mao")
+        cls.model = _make_model("bai")
 
     def _extract(self, text):
         return self.model.extract_expression_mix(text)
@@ -128,7 +129,7 @@ class TestExtractExpressionMix:
         assert abs(weights["surprise"] - 0.6 / 1.3) <= 1e-4
         assert abs(sum(w for w in weights.values()) - 1.0) <= 1e-4
 
-    # ---- P9 覆盖合法 key（ParamEyeLOpen ∈ niziiro_mao cdi3 白名单） ----
+    # ---- P9 覆盖合法 key（ParamEyeLOpen ∈ bai cdi3 白名单） ----
     def test_override_valid_key(self):
         result = self._extract(
             '{"parameterOverrides":{"ParamEyeLOpen":1.2}}'
@@ -169,11 +170,12 @@ class TestExtractExpressionMix:
             {"name": "surprise", "weight": 0.3},
         ]
         assert result["parameterOverrides"] == {"ParamEyeLOpen": 1.2}
-        assert result["motionLabel"] == "wave"
+        # bai 无 motion（adapter.motionAliases={}）→ 任意 motionLabel（如 wave）均未知 → None
+        assert result["motionLabel"] is None
 
     # ---- P13 空 mix + 合法覆盖（部分生效） ----
     def test_empty_mix_valid_override(self):
-        # ParamMouthForm NOT in niziiro_mao cdi3 → 会被丢弃，用 ParamEyeLOpen
+        # ParamEyeLOpen ∈ bai cdi3 → 保留
         result = self._extract(
             '{"expressionMix":{"expressions":[]},'
             '"parameterOverrides":{"ParamEyeLOpen":0.8}}'
@@ -227,15 +229,13 @@ class TestExtractExpressionMix:
 
 
 # ---------------------------------------------------------------------------
-# S1-S10: 双端一致性参数化样本（契约 M2-M3 §3 + verify-M9 PC 实测）
+# S1-S10: 双端一致性参数化样本（契约 M2-M3 §3 + verify-M9 PC 实测 + bai 唯一化）
 # ---------------------------------------------------------------------------
 
 # 每条: (id, text, expected_mix, expected_overrides, expected_motion, expected_null)
-# S10 说明：契约 §3 预期 overrides={ParamMouthForm:0.8}，但 niziiro_mao cdi3.json 的
-# 128 参数中不含 ParamMouthForm（有 ParamMouthUp/Down/Angry/AngryLine，无
-# ParamMouthForm）。PC 和 Android 均按 C3 机械规则（key ∉ cdi3 白名单 → 丢弃）
-# 执行，故 overrides={}。这是契约样本数据错误，双端一致丢弃该 key。
-# ref: verify-M9.md §3 S10 说明 + M3 deviation 2。
+# bai 唯一化（D2）：bai.cdi3.json 128 参数含 ParamMouthForm → S10 overrides 保留 {"ParamMouthForm":0.8}；
+# bai 无 motion（adapter.motionAliases={}）→ S1 motionLabel "wave" 未知 → None。
+# 旧 niziiro 上下文中 ParamMouthForm ∉ cdi3 / motion 别名为 7 键——已按 bai 事实替换。
 S_SAMPLES = [
     # (id, text, mix, overrides, motion, is_null)
     (
@@ -246,7 +246,8 @@ S_SAMPLES = [
         "今天天气真好啊！",
         [{"name": "joy", "weight": 0.7}, {"name": "surprise", "weight": 0.3}],
         {"ParamEyeLOpen": 1.2},
-        "wave",
+        # bai 无 motion（adapter.motionAliases={}）→ motionLabel "wave" 未知 → None
+        None,
         False,
     ),
     (
@@ -317,14 +318,13 @@ S_SAMPLES = [
     ),
     (
         "S10",
-        # 契约样本数据错误修正：
-        # niziiro_mao cdi3.json 不含 ParamMouthForm → C3 白名单丢弃 → overrides={}
-        # motionLabel "dance" ∉ 别名表 → motion=None
-        # ref: verify-M9.md §3 + M3 deviation 2
+        # bai 唯一化（D2）：bai.cdi3.json 含 ParamMouthForm → C3 白名单保留 → overrides={ParamMouthForm:0.8}
+        # motionLabel "dance" ∉ bai 别名表（bai 无 motion）→ motion=None
+        # ref: model-facts-bai.md（128 参数含 ParamMouthForm）+ verify-M9.md §3
         '{"expressionMix":{"expressions":[]},'
         '"parameterOverrides":{"ParamMouthForm":0.8},"motionLabel":"dance"}',
         [],
-        {},
+        {"ParamMouthForm": 0.8},
         None,
         False,
     ),
@@ -332,11 +332,11 @@ S_SAMPLES = [
 
 
 class TestConsistencySamples:
-    """S1-S10 双端一致性参数化样本（niziiro_mao 上下文）。"""
+    """S1-S10 双端一致性参数化样本（bai 上下文，R1-model D2）。"""
 
     @classmethod
     def setup_class(cls):
-        cls.model = _make_model("niziiro_mao")
+        cls.model = _make_model("bai")
 
     @pytest.mark.parametrize(
         "sample_id,text,expected_mix,expected_overrides,expected_motion,expected_null",

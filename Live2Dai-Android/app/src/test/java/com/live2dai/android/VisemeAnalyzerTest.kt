@@ -97,14 +97,13 @@ class VisemeAnalyzerTest {
         val expectedKeys = setOf("A", "I", "U", "E", "O", "SIL")
         assertEquals(expectedKeys, map.keys)
 
-        // 精确值断言
+        // 精确值断言（bai raw，VOWEL_MAP 已同步 model-facts-bai：A/I/U/E/O/SIL 的 MouthOpenY/MouthForm 对）
         val eps = 1e-6f
-        assertEquals(0.8f, map["A"]!![0], eps); assertEquals(0.2f, map["A"]!![1], eps)
-        assertEquals(0.3f, map["I"]!![0], eps); assertEquals(0.8f, map["I"]!![1], eps)
-        // U 修正（契约 v3-adapter §2.2 / D4）：(0.2,0.0) → (0.4,0.8)（adapter.vowelRawMap 同步值）
-        assertEquals(0.4f, map["U"]!![0], eps); assertEquals(0.8f, map["U"]!![1], eps)
-        assertEquals(0.5f, map["E"]!![0], eps); assertEquals(0.5f, map["E"]!![1], eps)
-        assertEquals(0.6f, map["O"]!![0], eps); assertEquals(0.7f, map["O"]!![1], eps)
+        assertEquals(0.8f, map["A"]!![0], eps); assertEquals(0.4f, map["A"]!![1], eps)
+        assertEquals(0.5f, map["I"]!![0], eps); assertEquals(0.2f, map["I"]!![1], eps)
+        assertEquals(0.4f, map["U"]!![0], eps); assertEquals(0.1f, map["U"]!![1], eps)
+        assertEquals(0.6f, map["E"]!![0], eps); assertEquals(0.3f, map["E"]!![1], eps)
+        assertEquals(0.7f, map["O"]!![0], eps); assertEquals(0.5f, map["O"]!![1], eps)
         assertEquals(0.0f, map["SIL"]!![0], eps); assertEquals(0.0f, map["SIL"]!![1], eps)
 
         // 所有值 ∈ [0,1]
@@ -114,22 +113,20 @@ class VisemeAnalyzerTest {
         }
     }
 
-    // ── A7：U 元音修正（契约 v3-adapter §2.2 / D4）──
-    // buildVisemeFrame("U") 输出 ParamU == 0.56f（VOWEL_MAP["U"].mf × 0.7 = 0.8 × 0.7）
+    // ── A7：U 元音 bai 直映射（model-facts-bai §五，D2 bai 唯一化）──
+    // buildVisemeFrame/gui为 bai：无 ParamU/无五元音公式（ParamA/I/U/E/O 已随 niziiro 移除）；
+    // U 的 MouthOpenY/MouthForm 由 VOWEL_MAP["U"] 直映射（adapter.vowelParamMap：ParamMouthOpenY=0.4 / ParamMouthForm=0.1）。
 
     @Test
-    fun A7_uBuildVisemeFrame_ParamU_isPoint56() {
-        // 数据层：VOWEL_MAP 的 U 已修正为 (0.4, 0.8)（adapter.vowelRawMap 同步值）
+    fun A7_uVowel_direct_mouthOpenForm_map() {
+        // 数据层：VOWEL_MAP 的 U 为 bai raw（mo/MouthOpenY=0.4, mf/MouthForm=0.1）
         val mo = VisemeAnalyzer.VOWEL_MAP["U"]!![0]
         val mf = VisemeAnalyzer.VOWEL_MAP["U"]!![1]
-        assertEquals("U.mo 应 = 0.4（修正值）", 0.4f, mo, 1e-6f)
-        assertEquals("U.mf 应 = 0.8（修正值）", 0.8f, mf, 1e-6f)
-        // 公式（契约 §2.2 表 2 buildVisemeFrame）：ParamU = mf × 0.7 → 0.8×0.7 = 0.56
-        val paramU = mf * 0.7f
-        assertEquals(
-            "buildVisemeFrame(\"U\") 的 ParamU 应 = 0.56f（U 修正值 0.8×0.7，契约 §2.2/D4）",
-            0.56f, paramU, 1e-6f
-        )
+        assertEquals("U.mo(ParamMouthOpenY) 应 = 0.4（bai raw）", 0.4f, mo, 1e-6f)
+        assertEquals("U.mf(ParamMouthForm) 应 = 0.1（bai raw）", 0.1f, mf, 1e-6f)
+        // bai 无五元音公式：U 直映射到 MouthOpenY/MouthForm（不得再按 mf×0.7=ParamU=0.56 折算）
+        assertEquals("U 的 OpenY/Form 各 ∈ [0,1]（可直接驱动 cdi3 参数）", 0.4f, mo.coerceIn(0f, 1f), 1e-6f)
+        assertEquals(0.1f, mf.coerceIn(0f, 1f), 1e-6f)
     }
 
     // ── MaoProMappingTest ──

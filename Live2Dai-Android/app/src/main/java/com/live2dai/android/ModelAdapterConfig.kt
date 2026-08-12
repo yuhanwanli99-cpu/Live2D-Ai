@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
  * 模型适配配置（contract-v3-adapter §1.3，T1.2）。
  *
  * 读 `shared/model-adapter/{modelId}.adapter.json`（Gradle copyModelAdapter 任务同步到
- * `src/main/assets/`，见 app/build.gradle.kts §1.4；bai 与 niziiro_mao 双 adapter 均已复制）。
+ * `src/main/assets/`，见 app/build.gradle.kts §1.4；bai 为唯一模型（D2 白唯一化）。
  * 解析失败 → 返回 null（调用方回退现有硬编码常量，行为不变——降级链第一级）。
  *
  * 加载语义（contract-v3-adapter §3.1 + G3 按模型切换）：
@@ -24,9 +24,9 @@ import kotlinx.serialization.json.Json
  */
 object ModelAdapterConfig {
 
-    /** assets 中的适配配置文件名（Gradle copyModelAdapter 任务同步；默认模型 niziiro_mao 的历史常量，
+    /** assets 中的适配配置文件名（Gradle copyModelAdapter 任务同步；默认模型 bai 的适配常量，
      *  实际加载路径由 [load] 按 modelId 解析为 `{modelId}.adapter.json`）。 */
-    const val ASSET_NAME = "niziiro_mao.adapter.json"
+    const val ASSET_NAME = "bai.adapter.json"
 
     private const val TAG = "ModelAdapterConfig"
 
@@ -137,7 +137,7 @@ object ModelAdapterConfig {
      *
      * 无 motion 模型豁免（contract-android-v0 §0 路径①，bai 兼容点）：
      * 模型无任何 motion（motionAliases={} 且 idlePool=[]，如 bai）→ 豁免
-     * motionAliases/idlePool 非空校验；有 motion 的模型（niziiro_mao）仍强制非空。
+     * motionAliases/idlePool 非空校验；有 motion 的模型仍强制非空。
      * emotionIndex 不受豁免，始终强制非空。
      */
     private fun isSchemaValid(file: AdapterFileDto, vowelRaw: Map<String, Pair<Float, Float>>): Boolean {
@@ -152,7 +152,7 @@ object ModelAdapterConfig {
         if (file.emotionIndex.isEmpty()) return false
         // A3 D6（contract-bai-params-v0 §0，"出现即完整"）：emotionParamMap 字段可选；
         // 存在（非 null）则强制 8 键 × 每键 _1/_2/_3 完整且每帧非空，否则解析失败（fail-fast）。
-        // 缺失（null，如 niziiro_mao）→ 不校验（A3U-09 零回归门）。
+        // 缺失（null）→ 不校验（A3U-09 零回归门）。
         val epm = file.emotionParamMap
         if (epm != null) {
             val standardEmotions = setOf("neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise")

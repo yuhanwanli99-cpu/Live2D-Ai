@@ -6,6 +6,8 @@ import com.live2dai.pluginsdk.ChatTurn
 import com.live2dai.pluginsdk.ToolDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -90,6 +92,21 @@ class ChatService(
     // Conversation history
     private val messages = mutableListOf<ChatMessage>()
 
+    // 可写后端（私有）：请求生命周期驱动；对外仅暴露只读 StateFlow（最小暴露）
+    private val _connectionState: MutableStateFlow<ConnectionState> = MutableStateFlow(ConnectionState.Disconnected)
+
+    /**
+     * 连接状态可观察对象（R1-ui M4b，对齐 PC chat-header 状态指示）。
+     *
+     * Android 直连 LLM API（无持久 WS 连接），以请求生命周期驱动：
+     * - 请求在途 → [ConnectionState.Connecting]
+     * - 请求成功完成（服务端可达，HTTP 响应已返回）→ [ConnectionState.Connected]
+     * - 网络失败（连接建立/读取异常抛出的 IOException 等）→ [ConnectionState.Disconnected]
+     *
+     * 契约：contract-R1-ui.md §2.2（最小暴露；行为契约锁定，机制 coder 定）。
+     */
+    val connectionState: StateFlow<ConnectionState> = _connectionState
+
     companion object {
         // 对话历史最大消息对数（防止 token 超限）
         // 每对 (user + assistant) 约占用 200-500 tokens
@@ -165,6 +182,11 @@ class ChatService(
     fun sendMessage(userText: String): Flow<String> = flow {
         if (userText.isBlank()) return@flow
 
+        // ── Step 0: 连接状态 — 请求在途 → 连接中 ──
+        _connectionState.value = ConnectionState.Connecting
+
+        try {
+
         // ── Step 1: beforeSend hooks：按注册顺序串行执行，非空返回值依次追加为附加上下文 ──
         // 单个 hook 抛异常不应打断整条对话链路，因此逐个 try/catch，跳过失败的 hook。
         val extraContext = StringBuilder()
@@ -199,6 +221,14 @@ class ChatService(
         } else {
             // 慢路径：工具调用循环
             runToolLoop(requestedTools, chatContext) { emit(it) }
+        }
+
+        // ── 连接状态：请求成功完成（服务端可达）→ 已连接 ──
+        _connectionState.value = ConnectionState.Connected
+        } catch (e: Exception) {
+            // ── 连接状态：网络失败（连接建立/读取异常）→ 未连接 ──
+            _connectionState.value = ConnectionState.Disconnected
+            throw e
         }
     }.flowOn(Dispatchers.IO)
 

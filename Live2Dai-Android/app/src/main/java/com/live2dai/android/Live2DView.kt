@@ -3,9 +3,13 @@ package com.live2dai.android
 import android.content.Context
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import com.live2dai.android.data.GestureCommand
+import com.live2dai.android.data.GestureEvent
+import com.live2dai.android.data.GestureStateMachine
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
@@ -28,26 +32,33 @@ class Live2DView(
     /** 当前生效的模型 ID（用于切换失败回退时恢复对应的 adapter 缓存）。 */
     private var currentModelId: String? = null
 
-    // ── C-M5 用户交互手势（contract-C-M5 §2.3：单指拖拽 + 双指捏合）──
-    // 设计：DOWN 不消费（视图为背景层，前景 Compose 元素优先命中）；
-    // 移动超平台 touch slop → 判定为拖拽并消费；双指出现 → 捏合模式消费；
-    // UP 未超阈值 = tap → 不消费（Compose 点击语义不破坏）。
+    // ── M2.2 手势状态机（contract-R1-interaction §2.2）──
+    // 设计（根因 A 修复，见 verify/gesture_diag.log）：DOWN 消费（return true）→ View 保持
+    // 触摸目标资格 → MOVE/POINTER_DOWN/UP 事件链不断裂（拖拽/捏合恢复可用）。
+    // 前景层防回归（M5-A9⑤⑥，Compose interop 机制保证）：
+    //   · 气泡按钮/输入框/齿轮：点击在 Compose 命中链中先于本 View 消费 → 点击不受影响
+    //     （唯一例外：气泡内 TextButton 的 DOWN 与 View 同命中路径——由 Tap 显式转发兜底）；
+    //   · 气泡滚动：Compose scrollable 消费 MOVE 后 interop 向本 View 补发 CANCEL → 状态机复位，
+    //     滚动优先于模型拖拽（与 C-M5 M5-A9⑥ 语义一致）。
+    // tap 语义：状态机输出 Tap 命令 → 本 View 不 queueEvent renderer 任何状态（GS-A6），
+    // 并显式转发合成 tap（contract §2.3 分支 A「显式转发」）交回 Compose 点击链处理。
     private val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
-    private var gestureDownX = 0f
-    private var gestureDownY = 0f
-    private var lastDragX = 0f
-    private var lastDragY = 0f
-    private var dragging = false
-    private var pinching = false
-    private var gestureAdjusted = false
-    private var pinchStartDistance = 0f
+    private val gestureMachine: GestureStateMachine =
+        GestureStateMachine(touchSlop.toFloat())
+
+    /** 合成 tap 显式转发中：该标志期间收到的 MotionEvent 直接返回 false（不消费、不进状态机）。 */
+    private var syntheticTapForwarding = false
+
+    /** 诊断日志：本手势是否出现过捏合（UP 日志 pinchActive 字段）。 */
+    private var gesturePinchSeen = false
 
     init {
         setEGLContextClientVersion(2)
         // 4x multisampling for anti-aliased edges
         setEGLConfigChooser(MSAAConfigChooser())
 
-        // 不拦截触摸事件，让 Compose 底层 UI（输入框、按钮）可点击
+        // 不拦截触摸事件：本 View 仅作背景层，前景 Compose 元素（输入框、按钮）优先命中；
+        // 触摸消费策略见 onTouchEvent（M2.2：DOWN 消费保事件链，tap 显式转发交回 Compose）。
         isClickable = false
         isFocusable = false
     }
@@ -294,178 +305,168 @@ class Live2DView(
     // ============================================================
 
     /**
-     * 触摸事件：单指拖拽 + 双指捏合 → renderer 交互状态。
+     * 触摸事件：事件 → GestureStateMachine → 命令流 → renderer（经 queueEvent，GL 线程）。
      *
-     * - DOWN 不消费：视图为背景层，前景 Compose 元素（输入框/齿轮/气泡）优先命中（点击语义不破坏）
-     * - 单指移动超过平台 touch slop → 判定为拖拽并消费（参照 N.E.K.O. CLICK_THRESHOLD 10px 量级）
-     * - 双指出现 → 捏合模式消费；UP 未超阈值 = tap → 不消费
-     * - 手势结束（发生了有效调整）→ renderer.saveUserOverride() 持久化
+     * - **DOWN 消费（return true）**：根因 A 修复（verify/gesture_diag.log 裁决：DOWN 不消费 →
+     *   触摸目标丢失 → MOVE/POINTER_DOWN/UP 事件链断裂 → 拖拽+捏合全失效）。
+     *   本 View 只收到未被前景 Compose 命中的触摸（模型区），消费不破坏前景点击；
+     *   前景点击/滚动的保护由 Compose interop 机制保证（见字段区注释）。
+     * - 命令流 → renderer：BeginPinch→beginUserPinch / ApplyPinch→applyUserPinch /
+     *   ApplyDrag→applyUserDragPx / SaveOverride→saveUserOverride（renderer 公开接口，零改动）。
+     * - Tap：不 queueEvent renderer 任何状态（GS-A6），显式转发合成 tap 交回 Compose 点击链。
+     * - Reset（Cancel）：状态机内部已复位；renderer 无对应映射（resetUserOverride 属重置入口，语义不同）。
      *
      * 渲染状态全部经 queueEvent 在 GL 线程更新（避免主线程与 GL 线程数据竞争）。
      */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (renderer == null) return super.onTouchEvent(event)
+        // 合成 tap 显式转发期间：不消费、不进状态机（防死循环/防污染状态）
+        if (syntheticTapForwarding) return false
+
+        val commands: List<GestureCommand>
+        var consumed: Boolean
+        var logState = "idle"
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                gestureDownX = event.x
-                gestureDownY = event.y
-                lastDragX = event.x
-                lastDragY = event.y
-                dragging = false
-                pinching = false
-                gestureAdjusted = false
-                // 不消费 DOWN：tap 语义留给 Compose（前景层先命中）
-                logGesture(
-                    action = "DOWN",
-                    id = event.getPointerId(0),
-                    count = event.pointerCount,
-                    consumed = false,
-                    state = "idle"
-                )
-                return false
+                val id = event.getPointerId(0)
+                commands = gestureMachine.onEvent(GestureEvent.Down(id, event.x, event.y))
+                consumed = true // 根因 A：DOWN 消费保持事件链
+                gesturePinchSeen = false
+                logState = "idle"
+                logGesture(action = "DOWN", id = id, count = event.pointerCount, consumed = true, state = logState)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                // 双指出现 → 捏合模式，消费
-                pinching = true
-                dragging = false
-                pinchStartDistance = pointerDistance(event)
-                queueEvent { renderer?.beginUserPinch(pinchStartDistance) }
-                logGesture(
-                    action = "POINTER_DOWN",
-                    id = event.getPointerId(event.actionIndex),
-                    count = event.pointerCount,
-                    consumed = true,
-                    state = "pinching"
+                val idx = event.actionIndex
+                val id = event.getPointerId(idx)
+                commands = gestureMachine.onEvent(
+                    GestureEvent.PointerDown(id, event.getX(idx), event.getY(idx))
                 )
-                return true
+                consumed = true
+                logState = if (gestureMachine.isPinching) "pinching" else "idle"
+                logGesture(action = "POINTER_DOWN", id = id, count = event.pointerCount, consumed = true, state = logState)
             }
             MotionEvent.ACTION_MOVE -> {
-                if (pinching) {
-                    val dist = pointerDistance(event)
-                    if (dist > 0f) {
-                        gestureAdjusted = true
-                        queueEvent { renderer?.applyUserPinch(dist) }
-                    }
-                    logGesture(
-                        action = "MOVE",
-                        count = event.pointerCount,
-                        ids = pointerIds(event),
-                        consumed = true,
-                        state = "pinching"
-                    )
-                    return true
+                // 全量活动指针快照（pointerId 锚定；T2 §6 UNSURE-3：MOVE 入参为全量快照语义）
+                val pointers = (0 until event.pointerCount).associate { i ->
+                    event.getPointerId(i) to (event.getX(i) to event.getY(i))
                 }
-                if (event.pointerCount == 1) {
-                    val x = event.x
-                    val y = event.y
-                    if (!dragging) {
-                        val dx = x - gestureDownX
-                        val dy = y - gestureDownY
-                        if (dx * dx + dy * dy > touchSlop * touchSlop) {
-                            // 超过平台 touch slop → 判定为拖拽并消费
-                            dragging = true
-                            gestureAdjusted = true
-                        }
-                    }
-                    if (dragging) {
-                        val dxPx = x - lastDragX
-                        val dyPx = y - lastDragY
-                        lastDragX = x
-                        lastDragY = y
-                        if (dxPx != 0f || dyPx != 0f) {
-                            queueEvent { renderer?.applyUserDragPx(dxPx, dyPx) }
-                        }
-                        logGesture(
-                            action = "MOVE",
-                            count = event.pointerCount,
-                            ids = pointerIds(event),
-                            consumed = true,
-                            state = "dragging"
-                        )
-                        return true
-                    }
+                commands = gestureMachine.onEvent(GestureEvent.Move(pointers))
+                consumed = true
+                logState = when {
+                    gestureMachine.isPinching -> "pinching"
+                    gestureMachine.isDragging -> "dragging"
+                    else -> "idle"
                 }
                 logGesture(
                     action = "MOVE",
                     count = event.pointerCount,
                     ids = pointerIds(event),
-                    consumed = false,
-                    state = "idle"
+                    consumed = true,
+                    state = logState
                 )
-                return false
             }
             MotionEvent.ACTION_POINTER_UP -> {
-                // 双指结束（剩一指）：结束捏合并保存（简化：不继续单指拖拽）
-                val id = event.getPointerId(event.actionIndex)
-                if (pinching) {
-                    pinching = false
-                    dragging = false
-                    val adjusted = gestureAdjusted
-                    gestureAdjusted = false
-                    if (adjusted) {
-                        queueEvent { renderer?.saveUserOverride() }
-                    }
-                    logGesture(
-                        action = "POINTER_UP",
-                        id = id,
-                        count = event.pointerCount,
-                        consumed = true,
-                        state = "idle"
-                    )
-                    return true
-                }
-                logGesture(
-                    action = "POINTER_UP",
-                    id = id,
-                    count = event.pointerCount,
-                    consumed = false,
-                    state = "idle"
+                val idx = event.actionIndex
+                val id = event.getPointerId(idx)
+                commands = gestureMachine.onEvent(
+                    GestureEvent.Up(id, event.getX(idx), event.getY(idx))
                 )
-                return false
+                consumed = true
+                logState = when {
+                    gestureMachine.isPinching -> "pinching"
+                    gestureMachine.isDragging -> "dragging"
+                    else -> "idle"
+                }
+                logGesture(action = "POINTER_UP", id = id, count = event.pointerCount, consumed = true, state = logState)
             }
             MotionEvent.ACTION_UP -> {
-                val adjusted = gestureAdjusted
-                val pinchActiveBefore = pinching
-                gestureAdjusted = false
-                dragging = false
-                pinching = false
                 val id = event.getPointerId(0)
-                if (adjusted) {
-                    // 有效调整结束 → 持久化 override
-                    queueEvent { renderer?.saveUserOverride() }
-                    performClick()
-                    logGesture(
-                        action = "UP",
-                        id = id,
-                        count = event.pointerCount,
-                        pinchActive = pinchActiveBefore,
-                        state = "idle"
-                    )
-                    return true
-                }
-                // 未超阈值 = tap → 不消费（Compose 点击语义不破坏）
-                performClick()
+                commands = gestureMachine.onEvent(GestureEvent.Up(id, event.x, event.y))
+                // tap 不消费（GS-A6 / contract §2.3）；非 tap 的手势结束消费
+                consumed = commands.none { it is GestureCommand.Tap }
+                logState = if (commands.any { it is GestureCommand.Tap }) "tap" else "idle"
                 logGesture(
                     action = "UP",
                     id = id,
                     count = event.pointerCount,
-                    pinchActive = pinchActiveBefore,
-                    state = "tap"
+                    pinchActive = gesturePinchSeen,
+                    consumed = consumed,
+                    state = logState
                 )
-                return false
             }
             MotionEvent.ACTION_CANCEL -> {
-                gestureAdjusted = false
-                dragging = false
-                pinching = false
-                logGesture(
-                    action = "CANCEL",
-                    count = event.pointerCount,
-                    state = "idle"
-                )
-                return false
+                commands = gestureMachine.onEvent(GestureEvent.Cancel)
+                consumed = true
+                gesturePinchSeen = false
+                logState = "idle"
+                logGesture(action = "CANCEL", count = event.pointerCount, state = logState)
             }
             else -> return false
+        }
+
+        // 命令流 → renderer（GL 线程）
+        for (cmd in commands) {
+            when (cmd) {
+                is GestureCommand.BeginPinch -> {
+                    gesturePinchSeen = true
+                    queueEvent { renderer?.beginUserPinch(cmd.startDistancePx) }
+                }
+                is GestureCommand.ApplyPinch -> {
+                    gesturePinchSeen = true
+                    queueEvent { renderer?.applyUserPinch(cmd.distancePx) }
+                }
+                is GestureCommand.ApplyDrag -> {
+                    queueEvent { renderer?.applyUserDragPx(cmd.dxPx, cmd.dyPx) }
+                }
+                is GestureCommand.SaveOverride -> {
+                    queueEvent { renderer?.saveUserOverride() }
+                }
+                is GestureCommand.Tap -> {
+                    // 阈值内 UP、未调整：不消费、不落 renderer 状态；显式转发交回 Compose 点击链
+                    // （contract §2.3 分支 A「显式转发」；防 M5-A9⑤ 气泡按钮点击回归）
+                    performClick()
+                    forwardTapToCompose(event)
+                }
+                is GestureCommand.Reset -> Unit // 状态机内部已复位；renderer 无对应映射
+                is GestureCommand.Noop -> Unit
+            }
+        }
+        return consumed
+    }
+
+    /**
+     * 显式转发合成 tap（contract §2.3 分支 A「阈值内 UP 补发合成 tap 语义」）。
+     *
+     * 根因 A 修复后 DOWN 被消费，与 View 同命中路径的 Compose clickable（气泡内 TextButton）
+     * 会因 DOWN 已被 interop 消费而跳过点击检测（detectTapAndPress 的 awaitFirstDown 要求未消费的
+     * down）。这里把 Tap 作为新的 DOWN+UP 手势 post 到主线程后经根视图重新派发，使 Compose 点击链
+     * 重新命中该位置元素（点击恰好一次；模型区无点击元素 → 无副作用）。
+     */
+    private fun forwardTapToCompose(source: MotionEvent) {
+        // 捕获坐标与视图屏幕位置（MotionEvent 在派发后会被系统回收，不得在 post 后读取）
+        val tapX = source.x
+        val tapY = source.y
+        val viewLoc = IntArray(2)
+        getLocationOnScreen(viewLoc)
+        post {
+            val root = rootView ?: return@post
+            val rootLoc = IntArray(2)
+            root.getLocationOnScreen(rootLoc)
+            // view 局部坐标 → 根视图局部坐标（dispatchTouchEvent 坐标系）
+            val rx = tapX + (viewLoc[0] - rootLoc[0])
+            val ry = tapY + (viewLoc[1] - rootLoc[1])
+            syntheticTapForwarding = true
+            try {
+                val now = SystemClock.uptimeMillis()
+                val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, rx, ry, 0)
+                val up = MotionEvent.obtain(now, now + 16L, MotionEvent.ACTION_UP, rx, ry, 0)
+                root.dispatchTouchEvent(down)
+                root.dispatchTouchEvent(up)
+                down.recycle()
+                up.recycle()
+            } finally {
+                syntheticTapForwarding = false
+            }
         }
     }
 
@@ -496,14 +497,6 @@ class Live2DView(
     /** 当前事件所有活动 pointer id 列表（判据②：MOVE count=2 ids=[0,1]）。 */
     private fun pointerIds(event: MotionEvent): String =
         (0 until event.pointerCount).joinToString(",") { event.getPointerId(it).toString() }
-
-    /** 双指间距（px；pointerCount < 2 → 0）。 */
-    private fun pointerDistance(event: MotionEvent): Float {
-        if (event.pointerCount < 2) return 0f
-        val dx = event.getX(0) - event.getX(1)
-        val dy = event.getY(0) - event.getY(1)
-        return kotlin.math.sqrt(dx * dx + dy * dy)
-    }
 
     /**
      * C-M5 重置入口：清除当前模型的用户 override → 回 C-M1 fit 构图（contract-C-M5 §2.3 时机 4）。

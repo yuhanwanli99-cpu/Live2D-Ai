@@ -36,7 +36,7 @@ class ProactivePluginTest {
         override fun registerTool(tool: ToolDefinition) { tools += tool }
         override fun sendAssistantMessage(text: String, emotion: String?) {}
         override fun getPersona(): PersonaSnapshot =
-            PersonaSnapshot(name = "凛", systemPrompt = "prompt", model = "model")
+            PersonaSnapshot(name = "白", systemPrompt = "prompt", model = "model")
     }
 
     private class FakeGreetingClient : GreetingLlmClient {
@@ -112,7 +112,7 @@ class ProactivePluginTest {
         val plugin = ProactivePlugin(config())
         plugin.onLoad(host)
 
-        host.hooks.single().afterReceive("喵~", null, ChatContext(recentMessages = emptyList(), personaName = "凛"))
+        host.hooks.single().afterReceive("喵~", null, ChatContext(recentMessages = emptyList(), personaName = "白"))
 
         // hook 内部用的是同一份 SharedPreferences，新开 tracker 读到的是同一份数据
         assertTrue("afterReceive 应刷新最后交互时间", LastInteractionTracker(context).lastInteractionAt() > 0L)
@@ -124,7 +124,7 @@ class ProactivePluginTest {
         val plugin = ProactivePlugin(config())
         plugin.onLoad(host)
 
-        host.hooks.single().beforeSend("你好", ChatContext(recentMessages = emptyList(), personaName = "凛"))
+        host.hooks.single().beforeSend("你好", ChatContext(recentMessages = emptyList(), personaName = "白"))
 
         assertTrue(
             "beforeSend 应刷新最后交互时间（用户发起消息即活跃，任务要求）",

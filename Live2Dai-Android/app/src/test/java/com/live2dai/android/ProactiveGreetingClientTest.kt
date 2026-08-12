@@ -55,7 +55,7 @@ class ProactiveGreetingClientTest {
         )
 
         val result = ProactiveGreetingClient(provider())
-            .generateGreeting("凛", "你是凛，一位18岁的天才少女。", 45L, memories)
+            .generateGreeting("白", "你是白，一位18岁的天才少女。", 45L, memories)
 
         assertEquals("好久没聊了，豆豆最近怎么样呀？", result)
         val body = server.takeRequest().body.readUtf8()
@@ -73,7 +73,7 @@ class ProactiveGreetingClientTest {
         )
 
         val result = ProactiveGreetingClient(provider())
-            .generateGreeting("凛", "prompt", 10L, null)
+            .generateGreeting("白", "prompt", 10L, null)
 
         assertEquals("该喝水啦~", result)
     }
@@ -85,7 +85,7 @@ class ProactiveGreetingClientTest {
         server.enqueue(MockResponse().setResponseCode(500).setBody("internal error"))
 
         val result = ProactiveGreetingClient(provider())
-            .generateGreeting("凛", "prompt", 10L, memories)
+            .generateGreeting("白", "prompt", 10L, memories)
 
         assertNull("HTTP 错误应静默返回 null（插件回退静态文案池）", result)
     }
@@ -98,7 +98,7 @@ class ProactiveGreetingClientTest {
         )
 
         val result = ProactiveGreetingClient(provider())
-            .generateGreeting("凛", "prompt", 10L, memories)
+            .generateGreeting("白", "prompt", 10L, memories)
 
         assertNull("空内容应静默返回 null", result)
     }
@@ -108,7 +108,7 @@ class ProactiveGreetingClientTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("not-json-at-all"))
 
         val result = ProactiveGreetingClient(provider())
-            .generateGreeting("凛", "prompt", 10L, memories)
+            .generateGreeting("白", "prompt", 10L, memories)
 
         assertNull("响应解析失败应静默返回 null", result)
     }
@@ -121,7 +121,7 @@ class ProactiveGreetingClientTest {
         )
 
         val result = ProactiveGreetingClient(provider())
-            .generateGreeting("凛", "prompt", 5L, null)
+            .generateGreeting("白", "prompt", 5L, null)
 
         assertEquals("无记忆时仍应能按人设+时间生成", "今天也要元气满满哦", result)
         val body = server.takeRequest().body.readUtf8()
@@ -136,7 +136,7 @@ class ProactiveGreetingClientTest {
         )
         val keyed = provider().copy(apiKey = "secret-key")
 
-        ProactiveGreetingClient(keyed).generateGreeting("凛", "prompt", 10L, memories)
+        ProactiveGreetingClient(keyed).generateGreeting("白", "prompt", 10L, memories)
 
         val auth = server.takeRequest().getHeader("Authorization")
         assertEquals("Bearer secret-key", auth)

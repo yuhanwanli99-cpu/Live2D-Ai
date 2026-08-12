@@ -5,7 +5,7 @@
   - architecture-shared.md（persona.yaml 结构 / emotion-protocol H+I / registry / bai.adapter）
 
 目标态路径（shared/ 单源真理）:
-  - shared/persona.yaml                 → 「凛 (Lin)」（已达成 → PASS）
+  - shared/persona.yaml                 → 「白 (Bai)」（R1-persona 定稿；现状为「凛 (Lin)」→ RED）
   - shared/emotion-protocol.md          → 新增 ## H（emotionParamMap）与 ## I（mood）段（现状无 → RED）
   - shared/model_registry.json          → 新增 bai default=true，niziiro_mao default=false（现状无 bai → RED）
   - shared/model-adapter/bai.adapter.json（现状不存在 → RED）
@@ -43,10 +43,10 @@ FADE_SCENES = {"emotionSwitch", "emotionToNeutral", "microExpression", "lipSync"
 
 
 # ═══════════════════════════════════════════════════════════════
-# S1 · persona.yaml「凛」
+# S1 · persona.yaml「白」
 # ═══════════════════════════════════════════════════════════════
 
-class TestPersonaRin:
+class TestPersonaBai:
     _PATH = _SHARED_ROOT / "persona.yaml"
 
     def _load(self) -> dict:
@@ -56,19 +56,21 @@ class TestPersonaRin:
             return yaml.safe_load(f)
 
     @pytest.mark.skipif(not YAML_AVAILABLE, reason="PyYAML 不可用")
-    def test_s101_name_is_rin(self):
-        # S1-01 · name 字段精确匹配 "凛 (Lin)"
+    def test_s101_name_is_bai(self):
+        # S1-01（R1-persona）· name 字段精确匹配 "白 (Bai)"
         data = self._load()
-        assert data.get("name") == "凛 (Lin)", f"name={data.get('name')!r}，期望 '凛 (Lin)'"
+        assert data.get("name") == "白 (Bai)", f"name={data.get('name')!r}，期望 '白 (Bai)'"
 
     @pytest.mark.skipif(not YAML_AVAILABLE, reason="PyYAML 不可用")
     def test_s102_system_prompt_keywords(self):
-        # S1-02 · system_prompt 含 "天才少女"、"傲娇"、"18岁"
+        # S1-02（R1-persona）· system_prompt 含定稿三关键词 "温柔"、"可爱"、"萌"（无 凛/傲娇/天才少女）
         data = self._load()
         prompt = data.get("system_prompt", "")
-        assert "天才少女" in prompt, "system_prompt 缺关键词 '天才少女'"
-        assert "傲娇" in prompt, "system_prompt 缺关键词 '傲娇'"
-        assert ("18岁" in prompt) or ("18 岁" in prompt), "system_prompt 缺 '18岁'"
+        assert "温柔" in prompt, "system_prompt 缺关键词 '温柔'"
+        assert "可爱" in prompt, "system_prompt 缺关键词 '可爱'"
+        assert "萌" in prompt, "system_prompt 缺关键词 '萌'"
+        assert "凛" not in prompt and "Lin" not in prompt, "system_prompt 不得残留 凛/Lin"
+
 
     @pytest.mark.skipif(not YAML_AVAILABLE, reason="PyYAML 不可用")
     def test_s103_system_prompt_contains_majority_emotion_keys(self):

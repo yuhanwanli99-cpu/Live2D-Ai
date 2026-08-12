@@ -57,7 +57,7 @@ class LlmSummaryClientTest {
                 .setBody("""{"choices":[{"message":{"content":"用户喜欢喝美式咖啡"}}]}""")
         )
 
-        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "凛")
+        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "白")
 
         assertEquals("用户喜欢喝美式咖啡", result)
         val body = server.takeRequest().body.readUtf8()
@@ -72,7 +72,7 @@ class LlmSummaryClientTest {
                 .setBody("""{"choices":[{"message":{"content":"  用户喜欢喝咖啡  "}}]}""")
         )
 
-        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "凛")
+        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "白")
 
         assertEquals("用户喜欢喝咖啡", result)
     }
@@ -81,7 +81,7 @@ class LlmSummaryClientTest {
 
     @Test
     fun summarize_emptyTurns_returnsNullWithoutHttpCall() = runBlocking {
-        val result = LlmSummaryClient(provider()).summarize(emptyList(), "凛")
+        val result = LlmSummaryClient(provider()).summarize(emptyList(), "白")
 
         assertNull("无近期对话不应发起请求", result)
         assertEquals(0, server.requestCount)
@@ -91,7 +91,7 @@ class LlmSummaryClientTest {
     fun summarize_httpError_returnsNull() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(500).setBody("internal error"))
 
-        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "凛")
+        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "白")
 
         assertNull("HTTP 错误应静默返回 null", result)
     }
@@ -103,7 +103,7 @@ class LlmSummaryClientTest {
                 .setBody("""{"choices":[{"message":{"content":"  "}}]}""")
         )
 
-        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "凛")
+        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "白")
 
         assertNull("空内容表示本轮无值得记忆的事实，应返回 null", result)
     }
@@ -112,7 +112,7 @@ class LlmSummaryClientTest {
     fun summarize_malformedJson_returnsNull() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody("not-json-at-all"))
 
-        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "凛")
+        val result = LlmSummaryClient(provider()).summarize(sampleTurns(), "白")
 
         assertNull("响应解析失败应静默返回 null", result)
     }
@@ -125,7 +125,7 @@ class LlmSummaryClientTest {
         )
         val keyed = provider().copy(apiKey = "secret-key")
 
-        LlmSummaryClient(keyed).summarize(sampleTurns(), "凛")
+        LlmSummaryClient(keyed).summarize(sampleTurns(), "白")
 
         val auth = server.takeRequest().getHeader("Authorization")
         assertEquals("Bearer secret-key", auth)

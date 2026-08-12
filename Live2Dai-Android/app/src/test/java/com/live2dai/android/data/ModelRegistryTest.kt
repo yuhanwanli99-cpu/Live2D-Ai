@@ -13,28 +13,23 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * ModelRegistry 单元测试（契约 contract-android-v0.md §1，A1-A13 重写）。
+ * ModelRegistry 单元测试（契约 contract-android-v0.md §1，A1-A13 重写 + contract-R1-model D2 单模型化）。
  *
- * 依据 registry 定稿数据（S1 后）：注册表 **2 条**：
+ * 依据 registry 定稿数据（S1 + R1-model D2 彻底移除 niziiro_mao）：注册表 **1 条**：
  * - id=`bai`（default=**true**）、name=`白-免费版 (Bai Free)`、
  *   license=`本地使用（D1 裁定，不内置分发）`、model3JsonPath=`bai/runtime/bai.model3.json`
- * - id=`niziiro_mao`（default=**false**，可切换非默认）、license=`Free Material License`、
- *   model3JsonPath=`niziiro_mao/runtime/niziiro_mao.model3.json`
  *
- * 断言项（契约 §1）：
- * - A1 getAll().size == 2；A2 getById("bai") 非 null；A3 bai.available==true；A4 bai.default==true
+ * 断言项（契约 §1 + M3）：
+ * - A1 getAll().size == 1；A2 getById("bai") 非 null；A3 bai.available==true；A4 bai.default==true
  * - A5 bai.name == `白-免费版 (Bai Free)`；A6 bai.model3JsonPath == `bai/runtime/bai.model3.json`
  * - A7 bai.metadata.license 非空/非空白
- * - A8 niziiro_mao 存在、available==true、default==**false**（可切换非默认）
- * - A9 niziiro_mao.license == `Free Material License`
- * - A10 niziiro_mao.model3JsonPath == `niziiro_mao/runtime/niziiro_mao.model3.json`
- * - A11 零残留：ids 不含 mao_pro/shizuku/hiyori/haru
+ * - A11 零残留：ids 不含 mao_pro/niziiro_mao/shizuku/hiyori/haru
  * - A12 唯一 default：all.filter{it.default} size==1 && id==`bai`
- * - A13 bai 与 niziiro_mao 的 description 无 U+FFFD、UTF-8 往返一致
+ * - A13 bai 的 description 无 U+FFFD、UTF-8 往返一致
  *
  * 兜底（fallback）语义 = FALLBACK_ENTRY 当前值 **bai**（契约 M-AND §2.1 + D3 定案：
- * 兜底默认 = registry 默认 = SettingsRepository DEFAUTF_MODEL = bai，C32 直通）。
- * 仅异常路径（load 异常/空数组/损坏 JSON/全不可用）；G4 修复后期望 bai。
+ * 兜底默认 = registry 默认 = SettingsRepository DEFAULT_MODEL_ID = bai，C32 直通）。
+ * 仅异常路径（load 异常/空数组/损坏 JSON/全不可用/全 pc_only）；G4 已为 bai。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class, sdk = [34])
@@ -52,12 +47,12 @@ class ModelRegistryTest {
         val registry = ModelRegistry.load(context)
         val all = registry.getAll()
 
-        // A1：注册表 2 条（bai + niziiro_mao）
-        assertEquals("注册表应为 2 条（bai + niziiro_mao），实际 ${all.size}", 2, all.size)
+        // A1：注册表 1 条（仅 bai，D2 移除 niziiro_mao）
+        assertEquals("注册表应为 1 条（仅 bai，D2），实际 ${all.size}", 1, all.size)
 
         // A2+A3+A4：bai 存在、available、default
         val bai = registry.getById("bai")
-        assertNotNull("bai 应存在（default 条目）", bai)
+        assertNotNull("bai 应存在（唯一 default 条目）", bai)
         assertEquals("bai id", "bai", bai!!.id)
         assertTrue("bai 应 available", bai.available)
         assertTrue("bai 应 default（默认形象）", bai.default)
@@ -82,9 +77,9 @@ class ModelRegistryTest {
 
         // A11：零残留（全部注册表 id 不含已删除模型）
         val ids = all.map { it.id }
-        for (removedId in listOf("mao_pro", "shizuku", "hiyori", "haru")) {
+        for (removedId in listOf("niziiro_mao", "mao_pro", "shizuku", "hiyori", "haru")) {
             assertFalse(
-                "已删除 id $removedId 不应存在，实际残留 ${ids}",
+                "已删除 id $removedId 不应存在（D2 niziiro 彻底移除），实际残留 ${ids}",
                 ids.contains(removedId)
             )
         }
@@ -94,35 +89,11 @@ class ModelRegistryTest {
         assertEquals("注册表应只有一个 default 条目", 1, defaults.size)
         assertEquals("唯一 default 应为 bai", "bai", defaults[0].id)
         assertTrue("default 条目应 available", defaults[0].available)
-
-        // A8+A9+A10：niziiro_mao 可切换非默认
-        val mao = registry.getById("niziiro_mao")
-        assertNotNull("niziiro_mao 应存在（可切换非默认）", mao)
-        assertEquals("niziiro_mao", mao!!.id)
-        assertTrue("niziiro_mao 应 available", mao.available)
-        assertFalse("niziiro_mao 应 default=false（可切换非默认）", mao.default)
-        assertNotNull("niziiro_mao.license 应非空", mao.metadata?.license)
-        assertEquals(
-            "niziiro_mao.license 应为 Free Material License",
-            "Free Material License",
-            mao.metadata?.license
-        )
-        assertEquals(
-            "niziiro_mao/runtime/niziiro_mao.model3.json",
-            mao.model3JsonPath
-        )
-        assertTrue(
-            "niziiro_mao path 应以 niziiro_mao/ 开头（C7）",
-            mao.model3JsonPath.startsWith("niziiro_mao/")
-        )
-
-        // A13：niziiro_mao.description 无 U+FFFD、UTF-8 往返一致
-        assertNoMojibake("niziiro_mao.description", mao.description)
     }
 
     // ─────────────────────────────────────────────────────────────
     //  parse()：内联 JSON 构造（不依赖 assets）
-    //   合成 fixture（契约 §1 随动）：2 条 = bai(default:true) + niziiro_mao(default:false)
+    //   合成 fixture（契约 §1 随动，D2 单模型）：1 条 = bai(default:true)
     //   与真实 registry 对齐；pc_only 用于平台过滤/回退测试（非真实 registry）
     // ─────────────────────────────────────────────────────────────
 
@@ -138,15 +109,6 @@ class ModelRegistryTest {
               "available": true,
               "default": true,
               "metadata": { "license": "本地使用（D1 裁定，不内置分发）" }
-            },
-            {
-              "id": "niziiro_mao",
-              "name": "Niziiro Mao",
-              "description": "Niziiro Mao — 可切换非默认",
-              "model3JsonPath": "niziiro_mao/runtime/niziiro_mao.model3.json",
-              "available": true,
-              "default": false,
-              "metadata": { "license": "Free Material License" }
             }
           ]
         }
@@ -156,9 +118,9 @@ class ModelRegistryTest {
     fun parse_validJson_modelsListCorrect() {
         val registry = ModelRegistry.parse(validJson)
         val all = registry.getAll()
-        // 合成 fixture 2 条（bai + niziiro_mao），契约 §1 随动
-        assertEquals(2, all.size)
-        assertEquals(listOf("bai", "niziiro_mao"), all.map { it.id })
+        // 合成 fixture 1 条（仅 bai），契约 §1 随动
+        assertEquals(1, all.size)
+        assertEquals(listOf("bai"), all.map { it.id })
         // 字段映射正确
         val bai = registry.getById("bai")
         assertEquals("白-免费版 (Bai Free)", bai!!.name)
@@ -166,12 +128,9 @@ class ModelRegistryTest {
         assertTrue(bai.available)
         assertTrue(bai.default)
         assertNoMojibake("bai.description", bai.description)
-        val mao = registry.getById("niziiro_mao")
-        assertEquals("Niziiro Mao", mao!!.name)
-        assertFalse(mao.default) // 可切换非默认
-        assertNoMojibake("niziiro_mao.description", mao.description)
-        // 删除 id 不得在合成样例中出现（零残留）
+        // 删除 id 不得在合成样例中出现（零残留，D2）
         val ids = all.map { it.id }
+        assertFalse("niziiro_mao 不应存在", ids.contains("niziiro_mao"))
         assertFalse("mao_pro 不应存在", ids.contains("mao_pro"))
         assertFalse("shizuku 不应存在", ids.contains("shizuku"))
         assertFalse("hiyori 不应存在", ids.contains("hiyori"))
@@ -180,7 +139,7 @@ class ModelRegistryTest {
 
     @Test
     fun parse_corruptJson_returnsFallbackWithOnlyBai() {
-        // 兜底语义 = FALLBACK_ENTRY（G4 修复后 = bai）（contract-M-AND §2.1/D3 + D6）
+        // 兜底语义 = FALLBACK_ENTRY（已经 = bai）（contract-M-AND §2.1/D3 + D6）
         val registry = ModelRegistry.parse("{ this is not valid json !!!")
         val all = registry.getAll()
         assertEquals(
@@ -205,7 +164,7 @@ class ModelRegistryTest {
     fun parse_missingDefaultField_ignoresUnknownKeysAndToleratesNulls() {
         // 缺少可选字段（description/thumbnailPath/restrictPlatform/metadata）应能解析
         val registry = ModelRegistry.parse(validJson)
-        assertEquals(2, registry.getAll().size)
+        assertEquals(1, registry.getAll().size)
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -215,17 +174,16 @@ class ModelRegistryTest {
     @Test
     fun getById_hit_returnsEntry() {
         val registry = ModelRegistry.parse(validJson)
-        val entry = registry.getById("niziiro_mao")
+        val entry = registry.getById("bai")
         assertNotNull(entry)
-        assertEquals("niziiro_mao", entry!!.id)
-        // bai 亦命中
+        assertEquals("bai", entry!!.id)
         assertEquals("bai", registry.getById("bai")!!.id)
     }
 
     @Test
     fun getById_miss_returnsNull() {
         val registry = ModelRegistry.parse(validJson)
-        assertNull(registry.getById("mao_pro"))
+        assertNull(registry.getById("niziiro_mao"))
         assertNull(registry.getById("nonexistent"))
     }
 
@@ -235,13 +193,12 @@ class ModelRegistryTest {
 
     @Test
     fun getAvailable_filtersUnavailableAndPcRestricted() {
-        // 含不可用/pc 限定时，可用 = [bai, niziiro_mao]
+        // 含不可用/pc 限定时，可用 = [bai]
         val json = """
             {
               "version": "1.0",
               "models": [
                 { "id": "bai", "name": "白", "model3JsonPath": "bai/runtime/bai.model3.json", "available": true, "default": true },
-                { "id": "niziiro_mao", "name": "Mao", "model3JsonPath": "niziiro_mao/runtime/niziiro_mao.model3.json", "available": true, "default": false },
                 { "id": "pc_only", "name": "PC Only", "model3JsonPath": "pc_only/runtime/pc_only.model3.json", "available": true, "default": false, "restrictPlatform": "pc" },
                 { "id": "offline", "name": "Offline", "model3JsonPath": "offline/runtime/offline.model3.json", "available": false, "default": false }
               ]
@@ -249,18 +206,18 @@ class ModelRegistryTest {
         """.trimIndent()
         val available = ModelRegistry.parse(json).getAvailable()
         assertEquals(
-            "仅 available=true 且非 pc 限定 → [bai, niziiro_mao]",
-            listOf("bai", "niziiro_mao"),
+            "仅 available=true 且非 pc 限定 → [bai]",
+            listOf("bai"),
             available.map { it.id }
         )
     }
 
     @Test
-    fun getAvailable_realFixture_returnsBaiAndNiziiroMao() {
-        // 契约：getAvailable 期望 = [bai, niziiro_mao]（真实 registry 两者均 available）
+    fun getAvailable_realFixture_returnsBai() {
+        // 契约：getAvailable 期望 = [bai]（真实 registry 仅 bai 且 available）
         val available = ModelRegistry.parse(validJson).getAvailable()
         assertEquals(
-            listOf("bai", "niziiro_mao"),
+            listOf("bai"),
             available.map { it.id }
         )
     }
@@ -333,7 +290,7 @@ class ModelRegistryTest {
         // B2/B8 = C32 直通：fallback() 构造的实例 getDefault().id == registry default == "bai"
         //（契约 M-AND §2.1 约束：FALLBACK_ENTRY.id == "bai"；fallback() 实例 getDefault().id == "bai"）
         val fallback = ModelRegistry.fallback()
-        assertEquals("fallback() 实例 getDefault().id 应为 bai（FALLBACK_ENTRY），现状 niziiro_mao（G4）", "bai", fallback.getDefault().id)
+        assertEquals("fallback() 实例 getDefault().id 应为 bai（FALLBACK_ENTRY）", "bai", fallback.getDefault().id)
         assertEquals("bai/runtime/bai.model3.json", fallback.getDefault().model3JsonPath)
 
         // 与正常 registry default 一致（C32 三源统一 bai）
@@ -352,10 +309,7 @@ class ModelRegistryTest {
             "bai/runtime/bai.model3.json",
             registry.getModel3JsonPath("bai")
         )
-        assertEquals(
-            "niziiro_mao/runtime/niziiro_mao.model3.json",
-            registry.getModel3JsonPath("niziiro_mao")
-        )
+        assertNull(registry.getModel3JsonPath("niziiro_mao"))
         assertNull(registry.getModel3JsonPath("mao_pro"))
         assertNull(registry.getModel3JsonPath("nonexistent"))
     }
