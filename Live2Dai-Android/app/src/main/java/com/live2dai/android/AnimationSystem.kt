@@ -1,6 +1,7 @@
 package com.live2dai.android
 
 import android.util.Log
+import com.live2dai.android.data.BodyPoseFrames
 import com.live2dai.android.data.IdleMotionController
 import com.live2dai.android.data.IdleSample
 import org.json.JSONArray
@@ -1313,9 +1314,32 @@ class AnimationPipeline(
     }
 
     /**
+     * R16 半身姿态联动：当前/淡出中的表情是否含非零姿态帧键（情绪姿态激活判定）。
+     *
+     * 姿态帧键 = BodyPoseFrames.POSE_KEYS（ParamBodyAngleX/Y/Z + ParamAngleX/Y/Z）。
+     * 值非零判定：neutral 姿态帧全 0（无姿态基准）→ 不判激活，idle 正常；
+     * 非 neutral 七情绪帧均含非零键 → 判激活。表情面键（Brow/Eye/Mouth）不在此列。
+     * 淡出中的旧表情（previousExpression，如姿态→neutral 交叉淡变）也计入——
+     * 避免淡变期间 idle 写回与残存姿态打架。
+     */
+    private fun emotionalPoseActive(): Boolean {
+        fun hasPose(exp: ExpressionData?): Boolean =
+            exp?.parameters?.any { it.id in BodyPoseFrames.POSE_KEYS && it.value != 0f } == true
+        return hasPose(expressionManager.currentExpression) || hasPose(expressionManager.previousExpression)
+    }
+
+    /**
      * R13 程序化待机落点：把 IdleSample 应用到模型参数（眼神/头部/身体）。
      * 三通道与既有通道互不重叠：EyeBall（眼神）不碰眨眼 EyeLOpen/ROpen；Angle/BodyAngle 不碰呼吸 ParamBreath。
      * 全部按 native min/max 钳制（bai：角度 ±30、眼球 ±1）。
+     *
+     * R16 半身姿态让位（task-C7b 项 3）：情绪姿态帧激活（[emotionalPoseActive]）期间，
+     * idle 头部角度 + 身体晃动写入整体让位（不写 = 姿态帧绝对值保留，防每 ~50ms 打架）。
+     * 眼神通道保留（姿态帧无 EyeBall 键，零交集）。deviation 记录：任务字面“bodySway 幅度降 0
+     * （Angles 保留）”——落点实现为 bodySway 与头部 Angles 一并让位，理由：姿态帧含
+     * ParamAngleX/Y 且 Overwrite 绝对值（sadness AX=-12 等），保留 idle 头写会每 ~50ms 覆盖
+     * 情绪头位使 R16 轴语义不可见；IdleMotionController 类本身零改动（Angles 持续计算，测试不受影响），
+     * 让位仅发生在管线落点，与 R13 “motion 播放时 idle 让位”同语义。
      */
     private fun applyIdleMotion(sample: IdleSample) {
         val minValues = Live2DNative.getParameterMinValues(modelPtr(model))
@@ -1328,6 +1352,7 @@ class AnimationPipeline(
         }
         applyParam("ParamEyeBallX", sample.eyeBallX)
         applyParam("ParamEyeBallY", sample.eyeBallY)
+        if (emotionalPoseActive()) return
         applyParam("ParamAngleX", sample.headAngleX)
         applyParam("ParamAngleY", sample.headAngleY)
         // 身体晃动：归一化 bodySway（±0.15）→ 角度（×±30 钳制；低频，周期 > 头部）

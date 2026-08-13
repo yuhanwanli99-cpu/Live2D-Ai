@@ -1,6 +1,7 @@
 package com.live2dai.android
 
 import android.util.Log
+import com.live2dai.android.data.BodyPoseFrames
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -264,12 +265,24 @@ class EmotionController(
             logWarn("applyParamFrameEmotion: 参数路径无帧 emotion=$emotion 档位=$intensity，忽略")
             return
         }
+        // R16 半身姿态联动（task-C7b）：姿态帧（BodyAngle 3 + Angle 3 = 6 键）并入表情帧 → 12 键单帧、
+        // 一次 setParametricExpression。选 a（合并）而非 b（独立二次调用）的依据：
+        // ExpressionManager.setExpression 互斥替换（AnimationSystem.kt）——二次调用会把表情帧降为淡出对象，
+        // fade 结束后被丢弃（表情面丢失），故必须单帧合并。键集零交集（T7b BPP-05）→ map 合并无覆盖；
+        // 姿态键 ∈ bai moc3 白名单（model-facts-bai §三 实读），renderer 按 paramNameToIndex 过滤，
+        // 缺失键仅跳过（不抛）。neutral 过渡 → neutral._1 姿态帧（全 0，无姿态基准，idle 不判激活）。
+        val poseFrame = if (isNeutralTransition) {
+            BodyPoseFrames.frameOf("neutral", 1)
+        } else {
+            BodyPoseFrames.frameOf(emotion, intensity)
+        }
+        val merged = if (poseFrame != null) frame + poseFrame else frame
         val fadeMs = if (isNeutralTransition) emotionToNeutralFadeMs() else emotionSwitchFadeMs()
-        live2DView.setParametricExpression(frame, fadeMs)
+        live2DView.setParametricExpression(merged, fadeMs)
         // D2-A（contract AP-20/21）：非 neutral 表情激活期间暂停自动眨眼（false）；回 neutral 恢复（true）。
         // 布尔赋值幂等（AP-24 允许重复赋值无副作用）。注意语义：enabled=true = 眨眼开启，故回 neutral → true。
         live2DView.setAutoBlink(isNeutralTransition)
-        logInfo("applyParamFrameEmotion: emotion=$emotion 帧=${frame.size}键 fade=${fadeMs}ms autoBlink=$isNeutralTransition")
+        logInfo("applyParamFrameEmotion: emotion=$emotion 帧=${merged.size}键（表情${frame.size}+姿态${poseFrame?.size ?: 0}）fade=${fadeMs}ms autoBlink=$isNeutralTransition")
     }
 
     /**
