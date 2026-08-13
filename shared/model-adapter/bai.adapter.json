@@ -72,7 +72,7 @@
     }
   },
   "fadeMs": {
-    "emotionSwitch": 300,
+    "emotionSwitch": 600,
     "emotionToNeutral": 500,
     "microExpression": 200,
     "lipSync": 50

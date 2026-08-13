@@ -20,6 +20,9 @@ private const val CURVE_LINEAR = 0
 private const val CURVE_BEZIER = 1
 private const val CURVE_STEPPED = 2
 
+/** C7d：LipSync 口型让位目标参数——表情层与 LipSync 双写者冲突根因（TTS 播放期间表情层不写此参数，口型归 LipSync 独占） */
+private const val MOUTH_OPEN_Y_ID = "ParamMouthOpenY"
+
 // ============================================================
 //  Motion 数据定义
 // ============================================================
@@ -1010,6 +1013,14 @@ class AnimationPipeline(
         /** 表情淡入时间（秒） */
         var expressionFadeTime: Float = 0.5f
 
+        /**
+         * C7d LipSync 口型让位：非 null 且返回 true 时，本管理器跳过 ParamMouthOpenY 写入
+         * （当前/淡出表情与参数覆盖全部让位——口型归 LipSync 独占，防双写者交替写同一参数致嘴部抽搐）。
+         * 由 Live2DRenderer 在管线创建时注入（读取 VoiceIoController 组合 isSpeaking 流）。
+         */
+        @Volatile
+        var lipSyncMouthOpenYYield: (() -> Boolean)? = null
+
         /** 表情淡入计时器 */
         private var expressionTimer: Float = 0f
 
@@ -1160,6 +1171,8 @@ class AnimationPipeline(
             for (ep in expression.parameters) {
                 val idx = paramNameToIndex[ep.id] ?: continue
                 if (idx >= paramValues.size) continue
+                // C7d：LipSync 播放期间 MouthOpenY 让位（口型归 LipSync 独占，防双写者交替写致嘴部抽搐）
+                if (ep.id == MOUTH_OPEN_Y_ID && lipSyncMouthOpenYYield?.invoke() == true) continue
 
                 val current = paramValues[idx]
                 val defaultValue = defaults.getOrElse(idx) { 0f }
@@ -1197,6 +1210,8 @@ class AnimationPipeline(
             for ((paramId, multiplier) in overrides) {
                 val idx = paramNameToIndex[paramId] ?: continue
                 if (idx >= paramValues.size) continue
+                // C7d：LipSync 播放期间 MouthOpenY 让位（参数覆盖同样不写口型）
+                if (paramId == MOUTH_OPEN_Y_ID && lipSyncMouthOpenYYield?.invoke() == true) continue
 
                 val current = paramValues[idx]
                 // 乘数语义：随淡入进度逐步生效（expressionWeight=0 → 乘数 1.0 → 不变）

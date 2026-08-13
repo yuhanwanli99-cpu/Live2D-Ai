@@ -29,6 +29,9 @@ import kotlin.math.abs
 /** M7 idle 轮换间隔（毫秒；contract-M7-android-l3.md §5.2-3，锁默认 12s） */
 private const val IDLE_SWITCH_INTERVAL_MS = 12_000L
 
+/** C7d：LipSync 口型让位目标参数（表情帧/表情管线在 TTS 播放期间跳过此参数，口型归 LipSync 独占） */
+private const val MOUTH_OPEN_Y_ID = "ParamMouthOpenY"
+
 /**
  * Live2D 渲染器 — 按 CubismRendererAndroid 的 doDrawModel() 算法实现。
  *
@@ -900,6 +903,23 @@ class Live2DRenderer(
     }
 
     /**
+     * C7d：TTS 播放状态（LipSync 口型让位判定源）。
+     * 经 [setLipSyncSpeakingProvider] 注入 VoiceIoController 组合 isSpeaking 流（任一 TtsProvider 在播 = true）；
+     * 未注入 → false（不剔除 MouthOpenY，行为与 R16 前一致）。
+     */
+    @Volatile
+    private var lipSyncSpeaking: () -> Boolean = { false }
+
+    /**
+     * 注入/更新 TTS 播放状态源（C7d 口型让位）。
+     * 由 Live2DView 转发 VoiceIoController.attachLive2DView 接线（组合 isSpeaking）；
+     * null → 复位 false（不剔除 MouthOpenY）。
+     */
+    fun setLipSyncSpeakingProvider(provider: (() -> Boolean)?) {
+        lipSyncSpeaking = provider ?: { false }
+    }
+
+    /**
      * 参数驱动表情注入（A3 P1，contract-bai-params-v0 AP-11~17）：
      * 以目标绝对值帧（blend=Overwrite）注入 ExpressionManager，复用淡入淡出管线。
      *
@@ -910,6 +930,8 @@ class Live2DRenderer(
      * - fade：expressionFadeTime = fadeMs/1000f（fadeMs 先 coerceIn(20,1000)，协议 H 段值域）
      * - 落点：expressionManager.setExpression(expData, 1.0f)（D5-2：帧值已编码强度，intensity 只作 fade 权重上限）
      * - 全部 key 被过滤（空帧）→ 不调 setExpression（静默 no-op，AP-16）
+     * - C7d 口型让位：TTS 播放期间（isSpeaking=true）表情帧 MouthOpenY 键剔除（不参与 fade；
+     *   LipSync 继续独占口型；TTS 结束 → 下次表情帧应用时 MouthOpenY 恢复）。
      */
     fun setParametricExpression(parameters: Map<String, Float>, fadeMs: Int) {
         if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return
@@ -917,16 +939,30 @@ class Live2DRenderer(
             val pipeline = animationPipeline ?: return
             val fade = fadeMs.coerceIn(20, 1000)
 
+            // C7d 口型让位：TTS 播放期间表情帧 MouthOpenY 剔除（不参与 fade；LipSync 独占口型）
+            val speaking = lipSyncSpeaking()
+
             // 过滤：只保留 moc3 内嵌参数 Id（paramNameToIndex 来源 = native getParameterIds）
             val params = mutableListOf<ExpressionParameter>()
             var skipped = 0
+            var mouthOpenYFiltered = 0
             for ((key, value) in parameters) {
+                if (speaking && key == MOUTH_OPEN_Y_ID) {
+                    mouthOpenYFiltered++
+                    continue
+                }
                 if (paramNameToIndex.containsKey(key)) {
                     params.add(ExpressionParameter(id = key, value = value, blend = "Overwrite"))
                 } else {
                     skipped++
                     android.util.Log.w("Live2DRenderer", "setParametricExpression: param not found: $key（跳过）")
                 }
+            }
+            if (mouthOpenYFiltered > 0) {
+                android.util.Log.i(
+                    "Live2DRenderer",
+                    "setParametricExpression: LipSync 播放中剔除 MouthOpenY ×$mouthOpenYFiltered（口型让位，LipSync 独占）"
+                )
             }
             android.util.Log.i(
                 "Live2DRenderer",
@@ -1864,6 +1900,11 @@ class Live2DRenderer(
 
             // 创建 AnimationPipeline（传入 meta 替代硬编码参数 ID）
             animationPipeline = AnimationPipeline(model, paramNameToIndex, meta, partNameToIndex)
+
+            // C7d：LipSync 口型让位接线——表情层在 TTS 播放期间跳过 MouthOpenY（口型归 LipSync 独占，
+            // 防双写者交替写同一参数致嘴部抽搐）。lambda 读本 renderer 的注入源（@Volatile），
+            // 随 setLipSyncSpeakingProvider 更新实时生效（表情帧先于 speak 应用的主路径也覆盖）。
+            animationPipeline?.expressionManager?.lipSyncMouthOpenYYield = { lipSyncSpeaking() }
 
             // 用 meta 初始化 BreathManager（如果可用）
             if (meta != null && meta.semantic.breathParams.isNotEmpty()) {

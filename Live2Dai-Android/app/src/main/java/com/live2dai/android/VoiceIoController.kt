@@ -324,6 +324,9 @@ class VoiceIoController(
      */
     fun attachLive2DView(view: Live2DView?) {
         live2DView = view
+        // C7d：LipSync 口型让位接线——组合播放状态注入渲染层（TTS 播放期间表情帧 MouthOpenY 让位给
+        // LipSync 独占，防双写者交替写同一参数致嘴部抽搐）。view 为 null（解绑）→ 不注入，渲染层保持不剔除。
+        view?.setLipSyncSpeakingProvider { isSpeaking.value }
         logD("attachLive2DView() ${if (view != null) "已接线" else "已解绑"}")
     }
 

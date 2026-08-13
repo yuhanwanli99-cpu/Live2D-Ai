@@ -348,6 +348,14 @@ class Live2DView(
     }
 
     /**
+     * C7d：注入 TTS 播放状态源（LipSync 口型让位判定）。同签名转发 renderer；renderer 未接线 → 静默。
+     * VoiceIoController.attachLive2DView 接线时注入（组合 isSpeaking 流：任一 TtsProvider 在播 = true）。
+     */
+    fun setLipSyncSpeakingProvider(provider: (() -> Boolean)?) {
+        renderer?.setLipSyncSpeakingProvider(provider)
+    }
+
+    /**
      * 按参数 ID 设置 Live2D 参数值（M5 VisemeAnalyzer 集成点）。
      * 模型无此参数 → 静默跳过；value 自动 coerceIn [0,1]。
      */
