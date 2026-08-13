@@ -25,9 +25,22 @@ import java.util.Collections
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
+import kotlin.math.ceil
 
 /** M7 idle 轮换间隔（毫秒；contract-M7-android-l3.md §5.2-3，锁默认 12s） */
 private const val IDLE_SWITCH_INTERVAL_MS = 12_000L
+
+/** C8h：超采样开关（可配置；帧率影响大时可置 false → 直渲，零行为变化） */
+private const val SUPERSAMPLE_ENABLED = true
+
+/**
+ * C8h：超采样倍率（= 2K/1080p）：FBO 尺寸 = ceil(surface × SCALE)。
+ * iQOO 11 Pro surface 1080×2400 × 4/3 = 1440×3200（物理 2K 同分辨率，填充 ≈1.78×）。
+ * 用倍率而非硬编码 1440×3200：任意 surface 宽高比/方向下 FBO 与 surface 同宽高比
+ * （投影矩阵只依赖宽高比 → 零形变，直渲/超采样逐像素同构）；目标设备上结果与
+ * 任务常量（SUPERSAMPLE_W/H=1440/3200）逐位一致。
+ */
+private const val SUPERSAMPLE_SCALE = 4f / 3f
 
 /** C7d：LipSync 口型让位目标参数（表情帧/表情管线在 TTS 播放期间跳过此参数，口型归 LipSync 独占） */
 private const val MOUTH_OPEN_Y_ID = "ParamMouthOpenY"
@@ -170,6 +183,39 @@ class Live2DRenderer(
     private var cachedMultiplyColors: FloatArray? = null
     private var cachedScreenColors: FloatArray? = null
     private var cachedMaskCounts: IntArray? = null
+
+    /** [C8f-probe] TEMPORARY: log out-of-envelope drawn drawables during frames 150-220. */
+    private var c8fProbeFrame = 0
+    private var c8fProbeArmed = false
+
+    // ── C8h：超采样渲染（2K 离屏 FBO → 下采样 blit，解决 1080p 内容放大 1.33x 到物理 2K 的观感模糊）──
+    // 原理：iQOO 11 Pro 物理屏 1440×3200（2K）但系统锁 1080×2400 显示模式（vivo 限制），
+    // 1080p 内容被显示控制器放大 1.33x → 边缘模糊。方案：以 2K 离屏 FBO 渲染模型，
+    // 再下采样 blit 回 1080p surface（GL_LINEAR 过滤）→ 1080p 缓冲内的边缘已抗锯齿，
+    // 显示放大后观感显著锐利（GPU 富余：Adreno 740 2K 填充 ≈1.78×，C-Perf8 实测 2K 直渲 ~123fps）。
+
+    /** 超采样 FBO id（0=未创建；onSurfaceChanged 重建） */
+    private var supersampleFbo = 0
+
+    /** 超采样颜色纹理 id（0=未创建；GL_RGBA + GL_LINEAR） */
+    private var supersampleTexture = 0
+
+    /** 超采样渲染尺寸（FBO 宽/高；FBO 绑定期间的 glViewport 尺寸） */
+    private var supersampleRenderW = 0
+    private var supersampleRenderH = 0
+
+    /** 超采样实际生效（FBO 完整 + 尺寸合法；false → 直渲兜底，零行为变化） */
+    private var supersampleActive = false
+
+    /** 下采样 blit 着色器程序（0=未创建；EGL context 重建后经 onSurfaceCreated 置 0 惰性重建） */
+    private var blitProgram = 0
+    private var blitAPosition = -1
+    private var blitATexCoord = -1
+    private var blitUTexture = -1
+    private var blitQuadBuffer: FloatBuffer? = null
+
+    /** [C8h-probe] TEMPORARY: periodic FBO readback (every 300 frames) to verify 2K content vs blit output. */
+    private var c8hProbeFrame = 0
 
     // ── C-Perf2：per-drawable DirectBuffer 对象池 ──
     // 消除每帧 250×3 次 ByteBuffer.allocateDirect（750 DirectBuffer/帧 → major GC 元凶）。
@@ -322,6 +368,17 @@ class Live2DRenderer(
         // C-Perf6：context（重）建后 GL 状态回到驱动默认，状态缓存必须失效
         resetGlStateCache()
 
+        // C8h：context（重）建 → 旧 FBO/纹理/blit program 的 GL id 全部失效。
+        // 置 0 防用旧 id；FBO 由随后的 onSurfaceChanged（GLSurfaceView 每次 surface
+        // 创建后必调，带真实尺寸）重建，blit program 在首次 blit 时惰性重建。
+        supersampleFbo = 0
+        supersampleTexture = 0
+        supersampleRenderW = 0
+        supersampleRenderH = 0
+        supersampleActive = false
+        blitProgram = 0
+        blitQuadBuffer = null
+
         nativeAvailable = Live2DNative.load()
 
         if (nativeAvailable) {
@@ -351,9 +408,20 @@ class Live2DRenderer(
         viewportHeight = height
         GLES20.glViewport(0, 0, width, height)
 
+        // C8h：surface 尺寸变化 / EGL context 重建 → 重建超采样 FBO（尺寸按 surface × SCALE，
+        // 失败自动回退直渲）。重建会把 TEXTURE0 绑定改写 → cachedBoundTextureId 置 -1（方法内）。
+        recreateSupersampleFbo(width, height)
+
         // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）+ C-M5 §2.3 时机 2：
         // 视口变化 → 仅当无用户 override 才重算 fit；有 override → 保持 override 绝对值。
         // 随后按生效值（user ?: fit）经 computeProjection 落 orthoM。
+        android.util.Log.i(
+            "Live2DRenderer",
+            "[C8e-probe] onSurfaceChanged viewport=${width}x${height} " +
+                "canvas=${canvasWidth}x${canvasHeight} userOverride=${hasUserOverride()} " +
+                "userScale=$userScale userX=$userXOffset userY=$userYOffset " +
+                "fitScale=$fitScale fitX=$fitXOffset fitY=$fitYOffset"
+        )
         applyFitAndProjection()
     }
 
@@ -418,7 +486,18 @@ class Live2DRenderer(
 
     /** 按生效值写投影矩阵（唯一 orthoM 调用点，参数序不动）。 */
     private fun applyProjection() {
-        val bounds = currentProjectionBounds() ?: return
+        val bounds = currentProjectionBounds()
+        // [C8e-probe] TEMPORARY: log projection state each call. Remove after capture.
+        android.util.Log.i(
+            "Live2DRenderer",
+            "[C8e-probe] applyProjection viewport=${viewportWidth}x${viewportHeight} " +
+                "canvas=${canvasWidth}x${canvasHeight} " +
+                "displayScale=$displayScale displayXOffset=$displayXOffset displayYOffset=$displayYOffset " +
+                "bounds=${bounds?.joinToString(",") ?: "NULL"} " +
+                "fitScale=$fitScale fitXOffset=$fitXOffset fitYOffset=$fitYOffset " +
+                "user=${userScale},${userXOffset},${userYOffset}"
+        )
+        if (bounds == null) return
         // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
         // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
         // 之前传 bounds[2]/bounds[3]（top/bottom）→ 投影 y 轴翻转 → 真机渲染上下颠倒（spoq-fix 真机修复）。
@@ -659,15 +738,66 @@ class Live2DRenderer(
                 // 构建 DrawableRenderData 列表
                 buildDrawableList()
 
-                // preDraw() — 重置 OpenGL 状态
-                preDraw()
+                // C8h：超采样路径 → 渲染到 2K FBO，再下采样 blit 回 surface；
+                // 否则直渲（行为与优化前逐位一致）。投影矩阵只依赖宽高比
+                // （surface 1080×2400 ≡ FBO 1440×3200 宽高比 0.45），同一投影矩阵两用，
+                // 交互映射（viewportWidth/Height = surface 尺寸）零改动。
+                if (supersampleActive) {
+                    // 1. 渲染到 2K FBO（视口 = FBO 尺寸）
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, supersampleFbo)
+                    GLES20.glViewport(0, 0, supersampleRenderW, supersampleRenderH)
+                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
-                // drawObjectLoop() — 主渲染循环
-                drawObjectLoop(shaderMgr)
+                    // preDraw() — 重置 OpenGL 状态
+                    preDraw()
 
-                // 清除状态
-                GLES20.glUseProgram(0)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                    // drawObjectLoop() — 主渲染循环（输出到 FBO）
+                    drawObjectLoop(shaderMgr)
+
+                    // 2. 生成 mipmap（下采样 blit 的三线性过滤源；FBO 内容完整后生成）
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, supersampleTexture)
+                    GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+
+                    // [C8h-probe] TEMPORARY: periodic readback — FBO(2K) torso strip vs SURFACE(1080p) torso strip
+                    c8hProbeFrame++
+                    if (c8hProbeFrame % 300 == 0) {
+                        val px = ByteBuffer.allocateDirect(300 * 4).order(ByteOrder.nativeOrder())
+                        GLES20.glReadPixels(533, 1590, 300, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
+                        val sb = StringBuilder("[C8h-probe] FBO(2K) x533-832 y1590(torso): ")
+                        for (i in 0 until 300) sb.append(px.get(i * 4).toInt() and 0xFF).append(',')
+                        android.util.Log.i("Live2DRenderer", sb.toString())
+                    }
+
+                    // 3. 下采样 blit：FBO 纹理 → 默认 framebuffer（视口 = surface 尺寸）
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+                    GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
+                    drawSupersampleBlit()
+
+                    // [C8h-probe] TEMPORARY: surface 1080p torso strip (bottom-origin y=1200 = top y 1200)
+                    if (c8hProbeFrame % 300 == 0) {
+                        val px = ByteBuffer.allocateDirect(300 * 4).order(ByteOrder.nativeOrder())
+                        GLES20.glReadPixels(400, 1200, 300, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
+                        val sb = StringBuilder("[C8h-probe] SURFACE(1080p) x400-699 y1200(torso): ")
+                        for (i in 0 until 300) sb.append(px.get(i * 4).toInt() and 0xFF).append(',')
+                        android.util.Log.i("Live2DRenderer", sb.toString())
+                    }
+
+                    // 清除状态（含 FBO 纹理解绑 + 缓存失效，防下帧 state cache 误判跳过绑定）
+                    GLES20.glUseProgram(0)
+                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+                    cachedBoundTextureId = -1
+                } else {
+                    // preDraw() — 重置 OpenGL 状态
+                    preDraw()
+
+                    // drawObjectLoop() — 主渲染循环
+                    drawObjectLoop(shaderMgr)
+
+                    // 清除状态
+                    GLES20.glUseProgram(0)
+                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                }
             } catch (e: Throwable) {
                 android.util.Log.w("Live2DRenderer", "渲染异常: ${e.message}")
                 e.printStackTrace()
@@ -1041,6 +1171,13 @@ class Live2DRenderer(
             GLES20.glDeleteProgram(fallbackProgram)
             fallbackProgram = 0
         }
+        // C8h：释放超采样 FBO/纹理 + blit 着色器（GL 上下文级资源）
+        releaseSupersampleFbo()
+        if (blitProgram != 0) {
+            GLES20.glDeleteProgram(blitProgram)
+            blitProgram = 0
+        }
+        blitQuadBuffer = null
     }
 
     /**
@@ -1593,6 +1730,14 @@ class Live2DRenderer(
         // C-Perf6 诊断：帧起始计数器快照（帧末求差 = 本帧 drawObjectLoop 内 GL 调用数）
         val countStart = glCountersSnapshot()
 
+        // [C8f-probe] TEMPORARY: arm at frame 150 to match native probe, then log
+        // actually-drawn drawables whose buffer bbox exceeds the visible envelope.
+        c8fProbeFrame++
+        if (c8fProbeFrame == 150) c8fProbeArmed = true
+        if (c8fProbeArmed) {
+            android.util.Log.i("Live2DRenderer", "[C8f-probe] armed at frame=$c8fProbeFrame")
+        }
+
         var currentShaderType: ShaderManager.ShaderType? = null
         var currentShader: ShaderManager.ShaderProgram? = null
 
@@ -1631,6 +1776,32 @@ class Live2DRenderer(
             }
 
             val shader = currentShader ?: continue
+
+            // [C8f-probe] TEMPORARY: log actually-drawn drawables whose buffer bbox
+            // extends beyond the visible geometry envelope (fragment region). Remove after capture.
+            if (c8fProbeArmed) {
+                val p = d.positionsBuffer
+                val pn = p.remaining() / 2
+                var mnX = 1e9f; var mxX = -1e9f; var mnY = 1e9f; var mxY = -1e9f
+                p.position(0)
+                val pbuf = p.duplicate()
+                var bi = 0
+                while (bi < pn * 2) {
+                    val x = pbuf.get(bi); val y = pbuf.get(bi + 1)
+                    if (x < mnX) mnX = x; if (x > mxX) mxX = x
+                    if (y < mnY) mnY = y; if (y > mxY) mxY = y
+                    bi += 2
+                }
+                if (mxX > 0.26f || mxY > 0.655f) {
+                    android.util.Log.i(
+                        "Live2DRenderer",
+                        "[C8f-probe] DRAWN di=${d.index} " +
+                            "bbox=[%.3f..%.3f, %.3f..%.3f] vc=$pn tex=${d.textureIndex} opacity=${d.opacity} " +
+                            "order=${d.renderOrder} blend=${d.blendMode}".format(mnX, mxX, mnY, mxY)
+                    )
+                }
+                p.position(0)
+            }
 
             // ── 混合模式（预乘 alpha） ──
             // C-Perf6 状态缓存：blendMode 与上次相同 → 跳过（GL blend 状态跨帧持久）
@@ -1832,6 +2003,179 @@ class Live2DRenderer(
             glCountWindowVap = 0
             glCountWindowAttribArray = 0
         }
+    }
+
+    // ============================================================
+    //  C8h — 超采样 FBO 生命周期 + 下采样 blit
+    // ============================================================
+
+    /**
+     * 重建超采样 FBO（GL 线程；onSurfaceChanged：surface 尺寸变化 / EGL context 重建后）。
+     *
+     * 流程：释放旧 FBO/纹理 → 分配 2K 颜色纹理（GL_RGBA + GL_LINEAR + CLAMP_TO_EDGE）→
+     * 挂到新 FBO 的 COLOR_ATTACHMENT0 → glCheckFramebufferStatus 完整性校验。
+     *
+     * 失败（尺寸非法 / 分配失败 / FBO 不完整）→ supersampleActive=false，直渲兜底，不抛、不黑屏。
+     * FBO 尺寸 = ceil(surface × SUPERSAMPLE_SCALE)：与 surface 同宽高比（零形变），
+     * 目标设备（1080×2400）上 = 1440×3200（物理 2K 同分辨率）。
+     *
+     * ⚠️ 本方法会改写 GL_TEXTURE0 绑定 → 调用后必须 cachedBoundTextureId=-1（已内建）。
+     */
+    private fun recreateSupersampleFbo(surfaceW: Int, surfaceH: Int) {
+        releaseSupersampleFbo()
+        if (!SUPERSAMPLE_ENABLED) {
+            android.util.Log.i("Live2DRenderer", "[C8h] supersample disabled (config)")
+            return
+        }
+        if (surfaceW <= 0 || surfaceH <= 0) {
+            android.util.Log.w("Live2DRenderer", "[C8h] skip FBO (invalid surface ${surfaceW}x${surfaceH})")
+            return
+        }
+        val rw = ceil(surfaceW * SUPERSAMPLE_SCALE).toInt()
+        val rh = ceil(surfaceH * SUPERSAMPLE_SCALE).toInt()
+
+        // 颜色纹理（mipmap 化：下采样 blit 用 GL_LINEAR_MIPMAP_LINEAR 三线性过滤——
+        // 1.33× 缩小仅靠 2-tap GL_LINEAR 会采样缺失（边缘重新锯齿化）；mip 级预过滤
+        // 后采样 = 面积平均，2K 边缘在 1080p 缓冲内呈现正确的抗锯齿过渡）
+        val texIds = IntArray(1)
+        GLES20.glGenTextures(1, texIds, 0)
+        if (texIds[0] == 0) {
+            android.util.Log.w("Live2DRenderer", "[C8h] glGenTextures failed → 直渲兜底")
+            return
+        }
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texIds[0])
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, rw, rh, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
+        )
+
+        // FBO + 完整性校验
+        val fboIds = IntArray(1)
+        GLES20.glGenFramebuffers(1, fboIds, 0)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboIds[0])
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+            GLES20.GL_TEXTURE_2D, texIds[0], 0
+        )
+        val status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        // FBO 创建期间 TEXTURE0 被改写 → 状态缓存失效（防下帧跳过绑定用错纹理）
+        cachedBoundTextureId = -1
+
+        if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            android.util.Log.w(
+                "Live2DRenderer",
+                "[C8h] FBO incomplete (status=$status, ${rw}x${rh}) → 直渲兜底"
+            )
+            GLES20.glDeleteTextures(1, texIds, 0)
+            GLES20.glDeleteFramebuffers(1, fboIds, 0)
+            return
+        }
+
+        supersampleFbo = fboIds[0]
+        supersampleTexture = texIds[0]
+        supersampleRenderW = rw
+        supersampleRenderH = rh
+        supersampleActive = true
+        android.util.Log.i(
+            "Live2DRenderer",
+            "[C8h] supersample FBO ready ${rw}x${rh} (surface ${surfaceW}x${surfaceH}, scale=$SUPERSAMPLE_SCALE)"
+        )
+    }
+
+    /** 释放超采样 FBO/纹理（GL 线程；尺寸变化重建 / dispose 时调用；幂等）。 */
+    private fun releaseSupersampleFbo() {
+        if (supersampleFbo != 0) {
+            GLES20.glDeleteFramebuffers(1, intArrayOf(supersampleFbo), 0)
+            supersampleFbo = 0
+        }
+        if (supersampleTexture != 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(supersampleTexture), 0)
+            supersampleTexture = 0
+        }
+        supersampleRenderW = 0
+        supersampleRenderH = 0
+        supersampleActive = false
+    }
+
+    /**
+     * 下采样 blit 着色器初始化（GL 线程，惰性：首次 blit 前调用；context 重建后经
+     * onSurfaceCreated 置 blitProgram=0 重新初始化）。
+     *
+     * 顶点直通 NDC（全屏四边形，2 个 CW 三角形——适配 drawObjectLoop 清理后的
+     * cull=enabled + frontFace=CW，不被剔除）；片元 = 采样 FBO 纹理（GL_LINEAR 下采样）。
+     * uv v=0 ↔ 渲染目标底边（FBO texel(0,0)=视口左下角）→ 屏幕底边 → 画面不翻转。
+     */
+    private fun initBlitShader() {
+        val vs = "attribute vec2 a_position;attribute vec2 a_texCoord;varying vec2 v_texCoord;" +
+            "void main(){gl_Position=vec4(a_position,0.0,1.0);v_texCoord=a_texCoord;}"
+        val fs = "precision mediump float;varying vec2 v_texCoord;uniform sampler2D u_texture;" +
+            "void main(){gl_FragColor=texture2D(u_texture,v_texCoord);}"
+        blitProgram = createProgram(vs, fs)
+        blitAPosition = GLES20.glGetAttribLocation(blitProgram, "a_position")
+        blitATexCoord = GLES20.glGetAttribLocation(blitProgram, "a_texCoord")
+        blitUTexture = GLES20.glGetUniformLocation(blitProgram, "u_texture")
+        // 全屏四边形（2 个 CW 三角形）：T1(-1,-1)(-1,1)(1,1) + T2(-1,-1)(1,1)(1,-1)
+        val quad = floatArrayOf(
+            -1f, -1f, 0f, 0f,
+            -1f, 1f, 0f, 1f,
+            1f, 1f, 1f, 1f,
+            -1f, -1f, 0f, 0f,
+            1f, 1f, 1f, 1f,
+            1f, -1f, 1f, 0f
+        )
+        blitQuadBuffer = ByteBuffer.allocateDirect(quad.size * 4)
+            .order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                put(quad)
+                position(0)
+            }
+    }
+
+    /**
+     * 下采样 blit：FBO 纹理 → 默认 framebuffer（GL 线程；前置条件：FBO 已解绑、
+     * glViewport 已设 surface 尺寸）。
+     *
+     * 混合保持 drawObjectLoop 清理后的 normal（ONE, ONE_MINUS_SRC_ALPHA）：默认 FB 帧首已
+     * glClear(0,0,0,0) → blit 结果 = FBO 内容（预乘颜色直出），透明区 = 清屏色，与直渲逐像素一致。
+     * cull/blend/frontFace 状态零改动（quad CW 缠绕 + 同 blend func）→ C-Perf6 状态缓存不失效。
+     * 失败（blit 着色器编译失败 / 缓冲缺失）→ supersampleActive=false 直渲兜底，不抛。
+     */
+    private fun drawSupersampleBlit() {
+        if (blitProgram == 0) {
+            try {
+                initBlitShader()
+            } catch (e: Throwable) {
+                android.util.Log.w("Live2DRenderer", "[C8h] blit shader init failed: ${e.message}")
+                supersampleActive = false
+                return
+            }
+        }
+        val quad = blitQuadBuffer ?: run {
+            android.util.Log.w("Live2DRenderer", "[C8h] blit quad buffer missing → 直渲兜底")
+            supersampleActive = false
+            return
+        }
+        GLES20.glUseProgram(blitProgram)
+        GLES20.glUniform1i(blitUTexture, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, supersampleTexture)
+
+        quad.position(0)
+        GLES20.glEnableVertexAttribArray(blitAPosition)
+        GLES20.glVertexAttribPointer(blitAPosition, 2, GLES20.GL_FLOAT, false, 16, quad)
+        quad.position(2)
+        GLES20.glEnableVertexAttribArray(blitATexCoord)
+        GLES20.glVertexAttribPointer(blitATexCoord, 2, GLES20.GL_FLOAT, false, 16, quad)
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
+
+        GLES20.glDisableVertexAttribArray(blitAPosition)
+        GLES20.glDisableVertexAttribArray(blitATexCoord)
+        GLES20.glUseProgram(0)
     }
 
     // ============================================================
