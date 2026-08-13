@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("live2dcubismcore" C CXX)
 
+# C-Perf8b: 强制 Release 优化（Gradle debug 构建默认 -O0，native 全量帧 27.6ms → -O2 后 1.4ms，20 倍差）
+if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-O2)
+endif()
+
 # Purism Core source files
 set(PURISM_SRC
     purism/arena.c

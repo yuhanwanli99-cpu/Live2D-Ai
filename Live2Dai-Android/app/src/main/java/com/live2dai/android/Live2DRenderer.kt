@@ -188,6 +188,13 @@ class Live2DRenderer(
     private var cachedUvsData: Array<FloatArray?> = emptyArray()
     private var cachedIndicesData: Array<ShortArray?> = emptyArray()
 
+    // ── C8b：light 帧顶点跳过 —— 池内位置缓冲已填充标记 ──
+    // buildDrawableList 在 native light 帧（无输入变化 → 顶点冻结）跳过 getDrawableVertices
+    // JNI 重取 + DirectBuffer 重写，直接复用池内上一 full 帧的内容（light 语义保证逐位一致）。
+    // 该数组标记每个 drawable 的位置缓冲是否已被至少一次 full 帧填充过（未填充 → 必须重取，
+    // 防首帧/换模型后池内容为空或串模型）。模型释放时随池一起清空。
+    private var positionsPopulated = BooleanArray(0)
+
     // ── 动画管线 ──
     private var animationPipeline: AnimationPipeline? = null
 
@@ -1103,6 +1110,8 @@ class Live2DRenderer(
         pooledIndices = emptyArray()
         cachedUvsData = emptyArray()
         cachedIndicesData = emptyArray()
+        // C8b：位置缓冲填充标记随池清空（防换模型后 light 帧误跳重取）
+        positionsPopulated = BooleanArray(0)
     }
 
     /**
@@ -1375,6 +1384,10 @@ class Live2DRenderer(
             pooledIndices = pooledIndices.copyOf(size)
             cachedUvsData = cachedUvsData.copyOf(size)
             cachedIndicesData = cachedIndicesData.copyOf(size)
+            // C8b：填充标记随池扩容（新槽位默认 false → 必重取，安全）
+            if (positionsPopulated.size < size) {
+                positionsPopulated = positionsPopulated.copyOf(size)
+            }
         }
     }
 
@@ -1427,15 +1440,30 @@ class Live2DRenderer(
         // C-Perf2：首帧一次性扩容池/缓存数组到 drawable 数（后续帧零分配）
         ensureBufferPoolSize(count)
 
+        // C8b：light 帧（native 无输入变化 → 顶点冻结）跳过逐 drawable 顶点重取/重传。
+        // 池内 DirectBuffer 保留上一 full 帧内容 = 当前帧正确顶点（light 语义保证逐位一致）；
+        // positionsPopulated 守卫首帧/换模型（池内容未填充或串模型时强制重取）。
+        // 仅跳过顶点复制路径（~N 次 JNI + 41k 浮点拷贝）；refreshCachedAttributes 的
+        // 数组级属性（不透明度/顺序/动态标志）仍每帧执行——10 次 JNI、开销小，且动态标志
+        // 在 light 帧由 csmResetDrawableDynamicFlags 重置后保持与上一 full 帧一致，必须重读。
+        val lastUpdateLight = Live2DNative.getLastUpdateLight(modelPtr)
+
         val list = mutableListOf<DrawableRenderData>()
         for (i in 0 until count) {
             // 从 PurismModel 获取顶点数据（已除以 ppu）
             val model = purismModel ?: continue
-            val pos = model.getDrawableVertices(i)
             val vc = vertexCounts.getOrElse(i) { 0 }
             val ic = indexCounts.getOrElse(i) { 0 }
 
             if (vc <= 0 || ic <= 0) continue
+
+            // C8b：light 且池内已填充 → 不重取顶点（复用池内容）；否则 full 帧/首帧重取
+            val skipVertexFetch = lastUpdateLight &&
+                i < positionsPopulated.size && positionsPopulated[i]
+            val pos: FloatArray? = if (skipVertexFetch) null else model.getDrawableVertices(i)
+            if (pos != null && i < positionsPopulated.size) {
+                positionsPopulated[i] = true
+            }
 
             // C-Perf2：UV/顶点索引模型内恒定 → 首帧获取后缓存复用（消除 500 次/帧 JNI）；
             // 顶点位置每帧变化 → 每帧重取（原语义，行为零变化）
@@ -1453,7 +1481,13 @@ class Live2DRenderer(
             // C-Perf2：per-drawable DirectBuffer 对象池复用（消除 750 次/帧 allocateDirect）
             // 写入语义与原实现一致：position 0 起写 vc*2/ic 个元素，随后 position(0) 供 GL 消费。
             val pb = obtainFloatBuffer(pooledPositions, i, vc * 2)
-            pb.put(pos, 0, vc * 2); pb.position(0)
+            if (pos != null) {
+                // full 帧/首帧：重写顶点（pool clear() 后 position=0，写入区外残留字节不被 GL 消费）
+                pb.put(pos, 0, vc * 2)
+            }
+            // C8b light 帧（pos == null）：不动 pb 内容——clear() 后位置/容量与上次相同，
+            // 池内保留上一 full 帧的顶点（light 语义保证逐位一致），仅 position(0) 供 GL 消费。
+            pb.position(0)
 
             val ub = obtainFloatBuffer(pooledUvs, i, vc * 2)
             ub.put(uvs, 0, vc * 2); ub.position(0)

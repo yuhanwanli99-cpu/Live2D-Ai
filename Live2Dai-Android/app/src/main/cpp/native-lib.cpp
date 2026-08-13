@@ -14,6 +14,7 @@
 
 //#define PURISM_CORE_STATIC (shared lib mode - no static)
 #include "PurismCore.h"
+#include "purism/update.h"
 
 #define LOG_TAG "Live2DNative"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -151,6 +152,15 @@ Java_com_live2dai_android_Live2DNative_updateModel(JNIEnv *env, jclass clazz, jl
     csmModel *model = (csmModel*)block[1];
     csmResetDrawableDynamicFlags(model);
     csmUpdateModel(model);
+}
+
+/* C8b: whether the last csmUpdateModel took the light (frozen) path. */
+JNIEXPORT jboolean JNICALL
+Java_com_live2dai_android_Live2DNative_getLastUpdateLight(JNIEnv *env, jclass clazz, jlong modelPtr) {
+    if (modelPtr == 0) return JNI_FALSE;
+    void **block = (void**)(intptr_t)modelPtr;
+    csmModel *model = (csmModel*)block[1];
+    return csmIsLastUpdateLight(model) ? JNI_TRUE : JNI_FALSE;
 }
 
 // ====================================================================

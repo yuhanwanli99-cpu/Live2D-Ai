@@ -158,33 +158,50 @@ psm__save_input_snapshot(struct psm__model *m)
 
 #ifdef __ANDROID__
 #include <android/log.h>
+#include <time.h>
 /*
  * C-Perf7-fix diagnostic probe: low-frequency counter (no clock reads),
  * one logcat line every 120 updates (~4s at 30Hz model updates).
+ * C8b: extended with clock_gettime timing of the FULL path only (the path
+ * that matters at 120Hz; light path is ~0.3ms and not the budget problem).
  * Cleanup: remove this block, the include above, and the two
  * psm__probe_update calls in psm__update_model.
  */
 static psm__i32 s_probe_updates = 0;
 static psm__i32 s_probe_light = 0;
 static psm__i32 s_probe_full = 0;
+static long long s_probe_full_us = 0; /* accumulated full-path microseconds */
 
 static void
-psm__probe_update(bool light)
+psm__probe_update(bool light, long long full_us)
 {
   s_probe_updates++;
   if (light)
     s_probe_light++;
-  else
+  else {
     s_probe_full++;
+    s_probe_full_us += full_us;
+  }
   if (s_probe_updates >= 120) {
+    long long avg_full_us = s_probe_full > 0 ? s_probe_full_us / s_probe_full : 0;
     __android_log_print(ANDROID_LOG_INFO, "C-Perf7-fix",
-        "updates=%d light=%d(%d%%) full=%d",
+        "updates=%d light=%d(%d%%) full=%d avg_full_us=%lld",
         s_probe_updates, s_probe_light,
-        (int)(s_probe_light * 100 / s_probe_updates), s_probe_full);
+        (int)(s_probe_light * 100 / s_probe_updates), s_probe_full,
+        (long long)avg_full_us);
     s_probe_updates = 0;
     s_probe_light = 0;
     s_probe_full = 0;
+    s_probe_full_us = 0;
   }
+}
+
+static long long
+psm__now_us(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
 }
 #endif /* __ANDROID__ */
 
@@ -349,11 +366,17 @@ psm__update_model(struct psm__model *m)
    * the last full update's values (correct and consistent). No stage is
    * partially executed. */
   if (!psm__inputs_changed(m)) {
+    m->last_update_light = true;
 #ifdef __ANDROID__
-    psm__probe_update(true);
+    psm__probe_update(true, 0);
 #endif
     return;
   }
+  m->last_update_light = false;
+
+#ifdef __ANDROID__
+  long long t_full0 = psm__now_us();
+#endif
 
   psm__enable_parts(m);
   psm__gather_parts(m);
@@ -414,7 +437,7 @@ psm__update_model(struct psm__model *m)
   psm__save_input_snapshot(m);
 
 #ifdef __ANDROID__
-  psm__probe_update(false);
+  psm__probe_update(false, psm__now_us() - t_full0);
 #endif
 }
 
@@ -422,6 +445,16 @@ PSMDEF void
 csmUpdateModel(csmModel *model)
 {
   psm__update_model((struct psm__model *)model);
+}
+
+/* C8b: query whether the most recent csmUpdateModel took the light path
+ * (no input changed → frozen vertices). Lets the renderer skip the per-
+ * drawable vertex re-fetch/re-upload on unchanged frames. */
+PSMDEF int
+csmIsLastUpdateLight(csmModel *model)
+{
+  struct psm__model *m = (struct psm__model *)model;
+  return m->last_update_light ? 1 : 0;
 }
 
 PSMDEF void

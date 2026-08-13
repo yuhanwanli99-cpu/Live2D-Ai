@@ -41,6 +41,12 @@ object Live2DNative {
     external fun loadModel(mocBytes: ByteArray): Long
     external fun freeModel(modelPtr: Long)
     external fun updateModel(modelPtr: Long)
+
+    /**
+     * C8b: 最近一次 csmUpdateModel 是否走了 light 路径（无输入变化 → 顶点冻结）。
+     * 渲染器据此在 light 帧跳过逐 drawable 顶点重取/重传。
+     */
+    external fun getLastUpdateLight(modelPtr: Long): Boolean
     external fun getCanvasInfo(modelPtr: Long): FloatArray?
     external fun getParameterCount(modelPtr: Long): Int
     external fun getParameterIds(modelPtr: Long): Array<String>?

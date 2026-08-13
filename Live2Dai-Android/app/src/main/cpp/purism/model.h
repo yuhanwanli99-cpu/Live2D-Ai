@@ -380,6 +380,8 @@ struct psm__model {
   psm__i32 *render_order;
   bool force_update;
   bool y_reversed;
+  /* C8b: true when the most recent psm__update_model took the light (no-input-changed) path. */
+  bool last_update_light;
 };
 
 #endif /* PSM__MODEL_H */

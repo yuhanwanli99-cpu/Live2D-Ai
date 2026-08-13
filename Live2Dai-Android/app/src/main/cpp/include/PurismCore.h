@@ -258,6 +258,7 @@ PSMDEF unsigned int csmGetSizeofModel(const csmMoc *);
 PSMDEF csmModel    *csmInitializeModelInPlace(const csmMoc *,
                         void *, unsigned int);
 PSMDEF void         csmUpdateModel(csmModel *);
+PSMDEF int          csmIsLastUpdateLight(csmModel *);
 PSMDEF void         csmReadCanvasInfo(const csmModel *,
                         csmVector2 *, csmVector2 *, float *);
 

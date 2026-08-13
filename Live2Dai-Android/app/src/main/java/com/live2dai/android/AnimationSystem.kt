@@ -968,6 +968,24 @@ class AnimationPipeline(
     /** 节流计数器（渲染帧单位；累计 ≥ IDLE_MOTION_THROTTLE_FRAMES 才写入一次） */
     private var idleMotionThrottleCounter = 0
 
+    // ── C8b：表情 fade 写入节流 + 物理更新降频 ──
+    // 背景（机器证据）：120Hz 预算 8.3ms/帧；表情 fade 期间每帧写 12 键参数 → 每次管线 update
+    // 都触发 native 全量重算（full 帧 15ms 超预算 1.8x）；物理（若有效）同样每次 update 写参数。
+    // 方案：fade 插值每 2 次管线 update 写一次（fade 300-600ms → 步进 ≈33ms，视觉平滑）；
+    // 物理每 4 渲染帧评估一次（慢变信号，视觉无损）。稳态（fade 完成/权重饱和）不节流：
+    // 写入值恒定 → native 脏检查判 light，零开销。
+    /** 表情 fade 写入间隔（管线 update 次数；每 2 次写一次 = 4 渲染帧 @120Hz） */
+    private val EXPRESSION_FADE_WRITE_INTERVAL = 2
+
+    /** fade 节流计数器（管线 update 单位） */
+    private var expressionFadeWriteCounter = 0
+
+    /** 物理评估间隔（渲染帧数；每 4 渲染帧一次 = 每 2 次管线 update 一次） */
+    private val PHYSICS_UPDATE_INTERVAL_FRAMES = 4
+
+    /** 物理节流计数器（渲染帧单位） */
+    private var physicsUpdateCounter = 0
+
     // ── R17 说话联动（SpeakingMotion）状态 ──
 
     /**
@@ -1056,6 +1074,20 @@ class AnimationPipeline(
                 if (previousExpression == null) return 0f
                 val t = (expressionTimer / expressionFadeTime).coerceIn(0f, 1f)
                 return previousExpressionStartWeight * (1f - t)
+            }
+
+        /**
+         * C8b：fade 是否进行中（timer 未达 fadeTime 且有活跃表情/旧表情/混合/覆盖）。
+         * 供管线 fade 写入节流判定——fade 期间参数逐帧变化（每次写触发 native 全量），
+         * 稳态（timer ≥ fadeTime）后写入值恒定 → 不需节流（native 脏检查判 light）。
+         */
+        val isFadeInProgress: Boolean
+            get() {
+                val hasActive = currentExpression != null ||
+                    previousExpression != null ||
+                    expressionMix.isNotEmpty() ||
+                    parameterOverrides.isNotEmpty()
+                return hasActive && expressionTimer < expressionFadeTime
             }
 
         /** 当前表情的目标强度（0-1），级3 情感强度。默认 1.0=满权重。 */
@@ -1283,7 +1315,20 @@ class AnimationPipeline(
 
         // 4. 更新表情
         expressionManager.update(deltaTime)
-        expressionManager.apply(model)
+        // C8b：fade 插值节流——fade 进行中每 EXPRESSION_FADE_WRITE_INTERVAL 次管线 update
+        // 才 apply 一次（fade 期间参数逐帧变化 → 每帧写都触发 native 全量重算；间隔写后
+        // 全量频率减半，步进 ≈33ms 视觉平滑）。fade 完成后写入值恒定 → 全量自然停止。
+        // ExpressionManager 类零改动（update 计时/权重推进语义不变），节流仅发生在管线落点。
+        if (expressionManager.isFadeInProgress) {
+            expressionFadeWriteCounter++
+            if (expressionFadeWriteCounter % EXPRESSION_FADE_WRITE_INTERVAL == 0) {
+                expressionFadeWriteCounter = 0
+                expressionManager.apply(model)
+            }
+        } else {
+            expressionFadeWriteCounter = 0
+            expressionManager.apply(model)
+        }
 
         // 5. 更新眨眼
         eyeBlink.update(deltaTime)
@@ -1334,9 +1379,16 @@ class AnimationPipeline(
             }
         }
 
-        // 7. 更新物理
+        // 7. 更新物理（C8b：每 PHYSICS_UPDATE_INTERVAL_FRAMES=4 渲染帧评估一次——
+        //     慢变信号视觉无损，全量触发频率减半。bai 当前物理为 inactive（physics3.json
+        //     Input 为数组，简化解析器取不到 → 本段为空操作，零行为变化；对其他模型是
+        //     安全的降频守卫）
         if (physics.isValid()) {
-            physics.evaluate(model, paramNameToIndex, deltaTime)
+            physicsUpdateCounter += RENDER_FRAMES_PER_PIPELINE_UPDATE
+            if (physicsUpdateCounter >= PHYSICS_UPDATE_INTERVAL_FRAMES) {
+                physicsUpdateCounter = 0
+                physics.evaluate(model, paramNameToIndex, deltaTime)
+            }
         }
 
         // 8. 保存参数快照（在 model.update 之前）

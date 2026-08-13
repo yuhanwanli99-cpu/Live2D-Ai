@@ -32,6 +32,17 @@ class PurismModel(val modelPtr: Long) {
         private set
 
     // ============================================================
+    //  C8b：模型内恒定数组惰性缓存（min/max/default）
+    //  这些数组在模型加载后不随帧变化，首次访问后缓存，消除每帧
+    //  重复 JNI 往返 + FloatArray 分配（管线每帧多处调用）。
+    //  PurismModel 按模型实例化 → 换模型自然重建缓存，无串模型风险。
+    // ============================================================
+
+    private var cachedMinValues: FloatArray? = null
+    private var cachedMaxValues: FloatArray? = null
+    private var cachedDefaultValues: FloatArray? = null
+
+    // ============================================================
     //  Canvas 信息
     // ============================================================
 
@@ -75,13 +86,12 @@ class PurismModel(val modelPtr: Long) {
     /**
      * 从 Purism Core 读取所有参数当前值，保存到缓存。
      * 在每帧动画更新前调用，将参数恢复到帧开始时的快照。
+     * C8b: 由 N 次 setParameterValue JNI 改为单次 setParameterValues 批量 JNI
+     * （bai ~70 参数 → JNI 往返 70 次 → 1 次，语义逐位一致）。
      */
     fun loadParameters() {
-        // 从缓存恢复参数（将上一帧保存的状态写回 native）
         val saved = savedParameterValues ?: return
-        for (i in saved.indices) {
-            Live2DNative.setParameterValue(modelPtr, i, saved[i])
-        }
+        Live2DNative.setParameterValues(modelPtr, saved)
     }
 
     /**
@@ -326,19 +336,28 @@ class PurismModel(val modelPtr: Long) {
         Live2DNative.setParameterValues(modelPtr, values)
     }
 
-    /** 参数最小值 */
+    /** 参数最小值（模型内恒定 → C8b 惰性缓存，消除每帧重复 JNI + 数组分配） */
     fun getParameterMinValues(): FloatArray? {
-        return Live2DNative.getParameterMinValues(modelPtr)
+        if (cachedMinValues == null) {
+            cachedMinValues = Live2DNative.getParameterMinValues(modelPtr)
+        }
+        return cachedMinValues
     }
 
-    /** 参数最大值 */
+    /** 参数最大值（模型内恒定 → C8b 惰性缓存，消除每帧重复 JNI + 数组分配） */
     fun getParameterMaxValues(): FloatArray? {
-        return Live2DNative.getParameterMaxValues(modelPtr)
+        if (cachedMaxValues == null) {
+            cachedMaxValues = Live2DNative.getParameterMaxValues(modelPtr)
+        }
+        return cachedMaxValues
     }
 
-    /** 参数默认值 */
+    /** 参数默认值（模型内恒定 → C8b 惰性缓存，消除每帧重复 JNI + 数组分配） */
     fun getParameterDefaultValues(): FloatArray? {
-        return Live2DNative.getParameterDefaultValues(modelPtr)
+        if (cachedDefaultValues == null) {
+            cachedDefaultValues = Live2DNative.getParameterDefaultValues(modelPtr)
+        }
+        return cachedDefaultValues
     }
 
     /** Part 不透明度列表 */
