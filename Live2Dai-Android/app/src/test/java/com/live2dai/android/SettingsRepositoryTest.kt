@@ -59,17 +59,18 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun proactiveEnabled_defaultsToTrue_andPersists() {
+    fun proactiveEnabled_defaultsToFalse_andPersists() {
+        // R15 需求3：定时主动提醒移除 → 默认 false（T7-layout-red.md §5.1/§7.4 授权同步旧期望）
         val repo = SettingsRepository(context)
-        assertTrue("主动陪伴默认开启（schema KEY_PROACTIVE_ENABLED default: true）", repo.proactiveEnabled)
+        assertFalse("主动陪伴默认关闭（R15：定时提醒移除，default: false）", repo.proactiveEnabled)
 
-        repo.proactiveEnabled = false
+        repo.proactiveEnabled = true
         val repo2 = SettingsRepository(context)
-        assertFalse("关闭后应持久化（重启后不装载主动陪伴插件）", repo2.proactiveEnabled)
+        assertTrue("开启后应持久化（重启后装载主动陪伴插件）", repo2.proactiveEnabled)
 
-        repo2.proactiveEnabled = true
+        repo2.proactiveEnabled = false
         val repo3 = SettingsRepository(context)
-        assertTrue("重新开启应持久化", repo3.proactiveEnabled)
+        assertFalse("关闭应持久化", repo3.proactiveEnabled)
     }
 
     // ── TTS Provider（V1.2 模块1）──

@@ -15,6 +15,15 @@
 #include "moc3.h"
 #include "model.h"
 
+/*
+ * C-Perf9: arm64 NEON for the keyform position accumulation hot loop
+ * (interp_warps/interp_art_meshes). Guarded so x86 stays scalar.
+ * PSM__NEON_DISABLED forces the scalar path (A/B harness only).
+ */
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+#include <arm_neon.h>
+#endif
+
 static void
 psm__interp_f32(struct psm__interp *interp, const psm__f32 *targets,
     psm__f32 *out, psm__i32 out_stride, const bool *enable)
@@ -41,8 +50,17 @@ psm__interp_f32(struct psm__interp *interp, const psm__f32 *targets,
    * is reused across channels (e.g. R/G/B color interp).
    */
   if (tmp && tmp_len > 0) {
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+    psm__i32 i = 0;
+    for (; i + 4 <= tmp_len; i += 4)
+      vst1q_f32(tmp + i, vmulq_f32(vld1q_f32(targets + i),
+          vld1q_f32(wt + i)));
+    for (; i < tmp_len; i++)
+      tmp[i] = targets[i] * wt[i];
+#else
     for (psm__i32 i = 0; i < tmp_len; i++)
       tmp[i] = targets[i] * wt[i];
+#endif
   }
 
   psm__i32 off = 0;
@@ -85,8 +103,17 @@ psm__interp_i32(struct psm__interp *interp, const psm__f32 *targets,
     return;
 
   if (tmp && tmp_len > 0) {
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+    psm__i32 i = 0;
+    for (; i + 4 <= tmp_len; i += 4)
+      vst1q_f32(tmp + i, vmulq_f32(vld1q_f32(targets + i),
+          vld1q_f32(wt + i)));
+    for (; i < tmp_len; i++)
+      tmp[i] = targets[i] * wt[i];
+#else
     for (psm__i32 i = 0; i < tmp_len; i++)
       tmp[i] = targets[i] * wt[i];
+#endif
   }
 
   psm__i32 off = 0;
@@ -141,8 +168,21 @@ psm__interp_f32_array(struct psm__interp *interp,
           psm__f32 w = wt[off + j];
           psm__f32 *src = targets[off + j];
           if (src) {
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+            /* 4-wide accumulate; vfmaq keeps the per-element summation
+             * order identical to the scalar loop (dst[k] += src[k] * w
+             * across keyforms, lane k is independent). */
+            float32x4_t wv = vdupq_n_f32(w);
+            psm__i32 k = 0;
+            for (; k + 4 <= total; k += 4)
+              vst1q_f32(dst + k, vfmaq_f32(vld1q_f32(dst + k),
+                  vld1q_f32(src + k), wv));
+            for (; k < total; k++)
+              dst[k] += src[k] * w;
+#else
             for (psm__i32 k = 0; k < total; k++)
               dst[k] += src[k] * w;
+#endif
           }
         }
       }

@@ -16,6 +16,18 @@
 #include "moc3.h"
 #include "model.h"
 
+/*
+ * C-Perf9: arm64 NEON vectorization of the hot point-transform loops.
+ * Guarded by __aarch64__ so x86/32-bit builds keep the scalar paths.
+ * PSM__NEON_DISABLED forces the scalar path (A/B harness only).
+ * Each NEON lane computes one point; the arithmetic mirrors the scalar
+ * fmaf() structure exactly, so per-point results are bit-identical to
+ * the scalar code (NEON fmla == C fmaf on aarch64).
+ */
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+#include <arm_neon.h>
+#endif
+
 struct psm__warp_basis {
   struct psm__vec2 center;
   struct psm__vec2 dpdu;
@@ -168,6 +180,121 @@ psm__triangle_interpolate(const struct psm__warp_cell *cell)
   }
 }
 
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+/*
+ * NEON fast path for psm__warp_transform: processes 4 consecutive points
+ * at once when all 4 are interior (0 <= u < 1 && 0 <= v < 1). Returns 1
+ * if the batch was handled, 0 if the caller must fall back to the scalar
+ * per-point path. The cell corners are gathered with one full-width load
+ * per cell-row per lane followed by a 4x4 lane transpose (no contiguity
+ * assumption; any cell position works).
+ *
+ * Semantics: identical branch classification to the scalar interior test;
+ * the bilinear/triangle arithmetic mirrors psm__v2_bilinear / bary3 with
+ * the same fmaf nesting, so each lane reproduces the scalar result
+ * bit-for-bit. Non-interior points are never touched here.
+ */
+static int
+psm__warp_neon_batch(const psm__f32 *inputs, const psm__f32 *pos,
+    psm__f32 *outputs, psm__i32 base, psm__f32 fc, psm__f32 fr,
+    psm__i32 stride, psm__i32 is_quad)
+{
+  float32x4_t a = vld1q_f32(inputs + 2 * base);      /* {x0,y0,x1,y1} */
+  float32x4_t b = vld1q_f32(inputs + 2 * base + 4);  /* {x2,y2,x3,y3} */
+  float32x4x2_t t = vuzpq_f32(a, b);
+  float32x4_t x = t.val[0]; /* {x0,x1,x2,x3} */
+  float32x4_t y = t.val[1]; /* {y0,y1,y2,y3} */
+
+  /* Interior test for all 4 lanes: 0 <= x < 1 && 0 <= y < 1. */
+  float32x4_t zero = vdupq_n_f32(0.0f);
+  float32x4_t one = vdupq_n_f32(1.0f);
+  uint32x4_t m = vcgeq_f32(x, zero);
+  m = vandq_u32(m, vcltq_f32(x, one));
+  m = vandq_u32(m, vcgeq_f32(y, zero));
+  m = vandq_u32(m, vcltq_f32(y, one));
+  if (vminvq_u32(m) != 0xFFFFFFFFu)
+    return 0;
+
+  float32x4_t gu = vmulq_n_f32(x, fc);
+  float32x4_t gv = vmulq_n_f32(y, fr);
+  /* C cast float->int truncates toward zero; vcvtq_s32_f32 does the same. */
+  int32x4_t cu = vcvtq_s32_f32(gu);
+  int32x4_t cv = vcvtq_s32_f32(gv);
+  float32x4_t fu = vsubq_f32(gu, vcvtq_f32_s32(cu));
+  float32x4_t fv = vsubq_f32(gv, vcvtq_f32_s32(cv));
+
+  int32x4_t bi = vaddq_s32(vmulq_n_s32(cv, stride), cu);
+  int32_t bi0 = vgetq_lane_s32(bi, 0);
+  int32_t bi1 = vgetq_lane_s32(bi, 1);
+  int32_t bi2 = vgetq_lane_s32(bi, 2);
+  int32_t bi3 = vgetq_lane_s32(bi, 3);
+
+  /* Gather the 4 cell corners (p00,p10,p01,p11) for each of the 4 points.
+   * One full-width load per cell-row per lane (2 points = 4 floats),
+   * then a 4x4 lane transpose — 8 vld1q instead of 32 vld1q_lane. */
+  float32x4_t q0 = vld1q_f32(pos + 2 * bi0);  /* {p00x0,p00y0,p10x0,p10y0} */
+  float32x4_t q1 = vld1q_f32(pos + 2 * bi1);
+  float32x4_t q2 = vld1q_f32(pos + 2 * bi2);
+  float32x4_t q3 = vld1q_f32(pos + 2 * bi3);
+  float32x4_t r0 = vld1q_f32(pos + 2 * bi0 + 2 * stride); /* {p01x,p01y,p11x,p11y} */
+  float32x4_t r1 = vld1q_f32(pos + 2 * bi1 + 2 * stride);
+  float32x4_t r2 = vld1q_f32(pos + 2 * bi2 + 2 * stride);
+  float32x4_t r3 = vld1q_f32(pos + 2 * bi3 + 2 * stride);
+
+  /* Cross-pair lanes (0,2) and (1,3), then zip even/odd into per-corner
+   * lane vectors: p00x = {p00x0,p00x1,p00x2,p00x3}, etc. */
+  float32x4x2_t u0 = vtrnq_f32(q0, q2);
+  float32x4x2_t u1 = vtrnq_f32(q1, q3);
+  float32x4x2_t s0 = vtrnq_f32(r0, r2);
+  float32x4x2_t s1 = vtrnq_f32(r1, r3);
+  float32x4_t p00x = vzip1q_f32(u0.val[0], u1.val[0]);
+  float32x4_t p10x = vzip2q_f32(u0.val[0], u1.val[0]);
+  float32x4_t p00y = vzip1q_f32(u0.val[1], u1.val[1]);
+  float32x4_t p10y = vzip2q_f32(u0.val[1], u1.val[1]);
+  float32x4_t p01x = vzip1q_f32(s0.val[0], s1.val[0]);
+  float32x4_t p11x = vzip2q_f32(s0.val[0], s1.val[0]);
+  float32x4_t p01y = vzip1q_f32(s0.val[1], s1.val[1]);
+  float32x4_t p11y = vzip2q_f32(s0.val[1], s1.val[1]);
+
+  float32x4_t rx, ry;
+  if (is_quad) {
+    /* psm__v2_bilinear, same fmaf nesting per lane. */
+    float32x4_t inv_u = vsubq_f32(one, fu);
+    float32x4_t inv_v = vsubq_f32(one, fv);
+    float32x4_t x0 = vfmaq_f32(vmulq_f32(inv_u, p00x), fu, p10x);
+    float32x4_t x1 = vfmaq_f32(vmulq_f32(inv_u, p01x), fu, p11x);
+    float32x4_t y0 = vfmaq_f32(vmulq_f32(inv_u, p00y), fu, p10y);
+    float32x4_t y1 = vfmaq_f32(vmulq_f32(inv_u, p01y), fu, p11y);
+    rx = vfmaq_f32(vmulq_f32(inv_v, x0), fv, x1);
+    ry = vfmaq_f32(vmulq_f32(inv_v, y0), fv, y1);
+  } else {
+    /* psm__triangle_interpolate: compute both triangle cases, select by
+     * the (fu + fv <= 1) mask — identical to the scalar branch outcome. */
+    uint32x4_t sel = vcleq_f32(vaddq_f32(fu, fv), one);
+    float32x4_t w00 = vsubq_f32(vsubq_f32(one, fu), fv);
+    float32x4_t w10 = vsubq_f32(one, fv);
+    float32x4_t w11 = vsubq_f32(vaddq_f32(fu, fv), one);
+    float32x4_t w01 = vsubq_f32(one, fu);
+    float32x4_t ax = vfmaq_f32(vfmaq_f32(vmulq_f32(w00, p00x), fu, p10x),
+        fv, p01x);
+    float32x4_t ay = vfmaq_f32(vfmaq_f32(vmulq_f32(w00, p00y), fu, p10y),
+        fv, p01y);
+    float32x4_t bx = vfmaq_f32(vfmaq_f32(vmulq_f32(w10, p10x), w11, p11x),
+        w01, p01x);
+    float32x4_t by = vfmaq_f32(vfmaq_f32(vmulq_f32(w10, p10y), w11, p11y),
+        w01, p01y);
+    rx = vbslq_f32(sel, ax, bx);
+    ry = vbslq_f32(sel, ay, by);
+  }
+
+  /* Re-interleave to {x0,y0,x1,y1} and {x2,y2,x3,y3} and store. */
+  float32x4x2_t z = vzipq_f32(rx, ry);
+  vst1q_f32(outputs + 2 * base, z.val[0]);
+  vst1q_f32(outputs + 2 * base + 4, z.val[1]);
+  return 1;
+}
+#endif /* __aarch64__ */
+
 static void
 psm__warp_transform(struct psm__model *m, psm__i32 di,
     const psm__f32 *inputs, psm__f32 *outputs, psm__i32 count)
@@ -185,6 +312,15 @@ psm__warp_transform(struct psm__model *m, psm__i32 di,
   struct psm__warp_basis basis;
 
   for (psm__i32 i = 0; i < count; i++) {
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+    if (i + 4 <= count) {
+      if (psm__warp_neon_batch(inputs, pos, outputs, i, fc, fr, stride,
+              is_quad)) {
+        i += 3;
+        continue;
+      }
+    }
+#endif
     struct psm__vec2 uv = psm__v2_load(inputs, i);
     psm__f32 gu = uv.x * fc, gv = uv.y * fr;
 
@@ -261,12 +397,45 @@ psm__rot_transform(struct psm__model *m, psm__i32 di,
   psm__f32 m10 = scale * sin_a * rxf;
   psm__f32 m11 = scale * cos_a * ryf;
 
+#if defined(__aarch64__) && !defined(PSM__NEON_DISABLED)
+  {
+    /* 2 points per iteration (4 floats): pure per-point 2D affine,
+     * vfmaq == fmaf on aarch64, so results are bit-identical. */
+    float32x4_t v_m00 = vdupq_n_f32(m00);
+    float32x4_t v_m01 = vdupq_n_f32(m01);
+    float32x4_t v_m10 = vdupq_n_f32(m10);
+    float32x4_t v_m11 = vdupq_n_f32(m11);
+    float32x4_t v_ox = vdupq_n_f32(origin.x);
+    float32x4_t v_oy = vdupq_n_f32(origin.y);
+
+    psm__i32 i = 0;
+    for (; i + 2 <= count; i += 2) {
+      float32x4_t p = vld1q_f32(inputs + 2 * i); /* {x0,y0,x1,y1} */
+      float32x4x2_t xy = vuzpq_f32(p, p);
+      float32x4_t x = xy.val[0]; /* {x0,x1,x0,x1} */
+      float32x4_t y = xy.val[1]; /* {y0,y1,y0,y1} */
+      float32x4_t rx = vfmaq_f32(vfmaq_f32(v_ox, v_m00, x), v_m01, y);
+      float32x4_t ry = vfmaq_f32(vfmaq_f32(v_oy, v_m10, x), v_m11, y);
+      float32x4x2_t z = vzipq_f32(rx, ry);
+      vst1q_f32(outputs + 2 * i, z.val[0]);
+    }
+    for (; i < count; i++) {
+      struct psm__vec2 p = psm__v2_load(inputs, i);
+      struct psm__vec2 r = psm__v2(
+          fmaf(m01, p.y, fmaf(m00, p.x, origin.x)),
+          fmaf(m11, p.y, fmaf(m10, p.x, origin.y)));
+      psm__v2_store(outputs, i, r);
+    }
+    return;
+  }
+#else
   for (psm__i32 i = 0; i < count; i++) {
     struct psm__vec2 p = psm__v2_load(inputs, i);
     struct psm__vec2 r = psm__v2(fmaf(m01, p.y, fmaf(m00, p.x, origin.x)),
         fmaf(m11, p.y, fmaf(m10, p.x, origin.y)));
     psm__v2_store(outputs, i, r);
   }
+#endif
 }
 
 static inline struct psm__vec2

@@ -2,7 +2,6 @@ package com.live2dai.android.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,8 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -25,25 +27,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,21 +84,27 @@ data class DisplayMessage(
 )
 
 /**
- * 主聊天界面。
+ * 主界面（R15 布局大改造：角色全屏 + 聊天浮层 + UI 简化）。
  *
- * 包含 Live2D 模型背景、对话气泡列表、和底部的输入栏。
- * 右上角齿轮按钮 → 设置页。
+ * 布局（对齐 PC 端「只有对话框 + 设置」语义）：
+ * - 层0：Live2D 角色渲染区**占满全屏**（GLSurfaceView 全屏，与角色交互/渲染管线无关，仅布局）
+ * - 层1：右上角浮层控制（连接状态指示 + 清空对话 + 设置入口，半透明悬浮在角色上）
+ * - 层2：底部聊天浮层（半透明面板：消息气泡 + 输入框常驻底部；
+ *   `imePadding` → 键盘弹出时聊天浮层整体上移，角色区不挤压——adjustNothing 已在 Manifest 锁定）
+ *
+ * R15 UI 简化（需求2）：只保留「对话框（聊天面板）+ 设置（设置入口）」；
+ * 已移除：定时提醒入口（需求3：proactiveEnabled 默认 false，无 UI 入口）、
+ * 重置模型位置按钮（杂项功能按钮）等。
  *
  * 所有业务逻辑委托给 [ChatViewModel]，Composable 层只保留：
- * - 权限启动器（麦克风、通知）——需要 Compose 上下文
+ * - 权限启动器（麦克风）——需要 Compose 上下文
  * - AndroidView 工厂（Live2DView 创建与初始化）
- * - Scaffold / TopAppBar / BottomBar / LazyColumn / AlertDialog 等纯 UI 组件
+ * - Box / Surface / LazyColumn / AlertDialog 等纯 UI 组件
  * - Toast 用户提示
  *
- * @param onOpenSettings 右上角齿轮按钮回调：通知父组件打开设置覆盖层
+ * @param onOpenSettings 设置入口回调：通知父组件打开设置覆盖层
  * @param onLive2DViewCreated Live2DView 实例上报回调：父组件持有引用以支持生命周期管理和热切换
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainChatScreen(
     onOpenSettings: () -> Unit,
@@ -113,7 +115,8 @@ fun MainChatScreen(
     val viewModel: ChatViewModel = viewModel()
     val listState = rememberLazyListState()
 
-    // C-M5 重置入口：本地持有 Live2DView 引用（AndroidView factory 上报时一并设置）
+    // C-M5 重置入口能力保留（Live2DView.resetUserInteraction 仍可用）；R15 UI 简化
+    // 已移除主界面「重置模型位置」按钮（杂项功能按钮，只留对话框+设置）
     val live2DView = remember { mutableStateOf<Live2DView?>(null) }
 
     // ── 收集 ViewModel 状态（StateFlow → Compose 状态，随生命周期暂停/恢复） ──
@@ -126,16 +129,7 @@ fun MainChatScreen(
     // R1-ui M4b：连接状态（对齐 PC chat-header）——ChatService 请求生命周期驱动
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
-    // ── 权限启动器（需要 Compose 上下文，保留在 UI 层） ──
-
-    // Android 13+ 通知权限（主动陪伴通知需要）：未授予时 ViewModel 内插件静默跳过通知
-    val requestNotificationPermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ ->
-        // 授予与否都不影响功能：未授予时 ProactiveNotifier 静默跳过通知
-    }
-
-    // 麦克风权限按需申请（架构约束 §8.2-3）：仅点击麦克风按钮时请求，不在启动时批量申请
+    // ── 麦克风权限按需申请（架构约束 §8.2-3）：仅点击麦克风按钮时请求，不在启动时批量申请 ──
     val requestMicPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -158,16 +152,6 @@ fun MainChatScreen(
         }
     }
 
-    // ── 冷启动：通知权限请求（Android 13+） ──
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
     // ── 新消息时自动滚动到底部 ──
     LaunchedEffect(displayMessages.size) {
         if (displayMessages.isNotEmpty()) {
@@ -175,53 +159,128 @@ fun MainChatScreen(
         }
     }
 
-    // ── Scaffold 主结构 ──
+    // ── R15 主结构：角色全屏 + 聊天浮层（Box 层叠，角色区不被任何面板挤压） ──
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // ── 层0：Live2D 角色渲染（全屏背景层） ──
+        // 视图创建后上报 ViewModel（表情/LipSync 接线）和 App 级（生命周期 + 热切换）
+        AndroidView(
+            factory = { ctx ->
+                Live2DView(ctx).also { view ->
+                    // 启动时按持久化的 selectedModelId 加载模型；
+                    // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 bai）
+                    val ctxRepo = SettingsRepository(ctx)
+                    val registry = ModelRegistry.load(ctx)
+                    val modelId = ctxRepo.selectedModelId
+                    val entry = registry.getById(modelId) ?: registry.getDefault()
+                    view.initialize("live2d/${entry.model3JsonPath}", entry.id)
+                    // 业务接线（EmotionController / ChatHook / LipSync）→ ViewModel
+                    viewModel.onLive2DViewCreated(view)
+                    // 实例上报 → App 级（Live2DaiApp 持有，支持生命周期与热切换）
+                    onLive2DViewCreated(view)
+                    // 重置入口本地引用（与 App 级引用同一实例）
+                    live2DView.value = view
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    // R1-ui M4b：连接状态指示（对齐 PC chat-header 的 chat-status 小字，
-                    // 行为锁：连接/断开时文案即时更新）
-                    Column {
-                        Text("Live2Dai")
-                        Text(
-                            text = connectionLabel(connectionState),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = when (connectionState) {
-                                ConnectionState.Connected -> MaterialTheme.colorScheme.primary
-                                ConnectionState.Connecting -> MaterialTheme.colorScheme.onPrimaryContainer
-                                ConnectionState.Disconnected -> MaterialTheme.colorScheme.error
-                            }
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.showClearConfirm.value = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "清空对话")
-                    }
-                    // C-M5 重置入口：清除该模型用户拖拽/缩放 override，回 fit 默认构图
-                    IconButton(onClick = {
-                        live2DView.value?.resetUserInteraction()
-                        Toast.makeText(context, "已重置模型位置与大小", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "重置模型位置与大小")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "设置")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            )
-        },
-        bottomBar = {
+        // ── 层1：右上角浮层控制（半透明悬浮在角色上） ──
+        // R15 保留：连接状态指示（R1-ui M4b，对齐 PC chat-header）+ 清空对话（对话框辅助）
+        //          + 设置入口（需求2 唯一入口）。全部半透明，不遮挡角色主体。
+        // Android 15 强制 edge-to-edge：statusBarsPadding 将控制条压到状态栏之下。
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 连接状态指示（连接/断开时文案即时更新）
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            ) {
+                Text(
+                    text = connectionLabel(connectionState),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (connectionState) {
+                        ConnectionState.Connected -> MaterialTheme.colorScheme.primary
+                        ConnectionState.Connecting -> MaterialTheme.colorScheme.onSurfaceVariant
+                        ConnectionState.Disconnected -> MaterialTheme.colorScheme.error
+                    },
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // 清空对话（对话框辅助功能）
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            ) {
+                IconButton(onClick = { viewModel.showClearConfirm.value = true }) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "清空对话",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // 设置入口（需求2：唯一保留的功能入口之一）
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            ) {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "设置",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // ── 层2：底部聊天浮层（半透明面板浮在角色上；键盘弹出整体上移，角色区不挤压） ──
+        // navigationBarsPadding：edge-to-edge 下避开系统手势条；
+        // imePadding：键盘弹出时浮层整体上移（adjustNothing 角色区不动）。
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            // ── 对话气泡列表（半透明浮层，上限高度避免盖住角色主体） ──
+            if (displayMessages.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 340.dp)
+                        .padding(horizontal = 12.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.Bottom
+                ) {
+                    items(
+                        items = displayMessages,
+                        key = { "msg_${it.id}" }
+                    ) { msg ->
+                        ChatBubble(message = msg, onOpenSettings = onOpenSettings)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+
+            // ── 输入栏（常驻底部，半透明浮层） ──
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
                 tonalElevation = 3.dp
             ) {
                 Row(
@@ -269,61 +328,6 @@ fun MainChatScreen(
                 }
             }
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // ── 聊天主区域 ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                // ── 背景层：Live2D 模型渲染 ──
-                // 视图创建后上报 ViewModel（表情/LipSync 接线）和 App 级（生命周期 + 热切换）
-                AndroidView(
-                    factory = { ctx ->
-                        Live2DView(ctx).also { view ->
-                            // 启动时按持久化的 selectedModelId 加载模型；
-                            // registry 解析失败 / 模型不存在时回退 getDefault()（硬编码 bai）
-                            val ctxRepo = SettingsRepository(ctx)
-                            val registry = ModelRegistry.load(ctx)
-                            val modelId = ctxRepo.selectedModelId
-                            val entry = registry.getById(modelId) ?: registry.getDefault()
-                            view.initialize("live2d/${entry.model3JsonPath}", entry.id)
-                            // 业务接线（EmotionController / ChatHook / LipSync）→ ViewModel
-                            viewModel.onLive2DViewCreated(view)
-                            // 实例上报 → App 级（Live2DaiApp 持有，支持生命周期与热切换）
-                            onLive2DViewCreated(view)
-                            // C-M5 重置入口本地引用（与 App 级引用同一实例）
-                            live2DView.value = view
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // ── 前景层：对话气泡列表 ──
-                if (displayMessages.isNotEmpty()) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        state = listState,
-                        verticalArrangement = Arrangement.Bottom
-                    ) {
-                        items(
-                            items = displayMessages,
-                            key = { "msg_${it.id}" }
-                        ) { msg ->
-                            ChatBubble(message = msg, onOpenSettings = onOpenSettings)
-                            Spacer(Modifier.height(8.dp))
-                        }
-                    }
-                }
-            }
-        }
     }
 
     // ── 首次启动引导对话框（一次性、可跳过） ──
@@ -338,7 +342,7 @@ fun MainChatScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("在「设置 → API 设置」填写你自己的 DeepSeek API Key 即可开始聊天（密钥只保存在本地，不会上传）。")
-                    Text("需要麦克风/悬浮窗等权限时，会在真正使用时单独询问，不会一次性轰炸你。")
+                    Text("需要麦克风等权限时，会在真正使用时单独询问，不会一次性轰炸你。")
                 }
             },
             confirmButton = {

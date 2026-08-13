@@ -153,11 +153,12 @@ class SettingsRepository(context: Context) {
     // ─── 主动陪伴开关（V1.2 模块6，契约 schema → Settings 新增 Keys）───
 
     /**
-     * 主动陪伴插件总开关（默认开）。关闭时 MainActivity 不装载 ProactivePlugin，
-     * 不排 WorkManager 周期任务（plan §5.6 R3 的「一键关闭主动陪伴」开关）。
+     * 主动陪伴插件总开关（R15 定时主动提醒移除：默认**关闭**）。
+     * 关闭时 MainActivity 不装载 ProactivePlugin，不排 WorkManager 周期任务
+     * （R15 需求3：定时提醒默认 false + resetAll() 恢复 false；T7 锁定签名）。
      */
     var proactiveEnabled: Boolean
-        get() = prefs.getBoolean(KEY_PROACTIVE_ENABLED, true)
+        get() = prefs.getBoolean(KEY_PROACTIVE_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_PROACTIVE_ENABLED, value).apply()
 
     // ─── 重置所有设置 ───
