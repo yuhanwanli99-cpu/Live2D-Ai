@@ -104,9 +104,10 @@ class EmotionControllerParamPathTest {
             "ParamBrowLY" to 0.35f, "ParamBrowRY" to 0.35f,
             "ParamEyeLOpen" to 0.9f, "ParamEyeROpen" to 0.9f,
             "ParamMouthForm" to 0.95f, "ParamMouthOpenY" to 0.35f,
-            // 姿态 6 键（BodyAngleX/Y/Z + AngleX/Y/Z）——joy._3：BAX=5 BAY=0 BAZ=6 AX=6 AY=8 AZ=3
-            "ParamBodyAngleX" to 5f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 6f,
-            "ParamAngleX" to 6f, "ParamAngleY" to 8f, "ParamAngleZ" to 3f
+            // 姿态 6 键（BodyAngleX/Y/Z + AngleX/Y/Z）——joy._3：R17 强化 BAZ=12（T8 表）
+            //   BAX=6 BAY=0 BAZ=12 AX=8 AY=10 AZ=4
+            "ParamBodyAngleX" to 6f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 12f,
+            "ParamAngleX" to 8f, "ParamAngleY" to 10f, "ParamAngleZ" to 4f
         )
         verify(mockLive2DView).setParametricExpression(joy3, 300)
     }
@@ -116,23 +117,24 @@ class EmotionControllerParamPathTest {
         // D3 离散选档：标签 _1/_2/_3 分别精确取对应帧
         `when`(mockLive2DView.hasExpressions()).thenReturn(false)
         emotionController.parseAndApply("[surprise_1]")
-        // R16 契约同步（T7c）：12 键 = 表情 6 键 + 姿态 6 键（surprise._1：BAX=8 BAY=0 BAZ=0 AX=3 AY=0 AZ=0）
+        // R17 动作强化同步：12 键 = 表情 6 键 + 姿态 6 键（surprise._1 走 BodyPoseReinforcement）
+        //   强化 BAX=15（T8 表）BAY=0 BAZ=0 AX=6 AY=0 AZ=0
         val s1 = mapOf(
             "ParamBrowLY" to 0.25f, "ParamBrowRY" to 0.25f,
             "ParamEyeLOpen" to 0.95f, "ParamEyeROpen" to 0.95f,
             "ParamMouthForm" to 0.5f, "ParamMouthOpenY" to 0.3f,
-            "ParamBodyAngleX" to 8f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 0f,
-            "ParamAngleX" to 3f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f
+            "ParamBodyAngleX" to 15f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 0f,
+            "ParamAngleX" to 6f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f
         )
         verify(mockLive2DView).setParametricExpression(s1, 300)
 
         emotionController.parseAndApply("[surprise_3]")
-        // 12 键（surprise._3：BAX=18 BAY=0 BAZ=0 AX=10 AY=0 AZ=0）
+        // 12 键（surprise._3：R17 强化 BAX=20，T8 表）BAY=0 BAZ=0 AX=10 AY=0 AZ=0
         val s3 = mapOf(
             "ParamBrowLY" to 0.55f, "ParamBrowRY" to 0.55f,
             "ParamEyeLOpen" to 1.5f, "ParamEyeROpen" to 1.5f,
             "ParamMouthForm" to 0.3f, "ParamMouthOpenY" to 0.7f,
-            "ParamBodyAngleX" to 18f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 0f,
+            "ParamBodyAngleX" to 20f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 0f,
             "ParamAngleX" to 10f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f
         )
         verify(mockLive2DView).setParametricExpression(s3, 300)
@@ -199,13 +201,13 @@ class EmotionControllerParamPathTest {
         // D3 离散选档中间档：标签 _2 精确取 _2 帧（surprise._2 实测自 bai.adapter.json）
         `when`(mockLive2DView.hasExpressions()).thenReturn(false)
         emotionController.parseAndApply("[surprise_2] 意外！")
-        // R16 契约同步（T7c）：12 键（surprise._2：BAX=13 BAY=0 BAZ=0 AX=6 AY=0 AZ=0）
+        // 12 键（surprise._2：R17 强化 BAX=18 AX=8，T8 表）
         val s2 = mapOf(
             "ParamBrowLY" to 0.4f, "ParamBrowRY" to 0.4f,
             "ParamEyeLOpen" to 1.2f, "ParamEyeROpen" to 1.2f,
             "ParamMouthForm" to 0.4f, "ParamMouthOpenY" to 0.5f,
-            "ParamBodyAngleX" to 13f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 0f,
-            "ParamAngleX" to 6f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f
+            "ParamBodyAngleX" to 18f, "ParamBodyAngleY" to 0f, "ParamBodyAngleZ" to 0f,
+            "ParamAngleX" to 8f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f
         )
         verify(mockLive2DView).setParametricExpression(s2, 300)
     }

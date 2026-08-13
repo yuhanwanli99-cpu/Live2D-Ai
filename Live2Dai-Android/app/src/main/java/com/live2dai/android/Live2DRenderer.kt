@@ -1906,6 +1906,10 @@ class Live2DRenderer(
             // 随 setLipSyncSpeakingProvider 更新实时生效（表情帧先于 speak 应用的主路径也覆盖）。
             animationPipeline?.expressionManager?.lipSyncMouthOpenYYield = { lipSyncSpeaking() }
 
+            // R17：说话联动激活源接线——同一 VoiceIoController 组合 isSpeaking 流（任一 TtsProvider 在播 = true）
+            // → SpeakingMotion 头部点头/身体起伏驱动源（经 LiaisonArbiter 仲裁写 ParamAngleX/ParamBodyAngleY）
+            animationPipeline?.speakingActiveProvider = { lipSyncSpeaking() }
+
             // 用 meta 初始化 BreathManager（如果可用）
             if (meta != null && meta.semantic.breathParams.isNotEmpty()) {
                 animationPipeline?.breath?.initialize(meta)

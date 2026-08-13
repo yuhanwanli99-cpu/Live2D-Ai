@@ -4,6 +4,8 @@ import android.util.Log
 import com.live2dai.android.data.BodyPoseFrames
 import com.live2dai.android.data.IdleMotionController
 import com.live2dai.android.data.IdleSample
+import com.live2dai.android.data.LiaisonArbiter
+import com.live2dai.android.data.SpeakingMotion
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.cos
@@ -966,6 +968,25 @@ class AnimationPipeline(
     /** 节流计数器（渲染帧单位；累计 ≥ IDLE_MOTION_THROTTLE_FRAMES 才写入一次） */
     private var idleMotionThrottleCounter = 0
 
+    // ── R17 说话联动（SpeakingMotion）状态 ──
+
+    /**
+     * R17 说话联动激活源（VoiceIoController 组合 isSpeaking：任一 TtsProvider 在播 = true）。
+     * 由 Live2DRenderer 在管线创建时注入（参照 C7d lipSyncMouthOpenYYield 注入方式，同一组合流）；
+     * null → 不激活（说话联动关闭，行为与 R17 前一致）。
+     */
+    @Volatile
+    var speakingActiveProvider: (() -> Boolean)? = null
+
+    /** R17 说话联动正弦相位累计时间（s）；说话停止 → 归零（下次从头相位起，无跳变） */
+    private var speakingMotionTime: Float = 0f
+
+    /** R17 说话联动写入节流计数器（渲染帧单位；与 idle 共用同一节流窗口语义，防脏标记短路失效） */
+    private var speakingMotionThrottleCounter = 0
+
+    /** R17 说话联动打点计数（真机取证日志降频：每 60 次写入一行） */
+    private var speakingMotionLogCounter = 0
+
     /** 是否已保存初始快照 */
     private var hasInitialSnapshot: Boolean = false
 
@@ -1282,11 +1303,34 @@ class AnimationPipeline(
         //     fps 61→87.5 avg，见 .pi/spoq/C6-fix2-throttle.md）。
         //     IdleMotionController 行为零改动（纯 JVM 可测类保持逐帧 update 语义，测试不受影响）；
         //     节流只发生在管线落点。
+        //     R17 统一仲裁（LiaisonArbiter）：BODY_HEAD 通道候选 = emotion(情绪姿态帧) > speaking(说话点头/起伏) > idle；
+        //     idle 头部/身体写入是否放行由仲裁裁决（情绪激活 LA-07 / 说话激活 LA-06 时让位），
+        //     眼神通道不参赛（arbiter 仅 BODY_HEAD/MOUTH 两通道）——保留既有无条件眼神写入。
+        val liaison = arbitrateLiaison()
+
         if (autoIdleMotionEnabled && !motionManager.isPlaying()) {
             idleMotionThrottleCounter += RENDER_FRAMES_PER_PIPELINE_UPDATE
             if (idleMotionThrottleCounter >= IDLE_MOTION_THROTTLE_FRAMES) {
                 idleMotionThrottleCounter = 0
-                applyIdleMotion(idleMotion.update(deltaTime))
+                applyIdleMotion(idleMotion.update(deltaTime), liaison)
+            }
+        }
+
+        // 6.5.1 R17 说话联动（头部点头 + 身体起伏）——BODY_HEAD 通道经仲裁器：
+        //     说话时 idle 头/身让位（LA-06）；情绪激活时说话点头/起伏让位但口型仍驱动（LA-08，
+        //     口型由 LipSync 独占，见 C7d）。与 idle 共用节流窗口语义（低频正弦慢变信号，
+        //     每 IDLE_MOTION_THROTTLE_FRAMES 渲染帧写入一次，防 native 脏标记短路失效掉帧）。
+        val speakingNow = speakingActiveProvider?.invoke() == true
+        if (!speakingNow) {
+            // 说话停止 → 相位归零（下次从头相位起）；节流计数复位
+            speakingMotionTime = 0f
+            speakingMotionThrottleCounter = 0
+        }
+        if (speakingNow && !motionManager.isPlaying()) {
+            speakingMotionThrottleCounter += RENDER_FRAMES_PER_PIPELINE_UPDATE
+            if (speakingMotionThrottleCounter >= IDLE_MOTION_THROTTLE_FRAMES) {
+                speakingMotionThrottleCounter = 0
+                applySpeakingMotion(deltaTime, liaison)
             }
         }
 
@@ -1348,15 +1392,22 @@ class AnimationPipeline(
      * 三通道与既有通道互不重叠：EyeBall（眼神）不碰眨眼 EyeLOpen/ROpen；Angle/BodyAngle 不碰呼吸 ParamBreath。
      * 全部按 native min/max 钳制（bai：角度 ±30、眼球 ±1）。
      *
-     * R16 半身姿态让位（task-C7b 项 3）：情绪姿态帧激活（[emotionalPoseActive]）期间，
-     * idle 头部角度 + 身体晃动写入整体让位（不写 = 姿态帧绝对值保留，防每 ~50ms 打架）。
-     * 眼神通道保留（姿态帧无 EyeBall 键，零交集）。deviation 记录：任务字面“bodySway 幅度降 0
-     * （Angles 保留）”——落点实现为 bodySway 与头部 Angles 一并让位，理由：姿态帧含
-     * ParamAngleX/Y 且 Overwrite 绝对值（sadness AX=-12 等），保留 idle 头写会每 ~50ms 覆盖
-     * 情绪头位使 R16 轴语义不可见；IdleMotionController 类本身零改动（Angles 持续计算，测试不受影响），
+     * R17 统一仲裁（task-C8 / T8）：BODY_HEAD 通道由 [LiaisonArbiter] 裁决
+     * （emotion(姿态帧) > speaking(说话) > idle），本落点只在仲裁判 IDLE 驱动时写头部/身体：
+     * - 情绪姿态帧激活（LA-07）→ idle 头部角度 + 身体晃动整体让位（不写 = 姿态帧绝对值保留，
+     *   防每 ~50ms 打架）——R16 既有行为收敛进仲裁器；
+     * - 说话激活（LA-06）→ idle 头部/身体同样让位（说话点头/起伏接管，经 SpeakingMotion 落点）。
+     * 眼神通道保留（姿态帧无 EyeBall 键、说话联动无 EyeBall 键，零交集）。
+     * deviation 记录（R16 遗留，语义不变）：任务字面“bodySway 幅度降 0（Angles 保留）”
+     * ——落点实现为 bodySway 与头部 Angles 一并让位，理由：姿态帧含 ParamAngleX/Y 且 Overwrite 绝对值
+     * （sadness AX=-12 等），保留 idle 头写会每 ~50ms 覆盖情绪头位使 R16 轴语义不可见；
+     * IdleMotionController 类本身零改动（Angles 持续计算，测试不受影响），
      * 让位仅发生在管线落点，与 R13 “motion 播放时 idle 让位”同语义。
      */
-    private fun applyIdleMotion(sample: IdleSample) {
+    private fun applyIdleMotion(
+        sample: IdleSample,
+        arbitration: LiaisonArbiter.ArbitrationResult,
+    ) {
         val minValues = Live2DNative.getParameterMinValues(modelPtr(model))
         val maxValues = Live2DNative.getParameterMaxValues(modelPtr(model))
         fun applyParam(id: String, value: Float) {
@@ -1367,11 +1418,70 @@ class AnimationPipeline(
         }
         applyParam("ParamEyeBallX", sample.eyeBallX)
         applyParam("ParamEyeBallY", sample.eyeBallY)
-        if (emotionalPoseActive()) return
+        // R17：BODY_HEAD 通道仲裁（emotion > speaking > idle）——非 IDLE 驱动则头部/身体让位
+        // （情绪姿态帧 / 说话联动接管）；眼神通道不参赛，恒写（保留既有行为）
+        if (arbitration.drives[LiaisonArbiter.Channel.BODY_HEAD] != LiaisonArbiter.Source.IDLE) return
         applyParam("ParamAngleX", sample.headAngleX)
         applyParam("ParamAngleY", sample.headAngleY)
         // 身体晃动：归一化 bodySway（±0.15）→ 角度（×±30 钳制；低频，周期 > 头部）
         applyParam("ParamBodyAngleX", sample.bodySway * IdleMotionController.BAI_ANGLE_CLAMP_DEG)
+    }
+
+    /**
+     * R17 统一联动仲裁（[LiaisonArbiter] 单入口）：每帧收集 4 源激活状态 → 仲裁。
+     * - emotion: 情绪姿态帧激活（R16 [emotionalPoseActive]，含淡出中的旧表情）
+     * - speaking: TTS 播放中（VoiceIoController 组合 isSpeaking，经 [speakingActiveProvider] 注入）
+     * - expression: 表情层有活跃表达式（含淡出中的旧表情与结构化 mix；驱动 MOUTH 通道）
+     * - idle: 程序化待机可用（autoIdleMotionEnabled 且无 motion 播放）
+     * 表情/姿态应用入口（EmotionController → Live2DRenderer.setParametricExpression → ExpressionManager）
+     * 以 expressionManager 状态在此登记激活——仲裁器每帧读取，无需跨组件额外状态。
+     */
+    private fun arbitrateLiaison(): LiaisonArbiter.ArbitrationResult {
+        val expressionActive = expressionManager.currentExpression != null ||
+            expressionManager.previousExpression != null ||
+            expressionManager.expressionMix.isNotEmpty()
+        return LiaisonArbiter.arbitrate(
+            LiaisonArbiter.Sources(
+                emotionActive = emotionalPoseActive(),
+                speakingActive = speakingActiveProvider?.invoke() == true,
+                expressionActive = expressionActive,
+                idleActive = autoIdleMotionEnabled && !motionManager.isPlaying(),
+            )
+        )
+    }
+
+    /**
+     * R17 说话联动落点（[SpeakingMotion] 低频正弦 → 模型参数）：
+     * - 点头 → ParamAngleX（头 pitch，低频 0.5-1Hz，±4°）
+     * - 起伏 → ParamBodyAngleY（身体，周期 2.4s 与呼吸 2.5s 错相位，±2°）
+     * 仲裁：BODY_HEAD 通道说话让位（emotion 激活，LA-08）→ 相位冻结（正弦值连续，恢复后续写不跳变）。
+     * 说话停止 → 相位由调用方归零（[speakingMotionTime]）。全部按 native min/max 钳制。
+     */
+    private fun applySpeakingMotion(
+        deltaTime: Float,
+        arbitration: LiaisonArbiter.ArbitrationResult,
+    ) {
+        // 仲裁：emotion 激活 → speaking 在 BODY_HEAD 通道让位（LA-08；口型仍由 LipSync 独占驱动）
+        if (arbitration.drives[LiaisonArbiter.Channel.BODY_HEAD] != LiaisonArbiter.Source.SPEAKING) return
+        speakingMotionTime += deltaTime
+        val nod = SpeakingMotion.headNodOffset(speakingMotionTime)
+        val rise = SpeakingMotion.bodyRiseOffset(speakingMotionTime)
+        applyClampedParam("ParamAngleX", nod)
+        applyClampedParam("ParamBodyAngleY", rise)
+        // R17 取证打点（真机 logcat：低频正弦相位可观测；降频每 60 次写入一行 ≈3s）
+        speakingMotionLogCounter++
+        if (speakingMotionLogCounter % 60 == 1) {
+            Log.i(tag, "[SpeakingMotion] t=${String.format("%.2f", speakingMotionTime)}s " +
+                "nod=${String.format("%.2f", nod)}deg rise=${String.format("%.2f", rise)}deg")
+        }
+    }
+
+    /** 按 native min/max 钳制写入单参数（缺失参数静默跳过） */
+    private fun applyClampedParam(id: String, value: Float) {
+        val idx = paramNameToIndex[id] ?: return
+        val minV = Live2DNative.getParameterMinValues(modelPtr(model))?.getOrElse(idx) { -1f } ?: -1f
+        val maxV = Live2DNative.getParameterMaxValues(modelPtr(model))?.getOrElse(idx) { 1f } ?: 1f
+        model.setParameterValue(idx, value.coerceIn(minV, maxV))
     }
 
     /**
