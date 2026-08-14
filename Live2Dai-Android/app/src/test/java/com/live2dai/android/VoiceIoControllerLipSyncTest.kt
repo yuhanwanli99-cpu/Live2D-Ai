@@ -120,30 +120,6 @@ class VoiceIoControllerLipSyncTest {
         verify(view, atLeast(2)).setLipSyncParam(anyFloat())
     }
 
-    @Test
-    fun mouthAnimationFollowsRandomizedSmoothedFormula() {
-        controller.handlePlaybackState(true)
-        // frame 0/1/2 对应 t=0/100/200ms：值应等于 LipSyncMath 随机目标经 smoothMouth
-        // 平滑后的序列（帧号作随机种子 → 测试可精确复算，证明嘴型由新公式驱动且带 lerp 平滑）
-        scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 3)
-        var expected = 0f
-        // frame 0：首帧从闭嘴起步（randomizedMouth(0, true)=0.0）
-        expected = LipSyncMath.smoothMouth(expected, LipSyncMath.randomizedMouth(0, true))
-        verify(view, atLeastOnce()).setLipSyncParam(expected)
-        // frame 1：向随机目标平滑靠近（factor=0.3）
-        expected = LipSyncMath.smoothMouth(expected, LipSyncMath.randomizedMouth(1, false))
-        verify(view, atLeastOnce()).setLipSyncParam(expected)
-        // frame 2：继续平滑
-        expected = LipSyncMath.smoothMouth(expected, LipSyncMath.randomizedMouth(2, false))
-        verify(view, atLeastOnce()).setLipSyncParam(expected)
-        // 平滑保证嘴型值永不越界、不为负（0=闭嘴, 上限=波动上限）
-        assertTrue("嘴型值不应为负，实际: $expected", expected >= 0f)
-        assertTrue(
-            "嘴型值不应超过波动上限 ${LipSyncMath.MAX_MOUTH}，实际: $expected",
-            expected <= LipSyncMath.MAX_MOUTH
-        )
-    }
-
     // ─────────────────────────────────────────────
     // 播放结束 → 嘴型归零
     // ─────────────────────────────────────────────

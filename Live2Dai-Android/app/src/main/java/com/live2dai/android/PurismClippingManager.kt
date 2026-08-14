@@ -89,16 +89,31 @@ class PurismClippingManager(
     /** 上一帧使用的 mask 纹理 ID（用于 bind 优化） */
     private var lastMaskTextureId: Int = -1
 
+    // ── C4-GC：mask 分组静态化状态 ──
+    //  drawable→mask 组关联（collectClippingContexts 产物）是 moc3 加载后恒定的
+    //  静态模型数据，不再每帧重建；仅在首次 prepareFrame（或 invalidateMaskBuffers
+    //  失效）时构建一次。每帧只做变形相关的包围盒/布局/矩阵更新。
+    private var clippingContextsInitialized = false
+
+    /** 顶点复用缓冲（容量 = 最大 mask drawable 顶点数 × 2，一次分配，消除每帧 FloatArray） */
+    private var boundsVertexBuffer: FloatArray = FloatArray(0)
+
     // ============================================================
     //  公有方法
     // ============================================================
 
     /**
-     * 每帧入口：从 model 获取最新 drawable 数据，重建 mask 分组，
-     * 计算包围盒、分配布局、生成矩阵。
+     * 每帧入口：更新 mask 包围盒、分配布局、生成矩阵。
+     *
+     * C4-GC：mask 分组（drawable→mask 组关联）是静态模型数据，仅首次（或
+     * invalidateMaskBuffers 失效后）构建一次；每帧仅做变形相关更新
+     * （calcClippedTotalBounds 随 deformer 变形，setupLayoutBounds/createMatrices 随包围盒）。
      */
     fun prepareFrame() {
-        collectClippingContexts()
+        if (!clippingContextsInitialized) {
+            collectClippingContexts()
+            clippingContextsInitialized = true
+        }
         calcClippedTotalBounds()
         setupLayoutBounds()
         createMatrices()
@@ -215,6 +230,16 @@ class PurismClippingManager(
             for (maskIdx in ctx.clippingIdList) {
                 val d = drawableFinder(maskIdx) ?: continue
 
+                // 面剔除（与主循环同语义）：单面 mask drawable 剔除 + frontFace=CCW。
+                // 若不设，mask pass 沿用上一帧 drawObjectLoop 清理后的 frontFace=CW →
+                // CCW 绕向的单面 mask 形状被剔除 → mask 缺失/反向。
+                if (d.isDoubleSided) {
+                    GLES20.glDisable(GLES20.GL_CULL_FACE)
+                } else {
+                    GLES20.glEnable(GLES20.GL_CULL_FACE)
+                    GLES20.glFrontFace(GLES20.GL_CCW)
+                }
+
                 // 绑定 mask drawable 自己的纹理
                 val texId = textureResolver(d.textureIndex) ?: continue
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -250,12 +275,17 @@ class PurismClippingManager(
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glUseProgram(0)
 
+        // 恢复 clear color（mask pass 清除为 (1,1,1,1) 白——超采样分支在 mask pass 之后才 glClear，
+        // 不恢复则主渲染清屏变白 → 必须恢复 (0,0,0,0)）
+        GLES20.glClearColor(0f, 0f, 0f, 0f)
+
         // 恢复 viewport
         GLES20.glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3])
 
         // 恢复标准 blend
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glEnable(GLES20.GL_CULL_FACE)
+        GLES20.glFrontFace(GLES20.GL_CW)
 
         lastMaskTextureId = -1
     }
@@ -274,8 +304,10 @@ class PurismClippingManager(
         }
         maskBuffers.clear()
         maskBuffersInitialized = false
+        clippingContextsInitialized = false
         clippingContextListForMask.clear()
         clippingContextListForDraw.clear()
+        boundsVertexBuffer = FloatArray(0)
     }
 
     // ============================================================
@@ -283,25 +315,40 @@ class PurismClippingManager(
     // ============================================================
 
     /**
-     * 收集 clipping context。
+     * 收集 clipping context（**模型加载后只执行一次**）。
      * 等效于 CubismJavaFramework 的 ACubismClippingManager.initialize()。
+     *
+     * C4-GC：
+     * - mask 分组关系是静态模型数据 → 由 prepareFrame 首次调用 / invalidateMaskBuffers 触发重建；
+     * - 整数 Long key（maskIds 排序后按位打包）替代 `sorted().joinToString(",")` 消除 String 分配；
+     * - mask 数据全部走 PurismModel 静态缓存（零 JNI/零数组分配）；
+     * - 按最大 mask drawable 顶点数一次分配顶点复用缓冲。
      */
     private fun collectClippingContexts() {
         val count = model.getDrawableCount()
 
-        val maskKeyToContext = mutableMapOf<String, ClippingContext>()
+        // 静态缓存：mask 计数 / mask 索引列表 / 顶点数（模型内恒定，仅首次访问走 JNI）
+        val maskCounts = model.getDrawableMaskCountsCached()
+        val maskLists = model.getDrawableMasksCached()
+        val vertexCounts = model.getDrawableVertexCountsCached()
+
+        // C4-GC：Long key 替代 String key（≤4 个 mask 按位打包精确无碰撞；>4 折叠+内容比对兜底）
+        val maskKeyToContext = HashMap<Long, ClippingContext>()
         clippingContextListForMask.clear()
         clippingContextListForDraw.clear()
 
+        var maxMaskVertexCount = 0
+
         for (drawableIndex in 0 until count) {
-            val maskCount = model.getDrawableMaskCount(drawableIndex)
+            val maskCount = maskCounts.getOrElse(drawableIndex) { 0 }
             if (maskCount == 0) {
                 clippingContextListForDraw.add(null)
                 continue
             }
 
-            val maskIds = model.getDrawableMasks(drawableIndex)
-            val key = maskIds.sorted().joinToString(",")
+            val maskIds = maskLists.getOrElse(drawableIndex) { IntArray(0) }
+            val sortedIds = maskIds.sortedArray()
+            val key = maskGroupKey(sortedIds)
 
             var ctx = maskKeyToContext[key]
             if (ctx == null) {
@@ -312,10 +359,68 @@ class PurismClippingManager(
                 maskKeyToContext[key] = ctx
                 clippingContextListForMask.add(ctx)
             } else {
+                // Long key 碰撞兜底（仅 >4 mask 折叠场景可达；≤4 打包精确）:
+                // 以排序内容做集合相等比对，防止不同 mask 集合误合并。
+                if (ctx.clippingIdList.size != maskIds.size || !sameMaskSet(ctx.clippingIdList, sortedIds)) {
+                    val exact = clippingContextListForMask.firstOrNull {
+                        it.clippingIdList.size == maskIds.size && sameMaskSet(it.clippingIdList, sortedIds)
+                    }
+                    if (exact != null) {
+                        ctx = exact
+                    } else {
+                        ctx = ClippingContext(
+                            clippingIdList = maskIds,
+                            clippedDrawableIndexList = mutableListOf(drawableIndex)
+                        )
+                        maskKeyToContext[key] = ctx
+                        clippingContextListForMask.add(ctx)
+                    }
+                }
                 ctx.clippedDrawableIndexList.add(drawableIndex)
             }
             clippingContextListForDraw.add(ctx)
+
+            // 统计最大 mask drawable 顶点数 → 顶点复用缓冲容量（一次分配）
+            for (mi in maskIds) {
+                val vc = vertexCounts.getOrElse(mi) { 0 }
+                if (vc > maxMaskVertexCount) maxMaskVertexCount = vc
+            }
         }
+
+        // C4-GC：顶点复用缓冲一次分配（容量 = 最大 mask drawable 顶点数 × 2 交错 xy）
+        if (boundsVertexBuffer.size < maxMaskVertexCount * 2) {
+            boundsVertexBuffer = FloatArray(maxMaskVertexCount * 2)
+        }
+    }
+
+    /**
+     * mask 集合相等判定（忽略顺序；a 与 sortedB 比较）。
+     */
+    private fun sameMaskSet(a: IntArray, sortedB: IntArray): Boolean {
+        if (a.size != sortedB.size) return false
+        val sortedA = a.sortedArray()
+        for (i in sortedA.indices) {
+            if (sortedA[i] != sortedB[i]) return false
+        }
+        return true
+    }
+
+    /**
+     * mask 组 Long key：排序后按位打包（每个 mask 索引 16 位，≤4 个精确无碰撞；
+     * 超 4 个折叠剩余 id 作哈希，由 sameMaskSet 内容比对兜底）。
+     */
+    private fun maskGroupKey(sortedIds: IntArray): Long {
+        var key = 0L
+        val n = sortedIds.size
+        for (i in 0 until minOf(n, 4)) {
+            key = (key shl 16) or (sortedIds[i].toLong() and 0xFFFFL)
+        }
+        if (n > 4) {
+            for (i in 4 until n) {
+                key = key xor (sortedIds[i].toLong() and 0xFFFFL)
+            }
+        }
+        return key
     }
 
     // ============================================================
@@ -327,8 +432,19 @@ class PurismClippingManager(
      *
      * 对应 CubismJavaFramework 的 ACubismClippingManager.calcClippedTotalBounds()。
      * MASK_MARGIN = 0.05 — 包围盒外扩 5% margin。
+     *
+     * C4-GC（分配风暴修复）：
+     * - 每帧仍执行（mask 顶点随 deformer 变形）；
+     * - 只处理可见（DYNAMIC_IS_VISIBLE，与主循环同源）的 mask drawable（任务 2a）；
+     *   安全兜底：某 context 的 mask 全部不可见时回退全量，防 mask 整组消失；
+     * - 顶点经 fillDrawablePositions 写入复用 FloatArray 缓冲（成员变量一次分配），
+     *   消除每帧 86 次 getDrawableVertices JNI FloatArray 分配（任务 2b）。
      */
     private fun calcClippedTotalBounds() {
+        // 每帧单次取动态可见性位（475 字节小数组；渲染器主循环同源 DYNAMIC_IS_VISIBLE）
+        val dynFlags = Live2DNative.getDrawableDynamicFlags(model.modelPtr)
+        val vertexCounts = model.getDrawableVertexCountsCached()
+
         for (ctx in clippingContextListForMask) {
             var minX = Float.MAX_VALUE
             var minY = Float.MAX_VALUE
@@ -336,17 +452,44 @@ class PurismClippingManager(
             var maxY = -Float.MAX_VALUE
             var hasVertices = false
 
-            for (drawIdx in ctx.clippingIdList) {
-                val positions = model.getDrawableVertices(drawIdx)
-                for (vi in positions.indices step 2) {
-                    val x = positions[vi]
-                    val y = positions[vi + 1]
+            // 可见过滤：任一 mask drawable 可见才启用过滤；全不可见 → 回退全量（防整组消失）
+            var anyVisible = false
+            if (dynFlags != null) {
+                for (maskIdx in ctx.clippingIdList) {
+                    if ((dynFlags.getOrElse(maskIdx) { 0 }.toInt() and Live2DNative.DYNAMIC_IS_VISIBLE) != 0) {
+                        anyVisible = true
+                        break
+                    }
+                }
+            }
+
+            for (maskIdx in ctx.clippingIdList) {
+                if (dynFlags != null && anyVisible &&
+                    (dynFlags.getOrElse(maskIdx) { 0 }.toInt() and Live2DNative.DYNAMIC_IS_VISIBLE) == 0
+                ) {
+                    continue
+                }
+
+                // 复用缓冲写入（容量防御：顶点数为模型内恒定静态值，首帧已按 max 预分配）
+                val vc = vertexCounts.getOrElse(maskIdx) { 0 }
+                if (boundsVertexBuffer.size < vc * 2) {
+                    boundsVertexBuffer = FloatArray(vc * 2)
+                }
+                val written = Live2DNative.fillDrawablePositions(model.modelPtr, maskIdx, boundsVertexBuffer)
+                if (written <= 0) continue
+
+                val n = written * 2
+                var vi = 0
+                while (vi < n) {
+                    val x = boundsVertexBuffer[vi]
+                    val y = boundsVertexBuffer[vi + 1]
                     if (x < minX) minX = x
                     if (y < minY) minY = y
                     if (x > maxX) maxX = x
                     if (y > maxY) maxY = y
-                    hasVertices = true
+                    vi += 2
                 }
+                hasVertices = true
             }
 
             if (!hasVertices) {
@@ -481,6 +624,13 @@ class PurismClippingManager(
 
     /**
      * 创建 matrixForMask。
+     *
+     * 顶点管线（先应用者先写，对齐 Cubism ACubismClippingManager.createMatrixForMask）：
+     *   v -= bounds 原点 → 缩放到 layout 尺寸 → 平移到 layout UV 位置 → ×2 去 NDC → −1,−1 居中
+     *   即 M = T(−1,−1) · S(2,2) · T(layout) · S(scale) · T(−bounds)
+     * ⚠️ Android Matrix.translateM/scaleM 为**右乘**（m = m·X，后调用者先作用于顶点），
+     * 故下面按“顶点先应用”的逆序调用（T(−bounds) 最后调用 = 最先作用于顶点）。
+     * 输出 = NDC 坐标（SetupMask 片元用 u_baseColor（layout NDC 边界）做 isInside 边界测试）。
      */
     private fun createOrthoForMask(ctx: ClippingContext): FloatArray {
         val bounds = ctx.allClippedDrawRect
@@ -497,18 +647,26 @@ class PurismClippingManager(
         val m = FloatArray(16)
         Matrix.setIdentityM(m, 0)
 
-        Matrix.translateM(m, 0, -bounds.left, -bounds.top, 0f)
-        Matrix.scaleM(m, 0, scaleX, scaleY, 1f)
-        Matrix.translateM(m, 0,
-            layout[0] * 2f - 1f,
-            layout[1] * 2f - 1f,
-            0f)
+        // 目标矩阵 M = T(−bounds) · S(scale) · T(layout) · S(2) · T(−1,−1)
+        // Android Matrix.*M 为右乘（m ← m·X），后调用者先作用于顶点 → 按顶点管线逆序调用：
+        Matrix.translateM(m, 0, -1f, -1f, 0f)                     // 最后作用于顶点：UV → NDC 居中
+        Matrix.scaleM(m, 0, 2f, 2f, 1f)                           // UV [0,1] → [0,2]
+        Matrix.translateM(m, 0, layout[0], layout[1], 0f)         // 平移到 layout UV 位置
+        Matrix.scaleM(m, 0, scaleX, scaleY, 1f)                   // 缩放到 layout 尺寸
+        Matrix.translateM(m, 0, -bounds.left, -bounds.top, 0f)    // 最先作用于顶点：v -= bounds 原点
 
         return m
     }
 
     /**
      * 创建 matrixForDraw。
+     *
+     * 顶点管线（先应用者先写，对齐 Cubism ACubismClippingManager.createMatrixForDraw）：
+     *   v -= bounds 原点 → 缩放到 layout 尺寸 → 平移到 layout UV 位置
+     *   即 M = T(layout) · S(scale) · T(−bounds)
+     * ⚠️ Android Matrix.translateM/scaleM 为**右乘**（m = m·X，后调用者先作用于顶点），
+     * 故下面按“顶点先应用”的逆序调用（T(−bounds) 最后调用 = 最先作用于顶点）。
+     * 输出 = mask 纹理 UV 空间 [0,1]（Masked 片元用 v_clipPos.xy/w 采样 s_texture1）。
      */
     private fun createClipMatrixForDraw(ctx: ClippingContext): FloatArray {
         val bounds = ctx.allClippedDrawRect
@@ -525,9 +683,11 @@ class PurismClippingManager(
         val m = FloatArray(16)
         Matrix.setIdentityM(m, 0)
 
-        Matrix.translateM(m, 0, -bounds.left, -bounds.top, 0f)
-        Matrix.scaleM(m, 0, scaleX, scaleY, 1f)
-        Matrix.translateM(m, 0, layout[0], layout[1], 0f)
+        // 目标矩阵 M = T(layout) · S(scale) · T(−bounds)
+        // Android Matrix.*M 为右乘（m ← m·X），后调用者先作用于顶点 → 按顶点管线逆序调用：
+        Matrix.translateM(m, 0, layout[0], layout[1], 0f)         // 最后作用于顶点：平移到 layout UV 位置
+        Matrix.scaleM(m, 0, scaleX, scaleY, 1f)                   // 缩放到 layout 尺寸
+        Matrix.translateM(m, 0, -bounds.left, -bounds.top, 0f)    // 最先作用于顶点：v -= bounds 原点
 
         return m
     }
@@ -592,8 +752,13 @@ class PurismClippingManager(
 
     /**
      * 销毁旧 FBO 并标记需要重建。
+     * C4-GC：同时失效静态 mask 分组（下次 prepareFrame 重建），
+     * 供模型切换/资源失效场景复用。
      */
     fun invalidateMaskBuffers() {
+        clippingContextsInitialized = false
+        clippingContextListForMask.clear()
+        clippingContextListForDraw.clear()
         maskBuffersInitialized = false
         if (maskBuffers.isNotEmpty()) {
             for (buf in maskBuffers) {

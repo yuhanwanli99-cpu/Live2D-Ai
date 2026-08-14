@@ -66,6 +66,11 @@ object Live2DNative {
     external fun getDrawableOpacities(modelPtr: Long): FloatArray?
     external fun getDrawableVertexCounts(modelPtr: Long): IntArray?
     external fun getDrawablePositions(modelPtr: Long, drawableIndex: Int): FloatArray?
+    /**
+     * C4-GC：将指定 drawable 的顶点写入调用方提供的复用缓冲（消除每帧 FloatArray 分配）。
+     * 返回写入的顶点数（vCount）；输入非法/缓冲过小返回 -1。
+     */
+    external fun fillDrawablePositions(modelPtr: Long, drawableIndex: Int, out: FloatArray): Int
     external fun getDrawableUvs(modelPtr: Long, drawableIndex: Int): FloatArray?
     external fun getDrawableIndexCounts(modelPtr: Long): IntArray?
     external fun getDrawableIndices(modelPtr: Long, drawableIndex: Int): ShortArray?

@@ -152,95 +152,6 @@ Java_com_live2dai_android_Live2DNative_updateModel(JNIEnv *env, jclass clazz, jl
     csmModel *model = (csmModel*)block[1];
     csmResetDrawableDynamicFlags(model);
     csmUpdateModel(model);
-
-    // [C8e-probe] TEMPORARY: dump top drawables by model-space maxY at steady state (frame 150). Remove after capture.
-    {
-        static int c8e_frames = 0;
-        c8e_frames++;
-        if (c8e_frames == 150) {
-            int dc = csmGetDrawableCount(model);
-            const char **ids = csmGetDrawableIds(model);
-            const csmVector2 **positions = csmGetDrawableVertexPositions(model);
-            const int *vcounts = csmGetDrawableVertexCounts(model);
-            const int *texs = csmGetDrawableTextureIndices(model);
-            const int *orders = csmGetDrawableDrawOrders(model);
-            const int *parents = csmGetDrawableParentPartIndices(model);
-            const float *opacities = csmGetDrawableOpacities(model);
-            const csmFlags *dynFlags = csmGetDrawableDynamicFlags(model);
-            const char **partIds = csmGetPartIds(model);
-            struct { int idx; float minX,maxX,minY,maxY; int vc; float op; } top[25];
-            for (int i = 0; i < 25; i++) { top[i].idx = -1; top[i].maxY = -1e9f; }
-            float gMinX=1e9f,gMaxX=-1e9f,gMinY=1e9f,gMaxY=-1e9f;
-            for (int d = 0; d < dc; d++) {
-                const csmVector2 *p = positions[d];
-                int vc = vcounts[d];
-                float mnX=1e9f,mxX=-1e9f,mnY=1e9f,mxY=-1e9f;
-                for (int v = 0; v < vc; v++) {
-                    float x = p[v].X, y = p[v].Y;
-                    if (x<mnX)mnX=x; if (x>mxX)mxX=x;
-                    if (y<mnY)mnY=y; if (y>mxY)mxY=y;
-                }
-                if (mnX<gMinX)gMinX=mnX; if (mxX>gMaxX)gMaxX=mxX;
-                if (mnY<gMinY)gMinY=mnY; if (mxY>gMaxY)gMaxY=mxY;
-                float op = opacities ? opacities[d] : -1.0f;
-                for (int t = 0; t < 25; t++) {
-                    if (mxY > top[t].maxY) {
-                        for (int k = 24; k > t; k--) top[k] = top[k-1];
-                        top[t].idx = d; top[t].minX=mnX; top[t].maxX=mxX; top[t].minY=mnY; top[t].maxY=mxY; top[t].vc=vc; top[t].op=op;
-                        break;
-                    }
-                }
-            }
-            __android_log_print(ANDROID_LOG_INFO, "Live2DNative",
-                "[C8e-probe] frame=%d drawables=%d global bbox=[%.3f..%.3f, %.3f..%.3f]",
-                c8e_frames, dc, gMinX, gMaxX, gMinY, gMaxY);
-            for (int t = 0; t < 25 && top[t].idx >= 0; t++) {
-                int d = top[t].idx;
-                const char *pid = (parents && parents[d] >= 0 && partIds) ? partIds[parents[d]] : "?";
-                __android_log_print(ANDROID_LOG_INFO, "Live2DNative",
-                    "[C8e-probe] top%02d di=%d id=%s bbox=[%.3f..%.3f, %.3f..%.3f] vc=%d tex=%d order=%d parentPart=%s(%d) opacity=%.2f vis=%d",
-                    t, d, ids ? ids[d] : "?", top[t].minX, top[t].maxX, top[t].minY, top[t].maxY,
-                    top[t].vc, texs ? texs[d] : -1, orders ? orders[d] : -1,
-                    pid, parents ? parents[d] : -1, top[t].op, dynFlags ? (dynFlags[d] & 1 ? 1 : 0) : -1);
-            }
-            // dump all visible drawables (opacity > 0.3) with maxY > 0.45
-            for (int d = 0; d < dc; d++) {
-                const csmVector2 *p = positions[d];
-                int vc = vcounts[d];
-                float mnX=1e9f,mxX=-1e9f,mnY=1e9f,mxY=-1e9f;
-                for (int v = 0; v < vc; v++) {
-                    float x = p[v].X, y = p[v].Y;
-                    if (x<mnX)mnX=x; if (x>mxX)mxX=x;
-                    if (y<mnY)mnY=y; if (y>mxY)mxY=y;
-                }
-                float op = opacities ? opacities[d] : -1.0f;
-                if (op > 0.3f && mxY > 0.45f) {
-                    const char *pid = (parents && parents[d] >= 0 && partIds) ? partIds[parents[d]] : "?";
-                    __android_log_print(ANDROID_LOG_INFO, "Live2DNative",
-                        "[C8e-probe] vis di=%d id=%s bbox=[%.3f..%.3f, %.3f..%.3f] vc=%d tex=%d order=%d parentPart=%s opacity=%.2f",
-                        d, ids ? ids[d] : "?", mnX, mxX, mnY, mxY,
-                        vc, texs ? texs[d] : -1, orders ? orders[d] : -1, pid, op);
-                }
-            }
-            // always dump di=26 and di=244 (suspicious top pieces) regardless of opacity
-            for (int d = 0; d < dc; d++) {
-                if (d != 26 && d != 244) continue;
-                const csmVector2 *p = positions[d];
-                int vc = vcounts[d];
-                float mnX=1e9f,mxX=-1e9f,mnY=1e9f,mxY=-1e9f;
-                for (int v = 0; v < vc; v++) {
-                    float x = p[v].X, y = p[v].Y;
-                    if (x<mnX)mnX=x; if (x>mxX)mxX=x;
-                    if (y<mnY)mnY=y; if (y>mxY)mxY=y;
-                }
-                const char *pid = (parents && parents[d] >= 0 && partIds) ? partIds[parents[d]] : "?";
-                __android_log_print(ANDROID_LOG_INFO, "Live2DNative",
-                    "[C8e-probe] suspect di=%d id=%s bbox=[%.3f..%.3f, %.3f..%.3f] vc=%d tex=%d parentPart=%s opacity=%.2f vis=%d",
-                    d, ids ? ids[d] : "?", mnX, mxX, mnY, mxY, vc, texs ? texs[d] : -1, pid,
-                    opacities ? opacities[d] : -1.0f, dynFlags ? (dynFlags[d] & 1 ? 1 : 0) : -1);
-            }
-        }
-    }
 }
 
 /* C8b: whether the last csmUpdateModel took the light (frozen) path. */
@@ -575,6 +486,41 @@ Java_com_live2dai_android_Live2DNative_getDrawablePositions(JNIEnv *env, jclass 
     return result;
 }
 
+/**
+ * C4-GC: Fill positions for a specific drawable into a caller-provided buffer.
+ *
+ * Returns the number of vertices written (vCount), or -1 on invalid input.
+ * The buffer must be at least vCount * 2 floats long. Unlike getDrawablePositions
+ * (which allocates a fresh jfloatArray per call), this writes into the caller's
+ * reusable buffer, eliminating per-frame FloatArray allocation in the mask bounds
+ * pass (calcClippedTotalBounds).
+ */
+JNIEXPORT jint JNICALL
+Java_com_live2dai_android_Live2DNative_fillDrawablePositions(JNIEnv *env, jclass clazz,
+                                                             jlong modelPtr, jint drawableIndex,
+                                                             jfloatArray out) {
+    if (modelPtr == 0 || out == nullptr) return -1;
+    void **block = (void**)(intptr_t)modelPtr;
+    csmModel *model = (csmModel*)block[1];
+
+    int count = csmGetDrawableCount(model);
+    if (drawableIndex < 0 || drawableIndex >= count) return -1;
+
+    const csmVector2 *positions = csmGetDrawableVertexPositions(model)[drawableIndex];
+    int vCount = csmGetDrawableVertexCounts(model)[drawableIndex];
+
+    jsize outLen = env->GetArrayLength(out);
+    if (outLen < vCount * 2) return -1;
+
+    jfloat *elements = env->GetFloatArrayElements(out, nullptr);
+    for (int i = 0; i < vCount; i++) {
+        elements[i * 2] = positions[i].X;
+        elements[i * 2 + 1] = positions[i].Y;
+    }
+    env->ReleaseFloatArrayElements(out, elements, 0);
+    return vCount;
+}
+
 JNIEXPORT jfloatArray JNICALL
 Java_com_live2dai_android_Live2DNative_getDrawableUvs(JNIEnv *env, jclass clazz,
                                                        jlong modelPtr, jint drawableIndex) {
@@ -673,12 +619,6 @@ Java_com_live2dai_android_Live2DNative_getDrawableMaskCounts(JNIEnv *env, jclass
 
     jintArray result = env->NewIntArray(count);
     env->SetIntArrayRegion(result, 0, count, maskCounts);
-    // Debug: log first 5 mask counts, throttled to every 30 frames to avoid per-frame log syscall I/O
-    static int frameCounter = 0;
-    if ((++frameCounter % 30) == 0) {
-        __android_log_print(ANDROID_LOG_INFO, "Live2DNative", "maskCounts[0..4]=%d,%d,%d,%d,%d", 
-            maskCounts[0], maskCounts[1], maskCounts[2], maskCounts[3], maskCounts[4]);
-    }
     return result;
 }
 
@@ -774,30 +714,6 @@ Java_com_live2dai_android_Live2DNative_getRenderOrders(JNIEnv *env, jclass clazz
     // （render.c:169 桶遍历，含 offscreen 槽桶，对齐 PC getDrawableRenderOrders 语义）。
     // 注意：render_order 数组 = drawable 部分 + offscreen 槽尾部，仅取前 count 个（drawable 索引）。
     const int *orders = csmGetRenderOrders(model);
-
-    // [PROBE M1-B1] temporary render-order comparison probe (remove after capture)
-    {
-        static int probe_done = 0;
-        if (!probe_done) {
-            probe_done = 1;
-            const int *draw_orders = csmGetDrawableDrawOrders(model);
-            const int *render_orders = csmGetRenderOrders(model);
-            char buf[8192];
-            int off = 0;
-            off += snprintf(buf + off, sizeof(buf) - off, "[renderOrder] draw_order=");
-            for (int i = 0; i < count && off < (int)sizeof(buf) - 32; i++) {
-                off += snprintf(buf + off, sizeof(buf) - off, "%s%d", i ? "," : "", draw_orders[i]);
-            }
-            __android_log_print(ANDROID_LOG_INFO, "Live2DRenderer", "%s", buf);
-            off = 0;
-            off += snprintf(buf + off, sizeof(buf) - off, "[renderOrder] render_order=");
-            for (int i = 0; i < count && off < (int)sizeof(buf) - 32; i++) {
-                off += snprintf(buf + off, sizeof(buf) - off, "%s%d", i ? "," : "", render_orders[i]);
-            }
-            __android_log_print(ANDROID_LOG_INFO, "Live2DRenderer", "%s", buf);
-        }
-    }
-
     jintArray result = env->NewIntArray(count);
     env->SetIntArrayRegion(result, 0, count, orders);
     return result;

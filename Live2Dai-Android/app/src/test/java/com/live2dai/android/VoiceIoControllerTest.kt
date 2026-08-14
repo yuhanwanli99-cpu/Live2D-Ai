@@ -1,8 +1,10 @@
 package com.live2dai.android
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -46,14 +48,18 @@ class VoiceIoControllerTest {
     private lateinit var systemSpeaking: MutableStateFlow<Boolean>
     private lateinit var asrService: AsrProvider
     private lateinit var scheduler: TestCoroutineScheduler
+    private lateinit var lipSyncScope: CoroutineScope
     private lateinit var controller: VoiceIoController
 
     @Before
     fun setUp() {
-        // lipSyncScope 默认 Dispatchers.Main：setMain 后控制器 init 的播放状态收集
-        // 协程可在测试调度器上运行（不触碰真实主线程）
+        // M-AND-3 (C3) deviation：生产默认 lipSyncScope 由 Dispatchers.Main → Dispatchers.Default。
+        // 为保持测试调度器可驱动 isSpeaking 组合观察协程（combine{...any}.collect），
+        // 显式注入 StandardTestDispatcher 作用域（构造器支持 lipSyncScope 注入），并用
+        // scheduler.advanceUntilIdle() 驱动虚拟时间（断言口径不变）。
         scheduler = TestCoroutineScheduler()
         Dispatchers.setMain(StandardTestDispatcher(scheduler))
+        lipSyncScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
 
         context = mock<Context>()
         mockProvider("edge_tts", 1).let {
@@ -65,7 +71,12 @@ class VoiceIoControllerTest {
             systemSpeaking = it.second
         }
         asrService = mockAsrProvider("system_speech_recognizer", 1)
-        controller = VoiceIoController(context, listOf(edgeProvider, systemProvider), listOf(asrService))
+        controller = VoiceIoController(
+            context,
+            listOf(edgeProvider, systemProvider),
+            listOf(asrService),
+            lipSyncScope = lipSyncScope,
+        )
     }
 
     @After

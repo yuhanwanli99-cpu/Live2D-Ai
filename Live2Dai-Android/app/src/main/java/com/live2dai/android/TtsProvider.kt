@@ -1,6 +1,7 @@
 package com.live2dai.android
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
@@ -66,6 +67,19 @@ interface TtsProvider {
     val isSpeaking: StateFlow<Boolean>
 
     /**
+     * 播放位置时钟（M-AND-1 选型 3-B）：MediaPlayer.getCurrentPosition 轮询重锚。
+     *
+     * - `onPrepared→start` 期间恒 0 且不抛异常；`start()` 后非递减
+     * - 轮询周期 = [LipSyncClock.PLAYBACK_POLL_INTERVAL_MS]（固定常数 ∈ [50,100]ms，非抖动值）
+     * - 消费侧重锚：嘴型帧调度墙钟时刻 = `reanchor(frameTsMs, playStartWallClockMs)`
+     *   = playStartWallClockMs + frameTsMs（clamp 下限 = playStartWallClockMs，不早于播放起点）
+     *
+     * 默认实现：恒 0（无 MediaPlayer 的 Provider / 测试假件；与 TtsProvider 接口向后兼容）。
+     */
+    val playbackPositionMs: StateFlow<Long>
+        get() = MutableStateFlow(0L)
+
+    /**
      * 合成并播放文本。挂起直到播放完成、失败或被打断。
      *
      * @param text 已剥离 [emotion] 标签的纯文本
@@ -81,13 +95,16 @@ interface TtsProvider {
     fun release()
 
     /**
-     * 音频帧流（可选能力）。
+     * 音频帧流（M-AND-1：全 Provider 非空，嘴型驱动源统一）。
      *
-     * - 有能力暴露 PCM 的 Provider（sherpa-onnx）→ 在 speak() 执行期间 emit AudioFrame
-     * - 无能力的 Provider（Edge/CosyVoice MP3、System TTS）→ 返回空流（emptyFlow()）
-     * - 消费者（VoiceIoController）在调用 speak() **之前**启动 collect（时序契约见 contract-M4-M5 §2.3）
+     * - 有能力暴露 PCM 的 Provider（sherpa 2c-① / Edge / CosyVoice 2a-①）→ speak() 执行期间 emit AudioFrame
+     *   （150ms 固定分块：首帧 timestampMs=0、相邻帧差=150ms±1ms、同 fixture 双跑确定性一致）
+     * - System TTS（2b-②）→ UtteranceProgressListener 词边界回调期间 emit 音节包络帧
+     *   （timestampMs=词边界真实时间、幅度∈[0,1]；onDone 后 500ms 内流收口）
+     * - 消费者（VoiceIoController）在调用 speak() **之前**启动 collect（时序契约 contract-M4-M5 §2.3 / AND1-A7：
+     *   speak 后 1s 内收到首帧）；流式 Provider 用 tryEmit 非阻塞（无订阅者/缓冲满 → 丢块 + Log.w，不影响播放）
      *
-     * 默认实现：空流（向后兼容——现有 4 个 Provider 不实现该成员也能编译，285 测试不回退）。
+     * 默认实现：空流（向后兼容——不实现该成员的 Provider/测试假件也能编译）。
      */
     val audioFrameFlow: Flow<AudioFrame>
         get() = emptyFlow()

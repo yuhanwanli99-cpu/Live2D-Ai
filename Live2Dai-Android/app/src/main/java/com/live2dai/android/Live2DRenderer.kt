@@ -172,6 +172,11 @@ class Live2DRenderer(
     // ── 着色器管理 ──
     private var shaderManager: ShaderManager? = null
 
+    // ── H1 mask 裁剪接线（M-AND-4 VIS 碎片修复，契约 AND4-P1）：PurismClippingManager 帧级 mask 管线 ──
+    // 零调用点现状（632 行现成实现）→ 本轮接线：帧首 prepareFrame + renderMaskBuffers（官方 Native
+    // mask 预处理法 F20：单一 mask buffer）+ drawObjectLoop 按 d.maskCount>0 分派 MASKED/MASKED_INVERTED。
+    private var clippingManager: PurismClippingManager? = null
+
     // ── 每个 drawable 的属性数组缓存（避免每帧重新获取） ──
     private var cachedTextureIndices: IntArray? = null
     private var cachedRenderOrders: IntArray? = null
@@ -184,9 +189,8 @@ class Live2DRenderer(
     private var cachedScreenColors: FloatArray? = null
     private var cachedMaskCounts: IntArray? = null
 
-    /** [C8f-probe] TEMPORARY: log out-of-envelope drawn drawables during frames 150-220. */
-    private var c8fProbeFrame = 0
-    private var c8fProbeArmed = false
+    /** 仅首次 mask 准备时打印一次（渲染路径降噪：mask 分组为模型静态结构，无需每帧日志）。 */
+    private var clippingPreparedLogged = false
 
     // ── C8h：超采样渲染（2K 离屏 FBO → 下采样 blit，解决 1080p 内容放大 1.33x 到物理 2K 的观感模糊）──
     // 原理：iQOO 11 Pro 物理屏 1440×3200（2K）但系统锁 1080×2400 显示模式（vivo 限制），
@@ -214,8 +218,6 @@ class Live2DRenderer(
     private var blitUTexture = -1
     private var blitQuadBuffer: FloatBuffer? = null
 
-    /** [C8h-probe] TEMPORARY: periodic FBO readback (every 300 frames) to verify 2K content vs blit output. */
-    private var c8hProbeFrame = 0
 
     // ── C-Perf2：per-drawable DirectBuffer 对象池 ──
     // 消除每帧 250×3 次 ByteBuffer.allocateDirect（750 DirectBuffer/帧 → major GC 元凶）。
@@ -243,6 +245,12 @@ class Live2DRenderer(
 
     // ── 动画管线 ──
     private var animationPipeline: AnimationPipeline? = null
+
+    // ── M-AND-3 跨线程参数写串行化（AND-L5，选型 4-A）──
+    // 由 Live2DView.attachLipSyncChannel 绑定；onDrawFrame 帧首 drain（GL 线程）消费 pending，
+    // native 写唯一发生点（AND3-A2）。解绑（null）/onPause/dispose 后无帧 → 不再 drain →
+    // 未 drain 的 pending 不再触发 native 写（AND3-A3）。
+    private var lipSyncChannel: LipSyncParamChannel? = null
 
     /** 预加载的 Motion 数据 [(group)_(index) → MotionData] */
     private val loadedMotions: MutableMap<String, MotionData> = mutableMapOf()
@@ -297,33 +305,6 @@ class Live2DRenderer(
     /** baseColor uniform 复用缓冲区（避免每 drawable 分配 FloatArray） */
     private val baseColorScratch = FloatArray(4)
 
-    // ── C-Perf6：GL 调用计数器（诊断插桩；进程级单例，每 60 帧窗口打印平均/帧）──
-    private object GlCounters {
-        var drawElements = 0L
-        var blendFunc = 0L
-        var bindTexture = 0L
-        var activeTexture = 0L
-        var frontFace = 0L
-        var cullFace = 0L
-        var useProgram = 0L
-        var uniform = 0L
-        var vertexAttribPointer = 0L
-        var attribArray = 0L
-    }
-
-    /** C-Perf6 诊断窗口累积（60 帧求平均打印一次，含 fps） */
-    private var glCountWindowFrame = 0
-    private var glCountWindowStartMs = 0L
-    private var glCountWindowDraw = 0L
-    private var glCountWindowBlend = 0L
-    private var glCountWindowBindTex = 0L
-    private var glCountWindowActiveTex = 0L
-    private var glCountWindowFrontFace = 0L
-    private var glCountWindowCullFace = 0L
-    private var glCountWindowUseProgram = 0L
-    private var glCountWindowUniform = 0L
-    private var glCountWindowVap = 0L
-    private var glCountWindowAttribArray = 0L
 
     /** 标记是否为第一帧 */
     private var isFirstFrame: Boolean = true
@@ -415,13 +396,6 @@ class Live2DRenderer(
         // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）+ C-M5 §2.3 时机 2：
         // 视口变化 → 仅当无用户 override 才重算 fit；有 override → 保持 override 绝对值。
         // 随后按生效值（user ?: fit）经 computeProjection 落 orthoM。
-        android.util.Log.i(
-            "Live2DRenderer",
-            "[C8e-probe] onSurfaceChanged viewport=${width}x${height} " +
-                "canvas=${canvasWidth}x${canvasHeight} userOverride=${hasUserOverride()} " +
-                "userScale=$userScale userX=$userXOffset userY=$userYOffset " +
-                "fitScale=$fitScale fitX=$fitXOffset fitY=$fitYOffset"
-        )
         applyFitAndProjection()
     }
 
@@ -487,16 +461,6 @@ class Live2DRenderer(
     /** 按生效值写投影矩阵（唯一 orthoM 调用点，参数序不动）。 */
     private fun applyProjection() {
         val bounds = currentProjectionBounds()
-        // [C8e-probe] TEMPORARY: log projection state each call. Remove after capture.
-        android.util.Log.i(
-            "Live2DRenderer",
-            "[C8e-probe] applyProjection viewport=${viewportWidth}x${viewportHeight} " +
-                "canvas=${canvasWidth}x${canvasHeight} " +
-                "displayScale=$displayScale displayXOffset=$displayXOffset displayYOffset=$displayYOffset " +
-                "bounds=${bounds?.joinToString(",") ?: "NULL"} " +
-                "fitScale=$fitScale fitXOffset=$fitXOffset fitYOffset=$fitYOffset " +
-                "user=${userScale},${userXOffset},${userYOffset}"
-        )
         if (bounds == null) return
         // Android Matrix.orthoM 签名: (m, offset, left, right, bottom, top, near, far)！
         // bounds=[left, right, top, bottom] → 第 5/6 参数必须传 bottom/top（bounds[3]/bounds[2]）。
@@ -690,6 +654,16 @@ class Live2DRenderer(
                 val model = purismModel ?: run { drawFallback(); return }
                 val shaderMgr = shaderManager ?: run { drawFallback(); return }
 
+                // ── M-AND-3：LipSync pending 帧首 drain（AND3-A4 延迟 ≤ 1 帧）──
+                // 本帧回调运行在 GL 线程（== 渲染线程，AND3-A2）：onApply 把 Main 嘴型协程
+                // submit 的口型值经 AnimationPipeline.setLipSyncValue 写入 native（唯一写点）。
+                // 位置选帧首（pipeline.update 之前）：提交后下一次 drain 帧内即生效。
+                lipSyncChannel?.drain { name, value ->
+                    if (name == LipSyncParamChannel.MOUTH_VALUE_KEY) {
+                        setLipSyncParam(value)
+                    }
+                }
+
                 // 计算 delta time
                 val now = System.nanoTime()
                 if (!isFirstFrame) {
@@ -738,6 +712,44 @@ class Live2DRenderer(
                 // 构建 DrawableRenderData 列表
                 buildDrawableList()
 
+                // ── H1 mask 裁剪接线（M-AND-4，契约 AND4-P1）：帧首 prepare + 绘制 mask buffer ──
+                // 官方 Native mask 预处理法（F20）：模型绘制开始把全部 mask 形状画入单一/多 mask buffer，
+                // 避免反复切换 render target。prepareFrame 每帧重建 mask 分组/包围盒/布局/矩阵（mask 随动画
+                // 移动）；renderMaskBuffers 把 mask 形状画入 mask FBO（白=不画，黑=画）。随后 drawObjectLoop
+                // 按 d.maskCount>0 分派 MASKED/MASKED_INVERTED 并采样 mask 纹理（见下方主循环）。
+                val cm = clippingManager
+                if (cm != null) {
+                    cm.prepareFrame()
+                    if (cm.getMaskContextCount() > 0) {
+                        // C4-GC：drawableFinder 用线性查找替代每帧 associateBy 建 475 项 HashMap
+                        // （mask 组数 ≤ 数十，线性扫描成本可忽略，零每帧分配；结果逐位一致）
+                        val drawableFinder: (Int) -> DrawableRenderData? = { idx ->
+                            var found: DrawableRenderData? = null
+                            for (d in drawables) {
+                                if (d.index == idx) { found = d; break }
+                            }
+                            found
+                        }
+                        cm.renderMaskBuffers(
+                            setupMaskShader = shaderMgr.get(ShaderManager.ShaderType.SETUP_MASK),
+                            drawableFinder = drawableFinder,
+                            textureResolver = { glTextures[it] }
+                        )
+                        // mask pass 改写了 TEXTURE0 绑定 / blend func / cull / clearColor → 失效 C-Perf6
+                        // 状态缓存（下一 drawable 无条件重设全部状态，防主循环用错 GL 状态）
+                        cachedBlendMode = -1
+                        cachedBoundTextureId = -1
+                        cachedCullEnabled = null
+                        if (!clippingPreparedLogged) {
+                            clippingPreparedLogged = true
+                            android.util.Log.i(
+                                "Live2DRenderer",
+                                "clipping prepared (mask contexts=${cm.getMaskContextCount()})"
+                            )
+                        }
+                    }
+                }
+
                 // C8h：超采样路径 → 渲染到 2K FBO，再下采样 blit 回 surface；
                 // 否则直渲（行为与优化前逐位一致）。投影矩阵只依赖宽高比
                 // （surface 1080×2400 ≡ FBO 1440×3200 宽高比 0.45），同一投影矩阵两用，
@@ -758,29 +770,12 @@ class Live2DRenderer(
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, supersampleTexture)
                     GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
 
-                    // [C8h-probe] TEMPORARY: periodic readback — FBO(2K) torso strip vs SURFACE(1080p) torso strip
-                    c8hProbeFrame++
-                    if (c8hProbeFrame % 300 == 0) {
-                        val px = ByteBuffer.allocateDirect(300 * 4).order(ByteOrder.nativeOrder())
-                        GLES20.glReadPixels(533, 1590, 300, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
-                        val sb = StringBuilder("[C8h-probe] FBO(2K) x533-832 y1590(torso): ")
-                        for (i in 0 until 300) sb.append(px.get(i * 4).toInt() and 0xFF).append(',')
-                        android.util.Log.i("Live2DRenderer", sb.toString())
-                    }
 
                     // 3. 下采样 blit：FBO 纹理 → 默认 framebuffer（视口 = surface 尺寸）
                     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
                     GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
                     drawSupersampleBlit()
 
-                    // [C8h-probe] TEMPORARY: surface 1080p torso strip (bottom-origin y=1200 = top y 1200)
-                    if (c8hProbeFrame % 300 == 0) {
-                        val px = ByteBuffer.allocateDirect(300 * 4).order(ByteOrder.nativeOrder())
-                        GLES20.glReadPixels(400, 1200, 300, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
-                        val sb = StringBuilder("[C8h-probe] SURFACE(1080p) x400-699 y1200(torso): ")
-                        for (i in 0 until 300) sb.append(px.get(i * 4).toInt() and 0xFF).append(',')
-                        android.util.Log.i("Live2DRenderer", sb.toString())
-                    }
 
                     // 清除状态（含 FBO 纹理解绑 + 缓存失效，防下帧 state cache 误判跳过绑定）
                     GLES20.glUseProgram(0)
@@ -1133,6 +1128,11 @@ class Live2DRenderer(
         return modelMeta?.parameters?.mapTo(mutableSetOf()) { it.id } ?: emptySet()
     }
 
+    /**
+     * 设置口型同步值（**仅 GL 线程调用**，M-AND-3）。
+     * 由 [LipSyncParamChannel] drain 的 onApply 调用（Live2DView.setLipSyncParam 已改为
+     * submit 进通道，不再直调本方法）；pipeline 未就绪时回退直写 ParamA。
+     */
     fun setLipSyncParam(value: Float) {
         if (!nativeAvailable || modelPtr == 0L) return
         try {
@@ -1143,6 +1143,15 @@ class Live2DRenderer(
                 Live2DNative.setParameterValue(modelPtr, paramAIndex, value.coerceIn(0f, 1f))
             }
         } catch (_: Throwable) { }
+    }
+
+    /**
+     * M-AND-3：绑定跨线程参数写串行化通道（AND-L5，选型 4-A）。
+     * Live2DView.initialize/switchModel 接线；onDrawFrame 帧首 drain 消费 pending（GL 线程）。
+     * 传 null 解绑（解绑后不再 drain → 未 drain 的 pending 不再触发 native 写，AND3-A3）。
+     */
+    fun attachLipSyncChannel(channel: LipSyncParamChannel?) {
+        lipSyncChannel = channel
     }
 
     /**
@@ -1206,6 +1215,10 @@ class Live2DRenderer(
             modelPtr = 0L
         }
         purismModel = null
+
+        // H1 mask 接线（M-AND-4）：释放 clipping manager 的 mask FBO/纹理（GL 线程，模型级资源）
+        clippingManager?.dispose()
+        clippingManager = null
 
         // 释放纹理
         for (id in glTextures.values) GLES20.glDeleteTextures(1, intArrayOf(id), 0)
@@ -1330,6 +1343,11 @@ class Live2DRenderer(
 
         // 9. 创建 PurismModel（动画系统需要）
         purismModel = PurismModel(modelPtr)
+
+        // H1 mask 接线（M-AND-4）：创建 clipping manager（模型级资源，GL 线程每帧使用；
+        // mask FBO/纹理懒创建于首帧 renderMaskBuffers → ensureMaskBuffers；EGL context 重建后
+        // onSurfaceCreated 重新 loadModel → 新 manager 全新状态，无 stale GL id）
+        clippingManager = PurismClippingManager(purismModel!!)
 
         // 10. 构建部件名到索引的映射（必须在 setupAnimationSystem 之前，Pose 需要）
         buildPartIndex()
@@ -1635,11 +1653,12 @@ class Live2DRenderer(
             val f = constFlags.getOrElse(i) { 0 }.toInt() and 0xFF
             val dflags = dynamicFlags.getOrElse(i) { 0 }.toInt() and 0xFF
 
-            // 获取 mask 索引
+            // 获取 mask 索引（C4-GC：drawable→mask 关联是静态模型数据，走 PurismModel
+            // 静态缓存，消除每帧 84 次 getDrawableMasks JNI + IntArray 分配）
             var maskIds = IntArray(0)
             val mc = maskCounts.getOrElse(i) { 0 }
             if (mc > 0) {
-                maskIds = Live2DNative.getDrawableMasks(modelPtr, i) ?: IntArray(0)
+                maskIds = model.getDrawableMasksCached(i)
             }
 
             list.add(DrawableRenderData(
@@ -1717,9 +1736,9 @@ class Live2DRenderer(
      *    e. 绑定纹理，设置 uniforms
      *    f. glDrawElements
      *
-     * 简化版本：跳过 offscreen 和掩码处理（M1f 裁定，contract-R1-render §2.6）：
-     * bai 真机 maskCounts=0，本轮不接线；未来接入 mask 模型时按 d.maskCount>0
-     * 分派 MASKED/MASKED_INVERTED + FBO 渲染（对齐 PC doDrawModel 全接线）。
+     * 简化版本：跳过 offscreen 处理；mask 已接线（H1，M-AND-4 契约 AND4-P1）——按 d.maskCount>0
+     * 分派 MASKED/MASKED_INVERTED + mask 纹理采样（对齐 PC doDrawModel 全接线）；
+     * mask buffer 由 onDrawFrame 帧首 prepareFrame + renderMaskBuffers 预渲染。
      */
     private fun drawObjectLoop(shaderMgr: ShaderManager) {
         if (drawables.isEmpty()) return
@@ -1727,16 +1746,6 @@ class Live2DRenderer(
         // 按 renderOrder 排序
         val sortedDrawables = drawables.sortedBy { it.renderOrder }
 
-        // C-Perf6 诊断：帧起始计数器快照（帧末求差 = 本帧 drawObjectLoop 内 GL 调用数）
-        val countStart = glCountersSnapshot()
-
-        // [C8f-probe] TEMPORARY: arm at frame 150 to match native probe, then log
-        // actually-drawn drawables whose buffer bbox exceeds the visible envelope.
-        c8fProbeFrame++
-        if (c8fProbeFrame == 150) c8fProbeArmed = true
-        if (c8fProbeArmed) {
-            android.util.Log.i("Live2DRenderer", "[C8f-probe] armed at frame=$c8fProbeFrame")
-        }
 
         var currentShaderType: ShaderManager.ShaderType? = null
         var currentShader: ShaderManager.ShaderProgram? = null
@@ -1745,28 +1754,27 @@ class Live2DRenderer(
             // ★ 必须使用 dynamicFlagIsVisible（对应 CubismRendererAndroid）
             if (!d.isVisible) continue
 
-            // 选择着色器类型
-            val shaderType = selectShader(d.blendMode, d.isInvertedMask)
+            // 选择着色器类型（H1：maskCount>0 → MASKED/MASKED_INVERTED，契约 AND4-P1）
+            val shaderType = selectShader(d.maskCount > 0, d.isInvertedMask)
 
-            // 仅在着色器类型变化时切换（selectShader 恒 NORMAL → 每帧仅 1 次 glUseProgram；
+            // 仅在着色器类型变化时切换（无 mask 模型 → 每帧仅 1 次 glUseProgram；
             // matrix uniform / s_texture0 采样器常量 0 随 shader 切换设置一次即跨 drawable 复用）
             if (shaderType != currentShaderType) {
                 val newShader = shaderMgr.get(shaderType)
-                GlCounters.useProgram++
                 GLES20.glUseProgram(newShader.programId)
                 // 设置 MVP 矩阵（一旦设置就跨 drawable 复用）
-                GlCounters.uniform++
                 GLES20.glUniformMatrix4fv(newShader.uMatrix, 1, false, projectionMatrix, 0)
                 // C-Perf6：s_texture0 采样器常量 0，仅随 shader 切换设置一次（原每 drawable 重复设）
-                GlCounters.uniform++
                 GLES20.glUniform1i(newShader.uTexture0, 0)
+                // H1：masked shader 的 mask 纹理采样器常量 1（绑定 TEXTURE1；纹理 id per-drawable 变化）
+                if (newShader.uTexture1 >= 0) {
+                    GLES20.glUniform1i(newShader.uTexture1, 1)
+                }
                 // C-Perf6：顶点属性数组启用上提——同一 shader 的属性位置不变，仅首次启用；
                 // 循环结束统一禁用（原每 drawable 启/停 ×2）
                 if (attribsEnabledShaderType != shaderType) {
-                    GlCounters.attribArray++
                     GLES20.glEnableVertexAttribArray(newShader.aPosition)
                     if (newShader.aTexCoord >= 0) {
-                        GlCounters.attribArray++
                         GLES20.glEnableVertexAttribArray(newShader.aTexCoord)
                     }
                     attribsEnabledShaderType = shaderType
@@ -1777,36 +1785,10 @@ class Live2DRenderer(
 
             val shader = currentShader ?: continue
 
-            // [C8f-probe] TEMPORARY: log actually-drawn drawables whose buffer bbox
-            // extends beyond the visible geometry envelope (fragment region). Remove after capture.
-            if (c8fProbeArmed) {
-                val p = d.positionsBuffer
-                val pn = p.remaining() / 2
-                var mnX = 1e9f; var mxX = -1e9f; var mnY = 1e9f; var mxY = -1e9f
-                p.position(0)
-                val pbuf = p.duplicate()
-                var bi = 0
-                while (bi < pn * 2) {
-                    val x = pbuf.get(bi); val y = pbuf.get(bi + 1)
-                    if (x < mnX) mnX = x; if (x > mxX) mxX = x
-                    if (y < mnY) mnY = y; if (y > mxY) mxY = y
-                    bi += 2
-                }
-                if (mxX > 0.26f || mxY > 0.655f) {
-                    android.util.Log.i(
-                        "Live2DRenderer",
-                        "[C8f-probe] DRAWN di=${d.index} " +
-                            "bbox=[%.3f..%.3f, %.3f..%.3f] vc=$pn tex=${d.textureIndex} opacity=${d.opacity} " +
-                            "order=${d.renderOrder} blend=${d.blendMode}".format(mnX, mxX, mnY, mxY)
-                    )
-                }
-                p.position(0)
-            }
 
             // ── 混合模式（预乘 alpha） ──
             // C-Perf6 状态缓存：blendMode 与上次相同 → 跳过（GL blend 状态跨帧持久）
             if (d.blendMode != cachedBlendMode) {
-                GlCounters.blendFunc++
                 when (d.blendMode) {
                     0 -> GLES20.glBlendFuncSeparate(
                         GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA,
@@ -1827,7 +1809,6 @@ class Live2DRenderer(
             // frontFace 恒 CCW，仅与上次不一致时设置
             val wantCull = !d.isDoubleSided
             if (cachedCullEnabled != wantCull) {
-                GlCounters.cullFace++
                 if (wantCull) {
                     GLES20.glEnable(GLES20.GL_CULL_FACE)
                 } else {
@@ -1836,7 +1817,6 @@ class Live2DRenderer(
                 cachedCullEnabled = wantCull
             }
             if (cachedFrontFace != GLES20.GL_CCW) {
-                GlCounters.frontFace++
                 GLES20.glFrontFace(GLES20.GL_CCW)
                 cachedFrontFace = GLES20.GL_CCW
             }
@@ -1852,9 +1832,7 @@ class Live2DRenderer(
             // C-Perf6 状态缓存：textureIndex 与上次相同 → 跳过 activeTexture+bindTexture
             // （renderOrder 排序后同纹理 drawable 相邻，收益最大）
             if (cachedBoundTextureId != texId) {
-                GlCounters.activeTexture++
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GlCounters.bindTexture++
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId)
                 cachedBoundTextureId = texId
             }
@@ -1866,36 +1844,57 @@ class Live2DRenderer(
             baseColorScratch[1] = 1f
             baseColorScratch[2] = 1f
             baseColorScratch[3] = d.opacity
-            GlCounters.uniform++
             GLES20.glUniform4fv(shader.uBaseColor, 1, baseColorScratch, 0)
-            GlCounters.uniform++
             GLES20.glUniform4fv(shader.uMultiplyColor, 1, d.multiplyColor, 0)
-            GlCounters.uniform++
             GLES20.glUniform4fv(shader.uScreenColor, 1, d.screenColor, 0)
+
+            // ── H1 mask uniforms（M-AND-4）：masked drawable 的 clip 矩阵 / 通道 / mask 纹理（TEXTURE1）──
+            // u_clipMatrix = ctx.matrixForDraw（模型顶点 → mask 纹理 UV 空间）；u_channelFlag 提取本
+            // drawable 所属 mask group 的通道（R/G/B/A）；mask 纹理绑定 unit 1（s_texture1=1 在 shader
+            // 切换时已设）。仅 MASKED/MASKED_INVERTED 有这些 uniform（NORMAL 为 -1 → 整块跳过）。
+            if (shader.uClipMatrix >= 0) {
+                val cmLocal = clippingManager
+                val ctx = cmLocal?.getClippingContextForDraw(d.index)
+                if (ctx != null && ctx.isUsing) {
+                    GLES20.glUniformMatrix4fv(shader.uClipMatrix, 1, false, ctx.matrixForDraw, 0)
+                    GLES20.glUniform4fv(
+                        shader.uChannelFlag, 1,
+                        PurismClippingManager.CHANNEL_COLORS[ctx.layoutChannelIndex], 0
+                    )
+                    val maskTex = cmLocal.getMaskBuffer(ctx.bufferIndex).textureId
+                    GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex)
+                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                } else {
+                    // 防御：mask 上下文缺失/未使用（区域未渲染 = 全白 = 全部裁掉）→ 跳绘。
+                    // 与 Cubism「非 using 的 clip context 不渲染 mask」语义一致；bai 全 86 个 mask
+                    // 均有顶点（isUsing=true），正常不触发。
+                    android.util.Log.w(
+                        "Live2DRenderer",
+                        "[mask] drawable ${d.index} clip context missing/unused, skipped"
+                    )
+                    continue
+                }
+            }
 
             // ── 顶点属性（pointer 每 drawable 必设——client-side buffer 不同）──
             d.positionsBuffer.position(0)
-            GlCounters.vertexAttribPointer++
             GLES20.glVertexAttribPointer(shader.aPosition, 2, GLES20.GL_FLOAT, false, 0, d.positionsBuffer)
 
             if (shader.aTexCoord >= 0) {
                 d.uvsBuffer.position(0)
-                GlCounters.vertexAttribPointer++
                 GLES20.glVertexAttribPointer(shader.aTexCoord, 2, GLES20.GL_FLOAT, false, 0, d.uvsBuffer)
             }
 
             // ── 绘制 ──
             d.indicesBuffer.position(0)
-            GlCounters.drawElements++
             GLES20.glDrawElements(GLES20.GL_TRIANGLES, d.indexCount, GLES20.GL_UNSIGNED_SHORT, d.indicesBuffer)
         }
 
         // 恢复 OpenGL 默认状态（C-Perf6：cache-aware——仅在与目标状态不一致时调用，
         // 最终状态与优化前完全一致：blend normal / cull on / frontFace CW / attribs off / unit0）
-        GlCounters.activeTexture++
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         if (cachedBlendMode != 0) {
-            GlCounters.blendFunc++
             GLES20.glBlendFuncSeparate(
                 GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA,
                 GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA
@@ -1903,14 +1902,12 @@ class Live2DRenderer(
             cachedBlendMode = 0
         }
         if (cachedCullEnabled != true) {
-            GlCounters.cullFace++
             GLES20.glEnable(GLES20.GL_CULL_FACE)
             cachedCullEnabled = true
         }
         // M1c 面剔除状态恢复（contract-R1-render §2.3）：循环内 per-drawable 设为 CCW，
         // 结束必须恢复 onSurfaceCreated 初始 glFrontFace(GL_CW)，防状态漂移
         if (cachedFrontFace != GLES20.GL_CW) {
-            GlCounters.frontFace++
             GLES20.glFrontFace(GLES20.GL_CW)
             cachedFrontFace = GLES20.GL_CW
         }
@@ -1918,21 +1915,17 @@ class Live2DRenderer(
         val lastEnabledShaderType = attribsEnabledShaderType
         if (lastEnabledShaderType != null) {
             val lastShader = shaderMgr.get(lastEnabledShaderType)
-            GlCounters.attribArray++
             GLES20.glDisableVertexAttribArray(lastShader.aPosition)
             if (lastShader.aTexCoord >= 0) {
-                GlCounters.attribArray++
                 GLES20.glDisableVertexAttribArray(lastShader.aTexCoord)
             }
             attribsEnabledShaderType = null
         }
 
-        // C-Perf6 诊断：窗口累积 + 每 60 帧打印平均每帧 GL 调用数（含 fps）
-        accumulateGlCounters(countStart)
     }
 
     // ============================================================
-    //  C-Perf6 — GL 状态缓存/计数辅助
+    //  C-Perf6 — GL 状态缓存
     // ============================================================
 
     /**
@@ -1947,63 +1940,7 @@ class Live2DRenderer(
         attribsEnabledShaderType = null
     }
 
-    /** C-Perf6：快照当前 GL 计数器（drawObjectLoop 帧起始调用，帧末求差） */
-    private fun glCountersSnapshot(): LongArray = longArrayOf(
-        GlCounters.drawElements, GlCounters.blendFunc, GlCounters.bindTexture,
-        GlCounters.activeTexture, GlCounters.frontFace, GlCounters.cullFace,
-        GlCounters.useProgram, GlCounters.uniform, GlCounters.vertexAttribPointer,
-        GlCounters.attribArray
-    )
 
-    /** C-Perf6：帧末累积窗口计数，每 60 帧打印平均每帧 GL 调用数 + fps */
-    private fun accumulateGlCounters(start: LongArray) {
-        if (glCountWindowFrame == 0) glCountWindowStartMs = System.currentTimeMillis()
-        glCountWindowFrame++
-        glCountWindowDraw += GlCounters.drawElements - start[0]
-        glCountWindowBlend += GlCounters.blendFunc - start[1]
-        glCountWindowBindTex += GlCounters.bindTexture - start[2]
-        glCountWindowActiveTex += GlCounters.activeTexture - start[3]
-        glCountWindowFrontFace += GlCounters.frontFace - start[4]
-        glCountWindowCullFace += GlCounters.cullFace - start[5]
-        glCountWindowUseProgram += GlCounters.useProgram - start[6]
-        glCountWindowUniform += GlCounters.uniform - start[7]
-        glCountWindowVap += GlCounters.vertexAttribPointer - start[8]
-        glCountWindowAttribArray += GlCounters.attribArray - start[9]
-        if (glCountWindowFrame >= 60) {
-            val n = glCountWindowFrame.toFloat()
-            val elapsedMs = (System.currentTimeMillis() - glCountWindowStartMs).coerceAtLeast(1)
-            val fps = (n * 1000f) / elapsedMs
-            android.util.Log.i(
-                "Live2DRenderer",
-                "[C-Perf6] GL calls/frame (${glCountWindowFrame}-frame window, fps=$fps): " +
-                    "drawElements=${(glCountWindowDraw / n).toInt()} " +
-                    "blendFunc=${(glCountWindowBlend / n).toInt()} " +
-                    "bindTexture=${(glCountWindowBindTex / n).toInt()} " +
-                    "activeTexture=${(glCountWindowActiveTex / n).toInt()} " +
-                    "frontFace=${(glCountWindowFrontFace / n).toInt()} " +
-                    "cullFace=${(glCountWindowCullFace / n).toInt()} " +
-                    "useProgram=${(glCountWindowUseProgram / n).toInt()} " +
-                    "uniform=${(glCountWindowUniform / n).toInt()} " +
-                    "vertexAttribPointer=${(glCountWindowVap / n).toInt()} " +
-                    "attribArray=${(glCountWindowAttribArray / n).toInt()} " +
-                    "TOTAL=${((glCountWindowDraw + glCountWindowBlend + glCountWindowBindTex +
-                        glCountWindowActiveTex + glCountWindowFrontFace + glCountWindowCullFace +
-                        glCountWindowUseProgram + glCountWindowUniform + glCountWindowVap +
-                        glCountWindowAttribArray) / n).toInt()}"
-            )
-            glCountWindowFrame = 0
-            glCountWindowDraw = 0
-            glCountWindowBlend = 0
-            glCountWindowBindTex = 0
-            glCountWindowActiveTex = 0
-            glCountWindowFrontFace = 0
-            glCountWindowCullFace = 0
-            glCountWindowUseProgram = 0
-            glCountWindowUniform = 0
-            glCountWindowVap = 0
-            glCountWindowAttribArray = 0
-        }
-    }
 
     // ============================================================
     //  C8h — 超采样 FBO 生命周期 + 下采样 blit
@@ -2186,17 +2123,20 @@ class Live2DRenderer(
      * 选择着色器类型。
      *
      * 对应 CubismShaderIndexCalculator.calculateShaderIndex() 的逻辑简化版。
-     * M1f 裁定（contract-R1-render §2.6）：mask 裁剪跳过不接线——bai 真机
-     * maskCounts=0，无 mask 可裁剪；本轮 selectShader 恒 NORMAL，零行为变化。
-     * 未来接入 mask 模型时按 d.maskCount>0 分派 MASKED/MASKED_INVERTED + FBO 渲染。
+     * H1 mask 接线（M-AND-4，契约 AND4-P1）：maskCount>0 的 drawable 分派
+     * MASKED / MASKED_INVERTED（isInvertedMask 由 constantFlags FLAG_INVERTED_MASK 决定，
+     * ShaderManager.get 分派已备）；无 mask → NORMAL。对齐 PC 端 pixi cubism4.es.js:7405-7470
+     * mask 全接线行为。blend mode 通过 glBlendFunc 控制，不需要切换 shader。
      *
-     * @param blendMode 0=normal, 1=additive, 2=multiplicative
+     * @param isMasked 是否带 mask（drawable.maskCount > 0）
      * @param isInvertedMask 是否反向 mask
      */
-    private fun selectShader(blendMode: Int, isInvertedMask: Boolean): ShaderManager.ShaderType {
-        // 当前模型无 mask，统一使用 NORMAL shader
-        // blend mode 通过 glBlendFunc 控制，不需要切换 shader
-        return ShaderManager.ShaderType.NORMAL
+    private fun selectShader(isMasked: Boolean, isInvertedMask: Boolean): ShaderManager.ShaderType {
+        return when {
+            isMasked && isInvertedMask -> ShaderManager.ShaderType.MASKED_INVERTED
+            isMasked -> ShaderManager.ShaderType.MASKED
+            else -> ShaderManager.ShaderType.NORMAL
+        }
     }
 
     // ============================================================

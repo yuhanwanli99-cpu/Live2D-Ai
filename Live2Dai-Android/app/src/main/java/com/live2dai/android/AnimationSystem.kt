@@ -1539,6 +1539,11 @@ class AnimationPipeline(
     /**
      * 设置口型同步值。
      * 同时设置所有可用的口型参数（如 ParamA + ParamMouthOpenY）。
+     *
+     * M-AND-3（AND-L5，选型 4-A）：本函数为「native 写唯一落点」之一，**仅经
+     * LipSyncParamChannel drain 的 onApply 调用（GL 线程）**——Live2DRenderer.onDrawFrame
+     * 帧首 drain 消费 Main 嘴型协程 submit 的 pending 后回调本函数（AND3-A2/A4）。
+     * 不再允许 Main 线程直调（AND3-A1：调用链上无 Main → model.setParameterValue 直写）。
      */
     fun setLipSyncValue(value: Float) {
         val clamped = value.coerceIn(0f, 1f)

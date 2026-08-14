@@ -5,13 +5,18 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -42,6 +47,8 @@ class SherpaOnnxTtsProvider(
     private val sid: Int = 0,
     /** 语速（1.0 = 正常） */
     private val speed: Float = 1.0f,
+    /** M-AND-1 测试注入：播放位置轮询作用域（默认 Main；测试注入 TestDispatcher 驱动虚拟时间）。 */
+    private val positionPollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) : TtsProvider {
 
     companion object {
@@ -91,6 +98,19 @@ class SherpaOnnxTtsProvider(
         extraBufferCapacity = AUDIO_FLOW_BUFFER_CAPACITY,
     )
     override val audioFrameFlow: Flow<AudioFrame> = _audioFrameFlow.asSharedFlow()
+
+    /** M-AND-1（3-B）：播放位置时钟（MediaPlayer.getCurrentPosition 轮询重锚）。 */
+    private val playbackClock = LipSyncClock.PlaybackClock(
+        positionSource = LipSyncClock.PlayerPositionSource {
+            try {
+                mediaPlayer?.currentPosition?.toLong() ?: 0L
+            } catch (_: Throwable) {
+                0L
+            }
+        },
+        scope = positionPollScope,
+    )
+    override val playbackPositionMs: StateFlow<Long> = playbackClock.playbackPositionMs
 
     /** M4：本次 speak 会话内是否已被 stop() 打断（打断后不再 emit）。下次 speak 重置。 */
     @Volatile
@@ -213,16 +233,21 @@ class SherpaOnnxTtsProvider(
             setDataSource(tempFile.absolutePath)
             setOnPreparedListener {
                 Log.i(TAG, "WAV 就绪，开始播放")
+                // M-AND-1（3-B）：prepared→start 间恒 0；start 后轮询非递减
+                playbackClock.onPrepared()
                 start()
                 _isSpeaking.value = true
+                playbackClock.onStart()
             }
             setOnCompletionListener {
                 Log.i(TAG, "播放完成")
+                playbackClock.onStop()
                 tempFile.delete()
                 _isSpeaking.value = false
             }
             setOnErrorListener { _, what, extra ->
                 Log.e(TAG, "MediaPlayer 播放错误: what=$what, extra=$extra")
+                playbackClock.onStop()
                 tempFile.delete()
                 _isSpeaking.value = false
                 true
@@ -273,8 +298,9 @@ class SherpaOnnxTtsProvider(
     }
 
     override fun stop() {
-        // M4：stop() 后本次 speak 会话不得再 emit（emit 守卫置位；下次 speak 重置）
+        // M-AND-1：stop() 后本次 speak 会话不得再 emit（emit 守卫置位；下次 speak 重置）
         stopped = true
+        playbackClock.onStop()
         mediaPlayer?.apply {
             try {
                 if (isPlaying) stop()

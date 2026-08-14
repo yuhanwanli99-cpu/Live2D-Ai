@@ -55,8 +55,9 @@ class VoiceIoController(
     private val asrProviders: List<AsrProvider> = AsrProviderRegistry.cascade(),
     /** 模块4（LipSync）：驱动嘴型的 Live2D 视图；由 [attachLive2DView] 在视图创建后接线。 */
     private var live2DView: Live2DView? = null,
-    /** LipSync 动画协程作用域（主线程；测试注入 TestDispatcher 控制虚拟时间）。 */
-    private val lipSyncScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    /** LipSync 动画协程作用域（M-AND-3：Default 后台线程——setLipSyncParam 已改为通道 submit，
+     *  无需 Main 且不触碰 native；测试注入 TestDispatcher 控制虚拟时间）。 */
+    private val lipSyncScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     /** M5：元音分析器；null = 禁用 viseme 驱动（走现有 RMS 随机降级），测试可注入 */
     private val visemeAnalyzer: VisemeAnalyzer? = null,
 ) {
@@ -72,6 +73,12 @@ class VoiceIoController(
 
         /** LipSync 嘴型更新周期（plan §4.1.4：每 100-150ms） */
         internal const val LIP_SYNC_INTERVAL_MS = 100L
+
+        /**
+         * M-AND-1 打回点修复（C1）：消费侧帧表容量上限（150ms 块数级）。
+         * 覆盖最长句子音频（1024 块 ≈ 2.5 分钟 @150ms）；溢出丢最旧帧，不阻塞播放。
+         */
+        internal const val FRAME_TABLE_CAPACITY = 1024
     }
 
     /** ASR 降级链（构造时确定；注册表为空时兜底注入系统 ASR，保证 listen() 永远可用） */
@@ -90,6 +97,45 @@ class VoiceIoController(
     private var playbackObserverJob: Job? = null
 
     private val _isSpeaking = MutableStateFlow(false)
+
+    /**
+     * M-AND-1（3-B）：播放起始 wall-clock（重锚基准，AND1-A6）。
+     * isSpeaking 前沿（真实播放开始）时记录；播放结束/打断复位 0。
+     * 消费侧重锚：嘴型帧调度墙钟时刻 = [LipSyncClock.reanchor](frame.timestampMs, 本值)。
+     */
+    @Volatile
+    private var playStartWallClockMs: Long = 0L
+
+    /**
+     * M-AND-2（1-B）：RMS 帧槽（最新一帧 PCM；collector 线程写、RMS 嘴型循环读）。
+     * 帧流为空/未收到帧 → null → 嘴型静默（不张嘴，无随机 fallback）。
+     * 打回点修复（C1）后为兜底：帧表按位置选帧无匹配时回退本槽（保持既有行为面）。
+     */
+    @Volatile
+    private var latestAudio: AudioFrame? = null
+
+    /**
+     * M-AND-1 打回点修复（C1）：消费侧帧表缓冲（按重锚时钟选帧）。
+     *
+     * - collector 按 timestampMs 升序追加（契约 AND1-A2 严格非递减）；
+     * - 嘴型循环每节拍按当前播放位置（重锚时钟 now − playStartWallClockMs）选
+     *   max timestampMs ≤ positionMs 的帧 → 该帧 PCM 算 RMS → 嘴型；
+     * - 容量上限 [FRAME_TABLE_CAPACITY]（150ms 块数级，覆盖最长句子音频）；
+     *   溢出丢最旧帧 + Log.w 一次，不阻塞播放（audit R1 建议方向）。
+     */
+    private val frameTableLock = Any()
+
+    private val frameTable = ArrayList<AudioFrame>(FRAME_TABLE_CAPACITY)
+
+    /** 帧表溢出警告（本次 speak 会话内至多一次）。 */
+    @Volatile
+    private var frameTableOverflowWarned = false
+
+    /** M-AND-2（1-B）：RMS 帧收集协程（speak 前启动；播放结束/失败时取消）。 */
+    private var rmsFrameCollectJob: Job? = null
+
+    /** M-AND-2（1-B）：当前成功播报的 Provider（供帧收集兜底重启）。 */
+    private var activeProvider: TtsProvider? = null
 
     /**
      * 组合播放状态流（契约 schema → functions.VoiceIoController.isSpeaking）：
@@ -163,6 +209,7 @@ class VoiceIoController(
         )
         for ((index, provider) in chain.withIndex()) {
             val startedAt = System.currentTimeMillis()
+            var spokeSuccessfully = false
             try {
                 // M5: 在 speak() 前启动 viseme 分析收集（Dispatchers.Default 用于 CPU 密集的 MFCC/DTW）
                 visemeAnalyzer?.reset()
@@ -190,7 +237,11 @@ class VoiceIoController(
                         scheduleKeywordMotions(provider, clean, keywordHits)
                     }
                 } else null
+                // M-AND-2（1-B）：speak 前启动 RMS 帧收集（AND1-A7 时序契约：先 collect 后 speak；
+                // 预解码 provider 播放前全量 emit，晚 collect 即丢帧；Default 与主线程并发订阅）
+                startRmsFrameCollection(provider)
                 provider.speak(clean)
+                spokeSuccessfully = true
                 VoiceTelemetry.log(
                     VoiceEvent.TtsSucceeded(
                         provider.info.id,
@@ -224,6 +275,10 @@ class VoiceIoController(
                 visemeCollectJob = null
                 keywordMotionJob?.cancel()
                 keywordMotionJob = null
+                if (!spokeSuccessfully) {
+                    // 失败/取消路径：清 RMS 帧收集，避免残留帧污染下一个 provider 的嘴型
+                    stopRmsFrameCollection()
+                }
             }
         }
         logW("speak() 所有 provider 均失败，静默降级")
@@ -333,20 +388,26 @@ class VoiceIoController(
     /**
      * 模块4：TTS 播放状态回调（组合 isSpeaking 流触发，主线程执行）。
      *
-     * - true=开始播放 → 启动随机波动嘴型动画协程（级2-B：plan §4.1.4 方案A + 随机化）
-     * - false=播放结束/中断 → 取消协程，嘴型归零
+     * - true=开始播放 → 记录播放起始墙钟（M-AND-1 重锚基准）→ 启动嘴型动画协程
+     * - false=播放结束/中断 → 复位重锚基准 → 取消协程，嘴型归零
      *
      * internal 便于单元测试直接驱动（真实路径由 [init] 中的组合流收集触发）。
      */
     internal fun handlePlaybackState(isPlaying: Boolean) {
         if (isPlaying) {
+            // M-AND-1（AND1-A6）：isSpeaking 前沿 = 播放起始墙钟（重锚基准，禁止以 nowMillis 起算）
+            playStartWallClockMs = nowMillis()
             startLipSync()
         } else {
+            playStartWallClockMs = 0L
             stopLipSync()
         }
     }
 
-    /** 启动 LipSync 动画协程（幂等：先取消旧协程再重启）。M5：优先 viseme 驱动，降级走 randomizedMouth。 */
+    /** M-AND-1（3-B）：当前播放起始墙钟（重锚基准）；未播放 = 0。供消费侧重锚调度读取。 */
+    internal fun playbackStartWallClockMs(): Long = playStartWallClockMs
+
+    /** 启动 LipSync 动画协程（幂等：先取消旧协程再重启）。M5：优先 viseme 驱动，降级走 RMS 幅度驱动（M-AND-2 选型 1-B）。 */
     private fun startLipSync() {
         lipSyncJob?.cancel()
         lipSyncJob = null
@@ -354,6 +415,11 @@ class VoiceIoController(
         if (view == null) {
             logLipSync("播放开始（Live2DView 未接线，跳过嘴型动画）")
             return
+        }
+
+        // M-AND-2（1-B）兜底：帧收集未启动（如测试直接驱动 handlePlaybackState）→ 从当前 provider 补启
+        if (rmsFrameCollectJob == null) {
+            activeProvider?.let { startRmsFrameCollection(it) }
         }
 
         // M5 级1：尝试 viseme 驱动
@@ -366,8 +432,8 @@ class VoiceIoController(
                 return
             }
         }
-        // 级2：RMS 随机降级（现有行为保留）
-        startRandomizedMouthLoop(view)
+        // 级2（M-AND-2 选型 1-B）：RMS 幅度驱动（替换伪随机；帧流为空 → 静默不张嘴）
+        startRmsMouthLoop(view)
     }
 
     /** 级1：viseme 调度驱动（时间戳调度 + 帧间平滑） */
@@ -417,22 +483,42 @@ class VoiceIoController(
         } catch (_: Throwable) {}
     }
 
-    /** 级2：RMS 随机波动嘴型（现有行为原样保留） */
-    private fun startRandomizedMouthLoop(view: Live2DView) {
-        logLipSync("播放开始（RMS 随机模式）")
+    /**
+     * 级2（M-AND-2 选型 1-B）：RMS 幅度驱动嘴型循环（真实时钟节拍，非帧号驱动）。
+     *
+     * - 数据源 = 帧表缓冲（speak 前启动的 audioFrameFlow 收集，AND1-A7 时序）；每节拍按
+     *   重锚时钟当前播放位置选帧（打回点修复 C1：Edge/Cosy/sherpa 预发射全量帧不再恒取末帧——
+     *   按 positionMs 选 max timestampMs ≤ positionMs 的帧）；帧表为空/无匹配 → 静默不张嘴
+     *   （兜底 [latestAudio] 最新帧，保持既有行为面）；
+     * - 每节拍 rmsNormalized → applyEnvelope（attack/release 包络 + 静音阈值门控）→
+     *   步进钳制 ≤ 0.2（AND2-A7 帧间平滑）→ clamp [0,1]（AND2-A5）；
+     * - 节拍由 delay 真实时钟调度 + nowMillis 测量（AND2-A6），不引用任何随机源（AND2-A2 确定性）。
+     */
+    private fun startRmsMouthLoop(view: Live2DView) {
+        logLipSync("播放开始（RMS 幅度驱动模式）")
         lipSyncJob = lipSyncScope.launch {
-            var frame = 0L
             var currentMouth = 0f
             try {
                 while (isActive) {
-                    val target = LipSyncMath.randomizedMouth(frame, frame == 0L)
-                    currentMouth = LipSyncMath.smoothMouth(currentMouth, target)
-                    view.setLipSyncParam(currentMouth)
+                    // 真实时钟节拍（AND2-A6：nowMillis 测量 + delay 调度，非帧号计数）
+                    val tickMs = nowMillis()
+                    // M-AND-1 打回点修复（C1）：按重锚时钟选帧——当前播放位置
+                    // = now − playStartWallClockMs（AND1-A6 重锚基准，禁止以 nowMillis 起算）；
+                    // 选 max timestampMs ≤ positionMs 的帧（帧表缓冲），无匹配兜底最新帧。
+                    val positionMs = playbackPositionMs()
+                    val frame = selectFrameForPosition(positionMs) ?: latestAudio
+                    val rms = if (frame != null) LipSyncMath.rmsNormalized(frame.samples) else 0f
+                    val target = LipSyncMath.applyEnvelope(rms, currentMouth, LIP_SYNC_INTERVAL_MS)
+                    // AND2-A7 帧间平滑：相邻输出差 ≤ 0.2；AND2-A5 输出恒 ∈ [0,1]
+                    val next = (currentMouth + (target - currentMouth)
+                        .coerceIn(-LipSyncMath.MAX_FRAME_DELTA, LipSyncMath.MAX_FRAME_DELTA))
+                        .coerceIn(0f, 1f)
+                    currentMouth = next
+                    view.setLipSyncParam(next)
                     logLipSync(
-                        "嘴型更新 frame=$frame mouth=${formatMouth(currentMouth)} " +
-                            "target=${formatMouth(target)}"
+                        "嘴型更新 t=$tickMs pos=$positionMs frameTs=${frame?.timestampMs ?: -1} " +
+                            "rms=${formatMouth(rms)} mouth=${formatMouth(next)}"
                     )
-                    frame++
                     delay(LIP_SYNC_INTERVAL_MS)
                 }
             } catch (e: CancellationException) {
@@ -447,11 +533,93 @@ class VoiceIoController(
         }
     }
 
+    /**
+     * M-AND-2（1-B）：启动 RMS 帧收集（speak 前调用，AND1-A7「先 collect 后 speak」时序契约）。
+     * Dispatchers.Default：与主线程 speak() 并发订阅，预解码 provider 播放前全量 emit 不丢帧。
+     * 每次重启先清旧槽（新会话不残留上一 provider 帧）。
+     */
+    private fun startRmsFrameCollection(provider: TtsProvider) {
+        rmsFrameCollectJob?.cancel()
+        rmsFrameCollectJob = null
+        latestAudio = null
+        frameTableOverflowWarned = false
+        synchronized(frameTableLock) { frameTable.clear() }
+        activeProvider = provider
+        rmsFrameCollectJob = lipSyncScope.launch(Dispatchers.Default) {
+            try {
+                provider.audioFrameFlow.collect { frame ->
+                    latestAudio = frame
+                    // 帧表缓冲（打回点修复 C1）：升序追加；溢出丢最旧 + Log.w 一次，不阻塞播放
+                    synchronized(frameTableLock) {
+                        if (frameTable.size >= FRAME_TABLE_CAPACITY) {
+                            frameTable.removeAt(0)
+                            if (!frameTableOverflowWarned) {
+                                frameTableOverflowWarned = true
+                                logW(
+                                    "帧表溢出（容量 $FRAME_TABLE_CAPACITY 块 @150ms），" +
+                                        "丢弃最旧帧（不影响播放）"
+                                )
+                            }
+                        }
+                        frameTable.add(frame)
+                    }
+                }
+            } catch (_: CancellationException) {
+                // 正常取消
+            } catch (e: Exception) {
+                logW("RMS 帧收集异常: ${e.message}")
+            }
+        }
+    }
+
+    /** M-AND-2（1-B）：停止 RMS 帧收集并清空帧槽/帧表（播放结束/打断/失败）。 */
+    private fun stopRmsFrameCollection() {
+        rmsFrameCollectJob?.cancel()
+        rmsFrameCollectJob = null
+        latestAudio = null
+        synchronized(frameTableLock) { frameTable.clear() }
+        activeProvider = null
+    }
+
+    /**
+     * M-AND-1 打回点修复（C1）：当前播放位置（重锚时钟，AND1-A6）。
+     *
+     * = now − playStartWallClockMs（重锚基准：isSpeaking 前沿记录，播放结束复位 0）。
+     * 与帧 timestampMs 同基准（均相对播放起点）→ 选帧无需额外换算；未播放（基准未记录）→ 0。
+     * 禁止以 nowMillis() 直接起算（契约 AND1-A6）。
+     */
+    private fun playbackPositionMs(): Long {
+        val start = playStartWallClockMs
+        return if (start > 0L) (nowMillis() - start).coerceAtLeast(0L) else 0L
+    }
+
+    /**
+     * M-AND-1 打回点修复（C1）：按当前播放位置选帧（消费侧重锚）。
+     *
+     * 帧表按 timestampMs 升序（契约 AND1-A2 严格非递减）→ 线性扫描取
+     * max timestampMs ≤ positionMs 的帧；无匹配（位置早于首帧 ts，仅契约违约输入
+     * 可能出现）→ null（调用方兜底 [latestAudio]）。
+     */
+    private fun selectFrameForPosition(positionMs: Long): AudioFrame? {
+        synchronized(frameTableLock) {
+            var selected: AudioFrame? = null
+            for (frame in frameTable) {
+                if (frame.timestampMs <= positionMs) {
+                    selected = frame
+                } else {
+                    break
+                }
+            }
+            return selected
+        }
+    }
+
     /** 停止 LipSync 协程并立即将嘴型归零（含五元音）。 */
     private fun stopLipSync() {
         logLipSync("播放结束")
         lipSyncJob?.cancel()
         lipSyncJob = null
+        stopRmsFrameCollection()
         val view = live2DView ?: return
         try {
             view.setLipSyncParam(0f)
@@ -549,6 +717,11 @@ class VoiceIoController(
         visemeCollectJob = null
         keywordMotionJob?.cancel()
         keywordMotionJob = null
+        rmsFrameCollectJob?.cancel()
+        rmsFrameCollectJob = null
+        latestAudio = null
+        synchronized(frameTableLock) { frameTable.clear() }
+        activeProvider = null
         live2DView = null
         // 释放所有 Provider（幂等）
         providers.forEach { provider ->
@@ -610,3 +783,139 @@ class VoiceIoController(
         }
     }
 }
+
+/**
+ * M-AND-1 播放时钟与重锚（选型 3-B）——播放时钟抽象 seam（contract-linkage-android.md §2）。
+ *
+ * - [reanchor]：重锚纯函数（AND1-A3/A6 统一语义，契约 v2.1）——返回调度墙钟时刻 =
+ *   playStartWallClockMs + frameTsMs，clamp 下限 = playStartWallClockMs（不早于播放起点）。
+ *   纯函数：无随机项、不读系统时钟（AND1-A6「注入固定时钟源，调度序列 = 重锚序列」）。
+ * - [PlaybackClock]：按固定周期 [PLAYBACK_POLL_INTERVAL_MS] 轮询 [PlayerPositionSource]
+ *   （真实实现 = MediaPlayer.getCurrentPosition）；onPrepared→onStart 恒 0、onStart 后非递减。
+ * - [TestPlayerClock]：测试假体（fakePrepared / fakeStart / fakeAdvance 驱动，无需真实 MediaPlayer）。
+ */
+object LipSyncClock {
+
+    /** 3-B：播放位置轮询周期（固定常数，∈ [50,100]ms；非抖动值，契约 AND1-A5 回归门）。 */
+    const val PLAYBACK_POLL_INTERVAL_MS = 60L
+
+    /**
+     * 重锚纯函数（AND1-A3/A6，契约 v2.1 统一语义）：
+     * 帧调度墙钟时刻 = playStartWallClockMs + frameTsMs，clamp 下限 = playStartWallClockMs
+     * （帧时间戳恒 ≥ 0 时等价于加法；frameTsMs < 0 时防御性钳制到播放起点）。
+     */
+    fun reanchor(frameTsMs: Long, playStartWallClockMs: Long): Long =
+        (playStartWallClockMs + frameTsMs).coerceAtLeast(playStartWallClockMs)
+
+    /** 调度序列（AND1-A6）：帧列表 → 重锚调度墙钟序列（保序、保间距、严格递增）。 */
+    fun scheduleTimes(frames: List<AudioFrame>, playStartWallClockMs: Long): List<Long> =
+        frames.map { reanchor(it.timestampMs, playStartWallClockMs) }
+
+    /** 播放位置源抽象：真实实现读 MediaPlayer.getCurrentPosition；测试用 [TestPlayerClock]。 */
+    fun interface PlayerPositionSource {
+        fun currentPositionMs(): Long
+    }
+
+    /**
+     * 3-B 播放时钟：按 [PLAYBACK_POLL_INTERVAL_MS] 轮询 [PlayerPositionSource]。
+     *
+     * - [onPrepared]：位置恒 0（不启动轮询；prepared→start 间不抛异常）
+     * - [onStart]：位置从 0 起，启动轮询；单调钳制保证非递减（AND1-A5）
+     * - [onStop]：停止轮询并复位 0（播放完成/打断/释放）
+     */
+    class PlaybackClock(
+        private val positionSource: PlayerPositionSource,
+        private val scope: CoroutineScope,
+    ) {
+        private val _playbackPositionMs = MutableStateFlow(0L)
+        val playbackPositionMs: StateFlow<Long> = _playbackPositionMs.asStateFlow()
+
+        private var pollJob: Job? = null
+
+        /** MediaPlayer.onPrepared：位置恒 0（停止轮询，等待 start）。 */
+        fun onPrepared() {
+            pollJob?.cancel()
+            pollJob = null
+            _playbackPositionMs.value = 0L
+        }
+
+        /** MediaPlayer.start() 后调用：开始轮询，位置非递减（单调钳制）。 */
+        fun onStart() {
+            _playbackPositionMs.value = 0L
+            pollJob?.cancel()
+            pollJob = scope.launch {
+                while (isActive) {
+                    val pos = try {
+                        positionSource.currentPositionMs()
+                    } catch (_: Throwable) {
+                        0L
+                    }
+                    if (pos > _playbackPositionMs.value) {
+                        _playbackPositionMs.value = pos
+                    }
+                    delay(PLAYBACK_POLL_INTERVAL_MS)
+                }
+            }
+        }
+
+        /** 播放完成 / 打断 / 释放：停止轮询并复位 0。 */
+        fun onStop() {
+            pollJob?.cancel()
+            pollJob = null
+            _playbackPositionMs.value = 0L
+        }
+    }
+
+    /**
+     * 测试假体：可控播放位置源（AND1-A5 seam；fakePrepared/fakeStart/fakeAdvance 驱动）。
+     * 同时实现 [PlayerPositionSource]，可注入 [PlaybackClock] 验证轮询行为；
+     * [playbackPositionMs] 镜像内部位置（prepared→start 恒 0、start 后非递减）。
+     */
+    class TestPlayerClock : PlayerPositionSource {
+        private var positionMs = 0L
+        private var playing = false
+
+        private val _playbackPositionMs = MutableStateFlow(0L)
+
+        /** 播放位置镜像（契约锚 playbackPositionMs：prepared→start 恒 0，start 后非递减）。 */
+        val playbackPositionMs: StateFlow<Long> = _playbackPositionMs.asStateFlow()
+
+        /** 模拟 MediaPlayer.onPrepared：位置归零、未播放（prepared→start 恒 0）。 */
+        fun fakePrepared() {
+            playing = false
+            positionMs = 0L
+            _playbackPositionMs.value = 0L
+        }
+
+        /** 模拟 MediaPlayer.start()：开始播放，位置从 0 起。 */
+        fun fakeStart() {
+            playing = true
+            positionMs = 0L
+            _playbackPositionMs.value = 0L
+        }
+
+        /** 推进播放位置（仅播放中有效；非递减）。 */
+        fun fakeAdvance(ms: Long) {
+            if (playing) {
+                positionMs += ms
+                if (positionMs > _playbackPositionMs.value) {
+                    _playbackPositionMs.value = positionMs
+                }
+            }
+        }
+
+        /** 推进一个轮询周期。 */
+        fun fakeAdvance() {
+            fakeAdvance(PLAYBACK_POLL_INTERVAL_MS)
+        }
+
+        override fun currentPositionMs(): Long = positionMs
+    }
+}
+
+/**
+ * M-AND-1 重锚纯函数（top-level 便捷入口，同 [LipSyncClock.reanchor]）：
+ * 帧调度墙钟时刻 = playStartWallClockMs + frameTsMs，clamp 下限 = playStartWallClockMs。
+ */
+internal fun reanchor(frameTsMs: Long, playStartWallClockMs: Long): Long =
+    LipSyncClock.reanchor(frameTsMs, playStartWallClockMs)

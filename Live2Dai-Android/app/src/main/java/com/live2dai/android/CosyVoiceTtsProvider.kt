@@ -2,15 +2,24 @@ package com.live2dai.android
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaPlayer
 import android.util.Log
 import com.live2dai.android.data.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,7 +45,10 @@ import java.util.concurrent.TimeUnit
  *   1. run-task（input 空，parameters 含 voice/volume/sample_rate/rate/format/pitch/seed/type）
  *   2. continue-task（input.text = 待合成文本）
  *   3. finish-task（input 空，结束会话）
- *   服务端响应：task-started → 二进制音频帧（MP3）* → task-finished | task-failed
+ *   task-started → result-generated（JSON 字符串消息，音频块在
+ *   payload.output.audio，base64 编码 MP3）* → task-finished | task-failed
+ *   （真机协议实证：音频走 JSON 字符串消息而非二进制；二进制消息分支保留为
+ *   协议变体兜底——若未来协议变化仍可用）
  * - 无官方 Android SDK，OkHttp WebSocket 直连（协议格式对照本机安装的官方 dashscope
  *   SDK speech_synthesizer.py 的 get_start_request/get_continue_request/get_finish_request）
  *
@@ -72,6 +84,10 @@ class CosyVoiceTtsProvider(
     private val rate: Float? = null,
     /** 音调倍率（run-task parameters.pitch，默认 1.1 升高显得更萌）；null = 从 SettingsRepository 读取 */
     private val pitch: Float? = null,
+    /** M-AND-1 测试注入：MP3→PCM 解码器（默认 [decodeMp3ToPcm] MediaExtractor+MediaCodec；JVM 测试注入 fake）。 */
+    private val pcmDecoder: (ByteArray) -> DecodedAudio? = ::decodeMp3ToPcm,
+    /** M-AND-1 测试注入：播放位置轮询作用域（默认 Main；测试注入 TestDispatcher 驱动虚拟时间）。 */
+    private val positionPollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) : TtsProvider {
 
     companion object {
@@ -144,12 +160,44 @@ class CosyVoiceTtsProvider(
     override val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
     /**
-     * M4：音频帧流（v1.0 空流）。
-     *
-     * CosyVoice 输出 MP3 帧；MP3→PCM 客户端解码（MediaCodec）可行性/延迟按 **UNC-4**
-     * 留 M4 之后评估，本版本不实现解码（contract-M4-M5 §2.2 空流策略）。
+     * M-AND-1（2a-①）：MP3 整段预解码 → PCM 帧流（150ms 固定分块，播放前全量 emit）。
+     * 时序契约（AND1-A7）：消费者在 speak() 前启动 collect；speak 后 1s 内首帧。
+     * tryEmit 非阻塞：无订阅者/缓冲满 → 丢块 + Log.w 一次，不影响 speak 主流程。
      */
-    override val audioFrameFlow: Flow<AudioFrame> = emptyFlow()
+    private val _audioFrameFlow = MutableSharedFlow<AudioFrame>(
+        replay = 0,
+        extraBufferCapacity = 64,
+    )
+    override val audioFrameFlow: Flow<AudioFrame> = _audioFrameFlow.asSharedFlow()
+
+    /** M-AND-1（3-B）：播放位置时钟（MediaPlayer.getCurrentPosition 轮询重锚）。 */
+    private val playbackClock = LipSyncClock.PlaybackClock(
+        positionSource = LipSyncClock.PlayerPositionSource {
+            try {
+                mediaPlayer?.currentPosition?.toLong() ?: 0L
+            } catch (_: Throwable) {
+                0L
+            }
+        },
+        scope = positionPollScope,
+    )
+    override val playbackPositionMs: StateFlow<Long> = playbackClock.playbackPositionMs
+
+    /** M-AND-1：本次 speak 会话内是否已被 stop() 打断（打断后不再 emit）。下次 speak 重置。 */
+    @Volatile
+    private var stopped = false
+
+    /** M-AND-1：本次 speak 会话内是否已输出过丢块警告（Log.w 一次）。 */
+    @Volatile
+    private var dropWarned = false
+
+    /**
+     * M-AND-1 C1 修复（cosyvoice_ws WS 流式路径）：本次 speak 会话内 WS 流式路径
+     * 已 emit 的帧数（音频块到达时增量 emit；>0 时 speak() 跳过整段回退 emit 防重复）。
+     * 下次 speak 重置。OkHttp 回调线程写、speak IO 线程读 → @Volatile。
+     */
+    @Volatile
+    private var wsStreamEmittedFrames = 0L
 
     private var mediaPlayer: MediaPlayer? = null
 
@@ -158,7 +206,8 @@ class CosyVoiceTtsProvider(
      *
      * 1. API Key 未配置 → health=UNAVAILABLE 快速失败（不发网络，不阻塞降级链）
      * 2. DashScope WebSocket 流式合成（run-task → task-started → continue-task →
-     *    二进制 MP3 帧 → finish-task → task-finished）
+     *    result-generated 音频块（JSON output.audio base64 MP3）→ finish-task →
+     *    task-finished）
      * 3. 音频字节 → 临时文件 → MediaPlayer 播放（异步，prepareAsync 后返回，
      *    播放状态通过 [isSpeaking] StateFlow 暴露给 LipSync/UI）
      *
@@ -172,8 +221,22 @@ class CosyVoiceTtsProvider(
             throw IllegalStateException("CosyVoice API Key 未配置（设置页 aliyunApiKey）")
         }
         try {
+            // M-AND-1：新 speak 会话重置 emit 守卫
+            stopped = false
+            dropWarned = false
+            wsStreamEmittedFrames = 0L
             val audioBytes = synthesize(text)
             if (audioBytes.isNotEmpty()) {
+                // M-AND-1 C1 修复：WS 流式路径已按到达块实时 emit 帧（真机路径）→
+                // 不重复整段 emit；流式路径零帧（JVM 测试/解码前缀未完整）→ 回退
+                // 整段预解码 emit（既有 2a-① 行为，AND1-A1/A2/A7 语义不变）
+                if (wsStreamEmittedFrames == 0L) {
+                    // [C1-r3 诊断] 流式路径零帧时的回退决策打点（真机验证流式 emit 是否产出）
+                    Log.w(TAG, "CosyVoice WS 流式路径零帧（wsStreamEmittedFrames=0），回退整段预解码 emit")
+                    emitAudioFrames(audioBytes)
+                } else {
+                    Log.i(TAG, "CosyVoice WS 流式路径已 emit $wsStreamEmittedFrames 帧，跳过整段回退（防重复）")
+                }
                 playAudioBytes(audioBytes)
                 _health.value = TtsHealth.OK
             } else {
@@ -193,7 +256,8 @@ class CosyVoiceTtsProvider(
      * 3. 收到 task-started → 发送 continue-task（input.text=待合成文本）+ finish-task（结束会话）
      *    —— 与官方 SDK `call()` 一致：continue-task 后立即 finish-task，服务端随后
      *    流式返回全部 MP3 音频帧并以 task-finished 收尾（SDK streaming_complete 语义）
-     * 4. 接收二进制音频帧（MP3）合并
+     * 4. 接收音频块（真机实证：result-generated JSON 字符串消息 payload.output.audio
+     *    的 base64 MP3 分块；二进制消息为协议变体兜底）合并
      * 5. task-finished → 完成返回音频字节；task-failed → 抛异常；超时 → 抛异常
      *
      * @throws Exception 连接失败 / task-failed / 超时 / 未返回音频（由降级链处理）
@@ -203,6 +267,10 @@ class CosyVoiceTtsProvider(
         var done = false
         var error: Exception? = null
         val taskId = UUID.randomUUID().toString().replace("-", "")
+        // M-AND-1 C1 修复（cosyvoice_ws WS 流式路径）：累积已到达的 MP3 字节前缀，
+        // 每个音频块到达时增量解码 → 150ms 帧实时 emit（不等待整段合成结束）。
+        // 仅 OkHttp 回调线程写（WebSocketListener 串行回调），无需加锁。
+        val mp3Accumulator = java.io.ByteArrayOutputStream()
 
         val wsRequest = Request.Builder()
             .url(resolvedWsUrl)
@@ -250,13 +318,70 @@ class CosyVoiceTtsProvider(
                         error = RuntimeException("DashScope 合成失败（$eventName）: $errMsg")
                         done = true
                     }
-                    "result-generated" -> Log.i(TAG, "DashScope result-generated")
+                    "result-generated" -> {
+                        // [WSDBG] 临时诊断日志（C1-r3，真机验证后由主代理安排降噪）：
+                        // 打印消息体前 200 字符，供真机抓取真实 JSON 结构、验证
+                        // payload.output.audio 字段名假设（r2 该假设无原始 JSON 证据）。
+                        Log.w(TAG, "[WSDBG] result-generated 消息体前200字符: ${message.take(200)}")
+                        // M-AND-1 C1 修复轮2（真机协议实证）：DashScope 的音频块不在二进制
+                        // 消息，而在 result-generated JSON 字符串消息的 payload.output.audio
+                        // 字段（base64 编码 MP3 分块）——修复轮1 挂在 onMessage(bytes) 二进制
+                        // 分支导致真机零帧。此处解析 → base64 解码 → 复用流式增量 emit
+                        // （emitStreamingFrames：mp3Accumulator + pcmDecoder + chunk 150ms）。
+                        val audioB64 = try {
+                            JSONObject(message)
+                                .optJSONObject("payload")
+                                ?.optJSONObject("output")
+                                ?.optString("audio", "")
+                                ?.takeIf { it.isNotEmpty() }
+                                // 协议变体防御：部分服务端把 output 直接放顶层
+                                ?: JSONObject(message)
+                                    .optJSONObject("output")
+                                    ?.optString("audio", "")
+                        } catch (e: Exception) {
+                            null
+                        }
+                        if (audioB64.isNullOrEmpty()) {
+                            // [WSDBG] 字段名验证失败分支：打印实际 payload/output 键集合，
+                            // 直接回答「真实字段名是什么」（r2 假设 payload.output.audio）。
+                            val payloadKeys = try {
+                                JSONObject(message).optJSONObject("payload")?.keys()?.asSequence()?.joinToString(",") ?: "null"
+                            } catch (e: Exception) {
+                                "parse-error"
+                            }
+                            val outputObj = try {
+                                JSONObject(message).optJSONObject("payload")?.optJSONObject("output")
+                                    ?: JSONObject(message).optJSONObject("output")
+                            } catch (e: Exception) {
+                                null
+                            }
+                            val outputKeys = if (outputObj == null) "null" else outputObj.keys().asSequence().joinToString(",")
+                            Log.w(TAG, "[WSDBG] result-generated 无 payload.output.audio 字段（payloadKeys=[$payloadKeys], outputKeys=[$outputKeys]）")
+                            Log.i(TAG, "DashScope result-generated（无音频块，跳过）")
+                        } else {
+                            val part = try {
+                                java.util.Base64.getDecoder().decode(audioB64)
+                            } catch (e: Exception) {
+                                null
+                            }
+                            if (part == null || part.isEmpty()) {
+                                Log.w(TAG, "DashScope result-generated audio base64 解码失败，跳过该块")
+                            } else {
+                                Log.i(TAG, "DashScope result-generated 音频块: ${part.size} bytes")
+                                audioParts.add(part)
+                                emitStreamingFrames(part, mp3Accumulator)
+                            }
+                        }
+                    }
                     else -> Log.i(TAG, "DashScope 忽略未知事件: $eventName")
                 }
             }
 
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                audioParts.add(bytes.toByteArray())
+                val part = bytes.toByteArray()
+                audioParts.add(part)
+                // M-AND-1 C1 修复：WS 流式路径按到达块 emit 帧（增量解码已累积前缀）
+                emitStreamingFrames(part, mp3Accumulator)
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {
@@ -412,18 +537,23 @@ class CosyVoiceTtsProvider(
             setDataSource(tempFile.absolutePath)
             setOnPreparedListener {
                 Log.i(TAG, "音频就绪，开始播放")
+                // M-AND-1（3-B）：prepared→start 间恒 0；start 后轮询非递减
+                playbackClock.onPrepared()
                 start()
                 // 真实播放开始 → isSpeaking(true)（LipSync 驱动）
                 _isSpeaking.value = true
+                playbackClock.onStart()
             }
             setOnCompletionListener {
                 Log.i(TAG, "播放完成")
+                playbackClock.onStop()
                 tempFile.delete()
                 // 自然播放完成 → isSpeaking(false)
                 _isSpeaking.value = false
             }
             setOnErrorListener { _, what, extra ->
                 Log.e(TAG, "MediaPlayer 播放错误: what=$what, extra=$extra")
+                playbackClock.onStop()
                 tempFile.delete()
                 // 播放中断 → isSpeaking(false)
                 _isSpeaking.value = false
@@ -434,9 +564,95 @@ class CosyVoiceTtsProvider(
     }
 
     /**
+     * M-AND-1 C1 修复（cosyvoice_ws WS 流式路径）：音频块实时到达 → 把已累积的 MP3
+     * 前缀增量解码 → [LipSyncFrameChunker] 150ms 分块 → 只 emit 尚未发过的帧
+     * （timestampMs 相对 speak 起点、首帧 0、严格非递减——AND1-A2/A7 语义）。
+     *
+     * - 前缀未完整（解码 null/空）→ 跳过，等下一块到达再试；最终由 speak() 回退
+     *   [emitAudioFrames] 整段预解码兜底（wsStreamEmittedFrames==0 时）。
+     * - stop() 后（stopped=true）不再 emit（守卫在方法首行）。
+     * - tryEmit 非阻塞：无订阅者/缓冲满 → 丢块 + Log.w 一次，不影响 WS 主流程。
+     * - 仅 OkHttp 回调线程调用（WebSocketListener 串行），mp3Accumulator 无并发写。
+     */
+    private fun emitStreamingFrames(
+        part: ByteArray,
+        mp3Accumulator: java.io.ByteArrayOutputStream,
+    ) {
+        if (stopped) return
+        mp3Accumulator.write(part)
+        val accumulatedSize = mp3Accumulator.size()
+        val decoded = try {
+            pcmDecoder(mp3Accumulator.toByteArray())
+        } catch (e: Exception) {
+            Log.w(TAG, "CosyVoice WS 流式解码异常（累积 ${accumulatedSize}B，块 ${part.size}B）: ${e.message}")
+            null
+        }
+        if (decoded == null) {
+            // [C1-r3 诊断] 原静默路径：decodeMp3ToPcm 内部吞异常返回 null（MediaExtractor 未就绪 /
+            // MediaCodec 解码失败 / 前缀未完整）——区分不了真机失败原因，现逐块打点含字节数。
+            Log.w(TAG, "CosyVoice WS 流式解码返回 null（累积 ${accumulatedSize}B，块 ${part.size}B）——前缀未完整或 MediaCodec 失败，等下一块重试")
+            return
+        }
+        if (decoded.samples.isEmpty()) {
+            Log.w(TAG, "CosyVoice WS 流式解码输出空 PCM（累积 ${accumulatedSize}B，块 ${part.size}B）")
+            return
+        }
+        if (decoded.sampleRate <= 0) {
+            Log.w(TAG, "CosyVoice WS 流式解码输出非法采样率 ${decoded.sampleRate}（累积 ${accumulatedSize}B）")
+            return
+        }
+        val frames = LipSyncFrameChunker.chunk(decoded.samples, decoded.sampleRate)
+        var dropped = false
+        while (wsStreamEmittedFrames < frames.size) {
+            val frame = frames[wsStreamEmittedFrames.toInt()]
+            if (!_audioFrameFlow.tryEmit(frame)) dropped = true
+            wsStreamEmittedFrames++
+        }
+        // [C1-r3 诊断] 成功路径打点：确认流式增量解码/发帧链路在真机确实工作（含累积字节数与帧数）
+        Log.i(TAG, "CosyVoice WS 流式解码成功: ${decoded.samples.size} samples @${decoded.sampleRate}Hz（累积 ${accumulatedSize}B），本次共 ${frames.size} 帧，已 emit ${wsStreamEmittedFrames} 帧")
+        if (dropped && !dropWarned) {
+            Log.w(TAG, "CosyVoice WS 流式 audioFrameFlow 无订阅者或缓冲满，丢弃部分音频块（不影响播放）")
+            dropWarned = true
+        }
+    }
+
+    /**
+     * M-AND-1（2a-①，C1 后为 WS 流式路径零帧时的回退）：MP3 → PCM 整段预解码 →
+     * 150ms 分块 emit（播放前全量；非阻塞 tryEmit）。解码失败（真机异常 / JVM 无
+     * MediaCodec）→ 无帧流 + Log.w，不影响播放路径。
+     */
+    private fun emitAudioFrames(mp3Bytes: ByteArray) {
+        if (stopped) return
+        val decoded = try {
+            pcmDecoder(mp3Bytes)
+        } catch (e: Exception) {
+            Log.w(TAG, "CosyVoice MP3 解码异常，无帧流（不影响播放）: ${e.message}")
+            null
+        }
+        if (decoded == null || decoded.samples.isEmpty() || decoded.sampleRate <= 0) {
+            Log.w(TAG, "CosyVoice MP3 解码失败/空 PCM（${mp3Bytes.size}B），无帧流（不影响播放）")
+            return
+        }
+        val frames = LipSyncFrameChunker.chunk(decoded.samples, decoded.sampleRate)
+        var dropped = false
+        for (frame in frames) {
+            if (!_audioFrameFlow.tryEmit(frame)) dropped = true
+        }
+        // [C1-r3 诊断] 回退整段预解码成功打点（区分「流式失败→回退成功」与「回退也失败」）
+        Log.i(TAG, "CosyVoice 整段预解码回退成功: ${decoded.samples.size} samples @${decoded.sampleRate}Hz，emit ${frames.size} 帧")
+        if (dropped && !dropWarned) {
+            Log.w(TAG, "CosyVoice audioFrameFlow 无订阅者或缓冲满，丢弃部分音频块（不影响播放）")
+            dropWarned = true
+        }
+    }
+
+    /**
      * 停止当前播放（打断；幂等）。
      */
     override fun stop() {
+        // M-AND-1：stop() 后本次 speak 会话不得再 emit（emit 守卫置位；下次 speak 重置）
+        stopped = true
+        playbackClock.onStop()
         mediaPlayer?.apply {
             if (isPlaying) stop()
             release()

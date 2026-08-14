@@ -32,6 +32,11 @@ class Live2DView(
 
     private var renderer: Live2DRenderer? = null
 
+    // ── M-AND-3 跨线程参数写串行化（AND-L5，选型 4-A queueEvent 归队）──
+    // producer = Main 嘴型协程（submit，无 native 写）；consumer = GL 线程 onDrawFrame 帧首
+    // drain（native 写唯一发生点）。Live2DRenderer 经 attachLipSyncChannel 绑定本通道。
+    private val lipSyncChannel = LipSyncParamChannel()
+
     /** 当前生效的模型 assets 路径（用于切换失败时回退到上一个模型）。 */
     private var currentAssetPath: String? = null
 
@@ -169,6 +174,8 @@ class Live2DView(
         // 失败 → null → MotionTags/VisemeAnalyzer/EmotionController 走硬编码常量兜底（回归门）。
         ModelAdapterConfig.load(context, modelId)
         renderer = Live2DRenderer(context, modelAssetPath)
+        // M-AND-3：GL 帧 drain 接线（渲染器 onDrawFrame 帧首消费 pending，GL 线程）
+        renderer?.attachLipSyncChannel(lipSyncChannel)
         setRenderer(renderer)
         // 持续渲染模式，支持 120fps 平滑动画（必须在 setRenderer 之后调用）
         renderMode = RENDERMODE_CONTINUOUSLY
@@ -217,6 +224,8 @@ class Live2DView(
                     currentModelId = modelId
                     // G3：adapter 缓存随模型刷新
                     ModelAdapterConfig.load(context, modelId)
+                    // M-AND-3：新 renderer 同样绑定串行化通道（GL 帧 drain）
+                    newRenderer.attachLipSyncChannel(lipSyncChannel)
                     setRenderer(newRenderer)
                     renderMode = RENDERMODE_CONTINUOUSLY
                     // C-M5：绑定模型 ID + 应用该模型存储的 override（已在 GL 线程；无 → fit）
@@ -342,9 +351,13 @@ class Live2DView(
     /**
      * 设置口型同步参数
      * @param value 0.0 (闭嘴) ~ 1.0 (最大张口)
+     *
+     * M-AND-3（AND3-A1）：不再直调 renderer（Main 线程 → model.setParameterValue 直写），
+     * 改为 submit 进 [LipSyncParamChannel]（@Volatile pending 表，每参数仅保留最新值），
+     * native 写由 GL 线程 onDrawFrame 帧首 drain 的 onApply 完成（AND3-A2/A4）。
      */
     fun setLipSyncParam(value: Float) {
-        renderer?.setLipSyncParam(value)
+        lipSyncChannel.submit(LipSyncParamChannel.MOUTH_VALUE_KEY, value)
     }
 
     /**

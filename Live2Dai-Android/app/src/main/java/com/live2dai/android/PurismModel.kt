@@ -43,6 +43,60 @@ class PurismModel(val modelPtr: Long) {
     private var cachedDefaultValues: FloatArray? = null
 
     // ============================================================
+    //  C4-GC：mask 关系 / 顶点数静态缓存
+    //  drawable→mask 索引列表的关联（分组）是 moc3 加载后恒定的静态数据，
+    //  不应每帧重建。PurismModel 按模型实例化 → 换模型自然重建缓存，无串模型风险。
+    // ============================================================
+
+    private var cachedMaskCounts: IntArray? = null
+    private var cachedMaskLists: Array<IntArray>? = null
+    private var cachedVertexCounts: IntArray? = null
+
+    /**
+     * 每个 drawable 的 mask 数量（模型内恒定 → 惰性缓存一次）。
+     */
+    fun getDrawableMaskCountsCached(): IntArray {
+        cachedMaskCounts?.let { return it }
+        val counts = Live2DNative.getDrawableMaskCounts(modelPtr)
+            ?: IntArray(getDrawableCount()) { 0 }
+        cachedMaskCounts = counts
+        return counts
+    }
+
+    /**
+     * 所有 drawable 的 mask 索引列表（模型内恒定 → 首次访问全量缓存，后续零 JNI/零分配）。
+     */
+    fun getDrawableMasksCached(): Array<IntArray> {
+        cachedMaskLists?.let { return it }
+        val counts = getDrawableMaskCountsCached()
+        val lists = Array(counts.size) { IntArray(0) }
+        for (i in counts.indices) {
+            if (counts[i] > 0) {
+                lists[i] = Live2DNative.getDrawableMasks(modelPtr, i) ?: IntArray(0)
+            }
+        }
+        cachedMaskLists = lists
+        return lists
+    }
+
+    /**
+     * 单个 drawable 的 mask 索引列表（缓存版本，换模型随实例重建）。
+     */
+    fun getDrawableMasksCached(drawableIndex: Int): IntArray {
+        return getDrawableMasksCached().getOrElse(drawableIndex) { IntArray(0) }
+    }
+
+    /**
+     * 所有 drawable 的顶点数（模型内恒定 → 惰性缓存一次）。
+     */
+    fun getDrawableVertexCountsCached(): IntArray {
+        cachedVertexCounts?.let { return it }
+        val counts = Live2DNative.getDrawableVertexCounts(modelPtr) ?: IntArray(getDrawableCount()) { 0 }
+        cachedVertexCounts = counts
+        return counts
+    }
+
+    // ============================================================
     //  Canvas 信息
     // ============================================================
 

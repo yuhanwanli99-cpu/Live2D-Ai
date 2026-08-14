@@ -2,20 +2,30 @@ package com.live2dai.android
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaPlayer
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -36,7 +46,17 @@ import java.util.concurrent.TimeUnit
  * Edge TTS 使用 `wss://speech.platform.bing.com/` 公共端点，
  * 通过 WebSocket 发送 SSML 并接收 MP3 音频流。
  */
-class EdgeTtsProvider(private val context: Context) : TtsProvider {
+class EdgeTtsProvider(
+    private val context: Context,
+    /** 测试注入：OkHttpClient（默认真实客户端；MockWebServer 测试可注入）。 */
+    private val client: OkHttpClient = defaultOkHttpClient(),
+    /** 测试注入：Edge TTS WebSocket 端点（默认公共端点；MockWebServer 测试可覆盖）。 */
+    private val wsUrl: String = EDGE_WSS_URL,
+    /** M-AND-1 测试注入：MP3→PCM 解码器（默认 [decodeMp3ToPcm] MediaExtractor+MediaCodec；JVM 测试注入 fake）。 */
+    private val pcmDecoder: (ByteArray) -> DecodedAudio? = ::decodeMp3ToPcm,
+    /** M-AND-1 测试注入：播放位置轮询作用域（默认 Main；测试注入 TestDispatcher 驱动虚拟时间）。 */
+    private val positionPollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+) : TtsProvider {
 
     companion object {
         private const val TAG = "TtsProvider"
@@ -54,6 +74,15 @@ class EdgeTtsProvider(private val context: Context) : TtsProvider {
 
         /** WebSocket 读取超时 */
         private const val WS_READ_TIMEOUT_SECONDS = 60L
+
+        /** M-AND-1：帧流缓冲容量（150ms 块数级；超出丢块 + Log.w，不阻塞 speak） */
+        private const val AUDIO_FLOW_BUFFER_CAPACITY = 64
+
+        private fun defaultOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(WS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(WS_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
     }
 
     private val _health = MutableStateFlow(TtsHealth.OK)
@@ -73,18 +102,36 @@ class EdgeTtsProvider(private val context: Context) : TtsProvider {
     override val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
     /**
-     * M4：音频帧流（v1.0 空流）。
-     *
-     * Edge TTS 输出 MP3；MP3→PCM 客户端解码（MediaCodec）可行性/延迟按 **UNC-4**
-     * 留 M4 之后评估，本版本不实现解码（contract-M4-M5 §2.2 空流策略）。
+     * M-AND-1（2a-①）：MP3 整段预解码 → PCM 帧流（150ms 固定分块，播放前全量 emit）。
+     * 时序契约（AND1-A7）：消费者在 speak() 前启动 collect；speak 后 1s 内首帧。
+     * tryEmit 非阻塞：无订阅者/缓冲满 → 丢块 + Log.w 一次，不影响 speak 主流程。
      */
-    override val audioFrameFlow: Flow<AudioFrame> = emptyFlow()
+    private val _audioFrameFlow = MutableSharedFlow<AudioFrame>(
+        replay = 0,
+        extraBufferCapacity = AUDIO_FLOW_BUFFER_CAPACITY,
+    )
+    override val audioFrameFlow: Flow<AudioFrame> = _audioFrameFlow.asSharedFlow()
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(WS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(WS_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .writeTimeout(WS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .build()
+    /** M-AND-1（3-B）：播放位置时钟（MediaPlayer.getCurrentPosition 轮询重锚）。 */
+    private val playbackClock = LipSyncClock.PlaybackClock(
+        positionSource = LipSyncClock.PlayerPositionSource {
+            try {
+                mediaPlayer?.currentPosition?.toLong() ?: 0L
+            } catch (_: Throwable) {
+                0L
+            }
+        },
+        scope = positionPollScope,
+    )
+    override val playbackPositionMs: StateFlow<Long> = playbackClock.playbackPositionMs
+
+    /** M-AND-1：本次 speak 会话内是否已被 stop() 打断（打断后不再 emit）。下次 speak 重置。 */
+    @Volatile
+    private var stopped = false
+
+    /** M-AND-1：本次 speak 会话内是否已输出过丢块警告（Log.w 一次）。 */
+    @Volatile
+    private var dropWarned = false
 
     private var mediaPlayer: MediaPlayer? = null
 
@@ -100,8 +147,13 @@ class EdgeTtsProvider(private val context: Context) : TtsProvider {
      */
     override suspend fun speak(text: String) = withContext(Dispatchers.IO) {
         try {
+            // M-AND-1：新 speak 会话重置 emit 守卫
+            stopped = false
+            dropWarned = false
             val audioBytes = synthesizeEdgeTts(text)
             if (audioBytes != null) {
+                // M-AND-1（2a-①）：MP3 预解码 → 150ms 帧流，先于播放全量 emit（消费侧重锚）
+                emitAudioFrames(audioBytes)
                 playAudioBytes(audioBytes)
                 _health.value = TtsHealth.OK
             } else {
@@ -131,7 +183,7 @@ class EdgeTtsProvider(private val context: Context) : TtsProvider {
         var error: Exception? = null
 
         val wsRequest = Request.Builder()
-            .url(EDGE_WSS_URL + "&ConnectionId=" + UUID.randomUUID().toString().uppercase())
+            .url(wsUrl + "&ConnectionId=" + UUID.randomUUID().toString().uppercase())
             .addHeader("Pragma", "no-cache")
             .addHeader("Cache-Control", "no-cache")
             .addHeader("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
@@ -290,17 +342,22 @@ $ssml""")
             )
             setDataSource(tempFile.absolutePath)
             setOnPreparedListener {
+                // M-AND-1（3-B）：prepared→start 间恒 0；start 后轮询非递减
+                playbackClock.onPrepared()
                 start()
                 // 真实播放开始 → isSpeaking(true)（LipSync 驱动）
                 _isSpeaking.value = true
+                playbackClock.onStart()
             }
             setOnCompletionListener {
+                playbackClock.onStop()
                 tempFile.delete()
                 // 自然播放完成 → isSpeaking(false)
                 _isSpeaking.value = false
             }
             setOnErrorListener { _, what, extra ->
                 Log.e(TAG, "Edge TTS MediaPlayer 错误: what=$what, extra=$extra")
+                playbackClock.onStop()
                 tempFile.delete()
                 // 播放中断 → isSpeaking(false)
                 _isSpeaking.value = false
@@ -311,9 +368,38 @@ $ssml""")
     }
 
     /**
+     * M-AND-1（2a-①）：MP3 → PCM 整段预解码 → 150ms 分块 emit（播放前全量；非阻塞 tryEmit）。
+     * 解码失败（真机异常 / JVM 无 MediaCodec）→ 无帧流 + Log.w，不影响播放路径。
+     */
+    private fun emitAudioFrames(mp3Bytes: ByteArray) {
+        if (stopped) return
+        val decoded = try {
+            pcmDecoder(mp3Bytes)
+        } catch (e: Exception) {
+            Log.w(TAG, "Edge TTS MP3 解码异常，无帧流（不影响播放）: ${e.message}")
+            null
+        }
+        if (decoded == null || decoded.samples.isEmpty() || decoded.sampleRate <= 0) {
+            Log.w(TAG, "Edge TTS MP3 解码失败/空 PCM，无帧流（不影响播放）")
+            return
+        }
+        var dropped = false
+        for (frame in LipSyncFrameChunker.chunk(decoded.samples, decoded.sampleRate)) {
+            if (!_audioFrameFlow.tryEmit(frame)) dropped = true
+        }
+        if (dropped && !dropWarned) {
+            Log.w(TAG, "Edge TTS audioFrameFlow 无订阅者或缓冲满，丢弃部分音频块（不影响播放）")
+            dropWarned = true
+        }
+    }
+
+    /**
      * 停止当前播放（打断；幂等）。
      */
     override fun stop() {
+        // M-AND-1：stop() 后本次 speak 会话不得再 emit（emit 守卫置位；下次 speak 重置）
+        stopped = true
+        playbackClock.onStop()
         mediaPlayer?.apply {
             if (isPlaying) stop()
             release()
@@ -345,5 +431,136 @@ $ssml""")
             return i
         }
         return -1
+    }
+}
+
+/**
+ * M-AND-1（2a-①）：MP3 → PCM 解码结果（float 单声道采样 + 采样率）。
+ */
+data class DecodedAudio(
+    val samples: FloatArray,
+    val sampleRate: Int,
+)
+
+/**
+ * M-AND-1（2a-①）：MediaExtractor + MediaCodec 整段预解码 MP3 → float 单声道 PCM（-1..1）。
+ *
+ * - 多声道输出降混为第一声道（步进 2 × channelCount）
+ * - 空输入 / 解码失败 → null（调用方降级为无帧流，不影响播放路径）
+ * - API 21+（minSdk 26 满足）；JVM 单测无 MediaCodec（“not mocked”）→ 捕获返回 null
+ * - 确定性：同 MP3 输入 → 同 PCM 输出（固定分块后帧序列完全确定，AND1-A2）
+ */
+internal fun decodeMp3ToPcm(mp3Bytes: ByteArray): DecodedAudio? {
+    if (mp3Bytes.isEmpty()) return null
+    val tempFile = File.createTempFile("tts_mp3_decode", ".mp3")
+    try {
+        tempFile.writeBytes(mp3Bytes)
+        return decodeAudioFile(tempFile)
+    } catch (_: Throwable) {
+        return null
+    } finally {
+        tempFile.delete()
+    }
+}
+
+private fun decodeAudioFile(file: File): DecodedAudio? {
+    val extractor = MediaExtractor()
+    var codec: MediaCodec? = null
+    try {
+        extractor.setDataSource(file.absolutePath)
+        if (extractor.trackCount <= 0) return null
+        val format = extractor.getTrackFormat(0)
+        val mime = format.getString(MediaFormat.KEY_MIME)
+        if (mime == null || !mime.startsWith("audio/")) return null
+        extractor.selectTrack(0)
+        codec = MediaCodec.createDecoderByType(mime)
+        codec.configure(format, null, null, 0)
+        codec.start()
+        val inputData = file.readBytes()
+        val bufferInfo = MediaCodec.BufferInfo()
+        val pcmOut = ByteArrayOutputStream()
+        var inputOffset = 0
+        var inputDone = false
+        var outputDone = false
+        var sampleRate = if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+            format.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 24000
+        var channelCount = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+            format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else 1
+        var idleLoops = 0
+        while (!outputDone) {
+            if (!inputDone) {
+                val inIndex = codec.dequeueInputBuffer(10_000)
+                if (inIndex >= 0) {
+                    val inBuf = codec.getInputBuffer(inIndex) ?: return null
+                    inBuf.clear()
+                    val remaining = inputData.size - inputOffset
+                    val chunk = minOf(inBuf.capacity(), remaining)
+                    if (chunk > 0) inBuf.put(inputData, inputOffset, chunk)
+                    inputOffset += chunk
+                    val eos = inputOffset >= inputData.size
+                    codec.queueInputBuffer(
+                        inIndex, 0, chunk, 0L,
+                        if (eos) MediaCodec.BUFFER_FLAG_END_OF_STREAM else 0,
+                    )
+                    if (eos) inputDone = true
+                }
+            }
+            val outIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+            when {
+                outIndex >= 0 -> {
+                    idleLoops = 0
+                    if (bufferInfo.size > 0) {
+                        val outBuf = codec.getOutputBuffer(outIndex) ?: return null
+                        outBuf.position(bufferInfo.offset)
+                        outBuf.limit(bufferInfo.offset + bufferInfo.size)
+                        val chunk = ByteArray(bufferInfo.size)
+                        outBuf.get(chunk)
+                        pcmOut.write(chunk)
+                    }
+                    codec.releaseOutputBuffer(outIndex, false)
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                }
+                outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    val outFormat = codec.outputFormat
+                    if (outFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                        sampleRate = outFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    }
+                    if (outFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                        channelCount = outFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                    }
+                }
+                else -> {
+                    idleLoops++
+                    if (idleLoops > 500) break // 5s 无进展保护（EOS 丢失等异常态）
+                }
+            }
+        }
+        val raw = pcmOut.toByteArray()
+        if (raw.size < 2 || sampleRate <= 0) return null
+        // 16-bit PCM → float 单声道（-1..1）；多声道取第一声道
+        val stride = 2 * channelCount.coerceAtLeast(1)
+        val sampleCount = raw.size / stride
+        if (sampleCount <= 0) return null
+        val floats = FloatArray(sampleCount)
+        var i = 0
+        var s = 0
+        while (s + 1 < raw.size) {
+            val low = raw[s].toInt() and 0xFF
+            val high = raw[s + 1].toInt() shl 8
+            floats[i++] = (low or high).toShort() / 32768f
+            s += stride
+        }
+        return DecodedAudio(floats, sampleRate)
+    } catch (_: Throwable) {
+        return null
+    } finally {
+        try {
+            codec?.release()
+        } catch (_: Throwable) {
+        }
+        try {
+            extractor.release()
+        } catch (_: Throwable) {
+        }
     }
 }
