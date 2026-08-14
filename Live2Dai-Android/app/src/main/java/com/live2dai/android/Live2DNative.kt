@@ -82,4 +82,19 @@ object Live2DNative {
     external fun getDrawableScreenColors(modelPtr: Long): FloatArray?
     external fun getDrawableParentPartIndices(modelPtr: Long): IntArray?
     external fun getRenderOrders(modelPtr: Long): IntArray?
+
+    // ====================================================================
+    // M1 (Wave 1): engine 骨架（framework + purism 加载，C API 见 cpp/engine/）
+    // 签名表锁定草案：engineUpdate/Draw/Set* 不带句柄，作用于当前引擎/当前模型；
+    // engineInit 返回引擎句柄，engineRelease 以该句柄释放。
+    // @JvmStatic: JNI 静态导出（Java_ 符号 + jclass 首参），主代理机械修正（AND-W1-M1-A3）
+    // ====================================================================
+    @JvmStatic external fun engineInit(): Long
+    @JvmStatic external fun engineLoadModel(moc3Path: String, model3Path: String, cdi3Path: String): Long
+    @JvmStatic external fun engineUpdate(dt: Float)
+    @JvmStatic external fun engineDraw()
+    @JvmStatic external fun engineSetLipSync(value: Float)
+    @JvmStatic external fun engineSetMvpMatrix(matrix: FloatArray)
+    @JvmStatic external fun engineSetParameters(params: Map<String, Float>)
+    @JvmStatic external fun engineRelease(handle: Long)
 }

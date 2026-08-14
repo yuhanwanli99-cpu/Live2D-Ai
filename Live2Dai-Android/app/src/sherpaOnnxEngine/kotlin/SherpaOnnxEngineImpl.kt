@@ -59,9 +59,13 @@ internal object SherpaOnnxEngineImplFactory : SherpaOnnxEngineFactory {
 /**
  * Kokoro 离线 TTS 引擎（sherpa-onnx OfflineTts）。
  *
- * 模型文件（tar 解压后，见 ModelDownloadManager.KOKORO_TTS）：
+ * 模型文件（tar 解压后，见 ModelDownloadManager.KOKORO_TTS —— 用户裁定 B-9=Kokoro-82M-v1.1-zh）：
  * model.onnx / model.int8.onnx + tokens.txt + voices.bin + espeak-ng-data/ + lexicon-*.txt。
  * voices 参数为 voices.bin 文件路径（官方 Java/Kotlin API 语义，非 python 的逗号串）。
+ *
+ * v1.1-zh 配置对齐官方 Kotlin 示例（k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/
+ * kokoro-multi-lang-v1_1.html）：lang 留空 + lexicon 双文件（lexicon-us-en.txt + lexicon-zh.txt）；
+ * dictDir 自 v1.12.15 起废弃（官方 Validate 仅告警，可忽略）。
  */
 internal class SherpaOnnxTtsEngineImpl(modelDir: File) : SherpaTtsEngine {
 
@@ -80,7 +84,7 @@ internal class SherpaOnnxTtsEngineImpl(modelDir: File) : SherpaTtsEngine {
             tokens = tokens.absolutePath,
             dataDir = File(modelDir, "espeak-ng-data").absolutePath,
             lexicon = lexiconFiles(modelDir),
-            lang = "zh",
+            lang = "", // v1.1-zh 官方 Kotlin 示例：lang 留空，由 lexicon 双文件驱动 G2P（中英混排）
             dictDir = "", // unused（kotlin-api 注释）
             lengthScale = 1.0f,
         )

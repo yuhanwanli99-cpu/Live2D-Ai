@@ -51,6 +51,40 @@ class SherpaOnnxTtsProvider(
     private val positionPollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) : TtsProvider {
 
+    /**
+     * 测试/注入 seam A：第 4 参直接注入引擎实例，其余参数与主构造器对齐
+     * （sid 必填以区分 seam B；speed/scope 可默认）。
+     *
+     * 用于 JVM 测试注入假引擎验证 speak 状态机（合成中→就绪→播放中→完成事件序）与
+     * 错误路径（模型未下载/初始化失败 → 明确失败语义）；模型就绪判定仍走 [downloadManager]。
+     */
+    constructor(
+        context: Context,
+        downloadManager: ModelDownloadManager,
+        modelSpec: ModelSpec,
+        engine: SherpaTtsEngine,
+        sid: Int,
+        speed: Float = 1.0f,
+        positionPollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    ) : this(context, downloadManager, modelSpec, sid = sid, speed = speed, positionPollScope = positionPollScope) {
+        this.engine = engine
+    }
+
+    /**
+     * 测试/注入 seam B：第 4 参直接注入引擎实例（省略 sid；默认 0）。
+     * 与 seam A 区分：4 参/5 参（第 5 参为 Float）调用解析到本构造器。
+     */
+    constructor(
+        context: Context,
+        downloadManager: ModelDownloadManager,
+        modelSpec: ModelSpec,
+        engine: SherpaTtsEngine,
+        speed: Float = 1.0f,
+        positionPollScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    ) : this(context, downloadManager, modelSpec, sid = 0, speed = speed, positionPollScope = positionPollScope) {
+        this.engine = engine
+    }
+
     companion object {
         private const val TAG = "SherpaOnnx"
 

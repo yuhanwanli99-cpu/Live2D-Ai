@@ -132,14 +132,14 @@ class ModelDownloadManager(
 
         // ─── V1.2 模型清单（URL 已实测存在；SHA256 待验证——plan 未提供具体值） ───
 
-        /** Kokoro 离线 TTS（~82MB int8 多语言，plan §3.3.2 方案A） */
+        /** Kokoro 离线 TTS（v1.1-zh：103 说话人 zh+en，int8 档 147MB，用户裁定 B-9=升级 v1.1-zh） */
         val KOKORO_TTS = ModelSpec(
             id = "kokoro_tts",
             name = "Kokoro 离线 TTS",
-            fileName = "kokoro-int8-multi-lang-v1_0.tar.bz2",
-            url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2",
-            expectedSha256 = null, // TODO(sha256-SUSPENDED-2026-08-12): GitHub 下载失败（本地网络断连，Kokoro 131MB 下载至 50MB 后 curl 无法连接 github.com:443 多轮重试失败）；恢复网络后按 architecture-android-fit.md §5 回填（禁止猜 hash）
-            sizeBytes = 82L * 1024 * 1024,
+            fileName = "kokoro-int8-multi-lang-v1_1.tar.bz2",
+            url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
+            expectedSha256 = null, // TODO(sha256-SUSPENDED-2026-08-12): GitHub 下载中断历史遗留（v1.0 下载至 50MB 断连）；v1.1-zh 包需真机下载实测后回填 sha256（禁止猜 hash，架构 B U2 闭环项）
+            sizeBytes = 147_031_220L, // HEAD 实测 Content-Length（2026-08-15，kokoro-int8-multi-lang-v1_1.tar.bz2）
             modelFileCandidates = listOf("model.onnx", "model.int8.onnx"),
             requiredCompanions = listOf("tokens.txt"),
         )

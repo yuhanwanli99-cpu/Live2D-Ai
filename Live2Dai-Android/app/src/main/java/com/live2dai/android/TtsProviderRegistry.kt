@@ -58,31 +58,19 @@ object TtsProviderRegistry {
 }
 
 /**
- * 注册 V1.2 默认 TTS Provider（Wave B：CosyVoice + sherpa 离线 + Edge TTS + 系统 TTS 降级链）。
+ * 注册 V1.2 默认 TTS Provider。
  *
- * 降级链（plan §3.1.6）：
- *   Tier 1 (priority=0): CosyVoice 云端（DashScope WebSocket）—— API Key 未配置时
- * speak 快速失败（health=UNAVAILABLE），降级链自动落入 Tier 2，不阻塞
- *   Tier 2 (priority=1): Kokoro 离线（sherpa-onnx，模块3）—— 模型未下载时
- * speak 快速失败（health=UNAVAILABLE），继续降级；同 priority 下注册顺序决定稳定排序：
- * sherpa 注册在 EdgeTTS 之前 → cascade() 中 sherpa 先于 edge（离线优先，中国大陆可用）
- *   Tier 3 (priority=2): Android 系统 TTS（离线兜底）
- *   Tier 4 (priority=1 的 Edge TTS 云端/海外备选，Wave A 契约偏差保持 priority=1，
- *   靠注册顺序排在 sherpa 之后)
- *   Tier 5: 全失败 → VoiceIoController 静默降级
+ * K1（架构 B §4.1，B-2=K1 裁定）：降级链收窄为 **sherpa 单引擎**——
+ * CosyVoice / Edge TTS / 系统 TTS 的注册已移除（对应 provider 类文件 Wave 5 删除）；
+ * 注册表机制本身保留（通用 infra，供引擎选择 UI 数据源与测试注入）。
  *
  * 幂等：TtsProviderRegistry.register 同名覆盖，重复调用安全（如 Activity 重建）。
  * 调用点：MainActivity.onCreate（VoiceIoController 构造前，保证注册表就绪）。
  */
 fun registerDefaultTtsProviders(context: Context) {
     val appContext = context.applicationContext
-    val settings = SettingsRepository(appContext)
-    // CosyVoice priority=0，cascade() 自动排降级链第一位（plan §3.1.6 Tier 1）
-    TtsProviderRegistry.register(cosyVoiceProvider(appContext, settings))
-    // sherpa(priority=1) 注册在 EdgeTTS 之前：同 priority 稳定排序保证离线优先（模块3）
+    // K1 单引擎：sherpa-onnx Kokoro 离线 PCM 直出（唯一注册项；priority=1）
     TtsProviderRegistry.register(SherpaOnnxTtsProvider(appContext))
-    TtsProviderRegistry.register(EdgeTtsProvider(appContext))
-    TtsProviderRegistry.register(SystemTtsProvider(appContext))
 }
 
 /**

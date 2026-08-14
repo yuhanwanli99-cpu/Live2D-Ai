@@ -12,9 +12,9 @@ class MainActivity : ComponentActivity() {
         // 降级链，见 registerDefaultTtsProviders）。必须在 VoiceIoController 构造（组合阶段）
         // 之前注册；同名覆盖幂等，Activity 重建安全。
         registerDefaultTtsProviders(applicationContext)
-        // V1.2 模块4：注册默认 ASR Provider（sherpa 离线 → 系统语音识别降级链）。
-        // 同样需在 VoiceIoController 构造前；VoiceIoController init 另有空表兜底。
-        registerDefaultAsrProviders(applicationContext)
+        // 2C-4 UI 精简：ASR（麦克风语音输入）已随 UI 裁剪删除，不再注册默认 ASR Provider
+        // （原调用 registerDefaultAsrProviders(applicationContext) 移除；VoiceIoController
+        // 对空 ASR 注册表有兜底，见 VoiceIoController.kt「ASR 降级链兜底」）。
         setContent {
             Live2DaiTheme {
                 Live2DaiApp()

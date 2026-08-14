@@ -170,13 +170,13 @@ class CosyVoiceTtsProviderTest {
         registerDefaultTtsProviders(context)
         val chain = TtsProviderRegistry.cascade()
         assertEquals(
-            "注册后 cascade() 第一位应为 cosyvoice_ws（priority=0 自动前移）",
-            "cosyvoice_ws",
+            "K1 收窄（2026-08-15 裁定）：注册后 cascade() 仅含 sherpa 单引擎",
+            "sherpa_onnx_kokoro",
             chain.first().info.id
         )
         assertEquals(
-            "降级链顺序应为 cosyvoice → sherpa → edge → system（V1.2 模块3 sherpa 插入 Tier 2）",
-            listOf("cosyvoice_ws", "sherpa_onnx_kokoro", "edge_tts", "system_tts"),
+            "K1：降级链收窄为单引擎",
+            listOf("sherpa_onnx_kokoro"),
             chain.map { it.info.id }
         )
         // 释放 provider 实例（EdgeTtsProvider 的 OkHttpClient 等资源）

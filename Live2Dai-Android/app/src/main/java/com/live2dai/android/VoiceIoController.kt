@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -95,6 +97,14 @@ class VoiceIoController(
 
     /** 播放状态观察协程（组合各 Provider isSpeaking → 更新 [isSpeaking] + 驱动 LipSync） */
     private var playbackObserverJob: Job? = null
+
+    /**
+     * I2 speak 互斥（单走廊）：speak 串行执行——同一时刻至多一个 speak 链在途。
+     * 前链退出（完成/失败/打断抛 CancellationException → withLock finally 释放）后
+     * 新链才进入；打断后 isSpeaking 收敛 false（provider.stop() 同步置位）再起新链，
+     * 单走廊不重叠（双播报免疫，契约 §2.1 I2）。
+     */
+    private val speakMutex = Mutex()
 
     private val _isSpeaking = MutableStateFlow(false)
 
@@ -203,6 +213,26 @@ class VoiceIoController(
             logW("speak() 无可用 provider（providerId=$providerId），静默降级")
             return
         }
+        // I2 speak 互斥（单走廊）：串行执行——前一个 speak 链退出（完成/失败/打断抛
+        // CancellationException → withLock finally 释放）后才允许新链进入；打断后
+        // isSpeaking 收敛 false（provider.stop() 同步置位）再起新链，单走廊不重叠（双播报免疫）。
+        speakMutex.withLock {
+            val succeeded = speakThroughChain(chain, clean, keywordMotionEnabled)
+            if (!succeeded) {
+                logW("speak() 所有 provider 均失败，静默降级")
+            }
+        }
+    }
+
+    /**
+     * I2 speak 互斥内部实现（仅 [speak] 在 [speakMutex] 持锁下调用，单走廊）：
+     * 按降级链顺序尝试 [TtsProvider.speak]，成功即停返回 true；全失败返回 false。
+     */
+    private suspend fun speakThroughChain(
+        chain: List<TtsProvider>,
+        clean: String,
+        keywordMotionEnabled: Boolean,
+    ): Boolean {
         // 模块7 遥测：首选 Provider 的合成开始事件（降级链首元素——无论最终哪个成功）
         VoiceTelemetry.log(
             VoiceEvent.TtsStarted(chain.first().info.id, clean.length, System.currentTimeMillis())
@@ -250,7 +280,7 @@ class VoiceIoController(
                     )
                 )
                 logI("speak() 由 ${provider.info.id} 播报完成")
-                return
+                return true
             } catch (e: CancellationException) {
                 // 协程正常取消（stop() 打断 / 上层取消）——向上传播，不再尝试降级
                 throw e
@@ -281,7 +311,7 @@ class VoiceIoController(
                 }
             }
         }
-        logW("speak() 所有 provider 均失败，静默降级")
+        return false
     }
 
     /**
@@ -369,6 +399,10 @@ class VoiceIoController(
                 logW("stopSpeaking() ${provider.info.id} 异常: ${e.message}")
             }
         }
+        // 打断幂等（2B-2 RED 锚）：同步停嘴型链——不等 isSpeaking 流异步收敛。
+        // stop() 后任何迟到帧（provider 违约仍 emit）都不得写入嘴型参数：
+        // 取消 RMS 循环协程 + 清帧表/帧槽 + 重锚基准复位 + 嘴型归零。
+        stopLipSync()
     }
 
     /**
@@ -417,9 +451,10 @@ class VoiceIoController(
             return
         }
 
-        // M-AND-2（1-B）兜底：帧收集未启动（如测试直接驱动 handlePlaybackState）→ 从当前 provider 补启
+        // M-AND-2（1-B）兜底：帧收集未启动（如测试直接驱动 handlePlaybackState，或打断后
+        // 再次播放）→ 从当前 activeProvider（无则降级链首个）补启，保证"再次 speak 后恢复正常"。
         if (rmsFrameCollectJob == null) {
-            activeProvider?.let { startRmsFrameCollection(it) }
+            (activeProvider ?: providers.firstOrNull())?.let { startRmsFrameCollection(it) }
         }
 
         // M5 级1：尝试 viseme 驱动
@@ -619,6 +654,8 @@ class VoiceIoController(
         logLipSync("播放结束")
         lipSyncJob?.cancel()
         lipSyncJob = null
+        // 重锚基准复位（停止/打断即失效；handlePlaybackState(false) 与 stopSpeaking 两路共用）
+        playStartWallClockMs = 0L
         stopRmsFrameCollection()
         val view = live2DView ?: return
         try {

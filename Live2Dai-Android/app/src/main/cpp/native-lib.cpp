@@ -719,4 +719,121 @@ Java_com_live2dai_android_Live2DNative_getRenderOrders(JNIEnv *env, jclass clazz
     return result;
 }
 
+// ====================================================================
+//  JNI: Engine (M1) — engine/ 骨架（framework + purism 加载，C API 见 engine/engine.h）
+//
+// Kotlin 签名表锁定草案：engineUpdate/Draw/Set* 均不带句柄 → JNI 层用全局
+// 当前 engine 上下文与当前模型（engineInit / engineLoadModel 时记录）。
+// ====================================================================
+
+#include "engine/engine.h"
+
+static EngineContext* g_engineCtx = nullptr;
+static EngineModel*   g_engineModel = nullptr;
+
+JNIEXPORT jlong JNICALL
+Java_com_live2dai_android_Live2DNative_engineInit(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    if (!g_engineCtx) {
+        g_engineCtx = engineInit();
+    }
+    return (jlong)(intptr_t)g_engineCtx;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_live2dai_android_Live2DNative_engineLoadModel(JNIEnv *env, jclass clazz,
+                                                       jstring moc3Path, jstring model3Path,
+                                                       jstring cdi3Path) {
+    (void)clazz;
+    if (!g_engineCtx) return 0;
+    char *m3 = moc3Path ? fromJString(env, moc3Path) : nullptr;
+    char *mj = model3Path ? fromJString(env, model3Path) : nullptr;
+    char *cd = cdi3Path ? fromJString(env, cdi3Path) : nullptr;
+    EngineModel *m = engineLoadModel(g_engineCtx, m3, mj, cd);
+    g_engineModel = m;
+    free(m3); free(mj); free(cd);
+    return (jlong)(intptr_t)m;
+}
+
+JNIEXPORT void JNICALL
+Java_com_live2dai_android_Live2DNative_engineUpdate(JNIEnv *env, jclass clazz, jfloat dt) {
+    (void)env; (void)clazz;
+    if (g_engineModel) engineUpdate(g_engineCtx, g_engineModel, dt);
+}
+
+JNIEXPORT void JNICALL
+Java_com_live2dai_android_Live2DNative_engineDraw(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    if (g_engineModel) engineDraw(g_engineCtx, g_engineModel);
+}
+
+JNIEXPORT void JNICALL
+Java_com_live2dai_android_Live2DNative_engineSetLipSync(JNIEnv *env, jclass clazz, jfloat value) {
+    (void)env; (void)clazz;
+    if (g_engineModel) engineSetLipSync(g_engineCtx, g_engineModel, value);
+}
+
+JNIEXPORT void JNICALL
+Java_com_live2dai_android_Live2DNative_engineSetMvpMatrix(JNIEnv *env, jclass clazz, jfloatArray matrix) {
+    (void)clazz;
+    if (!g_engineModel || !matrix) return;
+    jsize len = env->GetArrayLength(matrix);
+    if (len < 16) return;
+    jfloat *elems = env->GetFloatArrayElements(matrix, nullptr);
+    engineSetMvpMatrix(g_engineCtx, g_engineModel, elems);
+    env->ReleaseFloatArrayElements(matrix, elems, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_live2dai_android_Live2DNative_engineSetParameters(JNIEnv *env, jclass clazz, jobject params) {
+    (void)clazz;
+    if (!g_engineModel || !params) return;
+    jclass mapClass = env->GetObjectClass(params);
+    jmethodID keySetM = env->GetMethodID(mapClass, "keySet", "()Ljava/util/Set;");
+    jmethodID getM = env->GetMethodID(mapClass, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
+    if (!keySetM || !getM) return;
+    jobject keys = env->CallObjectMethod(params, keySetM);
+    jclass setClass = env->GetObjectClass(keys);
+    jmethodID toArrayM = env->GetMethodID(setClass, "toArray", "()[Ljava/lang/Object;");
+    if (!toArrayM) return;
+    jobjectArray arr = (jobjectArray)env->CallObjectMethod(keys, toArrayM);
+    jsize n = env->GetArrayLength(arr);
+    jclass floatClass = env->FindClass("java/lang/Float");
+    jmethodID floatValueM = floatClass ? env->GetMethodID(floatClass, "floatValue", "()F") : nullptr;
+
+    // 预分配栈缓冲（骨架约定：无每帧堆分配；JNI 本地引用也即时释放）
+    const int kMax = 256;
+    jstring keyObjs[kMax];
+    const char* ids[kMax];
+    float values[kMax];
+    int count = 0;
+    for (jsize i = 0; i < n && count < kMax; i++) {
+        jstring key = (jstring)env->GetObjectArrayElement(arr, i);
+        jobject val = env->CallObjectMethod(params, getM, key);
+        if (!key || !val) { env->DeleteLocalRef(key); continue; }
+        const char* ck = env->GetStringUTFChars(key, nullptr);
+        if (!ck) { env->DeleteLocalRef(key); env->DeleteLocalRef(val); continue; }
+        keyObjs[count] = key;
+        ids[count] = ck;
+        values[count] = floatValueM ? env->CallFloatMethod(val, floatValueM) : 0.0f;
+        count++;
+        env->DeleteLocalRef(val);
+    }
+    if (count > 0) engineSetParameters(g_engineCtx, g_engineModel, count, ids, values);
+    for (int i = 0; i < count; i++) {
+        env->ReleaseStringUTFChars(keyObjs[i], ids[i]);
+        env->DeleteLocalRef(keyObjs[i]);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_live2dai_android_Live2DNative_engineRelease(JNIEnv *env, jclass clazz, jlong handle) {
+    (void)env; (void)clazz;
+    if (g_engineCtx && (EngineContext*)(intptr_t)handle == g_engineCtx) {
+        engineRelease(g_engineCtx);
+        g_engineCtx = nullptr;
+        g_engineModel = nullptr;
+    }
+}
+
 } // extern "C"

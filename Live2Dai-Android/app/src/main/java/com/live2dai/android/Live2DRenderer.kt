@@ -16,6 +16,8 @@ import com.live2dai.android.data.computeDownsampleTarget
 import com.live2dai.android.data.dragPxToModel
 import com.live2dai.android.data.needsDownsample
 import com.live2dai.android.data.pinchScale
+import com.live2dai.android.render.BackendSelector
+import com.live2dai.android.render.RendererBackend
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -251,6 +253,9 @@ class Live2DRenderer(
     // native 写唯一发生点（AND3-A2）。解绑（null）/onPause/dispose 后无帧 → 不再 drain →
     // 未 drain 的 pending 不再触发 native 写（AND3-A3）。
     private var lipSyncChannel: LipSyncParamChannel? = null
+
+    // ── Wave2 双轨渲染后端：ENGINE 路径渲染器（懒加载，GL 线程首帧创建；见 onDrawFrame 开头分支）──
+    private val engineRenderer by lazy { Live2DEngineRenderer() }
 
     /** 预加载的 Motion 数据 [(group)_(index) → MotionData] */
     private val loadedMotions: MutableMap<String, MotionData> = mutableMapOf()
@@ -644,7 +649,30 @@ class Live2DRenderer(
         android.util.Log.i("Live2DRenderer", "[interaction] reset → fit")
     }
 
+    // ── Wave2 双轨渲染后端：ENGINE 路径帧步长（独立状态，不触碰 LEGACY 的 deltaTime 机件）──
+    private var enginePrevFrameNano = 0L
+    private var engineFirstFrame = true
+
+    private fun engineFrameDeltaSec(): Float {
+        val now = System.nanoTime()
+        val dt = if (engineFirstFrame) 0.016f
+        else ((now - enginePrevFrameNano) / 1_000_000_000f).coerceIn(0.001f, 0.1f)
+        enginePrevFrameNano = now
+        engineFirstFrame = false
+        return dt
+    }
+
     override fun onDrawFrame(gl: GL10?) {
+        // ── Wave2 双轨渲染后端：ENGINE → Live2DEngineRenderer（引擎渲染路径）；
+        //    LEGACY → 既有渲染管线（下方原逻辑零改动）──
+        if (BackendSelector.select() == RendererBackend.ENGINE) {
+            android.util.Log.i("Live2DRenderer", "RendererBackend=ENGINE")
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            val er = engineRenderer
+            er.frame(engineFrameDeltaSec(), er.sinks)
+            return
+        }
+
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
         if (fallbackActive) { drawFallback(); return }
