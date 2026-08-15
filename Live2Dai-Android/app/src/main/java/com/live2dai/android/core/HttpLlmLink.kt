@@ -2,7 +2,6 @@ package com.live2dai.android.core
 
 import com.live2dai.android.ChatMessage
 import com.live2dai.android.ChatRequest
-import com.live2dai.android.EmotionController
 import com.live2dai.android.PersonaConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +70,7 @@ class HttpLlmLink(
 
                 val decoder = SseChunkDecoder()
                 val fullText = StringBuilder()
+                var firstDeltaEmitted = false
 
                 // 逐行读取 SSE（okio 行读取原子，不会切断多字节字符）
                 while (!source.exhausted()) {
@@ -80,7 +80,12 @@ class HttpLlmLink(
                         when (event) {
                             is SseEvent.Delta -> {
                                 fullText.append(event.fragment)
-                                emit(LlmEvent.Delta(event.fragment))
+                                // 首段剥离表情标签（[joy] 前缀不显示在气泡）
+                                val cleaned = if (!firstDeltaEmitted) {
+                                    firstDeltaEmitted = true
+                                    EmotionText.strip(event.fragment)
+                                } else event.fragment
+                                if (cleaned.isNotEmpty()) emit(LlmEvent.Delta(cleaned))
                             }
                             SseEvent.Done -> { /* [DONE]：终止，close() 无残余可冲刷 */ }
                         }
@@ -92,16 +97,21 @@ class HttpLlmLink(
                 decoder.close()?.let { event ->
                     if (event is SseEvent.Delta) {
                         fullText.append(event.fragment)
-                        emit(LlmEvent.Delta(event.fragment))
+                        val cleaned = if (!firstDeltaEmitted) {
+                            firstDeltaEmitted = true
+                            EmotionText.strip(event.fragment)
+                        } else event.fragment
+                        if (cleaned.isNotEmpty()) emit(LlmEvent.Delta(cleaned))
                     }
                 }
 
                 val finalText = fullText.toString()
                 if (finalText.isNotEmpty()) {
-                    val emotion = EmotionController.EMOTION_KEYWORDS
+                    val emotion = emotionKeywords()
                         .firstOrNull { finalText.contains("[$it]") }
-                    historyBuilder.addTurn(text, finalText)
-                    emit(LlmEvent.Completed(finalText, emotion))
+                    val cleanText = EmotionText.strip(finalText)
+                    historyBuilder.addTurn(text, cleanText)
+                    emit(LlmEvent.Completed(cleanText, emotion))
                 } else {
                     emit(LlmEvent.Failed("[错误] 未获取到回复内容", quotaExhausted = false))
                 }
@@ -151,5 +161,15 @@ class HttpLlmLink(
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /**
+         * 表情标签关键词（首个命中标签提取用）。
+         *
+         * 来源：Wave 5 前为 [EmotionController.EMOTION_KEYWORDS]（adapter emotionIndex 键集
+         * 字母序；EmotionController 已随 Wave 5 删除）。现改为由 [EmotionText.SUPPORTED_EMOTIONS]
+         * （契约 refactor-0814 2C-3 规范集）字母序派生——原 8 键（anger/disgust/fear/joy/neutral/
+         * sadness/smirk/surprise）相对顺序与提取语义不变，扩展识别契约锚点短名 angry/sad。
+         */
+        private fun emotionKeywords(): List<String> = EmotionText.SUPPORTED_EMOTIONS.sorted()
     }
 }

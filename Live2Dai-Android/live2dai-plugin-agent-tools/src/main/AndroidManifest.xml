@@ -1,3 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Agent 工具执行插件骨架：纯逻辑模块，无 Activity/Service/权限声明 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

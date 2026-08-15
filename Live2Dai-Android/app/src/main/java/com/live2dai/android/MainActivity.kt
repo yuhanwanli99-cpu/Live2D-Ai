@@ -50,8 +50,8 @@ import java.util.concurrent.TimeUnit
  * 生命周期：视图绑定在 AndroidView factory（onResume 后）经 onLive2DViewWired 建立
  * （host.zeroMouth 目标 + VoiceIo LipSync 绑定）；onPause 发送 Reset 事件（stop + 收敛 + llm.reset）。
  *
- * 旧编排停用（Wave 5 删）：ChatViewModel.sendMessage 旧链不再被调用（MainScreen 无 viewModel()
- * 引用；本类直接组装新链）。ChatViewModel.kt/ChatService.kt 类文件保留未改。
+ * 旧编排已删除（Wave 5）：旧 Chat 链类文件已随删除清单移除；
+ * 本类直接组装新链。
  */
 class MainActivity : ComponentActivity() {
 
@@ -120,7 +120,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // V1.2 模块1：注册默认 TTS Provider（须在 VoiceIoController 构造前；同名覆盖幂等）
         registerDefaultTtsProviders(applicationContext)
-        // Persona/Provider 就绪（旧链由 ChatViewModel.init 完成；新链在此显式加载）
+        // Persona/Provider 就绪（旧链入口已删除；新链在此显式加载）
         PersonaConfig.load(applicationContext)
         LLMProviderManager.init(applicationContext)
 

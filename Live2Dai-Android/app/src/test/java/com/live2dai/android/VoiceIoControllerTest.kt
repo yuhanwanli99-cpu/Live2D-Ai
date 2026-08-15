@@ -27,7 +27,7 @@ import org.mockito.kotlin.whenever
 /**
  * VoiceIoController（V1.1 模块1 语音闭环协调器 + V1.2 模块1 降级链）单元测试。
  *
- * TTS Provider（TtsProvider）与 VoiceInputService 以 Mockito mock 注入，验证控制器的
+ * TTS Provider（TtsProvider）以 Mockito mock 注入，验证控制器的
  * 接线语义（降级链遍历 / 指定引擎 / 容错 / 打断 / 释放 / 空文本跳过 / 组合 isSpeaking），
  * 不触碰真实网络与系统服务。
  *
@@ -35,8 +35,7 @@ import org.mockito.kotlin.whenever
  * - speak(text, providerId?): 降级链遍历播报，失败静默（throws: []）
  * - stopSpeaking(): 同步打断所有 Provider 播报
  * - isSpeaking: StateFlow，任一 Provider 播放中 = true
- * - listen(): 返回识别文本；失败返回 ""
- * - release(): 释放所有 Provider + ASR 资源
+ * - release(): 释放所有 Provider 资源
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class VoiceIoControllerTest {
@@ -46,7 +45,6 @@ class VoiceIoControllerTest {
     private lateinit var systemProvider: TtsProvider
     private lateinit var edgeSpeaking: MutableStateFlow<Boolean>
     private lateinit var systemSpeaking: MutableStateFlow<Boolean>
-    private lateinit var asrService: AsrProvider
     private lateinit var scheduler: TestCoroutineScheduler
     private lateinit var lipSyncScope: CoroutineScope
     private lateinit var controller: VoiceIoController
@@ -70,11 +68,9 @@ class VoiceIoControllerTest {
             systemProvider = it.first
             systemSpeaking = it.second
         }
-        asrService = mockAsrProvider("system_speech_recognizer", 1)
         controller = VoiceIoController(
             context,
             listOf(edgeProvider, systemProvider),
-            listOf(asrService),
             lipSyncScope = lipSyncScope,
         )
     }
@@ -101,21 +97,6 @@ class VoiceIoControllerTest {
         )
         whenever(provider.isSpeaking).thenReturn(speaking)
         return provider to speaking
-    }
-
-    /** 构造带 stub info 的 AsrProvider mock（V1.2 模块4：控制器降级链读 info.id）。 */
-    private fun mockAsrProvider(id: String, priority: Int): AsrProvider {
-        val provider = mock<AsrProvider>()
-        whenever(provider.info).thenReturn(
-            AsrProviderInfo(
-                id = id,
-                name = "stub-$id",
-                requiresNetwork = false,
-                health = MutableStateFlow(TtsHealth.OK),
-                priority = priority,
-            )
-        )
-        return provider
     }
 
     // ─────────────────────────────────────────────
@@ -176,7 +157,7 @@ class VoiceIoControllerTest {
 
     @Test
     fun testSpeakSwallowsExceptionWithoutProviders() = runTest {
-        val empty = VoiceIoController(context, emptyList(), listOf(asrService))
+        val empty = VoiceIoController(context, emptyList())
         empty.speak("测试") // 无 provider：静默，不崩溃
         verify(edgeProvider, never()).speak(any())
     }
@@ -220,116 +201,6 @@ class VoiceIoControllerTest {
     }
 
     // ─────────────────────────────────────────────
-    // listen（听）— V1.2 模块4 ASR 降级链遍历
-    // ─────────────────────────────────────────────
-
-    @Test
-    fun testListenReturnsRecognizedText() = runTest {
-        runBlocking { whenever(asrService.listen()).thenReturn("你好世界") }
-        assertEquals("你好世界", controller.listen())
-    }
-
-    @Test
-    fun testListenReturnsEmptyOnAsrFailure() = runTest {
-        // ASR 抛异常 → 返回空字符串（UI 无变化，降级为文本输入）
-        runBlocking { whenever(asrService.listen()).thenThrow(RuntimeException("asr boom")) }
-        assertEquals("", controller.listen())
-    }
-
-    @Test
-    fun testListenFallsBackToNextProviderWhenFirstEmpty() = runTest {
-        // 降级链：sherpa(0) 返回空 → 系统 ASR(1) 成功 → 返回系统结果（plan §4.4.4）
-        val sherpa = mockAsrProvider("sherpa_sensevoice", 0)
-        val system = mockAsrProvider("system_speech_recognizer", 1)
-        runBlocking {
-            whenever(sherpa.listen()).thenReturn("")
-            whenever(system.listen()).thenReturn("系统识别结果")
-        }
-        val chainController = VoiceIoController(context, listOf(edgeProvider), listOf(sherpa, system))
-        assertEquals("系统识别结果", chainController.listen())
-        verify(sherpa).listen()
-        verify(system).listen()
-    }
-
-    @Test
-    fun testListenPrefersProviderIdFirst() = runTest {
-        // V1.2 模块5：listen(providerId) — 指定首选 ASR 引擎（SettingsRepository.asrProviderId），
-        // 指定引擎先被尝试；失败/为空后仍按降级链顺序兜底
-        val sherpa = mockAsrProvider("sherpa_sensevoice", 0)
-        val system = mockAsrProvider("system_speech_recognizer", 1)
-        runBlocking {
-            // 首选 system（priority=1）：应优先于 priority=0 的 sherpa 被尝试
-            whenever(system.listen()).thenReturn("系统识别结果")
-            whenever(sherpa.listen()).thenReturn("不应被尝试") // 首个 provider 成功即返回，sherpa 不该被调
-        }
-        val chainController = VoiceIoController(context, listOf(edgeProvider), listOf(sherpa, system))
-        assertEquals("系统识别结果", chainController.listen("system_speech_recognizer"))
-        // 首选引擎先被调用；sherpa 未被触碰（成功即返回，无降级）
-        verify(system).listen()
-        verify(sherpa, never()).listen()
-    }
-
-    @Test
-    fun testListenPreferredProviderFailsThenFallsBackInPriorityOrder() = runTest {
-        // 首选引擎失败 → 其余 Provider 仍按降级链 priority 顺序兜底（plan §4.4.4）
-        val sherpa = mockAsrProvider("sherpa_sensevoice", 0)
-        val system = mockAsrProvider("system_speech_recognizer", 1)
-        runBlocking {
-            whenever(system.listen()).thenReturn("") // 首选 system 返回空 → 降级
-            whenever(sherpa.listen()).thenReturn("离线识别")
-        }
-        val chainController = VoiceIoController(context, listOf(edgeProvider), listOf(sherpa, system))
-        assertEquals("离线识别", chainController.listen("system_speech_recognizer"))
-        verify(system).listen()
-        verify(sherpa).listen()
-    }
-
-    @Test
-    fun testListenReturnsEmptyWhenAllProvidersFail() = runTest {
-        // 全部失败/为空 → 静默返回 ""（契约 AsrProvider.listen 语义）
-        val sherpa = mockAsrProvider("sherpa_sensevoice", 0)
-        val system = mockAsrProvider("system_speech_recognizer", 1)
-        runBlocking {
-            whenever(sherpa.listen()).thenThrow(RuntimeException("sherpa boom"))
-            whenever(system.listen()).thenReturn("")
-        }
-        val chainController = VoiceIoController(context, listOf(edgeProvider), listOf(sherpa, system))
-        assertEquals("", chainController.listen())
-        verify(system).listen()
-    }
-
-    @Test
-    fun testListenTimesOutAndReturnsEmpty() = runTest {
-        // 超时保护：Provider 挂起不返回 → 超时后返回 "" 且调用 stopListening（降级）
-        var stopped = false
-        val hanging = object : AsrProvider {
-            override val info = AsrProviderInfo(
-                id = "sherpa_sensevoice", name = "hanging", requiresNetwork = false,
-                health = MutableStateFlow(TtsHealth.OK), priority = 0,
-            )
-            override suspend fun listen(): String =
-                kotlinx.coroutines.suspendCancellableCoroutine { } // 永久挂起（等超时取消）
-            override fun stopListening() {
-                stopped = true
-            }
-            override fun release() {}
-        }
-        val system = mockAsrProvider("system_speech_recognizer", 1)
-        runBlocking { whenever(system.listen()).thenReturn("") }
-        val chainController = VoiceIoController(context, listOf(edgeProvider), listOf(hanging, system))
-        assertEquals("", chainController.listen())
-        assertTrue("超时应触发 stopListening", stopped)
-        // 超时按空结果处理 → 继续尝试下一个 Provider（降级链语义）
-        verify(system).listen()
-    }
-
-    @Test
-    fun testListenWithEmptyChainReturnsEmpty() = runTest {
-        val empty = VoiceIoController(context, listOf(edgeProvider), emptyList<AsrProvider>())
-        assertEquals("", empty.listen())
-    }
-
-    // ─────────────────────────────────────────────
     // stopSpeaking（打断）
     // ─────────────────────────────────────────────
 
@@ -346,11 +217,10 @@ class VoiceIoControllerTest {
     // ─────────────────────────────────────────────
 
     @Test
-    fun testReleaseReleasesAllProvidersAndAsr() {
+    fun testReleaseReleasesAllProviders() {
         controller.release()
         verify(edgeProvider).release()
         verify(systemProvider).release()
-        verify(asrService).stopListening()
     }
 
     @Test

@@ -214,33 +214,8 @@ tasks.named("clean") {
 }
 
 dependencies {
-    // 插件 SDK：core 与插件之间的最小契约（Live2DaiPlugin/PluginHost/ChatHook/ToolDefinition）
-    implementation(project(":plugin-sdk"))
-
-    // 视觉插件：截图描述 hook + capture_screen 工具（从 VisionService.kt 迁出）
-    implementation(project(":live2dai-plugin-vision"))
-
-    // 记忆插件：长期记忆（Room 事实存储 + 关键词检索注入），V1.1 模块3 正式装载。
-    // core 注入 SummaryLlmClient 实现（LlmSummaryClient，复用用户配置的 LLM Provider）；
-    // 失败静默：记忆插件任何异常不影响对话核心链路（架构约束 §8.2-2）。
-    implementation(project(":live2dai-plugin-memory"))
-
-    // Agent 工具插件：open_app / send_notification_reply / set_alarm（Wave 2）
-    // 仅编译依赖（实现其 NotificationReplyBridge 接缝）；运行时插件未装载，行为不受影响。
-    // 排期接入时在 MainActivity 的 loadPlugins 中装载（docs/plan-task-plugin-agent-tools.md）
-    implementation(project(":live2dai-plugin-agent-tools"))
-
-    // 主动陪伴插件（V1.2 模块6，docs/plan-v12-plan.md §5.6）：
-    // WorkManager 周期检查「距上次对话 + 静默时段 + 冷却」→ 主动话题（LLM + 记忆）→
-    // host.sendAssistantMessage（经 onAssistantMessage → voiceIo.speak 播报）+ 通知栏通知。
-    // core 注入 GreetingLlmClient 实现（ProactiveGreetingClient，复用当前 LLM Provider）
-    // 与 memoriesProvider（ProactiveMemorySource，读记忆插件 Room 库）。
-    implementation(project(":live2dai-plugin-proactive"))
-
-    // Room runtime：ProactiveMemorySource 直接读取记忆插件（live2dai-plugin-memory）的
-    // MemoryDatabase（RoomDatabase 子类）；memory 模块以 implementation 引入 Room，
-    // 不对外暴露编译类路径，此处需显式声明（版本与 memory 模块一致）
-    implementation("androidx.room:room-runtime:2.6.1")
+    // Wave 5 清理：插件模块（plugin-sdk/live2dai-plugin-vision/-memory/-proactive/-agent-tools）
+    // 已随删除清单移除（settings.gradle include + 本依赖 + Room 一并删除）。
 
     // Kotlin Serialization (for API JSON parsing)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")

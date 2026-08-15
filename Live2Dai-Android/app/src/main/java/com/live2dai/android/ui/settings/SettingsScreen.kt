@@ -31,7 +31,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.live2dai.android.AsrProviderRegistry
 import com.live2dai.android.BuildConfig
 import com.live2dai.android.DownloadState
 import com.live2dai.android.LLMProviderManager
@@ -44,7 +43,6 @@ import com.live2dai.android.TtsProviderRegistry
 import com.live2dai.android.data.ModelEntry
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
-import com.live2dai.android.refreshCosyVoiceProvider
 import kotlinx.coroutines.launch
 
 /**
@@ -89,14 +87,10 @@ fun SettingsScreen(
     // ── 返回拦截：滑屏/系统返回键弹出确认（避免误触退出）──
     BackHandler { showExitDialog = true }
 
-    // ── V1.2 模块5：TTS/ASR 引擎选择 + 阿里云 Key + 离线模型下载状态 ──
-    // 引擎选择立即持久化（speak/listen 时 VoiceIoController 读取），不随 onDispose 延迟。
+    // ── V1.2 模块5：TTS 引擎选择 + 离线模型下载状态 ──
+    // 引擎选择立即持久化（speak 时 VoiceIoController 读取），不随 onDispose 延迟。
     val ttsProviders = remember { TtsProviderRegistry.all() }
-    val asrProviders = remember { AsrProviderRegistry.all() }
     var selectedTtsProviderId by remember { mutableStateOf(repo.ttsProviderId) }
-    var selectedAsrProviderId by remember { mutableStateOf(repo.asrProviderId) }
-    var aliyunKey by remember { mutableStateOf(repo.aliyunApiKey) }
-    var aliyunKeyVisible by remember { mutableStateOf(false) }
     // 模型下载状态（modelId → 状态）：初始即查询已下载模型（幂等重入，避免闪烁"未下载"）
     val modelDownloadManager = remember { ModelDownloadManager(context) }
     val modelDownloadStates = remember {
@@ -117,14 +111,6 @@ fun SettingsScreen(
                     modelDownloadStates[spec.id] = state
                 }
             }
-        }
-    }
-
-    // 保存阿里云 API Key：持久化 + 重建 CosyVoice Provider（register 同名覆盖，新 Key 立即生效）
-    val saveAliyunKey: () -> Unit = {
-        if (aliyunKey != repo.aliyunApiKey) {
-            repo.aliyunApiKey = aliyunKey
-            refreshCosyVoiceProvider(context)
         }
     }
 
@@ -381,47 +367,7 @@ fun SettingsScreen(
                 }
             )
 
-            // 选中引擎需配置（CosyVoice 云端）→ 展开阿里云 API Key 输入框（密码框/明文切换）
-            if (ttsOptions.any { it.isSelected && it.configurable }) {
-                Text(
-                    "阿里云 API Key（CosyVoice 云端，DashScope）",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
-                )
-                OutlinedTextField(
-                    value = aliyunKey,
-                    onValueChange = { aliyunKey = it },
-                    label = { Text(if (aliyunKey.isEmpty()) "留空 = 未配置（自动降级）" else "已配置") },
-                    singleLine = true,
-                    visualTransformation = if (aliyunKeyVisible) VisualTransformation.None
-                        else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { aliyunKeyVisible = !aliyunKeyVisible }) {
-                            Icon(
-                                if (aliyunKeyVisible) Icons.Default.VisibilityOff
-                                else Icons.Default.Visibility,
-                                contentDescription = if (aliyunKeyVisible) "隐藏" else "显示"
-                            )
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { saveAliyunKey() }),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (aliyunKey.isEmpty()) {
-                    Text(
-                        "未配置时 CosyVoice 快速失败并自动降级到下一个引擎；阿里云每月有免费额度。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                    )
-                }
-            }
-
-            // 降级链说明（plan §5.5.3：ℹ️ 降级链: CosyVoice → Kokoro → 系统TTS → 静默）
+            // 降级链说明（K1：sherpa 单引擎）
             Text(
                 "ℹ️ 降级链: ${cascadeSummary(ttsProviders.map { it.info.name })}",
                 style = MaterialTheme.typography.bodySmall,
@@ -481,31 +427,7 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-            // ── V1.2 模块5：ASR 引擎选择器（首选识别引擎，降级链自动兜底） ──
-            SectionHeader("ASR 引擎")
-
-            Text(
-                "首选识别引擎（未选中的引擎自动作为降级兜底）",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(start = 4.dp, top = 8.dp)
-            )
-            EngineSelectorSection(
-                options = asrProvidersToUi(asrProviders, selectedAsrProviderId),
-                onSelect = { id ->
-                    selectedAsrProviderId = id
-                    repo.asrProviderId = id
-                }
-            )
-            Text(
-                "ℹ️ 降级链: ${cascadeSummary(asrProviders.map { it.info.name })}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            // ── V1.2 模块5：离线模型下载（Kokoro TTS / SenseVoice ASR，按需下载不打包进 APK） ──
+            // ── V1.2 模块5：离线模型下载（Kokoro TTS，按需下载不打包进 APK） ──
             SectionHeader("离线模型")
 
             Text(
@@ -581,8 +503,6 @@ fun SettingsScreen(
             repo.ttsVoice = ttsVoice
             repo.ttsSpeed = ttsSpeed
             repo.personaName = selectedPersona
-            // V1.2 模块5：阿里云 API Key 持久化 + 重建 CosyVoice Provider（新 Key 立即生效）
-            saveAliyunKey()
         }
     }
 }
@@ -735,7 +655,6 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                     appendLine("• SnakeYAML — Apache 2.0")
                     appendLine("• Purism Core (Live2D) — MIT")
                     appendLine("• Cubism Java Framework — MIT")
-                    appendLine("• Edge TTS — Apache 2.0 / MIT")
                     appendLine("\nFull license texts are available in the GitHub repo.")
                 },
                 style = MaterialTheme.typography.bodySmall
@@ -895,7 +814,7 @@ private fun ModelCard(
  * 引擎单选列表（plan §5.5.2 方案A RadioGroup）：每行显示引擎名 + 健康徽标
  * （正常/降级/不可用）+ 网络/离线标识；点击行或 RadioButton 触发 onSelect(id)。
  *
- * options 由 [ttsProvidersToUi] / [asrProvidersToUi] 纯函数产出（可单测），
+ * options 由 [ttsProvidersToUi] 纯函数产出（可单测），
  * 本组件只负责渲染与交互。
  */
 @Composable

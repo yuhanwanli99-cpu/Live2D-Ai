@@ -15,13 +15,13 @@ import kotlinx.serialization.json.put
 
 /**
  * 单个函数的 OpenAI 兼容描述，嵌入 [ToolDef] 发送给 LLM。
- * [parameters] 是 JSON Schema，由 [com.live2dai.pluginsdk.ToolDefinition.parametersSchema] 解析而来。
+ * [parameters] 是 JSON Schema（参数定义由调用方构造）。
  */
 @Serializable
 data class FunctionSpec(
     val name: String,
     val description: String,
-    val parameters: JsonObject,  // JSON Schema，由 ToolDefinition.parametersSchema 解析而来
+    val parameters: JsonObject,  // JSON Schema 参数定义
     val strict: Boolean = false  // DeepSeek strict mode（Beta，默认关闭）
 )
 

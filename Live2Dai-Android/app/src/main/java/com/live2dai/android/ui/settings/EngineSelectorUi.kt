@@ -1,6 +1,5 @@
 package com.live2dai.android.ui.settings
 
-import com.live2dai.android.AsrProvider
 import com.live2dai.android.DownloadState
 import com.live2dai.android.TtsHealth
 import com.live2dai.android.TtsProvider
@@ -12,21 +11,21 @@ import com.live2dai.android.TtsProvider
  * 不依赖 Android/Compose 运行时，可在 JVM 单测中直接验证：
  * - provider 注册表列表 → [EngineOptionUi]（单选渲染 + health/网络徽标 + 选中态）
  * - [DownloadState] → 下载状态文案 / "下载"按钮可用性
- * - provider 显示名列表 → 降级链摘要（"CosyVoice → Kokoro → 系统 TTS"）
+ * - provider 显示名列表 → 降级链摘要（"Kokoro（sherpa 离线）"）
  * - 模型体积 → 人类可读大小文案
  */
 
 /** 引擎单选展示模型（一个 provider 一行）。 */
 data class EngineOptionUi(
-    /** Provider 唯一标识（TtsProviderInfo.id / AsrProviderInfo.id） */
+    /** Provider 唯一标识（TtsProviderInfo.id） */
     val id: String,
-    /** 人类可读名称（如 "CosyVoice 云端"） */
+    /** 人类可读名称（如 "Kokoro（sherpa 离线）"） */
     val name: String,
     /** 是否需要网络（true = 云端，false = 离线可用） */
     val requiresNetwork: Boolean,
     /** 引擎健康状态快照（OK / DEGRADED / UNAVAILABLE → 正常/降级/不可用） */
     val health: TtsHealth,
-    /** 是否有用户可配置参数（如 CosyVoice 需阿里云 API Key） */
+    /** 是否有用户可配置参数（sherpa 单引擎无云端可配置项 → 恒 false） */
     val configurable: Boolean,
     /** 是否为当前选中（单选高亮） */
     val isSelected: Boolean,
@@ -53,28 +52,7 @@ fun ttsProvidersToUi(
 }
 
 /**
- * ASR Provider 列表 → 引擎选择展示模型（纯函数，可单测）。
- *
- * ASR 无 configurable 字段（AsrProviderInfo 契约不含），统一取 false。
- *
- * @param providers 来自 [com.live2dai.android.AsrProviderRegistry.all()]
- * @param selectedId 当前首选 ASR 引擎 ID（SettingsRepository.asrProviderId）
- */
-fun asrProvidersToUi(
-    providers: List<AsrProvider>,
-    selectedId: String,
-): List<EngineOptionUi> = providers.map { p ->
-    EngineOptionUi(
-        id = p.info.id,
-        name = p.info.name,
-        requiresNetwork = p.info.requiresNetwork,
-        health = p.info.health.value,
-        configurable = false,
-        isSelected = p.info.id == selectedId,
-    )
-}
-
-/** 健康状态 → 中文徽标文案（正常/降级/不可用）。 */
+ * 健康状态 → 中文徽标文案（正常/降级/不可用）。 */
 fun healthLabel(health: TtsHealth): String = when (health) {
     TtsHealth.OK -> "正常"
     TtsHealth.DEGRADED -> "降级"
@@ -101,7 +79,7 @@ fun canStartDownload(state: DownloadState?): Boolean = when (state) {
     is DownloadState.Downloading, DownloadState.Verifying, is DownloadState.Completed -> false
 }
 
-/** 降级链摘要："CosyVoice → Kokoro → 系统 TTS"（provider 显示名按降级链顺序 join）。 */
+/** 降级链摘要（provider 显示名按降级链顺序 join）。 */
 fun cascadeSummary(providerNames: List<String>): String = providerNames.joinToString(" → ")
 
 /** 模型体积 → 人类可读大小文案（如 "82.0MB"）。 */

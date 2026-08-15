@@ -1,7 +1,6 @@
 package com.live2dai.android
 
 import android.content.Context
-import com.live2dai.android.data.SettingsRepository
 
 /**
  * TTS Provider 注册表 — 管理所有已注册的 TTS Provider（V1.2 模块1，架构地基）。
@@ -71,30 +70,4 @@ fun registerDefaultTtsProviders(context: Context) {
     val appContext = context.applicationContext
     // K1 单引擎：sherpa-onnx Kokoro 离线 PCM 直出（唯一注册项；priority=1）
     TtsProviderRegistry.register(SherpaOnnxTtsProvider(appContext))
-}
-
-/**
- * 用当前 SettingsRepository 构建 CosyVoice Provider（apiKey + 可选专属 wsUrl）。
- * wsUrl 空串时 provider 内部回退默认公共 inference 端点。
- */
-private fun cosyVoiceProvider(
-    appContext: Context,
-    settings: SettingsRepository,
-): CosyVoiceTtsProvider = CosyVoiceTtsProvider(
-    appContext,
-    settings.aliyunApiKey,
-    wsUrl = settings.cosyvoiceWsUrl,
-)
-
-/**
- * 用当前 SettingsRepository.aliyunApiKey 重建 CosyVoice Provider（V1.2 模块5 引擎选择 UI 调用）。
- *
- * 设置页修改阿里云 API Key 后调用：register 同名覆盖，替换启动时注册的旧实例
- * （旧实例持构造时的空 Key），使新 Key 立即生效，无需重启 App（plan §3.2.4）。
- * 幂等：Key 未变化时重复调用仅重建同参数实例，无副作用。
- */
-fun refreshCosyVoiceProvider(context: Context) {
-    val appContext = context.applicationContext
-    val settings = SettingsRepository(appContext)
-    TtsProviderRegistry.register(cosyVoiceProvider(appContext, settings))
 }

@@ -45,7 +45,6 @@ class VoiceIoControllerVisemeTest {
     private lateinit var context: Context
     private lateinit var provider: TtsProvider
     private lateinit var providerSpeaking: MutableStateFlow<Boolean>
-    private lateinit var asrService: AsrProvider
     private lateinit var view: Live2DView
     private lateinit var scheduler: TestCoroutineScheduler
     private lateinit var controller: VoiceIoController
@@ -59,13 +58,6 @@ class VoiceIoControllerVisemeTest {
             provider = it.first
             providerSpeaking = it.second
         }
-        asrService = mock<AsrProvider>()
-        whenever(asrService.info).thenReturn(
-            AsrProviderInfo(
-                id = "system_speech_recognizer", name = "stub-asr", requiresNetwork = false,
-                health = MutableStateFlow(TtsHealth.OK), priority = 1,
-            )
-        )
         view = mock()
         scheduler = TestCoroutineScheduler()
         Dispatchers.setMain(StandardTestDispatcher(scheduler))
@@ -93,7 +85,7 @@ class VoiceIoControllerVisemeTest {
     /** 构造带 fake analyzer 的 controller（无 GL 线程） */
     private fun createController(analyzer: VisemeAnalyzer? = null) {
         controller = VoiceIoController(
-            context, listOf(provider), listOf(asrService), view,
+            context, listOf(provider), view,
             CoroutineScope(SupervisorJob() + Dispatchers.Main),
             visemeAnalyzer = analyzer,
         )

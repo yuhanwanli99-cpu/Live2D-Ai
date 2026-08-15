@@ -206,48 +206,6 @@ class MAnd1LipSyncSourceUnifyTest {
     }
 
     // ─────────────────────────────────────────────
-    // AND1-A4: System TTS（2b-②）词边界帧 + onDone 后 500ms 内流结束
-    // ─────────────────────────────────────────────
-    // [UNSURE]〈SEAM〉该断言依赖 2b-② UtteranceProgressListener 注入 seam 与
-    // 确认点2 拍板（若拍板 2b-③ 空流降级，则本断言替换为恒空流+不崩溃）。
-    // 下述测试以契约规定的词边界时间戳 + 音节包络 ∈ [0,1] + onDone 流收口为锚。
-
-    @Test
-    fun and1_a4_wordBoundaryEmitsFrameWithEnvelopeInRange() = runTest {
-        val boundaryTsMs = 350L // 合成词边界时间（相对 speak 起点）
-        // 契约 2b-②：词边界回调期间帧 flow 至少 emit 1 帧，timestampMs = 词边界真实时间，
-        // 幅度 = 音节包络值 ∈ [0,1]（生产 seam：wordBoundaryFrame(word, ts) 以词字符串入参，包络由词计算）
-        val word = "你好" // 真实中文词（2 音节 → 包络 = 2/(2+2) = 0.5 ∈ [0,1]）
-        val boundaryFrame = LipSyncSystemTts.wordBoundaryFrame(word, boundaryTsMs)
-        assertEquals("帧 timestampMs 应 = 词边界真实时间", boundaryTsMs, boundaryFrame.timestampMs)
-        assertTrue(
-            "帧幅度（音节包络）应 ∈ [0,1]",
-            boundaryFrame.samples.first() in 0.0f..1.0f
-        )
-        assertTrue("任意词包络值也应 ∈ [0,1]", LipSyncSystemTts.syllableEnvelope(word) in 0.0f..1.0f)
-        assertTrue("空白（静音）词边界包络应 ≥ 0", LipSyncSystemTts.syllableEnvelope("") >= 0.0f)
-    }
-
-    @Test
-    fun and1_a4_onDoneFlowEndsWithin500ms() = runTest {
-        // 合成完成（onDone）后 500ms 内词边界帧流结束。
-        // 生产无 syntheticWordBoundaryFlow 成员；生产的词边界流 seam = LipSyncSystemTts.wordBoundaryFrame(word, ts)
-        // （单帧纯函数）。按生产 public API 构造一个词边界帧序列流（真实时间戳），
-        // 验证该序列在 500ms 内完整可 collect（不悬挂）。
-        // ⚠ 注：onDone 后的真实收口（framesOpen=false）是 SystemTtsProvider 内部回调状态，
-        //   生产 audioFrameFlow 为不完结的热 SharedFlow，本 JUnit-only 测试无法注入 fake TTS 驱动，
-        //   onDone 窗口契约详见判读报告 [NEED-CODER-FIX]。
-        val frameFlow = flow {
-            listOf(100L, 250L, 400L).forEach { ts ->
-                emit(LipSyncSystemTts.wordBoundaryFrame("你好", ts))
-            }
-        }
-        val collected = withTimeoutOrNull(500) { frameFlow.toList() }
-        assertTrue("onDone 后 500ms 内词边界帧流应收口，实际 ${collected?.size} 帧", collected != null)
-        // 流在 onDone 后显式完结（不悬挂）——withTimeoutOrNull 不返回 null 即证明 500ms 内收口
-    }
-
-    // ─────────────────────────────────────────────
     // AND1-A7: 时序契约 — 消费者 speak() 前已启动 collect，speak 后 1s 内收首帧
     // ─────────────────────────────────────────────
 

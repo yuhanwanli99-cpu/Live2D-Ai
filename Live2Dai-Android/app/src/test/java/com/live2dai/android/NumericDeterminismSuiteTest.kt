@@ -236,16 +236,9 @@ class NumericDeterminismSuiteTest {
             return provider
         }
         val providers = listOf(stubProvider("edge_tts"), stubProvider("system_tts"))
-        val asr = mock<AsrProvider>()
-        whenever(asr.info).thenReturn(
-            AsrProviderInfo(
-                id = "system_speech_recognizer", name = "stub-asr", requiresNetwork = false,
-                health = MutableStateFlow(TtsHealth.OK), priority = 1,
-            )
-        )
         val attached = if (attachView) view else null
         return VoiceIoController(
-            context, providers, listOf(asr), attached,
+            context, providers, attached,
             CoroutineScope(SupervisorJob() + Dispatchers.Main),
             visemeAnalyzer,
         )

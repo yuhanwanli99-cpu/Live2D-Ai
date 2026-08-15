@@ -1,7 +1,5 @@
 package com.live2dai.android.ui.settings
 
-import com.live2dai.android.AsrProvider
-import com.live2dai.android.AsrProviderInfo
 import com.live2dai.android.DownloadState
 import com.live2dai.android.TtsHealth
 import com.live2dai.android.TtsProvider
@@ -47,27 +45,6 @@ class EngineSelectorUiTest {
             override val isSpeaking = MutableStateFlow(false)
             override suspend fun speak(text: String) {}
             override fun stop() {}
-            override fun release() {}
-        }
-    }
-
-    private fun stubAsr(
-        id: String,
-        name: String,
-        health: TtsHealth = TtsHealth.OK,
-        requiresNetwork: Boolean = false,
-    ): AsrProvider {
-        val info = AsrProviderInfo(
-            id = id,
-            name = name,
-            requiresNetwork = requiresNetwork,
-            health = MutableStateFlow(health),
-            priority = 0,
-        )
-        return object : AsrProvider {
-            override val info = info
-            override suspend fun listen(): String = ""
-            override fun stopListening() {}
             override fun release() {}
         }
     }
@@ -122,25 +99,6 @@ class EngineSelectorUiTest {
     @Test
     fun ttsProvidersToUi_emptyList_returnsEmpty() {
         assertTrue(ttsProvidersToUi(emptyList(), selectedId = "x").isEmpty())
-    }
-
-    // ── ASR provider 列表 → 展示模型 ──
-
-    @Test
-    fun asrProvidersToUi_mapsAllFields() {
-        val providers = listOf(
-            stubAsr(id = "sherpa_sensevoice", name = "SenseVoice 离线 ASR", health = TtsHealth.UNAVAILABLE),
-            stubAsr(id = "system_speech_recognizer", name = "系统语音识别"),
-        )
-        val ui = asrProvidersToUi(providers, selectedId = "sherpa_sensevoice")
-
-        assertEquals(2, ui.size)
-        assertEquals("sherpa_sensevoice", ui[0].id)
-        assertEquals("SenseVoice 离线 ASR", ui[0].name)
-        assertEquals(TtsHealth.UNAVAILABLE, ui[0].health)
-        assertTrue(ui[0].isSelected)
-        assertFalse("ASR 无 configurable 字段，恒为 false", ui[0].configurable)
-        assertFalse(ui[1].isSelected)
     }
 
     // ── 健康状态文案 ──

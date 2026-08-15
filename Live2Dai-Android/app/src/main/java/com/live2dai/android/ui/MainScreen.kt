@@ -59,11 +59,10 @@ import java.util.UUID
 /**
  * 显示在气泡中的单条消息数据（保留，2C-4）。
  *
- * 2C-4 起 UI 气泡改由 [UiBubble] 承担；[DisplayMessage] 仍保留为
- * ChatHistoryStore / ChatViewModel 的 JSON 持久化模型（V1.1 模块2 聊天历史），
- * Wave 4 随 ChatViewModel 删除面统一迁移（删除本类须同步改 ChatHistoryStore）。
+ * 2C-4 起 UI 气泡改由 [UiBubble] 承担；[DisplayMessage] 为旧 JSON 持久化模型
+ * （Wave 5 随旧 Chat 链删除面移除——本类保留待后续清理）。
  *
- * [Serializable]：V1.1 模块2 聊天历史持久化（ChatHistoryStore 序列化到 JSON）。
+ * [Serializable]：兼容旧序列化数据。
  * `id` 带默认值（UUID），反序列化时缺失 id 的旧数据会自动补默认值，不破坏兼容性。
  */
 @Serializable
@@ -171,7 +170,7 @@ fun MainChatScreen(
                     // 实例上报 → App 级（Live2DaiApp 持有，支持生命周期与热切换）
                     onLive2DViewCreated(view)
                     // Wave 4：核心环路视图绑定（host.zeroMouth 目标 + VoiceIo LipSync 绑定；
-                    // 旧 EmotionController/ChatHook 业务接线随 ChatViewModel 删除面停用，Wave 5 删）
+                    // 旧业务接线随旧 Chat 链删除面已移除）
                     loopWire.onLive2DViewWired(view)
                 }
             },
@@ -180,7 +179,7 @@ fun MainChatScreen(
 
         // ── 层1：右上角浮层控制（半透明悬浮在角色上） ──
         // 2C-4 精简后仅保留：连接状态指示 + 设置入口（需求2 唯一入口）。
-        // 已删除：清空对话按钮（其确认流程依赖 ChatViewModel，Wave 4 迁移）。
+        // 已删除：清空对话按钮（其确认流程依赖旧 Chat 链，Wave 4 迁移）。
         // Android 15 强制 edge-to-edge：statusBarsPadding 将控制条压到状态栏之下。
         Row(
             modifier = Modifier

@@ -241,18 +241,16 @@ class ModelDownloadManagerTest {
 
     @Test
     fun catalog_containsKokoroAndSenseVoiceForUi() {
-        // 设置页离线模型区数据源：Kokoro TTS / SenseVoice ASR 两个模型必须齐备
-        assertEquals("CATALOG 应含两个模型", 2, ModelDownloadManager.CATALOG.size)
+        // K1 单引擎（Wave 5 清理）：CATALOG 仅含 Kokoro TTS（SenseVoice ASR 已随 ASR 链删除）
+        assertEquals("CATALOG 应含一个模型（K1 单引擎）", 1, ModelDownloadManager.CATALOG.size)
         val ids = ModelDownloadManager.CATALOG.map { it.id }.toSet()
         assertEquals(
-            setOf("kokoro_tts", "sensevoice_asr"),
+            setOf("kokoro_tts"),
             ids
         )
         val kokoro = ModelDownloadManager.CATALOG.first { it.id == "kokoro_tts" }
         assertTrue("Kokoro 模型文件候选应含 onnx", kokoro.modelFileCandidates.any { it.endsWith(".onnx") })
         assertTrue("Kokoro 需伴生 tokens.txt", kokoro.requiredCompanions.contains("tokens.txt"))
-        val sense = ModelDownloadManager.CATALOG.first { it.id == "sensevoice_asr" }
-        assertTrue("SenseVoice 模型文件候选应含 onnx", sense.modelFileCandidates.any { it.endsWith(".onnx") })
     }
 
     // ─────────────────────────────────────────────

@@ -78,7 +78,7 @@ class VoiceIoRefactorInterruptIdempotentTest {
         scheduler = TestCoroutineScheduler()
         Dispatchers.setMain(StandardTestDispatcher(scheduler))
         controller = VoiceIoController(
-            context, listOf(provider), listOf(mock<AsrProvider>()), view,
+            context, listOf(provider), view,
             lipSyncScope(scheduler),
         )
     }

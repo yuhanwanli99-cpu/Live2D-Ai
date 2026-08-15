@@ -144,21 +144,8 @@ class ModelDownloadManager(
             requiredCompanions = listOf("tokens.txt"),
         )
 
-        /** SenseVoice 离线 ASR（~163MB int8 中英日韩粤，plan §4.4.2 方案A） */
-        val SENSEVOICE_ASR = ModelSpec(
-            id = "sensevoice_asr",
-            name = "SenseVoice 离线 ASR",
-            fileName = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-            url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-            expectedSha256 = null, // TODO(sha256-SUSPENDED-2026-08-12): 同上——GitHub 下载失败；恢复网络后与 Kokoro 同批回填（禁止猜 hash）
-            sizeBytes = 163L * 1024 * 1024,
-            // int8 版本解压后模型文件名为 model.int8.onnx（官方 java 示例确认）
-            modelFileCandidates = listOf("model.int8.onnx", "model.onnx"),
-            requiredCompanions = listOf("tokens.txt"),
-        )
-
-        /** 全部模型清单（供 UI 遍历） */
-        val CATALOG: List<ModelSpec> = listOf(KOKORO_TTS, SENSEVOICE_ASR)
+        /** 全部模型清单（供 UI 遍历）——K1 单引擎：仅 Kokoro（ASR 链已随 Wave 5 删除） */
+        val CATALOG: List<ModelSpec> = listOf(KOKORO_TTS)
     }
 
     /** 各下载目标的状态流（destPath / specId → 状态），供 UI 查询 */

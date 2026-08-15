@@ -21,7 +21,6 @@ import java.io.File
  * - id="sherpa_onnx_kokoro" / LOCAL / requiresNetwork=false / priority=1 / configurable=false
  * - 模型未下载 → health=UNAVAILABLE，speak 快速失败（不发网络、不触引擎）→ 降级链继续
  * - 引擎不可用（AAR 未集成 / JVM 无原生库）→ speak 抛异常、health=UNAVAILABLE
- * - 注册顺序：sherpa(1) 注册在 EdgeTts(1) 之前 → cascade 中 sherpa 先于 edge（离线优先）
  *
  * 说明：真实 JNI 合成无法在 JVM 单测运行（无 Android .so）；本测试验证降级路径与
  * 元数据契约。模型文件就绪 + 引擎不可用场景（第 4 个用例）同时覆盖"无 AAR 环境"与
@@ -132,23 +131,8 @@ class SherpaOnnxTtsProviderTest {
     }
 
     // ─────────────────────────────────────────────
-    // 注册顺序：sherpa(1) 在 EdgeTts(1) 之前（离线优先）
+    // wav 头（纯文件逻辑）
     // ─────────────────────────────────────────────
-
-    @Test
-    fun registryOrder_sherpaBeforeEdgeAtSamePriority() {
-        // 与 registerDefaultTtsProviders 相同的注册顺序（sherpa → edge），
-        // 稳定排序保证同 priority 下 sherpa 先于 edge
-        TtsProviderRegistry.register(SherpaOnnxTtsProvider(context))
-        TtsProviderRegistry.register(EdgeTtsProvider(context))
-
-        val chain = TtsProviderRegistry.cascade()
-        assertEquals(
-            "同 priority=1 稳定排序：sherpa 应先于 edge",
-            listOf("sherpa_onnx_kokoro", "edge_tts"),
-            chain.map { it.info.id }
-        )
-    }
 
     @Test
     fun wavHeader_writtenLittleEndianPcm() {

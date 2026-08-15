@@ -18,25 +18,19 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * V1.1 模块1「语音闭环接线」统一协调器（TTS 说 + ASR 听）+ 模块4「LipSync」（TTS 播放驱动嘴型）
+ * V1.1 模块1「语音闭环接线」统一协调器（TTS 说）+ 模块4「LipSync」（TTS 播放驱动嘴型）
  * + V1.2 模块1「TtsProvider 注册表 + 降级链」（多引擎架构地基）。
  *
  * 职责（契约见 docs/plan-v12-plan.schema.json → functions.VoiceIoController.*）：
  * - [speak]：播报纯文本（已剥离 [emotion] 标签）。遍历 [TtsProviderRegistry.cascade()]
- *   降级链（Wave A：edge_tts → system_tts），按序尝试 [TtsProvider.speak]，成功即停；
+ *   降级链（K1：sherpa 单引擎），按序尝试 [TtsProvider.speak]，成功即停；
  *   失败继续下一个；全失败静默降级（不影响对话主链路）。可指定 [providerId] 首选引擎。
  * - [stopSpeaking]：新消息发送前打断当前 TTS 播报（遍历降级链调用 stop()，
  *   确保切 Provider 后旧引擎资源释放）。
  * - [isSpeaking]：组合各 Provider 播放状态的 StateFlow（任一在播 = true）。
- * - [listen]：遍历 ASR Provider 降级链识别，返回识别文本；失败/超时/无匹配
- *   返回空字符串（UI 层静默降级为文本输入，保持 V1.0 纯文本模式可用）。
- * - 模块7 遥测（plan §5.7.3）：speak 时发射 TtsStarted → TtsSucceeded/TtsFailed
- *   （降级切换伴随 TtsFallback）；listen 时发射 AsrStarted → AsrResult/AsrFailed。
- *   事件经 [VoiceTelemetry.log] 写入 Log.i + 环形缓冲区 + [VoiceEventBus]。
- * - [release]：Activity 销毁时释放所有 Provider 与 ASR 资源（幂等）。
+ * - [release]：Activity 销毁时释放所有 Provider 资源（幂等）。
  * - [attachLive2DView]：模块4 接线点，Live2D 视图创建后注入，驱动嘴型动画。
  *
  * 模块4（LipSync，plan §4.1.4 方案A 播放状态驱动）：
@@ -45,7 +39,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 播放开始 → 启动随机波动嘴型协程（级2-B：每 100ms 更新一次 mouth，随机波动 + 停顿模拟 + lerp 平滑）；
  * 播放结束/打断 → 取消协程并将嘴型归零。不绑定具体 TTS 引擎，只依赖“是否在播放”状态。
  *
- * 容错约束（plan §8.2/§8.3）：TTS/ASR 任何一个失败都不影响文本输入；
+ * 容错约束（plan §8.2/§8.3）：TTS 失败不影响文本输入；
  * LipSync 异常 → catch 后 mouth 设为 0.0，不影响 TTS 播放。
  * 本类所有方法对外不抛异常（协程取消 [CancellationException] 除外——正常取消语义）。
  */
@@ -53,8 +47,6 @@ class VoiceIoController(
     context: Context,
     /** V1.2：TTS Provider 降级链（默认取注册表，测试可注入 mock）。 */
     private val providers: List<TtsProvider> = TtsProviderRegistry.cascade(),
-    /** V1.2 模块4：ASR Provider 降级链（默认取注册表；测试可注入 mock）。 */
-    private val asrProviders: List<AsrProvider> = AsrProviderRegistry.cascade(),
     /** 模块4（LipSync）：驱动嘴型的 Live2D 视图；由 [attachLive2DView] 在视图创建后接线。 */
     private var live2DView: Live2DView? = null,
     /** LipSync 动画协程作用域（M-AND-3：Default 后台线程——setLipSyncParam 已改为通道 submit，
@@ -70,9 +62,6 @@ class VoiceIoController(
         /** LipSync 取证日志 TAG（项目教训：Log.i 级别，国产 ROM 抑制 Log.d） */
         private const val LIP_SYNC_TAG = "LipSync"
 
-        /** ASR 单次识别超时：SpeechRecognizer 在部分 ROM 上可能不回调，超时后降级为空结果 */
-        private const val LISTEN_TIMEOUT_MS = 15_000L
-
         /** LipSync 嘴型更新周期（plan §4.1.4：每 100-150ms） */
         internal const val LIP_SYNC_INTERVAL_MS = 100L
 
@@ -81,10 +70,19 @@ class VoiceIoController(
          * 覆盖最长句子音频（1024 块 ≈ 2.5 分钟 @150ms）；溢出丢最旧帧，不阻塞播放。
          */
         internal const val FRAME_TABLE_CAPACITY = 1024
-    }
 
-    /** ASR 降级链（构造时确定；注册表为空时兜底注入系统 ASR，保证 listen() 永远可用） */
-    private val asrChain: List<AsrProvider>
+        // ── TTS 播报净化正则（来源：EmotionController.kt 静态成员，Wave 5 迁入本类）──
+        // [emotion] 标签形状：`[keyword]` / `[keyword_强度]`（与 EmotionText.TAG_REGEX 同源）
+        private val EMOTION_TAG_REGEX = Regex("""\[(\w+?)(?:_(\d+))?\]""")
+        // 颜文字括号段：括号内仅含符号（无中文/字母/数字）→ 剥离，如 (=^･ω･^=) (≧▽≦)
+        // 括号内含中文（如（小声说））不匹配 → 保留（保守策略：不清正常中文括号）
+        private val KAOMOJI_PAREN_REGEX = Regex("""[（(][^（）()\u4e00-\u9fa5A-Za-z0-9]+[）)]""")
+        // 无括号简单颜文字：^_^ / >_< / =ω= 等三字符符号组合，前后不得紧跟字母/数字（避免误删）
+        private val SIMPLE_KAOMOJI_REGEX =
+            Regex("""(?<![A-Za-z0-9])[\^=<>;~][_·･ω∀≧≦][\^=<>;~](?![A-Za-z0-9])""")
+        // markdown 加粗/斜体符号：** 或 __ （2+ 连续）→ 剥离符号、保留文字；单个 * / _ 不动
+        private val MARKDOWN_SYMBOL_REGEX = Regex("""[*_]{2,}""")
+    }
 
     /** 当前 LipSync 动画协程（同一时刻至多一个；新播放开始即取消旧协程重启） */
     private var lipSyncJob: Job? = null
@@ -154,16 +152,6 @@ class VoiceIoController(
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
     init {
-        // V1.2 模块4：ASR 降级链兜底——注册表为空时（如未调用 registerDefaultAsrProviders）
-        // 注册系统 ASR 并用于本实例，保证 listen() 永远有降级可用（plan §4.4.4
-        // “ASR 注册点 = MainActivity 或 VoiceIoController init”）
-        if (asrProviders.isEmpty()) {
-            val system = SystemAsrProvider(context)
-            AsrProviderRegistry.register(system)
-            asrChain = listOf(system)
-        } else {
-            asrChain = asrProviders
-        }
         // V1.2 模块1：观察各 Provider 播放状态（StateFlow 自动去重，仅状态切换时触发）。
         // 去重保护：仅当组合值实际变化才转发（combine 在任一上游发射时都会重算，
         // 组合值不变时不重复驱动 handlePlaybackState，避免打断正在运行的嘴型动画；
@@ -186,8 +174,9 @@ class VoiceIoController(
      *
      * task-fix-tts-sanitize：speak 是 TTS 播报统一入口（MainActivity 两条路径
      * ChatHook.afterReceive / onAssistantMessage 都调这里），第一行统一净化——
-     * [EmotionController.sanitizeForTts] 剥离 [emotion] 标签 + 颜文字括号段
-     * （(=^･ω･^=) 会被 TTS 读成"等于号"）+ markdown 符号，之后所有逻辑用净化后的文本。
+     * [sanitizeForTts]（EmotionController.sanitizeForTts 等价实现，Wave 5 迁入本类）
+     * 剥离 [emotion] 标签 + 颜文字括号段（(=^･ω･^=) 会被 TTS 读成"等于号"）+ markdown 符号，
+     * 之后所有逻辑用净化后的文本。
      * 净化后为空文本 → 直接跳过（与空文本短路同语义）。
      *
      * 降级链（plan §3.1.7）：按序尝试 [providers]，成功即停；失败继续下一个；
@@ -202,7 +191,7 @@ class VoiceIoController(
     suspend fun speak(text: String, providerId: String? = null, keywordMotionEnabled: Boolean = true) {
         if (text.isBlank()) return
         // 统一净化：剥离 [emotion] 标签 + 颜文字 + markdown 符号（只影响播报，不影响字幕/UI）
-        val clean = EmotionController.sanitizeForTts(text)
+        val clean = sanitizeForTts(text)
         if (clean.isBlank()) {
             logD("speak() 净化后为空文本，跳过播报: ${text.take(40)}")
             return
@@ -233,12 +222,7 @@ class VoiceIoController(
         clean: String,
         keywordMotionEnabled: Boolean,
     ): Boolean {
-        // 模块7 遥测：首选 Provider 的合成开始事件（降级链首元素——无论最终哪个成功）
-        VoiceTelemetry.log(
-            VoiceEvent.TtsStarted(chain.first().info.id, clean.length, System.currentTimeMillis())
-        )
         for ((index, provider) in chain.withIndex()) {
-            val startedAt = System.currentTimeMillis()
             var spokeSuccessfully = false
             try {
                 // M5: 在 speak() 前启动 viseme 分析收集（Dispatchers.Default 用于 CPU 密集的 MFCC/DTW）
@@ -272,13 +256,6 @@ class VoiceIoController(
                 startRmsFrameCollection(provider)
                 provider.speak(clean)
                 spokeSuccessfully = true
-                VoiceTelemetry.log(
-                    VoiceEvent.TtsSucceeded(
-                        provider.info.id,
-                        System.currentTimeMillis() - startedAt,
-                        System.currentTimeMillis(),
-                    )
-                )
                 logI("speak() 由 ${provider.info.id} 播报完成")
                 return true
             } catch (e: CancellationException) {
@@ -286,18 +263,6 @@ class VoiceIoController(
                 throw e
             } catch (e: Exception) {
                 val reason = e.message ?: "unknown"
-                // 模块7 遥测：当前 Provider 失败 + 降级切换（还有下一个时）
-                VoiceTelemetry.log(
-                    VoiceEvent.TtsFailed(provider.info.id, reason, System.currentTimeMillis())
-                )
-                val next = chain.getOrNull(index + 1)
-                if (next != null) {
-                    VoiceTelemetry.log(
-                        VoiceEvent.TtsFallback(
-                            provider.info.id, next.info.id, reason, System.currentTimeMillis()
-                        )
-                    )
-                }
                 // 降级链遍历日志（国产 ROM 抑制 Log.d 教训：用 Log.i 级别）
                 logI("speak() ${provider.info.id} 失败，降级到下一个: $reason")
             } finally {
@@ -669,79 +634,7 @@ class VoiceIoController(
     private fun formatMouth(value: Float): String = "%.2f".format(value)
 
     /**
-     * ASR 开始监听，返回识别文本（V1.2 模块4：遍历 ASR 降级链）。
-     *
-     * 降级链（plan §4.4.4）：sherpa_sensevoice → system_speech_recognizer → 静默 ""。
-     * 遍历 [asrChain]：成功（非空文本）即返回；空结果/异常/超时 → 尝试下一个；
-     * 全失败返回 ""（UI 无变化，降级为文本输入）。
-     *
-     * @param providerId 指定首选 ASR Provider ID（如 "sherpa_sensevoice"）；指定 Provider
-     *                   失败/为空后仍按 priority 遍历其余 Provider 降级；null = 纯降级链遍历。
-     *                   由引擎选择 UI（模块5）传入 SettingsRepository.asrProviderId。
-     * @return 识别文本；失败/超时/无匹配返回 ""
-     */
-    suspend fun listen(providerId: String? = null): String {
-        logD("listen() 开始语音识别（降级链: ${asrChain.map { it.info.id }}）")
-        if (asrChain.isEmpty()) return ""
-        val chain = resolveAsrChain(providerId)
-        for (provider in chain) {
-            val startedAt = System.currentTimeMillis()
-            // 模块7 遥测：ASR 开始监听
-            VoiceTelemetry.log(VoiceEvent.AsrStarted(provider.info.id, startedAt))
-            try {
-                val result = withTimeoutOrNull(LISTEN_TIMEOUT_MS) { provider.listen() }
-                    ?: run {
-                        logW("listen() ${provider.info.id} 超时，降级到下一个")
-                        provider.stopListening()
-                        // 模块7 遥测：超时按 ASR 失败处理（区别于空结果）
-                        VoiceTelemetry.log(
-                            VoiceEvent.AsrFailed(
-                                provider.info.id,
-                                "listen 超时（${LISTEN_TIMEOUT_MS}ms）",
-                                System.currentTimeMillis(),
-                            )
-                        )
-                        ""
-                    }
-                val durationMs = System.currentTimeMillis() - startedAt
-                if (result.isNotEmpty()) {
-                    // 模块7 遥测：识别成功（非空文本）
-                    VoiceTelemetry.log(
-                        VoiceEvent.AsrResult(provider.info.id, result, durationMs, System.currentTimeMillis())
-                    )
-                    logI("listen() 由 ${provider.info.id} 识别: '${result.take(40)}'")
-                    return result
-                }
-                // 模块7 遥测：完成但无匹配（text=null，降级链继续）
-                VoiceTelemetry.log(
-                    VoiceEvent.AsrResult(provider.info.id, null, durationMs, System.currentTimeMillis())
-                )
-                logI("listen() ${provider.info.id} 返回空结果，降级到下一个")
-            } catch (e: Exception) {
-                // 模块7 遥测：ASR 失败（系统服务不可用等）
-                VoiceTelemetry.log(
-                    VoiceEvent.AsrFailed(provider.info.id, e.message ?: "unknown", System.currentTimeMillis())
-                )
-                // ASR 失败（系统服务不可用等）→ 静默降级到下一个 Provider
-                logW("listen() ${provider.info.id} 识别失败，降级到下一个: ${e.message}")
-            }
-        }
-        logW("listen() 所有 ASR provider 均失败/为空，静默返回空串")
-        return ""
-    }
-
-    /**
-     * 构造 ASR 识别链：指定 providerId 时该 Provider 优先，其后按降级链顺序补其余 Provider；
-     * 未指定时直接用降级链（[asrChain] 已按 priority 升序）。与 TTS [resolveChain] 同构。
-     */
-    private fun resolveAsrChain(providerId: String?): List<AsrProvider> {
-        if (providerId == null) return asrChain
-        return asrChain.filter { it.info.id == providerId } +
-            asrChain.filter { it.info.id != providerId }
-    }
-
-    /**
-     * 释放 TTS + ASR 资源 + LipSync 动画（Activity 销毁时调用；幂等）。
+     * 释放 TTS 资源 + LipSync 动画（Activity 销毁时调用；幂等）。
      */
     fun release() {
         logD("release() 释放语音资源")
@@ -768,15 +661,28 @@ class VoiceIoController(
                 logW("release() ${provider.info.id} 异常: ${e.message}")
             }
         }
-        try {
-            asrChain.forEach { it.stopListening() }
-        } catch (e: Exception) {
-            logW("release() ASR 异常: ${e.message}")
-        }
+    }
+
+    /**
+     * TTS 播报前统一净化（EmotionController.sanitizeForTts 等价实现，Wave 5 迁入本类；
+     * 原实现位于 EmotionController.kt，该文件已随 Wave 5 删除）。
+     *
+     * 在剥离 [emotion] 标签基础上，进一步剥离会被 TTS 朗读的符号类内容：
+     * 颜文字括号段（如 (=^･ω･^=) 会被读成"等于号"）、无括号简单颜文字、markdown 加粗/斜体符号。
+     * 保守原则：只清"符号类"内容，不得误删正常中文括号（（小声说）等括号内含中文 → 保留）。
+     * 仅影响 TTS 播报文本，不影响 UI 显示与字幕。
+     */
+    private fun sanitizeForTts(text: String): String {
+        return text
+            .replace(EMOTION_TAG_REGEX, "")          // [joy] 等 [emotion] 标签
+            .replace(KAOMOJI_PAREN_REGEX, "")       // 颜文字括号段 (=^･ω･^=)
+            .replace(SIMPLE_KAOMOJI_REGEX, "")      // 无括号简单颜文字 ^_^ / >_<
+            .replace(MARKDOWN_SYMBOL_REGEX, "")     // **xx** 符号剥离，保留文字
+            .trim()
     }
 
     // 日志输出带单元测试防护（本地 JVM 测试无 Android 运行时，直接调用 Log 会抛
-    // "Method d in android.util.Log not mocked"）——与 EmotionController 同一模式。
+    // "Method d in android.util.Log not mocked"）。
     private fun logD(message: String) {
         try {
             Log.d(TAG, message)

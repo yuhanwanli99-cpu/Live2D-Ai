@@ -42,7 +42,6 @@ class VoiceIoControllerLipSyncTest {
     private lateinit var edgeProvider: TtsProvider
     private lateinit var systemProvider: TtsProvider
     private lateinit var edgeSpeaking: MutableStateFlow<Boolean>
-    private lateinit var asrService: AsrProvider
     private lateinit var view: Live2DView
     private lateinit var scheduler: TestCoroutineScheduler
     private lateinit var controller: VoiceIoController
@@ -55,18 +54,11 @@ class VoiceIoControllerLipSyncTest {
             edgeSpeaking = it.second
         }
         mockProvider("system_tts").let { systemProvider = it.first }
-        asrService = mock<AsrProvider>()
-        whenever(asrService.info).thenReturn(
-            AsrProviderInfo(
-                id = "system_speech_recognizer", name = "stub-asr", requiresNetwork = false,
-                health = MutableStateFlow(TtsHealth.OK), priority = 1,
-            )
-        )
         view = mock()
         scheduler = TestCoroutineScheduler()
         Dispatchers.setMain(StandardTestDispatcher(scheduler))
         controller = VoiceIoController(
-            context, listOf(edgeProvider, systemProvider), listOf(asrService), view,
+            context, listOf(edgeProvider, systemProvider), view,
             CoroutineScope(SupervisorJob() + Dispatchers.Main)
         )
     }
@@ -169,7 +161,7 @@ class VoiceIoControllerLipSyncTest {
         // 独立 view mock：验证未接线的控制器不会驱动任何嘴型（与 setUp 中已接线的
         // 控制器共享 provider mock 但 view 各自独立，互不干扰）
         val detachedView = mock<Live2DView>()
-        val detached = VoiceIoController(context, listOf(edgeProvider, systemProvider), listOf(asrService))
+        val detached = VoiceIoController(context, listOf(edgeProvider, systemProvider))
         detached.handlePlaybackState(true)
         scheduler.advanceTimeBy(VoiceIoController.LIP_SYNC_INTERVAL_MS * 5)
         verify(detachedView, never()).setLipSyncParam(anyFloat())
@@ -184,7 +176,6 @@ class VoiceIoControllerLipSyncTest {
         scheduler.advanceUntilIdle()
         verify(edgeProvider).release()
         verify(systemProvider).release()
-        verify(asrService).stopListening()
         verify(view, atLeastOnce()).setLipSyncParam(0f)
     }
 }

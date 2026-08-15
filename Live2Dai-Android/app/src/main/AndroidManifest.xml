@@ -6,16 +6,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Audio recording for voice input -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <!-- Floating window overlay (Android 6+) -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-    <!-- Foreground service for floating window -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
     <application
         android:allowBackup="true"
         android:label="Live2Dai"
@@ -43,23 +33,5 @@
             android:name="androidx.activity.ComponentActivity"
             android:exported="false"
             tools:replace="android:exported" />
-
-        <!-- Floating window service -->
-        <service
-            android:name=".FloatingWindowService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse" />
-
-        <!-- 通知监听服务（agent-tools 插件的快捷回复底层能力，core 持有） -->
-        <!-- exported=true 是系统绑定 NotificationListenerService 的必要条件（受 BIND_... 权限保护） -->
-        <service
-            android:name=".NotificationReplyListenerService"
-            android:label="Live2Dai 通知快捷回复"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
     </application>
 </manifest>

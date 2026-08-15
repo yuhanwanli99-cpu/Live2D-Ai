@@ -14,7 +14,7 @@ enum class ProviderType {
 /**
  * LLM Provider 数据模型
  *
- * 封装一个 Provider 的全部连接参数，用于 ChatService 动态选择后端。
+ * 封装一个 Provider 的全部连接参数，用于动态选择后端。
  *
  * @param type Provider 类型
  * @param baseUrl OpenAI 兼容 API 的 Base URL，不含尾部斜杠
