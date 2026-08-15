@@ -1,0 +1,49 @@
+## Expressions
+You can control the Live2D model's facial expression and motion in TWO ways.
+The structured JSON below is PREFERRED; the legacy keyword tags are the FALLBACK.
+
+### Preferred: structured JSON (single line, at the very end of your reply)
+Output a JSON object on ONE single line (no line breaks inside), optionally wrapped in a ```json ... ``` code fence.
+This JSON is a system protocol for expressions, NOT a code block in your reply.
+
+{"expressionMix":{"expressions":[{"name":"joy","weight":0.7},{"name":"surprise","weight":0.3}]},"parameterOverrides":{"ParamEyeLOpen":1.2},"motionLabel":"wave"}
+
+Rules:
+- expressionMix.expressions[].name: one of [<insert_emomap_keys>] (case-insensitive)
+- weight: 0.0-1.0; the sum of all weights must be <= 1.0 (higher = stronger)
+- parameterOverrides: optional; keys are Live2D parameter IDs, values are multipliers (1.0 = unchanged)
+- motionLabel: optional motion alias such as "wave"; omit if no motion
+- All three fields are optional, but output at least one valid field; if you have nothing to express, omit the JSON entirely
+- The JSON must be on ONE line so it is not split across sentences
+
+### Fallback: legacy keyword tags
+If you do not output JSON, you may still embed tags inside your text:
+- [<insert_emomap_keys>]  (e.g. "[joy] Nice to meet you!")
+- Intensity suffix [key_1..3] is also supported (e.g. [joy_3] = full strength)
+These tags are ignored whenever JSON is present.
+
+### Stream-friendly prefix tag (P7: [emo:xxx])
+For streaming replies, put an emotion tag at the very START of the reply
+(before any other text). It is intercepted in real time to switch the
+Live2D expression BEFORE audio arrives:
+- Format: [emo:<emotion>] or [emo:<emotion>_<strength>]
+  (strength 1-3, default 2; e.g. [emo:joy] / [emo:joy_3] / [emo:surprise_2])
+- Valid emotions: [<insert_emomap_keys>]
+- Rules:
+  - Only ONE [emo:xxx] per reply, placed at the very start
+  - It is a system protocol token, NOT spoken by TTS and NOT displayed
+  - If you also output structured JSON, omit [emo:xxx] (JSON takes priority)
+Examples:
+  [emo:joy]你回来啦！今天过得怎么样？
+  [emo:surprise_3]诶？！真的假的？！
+  [emo:sadness]你不理我……哼，才没有寂寞呢
+
+### Examples
+Chinese (JSON with fence + text):
+你回来啦！今天过得怎么样？(=^･ω･^=)
+```json
+{"expressionMix":{"expressions":[{"name":"joy","weight":0.7},{"name":"surprise","weight":0.3}]},"parameterOverrides":{"ParamEyeLOpen":1.2},"motionLabel":"wave"}
+```
+
+English (bare JSON, minimal):
+I'm so happy! {"expressionMix":{"expressions":[{"name":"joy","weight":1.0}]}}

@@ -1,0 +1,111 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific - deprecated directories (moved to archive/)
+archive/
+
+# Runtime / Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# Node / Electron
+node_modules/
+frontend/node_modules/
+
+# Android native project
+android-native/.gradle/
+android-native/build/
+android-native/app/build/
+android-native/app/.cxx/
+android-native/local.properties
+android-native/.idea/
+
+# Android project - local.properties (API keys)
+Live2Dai-Android/local.properties
+Live2Dai-Android/.gradle/
+Live2Dai-Android/build/
+Live2Dai-Android/app/build/
+Live2Dai-Android/app/.cxx/
+Live2Dai-Android/.idea/
+
+# Any local.properties anywhere (may hold live API keys)
+**/local.properties
+
+# Cache
+cache/
+
+# Live2D Cubism native —— 历史残留槽位（spoq-fix G7：渲染由 CMake 编译 Purism Core 提供，与 AAR 无关）
+# **/libs/live2d-cubism-core.aar
+
+# sherpa-onnx engine AAR (V1.2 离线 TTS/ASR, large binary; 下载见 app/build.gradle.kts 注释)
+**/libs/sherpa-onnx-*.aar
+
+# Pi session dumps (may contain secrets)
+pi-session-dump/
+
+# Agent working dirs (should not be tracked)
+.pi/
+# Local, machine-specific MCP tool config (contains absolute host paths) — not shared across clones
+.mcp.json
+.agents/
+
+# PC frontend runtime binaries — re-fetch via npm / upstream repo
+Live2Dai-pc/open-llm-vtuber/frontend/libs/
+
+# Debug screenshots at repo root
+/chat_test.png
+/install_check.png
+/install_status.png
+/screenshot.png
+/live2dai_screenshot.png
+/live2d_screenshot.png
+/tailscale_config.png
+/test_qr.png
+
+# Misc local test scripts
+/_test_pi.ps1
+/pi_safe.cmd
+
+
+# Android — 构建时由 Gradle copyModelRegistry 从 shared/model_registry.json 生成
+Live2Dai-Android/app/src/main/assets/model_registry.json
+*.apk
+Live2Dai-debug*.apk
+.kotlin
+
+# 前端编译产物（spoq-fix：出仓，构建时生成）
+Live2Dai-pc/open-llm-vtuber/frontend/assets/*.js
+Live2Dai-pc/open-llm-vtuber/frontend/assets/*.css
+
+# 运行时/agent 状态与产物（spoq-fix 出仓）
+.pi-glla/
+.pi-lens.json
+spoq/work/
+Live2Dai-pc/open-llm-vtuber/renderer/public/libs/
+
+# renderer 调试/构建残留（spoq-fix 出仓）
+Live2Dai-pc/open-llm-vtuber/renderer/_bcheck.mjs
+Live2Dai-pc/open-llm-vtuber/renderer/public/

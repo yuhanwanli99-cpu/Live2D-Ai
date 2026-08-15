@@ -1,0 +1,191 @@
+# =============================================================================
+# Nightly — 夜间全量构建 (Phase 1 — 不含 Emulator / Instrumentation 测试)
+# 触发器: cron (UTC 02:00) | workflow_dispatch
+# Phase 2: 添加 Android Emulator + instrumentation 测试
+# Phase 3: 添加 release signing + 失败通知
+# =============================================================================
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+env:
+  ANDROID_NDK_VERSION: "27.0.12077973"
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1: 全量测试 (单元测试 + lint + Python)
+  # ────────────────────────────────────────────────────────────────────────────
+  full-test:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || '' }}
+      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY || '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Restore Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install NDK r27 (${{ env.ANDROID_NDK_VERSION }})
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          link-to-sdk: true
+
+      - name: Set NDK environment
+        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+
+      - name: Grant gradlew execute permission
+        run: chmod +x gradlew
+        working-directory: Live2Dai-Android
+
+      - name: Run Android unit tests
+        run: ./gradlew test
+        working-directory: Live2Dai-Android
+
+      - name: Run Android lint
+        run: ./gradlew lint
+        working-directory: Live2Dai-Android
+
+      - name: Upload Android test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-test-report-android
+          path: Live2Dai-Android/app/build/reports/tests/**
+          retention-days: 14
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore pip cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements-test.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
+      - name: Install Python test dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest pyyaml ruff
+
+      - name: Run Python tests
+        run: python -m pytest tests/ -v --junitxml=test-results.xml
+        working-directory: ./tests
+        continue-on-error: true
+
+      - name: Run Python lint (ruff)
+        run: ruff check tests/ tts/ --config ruff.toml
+        continue-on-error: true
+
+      - name: Upload Python test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-test-report-python
+          path: test-results.xml
+          retention-days: 14
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: 全量构建 (debug APK)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-apk:
+    name: Build APK (Nightly)
+    needs: full-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || '' }}
+      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY || '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Restore Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install NDK r27 (${{ env.ANDROID_NDK_VERSION }})
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          link-to-sdk: true
+
+      - name: Set NDK environment
+        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+
+      - name: Grant gradlew execute permission
+        run: chmod +x gradlew
+        working-directory: Live2Dai-Android
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        working-directory: Live2Dai-Android
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live2dai-nightly-${{ github.sha }}
+          path: Live2Dai-Android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
+
+      - name: Nightly summary
+        run: |
+          echo "## Nightly Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Date**: $(date -u)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Trigger**: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"

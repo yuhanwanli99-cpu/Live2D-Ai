@@ -1,0 +1,171 @@
+import base64
+from typing import Optional
+from pydub import AudioSegment
+from pydub.utils import make_chunks
+from loguru import logger
+from ..agent.output_types import Actions
+from ..agent.output_types import DisplayText
+from ..tts.pymouth_viseme import PymouthVisemeDriver
+
+# 进程级复用的元音嘴型驱动器：pymouth 缺失/失败时 process_audio 返回 []，静默降级
+_viseme_driver = PymouthVisemeDriver()
+
+# 合法 emotion key 枚举（contract-pc-pipeline.md §P6 / emotion-protocol C1 8 key）
+VALID_EMOTIONS = {
+    "neutral", "joy", "anger", "sadness",
+    "surprise", "fear", "smirk", "disgust",
+}
+
+# emotion 帧 schema 常量（architecture §4.6.2 EMOTION_FRAME_SCHEMA）
+EMOTION_FRAME_SCHEMA = {
+    "type": str,              # 固定 "emotion"
+    "emotion": str,           # 8 key 枚举
+    "strength": int,          # 1-3
+    "parameterOverrides": dict,  # {"ParamName": float 0..1, ...}
+    "fadeMs": int,            # 默认 400
+}
+
+
+def prepare_emotion_payload(
+    emotion: str,
+    strength: int = 2,
+    parameter_overrides: Optional[dict] = None,
+    fade_ms: int = 400,
+) -> dict:
+    """构造 emotion WS 帧（architecture §4.6.2 EMOTION_FRAME_SCHEMA）。
+
+    P6-03/P6-04：
+      - type 固定 "emotion"
+      - emotion 必须是 8 合法 key 之一（非法 → 忽略并回落 neutral，不抛异常）
+      - strength 钳制到 [1, 3]（非法值回落默认 2）
+      - parameterOverrides 值钳制到 [0, 1]（key 为 Live2D 参数名）
+      - fadeMs 默认 400
+    """
+    if emotion not in VALID_EMOTIONS:
+        logger.warning(
+            f"prepare_emotion_payload: 未知 emotion '{emotion}'，回落 neutral"
+        )
+        emotion = "neutral"
+
+    try:
+        strength = int(strength)
+    except (TypeError, ValueError):
+        strength = 2
+    strength = max(1, min(3, strength))
+
+    overrides = {}
+    for name, value in (parameter_overrides or {}).items():
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            logger.warning(f"prepare_emotion_payload: 忽略非法参数值 {name}={value!r}")
+            continue
+        overrides[str(name)] = max(0.0, min(1.0, value))
+
+    return {
+        "type": "emotion",
+        "emotion": emotion,
+        "strength": strength,
+        "parameterOverrides": overrides,
+        "fadeMs": int(fade_ms),
+    }
+
+
+def _get_volume_by_chunks(audio: AudioSegment, chunk_length_ms: int) -> list:
+    """
+    Calculate the normalized volume (RMS) for each chunk of the audio.
+
+    Parameters:
+        audio (AudioSegment): The audio segment to process.
+        chunk_length_ms (int): The length of each audio chunk in milliseconds.
+
+    Returns:
+        list: Normalized volumes for each chunk.
+    """
+    chunks = make_chunks(audio, chunk_length_ms)
+    volumes = [chunk.rms for chunk in chunks]
+    max_volume = max(volumes)
+    if max_volume == 0:
+        raise ValueError("Audio is empty or all zero.")
+    return [volume / max_volume for volume in volumes]
+
+
+def prepare_audio_payload(
+    audio_path: str | None,
+    chunk_length_ms: int = 20,
+    display_text: DisplayText = None,
+    actions: Actions = None,
+    forwarded: bool = False,
+    emotion: Optional[str] = None,
+) -> dict[str, any]:
+    """
+    Prepares the audio payload for sending to a broadcast endpoint.
+    If audio_path is None, returns a payload with audio=None for silent display.
+
+    Parameters:
+        audio_path (str | None): The path to the audio file to be processed, or None for silent display
+        chunk_length_ms (int): The length of each audio chunk in milliseconds
+        display_text (DisplayText, optional): Text to be displayed with the audio
+        actions (Actions, optional): Actions associated with the audio
+        emotion (str, optional): P6 新增可选字段——当前句子 emotion（8 key 枚举）。
+            提供且合法 → payload 含 "emotion" key；None/非法 → 不含（向后兼容）。
+
+    Returns:
+        dict: The audio payload to be sent
+    """
+    if isinstance(display_text, DisplayText):
+        display_text = display_text.to_dict()
+
+    # P6-01/P6-02：emotion 可选字段。非法 key → 忽略（不输出），保持向后兼容。
+    if emotion is not None and emotion not in VALID_EMOTIONS:
+        logger.warning(
+            f"prepare_audio_payload: 未知 emotion '{emotion}'，忽略该字段"
+        )
+        emotion = None
+
+    if not audio_path:
+        # Return payload for silent display
+        payload = {
+            "type": "audio",
+            "audio": None,
+            "volumes": [],
+            "slice_length": int(chunk_length_ms),
+            "visemes": [],
+            "display_text": display_text,
+            "actions": actions.to_dict() if actions else None,
+            "forwarded": forwarded,
+        }
+        if emotion is not None:
+            payload["emotion"] = emotion
+        return payload
+
+    try:
+        audio = AudioSegment.from_file(audio_path)
+        audio_bytes = audio.export(format="wav").read()
+    except Exception as e:
+        raise ValueError(
+            f"Error loading or converting generated audio file to wav file '{audio_path}': {e}"
+        )
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    volumes = _get_volume_by_chunks(audio, chunk_length_ms)
+    # pymouth 元音嘴型：缺失/失败时静默降级为空列表
+    visemes = [frame.to_dict() for frame in _viseme_driver.process_audio(audio_bytes)]
+
+    payload = {
+        "type": "audio",
+        "audio": audio_base64,
+        "volumes": volumes,
+        "slice_length": int(chunk_length_ms),
+        "visemes": visemes,
+        "display_text": display_text,
+        "actions": actions.to_dict() if actions else None,
+        "forwarded": forwarded,
+    }
+    if emotion is not None:
+        payload["emotion"] = emotion
+
+    return payload
+
+
+# Example usage:
+# payload, duration = prepare_audio_payload("path/to/audio.mp3", display_text="Hello", expression_list=[0,1,2])

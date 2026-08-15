@@ -1,0 +1,41 @@
+Live2Dai
+Copyright (c) 2026 Sakura Motion Project
+Licensed under the MIT License (see LICENSE).
+
+This NOTICE file records, for transparency and in the spirit of Section 4(d)
+of the Apache License 2.0, the third-party components governed by the
+Apache License 2.0 that this project references or is informed by.
+The project itself remains MIT-licensed; Apache-2.0 components listed below
+are NOT re-licensed and keep their own terms.
+
+================================================================================
+Apache 2.0 Components
+================================================================================
+
+1. N.E.K.O. (Project-N-E-K-O/N.E.K.O)
+   License  : Apache License 2.0
+   Copyright: Project-N-E-K-O contributors
+   Source   : https://github.com/Project-N-E-K-O/N.E.K.O
+   Usage    : 设计参考（design reference only）— no source code copied.
+              The v3 model-adapter layer of this project
+              (`shared/model-adapter/niziiro_mao.adapter.json`, `emotionIndex`)
+              was informed by N.E.K.O.'s emotion_mapping idea (emotion name →
+              expression index). The concrete index values come from this
+              project's own existing PC/Android emotionMap convention.
+   No N.E.K.O. source code is included or distributed with this project.
+
+================================================================================
+Notes (license corrections vs. earlier drafts)
+================================================================================
+
+- pymouth (organics2016/pymouth) is licensed under the **MIT License**
+  (Copyright (c) 2024 organics) — NOT Apache-2.0 as previously mislabeled.
+  It is therefore NOT listed above; its Kotlin port and PC runtime
+  dependency are declared in CREDITS.md (MIT).
+- All other Apache-2.0 dependencies of this project (Kotlin/AndroidX/OkHttp/
+  SnakeYAML/AGP/Kotlin plugins) are binary dependencies; the full list is in
+  CREDITS.md.
+
+License text reference:
+  Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+  (The full license text is not reproduced here; see the official URL above.)

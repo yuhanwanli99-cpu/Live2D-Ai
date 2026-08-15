@@ -1,0 +1,453 @@
+# Live2Dai 🐱
+
+> **v0.1.0（2026-08-15）**：核心环路真机验证完成——CosyVoice 云 TTS（minimp3）+ N.E.K.O. 情绪分类器 + 官方 CubismNativeFramework/PurismCore 渲染 + 状态机双播报/冻结免疫。详见 [CHANGELOG.md](CHANGELOG.md) 与 [HANDOVER.md](HANDOVER.md)。
+>
+> **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2Dai。
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
+  <img src="https://img.shields.io/badge/platform-Android-brightgreen" alt="Platform Android"/>
+  <img src="https://img.shields.io/badge/language-Kotlin-blueviolet" alt="Language Kotlin"/>
+  <img src="https://img.shields.io/badge/Live2D-Purism%20Core-orange" alt="Live2D Purism Core"/>
+  <img src="https://img.shields.io/badge/LLM-DeepSeek%20%7C%20GLM--4.7--Flash-blue" alt="LLM"/>
+  <img src="https://img.shields.io/badge/arch-pi--agent%20core%20%2B%20extensions-lightgrey" alt="Architecture"/>
+</p>
+
+---
+
+## 🎯 项目哲学 | Philosophy
+
+> **不做功能竞赛，只打磨一个最小最优秀的核心。**
+
+Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一个类似 pi agent 的最小最优秀的核心**——把「文本/语音 → LLM → TTS → Live2D 表情/口型/动作」这条链路打磨到极致：架构干净、代码精简、每行都有真机/测试证据，**并留下扩展接口供后续和社区开发 mod**。刻意不做功能竞赛：不比 N.E.K.O. 生态、不比 Neuro-sama 包装。
+
+```
+┌──────────────────────────────────────┐
+│       扩展层（插件 SDK / 契约接口）      │
+│  视觉 / 语音 / 多模型 / 多皮肤 / 直播    │  ← 后续与社区开发 mod，不碰核心
+├──────────────────────────────────────┤
+│            最小最优秀核心             │
+│ 文本/语音 → LLM → TTS → 表情/口型/动作 │  ← 只打磨这一条链路
+└──────────────────────────────────────┘
+```
+
+- **核心只留最小闭环**：文本/语音 → LLM 理解 → TTS 合成 → Live2D 表情/口型/动作回应——这条链路打磨到"可行、可复制、可验证"
+- **像 pi agent 一样做核心**：状态机驱动、单一职责文件、测试先行（663 JVM 断言）、开源组件拼装（官方 Cubism 框架 + PurismCore + minimp3 + sherpa-onnx，全部开源许可）
+- **扩展（mod）**：视觉、语音、多模型、多皮肤、直播……全部走插件 SDK / 共享契约接口，留给后续和社区，不碰核心
+- **不做功能竞赛**：不比 N.E.K.O. 生态、不比 Neuro-sama 包装。项目的全部意义 = 验证最小闭环可行 + 留下扩展接口。
+
+---
+
+## 📖 项目简介 | Overview
+
+**Live2Dai** 是一个 **AI × Live2D 最小验证项目**——验证「最小化的 AI + Live2D」闭环能跑通：她使用 **Live2D 模型角色** 与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。核心只留这一条最小闭环，扩展全部走插件 SDK / 契约接口留给后续和社区。
+
+> "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
+
+**开源事实**：本项目基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK，无需注册 Live2D 账号即可编译运行，完全开源、可复制。
+
+同时提供 **Windows 桌面端**（基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)）作为扩展平台。
+
+---
+
+## ✨ 特性 | Features
+
+### 🎯 最小核心闭环（v0 现状）
+
+**文本 → LLM → 表情/动作**：
+
+- 本地配置聊天（密钥不提交）：Android 端在 `Live2Dai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**（智谱 GLM 提供商已移除）；PC 端在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（亦可配置 `ZHIPU_API_KEY` 走智谱 GLM，用于视觉/免费兜底，见 `Live2Dai-pc/README.md`）。密钥只存在于 gitignored 本地文件，不进入 git 历史
+- LLM 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
+
+**Live2D 渲染（开源核心）**：
+
+- Purism Core (MIT) 替代闭源 Cubism Core，完全开源
+- 完整的 OpenGL ES 2.0 渲染管线：Premultiplied Alpha、裁剪掩码、MSAA 4x
+- 三线性过滤 + Mipmap，呈现光滑边缘
+- 支持 Cubism 5.0 MOC3 模型格式
+
+**情感联动**：
+
+- LLM 回复中的 `[emotion]` 标签（`[joy]`, `[sadness]`, `[anger]` 等）实时切换表情和语气
+- 完整的眨眼、呼吸、物理效果（辫子摆动）
+
+**双端**：
+
+- Android 端（Kotlin + Compose + Purism Core）
+- Windows 桌面端（Open-LLM-VTuber，支持 120fps 渲染；共享 `shared/persona.yaml` 人设文件，两端人设统一）
+
+### 🔌 扩展层（mod 接口，已实现未入 v0 验收）
+
+> 扩展能力全部走插件 SDK / 共享契约接口，不碰核心。以下为已实现的 mod 接口实例。
+
+- **语音输入 ASR**：Android 系统 SpeechRecognizer / Sherpa-Onnx
+- **语音合成 TTS**：Edge TTS / CosyVoice / Sherpa-Onnx 降级链
+- **视觉识别**：GLM-4.6V 多模态截图分析（模型能看到屏幕内容）——已迁出为插件模块 **live2dai-plugin-vision**（mod 接口实例）
+
+### 🚀 Roadmap（计划中，未入当前版本）
+
+- [ ] Android 悬浮窗模式（后台 Service + 悬浮窗权限）
+- [ ] 多模型切换 UI
+- [ ] 触摸互动反馈
+- [ ] 对话气泡 Canvas 渲染
+- [ ] MCP 工具集成
+
+---
+
+## 📸 截图 | Screenshots
+
+> <!-- TODO: 替换为真实截图 Replace with actual screenshots -->
+
+| Android 端 | Windows 桌面端 |
+|-----------|---------------|
+| `[screenshot]` | `[screenshot]` |
+
+| 白 (Bai) | 对话界面 |
+|---------|---------|
+| `[screenshot]` | `[screenshot]` |
+
+---
+
+## 🚀 快速开始 | Quick Start
+
+### 环境要求 | Prerequisites
+
+| 工具 | 版本 | 用途 |
+| ------ | ------ | ------ |
+| Android Studio / Gradle | 8.7+ | Android 构建 |
+| JDK | 17+ | Kotlin 编译 |
+| NDK | 27.0.12077973 | Purism Core C 编译（自动下载） |
+| Android SDK | API 35 (compileSdk) | 目标平台 |
+| Android 手机 | API 26+ (Android 8.0+) | 运行设备 |
+
+### 构建 APK | Build
+
+```bash
+# 克隆项目
+git clone https://github.com/your-org/Live2Dai.git
+cd Live2Dai-Android
+
+# 构建 Debug APK（NDK 会自动下载）
+./gradlew assembleDebug
+
+# APK 路径
+# app/build/outputs/apk/debug/app-debug.apk
+```
+
+### 部署到手机 | Deploy
+
+```bash
+# 无线 ADB 连接（替换为你的手机 IP）
+adb connect 192.168.0.x:5555
+
+# 卸载旧版本（某些系统必须完整卸载）
+adb uninstall com.live2dai.android
+
+# 安装
+adb install app/build/outputs/apk/debug/app-debug.apk
+
+# 启动
+adb shell am start -n com.live2dai.android/.MainActivity
+```
+
+> **注意**：vivo / OPPO 等系统会在安装时弹出安全验证弹窗，需在手机上手动确认。
+
+### Windows 桌面端
+
+```bash
+cd Live2Dai-pc
+.\start.ps1
+# 浏览器访问 http://localhost:12393/
+```
+
+### 运行测试 | Run Tests
+
+```bash
+# Android 端测试
+cd Live2Dai-Android && ./gradlew test
+
+# Windows 端测试
+cd .. && python -m pytest tests/
+```
+
+---
+
+## 🏗️ 架构 | Architecture
+
+### 整体架构
+
+**两端独立直连 LLM API**，无中心化后端，共享 `shared/persona.yaml` 人设配置：
+
+```
+┌─────────────────────────────┐     ┌─────────────────────────────────┐
+│   Android (Kotlin + Compose)│     │   Windows Desktop               │
+│                             │     │                                 │
+│   DeepSeek API ─────────────┼─────┼─── DeepSeek API                 │
+│        (OkHttp SSE)         │     │                                 │
+│                             │     │   Edge TTS                      │
+│   Edge TTS ─────────────────┼─────┼───                              │
+│                             │     │                                 │
+│   GLM-4.6V 视觉 ────────────┼─────┼─── GLM-4.6V 视觉               │
+│                             │     │                                 │
+│   Purism Core ──────────────┤     │   Live2D Web (Cubism SDK)      │
+│   (原生 C 渲染引擎)          │     │                                 │
+│                             │     │   Open-LLM-VTuber (Python)      │
+│   共享人设: persona.yaml ────┼─────┼─── 共享人设: persona.yaml        │
+└─────────────────────────────┘     └─────────────────────────────────┘
+```
+
+### 渲染管道 (每帧)
+
+```
+onDrawFrame():
+  1. AnimationPipeline.update(deltaTime)
+     ├─ MotionManager      ← 当前播放动作
+     ├─ EyeBlinkManager    ← 自然眨眼
+     ├─ BreathController   ← 胸部起伏
+     ├─ PhysicsManager     ← 物理效果（辫子等）
+     ├─ model.update()     ← 第一次更新
+     ├─ Pose.update()      ← 隐藏后臂/肢体重叠
+     └─ model.update()     ← 第二次更新（Pose 生效）
+  2. refreshCachedAttributes()
+  3. buildDrawableList()   ← 按 renderOrder 排序
+  4. drawObjectLoop()
+     ├─ 裁剪掩码 FBO（需要时）
+     ├─ 设置着色器参数
+     └─ glDrawElements
+```
+
+### 配置流
+
+```
+shared/persona.yaml  ← 单源真理 (Single Source of Truth)
+    ├──→ Android: Live2Dai-Android/app/src/main/assets/persona.yaml
+    └──→ Desktop:  Live2Dai-pc/conf.yaml
+```
+
+---
+
+## 💻 技术栈 | Tech Stack
+
+### Android 端
+
+| 组件 | 技术 | 版本 |
+| ------ | ------ | ------ |
+| UI 框架 | Jetpack Compose + Material3 | BOM 2024.12 |
+| 语言 | Kotlin | 2.1 |
+| LLM API | DeepSeek Chat (OpenAI 兼容) | deepseek-v4-flash |
+| 视觉模型 | GLM-4V (Zhipu) | glm-4.6v |
+| Live2D 原生 | **Purism Core** (MIT) | latest |
+| Live2D Java | CubismJavaFramework | develop |
+| 语音合成 | Edge TTS（降级链） | — |
+| 语音识别 | Android SpeechRecognizer | API 26+ |
+| 构建 | Gradle + Kotlin DSL + AGP | 8.7.3 |
+| NDK | 27.0.12077973 | CMake |
+| 最低 SDK | Android 8.0 | API 26 |
+
+### Windows 桌面端
+
+| 组件 | 技术 |
+| ------ | ------ |
+| 运行时 | Python 3.10+ (FastAPI + WebSocket) |
+| LLM | DeepSeek API |
+| 视觉 | Zhipu GLM-4.6V |
+| TTS | Edge TTS |
+| ASR | Faster Whisper (large-v3-turbo) |
+| VAD | Silero VAD |
+| Live2D | Cubism SDK for Web |
+| 前端 | React + ChakraUI + Vite |
+
+---
+
+## 🎨 自定义指南 | Customization
+
+### 换模型 | Change Model
+
+1. 将 Live2D 模型文件夹（含 `.model3.json` + `.moc3` + 纹理图片）放入：
+
+   ```bash
+   Live2Dai-Android/app/src/main/assets/live2d/<model-name>/runtime/
+   ```
+
+2. 修改 `Live2DRenderer.kt` 中的模型加载路径：
+
+   ```kotlin
+   // 在 loadModel() 中
+   private val modelPath = "live2d/<model-name>/runtime/"
+   ```
+
+3. 重新编译
+
+   ```bash
+   ./gradlew assembleDebug
+   ```
+
+### 换人设 | Change Persona
+
+编辑 `shared/persona.yaml`（单源真理，两端自动同步）：
+
+```yaml
+name: "你的角色名"
+role: "角色设定"
+system_prompt: |
+  你是...（角色描述）
+
+model: "deepseek-v4-flash"
+temperature: 0.8
+```
+
+同步到 Android：
+
+```bash
+cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
+```
+
+> 人设支持 `[neutral]`, `[joy]`, `[anger]`, `[sadness]`, `[fear]`, `[surprise]`, `[smirk]` 七个情感标签。
+
+### 换 LLM | Change LLM
+
+项目使用 OpenAI 兼容 API 协议，更换 LLM 只需修改：
+
+- **Android**：`ChatService.kt` 中的 `DEEPSEEK_API_KEY` 和 API endpoint URL
+- **Windows**：`conf.yaml` 中的 `llm_api_key`
+
+支持任意 OpenAI 兼容的 API（DeepSeek、GLM、通义千问、Ollama 本地等）。
+
+---
+
+## 🤝 贡献指南 | Contributing
+
+欢迎贡献！请遵循以下流程：
+
+1. **Fork** 本仓库
+2. **创建** 特性分支：`git checkout -b feat/your-feature`
+3. **提交** 改动：`git commit -m "feat: add your feature"`
+4. **推送** 分支：`git push origin feat/your-feature`
+5. **发起** Pull Request
+
+### 开发约定
+
+- 代码风格遵循 Kotlin 官方规范
+- 所有新功能应包含对应的单元测试
+- 保持 `shared/persona.yaml` 作为人设单源真理
+- 修改渲染管线请参见 `HANDOVER.md` 中的 Bug 修复记录
+- 禁止在提交中引入闭源二进制文件
+
+### 测试
+
+```bash
+# Android 单元测试
+cd Live2Dai-Android && ./gradlew test
+
+# 代码风格检查
+./gradlew lint
+```
+
+---
+
+## 🧭 项目状态 | Project Status
+
+### 版本曲线（当前口径）
+
+> 废弃此前所有 V1/V2/MVP/Wave 版本概念，重新确立 v0/v1 两级版本模型。
+
+- **v0（当前）**：仅作者自己测试，不对外发布。v0.1/v0.2 小版本迭代，唯一裁决者 = 项目作者；允许硬编码 API Key；所有改动只提交本地 git，不上交云端（不 push）。
+- **v1（里程碑）**：只有作者说了算，五项标准全部满足才算 v1：
+  1. 跑通 AI+Live2D 完整闭环（文本/语音 → LLM → 表情/口型/动作）
+  2. 扩展接入做好（插件 SDK / 契约接口 → 社区可做 mod）
+  3. 内置设置（应用内可配置）
+  4. 应用内配置改动（不靠改代码/硬编码）
+  5. 支持 Live2D 文件导入 + JSON 配置导入
+
+  **v1 确立后才上交云端（push）。**
+
+### 历史里程碑（v0 阶段记录）
+
+> 以下为旧 V1/MVP/Wave 概念下的历史数据，**仅作 v0 阶段历史里程碑记录保留，不代表当前 v1 达成**。
+
+| 阶段 | 时间 | 状态 |
+| ------ | ------ | ------ |
+| 初版 (Gateway + Bridge 架构) | 2026-06 | ❌ 已废弃 |
+| Wave 0 (独立直连 + Cubism SDK) | 2026-07 | ✅ 基础可用 |
+| Wave 1 (Purism Core 迁移) | 2026-07 | ✅ MVP 验收通过 |
+| 旧 V1 (文本→LLM→Live2D 链路) | 2026-08-05 | ✅ 双端验收 PASS（v0 阶段历史） |
+| Wave 2+ (悬浮窗/多模型/触摸) | _规划中_ | ⏳ |
+
+#### 旧 V1 架构定义（2026-08-05，v0 阶段历史记录）
+
+> **旧 V1 = 「文本输入 → LLM → Live2D 做出相关回应（表情/动作）」，可正常对话即达成。（不代表当前 v1 达成）**
+
+- **核心链路**：文本输入 → LLM（本地配置 key：DeepSeek 默认 / GLM-4.7-Flash 可选）→ 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
+- **Android 端**：Kotlin + Compose + Purism Core（MIT），真机 vivo V2254A 验收通过——logcat 证据 `EmotionController: setEmotion: joy -> expressionIndex=5`
+- **PC 端**：Open-LLM-VTuber 后端（:12393）+ React 前端，验收通过——WS 证据 `[joy]→expressions[3]`、`[anger]→expressions[2]`
+- **验收顺带修复 2 个 P0**（commit `d2f1904`）：① 表情链路断线（插件化重构回归，EmotionController 未接线）② LazyColumn key 哈希碰撞崩溃
+- **架构不变式**：两端独立直连 LLM API、无中心化后端；`shared/persona.yaml` 人设单源真理；表情切换不依赖插件通道（核心 ChatHook 直驱）
+
+#### 旧 MVP 验收数据（2026-07-22，v0 阶段历史记录）
+
+| 检查项 | 结果 |
+| -------- | ------ |
+| 渲染稳定性 (4帧差异) | 71K~99K px/帧 → ✅ 流畅动画 |
+| 4 手 Bug | PartArmLB=0.0, PartArmRB=0.0 → ✅ 已修复 |
+| 视觉确认 (GLM-4.6V) | 2 只手 → ✅ 正确 |
+| 启动耗时 | 1.0s → ✅ |
+| 运行时异常 | 0 crashes, 0 ANR → ✅ |
+| APK 大小 | 278KB (对比旧版减少 41KB) |
+
+---
+
+## 📚 文档 | Documentation
+
+| 文档 | 说明 |
+| ------ | ------ |
+| [HANDOVER.md](./HANDOVER.md) | 🔥 项目交接文档（必读） |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 架构详细说明 |
+| [docs/SUMMARY.md](./docs/SUMMARY.md) | 项目总结 |
+| [shared/persona.yaml](./shared/persona.yaml) | 人设（单源真理） |
+| [docs/renderer-algorithm.md] | 渲染算法说明 |
+| [docs/mask-premake-algorithm.md] | 裁剪掩码算法 |
+
+---
+
+## 📄 许可证 | License
+
+**MIT License** © 2026 Live2Dai Contributors
+
+本项目使用 MIT 许可证，您可自由使用、修改、分发（包括商业用途）。
+
+### 第三方许可致谢 | Third-Party Licenses
+
+| 组件 | 许可 | 说明 |
+| ------ | ------ | ------ |
+| [Purism Core](https://github.com/SakuraMotion/PurismCore) | **MIT** | Live2D 原生引擎核心 |
+| [CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) | Apache 2.0 | Live2D Java 框架（仅着色器文件） |
+| [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) | MIT | Windows 桌面端基础 |
+| Jetpack Compose / Material3 | Apache 2.0 | Android UI 框架 |
+| OkHttp | Apache 2.0 | HTTP 客户端 |
+| SnakeYAML | Apache 2.0 | YAML 解析 |
+| GLM-4V / DeepSeek API | 各自 API 协议 | LLM 与视觉模型服务 |
+
+### 关于 Live2D 模型
+
+本项目内置的 `.model3.json` / `.moc3` / 纹理文件（`bai`，白-免费版）为 B站公开 Live2D 模型，仅供本地使用（D1 裁定，不内置分发），其使用受模型作者许可协议约束。建议替换为你自己的模型。
+
+---
+
+## 💬 相关链接 | Links
+
+- [Purism Core (MIT)](https://github.com/SakuraMotion/PurismCore) — Live2D 开源核心
+- [CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) — Live2D Java 框架
+- [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) — Windows 桌面端
+- [DeepSeek API](https://platform.deepseek.com/) — LLM 服务
+- [Zhipu API](https://open.bigmodel.cn/) — 视觉模型服务
+- [Edge TTS](https://github.com/rany2/edge-tts) — 语音合成
+
+---
+
+<p align="center">
+  Made with ❤️
+  <br/>
+  <sub>
+    "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
+  </sub>
+</p>
