@@ -1,73 +1,24 @@
-# Live2Dai — 变更日志
+# v0.1.0 版本说明（2026-08-15）
 
-> 日期: 2026-07-14  
-> 任务: SPOQ Wave 0 — 桌面端配置精简 + Android 部署探索
+> 定位：Live2D + AI + TTS 最小验证项目的第一个可用版本。Android 为主端，PC（Open-LLM-VTuber）为桌面端。
 
----
+## 本版本核心能力
 
-## 修改文件清单
+**Android 端（核心环路，全部真机验证）**：
+- TTS + AI + Live2D 闭环：文本输入 → DeepSeek LLM → 回复 → CosyVoice 云端 TTS（主用，minimp3 解码）/ sherpa-onnx 离线兜底 → 嘴型同步（RMS 幅度驱动）→ Live2D 渲染
+- 情绪联动（N.E.K.O. 架构）：独立 LLM 情绪分类器 → 单一标签 → 参数帧表 → 表情 + 5 秒自动收敛（冻结免疫）
+- 渲染：官方 CubismNativeFramework + PurismCore（MIT）替换自研渲染器；三档画质设置（流畅 1080p / 均衡 MSAA / 高清 2K 超采样）
+- 结构免疫三大历史 bug：双播报（单消费链状态机）、对话后冻结（表情收敛）、嘴型无帧（PCM 直出/minimp3）
+- 待机间歇轻晃（头部 ±5°、动 5s 停 10s）、FPS 角标、眨眼正常
 
-### ✅ task-win-trim: 桌面端配置精简 + 启动优化
+**PC 端**：
+- Open-LLM-VTuber + CosyVoice 云（同 Key/专属服务）+ 人设联动（shared/persona.yaml）
+- 修复打断崩溃（PC-L1）+ mood_tier 情绪分层接通（PC-L4）
 
-| # | 文件 | 操作 | 说明 |
-| --- | ------ | ------ | ------ |
-| 1 | `Live2Dai-pc/open-llm-vtuber/conf.yaml` | **重写** | 从 ~230 行精简到 ~94 行，删除 27 个不用的 provider 配置块 |
-| 2 | `Live2Dai-pc/start.ps1` | **增强** | 新增自动检测 Python/venv/ffmpeg/Electron/API Key + 环境摘要面板（~280 行） |
-| 3 | `docs/plan-task-win-trim.md` | **新增** | 软件架构师设计文档 |
-| 4 | `docs/plan-task-android-deploy.md` | **新增** | 软件架构师设计文档 |
-| 5 | `.pi/spoq-state.json` | **更新** | Phase=done, Wave 0 状态记录 |
-| 6 | `Live2Dai-Android/local.properties` | **新增** | API Keys 配置（DeepSeek + Zhipu） |
+**质量**：JVM 663/663 绿、PC pytest 150/150 绿、真机验收 9/10 项 PASS（帧率项受 vivo 智能刷新策略影响，需手机设固定 120Hz）
 
-### 📋 task-android-deploy: 暂停 (blocked)
-
-| 阻断项 | 详情 |
-| -------- | ------ |
-| 🔴 Live2D SDK AAR | 需人工从 [Live2D 官网](https://www.live2d.com/sdk/download/native/) 下载并放入 `app/libs/` |
-| 🔴 vivo 安全拦截 | 安装 APK 时需在手机上手动勾选安全确认 |
-| 🟡 RECORD_AUDIO 权限 | `MainActivity.kt` 需添加运行时权限请求代码（`docs/plan-task-android-deploy.md` §4 有完整方案） |
-
----
-
-## conf.yaml 精简明细
-
-**删除项（27 个配置块）：**
-
-| 类别 | 删除内容 |
-| ------ | --------- |
-| 未用 LLM (9) | ollama_llm, claude_llm, gemini_llm, groq_llm, mistral_llm, openai_llm, lmstudio_llm, llama_cpp_llm, stateless_llm_with_template |
-| 未用 ASR (6) | azure_asr, whisper_cpp, whisper, fun_asr, sherpa_onnx_asr, groq_whisper_asr |
-| 未用 TTS (10) | azure_tts, melo_tts, x_tts, gpt_sovits_tts, fish_api_tts, siliconflow_tts, sherpa_onnx_tts, spark_tts, openai_tts, minimax_tts |
-| 翻译 (2) | deeplx, tencent |
-
-**保留项 (10)：** system_config, character_config (含 agent_config + llm_configs×2 + asr_config×1 + tts_config×1 + vad_config×1 + tts_preprocessor), vision_config, mcp_servers
-
----
-
-## start.ps1 新增功能
-
-| 功能 | 说明 |
-| ------ | ------ |
-| Python 自动检测 | 检测 ≥3.10，缺失时提示 winget install |
-| 虚拟环境自动创建 | 优先 uv sync，降级 python -m venv |
-| 依赖自动安装 | pip install -e . 后验证 import open_llm_vtuber |
-| ffmpeg 检测 | 仅提示，不阻塞启动 |
-| Electron 前端检测 | 检查 3 个常见安装路径 |
-| API Key 状态解析 | 正则解析 conf.yaml 中 DeepSeek/智谱 密钥状态 |
-| 环境摘要面板 | 彩色 ✅/❌ 展示各项状态 |
-| 新参数 | -SkipEnvCheck / -SkipFrontendCheck |
-
----
-
-## 未完成项（留给下一次）
-
-1. **Android 真机部署** — 下载 Live2D Cubism SDK AAR → 放置到 `app/libs/` → 添加 RECORD_AUDIO 权限 → 构建 → 手机手动安装
-2. **端到端验证** — 两端 120fps 实测、语音对话全链路、API Key 可用性测试
-3. **桌面端 Python 后端实际启动测试** — 确认精简后的 conf.yaml 通过 Pydantic 验证
-
----
-
-## 经验教训
-
-1. **vivo 安全拦截**: 安装调试 APK 到 vivo/OPPO 设备时需在手机上手动确认安全弹窗，adb 无法自动绕过
-2. **Live2D SDK 手动依赖**: Cubism Core 不在公开 Maven/GitHub，必须从官网下载并接受许可
-3. **Open-LLM-VTuber Pydantic 安全**: 所有 provider 字段均为 Optional，YAML 中删除不会导致验证失败
+## 已知限制（v0.1）
+1. 实际呈现帧率 ~50fps（渲染循环 120fps）——官方 C++ 渲染器模型加载未接线（"最后一公里"），v0.2 计划
+2. sherpa 音色默认 zf_001（100 中文音色选择器 v0.2 计划）
+3. 声音克隆未做（CosyVoice 条件已具备）
+4. 手机屏幕刷新率需手动设"高"（vivo 智能切换会降 60Hz）

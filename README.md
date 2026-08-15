@@ -1,5 +1,7 @@
 # Live2Dai 🐱
 
+> **v0.1.0（2026-08-15）**：核心环路真机验证完成——CosyVoice 云 TTS（minimp3）+ N.E.K.O. 情绪分类器 + 官方 CubismNativeFramework/PurismCore 渲染 + 状态机双播报/冻结免疫。详见 [CHANGELOG.md](CHANGELOG.md) 与 [HANDOVER.md](HANDOVER.md)。
+>
 > **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2Dai。
 
 <p align="center">
