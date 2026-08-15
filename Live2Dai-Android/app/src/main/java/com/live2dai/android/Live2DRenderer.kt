@@ -45,6 +45,10 @@ private const val IDLE_SWITCH_INTERVAL_MS = 12_000L
 /** C7d：LipSync 口型让位目标参数（表情帧/表情管线在 TTS 播放期间跳过此参数，口型归 LipSync 独占） */
 private const val MOUTH_OPEN_Y_ID = "ParamMouthOpenY"
 
+/** 眼部键让位（眨眼仲裁）：表情帧/表情管线无条件跳过此二参数——眼→眨眼专属（R13/R16），表情不碰眼 */
+private const val PARAM_EYE_L_OPEN_ID = "ParamEyeLOpen"
+private const val PARAM_EYE_R_OPEN_ID = "ParamEyeROpen"
+
 /**
  * Live2D 渲染器 — 按 CubismRendererAndroid 的 doDrawModel() 算法实现。
  *
@@ -1138,6 +1142,10 @@ class Live2DRenderer(
      * - 全部 key 被过滤（空帧）→ 不调 setExpression（静默 no-op，AP-16）
      * - C7d 口型让位：TTS 播放期间（isSpeaking=true）表情帧 MouthOpenY 键剔除（不参与 fade；
      *   LipSync 继续独占口型；TTS 结束 → 下次表情帧应用时 MouthOpenY 恢复）。
+     * - 眼部键让位（眨眼仲裁）：ParamEyeLOpen/ParamEyeROpen 无条件剔除（不参与 fade）——
+     *   眼→眨眼专属（R13/R16 旧仲裁：表情不碰眼）。表情帧若带眼部键会经 ExpressionManager
+     *   Overwrite 每帧覆盖眨眼写入（fade 后权重不衰减、恒全量写），致眨眼异常。
+     *   与 C7d 口型让位同模式；覆盖全部帧源（EmotionTagTable / A3 emotionParamMap）。
      */
     fun setParametricExpression(parameters: Map<String, Float>, fadeMs: Int) {
         if (!nativeAvailable || modelPtr == 0L || modelSettingJson == null) return
@@ -1148,6 +1156,12 @@ class Live2DRenderer(
             // C7d 口型让位：TTS 播放期间表情帧 MouthOpenY 剔除（不参与 fade；LipSync 独占口型）
             val speaking = lipSyncSpeaking()
 
+            // 眼部键让位（眨眼仲裁）：ParamEyeLOpen/ParamEyeROpen 无条件剔除（不参与 fade）——
+            // 眼→眨眼专属（R13/R16 旧仲裁：表情不碰眼）。表情帧若带眼部键会经 ExpressionManager
+            // Overwrite 每帧覆盖眨眼写入（fade 后权重不衰减、恒全量写），致眨眼异常。
+            // 与 C7d 口型让位同模式（渲染层唯一入口过滤，覆盖全部帧源）。
+            var eyeFiltered = 0
+
             // 过滤：只保留 moc3 内嵌参数 Id（paramNameToIndex 来源 = native getParameterIds）
             val params = mutableListOf<ExpressionParameter>()
             var skipped = 0
@@ -1155,6 +1169,10 @@ class Live2DRenderer(
             for ((key, value) in parameters) {
                 if (speaking && key == MOUTH_OPEN_Y_ID) {
                     mouthOpenYFiltered++
+                    continue
+                }
+                if (key == PARAM_EYE_L_OPEN_ID || key == PARAM_EYE_R_OPEN_ID) {
+                    eyeFiltered++
                     continue
                 }
                 if (paramNameToIndex.containsKey(key)) {
@@ -1168,6 +1186,12 @@ class Live2DRenderer(
                 android.util.Log.i(
                     "Live2DRenderer",
                     "setParametricExpression: LipSync 播放中剔除 MouthOpenY ×$mouthOpenYFiltered（口型让位，LipSync 独占）"
+                )
+            }
+            if (eyeFiltered > 0) {
+                android.util.Log.i(
+                    "Live2DRenderer",
+                    "setParametricExpression: 剔除眼部键 ×$eyeFiltered（眼→眨眼专属，表情不碰眼）"
                 )
             }
             android.util.Log.i(
