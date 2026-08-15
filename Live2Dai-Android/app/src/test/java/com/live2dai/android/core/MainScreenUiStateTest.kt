@@ -163,7 +163,7 @@ class MainScreenUiStateTest {
     fun settingsToggle_doesNotAffectChatData() {
         // C/TC15：切换设置可见性不影响气泡/输入主链数据
         var s = uiAppendUser(MainScreenUiState(), "A")
-        val before = s.bubbles
+        val before = s.bubbles.toList()   // 快照（getter 返回活 SnapshotStateList，追加会改变引用内容）
         s = uiSetSettingsVisible(s, true)
         s = uiAppendAssistant(s, "B")   // 打开设置时仍可追加主链气泡
         assertEquals("打开设置后气泡追加序仍正确", before + UiBubble.Assistant("B"), s.bubbles)

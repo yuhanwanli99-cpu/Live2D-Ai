@@ -32,7 +32,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,8 +48,11 @@ import com.live2dai.android.ConnectionState
 import com.live2dai.android.Live2DView
 import com.live2dai.android.PersonaConfig
 import com.live2dai.android.connectionLabel
+import com.live2dai.android.core.LoopState
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -70,8 +77,33 @@ data class DisplayMessage(
     val showSettingsButton: Boolean = false
 )
 
+// ── Wave 4 · 4-1 核心环路消费面绑定（MainActivity → MainScreen，经 CompositionLocal 提供）──
+
 /**
- * 主界面（R15 布局 + 2C-4 UI 精简）。
+ * 核心环路消费面绑定（由 MainActivity 提供）：
+ * - [onSubmit]：发送按钮 → 状态机 SubmitText（MainActivity 暴露的回调，经 LoopCoordinator.sendMessage）；
+ * - [bubbles]：气泡列表 StateFlow（追加序 = 状态机 UI 命令尾插序）；
+ * - [loopState]：状态机状态（SENDING/SPEAKING → isLoading → 禁输入）；
+ * - [onLive2DViewWired]：Live2DView 实例上报（host.zeroMouth 目标 + VoiceIo LipSync 绑定）。
+ */
+class LoopWireBindings(
+    val onSubmit: (String) -> Unit = {},
+    val bubbles: StateFlow<List<UiBubble>>,
+    val loopState: StateFlow<LoopState>,
+    val onLive2DViewWired: (Live2DView) -> Unit = {},
+)
+
+/** 默认空绑定（未提供 LocalLoopWire 时：零行为，UI 保持 seam 静态）。 */
+private val DefaultLoopWireBindings = LoopWireBindings(
+    bubbles = MutableStateFlow(emptyList()),
+    loopState = MutableStateFlow(LoopState.IDLE),
+)
+
+/** 核心环路消费面 CompositionLocal（MainActivity 在 setContent 内 provide）。 */
+val LocalLoopWire = staticCompositionLocalOf { DefaultLoopWireBindings }
+
+/**
+ * 主界面（R15 布局 + 2C-4 UI 精简 + Wave 4 核心环路接线）。
  *
  * 布局（对齐 PC 端「只有对话框 + 设置」语义）：
  * - 层0：Live2D 角色渲染区**占满全屏**（GLSurfaceView 全屏，与角色交互/渲染管线无关，仅布局）
@@ -88,8 +120,8 @@ data class DisplayMessage(
  *   气泡列表（[MainScreenUiState.bubbles]）、设置入口（settingsVisible 开关）、连接状态显示。
  *
  * 状态来源：2C-4 seam [MainScreenUiState]（纯 JVM 可测，不含 isListening/onboarding/confirmation）。
- * 生产链路（LLM 发送 / 状态观察 / 业务接线）Wave 4 随 ChatViewModel 删除面迁移，
- * 相关调用点以 `// W4-接线` 标注。
+ * Wave 4 起生产链路经 [LocalLoopWire] 接入：发送 → 状态机 SubmitText（MainActivity 回调）；
+ * 气泡列表/ isLoading 由状态机驱动（SENDING/SPEAKING → 禁输入）。
  *
  * @param onOpenSettings 设置入口回调：通知父组件打开设置覆盖层
  * @param onLive2DViewCreated Live2DView 实例上报回调：父组件持有引用以支持生命周期管理和热切换
@@ -102,10 +134,21 @@ fun MainChatScreen(
     val uiState = remember { MainScreenUiState() }
     val listState = rememberLazyListState()
 
+    // ── Wave 4：核心环路消费面（MainActivity 经 LocalLoopWire 提供）──
+    // 气泡列表（追加序）与 isLoading（SENDING/SPEAKING → 禁输入）由状态机驱动。
+    val loopWire = LocalLoopWire.current
+    val bubbles by loopWire.bubbles.collectAsState(initial = emptyList())
+    val loopState by loopWire.loopState.collectAsState(initial = LoopState.IDLE)
+    val isLoading = loopState != LoopState.IDLE
+
+    // 同步到 seam uiState（消费面）：气泡追加序（uiSetBubbles 保序尾插）+ isLoading
+    LaunchedEffect(bubbles) { uiState.uiSetBubbles(bubbles) }
+    LaunchedEffect(isLoading) { uiState.isLoading = isLoading }
+
     // ── 新消息时自动滚动到底部 ──
-    LaunchedEffect(uiState.bubbles.size) {
-        if (uiState.bubbles.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.bubbles.size - 1)
+    LaunchedEffect(bubbles.size) {
+        if (bubbles.isNotEmpty()) {
+            listState.animateScrollToItem(bubbles.size - 1)
         }
     }
 
@@ -125,10 +168,11 @@ fun MainChatScreen(
                     val modelId = ctxRepo.selectedModelId
                     val entry = registry.getById(modelId) ?: registry.getDefault()
                     view.initialize("live2d/${entry.model3JsonPath}", entry.id)
-                    // W4-接线：viewModel.onLive2DViewCreated(view)（EmotionController / ChatHook /
-                    // LipSync 业务接线）Wave 4 随 ChatViewModel 删除面迁移
                     // 实例上报 → App 级（Live2DaiApp 持有，支持生命周期与热切换）
                     onLive2DViewCreated(view)
+                    // Wave 4：核心环路视图绑定（host.zeroMouth 目标 + VoiceIo LipSync 绑定；
+                    // 旧 EmotionController/ChatHook 业务接线随 ChatViewModel 删除面停用，Wave 5 删）
+                    loopWire.onLive2DViewWired(view)
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -193,7 +237,8 @@ fun MainChatScreen(
                 .imePadding()
         ) {
             // ── 对话气泡列表（半透明浮层，上限高度避免盖住角色主体） ──
-            if (uiState.bubbles.isNotEmpty()) {
+            // Wave 4：数据源 = 状态机 UI 命令追加的气泡流（追加序；同步到 uiState.bubbles）
+            if (bubbles.isNotEmpty()) {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -202,7 +247,7 @@ fun MainChatScreen(
                     state = listState,
                     verticalArrangement = Arrangement.Bottom
                 ) {
-                    items(uiState.bubbles) { bubble ->
+                    items(bubbles) { bubble ->
                         ChatBubble(bubble = bubble, onOpenSettings = onOpenSettings)
                         Spacer(Modifier.height(8.dp))
                     }
@@ -223,27 +268,27 @@ fun MainChatScreen(
                 ) {
                     OutlinedTextField(
                         value = uiState.inputText,
-                        onValueChange = { if (!uiState.isLoading) uiState.inputText = it },
+                        onValueChange = { if (!isLoading) uiState.inputText = it },
                         // M4d：placeholder 随人设联动（PersonaConfig 单一数据源驱动，勿硬编码人名）
                         placeholder = { Text("和${PersonaConfig.getPersonaName()}聊天...") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        enabled = !uiState.isLoading
+                        enabled = !isLoading
                     )
                     Spacer(Modifier.width(8.dp))
                     FilledTonalButton(
                         onClick = {
                             val text = uiState.inputText.trim()
-                            if (text.isNotEmpty() && !uiState.isLoading) {
-                                // W4-接线：viewModel.sendMessage(text)（LLM 发送链路）Wave 4 迁移；
-                                // 当前 seam 行为：用户气泡尾插 + 清空输入（uiCanSend 语义）
-                                uiState.uiAppendUser(text)
+                            if (text.isNotEmpty() && !isLoading) {
+                                // Wave 4：状态机 SubmitText（MainActivity 暴露的回调 →
+                                // coordinator.sendMessage；用户气泡由状态机 UiAddUserBubble 命令追加）
+                                loopWire.onSubmit(text)
                                 uiState.inputText = ""
                             }
                         },
-                        enabled = uiState.uiCanSend
+                        enabled = uiState.inputText.isNotBlank() && !isLoading
                     ) {
-                        Text(if (uiState.isLoading) "..." else "发送")
+                        Text(if (isLoading) "..." else "发送")
                     }
                 }
             }

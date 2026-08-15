@@ -86,13 +86,14 @@ class MainScreenDeletionRedTest {
 
     @Test
     fun state_keepsMinimalSurface() {
-        // C-1 / CORE1-A1：保留极简面字段在（输入/加载/设置可见/连接状态；气泡为 getter 读取面，非 declared field）
+        // C-1 / CORE1-A1：保留极简面在（输入/加载/设置可见/连接状态）。
+        // 注：四字段经 mutableStateOf 委托，declaredFields 为 $delegate 形式 → 用 getter 方法面断言。
         val clazz = Class.forName(TARGET_CLASS)
-        val fields = clazz.declaredFields.map { it.name }.toSet()
-        val required = listOf("inputText", "isLoading", "settingsVisible", "connectionState")
+        val methods = clazz.methods.map { it.name }.toSet()
+        val required = listOf("getInputText", "isLoading", "getSettingsVisible", "getConnectionState")
         assertTrue(
-            "UI 状态机应保留极简面字段 $required，实得: $fields",
-            fields.containsAll(required),
+            "UI 状态机应保留极简面读取接口 $required，实得: $methods",
+            methods.containsAll(required),
         )
         // 气泡读取面经 getter 暴露 → 以 methods 断言 getBubbles 存在
         val methodNames = clazz.methods.map { it.name }.toSet()

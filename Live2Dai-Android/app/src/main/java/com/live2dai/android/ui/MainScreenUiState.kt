@@ -1,5 +1,9 @@
 package com.live2dai.android.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.live2dai.android.ConnectionState
 
 /**
@@ -25,15 +29,25 @@ sealed interface UiBubble {
  * 任何字段或方法（对应 UI 组件已随 2C-4 从 MainScreen 删除）。
  */
 class MainScreenUiState(
-    var inputText: String = "",
-    var isLoading: Boolean = false,
-    var settingsVisible: Boolean = false,
-    var connectionState: ConnectionState = ConnectionState.Disconnected,
+    inputText: String = "",
+    isLoading: Boolean = false,
+    settingsVisible: Boolean = false,
+    connectionState: ConnectionState = ConnectionState.Disconnected,
 ) {
-    private val _bubbles = mutableListOf<UiBubble>()
+    // Wave 4.1 修复 1：Compose 可观察（真机输入无响应根因）——
+    // 输入框 typing 不重组 / 发送按钮 enabled 恒 false / 气泡不刷新，
+    // 均因本类原先为普通 var（无 Compose 状态）。改 mutableStateOf 后
+    // 读取方（MainScreen）在状态变化时自动重组。
+    var inputText: String by mutableStateOf(inputText)
+    var isLoading: Boolean by mutableStateOf(isLoading)
+    var settingsVisible: Boolean by mutableStateOf(settingsVisible)
+    var connectionState: ConnectionState by mutableStateOf(connectionState)
+
+    /** 气泡列表（追加序 = 插入序，尾插；SnapshotStateList，Compose 可观察）。 */
+    private val _bubbles = mutableStateListOf<UiBubble>()
 
     /** 气泡列表（追加序 = 插入序，尾插）。 */
-    val bubbles: List<UiBubble> get() = _bubbles.toList()
+    val bubbles: List<UiBubble> get() = _bubbles
 
     /** 发送使能（读状态字段）：isNotBlank 才可发、isLoading 禁发送。 */
     val uiCanSend: Boolean get() = inputText.isNotBlank() && !isLoading
