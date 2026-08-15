@@ -15,8 +15,11 @@ import com.live2dai.android.data.computeCharacterFit
 import com.live2dai.android.data.computeDownsampleTarget
 import com.live2dai.android.data.dragPxToModel
 import com.live2dai.android.data.needsDownsample
+import com.live2dai.android.data.SettingsRepository
 import com.live2dai.android.data.pinchScale
 import com.live2dai.android.core.FpsOverlayState
+import com.live2dai.android.core.RenderQuality
+import com.live2dai.android.core.RenderQualityConfig
 import com.live2dai.android.render.BackendSelector
 import com.live2dai.android.render.RendererBackend
 import org.json.JSONObject
@@ -33,17 +36,11 @@ import kotlin.math.ceil
 /** M7 idle 轮换间隔（毫秒；contract-M7-android-l3.md §5.2-3，锁默认 12s） */
 private const val IDLE_SWITCH_INTERVAL_MS = 12_000L
 
-/** C8h：超采样开关（可配置；帧率影响大时可置 false → 直渲，零行为变化） */
-private const val SUPERSAMPLE_ENABLED = true
-
-/**
- * C8h：超采样倍率（= 2K/1080p）：FBO 尺寸 = ceil(surface × SCALE)。
- * iQOO 11 Pro surface 1080×2400 × 4/3 = 1440×3200（物理 2K 同分辨率，填充 ≈1.78×）。
- * 用倍率而非硬编码 1440×3200：任意 surface 宽高比/方向下 FBO 与 surface 同宽高比
- * （投影矩阵只依赖宽高比 → 零形变，直渲/超采样逐像素同构）；目标设备上结果与
- * 任务常量（SUPERSAMPLE_W/H=1440/3200）逐位一致。
- */
-private const val SUPERSAMPLE_SCALE = 4f / 3f
+// ── C8h 超采样倍率来源（用户需求：渲染质量三档）──
+// 不再使用编译期常量：超采样 scale 由 RenderQualityConfig.current 驱动
+// （SMOOTH/BALANCED=1.0 直渲；HD=4/3 → 1080×2400 超采样到 1440×3200，物理 2K 同分辨率、
+// 填充 ≈1.78×）。HD 档语义与 C8h 定稿逐位一致（scale=4/3 倍率而非硬编码 1440×3200：
+// 任意 surface 宽高比/方向下 FBO 与 surface 同宽高比，投影矩阵只依赖宽高比 → 零形变）。
 
 /** C7d：LipSync 口型让位目标参数（表情帧/表情管线在 TTS 播放期间跳过此参数，口型归 LipSync 独占） */
 private const val MOUTH_OPEN_Y_ID = "ParamMouthOpenY"
@@ -84,6 +81,14 @@ class Live2DRenderer(
     private val context: Context,
     private val modelAssetPath: String
 ) : GLSurfaceView.Renderer {
+
+    init {
+        // 渲染质量（用户需求）：进程内一次性从持久化恢复当前档位（"重启恢复"语义——
+        // Live2DView 于 App 启动（MainScreen AndroidView factory）构造本 renderer；
+        // 运行期设置页选择直写 RenderQualityConfig.current，不被后续 surface 重建 /
+        // 新 renderer 实例重复覆盖，见 RenderQualityConfig.restoreFromStorage）。
+        RenderQualityConfig.restoreFromStorage(SettingsRepository(context).renderQuality)
+    }
 
     // ============================================================
     //  Drawable 渲染数据 — 包级可见（供 PurismClippingManager 使用）
@@ -220,6 +225,9 @@ class Live2DRenderer(
     private var blitATexCoord = -1
     private var blitUTexture = -1
     private var blitQuadBuffer: FloatBuffer? = null
+
+    /** 已应用渲染档位（GL 线程；null=未应用）。onSurfaceChanged / onDrawFrame 检测档位变更 → 重建 FBO。 */
+    private var appliedRenderQuality: RenderQuality? = null
 
 
     // ── C-Perf2：per-drawable DirectBuffer 对象池 ──
@@ -371,6 +379,8 @@ class Live2DRenderer(
         supersampleActive = false
         blitProgram = 0
         blitQuadBuffer = null
+        // 渲染质量（用户需求）：context（重）建 → 档位未应用，由随后的 onSurfaceChanged 应用
+        appliedRenderQuality = null
 
         nativeAvailable = Live2DNative.load()
 
@@ -401,9 +411,11 @@ class Live2DRenderer(
         viewportHeight = height
         GLES20.glViewport(0, 0, width, height)
 
-        // C8h：surface 尺寸变化 / EGL context 重建 → 重建超采样 FBO（尺寸按 surface × SCALE，
-        // 失败自动回退直渲）。重建会把 TEXTURE0 绑定改写 → cachedBoundTextureId 置 -1（方法内）。
+        // C8h：surface 尺寸变化 / EGL context 重建 → 重建超采样 FBO（尺寸按 surface ×
+        // 当前档位 supersampleScale（HD=4/3；SMOOTH/BALANCED=1.0 直渲），失败自动回退直渲）。
+        // 重建会把 TEXTURE0 绑定改写 → cachedBoundTextureId 置 -1（方法内）。
         recreateSupersampleFbo(width, height)
+        appliedRenderQuality = RenderQualityConfig.current
 
         // M1 contain-fit（contract-C-M1 §2.3，A6 时机 2）+ C-M5 §2.3 时机 2：
         // 视口变化 → 仅当无用户 override 才重算 fit；有 override → 保持 override 绝对值。
@@ -797,6 +809,18 @@ class Live2DRenderer(
                                 "clipping prepared (mask contexts=${cm.getMaskContextCount()})"
                             )
                         }
+                    }
+                }
+
+                // 渲染质量（用户需求）：档位变更 → 下一帧重建超采样 FBO（GL 线程，即时生效）。
+                // 超采样（SMOOTH↔HD）切换无需重建 EGL 上下文，本帧检测 → 下帧生效；
+                // MSAA（BALANCED 档）属 EGL 上下文属性，需 EGL 上下文重建 → 重启生效
+                // （Live2DView.MSAAConfigChooser 按 RenderQualityConfig.current.msaaEnabled 选 4x 配置）。
+                val quality = RenderQualityConfig.current
+                if (quality != appliedRenderQuality) {
+                    appliedRenderQuality = quality
+                    if (viewportWidth > 0 && viewportHeight > 0) {
+                        recreateSupersampleFbo(viewportWidth, viewportHeight)
                     }
                 }
 
@@ -2003,23 +2027,32 @@ class Live2DRenderer(
      * 挂到新 FBO 的 COLOR_ATTACHMENT0 → glCheckFramebufferStatus 完整性校验。
      *
      * 失败（尺寸非法 / 分配失败 / FBO 不完整）→ supersampleActive=false，直渲兜底，不抛、不黑屏。
-     * FBO 尺寸 = ceil(surface × SUPERSAMPLE_SCALE)：与 surface 同宽高比（零形变），
-     * 目标设备（1080×2400）上 = 1440×3200（物理 2K 同分辨率）。
+     * FBO 尺寸 = ceil(surface × 当前档位 supersampleScale)（HD=4/3 → 1080×2400=1440×3200；
+     * SMOOTH/BALANCED=1.0 → 直接返回直渲）：与 surface 同宽高比（零形变），
+     * 目标设备（1080×2400）上 HD 档 = 1440×3200（物理 2K 同分辨率）。
      *
      * ⚠️ 本方法会改写 GL_TEXTURE0 绑定 → 调用后必须 cachedBoundTextureId=-1（已内建）。
      */
     private fun recreateSupersampleFbo(surfaceW: Int, surfaceH: Int) {
         releaseSupersampleFbo()
-        if (!SUPERSAMPLE_ENABLED) {
-            android.util.Log.i("Live2DRenderer", "[C8h] supersample disabled (config)")
+        val quality = RenderQualityConfig.current
+        val scale = quality.supersampleScale
+        if (scale <= 1f) {
+            // SMOOTH/BALANCED：超采样关（直渲，与 C8h 优化前逐位一致）。
+            // BALANCED 的 MSAA 4x 由 EGL 配置层启用（Live2DView.MSAAConfigChooser 按
+            // RenderQualityConfig.current.msaaEnabled 选 4x 配置 → 重启生效）。
+            android.util.Log.i(
+                "Live2DRenderer",
+                "[C8h] supersample off (quality=$quality, scale=$scale)"
+            )
             return
         }
         if (surfaceW <= 0 || surfaceH <= 0) {
             android.util.Log.w("Live2DRenderer", "[C8h] skip FBO (invalid surface ${surfaceW}x${surfaceH})")
             return
         }
-        val rw = ceil(surfaceW * SUPERSAMPLE_SCALE).toInt()
-        val rh = ceil(surfaceH * SUPERSAMPLE_SCALE).toInt()
+        val rw = ceil(surfaceW * scale).toInt()
+        val rh = ceil(surfaceH * scale).toInt()
 
         // 颜色纹理（mipmap 化：下采样 blit 用 GL_LINEAR_MIPMAP_LINEAR 三线性过滤——
         // 1.33× 缩小仅靠 2-tap GL_LINEAR 会采样缺失（边缘重新锯齿化）；mip 级预过滤
@@ -2070,7 +2103,7 @@ class Live2DRenderer(
         supersampleActive = true
         android.util.Log.i(
             "Live2DRenderer",
-            "[C8h] supersample FBO ready ${rw}x${rh} (surface ${surfaceW}x${surfaceH}, scale=$SUPERSAMPLE_SCALE)"
+            "[C8h] supersample FBO ready ${rw}x${rh} (surface ${surfaceW}x${surfaceH}, quality=$quality scale=$scale)"
         )
     }
 

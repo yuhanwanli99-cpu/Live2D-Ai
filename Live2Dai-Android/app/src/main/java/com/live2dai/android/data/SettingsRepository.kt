@@ -3,6 +3,8 @@ package com.live2dai.android.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.live2dai.android.BuildConfig
+import com.live2dai.android.core.RenderQuality
+import com.live2dai.android.core.RenderQualityConfig
 
 /**
  * 设置持久化层，使用 SharedPreferences。
@@ -103,6 +105,17 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_PROACTIVE_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_PROACTIVE_ENABLED, value).apply()
 
+    // ─── 渲染质量（用户需求：流畅 / 均衡 / 高清三档）───
+
+    /**
+     * 渲染质量档位（core/RenderQualityConfig 三档：SMOOTH/BALANCED/HD，默认 SMOOTH）。
+     * 持久化枚举名（键 renderQuality）；缺失/未知值经 RenderQualityConfig.fromStorage 兜底 SMOOTH。
+     * 设置页点击写入；Live2DRenderer 构造时一次性 restore → App 重启恢复档位。
+     */
+    var renderQuality: RenderQuality
+        get() = RenderQualityConfig.fromStorage(prefs.getString(KEY_RENDER_QUALITY, null))
+        set(value) = prefs.edit().putString(KEY_RENDER_QUALITY, value.name).apply()
+
     // ─── 重置所有设置 ───
 
     fun resetAll() {
@@ -123,6 +136,7 @@ class SettingsRepository(context: Context) {
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"
         const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
         const val KEY_PROACTIVE_ENABLED = "proactive_enabled"
+        const val KEY_RENDER_QUALITY = "renderQuality"
 
         const val DEFAULT_MODEL = "deepseek-v4-flash"
         const val DEFAULT_TEMPERATURE = 0.8f

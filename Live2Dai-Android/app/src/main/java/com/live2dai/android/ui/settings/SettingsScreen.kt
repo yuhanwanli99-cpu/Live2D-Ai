@@ -40,6 +40,8 @@ import com.live2dai.android.ModelSpec
 import com.live2dai.android.ProviderType
 import com.live2dai.android.TtsHealth
 import com.live2dai.android.TtsProviderRegistry
+import com.live2dai.android.core.RenderQuality
+import com.live2dai.android.core.RenderQualityConfig
 import com.live2dai.android.data.ModelEntry
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
@@ -345,6 +347,43 @@ fun SettingsScreen(
                 selectedModelId = selectedModelId,
                 switchingModelId = switchingModelId,
                 onSwitchModel = handleSwitch
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // ── 渲染质量（用户需求：流畅 / 均衡 / 高清三档）──
+            SectionHeader("渲染质量")
+
+            var renderQuality by remember { mutableStateOf(repo.renderQuality) }
+            Text(
+                "选择画面质量档位：超采样切换即时生效；均衡档 MSAA 4x 需重启生效",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                RenderQuality.entries.forEach { q ->
+                    FilterChip(
+                        selected = renderQuality == q,
+                        onClick = {
+                            renderQuality = q
+                            // 即时生效：超采样（GL 线程下一帧读 current 重建 FBO）；
+                            // MSAA（BALANCED）需 EGL 上下文重建 → 重启生效（UI 已注明）。
+                            RenderQualityConfig.current = q
+                            repo.renderQuality = q
+                        },
+                        label = { Text(q.label) }
+                    )
+                }
+            }
+            Text(
+                renderQuality.hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))

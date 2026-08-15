@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.ViewConfiguration
+import com.live2dai.android.core.RenderQualityConfig
 import com.live2dai.android.data.GestureCommand
 import com.live2dai.android.data.GestureEvent
 import com.live2dai.android.data.GestureStateMachine
@@ -124,6 +125,24 @@ class Live2DView(
      */
     private class MSAAConfigChooser : GLSurfaceView.EGLConfigChooser {
         override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
+            val configs = arrayOfNulls<EGLConfig>(1)
+            val num = IntArray(1)
+            // BALANCED 档：MSAA 4x 首选（EGL_SAMPLE_BUFFERS=1 + EGL_SAMPLES=4；主代理授权补接，fa7abd1d deviation）
+            if (RenderQualityConfig.current.msaaEnabled) {
+                val msaa = intArrayOf(
+                    EGL10.EGL_RED_SIZE, 8,
+                    EGL10.EGL_GREEN_SIZE, 8,
+                    EGL10.EGL_BLUE_SIZE, 8,
+                    EGL10.EGL_ALPHA_SIZE, 8,
+                    EGL10.EGL_DEPTH_SIZE, 0,
+                    EGL10.EGL_SAMPLE_BUFFERS, 1,
+                    EGL10.EGL_SAMPLES, 4,
+                    EGL10.EGL_NONE
+                )
+                egl.eglChooseConfig(display, msaa, configs, 1, num)
+                if (num[0] > 0) return configs[0]!!
+                // MSAA 不可用 → 落入下方无 MSAA 链（降级兑底，不失败）
+            }
             // 首选：无 MSAA + 无 depth（填充率降 4 倍的核心）
             val attribs = intArrayOf(
                 EGL10.EGL_RED_SIZE, 8,
@@ -134,8 +153,6 @@ class Live2DView(
                 EGL10.EGL_SAMPLE_BUFFERS, 0,
                 EGL10.EGL_NONE
             )
-            val configs = arrayOfNulls<EGLConfig>(1)
-            val num = IntArray(1)
             egl.eglChooseConfig(display, attribs, configs, 1, num)
             if (num[0] > 0) return configs[0]!!
             // 降级：无 MSAA + 最小 depth（0/1 最小值；个别设备拒绝 depth=0 或强制 depth>0）
