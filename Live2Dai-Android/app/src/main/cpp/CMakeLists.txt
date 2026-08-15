@@ -129,8 +129,17 @@ target_include_directories(engine PUBLIC
 )
 target_compile_options(engine PRIVATE -std=c++17)
 
+# ====================================================================
+# minimp3（CC0 公共领域单头库，lieff/minimp3，vendored）
+# CosyVoice 云端 TTS 嘴型帧源解码（P0-1 根因修复）：MP3 → float PCM。
+# header-only → INTERFACE target 只提供 include 路径；
+# minimp3_jni.cpp 导出 Java_com_live2dai_android_Live2DNative_decodeMp3。
+# ====================================================================
+add_library(minimp3 INTERFACE)
+target_include_directories(minimp3 INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+
 # Our JNI wrapper library
-add_library(live2dcubismcore SHARED native-lib.cpp)
+add_library(live2dcubismcore SHARED native-lib.cpp minimp3_jni.cpp)
 target_include_directories(live2dcubismcore PRIVATE purism)
-target_link_libraries(live2dcubismcore purism_core framework engine log GLESv2)
+target_link_libraries(live2dcubismcore purism_core framework engine minimp3 log GLESv2)
 target_compile_options(live2dcubismcore PRIVATE -std=c++17)

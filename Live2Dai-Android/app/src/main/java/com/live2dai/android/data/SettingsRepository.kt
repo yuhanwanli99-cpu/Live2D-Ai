@@ -65,6 +65,53 @@ class SettingsRepository(context: Context) {
             ?: DEFAULT_TTS_PROVIDER_ID
         set(value) = prefs.edit().putString(KEY_TTS_PROVIDER_ID, value).apply()
 
+    // ─── CosyVoice（V1.2 模块2：阿里云 DashScope API Key + WS 端点）───
+
+    /**
+     * 阿里云 DashScope API Key（CosyVoice 云端 TTS 用；设置页输入，默认取 BuildConfig）。
+     * 为空时 CosyVoiceTtsProvider.speak 快速失败（health=UNAVAILABLE），降级链继续。
+     * 设置页输入入口见 SettingsScreen（DashScope Key + WS 地址输入区）。
+     */
+    var aliyunApiKey: String
+        get() = prefs.getString(KEY_COSYVOICE_API_KEY, DEFAULT_COSYVOICE_API_KEY)
+            ?: DEFAULT_COSYVOICE_API_KEY
+        set(value) = prefs.edit().putString(KEY_COSYVOICE_API_KEY, value).apply()
+
+    /**
+     * CosyVoice WebSocket 端点（可选配置；空 = 使用默认公共端点
+     * `wss://dashscope.aliyuncs.com/api-ws/v1/inference`）。
+     *
+     * 专属服务用户的 host 是用户专属的（如 `ws-sxxx.cn-beijing.maas.aliyuncs.com`），
+     * 不能硬编码进默认值；填写后 provider 以 `wss://{host}/api-ws/v1/inference` 接入。
+     * 留空时回退标准公共端点（普通用户 key 适用）。默认值取 BuildConfig.COSYVOICE_WS_URL。
+     */
+    var cosyvoiceWsUrl: String
+        get() = prefs.getString(KEY_COSYVOICE_WS_URL, DEFAULT_COSYVOICE_WS_URL)
+            ?: DEFAULT_COSYVOICE_WS_URL
+        set(value) = prefs.edit().putString(KEY_COSYVOICE_WS_URL, value).apply()
+
+    // ─── CosyVoice 个性化参数（级2-C：语气 instruction + 语速 rate + 音调 pitch）───
+
+    /**
+     * CosyVoice instruction（语气/方言/情绪描述，SDK 限制 ≤100 字符；
+     * run-task parameters.instruction 由 CosyVoiceTtsProvider 构造时读取）。
+     * 默认值：清澈甜美少女音。
+     */
+    var cosyvoiceInstruction: String
+        get() = prefs.getString(KEY_COSYVOICE_INSTRUCTION, DEFAULT_COSYVOICE_INSTRUCTION)
+            ?: DEFAULT_COSYVOICE_INSTRUCTION
+        set(value) = prefs.edit().putString(KEY_COSYVOICE_INSTRUCTION, value).apply()
+
+    /** CosyVoice 语速倍率（run-task parameters.rate，默认 1.2 略快有活力感） */
+    var cosyvoiceRate: Float
+        get() = prefs.getFloat(KEY_COSYVOICE_RATE, DEFAULT_COSYVOICE_RATE)
+        set(value) = prefs.edit().putFloat(KEY_COSYVOICE_RATE, value).apply()
+
+    /** CosyVoice 音调倍率（run-task parameters.pitch，默认 1.1 升高显得更萌） */
+    var cosyvoicePitch: Float
+        get() = prefs.getFloat(KEY_COSYVOICE_PITCH, DEFAULT_COSYVOICE_PITCH)
+        set(value) = prefs.edit().putFloat(KEY_COSYVOICE_PITCH, value).apply()
+
     // ─── Persona ───
 
     var personaName: String
@@ -131,6 +178,11 @@ class SettingsRepository(context: Context) {
         const val KEY_TTS_VOICE = "tts_voice"
         const val KEY_TTS_SPEED = "tts_speed"
         const val KEY_TTS_PROVIDER_ID = "tts_provider_id"
+        const val KEY_COSYVOICE_API_KEY = "cosyvoice_api_key"
+        const val KEY_COSYVOICE_WS_URL = "cosyvoice_ws_url"
+        const val KEY_COSYVOICE_INSTRUCTION = "cosyvoice_instruction"
+        const val KEY_COSYVOICE_RATE = "cosyvoice_rate"
+        const val KEY_COSYVOICE_PITCH = "cosyvoice_pitch"
         const val KEY_PERSONA = "persona"
         const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"
@@ -144,9 +196,25 @@ class SettingsRepository(context: Context) {
         const val DEFAULT_TTS_SPEED = 1.0f
 
         /**
-         * 首选 TTS 引擎默认值：K1 单引擎 sherpa_onnx_kokoro（Wave 5 清理：cosyvoice 链已删）。
+         * 首选 TTS 引擎默认值：schema 契约 "cosyvoice_ws"（plan §4.3；N.E.K.O. 方案主引擎，
+         * priority=0 降级链第一位）。API Key 未配置时快速失败自动降级到 sherpa 离线兜底。
          */
-        const val DEFAULT_TTS_PROVIDER_ID = "sherpa_onnx_kokoro"
+        const val DEFAULT_TTS_PROVIDER_ID = "cosyvoice_ws"
+
+        /** CosyVoice API Key 默认值：BuildConfig 编译值（local.properties 已填新 Key），空 = 未配置 */
+        val DEFAULT_COSYVOICE_API_KEY: String get() = BuildConfig.COSYVOICE_API_KEY.ifEmpty { "" }
+
+        /** CosyVoice WS 端点默认值：BuildConfig 编译值（专属 host），空 = 使用 provider 默认公共端点 */
+        val DEFAULT_COSYVOICE_WS_URL: String get() = BuildConfig.COSYVOICE_WS_URL.ifEmpty { "" }
+
+        /** CosyVoice instruction 默认值：清澈甜美少女音（SDK 限制 ≤100 字符） */
+        const val DEFAULT_COSYVOICE_INSTRUCTION = "用清澈甜美的少女音说话，声音甜美带一点傲娇"
+
+        /** CosyVoice 语速默认值：1.2（略快有活力感） */
+        const val DEFAULT_COSYVOICE_RATE = 1.2f
+
+        /** CosyVoice 音调默认值：1.1（升高显得更萌） */
+        const val DEFAULT_COSYVOICE_PITCH = 1.1f
 
         const val DEFAULT_PERSONA = "白 (Bai)"
 

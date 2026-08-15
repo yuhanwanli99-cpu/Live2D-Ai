@@ -1,6 +1,7 @@
 package com.live2dai.android
 
 import android.content.Context
+import com.live2dai.android.data.SettingsRepository
 
 /**
  * TTS Provider 注册表 — 管理所有已注册的 TTS Provider（V1.2 模块1，架构地基）。
@@ -57,17 +58,50 @@ object TtsProviderRegistry {
 }
 
 /**
- * 注册 V1.2 默认 TTS Provider。
+ * 注册 V1.2 默认 TTS Provider（重加：CosyVoice 云端 + sherpa 离线双引擎）。
  *
- * K1（架构 B §4.1，B-2=K1 裁定）：降级链收窄为 **sherpa 单引擎**——
- * CosyVoice / Edge TTS / 系统 TTS 的注册已移除（对应 provider 类文件 Wave 5 删除）；
- * 注册表机制本身保留（通用 infra，供引擎选择 UI 数据源与测试注入）。
+ * 降级链（N.E.K.O. 方案主引擎 + 离线兜底）：
+ *   Tier 1 (priority=0): CosyVoice 云端（DashScope WebSocket，N.E.K.O. 主引擎）——
+ * API Key 未配置时 speak 快速失败（health=UNAVAILABLE），降级链自动落入 Tier 2，不阻塞
+ *   Tier 2 (priority=1): Kokoro 离线（sherpa-onnx）—— 本地推理零网络依赖兜底
  *
  * 幂等：TtsProviderRegistry.register 同名覆盖，重复调用安全（如 Activity 重建）。
  * 调用点：MainActivity.onCreate（VoiceIoController 构造前，保证注册表就绪）。
  */
 fun registerDefaultTtsProviders(context: Context) {
     val appContext = context.applicationContext
-    // K1 单引擎：sherpa-onnx Kokoro 离线 PCM 直出（唯一注册项；priority=1）
+    val settings = SettingsRepository(appContext)
+    // CosyVoice priority=0，cascade() 自动排降级链第一位（plan §3.1.6 Tier 1）
+    TtsProviderRegistry.register(cosyVoiceProvider(appContext, settings))
+    // sherpa(priority=1) 离线兜底（K1 架构保留项）
     TtsProviderRegistry.register(SherpaOnnxTtsProvider(appContext))
+}
+
+/**
+ * 用当前 SettingsRepository 构建 CosyVoice Provider（apiKey + 可选专属 wsUrl）。
+ * SettingsRepository 默认值取 BuildConfig.COSYVOICE_API_KEY / COSYVOICE_WS_URL
+ * （local.properties 已填新 Key 与专属 host）；Key 空时 provider 内部快速失败
+ * （speak 置 health=UNAVAILABLE 抛异常），降级链自动继续。wsUrl 空串时 provider
+ * 内部回退默认公共 inference 端点。
+ */
+private fun cosyVoiceProvider(
+    appContext: Context,
+    settings: SettingsRepository,
+): CosyVoiceTtsProvider = CosyVoiceTtsProvider(
+    appContext,
+    settings.aliyunApiKey,
+    wsUrl = settings.cosyvoiceWsUrl,
+)
+
+/**
+ * 用当前 SettingsRepository.aliyunApiKey 重建 CosyVoice Provider（V1.2 模块5 引擎选择 UI 调用）。
+ *
+ * 设置页修改阿里云 API Key 后调用：register 同名覆盖，替换启动时注册的旧实例
+ * （旧实例持构造时的空 Key），使新 Key 立即生效，无需重启 App（plan §3.2.4）。
+ * 幂等：Key 未变化时重复调用仅重建同参数实例，无副作用。
+ */
+fun refreshCosyVoiceProvider(context: Context) {
+    val appContext = context.applicationContext
+    val settings = SettingsRepository(appContext)
+    TtsProviderRegistry.register(cosyVoiceProvider(appContext, settings))
 }

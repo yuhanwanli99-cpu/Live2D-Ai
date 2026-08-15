@@ -97,4 +97,26 @@ object Live2DNative {
     @JvmStatic external fun engineSetMvpMatrix(matrix: FloatArray)
     @JvmStatic external fun engineSetParameters(params: Map<String, Float>)
     @JvmStatic external fun engineRelease(handle: Long)
+
+    // ====================================================================
+    // CosyVoice 云端 TTS 嘴型帧源（P0-1 根因修复）：minimp3 JNI 解码
+    // MP3 → float 单声道 PCM（-1..1）。解码实现见 cpp/minimp3_jni.cpp。
+    // 采样率经 [lastDecodeSampleRate] 回写（@JvmField 静态字段，
+    // native 直接 SetStaticIntField；解码失败/空输入 → 0）。
+    // ====================================================================
+
+    /**
+     * 解码 MP3 字节 → float 单声道 PCM（-1..1，多声道降混为第一声道）。
+     * 空输入/无有效帧 → null；采样率经 [lastDecodeSampleRate] 读取。
+     */
+    @JvmStatic external fun decodeMp3(data: ByteArray): FloatArray?
+
+    /**
+     * 最近一次 [decodeMp3] 解码输出的采样率（Hz）。
+     * 0 = 尚未解码 / 解码失败 / 空输入（调用方应回退无帧流，不影响播放）。
+     * @JvmField：object 上的静态 int 字段，native 侧直接 SetStaticIntField。
+     */
+    @JvmField
+    @Volatile
+    var lastDecodeSampleRate: Int = 0
 }

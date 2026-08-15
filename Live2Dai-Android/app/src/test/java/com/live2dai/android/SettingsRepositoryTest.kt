@@ -79,11 +79,11 @@ class SettingsRepositoryTest {
     fun ttsProviderId_defaultsToSherpa() {
         val repo = SettingsRepository(context)
         assertEquals(
-            "K1 单引擎默认 sherpa_onnx_kokoro（Wave 5 清理）",
+            "双引擎主用 cosyvoice_ws（N.E.K.O. 路线），sherpa 为离线兑底",
             SettingsRepository.DEFAULT_TTS_PROVIDER_ID,
             repo.ttsProviderId
         )
-        assertEquals("sherpa_onnx_kokoro", repo.ttsProviderId)
+        assertEquals("cosyvoice_ws", repo.ttsProviderId)
     }
 
     @Test

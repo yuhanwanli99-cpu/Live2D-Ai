@@ -38,6 +38,7 @@ import com.live2dai.android.PersonaConfig
 import com.live2dai.android.ModelDownloadManager
 import com.live2dai.android.ModelSpec
 import com.live2dai.android.ProviderType
+import com.live2dai.android.refreshCosyVoiceProvider
 import com.live2dai.android.TtsHealth
 import com.live2dai.android.TtsProviderRegistry
 import com.live2dai.android.core.RenderQuality
@@ -77,6 +78,9 @@ fun SettingsScreen(
     var temperature by remember { mutableStateOf(repo.temperature) }
     var ttsVoice by remember { mutableStateOf(repo.ttsVoice) }
     var ttsSpeed by remember { mutableStateOf(repo.ttsSpeed) }
+    var aliyunKey by remember { mutableStateOf(repo.aliyunApiKey) }
+    var aliyunKeyVisible by remember { mutableStateOf(false) }
+    var cosyvoiceWsUrl by remember { mutableStateOf(repo.cosyvoiceWsUrl) }
     var selectedPersona by remember { mutableStateOf(repo.personaName) }
     var deepseekKeyVisible by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
@@ -113,6 +117,15 @@ fun SettingsScreen(
                     modelDownloadStates[spec.id] = state
                 }
             }
+        }
+    }
+
+    // 保存阿里云 API Key / WS 地址：持久化 + 重建 CosyVoice Provider（register 同名覆盖，新配置立即生效）
+    val saveAliyunKey: () -> Unit = {
+        if (aliyunKey != repo.aliyunApiKey || cosyvoiceWsUrl != repo.cosyvoiceWsUrl) {
+            repo.aliyunApiKey = aliyunKey
+            repo.cosyvoiceWsUrl = cosyvoiceWsUrl
+            refreshCosyVoiceProvider(context)
         }
     }
 
@@ -406,7 +419,73 @@ fun SettingsScreen(
                 }
             )
 
-            // 降级链说明（K1：sherpa 单引擎）
+            // 选中引擎需配置（CosyVoice 云端）→ 展开阿里云 API Key + WS 地址输入区
+            if (ttsOptions.any { it.isSelected && it.configurable }) {
+                Text(
+                    "阿里云 API Key（CosyVoice 云端，DashScope）",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                )
+                OutlinedTextField(
+                    value = aliyunKey,
+                    onValueChange = { aliyunKey = it },
+                    label = { Text(if (aliyunKey.isEmpty()) "留空 = 未配置（自动降级）" else "已配置") },
+                    singleLine = true,
+                    visualTransformation = if (aliyunKeyVisible) VisualTransformation.None
+                        else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { aliyunKeyVisible = !aliyunKeyVisible }) {
+                            Icon(
+                                if (aliyunKeyVisible) Icons.Default.VisibilityOff
+                                else Icons.Default.Visibility,
+                                contentDescription = if (aliyunKeyVisible) "隐藏" else "显示"
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { saveAliyunKey() }),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (aliyunKey.isEmpty()) {
+                    Text(
+                        "未配置时 CosyVoice 快速失败并自动降级到下一个引擎；阿里云每月有免费额度。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+
+                Text(
+                    "WS 地址（可选；留空 = 默认公共端点）",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                )
+                OutlinedTextField(
+                    value = cosyvoiceWsUrl,
+                    onValueChange = { cosyvoiceWsUrl = it },
+                    label = { Text(if (cosyvoiceWsUrl.isEmpty()) "wss://dashscope.aliyuncs.com/api-ws/v1/inference" else "已填专属端点") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { saveAliyunKey() }),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (cosyvoiceWsUrl.isEmpty()) {
+                    Text(
+                        "留空使用默认公共端点；专属服务用户填 wss://{专属host}/api-ws/v1/inference。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+            }
+
+            // 降级链说明（CosyVoice 云端 → Kokoro 离线）
             Text(
                 "ℹ️ 降级链: ${cascadeSummary(ttsProviders.map { it.info.name })}",
                 style = MaterialTheme.typography.bodySmall,
@@ -536,12 +615,17 @@ fun SettingsScreen(
     // ── 离开页面时自动保存所有设置 ──
     DisposableEffect(Unit) {
         onDispose {
+            val cosyChanged = aliyunKey != repo.aliyunApiKey || cosyvoiceWsUrl != repo.cosyvoiceWsUrl
             repo.deepseekApiKey = deepseekKey
             repo.model = selectedModel
             repo.temperature = temperature
             repo.ttsVoice = ttsVoice
             repo.ttsSpeed = ttsSpeed
             repo.personaName = selectedPersona
+            repo.aliyunApiKey = aliyunKey
+            repo.cosyvoiceWsUrl = cosyvoiceWsUrl
+            // Key/WS 地址变更 → 重建 CosyVoice Provider（新配置立即生效，无需重启）
+            if (cosyChanged) refreshCosyVoiceProvider(context)
         }
     }
 }
