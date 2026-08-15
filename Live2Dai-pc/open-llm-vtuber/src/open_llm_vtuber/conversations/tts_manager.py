@@ -148,11 +148,15 @@ class TTSTaskManager:
         live2d_model: Live2dModel,
         tts_engine: TTSInterface,
         websocket_send: WebSocketSend,
+        emotion: str = "neutral",
+        mood_tier: str = "neutral",
     ) -> None:
         """
-        兼容旧调用：委托 speak_async（默认 neutral 情绪/心情）。
+        兼容旧调用：委托 speak_async。
 
         首次调用时将 tts_engine / live2d_model 注入实例，供后续 speak_async 使用。
+        PC-L4: emotion/mood_tier 可选透传（默认 neutral 保持旧行为，mood_tier
+        不再恒 neutral——由对话/表情链路上游传入真实分层）。
         """
         if self._tts_engine is None and tts_engine is not None:
             self._tts_engine = tts_engine
@@ -162,8 +166,8 @@ class TTSTaskManager:
             tts_text=tts_text,
             display_text=display_text,
             actions=actions,
-            emotion="neutral",
-            mood_tier="neutral",
+            emotion=emotion,
+            mood_tier=mood_tier,
             sequence_number=None,
             websocket_send=websocket_send,
         )

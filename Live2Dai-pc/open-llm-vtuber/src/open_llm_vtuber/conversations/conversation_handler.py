@@ -107,55 +107,71 @@ async def handle_conversation_trigger(
 
 async def handle_group_interrupt(
     group_id: str,
-    caller_uid: str,
-    client_contexts: Dict[str, ServiceContext],
-    client_connections: Dict[str, WebSocket],
+    heard_response: str,
     current_conversation_tasks: Dict[str, Optional[asyncio.Task]],
+    chat_group_manager: ChatGroupManager,
+    client_contexts: Dict[str, ServiceContext],
+    broadcast_to_group: Callable,
 ) -> None:
-    """Handle interrupt signal for a group conversation."""
-    logger.debug(f"Handling group interrupt for {group_id} by {caller_uid}")
+    """Handle interrupt signal for a group conversation.
+
+    PC-L1：签名对齐 websocket_handler 调用点（旧参 caller_uid/client_connections
+    已由 chat_group_manager + client_contexts + broadcast_to_group 取代）。
+    """
+    logger.debug(
+        f"Handling group interrupt for {group_id} (heard: {heard_response!r})"
+    )
     if group_id in current_conversation_tasks:
         task = current_conversation_tasks[group_id]
         if task and not task.done():
             task.cancel()
             logger.info(f"Cancelled group conversation task for {group_id}")
-            for uid in client_contexts:
-                if uid in client_connections:
-                    try:
-                        await client_connections[uid].send_text(
-                            json.dumps(
-                                {
-                                    "type": "full-text",
-                                    "text": "\n\n[interrupted]",
-                                }
-                            )
-                        )
-                    except Exception:
-                        pass
+            group = chat_group_manager.groups.get(group_id)
+            members = list(group.members) if group else list(client_contexts.keys())
+            if members:
+                try:
+                    await broadcast_to_group(
+                        group_members=members,
+                        message={
+                            "type": "full-text",
+                            "text": "\n\n[interrupted]",
+                        },
+                    )
+                except Exception as e:  # noqa: BLE001 - 打断通知失败不阻断任务取消
+                    logger.warning(f"Group interrupt broadcast failed (ignored): {e}")
             current_conversation_tasks[group_id] = None
 
 
 async def handle_individual_interrupt(
     client_uid: str,
     current_conversation_tasks: Dict[str, Optional[asyncio.Task]],
-    websocket: WebSocket,
+    context: ServiceContext,
+    heard_response: str,
 ) -> None:
-    """Handle interrupt signal for an individual conversation."""
-    logger.debug(f"Handling individual interrupt for {client_uid}")
+    """Handle interrupt signal for an individual conversation.
+
+    PC-L1：签名对齐 websocket_handler 调用点（旧参 websocket 已由
+    context.send_text 取代——ServiceContext 持有会话级 send_text）。
+    """
+    logger.debug(
+        f"Handling individual interrupt for {client_uid} (heard: {heard_response!r})"
+    )
     if client_uid in current_conversation_tasks:
         task = current_conversation_tasks[client_uid]
         if task and not task.done():
             task.cancel()
             logger.info(f"Cancelled conversation task for {client_uid}")
-            try:
-                await websocket.send_text(
-                    json.dumps(
-                        {
-                            "type": "full-text",
-                            "text": "\n\n[interrupted]",
-                        }
+            send_text = getattr(context, "send_text", None)
+            if send_text is not None:
+                try:
+                    await send_text(
+                        json.dumps(
+                            {
+                                "type": "full-text",
+                                "text": "\n\n[interrupted]",
+                            }
+                        )
                     )
-                )
-            except Exception:
-                pass
+                except Exception:
+                    pass
             current_conversation_tasks[client_uid] = None

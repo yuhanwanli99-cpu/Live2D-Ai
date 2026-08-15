@@ -204,6 +204,16 @@ async def process_single_conversation(
 
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
+                    # PC-L4: 当前 mood 分层传入 TTS（P7 mood_engine 产出；
+                    # 每句现取以反映流式 emotion 事件对 mood 的实时影响；异常降级 neutral 不阻断）
+                    _mood_tier = "neutral"
+                    if mood_engine is not None:
+                        try:
+                            _mood_tier = mood_engine.get_mood_tier().value
+                        except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
+                            logger.warning(
+                                f"mood_engine.get_mood_tier failed (ignored): {e}"
+                            )
                     response_part = await process_agent_output(
                         output=output_item,
                         character_config=context.character_config,
@@ -212,6 +222,7 @@ async def process_single_conversation(
                         websocket_send=websocket_send,  # Pass websocket_send for audio/tts messages
                         tts_manager=tts_manager,
                         translate_engine=context.translate_engine,
+                        mood_tier=_mood_tier,
                     )
                     # Ensure response_part is treated as a string before concatenation
                     response_part_str = (
