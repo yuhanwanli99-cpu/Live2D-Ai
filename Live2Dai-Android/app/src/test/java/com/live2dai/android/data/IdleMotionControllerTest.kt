@@ -200,22 +200,62 @@ class IdleMotionControllerTest {
     // IM-05：头部 vs 眼神不同频率（分形感）——头部连续逐帧 vs 眼神稀疏扫视
     // ═══════════════════════════════════════════════════════════
 
-    /** IM-05：窗口内头部逐帧变化（连续动画）帧占比 >> 眼神扫视触发帧占比（稀疏）→ 头部频率高于扫视门控的"跳变率"。 */
+    /** IM-05（新语义·间歇轻晃）：头部仅在运动期逐帧连续变化（正弦），静止期头/身输出精确 0；
+     *  眼珠通道无条件照常（静止期扫视仍触发）。窗口判定用纯函数 [inMotionWindow]（与生产同一判定）。 */
     @Test
     fun headIsContinuousPerFrame_whileEyeSaccadesAreSparse_differentFrequency() {
         val ctl = makeController(seed = 9L)
         var prevHeadX = 0f
-        var headChangedFrames = 0
-        val totalFrames = 2400
+        var headChangedMotionFrames = 0
+        var motionFrames = 0
+        var restFrames = 0
+        var restOutputViolations = 0
+        var saccadesDuringRest = 0
+        var wasMotion = false
+        var motionStarts = 0
+        var motionStartsPhaseReset = 0
+        var elapsedMs = 0f
+        val totalFrames = 2400 // 40s @60fps
         for (i in 0 until totalFrames) {
+            val beforeCount = ctl.saccadeCount
             val s = ctl.update(dt)
-            if (kotlin.math.abs(s.headAngleX - prevHeadX) > 1e-6f) headChangedFrames++
+            elapsedMs += dt * 1000f
+            val inMotion = inMotionWindow(elapsedMs, ctl.config)
+            if (inMotion) {
+                motionFrames++
+                if (kotlin.math.abs(s.headAngleX - prevHeadX) > 1e-6f) headChangedMotionFrames++
+                if (!wasMotion) {
+                    // 运动期起始相位归零：首帧头部应自中性位起（≈amp·sin(ω·dt)≈0.075°，绝非残留大相位跳变）
+                    motionStarts++
+                    if (kotlin.math.abs(s.headAngleX) < 0.5f) motionStartsPhaseReset++
+                }
+            } else {
+                restFrames++
+                // 新语义：静止期头部/身体精确输出 0（间歇轻晃：动 5s / 静 10s）
+                if (s.headAngleX != 0f || s.headAngleY != 0f || s.bodySway != 0f) restOutputViolations++
+                // 眼珠通道无条件照常：静止期眼神扫视仍按 [400,4400]ms 触发
+                if (ctl.saccadeCount > beforeCount) saccadesDuringRest++
+            }
+            wasMotion = inMotion
             prevHeadX = s.headAngleX
         }
-        val headChangeRatio = headChangedFrames.toFloat() / totalFrames
         assertTrue(
-            "头部应逐帧连续变化（正弦/阻尼型）：变化帧占比=$headChangeRatio 应 >0.9",
-            headChangeRatio > 0.9f,
+            "40s 内应经历运动/静止交替（运动帧=$motionFrames、静止帧=$restFrames）",
+            motionFrames > 0 && restFrames > 0,
+        )
+        val motionChangeRatio = headChangedMotionFrames.toFloat() / motionFrames
+        assertTrue(
+            "运动期内头部应逐帧连续变化（正弦）：变化帧占比=$motionChangeRatio 应 >0.9",
+            motionChangeRatio > 0.9f,
+        )
+        assertEquals("静止期头部/身体应精确输出 0（间歇轻晃语义）", 0, restOutputViolations)
+        assertTrue(
+            "每个运动期起始相位应归零（$motionStartsPhaseReset/$motionStarts 个窗口首帧头部自中性位起）",
+            motionStarts > 0 && motionStartsPhaseReset == motionStarts,
+        )
+        assertTrue(
+            "眼珠通道无条件照常：静止期照常扫视（静止期触发 $saccadesDuringRest 次）",
+            saccadesDuringRest >= 1,
         )
         // 眼神扫视稀疏：40s 内扫视次数应远小于帧数（非逐帧跳变）
         assertTrue(
@@ -228,7 +268,9 @@ class IdleMotionControllerTest {
     // IM-06：身体低频（周期 > 头部）——窗口内身体过零次数 < 头部过零次数
     // ═══════════════════════════════════════════════════════════
 
-    /** IM-06：60s 窗口内，身体摆动过零（符号翻转）次数 < 头部过零次数 → 身体周期更长（低频）。 */
+    /** IM-06（新语义·间歇轻晃）：完整周期（动+静）内身体过零数 ≤ 头部过零数
+     *  （身体周期 9s > 头部周期 7s → 更低频；过零按符号翻转统计，静止期输出 0 不产生振荡）；
+     *  并锁定静止期头/身精确输出 0、运动期正弦振荡（有过零）。 */
     @Test
     fun bodySwayIsLowerFrequencyThanHead_zeroCrossingCount() {
         val ctl = makeController(seed = 31L)
@@ -238,20 +280,47 @@ class IdleMotionControllerTest {
         var prevBody = 0f
         var headInit = false
         var bodyInit = false
+        var restOutputViolations = 0
+        var motionFrames = 0
+        var maxHeadMotionAbs = 0f
+        var maxBodyMotionAbs = 0f
+        var elapsedMs = 0f
         for (i in 0 until 3600) { // 60s @60fps
             val s = ctl.update(dt)
-            if (headInit && (prevHead >= 0f) != (s.headAngleY >= 0f)) headZero++
+            elapsedMs += dt * 1000f
+            if (inMotionWindow(elapsedMs, ctl.config)) {
+                motionFrames++
+                maxHeadMotionAbs = maxOf(maxHeadMotionAbs, kotlin.math.abs(s.headAngleX))
+                maxBodyMotionAbs = maxOf(maxBodyMotionAbs, kotlin.math.abs(s.bodySway))
+            } else {
+                // 新语义：静止期头部/身体精确输出 0（间歇轻晃）
+                if (s.headAngleX != 0f || s.headAngleY != 0f || s.bodySway != 0f) restOutputViolations++
+            }
+            if (headInit && (prevHead >= 0f) != (s.headAngleX >= 0f)) headZero++
             if (bodyInit && (prevBody >= 0f) != (s.bodySway >= 0f)) bodyZero++
-            prevHead = s.headAngleY
+            prevHead = s.headAngleX
             prevBody = s.bodySway
             headInit = true
             bodyInit = true
         }
         assertTrue(
-            "身体应低频（周期>头部）：身体过零 $bodyZero 次应 < 头部过零 $headZero 次",
-            bodyZero < headZero,
+            "身体周期应长于头部周期（低频根因）：body ${ctl.config.bodyPeriodSeconds}s > head ${ctl.config.headPeriodSeconds}s",
+            ctl.config.bodyPeriodSeconds > ctl.config.headPeriodSeconds,
+        )
+        assertTrue(
+            "完整周期（动+静）内身体应低频：身体过零 $bodyZero 次应 ≤ 头部过零 $headZero 次",
+            bodyZero <= headZero,
         )
         assertTrue("头部应有足够过零（确为振荡非静止）：$headZero", headZero >= 2)
+        assertEquals("静止期头部/身体应精确输出 0（间歇轻晃语义）", 0, restOutputViolations)
+        assertTrue(
+            "运动期头部应有正弦输出（max |headAngleX|=$maxHeadMotionAbs，运动帧=$motionFrames）",
+            motionFrames > 0 && maxHeadMotionAbs > 1f,
+        )
+        assertTrue(
+            "运动期身体应有正弦输出（max |bodySway|=$maxBodyMotionAbs）",
+            maxBodyMotionAbs > 0.01f,
+        )
     }
 
     /** IM-06-②：身体示意通道存在且幅度正常（归一化域，避免越界写坏 ParamBodyAngle）。 */

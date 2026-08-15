@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -48,9 +51,11 @@ import com.live2dai.android.ConnectionState
 import com.live2dai.android.Live2DView
 import com.live2dai.android.PersonaConfig
 import com.live2dai.android.connectionLabel
+import com.live2dai.android.core.FpsOverlayState
 import com.live2dai.android.core.LoopState
 import com.live2dai.android.data.ModelRegistry
 import com.live2dai.android.data.SettingsRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
@@ -144,6 +149,17 @@ fun MainChatScreen(
     LaunchedEffect(bubbles) { uiState.uiSetBubbles(bubbles) }
     LaunchedEffect(isLoading) { uiState.isLoading = isLoading }
 
+    // ── FPS 角标（用户需求①）：每 1s 读一次 FpsOverlayState.currentFps 触发重组 ──
+    // GL 线程（Live2DRenderer.onDrawFrame）每秒更新 currentFps；此处循环 delay(1000)
+    // 刷新本地 state → 角标文本每秒更新一次（首秒 currentFps=0 → 显示 "FPS: 0"）。
+    var fps by remember { mutableStateOf(FpsOverlayState.currentFps) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            fps = FpsOverlayState.currentFps
+            delay(1000)
+        }
+    }
+
     // ── 新消息时自动滚动到底部 ──
     LaunchedEffect(bubbles.size) {
         if (bubbles.isNotEmpty()) {
@@ -176,6 +192,46 @@ fun MainChatScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // ── 层0.5：左上角 FPS 角标（用户需求①） ──
+        // 显示 "FPS: n"（每秒刷新，数据源 = FpsOverlayState，GL 线程写）。
+        // 开关落点说明（任务③ fallback 分支）：SettingsScreen 不在本任务文件锁内
+        // （只允许动 Live2DRenderer.kt / core/FpsOverlayState.kt / MainScreen.kt /
+        // MainScreenUiState.kt），设置面板无法落 Switch → 按任务预案把开关做成徽章旁的
+        // 小图标（Visibility/VisibilityOff）切换 fpsOverlayVisible，零改动设置页。
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (uiState.fpsOverlayVisible) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+                ) {
+                    Text(
+                        text = "FPS: $fps",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            ) {
+                IconButton(onClick = { uiState.fpsOverlayVisible = !uiState.fpsOverlayVisible }) {
+                    Icon(
+                        imageVector = if (uiState.fpsOverlayVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (uiState.fpsOverlayVisible) "隐藏 FPS" else "显示 FPS",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
 
         // ── 层1：右上角浮层控制（半透明悬浮在角色上） ──
         // 2C-4 精简后仅保留：连接状态指示 + 设置入口（需求2 唯一入口）。

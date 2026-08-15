@@ -16,6 +16,7 @@ import com.live2dai.android.data.computeDownsampleTarget
 import com.live2dai.android.data.dragPxToModel
 import com.live2dai.android.data.needsDownsample
 import com.live2dai.android.data.pinchScale
+import com.live2dai.android.core.FpsOverlayState
 import com.live2dai.android.render.BackendSelector
 import com.live2dai.android.render.RendererBackend
 import org.json.JSONObject
@@ -340,6 +341,12 @@ class Live2DRenderer(
     private var fallbackVbo = IntArray(1)
     private var time = 0f
 
+    // ── FPS 角标（用户需求①）：帧计数（GL 线程）──
+    // onDrawFrame 每次调用计数+1；每 1s 窗口经 System.nanoTime 判定后把帧率写入
+    // FpsOverlayState.currentFps（纯 JVM object，UI 每 1s 读一次显示）。
+    private var fpsFrameCount = 0
+    private var fpsWindowStartNano = System.nanoTime()
+
     // ============================================================
     //  GLSurfaceView.Renderer 接口
     // ============================================================
@@ -663,6 +670,21 @@ class Live2DRenderer(
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        // ── FPS 角标（用户需求①）：帧计数 + 每秒窗口更新（GL 线程）──
+        // 每帧计数；经 System.nanoTime 判定跨过 1s 窗口 → 计算窗口内平均帧率写入
+        // FpsOverlayState.currentFps（volatile，UI 线程只读）。纯增量代码，零触碰渲染逻辑。
+        fpsFrameCount++
+        val fpsNowNano = System.nanoTime()
+        val fpsElapsedNano = fpsNowNano - fpsWindowStartNano
+        if (fpsElapsedNano >= 1_000_000_000L) {
+            val fpsElapsedSec = fpsElapsedNano / 1_000_000_000f
+            if (fpsElapsedSec > 0f) {
+                FpsOverlayState.currentFps = (fpsFrameCount / fpsElapsedSec).toInt().coerceAtLeast(0)
+            }
+            fpsFrameCount = 0
+            fpsWindowStartNano = fpsNowNano
+        }
+
         // ── Wave2 双轨渲染后端：ENGINE → Live2DEngineRenderer（引擎渲染路径）；
         //    LEGACY → 既有渲染管线（下方原逻辑零改动）──
         if (BackendSelector.select() == RendererBackend.ENGINE) {

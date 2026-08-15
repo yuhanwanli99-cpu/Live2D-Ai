@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit
  *       private val apiKey: String,
  *       private val client: OkHttpClient,
  *       private val persona: PersonaConfig,
+ *       private val bridge: EmotionClassifierBridge = EmotionClassifierBridge(HttpEmotionClassifier(...)),
  *   ) {
  *       fun send(text: String): Flow<LlmEvent>   // 冷流、单消费者
  *       fun reset()                               // 清上下文
@@ -60,6 +61,15 @@ class LlmLinkFlowTest {
             apiKey = "test-key",
             client = OkHttpClient.Builder().callTimeout(5, TimeUnit.SECONDS).build(),
             persona = PersonaConfig,
+            // 第 5 参注入恒 null 分类器 fake（生产 seam）：默认桥（HttpEmotionClassifier）会对
+            // MockWebServer 发真实分类 HTTP（单次超时 3s），吞掉队列中的 SSE 响应并污染
+            // requestCount/响应时序 → 冷流与 reset 断言失真。fake 恒 null → 情绪回退
+            // EmotionText.parse 内嵌标签（本测试 SSE 无 [tag] → neutral），时序确定性恢复。
+            bridge = EmotionClassifierBridge(
+                object : EmotionClassifier {
+                    override suspend fun classify(text: String): EmotionClassifierResult? = null
+                },
+            ),
         )
     }
 

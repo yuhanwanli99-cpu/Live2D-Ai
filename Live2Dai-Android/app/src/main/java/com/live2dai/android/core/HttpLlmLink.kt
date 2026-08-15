@@ -21,7 +21,8 @@ import java.io.IOException
  *
  * - `send(text)`：**冷流**、单消费者、零重放（每次 collect 发起一次 HTTP 请求）；
  *   流式 SSE 增量逐条发射 [LlmEvent.Delta]，收尾发射 [LlmEvent.Completed]
- *   （fullText 含 emotion 标签原文，emotion 仅提取首个命中标签）；
+ *   （emotion 经 [EmotionClassifierBridge] 独立分类调用得出——分类器优先，内嵌标签兜底
+ *   由 resolveEmotion 承担；N.E.K.O. 方案）；
  *   HTTP 错误 / 网络错误 / 超时 → [LlmEvent.Failed]（中文文案 + quotaExhausted 标志）。
  * - `reset()`：清空对话上下文（保留 persona system 首位），后续请求不带旧轮。
  * - persona 注入位置 = system 消息首位（[ChatHistoryBuilder.setSystem]）。
@@ -31,6 +32,14 @@ class HttpLlmLink(
     private val apiKey: String,
     private val client: OkHttpClient,
     private val persona: PersonaConfig,
+    /**
+     * 情绪分类桥（N.E.K.O. 契约锚 6 接线）：Completed 的 emotion 来源；构造注入可替换 fake
+     * （seam 要求）。默认 = [EmotionClassifierBridge] 包 [HttpEmotionClassifier]（同 baseUrl/
+     * apiKey/client；单次分类调用超时 3s）。
+     */
+    private val bridge: EmotionClassifierBridge = EmotionClassifierBridge(
+        HttpEmotionClassifier(baseUrl, apiKey, client),
+    ),
 ) : LlmLink {
 
     private val json = Json {
@@ -107,11 +116,12 @@ class HttpLlmLink(
 
                 val finalText = fullText.toString()
                 if (finalText.isNotEmpty()) {
-                    val emotion = emotionKeywords()
-                        .firstOrNull { finalText.contains("[$it]") }
                     val cleanText = EmotionText.strip(finalText)
                     historyBuilder.addTurn(text, cleanText)
-                    emit(LlmEvent.Completed(cleanText, emotion))
+                    // 情绪来源改走分类器桥（N.E.K.O. 方案）：分类器优先，内嵌标签兜底由
+                    // resolveEmotion 承担（bridge.emotionFor 内部经 EmotionText.parse 提取）
+                    // 传 finalText（含标签原始文本）→ 分类器失败时内嵌 [tag] 兜底才可命中（主代理修正 deviation-1）
+                    emit(LlmEvent.Completed(cleanText, bridge.emotionFor(finalText)))
                 } else {
                     emit(LlmEvent.Failed("[错误] 未获取到回复内容", quotaExhausted = false))
                 }
@@ -161,15 +171,5 @@ class HttpLlmLink(
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-
-        /**
-         * 表情标签关键词（首个命中标签提取用）。
-         *
-         * 来源：Wave 5 前为 [EmotionController.EMOTION_KEYWORDS]（adapter emotionIndex 键集
-         * 字母序；EmotionController 已随 Wave 5 删除）。现改为由 [EmotionText.SUPPORTED_EMOTIONS]
-         * （契约 refactor-0814 2C-3 规范集）字母序派生——原 8 键（anger/disgust/fear/joy/neutral/
-         * sadness/smirk/surprise）相对顺序与提取语义不变，扩展识别契约锚点短名 angry/sad。
-         */
-        private fun emotionKeywords(): List<String> = EmotionText.SUPPORTED_EMOTIONS.sorted()
     }
 }

@@ -2,6 +2,7 @@ package com.live2dai.android
 
 import android.util.Log
 import com.live2dai.android.data.BodyPoseFrames
+import com.live2dai.android.data.IdleMotionConfig
 import com.live2dai.android.data.IdleMotionController
 import com.live2dai.android.data.IdleSample
 import com.live2dai.android.data.LiaisonArbiter
@@ -930,8 +931,23 @@ class AnimationPipeline(
     /** 呼吸管理器 */
     val breath: BreathManager = BreathManager()
 
-    /** R13 程序化待机控制器（眼神漂移/头部微动/身体晃动；与眨眼/呼吸并列的参数层通道） */
-    val idleMotion: IdleMotionController = IdleMotionController()
+    /**
+     * R13 程序化待机控制器（眼神漂移/头部微动/身体晃动；与眨眼/呼吸并列的参数层通道）。
+     * 间歇轻晃调优（用户反馈③）：头部幅度 15°→5°、周期 3s→7s、身体 0.15→0.06、
+     * 周期 8s→9s；运动 5s / 静止 10s 交替、首次启动先静 3s——观感对齐 N.E.K.O.
+     * 预设动作间歇播放（静止期眼珠通道照常）。
+     */
+    val idleMotion: IdleMotionController = IdleMotionController(
+        IdleMotionConfig(
+            headAmplitudeDeg = 5f,
+            headPeriodSeconds = 7f,
+            bodyAmplitude = 0.06f,
+            bodyPeriodSeconds = 9f,
+            motionDurationSeconds = 5f,
+            restDurationSeconds = 10f,
+            initialRestSeconds = 3f,
+        )
+    )
 
     /** 物理管理器 */
     val physics: PhysicsManager = PhysicsManager()

@@ -33,6 +33,7 @@ class MainScreenUiState(
     isLoading: Boolean = false,
     settingsVisible: Boolean = false,
     connectionState: ConnectionState = ConnectionState.Disconnected,
+    fpsOverlayVisible: Boolean = true,
 ) {
     // Wave 4.1 修复 1：Compose 可观察（真机输入无响应根因）——
     // 输入框 typing 不重组 / 发送按钮 enabled 恒 false / 气泡不刷新，
@@ -42,6 +43,9 @@ class MainScreenUiState(
     var isLoading: Boolean by mutableStateOf(isLoading)
     var settingsVisible: Boolean by mutableStateOf(settingsVisible)
     var connectionState: ConnectionState by mutableStateOf(connectionState)
+
+    /** FPS 角标显示开关（用户需求①；默认 true = 显示）。 */
+    var fpsOverlayVisible: Boolean by mutableStateOf(fpsOverlayVisible)
 
     /** 气泡列表（追加序 = 插入序，尾插；SnapshotStateList，Compose 可观察）。 */
     private val _bubbles = mutableStateListOf<UiBubble>()
