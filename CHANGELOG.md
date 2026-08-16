@@ -14,6 +14,7 @@
 - Linux：新增 `scripts/setup_linux.sh` 与 `docs/architecture/linux-dev.md`，定位为开发/测试环境，不作为发布平台。
 - P0-P3 第一批落地：Android 语音输入（系统 SpeechRecognizer + 麦克风 UI + 权限）、PC 启用 Faster-Whisper 与浏览器语音输入 UI、Android TTS 播放状态/引擎显示、官方 C++ ENGINE 模型加载接线（保留 LEGACY 回退）。
 - P0-P3 细化：Android 设置页新增“语音输入开关 + 识别引擎选择（系统/SenseVoice）”；PC 前端新增 TTS 播放状态栏；新增 SenseVoice 离线 ASR 模型下载项；新增 `scripts/smoke_check.py` 与 `docs/verification/smoke-checklist.md`。
+- 多厂商支持链路：Android LLM Provider 新增 通义千问/智谱/OpenAI 兼容；Android 新增 Qwen TTS Provider；PC 新增 Qwen LLM/TTS 配置与 Provider；`shared/model_dict.json` 增加 Qwen 模型。
 
 ---
 

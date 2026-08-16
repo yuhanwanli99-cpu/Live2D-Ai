@@ -44,8 +44,14 @@ object LLMProviderManager {
     private const val KEY_LOCAL_URL = "local_base_url"
     private const val KEY_LOCAL_KEY = "local_api_key"
     private const val KEY_LOCAL_MODEL = "local_model"
+    private const val KEY_OPENAI_URL = "openai_base_url"
+    private const val KEY_OPENAI_KEY = "openai_api_key"
+    private const val KEY_OPENAI_MODEL = "openai_model"
 
     private const val TYPE_DEEPSEEK = "DEEPSEEK"
+    private const val TYPE_QWEN = "QWEN"
+    private const val TYPE_ZHIPU = "ZHIPU"
+    private const val TYPE_OPENAI = "OPENAI_COMPATIBLE"
     private const val TYPE_LOCAL = "LOCAL"
 
     // 默认本地配置示例（空字符串表示未配置）
@@ -92,6 +98,32 @@ object LLMProviderManager {
         displayName = "DeepSeek 云端"
     )
 
+    private fun qwenProvider(): LLMProvider {
+        val key = settingsPrefs.getString("qwen_api_key", EMPTY) ?: EMPTY
+        val model = settingsPrefs.getString("qwen_model", "qwen3.7-flash") ?: "qwen3.7-flash"
+        return LLMProvider.qwen(key, model)
+    }
+
+    private fun zhipuProvider(): LLMProvider {
+        val key = settingsPrefs.getString("zhipu_api_key", EMPTY) ?: EMPTY
+        val model = settingsPrefs.getString("zhipu_model", "glm-4.7-flash") ?: "glm-4.7-flash"
+        return LLMProvider.zhipu(key, model)
+    }
+
+    private fun openAiCompatibleProvider(): LLMProvider {
+        val url = settingsPrefs.getString("openai_base_url", EMPTY) ?: EMPTY
+        val key = settingsPrefs.getString("openai_api_key", EMPTY) ?: EMPTY
+        val model = settingsPrefs.getString("openai_model", EMPTY) ?: EMPTY
+        if (url.isBlank()) return deepSeekProvider()
+        return LLMProvider(
+            type = ProviderType.OPENAI_COMPATIBLE,
+            baseUrl = url.trimEnd('/'),
+            apiKey = key,
+            modelName = model.ifBlank { "gpt-4o-mini" },
+            displayName = "OpenAI 兼容"
+        )
+    }
+
     /**
      * 获取当前选中的 Provider。
      *
@@ -112,6 +144,9 @@ object LLMProviderManager {
         }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
+            TYPE_QWEN -> qwenProvider()
+            TYPE_ZHIPU -> zhipuProvider()
+            TYPE_OPENAI -> openAiCompatibleProvider()
             TYPE_LOCAL -> {
                 val url = prefs.getString(KEY_LOCAL_URL, EMPTY) ?: EMPTY
                 if (url.isBlank()) {
@@ -171,6 +206,9 @@ object LLMProviderManager {
         prefs.edit()
             .putString(KEY_TYPE, when (type) {
                 ProviderType.DEEPSEEK -> TYPE_DEEPSEEK
+                ProviderType.QWEN -> TYPE_QWEN
+                ProviderType.ZHIPU -> TYPE_ZHIPU
+                ProviderType.OPENAI_COMPATIBLE -> TYPE_OPENAI
                 ProviderType.LOCAL -> TYPE_LOCAL
             })
             .apply()
@@ -188,6 +226,9 @@ object LLMProviderManager {
         }
         val type = prefs.getString(KEY_TYPE, TYPE_DEEPSEEK) ?: TYPE_DEEPSEEK
         return when (type) {
+            TYPE_QWEN -> ProviderType.QWEN
+            TYPE_ZHIPU -> ProviderType.ZHIPU
+            TYPE_OPENAI -> ProviderType.OPENAI_COMPATIBLE
             TYPE_LOCAL -> ProviderType.LOCAL
             else -> ProviderType.DEEPSEEK
         }

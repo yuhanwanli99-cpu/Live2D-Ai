@@ -122,6 +122,15 @@ class TTSFactory:
                 pitch=kwargs.get("pitch"),
                 speed=kwargs.get("speed"),
             )
+        elif engine_type == "qwen_tts":
+            from .qwen_tts import QwenTTSEngine
+
+            return QwenTTSEngine(
+                api_key=kwargs.get("api_key", ""),
+                voice=kwargs.get("voice", "Cherry"),
+                model=kwargs.get("model", "qwen3-tts-flash"),
+                language_type=kwargs.get("language_type", "Auto"),
+            )
         elif engine_type == "cosyvoice_cloud":
             # V1.2 新增: 阿里云 DashScope CosyVoice 云端 TTS（中国大陆直连，可选）
             from .cosyvoice_cloud_tts import CosyVoiceCloudTTSEngine

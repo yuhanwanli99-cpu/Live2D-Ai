@@ -53,6 +53,12 @@ character_config:
         model: 'deepseek-v4-flash'
         temperature: 0.8
 
+      qwen_llm:
+        llm_api_key: '${DASHSCOPE_API_KEY}'
+        base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+        model: 'qwen3.7-flash'
+        temperature: 0.8
+
       zhipu_llm:
         llm_api_key: '${ZHIPU_API_KEY}'
         model: 'glm-4.6v'
@@ -75,6 +81,10 @@ character_config:
       api_key: ''
       model: 'cosyvoice-v1'
       ws_url: 'wss://ws-s8erlxkb5f8b1j59.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference'
+    qwen_tts:
+      api_key: '${DASHSCOPE_API_KEY}'
+      voice: 'Cherry'
+      model: 'qwen3-tts-flash'
     edge_tts:
       voice: 'zh-CN-XiaoxiaoNeural'
 

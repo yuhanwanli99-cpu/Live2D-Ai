@@ -28,5 +28,23 @@
     "model_name": "deepseek-r1",
     "base_url": "https://api.deepseek.com/v1",
     "description": "推理模型 — DeepSeek R1（已弃用，保留作为参考），如需推理能力请使用 deepseek-reasoner"
+  },
+  "qwen3.7-flash": {
+    "provider": "qwen",
+    "model_name": "qwen3.7-flash",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "通义千问 Qwen3.7-Flash — 高速轻量，适合实时聊天"
+  },
+  "qwen3.7-plus": {
+    "provider": "qwen",
+    "model_name": "qwen3.7-plus",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "通义千问 Qwen3.7-Plus — 均衡性能，适合日常对话"
+  },
+  "qwen-max": {
+    "provider": "qwen",
+    "model_name": "qwen-max",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "通义千问 Qwen-Max — 最强通用能力"
   }
 }

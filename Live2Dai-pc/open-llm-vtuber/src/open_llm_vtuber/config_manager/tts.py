@@ -295,6 +295,31 @@ class CosyVoiceCloudTtsConfig(I18nMixin):
     }
 
 
+class QwenTTSConfig(I18nMixin):
+    """Configuration for Qwen TTS (DashScope non-realtime)."""
+
+    api_key: str = Field("", alias="api_key")
+    voice: str = Field("Cherry", alias="voice")
+    model: str = Field("qwen3-tts-flash", alias="model")
+    language_type: str = Field("Auto", alias="language_type")
+
+    DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
+        "api_key": Description(
+            en="DashScope API key", zh="DashScope API Key"
+        ),
+        "voice": Description(
+            en="Voice name (e.g., Cherry/Ethan/Chelsie)", zh="音色名称（如 Cherry/Ethan/Chelsie）"
+        ),
+        "model": Description(
+            en="Qwen TTS model name", zh="Qwen TTS 模型名"
+        ),
+        "language_type": Description(
+            en="Language type (Auto/Chinese/English/Japanese/Korean)",
+            zh="语言类型（Auto/Chinese/English/Japanese/Korean）",
+        ),
+    }
+
+
 class MeloTTSConfig(I18nMixin):
     """Configuration for Melo TTS."""
 
@@ -753,6 +778,7 @@ class TTSConfig(I18nMixin):
         "cosyvoice_tts",
         "cosyvoice2_tts",
         "cosyvoice_cloud",
+        "qwen_tts",
         "melo_tts",
         "coqui_tts",
         "x_tts",
@@ -779,6 +805,7 @@ class TTSConfig(I18nMixin):
     cosyvoice_cloud: Optional[CosyVoiceCloudTtsConfig] = Field(
         None, alias="cosyvoice_cloud"
     )
+    qwen_tts: Optional[QwenTTSConfig] = Field(None, alias="qwen_tts")
     melo_tts: Optional[MeloTTSConfig] = Field(None, alias="melo_tts")
     coqui_tts: Optional[CoquiTTSConfig] = Field(None, alias="coqui_tts")
     x_tts: Optional[XTTSConfig] = Field(None, alias="x_tts")
@@ -813,6 +840,10 @@ class TTSConfig(I18nMixin):
         "cosyvoice_cloud": Description(
             en="Configuration for CosyVoice Cloud TTS (DashScope)",
             zh="CosyVoice 云端 TTS 配置（DashScope）",
+        ),
+        "qwen_tts": Description(
+            en="Configuration for Qwen TTS (DashScope)",
+            zh="Qwen TTS 配置（DashScope）",
         ),
         "melo_tts": Description(en="Configuration for Melo TTS", zh="Melo TTS 配置"),
         "coqui_tts": Description(en="Configuration for Coqui TTS", zh="Coqui TTS 配置"),
@@ -862,6 +893,8 @@ class TTSConfig(I18nMixin):
             values.cosyvoice2_tts.model_validate(values.cosyvoice2_tts.model_dump())
         elif tts_model == "cosyvoice_cloud" and values.cosyvoice_cloud is not None:
             values.cosyvoice_cloud.model_validate(values.cosyvoice_cloud.model_dump())
+        elif tts_model == "qwen_tts" and values.qwen_tts is not None:
+            values.qwen_tts.model_validate(values.qwen_tts.model_dump())
         elif tts_model == "melo_tts" and values.melo_tts is not None:
             values.melo_tts.model_validate(values.melo_tts.model_dump())
         elif tts_model == "coqui_tts" and values.coqui_tts is not None:

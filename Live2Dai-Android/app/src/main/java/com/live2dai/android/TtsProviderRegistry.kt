@@ -73,6 +73,15 @@ fun registerDefaultTtsProviders(context: Context) {
     val settings = SettingsRepository(appContext)
     // CosyVoice priority=0，cascade() 自动排降级链第一位（plan §3.1.6 Tier 1）
     TtsProviderRegistry.register(cosyVoiceProvider(appContext, settings))
+    // 通义千问 TTS（priority=2，云 TTS 第二选择，共用 DashScope Key）
+    TtsProviderRegistry.register(
+        QwenTtsProvider(
+            context = appContext,
+            apiKey = settings.aliyunApiKey,
+            voice = "Cherry",
+            model = "qwen3-tts-flash",
+        )
+    )
     // sherpa(priority=1) 离线兜底（K1 架构保留项）
     TtsProviderRegistry.register(SherpaOnnxTtsProvider(appContext))
 }

@@ -82,14 +82,25 @@ class LLMProviderManagerTest {
     }
 
     @Test
-    fun legacyZhipuPreference_fallsBackToDeepSeekSafely() {
-        // 历史版本持久化的 "ZHIPU" 类型偏好（提供商已移除）→ 安全回退 DeepSeek，不崩溃、不发空 key 请求
+    fun legacyUnknownPreference_fallsBackToDeepSeekSafely() {
+        // 历史版本持久化的未知类型偏好 → 安全回退 DeepSeek，不崩溃、不发空 key 请求
         context.getSharedPreferences("llm_provider", Context.MODE_PRIVATE)
-            .edit().putString("provider_type", "ZHIPU").commit()
+            .edit().putString("provider_type", "OLD_VENDOR").commit()
 
         val provider = LLMProviderManager.getActiveProvider()
         assertEquals(ProviderType.DEEPSEEK, provider.type)
         assertEquals("https://api.deepseek.com/v1", provider.baseUrl)
         assertEquals(ProviderType.DEEPSEEK, LLMProviderManager.getProviderType())
+    }
+
+    @Test
+    fun zhipuPreference_returnsZhipuProvider() {
+        context.getSharedPreferences("llm_provider", Context.MODE_PRIVATE)
+            .edit().putString("provider_type", "ZHIPU").commit()
+
+        val provider = LLMProviderManager.getActiveProvider()
+        assertEquals(ProviderType.ZHIPU, provider.type)
+        assertEquals("https://open.bigmodel.cn/api/paas/v4", provider.baseUrl)
+        assertEquals(ProviderType.ZHIPU, LLMProviderManager.getProviderType())
     }
 }

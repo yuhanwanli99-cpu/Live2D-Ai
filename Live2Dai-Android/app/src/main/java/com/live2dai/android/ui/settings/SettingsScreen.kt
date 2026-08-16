@@ -88,6 +88,13 @@ fun SettingsScreen(
     var asrEnabled by remember { mutableStateOf(repo.asrEnabled) }
     var asrEngine by remember { mutableStateOf(repo.asrEngine) }
     var showAsrEngineMenu by remember { mutableStateOf(false) }
+    var qwenApiKey by remember { mutableStateOf(repo.qwenApiKey) }
+    var qwenModel by remember { mutableStateOf(repo.qwenModel) }
+    var zhipuApiKey by remember { mutableStateOf(repo.zhipuApiKey) }
+    var zhipuModel by remember { mutableStateOf(repo.zhipuModel) }
+    var openAiBaseUrl by remember { mutableStateOf(repo.openAiBaseUrl) }
+    var openAiApiKey by remember { mutableStateOf(repo.openAiApiKey) }
+    var openAiModel by remember { mutableStateOf(repo.openAiModel) }
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
@@ -277,7 +284,10 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf(
-                    ProviderType.DEEPSEEK to "DeepSeek 云端",
+                    ProviderType.DEEPSEEK to "DeepSeek",
+                    ProviderType.QWEN to "通义千问",
+                    ProviderType.ZHIPU to "智谱 GLM",
+                    ProviderType.OPENAI_COMPATIBLE to "OpenAI 兼容",
                 ).forEach { (type, label) ->
                     FilterChip(
                         selected = selectedProvider == type,
@@ -289,12 +299,76 @@ fun SettingsScreen(
                     )
                 }
             }
-            Text(
-                "使用 DeepSeek 云端（你自己的 API Key）。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-            )
+
+            when (selectedProvider) {
+                ProviderType.DEEPSEEK -> {
+                    Text(
+                        "使用 DeepSeek 云端（你自己的 API Key）。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+                ProviderType.QWEN -> {
+                    OutlinedTextField(
+                        value = qwenApiKey,
+                        onValueChange = { qwenApiKey = it; repo.qwenApiKey = it },
+                        label = { Text("通义千问 API Key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = qwenModel,
+                        onValueChange = { qwenModel = it; repo.qwenModel = it },
+                        label = { Text("模型（如 qwen3.7-flash）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                ProviderType.ZHIPU -> {
+                    OutlinedTextField(
+                        value = zhipuApiKey,
+                        onValueChange = { zhipuApiKey = it; repo.zhipuApiKey = it },
+                        label = { Text("智谱 API Key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = zhipuModel,
+                        onValueChange = { zhipuModel = it; repo.zhipuModel = it },
+                        label = { Text("模型（如 glm-4.7-flash）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                ProviderType.OPENAI_COMPATIBLE -> {
+                    OutlinedTextField(
+                        value = openAiBaseUrl,
+                        onValueChange = { openAiBaseUrl = it; repo.openAiBaseUrl = it },
+                        label = { Text("Base URL（如 https://api.openai.com/v1）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = openAiApiKey,
+                        onValueChange = { openAiApiKey = it; repo.openAiApiKey = it },
+                        label = { Text("API Key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = openAiModel,
+                        onValueChange = { openAiModel = it; repo.openAiModel = it },
+                        label = { Text("模型") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                else -> Unit
+            }
 
             // 模型选择
             Text(

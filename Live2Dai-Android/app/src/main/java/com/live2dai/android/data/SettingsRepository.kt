@@ -31,6 +31,36 @@ class SettingsRepository(context: Context) {
         prefs.edit().remove(KEY_DEEPSEEK).apply()
     }
 
+    // ─── 多厂商 LLM Keys（P0 多厂商链路）───
+
+    var qwenApiKey: String
+        get() = prefs.getString(KEY_QWEN_API_KEY, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_QWEN_API_KEY, value).apply()
+
+    var qwenModel: String
+        get() = prefs.getString(KEY_QWEN_MODEL, "qwen3.7-flash") ?: "qwen3.7-flash"
+        set(value) = prefs.edit().putString(KEY_QWEN_MODEL, value).apply()
+
+    var zhipuApiKey: String
+        get() = prefs.getString(KEY_ZHIPU_API_KEY, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_ZHIPU_API_KEY, value).apply()
+
+    var zhipuModel: String
+        get() = prefs.getString(KEY_ZHIPU_MODEL, "glm-4.7-flash") ?: "glm-4.7-flash"
+        set(value) = prefs.edit().putString(KEY_ZHIPU_MODEL, value).apply()
+
+    var openAiBaseUrl: String
+        get() = prefs.getString(KEY_OPENAI_BASE_URL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_OPENAI_BASE_URL, value).apply()
+
+    var openAiApiKey: String
+        get() = prefs.getString(KEY_OPENAI_API_KEY, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_OPENAI_API_KEY, value).apply()
+
+    var openAiModel: String
+        get() = prefs.getString(KEY_OPENAI_MODEL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_OPENAI_MODEL, value).apply()
+
     // ─── Model ───
 
     var model: String
@@ -186,6 +216,13 @@ class SettingsRepository(context: Context) {
 
         const val KEY_DEEPSEEK = "deepseek_api_key"
         const val KEY_MODEL = "model"
+        const val KEY_QWEN_API_KEY = "qwen_api_key"
+        const val KEY_QWEN_MODEL = "qwen_model"
+        const val KEY_ZHIPU_API_KEY = "zhipu_api_key"
+        const val KEY_ZHIPU_MODEL = "zhipu_model"
+        const val KEY_OPENAI_BASE_URL = "openai_base_url"
+        const val KEY_OPENAI_API_KEY = "openai_api_key"
+        const val KEY_OPENAI_MODEL = "openai_model"
         const val KEY_TEMPERATURE = "temperature"
         const val KEY_TTS_VOICE = "tts_voice"
         const val KEY_TTS_SPEED = "tts_speed"
@@ -241,6 +278,10 @@ class SettingsRepository(context: Context) {
             "deepseek-v4-flash",
             "deepseek-chat",
             "deepseek-reasoner",
+            "qwen3.7-flash",
+            "qwen3.7-plus",
+            "qwen-max",
+            "glm-4.7-flash",
         )
 
         /** 可用 TTS 语音列表 */
