@@ -30,26 +30,82 @@ def init_config_routes(
     # Provider -> 默认 base_url / 环境变量名
     LLM_DEFAULTS = {
         "deepseek_llm": {
+            "name": "DeepSeek",
             "base_url": "https://api.deepseek.com/v1",
             "key_env": "DEEPSEEK_API_KEY",
         },
         "zhipu_llm": {
+            "name": "智谱 GLM",
             "base_url": "https://open.bigmodel.cn/api/paas/v4",
             "key_env": "ZHIPU_API_KEY",
         },
         "zhipu_free_llm": {
+            "name": "免费 GLM",
             "base_url": "https://open.bigmodel.cn/api/paas/v4",
             "key_env": "ZHIPU_API_KEY",
         },
         "qwen_llm": {
+            "name": "Qwen",
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "key_env": "DASHSCOPE_API_KEY",
         },
         "openrouter": {
+            "name": "OpenRouter",
             "base_url": "https://openrouter.ai/api/v1",
             "key_env": "OPENROUTER_API_KEY",
         },
+        "openai": {
+            "name": "OpenAI",
+            "base_url": "https://api.openai.com/v1",
+            "key_env": "OPENAI_API_KEY",
+        },
+        "anthropic": {
+            "name": "Anthropic",
+            "base_url": "https://api.anthropic.com/v1",
+            "key_env": "ANTHROPIC_API_KEY",
+        },
+        "moonshot": {
+            "name": "Moonshot",
+            "base_url": "https://api.moonshot.cn/v1",
+            "key_env": "MOONSHOT_API_KEY",
+        },
+        "groq": {
+            "name": "Groq",
+            "base_url": "https://api.groq.com/openai/v1",
+            "key_env": "GROQ_API_KEY",
+        },
+        "mistral": {
+            "name": "Mistral",
+            "base_url": "https://api.mistral.ai/v1",
+            "key_env": "MISTRAL_API_KEY",
+        },
+        "together": {
+            "name": "Together AI",
+            "base_url": "https://api.together.xyz/v1",
+            "key_env": "TOGETHER_API_KEY",
+        },
+        "fireworks": {
+            "name": "Fireworks AI",
+            "base_url": "https://api.fireworks.ai/inference/v1",
+            "key_env": "FIREWORKS_API_KEY",
+        },
+        "siliconflow": {
+            "name": "SiliconFlow",
+            "base_url": "https://api.siliconflow.cn/v1",
+            "key_env": "SILICONFLOW_API_KEY",
+        },
+        "opencode": {
+            "name": "OpenCode",
+            "base_url": "",
+            "key_env": "OPENCODE_API_KEY",
+        },
+        "opencode_go": {
+            "name": "OpenCode Go",
+            "base_url": "",
+            "key_env": "OPENCODE_GO_API_KEY",
+        },
         "openai_compatible": {
+            "name": "OpenAI 兼容",
             "base_url": "",
             "key_env": "OPENAI_API_KEY",
         },
@@ -64,12 +120,48 @@ def init_config_routes(
             "deepseek/deepseek-chat",
             "qwen/qwen3-7b",
         ],
+        "openai": ["gpt-5", "gpt-4o", "gpt-4o-mini"],
+        "anthropic": [
+            "claude-sonnet-4-5",
+            "claude-opus-4-1",
+            "claude-haiku-4-5",
+        ],
+        "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+        "groq": [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+        ],
+        "mistral": ["mistral-large-latest", "mistral-small-latest"],
+        "together": [
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        ],
+        "fireworks": [
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            "accounts/fireworks/models/qwen2p5-coder-32b-instruct",
+        ],
+        "siliconflow": [
+            "deepseek-ai/DeepSeek-V3",
+            "Qwen/Qwen2.5-7B-Instruct",
+        ],
+        "opencode": [],
+        "opencode_go": [],
         "openai_compatible": [],
     }
     TTS_DEFAULTS = {
         "cosyvoice_cloud": {"key_env": "ALIYUN_API_KEY"},
         "qwen_tts": {"key_env": "DASHSCOPE_API_KEY"},
         "edge_tts": {"key_env": None},
+        "openai_tts": {"key_env": "OPENAI_API_KEY"},
+        "azure_tts": {"key_env": "AZURE_SPEECH_KEY"},
+        "minimax_tts": {"key_env": "MINIMAX_API_KEY"},
+        "siliconflow_tts": {"key_env": "SILICONFLOW_API_KEY"},
+        "fish_api_tts": {"key_env": "FISH_API_KEY"},
+        "spark_tts": {"key_env": "SPARK_API_KEY"},
+        "gpt_sovits": {"key_env": None},
+        "piper": {"key_env": None},
+        "sherpa_onnx": {"key_env": None},
+        "pyttsx3": {"key_env": None},
     }
 
     def _load_yaml():
@@ -152,16 +244,20 @@ def init_config_routes(
                 }
             )
 
+        tts_ids = list(dict.fromkeys(list(tts_cfg.keys()) + list(TTS_DEFAULTS.keys())))
         tts_provider_list = []
-        for pid, cfg in tts_cfg.items():
-            if pid in ("tts_model", "concurrency_limit") or not isinstance(cfg, dict):
+        for pid in tts_ids:
+            if pid in ("tts_model", "concurrency_limit"):
                 continue
-            cfg = cfg or {}
+            cfg = tts_cfg.get(pid, {}) or {}
+            if not isinstance(cfg, dict):
+                cfg = {}
             default = TTS_DEFAULTS.get(pid, {})
             key_env = default.get("key_env")
             tts_provider_list.append(
                 {
                     "id": pid,
+                    "name": default.get("name", pid),
                     "voice": cfg.get("voice", ""),
                     "model": cfg.get("model", ""),
                     "ws_url": cfg.get("ws_url", ""),
@@ -175,12 +271,17 @@ def init_config_routes(
             "llm_providers": list(dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys()))),
             "llm_configs": llm_provider_list,
             "tts_model": tts_cfg.get("tts_model", ""),
-            "tts_providers": [
-                k
-                for k, v in tts_cfg.items()
-                if k not in ("tts_model", "concurrency_limit")
-                and isinstance(v, dict)
-            ],
+            "tts_providers": list(
+                dict.fromkeys(
+                    [
+                        k
+                        for k, v in tts_cfg.items()
+                        if k not in ("tts_model", "concurrency_limit")
+                        and isinstance(v, dict)
+                    ]
+                    + list(TTS_DEFAULTS.keys())
+                )
+            ),
             "tts_configs": tts_provider_list,
             "asr_model": asr_cfg.get("asr_model", "disabled"),
             "asr_providers": [
@@ -487,6 +588,100 @@ def init_config_routes(
         except Exception as e:
             logger.error(f"Discover models failed: {e}")
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @router.post("/api/providers/check")
+    async def check_providers():
+        try:
+            import requests as _requests
+            data = _load_yaml()
+            cc = data.get("character_config", {}) or {}
+            agent_cfg = cc.get("agent_config", {}) or {}
+            llm_configs = agent_cfg.get("llm_configs", {}) or {}
+            tts_cfg = cc.get("tts_config", {}) or {}
+            llm_results = []
+            provider_ids = list(
+                dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys()))
+            )
+            for pid in provider_ids:
+                cfg = llm_configs.get(pid, {}) or {}
+                default = LLM_DEFAULTS.get(pid, {})
+                base_url = (
+                    cfg.get("base_url", "").strip()
+                    or default.get("base_url", "")
+                )
+                key_env = default.get("key_env") or cfg.get("key_env") or "OPENAI_API_KEY"
+                key = _env_value(key_env)
+                if not key:
+                    llm_results.append(
+                        {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Key", "models": []}
+                    )
+                    continue
+                if not base_url:
+                    llm_results.append(
+                        {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Base URL", "models": []}
+                    )
+                    continue
+                try:
+                    url = base_url.rstrip("/") + "/models"
+                    resp = _requests.get(
+                        url,
+                        headers={"Authorization": f"Bearer {key}"},
+                        timeout=8,
+                    )
+                    if resp.status_code < 400:
+                        raw = resp.json()
+                        models: list[str] = []
+                        if isinstance(raw, dict):
+                            items = raw.get("data") or raw.get("models") or []
+                            for item in items:
+                                if isinstance(item, dict) and item.get("id"):
+                                    models.append(str(item["id"]))
+                                elif isinstance(item, str):
+                                    models.append(item)
+                        elif isinstance(raw, list):
+                            for item in raw:
+                                if isinstance(item, dict) and item.get("id"):
+                                    models.append(str(item["id"]))
+                                elif isinstance(item, str):
+                                    models.append(item)
+                        llm_results.append(
+                            {"provider": pid, "kind": "llm", "ok": True, "status": "ok", "models": models}
+                        )
+                    else:
+                        llm_results.append(
+                            {
+                                "provider": pid,
+                                "kind": "llm",
+                                "ok": False,
+                                "status": f"HTTP {resp.status_code}",
+                                "models": [],
+                            }
+                        )
+                except Exception as e:
+                    llm_results.append(
+                        {"provider": pid, "kind": "llm", "ok": False, "status": str(e), "models": []}
+                    )
+
+            tts_results = []
+            tts_ids = list(dict.fromkeys(list(tts_cfg.keys()) + list(TTS_DEFAULTS.keys())))
+            for pid in tts_ids:
+                if pid in ("tts_model", "concurrency_limit"):
+                    continue
+                key_env = TTS_DEFAULTS.get(pid, {}).get("key_env")
+                configured = _has_key(key_env) if key_env else True
+                tts_results.append(
+                    {
+                        "provider": pid,
+                        "kind": "tts",
+                        "ok": configured,
+                        "status": "已配置" if configured else "未配置 Key",
+                        "models": [],
+                    }
+                )
+            return JSONResponse({"llm": llm_results, "tts": tts_results})
+        except Exception as e:
+            logger.error(f"Provider check failed: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     @router.post("/api/test-llm")
     async def test_llm(request: Request):

@@ -141,6 +141,9 @@ export function initSettingsPanel(
             <select class="settings-llm"></select>
           </label>
           <div class="settings-section-title">Provider 参数</div>
+          <div class="settings-card-actions">
+            <button class="settings-check-all" type="button">全部检查 / 列出可用模型</button>
+          </div>
           <div class="settings-llm-cards"></div>
           <div class="settings-card-actions">
             <button class="settings-add-llm" type="button">+ 添加 OpenAI 兼容 Provider</button>
@@ -157,6 +160,9 @@ export function initSettingsPanel(
             <select class="settings-asr"></select>
           </label>
           <div class="settings-section-title">TTS 参数</div>
+          <div class="settings-card-actions">
+            <button class="settings-check-all" type="button">全部检查</button>
+          </div>
           <div class="settings-tts-cards"></div>
         </div>
         <div class="settings-tab-panel" data-panel="live2d">
@@ -418,6 +424,34 @@ export function initSettingsPanel(
         '.settings-key-input[data-env="OPENAI_API_KEY"]',
       );
       if (keyInput) keyInput.value = apiKey.trim();
+    }
+  };
+
+  const checkAll = async (): Promise<void> => {
+    statusEl.textContent = '检查所有 Provider 中…';
+    try {
+      const res = await fetch('/api/providers/check', { method: 'POST' });
+      const data = (await res.json()) as {
+        llm?: Array<{ provider: string; ok: boolean; status: string; models?: string[] }>;
+        tts?: Array<{ provider: string; ok: boolean; status: string }>;
+        error?: string;
+      };
+      if (!res.ok || data.error) throw new Error(data.error || '检查失败');
+      const llm = data.llm || [];
+      const tts = data.tts || [];
+      const llmOk = llm.filter((x) => x.ok).length;
+      const ttsOk = tts.filter((x) => x.ok).length;
+      const lines: string[] = [
+        `✅ LLM ${llmOk}/${llm.length} 可用`,
+        `TTS ${ttsOk}/${tts.length} 已配置`,
+      ];
+      const failed = llm.filter((x) => !x.ok);
+      if (failed.length > 0) {
+        lines.push('未通过: ' + failed.map((x) => `${x.provider}(${x.status})`).join(', '));
+      }
+      statusEl.textContent = lines.join(' · ');
+    } catch (err) {
+      statusEl.textContent = `❌ 检查失败: ${(err as Error).message}`;
     }
   };
 
@@ -688,6 +722,11 @@ export function initSettingsPanel(
     void saveTree();
   });
   overlay.querySelector<HTMLButtonElement>('.settings-add-llm')!.addEventListener('click', addLlmProvider);
+  overlay.querySelectorAll<HTMLButtonElement>('.settings-check-all').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      void checkAll();
+    });
+  });
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close();
   });

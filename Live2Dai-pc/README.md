@@ -25,7 +25,7 @@ cd F:\Live2Dai\Live2Dai-pc
 
 聊天面板右上角的 **⚙** 可打开完整设置中心，包含：
 
-- **对话/LLM**：切换 LLM Provider、修改模型 / Base URL / 温度、测试连接
+- **对话/LLM**：切换 LLM Provider、修改模型 / Base URL / 温度、测试连接、自动发现可用模型、全部 Provider 一键检查
 - **语音/TTS**：切换 TTS / ASR、修改音色 / 模型 / WebSocket URL、试听
 - **形象/Live2D**：查看模型列表、切换模型
 - **API Keys**：集中管理 DeepSeek / 智谱 / Qwen / OpenAI 兼容 Key
