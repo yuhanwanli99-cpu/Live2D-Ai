@@ -21,6 +21,7 @@ import com.live2dai.android.core.SpeechSinkAdapter
 import com.live2dai.android.core.TimedExpressionSink
 import com.live2dai.android.core.VisualExpressionSink
 import com.live2dai.android.core.UiAppendStreamBubble
+import com.live2dai.android.data.SettingsRepository
 import com.live2dai.android.ui.LocalLoopWire
 import com.live2dai.android.ui.LoopWireBindings
 import com.live2dai.android.ui.UiBubble
@@ -168,6 +169,7 @@ class MainActivity : ComponentActivity() {
                         isSpeaking = voiceIo.isSpeaking,
                         activeTtsProvider = voiceIo.activeProviderId,
                         onMicClick = {
+                            if (!SettingsRepository(this@MainActivity).asrEnabled) return@LoopWireBindings
                             if (ContextCompat.checkSelfPermission(
                                     this@MainActivity,
                                     Manifest.permission.RECORD_AUDIO

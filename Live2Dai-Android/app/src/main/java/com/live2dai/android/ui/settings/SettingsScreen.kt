@@ -85,6 +85,7 @@ fun SettingsScreen(
     var deepseekKeyVisible by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
     var showTtsVoiceMenu by remember { mutableStateOf(false) }
+    var asrEnabled by remember { mutableStateOf(repo.asrEnabled) }
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
@@ -399,6 +400,30 @@ fun SettingsScreen(
                 modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
             )
 
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // ── 语音输入设置（P0）──
+            SectionHeader("语音输入")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("启用语音输入", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "使用系统语音识别，识别结果直接进入对话。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = asrEnabled,
+                    onCheckedChange = {
+                        asrEnabled = it
+                        repo.asrEnabled = it
+                    }
+                )
+            }
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             // ── TTS 设置 ──

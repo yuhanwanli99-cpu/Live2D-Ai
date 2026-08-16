@@ -112,6 +112,13 @@ class SettingsRepository(context: Context) {
         get() = prefs.getFloat(KEY_COSYVOICE_PITCH, DEFAULT_COSYVOICE_PITCH)
         set(value) = prefs.edit().putFloat(KEY_COSYVOICE_PITCH, value).apply()
 
+    // ─── ASR（P0：语音输入开关）───
+
+    /** 是否启用语音输入（默认 true；关闭后麦克风按钮不启动识别） */
+    var asrEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ASR_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_ASR_ENABLED, value).apply()
+
     // ─── Persona ───
 
     var personaName: String
@@ -183,6 +190,7 @@ class SettingsRepository(context: Context) {
         const val KEY_COSYVOICE_INSTRUCTION = "cosyvoice_instruction"
         const val KEY_COSYVOICE_RATE = "cosyvoice_rate"
         const val KEY_COSYVOICE_PITCH = "cosyvoice_pitch"
+        const val KEY_ASR_ENABLED = "asr_enabled"
         const val KEY_PERSONA = "persona"
         const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"
