@@ -6,7 +6,7 @@ import com.live2dai.android.data.SettingsRepository
 /**
  * TTS Provider 注册表 — 管理所有已注册的 TTS Provider（V1.2 模块1，架构地基）。
  *
- * 契约见 docs/plan-v12-plan.schema.json → functions.TtsProviderRegistry.*：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → functions.TtsProviderRegistry.*：
  * - [register]：注册（同名覆盖，后续 Wave 重新注册同 id 的新实现时旧实例被替换）
  * - [cascade]：按 [TtsProviderInfo.priority] 升序的降级链（0 最高，先尝试）
  * - [get]：按 id 查找；[all]：全部（供引擎选择 UI 展示）

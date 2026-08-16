@@ -1,47 +1,39 @@
-# Live2Dai — Sync Shared Config → All Consumers
+# Live2Dai — Sync Shared Config → Android Assets
 # ================================================================
-# 将 shared/ 目录的配置文件同步到所有消费端:
-#   - Android assets/
-#   - (Desktop 端自动从 shared/ 加载，无需手动同步)
+# 将 shared/ 中的跨端共享配置同步到 Android assets/。
+# PC 端通过 conf.yaml 的 load_persona_from_file 直接读取 shared/，无需复制。
 #
-# 使用方法:
-#   .\sync.ps1
+# 用法:
+#   .\sync.ps1            # 执行同步
+#   .\sync.ps1 -Verify    # 只检查差异，不写入
 # ================================================================
 
 param(
-    [switch]$Verify  # 只检查是否同步，不做实际拷贝
+    [switch]$Verify
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║   Live2Dai — 配置同步工具              ║" -ForegroundColor Cyan
-Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
-Write-Host ""
-
 $SharedDir = Join-Path $ProjectRoot "shared"
 $AndroidAssetsDir = Join-Path $ProjectRoot "Live2Dai-Android\app\src\main\assets"
-$DesktopConf = Join-Path $ProjectRoot "desktop\open-llm-vtuber\conf.yaml"
 
-# ── Check shared/ exists ──
+Write-Host "Live2Dai — 配置同步工具 (shared -> Android assets)" -ForegroundColor Cyan
+Write-Host ""
+
 if (-not (Test-Path $SharedDir)) {
     Write-Host "[ERROR] shared/ 目录不存在: $SharedDir" -ForegroundColor Red
     exit 1
 }
 
-# ── Files to sync ──
+# 需要同步到 Android assets 的文件（model_dict.json 在 Android 端已无引用，不同步）
 $SyncFiles = @(
     @{Name="persona.yaml";   Desc="人设配置"},
     @{Name="mcp_tools.json"; Desc="MCP 工具配置"},
-    @{Name="model_dict.json";Desc="模型路由表"}
+    @{Name="model_registry.json"; Desc="模型注册表"}
 )
 
-# ── Sync to Android assets ──
-Write-Host "[1/2] 同步到 Android assets/" -ForegroundColor Green
-
 if (-not (Test-Path $AndroidAssetsDir)) {
-    Write-Host "  [WARN] Android assets 目录不存在，创建: $AndroidAssetsDir" -ForegroundColor Yellow
+    Write-Host "[WARN] 创建 Android assets 目录: $AndroidAssetsDir" -ForegroundColor Yellow
     New-Item -ItemType Directory -Path $AndroidAssetsDir -Force | Out-Null
 }
 
@@ -76,28 +68,25 @@ foreach ($file in $SyncFiles) {
     }
 }
 
-# ── Check Desktop conf.yaml references ──
-Write-Host ""
-Write-Host "[2/2] 检查桌面端 conf.yaml" -ForegroundColor Green
-
+# 检查 PC 端 conf.yaml 是否引用 shared/persona.yaml（仅提示，不修改）
+$DesktopConf = Join-Path $ProjectRoot "Live2Dai-pc\open-llm-vtuber\conf.yaml"
 if (Test-Path $DesktopConf) {
     $confContent = Get-Content $DesktopConf -Raw
     if ($confContent -match 'load_persona_from_file') {
-        Write-Host "  [OK] conf.yaml 已配置 load_persona_from_file" -ForegroundColor DarkGray
+        Write-Host "  [OK] PC conf.yaml 已配置 load_persona_from_file" -ForegroundColor DarkGray
     } else {
-        Write-Host "  [WARN] conf.yaml 未使用 load_persona_from_file" -ForegroundColor Yellow
+        Write-Host "  [WARN] PC conf.yaml 未使用 load_persona_from_file" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  [WARN] conf.yaml 不存在: $DesktopConf" -ForegroundColor Yellow
+    Write-Host "  [WARN] PC conf.yaml 不存在: $DesktopConf" -ForegroundColor Yellow
 }
 
-# ── Summary ──
 Write-Host ""
 if ($Verify) {
     if ($syncedCount -eq 0) {
         Write-Host "✓ 所有配置文件已同步" -ForegroundColor Green
     } else {
-        Write-Host "⚠ $syncedCount 个文件需要同步。运行不带 -Verify 的 sync.ps1 来执行同步。" -ForegroundColor Yellow
+        Write-Host "⚠ $syncedCount 个文件需要同步。运行不带 -Verify 的 sync.ps1 执行同步。" -ForegroundColor Yellow
     }
 } else {
     if ($syncedCount -gt 0) {

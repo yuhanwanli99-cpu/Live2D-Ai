@@ -14,10 +14,13 @@
 | **`HANDOVER.md`** | **★ 必读** — 完整项目交接（架构、Bug修复记录、动画系统、构建部署） |
 | **`PLAN.md`** | 架构演进历史（Plan A/B/C → 当前直连架构） |
 | **`AGENTS.md`** | 项目级通用说明（结构/背景，任何 CLI agent 可读） |
-| `docs/ARCHITECTURE.md` | 技术栈详表 |
-| `docs/renderer-algorithm.md` | Cubism 渲染算法逆向分析 |
-| `docs/mask-premake-algorithm.md` | Mask FBO 渲染算法 |
-| `docs/verification-win.md` | 桌面端配置验证报告 |
+| `docs/README.md` | **文档索引（推荐先读）** |
+| `docs/architecture/core-contracts.md` | 核心契约与架构边界 |
+| `docs/architecture/directory.md` | 目录约定 |
+| `docs/architecture/ARCHITECTURE.md` | 技术栈详表 |
+| `docs/architecture/renderer-algorithm.md` | Cubism 渲染算法逆向分析 |
+| `docs/architecture/mask-premake-algorithm.md` | Mask FBO 渲染算法 |
+| `docs/verification/verification-win.md` | 桌面端配置验证报告 |
 | `Live2Dai-Android/app/libs/README.md` | Live2D SDK 依赖说明 |
 | `.pi/lessons-learned.md` | 经验教训库（新手上路必读） |
 

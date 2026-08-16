@@ -31,7 +31,7 @@ import org.mockito.kotlin.whenever
  * 接线语义（降级链遍历 / 指定引擎 / 容错 / 打断 / 释放 / 空文本跳过 / 组合 isSpeaking），
  * 不触碰真实网络与系统服务。
  *
- * 契约见 docs/plan-v12-plan.schema.json → functions.VoiceIoController.*：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → functions.VoiceIoController.*：
  * - speak(text, providerId?): 降级链遍历播报，失败静默（throws: []）
  * - stopSpeaking(): 同步打断所有 Provider 播报
  * - isSpeaking: StateFlow，任一 Provider 播放中 = true

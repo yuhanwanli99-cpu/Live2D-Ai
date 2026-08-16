@@ -98,7 +98,13 @@ jobs:
       - name: Install Python test dependencies
         run: |
           pip install --upgrade pip
-          pip install pytest pyyaml ruff
+          pip install pytest pyyaml jsonschema ruff
+
+      - name: Run local health check (no key)
+        run: python scripts/health_check.py
+
+      - name: Run cross-platform consistency
+        run: python shared/check_cross_platform_consistency.py
 
       - name: Run Python tests
         run: python -m pytest tests/ -v --junitxml=test-results.xml
@@ -106,7 +112,7 @@ jobs:
         continue-on-error: true
 
       - name: Run Python lint (ruff)
-        run: ruff check tests/ tts/ --config ruff.toml
+        run: ruff check tests/ scripts/ shared/ --config ruff.toml
         continue-on-error: true
 
       - name: Upload Python test report

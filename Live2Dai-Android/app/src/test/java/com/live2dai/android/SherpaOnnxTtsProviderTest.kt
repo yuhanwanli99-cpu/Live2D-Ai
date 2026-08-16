@@ -17,7 +17,7 @@ import java.io.File
 /**
  * SherpaOnnxTtsProvider（V1.2 模块3：sherpa-onnx + Kokoro 离线 TTS）单元测试。
  *
- * 契约见 docs/plan-v12-plan.schema.json → providersV12.sherpa_onnx_kokoro：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → providersV12.sherpa_onnx_kokoro：
  * - id="sherpa_onnx_kokoro" / LOCAL / requiresNetwork=false / priority=1 / configurable=false
  * - 模型未下载 → health=UNAVAILABLE，speak 快速失败（不发网络、不触引擎）→ 降级链继续
  * - 引擎不可用（AAR 未集成 / JVM 无原生库）→ speak 抛异常、health=UNAVAILABLE

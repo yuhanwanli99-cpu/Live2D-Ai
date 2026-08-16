@@ -97,7 +97,7 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 
 > 覆盖本项目源码中「代码移植」与「设计参考」的第三方项目，全部如实标注使用
 > 方式（不夸大）。Apache-2.0 组件另见 root [`NOTICE`](NOTICE)（Apache 2.0
-> §4(d)），复用组件总表见 `docs/license-report.md` §9。
+> §4(d)），复用组件总表见 `docs/research/license-report.md` §9。
 
 ### 6.1 Open-LLM-VTuber — PC 端 fork 上游（代码复用）
 
@@ -254,7 +254,7 @@ License notice to comply with Section 4.2 (copyright notice must not be removed)
 License）；registry metadata.license 已更新为 `Free Material License`。
 
 ### ⛔ Issue 3: Renderer Algorithm Doc Incorrectly States "Apache 2.0 Shaders"
-`docs/renderer-algorithm.md` mentions "Apache 2.0 着色器" — this is incorrect.
+`docs/architecture/renderer-algorithm.md` mentions "Apache 2.0 着色器" — this is incorrect.
 The shaders are from CubismJavaFramework which uses the **Live2D Open Software
 License**, not Apache 2.0. This should be corrected.
 

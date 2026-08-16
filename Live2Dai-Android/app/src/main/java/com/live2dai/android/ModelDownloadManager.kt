@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * 下载状态（契约见 docs/plan-v12-plan.schema.json → dataModels.DownloadState）。
+ * 下载状态（契约见 docs/plans/plan-v12-plan.schema.json → dataModels.DownloadState）。
  *
  * 状态机：Idle → Downloading(progress) → Verifying → Completed | Failed。
  * - 已下载且校验通过的文件直接进入 Completed（幂等重入）。
@@ -83,7 +83,7 @@ fun interface SpaceChecker {
  * 离线模型下载管理（V1.2 模块3/4，plan §3.3.3 + §9 教训：进度通知、断点续传、
  * SHA256 校验、存储空间预检四件事全覆盖）。
  *
- * 契约见 docs/plan-v12-plan.schema.json → functions.ModelDownloadManager.*：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → functions.ModelDownloadManager.*：
  * - [download] 挂起直到下载完成/失败；返回 StateFlow 供 UI 观察进度
  * - 断点续传：`.part` 临时文件 + `Range: bytes=<start>-`（服务端不支持 Range 时
  *   自动重头；416 时重头；校验失败时删除 .part 防止损坏续传）

@@ -23,7 +23,7 @@ import kotlinx.coroutines.sync.withLock
  * V1.1 模块1「语音闭环接线」统一协调器（TTS 说）+ 模块4「LipSync」（TTS 播放驱动嘴型）
  * + V1.2 模块1「TtsProvider 注册表 + 降级链」（多引擎架构地基）。
  *
- * 职责（契约见 docs/plan-v12-plan.schema.json → functions.VoiceIoController.*）：
+ * 职责（契约见 docs/plans/plan-v12-plan.schema.json → functions.VoiceIoController.*）：
  * - [speak]：播报纯文本（已剥离 [emotion] 标签）。遍历 [TtsProviderRegistry.cascade()]
  *   降级链（K1：sherpa 单引擎），按序尝试 [TtsProvider.speak]，成功即停；
  *   失败继续下一个；全失败静默降级（不影响对话主链路）。可指定 [providerId] 首选引擎。

@@ -185,6 +185,19 @@ val copyPersona = tasks.register<Copy>("copyPersona") {
     into(file("src/main/assets"))
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Pre-build: 复制 shared/mcp_tools.json → app assets
+//  MCP 工具定义（shared/mcp_tools.json）是双端共享源，构建时同步到 assets。
+// ═══════════════════════════════════════════════════════════════════
+val mcpToolsSourceFile = rootProject.projectDir.parentFile.resolve("shared/mcp_tools.json")
+
+val copyMcpTools = tasks.register<Copy>("copyMcpTools") {
+    group = "live2dai"
+    description = "将 shared/mcp_tools.json 复制到 app/src/main/assets/（MCP 工具定义同步）"
+    from(mcpToolsSourceFile)
+    into(file("src/main/assets"))
+}
+
 // 挂到 preBuild / variant / unitTest 前置任务（contract-v3-adapter §1.4 锁死）：
 // - preBuild：命令行 assemble 的必经节点
 // - preDebugBuild / preReleaseBuild：IDE 增量编译可能跳过 preBuild，直接执行变体任务
@@ -201,6 +214,7 @@ listOf(
         dependsOn(copyModelRegistry)
         dependsOn(copyModelAdapter)
         dependsOn(copyPersona)   // contract-v3-features §2（T4.2）：persona 单源同步
+        dependsOn(copyMcpTools)  // contract-shared-v0 SM-03：mcp_tools 单源同步
     }
 }
 

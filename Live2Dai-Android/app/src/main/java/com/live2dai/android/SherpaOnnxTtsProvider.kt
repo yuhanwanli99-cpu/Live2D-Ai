@@ -27,7 +27,7 @@ import java.nio.ByteOrder
 /**
  * sherpa-onnx + Kokoro 离线 TTS Provider（V1.2 模块3）。
  *
- * 契约见 docs/plan-v12-plan.schema.json → providersV12.sherpa_onnx_kokoro：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → providersV12.sherpa_onnx_kokoro：
  * - id="sherpa_onnx_kokoro" / LOCAL / requiresNetwork=false / priority=1（CosyVoice 之后，
  *   EdgeTTS 之前——同 priority 稳定排序由注册顺序保证）/ configurable=false
  * - 模型未下载 → health=UNAVAILABLE，[speak] 快速失败（不发任何网络请求）→ 降级链继续

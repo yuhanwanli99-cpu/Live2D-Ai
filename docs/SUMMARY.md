@@ -69,7 +69,7 @@
 | 任务 | 状态 | 说明 |
 | ------ | ------ | ------ |
 | 拉取官方着色器 | ✅ 完成 | 从 CubismJavaFramework 拉取 Apache 2.0 着色器 |
-| 提取 Mask Premake 算法 | ✅ 完成 | 输出 docs/mask-premake-algorithm.md |
+| 提取 Mask Premake 算法 | ✅ 完成 | 输出 docs/architecture/mask-premake-algorithm.md |
 | 重写 Live2DRenderer | ✅ 完成 | Purism Core + CubismJavaFramework + 正确 FBO mask |
 | 编译部署+视觉验证 | ✅ 完成 | 真机截图验证，修复 7 个 Bug |
 
@@ -197,4 +197,4 @@ Live2Dai\
 
 ---
 
-*详细配置见 `HANDOVER.md`，架构说明见 `PLAN.md`，渲染算法见 `docs/renderer-algorithm.md`。*
+*详细配置见 `HANDOVER.md`，架构说明见 `PLAN.md`，渲染算法见 `docs/architecture/renderer-algorithm.md`。*

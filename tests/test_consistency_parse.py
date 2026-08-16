@@ -3,7 +3,7 @@
 依据 .pi/spoq/contract-M-CONS.md（v2）：
 - §2.1 C26 解析函数修复：`_parse_fallback_emotion_map` 以
   `private val FALLBACK_EMOTION_MAP: Map<String, Int> = mapOf(` 为块起点、
-  配对 `)` 为终点截取；块内 regex `"(\w+)"\s+to\s+(\d+)` 提取键值；返回前断言
+  配对 `)` 为终点截取；块内 regex `"(\\w+)"\\s+to\\s+(\\d+)` 提取键值；返回前断言
   键集 == 8 表情键（neutral/fear/sadness/anger/disgust/joy/smirk/surprise），不符 → None。
   约束：不得全文件扫 regex（否则 `DEFAULT_BAI_EMOTION_PARAM_MAP` 的
   `"ParamBrowLY" to 0.0f` 浮点前缀误抓——本缺陷回归用例）。
@@ -46,9 +46,13 @@ _PC_BAI_MODEL3 = (
     / "bai" / "runtime" / "bai.model3.json"
 )
 _PC_MODEL_DICT = _REPO_ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "model_dict.json"
-_EMOTION_CONTROLLER = (
+_MODEL_ADAPTER_CONFIG = (
     _REPO_ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "java"
-    / "com" / "live2dai" / "android" / "EmotionController.kt"
+    / "com" / "live2dai" / "android" / "ModelAdapterConfig.kt"
+)
+_EMOTION_TEXT = (
+    _REPO_ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "java"
+    / "com" / "live2dai" / "android" / "core" / "EmotionText.kt"
 )
 
 # ---- 契约锚点 ----
@@ -58,8 +62,9 @@ _FALLBACK_EXPECTED = {
     "neutral": 0, "fear": 1, "sadness": 2, "anger": 3,
     "disgust": 4, "joy": 5, "smirk": 6, "surprise": 7,
 }
-# §2.1 接线断言字符串（EmotionController.kt L128）
-_WIRING_EXPRESSION = "currentAdapter()?.emotionIndex ?: FALLBACK_EMOTION_MAP"
+# Wave 5 后 EmotionController.kt 已删除；接线断言改为 ModelAdapterConfig（emotionIndex 数据源）+ EmotionText（支持集覆盖）
+_WIRING_EXPRESSION = "currentAdapter()"
+_EMOTION_KEYS_EXPECTED = ["neutral", "fear", "sadness", "anger", "disgust", "joy", "smirk", "surprise"]
 # §2.3 Layout 四值（M-PC §2.1 同值）
 _LAYOUT_EXPECTED = {"center_x": 0.0, "center_y": -0.07, "width": 0.56, "height": 0.56}
 
@@ -252,10 +257,14 @@ def _run_consistency() -> int:
 # ---------------------------------------------------------------------------
 
 def test_wiring_expression_present_in_emotion_controller():
-    """接线断言（正例/文件级）：EmotionController.kt 含
-    `currentAdapter()?.emotionIndex ?: FALLBACK_EMOTION_MAP`（防 getter 独立硬编码漂移）。"""
-    src = _EMOTION_CONTROLLER.read_text(encoding="utf-8")
-    assert _WIRING_EXPRESSION in src
+    """接线断言（正例/文件级）：ModelAdapterConfig 含 currentAdapter/emotionIndex，
+    EmotionText 支持集覆盖 8 个 canonical 表情键。"""
+    src = _MODEL_ADAPTER_CONFIG.read_text(encoding="utf-8")
+    assert "currentAdapter()" in src
+    assert "emotionIndex" in src
+    et = _EMOTION_TEXT.read_text(encoding="utf-8")
+    for k in _EMOTION_KEYS_EXPECTED:
+        assert k in et, f"EmotionText.SUPPORTED_EMOTIONS 应覆盖 {k}"
 
 
 def test_wiring_expression_detection_logic():
@@ -339,16 +348,16 @@ def test_layout_present_both_sides():
 # C-A1 / C-A9 / C-A10 脚本级全量校验（执行 main()，公开退出码契约；RED 于实现未落地）
 # ---------------------------------------------------------------------------
 
-def test_script_all_checks_pass_32():
-    """C-A1：一致性脚本全量 == 32/32（C26 修复 + C32 新增后；C26 detail 三方 8 key 一致）。"""
+def test_script_all_checks_pass_33():
+    """C-A1：一致性脚本全量 == 33/33（C26 适配 Wave5 + SM-03 新增后）。"""
     code = _run_consistency()
-    assert code == 0, f"一致性脚本应全过（exit 0，32/32），实际 exit={code}"
+    assert code == 0, f"一致性脚本应全过（exit 0，33/33），实际 exit={code}"
     out = subprocess.run(
         [sys.executable, str(_SHARED_CONSISTENCY)],
         cwd=str(_REPO_ROOT), capture_output=True, text=True,
         encoding="utf-8", errors="replace",
     ).stdout
-    assert "/32" in out, "脚本末尾应汇总 32/32"
+    assert "/33" in out, "脚本末尾应汇总 33/33"
 
 
 def test_validate_registry_still_passes():

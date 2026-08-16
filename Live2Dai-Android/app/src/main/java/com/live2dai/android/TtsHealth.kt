@@ -1,7 +1,7 @@
 package com.live2dai.android
 
 /**
- * TTS 引擎健康状态（V1.2 模块1，契约见 docs/plan-v12-plan.schema.json → dataModels.TtsHealth）。
+ * TTS 引擎健康状态（V1.2 模块1，契约见 docs/plans/plan-v12-plan.schema.json → dataModels.TtsHealth）。
  *
  * 供可观测性（模块7）与降级链决策使用；当前 Wave 仅维护状态值，后续 Wave 接遥测时消费。
  */

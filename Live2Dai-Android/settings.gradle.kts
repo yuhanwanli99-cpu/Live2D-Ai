@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Live2Dai-Android"
 include(":app")
+include(":plugin-sdk")

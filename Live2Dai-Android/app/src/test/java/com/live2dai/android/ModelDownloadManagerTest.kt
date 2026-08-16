@@ -26,7 +26,7 @@ import java.util.zip.GZIPOutputStream
 /**
  * ModelDownloadManager（V1.2 模块3/4）单元测试。
  *
- * 契约见 docs/plan-v12-plan.schema.json → functions.ModelDownloadManager.* /
+ * 契约见 docs/plans/plan-v12-plan.schema.json → functions.ModelDownloadManager.* /
  * dataModels.DownloadState。plan §9 教训四件事全覆盖验证：
  * - 进度通知：状态流 Idle→Downloading→Verifying→Completed|Failed（终态断言）
  * - 断点续传：.part + Range 头（206 续传 / 200 重头 / 校验失败删 .part）

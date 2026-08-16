@@ -102,10 +102,11 @@ class TestPersonaNewValuePresent(unittest.TestCase):
         self.assertIn('DEFAULT_PERSONA = "白 (Bai)"', _read_text(p),
                       "SettingsRepository DEFAULT_PERSONA 应 == \"白 (Bai)\"")
 
-    def test_p6_proactive_greeting_fallback(self):
+    def test_p6_proactive_greeting_removed_from_core(self):
+        # Wave 5 已把主动陪伴/ProactiveGreetingClient 移出核心；不应再作为核心文件存在。
         p = os.path.join(ROOT, "Live2Dai-Android", "app", "src", "main", "java",
                          "com", "live2dai", "android", "ProactiveGreetingClient.kt")
-        self.assertIn('"白"', _read_text(p), "ProactiveGreetingClient 兜底人设名应为 \"白\"")
+        self.assertFalse(os.path.isfile(p), "ProactiveGreetingClient 已随 Wave5 移出核心，不应存在")
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ import org.mockito.kotlin.whenever
  * VoiceIoController 模块4 LipSync 驱动单元测试（V1.1 方案A：播放状态驱动，V1.2 改由
  * TtsProvider.isSpeaking StateFlow 驱动）。
  *
- * 验证链路（契约 docs/plan-v12-plan.schema.json → functions.VoiceIoController.isSpeaking）：
+ * 验证链路（契约 docs/plans/plan-v12-plan.schema.json → functions.VoiceIoController.isSpeaking）：
  * - 构造时收集各 Provider 的 isSpeaking 组合流（替代 V1.1 EdgeTtsService 回调接线）
  * - 任一 Provider 播放开始（isSpeaking=true）→ 嘴型随机波动动画协程启动，周期性调用 setLipSyncParam
  * - 播放结束（isSpeaking=false）→ 协程取消，嘴型归零 setLipSyncParam(0f)

@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.emptyFlow
 /**
  * Provider 分类（V1.2 模块1，对标 N.E.K.O. tts_client/workers/ 三分类）。
  *
- * 契约见 docs/plan-v12-plan.schema.json → dataModels.TtsProviderCategory：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → dataModels.TtsProviderCategory：
  * - CLOUD_WS:    WebSocket 流式双工（CosyVoice DashScope Realtime / Edge TTS）
  * - CLOUD_HTTP:  HTTP 按句请求（阿里云 REST 等）
  * - LOCAL:       本地推理，零网络依赖（sherpa-onnx / 系统 TTS）
@@ -49,7 +49,7 @@ data class TtsProviderInfo(
 /**
  * TTS Provider 接口 — 所有 TTS 引擎的统一合约（V1.2 模块1，架构地基）。
  *
- * 契约见 docs/plan-v12-plan.schema.json → functions.TtsProvider.*：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → functions.TtsProvider.*：
  * - [speak] 是挂起函数，挂起到播放完成或失败；失败必须抛异常（由调用方/降级链处理），
  *   被 [stop] 打断时抛出 [kotlinx.coroutines.CancellationException]（协程正常取消）。
  * - [stop] 立即停止当前播放（新消息打断），幂等。

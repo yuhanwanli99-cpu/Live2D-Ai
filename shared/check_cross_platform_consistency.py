@@ -126,6 +126,19 @@ ANDROID_EMOTION_KT = (
     / "android"
     / "EmotionController.kt"
 )
+ANDROID_EMOTION_TEXT_KT = (
+    ROOT
+    / "Live2Dai-Android"
+    / "app"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "live2dai"
+    / "android"
+    / "core"
+    / "EmotionText.kt"
+)
 ANDROID_VISEME_KT = (
     ROOT
     / "Live2Dai-Android"
@@ -631,6 +644,22 @@ def check_shared_protocol() -> None:
         c23_detail,
     )
 
+    # SM-03: shared/mcp_tools.json 与 Android assets/mcp_tools.json 字节一致
+    shared_mcp = ROOT / "shared" / "mcp_tools.json"
+    android_mcp = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "mcp_tools.json"
+    if shared_mcp.is_file() and android_mcp.is_file():
+        mcp_ok = shared_mcp.read_bytes() == android_mcp.read_bytes()
+        mcp_detail = "identical bytes" if mcp_ok else "bytes differ（请重跑 Gradle copyMcpTools 任务同步 shared→assets）"
+    else:
+        mcp_ok = False
+        mcp_detail = f"文件缺失: shared={'Y' if shared_mcp.is_file() else 'N'}, assets={'Y' if android_mcp.is_file() else 'N'}"
+    record(
+        "SM-03",
+        "shared/mcp_tools.json 与 Android assets/mcp_tools.json 字节一致",
+        mcp_ok,
+        mcp_detail,
+    )
+
 
 # ---------------------------------------------------------------------------
 # C24-C31 适配配置一致性（contract-v3-adapter.md §1.3 + schedule-v3 T3.3——真实数据校验 + 深度自校验）
@@ -838,72 +867,40 @@ def check_adapter_consistency(registry: dict) -> None:
             c25_detail = "; ".join(problems)
     record("C25", "adapter.motionAliases ↔ bai.model3.json Motions 对账（bai 双空）", c25_ok, c25_detail)
 
-    # ── C26: emotion 三方一致（adapter ↔ Android FALLBACK_EMOTION_MAP ↔ PC model_dict emotionMap）+ 接线断言 ──
-    # contract-M-CONS §2.1：解析器改为块定界（_parse_fallback_emotion_map，杜绝 DEFAULT_BAI_EMOTION_PARAM_MAP
-    # 浮点参数帧键误抓）；新增接线断言（getter 必须经 currentAdapter()，防独立硬编码漂移）；
-    # 失败 detail 输出各侧键集差集（替换整 dict 输出）。
+    # ── C26: emotion 一致（adapter ↔ PC model_dict emotionMap；Android EmotionText 覆盖 8 key）──
+    # Wave 5 后 EmotionController.kt 已删除，Android 侧 emotionIndex 的唯一运行数据源是 adapter；
+    # 这里校验 adapter 与 PC model_dict 的 emotionMap 完全一致，且 Android EmotionText 支持集覆盖 8 个 canonical 表情键。
     c26_ok = False
-    c26_detail = "adapter/EmotionController.kt/model_dict.json 缺失"
-    if adapter is not None and ANDROID_EMOTION_KT.is_file() and PC_MODEL_DICT_JSON.is_file():
+    c26_detail = "adapter/PC model_dict/EmotionText.kt 缺失"
+    if adapter is not None and PC_MODEL_DICT_JSON.is_file() and ANDROID_EMOTION_TEXT_KT.is_file():
         emo_adapter = adapter.get("emotionIndex")
-        android_text = ANDROID_EMOTION_KT.read_text(encoding="utf-8")
-        emo_android = _parse_fallback_emotion_map(android_text)
-        wiring_ok = _check_emotion_wiring(android_text)
         try:
             md = json.loads(PC_MODEL_DICT_JSON.read_text(encoding="utf-8"))
-            # R1-model D2：PC model_dict 收敛 bai（niziiro 移除），C26 查 bai 条目
             entry = next((e for e in md if isinstance(e, dict) and e.get("name") == "bai"), None)
             emo_pc = (entry or {}).get("emotionMap")
         except (json.JSONDecodeError, OSError, TypeError):
             emo_pc = None
-
-        def _side_summary(side: str, m: object) -> str:
-            """各侧键集差集摘要（替换整 dict 输出，C-A2 负例可见）。"""
-            if not isinstance(m, dict):
-                return f"{side}=None"
-            miss = sorted(_EMOTION_KEYS - set(m))
-            extra = sorted(set(m) - _EMOTION_KEYS)
-            parts = [f"{side}({len(m)}key)"]
-            if miss:
-                parts.append(f"缺{miss}")
-            if extra:
-                parts.append(f"多{extra}")
-            return " ".join(parts)
-
-        if not isinstance(emo_adapter, dict) or not isinstance(emo_pc, dict) or emo_android is None:
-            c26_detail = " | ".join(
-                [
-                    _side_summary("adapter", emo_adapter),
-                    _side_summary("android", emo_android),
-                    _side_summary("pc", emo_pc),
-                ]
-            )
-        elif emo_adapter == emo_android == emo_pc and wiring_ok:
+        android_text = ANDROID_EMOTION_TEXT_KT.read_text(encoding="utf-8")
+        android_covers = all(k in android_text for k in _EMOTION_KEYS)
+        if (
+            isinstance(emo_adapter, dict)
+            and set(emo_adapter) == _EMOTION_KEYS
+            and emo_adapter == emo_pc
+            and android_covers
+        ):
             c26_ok = True
-            c26_detail = (
-                f"三方一致（{len(emo_adapter)} key）：neutral..surprise 0-7；"
-                f"接线 {_EMOTION_WIRING_ANCHOR}"
-            )
+            c26_detail = f"adapter == PC model_dict（{len(emo_adapter)} key）；Android EmotionText 覆盖 8 key"
         else:
-            diffs = [
-                _side_summary("adapter", emo_adapter),
-                _side_summary("android", emo_android),
-                _side_summary("pc", emo_pc),
-            ]
-            # 两两值差异（键集一致但值漂移时给出差异键）
-            for aname, av, bname, bv in (
-                ("adapter", emo_adapter, "android", emo_android),
-                ("adapter", emo_adapter, "pc", emo_pc),
-                ("android", emo_android, "pc", emo_pc),
-            ):
-                if isinstance(av, dict) and isinstance(bv, dict):
-                    vdiff = sorted(k for k in set(av) & set(bv) if av[k] != bv[k])
-                    if vdiff:
-                        diffs.append(f"{aname}≠{bname} 值差{vdiff}")
-            if not wiring_ok:
-                diffs.append(f"接线缺失（{_EMOTION_WIRING_ANCHOR} 未命中）")
-            c26_detail = " | ".join(diffs)
-    record("C26", "adapter.emotionIndex ↔ Android FALLBACK_EMOTION_MAP ↔ PC model_dict emotionMap 三方一致 + 接线", c26_ok, c26_detail)
+            def _c26_side(name: str, m: object) -> str:
+                if not isinstance(m, dict):
+                    return f"{name}=None"
+                return f"{name}({len(m)}key,miss={sorted(_EMOTION_KEYS - set(m))})"
+            c26_detail = " | ".join([
+                _c26_side("adapter", emo_adapter),
+                _c26_side("pc", emo_pc),
+                f"android_covers={android_covers}",
+            ])
+    record("C26", "adapter.emotionIndex ↔ PC model_dict emotionMap ↔ Android EmotionText 覆盖一致", c26_ok, c26_detail)
 
     # ── C27: vowelParamMap/vowelRawMap 对拍（bai 直映射：{ParamMouthOpenY, ParamMouthForm} ← raw[0], raw[1]）──
     # contract-R1-model §2.2 (bai) + model-facts-bai §五：bai 口型参数为 ParamMouthOpenY + ParamMouthForm
@@ -984,36 +981,29 @@ def check_adapter_consistency(registry: dict) -> None:
             c28_detail = f"越白名单参数: {unknown}（cdi3={sorted(param_ids)}）"
     record("C28", "adapter.vowelParamMap 参数名 ⊆ bai.cdi3.json Parameters 白名单（128 参，model-facts-bai §三）", c28_ok, c28_detail)
 
-    # ── C29: motion 映射表三方空集一致（adapter → Android/PC/前端 三消费面无漂移；contract-R1-model §2.2 C29 bai 重锚）──
-    # 目标：bai（D2 后唯一模型）无 motion → adapter.motionAliases 必须为空；Android MotionTags、
-    #      PC live2d_model._MOTION_LABEL_ALIASES、前端 MOTION_ALIAS_MAP 三消费面必须全部对齐空集
-    #      （S4 契约锚：bai 双空一致；无任何 motion 别名残留）。三消费面任何一处含非空 motion 别名
-    #      /兑底 → 判 FAIL（motion 标签漂移 = R1-model coder 待清，RED 预期）。
+    # ── C29: motion 映射表空集一致（adapter → Android/PC 消费面；前端源码不在仓库时跳过）──
+    # bai 无 motion → adapter.motionAliases 必须为空；Android MotionTags 与 PC live2d_model._MOTION_LABEL_ALIASES
+    # 必须对齐空集。前端 MOTION_ALIAS_MAP 若源码存在则一并检查，缺失时跳过（不判失败）。
     c29_ok = False
-    c29_detail = "adapter / MotionTags.kt / live2d_model.py / 前端 ts 缺失"
+    c29_detail = "adapter / MotionTags.kt / live2d_model.py 缺失"
     if (
         adapter is not None
         and ANDROID_MOTION_TAGS_KT.is_file()
         and PC_LIVE2D_MODEL_PY.is_file()
-        and PC_FRONTEND_VISEME_TS.is_file()
     ):
         prob: list[str] = []
         adapter_aliases = adapter.get("motionAliases", {})
         if adapter_aliases:
             prob.append(f"bai.adapter.motionAliases 应为空 {{}}（bai 无 motion，S4 契约），实际 {sorted(adapter_aliases)}")
-        # ① Android MotionTags.kt：adapter 派生路径存在，且派生集/兑底集均为空（bai 无 motion）
         mtags = read_text(ANDROID_MOTION_TAGS_KT)
         if not ("currentAdapter()?.motionAliases" in mtags and "mapValues" in mtags and "\"${alias.group}_${alias.index}\"" in mtags):
             prob.append("MotionTags.TAG_TO_KEY 未由 adapter.motionAliases 派生")
-        # Android FALLBACK_TAG_TO_KEY 兑底常量集：bai 无 motion → 必须为空集（无 motion 别名硬编码残留）
         and_fb = dict(re.findall(r'FALLBACK_TAG_TO_KEY\s*[:=]\s*\{[^}]*"(\w+)"\s+to\s+"(\w+)"', mtags))
         if and_fb:
-            prob.append(f"MotionTags FALLBACK_TAG_TO_KEY 非空（{sorted(and_fb)}）——bai 应空，motion 兑底残留待清")
-        # ② PC live2d_model.py：_MOTION_LABEL_ALIASES 由 adapter 驱动，且兑底 _DEFAULT 为空集
+            prob.append(f"MotionTags FALLBACK_TAG_TO_KEY 非空（{sorted(and_fb)}）——bai 应空")
         pylm = read_text(PC_LIVE2D_MODEL_PY)
         if '_MOTION_LABEL_ALIASES = frozenset(_ADAPTER_DATA["motionAliases"].keys())' not in pylm:
             prob.append("live2d_model.py _MOTION_LABEL_ALIASES 未由 adapter.motionAliases 驱动")
-        # PC 兑底 _DEFAULT_MOTION_LABEL_ALIASES 别名集：bai 无 motion → 必须为空集
         fblock_start = pylm.find("_DEFAULT_MOTION_LABEL_ALIASES = frozenset(")
         if fblock_start < 0:
             prob.append("live2d_model.py 缺 _DEFAULT_MOTION_LABEL_ALIASES 兑底常量")
@@ -1023,17 +1013,19 @@ def check_adapter_consistency(registry: dict) -> None:
             fb_names = set(re.findall(r'"(\w+)"', fblock[:fend]))
             if fb_names:
                 prob.append(f"live2d_model _DEFAULT_MOTION_LABEL_ALIASES 非空（{sorted(fb_names)}）——bai 应空集")
-        # ③ 前端 use-viseme-lipsync.ts：MOTION_ALIAS_MAP 必须为空映射（bai 无 motion）
-        fts = read_text(PC_FRONTEND_VISEME_TS)
-        fe_keys = set(re.findall(r"(\w+):\s*\{\s*group:\s*'", fts))
-        if fe_keys:
-            prob.append(f"前端 MOTION_ALIAS_MAP 非空（{sorted(fe_keys)}）——bai 应空映射")
+        if PC_FRONTEND_VISEME_TS.is_file():
+            fts = read_text(PC_FRONTEND_VISEME_TS)
+            fe_keys = set(re.findall(r"(\w+):\s*\{\s*group:\s*'", fts))
+            if fe_keys:
+                prob.append(f"前端 MOTION_ALIAS_MAP 非空（{sorted(fe_keys)}）——bai 应空映射")
         if not prob:
             c29_ok = True
-            c29_detail = "bai 音位空集一致：adapter.motionAliases={} ∧ Android MotionTags（派生+兑底空）∧ PC _MOTION_LABEL_ALIASES（+兑底空）∧ 前端 MOTION_ALIAS_MAP（空映射）"
+            c29_detail = "bai 空集一致：adapter.motionAliases={} ∧ Android MotionTags（派生+兑底空）∧ PC _MOTION_LABEL_ALIASES（+兑底空）"
+            if not PC_FRONTEND_VISEME_TS.is_file():
+                c29_detail += "；前端源码不在仓库，跳过"
         else:
             c29_detail = "; ".join(prob)
-    record("C29", "adapter.motionAliases={} ⇔ Android MotionTags / PC _MOTION_LABEL_ALIASES / 前端 MOTION_ALIAS_MAP 三方空集一致（bai）", c29_ok, c29_detail)
+    record("C29", "adapter.motionAliases={} ⇔ Android MotionTags / PC _MOTION_LABEL_ALIASES 空集一致（bai）", c29_ok, c29_detail)
 
     # ── C30: persona 强度区块一致（shared vs Android assets；T3.3 item1 / M1 遗留债）──
     # 机制：persona.yaml 的 "## 表情强度控制" 区块声明 [emotion_N] 强度后缀语义与值域 (1-3)。

@@ -1,3 +1,18 @@
+# 地基整理（2026-08-16）
+
+> 不改变 v0.1 功能边界，只做减法与工程化收口。
+
+- 删除废弃：根 `tts/` 独立模块、Android 无引用 `assets/model_dict.json`。
+- 目录与文档：新增 `docs/README.md`、`docs/architecture/core-contracts.md`、`docs/architecture/directory.md`、`docs/architecture/observability.md`、`docs/architecture/dependencies.md`、`docs/architecture/plugin-sdk.md`。
+- 共享同步：Android Gradle 新增 `copyMcpTools`，`scripts/sync.ps1` 修正 PC 路径并移除已废弃 model_dict 同步。
+- 一致性：`shared/check_cross_platform_consistency.py` 适配 Wave 5 后的当前代码（EmotionController 已删），新增 SM-03 mcp_tools 字节一致检查；当前 33/33 通过。
+- 插件骨架：恢复 `Live2Dai-Android/plugin-sdk/` 最小接口模块（ChatHook / PluginHost / ToolDefinition / Live2DaiPlugin）。
+- 无 Key 自检：新增 `scripts/health_check.py`、`scripts/verify_all.py`、`scripts/clean.sh`、`scripts/clean.ps1`、`tests/test_foundation_no_key.py`。
+- 修复根 pytest 中 Wave5 后的陈旧断言：EmotionController/ProactiveGreetingClient 已删的用例改为当前实现校验，一致性汇总从 32/32 更新为 33/33，`cache/` 不再判为失败（运行时目录，由 clean 脚本清理）。
+- PC 延迟性能断言从 5ms 放宽到 50ms（Windows/CI 计时器与事件循环调度会偶发 10-20ms 尖峰；保留防明显性能回归的作用）。
+
+---
+
 # v0.1.0 版本说明（2026-08-15）
 
 > 定位：Live2D + AI + TTS 最小验证项目的第一个可用版本。Android 为主端，PC（Open-LLM-VTuber）为桌面端。

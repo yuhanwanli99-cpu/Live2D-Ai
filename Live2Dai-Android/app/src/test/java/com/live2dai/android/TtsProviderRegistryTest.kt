@@ -14,7 +14,7 @@ import org.junit.Test
 /**
  * TtsProviderRegistry（V1.2 模块1 注册表 + 降级链）单元测试。
  *
- * 契约见 docs/plan-v12-plan.schema.json → functions.TtsProviderRegistry.*：
+ * 契约见 docs/plans/plan-v12-plan.schema.json → functions.TtsProviderRegistry.*：
  * - register：注册（同名覆盖）
  * - cascade：按 priority 升序的降级链（0 最高，先尝试）
  * - get：按 id 查找

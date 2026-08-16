@@ -163,12 +163,20 @@ cd Live2Dai-pc
 ### 运行测试 | Run Tests
 
 ```bash
+# 本地健康自检（无 Key、无网络）
+python scripts/health_check.py
+
+# 一键地基验证：健康检查 + 一致性 + 根测试
+python scripts/verify_all.py
+
 # Android 端测试
 cd Live2Dai-Android && ./gradlew test
 
 # Windows 端测试
 cd .. && python -m pytest tests/
 ```
+
+> 地基文档索引见 [docs/README.md](docs/README.md)，目录约定见 [docs/architecture/directory.md](docs/architecture/directory.md)。
 
 ---
 
@@ -401,11 +409,12 @@ cd Live2Dai-Android && ./gradlew test
 | 文档 | 说明 |
 | ------ | ------ |
 | [HANDOVER.md](./HANDOVER.md) | 🔥 项目交接文档（必读） |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 架构详细说明 |
+| [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) | 架构详细说明 |
+| [docs/README.md](./docs/README.md) | 文档索引 |
 | [docs/SUMMARY.md](./docs/SUMMARY.md) | 项目总结 |
 | [shared/persona.yaml](./shared/persona.yaml) | 人设（单源真理） |
-| [docs/renderer-algorithm.md] | 渲染算法说明 |
-| [docs/mask-premake-algorithm.md] | 裁剪掩码算法 |
+| [docs/architecture/renderer-algorithm.md](./docs/architecture/renderer-algorithm.md) | 渲染算法说明 |
+| [docs/architecture/mask-premake-algorithm.md](./docs/architecture/mask-premake-algorithm.md) | 裁剪掩码算法 |
 
 ---
 
