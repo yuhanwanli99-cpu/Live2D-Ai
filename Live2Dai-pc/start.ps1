@@ -263,9 +263,8 @@ function Test-FFmpeg {
         # not found
     }
     Write-Status "ffmpeg" $false "未安装"
-    Write-Host "  -> ASR (faster-whisper) 需要 ffmpeg，安装命令:" -ForegroundColor Yellow
-    Write-Host "     winget install Gyan.FFmpeg" -ForegroundColor Yellow
-    Write-Host "     或: https://ffmpeg.org/download.html" -ForegroundColor Yellow
+    Write-Host "  -> 后端 ASR (faster-whisper) 需要 ffmpeg；浏览器语音输入使用 Web Speech API，不依赖 ffmpeg" -ForegroundColor Yellow
+    Write-Host "     如需后端 ASR，安装命令: winget install Gyan.FFmpeg" -ForegroundColor Yellow
     return $false
 }
 
@@ -287,9 +286,9 @@ function Test-ElectronFrontend {
             return $true
         }
     }
-    Write-Status "Electron 前端" $false "未找到"
-    Write-Host "  => 请从以下地址下载安装:" -ForegroundColor Yellow
-    Write-Host "     https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/releases" -ForegroundColor Yellow
+    Write-Status "Electron 前端" $false "未找到（可选）"
+    Write-Host "  => 浏览器前端已由后端托管，直接访问 http://localhost:12393 即可" -ForegroundColor Yellow
+    Write-Host "     如需桌面壳，可下载: https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/releases" -ForegroundColor Yellow
     return $false
 }
 
@@ -389,7 +388,7 @@ function Show-SummaryPanel {
     if ($Script:FrontendOk) {
         Write-Host "║  $feIcon Electron  已安装 (Open-LLM-VTuber)      " -ForegroundColor $feColor
     } else {
-        Write-Host "║  $feIcon Electron  未安装 (前端不可用)          " -ForegroundColor $feColor
+        Write-Host "║  $feIcon Electron  未安装 (可选，浏览器可用)      " -ForegroundColor $feColor
     }
 
     # API Keys

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from pathlib import Path
 
 import chardet
 from loguru import logger
@@ -68,8 +69,18 @@ def extract_motion_keyword(text: str) -> str | None:
 
 # ── 适配配置（shared/model-adapter/bai.adapter.json，双端共享单源）──
 def _load_model_adapter(
-    adapter_path: str = "shared/model-adapter/bai.adapter.json",
+    adapter_path: str | None = None,
 ) -> dict | None:
+    """读适配配置；缺失/损坏 → None（调用方用现有硬编码兑底，行为不变）。
+
+    默认路径按仓库根解析：`<repo>/shared/model-adapter/bai.adapter.json`，
+    避免从 `Live2Dai-pc/open-llm-vtuber` 目录启动时相对路径失效。
+    """
+    if adapter_path is None:
+        adapter_path = str(
+            Path(__file__).resolve().parent.parent.parent.parent.parent
+            / "shared" / "model-adapter" / "bai.adapter.json"
+        )
     """读适配配置；缺失/损坏 → None（调用方用现有硬编码兑底，行为不变）。
 
     返回 dict 形如 adapter JSON（§1.2 schema）：
