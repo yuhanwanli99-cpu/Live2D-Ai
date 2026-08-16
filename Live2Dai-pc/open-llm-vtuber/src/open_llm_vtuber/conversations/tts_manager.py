@@ -288,6 +288,7 @@ class TTSTaskManager:
     ) -> None:
         """带并发限流的 TTS 合成包装（信号量内执行，保证同时合成数 ≤ 上限）。"""
         async with self._semaphore:
+            _start = time.monotonic()
             await self._process_tts(
                 tts_text=tts_text,
                 display_text=display_text,
@@ -296,6 +297,10 @@ class TTSTaskManager:
                 mood_tier=mood_tier,
                 sequence_number=sequence_number,
                 emotion_payload=emotion_payload,
+            )
+            logger.info(
+                f"[TTS] seq={sequence_number} text={tts_text[:20]!r} "
+                f"synth_ms={(time.monotonic() - _start) * 1000:.0f}"
             )
 
     async def _process_tts(
