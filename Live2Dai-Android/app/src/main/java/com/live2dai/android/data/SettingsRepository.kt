@@ -119,6 +119,11 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_ASR_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_ASR_ENABLED, value).apply()
 
+    /** ASR 引擎：system（系统 SpeechRecognizer）或 sherpa（离线 SenseVoice） */
+    var asrEngine: String
+        get() = prefs.getString(KEY_ASR_ENGINE, DEFAULT_ASR_ENGINE) ?: DEFAULT_ASR_ENGINE
+        set(value) = prefs.edit().putString(KEY_ASR_ENGINE, value).apply()
+
     // ─── Persona ───
 
     var personaName: String
@@ -191,6 +196,8 @@ class SettingsRepository(context: Context) {
         const val KEY_COSYVOICE_RATE = "cosyvoice_rate"
         const val KEY_COSYVOICE_PITCH = "cosyvoice_pitch"
         const val KEY_ASR_ENABLED = "asr_enabled"
+        const val KEY_ASR_ENGINE = "asr_engine"
+        const val DEFAULT_ASR_ENGINE = "system"
         const val KEY_PERSONA = "persona"
         const val KEY_SELECTED_MODEL_ID = "selected_model_id"
         const val KEY_FREE_QUOTA_NOTICE = "free_quota_notice_dismissed"

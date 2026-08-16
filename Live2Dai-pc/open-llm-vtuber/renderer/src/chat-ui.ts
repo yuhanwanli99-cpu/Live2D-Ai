@@ -20,6 +20,8 @@ export interface ChatPanel {
   addMessage(msg: ChatMessage): void;
   /** 连接状态提示（顶部小字：已连接 / 未连接） */
   setConnected(connected: boolean): void;
+  /** TTS 播放状态提示（如 "🔊 播放中" / "TTS 空闲"） */
+  setTtsStatus(status: string): void;
   /** 销毁面板 DOM（可选） */
   destroy(): void;
 }
@@ -42,6 +44,7 @@ export function initChatPanel(
   panel.innerHTML = `
     <div class="chat-header">
       <span class="chat-title">白 · Live2Dai</span>
+      <span class="chat-tts-status">TTS 空闲</span>
       <span class="chat-status">未连接</span>
     </div>
     <div class="chat-messages"></div>
@@ -58,6 +61,7 @@ export function initChatPanel(
   const sendBtn = panel.querySelector<HTMLButtonElement>('.chat-send')!;
   const micBtn = panel.querySelector<HTMLButtonElement>('.chat-mic')!;
   const statusEl = panel.querySelector<HTMLElement>('.chat-status')!;
+  const ttsStatusEl = panel.querySelector<HTMLElement>('.chat-tts-status')!;
 
   const addMessage = (msg: ChatMessage): void => {
     const row = document.createElement('div');
@@ -135,6 +139,9 @@ export function initChatPanel(
     setConnected(connected: boolean) {
       statusEl.textContent = connected ? '已连接' : '未连接';
       statusEl.classList.toggle('chat-status-ok', connected);
+    },
+    setTtsStatus(status: string) {
+      ttsStatusEl.textContent = status;
     },
     destroy() {
       panel.remove();

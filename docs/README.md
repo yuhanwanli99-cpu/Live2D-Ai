@@ -31,6 +31,7 @@
 
 ## 验收与验证
 
+- [冒烟测试清单](verification/smoke-checklist.md)
 - [桌面端验证](verification/verification-win.md)
 - 验收报告：`verification/acceptance-metrics-report*.md`
 - 测试任务：`plans/test-*.md`

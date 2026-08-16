@@ -2,6 +2,9 @@ package com.live2dai.android
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -10,18 +13,22 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 语音输入控制器（P0 最小闭环）。
+ * 语音输入控制器（P0 细化）。
  *
- * 基于 Android 系统 [SpeechRecognizer]（API 26+），不引入额外依赖。
- * 识别结果通过回调交给核心环路（LoopCoordinator.sendMessage）。
+ * 支持两种引擎：
+ * - system：Android 系统 [SpeechRecognizer]（默认，无需离线模型）
+ * - sherpa：离线 sherpa-onnx SenseVoice（需下载模型，[SherpaAsrEngine]）
  *
  * 状态流：[VoiceInputState]。
  */
 class VoiceInputController(
     private val context: Context,
     private val language: String = "zh-CN",
+    private val sherpaEngine: SherpaAsrEngine? = null,
+    private val sherpaSampleRate: Int = 16000,
 ) {
     private val tag = "VoiceInput"
 
@@ -30,6 +37,12 @@ class VoiceInputController(
 
     private var recognizer: SpeechRecognizer? = null
     private var onResult: ((String) -> Unit)? = null
+
+    // ── sherpa 离线录音状态 ──
+    private var audioRecord: AudioRecord? = null
+    private var recordingThread: Thread? = null
+    private val recording = AtomicBoolean(false)
+    private val pcmChunks = ArrayList<ShortArray>()
 
     val isListening: Boolean get() = _state.value == VoiceInputState.Listening
 
@@ -45,10 +58,45 @@ class VoiceInputController(
     fun start(onResult: (String) -> Unit) {
         if (_state.value == VoiceInputState.Listening) return
         this.onResult = onResult
+        if (sherpaEngine != null) {
+            startOfflineRecording()
+        } else {
+            startSystemRecognition()
+        }
+    }
+
+    fun stop() {
+        if (sherpaEngine != null) {
+            stopOfflineRecording()
+        } else {
+            recognizer?.stopListening()
+        }
+    }
+
+    fun cancel() {
+        recording.set(false)
+        recordingThread?.join(500)
+        recordingThread = null
+        releaseAudioRecord()
+        pcmChunks.clear()
+        recognizer?.cancel()
+        recognizer?.destroy()
+        recognizer = null
+        onResult = null
+        _state.value = VoiceInputState.Idle
+    }
+
+    fun destroy() {
+        cancel()
+    }
+
+    // ── 系统 SpeechRecognizer ──
+
+    private fun startSystemRecognition() {
         try {
             val sr = SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
             recognizer = sr
-            sr.setRecognitionListener(listener)
+            sr.setRecognitionListener(systemListener)
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -69,26 +117,7 @@ class VoiceInputController(
         }
     }
 
-    fun stop() {
-        recognizer?.stopListening()
-        // 状态由回调推进到 Recognizing/Idle；这里不强制置 Idle，避免吞掉结果。
-    }
-
-    fun cancel() {
-        recognizer?.cancel()
-        recognizer?.destroy()
-        recognizer = null
-        onResult = null
-        _state.value = VoiceInputState.Idle
-    }
-
-    fun destroy() {
-        recognizer?.destroy()
-        recognizer = null
-        onResult = null
-    }
-
-    private val listener = object : RecognitionListener {
+    private val systemListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
             _state.value = VoiceInputState.Listening
         }
@@ -137,5 +166,95 @@ class VoiceInputController(
         override fun onPartialResults(partialResults: Bundle?) = Unit
 
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
+
+    // ── sherpa 离线录音识别 ──
+
+    private fun startOfflineRecording() {
+        val minBuf = AudioRecord.getMinBufferSize(
+            sherpaSampleRate,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBuf <= 0) {
+            _state.value = VoiceInputState.Error("录音初始化失败")
+            return
+        }
+        try {
+            val record = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sherpaSampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBuf.coerceAtLeast(4096) * 2
+            )
+            audioRecord = record
+            pcmChunks.clear()
+            recording.set(true)
+            _state.value = VoiceInputState.Listening
+            record.startRecording()
+            recordingThread = Thread {
+                val buf = ShortArray(minBuf.coerceAtLeast(4096) / 2)
+                while (recording.get()) {
+                    val read = try {
+                        record.read(buf, 0, buf.size)
+                    } catch (e: Exception) {
+                        break
+                    }
+                    if (read > 0) {
+                        synchronized(pcmChunks) {
+                            pcmChunks.add(buf.copyOf(read))
+                        }
+                    }
+                }
+            }.apply { start() }
+        } catch (e: Exception) {
+            Log.w(tag, "AudioRecord start failed: ${e.message}")
+            _state.value = VoiceInputState.Error(e.message ?: "无法启动离线录音")
+            releaseAudioRecord()
+        }
+    }
+
+    private fun stopOfflineRecording() {
+        if (!recording.getAndSet(false)) return
+        recordingThread?.join(1500)
+        recordingThread = null
+        releaseAudioRecord()
+
+        val total = synchronized(pcmChunks) { pcmChunks.sumOf { it.size } }
+        if (total == 0) {
+            _state.value = VoiceInputState.Idle
+            onResult = null
+            return
+        }
+        val all = ShortArray(total)
+        var offset = 0
+        synchronized(pcmChunks) {
+            for (chunk in pcmChunks) {
+                chunk.copyInto(all, offset)
+                offset += chunk.size
+            }
+            pcmChunks.clear()
+        }
+        val floats = FloatArray(all.size) { all[it] / 32768f }
+        _state.value = VoiceInputState.Recognizing
+        val text = sherpaEngine?.recognize(floats, sherpaSampleRate)?.trim().orEmpty()
+        _state.value = VoiceInputState.Idle
+        if (text.isNotEmpty()) {
+            onResult?.invoke(text)
+        }
+        onResult = null
+    }
+
+    private fun releaseAudioRecord() {
+        try {
+            audioRecord?.stop()
+        } catch (_: Throwable) {
+        }
+        try {
+            audioRecord?.release()
+        } catch (_: Throwable) {
+        }
+        audioRecord = null
     }
 }

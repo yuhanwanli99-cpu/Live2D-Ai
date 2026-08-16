@@ -26,6 +26,8 @@ export class WsBridge {
   onSubtitle: ((text: DisplayText) => void) | null = null;
   /** 连接状态回调（onopen/onclose，聊天面板状态指示用） */
   onConnectionChange: ((connected: boolean) => void) | null = null;
+  /** TTS 播放状态回调（播放中/空闲） */
+  onTtsStatus: ((status: string) => void) | null = null;
 
   private url: string;
   private ws: WebSocket | null = null;
@@ -121,9 +123,15 @@ export class WsBridge {
   private audioPlaying = false;
 
   private playAudioQueue(): void {
-    if (this.audioPlaying || this.audioQueue.length === 0) return;
+    if (this.audioPlaying || this.audioQueue.length === 0) {
+      if (!this.audioPlaying && this.audioQueue.length === 0) {
+        this.onTtsStatus?.('TTS 空闲');
+      }
+      return;
+    }
     const dataUri = this.audioQueue.shift()!;
     this.audioPlaying = true;
+    this.onTtsStatus?.('🔊 播放中');
     try {
       const el = new Audio(dataUri);
       el.onended = () => {

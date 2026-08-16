@@ -144,8 +144,20 @@ class ModelDownloadManager(
             requiredCompanions = listOf("tokens.txt"),
         )
 
-        /** 全部模型清单（供 UI 遍历）——K1 单引擎：仅 Kokoro（ASR 链已随 Wave 5 删除） */
-        val CATALOG: List<ModelSpec> = listOf(KOKORO_TTS)
+        /** SenseVoice 离线 ASR（P0 细化：本地语音识别，不依赖系统服务） */
+        val SENSEVOICE_ASR = ModelSpec(
+            id = "sensevoice_asr",
+            name = "SenseVoice 离线 ASR",
+            fileName = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+            url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+            expectedSha256 = null, // TODO(sha256): 真机下载后回填
+            sizeBytes = 156_000_000L,
+            modelFileCandidates = listOf("model.int8.onnx", "model.onnx"),
+            requiredCompanions = listOf("tokens.txt"),
+        )
+
+        /** 全部模型清单（Kokoro TTS + SenseVoice ASR） */
+        val CATALOG: List<ModelSpec> = listOf(KOKORO_TTS, SENSEVOICE_ASR)
     }
 
     /** 各下载目标的状态流（destPath / specId → 状态），供 UI 查询 */

@@ -452,6 +452,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
         chatPanel.addMessage({ role: 'system', content: '连接断开，重连中…' });
       }
     };
+    wsBridge.onTtsStatus = (status) => {
+      chatPanel.setTtsStatus(status);
+    };
   } else {
     // 无聊天容器（测试环境）→ 字幕仍走 console
     wsBridge.onSubtitle = (text) => {

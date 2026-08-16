@@ -138,7 +138,10 @@ class MainActivity : ComponentActivity() {
         LLMProviderManager.init(applicationContext)
 
         voiceIo = VoiceIoController(applicationContext)
-        voiceInput = VoiceInputController(applicationContext)
+        voiceInput = VoiceInputController(
+            applicationContext,
+            sherpaEngine = createSherpaAsrEngine(),
+        )
         speechSink = SpeechSinkAdapter(voiceIo)
         llmLink = buildHttpLlmLink()
         coordinator = LoopWire.assemble(
@@ -207,6 +210,20 @@ class MainActivity : ComponentActivity() {
         appScope.cancel()
         voiceInput.destroy()
         voiceIo.release()
+    }
+
+    /** 按设置创建 sherpa 离线 ASR 引擎；未启用/未下载/不可用 → null（自动回退系统识别）。 */
+    private fun createSherpaAsrEngine(): SherpaAsrEngine? {
+        if (SettingsRepository(this).asrEngine != "sherpa") return null
+        SherpaOnnxEngineRegistry.tryBootstrap()
+        val factory = SherpaOnnxEngineRegistry.factoryOrNull() ?: return null
+        val manager = ModelDownloadManager(applicationContext)
+        val spec = ModelDownloadManager.SENSEVOICE_ASR
+        if (!manager.isDownloaded(spec)) {
+            Log.w(TAG, "SenseVoice ASR 模型未下载，使用系统语音识别")
+            return null
+        }
+        return factory.createAsr(manager.modelDir(spec))
     }
 
     /** HttpLlmLink 构造：baseUrl/apiKey 取现有取值点（LLMProviderManager.getActiveProvider）。 */

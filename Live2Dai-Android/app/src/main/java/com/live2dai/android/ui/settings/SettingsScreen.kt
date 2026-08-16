@@ -86,6 +86,8 @@ fun SettingsScreen(
     var showModelMenu by remember { mutableStateOf(false) }
     var showTtsVoiceMenu by remember { mutableStateOf(false) }
     var asrEnabled by remember { mutableStateOf(repo.asrEnabled) }
+    var asrEngine by remember { mutableStateOf(repo.asrEngine) }
+    var showAsrEngineMenu by remember { mutableStateOf(false) }
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
@@ -423,6 +425,46 @@ fun SettingsScreen(
                         repo.asrEnabled = it
                     }
                 )
+            }
+            Text(
+                "识别引擎",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            ExposedDropdownMenuBox(
+                expanded = showAsrEngineMenu,
+                onExpandedChange = { showAsrEngineMenu = it }
+            ) {
+                OutlinedTextField(
+                    value = if (asrEngine == "sherpa") "离线 SenseVoice（需下载模型）" else "系统语音识别",
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showAsrEngineMenu) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = showAsrEngineMenu,
+                    onDismissRequest = { showAsrEngineMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("系统语音识别") },
+                        onClick = {
+                            asrEngine = "system"
+                            repo.asrEngine = "system"
+                            showAsrEngineMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("离线 SenseVoice（需下载模型）") },
+                        onClick = {
+                            asrEngine = "sherpa"
+                            repo.asrEngine = "sherpa"
+                            showAsrEngineMenu = false
+                        }
+                    )
+                }
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
