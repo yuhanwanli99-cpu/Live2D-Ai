@@ -45,6 +45,26 @@ def init_config_routes(
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "key_env": "DASHSCOPE_API_KEY",
         },
+        "openrouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "key_env": "OPENROUTER_API_KEY",
+        },
+        "openai_compatible": {
+            "base_url": "",
+            "key_env": "OPENAI_API_KEY",
+        },
+    }
+    MODEL_CATALOG = {
+        "deepseek_llm": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "zhipu_llm": ["glm-4.7-flash", "glm-4.6v"],
+        "zhipu_free_llm": ["glm-4.7-flash"],
+        "qwen_llm": ["qwen3.7-flash", "qwen3.7-plus", "qwen-max"],
+        "openrouter": [
+            "openrouter/auto",
+            "deepseek/deepseek-chat",
+            "qwen/qwen3-7b",
+        ],
+        "openai_compatible": [],
     }
     TTS_DEFAULTS = {
         "cosyvoice_cloud": {"key_env": "ALIYUN_API_KEY"},
@@ -108,15 +128,22 @@ def init_config_routes(
         sys_cfg = data.get("system_config", {}) or {}
         persona = _load_persona()
 
+        provider_ids = list(dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys())))
         llm_provider_list = []
-        for pid, cfg in llm_configs.items():
-            cfg = cfg or {}
+        for pid in provider_ids:
+            cfg = llm_configs.get(pid, {}) or {}
             default = LLM_DEFAULTS.get(pid, {})
             key_env = default.get("key_env")
+            known_models = MODEL_CATALOG.get(pid, [])
+            current_model = cfg.get("model", "")
+            if not current_model and known_models:
+                current_model = known_models[0]
             llm_provider_list.append(
                 {
                     "id": pid,
-                    "model": cfg.get("model", ""),
+                    "name": default.get("name", pid),
+                    "model": current_model,
+                    "models": known_models,
                     "base_url": cfg.get("base_url", default.get("base_url", "")),
                     "temperature": cfg.get("temperature", 0.8),
                     "max_tokens": cfg.get("max_tokens", None),
@@ -145,7 +172,7 @@ def init_config_routes(
 
         return {
             "llm_provider": basic.get("llm_provider", ""),
-            "llm_providers": list(llm_configs.keys()),
+            "llm_providers": list(dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys()))),
             "llm_configs": llm_provider_list,
             "tts_model": tts_cfg.get("tts_model", ""),
             "tts_providers": [
@@ -216,9 +243,12 @@ def init_config_routes(
             for pid, override in llm_overrides.items():
                 if not isinstance(override, dict):
                     continue
-                target = existing_llm.setdefault(pid, {})
                 if pid not in existing_llm:
-                    target["llm_api_key"] = "${OPENAI_API_KEY}"
+                    target = existing_llm[pid] = {}
+                    new_key_env = LLM_DEFAULTS.get(pid, {}).get("key_env") or "OPENAI_API_KEY"
+                    target["llm_api_key"] = "${" + new_key_env + "}"
+                else:
+                    target = existing_llm[pid]
                 for field in ("model", "base_url", "temperature", "max_tokens"):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]

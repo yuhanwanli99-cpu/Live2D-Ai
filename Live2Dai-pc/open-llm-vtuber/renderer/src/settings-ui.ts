@@ -14,7 +14,9 @@
 
 interface LlmProviderCfg {
   id: string;
+  name?: string;
   model: string;
+  models?: string[];
   base_url: string;
   temperature: number;
   max_tokens?: number | null;
@@ -74,6 +76,7 @@ const LLM_PROVIDER_LABELS: Record<string, string> = {
   zhipu_llm: '智谱 GLM',
   zhipu_free_llm: '免费 GLM',
   qwen_llm: 'Qwen',
+  openrouter: 'OpenRouter',
   openai_compatible: 'OpenAI 兼容',
 };
 
@@ -263,11 +266,14 @@ export function initSettingsPanel(
       card.dataset.provider = p.id;
       card.innerHTML = `
         <div class="settings-card-title">
-          <span>${providerLabel(p.id, LLM_PROVIDER_LABELS)} <span class="settings-card-sub">${esc(p.id)}</span></span>
+          <span>${esc(p.name || providerLabel(p.id, LLM_PROVIDER_LABELS))} <span class="settings-card-sub">${esc(p.id)}</span></span>
           <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
         </div>
         <div class="settings-card-grid">
-          <label class="settings-row"><span>模型</span><input class="llm-model" type="text" value="${esc(p.model)}" /></label>
+          <label class="settings-row"><span>模型</span>
+            <input class="llm-model" type="text" list="llm-models-${esc(p.id)}" value="${esc(p.model)}" placeholder="选择或输入模型" />
+            <datalist id="llm-models-${esc(p.id)}">${(p.models || []).map(m => `<option value="${esc(m)}"></option>`).join('')}</datalist>
+          </label>
           <label class="settings-row"><span>Base URL</span><input class="llm-base-url" type="text" value="${esc(p.base_url)}" /></label>
           <label class="settings-row"><span>Temperature</span><input class="llm-temperature" type="number" step="0.1" min="0" max="2" value="${p.temperature ?? 0.8}" /></label>
           <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="${p.max_tokens ?? ''}" /></label>
@@ -319,7 +325,8 @@ export function initSettingsPanel(
       { env: 'DEEPSEEK_API_KEY', label: 'DeepSeek', provider: 'deepseek_llm' },
       { env: 'ZHIPU_API_KEY', label: '智谱 GLM', provider: 'zhipu_llm' },
       { env: 'DASHSCOPE_API_KEY', label: 'Qwen / DashScope', provider: 'qwen_llm' },
-      { env: 'OPENAI_API_KEY', label: 'OpenAI 兼容', provider: '' },
+      { env: 'OPENROUTER_API_KEY', label: 'OpenRouter', provider: 'openrouter' },
+      { env: 'OPENAI_API_KEY', label: 'OpenAI 兼容', provider: 'openai_compatible' },
     ];
     keyCardsEl.innerHTML = '';
     for (const item of keys) {
