@@ -23,7 +23,16 @@ cd F:\Live2Dai\Live2Dai-pc
 
 ## 设置 / Dashboard
 
-聊天面板右上角的 **⚙** 可打开轻量设置页，支持切换 LLM / TTS / ASR、填写 API Key、修改角色名 / 端口 / FPS。保存后会写入 `conf.yaml` 与仓库根 `.env`，**重启后生效**。
+聊天面板右上角的 **⚙** 可打开完整设置中心，包含：
+
+- **对话/LLM**：切换 LLM Provider、修改模型 / Base URL / 温度、测试连接
+- **语音/TTS**：切换 TTS / ASR、修改音色 / 模型 / WebSocket URL、试听
+- **形象/Live2D**：查看模型列表、切换模型
+- **API Keys**：集中管理 DeepSeek / 智谱 / Qwen / OpenAI 兼容 Key
+- **人设/提示词**：编辑 `shared/persona.yaml` 的系统提示词与人设参数
+- **系统**：端口 / FPS / 日志级别，以及 `conf.yaml` 原始 YAML 设定树
+
+保存后会写入 `conf.yaml`、`shared/persona.yaml` 与仓库根 `.env`，**重启后生效**。
 
 ## 前置准备
 

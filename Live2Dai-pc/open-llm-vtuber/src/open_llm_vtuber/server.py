@@ -107,7 +107,12 @@ class WebSocketServer:
             init_webtool_routes(default_context_cache=self.default_context_cache),
         )
         # 轻量设置 Dashboard API（需在 static mount 前注册）
-        self.app.include_router(init_config_routes(config_path="conf.yaml"))
+        self.app.include_router(
+            init_config_routes(
+                config_path="conf.yaml",
+                default_context_cache=self.default_context_cache,
+            )
+        )
 
         # Initialize and include proxy routes if proxy is enabled
         system_config = config.system_config
