@@ -161,10 +161,122 @@
       .chat-send:active {
         background: #3f42c8;
       }
+      .chat-settings {
+        margin-left: 6px;
+        padding: 4px 8px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .chat-settings:hover {
+        background: rgba(255,255,255,0.16);
+      }
+
+      /* ── 设置 / Dashboard 面板 ── */
+      .settings-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(4px);
+      }
+      .settings-box {
+        width: 360px;
+        max-height: 88vh;
+        display: flex;
+        flex-direction: column;
+        background: #1c1c24;
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 14px;
+        box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+        color: #f0f0f2;
+        overflow: hidden;
+      }
+      .settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        font-weight: 600;
+      }
+      .settings-close {
+        border: none;
+        background: transparent;
+        color: #aaa;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .settings-close:hover {
+        color: #fff;
+      }
+      .settings-body {
+        padding: 12px 16px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .settings-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: #bbb;
+      }
+      .settings-row select,
+      .settings-row input {
+        width: 100%;
+        padding: 7px 9px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.07);
+        color: #f0f0f2;
+        font-size: 13px;
+        outline: none;
+      }
+      .settings-row select:focus,
+      .settings-row input:focus {
+        border-color: rgba(99,102,241,0.6);
+      }
+      .settings-status {
+        min-height: 18px;
+        font-size: 12px;
+        color: #a5b4fc;
+      }
+      .settings-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px 16px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+      }
+      .settings-footer button {
+        padding: 7px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .settings-footer .settings-save {
+        background: #6366f1;
+        border-color: #6366f1;
+      }
+      .settings-footer .settings-save:hover {
+        background: #4f52e0;
+      }
     </style>
     <!-- Cubism 4 Core：必须早于 main.ts 加载（pixi-live2d-display 依赖全局 live2dcubismcore） -->
     <script src="./libs/live2dcubismcore.min.js"></script>
-    <script type="module" crossorigin src="./assets/index-BiHNUQIU.js"></script>
+    <script type="module" crossorigin src="./assets/index-BjAaTgVv.js"></script>
   </head>
   <body>
     <div id="canvas"></div>

@@ -3,13 +3,154 @@ import json
 from uuid import uuid4
 import numpy as np
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, UploadFile, File, Response
+from fastapi import APIRouter, WebSocket, UploadFile, File, Response, Request
 from starlette.responses import JSONResponse
 from starlette.websockets import WebSocketDisconnect
 from loguru import logger
+from ruamel.yaml import YAML
 from .service_context import ServiceContext
 from .websocket_handler import WebSocketHandler
 from .proxy_handler import ProxyHandler
+
+
+def init_config_routes(config_path: str = "conf.yaml") -> APIRouter:
+    """轻量设置 Dashboard API：读取/写入 conf.yaml 与仓库根 .env。
+
+    仅暴露常用可调项；保存后需要重启后端生效。
+    """
+    router = APIRouter()
+    config_abs = os.path.abspath(config_path)
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(config_abs)))
+    env_path = os.path.join(repo_root, ".env")
+
+    def _load_yaml():
+        yaml = YAML(typ="rt")
+        yaml.preserve_quotes = True
+        with open(config_abs, "r", encoding="utf-8") as f:
+            return yaml.load(f) or {}
+
+    def _save_yaml(data):
+        yaml = YAML(typ="rt")
+        yaml.preserve_quotes = True
+        yaml.allow_unicode = True
+        with open(config_abs, "w", encoding="utf-8") as f:
+            yaml.dump(data, f)
+
+    def _get_common(data: dict) -> dict:
+        cc = data.get("character_config", {}) or {}
+        agent = (
+            cc.get("agent_config", {}) or {}
+        ).get("agent_settings", {}) or {}
+        basic = agent.get("basic_memory_agent", {}) or {}
+        llm_configs = (
+            (cc.get("agent_config", {}) or {}).get("llm_configs", {}) or {}
+        )
+        asr_cfg = cc.get("asr_config", {}) or {}
+        tts_cfg = cc.get("tts_config", {}) or {}
+        sys_cfg = data.get("system_config", {}) or {}
+        tts_providers = [
+            k
+            for k, v in tts_cfg.items()
+            if k not in ("tts_model", "concurrency_limit")
+            and isinstance(v, dict)
+        ]
+        asr_providers = [
+            k
+            for k, v in asr_cfg.items()
+            if k != "asr_model" and isinstance(v, dict)
+        ]
+        return {
+            "llm_provider": basic.get("llm_provider", ""),
+            "llm_providers": list(llm_configs.keys()),
+            "tts_model": tts_cfg.get("tts_model", ""),
+            "tts_providers": tts_providers,
+            "asr_model": asr_cfg.get("asr_model", "disabled"),
+            "asr_providers": asr_providers,
+            "character_name": cc.get("character_name", ""),
+            "port": sys_cfg.get("port", 12393),
+            "live2d_fps": sys_cfg.get("live2d_fps", 120),
+        }
+
+    @router.get("/api/config")
+    async def get_config():
+        try:
+            data = _load_yaml()
+            return JSONResponse(_get_common(data))
+        except Exception as e:
+            logger.error(f"Failed to read config: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @router.post("/api/config")
+    async def update_config(request: Request):
+        try:
+            payload = await request.json()
+            data = _load_yaml()
+
+            cc = data.setdefault("character_config", {})
+            agent_cfg = cc.setdefault("agent_config", {})
+            settings = agent_cfg.setdefault("agent_settings", {})
+            basic = settings.setdefault("basic_memory_agent", {})
+
+            if "llm_provider" in payload and payload["llm_provider"]:
+                basic["llm_provider"] = payload["llm_provider"]
+            if "tts_model" in payload and payload["tts_model"]:
+                cc.setdefault("tts_config", {})["tts_model"] = payload["tts_model"]
+            if "asr_model" in payload and payload["asr_model"]:
+                cc.setdefault("asr_config", {})["asr_model"] = payload["asr_model"]
+            if "character_name" in payload and payload["character_name"]:
+                cc["character_name"] = payload["character_name"]
+            if "port" in payload and payload["port"]:
+                data.setdefault("system_config", {})["port"] = int(payload["port"])
+            if "live2d_fps" in payload and payload["live2d_fps"]:
+                data.setdefault("system_config", {})["live2d_fps"] = int(
+                    payload["live2d_fps"]
+                )
+
+            _save_yaml(data)
+
+            # 写入仓库根 .env（Key 不落 conf.yaml，避免误提交）
+            api_keys = payload.get("api_keys") or {}
+            if api_keys:
+                lines = []
+                if os.path.exists(env_path):
+                    with open(env_path, "r", encoding="utf-8") as f:
+                        lines = f.read().splitlines()
+                else:
+                    os.makedirs(os.path.dirname(env_path), exist_ok=True)
+                existing = {}
+                for line in lines:
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, _, v = line.partition("=")
+                        existing[k.strip()] = v.strip()
+                changed = False
+                for k, v in api_keys.items():
+                    if v and str(v).strip():
+                        existing[k.strip()] = str(v).strip()
+                        changed = True
+                if changed:
+                    new_lines = []
+                    written = set()
+                    for line in lines:
+                        if "=" in line and not line.strip().startswith("#"):
+                            k, _, _ = line.partition("=")
+                            k = k.strip()
+                            if k in existing:
+                                new_lines.append(f"{k}={existing[k]}")
+                                written.add(k)
+                                continue
+                        new_lines.append(line)
+                    for k, v in existing.items():
+                        if k not in written:
+                            new_lines.append(f"{k}={v}")
+                    with open(env_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(new_lines) + "\n")
+
+            return JSONResponse({"ok": True, "requires_restart": True})
+        except Exception as e:
+            logger.error(f"Failed to update config: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    return router
 
 
 def init_client_ws_route(default_context_cache: ServiceContext) -> APIRouter:

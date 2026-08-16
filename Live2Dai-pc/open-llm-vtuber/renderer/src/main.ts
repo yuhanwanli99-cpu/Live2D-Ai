@@ -25,6 +25,7 @@
 import { Application } from 'pixi.js';
 import { WsBridge } from './ws-bridge';
 import { initChatPanel } from './chat-ui';
+import { initSettingsPanel } from './settings-ui';
 import {
   createInteractionStore,
   wheelScale,
@@ -425,6 +426,11 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     const chatPanel = initChatPanel(chatHost, {
       onSend: (text) => wsBridge.sendText(text),
     });
+    const settingsPanel = initSettingsPanel(document.body);
+    const settingsBtn = chatHost.querySelector<HTMLButtonElement>('.chat-settings');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => settingsPanel.open());
+    }
     // ---- C-M6 重置入口：聊天面板头部「重置模型位置」按钮（main.ts 接线，不重构面板模块） ----
     const chatHeader = chatHost.querySelector('.chat-header');
     if (chatHeader) {

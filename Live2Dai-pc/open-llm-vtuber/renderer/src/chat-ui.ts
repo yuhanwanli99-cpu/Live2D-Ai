@@ -46,6 +46,7 @@ export function initChatPanel(
       <span class="chat-title">白 · Live2Dai</span>
       <span class="chat-tts-status">TTS 空闲</span>
       <span class="chat-status">未连接</span>
+      <button class="chat-settings" type="button" title="设置 / Dashboard">⚙</button>
     </div>
     <div class="chat-messages"></div>
     <div class="chat-input-row">

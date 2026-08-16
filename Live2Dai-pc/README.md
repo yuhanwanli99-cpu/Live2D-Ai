@@ -21,6 +21,10 @@ cd F:\Live2Dai\Live2Dai-pc
 .\start.ps1 -Quiet          # 不打印环境摘要，直接启动后端
 ```
 
+## 设置 / Dashboard
+
+聊天面板右上角的 **⚙** 可打开轻量设置页，支持切换 LLM / TTS / ASR、填写 API Key、修改角色名 / 端口 / FPS。保存后会写入 `conf.yaml` 与仓库根 `.env`，**重启后生效**。
+
 ## 前置准备
 
 ### 1. API Key
