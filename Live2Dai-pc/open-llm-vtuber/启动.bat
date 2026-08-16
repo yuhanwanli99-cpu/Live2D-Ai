@@ -20,7 +20,7 @@ if not exist ".onboarding_done" (
     echo   Welcome to Live2Dai!  ^(=^o.o^=^)
     echo ==================================================
     echo   Zero-config chat ^| browser opens http://localhost:12393
-    echo   LLM: DeepSeek / GLM ^| TTS: Edge TTS ^| ASR: faster-whisper
+    echo   LLM: DeepSeek / GLM ^| TTS: CosyVoice ^| ASR: faster-whisper
     echo ==================================================
     echo.
     type nul > ".onboarding_done"

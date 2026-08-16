@@ -10,6 +10,7 @@ import asyncio
 import uvicorn
 import yaml
 from dotenv import load_dotenv
+from loguru import logger
 
 _project_root = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_project_root)
@@ -18,6 +19,10 @@ os.chdir(_project_root)
 # load_dotenv 默认找 cwd（open-llm-vtuber/），而 .env 在项目根 → 显式指定绝对路径。
 _PROJECT_BASE = os.path.dirname(os.path.dirname(_project_root))  # 项目根 Live2Dai/（上两级）
 load_dotenv(os.path.join(_PROJECT_BASE, ".env"))
+
+# 默认只显示 INFO 以上日志；需要调试时设 LIVE2DAI_LOG_LEVEL=DEBUG
+logger.remove()
+logger.add(sys.stderr, level=os.getenv("LIVE2DAI_LOG_LEVEL", "INFO"))
 
 sys.path.insert(0, os.path.join(_project_root, "src"))
 sys.path.insert(0, _project_root)

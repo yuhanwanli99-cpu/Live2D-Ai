@@ -13,6 +13,14 @@ cd F:\Live2Dai\Live2Dai-pc
 
 双击 `F:\Live2Dai\Live2Dai-pc\启动Live2Dai.bat` 效果相同。
 
+常用启动参数：
+
+```powershell
+.\start.ps1                 # 一键启动（自动检测环境）
+.\start.ps1 -SkipEnvCheck   # 快速启动（跳过自动安装/创建）
+.\start.ps1 -Quiet          # 不打印环境摘要，直接启动后端
+```
+
 ## 前置准备
 
 ### 1. API Key

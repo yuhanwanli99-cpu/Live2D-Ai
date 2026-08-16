@@ -6,7 +6,7 @@ echo ===================================
 echo   Live2Dai - 启动中...
 echo ===================================
 echo.
-echo DeepSeek V4 Flash ^| 120fps ^| Edge TTS
+echo Live2Dai ^| 白 ^| http://localhost:12393
 echo.
 
 powershell -ExecutionPolicy Bypass -File ".\start.ps1"
