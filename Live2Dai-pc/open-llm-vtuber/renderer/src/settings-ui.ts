@@ -26,6 +26,7 @@ interface LlmProviderCfg {
 
 interface TtsProviderCfg {
   id: string;
+  name?: string;
   voice: string;
   model: string;
   ws_url?: string;
@@ -84,11 +85,31 @@ const TTS_PROVIDER_LABELS: Record<string, string> = {
   cosyvoice_cloud: 'CosyVoice',
   qwen_tts: 'Qwen TTS',
   edge_tts: 'Edge TTS',
+  openai_tts: 'OpenAI TTS',
+  azure_tts: 'Azure TTS',
+  minimax_tts: 'MiniMax',
+  siliconflow_tts: 'SiliconFlow TTS',
+  fish_api_tts: 'Fish Audio',
+  spark_tts: 'Spark TTS',
+  gpt_sovits: 'GPT-SoVITS',
+  piper: 'Piper',
   sherpa_onnx: 'Sherpa-ONNX',
+  pyttsx3: 'pyttsx3',
 };
 
 const providerLabel = (id: string, map: Record<string, string>): string =>
   map[id] || id;
+
+const LLM_CATEGORIES = [
+  { id: 'official', label: '官方直连', providers: ['deepseek_llm', 'zhipu_llm', 'qwen_llm', 'openai', 'anthropic'] },
+  { id: 'aggregator', label: '聚合平台', providers: ['openrouter', 'together', 'fireworks', 'groq', 'moonshot', 'mistral', 'siliconflow'] },
+  { id: 'custom', label: '其他 / 自定义', providers: ['opencode', 'opencode_go', 'openai_compatible'] },
+];
+
+const TTS_CATEGORIES = [
+  { id: 'cloud', label: '云端 TTS', providers: ['cosyvoice_cloud', 'qwen_tts', 'openai_tts', 'azure_tts', 'minimax_tts', 'siliconflow_tts', 'fish_api_tts', 'spark_tts'] },
+  { id: 'local', label: '本地 / 免费', providers: ['edge_tts', 'gpt_sovits', 'piper', 'sherpa_onnx', 'pyttsx3'] },
+];
 
 const EMPTY_CONFIG: AppConfig = {
   llm_provider: '',
@@ -125,15 +146,16 @@ export function initSettingsPanel(
         <span>设置 / Dashboard</span>
         <button class="settings-close" type="button" title="关闭">✕</button>
       </div>
-      <div class="settings-tabs">
-        <button class="settings-tab active" type="button" data-tab="llm">对话/LLM</button>
-        <button class="settings-tab" type="button" data-tab="tts">语音/TTS</button>
-        <button class="settings-tab" type="button" data-tab="live2d">形象/Live2D</button>
-        <button class="settings-tab" type="button" data-tab="keys">API Keys</button>
-        <button class="settings-tab" type="button" data-tab="persona">人设/提示词</button>
-        <button class="settings-tab" type="button" data-tab="system">系统</button>
-      </div>
-      <div class="settings-body">
+      <div class="settings-layout">
+        <div class="settings-nav">
+          <button class="settings-tab active" type="button" data-tab="llm">对话/LLM</button>
+          <button class="settings-tab" type="button" data-tab="tts">语音/TTS</button>
+          <button class="settings-tab" type="button" data-tab="live2d">形象/Live2D</button>
+          <button class="settings-tab" type="button" data-tab="keys">API Keys</button>
+          <button class="settings-tab" type="button" data-tab="persona">人设/提示词</button>
+          <button class="settings-tab" type="button" data-tab="system">系统</button>
+        </div>
+        <div class="settings-content">
         <div class="settings-tab-panel active" data-panel="llm">
           <div class="settings-section-title">当前 LLM</div>
           <label class="settings-row">
@@ -214,6 +236,7 @@ export function initSettingsPanel(
             <button class="settings-save-tree" type="button">保存设定树</button>
           </div>
         </div>
+        </div>
       </div>
       <div class="settings-footer">
         <span class="settings-status"></span>
@@ -266,30 +289,54 @@ export function initSettingsPanel(
 
   const renderLlmCards = (): void => {
     llmCardsEl.innerHTML = '';
+    const groups = LLM_CATEGORIES.map((c) => ({ ...c, providers: [] as LlmProviderCfg[] }));
+    const other = { id: 'other', label: '其他', providers: [] as LlmProviderCfg[] };
     for (const p of currentConfig.llm_configs || []) {
-      const card = document.createElement('div');
-      card.className = 'settings-card';
-      card.dataset.provider = p.id;
-      card.innerHTML = `
-        <div class="settings-card-title">
-          <span>${esc(p.name || providerLabel(p.id, LLM_PROVIDER_LABELS))} <span class="settings-card-sub">${esc(p.id)}</span></span>
-          <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
-        </div>
-        <div class="settings-card-grid">
-          <label class="settings-row"><span>模型</span>
-            <input class="llm-model" type="text" list="llm-models-${esc(p.id)}" value="${esc(p.model)}" placeholder="选择或输入模型" />
-            <datalist id="llm-models-${esc(p.id)}">${(p.models || []).map(m => `<option value="${esc(m)}"></option>`).join('')}</datalist>
-          </label>
-          <label class="settings-row"><span>Base URL</span><input class="llm-base-url" type="text" value="${esc(p.base_url)}" /></label>
-          <label class="settings-row"><span>Temperature</span><input class="llm-temperature" type="number" step="0.1" min="0" max="2" value="${p.temperature ?? 0.8}" /></label>
-          <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="${p.max_tokens ?? ''}" /></label>
-        </div>
-        <div class="settings-card-actions">
-          <button class="settings-discover-models" type="button" data-provider="${p.id}" data-key-env="${p.key_env || ''}">获取可用模型</button>
-          <button class="settings-test-llm" type="button" data-provider="${p.id}">测试连接</button>
-        </div>
-      `;
-      llmCardsEl.appendChild(card);
+      const cat = LLM_CATEGORIES.find((c) => c.providers.includes(p.id));
+      if (cat) {
+        groups.find((g) => g.id === cat.id)?.providers.push(p);
+      } else {
+        other.providers.push(p);
+      }
+    }
+    const allGroups = [...groups, ...(other.providers.length > 0 ? [other] : [])];
+    for (const group of allGroups) {
+      if (group.providers.length === 0) continue;
+      const details = document.createElement('details');
+      details.className = 'settings-group';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = `${group.label} (${group.providers.length})`;
+      details.appendChild(summary);
+      const container = document.createElement('div');
+      container.className = 'settings-group-cards';
+      for (const p of group.providers) {
+        const card = document.createElement('div');
+        card.className = 'settings-card';
+        card.dataset.provider = p.id;
+        card.innerHTML = `
+          <div class="settings-card-title">
+            <span>${esc(p.name || providerLabel(p.id, LLM_PROVIDER_LABELS))} <span class="settings-card-sub">${esc(p.id)}</span></span>
+            <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
+          </div>
+          <div class="settings-card-grid">
+            <label class="settings-row"><span>模型</span>
+              <input class="llm-model" type="text" list="llm-models-${esc(p.id)}" value="${esc(p.model)}" placeholder="选择或输入模型" />
+              <datalist id="llm-models-${esc(p.id)}">${(p.models || []).map((m) => `<option value="${esc(m)}"></option>`).join('')}</datalist>
+            </label>
+            <label class="settings-row"><span>Base URL</span><input class="llm-base-url" type="text" value="${esc(p.base_url)}" /></label>
+            <label class="settings-row"><span>Temperature</span><input class="llm-temperature" type="number" step="0.1" min="0" max="2" value="${p.temperature ?? 0.8}" /></label>
+            <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="${p.max_tokens ?? ''}" /></label>
+          </div>
+          <div class="settings-card-actions">
+            <button class="settings-discover-models" type="button" data-provider="${p.id}" data-key-env="${p.key_env || ''}">获取可用模型</button>
+            <button class="settings-test-llm" type="button" data-provider="${p.id}">测试连接</button>
+          </div>
+        `;
+        container.appendChild(card);
+      }
+      details.appendChild(container);
+      llmCardsEl.appendChild(details);
     }
     llmCardsEl.querySelectorAll<HTMLButtonElement>('.settings-test-llm').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -306,25 +353,49 @@ export function initSettingsPanel(
 
   const renderTtsCards = (): void => {
     ttsCardsEl.innerHTML = '';
+    const groups = TTS_CATEGORIES.map((c) => ({ ...c, providers: [] as TtsProviderCfg[] }));
+    const other = { id: 'other', label: '其他', providers: [] as TtsProviderCfg[] };
     for (const p of currentConfig.tts_configs || []) {
-      const card = document.createElement('div');
-      card.className = 'settings-card';
-      card.dataset.provider = p.id;
-      card.innerHTML = `
-        <div class="settings-card-title">
-          <span>${providerLabel(p.id, TTS_PROVIDER_LABELS)} <span class="settings-card-sub">${esc(p.id)}</span></span>
-          <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
-        </div>
-        <div class="settings-card-grid">
-          <label class="settings-row"><span>音色 Voice</span><input class="tts-voice" type="text" value="${esc(p.voice)}" /></label>
-          <label class="settings-row"><span>模型</span><input class="tts-model" type="text" value="${esc(p.model)}" /></label>
-          <label class="settings-row"><span>WebSocket URL</span><input class="tts-ws-url" type="text" value="${esc(p.ws_url || '')}" /></label>
-        </div>
-        <div class="settings-card-actions">
-          <button class="settings-test-tts" type="button">试听当前引擎</button>
-        </div>
-      `;
-      ttsCardsEl.appendChild(card);
+      const cat = TTS_CATEGORIES.find((c) => c.providers.includes(p.id));
+      if (cat) {
+        groups.find((g) => g.id === cat.id)?.providers.push(p);
+      } else {
+        other.providers.push(p);
+      }
+    }
+    const allGroups = [...groups, ...(other.providers.length > 0 ? [other] : [])];
+    for (const group of allGroups) {
+      if (group.providers.length === 0) continue;
+      const details = document.createElement('details');
+      details.className = 'settings-group';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = `${group.label} (${group.providers.length})`;
+      details.appendChild(summary);
+      const container = document.createElement('div');
+      container.className = 'settings-group-cards';
+      for (const p of group.providers) {
+        const card = document.createElement('div');
+        card.className = 'settings-card';
+        card.dataset.provider = p.id;
+        card.innerHTML = `
+          <div class="settings-card-title">
+            <span>${esc(p.name || providerLabel(p.id, TTS_PROVIDER_LABELS))} <span class="settings-card-sub">${esc(p.id)}</span></span>
+            <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
+          </div>
+          <div class="settings-card-grid">
+            <label class="settings-row"><span>音色 Voice</span><input class="tts-voice" type="text" value="${esc(p.voice)}" /></label>
+            <label class="settings-row"><span>模型</span><input class="tts-model" type="text" value="${esc(p.model)}" /></label>
+            <label class="settings-row"><span>WebSocket URL</span><input class="tts-ws-url" type="text" value="${esc(p.ws_url || '')}" /></label>
+          </div>
+          <div class="settings-card-actions">
+            <button class="settings-test-tts" type="button">试听当前引擎</button>
+          </div>
+        `;
+        container.appendChild(card);
+      }
+      details.appendChild(container);
+      ttsCardsEl.appendChild(details);
     }
     ttsCardsEl.querySelectorAll<HTMLButtonElement>('.settings-test-tts').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -334,30 +405,72 @@ export function initSettingsPanel(
   };
 
   const renderKeyCards = (): void => {
-    const keys: Array<{ env: string; label: string; provider?: string }> = [
-      { env: 'DEEPSEEK_API_KEY', label: 'DeepSeek', provider: 'deepseek_llm' },
-      { env: 'ZHIPU_API_KEY', label: '智谱 GLM', provider: 'zhipu_llm' },
-      { env: 'DASHSCOPE_API_KEY', label: 'Qwen / DashScope', provider: 'qwen_llm' },
-      { env: 'OPENROUTER_API_KEY', label: 'OpenRouter', provider: 'openrouter' },
-      { env: 'OPENAI_API_KEY', label: 'OpenAI 兼容', provider: 'openai_compatible' },
+    const keyGroups: Array<{
+      label: string;
+      items: Array<{ env: string; label: string; provider?: string }>;
+    }> = [
+      {
+        label: 'LLM 密钥',
+        items: [
+          { env: 'DEEPSEEK_API_KEY', label: 'DeepSeek', provider: 'deepseek_llm' },
+          { env: 'ZHIPU_API_KEY', label: '智谱 GLM', provider: 'zhipu_llm' },
+          { env: 'DASHSCOPE_API_KEY', label: 'Qwen / DashScope', provider: 'qwen_llm' },
+          { env: 'OPENROUTER_API_KEY', label: 'OpenRouter', provider: 'openrouter' },
+          { env: 'OPENAI_API_KEY', label: 'OpenAI / 兼容', provider: 'openai' },
+          { env: 'ANTHROPIC_API_KEY', label: 'Anthropic', provider: 'anthropic' },
+          { env: 'MOONSHOT_API_KEY', label: 'Moonshot', provider: 'moonshot' },
+          { env: 'GROQ_API_KEY', label: 'Groq', provider: 'groq' },
+          { env: 'MISTRAL_API_KEY', label: 'Mistral', provider: 'mistral' },
+          { env: 'TOGETHER_API_KEY', label: 'Together AI', provider: 'together' },
+          { env: 'FIREWORKS_API_KEY', label: 'Fireworks AI', provider: 'fireworks' },
+          { env: 'SILICONFLOW_API_KEY', label: 'SiliconFlow', provider: 'siliconflow' },
+          { env: 'OPENCODE_API_KEY', label: 'OpenCode', provider: 'opencode' },
+          { env: 'OPENCODE_GO_API_KEY', label: 'OpenCode Go', provider: 'opencode_go' },
+        ],
+      },
+      {
+        label: 'TTS / 语音密钥',
+        items: [
+          { env: 'ALIYUN_API_KEY', label: 'CosyVoice / 阿里云' },
+          { env: 'AZURE_SPEECH_KEY', label: 'Azure TTS' },
+          { env: 'MINIMAX_API_KEY', label: 'MiniMax' },
+          { env: 'SILICONFLOW_API_KEY', label: 'SiliconFlow TTS' },
+          { env: 'FISH_API_KEY', label: 'Fish Audio' },
+          { env: 'SPARK_API_KEY', label: 'Spark TTS' },
+        ],
+      },
     ];
+
     keyCardsEl.innerHTML = '';
-    for (const item of keys) {
-      const card = document.createElement('div');
-      card.className = 'settings-card';
-      card.innerHTML = `
-        <div class="settings-card-title">
-          <span>${item.label}</span>
-          <span class="settings-badge">${item.env}</span>
-        </div>
-        <div class="settings-key-row">
-          <input class="settings-key-input" type="password" data-env="${item.env}" placeholder="留空不修改" autocomplete="off" />
-          <button class="settings-key-toggle" type="button">显示</button>
-          ${item.provider ? `<button class="settings-key-test" type="button" data-provider="${item.provider}" data-env="${item.env}">测试</button>` : ''}
-        </div>
-      `;
-      keyCardsEl.appendChild(card);
+    for (const group of keyGroups) {
+      const details = document.createElement('details');
+      details.className = 'settings-group';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = `${group.label} (${group.items.length})`;
+      details.appendChild(summary);
+      const container = document.createElement('div');
+      container.className = 'settings-group-cards';
+      for (const item of group.items) {
+        const card = document.createElement('div');
+        card.className = 'settings-card';
+        card.innerHTML = `
+          <div class="settings-card-title">
+            <span>${item.label}</span>
+            <span class="settings-badge">${item.env}</span>
+          </div>
+          <div class="settings-key-row">
+            <input class="settings-key-input" type="password" data-env="${item.env}" placeholder="留空不修改" autocomplete="off" />
+            <button class="settings-key-toggle" type="button">显示</button>
+            ${item.provider ? `<button class="settings-key-test" type="button" data-provider="${item.provider}" data-env="${item.env}">测试</button>` : ''}
+          </div>
+        `;
+        container.appendChild(card);
+      }
+      details.appendChild(container);
+      keyCardsEl.appendChild(details);
     }
+
     keyCardsEl.querySelectorAll<HTMLButtonElement>('.settings-key-toggle').forEach((btn) => {
       btn.addEventListener('click', () => {
         const input = btn.parentElement?.querySelector<HTMLInputElement>('.settings-key-input');

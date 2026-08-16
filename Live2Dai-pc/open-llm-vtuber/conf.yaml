@@ -48,11 +48,13 @@ character_config:
         model: 'glm-4.7-flash'
         temperature: 0.8
 
+        base_url: https://open.bigmodel.cn/api/paas/v4
       deepseek_llm:
         llm_api_key: '${DEEPSEEK_API_KEY}'
         model: 'deepseek-v4-flash'
         temperature: 0.8
 
+        base_url: https://api.deepseek.com/v1
       qwen_llm:
         llm_api_key: '${DASHSCOPE_API_KEY}'
         base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
@@ -62,8 +64,63 @@ character_config:
       zhipu_llm:
         llm_api_key: '${ZHIPU_API_KEY}'
         model: 'glm-4.6v'
-        temperature: 1.0
+        temperature: 1
 
+        base_url: https://open.bigmodel.cn/api/paas/v4
+      openrouter:
+        llm_api_key: ${OPENROUTER_API_KEY}
+        model: openrouter/auto
+        base_url: https://openrouter.ai/api/v1
+        temperature: 0.8
+      openai:
+        llm_api_key: ${OPENAI_API_KEY}
+        model: gpt-5
+        base_url: https://api.openai.com/v1
+        temperature: 0.8
+      anthropic:
+        llm_api_key: ${ANTHROPIC_API_KEY}
+        model: claude-sonnet-4-5
+        base_url: https://api.anthropic.com/v1
+        temperature: 0.8
+      moonshot:
+        llm_api_key: ${MOONSHOT_API_KEY}
+        model: moonshot-v1-8k
+        base_url: https://api.moonshot.cn/v1
+        temperature: 0.8
+      groq:
+        llm_api_key: ${GROQ_API_KEY}
+        model: llama-3.3-70b-versatile
+        base_url: https://api.groq.com/openai/v1
+        temperature: 0.8
+      mistral:
+        llm_api_key: ${MISTRAL_API_KEY}
+        model: mistral-large-latest
+        base_url: https://api.mistral.ai/v1
+        temperature: 0.8
+      together:
+        llm_api_key: ${TOGETHER_API_KEY}
+        model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+        base_url: https://api.together.xyz/v1
+        temperature: 0.8
+      fireworks:
+        llm_api_key: ${FIREWORKS_API_KEY}
+        model: accounts/fireworks/models/llama-v3p3-70b-instruct
+        base_url: https://api.fireworks.ai/inference/v1
+        temperature: 0.8
+      siliconflow:
+        llm_api_key: ${SILICONFLOW_API_KEY}
+        model: deepseek-ai/DeepSeek-V3
+        base_url: https://api.siliconflow.cn/v1
+        temperature: 0.8
+      opencode:
+        llm_api_key: ${OPENCODE_API_KEY}
+        temperature: 0.8
+      opencode_go:
+        llm_api_key: ${OPENCODE_GO_API_KEY}
+        temperature: 0.8
+      openai_compatible:
+        llm_api_key: ${OPENAI_API_KEY}
+        temperature: 0.8
   asr_config:
     asr_model: 'faster_whisper'  # P0: 启用本地 Faster-Whisper 语音输入；如无模型可改回 disabled
     faster_whisper:
@@ -88,8 +145,18 @@ character_config:
     edge_tts:
       voice: 'zh-CN-XiaoxiaoNeural'
 
+    openai_tts: {}
+    azure_tts: {}
+    minimax_tts: {}
+    siliconflow_tts: {}
+    fish_api_tts: {}
+    spark_tts: {}
+    gpt_sovits: {}
+    piper: {}
+    sherpa_onnx: {}
+    pyttsx3: {}
   vad_config:
-    vad_model: null
+    vad_model:
     silero_vad:
       orig_sr: 16000
       target_sr: 16000

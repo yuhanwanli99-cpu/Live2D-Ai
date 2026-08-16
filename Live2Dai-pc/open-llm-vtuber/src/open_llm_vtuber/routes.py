@@ -149,19 +149,19 @@ def init_config_routes(
         "openai_compatible": [],
     }
     TTS_DEFAULTS = {
-        "cosyvoice_cloud": {"key_env": "ALIYUN_API_KEY"},
-        "qwen_tts": {"key_env": "DASHSCOPE_API_KEY"},
-        "edge_tts": {"key_env": None},
-        "openai_tts": {"key_env": "OPENAI_API_KEY"},
-        "azure_tts": {"key_env": "AZURE_SPEECH_KEY"},
-        "minimax_tts": {"key_env": "MINIMAX_API_KEY"},
-        "siliconflow_tts": {"key_env": "SILICONFLOW_API_KEY"},
-        "fish_api_tts": {"key_env": "FISH_API_KEY"},
-        "spark_tts": {"key_env": "SPARK_API_KEY"},
-        "gpt_sovits": {"key_env": None},
-        "piper": {"key_env": None},
-        "sherpa_onnx": {"key_env": None},
-        "pyttsx3": {"key_env": None},
+        "cosyvoice_cloud": {"name": "CosyVoice", "key_env": "ALIYUN_API_KEY"},
+        "qwen_tts": {"name": "Qwen TTS", "key_env": "DASHSCOPE_API_KEY"},
+        "edge_tts": {"name": "Edge TTS", "key_env": None},
+        "openai_tts": {"name": "OpenAI TTS", "key_env": "OPENAI_API_KEY"},
+        "azure_tts": {"name": "Azure TTS", "key_env": "AZURE_SPEECH_KEY"},
+        "minimax_tts": {"name": "MiniMax", "key_env": "MINIMAX_API_KEY"},
+        "siliconflow_tts": {"name": "SiliconFlow TTS", "key_env": "SILICONFLOW_API_KEY"},
+        "fish_api_tts": {"name": "Fish Audio", "key_env": "FISH_API_KEY"},
+        "spark_tts": {"name": "Spark TTS", "key_env": "SPARK_API_KEY"},
+        "gpt_sovits": {"name": "GPT-SoVITS", "key_env": None},
+        "piper": {"name": "Piper", "key_env": None},
+        "sherpa_onnx": {"name": "Sherpa-ONNX", "key_env": None},
+        "pyttsx3": {"name": "pyttsx3", "key_env": None},
     }
 
     def _load_yaml():
