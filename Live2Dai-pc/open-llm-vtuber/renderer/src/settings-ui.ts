@@ -279,6 +279,7 @@ export function initSettingsPanel(
           <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="${p.max_tokens ?? ''}" /></label>
         </div>
         <div class="settings-card-actions">
+          <button class="settings-discover-models" type="button" data-provider="${p.id}" data-key-env="${p.key_env || ''}">获取可用模型</button>
           <button class="settings-test-llm" type="button" data-provider="${p.id}">测试连接</button>
         </div>
       `;
@@ -287,6 +288,12 @@ export function initSettingsPanel(
     llmCardsEl.querySelectorAll<HTMLButtonElement>('.settings-test-llm').forEach((btn) => {
       btn.addEventListener('click', () => {
         void testLlm(btn.dataset.provider || '');
+      });
+    });
+    llmCardsEl.querySelectorAll<HTMLButtonElement>('.settings-discover-models').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest<HTMLElement>('.settings-card');
+        if (card) void discoverModels(btn.dataset.provider || '', card);
       });
     });
   };
@@ -394,6 +401,7 @@ export function initSettingsPanel(
         <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="" /></label>
       </div>
       <div class="settings-card-actions">
+        <button class="settings-discover-models" type="button" data-provider="${esc(id.trim())}" data-key-env="OPENAI_API_KEY">获取可用模型</button>
         <button class="settings-test-llm" type="button" data-provider="${esc(id.trim())}">测试连接</button>
       </div>
     `;
@@ -401,12 +409,47 @@ export function initSettingsPanel(
     card.querySelector<HTMLButtonElement>('.settings-test-llm')!.addEventListener('click', () => {
       void testLlm(id.trim());
     });
+    card.querySelector<HTMLButtonElement>('.settings-discover-models')!.addEventListener('click', () => {
+      void discoverModels(id.trim(), card);
+    });
 
     if (apiKey.trim()) {
       const keyInput = keyCardsEl.querySelector<HTMLInputElement>(
         '.settings-key-input[data-env="OPENAI_API_KEY"]',
       );
       if (keyInput) keyInput.value = apiKey.trim();
+    }
+  };
+
+  const discoverModels = async (provider: string, card: HTMLElement): Promise<void> => {
+    statusEl.textContent = `获取 ${provider} 模型列表…`;
+    const baseUrl = card.querySelector<HTMLInputElement>('.llm-base-url')?.value.trim() || '';
+    const keyEnv = card.dataset.keyEnv || '';
+    const keyInput = keyCardsEl.querySelector<HTMLInputElement>(
+      `.settings-key-input[data-env="${keyEnv}"]`,
+    );
+    const apiKey = keyInput?.value.trim() || '';
+    try {
+      const res = await fetch('/api/llm/discover-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, base_url: baseUrl, api_key: apiKey }),
+      });
+      const data = (await res.json()) as { ok?: boolean; models?: string[]; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error || '获取失败');
+      const datalist = card.querySelector<HTMLDataListElement>('datalist');
+      if (datalist) {
+        datalist.innerHTML = (data.models || [])
+          .map((m) => `<option value="${esc(m)}"></option>`)
+          .join('');
+      }
+      const modelInput = card.querySelector<HTMLInputElement>('.llm-model');
+      if (modelInput && !modelInput.value && data.models?.length) {
+        modelInput.value = data.models[0];
+      }
+      statusEl.textContent = `✅ 获取到 ${data.models?.length || 0} 个模型`;
+    } catch (err) {
+      statusEl.textContent = `❌ 获取失败: ${(err as Error).message}`;
     }
   };
 

@@ -427,6 +427,67 @@ def init_config_routes(
             logger.error(f"Failed to select model: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
 
+    @router.post("/api/llm/discover-models")
+    async def discover_llm_models(request: Request):
+        try:
+            import requests as _requests
+            payload = await request.json()
+            provider = payload.get("provider", "")
+            base_url = (payload.get("base_url") or "").strip()
+            api_key = (payload.get("api_key") or "").strip()
+            data = _load_yaml()
+            agent_cfg = (
+                (data.get("character_config", {}) or {})
+                .get("agent_config", {})
+                or {}
+            )
+            cfg = (agent_cfg.get("llm_configs", {}) or {}).get(provider, {}) or {}
+            default = LLM_DEFAULTS.get(provider, {})
+            if not base_url:
+                base_url = (
+                    cfg.get("base_url", "").strip()
+                    or default.get("base_url", "")
+                )
+            if not api_key:
+                key_env = default.get("key_env") or cfg.get("key_env") or "OPENAI_API_KEY"
+                api_key = _env_value(key_env)
+            if not base_url:
+                return JSONResponse(
+                    {"ok": False, "error": "Base URL 为空，无法发现模型"}, status_code=400
+                )
+            url = base_url.rstrip("/") + "/models"
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            resp = _requests.get(url, headers=headers, timeout=15)
+            if resp.status_code >= 400:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    },
+                    status_code=400,
+                )
+            raw = resp.json()
+            models: list[str] = []
+            if isinstance(raw, dict):
+                items = raw.get("data") or raw.get("models") or []
+                for item in items:
+                    if isinstance(item, dict) and item.get("id"):
+                        models.append(str(item["id"]))
+                    elif isinstance(item, str):
+                        models.append(item)
+            elif isinstance(raw, list):
+                for item in raw:
+                    if isinstance(item, dict) and item.get("id"):
+                        models.append(str(item["id"]))
+                    elif isinstance(item, str):
+                        models.append(item)
+            return JSONResponse({"ok": True, "models": models})
+        except Exception as e:
+            logger.error(f"Discover models failed: {e}")
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
     @router.post("/api/test-llm")
     async def test_llm(request: Request):
         try:
