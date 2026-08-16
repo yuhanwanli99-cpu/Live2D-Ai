@@ -47,6 +47,12 @@ class Live2DEngineRenderer {
         sequencer.frame(dt, sinks)
     }
 
+    /** P2: 加载模型到官方 C++ 引擎路径（moc3/model3/cdi3 均为绝对文件路径）。 */
+    fun loadModel(moc3Path: String, model3Path: String, cdi3Path: String): Long {
+        engineHandle = Live2DNative.engineLoadModel(moc3Path, model3Path, cdi3Path)
+        return engineHandle
+    }
+
     /** 设置 MVP 矩阵（列主序 float[16]；拷贝进预分配缓冲后下发，跨帧复用同一缓冲）。 */
     fun setMvpMatrix(matrix: FloatArray) {
         if (matrix.size >= 16) {

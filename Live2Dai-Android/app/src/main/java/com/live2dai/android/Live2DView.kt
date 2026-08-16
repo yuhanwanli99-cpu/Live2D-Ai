@@ -12,6 +12,8 @@ import android.view.SurfaceHolder
 import android.view.ViewConfiguration
 import com.live2dai.android.core.RenderQualityConfig
 import com.live2dai.android.data.GestureCommand
+import com.live2dai.android.render.BackendSelector
+import com.live2dai.android.render.RendererBackend
 import com.live2dai.android.data.GestureEvent
 import com.live2dai.android.data.GestureStateMachine
 import javax.microedition.khronos.egl.EGL10
@@ -201,6 +203,10 @@ class Live2DView(
         queueEvent {
             renderer?.setCurrentModelId(modelId)
             renderer?.applyStoredUserOverride()
+            // P2: 官方 C++ ENGINE 路径模型加载（失败自动保持 LEGACY）
+            if (BackendSelector.select() == RendererBackend.ENGINE) {
+                renderer?.loadEngineModel(modelAssetPath, modelId)
+            }
         }
     }
 

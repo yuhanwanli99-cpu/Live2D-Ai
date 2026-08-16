@@ -1,10 +1,14 @@
 package com.live2dai.android
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.content.ContextCompat
 import com.live2dai.android.core.HttpLlmLink
 import com.live2dai.android.core.LlmLink
 import com.live2dai.android.core.LoopCommand
@@ -64,6 +68,7 @@ class MainActivity : ComponentActivity() {
 
     // ── 核心环路（Wave 4 三片真实绑定）──
     private lateinit var voiceIo: VoiceIoController
+    private lateinit var voiceInput: VoiceInputController
     private lateinit var speechSink: SpeechSinkAdapter
     private lateinit var llmLink: LlmLink
     private lateinit var coordinator: LoopCoordinator
@@ -116,6 +121,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val requestRecordAudioPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                Log.w(TAG, "RECORD_AUDIO permission denied")
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // V1.2 模块1：注册默认 TTS Provider（须在 VoiceIoController 构造前；同名覆盖幂等）
@@ -125,6 +137,7 @@ class MainActivity : ComponentActivity() {
         LLMProviderManager.init(applicationContext)
 
         voiceIo = VoiceIoController(applicationContext)
+        voiceInput = VoiceInputController(applicationContext)
         speechSink = SpeechSinkAdapter(voiceIo)
         llmLink = buildHttpLlmLink()
         coordinator = LoopWire.assemble(
@@ -151,6 +164,22 @@ class MainActivity : ComponentActivity() {
                         onSubmit = { text -> coordinator.sendMessage(text) },
                         bubbles = _bubbles.asStateFlow(),
                         loopState = _loopState.asStateFlow(),
+                        voiceState = voiceInput.state,
+                        isSpeaking = voiceIo.isSpeaking,
+                        activeTtsProvider = voiceIo.activeProviderId,
+                        onMicClick = {
+                            if (ContextCompat.checkSelfPermission(
+                                    this@MainActivity,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                requestRecordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                voiceInput.toggle { text ->
+                                    coordinator.sendMessage(text)
+                                }
+                            }
+                        },
                         onLive2DViewWired = { view ->
                             // 视图绑定（onResume 后 AndroidView factory 中建立）：
                             // host.zeroMouth 目标 + VoiceIo LipSync 绑定（B→A 嘴型直连）
@@ -174,6 +203,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         appScope.cancel()
+        voiceInput.destroy()
         voiceIo.release()
     }
 

@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -50,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.live2dai.android.ConnectionState
 import com.live2dai.android.Live2DView
 import com.live2dai.android.PersonaConfig
+import com.live2dai.android.VoiceInputState
 import com.live2dai.android.connectionLabel
 import com.live2dai.android.core.FpsOverlayState
 import com.live2dai.android.core.LoopState
@@ -95,6 +98,10 @@ class LoopWireBindings(
     val bubbles: StateFlow<List<UiBubble>>,
     val loopState: StateFlow<LoopState>,
     val onLive2DViewWired: (Live2DView) -> Unit = {},
+    val voiceState: StateFlow<VoiceInputState> = MutableStateFlow(VoiceInputState.Idle),
+    val onMicClick: () -> Unit = {},
+    val isSpeaking: StateFlow<Boolean> = MutableStateFlow(false),
+    val activeTtsProvider: StateFlow<String?> = MutableStateFlow(null),
 )
 
 /** 默认空绑定（未提供 LocalLoopWire 时：零行为，UI 保持 seam 静态）。 */
@@ -143,6 +150,9 @@ fun MainChatScreen(
     val loopWire = LocalLoopWire.current
     val bubbles by loopWire.bubbles.collectAsState(initial = emptyList())
     val loopState by loopWire.loopState.collectAsState(initial = LoopState.IDLE)
+    val voiceState by loopWire.voiceState.collectAsState(initial = VoiceInputState.Idle)
+    val isSpeaking by loopWire.isSpeaking.collectAsState(initial = false)
+    val activeTtsProvider by loopWire.activeTtsProvider.collectAsState(initial = null)
     val isLoading = loopState != LoopState.IDLE
 
     // 同步到 seam uiState（消费面）：气泡追加序（uiSetBubbles 保序尾插）+ isLoading
@@ -244,6 +254,23 @@ fun MainChatScreen(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // P1: TTS 播放状态（说话中/引擎）
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            ) {
+                Text(
+                    text = when {
+                        isSpeaking -> "🔊 ${activeTtsProvider ?: "TTS"}"
+                        activeTtsProvider != null -> "TTS: $activeTtsProvider"
+                        else -> "TTS: -"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+
             // 连接状态指示（连接/断开时文案即时更新；2C-4 状态源 = MainScreenUiState.connectionState）
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -321,6 +348,18 @@ fun MainChatScreen(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(
+                        onClick = { loopWire.onMicClick() },
+                        enabled = !isLoading
+                    ) {
+                        Icon(
+                            imageVector = if (voiceState == VoiceInputState.Listening || voiceState == VoiceInputState.Recognizing) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = if (voiceState == VoiceInputState.Listening) "停止录音" else "语音输入",
+                            tint = if (voiceState == VoiceInputState.Listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
                     OutlinedTextField(
                         value = uiState.inputText,
                         onValueChange = { if (!isLoading) uiState.inputText = it },

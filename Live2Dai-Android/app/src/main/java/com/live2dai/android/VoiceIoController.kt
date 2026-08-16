@@ -106,6 +106,10 @@ class VoiceIoController(
 
     private val _isSpeaking = MutableStateFlow(false)
 
+    /** P1: 最近一次成功播报的 Provider id（供 UI/遥测显示）。 */
+    private val _activeProviderId = MutableStateFlow<String?>(null)
+    val activeProviderId: StateFlow<String?> = _activeProviderId.asStateFlow()
+
     /**
      * M-AND-1（3-B）：播放起始 wall-clock（重锚基准，AND1-A6）。
      * isSpeaking 前沿（真实播放开始）时记录；播放结束/打断复位 0。
@@ -256,6 +260,7 @@ class VoiceIoController(
                 startRmsFrameCollection(provider)
                 provider.speak(clean)
                 spokeSuccessfully = true
+                _activeProviderId.value = provider.info.id
                 logI("speak() 由 ${provider.info.id} 播报完成")
                 return true
             } catch (e: CancellationException) {

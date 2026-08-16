@@ -12,6 +12,7 @@
 - PC 延迟性能断言从 5ms 放宽到 50ms（Windows/CI 计时器与事件循环调度会偶发 10-20ms 尖峰；保留防明显性能回归的作用）。
 - 打包：修复 `check_resources.py` / `verify_package.py` 中已删除的 niziiro_mao 哨兵路径为 bai；新增 `scripts/finish_pc_package.py` 用于在已有 staging 上续跑 Windows 打包。
 - Linux：新增 `scripts/setup_linux.sh` 与 `docs/architecture/linux-dev.md`，定位为开发/测试环境，不作为发布平台。
+- P0-P3 第一批落地：Android 语音输入（系统 SpeechRecognizer + 麦克风 UI + 权限）、PC 启用 Faster-Whisper 与浏览器语音输入 UI、Android TTS 播放状态/引擎显示、官方 C++ ENGINE 模型加载接线（保留 LEGACY 回退）。
 
 ---
 

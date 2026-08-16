@@ -66,8 +66,8 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_asr_config(self):
         asr_config = self.config["character_config"]["asr_config"]
-        # ASR 默认 disabled（spoq-fix：避免首启下载大模型；启用改 faster_whisper）
-        self.assertEqual(asr_config["asr_model"], "disabled")
+        # P0: 默认启用本地 Faster-Whisper 语音输入；如无模型可改回 disabled
+        self.assertEqual(asr_config["asr_model"], "faster_whisper")
 
     def test_agent_config(self):
         ag = self.config["character_config"]["agent_config"]

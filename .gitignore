@@ -75,6 +75,9 @@ pi-session-dump/
 # PC frontend runtime binaries — re-fetch via npm / upstream repo
 Live2Dai-pc/open-llm-vtuber/frontend/libs/
 
+# Local packaging artifacts
+dist.zip
+
 # Debug screenshots at repo root
 /chat_test.png
 /install_check.png

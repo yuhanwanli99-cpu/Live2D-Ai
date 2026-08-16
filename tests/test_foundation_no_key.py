@@ -66,6 +66,6 @@ def test_plugin_sdk_skeleton_exists() -> None:
 
 
 def test_root_no_build_clutter() -> None:
-    # cache/ 是 PC 运行时/测试会生成的目录，交给 clean.sh 清理，不判失败。
-    bad = [p for p in ROOT.iterdir() if p.name in {"build", "s.log", "s2.log", "s_dl.log"}]
+    # build/ 和 cache/ 是打包/运行时/测试会生成的目录，交给 clean.sh 清理，不判失败。
+    bad = [p for p in ROOT.iterdir() if p.name in {"s.log", "s2.log", "s_dl.log"}]
     assert not bad, f"root contains generated clutter: {[p.name for p in bad]}"

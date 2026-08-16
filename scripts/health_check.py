@@ -106,9 +106,9 @@ def main() -> int:
     check("PC live2d model bai.model3.json", pc_model.exists(), str(pc_model) if not pc_model.exists() else "")
 
     # 7. 提示性：根级不应有 build/cache/apk/log 混入
-    # cache/ 是 PC 运行时/测试会生成的目录，交给 clean.sh 清理，不判失败。
+    # build/ 和 cache/ 是打包/运行时/测试会生成的目录，交给 clean.sh 清理，不判失败。
     clutter = [p for p in ROOT.iterdir() if p.name in {
-        "build", "s.log", "s2.log", "s_dl.log"
+        "s.log", "s2.log", "s_dl.log"
     } or p.name.startswith("Live2Dai-debug") and p.suffix == ".apk"]
     if clutter:
         check("root no build/cache/apk/log clutter", False,

@@ -47,6 +47,7 @@ export function initChatPanel(
     <div class="chat-messages"></div>
     <div class="chat-input-row">
       <input class="chat-input" type="text" placeholder="输入消息，Enter 发送…" autocomplete="off" />
+      <button class="chat-mic" type="button" title="语音输入">🎤</button>
       <button class="chat-send" type="button">发送</button>
     </div>
   `;
@@ -55,6 +56,7 @@ export function initChatPanel(
   const messagesEl = panel.querySelector<HTMLElement>('.chat-messages')!;
   const inputEl = panel.querySelector<HTMLInputElement>('.chat-input')!;
   const sendBtn = panel.querySelector<HTMLButtonElement>('.chat-send')!;
+  const micBtn = panel.querySelector<HTMLButtonElement>('.chat-mic')!;
   const statusEl = panel.querySelector<HTMLElement>('.chat-status')!;
 
   const addMessage = (msg: ChatMessage): void => {
@@ -79,6 +81,49 @@ export function initChatPanel(
     inputEl.value = '';
     inputEl.focus();
   };
+
+  // P0: 浏览器语音输入（Web Speech API，Chrome/Edge 可用）
+  const SpeechRecognitionCtor =
+    (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  let recognizing = false;
+  let recognition: any = null;
+  const startVoice = (): void => {
+    if (!SpeechRecognitionCtor) {
+      addMessage({ role: 'error', content: '当前浏览器不支持语音输入，请使用 Chrome/Edge' });
+      return;
+    }
+    if (recognizing) {
+      recognition?.stop();
+      return;
+    }
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => {
+      recognizing = true;
+      micBtn.classList.add('chat-mic-active');
+    };
+    recognition.onend = () => {
+      recognizing = false;
+      micBtn.classList.remove('chat-mic-active');
+    };
+    recognition.onerror = () => {
+      recognizing = false;
+      micBtn.classList.remove('chat-mic-active');
+      addMessage({ role: 'error', content: '语音识别失败，请重试' });
+    };
+    recognition.onresult = (event: any) => {
+      const text = (event.results?.[0]?.[0]?.transcript || '').trim();
+      if (text && opts.onSend(text)) {
+        addMessage({ role: 'user', content: text });
+      } else if (text) {
+        addMessage({ role: 'error', content: '未连接服务器（WS 断开），请稍候重试' });
+      }
+    };
+    recognition.start();
+  };
+  micBtn.addEventListener('click', startVoice);
 
   sendBtn.addEventListener('click', doSend);
   inputEl.addEventListener('keydown', (e) => {

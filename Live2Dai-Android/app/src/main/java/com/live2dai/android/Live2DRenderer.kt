@@ -23,6 +23,7 @@ import com.live2dai.android.core.RenderQualityConfig
 import com.live2dai.android.render.BackendSelector
 import com.live2dai.android.render.RendererBackend
 import org.json.JSONObject
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -683,6 +684,43 @@ class Live2DRenderer(
         enginePrevFrameNano = now
         engineFirstFrame = false
         return dt
+    }
+
+    /**
+     * P2: 把 assets 中的模型复制到 cache 后交给官方 C++ ENGINE 路径加载。
+     * 仅供 BackendSelector=ENGINE 时调用；失败不抛，回退 LEGACY 由调用方决定。
+     */
+    fun loadEngineModel(assetPath: String, modelId: String) {
+        try {
+            val dir = assetPath.substringBeforeLast('/')
+            val baseName = assetPath.substringAfterLast('/').removeSuffix(".model3.json")
+            val cacheRoot = File(context.cacheDir, "live2d_engine/$modelId")
+            cacheRoot.mkdirs()
+            copyAssetsDirTo(dir, cacheRoot)
+            val moc3 = File(cacheRoot, "$baseName.moc3").absolutePath
+            val model3 = File(cacheRoot, "$baseName.model3.json").absolutePath
+            val cdi3 = File(cacheRoot, "$baseName.cdi3.json").absolutePath
+            engineRenderer.loadModel(moc3, model3, cdi3)
+            android.util.Log.i("Live2DRenderer", "ENGINE model loaded: $modelId")
+        } catch (e: Exception) {
+            android.util.Log.w("Live2DRenderer", "ENGINE load failed, keep LEGACY: ${e.message}")
+        }
+    }
+
+    private fun copyAssetsDirTo(assetDir: String, target: File) {
+        val names = context.assets.list(assetDir) ?: return
+        for (name in names) {
+            val childAsset = "$assetDir/$name"
+            val childFile = File(target, name)
+            if (context.assets.list(childAsset)?.isNotEmpty() == true) {
+                childFile.mkdirs()
+                copyAssetsDirTo(childAsset, childFile)
+            } else {
+                context.assets.open(childAsset).use { input ->
+                    childFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
     }
 
     override fun onDrawFrame(gl: GL10?) {
