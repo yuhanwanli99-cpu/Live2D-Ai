@@ -251,6 +251,23 @@ function Ensure-Dependencies {
 
 function Test-FFmpeg {
     Write-Host "[4/6] 检测系统依赖 (ffmpeg)..." -ForegroundColor Cyan
+    # 优先使用便携包自带的 bin/ffmpeg.exe（Windows 便携包已捆绑）
+    $bundledFfmpeg = Join-Path $VtuberDir "bin\ffmpeg.exe"
+    if (Test-Path $bundledFfmpeg) {
+        try {
+            $ffOut = & $bundledFfmpeg -version 2>&1
+            if ($LASTEXITCODE -eq 0 -and $ffOut -match "ffmpeg version\s+(\S+)") {
+                $ver = $Matches[1]
+                $Script:FfmpegOk = $true
+                # 让后端子进程也能找到 ffmpeg（faster-whisper 会调用 ffmpeg）
+                $env:PATH = "$(Split-Path $bundledFfmpeg);$env:PATH"
+                Write-Status "ffmpeg" $true "$ver (bundled)"
+                return $true
+            }
+        } catch {
+            # bundled ffmpeg broken, fall through to system
+        }
+    }
     try {
         $ffOut = ffmpeg -version 2>&1
         if ($LASTEXITCODE -eq 0 -and $ffOut -match "ffmpeg version\s+(\S+)") {
