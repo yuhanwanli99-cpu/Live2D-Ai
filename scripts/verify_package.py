@@ -37,7 +37,7 @@ REQUIRED_MEMBERS = (
     f"{APP_DIR}/conf.yaml.template",
     f"{APP_DIR}/LICENSE.ffmpeg.txt",
     f"{APP_DIR}/frontend/index.html",
-    f"{APP_DIR}/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json",
+    f"{APP_DIR}/live2d-models/bai/runtime/bai.model3.json",
     f"{APP_DIR}/bin/ffmpeg.exe",
     f"{APP_DIR}/bin/ffprobe.exe",
     f"{APP_DIR}/.venv/Scripts/python.exe",

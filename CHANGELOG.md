@@ -10,6 +10,8 @@
 - 无 Key 自检：新增 `scripts/health_check.py`、`scripts/verify_all.py`、`scripts/clean.sh`、`scripts/clean.ps1`、`tests/test_foundation_no_key.py`。
 - 修复根 pytest 中 Wave5 后的陈旧断言：EmotionController/ProactiveGreetingClient 已删的用例改为当前实现校验，一致性汇总从 32/32 更新为 33/33，`cache/` 不再判为失败（运行时目录，由 clean 脚本清理）。
 - PC 延迟性能断言从 5ms 放宽到 50ms（Windows/CI 计时器与事件循环调度会偶发 10-20ms 尖峰；保留防明显性能回归的作用）。
+- 打包：修复 `check_resources.py` / `verify_package.py` 中已删除的 niziiro_mao 哨兵路径为 bai；新增 `scripts/finish_pc_package.py` 用于在已有 staging 上续跑 Windows 打包。
+- Linux：新增 `scripts/setup_linux.sh` 与 `docs/architecture/linux-dev.md`，定位为开发/测试环境，不作为发布平台。
 
 ---
 

@@ -10,6 +10,7 @@
 - [可观测性 / 健康自检](architecture/observability.md)
 - [依赖与许可清单](architecture/dependencies.md)
 - [插件 / 扩展 SDK 最小骨架](architecture/plugin-sdk.md)
+- [Linux 开发/测试环境](architecture/linux-dev.md)
 - [Phase-0 架构评估](architecture/Phase-0-architecture.md)
 - [渲染算法](architecture/renderer-algorithm.md)
 - [Mask FBO 渲染算法](architecture/mask-premake-algorithm.md)

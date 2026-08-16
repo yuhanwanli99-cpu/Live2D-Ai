@@ -20,7 +20,7 @@ SENTINELS: tuple[tuple[str, str], ...] = (
     ("shared/model_registry.json", "required"),
     ("shared/mcp_tools.json", "required"),
     ("Live2Dai-pc/open-llm-vtuber/frontend/index.html", "required"),
-    ("Live2Dai-pc/open-llm-vtuber/live2d-models/niziiro_mao/runtime/niziiro_mao.model3.json", "required"),
+    ("Live2Dai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json", "required"),
     ("Live2Dai-pc/open-llm-vtuber/bin/ffmpeg.exe", "required"),
     ("Live2Dai-pc/open-llm-vtuber/bin/ffprobe.exe", "required"),
 )
