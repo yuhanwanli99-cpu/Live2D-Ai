@@ -69,6 +69,24 @@ export interface SettingsPanel {
   destroy(): void;
 }
 
+const LLM_PROVIDER_LABELS: Record<string, string> = {
+  deepseek_llm: 'DeepSeek',
+  zhipu_llm: '智谱 GLM',
+  zhipu_free_llm: '免费 GLM',
+  qwen_llm: 'Qwen',
+  openai_compatible: 'OpenAI 兼容',
+};
+
+const TTS_PROVIDER_LABELS: Record<string, string> = {
+  cosyvoice_cloud: 'CosyVoice',
+  qwen_tts: 'Qwen TTS',
+  edge_tts: 'Edge TTS',
+  sherpa_onnx: 'Sherpa-ONNX',
+};
+
+const providerLabel = (id: string, map: Record<string, string>): string =>
+  map[id] || id;
+
 const EMPTY_CONFIG: AppConfig = {
   llm_provider: '',
   llm_providers: [],
@@ -218,12 +236,13 @@ export function initSettingsPanel(
     sel: HTMLSelectElement,
     values: string[],
     current: string,
+    labelMap?: Record<string, string>,
   ): void => {
     sel.innerHTML = '';
     for (const v of values) {
       const opt = document.createElement('option');
       opt.value = v;
-      opt.textContent = v;
+      opt.textContent = labelMap ? providerLabel(v, labelMap) : v;
       opt.selected = v === current;
       sel.appendChild(opt);
     }
@@ -244,7 +263,7 @@ export function initSettingsPanel(
       card.dataset.provider = p.id;
       card.innerHTML = `
         <div class="settings-card-title">
-          <span>${p.id}</span>
+          <span>${providerLabel(p.id, LLM_PROVIDER_LABELS)} <span class="settings-card-sub">${esc(p.id)}</span></span>
           <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
         </div>
         <div class="settings-card-grid">
@@ -274,7 +293,7 @@ export function initSettingsPanel(
       card.dataset.provider = p.id;
       card.innerHTML = `
         <div class="settings-card-title">
-          <span>${p.id}</span>
+          <span>${providerLabel(p.id, TTS_PROVIDER_LABELS)} <span class="settings-card-sub">${esc(p.id)}</span></span>
           <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
         </div>
         <div class="settings-card-grid">
@@ -439,11 +458,13 @@ export function initSettingsPanel(
       overlay.querySelector<HTMLSelectElement>('.settings-llm')!,
       cfg.llm_providers || [],
       cfg.llm_provider || '',
+      LLM_PROVIDER_LABELS,
     );
     fillSelect(
       overlay.querySelector<HTMLSelectElement>('.settings-tts')!,
       cfg.tts_providers || [],
       cfg.tts_model || '',
+      TTS_PROVIDER_LABELS,
     );
     const asrOptions =
       cfg.asr_providers && cfg.asr_providers.length
