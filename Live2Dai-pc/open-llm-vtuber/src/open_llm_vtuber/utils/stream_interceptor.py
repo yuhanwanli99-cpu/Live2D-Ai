@@ -141,6 +141,14 @@ class StreamInterceptor:
                 yield (emo_token, clean_text)
                 continue
 
+            # 非 [emo: 可能前缀：立即透传，不再等 20 字符（普通文本首 token 不延迟）
+            if not self._is_possible_emo_prefix(self._buffer):
+                self._sentence_start = False
+                text = self._buffer
+                self._buffer = ""
+                yield (None, text)
+                continue
+
             # 累积 ≥20 仍未命中 → 放弃探测，一次性透传累积文本并转透传模式（PI-01）
             if len(self._buffer) >= self._MIN_BUFFER_FOR_MATCH:
                 self._sentence_start = False
@@ -149,13 +157,25 @@ class StreamInterceptor:
                 yield (None, text)
                 continue
 
-            # <20 继续累积，不 yield
+            # <20 且可能是 [emo: 前缀 → 继续累积，不 yield
 
         # 流结束：flush 探测期残留缓冲（未闭合 Token / <20 累积文本兜底，PI-02）
         if self._buffer:
             tail = self._buffer
             self._buffer = ""
             yield (None, tail)
+
+    @staticmethod
+    def _is_possible_emo_prefix(text: str) -> bool:
+        """判断累积文本是否可能是 [emo:xxx] 的未完成前缀。
+
+        覆盖两种情况：
+          - 文本以 "[emo:" 开头（如 "[emo:j" 等跨 chunk 的 token 中间态）
+          - 文本本身是 "[emo:" 的前缀（如 "["、"[e"、"[em"、"[emo"）
+        """
+        if not text:
+            return False
+        return text.startswith("[emo:") or "[emo:".startswith(text)
 
     def _try_extract_emo(self, text: str) -> Tuple[Optional[EmoToken], int]:
         """

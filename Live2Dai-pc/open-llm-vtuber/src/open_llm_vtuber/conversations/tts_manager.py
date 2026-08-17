@@ -327,10 +327,12 @@ class TTSTaskManager:
             audio_file_path = await self._generate_audio_with_retry(
                 self._tts_engine, tts_text, instruction=instruction
             )
-            payload = prepare_audio_payload(
-                audio_path=audio_file_path,
-                display_text=display_text,
-                actions=actions,
+            payload = await asyncio.to_thread(
+                prepare_audio_payload,
+                audio_file_path,
+                20,
+                display_text,
+                actions,
             )
             # T2: emotion 帧先入队（同一 sequence），再入队 audio payload，保持帧序
             if emotion_payload is not None:

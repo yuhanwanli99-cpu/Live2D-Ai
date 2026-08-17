@@ -118,22 +118,33 @@ export class WsBridge {
   }
 
   // ── 音频播放（spoq-fix：电脑没声音根因——前端只做口型/表情/字幕，从不播放 audio 帧） ──
-  /** base64 WAV 播放队列 + 顺序播放 */
-  private audioQueue: string[] = [];
+  /** WAV 播放队列 + 顺序播放（入队即创建 Audio 并 preload，减少句间 gap） */
+  private audioQueue: HTMLAudioElement[] = [];
   private audioPlaying = false;
+  private hasPlayedAudio = false;
 
   private playAudioQueue(): void {
     if (this.audioPlaying || this.audioQueue.length === 0) {
       if (!this.audioPlaying && this.audioQueue.length === 0) {
         this.onTtsStatus?.('TTS 空闲');
+        if (this.hasPlayedAudio) {
+          this.hasPlayedAudio = false;
+          console.debug(`[LATENCY] playback_complete_ms=${performance.now().toFixed(0)}`);
+          this.sendPlaybackComplete();
+        }
       }
       return;
     }
-    const dataUri = this.audioQueue.shift()!;
+    const el = this.audioQueue.shift()!;
     this.audioPlaying = true;
+    this.hasPlayedAudio = true;
     this.onTtsStatus?.('🔊 播放中');
+    console.debug(`[LATENCY] play_start_ms=${performance.now().toFixed(0)}`);
     try {
-      const el = new Audio(dataUri);
+      // 提前预加载下一段，减少句间解码等待
+      if (this.audioQueue.length > 0) {
+        this.audioQueue[0].preload = 'auto';
+      }
       el.onended = () => {
         this.audioPlaying = false;
         this.playAudioQueue();
@@ -158,8 +169,21 @@ export class WsBridge {
 
   /** 入队并尝试播放（audio 帧 base64 WAV） */
   private enqueueAudio(base64Wav: string): void {
-    this.audioQueue.push(`data:audio/wav;base64,${base64Wav}`);
+    const dataUri = `data:audio/wav;base64,${base64Wav}`;
+    const el = new Audio(dataUri);
+    el.preload = 'auto';
+    this.audioQueue.push(el);
     this.playAudioQueue();
+  }
+
+  /** 通知后端本轮音频已全部播放完成（避免后端一直等待） */
+  private sendPlaybackComplete(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try {
+      this.ws.send(JSON.stringify({ type: 'frontend-playback-complete' }));
+    } catch (err) {
+      console.warn('[ws-bridge] 发送 playback-complete 失败（忽略）:', err);
+    }
   }
 
   /** 原始消息入口：JSON 解析（try/catch 兜底，解析失败只记日志不崩溃） */
@@ -207,6 +231,7 @@ export class WsBridge {
           }
           // 音频播放（spoq-fix：audio 帧 base64 WAV → 播放；None 为静默帧跳过）
           if (typeof audio?.audio === 'string' && audio.audio.length > 0) {
+            console.debug(`[LATENCY] audio_received_ms=${performance.now().toFixed(0)}`);
             this.enqueueAudio(audio.audio);
           }
           break;

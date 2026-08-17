@@ -1,6 +1,7 @@
 from typing import Union, List, Dict, Any, Optional
 import asyncio
 import json
+import time
 from loguru import logger
 import numpy as np
 
@@ -122,6 +123,7 @@ async def process_single_conversation(
     )
     full_response = ""  # Initialize full_response here
     mood_engine = getattr(context, "mood_engine", None)
+    _latency_start = time.monotonic()
 
     try:
         # Send initial signals
@@ -134,6 +136,9 @@ async def process_single_conversation(
         # Process user input
         input_text = await process_user_input(
             user_input, context.asr_engine, websocket_send
+        )
+        logger.info(
+            f"[LATENCY] user_input_ready_ms={(time.monotonic() - _latency_start) * 1000:.0f}"
         )
 
         # P7-03：用户消息到达 → mood_engine.on_user_message_sentiment()。
@@ -173,8 +178,14 @@ async def process_single_conversation(
         try:
             # agent.chat yields Union[SentenceOutput, Dict[str, Any]]
             agent_output_stream = context.agent_engine.chat(batch_input)
+            _first_llm_item_logged = False
 
             async for output_item in agent_output_stream:
+                if not _first_llm_item_logged:
+                    logger.info(
+                        f"[LATENCY] first_llm_item_ms={(time.monotonic() - _latency_start) * 1000:.0f}"
+                    )
+                    _first_llm_item_logged = True
                 if (
                     isinstance(output_item, dict)
                     and output_item.get("type") == "tool_call_status"
