@@ -532,6 +532,50 @@ def init_config_routes(
             logger.error(f"Failed to read model registry: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
 
+    @router.post("/api/models/scan")
+    async def scan_models():
+        try:
+            live2d_dir = os.path.join(os.getcwd(), "live2d-models")
+            reg_path = os.path.join(repo_root, "shared", "model_registry.json")
+            registry = {"version": "1.0", "models": []}
+            if os.path.exists(reg_path):
+                with open(reg_path, "r", encoding="utf-8") as f:
+                    registry = json.load(f)
+            existing = {m.get("id") for m in registry.get("models", [])}
+            added = []
+            if os.path.isdir(live2d_dir):
+                for entry in os.scandir(live2d_dir):
+                    if not entry.is_dir():
+                        continue
+                    folder = entry.name
+                    model3 = os.path.join(live2d_dir, folder, f"{folder}.model3.json")
+                    if not os.path.isfile(model3):
+                        continue
+                    if folder in existing:
+                        continue
+                    registry.setdefault("models", []).append(
+                        {
+                            "id": folder,
+                            "name": folder,
+                            "description": "本地扫描导入的 Live2D 模型",
+                            "model3JsonPath": f"{folder}/{folder}.model3.json",
+                            "thumbnailPath": None,
+                            "available": True,
+                            "default": False,
+                            "restrictPlatform": None,
+                            "metadata": {"creator": "local", "license": "user", "version": "1.0"},
+                        }
+                    )
+                    existing.add(folder)
+                    added.append(folder)
+            if added:
+                with open(reg_path, "w", encoding="utf-8") as f:
+                    json.dump(registry, f, ensure_ascii=False, indent=2)
+            return JSONResponse({"ok": True, "added": added, "models": registry.get("models", [])})
+        except Exception as e:
+            logger.error(f"Failed to scan models: {e}")
+            return JSONResponse({"error": str(e)}, status_code=500)
+
     @router.post("/api/models/select")
     async def select_model(request: Request):
         try:

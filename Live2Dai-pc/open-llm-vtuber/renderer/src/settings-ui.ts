@@ -191,6 +191,9 @@ export function initSettingsPanel(
         </div>
         <div class="settings-tab-panel" data-panel="live2d">
           <div class="settings-section-title">Live2D 模型</div>
+          <div class="settings-card-actions">
+            <button class="settings-scan-models" type="button">扫描并导入本地模型</button>
+          </div>
           <div class="settings-model-list"></div>
           <div class="settings-status-inline"></div>
         </div>
@@ -569,6 +572,24 @@ export function initSettingsPanel(
     }
   };
 
+  const markLlmTouched = (provider: string): void => {
+    const editor = llmCardsEl.querySelector<HTMLElement>(
+      `.settings-provider-editor[data-provider="${provider}"]`,
+    );
+    if (editor && editor.dataset.configured !== '1') {
+      editor.dataset.touched = '1';
+    }
+  };
+
+  const markTtsTouched = (provider: string): void => {
+    const editor = ttsCardsEl.querySelector<HTMLElement>(
+      `.settings-provider-editor[data-provider="${provider}"]`,
+    );
+    if (editor && editor.dataset.configured !== '1') {
+      editor.dataset.touched = '1';
+    }
+  };
+
   const checkAll = async (): Promise<void> => {
     statusEl.textContent = '检查所有 Provider 中…';
     try {
@@ -826,9 +847,37 @@ export function initSettingsPanel(
       const res = await fetch('/api/test-tts', { method: 'POST' });
       const data = (await res.json()) as { ok?: boolean; audio_path?: string; error?: string };
       if (!res.ok || data.error) throw new Error(data.error || '试听失败');
-      statusEl.textContent = `✅ 已生成: ${data.audio_path || 'ok'}`;
+      if (data.audio_path) {
+        const audioPath = data.audio_path.replace(/\\/g, '/');
+        const audioUrl = /^https?:\/\//.test(audioPath)
+          ? audioPath
+          : audioPath.startsWith('/')
+            ? audioPath
+            : `/${audioPath}`;
+        const audio = new Audio(audioUrl);
+        void audio.play();
+        statusEl.textContent = '🔊 正在播放试听…';
+      } else {
+        statusEl.textContent = '✅ 试听已生成';
+      }
     } catch (err) {
       statusEl.textContent = `❌ 试听失败: ${(err as Error).message}`;
+    }
+  };
+
+  const scanModels = async (): Promise<void> => {
+    modelStatusEl.textContent = '扫描中…';
+    try {
+      const res = await fetch('/api/models/scan', { method: 'POST' });
+      const data = (await res.json()) as { ok?: boolean; added?: string[]; models?: Live2DModel[]; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error || '扫描失败');
+      const added = data.added || [];
+      modelStatusEl.textContent = added.length > 0
+        ? `✅ 已导入: ${added.join(', ')}`
+        : '✅ 扫描完成，没有发现新模型';
+      await renderModels();
+    } catch (err) {
+      modelStatusEl.textContent = `❌ 扫描失败: ${(err as Error).message}`;
     }
   };
 
@@ -864,6 +913,13 @@ export function initSettingsPanel(
     }
   };
 
+  overlay.querySelector<HTMLSelectElement>('.settings-llm')!.addEventListener('change', (e) => {
+    markLlmTouched((e.target as HTMLSelectElement).value);
+  });
+  overlay.querySelector<HTMLSelectElement>('.settings-tts')!.addEventListener('change', (e) => {
+    markTtsTouched((e.target as HTMLSelectElement).value);
+  });
+
   overlay.querySelector<HTMLButtonElement>('.settings-close')!.addEventListener('click', close);
   overlay.querySelector<HTMLButtonElement>('.settings-save')!.addEventListener('click', () => {
     void save();
@@ -872,6 +928,9 @@ export function initSettingsPanel(
     void saveTree();
   });
   overlay.querySelector<HTMLButtonElement>('.settings-add-llm')!.addEventListener('click', addLlmProvider);
+  overlay.querySelector<HTMLButtonElement>('.settings-scan-models')?.addEventListener('click', () => {
+    void scanModels();
+  });
   overlay.querySelectorAll<HTMLButtonElement>('.settings-check-all').forEach((btn) => {
     btn.addEventListener('click', () => {
       void checkAll();
