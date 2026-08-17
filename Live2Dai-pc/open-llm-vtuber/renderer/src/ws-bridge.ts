@@ -121,23 +121,18 @@ export class WsBridge {
   /** WAV 播放队列 + 顺序播放（入队即创建 Audio 并 preload，减少句间 gap） */
   private audioQueue: HTMLAudioElement[] = [];
   private audioPlaying = false;
-  private hasPlayedAudio = false;
+  private pendingPlaybackComplete = false;
 
   private playAudioQueue(): void {
     if (this.audioPlaying || this.audioQueue.length === 0) {
       if (!this.audioPlaying && this.audioQueue.length === 0) {
         this.onTtsStatus?.('TTS 空闲');
-        if (this.hasPlayedAudio) {
-          this.hasPlayedAudio = false;
-          console.debug(`[LATENCY] playback_complete_ms=${performance.now().toFixed(0)}`);
-          this.sendPlaybackComplete();
-        }
+        this.trySendPlaybackComplete();
       }
       return;
     }
     const el = this.audioQueue.shift()!;
     this.audioPlaying = true;
-    this.hasPlayedAudio = true;
     this.onTtsStatus?.('🔊 播放中');
     console.debug(`[LATENCY] play_start_ms=${performance.now().toFixed(0)}`);
     try {
@@ -176,8 +171,13 @@ export class WsBridge {
     this.playAudioQueue();
   }
 
-  /** 通知后端本轮音频已全部播放完成（避免后端一直等待） */
-  private sendPlaybackComplete(): void {
+  /** 后端已通知合成完毕且本地队列已空 → 通知后端可结束本轮 */
+  private trySendPlaybackComplete(): void {
+    if (!this.pendingPlaybackComplete || this.audioPlaying || this.audioQueue.length > 0) {
+      return;
+    }
+    this.pendingPlaybackComplete = false;
+    console.debug(`[LATENCY] playback_complete_ms=${performance.now().toFixed(0)}`);
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
       this.ws.send(JSON.stringify({ type: 'frontend-playback-complete' }));
@@ -241,6 +241,11 @@ export class WsBridge {
           if (emotion?.parameterOverrides) {
             this.emotionConsumer?.consume(emotion.parameterOverrides);
           }
+          break;
+        }
+        case 'backend-synth-complete': {
+          this.pendingPlaybackComplete = true;
+          this.trySendPlaybackComplete();
           break;
         }
         default:
