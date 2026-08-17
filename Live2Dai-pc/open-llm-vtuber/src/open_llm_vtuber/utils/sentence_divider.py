@@ -343,6 +343,9 @@ class SentenceDivider:
         self._buffer = ""
         # Replace active_tags dict with a stack to handle nesting
         self._tag_stack = []
+        # 代码围栏保护：JSON 等结构化块内部不按标点切碎，避免 actions_extractor 无法解析
+        self._in_code_fence = False
+        self._pending_after_fence: Optional[str] = None
 
     def _get_current_tags(self) -> List[TagInfo]:
         """
@@ -437,7 +440,47 @@ class SentenceDivider:
             original_buffer_len = len(self._buffer)
 
             if not self._buffer.strip():
+                # 普通文本处理完后，恢复围栏后的剩余内容继续处理
+                if self._pending_after_fence is not None:
+                    self._buffer = self._pending_after_fence
+                    self._pending_after_fence = None
+                    processed_something = True
+                    continue
                 break
+
+            # ── 代码围栏保护（```json/```）──
+            if not self._in_code_fence:
+                open_idx = self._buffer.find("```")
+                if open_idx != -1:
+                    before = self._buffer[:open_idx]
+                    after = self._buffer[open_idx:]
+                    if before.strip():
+                        # 先处理围栏前的普通文本，围栏部分暂存到 pending
+                        self._pending_after_fence = after
+                        self._buffer = before
+                        processed_something = True
+                        continue
+                    else:
+                        self._buffer = after
+                        self._in_code_fence = True
+                        processed_something = True
+                        continue
+
+            if self._in_code_fence:
+                close_idx = self._buffer.find("```")
+                if close_idx == -1:
+                    # 围栏未闭合：继续累积，不切分内部内容
+                    break
+                block = self._buffer[: close_idx + 3]
+                self._buffer = self._buffer[close_idx + 3:]
+                self._in_code_fence = False
+                current_tags = self._get_current_tags()
+                yield SentenceWithTags(
+                    text=block.strip(),
+                    tags=current_tags or [TagInfo("", TagState.NONE)],
+                )
+                processed_something = True
+                continue
 
             # Find the next tag position
             next_tag_pos = len(self._buffer)

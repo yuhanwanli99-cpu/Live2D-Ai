@@ -238,6 +238,42 @@ describe('RM7 ws-bridge — 消息分发', () => {
     });
     bridge.disconnect();
   });
+
+  it('RM7-06b: subtitle 已上屏同一句，紧随的 audio.display_text 不再重复上屏', () => {
+    const { bridge, ws, onSubtitle } = openBridge();
+
+    ws.simulateMessage({
+      type: 'subtitle',
+      text: '欢迎回来今天也要一起加油哦!',
+      name: '白',
+    });
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      display_text: { text: '欢迎回来今天也要一起加油哦!', name: '白' },
+    });
+
+    expect(onSubtitle).toHaveBeenCalledTimes(1);
+    bridge.disconnect();
+  });
+
+  it('RM7-06c: 没有 subtitle 时 audio.display_text 仍会上屏（无重复抑制）', () => {
+    const { bridge, ws, onSubtitle } = openBridge();
+
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      display_text: { text: '直接音频字幕', name: '白' },
+    });
+
+    expect(onSubtitle).toHaveBeenCalledTimes(1);
+    expect(onSubtitle).toHaveBeenCalledWith({ text: '直接音频字幕', name: '白' });
+    bridge.disconnect();
+  });
 });
 
 describe('RM7 ws-bridge — 消息解析 / 错误处理', () => {
