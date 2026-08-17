@@ -22,6 +22,7 @@ interface LlmProviderCfg {
   max_tokens?: number | null;
   key_env?: string | null;
   has_key: boolean;
+  configured?: boolean;
 }
 
 interface TtsProviderCfg {
@@ -32,6 +33,7 @@ interface TtsProviderCfg {
   ws_url?: string;
   key_env?: string | null;
   has_key: boolean;
+  configured?: boolean;
 }
 
 interface PersonaCfg {
@@ -338,11 +340,14 @@ export function initSettingsPanel(
             <button class="settings-test-llm" type="button" data-provider="${p.id}">测试连接</button>
           </div>
         `;
+        editor.dataset.provider = p.id;
+        editor.dataset.configured = p.configured ? '1' : '0';
         const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
         toggle.addEventListener('click', () => {
           const show = editor.style.display === 'none';
           editor.style.display = show ? 'block' : 'none';
           toggle.textContent = show ? '收起' : '编辑';
+          if (show && !p.configured) editor.dataset.touched = '1';
         });
         container.appendChild(row);
         container.appendChild(editor);
@@ -409,11 +414,14 @@ export function initSettingsPanel(
             <button class="settings-test-tts" type="button">试听当前引擎</button>
           </div>
         `;
+        editor.dataset.provider = p.id;
+        editor.dataset.configured = p.configured ? '1' : '0';
         const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
         toggle.addEventListener('click', () => {
           const show = editor.style.display === 'none';
           editor.style.display = show ? 'block' : 'none';
           toggle.textContent = show ? '收起' : '编辑';
+          if (show && !p.configured) editor.dataset.touched = '1';
         });
         container.appendChild(row);
         container.appendChild(editor);
@@ -722,8 +730,12 @@ export function initSettingsPanel(
 
   const collectPayload = (): Record<string, unknown> => {
     const llmConfigs: Record<string, Record<string, unknown>> = {};
-    llmCardsEl.querySelectorAll<HTMLElement>('.settings-card').forEach((card) => {
+    llmCardsEl.querySelectorAll<HTMLElement>('.settings-provider-editor, .settings-card').forEach((card) => {
       const provider = card.dataset.provider || '';
+      const isLegacyCard = card.classList.contains('settings-card');
+      const configured = card.dataset.configured === '1';
+      const touched = card.dataset.touched === '1';
+      if (!isLegacyCard && !configured && !touched) return;
       llmConfigs[provider] = {
         model: card.querySelector<HTMLInputElement>('.llm-model')?.value || '',
         base_url: card.querySelector<HTMLInputElement>('.llm-base-url')?.value || '',
@@ -733,8 +745,12 @@ export function initSettingsPanel(
     });
 
     const ttsConfigs: Record<string, Record<string, string>> = {};
-    ttsCardsEl.querySelectorAll<HTMLElement>('.settings-card').forEach((card) => {
+    ttsCardsEl.querySelectorAll<HTMLElement>('.settings-provider-editor, .settings-card').forEach((card) => {
       const provider = card.dataset.provider || '';
+      const isLegacyCard = card.classList.contains('settings-card');
+      const configured = card.dataset.configured === '1';
+      const touched = card.dataset.touched === '1';
+      if (!isLegacyCard && !configured && !touched) return;
       ttsConfigs[provider] = {
         voice: card.querySelector<HTMLInputElement>('.tts-voice')?.value || '',
         model: card.querySelector<HTMLInputElement>('.tts-model')?.value || '',

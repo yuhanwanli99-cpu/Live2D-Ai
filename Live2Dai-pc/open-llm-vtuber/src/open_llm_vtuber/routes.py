@@ -241,6 +241,7 @@ def init_config_routes(
                     "max_tokens": cfg.get("max_tokens", None),
                     "key_env": key_env,
                     "has_key": _has_key(key_env) if key_env else False,
+                    "configured": pid in llm_configs,
                 }
             )
 
@@ -263,6 +264,7 @@ def init_config_routes(
                     "ws_url": cfg.get("ws_url", ""),
                     "key_env": key_env,
                     "has_key": _has_key(key_env) if key_env else True,
+                    "configured": pid in tts_cfg,
                 }
             )
 
@@ -345,6 +347,8 @@ def init_config_routes(
                 if not isinstance(override, dict):
                     continue
                 if pid not in existing_llm:
+                    if not override.get("model"):
+                        continue
                     target = existing_llm[pid] = {}
                     new_key_env = LLM_DEFAULTS.get(pid, {}).get("key_env") or "OPENAI_API_KEY"
                     target["llm_api_key"] = "${" + new_key_env + "}"
@@ -356,13 +360,30 @@ def init_config_routes(
 
             # 更新 TTS Provider 参数（voice/model/ws_url）
             tts_overrides = payload.get("tts_configs") or {}
+            tts_cfg = cc.setdefault("tts_config", {})
             for pid, override in tts_overrides.items():
                 if not isinstance(override, dict):
                     continue
-                target = cc.setdefault("tts_config", {}).setdefault(pid, {})
+                has_any = any(
+                    override.get(field) not in (None, "")
+                    for field in ("voice", "model", "ws_url")
+                )
+                if pid not in tts_cfg and not has_any:
+                    continue
+                target = tts_cfg.setdefault(pid, {})
                 for field in ("voice", "model", "ws_url"):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]
+
+            if "tts_model" in payload and payload["tts_model"]:
+                requested_tts = payload["tts_model"]
+                if requested_tts not in tts_cfg:
+                    return JSONResponse(
+                        {
+                            "error": f"TTS 提供商 {requested_tts} 尚未配置，请先在其卡片中填写参数",
+                        },
+                        status_code=400,
+                    )
 
             _save_yaml(data)
 
