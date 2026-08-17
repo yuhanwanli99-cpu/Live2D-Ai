@@ -148,6 +148,39 @@ def init_config_routes(
         "opencode_go": [],
         "openai_compatible": [],
     }
+    TTS_VOICE_CATALOG = {
+        "edge_tts": [
+            "zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-YunjianNeural",
+            "zh-CN-YunxiNeural", "zh-CN-YunxiaNeural", "zh-CN-liaoning-XiaobeiNeural",
+            "zh-CN-shaanxi-XiaoniNeural", "en-US-JennyNeural", "en-US-GuyNeural",
+            "ja-JP-NanamiNeural", "ko-KR-SunHiNeural",
+        ],
+        "cosyvoice_cloud": [
+            "longxiaochun", "longxiaoxia", "longshu", "longcheng",
+            "longhua", "longyu", "longmei", "longyi",
+        ],
+        "qwen_tts": ["Cherry", "Ethan", "Serena", "Charlotte"],
+        "openai_tts": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+        "azure_tts": [
+            "zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-YunxiNeural",
+            "zh-CN-YunjianNeural", "en-US-JennyNeural", "ja-JP-NanamiNeural",
+        ],
+        "minimax_tts": ["male-qn-qingse", "female-shaonv", "female-tianmei", "male-jingdian"],
+        "siliconflow_tts": ["FunAudioLLM/CosyVoice2-0.5B", "iic/SpeechT5", "Qwen/Qwen2-Audio"],
+        "fish_api_tts": ["fish-speech-1.5"],
+        "spark_tts": ["xiaoyan", "aisjouxu", "aisjiushi", "aisjinger"],
+        "gpt_sovits": [],
+        "piper": [],
+        "sherpa_onnx": [],
+        "pyttsx3": [],
+    }
+    TTS_MODEL_CATALOG = {
+        "gpt_sovits": ["GPT-SoVITS"],
+        "piper": ["piper"],
+        "sherpa_onnx": ["sherpa-onnx"],
+        "pyttsx3": ["pyttsx3"],
+    }
+
     TTS_DEFAULTS = {
         "cosyvoice_cloud": {"name": "CosyVoice", "key_env": "ALIYUN_API_KEY"},
         "qwen_tts": {"name": "Qwen TTS", "key_env": "DASHSCOPE_API_KEY"},
@@ -320,13 +353,23 @@ def init_config_routes(
                 cfg = {}
             default = TTS_DEFAULTS.get(pid, {})
             key_env = default.get("key_env")
+            known_voices = cfg.get("voices") or TTS_VOICE_CATALOG.get(pid, [])
+            known_tts_models = cfg.get("models") or TTS_MODEL_CATALOG.get(pid, [])
+            current_voice = cfg.get("voice", "")
+            if not current_voice and known_voices:
+                current_voice = known_voices[0]
+            current_tts_model = cfg.get("model", "")
+            if not current_tts_model and known_tts_models:
+                current_tts_model = known_tts_models[0]
             tts_provider_list.append(
                 {
                     "id": pid,
                     "name": default.get("name", pid),
-                    "voice": cfg.get("voice", ""),
-                    "model": cfg.get("model", ""),
+                    "voice": current_voice,
+                    "model": current_tts_model,
                     "ws_url": cfg.get("ws_url", ""),
+                    "voices": known_voices,
+                    "models": known_tts_models,
                     "key_env": key_env,
                     "has_key": _has_key(key_env) if key_env else True,
                     "configured": pid in tts_cfg,
@@ -434,12 +477,12 @@ def init_config_routes(
                     continue
                 has_any = any(
                     override.get(field) not in (None, "")
-                    for field in ("voice", "model", "ws_url")
+                    for field in ("voice", "model", "ws_url", "voices", "models")
                 )
                 if pid not in tts_cfg and not has_any:
                     continue
                 target = tts_cfg.setdefault(pid, {})
-                for field in ("voice", "model", "ws_url"):
+                for field in ("voice", "model", "ws_url", "voices", "models"):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]
 

@@ -25,7 +25,10 @@ _JSON_FRAGMENT_KEYS = (
     "parameterOverrides",
     "expressions",
     '"weight"',
+    '"name"',
 )
+_JSON_KEY_VALUE_RE = re.compile(r'"[A-Za-z_][A-Za-z0-9_]*"\s*:')
+_JSON_VALUE_RE = re.compile(r':\s*"[^"]*"')
 
 
 def _looks_like_json_fragment(text: str) -> bool:
@@ -47,6 +50,10 @@ def _looks_like_json_fragment(text: str) -> bool:
         return True
     if t.startswith("{") and not t.endswith("}") and not t.endswith((".", "!", "?", "。", "！", "？")):
         return True
+    # JSON 键值对碎片：:"joy",、"name":"xxx"、{"a": 等
+    if (t.startswith((":", ",", "}", "]")) or _JSON_KEY_VALUE_RE.search(t) or _JSON_VALUE_RE.search(t)):
+        if not t.rstrip().endswith((".", "!", "?", "。", "！", "？")):
+            return True
     return False
 
 

@@ -31,6 +31,8 @@ interface TtsProviderCfg {
   voice: string;
   model: string;
   ws_url?: string;
+  voices?: string[];
+  models?: string[];
   key_env?: string | null;
   has_key: boolean;
   configured?: boolean;
@@ -343,8 +345,9 @@ export function initSettingsPanel(
         editor.innerHTML = `
           <div class="settings-card-grid">
             <label class="settings-row"><span>模型</span>
-              <input class="llm-model" type="text" list="llm-models-${esc(p.id)}" value="${esc(p.model)}" placeholder="选择或输入模型" />
-              <datalist id="llm-models-${esc(p.id)}">${(p.models || []).map((m) => `<option value="${esc(m)}"></option>`).join('')}</datalist>
+              <select class="llm-model">
+                ${[p.model, ...(p.models || [])].filter((v, i, a) => v && a.indexOf(v) === i).map((m) => `<option value="${esc(m)}" ${m === p.model ? 'selected' : ''}>${esc(m)}</option>`).join('') || `<option value="${esc(p.model)}">${esc(p.model)}</option>`}
+              </select>
             </label>
             <label class="settings-row"><span>Base URL</span><input class="llm-base-url" type="text" value="${esc(p.base_url)}" /></label>
             <label class="settings-row"><span>Temperature</span><input class="llm-temperature" type="number" step="0.1" min="0" max="2" value="${p.temperature ?? 0.8}" /></label>
@@ -421,8 +424,16 @@ export function initSettingsPanel(
         editor.style.display = 'none';
         editor.innerHTML = `
           <div class="settings-card-grid">
-            <label class="settings-row"><span>音色 Voice</span><input class="tts-voice" type="text" value="${esc(p.voice)}" /></label>
-            <label class="settings-row"><span>模型</span><input class="tts-model" type="text" value="${esc(p.model)}" /></label>
+            <label class="settings-row"><span>音色 Voice</span>
+              <select class="tts-voice">
+                ${[p.voice, ...(p.voices || [])].filter((v, i, a) => v && a.indexOf(v) === i).map((v) => `<option value="${esc(v)}" ${v === p.voice ? 'selected' : ''}>${esc(v)}</option>`).join('') || `<option value="${esc(p.voice)}">${esc(p.voice)}</option>`}
+              </select>
+            </label>
+            <label class="settings-row"><span>模型</span>
+              <select class="tts-model">
+                ${[p.model, ...(p.models || [])].filter((v, i, a) => v && a.indexOf(v) === i).map((v) => `<option value="${esc(v)}" ${v === p.model ? 'selected' : ''}>${esc(v)}</option>`).join('') || `<option value="${esc(p.model)}">${esc(p.model)}</option>`}
+              </select>
+            </label>
             <label class="settings-row"><span>WebSocket URL</span><input class="tts-ws-url" type="text" value="${esc(p.ws_url || '')}" /></label>
           </div>
           <div class="settings-card-actions">
@@ -558,7 +569,7 @@ export function initSettingsPanel(
         <span class="settings-badge">新增</span>
       </div>
       <div class="settings-card-grid">
-        <label class="settings-row"><span>模型</span><input class="llm-model" type="text" value="${esc(model.trim())}" /></label>
+        <label class="settings-row"><span>模型</span><select class="llm-model"><option value="${esc(model.trim())}">${esc(model.trim())}</option></select></label>
         <label class="settings-row"><span>Base URL</span><input class="llm-base-url" type="text" value="${esc(baseUrl.trim())}" /></label>
         <label class="settings-row"><span>Temperature</span><input class="llm-temperature" type="number" step="0.1" min="0" max="2" value="0.8" /></label>
         <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="" /></label>
@@ -646,15 +657,21 @@ export function initSettingsPanel(
       });
       const data = (await res.json()) as { ok?: boolean; models?: string[]; error?: string };
       if (!res.ok || data.error) throw new Error(data.error || '获取失败');
+      const modelSelect = card.querySelector<HTMLSelectElement>('.llm-model');
       const datalist = card.querySelector<HTMLDataListElement>('datalist');
-      if (datalist) {
-        datalist.innerHTML = (data.models || [])
-          .map((m) => `<option value="${esc(m)}"></option>`)
-          .join('');
-      }
       const modelInput = card.querySelector<HTMLInputElement>('.llm-model');
-      if (modelInput && !modelInput.value && data.models?.length) {
-        modelInput.value = data.models[0];
+      const models = data.models || [];
+      if (modelSelect) {
+        const current = modelSelect.value;
+        const options = [...new Set([...(models.length ? models : current ? [current] : []), current].filter(Boolean))];
+        modelSelect.innerHTML = options.map((m) => `<option value="${esc(m)}" ${m === current ? 'selected' : ''}>${esc(m)}</option>`).join('') || `<option value="${esc(current)}">${esc(current)}</option>`;
+        if (!current && models.length) modelSelect.value = models[0];
+      }
+      if (datalist) {
+        datalist.innerHTML = models.map((m) => `<option value="${esc(m)}"></option>`).join('');
+      }
+      if (modelInput && !modelInput.value && models.length) {
+        modelInput.value = models[0];
       }
       statusEl.textContent = `✅ 获取到 ${data.models?.length || 0} 个模型`;
     } catch (err) {
@@ -785,8 +802,8 @@ export function initSettingsPanel(
       const touched = card.dataset.touched === '1';
       if (!isLegacyCard && !configured && !touched) return;
       const llmModels = Array.from(
-        card.querySelectorAll<HTMLOptionElement>('datalist option'),
-      ).map((o) => o.value);
+        card.querySelectorAll<HTMLOptionElement>('.llm-model option, datalist option'),
+      ).map((o) => o.value).filter(Boolean);
       llmConfigs[provider] = {
         model: card.querySelector<HTMLInputElement>('.llm-model')?.value || '',
         base_url: card.querySelector<HTMLInputElement>('.llm-base-url')?.value || '',
@@ -796,17 +813,25 @@ export function initSettingsPanel(
       };
     });
 
-    const ttsConfigs: Record<string, Record<string, string>> = {};
+    const ttsConfigs: Record<string, Record<string, unknown>> = {};
     ttsCardsEl.querySelectorAll<HTMLElement>('.settings-provider-editor, .settings-card').forEach((card) => {
       const provider = card.dataset.provider || '';
       const isLegacyCard = card.classList.contains('settings-card');
       const configured = card.dataset.configured === '1';
       const touched = card.dataset.touched === '1';
       if (!isLegacyCard && !configured && !touched) return;
+      const ttsVoices = Array.from(
+        card.querySelectorAll<HTMLOptionElement>('.tts-voice option'),
+      ).map((o) => o.value).filter(Boolean);
+      const ttsModels = Array.from(
+        card.querySelectorAll<HTMLOptionElement>('.tts-model option'),
+      ).map((o) => o.value).filter(Boolean);
       ttsConfigs[provider] = {
-        voice: card.querySelector<HTMLInputElement>('.tts-voice')?.value || '',
-        model: card.querySelector<HTMLInputElement>('.tts-model')?.value || '',
+        voice: card.querySelector<HTMLSelectElement>('.tts-voice')?.value || '',
+        model: card.querySelector<HTMLSelectElement>('.tts-model')?.value || '',
         ws_url: card.querySelector<HTMLInputElement>('.tts-ws-url')?.value || '',
+        ...(ttsVoices.length > 0 ? { voices: ttsVoices } : {}),
+        ...(ttsModels.length > 0 ? { models: ttsModels } : {}),
       };
     });
 
