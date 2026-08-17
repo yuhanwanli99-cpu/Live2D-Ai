@@ -105,6 +105,19 @@ async def handle_sentence_output(
             logger.debug("🚫 No translation engine available. Skipping translation.")
 
         full_response += display_text.text
+
+        # 流式字幕：句子切出后立即上屏，不等 TTS 合成/后处理完成
+        if display_text.text:
+            await websocket_send(
+                json.dumps(
+                    {
+                        "type": "subtitle",
+                        "text": display_text.text,
+                        "name": display_text.name,
+                    }
+                )
+            )
+
         await tts_manager.speak(
             tts_text=tts_text,
             display_text=display_text,

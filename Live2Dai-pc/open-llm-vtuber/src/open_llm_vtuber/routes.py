@@ -248,7 +248,7 @@ def init_config_routes(
         tts_ids = list(dict.fromkeys(list(tts_cfg.keys()) + list(TTS_DEFAULTS.keys())))
         tts_provider_list = []
         for pid in tts_ids:
-            if pid in ("tts_model", "concurrency_limit"):
+            if pid in ("tts_model", "concurrency_limit", "viseme_mode"):
                 continue
             cfg = tts_cfg.get(pid, {}) or {}
             if not isinstance(cfg, dict):
@@ -273,12 +273,13 @@ def init_config_routes(
             "llm_providers": list(dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys()))),
             "llm_configs": llm_provider_list,
             "tts_model": tts_cfg.get("tts_model", ""),
+            "viseme_mode": tts_cfg.get("viseme_mode", "rms"),
             "tts_providers": list(
                 dict.fromkeys(
                     [
                         k
                         for k, v in tts_cfg.items()
-                        if k not in ("tts_model", "concurrency_limit")
+                        if k not in ("tts_model", "concurrency_limit", "viseme_mode")
                         and isinstance(v, dict)
                     ]
                     + list(TTS_DEFAULTS.keys())
@@ -329,6 +330,8 @@ def init_config_routes(
                 basic["llm_provider"] = payload["llm_provider"]
             if "tts_model" in payload and payload["tts_model"]:
                 cc.setdefault("tts_config", {})["tts_model"] = payload["tts_model"]
+            if "viseme_mode" in payload and payload["viseme_mode"]:
+                cc.setdefault("tts_config", {})["viseme_mode"] = payload["viseme_mode"]
             if "asr_model" in payload and payload["asr_model"]:
                 cc.setdefault("asr_config", {})["asr_model"] = payload["asr_model"]
             if "character_name" in payload and payload["character_name"]:
@@ -749,7 +752,7 @@ def init_config_routes(
             tts_results = []
             tts_ids = list(dict.fromkeys(list(tts_cfg.keys()) + list(TTS_DEFAULTS.keys())))
             for pid in tts_ids:
-                if pid in ("tts_model", "concurrency_limit"):
+                if pid in ("tts_model", "concurrency_limit", "viseme_mode"):
                     continue
                 key_env = TTS_DEFAULTS.get(pid, {}).get("key_env")
                 configured = _has_key(key_env) if key_env else True

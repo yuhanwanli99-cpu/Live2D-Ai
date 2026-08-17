@@ -51,6 +51,7 @@ interface AppConfig {
   llm_providers: string[];
   llm_configs: LlmProviderCfg[];
   tts_model: string;
+  viseme_mode: string;
   tts_providers: string[];
   tts_configs: TtsProviderCfg[];
   asr_model: string;
@@ -118,6 +119,7 @@ const EMPTY_CONFIG: AppConfig = {
   llm_providers: [],
   llm_configs: [],
   tts_model: '',
+  viseme_mode: 'rms',
   tts_providers: [],
   tts_configs: [],
   asr_model: 'disabled',
@@ -182,6 +184,14 @@ export function initSettingsPanel(
           <label class="settings-row">
             <span>ASR 引擎</span>
             <select class="settings-asr"></select>
+          </label>
+          <label class="settings-row">
+            <span>口型模式</span>
+            <select class="settings-viseme-mode">
+              <option value="rms">RMS 快速（推荐，NEKO 同款）</option>
+              <option value="off">关闭 viseme（最快）</option>
+              <option value="pymouth">Pymouth 精细（慢）</option>
+            </select>
           </label>
           <div class="settings-section-title">TTS 参数</div>
           <div class="settings-card-actions">
@@ -724,6 +734,8 @@ export function initSettingsPanel(
       asrOptions,
       cfg.asr_model || 'disabled',
     );
+    overlay.querySelector<HTMLSelectElement>('.settings-viseme-mode')!.value =
+      cfg.viseme_mode || 'rms';
     renderLlmCards();
     renderTtsCards();
     renderKeyCards();
@@ -794,6 +806,7 @@ export function initSettingsPanel(
     return {
       llm_provider: overlay.querySelector<HTMLSelectElement>('.settings-llm')!.value,
       tts_model: overlay.querySelector<HTMLSelectElement>('.settings-tts')!.value,
+      viseme_mode: overlay.querySelector<HTMLSelectElement>('.settings-viseme-mode')!.value,
       asr_model: overlay.querySelector<HTMLSelectElement>('.settings-asr')!.value,
       character_name: overlay.querySelector<HTMLInputElement>('.settings-character-name')!.value.trim(),
       port: Number(overlay.querySelector<HTMLInputElement>('.settings-port')!.value),

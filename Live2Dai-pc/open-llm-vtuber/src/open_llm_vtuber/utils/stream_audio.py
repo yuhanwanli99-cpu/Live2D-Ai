@@ -1,5 +1,6 @@
 import base64
 import threading
+import time
 
 from typing import Optional
 from pydub import AudioSegment
@@ -101,6 +102,7 @@ def prepare_audio_payload(
     actions: Actions = None,
     forwarded: bool = False,
     emotion: Optional[str] = None,
+    viseme_mode: str = "rms",
 ) -> dict[str, any]:
     """
     Prepares the audio payload for sending to a broadcast endpoint.
@@ -143,21 +145,54 @@ def prepare_audio_payload(
             payload["emotion"] = emotion
         return payload
 
+    _t0 = time.monotonic()
     try:
         audio = AudioSegment.from_file(audio_path)
+        _t_pydub = time.monotonic()
         audio_bytes = audio.export(format="wav").read()
     except Exception as e:
         raise ValueError(
             f"Error loading or converting generated audio file to wav file '{audio_path}': {e}"
         )
+    _t_export = time.monotonic()
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    _t_base64 = time.monotonic()
     volumes = _get_volume_by_chunks(audio, chunk_length_ms)
-    # pymouth 元音嘴型：缺失/失败时静默降级为空列表（线程池并发下加锁串行）
-    with _viseme_lock:
+    _t_volume = time.monotonic()
+
+    # 口型模式（默认 rms，NEKO 同款快速音量驱动）：
+    #   rms     → 直接用 volumes 生成 mouth_open_y，不跑 pymouth（毫秒级）
+    #   off     → 完全关闭 viseme，前端仍可用 volumes 驱动嘴部开合
+    #   pymouth → 精细元音识别（慢，可选）
+    if viseme_mode == "pymouth":
+        # pymouth 元音嘴型：缺失/失败时静默降级为空列表（线程池并发下加锁串行）
+        with _viseme_lock:
+            visemes = [
+                frame.to_dict()
+                for frame in _viseme_driver.process_audio(audio_bytes)
+            ]
+    elif viseme_mode == "rms":
         visemes = [
-            frame.to_dict()
-            for frame in _viseme_driver.process_audio(audio_bytes)
+            {"mouth_open_y": volume, "mouth_form": 0.0}
+            for volume in volumes
         ]
+    else:  # off
+        visemes = []
+    _t_viseme = time.monotonic()
+
+    logger.info(
+        "[LATENCY] prepare_audio_payload pydub_ms={:.0f} export_ms={:.0f} "
+        "base64_ms={:.0f} volume_ms={:.0f} viseme_ms={:.0f} total_ms={:.0f} "
+        "mode={}".format(
+            (_t_pydub - _t0) * 1000,
+            (_t_export - _t_pydub) * 1000,
+            (_t_base64 - _t_export) * 1000,
+            (_t_volume - _t_base64) * 1000,
+            (_t_viseme - _t_volume) * 1000,
+            (_t_viseme - _t0) * 1000,
+            viseme_mode,
+        )
+    )
 
     payload = {
         "type": "audio",

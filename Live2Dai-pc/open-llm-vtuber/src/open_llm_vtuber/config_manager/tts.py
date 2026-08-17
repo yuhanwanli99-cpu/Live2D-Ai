@@ -797,6 +797,11 @@ class TTSConfig(I18nMixin):
     # P2-3 (spoq-fix): 段级 TTS 合成并发上限（TTSTaskManager 信号灯），默认 2，≥1
     concurrency_limit: int = Field(2, alias="concurrency_limit", ge=1)
 
+    # 口型驱动模式：rms=快速音量驱动（默认，NEKO 同款）/ off=完全关闭 viseme / pymouth=精细元音识别（慢）
+    viseme_mode: Literal["off", "rms", "pymouth"] = Field(
+        "rms", alias="viseme_mode"
+    )
+
     azure_tts: Optional[AzureTTSConfig] = Field(None, alias="azure_tts")
     bark_tts: Optional[BarkTTSConfig] = Field(None, alias="bark_tts")
     edge_tts: Optional[EdgeTTSConfig] = Field(None, alias="edge_tts")
@@ -827,6 +832,10 @@ class TTSConfig(I18nMixin):
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "tts_model": Description(
             en="Text-to-speech model to use", zh="要使用的文本转语音模型"
+        ),
+        "viseme_mode": Description(
+            en="Lip-sync mode: rms (fast, default) / off / pymouth (slow, precise)",
+            zh="口型模式：rms（快速，默认）/ off（关闭）/ pymouth（精细但慢）",
         ),
         "azure_tts": Description(en="Configuration for Azure TTS", zh="Azure TTS 配置"),
         "bark_tts": Description(en="Configuration for Bark TTS", zh="Bark TTS 配置"),

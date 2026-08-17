@@ -330,9 +330,11 @@ class PrepareAudioPayloadTest(unittest.TestCase):
         return path
 
     def test_payload_contains_visemes_list(self):
-        """正常音频 payload 应携带 visemes 列表（元素为 dict）。"""
+        """pymouth 模式：正常音频 payload 应携带 visemes 列表（元素为 dict）。"""
         path = self._write_tmp_wav(duration_ms=600)
-        payload = prepare_audio_payload(audio_path=path, chunk_length_ms=100)
+        payload = prepare_audio_payload(
+            audio_path=path, chunk_length_ms=100, viseme_mode="pymouth"
+        )
         self.assertIn("visemes", payload)
         self.assertIsInstance(payload["visemes"], list)
         self.assertGreater(len(payload["visemes"]), 0)
@@ -349,6 +351,21 @@ class PrepareAudioPayloadTest(unittest.TestCase):
         payload = prepare_audio_payload(audio_path=path)
         json.dumps(payload)
 
+    def test_rms_mode_returns_volume_visemes_without_pymouth(self):
+        """默认 rms 模式：不跑 pymouth，直接用 volumes 生成 mouth_open_y。"""
+        path = self._write_tmp_wav(duration_ms=300)
+        payload = prepare_audio_payload(audio_path=path, viseme_mode="rms")
+        self.assertEqual(len(payload["volumes"]), len(payload["visemes"]))
+        self.assertIn("mouth_open_y", payload["visemes"][0])
+        self.assertIn("mouth_form", payload["visemes"][0])
+
+    def test_off_mode_returns_empty_visemes(self):
+        """off 模式：完全不生成 viseme，前端仍可用 volumes 驱动嘴部开合。"""
+        path = self._write_tmp_wav(duration_ms=300)
+        payload = prepare_audio_payload(audio_path=path, viseme_mode="off")
+        self.assertEqual(payload["visemes"], [])
+        self.assertGreater(len(payload["volumes"]), 0)
+
     def test_silent_payload_visemes_empty(self):
         """audio_path=None 的静音 payload visemes 为空列表。"""
         payload = prepare_audio_payload(audio_path=None)
@@ -362,7 +379,7 @@ class PrepareAudioPayloadTest(unittest.TestCase):
             "open_llm_vtuber.utils.stream_audio._viseme_driver.process_audio",
             return_value=[],
         ):
-            payload = prepare_audio_payload(audio_path=path)
+            payload = prepare_audio_payload(audio_path=path, viseme_mode="pymouth")
         self.assertEqual(payload["visemes"], [])
         # 其余字段不受影响
         self.assertIsNotNone(payload["audio"])

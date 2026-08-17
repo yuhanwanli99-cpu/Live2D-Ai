@@ -23,6 +23,7 @@ class TTSTaskManager:
         tts_engine: Optional[TTSInterface] = None,
         live2d_model: Optional[Live2dModel] = None,
         concurrency_limit: int = 2,  # PT-01: 构造参数名按契约改名（默认值语义不变）
+        viseme_mode: str = "rms",    # rms/off/pymouth；默认 rms（NEKO 同款快速口型）
     ) -> None:
         self.task_list: List[asyncio.Task] = []
         self._lock = asyncio.Lock()
@@ -42,6 +43,7 @@ class TTSTaskManager:
         # TTS 引擎 / Live2D 模型（构造注入，或经 speak() 兼容路径注入）
         self._tts_engine: Optional[TTSInterface] = tts_engine
         self._live2d_model: Optional[Live2dModel] = live2d_model
+        self._viseme_mode: str = viseme_mode
         # 上一句 emotion（emotion 帧仅当与上一句不同时发送，前端按 emotion 去重）。
         # 初始为 "neutral"：前端默认表情即 neutral，首句 neutral 不发冗余 emotion 帧
         # （契约 P5-03：mock WS 发送数 = speak_async 调用数，3 段同 emotion 无额外帧）。
@@ -333,6 +335,9 @@ class TTSTaskManager:
                 20,
                 display_text,
                 actions,
+                False,
+                None,
+                self._viseme_mode,
             )
             # T2: emotion 帧先入队（同一 sequence），再入队 audio payload，保持帧序
             if emotion_payload is not None:

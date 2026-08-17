@@ -6,6 +6,7 @@
  *   "audio"              → lipSync.play(volumes, visemes, slice_length)（RM7-02）
  *                          + emotionConsumer.consume(actions.parameterOverrides)（RM7-03）
  *                          + onSubtitle(display_text)
+ *   "subtitle"           → onSubtitle(display_text)（LLM 句子切出后先于 audio 上屏）
  *   "emotion"            → emotionConsumer.consume(parameterOverrides)
  *   未知 type            → 忽略（try/catch 兜底，不崩溃，RM7-04）
  *
@@ -206,6 +207,13 @@ export class WsBridge {
         case 'set-model-and-conf': {
           const info = (data as { model_info?: ModelInfo } | null)?.model_info;
           if (info) this.onModelChange?.(info);
+          break;
+        }
+        case 'subtitle': {
+          const subtitle = data as { text?: string; name?: string } | null;
+          if (subtitle && typeof subtitle.text === 'string') {
+            this.onSubtitle?.({ text: subtitle.text, name: subtitle.name ?? '' });
+          }
           break;
         }
         case 'audio': {

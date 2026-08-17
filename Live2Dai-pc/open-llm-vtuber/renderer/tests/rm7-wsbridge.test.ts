@@ -69,6 +69,7 @@ beforeEach(() => {
 let lipSync: { play: ReturnType<typeof vi.fn> };
 let emotionConsumer: { consume: ReturnType<typeof vi.fn> };
 let onModelChange: ReturnType<typeof vi.fn>;
+let onSubtitle: ReturnType<typeof vi.fn>;
 
 function resetState(): void {
   MockWebSocket.instances = [];
@@ -77,11 +78,13 @@ function makeConsumers(): {
   lipSync: typeof lipSync;
   emotionConsumer: typeof emotionConsumer;
   onModelChange: typeof onModelChange;
+  onSubtitle: typeof onSubtitle;
 } {
   lipSync = { play: vi.fn() };
   emotionConsumer = { consume: vi.fn() };
   onModelChange = vi.fn();
-  return { lipSync, emotionConsumer, onModelChange };
+  onSubtitle = vi.fn();
+  return { lipSync, emotionConsumer, onModelChange, onSubtitle };
 }
 /** 创建 WsBridge 并 wire 消费者，connect + 触发 open */
 function openBridge(url = 'ws://localhost:12393/ws'): {
@@ -90,12 +93,14 @@ function openBridge(url = 'ws://localhost:12393/ws'): {
   lipSync: typeof lipSync;
   emotionConsumer: typeof emotionConsumer;
   onModelChange: typeof onModelChange;
+  onSubtitle: typeof onSubtitle;
 } {
   const consumers = makeConsumers();
   const bridge = new WsBridge(url);
   bridge.setLipSync(consumers.lipSync as any);
   bridge.setEmotionConsumer(consumers.emotionConsumer as any);
   bridge.onModelChange = consumers.onModelChange;
+  bridge.onSubtitle = consumers.onSubtitle;
   bridge.connect();
   const ws = MockWebSocket.instances[0];
   ws.simulateOpen();
@@ -214,6 +219,23 @@ describe('RM7 ws-bridge — 消息分发', () => {
     });
 
     expect(emotionConsumer.consume).not.toHaveBeenCalled();
+    bridge.disconnect();
+  });
+
+  it('RM7-06: 收到 "subtitle" → onSubtitle 被调用（LLM 句子先于 audio 上屏）', () => {
+    const { bridge, ws, onSubtitle } = openBridge();
+
+    ws.simulateMessage({
+      type: 'subtitle',
+      text: '欢迎回来今天也要一起加油哦!',
+      name: '白',
+    });
+
+    expect(onSubtitle).toHaveBeenCalledTimes(1);
+    expect(onSubtitle).toHaveBeenCalledWith({
+      text: '欢迎回来今天也要一起加油哦!',
+      name: '白',
+    });
     bridge.disconnect();
   });
 });
