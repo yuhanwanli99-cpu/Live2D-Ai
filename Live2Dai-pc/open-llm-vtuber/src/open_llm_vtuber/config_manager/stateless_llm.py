@@ -251,6 +251,20 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
     llama_cpp_llm: LlamaCppConfig | None = Field(None, alias="llama_cpp_llm")
     mistral_llm: MistralConfig | None = Field(None, alias="mistral_llm")
 
+    # 设置页/路由已暴露的多厂商 OpenAI 兼容别名（保存后热重载需要对应字段）
+    qwen_llm: OpenAICompatibleConfig | None = Field(None, alias="qwen_llm")
+    openrouter: OpenAICompatibleConfig | None = Field(None, alias="openrouter")
+    openai: OpenAICompatibleConfig | None = Field(None, alias="openai")
+    moonshot: OpenAICompatibleConfig | None = Field(None, alias="moonshot")
+    together: OpenAICompatibleConfig | None = Field(None, alias="together")
+    fireworks: OpenAICompatibleConfig | None = Field(None, alias="fireworks")
+    siliconflow: OpenAICompatibleConfig | None = Field(None, alias="siliconflow")
+    opencode: OpenAICompatibleConfig | None = Field(None, alias="opencode")
+    opencode_go: OpenAICompatibleConfig | None = Field(None, alias="opencode_go")
+    groq: OpenAICompatibleConfig | None = Field(None, alias="groq")
+    mistral: OpenAICompatibleConfig | None = Field(None, alias="mistral")
+    anthropic: ClaudeConfig | None = Field(None, alias="anthropic")
+
     DESCRIPTIONS: ClassVar[dict[str, Description]] = {
         "stateless_llm_with_template": Description(
             en="Stateless LLM with Template", zh=""

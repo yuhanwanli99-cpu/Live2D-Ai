@@ -192,6 +192,42 @@ def init_config_routes(
         with open(persona_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f)
 
+    def _config_dict_for_reload():
+        """构造用于热重载的完整 Config dict。
+
+        与 run_server.main() 的启动逻辑保持一致：
+          - conf.yaml 本身不含 persona_prompt（它来自 shared/persona.yaml）
+          - 必须注入 persona_prompt，否则 Pydantic 热重载会报 Field required
+          - 应用 persona.yaml 中的 model/temperature/max_tokens 覆盖（当前仅 deepseek_llm）
+        """
+        from .config_manager.utils import read_yaml
+
+        data = read_yaml(config_abs)
+        cc = data.setdefault("character_config", {})
+        persona = _load_persona() or {}
+        system_prompt = persona.get("system_prompt", "")
+        if system_prompt:
+            cc["persona_prompt"] = system_prompt
+
+        model_overrides = {
+            k: persona[k]
+            for k in ("model", "temperature", "max_tokens")
+            if persona.get(k) is not None
+        }
+        if model_overrides:
+            llm_configs = (
+                cc.setdefault("agent_config", {})
+                .setdefault("llm_configs", {})
+            )
+            deepseek_cfg = llm_configs.setdefault("deepseek_llm", {})
+            if "model" in model_overrides:
+                deepseek_cfg["model"] = model_overrides["model"]
+            if "temperature" in model_overrides:
+                deepseek_cfg["temperature"] = model_overrides["temperature"]
+            if "max_tokens" in model_overrides:
+                deepseek_cfg["max_tokens"] = model_overrides["max_tokens"]
+        return data
+
     def _env_value(name):
         if not name:
             return ""
@@ -451,9 +487,8 @@ def init_config_routes(
 
             if payload.get("apply") and default_context_cache is not None:
                 try:
-                    from .config_manager.utils import read_yaml
                     from .config_manager.main import Config as AppConfig
-                    new_config = AppConfig(**read_yaml(config_abs))
+                    new_config = AppConfig(**_config_dict_for_reload())
                     await default_context_cache.load_from_config(new_config)
                     return JSONResponse(
                         {"ok": True, "requires_restart": False, "applied": True}

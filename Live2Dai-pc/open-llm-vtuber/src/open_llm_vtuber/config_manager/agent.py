@@ -14,21 +14,9 @@ from .stateless_llm import StatelessLLMConfigs
 class BasicMemoryAgentConfig(I18nMixin, BaseModel):
     """Configuration for the basic memory agent."""
 
-    llm_provider: Literal[
-        "stateless_llm_with_template",
-        "openai_compatible_llm",
-        "claude_llm",
-        "llama_cpp_llm",
-        "ollama_llm",
-        "lmstudio_llm",
-        "openai_llm",
-        "gemini_llm",
-        "zhipu_llm",
-        "zhipu_free_llm",
-        "deepseek_llm",
-        "groq_llm",
-        "mistral_llm",
-    ] = Field(..., alias="llm_provider")
+    # 使用 str 而非 Literal：设置页/路由已支持多厂商（qwen_llm/openrouter/openai 等），
+    # 严格 Literal 会导致保存后热重载失败。运行时由 LLMFactory 再做实际能力校验。
+    llm_provider: str = Field(..., alias="llm_provider")
 
     faster_first_response: Optional[bool] = Field(True, alias="faster_first_response")
     segment_method: Literal["regex", "pysbd", "priority"] = Field("pysbd", alias="segment_method")

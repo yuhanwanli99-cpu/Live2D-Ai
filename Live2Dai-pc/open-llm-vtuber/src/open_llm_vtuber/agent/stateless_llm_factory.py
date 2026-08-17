@@ -12,6 +12,32 @@ from .stateless_llm.claude_llm import AsyncLLM as ClaudeLLM
 from ..free_glm_defaults import resolve_llm_api_key
 
 
+# 设置页/路由支持的 OpenAI 兼容厂商别名；统一走 OpenAICompatibleLLM。
+# 注意：这些别名在 StatelessLLMConfigs 中都有对应字段，避免热重载时被 Pydantic 丢弃。
+_OPENAI_COMPATIBLE_PROVIDERS = {
+    "openai_compatible_llm",
+    "openai_llm",
+    "gemini_llm",
+    "zhipu_llm",
+    "zhipu_free_llm",
+    "deepseek_llm",
+    "groq_llm",
+    "mistral_llm",
+    "lmstudio_llm",
+    "qwen_llm",
+    "openrouter",
+    "openai",
+    "moonshot",
+    "together",
+    "fireworks",
+    "siliconflow",
+    "opencode",
+    "opencode_go",
+    "groq",
+    "mistral",
+}
+
+
 class LLMFactory:
     @staticmethod
     def create_llm(llm_provider, **kwargs) -> Type[StatelessLLMInterface]:
@@ -23,17 +49,7 @@ class LLMFactory:
         """
         logger.info(f"Initializing LLM: {llm_provider}")
 
-        if (
-            llm_provider == "openai_compatible_llm"
-            or llm_provider == "openai_llm"
-            or llm_provider == "gemini_llm"
-            or llm_provider == "zhipu_llm"
-            or llm_provider == "zhipu_free_llm"
-            or llm_provider == "deepseek_llm"
-            or llm_provider == "groq_llm"
-            or llm_provider == "mistral_llm"
-            or llm_provider == "lmstudio_llm"
-        ):
+        if llm_provider in _OPENAI_COMPATIBLE_PROVIDERS:
             # 零配置默认 Provider：llm_api_key 为空/未解析的 ${VAR} 占位符时
             # resolve_llm_api_key 抛明确报错（本地配置 key，见 free_glm_defaults.py）。
             api_key = kwargs.get("llm_api_key")
@@ -74,7 +90,7 @@ class LLMFactory:
             return LlamaLLM(
                 model_path=kwargs.get("model_path"),
             )
-        elif llm_provider == "claude_llm":
+        elif llm_provider in ("claude_llm", "anthropic"):
             return ClaudeLLM(
                 system=kwargs.get("system_prompt"),
                 base_url=kwargs.get("base_url"),
