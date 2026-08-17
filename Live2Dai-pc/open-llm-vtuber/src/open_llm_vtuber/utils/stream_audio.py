@@ -1,4 +1,6 @@
 import base64
+import threading
+
 from typing import Optional
 from pydub import AudioSegment
 from pydub.utils import make_chunks
@@ -8,7 +10,9 @@ from ..agent.output_types import DisplayText
 from ..tts.pymouth_viseme import PymouthVisemeDriver
 
 # 进程级复用的元音嘴型驱动器：pymouth 缺失/失败时 process_audio 返回 []，静默降级
+# prepare_audio_payload 已移入线程池执行，pymouth analyser 非线程安全，需加锁串行化。
 _viseme_driver = PymouthVisemeDriver()
+_viseme_lock = threading.Lock()
 
 # 合法 emotion key 枚举（contract-pc-pipeline.md §P6 / emotion-protocol C1 8 key）
 VALID_EMOTIONS = {
@@ -148,8 +152,12 @@ def prepare_audio_payload(
         )
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
     volumes = _get_volume_by_chunks(audio, chunk_length_ms)
-    # pymouth 元音嘴型：缺失/失败时静默降级为空列表
-    visemes = [frame.to_dict() for frame in _viseme_driver.process_audio(audio_bytes)]
+    # pymouth 元音嘴型：缺失/失败时静默降级为空列表（线程池并发下加锁串行）
+    with _viseme_lock:
+        visemes = [
+            frame.to_dict()
+            for frame in _viseme_driver.process_audio(audio_bytes)
+        ]
 
     payload = {
         "type": "audio",
