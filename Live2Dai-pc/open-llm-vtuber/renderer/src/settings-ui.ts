@@ -311,14 +311,19 @@ export function initSettingsPanel(
       const container = document.createElement('div');
       container.className = 'settings-group-cards';
       for (const p of group.providers) {
-        const card = document.createElement('div');
-        card.className = 'settings-card';
-        card.dataset.provider = p.id;
-        card.innerHTML = `
-          <div class="settings-card-title">
+        const row = document.createElement('div');
+        row.className = 'settings-provider-row';
+        row.innerHTML = `
+          <div class="settings-provider-row-title">
             <span>${esc(p.name || providerLabel(p.id, LLM_PROVIDER_LABELS))} <span class="settings-card-sub">${esc(p.id)}</span></span>
             <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
           </div>
+          <button class="settings-provider-toggle" type="button">编辑</button>
+        `;
+        const editor = document.createElement('div');
+        editor.className = 'settings-provider-editor';
+        editor.style.display = 'none';
+        editor.innerHTML = `
           <div class="settings-card-grid">
             <label class="settings-row"><span>模型</span>
               <input class="llm-model" type="text" list="llm-models-${esc(p.id)}" value="${esc(p.model)}" placeholder="选择或输入模型" />
@@ -333,7 +338,14 @@ export function initSettingsPanel(
             <button class="settings-test-llm" type="button" data-provider="${p.id}">测试连接</button>
           </div>
         `;
-        container.appendChild(card);
+        const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
+        toggle.addEventListener('click', () => {
+          const show = editor.style.display === 'none';
+          editor.style.display = show ? 'block' : 'none';
+          toggle.textContent = show ? '收起' : '编辑';
+        });
+        container.appendChild(row);
+        container.appendChild(editor);
       }
       details.appendChild(container);
       llmCardsEl.appendChild(details);
@@ -345,7 +357,7 @@ export function initSettingsPanel(
     });
     llmCardsEl.querySelectorAll<HTMLButtonElement>('.settings-discover-models').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const card = btn.closest<HTMLElement>('.settings-card');
+        const card = btn.closest<HTMLElement>('.settings-provider-editor');
         if (card) void discoverModels(btn.dataset.provider || '', card);
       });
     });
@@ -375,14 +387,19 @@ export function initSettingsPanel(
       const container = document.createElement('div');
       container.className = 'settings-group-cards';
       for (const p of group.providers) {
-        const card = document.createElement('div');
-        card.className = 'settings-card';
-        card.dataset.provider = p.id;
-        card.innerHTML = `
-          <div class="settings-card-title">
+        const row = document.createElement('div');
+        row.className = 'settings-provider-row';
+        row.innerHTML = `
+          <div class="settings-provider-row-title">
             <span>${esc(p.name || providerLabel(p.id, TTS_PROVIDER_LABELS))} <span class="settings-card-sub">${esc(p.id)}</span></span>
             <span class="settings-badge ${p.has_key ? 'ok' : ''}">${p.has_key ? '已配置' : '未配置 Key'}</span>
           </div>
+          <button class="settings-provider-toggle" type="button">编辑</button>
+        `;
+        const editor = document.createElement('div');
+        editor.className = 'settings-provider-editor';
+        editor.style.display = 'none';
+        editor.innerHTML = `
           <div class="settings-card-grid">
             <label class="settings-row"><span>音色 Voice</span><input class="tts-voice" type="text" value="${esc(p.voice)}" /></label>
             <label class="settings-row"><span>模型</span><input class="tts-model" type="text" value="${esc(p.model)}" /></label>
@@ -392,7 +409,14 @@ export function initSettingsPanel(
             <button class="settings-test-tts" type="button">试听当前引擎</button>
           </div>
         `;
-        container.appendChild(card);
+        const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
+        toggle.addEventListener('click', () => {
+          const show = editor.style.display === 'none';
+          editor.style.display = show ? 'block' : 'none';
+          toggle.textContent = show ? '收起' : '编辑';
+        });
+        container.appendChild(row);
+        container.appendChild(editor);
       }
       details.appendChild(container);
       ttsCardsEl.appendChild(details);
@@ -452,20 +476,17 @@ export function initSettingsPanel(
       const container = document.createElement('div');
       container.className = 'settings-group-cards';
       for (const item of group.items) {
-        const card = document.createElement('div');
-        card.className = 'settings-card';
-        card.innerHTML = `
-          <div class="settings-card-title">
-            <span>${item.label}</span>
-            <span class="settings-badge">${item.env}</span>
-          </div>
+        const row = document.createElement('div');
+        row.className = 'settings-key-item';
+        row.innerHTML = `
+          <span class="settings-key-label">${item.label} <span class="settings-card-sub">${item.env}</span></span>
           <div class="settings-key-row">
             <input class="settings-key-input" type="password" data-env="${item.env}" placeholder="留空不修改" autocomplete="off" />
             <button class="settings-key-toggle" type="button">显示</button>
             ${item.provider ? `<button class="settings-key-test" type="button" data-provider="${item.provider}" data-env="${item.env}">测试</button>` : ''}
           </div>
         `;
-        container.appendChild(card);
+        container.appendChild(row);
       }
       details.appendChild(container);
       keyCardsEl.appendChild(details);
