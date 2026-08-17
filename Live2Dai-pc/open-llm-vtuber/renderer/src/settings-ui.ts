@@ -185,6 +185,7 @@ export function initSettingsPanel(
           </label>
           <div class="settings-section-title">TTS 参数</div>
           <div class="settings-card-actions">
+            <button class="settings-latency-edge" type="button">⚡ 低延迟 Edge TTS</button>
             <button class="settings-check-all" type="button">全部检查</button>
           </div>
           <div class="settings-tts-cards"></div>
@@ -872,6 +873,25 @@ export function initSettingsPanel(
     }
   };
 
+  const switchEdgeTts = (): void => {
+    const select = overlay.querySelector<HTMLSelectElement>('.settings-tts');
+    if (!select) return;
+    select.value = 'edge_tts';
+    markTtsTouched('edge_tts');
+    const editor = ttsCardsEl.querySelector<HTMLElement>(
+      '.settings-provider-editor[data-provider="edge_tts"]',
+    );
+    if (editor) {
+      editor.dataset.touched = '1';
+      const voice = editor.querySelector<HTMLInputElement>('.tts-voice');
+      if (voice && !voice.value.trim()) voice.value = 'zh-CN-XiaoxiaoNeural';
+      editor.style.display = 'block';
+      const toggle = editor.previousElementSibling?.querySelector<HTMLButtonElement>('.settings-provider-toggle');
+      if (toggle) toggle.textContent = '收起';
+    }
+    statusEl.textContent = '⚡ 已切换低延迟 Edge TTS，点“保存并应用”生效';
+  };
+
   const scanModels = async (): Promise<void> => {
     modelStatusEl.textContent = '扫描中…';
     try {
@@ -940,6 +960,9 @@ export function initSettingsPanel(
   overlay.querySelector<HTMLButtonElement>('.settings-add-llm')!.addEventListener('click', addLlmProvider);
   overlay.querySelector<HTMLButtonElement>('.settings-scan-models')?.addEventListener('click', () => {
     void scanModels();
+  });
+  overlay.querySelector<HTMLButtonElement>('.settings-latency-edge')?.addEventListener('click', () => {
+    switchEdgeTts();
   });
   overlay.querySelectorAll<HTMLButtonElement>('.settings-check-all').forEach((btn) => {
     btn.addEventListener('click', () => {
