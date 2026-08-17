@@ -18,6 +18,37 @@ from loguru import logger
 # [emo:xxx] / [emo:xxx_N] 标签（P7：防 actions_extractor 把 [emo:joy] 中的 joy 误匹配为旧关键词）
 _EMO_TAG_RE = re.compile(r"\[emo:[a-zA-Z]+(?:_\d)?\]")
 
+# 表情 JSON 动作块的关键字：命中即视为“JSON 碎片”，即使 SentenceDivider 被切碎也不该朗读/显示
+_JSON_FRAGMENT_KEYS = (
+    "expressionMix",
+    "motionLabel",
+    "parameterOverrides",
+    "expressions",
+    '"weight"',
+)
+
+
+def _looks_like_json_fragment(text: str) -> bool:
+    """判断一段文本是否属于 LLM 动作 JSON 的碎片（而非正常对话）。
+
+    覆盖两种常见形态：
+      1. 包含动作协议关键字（expressionMix/motionLabel/parameterOverrides 等）
+      2. 代码围栏碎片：```json、```、以及以 { 开头但明显不是完整句子的 JSON 片段
+    """
+    t = text.strip()
+    if not t:
+        return False
+    if "```" in t or t == "json":
+        return True
+    if any(k in t for k in _JSON_FRAGMENT_KEYS):
+        return True
+    # 形如 {"xxx": ... 且没有正常结束（缺少闭合的 } 或句子标点）的碎片
+    if t.startswith("{") and "}" not in t:
+        return True
+    if t.startswith("{") and not t.endswith("}") and not t.endswith((".", "!", "?", "。", "！", "？")):
+        return True
+    return False
+
 
 def emo_interceptor():
     """流式 [emo:xxx] 拦截装饰器（P1/P7，集成 StreamInterceptor）。
@@ -192,6 +223,14 @@ def actions_extractor(live2d_model: Live2dModel):
                         # 也防 extract_expression_mix/extract_emotion 把 [emo:joy] 中的
                         # joy 误匹配为旧关键词标签——架构 R5）
                         sentence.text = _EMO_TAG_RE.sub("", sentence.text)
+
+                        # 兜底：若 SentenceDivider 仍把动作 JSON 切碎，直接丢弃碎片，
+                        # 避免 `json`、`:"joy",` 这类内容被朗读/上屏。
+                        if _looks_like_json_fragment(sentence.text):
+                            sentence.text = ""
+                            yield sentence, actions
+                            continue
+
                         # M3 结构化表情 JSON 路径优先（M1 §3.2 + M2-M3 §2.3 接线）
                         structured = live2d_model.extract_expression_mix(
                             sentence.text

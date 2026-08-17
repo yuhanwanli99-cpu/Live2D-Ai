@@ -662,6 +662,18 @@ export function initSettingsPanel(
     }
   };
 
+  const autoDiscoverConfiguredModels = async (): Promise<void> => {
+    const cards = llmCardsEl.querySelectorAll<HTMLElement>('.settings-provider-editor');
+    for (const card of Array.from(cards)) {
+      const provider = card.dataset.provider || '';
+      if (!provider) continue;
+      const p = currentConfig.llm_configs.find((x) => x.id === provider);
+      if (!p?.configured) continue;
+      if (!p.has_key && !p.base_url) continue;
+      await discoverModels(provider, card);
+    }
+  };
+
   const renderModels = async (): Promise<void> => {
     modelListEl.innerHTML = '<div class="settings-tip">加载模型列表…</div>';
     try {
@@ -741,6 +753,7 @@ export function initSettingsPanel(
     renderKeyCards();
     renderPersona();
     renderSystem();
+    void autoDiscoverConfiguredModels();
     void renderModels();
   };
 

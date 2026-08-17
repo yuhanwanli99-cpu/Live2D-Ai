@@ -185,6 +185,35 @@ def init_config_routes(
         with open(persona_path, "r", encoding="utf-8") as f:
             return yaml.load(f) or {}
 
+    def _parse_models_response(raw) -> list:
+        """兼容各家 /models 返回结构：data 可能是 list、dict 或嵌套 models。"""
+        models: list[str] = []
+
+        def collect(items) -> None:
+            if not isinstance(items, list):
+                return
+            for item in items:
+                if isinstance(item, dict) and item.get("id"):
+                    models.append(str(item["id"]))
+                elif isinstance(item, str):
+                    models.append(item)
+
+        if isinstance(raw, dict):
+            data = raw.get("data")
+            if isinstance(data, dict):
+                # 例如 { "data": { "models": [...] } }
+                collect(data.get("models") or data.get("data") or [])
+            elif isinstance(data, list):
+                collect(data)
+            collect(raw.get("models") or [])
+            # 极少数结构：{ "models": { "data": [...] } }
+            models_obj = raw.get("models")
+            if isinstance(models_obj, dict):
+                collect(models_obj.get("data") or models_obj.get("models") or [])
+        elif isinstance(raw, list):
+            collect(raw)
+        return models
+
     def _save_persona(data):
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
@@ -692,20 +721,7 @@ def init_config_routes(
                     status_code=400,
                 )
             raw = resp.json()
-            models: list[str] = []
-            if isinstance(raw, dict):
-                items = raw.get("data") or raw.get("models") or []
-                for item in items:
-                    if isinstance(item, dict) and item.get("id"):
-                        models.append(str(item["id"]))
-                    elif isinstance(item, str):
-                        models.append(item)
-            elif isinstance(raw, list):
-                for item in raw:
-                    if isinstance(item, dict) and item.get("id"):
-                        models.append(str(item["id"]))
-                    elif isinstance(item, str):
-                        models.append(item)
+            models = _parse_models_response(raw)
             return JSONResponse({"ok": True, "models": models})
         except Exception as e:
             logger.error(f"Discover models failed: {e}")
@@ -752,20 +768,7 @@ def init_config_routes(
                     )
                     if resp.status_code < 400:
                         raw = resp.json()
-                        models: list[str] = []
-                        if isinstance(raw, dict):
-                            items = raw.get("data") or raw.get("models") or []
-                            for item in items:
-                                if isinstance(item, dict) and item.get("id"):
-                                    models.append(str(item["id"]))
-                                elif isinstance(item, str):
-                                    models.append(item)
-                        elif isinstance(raw, list):
-                            for item in raw:
-                                if isinstance(item, dict) and item.get("id"):
-                                    models.append(str(item["id"]))
-                                elif isinstance(item, str):
-                                    models.append(item)
+                        models = _parse_models_response(raw)
                         llm_results.append(
                             {"provider": pid, "kind": "llm", "ok": True, "status": "ok", "models": models}
                         )

@@ -26,8 +26,8 @@ export class WsBridge {
   /** 字幕回调（"audio" → display_text） */
   onSubtitle: ((text: DisplayText) => void) | null = null;
 
-  /** 最近一次由 "subtitle" 消息上屏的文本；用于跳过紧随其后的 audio.display_text 重复上屏 */
-  private _lastSubtitleText: string | null = null;
+  /** 最近上屏过的字幕文本（环形小窗口）；用于跳过 audio.display_text 的重复上屏 */
+  private _recentSubtitleTexts: string[] = [];
   /** 连接状态回调（onopen/onclose，聊天面板状态指示用） */
   onConnectionChange: ((connected: boolean) => void) | null = null;
   /** TTS 播放状态回调（播放中/空闲） */
@@ -190,6 +190,14 @@ export class WsBridge {
     }
   }
 
+  /** 记录最近上屏字幕，窗口上限 20 条（防并发 TTS 乱序导致重复） */
+  private _rememberSubtitleText(text: string): void {
+    this._recentSubtitleTexts.push(text);
+    if (this._recentSubtitleTexts.length > 20) {
+      this._recentSubtitleTexts.shift();
+    }
+  }
+
   /** 原始消息入口：JSON 解析（try/catch 兜底，解析失败只记日志不崩溃） */
   private _handleRaw(event: MessageEvent): void {
     let data: unknown;
@@ -215,7 +223,7 @@ export class WsBridge {
         case 'subtitle': {
           const subtitle = data as { text?: string; name?: string } | null;
           if (subtitle && typeof subtitle.text === 'string') {
-            this._lastSubtitleText = subtitle.text;
+            this._rememberSubtitleText(subtitle.text);
             this.onSubtitle?.({ text: subtitle.text, name: subtitle.name ?? '' });
           }
           break;
@@ -240,10 +248,10 @@ export class WsBridge {
           // 字幕（subtitle 消息已先上屏同一句时跳过，避免聊天面板重复显示）
           if (audio?.display_text) {
             const text = audio.display_text.text;
-            if (text !== this._lastSubtitleText) {
+            if (!this._recentSubtitleTexts.includes(text)) {
+              this._rememberSubtitleText(text);
               this.onSubtitle?.(audio.display_text);
             }
-            this._lastSubtitleText = null;
           }
           // 音频播放（spoq-fix：audio 帧 base64 WAV → 播放；None 为静默帧跳过）
           if (typeof audio?.audio === 'string' && audio.audio.length > 0) {

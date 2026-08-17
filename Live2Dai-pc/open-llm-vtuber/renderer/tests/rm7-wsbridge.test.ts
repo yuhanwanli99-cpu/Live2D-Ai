@@ -274,6 +274,26 @@ describe('RM7 ws-bridge — 消息分发', () => {
     expect(onSubtitle).toHaveBeenCalledWith({ text: '直接音频字幕', name: '白' });
     bridge.disconnect();
   });
+
+  it('RM7-06d: 并发 TTS 乱序时，先到的后续 subtitle 不会导致前一句 audio 重复上屏', () => {
+    const { bridge, ws, onSubtitle } = openBridge();
+
+    // 第一句 subtitle + 第二句 subtitle 先到，第一句 audio 后到（模拟并发 TTS 乱序）
+    ws.simulateMessage({ type: 'subtitle', text: '第一句', name: '白' });
+    ws.simulateMessage({ type: 'subtitle', text: '第二句', name: '白' });
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      display_text: { text: '第一句', name: '白' },
+    });
+
+    // 第一句、第二句各上屏一次，audio 不再重复第一句
+    expect(onSubtitle).toHaveBeenCalledTimes(2);
+    expect(onSubtitle.mock.calls.map((c: any) => c[0].text)).toEqual(['第一句', '第二句']);
+    bridge.disconnect();
+  });
 });
 
 describe('RM7 ws-bridge — 消息解析 / 错误处理', () => {
