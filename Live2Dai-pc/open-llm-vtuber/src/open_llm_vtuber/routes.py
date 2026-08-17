@@ -226,7 +226,7 @@ def init_config_routes(
             cfg = llm_configs.get(pid, {}) or {}
             default = LLM_DEFAULTS.get(pid, {})
             key_env = default.get("key_env")
-            known_models = MODEL_CATALOG.get(pid, [])
+            known_models = cfg.get("models") or MODEL_CATALOG.get(pid, [])
             current_model = cfg.get("model", "")
             if not current_model and known_models:
                 current_model = known_models[0]
@@ -354,7 +354,7 @@ def init_config_routes(
                     target["llm_api_key"] = "${" + new_key_env + "}"
                 else:
                     target = existing_llm[pid]
-                for field in ("model", "base_url", "temperature", "max_tokens"):
+                for field in ("model", "base_url", "temperature", "max_tokens", "models"):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]
 
@@ -445,6 +445,25 @@ def init_config_routes(
                     ):
                         persona[field] = persona_payload[field]
                 _save_persona(persona)
+
+            if payload.get("apply") and default_context_cache is not None:
+                try:
+                    from .config_manager.utils import read_yaml
+                    from .config_manager.main import Config as AppConfig
+                    new_config = AppConfig(**read_yaml(config_abs))
+                    await default_context_cache.load_from_config(new_config)
+                    return JSONResponse(
+                        {"ok": True, "requires_restart": False, "applied": True}
+                    )
+                except Exception as reload_error:
+                    logger.error(f"Config saved but reload failed: {reload_error}")
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": f"配置已保存，但热重载失败: {reload_error}",
+                        },
+                        status_code=500,
+                    )
 
             return JSONResponse({"ok": True, "requires_restart": True})
         except Exception as e:

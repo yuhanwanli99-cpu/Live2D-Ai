@@ -245,6 +245,7 @@ export function initSettingsPanel(
       </div>
       <div class="settings-footer">
         <span class="settings-status"></span>
+        <button class="settings-apply" type="button">保存并应用</button>
         <button class="settings-save" type="button">保存全部</button>
       </div>
     </div>
@@ -757,11 +758,15 @@ export function initSettingsPanel(
       const configured = card.dataset.configured === '1';
       const touched = card.dataset.touched === '1';
       if (!isLegacyCard && !configured && !touched) return;
+      const llmModels = Array.from(
+        card.querySelectorAll<HTMLOptionElement>('datalist option'),
+      ).map((o) => o.value);
       llmConfigs[provider] = {
         model: card.querySelector<HTMLInputElement>('.llm-model')?.value || '',
         base_url: card.querySelector<HTMLInputElement>('.llm-base-url')?.value || '',
         temperature: Number(card.querySelector<HTMLInputElement>('.llm-temperature')?.value || 0.8),
         max_tokens: Number(card.querySelector<HTMLInputElement>('.llm-max-tokens')?.value || 0) || undefined,
+        ...(llmModels.length > 0 ? { models: llmModels } : {}),
       };
     });
 
@@ -808,17 +813,19 @@ export function initSettingsPanel(
     };
   };
 
-  const save = async (): Promise<void> => {
-    statusEl.textContent = '保存中…';
+  const save = async (apply = false): Promise<void> => {
+    statusEl.textContent = apply ? '保存并应用（热重载）中…' : '保存中…';
     try {
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(collectPayload()),
+        body: JSON.stringify({ ...collectPayload(), apply }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as { ok?: boolean; applied?: boolean; error?: string };
       if (!res.ok || data.error) throw new Error(data.error || '保存失败');
-      statusEl.textContent = '✅ 已保存，重启后生效';
+      statusEl.textContent = data.applied
+        ? '✅ 已保存并热重载'
+        : '✅ 已保存，重启后生效';
       opts.onChanged?.();
     } catch (err) {
       statusEl.textContent = `保存失败: ${(err as Error).message}`;
@@ -922,7 +929,10 @@ export function initSettingsPanel(
 
   overlay.querySelector<HTMLButtonElement>('.settings-close')!.addEventListener('click', close);
   overlay.querySelector<HTMLButtonElement>('.settings-save')!.addEventListener('click', () => {
-    void save();
+    void save(false);
+  });
+  overlay.querySelector<HTMLButtonElement>('.settings-apply')!.addEventListener('click', () => {
+    void save(true);
   });
   overlay.querySelector<HTMLButtonElement>('.settings-save-tree')!.addEventListener('click', () => {
     void saveTree();

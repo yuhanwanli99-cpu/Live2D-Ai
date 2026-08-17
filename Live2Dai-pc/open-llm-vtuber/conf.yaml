@@ -48,11 +48,13 @@ character_config:
         model: 'glm-4.7-flash'
         temperature: 0.8
 
+        base_url: https://open.bigmodel.cn/api/paas/v4
       deepseek_llm:
         llm_api_key: '${DEEPSEEK_API_KEY}'
         model: 'deepseek-v4-flash'
         temperature: 0.8
 
+        base_url: https://api.deepseek.com/v1
       qwen_llm:
         llm_api_key: '${DASHSCOPE_API_KEY}'
         base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
@@ -62,8 +64,9 @@ character_config:
       zhipu_llm:
         llm_api_key: '${ZHIPU_API_KEY}'
         model: 'glm-4.6v'
-        temperature: 1.0
+        temperature: 1
 
+        base_url: https://open.bigmodel.cn/api/paas/v4
   asr_config:
     asr_model: 'faster_whisper'  # P0: 启用本地 Faster-Whisper 语音输入；如无模型可改回 disabled
     faster_whisper:
@@ -89,7 +92,7 @@ character_config:
       voice: 'zh-CN-XiaoxiaoNeural'
 
   vad_config:
-    vad_model: null
+    vad_model:
     silero_vad:
       orig_sr: 16000
       target_sr: 16000
