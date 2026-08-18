@@ -16,6 +16,7 @@ from ..free_glm_defaults import resolve_llm_api_key
 # 注意：这些别名在 StatelessLLMConfigs 中都有对应字段，避免热重载时被 Pydantic 丢弃。
 _OPENAI_COMPATIBLE_PROVIDERS = {
     "openai_compatible_llm",
+    "openai_compatible",
     "openai_llm",
     "gemini_llm",
     "zhipu_llm",

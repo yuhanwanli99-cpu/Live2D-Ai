@@ -1,5 +1,6 @@
 import os
 import json
+import copy
 from uuid import uuid4
 import numpy as np
 from datetime import datetime
@@ -104,7 +105,7 @@ def init_config_routes(
             "base_url": "",
             "key_env": "OPENCODE_GO_API_KEY",
         },
-        "openai_compatible": {
+        "openai_compatible_llm": {
             "name": "OpenAI 兼容",
             "base_url": "",
             "key_env": "OPENAI_API_KEY",
@@ -146,7 +147,7 @@ def init_config_routes(
         ],
         "opencode": [],
         "opencode_go": [],
-        "openai_compatible": [],
+        "openai_compatible_llm": [],
     }
     TTS_VOICE_CATALOG = {
         "edge_tts": [
@@ -169,16 +170,16 @@ def init_config_routes(
         "siliconflow_tts": ["FunAudioLLM/CosyVoice2-0.5B", "iic/SpeechT5", "Qwen/Qwen2-Audio"],
         "fish_api_tts": ["fish-speech-1.5"],
         "spark_tts": ["xiaoyan", "aisjouxu", "aisjiushi", "aisjinger"],
-        "gpt_sovits": [],
-        "piper": [],
-        "sherpa_onnx": [],
-        "pyttsx3": [],
+        "gpt_sovits_tts": [],
+        "piper_tts": [],
+        "sherpa_onnx_tts": [],
+        "pyttsx3_tts": [],
     }
     TTS_MODEL_CATALOG = {
-        "gpt_sovits": ["GPT-SoVITS"],
-        "piper": ["piper"],
-        "sherpa_onnx": ["sherpa-onnx"],
-        "pyttsx3": ["pyttsx3"],
+        "gpt_sovits_tts": ["GPT-SoVITS"],
+        "piper_tts": ["piper"],
+        "sherpa_onnx_tts": ["sherpa-onnx"],
+        "pyttsx3_tts": ["pyttsx3"],
     }
 
     TTS_DEFAULTS = {
@@ -191,10 +192,10 @@ def init_config_routes(
         "siliconflow_tts": {"name": "SiliconFlow TTS", "key_env": "SILICONFLOW_API_KEY"},
         "fish_api_tts": {"name": "Fish Audio", "key_env": "FISH_API_KEY"},
         "spark_tts": {"name": "Spark TTS", "key_env": "SPARK_API_KEY"},
-        "gpt_sovits": {"name": "GPT-SoVITS", "key_env": None},
-        "piper": {"name": "Piper", "key_env": None},
-        "sherpa_onnx": {"name": "Sherpa-ONNX", "key_env": None},
-        "pyttsx3": {"name": "pyttsx3", "key_env": None},
+        "gpt_sovits_tts": {"name": "GPT-SoVITS", "key_env": None},
+        "piper_tts": {"name": "Piper", "key_env": None},
+        "sherpa_onnx_tts": {"name": "Sherpa-ONNX", "key_env": None},
+        "pyttsx3_tts": {"name": "pyttsx3", "key_env": None},
     }
 
     def _load_yaml():
@@ -254,22 +255,15 @@ def init_config_routes(
         with open(persona_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f)
 
-    def _config_dict_for_reload():
-        """构造用于热重载的完整 Config dict。
+    def _apply_persona_to_data(data, persona):
+        """把 shared/persona.yaml 的提示词/模型/温度/视觉模型应用到待解析配置。
 
-        与 run_server.main() 的启动逻辑保持一致：
-          - conf.yaml 本身不含 persona_prompt（它来自 shared/persona.yaml）
-          - 必须注入 persona_prompt，否则 Pydantic 热重载会报 Field required
-          - 应用 persona.yaml 中的 model/temperature/max_tokens 覆盖（当前仅 deepseek_llm）
+        与 run_server.main() 的启动逻辑保持一致，但作用于当前选中的 LLM Provider，
+        不再硬编码 deepseek_llm。
         """
-        from .config_manager.utils import read_yaml
-
-        data = read_yaml(config_abs)
         cc = data.setdefault("character_config", {})
-        persona = _load_persona() or {}
-        system_prompt = persona.get("system_prompt", "")
-        if system_prompt:
-            cc["persona_prompt"] = system_prompt
+        if persona.get("system_prompt"):
+            cc["persona_prompt"] = persona["system_prompt"]
 
         model_overrides = {
             k: persona[k]
@@ -277,18 +271,42 @@ def init_config_routes(
             if persona.get(k) is not None
         }
         if model_overrides:
-            llm_configs = (
-                cc.setdefault("agent_config", {})
-                .setdefault("llm_configs", {})
+            agent_cfg = cc.setdefault("agent_config", {})
+            llm_configs = agent_cfg.setdefault("llm_configs", {})
+            basic = (
+                agent_cfg.setdefault("agent_settings", {})
+                .setdefault("basic_memory_agent", {})
             )
-            deepseek_cfg = llm_configs.setdefault("deepseek_llm", {})
+            provider = basic.get("llm_provider") or "deepseek_llm"
+            if provider == "openai_compatible":
+                provider = "openai_compatible_llm"
+                basic["llm_provider"] = provider
+            provider_cfg = llm_configs.setdefault(provider, {})
             if "model" in model_overrides:
-                deepseek_cfg["model"] = model_overrides["model"]
+                provider_cfg["model"] = model_overrides["model"]
             if "temperature" in model_overrides:
-                deepseek_cfg["temperature"] = model_overrides["temperature"]
+                provider_cfg["temperature"] = model_overrides["temperature"]
             if "max_tokens" in model_overrides:
-                deepseek_cfg["max_tokens"] = model_overrides["max_tokens"]
+                provider_cfg["max_tokens"] = model_overrides["max_tokens"]
+        if persona.get("vision_model"):
+            vision_cfg = data.setdefault("vision_config", {})
+            if not isinstance(vision_cfg, dict):
+                vision_cfg = data["vision_config"] = {}
+            vision_cfg["model"] = persona["vision_model"]
         return data
+
+    def _config_dict_for_reload():
+        """构造用于热重载的完整 Config dict。
+
+        与 run_server.main() 的启动逻辑保持一致：
+          - conf.yaml 本身不含 persona_prompt（它来自 shared/persona.yaml）
+          - 必须注入 persona_prompt，否则 Pydantic 热重载会报 Field required
+          - 应用 persona.yaml 中的 model/temperature/max_tokens/vision_model 覆盖
+        """
+        from .config_manager.utils import read_yaml
+
+        data = read_yaml(config_abs)
+        return _apply_persona_to_data(data, _load_persona() or {})
 
     def _env_value(name):
         if not name:
@@ -437,7 +455,14 @@ def init_config_routes(
             if "llm_provider" in payload and payload["llm_provider"]:
                 basic["llm_provider"] = payload["llm_provider"]
             if "tts_model" in payload and payload["tts_model"]:
-                cc.setdefault("tts_config", {})["tts_model"] = payload["tts_model"]
+                requested_tts = payload["tts_model"]
+                requested_tts = {
+                    "gpt_sovits": "gpt_sovits_tts",
+                    "piper": "piper_tts",
+                    "sherpa_onnx": "sherpa_onnx_tts",
+                    "pyttsx3": "pyttsx3_tts",
+                }.get(requested_tts, requested_tts)
+                cc.setdefault("tts_config", {})["tts_model"] = requested_tts
             if "viseme_mode" in payload and payload["viseme_mode"]:
                 cc.setdefault("tts_config", {})["viseme_mode"] = payload["viseme_mode"]
             if "asr_model" in payload and payload["asr_model"]:
@@ -454,7 +479,8 @@ def init_config_routes(
             # 更新 LLM Provider 参数（model/base_url/temperature/max_tokens）
             llm_overrides = payload.get("llm_configs") or {}
             existing_llm = agent_cfg.setdefault("llm_configs", {})
-            for pid, override in llm_overrides.items():
+            for raw_pid, override in list(llm_overrides.items()):
+                pid = "openai_compatible_llm" if raw_pid == "openai_compatible" else raw_pid
                 if not isinstance(override, dict):
                     continue
                 if pid not in existing_llm:
@@ -468,6 +494,24 @@ def init_config_routes(
                 for field in ("model", "base_url", "temperature", "max_tokens", "models"):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]
+
+            # 自动补齐当前选中 LLM 的最小配置（未配置但被选中的 Provider 也能保存/热重载）
+            selected_llm = basic.get("llm_provider", "")
+            if selected_llm == "openai_compatible":
+                selected_llm = "openai_compatible_llm"
+                basic["llm_provider"] = selected_llm
+            if selected_llm and selected_llm not in existing_llm:
+                llm_default = LLM_DEFAULTS.get(selected_llm, {})
+                target = existing_llm[selected_llm] = {}
+                key_env = llm_default.get("key_env") or "OPENAI_API_KEY"
+                target["llm_api_key"] = "${" + key_env + "}"
+                if llm_default.get("base_url"):
+                    target["base_url"] = llm_default["base_url"]
+                catalog_models = MODEL_CATALOG.get(selected_llm, [])
+                if catalog_models:
+                    target.setdefault("model", catalog_models[0])
+                    target.setdefault("models", catalog_models)
+                target.setdefault("temperature", 0.8)
 
             # 更新 TTS Provider 参数（voice/model/ws_url）
             tts_overrides = payload.get("tts_configs") or {}
@@ -488,13 +532,60 @@ def init_config_routes(
 
             if "tts_model" in payload and payload["tts_model"]:
                 requested_tts = payload["tts_model"]
+                requested_tts = {
+                    "gpt_sovits": "gpt_sovits_tts",
+                    "piper": "piper_tts",
+                    "sherpa_onnx": "sherpa_onnx_tts",
+                    "pyttsx3": "pyttsx3_tts",
+                }.get(requested_tts, requested_tts)
                 if requested_tts not in tts_cfg:
-                    return JSONResponse(
-                        {
-                            "error": f"TTS 提供商 {requested_tts} 尚未配置，请先在其卡片中填写参数",
-                        },
-                        status_code=400,
-                    )
+                    tts_default = TTS_DEFAULTS.get(requested_tts, {})
+                    target = tts_cfg[requested_tts] = {}
+                    tts_voices = TTS_VOICE_CATALOG.get(requested_tts, [])
+                    tts_models = TTS_MODEL_CATALOG.get(requested_tts, [])
+                    if tts_voices:
+                        target["voice"] = tts_voices[0]
+                        target["voices"] = tts_voices
+                    if tts_models:
+                        target["model"] = tts_models[0]
+                        target["models"] = tts_models
+
+            # 设置页的“视觉模型”写入 vision_config.model（如果用户填写）
+            persona_payload = payload.get("persona")
+            if persona_payload and persona_payload.get("vision_model"):
+                vision_cfg = data.setdefault("vision_config", {})
+                if not isinstance(vision_cfg, dict):
+                    vision_cfg = data["vision_config"] = {}
+                vision_cfg["model"] = persona_payload["vision_model"]
+
+            # 写盘前用 Config 做一次完整校验，避免非法 Provider/配置落盘
+            try:
+                from .config_manager.main import Config as AppConfig
+                persona_for_validation = _load_persona() or {}
+                persona_payload = payload.get("persona")
+                if persona_payload:
+                    for field in (
+                        "name",
+                        "role",
+                        "model",
+                        "temperature",
+                        "max_tokens",
+                        "vision_model",
+                        "system_prompt",
+                    ):
+                        if field in persona_payload and persona_payload[field] not in (
+                            None,
+                            "",
+                        ):
+                            persona_for_validation[field] = persona_payload[field]
+                candidate = copy.deepcopy(data)
+                _apply_persona_to_data(candidate, persona_for_validation)
+                AppConfig(**candidate)
+            except Exception as validation_error:
+                logger.error(f"Config validation failed: {validation_error}")
+                return JSONResponse(
+                    {"error": f"配置校验失败: {validation_error}"}, status_code=400
+                )
 
             _save_yaml(data)
 
@@ -728,6 +819,8 @@ def init_config_routes(
             import requests as _requests
             payload = await request.json()
             provider = payload.get("provider", "")
+            if provider == "openai_compatible":
+                provider = "openai_compatible_llm"
             base_url = (payload.get("base_url") or "").strip()
             api_key = (payload.get("api_key") or "").strip()
             data = _load_yaml()
@@ -771,27 +864,43 @@ def init_config_routes(
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
     @router.post("/api/providers/check")
-    async def check_providers():
+    async def check_providers(request: Request):
         try:
             import requests as _requests
+            payload = {}
+            try:
+                payload = await request.json()
+            except Exception:
+                pass
             data = _load_yaml()
             cc = data.get("character_config", {}) or {}
             agent_cfg = cc.get("agent_config", {}) or {}
             llm_configs = agent_cfg.get("llm_configs", {}) or {}
             tts_cfg = cc.get("tts_config", {}) or {}
+            llm_overrides = payload.get("llm_configs") or {}
+            tts_overrides = payload.get("tts_configs") or {}
+            api_keys = payload.get("api_keys") or {}
             llm_results = []
             provider_ids = list(
                 dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys()))
             )
             for pid in provider_ids:
-                cfg = llm_configs.get(pid, {}) or {}
+                cfg = dict(llm_configs.get(pid, {}) or {})
+                override = llm_overrides.get(pid)
+                if isinstance(override, dict):
+                    for k in ("base_url", "model"):
+                        if override.get(k) not in (None, ""):
+                            cfg[k] = override[k]
                 default = LLM_DEFAULTS.get(pid, {})
                 base_url = (
                     cfg.get("base_url", "").strip()
                     or default.get("base_url", "")
                 )
                 key_env = default.get("key_env") or cfg.get("key_env") or "OPENAI_API_KEY"
-                key = _env_value(key_env)
+                override_key = (
+                    override.get("api_key") if isinstance(override, dict) else None
+                )
+                key = override_key or api_keys.get(key_env) or _env_value(key_env)
                 if not key:
                     llm_results.append(
                         {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Key", "models": []}
@@ -835,8 +944,20 @@ def init_config_routes(
             for pid in tts_ids:
                 if pid in ("tts_model", "concurrency_limit", "viseme_mode"):
                     continue
+                cfg = dict(tts_cfg.get(pid, {}) or {})
+                override = tts_overrides.get(pid)
+                if isinstance(override, dict):
+                    for k in ("voice", "model", "ws_url"):
+                        if override.get(k) not in (None, ""):
+                            cfg[k] = override[k]
                 key_env = TTS_DEFAULTS.get(pid, {}).get("key_env")
-                configured = _has_key(key_env) if key_env else True
+                override_key = (
+                    override.get("api_key") if isinstance(override, dict) else None
+                )
+                has_ui_key = bool(override_key) or bool(
+                    key_env and api_keys.get(key_env)
+                )
+                configured = has_ui_key if key_env else True
                 tts_results.append(
                     {
                         "provider": pid,
@@ -857,7 +978,11 @@ def init_config_routes(
             import requests as _requests
             payload = await request.json()
             provider = payload.get("provider", "")
-            key = payload.get("api_key", "").strip()
+            if provider == "openai_compatible":
+                provider = "openai_compatible_llm"
+            key = (payload.get("api_key") or "").strip()
+            base_url = (payload.get("base_url") or "").strip()
+            model = (payload.get("model") or "").strip()
             data = _load_yaml()
             agent_cfg = (
                 (data.get("character_config", {}) or {})
@@ -866,10 +991,13 @@ def init_config_routes(
             )
             cfg = (agent_cfg.get("llm_configs", {}) or {}).get(provider, {}) or {}
             default = LLM_DEFAULTS.get(provider, {})
-            base_url = (
-                cfg.get("base_url", "").strip()
-                or default.get("base_url", "")
-            )
+            if not base_url:
+                base_url = (
+                    cfg.get("base_url", "").strip()
+                    or default.get("base_url", "")
+                )
+            if not model:
+                model = cfg.get("model", "")
             key_env = default.get("key_env") or cfg.get("key_env") or "OPENAI_API_KEY"
             if not key:
                 key = _env_value(key_env) if key_env else ""
@@ -881,6 +1009,10 @@ def init_config_routes(
                 return JSONResponse(
                     {"ok": False, "error": f"{provider} 未配置 base_url"}, status_code=400
                 )
+            if not model:
+                return JSONResponse(
+                    {"ok": False, "error": f"{provider} 未配置 model"}, status_code=400
+                )
             url = base_url.rstrip("/") + "/chat/completions"
             resp = _requests.post(
                 url,
@@ -889,9 +1021,9 @@ def init_config_routes(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": cfg.get("model", ""),
+                    "model": model,
                     "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 5,
+                    "max_tokens": payload.get("max_tokens") or 5,
                 },
                 timeout=10,
             )
@@ -909,13 +1041,89 @@ def init_config_routes(
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
     @router.post("/api/test-tts")
-    async def test_tts():
+    async def test_tts(request: Request):
         try:
-            if default_context_cache is None or default_context_cache.tts_engine is None:
-                return JSONResponse(
-                    {"ok": False, "error": "当前 TTS 引擎未初始化"}, status_code=400
+            payload = {}
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+            provider = (payload.get("provider") or "").strip()
+            provider = {
+                "gpt_sovits": "gpt_sovits_tts",
+                "piper": "piper_tts",
+                "sherpa_onnx": "sherpa_onnx_tts",
+                "pyttsx3": "pyttsx3_tts",
+            }.get(provider, provider)
+            data = _load_yaml()
+            tts_cfg = (data.get("character_config", {}) or {}).get("tts_config", {}) or {}
+
+            if not provider:
+                # 旧行为：没有指定 provider 时测试当前已加载引擎
+                if default_context_cache is None or default_context_cache.tts_engine is None:
+                    return JSONResponse(
+                        {"ok": False, "error": "当前 TTS 引擎未初始化"}, status_code=400
+                    )
+                path = await default_context_cache.tts_engine.async_generate_audio(
+                    text="你好，我是白～这是一段试听。",
+                    file_name_no_ext="settings_preview",
                 )
-            path = await default_context_cache.tts_engine.async_generate_audio(
+                return JSONResponse({"ok": True, "audio_path": path})
+
+            # 用已保存的 typed config 作为基底，再叠加当前 UI 未保存参数
+            params = {}
+            try:
+                from .config_manager.main import Config as AppConfig
+
+                candidate = copy.deepcopy(data)
+                _apply_persona_to_data(candidate, _load_persona() or {})
+                parsed = AppConfig(**candidate)
+                typed_tts = parsed.character_config.tts_config
+                typed_provider = getattr(typed_tts, provider, None)
+                if typed_provider is not None:
+                    params = typed_provider.model_dump()
+            except Exception as parse_error:
+                logger.warning(f"TTS test config parse failed, use raw fallback: {parse_error}")
+
+            if not params:
+                saved = tts_cfg.get(provider, {}) or {}
+                if isinstance(saved, dict):
+                    for k in (
+                        "voice", "model", "ws_url", "api_key",
+                        "base_url", "api_url", "region", "model_path",
+                    ):
+                        if saved.get(k):
+                            params[k] = saved[k]
+                if provider == "edge_tts" and not params.get("voice"):
+                    params["voice"] = (TTS_VOICE_CATALOG.get("edge_tts") or ["zh-CN-XiaoxiaoNeural"])[0]
+                elif provider == "piper_tts" and not params:
+                    from .config_manager.tts import PiperTTSConfig
+                    params = PiperTTSConfig().model_dump()
+                elif provider == "pyttsx3_tts":
+                    params = {}
+
+            # 用 UI 当前值覆盖；已保存 typed config 存在时只覆盖其已有的字段，
+            # 避免把 UI 的 model/ws_url 误传给 Edge/pyttsx3 等严格构造器。
+            has_typed_params = bool(params)
+            for field in ("voice", "model", "ws_url", "base_url", "api_url", "region", "model_path"):
+                if payload.get(field) not in (None, ""):
+                    if not has_typed_params or field in params:
+                        params[field] = payload[field]
+            if payload.get("api_key") not in (None, ""):
+                if not has_typed_params or "api_key" in params:
+                    params["api_key"] = payload["api_key"]
+            elif not params.get("api_key"):
+                key_env = TTS_DEFAULTS.get(provider, {}).get("key_env")
+                if key_env:
+                    params["api_key"] = _env_value(key_env)
+
+            # pyttsx3 是无参本地引擎，绝不能透传任何字段
+            if provider == "pyttsx3_tts":
+                params = {}
+
+            from .tts.tts_factory import TTSFactory
+            engine = TTSFactory.get_tts_engine(provider, **params)
+            path = await engine.async_generate_audio(
                 text="你好，我是白～这是一段试听。",
                 file_name_no_ext="settings_preview",
             )

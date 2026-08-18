@@ -91,6 +91,10 @@ class TTSFactory:
             from .sherpa_onnx_tts import TTSEngine as SherpaOnnxTTSEngine
 
             return SherpaOnnxTTSEngine(**kwargs)
+        elif engine_type == "piper_tts":
+            from .piper_tts import TTSEngine as PiperTTSEngine
+
+            return PiperTTSEngine(**kwargs)
         elif engine_type == "openai_tts":
             from .openai_tts import TTSEngine as OpenAITTSEngine
 

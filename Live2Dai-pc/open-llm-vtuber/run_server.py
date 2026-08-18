@@ -95,21 +95,40 @@ async def main():
         )
         sys.exit(1)
 
-    # Apply model overrides from persona.yaml to deepseek_llm provider
+    # Apply model overrides from persona.yaml to the currently selected LLM provider
     if model_overrides:
-        llm_configs = (
-            config_dict.setdefault("character_config", {})
-            .setdefault("agent_config", {})
-            .setdefault("llm_configs", {})
+        agent_cfg = config_dict.setdefault("character_config", {}).setdefault(
+            "agent_config", {}
         )
-        deepseek_cfg = llm_configs.get("deepseek_llm", {})
+        llm_configs = agent_cfg.setdefault("llm_configs", {})
+        basic = agent_cfg.setdefault("agent_settings", {}).setdefault(
+            "basic_memory_agent", {}
+        )
+        provider = basic.get("llm_provider") or "deepseek_llm"
+        if provider == "openai_compatible":
+            provider = "openai_compatible_llm"
+            basic["llm_provider"] = provider
+        provider_cfg = llm_configs.setdefault(provider, {})
         if model_overrides.get("model"):
-            deepseek_cfg["model"] = model_overrides["model"]
+            provider_cfg["model"] = model_overrides["model"]
             print(f"[Live2Dai] LLM model set to: {model_overrides['model']}")
         if model_overrides.get("temperature") is not None:
-            deepseek_cfg["temperature"] = model_overrides["temperature"]
+            provider_cfg["temperature"] = model_overrides["temperature"]
             print(
                 f"[Live2Dai] LLM temperature set to: {model_overrides['temperature']}"
+            )
+        if model_overrides.get("max_tokens") is not None:
+            provider_cfg["max_tokens"] = model_overrides["max_tokens"]
+            print(
+                f"[Live2Dai] LLM max_tokens set to: {model_overrides['max_tokens']}"
+            )
+        if model_overrides.get("vision_model"):
+            vision_cfg = config_dict.setdefault("vision_config", {})
+            if not isinstance(vision_cfg, dict):
+                vision_cfg = config_dict["vision_config"] = {}
+            vision_cfg["model"] = model_overrides["vision_model"]
+            print(
+                f"[Live2Dai] Vision model set to: {model_overrides['vision_model']}"
             )
 
     # Resolve MCP server config path

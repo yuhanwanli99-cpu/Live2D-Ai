@@ -83,7 +83,18 @@ const LLM_PROVIDER_LABELS: Record<string, string> = {
   zhipu_free_llm: '免费 GLM',
   qwen_llm: 'Qwen',
   openrouter: 'OpenRouter',
-  openai_compatible: 'OpenAI 兼容',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  moonshot: 'Moonshot',
+  groq: 'Groq',
+  mistral: 'Mistral',
+  together: 'Together AI',
+  fireworks: 'Fireworks AI',
+  siliconflow: 'SiliconFlow',
+  opencode: 'OpenCode',
+  opencode_go: 'OpenCode Go',
+  openai_compatible_llm: 'OpenAI 兼容',
+  openai_compatible: 'OpenAI 兼容（旧）',
 };
 
 const TTS_PROVIDER_LABELS: Record<string, string> = {
@@ -96,10 +107,15 @@ const TTS_PROVIDER_LABELS: Record<string, string> = {
   siliconflow_tts: 'SiliconFlow TTS',
   fish_api_tts: 'Fish Audio',
   spark_tts: 'Spark TTS',
-  gpt_sovits: 'GPT-SoVITS',
-  piper: 'Piper',
-  sherpa_onnx: 'Sherpa-ONNX',
-  pyttsx3: 'pyttsx3',
+  gpt_sovits_tts: 'GPT-SoVITS',
+  piper_tts: 'Piper',
+  sherpa_onnx_tts: 'Sherpa-ONNX',
+  pyttsx3_tts: 'pyttsx3',
+  // 兼容旧配置
+  gpt_sovits: 'GPT-SoVITS（旧）',
+  piper: 'Piper（旧）',
+  sherpa_onnx: 'Sherpa-ONNX（旧）',
+  pyttsx3: 'pyttsx3（旧）',
 };
 
 const providerLabel = (id: string, map: Record<string, string>): string =>
@@ -108,12 +124,12 @@ const providerLabel = (id: string, map: Record<string, string>): string =>
 const LLM_CATEGORIES = [
   { id: 'official', label: '官方直连', providers: ['deepseek_llm', 'zhipu_llm', 'qwen_llm', 'openai', 'anthropic'] },
   { id: 'aggregator', label: '聚合平台', providers: ['openrouter', 'together', 'fireworks', 'groq', 'moonshot', 'mistral', 'siliconflow'] },
-  { id: 'custom', label: '其他 / 自定义', providers: ['opencode', 'opencode_go', 'openai_compatible'] },
+  { id: 'custom', label: '其他 / 自定义', providers: ['opencode', 'opencode_go', 'openai_compatible_llm'] },
 ];
 
 const TTS_CATEGORIES = [
   { id: 'cloud', label: '云端 TTS', providers: ['cosyvoice_cloud', 'qwen_tts', 'openai_tts', 'azure_tts', 'minimax_tts', 'siliconflow_tts', 'fish_api_tts', 'spark_tts'] },
-  { id: 'local', label: '本地 / 免费', providers: ['edge_tts', 'gpt_sovits', 'piper', 'sherpa_onnx', 'pyttsx3'] },
+  { id: 'local', label: '本地 / 免费', providers: ['edge_tts', 'gpt_sovits_tts', 'piper_tts', 'sherpa_onnx_tts', 'pyttsx3_tts'] },
 ];
 
 const EMPTY_CONFIG: AppConfig = {
@@ -360,6 +376,7 @@ export function initSettingsPanel(
         `;
         editor.dataset.provider = p.id;
         editor.dataset.configured = p.configured ? '1' : '0';
+        editor.dataset.keyEnv = p.key_env || '';
         const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
         toggle.addEventListener('click', () => {
           const show = editor.style.display === 'none';
@@ -375,13 +392,14 @@ export function initSettingsPanel(
     }
     llmCardsEl.querySelectorAll<HTMLButtonElement>('.settings-test-llm').forEach((btn) => {
       btn.addEventListener('click', () => {
-        void testLlm(btn.dataset.provider || '');
+        const card = btn.closest<HTMLElement>('.settings-provider-editor');
+        void testLlm(btn.dataset.provider || '', '', card || undefined);
       });
     });
     llmCardsEl.querySelectorAll<HTMLButtonElement>('.settings-discover-models').forEach((btn) => {
       btn.addEventListener('click', () => {
         const card = btn.closest<HTMLElement>('.settings-provider-editor');
-        if (card) void discoverModels(btn.dataset.provider || '', card);
+        if (card) void discoverModels(btn.dataset.provider || '', card, btn.dataset.keyEnv || card.dataset.keyEnv || '');
       });
     });
   };
@@ -442,6 +460,7 @@ export function initSettingsPanel(
         `;
         editor.dataset.provider = p.id;
         editor.dataset.configured = p.configured ? '1' : '0';
+        editor.dataset.keyEnv = p.key_env || '';
         const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
         toggle.addEventListener('click', () => {
           const show = editor.style.display === 'none';
@@ -457,7 +476,8 @@ export function initSettingsPanel(
     }
     ttsCardsEl.querySelectorAll<HTMLButtonElement>('.settings-test-tts').forEach((btn) => {
       btn.addEventListener('click', () => {
-        void testTts();
+        const card = btn.closest<HTMLElement>('.settings-provider-editor');
+        void testTts(card || undefined);
       });
     });
   };
@@ -560,14 +580,24 @@ export function initSettingsPanel(
     opt.selected = true;
     llmSel.appendChild(opt);
 
-    const card = document.createElement('div');
-    card.className = 'settings-card';
-    card.dataset.provider = id.trim();
-    card.innerHTML = `
-      <div class="settings-card-title">
-        <span>${esc(id.trim())}</span>
+    const providerId = id.trim();
+    const row = document.createElement('div');
+    row.className = 'settings-provider-row';
+    row.innerHTML = `
+      <div class="settings-provider-row-title">
+        <span>${esc(providerId)} <span class="settings-card-sub">${esc(providerId)}</span></span>
         <span class="settings-badge">新增</span>
       </div>
+      <button class="settings-provider-toggle" type="button">编辑</button>
+    `;
+    const editor = document.createElement('div');
+    editor.className = 'settings-provider-editor';
+    editor.style.display = 'block';
+    editor.dataset.provider = providerId;
+    editor.dataset.configured = '0';
+    editor.dataset.touched = '1';
+    editor.dataset.keyEnv = 'OPENAI_API_KEY';
+    editor.innerHTML = `
       <div class="settings-card-grid">
         <label class="settings-row"><span>模型</span><select class="llm-model"><option value="${esc(model.trim())}">${esc(model.trim())}</option></select></label>
         <label class="settings-row"><span>Base URL</span><input class="llm-base-url" type="text" value="${esc(baseUrl.trim())}" /></label>
@@ -575,16 +605,24 @@ export function initSettingsPanel(
         <label class="settings-row"><span>Max Tokens</span><input class="llm-max-tokens" type="number" min="1" value="" /></label>
       </div>
       <div class="settings-card-actions">
-        <button class="settings-discover-models" type="button" data-provider="${esc(id.trim())}" data-key-env="OPENAI_API_KEY">获取可用模型</button>
-        <button class="settings-test-llm" type="button" data-provider="${esc(id.trim())}">测试连接</button>
+        <button class="settings-discover-models" type="button" data-provider="${esc(providerId)}" data-key-env="OPENAI_API_KEY">获取可用模型</button>
+        <button class="settings-test-llm" type="button" data-provider="${esc(providerId)}">测试连接</button>
       </div>
     `;
-    llmCardsEl.appendChild(card);
-    card.querySelector<HTMLButtonElement>('.settings-test-llm')!.addEventListener('click', () => {
-      void testLlm(id.trim());
+    const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
+    toggle.addEventListener('click', () => {
+      const show = editor.style.display === 'none';
+      editor.style.display = show ? 'block' : 'none';
+      toggle.textContent = show ? '收起' : '编辑';
+      if (show) editor.dataset.touched = '1';
     });
-    card.querySelector<HTMLButtonElement>('.settings-discover-models')!.addEventListener('click', () => {
-      void discoverModels(id.trim(), card);
+    llmCardsEl.appendChild(row);
+    llmCardsEl.appendChild(editor);
+    editor.querySelector<HTMLButtonElement>('.settings-test-llm')!.addEventListener('click', () => {
+      void testLlm(providerId, '', editor);
+    });
+    editor.querySelector<HTMLButtonElement>('.settings-discover-models')!.addEventListener('click', () => {
+      void discoverModels(providerId, editor);
     });
 
     if (apiKey.trim()) {
@@ -616,7 +654,11 @@ export function initSettingsPanel(
   const checkAll = async (): Promise<void> => {
     statusEl.textContent = '检查所有 Provider 中…';
     try {
-      const res = await fetch('/api/providers/check', { method: 'POST' });
+      const res = await fetch('/api/providers/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(collectPayload()),
+      });
       const data = (await res.json()) as {
         llm?: Array<{ provider: string; ok: boolean; status: string; models?: string[] }>;
         tts?: Array<{ provider: string; ok: boolean; status: string }>;
@@ -641,10 +683,10 @@ export function initSettingsPanel(
     }
   };
 
-  const discoverModels = async (provider: string, card: HTMLElement): Promise<void> => {
+  const discoverModels = async (provider: string, card: HTMLElement, keyEnvFromButton = ''): Promise<void> => {
     statusEl.textContent = `获取 ${provider} 模型列表…`;
     const baseUrl = card.querySelector<HTMLInputElement>('.llm-base-url')?.value.trim() || '';
-    const keyEnv = card.dataset.keyEnv || '';
+    const keyEnv = keyEnvFromButton || card.dataset.keyEnv || '';
     const keyInput = keyCardsEl.querySelector<HTMLInputElement>(
       `.settings-key-input[data-env="${keyEnv}"]`,
     );
@@ -884,13 +926,29 @@ export function initSettingsPanel(
     }
   };
 
-  const testLlm = async (provider: string, apiKey = ''): Promise<void> => {
+  const testLlm = async (provider: string, apiKey = '', card?: HTMLElement): Promise<void> => {
     statusEl.textContent = `测试 ${provider} 中…`;
     try {
+      const body: Record<string, unknown> = { provider };
+      if (apiKey) body.api_key = apiKey;
+      if (card) {
+        const baseUrl = card.querySelector<HTMLInputElement>('.llm-base-url')?.value.trim() || '';
+        const model = card.querySelector<HTMLSelectElement>('.llm-model')?.value || '';
+        const maxTokens = Number(card.querySelector<HTMLInputElement>('.llm-max-tokens')?.value || 0) || undefined;
+        const keyEnv = card.dataset.keyEnv || '';
+        const keyInput = keyCardsEl.querySelector<HTMLInputElement>(
+          `.settings-key-input[data-env="${keyEnv}"]`,
+        );
+        const cardKey = keyInput?.value.trim() || '';
+        if (baseUrl) body.base_url = baseUrl;
+        if (model) body.model = model;
+        if (maxTokens) body.max_tokens = maxTokens;
+        if (cardKey) body.api_key = cardKey;
+      }
       const res = await fetch('/api/test-llm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, api_key: apiKey }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || data.error) throw new Error(data.error || '测试失败');
@@ -900,10 +958,33 @@ export function initSettingsPanel(
     }
   };
 
-  const testTts = async (): Promise<void> => {
+  const testTts = async (card?: HTMLElement): Promise<void> => {
     statusEl.textContent = '试听生成中…';
     try {
-      const res = await fetch('/api/test-tts', { method: 'POST' });
+      const provider = card?.dataset.provider
+        || overlay.querySelector<HTMLSelectElement>('.settings-tts')?.value
+        || '';
+      const body: Record<string, unknown> = {};
+      if (provider) body.provider = provider;
+      if (card) {
+        const voice = card.querySelector<HTMLSelectElement>('.tts-voice')?.value || '';
+        const model = card.querySelector<HTMLSelectElement>('.tts-model')?.value || '';
+        const wsUrl = card.querySelector<HTMLInputElement>('.tts-ws-url')?.value.trim() || '';
+        const keyEnv = card.dataset.keyEnv || '';
+        const keyInput = keyEnv
+          ? keyCardsEl.querySelector<HTMLInputElement>(`.settings-key-input[data-env="${keyEnv}"]`)
+          : null;
+        const apiKey = keyInput?.value.trim() || '';
+        if (voice) body.voice = voice;
+        if (model) body.model = model;
+        if (wsUrl) body.ws_url = wsUrl;
+        if (apiKey) body.api_key = apiKey;
+      }
+      const res = await fetch('/api/test-tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       const data = (await res.json()) as { ok?: boolean; audio_path?: string; error?: string };
       if (!res.ok || data.error) throw new Error(data.error || '试听失败');
       if (data.audio_path) {

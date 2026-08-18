@@ -673,6 +673,12 @@ class PiperTTSConfig(I18nMixin):
     }
 
 
+class Pyttsx3TTSConfig(I18nMixin):
+    """Configuration for pyttsx3 local TTS (no required parameters)."""
+
+    DESCRIPTIONS: ClassVar[Dict[str, Description]] = {}
+
+
 class ElevenLabsTTSConfig(I18nMixin):
     """Configuration for ElevenLabs TTS."""
 
@@ -792,6 +798,7 @@ class TTSConfig(I18nMixin):
         "elevenlabs_tts",
         "cartesia_tts",
         "piper_tts",
+        "pyttsx3_tts",
     ] = Field(..., alias="tts_model")
 
     # P2-3 (spoq-fix): 段级 TTS 合成并发上限（TTSTaskManager 信号灯），默认 2，≥1
@@ -814,7 +821,7 @@ class TTSConfig(I18nMixin):
     melo_tts: Optional[MeloTTSConfig] = Field(None, alias="melo_tts")
     coqui_tts: Optional[CoquiTTSConfig] = Field(None, alias="coqui_tts")
     x_tts: Optional[XTTSConfig] = Field(None, alias="x_tts")
-    gpt_sovits_tts: Optional[GPTSoVITSConfig] = Field(None, alias="gpt_sovits")
+    gpt_sovits_tts: Optional[GPTSoVITSConfig] = Field(None, alias="gpt_sovits_tts")
     fish_api_tts: Optional[FishAPITTSConfig] = Field(None, alias="fish_api_tts")
     sherpa_onnx_tts: Optional[SherpaOnnxTTSConfig] = Field(
         None, alias="sherpa_onnx_tts"
@@ -828,6 +835,7 @@ class TTSConfig(I18nMixin):
     elevenlabs_tts: ElevenLabsTTSConfig | None = Field(None, alias="elevenlabs_tts")
     cartesia_tts: CartesiaTTSConfig | None = Field(None, alias="cartesia_tts")
     piper_tts: Optional[PiperTTSConfig] = Field(None, alias="piper_tts")
+    pyttsx3_tts: Optional[Pyttsx3TTSConfig] = Field(None, alias="pyttsx3_tts")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "tts_model": Description(
@@ -883,6 +891,7 @@ class TTSConfig(I18nMixin):
             en="Configuration for Cartesia TTS", zh="Cartesia TTS 配置"
         ),
         "piper_tts": Description(en="Configuration for Piper TTS", zh="Piper TTS 配置"),
+        "pyttsx3_tts": Description(en="Configuration for pyttsx3 TTS", zh="pyttsx3 TTS 配置"),
     }
 
     @model_validator(mode="after")
@@ -931,4 +940,6 @@ class TTSConfig(I18nMixin):
 
         elif tts_model == "piper_tts" and values.piper_tts is not None:
             values.piper_tts.model_validate(values.piper_tts.model_dump())
+        elif tts_model == "pyttsx3_tts" and values.pyttsx3_tts is not None:
+            values.pyttsx3_tts.model_validate(values.pyttsx3_tts.model_dump())
         return values

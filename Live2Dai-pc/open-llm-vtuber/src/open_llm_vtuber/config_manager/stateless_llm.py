@@ -239,6 +239,10 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
     openai_compatible_llm: OpenAICompatibleConfig | None = Field(
         None, alias="openai_compatible_llm"
     )
+    # 兼容旧设置页/路由保存的 openai_compatible ID
+    openai_compatible: OpenAICompatibleConfig | None = Field(
+        None, alias="openai_compatible"
+    )
     ollama_llm: OllamaConfig | None = Field(None, alias="ollama_llm")
     lmstudio_llm: LmStudioConfig | None = Field(None, alias="lmstudio_llm")
     openai_llm: OpenAIConfig | None = Field(None, alias="openai_llm")
@@ -272,6 +276,10 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
         "openai_compatible_llm": Description(
             en="Configuration for OpenAI-compatible LLM providers",
             zh="OpenAI兼容的语言模型提供者配置",
+        ),
+        "openai_compatible": Description(
+            en="Legacy alias for OpenAI-compatible LLM providers",
+            zh="OpenAI兼容提供者的旧版别名",
         ),
         "ollama_llm": Description(en="Configuration for Ollama", zh="Ollama 配置"),
         "lmstudio_llm": Description(
