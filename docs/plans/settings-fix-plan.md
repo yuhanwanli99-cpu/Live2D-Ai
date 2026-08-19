@@ -2,11 +2,10 @@
 
 > 目标：修复「设置界面逻辑 + 相关调用逻辑链路」在 PC 设置中心与 Android 设置页中的已知缺陷。
 > 范围：两端都要，按 P0–P3 全面修。
-> 状态：**实现中**（本文件 = 修复清单 / 指引。已落地部分见下，未落地项继续按此优先级推进）。
-> 已落地（2026-08-19）：PC 原子保存、设定树 schema 校验、log_level round-trip、apply 重载 .env；
-> Android HttpLlmLink 可重建 + replaceLlm、空文本防卡、TTS refreshProviders + ttsProviderId 透传、
-> resetAll 清多 store、LoopStateMachine @Volatile、设置保存 → 运行时应用回调。
-> 仍待办：P1-2 显式清空字段、B5/B6 port 死配置/分叉启动器、B3 已连会话热更、清除/归整未跟踪审计产物。
+> 状态：**PC 端已按 2026-08-20 重构落地**（详见 `settings-redesign-spec.md` 与本文件 §2.1 各问题项，PC 侧 P0/P1/P2 主链已修复+验证）；Android 部分按下方 P0/P1(Android) 继续推进。
+> 已落地（2026-08-20 PC 重构本轮）：/health、先校验后落盘+回滚、TTS 自动补齐、POST 回传 normalize config、
+> 显式清空（null 删除）、log_level round-trip、端口生效、.env key 可见、apply 已连会话遍历或 requires_restart 诚实返回、
+> 协议感知 check/test/discover、引擎 close/断线清理、init_vision 热换、proxy 挂起补发、UI 深色重构 + 惰性 discover/busy/占位/re-populate。
 
 ---
 

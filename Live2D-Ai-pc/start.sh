@@ -5,8 +5,21 @@
 set -euo pipefail
 
 ProjectRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RepoRoot="$(cd "$ProjectRoot/.." && pwd)"
 VtuberDir="$ProjectRoot/open-llm-vtuber"
-VenvDir="${LIVE2DAI_WSL_VENV:-$HOME/Live2D-Ai/.venv}"
+
+# venv 查找优先级：1) 环境变量 LIVE2DAI_WSL_VENV 显式覆盖
+#                   2) 仓库内 .venv（项目根 /Live2D-Ai/.venv，本机 WSL2 默认位置）
+#                   3) 文档默认 ~/Live2D-Ai/.venv（旧文档路径，兼容兜底）
+if [ -n "${LIVE2DAI_WSL_VENV:-}" ]; then
+    VenvDir="$LIVE2DAI_WSL_VENV"
+elif [ -d "$RepoRoot/.venv" ]; then
+    VenvDir="$RepoRoot/.venv"
+elif [ -d "$HOME/Live2D-Ai/.venv" ]; then
+    VenvDir="$HOME/Live2D-Ai/.venv"
+else
+    VenvDir="$RepoRoot/.venv"  # 仅用于错误提示
+fi
 PY="$VenvDir/bin/python"
 
 if [ ! -x "$PY" ]; then

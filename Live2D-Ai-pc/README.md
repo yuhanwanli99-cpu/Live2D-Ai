@@ -18,18 +18,27 @@ cd ~/Live2D-Ai/Live2D-Ai-pc
 # 0. Python 3.12（项目约束 >=3.10,<3.13；系统 3.14 不满足）
 uv python install 3.12
 
-# 1. WSL 原生盘 venv（放 ~/Live2D-Ai/.venv，IO 快；勿放 /mnt/g）
-uv venv --python 3.12 ~/Live2D-Ai/.venv
+# 1. WSL 原生盘 venv（推荐放仓库根 .venv，IO 快；勿放 /mnt/g）
+uv venv --python 3.12 .venv     # 仓库根 Live2D-Ai/.venv，start.sh 会自动探测
 
 # 2. 安装 open-llm-vtuber（editable）
-uv pip install --python ~/Live2D-Ai/.venv/bin/python \
+uv pip install --python .venv/bin/python \
     -e Live2D-Ai-pc/open-llm-vtuber
 
 # 3. ffmpeg（Faster-Whisper ASR 需要；不装则语音输入不可用，对话仍正常）
 sudo apt-get update && sudo apt-get install -y ffmpeg
 ```
 
-> venv 路径可通过环境变量 `LIVE2DAI_WSL_VENV` 覆盖；`start.sh` 自带核心依赖自检。
+> venv 查找优先级：`LIVE2DAI_WSL_VENV` 环境变量 > 仓库根 `.venv` > 旧文档默认 `~/Live2D-Ai/.venv`；`start.sh` 自带核心依赖自检。
+
+> **前端重建后 Live2D Core 说明**：`renderer/public/libs/live2dcubismcore.min.js` 是 gitignored 的运行期二进制
+> （Live2D 渲染必需，Vite 构建会把它拷到 `frontend/libs/`）。若该文件缺失（新 clone 或误删），请从官方 npm 恢复：
+> ```bash
+> cd open-llm-vtuber/renderer
+> npm pack live2dcubismcore@1.0.2 && tar -xzf live2dcubismcore-1.0.2.tgz package/live2dcubismcore.min.js --strip-components=1
+> mkdir -p public/libs && mv live2dcubismcore.min.js public/libs/
+> rm -f live2dcubismcore-1.0.2.tgz
+> ```
 
 ## 设置 / Dashboard
 

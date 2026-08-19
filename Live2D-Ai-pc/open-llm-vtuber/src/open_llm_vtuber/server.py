@@ -21,6 +21,7 @@ from .routes import (
     init_proxy_route,
 )
 from .service_context import ServiceContext
+from .websocket_handler import WebSocketHandler
 from .config_manager.utils import Config
 
 
@@ -100,8 +101,14 @@ class WebSocketServer:
 
         # Include routes, passing the context instance
         # The context will be populated during the initialize step
+        # 共享一个 WebSocketHandler 实例：既服务 /client-ws，也让配置 API 的
+        # apply=true 能遍历 client_contexts 对已连接会话热更（B3）。
+        self.ws_handler = WebSocketHandler(self.default_context_cache)
         self.app.include_router(
-            init_client_ws_route(default_context_cache=self.default_context_cache),
+            init_client_ws_route(
+                default_context_cache=self.default_context_cache,
+                ws_handler=self.ws_handler,
+            ),
         )
         self.app.include_router(
             init_webtool_routes(default_context_cache=self.default_context_cache),
@@ -111,6 +118,7 @@ class WebSocketServer:
             init_config_routes(
                 config_path="conf.yaml",
                 default_context_cache=self.default_context_cache,
+                ws_handler=self.ws_handler,
             )
         )
 

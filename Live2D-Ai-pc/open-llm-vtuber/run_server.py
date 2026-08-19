@@ -139,15 +139,17 @@ async def main():
     server = WebSocketServer(config)
     await server.initialize()
 
+    # 端口取 config.system_config.port（不再写死 12393），使设置里改 port 后按新端口监听（B5）。
+    listen_port = int(config.system_config.port or 12393)
     uvicorn_config = uvicorn.Config(
         server.app,
         host="0.0.0.0",
-        port=12393,
+        port=listen_port,
         log_level="info",
     )
     uvicorn_server = uvicorn.Server(uvicorn_config)
-    print("[Live2D-Ai] Server listening on http://0.0.0.0:12393")
-    print("[Live2D-Ai] Connect Electron frontend to ws://<PC_IP>:12393")
+    print(f"[Live2D-Ai] Server listening on http://0.0.0.0:{listen_port}")
+    print(f"[Live2D-Ai] Connect Electron frontend to ws://<PC_IP>:{listen_port}")
     await uvicorn_server.serve()
 
 

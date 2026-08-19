@@ -193,6 +193,16 @@ async def finalize_conversation_turn(
 
         if not response:
             logger.warning(f"No playback completion response from {client_uid}")
+            # 修复 B12：播放确认超时也必须补发 conversation-end 信号，
+            # 否则 proxy 的 conversation_active 一直 gating，排队 text-input 不再转发。
+            await websocket_send(json.dumps({"type": "force-new-message"}))
+            if broadcast_ctx and broadcast_ctx.broadcast_func:
+                await broadcast_ctx.broadcast_func(
+                    broadcast_ctx.group_members,
+                    {"type": "force-new-message"},
+                    broadcast_ctx.current_client_uid,
+                )
+            await send_conversation_end_signal(websocket_send, broadcast_ctx)
             return
 
     await websocket_send(json.dumps({"type": "force-new-message"}))

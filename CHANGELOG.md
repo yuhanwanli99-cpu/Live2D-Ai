@@ -1,3 +1,46 @@
+# PC 设置中心重构：WSL2 断链修复 + 逻辑链全量重做 + UI 重设计（2026-08-20）
+
+> **范围**：仅 PC 端（open-llm-vtuber Web 设置中心）。权威规格：`docs/plans/settings-redesign-spec.md`；
+> 优先依据审计：`docs/plans/settings-fix-plan.md` + `Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`。
+
+## WSL2 迁移断链修复
+- **`Live2D-Ai-pc/start.sh`**：venv 查找优先级 修复（之前默认 `$HOME/Live2D-Ai/.venv` 在本机不存在 → 启动即退）：
+  现在按 `LIVE2DAI_WSL_VENV` → 仓库根 `.venv` → 旧文档路径 三级探测，已验证本机可一键启动。
+- **`GET /health`**（新增）：`200 {"status":"ok","version","uptime_s"}`，补上 WSL2 迁移计划 DoD 验收项。
+- **端口生效（B5/B6）**：`run_server.py` 不再写死 12393，改读 `config.system_config.port`；`server.py` `/proxy-ws` 同源；
+  `_start_server.py` 分叉启动器收敛为复用 `run_server.main`（env `${VAR}` 替换 + 人设注入 + MCP path + 按 port 监听）。
+- **文档清理**：README 遗留 Windows 说法（测试/架构图/许可/链接）改为「PC 端（WSL2/Linux）主力」；PC README 环境准备改为仓库根 `.venv`。
+
+## 设置逻辑链（settings-fix-plan 全量推进）
+- **P0**：`POST /api/config` 与 `POST /api/config/tree` **先校验后落盘 + 失败回滚**（原子写 tmp+rename）；
+  TTS 选中 provider 缺必填(voice/model) 自动补目录默认值，补不出→400 指明字段；设定树写盘前跑 `AppConfig` schema 校验。
+- **P1**：POST 成功回传 normalize 后完整 `config`（前端 re-populate，消除 UI=磁盘 漂移）；
+  显式清空语义（persona 字段与 `.env` key 传 null → 真删除；区分「未传」与「显式清空」）；
+  `log_level` round-trip（从 `.env` 读回，仅用户改动才提交，不再每次保存静默重置 INFO）；
+  `.env` 新 key 对运行引擎可见（apply/reload 重读）；`apply=true` 先 load 共享 cache 再遍历已连会话重跑，
+  无法覆盖时诚实返回 `requires_restart:true`；check/test/discover 按 provider 协议感知（Anthropic/Ollama 等）+ 取「saved ∪ UI」合成视图。
+- **P2/运行层**：引擎/agent `close()` + reload 替换前关旧引擎；`handle_disconnect` 先取 context 再 pop 并 close；
+  `init_vision` 支持热换；proxy 播放确认超时补发 `send_conversation_end_signal`（B12）；
+  `load_from_config` 顺序修正（system/character_config 在 `init_agent` 前）。
+
+## 设置 UI 重设计（NEKO 内容结构 + Codex/DSH 深色精练风）
+- 左侧 6 分区导航（对话/LLM、语音/TTS、形象/Live2D、密钥、人设/提示词、系统/高级）；Modal 覆盖层 + 底部状态条 + 保存全部/保存并应用。
+- Provider 卡折叠行→展开编辑；Key 管理中心（明文切换/测试/清除）；形象中心（扫描导入+选中态）；人设编辑器（含清除）；系统区（端口/FPS/log_level + 高级设定树 + 校验错误红框）。
+- 行为：打开面板**不再自动 discover**（改手动+缓存）；保存成功 re-populate；busy/disable + 最后一次点击胜出（请求 token/AbortController）；
+  `fillSelect`「未选择」占位 + `port:0` 挡下；TTS 检查诚实标注；test 带 saved∪UI；`Audio.play()` 拒绝捕获；`requires_restart`/`field_errors` 文案诚实。
+- 结构：纯逻辑抽到 `renderer/src/settings-logic.ts`（可 vitest 直测），`settings-ui.ts` 只做 DOM 装配；样式抽到 `settings.css`（DSH 暗色配色调色板）；`.settings-*` 类名确认无外部引用。
+- 构建自愈：`renderer/public/libs/live2dcubismcore.min.js` 补齐（官方 live2dcubismcore@1.0.2），
+  Vite 每次构建自动拷回 `frontend/libs/`（修复「重建会把 gitignored 的 Live2D Core 清掉导致模型不渲染」的构建回归）。
+
+## 验证
+- 后端 `pytest tests/ -p no:cacheprovider --ignore=tests/test_tts_bargein.py`：**144 passed**
+  （注：`test_tts_bargein.py` 硬编码 `.pi` 目录标记无法定位仓库根，为**基线既有环境问题**，非本次引入）。
+- 前端 vitest：**11 files / 252 passed**（含新增 `settings-logic.test.ts` 20 例）。
+- 实机链路：`start.sh` 一键启动成功；`/health` 200；`/api/config` 200（port/log_level 读回）；
+  `POST /api/config` 返回 `{ok,config,applied,requires_restart,message}`；新 bundle + `libs/live2dcubismcore.min.js` + Live2D 模型 均 200。
+
+---
+
 # WSL2 迁移 + 项目更名 Live2D-Ai（2026-08-19）
 
 > **平台定调（用户）：PC 端主力定位 WSL2，**放弃**原生 Windows；项目更名为 `Live2D-Ai`。**

@@ -210,11 +210,10 @@ class ServiceContext:
             logger.info(f"Closing MCPClient for context instance {id(self)}...")
             await self.mcp_client.aclose()
             self.mcp_client = None
-        if self.agent_engine and hasattr(self.agent_engine, "close"):
-            await self.agent_engine.close()
-        if self.vision_handler:
-            await self.vision_handler.close()
-            self.vision_handler = None
+        self._safe_close(self.agent_engine)
+        self.agent_engine = None
+        self._safe_close(self.vision_handler)
+        self.vision_handler = None
         logger.info("ServiceContext closed.")
 
     async def load_cache(
@@ -264,14 +263,12 @@ class ServiceContext:
 
     async def load_from_config(self, config: Config) -> None:
         """Load the ServiceContext with the config."""
-        if not self.config:
-            self.config = config
-
-        if not self.system_config:
-            self.system_config = config.system_config
-
-        if not self.character_config:
-            self.character_config = config.character_config
+        # 重要（修复 B3 顺序错误）：先把新的 system_config/character_config 赋到
+        # 本 context 上，再 init_* —— 这样 init_agent/init_live2d/init_asr/init_tts
+        # 等都基于新快照构建，而不是启动期旧 system_config/avatar。
+        self.config = config
+        self.system_config = config.system_config or self.system_config
+        self.character_config = config.character_config
 
         # (NEW) 加载跨平台模型注册表（缺失/损坏时返回 None，回退硬编码 bai）
         self.model_registry = self._load_model_registry()
@@ -302,10 +299,6 @@ class ServiceContext:
             config.character_config.agent_config,
             config.character_config.persona_prompt,
         )
-
-        self.config = config
-        self.system_config = config.system_config or self.system_config
-        self.character_config = config.character_config
 
     def _load_model_registry(self) -> ModelRegistry | None:
         """加载 shared/model_registry.json；缺失/损坏时返回 None（回退硬编码 bai）。"""
@@ -387,13 +380,34 @@ class ServiceContext:
             return self.model_registry.get_default().id
         return "bai"
 
+    def _safe_close(self, engine) -> None:
+        """幂等关闭一个引擎：已在关闭状态或未实现 close() 时直接跳过。
+
+        修复 B8：reload 替换引擎前不再泄漏旧句柄；幂等性避免多 context 共享同一
+        引擎对象时被重复 close（防 B7 修复引入的双重关闭）。
+        """
+        if engine is None:
+            return
+        if getattr(engine, "_closed", False):
+            return
+        close_fn = getattr(engine, "close", None)
+        if close_fn is None:
+            return
+        try:
+            engine._closed = True
+            close_fn()
+        except Exception as e:
+            logger.warning(f"Error closing engine {type(engine).__name__}: {e}")
+
     def init_asr(self, asr_config: ASRConfig) -> None:
         if asr_config.asr_model == "disabled":
+            self._safe_close(self.asr_engine)
             self.asr_engine = None
             logger.info("ASR disabled (asr_model='disabled'; 启用需在 conf.yaml 改为 faster_whisper 等并配置模型)")
             return
         if not self.asr_engine or (self.character_config.asr_config != asr_config):
             logger.info(f"Initializing ASR: {asr_config.asr_model}")
+            self._safe_close(self.asr_engine)
             self.asr_engine = ASRFactory.get_asr_system(
                 asr_config.asr_model,
                 **getattr(asr_config, asr_config.asr_model).model_dump(),
@@ -405,6 +419,7 @@ class ServiceContext:
     def init_tts(self, tts_config: TTSConfig) -> None:
         if not self.tts_engine or (self.character_config.tts_config != tts_config):
             logger.info(f"Initializing TTS: {tts_config.tts_model}")
+            self._safe_close(self.tts_engine)
             self.tts_engine = TTSFactory.get_tts_engine(
                 tts_config.tts_model,
                 **getattr(tts_config, tts_config.tts_model.lower()).model_dump(),
@@ -430,26 +445,41 @@ class ServiceContext:
             logger.info("VAD already initialized with the same config.")
 
     def init_vision(self, config: Config) -> None:
-        """Initialize the vision handler from configuration if vision is enabled."""
-        if self.vision_handler is not None:
-            logger.debug("VisionHandler already initialized.")
-            return
+        """Initialize the vision handler from configuration if vision is enabled.
 
+        修复 B8：支持热换——当启用状态/模型/key 变化时，先关闭旧 VisionHandler
+        再重建，而不是看到 handler 已存在就 return。
+        """
         vision_cfg = config.vision_config
-        if vision_cfg is None or not vision_cfg.vision_enabled:
-            logger.info(
-                "Vision pipeline disabled (vision_config.vision_enabled=False or not configured)."
-            )
-            self.vision_handler = None
+        enabled = vision_cfg is not None and vision_cfg.vision_enabled
+
+        # 计算将要使用的 key/model（与旧实现同逻辑），用于判断是否真的变化
+        api_key = ""
+        model = ""
+        if enabled:
+            api_key = vision_cfg.api_key
+            if not api_key:
+                zhipu = config.character_config.agent_config.llm_configs.zhipu_llm
+                if zhipu and zhipu.llm_api_key:
+                    api_key = zhipu.llm_api_key
+            model = vision_cfg.model or ""
+
+        if not enabled:
+            if self.vision_handler is not None:
+                self._safe_close(self.vision_handler)
+                self.vision_handler = None
             return
 
-        # Determine API key: use vision-specific key, or fall back to zhipu_llm key
-        api_key = vision_cfg.api_key
-        if not api_key:
-            zhipu = config.character_config.agent_config.llm_configs.zhipu_llm
-            if zhipu and zhipu.llm_api_key:
-                api_key = zhipu.llm_api_key
-                logger.debug("Using zhipu_llm API key for vision.")
+        if self.vision_handler is not None:
+            # 若配置未变，保持现状；避免热重载重建
+            cur_key = getattr(self.vision_handler, "_api_key", None)
+            cur_model = getattr(self.vision_handler, "_model", None)
+            if cur_key == api_key and cur_model == model:
+                logger.debug("VisionHandler unchanged, keeping existing instance.")
+                return
+            logger.info("Vision model/config changed; hot-replacing VisionHandler.")
+            self._safe_close(self.vision_handler)
+            self.vision_handler = None
 
         if not api_key:
             logger.warning(
@@ -463,11 +493,13 @@ class ServiceContext:
         try:
             self.vision_handler = VisionHandler(
                 api_key=api_key,
-                model=vision_cfg.model,
+                model=model,
                 base_url=base_url,
             )
+            self.vision_handler._api_key = api_key
+            self.vision_handler._model = model
             logger.info(
-                f"VisionHandler initialized (model={vision_cfg.model}, "
+                f"VisionHandler initialized (model={model}, "
                 f"interval={vision_cfg.capture_interval}s)."
             )
         except Exception as e:
@@ -490,6 +522,8 @@ class ServiceContext:
         avatar = self.character_config.avatar or ""
 
         try:
+            # 替换前关闭旧 agent，避免句柄/客户端泄漏（B8）
+            self._safe_close(self.agent_engine)
             self.agent_engine = AgentFactory.create_agent(
                 conversation_agent_choice=agent_config.conversation_agent_choice,
                 agent_settings=agent_config.agent_settings.model_dump(),

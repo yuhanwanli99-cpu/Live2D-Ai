@@ -172,7 +172,7 @@ python scripts/verify_all.py
 # Android 端测试
 cd Live2D-Ai-Android && ./gradlew test
 
-# Windows 端测试
+# PC 端（WSL2/Linux）测试
 cd .. && python -m pytest tests/
 ```
 
@@ -188,7 +188,7 @@ cd .. && python -m pytest tests/
 
 ```
 ┌─────────────────────────────┐     ┌─────────────────────────────────┐
-│   Android (Kotlin + Compose)│     │   Windows Desktop               │
+│   Android (Kotlin + Compose)│     │   PC 端 (WSL2/Linux) · Open-LLM-VTuber │
 │                             │     │                                 │
 │   DeepSeek API ─────────────┼─────┼─── DeepSeek API                 │
 │        (OkHttp SSE)         │     │                                 │
@@ -317,7 +317,7 @@ cp shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/
 项目使用 OpenAI 兼容 API 协议，更换 LLM 只需修改：
 
 - **Android**：`ChatService.kt` 中的 `DEEPSEEK_API_KEY` 和 API endpoint URL
-- **Windows**：`conf.yaml` 中的 `llm_api_key`
+- **PC（WSL2/Linux）**：`conf.yaml` 中的 `llm_api_key`
 
 支持任意 OpenAI 兼容的 API（DeepSeek、GLM、通义千问、Ollama 本地等）。
 
@@ -430,7 +430,7 @@ cd Live2D-Ai-Android && ./gradlew test
 | ------ | ------ | ------ |
 | [Purism Core](https://github.com/SakuraMotion/PurismCore) | **MIT** | Live2D 原生引擎核心 |
 | [CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) | Apache 2.0 | Live2D Java 框架（仅着色器文件） |
-| [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) | MIT | Windows 桌面端基础 |
+| [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) | MIT | PC 桌面端基础（WSL2/Linux 主力，原生 Windows 已放弃） |
 | Jetpack Compose / Material3 | Apache 2.0 | Android UI 框架 |
 | OkHttp | Apache 2.0 | HTTP 客户端 |
 | SnakeYAML | Apache 2.0 | YAML 解析 |
@@ -446,7 +446,7 @@ cd Live2D-Ai-Android && ./gradlew test
 
 - [Purism Core (MIT)](https://github.com/SakuraMotion/PurismCore) — Live2D 开源核心
 - [CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) — Live2D Java 框架
-- [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) — Windows 桌面端
+- [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) — PC 桌面端（WSL2/Linux 主力）
 - [DeepSeek API](https://platform.deepseek.com/) — LLM 服务
 - [Zhipu API](https://open.bigmodel.cn/) — 视觉模型服务
 - [Edge TTS](https://github.com/rany2/edge-tts) — 语音合成

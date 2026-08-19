@@ -1,8 +1,8 @@
 # WSL2 迁移计划：pc 端主力代码迁移到 WSL2 环境
 
-> 状态: **已执行（结构性迁移 + 更名完成）**（2026-08-19） | 创建日期: 2026-08-19 | 适用: `Live2D-Ai-pc/`
+> 状态: **已执行（结构性迁移 + 更名完成）**（2026-08-19）| **2026-08-20 运行验证合拢**：start.sh venv 探测修复 + `/health` 端点落地，`start.sh` 一键启动、`/health` 200、前端渲染/配置加载均实机验证通过 | 创建日期: 2026-08-19 | 适用: `Live2D-Ai-pc/`
 > 定位: **WSL2 为 PC 端主力（开发 + 运行 + CI）；原生 Windows 已放弃**（Windows 启动入口 `start.ps1` / `启动Live2D-Ai.bat` 已移除）。项目仓库已从 G 盘 `/mnt/g/git/Live2Dai` 迁移至 WSL2 原生盘并更名为 `Live2D-Ai`。
-> 待验证: 完整运行验证（安装依赖 → 启动 → /health + 前端渲染 + 配置加载）需在本机执行 Phase 1-3 后落地。
+> 待验证: 完整运行验证（安装依赖 → 启动 → /health + 前端渲染 + 配置加载）需在本机执行 Phase 1-3 后落地。**（2026-08-20：已验证，见下方验收 checklist）**
 
 ---
 
@@ -229,12 +229,12 @@ curl -s http://localhost:12393/health
 
 ## 8. 验收 Checklist（勾选用）
 
-- [ ] `uv python install 3.12` 成功且 `~/Live2D-Ai-pc/.venv/bin/python --version` = 3.12.x
-- [ ] `import open_llm_vtuber, fastapi, edge_tts` 通过
-- [ ] `Live2D-Ai-pc/start.sh` 可执行、能拉起后端
-- [ ] `curl http://localhost:12393/health` 200
-- [ ] Windows 浏览器访问 `http://localhost:12393` 渲染 Live2D + Dashboard 可开
-- [ ] 人设从 `shared/persona.yaml` 加载成功（日志确认）
-- [ ] 对话/LLM 连通（需 `.env` 有 key）
-- [ ] Windows 端 `start.ps1` 仍可用（未破坏）
-- [ ] README / AGENT / CHANGELOG 已更新
+- [x] `uv python install 3.12` 成功且 Python = 3.12.x（本机仓库内 `.uv-python/cpython-3.12.14` 托管）
+- [x] `import open_llm_vtuber, fastapi, edge_tts` 通过（start.sh 自带自检）
+- [x] `Live2D-Ai-pc/start.sh` 可执行、能拉起后端（2026-08-20 实机启动成功；已修复 venv 探测）
+- [x] `curl http://localhost:12393/health` 200（新增 `/health` 端点，返回 status/version/uptime_s）
+- [x] 浏览器访问 `http://localhost:12393` 渲染 Live2D + 设置中心可开（新 bundle + live2dcubismcore.min.js + 模型均 200）
+- [x] 人设从 `shared/persona.yaml` 加载成功（启动日志确认）
+- [ ] 对话/LLM 连通（需 `.env` 有 key——本机未配置真实 key，需用户填入后验证）
+- [x] Windows 端 `start.ps1` 已被移除（迁移定调）；`_start_server.py` 已收敛复用 run_server bootstrap
+- [x] README / AGENT / CHANGELOG 已更新

@@ -2,6 +2,7 @@ import os
 import json
 import copy
 import tempfile
+import time
 from uuid import uuid4
 import numpy as np
 from datetime import datetime
@@ -15,19 +16,32 @@ from .websocket_handler import WebSocketHandler
 from .proxy_handler import ProxyHandler
 
 
+# 与 pyproject.toml 的 version 保持一致，供 /health 上报。
+_SETTINGS_VERSION = "v1.2.1"
+_ALL_TIMEOUT = 5.0
+
+
 def init_config_routes(
     config_path: str = "conf.yaml",
     default_context_cache: ServiceContext = None,
+    ws_handler: WebSocketHandler = None,
 ) -> APIRouter:
     """轻量设置 Dashboard API：读取/写入 conf.yaml、persona.yaml 与 .env。
 
     支持常用设置、人设/系统提示词、原始 YAML 设定树、LLM 测试与 TTS 试听。
+
+    Args:
+        config_path: conf.yaml 路径。
+        default_context_cache: 共享 ServiceContext（用于 apply 热重载）。
+        ws_handler: 可选的 WebSocketHandler；非 None 时 apply=true 会遍历其
+            client_contexts，对已连接会话重跑 load（修复 B3 已连会话热更）。
     """
     router = APIRouter()
     config_abs = os.path.abspath(config_path)
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(config_abs)))
     env_path = os.path.join(repo_root, ".env")
     persona_path = os.path.join(repo_root, "shared", "persona.yaml")
+    _start_time = time.time()
 
     # Provider -> 默认 base_url / 环境变量名
     LLM_DEFAULTS = {
@@ -276,6 +290,42 @@ def init_config_routes(
             collect(raw)
         return models
 
+    def _normalize_provider_id(pid: str) -> str:
+        """把 UI 常用别名归一为配置里的 provider id。"""
+        return "openai_compatible_llm" if pid == "openai_compatible" else pid
+
+    def _llm_protocol(provider: str) -> str:
+        """按 provider 返回协议族：openai / anthropic / ollama。
+
+        修复 B9：test/discover/check 不能再对所有 provider 一律 OpenAI 形态。
+        - anthropic / claude_llm -> Anthropic /v1/messages
+        - ollama / ollama_llm    -> Ollama /api/chat (+ /api/tags 列模型)
+        - 其余 OpenLLM 各厂家均为 OpenAI 兼容形态（/models + /chat/completions）
+        """
+        provider = _normalize_provider_id(provider or "")
+        if provider in ("anthropic", "claude_llm"):
+            return "anthropic"
+        if provider in ("ollama", "ollama_llm"):
+            return "ollama"
+        return "openai"
+
+    def _extract_upstream_message(resp) -> str:
+        """从上游错误响应提取人类可读 message，不吞成裸 HTTP 数字。"""
+        try:
+            body = resp.json()
+        except Exception:
+            body = None
+        if isinstance(body, dict):
+            err = body.get("error")
+            if isinstance(err, dict) and err.get("message"):
+                return str(err["message"])
+            if isinstance(err, str):
+                return err
+            if body.get("message"):
+                return str(body["message"])
+        text = resp.text or ""
+        return text[:300]
+
     def _save_persona(data):
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
@@ -461,6 +511,17 @@ def init_config_routes(
             },
         }
 
+    @router.get("/health")
+    async def health():
+        # WSL2 迁移验收项：GET /health -> 200 {"status":"ok","version":..,"uptime_s":..}
+        return JSONResponse(
+            {
+                "status": "ok",
+                "version": _SETTINGS_VERSION,
+                "uptime_s": int(time.time() - _start_time),
+            }
+        )
+
     @router.get("/api/config")
     async def get_config():
         try:
@@ -579,6 +640,31 @@ def init_config_routes(
                         target["model"] = tts_models[0]
                         target["models"] = tts_models
 
+            # 自动补齐选中 TTS provider 的必填字段（voice/model）目录默认值。
+            # 修复 P0-1：`gpt_sovits_tts`/`edge_tts` 等被选中但缺 voice/model 时，
+            # 用目录默认值补齐；若目录也给不出且该字段必填，随后 AppConfig 校验
+            # 会 400 指明字段，避免"落成空 {}"破坏校验。
+            selected_tts = tts_cfg.get("tts_model", "")
+            if selected_tts:
+                selected_tts = {
+                    "gpt_sovits": "gpt_sovits_tts",
+                    "piper": "piper_tts",
+                    "sherpa_onnx": "sherpa_onnx_tts",
+                    "pyttsx3": "pyttsx3_tts",
+                }.get(selected_tts, selected_tts)
+                sel_entry = tts_cfg.get(selected_tts)
+                if isinstance(sel_entry, dict):
+                    if not sel_entry.get("voice"):
+                        voices = TTS_VOICE_CATALOG.get(selected_tts, [])
+                        if voices:
+                            sel_entry["voice"] = voices[0]
+                            sel_entry.setdefault("voices", voices)
+                    if not sel_entry.get("model"):
+                        models = TTS_MODEL_CATALOG.get(selected_tts, [])
+                        if models:
+                            sel_entry["model"] = models[0]
+                            sel_entry.setdefault("models", models)
+
             # 设置页的“视觉模型”写入 vision_config.model（如果用户填写）
             persona_payload = payload.get("persona")
             if persona_payload and persona_payload.get("vision_model"):
@@ -587,9 +673,13 @@ def init_config_routes(
                     vision_cfg = data["vision_config"] = {}
                 vision_cfg["model"] = persona_payload["vision_model"]
 
-            # 写盘前用 Config 做一次完整校验，避免非法 Provider/配置落盘
+            # 写盘前用 Config 做一次完整校验，避免非法 Provider/配置落盘。
+            # （normalize + 校验都在 _save_yaml/_save_persona 之前完成 → 校验失败
+            #  保证三个落盘目标都不会被改写，修复 P0-2 热重载失败后 YAML 已落盘。）
             try:
                 from .config_manager.main import Config as AppConfig
+                from pydantic import ValidationError as _PydanticValidationError
+
                 persona_for_validation = _load_persona() or {}
                 persona_payload = payload.get("persona")
                 if persona_payload:
@@ -602,23 +692,47 @@ def init_config_routes(
                         "vision_model",
                         "system_prompt",
                     ):
-                        if field in persona_payload and persona_payload[field] not in (
-                            None,
-                            "",
-                        ):
-                            persona_for_validation[field] = persona_payload[field]
+                        if field in persona_payload:
+                            value = persona_payload[field]
+                            if value is None:
+                                # 显式清空：从该字段中删除，方便 _apply_persona_to_data
+                                # 不再把它写进候选配置。
+                                persona_for_validation.pop(field, None)
+                            elif value != "":
+                                persona_for_validation[field] = value
                 candidate = copy.deepcopy(data)
                 _apply_persona_to_data(candidate, persona_for_validation)
                 AppConfig(**candidate)
+            except _PydanticValidationError as validation_error:
+                logger.error(f"Config validation failed: {validation_error}")
+                field_errors = {}
+                for err in validation_error.errors():
+                    loc = ".".join(str(x) for x in err.get("loc", []))
+                    field_errors[loc] = err.get("msg", str(err))
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": "配置校验失败: 请检查标红字段",
+                        "field_errors": field_errors,
+                    },
+                    status_code=400,
+                )
             except Exception as validation_error:
                 logger.error(f"Config validation failed: {validation_error}")
                 return JSONResponse(
-                    {"error": f"配置校验失败: {validation_error}"}, status_code=400
+                    {
+                        "ok": False,
+                        "error": f"配置校验失败: {validation_error}",
+                        "field_errors": {},
+                    },
+                    status_code=400,
                 )
 
             _save_yaml(data)
 
             # 写入仓库根 .env（Key 不落 conf.yaml，避免误提交）
+            # 显式清空语义（spec 1.5）：api_keys 里值为 null 的 key 会被删除；
+            # 未提供的 key 保持原样；非空值则写入/更新。
             api_keys = payload.get("api_keys") or {}
             if payload.get("log_level"):
                 api_keys["LIVE2DAI_LOG_LEVEL"] = str(payload["log_level"])
@@ -634,11 +748,20 @@ def init_config_routes(
                     if "=" in line and not line.strip().startswith("#"):
                         k, _, v = line.partition("=")
                         existing[k.strip()] = v.strip()
+                # 记录原始文件中的 key 集合，用于识别“被显式清空的 key”（其原行应被丢弃）
+                origin_keys = set(existing.keys())
                 changed = False
                 for k, v in api_keys.items():
-                    if v and str(v).strip():
-                        existing[k.strip()] = str(v).strip()
-                        changed = True
+                    key = k.strip()
+                    if v is None:
+                        # 显式清空：从 .env 中删除该 key
+                        if key in existing:
+                            del existing[key]
+                            changed = True
+                    elif str(v).strip():
+                        if existing.get(key) != str(v).strip():
+                            existing[key] = str(v).strip()
+                            changed = True
                 if changed:
                     new_lines = []
                     written = set()
@@ -650,14 +773,29 @@ def init_config_routes(
                                 new_lines.append(f"{k}={existing[k]}")
                                 written.add(k)
                                 continue
+                            elif k in origin_keys:
+                                # key 被显式清空（从 existing 删除）：丢弃原行，
+                                # 否则会把被删 key 原样写回。
+                                continue
                         new_lines.append(line)
                     for k, v in existing.items():
                         if k not in written:
                             new_lines.append(f"{k}={v}")
-                    with open(env_path, "w", encoding="utf-8") as f:
-                        f.write("\n".join(new_lines) + "\n")
+                    # 原子写入，避免 .env 半写
+                    fd, tmp_env = tempfile.mkstemp(
+                        prefix=".env.", suffix=".tmp", dir=os.path.dirname(env_path)
+                    )
+                    try:
+                        with os.fdopen(fd, "w", encoding="utf-8") as f:
+                            f.write("\n".join(new_lines) + "\n")
+                            f.flush()
+                            os.fsync(f.fileno())
+                        os.replace(tmp_env, env_path)
+                    finally:
+                        if os.path.exists(tmp_env):
+                            os.unlink(tmp_env)
 
-            # 人设/提示词保存
+            # 人设/提示词保存（含显式清空：null 删除字段）
             persona_payload = payload.get("persona")
             if persona_payload:
                 persona = _load_persona()
@@ -670,12 +808,16 @@ def init_config_routes(
                     "vision_model",
                     "system_prompt",
                 ):
-                    if field in persona_payload and persona_payload[field] not in (
-                        None,
-                        "",
-                    ):
+                    if field not in persona_payload:
+                        continue
+                    if persona_payload[field] is None:
+                        persona.pop(field, None)
+                    elif persona_payload[field] != "":
                         persona[field] = persona_payload[field]
                 _save_persona(persona)
+
+            # normalize 后完整视图：保存成功回传，供前端 re-populate（spec 1.3 响应）
+            normalized_config = _get_common(_load_yaml())
 
             if payload.get("apply") and default_context_cache is not None:
                 try:
@@ -688,21 +830,68 @@ def init_config_routes(
 
                     from .config_manager.main import Config as AppConfig
                     new_config = AppConfig(**_config_dict_for_reload())
+                    # 先应用到共享 cache，使随后连接/重连的会话拿到新配置。
                     await default_context_cache.load_from_config(new_config)
+
+                    # 再对已连接 client_contexts 逐会话重跑（B3）。
+                    # 若某个会话热更失败/抛错，不伪装 applied，改诚实返回 requires_restart。
+                    connected = (
+                        list(ws_handler.client_contexts.values())
+                        if ws_handler is not None
+                        else []
+                    )
+                    reapplied = []
+                    failed = []
+                    for ctx in connected:
+                        try:
+                            await ctx.load_from_config(new_config)
+                            reapplied.append(id(ctx))
+                        except Exception as ctx_err:
+                            logger.warning(
+                                f"Failed to hot-apply to session {id(ctx)}: {ctx_err}"
+                            )
+                            failed.append(id(ctx))
+
+                    if failed:
+                        return JSONResponse(
+                            {
+                                "ok": True,
+                                "config": normalized_config,
+                                "applied": False,
+                                "requires_restart": True,
+                                "message": "配置已保存并在新会话生效；部分已连接会话未能即时热更，重启/重连后生效",
+                            }
+                        )
                     return JSONResponse(
-                        {"ok": True, "requires_restart": False, "applied": True}
+                        {
+                            "ok": True,
+                            "config": normalized_config,
+                            "applied": True,
+                            "requires_restart": False,
+                            "message": "已保存并应用",
+                        }
                     )
                 except Exception as reload_error:
                     logger.error(f"Config saved but reload failed: {reload_error}")
                     return JSONResponse(
                         {
-                            "ok": False,
-                            "error": f"配置已保存，但热重载失败: {reload_error}",
-                        },
-                        status_code=500,
+                            "ok": True,
+                            "config": normalized_config,
+                            "applied": False,
+                            "requires_restart": True,
+                            "message": f"已保存，重启/重连后生效（热重载失败: {reload_error}）",
+                        }
                     )
 
-            return JSONResponse({"ok": True, "requires_restart": True})
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "config": normalized_config,
+                    "applied": False,
+                    "requires_restart": True,
+                    "message": "已保存",
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to update config: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -741,7 +930,12 @@ def init_config_routes(
                 "vision_model",
                 "system_prompt",
             ):
-                if field in payload and payload[field] not in (None, ""):
+                if field not in payload:
+                    continue
+                if payload[field] is None:
+                    # 显式清空：删除字段
+                    persona.pop(field, None)
+                elif payload[field] != "":
                     persona[field] = payload[field]
             if "profile" in payload and isinstance(payload["profile"], dict):
                 persona["profile"] = payload["profile"]
@@ -779,16 +973,45 @@ def init_config_routes(
             _apply_persona_to_data(candidate, _load_persona() or {})
             try:
                 from .config_manager.main import Config as AppConfig
+                from pydantic import ValidationError as _PydanticValidationError
+
                 AppConfig(**candidate)
+            except _PydanticValidationError as validation_error:
+                logger.error(f"Config tree validation failed: {validation_error}")
+                field_errors = {}
+                for err in validation_error.errors():
+                    loc = ".".join(str(x) for x in err.get("loc", []))
+                    field_errors[loc] = err.get("msg", str(err))
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": "配置校验失败: 请检查标红字段",
+                        "field_errors": field_errors,
+                    },
+                    status_code=400,
+                )
             except Exception as validation_error:
                 logger.error(f"Config tree validation failed: {validation_error}")
                 return JSONResponse(
-                    {"error": f"配置校验失败: {validation_error}"}, status_code=400
+                    {
+                        "ok": False,
+                        "error": f"配置校验失败: {validation_error}",
+                        "field_errors": {},
+                    },
+                    status_code=400,
                 )
             # 同目录临时文件 + os.replace 原子替换（与 _save_yaml 一致性），
             # 避免写盘中途失败留下半份 conf.yaml 导致下次启动失败。
             _write_raw_atomic(raw)
-            return JSONResponse({"ok": True, "requires_restart": True})
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "config": _get_common(tree),
+                    "applied": False,
+                    "requires_restart": True,
+                    "message": "已保存",
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to update config tree: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -873,8 +1096,7 @@ def init_config_routes(
             import requests as _requests
             payload = await request.json()
             provider = payload.get("provider", "")
-            if provider == "openai_compatible":
-                provider = "openai_compatible_llm"
+            provider = _normalize_provider_id(provider)
             base_url = (payload.get("base_url") or "").strip()
             api_key = (payload.get("api_key") or "").strip()
             data = _load_yaml()
@@ -897,21 +1119,41 @@ def init_config_routes(
                 return JSONResponse(
                     {"ok": False, "error": "Base URL 为空，无法发现模型"}, status_code=400
                 )
-            url = base_url.rstrip("/") + "/models"
-            headers = {}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+            protocol = _llm_protocol(provider)
+            if protocol == "ollama":
+                # Ollama 用 GET /api/tags 列模型，无需鉴权
+                url = base_url.rstrip("/") + "/api/tags"
+                headers = {}
+            elif protocol == "anthropic":
+                url = base_url.rstrip("/") + "/models"
+                headers = {}
+                if api_key:
+                    headers["x-api-key"] = api_key
+                    headers["anthropic-version"] = "2023-06-01"
+            else:
+                url = base_url.rstrip("/") + "/models"
+                headers = {}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
             resp = _requests.get(url, headers=headers, timeout=15)
             if resp.status_code >= 400:
                 return JSONResponse(
                     {
                         "ok": False,
-                        "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                        "error": f"HTTP {resp.status_code}: {_extract_upstream_message(resp)}",
                     },
                     status_code=400,
                 )
             raw = resp.json()
-            models = _parse_models_response(raw)
+            if protocol == "ollama":
+                # {"models":[{"name":"llama3:latest",...}]}
+                models = [
+                    str(m.get("name", ""))
+                    for m in (raw.get("models") or [])
+                    if isinstance(m, dict) and m.get("name")
+                ]
+            else:
+                models = _parse_models_response(raw)
             return JSONResponse({"ok": True, "models": models})
         except Exception as e:
             logger.error(f"Discover models failed: {e}")
@@ -966,15 +1208,30 @@ def init_config_routes(
                     )
                     continue
                 try:
-                    url = base_url.rstrip("/") + "/models"
-                    resp = _requests.get(
-                        url,
-                        headers={"Authorization": f"Bearer {key}"},
-                        timeout=8,
-                    )
+                    protocol = _llm_protocol(pid)
+                    if protocol == "ollama":
+                        url = base_url.rstrip("/") + "/api/tags"
+                        headers = {}
+                    elif protocol == "anthropic":
+                        url = base_url.rstrip("/") + "/models"
+                        headers = {
+                            "x-api-key": key,
+                            "anthropic-version": "2023-06-01",
+                        }
+                    else:
+                        url = base_url.rstrip("/") + "/models"
+                        headers = {"Authorization": f"Bearer {key}"}
+                    resp = _requests.get(url, headers=headers, timeout=8)
                     if resp.status_code < 400:
                         raw = resp.json()
-                        models = _parse_models_response(raw)
+                        if protocol == "ollama":
+                            models = [
+                                str(m.get("name", ""))
+                                for m in (raw.get("models") or [])
+                                if isinstance(m, dict) and m.get("name")
+                            ]
+                        else:
+                            models = _parse_models_response(raw)
                         llm_results.append(
                             {"provider": pid, "kind": "llm", "ok": True, "status": "ok", "models": models}
                         )
@@ -984,7 +1241,7 @@ def init_config_routes(
                                 "provider": pid,
                                 "kind": "llm",
                                 "ok": False,
-                                "status": f"HTTP {resp.status_code}",
+                                "status": f"HTTP {resp.status_code}: {_extract_upstream_message(resp)}",
                                 "models": [],
                             }
                         )
@@ -1055,7 +1312,7 @@ def init_config_routes(
             key_env = default.get("key_env") or cfg.get("key_env") or "OPENAI_API_KEY"
             if not key:
                 key = _env_value(key_env) if key_env else ""
-            if not key:
+            if not key and _llm_protocol(provider) != "ollama":
                 return JSONResponse(
                     {"ok": False, "error": f"{provider} 未配置 API Key"}, status_code=400
                 )
@@ -1068,25 +1325,61 @@ def init_config_routes(
                     {"ok": False, "error": f"{provider} 未配置 model"}, status_code=400
                 )
             url = base_url.rstrip("/") + "/chat/completions"
-            resp = _requests.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": payload.get("max_tokens") or 5,
-                },
-                timeout=10,
-            )
+            protocol = _llm_protocol(provider)
+            if protocol == "ollama":
+                url = base_url.rstrip("/") + "/api/chat"
+                resp = _requests.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "stream": False,
+                    },
+                    timeout=10,
+                )
+            elif protocol == "anthropic":
+                # base_url 形如 https://api.anthropic.com/v1 或 .../v1/：
+                # 追加 /v1/messages 前先避免重复 /v1。
+                base = base_url.rstrip("/")
+                if base.endswith("/v1"):
+                    url = base + "/messages"
+                else:
+                    url = base + "/v1/messages"
+                resp = _requests.post(
+                    url,
+                    headers={
+                        "x-api-key": key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": payload.get("max_tokens") or 5,
+                        "messages": [{"role": "user", "content": "ping"}],
+                    },
+                    timeout=10,
+                )
+            else:
+                resp = _requests.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": payload.get("max_tokens") or 5,
+                    },
+                    timeout=10,
+                )
             if resp.status_code < 400:
                 return JSONResponse({"ok": True, "status": resp.status_code})
             return JSONResponse(
                 {
                     "ok": False,
-                    "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    "error": f"HTTP {resp.status_code}: {_extract_upstream_message(resp)}",
                 },
                 status_code=400,
             )
@@ -1189,19 +1482,25 @@ def init_config_routes(
     return router
 
 
-def init_client_ws_route(default_context_cache: ServiceContext) -> APIRouter:
+def init_client_ws_route(
+    default_context_cache: ServiceContext,
+    ws_handler: WebSocketHandler = None,
+) -> APIRouter:
     """
     Create and return API routes for handling the `/client-ws` WebSocket connections.
 
     Args:
         default_context_cache: Default service context cache for new sessions.
+        ws_handler: Optional shared WebSocketHandler. When provided it is reused
+            (so the config API can traverse the same client_contexts on apply);
+            otherwise a dedicated one is created.
 
     Returns:
         APIRouter: Configured router with WebSocket endpoint.
     """
 
     router = APIRouter()
-    ws_handler = WebSocketHandler(default_context_cache)
+    ws_handler = ws_handler or WebSocketHandler(default_context_cache)
 
     @router.websocket("/client-ws")
     async def websocket_endpoint(websocket: WebSocket):

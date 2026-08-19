@@ -298,6 +298,9 @@ class WebSocketHandler:
             send_group_update=self.send_group_update,
         )
 
+        # 先取出 context 再清理，否则 get() 恒为 None，close() 成死代码（B7）
+        context = self.client_contexts.get(client_uid)
+
         # Clean up other client data
         self.client_connections.pop(client_uid, None)
         self.client_contexts.pop(client_uid, None)
@@ -309,7 +312,6 @@ class WebSocketHandler:
             self.current_conversation_tasks.pop(client_uid, None)
 
         # Call context close to clean up resources (e.g., MCPClient)
-        context = self.client_contexts.get(client_uid)
         if context:
             await context.close()
 
@@ -318,6 +320,7 @@ class WebSocketHandler:
 
     async def _cleanup_failed_connection(self, client_uid: str) -> None:
         """Clean up failed connection data"""
+        context = self.client_contexts.get(client_uid)
         self.client_connections.pop(client_uid, None)
         self.client_contexts.pop(client_uid, None)
         self.received_data_buffers.pop(client_uid, None)
@@ -328,6 +331,12 @@ class WebSocketHandler:
             if task and not task.done():
                 task.cancel()
             self.current_conversation_tasks.pop(client_uid, None)
+
+        if context:
+            try:
+                await context.close()
+            except Exception as e:
+                logger.warning(f"Error closing failed connection context: {e}")
 
         message_handler.cleanup_client(client_uid)
 
