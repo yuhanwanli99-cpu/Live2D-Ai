@@ -9,7 +9,7 @@ import yaml
 class TestDesktopConfig(unittest.TestCase):
     def setUp(self):
         self.conf_path = os.path.join(
-            os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "conf.yaml"
+            os.path.dirname(__file__), "..", "Live2D-Ai-pc", "open-llm-vtuber", "conf.yaml"
         )
         with open(self.conf_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)

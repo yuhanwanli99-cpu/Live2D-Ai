@@ -1,8 +1,8 @@
-# Live2Dai 🐱
+# Live2D-Ai 🐱
 
 > **v0.1.0（2026-08-15）**：核心环路真机验证完成——CosyVoice 云 TTS（minimp3）+ N.E.K.O. 情绪分类器 + 官方 CubismNativeFramework/PurismCore 渲染 + 状态机双播报/冻结免疫。详见 [CHANGELOG.md](CHANGELOG.md) 与 [HANDOVER.md](HANDOVER.md)。
 >
-> **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2Dai。
+> **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2D-Ai。
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
@@ -19,7 +19,7 @@
 
 > **不做功能竞赛，只打磨一个最小最优秀的核心。**
 
-Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一个类似 pi agent 的最小最优秀的核心**——把「文本/语音 → LLM → TTS → Live2D 表情/口型/动作」这条链路打磨到极致：架构干净、代码精简、每行都有真机/测试证据，**并留下扩展接口供后续和社区开发 mod**。刻意不做功能竞赛：不比 N.E.K.O. 生态、不比 Neuro-sama 包装。
+Live2D-Ai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一个类似 pi agent 的最小最优秀的核心**——把「文本/语音 → LLM → TTS → Live2D 表情/口型/动作」这条链路打磨到极致：架构干净、代码精简、每行都有真机/测试证据，**并留下扩展接口供后续和社区开发 mod**。刻意不做功能竞赛：不比 N.E.K.O. 生态、不比 Neuro-sama 包装。
 
 ```
 ┌──────────────────────────────────────┐
@@ -40,13 +40,13 @@ Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 ## 📖 项目简介 | Overview
 
-**Live2Dai** 是一个 **AI × Live2D 最小验证项目**——验证「最小化的 AI + Live2D」闭环能跑通：她使用 **Live2D 模型角色** 与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。核心只留这一条最小闭环，扩展全部走插件 SDK / 契约接口留给后续和社区。
+**Live2D-Ai** 是一个 **AI × Live2D 最小验证项目**——验证「最小化的 AI + Live2D」闭环能跑通：她使用 **Live2D 模型角色** 与您进行 **语音对话**，通过 **大语言模型 (LLM)** 理解并回应您，同时根据对话情感实时切换表情、驱动口型。核心只留这一条最小闭环，扩展全部走插件 SDK / 契约接口留给后续和社区。
 
 > "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
 
 **开源事实**：本项目基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK，无需注册 Live2D 账号即可编译运行，完全开源、可复制。
 
-同时提供 **Windows 桌面端**（基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)）作为扩展平台。
+同时提供 **PC 端（WSL2/Linux 主力）**（基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)）作为另一平台（原生 Windows 已放弃）。
 
 ---
 
@@ -56,7 +56,7 @@ Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 **文本 → LLM → 表情/动作**：
 
-- 本地配置聊天（密钥不提交）：Android 端在 `Live2Dai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**（智谱 GLM 提供商已移除）；PC 端在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（亦可配置 `ZHIPU_API_KEY` 走智谱 GLM，用于视觉/免费兜底，见 `Live2Dai-pc/README.md`）。密钥只存在于 gitignored 本地文件，不进入 git 历史
+- 本地配置聊天（密钥不提交）：Android 端在 `Live2D-Ai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**（智谱 GLM 提供商已移除）；PC 端在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（亦可配置 `ZHIPU_API_KEY` 走智谱 GLM，用于视觉/免费兜底，见 `Live2D-Ai-pc/README.md`）。密钥只存在于 gitignored 本地文件，不进入 git 历史
 - LLM 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
 
 **Live2D 渲染（开源核心）**：
@@ -74,7 +74,7 @@ Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 **双端**：
 
 - Android 端（Kotlin + Compose + Purism Core）
-- Windows 桌面端（Open-LLM-VTuber，支持 120fps 渲染；共享 `shared/persona.yaml` 人设文件，两端人设统一）
+- PC 端（WSL2/Linux 主力 · Open-LLM-VTuber，支持 120fps 渲染；共享 `shared/persona.yaml` 人设文件，两端人设统一）
 
 ### 🔌 扩展层（mod 接口，已实现未入 v0 验收）
 
@@ -82,7 +82,7 @@ Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 - **语音输入 ASR**：Android 系统 SpeechRecognizer / Sherpa-Onnx
 - **语音合成 TTS**：Edge TTS / CosyVoice / Sherpa-Onnx 降级链
-- **视觉识别**：GLM-4.6V 多模态截图分析（模型能看到屏幕内容）——已迁出为插件模块 **live2dai-plugin-vision**（mod 接口实例）
+- **视觉识别**：GLM-4.6V 多模态截图分析（模型能看到屏幕内容）——已迁出为插件模块 **live2d-ai-plugin-vision**（mod 接口实例）
 
 ### 🚀 Roadmap（计划中，未入当前版本）
 
@@ -98,7 +98,7 @@ Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 > <!-- TODO: 替换为真实截图 Replace with actual screenshots -->
 
-| Android 端 | Windows 桌面端 |
+| Android 端 | PC 端（WSL2/Linux） |
 |-----------|---------------|
 | `[screenshot]` | `[screenshot]` |
 
@@ -124,8 +124,8 @@ Live2Dai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-org/Live2Dai.git
-cd Live2Dai-Android
+git clone https://github.com/your-org/Live2D-Ai.git
+cd Live2D-Ai-Android
 
 # 构建 Debug APK（NDK 会自动下载）
 ./gradlew assembleDebug
@@ -141,22 +141,22 @@ cd Live2Dai-Android
 adb connect 192.168.0.x:5555
 
 # 卸载旧版本（某些系统必须完整卸载）
-adb uninstall com.live2dai.android
+adb uninstall com.live2d.ai.android
 
 # 安装
 adb install app/build/outputs/apk/debug/app-debug.apk
 
 # 启动
-adb shell am start -n com.live2dai.android/.MainActivity
+adb shell am start -n com.live2d.ai.android/.MainActivity
 ```
 
 > **注意**：vivo / OPPO 等系统会在安装时弹出安全验证弹窗，需在手机上手动确认。
 
-### Windows 桌面端
+### PC 端（WSL2/Linux 主力）
 
 ```bash
-cd Live2Dai-pc
-.\start.ps1
+cd Live2D-Ai-pc
+./start.sh
 # 浏览器访问 http://localhost:12393/
 ```
 
@@ -170,7 +170,7 @@ python scripts/health_check.py
 python scripts/verify_all.py
 
 # Android 端测试
-cd Live2Dai-Android && ./gradlew test
+cd Live2D-Ai-Android && ./gradlew test
 
 # Windows 端测试
 cd .. && python -m pytest tests/
@@ -228,8 +228,8 @@ onDrawFrame():
 
 ```
 shared/persona.yaml  ← 单源真理 (Single Source of Truth)
-    ├──→ Android: Live2Dai-Android/app/src/main/assets/persona.yaml
-    └──→ Desktop:  Live2Dai-pc/conf.yaml
+    ├──→ Android: Live2D-Ai-Android/app/src/main/assets/persona.yaml
+    └──→ Desktop:  Live2D-Ai-pc/conf.yaml
 ```
 
 ---
@@ -252,7 +252,7 @@ shared/persona.yaml  ← 单源真理 (Single Source of Truth)
 | NDK | 27.0.12077973 | CMake |
 | 最低 SDK | Android 8.0 | API 26 |
 
-### Windows 桌面端
+### PC 端（WSL2/Linux 主力）
 
 | 组件 | 技术 |
 | ------ | ------ |
@@ -274,7 +274,7 @@ shared/persona.yaml  ← 单源真理 (Single Source of Truth)
 1. 将 Live2D 模型文件夹（含 `.model3.json` + `.moc3` + 纹理图片）放入：
 
    ```bash
-   Live2Dai-Android/app/src/main/assets/live2d/<model-name>/runtime/
+   Live2D-Ai-Android/app/src/main/assets/live2d/<model-name>/runtime/
    ```
 
 2. 修改 `Live2DRenderer.kt` 中的模型加载路径：
@@ -307,7 +307,7 @@ temperature: 0.8
 同步到 Android：
 
 ```bash
-cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
+cp shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/
 ```
 
 > 人设支持 `[neutral]`, `[joy]`, `[anger]`, `[sadness]`, `[fear]`, `[surprise]`, `[smirk]` 七个情感标签。
@@ -345,7 +345,7 @@ cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
 
 ```bash
 # Android 单元测试
-cd Live2Dai-Android && ./gradlew test
+cd Live2D-Ai-Android && ./gradlew test
 
 # 代码风格检查
 ./gradlew lint
@@ -420,7 +420,7 @@ cd Live2Dai-Android && ./gradlew test
 
 ## 📄 许可证 | License
 
-**MIT License** © 2026 Live2Dai Contributors
+**MIT License** © 2026 Live2D-Ai Contributors
 
 本项目使用 MIT 许可证，您可自由使用、修改、分发（包括商业用途）。
 

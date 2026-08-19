@@ -44,12 +44,12 @@ android-native/local.properties
 android-native/.idea/
 
 # Android project - local.properties (API keys)
-Live2Dai-Android/local.properties
-Live2Dai-Android/.gradle/
-Live2Dai-Android/build/
-Live2Dai-Android/app/build/
-Live2Dai-Android/app/.cxx/
-Live2Dai-Android/.idea/
+Live2D-Ai-Android/local.properties
+Live2D-Ai-Android/.gradle/
+Live2D-Ai-Android/build/
+Live2D-Ai-Android/app/build/
+Live2D-Ai-Android/app/.cxx/
+Live2D-Ai-Android/.idea/
 
 # Any local.properties anywhere (may hold live API keys)
 **/local.properties
@@ -73,7 +73,7 @@ pi-session-dump/
 .agents/
 
 # PC frontend runtime binaries — re-fetch via npm / upstream repo
-Live2Dai-pc/open-llm-vtuber/frontend/libs/
+Live2D-Ai-pc/open-llm-vtuber/frontend/libs/
 
 # Local packaging artifacts
 dist.zip
@@ -83,7 +83,7 @@ dist.zip
 /install_check.png
 /install_status.png
 /screenshot.png
-/live2dai_screenshot.png
+/live2d-ai_screenshot.png
 /live2d_screenshot.png
 /tailscale_config.png
 /test_qr.png
@@ -94,24 +94,24 @@ dist.zip
 
 
 # Android — 构建时由 Gradle copyModelRegistry 从 shared/model_registry.json 生成
-Live2Dai-Android/app/src/main/assets/model_registry.json
+Live2D-Ai-Android/app/src/main/assets/model_registry.json
 *.apk
-Live2Dai-debug*.apk
+Live2D-Ai-debug*.apk
 .kotlin
 
 # 前端编译产物（spoq-fix：出仓，构建时生成）
-Live2Dai-pc/open-llm-vtuber/frontend/assets/*.js
-Live2Dai-pc/open-llm-vtuber/frontend/assets/*.css
+Live2D-Ai-pc/open-llm-vtuber/frontend/assets/*.js
+Live2D-Ai-pc/open-llm-vtuber/frontend/assets/*.css
 
 # 运行时/agent 状态与产物（spoq-fix 出仓）
 .pi-glla/
 .pi-lens.json
 spoq/work/
-Live2Dai-pc/open-llm-vtuber/renderer/public/libs/
+Live2D-Ai-pc/open-llm-vtuber/renderer/public/libs/
 
 # renderer 调试/构建残留（spoq-fix 出仓）
-Live2Dai-pc/open-llm-vtuber/renderer/_bcheck.mjs
-Live2Dai-pc/open-llm-vtuber/renderer/public/
+Live2D-Ai-pc/open-llm-vtuber/renderer/_bcheck.mjs
+Live2D-Ai-pc/open-llm-vtuber/renderer/public/
 
 # 一次性任务交接/审计工作产物（session dumps）——不入库
 **/handoff*.json

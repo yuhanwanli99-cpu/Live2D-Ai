@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Live2Dai 本地健康自检（无 Key / 无网络）。
+"""Live2D-Ai 本地健康自检（无 Key / 无网络）。
 
 检查项：
   1. shared 关键文件存在
@@ -31,7 +31,7 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def main() -> int:
-    print("== Live2Dai health check (no key / no network) ==\n")
+    print("== Live2D-Ai health check (no key / no network) ==\n")
 
     # 1. shared 关键文件
     shared_files = [
@@ -84,7 +84,7 @@ def main() -> int:
     ]
     for shared_rel, android_rel in sync_pairs:
         src = ROOT / "shared" / shared_rel
-        dst = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / android_rel
+        dst = ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / android_rel
         if src.exists() and dst.exists():
             check(f"Android assets/{android_rel} == shared/{shared_rel}",
                   src.read_bytes() == dst.read_bytes())
@@ -93,7 +93,7 @@ def main() -> int:
                   False, "missing file")
 
     # 5. PC conf.yaml 引用 shared/persona.yaml
-    conf = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "conf.yaml"
+    conf = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "conf.yaml"
     if conf.exists():
         text = conf.read_text(encoding="utf-8")
         check("PC conf.yaml exists + load_persona_from_file",
@@ -102,14 +102,14 @@ def main() -> int:
         check("PC conf.yaml exists + load_persona_from_file", False, "missing conf.yaml")
 
     # 6. PC Live2D 模型入口
-    pc_model = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "live2d-models" / "bai" / "runtime" / "bai.model3.json"
+    pc_model = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models" / "bai" / "runtime" / "bai.model3.json"
     check("PC live2d model bai.model3.json", pc_model.exists(), str(pc_model) if not pc_model.exists() else "")
 
     # 7. 提示性：根级不应有 build/cache/apk/log 混入
     # build/ 和 cache/ 是打包/运行时/测试会生成的目录，交给 clean.sh 清理，不判失败。
     clutter = [p for p in ROOT.iterdir() if p.name in {
         "s.log", "s2.log", "s_dl.log"
-    } or p.name.startswith("Live2Dai-debug") and p.suffix == ".apk"]
+    } or p.name.startswith("Live2D-Ai-debug") and p.suffix == ".apk"]
     if clutter:
         check("root no build/cache/apk/log clutter", False,
               ", ".join(p.name for p in clutter))

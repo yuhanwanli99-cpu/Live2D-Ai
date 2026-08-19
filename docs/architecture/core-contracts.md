@@ -1,4 +1,4 @@
-# Live2Dai 核心契约与架构边界
+# Live2D-Ai 核心契约与架构边界
 
 > 状态：地基文档 v0.1
 > 目标：把“最小核心闭环”的稳定接口固定下来，让后续重构、插件化、双端一致性都有可依赖的边界。
@@ -20,7 +20,7 @@
 
 ## 2. 核心模块边界
 
-### 2.1 Android 核心层（`app/src/main/java/com/live2dai/android/core/`）
+### 2.1 Android 核心层（`app/src/main/java/com/live2d/ai/android/core/`）
 
 | 模块 | 职责 | 稳定接口 |
 | --- | --- | --- |
@@ -40,7 +40,7 @@
 | `TtsProviderRegistry` | 引擎注册与降级链 | `register()`、`cascade()`、`get()`、`all()` |
 | `VoiceIoController` | 播报统一入口 + LipSync 驱动 | `speak(text)`、`stopSpeaking()`、`isSpeaking` |
 
-### 2.3 PC 核心层（`Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/`）
+### 2.3 PC 核心层（`Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/`）
 
 | 模块 | 职责 | 稳定接口 |
 | --- | --- | --- |
@@ -62,7 +62,7 @@
 
 > ⚠️ 易混淆点：
 > - `shared/model_dict.json` = LLM 路由表（deepseek / glm 等）
-> - `Live2Dai-pc/open-llm-vtuber/model_dict.json` = PC Live2D 模型字典（name / emotionMap / url）
+> - `Live2D-Ai-pc/open-llm-vtuber/model_dict.json` = PC Live2D 模型字典（name / emotionMap / url）
 > - 两者名称相同但用途不同，文档中必须区分。
 
 ## 4. 状态机契约（Android）

@@ -1,4 +1,4 @@
-# Live2Dai V1.2「语音重塑 + 离线 + 陪伴 + 可观测」架构设计文档
+# Live2D-Ai V1.2「语音重塑 + 离线 + 陪伴 + 可观测」架构设计文档
 
 > 版本: v1.0 — 2026-08-06
 > 架构师: software-architect (SPOQ Phase: architecting)
@@ -9,7 +9,7 @@
 
 ## 1. 需求概述
 
-Live2Dai V1 核心链路（文本→LLM→[emotion]→Live2D）双端验收通过，V1.1 补齐语音闭环（VoiceIoController/LipSync/聊天持久化/长期记忆）。V1.2 聚焦四大升级：
+Live2D-Ai V1 核心链路（文本→LLM→[emotion]→Live2D）双端验收通过，V1.1 补齐语音闭环（VoiceIoController/LipSync/聊天持久化/长期记忆）。V1.2 聚焦四大升级：
 
 | 方向 | 当前痛点 | V1.2 目标 |
 |------|---------|----------|
@@ -31,7 +31,7 @@ Live2Dai V1 核心链路（文本→LLM→[emotion]→Live2D）双端验收通�
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                        Live2Dai V1.2                              │
+│                        Live2D-Ai V1.2                              │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                    │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────────┐│
@@ -61,7 +61,7 @@ Live2Dai V1 核心链路（文本→LLM→[emotion]→Live2D）双端验收通�
 │                                                                    │
 │  ┌───────────────────────────────┐                                │
 │  │     模块6: 主动陪伴插件        │  ← WorkManager + ChatHook     │
-│  │  live2dai-plugin-proactive    │                                │
+│  │  live2d-ai-plugin-proactive    │                                │
 │  └───────────────────────────────┘                                │
 │                                                                    │
 │  ┌───────────────────────────────┐                                │
@@ -571,7 +571,7 @@ data class AsrProviderInfo(
 
 #### 5.6.1 职责
 
-基于已有骨架 `live2dai-plugin-proactive`（`docs/plans/plan-task-plugin-proactive.md` 详细设计），落地为可工作的主动陪伴插件：`WorkManager` 周期检查 → 时间感知 → `PluginHost.sendAssistantMessage()` 主动说话。
+基于已有骨架 `live2d-ai-plugin-proactive`（`docs/plans/plan-task-plugin-proactive.md` 详细设计），落地为可工作的主动陪伴插件：`WorkManager` 周期检查 → 时间感知 → `PluginHost.sendAssistantMessage()` 主动说话。
 
 #### 5.6.2 参考设计
 
@@ -612,8 +612,8 @@ val workManagerIntervalMinutes: Long = if (BuildConfig.DEBUG) 15L else 15L, // W
 
 | 文件 | 改动 | 说明 |
 |------|------|------|
-| `live2dai-plugin-proactive/` 下多个文件 | **修改** | 按 plan-task-plugin-proactive.md 落地 |
-| `live2dai-plugin-proactive/build.gradle.kts` | **修改** | 新增 `work-runtime-ktx` 依赖 |
+| `live2d-ai-plugin-proactive/` 下多个文件 | **修改** | 按 plan-task-plugin-proactive.md 落地 |
+| `live2d-ai-plugin-proactive/build.gradle.kts` | **修改** | 新增 `work-runtime-ktx` 依赖 |
 | `SettingsRepository.kt` | **修改** | 新增 `proactiveEnabled: Boolean` |
 | `MainActivity.kt` | **修改** | 加载 ProactivePlugin |
 
@@ -808,7 +808,7 @@ asr_provider: "sherpa_sensevoice"  # 或 "faster_whisper" / "funasr"
 | 15 | `MainActivity.kt` | 1/2/3/4/6 | 注册 providers；加载主动陪伴插件 |
 | 16 | `app/build.gradle.kts` | 3/4 | 新增 sherpa-onnx 依赖 |
 | 17 | `ui/settings/SettingsScreen.kt` | 5 | TTS/ASR 引擎选择器 UI |
-| 18 | `live2dai-plugin-proactive/` 下多个文件 | 6 | 按 plan-task-plugin-proactive.md 落地 |
+| 18 | `live2d-ai-plugin-proactive/` 下多个文件 | 6 | 按 plan-task-plugin-proactive.md 落地 |
 | 19 | `system/PersonaService.kt` 或等效 | 6 | ProactivePlugin GreetingLlmClient 实现注入 |
 
 ### PC 端改动文件 (4 个)

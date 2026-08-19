@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a built Live2Dai-pc portable zip (or an already-extracted tree).
+"""Verify a built Live2D-Ai-pc portable zip (or an already-extracted tree).
 
 Checks (plan §8.4 / §8.6):
   * zip member presence: shared/ configs, run_server.py, 启动.bat,
@@ -26,7 +26,7 @@ import sys
 import tempfile
 import zipfile
 
-APP_DIR = "Live2Dai-pc/open-llm-vtuber"
+APP_DIR = "Live2D-Ai-pc/open-llm-vtuber"
 
 REQUIRED_MEMBERS = (
     "shared/persona.yaml",
@@ -207,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"[verify_package] zip member checks OK ({len(REQUIRED_MEMBERS)} required present, 0 forbidden)")
 
-    extract_dir = args.keep_extract or tempfile.mkdtemp(prefix="live2dai-verify-")
+    extract_dir = args.keep_extract or tempfile.mkdtemp(prefix="live2d-ai-verify-")
     if args.keep_extract and os.path.isdir(extract_dir):
         shutil.rmtree(extract_dir)
     print(f"[verify_package] extracting to {extract_dir} ...")

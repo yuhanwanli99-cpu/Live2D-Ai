@@ -1,4 +1,4 @@
-# Live2Dai 依赖与许可清单（地基）
+# Live2D-Ai 依赖与许可清单（地基）
 
 > 目标：把关键依赖、版本、许可、用途固定下来，方便后续开源/审计/升级。
 > 详细许可分析见 `docs/research/license-report.md` 与根 `CREDITS.md`。

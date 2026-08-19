@@ -1,4 +1,4 @@
-# Live2Dai 项目架构文档
+# Live2D-Ai 项目架构文档
 
 > 更新时间: 2026-08-05 | 架构版本: **v0（开发中）** | 旧"V1"验收数据见下方历史记录
 
@@ -24,14 +24,14 @@
 ## 目录结构
 
 ```
-Live2Dai\
+Live2D-Ai\
 ├── shared/                      ← 跨平台共享配置（单源真理）
 │   ├── persona.yaml             ← 人设（name/system_prompt/model/temperature）
 │   ├── mcp_tools.json           ← MCP 工具定义（time/ddg-search/weather/...）
 │   └── model_dict.json          ← 模型路由表
 │
-├── Live2Dai-pc/                     ← Windows 桌面端
-│   ├── 启动Live2Dai.bat        ← 一键启动入口
+├── Live2D-Ai-pc/                     ← Windows 桌面端
+│   ├── 启动Live2D-Ai.bat        ← 一键启动入口
 │   ├── start.ps1                ← PowerShell 启动脚本（自动检测环境）
 │   └── open-llm-vtuber/         ← Open-LLM-VTuber（后端+前端）
 │       ├── conf.yaml            ← 精简配置（deepseek+zhipu+edgetts+fasterwhisper）
@@ -39,10 +39,10 @@ Live2Dai\
 │       ├── frontend/            ← 预编译 React Web 静态文件
 │       └── src/open_llm_vtuber/ ← Python 后端源码
 │
-├── Live2Dai-Android/              ← Android 原生端
+├── Live2D-Ai-Android/              ← Android 原生端
 │   ├── app/src/main/
 │   │   ├── cpp/                 ← Purism Core 原生层
-│   │   ├── java/com/live2dai/android/  ← Kotlin 源码
+│   │   ├── java/com/live2d/ai/android/  ← Kotlin 源码
 │   │   ├── assets/live2d/       ← Live2D 模型文件
 │   │   └── res/
 │   └── build.gradle.kts
@@ -101,14 +101,14 @@ Live2Dai\
 ## 配置流
 
 ```
-shared/persona.yaml ──→ Live2Dai-pc/open-llm-vtuber/conf.yaml (load_persona_from_file)
-                    ──→ Live2Dai-Android/app/src/main/assets/persona.yaml (复制)
+shared/persona.yaml ──→ Live2D-Ai-pc/open-llm-vtuber/conf.yaml (load_persona_from_file)
+                    ──→ Live2D-Ai-Android/app/src/main/assets/persona.yaml (复制)
 
-shared/mcp_tools.json ──→ Live2Dai-pc/open-llm-vtuber/mcp_servers.json
-                      ──→ Live2Dai-Android/app/src/main/assets/mcp_tools.json
+shared/mcp_tools.json ──→ Live2D-Ai-pc/open-llm-vtuber/mcp_servers.json
+                      ──→ Live2D-Ai-Android/app/src/main/assets/mcp_tools.json
 
-shared/model_dict.json ──→ Live2Dai-pc/open-llm-vtuber/model_dict.json
-                       ──→ Live2Dai-Android/app/src/main/assets/model_dict.json
+shared/model_dict.json ──→ Live2D-Ai-pc/open-llm-vtuber/model_dict.json
+                       ──→ Live2D-Ai-Android/app/src/main/assets/model_dict.json
 ```
 
 ---

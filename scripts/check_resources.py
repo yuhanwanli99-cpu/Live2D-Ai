@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sentinel-file preflight check for the Live2Dai-pc portable package.
+"""Sentinel-file preflight check for the Live2D-Ai-pc portable package.
 
 Based purely on filesystem existence (``os.path.isfile``) — never on git
 tracking state, so it works identically on a fresh CI checkout and on a
@@ -19,10 +19,10 @@ SENTINELS: tuple[tuple[str, str], ...] = (
     ("shared/persona.yaml", "required"),
     ("shared/model_registry.json", "required"),
     ("shared/mcp_tools.json", "required"),
-    ("Live2Dai-pc/open-llm-vtuber/frontend/index.html", "required"),
-    ("Live2Dai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json", "required"),
-    ("Live2Dai-pc/open-llm-vtuber/bin/ffmpeg.exe", "required"),
-    ("Live2Dai-pc/open-llm-vtuber/bin/ffprobe.exe", "required"),
+    ("Live2D-Ai-pc/open-llm-vtuber/frontend/index.html", "required"),
+    ("Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json", "required"),
+    ("Live2D-Ai-pc/open-llm-vtuber/bin/ffmpeg.exe", "required"),
+    ("Live2D-Ai-pc/open-llm-vtuber/bin/ffprobe.exe", "required"),
 )
 
 

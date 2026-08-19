@@ -17,8 +17,8 @@ class TestPersonaShared(unittest.TestCase):
 
     def setUp(self):
         self.persona_path = os.path.join(os.path.dirname(__file__), "..", "shared", "persona.yaml")
-        self.desktop_conf_path = os.path.join(os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "conf.yaml")
-        self.android_assets_path = os.path.join(os.path.dirname(__file__), "..", "Live2Dai-Android", "app", "src", "main", "assets", "persona.yaml")
+        self.desktop_conf_path = os.path.join(os.path.dirname(__file__), "..", "Live2D-Ai-pc", "open-llm-vtuber", "conf.yaml")
+        self.android_assets_path = os.path.join(os.path.dirname(__file__), "..", "Live2D-Ai-Android", "app", "src", "main", "assets", "persona.yaml")
 
     def test_persona_yaml_format(self):
         """Test that shared/persona.yaml has correct format"""
@@ -205,7 +205,7 @@ class TestPersonaShared(unittest.TestCase):
             shared_bytes,
             android_bytes,
             "shared/persona.yaml 与 Android assets/persona.yaml 字节不一致！"
-            " 请用 M1 一次性同步步骤: cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/persona.yaml",
+            " 请用 M1 一次性同步步骤: cp shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/persona.yaml",
         )
 
         # 额外验证：Android 副本也能被 yaml.safe_load 正常解析（ScannerError 消除）

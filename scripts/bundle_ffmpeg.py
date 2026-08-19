@@ -49,7 +49,7 @@ def resolve_download_url(ffmpeg_url: str | None, log=print) -> str:
     if _url_exists(DEFAULT_FFMPEG_URL):
         return DEFAULT_FFMPEG_URL
     log("[bundle_ffmpeg] default URL unavailable, querying GitHub API ...")
-    req = urllib.request.Request(API_LATEST_URL, headers={"User-Agent": "Live2Dai-bundle"})
+    req = urllib.request.Request(API_LATEST_URL, headers={"User-Agent": "Live2D-Ai-bundle"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = resp.read()
     import json
@@ -71,7 +71,7 @@ def resolve_download_url(ffmpeg_url: str | None, log=print) -> str:
 
 
 def _url_exists(url: str) -> bool:
-    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Live2Dai-bundle"})
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Live2D-Ai-bundle"})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.status == 200
@@ -82,7 +82,7 @@ def _url_exists(url: str) -> bool:
 def download_zip(url: str, dest_zip: str) -> str:
     """Download ``url`` into ``dest_zip`` and return the path."""
     print(f"[bundle_ffmpeg] downloading {url}")
-    req = urllib.request.Request(url, headers={"User-Agent": "Live2Dai-bundle"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Live2D-Ai-bundle"})
     with urllib.request.urlopen(req, timeout=600) as resp, open(dest_zip, "wb") as fh:
         shutil.copyfileobj(resp, fh)
     size_mb = os.path.getsize(dest_zip) / (1024 * 1024)
@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
-    target = args.target or os.path.join(repo_root, "Live2Dai-pc", "open-llm-vtuber")
+    target = args.target or os.path.join(repo_root, "Live2D-Ai-pc", "open-llm-vtuber")
     bin_dir = os.path.join(target, "bin")
 
     if os.path.isfile(os.path.join(bin_dir, "ffmpeg.exe")) and os.path.isfile(
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     url = resolve_download_url(args.ffmpeg_url)
-    with tempfile.TemporaryDirectory(prefix="live2dai-ffmpeg-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="live2d-ai-ffmpeg-") as tmp:
         if args.zip_cache and os.path.isfile(args.zip_cache):
             zip_path = args.zip_cache
             print(f"[bundle_ffmpeg] reusing zip cache: {zip_path}")

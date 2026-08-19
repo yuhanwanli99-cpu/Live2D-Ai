@@ -1,6 +1,6 @@
 # CREDITS — Third-Party Dependencies and Licenses
 
-Live2Dai is released under the [MIT License](LICENSE).
+Live2D-Ai is released under the [MIT License](LICENSE).
 This project uses several third-party components with their own licenses, as listed below.
 
 ---
@@ -104,8 +104,8 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 - **License:** MIT
 - **Copyright:** (c) 2025 Yi-Ting Chiu
 - **Source:** https://github.com/YiTingChiu/Open-LLM-VTuber
-- **Usage:** `Live2Dai-pc/open-llm-vtuber/` 为 Open-LLM-VTuber 的 fork；上游
-  `LICENSE`（MIT）原样保留于 `Live2Dai-pc/open-llm-vtuber/LICENSE`。本项目在
+- **Usage:** `Live2D-Ai-pc/open-llm-vtuber/` 为 Open-LLM-VTuber 的 fork；上游
+  `LICENSE`（MIT）原样保留于 `Live2D-Ai-pc/open-llm-vtuber/LICENSE`。本项目在
   其上新增/修改模型适配、viseme 口型驱动等。
 
 ### 6.2 N.E.K.O. — 适配层设计参考（设计参考，未抄代码）
@@ -227,7 +227,7 @@ All **MIT compatible** ✅
 | Cubism SDK AAR (`libs/*.aar`) | **Live2D Proprietary** | ❌ **No** | Not bundled; user must accept separately |
 | niziiro_mao model | **Live2D Free Material License** | ❌ **No** | Official Niziiro Mao (PRO Version); ReadMe 双端已补 |
 | shizuku model | ~~Live2D Free Material License~~ | 🗑️ Removed (K1) | 已删除，不再分发 |
-| Open-LLM-VTuber (PC fork) | MIT | ✅ | Fork 上游；LICENSE 保留于 `Live2Dai-pc/open-llm-vtuber/LICENSE` |
+| Open-LLM-VTuber (PC fork) | MIT | ✅ | Fork 上游；LICENSE 保留于 `Live2D-Ai-pc/open-llm-vtuber/LICENSE` |
 | N.E.K.O. (design ref) | Apache 2.0 | ✅ | 设计参考（emotionIndex 借鉴），未抄代码；见 root `NOTICE` |
 | pymouth (port + dep) | MIT | ✅ | Android Kotlin 移植 + PC 运行时依赖；文件头 MIT 归属 |
 | kugutu (design ref) | MIT | ✅ | 设计参考（关键词→动作词表思想），未抄代码 |

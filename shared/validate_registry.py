@@ -30,8 +30,8 @@ REGISTRY_PATH = ROOT / "shared" / "model_registry.json"
 SCHEMA_PATH = ROOT / "shared" / "model_registry.schema.json"
 
 PLATFORM_ROOTS = {
-    "android": ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "live2d",
-    "pc": ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "live2d-models",
+    "android": ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / "live2d",
+    "pc": ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models",
 }
 
 

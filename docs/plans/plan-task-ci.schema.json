@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://live2dai.dev/schemas/plan-task-ci.schema.json",
-  "title": "Live2Dai GitHub Actions CI Schema",
+  "$id": "https://live2d-ai.dev/schemas/plan-task-ci.schema.json",
+  "title": "Live2D-Ai GitHub Actions CI Schema",
   "description": "CI 工作流的结构化输入输出契约 — 定义 PR Checks、Build & Upload、Nightly 三个工作流的触发条件、输入、输出和通过标准",
   "type": "object",
   "required": ["workflows", "caches", "secrets", "runner"],
@@ -267,7 +267,7 @@
                           "path": {
                             "type": "string",
                             "description": "产物路径模式",
-                            "example": "Live2Dai-Android/app/build/reports/tests/**"
+                            "example": "Live2D-Ai-Android/app/build/reports/tests/**"
                           },
                           "retention_days": {
                             "type": "integer",
@@ -376,7 +376,7 @@
                     "apk_output_path": {
                       "type": "string",
                       "description": "APK 输出路径模式",
-                      "default": "Live2Dai-Android/app/build/outputs/apk/debug/app-debug.apk"
+                      "default": "Live2D-Ai-Android/app/build/outputs/apk/debug/app-debug.apk"
                     },
                     "signing": {
                       "type": "object",
@@ -406,12 +406,12 @@
                       "name": {
                         "type": "string",
                         "description": "Artifact 名称模板",
-                        "example": "live2dai-android-debug"
+                        "example": "live2d-ai-android-debug"
                       },
                       "path": {
                         "type": "string",
                         "description": "上传文件路径",
-                        "example": "Live2Dai-Android/app/build/outputs/apk/debug/app-debug.apk"
+                        "example": "Live2D-Ai-Android/app/build/outputs/apk/debug/app-debug.apk"
                       },
                       "retention_days": {
                         "type": "integer",

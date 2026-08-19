@@ -16,7 +16,7 @@ import sys
 import pytest
 
 _PC_SRC = os.path.join(
-    os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "src"
+    os.path.dirname(__file__), "..", "Live2D-Ai-pc", "open-llm-vtuber", "src"
 )
 if _PC_SRC not in sys.path:
     sys.path.insert(0, _PC_SRC)
@@ -42,7 +42,7 @@ def _make_model(name="bai"):
         return Live2dModel(
             name,
             model_dict_path=os.path.join(
-                _REPO_ROOT, "Live2Dai-pc", "open-llm-vtuber", "model_dict.json"
+                _REPO_ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "model_dict.json"
             ),
         )
     finally:

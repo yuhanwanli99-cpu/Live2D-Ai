@@ -1,5 +1,5 @@
 #!/bin/bash
-# Live2Dai — Linux 开发/测试环境准备（轻量，不打包发布）
+# Live2D-Ai — Linux 开发/测试环境准备（轻量，不打包发布）
 #
 # 用途：
 #   - 在 Linux 上跑 root pytest、一致性检查、健康检查

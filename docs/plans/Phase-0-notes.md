@@ -1,7 +1,7 @@
 # Phase 0 — 技术调研报告：AI + TTS + Live2D 组合模式开源轮子
 
 > 调研日期: 2026-07 | 调研代理: technical-research
-> 关联项目: Live2Dai（Windows Desktop = Open-LLM-VTuber Electron；Android = ChatService 直连 DeepSeek）
+> 关联项目: Live2D-Ai（Windows Desktop = Open-LLM-VTuber Electron；Android = ChatService 直连 DeepSeek）
 > 当前链路：文本 → LLM → `[emotion]` 标签 → Live2D 表情切换。
 > 本报告聚焦「语音 TTS + 口型同步 + 表情动作」组合的成熟开源轮子，供规划 TTS/lip-sync/多平台扩展参考。
 
@@ -129,9 +129,9 @@
 
 ---
 
-## 5. 与本项目（Live2Dai）的映射与建议
+## 5. 与本项目（Live2D-Ai）的映射与建议
 
-| Live2Dai 现状 | 成熟轮子对照 | 建议 |
+| Live2D-Ai 现状 | 成熟轮子对照 | 建议 |
 |---|---|---|
 | 桌面 = Open-LLM-VTuber | 直接采纳其 TTS 工厂、volumes lip-sync、emotion 标签管道 | ✅ 主链路沿用 |
 | Android = ChatService(OkHttp SSE) 直连 DeepSeek | **Android 端无现成轮子**，需自研 | ⚠️ 双平台差异化；可借鉴后端 pipeline 思路到 Kotlin |

@@ -192,7 +192,7 @@
 
 ---
 
-## 对 Live2Dai 的实现建议（综合）
+## 对 Live2D-Ai 的实现建议（综合）
 
 结合本项目（Android Kotlin + PC Python，LLM→表情是核心链路），给出分层结论：
 

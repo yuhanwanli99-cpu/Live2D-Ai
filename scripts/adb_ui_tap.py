@@ -134,7 +134,7 @@ def main():
 
     wt = sub.add_parser("wait-and-tap", help="轮询 UI 树，自动点掉安装安全弹窗，直到目标包安装完成或超时")
     wt.add_argument("serial", help="adb 设备序列号，如 192.168.0.x:5555")
-    wt.add_argument("package_name", help="要等待安装完成的包名，如 com.live2dai.android")
+    wt.add_argument("package_name", help="要等待安装完成的包名，如 com.live2d.ai.android")
     wt.add_argument("--timeout", type=float, default=60, help="总超时秒数，默认 60")
     wt.add_argument("--interval", type=float, default=1.5, help="无命中时的轮询间隔秒数，默认 1.5")
 

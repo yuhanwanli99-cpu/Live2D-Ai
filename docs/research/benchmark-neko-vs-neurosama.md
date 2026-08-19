@@ -11,13 +11,13 @@
 
 - **Neuro‑sama 不是「产品」，是一场成功的「直播演出 / IP」**：她的核心竞争力是**人设的社区共创**（粉丝喂料 + 记忆回捞形成"会成长的真人感"），而**不是技术有多先进**。技术栈只是普通的"LLM + TTS + Live2D + 游戏AI"拼装（与本项目同构），但**产品包装、直播场景、社区运营**把它推成了 Twitch 顶流。
 - **N.E.K.O. 是最接近"平民版全能 AI 伴侣平台"的产品**：靠"多服务 + 多 Avatar + 多 Provider + 插件商城 + 5层记忆 + 主动陪伴"的**广度**取胜，是"什么都给你搭好"的一站式方案。
-- **对 Live2Dai 的启示**：Neuro‑sama 证明了**"人设与陪伴感"是灵魂**（非技术），N.E.K.O. 证明了**"多形态 + 可扩展 + 低门槛上手"是底座**。Live2Dai 应优先补**"持续人设 + 记忆成长 + 主动陪伴"**（抄 Neuro 的理念），再补**"多 Avatar / 多 Provider / 一键换装"**（抄 N.E.K.O. 的广度）。
+- **对 Live2D-Ai 的启示**：Neuro‑sama 证明了**"人设与陪伴感"是灵魂**（非技术），N.E.K.O. 证明了**"多形态 + 可扩展 + 低门槛上手"是底座**。Live2D-Ai 应优先补**"持续人设 + 记忆成长 + 主动陪伴"**（抄 Neuro 的理念），再补**"多 Avatar / 多 Provider / 一键换装"**（抄 N.E.K.O. 的广度）。
 
 ---
 
 ## 1. 两个项目的产品定位对比
 
-| 维度 | **N.E.K.O.（猫娘计划）** | **Neuro‑sama（VedalAI）** | **Live2Dai（我们）** |
+| 维度 | **N.E.K.O.（猫娘计划）** | **Neuro‑sama（VedalAI）** | **Live2D-Ai（我们）** |
 |---|---|---|---|
 | 本质 | 开源 **AI 伴侣平台 / 桌面伴侣产品** | 顶流 **AI VTuber 直播 IP / 演出**（+ 外围开源 SDK） | 开源 **AI 桌宠 / 语音伴侣** |
 | 目标用户 | 想自建/定制个性化 AI 猫娘的**开发者 + 二次元用户** | **Twitch/观众/粉丝**（围观"AI 能否像真人主播"） | 想要**手机+桌面陪伴**的普通用户 |
@@ -29,7 +29,7 @@
 来源:
 - N.E.K.O. 定位：`docs/research/tts-research-report.md:12-16`（⭐2,382 / Apache 2.0 / 描述"一只会主动找你玩的 AI 猫娘"）；仓库/Docker 多服务与插件商城、Steam 创意工坊、角色卡由任务书给定 + `docs/research/tts-research-report.md:43-53`（多服务树）。
 - Neuro‑sama 定位：NeuroWiki https://en.neurosama.info/wiki/Neuro-sama（"does not have a pre-defined 'persona'… exists purely as a streamer"）；https://en.wikipedia.org/wiki/Neuro-sama（"speech and personality powered by LLM + avatar + TTS"）；Vice https://www.vice.com/en/article/this-virtual-twitch-streamer-is-controlled-entirely-by-ai/（"controlled entirely by AI"）；Fandom https://neurosama.fandom.com/wiki/Neuro-sama（14 岁 anime girl、Hiyori 模型、osu 80×60、游戏AI Python/VR功能 C#）。
-- Live2Dai 定位：`README.md:5-10`、`docs/architecture/ARCHITECTURE.md:21`（通用 Live2D 桌宠、两端独立直连无中心后端）。
+- Live2D-Ai 定位：`README.md:5-10`、`docs/architecture/ARCHITECTURE.md:21`（通用 Live2D 桌宠、两端独立直连无中心后端）。
 
 ---
 
@@ -37,7 +37,7 @@
 
 > 图例：✅ 完整 / 🔶 部分或已实现未实测 / ❌ 缺失或空壳 / ❓ 未找到证据（标灰项标注待补充）
 
-| 维度 | N.E.K.O. | Neuro‑sama | Live2Dai 现状 | 差距（Live2Dai 视角） |
+| 维度 | N.E.K.O. | Neuro‑sama | Live2D-Ai 现状 | 差距（Live2D-Ai 视角） |
 |---|---|---|---|---|
 | **主动陪伴** | ✅ 主动话题（`topic/` 主动话题推荐 + activity 状态跟踪） | ✅（直播本身就是主动输出，读 TTS/聊天、漫谈） | 🔶 主动插件已实现未实测（任务书 + 竞品表 my-neuro/OpenLLM-VTuber 主动对话） | 需把"主动话题源 + 时机判断"真正跑通 |
 | **记忆系统** | ✅ 5 层记忆（事实/反思/人设/近远期/事件） | ❓官方记忆机制未公开；但"人设成长靠长期记忆回捞"是社区公认（社区制造的事件被其选入长期记忆） | 🔶 Room + 关键词（无反思共识层） | 缺"反思/人设固化"层——Neuro 的人设成长即源于此 |
@@ -50,11 +50,11 @@
 | **唱歌/娱乐** | ❓（未在既有调研中确认） | ✅ AI 唱歌插件（V1/V2/V3 三次重做）+ 官方单曲《Colorful Array》 | ❌ | Neuro 的唱歌是独立娱乐模块，可选 P2 |
 
 来源:
-- 主动陪伴：`docs/research/tts-research-report.md:54,57`（`topic/` 主动话题、`activity/` 状态跟踪）；Neuro‑sama NeuroWiki（"rambling much like a regular Chill stream"）；`docs/research/competitive-analysis-report.md:68,80`（OpenLLM/IS 主动说话、Live2Dai 主动消息 ⬜/部分）。
+- 主动陪伴：`docs/research/tts-research-report.md:54,57`（`topic/` 主动话题、`activity/` 状态跟踪）；Neuro‑sama NeuroWiki（"rambling much like a regular Chill stream"）；`docs/research/competitive-analysis-report.md:68,80`（OpenLLM/IS 主动说话、Live2D-Ai 主动消息 ⬜/部分）。
 - 记忆：`docs/research/tts-research-report.md:49-52`（5 层记忆：facts/reflection/persona）；NeuroWiki（"fabricated events…later chosen by Neuro for long-term memory"）。
 - 视觉：NeuroWiki（"watching the game via Vision-Language Models…analyzes screenshots…near real-time"）；zmescience（"analyzes screenshots of her desktop to react"）。
 - TTS：`docs/research/tts-research-report.md:78-84`（17 引擎/克隆/语音包）；NeuroVoice Reddit（V1/V3 演进）、YouTube Vedal talks V3 voice；NeuroWiki（karacke 用 AI 唱歌 + tuning specialist queenpb）。
-- 表情：`docs/research/NEURO_LIVE2D_RESEARCH.md:76-96,151-158`（自然感=眨眼+口型+表情 fade+多轨；Live2Dai 表情闪烁问题见 ARCHITECTURE 已知问题）；NeuroWiki（"expressions…toggling pre-configured animations…primarily a visual representation"）。
+- 表情：`docs/research/NEURO_LIVE2D_RESEARCH.md:76-96,151-158`（自然感=眨眼+口型+表情 fade+多轨；Live2D-Ai 表情闪烁问题见 ARCHITECTURE 已知问题）；NeuroWiki（"expressions…toggling pre-configured animations…primarily a visual representation"）。
 - Avatar：`docs/research/tts-research-report.md:56`（5 形态）；NeuroWiki Fandom（Hiyori Momose 模型）。
 - 分发：任务书（N.E.K.O. 插件商城/Workshop/角色卡导出）。
 
@@ -88,13 +88,13 @@
 
 ### 3.2 架构理念层（多服务 vs 单体 / 插件 vs 内置）
 
-- **N.E.K.O. 的多服务解耦**（main / agent / memory / tts / brain / plugin 各自独立）印证：**把"记忆、Agent、TTS、核心对话"拆成可替换模块**，比塞进单体更利于"多形态 + 多 Provider + 插件"长期演进。Live2Dai 已是"LLM/TtsProvider 抽象"思路（`docs/research/tts-research-report.md:87-90` 建议的 TtsProvider 接口正好对齐），继续坚持抽象层即可，**不必照搬 Docker 多进程**（对我们 Android 端太重）。
-- **插件 vs 内置**：**用插件承接"高频/通用"能力（记忆、视觉、主动、TTS provider），内置保住"分钟级可用"的核心链路**。这与 N.E.K.O."插件 SDK + 内置 Agent"、Live2Dai 现有 "ChatHook 插件 + 核心直驱" 的理念一致（`docs/research/competitive-analysis-report.md:67` 插件机制 ✅）。**教训**：插件不能让"表情/对话核心链路"断裂（Live2Dai 曾因此回归表情断线，见 `README.md` V1 验收）。
-- **单服务直连 vs 中心后端**：Live2Dai 的"两端独立直连 + persona.yaml 单源真理"是优点（隐私、离线、无服务器成本），继续保留；**跨设备记忆同步**是 N.E.K.O. 亮点但属"牺牲隐私"取舍，应做成**用户可选的本地/私有云同步**，而非强制中心化。
+- **N.E.K.O. 的多服务解耦**（main / agent / memory / tts / brain / plugin 各自独立）印证：**把"记忆、Agent、TTS、核心对话"拆成可替换模块**，比塞进单体更利于"多形态 + 多 Provider + 插件"长期演进。Live2D-Ai 已是"LLM/TtsProvider 抽象"思路（`docs/research/tts-research-report.md:87-90` 建议的 TtsProvider 接口正好对齐），继续坚持抽象层即可，**不必照搬 Docker 多进程**（对我们 Android 端太重）。
+- **插件 vs 内置**：**用插件承接"高频/通用"能力（记忆、视觉、主动、TTS provider），内置保住"分钟级可用"的核心链路**。这与 N.E.K.O."插件 SDK + 内置 Agent"、Live2D-Ai 现有 "ChatHook 插件 + 核心直驱" 的理念一致（`docs/research/competitive-analysis-report.md:67` 插件机制 ✅）。**教训**：插件不能让"表情/对话核心链路"断裂（Live2D-Ai 曾因此回归表情断线，见 `README.md` V1 验收）。
+- **单服务直连 vs 中心后端**：Live2D-Ai 的"两端独立直连 + persona.yaml 单源真理"是优点（隐私、离线、无服务器成本），继续保留；**跨设备记忆同步**是 N.E.K.O. 亮点但属"牺牲隐私"取舍，应做成**用户可选的本地/私有云同步**，而非强制中心化。
 
 ### 3.3 社区 / UGC 策略
 
-- **N.E.K.O. 的"角色卡导出 + Steam 创意工坊 + 插件商城"**是强分发杠杆：**"一键分享你的人设/换装/插件"，把每个用户变成内容创作者**。Live2Dai 已有人设 persona.yaml（`docs/architecture/ARCHITECTURE.md` 配置流），**可加一层"角色卡打包/导入/分享"**（对齐常见的 Character Cards 格式），成本低、生态价值高。
+- **N.E.K.O. 的"角色卡导出 + Steam 创意工坊 + 插件商城"**是强分发杠杆：**"一键分享你的人设/换装/插件"，把每个用户变成内容创作者**。Live2D-Ai 已有人设 persona.yaml（`docs/architecture/ARCHITECTURE.md` 配置流），**可加一层"角色卡打包/导入/分享"**（对齐常见的 Character Cards 格式），成本低、生态价值高。
 - **Neuro‑sama 的"开放神经游戏 SDK"**：Vedal 官方主动开放"让 AI 接入游戏"的接口、社区造内容。可作为**长期愿景**：开放"MCP 工具 + 屏幕感知"给开发者/用户自造玩法（我们已有 MCP 底座）。
 - **社区复刻的商业价值**：my‑neuro 证明"受大 IP 启发、独立做本地化平价版"是可行的（换脸/换声/1 秒延迟/Bilibili），N.E.K.O. 证明 "一站式 + 主动 + 多形态" 是完整产品。可对标 my‑neuro 的"全本地 + 低延迟 + 换脸换声+Bilibili 直播"作为 P1 目标。
 
@@ -162,7 +162,7 @@
 | 唱歌/声线 | NeuroWiki（queenpb）；Reddit r/NeuroSama 声线目录；MusicBrainz《Colorful Array》 |
 | 争议/封禁（不借鉴） | Kotaku https://kotaku.com/neuro-sama-twitch-vtuber-ban-holocaust-minecraft-ai-1849977269 ；ScreenRant；AIAAIC |
 | 社区复刻 my‑neuro | morettt/my‑neuro README（https://github.com/morettt/my-neuro）+ DeepWiki；`docs/research/competitive-analysis-report.md:125-131` |
-| Live2Dai 现状特征 | `README.md:5-75`；`docs/architecture/ARCHITECTURE.md`；`docs/research/competitive-analysis-report.md:15-100` |
+| Live2D-Ai 现状特征 | `README.md:5-75`；`docs/architecture/ARCHITECTURE.md`；`docs/research/competitive-analysis-report.md:15-100` |
 
 ---
 

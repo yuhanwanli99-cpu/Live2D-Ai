@@ -1,4 +1,4 @@
-# Live2Dai — Phase 0 架构评估与级3推进方案
+# Live2D-Ai — Phase 0 架构评估与级3推进方案
 
 > **Architect**: SPOQ software-architect
 > **日期**: 2026-08-07
@@ -27,10 +27,10 @@
 |---|------|--------|------|
 | 1 | **MainActivity 巨石**：500+ 行含 UI + 业务 + 生命周期 + 插件装载 + LLM 调用 | 🔴 P0 | `MainActivity.kt` |
 | 2 | **SettingsScreen 巨石**：1100+ 行混杂设置/下载/UI/状态管理 | 🔴 P0 | `SettingsScreen.kt` |
-| 3 | **无架构分层**：全部 Kotlin 文件在单包 `com.live2dai.android`，无 domain/data/presentation | 🟡 P1 | 全局 |
+| 3 | **无架构分层**：全部 Kotlin 文件在单包 `com.live2d.ai.android`，无 domain/data/presentation | 🟡 P1 | 全局 |
 | 4 | **ChatService 过载**：LLM 调用 + 工具循环 + 插件钩子 + 历史管理在一类 | 🟡 P1 | `ChatService.kt` |
 | 5 | **硬编码模型路径**：`Live2DRenderer.loadModel()` 写死路径前缀 | 🟡 P1 | `Live2DRenderer.kt` |
-| 6 | **PC 端 thin fork**：仅 conf.yaml 精简 + start.ps1，未做深度集成 | 🟡 P1 | `Live2Dai-pc/` |
+| 6 | **PC 端 thin fork**：仅 conf.yaml 精简 + start.ps1，未做深度集成 | 🟡 P1 | `Live2D-Ai-pc/` |
 | 7 | **手动配置同步**：`shared/` → Android assets 需 `cp` 命令 | 🟢 P2 | 构建脚本 |
 | 8 | **缺少 UI 状态管理**：Compose `remember/mutableStateOf` 裸用，无 ViewModel | 🟡 P1 | `MainActivity.kt` |
 | 9 | **错误处理粗糙**：网络异常在 UI 层展示，无统一 error boundary | 🟢 P2 | `ChatService.kt` |
@@ -113,7 +113,7 @@
 ### 3.1 Android 端 — 目标架构
 
 ```
-Live2Dai-Android/app/src/main/java/com/live2dai/android/
+Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/
 ├── core/                         # 核心层（不依赖 UI）
 │   ├── llm/                      # LLM 抽象
 │   │   ├── LLMProvider.kt        #   接口 + 数据模型
@@ -168,10 +168,10 @@ Live2Dai-Android/app/src/main/java/com/live2dai/android/
 ### 3.2 PC 端 — 目标架构
 
 ```
-Live2Dai-pc/
+Live2D-Ai-pc/
 ├── open-llm-vtuber/              # 上游（保持最小 diff）
 │   └── ...                       #   仅 conf.yaml + persona 加载
-├── live2dai_pc/                  # ★ 新增: Live2Dai 定制层
+├── live2d_ai_pc/                  # ★ 新增: Live2D-Ai 定制层
 │   ├── __init__.py
 │   ├── llm_router.py             #   LLM 智能路由（与 Android 同构）
 │   ├── tts_diagnostics.py        #   TTS 诊断
@@ -211,7 +211,7 @@ shared/
 | 流式响应 | SSE streaming 降低感知延迟 | ✅ 已采用 (OkHttp SSE) |
 | 人格 prompt 工程 | 详细的 system prompt 控制角色 | ✅ 已采用 (persona.yaml) |
 
-**可进一步复用**: Neuro-sama 使用 VTube Studio + 推流方案实现直播，Live2Dai 可用 Android 悬浮窗实现类似"桌面宠物"效果。
+**可进一步复用**: Neuro-sama 使用 VTube Studio + 推流方案实现直播，Live2D-Ai 可用 Android 悬浮窗实现类似"桌面宠物"效果。
 
 ### 4.2 N.E.K.O.
 
@@ -221,7 +221,7 @@ shared/
 | 多模型切换 UI | 可视化模型选择器 | ✅ 已有（ModelSelector） |
 | 插件化架构 | 功能通过插件扩展 | ✅ 已采用（Plugin SDK） |
 
-**教训**: N.E.K.O. 的平台绑定限制了用户群，Live2Dai 的 MIT 开源 + Purism Core 是核心差异化优势，不应牺牲。
+**教训**: N.E.K.O. 的平台绑定限制了用户群，Live2D-Ai 的 MIT 开源 + Purism Core 是核心差异化优势，不应牺牲。
 
 ### 4.3 Open-LLM-VTuber
 
@@ -381,4 +381,4 @@ graph TD
 
 - [架构/设计] 教训：PluginManager 的 hooks 是活引用（注册顺序敏感），ChatService 构造时机与插件装载时机的时间差导致"后注册的 hook 立即可见"，这种隐式时序依赖容易产生"表情链路断线"类回归（T11 缺陷）。标准：插件 hooks 注册必须与 ChatService 构造同生命周期，或使用 `MutableSharedFlow` 替代 `List<ChatHook>` 活引用。建议：核心 ChatHook 不应依赖插件通道，走 ChatService 内置 `afterReceive` 主链路。
 
-- [流程] 教训：PC 端作为 Open-LLM-VTuber 的 thin fork，长期维护成本被低估——上游更新时 merge 成本与定制深度成正比。标准：fork 项目的定制代码应与上游严格隔离在独立模块/目录中，diff 最小化。建议：`live2dai_pc/` 定制层通过 import/monkey-patch 与上游交互，不修改上游源文件。
+- [流程] 教训：PC 端作为 Open-LLM-VTuber 的 thin fork，长期维护成本被低估——上游更新时 merge 成本与定制深度成正比。标准：fork 项目的定制代码应与上游严格隔离在独立模块/目录中，diff 最小化。建议：`live2d_ai_pc/` 定制层通过 import/monkey-patch 与上游交互，不修改上游源文件。

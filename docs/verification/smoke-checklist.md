@@ -1,4 +1,4 @@
-# Live2Dai 冒烟测试清单（真机 + 桌面）
+# Live2D-Ai 冒烟测试清单（真机 + 桌面）
 
 > 目标：P0-P3 细化后，按此清单快速验证核心链路是否可用。
 > 自动测试入口：`python scripts/verify_all.py --android --pc`

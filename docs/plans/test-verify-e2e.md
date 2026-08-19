@@ -3,7 +3,7 @@
 > 验证日期: 2026-07-29 23:28 UTC+8  
 > 验证人: Tester-Visual (QA 视觉测试工程师)  
 > 设备: vivo (192.168.0.102:5555, 1080×2400)  
-> 目标 APK: 最新构建 (com.live2dai.android)  
+> 目标 APK: 最新构建 (com.live2d.ai.android)  
 > 验证类型: **视觉 + logcat 程序化测量**  
 > 模型: deepseek-v4-flash (从 deepseek-chat 切换)
 
@@ -30,7 +30,7 @@
 
 | 属性 | 实测值 | 判定 |
 |------|--------|------|
-| App 进程 | `com.live2dai.android` (pid=15461) 运行中 | ✅ |
+| App 进程 | `com.live2d.ai.android` (pid=15461) 运行中 | ✅ |
 | 窗口状态 | `MainActivity` 在前台，focused | ✅ |
 | logcat 崩溃 | 0 条 FATAL/Exception (来自 app) | ✅ |
 | 渲染循环 | maskCounts 每帧输出，持续运行 | ✅ |
@@ -133,9 +133,9 @@
 #### U3: 输入法就绪 ✅ PASS
 
 ```
-imeLayeringTarget → com.live2dai.android/.MainActivity
-imeInputTarget   → com.live2dai.android/.MainActivity
-imeControlTarget → com.live2dai.android/.MainActivity
+imeLayeringTarget → com.live2d.ai.android/.MainActivity
+imeInputTarget   → com.live2d.ai.android/.MainActivity
+imeControlTarget → com.live2d.ai.android/.MainActivity
 ```
 
 输入法框架已正确绑定到 MainActivity。用户可点击输入框触发键盘。
@@ -189,7 +189,7 @@ imeControlTarget → com.live2dai.android/.MainActivity
 
 #### C1: 目录重命名后运行 ✅ PASS
 
-- 项目目录重命名完成（当前为 `Live2Dai-Android`）
+- 项目目录重命名完成（当前为 `Live2D-Ai-Android`）
 - APK 构建成功并安装
 - 运行时无路径相关错误
 - logcat 无 `ClassNotFoundException` 或资源加载错误

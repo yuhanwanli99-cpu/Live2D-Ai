@@ -1,4 +1,4 @@
-# Live2Dai Windows 桌面端 — 验证结果报告
+# Live2D-Ai Windows 桌面端 — 验证结果报告
 
 > 验证日期: 2026-07-18
 > 验证环境: Windows (Git Bash / Python 3.10+)
@@ -62,9 +62,9 @@ tts_preprocessor_config:
 **`run_server.py`** 中的 `_resolve_shared_path()` 函数正确处理：
 
 - 输入：`shared/persona.yaml`
-- 解析逻辑：`_project_root` = `F:\Live2Dai\desktop\open-llm-vtuber`
-  → 两级上到 `F:\Live2Dai`
-  → 拼接得 `F:\Live2Dai\shared\persona.yaml`
+- 解析逻辑：`_project_root` = `F:\Live2D-Ai\desktop\open-llm-vtuber`
+  → 两级上到 `F:\Live2D-Ai`
+  → 拼接得 `F:\Live2D-Ai\shared\persona.yaml`
 - 文件存在：✅ (1395 字符的 system_prompt)
 
 ### 2.3 Persona 覆盖配置
@@ -87,7 +87,7 @@ tts_preprocessor_config:
 | `time` | `uvx mcp-server-time` | ✅ |
 | `ddg-search` | `uvx duckduckgo-mcp-server` | ✅ |
 | `weather` | `uvx mcp-server-weather` | ✅ |
-| `filesystem` | `uvx mcp-server-filesystem` | ✅ (限 F:/Live2Dai/data/) |
+| `filesystem` | `uvx mcp-server-filesystem` | ✅ (限 F:/Live2D-Ai/data/) |
 | `sequential-thinking` | `uvx mcp-server-sequential-thinking` | ✅ |
 
 > **注意**: conf.yaml 中 `mcp_servers: 'mcp_servers.json'` 未在 Pydantic Config 模型中使用，但无负面影响。ServerRegistry 使用默认路径 `mcp_servers.json` (相对 CWD)，内容与 `shared/mcp_tools.json` 一致。
@@ -147,7 +147,7 @@ tts_preprocessor_config:
 ### 4.1 脚本链路
 
 ```
-启动Live2Dai.bat
+启动Live2D-Ai.bat
   └─→ powershell -ExecutionPolicy Bypass -File .\start.ps1
         └─→ cd open-llm-vtuber
               ├─ [1/6] Python 检测    → python 3.10+ (系统 PATH / .venv)
@@ -192,17 +192,17 @@ tts_preprocessor_config:
 
 ```powershell
 # 方式 1：双击
-F:\Live2Dai\desktop\启动Live2Dai.bat
+F:\Live2D-Ai\desktop\启动Live2D-Ai.bat
 
 # 方式 2：PowerShell
-cd F:\Live2Dai\desktop
+cd F:\Live2D-Ai\desktop
 .\start.ps1
 
 # 方式 3：跳过环境检测（快速启动）
 .\start.ps1 -SkipEnvCheck
 
 # 方式 4：直接启动 Python 后端
-cd F:\Live2Dai\desktop\open-llm-vtuber
+cd F:\Live2D-Ai\desktop\open-llm-vtuber
 .venv\Scripts\python run_server.py
 ```
 

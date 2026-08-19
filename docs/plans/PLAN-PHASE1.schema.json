@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://live2dai.dev/schemas/phase1-interface-contract.schema.json",
-  "title": "Live2Dai Phase 1 Interface Contract",
+  "$id": "https://live2d-ai.dev/schemas/phase1-interface-contract.schema.json",
+  "title": "Live2D-Ai Phase 1 Interface Contract",
   "description": "Phase 1 架构规划的结构化接口契约 — Part A (重构) + Part B (级3推进) + Part C (UI/UX)。供 Developer 按 schema 实现、Tester 按 schema 验证。",
   "functions": [
     {
@@ -291,32 +291,32 @@
   ],
   "fileManifest": {
     "partA_new": [
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/MainChatViewModel.kt", "lines": "~250" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/PluginBootstrap.kt", "lines": "~100" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/Live2DStage.kt", "lines": "~80" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/ChatBubbleRow.kt", "lines": "~60" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/InputBar.kt", "lines": "~100" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/StatusIndicator.kt", "lines": "~80" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/ClearConfirmDialog.kt", "lines": "~40" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/WelcomeGuide.kt", "lines": "~120" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/ConfirmationDialog.kt", "lines": "~40" }
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/MainChatViewModel.kt", "lines": "~250" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/PluginBootstrap.kt", "lines": "~100" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/Live2DStage.kt", "lines": "~80" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ChatBubbleRow.kt", "lines": "~60" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/InputBar.kt", "lines": "~100" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/StatusIndicator.kt", "lines": "~80" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ClearConfirmDialog.kt", "lines": "~40" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/WelcomeGuide.kt", "lines": "~120" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ConfirmationDialog.kt", "lines": "~40" }
     ],
     "partA_modified": [
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/MainActivity.kt", "change": "767→~200 行，移除 MainChatScreen 定义" }
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/MainActivity.kt", "change": "767→~200 行，移除 MainChatScreen 定义" }
     ],
     "partB_new": [
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/VisemeAnalyzer.kt", "lines": "~300" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/VisemeTimeline.kt", "lines": "~150" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/VisemeAnalyzer.kt", "lines": "~300" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/VisemeTimeline.kt", "lines": "~150" },
       { "path": "shared/emotion-protocol.md", "lines": "~80" }
     ],
     "partB_modified": [
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/EmotionController.kt", "change": "+~120 行 (parseExpressionMix)" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/AnimationSystem.kt", "change": "+~300 行 (ExpressionManager 表情混合 + MotionManager 标签触发)" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/VoiceIoController.kt", "change": "+~150 行 (viseme 集成 + motion 集成)" },
-      { "path": "Live2Dai-Android/app/src/main/java/com/live2dai/android/TtsProvider.kt", "change": "+~50 行 (lastAudioBytes + onPlaybackProgress 扩展)" },
-      { "path": "Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/live2d_model.py", "change": "+~120 行 (parse_expression_mix)" },
-      { "path": "Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/agent/transformers.py", "change": "+~160 行 (expressionMix 接线 + 动作联动)" },
-      { "path": "Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/utils/stream_audio.py", "change": "+~120 行 (motion 时间戳注入)" }
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/EmotionController.kt", "change": "+~120 行 (parseExpressionMix)" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/AnimationSystem.kt", "change": "+~300 行 (ExpressionManager 表情混合 + MotionManager 标签触发)" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/VoiceIoController.kt", "change": "+~150 行 (viseme 集成 + motion 集成)" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/TtsProvider.kt", "change": "+~50 行 (lastAudioBytes + onPlaybackProgress 扩展)" },
+      { "path": "Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/live2d_model.py", "change": "+~120 行 (parse_expression_mix)" },
+      { "path": "Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/agent/transformers.py", "change": "+~160 行 (expressionMix 接线 + 动作联动)" },
+      { "path": "Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/utils/stream_audio.py", "change": "+~120 行 (motion 时间戳注入)" }
     ],
     "totalEstimatedNew": "~1,320 行",
     "totalEstimatedModified": "~1,400 行",

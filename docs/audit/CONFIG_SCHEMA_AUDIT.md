@@ -1,4 +1,4 @@
-# Live2Dai-pc — config_manager 数据模型 / YAML 往返审计报告
+# Live2D-Ai-pc — config_manager 数据模型 / YAML 往返审计报告
 
 **审计范围**：`src/open_llm_vtuber/config_manager/` 全部 14 个文件（~2700 行）
 **交叉参考**：`conf.yaml`、`conf.yaml.template`（磁盘配置）；`src/open_llm_vtuber/routes.py`（仅配置读/写路径）；`renderer/src/settings-ui.ts`（前端 payload / GET 映射）；以及运行时消费方 `run_server.py`、`service_context.py`、`agent/stateless_llm_factory.py`、`agent/transformers.py`、`free_glm_defaults.py`。

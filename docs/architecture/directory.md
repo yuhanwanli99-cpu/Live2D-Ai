@@ -1,11 +1,11 @@
-# Live2Dai 目录约定
+# Live2D-Ai 目录约定
 
 > 目标：让仓库顶层保持“一眼能看懂”，生成物/本地环境不混进源码。
 
 ## 顶层结构（目标态）
 
 ```
-Live2Dai/
+Live2D-Ai/
 ├── README.md                 # 项目入口：定位、快速开始、架构入口
 ├── AGENT.md / AGENTS.md      # Agent/开发者导航
 ├── HANDOVER.md               # 交接文档（当前版本定稿）
@@ -19,8 +19,8 @@ Live2Dai/
 │   ├── emotion-protocol.md
 │   ├── mcp_tools.json
 │   └── check_cross_platform_consistency.py
-├── Live2Dai-Android/         # Android 主端（Kotlin/Compose + Native）
-├── Live2Dai-pc/              # Windows 桌面端（Open-LLM-VTuber）
+├── Live2D-Ai-Android/         # Android 主端（Kotlin/Compose + Native）
+├── Live2D-Ai-pc/              # Windows 桌面端（Open-LLM-VTuber）
 ├── docs/
 │   ├── README.md             # 文档索引
 │   ├── architecture/         # 架构、契约、目录、依赖、可观测性
@@ -36,8 +36,8 @@ Live2Dai/
 | 目录 | 放什么 | 不放什么 |
 | --- | --- | --- |
 | `shared/` | 跨端共享的配置、协议、校验脚本 | 任何端私有实现 |
-| `Live2Dai-Android/` | Android 源码、Gradle、assets、cpp | PC 逻辑 |
-| `Live2Dai-pc/` | PC 后端、前端、配置 | Android 逻辑 |
+| `Live2D-Ai-Android/` | Android 源码、Gradle、assets、cpp | PC 逻辑 |
+| `Live2D-Ai-pc/` | PC 后端、前端、配置 | Android 逻辑 |
 | `docs/architecture/` | 当前架构、契约、边界、依赖 | 历史规划草稿 |
 | `docs/plans/` | 历史/未来规划、任务拆分 | 已废弃调研 |
 | `docs/research/` | 竞品、技术调研 | 当前实现细节 |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end smoke test for the Live2Dai-pc portable zip.
+"""End-to-end smoke test for the Live2D-Ai-pc portable zip.
 
 Flow (plan §8.5):
   1. Extract the zip into a fresh directory.
@@ -26,8 +26,8 @@ Notes:
     test still reports "backend ready + frontend + ws reachable" and exits 2.
 
 Usage:
-  python scripts/smoke_test.py --zip build/live2dai-pc-windows-<sha7>.zip \
-      [--seed-models Live2Dai-pc/open-llm-vtuber/models] [--port 12393]
+  python scripts/smoke_test.py --zip build/live2d-ai-pc-windows-<sha7>.zip \
+      [--seed-models Live2D-Ai-pc/open-llm-vtuber/models] [--port 12393]
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ import tempfile
 import time
 import zipfile
 
-APP_DIR = "Live2Dai-pc/open-llm-vtuber"
+APP_DIR = "Live2D-Ai-pc/open-llm-vtuber"
 
 
 # ── minimal RFC 6455 client (stdlib only) ──────────────────────────────────
@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
     zip_path = os.path.abspath(args.zip)
     keep = bool(args.extract_to)
-    extract_dir = args.extract_to or tempfile.mkdtemp(prefix="live2dai-smoke-")
+    extract_dir = args.extract_to or tempfile.mkdtemp(prefix="live2d-ai-smoke-")
     if keep and os.path.isdir(extract_dir):
         shutil.rmtree(extract_dir)
     os.makedirs(extract_dir, exist_ok=True)

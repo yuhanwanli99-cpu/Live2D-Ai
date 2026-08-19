@@ -46,68 +46,72 @@ SHARED_REGISTRY = ROOT / "shared" / "model_registry.json"
 SHARED_SCHEMA = ROOT / "shared" / "model_registry.schema.json"
 VALIDATE_SCRIPT = ROOT / "shared" / "validate_registry.py"
 ANDROID_ASSETS_REGISTRY = (
-    ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "model_registry.json"
+    ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / "model_registry.json"
 )
-ANDROID_LIVE2D_ROOT = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "live2d"
-PC_LIVE2D_ROOT = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "live2d-models"
+ANDROID_LIVE2D_ROOT = ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / "live2d"
+PC_LIVE2D_ROOT = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models"
 ANDROID_REGISTRY_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "data"
     / "ModelRegistry.kt"
 )
 ANDROID_SETTINGS_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "data"
     / "SettingsRepository.kt"
 )
 ANDROID_MAIN_ACTIVITY_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "MainActivity.kt"
 )
 ANDROID_MAIN_SCREEN_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "ui"
     / "MainScreen.kt"
 )
-PC_MODEL_REGISTRY_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "model_registry.py"
-PC_SERVICE_CONTEXT_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "service_context.py"
-PC_CONF_YAML = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "conf.yaml"
-ANDROID_BUILD_GRADLE = ROOT / "Live2Dai-Android" / "app" / "build.gradle.kts"
+PC_MODEL_REGISTRY_PY = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "model_registry.py"
+PC_SERVICE_CONTEXT_PY = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "service_context.py"
+PC_CONF_YAML = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "conf.yaml"
+ANDROID_BUILD_GRADLE = ROOT / "Live2D-Ai-Android" / "app" / "build.gradle.kts"
 SHARED_EMOTION_PROTOCOL = ROOT / "shared" / "emotion-protocol.md"
 SHARED_PERSONA = ROOT / "shared" / "persona.yaml"
-ANDROID_ASSETS_PERSONA = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "persona.yaml"
+ANDROID_ASSETS_PERSONA = ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / "persona.yaml"
 
 # ── contract-v3-adapter.md §1（C24-C28 数据校验输入）+ contract-R1-model（D2：重锚 bai）──
 ADAPTER_JSON = ROOT / "shared" / "model-adapter" / "bai.adapter.json"
@@ -116,42 +120,45 @@ ANDROID_MODEL3_JSON = MODEL3_RUNTIME_DIR / "bai.model3.json"
 ANDROID_CDI3_JSON = MODEL3_RUNTIME_DIR / "bai.cdi3.json"
 ANDROID_EMOTION_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "EmotionController.kt"
 )
 ANDROID_EMOTION_TEXT_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "core"
     / "EmotionText.kt"
 )
 ANDROID_VISEME_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "VisemeAnalyzer.kt"
 )
-PC_MODEL_DICT_JSON = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "model_dict.json"
+PC_MODEL_DICT_JSON = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "model_dict.json"
 PC_FRONTEND_VISEME_TS = (
     ROOT
     / "cache"
@@ -163,28 +170,30 @@ PC_FRONTEND_VISEME_TS = (
     / "utils"
     / "use-viseme-lipsync.ts"
 )
-PC_LIVE2D_MODEL_PY = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "live2d_model.py"
+PC_LIVE2D_MODEL_PY = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "live2d_model.py"
 ANDROID_MOTION_TAGS_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "MotionTags.kt"
 )
 ANDROID_MODEL_ADAPTER_KT = (
     ROOT
-    / "Live2Dai-Android"
+    / "Live2D-Ai-Android"
     / "app"
     / "src"
     / "main"
     / "java"
     / "com"
-    / "live2dai"
+    / "live2d"
+    / "ai"
     / "android"
     / "ModelAdapterConfig.kt"
 )
@@ -213,7 +222,7 @@ def read_text(path: Path) -> str:
 def _load_registry_and_validate() -> tuple[dict, object, object]:
     """加载 registry JSON + validate_registry + PC ModelRegistry（轻量）。"""
     sys.path.insert(0, str(ROOT / "shared"))
-    sys.path.insert(0, str(ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "src"))
+    sys.path.insert(0, str(ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src"))
     import validate_registry  # noqa: F401  （轻量，仅 stdlib + jsonschema）
     from open_llm_vtuber.model_registry import ModelRegistry  # noqa: F401
 
@@ -646,7 +655,7 @@ def check_shared_protocol() -> None:
 
     # SM-03: shared/mcp_tools.json 与 Android assets/mcp_tools.json 字节一致
     shared_mcp = ROOT / "shared" / "mcp_tools.json"
-    android_mcp = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets" / "mcp_tools.json"
+    android_mcp = ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / "mcp_tools.json"
     if shared_mcp.is_file() and android_mcp.is_file():
         mcp_ok = shared_mcp.read_bytes() == android_mcp.read_bytes()
         mcp_detail = "identical bytes" if mcp_ok else "bytes differ（请重跑 Gradle copyMcpTools 任务同步 shared→assets）"

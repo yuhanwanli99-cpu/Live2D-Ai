@@ -12,7 +12,7 @@ import sys
 import pytest
 
 _PC_SRC = os.path.join(
-    os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "src"
+    os.path.dirname(__file__), "..", "Live2D-Ai-pc", "open-llm-vtuber", "src"
 )
 if _PC_SRC not in sys.path:
     sys.path.insert(0, _PC_SRC)
@@ -231,7 +231,7 @@ def test_real_pc_model_dict_no_legacy_live2d():
     """PC 仓库 model_dict.json 的 live2d 条目：bai 单条目存在，mao_pro/niziiro_mao/shisuku 零残留（R5/D2）。"""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     model_dict_path = os.path.join(
-        repo_root, "Live2Dai-pc", "open-llm-vtuber", "model_dict.json"
+        repo_root, "Live2D-Ai-pc", "open-llm-vtuber", "model_dict.json"
     )
     with open(model_dict_path, encoding="utf-8") as fh:
         entries = json.load(fh)

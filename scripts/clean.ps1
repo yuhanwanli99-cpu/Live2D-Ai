@@ -1,4 +1,4 @@
-# Live2Dai — 清理生成物/缓存（不删除 .venv / node_modules / models）
+# Live2D-Ai — 清理生成物/缓存（不删除 .venv / node_modules / models）
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
@@ -7,8 +7,8 @@ Write-Host "== Removing build/cache/log/agent-work clutter =="
 $targets = @(
     "build", "cache", "spoq", ".pytest_cache", ".ruff_cache",
     "s.log", "s2.log", "s_dl.log",
-    "Live2Dai-Android\.gradle", "Live2Dai-Android\.kotlin",
-    "Live2Dai-Android\app\build", "Live2Dai-Android\app\.cxx"
+    "Live2D-Ai-Android\.gradle", "Live2D-Ai-Android\.kotlin",
+    "Live2D-Ai-Android\app\build", "Live2D-Ai-Android\app\.cxx"
 )
 foreach ($t in $targets) {
     if (Test-Path $t) {

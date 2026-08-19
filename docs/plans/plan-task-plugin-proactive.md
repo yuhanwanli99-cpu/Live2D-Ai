@@ -2,7 +2,7 @@
 
 > 版本: 1.0.0
 > 日期: 2026-07-31
-> 目标: 把骨架 `live2dai-plugin-proactive`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备"主动找用户说话"能力的插件
+> 目标: 把骨架 `live2d-ai-plugin-proactive`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备"主动找用户说话"能力的插件
 > 前置依赖: `task-plugin-proactive-skeleton`（已完成）、Wave 0（`PluginHost.sendAssistantMessage` 已提供接口，尚无实现调用方）
 > 不做的事: 不接入 core，功能验收通过后再排期接入
 
@@ -51,7 +51,7 @@
                          │ onLoad(host)
                          ▼
 ┌───────────────────────────────────────────────┐
-│          live2dai-plugin-proactive             │
+│          live2d-ai-plugin-proactive             │
 │                                                 │
 │  ProactivePlugin                               │
 │    ├─ 注册 WorkManager PeriodicWorkRequest      │
@@ -144,7 +144,7 @@ class LastInteractionTracker(context: Context) {
 ### 4.1 ProactivePlugin
 
 ```kotlin
-class ProactivePlugin(private val config: ProactivePluginConfig) : Live2DaiPlugin {
+class ProactivePlugin(private val config: ProactivePluginConfig) : Live2DAiPlugin {
     override val id: String = "proactive"
     override val version: String = "1.0.0"
 
@@ -213,16 +213,16 @@ class ProactiveCheckWorker(
 
 | # | 文件路径 | 变更类型 |
 | --- | --------- | --------- |
-| 1 | `live2dai-plugin-proactive/build.gradle.kts` | 修改：新增 `androidx.work:work-runtime-ktx` 依赖 |
-| 2 | `live2dai-plugin-proactive/.../LastInteractionTracker.kt` | 新增 |
-| 3 | `live2dai-plugin-proactive/.../GreetingLlmClient.kt` | 新增：接口定义 |
-| 4 | `live2dai-plugin-proactive/.../ProactiveTrackingHook.kt` | 新增：ChatHook 实现 |
-| 5 | `live2dai-plugin-proactive/.../ProactiveCheckWorker.kt` | 新增：CoroutineWorker |
-| 6 | `live2dai-plugin-proactive/.../ProactivePlugin.kt` | 修改：`onLoad` 里真正注册 hook + 排期 WorkManager |
-| 7 | `live2dai-plugin-proactive/.../ProactivePluginConfig.kt` | 修改：按 3.1 补充真实字段 |
-| 8 | `live2dai-plugin-proactive/src/test/.../LastInteractionTrackerTest.kt` | 新增：注入固定时间验证冷却/静默逻辑 |
-| 9 | `live2dai-plugin-proactive/src/test/.../ProactiveCheckWorkerTest.kt` | 新增：用 `TestListenableWorkerBuilder`（AndroidX Work 官方测试工具）验证决策分支 |
-| 10 | `live2dai-plugin-proactive/src/test/.../ProactivePluginTest.kt` | 修改：骨架版"零注册"断言 → "确实注册了 hook + WorkManager 任务" |
+| 1 | `live2d-ai-plugin-proactive/build.gradle.kts` | 修改：新增 `androidx.work:work-runtime-ktx` 依赖 |
+| 2 | `live2d-ai-plugin-proactive/.../LastInteractionTracker.kt` | 新增 |
+| 3 | `live2d-ai-plugin-proactive/.../GreetingLlmClient.kt` | 新增：接口定义 |
+| 4 | `live2d-ai-plugin-proactive/.../ProactiveTrackingHook.kt` | 新增：ChatHook 实现 |
+| 5 | `live2d-ai-plugin-proactive/.../ProactiveCheckWorker.kt` | 新增：CoroutineWorker |
+| 6 | `live2d-ai-plugin-proactive/.../ProactivePlugin.kt` | 修改：`onLoad` 里真正注册 hook + 排期 WorkManager |
+| 7 | `live2d-ai-plugin-proactive/.../ProactivePluginConfig.kt` | 修改：按 3.1 补充真实字段 |
+| 8 | `live2d-ai-plugin-proactive/src/test/.../LastInteractionTrackerTest.kt` | 新增：注入固定时间验证冷却/静默逻辑 |
+| 9 | `live2d-ai-plugin-proactive/src/test/.../ProactiveCheckWorkerTest.kt` | 新增：用 `TestListenableWorkerBuilder`（AndroidX Work 官方测试工具）验证决策分支 |
+| 10 | `live2d-ai-plugin-proactive/src/test/.../ProactivePluginTest.kt` | 修改：骨架版"零注册"断言 → "确实注册了 hook + WorkManager 任务" |
 | — | `app/**` | **不修改** |
 
 ---
@@ -245,4 +245,4 @@ class ProactiveCheckWorker(
 3. `ProactiveCheckWorkerTest`：满足所有条件 → 调用 `sendAssistantMessage` 且传入的文案来自 mock 的 `GreetingLlmClient` 返回值
 4. `ProactiveCheckWorkerTest`：`GreetingLlmClient` 抛异常 → 回退到 `fallbackGreetings`，测试流程不中断
 5. `ProactiveCheckWorkerTest`：静默时段内 → 不触发
-6. 插件独立编译通过（`:live2dai-plugin-proactive:assembleDebug`）
+6. 插件独立编译通过（`:live2d-ai-plugin-proactive:assembleDebug`）

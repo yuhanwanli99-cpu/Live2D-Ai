@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Live2D-Ai — 白</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent; /* 透明背景：配合 Electron/Tauri 桌面壳实现悬浮桌宠 */
+      }
+      #canvas {
+        width: 100%;
+        height: 100%;
+      }
+      #canvas canvas {
+        display: block;
+      }
+
+      /* ── 聊天面板（spoq-fix：直播/微信风格，右侧半透明） ── */
+      .chat-panel {
+        position: fixed;
+        right: 16px;
+        top: 16px;
+        bottom: 16px;
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        background: rgba(20, 20, 28, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 14px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        z-index: 100;
+        overflow: hidden;
+      }
+      .chat-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .chat-title {
+        color: #f5f5f7;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .chat-status {
+        color: #ff6b6b;
+        font-size: 11px;
+      }
+      .chat-tts-status {
+        color: #a5b4fc;
+        font-size: 11px;
+        margin-left: 8px;
+      }
+      .chat-status-ok {
+        color: #4ade80;
+      }
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .chat-msg {
+        display: flex;
+      }
+      .chat-msg-user {
+        justify-content: flex-end;
+      }
+      .chat-msg-assistant,
+      .chat-msg-system {
+        justify-content: flex-start;
+      }
+      .chat-msg-error {
+        justify-content: center;
+      }
+      .chat-bubble {
+        max-width: 82%;
+        padding: 7px 11px;
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        word-break: break-word;
+      }
+      .chat-msg-user .chat-bubble {
+        background: rgba(99, 102, 241, 0.85);
+        color: #fff;
+        border-bottom-right-radius: 3px;
+      }
+      .chat-msg-assistant .chat-bubble {
+        background: rgba(255, 255, 255, 0.14);
+        color: #eee;
+        border-bottom-left-radius: 3px;
+      }
+      .chat-msg-system .chat-bubble {
+        background: transparent;
+        color: #aaa;
+        font-size: 11px;
+        text-align: center;
+      }
+      .chat-msg-error .chat-bubble {
+        background: rgba(239, 68, 68, 0.25);
+        color: #fca5a5;
+        font-size: 12px;
+        text-align: center;
+      }
+      .chat-input-row {
+        display: flex;
+        gap: 8px;
+        padding: 10px 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .chat-input {
+        flex: 1;
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.08);
+        color: #f0f0f2;
+        font-size: 13px;
+        outline: none;
+      }
+      .chat-input::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+      }
+      .chat-input:focus {
+        border-color: rgba(99, 102, 241, 0.6);
+      }
+      .chat-mic {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .chat-mic-active {
+        background: rgba(239,68,68,0.6);
+        border-color: #ef4444;
+      }
+      .chat-send {
+        padding: 8px 16px;
+        border-radius: 10px;
+        border: none;
+        background: #6366f1;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .chat-send:hover {
+        background: #4f52e0;
+      }
+      .chat-send:active {
+        background: #3f42c8;
+      }
+      .chat-settings {
+        margin-left: 6px;
+        padding: 4px 9px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.3);
+        background: rgba(255,255,255,0.16);
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .chat-settings:hover {
+        background: rgba(255,255,255,0.28);
+      }
+
+      /* ── 设置 / Dashboard 面板（多 Tab 高对比） ── */
+      .settings-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.68);
+        backdrop-filter: blur(8px);
+      }
+      .settings-box {
+        width: 420px;
+        height: min(680px, 90vh);
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        background: #17171f;
+        border: 1px solid rgba(255,255,255,0.24);
+        border-radius: 18px;
+        box-shadow: 0 24px 70px rgba(0,0,0,0.7);
+        color: #f8fafc;
+        overflow: hidden;
+      }
+      .settings-box-wide {
+        width: min(960px, 94vw);
+        height: min(820px, 92vh);
+      }
+      .settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 20px;
+        background: #20202b;
+        border-bottom: 1px solid rgba(255,255,255,0.14);
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .settings-close {
+        border: none;
+        background: transparent;
+        color: #cbd5e1;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 2px 8px;
+        border-radius: 8px;
+      }
+      .settings-close:hover {
+        color: #fff;
+        background: rgba(255,255,255,0.14);
+      }
+      .settings-layout {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .settings-nav {
+        width: 180px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 12px 10px;
+        background: #1d1d27;
+        border-right: 1px solid rgba(255,255,255,0.1);
+        overflow-y: auto;
+      }
+      .settings-tab {
+        padding: 9px 14px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #aab;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+      }
+      .settings-tab:hover {
+        color: #fff;
+        background: rgba(255,255,255,0.08);
+      }
+      .settings-tab.active {
+        color: #fff;
+        background: #6366f1;
+        border-color: #6366f1;
+      }
+      .settings-content {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        overflow: hidden;
+      }
+      .settings-tab-panel {
+        display: none;
+        flex: 1;
+        min-width: 0;
+        padding: 16px 20px;
+        overflow-y: auto;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .settings-tab-panel.active {
+        display: flex;
+      }
+      .settings-group {
+        background: #1b1b24;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        margin-bottom: 10px;
+        overflow: hidden;
+      }
+      .settings-group summary {
+        cursor: pointer;
+        padding: 10px 14px;
+        font-weight: 700;
+        color: #e2e8f0;
+        background: #20202b;
+        list-style: none;
+        user-select: none;
+      }
+      .settings-group summary::-webkit-details-marker {
+        display: none;
+      }
+      .settings-group[open] summary {
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+      }
+      .settings-group-cards {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .settings-provider-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 14px;
+        background: #20202b;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+      }
+      .settings-provider-row-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        color: #fff;
+        min-width: 0;
+      }
+      .settings-provider-toggle {
+        padding: 6px 14px;
+        border-radius: 8px;
+        border: 1px solid #4b4b5e;
+        background: #2d2d3c;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .settings-provider-toggle:hover {
+        background: #3a3a4c;
+      }
+      .settings-provider-editor {
+        background: #20202b;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .settings-key-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px 14px;
+        background: #20202b;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+      }
+      .settings-key-label {
+        font-size: 13px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .settings-section-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #a5b4fc;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin-top: 2px;
+      }
+      .settings-row {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #e2e8f0;
+      }
+      .settings-row select,
+      .settings-row input,
+      .settings-row textarea {
+        width: 100%;
+        padding: 9px 11px;
+        border-radius: 10px;
+        border: 1px solid #44445a;
+        background: #262635;
+        color: #fff;
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      .settings-row textarea {
+        resize: vertical;
+        min-height: 220px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        line-height: 1.55;
+      }
+      .settings-row select option {
+        background: #1e1e2a;
+        color: #fff;
+      }
+      .settings-row input::placeholder,
+      .settings-row textarea::placeholder {
+        color: #8b8b9c;
+      }
+      .settings-row select:focus,
+      .settings-row input:focus,
+      .settings-row textarea:focus {
+        border-color: #818cf8;
+        box-shadow: 0 0 0 3px rgba(99,102,241,0.28);
+      }
+      .settings-card {
+        background: #20202b;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 14px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .settings-card-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .settings-card-sub {
+        font-size: 11px;
+        font-weight: 500;
+        color: #8b8b9c;
+        margin-left: 6px;
+      }
+      .settings-badge {
+        font-size: 11px;
+        font-weight: 600;
+        color: #fbbf24;
+        background: rgba(251,191,36,0.14);
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .settings-badge.ok {
+        color: #4ade80;
+        background: rgba(74,222,128,0.14);
+      }
+      .settings-card-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .settings-card-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      .settings-card-actions button,
+      .settings-key-row button {
+        padding: 7px 14px;
+        border-radius: 9px;
+        border: 1px solid #4b4b5e;
+        background: #2d2d3c;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .settings-card-actions button:hover,
+      .settings-key-row button:hover {
+        background: #3a3a4c;
+      }
+      .settings-key-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .settings-key-row input {
+        flex: 1;
+        padding: 9px 11px;
+        border-radius: 10px;
+        border: 1px solid #44445a;
+        background: #262635;
+        color: #fff;
+        font-size: 14px;
+        outline: none;
+      }
+      .settings-key-row input:focus {
+        border-color: #818cf8;
+        box-shadow: 0 0 0 3px rgba(99,102,241,0.28);
+      }
+      .settings-persona-grid,
+      .settings-system-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .settings-tip {
+        font-size: 12px;
+        color: #94a3b8;
+        line-height: 1.5;
+      }
+      .settings-error {
+        font-size: 13px;
+        color: #fca5a5;
+      }
+      .settings-status {
+        min-height: 20px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #c7d2fe;
+      }
+      .settings-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 20px;
+        background: #20202b;
+        border-top: 1px solid rgba(255,255,255,0.14);
+      }
+      .settings-footer button {
+        padding: 9px 22px;
+        border-radius: 10px;
+        border: 1px solid #4b4b5e;
+        background: #2d2d3c;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .settings-footer button:hover {
+        background: #38384a;
+      }
+      .settings-footer .settings-save {
+        background: #6366f1;
+        border-color: #6366f1;
+      }
+      .settings-footer .settings-save:hover {
+        background: #4f52e0;
+      }
+    </style>
+    <!-- Cubism 4 Core：必须早于 main.ts 加载（pixi-live2d-display 依赖全局 live2dcubismcore） -->
+    <script src="./libs/live2dcubismcore.min.js"></script>
+  </head>
+  <body>
+    <div id="canvas"></div>
+    <div id="chat"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-# Live2Dai 竞品调研报告 — 同类型开源项目功能模块对比
+# Live2D-Ai 竞品调研报告 — 同类型开源项目功能模块对比
 
 > 调研日期: 2026-08-05
 > 调研方法: GitHub API + README 原文抓取（curl）
@@ -12,7 +12,7 @@
 
 ### 1.1 对话与 LLM
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber (⭐13k) | AIRI (⭐47k) | Soul of Waifu (⭐1.1k) | my-neuro (⭐1.3k) | Live2DPet (⭐73) | Miru (⭐56) | Meuxe (⭐69) | Nexus (⭐16) | VPet-Ultra (⭐3) | AI-Vtuber by Ikaros (⭐4.4k) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber (⭐13k) | AIRI (⭐47k) | Soul of Waifu (⭐1.1k) | my-neuro (⭐1.3k) | Live2DPet (⭐73) | Miru (⭐56) | Meuxe (⭐69) | Nexus (⭐16) | VPet-Ultra (⭐3) | AI-Vtuber by Ikaros (⭐4.4k) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 多 Provider 抽象 | ✅ GLM/DeepSeek/Ollama | ✅ Ollama/OpenAI/Claude/Gemini/Mistral/Zhipu/GGUF 等 | ✅ 多模型支持 | ✅ 10 云提供商 + Llama.cpp | ✅ 本地+闭源双轨 | ✅ OpenAI-compatible | ✅ 三层独立模型 (Vision/Chat/Memory) | ✅ ACP 协议 (OpenCode/ClaudeCode/Codex) | ✅ Ollama/DeepSeek/OpenAI | ✅ 本地+Online 模式 | ✅ ChatGPT/Claude/Qwen/Ollama 等 |
 | 流式 SSE | ✅ OkHttp SSE | ✅ WebSocket | ✅ WebSocket | ✅ 逐句流式 | ✅ 字幕语音同步输出 | ❓ | ❓ | ✅ ACP 流式 | ❓ | ❓ | ❓ |
@@ -22,7 +22,7 @@
 
 ### 1.2 语音
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | TTS 引擎 | ✅ Edge TTS (降级链) | ✅ Edge TTS / sherpa-onnx / MeloTTS / Coqui / GPTSoVITS / Bark / CosyVoice / Fish Audio / Azure 等 | ✅ 多引擎 | ✅ Qwen3 TTS / XTTSv2 / Kokoro / Silero / EdgeTTS / ElevenLabs | ✅ GPT-SoVITS (语音克隆) | ✅ VOICEVOX (日语) | ❓ | ✅ 内置 TTS + ElevenLabs + OpenAI | 🔶 已规划 (Phase 3) | ✅ Piper / Kokoro | ✅ edge-tts / VITS / elevenlabs / bert-vits2 等 |
 | ASR 引擎 | 🔶 Android SpeechRecognizer (断链), PC Faster Whisper | ✅ sherpa-onnx / FunASR / Faster-Whisper / Whisper.cpp / Groq / Azure 等 | ✅ | ✅ Faster Whisper | ❓ | ⬜ (文本为主) | ❓ | ✅ Whisper-based | 🔶 已规划 (Phase 3) | ✅ Whisper (whisper.cpp) | ❓ |
@@ -33,7 +33,7 @@
 
 ### 1.3 视觉
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 截图/屏幕感知 | ✅ GLM-4.6V | ✅ 摄像头+屏幕录制+截图 | ✅ | ✅ Screen Reader | ✅ 视觉能力 | ✅ 定时截屏 | ✅ 屏幕感知 (隐私优先) | ⬜ | 🔶 短期粗粒度陪伴摘要 | ✅ SmolVLM/LLaVA | ⬜ |
 | 摄像头 | ⬜ | ✅ | ❓ | ❓ | ❓ | ⬜ | ⬜ | ⬜ | ⬜ | ❓ | ⬜ |
@@ -42,7 +42,7 @@
 
 ### 1.4 Live2D
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Live2D 渲染 | ✅ Purism Core (MIT) | ✅ Cubism SDK for Web | ✅ | ✅ Live2D | ✅ Live2D 替换 | ✅ PixiJS + Cubism SDK | ✅ Live2D | ✅ Cubism + VRM | ✅ Live2D | ✅ 插件支持 (.moc3) | ✅ Live2D |
 | 表情联动 | ✅ [emotion] 标签→表情 | ✅ 表情映射 | ✅ | ✅ 28 情感分类器 | ✅ 动作表情 | ✅ 情绪累积触发 | ❓ | ✅ 表达式标签 | ✅ 基础表情 | ✅ 10维情绪向量 | ❓ |
@@ -53,7 +53,7 @@
 
 ### 1.5 交互
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 悬浮窗/桌宠 | 🔶 Android 规划中 | ✅ 桌面宠物模式 (透明穿透) | ✅ | ✅ 桌面覆盖 | ✅ | ✅ 透明置顶窗口 | ✅ 桌面宠物 | ✅ Mini 模式 | ✅ 桌面常驻 | ✅ WPF桌宠 | ❓ |
 | 触摸/点击互动 | 🔶 规划中 | ✅ 点击/拖拽触觉反馈 | ❓ | ❓ | ❓ | ✅ 点击/拖拽 | ❓ | ❓ | 🔶 Phase 2 | ✅ 桌宠互动 | ❓ |
@@ -63,7 +63,7 @@
 
 ### 1.6 工具/扩展
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | MCP/函数调用 | ✅ MCP (time/search/weather/filesystem) | 🔶 Agent 接口可扩展 | ❓ | ✅ MCP + 6内置工具 | ✅ MCP支持 | ⬜ | ⬜ | ⬜ (ACP-only) | 🔶 Phase 5 规划 | ✅ 工具分发 | ❓ |
 | 插件机制 | ✅ ChatHook 生命周期 + SDK | 🔶 模块化设计可扩展 | ❓ | ❓ | ❓ | ⬜ | ⬜ | ❓ | ❓ | ✅ MOD 系统 | ❓ |
@@ -76,7 +76,7 @@
 
 ### 1.7 多模态与记忆
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 多模型切换 UI | ⬜ (仅 LLMProvider 代码级) | ✅ 配置文件切换 | ✅ | ✅ Models Hub (HuggingFace 下载) | ❓ | ✅ 设置面板切换 | ✅ 三层独立配置 | ✅ ACP Agent 切换 | ✅ 多 Provider | ✅ Model Manager | ✅ 多模型矩阵 |
 | 本地模型支持 | ✅ Ollama | ✅ Ollama / LM Studio / vLLM / GGUF | ✅ | ✅ Llama.cpp (CUDA/HIP/SYCL/Vulkan) | ✅ LLM-studio 本地推理 | ⬜ (仅 API) | ✅ 任何 OpenAI-compatible | ⬜ (需 ACP Agent) | ✅ Ollama | ✅ LLamaSharp 进程内推理 | ✅ Ollama |
@@ -86,7 +86,7 @@
 
 ### 1.8 其他
 
-| 功能模块 | Live2Dai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
+| 功能模块 | Live2D-Ai (我们) | Open-LLM-VTuber | AIRI | Soul of Waifu | my-neuro | Live2DPet | Miru | Meuxe | Nexus | VPet-Ultra | AI-Vtuber (Ikaros) |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 主动消息/陪伴 | ⬜ | ✅ 主动说话 | ❓ | ✅ 神经激素驱动主动对话 | ✅ 主动对话 | ✅ AI 根据屏幕内容主动对话 | ✅ AttentionEngine 主动陪伴 | ⬜ | 🔶 Check-in 决策 | ❓ | ❓ |
 | 定时任务 | ⬜ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ⬜ | ❓ | ❓ | ❓ |
@@ -263,7 +263,7 @@
 
 ### 我们的核心架构并不过少，反而是中等偏上水平
 
-Live2Dai 的核心链路（文本→LLM→表情→Live2D）已经**比大多数同类项目更稳固**：
+Live2D-Ai 的核心链路（文本→LLM→表情→Live2D）已经**比大多数同类项目更稳固**：
 - 拥有 MIT 全栈开源（Purism Core 替代 Cubism SDK）的独特壁垒
 - 插件 SDK + MCP 工具框架在同类中属于少数派但架构前瞻
 - persona.yaml 单源真理 + LLM Provider 抽象证明架构设计有章法

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://live2dai.dev/schemas/plan-task-local-llm.schema.json",
-  "title": "Live2Dai Android 本地 LLM 支持 Schema",
+  "$id": "https://live2d-ai.dev/schemas/plan-task-local-llm.schema.json",
+  "title": "Live2D-Ai Android 本地 LLM 支持 Schema",
   "description": "本地 LLM (Ollama/vLLM) 支持的模块契约 — Provider 数据模型、持久化 Schema、健康检查协议、UI 状态、降级逻辑",
   "type": "object",
   "required": ["providers", "persistence", "health_check", "ui_states", "data_flow", "files"],
@@ -628,17 +628,17 @@
           },
           "example": [
             {
-              "path": "app/src/main/java/com/live2dai/android/LLMProvider.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/LLMProvider.kt",
               "responsibility": "ProviderType 枚举 + LLMProvider data class",
               "estimated_lines": 35
             },
             {
-              "path": "app/src/main/java/com/live2dai/android/LLMProviderManager.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/LLMProviderManager.kt",
               "responsibility": "SharedPreferences 持久化、健康检查、Provider 切换、降级",
               "estimated_lines": 120
             },
             {
-              "path": "app/src/main/java/com/live2dai/android/ui/SettingsScreen.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/ui/SettingsScreen.kt",
               "responsibility": "Material3 Compose 设置界面",
               "estimated_lines": 180
             }
@@ -658,12 +658,12 @@
           },
           "example": [
             {
-              "path": "app/src/main/java/com/live2dai/android/ChatService.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/ChatService.kt",
               "change_summary": "构造函数接受 LLMProvider；新增 updateProvider()；移除硬编码 URL；apiKey 条件注入",
               "estimated_diff_lines": 25
             },
             {
-              "path": "app/src/main/java/com/live2dai/android/MainActivity.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/MainActivity.kt",
               "change_summary": "onCreate 中 init LLMProviderManager；TopAppBar 增加设置齿轮按钮→导航；sendMessage 前健康检查+降级",
               "estimated_diff_lines": 30
             }
@@ -686,15 +686,15 @@
               "why": "OkHttp 4.12.0、kotlinx-serialization-json 1.7.3、Compose Material3 — 所有依赖已就绪"
             },
             {
-              "path": "app/src/main/java/com/live2dai/android/ApiModels.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/ApiModels.kt",
               "why": "ChatRequest/ChatResponse/SSE 模型完全兼容 OpenAI 格式，无需修改"
             },
             {
-              "path": "app/src/main/java/com/live2dai/android/PersonaConfig.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/PersonaConfig.kt",
               "why": "system prompt / model / temperature 仍从此读取；本地 Provider 可选择覆盖 model"
             },
             {
-              "path": "app/src/main/java/com/live2dai/android/VisionService.kt",
+              "path": "app/src/main/java/com/live2d/ai/android/VisionService.kt",
               "why": "视觉服务仍使用 Zhipu GLM-4V，不涉及本次改动"
             }
           ]

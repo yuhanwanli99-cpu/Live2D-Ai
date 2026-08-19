@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://live2dai.local/schemas/model_registry.schema.json",
+  "$id": "https://live2d-ai.local/schemas/model_registry.schema.json",
   "title": "Live2D Model Registry",
   "description": "跨平台 Live2D 模型注册表（shared/model_registry.json）的 JSON Schema。Android（assets 拷贝）与 PC（_resolve_shared_path）两端及校验脚本共同使用，作为跨端唯一真相源的格式契约。",
   "type": "object",

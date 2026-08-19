@@ -297,7 +297,7 @@ fun initialize(jsonBytes: ByteArray, partIds: Array<String>?, meta: ModelMetaCon
 
 | 路径 | 说明 |
 | ------ | ------ |
-| `Live2Dai-Android/app/src/main/java/com/live2dai/android/ModelMetaConfig.kt` | 核心配置类 + 解析逻辑 |
+| `Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ModelMetaConfig.kt` | 核心配置类 + 解析逻辑 |
 | `docs/plans/plan-task-model-config.md` | 本文档 |
 | `docs/plans/plan-task-model-config.schema.json` | ModelMetaConfig 序列化 schema（用于调试/缓存） |
 

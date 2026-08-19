@@ -100,7 +100,7 @@ SettingsScreen.kt
 - **P3-4 设定树与表单两套读写 conf.yaml、无锁**
   - `/api/config` 与 `/api/config/tree` 各自读写同一文件，无互斥，可竞态覆盖。
 
-**新增 PC 深挖结论（来自 `Live2Dai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`，主线已交叉核对）**
+**新增 PC 深挖结论（来自 `Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`，主线已交叉核对）**
 
 - **B3 High【调用链断链】** “保存并应用”只 `load_from_config` 共享 `default_context_cache`（`routes.py:651-657`），已连接会话仍持有旧 engine 引用（`websocket_handler.py:183-202` 每会话深拷贝 config 但共引用对象）→ 界面显示 `applied:true`，但已连客户端仍用旧引擎；且 `load_from_config` 在 `init_agent` **之后**才改 `system_config/character_config`（`service_context.py:306-308 vs :301-304`），新 agent 用旧 system_config/avatar 构建。→ PC 端等价于 Android 的“保存了但运行没生效”。
 - **B4 Medium** API 写进 `.env` 的 key 运行进程看不到（`run_server.py:21` 只 `load_dotenv` 一次，`utils.py:44` 用过期 `os.getenv`）→ check/test 对新 key 成功，运行引擎仍旧 key。
@@ -141,7 +141,7 @@ SettingsScreen.kt
 **E. 死代码 / 接线缺口**
 - **F2.9 / F1.8** `UiModeConfig`/`UiModeStore` 生产代码完全未接线（layout 模式零运行时效果）。
 - **F2.8** `resetAll()` 只清 `"live2dai_settings"`，`"llm_provider"` 与 `"live2dai_ui_mode"` 不清（`SettingsRepository.kt:210-212`、`LLMProviderManager.kt:37`、`UiModeStore.kt:38`）。
-- **F2.16** `AppRoot` 运行时未使用、`Live2DaiApp.repo` 是死实例。
+- **F2.16** `AppRoot` 运行时未使用、`Live2DAiApp.repo` 是死实例。
 - **F2.11** `LoopWire.pump(coordinator, llmLink, scope)` 是空 no-op 且重复映射。
 
 **F. 状态机 / 竞态（非设置 UI 但被触发）**
@@ -153,7 +153,7 @@ SettingsScreen.kt
 **G. 未发现问题的区域（审计确认）**
 - 启动期无 prefs `.commit()`/`getAll()`/网络主线程阻塞；全用 `.apply()`。
 - 零配置/未知 provider 默认 DeepSeek 回退健壮且有测（`LLMProviderManagerTest.kt:67-93`）。
-- Live2D 模型切换是唯一**真正热生效**（`Live2DaiApp.kt:66-81` + 成功回调才落盘 `SettingsScreen.kt:150-174`）。
+- Live2D 模型切换是唯一**真正热生效**（`Live2DAiApp.kt:66-81` + 成功回调才落盘 `SettingsScreen.kt:150-174`）。
 - ASR 开关运行时实时读取（`MainActivity.kt:175`）。
 
 ---
@@ -245,11 +245,11 @@ SettingsScreen.kt
 12. **统一“设置模型 + commit + 应用到运行时”入口**
     - `SettingsRepository` 增加 `readSettings()/commit(settings)` 事务式快照；统一持久化时机（消除每 keystroke vs 仅保存按钮分裂），`onDispose` 不再无条件回写。
     - 明确每项“即时生效 / 重启生效”并 UI 标注。
-    - 文件：`data/SettingsRepository.kt`、`SettingsScreen.kt:759-767`、`MainActivity.kt`/`Live2DaiApp.kt`（对应 F1.4/F1.5）。
+    - 文件：`data/SettingsRepository.kt`、`SettingsScreen.kt:759-767`、`MainActivity.kt`/`Live2DAiApp.kt`（对应 F1.4/F1.5）。
 
 13. **健壮性 / 死代码清理**
     - `resetAll()` 清空 `"llm_provider"` 与 `"live2dai_ui_mode"`（F2.8）；修 `getProviderType()` 与 `getActiveProvider()` 在 LOCAL 空 URL 的一致性（F2.5）。
-    - 接线 `UiModeStore` 或在产品确认前标记未启用（F2.9/F1.8）；移除死 `AppRoot`/`Live2DaiApp.repo`/空 `pump`（F2.16/F2.11）。
+    - 接线 `UiModeStore` 或在产品确认前标记未启用（F2.9/F1.8）；移除死 `AppRoot`/`Live2DAiApp.repo`/空 `pump`（F2.16/F2.11）。
     - 状态机健壮性：空文本发送不进入 SENDING 或超时回退（F2.6）；`historyBuilder` 加锁/序列化（F2.7）；`LoopStateMachine.state` 改 `@Volatile`/原子（F2.10）。
 
 ### P2 — 响应与交互体验
@@ -360,7 +360,7 @@ SettingsScreen.kt
 ## 5. 备注 / 待办
 
 - 本计划已并入两份独立只读审计的交叉核对结论：
-  - PC：`Live2Dai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`（A1-A11 / B1-B12 / schema 对照 / D1-D8）
+  - PC：`Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`（A1-A11 / B1-B12 / schema 对照 / D1-D8）
   - Android：`analysis/tmp/subtask1_ui_persistence.md`(F1.*)、`subtask2_runtime_propagation.md`(F2.*)、`subtask3_model_persona_config.md`(F3.*)
 - 两端共同根因：**配置被快照进 engine 构造器、无单一“当前设置”真源** → “保存了但运行没生效”，PC 靠重启/重连、Android 靠 Activity 重建，这在两端是同一类调用链断链。
 - 本计划只描述修复方向，**未改动任何实现代码**。

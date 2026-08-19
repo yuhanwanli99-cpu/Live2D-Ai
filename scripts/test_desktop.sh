@@ -1,12 +1,12 @@
 #!/bin/bash
-# Live2Dai — Desktop smoke test
+# Live2D-Ai — Desktop smoke test
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CD="$PROJECT_DIR/Live2Dai-pc/open-llm-vtuber"
+CD="$PROJECT_DIR/Live2D-Ai-pc/open-llm-vtuber"
 
 echo "==================================="
-echo "  Live2Dai Desktop Smoke Test"
+echo "  Live2D-Ai Desktop Smoke Test"
 echo "==================================="
 echo ""
 

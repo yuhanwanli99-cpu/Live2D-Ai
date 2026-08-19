@@ -2,7 +2,7 @@
 
 > 版本: 1.0.0
 > 日期: 2026-07-31
-> 目标: 把骨架 `live2dai-plugin-agent-tools`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为可操作手机的 `ToolDefinition` 集合
+> 目标: 把骨架 `live2d-ai-plugin-agent-tools`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为可操作手机的 `ToolDefinition` 集合
 > 前置依赖: `task-plugin-agent-tools-skeleton`（已完成）；**硬依赖**：`ChatService` 尚未实现 tool-calling 循环（当前只有 hook 循环），本任务必须先确认/补齐 tool-call 接入点，否则工具注册了也不会被调用
 > 不做的事: 不接入 core，功能验收通过后再排期接入
 
@@ -223,19 +223,19 @@ class SetAlarmTool(private val context: Context) : ToolDefinition {
 
 | # | 文件路径 | 变更类型 |
 | --- | --------- | --------- |
-| 1 | `app/src/main/java/com/live2dai/android/ApiModels.kt` | 修改：请求体增加 `tools` 字段，响应解析增加 `tool_calls` |
-| 2 | `app/src/main/java/com/live2dai/android/ChatService.kt` | 修改：接入 tool-calling 循环 + 统一确认拦截（§2.1/2.2，**子任务 0，建议先行验收**） |
-| 3 | `app/src/main/java/com/live2dai/android/ToolConfirmationDialog.kt` | 新增（Compose）：危险工具的确认 UI |
-| 4 | `app/src/main/java/com/live2dai/android/NotificationReplyListenerService.kt` | 新增：`NotificationListenerService` 实现，供插件注入的 `NotificationReplyBridge` 调用 |
-| 5 | `live2dai-plugin-agent-tools/.../OpenAppTool.kt` | 新增 |
-| 6 | `live2dai-plugin-agent-tools/.../SendNotificationReplyTool.kt` | 新增 |
-| 7 | `live2dai-plugin-agent-tools/.../SetAlarmTool.kt` | 新增 |
-| 8 | `live2dai-plugin-agent-tools/.../NotificationReplyBridge.kt` | 新增：接口定义 |
-| 9 | `live2dai-plugin-agent-tools/.../AgentToolsPlugin.kt` | 修改：`onLoad` 里注册三个工具 |
-| 10 | `live2dai-plugin-agent-tools/.../AgentToolsPluginConfig.kt` | 修改：按 3.1 补充真实字段 |
-| 11 | `live2dai-plugin-agent-tools/src/test/.../OpenAppToolTest.kt` | 新增：mock PackageManager，验证匹配/未找到/无入口三种分支 |
-| 12 | `live2dai-plugin-agent-tools/src/test/.../SendNotificationReplyToolTest.kt` | 新增：验证参数校验 + `requiresConfirmation == true` |
-| 13 | `live2dai-plugin-agent-tools/src/test/.../SetAlarmToolTest.kt` | 新增 |
+| 1 | `app/src/main/java/com/live2d/ai/android/ApiModels.kt` | 修改：请求体增加 `tools` 字段，响应解析增加 `tool_calls` |
+| 2 | `app/src/main/java/com/live2d/ai/android/ChatService.kt` | 修改：接入 tool-calling 循环 + 统一确认拦截（§2.1/2.2，**子任务 0，建议先行验收**） |
+| 3 | `app/src/main/java/com/live2d/ai/android/ToolConfirmationDialog.kt` | 新增（Compose）：危险工具的确认 UI |
+| 4 | `app/src/main/java/com/live2d/ai/android/NotificationReplyListenerService.kt` | 新增：`NotificationListenerService` 实现，供插件注入的 `NotificationReplyBridge` 调用 |
+| 5 | `live2d-ai-plugin-agent-tools/.../OpenAppTool.kt` | 新增 |
+| 6 | `live2d-ai-plugin-agent-tools/.../SendNotificationReplyTool.kt` | 新增 |
+| 7 | `live2d-ai-plugin-agent-tools/.../SetAlarmTool.kt` | 新增 |
+| 8 | `live2d-ai-plugin-agent-tools/.../NotificationReplyBridge.kt` | 新增：接口定义 |
+| 9 | `live2d-ai-plugin-agent-tools/.../AgentToolsPlugin.kt` | 修改：`onLoad` 里注册三个工具 |
+| 10 | `live2d-ai-plugin-agent-tools/.../AgentToolsPluginConfig.kt` | 修改：按 3.1 补充真实字段 |
+| 11 | `live2d-ai-plugin-agent-tools/src/test/.../OpenAppToolTest.kt` | 新增：mock PackageManager，验证匹配/未找到/无入口三种分支 |
+| 12 | `live2d-ai-plugin-agent-tools/src/test/.../SendNotificationReplyToolTest.kt` | 新增：验证参数校验 + `requiresConfirmation == true` |
+| 13 | `live2d-ai-plugin-agent-tools/src/test/.../SetAlarmToolTest.kt` | 新增 |
 | 14 | `app/src/test/.../ChatServiceToolConfirmationTest.kt` | 新增：**最关键的测试**——mock 一个 `requiresConfirmation=true` 的工具，验证用户拒绝时 `execute()` 从未被调用 |
 
 ---

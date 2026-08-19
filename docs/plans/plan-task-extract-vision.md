@@ -2,7 +2,7 @@
 
 > 版本: 1.0.0
 > 日期: 2026-07-31
-> 目标: 将 `VisionService.kt` 迁出为独立插件 `live2dai-plugin-vision`，实现 `Live2DaiPlugin` + `ToolDefinition` + `ChatHook`三合一；core 移除 VisionService.kt
+> 目标: 将 `VisionService.kt` 迁出为独立插件 `live2d-ai-plugin-vision`，实现 `Live2DAiPlugin` + `ToolDefinition` + `ChatHook`三合一；core 移除 VisionService.kt
 > 前置依赖: Wave 0（`task-plugin-sdk` + `task-chat-refactor`）已完成，`PluginManager`/`ChatService` 均已接入 hook 注册点
 
 ---
@@ -11,7 +11,7 @@
 
 ### 1.1 背景
 
-`VisionService.kt`（37 行，约 80 行有效代码）通过 Zhipu GLM-4V API 实现截图理解。当前直接放在 core 的 `com.live2dai.android` 包下，与 Live2D 渲染管线平级——违反了「极简 core + 插件扩展」的架构原则。
+`VisionService.kt`（37 行，约 80 行有效代码）通过 Zhipu GLM-4V API 实现截图理解。当前直接放在 core 的 `com.live2d.ai.android` 包下，与 Live2D 渲染管线平级——违反了「极简 core + 插件扩展」的架构原则。
 
 好消息：`VisionService` **没有被任何其他文件 import 或调用**（grep 确认仅定义文件自身 + `PersonaConfig.getVisionModel()` 被它引用），因此迁出是**纯删除+纯新建**，无需修改任何调用点。
 
@@ -26,7 +26,7 @@
 
 1. Core 移除 `VisionService.kt` 后编译通过，无插件时行为不变（无视觉能力但不崩溃）
 2. `app/build.gradle.kts` 添加插件依赖后，`PluginManager.loadPlugins()` 装载 → 截图描述自动注入对话上下文
-3. 插件独立仓库 `live2dai-plugin-vision` 可独立编译
+3. 插件独立仓库 `live2d-ai-plugin-vision` 可独立编译
 4. `BuildConfig.ZHIPU_API_KEY` 和 `SettingsRepository.zhipuApiKey` 继续留在 core（作为配置源），仅通过构造函数传入插件
 
 ---
@@ -71,17 +71,17 @@
 
 ```
 ┌─────────────────────────────┐
-│     live2dai-plugin-sdk     │  ← 纯 JVM module（无 Android）
-│  Live2DaiPlugin / ChatHook  │
+│     live2d-ai-plugin-sdk     │  ← 纯 JVM module（无 Android）
+│  Live2DAiPlugin / ChatHook  │
 │  ToolDefinition / PluginHost│
 │  ChatContext / PersonaSnap  │
 └──────────┬──────────────────┘
            │ compileOnly (vision plugin 依赖它)
            ▼
 ┌─────────────────────────────┐
-│  live2dai-plugin-vision     │  ← Android Library module
+│  live2d-ai-plugin-vision     │  ← Android Library module
 │                             │
-│  VisionPlugin               │  ← implements Live2DaiPlugin
+│  VisionPlugin               │  ← implements Live2DAiPlugin
 │  VisionDescribeHook         │  ← implements ChatHook
 │  ScreenCaptureTool          │  ← implements ToolDefinition
 │  ScreenshotProvider         │  ← interface (定义在插件内)
@@ -115,11 +115,11 @@
 
 ## 3. 模块划分
 
-### 3.1 插件模块 `live2dai-plugin-vision`
+### 3.1 插件模块 `live2d-ai-plugin-vision`
 
 | 子模块 | 文件 | 职责 |
 | -------- | ------ | ------ |
-| **插件入口** | `VisionPlugin.kt` | 实现 `Live2DaiPlugin`，在 `onLoad` 中注册 hook + tool |
+| **插件入口** | `VisionPlugin.kt` | 实现 `Live2DAiPlugin`，在 `onLoad` 中注册 hook + tool |
 | **对话钩子** | `VisionDescribeHook.kt` | 实现 `ChatHook.beforeSend`：截图→GLM-4V 描述→返回上下文字符串 |
 | **工具定义** | `ScreenCaptureTool.kt` | 实现 `ToolDefinition`：`capture_screen` 工具，name/description/JSON Schema/execute |
 | **视觉客户端** | `GlmVisionClient.kt` | 从现有 `VisionService.kt` 迁移：Bitmap→Base64→HTTP POST→解析响应 |
@@ -131,7 +131,7 @@
 ```kotlin
 // build.gradle.kts
 dependencies {
-    compileOnly(project(":plugin-sdk"))          // Live2DaiPlugin 等接口
+    compileOnly(project(":plugin-sdk"))          // Live2DAiPlugin 等接口
     implementation("com.squareup.okhttp3:okhttp:4.12.0")    // HTTP 请求
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")  // JSON
     // Android SDK (compileSdk) — 需要 Bitmap / Base64
@@ -157,7 +157,7 @@ dependencies {
 ### 4.1 VisionPluginConfig（插件内部）
 
 ```kotlin
-package com.live2dai.plugin.vision
+package com.live2d.ai.plugin.vision
 
 import android.graphics.Bitmap
 
@@ -229,10 +229,10 @@ class GlmVisionClient(
 
 ## 5. 接口定义
 
-### 5.1 Live2DaiPlugin 实现（VisionPlugin）
+### 5.1 Live2DAiPlugin 实现（VisionPlugin）
 
 ```kotlin
-class VisionPlugin(private val config: VisionPluginConfig) : Live2DaiPlugin {
+class VisionPlugin(private val config: VisionPluginConfig) : Live2DAiPlugin {
     override val id: String = "vision"
     override val version: String = "1.0.0"
 
@@ -313,7 +313,7 @@ class ScreenCaptureTool(
 ### 5.4 Core 侧 ScreenshotProvider 实现（AndroidScreenshotProvider）
 
 ```kotlin
-// 放置在 app 模块中（com.live2dai.android）
+// 放置在 app 模块中（com.live2d.ai.android）
 class AndroidScreenshotProvider(
     private val context: Context,  // applicationContext
 ) : ScreenshotProvider {
@@ -337,28 +337,28 @@ class AndroidScreenshotProvider(
 
 ## 6. 文件清单
 
-### 6.1 新增文件（live2dai-plugin-vision 仓库）
+### 6.1 新增文件（live2d-ai-plugin-vision 仓库）
 
 | # | 文件路径 | 说明 |
 | --- | --------- | ------ |
-| 1 | `live2dai-plugin-vision/build.gradle.kts` | Android Library 构建配置 |
-| 2 | `live2dai-plugin-vision/src/main/AndroidManifest.xml` | 空清单（无 Activity/Service） |
-| 3 | `live2dai-plugin-vision/src/main/java/com/live2dai/plugin/vision/VisionPlugin.kt` | Live2DaiPlugin 实现 |
-| 4 | `live2dai-plugin-vision/src/main/java/com/live2dai/plugin/vision/VisionPluginConfig.kt` | 构造参数 + ScreenshotProvider 接口 |
-| 5 | `live2dai-plugin-vision/src/main/java/com/live2dai/plugin/vision/GlmVisionClient.kt` | GLM-4V HTTP 客户端（从 VisionService 迁移） |
-| 6 | `live2dai-plugin-vision/src/main/java/com/live2dai/plugin/vision/VisionDescribeHook.kt` | ChatHook 实现 |
-| 7 | `live2dai-plugin-vision/src/main/java/com/live2dai/plugin/vision/ScreenCaptureTool.kt` | ToolDefinition 实现 |
-| 8 | `live2dai-plugin-vision/src/test/java/com/live2dai/plugin/vision/GlmVisionClientTest.kt` | HTTP 客户端单元测试 |
-| 9 | `live2dai-plugin-vision/src/test/java/com/live2dai/plugin/vision/VisionPluginTest.kt` | 插件注册流程测试 |
+| 1 | `live2d-ai-plugin-vision/build.gradle.kts` | Android Library 构建配置 |
+| 2 | `live2d-ai-plugin-vision/src/main/AndroidManifest.xml` | 空清单（无 Activity/Service） |
+| 3 | `live2d-ai-plugin-vision/src/main/java/com/live2d/ai/plugin/vision/VisionPlugin.kt` | Live2DAiPlugin 实现 |
+| 4 | `live2d-ai-plugin-vision/src/main/java/com/live2d/ai/plugin/vision/VisionPluginConfig.kt` | 构造参数 + ScreenshotProvider 接口 |
+| 5 | `live2d-ai-plugin-vision/src/main/java/com/live2d/ai/plugin/vision/GlmVisionClient.kt` | GLM-4V HTTP 客户端（从 VisionService 迁移） |
+| 6 | `live2d-ai-plugin-vision/src/main/java/com/live2d/ai/plugin/vision/VisionDescribeHook.kt` | ChatHook 实现 |
+| 7 | `live2d-ai-plugin-vision/src/main/java/com/live2d/ai/plugin/vision/ScreenCaptureTool.kt` | ToolDefinition 实现 |
+| 8 | `live2d-ai-plugin-vision/src/test/java/com/live2d/ai/plugin/vision/GlmVisionClientTest.kt` | HTTP 客户端单元测试 |
+| 9 | `live2d-ai-plugin-vision/src/test/java/com/live2d/ai/plugin/vision/VisionPluginTest.kt` | 插件注册流程测试 |
 
 ### 6.2 修改文件（Core 仓库）
 
 | # | 文件路径 | 变更类型 | 说明 |
 | --- | --------- | --------- | ------ |
 | 10 | `app/build.gradle.kts` | 修改 | 添加插件依赖 |
-| 11 | `app/src/main/java/com/live2dai/android/VisionService.kt` | **删除** | 完整移除 |
-| 12 | `app/src/main/java/com/live2dai/android/MainActivity.kt` | 修改 | `loadPlugins()` 传入 VisionPlugin 实例 |
-| 13 | `app/src/main/java/com/live2dai/android/AndroidScreenshotProvider.kt` | 新增 | ScreenshotProvider 的空壳实现 |
+| 11 | `app/src/main/java/com/live2d/ai/android/VisionService.kt` | **删除** | 完整移除 |
+| 12 | `app/src/main/java/com/live2d/ai/android/MainActivity.kt` | 修改 | `loadPlugins()` 传入 VisionPlugin 实例 |
+| 13 | `app/src/main/java/com/live2d/ai/android/AndroidScreenshotProvider.kt` | 新增 | ScreenshotProvider 的空壳实现 |
 | 14 | `settings.gradle.kts` | 修改（可选） | 若以 Gradle module 形式引入，需 `include` |
 
 ### 6.3 不修改的文件
@@ -366,7 +366,7 @@ class AndroidScreenshotProvider(
 | 文件 | 原因 |
 | ------ | ------ |
 | `plugin-sdk/**` | PluginHost 接口已满足需求，无需变更 |
-| `PluginManager.kt` | `loadPlugins()` 接受 `List<Live2DaiPlugin>`，已就绪 |
+| `PluginManager.kt` | `loadPlugins()` 接受 `List<Live2DAiPlugin>`，已就绪 |
 | `ChatService.kt` | beforeSend/afterReceive 钩子点已就绪 |
 | `PersonaConfig.kt` | `getVisionModel()` 继续留在 core，作为配置源 |
 | `SettingsRepository.kt` | `zhipuApiKey` 继续留在 core，作为配置源 |
@@ -379,17 +379,17 @@ class AndroidScreenshotProvider(
 
 ### Phase 1: 插件仓库搭建（并行）
 
-1. **创建插件目录结构**：按 6.1 的文件清单创建 `live2dai-plugin-vision/`
+1. **创建插件目录结构**：按 6.1 的文件清单创建 `live2d-ai-plugin-vision/`
 2. **编写 `build.gradle.kts`**：Android Library 模块，compileSdk=35，依赖 plugin-sdk
 3. **迁移 GlmVisionClient**：从 `VisionService.kt` 复制 HTTP 逻辑，去掉对 `PersonaConfig`/`BuildConfig` 的依赖，改为参数化
 4. **实现 VisionPlugin / VisionDescribeHook / ScreenCaptureTool**
 5. **编写单元测试**（用 MockWebServer 模拟 GLM-4V 响应 + mock ScreenshotProvider）
-6. **独立编译验证**：`./gradlew :live2dai-plugin-vision:assemble`
+6. **独立编译验证**：`./gradlew :live2d-ai-plugin-vision:assemble`
 
 ### Phase 2: Core 侧接入
 
-1. **修改 `app/build.gradle.kts`**：添加插件依赖（`implementation(project(":live2dai-plugin-vision"))`）
-2. **修改 `settings.gradle.kts`**：添加 `include(":live2dai-plugin-vision")`
+1. **修改 `app/build.gradle.kts`**：添加插件依赖（`implementation(project(":live2d-ai-plugin-vision"))`）
+2. **修改 `settings.gradle.kts`**：添加 `include(":live2d-ai-plugin-vision")`
 3. **删除 `VisionService.kt`**
 4. **新增 `AndroidScreenshotProvider.kt`**（空壳实现，capture() 返回 null）
 5. **修改 `MainActivity.kt`**：在 `loadPlugins()` 中构造并传入 VisionPlugin
@@ -422,7 +422,7 @@ class AndroidScreenshotProvider(
 | 插件实现为 ToolDefinition（"看屏幕"工具） | ✅ `ScreenCaptureTool` 实现 `ToolDefinition` |
 | core 移除 VisionService.kt 直接引用 | ✅ VisionService.kt 完整删除，core 无任何 import |
 | 通过 plugin-sdk 依赖注册 | ✅ VisionPlugin 通过 `PluginHost.registerHook/registerTool` 注册 |
-| 同进程 Gradle 依赖方式 | ✅ `implementation(project(":live2dai-plugin-vision"))` |
+| 同进程 Gradle 依赖方式 | ✅ `implementation(project(":live2d-ai-plugin-vision"))` |
 | 零侵入：旧模型/无插件时不受影响 | ✅ capture()=null 时 hook 静默跳过，对话流程不变 |
 
 ---

@@ -1,25 +1,24 @@
 # WSL2 迁移计划：pc 端主力代码迁移到 WSL2 环境
 
-> 状态: 计划（未执行，已定为方向） | 创建日期: 2026-08-19 | 适用: `Live2Dai-pc/`
-> 定位: **WSL2 为 PC 端主力（开发 + 运行 + CI）；Windows 降为次要/遗留平台（保留启动方式，但不再作为主力维护/发布目标）。**
-> 目标验证深度: 完整迁移并跑通验证（安装依赖 → 启动 → /health + 前端渲染 + 配置加载）
+> 状态: **已执行（结构性迁移 + 更名完成）**（2026-08-19） | 创建日期: 2026-08-19 | 适用: `Live2D-Ai-pc/`
+> 定位: **WSL2 为 PC 端主力（开发 + 运行 + CI）；原生 Windows 已放弃**（Windows 启动入口 `start.ps1` / `启动Live2D-Ai.bat` 已移除）。项目仓库已从 G 盘 `/mnt/g/git/Live2Dai` 迁移至 WSL2 原生盘并更名为 `Live2D-Ai`。
+> 待验证: 完整运行验证（安装依赖 → 启动 → /health + 前端渲染 + 配置加载）需在本机执行 Phase 1-3 后落地。
 
 ---
 
 ## 1. 背景与目标
 
-当前 PC 端（`Live2Dai-pc/`，基于 Open-LLM-VTuber）主要在 **Windows** 下运行：
-一键入口是 `start.ps1` / `启动Live2Dai.bat`，依赖 Windows 上的 `.venv`（`Scripts/python.exe`）。
+当前 PC 端（`Live2D-Ai-pc/`，基于 Open-LLM-VTuber）主要在 **Windows** 下运行：
+一键入口是 `start.ps1` / `启动Live2D-Ai.bat`，依赖 Windows 上的 `.venv`（`Scripts/python.exe`）。
 
-**项目轨迹（2026-08-19 用户定调）：PC 端主力迁移到 WSL2，放弃 Windows 作为主力。**
-本次目标：**让 PC 端主力代码在 WSL2 里原生运行、可验证、可持续**。Windows 端仅保留既有启动方式
-作为**遗留降级（legacy）**——不删除、不主动维护，也不再作为新功能的优先级目标。
+**项目轨迹（2026-08-19 用户定调）：PC 端主力迁移到 WSL2，放弃 Windows 作为主力，最终放弃原生 Windows。**
+本次目标：**让 PC 端主力代码在 WSL2 里原生运行、可验证、可持续**，**移除原生 Windows 启动入口**（作为主力进一步升级为「放弃 Windows」）。
 
 ### 验收标准（Definition of Done）
 
 1. WSL2 内存在独立 Python 3.10~3.12 虚拟环境（放 WSL 原生盘，不在 `/mnt/g`）。
 2. `open-llm-vtuber` 全部 Python 依赖在 WSL 内安装成功（`import open_llm_vtuber` 通过）。
-3. 新增 Linux 启动脚本 `Live2Dai-pc/start.sh`（含环境自检），能正常拉起后端，作为**主力入口**。
+3. 新增 Linux 启动脚本 `Live2D-Ai-pc/start.sh`（含环境自检），能正常拉起后端，作为**主力入口**。
 4. `curl http://localhost:12393/health` 返回 200。
 5. 从 **Windows 浏览器** 访问 `http://localhost:12393` 能渲染 Live2D 前端（验证 WSL2 localhost 转发）。
 6. 人设/配置加载正常（启动日志出现 `Loaded persona from .../shared/persona.yaml`）。
@@ -33,7 +32,7 @@
 | 项 | 现状 | 对迁移的影响 |
 | --- | --- | --- |
 | 运行环境 | 当前就在 WSL2（Ubuntu 26.04, 内核 6.18 microsoft-standard-WSL2） | 直接在本机验证 |
-| 仓库位置 | `/mnt/g/git/Live2Dai`（G 盘挂载，跨文件系统） | venv 不能放这里（IO 慢），需放 WSL 原生盘 |
+| 仓库位置 | `/mnt/g/git/Live2D-Ai`（G 盘挂载，跨文件系统） | venv 不能放这里（IO 慢），需放 WSL 原生盘 |
 | 系统 Python | 3.14.4 | **不满足** `requires-python >=3.10,<3.13`，需另装 3.12 |
 | 现有 `.venv` | Windows venv（`Scripts/python.exe`） | WSL 下不可用；保留不动，另建 Linux venv |
 | `uv` | 未安装 | 推荐引入（快速装 3.12 + 依赖） |
@@ -59,7 +58,7 @@
    - 降级方案：`sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt-get install python3.12 python3.12-venv`。
 
 2. **venv 位置（已决策）**
-   - 放 `~/Live2Dai-pc/.venv`（WSL 原生盘，IO 快）。
+   - 放 `~/Live2D-Ai-pc/.venv`（WSL 原生盘，IO 快）。
    - 与仓库内 Windows `.venv` 完全隔离，互不影响。
 
 3. **依赖体量大（torch / onnxruntime / faster-whisper）**
@@ -79,8 +78,8 @@
    - 执行 `git submodule update --init --recursive`；若 `frontend/` 为空则页面白屏。
 
 7. **启动脚本**（只新增不删改）
-   - 新增 `Live2Dai-pc/start.sh`（Linux 版一键启动 + 环境自检），
-     `启动Live2Dai.bat` 与 `start.ps1` 保持不变。
+   - 新增 `Live2D-Ai-pc/start.sh`（Linux 版一键启动 + 环境自检），
+     `启动Live2D-Ai.bat` 与 `start.ps1` 保持不变。
 
 ---
 
@@ -89,7 +88,7 @@
 ### Phase 0 — 环境准备（一次性）
 ```bash
 # 0.1 进入项目
-cd /mnt/g/git/Live2Dai/Live2Dai-pc/open-llm-vtuber
+cd /mnt/g/git/Live2D-Ai/Live2D-Ai-pc/open-llm-vtuber
 
 # 0.2 前端 submodule（frontend/ 为空会导致白屏）
 git submodule update --init --recursive
@@ -111,56 +110,56 @@ which git curl unzip
 ### Phase 1 — 创建 Linux venv 并安装依赖
 ```bash
 # 1.1 venv 放 WSL 原生盘（不在 /mnt/g）
-mkdir -p ~/Live2Dai-pc
-uv venv --python 3.12 ~/Live2Dai-pc/.venv
+mkdir -p ~/Live2D-Ai-pc
+uv venv --python 3.12 ~/Live2D-Ai-pc/.venv
 
 # 1.2 安装 open-llm-vtuber（editable，含 src 路径）+ bilibili 可选
 uv pip install \
-    --python ~/Live2Dai-pc/.venv/bin/python \
+    --python ~/Live2D-Ai-pc/.venv/bin/python \
     -e . --extra bilibili
 
 # 1.3 （可选，省空间）torch 换 CPU 版：
 # 先在 1.2 之外单独装：
-# uv pip install --python ~/Live2Dai-pc/.venv/bin/python \
+# uv pip install --python ~/Live2D-Ai-pc/.venv/bin/python \
 #     torch --index-url https://download.pytorch.org/whl/cpu
 
 # 1.4 验证
-~/Live2Dai-pc/.venv/bin/python --version            # 3.12.x
-~/Live2Dai-pc/.venv/bin/python -c "import open_llm_vtuber, fastapi, edge_tts; print('imports OK')"
+~/Live2D-Ai-pc/.venv/bin/python --version            # 3.12.x
+~/Live2D-Ai-pc/.venv/bin/python -c "import open_llm_vtuber, fastapi, edge_tts; print('imports OK')"
 ```
 
 ### Phase 2 — 新增 Linux 启动脚本（新增文件，不破坏 Windows 入口）
-新增 `Live2Dai-pc/start.sh`（示意，执行时落盘并 `chmod +x`）：
+新增 `Live2D-Ai-pc/start.sh`（示意，执行时落盘并 `chmod +x`）：
 
 ```bash
 #!/usr/bin/env bash
-# Live2Dai — WSL2/Linux 一键启动（仅启动 + 日志）
+# Live2D-Ai — WSL2/Linux 一键启动（仅启动 + 日志）
 # 默认人设: 白 | 访问 http://localhost:12393
 set -euo pipefail
 ProjectRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VtuberDir="$ProjectRoot/open-llm-vtuber"
-VenvDir="${LIVE2DAI_WSL_VENV:-$HOME/Live2Dai-pc/.venv}"
+VenvDir="${LIVE2DAI_WSL_VENV:-$HOME/Live2D-Ai-pc/.venv}"
 PY="$VenvDir/bin/python"
 
 if [ ! -x "$PY" ]; then
-    echo "[Live2Dai] 未找到 WSL venv: $PY"
-    echo "[Live2Dai] 请先执行 Phase 1（uv venv + uv pip install -e .），或设 LIVE2DAI_WSL_VENV"
+    echo "[Live2D-Ai] 未找到 WSL venv: $PY"
+    echo "[Live2D-Ai] 请先执行 Phase 1（uv venv + uv pip install -e .），或设 LIVE2DAI_WSL_VENV"
     exit 1
 fi
 
 cd "$VtuberDir"
-echo "[Live2Dai] Starting server... http://localhost:12393"
+echo "[Live2D-Ai] Starting server... http://localhost:12393"
 exec "$PY" run_server.py
 ```
 
-命令：`chmod +x Live2Dai-pc/start.sh && Live2Dai-pc/start.sh`
+命令：`chmod +x Live2D-Ai-pc/start.sh && Live2D-Ai-pc/start.sh`
 
-（可选）新增 `Live2Dai-pc/setup_wsl.sh` 一键完成 Phase 0+1+2（幂等：已有 venv 则跳过创建）。
+（可选）新增 `Live2D-Ai-pc/setup_wsl.sh` 一键完成 Phase 0+1+2（幂等：已有 venv 则跳过创建）。
 
 ### Phase 3 — 启动 & 验证
 ```bash
 # 3.1 启动（前台观察日志；确认出现 Loaded persona from .../shared/persona.yaml）
-Live2Dai-pc/start.sh
+Live2D-Ai-pc/start.sh
 
 # 3.2 健康检查（另开终端）
 curl -s http://localhost:12393/health
@@ -179,9 +178,9 @@ curl -s http://localhost:12393/health
 - [ ] （可选，模型大）ASR：`faster_whisper` 下载一次模型后可用
 
 ### Phase 4 — 文档更新
-1. `Live2Dai-pc/README.md`：新增「WSL2 启动」章节（一键 `./start.sh` + 依赖安装说明），
-   并将绝对路径示例改为双平台说明（Windows `F:\Live2Dai` / WSL `/mnt/g/git/Live2Dai`）。
-2. `Live2Dai-pc/AGENT.md`：启动方式表补 `start.sh`。
+1. `Live2D-Ai-pc/README.md`：新增「WSL2 启动」章节（一键 `./start.sh` + 依赖安装说明），
+   并将绝对路径示例改为双平台说明（Windows `F:\Live2D-Ai` / WSL `/mnt/g/git/Live2D-Ai`）。
+2. `Live2D-Ai-pc/AGENT.md`：启动方式表补 `start.sh`。
 3. `CHANGELOG.md`：记录「PC 端 WSL2 迁移（2026-08-19）」。
 4. 本文件（`docs/plans/wsl2-migration-plan.md`）执行后更新状态为「已落地 + 验证结果」。
 
@@ -191,14 +190,14 @@ curl -s http://localhost:12393/health
 
 | 文件 | 动作 | 说明 |
 | --- | --- | --- |
-| `Live2Dai-pc/start.sh` | 新增 | Linux/WSL2 一键启动 |
-| `Live2Dai-pc/setup_wsl.sh` | 新增（可选） | 幂等的环境+依赖+venv 初始化 |
-| `Live2Dai-pc/README.md` | 修改 | 补 WSL2 章节 |
-| `Live2Dai-pc/AGENT.md` | 修改 | 启动方式补 start.sh |
+| `Live2D-Ai-pc/start.sh` | 新增 | Linux/WSL2 一键启动 |
+| `Live2D-Ai-pc/setup_wsl.sh` | 新增（可选） | 幂等的环境+依赖+venv 初始化 |
+| `Live2D-Ai-pc/README.md` | 修改 | 补 WSL2 章节 |
+| `Live2D-Ai-pc/AGENT.md` | 修改 | 启动方式补 start.sh |
 | `CHANGELOG.md` | 修改 | 迁移记录 |
 | `docs/plans/wsl2-migration-plan.md` | 新增 | 本计划 |
 
-> 保留/不动（**遗留，非主力**）：`start.ps1`、`启动Live2Dai.bat`、仓库内 Windows `.venv`——
+> 保留/不动（**遗留，非主力**）：`start.ps1`、`启动Live2D-Ai.bat`、仓库内 Windows `.venv`——
 > 仅保证不被破坏，不作为新功能/发布的优先级目标。
 
 ---
@@ -222,7 +221,7 @@ curl -s http://localhost:12393/health
 | faster-whisper 模型下载大 | 中 | 冒烟期 `asr_model: disabled`，验证后再启用 |
 | `pyttsx3` SAPI 在 Linux 不可用 | 低 | 默认 TTS 已是云端/edge_tts；文档注明勿选 pyttsx3 |
 | `/mnt/g` 跨盘运行 IO 慢 | 低 | venv 已放原生盘；代码只读，首启稍慢可接受 |
-| Windows/WSL 双 venv 混淆 | 低 | 脚本显式区分：ps1 用 `.venv/Scripts`，sh 用 `~/Live2Dai-pc/.venv` |
+| Windows/WSL 双 venv 混淆 | 低 | 脚本显式区分：ps1 用 `.venv/Scripts`，sh 用 `~/Live2D-Ai-pc/.venv` |
 | WSL IP/端口变化 | 低 | 用 localhost 转发即可；`0.0.0.0:12393` 已绑定 |
 | 前端 submodule 缺失 | 中 | Phase 0 显式 `git submodule update --init --recursive` |
 
@@ -230,9 +229,9 @@ curl -s http://localhost:12393/health
 
 ## 8. 验收 Checklist（勾选用）
 
-- [ ] `uv python install 3.12` 成功且 `~/Live2Dai-pc/.venv/bin/python --version` = 3.12.x
+- [ ] `uv python install 3.12` 成功且 `~/Live2D-Ai-pc/.venv/bin/python --version` = 3.12.x
 - [ ] `import open_llm_vtuber, fastapi, edge_tts` 通过
-- [ ] `Live2Dai-pc/start.sh` 可执行、能拉起后端
+- [ ] `Live2D-Ai-pc/start.sh` 可执行、能拉起后端
 - [ ] `curl http://localhost:12393/health` 200
 - [ ] Windows 浏览器访问 `http://localhost:12393` 渲染 Live2D + Dashboard 可开
 - [ ] 人设从 `shared/persona.yaml` 加载成功（日志确认）

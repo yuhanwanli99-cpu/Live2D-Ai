@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 _PC_SRC = os.path.join(
-    os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "src"
+    os.path.dirname(__file__), "..", "Live2D-Ai-pc", "open-llm-vtuber", "src"
 )
 if _PC_SRC not in sys.path:
     sys.path.insert(0, _PC_SRC)

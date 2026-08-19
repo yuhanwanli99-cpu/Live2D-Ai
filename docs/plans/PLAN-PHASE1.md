@@ -1,4 +1,4 @@
-# Live2Dai Phase 1 结构化架构规划
+# Live2D-Ai Phase 1 结构化架构规划
 
 > 产出时间: 2026-08-08 | 架构师: software-architect (SPOQ Phase: architecting)
 > 范围: Part A (架构分层重构) + Part B (三层推进级3) + Part C (UI/UX矫正)
@@ -171,7 +171,7 @@ PluginBootstrap (≈100 行, 独立编排)
 
 ```
 MainActivity.kt (壳, ~200行)
-  └── Live2DaiApp() Composable (导航)
+  └── Live2DAiApp() Composable (导航)
         ├── MainChatScreen(onOpenSettings, onLive2DViewCreated)
         │     ├── MainChatViewModel (viewModel)
         │     ├── Live2DStage(live2DView, emotionState)
@@ -209,7 +209,7 @@ MainActivity.kt (壳, ~200行)
 
 ```json
 {
-  "$schema": "https://live2dai.dev/emotion-protocol/v1",
+  "$schema": "https://live2d-ai.dev/emotion-protocol/v1",
   "expressionMix": {
     "joy": 0.8,
     "surprise": 0.2
@@ -694,7 +694,7 @@ data class PlaybackProgress(
 | **P0** | 表情硬切无过渡 | 表情突变，嘴型随机不等同语音 |
 | P1 | Idle 单循环 | 动作重复机械 |
 | P1 | 首次引导纯文字 | 弹窗生硬 |
-| P1 | TopAppBar 无角色名 | 只显示 "Live2Dai" |
+| P1 | TopAppBar 无角色名 | 只显示 "Live2D-Ai" |
 | P2 | 输入栏占满 | 无快捷表情/话题建议 |
 | P2 | 设置页开发者面板 | API Key 堆砌 |
 

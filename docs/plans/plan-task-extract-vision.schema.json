@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://live2dai.dev/schemas/plugin-vision-config.json",
+  "$id": "https://live2d-ai.dev/schemas/plugin-vision-config.json",
   "title": "VisionPlugin Configuration",
-  "description": "构造参数定义——live2dai-plugin-vision 插件实例化所需的配置",
+  "description": "构造参数定义——live2d-ai-plugin-vision 插件实例化所需的配置",
   "type": "object",
   "properties": {
     "apiKey": {

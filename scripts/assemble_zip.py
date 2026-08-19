@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Assemble the Live2Dai-pc portable Windows zip (uv-venv-bundle).
+"""Assemble the Live2D-Ai-pc portable Windows zip (uv-venv-bundle).
 
 Pipeline (mirrors CI job ``build-pc-windows`` in .github/workflows/build-upload.yml):
 
-  1. Stage a pristine copy of ``shared/`` + ``Live2Dai-pc/open-llm-vtuber/``
+  1. Stage a pristine copy of ``shared/`` + ``Live2D-Ai-pc/open-llm-vtuber/``
      (runtime dirs / user config / dev venv excluded).
   2. ``uv python install 3.12`` + ``uv sync --python 3.12 --frozen`` → a
      complete ``.venv`` with ALL dependencies (torch, onnxruntime, ...).
@@ -18,7 +18,7 @@ Pipeline (mirrors CI job ``build-pc-windows`` in .github/workflows/build-upload.
   4. ``scripts/bundle_ffmpeg.py`` → ``bin/`` (ffmpeg.exe + ffprobe.exe + DLLs).
   5. ``scripts/check_resources.py`` → sentinel preflight on the staging tree.
   6. Zip everything, preserving the repo layout (zip root == repo root:
-     ``shared/`` + ``Live2Dai-pc/open-llm-vtuber/``), excluding runtime
+     ``shared/`` + ``Live2D-Ai-pc/open-llm-vtuber/``), excluding runtime
      dirs (models/ avatars/ cache/ logs/) and other non-shipping entries.
   7. ``scripts/verify_package.py`` on the produced zip.
 
@@ -80,7 +80,7 @@ STAGING_FILE_EXCLUDES = (".pyc", ".pyo")
 ZIP_TOP_RUNTIME_DIRS = frozenset({"models", "avatars", "cache", "logs"})
 ZIP_GLOBAL_EXCLUDES = frozenset({".git", "__pycache__", ".onboarding_done", "build", ".github"})
 ZIP_FILE_EXCLUDES = (".pyc", ".pyo")
-OPEN_LLM_PREFIX = "Live2Dai-pc/open-llm-vtuber/"
+OPEN_LLM_PREFIX = "Live2D-Ai-pc/open-llm-vtuber/"
 
 
 def copy_tree_filtered(src: str, dst: str) -> int:
@@ -283,9 +283,9 @@ def main(argv: list[str] | None = None) -> int:
     staging = args.staging or os.path.join(out_dir, "staging")
     os.makedirs(out_dir, exist_ok=True)
 
-    src_app = os.path.join(repo, "Live2Dai-pc", "open-llm-vtuber")
+    src_app = os.path.join(repo, "Live2D-Ai-pc", "open-llm-vtuber")
     src_shared = os.path.join(repo, "shared")
-    dst_app = os.path.join(staging, "Live2Dai-pc", "open-llm-vtuber")
+    dst_app = os.path.join(staging, "Live2D-Ai-pc", "open-llm-vtuber")
     dst_shared = os.path.join(staging, "shared")
 
     # --skip-sync: preserve the previous staging .venv + bin/ across the re-stage
@@ -298,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
                 "--skip-sync requires an existing staging .venv; run the full "
                 "pipeline once without --skip-sync first."
             )
-        saved = tempfile.mkdtemp(prefix="live2dai-skip-sync-")
+        saved = tempfile.mkdtemp(prefix="live2d-ai-skip-sync-")
         shutil.move(old_venv, os.path.join(saved, ".venv"))
         if os.path.isdir(old_bin):
             shutil.move(old_bin, os.path.join(saved, "bin"))
@@ -360,11 +360,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 6. assemble the zip (repo-root semantics preserved) ─────────────────
     sha = git_short_sha(repo)
-    zip_name = f"live2dai-pc-windows-{sha}.zip"
+    zip_name = f"live2d-ai-pc-windows-{sha}.zip"
     zip_path = os.path.join(out_dir, zip_name)
-    with tempfile.TemporaryDirectory(prefix="live2dai-zip-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="live2d-ai-zip-") as tmp:
         # Compress-Archive-style: zip the staging *contents* so the zip root
-        # equals the repo root (contains shared/ and Live2Dai-pc/).
+        # equals the repo root (contains shared/ and Live2D-Ai-pc/).
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             added = add_tree_to_zip(zf, staging, "")
         print(f"[assemble_zip] wrote {zip_path} ({os.path.getsize(zip_path) / 1e6:.1f} MB, {added} files)")

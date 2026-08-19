@@ -1,4 +1,4 @@
-# Live2Dai UX 全量对标 + 重设计方案
+# Live2D-Ai UX 全量对标 + 重设计方案
 
 > 产出时间：2026-08-07
 > 对标项目：N.E.K.O.、Open-LLM-VTuber、AI-Vtuber(Ikaros)、Soul of Waifu
@@ -12,7 +12,7 @@
 
 ## 2. 全局差距一览
 
-| 模块 | N.E.K.O. | Open-LLM-VTuber | **Live2Dai 现在** | 差距 |
+| 模块 | N.E.K.O. | Open-LLM-VTuber | **Live2D-Ai 现在** | 差距 |
 |---|---|---|---|---|
 | **设置页结构** | 独立页面 + Tag 分类 | YAML 配置文件（非 GUI） | 一页长列表堆砌 | 巨大 |
 | **API Key 管理** | 独立 `/api_key` 页，每个 Provider 单独卡片 | conf.yaml 环境变量 `${VAR}` | 分散输入框，无 Provider 分组 | 巨大 |

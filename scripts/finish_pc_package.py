@@ -2,7 +2,7 @@
 """Finish an existing PC staging tree without re-running uv sync.
 
 Use after `scripts/assemble_zip.py` has already populated
-`build/staging/Live2Dai-pc/open-llm-vtuber/.venv` (e.g. when the full
+`build/staging/Live2D-Ai-pc/open-llm-vtuber/.venv` (e.g. when the full
 pipeline was interrupted). It performs the remaining steps:
 
   1. absorb the standalone Python into .venv/Scripts
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = args.repo or os.path.dirname(SCRIPT_DIR)
     out_dir = args.out or os.path.join(repo, "build")
     staging = args.staging or os.path.join(out_dir, "staging")
-    dst_app = os.path.join(staging, "Live2Dai-pc", "open-llm-vtuber")
+    dst_app = os.path.join(staging, "Live2D-Ai-pc", "open-llm-vtuber")
     venv_dir = os.path.join(dst_app, ".venv")
 
     if not os.path.isdir(venv_dir):
@@ -67,9 +67,9 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("resource sentinel check failed")
 
     sha = az.git_short_sha(repo)
-    zip_name = f"live2dai-pc-windows-{sha}.zip"
+    zip_name = f"live2d-ai-pc-windows-{sha}.zip"
     zip_path = os.path.join(out_dir, zip_name)
-    with tempfile.TemporaryDirectory(prefix="live2dai-zip-") as _tmp:
+    with tempfile.TemporaryDirectory(prefix="live2d-ai-zip-") as _tmp:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             added = az.add_tree_to_zip(zf, staging, "")
         print(f"[finish_pc_package] wrote {zip_path} ({os.path.getsize(zip_path) / 1e6:.1f} MB, {added} files)")

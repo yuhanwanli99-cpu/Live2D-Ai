@@ -1,16 +1,16 @@
-# Live2Dai 核心融合引擎调研报告 —— AI ⟷ Live2D 三层融合深度对比
+# Live2D-Ai 核心融合引擎调研报告 —— AI ⟷ Live2D 三层融合深度对比
 
 > 调研员：researcher agent（只读）｜日期：2026-08-05｜原则：只打磨核心融合引擎，不调研外围功能；每条结论附来源；抓取失败标「未找到公开信息」；不编造。
-> 复用：`docs/research/NEURO_LIVE2D_RESEARCH.md`、`docs/research/benchmark-neko-vs-neurosama.md`、`docs/research/tts-research-report.md`。`文件:行号`= `G:/git/Live2Dai` main 分支实测。
+> 复用：`docs/research/NEURO_LIVE2D_RESEARCH.md`、`docs/research/benchmark-neko-vs-neurosama.md`、`docs/research/tts-research-report.md`。`文件:行号`= `G:/git/Live2D-Ai` main 分支实测。
 
 ---
 
 ## 0. 总览（TL;DR）
 
-- **三层融合，Live2Dai 当前全在「级1（最浅）」**：级1 表情关键词→硬切、级1 嘴型正弦波、级1 Idle 单循环不跟内容。
+- **三层融合，Live2D-Ai 当前全在「级1（最浅）」**：级1 表情关键词→硬切、级1 嘴型正弦波、级1 Idle 单循环不跟内容。
 - **社区最深可证实基准**：级2/3 表情=`entropy622/LLM_Live2D`（LLM 结构化 `expressionMix`+`parameterOverrides`）；级3/4 口型=`organics2016/pymouth`（DTW 元音置信度，移动端 CPU 可跑）与 Live2D 官方 Motion-Sync（A/I/U/E/O 视素）；级3 动作联动=`my-neuro` 的 `emotion-motion-mapper`（情绪标签带**文本位置**，TTS 播到该字符触发动作）。
 - **Neuro-sama 表情实现闭源** → 未见多维情感向量证据，社区共识上限约级2-3：`docs/research/NEURO_LIVE2D_RESEARCH.md:76-96`。
-- **关键发现：Live2Dai 基础设施并不缺**——Android 已有 `EyeBlinkManager`、`BreathManager`、0.5s fade 的 `ExpressionManager`、Idle Motion（§4）。**缺的是「把 LLM 内容/语音接到这些基础设施、且不打断」的接线逻辑**，多为接线而非造轮子。
+- **关键发现：Live2D-Ai 基础设施并不缺**——Android 已有 `EyeBlinkManager`、`BreathManager`、0.5s fade 的 `ExpressionManager`、Idle Motion（§4）。**缺的是「把 LLM 内容/语音接到这些基础设施、且不打断」的接线逻辑**，多为接线而非造轮子。
 - **优先级**：P0＝级1.5 表情平滑化（不硬切、句子间隙切换、修 fallback 硬切）＋级2 口型（音量 RMS 替正弦）；P1＝级3 表情（强度/混合）＋级3 口型（元音，PC 用 pymouth）；P2＝级4 口型＋级3 动作文本位置联动＋Idle 多样化。
 
 ---
@@ -18,7 +18,7 @@
 ## 1. 融合链路对比
 
 ```
-[当前 Live2Dai]（Android 与 PC 同模式）
+[当前 Live2D-Ai]（Android 与 PC 同模式）
  文本/语音→LLM→[emotion]标签→EmotionController 关键词→index(硬切,fallback无fade)→setExpression
  LLM回复→TTS→isSpeaking开关→LipSyncMath.mouthValue=0.65+0.25*sin(frame)(正弦,不随内容)→setLipSyncParam
  Idle 单循环(startIdleMotion) 不随对话/情绪
@@ -36,18 +36,18 @@
 ### 2.1 分级
 | 级 | 描述 | 代表 |
 |---|---|---|
-| 1 | 关键词→表情索引，硬切换 | **Live2Dai 现状**；Open-LLM-VTuber；Neuro 复刻 |
+| 1 | 关键词→表情索引，硬切换 | **Live2D-Ai 现状**；Open-LLM-VTuber；Neuro 复刻 |
 | 2 | fade 平滑过渡，句子间隙触发 | my-neuro `emotion-motion-mapper`；Live2D Expression Motion |
 | 3 | 情感强度/混合（expressionMix）+参数覆盖 | `entropy622/LLM_Live2D`；学术 PAD/EVOKE |
 
 ### 2.2 业界真实深度
 - **主流开源 Vtuber 均「关键词→表达式索引」（级1/2），无多维情感向量落地**。Open-LLM-VTuber `extract_emotion` 纯标签查找：按 `emo_map` key 匹配 `[]` 后 `expression_list.append(self.emo_map[key])`——https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/blob/19b58b1f/src/open_llm_vtuber/live2d_model.py （本文已抓取，:188-214）。DeepWiki 印证「keyword-matching approach based on model_dict.json」：https://deepwiki.com/Open-LLM-VTuber/Open-LLM-VTuber/10.2-emotion-mapping-and-expression-extraction
 - **确有「情感强度/混合」开源实现——`entropy622/LLM_Live2D`（实验性前端）**：让 LLM 返回结构化 JSON（回复文本＋`expressionMix`＋可选 `parameterOverrides`）叠加到表情/参数。原句「LLM 返回结构化 JSON，包含回复文本、expressionMix 和可选的 parameterOverrides」「支持表情混合控制」「受 Neuro Sama 启发」——https://github.com/entropy622/LLM_Live2D 。**这是普通用户能体会「同样是 joy、强度不同」的唯一开源产品路径**。注：SRSS 未能二次抓仓库全文，以此 README 为准。
-- **多维情感向量（valence/arousal/dominance,PAD）在动作方向有学术/原型，未接到 Live2D 产品链路**：PAD（Pleasure/Arousal/Dominance）https://en.wikipedia.org/wiki/PAD_emotional_state_model ；PAD 驱动动作 https://github.com/HerouFenix/Emotionally-Expressive-Motion-Controller-for-Virtual-Characters ；EVOKE→3D avatar https://arxiv.org/html/2401.06957 。**均未落地主流 Live2D Vtuber → 层级未到产品级，Live2Dai 不必直接用**。
+- **多维情感向量（valence/arousal/dominance,PAD）在动作方向有学术/原型，未接到 Live2D 产品链路**：PAD（Pleasure/Arousal/Dominance）https://en.wikipedia.org/wiki/PAD_emotional_state_model ；PAD 驱动动作 https://github.com/HerouFenix/Emotionally-Expressive-Motion-Controller-for-Virtual-Characters ；EVOKE→3D avatar https://arxiv.org/html/2401.06957 。**均未落地主流 Live2D Vtuber → 层级未到产品级，Live2D-Ai 不必直接用**。
 - **Neuro-sama 是否用多维向量/强度 → 未找到公开信息（渲染闭源）**；社区共识上限约级2：`docs/research/NEURO_LIVE2D_RESEARCH.md:76-96` 与 `docs/research/benchmark-neko-vs-neurosama.md`。
 
 ### 2.3 隐性参数（眨眼/呼吸/动作速度）
-- 这些是「自然感」标配基础，**Live2Dai 已具备绝大部分**——见 §4。社区参考 pixi-live2d-display `live2dAutoBlinkEnabled`/`live2dIdleAnimationEnabled`：`docs/research/NEURO_LIVE2D_RESEARCH.md:60-72`。
+- 这些是「自然感」标配基础，**Live2D-Ai 已具备绝大部分**——见 §4。社区参考 pixi-live2d-display `live2dAutoBlinkEnabled`/`live2dIdleAnimationEnabled`：`docs/research/NEURO_LIVE2D_RESEARCH.md:60-72`。
 - **差距：这些管理器存在但未被 LLM 内容驱动**（固定节奏），也无「情绪→呼吸/眨眼频率」正反馈。
 
 ### 2.4 产品差异
@@ -60,7 +60,7 @@
 ### 3.1 分级
 | 级 | 描述 | 实现 |
 |---|---|---|
-| 1 | 仅播放状态开关，固定波形 | **Live2Dai 现状**（正弦 `LipSyncMath`） |
+| 1 | 仅播放状态开关，固定波形 | **Live2D-Ai 现状**（正弦 `LipSyncMath`） |
 | 2 | 音量 RMS/分贝→嘴开合 | Live2D 官方 `lipsync-from-wav`；pymouth `DBAnalyser`；live2d-py |
 | 3 | 频段/元音→分元音口型（viseme） | Live2D Motion-Sync（A·I·U·E·O+.motionsync3.json）；Live2DFrequencyLipSync |
 | 4 | 实时音素/时序精确匹配 | pymouth（DTW 元音+softmax）；OpenFaceFX |
@@ -68,7 +68,7 @@
 ### 3.2 各项目级别
 - **Open-LLM-VTuber**：前端 `pixi-live2d-display-lipsyncpatch`（Cubism 3-5），口型能力=pixi 自带（音量级）→ **~级2**：https://open-llm-vtuber.github.io/en/docs/user-guide/live2d/ ；DeepWiki「Audio Payload & Lip-Sync」https://deepwiki.com/Open-LLM-VTuber/Open-LLM-VTuber/5.3-output-transformers-and-audio-payload
 - **my-neuro**：`AnalyserNode` 音量/频域→`ParamMouthOpenY` → **~级2**：`docs/research/NEURO_LIVE2D_RESEARCH.md:57-60`。
-- **Live2Dai**：`VoiceIoController.startLipSync`→`LipSyncMath.mouthValue=0.65+0.25*sin(frame*0.5)`（纯正弦，每100ms）→ **级1**。见 §4。
+- **Live2D-Ai**：`VoiceIoController.startLipSync`→`LipSyncMath.mouthValue=0.65+0.25*sin(frame*0.5)`（纯正弦，每100ms）→ **级1**。见 §4。
 - **级3/级4 可落地**：
   - **pymouth**（Python，PC 直接可用）：DTW 匹配元音＋softmax 置信度，明确「移动端 CPU 也绰绰有余」「不是AI模型」「VTubeStudio 只是可选 Adapter，可用 Low Level API」。→ **PC 升级3/4 最省力**。https://github.com/organics2016/pymouth 与 https://github.com/organics2016/pymouth/blob/master/README-en.md （本文已抓 README）。
   - **Live2D 官方 Motion-Sync**（级3，Editor/SDK 内置）：语音转 viseme 时序，按 A/I/U/E/O 五元音视素混合生成口型，输出 `.motionsync3.json`；测试模型 Kay 自带。原句「converted into a time-series of visemes and mouth motions... generated by blending the corresponding shapes」「Viseme: Silence, A, I, U, E, O」。→ **模型层是否支持的问题**。https://docs.live2d.com/en/cubism-editor-manual/motion-sync/ 、https://docs.live2d.com/en/cubism-sdk-manual/motion-sync-setting-unity/ 、https://docs.live2d.com/en/cubism-editor-manual/motion-sync-bake/
@@ -81,7 +81,7 @@
 
 ---
 
-## 4. Live2Dai 现状印证（一次抓取，成本估算依据）
+## 4. Live2D-Ai 现状印证（一次抓取，成本估算依据）
 
 ### Android
 | 项目 | 文件:行 | 现状 |
@@ -156,7 +156,7 @@
 ---
 
 ## 7. 完整性声明 / 未找到项
-- ✅ 分级、各级代表、Live2Dai 现状逐行，基于可核证来源（本文抓取 pymouth README、Open-LLM-VTuber live2d_model.py、my-neuro emotion-motion-mapper.js、Live2D 官方 motion-sync 文档；`文件:行号` 为 main 分支实测）。
+- ✅ 分级、各级代表、Live2D-Ai 现状逐行，基于可核证来源（本文抓取 pymouth README、Open-LLM-VTuber live2d_model.py、my-neuro emotion-motion-mapper.js、Live2D 官方 motion-sync 文档；`文件:行号` 为 main 分支实测）。
 - ⚠️ **Neuro-sama 是否用多维情感向量/强度/隐性参数** → 渲染闭源，未找到公开信息，按社区共识推断上限级2-3，不猜测。
 - ⚠️ **`entropy622/LLM_Live2D` 的 expressionMix 细节**经搜索聚合源交叉一致，但 SSRF 未能二次抓仓库全文，以其 README 为准 → 做层1级3 前建议人工复核。
 - ⚠️ 价格/star 为调研时点，可能变动；未涉及外围功能（记忆/视觉/主动陪伴/多形态/TTS 换声）——按任务书要求跳过。

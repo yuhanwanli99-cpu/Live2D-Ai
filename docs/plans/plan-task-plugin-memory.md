@@ -2,7 +2,7 @@
 
 > 版本: 1.0.0
 > 日期: 2026-07-31
-> 目标: 把骨架 `live2dai-plugin-memory`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备真实记忆能力的插件
+> 目标: 把骨架 `live2d-ai-plugin-memory`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备真实记忆能力的插件
 > 前置依赖: `task-plugin-memory-skeleton`（已完成）、Wave 0（plugin-sdk + ChatService hook 点）已完成
 > 不做的事: 不接入 core（`MainActivity.kt`），功能验收通过后再排期接入
 
@@ -57,7 +57,7 @@
                          │ onLoad(host)
                          ▼
 ┌───────────────────────────────────────────────┐
-│           live2dai-plugin-memory               │
+│           live2d-ai-plugin-memory               │
 │                                                 │
 │  MemoryPlugin                                  │
 │    ├─ registerHook(MemoryRecallHook)           │
@@ -185,19 +185,19 @@ class MemoryRecallHook(
 
 | # | 文件路径 | 变更类型 |
 | --- | --------- | --------- |
-| 1 | `plugin-sdk/src/main/java/com/live2dai/pluginsdk/ChatHook.kt` | 修改：`afterReceive` 增加 `context: ChatContext` 参数 |
-| 2 | `live2dai-plugin-vision/.../VisionDescribeHook.kt` | 修改：同步新签名（空实现，加个参数即可） |
-| 3 | `live2dai-plugin-memory/build.gradle.kts` | 修改：新增 Room 依赖（`androidx.room:room-runtime` + `room-ktx` + ksp/kapt `room-compiler`） |
-| 4 | `live2dai-plugin-memory/.../MemoryFact.kt` | 新增：Room Entity |
-| 5 | `live2dai-plugin-memory/.../MemoryDao.kt` | 新增：Room Dao |
-| 6 | `live2dai-plugin-memory/.../MemoryDatabase.kt` | 新增：Room Database 单例构建 |
-| 7 | `live2dai-plugin-memory/.../SummaryLlmClient.kt` | 新增：接口定义（fun interface） |
-| 8 | `live2dai-plugin-memory/.../MemoryRecallHook.kt` | 新增：ChatHook 实现 |
-| 9 | `live2dai-plugin-memory/.../MemoryPlugin.kt` | 修改：`onLoad` 里真正 `registerHook` |
-| 10 | `live2dai-plugin-memory/.../MemoryPluginConfig.kt` | 修改：按 3.2 补充真实字段 |
-| 11 | `live2dai-plugin-memory/src/test/.../MemoryDaoTest.kt` | 新增：Room 内存数据库测试（写入→查询） |
-| 12 | `live2dai-plugin-memory/src/test/.../MemoryRecallHookTest.kt` | 新增：mock Dao + mock SummaryLlmClient，验证 beforeSend 注入格式、afterReceive 触发频率 |
-| 13 | `live2dai-plugin-memory/src/test/.../MemoryPluginTest.kt` | 修改：骨架版断言（"零注册"）替换为"确实注册了 1 个 hook" |
+| 1 | `plugin-sdk/src/main/java/com/live2d/ai/pluginsdk/ChatHook.kt` | 修改：`afterReceive` 增加 `context: ChatContext` 参数 |
+| 2 | `live2d-ai-plugin-vision/.../VisionDescribeHook.kt` | 修改：同步新签名（空实现，加个参数即可） |
+| 3 | `live2d-ai-plugin-memory/build.gradle.kts` | 修改：新增 Room 依赖（`androidx.room:room-runtime` + `room-ktx` + ksp/kapt `room-compiler`） |
+| 4 | `live2d-ai-plugin-memory/.../MemoryFact.kt` | 新增：Room Entity |
+| 5 | `live2d-ai-plugin-memory/.../MemoryDao.kt` | 新增：Room Dao |
+| 6 | `live2d-ai-plugin-memory/.../MemoryDatabase.kt` | 新增：Room Database 单例构建 |
+| 7 | `live2d-ai-plugin-memory/.../SummaryLlmClient.kt` | 新增：接口定义（fun interface） |
+| 8 | `live2d-ai-plugin-memory/.../MemoryRecallHook.kt` | 新增：ChatHook 实现 |
+| 9 | `live2d-ai-plugin-memory/.../MemoryPlugin.kt` | 修改：`onLoad` 里真正 `registerHook` |
+| 10 | `live2d-ai-plugin-memory/.../MemoryPluginConfig.kt` | 修改：按 3.2 补充真实字段 |
+| 11 | `live2d-ai-plugin-memory/src/test/.../MemoryDaoTest.kt` | 新增：Room 内存数据库测试（写入→查询） |
+| 12 | `live2d-ai-plugin-memory/src/test/.../MemoryRecallHookTest.kt` | 新增：mock Dao + mock SummaryLlmClient，验证 beforeSend 注入格式、afterReceive 触发频率 |
+| 13 | `live2d-ai-plugin-memory/src/test/.../MemoryPluginTest.kt` | 修改：骨架版断言（"零注册"）替换为"确实注册了 1 个 hook" |
 | — | `app/**` | **不修改**（本任务不接入 core，见文档头部） |
 
 ---
@@ -218,5 +218,5 @@ class MemoryRecallHook(
 1. `MemoryDaoTest`：插入 3 条记忆 → 全表检索能取回 3 条，字段无损
 2. `MemoryRecallHookTest`：mock 2 条相关记忆 + 1 条不相关记忆 → `beforeSend` 返回值只包含相关的 2 条，格式符合 `[系统: 相关记忆]` 前缀
 3. `MemoryRecallHookTest`：`afterReceive` 调用 9 次不触发摘要，第 10 次触发（`summaryTriggerEveryNTurns=10`）
-4. 插件独立编译通过（`:live2dai-plugin-memory:assembleDebug`）
-5. `plugin-sdk` 签名变更后，`live2dai-plugin-vision` 模块同步更新并仍然编译通过（回归验证，防止破坏 Wave 1 成果）
+4. 插件独立编译通过（`:live2d-ai-plugin-memory:assembleDebug`）
+5. `plugin-sdk` 签名变更后，`live2d-ai-plugin-vision` 模块同步更新并仍然编译通过（回归验证，防止破坏 Wave 1 成果）

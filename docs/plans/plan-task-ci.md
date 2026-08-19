@@ -2,14 +2,14 @@
 
 > 版本: 1.0.0
 > 日期: 2026-07-29
-> 目标: 为 Live2Dai 双平台（Android + Python 桌面端）搭建 GitHub Actions CI 流水线
+> 目标: 为 Live2D-Ai 双平台（Android + Python 桌面端）搭建 GitHub Actions CI 流水线
 > 约束: 仅设计，不产出 CI yaml 文件
 
 ---
 
 ## 1. 项目构建特征扫描
 
-### 1.1 Android 端 (`Live2Dai-Android/`)
+### 1.1 Android 端 (`Live2D-Ai-Android/`)
 
 | 维度 | 值 |
 | ------ | ----- |
@@ -29,7 +29,7 @@
 | 第三方 SDK | Live2D Cubism SDK (AAR，手动依赖，`app/libs/` fileTree) |
 | API Keys | `local.properties`（主）→ `System.getenv()`（CI 降级） |
 
-### 1.2 Python 桌面端 (`Live2Dai-pc/` + `tests/`)
+### 1.2 Python 桌面端 (`Live2D-Ai-pc/` + `tests/`)
 
 | 维度 | 值 |
 | ------ | ----- |
@@ -37,7 +37,7 @@
 | 测试框架 | `unittest`（标准库，无 pytest 依赖声明） |
 | 测试位置 | `tests/test_desktop_config.py`, `tests/test_persona_shared.py` |
 | 核心依赖 | PyYAML（解析配置和人设文件） |
-| 关键路径 | `shared/persona.yaml`, `Live2Dai-pc/open-llm-vtuber/conf.yaml` |
+| 关键路径 | `shared/persona.yaml`, `Live2D-Ai-pc/open-llm-vtuber/conf.yaml` |
 
 ### 1.3 当前 CI 状态
 
@@ -141,7 +141,7 @@ ZHIPU_API_KEY = （空，由 CI Secrets 注入或保持空）
 
 - 当前测试使用 `unittest`，但任务要求 `pytest`。`pytest` 兼容 `unittest.TestCase`，可直接运行
 - 需要 `pip install pytest pyyaml`
-- 测试读取 `shared/persona.yaml` 和 `Live2Dai-pc/open-llm-vtuber/conf.yaml`（相对路径 `../`），需要从 `tests/` 目录运行
+- 测试读取 `shared/persona.yaml` 和 `Live2D-Ai-pc/open-llm-vtuber/conf.yaml`（相对路径 `../`），需要从 `tests/` 目录运行
 - 如果 `conf.yaml` 引用 `${DEEPSEEK_API_KEY}` 等占位符，测试断言的是 `${DEEPSEEK_API_KEY}` 字符串而非实际 key → 可安全在 CI 运行
 
 #### Job C: `lint`（~3 min）
@@ -184,7 +184,7 @@ ZHIPU_API_KEY = （空，由 CI Secrets 注入或保持空）
 **artifact 命名**：
 
 ```
-live2dai-android-{build_type}-{sha}-{timestamp}.apk
+live2d-ai-android-{build_type}-{sha}-{timestamp}.apk
 ```
 
 ---
@@ -294,10 +294,10 @@ pip-cache-{os}-{python_version}-{hash(requirements.txt)}
 | `.github/workflows/build-upload.yml` | 构建+上传工作流 |
 | `.github/workflows/nightly.yml` | 夜间全量构建工作流 |
 | `.editorconfig` | 编辑器通用格式配置 |
-| `Live2Dai-Android/.editorconfig` | Kotlin/XML 格式配置（可选，如根 .editorconfig 不足） |
+| `Live2D-Ai-Android/.editorconfig` | Kotlin/XML 格式配置（可选，如根 .editorconfig 不足） |
 | `ruff.toml` | Python lint 规则配置 |
 | `requirements-test.txt` | Python 测试依赖（pytest, pyyaml） |
-| `Live2Dai-Android/app/proguard-rules.pro` | 已存在（`build.gradle.kts` 引用），确认完整性 |
+| `Live2D-Ai-Android/app/proguard-rules.pro` | 已存在（`build.gradle.kts` 引用），确认完整性 |
 
 ### 6.2 修改文件
 

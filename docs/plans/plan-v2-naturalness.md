@@ -1,4 +1,4 @@
-# Live2Dai V2 自然度修复计划
+# Live2D-Ai V2 自然度修复计划
 
 > 调研人：Orchestrator（直接读源码 + 查 SDK）
 > 日期：2026-08-06 | 目标：修表情闪烁 / LipSync 僵硬 / TTS 无个性

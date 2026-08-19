@@ -1,8 +1,8 @@
 # Linux（WSL2）环境定位：PC 端主力
 
 > 平台轨迹（2026-08-19 用户定调，见 `docs/plans/wsl2-migration-plan.md`）：
-> **PC 端主力迁移到 WSL2（开发 + 运行 + CI），放弃 Windows 作为主力；Windows 降为遗留降级**
-> （保留既有启动方式，不删除、不主动维护）。
+> **PC 端主力迁移到 WSL2（开发 + 运行 + CI），原生 Windows 已放弃**。
+> （Windows 启动入口已移除；仓库已迁移至 WSL2 原生盘并按 `Live2D-Ai` 更名。）
 > 双端结构：Android（手机/Compose）+ PC（WSL2/Linux 原生运行 Open-LLM-VTuber）。
 
 ## 为什么以 WSL2/Linux 为主力
@@ -15,9 +15,9 @@
 
 ## 主力入口
 
-- `Live2Dai-pc/start.sh`：Linux/WSL2 一键启动（**主力**）。
-- venv：`~/Live2Dai-pc/.venv`（WSL 原生盘，IO 快；用 `uv` 装 Python 3.12）。
-- Windows 端 `start.ps1` / `启动Live2Dai.bat` / 仓库内 Windows `.venv`：**遗留，仅保证不删不坏**，不再投入新功能。
+- `Live2D-Ai-pc/start.sh`：Linux/WSL2 一键启动（**主力**）。
+- venv：`~/Live2D-Ai/.venv`（WSL 原生盘，IO 快；用 `uv` 装 Python 3.12）。
+- **原生 Windows 已放弃**：`start.ps1` / `启动Live2D-Ai.bat` 等 Windows 启动入口已移除，不再维护。
 
 ## 不做什么
 
@@ -46,6 +46,6 @@ PC 的 Open-LLM-VTuber 依赖较重（torch/onnxruntime），以 WSL2 原生盘�
 ## 目录约定
 
 - `scripts/setup_linux.sh`：Linux 轻量环境准备
-- `Live2Dai-pc/start.sh`：PC 主力一键启动（WSL2）
+- `Live2D-Ai-pc/start.sh`：PC 主力一键启动（WSL2）
 - `scripts/health_check.py`：无 Key 健康自检
 - `scripts/verify_all.py`：一键验证入口

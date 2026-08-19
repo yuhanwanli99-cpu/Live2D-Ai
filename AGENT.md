@@ -1,4 +1,4 @@
-# Live2Dai — 项目总览
+# Live2D-Ai — 项目总览
 
 > 更新日期: 2026-08-07
 > 项目定位: **Live2D + AI 最小验证项目** — 验证最小化 AI+Live2D 闭环（文本/语音 → LLM → 表情/口型/动作），留下扩展接口供后续和社区开发 mod。当前版本: v0（作者自测，不对外发布）
@@ -21,7 +21,7 @@
 | `docs/architecture/renderer-algorithm.md` | Cubism 渲染算法逆向分析 |
 | `docs/architecture/mask-premake-algorithm.md` | Mask FBO 渲染算法 |
 | `docs/verification/verification-win.md` | 桌面端配置验证报告 |
-| `Live2Dai-Android/app/libs/README.md` | Live2D SDK 依赖说明 |
+| `Live2D-Ai-Android/app/libs/README.md` | Live2D SDK 依赖说明 |
 | `.pi/lessons-learned.md` | 经验教训库（新手上路必读） |
 
 ---
@@ -63,22 +63,21 @@
 ## 项目结构
 
 ```
-Live2Dai\
+Live2D-Ai\
 ├── shared/                  ← ★ 跨平台共享配置（单源真理）
 │   ├── persona.yaml         ←   人设（编辑此文件影响两端）
 │   ├── mcp_tools.json       ←   MCP 工具定义
 │   └── model_dict.json      ←   模型路由表
 │
-├── Live2Dai-Android/          ← ★ Android 原生应用（主力平台）
+├── Live2D-Ai-Android/          ← ★ Android 原生应用（主力平台）
 │   └── app/src/main/
 │       ├── cpp/             ←   Purism Core (MIT) 源码
-│       ├── java/com/live2dai/android/  ← Kotlin 源码
+│       ├── java/com/live2d/ai/android/  ← Kotlin 源码
 │       └── assets/live2d/   ←   Live2D 模型
 │
-├── Live2Dai-pc/                 ← ★ Windows 桌面端
+├── Live2D-Ai-pc/                 ← ★ PC 端（WSL2/Linux 主力）
 │   ├── open-llm-vtuber/     ←   Open-LLM-VTuber 后端
-│   ├── start.ps1            ←   一键启动脚本
-│   └── 启动Live2Dai.bat
+│   └── start.sh             ←   一键启动脚本（WSL2）
 │
 ├── docs/                    ← 文档
 ├── tests/                   ← 测试
@@ -95,16 +94,16 @@ Live2Dai\
 # 编辑人设
 vim shared/persona.yaml
 # 同步到 Android
-cp shared/persona.yaml Live2Dai-Android/app/src/main/assets/
+cp shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/
 
 # 构建 Android APK
-cd Live2Dai-Android && ./gradlew assembleDebug
+cd Live2D-Ai-Android && ./gradlew assembleDebug
 
-# 桌面端一键启动
-cd Live2Dai-pc && ./start.ps1
+# PC 端一键启动（WSL2）
+cd Live2D-Ai-pc && ./start.sh
 
 # 运行测试
-cd Live2Dai-Android && ./gradlew test
+cd Live2D-Ai-Android && ./gradlew test
 python -m pytest tests/
 ```
 

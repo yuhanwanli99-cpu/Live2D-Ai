@@ -15,9 +15,9 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-APK = r"Live2Dai-Android/app/build/outputs/apk/debug/app-debug.apk"
-PKG = "com.live2dai.android"
-DEVICE_TMP = "/data/local/tmp/live2dai.apk"
+APK = r"Live2D-Ai-Android/app/build/outputs/apk/debug/app-debug.apk"
+PKG = "com.live2d.ai.android"
+DEVICE_TMP = "/data/local/tmp/live2d-ai.apk"
 CONFIRM_KEYWORDS = ["继续安装", "安装", "确定", "允许", "仍要安装", "继续"]
 DISCLAIMER_KEYWORDS = ["已了解", "风险检测结果", "风险"]
 MAX_DUMP_RETRY = 3       # dump 失败重启 uiautomator 的轮数

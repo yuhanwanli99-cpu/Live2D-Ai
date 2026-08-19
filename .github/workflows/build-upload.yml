@@ -79,7 +79,7 @@ jobs:
 
       - name: Grant gradlew execute permission
         run: chmod +x gradlew
-        working-directory: Live2Dai-Android
+        working-directory: Live2D-Ai-Android
 
       - name: Build APK
         id: build
@@ -92,14 +92,14 @@ jobs:
           fi
           BUILD_END=$(date +%s)
           echo "duration=$(( BUILD_END - BUILD_START ))" >> "$GITHUB_OUTPUT"
-        working-directory: Live2Dai-Android
+        working-directory: Live2D-Ai-Android
 
       - name: Collect APK metadata
         id: metadata
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
           APK_PATH="app/build/outputs/apk/${BUILD_TYPE}/app-${BUILD_TYPE}.apk"
-          APK_NAME="live2dai-android-${BUILD_TYPE}-${GITHUB_SHA::7}.apk"
+          APK_NAME="live2d-ai-android-${BUILD_TYPE}-${GITHUB_SHA::7}.apk"
 
           # Copy the real Gradle output to a friendly, unique name so the
           # upload step below has a stable path to reference (the raw
@@ -111,13 +111,13 @@ jobs:
           echo "build_duration_seconds=${{ steps.build.outputs.duration }}" >> "$GITHUB_OUTPUT"
           echo "commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "build_type=${BUILD_TYPE}" >> "$GITHUB_OUTPUT"
-        working-directory: Live2Dai-Android
+        working-directory: Live2D-Ai-Android
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: live2dai-android-${{ github.event.inputs.build_type || 'debug' }}-${{ github.sha }}
-          path: Live2Dai-Android/${{ steps.metadata.outputs.apk_name }}
+          name: live2d-ai-android-${{ github.event.inputs.build_type || 'debug' }}-${{ github.sha }}
+          path: Live2D-Ai-Android/${{ steps.metadata.outputs.apk_name }}
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
@@ -136,7 +136,7 @@ jobs:
   # 与 build-apk 并列、互不阻塞（无 needs: 依赖），共用 push main + workflow_dispatch 触发
   # 核心步骤直接调用 task-pkg-build 交付的一体化打包脚本 scripts/assemble_zip.py
   # （内部完成: staging 拷贝 → uv sync → 捆绑托管解释器 → 便携 ffmpeg → 哨兵校验 → zip → verify_package）
-  # 产物: build/live2dai-pc-windows-<sha7>.zip
+  # 产物: build/live2d-ai-pc-windows-<sha7>.zip
   # ────────────────────────────────────────────────────────────────────────────
   build-pc-windows:
     name: Build PC Windows (Portable Zip)
@@ -156,7 +156,7 @@ jobs:
       - name: Materialize frontend/libs (gitignored, pinned upstream)
         shell: bash
         run: |
-          LIBS_DIR="Live2Dai-pc/open-llm-vtuber/frontend/libs"
+          LIBS_DIR="Live2D-Ai-pc/open-llm-vtuber/frontend/libs"
           if [ -f "$LIBS_DIR/live2dcubismcore.js" ]; then
             echo "frontend/libs already present ($(ls "$LIBS_DIR" | wc -l) files) — skipping fetch"
           else
@@ -197,7 +197,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          $appDir = Join-Path $PWD 'build/staging/Live2Dai-pc/open-llm-vtuber'
+          $appDir = Join-Path $PWD 'build/staging/Live2D-Ai-pc/open-llm-vtuber'
           $venvPy = Join-Path $appDir '.venv/Scripts/python.exe'
           if (-not (Test-Path $venvPy)) {
             Write-Host "::warning::staging venv not found at $appDir — skipping probe (assemble step failed earlier?)"
@@ -247,12 +247,12 @@ jobs:
             Write-Host "OK: packaged venv runs without uv-managed python: $out"
           }
 
-      # 6. 上传 artifact（命名: live2dai-pc-windows-<full sha>，与 build-apk 风格一致）
+      # 6. 上传 artifact（命名: live2d-ai-pc-windows-<full sha>，与 build-apk 风格一致）
       - name: Upload PC Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: live2dai-pc-windows-${{ github.sha }}
-          path: build/live2dai-pc-windows-*.zip
+          name: live2d-ai-pc-windows-${{ github.sha }}
+          path: build/live2d-ai-pc-windows-*.zip
           if-no-files-found: error
           retention-days: 30
           compression-level: 6

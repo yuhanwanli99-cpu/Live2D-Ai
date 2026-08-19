@@ -1,4 +1,4 @@
-# Live2Dai V1.1「核心补齐」架构设计文档
+# Live2D-Ai V1.1「核心补齐」架构设计文档
 
 > 版本: v1.0 — 2026-08-05
 > 架构师: software-architect (SPOQ Phase: architecting)
@@ -8,7 +8,7 @@
 
 ## 1. 需求概述
 
-Live2Dai V1 文本→LLM→[emotion]→Live2D 核心链路已双端验收通过（Android 真机 + PC :12393 PASS）。
+Live2D-Ai V1 文本→LLM→[emotion]→Live2D 核心链路已双端验收通过（Android 真机 + PC :12393 PASS）。
 V1.1 补齐 4 个关键能力闭环：
 
 | 模块 | 当前状态 | V1.1 目标 |
@@ -160,7 +160,7 @@ TTS 路径:
 
 **持久化内容**: 只持久化 `DisplayMessage`（id, content, isUser, isError, showSettingsButton），不持久化 `ChatService.messages`（`ChatService` 的 messages 包含 system prompt 和 tool messages，恢复复杂度高且重启后重新注入 system prompt 即可）
 
-> **安全考量**: 聊天历史可能包含敏感的个人对话内容。由于 Live2Dai V1.1 无账号系统、无后端服务器，所有数据仅存储在用户设备本地。后续版本如需导出/同步功能，需额外设计加密方案。
+> **安全考量**: 聊天历史可能包含敏感的个人对话内容。由于 Live2D-Ai V1.1 无账号系统、无后端服务器，所有数据仅存储在用户设备本地。后续版本如需导出/同步功能，需额外设计加密方案。
 
 **存储位置**: `context.filesDir / "chat_history.json"`（与 memory plugin 的 Room 数据库 `live2dai_memory.db` 同目录）
 
@@ -214,7 +214,7 @@ TTS 路径:
 
 #### 3.3.1 现状盘点（重要！）
 
-`live2dai-plugin-memory` 模块**已实现但未集成**。已实现的组件：
+`live2d-ai-plugin-memory` 模块**已实现但未集成**。已实现的组件：
 
 | 组件 | 文件 | 说明 |
 |---|---|---|

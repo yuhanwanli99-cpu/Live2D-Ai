@@ -1,4 +1,4 @@
-# Live2Dai —— UX 对标与 CosyVoice 参数调研报告
+# Live2D-Ai —— UX 对标与 CosyVoice 参数调研报告
 
 > 调研员: researcher (只读) · 网络来源截至调研当日
 > 说明: 本报告所有结论均标注来源。凡以 URL 引用之处均未能逐字抓取原文（相关域名走 fake-IP 代理被拦），
@@ -129,7 +129,7 @@ CosyVoice（阿里云百炼 / DashScope / 千问云）语音合成核心请求�
 
 ### 2.2 设置功能清单对比表
 
-| 维度 | **Live2Dai 现状** | **N.E.K.O.** | **Open-LLM-VTuber** | **AI-Vtuber** | **Soul of Waifu** | **Live2DPet** |
+| 维度 | **Live2D-Ai 现状** | **N.E.K.O.** | **Open-LLM-VTuber** | **AI-Vtuber** | **Soul of Waifu** | **Live2DPet** |
 | --- | --- | --- | --- | --- | --- | --- |
 | **设置页布局** | 单一长列表，SectionHeader 分区（API/模型/形象/TTS/ASR/离线/人设/关于）滚动到底，无 Tab | 分用途页面：`/api_key`、`/character_card_manager`、`/config` | 后端 YAML 配置为主，前端以聊天为主（无丰富可视设置 Tab） | 配置/脚本驱动，无图形化设置面板描述 | 多 Tab（API 设置 / LLM 设置等）+ 多窗 | 多标签页（API 设置等）+ 多窗口 |
 | **引擎选择** | 4 固定引擎单选 RadioGroup（CosyVoice/Edge/System/sherpa）+ 降级链徽标 | 多 Provider(Core/Assist)，数据驱动，Web UI 选 | 配置文件里选 LLM/TTS/ASR 引擎，可本地 or API 混用 | 配置文件选，支持极多引擎 | 可切换 TTS、本地 vs 云端 LLM 分区 | 填 API 地址/模型名（OpenAI 兼容） |
@@ -144,12 +144,12 @@ CosyVoice（阿里云百炼 / DashScope / 千问云）语音合成核心请求�
 
 ---
 
-## 三、Live2Dai 最急需改进的 5 个 UX 项（按优先级）
+## 三、Live2D-Ai 最急需改进的 5 个 UX 项（按优先级）
 
 > 优先级口径: P0=当前体验有明显痛点/阻塞；P1=显著提升易用性；P2=打磨高级感。改进建议均从「2.2 对比表」中短板反推。
 
 ### P0-1 设置页从「单一长列表」改为「分类 Tab / 分段网格」
-- **现状（来源）**: `Live2Dai-Android/.../ui/settings/SettingsScreen.kt` —— 一个 `verticalScroll` 的 Column，靠 `SectionHeader` 分段（API/模型/形象/TTS/ASR/离线/人设/关于）一路滚到底。
+- **现状（来源）**: `Live2D-Ai-Android/.../ui/settings/SettingsScreen.kt` —— 一个 `verticalScroll` 的 Column，靠 `SectionHeader` 分段（API/模型/形象/TTS/ASR/离线/人设/关于）一路滚到底。
 - **问题**: API 三大 key + 模型 + 形象 + TTS/ASR 引擎 + 离线模型 + 人设 + 关于全挤一屏，移动端要滑很久；相互独立的功能强相关项被割裂。
 - **对标做法**: N.E.K.O. 分 `/api_key`、`/character_card_manager`、`/config` 独立页（来源: project-neko.online/config 及 quick-start）；Soul of Waifu 分 Tab；Live2DPet 分标签页（来源见 2.2）。Soul of Waifu「大卡片不是 boring list」提供布局启发。
 - **建议**: 顶部 `TabRow`（如：AI 服务 / 语音 / 形象 / 离线 / 其他）或至少把「关于」拆出；长列表保留但顶部加锚点跳转。

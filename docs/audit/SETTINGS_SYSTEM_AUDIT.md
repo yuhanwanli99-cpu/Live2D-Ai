@@ -1,4 +1,4 @@
-# Live2Dai PC — Settings UI & Backend Call-Chain Audit (findings + fix plan)
+# Live2D-Ai PC — Settings UI & Backend Call-Chain Audit (findings + fix plan)
 
 Scope: `renderer/src/settings-ui.ts`, `src/open_llm_vtuber/routes.py`, `config_manager/*`, `server.py`, `proxy_handler.py`, `websocket_handler.py`, `message_handler.py`, `run_server.py`, `_start_server.py`, `service_context.py`, plus `tests/` and renderer tests.
 Status: analysis only — **no code was changed.**

@@ -39,8 +39,8 @@ class TestCheckResources(unittest.TestCase):
 
     def test_required_missing_is_reported(self):
         self._touch("shared/persona.yaml")
-        self._touch("Live2Dai-pc/open-llm-vtuber/frontend/index.html")
-        self._touch("Live2Dai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json")
+        self._touch("Live2D-Ai-pc/open-llm-vtuber/frontend/index.html")
+        self._touch("Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json")
         missing = check_resources.collect_missing(self.root)
         self.assertTrue(any(rel == "shared/mcp_tools.json" for rel, _ in missing))
         # ffmpeg sentinels must be required, not warn
@@ -50,34 +50,34 @@ class TestCheckResources(unittest.TestCase):
 
 class TestZipExclusions(unittest.TestCase):
     def test_top_level_runtime_dirs_excluded(self):
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/models", True))
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/avatars", True))
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/cache", True))
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/logs", True))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/models", True))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/avatars", True))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/cache", True))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/logs", True))
 
     def test_deep_models_dir_preserved(self):
         # src/open_llm_vtuber/asr/models ships silero_vad.onnx — must NOT be excluded
-        self.assertFalse(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/asr/models", True))
-        self.assertFalse(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/asr/models/silero_vad.onnx", False))
+        self.assertFalse(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/asr/models", True))
+        self.assertFalse(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/asr/models/silero_vad.onnx", False))
 
     def test_conf_yaml_excluded_template_included(self):
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/conf.yaml", False))
-        self.assertFalse(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/conf.yaml.template", False))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/conf.yaml", False))
+        self.assertFalse(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/conf.yaml.template", False))
 
     def test_pyc_and_git_excluded(self):
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/src/__pycache__/x.pyc", False))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/src/__pycache__/x.pyc", False))
         # .git is pruned as a directory in the walker (its files are never visited)
         self.assertTrue(assemble_zip.zip_excluded(".git", True))
-        self.assertTrue(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/__pycache__", True))
+        self.assertTrue(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/__pycache__", True))
         self.assertFalse(assemble_zip.zip_excluded("shared/persona.yaml", False))
 
     def test_torch_old_only_under_torch_lib(self):
         self.assertTrue(
             assemble_zip.zip_excluded(
-                "Live2Dai-pc/open-llm-vtuber/.venv/Lib/site-packages/torch/lib/foo.old", False
+                "Live2D-Ai-pc/open-llm-vtuber/.venv/Lib/site-packages/torch/lib/foo.old", False
             )
         )
-        self.assertFalse(assemble_zip.zip_excluded("Live2Dai-pc/open-llm-vtuber/data/something.old", False))
+        self.assertFalse(assemble_zip.zip_excluded("Live2D-Ai-pc/open-llm-vtuber/data/something.old", False))
 
 
 class TestPyvenvRewrite(unittest.TestCase):
@@ -109,7 +109,7 @@ class TestVerifyPackageMembers(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="pkg-zip-")
         try:
             zip_path = os.path.join(tmp, "pkg.zip")
-            app = "Live2Dai-pc/open-llm-vtuber"
+            app = "Live2D-Ai-pc/open-llm-vtuber"
             with zipfile.ZipFile(zip_path, "w") as zf:
                 for member in verify_package.REQUIRED_MEMBERS:
                     zf.writestr(member, "x")

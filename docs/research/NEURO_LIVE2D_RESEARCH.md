@@ -3,7 +3,7 @@
 > 调研员：researcher agent（只读）
 > 任务编号：Q1‑Neuro‑sama Live2D 做法 + Q5 社区「自然」实践 + Q6 CosyVoice 个性化
 > 原则：每条结论附 URL/行号；抓取失败标注「未找到，待人工补充」；不编造数据。
-> 目标读者：Live2Dai（Android Kotlin + PC Python，Purism Core + CubismJavaFramework + CosyVoice 专属 key）。
+> 目标读者：Live2D-Ai（Android Kotlin + PC Python，Purism Core + CubismJavaFramework + CosyVoice 专属 key）。
 
 ---
 
@@ -13,7 +13,7 @@
 3. [渲染优化细节](#3-渲染优化细节)
 4. [其他社区「自然化」实践工具清单](#4-其他社区自然化实践工具清单)
 5. [CosyVoice 个性化官方参数与示例](#5-cosyvoice-个性化官方参数与示例)
-6. [对 Live2Dai 落地建议](#6-对-live2dai-落地建议)
+6. [对 Live2D-Ai 落地建议](#6-对-live2d-ai-落地建议)
 7. [未找到 / 需人工补充项](#7-未找到--需人工补充项)
 
 ---
@@ -166,7 +166,7 @@
 
 ---
 
-## 6. 对 Live2Dai 落地建议
+## 6. 对 Live2D-Ai 落地建议
 1. **原型模型直接用官方免费 Hiyori Momose**（与 Neuro‑sama 同款），省自建模。来源 §1.1。
 2. **「自然感」= 自动眨眼 + 口型 + 表情过渡 + 多轨分离，别只盯动作文件**：
    - 眨眼状态机（interval ~4s、close/closed/open=100/50/150ms，参考 pixi 默认）。来源 §2.3。

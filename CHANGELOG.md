@@ -1,3 +1,15 @@
+# WSL2 迁移 + 项目更名 Live2D-Ai（2026-08-19）
+
+> **平台定调（用户）：PC 端主力定位 WSL2，**放弃**原生 Windows；项目更名为 `Live2D-Ai`。**
+>
+> - **仓库迁移**：项目从 Windows G 盘 `/mnt/g/git/Live2Dai` 迁移至 **WSL2 原生盘**（`git clone` 保留全部历史，排除可再生成的构建产物），并新增 `backup` remote 指向 G 盘原件。
+> - **更名 Live2D-Ai**：目录 `Live2D-Ai-Android` / `Live2D-Ai-pc`；Kotlin 包 `com.live2dai.android` → `com.live2d.ai.android`（含 JNI `Java_com_live2d_ai_android_*`、Gradle、清单）；标识符 `Live2Dai*` → `Live2DAi*`；文档/标题改为 `Live2D-Ai`。模块/产物 slug `live2dai-*` → `live2d-ai-*`。
+> - **放弃原生 Windows**：移除 PC 端 Windows 启动入口 `Live2D-Ai-pc/start.ps1` / `启动Live2D-Ai.bat`；移除 Windows SAPI 专属依赖 `pyttsx3`（pyproject + requirements）；PC 端新增 **WSL2 主力启动脚本 `Live2D-Ai-pc/start.sh`**（含 venv + 核心依赖自检）。
+> - 保留不变（状态/配置兼容边界）：Android SharedPreferences 键 `live2dai_settings` / `live2dai_ui_mode` / `live2dai_interaction`、记忆库 `live2dai_memory.db`、localStorage 前缀 `live2dai.interaction.`、环境变量 `LIVE2DAI_*`。
+> - 文档：`docs/architecture/linux-dev.md`、`docs/plans/wsl2-migration-plan.md`（标记为已执行），PC README/AGENT 改为 WSL2 主力。
+
+---
+
 # 常规代码审计与管理收尾（2026-08-19）
 
 > 全量代码审计（PC + Android + 一致性）+ 低风险修复 + 仓库收尾（文档归档 / 清理 / 提交）。
@@ -66,7 +78,7 @@
 - 目录与文档：新增 `docs/README.md`、`docs/architecture/core-contracts.md`、`docs/architecture/directory.md`、`docs/architecture/observability.md`、`docs/architecture/dependencies.md`、`docs/architecture/plugin-sdk.md`。
 - 共享同步：Android Gradle 新增 `copyMcpTools`，`scripts/sync.ps1` 修正 PC 路径并移除已废弃 model_dict 同步。
 - 一致性：`shared/check_cross_platform_consistency.py` 适配 Wave 5 后的当前代码（EmotionController 已删），新增 SM-03 mcp_tools 字节一致检查；当前 33/33 通过。
-- 插件骨架：恢复 `Live2Dai-Android/plugin-sdk/` 最小接口模块（ChatHook / PluginHost / ToolDefinition / Live2DaiPlugin）。
+- 插件骨架：恢复 `Live2D-Ai-Android/plugin-sdk/` 最小接口模块（ChatHook / PluginHost / ToolDefinition / Live2DAiPlugin）。
 - 无 Key 自检：新增 `scripts/health_check.py`、`scripts/verify_all.py`、`scripts/clean.sh`、`scripts/clean.ps1`、`tests/test_foundation_no_key.py`。
 - 修复根 pytest 中 Wave5 后的陈旧断言：EmotionController/ProactiveGreetingClient 已删的用例改为当前实现校验，一致性汇总从 32/32 更新为 33/33，`cache/` 不再判为失败（运行时目录，由 clean 脚本清理）。
 - PC 延迟性能断言从 5ms 放宽到 50ms（Windows/CI 计时器与事件循环调度会偶发 10-20ms 尖峰；保留防明显性能回归的作用）。

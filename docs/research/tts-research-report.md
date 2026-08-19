@@ -1,4 +1,4 @@
-# Live2Dai TTS 选型调研报告
+# Live2D-Ai TTS 选型调研报告
 
 > 调研日期: 2026-08-05
 > 调研员: researcher agent (只读)
@@ -319,8 +319,8 @@ Tier 4: 静默降级 (保留)
 | Kokoro | https://github.com/remsky/Kokoro-FastAPI | GitHub README |
 | OpenVoice | https://github.com/myshell-ai/OpenVoice | GitHub README |
 | 竞品 TTS 数据 | `docs/research/competitive-analysis-report.md` | 第 32-37 行 (TTS 引擎对比表) |
-| 当前 Edge TTS 实现 | `Live2Dai-Android/.../EdgeTtsService.kt` | 完整的 Edge TTS WebSocket 实现 |
-| PC 端 TTS 配置 | `build/staging/Live2Dai-pc/open-llm-vtuber/conf.yaml` | `tts_model: edge_tts` |
+| 当前 Edge TTS 实现 | `Live2D-Ai-Android/.../EdgeTtsService.kt` | 完整的 Edge TTS WebSocket 实现 |
+| PC 端 TTS 配置 | `build/staging/Live2D-Ai-pc/open-llm-vtuber/conf.yaml` | `tts_model: edge_tts` |
 | 阿里云 TTS 文档 | https://help.aliyun.com/document_detail/451344.html | 官方 API 文档 |
 | 火山引擎 TTS | https://www.volcengine.com/docs/6561/79820 | 官方文档 |
 | 讯飞 TTS | https://www.xfyun.cn/services/online_tts | 官方文档 |

@@ -10,7 +10,7 @@
 
 ## 结论
 
-**PASS**（有条件）：三个骨架模块（`live2dai-plugin-memory` / `live2dai-plugin-proactive` / `live2dai-plugin-agent-tools`）结构、编译、测试均通过独立验证，且严格遵守"骨架阶段不接入 core"的硬约束。可以推送/合并。**"有条件"仅指**：本次验证未能在本机跑通完整 Android Gradle 构建（环境限制，见下），改用等价的隔离 Kotlin 编译+测试验证；建议团队在正常 CI/WSL 环境下再跑一次 `:live2dai-plugin-memory:testDebugUnitTest` 等官方任务做二次确认。
+**PASS**（有条件）：三个骨架模块（`live2d-ai-plugin-memory` / `live2d-ai-plugin-proactive` / `live2d-ai-plugin-agent-tools`）结构、编译、测试均通过独立验证，且严格遵守"骨架阶段不接入 core"的硬约束。可以推送/合并。**"有条件"仅指**：本次验证未能在本机跑通完整 Android Gradle 构建（环境限制，见下），改用等价的隔离 Kotlin 编译+测试验证；建议团队在正常 CI/WSL 环境下再跑一次 `:live2d-ai-plugin-memory:testDebugUnitTest` 等官方任务做二次确认。
 
 ---
 
@@ -72,7 +72,7 @@ JUnit XML 结果（`build/test-results/test/TEST-*.xml`，真实生成文件，�
 | 检查项 | memory | proactive | agent-tools | 结论 |
 | ------ | ------ | ------ | ------ | ------ |
 | `build.gradle.kts` 结构（`com.android.library` + `kotlin.android`，`compileOnly(project(":plugin-sdk"))`） | ✅ | ✅ | ✅ | 一致 |
-| `<Name>Plugin.kt` 实现 `Live2DaiPlugin`，`onLoad`/`onUnload` 为 no-op + TODO 注释 | ✅ | ✅ | ✅ | 一致 |
+| `<Name>Plugin.kt` 实现 `Live2DAiPlugin`，`onLoad`/`onUnload` 为 no-op + TODO 注释 | ✅ | ✅ | ✅ | 一致 |
 | `<Name>PluginConfig.kt` 占位 data class | ✅ (`placeholder: Unit`) | ✅ | ✅ | 一致 |
 | `<Name>PluginTest.kt` 使用 FakeHost，断言 `onLoad`/`onUnload` 不抛异常 + hooks/tools 均为空 | ✅ | ✅（额外断言未调用 `sendAssistantMessage`，更严格） | ✅ | 一致，proactive 覆盖更全 |
 | 空 `AndroidManifest.xml`（无权限/组件声明） | ✅ | ✅ | ✅ | 一致 |
@@ -113,7 +113,7 @@ JUnit XML 结果（`build/test-results/test/TEST-*.xml`，真实生成文件，�
 
 | # | 级别 | 说明 |
 | --- | ------ | ------ |
-| P1 | 建议 | 本次验证未跑通真实 Android Gradle 构建（环境限制），建议团队在 CI/WSL 环境补跑一次 `./gradlew :live2dai-plugin-memory:assembleDebug :live2dai-plugin-proactive:assembleDebug :live2dai-plugin-agent-tools:assembleDebug :live2dai-plugin-memory:testDebugUnitTest :live2dai-plugin-proactive:testDebugUnitTest :live2dai-plugin-agent-tools:testDebugUnitTest` 做二次确认 |
+| P1 | 建议 | 本次验证未跑通真实 Android Gradle 构建（环境限制），建议团队在 CI/WSL 环境补跑一次 `./gradlew :live2d-ai-plugin-memory:assembleDebug :live2d-ai-plugin-proactive:assembleDebug :live2d-ai-plugin-agent-tools:assembleDebug :live2d-ai-plugin-memory:testDebugUnitTest :live2d-ai-plugin-proactive:testDebugUnitTest :live2d-ai-plugin-agent-tools:testDebugUnitTest` 做二次确认 |
 | P2 | 提示 | 三个 `PluginConfig` 目前都是空占位（`Unit`），功能任务落地时字段会发生较大变化，属预期内，不是缺陷 |
 | P3 | 提示 | 仓库根目录存在未跟踪的 `"F\357\200\272/"` 异常文件夹（reparse point 残留），与本次改动无关，建议后续清理 |
 

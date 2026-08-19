@@ -1,4 +1,4 @@
-# Live2Dai 插件 / 扩展 SDK 最小骨架
+# Live2D-Ai 插件 / 扩展 SDK 最小骨架
 
 > 状态：接口草案（未接入构建）
 > 目标：先立住“核心不感知插件、插件不碰核心”的边界，后续再逐个实现记忆/视觉/主动陪伴/工具。
@@ -12,7 +12,7 @@
 ## 2. 最小接口骨架（Kotlin 草案）
 
 ```kotlin
-interface Live2DaiPlugin {
+interface Live2DAiPlugin {
     val id: String
     val version: String
     fun onLoad(host: PluginHost)
@@ -41,7 +41,7 @@ interface ToolDefinition {
 
 ## 3. 建议落地顺序
 
-1. 新建 `Live2Dai-Android/plugin-sdk/` 纯 Kotlin 模块，只包含上述接口 + 单元测试。
+1. 新建 `Live2D-Ai-Android/plugin-sdk/` 纯 Kotlin 模块，只包含上述接口 + 单元测试。
 2. core 侧 `PluginManager` 只做注册表，不实现具体插件。
 3. 视觉 / 记忆 / 主动陪伴 / Agent 工具各自独立模块实现这些接口。
 4. 先在 PC 端用 MCP 工具验证协议，再决定 Android 端是否引入 MCP transport。

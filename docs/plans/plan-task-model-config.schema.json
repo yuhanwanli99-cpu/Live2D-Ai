@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://live2dai.dev/schemas/model-meta-config.schema.json",
+  "$id": "https://live2d-ai.dev/schemas/model-meta-config.schema.json",
   "title": "ModelMetaConfig",
   "description": "从 cdi3.json + pose3.json 解析的模型元配置序列化格式。用于调试日志和缓存（运行时使用内存对象，此 schema 用于序列化/反序列化边界）。",
   "type": "object",

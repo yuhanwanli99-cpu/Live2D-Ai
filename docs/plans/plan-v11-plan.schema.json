@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Live2Dai V1.1 Interface Contract",
+  "title": "Live2D-Ai V1.1 Interface Contract",
   "description": "V1.1 4-module architecture: Voice Loop, Chat Persistence, Long-term Memory, LipSync",
   "functions": [
     {

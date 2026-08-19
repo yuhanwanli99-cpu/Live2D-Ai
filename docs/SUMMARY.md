@@ -1,4 +1,4 @@
-# Live2Dai — 项目总结文档
+# Live2D-Ai — 项目总结文档
 
 > 更新日期: 2026-07-22
 > 版本: v1.1.0 (MVP ✅)
@@ -13,7 +13,7 @@
 - **Live2D 模型渲染**：模型在屏幕上活起来
 - **表情联动**：根据对话情感自动切换表情 + 嘴型同步
 - **视觉识别**：模型能看到屏幕内容
-- **Always-on**：Live2Dai 应用模式（Windows 透明穿透）/ 手机悬浮窗
+- **Always-on**：Live2D-Ai 应用模式（Windows 透明穿透）/ 手机悬浮窗
 
 ---
 
@@ -130,7 +130,7 @@
 ### Windows 桌面端
 
 ```powershell
-cd Live2Dai\desktop
+cd Live2D-Ai\desktop
 .\start.ps1
 # 浏览器访问 http://localhost:12393/
 ```
@@ -138,7 +138,7 @@ cd Live2Dai\desktop
 ### Android 端
 
 ```bash
-cd Live2Dai\Live2Dai-Android
+cd Live2D-Ai\Live2D-Ai-Android
 ./gradlew assembleDebug
 # 部署: adb install app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -146,8 +146,8 @@ cd Live2Dai\Live2Dai-Android
 ### 运行测试
 
 ```bash
-cd Live2Dai-Android && ./gradlew test
-cd Live2Dai && python -m pytest tests/
+cd Live2D-Ai-Android && ./gradlew test
+cd Live2D-Ai && python -m pytest tests/
 ```
 
 ---
@@ -155,7 +155,7 @@ cd Live2Dai && python -m pytest tests/
 ## 文件结构
 
 ```
-Live2Dai\
+Live2D-Ai\
 ├── AGENT.md              ← AI 辅助开发指南
 ├── AGENTS.md             ← SPOQ 编排规则
 ├── PLAN.md               ← 架构规划
@@ -164,10 +164,10 @@ Live2Dai\
 │   ├── persona.yaml       ← 人设（单源真理）
 │   ├── mcp_tools.json     ← MCP 工具定义
 │   └── model_dict.json    ← 模型路由表
-├── Live2Dai-Android/        ← ★ Android 原生应用
+├── Live2D-Ai-Android/        ← ★ Android 原生应用
 │   ├── app/src/main/java/.../  ← Kotlin 源码 (14 个文件)
 │   └── app/src/main/cpp/      ← Purism Core C 源码
-├── Live2Dai-pc/               ← ★ Windows 桌面端
+├── Live2D-Ai-pc/               ← ★ Windows 桌面端
 │   ├── start.ps1
 │   └── open-llm-vtuber/   ← 上游项目
 ├── docs/                  ← 文档

@@ -341,16 +341,16 @@ HEAD {baseUrl}/
 
 | 文件 | 职责 |
 | ------ | ------ |
-| `app/src/main/java/com/live2dai/android/LLMProvider.kt` | `ProviderType` 枚举 + `LLMProvider` 数据类 |
-| `app/src/main/java/com/live2dai/android/LLMProviderManager.kt` | Provider 管理、持久化、健康检查、降级 |
-| `app/src/main/java/com/live2dai/android/ui/SettingsScreen.kt` | 设置界面 (Compose) |
+| `app/src/main/java/com/live2d/ai/android/LLMProvider.kt` | `ProviderType` 枚举 + `LLMProvider` 数据类 |
+| `app/src/main/java/com/live2d/ai/android/LLMProviderManager.kt` | Provider 管理、持久化、健康检查、降级 |
+| `app/src/main/java/com/live2d/ai/android/ui/SettingsScreen.kt` | 设置界面 (Compose) |
 
 ### 修改文件
 
 | 文件 | 改动范围 |
 | ------ | ---------- |
-| `app/src/main/java/com/live2dai/android/ChatService.kt` | 构造函数接受 `LLMProvider`、`updateProvider()`、移除硬编码 URL |
-| `app/src/main/java/com/live2dai/android/MainActivity.kt` | 初始化 LLMProviderManager、导航到 SettingsScreen、发消息前降级检查 |
+| `app/src/main/java/com/live2d/ai/android/ChatService.kt` | 构造函数接受 `LLMProvider`、`updateProvider()`、移除硬编码 URL |
+| `app/src/main/java/com/live2d/ai/android/MainActivity.kt` | 初始化 LLMProviderManager、导航到 SettingsScreen、发消息前降级检查 |
 | `app/build.gradle.kts` | **无改动**（OkHttp、kotlinx-serialization 已就绪） |
 
 ---

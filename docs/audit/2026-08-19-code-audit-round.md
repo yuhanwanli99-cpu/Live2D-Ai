@@ -1,4 +1,4 @@
-# Live2Dai — 代码审计与管理收尾（2026-08-19）
+# Live2D-Ai — 代码审计与管理收尾（2026-08-19）
 
 > 本轮 = 「常规代码审计和管理」：全量审查 PC（Python/TS）+ Android（Kotlin）+ 跨端一致性，
 > 落地低风险修复，并完成仓库收尾（文档归档 / 清理 / 逻辑提交）。
@@ -24,7 +24,7 @@
 
 ## 2. 已落地修复（本会话低风险项）
 
-### Android（`app/src/main/java/com/live2dai/android/`）
+### Android（`app/src/main/java/com/live2d/ai/android/`）
 1. **M-1（重启情绪分类桥）** `core/HttpLlmLink.kt#rebuild()`：`rewrite` 后同步重建
    `EmotionClassifierBridge(HttpEmotionClassifier(newBaseUrl, newApiKey, client))`，
    消除「主请求用新 Provider、情绪分类仍打旧端点/旧 Key」的错配与静默降级。
@@ -37,7 +37,7 @@
 5. **A-5（llmLink 可见性）** `core/LoopCoordinator.kt`：`llmLink` 标 `@Volatile`，与
    `config`/`state`/`boundHost` 风格一致，保证 `replaceLlm` 后「下一次请求用新链接」跨线程成立。
 
-### PC（`Live2Dai-pc/open-llm-vtuber/src/open_llm_vtuber/routes.py`）
+### PC（`Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/routes.py`）
 6. **P-1（树写原子化）** `update_config_tree` 直写路径改用 `_write_raw_atomic()`（临时文件 + `os.replace`），
    与 `_save_yaml` 一致性——避免合法 YAML 校验通过后写盘失败留下半份 conf.yaml 导致下次启动失败。
 
@@ -69,7 +69,7 @@
 
 ## 4. 仓库管理收尾（本会话完成）
 
-- 新增 `docs/audit/`：将散落在 `Live2Dai-pc/open-llm-vtuber/` 的 3 份审计报告归档至此并提交。
+- 新增 `docs/audit/`：将散落在 `Live2D-Ai-pc/open-llm-vtuber/` 的 3 份审计报告归档至此并提交。
 - 新增 `.gitignore` 规则（一次性交接/审计工作产物不入库）：
   `**/handoff*.json`、`**/SETTINGS_*_HANDOFF.json`、`analysis/tmp/`、`analysis/**/tmp/`。
 - 一次性 `handoff*.json` / `analysis/tmp/*` 交易产物现被忽略，不再污染 `git status`。

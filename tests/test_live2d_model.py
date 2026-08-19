@@ -15,7 +15,7 @@ import sys
 import pytest
 
 _PC_SRC = os.path.join(
-    os.path.dirname(__file__), "..", "Live2Dai-pc", "open-llm-vtuber", "src"
+    os.path.dirname(__file__), "..", "Live2D-Ai-pc", "open-llm-vtuber", "src"
 )
 if _PC_SRC not in sys.path:
     sys.path.insert(0, _PC_SRC)
@@ -36,7 +36,7 @@ def _make_model(name="bai"):
         return Live2dModel(
             name,
             model_dict_path=os.path.join(
-                _REPO_ROOT, "Live2Dai-pc", "open-llm-vtuber", "model_dict.json"
+                _REPO_ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "model_dict.json"
             ),
         )
     finally:
@@ -81,7 +81,7 @@ class TestModelDictConsistency:
     def test_pc_runtime_model_dict_8_index(self):
         """PC 运行时 model_dict.json bai emotionMap == PROTOCOL_EMOTION_INDEX（bai 唯一化，单条目）。"""
         runtime_path = os.path.join(
-            _REPO_ROOT, "Live2Dai-pc", "open-llm-vtuber", "model_dict.json"
+            _REPO_ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "model_dict.json"
         )
         with open(runtime_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -132,7 +132,7 @@ ADAPTER_PATH = os.path.join(
 )
 CDI3_PATH = os.path.join(
     _REPO_ROOT,
-    "Live2Dai-pc",
+    "Live2D-Ai-pc",
     "open-llm-vtuber",
     "live2d-models",
     "bai",
@@ -321,7 +321,7 @@ class TestPromptContent:
     def setup_class(cls):
         cls.prompt_path = os.path.join(
             _REPO_ROOT,
-            "Live2Dai-pc",
+            "Live2D-Ai-pc",
             "open-llm-vtuber",
             "prompts",
             "utils",

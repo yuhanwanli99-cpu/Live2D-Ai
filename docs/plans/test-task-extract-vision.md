@@ -1,9 +1,9 @@
 # 测试报告 — task-extract-vision（视觉插件提取）
 
 > 测试日期: 2026-07-31
-> 测试范围: `live2dai-plugin-vision` 新模块 + core 侧接入（VisionService.kt 移除 / MainActivity / build 配置）
+> 测试范围: `live2d-ai-plugin-vision` 新模块 + core 侧接入（VisionService.kt 移除 / MainActivity / build 配置）
 > 设计依据: `docs/plans/plan-task-extract-vision.md`（§1.3 验收标准、§4/§5 接口定义、§6 文件清单）
-> 环境: WSL（`/mnt/f/live2dai/Live2Dai-Android`），JDK 17，Android SDK `/opt/android-sdk`，Gradle 8.x
+> 环境: WSL（`/mnt/f/live2dai/Live2D-Ai-Android`），JDK 17，Android SDK `/opt/android-sdk`，Gradle 8.x
 
 ---
 
@@ -28,7 +28,7 @@
 
 | # | 验证点 | 结果 | 证据 |
 | --- | -------- | ------ | ------ |
-| 1.1 | VisionPlugin 实现 Live2DaiPlugin（id/version/onLoad/onUnload） | PASS | 源码审查：`VisionPlugin.kt` 完整实现 4 个成员；`onUnload` 不抛异常（测试 `onUnload_doesNotThrow`） |
+| 1.1 | VisionPlugin 实现 Live2DAiPlugin（id/version/onLoad/onUnload） | PASS | 源码审查：`VisionPlugin.kt` 完整实现 4 个成员；`onUnload` 不抛异常（测试 `onUnload_doesNotThrow`） |
 | 1.2 | onLoad 注册 1 个 ChatHook + 1 个 ToolDefinition | PASS | `VisionPluginTest.onLoad_registersOneHookAndCaptureScreenTool`（FakeHost 断言 hooks=1, tools=1, name="capture_screen"） |
 | 1.3 | GlmVisionClient 正确调用 GLM API | PASS | 请求体含 model/messages(image_url base64)/stream=false/max_tokens=500；`Authorization: Bearer $apiKey`；路径 `/chat/completions`（`describeImage_sendsAuthorizationHeaderAndModel`） |
 | 1.4 | hook 注入格式符合设计 §4.4 | PASS | `beforeSend_injectsScreenDescription` 断言精确等于 `"[系统: 当前屏幕内容]\n屏幕截图描述: 屏幕上显示聊天界面"` |
@@ -39,7 +39,7 @@
 
 | # | 验证点 | 结果 | 证据 |
 | --- | -------- | ------ | ------ |
-| 2.1 | 与 plugin-sdk 接口签名一致 | PASS | `Live2DaiPlugin`/`ChatHook`/`ToolDefinition`/`PluginHost` 4 个接口逐一对照，VisionPlugin/VisionDescribeHook/ScreenCaptureTool 完全匹配 |
+| 2.1 | 与 plugin-sdk 接口签名一致 | PASS | `Live2DAiPlugin`/`ChatHook`/`ToolDefinition`/`PluginHost` 4 个接口逐一对照，VisionPlugin/VisionDescribeHook/ScreenCaptureTool 完全匹配 |
 | 2.2 | 无冗余/反模式 | PASS（附建议） | 无死代码、无重复逻辑；迁移逻辑与旧 VisionService 逐行对比一致（仅参数化 + 空 key 早退）。P2-1: `VisionPlugin.onLoad` 创建 2 个 GlmVisionClient（各持 1 个 OkHttpClient 连接池）——符合设计 §5.1，但可共享 1 个 client。P2-2: 异常仅 `printStackTrace()` 后返回空串，无日志分级 |
 | 2.3 | 插件不持有 Android Context / 截图能力 | PASS | `ScreenshotProvider` 接口注入（设计 §2.3）；`AndroidScreenshotProvider` 空壳在 core 侧 |
 | 2.4 | LSP 静态诊断 | PASS | `lsp_diagnostics` 对 8 个改动文件: **0 诊断** |
@@ -70,7 +70,7 @@
 | # | 验证点 | 结果 | 证据 |
 | --- | -------- | ------ | ------ |
 | 5.1 | core 移除 VisionService.kt 后无残留引用 | PASS | `git grep -n "VisionService" HEAD -- '*.kt'`（HEAD 基线）= 0 代码引用；工作树 grep = 仅 3 处注释提及（build.gradle.kts 注释、插件 KDoc） |
-| 5.2 | app/build.gradle.kts 依赖正确 | PASS | `implementation(project(":plugin-sdk"))` + `implementation(project(":live2dai-plugin-vision"))`；settings.gradle.kts 含两个 include |
+| 5.2 | app/build.gradle.kts 依赖正确 | PASS | `implementation(project(":plugin-sdk"))` + `implementation(project(":live2d-ai-plugin-vision"))`；settings.gradle.kts 含两个 include |
 | 5.3 | plugin-sdk 纯 JVM 模块被 Android Library compileOnly 引用（设计 §8 R3） | PASS | plugin-sdk/build.gradle.kts 为 `org.jetbrains.kotlin.jvm`（无 Android）；`:plugin-sdk:build` BUILD SUCCESSFUL |
 | 5.4 | 无插件时行为不变（向后兼容） | PASS | `ChatService.hooks` 默认 `emptyList()`；`ChatService(apiKey, baseUrl)` 兼容次构造保留；app 37 测试全过无回归 |
 | 5.5 | ChatService hook 隔离（单插件异常不打断对话） | PASS | 逐 hook try/catch 静默跳过（源码审查） |
@@ -82,7 +82,7 @@
 | --------------------- | ------ | ------ |
 | ① Core 移除 VisionService.kt 后编译通过，无插件行为不变 | PASS | `:app:assembleDebug` BUILD SUCCESSFUL；37 测试通过 |
 | ② app 添加插件依赖后 loadPlugins 装载 → 截图描述自动注入 | PASS | `:app:assembleDebug` 通过；集成测试验证注入格式正确 |
-| ③ 插件独立仓库可独立编译 | PASS | `:live2dai-plugin-vision:assemble`（debug+release）BUILD SUCCESSFUL |
+| ③ 插件独立仓库可独立编译 | PASS | `:live2d-ai-plugin-vision:assemble`（debug+release）BUILD SUCCESSFUL |
 | ④ BuildConfig.ZHIPU_API_KEY / SettingsRepository.zhipuApiKey 留在 core | PASS | 见维度 4.2 |
 | 「极简 core + 插件扩展」架构达成 | PASS | VisionService（37 行 core 类）→ 独立模块 5 个文件，core 仅剩 PluginManager + 空壳 ScreenshotProvider + MainActivity 3 行装配代码 |
 
@@ -123,8 +123,8 @@
 
 ```bash
 # 1. 插件独立构建 + 单元测试（14 用例）
-cd /mnt/f/live2dai/Live2Dai-Android
-./gradlew :live2dai-plugin-vision:assemble :live2dai-plugin-vision:testDebugUnitTest
+cd /mnt/f/live2dai/Live2D-Ai-Android
+./gradlew :live2d-ai-plugin-vision:assemble :live2d-ai-plugin-vision:testDebugUnitTest
 # → BUILD SUCCESSFUL in 2m 1s；GlmVisionClientTest tests=5 failures=0 errors=0；VisionPluginTest tests=9 failures=0 errors=0
 
 # 2. app 回归（37 用例）
@@ -140,7 +140,7 @@ cd /mnt/f/live2dai/Live2Dai-Android
 # → BUILD SUCCESSFUL in 31s
 
 # 5. tester 补充集成测试（真实 PluginManager→VisionPlugin→MockWebServer 全链路）
-./gradlew :app:testDebugUnitTest --tests "com.live2dai.android.VisionPluginIntegrationTempTest"
+./gradlew :app:testDebugUnitTest --tests "com.live2d.ai.android.VisionPluginIntegrationTempTest"
 # → tests=2 failures=0 errors=0（验证后临时文件已删除，git status 无残留）
 
 # 6. 残留引用检查
@@ -148,7 +148,7 @@ git grep -n "VisionService" HEAD -- '*.kt'   # → 0 代码引用（仅定义文
 grep -rn "VisionService" --include="*.kt" --include="*.kts" . # → 仅注释提及
 
 # 7. 密钥硬编码扫描
-grep -rniE "(api[_-]?key|secret|token|password)\s*=\s*[\"'][A-Za-z0-9._-]{16,}" live2dai-plugin-vision/src/  # → 0 命中
+grep -rniE "(api[_-]?key|secret|token|password)\s*=\s*[\"'][A-Za-z0-9._-]{16,}" live2d-ai-plugin-vision/src/  # → 0 命中
 
 # 8. LSP 静态诊断（8 个改动文件）
 lsp_diagnostics → Files checked: 8, Total diagnostics: 0

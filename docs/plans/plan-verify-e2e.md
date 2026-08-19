@@ -3,7 +3,7 @@
 > 版本: 1.0.0  
 > 日期: 2026-07-22  
 > 目标: 构建 APK → 部署到真机 (192.168.0.102:5555) → 验证四大功能  
-> 前置条件: 项目目录为 `Live2Dai-Android`（已从旧目录名完成重命名）
+> 前置条件: 项目目录为 `Live2D-Ai-Android`（已从旧目录名完成重命名）
 
 ---
 
@@ -59,7 +59,7 @@
 | ----- | ------ | ------ |
 | `DEEPSEEK_API_KEY` | `local.properties` / `BuildConfig` | ✅ sk-4b31... |
 | `ZHIPU_API_KEY` | `local.properties` / `BuildConfig` | ✅ a1e842... |
-| 桌面端 API Keys | `Live2Dai-pc/open-llm-vtuber/conf.yaml` | ✅ 一致 |
+| 桌面端 API Keys | `Live2D-Ai-pc/open-llm-vtuber/conf.yaml` | ✅ 一致 |
 
 ---
 
@@ -94,7 +94,7 @@
 
 ```bash
 # 进入项目目录
-cd /f/Live2Dai/Live2Dai-Android
+cd /f/Live2D-Ai/Live2D-Ai-Android
 
 # 方案 A: 从 Gradle 缓存生成 wrapper (推荐)
 # 使用缓存中的 gradle-8.12
@@ -119,7 +119,7 @@ ls -la gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar
 
 ```bash
 # 确认 SDK 路径
-cat Live2Dai-Android/local.properties
+cat Live2D-Ai-Android/local.properties
 # 预期:
 #   sdk.dir=/opt/android-sdk
 #   ndk.dir=/opt/android-sdk/ndk/27.0.12077973
@@ -130,7 +130,7 @@ cat Live2Dai-Android/local.properties
 ### 3.3 Step 3: 构建 APK
 
 ```bash
-cd /f/Live2Dai/Live2Dai-Android
+cd /f/Live2D-Ai/Live2D-Ai-Android
 
 # 设置环境变量
 export ANDROID_HOME=/opt/android-sdk
@@ -157,7 +157,7 @@ unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E "\.so$|\.moc3$|\.js
 ### 3.5 Step 5: 运行单元测试 (可选但推荐)
 
 ```bash
-cd /f/Live2Dai/Live2Dai-Android
+cd /f/Live2D-Ai/Live2D-Ai-Android
 ./gradlew test
 # 预期: 5 个测试类全部通过
 ```
@@ -186,7 +186,7 @@ adb connect 192.168.0.102:5555
 
 ```bash
 # Step 1: 完全卸载旧版 (vivo 必须这样做)
-adb -s 192.168.0.102:5555 uninstall com.live2dai.android
+adb -s 192.168.0.102:5555 uninstall com.live2d.ai.android
 
 # Step 2: 安装新版
 adb -s 192.168.0.102:5555 install app/build/outputs/apk/debug/app-debug.apk
@@ -198,22 +198,22 @@ adb -s 192.168.0.102:5555 install app/build/outputs/apk/debug/app-debug.apk
 #   → 或使用 input tap 模拟点击 (坐标因机型而异)
 
 # Step 3: 验证安装
-adb -s 192.168.0.102:5555 shell pm list packages | grep live2dai
-# 预期: package:com.live2dai.android
+adb -s 192.168.0.102:5555 shell pm list packages | grep -i "live2d"
+# 预期: package:com.live2d.ai.android
 ```
 
 ### 4.3 启动应用
 
 ```bash
 # 启动
-adb -s 192.168.0.102:5555 shell am start -n com.live2dai.android/.MainActivity
+adb -s 192.168.0.102:5555 shell am start -n com.live2d.ai.android/.MainActivity
 
 # 等待启动 (约 1-3 秒)
 sleep 3
 
 # 验证前台 Activity
 adb shell dumpsys window | grep mCurrentFocus
-# 预期: ...com.live2dai.android/.MainActivity
+# 预期: ...com.live2d.ai.android/.MainActivity
 ```
 
 ---
@@ -307,7 +307,7 @@ adb -s 192.168.0.102:5555 logcat -d | grep -iE "EdgeTts|TTS|WebSocket|speak"
 
 ```bash
 # A1: 检查权限状态
-adb -s 192.168.0.102:5555 shell dumpsys package com.live2dai.android | grep -A5 "granted=true"
+adb -s 192.168.0.102:5555 shell dumpsys package com.live2d.ai.android | grep -A5 "granted=true"
 # 预期: android.permission.RECORD_AUDIO: granted=true
 
 # A2-A4: 需要手动语音交互
@@ -334,7 +334,7 @@ adb -s 192.168.0.102:5555 shell dumpsys package com.live2dai.android | grep -A5 
 ```bash
 # 综合 logcat 检查（启动后 5 秒内的日志）
 adb -s 192.168.0.102:5555 logcat -c  # 清空
-adb -s 192.168.0.102:5555 shell am start -n com.live2dai.android/.MainActivity
+adb -s 192.168.0.102:5555 shell am start -n com.live2d.ai.android/.MainActivity
 sleep 5
 adb -s 192.168.0.102:5555 logcat -d | grep -iE "Pose|PartArm|FATAL|Exception|Error|FAILED"
 ```
@@ -347,18 +347,18 @@ adb -s 192.168.0.102:5555 logcat -d | grep -iE "Pose|PartArm|FATAL|Exception|Err
 
 | 文件 | 用途 | 说明 |
 | ------ | ------ | ------ |
-| `Live2Dai-Android/gradlew` | Gradle wrapper 启动脚本 | Unix shell 脚本 |
-| `Live2Dai-Android/gradlew.bat` | Gradle wrapper 启动脚本 | Windows 批处理 |
-| `Live2Dai-Android/gradle/wrapper/gradle-wrapper.jar` | Wrapper JAR | 从 Gradle 分发版提取 |
-| `Live2Dai-Android/gradle/wrapper/gradle-wrapper.properties` | Wrapper 配置 | distributionUrl 指向 gradle-8.12-bin.zip |
+| `Live2D-Ai-Android/gradlew` | Gradle wrapper 启动脚本 | Unix shell 脚本 |
+| `Live2D-Ai-Android/gradlew.bat` | Gradle wrapper 启动脚本 | Windows 批处理 |
+| `Live2D-Ai-Android/gradle/wrapper/gradle-wrapper.jar` | Wrapper JAR | 从 Gradle 分发版提取 |
+| `Live2D-Ai-Android/gradle/wrapper/gradle-wrapper.properties` | Wrapper 配置 | distributionUrl 指向 gradle-8.12-bin.zip |
 
 ### 可能需要修改的文件
 
 | 文件 | 修改内容 | 触发条件 |
 | ------ | ---------- | ---------- |
-| `Live2Dai-Android/local.properties` | 无需修改 (SDK 路径正确) | — |
+| `Live2D-Ai-Android/local.properties` | 无需修改 (SDK 路径正确) | — |
 | `scripts/deploy_android.sh` | IP 从 108→102 (可选) | 如需脚本化部署 |
-| `Live2Dai-Android/app/build.gradle.kts` | 无需修改 | — |
+| `Live2D-Ai-Android/app/build.gradle.kts` | 无需修改 | — |
 
 ### 输出文档
 

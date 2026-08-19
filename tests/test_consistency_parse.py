@@ -37,22 +37,22 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SHARED_CONSISTENCY = _REPO_ROOT / "shared" / "check_cross_platform_consistency.py"
 _ANDROID_BAI_MODEL3 = (
     _REPO_ROOT
-    / "Live2Dai-Android" / "app" / "src" / "main" / "assets"
+    / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets"
     / "live2d" / "bai" / "runtime" / "bai.model3.json"
 )
 _PC_BAI_MODEL3 = (
     _REPO_ROOT
-    / "Live2Dai-pc" / "open-llm-vtuber" / "live2d-models"
+    / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models"
     / "bai" / "runtime" / "bai.model3.json"
 )
-_PC_MODEL_DICT = _REPO_ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "model_dict.json"
+_PC_MODEL_DICT = _REPO_ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "model_dict.json"
 _MODEL_ADAPTER_CONFIG = (
-    _REPO_ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "java"
-    / "com" / "live2dai" / "android" / "ModelAdapterConfig.kt"
+    _REPO_ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "java"
+    / "com" / "live2d" / "ai" / "android" / "ModelAdapterConfig.kt"
 )
 _EMOTION_TEXT = (
-    _REPO_ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "java"
-    / "com" / "live2dai" / "android" / "core" / "EmotionText.kt"
+    _REPO_ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "java"
+    / "com" / "live2d" / "ai" / "android" / "core" / "EmotionText.kt"
 )
 
 # ---- 契约锚点 ----
@@ -216,7 +216,7 @@ def test_c26_negative_pc_emotionmap_subprocess_mutation_and_restore():
     契约 §3 C-A2（R1-model D2：niziiro 已移除，负例改锚 bai 条目）：
     `临时改 PC model_dict.json bai emotionMap 一个值 → C26 FAIL（改后还原）`。
     """
-    _PC_MODEL_DICT = _REPO_ROOT / "Live2Dai-pc" / "open-llm-vtuber" / "model_dict.json"
+    _PC_MODEL_DICT = _REPO_ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "model_dict.json"
     orig_bytes = _PC_MODEL_DICT.read_bytes()
     try:
         data = json.loads(orig_bytes)

@@ -1,4 +1,4 @@
-# Live2Dai — Sync Shared Config → Android Assets
+# Live2D-Ai — Sync Shared Config → Android Assets
 # ================================================================
 # 将 shared/ 中的跨端共享配置同步到 Android assets/。
 # PC 端通过 conf.yaml 的 load_persona_from_file 直接读取 shared/，无需复制。
@@ -15,9 +15,9 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SharedDir = Join-Path $ProjectRoot "shared"
-$AndroidAssetsDir = Join-Path $ProjectRoot "Live2Dai-Android\app\src\main\assets"
+$AndroidAssetsDir = Join-Path $ProjectRoot "Live2D-Ai-Android\app\src\main\assets"
 
-Write-Host "Live2Dai — 配置同步工具 (shared -> Android assets)" -ForegroundColor Cyan
+Write-Host "Live2D-Ai — 配置同步工具 (shared -> Android assets)" -ForegroundColor Cyan
 Write-Host ""
 
 if (-not (Test-Path $SharedDir)) {
@@ -69,7 +69,7 @@ foreach ($file in $SyncFiles) {
 }
 
 # 检查 PC 端 conf.yaml 是否引用 shared/persona.yaml（仅提示，不修改）
-$DesktopConf = Join-Path $ProjectRoot "Live2Dai-pc\open-llm-vtuber\conf.yaml"
+$DesktopConf = Join-Path $ProjectRoot "Live2D-Ai-pc\open-llm-vtuber\conf.yaml"
 if (Test-Path $DesktopConf) {
     $confContent = Get-Content $DesktopConf -Raw
     if ($confContent -match 'load_persona_from_file') {

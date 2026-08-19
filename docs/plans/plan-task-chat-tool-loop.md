@@ -317,11 +317,11 @@ fun ToolDefinition.toFunctionSpec(): FunctionSpec {
 ### 5.1 ConfirmationGate（core 内部接口）
 
 ```kotlin
-// 文件: app/src/main/java/com/live2dai/android/ConfirmationGate.kt
+// 文件: app/src/main/java/com/live2d/ai/android/ConfirmationGate.kt
 
-package com.live2dai.android
+package com.live2d.ai.android
 
-import com.live2dai.pluginsdk.ToolDefinition
+import com.live2d.ai.pluginsdk.ToolDefinition
 
 /**
  * 危险工具执行前的确认拦截门。
@@ -588,11 +588,11 @@ assistant: "已经帮你打开微信了喵~"                      ← 最终自�
 
 | # | 文件路径 | 变更类型 | 说明 |
 | --- | ---------- | ---------- | ------ |
-| 1 | `app/src/main/java/com/live2dai/android/ApiModels.kt` | **修改** | 新增 `FunctionSpec`, `ToolDef`, `ToolCall`, `ToolCallFunction`；`ChatRequest` + `tools`/`tool_choice`；`ChatMessage` + `tool_calls`/`tool_call_id` |
-| 2 | `app/src/main/java/com/live2dai/android/ChatService.kt` | **修改** | 构造函数 + `tools`/`confirmationGate` 参数；`sendMessage()` 植入 tool-calling 循环；提取 `executeStreamingRequest()` / `executeNonStreamingRequest()` |
-| 3 | `app/src/main/java/com/live2dai/android/ConfirmationGate.kt` | **新增** | `fun interface ConfirmationGate` — 危险工具确认拦截 |
-| 4 | `app/src/test/java/com/live2dai/android/ChatServiceTest.kt` | **修改** | 新增：无工具回归、工具执行、确认拒绝、循环上限、工具异常隔离、gate=null 安全默认 |
-| 5 | `app/src/main/java/com/live2dai/android/MainActivity.kt` | **修改** | 注入 `ConfirmationGate` 实现（Compose AlertDialog），具体实现留给 developer |
+| 1 | `app/src/main/java/com/live2d/ai/android/ApiModels.kt` | **修改** | 新增 `FunctionSpec`, `ToolDef`, `ToolCall`, `ToolCallFunction`；`ChatRequest` + `tools`/`tool_choice`；`ChatMessage` + `tool_calls`/`tool_call_id` |
+| 2 | `app/src/main/java/com/live2d/ai/android/ChatService.kt` | **修改** | 构造函数 + `tools`/`confirmationGate` 参数；`sendMessage()` 植入 tool-calling 循环；提取 `executeStreamingRequest()` / `executeNonStreamingRequest()` |
+| 3 | `app/src/main/java/com/live2d/ai/android/ConfirmationGate.kt` | **新增** | `fun interface ConfirmationGate` — 危险工具确认拦截 |
+| 4 | `app/src/test/java/com/live2d/ai/android/ChatServiceTest.kt` | **修改** | 新增：无工具回归、工具执行、确认拒绝、循环上限、工具异常隔离、gate=null 安全默认 |
+| 5 | `app/src/main/java/com/live2d/ai/android/MainActivity.kt` | **修改** | 注入 `ConfirmationGate` 实现（Compose AlertDialog），具体实现留给 developer |
 | 6 | `plugin-sdk/` | **无改动** | `ToolDefinition` / `PluginHost` 接口已完备 |
 
 ---

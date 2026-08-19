@@ -11,8 +11,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SHARED = ROOT / "shared"
-ANDROID_ASSETS = ROOT / "Live2Dai-Android" / "app" / "src" / "main" / "assets"
-PC = ROOT / "Live2Dai-pc" / "open-llm-vtuber"
+ANDROID_ASSETS = ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets"
+PC = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber"
 
 
 def test_shared_core_files_exist() -> None:
@@ -54,13 +54,13 @@ def test_pc_conf_loads_shared_persona() -> None:
 
 
 def test_plugin_sdk_skeleton_exists() -> None:
-    sdk = ROOT / "Live2Dai-Android" / "plugin-sdk"
+    sdk = ROOT / "Live2D-Ai-Android" / "plugin-sdk"
     for rel in [
         "build.gradle.kts",
-        "src/main/java/com/live2dai/pluginsdk/Live2DaiPlugin.kt",
-        "src/main/java/com/live2dai/pluginsdk/PluginHost.kt",
-        "src/main/java/com/live2dai/pluginsdk/ChatHook.kt",
-        "src/main/java/com/live2dai/pluginsdk/ToolDefinition.kt",
+        "src/main/java/com/live2d/ai/pluginsdk/Live2DAiPlugin.kt",
+        "src/main/java/com/live2d/ai/pluginsdk/PluginHost.kt",
+        "src/main/java/com/live2d/ai/pluginsdk/ChatHook.kt",
+        "src/main/java/com/live2d/ai/pluginsdk/ToolDefinition.kt",
     ]:
         assert (sdk / rel).is_file(), f"missing plugin-sdk/{rel}"
 

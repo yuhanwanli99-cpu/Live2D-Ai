@@ -18,15 +18,15 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 # P13 目标：目录（递归）+ 单文件（contract §3 P13 路径清单）
 P13_DIRS = [
-    os.path.join(ROOT, "Live2Dai-Android", "app", "src"),
-    os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", "renderer", "src"),
+    os.path.join(ROOT, "Live2D-Ai-Android", "app", "src"),
+    os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "renderer", "src"),
 ]
 P13_FILES = [
-    os.path.join(ROOT, "Live2Dai-Android", "app", "src", "main", "assets", "persona.yaml"),
-    os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", "conf.yaml"),
-    os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", "renderer", "index.html"),
-    os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", "frontend", "index.html"),
-    os.path.join(ROOT, "Live2Dai-pc", "start.ps1"),
+    os.path.join(ROOT, "Live2D-Ai-Android", "app", "src", "main", "assets", "persona.yaml"),
+    os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "conf.yaml"),
+    os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "renderer", "index.html"),
+    os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "frontend", "index.html"),
+    os.path.join(ROOT, "Live2D-Ai-pc", "start.ps1"),
     os.path.join(ROOT, "shared", "persona.yaml"),
     os.path.join(ROOT, "shared", "emotion-protocol.md"),
 ]
@@ -65,47 +65,50 @@ class TestPersonaNewValuePresent(unittest.TestCase):
 
     # ---- P5 · PC 配置/显示 ----
     def test_p5_conf_character_name(self):
-        p = os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", "conf.yaml")
+        p = os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "conf.yaml")
         self.assertIn("character_name: '白'", _read_text(p), "conf.yaml character_name 应为 '白'")
 
-    def test_p5_start_ps1_banner(self):
-        p = os.path.join(ROOT, "Live2Dai-pc", "start.ps1")
-        self.assertIn("人设: 白", _read_text(p), "start.ps1 横幅应为人设: 白")
+    def test_p5_start_sh_primary_launcher(self):
+        # 2026-08-19: 原生 Windows 放弃，PC 端主力启动脚本为 WSL2 的 start.sh
+        p = os.path.join(ROOT, "Live2D-Ai-pc", "start.sh")
+        txt = _read_text(p)
+        self.assertIn("WSL2/Linux 一键启动", txt, "start.sh 应标注 WSL2/Linux 主力启动")
+        self.assertIn("http://localhost:12393", txt, "start.sh 应指向后端端口")
 
     def test_p5_renderer_and_frontend_title(self):
         for f in ("renderer", "frontend"):
-            p = os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", f, "index.html")
+            p = os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", f, "index.html")
             self.assertIn("白", _read_text(p), f"{f}/index.html <title> 应含 白")
 
     def test_p5_chat_ui_title(self):
-        p = os.path.join(ROOT, "Live2Dai-pc", "open-llm-vtuber", "renderer", "src", "chat-ui.ts")
-        self.assertIn("白 · Live2Dai", _read_text(p), "chat-ui.ts 标题应为 白 · Live2Dai")
+        p = os.path.join(ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "renderer", "src", "chat-ui.ts")
+        self.assertIn("白 · Live2D-Ai", _read_text(p), "chat-ui.ts 标题应为 白 · Live2D-Ai")
 
     # ---- P6 · Android 代码 ----
     def test_p6_persona_config_fallback_prompt(self):
-        p = os.path.join(ROOT, "Live2Dai-Android", "app", "src", "main", "java",
-                         "com", "live2dai", "android", "PersonaConfig.kt")
+        p = os.path.join(ROOT, "Live2D-Ai-Android", "app", "src", "main", "java",
+                         "com", "live2d", "ai", "android", "PersonaConfig.kt")
         txt = _read_text(p)
         self.assertIn("你是白", txt, "PersonaConfig FALLBACK_PROMPT 应含 你是白")
         self.assertNotIn("凛", txt, "PersonaConfig 不得残留 凛")
 
     def test_p6_persona_config_default_name_and_entry(self):
-        p = os.path.join(ROOT, "Live2Dai-Android", "app", "src", "main", "java",
-                         "com", "live2dai", "android", "PersonaConfig.kt")
+        p = os.path.join(ROOT, "Live2D-Ai-Android", "app", "src", "main", "java",
+                         "com", "live2d", "ai", "android", "PersonaConfig.kt")
         txt = _read_text(p)
         self.assertIn('personaName: String = "白"', txt, "PersonaConfig personaName 默认应为 \"白\"")
         self.assertIn("白 (默认)", txt, "PersonaConfig 人设列表应含 \"白 (默认)\" 条目")
 
     def test_p6_settings_repository_default_persona(self):
-        p = os.path.join(ROOT, "Live2Dai-Android", "app", "src", "main", "java",
-                         "com", "live2dai", "android", "data", "SettingsRepository.kt")
+        p = os.path.join(ROOT, "Live2D-Ai-Android", "app", "src", "main", "java",
+                         "com", "live2d", "ai", "android", "data", "SettingsRepository.kt")
         self.assertIn('DEFAULT_PERSONA = "白 (Bai)"', _read_text(p),
                       "SettingsRepository DEFAULT_PERSONA 应 == \"白 (Bai)\"")
 
     def test_p6_proactive_greeting_removed_from_core(self):
         # Wave 5 已把主动陪伴/ProactiveGreetingClient 移出核心；不应再作为核心文件存在。
-        p = os.path.join(ROOT, "Live2Dai-Android", "app", "src", "main", "java",
-                         "com", "live2dai", "android", "ProactiveGreetingClient.kt")
+        p = os.path.join(ROOT, "Live2D-Ai-Android", "app", "src", "main", "java",
+                         "com", "live2d", "ai", "android", "ProactiveGreetingClient.kt")
         self.assertFalse(os.path.isfile(p), "ProactiveGreetingClient 已随 Wave5 移出核心，不应存在")
 
 

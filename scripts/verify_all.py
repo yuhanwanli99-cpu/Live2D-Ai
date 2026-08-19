@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Live2Dai 一键地基验证（无 Key 优先）。
+"""Live2D-Ai 一键地基验证（无 Key 优先）。
 
 用法：
   python scripts/verify_all.py            # 本地健康 + 根测试 + 一致性
@@ -44,16 +44,16 @@ def main() -> int:
     results.append(run("root pytest", [sys.executable, "-m", "pytest", "tests/", "-q"]))
 
     if args.android:
-        gradlew = ROOT / "Live2Dai-Android" / "gradlew.bat" if sys.platform.startswith("win") else ROOT / "Live2Dai-Android" / "gradlew"
-        results.append(run("Android JVM tests", [str(gradlew), ":app:testDebugUnitTest"], ROOT / "Live2Dai-Android"))
+        gradlew = ROOT / "Live2D-Ai-Android" / "gradlew.bat" if sys.platform.startswith("win") else ROOT / "Live2D-Ai-Android" / "gradlew"
+        results.append(run("Android JVM tests", [str(gradlew), ":app:testDebugUnitTest"], ROOT / "Live2D-Ai-Android"))
 
     if args.pc:
-        py = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / ".venv" / "Scripts" / "python.exe"
+        py = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / ".venv" / "Scripts" / "python.exe"
         if not py.exists():
-            py = ROOT / "Live2Dai-pc" / "open-llm-vtuber" / ".venv" / "bin" / "python"
+            py = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / ".venv" / "bin" / "python"
         if not py.exists():
             py = Path(sys.executable)
-        results.append(run("PC pytest", [str(py), "-m", "pytest", "Live2Dai-pc/open-llm-vtuber/tests/", "-q"]))
+        results.append(run("PC pytest", [str(py), "-m", "pytest", "Live2D-Ai-pc/open-llm-vtuber/tests/", "-q"]))
 
     failed = sum(1 for ok in results if not ok)
     print(f"\n===== summary: {len(results) - failed}/{len(results)} passed =====")

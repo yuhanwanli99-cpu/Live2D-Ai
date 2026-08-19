@@ -1,9 +1,9 @@
-# Live2Dai — Gentle Cute Girl Persona 「白 (Bai)」 (Shared / Cross-Platform)
+# Live2D-Ai — Gentle Cute Girl Persona 「白 (Bai)」 (Shared / Cross-Platform)
 # ============================================================
 # This file is the SINGLE SOURCE OF TRUTH for character persona.
 #
 # Referenced by:
-#   - Desktop:  Live2Dai-pc/open-llm-vtuber/conf.yaml via load_persona_from_file
+#   - Desktop:  Live2D-Ai-pc/open-llm-vtuber/conf.yaml via load_persona_from_file
 #   - Android:  assets/persona.yaml (sync from this file)
 #
 # Editing this file affects BOTH platforms automatically.

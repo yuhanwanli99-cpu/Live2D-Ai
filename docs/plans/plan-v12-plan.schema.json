@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Live2Dai V1.2 Interface Contract",
+  "title": "Live2D-Ai V1.2 Interface Contract",
   "description": "TtsProvider 接口签名、注册表 schema、ASR 接口、主动陪伴插件接口、遥测事件 schema",
   "functions": [
     {

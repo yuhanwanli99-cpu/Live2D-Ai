@@ -78,7 +78,7 @@
           "type": "object",
           "description": "core 内部接口（不放入 plugin-sdk）",
           "properties": {
-            "package": { "type": "string", "const": "com.live2dai.android" },
+            "package": { "type": "string", "const": "com.live2d.ai.android" },
             "type": { "type": "string", "const": "fun interface" },
             "method": {
               "type": "object",
