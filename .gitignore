@@ -112,3 +112,9 @@ Live2Dai-pc/open-llm-vtuber/renderer/public/libs/
 # renderer 调试/构建残留（spoq-fix 出仓）
 Live2Dai-pc/open-llm-vtuber/renderer/_bcheck.mjs
 Live2Dai-pc/open-llm-vtuber/renderer/public/
+
+# 一次性任务交接/审计工作产物（session dumps）——不入库
+**/handoff*.json
+**/SETTINGS_*_HANDOFF.json
+analysis/tmp/
+analysis/**/tmp/
