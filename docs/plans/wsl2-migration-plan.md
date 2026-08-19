@@ -1,27 +1,30 @@
 # WSL2 迁移计划：pc 端主力代码迁移到 WSL2 环境
 
-> 状态: 计划（未执行） | 创建日期: 2026-08-19 | 适用: `Live2Dai-pc/`
+> 状态: 计划（未执行，已定为方向） | 创建日期: 2026-08-19 | 适用: `Live2Dai-pc/`
+> 定位: **WSL2 为 PC 端主力（开发 + 运行 + CI）；Windows 降为次要/遗留平台（保留启动方式，但不再作为主力维护/发布目标）。**
 > 目标验证深度: 完整迁移并跑通验证（安装依赖 → 启动 → /health + 前端渲染 + 配置加载）
 
 ---
 
 ## 1. 背景与目标
 
-当前 PC 端（`Live2Dai-pc/`，基于 Open-LLM-VTuber）只在 **Windows** 下运行：
+当前 PC 端（`Live2Dai-pc/`，基于 Open-LLM-VTuber）主要在 **Windows** 下运行：
 一键入口是 `start.ps1` / `启动Live2Dai.bat`，依赖 Windows 上的 `.venv`（`Scripts/python.exe`）。
 
-本次目标：**让 PC 端主力代码在 WSL2 里原生运行、可验证**，同时**保留 Windows 端原启动方式不变**（双平台并存）。
+**项目轨迹（2026-08-19 用户定调）：PC 端主力迁移到 WSL2，放弃 Windows 作为主力。**
+本次目标：**让 PC 端主力代码在 WSL2 里原生运行、可验证、可持续**。Windows 端仅保留既有启动方式
+作为**遗留降级（legacy）**——不删除、不主动维护，也不再作为新功能的优先级目标。
 
 ### 验收标准（Definition of Done）
 
 1. WSL2 内存在独立 Python 3.10~3.12 虚拟环境（放 WSL 原生盘，不在 `/mnt/g`）。
 2. `open-llm-vtuber` 全部 Python 依赖在 WSL 内安装成功（`import open_llm_vtuber` 通过）。
-3. 新增 Linux 启动脚本 `Live2Dai-pc/start.sh`（含环境自检），能正常拉起后端。
+3. 新增 Linux 启动脚本 `Live2Dai-pc/start.sh`（含环境自检），能正常拉起后端，作为**主力入口**。
 4. `curl http://localhost:12393/health` 返回 200。
 5. 从 **Windows 浏览器** 访问 `http://localhost:12393` 能渲染 Live2D 前端（验证 WSL2 localhost 转发）。
 6. 人设/配置加载正常（启动日志出现 `Loaded persona from .../shared/persona.yaml`）。
-7. 文档（README / AGENT）补 WSL2 章节；本迁移流程记录到 CHANGELOG。
-8. Windows 端 `start.ps1` 未被破坏，仍可用。
+7. 文档（README / AGENT）补 WSL2 章节并把 `start.sh` 标为**主力**；本迁移流程记录到 CHANGELOG。
+8. （遗留回归）Windows 端 `start.ps1` 未被破坏、仍可用——仅保证不删不坏，不投入新改进。
 
 ---
 
@@ -195,7 +198,8 @@ curl -s http://localhost:12393/health
 | `CHANGELOG.md` | 修改 | 迁移记录 |
 | `docs/plans/wsl2-migration-plan.md` | 新增 | 本计划 |
 
-> 保留/不动：`start.ps1`、`启动Live2Dai.bat`、仓库内 Windows `.venv`。
+> 保留/不动（**遗留，非主力**）：`start.ps1`、`启动Live2Dai.bat`、仓库内 Windows `.venv`——
+> 仅保证不被破坏，不作为新功能/发布的优先级目标。
 
 ---
 
@@ -204,7 +208,7 @@ curl -s http://localhost:12393/health
 - 不把 git 仓库从 G 盘搬到 WSL 原生盘（保持单仓库、双端同一文件）。
 - 不改后端核心逻辑/路径解析（已验证平台无关）。
 - 不做 Docker 化、不做 systemd 服务（如需后台常驻，可后续加 `nohup` / `systemd --user` 可选层）。
-- 不删除或迁移 Windows 启动链（双平台并存）。
+- 不删除 Windows 启动链——保留为**遗留降级**，但不再作为主力维护/发布目标。
 - 不在本计划内处理 Android 端。
 
 ---

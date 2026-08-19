@@ -1,6 +1,8 @@
 # 常规代码审计与管理收尾（2026-08-19）
 
 > 全量代码审计（PC + Android + 一致性）+ 低风险修复 + 仓库收尾（文档归档 / 清理 / 提交）。
+> **平台轨迹（同日定调）：PC 端主力迁移 WSL2，放弃 Windows 作为主力（Windows 降为遗留降级）**
+> ——`docs/plans/wsl2-migration-plan.md` 已据此更新，审计遗留项按 Linux/WSL2 优先级重排。
 
 ## 审计基线（本次实跑）
 - PC renderer：`npx tsc --noEmit` 通过；Vitest 232/232 通过。
