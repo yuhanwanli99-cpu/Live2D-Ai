@@ -69,6 +69,12 @@ fun SettingsScreen(
      * 失败时回滚选中态并弹 SnackBar，必须拿到异步结果，故增加 onResult 通道。
      */
     onSwitchModel: ((modelId: String, onResult: (Boolean) -> Unit) -> Unit)? = null,
+    /**
+     * 运行时设置变更回调（由应用层注入）：设置页保存 Provider/API Key/模型/温度/TTS 引擎后，
+     * 通知 MainActivity 重建运行中 LLM 链接、刷新 TTS Provider 列表并更新首选引擎，
+     * 使「设置写了就能立即用」而不必重启（修复 F2.1/F2.3 调用链断链）。
+     */
+    onRuntimeSettingsChanged: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val repo = repository ?: remember { SettingsRepository(context) }
@@ -136,6 +142,8 @@ fun SettingsScreen(
             repo.aliyunApiKey = aliyunKey
             repo.cosyvoiceWsUrl = cosyvoiceWsUrl
             refreshCosyVoiceProvider(context)
+            // CosyVoice Key/WS 更新 → 刷新运行中 Provider 列表（新配置立即生效）
+            onRuntimeSettingsChanged?.invoke()
         }
     }
 
@@ -294,6 +302,8 @@ fun SettingsScreen(
                         onClick = {
                             selectedProvider = type
                             LLMProviderManager.setProviderType(type)
+                            // Provider 切换 → 下一次请求即用新端点/Key/模型（无需重启）
+                            onRuntimeSettingsChanged?.invoke()
                         },
                         label = { Text(label) }
                     )
@@ -400,6 +410,8 @@ fun SettingsScreen(
                                 selectedModel = model
                                 repo.model = model
                                 showModelMenu = false
+                                // 聊天模型变更 → 下一次 LLM 请求即用新模型（F2.2/F3.2）
+                                onRuntimeSettingsChanged?.invoke()
                             }
                         )
                     }
@@ -415,7 +427,11 @@ fun SettingsScreen(
             Slider(
                 value = temperature,
                 onValueChange = { temperature = it },
-                onValueChangeFinished = { repo.temperature = temperature },
+                onValueChangeFinished = {
+                    repo.temperature = temperature
+                    // 温度变更 → 下一次 LLM 请求即用新值（F3.2）
+                    onRuntimeSettingsChanged?.invoke()
+                },
                 valueRange = 0.0f..1.0f,
                 steps = 19,
                 modifier = Modifier.fillMaxWidth()
@@ -557,6 +573,8 @@ fun SettingsScreen(
                 onSelect = { id ->
                     selectedTtsProviderId = id
                     repo.ttsProviderId = id
+                    // 首选引擎变更 → 运行时立即生效（F2.3：不再纯装饰）
+                    onRuntimeSettingsChanged?.invoke()
                 }
             )
 
@@ -767,6 +785,8 @@ fun SettingsScreen(
             repo.cosyvoiceWsUrl = cosyvoiceWsUrl
             // Key/WS 地址变更 → 重建 CosyVoice Provider（新配置立即生效，无需重启）
             if (cosyChanged) refreshCosyVoiceProvider(context)
+            // 离开页面 → 应用全部运行时设置（LLM 链接 + TTS Provider 列表 + 首选引擎）
+            onRuntimeSettingsChanged?.invoke()
         }
     }
 }

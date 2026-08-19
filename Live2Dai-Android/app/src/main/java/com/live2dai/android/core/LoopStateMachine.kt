@@ -38,6 +38,7 @@ data class LoopTransition(
 class LoopStateMachine(initialState: LoopState = LoopState.IDLE) {
 
     /** 当前状态（私有 set；仅经有态 [transition] / [forceIdle] 变更）。 */
+    @Volatile
     var state: LoopState = initialState
         private set
 

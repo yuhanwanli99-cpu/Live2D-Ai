@@ -25,11 +25,13 @@ import java.io.IOException
  *   由 resolveEmotion 承担；N.E.K.O. 方案）；
  *   HTTP 错误 / 网络错误 / 超时 → [LlmEvent.Failed]（中文文案 + quotaExhausted 标志）。
  * - `reset()`：清空对话上下文（保留 persona system 首位），后续请求不带旧轮。
+ * - [rebuild]：运行时更新 provider/base_url/api_key/model/temperature（设置修改后无需
+ *   重启即可对下一次请求生效，修复“设置写了但运行仍用旧值”的调用链断链）。
  * - persona 注入位置 = system 消息首位（[ChatHistoryBuilder.setSystem]）。
  */
 class HttpLlmLink(
-    private val baseUrl: String,
-    private val apiKey: String,
+    baseUrl: String,
+    apiKey: String,
     private val client: OkHttpClient,
     private val persona: PersonaConfig,
     /**
@@ -37,7 +39,7 @@ class HttpLlmLink(
      * （seam 要求）。默认 = [EmotionClassifierBridge] 包 [HttpEmotionClassifier]（同 baseUrl/
      * apiKey/client；单次分类调用超时 3s）。
      */
-    private val bridge: EmotionClassifierBridge = EmotionClassifierBridge(
+    private var bridge: EmotionClassifierBridge = EmotionClassifierBridge(
         HttpEmotionClassifier(baseUrl, apiKey, client),
     ),
 ) : LlmLink {
@@ -49,10 +51,39 @@ class HttpLlmLink(
         explicitNulls = false
     }
 
+    /** 运行时可变端点/模型快照（设置修改经 [rebuild] 更新，下一次请求即生效）。 */
+    @Volatile
+    private var config = LlmEndpointConfig(
+        baseUrl = baseUrl,
+        apiKey = apiKey,
+        model = persona.getModel(),
+        temperature = persona.getTemperature(),
+    )
+
     private val historyBuilder = ChatHistoryBuilder()
 
     init {
         historyBuilder.setSystem(persona.getSystemPrompt())
+    }
+
+    /**
+     * 运行时更新端点/模型配置（提供方在设置保存后调用；线程安全经 [@Volatile] 快照）。
+     * model 传 null 时保留当前值；另一方缺失字段同理保留。
+     */
+    fun rebuild(newConfig: LlmEndpointConfig) {
+        val current = config
+        val effective = newConfig.copy(
+            // null 字段保留当前值（调用方可只更新部分字段而不丢失其它）
+            model = newConfig.model ?: current.model,
+            temperature = newConfig.temperature ?: current.temperature,
+        )
+        config = effective
+        // 情绪分类桥与主链路同端点/同 Key：运行时更换 Provider/base_url/api_key 后，
+        // 分类调用也指向新端点，避免「主请求用新配置、情绪分类仍打旧端点」的错配/降级
+        // （审计 M-1：HttpEmotionClassifier 构造期快照旧 baseUrl/apiKey）。
+        bridge = EmotionClassifierBridge(
+            HttpEmotionClassifier(effective.baseUrl, effective.apiKey, client),
+        )
     }
 
     override fun send(text: String): Flow<LlmEvent> = flow {
@@ -143,28 +174,31 @@ class HttpLlmLink(
     }
 
     private fun buildRequest(messages: List<ChatMessage>): Request {
+        val cfg = config
         val payload = ChatRequest(
-            model = persona.getModel(),
+            model = cfg.model ?: persona.getModel(),
             messages = messages,
-            temperature = persona.getTemperature(),
+            temperature = cfg.temperature?.toDouble() ?: persona.getTemperature(),
             max_tokens = persona.getMaxTokens(),
             stream = true,
         )
         val requestBody = json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE)
         return Request.Builder()
-            .url(endpoint())
+            .url(endpoint(cfg.baseUrl))
             .addHeader("Accept", "text/event-stream")
             .apply {
                 // 仅当 apiKey 非空时添加 Authorization header（Ollama 等本地模型无需 Key）
-                if (apiKey.isNotEmpty()) {
-                    addHeader("Authorization", "Bearer $apiKey")
+                if (cfg.apiKey.isNotEmpty()) {
+                    addHeader("Authorization", "Bearer ${cfg.apiKey}")
                 }
             }
             .post(requestBody)
             .build()
     }
 
-    private fun endpoint(): String {
+    /** 由调用方传入已快照的 baseUrl，保证一次请求的 payload 与 URL 取自同一个 config 快照
+     *  （审计 M-3：避免 rebuild 与 in-flight send 并发时 torn-config——payload 用旧值、URL 用新值）。 */
+    private fun endpoint(baseUrl: String): String {
         val base = baseUrl.trimEnd('/')
         return if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
     }
@@ -173,3 +207,15 @@ class HttpLlmLink(
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
+
+/**
+ * 运行时 LLM 端点/模型快照（[HttpLlmLink.rebuild] 的入参）。
+ * 用于在设置页修改 Provider/base_url/api_key/model/temperature 后，
+ * 无需重启即可让下一次请求使用新配置。
+ */
+data class LlmEndpointConfig(
+    val baseUrl: String,
+    val apiKey: String,
+    val model: String?,
+    val temperature: Float? = null,
+)

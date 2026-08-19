@@ -27,7 +27,13 @@ import com.live2dai.android.ui.settings.SettingsScreen
  * （Live2DView.switchModel），而不是等回到聊天页才重建模型。
  */
 @Composable
-fun Live2DaiApp() {
+fun Live2DaiApp(
+    /**
+     * 运行时设置变更回调（MainActivity 注入）：设置保存后重建运行中 LLM 链接、
+     * 刷新 TTS Provider 并更新首选引擎，无需重启即生效。
+     */
+    onRuntimeSettingsChanged: () -> Unit = {},
+) {
     var showSettings by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val repo = remember { SettingsRepository(context) }
@@ -63,6 +69,7 @@ fun Live2DaiApp() {
         if (showSettings) {
             SettingsScreen(
                 onNavigateBack = { showSettings = false },
+                onRuntimeSettingsChanged = onRuntimeSettingsChanged,
                 onSwitchModel = { modelId, onResult ->
                     val entry = registry.getById(modelId)
                     val view = live2DView.value

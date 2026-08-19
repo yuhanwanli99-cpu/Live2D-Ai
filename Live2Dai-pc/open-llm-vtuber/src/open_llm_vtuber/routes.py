@@ -1,6 +1,7 @@
 import os
 import json
 import copy
+import tempfile
 from uuid import uuid4
 import numpy as np
 from datetime import datetime
@@ -208,8 +209,35 @@ def init_config_routes(
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
         yaml.allow_unicode = True
-        with open(config_abs, "w", encoding="utf-8") as f:
-            yaml.dump(data, f)
+        # 先写同目录临时文件再原子替换，避免写盘中途失败留下半份 conf.yaml。
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="conf.", suffix=".yaml.tmp", dir=os.path.dirname(config_abs)
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.dump(data, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, config_abs)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def _write_raw_atomic(content: str):
+        """把用户原始 YAML 文本原子写入 config_abs（与 _save_yaml 同模式），
+        避免中途失败留下半份 conf.yaml 导致下次启动失败。"""
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="conf.", suffix=".yaml.tmp", dir=os.path.dirname(config_abs)
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, config_abs)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     def _load_persona():
         if not os.path.exists(persona_path):
@@ -421,6 +449,7 @@ def init_config_routes(
             "character_name": cc.get("character_name", ""),
             "port": sys_cfg.get("port", 12393),
             "live2d_fps": sys_cfg.get("live2d_fps", 120),
+            "log_level": _env_value("LIVE2DAI_LOG_LEVEL") or "INFO",
             "persona": {
                 "name": persona.get("name", ""),
                 "role": persona.get("role", ""),
@@ -650,6 +679,13 @@ def init_config_routes(
 
             if payload.get("apply") and default_context_cache is not None:
                 try:
+                    # 让新写入 .env 的 LIVE2DAI_* Key 对热重载可见（B4）
+                    try:
+                        from dotenv import load_dotenv
+                        load_dotenv(env_path, override=True)
+                    except Exception as env_error:
+                        logger.warning(f"Failed to reload .env for apply: {env_error}")
+
                     from .config_manager.main import Config as AppConfig
                     new_config = AppConfig(**_config_dict_for_reload())
                     await default_context_cache.load_from_config(new_config)
@@ -731,9 +767,27 @@ def init_config_routes(
             payload = await request.json()
             raw = payload.get("yaml", "")
             import yaml as _yaml
-            _yaml.safe_load(raw)  # 语法校验，失败会抛异常
-            with open(config_abs, "w", encoding="utf-8") as f:
-                f.write(raw)
+            tree = _yaml.safe_load(raw)  # 语法校验，失败会抛异常
+            if not isinstance(tree, dict):
+                return JSONResponse(
+                    {"error": "配置树顶层必须是键值映射（YAML object）"},
+                    status_code=400,
+                )
+            # 写盘前做与 update_config 一致的 schema 校验（含 persona 注入），
+            # 避免“合法 YAML 但结构坏掉”写坏 conf.yaml 导致下次启动失败。
+            candidate = copy.deepcopy(tree)
+            _apply_persona_to_data(candidate, _load_persona() or {})
+            try:
+                from .config_manager.main import Config as AppConfig
+                AppConfig(**candidate)
+            except Exception as validation_error:
+                logger.error(f"Config tree validation failed: {validation_error}")
+                return JSONResponse(
+                    {"error": f"配置校验失败: {validation_error}"}, status_code=400
+                )
+            # 同目录临时文件 + os.replace 原子替换（与 _save_yaml 一致性），
+            # 避免写盘中途失败留下半份 conf.yaml 导致下次启动失败。
+            _write_raw_atomic(raw)
             return JSONResponse({"ok": True, "requires_restart": True})
         except Exception as e:
             logger.error(f"Failed to update config tree: {e}")

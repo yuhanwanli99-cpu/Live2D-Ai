@@ -45,8 +45,9 @@ import kotlinx.coroutines.sync.withLock
  */
 class VoiceIoController(
     context: Context,
-    /** V1.2：TTS Provider 降级链（默认取注册表，测试可注入 mock）。 */
-    private val providers: List<TtsProvider> = TtsProviderRegistry.cascade(),
+    /** V1.2：TTS Provider 降级链（默认取注册表，测试可注入 mock）。运行时可用
+     *  [refreshProviders] 从注册表重读，使设置修改（新 Key/新引擎）无需重启即生效。 */
+    private var providers: List<TtsProvider> = TtsProviderRegistry.cascade(),
     /** 模块4（LipSync）：驱动嘴型的 Live2D 视图；由 [attachLive2DView] 在视图创建后接线。 */
     private var live2DView: Live2DView? = null,
     /** LipSync 动画协程作用域（M-AND-3：Default 后台线程——setLipSyncParam 已改为通道 submit，
@@ -156,21 +157,43 @@ class VoiceIoController(
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
     init {
-        // V1.2 模块1：观察各 Provider 播放状态（StateFlow 自动去重，仅状态切换时触发）。
-        // 去重保护：仅当组合值实际变化才转发（combine 在任一上游发射时都会重算，
-        // 组合值不变时不重复驱动 handlePlaybackState，避免打断正在运行的嘴型动画；
-        // 初始 idle=false 与 _isSpeaking 初值一致，跳过）。
-        if (providers.isNotEmpty()) {
-            playbackObserverJob = lipSyncScope.launch {
-                combine(providers.map { it.isSpeaking }) { states -> states.any { it } }
-                    .collect { playing ->
-                        if (playing != _isSpeaking.value) {
-                            _isSpeaking.value = playing
-                            handlePlaybackState(playing)
-                        }
+        startPlaybackObserver()
+    }
+
+    /**
+     * 观察各 Provider 播放状态（StateFlow 自动去重，仅状态切换时触发）。
+     * 去重保护：仅当组合值实际变化才转发（combine 在任一上游发射时都会重算，
+     * 组合值不变时不重复驱动 handlePlaybackState，避免打断正在运行的嘴型动画；
+     * 初始 idle=false 与 _isSpeaking 初值一致，跳过）。幂等：先取消旧观察再重起，
+     * 供 [refreshProviders] 在 Provider 列表刷新后重建组合流。
+     */
+    private fun startPlaybackObserver() {
+        playbackObserverJob?.cancel()
+        playbackObserverJob = null
+        if (providers.isEmpty()) return
+        playbackObserverJob = lipSyncScope.launch {
+            combine(providers.map { it.isSpeaking }) { states -> states.any { it } }
+                .collect { playing ->
+                    if (playing != _isSpeaking.value) {
+                        _isSpeaking.value = playing
+                        handlePlaybackState(playing)
                     }
-            }
+                }
         }
+    }
+
+    /**
+     * 运行时从注册表重读 TTS Provider 降级链（设置页修改 API Key / 首选引擎 / WS 地址后调用）。
+     * 修复构造期快照导致的新配置对运行播报不可见的问题（F2.3/F2.4）：新链立即生效，
+     * 下次 [speak] 即用新 Provider 列表；旧 Provider 引用随之释放（[release]/[stopSpeaking] 遍历新链）。
+     */
+    fun refreshProviders() {
+        // 先停掉当前旧 Provider 在播的音频（替换列表前遍历旧链），再换新列表重观察：
+        // 否则旧 Provider 若在播会继续出声且不再被观察，导致双音频/＿isSpeaking 失步
+        // （审计 A-1：refreshProviders 未处理 in-flight speak）。
+        if (providers.isNotEmpty()) stopSpeaking()
+        providers = TtsProviderRegistry.cascade()
+        startPlaybackObserver()
     }
 
     /**

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * [SpeechSink] 的 [VoiceIoController] 适配器（Wave 4 · 4-1 绑定规格 1；C 片 core/ 内，
@@ -28,20 +29,28 @@ class SpeechSinkAdapter(
     private val voiceIo: VoiceIoController,
 ) : SpeechSink {
 
+    /**
+     * 首选 TTS 引擎 ID（对应 SettingsRepository.ttsProviderId）。由装配方在设置保存后更新；
+     * [speak] 转发给 [VoiceIoController.speak]，使引擎选择真正生效（F2.3）。null = 纯降级链。
+     */
+    var ttsProviderId: String? = null
+
     private val _speakFailure = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     /** 播报失败信号：speak 抛非取消异常 / 全失败静默未出声时发射一次（供 SpeakFailed 泵）。 */
     val speakFailure: SharedFlow<Unit> = _speakFailure.asSharedFlow()
 
     override suspend fun speak(cleanText: String) {
-        var spoke = false
+        // AtomicBoolean：observer 在后台线程写、本方法在主线程读，保证跨线程可见。
+        // （审计 A-4：原裸 var 无内存可见性，成功出声也可能被误判为未出声。）
+        val spoke = AtomicBoolean(false)
         var failed = false
         // 观察本句是否实际出声（isSpeaking 前沿）：并发收集，speak 返回时取消。
         val observer = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined).launch {
-            voiceIo.isSpeaking.collect { if (it) spoke = true }
+            voiceIo.isSpeaking.collect { if (it) spoke.set(true) }
         }
         try {
-            voiceIo.speak(cleanText)
+            voiceIo.speak(cleanText, providerId = ttsProviderId)
         } catch (ce: CancellationException) {
             throw ce // 打断/取消：正常语义，不算失败（打断路径由状态机 SpeechStop 处理）
         } catch (t: Throwable) {
@@ -50,7 +59,7 @@ class SpeechSinkAdapter(
             observer.cancel()
         }
         // 失败信号：speak 抛非取消异常，或全失败静默降级（本句从未出声）→ 播报失败
-        if (failed || !spoke) {
+        if (failed || !spoke.get()) {
             _speakFailure.tryEmit(Unit)
         }
     }

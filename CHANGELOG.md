@@ -1,3 +1,61 @@
+# 常规代码审计与管理收尾（2026-08-19）
+
+> 全量代码审计（PC + Android + 一致性）+ 低风险修复 + 仓库收尾（文档归档 / 清理 / 提交）。
+
+## 审计基线（本次实跑）
+- PC renderer：`npx tsc --noEmit` 通过；Vitest 232/232 通过。
+- PC 后端：`python3 -m py_compile routes.py` 通过（完整 pytest 因环境缺依赖未跑）。
+- 一致性：`shared/check_cross_platform_consistency.py` 33/33 通过。
+- Android：本环境无 Android SDK/AGP 编译链，改动为静态实现 + 静态审查，**需在 Windows/CI 用 gradlew 编译/单测回归确认**（与既有 handoff 一致）。
+
+## 低风险修复（本会话落地）
+### Android
+- `HttpLlmLink.rebuild()` 同步重建情绪分类桥（`HttpEmotionClassifier` 新 baseUrl/apiKey）——
+  修复「主请求用新 Provider、情绪分类仍打旧端点」的错配/降级（审计 M-1）。
+- `HttpLlmLink.buildRequest()` 单次快照 `config`，payload 与 URL 取自同一快照（endpoint 传入 cfg.baseUrl），
+  消除 rebuild 与 in-flight send 并发 torn-config（审计 M-3）。
+- `VoiceIoController.refreshProviders()` 换链前先 `stopSpeaking()` 停掉旧 Provider 在播音频，
+  修复双音频 / `_isSpeaking` 失步（审计 A-1，High）。
+- `SpeechSinkAdapter.speak()` 的 `spoke` 改 `AtomicBoolean`，修复跨线程内存可见性导致的误判失败信号（审计 A-4）。
+- `LoopCoordinator.llmLink` 标 `@Volatile`，修复 replaceLlm 跨线程可见性（审计 A-5）。
+### PC
+- `update_config_tree`（原生 YAML 直写路径）改原子写：同目录临时文件 + `os.replace`（`_write_raw_atomic`），
+  与 `_save_yaml` 一致，避免写盘失败留下半份 conf.yaml 导致下次启动失败（审计 P-1）。
+
+## 遗留（报告见 `docs/audit/*`，建议后续处理）
+- PC 高危：`.env` / `persona.yaml` 写仍非原子（含密钥，崩溃会一次性毁掉所有 Key）；`discover-models` / `test-llm`
+  会把存储的 Key 发给客户端任意 `base_url`（SSRF/泄漏）；`allow_origins:*` + 0.0.0.0 无鉴权。
+- PC 中危：`log_level` 无服务端枚举校验；"保存并应用"对 log_level 谎报 `applied:True`（运行时 level 不变）；
+  `system_config.port` 是死配置（监听仍硬编码 12393）；`_save_yaml` 权限（mkstemp 0600→replace）与目录 fsync 未处理。
+- Android 中危：`resetAll()` 未复位内存态（当前未接线，latent）；非 HttpLlmLink 兜底每次重建 OkHttpClient（测试态）。
+- Android 未编译，务必在 CI 回归 `rebuild/refreshProviders/replaceLlm/sendMessage("")` 新增用例。
+
+---
+
+# 设置链路修复落地（2026-08-19）
+
+> PC 与 Android「设置写了但运行没生效」的调用链断链修复。
+
+## PC（open-llm-vtuber）
+- conf.yaml 原子保存（临时文件 + `os.replace`），写盘失败不再留下半份配置。
+- 设定树（`/api/config/tree`）写盘前做 `AppConfig` schema 校验，结构非法返回 400 且不落盘。
+- `GET /api/config` 回传 `log_level`，"保存全部"不再把 `.env` 日志级别静默重置为 INFO。
+- apply 热重载前重载 `.env`，新写入的 `LIVE2DAI_*` Key 对运行引擎可见。
+- 此前提交 d75dd96 已含：先校验后落盘、Provider 别名/旧 id 迁移、测试走当前 UI 值、TTS/LLM 选中自动补默认。
+
+## Android
+- `HttpLlmLink` 改为可重建（`rebuild(LlmEndpointConfig)`）：改 Provider/base_url/api_key/聊天模型/温度后下一次请求即生效，不再需重启。
+- `LoopCoordinator` 新增 `replaceLlm` 运行时替换 LLM 链接；空文本发送前拦截，不再卡死 SENDING。
+- `VoiceIoController` 新增 `refreshProviders()`：设置修改后重读 TTS Provider 注册表（新 Key/新引擎运行时可见）；`SpeechSinkAdapter` 透传首选 `ttsProviderId`，引擎选择真正生效。
+- `resetAll()` 同时清空 `llm_provider` 与 `live2dai_ui_mode` 独立偏好；`LoopStateMachine.state` 标 `@Volatile`。
+- 设置页保存后经 `onRuntimeSettingsChanged` 通知 MainActivity 应用运行时配置。
+
+## 验证
+- PC：`py_compile`、renderer `tsc --noEmit`、Vitest 232/232 通过（实现时已跑）。
+- Android：因环境无 JDK 未能编译，需在 Windows/CI Gradle 构建后以 JVM 测试回归确认（见 handoff.json 备注）。
+
+---
+
 # 地基整理（2026-08-16）
 
 > 不改变 v0.1 功能边界，只做减法与工程化收口。

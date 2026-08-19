@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.core.content.ContextCompat
 import com.live2dai.android.core.HttpLlmLink
+import com.live2dai.android.core.LlmEndpointConfig
 import com.live2dai.android.core.LlmLink
 import com.live2dai.android.core.LoopCommand
 import com.live2dai.android.core.LoopCoordinator
@@ -143,6 +144,7 @@ class MainActivity : ComponentActivity() {
             sherpaEngine = createSherpaAsrEngine(),
         )
         speechSink = SpeechSinkAdapter(voiceIo)
+        speechSink.ttsProviderId = SettingsRepository(this).ttsProviderId
         llmLink = buildHttpLlmLink()
         coordinator = LoopWire.assemble(
             llmLink = llmLink,
@@ -193,7 +195,7 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 ) {
-                    Live2DaiApp()
+                    Live2DaiApp(onRuntimeSettingsChanged = { applyRuntimeSettings() })
                 }
             }
         }
@@ -229,6 +231,7 @@ class MainActivity : ComponentActivity() {
     /** HttpLlmLink 构造：baseUrl/apiKey 取现有取值点（LLMProviderManager.getActiveProvider）。 */
     private fun buildHttpLlmLink(): HttpLlmLink {
         val provider = LLMProviderManager.getActiveProvider()
+        val repo = SettingsRepository(this)
         val client = OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
@@ -239,7 +242,45 @@ class MainActivity : ComponentActivity() {
             apiKey = provider.apiKey,
             client = client,
             persona = PersonaConfig,
-        )
+        ).apply {
+            // 出生即用「当前生效聊天模型/温度」（设置页选择，而非仅 persona.yaml）
+            rebuild(
+                LlmEndpointConfig(
+                    baseUrl = provider.baseUrl,
+                    apiKey = provider.apiKey,
+                    model = repo.model,
+                    temperature = repo.temperature,
+                )
+            )
+        }
+    }
+
+    /**
+     * 应用当前设置到运行中实例（设置页保存后经 Live2DaiApp 回调调用，无需重启）：
+     * - LLM：从当前 Provider + 设置页聊天模型/温度重建链接并替换 LoopCoordinator 的引用；
+     * - TTS：从注册表刷新 Provider 列表（新 Key/新引擎可见），并更新首选引擎 id。
+     */
+    private fun applyRuntimeSettings() {
+        val repo = SettingsRepository(this)
+        val provider = LLMProviderManager.getActiveProvider()
+        if (llmLink is HttpLlmLink) {
+            (llmLink as HttpLlmLink).rebuild(
+                LlmEndpointConfig(
+                    baseUrl = provider.baseUrl,
+                    apiKey = provider.apiKey,
+                    model = repo.model,
+                    temperature = repo.temperature,
+                )
+            )
+        } else {
+            // 兜底：非 HttpLlmLink（测试注入的 fake）→ 重建实例并替换引用
+            llmLink = buildHttpLlmLink()
+        }
+        if (::coordinator.isInitialized) {
+            coordinator.replaceLlm(llmLink)
+        }
+        voiceIo.refreshProviders()
+        speechSink.ttsProviderId = repo.ttsProviderId
     }
 
     /** UI 命令消费：气泡追加序（用户气泡 / 流式增量 / 错误气泡），尾插保序。 */

@@ -12,8 +12,9 @@ import com.live2dai.android.core.RenderQualityConfig
  */
 class SettingsRepository(context: Context) {
 
+    private val appContext: Context = context.applicationContext
     private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     // ─── API Keys ───
 
@@ -209,6 +210,17 @@ class SettingsRepository(context: Context) {
 
     fun resetAll() {
         prefs.edit().clear().apply()
+        // 重置也要清掉其它独立存储的偏好（F2.8）：LLM Provider 类型与本地配置
+        // （LLMProviderManager.PREFS_NAME="llm_provider"）和 UI 模式（UiModeStore 的
+        // PREF_NAME="live2dai_ui_mode"），避免“重置所有设置”后仍残留 Provider/模式选择。
+        appContext.getSharedPreferences("llm_provider", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+        appContext.getSharedPreferences("live2dai_ui_mode", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
     }
 
     companion object {

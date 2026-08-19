@@ -61,6 +61,7 @@ interface AppConfig {
   character_name: string;
   port: number;
   live2d_fps: number;
+  log_level: string;
   persona: PersonaCfg;
 }
 
@@ -145,6 +146,7 @@ const EMPTY_CONFIG: AppConfig = {
   character_name: '白',
   port: 12393,
   live2d_fps: 120,
+  log_level: 'INFO',
   persona: {
     name: '',
     role: '',
@@ -780,6 +782,7 @@ export function initSettingsPanel(
     overlay.querySelector<HTMLInputElement>('.settings-character-name')!.value = currentConfig.character_name || '';
     overlay.querySelector<HTMLInputElement>('.settings-port')!.value = String(currentConfig.port ?? 12393);
     overlay.querySelector<HTMLInputElement>('.settings-fps')!.value = String(currentConfig.live2d_fps ?? 120);
+    overlay.querySelector<HTMLSelectElement>('.settings-log-level')!.value = currentConfig.log_level || 'INFO';
   };
 
   const populate = (cfg: AppConfig): void => {

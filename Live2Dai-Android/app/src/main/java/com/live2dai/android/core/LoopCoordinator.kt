@@ -26,7 +26,10 @@ import kotlinx.coroutines.launch
  * 默认 scope 用 Unconfined 使测试中非挂起 fake 同步执行（确定性）；生产侧应注入主线程 scope。
  */
 class LoopCoordinator(
-    private val llmLink: LlmLink,
+    // @Volatile：replaceLlm 由主线程更新、launchLlm（后台 scope）读取，
+    // 跨线程可见性保证「下一次请求用新链接」（审计 A-5，与 config/state 一致）。
+    @Volatile
+    private var llmLink: LlmLink,
     private val expressionSink: ExpressionSink,
     private val speechSink: SpeechSink,
     private val stateMachine: LoopStateMachine = LoopStateMachine(),
@@ -62,7 +65,18 @@ class LoopCoordinator(
      * 用户发送消息。重入守卫（I1）：SENDING（请求在途）时拒绝并返回 false，不触发第二个 llm.send。
      * SPEAKING 时合法（C-4 立即打断：stop → 嘴型归零 → 表情收敛 → 新请求）。
      */
+    /**
+     * 运行时替换 LLM 链接（设置页修改 Provider/base_url/api_key/model 后调用，
+     * 下一次请求即用新链接，无需重启 Activity）。
+     */
+    fun replaceLlm(newLink: LlmLink) {
+        llmLink = newLink
+    }
+
     fun sendMessage(text: String): Boolean {
+        // 空文本/纯空白：不进入 SENDING，避免状态机卡死（HttpLlmLink.send 对 blank 直接返回，
+        // 状态机无超时回退 → 永久 SENDING）。修复 F2.6。
+        if (text.isBlank()) return false
         if (stateMachine.state == LoopState.SENDING) return false
         val transition = stateMachine.transition(LoopEvent.SubmitText(text))
         // 兜底：状态机拒绝（态不变、零指令）时同样不执行
