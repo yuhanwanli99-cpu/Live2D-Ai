@@ -57,6 +57,10 @@ Live2D-Ai-Android/.idea/
 # Cache
 cache/
 
+# uv 托管缓存与托管 Python（仅本机，勿入库；WSL2 环境准备产物）
+.uv-cache/
+.uv-python/
+
 # Live2D Cubism native —— 历史残留槽位（spoq-fix G7：渲染由 CMake 编译 Purism Core 提供，与 AAR 无关）
 # **/libs/live2d-cubism-core.aar
 

@@ -3,10 +3,11 @@
 > **平台定调（用户）：PC 端主力定位 WSL2，**放弃**原生 Windows；项目更名为 `Live2D-Ai`。**
 >
 > - **仓库迁移**：项目从 Windows G 盘 `/mnt/g/git/Live2Dai` 迁移至 **WSL2 原生盘**（`git clone` 保留全部历史，排除可再生成的构建产物），并新增 `backup` remote 指向 G 盘原件。
-> - **更名 Live2D-Ai**：目录 `Live2D-Ai-Android` / `Live2D-Ai-pc`；Kotlin 包 `com.live2dai.android` → `com.live2d.ai.android`（含 JNI `Java_com_live2d_ai_android_*`、Gradle、清单）；标识符 `Live2Dai*` → `Live2DAi*`；文档/标题改为 `Live2D-Ai`。模块/产物 slug `live2dai-*` → `live2d-ai-*`。
+> - **更名 Live2D-Ai**：目录 `Live2D-Ai-Android` / `Live2D-Ai-pc`；Kotlin 包 `com.live2dai.android` → `com.live2d.ai.android`（含 JNI `Java_com_live2d_ai_android_*`、Gradle、清单）；标识符 `Live2Dai*` → `Live2DAi*`；文档/标题改为 `Live2D-Ai`。模块/产物 slug `live2dai-*` → `live2d-ai-*`。补充清理：文件名 `Live2DaiApp.kt`→`Live2DAiApp.kt`、`Live2DaiPlugin.kt`→`Live2DAiPlugin.kt`。
 > - **放弃原生 Windows**：移除 PC 端 Windows 启动入口 `Live2D-Ai-pc/start.ps1` / `启动Live2D-Ai.bat`；移除 Windows SAPI 专属依赖 `pyttsx3`（pyproject + requirements）；PC 端新增 **WSL2 主力启动脚本 `Live2D-Ai-pc/start.sh`**（含 venv + 核心依赖自检）。
 > - 保留不变（状态/配置兼容边界）：Android SharedPreferences 键 `live2dai_settings` / `live2dai_ui_mode` / `live2dai_interaction`、记忆库 `live2dai_memory.db`、localStorage 前缀 `live2dai.interaction.`、环境变量 `LIVE2DAI_*`。
 > - 文档：`docs/architecture/linux-dev.md`、`docs/plans/wsl2-migration-plan.md`（标记为已执行），PC README/AGENT 改为 WSL2 主力。
+> - **WSL2 运行验证（2026-08-20）**：uv 装 Python 3.12.14 + venv，安装后端核心依赖后 `run_server.py` 在 WSL2 启动成功，persona/model 配置加载正常，`/`、`/api/config`、`/api/models`（返回 bai 模型）、`/api/persona` 均 HTTP 200。注：本代码版本无 `/health` 路由；默认 ASR（faster-whisper→torch）与 PC `live2d-models/`、Android `model_registry.json` 为可再生成/需拉取产物，冒烟阶段以 `asr_model: disabled` 验证。
 
 ---
 
