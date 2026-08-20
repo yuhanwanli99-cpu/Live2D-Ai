@@ -1,12 +1,12 @@
 # Live2D-Ai — 独立直连 API 模式配置（精简版）
 # ===========================================================
-# 保留清单: zhipu_free_llm(零配置默认) | deepseek_llm(升级路径) | zhipu_llm | edge_tts | faster_whisper | silero_vad
-# 不走任何中间 Gateway，直接调 DeepSeek API (对话) 和 智谱 API (视觉/免费兜底对话)
+# 保留清单: deepseek_llm(默认) | zhipu_llm | qwen_llm | edge_tts | faster_whisper | silero_vad
+# 不走任何中间 Gateway，直接调各厂商官方 API。
 # ===========================================================
-# 零配置默认：conversation_agent_choice 的 llm_provider 默认指向 zhipu_free_llm
-# （免费 GLM-4.7-Flash 兜底聊天，与 Android 端体验一致）。其 llm_api_key 使用
-# ${ZHIPU_API_KEY} 环境变量占位符——未设置该环境变量时，代码层（free_glm_defaults.py）
-# 会回退到内置的共享免费 Key，实现开箱即用；设置了环境变量则优选用你自己的 Key。
+# 密钥策略（2026-08-20 起）：**不内置任何共享/免费 Key，也不提供免费兜底 Provider**。
+# llm_api_key 一律写 ${XXX_API_KEY} 占位符，真实值放仓库根 .env（gitignore，由
+# run_server.py 经 python-dotenv 载入）。环境变量未设置时占位符会被原样保留，
+# 此时 api_key_resolver.py 会在构造 LLM 前抛出带配置指引的报错（不再静默回退）。
 
 system_config:
   conf_version: 'v1.2.1'
@@ -32,7 +32,7 @@ character_config:
     agent_settings:
       basic_memory_agent:
         # 默认 DeepSeek（本地 .env 配置 DEEPSEEK_API_KEY；密钥不提交）。
-        # 也可改为 'zhipu_free_llm' 并配置自己的 ZHIPU_API_KEY。
+        # 也可改为 'zhipu_llm' / 'qwen_llm' 等，并配置对应的 API Key。
         llm_provider: 'deepseek_llm'
         faster_first_response: true
         segment_method: 'priority'
@@ -40,15 +40,6 @@ character_config:
         mcp_enabled_servers: []
 
     llm_configs:
-      # 零配置默认聊天 Provider：免费 GLM-4.7-Flash（与 Android 端默认一致）。
-      # llm_api_key 为 ${ZHIPU_API_KEY} 占位符；未设置该环境变量时由
-      # free_glm_defaults.py 回退到内置共享免费 Key（开箱即用）。
-      zhipu_free_llm:
-        llm_api_key: '${ZHIPU_API_KEY}'
-        model: 'glm-4.7-flash'
-        temperature: 0.8
-
-        base_url: https://open.bigmodel.cn/api/paas/v4
       deepseek_llm:
         llm_api_key: '${DEEPSEEK_API_KEY}'
         model: 'deepseek-v4-flash'

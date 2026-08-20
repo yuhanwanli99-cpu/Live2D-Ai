@@ -9,7 +9,8 @@ from .stateless_llm.stateless_llm_with_template import (
 from .stateless_llm.openai_compatible_llm import AsyncLLM as OpenAICompatibleLLM
 from .stateless_llm.ollama_llm import OllamaLLM
 from .stateless_llm.claude_llm import AsyncLLM as ClaudeLLM
-from ..free_glm_defaults import resolve_llm_api_key
+from .stateless_llm.misconfigured_llm import MisconfiguredLLM
+from ..api_key_resolver import resolve_llm_api_key
 
 
 # 设置页/路由支持的 OpenAI 兼容厂商别名；统一走 OpenAICompatibleLLM。
@@ -20,7 +21,6 @@ _OPENAI_COMPATIBLE_PROVIDERS = {
     "openai_llm",
     "gemini_llm",
     "zhipu_llm",
-    "zhipu_free_llm",
     "deepseek_llm",
     "groq_llm",
     "mistral_llm",
@@ -51,11 +51,15 @@ class LLMFactory:
         logger.info(f"Initializing LLM: {llm_provider}")
 
         if llm_provider in _OPENAI_COMPATIBLE_PROVIDERS:
-            # 零配置默认 Provider：llm_api_key 为空/未解析的 ${VAR} 占位符时
-            # resolve_llm_api_key 抛明确报错（本地配置 key，见 free_glm_defaults.py）。
-            api_key = kwargs.get("llm_api_key")
-            if llm_provider == "zhipu_free_llm":
-                api_key = resolve_llm_api_key(api_key)
+            # Key 缺失 / 仍是未解析的 ${VAR} 占位符 → 不把占位符当 Key 发给上游换回一个
+            # 语义模糊的 401（见 api_key_resolver.py），但也**不能**在此阻断服务启动，
+            # 否则用户打不开设置页去填 Key。改为返回占位 LLM：启动照常，一开口就说清缺什么。
+            try:
+                api_key = resolve_llm_api_key(
+                    kwargs.get("llm_api_key"), provider=llm_provider
+                )
+            except ValueError as key_error:
+                return MisconfiguredLLM(str(key_error), provider=llm_provider)
             return OpenAICompatibleLLM(
                 model=kwargs.get("model"),
                 base_url=kwargs.get("base_url"),

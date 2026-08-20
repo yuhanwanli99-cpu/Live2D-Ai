@@ -98,7 +98,12 @@ def emo_interceptor():
                         else:
                             await out_q.put(item)
                 except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
+                    # 不崩溃（保持降级语义），但**必须让用户看见**：
+                    # 上游硬失败（未配置 API Key / 401 / 网络不可达）此前只记 warning，
+                    # 前端拿不到任何消息 → 用户只看到"角色不说话"。现在额外下发
+                    # stream_error 事件，由 single_conversation 转成 {"type":"error"} 发给前端。
                     logger.warning(f"emo_interceptor pump error: {e}")
+                    await out_q.put({"type": "stream_error", "message": str(e)})
                 finally:
                     await text_q.put(None)  # 文本流 EOF
                     await out_q.put("__eof__")
@@ -125,9 +130,14 @@ def emo_interceptor():
                                 }
                             )
                         if clean:
+                            # P1-2 流式上屏：token 级增量事件（先于句子切分与 TTS 到达前端）。
+                            # 这里**只是加一路旁听事件**，clean 文本照原样继续下行给
+                            # sentence_divider/TTS —— 分段与语音链路一字未改。
+                            await out_q.put({"type": "text_delta", "text": clean})
                             await out_q.put(clean)
                 except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
                     logger.warning(f"emo_interceptor intercept error: {e}")
+                    await out_q.put({"type": "stream_error", "message": str(e)})
                 finally:
                     await out_q.put("__eof__")
 

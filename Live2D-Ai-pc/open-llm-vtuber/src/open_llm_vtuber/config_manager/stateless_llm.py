@@ -248,7 +248,6 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
     openai_llm: OpenAIConfig | None = Field(None, alias="openai_llm")
     gemini_llm: GeminiConfig | None = Field(None, alias="gemini_llm")
     zhipu_llm: ZhipuConfig | None = Field(None, alias="zhipu_llm")
-    zhipu_free_llm: ZhipuConfig | None = Field(None, alias="zhipu_free_llm")
     deepseek_llm: DeepseekConfig | None = Field(None, alias="deepseek_llm")
     groq_llm: GroqConfig | None = Field(None, alias="groq_llm")
     claude_llm: ClaudeConfig | None = Field(None, alias="claude_llm")
@@ -295,10 +294,6 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
             en="Configuration for Mistral API", zh="Mistral API 配置"
         ),
         "zhipu_llm": Description(en="Configuration for Zhipu API", zh="Zhipu API 配置"),
-        "zhipu_free_llm": Description(
-            en="Zero-config free GLM-4.7-Flash fallback (built-in shared key)",
-            zh="零配置免费 GLM-4.7-Flash 兜底（内置共享 Key）",
-        ),
         "deepseek_llm": Description(
             en="Configuration for Deepseek API", zh="Deepseek API 配置"
         ),

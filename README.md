@@ -160,6 +160,31 @@ cd Live2D-Ai-pc
 # 浏览器访问 http://localhost:12393/
 ```
 
+> **密钥策略**：项目**不内置任何共享 / 免费 Key，也不提供免费兜底 Provider**。
+> 首次运行前请在仓库根 `.env` 填入自己的 Key（如 `DEEPSEEK_API_KEY=sk-...`），
+> 或在设置页「密钥」分区填写。未填也能启动：后端照常起、设置页可用，
+> 但第一次对话会在聊天面板里给出「去哪里填哪个 Key」的明确提示。
+
+#### 让外部程序说话（可选，默认关闭）
+
+设置页 →「外部接入」打开开关后，本机其它程序即可把一句话交给角色，
+走与聊天框输入**完全相同**的内部链路（同人设 / 同记忆 / 同 TTS 与口型）：
+
+```bash
+curl -X POST http://127.0.0.1:12393/api/external/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"提醒我该喝水了","wait_reply":true}'
+```
+
+默认只允许本机调用；要放开局域网必须在设置页勾选「允许局域网」并生成访问令牌，
+随时可点「立即断开」停止接收。完整契约见
+[docs/architecture/external-text-input.md](docs/architecture/external-text-input.md)。
+
+#### 换角色背景图（可选）
+
+设置页 →「形象 / 背景」→「上传背景图」，选一张本地图片即刻生效（铺在角色之下，不影响模型渲染）；
+选「无背景」回到透明桌宠形态。图片存放于 `Live2D-Ai-pc/open-llm-vtuber/backgrounds/`（不入库）。
+
 ### 运行测试 | Run Tests
 
 ```bash
@@ -317,9 +342,12 @@ cp shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/
 项目使用 OpenAI 兼容 API 协议，更换 LLM 只需修改：
 
 - **Android**：`ChatService.kt` 中的 `DEEPSEEK_API_KEY` 和 API endpoint URL
-- **PC（WSL2/Linux）**：`conf.yaml` 中的 `llm_api_key`
+- **PC（WSL2/Linux）**：设置页「对话 / LLM」选 Provider + 「密钥」填 Key（写入仓库根 `.env`），
+  或直接改 `conf.yaml` 的 `llm_api_key` / `base_url` / `model`
 
 支持任意 OpenAI 兼容的 API（DeepSeek、GLM、通义千问、Ollama 本地等）。
+**注意**：不再提供「免费兜底 Provider」——每个 Provider 都必须配自己的 Key；
+本地自托管服务（Ollama / LM Studio / vLLM 等）允许空 Key。
 
 ---
 

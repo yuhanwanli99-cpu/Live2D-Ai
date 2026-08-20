@@ -31,6 +31,15 @@ logs/
 .env
 .env.local
 
+# 外部文字接入开关状态（本机运行态：含访问令牌，勿入库）
+Live2D-Ai-pc/open-llm-vtuber/external_input.json
+# 当前选中的角色背景图（本机运行态，勿入库）
+Live2D-Ai-pc/open-llm-vtuber/background_state.json
+# 用户上传的角色背景图（本机内容，勿入库；仅保留 backgrounds/README.md）
+Live2D-Ai-pc/open-llm-vtuber/backgrounds/*
+!Live2D-Ai-pc/open-llm-vtuber/backgrounds/README.md
+!Live2D-Ai-pc/open-llm-vtuber/backgrounds/.gitkeep
+
 # Node / Electron
 node_modules/
 frontend/node_modules/
@@ -56,6 +65,9 @@ Live2D-Ai-Android/.idea/
 
 # Cache
 cache/
+
+# 聊天历史（本机私密对话内容，勿入库）
+chat_history/
 
 # uv 托管缓存与托管 Python（仅本机，勿入库；WSL2 环境准备产物）
 .uv-cache/

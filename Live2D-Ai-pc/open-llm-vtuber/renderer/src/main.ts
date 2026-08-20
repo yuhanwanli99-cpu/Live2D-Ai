@@ -25,7 +25,14 @@
 import { Application } from 'pixi.js';
 import { WsBridge } from './ws-bridge';
 import { initChatPanel } from './chat-ui';
-import { initSettingsPanel } from './settings-ui';
+import { initSettingsPanel, type SettingsPanel } from './settings-ui';
+import { applyBackgroundLayer, fetchBackgroundState } from './background';
+import { initHistoryDrawer, mapHistoryMessages } from './history';
+import { initOnboarding } from './onboarding';
+import { createVoiceCapture } from './voice-input';
+import type { ChatPanel } from './chat-ui';
+import { clearToast, toast } from './toast';
+import { icon } from './icons';
 import {
   createInteractionStore,
   wheelScale,
@@ -420,47 +427,225 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     );
   }
 
-  // ---- 聊天面板（spoq-fix：双端对话框；直播/微信风格右侧面板） ----
+  // ---- 聊天面板 + 背景层 + 全局提示（UI 重设计：见 docs/research/neko-ui-alignment-and-gaps.md） ----
+  const backgroundEl =
+    typeof document !== 'undefined'
+      ? document.getElementById('app-background')
+      : null;
+  /** 启动时拉一次背景状态并应用（用户上次选的背景在刷新后仍然在） */
+  const restoreBackground = async (): Promise<void> => {
+    if (!backgroundEl) return;
+    try {
+      const state = await fetchBackgroundState();
+      applyBackgroundLayer(backgroundEl, state.current_url);
+    } catch (err) {
+      console.warn('[renderer] 背景状态加载失败（保持透明背景）:', err);
+    }
+  };
+  void restoreBackground();
+
+  // 语音采集回调需要在面板创建前就能引用面板（回调只在用户点麦后触发）
+  let chatPanelRef: ChatPanel | null = null;
+
   const chatHost = document.getElementById('chat');
   if (chatHost) {
+    let settingsPanel: SettingsPanel | null = null;
+    // P0-2：麦克风采集器 —— 把音频送回后端 ASR（不支持时 chat-ui 自动回落 Web Speech）
+    const voiceCapture = createVoiceCapture({
+      onFrame: (samples) => {
+        wsBridge.sendMicAudio(samples);
+      },
+      onState: (state, detail) => {
+        chatPanelRef?.setVoiceState(state, detail);
+        if (state === 'transcribing') {
+          // 录音结束 → 让后端跑 ASR 并开始对话
+          if (!wsBridge.sendMicAudioEnd()) {
+            chatPanelRef?.setVoiceState('error', '未连接服务器，语音未发出');
+          } else {
+            chatPanelRef?.setThinking(true);
+          }
+        }
+        if (state === 'error' && detail) {
+          toast(detail, 'error', { key: 'voice' });
+        }
+      },
+    });
+
     const chatPanel = initChatPanel(chatHost, {
       onSend: (text) => wsBridge.sendText(text),
+      onOpenSettings: () => settingsPanel?.open(),
+      voice: voiceCapture,
     });
-    const settingsPanel = initSettingsPanel(document.body);
-    const settingsBtn = chatHost.querySelector<HTMLButtonElement>('.chat-settings');
-    if (settingsBtn) {
-      settingsBtn.addEventListener('click', () => settingsPanel.open());
+    chatPanelRef = chatPanel;
+    settingsPanel = initSettingsPanel(document.body, {
+      // 背景图选中变化 → 立刻换背景（不刷新页面）
+      onBackgroundChanged: (state) =>
+        applyBackgroundLayer(backgroundEl, state.current_url),
+      // 外部接入开关变化 → 聊天头部胶囊同步 + 一条轻提示
+      onExternalGateChange: (status) => {
+        chatPanel.setExternalGate(status.enabled);
+        toast(
+          status.enabled
+            ? status.allow_remote
+              ? '外部接入已开启（本机 + 局域网，需令牌）'
+              : '外部接入已开启（仅本机）'
+            : '外部接入已断开',
+          status.enabled ? 'ok' : 'info',
+          { key: 'external-gate' },
+        );
+      },
+    });
+
+    // ---- P0-3 聊天历史：连接即恢复上文 + 抽屉回看/切换/新建/删除 ----
+    let currentHistoryUid: string | null = null;
+    const historyDrawer = initHistoryDrawer(chatPanel.root(), {
+      onRefresh: () => wsBridge.fetchHistoryList(),
+      onSelect: (uid) => {
+        if (!wsBridge.fetchAndSetHistory(uid)) {
+          toast('未连接服务器，无法切换会话', 'error', { key: 'history' });
+        }
+      },
+      onCreate: () => {
+        if (wsBridge.createNewHistory()) {
+          chatPanel.clear();
+          toast('已开始新会话（上一段已保存）', 'ok', { key: 'history' });
+        } else {
+          toast('未连接服务器，无法新建会话', 'error', { key: 'history' });
+        }
+      },
+      onDelete: (uid) => {
+        if (!wsBridge.deleteHistory(uid)) {
+          toast('未连接服务器，无法删除会话', 'error', { key: 'history' });
+        }
+      },
+    });
+
+    const headerActions = chatPanel.headerActions();
+    if (headerActions) {
+      const historyBtn = document.createElement('button');
+      historyBtn.type = 'button';
+      historyBtn.className = 'chat-icon-btn chat-history-btn ui-lift';
+      historyBtn.title = '聊天历史';
+      historyBtn.setAttribute('aria-label', '查看聊天历史');
+      historyBtn.innerHTML = icon('history');
+      historyBtn.addEventListener('click', () => historyDrawer.toggle());
+      headerActions.insertBefore(historyBtn, headerActions.firstChild);
     }
+
+    wsBridge.onHistoryData = ({ history_uid, messages }) => {
+      currentHistoryUid = history_uid || null;
+      historyDrawer.setCurrent(currentHistoryUid);
+      const restored = mapHistoryMessages(messages);
+      if (restored.length > 0) {
+        chatPanel.restoreMessages(restored);
+        toast(`已恢复上次对话（${restored.length} 条）`, 'info', { key: 'history' });
+      }
+    };
+    wsBridge.onHistoryList = (histories) => {
+      historyDrawer.setHistories(histories);
+      historyDrawer.setCurrent(currentHistoryUid);
+    };
+    wsBridge.onHistoryCreated = (uid) => {
+      currentHistoryUid = uid;
+      historyDrawer.setCurrent(uid);
+    };
+    wsBridge.onHistoryDeleted = ({ history_uid, success }) => {
+      if (!success) {
+        toast('删除会话失败', 'error', { key: 'history' });
+        return;
+      }
+      if (history_uid === currentHistoryUid) {
+        currentHistoryUid = null;
+        chatPanel.clear();
+      }
+      wsBridge.fetchHistoryList(); // 删完立刻刷新列表
+      toast('会话已删除', 'ok', { key: 'history' });
+    };
+
     // ---- C-M6 重置入口：聊天面板头部「重置模型位置」按钮（main.ts 接线，不重构面板模块） ----
-    const chatHeader = chatHost.querySelector('.chat-header');
-    if (chatHeader) {
+    const chatHeaderActions = chatHost.querySelector('.chat-header-actions');
+    if (chatHeaderActions) {
       const resetBtn = document.createElement('button');
       resetBtn.type = 'button';
-      resetBtn.className = 'chat-reset';
-      resetBtn.textContent = '重置模型位置';
+      resetBtn.className = 'chat-icon-btn chat-reset ui-lift';
+      resetBtn.title = '重置模型位置与缩放';
+      resetBtn.setAttribute('aria-label', '重置模型位置与缩放');
+      resetBtn.innerHTML = icon('recenter');
       resetBtn.addEventListener('click', () => {
         const key = currentModelKey();
         if (!key || !currentModel) return;
         interactionStore.clear(key); // 清 override
         applyModelPose(currentModel, key); // 回相机模式 fit
+        toast('已重置角色位置与缩放', 'ok', { key: 'model-reset' });
       });
-      chatHeader.appendChild(resetBtn);
+      chatHeaderActions.insertBefore(resetBtn, chatHeaderActions.firstChild);
     }
-    chatPanel.addMessage({ role: 'system', content: '连接服务器中…（WS 握手）' });
+
+    // P1-2 流式上屏：token 增量先到 → 句子级字幕作为权威文本收尾，不重复上屏
+    let finalParts: string[] = [];
+    wsBridge.onTextDelta = (delta) => {
+      chatPanel.streamDelta(delta);
+    };
     wsBridge.onSubtitle = (text) => {
-      if (text?.text) chatPanel.addMessage({ role: 'assistant', content: text.text });
+      if (!text?.text) return;
+      if (chatPanel.isStreaming()) {
+        finalParts.push(text.text); // 流式气泡已在显示，这里只记权威文本
+        return;
+      }
+      chatPanel.addMessage({ role: 'assistant', content: text.text });
+    };
+    // 后端一直在发的 control 消息（此前前端完全忽略 → VAD 打断对用户不可见）
+    wsBridge.onControl = (command) => {
+      if (command === 'conversation-chain-end') {
+        chatPanel.finalizeStream(finalParts.join(''));
+        finalParts = [];
+        chatPanel.setThinking(false);
+        chatPanel.setVoiceState('idle');
+      } else if (command === 'interrupt') {
+        // Silero VAD 判定用户插话 → 音频已停（ws-bridge），这里给可见反馈
+        chatPanel.finalizeStream(finalParts.join(''));
+        finalParts = [];
+        chatPanel.setVoiceState('interrupted');
+        toast('检测到你说话，已打断', 'info', { key: 'voice' });
+      } else if (command === 'mic-audio-end') {
+        chatPanel.setVoiceState('transcribing');
+      }
+    };
+    // 外部程序注入的文字：以「外部接入」角标的用户气泡上屏 + 顶部轻提示
+    wsBridge.onExternalInput = ({ text, source }) => {
+      chatPanel.addMessage({ role: 'user', content: text, sourceTag: '外部接入' });
+      chatPanel.setThinking(true);
+      toast(`收到外部消息（${source}）`, 'info', { key: 'external-input' });
     };
     wsBridge.onConnectionChange = (connected) => {
       chatPanel.setConnected(connected);
       if (connected) {
-        chatPanel.addMessage({ role: 'system', content: '已连接，可以开始聊天' });
+        clearToast('ws-offline');
+        toast('已连接服务器，可以开始聊天', 'ok', { key: 'ws-online' });
       } else {
-        chatPanel.addMessage({ role: 'system', content: '连接断开，重连中…' });
+        chatPanel.setThinking(false);
+        toast('与服务器连接断开，正在自动重连…', 'error', {
+          key: 'ws-offline',
+          sticky: true,
+        });
       }
     };
     wsBridge.onTtsStatus = (status) => {
       chatPanel.setTtsStatus(status);
     };
+    // 后端错误（未配置 Key / LLM / TTS 失败）→ 错误气泡 + Toast，不再静默
+    wsBridge.onError = (message) => {
+      chatPanel.finalizeStream();
+      chatPanel.setThinking(false);
+      chatPanel.addMessage({ role: 'error', content: message });
+      toast(message, 'error', { key: 'backend-error', durationMs: 6000 });
+    };
+
+    // ---- P0-5 首次启动引导：缺 Provider / 缺 Key 时给一张"缺什么"清单 + 一键跳转 ----
+    const onboarding = initOnboarding(document.body, {
+      openSettings: (tab) => settingsPanel?.open(tab),
+    });
+    void onboarding.maybeShow();
   } else {
     // 无聊天容器（测试环境）→ 字幕仍走 console
     wsBridge.onSubtitle = (text) => {

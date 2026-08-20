@@ -214,6 +214,32 @@ async def process_single_conversation(
                     except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
                         logger.warning(f"emo_token handling failed (ignored): {e}")
 
+                elif (
+                    isinstance(output_item, dict)
+                    and output_item.get("type") == "text_delta"
+                ):
+                    # P1-2：token 级增量 → 前端逐字上屏（`text-delta`）。
+                    # 句子级 subtitle/audio.display_text 仍照旧发送，前端在流式期间
+                    # 用它们作为"权威最终文本"收尾，不会重复上屏。
+                    delta = str(output_item.get("text") or "")
+                    if delta:
+                        await websocket_send(
+                            json.dumps({"type": "text-delta", "text": delta})
+                        )
+
+                elif (
+                    isinstance(output_item, dict)
+                    and output_item.get("type") == "stream_error"
+                ):
+                    # 上游流硬失败（未配置 API Key / 401 / 网络不可达）：
+                    # transformers 的 pump/consume 只降级记日志、不崩溃，这里负责让用户**看得见**
+                    # （前端 ws-bridge 把 error 渲染成聊天错误气泡 + Toast）。
+                    message = str(output_item.get("message") or "对话失败")
+                    logger.error(f"LLM 流失败，已通知前端: {message}")
+                    await websocket_send(
+                        json.dumps({"type": "error", "message": message})
+                    )
+
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
                     # PC-L4: 当前 mood 分层传入 TTS（P7 mood_engine 产出；

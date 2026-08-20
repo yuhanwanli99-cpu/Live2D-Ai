@@ -1,3 +1,221 @@
+# 流式上屏 + 语音链路统一（2026-08-20 · 第四轮）
+
+> **范围**：PC 端。用户指示「都做」→ 本轮补齐 P1-2（逐 token 流式上屏）与 P0-2（语音/VAD 打断链路统一）。
+> 缺口编号沿用 `docs/research/neko-ui-alignment-and-gaps.md`。
+
+## P1-2 逐 token 流式上屏 ✅
+- **后端只加一路"旁听"，主链一字未改**：`emo_interceptor` 在把干净文本交给
+  `sentence_divider`/TTS 的同时，多产出一个 `{"type":"text_delta"}` 事件；
+  `single_conversation` 转成 WS `text-delta`。分段、TTS、口型链路完全不受影响。
+- 前端 `chat-ui.streamDelta()`：首个增量创建流式气泡（带闪烁光标 + "正在说…"），后续追加。
+- **不重复上屏**：流式期间句子级 `subtitle` 不再单独建气泡，而是累积为**权威最终文本**；
+  收到 `control: conversation-chain-end` 时用它替换流式内容（消除流式残留的 TTS 过滤前噪声）后定稿。
+- 错误/打断路径也会收掉流式气泡，不留"半句悬着"。
+
+## P0-2 语音输入与 VAD 打断链路统一 ✅（真机麦克风待验）
+- **修掉的根因**：前端麦克风此前走**浏览器 Web Speech API**，识别在浏览器做完再当普通文本发出 ——
+  后端 ASR 配置对用户毫无作用、VAD 永远收不到音频、打断也就永远不会发生；
+  同时前端**完全忽略 `control` 消息**，所以后端一直在发的 `interrupt` / `start-mic` / `mic-audio-end` 无人接收。
+- 新增 `renderer/src/voice-input.ts`：getUserMedia → AudioContext → 单声道 Float32 →
+  **线性重采样到 16kHz**（后端 ASR/VAD 约定）→ 2048 样本/片（128ms）经既有协议
+  `mic-audio-data` 上行，停止时 `mic-audio-end` 触发后端 ASR + 对话。
+  含录音上限 60s、尾帧 flush（否则最后半个字丢）、轨道停止（否则标签页一直显示"正在使用麦克风"）、
+  **每帧拷贝 AudioBuffer**（浏览器会复用通道缓冲，不拷贝会让已入队帧被覆写）。
+- `ws-bridge` 新增 `sendMicAudio/sendMicAudioEnd/sendInterrupt` 与 **`control` 消息处理**；
+  收到 `interrupt` 时 `stopAudio()` 真正**暂停当前音频元素并清队列**（光清队列不够）。
+- 可见反馈：麦克风按钮聆听态红色波纹 / 识别态蓝色转圈，头部新增语音状态胶囊
+  （聆听中 · 识别中 · 已打断），VAD 打断另给 Toast。
+- **降级保留**：环境不支持 getUserMedia（非 https 非 localhost、老浏览器）时自动回落 Web Speech，
+  能力不减、只是链路退化；按钮 title 会注明"后端识别 / 浏览器识别"。
+
+## 验证
+| 项 | 结果 |
+| --- | --- |
+| PC 后端 pytest | **297 passed**（上轮 288 → 新增 9：流式旁听 5 / 语音上行 4） |
+| PC 前端 vitest | **16 files / 340 passed**（上轮 320 → 新增 20：voice-input 重采样/分片/状态机） |
+| PC 前端 tsc | 通过（顺带修掉 TS 5.7+ `Float32Array` 泛型化引发的类型分歧） |
+| 前端产物 | 重新构建；产物内含「正在说 / 聆听中 / 识别中 / 已打断」 |
+| **真机 E2E** | **7/7 通过** —— 回合收尾 `control: conversation-chain-end` 到达（流式气泡据此定稿）；无 Key 时以配置指引 `error` 结束且**不凭空产出 text-delta**；合成 16kHz 正弦 PCM 按 2048 分片上行 10 片 → `mic-audio-end` → 服务端日志出现 **`Transcribing audio input...`**（ASR 确实被调用）→ 该轮同样有收尾信号 |
+| 装配级 E2E | 20/20 仍通过（外部接入 + 背景图无回归） |
+| 跨端一致性 | 32/33（唯一失败仍是 Android `assets/model_registry.json` 产物缺失，非代码问题） |
+
+### 本轮**未**验证到的部分（诚实登记）
+- **真实麦克风采集**：本环境无音频设备与浏览器，`getUserMedia`/`AudioContext`/权限弹窗/回声消除
+  这一段**只做了静态实现与纯逻辑单测**，未真机跑过；ASR 的**识别质量**也无法用正弦波判断
+  （只证明"音频送达并触发了 ASR"）。首次在真机使用时请重点看：授权弹窗、聆听波纹、
+  识别耗时（faster-whisper large-v3-turbo 首次调用较慢）、以及说话打断是否即时停声。
+- **VAD 打断的真实触发**：当前 `conf.yaml` 的 `vad_config.vad_model` 为空（VAD 关闭），
+  故 `control: interrupt` 的**发送端**未被激活；前端接收与停声逻辑已就绪并单测覆盖。
+  要启用需在 conf.yaml 配 `silero_vad` 并走 `raw-audio-data` 上行（下一轮可做）。
+
+---
+
+# M 量级缺口补齐：聊天历史持久化 + 首启引导 + 形象热切换（2026-08-20 · 第三轮）
+
+> **范围**：PC 端。用户定调「安卓暂时不管，先把 P0-3 这类 M 量级补齐」。
+> 缺口编号沿用 `docs/research/neko-ui-alignment-and-gaps.md`。
+
+## P0-3 聊天历史持久化 + 回看 ✅
+- **修掉的真实缺陷**：`chat_history_manager.py` 早就能落盘，但 `ServiceContext.history_uid` 初值为空串，
+  而 `process_single_conversation` 只在它非空时 `store_message` —— 此前只有前端显式发 `create-new-history`
+  才会绑定，新 renderer 从不发，于是**一条消息都没落过盘**（`chat_history/` 目录都不存在）。
+- 后端 `WebSocketHandler._attach_session_history()`（新连接即绑定，在 `start-mic` 之前）：
+  **续接最近一段**历史（刷新页面 = 接着聊），没有则新建；同时 `set_memory_from_history` 把 LLM 记忆接上
+  （避免"界面有上文、模型不记得"）；把该段消息（过滤 metadata/system）以 `history-data`（新增 `history_uid` 字段）回灌前端。
+  任一步失败都只降级为"本次不落盘"，**不让连接建立失败**。
+- 前端新增 `renderer/src/history.ts`：连接即恢复上文 + 历史抽屉（会话列表 / 切换 / 新建 / 删除，
+  标题取末条消息、时间显示今天`HH:MM`／昨天／`M月D日`）；`ws-bridge` 补齐 4 个上行方法与 4 个下行回调
+  （**复用后端既有 WS 协议，未新增后端消息类型**）；聊天面板新增 `restoreMessages()`（整段恢复不重复播动画）。
+- `chat_history/` 已加入 gitignore（本机私密对话内容）。
+
+## P0-5 首次启动引导 ✅
+- 新增 `renderer/src/onboarding.ts`：首次打开时给一张**缺什么就说什么**的清单
+  （选 LLM → 填 Key → 选 TTS → 人设），每项一键跳到设置中心对应分区。
+- **只在阻塞项（Provider / Key）缺失时才弹**；缺 TTS/人设不打扰。支持「稍后再说」与「不再提示」（localStorage）。
+- 刻意**不重复造表单**：引导只做"诊断 + 跳转"，真正配置仍在设置中心完成（避免第二套 Key 输入逻辑）。
+- 配套：`SettingsPanel.open(tab?)` 支持直接落到指定分区。
+
+## P1-4 形象热切换即时生效 ✅
+- 新增 `WebSocketHandler.broadcast_model_change()`：更新共享 cache + 逐会话 `init_live2d` 并主动推
+  `set-model-and-conf`（前端 `main.ts` 早就支持热切换，此前缺的就是"服务端推这一下"）。
+- `POST /api/models/select` 不再回 `requires_restart: true`，改回 `{applied, clients_updated, message}`；
+  热切换异常时**诚实**回退为"已保存，重启后生效 + 原因"。设置页文案同步（不再误导用户去重启）。
+- 单会话 socket 断开或 `init_live2d` 失败**不影响其余会话**（返回成功计数）。
+
+## 验证
+| 项 | 结果 |
+| --- | --- |
+| PC 后端 pytest | **288 passed**（上轮 269 → 新增 19：聊天历史 10 / 形象热切换 9） |
+| PC 前端 vitest | **15 files / 320 passed**（上轮 291 → 新增 29：history 16 / onboarding 13） |
+| PC 前端 tsc | 通过 |
+| 前端产物 | `npm run build` 成功；产物内含「聊天历史 / 开始新会话 / 已恢复上次对话 / 不再提示」 |
+| **真机 E2E：聊天历史** | **12/12 通过** —— 连接即收到 `history-data`；外部注入一句话后**人类消息确实落盘**（LLM 无 Key 失败也不丢）；**断开重连续接同一段并带回上文**；`fetch-history-list` 列表含该段（带末条消息与时间）；`create-new-history` 拿到不同 uid；`delete-history` 成功且文件从磁盘移除 |
+| **真机 E2E：形象热切换** | **5/5 通过** —— `select` 回 `applied:true / requires_restart:false / clients_updated:1`，WS 端**确实收到主动推送**的 `set-model-and-conf`（带 `model_info.url`） |
+| 运行态卫生 | 验证产生的 `chat_history/`、`external_input.json`、`background_state.json` 已清理；`conf.yaml` 经比对未被测试改写 |
+
+## 仍未做（诚实登记）
+- **P0-1 桌面壳**（透明置顶 / 点击穿透 / 托盘 / 开机自启 / 全局快捷键）——L 量级，需 Electron/Tauri 独立立项。
+- **P0-2 语音与 VAD 打断链路统一**——前端 mic 仍走浏览器 Web Speech，与后端 Silero VAD 两条链路未合并（M，且部分依赖桌面壳权限）。
+- **P1-2 流式逐 token 上屏**——需后端把 token 级事件透传到 WS（M，会触碰句子切分管线，风险高于本轮其它项）。
+- **P1-5 多人设卡**（L）、**P2-1 情绪调试面板**（M）、**P2-3 i18n**（M）。
+- **E-5 / R-15 渲染热路径优化与死代码**——需真机视觉确认，留待有 GPU/浏览器的轮次。
+- **Android**——按用户指示本轮不动。
+
+---
+
+# 外部接入 + 背景图 + 去免费模型 + UI 对标 NEKO（2026-08-20 · 第二轮）
+
+> **范围**：PC 端（`Live2D-Ai-pc/open-llm-vtuber`）为主；Android 端**未改代码**（本环境无 SDK 无法编译验证，见文末）。
+> 相关文档：`docs/audit/2026-08-20-readability-efficiency-audit.md`（可读性/高效性审计）、
+> `docs/research/neko-ui-alignment-and-gaps.md`（UI 对标 + 缺口清单）、
+> `docs/architecture/external-text-input.md`（外部接入接口契约）。
+
+## ① 常规代码审计（可读性 / 高效性）
+- 产出报告 `docs/audit/2026-08-20-readability-efficiency-audit.md`：20 条可读性 + 9 条高效性发现，
+  每条含 `文件:行` / 现象 / 影响 / 最小 diff 建议 / 风险 / 成本，附 Top10 修复顺序与「本轮不建议动」清单。
+- **本轮已落地的修复**（其余登记在报告中）：
+  - **E-1（高危）** `routes.py`：`discover-models` / `providers/check` / `test-llm` 三个 async 端点里的同步
+    `requests` 全部移出事件循环（`asyncio.to_thread`）；`check_providers` 从**串行 ~16 个 provider ×
+    timeout 8s（最坏 ~128s 卡死全站 WS）** 改为 `asyncio.gather` + `Semaphore(4)` 并发，总耗时由 Σ 变 max。
+  - **E-2/E-3** `routes.py`：`.env` 由「每个 provider 各全量重读一次（单请求近 30 次）」改为 `_load_env_map()` 一次读入。
+  - **E-4（中高危）** `websocket_handler.py`：音频缓冲由每 chunk `np.append`（O(n²) 重分配 + 拷贝）改为
+    **按 chunk 存 np 数组 + 取用时一次 concatenate**（O(n)）；新增 `tests/test_audio_buffer.py` 锁定
+    拼接顺序 / 取后清空 / 空缓冲兜底 / 多会话隔离。
+  - **R-2/R-3/R-4** `routes.py`：TTS id 归一化字典（曾 4 处各写一遍）收敛为模块级 `normalize_tts_id()`；
+    `openai_compatible` 别名判断统一走 `_normalize_provider_id()`；「列模型」的 URL/header 构造与响应解析
+    抽出 `_models_endpoint()` / `_models_from_response()`（三端点复用，堵住 anthropic `/v1` 已出现的漂移苗头）。
+  - **死代码** 删除 `websocket_handler.MessageType`（定义后从未使用）与 `routes._has_key`（已被 env_map 取代）。
+- **明确撤回（诚实记录）**：`E-5 ParamArbiter dirty 标志` —— 单测 29/29 可过，但它改变「仲裁器每帧重申参数
+  所有权」的语义，与 Cubism 内建 blink/breath/motion 的写入竞争只能靠真机视觉确认；本环境无 GPU/浏览器，
+  **故改完撤回、不合并**，留待真机验证。
+
+## ② 后端暴露接口：外部文字 → 内部 LLM 链路
+- 新增 `src/open_llm_vtuber/external_input.py`（网关 + 4 端点）与 `WebSocketHandler.inject_text_input()`。
+- **复用同一条链路**：注入直接走 `_handle_conversation_trigger`（前端 `text-input` 的同一入口）→
+  同一 persona / 记忆 / mood 触发 / TTS / 口型，不存在「外部消息走简化链路」。
+- 端点：`GET /api/external/status`、`POST /api/external/settings`（仅本机）、`GET /api/external/token`（仅本机）、
+  `POST /api/external/chat`。支持 `client_uid` 指定窗口、`interrupt` 打断当前发言、`wait_reply` 等回复文本
+  （`asyncio.shield`：超时只结束等待、**不取消**正在进行的对话）。
+- **安全默认**：默认关闭 → 403；开启后**仅回环可用**；放开局域网必须**同时**勾选 allow_remote 且设置令牌
+  （否则 400，拒绝落成「开着门没锁」）；令牌用 `secrets.compare_digest` 比较；单条 ≤2000 字符；
+  开关状态落 `external_input.json`（含令牌，已 gitignore）。
+- 前端会收到 `{"type":"external-input"}` 回显 → 渲染为带「外部接入」角标的用户气泡 + 顶部提示，
+  用户始终知道角色为什么突然开口。
+
+## ③ 前端设置：外部接入可自主开启 / 断开（仅电脑端）
+- 设置中心新增「外部接入」分区（`renderer/src/external-input.ts`）：主开关 + **立即断开** +
+  允许局域网 + 令牌生成/清除/回显 + **一键复制的 curl 示例** + 在线窗口数 / 接收与拒绝计数 /
+  最近 10 条记录（面板打开时 5s 轮询，关闭即停）。
+- 开关**即时生效**：不需要「保存全部」，不需要重启后端；左侧状态简报与聊天面板头部胶囊同步显示当前范围。
+- 前端与后端共用同一条前置规则（局域网必须先有令牌），避免提交后才报错。
+
+## ④ 移除免费 LLM 模型与内置共享 Key
+- **删除 `free_glm_defaults.py`**（旧行为：Key 缺失时回退到**内置共享免费 Key**）→ 新增
+  `api_key_resolver.py`：占位符 `${VAR}` 与空 Key 一律拒绝并给出 `.env` / `conf.yaml` 指引；
+  本地自托管 Provider（`openai_compatible_llm`/`lmstudio_llm`/`ollama_llm`/`llama_cpp_llm`）允许空 Key。
+- **`zhipu_free_llm`（免费 GLM-4.7-Flash 兜底 Provider）整体移除**：`conf.yaml`、`conf.yaml.template`、
+  `routes.py`（LLM_DEFAULTS / MODEL_CATALOG）、`config_manager/stateless_llm.py`（字段 + 描述）、
+  `stateless_llm_factory.py`、`renderer/src/settings-ui.ts` 标签全部清理；两份 conf 里「内置共享免费 Key」的注释同步改写。
+- **不牺牲「用户能自助修好」**：新增 `agent/stateless_llm/misconfigured_llm.py` —— Key 缺失时**不阻断启动**
+  （否则用户连设置页都打不开、无法填 Key），而是返回占位 LLM：服务照常启动、设置页可用，
+  首次对话抛出带指引的错误并经 `{"type":"error"}` 显示在聊天面板。
+- 前端补齐 `ws-bridge` 的 `error` 消息处理（此前后端错误被前端**完全忽略**，用户只看到「角色不说话」）。
+- **真机 E2E 抓到并修掉的真实缺陷**：`agent/transformers.py` 的 `emo_interceptor` 把上游异常（未配置 Key /
+  401 / 网络不可达）按「P7-05 降级」**只记一条 warning 就吞掉**，前端一个消息都收不到 —— 现在 pump/consume
+  仍不崩溃，但会向下游发 `{"type":"stream_error"}`，由 `single_conversation` 转成 `{"type":"error"}` 推给前端；
+  新增 `tests/test_stream_error_visibility.py` 锁定该行为（含"message 缺失不发空气泡"）。
+- Android 端复核：免费兜底 Provider 早已移除（`LLMProviderManager.kt:141`），仓库内**无硬编码真实 Key**
+  （`BuildConfig.*_API_KEY` 来自 gitignore 的 `local.properties` / 环境变量）；残留的 `freeQuotaNoticeDismissed`
+  等死标志因**本环境无 Android SDK 无法编译验证**，登记在审计报告中未改。
+
+## ⑤ 角色背景图上传更换（设置页）
+- 后端新增 `src/open_llm_vtuber/backgrounds.py`：`GET /api/background/list`、
+  `POST /api/background/{upload,select,delete}`；文件存 `backgrounds/`（已挂 `/bg` 静态目录）。
+- **安全**：写操作**仅本机**；扩展名白名单（png/jpg/jpeg/webp/gif）+ **文件头魔数校验**（改后缀的可执行文件被拒）；
+  单张 ≤12MB；文件名只取 basename 并清洗（`../` 逃逸不可能）；同名自动 `-1/-2` 不覆盖。
+- 选择落盘 `background_state.json`；选中项被手工删除后下次启动**自愈**为「无背景」。
+- 前端：设置页「形象 / 背景」区缩略图网格（上传即选中 / 点选 / 删除 / 恢复透明），
+  背景铺在 PixiJS 画布**之下**（画布 `backgroundAlpha:0`）→ 换背景不影响模型渲染、无需重启；
+  有背景图时叠一层暗渐变保证角色与气泡可读；刷新后自动恢复上次选择。
+- 新增 `src/open_llm_vtuber/local_state.py`（`JsonState` 原子写），外部接入与背景图共用，去掉两份重复落盘逻辑。
+
+## ⑦ 前端 UI 对标 N.E.K.O + 高级感缺口调研
+- 产出 `docs/research/neko-ui-alignment-and-gaps.md`：同类 UI 结构拆解、逐项对比表、
+  「看起来廉价」的 8 条具体成因（均落到 `文件:行`）、P0/P1/P2/明确不做四档缺口清单 + 16 项常见缺口逐一核查。
+- **本轮落地的 UI 重设计**：
+  - **P0-4 统一 design token**：新增 `renderer/src/theme.css`（表面 / 文本 / 强调 / 语义 / 边框 / 字号 6 档 /
+    间距 / 圆角 / 阴影 3 阶 / 动效 / 层级）；`settings.css` **零裸色值零裸字号**全量改引用；
+    删除聊天面板私有靛蓝 `#6366f1` → 全应用单一强调色；修正「分区标题 12.5px 比正文 13px 还小」的反层级。
+  - **样式出栈**：聊天面板 CSS 从 `index.html` 内联（170 行）迁到 `renderer/src/chat.css`，index.html 只留页面骨架。
+  - **P1-1 动效体系**：覆盖层淡入 + 弹窗上浮 + tab 交叉淡入 + 消息渐入 + 状态胶囊脉冲 + 聆听波纹，
+    统一 `--dur-*` / `--ease-out`，整体遵守 `prefers-reduced-motion`。
+  - **P1-2 内容态**：聊天区欢迎空状态（含操作提示）+「白正在思考…」三点指示（发送/注入即亮，首句或 TTS 播放即灭）。
+  - **P1-3 图标集**：新增 `renderer/src/icons.ts`（14 个统一线宽内联 SVG），替换 `⚙ / 🎤 / 🔊` 等 emoji。
+  - **P1-6 Toast**：新增 `renderer/src/toast.ts`；断线（sticky）/ 重连 / 后端错误 / 外部接入变化 / 重置位姿均可见。
+  - **P1-8 无障碍**：设置面板 `role=dialog` + `aria-modal` + **Esc 关闭**；聊天区 `role=log` + `aria-live`；
+    按钮补 `aria-label`；统一 `:focus-visible` 焦点环。
+  - **P2-2 气泡升级**：头像 + 时间戳 + 毛玻璃气泡 + 外部注入角标。
+- **仍未做（诚实登记）**：P0-1 桌面壳（透明置顶 / 点击穿透 / 托盘 / 开机自启 / 全局快捷键，需 Electron/Tauri，L 量级）、
+  P0-2 语音与 VAD 打断链路统一、P0-3 聊天历史持久化回看、P0-5 首启引导、P1-4 模型热切换即时生效、
+  P1-5 多人设卡、P2-3 i18n。
+
+## 验证
+| 项 | 结果 |
+| --- | --- |
+| PC 后端 pytest | **269 passed**（基线 174 → 新增 95：外部接入 / 背景图 / Key 解析 / 音频缓冲 / 流错误可见性）。`--ignore=tests/test_tts_bargein.py`：该文件硬编码 `.pi` 仓库标记，属**基线既有环境问题**，非本轮引入 |
+| PC 前端 vitest | **13 files / 291 passed**（基线 252 → 新增 39：external-input 18 / background 21） |
+| PC 前端 tsc | `npx tsc --noEmit` 通过 |
+| 前端产物 | `npm run build` 成功，`../frontend/` 产物已更新（含 `libs/live2dcubismcore.min.js` 自动拷回）；产物内含 `外部接入`/`角色背景图`/`--surface-0`/`app-background` |
+| 装配级 E2E | 用真实 `server.py` 装配（不加载引擎）跑 20 项：`/health`、`/` 页面、外部接入默认关闭→403、开关落盘、无会话→409、局域网无令牌→400、令牌生成/校验、一键断开、背景 列表/上传/静态 `/bg` 取回/伪装图片拒绝/恢复透明/删除 —— **20/20 通过** |
+| **真机 E2E（真实 `run_server.py` 起服务 + 真实 WS 客户端）** | **16/16 通过**：无 Key 时服务正常启动并 `/health` 200；WS 握手；`POST /api/external/chat` → **WS 端确实收到 `external-input` 回显（文本/来源一致）** → **内部对话链路确实被触发**（日志 `New Conversation Chain started` + `User input: 你好，我是外部程序`）→ 无 Key 时以带 `.env`/`conf.yaml` 指引的 `error` 消息结束；断开后立即 403；真实上传背景 + `/bg` 取回 + 删除回透明 |
+| 启动韧性 | 无 `.env`（零 Key）时后端**照常启动**（日志给出占位 LLM 警告 + 配置指引），设置页可用 → 用户可自助填 Key |
+| 跨端一致性 | `shared/check_cross_platform_consistency.py` **32/33**（唯一失败 C1 = Android `assets/model_registry.json` 产物缺失，Gradle clean 后未重跑构建，非代码问题） |
+| 模型注册表 | `shared/validate_registry.py` 全部通过 |
+| 运行态卫生 | `external_input.json` / `background_state.json` 均已 gitignore；验证产生的临时状态与上传图片已清理 |
+| Android | **未改代码**：本环境无 Android SDK/Gradle 链，Kotlin 改动无法编译回归，故只做静态复核并登记 |
+
+---
+
 # PC 设置中心重构：WSL2 断链修复 + 逻辑链全量重做 + UI 重设计（2026-08-20）
 
 > **范围**：仅 PC 端（open-llm-vtuber Web 设置中心）。权威规格：`docs/plans/settings-redesign-spec.md`；

@@ -24,7 +24,7 @@ async def handle_conversation_trigger(
     client_contexts: Dict[str, ServiceContext],
     client_connections: Dict[str, WebSocket],
     chat_group_manager: ChatGroupManager,
-    received_data_buffers: Dict[str, np.ndarray],
+    received_data_buffers: Dict[str, list],
     current_conversation_tasks: Dict[str, Optional[asyncio.Task]],
     broadcast_to_group: Callable,
 ) -> None:
@@ -69,8 +69,12 @@ async def handle_conversation_trigger(
             except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
                 logger.warning(f"mood sentiment trigger failed (ignored): {e}")
     else:  # mic-audio-end
-        user_input = received_data_buffers[client_uid]
-        received_data_buffers[client_uid] = np.array([])
+        # 缓冲按 chunk 累积（审计 E-4），这里一次性拼成 ASR 需要的 float32 波形
+        chunks = received_data_buffers.get(client_uid) or []
+        user_input = (
+            np.concatenate(chunks) if chunks else np.array([], dtype=np.float32)
+        )
+        received_data_buffers[client_uid] = []
 
     images = data.get("images")
     session_emoji = np.random.choice(EMOJI_LIST)

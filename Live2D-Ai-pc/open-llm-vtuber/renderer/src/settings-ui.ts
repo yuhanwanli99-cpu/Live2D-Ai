@@ -1,14 +1,15 @@
 /**
- * settings-ui.ts — PC 端设置中心 UI（DSH / Codex 深色精练风）
+ * settings-ui.ts — PC 端设置中心 UI（与聊天面板共用 theme.css 令牌的深色精练风）
  *
- * 布局：模态覆盖层 + 左侧导航 rail（6 分区）+ 右侧内容区（一次一个 section）+ 底部条。
- *   分区：对话/LLM · 语音/TTS · 形象/Live2D · 密钥 · 人设/提示词 · 系统/高级
+ * 布局：模态覆盖层 + 左侧导航 rail（7 分区）+ 右侧内容区（一次一个 section）+ 底部条。
+ *   分区：对话/LLM · 语音/TTS · 形象/Live2D（含角色背景图） · 外部接入 · 密钥 · 人设/提示词 · 系统/高级
  *
  * 职责：只做 DOM 装配 + 事件接线；纯逻辑（collectPayload / 校验 / 选项构建 / touched）
- * 抽到 settings-logic.ts 以便 vitest 直接单测。
+ * 抽到 settings-logic.ts；背景图与外部接入两块自成模块
+ * （background.ts / external-input.ts），本文件只负责挂载与回调转发。
  *
  * 对外契约：`initSettingsPanel(container, opts): SettingsPanel {open, close, destroy}`，
- * 与 main.ts 的用法保持不变。
+ * 与 main.ts 的用法保持不变（opts 新增两个可选回调）。
  */
 
 import {
@@ -20,7 +21,15 @@ import {
   type LlmProviderUi,
   type TtsProviderUi,
 } from './settings-logic';
+import { initBackgroundSection, type BackgroundSection, type BackgroundState } from './background';
+import {
+  initExternalInputSection,
+  type ExternalInputSection,
+  type ExternalStatus,
+} from './external-input';
+import { icon } from './icons';
 import './settings.css';
+
 
 /* ------------------------------------------------------------------ *
  * 数据契约（与后端 GET /api/config 同构；以 spec 1.2–1.5 为准）
@@ -97,7 +106,8 @@ interface Live2DModel {
 }
 
 export interface SettingsPanel {
-  open(): void;
+  /** 打开面板；可指定直接落在哪个分区（首启引导跳转用） */
+  open(tab?: string): void;
   close(): void;
   destroy(): void;
 }
@@ -105,7 +115,6 @@ export interface SettingsPanel {
 const LLM_PROVIDER_LABELS: Record<string, string> = {
   deepseek_llm: 'DeepSeek',
   zhipu_llm: '智谱 GLM',
-  zhipu_free_llm: '免费 GLM',
   qwen_llm: 'Qwen',
   openrouter: 'OpenRouter',
   openai: 'OpenAI',
@@ -195,10 +204,19 @@ const providerLabel = (id: string, map: Record<string, string>): string => map[i
 
 export function initSettingsPanel(
   container: HTMLElement,
-  opts: { onChanged?: () => void } = {},
+  opts: {
+    onChanged?: () => void;
+    /** 背景图选择变化 → 主画面立即换背景 */
+    onBackgroundChanged?: (state: BackgroundState) => void;
+    /** 外部接入开关变化 → 聊天面板头部胶囊同步 */
+    onExternalGateChange?: (status: ExternalStatus) => void;
+  } = {},
 ): SettingsPanel {
   const overlay = document.createElement('div');
   overlay.className = 'settings-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', '设置中心');
   overlay.innerHTML = `
     <div class="settings-box">
       <div class="settings-header">
@@ -206,7 +224,7 @@ export function initSettingsPanel(
           设置中心
           <small>Live2D-Ai PC</small>
         </div>
-        <button class="settings-close" type="button" title="关闭">✕</button>
+        <button class="settings-close ui-lift" type="button" title="关闭（Esc）" aria-label="关闭设置中心">${icon('close')}</button>
       </div>
 
       <div class="settings-layout">
@@ -214,7 +232,8 @@ export function initSettingsPanel(
           <div class="settings-nav-group">配置</div>
           <button class="settings-tab active" type="button" data-tab="llm"><span class="tab-dot"></span>对话 / LLM</button>
           <button class="settings-tab" type="button" data-tab="tts"><span class="tab-dot"></span>语音 / TTS</button>
-          <button class="settings-tab" type="button" data-tab="live2d"><span class="tab-dot"></span>形象 / Live2D</button>
+          <button class="settings-tab" type="button" data-tab="live2d"><span class="tab-dot"></span>形象 / 背景</button>
+          <button class="settings-tab" type="button" data-tab="external"><span class="tab-dot"></span>外部接入</button>
           <button class="settings-tab" type="button" data-tab="keys"><span class="tab-dot"></span>密钥</button>
           <button class="settings-tab" type="button" data-tab="persona"><span class="tab-dot"></span>人设 / 提示词</button>
           <button class="settings-tab" type="button" data-tab="system"><span class="tab-dot"></span>系统 / 高级</button>
@@ -222,6 +241,7 @@ export function initSettingsPanel(
             <div class="sv-label">状态简报</div>
             <div class="sv-line"><span class="status-dot" data-nav="llm"></span><span data-navtext="llm">LLM –</span></div>
             <div class="sv-line"><span class="status-dot" data-nav="tts"></span><span data-navtext="tts">TTS –</span></div>
+            <div class="sv-line"><span class="status-dot" data-nav="ext"></span><span data-navtext="ext">外部接入 –</span></div>
             <div class="sv-line"><span class="status-dot" data-nav="sys"></span><span data-navtext="sys">系统 –</span></div>
           </div>
         </nav>
@@ -264,6 +284,21 @@ export function initSettingsPanel(
             </div>
             <div class="settings-status-inline" data-modelstatus></div>
             <div class="settings-model-list" data-modellist></div>
+
+            <div class="settings-section-title">角色背景图</div>
+            <div class="settings-section-hint">
+              上传一张本地图片作为角色背景（铺在 Live2D 画布之下，立即生效）；选「无背景」回到透明桌宠形态。
+            </div>
+            <div data-bgsection></div>
+          </section>
+
+          <section class="settings-tab-panel" data-panel="external">
+            <div class="settings-section-title">外部接入（仅电脑端）</div>
+            <div class="settings-section-hint">
+              开启后，外部程序可以把一段文字交给角色，走的是与聊天框输入**完全相同**的内部链路
+              （同一人设、同一记忆、同一 TTS 与口型）。默认关闭，且默认只允许本机调用；随时可以「立即断开」。
+            </div>
+            <div data-externalsection></div>
           </section>
 
           <section class="settings-tab-panel" data-panel="keys">
@@ -349,6 +384,10 @@ export function initSettingsPanel(
   let loaded = false;
   let logLevelChanged = false;
   let requestToken = 0;
+  let externalStatus: ExternalStatus | null = null;
+  // 子区块（背景图 / 外部接入）在下方 setStatus 就绪后装配
+  let backgroundSection: BackgroundSection | null = null;
+  let externalSection: ExternalInputSection | null = null;
   // 模型发现结果缓存（P2-1：手动获取 + 结果缓存，避免重复拉取）
   const discoverCache = new Map<string, string[]>();
 
@@ -401,7 +440,8 @@ export function initSettingsPanel(
   });
 
   const close = (): void => {
-    overlay.style.display = 'none';
+    overlay.classList.remove('open');
+    externalSection?.stop(); // 关闭面板即停掉外部接入状态轮询
   };
 
   /* ---- 下拉填充（占位逻辑在 settings-logic.buildSelectOptions） ---- */
@@ -438,6 +478,26 @@ export function initSettingsPanel(
     }
   };
 
+  /* ---- 子区块装配（背景图 / 外部接入；各自独立模块，只回传状态） ---- */
+  backgroundSection = initBackgroundSection(
+    overlay.querySelector<HTMLElement>('[data-bgsection]')!,
+    {
+      onChanged: (state) => opts.onBackgroundChanged?.(state),
+      onStatus: (msg, kind) => setStatus(msg, kind),
+    },
+  );
+  externalSection = initExternalInputSection(
+    overlay.querySelector<HTMLElement>('[data-externalsection]')!,
+    {
+      onStatus: (msg, kind) => setStatus(msg, kind),
+      onGateChange: (status) => {
+        externalStatus = status;
+        updateNavStatus();
+        opts.onExternalGateChange?.(status);
+      },
+    },
+  );
+
   /* ---- nav 状态简报 ---- */
   const updateNavStatus = (): void => {
     const llmTotal = currentConfig.llm_configs.length;
@@ -446,15 +506,27 @@ export function initSettingsPanel(
     const ttsOk = currentConfig.tts_configs.filter((c) => c.configured).length;
     const navLlmDot = overlay.querySelector<HTMLElement>('[data-nav="llm"]');
     const navTtsDot = overlay.querySelector<HTMLElement>('[data-nav="tts"]');
+    const navExtDot = overlay.querySelector<HTMLElement>('[data-nav="ext"]');
     const navSysDot = overlay.querySelector<HTMLElement>('[data-nav="sys"]');
     const navLlm = overlay.querySelector<HTMLElement>('[data-navtext="llm"]');
     const navTts = overlay.querySelector<HTMLElement>('[data-navtext="tts"]');
+    const navExt = overlay.querySelector<HTMLElement>('[data-navtext="ext"]');
     const navSys = overlay.querySelector<HTMLElement>('[data-navtext="sys"]');
     if (navLlmDot) navLlmDot.className = `status-dot ${llmTotal > 0 ? (llmOk > 0 ? 'ok' : 'warn') : 'bad'}`;
     if (navTtsDot) navTtsDot.className = `status-dot ${ttsTotal > 0 ? (ttsOk > 0 ? 'ok' : 'warn') : ''}`;
+    if (navExtDot) {
+      navExtDot.className = `status-dot ${externalStatus?.enabled ? 'ok' : ''}`;
+    }
     if (navSysDot) navSysDot.className = `status-dot ${currentConfig.port ? 'ok' : 'bad'}`;
     if (navLlm) navLlm.textContent = `LLM ${llmOk}/${llmTotal} 可用`;
     if (navTts) navTts.textContent = `TTS ${ttsOk}/${ttsTotal} 已配置`;
+    if (navExt) {
+      navExt.textContent = externalStatus
+        ? externalStatus.enabled
+          ? `外部接入 开（${externalStatus.allow_remote ? '含局域网' : '仅本机'}）`
+          : '外部接入 关'
+        : '外部接入 –';
+    }
     if (navSys) navSys.textContent = `端口 ${currentConfig.port || '—'}`;
   };
 
@@ -829,10 +901,13 @@ export function initSettingsPanel(
   };
 
   const open = async (): Promise<void> => {
-    overlay.style.display = 'flex';
+    overlay.classList.add('open');
     setStatus('加载中…', 'info');
     setSaveButtonsEnabled(false);
     loaded = false;
+    // 与配置无关的两块（背景图 / 外部接入）独立加载，任一失败不影响其余分区
+    void backgroundSection?.refresh();
+    void externalSection?.refresh();
     try {
       const res = await fetch('/api/config');
       const data = (await res.json()) as AppConfig & { error?: string };
@@ -1272,9 +1347,17 @@ export function initSettingsPanel(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        applied?: boolean;
+        requires_restart?: boolean;
+        message?: string;
+        error?: string;
+      };
       if (!res.ok || data.error) throw new Error(data.error || '切换失败');
-      modelStatusEl.textContent = '已切换，重启后生效';
+      // P1-4：后端已热推 set-model-and-conf → 主画面即时换形象，不再说"重启后生效"
+      modelStatusEl.textContent =
+        data.message || (data.requires_restart ? '已切换，重启后生效' : '已切换并即时生效');
       await renderModels(); // 刷新选中态（A11/A9）
     } catch (err) {
       modelStatusEl.textContent = `切换失败: ${(err as Error).message}`;
@@ -1337,13 +1420,25 @@ export function initSettingsPanel(
     if (e.target === overlay) close();
   });
 
+  // Esc 关闭（无障碍基线：模态必须可键盘退出）
+  const onKeydown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && overlay.classList.contains('open')) {
+      e.stopPropagation();
+      close();
+    }
+  };
+  document.addEventListener('keydown', onKeydown);
+
   // 首次打开时预加载（main.ts 点击按钮再 open 也会触发 open；此处不自动打开）
   return {
-    open: () => {
+    open: (tab?: string) => {
+      if (tab) switchTab(tab);
       void open();
     },
     close,
     destroy() {
+      document.removeEventListener('keydown', onKeydown);
+      externalSection?.stop();
       overlay.remove();
     },
   };

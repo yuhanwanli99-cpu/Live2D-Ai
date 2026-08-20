@@ -464,7 +464,7 @@ class TestOutboundProtocols:
         assert r.status_code == 200
         body = r.json()
         # .env 只配了 DEEPSEEK_API_KEY；zhipu 未配 key（无 UI）→ 未配置 Key
-        zhipu = next(x for x in body["llm"] if x["provider"] == "zhipu_free_llm")
+        zhipu = next(x for x in body["llm"] if x["provider"] == "zhipu_llm")
         assert zhipu["ok"] is False
         assert zhipu["status"] != "ok"
 

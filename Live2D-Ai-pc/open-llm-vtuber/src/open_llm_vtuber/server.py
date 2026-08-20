@@ -20,6 +20,8 @@ from .routes import (
     init_webtool_routes,
     init_proxy_route,
 )
+from .external_input import ExternalInputGate, init_external_input_routes
+from .backgrounds import BackgroundStore, init_background_routes
 from .service_context import ServiceContext
 from .websocket_handler import WebSocketHandler
 from .config_manager.utils import Config
@@ -122,6 +124,19 @@ class WebSocketServer:
             )
         )
 
+        # 外部文字接入（默认关闭，由前端「设置 → 外部接入」开关控制；见 external_input.py）
+        self.external_input_gate = ExternalInputGate().load()
+        self.app.include_router(
+            init_external_input_routes(
+                gate=self.external_input_gate,
+                ws_handler=self.ws_handler,
+            )
+        )
+
+        # 角色背景图上传 / 选择（静态目录 backgrounds/ 由下方 /bg 挂载对外提供）
+        self.background_store = BackgroundStore().load()
+        self.app.include_router(init_background_routes(store=self.background_store))
+
         # Initialize and include proxy routes if proxy is enabled
         system_config = config.system_config
         if hasattr(system_config, "enable_proxy") and system_config.enable_proxy:
@@ -148,6 +163,10 @@ class WebSocketServer:
             CORSStaticFiles(directory="live2d-models"),
             name="live2d-models",
         )
+        # backgrounds/ 可能被用户清空/删除（内容 gitignore）→ 挂载前确保存在，
+        # 否则 StaticFiles 会在启动时直接抛错。
+        if not os.path.exists("backgrounds"):
+            os.makedirs("backgrounds")
         self.app.mount(
             "/bg",
             CORSStaticFiles(directory="backgrounds"),

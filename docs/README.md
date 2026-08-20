@@ -7,6 +7,7 @@
 - [架构总览](architecture/ARCHITECTURE.md)
 - [核心契约与架构边界](architecture/core-contracts.md)
 - [目录约定](architecture/directory.md)
+- [外部文字接入接口契约](architecture/external-text-input.md)
 - [可观测性 / 健康自检](architecture/observability.md)
 - [依赖与许可清单](architecture/dependencies.md)
 - [插件 / 扩展 SDK 最小骨架](architecture/plugin-sdk.md)
@@ -24,6 +25,7 @@
 ## 调研
 
 - [竞品对比](research/benchmark-neko-vs-neurosama.md)
+- [N.E.K.O UI 对标与「最小高级感」缺口清单](research/neko-ui-alignment-and-gaps.md)
 - [Neuro-sama 架构](research/NeuroSama-architecture-research.md)
 - [N.E.K.O / Live2D 调研](research/NEURO_LIVE2D_RESEARCH.md)
 - [TTS 调研](research/tts-research-report.md)
@@ -35,6 +37,12 @@
 - [桌面端验证](verification/verification-win.md)
 - 验收报告：`verification/acceptance-metrics-report*.md`
 - 测试任务：`plans/test-*.md`
+
+## 代码审计
+
+- [2026-08-20 可读性 / 高效性审计](audit/2026-08-20-readability-efficiency-audit.md)
+- [2026-08-19 代码审计与管理收尾](audit/2026-08-19-code-audit-round.md)
+- 分项：`audit/CONFIG_SCHEMA_AUDIT.md`、`audit/SETTINGS_SYSTEM_AUDIT.md`、`audit/tts_config_audit_report.md`
 
 ## 截图
 

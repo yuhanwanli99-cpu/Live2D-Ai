@@ -3,6 +3,7 @@ import json
 import copy
 import tempfile
 import time
+import asyncio
 from uuid import uuid4
 import numpy as np
 from datetime import datetime
@@ -19,6 +20,27 @@ from .proxy_handler import ProxyHandler
 # 与 pyproject.toml 的 version 保持一致，供 /health 上报。
 _SETTINGS_VERSION = "v1.2.1"
 _ALL_TIMEOUT = 5.0
+
+# TTS provider 旧 id → 现 id（审计 R-2：原先这张表在 4 处各写一遍，最易漂移）
+_TTS_ID_ALIASES = {
+    "gpt_sovits": "gpt_sovits_tts",
+    "piper": "piper_tts",
+    "sherpa_onnx": "sherpa_onnx_tts",
+    "pyttsx3": "pyttsx3_tts",
+}
+
+# tts_config 里不是 provider 的键（全局 TTS 选项）
+_TTS_NON_PROVIDER_KEYS = ("tts_model", "concurrency_limit", "viseme_mode")
+
+# 「全部检查可用性」的并发上限（审计 E-1：原先 ~16 个 provider 串行探测，
+# 每个 timeout=8 → 最坏近 128s 阻塞事件循环，全站 WS 一起卡死）
+_CHECK_CONCURRENCY = 4
+
+
+def normalize_tts_id(pid: str) -> str:
+    """把 TTS provider 的旧 id 归一为现 id（未知 id 原样返回）。"""
+    return _TTS_ID_ALIASES.get(pid, pid)
+
 
 
 def init_config_routes(
@@ -52,11 +74,6 @@ def init_config_routes(
         },
         "zhipu_llm": {
             "name": "智谱 GLM",
-            "base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "key_env": "ZHIPU_API_KEY",
-        },
-        "zhipu_free_llm": {
-            "name": "免费 GLM",
             "base_url": "https://open.bigmodel.cn/api/paas/v4",
             "key_env": "ZHIPU_API_KEY",
         },
@@ -129,7 +146,6 @@ def init_config_routes(
     MODEL_CATALOG = {
         "deepseek_llm": ["deepseek-v4-flash", "deepseek-v4-pro"],
         "zhipu_llm": ["glm-4.7-flash", "glm-4.6v"],
-        "zhipu_free_llm": ["glm-4.7-flash"],
         "qwen_llm": ["qwen3.7-flash", "qwen3.7-plus", "qwen-max"],
         "openrouter": [
             "openrouter/auto",
@@ -355,9 +371,10 @@ def init_config_routes(
                 agent_cfg.setdefault("agent_settings", {})
                 .setdefault("basic_memory_agent", {})
             )
-            provider = basic.get("llm_provider") or "deepseek_llm"
-            if provider == "openai_compatible":
-                provider = "openai_compatible_llm"
+            provider = _normalize_provider_id(
+                basic.get("llm_provider") or "deepseek_llm"
+            )
+            if provider != basic.get("llm_provider"):
                 basic["llm_provider"] = provider
             provider_cfg = llm_configs.setdefault(provider, {})
             if "model" in model_overrides:
@@ -400,8 +417,67 @@ def init_config_routes(
                         return v.strip()
         return os.getenv(name, "")
 
-    def _has_key(name):
-        return bool(_env_value(name))
+    def _load_env_map() -> dict:
+        """一次性把 .env 读成 dict（审计 E-2）。
+
+        原先 `_get_common` 会对 ~16 个 LLM + ~13 个 TTS provider 各调一次
+        `_has_key` → 单个 `GET /api/config` 重复全量读 .env 近 30 次。
+        """
+        env_map = {}
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    env_map[k.strip()] = v.strip()
+        return env_map
+
+    def _requests_get(url: str, headers: dict, timeout: float):
+        """同步 requests.get 移出事件循环（审计 E-1）。
+
+        FastAPI 单线程事件循环：直接同步请求会把所有已连接 WS 会话
+        （对话/口型/字幕/心跳）一起卡住。这里统一走线程池。
+        """
+        import requests as _requests
+
+        return asyncio.to_thread(_requests.get, url, headers=headers, timeout=timeout)
+
+    def _requests_post(url: str, headers: dict, json_body: dict, timeout: float):
+        """同步 requests.post 移出事件循环（审计 E-1）。"""
+        import requests as _requests
+
+        return asyncio.to_thread(
+            lambda: _requests.post(
+                url, headers=headers, json=json_body, timeout=timeout
+            )
+        )
+
+    def _models_endpoint(protocol: str, base_url: str, api_key: str) -> tuple[str, dict]:
+        """按协议族给出「列模型」的 URL 与请求头（审计 R-4：三处曾各写一遍）。"""
+        base = base_url.rstrip("/")
+        if protocol == "ollama":
+            return base + "/api/tags", {}  # Ollama 列模型无需鉴权
+        if protocol == "anthropic":
+            headers = (
+                {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+                if api_key
+                else {}
+            )
+            return base + "/models", headers
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        return base + "/models", headers
+
+    def _models_from_response(protocol: str, raw) -> list:
+        """把「列模型」响应解析成模型名列表（Ollama 结构与 OpenAI 系不同）。"""
+        if protocol == "ollama":
+            return [
+                str(m.get("name", ""))
+                for m in (raw.get("models") or [])
+                if isinstance(m, dict) and m.get("name")
+            ]
+        return _parse_models_response(raw)
 
     def _get_common(data: dict) -> dict:
         cc = data.get("character_config", {}) or {}
@@ -413,6 +489,13 @@ def init_config_routes(
         tts_cfg = cc.get("tts_config", {}) or {}
         sys_cfg = data.get("system_config", {}) or {}
         persona = _load_persona()
+        # .env 一次读入，provider 循环里只查内存（审计 E-2）
+        env_map = _load_env_map()
+
+        def env_has(name) -> bool:
+            if not name:
+                return False
+            return bool(env_map.get(name) or os.getenv(name, ""))
 
         provider_ids = list(dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys())))
         llm_provider_list = []
@@ -434,7 +517,7 @@ def init_config_routes(
                     "temperature": cfg.get("temperature", 0.8),
                     "max_tokens": cfg.get("max_tokens", None),
                     "key_env": key_env,
-                    "has_key": _has_key(key_env) if key_env else False,
+                    "has_key": env_has(key_env) if key_env else False,
                     "configured": pid in llm_configs,
                 }
             )
@@ -442,7 +525,7 @@ def init_config_routes(
         tts_ids = list(dict.fromkeys(list(tts_cfg.keys()) + list(TTS_DEFAULTS.keys())))
         tts_provider_list = []
         for pid in tts_ids:
-            if pid in ("tts_model", "concurrency_limit", "viseme_mode"):
+            if pid in _TTS_NON_PROVIDER_KEYS:
                 continue
             cfg = tts_cfg.get(pid, {}) or {}
             if not isinstance(cfg, dict):
@@ -467,7 +550,7 @@ def init_config_routes(
                     "voices": known_voices,
                     "models": known_tts_models,
                     "key_env": key_env,
-                    "has_key": _has_key(key_env) if key_env else True,
+                    "has_key": env_has(key_env) if key_env else True,
                     "configured": pid in tts_cfg,
                 }
             )
@@ -483,7 +566,7 @@ def init_config_routes(
                     [
                         k
                         for k, v in tts_cfg.items()
-                        if k not in ("tts_model", "concurrency_limit", "viseme_mode")
+                        if k not in _TTS_NON_PROVIDER_KEYS
                         and isinstance(v, dict)
                     ]
                     + list(TTS_DEFAULTS.keys())
@@ -545,13 +628,7 @@ def init_config_routes(
             if "llm_provider" in payload and payload["llm_provider"]:
                 basic["llm_provider"] = payload["llm_provider"]
             if "tts_model" in payload and payload["tts_model"]:
-                requested_tts = payload["tts_model"]
-                requested_tts = {
-                    "gpt_sovits": "gpt_sovits_tts",
-                    "piper": "piper_tts",
-                    "sherpa_onnx": "sherpa_onnx_tts",
-                    "pyttsx3": "pyttsx3_tts",
-                }.get(requested_tts, requested_tts)
+                requested_tts = normalize_tts_id(payload["tts_model"])
                 cc.setdefault("tts_config", {})["tts_model"] = requested_tts
             if "viseme_mode" in payload and payload["viseme_mode"]:
                 cc.setdefault("tts_config", {})["viseme_mode"] = payload["viseme_mode"]
@@ -570,7 +647,7 @@ def init_config_routes(
             llm_overrides = payload.get("llm_configs") or {}
             existing_llm = agent_cfg.setdefault("llm_configs", {})
             for raw_pid, override in list(llm_overrides.items()):
-                pid = "openai_compatible_llm" if raw_pid == "openai_compatible" else raw_pid
+                pid = _normalize_provider_id(raw_pid)
                 if not isinstance(override, dict):
                     continue
                 if pid not in existing_llm:
@@ -586,9 +663,8 @@ def init_config_routes(
                         target[field] = override[field]
 
             # 自动补齐当前选中 LLM 的最小配置（未配置但被选中的 Provider 也能保存/热重载）
-            selected_llm = basic.get("llm_provider", "")
-            if selected_llm == "openai_compatible":
-                selected_llm = "openai_compatible_llm"
+            selected_llm = _normalize_provider_id(basic.get("llm_provider", ""))
+            if selected_llm != basic.get("llm_provider", ""):
                 basic["llm_provider"] = selected_llm
             if selected_llm and selected_llm not in existing_llm:
                 llm_default = LLM_DEFAULTS.get(selected_llm, {})
@@ -621,13 +697,7 @@ def init_config_routes(
                         target[field] = override[field]
 
             if "tts_model" in payload and payload["tts_model"]:
-                requested_tts = payload["tts_model"]
-                requested_tts = {
-                    "gpt_sovits": "gpt_sovits_tts",
-                    "piper": "piper_tts",
-                    "sherpa_onnx": "sherpa_onnx_tts",
-                    "pyttsx3": "pyttsx3_tts",
-                }.get(requested_tts, requested_tts)
+                requested_tts = normalize_tts_id(payload["tts_model"])
                 if requested_tts not in tts_cfg:
                     tts_default = TTS_DEFAULTS.get(requested_tts, {})
                     target = tts_cfg[requested_tts] = {}
@@ -646,12 +716,7 @@ def init_config_routes(
             # 会 400 指明字段，避免"落成空 {}"破坏校验。
             selected_tts = tts_cfg.get("tts_model", "")
             if selected_tts:
-                selected_tts = {
-                    "gpt_sovits": "gpt_sovits_tts",
-                    "piper": "piper_tts",
-                    "sherpa_onnx": "sherpa_onnx_tts",
-                    "pyttsx3": "pyttsx3_tts",
-                }.get(selected_tts, selected_tts)
+                selected_tts = normalize_tts_id(selected_tts)
                 sel_entry = tts_cfg.get(selected_tts)
                 if isinstance(sel_entry, dict):
                     if not sel_entry.get("voice"):
@@ -1085,7 +1150,39 @@ def init_config_routes(
             cc["live2d_model_name"] = model_id
             cc["conf_name"] = model_id
             _save_yaml(data)
-            return JSONResponse({"ok": True, "requires_restart": True})
+
+            # P1-4：不再要求重启——直接热切换并推给所有在线会话
+            applied = 0
+            hot_error = ""
+            if ws_handler is not None:
+                try:
+                    applied = await ws_handler.broadcast_model_change(model_id)
+                except Exception as e:  # noqa: BLE001 - 热切换失败要诚实回报（配置已落盘）
+                    hot_error = str(e)
+                    logger.error(f"形象热切换失败（配置已保存）: {e}")
+
+            if hot_error:
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "applied": False,
+                        "requires_restart": True,
+                        "message": f"已保存，重启后生效（热切换失败: {hot_error}）",
+                    }
+                )
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "applied": True,
+                    "requires_restart": False,
+                    "clients_updated": applied,
+                    "message": (
+                        f"已切换并即时生效（{applied} 个窗口已更新）"
+                        if applied
+                        else "已切换；当前没有已连接窗口，打开页面即生效"
+                    ),
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to select model: {e}")
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -1093,10 +1190,8 @@ def init_config_routes(
     @router.post("/api/llm/discover-models")
     async def discover_llm_models(request: Request):
         try:
-            import requests as _requests
             payload = await request.json()
-            provider = payload.get("provider", "")
-            provider = _normalize_provider_id(provider)
+            provider = _normalize_provider_id(payload.get("provider", ""))
             base_url = (payload.get("base_url") or "").strip()
             api_key = (payload.get("api_key") or "").strip()
             data = _load_yaml()
@@ -1120,22 +1215,8 @@ def init_config_routes(
                     {"ok": False, "error": "Base URL 为空，无法发现模型"}, status_code=400
                 )
             protocol = _llm_protocol(provider)
-            if protocol == "ollama":
-                # Ollama 用 GET /api/tags 列模型，无需鉴权
-                url = base_url.rstrip("/") + "/api/tags"
-                headers = {}
-            elif protocol == "anthropic":
-                url = base_url.rstrip("/") + "/models"
-                headers = {}
-                if api_key:
-                    headers["x-api-key"] = api_key
-                    headers["anthropic-version"] = "2023-06-01"
-            else:
-                url = base_url.rstrip("/") + "/models"
-                headers = {}
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
-            resp = _requests.get(url, headers=headers, timeout=15)
+            url, headers = _models_endpoint(protocol, base_url, api_key)
+            resp = await _requests_get(url, headers=headers, timeout=15)
             if resp.status_code >= 400:
                 return JSONResponse(
                     {
@@ -1144,16 +1225,7 @@ def init_config_routes(
                     },
                     status_code=400,
                 )
-            raw = resp.json()
-            if protocol == "ollama":
-                # {"models":[{"name":"llama3:latest",...}]}
-                models = [
-                    str(m.get("name", ""))
-                    for m in (raw.get("models") or [])
-                    if isinstance(m, dict) and m.get("name")
-                ]
-            else:
-                models = _parse_models_response(raw)
+            models = _models_from_response(protocol, resp.json())
             return JSONResponse({"ok": True, "models": models})
         except Exception as e:
             logger.error(f"Discover models failed: {e}")
@@ -1162,7 +1234,6 @@ def init_config_routes(
     @router.post("/api/providers/check")
     async def check_providers(request: Request):
         try:
-            import requests as _requests
             payload = {}
             try:
                 payload = await request.json()
@@ -1176,11 +1247,16 @@ def init_config_routes(
             llm_overrides = payload.get("llm_configs") or {}
             tts_overrides = payload.get("tts_configs") or {}
             api_keys = payload.get("api_keys") or {}
-            llm_results = []
             provider_ids = list(
                 dict.fromkeys(list(llm_configs.keys()) + list(LLM_DEFAULTS.keys()))
             )
-            for pid in provider_ids:
+
+            # 审计 E-1：原实现在 async 端点里**串行**探测 ~16 个 provider（各 timeout=8），
+            # 最坏近 128s 阻塞事件循环 → 全站 WS（对话/口型/字幕/心跳）一起卡死。
+            # 现改为「线程池 + 限并发 gather」：既不阻塞事件循环，总耗时也从 Σ 变成 max。
+            semaphore = asyncio.Semaphore(_CHECK_CONCURRENCY)
+
+            async def probe_llm(pid: str) -> dict:
                 cfg = dict(llm_configs.get(pid, {}) or {})
                 override = llm_overrides.get(pid)
                 if isinstance(override, dict):
@@ -1198,62 +1274,39 @@ def init_config_routes(
                 )
                 key = override_key or api_keys.get(key_env) or _env_value(key_env)
                 if not key:
-                    llm_results.append(
-                        {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Key", "models": []}
-                    )
-                    continue
+                    return {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Key", "models": []}
                 if not base_url:
-                    llm_results.append(
-                        {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Base URL", "models": []}
-                    )
-                    continue
+                    return {"provider": pid, "kind": "llm", "ok": False, "status": "未配置 Base URL", "models": []}
                 try:
                     protocol = _llm_protocol(pid)
-                    if protocol == "ollama":
-                        url = base_url.rstrip("/") + "/api/tags"
-                        headers = {}
-                    elif protocol == "anthropic":
-                        url = base_url.rstrip("/") + "/models"
-                        headers = {
-                            "x-api-key": key,
-                            "anthropic-version": "2023-06-01",
-                        }
-                    else:
-                        url = base_url.rstrip("/") + "/models"
-                        headers = {"Authorization": f"Bearer {key}"}
-                    resp = _requests.get(url, headers=headers, timeout=8)
+                    url, headers = _models_endpoint(protocol, base_url, key)
+                    async with semaphore:
+                        resp = await _requests_get(url, headers=headers, timeout=8)
                     if resp.status_code < 400:
-                        raw = resp.json()
-                        if protocol == "ollama":
-                            models = [
-                                str(m.get("name", ""))
-                                for m in (raw.get("models") or [])
-                                if isinstance(m, dict) and m.get("name")
-                            ]
-                        else:
-                            models = _parse_models_response(raw)
-                        llm_results.append(
-                            {"provider": pid, "kind": "llm", "ok": True, "status": "ok", "models": models}
-                        )
-                    else:
-                        llm_results.append(
-                            {
-                                "provider": pid,
-                                "kind": "llm",
-                                "ok": False,
-                                "status": f"HTTP {resp.status_code}: {_extract_upstream_message(resp)}",
-                                "models": [],
-                            }
-                        )
-                except Exception as e:
-                    llm_results.append(
-                        {"provider": pid, "kind": "llm", "ok": False, "status": str(e), "models": []}
-                    )
+                        return {
+                            "provider": pid,
+                            "kind": "llm",
+                            "ok": True,
+                            "status": "ok",
+                            "models": _models_from_response(protocol, resp.json()),
+                        }
+                    return {
+                        "provider": pid,
+                        "kind": "llm",
+                        "ok": False,
+                        "status": f"HTTP {resp.status_code}: {_extract_upstream_message(resp)}",
+                        "models": [],
+                    }
+                except Exception as e:  # noqa: BLE001 - 单个 provider 失败不影响其余
+                    return {"provider": pid, "kind": "llm", "ok": False, "status": str(e), "models": []}
+
+            # 顺序与 provider_ids 一致（gather 保序），前端按序展示不受并发影响
+            llm_results = list(await asyncio.gather(*(probe_llm(pid) for pid in provider_ids)))
 
             tts_results = []
             tts_ids = list(dict.fromkeys(list(tts_cfg.keys()) + list(TTS_DEFAULTS.keys())))
             for pid in tts_ids:
-                if pid in ("tts_model", "concurrency_limit", "viseme_mode"):
+                if pid in _TTS_NON_PROVIDER_KEYS:
                     continue
                 cfg = dict(tts_cfg.get(pid, {}) or {})
                 override = tts_overrides.get(pid)
@@ -1286,11 +1339,8 @@ def init_config_routes(
     @router.post("/api/test-llm")
     async def test_llm(request: Request):
         try:
-            import requests as _requests
             payload = await request.json()
-            provider = payload.get("provider", "")
-            if provider == "openai_compatible":
-                provider = "openai_compatible_llm"
+            provider = _normalize_provider_id(payload.get("provider", ""))
             key = (payload.get("api_key") or "").strip()
             base_url = (payload.get("base_url") or "").strip()
             model = (payload.get("model") or "").strip()
@@ -1324,56 +1374,44 @@ def init_config_routes(
                 return JSONResponse(
                     {"ok": False, "error": f"{provider} 未配置 model"}, status_code=400
                 )
-            url = base_url.rstrip("/") + "/chat/completions"
+            # 一次 ping 探活；按协议族给出 URL / header / body（审计 E-1：走线程池不阻塞事件循环）
             protocol = _llm_protocol(provider)
+            base = base_url.rstrip("/")
+            max_tokens = payload.get("max_tokens") or 5
             if protocol == "ollama":
-                url = base_url.rstrip("/") + "/api/chat"
-                resp = _requests.post(
-                    url,
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": "ping"}],
-                        "stream": False,
-                    },
-                    timeout=10,
-                )
+                url = base + "/api/chat"
+                headers = {"Content-Type": "application/json"}
+                body = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "stream": False,
+                }
             elif protocol == "anthropic":
                 # base_url 形如 https://api.anthropic.com/v1 或 .../v1/：
                 # 追加 /v1/messages 前先避免重复 /v1。
-                base = base_url.rstrip("/")
-                if base.endswith("/v1"):
-                    url = base + "/messages"
-                else:
-                    url = base + "/v1/messages"
-                resp = _requests.post(
-                    url,
-                    headers={
-                        "x-api-key": key,
-                        "anthropic-version": "2023-06-01",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "max_tokens": payload.get("max_tokens") or 5,
-                        "messages": [{"role": "user", "content": "ping"}],
-                    },
-                    timeout=10,
-                )
+                url = base + ("/messages" if base.endswith("/v1") else "/v1/messages")
+                headers = {
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                }
+                body = {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": "ping"}],
+                }
             else:
-                resp = _requests.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": "ping"}],
-                        "max_tokens": payload.get("max_tokens") or 5,
-                    },
-                    timeout=10,
-                )
+                url = base + "/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                }
+                body = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": max_tokens,
+                }
+            resp = await _requests_post(url, headers=headers, json_body=body, timeout=10)
             if resp.status_code < 400:
                 return JSONResponse({"ok": True, "status": resp.status_code})
             return JSONResponse(
@@ -1395,13 +1433,7 @@ def init_config_routes(
                 payload = await request.json()
             except Exception:
                 payload = {}
-            provider = (payload.get("provider") or "").strip()
-            provider = {
-                "gpt_sovits": "gpt_sovits_tts",
-                "piper": "piper_tts",
-                "sherpa_onnx": "sherpa_onnx_tts",
-                "pyttsx3": "pyttsx3_tts",
-            }.get(provider, provider)
+            provider = normalize_tts_id((payload.get("provider") or "").strip())
             data = _load_yaml()
             tts_cfg = (data.get("character_config", {}) or {}).get("tts_config", {}) or {}
 

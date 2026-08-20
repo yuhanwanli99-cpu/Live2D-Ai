@@ -14,6 +14,7 @@
  */
 import { LipSync, VisemeFrame } from './lip-sync';
 import { EmotionConsumer } from './emotion-consumer';
+import type { HistoryEntry, HistoryMessage } from './history';
 import type { DisplayText, ModelInfo } from './types';
 
 /** 重连参数（RM7-05：断开后 5s 内触发首次重连；指数退避，最大间隔 30s） */
@@ -25,6 +26,38 @@ export class WsBridge {
   onModelChange: ((modelInfo: ModelInfo) => void) | null = null;
   /** 字幕回调（"audio" → display_text） */
   onSubtitle: ((text: DisplayText) => void) | null = null;
+  /**
+   * 外部文字注入回调（"external-input" → 后端把外部程序发来的那句话回显给前端，
+   * 让用户看到"角色为什么突然开口"）。见 src/open_llm_vtuber/external_input.py。
+   */
+  onExternalInput: ((payload: { text: string; source: string }) => void) | null = null;
+  /**
+   * 后端错误回调（`{"type":"error","message":...}`）。
+   * 典型来源：未配置 API Key（占位 LLM 的配置指引）、LLM/TTS 上游失败。
+   * 此前前端完全忽略该消息类型，用户只看到"角色不说话"（见调研 P1-6）。
+   */
+  onError: ((message: string) => void) | null = null;
+  /** 历史消息回灌（`history-data`：连接时自动恢复上文，或用户切换会话后） */
+  onHistoryData:
+    | ((payload: { history_uid: string; messages: HistoryMessage[] }) => void)
+    | null = null;
+  /** 历史会话列表（`history-list`） */
+  onHistoryList: ((histories: HistoryEntry[]) => void) | null = null;
+  /** 新会话已创建（`new-history-created`） */
+  onHistoryCreated: ((historyUid: string) => void) | null = null;
+  /** 历史已删除（`history-deleted`） */
+  onHistoryDeleted:
+    | ((payload: { history_uid: string; success: boolean }) => void)
+    | null = null;
+  /** token 级增量文本（P1-2 流式上屏；`text-delta`） */
+  onTextDelta: ((text: string) => void) | null = null;
+  /**
+   * 控制消息（`{"type":"control","text":...}`）。
+   * 后端一直在发（`start-mic` / `interrupt`（VAD 打断）/ `mic-audio-end` /
+   * `conversation-chain-end`），但前端此前**完全忽略** control —— 这就是
+   * 「语音链路与 VAD 打断对用户不可见」的根因（调研 P0-2）。
+   */
+  onControl: ((text: string) => void) | null = null;
 
   /** 最近上屏过的字幕文本（环形小窗口）；用于跳过 audio.display_text 的重复上屏 */
   private _recentSubtitleTexts: string[] = [];
@@ -111,6 +144,65 @@ export class WsBridge {
     return this.ws !== null && this.ws.readyState === 1; // 1 = WebSocket.OPEN
   }
 
+  /** 发送一条控制消息（未连接时静默丢弃，返回是否已发送） */
+  private send(payload: Record<string, unknown>): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      this.ws.send(JSON.stringify(payload));
+      return true;
+    } catch (err) {
+      console.warn('[ws-bridge] 发送失败（忽略）:', err);
+      return false;
+    }
+  }
+
+  // ── 聊天历史（P0-3；复用后端既有 WS 协议，未新增消息类型） ──
+
+  /** 请求历史会话列表 → `history-list` */
+  fetchHistoryList(): boolean {
+    return this.send({ type: 'fetch-history-list' });
+  }
+
+  /** 切换到指定历史（同时切换 LLM 记忆） → `history-data` */
+  fetchAndSetHistory(historyUid: string): boolean {
+    if (!historyUid) return false;
+    return this.send({ type: 'fetch-and-set-history', history_uid: historyUid });
+  }
+
+  /** 开始新会话 → `new-history-created` */
+  createNewHistory(): boolean {
+    return this.send({ type: 'create-new-history' });
+  }
+
+  /** 删除指定历史 → `history-deleted` */
+  deleteHistory(historyUid: string): boolean {
+    if (!historyUid) return false;
+    return this.send({ type: 'delete-history', history_uid: historyUid });
+  }
+
+  // ── 语音输入（P0-2；把音频送回后端 ASR，复用既有协议） ──
+
+  /**
+   * 上行一片麦克风音频（16kHz 单声道 Float32 → 普通数组）。
+   * 后端 `_handle_audio_data` 累积到会话缓冲，`mic-audio-end` 时交给 ASR。
+   */
+  sendMicAudio(samples: Float32Array | number[]): boolean {
+    const audio = Array.from(samples);
+    if (audio.length === 0) return false;
+    return this.send({ type: 'mic-audio-data', audio });
+  }
+
+  /** 录音结束 → 后端跑 ASR 并开始对话 */
+  sendMicAudioEnd(): boolean {
+    return this.send({ type: 'mic-audio-end' });
+  }
+
+  /** 主动打断当前发言（用户插话；后端取消本轮任务） */
+  sendInterrupt(heardResponse = ''): boolean {
+    this.stopAudio();
+    return this.send({ type: 'interrupt-signal', text: heardResponse });
+  }
+
   /** 设置表情消费者（RM4） */
   setEmotionConsumer(consumer: EmotionConsumer): void {
     this.emotionConsumer = consumer;
@@ -126,6 +218,8 @@ export class WsBridge {
   private audioQueue: HTMLAudioElement[] = [];
   private audioPlaying = false;
   private pendingPlaybackComplete = false;
+  /** 正在播放的元素（打断时需要真的把它按停，光清队列不够） */
+  private currentAudio: HTMLAudioElement | null = null;
 
   private playAudioQueue(): void {
     if (this.audioPlaying || this.audioQueue.length === 0) {
@@ -137,6 +231,7 @@ export class WsBridge {
     }
     const el = this.audioQueue.shift()!;
     this.audioPlaying = true;
+    this.currentAudio = el;
     this.onTtsStatus?.('🔊 播放中');
     console.debug(`[LATENCY] play_start_ms=${performance.now().toFixed(0)}`);
     try {
@@ -173,6 +268,29 @@ export class WsBridge {
     el.preload = 'auto';
     this.audioQueue.push(el);
     this.playAudioQueue();
+  }
+
+  /**
+   * 立刻停止播放并清空队列（VAD 打断 / 用户插话）。
+   * 打断语义要求"声音马上停"，否则用户会听到自己被角色压过去。
+   */
+  stopAudio(): void {
+    this.audioQueue.length = 0;
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+        // 清掉回调，避免 onended/onerror 再把队列泵起来
+        this.currentAudio.onended = null;
+        this.currentAudio.onerror = null;
+      } catch (err) {
+        console.warn('[ws-bridge] 停止音频失败（忽略）:', err);
+      }
+      this.currentAudio = null;
+    }
+    this.audioPlaying = false;
+    this.pendingPlaybackComplete = false;
+    this.onTtsStatus?.('TTS 空闲');
   }
 
   /** 后端已通知合成完毕且本地队列已空 → 通知后端可结束本轮 */
@@ -270,6 +388,66 @@ export class WsBridge {
         case 'backend-synth-complete': {
           this.pendingPlaybackComplete = true;
           this.trySendPlaybackComplete();
+          break;
+        }
+        case 'external-input': {
+          const injected = data as { text?: string; source?: string } | null;
+          if (injected && typeof injected.text === 'string' && injected.text) {
+            this.onExternalInput?.({
+              text: injected.text,
+              source: injected.source || 'external',
+            });
+          }
+          break;
+        }
+        case 'error': {
+          const err = data as { message?: string } | null;
+          const message = (err?.message || '').trim();
+          if (message) this.onError?.(message);
+          break;
+        }
+        case 'history-data': {
+          const payload = data as
+            | { history_uid?: string; messages?: HistoryMessage[] }
+            | null;
+          this.onHistoryData?.({
+            history_uid: payload?.history_uid || '',
+            messages: Array.isArray(payload?.messages) ? payload!.messages! : [],
+          });
+          break;
+        }
+        case 'history-list': {
+          const payload = data as { histories?: HistoryEntry[] } | null;
+          this.onHistoryList?.(
+            Array.isArray(payload?.histories) ? payload!.histories! : [],
+          );
+          break;
+        }
+        case 'new-history-created': {
+          const payload = data as { history_uid?: string } | null;
+          if (payload?.history_uid) this.onHistoryCreated?.(payload.history_uid);
+          break;
+        }
+        case 'history-deleted': {
+          const payload = data as { history_uid?: string; success?: boolean } | null;
+          this.onHistoryDeleted?.({
+            history_uid: payload?.history_uid || '',
+            success: !!payload?.success,
+          });
+          break;
+        }
+        case 'text-delta': {
+          const payload = data as { text?: string } | null;
+          if (payload?.text) this.onTextDelta?.(payload.text);
+          break;
+        }
+        case 'control': {
+          const payload = data as { text?: string } | null;
+          const command = (payload?.text || '').trim();
+          if (!command) break;
+          // VAD 打断：立刻停掉正在播放/排队的音频，否则"她还在说、你已经插话"
+          if (command === 'interrupt') this.stopAudio();
+          this.onControl?.(command);
           break;
         }
         default:

@@ -2,186 +2,41 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>Live2D-Ai — 白</title>
     <style>
+      /* 仅保留"页面骨架"级样式：面板 / 气泡 / 背景层 / 提示条的样式全部在
+         src/theme.css + src/chat.css（design token 统一，见
+         docs/research/neko-ui-alignment-and-gaps.md P0-4），
+         这里不再内联第二套色板与字号。 */
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: transparent; /* 透明背景：配合 Electron/Tauri 桌面壳实现悬浮桌宠 */
+        /* 透明背景：配合 Electron/Tauri 桌面壳实现悬浮桌宠；
+           Web 模式下由 #app-background 层承载用户上传的角色背景图 */
+        background: transparent;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
       }
       #canvas {
+        position: relative;
+        z-index: 1; /* 与 theme.css 的 --z-canvas 对齐：角色在背景层之上 */
         width: 100%;
         height: 100%;
       }
-      #canvas canvas {
-        display: block;
-      }
-
-      /* ── 聊天面板（spoq-fix：直播/微信风格，右侧半透明） ── */
-      .chat-panel {
-        position: fixed;
-        right: 16px;
-        top: 16px;
-        bottom: 16px;
-        width: 320px;
-        display: flex;
-        flex-direction: column;
-        background: rgba(20, 20, 28, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 14px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-        z-index: 100;
-        overflow: hidden;
-      }
-      .chat-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px 14px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      }
-      .chat-title {
-        color: #f5f5f7;
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .chat-status {
-        color: #ff6b6b;
-        font-size: 11px;
-      }
-      .chat-tts-status {
-        color: #a5b4fc;
-        font-size: 11px;
-        margin-left: 8px;
-      }
-      .chat-status-ok {
-        color: #4ade80;
-      }
-      .chat-messages {
-        flex: 1;
-        overflow-y: auto;
-        padding: 10px 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-      .chat-msg {
-        display: flex;
-      }
-      .chat-msg-user {
-        justify-content: flex-end;
-      }
-      .chat-msg-assistant,
-      .chat-msg-system {
-        justify-content: flex-start;
-      }
-      .chat-msg-error {
-        justify-content: center;
-      }
-      .chat-bubble {
-        max-width: 82%;
-        padding: 7px 11px;
-        border-radius: 12px;
-        font-size: 13px;
-        line-height: 1.45;
-        word-break: break-word;
-      }
-      .chat-msg-user .chat-bubble {
-        background: rgba(99, 102, 241, 0.85);
-        color: #fff;
-        border-bottom-right-radius: 3px;
-      }
-      .chat-msg-assistant .chat-bubble {
-        background: rgba(255, 255, 255, 0.14);
-        color: #eee;
-        border-bottom-left-radius: 3px;
-      }
-      .chat-msg-system .chat-bubble {
-        background: transparent;
-        color: #aaa;
-        font-size: 11px;
-        text-align: center;
-      }
-      .chat-msg-error .chat-bubble {
-        background: rgba(239, 68, 68, 0.25);
-        color: #fca5a5;
-        font-size: 12px;
-        text-align: center;
-      }
-      .chat-input-row {
-        display: flex;
-        gap: 8px;
-        padding: 10px 12px;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-      }
-      .chat-input {
-        flex: 1;
-        padding: 8px 12px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        background: rgba(255, 255, 255, 0.08);
-        color: #f0f0f2;
-        font-size: 13px;
-        outline: none;
-      }
-      .chat-input::placeholder {
-        color: rgba(255, 255, 255, 0.4);
-      }
-      .chat-input:focus {
-        border-color: rgba(99, 102, 241, 0.6);
-      }
-      .chat-mic {
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(255,255,255,0.16);
-        background: rgba(255,255,255,0.08);
-        color: #fff;
-        font-size: 14px;
-        cursor: pointer;
-      }
-      .chat-mic-active {
-        background: rgba(239,68,68,0.6);
-        border-color: #ef4444;
-      }
-      .chat-send {
-        padding: 8px 16px;
-        border-radius: 10px;
-        border: none;
-        background: #6366f1;
-        color: #fff;
-        font-size: 13px;
-        cursor: pointer;
-      }
-      .chat-send:hover {
-        background: #4f52e0;
-      }
-      .chat-send:active {
-        background: #3f42c8;
-      }
-      .chat-settings {
-        margin-left: 6px;
-        padding: 4px 9px;
-        border-radius: 8px;
-        border: 1px solid rgba(255,255,255,0.3);
-        background: rgba(255,255,255,0.16);
-        color: #fff;
-        font-size: 13px;
-        cursor: pointer;
-      }
-      .chat-settings:hover {
-        background: rgba(255,255,255,0.28);
-      }
-
+      #canvas canvas { display: block; }
     </style>
     <!-- Cubism 4 Core：必须早于 main.ts 加载（pixi-live2d-display 依赖全局 live2dcubismcore） -->
     <script src="./libs/live2dcubismcore.min.js"></script>
-    <script type="module" crossorigin src="./assets/index-B1zoyW3Q.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-C_P6JpgG.css">
+    <script type="module" crossorigin src="./assets/index-B8-b1U6B.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Dkqs_ROl.css">
   </head>
   <body>
+    <!-- 角色背景图层（PixiJS 画布之下；无背景图时保持透明） -->
+    <div id="app-background"></div>
     <div id="canvas"></div>
     <div id="chat"></div>
   </body>
