@@ -18,14 +18,18 @@
 
 ## 规划
 
-- [PLAN.md](../PLAN.md)
-- 历史计划：`plans/plan-*.md`、`plans/plan-task-*.md`、`plans/PLAN-PHASE1*.md`
+- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，当前执行口径，含本地 Melo TTS）**](plans/PLAN-V2-PC-LOCAL-TTS.md)
+- [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](plans/PLAN-V3-SOULLINK-PERFORMANCE.md)
+- [PLAN-V1.md（上一版 PC 计划，已被 V2 取代）](plans/PLAN-V1.md)
+- [PLAN.md](../PLAN.md)（架构演进历史）
+- 历史计划：`plans/plan-*.md`、`plans/plan-task-*.md`、`plans/PLAN-PHASE1*.md`、`plans/PLAN-PC-V1~V4`、`plans/PLAN-V1-draft-2026-08-21.md`
 - [Phase-0 notes](plans/Phase-0-notes.md)
 
 ## 调研
 
 - [竞品对比](research/benchmark-neko-vs-neurosama.md)
 - [N.E.K.O UI 对标与「最小高级感」缺口清单](research/neko-ui-alignment-and-gaps.md)
+- [Live2D 半身动作/情绪表演开源检索：nanlingyin 系 + soullink-emotion-sdk 深读](research/live2d-halfbody-motion-research.md)
 - [Neuro-sama 架构](research/NeuroSama-architecture-research.md)
 - [N.E.K.O / Live2D 调研](research/NEURO_LIVE2D_RESEARCH.md)
 - [TTS 调研](research/tts-research-report.md)

@@ -1,3 +1,126 @@
+# 实现计划定稿：表演引擎直接复用 soullink-emotion-sdk（2026-08-22）
+
+- 决策：能引包就不自己写。7 个 @soullink-emotion/* 包全部已发布 npm（MIT，0.1.0-beta.1），锁精确版本引入；维护=评估上游 release+diff 后 bump。
+- 落盘 docs/plans/PLAN-V3-SOULLINK-PERFORMANCE.md：复用清单 / 目标架构 / P0 Spike→P1 双跑开关→P2 默认切换退役→P3 插件扩展 四阶段（各含验收与回滚）/ 上游同步 SOP / 风险表 / 总验收口径。
+- **硬原则入计划**：永不静默崩溃（失败必须可见+降级有出口）；用户侧 LLM+TTS 默认必配（设置界面承载），核心不为缺席场景造兜底——离线情绪分类器降为非核心可选插件。
+- **新增 §7**：N.E.K.O 借鉴映射（Smart-Turn/RNNoise+Silero/SLOP 口头禅治理进核心语音与文本打磨；proactive/记忆五层分层采纳）+ skill-loader 与 mcp-bridge 可行性评估（pi-agent 式前置插件）+ PluginHost 缺口诚实评估（缺后台服务注册接口，直播接入前置改造另列）。
+- **新增 §8 多 LLM 并行管线正式化**：现状已有 A 主对话脑/B 表演导演/D 记忆管家三角色在跑（C 心情导演为规则版）；对齐 PLAN-PC-V2 原三 LLM 设计与生态惯例（N.E.K.O 三服务器、soullink planner、VT-Orchestrator 等）。关键改造=P1 内 B 并行化（sentenceId 回填+迟到丢弃，TTS 不等导演）+ per-role 模型覆盖 + fallback 可见化；C 保持规则版（克制）。
+- 合规注记重申：SoulLink_Live2D 无 LICENSE 仅对照；AGPL/GPL 插件只看思想。
+
+---
+
+# 调研落盘：无预设参数 Live2D 表情表演（soullink-emotion-sdk）（2026-08-22）
+
+- **检索结论**：MIT 协议的 @soullink-emotion/engine（零运行时依赖纯 TS）提供 VAD 连续情绪空间 + FACS/AU 表情语义 + ModelProfile 跨皮套参数映射 + MotionMixer 分层混合 + SpeechPerformancePlanner 说话演出规划——正是"无预设参数、跨皮套通用"的成熟实现；同作者前作 SoulLink_Live2D **无 LICENSE 仅可对照**（外部资料误标 MIT，已纠正）。
+- **采纳路线定稿（P1-P3）**：P1 renderer 引入 engine 替换自研 idle 四件套内部实现并用 profile-generator 对皮套出档；P2 planner 模式对接 DeepSeek + lifecycleToken 防竞态移植；P3 classifier-embedding 做无 Key 情绪分类兜底插件、LightRAG 升级知识库 v2。
+- 明确不做（决策记录）：手臂/骨骼控制、3D 化、动捕映射——跨皮套不通用。
+- 落盘 docs/research/live2d-halfbody-motion-research.md（仓库分诊/SDK 数据流/模块对照/许可证合规/引用）；索引已更新。
+
+---
+
+# 编排导演层：大幅度时间轴半身动作（2026-08-22）
+
+- **从"单姿态手势"升级为"编排动作"**：新增 renderer/src/choreography.ts——CHOREOGRAPHY_LIBRARY 动作库（大幅挥手 wave_big / 鞠躬 bow / 蹦跳 bounce_happy / 用力摇头 shake_no / 凑近倾听 lean_in / 左右张望 look_around），每个动作是【多参数 × 时间轴关键帧】序列，幅度贴近参数两端（0.14~0.86），末帧回中性；ChoreographyPlayer 按真实时钟逐帧写入 Arbiter（fade 平滑过渡），打断安全、播完自动释放回 idle/mood 基线。
+- **零改动接线**：BodyActionPlayer 组合门面（编排优先、其余回落单姿态手势），接口与 BodyMotionPlayer 完全一致——ws-bridge / live-event / main ticker 无感知切换。括注触发链路（motionTimeline 播放位置触发）直接复用：LLM 写（开心地挥手）即触发 wave_big 大幅挥手。
+- **括注关键词扩展**：director.py 新增 鞠躬/摇头/凑近/张望/蹦跳/挥手打招呼 六组编排映射。
+- renderer vitest **27 files / 401 passed**（含 choreography 6 项）、tsc strict 通过、产物已重建；PC pytest **401 passed**。
+
+---
+
+# LLM 记忆管家 + 前端管理页修复 + Vision 出链路（2026-08-22）
+
+- **前端记忆/知识库管理不可见 → 根因修复**：上一轮改动后未重建前端产物，浏览器拿到的是旧 bundle。已重建并验证 bundle 含「记忆」页（长期记忆事实 / 知识库文档 / 联网查询试搜三区）；**需刷新页面**即可见。
+- **LLM 记忆管家（对齐 N.E.K.O 的 LLM-arbitration 思路）**：新增 memory_curator.MemoryCurator——对话链结束后由独立小模型对照现有事实输出 add/remove 决策（去重/合并矛盾/清理过时），异步执行不阻塞返回；失败静默可见。与正则即时层互补：正则先记全、LLM 后管好。LIVE2DAI_MEMORY_CURATOR=off 可关。
+- **Vision 移出核心链路**：shared/persona.yaml（含 Android 副本）删除 vision_model 覆盖；启动横幅不再显示 Vision model；仅当显式开启 vision_enabled 时才应用/提示。
+- 新增 tests/test_memory_curator.py（7 项，离线桩）；PC pytest **400 passed**；一致性校验 33/33。
+
+---
+
+# 日志可读性升级（2026-08-22）
+
+- **统一日志配置 logsetup**：新增 src/open_llm_vtuber/logsetup.py——控制台改为紧凑彩色单行「HH:mm:ss | 级别 | 标签 │ 消息」（默认 INFO，LIVE2DAI_LOG_LEVEL/设置中心可控），文件 logs/server.log 保留毫秒时间戳+模块:函数:行号全定位、10MB 轮转保留 5 份（logs/ 已 gitignore，不再在根目录堆 server.log）。
+- **uvicorn 访问日志降噪**：逐请求 GET 刷屏在非 DEBUG 时压到 WARNING；DEBUG 排障时自动放开。
+- **热路径标签化 + 降噪**：tts_manager→"tts"、stream_audio→"audio"、conversation_utils→"flow"；逐 chunk 的 [LATENCY] 多段耗时从 INFO 降为 DEBUG 单行中文格式。控制台运行态一眼能读，排障细节进文件。
+- 新增 tests/test_logsetup.py（7 项：文件格式/级别过滤/标签/env 级别/uvicorn 降噪/幂等/app 兜底标签）；PC pytest **393 passed**。
+
+---
+
+# 知识库/联网查询做实 + 记忆可视化 + 字幕声音同步（2026-08-22）
+
+> 参照同类项目 G:/git/Live2Dai 与本项目目标（docs/plans/PLAN-V2-PC-LOCAL-TTS.md）对齐：把"假实现"换成真实现，管理能力进设置中心。
+
+- **联网查询做实（web-search stub→runtime）**：WebSearchPlugin 无 Key 走 DuckDuckGo HTML 检索（纯标准库、6s 超时、uddg 重定向还原、摘要去标签），配 TAVILY_API_KEY 自动升级 Tavily；任何失败可见降级（results=[]+error，不打断对话）。新增 REST POST /api/tools/web-search，设置中心「记忆」页可直接试搜。
+- **知识库做实（knowledge stub→runtime）**：KnowledgePlugin 本地文档库（KNOWLEDGE_DIR，默认 cache/knowledge，.md/.txt）；llm.before 按字符重叠检索 top-2 注入「[知识库检索] (来源: 文档名)」；REST GET/POST/DELETE /api/knowledge/documents；设置中心可视化增删。
+- **记忆管理可视化（设置中心新「记忆」页）**：长期记忆事实列表 + 手动添加/单条删除/清空全部，改动即时生效（REST /api/memory/facts*，PluginHost 新增 get_instance 访问器，MemoryPlugin 补 list/add/remove/clear 公开方法）。
+- **字幕与声音同步**：此前流式气泡的干净句子文本要等整条对话链结束才收尾，观感"文字比声音晚很多"。现在每句首个音频块带 sentence_start 标记，前端在该句语音真正开播时即收尾上屏（finalizeStream），静默帧立即上屏——对话与声音一起出或提早出。
+- **Live2D 动作联动补实**：BodyDirectorPlugin 从原样透传升级为确定性兜底——主脑没给 motion 时按情绪（8 key）→手势映射（joy→happy、sadness→listen…），再退心情分层（happy/ecstatic→excited），保证"有情绪就有肢体表达"；渲染层动作已是真实的参数驱动半身动作（上一版已接播放位置触发）。
+- 插件注册表：knowledge/web-search 分类 stub→runtime（runtime 共 6 个），设置中心插件页不再显示"未实现，不可启用"。
+- 新增 tests/test_knowledge_websearch.py（19）、test_memory_api.py（12，含真实 MemoryPlugin 路由集成）、test_body_director_fallback.py（5）；PC pytest **386 passed**、renderer vitest **26 files / 389 passed**、tsc strict 通过、前端产物已重建。
+
+---
+
+# 括注动作按播放位置触发 motionTimeline（2026-08-22）
+
+- **动作与 TTS 时间轴绑定（my-neuro 同款）**：此前 PC 端括注动作随 audio 帧到达即整句一次性触发；现在 director.stage_gesture_timeline() 解析句中**全部**动作括注为带文本位置的帧，handle_sentence_output 按 split_tts_chunks 分块切片成 actions.motionTimeline（at=块内归一化播放进度），前端 motion-timeline.ts 挂在真正播放的音频元素上，进度到点才 BodyMotionPlayer.play——「说到『点头』才点头」。
+- **兼容与降级**：时间轴存在时清掉一次性 actions.motion 防双触发；无括注/投影失败/旧前端均完整保留旧行为；打断（stopAudio/interrupt）自动清理未触发帧。Actions.to_dict() 对 None 自动省略字段，协议向后兼容。
+- **顺手修复存量 bug**：conversation_utils.py 的展示文本括注清洗分支引用了未导入的 DisplayText（一出现括注即 NameError 进异常兜底），已补导入——该路径此前从未真正生效。
+- stage_gesture() 保留为首命中兼容入口（内部改走 timeline）；DirectorResult 增加 motion_timeline 字段。
+- 协议文档：shared/emotion-protocol.md 新增 §J（motionTimeline 数据形态/生成链路/消费语义/双端落点，Android 可对齐 M7 scheduleKeywordMotions）。
+- 新增 tests/test_motion_timeline.py（15 项）+ renderer tests/motion-timeline*.test.ts（11 项）；PC pytest **350 passed**、renderer vitest **26 files / 386 passed**、tsc strict 通过。
+
+---
+
+# 括注舞台说明 + 导演半身动作 + 多段对话（2026-08-22）
+
+- **括注不读不显示**：filter_parentheses 现在同时滤除英文 () 与中文全角 （）；handle_sentence_output 同步清洗展示文本，LLM 的「（看到热字，扇风）…」不再被朗读，也不会显示在字幕/历史里。
+- **导演半身动作**：新增 director.stage_gesture()，把（）内的动作词映射到参数驱动手势（扇风→sway、点头→nod、挥手→happy、鼓掌→excited 等），随 audio actions.motion 下发，前端 BodyMotionPlayer 执行（bai 无 motion3，走参数形变）。
+- **多段对话**：一次用户输入默认触发额外 2 段续聊（MELO_MULTI_TURN_EXTRA=2，可设 0~5，回复 [DONE] 提前结束），每段独立走字幕/TTS 队列并按序播放；用户新消息/打断仍取消整个 conversation task。
+- 新增 tests/test_stage_directions.py；PC pytest **335 passed**，verify_all.py --pc 5/5。
+
+---
+
+# 本地 Melo 合成链路加速 + CPU 确认（2026-08-22）
+
+- **CPU 确认**：conf.yaml 的 melo_tts.device=cpu，worker 加载 TTS(device=cpu)；链路慢是 CPU 合成固有耗时（约 1~3 秒/句），并非误走 GPU 或云端 TTS。
+- **LLM 回答小节化**：handle_sentence_output 现在用 split_tts_chunks()（默认每块约 36 字、优先句/逗号断点）把每句切成小块依次入 TTSTaskManager 队列，首块更早开始合成与播放，缓解长句等待。
+- 新增 tests/test_tts_chunks.py；PC pytest 升到 **330 passed**，verify_all.py --pc 5/5。
+
+---
+
+# 本地 Melo TTS Provider + REST 接口（2026-08-21 · PC 端本地 TTS 计划收口）
+
+> **范围**：仅 PC 端。执行口径 `docs/plans/PLAN-V2-PC-LOCAL-TTS.md`，Android 冻结不涉及。
+
+## 已落地
+- **Melo 引擎与配置**：`melo_tts.py` 对齐本地 API（ZH 优先、`spk2id` 解析、speed/sdp_ratio/noise_scale/noise_scale_w/format 全量传递与钳制）；`MeloTTSConfig` 补齐字段与中英文说明。
+- **热重载修复**：`service_context.py` 把 TTS/ASR/VAD 变化检测改为基于最近一次生效配置，修复「保存并应用」后仍用旧 TTS 引擎的问题；新增回归测试 `tests/test_config_reload.py`。
+- **插件失效调查**：`knowledge`、`web-search` 为原生占位 stub（无 entrypoint，属设计状态而非崩溃）；其余 11 个原生插件正常加载。
+- **外部 Melo 环境对接**：新增 `melo_worker.py` + `melo_external.py`，在本仓库 Python 3.12 不装 Melo 的情况下，通过常驻子进程调用 `~/miniconda3/envs/melo/bin/python`（可用 `MELO_PYTHON` 覆盖），复用 TTS 实例、支持完整四参数；已用真实 ZH 模型跑通端到端合成。
+- **CPU 与拆分限制**：默认 `device=cpu`；worker 对单次合成限制 `MELO_MAX_TEXT_LEN`（默认 200 字）与 `MELO_MAX_SENTENCES`（默认 4 句），避免 Melo 把长文本拆成过多小句。
+- **设置中心接入**：TTS 目录/默认值加入 `melo_tts`，`GET /api/config` 返回 Melo 语言/设备/韵律参数，保存时把 UI 的 `voice/model` 映射落盘为 `language/device`，`/api/test-tts` 支持 Melo 真实试听。
+- **本地 REST 接口**：新增 `POST /api/tts/local/synthesize`（懒加载引擎 + 并发锁 + 500 字上限 + WAV 时长返回）与 `GET /api/tts/local/audio`（仅 `cache/tts_local_*.wav` 白名单，拒绝路径穿越）。
+- **前端设置 UI**：`Melo TTS（本地）` 进入「本地 / 免费」分组，语言/设备下拉 + 四韵律滑杆 + speaker，试听按钮真实合成。
+- **conf/template**：`conf.yaml`、`conf.yaml.template`、`config_templates/conf.default.yaml`、`conf.ZH.default.yaml` 均补 `melo_tts` 默认块（默认仍 `cosyvoice_cloud` / `edge_tts`，不破坏旧配置）。
+- **基线修复**：`test_tts_bargein.py` 不再依赖 `.pi` 目录标记即可收集；`test_shared.py` 的 S1-03 对齐 PC v4「persona 不内置静态 emotion key」。
+
+## 验证
+| 项 | 结果 |
+| --- | --- |
+| `scripts/verify_all.py --pc` | **5/5 PASS** |
+| PC 后端 pytest | **326 passed**（新增 Melo 引擎/接口/外部 client/限制/热重载回归） |
+| PC 前端 vitest | **24 files / 375 passed**（新增 settings-melo 3 项） |
+| PC 前端 tsc + build | 通过，产物已重建 |
+| 跨端一致性 / registry | PASS |
+
+## 真机冒烟
+- **外部 worker 真实合成 PASS**：用 `/home/administrator/miniconda3/envs/melo/bin/python` 运行 `melo_worker.py`，ZH/cpu 合成 `/tmp/melo_smoke_worker.wav` 成功；再经 `MeloTTSEngine.generate_audio` 端到端生成 `cache/melo_e2e.wav` 成功。
+
+## 未验证 / 诚实登记
+- **其他语言模型下载**：当前只验证了已缓存的 ZH；EN/ES/FR/JP/KR 首次调用会自动从 hf-mirror 下载，尚未逐个真机合成。
+- **cuda 路径**：外部环境显存仅 3GB，代码支持 `device=cuda`，但未做多进程并发 OOM 验证；并发建议保持单实例 + 队列串行。
+
+---
+
 # 流式上屏 + 语音链路统一（2026-08-20 · 第四轮）
 
 > **范围**：PC 端。用户指示「都做」→ 本轮补齐 P1-2（逐 token 流式上屏）与 P0-2（语音/VAD 打断链路统一）。
