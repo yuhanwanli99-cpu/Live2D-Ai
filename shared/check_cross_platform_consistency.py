@@ -1036,35 +1036,21 @@ def check_adapter_consistency(registry: dict) -> None:
             c29_detail = "; ".join(prob)
     record("C29", "adapter.motionAliases={} ⇔ Android MotionTags / PC _MOTION_LABEL_ALIASES 空集一致（bai）", c29_ok, c29_detail)
 
-    # ── C30: persona 强度区块一致（shared vs Android assets；T3.3 item1 / M1 遗留债）──
-    # 机制：persona.yaml 的 "## 表情强度控制" 区块声明 [emotion_N] 强度后缀语义与值域 (1-3)。
-    # 双端 persona 必须含同一强度区块（防 M1 遗留：两端强度语义漂移）。
+    # ── C30: persona 旧表情控制区块已移除（PC v4 导演模型分流）──
+    # 主对话脑只输出自然语言，旧表情标签/强度区块必须从 shared 与 Android 双端移除。
     c30_ok = False
     c30_detail = "shared/persona.yaml 或 Android assets/persona.yaml 缺失"
     if SHARED_PERSONA.is_file() and ANDROID_ASSETS_PERSONA.is_file():
         shared_txt = SHARED_PERSONA.read_text(encoding="utf-8")
         assets_txt = ANDROID_ASSETS_PERSONA.read_text(encoding="utf-8")
-        block_head = "## 表情强度控制"
-        def _strength_block(txt: str) -> str:
-            start = txt.find(block_head)
-            if start < 0:
-                return ""
-            nxt = txt.find("\n\n", start)
-            return txt[start:] if nxt < 0 else txt[start:nxt]
-        sb_shared = _strength_block(shared_txt)
-        sb_assets = _strength_block(assets_txt)
-        # 值域语义：强度后缀 [emotion_N]，N ∈ 1-3（机器可校验）
-        range_ok = bool(re.search(r"强度\s*（\s*1[-~到]3\s*）", sb_shared))
-        if not sb_shared or not sb_assets:
-            c30_detail = f"强度区块缺失: shared={'Y' if sb_shared else 'N'}, assets={'Y' if sb_assets else 'N'}"
-        elif sb_shared != sb_assets:
-            c30_detail = "双端 persona 强度区块内容不一致（M1 遗留债复现，需同步）"
-        elif not range_ok:
-            c30_detail = "强度区块缺 1-3 值域声明（[emotion_N]，N∈1-3）"
-        else:
+        removed_shared = all(h not in shared_txt for h in ("## 表情控制", "## 表情强度控制"))
+        removed_assets = all(h not in assets_txt for h in ("## 表情控制", "## 表情强度控制"))
+        if removed_shared and removed_assets:
             c30_ok = True
-            c30_detail = "双端强度区块一致且声明 [emotion_N] 强度 1-3 值域（字节一致亦由 C23 兜底）"
-    record("C30", "persona 强度区块一致（shared vs Android assets，[emotion_N] 1-3 值域）", c30_ok, c30_detail)
+            c30_detail = "双端 persona 均已移除旧表情控制/强度区块"
+        else:
+            c30_detail = f"旧表情区块仍存在: shared_removed={removed_shared}, assets_removed={removed_assets}"
+    record("C30", "persona 旧表情控制区块已移除（shared vs Android assets）", c30_ok, c30_detail)
 
     # ── C31: schema 自校验深度汇总（T3.3 item3，C24 的补强维度）──
     # ① vowelParamMap 六 label 键集完全一致（缺参 = 漂移）

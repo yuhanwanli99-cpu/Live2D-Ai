@@ -20,11 +20,14 @@ import numpy as np  # noqa: F401  (pymouth analyser 依赖 numpy，保持导入�
 
 try:
     import soundfile as sf
+except Exception:  # pragma: no cover - soundfile 缺失时无法解码 WAV
+    sf = None
+
+try:
     from pymouth import VowelAnalyser
 
     PYMOUTH_AVAILABLE = True
 except Exception:  # pragma: no cover - pymouth/依赖缺失时静默降级
-    sf = None
     VowelAnalyser = None
     PYMOUTH_AVAILABLE = False
 
@@ -101,7 +104,9 @@ class PymouthVisemeDriver:
 
         pymouth 缺失、wav_bytes 非法/为空或处理异常时静默降级返回 []。
         """
-        if not PYMOUTH_AVAILABLE or not wav_bytes:
+        if not wav_bytes:
+            return []
+        if sf is None:
             return []
         try:
             data, samplerate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
@@ -115,7 +120,7 @@ class PymouthVisemeDriver:
 
         analyser = self._get_analyser()
         if analyser is None:
-            return []
+            return self._fallback_frames(data, samplerate)
 
         frame_size = max(1, int(samplerate * self.frame_ms / 1000))
         frames: List[VisemeFrame] = []
@@ -134,6 +139,25 @@ class PymouthVisemeDriver:
                 )
             )
         return frames
+
+    def _fallback_frames(self, data: np.ndarray, samplerate: int) -> List[VisemeFrame]:
+        """pymouth 不可用时对非静音音频生成按帧长递增的 SIL 兜底帧。
+
+        保持 viseme 时间轴连续（timestamp_ms 递增），但嘴型参数为 0。
+        纯静音（全零样本）仍返回空列表，避免无声音时产生虚假口型。
+        """
+        if data.size == 0 or float(np.max(np.abs(data))) <= 0.0:
+            return []
+        frame_size = max(1, int(samplerate * self.frame_ms / 1000))
+        return [
+            VisemeFrame(
+                timestamp_ms=int(start / samplerate * 1000),
+                vowel_label="SIL",
+                mouth_open=0.0,
+                mouth_form=0.0,
+            )
+            for start in range(0, data.size, frame_size)
+        ]
 
     @staticmethod
     def _dominant_label(probs: dict) -> str:

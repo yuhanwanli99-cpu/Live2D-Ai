@@ -321,26 +321,51 @@ class QwenTTSConfig(I18nMixin):
 
 
 class MeloTTSConfig(I18nMixin):
-    """Configuration for Melo TTS."""
+    """Configuration for local Melo TTS (MyShell MeloTTS, multi-lingual).
 
-    speaker: str = Field(..., alias="speaker")
-    language: str = Field(..., alias="language")
-    device: str = Field("auto", alias="device")
+    v1.3（本地 TTS 计划）新增: 与本地 Melo API 对齐的 language/device/四韵律参数/format。
+    ZH 是实际的中英混合模型；四参数只影响韵律节奏，不改音色。
+    """
+
+    language: str = Field("ZH", alias="language")
+    device: str = Field("cpu", alias="device")
+    speaker: Optional[str] = Field(None, alias="speaker")
     speed: float = Field(1.0, alias="speed")
+    sdp_ratio: float = Field(0.2, alias="sdp_ratio")
+    noise_scale: float = Field(0.6, alias="noise_scale")
+    noise_scale_w: float = Field(0.8, alias="noise_scale_w")
+    format: str = Field("wav", alias="format")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
-        "speaker": Description(
-            en="Speaker name (e.g., EN-Default, ZH)",
-            zh="说话人名称（如 EN-Default、ZH）",
-        ),
         "language": Description(
-            en="Language code (e.g., EN, ZH)", zh="语言代码（如 EN、ZH）"
+            en="Language (ZH/EN/ES/FR/JP/KR); ZH is a mixed Chinese-English model",
+            zh="语言（ZH/EN/ES/FR/JP/KR）；ZH 为实际的中英混合模型",
         ),
         "device": Description(
-            en="Device to use (auto, cpu, cuda, cuda:0, mps)",
-            zh="使用的设备（auto、cpu、cuda、cuda:0、mps）",
+            en="Device to use (cpu, cuda, auto)", zh="使用的设备（cpu、cuda、auto）"
         ),
-        "speed": Description(en="Speech speed multiplier", zh="语速倍数"),
+        "speaker": Description(
+            en="Optional speaker name; defaults to the language key in spk2id",
+            zh="可选说话人名称；缺省时按语言 key 取 spk2id",
+        ),
+        "speed": Description(
+            en="Speech speed multiplier (0.5~2.0)", zh="语速倍数（0.5~2.0）"
+        ),
+        "sdp_ratio": Description(
+            en="Stochastic duration predictor ratio (0.0~1.0, higher=more intonation)",
+            zh="随机韵律预测占比（0.0~1.0，调高更有起伏）",
+        ),
+        "noise_scale": Description(
+            en="Pitch randomness (0.0~1.0, low=smooth, high=natural but unstable)",
+            zh="音高随机度（0.0~1.0，低平稳、高自然但可能不稳）",
+        ),
+        "noise_scale_w": Description(
+            en="Phoneme duration randomness (0.0~1.0, high=more rhythm)",
+            zh="音素时长随机度（0.0~1.0，高则抑扬顿挫）",
+        ),
+        "format": Description(
+            en="Output audio format (wav)", zh="输出音频格式（wav）"
+        ),
     }
 
 

@@ -58,7 +58,11 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_edge_tts_configuration(self):
         tts_config = self.config["character_config"]["tts_config"]
-        self.assertEqual(tts_config["tts_model"], "cosyvoice_cloud")
+        # tts_model 可被设置中心切换（默认 cosyvoice_cloud；也可切到本地 melo_tts）；
+        # 这里只校验各 provider 块结构完整，不锁定当前默认 provider。
+        self.assertIn(
+            tts_config["tts_model"], ("cosyvoice_cloud", "melo_tts", "edge_tts")
+        )
         cosyvoice_config = tts_config["cosyvoice_cloud"]
         self.assertEqual(cosyvoice_config["model"], "cosyvoice-v1")
         edge_tts_config = tts_config["edge_tts"]
@@ -89,8 +93,8 @@ class TestDesktopConfig(unittest.TestCase):
 
     def test_expression_tags_in_persona(self):
         persona = self.persona_config["system_prompt"]
-        self.assertIn("[joy]", persona)
-        self.assertIn("[neutral]", persona)
+        self.assertNotIn("[joy]", persona)
+        self.assertNotIn("[neutral]", persona)
 
     def test_system_config(self):
         sc = self.config["system_config"]

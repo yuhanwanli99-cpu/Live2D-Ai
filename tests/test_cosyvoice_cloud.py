@@ -55,7 +55,8 @@ class FakeSpeechSynthesizer:
     """
 
     instances: list = []
-    default_audio = b"\x00\x01\x02\x03\x04"
+    # 128 字节、ID3 开头的最小合法 MP3（引擎现在会校验容器头，拒绝 5 字节假数据）
+    default_audio = b"ID3" + bytes(125)
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs

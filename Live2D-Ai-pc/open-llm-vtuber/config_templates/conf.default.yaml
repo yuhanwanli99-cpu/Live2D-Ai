@@ -334,10 +334,14 @@ character_config:
       api_name: '/generate_audio' 
 
     melo_tts:
-      speaker: 'EN-Default' # ZH
-      language: 'EN' # ZH
-      device: 'auto' # You can set it manually to 'cpu' or 'cuda' or 'cuda:0' or 'mps'
+      language: 'ZH'
+      device: 'cpu'
+      speaker: ''
       speed: 1.0
+      sdp_ratio: 0.2
+      noise_scale: 0.6
+      noise_scale_w: 0.8
+      format: 'wav'
 
     x_tts:
       api_url: 'http://127.0.0.1:8020/tts_to_audio'

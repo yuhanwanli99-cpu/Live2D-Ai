@@ -224,6 +224,7 @@ LLM 回复文本
 | 版本 | 日期 | 变更 | 说明 |
 |---|---|---|---|
 | v1.0 | 2026-08-08 | 初始版本 | 字段锁定自 architecture.md §3.1 + contract-M1-shared-protocol.md §1；A~G 七段完整；别名映射表含 [UNSURE-1] 标注 |
+| v1.1 | 2026-08-22 | 新增 §J motionTimeline | PC 端括注动作帧（播放位置触发）；Android 可后续对齐 M7 关键词兜底 |
 
 ---
 
@@ -348,3 +349,55 @@ mood ∈ **[-100, +100]**（float），含义：
   "timestamp": int    // Unix ms
 }
 ```
+
+---
+
+## J. motionTimeline 括注动作帧（PC 端，播放位置触发）
+
+> my-neuro 式「文本位置 → 动作帧」：动作不再随 audio 帧到达即整句一次性触发，
+> 而是**语音播放到对应文本位置时才触发**。Android 已有同思想的 M7 关键词兜底
+> （t(pos)=pos/len×totalMs 线性近似），本节把该契约固化到共享协议，供双端对齐。
+
+### J1. 数据形态
+
+随 `audio` 帧 `actions.motionTimeline` 下发（`Actions.to_dict()` 产出）：
+
+```json
+{
+  "type": "audio",
+  "actions": {
+    "motionTimeline": [{"at": 0.0, "motion": "nod"}, {"at": 0.42, "motion": "happy"}]
+  }
+}
+```
+
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `at` | float ∈ [0,1) | 该动作在**所在音频块**内的归一化播放进度（按文本位置线性近似） |
+| `motion` | string | BodyGesture 别名（nod/tilt/sway/happy/surprise/listen/excited/idle） |
+
+### J2. 生成链路（PC）
+
+1. `director.stage_gesture_timeline(text)`：解析**全部**全角/半角动作括注 →
+   `{position, clean_position, motion}[]`（clean_position 扣除前序括注跨度，
+   即清洗后朗读文本中的字符锚点）；
+2. `conversation_utils.handle_sentence_output`：句子级帧经
+   `project_motion_cues_into_chunks()` 按 `split_tts_chunks` 分块切片，
+   归一化为块内进度 `at`；
+3. 时间轴存在时清掉一次性 `actions.motion`（避免前端双重触发）；
+   投影失败/无命中 → 不下发时间轴，完整保留旧行为。
+
+### J3. 消费语义
+
+- **有 motionTimeline**：忽略同帧一次性 `motion` 字段；音频元素开始播放后挂
+  进度调度器，`currentTime ≥ at×duration − 30ms` 时触发一次且仅一次；
+  打断（stopAudio/interrupt）/播完自动清理未触发帧。
+- **无 motionTimeline**：保持旧行为（audio 帧到达即播 `motion`），旧前端兼容。
+
+### J4. 实现落点
+
+| 端 | 文件 |
+| --- | --- |
+| PC 后端 | `open_llm_vtuber/director.py`（解析+投影）、`conversations/conversation_utils.py`（分块下发）、`agent/output_types.py`（字段） |
+| PC 前端 | `renderer/src/motion-timeline.ts`（调度器）、`renderer/src/ws-bridge.ts`（接线） |
+| Android 对齐参考 | `VoiceIoController.scheduleKeywordMotions()`（M7，匀速近似触发） |

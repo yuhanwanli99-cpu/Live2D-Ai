@@ -200,17 +200,29 @@ def _clamp_timeout(raw: Any) -> float:
     return min(value, MAX_WAIT_REPLY_S)
 
 
-def init_external_input_routes(gate: ExternalInputGate, ws_handler) -> APIRouter:
+def init_external_input_routes(
+    gate: ExternalInputGate,
+    ws_handler,
+    plugin_manager=None,
+) -> APIRouter:
     """构造外部接入路由。
 
     Args:
         gate: 共享的开关实例（前端设置页与注入接口读同一份状态）。
         ws_handler: `WebSocketHandler`，提供 `inject_text_input` 与在线会话列表。
+        plugin_manager: 可选 PluginManager；提供后，input-port 插件未启用时注入接口不可用。
     """
     router = APIRouter()
 
     def _clients() -> list[str]:
         return list(getattr(ws_handler, "client_connections", {}) or {})
+
+    def _plugin_reason() -> str | None:
+        if plugin_manager is None:
+            return None
+        if plugin_manager.is_enabled("input-port"):
+            return None
+        return "input-port 插件未启用，外部文字接入不可用"
 
     @router.get("/api/external/status")
     async def external_status():
@@ -297,6 +309,11 @@ def init_external_input_routes(gate: ExternalInputGate, ws_handler) -> APIRouter
             X-Live2DAI-Token 或 Authorization: Bearer <token>（设置了令牌时必填）。
         """
         source = (request.client.host if request.client else None) or "unknown"
+        plugin_reason = _plugin_reason()
+        if plugin_reason:
+            gate.record(source, "", False, plugin_reason)
+            return JSONResponse({"ok": False, "error": plugin_reason}, status_code=403)
+
         try:
             payload = await request.json()
         except Exception:

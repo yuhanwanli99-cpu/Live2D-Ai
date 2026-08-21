@@ -49,6 +49,9 @@ import {
   checkTextureFit,
   type AnyWebGLContext,
 } from './texture-adapter';
+import { BodyActionPlayer } from './choreography';
+import { LiveEventController, type LiveEventPayload } from './live-event';
+import { createCameraModeStore } from './camera-state';
 
 // ---- 类型导入（编译期擦除——不在运行时触碰 live2d 依赖链，node/vitest 可安全 import 本模块） ----
 import type { Live2DModel, Cubism4InternalModel } from 'pixi-live2d-display-lipsyncpatch/cubism4';
@@ -105,6 +108,8 @@ interface RenderPipeline {
   breath: BreathController;
   microExpr: MicroExpressionController;
   idleMotion: IdleMotionController | null;
+  bodyMotion: BodyActionPlayer;
+  liveEvent: LiveEventController;
 }
 
 /**
@@ -166,9 +171,12 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     internalModel: Cubism4InternalModel | null,
   ): RenderPipeline => {
     const arbiter = new ParamArbiter(internalModel);
+    const emotionConsumer = new EmotionConsumer(arbiter);
+    const bodyMotion = new BodyActionPlayer(arbiter, { now: () => performance.now() });
+    const liveEvent = new LiveEventController(emotionConsumer, bodyMotion);
     const pipeline: RenderPipeline = {
       arbiter,
-      emotionConsumer: new EmotionConsumer(arbiter),
+      emotionConsumer,
       lipSync: new LipSync(arbiter),
       blink: new BlinkStateMachine(arbiter),
       breath: new BreathController(arbiter),
@@ -177,8 +185,11 @@ export async function initApp(containerId: string): Promise<PixiApp> {
         model && live2dModules
           ? new live2dModules.idleMotion.IdleMotionController(model)
           : null,
+      bodyMotion,
+      liveEvent,
     };
     wsBridge.setEmotionConsumer(pipeline.emotionConsumer);
+    wsBridge.setBodyMotion(pipeline.bodyMotion);
     wsBridge.setLipSync(pipeline.lipSync);
     return pipeline;
   };
@@ -192,6 +203,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
 
   // ---- C-M6 用户交互持久化（localStorage；浏览器缺省，node 环境降级 no-op） ----
   const interactionStore = createInteractionStore(createDefaultStorage());
+  // PC 半身镜头本地偏好：默认 half-body，用户可在设置页切换；非法值回落默认
+  const cameraModeStore = createCameraModeStore(createDefaultStorage());
 
   /** 模型 key（C-M6 §2.2：model_info.url 的 encodeURIComponent，url 不同 → override 独立） */
   const modelKeyFor = (modelInfo: ModelInfo): string =>
@@ -202,10 +215,10 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     currentModelInfo ? modelKeyFor(currentModelInfo) : null;
 
   /**
-   * 统一位姿入口（contract-C-M6 §2.2 优先级：用户 override > 相机模式（C-M2，默认 fit））。
+   * 统一位姿入口（contract-C-M6 §2.2 优先级：用户 override > 相机模式）。
    * load / window resize / WS 同模型更新三处共用：
    *   有 override → 应用绝对值（scale/anchor/x/y），resize 不重新 fit（用户锁定优先）；
-   *   无 override → applyCameraMode（fit 随视口重算）。
+   *   无 override → applyCameraMode（镜头模式来自 camera-state，默认 half-body）。
    */
   const applyModelPose = (model: Live2DModel, modelKey: string): void => {
     const override = interactionStore.load(modelKey);
@@ -218,10 +231,10 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       model.y = override.y;
       return;
     }
-    // 无 override → 相机模式默认路径（C-M2 applyCameraMode 分发；默认 fit）
+    // 无 override → 相机模式路径（默认 half-body；本地设置可切回 fit）
     live2dModules?.camera.applyCameraMode(
       model,
-      live2dModules.camera.CAMERA_MODE,
+      cameraModeStore.load(),
       canvasWidth(),
       canvasHeight(),
     );
@@ -345,12 +358,23 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     pipeline.breath.update(deltaMs);
     pipeline.microExpr.update(deltaMs);
     pipeline.idleMotion?.update(deltaMs);
+    pipeline.bodyMotion.update(deltaMs);
     pipeline.arbiter.update(deltaMs);
   });
 
-  // ---- RM7 WS 桥接：分发 set-model-and-conf（模型切换）/ audio（口型+表情+字幕）/ emotion ----
+  // ---- RM7 WS 桥接：分发 set-model-and-conf（模型切换）/ audio（口型+表情+字幕）/ emotion / live-event ----
   wsBridge.onModelChange = (modelInfo) => {
     void handleModelChange(modelInfo);
+  };
+  wsBridge.onLiveEvent = (payload: LiveEventPayload) => {
+    pipeline.liveEvent.handle(payload);
+    if (payload.text) {
+      toast(
+        payload.user ? `[直播] ${payload.user}：${payload.text}` : `[直播] ${payload.text}`,
+        'info',
+        { key: 'live-event' },
+      );
+    }
   };
 
   // ---- C-M6 画布交互：拖拽 + 滚轮缩放（→ localStorage 持久化） ----
@@ -593,6 +617,15 @@ export async function initApp(containerId: string): Promise<PixiApp> {
         return;
       }
       chatPanel.addMessage({ role: 'assistant', content: text.text });
+    };
+    // 字幕-声音同步：每句语音真正开播（或静默帧）时，把已积累的干净句子
+    // 收尾上屏——对话与声音一起出；无声音路径由句首静默帧立即触发（提早出）。
+    // 此前这些干净文本要等整条对话链结束才收尾，观感上"文字比声音晚很多"。
+    wsBridge.onSentenceSpoken = () => {
+      if (chatPanel.isStreaming() && finalParts.length > 0) {
+        chatPanel.finalizeStream(finalParts.join(''));
+        finalParts = [];
+      }
     };
     // 后端一直在发的 control 消息（此前前端完全忽略 → VAD 打断对用户不可见）
     wsBridge.onControl = (command) => {

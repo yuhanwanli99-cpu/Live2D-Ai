@@ -155,13 +155,16 @@ def filter_parentheses(text: str) -> str:
     """
     Filter text to remove all text within parentheses, handling nested cases.
 
+    同时处理 ASCII `()` 与中文全角 `（）`（LLM 常用全角括注动作/舞台说明）。
+
     Args:
         text (str): The text to filter.
 
     Returns:
         str: The filtered text.
     """
-    return _filter_nested(text, "(", ")")
+    text = _filter_nested(text, "(", ")")
+    return _filter_nested(text, "（", "）")
 
 
 def filter_angle_brackets(text: str) -> str:

@@ -758,6 +758,63 @@
   color: var(--accent-text);
 }
 
+
+/* ── 插件管理 ── */
+.plugin-card {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plugin-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.plugin-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.plugin-card-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: var(--lh-base);
+}
+.plugin-card-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}
+.plugin-card-meta .lbl {
+  flex-shrink: 0;
+  width: 40px;
+  color: var(--text-4);
+}
+.plugin-card-meta code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-3);
+}
+.plugin-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 /* ── 最近记录列表（外部接入收到了什么） ── */
 .settings-recent {
   display: flex;

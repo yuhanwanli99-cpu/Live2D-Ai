@@ -342,10 +342,14 @@ character_config:
       api_name: '/generate_audio' # API 名称
 
     melo_tts:
-      speaker: 'EN-Default' # ZH
-      language: 'EN' # ZH
-      device: 'auto' # 您可以手动将其设置为 'cpu'、'cuda'、'cuda:0' 或 'mps'
-      speed: 1.0 # 语速
+      language: 'ZH' # 语言（ZH 为实际中英混合模型）
+      device: 'cpu' # 设备：cpu / cuda / auto
+      speaker: '' # 可选说话人，缺省按语言 key 取 spk2id
+      speed: 1.0 # 语速（0.5~2.0）
+      sdp_ratio: 0.2 # 随机韵律预测占比（0.0~1.0）
+      noise_scale: 0.6 # 音高随机度（0.0~1.0）
+      noise_scale_w: 0.8 # 音素时长随机度（0.0~1.0）
+      format: 'wav' # 输出格式
 
     x_tts:
       api_url: 'http://127.0.0.1:8020/tts_to_audio' # API URL

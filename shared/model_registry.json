@@ -12,7 +12,8 @@
       "restrictPlatform": null,
       "metadata": {
         "creator": "Bilibili",
-        "license": "本地使用（D1 裁定，不内置分发）",
+        "license": "模型作者自定义使用条约：允许盈利直播/二创/少量舰长礼/改色贴图；禁止周边公开售卖；作者可因恶意使用收回授权",
+        "licenseFile": "MODEL_LICENSE.md",
         "version": "1.0"
       }
     }

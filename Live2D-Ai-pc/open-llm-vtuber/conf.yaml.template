@@ -87,6 +87,17 @@ character_config:
       ws_url: 'wss://dashscope.aliyuncs.com/api-ws/v1/inference'
       timeout: 60.0
       max_retries: 2
+    # 本地 Melo TTS（无需云端 Key）：默认不启用，将 tts_model 改为 'melo_tts' 即可。
+    # 首次使用会从 hf-mirror 下载模型；language/device/四韵律参数见 README。
+    melo_tts:
+      language: 'ZH'
+      device: 'cpu'
+      speaker: ''
+      speed: 1.0
+      sdp_ratio: 0.2
+      noise_scale: 0.6
+      noise_scale_w: 0.8
+      format: 'wav'
 
   vad_config:
     vad_model: 'silero_vad'

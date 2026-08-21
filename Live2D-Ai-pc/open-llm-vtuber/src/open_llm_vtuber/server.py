@@ -21,10 +21,17 @@ from .routes import (
     init_proxy_route,
 )
 from .external_input import ExternalInputGate, init_external_input_routes
+from .live_event import LiveEventGate, init_live_event_routes
 from .backgrounds import BackgroundStore, init_background_routes
+from .config_transfer import init_config_transfer_routes
+from .model_upload import init_model_upload_routes
+from .voice_library import init_voice_library_routes
 from .service_context import ServiceContext
 from .websocket_handler import WebSocketHandler
 from .config_manager.utils import Config
+from .plugins.manager import PluginManager
+from .plugin_routes import init_plugin_routes
+from .frontend_version import init_frontend_version_routes
 
 
 # Create a custom StaticFiles class that adds CORS headers
@@ -124,18 +131,58 @@ class WebSocketServer:
             )
         )
 
+        # 插件注册中心：注册原生插件并提供 /api/plugins 管理接口。
+        # 必须在所有需要门控的路由之前创建，供这些路由做启用/禁用门控。
+        self.plugin_manager = PluginManager()
+        self.plugin_manager.load_native()
+        self.app.include_router(init_plugin_routes(self.plugin_manager))
+        # 让每个会话上下文都能访问到同一个插件宿主（WebSocketHandler 会透传）。
+        self.default_context_cache.plugin_manager = self.plugin_manager
+
+        # JSON 配置导入/导出（需在 static mount 前注册）
+        self.app.include_router(
+            init_config_transfer_routes(
+                config_path="conf.yaml",
+                plugin_manager=self.plugin_manager,
+            )
+        )
+
         # 外部文字接入（默认关闭，由前端「设置 → 外部接入」开关控制；见 external_input.py）
         self.external_input_gate = ExternalInputGate().load()
         self.app.include_router(
             init_external_input_routes(
                 gate=self.external_input_gate,
                 ws_handler=self.ws_handler,
+                plugin_manager=self.plugin_manager,
             )
         )
 
         # 角色背景图上传 / 选择（静态目录 backgrounds/ 由下方 /bg 挂载对外提供）
         self.background_store = BackgroundStore().load()
         self.app.include_router(init_background_routes(store=self.background_store))
+
+        # 通用直播/弹幕事件通道：POST /api/live/event → WS 广播到所有在线前端
+        self.live_event_gate = LiveEventGate().load()
+        self.app.include_router(
+            init_live_event_routes(
+                gate=self.live_event_gate,
+                ws_handler=self.ws_handler,
+                plugin_manager=self.plugin_manager,
+            )
+        )
+
+        # Live2D 模型 zip 上传导入：POST /api/models/upload → 安全解压 + registry 更新 + 热切换
+        self.app.include_router(
+            init_model_upload_routes(
+                ws_handler=self.ws_handler,
+                plugin_manager=self.plugin_manager,
+            )
+        )
+
+        # 声音克隆资产管理：POST /api/voice/* → 上传/选用/应用/删除参考音频
+        self.app.include_router(
+            init_voice_library_routes(plugin_manager=self.plugin_manager)
+        )
 
         # Initialize and include proxy routes if proxy is enabled
         system_config = config.system_config
@@ -188,6 +235,9 @@ class WebSocketServer:
             CORSStaticFiles(directory="web_tool", html=True),
             name="web_tool",
         )
+
+        # P3: 前端版本上报（需在 static mount 前注册，避免被 catch-all 吞掉）
+        self.app.include_router(init_frontend_version_routes())
 
         # Mount main frontend last (as catch-all)
         self.app.mount(

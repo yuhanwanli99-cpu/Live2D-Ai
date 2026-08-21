@@ -60,25 +60,15 @@ import pytest
 # 相对真实 src 的绝对路径锚定到仓库根（向上找 `.pi` 目录标记）。
 # 与真实 tests/conftest.py 的 `sys.path.insert(0, 'src')` 同意图（仅测试环境搭建，不触碰实现）。
 # ---------------------------------------------------------------------------
-def _find_repo_root(start: str) -> str:
-    cur = os.path.abspath(start)
-    while True:
-        if os.path.isdir(os.path.join(cur, ".pi")):
-            return cur
-        parent = os.path.dirname(cur)
-        if parent == cur:
-            return None
-        cur = parent
-
-
-_REPO_ROOT = _find_repo_root(os.path.dirname(os.path.abspath(__file__)))
-if _REPO_ROOT is None:  # pragma: no cover —— 找不到仓库根时给出可诊断报错
-    raise RuntimeError(
-        "无法定位 Live2D-Ai 仓库根（缺少 `.pi` 目录标记）。"
-        "请确认测试文件位于 .pi/spoq/tests/Live2D-Ai-pc/open-llm-vtuber/tests/test_tts_bargein.py。"
-    )
+# 本测试在两种位置都可能被检出：
+#   - .pi/spoq/tests/Live2D-Ai-pc/open-llm-vtuber/tests/（历史镜像）
+#   - Live2D-Ai-pc/open-llm-vtuber/tests/（仓库主测试目录）
+# 两种布局的共同点是：src/ 位于本文件父目录的父目录下（<project>/src）。
 _SRC_DIR = os.path.normpath(
-    os.path.join(_REPO_ROOT, "Live2D-Ai-pc", "open-llm-vtuber", "src")
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "src",
+    )
 )
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)

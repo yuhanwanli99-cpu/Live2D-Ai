@@ -9,8 +9,7 @@ from unittest.mock import patch, mock_open
 PERSONA_NAME = "白 (Bai)"
 PERSONA_KEYWORDS = ["温柔", "可爱", "萌"]
 VALID_EMOTIONS = {"neutral", "joy", "anger", "sadness", "surprise", "fear", "smirk", "disgust"}
-C30_TEXT = "## 表情强度控制"
-C30_REGEX = r"强度\s*（\s*1[-~到]3\s*）"
+LEGACY_EXPRESSION_HEADINGS = ("## 表情控制", "## 表情强度控制")
 TOOL_SECTION = "可以使用以下工具帮助你"
 
 class TestPersonaShared(unittest.TestCase):
@@ -127,34 +126,21 @@ class TestPersonaShared(unittest.TestCase):
         self.assertIn('性格特点', system_prompt)
         self.assertIn('说话风格', system_prompt)
         self.assertIn('行为准则', system_prompt)
-        self.assertIn('使用示例', system_prompt)
-        self.assertIn('工具使用', system_prompt)
 
-    # ---- R1-persona P2: C30 表情强度区块 + 工具章节 + emotion keys ≥6 ----
-    def test_system_prompt_c30_intensity_block(self):
-        """P2/C30: system_prompt 必须保留 「## 表情强度控制」区块且含 强度（1-3） 值域（功能协议）"""
+    # ---- PC v4：主对话脑只输出自然语言，旧表情/工具静态区块应从 persona 移除 ----
+    def test_system_prompt_no_legacy_expression_blocks(self):
+        """PC v4: system_prompt 不再包含旧表情控制/表情强度区块。"""
         with open(self.persona_path, 'r', encoding='utf-8') as f:
             persona = yaml.safe_load(f)
         system_prompt = persona['system_prompt']
-        self.assertIn(C30_TEXT, system_prompt, "缺 C30 区块标题 「## 表情强度控制」")
-        self.assertTrue(
-            re.search(C30_REGEX, system_prompt),
-            f"C30 区块须匹配 regex {C30_REGEX!r}（强度 1-3 值域声明）",
-        )
+        for heading in LEGACY_EXPRESSION_HEADINGS:
+            self.assertNotIn(heading, system_prompt)
 
-    def test_system_prompt_tool_section(self):
-        """P2: system_prompt 保留工具章节标记「可以使用以下工具帮助你」"""
+    def test_system_prompt_no_static_tool_section(self):
+        """PC v4: 工具说明由 MCP 动态注入，persona 不再内置静态工具章节。"""
         with open(self.persona_path, 'r', encoding='utf-8') as f:
             persona = yaml.safe_load(f)
-        self.assertIn(TOOL_SECTION, persona['system_prompt'], "缺工具章节标记")
-
-    def test_system_prompt_emotion_keys_at_least_6(self):
-        """P2 / S1-03: system_prompt 含 ≥6 个 emotion key（协议区块保留）"""
-        with open(self.persona_path, 'r', encoding='utf-8') as f:
-            persona = yaml.safe_load(f)
-        prompt = persona['system_prompt']
-        present = {k for k in VALID_EMOTIONS if k in prompt}
-        self.assertGreaterEqual(len(present), 6, f"system_prompt 仅含 {len(present)} 个 emotion key（要求 ≥6）：{present}")
+        self.assertNotIn(TOOL_SECTION, persona['system_prompt'])
 
     # ---- R1-persona P3: profile.personality_tags 三关键词 ----
     def test_personality_tags_three_keywords(self):

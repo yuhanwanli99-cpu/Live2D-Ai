@@ -8,6 +8,7 @@ from uuid import uuid4
 import numpy as np
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, UploadFile, File, Response, Request
+from fastapi.responses import FileResponse
 from starlette.responses import JSONResponse
 from starlette.websockets import WebSocketDisconnect
 from loguru import logger
@@ -35,6 +36,12 @@ _TTS_NON_PROVIDER_KEYS = ("tts_model", "concurrency_limit", "viseme_mode")
 # 「全部检查可用性」的并发上限（审计 E-1：原先 ~16 个 provider 串行探测，
 # 每个 timeout=8 → 最坏近 128s 阻塞事件循环，全站 WS 一起卡死）
 _CHECK_CONCURRENCY = 4
+
+# 本地 Melo TTS REST 接口约束（PLAN-V2-PC-LOCAL-TTS）
+# 限制单次合成长度，避免 Melo 把长文本拆成过多小句。
+_LOCAL_TTS_MAX_TEXT_LEN = int(os.environ.get("MELO_MAX_TEXT_LEN", "200"))
+_LOCAL_TTS_FILE_PREFIX = "tts_local_"
+_LOCAL_TTS_PREVIEW_TEXT = "你好，我是白～这是一段本地试听。"
 
 
 def normalize_tts_id(pid: str) -> str:
@@ -205,12 +212,14 @@ def init_config_routes(
         "piper_tts": [],
         "sherpa_onnx_tts": [],
         "pyttsx3_tts": [],
+        "melo_tts": ["ZH", "EN", "ES", "FR", "JP", "KR"],
     }
     TTS_MODEL_CATALOG = {
         "gpt_sovits_tts": ["GPT-SoVITS"],
         "piper_tts": ["piper"],
         "sherpa_onnx_tts": ["sherpa-onnx"],
         "pyttsx3_tts": ["pyttsx3"],
+        "melo_tts": ["cpu", "cuda", "auto"],
     }
 
     TTS_DEFAULTS = {
@@ -227,6 +236,7 @@ def init_config_routes(
         "piper_tts": {"name": "Piper", "key_env": None},
         "sherpa_onnx_tts": {"name": "Sherpa-ONNX", "key_env": None},
         "pyttsx3_tts": {"name": "pyttsx3", "key_env": None},
+        "melo_tts": {"name": "Melo TTS（本地）", "key_env": None},
     }
 
     def _load_yaml():
@@ -535,25 +545,41 @@ def init_config_routes(
             known_voices = cfg.get("voices") or TTS_VOICE_CATALOG.get(pid, [])
             known_tts_models = cfg.get("models") or TTS_MODEL_CATALOG.get(pid, [])
             current_voice = cfg.get("voice", "")
+            current_tts_model = cfg.get("model", "")
+            if pid == "melo_tts":
+                # Melo 的 conf 字段是 language/device；旧版可能残留 voice/model。
+                current_voice = current_voice or cfg.get("language", "")
+                current_tts_model = current_tts_model or cfg.get("device", "")
             if not current_voice and known_voices:
                 current_voice = known_voices[0]
-            current_tts_model = cfg.get("model", "")
             if not current_tts_model and known_tts_models:
                 current_tts_model = known_tts_models[0]
-            tts_provider_list.append(
-                {
-                    "id": pid,
-                    "name": default.get("name", pid),
-                    "voice": current_voice,
-                    "model": current_tts_model,
-                    "ws_url": cfg.get("ws_url", ""),
-                    "voices": known_voices,
-                    "models": known_tts_models,
-                    "key_env": key_env,
-                    "has_key": env_has(key_env) if key_env else True,
-                    "configured": pid in tts_cfg,
-                }
-            )
+            entry = {
+                "id": pid,
+                "name": default.get("name", pid),
+                "voice": current_voice,
+                "model": current_tts_model,
+                "ws_url": cfg.get("ws_url", ""),
+                "voices": known_voices,
+                "models": known_tts_models,
+                "key_env": key_env,
+                "has_key": env_has(key_env) if key_env else True,
+                "configured": pid in tts_cfg,
+            }
+            if pid == "melo_tts":
+                entry.update(
+                    {
+                        "language": current_voice,
+                        "device": current_tts_model,
+                        "speaker": cfg.get("speaker", "") or "",
+                        "speed": cfg.get("speed", 1.0),
+                        "sdp_ratio": cfg.get("sdp_ratio", 0.2),
+                        "noise_scale": cfg.get("noise_scale", 0.6),
+                        "noise_scale_w": cfg.get("noise_scale_w", 0.8),
+                        "format": cfg.get("format", "wav"),
+                    }
+                )
+            tts_provider_list.append(entry)
 
         return {
             "llm_provider": basic.get("llm_provider", ""),
@@ -679,7 +705,7 @@ def init_config_routes(
                     target.setdefault("models", catalog_models)
                 target.setdefault("temperature", 0.8)
 
-            # 更新 TTS Provider 参数（voice/model/ws_url）
+            # 更新 TTS Provider 参数（voice/model/ws_url；Melo 额外保存 language/device/韵律参数）
             tts_overrides = payload.get("tts_configs") or {}
             tts_cfg = cc.setdefault("tts_config", {})
             for pid, override in tts_overrides.items():
@@ -687,7 +713,11 @@ def init_config_routes(
                     continue
                 has_any = any(
                     override.get(field) not in (None, "")
-                    for field in ("voice", "model", "ws_url", "voices", "models")
+                    for field in (
+                        "voice", "model", "ws_url", "voices", "models",
+                        "language", "device", "speaker", "speed", "sdp_ratio",
+                        "noise_scale", "noise_scale_w", "format",
+                    )
                 )
                 if pid not in tts_cfg and not has_any:
                     continue
@@ -695,20 +725,51 @@ def init_config_routes(
                 for field in ("voice", "model", "ws_url", "voices", "models"):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]
+                if pid == "melo_tts":
+                    # UI 用 voice/model 承载 language/device；落盘成 Melo 的正式字段。
+                    if override.get("language") not in (None, ""):
+                        target["language"] = override["language"]
+                    elif override.get("voice") not in (None, ""):
+                        target["language"] = override["voice"]
+                    if override.get("device") not in (None, ""):
+                        target["device"] = override["device"]
+                    elif override.get("model") not in (None, ""):
+                        target["device"] = override["model"]
+                    for field in (
+                        "speaker", "speed", "sdp_ratio", "noise_scale",
+                        "noise_scale_w", "format",
+                    ):
+                        if field in override and override[field] not in (None, ""):
+                            target[field] = override[field]
+                    target.pop("voice", None)
+                    target.pop("model", None)
 
             if "tts_model" in payload and payload["tts_model"]:
                 requested_tts = normalize_tts_id(payload["tts_model"])
                 if requested_tts not in tts_cfg:
-                    tts_default = TTS_DEFAULTS.get(requested_tts, {})
                     target = tts_cfg[requested_tts] = {}
-                    tts_voices = TTS_VOICE_CATALOG.get(requested_tts, [])
-                    tts_models = TTS_MODEL_CATALOG.get(requested_tts, [])
-                    if tts_voices:
-                        target["voice"] = tts_voices[0]
-                        target["voices"] = tts_voices
-                    if tts_models:
-                        target["model"] = tts_models[0]
-                        target["models"] = tts_models
+                    if requested_tts == "melo_tts":
+                        target.update(
+                            {
+                                "language": "ZH",
+                                "device": "cpu",
+                                "speaker": "",
+                                "speed": 1.0,
+                                "sdp_ratio": 0.2,
+                                "noise_scale": 0.6,
+                                "noise_scale_w": 0.8,
+                                "format": "wav",
+                            }
+                        )
+                    else:
+                        tts_voices = TTS_VOICE_CATALOG.get(requested_tts, [])
+                        tts_models = TTS_MODEL_CATALOG.get(requested_tts, [])
+                        if tts_voices:
+                            target["voice"] = tts_voices[0]
+                            target["voices"] = tts_voices
+                        if tts_models:
+                            target["model"] = tts_models[0]
+                            target["models"] = tts_models
 
             # 自动补齐选中 TTS provider 的必填字段（voice/model）目录默认值。
             # 修复 P0-1：`gpt_sovits_tts`/`edge_tts` 等被选中但缺 voice/model 时，
@@ -719,16 +780,35 @@ def init_config_routes(
                 selected_tts = normalize_tts_id(selected_tts)
                 sel_entry = tts_cfg.get(selected_tts)
                 if isinstance(sel_entry, dict):
-                    if not sel_entry.get("voice"):
-                        voices = TTS_VOICE_CATALOG.get(selected_tts, [])
-                        if voices:
-                            sel_entry["voice"] = voices[0]
-                            sel_entry.setdefault("voices", voices)
-                    if not sel_entry.get("model"):
-                        models = TTS_MODEL_CATALOG.get(selected_tts, [])
-                        if models:
-                            sel_entry["model"] = models[0]
-                            sel_entry.setdefault("models", models)
+                    if selected_tts == "melo_tts":
+                        sel_entry.setdefault(
+                            "language", sel_entry.get("voice") or "ZH"
+                        )
+                        sel_entry.setdefault(
+                            "device", sel_entry.get("model") or "cpu"
+                        )
+                        for field, default in (
+                            ("speaker", ""),
+                            ("speed", 1.0),
+                            ("sdp_ratio", 0.2),
+                            ("noise_scale", 0.6),
+                            ("noise_scale_w", 0.8),
+                            ("format", "wav"),
+                        ):
+                            sel_entry.setdefault(field, default)
+                        sel_entry.pop("voice", None)
+                        sel_entry.pop("model", None)
+                    else:
+                        if not sel_entry.get("voice"):
+                            voices = TTS_VOICE_CATALOG.get(selected_tts, [])
+                            if voices:
+                                sel_entry["voice"] = voices[0]
+                                sel_entry.setdefault("voices", voices)
+                        if not sel_entry.get("model"):
+                            models = TTS_MODEL_CATALOG.get(selected_tts, [])
+                            if models:
+                                sel_entry["model"] = models[0]
+                                sel_entry.setdefault("models", models)
 
             # 设置页的“视觉模型”写入 vision_config.model（如果用户填写）
             persona_payload = payload.get("persona")
@@ -1436,6 +1516,11 @@ def init_config_routes(
             provider = normalize_tts_id((payload.get("provider") or "").strip())
             data = _load_yaml()
             tts_cfg = (data.get("character_config", {}) or {}).get("tts_config", {}) or {}
+            preview_text = (
+                _LOCAL_TTS_PREVIEW_TEXT
+                if provider == "melo_tts"
+                else "你好，我是白～这是一段试听。"
+            )
 
             if not provider:
                 # 旧行为：没有指定 provider 时测试当前已加载引擎
@@ -1444,9 +1529,13 @@ def init_config_routes(
                         {"ok": False, "error": "当前 TTS 引擎未初始化"}, status_code=400
                     )
                 path = await default_context_cache.tts_engine.async_generate_audio(
-                    text="你好，我是白～这是一段试听。",
+                    text=preview_text,
                     file_name_no_ext="settings_preview",
                 )
+                if not path:
+                    return JSONResponse(
+                        {"ok": False, "error": "TTS 合成失败：引擎未返回音频文件"}, status_code=400
+                    )
                 return JSONResponse({"ok": True, "audio_path": path})
 
             # 用已保存的 typed config 作为基底，再叠加当前 UI 未保存参数
@@ -1470,10 +1559,15 @@ def init_config_routes(
                     for k in (
                         "voice", "model", "ws_url", "api_key",
                         "base_url", "api_url", "region", "model_path",
+                        "language", "device", "speaker", "speed",
+                        "sdp_ratio", "noise_scale", "noise_scale_w", "format",
                     ):
-                        if saved.get(k):
+                        if saved.get(k) not in (None, ""):
                             params[k] = saved[k]
-                if provider == "edge_tts" and not params.get("voice"):
+                if provider == "melo_tts" and not params:
+                    from .config_manager.tts import MeloTTSConfig
+                    params = MeloTTSConfig().model_dump()
+                elif provider == "edge_tts" and not params.get("voice"):
                     params["voice"] = (TTS_VOICE_CATALOG.get("edge_tts") or ["zh-CN-XiaoxiaoNeural"])[0]
                 elif provider == "piper_tts" and not params:
                     from .config_manager.tts import PiperTTSConfig
@@ -1484,10 +1578,20 @@ def init_config_routes(
             # 用 UI 当前值覆盖；已保存 typed config 存在时只覆盖其已有的字段，
             # 避免把 UI 的 model/ws_url 误传给 Edge/pyttsx3 等严格构造器。
             has_typed_params = bool(params)
-            for field in ("voice", "model", "ws_url", "base_url", "api_url", "region", "model_path"):
+            for field in (
+                "voice", "model", "ws_url", "base_url", "api_url", "region",
+                "model_path", "language", "device", "speaker", "speed",
+                "sdp_ratio", "noise_scale", "noise_scale_w", "format",
+            ):
                 if payload.get(field) not in (None, ""):
                     if not has_typed_params or field in params:
                         params[field] = payload[field]
+            if provider == "melo_tts":
+                # 设置 UI 复用 voice/model 下拉承载 language/device；这里显式映射。
+                if payload.get("voice") not in (None, ""):
+                    params["language"] = payload["voice"]
+                if payload.get("model") not in (None, ""):
+                    params["device"] = payload["model"]
             if payload.get("api_key") not in (None, ""):
                 if not has_typed_params or "api_key" in params:
                     params["api_key"] = payload["api_key"]
@@ -1503,13 +1607,181 @@ def init_config_routes(
             from .tts.tts_factory import TTSFactory
             engine = TTSFactory.get_tts_engine(provider, **params)
             path = await engine.async_generate_audio(
-                text="你好，我是白～这是一段试听。",
+                text=preview_text,
                 file_name_no_ext="settings_preview",
             )
+            if not path:
+                return JSONResponse(
+                    {"ok": False, "error": "TTS 合成失败：引擎未返回音频文件"}, status_code=400
+                )
             return JSONResponse({"ok": True, "audio_path": path})
         except Exception as e:
             logger.error(f"TTS test failed: {e}")
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    # ------------------------------------------------------------------
+    # 本地 Melo TTS REST 接口（PLAN-V2-PC-LOCAL-TTS：阶段 3）
+    # ------------------------------------------------------------------
+    _local_tts_cache_dir = os.path.join(os.path.dirname(config_abs), "cache")
+    _local_tts_engine = None
+    _local_tts_engine_key = None
+    _local_tts_lock = asyncio.Lock()
+
+    def _local_tts_clamp(value, lo: float, hi: float, default: float) -> float:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(hi, v))
+
+    def _local_tts_make_params(payload: dict) -> dict:
+        language = str(payload.get("language") or payload.get("voice") or "ZH").upper()
+        if language not in ("ZH", "EN", "ES", "FR", "JP", "KR"):
+            raise ValueError(
+                f"不支持的 Melo 语言: {language}，可选 ZH/EN/ES/FR/JP/KR"
+            )
+        device = str(payload.get("device") or payload.get("model") or "cpu").lower()
+        if device not in ("cpu", "auto") and not device.startswith("cuda"):
+            device = "cpu"
+        speaker = payload.get("speaker") or None
+        fmt = str(payload.get("format") or "wav").lower() or "wav"
+        return {
+            "language": language,
+            "device": device,
+            "speaker": speaker,
+            "speed": _local_tts_clamp(payload.get("speed", 1.0), 0.5, 2.0, 1.0),
+            "sdp_ratio": _local_tts_clamp(payload.get("sdp_ratio", 0.2), 0.0, 1.0, 0.2),
+            "noise_scale": _local_tts_clamp(payload.get("noise_scale", 0.6), 0.0, 1.0, 0.6),
+            "noise_scale_w": _local_tts_clamp(payload.get("noise_scale_w", 0.8), 0.0, 1.0, 0.8),
+            "format": fmt,
+        }
+
+    async def _local_tts_get_engine(params: dict):
+        nonlocal _local_tts_engine, _local_tts_engine_key
+        key = tuple(sorted(params.items()))
+        async with _local_tts_lock:
+            if _local_tts_engine is None or key != _local_tts_engine_key:
+                from .tts.tts_factory import TTSFactory
+
+                _local_tts_engine = await asyncio.to_thread(
+                    TTSFactory.get_tts_engine, "melo_tts", **params
+                )
+                _local_tts_engine_key = key
+            return _local_tts_engine
+
+    def _local_tts_safe_name(name: str):
+        if not name:
+            return None
+        if name != os.path.basename(name):
+            return None
+        if ".." in name or name.startswith("."):
+            return None
+        if not name.startswith(_LOCAL_TTS_FILE_PREFIX) or not name.endswith(".wav"):
+            return None
+        return name
+
+    def _audio_duration_ms(path: str) -> int:
+        try:
+            import soundfile as sf
+
+            info = sf.info(path)
+            if info.samplerate:
+                return int(info.frames * 1000 / info.samplerate)
+        except Exception:  # noqa: BLE001, S110 - 时长解析失败按 0 处理
+            pass
+        try:
+            import wave
+
+            with wave.open(path, "rb") as wav_file:
+                rate = wav_file.getframerate()
+                if rate:
+                    return int(wav_file.getnframes() * 1000 / rate)
+        except Exception:  # noqa: BLE001 - 非 wav 时回退 0
+            return 0
+        return 0
+
+    @router.post("/api/tts/local/synthesize")
+    async def local_tts_synthesize(request: Request):
+        try:
+            try:
+                payload = await request.json()
+            except Exception:  # noqa: BLE001 - FastAPI 未提供专用 JSON 解析异常
+                return JSONResponse(
+                    {"ok": False, "error": "请求体必须是 JSON"}, status_code=400
+                )
+            if not isinstance(payload, dict):
+                return JSONResponse(
+                    {"ok": False, "error": "请求体必须是 JSON 对象"}, status_code=400
+                )
+            text = str(payload.get("text") or "").strip()
+            if not text:
+                return JSONResponse(
+                    {"ok": False, "error": "text 不能为空"}, status_code=400
+                )
+            if len(text) > _LOCAL_TTS_MAX_TEXT_LEN:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": f"文本长度超过上限 {_LOCAL_TTS_MAX_TEXT_LEN} 字符",
+                    },
+                    status_code=400,
+                )
+            params = _local_tts_make_params(payload)
+            engine = await _local_tts_get_engine(params)
+            file_stem = f"{_LOCAL_TTS_FILE_PREFIX}{uuid4().hex[:12]}"
+            async with _local_tts_lock:
+                path = await engine.async_generate_audio(
+                    text=text, file_name_no_ext=file_stem
+                )
+            if not path:
+                return JSONResponse(
+                    {"ok": False, "error": "Melo 合成失败：引擎未返回音频文件"},
+                    status_code=500,
+                )
+            abs_path = path if os.path.isabs(path) else os.path.abspath(path)
+            safe_name = _local_tts_safe_name(os.path.basename(abs_path))
+            if safe_name is None or not os.path.isfile(abs_path):
+                return JSONResponse(
+                    {"ok": False, "error": "Melo 合成失败：音频文件未生成"},
+                    status_code=500,
+                )
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "audio_path": f"cache/{safe_name}",
+                    "audio_url": f"/api/tts/local/audio?name={safe_name}",
+                    "format": params["format"],
+                    "duration_ms": _audio_duration_ms(abs_path),
+                }
+            )
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        except Exception as exc:  # noqa: BLE001 - 接口需给出统一 JSON 错误
+            logger.exception(f"Local Melo TTS synthesize failed: {exc}")
+            return JSONResponse(
+                {"ok": False, "error": f"本地 Melo TTS 合成失败: {exc}"},
+                status_code=500,
+            )
+
+    @router.get("/api/tts/local/audio")
+    async def local_tts_audio(name: str):
+        safe_name = _local_tts_safe_name(name)
+        if safe_name is None:
+            return JSONResponse(
+                {"ok": False, "error": "非法音频文件名"}, status_code=403
+            )
+        audio_path = os.path.abspath(os.path.join(_local_tts_cache_dir, safe_name))
+        if os.path.dirname(audio_path) != os.path.abspath(_local_tts_cache_dir):
+            return JSONResponse(
+                {"ok": False, "error": "非法音频路径"}, status_code=403
+            )
+        if not os.path.isfile(audio_path):
+            return JSONResponse(
+                {"ok": False, "error": "音频不存在"}, status_code=404
+            )
+        return FileResponse(audio_path, media_type="audio/wav")
 
     return router
 

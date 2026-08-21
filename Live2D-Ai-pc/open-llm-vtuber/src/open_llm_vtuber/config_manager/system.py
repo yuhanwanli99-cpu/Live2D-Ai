@@ -14,6 +14,9 @@ class SystemConfig(I18nMixin):
     tool_prompts: Dict[str, str] = Field(..., alias="tool_prompts")
     enable_proxy: bool = Field(False, alias="enable_proxy")
     live2d_fps: int = Field(60, alias="live2d_fps")
+    # 独立导演模型配置（PC v4）：留空时复用主对话脑 provider/model。
+    director_llm_provider: str | None = Field(None, alias="director_llm_provider")
+    director_model: str | None = Field(None, alias="director_model")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "conf_version": Description(en="Configuration version", zh="配置文件版本"),

@@ -51,6 +51,15 @@ export interface TtsProviderUi {
   has_key: boolean;
   configured: boolean;
   touched: boolean;
+  /** Melo TTS（本地）专用字段。 */
+  language?: string;
+  device?: string;
+  speaker?: string;
+  speed?: number | null;
+  sdp_ratio?: number | null;
+  noise_scale?: number | null;
+  noise_scale_w?: number | null;
+  format?: string;
 }
 
 /** API Key：value 为空 + clear=false → 未改（后端保留）；clear=true → 显式清空（null）。 */
@@ -259,6 +268,18 @@ function ttsPayload(p: TtsProviderUi): Record<string, unknown> {
   if (voices.length) out.voices = voices;
   const models = dedupe(p.models || (p.model ? [p.model] : []));
   if (models.length) out.models = models;
+  if (p.id === 'melo_tts') {
+    // 通用 voice/model 已承载 language/device；这里再显式带上正式字段，
+    // 让后端能落盘成 Melo 专用块，而不是遗留 voice/model。
+    out.language = p.language || p.voice || 'ZH';
+    out.device = p.device || p.model || 'cpu';
+    if (p.speaker) out.speaker = p.speaker;
+    if (p.speed !== null && p.speed !== undefined) out.speed = p.speed;
+    if (p.sdp_ratio !== null && p.sdp_ratio !== undefined) out.sdp_ratio = p.sdp_ratio;
+    if (p.noise_scale !== null && p.noise_scale !== undefined) out.noise_scale = p.noise_scale;
+    if (p.noise_scale_w !== null && p.noise_scale_w !== undefined) out.noise_scale_w = p.noise_scale_w;
+    if (p.format) out.format = p.format;
+  }
   return out;
 }
 

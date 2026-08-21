@@ -5,8 +5,11 @@ import time
 from typing import Optional
 from pydub import AudioSegment
 from pydub.utils import make_chunks
-from loguru import logger
 from ..agent.output_types import Actions
+from ..logsetup import get_logger
+
+# 本模块全部记录带 "audio" 标签
+logger = get_logger("audio")
 from ..agent.output_types import DisplayText
 from ..tts.pymouth_viseme import PymouthVisemeDriver
 
@@ -180,18 +183,17 @@ def prepare_audio_payload(
         visemes = []
     _t_viseme = time.monotonic()
 
-    logger.info(
-        "[LATENCY] prepare_audio_payload pydub_ms={:.0f} export_ms={:.0f} "
-        "base64_ms={:.0f} volume_ms={:.0f} viseme_ms={:.0f} total_ms={:.0f} "
-        "mode={}".format(
-            (_t_pydub - _t0) * 1000,
-            (_t_export - _t_pydub) * 1000,
-            (_t_base64 - _t_export) * 1000,
-            (_t_volume - _t_base64) * 1000,
-            (_t_viseme - _t_volume) * 1000,
-            (_t_viseme - _t0) * 1000,
-            viseme_mode,
-        )
+    # 逐 chunk 的耗时明细属于排障信息：降为 DEBUG、合并为一行可读格式
+    logger.debug(
+        "音频封装完成 总耗时={:.0f}ms（解码 {:.0f} / 编码 {:.0f} / base64 {:.0f} / "
+        "音量 {:.0f} / 口型 {:.0f}）mode={}",
+        (_t_viseme - _t0) * 1000,
+        (_t_pydub - _t0) * 1000,
+        (_t_export - _t_pydub) * 1000,
+        (_t_base64 - _t_export) * 1000,
+        (_t_volume - _t_base64) * 1000,
+        (_t_viseme - _t_volume) * 1000,
+        viseme_mode,
     )
 
     payload = {

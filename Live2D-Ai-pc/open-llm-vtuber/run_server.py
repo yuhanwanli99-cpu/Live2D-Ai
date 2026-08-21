@@ -10,22 +10,25 @@ import asyncio
 import uvicorn
 import yaml
 from dotenv import load_dotenv
-from loguru import logger
 
 _project_root = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_project_root)
 
 # 本地密钥：仓库根 .env（gitignored；不存在则静默跳过）——必须在读取配置前加载。
 # load_dotenv 默认找 cwd（open-llm-vtuber/），而 .env 在项目根 → 显式指定绝对路径。
+# 使用 override=True：即使父 shell 带有空的环境变量，也以 .env 文件为准。
 _PROJECT_BASE = os.path.dirname(os.path.dirname(_project_root))  # 项目根 Live2D-Ai/（上两级）
-load_dotenv(os.path.join(_PROJECT_BASE, ".env"))
-
-# 默认只显示 INFO 以上日志；需要调试时设 LIVE2DAI_LOG_LEVEL=DEBUG
-logger.remove()
-logger.add(sys.stderr, level=os.getenv("LIVE2DAI_LOG_LEVEL", "INFO"))
+load_dotenv(os.path.join(_PROJECT_BASE, ".env"), override=True)
 
 sys.path.insert(0, os.path.join(_project_root, "src"))
 sys.path.insert(0, _project_root)
+
+# 统一日志：控制台紧凑彩色（LIVE2DAI_LOG_LEVEL，默认 INFO）+ logs/server.log 滚动文件；
+# 同时压制 uvicorn 访问日志刷屏。必须在导入业务模块前安装。
+from open_llm_vtuber.logsetup import setup_logging
+
+_effective_level = setup_logging()
+print(f"[Live2D-Ai] 日志级别: {_effective_level}（控制台）+ logs/server.log（滚动文件）")
 
 from open_llm_vtuber.server import WebSocketServer
 from open_llm_vtuber.config_manager.main import Config
@@ -69,8 +72,10 @@ def _load_persona_from_config(config_dict: dict) -> tuple[str, dict]:
         }
         if prompt:
             print(f"[Live2D-Ai] Loaded persona from {resolved}")
-            if overrides:
-                print(f"[Live2D-Ai] Persona model overrides: {overrides}")
+            # 核心链路不含视觉：vision_model 不进启动横幅（避免误导）
+            core_overrides = {k: v for k, v in overrides.items() if k != "vision_model"}
+            if core_overrides:
+                print(f"[Live2D-Ai] Persona model overrides: {core_overrides}")
         return prompt, overrides
     except Exception as e:
         print(f"[WARN] Failed to load persona from {resolved}: {e}")
@@ -123,13 +128,18 @@ async def main():
                 f"[Live2D-Ai] LLM max_tokens set to: {model_overrides['max_tokens']}"
             )
         if model_overrides.get("vision_model"):
-            vision_cfg = config_dict.setdefault("vision_config", {})
-            if not isinstance(vision_cfg, dict):
-                vision_cfg = config_dict["vision_config"] = {}
-            vision_cfg["model"] = model_overrides["vision_model"]
-            print(
-                f"[Live2D-Ai] Vision model set to: {model_overrides['vision_model']}"
+            # 仅当用户显式开启视觉管线时才应用/提示 vision 模型（核心链路不需要视觉）
+            _vision_enabled = bool(
+                (config_dict.get("vision_config") or {}).get("vision_enabled")
             )
+            if _vision_enabled:
+                vision_cfg = config_dict.setdefault("vision_config", {})
+                if not isinstance(vision_cfg, dict):
+                    vision_cfg = config_dict["vision_config"] = {}
+                vision_cfg["model"] = model_overrides["vision_model"]
+                print(
+                    f"[Live2D-Ai] Vision model set to: {model_overrides['vision_model']}"
+                )
 
     # Resolve MCP server config path
     if "mcp_servers" in config_dict:
@@ -140,12 +150,13 @@ async def main():
     await server.initialize()
 
     # 端口取 config.system_config.port（不再写死 12393），使设置里改 port 后按新端口监听（B5）。
+    # uvicorn 自身日志级别跟随 LIVE2DAI_LOG_LEVEL（访问日志已由 logsetup 压制刷屏）。
     listen_port = int(config.system_config.port or 12393)
     uvicorn_config = uvicorn.Config(
         server.app,
         host="0.0.0.0",
         port=listen_port,
-        log_level="info",
+        log_level=_effective_level.lower(),
     )
     uvicorn_server = uvicorn.Server(uvicorn_config)
     print(f"[Live2D-Ai] Server listening on http://0.0.0.0:{listen_port}")

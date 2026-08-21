@@ -28,15 +28,26 @@ export interface DisplayText {
   avatar?: string | null;
 }
 
+/**
+ * 括注动作帧（my-neuro 式"播放位置触发"）。
+ * at ∈ [0,1)：该动作在所在音频块内的归一化播放进度（后端按文本位置线性近似）。
+ */
+export interface MotionCue {
+  at: number;
+  motion: string;
+}
+
 /** 动作（WS "audio" 消息的 actions 字段，后端 Actions.to_dict() 产出） */
 export interface Actions {
   expressions?: Array<string | number> | null;
   pictures?: string[] | null;
   sounds?: string[] | null;
-  /** motionLabel 别名 */
+  /** motionLabel 别名（整句一次性触发；存在 motionTimeline 时被忽略） */
   motion?: string | null;
   /** 表情参数覆盖：key = Cubism 参数 ID，value = 目标值 0..1 */
   parameterOverrides?: ParameterOverrides | null;
+  /** 括注动作帧时间轴：存在时前端在音频播放到对应进度才触发，优先于 motion */
+  motionTimeline?: MotionCue[] | null;
 }
 
 /** 元音嘴型帧（pymouth viseme，to_dict() 产出） */
@@ -66,6 +77,8 @@ export interface AudioMessage {
   visemes: VisemeFrame[];
   display_text?: DisplayText | null;
   actions?: Actions | null;
+  /** 句首块标记：前端在该块开始播放时才上屏该句字幕（字幕-声音同步） */
+  sentence_start?: boolean;
   forwarded?: boolean;
 }
 

@@ -12,6 +12,11 @@ class Actions:
     sounds: Optional[List[str]] = None
     motion: Optional[str] = None  # M1 §3.4 预锁：motionLabel 别名；M3 从 motionLabel 填充，M8 前端消费
     parameterOverrides: Optional[dict] = None  # M3 透传：parameterOverrides 无损下发；前端消费属 M6/M8 范围
+    # 括注动作帧（my-neuro 式"播放位置触发"）：[{"at": float, "motion": str}, ...]
+    # at ∈ [0,1) 为所在 TTS 分块的归一化播放进度；由 director.stage_gesture_timeline
+    # 解析、conversation_utils 按 split_tts_chunks 切片。存在时前端按进度调度触发，
+    # 忽略一次性 motion 字段（避免双重触发）；to_dict() 对 None 自动省略，向后兼容。
+    motionTimeline: Optional[List[dict]] = None
 
     def to_dict(self) -> dict:
         """Convert Actions object to a dictionary for JSON serialization"""

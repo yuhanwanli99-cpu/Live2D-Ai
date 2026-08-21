@@ -73,13 +73,13 @@ class TestPersonaBai:
 
 
     @pytest.mark.skipif(not YAML_AVAILABLE, reason="PyYAML 不可用")
-    def test_s103_system_prompt_contains_majority_emotion_keys(self):
-        # S1-03 · system_prompt 含 8 个 emotion key 至少 6 个
+    def test_s103_system_prompt_has_no_static_emotion_keys(self):
+        # S1-03（PC v4）· 情绪由 director/分类器动态处理，persona 不再内置静态 emotion key。
         data = self._load()
         prompt = data.get("system_prompt", "")
         present = {k for k in VALID_EMOTIONS if k in prompt}
-        assert len(present) >= 6, \
-            f"system_prompt 仅含 {len(present)} 个 emotion key（要求 ≥6）：{present}"
+        assert present == set(), \
+            f"system_prompt 不应内置静态 emotion key，实际命中：{present}"
 
     @pytest.mark.skipif(not YAML_AVAILABLE, reason="PyYAML 不可用")
     def test_s104_yaml_is_valid(self):

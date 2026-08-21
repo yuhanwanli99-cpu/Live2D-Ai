@@ -52,6 +52,13 @@ bilibili = [
     "Brotli~=1.1.0",
     "yarl>=1.12.0,<2.0"
 ]
+# Melo 是可选本地 TTS（无需云端 Key），安装失败不得影响默认启动。
+# 当前默认走外部 conda/melo 环境的 melo_worker.py 子进程，无需安装此 extra；
+# 若希望进程内加载，才需要按 README 选用 Python 3.12 可用源安装。
+# 示例：pip install -e '.[melo]'
+melo = [
+    "git+https://github.com/myshell-ai/MeloTTS.git"
+]
 
 [tool.pixi.project]
 channels = ["conda-forge"]

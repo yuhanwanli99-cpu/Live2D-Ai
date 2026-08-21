@@ -249,6 +249,9 @@ class WebSocketHandler:
             tool_adapter=self.default_context_cache.tool_adapter,
             send_text=send_text,
             client_uid=client_uid,
+            plugin_manager=getattr(
+                self.default_context_cache, "plugin_manager", None
+            ),
         )
         return session_service_context
 
@@ -400,6 +403,26 @@ class WebSocketHandler:
             client_connections=self.client_connections,
             exclude_uid=exclude_uid,
         )
+
+    async def broadcast_live_event(self, event: dict) -> int:
+        """把一条直播/弹幕事件广播给所有在线前端会话。
+
+        Returns:
+            成功发送的会话数。
+        """
+        if not isinstance(event, dict):
+            return 0
+        message = json.dumps(
+            {"type": "live-event", "event": event}, ensure_ascii=False
+        )
+        sent = 0
+        for ws in list(self.client_connections.values()):
+            try:
+                await ws.send_text(message)
+                sent += 1
+            except Exception as e:  # noqa: BLE001 - 单会话失败不影响其它会话
+                logger.warning(f"直播事件广播到单个会话失败（忽略）: {e}")
+        return sent
 
     async def send_group_update(self, websocket: WebSocket, client_uid: str):
         """Sends group information to a client"""

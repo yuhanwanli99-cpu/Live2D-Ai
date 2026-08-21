@@ -21,6 +21,15 @@ import {
   type LlmProviderUi,
   type TtsProviderUi,
 } from './settings-logic';
+import { uploadModelZip } from './model-upload';
+import { exportConfig, importConfigFile } from './config-transfer';
+import {
+  listVoices,
+  uploadVoice,
+  selectVoice,
+  applyVoice,
+  deleteVoice,
+} from './voice-library';
 import { initBackgroundSection, type BackgroundSection, type BackgroundState } from './background';
 import {
   initExternalInputSection,
@@ -28,6 +37,18 @@ import {
   type ExternalStatus,
 } from './external-input';
 import { icon } from './icons';
+import { listPlugins, enablePlugin, disablePlugin, type PluginInfo } from './plugin-manager';
+import {
+  listMemoryFacts,
+  addMemoryFact,
+  deleteMemoryFact,
+  clearMemoryFacts,
+  listKnowledgeDocs,
+  addKnowledgeDoc,
+  deleteKnowledgeDoc,
+  webSearch,
+} from './memory-api';
+import { toast } from './toast';
 import './settings.css';
 
 
@@ -59,6 +80,15 @@ interface TtsProviderCfg {
   key_env?: string | null;
   has_key: boolean;
   configured?: boolean;
+  /** Melo TTS（本地）专用字段。 */
+  language?: string;
+  device?: string;
+  speaker?: string;
+  speed?: number | null;
+  sdp_ratio?: number | null;
+  noise_scale?: number | null;
+  noise_scale_w?: number | null;
+  format?: string;
 }
 
 interface PersonaCfg {
@@ -145,6 +175,7 @@ const TTS_PROVIDER_LABELS: Record<string, string> = {
   piper_tts: 'Piper',
   sherpa_onnx_tts: 'Sherpa-ONNX',
   pyttsx3_tts: 'pyttsx3',
+  melo_tts: 'Melo TTS（本地）',
   gpt_sovits: 'GPT-SoVITS（旧）',
   piper: 'Piper（旧）',
   sherpa_onnx: 'Sherpa-ONNX（旧）',
@@ -159,7 +190,7 @@ const LLM_CATEGORIES = [
 
 const TTS_CATEGORIES = [
   { id: 'cloud', label: '云端 TTS', providers: ['cosyvoice_cloud', 'qwen_tts', 'openai_tts', 'azure_tts', 'minimax_tts', 'siliconflow_tts', 'fish_api_tts', 'spark_tts'] },
-  { id: 'local', label: '本地 / 免费', providers: ['edge_tts', 'gpt_sovits_tts', 'piper_tts', 'sherpa_onnx_tts', 'pyttsx3_tts'] },
+  { id: 'local', label: '本地 / 免费', providers: ['edge_tts', 'melo_tts', 'gpt_sovits_tts', 'piper_tts', 'sherpa_onnx_tts', 'pyttsx3_tts'] },
 ];
 
 const EMPTY_CONFIG: AppConfig = {
@@ -237,6 +268,8 @@ export function initSettingsPanel(
           <button class="settings-tab" type="button" data-tab="keys"><span class="tab-dot"></span>密钥</button>
           <button class="settings-tab" type="button" data-tab="persona"><span class="tab-dot"></span>人设 / 提示词</button>
           <button class="settings-tab" type="button" data-tab="system"><span class="tab-dot"></span>系统 / 高级</button>
+          <button class="settings-tab" type="button" data-tab="memory"><span class="tab-dot"></span>记忆</button>
+          <button class="settings-tab" type="button" data-tab="plugins"><span class="tab-dot"></span>插件</button>
           <div class="settings-nav-status">
             <div class="sv-label">状态简报</div>
             <div class="sv-line"><span class="status-dot" data-nav="llm"></span><span data-navtext="llm">LLM –</span></div>
@@ -274,6 +307,15 @@ export function initSettingsPanel(
             <div class="settings-group-title">TTS 参数</div>
             <div class="settings-tip">「测试/试听」仅检查 Key 是否已配置，不执行真实合成。</div>
             <div class="settings-tts-cards"></div>
+
+            <div class="settings-group-title">声音克隆库</div>
+            <div class="settings-editor-actions">
+              <button class="btn ghost voice-upload-btn" type="button">上传参考音频</button>
+              <input class="voice-upload-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" hidden />
+              <span class="settings-tip">支持 wav / mp3 / m4a / flac / ogg</span>
+            </div>
+            <div class="settings-status-inline voice-status"></div>
+            <div class="voice-list"></div>
           </section>
 
           <section class="settings-tab-panel" data-panel="live2d">
@@ -281,7 +323,10 @@ export function initSettingsPanel(
             <div class="settings-section-hint">选择当前使用的 Live2D 模型；扫描可导入本地模型。</div>
             <div class="settings-editor-actions">
               <button class="btn ghost settings-scan-models" type="button">扫描并导入本地模型</button>
+              <button class="btn ghost settings-model-upload-btn" type="button">上传 Live2D 模型 (.zip)</button>
+              <input class="settings-model-upload-input" type="file" accept=".zip" hidden />
             </div>
+            <div class="settings-status-inline" data-modeluploadstatus></div>
             <div class="settings-status-inline" data-modelstatus></div>
             <div class="settings-model-list" data-modellist></div>
 
@@ -339,8 +384,16 @@ export function initSettingsPanel(
                   <option value="WARNING">WARNING（安静）</option>
                 </select>
               </div>
+              <div class="settings-row"><span class="lbl">前端版本</span><span class="settings-frontend-version">未知版本</span></div>
             </div>
             <div class="settings-tip">端口与日志在保存并重启后端后生效。</div>
+            <div class="settings-group-title">配置导入 / 导出</div>
+            <div class="settings-editor-actions">
+              <button class="btn ghost settings-config-export-btn" type="button">导出配置 JSON</button>
+              <button class="btn ghost settings-config-import-btn" type="button">导入配置 JSON</button>
+              <input class="settings-config-import-input" type="file" accept="application/json,.json" hidden />
+            </div>
+            <div class="settings-status-inline" data-configtransferstatus></div>
             <div class="settings-group-title">高级：conf.yaml 设定树</div>
             <label class="settings-row"><span class="lbl">原始 YAML</span>
               <textarea class="settings-config-tree" rows="14" spellcheck="false"></textarea>
@@ -349,6 +402,39 @@ export function initSettingsPanel(
               <button class="btn settings-save-tree" type="button">保存设定树</button>
               <span class="settings-tip">保存前会做 schema 校验，非法则不会写盘。</span>
             </div>
+          </section>
+
+          <section class="settings-tab-panel" data-panel="memory">
+            <div class="settings-section-title">记忆 / 知识库</div>
+            <div class="settings-section-hint">「长期记忆」插件在对话中自动记录事实（称呼、偏好、约定）；知识库文档按相关性检索注入并标注来源；联网查询为真实搜索（无 Key 走 DuckDuckGo，配 TAVILY_API_KEY 走 Tavily）。改动即时生效。</div>
+            <div class="settings-status-inline memory-status"></div>
+            <div class="settings-group-title">长期记忆事实</div>
+            <div class="settings-editor-actions memory-add-row">
+              <input class="settings-input memory-fact-input" type="text" placeholder="手动记一条，例如：喜欢被叫小白" aria-label="新增记忆" />
+              <button class="btn primary btn-xs memory-add" type="button">添加</button>
+              <button class="btn ghost btn-xs memory-clear" type="button">清空全部</button>
+            </div>
+            <div class="plugin-list memory-list"></div>
+            <div class="settings-group-title">知识库文档（.md / .txt）</div>
+            <div class="settings-editor-actions kb-add-row">
+              <input class="settings-input kb-name-input" type="text" placeholder="文档名，例如：世界观设定" aria-label="知识文档名" />
+              <button class="btn primary btn-xs kb-add" type="button">添加文档</button>
+            </div>
+            <textarea class="settings-config-tree kb-content-input" rows="4" spellcheck="false" placeholder="文档内容（Markdown 纯文本），对话中相关内容会被检索注入" aria-label="知识文档内容"></textarea>
+            <div class="settings-status-inline kb-status"></div>
+            <div class="plugin-list kb-list"></div>
+            <div class="settings-group-title">联网查询试一试</div>
+            <div class="settings-editor-actions search-row">
+              <input class="settings-input search-query-input" type="text" placeholder="输入关键词，验证联网检索是否可用" aria-label="联网查询关键词" />
+              <button class="btn primary btn-xs search-run" type="button">搜索</button>
+            </div>
+            <div class="plugin-list search-results"></div>
+          </section>
+          <section class="settings-tab-panel" data-panel="plugins">
+            <div class="settings-section-title">插件管理</div>
+            <div class="settings-section-hint">原生插件随应用内置，外部插件由用户安装；启用 / 停用即时生效，部分插件需重启后端。</div>
+            <div class="settings-status-inline plugin-status"></div>
+            <div class="plugin-list"></div>
           </section>
         </div>
       </div>
@@ -375,9 +461,26 @@ export function initSettingsPanel(
   const keyCardsEl = overlay.querySelector<HTMLElement>('.settings-key-cards')!;
   const modelListEl = overlay.querySelector<HTMLElement>('[data-modellist]')!;
   const modelStatusEl = overlay.querySelector<HTMLElement>('[data-modelstatus]')!;
+  const modelUploadStatusEl = overlay.querySelector<HTMLElement>('[data-modeluploadstatus]')!;
+  const configTransferStatusEl = overlay.querySelector<HTMLElement>('[data-configtransferstatus]')!;
   const configTreeEl = overlay.querySelector<HTMLTextAreaElement>('.settings-config-tree')!;
   const saveBtn = overlay.querySelector<HTMLButtonElement>('.settings-save')!;
   const applyBtn = overlay.querySelector<HTMLButtonElement>('.settings-apply')!;
+  const voiceListEl = overlay.querySelector<HTMLElement>('.voice-list')!;
+  const voiceStatusEl = overlay.querySelector<HTMLElement>('.voice-status')!;
+  const voiceUploadInput = overlay.querySelector<HTMLInputElement>('.voice-upload-input')!;
+  const voiceUploadBtn = overlay.querySelector<HTMLButtonElement>('.voice-upload-btn')!;
+  const pluginListEl = overlay.querySelector<HTMLElement>('.plugin-list')!;
+  const pluginStatusEl = overlay.querySelector<HTMLElement>('.plugin-status')!;
+  const memoryListEl = overlay.querySelector<HTMLElement>('.memory-list')!;
+  const memoryStatusEl = overlay.querySelector<HTMLElement>('.memory-status')!;
+  const memoryInputEl = overlay.querySelector<HTMLInputElement>('.memory-fact-input')!;
+  const kbListEl = overlay.querySelector<HTMLElement>('.kb-list')!;
+  const kbStatusEl = overlay.querySelector<HTMLElement>('.kb-status')!;
+  const kbNameEl = overlay.querySelector<HTMLInputElement>('.kb-name-input')!;
+  const kbContentEl = overlay.querySelector<HTMLTextAreaElement>('.kb-content-input')!;
+  const searchQueryEl = overlay.querySelector<HTMLInputElement>('.search-query-input')!;
+  const frontendVersionEl = overlay.querySelector<HTMLElement>('.settings-frontend-version');
 
   /* ---- 运行态 ---- */
   let currentConfig: AppConfig = EMPTY_CONFIG;
@@ -385,6 +488,8 @@ export function initSettingsPanel(
   let logLevelChanged = false;
   let requestToken = 0;
   let externalStatus: ExternalStatus | null = null;
+  let pluginsLoaded = false;
+  let memoryLoaded = false;
   // 子区块（背景图 / 外部接入）在下方 setStatus 就绪后装配
   let backgroundSection: BackgroundSection | null = null;
   let externalSection: ExternalInputSection | null = null;
@@ -436,7 +541,14 @@ export function initSettingsPanel(
     panels.forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
   };
   tabs.forEach((tab) => {
-    tab.addEventListener('click', () => switchTab(tab.dataset.tab || 'llm'));
+    tab.addEventListener('click', () => {
+      switchTab(tab.dataset.tab || 'llm');
+      if (tab.dataset.tab === 'plugins' && !pluginsLoaded) void renderPlugins();
+    if (tab.dataset.tab === 'memory' && !memoryLoaded) {
+      void renderMemory();
+      void renderKnowledge();
+    }
+    });
   });
 
   const close = (): void => {
@@ -666,20 +778,47 @@ export function initSettingsPanel(
     editor.dataset.configured = p.configured ? '1' : '0';
     editor.dataset.keyEnv = p.key_env || '';
     editor.dataset.type = 'tts';
+    const isMelo = p.id === 'melo_tts';
+    const voiceLabel = isMelo ? '语言 Language' : '音色 Voice';
+    const modelLabel = isMelo ? '设备 Device' : '模型';
+    const wsRow = isMelo
+      ? ''
+      : '<div class="settings-row"><span class="lbl">WebSocket URL</span><input class="tts-ws-url" type="text" data-mono /></div>';
+    const meloRows = isMelo
+      ? `
+        <div class="settings-row"><span class="lbl">说话人 Speaker（可选）</span><input class="tts-speaker" type="text" data-mono /></div>
+        <div class="settings-row"><span class="lbl">语速 Speed（0.5~2.0）</span><input class="tts-speed" type="number" min="0.5" max="2" step="0.05" data-mono /></div>
+        <div class="settings-row"><span class="lbl">韵律 sdp_ratio（0~1）</span><input class="tts-sdp" type="number" min="0" max="1" step="0.05" data-mono /></div>
+        <div class="settings-row"><span class="lbl">音高随机 noise_scale（0~1）</span><input class="tts-noise" type="number" min="0" max="1" step="0.05" data-mono /></div>
+        <div class="settings-row"><span class="lbl">时长随机 noise_scale_w（0~1）</span><input class="tts-noise-w" type="number" min="0" max="1" step="0.05" data-mono /></div>
+      `
+      : '';
+    const helpText = isMelo
+      ? '将用本地 Melo 真实合成试听，首次使用会下载模型。'
+      : '仅检查 Key 是否已配置，不真实合成。';
     editor.innerHTML = `
       <div class="settings-edit-stack">
-        <div class="settings-row"><span class="lbl">音色 Voice</span><select class="tts-voice" data-mono></select></div>
-        <div class="settings-row"><span class="lbl">模型</span><select class="tts-model" data-mono></select></div>
-        <div class="settings-row"><span class="lbl">WebSocket URL</span><input class="tts-ws-url" type="text" data-mono /></div>
+        <div class="settings-row"><span class="lbl">${voiceLabel}</span><select class="tts-voice" data-mono></select></div>
+        <div class="settings-row"><span class="lbl">${modelLabel}</span><select class="tts-model" data-mono></select></div>
+        ${wsRow}
+        ${meloRows}
       </div>
       <div class="settings-editor-actions">
         <button class="btn ghost settings-test-tts" type="button">试听/检查</button>
-        <span class="settings-tip settings-editor-help">仅检查 Key 是否已配置，不真实合成。</span>
+        <span class="settings-tip settings-editor-help">${helpText}</span>
       </div>
     `;
     fillModelSelect(editor.querySelector<HTMLSelectElement>('.tts-voice')!, p.voice, p.voices);
     fillModelSelect(editor.querySelector<HTMLSelectElement>('.tts-model')!, p.model, p.models);
-    editor.querySelector<HTMLInputElement>('.tts-ws-url')!.value = p.ws_url || '';
+    if (!isMelo) {
+      editor.querySelector<HTMLInputElement>('.tts-ws-url')!.value = p.ws_url || '';
+    } else {
+      editor.querySelector<HTMLInputElement>('.tts-speaker')!.value = p.speaker || '';
+      editor.querySelector<HTMLInputElement>('.tts-speed')!.value = String(p.speed ?? 1.0);
+      editor.querySelector<HTMLInputElement>('.tts-sdp')!.value = String(p.sdp_ratio ?? 0.2);
+      editor.querySelector<HTMLInputElement>('.tts-noise')!.value = String(p.noise_scale ?? 0.6);
+      editor.querySelector<HTMLInputElement>('.tts-noise-w')!.value = String(p.noise_scale_w ?? 0.8);
+    }
 
     const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
     toggle.addEventListener('click', () => {
@@ -908,6 +1047,9 @@ export function initSettingsPanel(
     // 与配置无关的两块（背景图 / 外部接入）独立加载，任一失败不影响其余分区
     void backgroundSection?.refresh();
     void externalSection?.refresh();
+    pluginsLoaded = false;
+    void renderPlugins(); // 插件列表独立加载，失败仅反映到插件分区 + toast
+    void loadFrontendVersion(); // 前端版本独立加载，失败显示「未知版本」不影响其余 UI
     try {
       const res = await fetch('/api/config');
       const data = (await res.json()) as AppConfig & { error?: string };
@@ -965,7 +1107,7 @@ export function initSettingsPanel(
       const cfg = currentConfig.tts_configs.find((c) => c.id === id);
       const voices = Array.from(card.querySelectorAll<HTMLOptionElement>('.tts-voice option')).map((o) => o.value).filter(Boolean);
       const models = Array.from(card.querySelectorAll<HTMLOptionElement>('.tts-model option')).map((o) => o.value).filter(Boolean);
-      ttsConfigs.push({
+      const ttsEntry: TtsProviderUi = {
         id,
         name: cfg?.name,
         voice: card.querySelector<HTMLSelectElement>('.tts-voice')?.value || '',
@@ -977,7 +1119,23 @@ export function initSettingsPanel(
         has_key: !!cfg?.has_key,
         configured: card.dataset.configured === '1',
         touched: card.dataset.touched === '1',
-      });
+      };
+      if (id === 'melo_tts') {
+        const num = (selector: string, fallback: number | null | undefined): number | null => {
+          const raw = card.querySelector<HTMLInputElement>(selector)?.value || '';
+          const n = Number(raw);
+          return raw && Number.isFinite(n) ? n : (fallback ?? null);
+        };
+        ttsEntry.language = ttsEntry.voice;
+        ttsEntry.device = ttsEntry.model;
+        ttsEntry.speaker = card.querySelector<HTMLInputElement>('.tts-speaker')?.value || '';
+        ttsEntry.speed = num('.tts-speed', cfg?.speed ?? 1.0);
+        ttsEntry.sdp_ratio = num('.tts-sdp', cfg?.sdp_ratio ?? 0.2);
+        ttsEntry.noise_scale = num('.tts-noise', cfg?.noise_scale ?? 0.6);
+        ttsEntry.noise_scale_w = num('.tts-noise-w', cfg?.noise_scale_w ?? 0.8);
+        ttsEntry.format = 'wav';
+      }
+      ttsConfigs.push(ttsEntry);
     });
 
     const apiKeys: SettingsUiState['api_keys'] = [];
@@ -1260,6 +1418,26 @@ export function initSettingsPanel(
       if (model) body.model = model;
       if (wsUrl) body.ws_url = wsUrl;
       if (apiKey) body.api_key = apiKey;
+      if (provider === 'melo_tts') {
+        const numberValue = (selector: string): number | null => {
+          const raw = card.querySelector<HTMLInputElement>(selector)?.value || '';
+          const n = Number(raw);
+          return raw && Number.isFinite(n) ? n : null;
+        };
+        body.language = voice || 'ZH';
+        body.device = model || 'cpu';
+        const speaker = card.querySelector<HTMLInputElement>('.tts-speaker')?.value.trim() || '';
+        if (speaker) body.speaker = speaker;
+        const speed = numberValue('.tts-speed');
+        if (speed !== null) body.speed = speed;
+        const sdpRatio = numberValue('.tts-sdp');
+        if (sdpRatio !== null) body.sdp_ratio = sdpRatio;
+        const noiseScale = numberValue('.tts-noise');
+        if (noiseScale !== null) body.noise_scale = noiseScale;
+        const noiseScaleW = numberValue('.tts-noise-w');
+        if (noiseScaleW !== null) body.noise_scale_w = noiseScaleW;
+        body.format = 'wav';
+      }
       const res = await fetch('/api/test-tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1364,6 +1542,479 @@ export function initSettingsPanel(
     }
   };
 
+  /* ---- Live2D 模型 zip 上传（对接 POST /api/models/upload） ---- */
+  const uploadModelHandler = (file: File): void => {
+    const btn = overlay.querySelector<HTMLButtonElement>('.settings-model-upload-btn');
+    const requestFn = async (token: number): Promise<void> => {
+      modelUploadStatusEl.textContent = '上传中…';
+      try {
+        const result = await uploadModelZip(file);
+        if (token !== requestToken) return;
+        modelUploadStatusEl.textContent = `已导入 ${result.model_id}`;
+        await renderModels(); // 复用现有模型列表刷新
+      } catch (err) {
+        if (token === requestToken) {
+          modelUploadStatusEl.textContent = `上传失败: ${(err as Error).message}`;
+        }
+        throw err;
+      }
+    };
+    withBusy(btn, requestFn);
+  };
+
+  /* ---- 配置导出 / 导入（对接 GET/POST /api/config/export · /api/config/import） ---- */
+  const exportConfigHandler = (): void => {
+    const btn = overlay.querySelector<HTMLButtonElement>('.settings-config-export-btn');
+    const requestFn = async (token: number): Promise<void> => {
+      configTransferStatusEl.textContent = '导出中…';
+      try {
+        const cfg = await exportConfig();
+        if (token !== requestToken) return;
+        const payload = JSON.stringify(
+          { format: cfg.format, version: cfg.version, conf_yaml: cfg.conf_yaml, persona: cfg.persona },
+          null,
+          2,
+        );
+        const blob = new Blob([payload], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'live2dai-config.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        configTransferStatusEl.textContent = '已导出 live2dai-config.json';
+      } catch (err) {
+        if (token === requestToken) {
+          configTransferStatusEl.textContent = `导出失败: ${(err as Error).message}`;
+        }
+        throw err;
+      }
+    };
+    withBusy(btn, requestFn);
+  };
+
+  const importConfigHandler = (file: File): void => {
+    const btn = overlay.querySelector<HTMLButtonElement>('.settings-config-import-btn');
+    const requestFn = async (token: number): Promise<void> => {
+      configTransferStatusEl.textContent = '导入中…';
+      try {
+        const result = await importConfigFile(file);
+        if (token !== requestToken) return;
+        configTransferStatusEl.textContent = `${result.message}（请重启后端以生效）`;
+      } catch (err) {
+        if (token === requestToken) {
+          configTransferStatusEl.textContent = `导入失败: ${(err as Error).message}`;
+        }
+        throw err;
+      }
+    };
+    withBusy(btn, requestFn);
+  };
+
+  /* ---- 插件管理（对接 /api/plugins） ---- */
+  const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
+    ok: { label: '正常', cls: 'ok' },
+    disabled: { label: '停用', cls: '' },
+    error: { label: '异常', cls: 'warn' },
+    gated: { label: '核心门控', cls: 'warn' },
+    core: { label: '核心提供', cls: 'ok' },
+    stub: { label: '未实现', cls: '' },
+  };
+
+  const statusBadgeHtml = (status: string): string => {
+    const s = STATUS_BADGES[status] || { label: status || '未知', cls: '' };
+    return `<span class="settings-badge ${s.cls}"><span class="status-dot"></span>${esc(s.label)}</span>`;
+  };
+
+  const buildPluginCard = (p: PluginInfo): HTMLElement => {
+    const card = document.createElement('div');
+    card.className = 'settings-card plugin-card';
+    const originBadge =
+      p.origin === 'native'
+        ? '<span class="settings-badge">原生</span>'
+        : '<span class="settings-badge testing">外部</span>';
+    const implLabel: Record<string, string> = {
+      runtime: '运行时',
+      gated: '核心门控',
+      core: '核心提供',
+      stub: '未实现',
+    };
+    const implBadge = p.implementation
+      ? `<span class="settings-badge">${esc(implLabel[p.implementation] || p.implementation)}</span>`
+      : '';
+    const enabledBadge = p.enabled
+      ? '<span class="settings-badge ok"><span class="status-dot"></span>已启用</span>'
+      : '<span class="settings-badge warn"><span class="status-dot"></span>已停用</span>';
+    const hookPoints = (p.hook_points || []).map((h) => `<code>${esc(h)}</code>`).join(' ') || '—';
+    const capabilities = (p.capabilities || []).map((c) => `<code>${esc(c)}</code>`).join(' ') || '—';
+    const nameText = p.name_zh ? `${esc(p.name_zh)} · ${esc(p.name)}` : esc(p.name || p.id);
+    const descText = p.description_zh
+      ? `${esc(p.description_zh)}<br><span class="settings-mono">${esc(p.description || '')}</span>`
+      : esc(p.description || '');
+    card.innerHTML = `
+      <div class="plugin-card-head">
+        <div class="plugin-card-title">
+          <span>${nameText}</span>
+          <span class="settings-mono settings-provider-id">${esc(p.id)}</span>
+          <span class="settings-mono">v${esc(p.version || '')}</span>
+        </div>
+        <div class="plugin-badges">${originBadge}${implBadge}${enabledBadge}${statusBadgeHtml(p.status)}</div>
+      </div>
+      <div class="plugin-card-desc">${descText}</div>
+      <div class="plugin-card-meta"><span class="lbl">钩子</span><span>${hookPoints}</span></div>
+      <div class="plugin-card-meta"><span class="lbl">能力</span><span>${capabilities}</span></div>
+      <div class="settings-editor-actions">
+        ${p.implementation === 'stub'
+          ? '<span class="settings-mono">未实现，不可启用</span>'
+          : (p.enabled
+            ? `<button class="btn ghost btn-xs plugin-disable" type="button" data-id="${esc(p.id)}">停用</button>`
+            : `<button class="btn primary btn-xs plugin-enable" type="button" data-id="${esc(p.id)}">启用</button>`)}
+      </div>
+    `;
+    return card;
+  };
+
+  const togglePlugin = (id: string, enabled: boolean, btn: HTMLButtonElement): void => {
+    const prevLabel = btn.textContent || '';
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span>${enabled ? '启用中…' : '停用中…'}`;
+    (async () => {
+      try {
+        const plugin = enabled ? await enablePlugin(id) : await disablePlugin(id);
+        await renderPlugins();
+        pluginStatusEl.textContent = `已${enabled ? '启用' : '停用'}: ${plugin.name || plugin.id}`;
+      } catch (err) {
+        const msg = (err as Error).message;
+        pluginStatusEl.textContent = `${enabled ? '启用' : '停用'}失败: ${msg}`;
+        toast(`插件${enabled ? '启用' : '停用'}失败: ${msg}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = prevLabel;
+      }
+    })();
+  };
+
+  const loadFrontendVersion = async (): Promise<void> => {
+    if (!frontendVersionEl) return;
+    try {
+      const res = await fetch('/api/frontend-version');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { ok?: boolean; version?: string; error?: string };
+      if (data.error) throw new Error(String(data.error));
+      frontendVersionEl.textContent = data.version || '未知版本';
+    } catch {
+      frontendVersionEl.textContent = '未知版本';
+    }
+  };
+
+  /* ---- 记忆管理（对接 /api/memory/*，可视化长期记忆事实） ---- */
+  const renderMemory = async (): Promise<void> => {
+    memoryLoaded = true;
+    memoryListEl.innerHTML = '<div class="settings-tip">加载记忆…</div>';
+    memoryStatusEl.textContent = '';
+    try {
+      const facts = await listMemoryFacts();
+      if (!facts.length) {
+        memoryListEl.innerHTML =
+          '<div class="settings-tip">还没有长期记忆——聊天时说「我叫… / 我喜欢… / 记住：…」就会自动记录。</div>';
+        return;
+      }
+      memoryListEl.innerHTML = '';
+      facts.forEach((fact, idx) => {
+        const row = document.createElement('div');
+        row.className = 'memory-row';
+        row.innerHTML = `
+          <span class="memory-idx settings-mono">#${idx + 1}</span>
+          <span class="memory-fact">${esc(fact)}</span>
+          <button class="btn ghost btn-xs memory-del" type="button" data-idx="${idx}" aria-label="删除这条记忆">删除</button>
+        `;
+        memoryListEl.appendChild(row);
+      });
+      memoryListEl.querySelectorAll<HTMLButtonElement>('.memory-del').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = Number(btn.dataset.idx);
+          btn.disabled = true;
+          void (async () => {
+            try {
+              await deleteMemoryFact(idx);
+              await renderMemory();
+              memoryStatusEl.textContent = '已删除';
+            } catch (err) {
+              memoryStatusEl.textContent = `删除失败: ${(err as Error).message}`;
+              toast(`记忆删除失败: ${(err as Error).message}`, 'error');
+              btn.disabled = false;
+            }
+          })();
+        });
+      });
+    } catch (err) {
+      memoryLoaded = false; // 失败允许下次点 tab 重试（与插件分区同策略）
+      const msg = (err as Error).message;
+      memoryListEl.innerHTML = `<div class="settings-tip">加载记忆失败: ${esc(msg)}</div>`;
+      toast(`记忆加载失败: ${msg}`, 'error');
+    }
+  };
+
+  const addMemoryFromInput = (): void => {
+    const fact = (memoryInputEl.value || '').trim();
+    if (!fact) return;
+    if (fact.length > 200) {
+      toast('记忆过长（不超过 200 字）', 'error');
+      return;
+    }
+    void (async () => {
+      try {
+        await addMemoryFact(fact);
+        memoryInputEl.value = '';
+        await renderMemory();
+        memoryStatusEl.textContent = '已添加';
+      } catch (err) {
+        memoryStatusEl.textContent = `添加失败: ${(err as Error).message}`;
+        toast(`记忆添加失败: ${(err as Error).message}`, 'error');
+      }
+    })();
+  };
+  overlay.querySelector<HTMLButtonElement>('.memory-add')?.addEventListener('click', addMemoryFromInput);
+  memoryInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addMemoryFromInput();
+  });
+
+  const renderKnowledge = async (): Promise<void> => {
+    kbListEl.innerHTML = '<div class="settings-tip">加载知识文档…</div>';
+    kbStatusEl.textContent = '';
+    try {
+      const docs = await listKnowledgeDocs();
+      if (!docs.length) {
+        kbListEl.innerHTML =
+          '<div class="settings-tip">还没有知识文档——添加后，对话中相关内容会自动检索注入并标注来源。</div>';
+        return;
+      }
+      kbListEl.innerHTML = '';
+      for (const d of docs) {
+        const row = document.createElement('div');
+        row.className = 'memory-row';
+        const sizeText = typeof d.size === 'number' ? ` · ${d.size} 字` : '';
+        row.innerHTML = `
+          <span class="memory-idx settings-mono">📄</span>
+          <span class="memory-fact">${esc(d.name)}<span class="settings-mono">${esc(sizeText)}</span></span>
+          <button class="btn ghost btn-xs kb-del" type="button" data-name="${esc(d.name)}" aria-label="删除知识文档">删除</button>
+        `;
+        kbListEl.appendChild(row);
+      }
+      kbListEl.querySelectorAll<HTMLButtonElement>('.kb-del').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const name = btn.dataset.name || '';
+          btn.disabled = true;
+          void (async () => {
+            try {
+              await deleteKnowledgeDoc(name);
+              await renderKnowledge();
+              kbStatusEl.textContent = '已删除';
+            } catch (err) {
+              kbStatusEl.textContent = `删除失败: ${(err as Error).message}`;
+              toast(`知识文档删除失败: ${(err as Error).message}`, 'error');
+              btn.disabled = false;
+            }
+          })();
+        });
+      });
+    } catch (err) {
+      const msg = (err as Error).message;
+      kbListEl.innerHTML = `<div class="settings-tip">加载知识文档失败: ${esc(msg)}</div>`;
+    }
+  };
+
+  const addKnowledgeFromInputs = (): void => {
+    const name = (kbNameEl.value || '').trim();
+    const content = (kbContentEl.value || '').trim();
+    if (!name || !content) {
+      toast('文档名和内容都要填', 'error');
+      return;
+    }
+    void (async () => {
+      try {
+        const saved = await addKnowledgeDoc(name, content);
+        kbNameEl.value = '';
+        kbContentEl.value = '';
+        await renderKnowledge();
+        kbStatusEl.textContent = `已保存: ${saved}`;
+      } catch (err) {
+        kbStatusEl.textContent = `保存失败: ${(err as Error).message}`;
+        toast(`知识文档保存失败: ${(err as Error).message}`, 'error');
+      }
+    })();
+  };
+  overlay.querySelector<HTMLButtonElement>('.kb-add')?.addEventListener('click', addKnowledgeFromInputs);
+
+  const runSearch = (): void => {
+    const query = (searchQueryEl.value || '').trim();
+    if (!query) return;
+    const resultsEl = overlay.querySelector<HTMLElement>('.search-results')!;
+    resultsEl.innerHTML = '<div class="settings-tip">搜索中…</div>';
+    void (async () => {
+      try {
+        const { results, provider, error } = await webSearch(query);
+        if (error) throw new Error(error);
+        if (!results.length) {
+          resultsEl.innerHTML = '<div class="settings-tip">没有结果（或网络不可达）</div>';
+          return;
+        }
+        resultsEl.innerHTML = '';
+        for (const r of results.slice(0, 5)) {
+          const row = document.createElement('div');
+          row.className = 'memory-row';
+          row.innerHTML = `
+            <span class="memory-idx settings-mono">🔗</span>
+            <span class="memory-fact"><a href="${esc(r.url || '#')}" target="_blank" rel="noreferrer">${esc(r.title || r.url || '结果')}</a><br><span class="settings-mono">${esc((r.snippet || '').slice(0, 140))}</span></span>
+          `;
+          resultsEl.appendChild(row);
+        }
+        if (provider) {
+          const tag = document.createElement('div');
+          tag.className = 'settings-tip';
+          tag.textContent = `来源: ${provider}`;
+          resultsEl.appendChild(tag);
+        }
+      } catch (err) {
+        resultsEl.innerHTML = `<div class="settings-tip">搜索失败: ${esc((err as Error).message)}</div>`;
+      }
+    })();
+  };
+  overlay.querySelector<HTMLButtonElement>('.search-run')?.addEventListener('click', runSearch);
+  searchQueryEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSearch();
+  });
+  overlay.querySelector<HTMLButtonElement>('.memory-clear')?.addEventListener('click', () => {
+    void (async () => {
+      try {
+        const n = await clearMemoryFacts();
+        await renderMemory();
+        memoryStatusEl.textContent = n > 0 ? `已清空 ${n} 条` : '当前没有记忆';
+      } catch (err) {
+        memoryStatusEl.textContent = `清空失败: ${(err as Error).message}`;
+        toast(`记忆清空失败: ${(err as Error).message}`, 'error');
+      }
+    })();
+  });
+  const renderPlugins = async (): Promise<void> => {
+    pluginsLoaded = true;
+    pluginListEl.innerHTML = '<div class="settings-tip">加载插件…</div>';
+    pluginStatusEl.textContent = '';
+    try {
+      const plugins = await listPlugins();
+      if (!plugins.length) {
+        pluginListEl.innerHTML = '<div class="settings-tip">暂无插件</div>';
+        return;
+      }
+      pluginListEl.innerHTML = '';
+      const groups = [
+        { label: '原生插件', items: plugins.filter((p) => p.origin === 'native') },
+        { label: '外部插件', items: plugins.filter((p) => p.origin === 'external') },
+      ];
+      for (const group of groups) {
+        if (!group.items.length) continue;
+        const title = document.createElement('div');
+        title.className = 'settings-group-title';
+        title.textContent = `${group.label}（${group.items.length}）`;
+        pluginListEl.appendChild(title);
+        for (const p of group.items) pluginListEl.appendChild(buildPluginCard(p));
+      }
+      pluginListEl.querySelectorAll<HTMLButtonElement>('.plugin-enable').forEach((btn) => {
+        btn.addEventListener('click', () => { togglePlugin(btn.dataset.id || '', true, btn); });
+      });
+      pluginListEl.querySelectorAll<HTMLButtonElement>('.plugin-disable').forEach((btn) => {
+        btn.addEventListener('click', () => { togglePlugin(btn.dataset.id || '', false, btn); });
+      });
+    } catch (err) {
+      pluginsLoaded = false; // 失败允许下次点 tab 重试
+      const msg = (err as Error).message;
+      pluginListEl.innerHTML = `<div class="settings-tip">加载插件失败: ${esc(msg)}</div>`;
+      toast(`插件加载失败: ${msg}`, 'error');
+    }
+  };
+
+  /* ---- 声音克隆库（对接 /api/voice/*） ---- */
+  const renderVoices = async (): Promise<void> => {
+    try {
+      const voices = await listVoices();
+      if (!voices.length) {
+        voiceListEl.innerHTML = '<div class="settings-tip">还没有参考音频</div>';
+        return;
+      }
+      voiceListEl.innerHTML = '';
+      for (const v of voices) {
+        const row = document.createElement('div');
+        row.className = 'settings-row';
+        row.innerHTML = '<span class="lbl">' + esc(v.name) + (v.active ? ' (当前)' : '') + '</span>' +
+          '<div class="settings-editor-actions">' +
+          '<button class="btn ghost btn-xs voice-select" data-id="' + esc(v.id) + '" type="button">选用</button>' +
+          '<button class="btn ghost btn-xs voice-apply" data-id="' + esc(v.id) + '" type="button">应用</button>' +
+          '<button class="btn danger btn-xs voice-delete" data-id="' + esc(v.id) + '" type="button">删除</button>' +
+          '</div>';
+        voiceListEl.appendChild(row);
+      }
+      voiceListEl.querySelectorAll<HTMLButtonElement>('.voice-select').forEach((btn) => {
+        btn.addEventListener('click', () => { void selectVoiceHandler(btn.dataset.id || ''); });
+      });
+      voiceListEl.querySelectorAll<HTMLButtonElement>('.voice-apply').forEach((btn) => {
+        btn.addEventListener('click', () => { void applyVoiceHandler(btn.dataset.id || ''); });
+      });
+      voiceListEl.querySelectorAll<HTMLButtonElement>('.voice-delete').forEach((btn) => {
+        btn.addEventListener('click', () => { void deleteVoiceHandler(btn.dataset.id || ''); });
+      });
+    } catch (err) {
+      voiceStatusEl.textContent = '加载声音库失败: ' + (err as Error).message;
+    }
+  };
+
+  const uploadVoiceHandler = (file: File): void => {
+    const requestFn = async (token: number): Promise<void> => {
+      voiceStatusEl.textContent = '上传中…';
+      try {
+        const voice = await uploadVoice(file);
+        if (token !== requestToken) return;
+        voiceStatusEl.textContent = '已上传: ' + voice.name;
+        await renderVoices();
+      } catch (err) {
+        if (token === requestToken) voiceStatusEl.textContent = '上传失败: ' + (err as Error).message;
+        throw err;
+      }
+    };
+    withBusy(voiceUploadBtn, requestFn);
+  };
+
+  const selectVoiceHandler = async (voiceId: string): Promise<void> => {
+    try {
+      const voice = await selectVoice(voiceId);
+      voiceStatusEl.textContent = '已选用: ' + voice.name;
+      await renderVoices();
+    } catch (err) {
+      voiceStatusEl.textContent = '选用失败: ' + (err as Error).message;
+    }
+  };
+
+  const applyVoiceHandler = async (voiceId: string): Promise<void> => {
+    try {
+      const result = await applyVoice(voiceId);
+      voiceStatusEl.textContent = result.requires_restart ? result.message + '（请重启后端）' : result.message;
+      await renderVoices();
+    } catch (err) {
+      voiceStatusEl.textContent = '应用失败: ' + (err as Error).message;
+    }
+  };
+
+  const deleteVoiceHandler = async (voiceId: string): Promise<void> => {
+    try {
+      await deleteVoice(voiceId);
+      voiceStatusEl.textContent = '已删除';
+      await renderVoices();
+    } catch (err) {
+      voiceStatusEl.textContent = '删除失败: ' + (err as Error).message;
+    }
+  };
+
   /* ================================================================== *
    * 事件接线
    * ================================================================== */
@@ -1375,6 +2026,36 @@ export function initSettingsPanel(
   overlay.querySelector<HTMLButtonElement>('.settings-save-tree')!.addEventListener('click', () => { void saveTree(); });
   overlay.querySelector<HTMLButtonElement>('.settings-check-llm')!.addEventListener('click', () => { void checkAll(); });
   overlay.querySelector<HTMLButtonElement>('.settings-scan-models')!.addEventListener('click', () => { void scanModels(); });
+
+  const modelUploadInput = overlay.querySelector<HTMLInputElement>('.settings-model-upload-input')!;
+  overlay.querySelector<HTMLButtonElement>('.settings-model-upload-btn')!.addEventListener('click', () => {
+    modelUploadInput.value = '';
+    modelUploadInput.click();
+  });
+  modelUploadInput.addEventListener('change', () => {
+    const file = modelUploadInput.files?.[0];
+    if (file) uploadModelHandler(file);
+  });
+
+  const configImportInput = overlay.querySelector<HTMLInputElement>('.settings-config-import-input')!;
+  overlay.querySelector<HTMLButtonElement>('.settings-config-export-btn')!.addEventListener('click', () => { exportConfigHandler(); });
+  overlay.querySelector<HTMLButtonElement>('.settings-config-import-btn')!.addEventListener('click', () => {
+    configImportInput.value = '';
+    configImportInput.click();
+  });
+  configImportInput.addEventListener('change', () => {
+    const file = configImportInput.files?.[0];
+    if (file) importConfigHandler(file);
+  });
+
+  voiceUploadBtn.addEventListener('click', () => {
+    voiceUploadInput.value = '';
+    voiceUploadInput.click();
+  });
+  voiceUploadInput.addEventListener('change', () => {
+    const file = voiceUploadInput.files?.[0];
+    if (file) uploadVoiceHandler(file);
+  });
 
   overlay.querySelector<HTMLSelectElement>('.settings-log-level')!.addEventListener('change', () => {
     logLevelChanged = true; // A1：仅用户改动才提交
@@ -1433,6 +2114,7 @@ export function initSettingsPanel(
   return {
     open: (tab?: string) => {
       if (tab) switchTab(tab);
+      void renderVoices();
       void open();
     },
     close,

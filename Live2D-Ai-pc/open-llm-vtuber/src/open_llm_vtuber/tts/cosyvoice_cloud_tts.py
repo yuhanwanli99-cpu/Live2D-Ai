@@ -164,6 +164,15 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
                 logger.warning(f"CosyVoice Cloud: {last_error}（第 {attempt} 次尝试）")
                 continue
 
+            if not self._validate_audio_bytes(audio_bytes):
+                last_error = (
+                    f"服务端返回了无效的 {self.file_extension} 音频 "
+                    f"（{len(audio_bytes)} bytes，前 16 字节: "
+                    f"{audio_bytes[:16]!r}）"
+                )
+                logger.error(f"CosyVoice Cloud: {last_error}（第 {attempt} 次尝试）")
+                continue
+
             with open(file_name, "wb") as f:
                 f.write(audio_bytes)
             logger.info(
@@ -276,6 +285,32 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
             logger.warning("CosyVoice Cloud: 服务端未返回音频数据")
             return b""
         return b"".join(callback.audio_chunks)
+
+    def _validate_audio_bytes(self, audio_bytes: bytes) -> bool:
+        """粗校验音频字节是否像我们声称的容器格式。
+
+        阿里云偶发在 task-failed/空转时仍给出极短的非音频数据；把它当成功
+        写盘会让 pydub/ffmpeg 在后续播放阶段才失败（且错误更难看）。这里在
+        合成层就拒绝，错误直接可见并触发上层重试。
+        """
+        if not audio_bytes:
+            return False
+        fmt = (self.format or "mp3").lower()
+        head = audio_bytes[:16]
+        if fmt == "mp3":
+            if head.startswith(b"ID3"):
+                return len(audio_bytes) >= 128
+            return (
+                len(audio_bytes) >= 128
+                and len(head) >= 2
+                and head[0] == 0xFF
+                and (head[1] & 0xE0) == 0xE0
+            )
+        if fmt == "wav":
+            return len(audio_bytes) >= 44 and head.startswith(b"RIFF") and b"WAVE" in head
+        if fmt == "pcm":
+            return len(audio_bytes) > 0
+        return True
 
     @staticmethod
     def _safe_close(synthesizer) -> None:

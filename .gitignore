@@ -136,3 +136,6 @@ Live2D-Ai-pc/open-llm-vtuber/renderer/public/
 **/SETTINGS_*_HANDOFF.json
 analysis/tmp/
 analysis/**/tmp/
+
+# 本地后台运行残留
+nohup.out

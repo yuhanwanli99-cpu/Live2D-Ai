@@ -64,6 +64,7 @@ class OpenAICompatibleConfig(StatelessLLMBaseConfig):
     organization_id: str | None = Field(None, alias="organization_id")
     project_id: str | None = Field(None, alias="project_id")
     temperature: float = Field(1.0, alias="temperature")
+    max_tokens: int | None = Field(None, alias="max_tokens")
 
     _OPENAI_COMPATIBLE_DESCRIPTIONS: ClassVar[dict[str, Description]] = {
         "base_url": Description(en="Base URL for the API endpoint", zh="API的URL端点"),

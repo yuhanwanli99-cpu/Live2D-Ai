@@ -31,6 +31,8 @@ export enum ParamSource {
   Emotion = 5,
   UserTouch = 6,
   LipSync = 7,
+  /** 直播/弹幕事件触发的身体动作（追加项，不改变既有枚举数值） */
+  LiveEvent = 8,
 }
 
 /** 参数写入请求（不立即生效，由 write() 判定仲裁后进入 fade） */

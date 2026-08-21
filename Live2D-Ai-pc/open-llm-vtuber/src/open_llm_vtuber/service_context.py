@@ -46,6 +46,29 @@ def _resolve_mcp_servers_path() -> str:
     fresh clone works out of the box. Falls back to the local file if the shared one
     is missing (e.g. running upstream Open-LLM-VTuber standalone).
     """
+
+
+def _strip_legacy_expression_sections(text: str) -> str:
+    """从主对话脑 system prompt 中剥离旧的表情控制区块。
+
+    PC v4 已把 joy 等表情/动作分流到独立导演模型；主对话脑只输出自然语言。
+    shared/persona.yaml 仍为双端共享保留这些区块，这里只在 PC 主脑侧剥离。
+    """
+    if not text:
+        return text
+    lines = text.splitlines()
+    out: list[str] = []
+    skip = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## 表情控制") or stripped.startswith("## 表情强度控制"):
+            skip = True
+            continue
+        if skip and stripped.startswith("## "):
+            skip = False
+        if not skip:
+            out.append(line)
+    return "\n".join(out)
     shared_path = os.path.join("..", "..", "shared", "mcp_tools.json")
     if os.path.exists(shared_path):
         return shared_path
@@ -91,6 +114,16 @@ class ServiceContext:
         self.client_uid: str = None
 
         self._vision_config_raw: dict | None = None
+
+        # PC v4 插件系统：由 server 注入 PluginManager，所有非核心能力经此登记。
+        self.plugin_manager = None
+        # PC v4 多脑编排：独立导演模型，把 joy 等表情/动作从主对话脑分流。
+        self.director = None
+        # 热重载变化检测：记录各引擎最近一次生效的配置，避免 load_from_config 先把
+        # 新配置赋到 character_config 后，init_* 的 `!=` 保护失效导致永不重建引擎。
+        self._last_asr_config = None
+        self._last_tts_config = None
+        self._last_vad_config = None
 
     def __str__(self):
         return (
@@ -230,6 +263,7 @@ class ServiceContext:
         tool_adapter: ToolAdapter | None = None,
         send_text: Callable = None,
         client_uid: str = None,
+        plugin_manager=None,
     ) -> None:
         """Load the ServiceContext with the reference of the provided instances."""
         if not character_config:
@@ -249,6 +283,7 @@ class ServiceContext:
         self.tool_adapter = tool_adapter
         self.send_text = send_text
         self.client_uid = client_uid
+        self.plugin_manager = plugin_manager
 
         await self._init_mcp_components(
             self.character_config.agent_config.agent_settings.basic_memory_agent.use_mcpp,
@@ -405,7 +440,7 @@ class ServiceContext:
             self.asr_engine = None
             logger.info("ASR disabled (asr_model='disabled'; 启用需在 conf.yaml 改为 faster_whisper 等并配置模型)")
             return
-        if not self.asr_engine or (self.character_config.asr_config != asr_config):
+        if not self.asr_engine or (self._last_asr_config != asr_config):
             logger.info(f"Initializing ASR: {asr_config.asr_model}")
             self._safe_close(self.asr_engine)
             self.asr_engine = ASRFactory.get_asr_system(
@@ -413,11 +448,12 @@ class ServiceContext:
                 **getattr(asr_config, asr_config.asr_model).model_dump(),
             )
             self.character_config.asr_config = asr_config
+            self._last_asr_config = asr_config
         else:
             logger.info("ASR already initialized with the same config.")
 
     def init_tts(self, tts_config: TTSConfig) -> None:
-        if not self.tts_engine or (self.character_config.tts_config != tts_config):
+        if not self.tts_engine or (self._last_tts_config != tts_config):
             logger.info(f"Initializing TTS: {tts_config.tts_model}")
             self._safe_close(self.tts_engine)
             self.tts_engine = TTSFactory.get_tts_engine(
@@ -425,6 +461,7 @@ class ServiceContext:
                 **getattr(tts_config, tts_config.tts_model.lower()).model_dump(),
             )
             self.character_config.tts_config = tts_config
+            self._last_tts_config = tts_config
         else:
             logger.info("TTS already initialized with the same config.")
 
@@ -434,13 +471,14 @@ class ServiceContext:
             self.vad_engine = None
             return
 
-        if not self.vad_engine or (self.character_config.vad_config != vad_config):
+        if not self.vad_engine or (self._last_vad_config != vad_config):
             logger.info(f"Initializing VAD: {vad_config.vad_model}")
             self.vad_engine = VADFactory.get_vad_engine(
                 vad_config.vad_model,
                 **getattr(vad_config, vad_config.vad_model.lower()).model_dump(),
             )
             self.character_config.vad_config = vad_config
+            self._last_vad_config = vad_config
         else:
             logger.info("VAD already initialized with the same config.")
 
@@ -543,27 +581,93 @@ class ServiceContext:
             self.character_config.agent_config = agent_config
             self.system_prompt = system_prompt
 
+            # PC v4：初始化独立导演模型，把 joy 等表情/动作从主对话脑分流。
+            try:
+                from .director import ExpressionDirector
+                from .agent.stateless_llm_factory import LLMFactory as StatelessLLMFactory
+
+                basic = agent_config.agent_settings.basic_memory_agent
+                main_provider = basic.llm_provider if basic else "deepseek_llm"
+                director_provider = (
+                    getattr(self.system_config, "director_llm_provider", None)
+                    or main_provider
+                )
+                director_cfg = dict(
+                    agent_config.llm_configs.model_dump().get(director_provider, {})
+                )
+                director_model = getattr(self.system_config, "director_model", None)
+                if director_model:
+                    director_cfg["model"] = director_model
+                # 导演只输出一行 JSON：低温 + 极小 max_tokens，降低每句额外延迟。
+                director_cfg.setdefault("temperature", 0.0)
+                director_cfg.setdefault("max_tokens", 64)
+                if director_cfg:
+                    director_llm = StatelessLLMFactory.create_llm(
+                        director_provider, **director_cfg
+                    )
+                    self.director = ExpressionDirector(llm=director_llm)
+                    logger.info(
+                        f"ExpressionDirector initialized with provider {director_provider} "
+                        f"model {director_cfg.get('model')}"
+                    )
+                else:
+                    self.director = None
+                    logger.warning("Director provider config missing; using rule fallback")
+            except Exception as e:  # noqa: BLE001 - 导演失败不阻塞主模型
+                self.director = None
+                logger.error(f"Failed to initialize ExpressionDirector, fallback to rule: {e}")
+
+            # LLM 记忆管家：对话链结束后异步沉淀/合并/清理长期事实。
+            # 复用导演 provider（低温、稍大 max_tokens 容纳 JSON 数组）；
+            # LIVE2DAI_MEMORY_CURATOR=off 可关闭；初始化失败自动缺席（正则兜底仍在）。
+            self.memory_curator = None
+            try:
+                if os.getenv("LIVE2DAI_MEMORY_CURATOR", "").lower() != "off":
+                    from .memory_curator import MemoryCurator
+
+                    curator_cfg = dict(
+                        agent_config.llm_configs.model_dump().get(director_provider, {})
+                    )
+                    if director_model := getattr(self.system_config, "director_model", None):
+                        curator_cfg["model"] = director_model
+                    curator_cfg.setdefault("temperature", 0.0)
+                    curator_cfg.setdefault("max_tokens", 300)
+                    if curator_cfg:
+                        curator_llm = StatelessLLMFactory.create_llm(
+                            director_provider, **curator_cfg
+                        )
+                        self.memory_curator = MemoryCurator(llm=curator_llm)
+                        logger.info(
+                            f"MemoryCurator initialized with provider {director_provider} "
+                            f"model {curator_cfg.get('model')}"
+                        )
+            except Exception as e:  # noqa: BLE001 - 管家缺席不影响对话
+                self.memory_curator = None
+                logger.warning(f"MemoryCurator init failed, memory stays regex-only: {e}")
+
         except Exception as e:
             logger.error(f"Failed to initialize agent: {e}")
             raise
 
     async def construct_system_prompt(self, persona_prompt: str) -> str:
-        """Append tool prompts to persona prompt."""
+        """Append tool prompts to persona prompt.
+
+        PC v4：主对话脑不再输出 joy 等表情标签；先剥离 persona 里的旧表情控制
+        区块，并跳过 live2d_expression_prompt 工具提示。表情/动作由独立导演模型
+        在句子阶段生成。
+        """
+        persona_prompt = _strip_legacy_expression_sections(persona_prompt)
         logger.debug(f"constructing persona_prompt: '''{persona_prompt}'''")
 
         for prompt_name, prompt_file in self.system_config.tool_prompts.items():
             if (
                 prompt_name == "group_conversation_prompt"
                 or prompt_name == "proactive_speak_prompt"
+                or prompt_name == "live2d_expression_prompt"
             ):
                 continue
 
             prompt_content = prompt_loader.load_util(prompt_file)
-
-            if prompt_name == "live2d_expression_prompt":
-                prompt_content = prompt_content.replace(
-                    "[<insert_emomap_keys>]", self.live2d_model.emo_str
-                )
 
             if prompt_name == "mcp_prompt":
                 continue

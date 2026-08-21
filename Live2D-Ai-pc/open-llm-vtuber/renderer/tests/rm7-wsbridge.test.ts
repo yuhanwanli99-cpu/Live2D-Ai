@@ -67,7 +67,7 @@ beforeEach(() => {
 // 工具：可注入的消费回调 mock
 // ─────────────────────────────────────────────────────────────────────────────
 let lipSync: { play: ReturnType<typeof vi.fn> };
-let emotionConsumer: { consume: ReturnType<typeof vi.fn> };
+let emotionConsumer: { consume: ReturnType<typeof vi.fn>; consumeFrame: ReturnType<typeof vi.fn> };
 let onModelChange: ReturnType<typeof vi.fn>;
 let onSubtitle: ReturnType<typeof vi.fn>;
 
@@ -81,7 +81,7 @@ function makeConsumers(): {
   onSubtitle: typeof onSubtitle;
 } {
   lipSync = { play: vi.fn() };
-  emotionConsumer = { consume: vi.fn() };
+  emotionConsumer = { consume: vi.fn(), consumeFrame: vi.fn() };
   onModelChange = vi.fn();
   onSubtitle = vi.fn();
   return { lipSync, emotionConsumer, onModelChange, onSubtitle };
@@ -222,6 +222,28 @@ describe('RM7 ws-bridge — 消息分发', () => {
     bridge.disconnect();
   });
 
+  it('RM7-03c: 收到 "emotion" 帧 → EmotionConsumer.consumeFrame 被调用（emotion+strength 驱动表情）', () => {
+    const { bridge, ws, emotionConsumer } = openBridge();
+
+    ws.simulateMessage({
+      type: 'emotion',
+      emotion: 'joy',
+      strength: 3,
+      parameterOverrides: {},
+      fadeMs: 400,
+    });
+
+    expect(emotionConsumer.consumeFrame).toHaveBeenCalledTimes(1);
+    expect(emotionConsumer.consumeFrame).toHaveBeenCalledWith({
+      type: 'emotion',
+      emotion: 'joy',
+      strength: 3,
+      parameterOverrides: {},
+      fadeMs: 400,
+    });
+    bridge.disconnect();
+  });
+
   it('RM7-06: 收到 "subtitle" → onSubtitle 被调用（LLM 句子先于 audio 上屏）', () => {
     const { bridge, ws, onSubtitle } = openBridge();
 
@@ -292,6 +314,27 @@ describe('RM7 ws-bridge — 消息分发', () => {
     // 第一句、第二句各上屏一次，audio 不再重复第一句
     expect(onSubtitle).toHaveBeenCalledTimes(2);
     expect(onSubtitle.mock.calls.map((c: any) => c[0].text)).toEqual(['第一句', '第二句']);
+    bridge.disconnect();
+  });
+
+  it('RM7-live: 收到 "live-event" → onLiveEvent 被调用并携带事件 payload', () => {
+    const { bridge, ws } = openBridge();
+    const onLiveEvent = vi.fn();
+    bridge.onLiveEvent = onLiveEvent;
+
+    ws.simulateMessage({
+      type: 'live-event',
+      event: { type: 'danmaku', text: '你好', user: '小明', motion: 'happy', emotion: 'joy' },
+    });
+
+    expect(onLiveEvent).toHaveBeenCalledTimes(1);
+    expect(onLiveEvent).toHaveBeenCalledWith({
+      type: 'danmaku',
+      text: '你好',
+      user: '小明',
+      motion: 'happy',
+      emotion: 'joy',
+    });
     bridge.disconnect();
   });
 });

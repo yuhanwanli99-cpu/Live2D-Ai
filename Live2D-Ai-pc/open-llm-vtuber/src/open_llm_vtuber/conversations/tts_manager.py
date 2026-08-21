@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime
 from typing import List, Optional, Dict
-from loguru import logger
+from ..logsetup import get_logger
 
 from ..agent.output_types import DisplayText, Actions
 from ..live2d_model import Live2dModel
@@ -13,6 +13,9 @@ from ..tts.tts_interface import TTSInterface
 from ..tts.tts_instruction_library import get_instruction
 from ..utils.stream_audio import prepare_audio_payload
 from .types import WebSocketSend
+
+# 本模块全部记录带 "tts" 标签（控制台按标签分组，文件按标签检索）
+logger = get_logger("tts")
 
 
 class TTSTaskManager:
@@ -55,9 +58,11 @@ class TTSTaskManager:
         display_text: DisplayText,
         actions: Optional[Actions],
         emotion: str = "neutral",           # 新增：当前 emotion（用于 instruction 拼接）
+        strength: int = 2,                  # 新增：当前 emotion 强度（1-3，用于 emotion 帧）
         mood_tier: str = "neutral",         # 新增：当前心情分层
         sequence_number: Optional[int] = None,
         websocket_send: Optional[WebSocketSend] = None,
+        sentence_start: bool = False,       # 句首块标记：前端在它开播时才上屏该句字幕（字幕-声音同步）
     ) -> None:
         """
         新增方法：异步启动 TTS 合成（不阻塞后续句子）。
@@ -70,6 +75,7 @@ class TTSTaskManager:
             display_text: 前端展示文本
             actions: Live2D 动作（parameterOverrides 用于 emotion 帧）
             emotion: 当前句子 emotion（8 key 枚举）
+            strength: 当前 emotion 强度（1-3）
             mood_tier: 当前心情分层（furious/upset/neutral/happy/ecstatic）
             sequence_number: 显式序列号（None = 由内部自增分配）
             websocket_send: WS 发送函数
@@ -106,7 +112,9 @@ class TTSTaskManager:
         if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)) == 0:
             logger.debug("Empty TTS text, sending silent display payload")
             self._ensure_sender(websocket_send)
-            await self._send_silent_payload(display_text, actions, sequence_number)
+            await self._send_silent_payload(
+                display_text, actions, sequence_number, sentence_start=sentence_start
+            )
             return
 
         # emotion 帧去重决策（T2 起不再同步发送：改为与 audio 帧一起入队，由发送管线
@@ -116,7 +124,7 @@ class TTSTaskManager:
             emotion_payload = {
                 "type": "emotion",
                 "emotion": emotion,
-                "strength": 2,
+                "strength": max(1, min(3, int(strength or 2))),
                 "parameterOverrides": (actions.parameterOverrides if actions else None) or {},
                 "fadeMs": 400,
             }
@@ -138,6 +146,7 @@ class TTSTaskManager:
                 mood_tier=mood_tier,
                 sequence_number=sequence_number,
                 emotion_payload=emotion_payload,
+                sentence_start=sentence_start,
             )
         )
         self.task_list.append(task)
@@ -151,7 +160,9 @@ class TTSTaskManager:
         tts_engine: TTSInterface,
         websocket_send: WebSocketSend,
         emotion: str = "neutral",
+        strength: int = 2,
         mood_tier: str = "neutral",
+        sentence_start: bool = False,
     ) -> None:
         """
         兼容旧调用：委托 speak_async。
@@ -169,9 +180,11 @@ class TTSTaskManager:
             display_text=display_text,
             actions=actions,
             emotion=emotion,
+            strength=strength,
             mood_tier=mood_tier,
             sequence_number=None,
             websocket_send=websocket_send,
+            sentence_start=sentence_start,
         )
 
     async def flush(self, timeout: float = 30.0) -> None:
@@ -287,6 +300,7 @@ class TTSTaskManager:
         mood_tier: str,
         sequence_number: int,
         emotion_payload: Optional[Dict] = None,
+        sentence_start: bool = False,
     ) -> None:
         """带并发限流的 TTS 合成包装（信号量内执行，保证同时合成数 ≤ 上限）。"""
         async with self._semaphore:
@@ -299,6 +313,7 @@ class TTSTaskManager:
                 mood_tier=mood_tier,
                 sequence_number=sequence_number,
                 emotion_payload=emotion_payload,
+                sentence_start=sentence_start,
             )
             logger.info(
                 f"[TTS] seq={sequence_number} text={tts_text[:20]!r} "
@@ -314,6 +329,7 @@ class TTSTaskManager:
         mood_tier: str,
         sequence_number: int,
         emotion_payload: Optional[Dict] = None,
+        sentence_start: bool = False,
     ) -> None:
         """Process TTS generation and queue the result for ordered delivery
 
@@ -339,6 +355,9 @@ class TTSTaskManager:
                 None,
                 self._viseme_mode,
             )
+            # 字幕-声音同步：句首块打标记（省略=False，保持旧 payload 形状）
+            if sentence_start:
+                payload["sentence_start"] = True
             # T2: emotion 帧先入队（同一 sequence），再入队 audio payload，保持帧序
             if emotion_payload is not None:
                 await self._enqueue_payload(emotion_payload, sequence_number)
@@ -353,6 +372,8 @@ class TTSTaskManager:
                 display_text=display_text,
                 actions=actions,
             )
+            if sentence_start:
+                payload["sentence_start"] = True
             if emotion_payload is not None:
                 await self._enqueue_payload(emotion_payload, sequence_number)
             await self._enqueue_payload(payload, sequence_number)
@@ -416,6 +437,7 @@ class TTSTaskManager:
         display_text: DisplayText,
         actions: Optional[Actions],
         sequence_number: int,
+        sentence_start: bool = False,
     ) -> None:
         """Queue a silent audio payload"""
         audio_payload = prepare_audio_payload(
@@ -423,6 +445,9 @@ class TTSTaskManager:
             display_text=display_text,
             actions=actions,
         )
+        # 静默帧没有可"开播"的音频：句首标记让前端立即上屏该句（不等待声音）
+        if sentence_start:
+            audio_payload["sentence_start"] = True
         await self._enqueue_payload(audio_payload, sequence_number)
 
     async def _enqueue_payload(self, payload: Dict, sequence_number: int) -> None:
@@ -446,7 +471,7 @@ class TTSTaskManager:
             f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
         )
         try:
-            return await tts_engine.async_generate_audio(
+            audio_path = await tts_engine.async_generate_audio(
                 text=text,
                 file_name_no_ext=file_name,
                 instruction=instruction,
@@ -454,10 +479,13 @@ class TTSTaskManager:
         except TypeError:
             # 兼容未实现 instruction 参数的 TTS 引擎（降级为不带 instruction 合成）
             logger.warning("TTS engine 不支持 instruction 参数，降级合成")
-            return await tts_engine.async_generate_audio(
+            audio_path = await tts_engine.async_generate_audio(
                 text=text,
                 file_name_no_ext=file_name,
             )
+        if not audio_path:
+            raise ValueError("TTS 引擎未生成音频文件（返回空路径）")
+        return audio_path
 
     def clear(self) -> None:
         """Clear all pending tasks and reset state"""

@@ -50,8 +50,66 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 - **API Keys**：集中管理 DeepSeek / 智谱 / Qwen / OpenAI 兼容 Key
 - **人设/提示词**：编辑 `shared/persona.yaml` 的系统提示词与人设参数
 - **系统**：端口 / FPS / 日志级别，以及 `conf.yaml` 原始 YAML 设定树
+- **插件管理**：查看已注册插件、原生/外部标识、启用/禁用、状态与错误、注册的钩子与能力
 
 保存后会写入 `conf.yaml`、`shared/persona.yaml` 与仓库根 `.env`，**重启后生效**。
+
+### 本地 Melo TTS（免费，无需云端 Key）
+
+设置中心的 **语音/TTS → 本地 / 免费 → Melo TTS（本地）** 提供无需云端 TTS Key 的本地合成：
+
+1. 在 TTS 提供商下拉选择 `melo_tts`，保存后重启后端。
+2. 语言选择 `ZH`（实际为中英混合模型），设备默认 `cpu`；四韵律参数只需改节奏、不改音色：
+   - `speed`：语速，0.5~2.0（默认 1.0）
+   - `sdp_ratio`：随机韵律预测占比，0~1（默认 0.2，调高更有起伏）
+   - `noise_scale`：音高随机度，0~1（默认 0.6，低平稳、高自然但可能不稳）
+   - `noise_scale_w`：音素时长随机度，0~1（默认 0.8，调高则抑扬顿挫）
+3. 首次试听会触发模型下载（从 hf-mirror 拉取）；未安装 Melo 时，试听/保存会给出可读错误，不影响默认启动。
+4. 默认使用 CPU 合成；单次输入限制 `MELO_MAX_TEXT_LEN=200` 字、`MELO_MAX_SENTENCES=4` 句，超出会返回可读错误，避免 Melo 把长文本拆成过多小句。
+5. 聊天链路的 LLM 回答会自动切成约 36 字的小块依次进 TTS 队列（`split_tts_chunks`），首块更早开始合成/播放，缓解长句等待。
+6. 括注舞台说明（（）/()）不会朗读也不会显示；其中的动作词（扇风/点头等）会映射为半身参数动作。
+7. 一次用户输入默认触发多段续聊（`MELO_MULTI_TURN_EXTRA=2`，设 0 可关），每段分别合成 TTS 并按序播放，用户可随时打断。
+
+本地 HTTP 接口（供本机脚本调用）：
+
+```bash
+curl -X POST http://localhost:12393/api/tts/local/synthesize \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"你好，这是本地合成测试。","language":"ZH","device":"cpu","speed":1.0,"sdp_ratio":0.2,"noise_scale":0.6,"noise_scale_w":0.8,"format":"wav"}'
+```
+
+返回 JSON 中的 `audio_url` 可直接下载生成的 WAV。
+
+> **外部 Melo 环境对接**：本仓库运行环境（Python 3.12）不安装 Melo；后端会通过常驻
+> `melo_worker.py` 子进程调用独立 conda 环境里的 `melo.api.TTS`，避免每句 10~30s 模型加载。
+> 默认解释器为 `~/miniconda3/envs/melo/bin/python`，可用环境变量 `MELO_PYTHON` 覆盖：
+>
+> ```bash
+> export MELO_PYTHON=~/miniconda3/envs/melo/bin/python
+> ```
+>
+> 非交互式启动（如 cron / `wsl.exe -e`）不会加载 `.bashrc`，worker 已自动注入
+> `HF_ENDPOINT=https://hf-mirror.com`，首次下载其他语言模型时无需手动带环境变量。
+> 若 `MELO_PYTHON` 路径不存在，选择 Melo 或试听会返回可读错误，不影响默认启动。
+
+### 插件系统
+
+除核心链路（对话脑 / TTS / Live2D）外，其余能力都必须在插件系统注册并启用后才可用。
+设置中心的「插件管理」会显示每个插件是 `native`（主仓库自带）还是 `external`（来自插件仓库/第三方）。
+
+- 输入端口：`input-port`
+- 通用直播事件输入：`live-ingress`
+- 长期记忆：`memory`
+- 长程人设：`persona`
+- 上下文压缩：`context-compactor`
+- 身体/表情导演：`body-director`
+- 心情/TTS 导演：`mood-tts-director`
+- 语音识别：`asr`
+- 知识库：`knowledge`
+- 联网查询：`web-search`
+- 声音资产：`voice-assets`
+- 模型资产：`model-assets`
+- 配置包：`config-pack`
 
 ## 前置准备
 

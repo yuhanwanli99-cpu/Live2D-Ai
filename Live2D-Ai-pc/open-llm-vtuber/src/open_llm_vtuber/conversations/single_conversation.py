@@ -1,6 +1,7 @@
 from typing import Union, List, Dict, Any, Optional
 import asyncio
 import json
+import os
 import time
 from loguru import logger
 import numpy as np
@@ -42,6 +43,35 @@ async def _send_emotion_frame(
     await websocket_send(json.dumps(frame))
 
 
+def _spawn_memory_curation(context, user_text: str, ai_text: str) -> None:
+    """派生后台任务执行 LLM 记忆管家（fire-and-forget；失败只记日志）。"""
+    curator = getattr(context, "memory_curator", None)
+    if curator is None or not (user_text or "").strip():
+        return
+
+    async def _run():
+        try:
+            plugin_manager = getattr(context, "plugin_manager", None)
+            host = getattr(plugin_manager, "host", None) if plugin_manager else None
+            inst = host.get_instance("memory") if host is not None else None
+            if inst is None or not hasattr(inst, "list_facts"):
+                return  # 记忆插件未加载 → 无处落盘，静默跳过
+            from ..memory_curator import apply_curation
+
+            actions = await curator.curate(user_text, ai_text, inst.list_facts())
+            applied = apply_curation(inst, actions)
+            if applied:
+                logger.info(f"记忆管家本轮更新 {applied} 条长期事实")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 管家任何失败不影响主链路
+            logger.warning(f"记忆管家执行失败（忽略）: {exc}")
+
+    import asyncio
+
+    asyncio.create_task(_run())
+
+
 async def _safe_mood(mood_engine, method: str, *args) -> None:
     """mood 事件调用兜底（P7-05：mood 模块异常不影响对话主链路）。"""
     if mood_engine is None:
@@ -50,6 +80,144 @@ async def _safe_mood(mood_engine, method: str, *args) -> None:
         await getattr(mood_engine, method)(*args)
     except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
         logger.warning(f"mood_engine.{method} failed (ignored): {e}")
+
+
+async def _apply_director(context: ServiceContext, output_item) -> None:
+    """PC v4：把情绪/表情/动作分流到独立导演模型，覆盖主对话脑 actions。
+
+    导演不可用/失败时保留主对话脑原有 actions，不阻断说话。
+    """
+    if not isinstance(output_item, SentenceOutput):
+        return
+    director = getattr(context, "director", None)
+    if director is None:
+        return
+    try:
+        result = await director.analyze(output_item.display_text.text or output_item.tts_text or "")
+    except Exception as e:  # noqa: BLE001 - 导演失败保留原动作
+        logger.warning(f"ExpressionDirector analyze failed, keep original actions: {e}")
+        return
+
+    actions = output_item.actions
+    if actions is None:
+        return
+    # 括注动作优先：主脑把舞台说明写进（）时，解析全部括注为带文本位置的
+    # motion 帧（下游切片成 motionTimeline，播放到对应进度才触发）；
+    # 首个命中同时作为整句兜底 motion（旧前端仍可见一次性行为）。
+    try:
+        from ..director import stage_gesture_timeline
+
+        timeline = stage_gesture_timeline(
+            output_item.display_text.text or output_item.tts_text or ""
+        )
+    except Exception:  # noqa: BLE001 - 括注解析失败不阻断导演结果
+        timeline = []
+    result.motion_timeline = list(timeline)
+    if timeline:
+        result.motion_label = timeline[0]["motion"]
+    if result.motion_label:
+        actions.motion = result.motion_label
+    if result.parameter_overrides:
+        actions.parameterOverrides = result.parameter_overrides
+    emo_map = getattr(context.live2d_model, "emo_map", {}) or {}
+    if result.emotion in emo_map:
+        actions.expressions = [emo_map[result.emotion]]
+    # 把导演结果挂在 SentenceOutput 上，供 handle_sentence_output 读取后下发
+    # 独立 emotion 帧（emotion+strength），否则前端只会收到恒 neutral / 空 overrides。
+    setattr(output_item, "_director_result", result)
+
+
+_CONTINUE_DIALOGUE_PROMPT = (
+    "（自然地继续刚才的话题，像日常闲聊接着聊下去；如果觉得已经说完，只回复 [DONE]）"
+)
+
+
+def _multi_turn_extra() -> int:
+    """一次用户输入触发的额外对话段数（MELO_MULTI_TURN_EXTRA，默认 2，上限 5）。"""
+    try:
+        return max(0, min(5, int(os.environ.get("MELO_MULTI_TURN_EXTRA", "2"))))
+    except (TypeError, ValueError):
+        return 2
+
+
+async def _consume_extra_agent_stream(
+    context: ServiceContext,
+    websocket_send: WebSocketSend,
+    tts_manager: TTSTaskManager,
+    mood_engine,
+    agent_output_stream,
+) -> tuple[str, bool]:
+    """消费多段对话的后续 agent 流：每段走 process_agent_output（含字幕/TTS 队列）。
+
+    返回 (累计文本, 是否遇到 [DONE] 终止标记)。播放/打断仍由 tts_manager 统一负责。
+    """
+    collected = ""
+    done = False
+    try:
+        async for output_item in agent_output_stream:
+            if isinstance(output_item, (SentenceOutput, AudioOutput)):
+                await _apply_director(context, output_item)
+                _mood_tier = "neutral"
+                if mood_engine is not None:
+                    try:
+                        _mood_tier = mood_engine.get_mood_tier().value
+                    except Exception:  # noqa: BLE001 - 降级 neutral 不阻断
+                        pass
+                part = await process_agent_output(
+                    output=output_item,
+                    character_config=context.character_config,
+                    live2d_model=context.live2d_model,
+                    tts_engine=context.tts_engine,
+                    websocket_send=websocket_send,
+                    tts_manager=tts_manager,
+                    translate_engine=context.translate_engine,
+                    mood_tier=_mood_tier,
+                    plugin_manager=getattr(context, "plugin_manager", None),
+                )
+                part = str(part or "")
+                if "[DONE]" in part:
+                    part = part.replace("[DONE]", "").strip()
+                    done = True
+                collected += part
+                if done:
+                    break
+            elif isinstance(output_item, dict) and output_item.get("type") == "stream_error":
+                message = str(output_item.get("message") or "对话失败")
+                await websocket_send(json.dumps({"type": "error", "message": message}))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 额外段失败要可见，不静默
+        logger.exception(f"Extra dialogue turn failed: {exc}")
+        try:
+            await websocket_send(json.dumps({"type": "error", "message": str(exc)}))
+        except Exception:
+            pass
+    return collected, done
+
+
+def _plugin_context(context: ServiceContext, name: str, payload: dict) -> str:
+    """把插件钩子返回的上下文片段合并成一段前缀文本。
+
+    只接受插件返回的 context 字符串；插件错误由 PluginHost 记录并返回 error
+    事件，不会从这里静默消失。
+    """
+    manager = getattr(context, "plugin_manager", None)
+    if manager is None or getattr(manager, "host", None) is None:
+        return ""
+    events = manager.host.emit_event(name, payload)
+    chunks: list[str] = []
+    for event in events:
+        if not event.get("ok"):
+            logger.warning(
+                f"plugin {event.get('plugin')} failed on {name}: {event.get('error')}"
+            )
+            continue
+        result = event.get("result")
+        if isinstance(result, dict) and isinstance(result.get("context"), str):
+            text = result["context"].strip()
+            if text:
+                chunks.append(text)
+    return "\n".join(chunks)
 
 
 _VISION_PROMPT = (
@@ -147,8 +315,24 @@ async def process_single_conversation(
         if not isinstance(user_input, str):
             await _safe_mood(mood_engine, "on_user_message_sentiment", input_text)
 
+        # 原始用户文本快照（注入记忆/知识前缀与视觉上下文之前），供记忆管家使用
+        raw_user_text = input_text
+
         # Capture screenshot and inject vision context (if enabled)
         input_text = await _get_vision_context(context, input_text)
+
+        # PC v4 插件钩子：llm.before 允许记忆/知识/上下文压缩插件注入前缀。
+        plugin_ctx = _plugin_context(
+            context,
+            "llm.before",
+            {
+                "text": input_text,
+                "history": list(getattr(context.agent_engine, "_memory", []) or []),
+            },
+        )
+        if plugin_ctx:
+            input_text = f"{plugin_ctx}\n\n{input_text}"
+            logger.info(f"plugin llm.before injected {len(plugin_ctx)} chars")
 
         # Create batch input
         batch_input = create_batch_input(
@@ -242,6 +426,9 @@ async def process_single_conversation(
 
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
+                    # PC v4：把表情/动作分析分流到导演模型，覆盖主脑 actions。
+                    await _apply_director(context, output_item)
+
                     # PC-L4: 当前 mood 分层传入 TTS（P7 mood_engine 产出；
                     # 每句现取以反映流式 emotion 事件对 mood 的实时影响；异常降级 neutral 不阻断）
                     _mood_tier = "neutral"
@@ -261,6 +448,7 @@ async def process_single_conversation(
                         tts_manager=tts_manager,
                         translate_engine=context.translate_engine,
                         mood_tier=_mood_tier,
+                        plugin_manager=getattr(context, "plugin_manager", None),
                     )
                     # Ensure response_part is treated as a string before concatenation
                     response_part_str = (
@@ -288,6 +476,27 @@ async def process_single_conversation(
             # full_response will contain partial response before error
         # --- End processing agent response ---
 
+        # 多段对话：一次用户输入额外续聊 N 段（MELO_MULTI_TURN_EXTRA，默认 2）。
+        # 用户新消息/打断会取消整个 conversation task，天然支持打断。
+        for _ in range(_multi_turn_extra()):
+            if "[DONE]" in full_response:
+                break
+            if not hasattr(context.agent_engine, "chat"):
+                break
+            cont_batch = create_batch_input(
+                input_text=_CONTINUE_DIALOGUE_PROMPT,
+                images=None,
+                from_name=context.character_config.human_name,
+                metadata=metadata,
+            )
+            cont_stream = context.agent_engine.chat(cont_batch)
+            part, done = await _consume_extra_agent_stream(
+                context, websocket_send, tts_manager, mood_engine, cont_stream
+            )
+            full_response += part
+            if done:
+                break
+
         # Wait for any pending TTS tasks
         if tts_manager.task_list:
             await asyncio.gather(*tts_manager.task_list)
@@ -309,6 +518,16 @@ async def process_single_conversation(
                 avatar=context.character_config.avatar,
             )
             logger.info(f"AI response: {full_response}")
+
+        # PC v4 插件钩子：llm.after 允许记忆插件从回复中沉淀长期事实（正则即时层）。
+        if full_response:
+            _plugin_context(
+                context,
+                "llm.after",
+                {"text": full_response},
+            )
+            # LLM 记忆管家（异步层）：对照现有事实做增/删/合并，不阻塞返回。
+            _spawn_memory_curation(context, raw_user_text, full_response)
 
         return full_response  # Return accumulated full_response
 

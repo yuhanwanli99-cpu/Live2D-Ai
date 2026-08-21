@@ -27,10 +27,14 @@ class TTSFactory:
             from .melo_tts import TTSEngine as MeloTTSEngine
 
             return MeloTTSEngine(
+                language=kwargs.get("language") or kwargs.get("voice") or "ZH",
+                device=kwargs.get("device") or kwargs.get("model") or "cpu",
                 speaker=kwargs.get("speaker"),
-                language=kwargs.get("language"),
-                device=kwargs.get("device"),
-                speed=kwargs.get("speed"),
+                speed=kwargs.get("speed", 1.0),
+                sdp_ratio=kwargs.get("sdp_ratio", 0.2),
+                noise_scale=kwargs.get("noise_scale", 0.6),
+                noise_scale_w=kwargs.get("noise_scale_w", 0.8),
+                format=kwargs.get("format", "wav"),
             )
         elif engine_type == "x_tts":
             from .x_tts import TTSEngine as XTTSEngine
