@@ -19,7 +19,7 @@
 | 阶段 | 状态 | 备注 |
 | --- | --- | --- |
 | P0 Spike（profile 生成+headless 冒烟） | ✅ 完成 GO | verification/soullink-p0-report.md；发现：非标彩蛋参数未自动入档（需手工扩展/LLM refine）；能力检测与人盘互证 |
-| P1 双跑开关（performanceEngine=legacy|soullink + 适配器 + 单测） | 未开始 | 三态表演签名随适配器落地 |
+| P1 双跑开关（performanceEngine=legacy|soullink + 适配器 + 单测） | 未开始 | **下一轮入口**：①建 src/soullink-adapter.ts（8key→sdk 词表映射+RMS 喂 AudioLevelAnalyzer+snapshot 写 coreModel+cue 转发）②settings 加 performanceEngine③createPipeline 分支④vitest fake-clock 单测⑤legacy 同步补三态最小行为（listening/thinking/speaking 签名见 PLAN-V3 §2 表） |
 | P2 默认切换+退役 legacy | 受限 | 默认切换需人工冒烟确认；退役/治理部分可先做 |
 | 审计(AUDIT.md)/重构(REFACTOR_PLAN.md) | 未开始 | P1-P2 落库后启动 |
 
