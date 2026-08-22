@@ -63,17 +63,17 @@ class TestGetConfig:
 class TestPostConfig:
     def test_post_config_ok_and_config_isomorphic_with_get(self, settings_env):
         # 改 port + persona，POST 成功后 GET 应与响应 config 同构（前端据此 re-populate）
+        # 人设收敛：persona 仅承载 system_prompt
         r = settings_env.client.post(
             "/api/config",
-            json={"port": 16000, "persona": {"name": "bai-leader", "temperature": 0.5}},
+            json={"port": 16000, "persona": {"system_prompt": "你是白。"}},
         )
         assert r.status_code == 200
         body = r.json()
         assert body["ok"] is True
         # 改动已反映到落盘后的 normalize 视图
         assert body["config"]["port"] == 16000
-        assert body["config"]["persona"]["name"] == "bai-leader"
-        assert body["config"]["persona"]["temperature"] == 0.5
+        assert body["config"]["persona"]["system_prompt"] == "你是白。"
 
         # re-populate 契约：POST 响应的 config 与随后 GET 完全一致
         get_body = settings_env.client.get("/api/config")
@@ -173,26 +173,28 @@ class TestValidationRollback:
 # 显式清空（null）
 # ─────────────────────────────────────────────────────────────
 class TestExplicitClear:
-    def test_persona_field_null_removes_from_file(self, settings_env):
-        # 先把 persona.name 写进去
+    def test_persona_system_prompt_cannot_be_cleared(self, settings_env):
+        # 人设收敛：system_prompt 唯一且不可为空（清空=400，文件不动）
+        marker = "to-be-cleared-prompt"
         r = settings_env.client.post(
-            "/api/config", json={"persona": {"name": "to-be-cleared"}}
+            "/api/config", json={"persona": {"system_prompt": marker}}
         )
         assert r.status_code == 200
-        persona_before = settings_env.read_persona()
-        assert "to-be-cleared" in persona_before
 
-        # 显式清空：name=null → 从 persona.yaml 删除该字段
-        r = settings_env.client.post(
-            "/api/config", json={"persona": {"name": None}}
-        )
-        assert r.status_code == 200
-        persona_after = settings_env.read_persona()
-        assert "to-be-cleared" not in persona_after
+        # null / 空串 / clear 标记 三种清空姿势全部拒绝
+        for payload in (
+            {"persona": {"system_prompt": None}},
+            {"persona": {"system_prompt": ""}},
+            {"persona": {"system_prompt": "abc", "clear": {"system_prompt": True}}},
+        ):
+            r = settings_env.client.post("/api/config", json=payload)
+            assert r.status_code == 400, f"{payload} 应被拒绝"
+            assert "System Prompt 不能为空" in r.json()["error"]
 
-        # normalize 视图里 name 回落到空串（spec 1.5：显式清空=删除）
+        # 文件未被改动，GET 视图仍是原值
+        assert marker in settings_env.read_persona()
         body = settings_env.client.get("/api/config").json()
-        assert body["persona"]["name"] == ""
+        assert body["persona"]["system_prompt"] == marker
 
     def test_env_key_null_removes_from_env_file(self, settings_env):
         assert "DEEPSEEK_API_KEY=" in settings_env.read_env()
@@ -433,7 +435,7 @@ class TestOutboundProtocols:
         assert r.status_code == 200
         _, url, _, payload = self._last()
         assert url == "https://api.deepseek.com/v1/chat/completions"  # 已保存 base_url
-        assert payload["model"] == "deepseek-v4-flash"  # 已保存 model
+        assert payload["model"] == "deepseek-v4-flash-vision-exp"  # 已保存 model（默认带视觉）
 
     # providers/check：saved∪UI 合成（saved key + UI base_url 覆盖）
     def test_providers_check_saved_key_and_ui_base_url(self, settings_env):

@@ -663,6 +663,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     wsBridge.onTextDelta = (delta) => {
       chatPanel.streamDelta(delta);
     };
+    wsBridge.onReasoningDelta = (delta) => {
+      chatPanel.streamReasoning(delta); // 思维链：折叠面板展示（开关控制）
+    };
     wsBridge.onSubtitle = (text) => {
       if (!text?.text) return;
       if (chatPanel.isStreaming()) {

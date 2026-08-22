@@ -1,3 +1,14 @@
+# 设置中心人设收敛 + 思考模式 + 默认视觉主模型（2026-08-22 晚）
+
+- **人设面板瘦身**：仅保留 System Prompt；角色名/角色定位/模型/Temperature/Max Tokens/视觉模型 全部移除（后端 persona 读写同步收敛，旧字段不再进配置）。
+- **LLM 设置新增**：Top P（provider 卡片内）、思考模式开关+思考强度（low/high/max，作用于当前选中 provider，DeepSeek 官方 thinking/reasoning_effort 契约）、「对话内展示思考」开关（纯前端偏好，localStorage showThinking）。
+- **思维链全链路**：ReasoningDelta 流式旁路（LLM→agent→transformers→single_conversation→ws reasoning-delta），不混正文、不入记忆、不进 TTS；前端折叠思考面板，正文开始自动折叠。
+- **默认主模型带视觉**：deepseek_llm.model → deepseek-v4-flash-vision-exp（官方实验模型，同 key 同端点）；视觉模型独立字段废除。
+- **web-search 免费引擎切至 Bing 中国站**（DuckDuckGo 国内不可达 Errno 101）；Tavily 保留为 key 制拓展位。
+- **防回归**：boot-guard 静态锁双保险可选链；test_shared 人设关键词断言改结构性检查（persona=用户数据）；settings_api 三处契约断言更新；System Prompt 显式清空 → 400 友好拒绝（空 persona 会让启动 FATAL）。
+
+---
+
 # 深度审计 + 工程优雅度重构完成（2026-08-22，无人值守轮次收尾）
 
 - **审计落盘 AUDIT.md**：AST 死代码扫描（305 定义 × 全语料引用计数）+ 重复普查 + 核心链路通读；PC 6 项 / Renderer 2 项 / Android 1 项全带 文件:行号 证据；命名/依赖耦合/可测试性三维度未发现明显问题。

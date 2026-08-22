@@ -91,9 +91,18 @@ def emo_interceptor():
 
             async def pump() -> None:
                 """分流：str → interceptor 输入队列；dict 事件 → 输出队列直接透传。"""
+                from .stateless_llm.openai_compatible_llm import ReasoningDelta
+
                 try:
                     async for item in raw_stream:
-                        if isinstance(item, str):
+                        if isinstance(item, ReasoningDelta):
+                            # 思维链旁路：直接下行到 single_conversation 单独下发，
+                            # 不进 emo 拦截 / 句子分段 / TTS（ReasoningDelta 是 str
+                            # 子类，必须先于 isinstance(item, str) 判断）
+                            await out_q.put(
+                                {"type": "reasoning_delta", "text": str(item)}
+                            )
+                        elif isinstance(item, str):
                             await text_q.put(item)
                         else:
                             await out_q.put(item)

@@ -46,13 +46,15 @@ character_config:
     llm_configs:
       deepseek_llm:
         llm_api_key: '${DEEPSEEK_API_KEY}'
-        model: 'deepseek-v4-flash'
+        # 默认主模型带视觉（官方实验模型，同 key 同端点）；思考默认关（桌宠低延迟）
+        model: 'deepseek-v4-flash-vision-exp'
         temperature: 0.8
 
         base_url: https://api.deepseek.com/v1
         models:
         - deepseek-v4-flash
         - deepseek-v4-pro
+        - deepseek-v4-flash-vision-exp
       zhipu_free_llm:
         llm_api_key: '${ZHIPU_API_KEY}'
         model: 'glm-4.7-flash'
@@ -350,7 +352,7 @@ character_config:
       language: 'ZH'
       device: 'cpu'
       speaker: ''
-      speed: 1
+      speed: 0.8
       sdp_ratio: 0.2
       noise_scale: 0.8
       noise_scale_w: 0.8

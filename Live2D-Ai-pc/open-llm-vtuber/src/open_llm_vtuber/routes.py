@@ -360,44 +360,16 @@ def init_config_routes(
             yaml.dump(data, f)
 
     def _apply_persona_to_data(data, persona):
-        """把 shared/persona.yaml 的提示词/模型/温度/视觉模型应用到待解析配置。
+        """把 shared/persona.yaml 的提示词应用到待解析配置。
 
-        与 run_server.main() 的启动逻辑保持一致，但作用于当前选中的 LLM Provider，
-        不再硬编码 deepseek_llm。
+        人设收敛（2026-08-22）：persona 只承载 system_prompt；模型/温度/top_p/
+        思考等参数一律归 LLM 设置（conf.yaml 对应 provider 配置），不再从
+        persona 覆盖。与 run_server.main() 的启动逻辑保持一致。
         """
         cc = data.setdefault("character_config", {})
-        if persona.get("system_prompt"):
-            cc["persona_prompt"] = persona["system_prompt"]
-
-        model_overrides = {
-            k: persona[k]
-            for k in ("model", "temperature", "max_tokens")
-            if persona.get(k) is not None
-        }
-        if model_overrides:
-            agent_cfg = cc.setdefault("agent_config", {})
-            llm_configs = agent_cfg.setdefault("llm_configs", {})
-            basic = (
-                agent_cfg.setdefault("agent_settings", {})
-                .setdefault("basic_memory_agent", {})
-            )
-            provider = _normalize_provider_id(
-                basic.get("llm_provider") or "deepseek_llm"
-            )
-            if provider != basic.get("llm_provider"):
-                basic["llm_provider"] = provider
-            provider_cfg = llm_configs.setdefault(provider, {})
-            if "model" in model_overrides:
-                provider_cfg["model"] = model_overrides["model"]
-            if "temperature" in model_overrides:
-                provider_cfg["temperature"] = model_overrides["temperature"]
-            if "max_tokens" in model_overrides:
-                provider_cfg["max_tokens"] = model_overrides["max_tokens"]
-        if persona.get("vision_model"):
-            vision_cfg = data.setdefault("vision_config", {})
-            if not isinstance(vision_cfg, dict):
-                vision_cfg = data["vision_config"] = {}
-            vision_cfg["model"] = persona["vision_model"]
+        # 无条件注入：显式清空 system_prompt 时回落空串，
+        # 否则 Pydantic 热重载会因 persona_prompt 缺失而 400
+        cc["persona_prompt"] = persona.get("system_prompt") or ""
         return data
 
     def _config_dict_for_reload():
@@ -610,12 +582,6 @@ def init_config_routes(
             "live2d_fps": sys_cfg.get("live2d_fps", 120),
             "log_level": _env_value("LIVE2DAI_LOG_LEVEL") or "INFO",
             "persona": {
-                "name": persona.get("name", ""),
-                "role": persona.get("role", ""),
-                "model": persona.get("model", ""),
-                "temperature": persona.get("temperature", 0.8),
-                "max_tokens": persona.get("max_tokens", None),
-                "vision_model": persona.get("vision_model", ""),
                 "system_prompt": persona.get("system_prompt", ""),
             },
         }
@@ -810,13 +776,26 @@ def init_config_routes(
                                 sel_entry["model"] = models[0]
                                 sel_entry.setdefault("models", models)
 
-            # 设置页的“视觉模型”写入 vision_config.model（如果用户填写）
+            # 人设收敛：视觉模型不再由设置页写入（主模型自带视觉能力）
+
+            # System Prompt 是唯一人设字段且不可为空：显式清空直接拒绝
+            # （空 persona 会让启动校验 FATAL、对话失去角色根基）
             persona_payload = payload.get("persona")
-            if persona_payload and persona_payload.get("vision_model"):
-                vision_cfg = data.setdefault("vision_config", {})
-                if not isinstance(vision_cfg, dict):
-                    vision_cfg = data["vision_config"] = {}
-                vision_cfg["model"] = persona_payload["vision_model"]
+            if isinstance(persona_payload, dict) and "system_prompt" in persona_payload:
+                _sp = persona_payload.get("system_prompt")
+                _wants_clear_sp = bool(
+                    (persona_payload.get("clear") or {}).get("system_prompt")
+                )
+                if _wants_clear_sp or _sp is None or (
+                    isinstance(_sp, str) and not _sp.strip()
+                ):
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": "System Prompt 不能为空——它承载角色核心人设",
+                        },
+                        status_code=400,
+                    )
 
             # 写盘前用 Config 做一次完整校验，避免非法 Provider/配置落盘。
             # （normalize + 校验都在 _save_yaml/_save_persona 之前完成 → 校验失败
@@ -829,12 +808,6 @@ def init_config_routes(
                 persona_payload = payload.get("persona")
                 if persona_payload:
                     for field in (
-                        "name",
-                        "role",
-                        "model",
-                        "temperature",
-                        "max_tokens",
-                        "vision_model",
                         "system_prompt",
                     ):
                         if field in persona_payload:
@@ -940,17 +913,11 @@ def init_config_routes(
                         if os.path.exists(tmp_env):
                             os.unlink(tmp_env)
 
-            # 人设/提示词保存（含显式清空：null 删除字段）
+            # 人设/提示词保存（含显式清空：null 删除字段）；字段已收敛为仅 system_prompt
             persona_payload = payload.get("persona")
             if persona_payload:
                 persona = _load_persona()
                 for field in (
-                    "name",
-                    "role",
-                    "model",
-                    "temperature",
-                    "max_tokens",
-                    "vision_model",
                     "system_prompt",
                 ):
                     if field not in persona_payload:
@@ -1047,14 +1014,8 @@ def init_config_routes(
             persona = _load_persona()
             return JSONResponse(
                 {
-                    "name": persona.get("name", ""),
-                    "role": persona.get("role", ""),
                     "profile": persona.get("profile", {}),
                     "system_prompt": persona.get("system_prompt", ""),
-                    "model": persona.get("model", ""),
-                    "temperature": persona.get("temperature", 0.8),
-                    "max_tokens": persona.get("max_tokens", None),
-                    "vision_model": persona.get("vision_model", ""),
                 }
             )
         except Exception as e:
@@ -1065,14 +1026,19 @@ def init_config_routes(
     async def update_persona(request: Request):
         try:
             payload = await request.json()
+            # System Prompt 唯一且不可为空（同 /api/config 守卫语义）
+            if "system_prompt" in payload:
+                _sp = payload.get("system_prompt")
+                if _sp is None or (isinstance(_sp, str) and not _sp.strip()):
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": "System Prompt 不能为空——它承载角色核心人设",
+                        },
+                        status_code=400,
+                    )
             persona = _load_persona()
             for field in (
-                "name",
-                "role",
-                "model",
-                "temperature",
-                "max_tokens",
-                "vision_model",
                 "system_prompt",
             ):
                 if field not in payload:

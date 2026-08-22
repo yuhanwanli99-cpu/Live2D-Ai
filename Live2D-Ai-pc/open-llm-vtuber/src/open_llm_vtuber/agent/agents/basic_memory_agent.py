@@ -13,7 +13,10 @@ from .agent_interface import AgentInterface
 from ..output_types import SentenceOutput, DisplayText
 from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
 from ..stateless_llm.claude_llm import AsyncLLM as ClaudeAsyncLLM
-from ..stateless_llm.openai_compatible_llm import AsyncLLM as OpenAICompatibleAsyncLLM
+from ..stateless_llm.openai_compatible_llm import (
+    AsyncLLM as OpenAICompatibleAsyncLLM,
+)
+from ..stateless_llm.openai_compatible_llm import ReasoningDelta
 from ...chat_history_manager import get_history
 from ..transformers import (
     sentence_divider,
@@ -436,6 +439,11 @@ class BasicMemoryAgent(AgentInterface):
             goto_next_while_iteration = False
 
             async for event in stream:
+                if isinstance(event, ReasoningDelta):
+                    # 思维链旁路：先于 str 分支（ReasoningDelta 是 str 子类，
+                    # 否则会被误吞进正文并写入记忆）
+                    yield event
+                    continue
                 if self.prompt_mode_flag:
                     if isinstance(event, str):
                         current_turn_text += event
@@ -651,6 +659,9 @@ class BasicMemoryAgent(AgentInterface):
                     text_chunk = ""
                     if isinstance(event, dict) and event.get("type") == "text_delta":
                         text_chunk = event.get("text", "")
+                    elif isinstance(event, ReasoningDelta):
+                        # 思维链旁路：转发给上层单独下发，不进正文、不入记忆
+                        yield event
                     elif isinstance(event, str):
                         text_chunk = event
                     else:

@@ -65,6 +65,11 @@ class OpenAICompatibleConfig(StatelessLLMBaseConfig):
     project_id: str | None = Field(None, alias="project_id")
     temperature: float = Field(1.0, alias="temperature")
     max_tokens: int | None = Field(None, alias="max_tokens")
+    top_p: float | None = Field(None, alias="top_p")
+    thinking_enabled: bool | None = Field(None, alias="thinking_enabled")
+    thinking_effort: Literal["low", "high", "max"] | None = Field(
+        None, alias="thinking_effort"
+    )
 
     _OPENAI_COMPATIBLE_DESCRIPTIONS: ClassVar[dict[str, Description]] = {
         "base_url": Description(en="Base URL for the API endpoint", zh="API的URL端点"),
@@ -79,6 +84,19 @@ class OpenAICompatibleConfig(StatelessLLMBaseConfig):
         "temperature": Description(
             en="What sampling temperature to use, between 0 and 2.",
             zh="使用的采样温度，介于 0 和 2 之间。",
+        ),
+        "top_p": Description(
+            en="Nucleus sampling parameter (optional).",
+            zh="核采样参数（可选，留空用提供商默认）。",
+        ),
+        "thinking_enabled": Description(
+            en="DeepSeek thinking mode toggle. None/False keeps it off (VTuber chat "
+            "default); True enables chain-of-thought reasoning.",
+            zh="DeepSeek 思考模式开关。不勾选=关闭（桌宠对话默认）；勾选后开启思维链推理。",
+        ),
+        "thinking_effort": Description(
+            en="Reasoning effort when thinking is enabled (low/high/max).",
+            zh="思考开启时的推理强度（low/high/max）。",
         ),
     }
 

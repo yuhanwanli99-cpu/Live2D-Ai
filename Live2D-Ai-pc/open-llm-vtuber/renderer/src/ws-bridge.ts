@@ -64,6 +64,8 @@ export class WsBridge {
     | null = null;
   /** token 级增量文本（P1-2 流式上屏；`text-delta`） */
   onTextDelta: ((text: string) => void) | null = null;
+  /** 思维链增量（DeepSeek thinking；`reasoning-delta`）——渲染与否由前端开关决定 */
+  onReasoningDelta: ((text: string) => void) | null = null;
   /**
    * 控制消息（`{"type":"control","text":...}`）。
    * 后端一直在发（`start-mic` / `interrupt`（VAD 打断）/ `mic-audio-end` /
@@ -522,6 +524,11 @@ export class WsBridge {
             history_uid: payload?.history_uid || '',
             success: !!payload?.success,
           });
+          break;
+        }
+        case 'reasoning-delta': {
+          const rp = data as { text?: string } | null;
+          if (rp?.text) this.onReasoningDelta?.(rp.text);
           break;
         }
         case 'text-delta': {

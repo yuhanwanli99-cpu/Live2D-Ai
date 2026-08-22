@@ -32,7 +32,9 @@ export interface LlmProviderUi {
   models?: string[];
   base_url: string;
   temperature: number | null;
-  max_tokens?: number | null;
+  top_p?: number | null;
+  thinking_enabled?: boolean | null;
+  thinking_effort?: string | null;
   key_env?: string | null;
   has_key: boolean;
   configured: boolean;
@@ -70,12 +72,7 @@ export interface ApiKeyUi {
 }
 
 export interface PersonaUi {
-  name: string;
-  role: string;
-  model: string;
-  temperature: number | null;
-  max_tokens: number | null;
-  vision_model: string;
+  // 人设收敛：仅提示词（其余参数在 LLM provider 配置内）
   system_prompt: string;
 }
 
@@ -102,10 +99,6 @@ export interface SettingsUiState {
 }
 
 export const PERSONA_CLEARABLE_FIELDS = [
-  'name',
-  'role',
-  'model',
-  'vision_model',
   'system_prompt',
 ] as const;
 
@@ -250,8 +243,13 @@ function llmPayload(p: LlmProviderUi): Record<string, unknown> {
   if (p.temperature !== null && p.temperature !== undefined) {
     out.temperature = p.temperature;
   }
-  if (p.max_tokens !== null && p.max_tokens !== undefined) {
-    out.max_tokens = p.max_tokens;
+  // max_tokens：不提供修改也不设默认值（后端保持 None → 提供商默认）
+  if (p.top_p !== null && p.top_p !== undefined) {
+    out.top_p = p.top_p;
+  }
+  if (p.thinking_enabled === true) {
+    out.thinking_enabled = true;
+    if (p.thinking_effort) out.thinking_effort = p.thinking_effort;
   }
   const models = dedupe(p.models || (p.model ? [p.model] : []));
   if (models.length) out.models = models;
@@ -320,19 +318,10 @@ export function collectPayload(ui: SettingsUiState): Record<string, unknown> {
     }
   }
 
+  // 人设收敛：payload 仅承载 system_prompt
   const persona: Record<string, unknown> = {
-    name: personaField(ui.persona.name, !!ui.persona.clear.name),
-    role: personaField(ui.persona.role, !!ui.persona.clear.role),
-    model: personaField(ui.persona.model, !!ui.persona.clear.model),
-    vision_model: personaField(ui.persona.vision_model, !!ui.persona.clear.vision_model),
     system_prompt: personaField(ui.persona.system_prompt, !!ui.persona.clear.system_prompt),
   };
-  if (ui.persona.temperature !== null && ui.persona.temperature !== undefined) {
-    persona.temperature = ui.persona.temperature;
-  }
-  if (ui.persona.max_tokens !== null && ui.persona.max_tokens !== undefined) {
-    persona.max_tokens = ui.persona.max_tokens;
-  }
 
   const payload: Record<string, unknown> = {
     llm_provider: ui.llm_provider,

@@ -709,3 +709,28 @@
   border-top-color: var(--accent);
   animation: ui-spin 0.8s linear infinite;
 }
+
+/* ---- 思维链展示（reasoning-delta；受「对话内展示思考」开关控制） ---- */
+.chat-thinking {
+  margin: 6px 0 2px;
+  max-width: 78%;
+  border: 1px solid var(--stroke, rgba(255, 255, 255, 0.14));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  color: var(--text-dim, rgba(255, 255, 255, 0.62));
+}
+.chat-thinking summary {
+  cursor: pointer;
+  padding: 4px 10px;
+  user-select: none;
+  opacity: 0.85;
+}
+.chat-thinking-body {
+  padding: 4px 10px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+  line-height: 1.55;
+}

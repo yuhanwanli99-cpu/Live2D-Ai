@@ -63,7 +63,9 @@ interface LlmProviderCfg {
   models?: string[];
   base_url: string;
   temperature: number;
-  max_tokens?: number | null;
+  top_p?: number | null;
+  thinking_enabled?: boolean | null;
+  thinking_effort?: string | null;
   key_env?: string | null;
   has_key: boolean;
   configured?: boolean;
@@ -92,12 +94,7 @@ interface TtsProviderCfg {
 }
 
 interface PersonaCfg {
-  name: string;
-  role: string;
-  model: string;
-  temperature: number;
-  max_tokens?: number | null;
-  vision_model: string;
+  // 人设收敛：仅提示词（模型/温度等参数在 llm_configs 内）
   system_prompt: string;
 }
 
@@ -208,12 +205,6 @@ const EMPTY_CONFIG: AppConfig = {
   live2d_fps: 120,
   log_level: 'INFO',
   persona: {
-    name: '',
-    role: '',
-    model: '',
-    temperature: 0.8,
-    max_tokens: null,
-    vision_model: '',
     system_prompt: '',
   },
 };
@@ -285,6 +276,21 @@ export function initSettingsPanel(
           <section class="settings-tab-panel active" data-panel="llm">
             <div class="settings-section-title">对话 / LLM</div>
             <label class="settings-row"><span class="lbl">LLM 提供商</span><select class="settings-llm"></select></label>
+            <label class="settings-row" title="开启后思考模式输出思维链；关闭则直接回答（延迟更低）">
+              <span class="lbl">思考模式</span>
+              <input class="settings-thinking-toggle" type="checkbox" />
+            </label>
+            <label class="settings-row" data-thinking-effort-row hidden><span class="lbl">思考强度</span>
+              <select class="settings-thinking-effort">
+                <option value="low">low（轻度）</option>
+                <option value="high">high（增强）</option>
+                <option value="max">max（深度）</option>
+              </select>
+            </label>
+            <label class="settings-row" title="仅影响本机界面：是否在聊天气泡上方展示模型的思维链过程">
+              <span class="lbl">对话内展示思考</span>
+              <input class="settings-show-thinking" type="checkbox" />
+            </label>
             <div class="settings-editor-actions">
               <button class="btn ghost settings-check-llm" type="button">全部检查可用性</button>
               <span class="settings-tip">保存后生效；打开面板不会自动探测模型。</span>
@@ -354,20 +360,14 @@ export function initSettingsPanel(
 
           <section class="settings-tab-panel" data-panel="persona">
             <div class="settings-section-title">人设 / 提示词</div>
+            <div class="settings-section-hint">
+              人设只承载提示词本身；模型 / 温度 / top_p / 思考等参数在「LLM 设置」页调整。
+            </div>
             <label class="settings-row"><span class="lbl">System Prompt</span>
-              <textarea class="settings-persona-prompt" rows="12" spellcheck="false"></textarea>
+              <textarea class="settings-persona-prompt" rows="14" spellcheck="false"></textarea>
             </label>
             <div class="settings-editor-actions">
-              <button class="btn danger settings-persona-clear-all" type="button">清除全部人设字段</button>
-            </div>
-            <div class="settings-group-title">人设参数</div>
-            <div class="settings-edit-stack">
-              <div class="settings-row"><span class="lbl">角色名</span><input class="settings-persona-name" type="text" /><button class="btn ghost btn-xs persona-clear" data-field="name" type="button">清除</button></div>
-              <div class="settings-row"><span class="lbl">角色定位</span><input class="settings-persona-role" type="text" /><button class="btn ghost btn-xs persona-clear" data-field="role" type="button">清除</button></div>
-              <div class="settings-row"><span class="lbl">模型</span><input class="settings-persona-model" type="text" data-mono /><button class="btn ghost btn-xs persona-clear" data-field="model" type="button">清除</button></div>
-              <div class="settings-row"><span class="lbl">Temperature</span><input class="settings-persona-temperature" type="number" step="0.1" min="0" max="2" /></div>
-              <div class="settings-row"><span class="lbl">Max Tokens</span><input class="settings-persona-max-tokens" type="number" min="1" /></div>
-              <div class="settings-row"><span class="lbl">视觉模型</span><input class="settings-persona-vision-model" type="text" data-mono /><button class="btn ghost btn-xs persona-clear" data-field="vision_model" type="button">清除</button></div>
+              <button class="btn danger settings-persona-clear-all" type="button">清除 System Prompt</button>
             </div>
           </section>
 
@@ -668,6 +668,21 @@ export function initSettingsPanel(
         llmCardsEl.appendChild(buildLlmProviderCard(p));
       }
     }
+    syncThinkingControls();
+  };
+
+  /* 全局思考开关 ↔ 当前选中 provider 配置；「对话内展示思考」为纯前端偏好 */
+  const syncThinkingControls = (): void => {
+    const activeId = overlay.querySelector<HTMLSelectElement>('.settings-llm')!.value;
+    const cfg = currentConfig.llm_configs.find((c) => c.id === activeId);
+    const toggle = overlay.querySelector<HTMLInputElement>('.settings-thinking-toggle')!;
+    const effortSel = overlay.querySelector<HTMLSelectElement>('.settings-thinking-effort')!;
+    const effortRow = overlay.querySelector<HTMLElement>('[data-thinking-effort-row]')!;
+    toggle.checked = !!cfg?.thinking_enabled;
+    effortSel.value = cfg?.thinking_effort || 'high';
+    effortRow.hidden = !toggle.checked;
+    const show = overlay.querySelector<HTMLInputElement>('.settings-show-thinking')!;
+    show.checked = localStorage.getItem('showThinking') !== '0'; // 默认展示
   };
 
   const buildLlmProviderCard = (p: LlmProviderCfg): HTMLElement => {
@@ -698,7 +713,7 @@ export function initSettingsPanel(
         </div>
         <div class="settings-row"><span class="lbl">Base URL</span><input class="llm-base-url" type="text" data-mono /></div>
         <div class="settings-row"><span class="lbl">Temperature</span><input class="llm-temperature" type="number" step="0.1" min="0" max="2" /></div>
-        <div class="settings-row"><span class="lbl">Max Tokens</span><input class="llm-max-tokens" type="number" min="1" /></div>
+        <div class="settings-row"><span class="lbl">Top P</span><input class="llm-top-p" type="number" step="0.05" min="0" max="1" placeholder="留空 = 提供商默认" /></div>
       </div>
       <div class="settings-editor-actions">
         <button class="btn ghost settings-discover-models" type="button" data-provider="${esc(p.id)}" data-key-env="${esc(p.key_env || '')}">获取可用模型</button>
@@ -709,7 +724,8 @@ export function initSettingsPanel(
     fillModelSelect(editor.querySelector<HTMLSelectElement>('.llm-model')!, p.model, p.models);
     editor.querySelector<HTMLInputElement>('.llm-base-url')!.value = p.base_url;
     editor.querySelector<HTMLInputElement>('.llm-temperature')!.value = String(p.temperature ?? 0.8);
-    editor.querySelector<HTMLInputElement>('.llm-max-tokens')!.value = p.max_tokens ? String(p.max_tokens) : '';
+    editor.querySelector<HTMLInputElement>('.llm-top-p')!.value =
+      p.top_p === null || p.top_p === undefined ? '' : String(p.top_p);
 
     const toggle = row.querySelector<HTMLButtonElement>('.settings-provider-toggle')!;
     const openEditor = (): void => {
@@ -980,22 +996,12 @@ export function initSettingsPanel(
 
   const renderPersona = (): void => {
     const p = currentConfig.persona || EMPTY_CONFIG.persona;
+    // 人设收敛：只渲染 System Prompt（其余参数归 LLM 设置）
     overlay.querySelector<HTMLTextAreaElement>('.settings-persona-prompt')!.value = p.system_prompt || '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-name')!.value = p.name || '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-role')!.value = p.role || '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-model')!.value = p.model || '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-temperature')!.value = String(p.temperature ?? 0.8);
-    overlay.querySelector<HTMLInputElement>('.settings-persona-max-tokens')!.value = p.max_tokens ? String(p.max_tokens) : '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-vision-model')!.value = p.vision_model || '';
-    // 清空标记重置
-    overlay.querySelectorAll<HTMLButtonElement>('.persona-clear').forEach((b) => {
-      delete b.dataset.cleared;
-      b.textContent = '清除';
-    });
     const clearAllBtn = overlay.querySelector<HTMLButtonElement>('.settings-persona-clear-all');
     if (clearAllBtn) {
       delete clearAllBtn.dataset.cleared;
-      clearAllBtn.textContent = '清除全部人设字段';
+      clearAllBtn.textContent = '清除 System Prompt';
     }
   };
 
@@ -1081,11 +1087,17 @@ export function initSettingsPanel(
     const ttsModel = overlay.querySelector<HTMLSelectElement>('.settings-tts')!.value;
 
     const llmConfigs: LlmProviderUi[] = [];
+    // 全局思考开关：作用于当前选中 provider（写入其配置项）
+    const thinkingOn = overlay.querySelector<HTMLInputElement>('.settings-thinking-toggle')!.checked;
+    const thinkingEffort = thinkingOn
+      ? overlay.querySelector<HTMLSelectElement>('.settings-thinking-effort')!.value
+      : null;
     llmCardsEl.querySelectorAll<HTMLElement>('.settings-provider-editor[data-type="llm"]').forEach((card) => {
       const id = card.dataset.provider || '';
       const cfg = currentConfig.llm_configs.find((c) => c.id === id);
       const temperature = Number(card.querySelector<HTMLInputElement>('.llm-temperature')?.value || '');
-      const maxTokensRaw = card.querySelector<HTMLInputElement>('.llm-max-tokens')?.value || '';
+      const topPRaw = card.querySelector<HTMLInputElement>('.llm-top-p')?.value ?? '';
+      const is_active = id === llmProvider;
       llmConfigs.push({
         id,
         name: cfg?.name,
@@ -1093,7 +1105,9 @@ export function initSettingsPanel(
         models: Array.from(card.querySelectorAll<HTMLOptionElement>('.llm-model option')).map((o) => o.value).filter(Boolean),
         base_url: card.querySelector<HTMLInputElement>('.llm-base-url')?.value || '',
         temperature: temperature && Number.isFinite(temperature) ? temperature : null,
-        max_tokens: maxTokensRaw ? Number(maxTokensRaw) || null : null,
+        top_p: topPRaw && Number.isFinite(Number(topPRaw)) ? Number(topPRaw) : null,
+        thinking_enabled: is_active ? thinkingOn : (cfg?.thinking_enabled ?? false),
+        thinking_effort: is_active ? thinkingEffort : (cfg?.thinking_effort ?? null),
         key_env: card.dataset.keyEnv || cfg?.key_env || null,
         has_key: !!cfg?.has_key,
         configured: card.dataset.configured === '1',
@@ -1146,15 +1160,10 @@ export function initSettingsPanel(
       if (v || clear) apiKeys.push({ env, value: v, clear });
     });
 
-    const temperature = Number(overlay.querySelector<HTMLInputElement>('.settings-persona-temperature')?.value || '');
-    const maxTokensRaw = overlay.querySelector<HTMLInputElement>('.settings-persona-max-tokens')?.value || '';
     const clearMap: Record<string, boolean> = {};
-    overlay.querySelectorAll<HTMLButtonElement>('.persona-clear').forEach((b) => {
-      if (b.dataset.cleared === '1') clearMap[b.dataset.field || ''] = true;
-    });
     const clearAll = overlay.querySelector<HTMLButtonElement>('.settings-persona-clear-all');
     if (clearAll?.dataset.cleared === '1') {
-      for (const f of ['name', 'role', 'model', 'vision_model', 'system_prompt']) clearMap[f] = true;
+      clearMap['system_prompt'] = true;
     }
 
     return {
@@ -1166,12 +1175,6 @@ export function initSettingsPanel(
       tts_configs: ttsConfigs,
       api_keys: apiKeys,
       persona: {
-        name: overlay.querySelector<HTMLInputElement>('.settings-persona-name')!.value.trim(),
-        role: overlay.querySelector<HTMLInputElement>('.settings-persona-role')!.value.trim(),
-        model: overlay.querySelector<HTMLInputElement>('.settings-persona-model')!.value.trim(),
-        temperature: temperature && Number.isFinite(temperature) ? temperature : null,
-        max_tokens: maxTokensRaw ? Number(maxTokensRaw) || null : null,
-        vision_model: overlay.querySelector<HTMLInputElement>('.settings-persona-vision-model')!.value.trim(),
         system_prompt: overlay.querySelector<HTMLTextAreaElement>('.settings-persona-prompt')!.value,
         clear: clearMap,
       },
@@ -1285,11 +1288,7 @@ export function initSettingsPanel(
     const map: Record<string, string> = {
       port: '[data-portrow]',
       character_name: '.settings-character-name',
-      'persona.name': '.settings-persona-name',
-      'persona.role': '.settings-persona-role',
-      'persona.model': '.settings-persona-model',
       'persona.system_prompt': '.settings-persona-prompt',
-      'persona.vision_model': '.settings-persona-vision-model',
     };
     for (const [field, msg] of Object.entries(errors)) {
       const sel = map[field] || (map[field.split('.')[0]] ?? '');
@@ -2061,26 +2060,12 @@ export function initSettingsPanel(
     logLevelChanged = true; // A1：仅用户改动才提交
   });
 
-  // 人设字段「清除」按钮
-  overlay.querySelectorAll<HTMLButtonElement>('.persona-clear').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const field = btn.dataset.field || '';
-      const input = overlay.querySelector<HTMLInputElement>(`.settings-persona-${field}`);
-      if (input) input.value = '';
-      btn.dataset.cleared = '1';
-      btn.textContent = '已标记清除';
-    });
-  });
-  // 清除全部人设字段
+  // 清除 System Prompt（人设收敛：唯一可清除的人设字段）
   const clearAllBtn = overlay.querySelector<HTMLButtonElement>('.settings-persona-clear-all')!;
   clearAllBtn.addEventListener('click', () => {
     overlay.querySelector<HTMLTextAreaElement>('.settings-persona-prompt')!.value = '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-name')!.value = '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-role')!.value = '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-model')!.value = '';
-    overlay.querySelector<HTMLInputElement>('.settings-persona-vision-model')!.value = '';
     clearAllBtn.dataset.cleared = '1';
-    setStatus('已标记清除全部人设字段，保存时生效', 'info');
+    setStatus('已标记清除 System Prompt，保存时生效', 'info');
   });
 
   // LLM/TTS 提供商下拉变化 → 标记对应 provider touched
@@ -2089,6 +2074,15 @@ export function initSettingsPanel(
     if (!id) return;
     const editor = llmCardsEl.querySelector<HTMLElement>(`.settings-provider-editor[data-provider="${id}"]`);
     if (editor && editor.dataset.configured !== '1') editor.dataset.touched = '1';
+    syncThinkingControls(); // 思考开关跟随当前选中 provider
+  });
+  // 思考开关 → 强度行显隐；展示思考 → localStorage（纯前端偏好）
+  overlay.querySelector<HTMLInputElement>('.settings-thinking-toggle')!.addEventListener('change', (e) => {
+    overlay.querySelector<HTMLElement>('[data-thinking-effort-row]')!.hidden =
+      !(e.target as HTMLInputElement).checked;
+  });
+  overlay.querySelector<HTMLInputElement>('.settings-show-thinking')!.addEventListener('change', (e) => {
+    localStorage.setItem('showThinking', (e.target as HTMLInputElement).checked ? '1' : '0');
   });
   overlay.querySelector<HTMLSelectElement>('.settings-tts')!.addEventListener('change', (e) => {
     const id = (e.target as HTMLSelectElement).value;

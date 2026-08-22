@@ -21,6 +21,11 @@ from .stateless_llm_interface import StatelessLLMInterface
 from ...mcpp.types import ToolCallObject
 
 
+class ReasoningDelta(str):
+    """思维链增量标记：isinstance(str) 但可被中间层识别并单独转发，
+    不混入正文（basic_memory_agent 不累积、不入记忆）。"""
+
+
 class AsyncLLM(StatelessLLMInterface):
     def __init__(
         self,
@@ -31,6 +36,9 @@ class AsyncLLM(StatelessLLMInterface):
         project_id: str = "z",
         temperature: float = 1.0,
         max_tokens: int | None = None,
+        top_p: float | None = None,
+        thinking_enabled: bool | None = None,
+        thinking_effort: str | None = None,
     ):
         """
         Initializes an instance of the `AsyncLLM` class.
@@ -43,11 +51,19 @@ class AsyncLLM(StatelessLLMInterface):
         - llm_api_key (str, optional): The API key for the OpenAI API. Defaults to "z".
         - temperature (float, optional): What sampling temperature to use, between 0 and 2. Defaults to 1.0.
         - max_tokens (int, optional): Maximum tokens for the completion; None means provider default.
+        - top_p (float, optional): Nucleus sampling; None means provider default.
+        - thinking_enabled (bool, optional): DeepSeek thinking mode toggle;
+          None/False keeps it disabled (VTuber chat default).
+        - thinking_effort (str, optional): low/high/max, passed as reasoning_effort
+          when thinking is enabled.
         """
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.top_p = top_p
+        self.thinking_enabled = bool(thinking_enabled)
+        self.thinking_effort = thinking_effort
         self.client = AsyncOpenAI(
             base_url=base_url,
             organization=organization_id,
@@ -100,9 +116,15 @@ class AsyncLLM(StatelessLLMInterface):
 
             available_tools = tools if self.support_tools else NOT_GIVEN
 
-            # DeepSeek V4 Flash defaults to thinking mode; disable for VTuber chat
+            # 思考模式：默认关闭（VTuber 对话低延迟优先）；配置开启时按
+            # DeepSeek 官方约定传 extra_body.thinking + reasoning_effort。
+            # 注意：思考模式下 DeepSeek 忽略 temperature/top_p（兼容性忽略，不报错）。
             extra_body = None
-            if "deepseek" in self.model.lower():
+            if self.thinking_enabled:
+                if "deepseek" in self.model.lower():
+                    extra_body = {"thinking": {"type": "enabled"}}
+            elif "deepseek" in self.model.lower():
+                # V4 系列默认开启思考；桌宠对话显式关闭
                 extra_body = {"thinking": {"type": "disabled"}}
 
             completion_kwargs: Dict[str, Any] = {
@@ -113,6 +135,10 @@ class AsyncLLM(StatelessLLMInterface):
                 "extra_body": extra_body,
                 "tools": available_tools,
             }
+            if self.top_p is not None:
+                completion_kwargs["top_p"] = self.top_p
+            if self.thinking_enabled and self.thinking_effort:
+                completion_kwargs["reasoning_effort"] = self.thinking_effort
             if self.max_tokens is not None:
                 completion_kwargs["max_tokens"] = self.max_tokens
 
@@ -198,9 +224,19 @@ class AsyncLLM(StatelessLLMInterface):
                 if len(chunk.choices) == 0:
                     logger.info("Empty chunk received")
                     continue
-                elif chunk.choices[0].delta.content is None:
+
+                # 思维链增量（DeepSeek reasoning_content）单独成通道，
+                # 不进入正文/记忆；无思考时该属性缺省为 None。
+                reasoning_piece = getattr(
+                    chunk.choices[0].delta, "reasoning_content", None
+                )
+                if reasoning_piece:
+                    yield ReasoningDelta(reasoning_piece)
+
+                if chunk.choices[0].delta.content is None:
                     chunk.choices[0].delta.content = ""
-                yield chunk.choices[0].delta.content
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
             # If stream ends while still in a tool call, make sure to yield the tool call
             if in_tool_call and accumulated_tool_calls:

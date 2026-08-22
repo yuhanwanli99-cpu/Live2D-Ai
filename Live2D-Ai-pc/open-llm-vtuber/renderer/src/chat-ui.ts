@@ -43,6 +43,8 @@ export interface ChatPanel {
    * 流式期间句子级字幕不再单独上屏（由 finalizeStream 收尾）。
    */
   streamDelta(text: string): void;
+  /** 思维链增量上屏（折叠面板；受「对话内展示思考」开关控制） */
+  streamReasoning(text: string): void;
   /** 是否正在流式输出（调用方据此跳过句子级字幕上屏） */
   isStreaming(): boolean;
   /**
@@ -203,10 +205,49 @@ export function initChatPanel(
   let streamBubble: HTMLElement | null = null;
   let streamText = '';
 
+  /* ---- 思维链展示（reasoning-delta；「对话内展示思考」开关控制，localStorage showThinking） ---- */
+  let thinkPanel: HTMLDetailsElement | null = null;
+  let thinkBody: HTMLElement | null = null;
+  let thinkText = '';
+
+  const thinkingEnabled = (): boolean => localStorage.getItem('showThinking') !== '0';
+
+  const resetThinkPanel = (): void => {
+    thinkPanel = null;
+    thinkBody = null;
+    thinkText = '';
+  };
+
+  const streamReasoning = (text: string): void => {
+    if (!text || !thinkingEnabled()) return;
+    dropEmptyState();
+    if (!thinkPanel) {
+      const details = document.createElement('details');
+      details.className = 'chat-thinking';
+      details.open = true; // 首次展开让用户看见在思考；收起状态由用户控制
+      const summary = document.createElement('summary');
+      summary.textContent = '思考中…';
+      const body = document.createElement('div');
+      body.className = 'chat-thinking-body';
+      details.appendChild(summary);
+      details.appendChild(body);
+      messagesEl.appendChild(details);
+      thinkPanel = details;
+      thinkBody = body;
+      thinkText = '';
+    }
+    // 首个正文 token 到达时自动折叠思考（答案才是主角）
+    if (streamBubble && thinkPanel.open) thinkPanel.open = false;
+    thinkText += text;
+    thinkBody!.textContent = stripTags(thinkText);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  };
+
   const streamDelta = (text: string): void => {
     if (!text) return;
     dropEmptyState();
     setThinking(false); // 已经开始出字，思考指示让位
+    if (thinkPanel) thinkPanel.open = false; // 正文开始 → 折叠思维链
     if (!streamBubble) {
       const row = document.createElement('div');
       row.className = 'chat-msg chat-msg-assistant chat-msg-streaming';
@@ -242,6 +283,7 @@ export function initChatPanel(
     }
     streamBubble = null;
     streamText = '';
+    resetThinkPanel(); // 本轮结束 → 下轮新建思考块
     messagesEl.scrollTop = messagesEl.scrollHeight;
   };
 
@@ -364,6 +406,7 @@ export function initChatPanel(
     },
     setThinking,
     streamDelta,
+    streamReasoning,
     isStreaming: () => streamBubble !== null,
     finalizeStream,
     setVoiceState(state: VoiceUiState, detail?: string) {

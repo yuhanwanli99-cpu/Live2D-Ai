@@ -400,6 +400,18 @@ async def process_single_conversation(
 
                 elif (
                     isinstance(output_item, dict)
+                    and output_item.get("type") == "reasoning_delta"
+                ):
+                    # 思维链增量：独立消息类型下发，前端按「展示思考」开关决定渲染。
+                    # 不进字幕/记忆/TTS 链路。
+                    rdelta = str(output_item.get("text") or "")
+                    if rdelta:
+                        await websocket_send(
+                            json.dumps({"type": "reasoning-delta", "text": rdelta})
+                        )
+
+                elif (
+                    isinstance(output_item, dict)
                     and output_item.get("type") == "text_delta"
                 ):
                     # P1-2：token 级增量 → 前端逐字上屏（`text-delta`）。

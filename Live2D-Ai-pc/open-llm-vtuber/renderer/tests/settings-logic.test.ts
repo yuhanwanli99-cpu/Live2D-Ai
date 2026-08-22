@@ -30,12 +30,6 @@ function baseUi(): SettingsUiState {
     tts_configs: [],
     api_keys: [],
     persona: {
-      name: '白',
-      role: '助手',
-      model: 'deepseek-chat',
-      temperature: 0.8,
-      max_tokens: 4096,
-      vision_model: '',
       system_prompt: '你好',
       clear: {},
     },
@@ -124,7 +118,9 @@ describe('collectPayload', () => {
   it('builds minimal payload for unmodified state', () => {
     const p = collectPayload(baseUi());
     expect(p.llm_provider).toBe('deepseek_llm');
-    expect(p.persona.name).toBe('白');
+    // 人设收敛：persona 仅承载 system_prompt
+    expect((p.persona as Record<string, unknown>).system_prompt).toBeTypeOf('string');
+    expect((p.persona as Record<string, unknown>).name).toBeUndefined();
     // 无 api key / provider 改动
     expect(Object.keys(p.api_keys as object)).toHaveLength(0);
     expect(p.log_level).toBeUndefined(); // 未改动日志级别不提交（A1）
@@ -144,24 +140,18 @@ describe('collectPayload', () => {
     expect(collectPayload(ui).log_level).toBeUndefined();
   });
 
-  it('clearable persona fields are sent as null (P1-2)', () => {
+  it('clearable persona field (system_prompt only) is sent as null (P1-2)', () => {
     const ui = baseUi();
-    ui.persona.name = '';
-    ui.persona.clear.name = true;
-    ui.persona.role = '';
-    ui.persona.clear.role = true;
     ui.persona.clear.system_prompt = true;
     const p = collectPayload(ui);
-    expect(p.persona.name).toBeNull();
-    expect(p.persona.role).toBeNull();
-    expect(p.persona.system_prompt).toBeNull();
+    expect((p.persona as Record<string, unknown>).system_prompt).toBeNull();
   });
 
-  it('non-clear empty persona fields keep original empty string (not null)', () => {
+  it('non-clear empty system_prompt keeps original empty string (not null)', () => {
     const ui = baseUi();
-    ui.persona.name = '';
+    ui.persona.system_prompt = '';
     const p = collectPayload(ui);
-    expect(p.persona.name).toBe('');
+    expect((p.persona as Record<string, unknown>).system_prompt).toBe('');
   });
 
   it('includes provider only when configured or touched (P0-1)', () => {
