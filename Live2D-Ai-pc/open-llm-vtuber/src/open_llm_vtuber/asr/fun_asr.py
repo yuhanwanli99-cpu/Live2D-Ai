@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import soundfile as sf
 from funasr import AutoModel
+from loguru import logger
 from .asr_interface import ASRInterface
 from typing import Optional
 
@@ -14,7 +15,7 @@ try:
 
     MODEL_SCOPE_DOWNLOAD_AVAILABLE = True
 except ImportError:
-    print("Warning: Unable to import modelscope.hub.snapshot_download.")
+    logger.warning("Unable to import modelscope.hub.snapshot_download.")
     MODEL_SCOPE_DOWNLOAD_AVAILABLE = False
 
 # Model alias to actual ModelScope ID mapping table
@@ -96,7 +97,7 @@ class VoiceRecognition(ASRInterface):
                 # Not found in local cache, use original ID
                 pass
             except Exception as e:
-                print(f"Error occurred while checking '{resolved_id}': {e}")
+                logger.error(f"Error occurred while checking '{resolved_id}': {e}")
 
         return final_input_for_automodel
 
