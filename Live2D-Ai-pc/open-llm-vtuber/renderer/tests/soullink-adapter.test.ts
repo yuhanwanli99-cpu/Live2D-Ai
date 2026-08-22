@@ -1,19 +1,11 @@
 /**
  * soullink-adapter 单测：意图映射边界、音频拉桥、帧驱动、失败可见性、开关解析。
- * 引擎模块用 vi.mock 替换为可控桩（不触真依赖）。
+ * 引擎运行时用可控桩对象直接注入（不触真依赖与动态 import）。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const triggerSpy = vi.fn();
 const updateSpy = vi.fn(() => ({ live2dParams: { ParamEyeLOpen: 0.1, ParamAngleX: 0.7 } }));
-
-vi.mock('@soullink-emotion/engine', () => ({
-  SoullinkRuntime: class {
-    triggerIntent = triggerSpy;
-    update = updateSpy;
-    constructor(_opts: unknown) {}
-  },
-}));
 
 import {
   mapEmotionToIntent,
@@ -21,6 +13,7 @@ import {
   PushPullAudioLevels,
   SoullinkPerformanceAdapter,
   resolvePerformanceEngine,
+  loadSoullinkProfile,
 } from '../src/soullink-adapter';
 
 describe('mapEmotionToIntent — 8key → naturalVAD 意图', () => {
@@ -78,10 +71,16 @@ describe('SoullinkPerformanceAdapter — 帧驱动与失败可见', () => {
         coreWrites.push([id, v]);
       },
     };
+    const runtime = {
+      triggerIntent: triggerSpy,
+      update: updateSpy,
+      setVoicePlaybackActive: vi.fn(),
+    };
     const adapter = new SoullinkPerformanceAdapter({
       profile: {},
       coreModel: () => core,
       now: () => 0,
+      runtime,
     });
     return adapter;
   }
@@ -125,5 +124,46 @@ describe('resolvePerformanceEngine — 开关解析', () => {
     expect(resolvePerformanceEngine(undefined)).toBe('legacy');
     expect(resolvePerformanceEngine({ getItem: () => 'soullink' })).toBe('soullink');
     expect(resolvePerformanceEngine({ getItem: () => null })).toBe('legacy');
+  });
+});
+
+describe('loadSoullinkProfile — URL 推导与失败可见', () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('*.profile.json 直链原样请求（前端包 /soullink-profiles/<皮套>.profile.json）', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: async () => ({ foo: 1 }) });
+    const p = await loadSoullinkProfile('/soullink-profiles/bai.profile.json');
+    expect(p).toEqual({ foo: 1 });
+    expect(fetchSpy).toHaveBeenCalledWith('/soullink-profiles/bai.profile.json');
+  });
+
+  it('模型 URL → 同目录 soullink.profile.json', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await loadSoullinkProfile('/live2d-models/bai/bai.model3.json');
+    expect(fetchSpy).toHaveBeenCalledWith('/live2d-models/bai/soullink.profile.json');
+  });
+
+  it('404 → 可见告警并回落 null（不抛错）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchSpy.mockResolvedValue({ ok: false, status: 404 });
+    const p = await loadSoullinkProfile('/soullink-profiles/missing.profile.json');
+    expect(p).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('同 URL 幂等缓存：第二次命中不再发请求', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, json: async () => ({ cached: true }) });
+    const a = await loadSoullinkProfile('/cache-probe/x.profile.json');
+    const b = await loadSoullinkProfile('/cache-probe/x.profile.json');
+    expect(b).toEqual(a);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

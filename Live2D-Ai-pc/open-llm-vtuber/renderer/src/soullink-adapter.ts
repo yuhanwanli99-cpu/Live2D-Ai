@@ -10,7 +10,7 @@
  *
  * 失败语义：永不静默崩溃——运行期异常吞掉但 console.error 首次可见；构造失败由调用方回退 legacy。
  */
-import { SoullinkRuntime } from '@soullink-emotion/engine';
+// 引擎按需动态加载（P1 隔离：legacy 默认路径不触碰 engine chunk）
 
 export type PerformanceEngine = 'legacy' | 'soullink';
 
@@ -92,11 +92,25 @@ interface CoreModelLike {
   setParameterValueById?: (id: string, value: number) => void;
 }
 
+/** 引擎运行时最小接口（@soullink-emotion/engine 的 SoullinkRuntime 子集；单测传桩） */
+interface RuntimeLike {
+  triggerIntent(intent: unknown, timeSeconds: number): void;
+  update(
+    timeSeconds: number,
+    deltaSeconds: number,
+  ): { live2dParams: Record<string, number> } | undefined | null;
+  setVoicePlaybackActive?(v: boolean): void;
+}
+
 export interface SoullinkAdapterOptions {
   profile: unknown;
   coreModel: () => CoreModelLike | null;
   /** 毫秒时钟（默认 Date.now）；测试注入 */
   now?: () => number;
+  /** 音频拉桥（缺省内部构造；测试可注入假实现） */
+  levels?: PushPullAudioLevels;
+  /** 已构造的引擎运行时（异步工厂注入；单测传桩，跳过动态 import） */
+  runtime?: RuntimeLike;
 }
 
 /**
@@ -104,19 +118,16 @@ export interface SoullinkAdapterOptions {
  *   setEmotion/cue/conversationEvent 注入意图；feedMouth 推音频片；frame 推进并写参数。
  */
 export class SoullinkPerformanceAdapter {
-  private readonly runtime: SoullinkRuntime;
+  private readonly runtime: RuntimeLike;
   private readonly coreModel: () => CoreModelLike | null;
   private readonly levels: PushPullAudioLevels;
   private timeSec = 0;
   private warnedOnce = false;
 
-  constructor(opts: SoullinkAdapterOptions) {
+  constructor(opts: SoullinkAdapterOptions & { runtime: RuntimeLike }) {
     this.coreModel = opts.coreModel;
-    this.levels = new PushPullAudioLevels(opts.now ?? Date.now);
-    this.runtime = new SoullinkRuntime({
-      profile: opts.profile as never,
-      audioLevelAnalyzer: this.levels,
-    });
+    this.levels = opts.levels ?? new PushPullAudioLevels(opts.now ?? Date.now);
+    this.runtime = opts.runtime;
   }
 
   /** emotion 帧（8key + strength 1..3）→ 引擎意图 */
@@ -185,12 +196,17 @@ export class SoullinkPerformanceAdapter {
   }
 }
 
-/** 模型 URL → 同目录 soullink.profile.json（带缓存的幂等加载；失败可见并回落 null） */
+/**
+ * soullink profile 幂等加载（带缓存；失败可见并回落 null）。两种入参：
+ *   模型 URL            → 取同目录 soullink.profile.json；
+ *   *.profile.json 直链 → 原样使用（前端包 /soullink-profiles/<皮套>.profile.json）。
+ */
 const profileCache = new Map<string, Promise<unknown | null>>();
 
 export function loadSoullinkProfile(modelUrl: string): Promise<unknown | null> {
-  const base = modelUrl.slice(0, modelUrl.lastIndexOf('/') + 1);
-  const url = base + 'soullink.profile.json';
+  const url = modelUrl.endsWith('.profile.json')
+    ? modelUrl
+    : modelUrl.slice(0, modelUrl.lastIndexOf('/') + 1) + 'soullink.profile.json';
   const hit = profileCache.get(url);
   if (hit) return hit;
   const p = (async () => {
@@ -208,4 +224,19 @@ export function loadSoullinkProfile(modelUrl: string): Promise<unknown | null> {
   })();
   profileCache.set(url, p);
   return p;
+}
+/* ------------------------------------------------------------------ */
+/* 引擎运行时注入与异步工厂                                             */
+/* ------------------------------------------------------------------ */
+
+/** 异步工厂：动态加载引擎 chunk 并构造适配器（浏览器/测试通用；legacy 默认路径不触碰 engine chunk） */
+export async function createSoullinkPerformanceAdapter(
+  opts: SoullinkAdapterOptions,
+): Promise<SoullinkPerformanceAdapter> {
+  const mod = (await import('@soullink-emotion/engine')) as {
+    SoullinkRuntime: new (o: { profile: unknown; audioLevelAnalyzer: unknown }) => RuntimeLike;
+  };
+  const levels = new PushPullAudioLevels(opts.now ?? Date.now);
+  const runtime = opts.runtime ?? new mod.SoullinkRuntime({ profile: opts.profile, audioLevelAnalyzer: levels });
+  return new SoullinkPerformanceAdapter({ ...opts, runtime });
 }

@@ -50,7 +50,12 @@ import {
   type AnyWebGLContext,
 } from './texture-adapter';
 import { BodyActionPlayer } from './choreography';
-import { SoullinkPerformanceAdapter, resolvePerformanceEngine, loadSoullinkProfile } from './soullink-adapter';
+import {
+  createSoullinkPerformanceAdapter,
+  resolvePerformanceEngine,
+  loadSoullinkProfile,
+  type SoullinkPerformanceAdapter,
+} from './soullink-adapter';
 import { LiveEventController, type LiveEventPayload } from './live-event';
 import { createCameraModeStore } from './camera-state';
 
@@ -174,27 +179,12 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   const createPipeline = (
     model: Live2DModel | null,
     internalModel: Cubism4InternalModel | null,
+    soullink: SoullinkPerformanceAdapter | null = null,
   ): RenderPipeline => {
     const arbiter = new ParamArbiter(internalModel);
     const emotionConsumer = new EmotionConsumer(arbiter);
     const bodyMotion = new BodyActionPlayer(arbiter, { now: () => performance.now() });
     const liveEvent = new LiveEventController(emotionConsumer, bodyMotion);
-
-    // PLAN-V3 P1：soullink 表演引擎（profile 由 handleModelChange 预载；失败回退 legacy 可见）
-    let soullink: SoullinkPerformanceAdapter | null = null;
-    if (PERFORMANCE_ENGINE === 'soullink') {
-      try {
-        if (!soullinkProfileCache) throw new Error('profile 未加载');
-        soullink = new SoullinkPerformanceAdapter({
-          profile: soullinkProfileCache,
-          coreModel: () => internalModel?.coreModel ?? null,
-          now: () => performance.now() / 1000,
-        });
-      } catch (err) {
-        console.error('[perf-engine] 初始化失败，回退 legacy（永不静默崩溃）:', err);
-      }
-    }
-
     const pipeline: RenderPipeline = {
       arbiter,
       emotionConsumer,
@@ -230,8 +220,6 @@ export async function initApp(containerId: string): Promise<PixiApp> {
 
   // 渲染管线：先以空转管线起步（arbiter 无 coreModel，update 不写），保证返回结构完整
   let pipeline: RenderPipeline = createPipeline(null, null);
-/** soullink 表演引擎的 ModelProfile（soullink 模式下随模型加载预载） */
-let soullinkProfileCache: unknown = null;
 
   // 当前模型状态（模型热切换用）
   let currentModel: Live2DModel | null = null;
@@ -317,12 +305,26 @@ let soullinkProfileCache: unknown = null;
     currentModelInfo = modelInfo;
     applyModelPose(loaded.model, modelKeyFor(modelInfo));
     applyTextureGuard(loaded.model);
+    let soullink: SoullinkPerformanceAdapter | null = null;
     if (PERFORMANCE_ENGINE === 'soullink') {
       // profile 随前端包发布：/soullink-profiles/<皮套目录名>.profile.json
       const skin = /\/live2d-models\/([^/]+)\//.exec(modelInfo.url || '')?.[1] ?? 'bai';
-      soullinkProfileCache = await loadSoullinkProfile('/soullink-profiles/' + skin + '.profile.json');
+      const profile = await loadSoullinkProfile('/soullink-profiles/' + skin + '.profile.json');
+      if (!profile) {
+        console.error('[perf-engine] profile 缺失，本次会话回退 legacy 行为');
+      } else {
+        try {
+          soullink = await createSoullinkPerformanceAdapter({
+            profile,
+            coreModel: () => loaded.internalModel?.coreModel ?? null,
+            now: () => performance.now() / 1000,
+          });
+        } catch (err) {
+          console.error('[perf-engine] 初始化失败，回退 legacy（永不静默崩溃）:', err);
+        }
+      }
     }
-    pipeline = createPipeline(loaded.model, loaded.internalModel);
+    pipeline = createPipeline(loaded.model, loaded.internalModel, soullink);
 
     // ---- S3 渲染日志探针（contract-M-PC §2.3；只读：不改渲染逻辑/相机应用顺序，仅 console 输出） ----
     // 1) 模型原始画布尺寸（bai: 4000×6000）
