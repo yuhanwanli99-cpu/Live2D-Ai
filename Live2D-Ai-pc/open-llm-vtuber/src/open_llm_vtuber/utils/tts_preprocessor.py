@@ -1,7 +1,10 @@
 import re
 import unicodedata
+
 from loguru import logger
+
 from ..translate.translate_interface import TranslateInterface
+from .slop_rules import apply_runtime_slop
 
 
 def tts_filter(
@@ -75,6 +78,13 @@ def tts_filter(
             logger.critical(f"Error translating: {e}")
             logger.critical(f"Text: {text}")
             logger.warning("Skipping...")
+
+    # SLOP 台词治理（PLAN-V3 §P2）：策展规则表正则去除 LLM 口头禅——只影响 TTS 音频，
+    # 不影响字幕与记忆；规则缺失/非法时静默跳过（见 slop_rules.py 失败语义）。
+    try:
+        text = apply_runtime_slop(text)
+    except Exception as e:
+        logger.warning(f"SLOP 规则应用异常（跳过）: {e}")
 
     logger.debug(f"Filtered text: {text}")
     return text

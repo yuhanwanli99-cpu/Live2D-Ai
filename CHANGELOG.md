@@ -1,3 +1,12 @@
+# P1 收尾修复：soullink profile 加载根因 + 引擎隔离（2026-08-22，接续无人值守轮次）
+
+- **404 回退根因修复**：`loadSoullinkProfile` 此前对任何入参都按「同目录 soullink.profile.json」推导 URL，而 p0-followup 已把调用方改为传打包直链 `/soullink-profiles/<皮套>.profile.json`——两者错位导致 soullink 模式**必然** 404 回退 legacy（引擎从未真正生效）。现在 `*.profile.json` 直链原样使用、模型 URL 保持旧推导；新增 4 个回归单测锁死（直链/模型 URL/404 可见回落/幂等缓存）。
+- **引擎按需加载隔离**：`@soullink-emotion/engine` 改为异步工厂 `createSoullinkPerformanceAdapter` 动态 import——legacy 默认路径不再下载 engine chunk（产物验证：引擎独立分块 ~109 kB，仅 soullink 模式拉取）。
+- **永不静默崩溃补强**：renderer index.html 注入首错上屏脚本（window error / unhandledrejection 直接画到页面顶部），先于主包执行。
+- 验证：renderer vitest 28files/**408 passed**；tsc strict clean；bundle 已重建；PC pytest 保持 407。
+
+---
+
 # P0-P1 落地：soullink 表演引擎双跑（2026-08-22）
 
 - **P0 Spike GO**：profile-generator 确定性生成 bai ModelProfile（FACS 24→20 mapped；usedCdi 16/128）；headless 冒烟 600tick 输出 16 参数全 ⊆ bai 集、眨眼幅度 0.887/呼吸 0.900；SDK 能力检测与人工 cdi 盘点互证（缺 eyeSmile/blush/tear/sweat）。报告见 verification/soullink-p0-report.md。
