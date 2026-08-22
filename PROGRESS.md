@@ -18,16 +18,16 @@
 ## 阶段看板
 | 阶段 | 状态 | 备注 |
 | --- | --- | --- |
-| P0 Spike（profile 生成+headless 冒烟） | 进行中 | 见 §P0 |
+| P0 Spike（profile 生成+headless 冒烟） | ✅ 完成 GO | verification/soullink-p0-report.md；发现：非标彩蛋参数未自动入档（需手工扩展/LLM refine）；能力检测与人盘互证 |
 | P1 双跑开关（performanceEngine=legacy|soullink + 适配器 + 单测） | 未开始 | 三态表演签名随适配器落地 |
 | P2 默认切换+退役 legacy | 受限 | 默认切换需人工冒烟确认；退役/治理部分可先做 |
 | 审计(AUDIT.md)/重构(REFACTOR_PLAN.md) | 未开始 | P1-P2 落库后启动 |
 
 ## P0 执行记录
-- [ ] npm 安装 @soullink-emotion/engine@0.1.0-beta.1(runtime依赖) + @soullink-emotion/profile-generator@0.1.0-beta.1(dev)
-- [ ] profile-generator 生成 shared/model-profiles/bai.profile.json
-- [ ] headless 冒烟：输出参数 ⊆ bai 128 参数集；眨眼/呼吸曲线方差检查；非标参数(肩/胯/腿/翅/耳/光环)入档核对
-- [ ] 报告落盘 verification/soullink-p0-report.md + commit feat(p0)
+- [x] npm 安装 engine/profile-generator@0.1.0-beta.1（锁版本）
+- [x] 生成 shared/model-profiles/bai.profile.json（heuristic；FACS 24→mapped 20；usedCdi 16/128）
+- [x] headless 冒烟 PASS：未知参数 0；眨眼幅度 0.887；呼吸波动 0.900
+- [x] 报告落盘 verification/soullink-p0-report.md
 
 ## 已知风险/跳过记录
 - （暂无）
