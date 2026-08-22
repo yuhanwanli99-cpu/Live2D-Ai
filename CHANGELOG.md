@@ -1,3 +1,12 @@
+# P2 台词质量治理落地：SLOP 挖掘器 + 运行时规则表（2026-08-22）
+
+- **离线挖掘器** `scripts/slop_miner.py`（stdlib-only）：递归扫 chat 历史（chat_history_manager 的 .json 数组与通用 .jsonl 双格式），按 role 过滤 → 高频子句 / 句首片段 / 内置五类套话家族命中三张榜；候选仅供人工策展，绝不自动生效。
+- **策展规则表** `shared/slop_rules.json`：12 条高置信种子规则（总结腔开头×3、论文腔插入×2、时代背景、AI 自指、让步套话×2、权威腔开头、客服式收尾），每条带策展注记。
+- **运行时治理** `utils/slop_rules.py` + `tts_filter` 尾部接线：懒加载缓存（进程读盘一次，`reload_runtime_rules()` 可热刷新）、`SLOP_RULES_PATH` 环境变量覆盖、只作用于 TTS 音频文本（字幕/记忆不动，沿用 tts_filter 既有语义）；永不静默崩溃——文件缺失→空规则 debug 可见、单条正则非法→warning 跳过不断链。
+- 测试 `tests/test_slop_rules.py` **14 例**：加载边界（缺失/坏 JSON/坏条目/env 覆盖）、应用语义（命中移除/自定义替换/孤立行首标点清理）、tts_filter 集成、挖掘器合成数据统计与 role 过滤。PC 全量 **421 passed**；ruff（F/E/W/I）干净。
+
+---
+
 # P1 收尾修复：soullink profile 加载根因 + 引擎隔离（2026-08-22，接续无人值守轮次）
 
 - **404 回退根因修复**：`loadSoullinkProfile` 此前对任何入参都按「同目录 soullink.profile.json」推导 URL，而 p0-followup 已把调用方改为传打包直链 `/soullink-profiles/<皮套>.profile.json`——两者错位导致 soullink 模式**必然** 404 回退 legacy（引擎从未真正生效）。现在 `*.profile.json` 直链原样使用、模型 URL 保持旧推导；新增 4 个回归单测锁死（直链/模型 URL/404 可见回落/幂等缓存）。
