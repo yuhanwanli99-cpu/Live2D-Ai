@@ -1,3 +1,14 @@
+# 深度审计 + 工程优雅度重构完成（2026-08-22，无人值守轮次收尾）
+
+- **审计落盘 AUDIT.md**：AST 死代码扫描（305 定义 × 全语料引用计数）+ 重复普查 + 核心链路通读；PC 6 项 / Renderer 2 项 / Android 1 项全带 文件:行号 证据；命名/依赖耦合/可测试性三维度未发现明显问题。
+- **R1+R4 路径单源**：新增 utils/repo_paths.py，归一五处仓库根/shared 解析实现（含 run_server.py「硬编码上两层」脆弱假设消除）；deep_merge 私有化。
+- **R2 死代码清除**：7 处零引用定义删除（AudioPayload/ConversationConfig/live 整包/NoOpTranslator/get_github_asset_url/has_punctuation/chat_history_manager×2）。
+- **R3 print 归一**：fun_asr ×2 转 loguru；utils/install_utils.py 整文件废弃零引用 → 删除；cosyvoice `__main__` CLI 与 silero 演示 handler 豁免。
+- **克制记录**：R5（routes helper 提升）、R6（settings-ui 拆分）评估后缓行——收益低于回归风险；Android 冻结面不动。全部理由见 REFACTOR_PLAN.md。
+- **总结对账 REFACTOR_SUMMARY.md**：最终门禁 PC pytest **421 passed**、renderer vitest **408 passed**、tsc clean；工作树干净。
+
+---
+
 # P2 台词质量治理落地：SLOP 挖掘器 + 运行时规则表（2026-08-22）
 
 - **离线挖掘器** `scripts/slop_miner.py`（stdlib-only）：递归扫 chat 历史（chat_history_manager 的 .json 数组与通用 .jsonl 双格式），按 role 过滤 → 高频子句 / 句首片段 / 内置五类套话家族命中三张榜；候选仅供人工策展，绝不自动生效。

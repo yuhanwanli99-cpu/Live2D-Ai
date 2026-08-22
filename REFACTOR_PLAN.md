@@ -20,6 +20,6 @@
 - config_manager/* 上游 pydantic 配置类风格
 
 ## 执行记录
-- 2026-08-22 R1+R4：commit refactor(python): 仓库根/shared 路径解析单源化 …；pytest 421 绿。
-- 2026-08-22 R2：commit refactor(python): 清除 7 处零引用死代码 …；pytest 421 绿。
-- 2026-08-22 R3：commit refactor(python): 上游遗留 print 统一 loguru …；pytest 421 绿。
+- 2026-08-22 R1+R4（b9a38aa）：utils/repo_paths.py 单源落地，五处实现归一；deep_merge → _deep_merge 私有化；pytest 421 绿、路径解析冒烟全对。
+- 2026-08-22 R2（9f13945）：7 处零引用死代码清除 + types.py 失配导入清理；pytest 421 绿。
+- 2026-08-22 R3（b4d154f）：fun_asr 两处 print → loguru；追加发现 utils/install_utils.py 整文件废弃零引用（v1.0.0 起）→ 直接删除（P-2 补充）；cosyvoice `__main__` CLI 冒烟 print 与 silero 演示 handler print 属合理豁免；pytest 421 绿。

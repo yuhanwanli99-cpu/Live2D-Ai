@@ -24,7 +24,7 @@
 | P1 双跑开关（performanceEngine=legacy|soullink + 适配器 + 单测） | ✅ 完成（c9585fb，收尾修复 10b688d） | soullink-adapter.ts+ws-bridge 三回调+main 相位钩子；10b688d 修掉 profile 直链 404 根因（此前 soullink 模式必回退 legacy）并实现引擎动态分块隔离；vitest 28files/408 passed；tsc clean；bundle 重建 |
 | P2 默认切换+退役 legacy | 🔶 受限部分完成 | 默认值切换**门控人工冒烟**（无人值守不做主观判定）；legacy 退役同样建议人工确认后执行——两项均已就绪，切换成本=改一行默认值+删文件 |
 | P2 台词质量治理（SLOP 脚本） | ✅ 完成（b85e384） | scripts/slop_miner.py 离线挖掘（.json/.jsonl 双格式+套话家族分桶）→ shared/slop_rules.json 人工策展（12 条种子规则）→ slop_rules.py 运行时懒加载+tts_filter 尾部正则治理；只影响 TTS 音频不影响字幕/记忆；坏条目跳过可见、缺失文件空规则不崩。待真实聊天历史积累后跑一轮 `python scripts/slop_miner.py chat_history/` 策展扩充 |
-| 审计(AUDIT.md)/重构(REFACTOR_PLAN.md) | 未开始 | P1-P2 落库后启动 |
+| 审计(AUDIT.md)/重构(REFACTOR_PLAN.md) | ✅ 完成 | AUDIT.md（PC6+R2+A1 项全带证据）；REFACTOR_PLAN.md R1-R4 执行完毕（b9a38aa/9f13945/b4d154f），R5/R6 缓行有据；REFACTOR_SUMMARY.md 总结对账 |
 
 ## P0 执行记录
 - [x] npm 安装 engine/profile-generator@0.1.0-beta.1（锁版本）
