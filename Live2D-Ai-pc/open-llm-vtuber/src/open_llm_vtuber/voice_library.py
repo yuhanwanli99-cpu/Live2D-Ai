@@ -20,6 +20,8 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from loguru import logger
 from starlette.responses import JSONResponse
 
+from .utils.repo_paths import find_repo_root
+
 _ALLOWED_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 _MAX_AUDIO_BYTES = 50 * 1024 * 1024
 
@@ -32,12 +34,8 @@ _CLONE_FIELD_BY_TTS = {
 }
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
 def _default_pc_dir() -> Path:
-    return _repo_root() / "Live2D-Ai-pc" / "open-llm-vtuber"
+    return find_repo_root() / "Live2D-Ai-pc" / "open-llm-vtuber"
 
 
 def _atomic_write_text(path: Path, content: str) -> None:

@@ -19,6 +19,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from .repo_paths import find_repo_root
+
 ENV_RULES_PATH = "SLOP_RULES_PATH"
 
 
@@ -34,8 +36,8 @@ class SlopRule:
 
 
 def repo_root() -> Path:
-    """由本文件位置推导仓库根（.../Live2D-Ai/src）。"""
-    return Path(__file__).resolve().parents[5]
+    """仓库根——已收敛至 utils.repo_paths 单源（AUDIT P-1）。保留旧名兼容。"""
+    return find_repo_root()
 
 
 def default_rules_path() -> Path:

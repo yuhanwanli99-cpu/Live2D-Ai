@@ -23,21 +23,18 @@ from fastapi import APIRouter, File, Form, UploadFile
 from loguru import logger
 from starlette.responses import JSONResponse
 
+from .utils.repo_paths import find_repo_root
+
 _MODEL_ID_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 _MAX_ZIP_BYTES = 200 * 1024 * 1024  # 200MB，防止把内存打爆
 
 
-def _repo_root() -> Path:
-    """由本文件位置推导仓库根（.../Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber）。"""
-    return Path(__file__).resolve().parents[4]
-
-
 def _default_live2d_dir() -> Path:
-    return _repo_root() / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models"
+    return find_repo_root() / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models"
 
 
 def _default_registry_path() -> Path:
-    return _repo_root() / "shared" / "model_registry.json"
+    return find_repo_root() / "shared" / "model_registry.json"
 
 
 def _safe_extract_members(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:

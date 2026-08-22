@@ -33,15 +33,7 @@ print(f"[Live2D-Ai] 日志级别: {_effective_level}（控制台）+ logs/server
 from open_llm_vtuber.server import WebSocketServer
 from open_llm_vtuber.config_manager.main import Config
 from open_llm_vtuber.config_manager.utils import read_yaml  # 带 ${VAR} 环境替换的配置读取
-
-
-def _resolve_shared_path(config_path: str) -> str:
-    """Resolve 'shared/xxx' relative to the project root shared/ directory.
-    Two levels up from open-llm-vtuber/ -> project root (Live2D-Ai/)"""
-    if config_path.startswith("shared/"):
-        base = os.path.dirname(os.path.dirname(_project_root))  # 项目根 Live2D-Ai/
-        return os.path.join(base, config_path)
-    return config_path
+from open_llm_vtuber.utils.repo_paths import resolve_shared_path as _resolve_shared_path  # AUDIT P-1 单源
 
 
 def _load_persona_from_config(config_dict: dict) -> tuple[str, dict]:

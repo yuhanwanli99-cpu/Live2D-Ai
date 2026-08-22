@@ -7,6 +7,7 @@ from fastapi import WebSocket
 from prompts import prompt_loader
 from .live2d_model import Live2dModel
 from .model_registry import ModelRegistry
+from .utils.repo_paths import resolve_shared_path as _resolve_shared_path_impl
 from .asr.asr_interface import ASRInterface
 from .tts.tts_interface import TTSInterface
 from .vad.vad_interface import VADInterface
@@ -709,7 +710,7 @@ class ServiceContext:
                     raise ValueError("Invalid configuration file path")
 
                 alt_config_data = read_yaml(file_path).get("character_config")
-                new_character_config_data = deep_merge(
+                new_character_config_data = _deep_merge(
                     self.config.character_config.model_dump(), alt_config_data
                 )
 
@@ -767,41 +768,33 @@ class ServiceContext:
 
 
 def _find_repo_shared_dir() -> str | None:
-    """向上查找仓库根目录下的 shared/ 目录（不依赖 CWD）。
+    """仓库 shared/ 目录——已收敛至 utils.repo_paths 单源（AUDIT P-1）。
 
-    从本模块文件位置逐级向上，找到第一个含 shared/ 的目录即返回；
-    找不到返回 None。
+    保留旧名兼容模块内调用；目录不存在时返回 None（与旧向上搜索语义一致）。
     """
-    current = os.path.dirname(os.path.abspath(__file__))
-    while True:
-        candidate = os.path.join(current, "shared")
-        if os.path.isdir(candidate):
-            return candidate
-        parent = os.path.dirname(current)
-        if parent == current:
-            return None
-        current = parent
+    from .utils.repo_paths import shared_dir
+
+    p = shared_dir()
+    return str(p) if p.is_dir() else None
 
 
 def _resolve_shared_path(config_path: str) -> str:
     """将 'shared/xxx' 解析为仓库 shared/ 目录下的绝对路径。
 
-    与 run_server.py 的 `_resolve_shared_path()` 语义一致（plan 风险 #3）：
     由调用方解析后再传给 ModelRegistry，ModelRegistry 自身不假设工作目录。
     """
-    if config_path.startswith("shared/"):
-        shared_dir = _find_repo_shared_dir()
-        if shared_dir is not None:
-            return os.path.join(shared_dir, config_path[len("shared/") :])
-    return config_path
+    return _resolve_shared_path_impl(config_path)
 
 
-def deep_merge(dict1, dict2):
-    """Recursively merges dict2 into dict1, prioritizing values from dict2."""
+def _deep_merge(dict1, dict2):
+    """Recursively merges dict2 into dict1, prioritizing values from dict2.
+
+    仅服务本文件 handle_config_switch 的角色配置合并（私有，非通用工具）。
+    """
     result = dict1.copy()
     for key, value in dict2.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
+            result[key] = _deep_merge(result[key], value)
         else:
             result[key] = value
     return result
