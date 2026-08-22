@@ -858,6 +858,21 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   if (canvasEl) {
     initApp('canvas').catch((err) => {
       console.error('[renderer] initApp failed:', err);
+      // 永不静默崩溃：initApp 内部失败此前只进 console → 页面全黑零反馈。
+      // 直接画到 index.html 的首错上屏条（__showBootErr 由引导脚本注入）。
+      const show = (
+        window as unknown as { __showBootErr?: (msg: string) => void }
+      ).__showBootErr;
+      const detail =
+        err instanceof Error ? err.stack || err.message : String(err);
+      show?.('[initApp] ' + detail);
     });
+  } else {
+    // 容器缺失也可见（页面骨架被改动的显式提示）
+    const pre = document.createElement('pre');
+    pre.textContent = '[renderer] #canvas 容器缺失——页面骨架被改动？';
+    pre.style.cssText =
+      'position:fixed;top:0;left:0;right:0;z-index:9999;background:#b00020;color:#fff;padding:10px;font:12px/1.5 monospace';
+    document.body?.appendChild(pre);
   }
 }

@@ -47,10 +47,17 @@
           el.textContent += msg + '\n';
         }
         window.addEventListener('error', function (e) { show('[error] ' + (e.message || e.type) + ' @' + (e.filename || '') + ':' + (e.lineno || '')); });
+        /* 资源加载失败不冒泡：捕获阶段才能看到（如 chunk 404） */
+        window.addEventListener('error', function (e) {
+          var t = e.target;
+          if (t && (t.src || t.href)) show('[resource] ' + (t.src || t.href));
+        }, true);
         window.addEventListener('unhandledrejection', function (e) { show('[promise] ' + ((e.reason && (e.reason.stack || e.reason.message)) || String(e.reason))); });
+        /* 入口 catch 显式调用：被 .catch 处理过的失败不会触发上面两个监听 */
+        window.__showBootErr = show;
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-_qZj5z4R.js"></script>
+    <script type="module" crossorigin src="./assets/index-BOuGninc.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Dfup1yCJ.css">
   </head>
   <body>
