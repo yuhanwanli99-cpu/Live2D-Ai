@@ -196,7 +196,10 @@ export function loadSoullinkProfile(modelUrl: string): Promise<unknown | null> {
   const p = (async () => {
     try {
       const res = await fetch(url);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        console.warn('[soullink-adapter] profile 未找到（' + res.status + '）:' + url + ' → 回退 legacy 行为');
+        return null;
+      }
       return (await res.json()) as unknown;
     } catch (err) {
       console.error('[soullink-adapter] profile 加载失败（回退 legacy 行为）:', err);

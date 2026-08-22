@@ -318,7 +318,9 @@ let soullinkProfileCache: unknown = null;
     applyModelPose(loaded.model, modelKeyFor(modelInfo));
     applyTextureGuard(loaded.model);
     if (PERFORMANCE_ENGINE === 'soullink') {
-      soullinkProfileCache = await loadSoullinkProfile(modelInfo.url);
+      // profile 随前端包发布：/soullink-profiles/<皮套目录名>.profile.json
+      const skin = /\/live2d-models\/([^/]+)\//.exec(modelInfo.url || '')?.[1] ?? 'bai';
+      soullinkProfileCache = await loadSoullinkProfile('/soullink-profiles/' + skin + '.profile.json');
     }
     pipeline = createPipeline(loaded.model, loaded.internalModel);
 
