@@ -6,48 +6,6 @@ from tqdm import tqdm
 from loguru import logger
 
 
-def get_github_asset_url(owner, repo, release_tag, filename_without_ext):
-    """
-    Fetch the URL of a GitHub release asset by its filename (without extension).
-
-    Args:
-        owner (str): The owner of the repository.
-        repo (str): The name of the repository.
-        release_tag (str): The tag of the release.
-        filename_without_ext (str): The filename to search for (without extension).
-
-    Returns:
-        str: The download URL of the matched asset, or None if no match is found.
-    """
-    url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{release_tag}"
-    headers = {}  # Add authentication headers if needed
-
-    try:
-        # Make a GET request to fetch release data
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-
-        # Parse the JSON response
-        release_data = response.json()
-        assets = release_data.get("assets", [])
-
-        # Look for a matching file
-        for asset in assets:
-            if asset["name"].startswith(filename_without_ext):
-                logger.info(f"Match found: {asset['name']}")
-                return asset["browser_download_url"]
-
-        # If no match found, log the error
-        logger.error(
-            f"No match found for filename: {filename_without_ext} in release {release_tag}."
-        )
-        return None
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"An error occurred while fetching release data: {e}")
-        return None
-
-
 def download_and_extract(url: str, output_dir: str) -> Path:
     """
     Download a file from a URL and extract it if it is a tar.bz2 archive.

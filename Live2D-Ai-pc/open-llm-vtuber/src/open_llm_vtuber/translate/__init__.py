@@ -13,10 +13,3 @@ class TranslateInterface(ABC):
     def translate(self, text: str) -> str:
         """Translate text from source language to target language."""
         ...
-
-
-class NoOpTranslator(TranslateInterface):
-    """No-op translator that returns text unchanged."""
-
-    def translate(self, text: str) -> str:
-        return text

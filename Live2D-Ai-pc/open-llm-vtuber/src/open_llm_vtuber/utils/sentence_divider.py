@@ -163,23 +163,6 @@ def comma_splitter(text: str) -> Tuple[str, str]:
             return split_text[0].strip() + comma, split_text[1].strip()
     return text, ""
 
-
-def has_punctuation(text: str) -> bool:
-    """
-    Check if the text is a punctuation mark.
-
-    Args:
-        text: Text to check
-
-    Returns:
-        bool: Whether the text is a punctuation mark
-    """
-    for punct in COMMAS + END_PUNCTUATIONS:
-        if punct in text:
-            return True
-    return False
-
-
 def contains_end_punctuation(text: str) -> bool:
     """
     Check if text contains any sentence-ending punctuation.
