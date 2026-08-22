@@ -1,3 +1,12 @@
+# P0-P1 落地：soullink 表演引擎双跑（2026-08-22）
+
+- **P0 Spike GO**：profile-generator 确定性生成 bai ModelProfile（FACS 24→20 mapped；usedCdi 16/128）；headless 冒烟 600tick 输出 16 参数全 ⊆ bai 集、眨眼幅度 0.887/呼吸 0.900；SDK 能力检测与人工 cdi 盘点互证（缺 eyeSmile/blush/tear/sweat）。报告见 verification/soullink-p0-report.md。
+- **P1 双跑开关落地**：renderer 新增 soullink-adapter.ts（8key→naturalVAD 意图映射 / 括注 cue 重音 / RMS 推拉桥喂引擎口型 / frame 覆盖写入）；ws-bridge 三转发回调；main.ts performanceEngine 开关（localStorage，默认 legacy）。
+- **核心缺陷修复**：参数写入挂到 internalModel 的 afterMotionUpdate 相位——此前 arbiter 写入被模型每帧重置覆盖，表现就是"只有嘴动"。修复后眨眼/呼吸/表情/动作全部可见（待人工冒烟最终确认）。
+- 验证：renderer vitest 28files/**404 passed**；tsc strict clean；bundle 已重建；PC pytest 保持 407。
+
+---
+
 # 实现计划定稿：表演引擎直接复用 soullink-emotion-sdk（2026-08-22）
 
 - 决策：能引包就不自己写。7 个 @soullink-emotion/* 包全部已发布 npm（MIT，0.1.0-beta.1），锁精确版本引入；维护=评估上游 release+diff 后 bump。
