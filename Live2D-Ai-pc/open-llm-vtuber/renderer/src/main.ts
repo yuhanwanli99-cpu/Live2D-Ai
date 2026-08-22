@@ -210,7 +210,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     const imEvents = internalModel as unknown as {
       on?: (event: string, cb: () => void) => void;
     };
-    imEvents.on?.('afterMotionUpdate', () => {
+    // 注意：必须用 ?. 同时防护 imEvents 自身为 null（启动时空转管线传 null）——
+    // a.on?.() 只防 on 缺失，a 为 null 时读 .on 依旧抛 TypeError。
+    imEvents?.on?.('afterMotionUpdate', () => {
       pipeline.arbiter.update(lastFrameDeltaMs);
       if (PERFORMANCE_ENGINE === 'soullink') pipeline.soullink?.frame(lastFrameDeltaMs / 1000);
     });
