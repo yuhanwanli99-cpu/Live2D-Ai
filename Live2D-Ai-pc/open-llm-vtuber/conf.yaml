@@ -52,9 +52,9 @@ character_config:
 
         base_url: https://api.deepseek.com/v1
         models:
+        - deepseek-v4-flash-vision-exp
         - deepseek-v4-flash
         - deepseek-v4-pro
-        - deepseek-v4-flash-vision-exp
       zhipu_free_llm:
         llm_api_key: '${ZHIPU_API_KEY}'
         model: 'glm-4.7-flash'

@@ -1,5 +1,7 @@
 import os
 import json
+import asyncio
+import time
 from typing import Callable
 from loguru import logger
 from fastapi import WebSocket
@@ -96,6 +98,7 @@ class ServiceContext:
         self.vad_engine: VADInterface | None = None
         self.translate_engine = None  # Kept for backward compatibility
         self.vision_handler: VisionHandler | None = None
+        self._tts_warmup_task = None  # TTS 预热任务（避免首句合成冷启动数十秒）
 
         self.mcp_server_registery: ServerRegistry | None = None
         self.tool_adapter: ToolAdapter | None = None
@@ -463,8 +466,39 @@ class ServiceContext:
             )
             self.character_config.tts_config = tts_config
             self._last_tts_config = tts_config
+            self._schedule_tts_warmup()
         else:
             logger.info("TTS already initialized with the same config.")
+
+    def _schedule_tts_warmup(self) -> None:
+        """TTS 预热：本地引擎（如 Melo）懒加载，首句合成冷启动可达数十秒。
+
+        初始化后立刻用一句短文本把模型拉起，用户第一句话就能走热路径。
+        失败只告警不阻断（预热属优化，非功能依赖）。
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # 同步上下文（单测/脚本）无事件循环 → 跳过
+        if self._tts_warmup_task and not self._tts_warmup_task.done():
+            return
+
+        async def _warm() -> None:
+            t0 = time.monotonic()
+            try:
+                await self.tts_engine.async_generate_audio(
+                    "你好。", file_name_no_ext="tts_warmup"
+                )
+                logger.info(
+                    f"[TTS] 引擎预热完成 ({time.monotonic() - t0:.1f}s)——"
+                    "首句合成已走热路径"
+                )
+            except Exception as e:  # noqa: BLE001 - 预热失败不影响功能
+                logger.warning(
+                    f"[TTS] 预热失败（首句合成会较慢，不影响功能）: {e}"
+                )
+
+        self._tts_warmup_task = loop.create_task(_warm())
 
     def init_vad(self, vad_config: VADConfig) -> None:
         if vad_config.vad_model is None:
@@ -682,6 +716,15 @@ class ServiceContext:
                 persona_prompt += self.mood_engine.get_prompt_injection()
             except Exception as e:  # noqa: BLE001 - P7-05 降级兜底
                 logger.warning(f"mood prompt injection failed (ignored): {e}")
+
+        # 对话风格硬约束（2026-08-22）：短句节奏 + 禁旁白描写。
+        # 此前模型把"尾巴轻轻摇晃"这类动作描写当正文输出，且一次说十几句。
+        persona_prompt += (
+            "\n\n[对话风格·必须遵守]\n"
+            "1. 像真人即时聊天一样回应，每次只说 1~3 句话，句子要短。\n"
+            "2. 只输出要说出口的话；严禁任何动作、表情、心理活动、场景旁白描写。\n"
+            "3. 不要解释或复述以上要求。"
+        )
 
         logger.debug("\n === System Prompt ===")
         logger.debug(persona_prompt)
