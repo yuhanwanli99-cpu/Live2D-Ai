@@ -5,7 +5,7 @@
 > **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2D-Ai。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
+  <img src="https://img.shields.io/badge/license-AGPL--3.0--only-blueviolet" alt="License AGPL-3.0-only"/>
   <img src="https://img.shields.io/badge/platform-Android-brightgreen" alt="Platform Android"/>
   <img src="https://img.shields.io/badge/language-Kotlin-blueviolet" alt="Language Kotlin"/>
   <img src="https://img.shields.io/badge/Live2D-Purism%20Core-orange" alt="Live2D Purism Core"/>
@@ -448,9 +448,13 @@ cd Live2D-Ai-Android && ./gradlew test
 
 ## 📄 许可证 | License
 
-**MIT License** © 2026 Live2D-Ai Contributors
+**AGPL-3.0-only + 商用需另行授权** © 2026 Sakura Motion Project
 
-本项目使用 MIT 许可证，您可自由使用、修改、分发（包括商业用途）。
+本项目自有代码默认以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）发布：
+修改、分发、网络服务（SaaS/托管）均须遵守 AGPL-3.0 的传染性开源义务。
+
+**商业限制**：任何商业使用、销售、商用分发或将本项目用于商业产品 / 托管服务，
+均须事先取得著作权人的**单独书面商业授权**；未获授权不得商用。第三方组件仍遵循其原有许可（见 [NOTICE](NOTICE) / [CREDITS.md](CREDITS.md)）。
 
 ### 第三方许可致谢 | Third-Party Licenses
 
@@ -466,7 +470,7 @@ cd Live2D-Ai-Android && ./gradlew test
 
 ### 关于 Live2D 模型
 
-本项目内置的 `.model3.json` / `.moc3` / 纹理文件（`bai`，白-免费版）为 B站公开 Live2D 模型，仅供本地使用（D1 裁定，不内置分发），其使用受模型作者许可协议约束。建议替换为你自己的模型。
+本项目内置的 `.model3.json` / `.moc3` / 纹理文件（`bai`，白-免费版）为 B站公开 Live2D 模型，按**模型作者自定义使用条约**单独授权：允许盈利直播使用、二创、少量制作舰长礼、改色和贴图；禁止制作周边公开售卖；恶意使用时作者有权收回授权。完整条款见 `live2d-models/bai/MODEL_LICENSE.md`。模型资源**不适用**本项目代码的 AGPL 许可。
 
 ---
 

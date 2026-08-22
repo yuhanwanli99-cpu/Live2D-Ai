@@ -1,11 +1,17 @@
 Live2D-Ai
-Copyright (c) 2026 Sakura Motion Project
-Licensed under the MIT License (see LICENSE).
+Copyright (C) 2026 Sakura Motion Project
+
+Default public license: GNU Affero General Public License, version 3 (AGPL-3.0).
+Commercial use restriction: any commercial use, sale, SaaS/hosted-service
+deployment, or commercial distribution of this project's own source code
+requires a separate written commercial license from the copyright holder.
+Commercial use without such authorization is not licensed. See LICENSE.
 
 This NOTICE file records, for transparency and in the spirit of Section 4(d)
 of the Apache License 2.0, the third-party components governed by the
 Apache License 2.0 that this project references or is informed by.
-The project itself remains MIT-licensed; Apache-2.0 components listed below
+The project's own code is licensed under AGPL-3.0 with a commercial-use
+authorization requirement (see LICENSE); Apache-2.0 components listed below
 are NOT re-licensed and keep their own terms.
 
 ================================================================================
@@ -23,6 +29,19 @@ Apache 2.0 Components
               expression index). The concrete index values come from this
               project's own existing PC/Android emotionMap convention.
    No N.E.K.O. source code is included or distributed with this project.
+
+================================================================================
+Model Asset License
+================================================================================
+
+- The bundled Live2D model "bai" (白-免费版) is a third-party asset licensed
+  under the model author's custom terms, reproduced in:
+    Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/MODEL_LICENSE.md
+    Live2D-Ai-Android/app/src/main/assets/live2d/bai/MODEL_LICENSE.md
+  The author permits profit-making live streams, derivative works, limited
+  "舰长礼" production, and texture/color edits; public merchandise sales are
+  prohibited, and the author may revoke permission for malicious use.
+  This model is NOT covered by the project's AGPL-3.0 license.
 
 ================================================================================
 Notes (license corrections vs. earlier drafts)

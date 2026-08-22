@@ -1,6 +1,6 @@
 # CREDITS — Third-Party Dependencies and Licenses
 
-Live2D-Ai is released under the [MIT License](LICENSE).
+Live2D-Ai's own code is released under the [AGPL-3.0 license with a commercial authorization requirement](LICENSE).
 This project uses several third-party components with their own licenses, as listed below.
 
 ---
@@ -25,7 +25,7 @@ All Purism Core C source files carry `SPDX-License-Identifier: MIT`.
 **SPDX:** See [Live2D Open Software License Agreement](https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html)
 
 The GLSL shader files in `assets/shaders/` are adapted from [Live2D/CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) (develop branch).
-They are **not** covered by the MIT license of this project. They remain under the
+They are **not** covered by the AGPL-3.0 license of this project. They remain under the
 **Live2D Open Software License** and must comply with its terms, including the
 restriction that these shaders may not be released under any license other than
 Live2D's own.
@@ -37,7 +37,7 @@ Live2D's own.
 > - Releasing any code included in the Software under a license not from Live2D.
 >
 > The shaders **must remain under Live2D Open Software License**. They cannot be
-> re-licensed under MIT. A `NOTICE` file should be added alongside each shader
+> re-licensed under AGPL-3.0. A `NOTICE` file should be added alongside each shader
 > to clarify this (see [Issue](#88-issue-recommendation-add-license-notice-to-shaders)).
 
 ---
@@ -81,6 +81,25 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 
 > **⚠️ Not MIT compatible:** The model data (`.moc3`, textures, motions) is
 > proprietary Live2D content. It must remain under the Live2D Free Material License.
+
+---
+
+## 4b. Live2D Model — 白 (Bai Free)
+
+**Source:** Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/（Android: Live2D-Ai-Android/app/src/main/assets/live2d/bai/）
+**License:** 模型作者自定义使用条约（非 MIT / 非 AGPL）
+**Copyright:** 模型作者保留，按作者声明执行
+**License file:** MODEL_LICENSE.md（随模型目录分发）
+
+作者声明要点：
+- 允许盈利直播使用
+- 允许二创，允许少量制作舰长礼，禁止制作周边公开售卖
+- 允许改色和贴图，但不要过度修改
+- 使用本模型发生的纠纷与创作者无关，后果由使用者自行承担
+- 如恶意使用本模型，创作者有权收回使用授权
+
+> **⚠️ 许可隔离：** 该模型资源不适用本项目代码的 AGPL-3.0 许可，也不得
+> 被重新授权为 MIT/AGPL。模型文件须随附 MODEL_LICENSE.md。
 
 ---
 

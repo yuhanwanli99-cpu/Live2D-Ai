@@ -1,5 +1,7 @@
 # Live2D-Ai — 架构规划
 
+> ⚠️ **本文件为架构演进历史（截至 2026-08-05）。当前执行计划见 [docs/plans/PLAN-V2-PC-LOCAL-TTS.md](docs/plans/PLAN-V2-PC-LOCAL-TTS.md)（2026-08-21 定稿，仅 PC 端，新增本地 Melo TTS 接口；Android 冻结在 v0.1.0）。**
+
 > 更新日期: 2026-08-05 | 当前版本: **v0（开发中，作者自测）** | 架构: 两端独立直连
 
 ---

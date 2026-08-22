@@ -1,8 +1,15 @@
 # Live2D-Ai — 项目交接文档（v0.1.0 定稿）
 
-> 更新日期: 2026-08-15（v0.1.0 收尾）  
+> 更新日期: 2026-08-21（PC 接手 + 新计划落盘）  
 > 项目定位: Live2D + AI + TTS 最小验证项目 — 验证「文本/语音 → LLM → 表情/口型/动作」闭环。双端：Android 主端 + PC（Open-LLM-VTuber）。  
-> 版本: **v0.1.0**（git tag v0.1.0，仅本地提交不上传，作者自测）
+> 版本: **v0.1.0**（Android 冻结；PC 按新计划推进）
+
+## 〇、当前执行计划（2026-08-21 接手，PC 端）
+
+- **当前唯一执行口径**：`docs/plans/PLAN-V2-PC-LOCAL-TTS.md`（仅 PC，附带本地 Melo TTS 需求；取代 PLAN-V1）。
+- **目标**：把 Melo TTS 接成 PC 设置中心「本地/免费」分组的一等公民 Provider，并新增稳定本地 TTS HTTP 接口（`POST /api/tts/local/synthesize`），全程无需云端 TTS Key。
+- **范围边界**：不碰 Android；Melo 定位为本地多语种音色合成，参考音频克隆仍走 `voice_library.py` + CosyVoice/GPT-SoVITS。
+- **执行状态（2026-08-21）**：阶段 1–5 的代码、设置 UI、REST 接口、测试与绿门已完成；**外部 Melo 环境已对接**（`melo_worker.py` + `melo_external.py` 常驻子进程，`MELO_PYTHON` 可覆盖解释器路径），默认 `device=cpu`，并限制单次 `MELO_MAX_TEXT_LEN=200` 字 / `MELO_MAX_SENTENCES=4` 句。已用真实 ZH 模型跑通 worker 与 `MeloTTSEngine.generate_audio` 端到端合成。绿门：`verify_all.py --pc` 5/5、PC pytest 325 passed、前端 vitest 375 passed、tsc+build 通过。**剩余**：EN/ES/FR/JP/KR 首次下载合成与 cuda 并发冒烟。
 
 ## 〇、v0.1.0 最终状态（2026-08-15 大重构收尾）
 
