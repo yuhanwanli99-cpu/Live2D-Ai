@@ -50,6 +50,7 @@ import {
   type AnyWebGLContext,
 } from './texture-adapter';
 import { BodyActionPlayer } from './choreography';
+import { SoullinkPerformanceAdapter, resolvePerformanceEngine, loadSoullinkProfile } from './soullink-adapter';
 import { LiveEventController, type LiveEventPayload } from './live-event';
 import { createCameraModeStore } from './camera-state';
 
@@ -67,6 +68,8 @@ const WS_PATH = '/client-ws';
 
 /** 帧间隔换算：PIXI Ticker delta 以 60fps 帧为单位 → ms（架构 §3.6.5） */
 const FRAME_MS = 1000 / 60;
+/** 表演引擎开关（PLAN-V3 P1 双跑）：localStorage performanceEngine，默认 legacy */
+const PERFORMANCE_ENGINE = resolvePerformanceEngine();
 
 /** 画布尺寸兜底（app.screen / 容器尺寸不可用时的构图回退值） */
 const FALLBACK_WIDTH = 800;
@@ -110,6 +113,8 @@ interface RenderPipeline {
   idleMotion: IdleMotionController | null;
   bodyMotion: BodyActionPlayer;
   liveEvent: LiveEventController;
+  /** PLAN-V3 P1：soullink 表演引擎适配器（仅 performanceEngine=soullink 时非空） */
+  soullink: SoullinkPerformanceAdapter | null;
 }
 
 /**
@@ -174,6 +179,22 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     const emotionConsumer = new EmotionConsumer(arbiter);
     const bodyMotion = new BodyActionPlayer(arbiter, { now: () => performance.now() });
     const liveEvent = new LiveEventController(emotionConsumer, bodyMotion);
+
+    // PLAN-V3 P1：soullink 表演引擎（profile 由 handleModelChange 预载；失败回退 legacy 可见）
+    let soullink: SoullinkPerformanceAdapter | null = null;
+    if (PERFORMANCE_ENGINE === 'soullink') {
+      try {
+        if (!soullinkProfileCache) throw new Error('profile 未加载');
+        soullink = new SoullinkPerformanceAdapter({
+          profile: soullinkProfileCache,
+          coreModel: () => internalModel?.coreModel ?? null,
+          now: () => performance.now() / 1000,
+        });
+      } catch (err) {
+        console.error('[perf-engine] 初始化失败，回退 legacy（永不静默崩溃）:', err);
+      }
+    }
+
     const pipeline: RenderPipeline = {
       arbiter,
       emotionConsumer,
@@ -187,15 +208,30 @@ export async function initApp(containerId: string): Promise<PixiApp> {
           : null,
       bodyMotion,
       liveEvent,
+      soullink,
     };
     wsBridge.setEmotionConsumer(pipeline.emotionConsumer);
     wsBridge.setBodyMotion(pipeline.bodyMotion);
     wsBridge.setLipSync(pipeline.lipSync);
+
+    // 核心缺陷修复（PLAN-V3 §1.5/§8）：模型每帧会重置参数，此前 arbiter 写入发生在
+    // 模型自身更新之前而被整帧覆盖——表现就是"只有嘴动"。挂在 afterMotionUpdate
+    // （动作已应用、形变未发生）重写全部参数，眨眼/呼吸/表情/动作才能真正可见。
+    const imEvents = internalModel as unknown as {
+      on?: (event: string, cb: () => void) => void;
+    };
+    imEvents.on?.('afterMotionUpdate', () => {
+      pipeline.arbiter.update(lastFrameDeltaMs);
+      if (PERFORMANCE_ENGINE === 'soullink') pipeline.soullink?.frame(lastFrameDeltaMs / 1000);
+    });
+
     return pipeline;
   };
 
   // 渲染管线：先以空转管线起步（arbiter 无 coreModel，update 不写），保证返回结构完整
   let pipeline: RenderPipeline = createPipeline(null, null);
+/** soullink 表演引擎的 ModelProfile（soullink 模式下随模型加载预载） */
+let soullinkProfileCache: unknown = null;
 
   // 当前模型状态（模型热切换用）
   let currentModel: Live2DModel | null = null;
@@ -281,6 +317,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     currentModelInfo = modelInfo;
     applyModelPose(loaded.model, modelKeyFor(modelInfo));
     applyTextureGuard(loaded.model);
+    if (PERFORMANCE_ENGINE === 'soullink') {
+      soullinkProfileCache = await loadSoullinkProfile(modelInfo.url);
+    }
     pipeline = createPipeline(loaded.model, loaded.internalModel);
 
     // ---- S3 渲染日志探针（contract-M-PC §2.3；只读：不改渲染逻辑/相机应用顺序，仅 console 输出） ----
@@ -352,14 +391,19 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   }
 
   // ---- RM6 待机循环 + RM3 仲裁器写入（每帧：眨眼/呼吸/微表情/小动作 → 仲裁器合并写 coreModel） ----
+  let lastFrameDeltaMs = FRAME_MS;
   app.ticker?.add((dt) => {
     const deltaMs = dt * FRAME_MS;
+    lastFrameDeltaMs = deltaMs;
     pipeline.blink.update(deltaMs);
     pipeline.breath.update(deltaMs);
     pipeline.microExpr.update(deltaMs);
     pipeline.idleMotion?.update(deltaMs);
     pipeline.bodyMotion.update(deltaMs);
     pipeline.arbiter.update(deltaMs);
+    if (PERFORMANCE_ENGINE === 'soullink' && pipeline.soullink) {
+      pipeline.soullink.frame(deltaMs / 1000); // 保底：事件缺失时也推进引擎
+    }
   });
 
   // ---- RM7 WS 桥接：分发 set-model-and-conf（模型切换）/ audio（口型+表情+字幕）/ emotion / live-event ----
@@ -496,7 +540,10 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     });
 
     const chatPanel = initChatPanel(chatHost, {
-      onSend: (text) => wsBridge.sendText(text),
+      onSend: (text) => {
+      pipeline.soullink?.conversationEvent('listening'); // 用户开口 → 注视/倾听姿态
+      return wsBridge.sendText(text);
+    },
       onOpenSettings: () => settingsPanel?.open(),
       voice: voiceCapture,
     });
@@ -665,6 +712,16 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     };
     wsBridge.onTtsStatus = (status) => {
       chatPanel.setTtsStatus(status);
+    };
+    // PLAN-V3 P1：表演引擎三态/意图转发（legacy 模式下 soullink 为 null，全部 no-op）
+    wsBridge.onEmotionFrame = (emotion, strength) => {
+      pipeline.soullink?.setEmotion(emotion, strength);
+    };
+    wsBridge.onCue = (motion) => {
+      pipeline.soullink?.cue(motion);
+    };
+    wsBridge.onAudioSlices = (volumes, sliceMs) => {
+      pipeline.soullink?.feedMouth(volumes, sliceMs);
     };
     // 后端错误（未配置 Key / LLM / TTS 失败）→ 错误气泡 + Toast，不再静默
     wsBridge.onError = (message) => {

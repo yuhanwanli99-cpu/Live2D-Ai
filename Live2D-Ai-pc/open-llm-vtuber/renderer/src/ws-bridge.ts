@@ -78,6 +78,12 @@ export class WsBridge {
   onConnectionChange: ((connected: boolean) => void) | null = null;
   /** TTS 播放状态回调（播放中/空闲） */
   onTtsStatus: ((status: string) => void) | null = null;
+  /** emotion 帧转发（PLAN-V3 P1：soullink 表演引擎意图注入；legacy 模式无接收者） */
+  onEmotionFrame: ((emotion: string, strength: number) => void) | null = null;
+  /** 括注 cue 到点转发（动作名 → 表演重音意图） */
+  onCue: ((motion: string) => void) | null = null;
+  /** 音频片转发（volumes+sliceLength → 引擎口型拉模型） */
+  onAudioSlices: ((volumes: number[], sliceLengthMs?: number) => void) | null = null;
   /**
    * 句首音频块开播回调（字幕-声音同步）：每句第一个音频块真正开始播放时触发。
    * 聊天面板用它把已积累的干净句子文本收尾上屏——对话与声音同步出现；
@@ -97,9 +103,10 @@ export class WsBridge {
    * 正在播放的音频元素上，播放到对应进度才 bodyMotion.play —— 替代旧的
    * "audio 帧到达即整句一次性触发"。
    */
-  private motionScheduler = new MotionTimelineScheduler((motion) =>
-    this.bodyMotion?.play(motion),
-  );
+  private motionScheduler = new MotionTimelineScheduler((motion) => {
+    this.bodyMotion?.play(motion);
+    this.onCue?.(motion);
+  });
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
   private manuallyClosed = false;
@@ -412,9 +419,10 @@ export class WsBridge {
             display_text?: DisplayText | null;
             sentence_start?: boolean;
           } | null;
-          // 口型：volumes 存在时按切片播放（RM7-02）
+          // 口型：volumes 存在时按切片播放（RM7-02）；同时转发给表演引擎拉模型
           if (audio && Array.isArray(audio.volumes)) {
             this.lipSync?.play(audio.volumes, audio.visemes ?? [], audio.slice_length ?? 20);
+            this.onAudioSlices?.(audio.volumes, audio.slice_length);
           }
           // 表情：actions.parameterOverrides（RM7-03）
           if (audio?.actions?.parameterOverrides) {
@@ -454,6 +462,7 @@ export class WsBridge {
             frame.parameterOverrides && Object.keys(frame.parameterOverrides).length > 0;
           if (frame.emotion || hasOverrides) {
             this.emotionConsumer?.consumeFrame(frame);
+            this.onEmotionFrame?.(frame.emotion ?? 'neutral', frame.strength ?? 2);
           }
           break;
         }
