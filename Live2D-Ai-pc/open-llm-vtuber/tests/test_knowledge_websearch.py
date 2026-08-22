@@ -138,8 +138,8 @@ class TestKnowledgeHandleEvent:
 # ─────────────────────────────────────────────────────────────
 class TestWebSearchHandleEvent:
     @pytest.fixture(autouse=True)
-    def _force_duckduckgo(self, monkeypatch):
-        """本组用例强制走 DuckDuckGo 分支，避免外部环境变量串扰。"""
+    def _force_free_engine(self, monkeypatch):
+        """本组用例强制走免费引擎（Bing 中国站）分支，避免环境变量串扰。"""
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
 
     def test_handle_event_shape_with_canned_fetch(self, monkeypatch):
@@ -157,7 +157,7 @@ class TestWebSearchHandleEvent:
 
         monkeypatch.setattr(plugin, "_fetch", canned)
         result = plugin.handle_event("web_search", {"query": "天气"})
-        assert result["provider"] == "duckduckgo"
+        assert result["provider"] == "bing-cn"
         assert result["error"] is None
         assert len(result["results"]) == 5  # 结果上限 5 条
         assert set(result["results"][0]) == {"title", "url", "snippet"}
@@ -167,21 +167,18 @@ class TestWebSearchHandleEvent:
 
     def test_empty_query_short_circuits(self):
         result = WebSearchPlugin().handle_event("web_search", {"query": "   "})
-        assert result == {"results": [], "provider": "duckduckgo", "error": None}
+        assert result == {"results": [], "provider": "bing-cn", "error": None}
 
 
-_DDG_SAMPLE_HTML = (
+_BING_SAMPLE_HTML = (
     "<div>"
-    '<a rel="nofollow" class="result__a" '
-    'href="//duckduckgo.com/l/?uddg='
-    'https%3A%2F%2Fweather.example.com%2Fshanghai&amp;rut=a1">'
-    "上海天气 &amp; 空气质量</a>"
-    '<a class="result__snippet" href="//click/1">今天 <b>多云</b>，最高 12 度。</a>'
+    '<li class="b_algo"><h2><a href="https://weather.example.com/sh" '
+    'h="ID=SERP,5158.1">上海天气 &amp; 空气质量</a></h2>'
+    '<div class="b_caption"><p>今天 <b>多云</b>，最高 12 度。</p></div></li>'
     "</div>"
     "<div>"
-    '<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnews.example.com&amp;rut=b2" '
-    'rel="nofollow" class="result__a">科技新闻</a>'
-    '<a class="result__snippet" href="//click/2">最新 <span>AI</span> 动态汇总。</a>'
+    '<li class="b_algo"><h2><a href="https://news.example.com/">科技新闻</a></h2>'
+    "<p>最新 <span>AI</span> 动态汇总。</p></li>"
     "</div>"
 )
 
@@ -203,36 +200,37 @@ class _FakeResponse:
 
 
 class TestDefaultFetcher:
-    def test_parses_ddg_html_and_decodes_uddg_redirect(self, monkeypatch):
+    def test_parses_bing_html_strips_tags_and_unescapes(self, monkeypatch):
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-        monkeypatch.setattr(
-            urllib.request,
-            "urlopen",
-            lambda req, timeout=None: _FakeResponse(_DDG_SAMPLE_HTML.encode("utf-8")),
-        )
+
+        def fake_urlopen(req, timeout=None):
+            assert req.full_url.startswith("https://cn.bing.com/search?q=")
+            return _FakeResponse(_BING_SAMPLE_HTML.encode("utf-8"))
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
         result = WebSearchPlugin().handle_event("web_search", {"query": "上海天气"})
-        assert result["provider"] == "duckduckgo"
+        assert result["provider"] == "bing-cn"
         assert result["error"] is None
         first, second = result["results"]
-        # 第一条：uddg= 跳转参数解码出真实 URL，标签剥离得到纯文本
+        # 第一条：标题/摘要剥掉内嵌标签，HTML 实体还原
         assert first["title"] == "上海天气 & 空气质量"
-        assert first["url"] == "https://weather.example.com/shanghai"
+        assert first["url"] == "https://weather.example.com/sh"
         assert first["snippet"] == "今天 多云，最高 12 度。"
-        # 第二条属性顺序相反（href 在 class 前），同样可解析
+        # 第二条无 b_caption 包裹的裸 <p> 摘要同样可解析
         assert second["title"] == "科技新闻"
-        assert second["url"] == "https://news.example.com"
+        assert second["url"] == "https://news.example.com/"
         assert second["snippet"] == "最新 AI 动态汇总。"
 
     def test_network_failure_degrades_to_empty_with_error(self, monkeypatch):
         monkeypatch.delenv("TAVILY_API_KEY", raising=False)
 
         def boom(*args, **kwargs):
-            raise OSError("network unreachable")
+            raise OSError("[Errno 101] Network is unreachable")
 
         monkeypatch.setattr(urllib.request, "urlopen", boom)
         result = WebSearchPlugin().handle_event("web_search", {"query": "天气"})
         assert result["results"] == []
-        assert result["provider"] == "duckduckgo"
+        assert result["provider"] == "bing-cn"
         assert result["error"]  # 失败必须可见，不允许静默吞掉
 
 

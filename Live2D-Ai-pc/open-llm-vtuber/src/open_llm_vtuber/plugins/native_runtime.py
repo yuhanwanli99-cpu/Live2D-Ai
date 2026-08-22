@@ -275,16 +275,17 @@ class WebSearchPlugin:
     _TIMEOUT_SECONDS = 6
     _MAX_RESULTS = 5
 
-    # DuckDuckGo HTML 版的结果链接（result__a）与摘要（result__snippet）；
-    # 属性顺序不保证，用前瞻分别锚定 class 与 href。
-    _RESULT_LINK_RE = re.compile(
-        r'<a\b(?=[^>]*\bclass="result__a")(?=[^>]*\bhref="([^"]+)")[^>]*>(.*?)</a>',
-        re.DOTALL,
+    # 免费引擎：Bing 中国站（国内网络可达、零依赖、免 key）。
+    # b_algo 块内首个链接为标题，首个 <p> 为摘要；属性顺序不保证，宽松匹配。
+    _BING_BLOCK_RE = re.compile(r'<li class="b_algo"(.*?)</li>', re.DOTALL)
+    _BING_LINK_RE = re.compile(
+        r'<a[^>]*href="(http[^"]+)"[^>]*>(.*?)</a>', re.DOTALL
     )
-    _RESULT_SNIPPET_RE = re.compile(
-        r'<a\b(?=[^>]*\bclass="result__snippet")[^>]*>(.*?)</a>',
-        re.DOTALL,
-    )
+    _BING_SNIPPET_RE = re.compile(r'<p[^>]*>(.*?)</p>', re.DOTALL)
+
+    def __init__(self):
+        # 最近一次成功抓取使用的引擎（handle_event 用于诚实标注 provider）
+        self._provider_used: str | None = None
 
     @staticmethod
     def _strip_tags(fragment: str) -> str:
@@ -292,19 +293,53 @@ class WebSearchPlugin:
         return re.sub(r"<[^>]+>", "", fragment).strip()
 
     @staticmethod
-    def _resolve_url(href: str) -> str:
-        # DDG 结果链接是跳转链接：//duckduckgo.com/l/?uddg=<urlencode(真实URL)>&rut=...
-        if "uddg=" in href:
-            tail = href.split("uddg=", 1)[1]
-            return urllib.parse.unquote(tail.split("&", 1)[0])
-        return href
+    def _default_provider() -> str:
+        """未实际抓取时的 provider 标注（与 _fetch 的引擎选择保持一致）。"""
+        return (
+            "tavily"
+            if os.environ.get("TAVILY_API_KEY", "").strip()
+            else "bing-cn"
+        )
+
+    def _fetch_bing_cn(self, query: str) -> list[dict[str, Any]]:
+        """Bing 中国站轻量抓取：与 DuckDuckGo 同一套正则剥标签思路。"""
+        url = "https://cn.bing.com/search?q=" + urllib.parse.quote_plus(query)
+        req = urllib.request.Request(url, headers={"User-Agent": self._USER_AGENT})
+        with urllib.request.urlopen(req, timeout=self._TIMEOUT_SECONDS) as resp:
+            page = resp.read().decode("utf-8", errors="replace")
+        results: list[dict[str, Any]] = []
+        for block in self._BING_BLOCK_RE.findall(page):
+            link = self._BING_LINK_RE.search(block)
+            if link is None:
+                continue
+            snippet = self._BING_SNIPPET_RE.search(block)
+            results.append(
+                {
+                    "title": html.unescape(self._strip_tags(link.group(2))),
+                    "url": html.unescape(link.group(1)),
+                    "snippet": (
+                        html.unescape(self._strip_tags(snippet.group(1)))
+                        if snippet
+                        else ""
+                    ),
+                }
+            )
+            if len(results) >= self._MAX_RESULTS:
+                break
+        return results
 
     def _fetch(self, query: str) -> list[dict[str, Any]]:
-        """执行一次检索；配置 TAVILY_API_KEY 时走 Tavily，否则走 DuckDuckGo。"""
+        """执行一次检索。
+
+        免费默认引擎只有一个：Bing 中国站（国内网络可达）。
+        配置 TAVILY_API_KEY 时切换 Tavily（key 制拓展，属插件生态）。
+        """
         api_key = os.environ.get("TAVILY_API_KEY", "").strip()
         if api_key:
+            self._provider_used = "tavily"
             return self._fetch_tavily(query, api_key)
-        return self._fetch_duckduckgo(query)
+        self._provider_used = "bing-cn"
+        return self._fetch_bing_cn(query)
 
     def _fetch_duckduckgo(self, query: str) -> list[dict[str, Any]]:
         """DuckDuckGo HTML 版轻量抓取：正则解析 result__a / result__snippet。"""
@@ -361,14 +396,17 @@ class WebSearchPlugin:
     def handle_event(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         if name != "web_search":
             return {}
-        api_key = os.environ.get("TAVILY_API_KEY", "").strip()
-        provider = "tavily" if api_key else "duckduckgo"
+        provider = self._provider_used or self._default_provider()
         try:
             query = str(payload.get("query") or "").strip()
             if not query:
                 return {"results": [], "provider": provider, "error": None}
             results = self._fetch(query)[: self._MAX_RESULTS]
-            return {"results": results, "provider": provider, "error": None}
+            return {
+                "results": results,
+                "provider": self._provider_used or provider,
+                "error": None,
+            }
         except Exception as exc:  # noqa: BLE001 - 联网失败必须降级，不阻断对话链路
             logger.warning("web-search 检索失败（{}）: {}", provider, exc)
             return {"results": [], "provider": provider, "error": str(exc)}
