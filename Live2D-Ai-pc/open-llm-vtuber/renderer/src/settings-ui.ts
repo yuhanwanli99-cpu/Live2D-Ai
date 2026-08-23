@@ -412,6 +412,7 @@ export function initSettingsPanel(
             <div class="settings-editor-actions memory-add-row">
               <input class="settings-input memory-fact-input" type="text" placeholder="手动记一条，例如：喜欢被叫小白" aria-label="新增记忆" />
               <button class="btn primary btn-xs memory-add" type="button">添加</button>
+              <button class="btn ghost btn-xs memory-refresh" type="button">刷新</button>
               <button class="btn ghost btn-xs memory-clear" type="button">清空全部</button>
             </div>
             <div class="memory-list"></div>
@@ -493,7 +494,6 @@ export function initSettingsPanel(
   let requestToken = 0;
   let externalStatus: ExternalStatus | null = null;
   let pluginsLoaded = false;
-  let memoryLoaded = false;
   // 子区块（背景图 / 外部接入）在下方 setStatus 就绪后装配
   let backgroundSection: BackgroundSection | null = null;
   let externalSection: ExternalInputSection | null = null;
@@ -548,7 +548,8 @@ export function initSettingsPanel(
     tab.addEventListener('click', () => {
       switchTab(tab.dataset.tab || 'llm');
       if (tab.dataset.tab === 'plugins' && !pluginsLoaded) void renderPlugins();
-    if (tab.dataset.tab === 'memory' && !memoryLoaded) {
+    if (tab.dataset.tab === 'memory') {
+      // 每次进入都重新拉取：聊天会持续沉淀新事实，只加载一次会显得「不刷新」
       void renderMemory();
       void renderKnowledge();
     }
@@ -1714,7 +1715,6 @@ export function initSettingsPanel(
 
   /* ---- 记忆管理（对接 /api/memory/*，可视化长期记忆事实） ---- */
   const renderMemory = async (): Promise<void> => {
-    memoryLoaded = true;
     memoryListEl.innerHTML = '<div class="settings-tip">加载记忆…</div>';
     memoryStatusEl.textContent = '';
     try {
@@ -1753,7 +1753,6 @@ export function initSettingsPanel(
         });
       });
     } catch (err) {
-      memoryLoaded = false; // 失败允许下次点 tab 重试（与插件分区同策略）
       const msg = (err as Error).message;
       memoryListEl.innerHTML = `<div class="settings-tip">加载记忆失败: ${esc(msg)}</div>`;
       toast(`记忆加载失败: ${msg}`, 'error');
@@ -1780,6 +1779,11 @@ export function initSettingsPanel(
     })();
   };
   overlay.querySelector<HTMLButtonElement>('.memory-add')?.addEventListener('click', addMemoryFromInput);
+  overlay.querySelector<HTMLButtonElement>('.memory-refresh')?.addEventListener('click', () => {
+    void renderMemory().then(() => {
+      memoryStatusEl.textContent = '已刷新';
+    });
+  });
   memoryInputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addMemoryFromInput();
   });

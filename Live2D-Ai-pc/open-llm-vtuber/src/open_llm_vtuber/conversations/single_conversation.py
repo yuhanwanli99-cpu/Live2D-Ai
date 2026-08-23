@@ -306,6 +306,12 @@ async def process_single_conversation(
         input_text = await process_user_input(
             user_input, context.asr_engine, websocket_send
         )
+        # 空转写守卫：麦克风没收到帧 / 纯噪声时不再把空输入灌给 LLM
+        # （此前 AI 会对着空气回答「诶？」）。前端据空文本提示重说。
+        if isinstance(user_input, np.ndarray) and not input_text.strip():
+            logger.warning("ASR transcript empty (no/unclear audio) — skip conversation")
+            await websocket_send(json.dumps({"type": "control", "text": "conversation-chain-end"}))
+            return ""
         logger.info(
             f"[LATENCY] user_input_ready_ms={(time.monotonic() - _latency_start) * 1000:.0f}"
         )
@@ -531,12 +537,15 @@ async def process_single_conversation(
             )
             logger.info(f"AI response: {full_response}")
 
-        # PC v4 插件钩子：llm.after 允许记忆插件从回复中沉淀长期事实（正则即时层）。
+        # PC v4 插件钩子：llm.after 允许记忆插件沉淀长期事实（正则即时层）。
+        # text=回复、user_text=原始用户输入：正则记忆只应从【用户的话】里
+        # 提取显式事实——此前只传回复，AI 说「我在等你呢」也会被存成记忆，
+        # 已删对话的内容就这样以「长期记忆」的形式阴魂不散。
         if full_response:
             _plugin_context(
                 context,
                 "llm.after",
-                {"text": full_response},
+                {"text": full_response, "user_text": raw_user_text or ""},
             )
             # LLM 记忆管家（异步层）：对照现有事实做增/删/合并，不阻塞返回。
             _spawn_memory_curation(context, raw_user_text, full_response)

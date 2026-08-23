@@ -288,8 +288,12 @@ async def process_user_input(
 ) -> str:
     """Process user input, converting audio to text if needed"""
     if isinstance(user_input, np.ndarray):
-        logger.info("Transcribing audio input...")
+        # 可观测性：此前语音链路完全静默——前端到底送没送音频、ASR 认出了
+        # 什么，日志里毫无痕迹，「语音输入有问题」无从排查。这里记录时长与结果。
+        duration = len(user_input) / 16000.0
+        logger.info(f"Transcribing audio input ({duration:.1f}s)...")
         input_text = await asr_engine.async_transcribe_np(user_input)
+        logger.info(f"ASR transcript: {input_text!r}")
         await websocket_send(
             json.dumps({"type": "user-input-transcription", "text": input_text})
         )

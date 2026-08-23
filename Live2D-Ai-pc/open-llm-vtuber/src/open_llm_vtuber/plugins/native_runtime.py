@@ -69,7 +69,7 @@ class MemoryPlugin:
             r"我(?:叫|是)([^，。！？,.!?]{1,20})",
             r"我喜欢([^，。！？,.!?]{1,30})",
             r"我养了([^，。！？,.!?]{1,30})",
-            r"我在([^，。！？,.!?]{1,30})",
+            # 「我在…」过于宽泛（我在听歌/我在想 都会误存），不再作为事实来源
             r"记住[：: ]*(.+)",
         ]
         for pattern in patterns:
@@ -103,7 +103,10 @@ class MemoryPlugin:
                 return {}
             return {"context": "[相关长期记忆]\n" + "\n".join(f"- {f}" for f in relevant)}
         if name == "llm.after":
-            text = str(payload.get("text") or "")
+            # 只从用户的原话里提取显式事实（我叫… / 我喜欢… / 记住：…）。
+            # 此前从 AI 回复里正则提取，AI 说「我在等你呢」也会被存成记忆，
+            # 删掉对话后这些句子仍以长期记忆形式被反复注入。
+            text = str(payload.get("user_text") or "")
             facts = self._extract_facts(text)
             if not facts:
                 return {}

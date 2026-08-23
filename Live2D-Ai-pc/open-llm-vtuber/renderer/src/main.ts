@@ -739,6 +739,18 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       chatPanel.setThinking(true);
       toast(`收到外部消息（${source}）`, 'info', { key: 'external-input' });
     };
+    // 语音识别结果：把用户说的话上屏；空文本 = 没听清 → 提示重说
+    wsBridge.onTranscription = (text) => {
+      const t = (text || '').trim();
+      if (t) {
+        chatPanel.addMessage({ role: 'user', content: t });
+        chatPanel.setVoiceState('idle');
+      } else {
+        chatPanel.setThinking(false);
+        chatPanel.setVoiceState('idle');
+        toast('没听清你说的话，请靠近麦克风再试一次', 'error', { key: 'voice' });
+      }
+    };
     wsBridge.onConnectionChange = (connected) => {
       chatPanel.setConnected(connected);
       if (connected) {

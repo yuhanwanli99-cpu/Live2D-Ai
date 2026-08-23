@@ -44,6 +44,8 @@ export class WsBridge {
    * 让用户看到"角色为什么突然开口"）。见 src/open_llm_vtuber/external_input.py。
    */
   onExternalInput: ((payload: { text: string; source: string }) => void) | null = null;
+  /** 语音识别结果上屏（空文本 = 没听清，前端提示重说） */
+  onTranscription: ((text: string) => void) | null = null;
   /**
    * 后端错误回调（`{"type":"error","message":...}`）。
    * 典型来源：未配置 API Key（占位 LLM 的配置指引）、LLM/TTS 上游失败。
@@ -481,6 +483,13 @@ export class WsBridge {
               source: injected.source || 'external',
             });
           }
+          break;
+        }
+        case 'user-input-transcription': {
+          // 后端 ASR 结果：把用户说的话上屏（此前这条消息被完全忽略，
+          // 说出去的话在聊天里「消失」，只有 AI 干接话）
+          const t = (data as { text?: string } | null)?.text;
+          this.onTranscription?.(typeof t === 'string' ? t : '');
           break;
         }
         case 'live-event': {

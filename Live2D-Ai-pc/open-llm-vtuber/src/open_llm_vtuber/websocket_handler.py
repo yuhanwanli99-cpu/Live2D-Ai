@@ -562,7 +562,36 @@ class WebSocketHandler:
             )
         )
         if history_uid == context.history_uid:
-            context.history_uid = None
+            # 删除的是当前会话：必须把 LLM 记忆一并清掉——此前只置空
+            # history_uid，agent 的上下文里还留着整段被删对话，下一句话
+            # 模型照样「记得」（表现为删掉的对话内容阴魂不散）。
+            # 处理：新建一段空白历史并从它重置记忆（= 清空上下文），
+            # 同时广播 new-history-created 让前端同步清屏。
+            conf_uid = context.character_config.conf_uid
+            fresh_uid = create_new_history(conf_uid)
+            if fresh_uid:
+                context.history_uid = fresh_uid
+            else:
+                context.history_uid = None
+            try:
+                if fresh_uid:
+                    context.agent_engine.set_memory_from_history(
+                        conf_uid=conf_uid, history_uid=fresh_uid
+                    )
+                else:
+                    context.agent_engine.set_memory_from_history(
+                        conf_uid=conf_uid, history_uid=""
+                    )
+            except Exception as e:  # noqa: BLE001 - 记忆重置失败不阻断删除流程
+                logger.warning(f"删除会话后重置 LLM 记忆失败（忽略）: {e}")
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "type": "new-history-created",
+                        "history_uid": fresh_uid or "",
+                    }
+                )
+            )
 
     def _append_audio(self, client_uid: str, values) -> None:
         """把一段音频样本追加到该会话的缓冲（审计 E-4：list 累积，取用时一次 concatenate）。"""
