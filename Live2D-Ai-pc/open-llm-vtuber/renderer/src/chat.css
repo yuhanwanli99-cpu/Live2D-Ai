@@ -366,6 +366,24 @@
 .chat-send:disabled,
 .chat-mic:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* 停止按钮：仅生成/播放期间可见（打断 LLM 流式输出 + 停止 TTS） */
+.chat-stop {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  cursor: pointer;
+}
+.chat-stop:hover { background: var(--danger-border); color: #fff; }
+.chat-stop .icon { width: 16px; height: 16px; }
+.chat-pill.hidden,
+.chat-stop.hidden { display: none; }
+
 /* ── 全局提示（Toast）：断线 / LLM 失败 / 保存结果 ── */
 .toast-host {
   position: fixed;

@@ -547,10 +547,14 @@ export async function initApp(containerId: string): Promise<PixiApp> {
 
     const chatPanel = initChatPanel(chatHost, {
       onSend: (text) => {
-      pipeline.soullink?.conversationEvent('listening'); // 用户开口 → 注视/倾听姿态
-      return wsBridge.sendText(text);
-    },
+        pipeline.soullink?.conversationEvent('listening'); // 用户开口 → 注视/倾听姿态
+        const ok = wsBridge.sendText(text);
+        if (ok) chatPanel.setStopVisible(true); // 本轮生成/播放可随时停止
+        return ok;
+      },
       onOpenSettings: () => settingsPanel?.open(),
+      // 停止按钮：打断后端本轮任务 + 停止本地 TTS 播放
+      onStopRequest: () => requestStop(),
       voice: voiceCapture,
     });
     chatPanelRef = chatPanel;
@@ -585,7 +589,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       onCreate: () => {
         if (wsBridge.createNewHistory()) {
           chatPanel.clear();
-          toast('已开始新会话（上一段已保存）', 'ok', { key: 'history' });
+          // 说明记忆边界：对话上下文随新会话清空；长期记忆事实按设计保留
+          toast('已开始新会话（上一段已保存；长期记忆仍保留）', 'ok', { key: 'history' });
         } else {
           toast('未连接服务器，无法新建会话', 'error', { key: 'history' });
         }
@@ -625,6 +630,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     wsBridge.onHistoryCreated = (uid) => {
       currentHistoryUid = uid;
       historyDrawer.setCurrent(uid);
+      // 防御式清屏：无论新建从哪个入口触发，视图与流式状态都回到干净空态
+      finalParts = [];
+      chatPanel.clear();
     };
     wsBridge.onHistoryDeleted = ({ history_uid, success }) => {
       if (!success) {
@@ -658,10 +666,29 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       chatHeaderActions.insertBefore(resetBtn, chatHeaderActions.firstChild);
     }
 
-    // P1-2 流式上屏：token 增量先到 → 句子级字幕作为权威文本收尾，不重复上屏
+    // P1-2 流式上屏：token 增量只进缓冲 → 句子级字幕随语音逐句揭示（音画同步）
     let finalParts: string[] = [];
+    // 手动停止标记：区分「用户点停止」与「VAD 自动打断」（回执 toast 文案不同）
+    let manualStopPending = false;
+    const requestStop = (): void => {
+      if (!wsBridge.sendInterrupt('')) {
+        toast('未连接服务器，无法停止', 'error', { key: 'stop' });
+        return;
+      }
+      manualStopPending = true;
+      setTimeout(() => {
+        manualStopPending = false;
+      }, 8000); // 后端回执丢失时自动复位，避免误吞后续 VAD 打断提示
+      chatPanel.finalizeStream(finalParts.join('')); // 本地立即收尾（保留已生成文本）
+      finalParts = [];
+      chatPanel.setThinking(false);
+      chatPanel.setVoiceState('idle');
+      chatPanel.setStopVisible(false);
+      toast('已停止生成与播放', 'ok', { key: 'stop' });
+    };
     wsBridge.onTextDelta = (delta) => {
       chatPanel.streamDelta(delta);
+      chatPanel.setStopVisible(true);
     };
     wsBridge.onReasoningDelta = (delta) => {
       chatPanel.streamReasoning(delta); // 思维链：折叠面板展示（开关控制）
@@ -675,12 +702,11 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       chatPanel.addMessage({ role: 'assistant', content: text.text });
     };
     // 字幕-声音同步：每句语音真正开播（或静默帧）时，把已积累的干净句子
-    // 收尾上屏——对话与声音一起出；无声音路径由句首静默帧立即触发（提早出）。
-    // 此前这些干净文本要等整条对话链结束才收尾，观感上"文字比声音晚很多"。
+    // 揭示到同一个流式气泡——文字随声音逐句出现；无声音路径由句首静默帧立即触发。
+    // 整轮结束（chain-end / 打断）时才 finalizeStream 收尾。
     wsBridge.onSentenceSpoken = () => {
       if (chatPanel.isStreaming() && finalParts.length > 0) {
-        chatPanel.finalizeStream(finalParts.join(''));
-        finalParts = [];
+        chatPanel.revealStream(finalParts.join(''));
       }
     };
     // 后端一直在发的 control 消息（此前前端完全忽略 → VAD 打断对用户不可见）
@@ -690,12 +716,19 @@ export async function initApp(containerId: string): Promise<PixiApp> {
         finalParts = [];
         chatPanel.setThinking(false);
         chatPanel.setVoiceState('idle');
+        chatPanel.setStopVisible(false);
       } else if (command === 'interrupt') {
-        // Silero VAD 判定用户插话 → 音频已停（ws-bridge），这里给可见反馈
+        // VAD 判定用户插话 或 手动停止的后端回执 → 音频已停（ws-bridge）
         chatPanel.finalizeStream(finalParts.join(''));
         finalParts = [];
+        chatPanel.setThinking(false);
         chatPanel.setVoiceState('interrupted');
-        toast('检测到你说话，已打断', 'info', { key: 'voice' });
+        chatPanel.setStopVisible(false);
+        if (!manualStopPending) {
+          // 手动停止的反馈在 requestStop 已给过，这里只提示自动打断
+          toast('检测到你说话，已打断', 'info', { key: 'voice' });
+        }
+        manualStopPending = false;
       } else if (command === 'mic-audio-end') {
         chatPanel.setVoiceState('transcribing');
       }
@@ -713,6 +746,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
         toast('已连接服务器，可以开始聊天', 'ok', { key: 'ws-online' });
       } else {
         chatPanel.setThinking(false);
+        chatPanel.setStopVisible(false); // 断线无后端任务可停
         toast('与服务器连接断开，正在自动重连…', 'error', {
           key: 'ws-offline',
           sticky: true,
@@ -721,6 +755,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     };
     wsBridge.onTtsStatus = (status) => {
       chatPanel.setTtsStatus(status);
+      // 播放期间停止按钮保持可见；空闲且不在流式输出时收起
+      if (status.includes('播放')) chatPanel.setStopVisible(true);
+      else if (!chatPanel.isStreaming()) chatPanel.setStopVisible(false);
     };
     // PLAN-V3 P1：表演引擎三态/意图转发（legacy 模式下 soullink 为 null，全部 no-op）
     wsBridge.onEmotionFrame = (emotion, strength) => {

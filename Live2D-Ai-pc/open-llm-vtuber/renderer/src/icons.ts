@@ -25,6 +25,7 @@ export type IconName =
   | 'recenter'
   | 'history'
   | 'check'
+  | 'stop'
   | 'alert'
   | 'info';
 
@@ -55,6 +56,8 @@ const PATHS: Record<IconName, string> = {
   history:
     '<path d="M3.6 12a8.4 8.4 0 1 0 2.6-6.05"/><path d="M3.5 4.2v4.3h4.3"/><path d="M12 7.8v4.6l3.1 1.8"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  // 停止：圆角方块（打断生成 / 停止播放）
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
   alert: '<path d="M12 4.5 21 19.5H3z"/><path d="M12 10v4"/><path d="M12 16.6h.01"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><path d="M12 7.8h.01"/>',
 };

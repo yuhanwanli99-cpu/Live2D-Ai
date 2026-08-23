@@ -39,10 +39,16 @@ export interface ChatPanel {
   /** 「正在思考」指示开关（发送后打开，首句回复到达时自动关闭） */
   setThinking(thinking: boolean): void;
   /**
-   * 流式增量上屏（P1-2）：首个增量创建气泡，后续追加。
-   * 流式期间句子级字幕不再单独上屏（由 finalizeStream 收尾）。
+   * 流式增量缓冲（P1-2）：首个增量创建"正在说…"气泡并缓存文本，
+   * 但【不】立即上屏——文字随语音逐句揭示（音画同步），
+   * 权威文本由 revealStream 按句上屏、finalizeStream 收尾。
    */
   streamDelta(text: string): void;
+  /**
+   * 按句揭示权威文本（句子级字幕拼接）：在该轮的同一个气泡里
+   * 上屏已开播句子的干净文本——文字与声音同步出现。
+   */
+  revealStream(text: string): void;
   /** 思维链增量上屏（折叠面板；受「对话内展示思考」开关控制） */
   streamReasoning(text: string): void;
   /** 是否正在流式输出（调用方据此跳过句子级字幕上屏） */
@@ -52,6 +58,8 @@ export interface ChatPanel {
    * TTS 过滤前的噪声；无则保留已流出的内容。
    */
   finalizeStream(finalText?: string): void;
+  /** 停止按钮可见性：生成 / 播放期间显示，点击回调 onStopRequest */
+  setStopVisible(visible: boolean): void;
   /** 语音输入状态（P0-2：聆听 / 识别中 / 已打断，对用户可见） */
   setVoiceState(state: VoiceUiState, detail?: string): void;
   /** 外部接入开关状态（头部胶囊：外部接入中） */
@@ -104,6 +112,8 @@ export function initChatPanel(
   opts: {
     onSend: (text: string) => boolean;
     onOpenSettings?: () => void;
+    /** 停止按钮点击回调（打断生成 + 停止播放，由 main.ts 接 wsBridge） */
+    onStopRequest?: () => void;
     /** 后端 ASR 采集器（P0-2）；不传或不支持则回落浏览器 Web Speech */
     voice?: VoiceCapture;
   },
@@ -140,6 +150,7 @@ export function initChatPanel(
     <div class="chat-input-row">
       <input class="chat-input" type="text" placeholder="说点什么…（Enter 发送）" autocomplete="off" aria-label="消息输入框" />
       <button class="chat-mic ui-lift" type="button" title="语音输入" aria-label="语音输入">${icon('mic')}</button>
+      <button class="chat-stop ui-lift hidden" type="button" title="停止生成与播放" aria-label="停止生成与播放">${icon('stop')}</button>
       <button class="chat-send ui-lift" type="button" title="发送" aria-label="发送消息">${icon('send')}</button>
     </div>
   `;
@@ -149,6 +160,7 @@ export function initChatPanel(
   const inputEl = panel.querySelector<HTMLInputElement>('.chat-input')!;
   const sendBtn = panel.querySelector<HTMLButtonElement>('.chat-send')!;
   const micBtn = panel.querySelector<HTMLButtonElement>('.chat-mic')!;
+  const stopBtn = panel.querySelector<HTMLButtonElement>('.chat-stop')!;
   const settingsBtn = panel.querySelector<HTMLButtonElement>('.chat-settings')!;
   const statusPill = panel.querySelector<HTMLElement>('.chat-status')!;
   const statusText = panel.querySelector<HTMLElement>('.chat-status-text')!;
@@ -201,9 +213,13 @@ export function initChatPanel(
     messagesEl.scrollTop = messagesEl.scrollHeight;
   };
 
-  /* ---- P1-2 流式上屏 ---- */
+  /* ---- P1-2 流式上屏（音画同步版）----
+   * LLM 增量只进缓冲、不直接上屏；句子级字幕随语音逐句开播时，
+   * 由 revealStream 把已开播句子的干净权威文本揭示到同一个气泡——
+   * 修复此前「整段文字提前暴露、声音还在后面」的不同步。 */
   let streamBubble: HTMLElement | null = null;
-  let streamText = '';
+  let streamText = ''; // 原始增量缓冲（TTS 关闭 / 无字幕路径的兜底）
+  let revealedText = ''; // 已随语音揭示的权威文本
 
   /* ---- 思维链展示（reasoning-delta；「对话内展示思考」开关控制，localStorage showThinking） ---- */
   let thinkPanel: HTMLDetailsElement | null = null;
@@ -243,11 +259,8 @@ export function initChatPanel(
     messagesEl.scrollTop = messagesEl.scrollHeight;
   };
 
-  const streamDelta = (text: string): void => {
-    if (!text) return;
-    dropEmptyState();
-    setThinking(false); // 已经开始出字，思考指示让位
-    if (thinkPanel) thinkPanel.open = false; // 正文开始 → 折叠思维链
+  /** 确保本轮流式气泡存在（「正在说…」占位 + 流式样式） */
+  const ensureStreamBubble = (): HTMLElement => {
     if (!streamBubble) {
       const row = document.createElement('div');
       row.className = 'chat-msg chat-msg-assistant chat-msg-streaming';
@@ -264,17 +277,46 @@ export function initChatPanel(
       messagesEl.appendChild(row);
       streamBubble = bubble;
       streamText = '';
+      revealedText = '';
     }
-    streamText += text;
-    streamBubble.textContent = stripTags(streamText);
+    return streamBubble;
+  };
+
+  /** 流式开始/进行中的公共前置：收空态、收思考指示、折叠思维链 */
+  const beginStream = (): void => {
+    dropEmptyState();
+    setThinking(false); // 已经开始出字，思考指示让位
+    if (thinkPanel) thinkPanel.open = false; // 正文开始 → 折叠思维链
+    ensureStreamBubble();
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  };
+
+  const streamDelta = (text: string): void => {
+    if (!text) return;
+    beginStream();
+    streamText += text; // 只缓冲：文字等对应语音开播时再揭示（音画同步）
+  };
+
+  const revealStream = (text: string): void => {
+    const clean = (text || '').trim();
+    if (!clean) return;
+    beginStream();
+    revealedText = clean;
+    const bubble = ensureStreamBubble();
+    bubble.textContent = stripTags(clean);
+    // 已有正文 → 撤下「正在说…」占位（行内时间戳等 finalize 再补）
+    const caret = bubble
+      .closest<HTMLElement>('.chat-msg')
+      ?.querySelector<HTMLElement>('.chat-stream-caret');
+    if (caret) caret.textContent = '';
     messagesEl.scrollTop = messagesEl.scrollHeight;
   };
 
   const finalizeStream = (finalText?: string): void => {
     if (!streamBubble) return;
-    const authoritative = (finalText || '').trim();
-    // 句子级字幕是"过滤后"的权威文本；有它就用它，避免流式残留标记类噪声
-    streamBubble.textContent = stripTags(authoritative || streamText);
+    // 优先级：整轮权威文本 > 已揭示文本 > 原始缓冲（TTS 关闭兜底）
+    const authoritative = ((finalText || '').trim() || revealedText || streamText).trim();
+    streamBubble.textContent = stripTags(authoritative);
     const row = streamBubble.closest<HTMLElement>('.chat-msg');
     if (row) {
       row.classList.remove('chat-msg-streaming');
@@ -283,6 +325,7 @@ export function initChatPanel(
     }
     streamBubble = null;
     streamText = '';
+    revealedText = '';
     resetThinkPanel(); // 本轮结束 → 下轮新建思考块
     messagesEl.scrollTop = messagesEl.scrollHeight;
   };
@@ -373,6 +416,8 @@ export function initChatPanel(
   });
   if (opts.onOpenSettings) {
     settingsBtn.addEventListener('click', opts.onOpenSettings);
+  // 停止按钮：打断 LLM 流式输出 + 停止 TTS 播放（main.ts 接 wsBridge.sendInterrupt）
+  stopBtn.addEventListener('click', () => opts.onStopRequest?.());
   }
 
   return {
@@ -408,7 +453,11 @@ export function initChatPanel(
     streamDelta,
     streamReasoning,
     isStreaming: () => streamBubble !== null,
+    revealStream,
     finalizeStream,
+    setStopVisible(visible: boolean) {
+      stopBtn.classList.toggle('hidden', !visible);
+    },
     setVoiceState(state: VoiceUiState, detail?: string) {
       micBtn.classList.toggle('chat-mic-active', state === 'listening');
       micBtn.classList.toggle('chat-mic-busy', state === 'transcribing');
@@ -435,6 +484,12 @@ export function initChatPanel(
     clear() {
       messagesEl.innerHTML = EMPTY_STATE_HTML;
       setThinking(false);
+      // 清掉可能残留的流式状态（否则后续增量会写进已被移除的孤儿气泡）
+      streamBubble = null;
+      streamText = '';
+      revealedText = '';
+      resetThinkPanel();
+      stopBtn.classList.add('hidden');
     },
     root() {
       return panel;

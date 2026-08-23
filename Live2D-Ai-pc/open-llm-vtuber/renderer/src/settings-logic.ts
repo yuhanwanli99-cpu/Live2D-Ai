@@ -247,9 +247,13 @@ function llmPayload(p: LlmProviderUi): Record<string, unknown> {
   if (p.top_p !== null && p.top_p !== undefined) {
     out.top_p = p.top_p;
   }
+  // 思考开关要能显式关掉：此前只在 true 时发送 → 后端永远存不上 false，
+  // 「关闭思考」不生效。false 也下发（后端白名单允许 False 落盘）。
   if (p.thinking_enabled === true) {
     out.thinking_enabled = true;
     if (p.thinking_effort) out.thinking_effort = p.thinking_effort;
+  } else if (p.thinking_enabled === false) {
+    out.thinking_enabled = false;
   }
   const models = dedupe(p.models || (p.model ? [p.model] : []));
   if (models.length) out.models = models;

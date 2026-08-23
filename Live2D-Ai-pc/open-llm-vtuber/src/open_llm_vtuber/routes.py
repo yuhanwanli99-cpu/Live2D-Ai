@@ -498,6 +498,9 @@ def init_config_routes(
                     "base_url": cfg.get("base_url", default.get("base_url", "")),
                     "temperature": cfg.get("temperature", 0.8),
                     "max_tokens": cfg.get("max_tokens", None),
+                    "top_p": cfg.get("top_p", None),
+                    "thinking_enabled": bool(cfg.get("thinking_enabled", False)),
+                    "thinking_effort": cfg.get("thinking_effort", None),
                     "key_env": key_env,
                     "has_key": env_has(key_env) if key_env else False,
                     "configured": pid in llm_configs,
@@ -650,7 +653,18 @@ def init_config_routes(
                     target["llm_api_key"] = "${" + new_key_env + "}"
                 else:
                     target = existing_llm[pid]
-                for field in ("model", "base_url", "temperature", "max_tokens", "models"):
+                # 思考模式 / top_p 一并持久化（此前白名单漏掉 → 设置页开了思考
+                # 但 conf.yaml 不落盘，重载后"思考模式无法开启"）
+                for field in (
+                    "model",
+                    "base_url",
+                    "temperature",
+                    "max_tokens",
+                    "models",
+                    "top_p",
+                    "thinking_enabled",
+                    "thinking_effort",
+                ):
                     if field in override and override[field] not in (None, ""):
                         target[field] = override[field]
 

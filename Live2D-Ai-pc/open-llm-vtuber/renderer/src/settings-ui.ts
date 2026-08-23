@@ -414,7 +414,7 @@ export function initSettingsPanel(
               <button class="btn primary btn-xs memory-add" type="button">添加</button>
               <button class="btn ghost btn-xs memory-clear" type="button">清空全部</button>
             </div>
-            <div class="plugin-list memory-list"></div>
+            <div class="memory-list"></div>
             <div class="settings-group-title">知识库文档（.md / .txt）</div>
             <div class="settings-editor-actions kb-add-row">
               <input class="settings-input kb-name-input" type="text" placeholder="文档名，例如：世界观设定" aria-label="知识文档名" />
@@ -422,13 +422,13 @@ export function initSettingsPanel(
             </div>
             <textarea class="settings-config-tree kb-content-input" rows="4" spellcheck="false" placeholder="文档内容（Markdown 纯文本），对话中相关内容会被检索注入" aria-label="知识文档内容"></textarea>
             <div class="settings-status-inline kb-status"></div>
-            <div class="plugin-list kb-list"></div>
+            <div class="kb-list"></div>
             <div class="settings-group-title">联网查询试一试</div>
             <div class="settings-editor-actions search-row">
               <input class="settings-input search-query-input" type="text" placeholder="输入关键词，验证联网检索是否可用" aria-label="联网查询关键词" />
               <button class="btn primary btn-xs search-run" type="button">搜索</button>
             </div>
-            <div class="plugin-list search-results"></div>
+            <div class="search-results"></div>
           </section>
           <section class="settings-tab-panel" data-panel="plugins">
             <div class="settings-section-title">插件管理</div>
@@ -470,7 +470,11 @@ export function initSettingsPanel(
   const voiceStatusEl = overlay.querySelector<HTMLElement>('.voice-status')!;
   const voiceUploadInput = overlay.querySelector<HTMLInputElement>('.voice-upload-input')!;
   const voiceUploadBtn = overlay.querySelector<HTMLButtonElement>('.voice-upload-btn')!;
-  const pluginListEl = overlay.querySelector<HTMLElement>('.plugin-list')!;
+  // 作用域限定到插件面板：记忆/知识库列表曾误挂 .plugin-list 类，
+  // querySelector 命中第一个导致插件卡片渲染进「记忆」页、插件页空白
+  const pluginListEl = overlay.querySelector<HTMLElement>(
+    '[data-panel="plugins"] .plugin-list',
+  )!;
   const pluginStatusEl = overlay.querySelector<HTMLElement>('.plugin-status')!;
   const memoryListEl = overlay.querySelector<HTMLElement>('.memory-list')!;
   const memoryStatusEl = overlay.querySelector<HTMLElement>('.memory-status')!;

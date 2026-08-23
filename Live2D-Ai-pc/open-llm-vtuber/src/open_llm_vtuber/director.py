@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -228,14 +229,28 @@ def rule_fallback(text: str) -> DirectorResult:
     )
 
 
+# 超时告警只提示一次（每句都刷会淹没日志）
+_TIMEOUT_WARNED = False
+
 class ExpressionDirector:
     """独立的情绪/表情导演模型。"""
 
-    def __init__(self, llm=None, timeout: float = 1.5):
+    def __init__(self, llm=None, timeout: float | None = None):
         self._llm = llm
+        if timeout is None:
+            # DeepSeek 等推理型模型首 token 延迟常在 1-2s+；默认 1.5s 会让导演
+            # 几乎每句都超时、静默回落规则兜底（表现为表情/动作「不生效」）。
+            # 放宽到 3.5s，并允许用环境变量 LIVE2DAI_DIRECTOR_TIMEOUT 调整。
+            env = os.environ.get("LIVE2DAI_DIRECTOR_TIMEOUT")
+            try:
+                timeout = float(env) if env else 3.5
+            except ValueError:
+                timeout = 3.5
         self.timeout = timeout
 
     async def analyze(self, text: str) -> DirectorResult:
+        import asyncio
+
         clean = (text or "").strip()
         if not clean:
             return rule_fallback(clean)
@@ -268,7 +283,16 @@ class ExpressionDirector:
                     raw=raw[:300],
                 )
         except Exception as exc:
-            logger.warning(f"ExpressionDirector LLM failed, fallback to rule: {exc}")
+            if isinstance(exc, asyncio.TimeoutError):
+                # 超时回落此前完全静默，用户侧只看到「导演不工作」；至少提示一次
+                if not _TIMEOUT_WARNED:
+                    logger.warning(
+                        f"ExpressionDirector LLM 超时({self.timeout:.1f}s)，本句回落规则兜底"
+                        "（仅提示一次；可用环境变量 LIVE2DAI_DIRECTOR_TIMEOUT 调大超时）"
+                    )
+                    globals()["_TIMEOUT_WARNED"] = True
+            else:
+                logger.warning(f"ExpressionDirector LLM failed, fallback to rule: {exc}")
         return rule_fallback(clean)
 
     async def _call_llm(self, text: str) -> str:
