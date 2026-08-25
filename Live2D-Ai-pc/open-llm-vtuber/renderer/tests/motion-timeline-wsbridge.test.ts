@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WsBridge } from '../src/ws-bridge';
+import { ActionPriority } from '../src/choreography';
 import type { TimelineTimeSource } from '../src/motion-timeline';
 
 // 手写 WebSocket mock（与 rm7-wsbridge 同款可控桩）
@@ -77,7 +78,10 @@ function openBridge(bodyPlay: ReturnType<typeof vi.fn>): {
   ws: MockWebSocket;
 } {
   const bridge = new WsBridge('ws://localhost:12393/ws');
-  bridge.setBodyMotion({ play: bodyPlay } as never);
+  bridge.setBodyMotion({
+    play: bodyPlay,
+    release: vi.fn(),
+  } as never);
   bridge.connect();
   const ws = MockWebSocket.instances.at(-1)!;
   ws.simulateOpen();
@@ -200,6 +204,147 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
     });
 
     expect(MockAudio.instances).toHaveLength(0);
+    expect(bodyPlay).not.toHaveBeenCalled();
+    bridge.disconnect();
+  });
+});
+
+describe('ws-bridge × 帧级 strength/source/priority — 交给单 active 调度器', () => {
+  beforeEach(() => {
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket);
+    vi.stubGlobal('Audio', MockAudio as unknown as typeof Audio);
+    MockWebSocket.instances = [];
+    MockAudio.instances = [];
+    vi.stubGlobal('requestAnimationFrame', undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('时间轴帧携带 strength/source/priority：按帧级值播放（llm_tool → Cue 档）', async () => {
+    const bodyPlay = vi.fn();
+    const { bridge, ws } = openBridge(bodyPlay);
+    const played: Array<[string, number]> = [];
+    bridge.onActionPlayed = (action, strength) => played.push([action, strength]);
+
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      audio: 'QUFB',
+      actions: {
+        motionTimeline: [
+          { at: 0.1, motion: 'shake_no', strength: 3, source: 'llm_tool', priority: 90, reason: '否认' },
+          { at: 0.8, motion: 'nod', strength: 1, source: 'llm_tool', priority: 90 },
+        ],
+      },
+    });
+    await flushMicrotasks();
+    const el = MockAudio.instances[0];
+    el.duration = 10;
+
+    el.currentTime = 2;
+    el.emit('timeupdate');
+    expect(bodyPlay).toHaveBeenCalledTimes(1);
+    expect(bodyPlay).toHaveBeenNthCalledWith(
+      1,
+      'shake_no',
+      3,
+      expect.objectContaining({ priority: ActionPriority.Cue, source: 'llm_tool' }),
+    );
+    expect(played[0]).toEqual(['shake_no', 3]);
+
+    el.currentTime = 9;
+    el.emit('timeupdate');
+    expect(bodyPlay).toHaveBeenCalledTimes(2);
+    // 帧序即触发顺序：第二帧用自己的强度/来源，不串帧
+    expect(bodyPlay).toHaveBeenNthCalledWith(
+      2,
+      'nod',
+      1,
+      expect.objectContaining({ priority: ActionPriority.Cue, source: 'llm_tool' }),
+    );
+    expect(played[1]).toEqual(['nod', 1]);
+    bridge.disconnect();
+  });
+
+  it('用户命令帧（priority≥100）映射 Live 档位，可打断低优先级动作', async () => {
+    const bodyPlay = vi.fn();
+    const { bridge, ws } = openBridge(bodyPlay);
+
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      audio: 'QUFB',
+      actions: {
+        motionTimeline: [
+          { at: 0.4, motion: 'look_around', source: 'user_command', priority: 100 },
+        ],
+      },
+    });
+    await flushMicrotasks();
+    const el = MockAudio.instances[0];
+    el.duration = 8;
+    el.currentTime = 4;
+    el.emit('timeupdate');
+    expect(bodyPlay).toHaveBeenCalledWith(
+      'look_around',
+      2,
+      expect.objectContaining({ priority: ActionPriority.Live, source: 'user_command' }),
+    );
+    bridge.disconnect();
+  });
+
+  it('缺省元数据的旧帧回退旧行为（强度 2 / Cue / cue 来源）', async () => {
+    const bodyPlay = vi.fn();
+    const { bridge, ws } = openBridge(bodyPlay);
+
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      audio: 'QUFB',
+      actions: { motionTimeline: [{ at: 0.5, motion: 'tilt' }] },
+    });
+    await flushMicrotasks();
+    const el = MockAudio.instances[0];
+    el.duration = 10;
+    el.currentTime = 6;
+    el.emit('timeupdate');
+    expect(bodyPlay).toHaveBeenCalledWith(
+      'tilt',
+      2,
+      expect.objectContaining({ priority: ActionPriority.Cue, source: 'cue' }),
+    );
+    bridge.disconnect();
+  });
+
+  it('新 epoch（startEpoch）清空未触发的工具动作帧', async () => {
+    const bodyPlay = vi.fn();
+    const { bridge, ws } = openBridge(bodyPlay);
+
+    ws.simulateMessage({
+      type: 'audio',
+      volumes: [0.5],
+      slice_length: 20,
+      visemes: [],
+      audio: 'QUFB',
+      actions: {
+        motionTimeline: [{ at: 0.9, motion: 'surprise', strength: 3, source: 'llm_tool' }],
+      },
+    });
+    await flushMicrotasks();
+
+    // 用户发新消息 / 打断 → 新 epoch：未触发的时间轴帧必须全部作废
+    bridge.startEpoch();
+    const el = MockAudio.instances[0];
+    el.duration = 10;
+    el.currentTime = 9.5;
+    el.emit('timeupdate');
     expect(bodyPlay).not.toHaveBeenCalled();
     bridge.disconnect();
   });

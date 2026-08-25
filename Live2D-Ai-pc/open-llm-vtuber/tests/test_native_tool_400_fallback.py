@@ -6,8 +6,9 @@ provider 直接 HTTP 400，旧代码把错误字符串当 assistant 正文朗读
 
 锁定契约：
 1. schema 函数名 = live2d_perform_action（合法字符集）；点号展示名绝不进 schema；
-2. 携带 tools 的请求被 provider 400 拒绝 → 自动无 tools 重试一次 +
-   本进程内永久停用 tools（后续轮次不再提供工具）；
+2. 携带 tools 的请求被 provider 400 拒绝 → 本轮自动无 tools 重试一次；
+   400 ≠「明确不支持 tools」，support_tools 保持 True，后续轮次仍提供工具
+   （只有 provider 明确报告不支持 tools 才永久降级）；
 3. 其他 LLM API 错误以 LLMChatError 异常传播 → 全管线只产出一条
    stream_error → 前端单一可读错误；错误文本绝不进入 TTS/字幕/记忆；
 4. 错误轮次绝不触发额外多段续聊；
@@ -21,8 +22,6 @@ from typing import Any
 
 import httpx
 import pytest
-from openai import NOT_GIVEN, APIConnectionError, BadRequestError, InternalServerError
-
 from open_llm_vtuber.agent.agents.basic_memory_agent import BasicMemoryAgent
 from open_llm_vtuber.agent.input_types import BatchInput, TextData, TextSource
 from open_llm_vtuber.agent.output_types import SentenceOutput
@@ -38,6 +37,7 @@ from open_llm_vtuber.live2d_action import (
     reset_default_tool,
 )
 from open_llm_vtuber.live2d_model import Live2dModel
+from openai import NOT_GIVEN, APIConnectionError, BadRequestError, InternalServerError
 
 # ---------------------------------------------------------------- #
 # OpenAI SDK 异常/流的最小替身（不发生任何网络请求）
@@ -163,7 +163,7 @@ class TestToolNameCharset:
 
 
 # ---------------------------------------------------------------- #
-# 2. tools 参数被 400 拒绝 → 无 tools 自动重试一次 + 永久降级
+# 2. tools 参数被 400 拒绝 → 本轮无 tools 重试一次（不永久降级）
 # ---------------------------------------------------------------- #
 
 
@@ -188,8 +188,9 @@ class TestToolsRejected400Fallback:
         assert first_tools[0]["function"]["name"] == LIVE2D_ACTION_TOOL_API_NAME
         assert completions.calls[1]["tools"] is NOT_GIVEN
 
-        # 本进程内永久降级：后续请求不再携带 tools
-        assert llm.support_tools is False
+        # 任务定版（400 ≠ 明确不支持 tools）：support_tools 保持 True，
+        # 后续轮次仍提供工具；绝不因单次 400 永久停用工具。
+        assert llm.support_tools is True
 
     def test_400_without_tools_is_not_masked_as_tools_issue(self):
         """未携带 tools 时的 400 是真实请求错误：必须报错而不是静默重试。"""
@@ -221,8 +222,12 @@ class TestToolsRejected400Fallback:
             _run_stream(llm, [{"role": "user", "content": "在吗"}], tools=None)
         assert len(completions.calls) == 1
 
-    def test_degraded_provider_skips_native_loop_next_turn(self):
-        """400 降级后的下一轮：不再提供工具，直接走纯文本简单路径。"""
+    def test_tools_still_offered_next_turn_after_single_400(self):
+        """单次 400 后的下一轮：工具仍照常提供（400 ≠ 明确不支持 tools）。
+
+        任务定版：只有 provider 明确报告不支持 tools（哨兵/文案）才永久降级；
+        单次 HTTP 400 只保证本轮无 tools 重试可用，绝不殃及后续轮次。
+        """
         llm, completions = _make_llm(
             [
                 _bad_request(),
@@ -259,16 +264,20 @@ class TestToolsRejected400Fallback:
         assert "第一轮正文" in _visible_text(items1)
         assert "__API_NOT_SUPPORT_TOOLS__" not in _visible_text(items1)
         assert len(completions.calls) == 2  # 400 + 无 tools 重试
-        # LLM 层已永久降级（agent 在下一轮解析工具时感知并置位自身标记）
-        assert llm.support_tools is False
+        # LLM 层不降级：support_tools 保持 True，agent 也未置降级标记
+        assert llm.support_tools is True
         assert agent._native_tools_degraded is False
 
+        # 第二轮：工具照常提供（仍走原生工具循环），请求恰好一次
         items2 = chat_once("再来一句")
         assert "第二轮正文" in _visible_text(items2)
-        assert agent._native_tools_degraded is True
-        # 第二轮只发一次请求，且不带 tools（简单路径，非工具循环）
+        assert agent._native_tools_degraded is False
         assert len(completions.calls) == 3
-        assert completions.calls[2]["tools"] is NOT_GIVEN
+        next_turn_tools = completions.calls[2]["tools"]
+        assert isinstance(next_turn_tools, list)
+        assert (
+            next_turn_tools[0]["function"]["name"] == LIVE2D_ACTION_TOOL_API_NAME
+        )
 
 
 # ---------------------------------------------------------------- #
@@ -280,7 +289,6 @@ def _tts_config():
     import os
 
     import yaml
-
     from open_llm_vtuber.config_manager import TTSPreprocessorConfig
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

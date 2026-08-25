@@ -20,6 +20,10 @@
 import { LipSync, VisemeFrame } from './lip-sync';
 import { EmotionConsumer } from './emotion-consumer';
 import { BodyActionPlayer, ActionPriority } from './choreography';
+import {
+  clampCueStrength,
+  protocolPriorityToActionPriority,
+} from './action-policy';
 import { MotionTimelineScheduler } from './motion-timeline';
 import { HalfBodyController } from './halfbody-controller';
 import type { HistoryEntry, HistoryMessage } from './history';
@@ -115,14 +119,21 @@ export class WsBridge {
   private halfBody: HalfBodyController | null = null;
   private lipSync: LipSync | null = null;
   /**
-   * 括注动作帧调度器（my-neuro 式）：actions.motionTimeline 存在时，把动作挂到
-   * 正在播放的音频元素上，播放到对应进度才 bodyMotion.play。
+   * 括注/工具动作帧调度器（my-neuro 式）：actions.motionTimeline 存在时，把动作
+   * 挂到正在播放的音频元素上，播放到对应进度才交给单 active 调度器
+   * （BodyActionPlayer）播放。帧级 strength/source/priority 逐帧透传：
+   * 协议优先级映射 ActionPriority（用户命令≥100 → Live，其余 → Cue），
+   * 缺省字段回退旧行为（强度 2 / Cue / 'cue'）。
    */
-  private motionScheduler = new MotionTimelineScheduler((motion) => {
-    // 播放进度 cue：高于情绪兜底，低于 dev 显式触发
-    this.bodyMotion?.play(motion, 2, { priority: ActionPriority.Cue, source: 'cue' });
-    this.onCue?.(motion);
-    this.onActionPlayed?.(motion, 2);
+  private motionScheduler = new MotionTimelineScheduler((cue) => {
+    const strength = clampCueStrength(cue.strength);
+    // 播放进度 cue：高于情绪兜底，低于 dev 显式触发（用户命令帧除外）
+    this.bodyMotion?.play(cue.motion, strength, {
+      priority: protocolPriorityToActionPriority(cue.priority),
+      source: cue.source || 'cue',
+    });
+    this.onCue?.(cue.motion);
+    this.onActionPlayed?.(cue.motion, strength);
   });
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;

@@ -12,6 +12,7 @@ import {
   MotionTimelineScheduler,
   type TimelineTimeSource,
 } from '../src/motion-timeline';
+import type { MotionCue } from '../src/types';
 
 class FakeAudio implements TimelineTimeSource {
   currentTime = 0;
@@ -40,10 +41,16 @@ class FakeAudio implements TimelineTimeSource {
 function makeScheduler(): {
   sched: MotionTimelineScheduler;
   fired: string[];
+  cues: MotionCue[];
 } {
+  // cues：整帧视图（帧级元数据断言用）；fired：动作名视图（既有断言沿用）
+  const cues: MotionCue[] = [];
   const fired: string[] = [];
-  const sched = new MotionTimelineScheduler((m) => fired.push(m));
-  return { sched, fired };
+  const sched = new MotionTimelineScheduler((cue) => {
+    cues.push(cue);
+    fired.push(cue.motion);
+  });
+  return { sched, fired, cues };
 }
 
 describe('MotionTimelineScheduler — 按播放进度触发括注动作', () => {
@@ -177,5 +184,88 @@ describe('MotionTimelineScheduler — 按播放进度触发括注动作', () => 
     el2.currentTime = 5;
     el2.emit('timeupdate');
     expect(fired).toEqual(['b']);
+  });
+});
+
+describe('MotionTimelineScheduler — 帧级 strength/source/priority 透传', () => {
+  beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('整帧（含 strength/source/priority/reason）交给 fire 回调', () => {
+    const { sched, cues } = makeScheduler();
+    const el = new FakeAudio();
+    el.duration = 10;
+    sched.start(el, [
+      {
+        at: 0.1,
+        motion: 'shake_no',
+        strength: 3,
+        source: 'llm_tool',
+        priority: 90,
+        reason: '否认',
+      },
+      { at: 0.8, motion: 'nod', strength: 2, source: 'llm_tool', priority: 90 },
+    ]);
+
+    el.currentTime = 5;
+    sched.pump();
+    expect(cues.map((c) => c.motion)).toEqual(['shake_no']);
+
+    el.currentTime = 9.9;
+    sched.pump();
+    expect(cues).toHaveLength(2);
+    // 帧级元数据原样透传（不重排、不改写、不丢弃）
+    expect(cues[0]).toMatchObject({
+      at: 0.1,
+      motion: 'shake_no',
+      strength: 3,
+      source: 'llm_tool',
+      priority: 90,
+      reason: '否认',
+    });
+    expect(cues[1]).toMatchObject({
+      at: 0.8,
+      motion: 'nod',
+      strength: 2,
+      source: 'llm_tool',
+      priority: 90,
+    });
+    expect(cues[1].reason).toBeUndefined();
+  });
+
+  it('旧帧（只有 at/motion）照常触发：元数据缺省不报错', () => {
+    const { sched, fired, cues } = makeScheduler();
+    const el = new FakeAudio();
+    el.duration = 4;
+    sched.start(el, [{ at: 0.25, motion: 'tilt' }]);
+    el.currentTime = 1;
+    sched.pump();
+    expect(fired).toEqual(['tilt']);
+    expect(cues[0].strength).toBeUndefined();
+    expect(cues[0].source).toBeUndefined();
+    expect(cues[0].priority).toBeUndefined();
+  });
+
+  it('带帧级元数据的乱序帧仍按进度顺序触发且元数据随帧对应', () => {
+    const { sched, cues } = makeScheduler();
+    const el = new FakeAudio();
+    el.duration = 10;
+    sched.start(el, [
+      { at: 0.7, motion: 'listen', strength: 1, priority: 60 },
+      { at: 0.2, motion: 'nod', strength: 3, priority: 90 },
+    ]);
+    el.currentTime = 2.5; // 只到点 0.2 帧
+    sched.pump();
+    expect(cues.map((c) => c.motion)).toEqual(['nod']);
+    expect(cues[0].strength).toBe(3);
+    el.currentTime = 8;
+    sched.pump();
+    expect(cues.map((c) => c.motion)).toEqual(['nod', 'listen']);
+    expect(cues[1].strength).toBe(1);
+    expect(cues[1].priority).toBe(60);
   });
 });

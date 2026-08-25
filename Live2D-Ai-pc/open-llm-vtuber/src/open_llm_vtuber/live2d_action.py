@@ -90,6 +90,39 @@ DEFAULT_STRENGTH = 2
 # reason 字段上限：只用于日志/面板展示，防止超长输入
 _MAX_REASON_CHARS = 200
 
+# 启用工具时注入给主 LLM 的短系统指导（任务定版）：
+# - 普通对话允许「克制地」用与语义匹配的动作增强表现，但每句最多 1 个、
+#   不要每句必调 —— 矫正此前工具描述里「普通陈述句不要调用」导致的
+#   普通聊天几乎从不调用；
+# - 用户一条消息要求多个/多步骤动作时按顺序多次调用（每次一个动作）；
+# - 禁止只在正文里用文字描述动作却不调用工具（裸文本动作描写治根）。
+# 通过 build_guided_system_prompt 注入，绝不写入持久 system prompt / 记忆。
+LIVE2D_ACTION_TOOL_GUIDANCE_MARKER = "[Live2D 动作工具使用规范]"
+LIVE2D_ACTION_TOOL_GUIDANCE = (
+    f"{LIVE2D_ACTION_TOOL_GUIDANCE_MARKER}\n"
+    "- 普通对话中，若某句话的语义与某个动作自然契合"
+    "（同意→点头、否认→摇头、惊讶→surprise、安慰→listen 等），"
+    "你可以克制地调用一次动作来增强表现力；每句话最多调用 1 个动作，"
+    "不要每一句话都调用，没有合适的动作就不要调用。\n"
+    "- 用户在一条消息里要求多个或有先后顺序的动作"
+    "（如「向下看然后向上看」「摇头然后点头」）时：按顺序逐个调用本工具，"
+    "每个动作调用一次，不要合并、不要遗漏。\n"
+    "- 只能通过调用工具执行动作：禁止只在回复正文里用文字描述动作"
+    "（如「（点头）」「我点点头给你看」）却不调用工具。\n"
+    "- 用户已明确要求的动作由系统保证执行，你无需为同一句重复调用。"
+)
+
+
+def build_guided_system_prompt(base_system: str | None) -> str:
+    """基础人设 prompt + 工具使用指导（仅在原生工具循环内使用）。
+
+    base 为空时只返回指导本身；拼接结果每轮现算、不落盘、不入记忆。
+    """
+    base = (base_system or "").rstrip()
+    if not base:
+        return LIVE2D_ACTION_TOOL_GUIDANCE
+    return f"{base}\n\n{LIVE2D_ACTION_TOOL_GUIDANCE}"
+
 
 def native_tools_enabled() -> bool:
     """全局开关：LIVE2DAI_NATIVE_TOOLS=off 时关闭原生工具特性（默认开启）。"""
@@ -114,9 +147,11 @@ def build_live2d_action_tool_schema(
             "name": LIVE2D_ACTION_TOOL_API_NAME,
             "description": (
                 "让 Live2D 形象在说话的同时做一个头部/面部小动作。"
-                "只在语义合适时调用（例如同意时点头、否认时摇头、惊讶时睁大眼）；"
-                "普通陈述句不要调用。动作会自动绑定到你接下来要说的那句话上，"
-                "无需在正文里描述动作本身。"
+                "语义自然契合时克制调用（例如同意时点头、否认时摇头、惊讶时睁大眼），"
+                "每句话最多 1 个动作，没有合适的动作就不要调用；"
+                "用户要求多个有先后顺序的动作（如「向下看然后向上看」「摇头然后点头」）时，"
+                "按顺序逐个调用本工具。动作会自动绑定到你接下来要说的那句话上，"
+                "绝不要在正文里用文字描述动作来代替调用本工具。"
             ),
             "parameters": {
                 "type": "object",

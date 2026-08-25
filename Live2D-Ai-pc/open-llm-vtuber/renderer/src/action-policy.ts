@@ -96,6 +96,32 @@ export function isActionAvailableOn(
 }
 
 /**
+ * 后端协议调度优先级（Actions.priority / motionTimeline 帧级 priority，
+ * 数值越大越优先：用户命令=100、llm_tool=90、括注 stage_direction=60、
+ * 导演/情绪=50）→ 渲染端动作调度档位（交给单 active 调度器）。
+ *
+ *  - ≥ 100（显式用户命令）→ Live（可打断一切）；
+ *  - 其他数值优先级（llm_tool / 括注 / 导演时间轴帧）→ Cue（高于情绪兜底、
+ *    低于 dev 显式触发，与既有 timeline cue 行为一致）；
+ *  - 缺失 / 非法 → Cue（向后兼容：旧后端帧无 priority 字段）。
+ */
+export function protocolPriorityToActionPriority(priority?: number | null): ActionPriority {
+  if (typeof priority !== 'number' || !Number.isFinite(priority)) return ActionPriority.Cue;
+  if (priority >= 100) return ActionPriority.Live;
+  return ActionPriority.Cue;
+}
+
+/**
+ * 帧级强度收敛：非法 / 缺失回 2（正常清晰），合法值 clamp 到 1..3。
+ */
+export function clampCueStrength(strength?: number | null): 1 | 2 | 3 {
+  if (typeof strength !== 'number' || !Number.isFinite(strength)) return 2;
+  if (strength <= 1) return 1;
+  if (strength >= 3) return 3;
+  return 2;
+}
+
+/**
  * 明确禁止的全身 / 身体 / 肩 / 胯 / 腿通道（公开策略；模板与运行时均不得使用）。
  * 任何 ParamBodyAngle*（含 BodyY 纵向跳跃、BodyAngleX2..X6 肩胯腿扩展）一律禁止。
  */

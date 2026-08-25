@@ -104,33 +104,146 @@ async def _safe_mood(mood_engine, method: str, *args) -> None:
 
 # 主 LLM 原生工具动作的调度优先级（Preview 协议元数据）：
 # user_command(100) > llm_tool(90) > stage_direction(60) > director(50)。
+# 与 director.LLM_TOOL_ACTION_PRIORITY 单一语义对齐。
 _LLM_TOOL_PRIORITY = 90
+
+# 显式用户命令（本地直出，不依赖 LLM 意愿）的调度优先级：全链路最高。
+_USER_COMMAND_PRIORITY = 100
+
+# 显式用户命令的固定强度：至少 2 级保证「用户明确要求的动作清晰可见」。
+DEFAULT_COMMAND_STRENGTH = 2
+
+
+def _tool_event_strength(event: dict) -> int:
+    """工具事件强度收敛到 1..3（缺省 2，与 live2d_action 工具层一致）。"""
+    try:
+        return max(1, min(3, int(event.get("strength") or 2)))
+    except (TypeError, ValueError):
+        return 2
 
 
 def _bind_pending_llm_action(output_item, pending: list[dict]) -> None:
     """把主 LLM 原生工具产出的待绑定动作挂到下一句 SentenceOutput 上。
 
     工具调用在文本流中先于其后的正文出现，因此「下一个切出的句子」即工具
-    语义上的当前句/下一句；一次绑定消费一条，多余动作留给后续句子。
+    语义上的当前句/下一句。同轮多个动作必须保序且绝不丢弃：
+
+    - 队列只剩 1 个事件 → 走既有一次性 motion 兼容路径（``_native_action``，
+      单动作旧行为完全不变）；
+    - 队列还有更多事件 → 本句可能就是最后一句话（流式无法预知未来句数），
+      因此把【全部】已接受动作（含首事件）按接受顺序转成本句的
+      ``_native_action_timeline`` 帧集合（下游投影到 [0.1, 0.8] 播放进度），
+      并清空队列。后续句子若还有新工具调用照常逐个绑定 —— 全局顺序 =
+      接受顺序，任何动作都不会被静默丢弃或被后到的动作覆盖。
     """
     if not pending or not isinstance(output_item, SentenceOutput):
         return
     event = pending.pop(0)
-    output_item._native_action = {
-        "action": str(event.get("action") or ""),
-        "strength": event.get("strength"),
-        "reason": str(event.get("reason") or ""),
-        "source": "llm_tool",
-    }
+    if not pending:
+        # 单动作：一次性 motion 兼容路径（旧前端 / 既有测试契约不变）
+        output_item._native_action = {
+            "action": str(event.get("action") or ""),
+            "strength": event.get("strength"),
+            "reason": str(event.get("reason") or ""),
+            "source": "llm_tool",
+        }
+        return
+
+    # 同轮多动作：整队保序转本句 motionTimeline（含首事件；无一次性 motion，
+    # 避免前端「有时间轴就忽略 motion」语义把首动作吞掉造成双通道打架）。
+    events = [event, *pending]
+    pending.clear()
+    frames: list[dict] = []
+    for item in events:
+        frame: dict = {
+            "motion": str(item.get("action") or ""),
+            "strength": _tool_event_strength(item),
+            "source": "llm_tool",
+            "priority": _LLM_TOOL_PRIORITY,
+        }
+        reason = str(item.get("reason") or "").strip()
+        if reason:
+            frame["reason"] = reason
+        frames.append(frame)
+    output_item._native_action_timeline = frames
+    logger.info(
+        "[llm_tool] 同轮 {} 个动作绑定本句时间线（保序）: {}",
+        len(frames),
+        " → ".join(str(f["motion"]) for f in frames),
+    )
+
+
+def _drop_pending_llm_actions(pending: list[dict], reason: str) -> None:
+    """中断 / 新轮开始时清空未触发的工具动作队列（可观测，绝不静默丢弃）。
+
+    打断、任务取消或本轮结束时仍留在队列里的动作不会再有正文可绑定；
+    就地清空并打可见日志，保证未触发动作绝不跨轮泄漏到下一次对话。
+    """
+    if not pending:
+        return
+    dropped = [str(event.get("action")) for event in pending]
+    pending.clear()
+    logger.warning(f"[llm_tool] {reason}: 丢弃未触发工具动作 {dropped}")
+
+
+def _bind_user_motion_sequence(output_item, queue: list[str]) -> None:
+    """本地显式动作命令队列 → 本句绑定（priority=100，source=user_command）。
+
+    任务定版：组合句「向下看然后向上看」「摇头 然后点头」等由本地识别层
+    （director.detect_user_motion_sequence）产出有序动作列表，不经主 LLM
+    意愿直接下发；优先级 100 高于主 LLM 工具动作（90）。
+
+    - 单条命令走 ``_native_action`` 一次性路径（与既有单命令契约一致）；
+    - 多条命令整队转本句 ``_native_action_timeline`` 保序帧集合
+      （与主 LLM 工具多动作同一下发通道，帧带 user_command 标记）；
+    - 队列就地清空：命令只在本轮第一句执行一次，绝不跨句重复触发。
+    """
+    motions = [str(m) for m in queue if m]
+    queue.clear()
+    if not motions or not isinstance(output_item, SentenceOutput):
+        return
+    if len(motions) == 1:
+        output_item._native_action = {
+            "action": motions[0],
+            "strength": DEFAULT_COMMAND_STRENGTH,
+            "reason": "用户显式动作命令",
+            "source": "user_command",
+        }
+        logger.info(
+            "[user_command] 显式命令本地直出: {} (priority={})",
+            motions[0],
+            _USER_COMMAND_PRIORITY,
+        )
+        return
+    frames = [
+        {
+            "motion": motion,
+            "strength": DEFAULT_COMMAND_STRENGTH,
+            "source": "user_command",
+            "priority": _USER_COMMAND_PRIORITY,
+            "reason": "用户显式动作序列",
+        }
+        for motion in motions
+    ]
+    output_item._native_action_timeline = frames
+    logger.info(
+        "[user_command] 显式命令序列本地直出 {} 步: {} (priority={})",
+        len(frames),
+        " → ".join(motions),
+        _USER_COMMAND_PRIORITY,
+    )
 
 
 def _apply_native_tool_action(
     context: ServiceContext, output_item, native_action: dict
 ) -> None:
-    """主 LLM 显式工具动作 → Actions payload（优先级高于 ExpressionDirector）。
+    """绑定的单动作 → Actions payload（优先级高于 ExpressionDirector）。
 
-    动作 id 已在 live2d_action.execute 白名单层收敛过，这里仍过一遍目录白名单
-    作为最终防线；emotion 保持 neutral、不跑导演 LLM（省一次每句调用，
+    来源二分（任务定版）：
+    - source=user_command（本地显式命令直出）→ priority=100，全链路最高；
+    - source=llm_tool（主 LLM 原生工具调用）→ priority=90。
+    动作 id 已在 live2d_action.execute / 本地识别层收敛过，这里仍过一遍目录
+    白名单作为最终防线；emotion 保持 neutral、不跑导演 LLM（省一次每句调用，
     表情由既有 [emo] 拦截/mood 链路负责）。
     """
     from ..director import DirectorResult
@@ -148,65 +261,125 @@ def _apply_native_tool_action(
         strength = max(1, min(3, int(native_action.get("strength") or 2)))
     except (TypeError, ValueError):
         strength = 2
+    source = str(native_action.get("source") or "llm_tool")
+    if source not in ("user_command", "llm_tool"):
+        source = "llm_tool"
+    priority = _USER_COMMAND_PRIORITY if source == "user_command" else _LLM_TOOL_PRIORITY
     actions.motion = motion
     actions.motionStrength = strength
-    actions.source = "llm_tool"
-    actions.priority = _LLM_TOOL_PRIORITY
+    actions.source = source
+    actions.priority = priority
     try:
         meta = MOTION_METADATA.get(motion) or {}
         actions.suggested_duration_ms = int(meta.get("suggested_duration_ms", 1000))
     except Exception:  # noqa: BLE001 - 元数据缺失不影响动作下发
         pass
     # handle_sentence_output 从 _director_result 读 emotion/strength 下发表情帧；
-    # 复用该通道保持单一下发路径（source 标记 llm_tool 便于开发者面板区分）。
+    # 复用该通道保持单一下发路径（source 标记便于开发者面板区分）。
     output_item._director_result = DirectorResult(
         emotion="neutral",
         strength=strength,
         motion_label=motion,
-        source="llm_tool",
+        source=source,
     )
     logger.info(
-        "action payload: motion={} strength={} source=llm_tool priority={} reason={!r}",
+        "action payload: motion={} strength={} source={} priority={} reason={!r}",
         motion,
         strength,
-        _LLM_TOOL_PRIORITY,
+        source,
+        priority,
         native_action.get("reason") or None,
     )
 
 
 async def _apply_director(
-    context: ServiceContext, output_item, user_text: str = ""
+    context: ServiceContext,
+    output_item,
+    user_text: str = "",
+    pending_llm_actions: list[dict] | None = None,
+    user_cmd_queue: list[str] | None = None,
 ) -> None:
     """PC v4：把情绪/表情/动作分流到独立导演模型，覆盖主对话脑 actions。
 
     动作优先级（任务定版）：
-        1. 显式用户动作命令（用户输入里的 点头/摇头/歪头/张望，带疑问/否定
-           语境保护）——最高，覆盖导演/括注；
-        2. 主 LLM 原生工具动作（live2d.perform_action，source=llm_tool）——
-           高于导演与括注；命中时跳过导演分析（导演仅作 fallback）；
-           若同一句同时存在显式用户命令，用户命令仍最高；
-        3. 导演 motion_label（括注时间轴首帧也算导演产物）；
+        1. 本地显式用户动作命令/序列（detect_user_motion_sequence 直出，
+           source=user_command）——最高（priority=100），不依赖 LLM 意愿；
+        2. 主 LLM 原生工具动作（live2d.perform_action，source=llm_tool，
+           priority=90）——高于导演与括注；命中时跳过导演分析
+           （导演仅作 fallback）；同句同存显式用户命令时用户命令仍最高；
+        3. 导演 motion_label（括注时间轴首帧也算导演产物，priority=60/50）；
         4. 情绪映射兜底（克制：仅 surprise→surprise，其余情绪无动作）。
     任何来源的 motion 都会过 motion_catalog 白名单收敛，不在白名单清空为 None。
     导演不可用/失败时保留主对话脑原有 actions，不阻断说话。
+
+    pending_llm_actions / user_cmd_queue：管线模式传入的两个待绑定队列。
+    绑定顺序即优先级顺序——先消费用户命令队列（整队绑定本句），队列非空时
+    本句不再叠加 llm 工具事件（留给后续句子）；两者皆空才走既有外部绑定/
+    导演路径。测试直调可不传（None），保持旧签名行为完全不变。
     """
     if not isinstance(output_item, SentenceOutput):
         return
 
+    # ── 绑定层：本地显式命令序列(100) 先于主 LLM 工具事件(90) ──
+    if user_cmd_queue:
+        _bind_user_motion_sequence(output_item, user_cmd_queue)
+    has_user_binding = bool(getattr(output_item, "_native_action", None)) or any(
+        frame.get("source") == "user_command"
+        for frame in (getattr(output_item, "_native_action_timeline", None) or [])
+    )
+    if (
+        not has_user_binding
+        and pending_llm_actions
+        and not getattr(output_item, "_native_action", None)
+        and not getattr(output_item, "_native_action_timeline", None)
+    ):
+        _bind_pending_llm_action(output_item, pending_llm_actions)
+
     # 优先级 2：主 LLM 原生工具动作。除非同句还有显式用户命令（优先级 1），
     # 否则直接生效并跳过导演 —— ExpressionDirector 仅在无工具动作时兜底。
-    native_action = getattr(output_item, "_native_action", None)
-    if native_action:
+    # 单动作走 _native_action 一次性路径；同轮多动作已在绑定时转成
+    # _native_action_timeline（保序帧集合），同样优先于导演。
+    # 管线模式（user_cmd_queue is not None）：显式命令以队列为唯一事实源——
+    # 队列已按序消费完毕的后续句子绝不再按整句文本重复触发命令
+    # （否则「点头」轮的每一句都被强插 nod，且会误清延迟绑定的工具事件）。
+    if user_cmd_queue is not None:
         user_cmd_override = False
+    else:
         try:
             from ..director import detect_user_motion_command
 
             user_cmd_override = bool(detect_user_motion_command(user_text))
         except Exception:  # noqa: BLE001 - 命令识别失败按无命令处理
             user_cmd_override = False
-        if not user_cmd_override:
-            _apply_native_tool_action(context, output_item, native_action)
-            return
+
+    native_action = getattr(output_item, "_native_action", None)
+    native_timeline = getattr(output_item, "_native_action_timeline", None) or []
+    if native_action and str(native_action.get("source")) == "user_command":
+        # 本地显式命令单动作：全链路最高优先级，直接生效（跳过导演）。
+        _apply_native_tool_action(context, output_item, native_action)
+        return
+    if native_timeline and any(
+        frame.get("source") == "user_command" for frame in native_timeline
+    ):
+        # 本地显式命令序列时间线：直接保序下发（conversation_utils 投影），
+        # 跳过导演分析；一次性 motion 留空避免双通道打架。
+        return
+    if (native_action or native_timeline) and user_cmd_override:
+        # 优先级 1：显式用户命令最高 —— 清空工具动作绑定（一次性 + 时间线），
+        # 与括注时间轴的同款规则一致，避免命令被工具动作抢跑。
+        if native_timeline:
+            output_item._native_action_timeline = []
+            logger.info(
+                "[llm_tool] 显式用户命令覆盖本句 {} 个工具动作时间线帧",
+                len(native_timeline),
+            )
+    elif native_action:
+        # 此分支必然无用户命令（有命令已在上面清空并落入导演路径）
+        _apply_native_tool_action(context, output_item, native_action)
+        return
+    elif native_timeline:
+        # 多动作时间线：跳过导演分析（导演仅 fallback），表情通道保持 neutral。
+        return
 
     director = getattr(context, "director", None)
     if director is None:
@@ -234,12 +407,17 @@ async def _apply_director(
     # 优先级 1：显式用户动作命令覆盖导演与括注——用户明确要求就按用户来。
     # 命中时清空时间轴（避免前端按时间轴忽略一次性 motion 导致命令不执行），
     # 强度至少 2 级保证可见。
-    try:
-        from ..director import detect_user_motion_command
-
-        user_cmd = detect_user_motion_command(user_text)
-    except Exception:  # noqa: BLE001 - 命令识别失败退导演结果
+    # 管线模式（user_cmd_queue is not None）：命令已由绑定层按序下发，
+    # 这里不再从整句文本重复触发（与上方 user_cmd_override 门控一致）。
+    if user_cmd_queue is not None:
         user_cmd = None
+    else:
+        try:
+            from ..director import detect_user_motion_command
+
+            user_cmd = detect_user_motion_command(user_text)
+        except Exception:  # noqa: BLE001 - 命令识别失败退导演结果
+            user_cmd = None
     if user_cmd:
         try:
             result.strength = max(int(result.strength or 2), 2)
@@ -321,12 +499,14 @@ async def _consume_extra_agent_stream(
     mood_engine,
     agent_output_stream,
     pending_llm_actions: list[dict] | None = None,
+    user_cmd_queue: list[str] | None = None,
 ) -> tuple[str, bool, bool]:
     """消费多段对话的后续 agent 流：每段走 process_agent_output（含字幕/TTS 队列）。
 
     返回 (累计文本, 是否遇到 [DONE] 终止标记, 本段是否失败)。
     播放/打断仍由 tts_manager 统一负责。
     pending_llm_actions：主 LLM 原生工具动作跨段共享队列（动作绑定下一段首句）。
+    user_cmd_queue：本地显式动作命令序列（与主段共享，剩余命令续绑下一段首句）。
     失败（stream_error / 异常）时置第三返回值为 True —— 调用方必须停止继续续聊，
     LLM API 错误绝不触发额外多段对话。
     """
@@ -337,8 +517,12 @@ async def _consume_extra_agent_stream(
     try:
         async for output_item in agent_output_stream:
             if isinstance(output_item, (SentenceOutput, AudioOutput)):
-                _bind_pending_llm_action(output_item, pending)
-                await _apply_director(context, output_item)
+                await _apply_director(
+                    context,
+                    output_item,
+                    pending_llm_actions=pending,
+                    user_cmd_queue=user_cmd_queue if user_cmd_queue is not None else [],
+                )
                 _mood_tier = "neutral"
                 if mood_engine is not None:
                     try:
@@ -481,6 +665,10 @@ async def process_single_conversation(
     # 本轮是否发生 LLM API/流失败：失败时不再触发额外多段续聊，
     # 也不把失败轮计入历史/记忆沉淀（错误绝不进入下游链路）。
     _turn_failed = False
+    # 主 LLM 原生工具动作队列：live2d_action 事件按接受顺序入队，绑定到
+    # 对应句子（在所有 await/try 之前初始化，任何异常路径都可安全清空，
+    # 未触发动作绝不跨轮泄漏）。
+    pending_llm_actions: list[dict] = []
 
     try:
         # Send initial signals
@@ -511,6 +699,21 @@ async def process_single_conversation(
 
         # 原始用户文本快照（注入记忆/知识前缀与视觉上下文之前），供记忆管家使用
         raw_user_text = input_text
+
+        # 本地显式动作命令序列（任务定版）：组合句「向下看然后向上看」
+        # 「摇头 然后点头」等由本地识别层直出有序动作列表，不依赖主 LLM
+        # 是否愿意调用工具；优先级 100 高于主 LLM 工具动作（90）。
+        try:
+            from ..director import detect_user_motion_sequence
+
+            user_motion_seq: list[str] = detect_user_motion_sequence(raw_user_text)
+        except Exception:  # noqa: BLE001 - 识别失败按无命令处理
+            user_motion_seq = []
+        if user_motion_seq:
+            logger.info(
+                "[user_command] 检测到显式动作序列（本地直出）: {}",
+                " → ".join(user_motion_seq),
+            )
 
         # Capture screenshot and inject vision context (if enabled)
         input_text = await _get_vision_context(context, input_text)
@@ -554,10 +757,6 @@ async def process_single_conversation(
         logger.info(f"User input: {input_text}")
         if images:
             logger.info(f"With {len(images)} images")
-
-        # 主 LLM 原生工具动作队列：live2d_action 事件入队，绑定到下一句
-        # （在 agent 流 try 之外初始化，异常路径也不会 NameError）
-        pending_llm_actions: list[dict] = []
 
         try:
             # agent.chat yields Union[SentenceOutput, Dict[str, Any]]
@@ -653,11 +852,17 @@ async def process_single_conversation(
 
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
-                    # 主 LLM 原生工具动作绑定到本句（若有待绑定动作）
-                    _bind_pending_llm_action(output_item, pending_llm_actions)
                     # PC v4：把表情/动作分析分流到导演模型，覆盖主脑 actions。
-                    # 传入原始用户文本，使显式动作命令（点头/摇头等）优先级最高。
-                    await _apply_director(context, output_item, user_text=raw_user_text)
+                    # 绑定顺序即优先级：本地显式命令序列(100) > 主 LLM 工具
+                    # 事件(90) > 导演/括注(60/50)；传入原始用户文本使显式
+                    # 动作命令（点头/摇头等）优先级最高。
+                    await _apply_director(
+                        context,
+                        output_item,
+                        user_text=raw_user_text,
+                        pending_llm_actions=pending_llm_actions,
+                        user_cmd_queue=user_motion_seq,
+                    )
 
                     # PC-L4: 当前 mood 分层传入 TTS（P7 mood_engine 产出；
                     # 每句现取以反映流式 emotion 事件对 mood 的实时影响；异常降级 neutral 不阻断）
@@ -729,6 +934,7 @@ async def process_single_conversation(
                 mood_engine,
                 cont_stream,
                 pending_llm_actions=pending_llm_actions,
+                user_cmd_queue=user_motion_seq,
             )
             full_response += part
             if seg_failed:
@@ -736,6 +942,17 @@ async def process_single_conversation(
                 break
             if done:
                 break
+
+        # 本轮收尾：仍留在队列里的工具动作说明没有正文可绑定（模型只调工具
+        # 不说话 / 空回复等）。显式清空并打可见日志 —— 未触发动作绝不静默
+        # 消失，也绝不跨轮泄漏到下一次对话（新轮队列恒从空开始）。
+        _drop_pending_llm_actions(pending_llm_actions, "本轮结束仍有未绑定动作")
+        if user_motion_seq:
+            logger.warning(
+                "[user_command] 本轮结束仍未下发显式命令 {}（无正文可绑定），丢弃",
+                user_motion_seq,
+            )
+            user_motion_seq.clear()
 
         # Wait for any pending TTS tasks
         if tts_manager.task_list:
@@ -780,6 +997,8 @@ async def process_single_conversation(
 
     except asyncio.CancelledError:
         _interrupted = True
+        # 打断（新 epoch）：未触发的工具动作随本轮作废，清空队列防泄漏
+        _drop_pending_llm_actions(pending_llm_actions, "对话被打断")
         logger.info(f"🤡👍 Conversation {session_emoji} cancelled because interrupted.")
         raise
     except Exception as e:

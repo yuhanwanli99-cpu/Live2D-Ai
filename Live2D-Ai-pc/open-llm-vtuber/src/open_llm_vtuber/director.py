@@ -117,12 +117,57 @@ _NEUTRAL_STRENGTH = 1
 
 # 显式用户动作命令（优先级最高）：用户在输入里明确要求角色做某个动作时，
 # 回应句按此动作执行，不再只依赖导演模型猜测。词序长者优先，避免子串歧义。
-# 定版只保留 Bai 可诚实表达的四个动作命令；鞠躬/靠近等已删除（无对应参数）。
+# 基础四命令 + 能力门控扩展九命令（look_up/look_down/glance_left/glance_right/
+# smile/frown/pout/wry_mouth/deep_breath，与 motion_catalog 能力门控动作一一
+# 对应；模型缺门槛参数时由下游能力白名单拒绝，识别层不做近似替换）。
+# 鞠躬/靠近等已删除（无对应参数，不产出任何动作）。
 _USER_MOTION_COMMANDS: dict[str, tuple[str, ...]] = {
     "nod": ("点点头", "点一下头", "点个头", "点头"),
     "shake_no": ("摇摇头", "摇一下头", "摇个头", "摇头"),
     "tilt": ("歪一下头", "歪歪头", "歪个头", "歪头"),
     "look_around": ("张望一下", "看看周围", "看看四周", "东张西望", "左顾右盼", "张望"),
+    # —— 能力门控扩展动作命令 ——
+    "look_up": (
+        "向上看",
+        "往上看",
+        "朝上看",
+        "看一下上面",
+        "看看上面",
+        "看上面",
+        "抬头看",
+    ),
+    "look_down": (
+        "向下看",
+        "往下看",
+        "朝下看",
+        "看一下下面",
+        "看看下面",
+        "看下面",
+        "低头看",
+    ),
+    "glance_left": (
+        "看看左边",
+        "瞟一眼左边",
+        "左边看看",
+        "向左看",
+        "往左看",
+        "朝左看",
+        "看左边",
+    ),
+    "glance_right": (
+        "看看右边",
+        "瞟一眼右边",
+        "右边看看",
+        "向右看",
+        "往右看",
+        "朝右看",
+        "看右边",
+    ),
+    "smile": ("微笑一下", "微笑一个", "笑一笑", "笑一个", "笑一下"),
+    "frown": ("皱一下眉", "皱皱眉", "皱个眉", "皱眉"),
+    "pout": ("嘟一下嘴", "嘟嘟嘴", "嘟个嘴", "嘟嘴"),
+    "wry_mouth": ("歪一下嘴", "歪歪嘴", "歪个嘴", "歪嘴"),
+    "deep_breath": ("深吸一口气", "做个深呼吸", "深呼吸"),
 }
 
 # 疑问/否定语境保护：整句命中即视为“讨论动作”而非“命令动作”，
@@ -131,6 +176,14 @@ _USER_MOTION_COMMANDS: dict[str, tuple[str, ...]] = {
 _USER_MOTION_GUARD_TERMS = (
     "为什么", "为何", "为啥", "怎么", "干嘛", "什么叫", "什么是",
     "别", "不要", "不许", "禁止", "不愿", "不会", "不能", "没法",
+)
+
+# 组合句连接词/分隔符：用户一条消息要求多个有先后顺序的动作时按序切分，
+# 如「向下看然后向上看」「摇头 然后点头」「先点头再摇头」。
+# 切分本身绝不产生动作——每段仍须完整命中动作关键词才算数，
+# 因此对「再见」「再想想」等含连接字的普通语句天然免疫。
+_SEQUENCE_SPLIT_RE = re.compile(
+    r"然后|接着|之后|随后|最后|先|再|，|,|。|．|！|!|？|\?|、|；|;|\s+"
 )
 
 
@@ -148,11 +201,61 @@ def _resolve_motion(
     return _EMOTION_MOTION.get(emotion)
 
 
+def _match_motion_keyword(text: str) -> str | None:
+    """单段文本 → 动作 id：全部命令关键词里取【位置最早】者；同位置取最长。
+
+    位置优先保证「摇头 然后点头」这类组合在单命令语义下按用户语序命中
+    （旧实现按字典序先扫 nod，会把该句误判成 nod）；同位置最长匹配消解
+    「点点头 / 点头」类子串歧义。未命中返回 None。
+    """
+    if not text:
+        return None
+    best_key: tuple[int, int] | None = None
+    best_motion: str | None = None
+    for motion, keywords in _USER_MOTION_COMMANDS.items():
+        for kw in keywords:
+            pos = text.find(kw)
+            if pos < 0:
+                continue
+            key = (pos, -len(kw))
+            if best_key is None or key < best_key:
+                best_key = key
+                best_motion = motion
+    return best_motion
+
+
+def detect_user_motion_sequence(text: str | None) -> list[str]:
+    """从【用户输入】识别显式动作命令序列 → 有序动作列表（可含多个）。
+
+    - 组合句「向下看然后向上看」→ ["look_down", "look_up"]；
+      「摇头 然后点头」→ ["shake_no", "nod"]：按用户语序逐个下发，
+      不依赖主 LLM 是否愿意调用工具；
+    - 单命令句退化为单元素列表（如 ["nod"]）；
+    - 无命令 / 命中疑问否定语境保护 → []；
+    - 相邻重复命令去重（「点头 点头」不重复触发同一帧）。
+    """
+    if not text:
+        return []
+    lowered = text.strip().lower()
+    if not lowered:
+        return []
+    for guard in _USER_MOTION_GUARD_TERMS:
+        if guard in lowered:
+            return []
+    sequence: list[str] = []
+    for segment in _SEQUENCE_SPLIT_RE.split(lowered):
+        motion = _match_motion_keyword(segment)
+        if motion and (not sequence or sequence[-1] != motion):
+            sequence.append(motion)
+    return sequence
+
+
 def detect_user_motion_command(text: str | None) -> str | None:
     """从【用户输入】识别显式动作命令 → 合法动作标签；无命令/命中语境保护 → None。
 
     保护规则：文本中出现任一 guard 词（为什么/别/怎么/…）即整句不触发——
     这些语境是“讨论/否定/质疑动作”，不是对角色下达动作命令。
+    多命令组合句请用 detect_user_motion_sequence（本函数取语序最前者）。
     """
     if not text:
         return None
@@ -162,11 +265,7 @@ def detect_user_motion_command(text: str | None) -> str | None:
     for guard in _USER_MOTION_GUARD_TERMS:
         if guard in lowered:
             return None
-    for motion, keywords in _USER_MOTION_COMMANDS.items():
-        for kw in keywords:
-            if kw in lowered:
-                return motion
-    return None
+    return _match_motion_keyword(lowered)
 
 
 # 舞台说明/动作括注 → 半身动作（bai 无 motion3，走参数驱动）
@@ -285,6 +384,30 @@ def project_motion_cues_into_chunks(
     return sliced
 
 
+# 主 LLM 原生工具动作的调度优先级（Preview 协议元数据，与
+# single_conversation._LLM_TOOL_PRIORITY 单一语义对齐）：
+# user_command(100) > llm_tool(90) > stage_direction(60) > director(50)。
+LLM_TOOL_ACTION_PRIORITY = 90
+
+# 同轮多个工具动作转 motionTimeline 时的归一化播放进度分布区间：
+# 按帧序在 [0.1, 0.8] 线性分布（任务定版示例），首尾留白避免与音频
+# 起止边缘以及句首触发贴脸。单帧落在区间中点。
+_TOOL_TIMELINE_SPAN_START = 0.1
+_TOOL_TIMELINE_SPAN_END = 0.8
+
+# 工具时间线帧 reason 字段上限（与 live2d_action 工具入参一致，防超长）
+_MAX_TIMELINE_REASON_CHARS = 200
+
+
+def clamp_action_strength(value: Any, default: int = 2) -> int:
+    """任意来源的强度值收敛到 1..3（非法/缺失回 default）。"""
+    try:
+        strength = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(3, strength))
+
+
 def normalize_chunk_timeline(
     cues: list[dict[str, Any]], min_gap: float = 0.2
 ) -> list[dict[str, Any]]:
@@ -316,6 +439,81 @@ def normalize_chunk_timeline(
         seen_motions.add(motion)
         last_at = at
     return kept
+
+
+def project_tool_actions_into_chunks(
+    frames: list[dict[str, Any]],
+    tts_chunks: list[str],
+) -> list[list[dict[str, Any]]]:
+    """主 LLM 同轮工具动作队列 → 按 TTS 分块切片的有序 motionTimeline。
+
+    与括注时间轴（project_motion_cues_into_chunks）的区别：工具动作没有
+    文本锚点，语义是「下一句话的演出序列」，因此按帧序在整句归一化播放
+    进度的 [0.1, 0.8] 区间线性分布（多帧首尾各留白），再映射到所在分块的
+    局部进度 at ∈ [0,1)。帧序即触发顺序——绝不重排、绝不丢弃合法帧。
+
+    输入帧形如 {"motion": str, "strength": int, "source": str,
+    "priority": int, "reason": str?}（由对话层绑定生成）；输出帧追加
+    "at" 并保留 strength/source/priority/reason 可选字段（渲染端帧级
+    调度用）。逐帧过动作目录白名单：非法 id 帧丢弃（最终防线）；空输入
+    / 异常整体降级为全空列表。
+    """
+    sliced: list[list[dict[str, Any]]] = [[] for _ in tts_chunks]
+    if not frames or not tts_chunks:
+        return sliced
+    try:
+        total = sum(len(chunk) for chunk in tts_chunks)
+        if total <= 0:
+            return sliced
+
+        # 各分块在整句中的字符区间（split_tts_chunks 保序切出）
+        spans: list[tuple[int, int]] = []
+        cursor = 0
+        for chunk in tts_chunks:
+            spans.append((cursor, cursor + len(chunk)))
+            cursor += len(chunk)
+
+        count = len(frames)
+        for index, frame in enumerate(frames):
+            if not isinstance(frame, dict):
+                continue
+            motion = sanitize_motion(
+                frame.get("motion") if isinstance(frame.get("motion"), str) else None
+            )
+            if not motion:
+                continue
+            if count > 1:
+                frac = _TOOL_TIMELINE_SPAN_START + (
+                    (_TOOL_TIMELINE_SPAN_END - _TOOL_TIMELINE_SPAN_START)
+                    * index
+                    / (count - 1)
+                )
+            else:
+                frac = (_TOOL_TIMELINE_SPAN_START + _TOOL_TIMELINE_SPAN_END) / 2
+            frac = min(max(frac, 0.0), 0.999)
+            position = frac * total
+            cue: dict[str, Any] = {"at": 0.0, "motion": motion}
+            # 可选调度元数据：渲染端按帧级 strength/source/priority 调度；
+            # reason 仅用于开发者面板展示。
+            cue["strength"] = clamp_action_strength(frame.get("strength"))
+            cue["source"] = str(frame.get("source") or "llm_tool")
+            try:
+                cue["priority"] = int(frame.get("priority") or LLM_TOOL_ACTION_PRIORITY)
+            except (TypeError, ValueError):
+                cue["priority"] = LLM_TOOL_ACTION_PRIORITY
+            reason = str(frame.get("reason") or "").strip()[:_MAX_TIMELINE_REASON_CHARS]
+            if reason:
+                cue["reason"] = reason
+            for i, (start, end) in enumerate(spans):
+                if position < end or i == len(spans) - 1:
+                    span_len = max(end - start, 1)
+                    at = (position - start) / span_len
+                    cue["at"] = round(min(max(at, 0.0), 0.999), 4)
+                    sliced[i].append(cue)
+                    break
+        return sliced
+    except Exception:  # noqa: BLE001 - 投影失败整体降级为全空（退回一次性路径）
+        return [[] for _ in tts_chunks]
 
 
 def rule_fallback(text: str) -> DirectorResult:

@@ -5,7 +5,8 @@
  * 与"这句话说到哪了"无关。后端现在把括注解析成带文本位置的动作帧
  * （actions.motionTimeline，at ∈ [0,1) 为所在音频块的归一化进度），本模块把它
  * 挂到真正播放的那个音频元素上：监听 timeupdate / rAF 轮询 currentTime，
- * 进度到达 at 时触发一次 bodyMotion.play(motion)。
+ * 进度到达 at 时把整帧（motion + 帧级 strength/source/priority/reason 可选
+ * 元数据）交给单 active 动作调度器触发一次。
  *
  * 设计约束：
  *  - 不依赖 DOM 全局：时间源抽象成 TimelineTimeSource 接口（HTMLAudioElement
@@ -25,6 +26,13 @@ export interface TimelineTimeSource {
   removeEventListener(type: string, cb: () => void): void;
 }
 
+/**
+ * 触发回调：把整帧（含帧级 strength/source/priority/reason 可选元数据）
+ * 交给调用方，由其映射后转发给单 active 动作调度器（BodyActionPlayer）。
+ * 旧帧（只有 at/motion）照常触发，元数据字段缺省由消费方兜底。
+ */
+export type MotionCueFire = (cue: MotionCue) => void;
+
 /** 触发提前量秒数：略微提前，让动作与语音听感对齐 */
 const FIRE_EPSILON_S = 0.03;
 
@@ -34,7 +42,7 @@ export class MotionTimelineScheduler {
   private rafId: number | null = null;
   private detachListeners: (() => void) | null = null;
 
-  constructor(private readonly fire: (motion: string) => void) {}
+  constructor(private readonly fire: MotionCueFire) {}
 
   /**
    * 绑定音频元素并开始调度（重复调用先自动取消旧绑定）。
@@ -89,7 +97,8 @@ export class MotionTimelineScheduler {
     ) {
       const cue = this.pending.shift()!;
       try {
-        this.fire(cue.motion);
+        // 整帧透传：帧级 strength/source/priority 由单 active 调度器消费
+        this.fire(cue);
       } catch (err) {
         console.warn('[motion-timeline] 动作触发失败（忽略）:', err);
       }

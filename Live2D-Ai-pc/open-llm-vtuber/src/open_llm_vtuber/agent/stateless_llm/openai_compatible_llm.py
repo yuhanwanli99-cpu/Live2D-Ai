@@ -3,23 +3,24 @@ This class is responsible for handling asynchronous interaction with OpenAI API 
 endpoints for language generation.
 """
 
-from typing import AsyncIterator, List, Dict, Any
+from typing import Any, AsyncIterator, Dict, List
+
+from loguru import logger
 from openai import (
-    AsyncStream,
-    AsyncOpenAI,
-    APIError,
-    APIConnectionError,
-    BadRequestError,
-    RateLimitError,
-    NotGiven,
     NOT_GIVEN,
+    APIConnectionError,
+    APIError,
+    AsyncOpenAI,
+    AsyncStream,
+    BadRequestError,
+    NotGiven,
+    RateLimitError,
 )
 from openai.types.chat import ChatCompletionChunk
 from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
-from loguru import logger
 
-from .stateless_llm_interface import StatelessLLMInterface
 from ...mcpp.types import ToolCallObject
+from .stateless_llm_interface import StatelessLLMInterface
 
 
 class ReasoningDelta(str):
@@ -111,8 +112,10 @@ class AsyncLLM(StatelessLLMInterface):
 
         Notes:
         - 携带 tools 的请求被 provider 以 HTTP 400 拒绝时（典型原因：工具函数名
-          不满足 ^[a-zA-Z0-9_-]+$），自动去掉 tools 重试一次，并把本进程内
-          ``support_tools`` 置为 False（后续请求不再携带 tools，安全降级）。
+          不满足 ^[a-zA-Z0-9_-]+$，或网关不支持该参数形态），自动去掉 tools
+          重试一次保证本轮对话可用。400 不是「明确不支持 tools」的证据，
+          因此 ``support_tools`` 保持 True：后续轮次仍会提供工具（任务定版：
+          只有 provider 明确报告不支持 tools 才永久降级）。
         """
         stream = None
         # Tool call related state variables
@@ -171,16 +174,16 @@ class AsyncLLM(StatelessLLMInterface):
                 status_code = getattr(e, "status_code", None)
                 if not (tools_actually_offered and status_code == 400):
                     raise
-                # tools 参数被 provider 拒绝（HTTP 400）：识别后自动无 tools 重试一次，
-                # 并在本进程内永久停用 tools（安全降级，不再反复撞同一堵墙）。
-                # 典型根因：function.name 含点号等非法字符（必须匹配
-                # ^[a-zA-Z0-9_-]+$）。错误绝不作为正文下发。
-                self.support_tools = False
+                # tools 参数被 provider 以 HTTP 400 拒绝：识别后自动无 tools 重试
+                # 一次，保证本轮对话可用。任务定版：400 ≠「明确不支持 tools」，
+                # 绝不据此永久停用工具 —— support_tools 保持 True，后续轮次仍
+                # 提供工具；只有 provider 明确报告不支持 tools（APIError 文案 /
+                # __API_NOT_SUPPORT_TOOLS__ 哨兵）才永久降级。错误绝不下发正文。
                 logger.warning(
                     "Provider rejected the request with HTTP 400 while tools were "
                     f"offered (model={self.model}, base_url={self.base_url}). "
-                    "Tool function names must match ^[a-zA-Z0-9_-]+$. "
-                    f"Retrying ONCE without tools. Detail: {e}"
+                    f"Retrying ONCE without tools for THIS request only; tools stay "
+                    f"enabled for following turns. Detail: {e}"
                 )
                 completion_kwargs["tools"] = NOT_GIVEN
                 stream: AsyncStream[

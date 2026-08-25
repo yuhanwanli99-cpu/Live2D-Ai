@@ -1,23 +1,29 @@
 import asyncio
+import json
 import re
 from dataclasses import replace
-from typing import Optional, Union, Any, List, Dict
-import numpy as np
-import json
-from ..logsetup import get_logger
+from typing import Any, Dict, List, Optional, Union
 
-from ..message_handler import message_handler
-from .types import WebSocketSend, BroadcastContext
-from .tts_manager import TTSTaskManager
-from ..agent.output_types import SentenceOutput, AudioOutput, DisplayText
-from ..agent.input_types import BatchInput, TextData, ImageData, TextSource, ImageSource
+import numpy as np
+
+from ..agent.input_types import BatchInput, ImageData, ImageSource, TextData, TextSource
+from ..agent.output_types import AudioOutput, DisplayText, SentenceOutput
 from ..asr.asr_interface import ASRInterface
+from ..director import (
+    normalize_chunk_timeline,
+    project_motion_cues_into_chunks,
+    project_tool_actions_into_chunks,
+)
 from ..live2d_model import Live2dModel
-from ..tts.tts_interface import TTSInterface
-from ..director import normalize_chunk_timeline, project_motion_cues_into_chunks
+from ..logsetup import get_logger
+from ..message_handler import message_handler
 from ..motion_catalog import sanitize_motion
+from ..tts.tts_interface import TTSInterface
 from ..utils.stream_audio import prepare_audio_payload
 from ..utils.tts_preprocessor import filter_parentheses
+from .tts_manager import TTSTaskManager
+from .types import BroadcastContext, WebSocketSend
+
 # 对话编排链路统一 "flow" 标签（字幕/分块/插件分发等关键节点）
 logger = get_logger("flow")
 
@@ -238,20 +244,27 @@ async def handle_sentence_output(
             tts_chunks,
             len(filter_parentheses(display_text.text or "")),
         )
+        # 主 LLM 同轮多工具动作时间线（绑定层保序产出）：无文本锚点的演出
+        # 序列，按帧序投影到整句 [0.1, 0.8] 播放进度并切片到各分块；每帧
+        # 携带 strength/source/priority（reason 可选），渲染端帧级调度。
+        _tool_tl = getattr(output, "_native_action_timeline", None) or []
+        per_chunk_tool_cues = project_tool_actions_into_chunks(_tool_tl, tts_chunks)
 
-        # 显式用户动作命令（priority=100）覆盖本句括注时间轴：用户明确要求就按
-        # 用户来，防止前端按括注时间轴忽略一次性命令动作（命令不执行）。
+        # 显式用户动作命令（priority=100）覆盖本句括注/工具时间轴：用户明确
+        # 要求就按用户来，防止前端按时间轴忽略一次性命令动作（命令不执行）。
         if (
             actions is not None
             and getattr(actions, "priority", None) == 100
             and getattr(actions, "source", None) == "user_command"
         ):
             per_chunk_cues = [[] for _ in tts_chunks]
+            per_chunk_tool_cues = [[] for _ in tts_chunks]
         else:
-            # 同一句内时间轴：去重 + 最小间隔，避免冲突动作在同一块/相邻块打架
-            # （同一 motion 只触发一次；靠得太近的不同动作保留前者）。
+            # 同一句内括注时间轴：去重 + 最小间隔，避免冲突动作在同一块/相邻块
+            # 打架（同一 motion 只触发一次；靠得太近的不同动作保留前者）。
+            # 工具时间线不参与去重 —— 帧序即演出顺序，逐帧保留绝不丢弃。
             per_chunk_cues = [normalize_chunk_timeline(cues) for cues in per_chunk_cues]
-        has_timeline = any(per_chunk_cues)
+        has_timeline = any(per_chunk_cues) or any(per_chunk_tool_cues)
         base_actions = actions
         if has_timeline and actions is not None:
             # 时间轴接管整句动作：清掉一次性 motion，避免新前端双重触发；
@@ -261,15 +274,18 @@ async def handle_sentence_output(
         for i, tts_chunk in enumerate(tts_chunks):
             chunk_actions = base_actions
             # 一次性 motion 只挂句首首个 audio payload，避免同一动作每个 chunk 重复触发；
-            # motionTimeline（括注播放位置触发）不受影响，仍按块携带。
+            # motionTimeline（括注/工具播放位置触发）不受影响，仍按块携带。
             if (
                 i > 0
                 and chunk_actions is not None
                 and getattr(chunk_actions, "motion", None) is not None
             ):
                 chunk_actions = replace(chunk_actions, motion=None)
-            if base_actions is not None and per_chunk_cues[i]:
-                chunk_actions = replace(base_actions, motionTimeline=list(per_chunk_cues[i]))
+            merged_cues = [*per_chunk_cues[i], *per_chunk_tool_cues[i]]
+            if merged_cues:
+                merged_cues.sort(key=lambda cue: float(cue.get("at", 0)))
+            if base_actions is not None and merged_cues:
+                chunk_actions = replace(base_actions, motionTimeline=list(merged_cues))
             await tts_manager.speak(
                 tts_text=tts_chunk,
                 display_text=display_text,

@@ -29,12 +29,24 @@ export interface DisplayText {
 }
 
 /**
- * 括注动作帧（my-neuro 式"播放位置触发"）。
+ * 动作时间轴帧（my-neuro 式"播放位置触发"）。
  * at ∈ [0,1)：该动作在所在音频块内的归一化播放进度（后端按文本位置线性近似）。
+ *
+ * 帧级调度元数据（Preview 协议可选，旧后端不下发 → 全部缺省）：
+ *  - strength：该帧动作强度 1..3（主 LLM 工具动作逐帧携带）；
+ *  - source：触发来源（'llm_tool' / 'stage_direction' / ...），透传给单 active
+ *    调度器用于面板展示与日志；
+ *  - priority：后端协议调度优先级（数值越大越优先：用户命令100 > llm_tool
+ *    90 > 括注60 > 导演50），渲染端映射为 ActionPriority 档位；
+ *  - reason：一句话触发原因（仅调试/面板展示，不参与调度）。
  */
 export interface MotionCue {
   at: number;
   motion: string;
+  strength?: number;
+  source?: string;
+  priority?: number;
+  reason?: string;
 }
 
 /** 动作（WS "audio" 消息的 actions 字段，后端 Actions.to_dict() 产出） */

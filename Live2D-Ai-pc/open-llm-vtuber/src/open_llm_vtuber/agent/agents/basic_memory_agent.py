@@ -6,7 +6,6 @@ from typing import (
 )
 
 from loguru import logger
-
 from prompts import prompt_loader
 
 from ...chat_history_manager import get_history
@@ -15,6 +14,7 @@ from ...live2d_action import (
     LIVE2D_ACTION_TOOL_API_NAME,
     LIVE2D_ACTION_TOOL_NAME,
     Live2dActionTool,
+    build_guided_system_prompt,
     canonical_tool_api_name,
     get_default_tool,
     is_live2d_action_tool_name,
@@ -635,6 +635,7 @@ class BasicMemoryAgent(AgentInterface):
         tools: list[dict[str, Any]],
         live2d_tool: Live2dActionTool,
         max_tool_rounds: int = 4,
+        system: str | None = None,
     ) -> AsyncIterator[str | dict[str, Any]]:
         """最小 OpenAI 兼容原生工具循环（非 MCP，任务定版）。
 
@@ -650,9 +651,15 @@ class BasicMemoryAgent(AgentInterface):
         - provider 报告 ``__API_NOT_SUPPORT_TOOLS__`` 时：立即去掉 tools 重试拿正文，
           置位降级标记，本进程后续轮次不再提供工具（可见 warning 一次）。
         - 工具轮次有上限，防止失控循环；超限时向模型返回可见错误结果。
+        - system：本轮生效的系统提示词。工具启用时由调用方传入
+          「人设 + 动作工具使用指导」拼接版（build_guided_system_prompt），
+          指导只在工具循环内生效，绝不写入持久 system prompt / 记忆。
         """
         convo: list[dict[str, Any]] = list(initial_messages)
         offered_tools: list[dict[str, Any]] | None = tools
+        # 工具启用 = 注入短系统指导（任务定版）：普通对话克制用动作、
+        # 多步骤命令按顺序多次调用、禁止裸文本动作描写。缺省回落原 system。
+        effective_system = system if system is not None else self._system
 
         for _round in range(max_tool_rounds + 1):
             text = ""
@@ -660,7 +667,7 @@ class BasicMemoryAgent(AgentInterface):
             unsupported = False
 
             stream = self._llm.chat_completion(
-                convo, self._system, tools=offered_tools
+                convo, effective_system, tools=offered_tools
             )
             async for event in stream:
                 if isinstance(event, ReasoningDelta):
@@ -689,7 +696,9 @@ class BasicMemoryAgent(AgentInterface):
                         f"{LIVE2D_ACTION_TOOL_NAME}（ExpressionDirector 兜底不受影响）"
                     )
                 text = ""
-                fallback_stream = self._llm.chat_completion(convo, self._system)
+                fallback_stream = self._llm.chat_completion(
+                    convo, effective_system
+                )
                 async for event in fallback_stream:
                     if isinstance(event, ReasoningDelta):
                         yield event
@@ -858,6 +867,8 @@ class BasicMemoryAgent(AgentInterface):
             # 主 LLM 原生 Live2D 动作工具（任务定版，优先于一切 MCP 遗留路径）：
             # 仅对 OpenAI 兼容 provider 提供最小工具循环；其余 provider 走原
             # 简单路径安全降级。工具结果不朗读、不入记忆正文。
+            # 工具启用时注入短系统指导（克制用动作 / 多步骤按序调用 /
+            # 禁止裸文本动作描写）——只在本轮 API 调用生效，不污染持久人设。
             live2d_tool = self._resolve_live2d_tool()
             if live2d_tool is not None and isinstance(
                 self._llm, OpenAICompatibleAsyncLLM
@@ -869,6 +880,7 @@ class BasicMemoryAgent(AgentInterface):
                     messages,
                     [live2d_tool.openai_schema],
                     live2d_tool,
+                    system=build_guided_system_prompt(self._system),
                 ):
                     yield output
                 return

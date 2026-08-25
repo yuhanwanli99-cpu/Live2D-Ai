@@ -225,6 +225,7 @@ LLM 回复文本
 |---|---|---|---|
 | v1.0 | 2026-08-08 | 初始版本 | 字段锁定自 architecture.md §3.1 + contract-M1-shared-protocol.md §1；A~G 七段完整；别名映射表含 [UNSURE-1] 标注 |
 | v1.1 | 2026-08-22 | 新增 §J motionTimeline | PC 端括注动作帧（播放位置触发）；Android 可后续对齐 M7 关键词兜底 |
+| v1.2 | 2026-08-25 | §J1 帧级元数据 + 同轮多动作保序 | motionTimeline 帧新增可选 strength/source/priority/reason（渲染端单 active 调度器逐帧消费）；主 LLM 同轮多工具动作整队转时间线（[0.1,0.8] 保序分布），修复「只保留最后一个」 |
 
 ---
 
@@ -375,6 +376,16 @@ mood ∈ **[-100, +100]**（float），含义：
 | --- | --- | --- |
 | `at` | float ∈ [0,1) | 该动作在**所在音频块**内的归一化播放进度（按文本位置线性近似） |
 | `motion` | string | BodyGesture 别名（nod/tilt/sway/happy/surprise/listen/excited/idle） |
+| `strength` | int ∈ {1,2,3}，可选 | 帧级动作强度（缺省 2）；主 LLM 工具/用户命令时间线逐帧携带 |
+| `source` | string，可选 | 触发来源：`llm_tool` / `user_command` / `stage_direction` 等；透传给渲染端单 active 调度器 |
+| `priority` | int，可选 | 后端调度优先级（用户命令=100 > llm_tool=90 > 括注=60 > 导演=50）；渲染端 ≥100 映射 Live 档、其余映射 Cue 档 |
+| `reason` | string，可选 | 一句话触发原因（仅调试/面板展示，不参与调度） |
+
+> v1.2 起（同轮多工具动作修复）：主 LLM 一轮内多次调用
+> `live2d_perform_action` 时不再只保留最后一个 —— 绑定层按接受顺序把整队
+> 事件转成下一句的 motionTimeline（帧序即触发顺序，[0.1, 0.8] 播放进度线性
+> 分布，逐帧携带上述元数据），单动作仍走一次性 `motion` 兼容路径；中断 /
+> 新 epoch 清空未触发的队列动作。
 
 ### J2. 生成链路（PC）
 
