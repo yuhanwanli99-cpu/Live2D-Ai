@@ -1,9 +1,11 @@
 """主对话 LLM 原生工具循环测试（mock OpenAI 兼容 LLM，不发网络请求）。
 
 契约：
-- mock LLM 的 tool_call → live2d.perform_action 执行 → live2d_action 事件产出，
-  动作绑定下一句；工具结果不朗读（不出现在任何 yield 的文本里）、
+- mock LLM 的 tool_call（API 名 live2d_perform_action）→ 执行 → live2d_action
+  事件产出，动作绑定下一句；工具结果不朗读（不出现在任何 yield 的文本里）、
   不进入记忆正文；
+- 历史展示名 live2d.perform_action（含点号）仅内部兼容：可解析执行，
+  但 schema/协议回显一律使用 API 名（点号名会被 DeepSeek HTTP 400 拒绝）；
 - 非法动作：拒绝结果回灌模型，无 live2d_action 事件，统计可见；
 - provider 报告 __API_NOT_SUPPORT_TOOLS__ → 立即无 tools 重试拿正文 +
   永久降级（后续轮次不再提供工具）；
@@ -23,7 +25,11 @@ from open_llm_vtuber.agent.output_types import SentenceOutput
 from open_llm_vtuber.agent.stateless_llm.openai_compatible_llm import (
     AsyncLLM as OpenAICompatibleAsyncLLM,
 )
-from open_llm_vtuber.live2d_action import LIVE2D_ACTION_TOOL_NAME, Live2dActionTool
+from open_llm_vtuber.live2d_action import (
+    LIVE2D_ACTION_TOOL_API_NAME,
+    LIVE2D_ACTION_TOOL_NAME,
+    Live2dActionTool,
+)
 from open_llm_vtuber.live2d_model import Live2dModel
 from open_llm_vtuber.mcpp.types import ToolCallFunctionObject, ToolCallObject
 
@@ -142,12 +148,12 @@ class TestNativeToolLoopHappyPath:
     def test_tool_call_binds_action_and_text_reaches_memory(self):
         llm = ScriptedOpenAILLM(
             [
-                # 第 1 轮：先说半句 + 发起合法动作调用
+                # 第 1 轮：先说半句 + 发起合法动作调用（API 名）
                 [
                     "好呀！",
                     [
                         _tool_call(
-                            LIVE2D_ACTION_TOOL_NAME,
+                            LIVE2D_ACTION_TOOL_API_NAME,
                             '{"action": "nod", "strength": 3, "reason": "开心"}',
                         )
                     ],
@@ -221,9 +227,54 @@ class TestNativeToolLoopHappyPath:
         agent = _agent(llm)
         _collect(agent, _batch_input())
         tools = llm.calls[0]["tools"]
-        assert tools and tools[0]["function"]["name"] == LIVE2D_ACTION_TOOL_NAME
+        # API schema 必须使用合法字符集函数名（DeepSeek/OpenAI 硬约束），
+        # 点号展示名绝不进 schema。
+        assert tools and tools[0]["function"]["name"] == LIVE2D_ACTION_TOOL_API_NAME
+        assert "." not in tools[0]["function"]["name"]
         enum = tools[0]["function"]["parameters"]["properties"]["action"]["enum"]
         assert "nod" in enum
+
+    def test_legacy_display_name_tool_call_still_executes(self):
+        """历史展示名（含点号）仅内部兼容：可解析执行；协议回显归一为 API 名。
+
+        真机根因回归：schema 曾用点号名 live2d.perform_action → DeepSeek
+        HTTP 400。schema 已改为 API 名；这里锁定旧名调用不崩、且回显不带点号。
+        """
+        llm = ScriptedOpenAILLM(
+            [
+                [
+                    "好！",
+                    [
+                        _tool_call(
+                            LIVE2D_ACTION_TOOL_NAME,  # 旧展示名（模型缓存/历史回放可能出现）
+                            '{"action": "nod"}',
+                        )
+                    ],
+                ],
+                ["继续。"],
+            ]
+        )
+        agent = _agent(llm)
+        items = _collect(agent, _batch_input())
+
+        action_events = [
+            i for i in items if isinstance(i, dict) and i.get("type") == "live2d_action"
+        ]
+        assert len(action_events) == 1 and action_events[0]["action"] == "nod"
+        stats = agent._live2d_tool.stats()
+        assert stats["accepted"] == 1 and stats["rejected"] == 0
+
+        # 协议回显（assistant.tool_calls）必须是不含点号的 API 合法名
+        second_round_messages = llm.calls[1]["messages"]
+        echoed = [
+            m
+            for m in second_round_messages
+            if m.get("role") == "assistant" and m.get("tool_calls")
+        ]
+        assert echoed, "工具轮后必须有 assistant.tool_calls 协议消息"
+        names = [tc["function"]["name"] for tc in echoed[0]["tool_calls"]]
+        assert names == [LIVE2D_ACTION_TOOL_API_NAME]
+        assert all("." not in n for n in names)
 
 
 class TestRejections:
@@ -232,7 +283,7 @@ class TestRejections:
             [
                 [
                     "看我的！",
-                    [_tool_call(LIVE2D_ACTION_TOOL_NAME, '{"action": "backflip"}')],
+                    [_tool_call(LIVE2D_ACTION_TOOL_API_NAME, '{"action": "backflip"}')],
                 ],
                 ["好吧，那算了。"],
             ]
@@ -280,7 +331,7 @@ class TestRejections:
     def test_broken_arguments_json_treated_as_invalid(self):
         llm = ScriptedOpenAILLM(
             [
-                ["", [_tool_call(LIVE2D_ACTION_TOOL_NAME, "{broken json")]],
+                ["", [_tool_call(LIVE2D_ACTION_TOOL_API_NAME, "{broken json")]],
                 ["嗯。"],
             ]
         )
@@ -327,7 +378,7 @@ class TestDegradation:
 
     def test_tool_round_limit_stops_runaway_loops(self):
         """模型连续发起工具调用时，轮次上限必须终止循环且正文照常产出。"""
-        call = [_tool_call(LIVE2D_ACTION_TOOL_NAME, '{"action": "nod"}')]
+        call = [_tool_call(LIVE2D_ACTION_TOOL_API_NAME, '{"action": "nod"}')]
         scripts = [["", call] for _ in range(4)] + [["好吧，不点了。", call]]
         llm = ScriptedOpenAILLM(scripts)
         agent = _agent(llm)

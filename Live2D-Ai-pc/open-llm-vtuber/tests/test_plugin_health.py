@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from open_llm_vtuber.live2d_action import (
+    LIVE2D_ACTION_TOOL_API_NAME,
     LIVE2D_ACTION_TOOL_NAME,
     get_default_tool,
     reset_default_tool,
@@ -138,6 +139,8 @@ class TestNativeToolRegistration:
         assert len(reports) >= 1
         report = reports[0]
         assert report["tool"] == LIVE2D_ACTION_TOOL_NAME
+        # health 报告同时暴露 API 合法名（schema 实际发送的名字）
+        assert report["api_name"] == LIVE2D_ACTION_TOOL_API_NAME
         assert report["registered"] is True
         assert report["available"] is True
         assert "nod" in report["whitelist"]

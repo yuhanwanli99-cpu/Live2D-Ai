@@ -189,11 +189,15 @@ class TestCatalog:
         for action in ("nod", "shake_no", "tilt", "look_around", "listen", "surprise"):
             assert action in body["actions"]
         # 能力门控动作在模型参数集未知时不显示（fail-closed）
-        for gated in ("look_up", "glance_left", "wink_left", "smile", "pout", "wry_mouth", "deep_breath"):
+        for gated in ("look_up", "glance_left", "smile", "pout", "wry_mouth", "deep_breath"):
             assert gated not in body["actions"], gated
-        # 已删动作（bow/lean_in/happy/excited/sway/wave_big/bounce_happy）
-        # 绝不出现在 dev 目录 —— 与公开/导演协议同一目录边界。
-        for removed in ("bow", "lean_in", "happy", "excited", "sway", "wave_big", "bounce_happy"):
+        # 已删动作（bow/lean_in/happy/excited/sway/wave_big/bounce_happy/
+        # wink_left/wink_right）绝不出现在 dev 目录 —— 与公开/导演协议同一目录
+        # 边界。wink 双 id 经用户真机核验不可用，已整体删除。
+        for removed in (
+            "bow", "lean_in", "happy", "excited", "sway", "wave_big",
+            "bounce_happy", "wink_left", "wink_right",
+        ):
             assert removed not in body["actions"], removed
         # idle 仅作为 release，不能作为正向触发
         idle_entry = next(e for e in entries if e["id"] == "idle")
@@ -216,18 +220,22 @@ class TestCatalog:
         assert isinstance(r.json()["halfbody_channels"], list)
 
     def test_catalog_capability_filtered_by_loaded_model(self, dev_env):
-        # 完整 bai 参数集 → 全部 17 动作 + idle 都进目录；requires 如实下发。
+        # 完整 bai 参数集 → 全部 15 动作 + idle 都进目录；requires 如实下发。
         dev_env.ctx.live2d_model = SimpleNamespace(_cdi3_parameter_ids=set(_BAI_PARAM_IDS))
         dev_env.enable_dev_mode()
         dev_env.enable_localhost()
         body = dev_env.client.get("/api/dev/actions/catalog").json()
         expected = allowed_actions_for_parameter_ids(_BAI_PARAM_IDS)
         assert set(body["actions"]) == set(expected)
-        assert len([a for a in body["actions"] if a != "idle"]) == 17
+        assert len([a for a in body["actions"] if a != "idle"]) == 15
         meta = {e["id"]: e for e in body["action_meta"]}
         assert sorted(meta["pout"]["requires"]) == ["Param4"]
         assert sorted(meta["wry_mouth"]["requires"]) == ["Param6"]
         assert sorted(meta["look_up"]["requires"]) == ["ParamAngleY", "ParamEyeBallY"]
+        # 已删除的 wink id 即使模型带全参数也绝不进目录/富元数据
+        assert "wink_left" not in body["actions"]
+        assert "wink_right" not in body["actions"]
+        assert "wink_left" not in meta and "wink_right" not in meta
 
     def test_catalog_drops_pout_when_param4_missing(self, dev_env):
         # 模型缺 Param4 → pout 不显示；其余能力门控动作不受影响。
@@ -302,6 +310,23 @@ class TestTrigger:
         r = dev_env.client.post("/api/dev/actions/trigger", json={"action": removed})
         assert r.status_code == 400, removed
         assert r.json()["error"] == "unknown action"
+        assert dev_env.ws.broadcasts == []
+
+    @pytest.mark.parametrize("wink", ["wink_left", "wink_right", "WINK_LEFT"])
+    def test_trigger_removed_wink_ids_rejected_400(self, dev_env, wink):
+        # 用户真机核验后删除的 wink_left / wink_right：旧 id 显式触发一律
+        # 400（unknown action），即使当前模型带完整眼参数也绝不广播。
+        dev_env.ctx.live2d_model = SimpleNamespace(_cdi3_parameter_ids=set(_BAI_PARAM_IDS))
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        r = dev_env.client.post(
+            "/api/dev/actions/trigger", json={"action": wink, "strength": 3}
+        )
+        assert r.status_code == 400, wink
+        body = r.json()
+        assert body["error"] == "unknown action"
+        assert "wink_left" not in body.get("allowed", [])
+        assert "wink_right" not in body.get("allowed", [])
         assert dev_env.ws.broadcasts == []
 
     def test_trigger_unknown_action_400(self, dev_env):
@@ -442,11 +467,12 @@ class TestDirectorAnalyze:
             result=DirectorResult(
                 emotion="neutral",
                 strength=2,
-                motion_label=None,
+                motion_label="wink_left",
                 motion_timeline=[
                     {"at": 0.1, "motion": "happy"},
                     {"at": 0.2, "motion": "bounce_happy"},
                     {"at": 0.3, "motion": "lean_in"},
+                    {"at": 0.4, "motion": "wink_right"},
                 ],
             )
         )
@@ -458,7 +484,10 @@ class TestDirectorAnalyze:
         body = r.json()
         assert body["motionLabel"] is None
         assert body["motionTimeline"] == []
-        for removed in ("happy", "excited", "sway", "bow", "lean_in", "wave_big", "bounce_happy"):
+        for removed in (
+            "happy", "excited", "sway", "bow", "lean_in", "wave_big",
+            "bounce_happy", "wink_left", "wink_right",
+        ):
             assert removed not in str(body)
 
     def test_analyze_empty_text_400(self, dev_env):

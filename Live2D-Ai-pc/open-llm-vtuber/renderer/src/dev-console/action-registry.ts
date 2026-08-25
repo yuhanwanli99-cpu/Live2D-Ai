@@ -3,8 +3,9 @@
  * The backend owns the canonical allowlist (already capability-filtered by the
  * loaded model's parameter set); this frontend registry mirrors it
  * and provides an extension point for future actions without hardcoding UI
- * changes. 基础六动作 + 能力门控扩展十一动作（look_up/wink/smile/pout 等）：
- * 已删除动作（happy/excited/sway/bow/lean_in/wave/bounce 等）即使后端目录仍下发，
+ * changes. 基础六动作 + 能力门控扩展九动作（look_up/smile/pout 等）：
+ * 已删除动作（happy/excited/sway/bow/lean_in/wave/bounce 与真机核验后删除的
+ * wink_left/wink_right）即使后端目录仍下发，
  * 前端也一律拒绝注册——UI 不再出现身体类动作分类。未知 ID are rejected by both sides;
  * 后端未下发的能力门控动作（如模型缺 Param4 的 pout）自然不会出现在目录里。
  */
@@ -37,8 +38,6 @@ const ACTION_ZH: Record<string, { name: string; description: string }> = {
   look_down: { name: '向下看', description: '眼球先行下移+头部低俯随动' },
   glance_left: { name: '瞟一眼（一侧）', description: '仅眼球快速侧瞥，头不动' },
   glance_right: { name: '瞟一眼（另一侧）', description: '仅眼球快速侧瞥，头不动' },
-  wink_left: { name: '眨左眼', description: '仅左眼快速闭合再睁开' },
-  wink_right: { name: '眨右眼', description: '仅右眼快速闭合再睁开' },
   smile: { name: '微笑', description: '嘴角上扬+微眉+双眼轻眯' },
   frown: { name: '皱眉', description: '眉毛下压+嘴角下压' },
   pout: { name: '嘟嘴', description: '嘟嘴通道 Param4（模型需支持）' },

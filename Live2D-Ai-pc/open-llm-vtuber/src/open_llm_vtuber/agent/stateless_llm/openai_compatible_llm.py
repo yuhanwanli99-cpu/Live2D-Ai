@@ -9,6 +9,7 @@ from openai import (
     AsyncOpenAI,
     APIError,
     APIConnectionError,
+    BadRequestError,
     RateLimitError,
     NotGiven,
     NOT_GIVEN,
@@ -24,6 +25,16 @@ from ...mcpp.types import ToolCallObject
 class ReasoningDelta(str):
     """思维链增量标记：isinstance(str) 但可被中间层识别并单独转发，
     不混入正文（basic_memory_agent 不累积、不入记忆）。"""
+
+
+class LLMChatError(RuntimeError):
+    """LLM API 调用失败（连接失败 / 限流 / HTTP 错误等）。
+
+    以异常（而非 yield 错误字符串）向外传播：任何中间层都不会把它误当成
+    assistant 正文送进 TTS/字幕/记忆，也不会触发多段续聊；
+    agent/transformers 的 pump 会统一转成 ``{"type": "stream_error"}`` 事件，
+    由对话层向前端发送单一可读错误提示。
+    """
 
 
 class AsyncLLM(StatelessLLMInterface):
@@ -95,9 +106,13 @@ class AsyncLLM(StatelessLLMInterface):
         - List[ChoiceDeltaToolCall]: The tool calls detected in the response.
 
         Raises:
-        - APIConnectionError: When the server cannot be reached
-        - RateLimitError: When a 429 status code is received
-        - APIError: For other API-related errors
+        - LLMChatError: 当 API 调用失败（连接失败 / 限流 / HTTP 错误）。
+          绝不以正文形式 yield 错误字符串（错误不得进入 TTS/字幕/记忆）。
+
+        Notes:
+        - 携带 tools 的请求被 provider 以 HTTP 400 拒绝时（典型原因：工具函数名
+          不满足 ^[a-zA-Z0-9_-]+$），自动去掉 tools 重试一次，并把本进程内
+          ``support_tools`` 置为 False（后续请求不再携带 tools，安全降级）。
         """
         stream = None
         # Tool call related state variables
@@ -115,6 +130,12 @@ class AsyncLLM(StatelessLLMInterface):
             logger.debug(f"Messages: {messages_with_system}")
 
             available_tools = tools if self.support_tools else NOT_GIVEN
+            # 只有真的携带了非空工具列表时，才允许「400 → 无 tools 重试」降级路径
+            tools_actually_offered = (
+                self.support_tools
+                and available_tools is not NOT_GIVEN
+                and bool(available_tools)
+            )
 
             # 思考模式：默认关闭（VTuber 对话低延迟优先）；配置开启时按
             # DeepSeek 官方约定传 extra_body.thinking + reasoning_effort。
@@ -142,9 +163,29 @@ class AsyncLLM(StatelessLLMInterface):
             if self.max_tokens is not None:
                 completion_kwargs["max_tokens"] = self.max_tokens
 
-            stream: AsyncStream[
-                ChatCompletionChunk
-            ] = await self.client.chat.completions.create(**completion_kwargs)
+            try:
+                stream: AsyncStream[
+                    ChatCompletionChunk
+                ] = await self.client.chat.completions.create(**completion_kwargs)
+            except BadRequestError as e:
+                status_code = getattr(e, "status_code", None)
+                if not (tools_actually_offered and status_code == 400):
+                    raise
+                # tools 参数被 provider 拒绝（HTTP 400）：识别后自动无 tools 重试一次，
+                # 并在本进程内永久停用 tools（安全降级，不再反复撞同一堵墙）。
+                # 典型根因：function.name 含点号等非法字符（必须匹配
+                # ^[a-zA-Z0-9_-]+$）。错误绝不作为正文下发。
+                self.support_tools = False
+                logger.warning(
+                    "Provider rejected the request with HTTP 400 while tools were "
+                    f"offered (model={self.model}, base_url={self.base_url}). "
+                    "Tool function names must match ^[a-zA-Z0-9_-]+$. "
+                    f"Retrying ONCE without tools. Detail: {e}"
+                )
+                completion_kwargs["tools"] = NOT_GIVEN
+                stream: AsyncStream[
+                    ChatCompletionChunk
+                ] = await self.client.chat.completions.create(**completion_kwargs)
             logger.debug(
                 f"Tool Support: {self.support_tools}, Available tools: {available_tools}"
             )
@@ -254,13 +295,17 @@ class AsyncLLM(StatelessLLMInterface):
             logger.error(
                 f"Error calling the chat endpoint: Connection error. Failed to connect to the LLM API. \nCheck the configurations and the reachability of the LLM backend. \nSee the logs for details. \nTroubleshooting with documentation: https://open-llm-vtuber.github.io/docs/faq#%E9%81%87%E5%88%B0-error-calling-the-chat-endpoint-%E9%94%99%E8%AF%AF%E6%80%8E%E4%B9%88%E5%8A%9E \n{e.__cause__}"
             )
-            yield "Error calling the chat endpoint: Connection error. Failed to connect to the LLM API. Check the configurations and the reachability of the LLM backend. See the logs for details. Troubleshooting with documentation: [https://open-llm-vtuber.github.io/docs/faq#%E9%81%87%E5%88%B0-error-calling-the-chat-endpoint-%E9%94%99%E8%AF%AF%E6%80%8E%E4%B9%88%E5%8A%9E]"
+            # 以异常传播（绝不 yield 错误字符串）：错误不得被当作 assistant
+            # 正文送进 TTS/字幕/记忆；由上层转成前端单一可读错误。
+            raise LLMChatError(
+                "无法连接到 LLM 服务：请检查网络与 API 地址（base_url）配置。"
+            ) from e
 
         except RateLimitError as e:
             logger.error(
                 f"Error calling the chat endpoint: Rate limit exceeded: {e.response}"
             )
-            yield "Error calling the chat endpoint: Rate limit exceeded. Please try again later. See the logs for details."
+            raise LLMChatError("LLM 服务限流（429），请稍后再试。") from e
 
         except APIError as e:
             if "does not support tools" in str(e):
@@ -275,7 +320,9 @@ class AsyncLLM(StatelessLLMInterface):
             logger.info(f"Model: {self.model}")
             logger.info(f"Messages: {messages}")
             logger.info(f"temperature: {self.temperature}")
-            yield "Error calling the chat endpoint: Error occurred while generating response. See the logs for details."
+            raise LLMChatError(
+                f"LLM 接口调用失败（{type(e).__name__}），请查看后端日志获取详情。"
+            ) from e
 
         finally:
             # make sure the stream is properly closed

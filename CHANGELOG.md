@@ -1,3 +1,14 @@
+# 原生工具 400 崩溃修复：函数名合规 + 错误链路隔离（2026-08-25）
+
+- **根因**：DeepSeek/OpenAI function-calling 要求 `function.name` 匹配 `^[a-zA-Z0-9_-]+$`；工具 schema 曾用点号名 `live2d.perform_action` → provider 直接 HTTP 400，且旧代码把 `Error calling the chat endpoint...` 错误字符串当 assistant 正文送进 TTS/字幕/记忆。
+- **命名双轨**（`live2d_action.py`）：API schema 改用合法名 `live2d_perform_action`；点号展示名保留给插件面板/日志。工具调用解析双名兼容（新 API 名 + 旧展示名仅内部兼容、schema 绝不再发送点号名）；协议回显（assistant.tool_calls）经 `canonical_tool_api_name` 归一为 API 名，防历史残留调用触发二次 400。模块加载即断言 schema 名恒满足字符集约束。
+- **400 自动降级**（`openai_compatible_llm.py`）：携带 tools 的请求被 provider 以 HTTP 400 拒绝时，自动去掉 tools 重试一次并把本进程内 `support_tools` 置 False（后续轮次走纯文本简单路径，不再提供工具）；未带 tools 的 400 不误判、不重试。
+- **错误链路隔离**：LLM API 错误改为抛 `LLMChatError` 异常（连接失败/限流/HTTP 错误各有单一可读中文文案），经 transformers pump 转成唯一一条 `stream_error` → single_conversation 转发前端 `{"type":"error"}`；错误绝不 yield 成正文，不进 TTS/字幕/记忆。
+- **续聊熔断**（`single_conversation.py`）：本轮出现 LLM 流失败/stream_error 后不再触发额外多段续聊（此前默认还会再续 2 段放大错误）。
+- **防回归测试**：新增 `tests/test_native_tool_400_fallback.py` 11 例（SDK 级 BadRequestError 模拟：命名正则端到端、400→无 tools 重试恰一次、重试仍失败报单一可读错误、错误不产句子/不入记忆、错误轮不续聊×2、降级后下轮无工具、health 计数）；`test_live2d_action_tool.py`/`test_native_tool_loop.py`/`test_plugin_health.py` 更新为双名契约并锁定旧名回显归一。PC 全量 pytest **677 passed**。
+
+---
+
 # 设置中心人设收敛 + 思考模式 + 默认视觉主模型（2026-08-22 晚）
 
 - **人设面板瘦身**：仅保留 System Prompt；角色名/角色定位/模型/Temperature/Max Tokens/视觉模型 全部移除（后端 persona 读写同步收敛，旧字段不再进配置）。

@@ -17,12 +17,16 @@ AngleY=上下点头(pitch)、AngleZ=侧倾(roll)；只写头/眼/眉/嘴参数�
 才会进入运行时目录；缺失则目录不显示，触发一律拒绝）：
 - look_up / look_down   → 眼球 EyeBallY 先行 + 头部 AngleY 随动（需两者）
 - glance_left / glance_right → 仅眼球 EyeBallX 快速侧瞥（头不动）
-- wink_left / wink_right → 单眼 EyeLOpen / EyeROpen 快速闭合再睁开
 - smile  → 嘴形 MouthForm 正向 + 眉毛微抬 + 双眼轻微眯起
 - frown  → 眉毛下压 + 嘴形 MouthForm 负向
 - pout   → 嘟嘴专用通道 Param4（bai 类模型的「嘟嘴」参数；无此参数不提供）
 - wry_mouth → 歪嘴专用通道 Param6（无此参数不提供）
 - deep_breath → 呼吸 ParamBreath 深吸后缓慢回落
+
+已删除动作：wink_left / wink_right（用户真机核验不可用——单眼独立闭合
+在真机模型上无法诚实表达，且与自动 EyeBlink 待机眨眼系统互相干扰）。
+旧 id 不再进入目录/工具 schema/能力目录，任何来源下发一律安全收敛为 None
+或 400，自动 EyeBlink 待机眨眼不受影响。
 
 强度语义（与渲染端 BodyActionPlayer.intensityOf 对齐）：
 1=轻微但可见、2=正常清晰（原「3」的视觉水平）、3=强烈但安全 clamp
@@ -42,8 +46,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 # 可触发的安全动作 id（渲染端 BodyActionPlayer / choreography 白名单子集）。
-# 基础六动作 + 能力门控扩展十一动作；bounce_happy / wave_big / happy / excited /
-# sway / bow / lean_in 一律不进入目录，任何来源产出这些 id 都会被丢弃为 None。
+# 基础六动作 + 能力门控扩展九动作；bounce_happy / wave_big / happy / excited /
+# sway / bow / lean_in / wink_left / wink_right 一律不进入目录，任何来源产出
+# 这些 id 都会被丢弃为 None。
 BASE_MOTION_IDS: tuple[str, ...] = (
     "nod",
     "shake_no",
@@ -58,8 +63,6 @@ CAPABILITY_GATED_MOTION_IDS: tuple[str, ...] = (
     "look_down",
     "glance_left",
     "glance_right",
-    "wink_left",
-    "wink_right",
     "smile",
     "frown",
     "pout",
@@ -77,8 +80,6 @@ MOTION_REQUIRED_PARAMS: dict[str, frozenset[str]] = {
     "look_down": frozenset({"ParamAngleY", "ParamEyeBallY"}),
     "glance_left": frozenset({"ParamEyeBallX"}),
     "glance_right": frozenset({"ParamEyeBallX"}),
-    "wink_left": frozenset({"ParamEyeLOpen"}),
-    "wink_right": frozenset({"ParamEyeROpen"}),
     "smile": frozenset({"ParamMouthForm", "ParamBrowLY", "ParamBrowRY"}),
     "frown": frozenset({"ParamMouthForm", "ParamBrowLY", "ParamBrowRY"}),
     # bai 类模型的非标面部通道：嘟嘴(Param4)/歪嘴(Param6)。多数模型没有，
@@ -230,24 +231,8 @@ MOTION_METADATA: dict[str, dict[str, object]] = {
         "suggested_duration_ms": 700,
         "release_only": False,
     },
-    "wink_left": {
-        "label": "眨左眼",
-        "description": (
-            "仅左眼 ParamEyeLOpen 快速闭合再睁开，右眼与视线保持默认"
-        ),
-        "halfbody": True,
-        "suggested_duration_ms": 600,
-        "release_only": False,
-    },
-    "wink_right": {
-        "label": "眨右眼",
-        "description": (
-            "仅右眼 ParamEyeROpen 快速闭合再睁开，左眼与视线保持默认"
-        ),
-        "halfbody": True,
-        "suggested_duration_ms": 600,
-        "release_only": False,
-    },
+    # wink_left / wink_right 已删除（真机核验不可用）：元数据同步移除，
+    # 旧 id 由 sanitize_motion 收敛为 None，绝不回显/下发。
     "smile": {
         "label": "微笑",
         "description": (

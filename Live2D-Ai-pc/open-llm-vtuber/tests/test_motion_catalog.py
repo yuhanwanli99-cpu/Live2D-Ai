@@ -2,10 +2,11 @@
 
 覆盖任务要求：
 1) 目录 = 基础六动作（nod/shake_no/tilt/look_around/listen/surprise）
-   + 能力门控扩展十一动作（look_up/look_down/glance_left/glance_right/
-   wink_left/wink_right/smile/frown/pout/wry_mouth/deep_breath）+ idle 仅 release；
+   + 能力门控扩展九动作（look_up/look_down/glance_left/glance_right/
+   smile/frown/pout/wry_mouth/deep_breath）+ idle 仅 release；
    不再包含 bounce_happy / wave_big / happy / excited / sway / bow / lean_in 等
-   模型无法诚实表达的动作；
+   模型无法诚实表达的动作；wink_left / wink_right 经用户真机核验不可用，
+   已整体删除（目录/schema/能力目录均不出现，旧 id 一律拒绝/no-op）；
 2) 运行时能力过滤：模型参数集缺门槛参数（如 pout 的 Param4）的动作
    不进目录；参数集未知时 fail-closed 只保留基础六动作；
 3) payload 可选 source/priority/duration 元数据，且旧客户端兼容（None 省略）；
@@ -40,21 +41,22 @@ from open_llm_vtuber.director import (
 )
 from open_llm_vtuber.agent.output_types import Actions, DisplayText, SentenceOutput
 
-# 定版：公开目录精确等于 基础六动作 + 能力门控扩展十一动作 + idle(release)
+# 定版：公开目录精确等于 基础六动作 + 能力门控扩展九动作 + idle(release)
 _EXPECTED_BASE = ("nod", "shake_no", "tilt", "look_around", "listen", "surprise")
 _EXPECTED_GATED = (
     "look_up",
     "look_down",
     "glance_left",
     "glance_right",
-    "wink_left",
-    "wink_right",
     "smile",
     "frown",
     "pout",
     "wry_mouth",
     "deep_breath",
 )
+# wink_left / wink_right：用户真机核验不可用，已删除 —— 任何来源/任何参数集
+# 都不得再产出、显示或放行（与 bounce_happy 等已删 id 同一边界）。
+_REMOVED_WINK_IDS = ("wink_left", "wink_right")
 _FORBIDDEN_SEMANTIC_WORDS = ("挥手", "鼓掌", "蹦跳", "鞠躬", "凑近", "摇摆")
 
 # bai 形状模型的完整头/脸参数集（含非标 Param4 嘟嘴 / Param6 歪嘴）
@@ -75,6 +77,20 @@ def test_catalog_excludes_full_body_and_arm_actions():
         assert bad not in ALLOWED_ACTIONS, bad
         assert bad not in SAFE_MOTION_IDS, bad
         assert bad not in _VALID_MOTIONS, bad
+
+
+def test_wink_ids_removed_everywhere():
+    # 真机核验后删除的 wink_left / wink_right：目录、能力门槛表、元数据、
+    # 导演白名单全部不存在；即使模型带全参数也不得复活。
+    for bad in _REMOVED_WINK_IDS:
+        assert bad not in ALLOWED_ACTIONS, bad
+        assert bad not in SAFE_MOTION_IDS, bad
+        assert bad not in CAPABILITY_GATED_MOTION_IDS, bad
+        assert bad not in _VALID_MOTIONS, bad
+        assert bad not in MOTION_REQUIRED_PARAMS, bad
+        assert bad not in MOTION_METADATA, bad
+        # 能力过滤入口（含完整 bai 参数集）同样不产出
+        assert bad not in motions_for_parameter_ids(_BAI_PARAM_IDS), bad
 
 
 def test_safe_motion_ids_exact_extended_catalog():
@@ -114,9 +130,10 @@ def test_motions_for_parameter_ids_filters_by_runtime_capability():
     # look_up 需要 AngleY+EyeBallY 同时存在：缺一即不可用
     no_geyeballY = motions_for_parameter_ids(_BAI_PARAM_IDS - {"ParamEyeBallY"})
     assert "look_up" not in no_geyeballY and "look_down" not in no_geyeballY
-    # wink 单眼独立门控
+    # wink 已删除：缺任一眼参数时同样不产出（不再是「单眼独立门控」语义）
     no_el = motions_for_parameter_ids(_BAI_PARAM_IDS - {"ParamEyeLOpen"})
-    assert "wink_left" not in no_el and "wink_right" in no_el
+    for bad in _REMOVED_WINK_IDS:
+        assert bad not in no_el, bad
 
 
 def test_motions_for_parameter_ids_fail_closed_on_unknown_model():
@@ -288,6 +305,25 @@ def test_llm_removed_labels_fall_back_to_emotion_map_or_none():
     assert _analyze('{"emotion":"sadness","motionLabel":"bow"}').motion_label is None
 
 
+def test_llm_wink_labels_are_dropped_even_with_full_model_params():
+    # 已删除的 wink_left / wink_right：即使导演 LLM 显式输出、即使当前模型
+    # 带完整参数集，也一律按越界丢弃（joy 无情绪兜底 → None；surprise 兜底
+    # surprise 而不是 wink）。提示词与能力集同源生成，正常情况下根本不会
+    # 出现 wink——这里防御的是旧 provider/旧缓存的残留输出。
+    full = set(_BAI_PARAM_IDS)
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"wink_left"}', full).motion_label is None
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"wink_right"}', full).motion_label is None
+    assert (
+        _analyze_with_params('{"emotion":"surprise","motionLabel":"wink_left"}', full).motion_label
+        == "surprise"
+    )
+    # 导演系统提示词与默认静态提示词都不含 wink id。
+    assert "wink" not in ExpressionDirector(llm=None, parameter_ids=full).system_prompt
+    from open_llm_vtuber.director import _DIRECTOR_SYSTEM
+
+    assert "wink" not in _DIRECTOR_SYSTEM
+
+
 def test_llm_neutral_without_motion_is_none():
     result = _analyze('{"emotion":"neutral","motionLabel":null}')
     assert result.motion_label is None
@@ -318,7 +354,10 @@ def test_sanitize_motion_whitelist_boundary():
     assert sanitize_motion("  NOD  ") == "nod"
     assert sanitize_motion(None) is None
     assert sanitize_motion("") is None
-    for bad in ("happy", "excited", "sway", "bow", "lean_in", "wave_big", "bounce_happy", "idle"):
+    for bad in (
+        "happy", "excited", "sway", "bow", "lean_in", "wave_big", "bounce_happy",
+        "wink_left", "wink_right", "idle",
+    ):
         assert sanitize_motion(bad) is None, bad
 
 

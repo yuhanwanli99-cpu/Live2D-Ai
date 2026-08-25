@@ -71,9 +71,15 @@ describe('DevActionRegistry — 集成（UI 只出现六动作 + release）', ()
 
   it('已删除的身体类动作不再进入 UI 分类（即使后端目录仍下发）', () => {
     const reg = new DevActionRegistry();
-    reg.loadCatalog(['nod', 'bow', 'lean_in', 'happy', 'excited', 'sway', 'wave_big', 'bounce_happy', 'sad', 'anger']);
+    reg.loadCatalog([
+      'nod', 'bow', 'lean_in', 'happy', 'excited', 'sway', 'wave_big',
+      'bounce_happy', 'sad', 'anger', 'wink_left', 'wink_right',
+    ]);
     expect(reg.isAllowed('nod')).toBe(true);
-    for (const dead of ['bow', 'lean_in', 'happy', 'excited', 'sway', 'wave_big', 'bounce_happy', 'sad', 'anger']) {
+    for (const dead of [
+      'bow', 'lean_in', 'happy', 'excited', 'sway', 'wave_big',
+      'bounce_happy', 'sad', 'anger', 'wink_left', 'wink_right',
+    ]) {
       expect(reg.isAllowed(dead), `${dead} 应被拒绝`).toBe(false);
     }
     expect(reg.list().map((e) => e.id)).toEqual(['nod']);
@@ -96,11 +102,12 @@ describe('DevActionRegistry — 集成（UI 只出现六动作 + release）', ()
 
   it('扩展动作（能力门控）由后端目录下发时注册为 choreo 并带诚实中文名', () => {
     // 后端已按模型参数能力过滤；只要下发即代表当前模型可诚实执行。
+    // wink_left / wink_right 已删除：即使后端（旧版本）仍下发也不得注册。
     const reg = new DevActionRegistry();
     const ids = [
       'nod', 'shake_no', 'tilt', 'look_around', 'listen', 'surprise',
       'look_up', 'look_down', 'glance_left', 'glance_right',
-      'wink_left', 'wink_right', 'smile', 'frown', 'pout', 'wry_mouth', 'deep_breath',
+      'smile', 'frown', 'pout', 'wry_mouth', 'deep_breath',
       'idle',
     ];
     reg.loadCatalog(ids);
@@ -113,6 +120,11 @@ describe('DevActionRegistry — 集成（UI 只出现六动作 + release）', ()
     const pout = reg.list().find((e) => e.id === 'pout')!;
     expect(pout.name).toBe('嘟嘴');
     expect(pout.description).toContain('Param4');
+    // 已删除的 wink 双 id 不注册、不出现在 UI 列表
+    reg.loadCatalog([...ids, 'wink_left', 'wink_right']);
+    expect(reg.isAllowed('wink_left')).toBe(false);
+    expect(reg.isAllowed('wink_right')).toBe(false);
+    expect(reg.list().some((e) => e.id.startsWith('wink'))).toBe(false);
     // 未下发的动作（如该模型缺参数）不会凭空出现
     expect(reg.isAllowed('bow')).toBe(false);
   });

@@ -3,11 +3,13 @@
  *
  * 需求：
  * 1. 头 / 脸动作目录：基础六动作（nod / shake_no / tilt / look_around /
- *    listen / surprise）+ 能力门控扩展十一动作（look_up / look_down /
- *    glance_left / glance_right / wink_left / wink_right / smile / frown /
+ *    listen / surprise）+ 能力门控扩展九动作（look_up / look_down /
+ *    glance_left / glance_right / smile / frown /
  *    pout / wry_mouth / deep_breath）+ release（回 profile 默认）。
  *    彻底禁止所有 ParamBodyAngle*（身体 / 肩 / 胯 / 腿）通道。动作系统不
  *    声称「半身 / body」动作——只有头部与面部参数。
+ *    已删除：wink_left / wink_right（真机核验不可用；单眼眨动交给自动
+ *    EyeBlink 待机系统），不在门槛表内 → 请求一律 no-op。
  * 2. 正确轴约定（用户定版）：
  *      ParamAngleX = 左右转头（yaw）
  *      ParamAngleY = 上下点头（pitch）
@@ -75,8 +77,6 @@ export const ACTION_REQUIRED_PARAMS: Readonly<Record<string, readonly string[]>>
   look_down: ['ParamAngleY', 'ParamEyeBallY'],
   glance_left: ['ParamEyeBallX'],
   glance_right: ['ParamEyeBallX'],
-  wink_left: ['ParamEyeLOpen'],
-  wink_right: ['ParamEyeROpen'],
   smile: ['ParamMouthForm', 'ParamBrowLY', 'ParamBrowRY'],
   frown: ['ParamMouthForm', 'ParamBrowLY', 'ParamBrowRY'],
   pout: ['Param4'],

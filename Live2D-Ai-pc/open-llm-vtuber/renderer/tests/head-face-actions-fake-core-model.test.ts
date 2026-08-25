@@ -2,8 +2,9 @@
  * head-face-actions-fake-core-model.test.ts — 头/脸动作扩展验收（FakeCoreModel 实证）
  *
  * 任务五要素，全部断言跑在「真实 ParamArbiter + 真实形状 FakeCoreModel」上：
- *  1. 区分动作：基础六动作 + 能力门控扩展十一动作完整播放后的签名两两不同；
- *     新旧动作互不混淆（glance≠look_around、wink 左右互异、smile≠frown）。
+ *  1. 区分动作：基础六动作 + 能力门控扩展九动作完整播放后的签名两两不同；
+ *     新旧动作互不混淆（glance≠look_around、smile≠frown）；
+ *     wink_left / wink_right 已删除（真机核验不可用）→ 请求一律 no-op。
  *  2. strength 2 阈值校准：STRENGTH_INTENSITY = {1:0.6, 2:1.35, 3:1.8} ——
  *     1=轻微但可见、2=正常清晰（原「强度 3」的视觉水平）、3=强烈但被安全 clamp
  *     （模型空间峰值封顶在 min/max 内，绝不越界）。
@@ -84,17 +85,17 @@ describe('1. 区分动作 — 全部动作签名两两不同', () => {
     return JSON.stringify({ touched, dir, peak: Math.round(peakSem * 100) });
   }
 
-  it('17 个动作签名互不相同（含能力门控动作之间）', () => {
+  it('15 个动作签名互不相同（含能力门控动作之间）', () => {
     const sigs = SUPPORTED_ACTIONS.map((a) => [a, signatureOf(a)] as const);
-    expect(sigs.length).toBe(17);
+    expect(sigs.length).toBe(15);
     expect(new Set(sigs.map(([, s]) => s)).size).toBe(sigs.length);
+    expect(SUPPORTED_ACTIONS).not.toContain('wink_left');
+    expect(SUPPORTED_ACTIONS).not.toContain('wink_right');
   });
 
   it('新旧近邻动作互不混淆', () => {
     // glance 与 look_around 触达参数集不同（头不动 vs 头随动）
     expect(signatureOf('glance_left')).not.toBe(signatureOf('look_around'));
-    // 左右 wink 触达单眼不同
-    expect(signatureOf('wink_left')).not.toBe(signatureOf('wink_right'));
     // smile 与 frown 方向相反
     expect(signatureOf('smile')).not.toBe(signatureOf('frown'));
     // look_up 与 nod 同用 AngleY 但触达集不同（EyeBallY 有无）
@@ -129,10 +130,12 @@ describe('2. strength 阈值校准 — 1 轻微可见 / 2 正常清晰(原3水�
     expect(peaks[3]).toBeLessThanOrEqual(30 + 1e-6);
   });
 
-  it('clamp 上限实证：wink s3 闭眼精确到模型最小值；surprise s3 睁眼精确到最大值', () => {
-    const w = makeEnv();
-    playUntil(w, 'wink_right', 3, 200); // 闭合保持相位
-    expect(w.core.last('ParamEyeROpen')).toBeCloseTo(DEFAULTS.ParamEyeROpen.minimum, 5);
+  it('clamp 上限实证：frown s3 压眉精确到模型最小值；surprise s3 睁眼精确到最大值', () => {
+    // frown 眉 -0.75 × s3(1.8) = -1.35 → 安全 clamp 到语义 -1 = 模型最小值
+    const fr = makeEnv();
+    playUntil(fr, 'frown', 3, 400); // 保持相位（第二关键帧 800ms 未到）
+    expect(fr.core.last('ParamBrowLY')).toBeCloseTo(DEFAULTS.ParamBrowLY.minimum, 5);
+    expect(fr.core.last('ParamBrowRY')).toBeCloseTo(DEFAULTS.ParamBrowRY.minimum, 5);
 
     const su = makeEnv();
     playUntil(su, 'surprise', 3, 200);
@@ -182,10 +185,12 @@ describe('3. 能力过滤 — 目录按运行时参数能力收缩', () => {
     return ranges;
   }
 
-  it('完整 bai 形状模型：全部 17 动作可用', () => {
+  it('完整 bai 形状模型：全部 15 动作可用（已删 wink 不复活）', () => {
     const env = makeEnv();
-    expect(env.bap.availableActions().length).toBe(17);
+    expect(env.bap.availableActions().length).toBe(15);
     for (const a of SUPPORTED_ACTIONS) expect(env.bap.isActionAvailable(a)).toBe(true);
+    expect(env.bap.availableActions()).not.toContain('wink_left');
+    expect(env.bap.availableActions()).not.toContain('wink_right');
   });
 
   it('无 Param4 → pout 不可用且 play no-op；无 Param6 → wry_mouth 同理', () => {
@@ -223,10 +228,20 @@ describe('3. 能力过滤 — 目录按运行时参数能力收缩', () => {
     expect(env.bap.isActionAvailable('look_around')).toBe(true);
   });
 
-  it('wink 单眼门控：缺 ParamEyeLOpen 只禁 wink_left，不影响 wink_right', () => {
-    const env = makeEnv(withoutParams('ParamEyeLOpen'));
-    expect(env.bap.isActionAvailable('wink_left')).toBe(false);
-    expect(env.bap.isActionAvailable('wink_right')).toBe(true);
+  it('已删除 wink 动作：任何参数集下都不可用、play 一律 no-op', () => {
+    // wink_left / wink_right 真机核验后删除：即使模型带全部眼参数也不可用，
+    // 旧 provider 残留请求绝不播放、绝不写任何参数（单眼眨动交给自动 EyeBlink）。
+    const full = makeEnv();
+    expect(full.bap.isActionAvailable('wink_left')).toBe(false);
+    expect(full.bap.isActionAvailable('wink_right')).toBe(false);
+
+    full.bap.play('wink_left', 3, { priority: ActionPriority.Live, source: 'dev' });
+    full.bap.play('wink_right', 3, { priority: ActionPriority.Live, source: 'dev' });
+    for (let i = 0; i < 40; i++) full.ticker.tick(full.arb, full.bap, 16);
+    expect(full.bap.currentGesture()).toBeNull();
+    expect(full.bap.pendingAction()).toBeNull();
+    expect(full.core.writes).toHaveLength(0);
+    expect(full.bap.availableActions()).not.toContain('wink_left');
   });
 });
 
@@ -274,7 +289,7 @@ describe('4. release 回 default — 播完/手动释放都回 profile 默认', 
 // 5. 无 Body — 身体通道存在但永不被触碰
 // ─────────────────────────────────────────────
 describe('5. 无 Body 写入 — 全部动作 × 全部强度零身体写入', () => {
-  it('连续播放 17 动作（强度 1/2/3）后 ParamBodyAngle* 零写入', () => {
+  it('连续播放 15 动作（强度 1/2/3）后 ParamBodyAngle* 零写入', () => {
     const env = makeEnv();
     for (const action of SUPPORTED_ACTIONS) {
       for (const strength of [1, 2, 3] as const) {

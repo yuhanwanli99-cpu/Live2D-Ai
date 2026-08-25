@@ -5,6 +5,10 @@
   取 motion_catalog.SAFE_MOTION_IDS 六个头/脸安全动作（nod/shake_no/tilt/
   look_around/listen/surprise）。越界动作（含 release-only 的 idle、历史已删 id）
   一律拒绝并打可见日志，绝不静默映射成近似动作。
+- 函数命名双轨：API schema 用 ``live2d_perform_action``（DeepSeek/OpenAI 要求
+  function.name 匹配 ^[a-zA-Z0-9_-]+$，点号名会被 HTTP 400 拒绝）；展示名
+  ``live2d.perform_action`` 仅用于插件面板/日志。工具调用解析双名兼容，
+  协议回显一律归一为 API 名。
 - 结果不朗读、不入记忆正文：工具结果只回灌 API 对话列表（协议需要），由
   BasicMemoryAgent 的原生工具循环保证不进入 TTS 文本与 self._memory。
 - 动作绑定：合法调用产出结构化结果，由对话层绑定到对应下一句/当前句的
@@ -25,6 +29,7 @@ Claude/Ollama 等 provider 走原简单路径（无工具），行为安全降�
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -38,7 +43,44 @@ from .motion_catalog import (
     sanitize_motion,
 )
 
+# OpenAI/DeepSeek function-calling 协议对 function.name 的硬性约束：
+# ^[a-zA-Z0-9_-]+$。点号不合法 → provider 直接 HTTP 400 拒绝整次请求
+# （真机日志中「原生 tool 崩溃 / Error calling chat endpoint」的根因）。
+OPENAI_TOOL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+# 展示名（插件面板 / 日志 / 文档 / 内部事件元数据）：保留点号风格，
+# 仅在进程内部使用，绝不进入 API schema 或协议回显。
 LIVE2D_ACTION_TOOL_NAME = "live2d.perform_action"
+# API schema 函数名：合法字符集，发给 provider 的唯一名字。
+LIVE2D_ACTION_TOOL_API_NAME = "live2d_perform_action"
+
+
+def is_valid_openai_tool_name(name: str | None) -> bool:
+    """是否符合 OpenAI/DeepSeek function-calling 函数名字符集约束。"""
+    if not name or not isinstance(name, str):
+        return False
+    return OPENAI_TOOL_NAME_PATTERN.fullmatch(name) is not None
+
+
+def is_live2d_action_tool_name(name: str | None) -> bool:
+    """工具调用解析双兼容：API 名（新）/ 展示名（旧，仅内部兼容，不再发送）。"""
+    return name in (LIVE2D_ACTION_TOOL_API_NAME, LIVE2D_ACTION_TOOL_NAME)
+
+
+def canonical_tool_api_name(name: str | None) -> str:
+    """把已知别名归一为 API 合法名（协议回显防 400）；未知名原样返回。"""
+    if name == LIVE2D_ACTION_TOOL_NAME:
+        return LIVE2D_ACTION_TOOL_API_NAME
+    return name or ""
+
+
+# 模块加载即校验：API schema 函数名必须永远满足 provider 硬约束（防回归）。
+if not is_valid_openai_tool_name(LIVE2D_ACTION_TOOL_API_NAME):  # pragma: no cover
+    raise AssertionError(
+        f"API 工具函数名 {LIVE2D_ACTION_TOOL_API_NAME!r} 必须匹配 "
+        f"{OPENAI_TOOL_NAME_PATTERN.pattern}（DeepSeek/OpenAI 硬约束，"
+        "违反会被 provider 以 HTTP 400 拒绝）"
+    )
 
 # 动作强度档位（与导演/前端约定一致：1 轻 / 2 中 / 3 强）
 MIN_STRENGTH = 1
@@ -61,12 +103,15 @@ def build_live2d_action_tool_schema(
 
     allowed_actions 缺省用完整静态目录；传入能力过滤子集时 enum 同步收窄，
     保证「提示词里的目录」与「执行时的白名单」永不漂移。
+
+    函数名使用 ``LIVE2D_ACTION_TOOL_API_NAME``：必须匹配
+    ``^[a-zA-Z0-9_-]+$``（DeepSeek/OpenAI 硬约束，点号会被 HTTP 400 拒绝）。
     """
     actions = tuple(allowed_actions) if allowed_actions else tuple(SAFE_MOTION_IDS)
     return {
         "type": "function",
         "function": {
-            "name": LIVE2D_ACTION_TOOL_NAME,
+            "name": LIVE2D_ACTION_TOOL_API_NAME,
             "description": (
                 "让 Live2D 形象在说话的同时做一个头部/面部小动作。"
                 "只在语义合适时调用（例如同意时点头、否认时摇头、惊讶时睁大眼）；"
@@ -135,7 +180,13 @@ class Live2dActionTool:
 
     @property
     def name(self) -> str:
+        """展示名（插件面板/日志用）；API schema 名见 api_name。"""
         return LIVE2D_ACTION_TOOL_NAME
+
+    @property
+    def api_name(self) -> str:
+        """API schema 函数名（发给 provider 的唯一名字，合法字符集）。"""
+        return LIVE2D_ACTION_TOOL_API_NAME
 
     @property
     def allowed_actions(self) -> tuple[str, ...]:
@@ -241,6 +292,7 @@ class Live2dActionTool:
         """健康/效果统计：设置页与 /api/plugins/health 直接消费。"""
         return {
             "tool": LIVE2D_ACTION_TOOL_NAME,
+            "api_name": LIVE2D_ACTION_TOOL_API_NAME,
             "registered": True,
             "available": self.available(),
             "calls": self._calls,
@@ -257,6 +309,7 @@ class Live2dActionTool:
         """注册信息快照（启动报告 / health API 用）。"""
         return {
             "tool": LIVE2D_ACTION_TOOL_NAME,
+            "api_name": LIVE2D_ACTION_TOOL_API_NAME,
             "plugin": "live2d-action",
             "registered": True,
             "available": self.available(),

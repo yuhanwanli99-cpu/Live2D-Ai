@@ -1,6 +1,7 @@
 /**
  * choreography 编排导演层测试：
- *  - 动作库 = 基础六动作 + 能力门控扩展十动作；全部参数在白名单内、身体通道绝迹；
+ *  - 动作库 = 基础六动作 + 能力门控扩展九动作；全部参数在白名单内、身体通道绝迹；
+ *    wink_left / wink_right 已删除（真机核验不可用）→ 与其他已删 id 同样 no-op；
  *  - 关键帧时序 / 幅度缩放（强度 1/2/3 单调）/ 打断与回落路由；
  *  - 播完 / release 经真实 ParamArbiter 回 profile 默认（FakeCoreModel 实证）。
  */
@@ -18,6 +19,7 @@ import { FakeCoreModel, BAI_LIKE_RANGES, makeTicker } from './helpers/fake-core-
 
 const DELETED_ACTIONS = [
   'happy', 'excited', 'sway', 'bow', 'lean_in', 'wave', 'wave_big', 'bounce_happy',
+  'wink_left', 'wink_right',
 ];
 
 function makeArbiter() {
@@ -34,7 +36,7 @@ describe('resolveChoreography — 路由', () => {
     }
   });
 
-  it('已删除动作（happy/excited/sway/bow/lean_in/wave/bounce 等）→ null，不再播放', () => {
+  it('已删除动作（happy/excited/sway/bow/lean_in/wave/bounce/wink 等）→ null，不再播放', () => {
     for (const id of DELETED_ACTIONS) {
       expect(resolveChoreography(id)).toBeNull();
       expect(resolveChoreography(`choreo:${id}`)).toBeNull();
@@ -48,8 +50,11 @@ describe('resolveChoreography — 路由', () => {
     expect(SUPPORTED_ACTIONS).toEqual([
       'nod', 'shake_no', 'tilt', 'look_around', 'listen', 'surprise',
       'look_up', 'look_down', 'glance_left', 'glance_right',
-      'wink_left', 'wink_right', 'smile', 'frown', 'pout', 'wry_mouth', 'deep_breath',
+      'smile', 'frown', 'pout', 'wry_mouth', 'deep_breath',
     ]);
+    // 已删除的 wink 双 id 不在任何公开面里
+    expect(SUPPORTED_ACTIONS).not.toContain('wink_left');
+    expect(SUPPORTED_ACTIONS).not.toContain('wink_right');
   });
 });
 

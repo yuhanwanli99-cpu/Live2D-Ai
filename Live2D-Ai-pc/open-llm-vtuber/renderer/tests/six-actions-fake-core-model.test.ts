@@ -6,8 +6,9 @@
  *  1. 轴正确：每个动作只写自己语义轴（nod=AngleY / shake_no=AngleX / tilt=AngleZ /
  *     look_around=EyeBallX 先行 + AngleX 轻随 / listen=轻 AngleY/Z + 凝视/眉 /
  *     surprise=EyeOpen+BrowY+MouthOpenY+轻 AngleY / look_up|down=EyeBallY+AngleY /
- *     glance=仅 EyeBallX / wink=单眼 / smile|MouthForm+Brow+轻眼 / frown=Brow+MouthForm /
- *     pout=Param4 / wry_mouth=Param6 / deep_breath=ParamBreath）。
+ *     glance=仅 EyeBallX / smile|MouthForm+Brow+轻眼 / frown=Brow+MouthForm /
+ *     pout=Param4 / wry_mouth=Param6 / deep_breath=ParamBreath）；
+ *     已删除的 wink_left / wink_right（真机核验不可用）请求一律 no-op 零写入。
  *  2. 全部动作可区分：完整播放后提取签名（触达参数集 + 主轴方向性 + 峰值），两两不同。
  *  3. 无 Body 写入：模型存在 ParamBodyAngle* 通道但所有动作全程零写入。
  *  4. fade 时长正确：逐关键帧写入的 fadeMs 与模板一致；release 发生在 endAt。
@@ -58,8 +59,6 @@ const PEAK_AXIS: Record<string, string> = {
   look_down: 'ParamAngleY',
   glance_left: 'ParamEyeBallX',
   glance_right: 'ParamEyeBallX',
-  wink_left: 'ParamEyeLOpen',
-  wink_right: 'ParamEyeROpen',
   smile: 'ParamMouthForm',
   frown: 'ParamMouthForm',
   pout: 'Param4',
@@ -79,8 +78,6 @@ describe('1. 轴正确 — 每个动作只写自己的语义轴', () => {
     look_down: ['ParamAngleY', 'ParamEyeBallY'],
     glance_left: ['ParamEyeBallX'],
     glance_right: ['ParamEyeBallX'],
-    wink_left: ['ParamEyeLOpen'],
-    wink_right: ['ParamEyeROpen'],
     smile: ['ParamMouthForm', 'ParamBrowLY', 'ParamBrowRY', 'ParamEyeLOpen', 'ParamEyeROpen'],
     frown: ['ParamBrowLY', 'ParamBrowRY', 'ParamMouthForm'],
     pout: ['Param4'],
@@ -132,7 +129,7 @@ describe('1. 轴正确 — 每个动作只写自己的语义轴', () => {
     expect(Math.min(...down.core.history('ParamAngleY'))).toBeLessThan(-10);
   });
 
-  it('glance 左右方向相反；wink 单眼闭合、另一眼零写入', () => {
+  it('glance 左右方向相反；已删除 wink 请求 no-op、双眼零写入', () => {
     const left = makeEnv();
     left.bap.play('glance_left', 2);
     for (let i = 0; i < 40; i++) left.ticker.tick(left.arb, left.bap, 16);
@@ -146,22 +143,17 @@ describe('1. 轴正确 — 每个动作只写自己的语义轴', () => {
     expect(Math.min(...right.core.history('ParamEyeBallX'))).toBeGreaterThanOrEqual(-1e-6);
     expect(Math.max(...right.core.history('ParamEyeBallX'))).toBeGreaterThan(0.5);
 
-    const wl = makeEnv();
-    wl.bap.play('wink_left', 2);
-    for (let i = 0; i < 40; i++) wl.ticker.tick(wl.arb, wl.bap, 16);
-    // 闭合相位的最深写入（历史最小值）显著低于默认开度；右眼全程零写入
-    expect(Math.min(...wl.core.history('ParamEyeLOpen'))).toBeLessThan(
-      DEFAULTS.ParamEyeLOpen.defaultValue - 0.5,
-    );
-    expect(wl.core.writtenParams().has('ParamEyeROpen')).toBe(false);
-
-    const wr = makeEnv();
-    wr.bap.play('wink_right', 2);
-    for (let i = 0; i < 40; i++) wr.ticker.tick(wr.arb, wr.bap, 16);
-    expect(Math.min(...wr.core.history('ParamEyeROpen'))).toBeLessThan(
-      DEFAULTS.ParamEyeROpen.defaultValue - 0.5,
-    );
-    expect(wr.core.writtenParams().has('ParamEyeLOpen')).toBe(false);
+    // wink_left / wink_right 已删除（真机核验不可用）：旧 id 请求为完整 no-op，
+    // 双眼零写入，不进入 current/pending —— 单眼眨动交给自动 EyeBlink 待机系统。
+    const deadWink = makeEnv();
+    deadWink.bap.play('wink_left', 2, { priority: ActionPriority.Live, source: 'dev' });
+    deadWink.bap.play('wink_right', 3, { priority: ActionPriority.Live, source: 'dev' });
+    for (let i = 0; i < 40; i++) deadWink.ticker.tick(deadWink.arb, deadWink.bap, 16);
+    expect(deadWink.bap.currentGesture()).toBeNull();
+    expect(deadWink.bap.pendingAction()).toBeNull();
+    expect(deadWink.core.writtenParams().has('ParamEyeLOpen')).toBe(false);
+    expect(deadWink.core.writtenParams().has('ParamEyeROpen')).toBe(false);
+    expect(deadWink.core.writes).toHaveLength(0);
   });
 
   it('smile 嘴角正向 + 双眼轻眯；frown 眉压 + 嘴角负向', () => {

@@ -12,9 +12,12 @@ from prompts import prompt_loader
 from ...chat_history_manager import get_history
 from ...config_manager import TTSPreprocessorConfig
 from ...live2d_action import (
+    LIVE2D_ACTION_TOOL_API_NAME,
     LIVE2D_ACTION_TOOL_NAME,
     Live2dActionTool,
+    canonical_tool_api_name,
     get_default_tool,
+    is_live2d_action_tool_name,
     native_tools_enabled,
 )
 from ...mcpp.json_detector import StreamJSONDetector
@@ -601,11 +604,23 @@ class BasicMemoryAgent(AgentInterface):
         """解析本轮可用的原生 Live2D 动作工具；不可用一律返回 None（安全降级）。
 
         条件：全局开关未关闭、插件已启用（available()）、provider 未被判死
-        （此前报告过不支持 tools）。工具未注入时懒解析进程内默认单例。
+        （此前报告过不支持 tools，或 tools 请求被 HTTP 400 拒绝）。
+        工具未注入时懒解析进程内默认单例。
         """
         if not native_tools_enabled():
             return None
         if self._native_tools_degraded:
+            return None
+        if isinstance(self._llm, OpenAICompatibleAsyncLLM) and not getattr(
+            self._llm, "support_tools", True
+        ):
+            # provider 已拒绝 tools 参数（HTTP 400 / 明确不支持）：
+            # 本进程内不再提供工具，走纯文本简单路径。
+            self._native_tools_degraded = True
+            logger.warning(
+                "[live2d-tool] provider 已拒绝/不支持 tools 参数，"
+                "本进程内不再提供原生工具（ExpressionDirector 兜底不受影响）"
+            )
             return None
         tool = self._live2d_tool
         if tool is None:
@@ -626,6 +641,9 @@ class BasicMemoryAgent(AgentInterface):
         契约：
         - 工具结果只回灌 API 对话列表（协议要求），绝不 yield 成文本 → 不朗读；
           也绝不写入 ``self._memory`` 正文 → 记忆零污染。
+        - 函数名双名兼容：API 名 ``live2d_perform_action`` 与历史展示名
+          ``live2d.perform_action`` 都可解析执行；协议回显一律归一为 API 名
+          （点号名会被 provider 以 HTTP 400 拒绝）。
         - 合法动作调用额外产出 ``{"type": "live2d_action", ...}`` 内部事件，
           由对话层绑定到对应下一句/当前句的 Actions payload 与 TTS 音频；
           同时产出 ``tool_call_status`` 事件供前端可见（含拒绝原因）。
@@ -719,10 +737,13 @@ class BasicMemoryAgent(AgentInterface):
 
             for index, tc in enumerate(pending_calls):
                 call_id = tc.id or f"call_{index}"
-                if tc.function.name != LIVE2D_ACTION_TOOL_NAME:
+                if not is_live2d_action_tool_name(tc.function.name):
+                    # 双名兼容：API 名（live2d_perform_action）与历史展示名
+                    # （live2d.perform_action，仅内部兼容，schema 已不再发送）
+                    # 都接受；其余名字一律拒绝。
                     detail = (
                         f"unknown tool: {tc.function.name!r} "
-                        f"(only {LIVE2D_ACTION_TOOL_NAME} is exposed)"
+                        f"(only {LIVE2D_ACTION_TOOL_API_NAME} is exposed)"
                     )
                     logger.warning(f"[live2d-tool] 拒绝未知工具调用: {detail}")
                     yield {
@@ -785,12 +806,16 @@ class BasicMemoryAgent(AgentInterface):
 
     @staticmethod
     def _tool_call_to_api(tc: ToolCallObject) -> dict[str, Any]:
-        """ToolCallObject → OpenAI 协议 assistant.tool_calls 元素。"""
+        """ToolCallObject → OpenAI 协议 assistant.tool_calls 元素。
+
+        函数名归一为 API 合法名（canonical_tool_api_name）：历史展示名
+        ``live2d.perform_action`` 含点号，原样回显会被 provider 以 HTTP 400 拒绝。
+        """
         return {
             "id": tc.id or "call_0",
             "type": tc.type or "function",
             "function": {
-                "name": tc.function.name,
+                "name": canonical_tool_api_name(tc.function.name),
                 "arguments": tc.function.arguments,
             },
         }

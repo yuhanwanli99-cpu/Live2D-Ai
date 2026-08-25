@@ -1,7 +1,9 @@
 """live2d.perform_action 原生工具单元测试（严格白名单契约）。
 
 契约：
-- 唯一暴露 live2d.perform_action；action 只能取当前安全头/脸动作目录；
+- API schema 函数名 live2d_perform_action（必须匹配 ^[a-zA-Z0-9_-]+$，
+  DeepSeek/OpenAI 硬约束）；点号展示名 live2d.perform_action 仅内部使用；
+- action 只能取当前安全头/脸动作目录；
 - 非法动作拒绝：返回 ok=False + 可见日志 + allowed_actions，绝不近似替换；
 - strength 缺省 2、clamp 到 1~3；reason 截断；
 - 统计（calls/accepted/rejected/last_action/last_error）随调用累积；
@@ -13,10 +15,15 @@ import asyncio
 import pytest
 
 from open_llm_vtuber.live2d_action import (
+    LIVE2D_ACTION_TOOL_API_NAME,
     LIVE2D_ACTION_TOOL_NAME,
+    OPENAI_TOOL_NAME_PATTERN,
     Live2dActionTool,
     build_live2d_action_tool_schema,
+    canonical_tool_api_name,
     get_default_tool,
+    is_live2d_action_tool_name,
+    is_valid_openai_tool_name,
     native_tools_enabled,
     reset_default_tool,
 )
@@ -35,19 +42,63 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def test_api_function_name_matches_provider_charset():
+    """DeepSeek/OpenAI function-calling 函数名字符集硬约束（真机 400 根因回归）。"""
+    assert is_valid_openai_tool_name(LIVE2D_ACTION_TOOL_API_NAME) is True
+    assert OPENAI_TOOL_NAME_PATTERN.fullmatch(LIVE2D_ACTION_TOOL_API_NAME)
+    # 点号展示名故意不满足协议约束 —— 这正是 schema 改用下划线 API 名的原因
+    assert is_valid_openai_tool_name(LIVE2D_ACTION_TOOL_NAME) is False
+    assert "." in LIVE2D_ACTION_TOOL_NAME
+
+
+def test_dual_name_resolution_and_canonicalization():
+    """工具调用解析双名兼容；协议回显归一为 API 名。"""
+    assert is_live2d_action_tool_name(LIVE2D_ACTION_TOOL_API_NAME) is True
+    assert is_live2d_action_tool_name(LIVE2D_ACTION_TOOL_NAME) is True
+    assert is_live2d_action_tool_name("system.shutdown") is False
+    assert is_live2d_action_tool_name(None) is False
+
+    assert canonical_tool_api_name(LIVE2D_ACTION_TOOL_NAME) == (
+        LIVE2D_ACTION_TOOL_API_NAME
+    )
+    assert (
+        canonical_tool_api_name(LIVE2D_ACTION_TOOL_API_NAME)
+        == LIVE2D_ACTION_TOOL_API_NAME
+    )
+    assert canonical_tool_api_name("other.tool") == "other.tool"
+    assert canonical_tool_api_name(None) == ""
+
+
 def test_schema_shape_and_whitelist_enum():
     schema = build_live2d_action_tool_schema()
     assert schema["type"] == "function"
     fn = schema["function"]
-    assert fn["name"] == LIVE2D_ACTION_TOOL_NAME
+    # schema 发给 provider 的必须是合法字符集 API 名，绝不是点号展示名
+    assert fn["name"] == LIVE2D_ACTION_TOOL_API_NAME
+    assert is_valid_openai_tool_name(fn["name"])
     params = fn["parameters"]
     assert params["required"] == ["action"]
     action_prop = params["properties"]["action"]
     assert set(action_prop["enum"]) == set(SAFE_MOTION_IDS)
     # idle 仅 release，绝不能进入可触发白名单
     assert "idle" not in action_prop["enum"]
+    # 已删除的 wink_left / wink_right（真机核验不可用）绝不进入工具 schema
+    assert "wink_left" not in action_prop["enum"]
+    assert "wink_right" not in action_prop["enum"]
     strength = params["properties"]["strength"]
     assert strength["minimum"] == 1 and strength["maximum"] == 3
+
+
+def test_tool_reports_both_names():
+    """stats()/describe_registration 同时暴露展示名与 API 名（health 消费）。"""
+    tool = Live2dActionTool()
+    assert tool.name == LIVE2D_ACTION_TOOL_NAME
+    assert tool.api_name == LIVE2D_ACTION_TOOL_API_NAME
+    stats = tool.stats()
+    assert stats["tool"] == LIVE2D_ACTION_TOOL_NAME
+    assert stats["api_name"] == LIVE2D_ACTION_TOOL_API_NAME
+    registration = tool.describe_registration()
+    assert registration["api_name"] == LIVE2D_ACTION_TOOL_API_NAME
 
 
 def test_execute_accepts_legal_action_and_records_stats():
@@ -81,6 +132,18 @@ def test_execute_rejects_illegal_actions(bad):
     assert stats["last_error"]
     # 非法调用绝不产出动作
     assert stats["last_action"] is None
+
+
+@pytest.mark.parametrize("removed", ["wink_left", "wink_right", "WINK_LEFT"])
+def test_execute_rejects_removed_wink_ids(removed):
+    """真机核验后删除的 wink id：旧 provider 残留调用一律拒绝并计数。"""
+    tool = Live2dActionTool()
+    result = _run(tool.execute({"action": removed, "strength": 3, "reason": "旧目录"}))
+    assert result["ok"] is False
+    assert "invalid action" in result["error"]
+    assert removed.lower() not in result["allowed_actions"]
+    assert tool.stats()["rejected"] == 1
+    assert tool.stats()["accepted"] == 0
 
 
 def test_strength_defaults_and_clamps():

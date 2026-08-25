@@ -81,8 +81,6 @@ export function actionZhName(id: string): string {
     look_down: '向下看',
     glance_left: '瞟一眼（一侧）',
     glance_right: '瞟一眼（另一侧）',
-    wink_left: '眨左眼',
-    wink_right: '眨右眼',
     smile: '微笑',
     frown: '皱眉',
     pout: '嘟嘴',

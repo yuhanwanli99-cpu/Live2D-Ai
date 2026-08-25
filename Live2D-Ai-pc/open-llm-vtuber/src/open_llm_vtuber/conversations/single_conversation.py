@@ -321,14 +321,18 @@ async def _consume_extra_agent_stream(
     mood_engine,
     agent_output_stream,
     pending_llm_actions: list[dict] | None = None,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, bool]:
     """消费多段对话的后续 agent 流：每段走 process_agent_output（含字幕/TTS 队列）。
 
-    返回 (累计文本, 是否遇到 [DONE] 终止标记)。播放/打断仍由 tts_manager 统一负责。
+    返回 (累计文本, 是否遇到 [DONE] 终止标记, 本段是否失败)。
+    播放/打断仍由 tts_manager 统一负责。
     pending_llm_actions：主 LLM 原生工具动作跨段共享队列（动作绑定下一段首句）。
+    失败（stream_error / 异常）时置第三返回值为 True —— 调用方必须停止继续续聊，
+    LLM API 错误绝不触发额外多段对话。
     """
     collected = ""
     done = False
+    failed = False
     pending = pending_llm_actions if pending_llm_actions is not None else []
     try:
         async for output_item in agent_output_stream:
@@ -361,16 +365,18 @@ async def _consume_extra_agent_stream(
                     break
             elif isinstance(output_item, dict) and output_item.get("type") == "stream_error":
                 message = str(output_item.get("message") or "对话失败")
+                failed = True
                 await websocket_send(json.dumps({"type": "error", "message": message}))
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - 额外段失败要可见，不静默
         logger.exception(f"Extra dialogue turn failed: {exc}")
+        failed = True
         try:
             await websocket_send(json.dumps({"type": "error", "message": str(exc)}))
         except Exception:  # noqa: BLE001
             pass
-    return collected, done
+    return collected, done, failed
 
 
 def _plugin_context(context: ServiceContext, name: str, payload: dict) -> str:
@@ -472,6 +478,9 @@ async def process_single_conversation(
     mood_engine = getattr(context, "mood_engine", None)
     _latency_start = time.monotonic()
     _interrupted = False
+    # 本轮是否发生 LLM API/流失败：失败时不再触发额外多段续聊，
+    # 也不把失败轮计入历史/记忆沉淀（错误绝不进入下游链路）。
+    _turn_failed = False
 
     try:
         # Send initial signals
@@ -632,10 +641,11 @@ async def process_single_conversation(
                     isinstance(output_item, dict)
                     and output_item.get("type") == "stream_error"
                 ):
-                    # 上游流硬失败（未配置 API Key / 401 / 网络不可达）：
+                    # 上游流硬失败（未配置 API Key / 401 / 400 / 网络不可达）：
                     # transformers 的 pump/consume 只降级记日志、不崩溃，这里负责让用户**看得见**
                     # （前端 ws-bridge 把 error 渲染成聊天错误气泡 + Toast）。
                     message = str(output_item.get("message") or "对话失败")
+                    _turn_failed = True
                     logger.error(f"LLM 流失败，已通知前端: {message}")
                     await websocket_send(
                         json.dumps({"type": "error", "message": message})
@@ -685,6 +695,7 @@ async def process_single_conversation(
             logger.exception(
                 f"Error processing agent response stream: {e}"
             )  # Log with stack trace
+            _turn_failed = True
             await websocket_send(
                 json.dumps(
                     {
@@ -698,8 +709,9 @@ async def process_single_conversation(
 
         # 多段对话：一次用户输入额外续聊 N 段（MELO_MULTI_TURN_EXTRA，默认 2）。
         # 用户新消息/打断会取消整个 conversation task，天然支持打断。
+        # LLM API 错误/工具协议错误发生时绝不触发额外续聊（单一可读错误已下发）。
         for _ in range(_multi_turn_extra()):
-            if "[DONE]" in full_response:
+            if _turn_failed or "[DONE]" in full_response:
                 break
             if not hasattr(context.agent_engine, "chat"):
                 break
@@ -710,7 +722,7 @@ async def process_single_conversation(
                 metadata=metadata,
             )
             cont_stream = context.agent_engine.chat(cont_batch)
-            part, done = await _consume_extra_agent_stream(
+            part, done, seg_failed = await _consume_extra_agent_stream(
                 context,
                 websocket_send,
                 tts_manager,
@@ -719,6 +731,9 @@ async def process_single_conversation(
                 pending_llm_actions=pending_llm_actions,
             )
             full_response += part
+            if seg_failed:
+                _turn_failed = True
+                break
             if done:
                 break
 

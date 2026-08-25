@@ -2,7 +2,7 @@
  * choreography.ts — 头部 / 面部动作引擎
  *
  * 口径：
- *  - 基础六动作 + 能力门控扩展十一动作 + release：
+ *  - 基础六动作 + 能力门控扩展九动作 + release：
  *        nod        点头（AngleY 上下 2 拍）
  *        shake_no   摇头（AngleX 左右 2 拍）
  *        tilt       歪头（AngleZ 单侧保持后回中）
@@ -11,12 +11,15 @@
  *        surprise   惊讶（睁眼 + 挑眉 + 张嘴 + 头部轻微后仰）
  *        look_up / look_down   视线先行（EyeBallY）+ 头部 AngleY 随动
  *        glance_left / glance_right 仅眼球 EyeBallX 快速侧瞥（头不动）
- *        wink_left / wink_right 单眼快速闭合再睁开
  *        smile      嘴角上扬（MouthForm）+ 微眉 + 双眼轻眯
  *        frown      眉毛下压 + 嘴角下压（MouthForm 负向）
  *        pout       嘟嘴通道 Param4（模型缺参时不可用）
  *        wry_mouth  歪嘴通道 Param6（模型缺参时不可用）
  *        deep_breath 呼吸 ParamBreath 深吸后缓慢回落
+ *  - 已删除动作：wink_left / wink_right（用户真机核验单眼独立闭合不可用，
+ *    且与自动 EyeBlink 待机眨眼互相干扰）。模板已移除，旧 id 经
+ *    resolveChoreography 返回 null → play no-op，绝不显示、不播放；
+ *    待机眨眼由 idle/idle-blink.ts 的 BlinkStateMachine 独立驱动，不受影响。
  *  - 彻底禁止任何 ParamBodyAngle* / 肩 / 胯 / 腿通道；动作系统不声称
  *    「半身 / body」动作，只有头部与面部参数。
  *  - 正确轴约定：AngleX=左右转头(yaw)、AngleY=上下点头(pitch)、AngleZ=侧倾(roll)。
@@ -51,8 +54,6 @@ export const SUPPORTED_ACTIONS: readonly string[] = [
   'look_down',
   'glance_left',
   'glance_right',
-  'wink_left',
-  'wink_right',
   'smile',
   'frown',
   'pout',
@@ -145,16 +146,8 @@ export const CHOREOGRAPHY_LIBRARY: Record<string, Keyframe[]> = {
     { at: 0, fadeMs: 110, delta: { ParamEyeBallX: 0.85 } },
     { at: 420, fadeMs: 260, delta: {} },
   ],
-  // 眨左眼：仅左眼闭合再睁开（负向 delta = 从默认开度向闭合方向），右眼不动
-  wink_left: [
-    { at: 0, fadeMs: 90, delta: { ParamEyeLOpen: -1 } },
-    { at: 360, fadeMs: 140, delta: {} },
-  ],
-  // 眨右眼
-  wink_right: [
-    { at: 0, fadeMs: 90, delta: { ParamEyeROpen: -1 } },
-    { at: 360, fadeMs: 140, delta: {} },
-  ],
+  // wink_left / wink_right 已删除（真机核验不可用）：模板移除后旧 id 经
+  // resolveChoreography 返回 null → play no-op；单眼眨动交给自动 EyeBlink。
   // 微笑：嘴角上扬 + 眉毛微抬 + 双眼轻眯（EyeOpen 小幅回落）
   smile: [
     { at: 0, fadeMs: 180, delta: { ParamMouthForm: 0.85, ParamBrowLY: 0.25, ParamBrowRY: 0.25, ParamEyeLOpen: -0.15, ParamEyeROpen: -0.15 } },
@@ -430,11 +423,15 @@ export class BodyActionPlayer {
   }
 
   /**
-   * 动作在当前模型上是否可诚实执行：所需参数（ACTION_REQUIRED_PARAMS）
-   * 全部存在。无门槛动作（基础六动作）恒可用。
+   * 动作在当前模型上是否可诚实执行：id 必须在白名单（SUPPORTED_ACTIONS）内，
+   * 且所需参数（ACTION_REQUIRED_PARAMS）全部存在。
+   * 无门槛动作（基础六动作）恒可用；未知 / 已删除 id（bow/wink_left 等）
+   * 一律不可用——与后端目录白名单同边界，绝不因「无门槛」而误报可用。
    */
   isActionAvailable(id: string): boolean {
-    const required = ACTION_REQUIRED_PARAMS[id];
+    const key = String(id ?? '').trim().toLowerCase();
+    if (!SUPPORTED_ACTIONS.includes(key)) return false;
+    const required = ACTION_REQUIRED_PARAMS[key];
     if (!required || required.length === 0) return true;
     return required.every((paramId) => this.choreo.hasParameter(paramId));
   }
