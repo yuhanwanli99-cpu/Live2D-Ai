@@ -13,8 +13,11 @@
 from __future__ import annotations
 
 # 可触发的半身安全动作 id（渲染端 BodyActionPlayer / choreography 白名单子集）。
-# 注意：`bounce_happy`（蹦跳/全身）不在其中——它需要整身位移，与半身参数
-# 驱动冲突，已由导演映射到安全的 excited（上身雀跃）替代。
+# 注意：
+# - `bounce_happy`（蹦跳/全身）不在其中——需要整身位移，与半身参数驱动冲突，
+#   已由导演映射到安全的 excited（上身雀跃）替代；
+# - `wave_big`（挥手）也不在其中——bai 皮套无手臂参数，不能叫「挥手」，
+#   相关语义由导演映射到 happy（上身开心摆动）的上身近似替代。
 SAFE_MOTION_IDS: tuple[str, ...] = (
     "nod",
     "tilt",
@@ -23,7 +26,6 @@ SAFE_MOTION_IDS: tuple[str, ...] = (
     "surprise",
     "listen",
     "excited",
-    "wave_big",
     "bow",
     "shake_no",
     "lean_in",
@@ -59,70 +61,63 @@ MOTION_METADATA: dict[str, dict[str, object]] = {
     },
     "sway": {
         "label": "摇摆",
-        "description": "轻轻摇摆身体",
+        "description": "上身左右轻摆（模型无手臂/全身骨骼，使用上身近似）",
         "halfbody": True,
         "suggested_duration_ms": 1100,
         "release_only": False,
     },
     "happy": {
         "label": "开心",
-        "description": "开心地挥手示意",
+        "description": "上身开心地左右摆动（模型无手臂，使用上身近似）",
         "halfbody": True,
         "suggested_duration_ms": 1150,
         "release_only": False,
     },
     "surprise": {
         "label": "惊讶",
-        "description": "惊讶地睁大眼睛",
+        "description": "睁大眼睛、身体微微后仰",
         "halfbody": True,
         "suggested_duration_ms": 1000,
         "release_only": False,
     },
     "listen": {
         "label": "倾听",
-        "description": "专注倾听与思考",
+        "description": "专注上身前倾倾听与思考",
         "halfbody": True,
         "suggested_duration_ms": 1200,
         "release_only": False,
     },
     "excited": {
         "label": "兴奋",
-        "description": "兴奋地鼓掌欢呼（上身雀跃）",
+        "description": "上身雀跃地前后兴奋摆动（模型无手臂，无鼓掌）",
         "halfbody": True,
         "suggested_duration_ms": 1050,
         "release_only": False,
     },
-    "wave_big": {
-        "label": "大幅挥手",
-        "description": "大幅度挥手打招呼",
-        "halfbody": True,
-        "suggested_duration_ms": 1400,
-        "release_only": False,
-    },
     "bow": {
         "label": "鞠躬",
-        "description": "弯腰鞠躬行礼",
+        "description": "上身前倾、低头弯腰行礼",
         "halfbody": True,
         "suggested_duration_ms": 1250,
         "release_only": False,
     },
     "shake_no": {
         "label": "摇头",
-        "description": "用力摇头否认",
+        "description": "头部左右摆动否认",
         "halfbody": True,
         "suggested_duration_ms": 1150,
         "release_only": False,
     },
     "lean_in": {
-        "label": "凑近",
-        "description": "凑近靠近一点",
+        "label": "靠近",
+        "description": "上身前倾靠近",
         "halfbody": True,
         "suggested_duration_ms": 1150,
         "release_only": False,
     },
     "look_around": {
         "label": "左右张望",
-        "description": "环顾四周打量",
+        "description": "视线+头部环顾四周打量",
         "halfbody": True,
         "suggested_duration_ms": 1300,
         "release_only": False,

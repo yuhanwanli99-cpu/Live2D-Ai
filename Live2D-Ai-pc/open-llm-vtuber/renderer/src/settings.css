@@ -981,7 +981,22 @@
 .dev-dock .dev-dock-collapse .icon {
   transition: transform var(--dur-base) var(--ease-out);
 }
-/* 折叠状态：只露出顶部窄条，主体隐藏；箭头旋转为“展开”方向 */
+/* 折叠状态：只露出顶部窄条，主体隐藏；箭头旋转为“展开”方向。
+   关键：collapsed 时 must 取消 top:0/bottom:0 的整条右侧占位（否则容器仍
+   覆盖整条右侧并拦截 Live2D 指针），改成只随内容高度（header）的紧凑浮条，
+   并适当缩窄。展开恢复全高。 */
+.dev-dock.collapsed {
+  top: auto;
+  bottom: auto;
+  height: auto;
+  width: 220px;
+  max-width: 60vw;
+}
+@media (max-width: 480px) {
+  .dev-dock.collapsed {
+    width: 60vw;
+  }
+}
 .dev-dock.collapsed .dev-dock-collapse .icon {
   transform: rotate(180deg);
 }

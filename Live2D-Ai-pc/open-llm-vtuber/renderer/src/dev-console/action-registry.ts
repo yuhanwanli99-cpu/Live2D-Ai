@@ -16,28 +16,29 @@ export interface DevActionMeta {
   kind: 'gesture' | 'choreo';
 }
 
-/** 每个动作的中文名称 + 简短说明（用于开发者面板可视化，避免只显示英文 ID）。 */
+/** 每个动作的中文名称 + 简短说明（用于开发者面板可视化，避免只显示英文 ID）。
+ *  注意：后端 motion_catalog 是 label/description 的权威来源，前端优先消费
+ *  `action_meta`；此处仅作离线/后端未返回元数据时的回退，且不含 wave_big/
+ *  bounce_happy 等 bai 无对应能力的过时动作（真实语义由后端 action_meta 覆盖）。 */
 const ACTION_ZH: Record<string, { name: string; description: string }> = {
   nod: { name: '点头', description: '轻轻点头示意' },
-  shake_no: { name: '摇头', description: '摇头否认或拒绝' },
+  shake_no: { name: '摇头', description: '头部左右摆动否认' },
   tilt: { name: '歪头', description: '歪头好奇/思考' },
-  look_around: { name: '左右张望', description: '左右张望观察四周' },
-  bow: { name: '鞠躬', description: '鞠躬行礼' },
-  lean_in: { name: '靠近', description: '凑近/前倾靠近' },
-  wave_big: { name: '挥手', description: '挥手打招呼' },
-  bounce_happy: { name: '蹦跳', description: '开心蹦跳' },
-  happy: { name: '开心', description: '开心雀跃' },
-  excited: { name: '兴奋', description: '兴奋激动' },
+  look_around: { name: '左右张望', description: '视线+头部环顾四周' },
+  bow: { name: '鞠躬', description: '上身前倾低头行礼' },
+  lean_in: { name: '靠近', description: '上身前倾靠近' },
+  happy: { name: '开心', description: '上身开心地左右摆动' },
+  excited: { name: '兴奋', description: '上身雀跃兴奋摆动' },
+  sway: { name: '摇摆', description: '上身左右轻摆' },
+  listen: { name: '倾听', description: '专注上身前倾倾听' },
   sad: { name: '难过', description: '低沉难过' },
   anger: { name: '生气', description: '不悦生气' },
-  surprise: { name: '惊讶', description: '惊讶' },
+  surprise: { name: '惊讶', description: '睁大眼、身体微微后仰' },
   fear: { name: '害怕', description: '害怕退缩' },
   disgust: { name: '嫌弃', description: '嫌弃' },
   neutral: { name: '平静', description: '平静自然' },
   breathe: { name: '呼吸', description: '轻微呼吸起伏' },
-  idle: { name: '待机', description: '待机小动作' },
-  sway: { name: '摇摆', description: '轻轻摇摆' },
-  listen: { name: '倾听', description: '专注倾听' },
+  idle: { name: '待机', description: '回到中性待机（仅释放）' },
 };
 
 function zhMeta(id: string): { name: string; description: string } {
@@ -76,23 +77,31 @@ export class DevActionRegistry {
       .map(([id, meta]) => ({ id, ...meta }));
   }
 
-  /** Replace the entire catalog (e.g. after fetching from /api/dev/actions/catalog). */
-  loadCatalog(ids: string[]): void {
+  /** Replace the entire catalog (e.g. after fetching from /api/dev/actions/catalog).
+   *  `ids` 是纯 id 列表；若后端同时返回富 `action_meta`（label/description），
+   *  则优先消费它作为中文名/说明，不再依赖本文件过时的硬编码表。 */
+  loadCatalog(ids: string[], meta?: Record<string, { label?: string; description?: string }>): void {
     this.actions.clear();
     for (const id of ids) {
       const key = id.trim().toLowerCase();
       if (!key) continue;
       const kind =
-        key === 'wave_big' ||
         key === 'bow' ||
-        key === 'bounce_happy' ||
         key === 'shake_no' ||
         key === 'lean_in' ||
-        key === 'look_around'
+        key === 'look_around' ||
+        key === 'nod' ||
+        key === 'tilt'
           ? 'choreo'
           : 'gesture';
       const zh = zhMeta(key);
-      this.register(key, { label: key, name: zh.name, description: zh.description, kind });
+      const m = meta?.[key];
+      this.register(key, {
+        label: key,
+        name: (m?.label && m.label.trim() ? m.label : zh.name).trim(),
+        description: (m?.description && m.description.trim() ? m.description : zh.description).trim(),
+        kind,
+      });
     }
   }
 }

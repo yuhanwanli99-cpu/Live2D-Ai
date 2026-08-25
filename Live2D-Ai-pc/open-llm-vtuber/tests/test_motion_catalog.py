@@ -1,10 +1,12 @@
 """PC Preview 半身安全动作目录 / 协议元数据 / 时间轴去重测试。
 
 覆盖任务要求：
-1) 目录不含全身动作（bounce_happy 移除）；idle 仅作为 release；
+1) 目录不含全身（bounce_happy）与手臂（wave_big）动作——bai 无对应能力；
+   idle 仅作为 release；
 2) payload 可选 source/priority/duration 元数据，且旧客户端兼容（None 省略）；
 3) 同一句时间轴去重 + 最小间隔；显式用户命令覆盖时间轴；
-4) 导演/规则/括注链路不再产出 bounce_happy / idle 作为逐句 motion。
+4) 导演/规则/括注链路不再产出 bounce_happy / wave_big / idle 作为逐句 motion，
+   「挥手/鼓掌/蹦跳」等关键词映射到安全的上身近似（happy/excited）。
 """
 
 import asyncio
@@ -34,6 +36,17 @@ def test_catalog_excludes_full_body_actions():
     assert "bounce_happy" not in ALLOWED_ACTIONS
     assert "bounce_happy" not in SAFE_MOTION_IDS
     assert "bounce_happy" not in _VALID_MOTIONS
+    # bai 无手臂参数：wave_big（挥手）同样不得出现在安全目录 / 导演白名单。
+    assert "wave_big" not in ALLOWED_ACTIONS
+    assert "wave_big" not in SAFE_MOTION_IDS
+    assert "wave_big" not in _VALID_MOTIONS
+
+
+def test_wave_keywords_map_to_safe_happy():
+    # 「挥手」语义 → happy（上身开心摆动近似）；不再产出 wave_big。
+    assert stage_gesture("（开心地挥手）你好呀") == "happy"
+    assert stage_gesture("（挥手打招呼）大家好啊") == "happy"
+    assert stage_gesture("（用力挥手）再见") == "happy"
 
 
 def test_idle_is_release_only():
@@ -161,7 +174,7 @@ def test_user_command_sets_priority_and_clears_timeline():
         timeout = 0.1
 
         async def analyze(self, text):
-            return DirectorResult(emotion="joy", strength=2, motion_label="wave_big")
+            return DirectorResult(emotion="joy", strength=2, motion_label="happy")
 
     ctx = SimpleNamespace(
         director=_FakeDirector(),

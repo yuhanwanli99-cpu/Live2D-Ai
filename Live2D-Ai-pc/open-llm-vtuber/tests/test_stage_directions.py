@@ -27,11 +27,18 @@ def test_stage_gesture_returns_none_without_parens():
 
 def test_stage_gesture_choreography_keywords():
     """大幅度编排动作：新关键词映射到 choreography 库（前端按名自动路由）。"""
-    assert stage_gesture("（开心地挥手）你好呀") == "wave_big"
+    # bai 无手臂参数：挥手语义映射到安全的上身「开心」摆动近似，不再产出 wave_big。
+    assert stage_gesture("（开心地挥手）你好呀") == "happy"
     assert stage_gesture("（深深鞠躬）感谢大家") == "bow"
     assert stage_gesture("（用力摇头）不行哦") == "shake_no"
     assert stage_gesture("（凑近屏幕）让我看看") == "lean_in"
     assert stage_gesture("（左右张望）有人吗") == "look_around"
+
+
+def test_stage_gesture_wave_maps_to_safe_happy():
+    # 挥手/挥手打招呼/用力挥手 → happy（上身开心摆动；模型无手臂，不上真实挥手）。
+    assert stage_gesture("（挥手）你好呀") == "happy"
+    assert stage_gesture("（用力挥手）再见") == "happy"
 
 
 def test_stage_gesture_bounce_maps_to_safe_excited():

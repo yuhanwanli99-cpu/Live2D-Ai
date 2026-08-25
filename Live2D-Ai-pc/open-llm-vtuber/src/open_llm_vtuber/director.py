@@ -27,9 +27,11 @@ _DIRECTOR_SYSTEM = (
     'Fields: {"emotion":"one of neutral/joy/anger/sadness/surprise/fear/smirk/disgust",'
     ' "strength":1|2|3,'
     ' "motionLabel":"one of nod/tilt/sway/happy/surprise/listen/excited/'
-    'wave_big/bow/shake_no/lean_in/look_around" or null,'
+    'bow/shake_no/lean_in/look_around" or null,'
     ' "parameterOverrides":{}}. '
     "Choose only the semantic motionLabel; the client owns deterministic body and gaze timelines. "
+    "The avatar has no arm or full-body bones: wave/clap/bounce intent is expressed as upper-body "
+    "happy/excited sway, so do not invent wave_big/bounce_happy/full-body labels. "
     "Do not output halfBody, gaze, head/body parameter values, or mouth/lip-sync channels. "
     "Pick the motionLabel that best matches the sentence tone; most sentences have one. "
     "Use null only when truly nothing fits. parameterOverrides is legacy-only and should normally be empty."
@@ -151,16 +153,17 @@ _STAGE_GESTURE_KEYWORDS = {
     "nod": ("点头", "颔首", "轻轻点头"),
     "tilt": ("歪头", "侧头", "歪了歪头"),
     "sway": ("扇风", "挥手扇", "晃了晃", "摇摆", "摇手"),
-    "happy": ("招手", "比心", "拍手", "欢呼"),
+    # bai 无手臂参数：挥手/招手/欢呼 一律用「上身开心摆动」的上身近似，
+    # 不做真正的挥手/拍手。
+    "happy": ("招手", "挥手", "挥手打招呼", "用力挥手", "比心", "拍手", "欢呼"),
     "surprise": ("惊讶", "睁大", "捂嘴", "震惊"),
     "listen": ("倾听", "思考", "托腮", "歪着脑袋想"),
-    # 蹦跳属于全身动作（与半身参数驱动冲突），映射到安全的上身「兴奋」替代。
+    # 鼓掌/蹦跳属于手臂/全身动作（与半身参数驱动冲突），映射到安全的上身「兴奋」替代。
     "excited": ("鼓掌", "雀跃", "蹦跳", "跳起来", "蹦蹦跳跳"),
     # —— 编排动作（大幅度时间轴）——
-    "wave_big": ("挥手", "挥手打招呼", "用力挥手"),
-    "bow": ("鞠躬", "弯腰", "低头行礼"),
+    "bow": ("鞠躬", "弯腰", "低头行礼", "前倾行礼"),
     "shake_no": ("摇头", "用力摇头"),
-    "lean_in": ("凑近", "靠近", "贴近", "凑过来"),
+    "lean_in": ("凑近", "靠近", "贴近", "凑过来", "前倾"),
     "look_around": ("张望", "左顾右盼", "东张西望"),
 }
 

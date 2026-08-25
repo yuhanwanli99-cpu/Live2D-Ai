@@ -17,6 +17,8 @@ export interface DevCatalog {
   actions: string[];
   halfbody_channels: string[];
   capabilities: Record<string, boolean>;
+  /** 后端富元数据：中文 label / description（优先消费，取代前端硬编码表）。 */
+  action_meta?: Record<string, { label?: string; description?: string }>;
 }
 
 export interface DirectorResult {
@@ -58,17 +60,18 @@ function devLog(event: string, data: Record<string, unknown>): void {
   console.info(`[dev] ${event}`, { ...data });
 }
 
-/** Choreography action ids that are timeline choreography (mirrors action-registry). */
+/** Choreography action ids that are timeline choreography（对应 renderer CHOREOGRAPHY_LIBRARY 中
+ *  属于 PC Preview 安全半身目录的子集；不含 wave_big/bounce_happy 等 bai 无对应能力的动作）。 */
 const CHOREO_IDS = new Set([
-  'wave_big',
   'bow',
-  'bounce_happy',
   'shake_no',
   'lean_in',
   'look_around',
+  'nod',
+  'tilt',
 ]);
 
-/** 动作的中文显示名（与 action-registry 一致；未知时回退为技术 id）。 */
+/** 动作的中文显示名（优先消费后端 action_meta；此处为离线回退，不含 wave/bounce）。 */
 export function actionZhName(id: string): string {
   const known: Record<string, string> = {
     nod: '点头',
@@ -77,20 +80,18 @@ export function actionZhName(id: string): string {
     look_around: '左右张望',
     bow: '鞠躬',
     lean_in: '靠近',
-    wave_big: '挥手',
-    bounce_happy: '蹦跳',
     excited: '兴奋',
     happy: '开心',
+    sway: '摇摆',
+    listen: '倾听',
     sad: '难过',
     anger: '生气',
     surprise: '惊讶',
     fear: '害怕',
     disgust: '嫌弃',
     neutral: '平静',
-    stale: '待机',
     idle: '待机',
-    sway: '摇摆',
-    listen: '倾听',
+    breathe: '呼吸',
   };
   return known[id] ?? id;
 }
@@ -153,7 +154,7 @@ export function createDevConsole(
       <pre class="dev-result dev-analyze-result" hidden></pre>
 
       <div class="settings-section-title">动作触发</div>
-      <div class="settings-section-hint">目录来自后端白名单；不支持的动作为灰色不可触发。</div>
+      <div class="settings-section-hint">目录来自后端白名单；模型无手臂/全身骨骼，挥手/鼓掌/蹦跳等以「上身近似」表达。</div>
       <div class="settings-editor-actions">
         <button class="btn ghost dev-catalog-btn" type="button">刷新动作目录</button>
         <span class="dev-halfbody-tip settings-tip"></span>
@@ -201,7 +202,7 @@ export function createDevConsole(
 
   async function refreshCatalog(): Promise<DevCatalog> {
     const data = await readJson<DevCatalog>(await api.catalog());
-    devActionRegistry.loadCatalog(data.actions);
+    devActionRegistry.loadCatalog(data.actions, data.action_meta);
     renderActionList();
     const channels = data.halfbody_channels ?? [];
     halfbodyTip.textContent = channels.length
@@ -392,11 +393,17 @@ export function createDevConsole(
   closeBtn.addEventListener('click', close);
 
   // 折叠：仅隐藏面板主体（保留顶部窄条），不销毁实例，方便随时展开对照模型。
-  collapseBtn.addEventListener('click', () => {
-    const collapsed = overlay.classList.toggle('collapsed');
+  // collapsed 时容器不应再占用整条右侧（见 settings.css），并为辅助技术同步展开状态。
+  function setCollapsed(collapsed: boolean): void {
+    overlay.classList.toggle('collapsed', collapsed);
     const label = collapsed ? '展开开发者控制台' : '折叠开发者控制台';
     collapseBtn.setAttribute('aria-label', label);
     collapseBtn.title = label;
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+  }
+
+  collapseBtn.addEventListener('click', () => {
+    setCollapsed(!overlay.classList.contains('collapsed'));
   });
 
   const escHandler = (e: KeyboardEvent) => {
@@ -409,9 +416,8 @@ export function createDevConsole(
       target.appendChild(overlay);
       document.addEventListener('keydown', escHandler);
     }
-    overlay.classList.remove('collapsed');
-    collapseBtn.setAttribute('aria-label', '折叠开发者控制台');
-    collapseBtn.title = '折叠开发者控制台';
+    // 打开时总是展开（显示主体），与 collapsed 窄条状态保持一致且辅助技术同步。
+    setCollapsed(false);
     // 打开即拉一次目录；失败仅反映到状态行，不阻塞面板
     setStatus('', 'info');
     void (async () => {

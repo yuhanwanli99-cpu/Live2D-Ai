@@ -75,8 +75,10 @@ class _Manager:
 
     @property
     def task_list(self):
-        # 真实链路里 task_list 存的是已完成/可等待的 task；用即时完成的协程模拟。
-        return [asyncio.sleep(0)] if self._has_tasks else []
+        # 真实链路里 task_list 存的是已完成/可等待的 Task。每次访问创建
+        # 一个即时完成的 Task（而不是裸协程），可被 `await asyncio.gather`
+        # 多次安全消费，也不会产生 "coroutine never awaited" 警告。
+        return [asyncio.create_task(asyncio.sleep(0))] if self._has_tasks else []
 
     def expected_playback_seconds(self) -> float:
         return self._expected

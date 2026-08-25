@@ -14,6 +14,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createDevConsole, type DevApi } from '../src/dev-console/dev-console';
 import { devActionRegistry } from '../src/dev-console/action-registry';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const CSS_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../src/settings.css',
+);
+const cssSource = readFileSync(CSS_PATH, 'utf8');
+/** 折叠几何契约块：必须以紧凑浮条替换整条右侧占位。 */
+const COLLAPSED_BLOCK = cssSource.match(/\.dev-dock\.collapsed\s*{([^}]*)}/);
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -74,8 +85,8 @@ describe('createDevConsole — 生命周期与渲染', () => {
     const rows = host.querySelectorAll('.dev-action-row');
     expect(rows.length).toBe(3);
     const kinds = Array.from(host.querySelectorAll('.dev-action-kind')).map((k) => k.textContent);
-    // 目录按字典序渲染：bow / look_around 是编排，nod 是手势
-    expect(kinds).toEqual(['choreo', 'choreo', 'gesture']);
+    // 目录按字典序渲染：nod / bow / look_around 均为半身编排动作（CHOREOGRAPHY_LIBRARY）
+    expect(kinds).toEqual(['choreo', 'choreo', 'choreo']);
     console_.close();
   });
 
@@ -119,6 +130,43 @@ describe('createDevConsole — 生命周期与渲染', () => {
     collapse.click();
     expect(dock.classList.contains('collapsed')).toBe(false);
     console_.close();
+  });
+
+  it('折叠态容器不再占据整条右侧：几何 CSS 契约必须取消 top/bottom 全高占位', () => {
+    // 根因防止：`.dev-dock` 基础是 fixed + top:0/bottom:0 铺满整条右侧；
+    // 若 collapsed 只藏 body 而仍 top/bottom:0，会拦截 Live2D 右侧指针。
+    expect(COLLAPSED_BLOCK).not.toBeNull();
+    const body = COLLAPSED_BLOCK![1];
+    expect(body).toContain('top: auto');
+    expect(body).toContain('bottom: auto');
+    expect(body).toContain('height: auto');
+    expect(body).not.toContain('top: 0');
+    // 展开态基础仍保持全高（恢复时顶边对齐）。
+    const base = cssSource.match(/^\.dev-dock\s*{([^}]*)}/m);
+    expect(base![1]).toMatch(/top:\s*0/);
+    expect(base![1]).toMatch(/bottom:\s*0/);
+  });
+
+  it('折叠/展开同步 aria-expanded；重复 open 重置为展开且幂等（不重复挂载/监听）', async () => {
+    const fake = makeFakeApi();
+    const console_ = createDevConsole(host, { api: fake });
+    console_.open();
+    await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
+    const dock = host.querySelector<HTMLElement>('.dev-dock')!;
+    const collapse = dock.querySelector<HTMLButtonElement>('.dev-dock-collapse')!;
+    // 打开默认展开
+    expect(collapse.getAttribute('aria-expanded')).toBe('true');
+    // 折叠 → aria-expanded=false
+    collapse.click();
+    expect(collapse.getAttribute('aria-expanded')).toBe('false');
+    // 重复 open 幂等：不重复 append（仍是同一个 dock 节点），并重置为展开
+    console_.open();
+    expect(host.querySelectorAll('.dev-dock').length).toBe(1);
+    expect(dock.classList.contains('collapsed')).toBe(false);
+    expect(collapse.getAttribute('aria-expanded')).toBe('true');
+    console_.close();
+    expect(host.querySelector('.dev-dock')).toBeNull();
+    expect(collapse.getAttribute('aria-expanded')).toBe('true'); // 关闭不改变展开语义
   });
 });
 

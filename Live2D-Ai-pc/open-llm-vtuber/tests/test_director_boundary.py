@@ -2,8 +2,6 @@
 
 import asyncio
 
-import pytest
-
 from open_llm_vtuber.director import (
     _DIRECTOR_SYSTEM,
     _EMOTION_MOTION,
@@ -30,9 +28,15 @@ def _analyze(payload):
 
 def test_valid_label_kept():
     result = _analyze(
-        '{"emotion":"joy","strength":2,"motionLabel":"wave_big"}'
+        '{"emotion":"joy","strength":2,"motionLabel":"happy"}'
     )
-    assert result.motion_label == "wave_big"
+    assert result.motion_label == "happy"
+
+
+def test_wave_label_falls_back_to_safe_happy():
+    # bai 无手臂参数：wave_big 已从安全目录移除，导演输出越界 → joy 映射兜底到 happy。
+    result = _analyze('{"emotion":"joy","strength":2,"motionLabel":"wave_big"}')
+    assert result.motion_label == "happy"
 
 
 def test_invalid_label_falls_back_to_emotion_map():

@@ -172,8 +172,10 @@ class TestCatalog:
         # idle 仅作为 release，不能作为正向触发
         idle_entry = next(e for e in entries if e["id"] == "idle")
         assert idle_entry["release_only"] is True
-        # 全身跳跃动作不得出现在可触发目录
+        # 全身跳跃/手臂动作（bounce_happy / wave_big）不得出现在可触发目录
+        # —— bai 无全身位移与手臂参数，不能叫「蹦跳/挥手」。
         assert "bounce_happy" not in body["actions"]
+        assert "wave_big" not in body["actions"]
 
     def test_catalog_halfbody_channels_from_model_params(self, dev_env, monkeypatch):
         # live2d_model 带 _cdi3_parameter_ids 时，halfbody 通道按参数集推导。
@@ -209,7 +211,7 @@ class TestTrigger:
         dev_env.enable_localhost()
         r = dev_env.client.post(
             "/api/dev/actions/trigger",
-            json={"action": "wave_big", "release": True},
+            json={"action": "nod", "release": True},
         )
         assert r.status_code == 200
         assert r.json()["action"] == "idle"

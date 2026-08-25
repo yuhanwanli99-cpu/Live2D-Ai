@@ -36,9 +36,10 @@ def test_timeline_multi_bracket_ordered_with_positions():
     cues = stage_gesture_timeline(text)
     # "（轻轻点头）"=6 字符，其后正文 6 字符 → 第二个括注 position=12、
     # 扣除第一个括注跨度后 clean_position=6
+    # "开心地挥手"→ happy（bai 无手臂，挥手以「上身开心摆动」近似，不再产出 wave_big）
     assert cues == [
         {"position": 0, "clean_position": 0, "motion": "nod"},
-        {"position": 12, "clean_position": 6, "motion": "wave_big"},
+        {"position": 12, "clean_position": 6, "motion": "happy"},
     ]
 
 
@@ -226,7 +227,7 @@ def test_handle_sentence_output_slices_timeline_and_drops_one_shot_motion():
     assert first["actions"].motionTimeline == [{"at": 0.0, "motion": "nod"}]
     # 第二个括注恰好在两块交界（clean_position=25 → frac=0.5）→ 归入块 2、at=0
     assert second["actions"].motion is None
-    assert second["actions"].motionTimeline == [{"at": 0.0, "motion": "wave_big"}]
+    assert second["actions"].motionTimeline == [{"at": 0.0, "motion": "happy"}]
 
 
 def test_handle_sentence_output_without_timeline_keeps_legacy_behavior():
