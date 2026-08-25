@@ -11,7 +11,7 @@
 也就是说：外部文字与前端聊天框输入**没有第二条链路**，行为完全一致
 （同一 persona、同一记忆、同一 mood_engine、同一 TTS 与口型）。
 
-安全默认（本项目 host 默认 0.0.0.0 且 CORS 放开，故此处必须自己把门）：
+安全默认（服务默认只绑定回环地址；即使用户显式改为 LAN 监听，此处仍独立把门）：
   - **默认关闭**（`enabled=False`）：不打开开关时，接口一律 403；
   - 只允许 **回环地址**（127.0.0.1/::1）调用；要放开局域网必须同时
     显式打开 `allow_remote` **并**设置 `token`（无 token 不允许远程，
@@ -240,7 +240,7 @@ def init_external_input_routes(
             )
         try:
             payload = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
@@ -316,7 +316,7 @@ def init_external_input_routes(
 
         try:
             payload = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             payload = {}
         if not isinstance(payload, dict):
             payload = {}

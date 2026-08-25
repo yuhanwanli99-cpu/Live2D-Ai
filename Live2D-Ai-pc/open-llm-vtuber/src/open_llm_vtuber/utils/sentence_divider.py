@@ -104,7 +104,7 @@ def detect_language(text: str) -> str:
     try:
         detected = detect(text)
         return detected if detected in SUPPORTED_LANGUAGES else None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"Language detection failed, language not supported by pysdb: {e}")
         return None
 
@@ -266,7 +266,7 @@ def segment_text_by_pysbd(text: str) -> Tuple[List[str], str]:
         )
         return complete_sentences, remaining
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error in sentence segmentation: {e}")
         # Fallback to regex on any error
         return segment_text_by_regex(text)

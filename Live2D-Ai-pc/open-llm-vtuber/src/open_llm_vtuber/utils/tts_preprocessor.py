@@ -36,7 +36,7 @@ def tts_filter(
     if ignore_asterisks:
         try:
             text = filter_asterisks(text)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error ignoring asterisks: {e}")
             logger.warning(f"Text: {text}")
             logger.warning("Skipping...")
@@ -44,28 +44,28 @@ def tts_filter(
     if ignore_brackets:
         try:
             text = filter_brackets(text)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error ignoring brackets: {e}")
             logger.warning(f"Text: {text}")
             logger.warning("Skipping...")
     if ignore_parentheses:
         try:
             text = filter_parentheses(text)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error ignoring parentheses: {e}")
             logger.warning(f"Text: {text}")
             logger.warning("Skipping...")
     if ignore_angle_brackets:
         try:
             text = filter_angle_brackets(text)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error ignoring angle brackets: {e}")
             logger.warning(f"Text: {text}")
             logger.warning("Skipping...")
     if remove_special_char:
         try:
             text = remove_special_characters(text)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error removing special characters: {e}")
             logger.warning(f"Text: {text}")
             logger.warning("Skipping...")
@@ -74,7 +74,7 @@ def tts_filter(
             logger.info("Translating...")
             text = translator.translate(text)
             logger.info(f"Translated: {text}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"Error translating: {e}")
             logger.critical(f"Text: {text}")
             logger.warning("Skipping...")
@@ -83,7 +83,7 @@ def tts_filter(
     # 不影响字幕与记忆；规则缺失/非法时静默跳过（见 slop_rules.py 失败语义）。
     try:
         text = apply_runtime_slop(text)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"SLOP 规则应用异常（跳过）: {e}")
 
     logger.debug(f"Filtered text: {text}")

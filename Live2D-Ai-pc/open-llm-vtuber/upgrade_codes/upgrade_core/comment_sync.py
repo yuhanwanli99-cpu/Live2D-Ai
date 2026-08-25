@@ -1,6 +1,8 @@
 # upgrade/comment_sync.py
-from typing import Dict
+import os
+import tempfile
 from logging import Logger
+
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
@@ -12,7 +14,7 @@ class CommentSynchronizer:
         user_path: str,
         logger: Logger,
         yaml: YAML,
-        texts_compare: Dict[str, str],
+        texts_compare: dict[str, str],
     ):
         self.default_path = default_path
         self.user_path = user_path
@@ -38,9 +40,12 @@ class CommentSynchronizer:
                 for key in default_node:
                     if key in user_node:
                         current_path = f"{path}.{key}" if path else key
-                        if hasattr(default_node, "ca") and hasattr(user_node, "ca"):
-                            if key in default_node.ca.items:
-                                user_node.ca.items[key] = default_node.ca.items[key]
+                        if (
+                            hasattr(default_node, "ca")
+                            and hasattr(user_node, "ca")
+                            and key in default_node.ca.items
+                        ):
+                            user_node.ca.items[key] = default_node.ca.items[key]
                         sync_comments(default_node[key], user_node[key], current_path)
 
             sync_comments(default_tree, user_tree)
@@ -48,9 +53,21 @@ class CommentSynchronizer:
             if hasattr(default_tree, "ca") and hasattr(user_tree, "ca"):
                 user_tree.ca.end = default_tree.ca.end
 
-            with open(self.user_path, "w", encoding="utf-8") as f:
-                self.yaml.dump(user_tree, f)
+            destination_dir = os.path.dirname(os.path.abspath(self.user_path))
+            fd, temp_path = tempfile.mkstemp(
+                prefix=".conf-comments-", suffix=".yaml", dir=destination_dir
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    self.yaml.dump(user_tree, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp_path, self.user_path)
+            finally:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
 
             self.logger.info(self.texts_compare["comment_sync_success"])
         except Exception as e:
             self.logger.error(self.texts_compare["comment_sync_error"].format(error=e))
+            raise

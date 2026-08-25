@@ -152,7 +152,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
                 last_error = f"合成超时（>{self.timeout}s）"
                 logger.warning(f"CosyVoice Cloud: {last_error}（第 {attempt} 次尝试）")
                 continue
-            except Exception as e:  # 网络/连接/协议异常（可重试）
+            except Exception as e:  # 网络/连接/协议异常（可重试）  # noqa: BLE001
                 last_error = f"{type(e).__name__}: {e}"
                 logger.warning(
                     f"CosyVoice Cloud: SDK 异常 {last_error}（第 {attempt} 次尝试）"
@@ -272,7 +272,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
             synthesizer.streaming_complete(
                 complete_timeout_millis=int(self.timeout * 1000)
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             # 连接/协议异常：尽量关闭 WS，避免残留半开连接
             self._safe_close(synthesizer)
             raise
@@ -318,7 +318,7 @@ class CosyVoiceCloudTTSEngine(TTSInterface):
         try:
             if synthesizer is not None:
                 synthesizer.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     @staticmethod

@@ -52,15 +52,33 @@ class MemoryPlugin:
     def __init__(self):
         self.state_path = _state_path("memory_store.json")
         self._state = self._load()
+        # 写入代次：任何 add/remove/clear 持久化后 +1。异步层（如 LLM 记忆管家）
+        # 在查询快照后、应用写入前用它检测「期间发生过清空/改动」，据此放弃过期决策，
+        # 从而保证「设置页清空后，同一个进程里也不再被管家/迟到帧重新灌回」。
+        self._revision = 0
 
     def _load(self) -> dict[str, Any]:
         state = _load_json(self.state_path, {"facts": []})
         if not isinstance(state, dict) or not isinstance(state.get("facts"), list):
             return {"facts": []}
+        state.setdefault("scopes", {})
         return state
 
     def _save(self) -> None:
         _save_json(self.state_path, self._state)
+        self._revision += 1
+
+    def revision(self) -> int:
+        """当前写入代次；被 async 决策用来做陈旧快照判弃。"""
+        return self._revision
+
+    @staticmethod
+    def _scope_facts(state: dict[str, Any], scope: str) -> list[Any]:
+        """取指定 scope 的事实列表（引用，不入库时不触发 save/revision）。"""
+        if not scope:
+            return state.setdefault("facts", [])
+        scopes = state.setdefault("scopes", {})
+        return scopes.setdefault(scope, [])
 
     @staticmethod
     def _extract_facts(text: str) -> list[str]:
@@ -88,9 +106,11 @@ class MemoryPlugin:
         return len(a & b)
 
     def handle_event(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        # scope 来自调用方（对话身份/会话键）；缺省为空串=全局记忆，保持旧行为。
+        scope = str(payload.get("scope") or "")
         if name == "llm.before":
             text = str(payload.get("text") or "")
-            facts = self._state.get("facts", [])
+            facts = self._scope_facts(self._state, scope)
             if not facts or not text:
                 return {}
             ranked = sorted(
@@ -110,36 +130,36 @@ class MemoryPlugin:
             facts = self._extract_facts(text)
             if not facts:
                 return {}
-            existing = set(self._state.get("facts", []))
+            existing = set(self._scope_facts(self._state, scope))
             new_facts = [f for f in facts if f not in existing]
             if not new_facts:
                 return {}
-            self._state.setdefault("facts", []).extend(new_facts)
+            self._scope_facts(self._state, scope).extend(new_facts)
             self._save()
             return {"memory_updates": new_facts}
         return {}
 
     # ---- 公开管理接口（/api/memory/* 可视化用；与 handle_event 共享同一份状态） ----
 
-    def list_facts(self) -> list[str]:
-        """返回全部已记录事实（副本）。"""
-        return list(self._state.get("facts", []))
+    def list_facts(self, scope: str = "") -> list[str]:
+        """返回指定 scope 的全部已记录事实（副本）。scope 缺省为全局。"""
+        return list(self._scope_facts(self._state, str(scope or "")))
 
-    def add_fact(self, fact: str) -> bool:
+    def add_fact(self, fact: str, scope: str = "") -> bool:
         """手动追加一条事实；空白/超长/重复 → False（不抛异常）。"""
         fact = (fact or "").strip()
         if not fact or len(fact) > 200:
             return False
-        facts = self._state.setdefault("facts", [])
+        facts = self._scope_facts(self._state, str(scope or ""))
         if fact in facts:
             return False
         facts.append(fact)
         self._save()
         return True
 
-    def remove_fact(self, index: int) -> bool:
+    def remove_fact(self, index: int, scope: str = "") -> bool:
         """按下标删除一条事实；越界/类型非法 → False。"""
-        facts = self._state.get("facts", [])
+        facts = self._scope_facts(self._state, str(scope or ""))
         try:
             idx = int(index)
         except (TypeError, ValueError):
@@ -150,11 +170,33 @@ class MemoryPlugin:
         self._save()
         return True
 
-    def clear_facts(self) -> int:
-        """清空全部事实，返回清除条数。"""
-        facts = self._state.get("facts", [])
+    def clear_facts(self, scope: str = "") -> int:
+        """清空指定 scope 的事实，返回清除条数。
+
+        会触发持久化并 +1 写入代次，使在途的 async 记忆管家放弃过期写入。
+        scope 缺省清空全局；显式传入其他 scope 只清该 scope。
+        """
+        scope = str(scope or "")
+        facts = self._scope_facts(self._state, scope)
         n = len(facts)
+        facts.clear()
+        if n:
+            self._save()
+        return n
+
+    def clear_all_facts(self) -> int:
+        """清空全局 + 全部会话 scope 的所有事实，原子推进一次写入代次。
+
+        供「清空全部」按钮使用；任何在途 async 记忆管家看到代次变化都会放弃
+        过期写入，保证清空后不会被迟到管家把任一 scope 的事实复活。
+        """
+        n = 0
+        n += len(self._state.get("facts") or [])
         self._state["facts"] = []
+        scopes = self._state.get("scopes") or {}
+        for key in list(scopes.keys()):
+            n += len(scopes.get(key) or [])
+        self._state["scopes"] = {}
         if n:
             self._save()
         return n

@@ -69,7 +69,7 @@ class ToolAdapter:
                     ):  # Ensure entry exists even on error
                         servers_info[server_name] = {}
                     continue  # Continue to next server
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(
                         f"MC: Unexpected error for server '{server_name}': {e}"
                     )

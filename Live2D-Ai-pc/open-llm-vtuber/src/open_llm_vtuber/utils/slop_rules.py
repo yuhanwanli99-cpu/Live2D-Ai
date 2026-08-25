@@ -118,7 +118,7 @@ def apply_slop_rules(text: str, rules: tuple[SlopRule, ...]) -> str:
     for rule in rules:
         try:
             text = rule.pattern.sub(rule.replacement, text)
-        except Exception as e:  # pragma: no cover — re.sub 对已编译 pattern 极少抛错
+        except Exception as e:  # pragma: no cover — re.sub 对已编译 pattern 极少抛错  # noqa: BLE001
             logger.warning(f"[slop] 规则应用异常（跳过该条）: {rule.note or rule.pattern.pattern!r} — {e}")
     # 治理后可能留下孤立的行首逗号/分号，TTS 会读成怪异停顿
     return re.sub(r"^[，,、；;]+\s*", "", text)

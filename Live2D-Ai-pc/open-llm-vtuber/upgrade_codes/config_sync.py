@@ -1,26 +1,29 @@
+import logging
 import os
 import shutil
+import tempfile
+
+from packaging import version
+from ruamel.yaml import YAML
+
+from src.open_llm_vtuber.config_manager.utils import load_text_file_with_guess_encoding
+from upgrade_codes.upgrade_core.comment_diff_fn import comment_diff_fn
+from upgrade_codes.upgrade_core.comment_sync import CommentSynchronizer
 from upgrade_codes.upgrade_core.constants import (
-    USER_CONF,
     BACKUP_CONF,
-    TEXTS,
-    ZH_DEFAULT_CONF,
     EN_DEFAULT_CONF,
+    TEXTS,
     TEXTS_COMPARE,
     TEXTS_MERGE,
+    USER_CONF,
+    ZH_DEFAULT_CONF,
 )
-import logging
-from ruamel.yaml import YAML
-from src.open_llm_vtuber.config_manager.utils import load_text_file_with_guess_encoding
-from upgrade_codes.upgrade_core.comment_sync import CommentSynchronizer
-from upgrade_codes.version_manager import VersionUpgradeManager
 from upgrade_codes.upgrade_core.upgrade_utils import UpgradeUtility
-from upgrade_codes.upgrade_core.comment_diff_fn import comment_diff_fn
-from packaging import version
+from upgrade_codes.version_manager import VersionUpgradeManager
 
 
 class ConfigSynchronizer:
-    def __init__(self, lang="en", logger=logging.getLogger(__name__)):
+    def __init__(self, lang="en", logger=None):
         self.lang = lang
         self.texts = TEXTS[lang]
         self.default_path = ZH_DEFAULT_CONF if lang == "zh" else EN_DEFAULT_CONF
@@ -30,7 +33,7 @@ class ConfigSynchronizer:
         self.backup_path = BACKUP_CONF
         self.texts_merge = TEXTS_MERGE.get(lang, TEXTS_MERGE["en"])
         self.texts_compare = TEXTS_COMPARE.get(lang, TEXTS_COMPARE["en"])
-        self.logger = logger
+        self.logger = logger or logging.getLogger(__name__)
         self.upgrade_utils = UpgradeUtility(self.logger, self.lang)
 
     def sync_user_config(self) -> None:
@@ -50,50 +53,55 @@ class ConfigSynchronizer:
         self.backup_user_config()
 
     def update_user_config(self) -> None:
+        """Update configuration transactionally without deleting user keys.
+
+        The default template is a source of missing defaults, not an allow-list.
+        Fork, plugin and future-version keys are therefore preserved. Any failure
+        during merge, comment synchronization or version migration restores the
+        pre-update backup and is re-raised so callers cannot report false success.
         """
-        Perform the actual update operations on the user configuration file:
-        1. Compare and update configuration fields
-        2. Synchronize comments
-        3. Upgrade version if needed
-        """
+        self.backup_user_config()
+        try:
+            # Step 1: add missing defaults; unknown user keys are intentionally kept.
+            if not self.compare_field_keys():
+                self.merge_and_update_user_config()
+            else:
+                self.logger.info(self.texts["configs_up_to_date"])
 
-        # Step 1: Update config fields
-        if not self.compare_field_keys():
-            self.merge_and_update_user_config()
-        else:
-            self.logger.info(self.texts["configs_up_to_date"])
-
-        # Step 2: Sync comments
-        if not self.compare_comments():
-            comment_sync = CommentSynchronizer(
-                self.default_path,
-                self.user_path,
-                self.logger,
-                self.yaml,
-                self.texts_compare,
-            )
-            comment_sync.sync()
-        else:
-            self.logger.info(self.texts_compare["comments_up_to_date"])
-
-        # Step 3: Determine whether upgrade is needed
-        new_version = self.get_latest_version()
-        old_version = self.get_old_version()
-        need_upgrade = old_version != new_version
-
-        # Step 4: Run upgrade if needed
-        if need_upgrade:
-            version_upgrade_manager = VersionUpgradeManager(self.lang, self.logger)
-            final_version = version_upgrade_manager.upgrade(old_version)
-            self.logger.info(
-                self.texts["version_upgrade_success"].format(
-                    old=old_version, new=final_version
+            # Step 2: synchronize comments without changing user values/extra keys.
+            if not self.compare_comments():
+                comment_sync = CommentSynchronizer(
+                    self.default_path,
+                    self.user_path,
+                    self.logger,
+                    self.yaml,
+                    self.texts_compare,
                 )
-            )
-        else:
-            self.logger.info(
-                self.texts["version_upgrade_none"].format(version=old_version)
-            )
+                comment_sync.sync()
+            else:
+                self.logger.info(self.texts_compare["comments_up_to_date"])
+
+            # Step 3: run only explicit, versioned migrations.
+            new_version = self.get_latest_version()
+            old_version = self.get_old_version()
+            if old_version != new_version:
+                version_upgrade_manager = VersionUpgradeManager(self.lang, self.logger)
+                # The manager historically uses the module constant; bind the
+                # configured path so tests and alternate deployments stay isolated.
+                version_upgrade_manager.user_config = self.user_path
+                final_version = version_upgrade_manager.upgrade(old_version)
+                self.logger.info(
+                    self.texts["version_upgrade_success"].format(
+                        old=old_version, new=final_version
+                    )
+                )
+            else:
+                self.logger.info(
+                    self.texts["version_upgrade_none"].format(version=old_version)
+                )
+        except Exception:
+            self.restore_user_config()
+            raise
 
     def backup_user_config(self):
         backup_path = os.path.abspath(self.backup_path)
@@ -104,6 +112,43 @@ class ConfigSynchronizer:
         )
         self.logger.debug(self.texts["config_backup_path"].format(path=backup_path))
         shutil.copy2(self.user_path, self.backup_path)
+
+    def restore_user_config(self) -> None:
+        """Atomically restore the pre-update configuration backup."""
+        if not os.path.exists(self.backup_path):
+            raise FileNotFoundError(f"Config backup not found: {self.backup_path}")
+        self._atomic_copy(self.backup_path, self.user_path)
+        self.logger.warning("Configuration update failed; restored backup.")
+
+    @staticmethod
+    def _atomic_copy(source_path: str, destination_path: str) -> None:
+        destination_dir = os.path.dirname(os.path.abspath(destination_path))
+        os.makedirs(destination_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix=".conf-restore-", dir=destination_dir)
+        os.close(fd)
+        try:
+            shutil.copy2(source_path, temp_path)
+            os.replace(temp_path, destination_path)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def _atomic_dump(self, data) -> None:
+        """Dump YAML beside the destination and atomically replace it."""
+        destination_dir = os.path.dirname(os.path.abspath(self.user_path))
+        os.makedirs(destination_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(
+            prefix=".conf-update-", suffix=".yaml", dir=destination_dir
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                self.yaml.dump(data, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, self.user_path)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     def merge_and_update_user_config(self):
         try:
@@ -116,6 +161,7 @@ class ConfigSynchronizer:
                 self.logger.info(self.texts["merged_config_none"])
         except Exception as e:
             self.logger.error(self.texts["merge_failed"].format(error=e))
+            raise
 
     def merge_configs(self):
         user_config = self.yaml.load(load_text_file_with_guess_encoding(self.user_path))
@@ -137,8 +183,7 @@ class ConfigSynchronizer:
 
         merged = merge(user_config, default_config)
 
-        with open(self.user_path, "w", encoding="utf-8") as f:
-            self.yaml.dump(merged, f)
+        self._atomic_dump(merged)
 
         for key in new_keys:
             self.logger.info(self.texts_merge["new_config_item"].format(key=key))
@@ -200,41 +245,14 @@ class ConfigSynchronizer:
         return extra
 
     def delete_extra_keys(self):
-        """Delete extra keys in user config that are not present in default config."""
+        """Refuse destructive template-based cleanup.
 
-        user_config = self.yaml.load(load_text_file_with_guess_encoding(self.user_path))
-        default_config = self.yaml.load(
-            load_text_file_with_guess_encoding(self.default_path)
+        Unknown keys can belong to this fork, a plugin or a newer application
+        version. They may only be removed by an explicit version migration.
+        """
+        raise RuntimeError(
+            "Refusing to delete user configuration keys absent from the default template"
         )
-        extra_keys = self.get_extra_keys(user_config, default_config)
-
-        def delete_key_by_path(config_dict, key_path):
-            keys = key_path.split(".")
-            sub_dict = config_dict
-            for k in keys[:-1]:
-                if k in sub_dict and isinstance(sub_dict[k], dict):
-                    sub_dict = sub_dict[k]
-                else:
-                    return False
-            return sub_dict.pop(keys[-1], None) is not None
-
-        deleted_keys = []
-        for key_path in extra_keys:
-            if delete_key_by_path(user_config, key_path):
-                deleted_keys.append(key_path)
-
-        with open(self.user_path, "w", encoding="utf-8") as f:
-            self.yaml.dump(user_config, f)
-
-        self.logger.info(
-            self.texts_compare["extra_keys_deleted_count"].format(
-                count=len(deleted_keys)
-            )
-        )
-        for key in deleted_keys:
-            self.logger.info(
-                self.texts_compare["extra_keys_deleted_item"].format(key=key)
-            )
 
     def compare_field_keys(self) -> bool:
         """Compare field structure differences (missing/extra keys)"""
@@ -251,8 +269,11 @@ class ConfigSynchronizer:
                 self.logger.warning(
                     self.texts_compare["extra_keys"].format(keys=", ".join(extra))
                 )
-                self.delete_extra_keys()
-            return (not missing, missing + extra)
+                self.logger.info(
+                    "Preserving user/fork configuration keys absent from the default template."
+                )
+            # Extra keys are valid user extensions and do not make the config stale.
+            return (not missing, missing)
 
         return self.upgrade_utils.compare_dicts(
             name="keys",
@@ -286,7 +307,7 @@ class ConfigSynchronizer:
         fallback_version = "v1.1.1"
         try:
             yaml = YAML()
-            with open(BACKUP_CONF, "r", encoding="utf-8") as f:
+            with open(self.backup_path, "r", encoding="utf-8") as f:
                 backup_conf = yaml.load(f)
                 raw_version = backup_conf.get("system_config", {}).get(
                     "conf_version", fallback_version
@@ -304,7 +325,7 @@ class ConfigSynchronizer:
                     self.texts["backup_used_version"].format(backup_version=raw_version)
                 )
                 return raw_version
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.logger.warning(
                 self.texts["backup_read_error"].format(
                     version=fallback_version, error=e

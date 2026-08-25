@@ -107,6 +107,6 @@ class TTSEngine(TTSInterface):
 
             return file_name
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"\nError: sherpa-onnx unable to generate audio: {e}")
             return None

@@ -107,6 +107,7 @@ ANDROID_MAIN_SCREEN_KT = (
 )
 PC_MODEL_REGISTRY_PY = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "model_registry.py"
 PC_SERVICE_CONTEXT_PY = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "service_context.py"
+PC_REPO_PATHS_PY = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "src" / "open_llm_vtuber" / "utils" / "repo_paths.py"
 PC_CONF_YAML = ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "conf.yaml"
 ANDROID_BUILD_GRADLE = ROOT / "Live2D-Ai-Android" / "app" / "build.gradle.kts"
 SHARED_EMOTION_PROTOCOL = ROOT / "shared" / "emotion-protocol.md"
@@ -231,14 +232,14 @@ def _load_registry_and_validate() -> tuple[dict, object, object]:
 
 
 def _extract_resolve_shared_path() -> callable:
-    """AST 提取 service_context.py 中 _resolve_shared_path/_find_repo_shared_dir 并执行。
+    """AST 提取 utils/repo_paths.py 中 find_repo_root/resolve_shared_path 并执行。
 
-    返回可调用的 `_resolve_shared_path(config_path) -> str`（真实函数体，零转写）。
+    返回可调用的 `resolve_shared_path(config_path) -> str`（真实函数体，零转写）。
     找不到函数 → 抛 LookupError。
     """
-    text = read_text(PC_SERVICE_CONTEXT_PY)
+    text = read_text(PC_REPO_PATHS_PY)
     tree = ast.parse(text)
-    wanted = ("_find_repo_shared_dir", "_resolve_shared_path")
+    wanted = ("find_repo_root", "shared_dir", "resolve_shared_path")
     sources: list[str] = []
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in wanted:
@@ -246,13 +247,13 @@ def _extract_resolve_shared_path() -> callable:
             if seg is None:
                 raise LookupError(f"cannot extract source of {node.name}")
             sources.append(seg)
-    if len(sources) != 2:
+    if len(sources) != 3:
         raise LookupError(
-            f"service_context.py 未找到 {wanted}（找到 {len(sources)} 个函数）"
+            f"repo_paths.py 未找到 {wanted}（找到 {len(sources)} 个函数）"
         )
-    ns: dict = {"os": __import__("os"), "__file__": str(PC_SERVICE_CONTEXT_PY)}
+    ns: dict = {"Path": __import__("pathlib").Path, "__file__": str(PC_REPO_PATHS_PY)}
     exec("\n\n".join(sources), ns)  # noqa: S102 — 提取的是本仓库自身代码
-    return ns["_resolve_shared_path"]
+    return ns["resolve_shared_path"]
 
 
 # ---------------------------------------------------------------------------

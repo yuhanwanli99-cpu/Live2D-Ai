@@ -17,6 +17,7 @@ from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 from .routes import (
     init_client_ws_route,
     init_config_routes,
+    init_dev_routes,
     init_webtool_routes,
     init_proxy_route,
 )
@@ -130,6 +131,13 @@ class WebSocketServer:
                 ws_handler=self.ws_handler,
             )
         )
+        # 本地开发者调试工具（默认关闭，localhost-only）
+        self.app.include_router(
+            init_dev_routes(
+                default_context_cache=self.default_context_cache,
+                ws_handler=self.ws_handler,
+            )
+        )
 
         # 插件注册中心：注册原生插件并提供 /api/plugins 管理接口。
         # 必须在所有需要门控的路由之前创建，供这些路由做启用/禁用门控。
@@ -204,7 +212,11 @@ class WebSocketServer:
             name="cache",
         )
 
-        # Mount static files with CORS-enabled handlers
+        # Public PC Preview intentionally ships without model assets. Create the
+        # import target before mounting so a fresh archive can start and let the
+        # user upload a lawfully obtained model from the settings UI.
+        if not os.path.exists("live2d-models"):
+            os.makedirs("live2d-models")
         self.app.mount(
             "/live2d-models",
             CORSStaticFiles(directory="live2d-models"),

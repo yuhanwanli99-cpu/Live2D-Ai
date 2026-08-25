@@ -235,7 +235,7 @@ class AsyncLLM(StatelessLLMInterface):
                     # Anthropic SDK might raise errors directly, or via event.type == 'error'
                     # The outer try/except handles SDK-level errors.
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Claude API error occurred: {str(e)}")
             logger.info(f"Model: {self.model}")
             # Yield an error event before raising

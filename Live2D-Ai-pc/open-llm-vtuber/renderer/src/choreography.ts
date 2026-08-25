@@ -31,6 +31,9 @@ const NEUTRAL: ParameterOverrides = {
   ParamBodyAngleX: 0.5,
   ParamBodyAngleY: 0.5,
   ParamBodyAngleZ: 0.5,
+  // gaze 必须由每段确定性动作显式回中，避免上一次视线永久停留。
+  ParamEyeBallX: 0.5,
+  ParamEyeBallY: 0.5,
 };
 
 /**
@@ -38,6 +41,21 @@ const NEUTRAL: ParameterOverrides = {
  * 幅度刻意贴近参数两端（大幅度）；物理系统会让头发/饰件跟随摆动。
  */
 export const CHOREOGRAPHY_LIBRARY: Record<string, Keyframe[]> = {
+  // 点头（明确命令）：头部上下明确点两次，最后回中性。此前 nod 走单姿态手势
+  // （ParamAngleX 仅 0.5→0.32，幅度过小近乎不可见），提升为大幅度编排保证可见。
+  nod: [
+    { at: 0,    fadeMs: 140, params: { ParamAngleX: 0.18, ParamAngleY: 0.5, ParamBodyAngleX: 0.38 } },
+    { at: 260,  fadeMs: 140, params: { ParamAngleX: 0.78, ParamAngleY: 0.5, ParamBodyAngleX: 0.60 } },
+    { at: 520,  fadeMs: 140, params: { ParamAngleX: 0.22, ParamAngleY: 0.5, ParamBodyAngleX: 0.40 } },
+    { at: 780,  fadeMs: 140, params: { ParamAngleX: 0.80, ParamAngleY: 0.5, ParamBodyAngleX: 0.62 } },
+    { at: 1120, fadeMs: 300, params: NEUTRAL },
+  ],
+  // 歪头（明确命令）：头部+上身明确侧倾两拍，最后回中性。
+  tilt: [
+    { at: 0,    fadeMs: 200, params: { ParamAngleZ: 0.22, ParamAngleY: 0.62, ParamBodyAngleZ: 0.30 } },
+    { at: 700,  fadeMs: 220, params: { ParamAngleZ: 0.74, ParamAngleY: 0.38, ParamBodyAngleZ: 0.68 } },
+    { at: 1500, fadeMs: 360, params: NEUTRAL },
+  ],
   // 大幅挥手：身体左右大幅摇摆两轮 + 头部随动（无手臂参数模型的挥手等价表达）
   wave_big: [
     { at: 0,    fadeMs: 160, params: { ParamBodyAngleZ: 0.18, ParamAngleZ: 0.32, ParamAngleY: 0.58 } },
@@ -76,11 +94,13 @@ export const CHOREOGRAPHY_LIBRARY: Record<string, Keyframe[]> = {
     { at: 1100, fadeMs: 300, params: { ParamAngleY: 0.74, ParamBodyAngleX: 0.38 } },
     { at: 1900, fadeMs: 480, params: NEUTRAL },
   ],
-  // 左右张望：头部大幅转左-右各一次
+  // 左右张望：眼睛先于头部移动，限制在安全范围，结束强制回中。
   look_around: [
-    { at: 0,   fadeMs: 320, params: { ParamAngleX: 0.14, ParamBodyAngleX: 0.34 } },
-    { at: 900, fadeMs: 320, params: { ParamAngleX: 0.86, ParamBodyAngleX: 0.66 } },
-    { at: 1750, fadeMs: 400, params: NEUTRAL },
+    { at: 0, fadeMs: 180, params: { ParamEyeBallX: 0.30, ParamEyeBallY: 0.54 } },
+    { at: 160, fadeMs: 300, params: { ParamAngleX: 0.16, ParamBodyAngleX: 0.34, ParamEyeBallX: 0.28, ParamEyeBallY: 0.54 } },
+    { at: 850, fadeMs: 180, params: { ParamEyeBallX: 0.70, ParamEyeBallY: 0.52 } },
+    { at: 1010, fadeMs: 300, params: { ParamAngleX: 0.84, ParamBodyAngleX: 0.66, ParamEyeBallX: 0.72, ParamEyeBallY: 0.52 } },
+    { at: 1850, fadeMs: 400, params: NEUTRAL },
   ],
 };
 
@@ -171,6 +191,7 @@ export class ChoreographyPlayer {
         mode: 'set',
         fadeMs: kf.fadeMs ?? 140,
         timestamp: ts,
+        valueSpace: 'normalized',
       });
     }
   }
@@ -201,12 +222,16 @@ export class BodyActionPlayer {
     this.choreo = new ChoreographyPlayer(arbiter, { now: options.now });
   }
 
-  play(name: string | undefined | null): void {
-    if (this.choreo.play(name)) {
+  play(name: string | undefined | null, strength = 2): void {
+    const level = strength === 1 || strength === 2 || strength === 3 ? strength : 2;
+    const intensity = level === 1 ? 0.72 : level === 3 ? 1.18 : 1;
+    if (this.choreo.play(name, intensity)) {
+      console.debug(`[BodyActionPlayer] choreo=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)}`);
       this.gestures.release(); // 编排接管期间清掉残留单姿态
       return;
     }
-    this.gestures.play(name);
+    console.debug(`[BodyActionPlayer] gesture=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)}`);
+    this.gestures.play(name, intensity);
   }
 
   update(deltaMs: number): void {

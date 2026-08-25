@@ -85,7 +85,7 @@ class MeloExternalClient:
                     bufsize=1,
                     env=env,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._start_error = str(exc)
                 raise RuntimeError(f"无法启动外部 Melo worker：{exc}") from exc
             self._stderr_tail.clear()
@@ -177,7 +177,7 @@ class MeloExternalClient:
             try:
                 proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
                 proc.stdin.flush()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._pending.pop(rid, None)
                 raise RuntimeError(f"写入 Melo worker 失败：{exc}") from exc
 

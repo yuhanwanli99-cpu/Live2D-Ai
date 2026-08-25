@@ -1,16 +1,17 @@
 Live2D-Ai
 Copyright (C) 2026 Sakura Motion Project
 
-This project's own source code is offered under the following license grant:
+This project's own source code is licensed under the GNU Affero General Public
+License, version 3 only (AGPL-3.0-only), whose full text appears below.
 
-  1. Default public license: GNU Affero General Public License, version 3 (AGPL-3.0),
-     whose full text appears below.
-  2. Commercial use restriction: any commercial use, sale, SaaS/hosted-service
-     deployment, or commercial distribution of this project's own source code
-     requires a separate written commercial license from the copyright holder.
-     Commercial use without such authorization is not licensed by this file.
+Commercial use is permitted under AGPL-3.0-only when all of its terms are followed.
+A separate commercial license may be available from the copyright holder for parties
+that want to use this project's own code in proprietary products or hosted services
+without the AGPL-3.0 obligations. The commercial license is an optional alternative;
+it is not an additional restriction on rights granted by AGPL-3.0-only.
 
-Third-party components remain under their own licenses (see NOTICE and CREDITS.md).
+Third-party components and assets remain under their own licenses (see NOTICE and
+CREDITS.md).
 
 ------------------------------------------------------------------------
 

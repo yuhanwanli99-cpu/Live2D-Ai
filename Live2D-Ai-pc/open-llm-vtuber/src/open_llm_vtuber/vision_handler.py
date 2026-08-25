@@ -94,7 +94,7 @@ class VisionHandler:
                 f"base64 length={len(b64_str)}"
             )
             return b64_str
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to capture screenshot: {e}")
             return None
 
@@ -146,7 +146,7 @@ class VisionHandler:
         except APIError as e:
             logger.error(f"Vision API error: {e}")
             return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Unexpected vision API error: {e}")
             return None
 
@@ -155,5 +155,5 @@ class VisionHandler:
         try:
             await self._client.close()
             logger.debug("VisionHandler client closed.")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error closing VisionHandler client: {e}")

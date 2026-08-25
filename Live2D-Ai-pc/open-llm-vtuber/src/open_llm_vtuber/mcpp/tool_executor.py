@@ -146,7 +146,7 @@ class ToolExecutor:
                     logger.error(
                         "Failed to decode arguments JSON in prompt mode tool call"
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Error processing prompt mode tool dict: {e}")
             else:
                 logger.warning("Skipping invalid tool structure in prompt mode JSON")
@@ -373,7 +373,7 @@ class ToolExecutor:
                 text_content = f"Error executing tool '{tool_name}': {e}"
                 content_items = [{"type": "error", "text": text_content}]
                 is_error = True
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.exception(f"Unexpected error executing tool '{tool_name}': {e}")
                 text_content = f"Unexpected error executing tool '{tool_name}': {e}"
                 content_items = [{"type": "error", "text": text_content}]

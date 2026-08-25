@@ -15,6 +15,8 @@ from typing import Any
 
 from loguru import logger
 
+from .halfbody import available_halfbody_channels
+
 VALID_EMOTIONS = {
     "neutral", "joy", "anger", "sadness", "surprise", "fear", "smirk", "disgust",
 }
@@ -27,8 +29,10 @@ _DIRECTOR_SYSTEM = (
     ' "motionLabel":"one of nod/tilt/sway/happy/surprise/listen/excited/'
     'wave_big/bow/shake_no/lean_in/look_around/bounce_happy" or null,'
     ' "parameterOverrides":{}}. '
+    "Choose only the semantic motionLabel; the client owns deterministic body and gaze timelines. "
+    "Do not output halfBody, gaze, head/body parameter values, or mouth/lip-sync channels. "
     "Pick the motionLabel that best matches the sentence tone; most sentences have one. "
-    "Use null only when truly nothing fits. Parameter overrides must only use Live2D parameter IDs like ParamEyeLOpen."
+    "Use null only when truly nothing fits. parameterOverrides is legacy-only and should normally be empty."
 )
 
 
@@ -44,7 +48,7 @@ def _extract_json(text: str) -> dict[str, Any] | None:
         return None
     try:
         data = json.loads(raw)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     return data if isinstance(data, dict) else None
 
@@ -55,6 +59,7 @@ class DirectorResult:
     strength: int = 2
     motion_label: str | None = None
     parameter_overrides: dict[str, float] = field(default_factory=dict)
+    half_body: dict[str, float] = field(default_factory=dict)
     # 括注动作帧（my-neuro 式）：stage_gesture_timeline 产出，含 position /
     # clean_position / motion；conversation_utils 切片成 motionTimeline 随 audio 下发
     motion_timeline: list[dict[str, Any]] = field(default_factory=list)
@@ -67,6 +72,7 @@ class DirectorResult:
             "strength": self.strength,
             "motionLabel": self.motion_label,
             "parameterOverrides": self.parameter_overrides,
+            "halfBody": self.half_body,
             "motionTimeline": self.motion_timeline,
             "source": self.source,
             "raw": self.raw,
@@ -84,6 +90,58 @@ _EMOTION_MOTION = {
     "smirk": "tilt",
     "disgust": "tilt",
 }
+
+# neutral 兜底动作：克制、现有合法动作库成员（避免普通对话完全静止）。
+# 强度用最低档 1；仅在没有命令/导演动作/情绪动作时启用。
+_NEUTRAL_MOTION = "nod"
+_NEUTRAL_STRENGTH = 1
+
+# 显式用户动作命令（优先级最高）：用户在输入里明确要求角色做某个动作时，
+# 回应句按此动作执行，不再只依赖导演模型猜测。词序长者优先，避免子串歧义。
+_USER_MOTION_COMMANDS: dict[str, tuple[str, ...]] = {
+    "nod": ("点点头", "点一下头", "点个头", "点头"),
+    "shake_no": ("摇摇头", "摇一下头", "摇个头", "摇头"),
+    "tilt": ("歪一下头", "歪歪头", "歪个头", "歪头"),
+    "look_around": ("张望一下", "看看周围", "看看四周", "东张西望", "左顾右盼", "张望"),
+    "bow": ("鞠个躬", "鞠一躬", "鞠躬", "弯腰行礼"),
+    "lean_in": ("靠近一点", "凑近一点", "靠近些", "凑过来", "凑近", "靠近"),
+}
+
+# 疑问/否定语境保护：整句命中即视为“讨论动作”而非“命令动作”，
+# 避免「为什么摇头/别摇头/怎么张望/什么叫鞠躬」误触发。
+# 保守策略：宁可漏触发，也不误触发（用户侧要求明确）。
+_USER_MOTION_GUARD_TERMS = (
+    "为什么", "为何", "为啥", "怎么", "干嘛", "什么叫", "什么是",
+    "别", "不要", "不许", "禁止", "不愿", "不会", "不能", "没法",
+)
+
+
+def _resolve_motion(emotion: str, motion: str | None) -> str:
+    """动作边界收敛：候选 → 白名单，越界/缺失 → 情绪映射兜底，仍缺 → neutral 克制动作。"""
+    if motion and motion in _VALID_MOTIONS:
+        return motion
+    return _EMOTION_MOTION.get(emotion) or _NEUTRAL_MOTION
+
+
+def detect_user_motion_command(text: str | None) -> str | None:
+    """从【用户输入】识别显式动作命令 → 合法动作标签；无命令/命中语境保护 → None。
+
+    保护规则：文本中出现任一 guard 词（为什么/别/怎么/…）即整句不触发——
+    这些语境是“讨论/否定/质疑动作”，不是对角色下达动作命令。
+    """
+    if not text:
+        return None
+    lowered = text.strip().lower()
+    if not lowered:
+        return None
+    for guard in _USER_MOTION_GUARD_TERMS:
+        if guard in lowered:
+            return None
+    for motion, keywords in _USER_MOTION_COMMANDS.items():
+        for kw in keywords:
+            if kw in lowered:
+                return motion
+    return None
 
 
 # 舞台说明/动作括注 → 半身动作（bai 无 motion3，走参数驱动）
@@ -221,10 +279,13 @@ def rule_fallback(text: str) -> DirectorResult:
         emotion = "sadness"
     elif any(k in lowered for k in ("哇", "什么", "真的吗", "天哪")):
         emotion = "surprise"
+    # neutral 也使用克制动作（不静止）；其他情绪走情绪映射兜底
+    motion = _resolve_motion(emotion, None)
+    strength = _NEUTRAL_STRENGTH if emotion == "neutral" else 2
     return DirectorResult(
         emotion=emotion,
-        strength=2,
-        motion_label=_EMOTION_MOTION.get(emotion),
+        strength=strength,
+        motion_label=motion,
         source="rule",
     )
 
@@ -235,8 +296,15 @@ _TIMEOUT_WARNED = False
 class ExpressionDirector:
     """独立的情绪/表情导演模型。"""
 
-    def __init__(self, llm=None, timeout: float | None = None):
+    def __init__(
+        self,
+        llm=None,
+        timeout: float | None = None,
+        parameter_ids: set[str] | None = None,
+    ):
         self._llm = llm
+        self._parameter_ids = set(parameter_ids or ())
+        self.halfbody_channels = available_halfbody_channels(self._parameter_ids)
         if timeout is None:
             # DeepSeek 等推理型模型首 token 延迟常在 1-2s+；默认 1.5s 会让导演
             # 几乎每句都超时、静默回落规则兜底（表现为表情/动作「不生效」）。
@@ -265,24 +333,32 @@ class ExpressionDirector:
                     emotion = "neutral"
                 strength = int(data.get("strength") or 2)
                 strength = max(1, min(3, strength))
+                # neutral 动作克制：统一最低强度（与 rule_fallback 对齐）
+                if emotion == "neutral":
+                    strength = _NEUTRAL_STRENGTH
                 motion = data.get("motionLabel") or data.get("motion")
-                # 动作边界：LLM 只能在白名单内选择；越界/缺失 → 情绪映射兜底
+                # 动作边界：LLM 只能在白名单内选择；越界/缺失 → 情绪映射
+                # 兜底；仍缺（neutral）→ 克制动作（不静止、不静默）
                 if isinstance(motion, str):
                     motion = motion.strip().lower() or None
-                if not motion or motion not in _VALID_MOTIONS:
-                    motion = _EMOTION_MOTION.get(emotion)
+                motion = _resolve_motion(emotion, motion)
                 overrides = data.get("parameterOverrides") or {}
                 if not isinstance(overrides, dict):
                     overrides = {}
+                # Preview 控制策略：LLM 只选择语义动作；身体、头部与 gaze 的
+                # 幅度/时序/回中全部由渲染端确定性动作库负责。忽略模型输出的
+                # halfBody，避免一次性 gaze/pose 永久占用参数（眼睛偏左下根因）。
+                half_body: dict[str, float] = {}
                 return DirectorResult(
                     emotion=emotion,
                     strength=strength,
                     motion_label=motion if isinstance(motion, str) else None,
                     parameter_overrides=overrides,
+                    half_body=half_body,
                     source="llm",
                     raw=raw[:300],
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             if isinstance(exc, asyncio.TimeoutError):
                 # 超时回落此前完全静默，用户侧只看到「导演不工作」；至少提示一次
                 if not _TIMEOUT_WARNED:
@@ -314,3 +390,47 @@ class ExpressionDirector:
 
         await asyncio.wait_for(collect(), timeout=self.timeout)
         return "".join(chunks).strip()
+
+
+def sanitize_director_result(data: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize a DirectorResult dict for developer-mode display.
+
+    Strips raw LLM output and any credential-like fields so the dev endpoint
+    never leaks prompts, keys, or upstream internals.
+    """
+    if not isinstance(data, dict):
+        return {}
+    allowed = {
+        "emotion",
+        "strength",
+        "motionLabel",
+        "parameterOverrides",
+        "halfBody",
+        "motionTimeline",
+        "source",
+    }
+    out: dict[str, Any] = {}
+    for key in allowed:
+        if key in data:
+            out[key] = data[key]
+    # Clamp parameter overrides to safe numeric values / keys
+    overrides = out.get("parameterOverrides")
+    if isinstance(overrides, dict):
+        clean: dict[str, float] = {}
+        for k, v in overrides.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                clean[str(k)] = float(v)
+        out["parameterOverrides"] = clean
+    else:
+        out["parameterOverrides"] = {}
+    # Half-body must be a flat numeric dict
+    half = out.get("halfBody")
+    if isinstance(half, dict):
+        clean_half: dict[str, float] = {}
+        for k, v in half.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                clean_half[str(k)] = float(v)
+        out["halfBody"] = clean_half
+    else:
+        out["halfBody"] = {}
+    return out

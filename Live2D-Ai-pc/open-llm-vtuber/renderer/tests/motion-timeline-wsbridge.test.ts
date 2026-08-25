@@ -150,7 +150,7 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
     });
 
     expect(bodyPlay).toHaveBeenCalledTimes(1);
-    expect(bodyPlay).toHaveBeenCalledWith('sway');
+    expect(bodyPlay).toHaveBeenCalledWith('sway', 2);
     await flushMicrotasks();
     bridge.disconnect();
   });
@@ -215,7 +215,7 @@ describe('ws-bridge × sentence_start — 字幕-声音同步回调', () => {
     const spoken = vi.fn();
     bridge.onSentenceSpoken = spoken;
 
-    // 句首块（开播即触发——在 playAudioQueue 弹出时同步触发，先于 .then）
+    // 句首块：真实 play() 成功后才触发 onSentenceSpoken（与 rm7-wsbridge 契约一致）
     ws.simulateMessage({
       type: 'audio',
       volumes: [0.5],
@@ -224,8 +224,9 @@ describe('ws-bridge × sentence_start — 字幕-声音同步回调', () => {
       audio: 'QUFB',
       sentence_start: true,
     });
-    expect(spoken).toHaveBeenCalledTimes(1);
+    expect(spoken).toHaveBeenCalledTimes(0);
     await flushMicrotasks();
+    expect(spoken).toHaveBeenCalledTimes(1);
 
     // 同句后续块：无标记 → 不再触发
     ws.simulateMessage({

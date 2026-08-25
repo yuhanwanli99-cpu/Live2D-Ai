@@ -213,7 +213,7 @@ def init_live_event_routes(
             )
         try:
             payload = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
@@ -251,7 +251,7 @@ def init_live_event_routes(
 
         try:
             payload = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             payload = {}
         if not isinstance(payload, dict):
             payload = {}

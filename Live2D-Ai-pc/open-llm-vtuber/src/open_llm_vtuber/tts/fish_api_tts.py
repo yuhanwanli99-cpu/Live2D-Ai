@@ -53,7 +53,7 @@ class TTSEngine(TTSInterface):
                 ):
                     f.write(chunk)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"\nError: Fish TTS API fail to generate audio: {e}")
             return None
 

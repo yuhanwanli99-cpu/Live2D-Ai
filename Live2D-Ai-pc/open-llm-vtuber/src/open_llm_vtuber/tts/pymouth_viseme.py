@@ -20,14 +20,14 @@ import numpy as np  # noqa: F401  (pymouth analyser 依赖 numpy，保持导入�
 
 try:
     import soundfile as sf
-except Exception:  # pragma: no cover - soundfile 缺失时无法解码 WAV
+except Exception:  # pragma: no cover - soundfile 缺失时无法解码 WAV  # noqa: BLE001
     sf = None
 
 try:
     from pymouth import VowelAnalyser
 
     PYMOUTH_AVAILABLE = True
-except Exception:  # pragma: no cover - pymouth/依赖缺失时静默降级
+except Exception:  # pragma: no cover - pymouth/依赖缺失时静默降级  # noqa: BLE001
     VowelAnalyser = None
     PYMOUTH_AVAILABLE = False
 
@@ -110,7 +110,7 @@ class PymouthVisemeDriver:
             return []
         try:
             data, samplerate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
-        except Exception:
+        except Exception:  # noqa: BLE001
             return []
         if data.size == 0 or samplerate <= 0:
             return []

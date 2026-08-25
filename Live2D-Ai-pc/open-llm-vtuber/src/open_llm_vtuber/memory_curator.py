@@ -91,7 +91,7 @@ class MemoryCurator:
             return []
         try:
             data = json.loads(m.group(0))
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("记忆管家输出不是合法 JSON，忽略本轮")
             return []
         if not isinstance(data, list):
@@ -107,28 +107,39 @@ class MemoryCurator:
         return valid
 
 
-def apply_curation(inst: Any, actions: list[dict[str, str]]) -> int:
+def apply_curation(inst: Any, actions: list[dict[str, str]], expected_revision=None, scope: str = "") -> int:
     """把管家决策应用到 MemoryPlugin 实例，返回实际生效条数。
 
     - add：插件内去重（已存在 → False 不计）；
     - remove：先精确匹配，再双向包含匹配第一条。
+
+    陈旧写入防护：异步管家在「查询快照 → LLM 往返 → 应用」期间，若用户清空/改写了
+    记忆（revision 变化），则放弃本轮应用——这是「设置页清空后，进程内迟到管家不再
+    把已删除事实灌回」的关键。
     """
+    if expected_revision is not None:
+        # 只对比插件暴露的代次；调用方在查询快照后、异步往返前捕获它。
+        current = getattr(inst, "revision", None)
+        if callable(current) and current() != expected_revision:
+            logger.info("记忆管家命中陈旧快照（期间发生清空/改写），放弃应用")
+            return 0
+
     applied = 0
     for action in actions[:8]:
         kind = action.get("action")
         fact = action.get("fact") or ""
         if kind == "add":
-            if inst.add_fact(fact):
+            if inst.add_fact(fact, scope=scope):
                 applied += 1
                 logger.info(f"记忆 + {fact}")
         elif kind == "remove":
-            facts = inst.list_facts()
+            facts = inst.list_facts(scope=scope)
             idx = next((i for i, f in enumerate(facts) if f == fact), None)
             if idx is None:
                 idx = next(
                     (i for i, f in enumerate(facts) if fact in f or f in fact), None
                 )
-            if idx is not None and inst.remove_fact(idx):
+            if idx is not None and inst.remove_fact(idx, scope=scope):
                 applied += 1
                 logger.info(f"记忆 − {facts[idx]}")
     return applied

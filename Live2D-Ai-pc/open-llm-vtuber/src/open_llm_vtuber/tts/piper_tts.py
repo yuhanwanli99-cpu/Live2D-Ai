@@ -76,7 +76,7 @@ class TTSEngine(TTSInterface):
             logger.info(f"Loading Piper model: {self.model_path}")
             self.voice = PiperVoice.load(self.model_path, use_cuda=self.use_cuda)
             logger.info("Piper model loaded successfully")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"Failed to load Piper model: {e}")
             raise
 
@@ -112,6 +112,6 @@ class TTSEngine(TTSInterface):
             logger.info(f"Generated audio file: {file_name}")
             return file_name
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"Error: Piper TTS unable to generate audio: {e}")
             return None

@@ -82,7 +82,7 @@ def create_new_history(conf_uid: str) -> str:
         ]
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(initial_data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Failed to create new history file: {e}")
         return ""
 
@@ -123,7 +123,7 @@ def store_message(
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 history_data = json.load(f)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.error(f"Failed to load history file: {filepath}")
             pass
 
@@ -162,7 +162,7 @@ def get_metadata(conf_uid: str, history_uid: str) -> dict:
 
         if history_data and history_data[0]["role"] == "metadata":
             return history_data[0]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Failed to get metadata: {e}")
     return {}
 
@@ -201,7 +201,7 @@ def update_metadate(conf_uid: str, history_uid: str, metadata: dict) -> bool:
 
         logger.debug(f"Updated metadata for history {history_uid}")
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Failed to set metadata: {e}")
     return False
 
@@ -226,7 +226,7 @@ def get_history(conf_uid: str, history_uid: str) -> List[HistoryMessage]:
             history_data = json.load(f)
             # Filter out metadata
             return [msg for msg in history_data if msg["role"] != "metadata"]
-    except Exception:
+    except Exception:  # noqa: BLE001
         return []
 
 
@@ -242,7 +242,7 @@ def delete_history(conf_uid: str, history_uid: str) -> bool:
             os.remove(filepath)
             logger.debug(f"Successfully deleted history file: {filepath}")
             return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Failed to delete history file: {e}")
     return False
 
@@ -285,7 +285,7 @@ def get_history_list(conf_uid: str) -> List[dict]:
                         ),
                     }
                     histories.append(history_info)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Error reading history file {filename}: {e}")
                 continue
 
@@ -295,7 +295,7 @@ def get_history_list(conf_uid: str) -> List[dict]:
                 try:
                     os.remove(os.path.join(conf_dir, f"{uid}.json"))
                     logger.info(f"Removed empty history file: {uid}")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to remove empty history file {uid}: {e}")
 
         histories.sort(
@@ -303,6 +303,6 @@ def get_history_list(conf_uid: str) -> List[dict]:
         )
         return histories
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error listing histories: {e}")
         return []

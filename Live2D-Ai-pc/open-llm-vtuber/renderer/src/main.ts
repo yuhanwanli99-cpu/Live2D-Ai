@@ -40,6 +40,7 @@ import {
 } from './interaction';
 import { ParamArbiter } from './param-arbiter';
 import { EmotionConsumer } from './emotion-consumer';
+import { HalfBodyController } from './halfbody-controller';
 import { LipSync } from './lip-sync';
 import { BlinkStateMachine } from './idle/idle-blink';
 import { BreathController } from './idle/idle-breath';
@@ -58,6 +59,10 @@ import {
 } from './soullink-adapter';
 import { LiveEventController, type LiveEventPayload } from './live-event';
 import { createCameraModeStore } from './camera-state';
+import { createDefaultStorage } from './bootstrap/storage';
+import { loadLive2dModules } from './bootstrap/live2d-modules';
+import { createDevConsole } from './dev-console/dev-console';
+import { PRODUCT_VERSION, FRONTEND_VERSION } from './version-info';
 
 // ---- 类型导入（编译期擦除——不在运行时触碰 live2d 依赖链，node/vitest 可安全 import 本模块） ----
 import type { Live2DModel, Cubism4InternalModel } from 'pixi-live2d-display-lipsyncpatch/cubism4';
@@ -134,6 +139,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     );
   }
 
+  // 前端启动日志：前端包版本 + 单一产品版本（构建时注入）。
+  console.log(`[Live2D-Ai] renderer frontend=${FRONTEND_VERSION} product=${PRODUCT_VERSION}`);
+
   // 透明背景：配合桌面壳（Electron/Tauri 透明窗口）实现悬浮桌宠；
   // Web 模式下由 index.html 的 body 背景色控制观感。
   const app = new Application({
@@ -183,6 +191,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   ): RenderPipeline => {
     const arbiter = new ParamArbiter(internalModel);
     const emotionConsumer = new EmotionConsumer(arbiter);
+    const halfBody = new HalfBodyController(arbiter, arbiter.getHalfBodyProfile());
     const bodyMotion = new BodyActionPlayer(arbiter, { now: () => performance.now() });
     const liveEvent = new LiveEventController(emotionConsumer, bodyMotion);
     const pipeline: RenderPipeline = {
@@ -201,6 +210,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       soullink,
     };
     wsBridge.setEmotionConsumer(pipeline.emotionConsumer);
+    wsBridge.setHalfBodyController(halfBody);
     wsBridge.setBodyMotion(pipeline.bodyMotion);
     wsBridge.setLipSync(pipeline.lipSync);
 
@@ -548,6 +558,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     const chatPanel = initChatPanel(chatHost, {
       onSend: (text) => {
         pipeline.soullink?.conversationEvent('listening'); // 用户开口 → 注视/倾听姿态
+        resetStreamState(wsBridge.startEpoch()); // 新用户输入 → 丢弃旧 epoch 的音频/字幕
         const ok = wsBridge.sendText(text);
         if (ok) chatPanel.setStopVisible(true); // 本轮生成/播放可随时停止
         return ok;
@@ -558,6 +569,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       voice: voiceCapture,
     });
     chatPanelRef = chatPanel;
+    // 开发者控制台：仅由设置页显式入口打开（后端 localhost-only + developer_mode）
+    const devConsole = createDevConsole(document.body);
     settingsPanel = initSettingsPanel(document.body, {
       // 背景图选中变化 → 立刻换背景（不刷新页面）
       onBackgroundChanged: (state) =>
@@ -575,6 +588,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
           { key: 'external-gate' },
         );
       },
+      // 开发者模式：由设置页「系统/高级 → 打开开发者控制台」触发（localhost-only）
+      onOpenDevConsole: () => devConsole.open(),
     });
 
     // ---- P0-3 聊天历史：连接即恢复上文 + 抽屉回看/切换/新建/删除 ----
@@ -582,11 +597,13 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     const historyDrawer = initHistoryDrawer(chatPanel.root(), {
       onRefresh: () => wsBridge.fetchHistoryList(),
       onSelect: (uid) => {
+        resetStreamState(wsBridge.startEpoch());
         if (!wsBridge.fetchAndSetHistory(uid)) {
           toast('未连接服务器，无法切换会话', 'error', { key: 'history' });
         }
       },
       onCreate: () => {
+        resetStreamState(wsBridge.startEpoch());
         if (wsBridge.createNewHistory()) {
           chatPanel.clear();
           // 说明记忆边界：对话上下文随新会话清空；长期记忆事实按设计保留
@@ -631,7 +648,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       currentHistoryUid = uid;
       historyDrawer.setCurrent(uid);
       // 防御式清屏：无论新建从哪个入口触发，视图与流式状态都回到干净空态
-      finalParts = [];
+      resetStreamState(wsBridge.getEpoch());
       chatPanel.clear();
     };
     wsBridge.onHistoryDeleted = ({ history_uid, success }) => {
@@ -666,10 +683,37 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       chatHeaderActions.insertBefore(resetBtn, chatHeaderActions.firstChild);
     }
 
-    // P1-2 流式上屏：token 增量只进缓冲 → 句子级字幕随语音逐句揭示（音画同步）
-    let finalParts: string[] = [];
+    // P1-2 流式上屏 + 微信/QQ 式分条消息：
+    //   - text-delta 进入"正在说…"流式气泡；
+    //   - subtitle 句子被缓冲到 pendingSentences；
+    //   - 每句首个 audio 块真正开始播放时（onSentenceSpoken）上屏为独立消息；
+    //   - 长回复 = 多个独立 assistant 气泡，不再合成一条长气泡。
+    let streamEpoch = 0;
+    let pendingSentences: { text: string; epoch: number }[] = [];
+    let finalizedFirstSentence = false;
     // 手动停止标记：区分「用户点停止」与「VAD 自动打断」（回执 toast 文案不同）
     let manualStopPending = false;
+
+    const revealPendingSentence = (): void => {
+      if (pendingSentences.length === 0) return;
+      const item = pendingSentences.shift()!;
+      if (item.epoch !== streamEpoch) return;
+      if (!finalizedFirstSentence && chatPanel.isStreaming()) {
+        // 首句：把"正在说…"流式气泡 finalize 为权威文本
+        chatPanel.finalizeStream(item.text);
+        finalizedFirstSentence = true;
+      } else {
+        // 后续句 或 无流式占位时：直接追加独立气泡
+        chatPanel.addMessage({ role: 'assistant', content: item.text });
+        if (!finalizedFirstSentence) finalizedFirstSentence = true;
+      }
+    };
+    const resetStreamState = (newEpoch: number): void => {
+      streamEpoch = newEpoch;
+      pendingSentences = [];
+      finalizedFirstSentence = false;
+    };
+
     const requestStop = (): void => {
       if (!wsBridge.sendInterrupt('')) {
         toast('未连接服务器，无法停止', 'error', { key: 'stop' });
@@ -679,8 +723,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       setTimeout(() => {
         manualStopPending = false;
       }, 8000); // 后端回执丢失时自动复位，避免误吞后续 VAD 打断提示
-      chatPanel.finalizeStream(finalParts.join('')); // 本地立即收尾（保留已生成文本）
-      finalParts = [];
+      resetStreamState(wsBridge.getEpoch());
+      chatPanel.finalizeStream(); // 停止后未上屏的旧消息不再出现
       chatPanel.setThinking(false);
       chatPanel.setVoiceState('idle');
       chatPanel.setStopVisible(false);
@@ -695,32 +739,32 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     };
     wsBridge.onSubtitle = (text) => {
       if (!text?.text) return;
+      // 流式期间句子先缓冲，等对应音频开播再上屏；非流式时直接上屏兜底
       if (chatPanel.isStreaming()) {
-        finalParts.push(text.text); // 流式气泡已在显示，这里只记权威文本
+        pendingSentences.push({ text: text.text, epoch: streamEpoch });
         return;
       }
       chatPanel.addMessage({ role: 'assistant', content: text.text });
     };
-    // 字幕-声音同步：每句语音真正开播（或静默帧）时，把已积累的干净句子
-    // 揭示到同一个流式气泡——文字随声音逐句出现；无声音路径由句首静默帧立即触发。
-    // 整轮结束（chain-end / 打断）时才 finalizeStream 收尾。
+    // 字幕-声音同步：每句首个 audio 块真正开始播放时（或静默帧）上屏该句。
     wsBridge.onSentenceSpoken = () => {
-      if (chatPanel.isStreaming() && finalParts.length > 0) {
-        chatPanel.revealStream(finalParts.join(''));
-      }
+      revealPendingSentence();
     };
-    // 后端一直在发的 control 消息（此前前端完全忽略 → VAD 打断对用户不可见）
+    // 后端一直在发的 control 消息
     wsBridge.onControl = (command) => {
       if (command === 'conversation-chain-end') {
-        chatPanel.finalizeStream(finalParts.join(''));
-        finalParts = [];
+        // 兜底：把仍属于当前 epoch 的剩余句子全部上屏
+        while (pendingSentences.length > 0) {
+          revealPendingSentence();
+        }
+        chatPanel.finalizeStream();
         chatPanel.setThinking(false);
         chatPanel.setVoiceState('idle');
         chatPanel.setStopVisible(false);
       } else if (command === 'interrupt') {
         // VAD 判定用户插话 或 手动停止的后端回执 → 音频已停（ws-bridge）
-        chatPanel.finalizeStream(finalParts.join(''));
-        finalParts = [];
+        pendingSentences = pendingSentences.filter((s) => s.epoch === streamEpoch);
+        chatPanel.finalizeStream();
         chatPanel.setThinking(false);
         chatPanel.setVoiceState('interrupted');
         chatPanel.setStopVisible(false);
@@ -783,6 +827,7 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     };
     // 后端错误（未配置 Key / LLM / TTS 失败）→ 错误气泡 + Toast，不再静默
     wsBridge.onError = (message) => {
+      pendingSentences = pendingSentences.filter((s) => s.epoch === streamEpoch);
       chatPanel.finalizeStream();
       chatPanel.setThinking(false);
       chatPanel.addMessage({ role: 'error', content: message });
@@ -820,87 +865,6 @@ export async function initApp(containerId: string): Promise<PixiApp> {
   }
 
   return { app, modelLoader, wsBridge, arbiter: pipeline.arbiter };
-}
-
-/**
- * 默认 storage（C-M6）：浏览器 localStorage；node/隐私模式等不可用场景降级 no-op
- * （持久化静默禁用，渲染/交互不受影响）。
- */
-function createDefaultStorage(): Pick<
-  Storage,
-  'getItem' | 'setItem' | 'removeItem'
-> {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      return window.localStorage;
-    }
-  } catch {
-    // 隐私模式等场景访问 localStorage 可能抛 SecurityError → 降级 no-op
-  }
-  return {
-    getItem: () => null,
-    setItem: () => {
-      /* no-op */
-    },
-    removeItem: () => {
-      /* no-op */
-    },
-  };
-}
-
-/** live2d 依赖模块（动态导入缓存） */
-interface Live2dModules {
-  modelLoader: typeof import('./model-loader');
-  camera: typeof import('./camera');
-  idleMotion: typeof import('./idle/idle-motion');
-}
-
-let live2dModulesCache: Live2dModules | null = null;
-
-/**
- * 动态加载 live2d 依赖模块（model-loader / camera / idle-motion）。
- * 这三个模块值导入 pixi-live2d-display（其模块级访问 window）——node/vitest 环境
- * 导入必然失败；这里 try/catch 兜底，Web 环境加载成功后缓存复用。
- */
-async function loadLive2dModules(): Promise<Live2dModules | null> {
-  if (live2dModulesCache) return live2dModulesCache;
-  try {
-    const [modelLoader, camera, idleMotion] = await Promise.allSettled([
-      import('./model-loader'),
-      import('./camera'),
-      import('./idle/idle-motion'),
-    ]);
-    const settled = (
-      r: PromiseSettledResult<unknown>,
-      name: string,
-    ): boolean => {
-      if (r.status === 'fulfilled') return true;
-      console.warn(`[renderer] live2d 依赖模块 "${name}" 加载失败:`, r.reason);
-      return false;
-    };
-    if (
-      !settled(modelLoader, 'model-loader') ||
-      !settled(camera, 'camera') ||
-      !settled(idleMotion, 'idle-motion')
-    ) {
-      return null;
-    }
-    live2dModulesCache = {
-      modelLoader: (modelLoader as PromiseFulfilledResult<
-        typeof import('./model-loader')
-      >).value,
-      camera: (camera as PromiseFulfilledResult<
-        typeof import('./camera')
-      >).value,
-      idleMotion: (idleMotion as PromiseFulfilledResult<
-        typeof import('./idle/idle-motion')
-      >).value,
-    };
-    return live2dModulesCache;
-  } catch (err) {
-    console.error('[renderer] live2d 依赖模块加载失败（渲染不可用）:', err);
-    return null;
-  }
 }
 
 /**

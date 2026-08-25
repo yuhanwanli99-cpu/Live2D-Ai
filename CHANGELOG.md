@@ -162,7 +162,7 @@
 | 跨端一致性 / registry | PASS |
 
 ## 真机冒烟
-- **外部 worker 真实合成 PASS**：用 `/home/administrator/miniconda3/envs/melo/bin/python` 运行 `melo_worker.py`，ZH/cpu 合成 `/tmp/melo_smoke_worker.wav` 成功；再经 `MeloTTSEngine.generate_audio` 端到端生成 `cache/melo_e2e.wav` 成功。
+- **外部 worker 真实合成 PASS**：用 `~/miniconda3/envs/melo/bin/python` 运行 `melo_worker.py`，ZH/cpu 合成 `/tmp/melo_smoke_worker.wav` 成功；再经 `MeloTTSEngine.generate_audio` 端到端生成 `cache/melo_e2e.wav` 成功。
 
 ## 未验证 / 诚实登记
 - **其他语言模型下载**：当前只验证了已缓存的 ZH；EN/ES/FR/JP/KR 首次调用会自动从 hf-mirror 下载，尚未逐个真机合成。
@@ -435,7 +435,7 @@
 
 > **平台定调（用户）：PC 端主力定位 WSL2，**放弃**原生 Windows；项目更名为 `Live2D-Ai`。**
 >
-> - **仓库迁移**：项目从 Windows G 盘 `/mnt/g/git/Live2Dai` 迁移至 **WSL2 原生盘**（`git clone` 保留全部历史，排除可再生成的构建产物），并新增 `backup` remote 指向 G 盘原件。
+> - **仓库迁移**：项目从 Windows G 盘（原 `Live2Dai` 仓库，位于本机旧路径）迁移至 **WSL2 原生盘**（`git clone` 保留全部历史，排除可再生成的构建产物），并新增 `backup` remote 指向原 G 盘仓库。
 > - **更名 Live2D-Ai**：目录 `Live2D-Ai-Android` / `Live2D-Ai-pc`；Kotlin 包 `com.live2dai.android` → `com.live2d.ai.android`（含 JNI `Java_com_live2d_ai_android_*`、Gradle、清单）；标识符 `Live2Dai*` → `Live2DAi*`；文档/标题改为 `Live2D-Ai`。模块/产物 slug `live2dai-*` → `live2d-ai-*`。补充清理：文件名 `Live2DaiApp.kt`→`Live2DAiApp.kt`、`Live2DaiPlugin.kt`→`Live2DAiPlugin.kt`。
 > - **放弃原生 Windows**：移除 PC 端 Windows 启动入口 `Live2D-Ai-pc/start.ps1` / `启动Live2D-Ai.bat`；移除 Windows SAPI 专属依赖 `pyttsx3`（pyproject + requirements）；PC 端新增 **WSL2 主力启动脚本 `Live2D-Ai-pc/start.sh`**（含 venv + 核心依赖自检）。
 > - 保留不变（状态/配置兼容边界）：Android SharedPreferences 键 `live2dai_settings` / `live2dai_ui_mode` / `live2dai_interaction`、记忆库 `live2dai_memory.db`、localStorage 前缀 `live2dai.interaction.`、环境变量 `LIVE2DAI_*`。

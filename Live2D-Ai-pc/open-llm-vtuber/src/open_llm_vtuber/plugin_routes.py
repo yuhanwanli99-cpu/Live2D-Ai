@@ -13,7 +13,10 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
+from .logsetup import get_logger
 from .plugins.manager import PluginManager
+
+_log = get_logger("memory")
 
 _MEMORY_PLUGIN_ID = "memory"
 _FACT_MAX_LEN = 200
@@ -95,17 +98,17 @@ def init_plugin_routes(manager: PluginManager) -> APIRouter:
     # ---------------- 长期记忆可视化管理（/api/memory/*） ----------------
 
     @router.get("/api/memory/facts")
-    async def list_memory_facts():
+    async def list_memory_facts(scope: str = ""):
         plugin = _memory_plugin(manager)
         if plugin is None:
             return _error(404, "记忆插件未加载（memory runtime 不可用）")
         try:
-            return {"ok": True, "facts": list(plugin.list_facts())}
+            return {"ok": True, "facts": list(plugin.list_facts(scope=scope))}
         except Exception as exc:  # noqa: BLE001 - 状态损坏必须可见，不能 500 裸抛
             return _error(500, f"读取记忆失败: {exc}")
 
     @router.post("/api/memory/facts")
-    async def add_memory_fact(req: _FactAddRequest):
+    async def add_memory_fact(req: _FactAddRequest, scope: str = ""):
         fact = (req.fact or "").strip()
         if not fact:
             return _error(422, "fact 不能为空")
@@ -115,33 +118,44 @@ def init_plugin_routes(manager: PluginManager) -> APIRouter:
         if plugin is None:
             return _error(404, "记忆插件未加载（memory runtime 不可用）")
         try:
-            added = bool(plugin.add_fact(fact))
+            added = bool(plugin.add_fact(fact, scope=scope))
         except Exception as exc:  # noqa: BLE001
+            _log.error("memory fact add failed: {}", exc)
             return _error(500, f"写入记忆失败: {exc}")
-        return {"ok": added, "deduplicated": not added, "facts": list(plugin.list_facts())}
+        _log.info("memory fact add: added={} deduplicated={} scope={!r}", added, not added, scope)
+        return {"ok": added, "deduplicated": not added, "facts": list(plugin.list_facts(scope=scope))}
 
     @router.delete("/api/memory/facts/{index}")
-    async def delete_memory_fact(index: int):
+    async def delete_memory_fact(index: int, scope: str = ""):
         plugin = _memory_plugin(manager)
         if plugin is None:
             return _error(404, "记忆插件未加载（memory runtime 不可用）")
         try:
-            removed = plugin.remove_fact(index)
+            removed = plugin.remove_fact(index, scope=scope)
         except Exception as exc:  # noqa: BLE001
+            _log.error("memory fact remove failed: index={} scope={!r}: {}", index, scope, exc)
             return _error(500, f"删除记忆失败: {exc}")
         if not removed:
             return _error(404, f"下标越界: {index}")
-        return {"ok": True, "facts": list(plugin.list_facts())}
+        _log.info("memory fact removed: index={} scope={!r}", index, scope)
+        return {"ok": True, "facts": list(plugin.list_facts(scope=scope))}
 
     @router.delete("/api/memory/facts")
-    async def clear_memory_facts():
+    async def clear_memory_facts(scope: str = ""):
         plugin = _memory_plugin(manager)
         if plugin is None:
             return _error(404, "记忆插件未加载（memory runtime 不可用）")
         try:
-            cleared = int(plugin.clear_facts())
+            # 未提供 scope → 清空全部（全局 + 所有会话 scope），匹配设置页「清空全部」按钮；
+            # 显式 scope → 只清该 scope。
+            if not scope:
+                cleared = int(plugin.clear_all_facts())
+            else:
+                cleared = int(plugin.clear_facts(scope=scope))
         except Exception as exc:  # noqa: BLE001
+            _log.error("memory clear failed: {}", exc)
             return _error(500, f"清空记忆失败: {exc}")
+        _log.info("memory cleared: count={} scope={!r}", cleared, scope)
         return {"ok": True, "cleared": cleared}
 
     # ---------------- 知识库管理（/api/knowledge/*） ----------------

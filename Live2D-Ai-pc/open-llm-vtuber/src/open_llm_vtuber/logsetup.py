@@ -21,12 +21,33 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
 from loguru import logger
 
 _VALID_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+# 高频轮询 GET 端点：其逐请求 access INFO 是纯噪音，INFO 下静默（DEBUG 全放）。
+# 只抑制这些轮询路径，其余 access（含 4xx/5xx 记录）与 app 错误日志均保留。
+_POLLING_PATHS = frozenset({"/api/external/status"})
+
+
+class _DropPollingAccess(logging.Filter):
+    """INFO 下丢弃高频轮询的 GET access 记录；DEBUG 全部放行；错误级别始终放行。"""
+
+    def __init__(self, enabled: bool) -> None:
+        super().__init__("live2d-drops-polling-access")
+        self._enabled = enabled
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not self._enabled or record.levelno >= logging.WARNING:
+            return True
+        m = re.search(r'"(GET|POST) ([^ ]+) HTTP', record.getMessage())
+        if m and m.group(1) == "GET" and m.group(2) in _POLLING_PATHS:
+            return False
+        return True
 
 # 控制台：人读——短时间 + 对齐级别 + 标签 + 消息（彩色由 loguru <tags> 渲染）
 _CONSOLE_FORMAT = (
@@ -113,12 +134,29 @@ def setup_logging(
 
 
 def _tame_uvicorn_access(level: str) -> None:
-    """压制 uvicorn 访问日志逐请求刷屏：非 DEBUG 一律 WARNING 起。
+    """压制 uvicorn 访问日志逐请求刷屏（可重复调用，幂等）。
 
-    访问日志对日常运行是纯噪音（每个 GET 一行）；DEBUG 排障时放开到 INFO。
+    - 非 DEBUG：uvicorn.access 压到 WARNING 起，并额外挂一个轮询端点过滤器
+      （即使 DEBUG 中途放开到 INFO，高频 /api/external/status 等 GET 也不会刷屏）。
+    - DEBUG：uvicorn.access 放开到 INFO；轮询过滤器关闭，全部 access 可见。
     """
     access = logging.getLogger("uvicorn.access")
-    access.setLevel(logging.DEBUG if level == "DEBUG" else logging.WARNING)
+    is_debug = level == "DEBUG"
+    access.setLevel(logging.DEBUG if is_debug else logging.WARNING)
+    # 幂等：移除旧过滤器再挂新（同一实例只挂一个）。
+    for existing in list(access.filters):
+        if isinstance(existing, _DropPollingAccess):
+            access.removeFilter(existing)
+    access.addFilter(_DropPollingAccess(enabled=not is_debug))
+
+
+def apply_uvicorn_access_policy(level: str) -> None:
+    """在 uvicorn 完成其自身 logger 配置之后再调用，重新施加访问日志压制。
+
+    uvicorn.Config(log_level=...) 在服务启动时会覆盖 uvicorn.access 级别，
+    可能冲掉 setup_logging() 的压制；在创建 config/server 之后调用本函数即可兜底。
+    """
+    _tame_uvicorn_access(level)
 
 
 def get_logger(tag: str):

@@ -17,6 +17,8 @@ class SystemConfig(I18nMixin):
     # 独立导演模型配置（PC v4）：留空时复用主对话脑 provider/model。
     director_llm_provider: str | None = Field(None, alias="director_llm_provider")
     director_model: str | None = Field(None, alias="director_model")
+    # 开发者模式：仅 localhost 可访问的调试用 API 与 UI（默认关闭）
+    developer_mode: bool = Field(False, alias="developer_mode")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "conf_version": Description(en="Configuration version", zh="配置文件版本"),
@@ -36,6 +38,10 @@ class SystemConfig(I18nMixin):
         "live2d_fps": Description(
             en="Live2D rendering target frame rate (default 60)",
             zh="Live2D 渲染目标帧率（默认 60）",
+        ),
+        "developer_mode": Description(
+            en="Enable local-only developer tools (default false)",
+            zh="启用仅本地可访问的开发者调试工具（默认关闭）",
         ),
     }
 

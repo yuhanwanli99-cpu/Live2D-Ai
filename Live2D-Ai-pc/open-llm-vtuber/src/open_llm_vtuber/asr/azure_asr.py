@@ -39,7 +39,7 @@ class VoiceRecognition(ASRInterface):
                 speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguages,
                 ",".join(languages),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to initialize Azure Speech Config: {e}")
             raise
 
@@ -60,7 +60,7 @@ class VoiceRecognition(ASRInterface):
             return speechsdk.SpeechRecognizer(
                 speech_config=self.speech_config, audio_config=audio_config
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to create speech recognizer: {e}")
             raise
 
@@ -114,14 +114,14 @@ class VoiceRecognition(ASRInterface):
                     f"Speech Recognition failed: {cancellation_details.reason}"
                 )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Transcription failed: {e}")
             raise
         finally:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"Failed to remove temporary file {temp_file}: {e}")
 
     def transcribe_np(self, audio: np.ndarray) -> str:
@@ -146,7 +146,7 @@ class VoiceRecognition(ASRInterface):
 
             # Run async method synchronously
             return loop.run_until_complete(self.async_transcribe_np(audio))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Transcription failed: {e}")
             raise
 

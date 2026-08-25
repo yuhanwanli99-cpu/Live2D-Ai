@@ -125,7 +125,7 @@ class ProxyMessageQueue:
                         )
                         break
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error in message consumer loop: {e}")
         finally:
             self._running = False
@@ -147,7 +147,7 @@ class ProxyMessageQueue:
                 await self._forward_func(message, sender_id)
             else:
                 logger.warning("No forward function available to process message")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error forwarding message: {e}")
             # If forwarding fails, mark conversation as inactive to allow next message
             self._conversation_active = False

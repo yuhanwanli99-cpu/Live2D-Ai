@@ -1,41 +1,39 @@
 ![](./assets/banner.jpg)
 
-<h1 align="center">Open-LLM-VTuber</h1>
-<h3 align="center">
+<h1 align="center">Live2D-Ai — PC Client</h1>
+<h3 align="center">Open-LLM-VTuber fork · WSL2 / Ubuntu Linux Preview</h3>
 
-[![GitHub release](https://img.shields.io/github/v/release/Open-LLM-VTuber/Open-LLM-VTuber)](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/releases) 
-[![license](https://img.shields.io/github/license/Open-LLM-VTuber/Open-LLM-VTuber)](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/blob/master/LICENSE) 
-[![CodeQL](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/codeql.yml/badge.svg)](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/codeql.yml)
-[![Ruff](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/ruff.yml/badge.svg)](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/ruff.yml)
-[![Docker](https://img.shields.io/badge/Open-LLM-VTuber%2FOpen--LLM--VTuber-%25230db7ed.svg?logo=docker&logoColor=blue&labelColor=white&color=blue)](https://hub.docker.com/r/Open-LLM-VTuber/open-llm-vtuber) 
-[![QQ User Group](https://img.shields.io/badge/QQ_User_Group-792615362-white?style=flat&logo=qq&logoColor=white)](https://qm.qq.com/q/ngvNUQpuKI)
-[![Static Badge](https://img.shields.io/badge/Join%20Chat-Zulip?style=flat&logo=zulip&label=Zulip(dev-community)&color=blue&link=https%3A%2F%2Folv.zulipchat.com)](https://olv.zulipchat.com)
+> ⚠️ **这是一个 fork 说明，不是上游 Open-LLM-VTuber 的官方 README。**
+> 本项目 `Live2D-Ai-pc/open-llm-vtuber/` 是 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)（MIT）的派生分支，加入 Live2D-Ai 的导演半身动作、本地 Melo TTS、分条消息等修改。上游原始代码保留 MIT 许可（见本目录 `LICENSE`）；**Live2D-Ai 在此之上新增/修改的代码按项目根目录 `LICENSE`（AGPL-3.0-only）授权**。第三方组件仍遵循各自许可。
 
-> **📢 v2.0 Development**: We are focusing on Open-LLM-VTuber v2.0 — a complete rewrite of the codebase. v2.0 is currently in its early discussion and planning phase. We kindly ask you to refrain from opening new issues or pull requests for feature requests on v1. To participate in the v2 discussions or contribute, join our developer community on [Zulip](https://olv.zulipchat.com). Weekly meeting schedules will be announced on Zulip. We will continue fixing bugs for v1 and work through existing pull requests.
+## 支持范围（v0.2.0-preview.1）
 
-[![BuyMeACoffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/yi.ting)
-[![](https://dcbadge.limes.pink/api/server/3UDA8YFDXx)](https://discord.gg/3UDA8YFDXx)
+- ✅ 支持：WSL2、Ubuntu/Linux（源码 Preview）
+- ❌ 不支持：原生 Windows、macOS（未测试）、Android（不属于本次发布）
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Open-LLM-VTuber/Open-LLM-VTuber)
+## 公共 Preview 不捆绑、需自行取得
 
-ENGLISH README | [中文 README](./README.CN.md) | [한국어 README](./README.KR.md) | [日本語 README](./README.JP.md)
+1. **Live2D Cubism Web Core**（`live2dcubismcore.min.js`）：专有 Redistributable Code，本发布**不分发**。请从 [Live2D 官方](https://www.live2d.com/)接受 [Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html) 后下载，放入 renderer 加载路径（`renderer/public/libs/`）。
+2. **Live2D 模型**：本发布**不分发任何模型原文件**。例如 `bai`（白-免费版）出自作者发布视频 [BV1NqNFejEeE](https://www.bilibili.com/video/BV1NqNFejEeE/)，需用户自行合法取得后，在设置页「形象 / 背景」→「上传 Live2D 模型 (.zip)」导入。
+3. **API Key 与 TTS/ASR 配置**：本发布**不内置任何共享 / 免费 Key**。请自行从 LLM / TTS / ASR 服务商申请并在设置页或 `.env` 配置。
 
-[Documentation](https://open-llm-vtuber.github.io/docs/quick-start) | [![Roadmap](https://img.shields.io/badge/Roadmap-GitHub_Project-yellow)](https://github.com/orgs/Open-LLM-VTuber/projects/2)
+## 启动
 
-<a href="https://trendshift.io/repositories/27063" target="_blank"><img src="https://trendshift.io/api/badge/repositories/27063" alt="Open-LLM-VTuber%2FOpen-LLM-VTuber | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+```bash
+cd Live2D-Ai-pc/open-llm-vtuber
+uv sync --locked
+cd renderer && npm ci && npm run build && cd ..
+uv run run_server.py
+# 浏览器访问 http://127.0.0.1:12393/
+```
 
-</h3>
+> 未配置 Key / 模型 / Cubism Core 时服务仍可启动并打开设置页；缺失项会在页面或日志中给出可操作的指引。
 
+---
 
-> 常见问题 Common Issues doc (Written in Chinese): https://docs.qq.com/pdf/DTFZGQXdTUXhIYWRq
->
-> User Survey: https://forms.gle/w6Y6PiHTZr1nzbtWA
->
-> 调查问卷(中文): https://wj.qq.com/s2/16150415/f50a/
+### 上游 Open-LLM-VTuber README（历史归档）
 
-
-
-> :warning: This project is in its early stages and is currently under **active development**.
+以下内容为上游 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) 的原 README，仅作历史参考。**其中声明的 Windows/macOS/Linux 全平台支持、Live2D sample models、上游社区/文档链接均描述的是上游项目，不代表本 fork 的 v0.2.0-preview.1 支持范围。**
 
 > :warning: If you want to run the server remotely and access it on a different machine, such as running the server on your computer and access it on your phone, you will need to configure `https`, because the microphone on the front end will only launch in a secure context (a.k.a. https or localhost). See [MDN Web Doc](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia). Therefore, you should configure https with a reverse proxy to access the page on a remote machine (non-localhost).
 
@@ -131,13 +129,20 @@ Checkout the [development guide](https://docs.llmvtuber.com/docs/development-gui
 
 ## 📜 Third-Party Licenses
 
-### Live2D Sample Models Notice
+### Live2D Cubism Web Core & Model Assets
 
-This project includes Live2D sample models provided by Live2D Inc. These assets are licensed separately under the Live2D Free Material License Agreement and the Terms of Use for Live2D Cubism Sample Data. They are not covered by the MIT license of this project.
-
-This content uses sample data owned and copyrighted by Live2D Inc. The sample data are utilized in accordance with the terms and conditions set by Live2D Inc. (See [Live2D Free Material License Agreement](https://www.live2d.jp/en/terms/live2d-free-material-license-agreement/) and [Terms of Use](https://www.live2d.com/eula/live2d-sample-model-terms_en.html)).
-
-Note: For commercial use, especially by medium or large-scale enterprises, the use of these Live2D sample models may be subject to additional licensing requirements. If you plan to use this project commercially, please ensure that you have the appropriate permissions from Live2D Inc., or use versions of the project without these models.
+- **Live2D Cubism Web Core** (`live2dcubismcore.min.js`) is proprietary
+  Redistributable Code owned by Live2D Inc., governed by the
+  [Live2D Proprietary Software License](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html).
+  This fork's PC-only Preview does **not** distribute it; users must obtain it
+  from Live2D's official channel and accept the license before use.
+- Live2D model files (e.g., `bai`) are third-party assets under the model
+  author's custom terms. This Preview does **not** bundle raw model files;
+  users must obtain them lawfully (e.g., from the author's Bilibili release)
+  and import them locally. They are not covered by this fork's license.
+- The upstream Open-LLM-VTuber project may reference Live2D sample models
+  under the Live2D Free Material License; those statements describe the
+  upstream project, not this fork's distribution.
 
 
 ## Contributors

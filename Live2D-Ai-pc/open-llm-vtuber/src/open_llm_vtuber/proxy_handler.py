@@ -61,7 +61,7 @@ class ProxyHandler:
 
                 # Start task to receive messages from server
                 self.server_task = asyncio.create_task(self.forward_server_messages())
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to connect to server: {e}")
                 if self._session:
                     await self._session.close()
@@ -81,10 +81,10 @@ class ProxyHandler:
                     logger.info("Connection lost, attempting to reconnect...")
                     try:
                         await self.connect_to_server()
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.error(f"Reconnection failed: {e}")
                         await asyncio.sleep(5)  # Wait before retry
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Error in connection maintenance: {e}")
                 self.connected = False
                 await asyncio.sleep(5)
@@ -113,7 +113,7 @@ class ProxyHandler:
             try:
                 init_request = {"type": "request-init-config", "client_id": client_id}
                 await self.forward_to_server(init_request, client_id)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to request initialization: {e}")
 
         try:
@@ -140,7 +140,7 @@ class ProxyHandler:
 
         except WebSocketDisconnect:
             await self.handle_client_disconnect(client_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error handling client connection: {e}")
             await self.handle_client_disconnect(client_id)
 
@@ -238,10 +238,10 @@ class ProxyHandler:
                         break
                     elif msg.type == aiohttp.WSMsgType.CLOSED:
                         break
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Error processing server message: {e}")
                     await asyncio.sleep(1)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error forwarding server messages: {e}")
         finally:
             self.connected = False
@@ -285,7 +285,7 @@ class ProxyHandler:
 
             try:
                 await websocket.send_json(message)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Error sending to client {client_id}: {e}")
                 disconnected_clients.append(client_id)
 

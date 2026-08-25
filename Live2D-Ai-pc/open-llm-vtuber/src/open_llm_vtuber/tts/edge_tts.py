@@ -42,7 +42,7 @@ class TTSEngine(TTSInterface):
         try:
             communicate = edge_tts.Communicate(text, self.voice)
             communicate.save_sync(file_name)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"\nError: edge-tts unable to generate audio: {e}")
             logger.critical("It's possible that edge-tts is blocked in your region.")
             return None

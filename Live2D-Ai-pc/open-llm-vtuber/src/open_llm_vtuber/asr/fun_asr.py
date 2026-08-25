@@ -96,7 +96,7 @@ class VoiceRecognition(ASRInterface):
             except ValueError:
                 # Not found in local cache, use original ID
                 pass
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Error occurred while checking '{resolved_id}': {e}")
 
         return final_input_for_automodel

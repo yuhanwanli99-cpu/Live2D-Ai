@@ -1,22 +1,25 @@
-from dataclasses import dataclass, asdict
-from typing import List, Optional
 from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass
 
 
 @dataclass
 class Actions:
     """Represents actions that can be performed alongside text output"""
 
-    expressions: Optional[List[str] | List[int]] = None
-    pictures: Optional[List[str]] = None
-    sounds: Optional[List[str]] = None
-    motion: Optional[str] = None  # M1 §3.4 预锁：motionLabel 别名；M3 从 motionLabel 填充，M8 前端消费
-    parameterOverrides: Optional[dict] = None  # M3 透传：parameterOverrides 无损下发；前端消费属 M6/M8 范围
+    expressions: list[str] | list[int] | None = None
+    pictures: list[str] | None = None
+    sounds: list[str] | None = None
+    motion: str | None = None  # M1 §3.4 预锁：motionLabel 别名；M3 从 motionLabel 填充，M8 前端消费
+    motionStrength: int | None = None  # 导演强度 1/2/3；渲染端映射为确定性动作幅度
+    parameterOverrides: dict | None = None  # 兼容：模型参数绝对值直通
+    # 无预设半身语义意图：headX/gazeX/bodyX 等归一化通道；渲染端按模型真实范围映射。
+    # 口型不进入此字段，继续由 LipSync 单一来源持有。
+    halfBody: dict | None = None
     # 括注动作帧（my-neuro 式"播放位置触发"）：[{"at": float, "motion": str}, ...]
     # at ∈ [0,1) 为所在 TTS 分块的归一化播放进度；由 director.stage_gesture_timeline
     # 解析、conversation_utils 按 split_tts_chunks 切片。存在时前端按进度调度触发，
     # 忽略一次性 motion 字段（避免双重触发）；to_dict() 对 None 自动省略，向后兼容。
-    motionTimeline: Optional[List[dict]] = None
+    motionTimeline: list[dict] | None = None
 
     def to_dict(self) -> dict:
         """Convert Actions object to a dictionary for JSON serialization"""
@@ -29,7 +32,6 @@ class BaseOutput(ABC):
     @abstractmethod
     def __aiter__(self):
         """Make the output iterable"""
-        pass
 
 
 @dataclass
@@ -37,8 +39,8 @@ class DisplayText:
     """Text to be displayed with optional metadata"""
 
     text: str
-    name: Optional[str] = "AI"  # Keep the name field for frontend display
-    avatar: Optional[str] = None
+    name: str | None = "AI"  # Keep the name field for frontend display
+    avatar: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization"""

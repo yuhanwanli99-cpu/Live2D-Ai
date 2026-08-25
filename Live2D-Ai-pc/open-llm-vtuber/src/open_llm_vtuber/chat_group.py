@@ -194,7 +194,7 @@ async def handle_group_operation(
                             }
                         )
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to update invited member {target_uid}: {e}")
 
         else:  # remove operation
@@ -227,7 +227,7 @@ async def handle_group_operation(
                             }
                         )
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to update removed member {target_uid}: {e}")
 
             # Get new group members after operation
@@ -255,7 +255,7 @@ async def handle_group_operation(
                                     }
                                 )
                             )
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.error(f"Failed to update member {member_uid}: {e}")
 
 
@@ -295,5 +295,5 @@ async def broadcast_to_group(
         if member_uid != exclude_uid and member_uid in client_connections:
             try:
                 await client_connections[member_uid].send_text(json.dumps(message))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to broadcast to {member_uid}: {e}")

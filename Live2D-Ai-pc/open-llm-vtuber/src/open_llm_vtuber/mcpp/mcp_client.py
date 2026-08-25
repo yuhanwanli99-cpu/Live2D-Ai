@@ -74,7 +74,7 @@ class MCPClient:
             self.active_sessions[server_name] = session
             logger.info(f"MCPC: Successfully connected to server '{server_name}'.")
             return session
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(f"MCPC: Failed to connect to server '{server_name}': {e}")
             raise RuntimeError(
                 f"MCPC: Failed to connect to server '{server_name}'."

@@ -1,28 +1,29 @@
-from typing import Union, List, Dict, Any, Optional
 import asyncio
 import json
 import os
 import time
-from loguru import logger
-import numpy as np
+from typing import Any
 
-from .conversation_utils import (
-    create_batch_input,
-    process_agent_output,
-    send_conversation_start_signals,
-    process_user_input,
-    finalize_conversation_turn,
-    cleanup_conversation,
-    EMOJI_LIST,
-)
-from .types import WebSocketSend
-from .tts_manager import TTSTaskManager
+import numpy as np
+from loguru import logger
+
+# Import necessary types from agent outputs
+from ..agent.output_types import AudioOutput, SentenceOutput
 from ..chat_history_manager import store_message
 from ..service_context import ServiceContext
 from ..utils.stream_audio import prepare_emotion_payload
-
-# Import necessary types from agent outputs
-from ..agent.output_types import SentenceOutput, AudioOutput
+from .conversation_utils import (
+    EMOJI_LIST,
+    cleanup_conversation,
+    create_batch_input,
+    finalize_conversation_turn,
+    interrupt_conversation,
+    process_agent_output,
+    process_user_input,
+    send_conversation_start_signals,
+)
+from .tts_manager import TTSTaskManager
+from .types import WebSocketSend
 
 
 async def _send_emotion_frame(
@@ -43,6 +44,21 @@ async def _send_emotion_frame(
     await websocket_send(json.dumps(frame))
 
 
+def _memory_scope(context) -> str:
+    """推导长期记忆的 scope 键：优先会话键（不同聊天会话隔离），回退角色身份键。
+
+    缺省空串=全局记忆；有 conf_uid/history_uid 时返回 "<conf_uid>::<history_uid>"，
+    使不同 conversation/session 的长期记忆默认互不串味，同时提供字段供调用方做
+    「全局 / 当前会话」清除语义。
+    """
+    conf = getattr(context, "character_config", None)
+    cfg_uid = getattr(conf, "conf_uid", None) or ""
+    hist_uid = getattr(context, "history_uid", "") or ""
+    if hist_uid:
+        return f"{cfg_uid}::{hist_uid}" if cfg_uid else hist_uid
+    return cfg_uid or ""
+
+
 def _spawn_memory_curation(context, user_text: str, ai_text: str) -> None:
     """派生后台任务执行 LLM 记忆管家（fire-and-forget；失败只记日志）。"""
     curator = getattr(context, "memory_curator", None)
@@ -58,8 +74,12 @@ def _spawn_memory_curation(context, user_text: str, ai_text: str) -> None:
                 return  # 记忆插件未加载 → 无处落盘，静默跳过
             from ..memory_curator import apply_curation
 
-            actions = await curator.curate(user_text, ai_text, inst.list_facts())
-            applied = apply_curation(inst, actions)
+            scope = _memory_scope(context)
+            # 异步往返前捕获写入代次；期间若用户清空/改写记忆（revision 变化）→ 放弃应用。
+            rev = getattr(inst, "revision", None)
+            expected_rev = rev() if callable(rev) else None
+            actions = await curator.curate(user_text, ai_text, inst.list_facts(scope=scope))
+            applied = apply_curation(inst, actions, expected_revision=expected_rev, scope=scope)
             if applied:
                 logger.info(f"记忆管家本轮更新 {applied} 条长期事实")
         except asyncio.CancelledError:
@@ -82,9 +102,17 @@ async def _safe_mood(mood_engine, method: str, *args) -> None:
         logger.warning(f"mood_engine.{method} failed (ignored): {e}")
 
 
-async def _apply_director(context: ServiceContext, output_item) -> None:
+async def _apply_director(
+    context: ServiceContext, output_item, user_text: str = ""
+) -> None:
     """PC v4：把情绪/表情/动作分流到独立导演模型，覆盖主对话脑 actions。
 
+    动作优先级（任务定版）：
+        1. 显式用户动作命令（用户输入里的 点头/摇头/歪头/张望/鞠躬/靠近，
+           带疑问/否定语境保护）——最高，覆盖导演/括注；
+        2. 导演 motion_label（括注时间轴首帧也算导演产物）；
+        3. 情绪映射兜底；
+        4. neutral 克制动作（导演 analyze 已处理，此处不改变）。
     导演不可用/失败时保留主对话脑原有 actions，不阻断说话。
     """
     if not isinstance(output_item, SentenceOutput):
@@ -112,19 +140,46 @@ async def _apply_director(context: ServiceContext, output_item) -> None:
         )
     except Exception:  # noqa: BLE001 - 括注解析失败不阻断导演结果
         timeline = []
+    # 优先级 1：显式用户动作命令覆盖导演与括注——用户明确要求就按用户来。
+    # 命中时清空时间轴（避免前端按时间轴忽略一次性 motion 导致命令不执行），
+    # 强度至少 2 级保证可见。
+    try:
+        from ..director import detect_user_motion_command
+
+        user_cmd = detect_user_motion_command(user_text)
+    except Exception:  # noqa: BLE001 - 命令识别失败退导演结果
+        user_cmd = None
+    if user_cmd:
+        try:
+            result.strength = max(int(result.strength or 2), 2)
+        except (TypeError, ValueError):
+            result.strength = 2
+        result.motion_label = user_cmd
+        timeline = []
     result.motion_timeline = list(timeline)
     if timeline:
         result.motion_label = timeline[0]["motion"]
     if result.motion_label:
         actions.motion = result.motion_label
+        actions.motionStrength = result.strength
+        logger.info(
+            "action payload: motion={} strength={} emotion={} timeline_items={} command={}",
+            result.motion_label,
+            result.strength,
+            result.emotion,
+            len(timeline),
+            bool(user_cmd),
+        )
     if result.parameter_overrides:
         actions.parameterOverrides = result.parameter_overrides
+    if result.half_body:
+        actions.halfBody = result.half_body
     emo_map = getattr(context.live2d_model, "emo_map", {}) or {}
     if result.emotion in emo_map:
         actions.expressions = [emo_map[result.emotion]]
     # 把导演结果挂在 SentenceOutput 上，供 handle_sentence_output 读取后下发
     # 独立 emotion 帧（emotion+strength），否则前端只会收到恒 neutral / 空 overrides。
-    setattr(output_item, "_director_result", result)
+    output_item._director_result = result
 
 
 _CONTINUE_DIALOGUE_PROMPT = (
@@ -190,7 +245,7 @@ async def _consume_extra_agent_stream(
         logger.exception(f"Extra dialogue turn failed: {exc}")
         try:
             await websocket_send(json.dumps({"type": "error", "message": str(exc)}))
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
     return collected, done
 
@@ -254,7 +309,7 @@ async def _get_vision_context(
         else:
             logger.debug("Vision returned no description, using raw input.")
             return input_text
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Vision pipeline error (non-fatal): {e}")
         return input_text
 
@@ -263,10 +318,10 @@ async def process_single_conversation(
     context: ServiceContext,
     websocket_send: WebSocketSend,
     client_uid: str,
-    user_input: Union[str, np.ndarray],
-    images: Optional[List[Dict[str, Any]]] = None,
+    user_input: str | np.ndarray,
+    images: list[dict[str, Any]] | None = None,
     session_emoji: str = np.random.choice(EMOJI_LIST),
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Process a single-user conversation turn
 
@@ -293,6 +348,7 @@ async def process_single_conversation(
     full_response = ""  # Initialize full_response here
     mood_engine = getattr(context, "mood_engine", None)
     _latency_start = time.monotonic()
+    _interrupted = False
 
     try:
         # Send initial signals
@@ -334,6 +390,7 @@ async def process_single_conversation(
             {
                 "text": input_text,
                 "history": list(getattr(context.agent_engine, "_memory", []) or []),
+                "scope": _memory_scope(context),
             },
         )
         if plugin_ctx:
@@ -445,7 +502,8 @@ async def process_single_conversation(
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
                     # PC v4：把表情/动作分析分流到导演模型，覆盖主脑 actions。
-                    await _apply_director(context, output_item)
+                    # 传入原始用户文本，使显式动作命令（点头/摇头等）优先级最高。
+                    await _apply_director(context, output_item, user_text=raw_user_text)
 
                     # PC-L4: 当前 mood 分层传入 TTS（P7 mood_engine 产出；
                     # 每句现取以反映流式 emotion 事件对 mood 的实时影响；异常降级 neutral 不阻断）
@@ -479,7 +537,7 @@ async def process_single_conversation(
                     )
                     logger.debug(f"Unexpected item content: {output_item}")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception(
                 f"Error processing agent response stream: {e}"
             )  # Log with stack trace
@@ -487,7 +545,7 @@ async def process_single_conversation(
                 json.dumps(
                     {
                         "type": "error",
-                        "message": f"Error processing agent response: {str(e)}",
+                        "message": f"Error processing agent response: {e!s}",
                     }
                 )
             )
@@ -545,7 +603,11 @@ async def process_single_conversation(
             _plugin_context(
                 context,
                 "llm.after",
-                {"text": full_response, "user_text": raw_user_text or ""},
+                {
+                    "text": full_response,
+                    "user_text": raw_user_text or "",
+                    "scope": _memory_scope(context),
+                },
             )
             # LLM 记忆管家（异步层）：对照现有事实做增/删/合并，不阻塞返回。
             _spawn_memory_curation(context, raw_user_text, full_response)
@@ -553,15 +615,21 @@ async def process_single_conversation(
         return full_response  # Return accumulated full_response
 
     except asyncio.CancelledError:
+        _interrupted = True
         logger.info(f"🤡👍 Conversation {session_emoji} cancelled because interrupted.")
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error in conversation chain: {e}")
         await websocket_send(
-            json.dumps({"type": "error", "message": f"Conversation error: {str(e)}"})
+            json.dumps({"type": "error", "message": f"Conversation error: {e!s}"})
         )
         raise
     finally:
         # P7-03：对话结束 → mood_engine.stop()（幂等；异常降级不阻塞清理）
         await _safe_mood(mood_engine, "stop")
-        cleanup_conversation(tts_manager, session_emoji)
+        # 取消/打断必须停止播放并丢弃在途合成与待播队列；正常结束才 flush()。
+        if tts_manager is not None:
+            if _interrupted:
+                await interrupt_conversation(tts_manager, session_emoji)
+            else:
+                await cleanup_conversation(tts_manager, session_emoji)

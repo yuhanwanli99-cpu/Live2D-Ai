@@ -113,7 +113,7 @@ async def process_agent_output(
             full_response = await handle_audio_output(output, websocket_send)
         else:
             logger.warning(f"Unknown output type: {type(output)}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error processing agent output: {e}")
         await websocket_send(
             json.dumps(
@@ -234,6 +234,14 @@ async def handle_sentence_output(
 
         for i, tts_chunk in enumerate(tts_chunks):
             chunk_actions = base_actions
+            # 一次性 motion 只挂句首首个 audio payload，避免同一动作每个 chunk 重复触发；
+            # motionTimeline（括注播放位置触发）不受影响，仍按块携带。
+            if (
+                i > 0
+                and chunk_actions is not None
+                and getattr(chunk_actions, "motion", None) is not None
+            ):
+                chunk_actions = replace(chunk_actions, motion=None)
             if base_actions is not None and per_chunk_cues[i]:
                 chunk_actions = replace(base_actions, motionTimeline=list(per_chunk_cues[i]))
             await tts_manager.speak(
@@ -366,10 +374,20 @@ async def send_conversation_end_signal(
     logger.info(f"😎👍✅ Conversation Chain {session_emoji} completed!")
 
 
-def cleanup_conversation(tts_manager: TTSTaskManager, session_emoji: str) -> None:
-    """Clean up conversation resources"""
-    tts_manager.clear()
-    logger.debug(f"🧹 Clearing up conversation {session_emoji}.")
+async def cleanup_conversation(tts_manager: TTSTaskManager, session_emoji: str) -> None:
+    """Clean up conversation resources for normal completion.
+
+    Normal completion waits for all queued TTS tasks to finish and ensures
+    ordered delivery completes (flush).  Do not use this for interruption.
+    """
+    await tts_manager.flush()
+    logger.debug(f"🧹 Flushed conversation {session_emoji}.")
+
+
+async def interrupt_conversation(tts_manager: TTSTaskManager, session_emoji: str) -> None:
+    """Interrupt conversation: stop playback, cancel in-flight synthesis, drop queued payloads."""
+    await tts_manager.interrupt()
+    logger.debug(f"🛑 Interrupted conversation {session_emoji}.")
 
 
 EMOJI_LIST = [

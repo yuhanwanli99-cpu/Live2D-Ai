@@ -216,6 +216,3 @@ export class BlinkStateMachine {
     return openDurationMin + Math.random() * (openDurationMax - openDurationMin);
   }
 }
-
-/** 任务别名（SOP 派发 prompt 使用 BlinkController，契约 §6.1 类名为 BlinkStateMachine） */
-export const BlinkController = BlinkStateMachine;

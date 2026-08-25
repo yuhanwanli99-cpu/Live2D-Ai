@@ -23,22 +23,45 @@ class FakeLLM:
 class FakeMemory:
     def __init__(self, facts=None):
         self._facts = list(facts or [])
+        self._scopes = {}
+        self._revision = 0
 
-    def list_facts(self):
-        return list(self._facts)
+    def _facts_for(self, scope):
+        return self._facts if not scope else self._scopes.setdefault(scope, [])
 
-    def add_fact(self, fact):
+    def revision(self):
+        return self._revision
+
+    def _touch(self):
+        self._revision += 1
+
+    def list_facts(self, scope=""):
+        return list(self._facts_for(scope))
+
+    def add_fact(self, fact, scope=""):
         fact = (fact or "").strip()
-        if not fact or fact in self._facts:
+        facts = self._facts_for(scope)
+        if not fact or fact in facts:
             return False
-        self._facts.append(fact)
+        facts.append(fact)
+        self._touch()
         return True
 
-    def remove_fact(self, index):
-        if 0 <= index < len(self._facts):
-            self._facts.pop(index)
+    def remove_fact(self, index, scope=""):
+        facts = self._facts_for(scope)
+        if 0 <= index < len(facts):
+            facts.pop(index)
+            self._touch()
             return True
         return False
+
+    def clear_facts(self, scope=""):
+        facts = self._facts_for(scope)
+        n = len(facts)
+        facts.clear()
+        if n:
+            self._touch()
+        return n
 
 
 def _curate(chunks, user_text, ai_text, facts=None):
@@ -112,3 +135,50 @@ def test_prompt_contains_existing_facts_and_dialogue():
     prompt = llm.last_messages[0]["content"]
     assert "- 事实A" in prompt and "- 事实B" in prompt
     assert "用户：用户说" in prompt and "AI：AI 答" in prompt
+
+
+def test_apply_curation_with_matching_revision_applies():
+    """expected_revision 与当前一致（期间无清空/改写）→ 正常应用。"""
+    inst = FakeMemory(["旧称呼"])
+    rev = inst.revision()
+    applied = apply_curation(
+        inst,
+        [{"action": "add", "fact": "新称呼南凉"}],
+        expected_revision=rev,
+    )
+    assert applied == 1
+    assert inst.list_facts() == ["旧称呼", "新称呼南凉"]
+
+
+def test_apply_curation_stale_revision_aborted():
+    """查询快照后发生清空 → revision 不匹配 → 放弃写入，避免已删事实复活。"""
+    inst = FakeMemory(["主人叫小白"])
+    rev_before = inst.revision()
+    inst.clear_facts()  # 期间清空 → revision 变化
+    assert inst.revision() != rev_before
+
+    applied = apply_curation(
+        inst,
+        [{"action": "add", "fact": "主人叫小白"}],
+        expected_revision=rev_before,
+    )
+    assert applied == 0
+    assert inst.list_facts() == []
+
+
+def test_apply_curation_scoped_isolated():
+    """管家在会话 scope 上增删，不影响全局或其它会话。"""
+    inst = FakeMemory()
+    inst.add_fact("全局事实")
+    applied = apply_curation(
+        inst,
+        [
+            {"action": "add", "fact": "会话A事实"},
+            {"action": "remove", "fact": "会话A旧"},
+        ],
+        scope="char::sA",
+    )
+    # 会话A pre 有「会话A旧」吗？没有 → remove 匹配不到不计；只有 add 生效
+    assert applied == 1
+    assert inst.list_facts(scope="char::sA") == ["会话A事实"]
+    assert inst.list_facts() == ["全局事实"]  # 全局不受影响

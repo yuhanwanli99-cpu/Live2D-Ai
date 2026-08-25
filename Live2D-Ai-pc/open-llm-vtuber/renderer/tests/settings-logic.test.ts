@@ -193,4 +193,17 @@ describe('collectPayload', () => {
     expect(p.port).toBeUndefined();
     expect(p.live2d_fps).toBeUndefined();
   });
+
+  it('developer_mode 显式 boolean 才上送；未定义不改旧行为', () => {
+    const p0 = collectPayload(baseUi());
+    expect(p0.developer_mode).toBeUndefined(); // 缺省不上送
+
+    const on = baseUi();
+    on.system.developer_mode = true;
+    expect(collectPayload(on).developer_mode).toBe(true);
+
+    const off = baseUi();
+    off.system.developer_mode = false;
+    expect(collectPayload(off).developer_mode).toBe(false); // 显式关闭也要落盘
+  });
 });

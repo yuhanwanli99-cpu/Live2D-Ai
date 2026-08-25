@@ -209,7 +209,7 @@ class TTSTaskManager:
                         task.cancel()
                 try:
                     await asyncio.gather(*self.task_list, return_exceptions=True)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
                 self.task_list.clear()
 
@@ -232,7 +232,7 @@ class TTSTaskManager:
             self._sender_task.cancel()
             try:
                 await self._sender_task
-            except (asyncio.CancelledError, Exception):
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
             self._sender_task = None
 
@@ -257,7 +257,7 @@ class TTSTaskManager:
             self._sender_task.cancel()
             try:
                 await self._sender_task
-            except (asyncio.CancelledError, Exception):
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
             self._sender_task = None
 
@@ -364,7 +364,7 @@ class TTSTaskManager:
             # Queue the payload with its sequence number
             await self._enqueue_payload(payload, sequence_number)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error preparing audio payload: {e}")
             # Queue silent payload for error case
             payload = prepare_audio_payload(
@@ -382,7 +382,7 @@ class TTSTaskManager:
             if audio_file_path and self._tts_engine is not None:
                 try:
                     self._tts_engine.remove_file(audio_file_path)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
                 logger.debug("Audio cache file cleaned.")
 
@@ -399,7 +399,7 @@ class TTSTaskManager:
         """
         try:
             return await self._generate_audio(tts_engine, text, instruction=instruction)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(
                 f"TTS generation failed (attempt 1/2), retrying once: {e}"
             )

@@ -110,14 +110,14 @@ export class BodyMotionPlayer {
     };
   }
 
-  /** 播放一个半身动作。idle/未知动作 = 立即 release。 */
-  play(gesture: string | undefined | null): void {
+  /** 播放一个半身动作。idle/未知动作 = 立即 release；intensity 以 0.5 为中心缩放。 */
+  play(gesture: string | undefined | null, intensity = 1): void {
     const key = resolveBodyGesture(gesture);
     if (key === 'idle') {
       this.release();
       return;
     }
-    this.writeParams(BODY_GESTURE_PARAMS[key]);
+    this.writeParams(BODY_GESTURE_PARAMS[key], intensity);
     this.state = {
       gesture: key,
       startedAt: this.options.now(),
@@ -150,9 +150,11 @@ export class BodyMotionPlayer {
     return this.state?.gesture ?? null;
   }
 
-  private writeParams(params: ParameterOverrides): void {
+  private writeParams(params: ParameterOverrides, intensity = 1): void {
     const now = this.options.now();
-    for (const [paramId, value] of Object.entries(params)) {
+    const gain = Math.min(1.2, Math.max(0.4, Number.isFinite(intensity) ? intensity : 1));
+    for (const [paramId, rawValue] of Object.entries(params)) {
+      const value = Math.min(1, Math.max(0, 0.5 + (rawValue - 0.5) * gain));
       this.arbiter.write({
         source: ParamSource.LiveEvent,
         paramId,
@@ -160,6 +162,7 @@ export class BodyMotionPlayer {
         mode: 'set',
         fadeMs: this.options.fadeMs,
         timestamp: now,
+        valueSpace: 'normalized',
       });
     }
   }

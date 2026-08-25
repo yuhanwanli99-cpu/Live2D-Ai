@@ -79,11 +79,11 @@ class TTSEngine(TTSInterface):
                                     hex_audio = data["data"]["audio"]
                                     decoded = bytes.fromhex(hex_audio)
                                     audio += decoded
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001
                             logger.error(f"Failed to parse audio chunk: {e}")
             with open(file_name, "wb") as f:
                 f.write(audio)
             return file_name
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Exception in minimax_tts generate_audio: {e}")
             return None

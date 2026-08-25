@@ -13,7 +13,11 @@ import logging
 import pytest
 from loguru import logger
 
-from open_llm_vtuber.logsetup import get_logger, setup_logging
+from open_llm_vtuber.logsetup import (
+    apply_uvicorn_access_policy,
+    get_logger,
+    setup_logging,
+)
 
 
 @pytest.fixture()
@@ -87,3 +91,54 @@ def test_unbound_records_use_app_tag(log_env):
     setup_logging(level="DEBUG", log_dir=log_env / "logs")
     logger.info("未绑定标签的记录")
     assert "| app     |" in _read_log(log_env)
+
+
+def test_polling_access_filtered_under_info():
+    """INFO 下：/api/external/status 轮询 access 记录被过滤器丢弃；其它 access 放行。"""
+    from open_llm_vtuber.logsetup import _DropPollingAccess
+
+    flt = _DropPollingAccess(enabled=True)
+    logging.getLogger("uvicorn.access").addFilter(flt)
+    try:
+        access = logging.getLogger("uvicorn.access")
+        poll = access.makeRecord(
+            "uvicorn.access", logging.INFO, __file__, 1,
+            '127.0.0.1:49160 - "GET /api/external/status HTTP/1.1" 200 OK',
+            (), None,
+        )
+        keep = access.makeRecord(
+            "uvicorn.access", logging.INFO, __file__, 1,
+            '127.0.0.1:49160 - "GET /api/config HTTP/1.1" 200 OK',
+            (), None,
+        )
+        assert flt.filter(poll) is False
+        assert flt.filter(keep) is True
+    finally:
+        logging.getLogger("uvicorn.access").removeFilter(flt)
+
+
+def test_polling_access_kept_under_debug():
+    """DEBUG 下轮询 access 记录放行。"""
+    from open_llm_vtuber.logsetup import _DropPollingAccess
+
+    flt = _DropPollingAccess(enabled=False)
+    access = logging.getLogger("uvicorn.access")
+    poll = access.makeRecord(
+        "uvicorn.access", logging.INFO, __file__, 1,
+        '127.0.0.1:49160 - "GET /api/external/status HTTP/1.1" 200 OK',
+        (), None,
+    )
+    assert flt.filter(poll) is True
+
+
+def test_apply_uvicorn_access_policy_reaplies_tame(log_env):
+    """uvicorn 重置 uvicorn.access 后，apply 能重新压回 WARNING（对应用户看到的刷屏根因）。"""
+    from open_llm_vtuber.logsetup import apply_uvicorn_access_policy
+
+    access = logging.getLogger("uvicorn.access")
+    access.setLevel(logging.INFO)  # 模拟 uvicorn.Config(log_level=info) 重置
+    apply_uvicorn_access_policy("INFO")
+    assert access.level == logging.WARNING
+    assert any(
+        isinstance(f, type(None)) is False for f in access.filters
+    )

@@ -1,6 +1,6 @@
 # CREDITS — Third-Party Dependencies and Licenses
 
-Live2D-Ai's own code is released under the [AGPL-3.0 license with a commercial authorization requirement](LICENSE).
+Live2D-Ai's own code is released under [AGPL-3.0-only](LICENSE). Commercial use is permitted under AGPL; a separate commercial license is an optional alternative for proprietary use without AGPL obligations.
 This project uses several third-party components with their own licenses, as listed below.
 
 ---
@@ -86,10 +86,11 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 
 ## 4b. Live2D Model — 白 (Bai Free)
 
-**Source:** Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/（Android: Live2D-Ai-Android/app/src/main/assets/live2d/bai/）
+**Official source:** https://www.bilibili.com/video/BV1NqNFejEeE/
+**Development locations:** Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/（Android: Live2D-Ai-Android/app/src/main/assets/live2d/bai/）
 **License:** 模型作者自定义使用条约（非 MIT / 非 AGPL）
 **Copyright:** 模型作者保留，按作者声明执行
-**License file:** MODEL_LICENSE.md（随模型目录分发）
+**Public Preview distribution:** 不捆绑模型原文件；用户从作者渠道取得后自行导入
 
 作者声明要点：
 - 允许盈利直播使用
@@ -99,7 +100,8 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 - 如恶意使用本模型，创作者有权收回使用授权
 
 > **⚠️ 许可隔离：** 该模型资源不适用本项目代码的 AGPL-3.0 许可，也不得
-> 被重新授权为 MIT/AGPL。模型文件须随附 MODEL_LICENSE.md。
+> 被重新授权为 MIT/AGPL。现有条约未明确授予公开 Git 原文件再分发权，因此
+> PC-only Preview 公共发布树排除模型二进制和纹理。
 
 ---
 
@@ -237,6 +239,17 @@ All **MIT compatible** ✅
 
 ---
 
+## 13. PC Renderer Dependencies
+
+| Dependency | License | Notes |
+|---|---|---|
+| `pixi.js` | MIT | PC renderer 2D 引擎 |
+| `pixi-live2d-display-lipsyncpatch` | MIT | 上游 [pixi-live2d-display](https://github.com/guansss/pixi-live2d-display) 的 lipsync fork（`0.5.0-ls-8`，作者 RaSan147） |
+| `@soullink-emotion/engine` / `profile-generator` / `planner-openai` | MIT | `0.1.0-beta.1`，soullink 表演引擎（见 PLAN-V3） |
+| **Live2D Cubism Web Core** (`live2dcubismcore.min.js`) | **Live2D Proprietary** | **PC-only Preview 不分发**。用户从 [Live2D 官方](https://www.live2d.com/)接受专有许可后自行下载，放进 renderer 加载路径。不适用项目 AGPL-3.0。 |
+
+---
+
 ## License Compatibility Summary
 
 | Component | Its License | MIT Compatible? | Notes |
@@ -244,6 +257,7 @@ All **MIT compatible** ✅
 | Purism Core (`cpp/purism/`) | MIT | ✅ Yes | Same license |
 | Shaders (`assets/shaders/`) | **Live2D Open Software License** | ❌ **No** | Cannot relicense under MIT |
 | Cubism SDK AAR (`libs/*.aar`) | **Live2D Proprietary** | ❌ **No** | Not bundled; user must accept separately |
+| **Live2D Cubism Web Core** (PC, `live2dcubismcore.min.js`) | **Live2D Proprietary** | ❌ **No** | **Preview 不分发**；用户自行从 Live2D 官方取得并接受许可 |
 | niziiro_mao model | **Live2D Free Material License** | ❌ **No** | Official Niziiro Mao (PRO Version); ReadMe 双端已补 |
 | shizuku model | ~~Live2D Free Material License~~ | 🗑️ Removed (K1) | 已删除，不再分发 |
 | Open-LLM-VTuber (PC fork) | MIT | ✅ | Fork 上游；LICENSE 保留于 `Live2D-Ai-pc/open-llm-vtuber/LICENSE` |

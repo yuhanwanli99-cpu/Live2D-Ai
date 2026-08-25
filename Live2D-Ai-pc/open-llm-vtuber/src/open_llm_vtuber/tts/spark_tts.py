@@ -38,7 +38,7 @@ class TTSEngine(TTSInterface):
                     )
                     shutil.copyfile(source_file, file_name)
                     return file_name
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.critical(f"Error: Failed to generate audio. {e}")
                     return None
             case "voice_creation":
@@ -52,7 +52,7 @@ class TTSEngine(TTSInterface):
                     )
                     shutil.copyfile(source_file, file_name)
                     return file_name
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.critical(f"Error: Failed to generate audio. {e}")
                     return None
             case _:

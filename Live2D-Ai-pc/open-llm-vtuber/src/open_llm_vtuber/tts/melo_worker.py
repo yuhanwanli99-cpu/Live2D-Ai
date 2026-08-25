@@ -32,7 +32,7 @@ import traceback
 _MODELS: dict = {}
 _MAX_TEXT_LEN = int(os.environ.get("MELO_MAX_TEXT_LEN", "200"))
 _MAX_SENTENCES = int(os.environ.get("MELO_MAX_SENTENCES", "4"))
-_SENTENCE_END_RE = re.compile(r"[.!?。！？…\n]")
+_SENTENCE_END_RE = re.compile(r"[.!?。！？…\n]+")
 
 
 def _count_sentences(text: str) -> int:

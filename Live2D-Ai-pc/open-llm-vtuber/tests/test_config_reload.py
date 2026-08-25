@@ -64,3 +64,37 @@ def test_init_tts_reinitializes_on_config_change(monkeypatch):
     # 同配置重复调用不应再次重建
     ctx.init_tts(melo_cfg)
     assert calls == ["edge_tts", "melo_tts"]
+
+
+def test_init_tts_failure_does_not_crash_server(monkeypatch):
+    """TTS 引擎构造失败时服务仍应启动，tts_engine 为 None 并给出降级提示。"""
+
+    def fake_get_tts_engine_failing(engine_type, **kwargs):
+        raise RuntimeError("mock melo environment missing")
+
+    monkeypatch.setattr(
+        tts_factory.TTSFactory, "get_tts_engine", fake_get_tts_engine_failing
+    )
+
+    ctx = ServiceContext()
+    ctx.character_config = types.SimpleNamespace(tts_config=None)
+
+    melo_cfg = TTSConfig.model_validate(
+        {
+            "tts_model": "melo_tts",
+            "melo_tts": {
+                "language": "ZH",
+                "device": "cpu",
+                "speaker": None,
+                "speed": 1.0,
+                "sdp_ratio": 0.2,
+                "noise_scale": 0.6,
+                "noise_scale_w": 0.8,
+                "format": "wav",
+            },
+        }
+    )
+    ctx.init_tts(melo_cfg)
+
+    assert ctx.tts_engine is None
+    assert ctx._last_tts_config == melo_cfg

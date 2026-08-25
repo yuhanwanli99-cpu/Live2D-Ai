@@ -3,15 +3,17 @@
  *
  * 消费的消息类型（对齐 types.ts WsMessage）：
  *   "set-model-and-conf" → onModelChange(model_info)           （RM7-01）
- *   "audio"              → lipSync.play(volumes, visemes, slice_length)（RM7-02）
- *                          + emotionConsumer.consume(actions.parameterOverrides)（RM7-03）
- *                          + onSubtitle(display_text)
- *                          + 半身动作：actions.motionTimeline 存在时挂播放进度调度器
- *                            （motion-timeline.ts，播放到对应位置才 bodyMotion.play），
- *                            否则退回旧行为（到达即播 actions.motion）
- *   "subtitle"           → onSubtitle(display_text)（LLM 句子切出后先于 audio 上屏）
- *   "emotion"            → emotionConsumer.consumeFrame(frame)（emotion+strength+overrides）
+ *   "audio"              → 入队 WAV；真正 play() 成功后启动 lipSync（RM7-02）
+ *   "subtitle"           → onSubtitle(display_text)（句子级权威文本）
+ *   "emotion"            → emotionConsumer.consumeFrame(frame)
  *   未知 type            → 忽略（try/catch 兜底，不崩溃，RM7-04）
+ *
+ * 音频生命周期与 epoch 隔离：
+ *   - 每轮用户输入 / 打断 / 新建会话启动一个新 epoch；
+ *   - 旧 epoch 已入队但未 drain 的 WS 消息、已入队但未播放的音频会被丢弃；
+ *   - 旧 epoch 的音频即使已经调用 play()，在 play Promise resolve 前 epoch 已变，
+ *     也会被忽略；
+ *   - 停止或音频自然结束时 lipSync.stop() 释放嘴型。
  *
  * 断线自动重连：指数退避（1s 起 ×2，封顶 30s，RM7-05）；手动 disconnect() 不重连。
  */
@@ -19,6 +21,7 @@ import { LipSync, VisemeFrame } from './lip-sync';
 import { EmotionConsumer } from './emotion-consumer';
 import { BodyActionPlayer } from './choreography';
 import { MotionTimelineScheduler } from './motion-timeline';
+import { HalfBodyController } from './halfbody-controller';
 import type { HistoryEntry, HistoryMessage } from './history';
 import type { DisplayText, EmotionMessage, ModelInfo, MotionCue } from './types';
 import type { LiveEventPayload } from './live-event';
@@ -27,17 +30,22 @@ import type { LiveEventPayload } from './live-event';
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 
-/** WAV 播放队列项：音频元素 + 该块的括注动作时间轴 + 句首标记（字幕同步用） */
+/** WAV 播放队列项：音频元素 + 该块的括注动作时间轴 + 句首标记 + epoch */
 interface QueuedAudio {
   el: HTMLAudioElement;
   timeline: MotionCue[];
   startsSentence: boolean;
+  epoch: number;
+  volumes: number[];
+  visemes: VisemeFrame[];
+  sliceLength: number;
+  displayText?: DisplayText | null;
 }
 
 export class WsBridge {
   /** 模型切换回调（"set-model-and-conf" → model_info） */
   onModelChange: ((modelInfo: ModelInfo) => void) | null = null;
-  /** 字幕回调（"audio" → display_text） */
+  /** 字幕回调（"audio" → display_text / "subtitle"） */
   onSubtitle: ((text: DisplayText) => void) | null = null;
   /**
    * 外部文字注入回调（"external-input" → 后端把外部程序发来的那句话回显给前端，
@@ -49,7 +57,6 @@ export class WsBridge {
   /**
    * 后端错误回调（`{"type":"error","message":...}`）。
    * 典型来源：未配置 API Key（占位 LLM 的配置指引）、LLM/TTS 上游失败。
-   * 此前前端完全忽略该消息类型，用户只看到"角色不说话"（见调研 P1-6）。
    */
   onError: ((message: string) => void) | null = null;
   /** 历史消息回灌（`history-data`：连接时自动恢复上文，或用户切换会话后） */
@@ -71,13 +78,10 @@ export class WsBridge {
   /**
    * 控制消息（`{"type":"control","text":...}`）。
    * 后端一直在发（`start-mic` / `interrupt`（VAD 打断）/ `mic-audio-end` /
-   * `conversation-chain-end`），但前端此前**完全忽略** control —— 这就是
-   * 「语音链路与 VAD 打断对用户不可见」的根因（调研 P0-2）。
+   * `conversation-chain-end`）。
    */
   onControl: ((text: string) => void) | null = null;
 
-  /** 最近上屏过的字幕文本（环形小窗口）；用于跳过 audio.display_text 的重复上屏 */
-  private _recentSubtitleTexts: string[] = [];
   /** 连接状态回调（onopen/onclose，聊天面板状态指示用） */
   onConnectionChange: ((connected: boolean) => void) | null = null;
   /** TTS 播放状态回调（播放中/空闲） */
@@ -86,26 +90,31 @@ export class WsBridge {
   onEmotionFrame: ((emotion: string, strength: number) => void) | null = null;
   /** 括注 cue 到点转发（动作名 → 表演重音意图） */
   onCue: ((motion: string) => void) | null = null;
+  /** 开发者模式动作注入（localhost-only） */
+  onDevAction: ((action: string, strength: number) => void) | null = null;
   /** 音频片转发（volumes+sliceLength → 引擎口型拉模型） */
   onAudioSlices: ((volumes: number[], sliceLengthMs?: number) => void) | null = null;
   /**
    * 句首音频块开播回调（字幕-声音同步）：每句第一个音频块真正开始播放时触发。
-   * 聊天面板用它把已积累的干净句子文本收尾上屏——对话与声音同步出现；
+   * 聊天面板用它把已积累的干净句子文本上屏为独立消息；
    * 静默帧（无音频可播）也会立即触发一次（对话提早出）。
    */
   onSentenceSpoken: (() => void) | null = null;
   /** 直播/弹幕事件回调（后端 POST /api/live/event 广播后触发） */
   onLiveEvent: ((payload: LiveEventPayload) => void) | null = null;
 
+  /** 最近上屏过的字幕文本（环形小窗口）；用于跳过 audio.display_text 的重复上屏 */
+  private _recentSubtitleTexts: string[] = [];
+
   private url: string;
   private ws: WebSocket | null = null;
   private emotionConsumer: EmotionConsumer | null = null;
   private bodyMotion: BodyActionPlayer | null = null;
+  private halfBody: HalfBodyController | null = null;
   private lipSync: LipSync | null = null;
   /**
    * 括注动作帧调度器（my-neuro 式）：actions.motionTimeline 存在时，把动作挂到
-   * 正在播放的音频元素上，播放到对应进度才 bodyMotion.play —— 替代旧的
-   * "audio 帧到达即整句一次性触发"。
+   * 正在播放的音频元素上，播放到对应进度才 bodyMotion.play。
    */
   private motionScheduler = new MotionTimelineScheduler((motion) => {
     this.bodyMotion?.play(motion);
@@ -115,8 +124,34 @@ export class WsBridge {
   private reconnectTimer: number | null = null;
   private manuallyClosed = false;
 
+  /** 当前会话 epoch；startEpoch() 递增 */
+  private epoch = 0;
+  /**
+   * 已收到但尚未 drain 的 WS 消息队列。
+   * 使用微任务批量处理，以便 startEpoch() 能原子地清空旧 epoch 消息。
+   */
+  private pendingMessages: unknown[] = [];
+  private drainingMessages = false;
+
   constructor(url: string) {
     this.url = url;
+  }
+
+  /** 返回当前 epoch（main.ts 用于与本地 pending 字幕对齐） */
+  getEpoch(): number {
+    return this.epoch;
+  }
+
+  /**
+   * 启动新 epoch：丢弃旧消息/音频，停止播放与口型。
+   * 在 sendText 前、sendInterrupt、新建/切换会话时调用。
+   */
+  startEpoch(): number {
+    this.epoch++;
+    this.pendingMessages.length = 0;
+    this.audioQueue.length = 0;
+    this.stopAudio();
+    return this.epoch;
   }
 
   /** 建立 WebSocket 连接并挂接消息分发 */
@@ -167,10 +202,9 @@ export class WsBridge {
   }
 
   /**
-   * 发送聊天文本（spoq-fix：PC 端对话框）。
-   * 后端 WS 协议：{"type":"text-input","text":...}（proxy_handler / ws_utils 处理）。
-   * 未连接时静默丢弃（聊天面板应提示未连接）。
-   * @returns 是否已发送（false = 未连接）
+   * 发送聊天文本。
+   * 注意：epoch 管理由调用方（main.ts）在 sendText 前显式调用 startEpoch() 负责，
+   * 这里不再重复启动 epoch，避免双击发送时状态错乱。
    */
   sendText(text: string): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -183,6 +217,11 @@ export class WsBridge {
   /** 是否已建立连接（readyState === WebSocket.OPEN） */
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === 1; // 1 = WebSocket.OPEN
+  }
+
+  /** 当前半身动作（dev console 状态显示用） */
+  currentBodyGesture(): string | null {
+    return this.bodyMotion?.currentGesture() ?? null;
   }
 
   /** 发送一条控制消息（未连接时静默丢弃，返回是否已发送） */
@@ -238,9 +277,9 @@ export class WsBridge {
     return this.send({ type: 'mic-audio-end' });
   }
 
-  /** 主动打断当前发言（用户插话；后端取消本轮任务） */
+  /** 主动打断当前发言（用户插话；后端取消本轮任务）。启动新 epoch 丢弃旧音频。 */
   sendInterrupt(heardResponse = ''): boolean {
-    this.stopAudio();
+    this.startEpoch();
     return this.send({ type: 'interrupt-signal', text: heardResponse });
   }
 
@@ -252,6 +291,11 @@ export class WsBridge {
   /** 设置半身动作播放器（对话 actions.motion → bodyMotion.play） */
   setBodyMotion(player: BodyActionPlayer): void {
     this.bodyMotion = player;
+  }
+
+  /** 设置无预设半身语义控制器。 */
+  setHalfBodyController(controller: HalfBodyController): void {
+    this.halfBody = controller;
   }
 
   /** 设置口型驱动（RM5） */
@@ -276,59 +320,79 @@ export class WsBridge {
       return;
     }
     const item = this.audioQueue.shift()!;
+    if (item.epoch !== this.epoch) {
+      // 旧 epoch 音频直接跳过
+      this.playAudioQueue();
+      return;
+    }
     const el = item.el;
     this.audioPlaying = true;
     this.currentAudio = el;
-    if (item.startsSentence) this.onSentenceSpoken?.();
     this.onTtsStatus?.('🔊 播放中');
     console.debug(`[LATENCY] play_start_ms=${performance.now().toFixed(0)}`);
+
+    const finish = (dropLipSync: boolean): void => {
+      if (dropLipSync) this.lipSync?.stop();
+      this.motionScheduler.cancel();
+      this.audioPlaying = false;
+      this.currentAudio = null;
+      this.playAudioQueue();
+    };
+
+    el.onended = () => finish(true);
+    el.onerror = () => {
+      console.warn('[ws-bridge] 音频播放失败（跳过）');
+      finish(true);
+    };
+
     try {
       // 提前预加载下一段，减少句间解码等待
       if (this.audioQueue.length > 0) {
         this.audioQueue[0].el.preload = 'auto';
       }
-      el.onended = () => {
-        this.motionScheduler.cancel();
-        this.audioPlaying = false;
-        this.playAudioQueue();
-      };
-      el.onerror = () => {
-        console.warn('[ws-bridge] 音频播放失败（跳过）');
-        this.motionScheduler.cancel();
-        this.audioPlaying = false;
-        this.playAudioQueue();
-      };
       void el
         .play()
         .then(() => {
-          // 括注动作帧：挂到真实播放进度上，播放到对应位置才触发半身动作
+          if (item.epoch !== this.epoch) {
+            // epoch 已变：停止该音频并继续处理新 epoch 队列
+            try {
+              el.pause();
+              el.currentTime = 0;
+            } catch (err) {
+              console.warn('[ws-bridge] 停止旧 epoch 音频失败（忽略）:', err);
+            }
+            finish(true);
+            return;
+          }
+          if (item.startsSentence) this.onSentenceSpoken?.();
+          // 口型/音频片只在真实播放后启动
+          if (item.volumes.length > 0) {
+            this.lipSync?.play(item.volumes, item.visemes, item.sliceLength);
+            this.onAudioSlices?.(item.volumes, item.sliceLength);
+          }
+          // 括注动作帧：挂到真实播放进度上
           if (item.timeline.length > 0) {
             this.motionScheduler.start(el, item.timeline);
           }
         })
         .catch((err) => {
-          // 浏览器自动播放策略拦截：首次交互后才会放行（用户点过聊天框后 OK）
+          // 浏览器自动播放策略拦截：首次交互后才会放行
           console.warn('[ws-bridge] 音频自动播放被拦截（浏览器策略）:', err?.message ?? err);
-          this.audioPlaying = false;
-          this.playAudioQueue();
+          finish(true);
         });
     } catch (err) {
       console.warn('[ws-bridge] 音频构造失败（跳过）:', err);
-      this.audioPlaying = false;
-      this.playAudioQueue();
+      finish(true);
     }
   }
 
   /** 入队并尝试播放（base64 WAV；timeline=括注动作帧；startsSentence=句首块标记） */
-  private enqueueAudio(
-    base64Wav: string,
-    timeline: MotionCue[] = [],
-    startsSentence = false,
-  ): void {
-    const dataUri = `data:audio/wav;base64,${base64Wav}`;
+  private enqueueAudio(item: Omit<QueuedAudio, 'el'> & { base64Wav: string }): void {
+    const dataUri = `data:audio/wav;base64,${item.base64Wav}`;
     const el = new Audio(dataUri);
     el.preload = 'auto';
-    this.audioQueue.push({ el, timeline, startsSentence });
+    const { base64Wav, ...rest } = item;
+    this.audioQueue.push({ el, ...rest });
     this.playAudioQueue();
   }
 
@@ -337,7 +401,7 @@ export class WsBridge {
    * 打断语义要求"声音马上停"，否则用户会听到自己被角色压过去。
    */
   stopAudio(): void {
-    this.motionScheduler.cancel(); // 打断时同步取消未触发的括注动作帧
+    this.motionScheduler.cancel();
     this.audioQueue.length = 0;
     if (this.currentAudio) {
       try {
@@ -351,6 +415,7 @@ export class WsBridge {
       }
       this.currentAudio = null;
     }
+    this.lipSync?.stop();
     this.audioPlaying = false;
     this.pendingPlaybackComplete = false;
     this.onTtsStatus?.('TTS 空闲');
@@ -379,7 +444,7 @@ export class WsBridge {
     }
   }
 
-  /** 原始消息入口：JSON 解析（try/catch 兜底，解析失败只记日志不崩溃） */
+  /** 原始消息入口：JSON 解析后进入 pendingMessages，微任务批量处理 */
   private _handleRaw(event: MessageEvent): void {
     let data: unknown;
     try {
@@ -388,7 +453,27 @@ export class WsBridge {
       console.error('[ws-bridge] 消息 JSON 解析失败（忽略）:', err);
       return;
     }
-    this._dispatch(data);
+    this.pendingMessages.push(data);
+    if (!this.drainingMessages) {
+      this.drainingMessages = true;
+      // 同步 drain：消息按到达顺序立即分发（旧 epoch 保护仍由 playAudioQueue
+      // 的 epoch 校验和 startEpoch() 清空 pendingMessages 承担），避免微任务
+      // 延迟导致播放/完成信号时序抖动。
+      try {
+        this._drainMessages();
+      } finally {
+        this.drainingMessages = false;
+      }
+    }
+  }
+
+  /** 批量 drain pendingMessages；startEpoch() 会清空该队列以丢弃旧 epoch 消息 */
+  private _drainMessages(): void {
+    this.drainingMessages = false;
+    while (this.pendingMessages.length > 0) {
+      const data = this.pendingMessages.shift()!;
+      this._dispatch(data);
+    }
   }
 
   /** 消息分发（type 判断；未知 type / 结构异常一律 try/catch 兜底，RM7-04） */
@@ -417,31 +502,32 @@ export class WsBridge {
             slice_length?: number;
             actions?: {
               parameterOverrides?: Record<string, number>;
+              halfBody?: Record<string, number>;
               motion?: string | null;
+              motionStrength?: number | null;
               motionTimeline?: MotionCue[] | null;
             } | null;
             display_text?: DisplayText | null;
             sentence_start?: boolean;
           } | null;
-          // 口型：volumes 存在时按切片播放（RM7-02）；同时转发给表演引擎拉模型
-          if (audio && Array.isArray(audio.volumes)) {
-            this.lipSync?.play(audio.volumes, audio.visemes ?? [], audio.slice_length ?? 20);
-            this.onAudioSlices?.(audio.volumes, audio.slice_length);
-          }
-          // 表情：actions.parameterOverrides（RM7-03）
+          // 表情：actions.parameterOverrides（RM7-03）——按音频帧到达即时应用
           if (audio?.actions?.parameterOverrides) {
             this.emotionConsumer?.consume(audio.actions.parameterOverrides);
           }
-          // 半身动作：括注动作帧时间轴优先（随播放进度触发）；无时间轴时退回
-          // 旧的一次性触发（导演/主脑产出 motionLabel → bodyMotion.play）。
-          // 有时间轴时刻意忽略一次性 motion，避免同一动作双重触发。
+          if (audio?.actions?.halfBody) {
+            this.halfBody?.consume(audio.actions.halfBody);
+          }
+          // 括注动作帧时间轴优先；无时间轴时退回一次性 motion
           const motionTimeline = Array.isArray(audio?.actions?.motionTimeline)
             ? (audio.actions.motionTimeline as MotionCue[]).filter(Boolean)
             : [];
           if (motionTimeline.length === 0 && audio?.actions?.motion) {
-            this.bodyMotion?.play(audio.actions.motion);
+            console.debug(
+              `[ws-bridge] dispatch motion=${audio.actions.motion} strength=${audio.actions.motionStrength ?? 2}`,
+            );
+            this.bodyMotion?.play(audio.actions.motion, audio.actions.motionStrength ?? 2);
           }
-          // 字幕（subtitle 消息已先上屏同一句时跳过，避免聊天面板重复显示）
+          // 字幕：audio 帧携带 display_text 时透传；subtitle 已先上屏同一句时跳过
           if (audio?.display_text) {
             const text = audio.display_text.text;
             if (!this._recentSubtitleTexts.includes(text)) {
@@ -449,10 +535,19 @@ export class WsBridge {
               this.onSubtitle?.(audio.display_text);
             }
           }
-          // 音频播放（spoq-fix：audio 帧 base64 WAV → 播放；None 为静默帧跳过）
+          // 音频播放（audio 帧 base64 WAV → 入队；None 为静默帧跳过）
           if (typeof audio?.audio === 'string' && audio.audio.length > 0) {
             console.debug(`[LATENCY] audio_received_ms=${performance.now().toFixed(0)}`);
-            this.enqueueAudio(audio.audio, motionTimeline, audio.sentence_start === true);
+            this.enqueueAudio({
+              base64Wav: audio.audio,
+              timeline: motionTimeline,
+              startsSentence: audio.sentence_start === true,
+              epoch: this.epoch,
+              volumes: audio.volumes ?? [],
+              visemes: audio.visemes ?? [],
+              sliceLength: audio.slice_length ?? 20,
+              displayText: audio.display_text,
+            });
           } else if (audio?.sentence_start === true) {
             // 静默帧没有可"开播"的音频：立即触发句首回调（对话提早出，不等声音）
             this.onSentenceSpoken?.();
@@ -486,8 +581,6 @@ export class WsBridge {
           break;
         }
         case 'user-input-transcription': {
-          // 后端 ASR 结果：把用户说的话上屏（此前这条消息被完全忽略，
-          // 说出去的话在聊天里「消失」，只有 AI 干接话）
           const t = (data as { text?: string } | null)?.text;
           this.onTranscription?.(typeof t === 'string' ? t : '');
           break;
@@ -545,11 +638,21 @@ export class WsBridge {
           if (payload?.text) this.onTextDelta?.(payload.text);
           break;
         }
+        case 'dev-action': {
+          const payload = data as { action?: string; strength?: number } | null;
+          const action = typeof payload?.action === 'string' ? payload.action : '';
+          const strength = typeof payload?.strength === 'number' ? payload.strength : 2;
+          if (action) {
+            this.bodyMotion?.play(action, strength);
+            this.onDevAction?.(action, strength);
+          }
+          break;
+        }
         case 'control': {
           const payload = data as { text?: string } | null;
           const command = (payload?.text || '').trim();
           if (!command) break;
-          // VAD 打断：立刻停掉正在播放/排队的音频，否则"她还在说、你已经插话"
+          // VAD 打断：立刻停掉正在播放/排队的音频
           if (command === 'interrupt') this.stopAudio();
           this.onControl?.(command);
           break;

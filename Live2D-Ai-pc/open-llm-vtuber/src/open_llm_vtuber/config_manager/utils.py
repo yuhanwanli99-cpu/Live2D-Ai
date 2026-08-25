@@ -99,7 +99,7 @@ def load_text_file_with_guess_encoding(file_path: str) -> str | None:
         detected = chardet.detect(raw_data)
         if detected["encoding"]:
             return raw_data.decode(detected["encoding"])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Error detecting encoding for config file {file_path}: {e}")
     return None
 

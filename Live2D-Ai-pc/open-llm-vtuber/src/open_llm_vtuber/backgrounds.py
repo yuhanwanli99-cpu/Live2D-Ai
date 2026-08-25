@@ -8,7 +8,7 @@
 当前选择存 `background_state.json`（本机状态，见 local_state.py），字段：
     {"current": "my-room.png"}   # null / 缺省 = 透明无背景
 
-安全边界（后端默认 host 0.0.0.0，必须自己把门）：
+安全边界（服务默认绑定回环地址；用户显式开放 LAN 时仍必须独立把门）：
   - **写操作（上传/选择/删除）只允许本机回环调用**，避免同网段任何人往磁盘塞文件；
   - 扩展名白名单 + 文件头魔数校验（不认识的内容一律拒绝，防"改后缀的可执行文件"）；
   - 单文件 ≤ 12MB；文件名只取 basename 并清洗，杜绝 `../` 逃逸。
@@ -224,7 +224,7 @@ def init_background_routes(store: BackgroundStore) -> APIRouter:
             return _forbidden()
         try:
             payload = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
@@ -248,7 +248,7 @@ def init_background_routes(store: BackgroundStore) -> APIRouter:
             return _forbidden()
         try:
             payload = await request.json()
-        except Exception:
+        except Exception:  # noqa: BLE001
             payload = {}
         if not isinstance(payload, dict):
             payload = {}

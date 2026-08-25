@@ -232,7 +232,7 @@ class HumeAIAgent(AgentInterface):
             async for result in self.chat(batch_input):
                 yield result
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error in chat: {e}")
             raise
 
@@ -252,5 +252,5 @@ class HumeAIAgent(AgentInterface):
         try:
             for file in self.cache_dir.glob("evi_audio_*.wav"):
                 file.unlink()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error cleaning up cache files: {e}")

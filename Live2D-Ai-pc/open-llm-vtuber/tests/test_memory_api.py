@@ -23,26 +23,54 @@ class _FakeMemory:
 
     def __init__(self):
         self._facts = []
+        self._scopes = {}
+        self._revision = 0
 
-    def list_facts(self):
-        return list(self._facts)
+    def _facts_for(self, scope):
+        return self._facts if not scope else self._scopes.setdefault(scope, [])
 
-    def add_fact(self, fact):
+    def revision(self):
+        return self._revision
+
+    def _touch(self):
+        self._revision += 1
+
+    def list_facts(self, scope=""):
+        return list(self._facts_for(scope))
+
+    def add_fact(self, fact, scope=""):
         fact = fact.strip()
-        if not fact or fact in self._facts:
+        facts = self._facts_for(scope)
+        if not fact or fact in facts:
             return False
-        self._facts.append(fact)
+        facts.append(fact)
+        self._touch()
         return True
 
-    def remove_fact(self, index):
-        if 0 <= index < len(self._facts):
-            self._facts.pop(index)
+    def remove_fact(self, index, scope=""):
+        facts = self._facts_for(scope)
+        if 0 <= index < len(facts):
+            facts.pop(index)
+            self._touch()
             return True
         return False
 
-    def clear_facts(self):
+    def clear_facts(self, scope=""):
+        facts = self._facts_for(scope)
+        n = len(facts)
+        facts.clear()
+        if n:
+            self._touch()
+        return n
+
+    def clear_all_facts(self):
         n = len(self._facts)
         self._facts.clear()
+        for key in list(self._scopes.keys()):
+            n += len(self._scopes[key])
+        self._scopes = {}
+        if n:
+            self._touch()
         return n
 
 
@@ -241,3 +269,168 @@ def test_real_memory_plugin_roundtrip_via_routes(tmp_path, monkeypatch):
     import json as _json
 
     assert "周末加班" in _json.loads(store)["facts"]
+
+
+# ------------------------------------------------- 会话隔离 + 清空后不再注入
+
+
+def _memory_client(inst):
+    """以给定 MemoryPlugin 实例构建带 /api/memory/* 路由的 TestClient。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    manager = PluginManager()
+    manager.host.register(inst)
+    app = FastAPI()
+    app.include_router(init_plugin_routes(manager))
+    return TestClient(app)
+
+
+def test_scope_isolation_between_sessions(tmp_path, monkeypatch):
+    """不同会话 scope 互不串味：会话A 的记忆不写入会话B，清空 A 也不影响 B。"""
+    monkeypatch.chdir(tmp_path)  # _state_path 落 tmp，不污染仓库
+    from open_llm_vtuber.plugins.native_runtime import MemoryPlugin
+
+    inst = MemoryPlugin()
+    c = _memory_client(inst)
+
+    # 会话 A 写入
+    assert c.post("/api/memory/facts", json={"fact": "A喜欢猫"}, params={"scope": "charA::sess1"}).json()["ok"] is True
+    # 会话 B 初始为空（隔离）
+    assert c.get("/api/memory/facts", params={"scope": "charA::sess2"}).json()["facts"] == []
+    # 全局（scope 缺省）初始为空（不同会话不写进全局）
+    assert c.get("/api/memory/facts").json()["facts"] == []
+
+    # 会话 B 写入自己的事实，与 A 互不影响
+    c.post("/api/memory/facts", json={"fact": "B喜欢猫"}, params={"scope": "charA::sess2"})
+    assert c.get("/api/memory/facts", params={"scope": "charA::sess1"}).json()["facts"] == ["A喜欢猫"]
+    assert c.get("/api/memory/facts", params={"scope": "charA::sess2"}).json()["facts"] == ["B喜欢猫"]
+
+    # 清空会话 A：只清 A，B 保持
+    assert c.delete("/api/memory/facts", params={"scope": "charA::sess1"}).json()["cleared"] == 1
+    assert c.get("/api/memory/facts", params={"scope": "charA::sess1"}).json()["facts"] == []
+    assert c.get("/api/memory/facts", params={"scope": "charA::sess2"}).json()["facts"] == ["B喜欢猫"]
+    # 持久层同样反映隔离
+    import json as _json
+
+    store = _json.loads((tmp_path / "cache" / "memory_store.json").read_text(encoding="utf-8"))
+    assert store["scopes"]["charA::sess1"] == []
+    assert store["scopes"]["charA::sess2"] == ["B喜欢猫"]
+
+
+def test_clear_then_same_process_next_llm_before_is_empty(tmp_path, monkeypatch):
+    """清空后当前进程内新一轮 llm.before 不再注入已删除事实。"""
+    monkeypatch.chdir(tmp_path)
+    from open_llm_vtuber.plugins.native_runtime import MemoryPlugin
+
+    inst = MemoryPlugin()
+    c = _memory_client(inst)
+
+    # 先注入并存一条事实
+    inst.handle_event("llm.after", {"user_text": "我叫小白，我喜欢猫"})
+    assert c.get("/api/memory/facts").json()["facts"] == ["小白", "猫"]
+
+    # 清空（持久层 + 进程内状态）
+    assert c.delete("/api/memory/facts").json()["cleared"] >= 1
+
+    # 同一进程、新一轮 llm.before：不应返回 context（无记忆可注入）
+    out = inst.handle_event("llm.before", {"text": "小白你是谁？"})
+    assert "context" not in out
+
+
+def test_stale_curator_aborted_after_clear():
+    """管家在查询快照后、应用前用户清空 → expected_revision 不匹配 → 放弃应用。"""
+    from open_llm_vtuber.memory_curator import apply_curation
+    from open_llm_vtuber.plugins.native_runtime import MemoryPlugin
+
+    inst = MemoryPlugin()  # 用普通实例（不落盘也行，add_fact 会 _save 但无害）
+
+    # 准备现有事实，捕获 revision 快照
+    inst.add_fact("主人叫小白")
+    rev_before = inst.revision()
+
+    # 期间发生清空 → revision 变化（与 expected 不一致）
+    inst.clear_facts()
+    assert inst.revision() != rev_before
+
+    # 拿到的是清空前的快照决策，现在应用应被放弃
+    applied = apply_curation(
+        inst,
+        [{"action": "add", "fact": "主人叫小白"}],
+        expected_revision=rev_before,
+    )
+    assert applied == 0
+    assert inst.list_facts() == []  # 没有重新灌回
+
+
+def test_scoped_clear_uses_scoped_facts(tmp_path, monkeypatch):
+    """带 scope 的 add/clear 互不干扰且持久化隔离。"""
+    monkeypatch.chdir(tmp_path)
+    from open_llm_vtuber.plugins.native_runtime import MemoryPlugin
+
+    inst = MemoryPlugin()
+    c = _memory_client(inst)
+
+    c.post("/api/memory/facts", json={"fact": "全局1"})
+    c.post("/api/memory/facts", json={"fact": "会话1"}, params={"scope": "char::s1"})
+    c.post("/api/memory/facts", json={"fact": "会话2"}, params={"scope": "char::s2"})
+
+    # 显式 scope 只清该 scope，且推进代次让迟到管家放弃过期写入
+    assert c.delete("/api/memory/facts", params={"scope": "char::s1"}).json()["cleared"] == 1
+    assert c.get("/api/memory/facts", params={"scope": "char::s1"}).json()["facts"] == []
+    assert c.get("/api/memory/facts", params={"scope": "char::s2"}).json()["facts"] == ["会话2"]
+    assert c.get("/api/memory/facts").json()["facts"] == ["全局1"]
+
+
+def test_no_scope_clear_all_wipes_global_and_all_sessions(tmp_path, monkeypatch):
+    """无 scope 的 DELETE /api/memory/facts = 清空全部（全局 + 所有会话 scope）。
+
+    清空后：(1) 进程内各 scope 与持久层全部为空；(2) 任何查询在途/迟到管家快照
+    的应用都无法复活任一 scope 的事实（revision 已推进）。
+    """
+    monkeypatch.chdir(tmp_path)
+    from open_llm_vtuber.memory_curator import apply_curation
+    from open_llm_vtuber.plugins.native_runtime import MemoryPlugin
+
+    inst = MemoryPlugin()
+    c = _memory_client(inst)
+
+    # 全局 + 两个会话都写入
+    c.post("/api/memory/facts", json={"fact": "全局1"})
+    c.post("/api/memory/facts", json={"fact": "会话A-喜欢猫"}, params={"scope": "char::A"})
+    c.post("/api/memory/facts", json={"fact": "会话B-周末加班"}, params={"scope": "char::B"})
+
+    # 捕获全部快照和 revision（模拟在途管家已经读到旧状态）
+    rev_before = inst.revision()
+    stale_actions = [
+        {"action": "add", "fact": "会话A-喜欢猫"},
+        {"action": "add", "fact": "会话B-周末加班"},
+    ]
+
+    # 用户点击「清空全部」→ 无 scope DELETE
+    assert c.delete("/api/memory/facts").json()["cleared"] == 3
+
+    # 清空后 3 处全部为空
+    assert c.get("/api/memory/facts").json()["facts"] == []
+    assert c.get("/api/memory/facts", params={"scope": "char::A"}).json()["facts"] == []
+    assert c.get("/api/memory/facts", params={"scope": "char::B"}).json()["facts"] == []
+
+    # 持久层同样全空
+    import json as _json
+
+    store = _json.loads((tmp_path / "cache" / "memory_store.json").read_text(encoding="utf-8"))
+    assert store["facts"] == []
+    assert store["scopes"] == {}
+
+    # revision 已推进 → 在途/迟到管家拿到的是清空前的旧快照，应用必须放弃
+    assert inst.revision() != rev_before
+    applied = apply_curation(
+        inst,
+        stale_actions,
+        expected_revision=rev_before,
+    )
+    assert applied == 0
+    # 没有任何 scope 被复活
+    assert c.get("/api/memory/facts").json()["facts"] == []
+    assert c.get("/api/memory/facts", params={"scope": "char::A"}).json()["facts"] == []
+    assert c.get("/api/memory/facts", params={"scope": "char::B"}).json()["facts"] == []

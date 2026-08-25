@@ -32,7 +32,6 @@ jobs:
           submodules: true
           fetch-depth: 1
           fetch-tags: true
-        continue-on-error: true
         id: checkout
 
       - name: Try with default branch

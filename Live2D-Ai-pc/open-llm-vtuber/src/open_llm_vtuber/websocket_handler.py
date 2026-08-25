@@ -1,44 +1,46 @@
-from typing import Dict, List, Optional, Callable, TypedDict
-from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
 import json
+from collections.abc import Callable
+from typing import TypedDict
+
 import numpy as np
+from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from .service_context import ServiceContext
 from .chat_group import (
     ChatGroupManager,
-    handle_group_operation,
-    handle_client_disconnect,
     broadcast_to_group,
+    handle_client_disconnect,
+    handle_group_operation,
 )
-from .message_handler import message_handler
-from .utils.stream_audio import prepare_audio_payload
 from .chat_history_manager import (
     create_new_history,
-    get_history,
     delete_history,
+    get_history,
     get_history_list,
 )
-from .config_manager.utils import scan_config_alts_directory, scan_bg_directory
+from .config_manager.utils import scan_bg_directory, scan_config_alts_directory
 from .conversations.conversation_handler import (
     handle_conversation_trigger,
     handle_group_interrupt,
     handle_individual_interrupt,
 )
+from .message_handler import message_handler
+from .service_context import ServiceContext
+from .utils.stream_audio import prepare_audio_payload
 
 
 class WSMessage(TypedDict, total=False):
     """Type definition for WebSocket messages"""
 
     type: str
-    action: Optional[str]
-    text: Optional[str]
-    audio: Optional[List[float]]
-    images: Optional[List[str]]
-    history_uid: Optional[str]
-    file: Optional[str]
-    display_text: Optional[dict]
+    action: str | None
+    text: str | None
+    audio: list[float] | None
+    images: list[str] | None
+    history_uid: str | None
+    file: str | None
+    display_text: dict | None
 
 
 class WebSocketHandler:
@@ -46,20 +48,20 @@ class WebSocketHandler:
 
     def __init__(self, default_context_cache: ServiceContext):
         """Initialize the WebSocket handler with default context"""
-        self.client_connections: Dict[str, WebSocket] = {}
-        self.client_contexts: Dict[str, ServiceContext] = {}
+        self.client_connections: dict[str, WebSocket] = {}
+        self.client_contexts: dict[str, ServiceContext] = {}
         self.chat_group_manager = ChatGroupManager()
-        self.current_conversation_tasks: Dict[str, Optional[asyncio.Task]] = {}
+        self.current_conversation_tasks: dict[str, asyncio.Task | None] = {}
         self.default_context_cache = default_context_cache
         # 音频累积缓冲：**按 chunk 存 np 数组**，取用时一次性 concatenate。
         # 原实现每收一个 chunk 就 np.append（每次重新分配 + 全量拷贝）→ 长语音 O(n²)；
         # 改为 list 累积后总拷贝量降为 O(n)（审计 E-4）。
-        self.received_data_buffers: Dict[str, List[np.ndarray]] = {}
+        self.received_data_buffers: dict[str, list[np.ndarray]] = {}
 
         # Message handlers mapping
         self._message_handlers = self._init_message_handlers()
 
-    def _init_message_handlers(self) -> Dict[str, Callable]:
+    def _init_message_handlers(self) -> dict[str, Callable]:
         """Initialize message type to handler mapping"""
         return {
             "add-client-to-group": self._handle_group_operation,
@@ -111,7 +113,7 @@ class WebSocketHandler:
 
             logger.info(f"Connection established for client {client_uid}")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(
                 f"Failed to initialize connection for client {client_uid}: {e}"
             )
@@ -167,7 +169,7 @@ class WebSocketHandler:
 
     async def _attach_session_history(
         self, websocket: WebSocket, context: ServiceContext
-    ) -> Optional[str]:
+    ) -> str | None:
         """给新连接绑定聊天历史，并把已有消息回灌给前端（P0-3 聊天历史持久化）。
 
         为什么必须有这一步：`ServiceContext.history_uid` 初值是空串，而
@@ -245,7 +247,7 @@ class WebSocketHandler:
             vad_engine=self.default_context_cache.vad_engine,
             agent_engine=self.default_context_cache.agent_engine,
             # translate_engine removed - using direct LLM call
-            mcp_server_registery=self.default_context_cache.mcp_server_registery,
+            mcp_server_registry=self.default_context_cache.mcp_server_registry,
             tool_adapter=self.default_context_cache.tool_adapter,
             send_text=send_text,
             client_uid=client_uid,
@@ -276,7 +278,7 @@ class WebSocketHandler:
                 except json.JSONDecodeError:
                     logger.error("Invalid JSON received")
                     continue
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Error processing message: {e}")
                     await websocket.send_text(
                         json.dumps({"type": "error", "message": str(e)})
@@ -286,7 +288,7 @@ class WebSocketHandler:
         except WebSocketDisconnect:
             logger.info(f"Client {client_uid} disconnected")
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Fatal error in WebSocket communication: {e}")
             raise
 
@@ -388,13 +390,13 @@ class WebSocketHandler:
         if context:
             try:
                 await context.close()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Error closing failed connection context: {e}")
 
         message_handler.cleanup_client(client_uid)
 
     async def broadcast_to_group(
-        self, group_members: list[str], message: dict, exclude_uid: str = None
+        self, group_members: list[str], message: dict, exclude_uid: str | None = None
     ) -> None:
         """Broadcasts a message to group members"""
         await broadcast_to_group(
@@ -423,6 +425,19 @@ class WebSocketHandler:
             except Exception as e:  # noqa: BLE001 - 单会话失败不影响其它会话
                 logger.warning(f"直播事件广播到单个会话失败（忽略）: {e}")
         return sent
+
+    async def broadcast_dev_action(self, action: str, strength: int = 2) -> None:
+        """Broadcast a dev-mode body action to all connected clients."""
+        if not self.client_connections:
+            return
+        message = json.dumps(
+            {"type": "dev-action", "action": action, "strength": strength}
+        )
+        for ws in list(self.client_connections.values()):
+            try:
+                await ws.send_text(message)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Failed to broadcast dev-action: {e}")
 
     async def send_group_update(self, websocket: WebSocket, client_uid: str):
         """Sends group information to a client"""
@@ -653,10 +668,10 @@ class WebSocketHandler:
     async def inject_text_input(
         self,
         text: str,
-        client_uid: Optional[str] = None,
+        client_uid: str | None = None,
         interrupt: bool = False,
         source: str = "external",
-    ) -> tuple[str, Optional[asyncio.Task]]:
+    ) -> tuple[str, asyncio.Task | None]:
         """把一段外部文本注入内部对话链路（等价于前端发 `{"type":"text-input"}`）。
 
         供 `external_input.py` 的 HTTP 接口调用——**不新开链路**：直接复用
@@ -842,5 +857,5 @@ class WebSocketHandler:
         """Handle heartbeat messages from clients"""
         try:
             await websocket.send_json({"type": "heartbeat-ack"})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error sending heartbeat acknowledgment: {e}")

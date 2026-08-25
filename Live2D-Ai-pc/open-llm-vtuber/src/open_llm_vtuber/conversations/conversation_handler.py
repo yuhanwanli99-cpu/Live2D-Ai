@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Dict, Optional, Callable
+from typing import Any, Dict, Optional, Callable
 
 import numpy as np
 from fastapi import WebSocket
@@ -40,7 +40,7 @@ async def handle_conversation_trigger(
             else:
                 logger.warning("Proactive speak prompt not configured, using default")
                 user_input = "Please say something."
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error loading proactive speak prompt: {e}")
             user_input = "Please say something."
 
@@ -130,6 +130,16 @@ async def handle_group_interrupt(
         if task and not task.done():
             task.cancel()
             logger.info(f"Cancelled group conversation task for {group_id}")
+
+            # 同步打断 TTS 管线：停止播放、取消在途合成、丢弃旧句 payload
+            context = client_contexts.get(group_id)
+            tts_manager = getattr(context, "tts_manager", None) if context else None
+            if tts_manager is not None:
+                try:
+                    await tts_manager.interrupt()
+                except Exception as e:  # noqa: BLE001 - TTS 打断失败不阻断主取消
+                    logger.warning(f"Group TTS interrupt failed (ignored): {e}")
+
             group = chat_group_manager.groups.get(group_id)
             members = list(group.members) if group else list(client_contexts.keys())
             if members:
@@ -144,6 +154,22 @@ async def handle_group_interrupt(
                 except Exception as e:  # noqa: BLE001 - 打断通知失败不阻断任务取消
                     logger.warning(f"Group interrupt broadcast failed (ignored): {e}")
             current_conversation_tasks[group_id] = None
+
+
+async def _stop_tts_for_interrupt(
+    tts_manager: Optional[Any],
+    log_ctx: str,
+) -> None:
+    """Stop TTS pipeline for interruption.  Should be awaited after cancelling
+    the conversation task so that no late audio frames are emitted.
+    """
+    if tts_manager is None:
+        return
+    try:
+        await tts_manager.interrupt()
+        logger.debug(f"TTS interrupt completed for {log_ctx}")
+    except Exception:  # noqa: BLE001 - TTS interrupt failure must not block cancel
+        pass
 
 
 async def handle_individual_interrupt(
@@ -162,9 +188,12 @@ async def handle_individual_interrupt(
     )
     if client_uid in current_conversation_tasks:
         task = current_conversation_tasks[client_uid]
+        tts_manager = getattr(context, "tts_manager", None)
         if task and not task.done():
             task.cancel()
             logger.info(f"Cancelled conversation task for {client_uid}")
+            await _stop_tts_for_interrupt(tts_manager, client_uid)
+
             send_text = getattr(context, "send_text", None)
             if send_text is not None:
                 try:
@@ -176,6 +205,8 @@ async def handle_individual_interrupt(
                             }
                         )
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
             current_conversation_tasks[client_uid] = None
+        elif tts_manager is not None:
+            await _stop_tts_for_interrupt(tts_manager, client_uid)

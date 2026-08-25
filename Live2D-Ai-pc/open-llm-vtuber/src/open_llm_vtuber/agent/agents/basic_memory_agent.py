@@ -1,37 +1,34 @@
+from collections.abc import AsyncIterator, Callable
 from typing import (
-    AsyncIterator,
-    List,
-    Dict,
     Any,
-    Callable,
     Literal,
-    Union,
-    Optional,
 )
+
 from loguru import logger
-from .agent_interface import AgentInterface
-from ..output_types import SentenceOutput, DisplayText
-from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
+
+from prompts import prompt_loader
+
+from ...chat_history_manager import get_history
+from ...config_manager import TTSPreprocessorConfig
+from ...mcpp.json_detector import StreamJSONDetector
+from ...mcpp.tool_manager import ToolManager
+from ...mcpp.types import ToolCallObject
+from ..input_types import BatchInput, TextSource
+from ..output_types import DisplayText, SentenceOutput
 from ..stateless_llm.claude_llm import AsyncLLM as ClaudeAsyncLLM
 from ..stateless_llm.openai_compatible_llm import (
     AsyncLLM as OpenAICompatibleAsyncLLM,
 )
 from ..stateless_llm.openai_compatible_llm import ReasoningDelta
-from ...chat_history_manager import get_history
+from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
 from ..transformers import (
-    sentence_divider,
     actions_extractor,
-    tts_filter,
     display_processor,
     emo_interceptor,
+    sentence_divider,
+    tts_filter,
 )
-from ...config_manager import TTSPreprocessorConfig
-from ..input_types import BatchInput, TextSource
-from prompts import prompt_loader
-from ...mcpp.tool_manager import ToolManager
-from ...mcpp.json_detector import StreamJSONDetector
-from ...mcpp.types import ToolCallObject
-from ...mcpp.tool_executor import ToolExecutor
+from .agent_interface import AgentInterface
 
 
 class BasicMemoryAgent(AgentInterface):
@@ -49,9 +46,9 @@ class BasicMemoryAgent(AgentInterface):
         segment_method: str = "pysbd",
         use_mcpp: bool = False,
         interrupt_method: Literal["system", "user"] = "user",
-        tool_prompts: Dict[str, str] = None,
-        tool_manager: Optional[ToolManager] = None,
-        tool_executor: Optional[ToolExecutor] = None,
+        tool_prompts: dict[str, str] | None = None,
+        tool_manager: ToolManager | None = None,
+        tool_executor: Any | None = None,
         mcp_prompt_string: str = "",
     ):
         """Initialize agent with LLM and configuration."""
@@ -131,7 +128,7 @@ class BasicMemoryAgent(AgentInterface):
 
     def _add_message(
         self,
-        message: Union[str, List[Dict[str, Any]]],
+        message: str | list[dict[str, Any]],
         role: str,
         display_text: DisplayText | None = None,
         skip_memory: bool = False,
@@ -243,7 +240,7 @@ class BasicMemoryAgent(AgentInterface):
 
         return "\n".join(message_parts).strip()
 
-    def _to_messages(self, input_data: BatchInput) -> List[Dict[str, Any]]:
+    def _to_messages(self, input_data: BatchInput) -> list[dict[str, Any]]:
         """Prepare messages for LLM API call."""
         messages = self._memory.copy()
         user_content = []
@@ -293,9 +290,9 @@ class BasicMemoryAgent(AgentInterface):
 
     async def _claude_tool_interaction_loop(
         self,
-        initial_messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-    ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
+        initial_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> AsyncIterator[str | dict[str, Any]]:
         """Handle Claude interaction loop with tool support."""
         messages = initial_messages.copy()
         current_turn_text = ""
@@ -406,13 +403,13 @@ class BasicMemoryAgent(AgentInterface):
 
     async def _openai_tool_interaction_loop(
         self,
-        initial_messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-    ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
+        initial_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> AsyncIterator[str | dict[str, Any]]:
         """Handle OpenAI interaction with tool support."""
         messages = initial_messages.copy()
         current_turn_text = ""
-        pending_tool_calls: Union[List[ToolCallObject], List[Dict[str, Any]]] = []
+        pending_tool_calls: list[ToolCallObject] | list[dict[str, Any]] = []
         current_system_prompt = self._system
 
         while True:
@@ -458,7 +455,7 @@ class BasicMemoryAgent(AgentInterface):
 
                                     if detected_prompt_json:
                                         break
-                                except Exception as e:
+                                except Exception as e:  # noqa: BLE001
                                     logger.error(f"Error parsing detected JSON: {e}")
                                     if self._json_detector:
                                         self._json_detector.reset()
@@ -589,7 +586,7 @@ class BasicMemoryAgent(AgentInterface):
 
     def _chat_function_factory(
         self,
-    ) -> Callable[[BatchInput], AsyncIterator[Union[SentenceOutput, Dict[str, Any]]]]:
+    ) -> Callable[[BatchInput], AsyncIterator[SentenceOutput | dict[str, Any]]]:
         """Create the chat pipeline function."""
 
         @tts_filter(self._tts_preprocessor_config)
@@ -603,7 +600,7 @@ class BasicMemoryAgent(AgentInterface):
         @emo_interceptor()
         async def chat_with_memory(
             input_data: BatchInput,
-        ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
+        ) -> AsyncIterator[str | dict[str, Any]]:
             """Process chat with memory and tools."""
             self.reset_interrupt()
             self.prompt_mode_flag = False
@@ -677,7 +674,7 @@ class BasicMemoryAgent(AgentInterface):
     async def chat(
         self,
         input_data: BatchInput,
-    ) -> AsyncIterator[Union[SentenceOutput, Dict[str, Any]]]:
+    ) -> AsyncIterator[SentenceOutput | dict[str, Any]]:
         """Run chat pipeline."""
         chat_func_decorated = self._chat_function_factory()
         async for output in chat_func_decorated(input_data):
@@ -688,7 +685,7 @@ class BasicMemoryAgent(AgentInterface):
         self._interrupt_handled = False
 
     def start_group_conversation(
-        self, human_name: str, ai_participants: List[str]
+        self, human_name: str, ai_participants: list[str]
     ) -> None:
         """Start a group conversation."""
         if not self._tool_prompts:
@@ -711,5 +708,5 @@ class BasicMemoryAgent(AgentInterface):
             logger.error(f"Group conversation prompt file not found: {prompt_name}")
         except KeyError as e:
             logger.error(f"Missing formatting key in group conversation prompt: {e}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to load group conversation prompt: {e}")

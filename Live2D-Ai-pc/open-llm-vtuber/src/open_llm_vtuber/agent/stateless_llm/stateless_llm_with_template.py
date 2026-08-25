@@ -168,7 +168,7 @@ class AsyncLLMWithTemplate(StatelessLLMInterface):
                             if next_token == self.eot_token:
                                 break
                             yield next_token
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"LLM API WITH TEMPLATE: Error occurred: {e}")
             logger.info(f"Base URL: {self.base_url}")
             logger.info(f"Model: {self.model}")

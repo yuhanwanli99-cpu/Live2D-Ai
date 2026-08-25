@@ -19,7 +19,8 @@
  *   < Emotion(5) < UserTouch(6) < LipSync(7)
  */
 
-import type { ParameterOverrides } from './types';
+
+import { buildHalfBodyProfile, normalizedToModelValue, type HalfBodyProfile } from './halfbody-profile';
 
 /** 参数来源优先级（低 → 高，硬编码不可配置） */
 export enum ParamSource {
@@ -49,6 +50,11 @@ export interface ParamWrite {
   fadeMs: number;
   /** 写入时刻 */
   timestamp: number;
+  /**
+   * 数值空间：'model' = 直接模型值（如 EMOTION_PARAMS），'normalized' = 0..1 归一化值
+   * 默认 'model'，保持既有写入行为不变。
+   */
+  valueSpace?: 'model' | 'normalized';
 }
 
 type ParamMode = 'set' | 'add' | 'mult';
@@ -59,6 +65,7 @@ interface SourceRecord {
   mode: ParamMode;
   fadeMs: number;
   timestamp: number;
+  valueSpace?: 'model' | 'normalized';
 }
 
 /** 单参数仲裁状态 */
@@ -77,10 +84,18 @@ interface ParamState {
   fadeMs: number;
   /** fade 已推进 ms */
   elapsed: number;
+  /** 当前帧是否需要写入 coreModel（值/源/fade 发生变化时置位） */
+  dirty: boolean;
 }
 
 interface CoreModelLike {
   setParameterValueById?: (id: string, value: number) => void;
+  getParameterCount?: () => number;
+  getParameterId?: (index: number) => unknown;
+  getParameterMinimumValue?: (index: number) => number;
+  getParameterMaximumValue?: (index: number) => number;
+  getParameterDefaultValue?: (index: number) => number;
+  getModel?: () => unknown;
 }
 
 interface InternalModelLike {
@@ -114,10 +129,17 @@ function lerp(a: number, b: number, t: number): number {
  */
 export class ParamArbiter {
   private readonly model: InternalModelLike | null;
+  private readonly profile: HalfBodyProfile;
   private readonly paramStates = new Map<string, ParamState>();
 
   constructor(internalModel: unknown) {
     this.model = (internalModel ?? null) as InternalModelLike | null;
+    this.profile = buildHalfBodyProfile(this.model?.coreModel);
+  }
+
+  /** 当前模型真实参数范围与半身能力（只读快照）。 */
+  getHalfBodyProfile(): HalfBodyProfile {
+    return { ranges: { ...this.profile.ranges }, capabilities: { ...this.profile.capabilities } };
   }
 
   /**
@@ -140,12 +162,13 @@ export class ParamArbiter {
         toValue: 0,
         fadeMs: 0,
         elapsed: 0,
+        dirty: true,
       };
       this.paramStates.set(req.paramId, state);
     }
 
     // 记录该源的最后一次写入（无论是否被更高优先级阻塞——回退时用到）
-    state.sources.set(req.source, { value: req.value, mode, fadeMs, timestamp });
+    state.sources.set(req.source, { value: req.value, mode, fadeMs, timestamp, valueSpace: req.valueSpace });
 
     // 仲裁判定：该写入是否有权成为当前驱动源
     if (!this.canOverride(state.activeSource, req.source, req.paramId)) {
@@ -164,6 +187,9 @@ export class ParamArbiter {
     const coreModel = this.model?.coreModel;
 
     for (const [paramId, state] of this.paramStates) {
+      const needsUpdate = state.dirty || state.fadeMs > 0;
+      if (!needsUpdate) continue;
+
       if (state.fadeMs > 0) {
         if (state.elapsed < state.fadeMs) {
           state.elapsed += dt;
@@ -175,7 +201,14 @@ export class ParamArbiter {
       }
       // fadeMs === 0 → activate() 时已立即生效，此处直接沿用 currentValue
 
-      coreModel?.setParameterValueById?.(paramId, state.currentValue);
+      const range = this.profile.ranges[paramId];
+      const storedIsNormalized = state.activeSource !== -1 &&
+        state.sources.get(state.activeSource)?.valueSpace === 'normalized';
+      const modelValue = (range && storedIsNormalized)
+        ? normalizedToModelValue(range, state.currentValue)
+        : state.currentValue;
+      coreModel?.setParameterValueById?.(paramId, modelValue);
+      state.dirty = false;
     }
   }
 
@@ -238,31 +271,13 @@ export class ParamArbiter {
   }
 
   /**
-   * 某参数当前输出值（lerp 后）。
-   */
-  getValue(paramId: string): number {
-    const state = this.paramStates.get(paramId);
-    return state ? state.currentValue : 0;
-  }
-
-  /**
-   * 全部跟踪参数的当前输出值（paramId → 当前值）。
-   */
-  getParameterValues(): ParameterOverrides {
-    const out: ParameterOverrides = {};
-    for (const [paramId, state] of this.paramStates) {
-      out[paramId] = state.currentValue;
-    }
-    return out;
-  }
-
-  /**
    * 清空全部仲裁状态，并把已知参数写回 0（模型复位）。
    */
   reset(): void {
     const coreModel = this.model?.coreModel;
     for (const paramId of this.paramStates.keys()) {
-      coreModel?.setParameterValueById?.(paramId, 0);
+      const range = this.profile.ranges[paramId];
+      coreModel?.setParameterValueById?.(paramId, range?.defaultValue ?? 0);
     }
     this.paramStates.clear();
   }
@@ -281,6 +296,7 @@ export class ParamArbiter {
     state.fadeMs = rec.fadeMs;
     state.elapsed = 0;
 
+    state.dirty = true;
     if (rec.fadeMs <= 0) {
       state.currentValue = state.toValue; // 无 fade：立即覆盖
     }
@@ -334,6 +350,7 @@ export class ParamArbiter {
     state.toValue = clamp01(target);
     state.fadeMs = fadeMs > 0 ? fadeMs : 0;
     state.elapsed = 0;
+    state.dirty = true;
     if (fadeMs <= 0) {
       state.currentValue = state.toValue;
     }

@@ -52,9 +52,6 @@ export const RM4_EMOTIONS = [
 ] as const;
 export type EmotionKey = (typeof RM4_EMOTIONS)[number];
 
-/** 兼容别名（保持既有引用可用） */
-export const EMOTION_KEYS = RM4_EMOTIONS;
-
 /** 表情 → 强度 → 参数组（目标绝对值，非乘数） */
 export type EmotionParamTable = Record<string, Record<EmotionStrengthLevel, ParameterOverrides>>;
 
@@ -104,9 +101,6 @@ export const EMOTION_PARAMS: EmotionParamTable = {
     3: { ParamBrowLY: -0.3, ParamBrowRY: -0.3, ParamEyeLOpen: 0.6, ParamEyeROpen: 0.6, ParamMouthForm: -0.7, ParamMouthOpenY: 0.1 },
   },
 };
-
-/** 导出别名（测试头注释约定的 EmotionParamMap 命名） */
-export const EMOTION_PARAM_MAP = EMOTION_PARAMS;
 
 /**
  * 表情 key 别名归一化（兼容架构 §3.2.2 的命名：anger/sadness/smirk ↔ 本表 8 key）。

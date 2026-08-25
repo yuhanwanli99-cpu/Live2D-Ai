@@ -111,7 +111,7 @@ def check_and_extract_local_file(url: str, output_dir: str) -> Path | None:
             logger.success(f"Extracted archive to the path: {extracted_dir}")
             os.remove(compressed_path)  # Remove the compressed file
             return extracted_dir
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Fail to extract file: {str(e)}")
             return None
 

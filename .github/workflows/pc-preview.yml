@@ -1,0 +1,92 @@
+name: PC Preview Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pc-preview-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Live2D-Ai-pc/open-llm-vtuber
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Live2D-Ai-pc/open-llm-vtuber/renderer/package-lock.json
+      - name: Install locked Python dependencies
+        run: uv sync --locked
+      - name: Run Python tests
+        run: uv run pytest tests/ -q
+      - name: Check route architecture
+        run: uv run pytest tests/test_route_architecture.py -q
+      - name: Install locked renderer dependencies
+        run: npm ci
+        working-directory: Live2D-Ai-pc/open-llm-vtuber/renderer
+      - name: Audit renderer dependencies
+        run: npm audit --audit-level=high
+        working-directory: Live2D-Ai-pc/open-llm-vtuber/renderer
+      - name: Test renderer
+        run: npm test
+        working-directory: Live2D-Ai-pc/open-llm-vtuber/renderer
+      - name: Type-check renderer
+        run: npm exec tsc -- --noEmit
+        working-directory: Live2D-Ai-pc/open-llm-vtuber/renderer
+      - name: Build renderer
+        run: npm run build
+        working-directory: Live2D-Ai-pc/open-llm-vtuber/renderer
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan Git history with Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  public-tree-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build PC-only public source archive
+        run: python scripts/build_pc_preview.py --output /tmp/Live2D-Ai-PC-preview
+      - name: Run current-tree secret pattern scan
+        run: python scripts/check_public_secrets.py
+      - name: Reject private runtime data and bundled model binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden=$(git ls-files 'Live2D-Ai-pc/open-llm-vtuber/**' | grep -E '(^|/)(\.env|chat_history|cache|external_input\.json|background_state\.json)(/|$)|\.(moc3|model3\.json)$|/node_modules/' || true)
+          if [ -n "$forbidden" ]; then
+            echo "::error::Forbidden paths in public tree:"
+            echo "$forbidden"
+            exit 1
+          fi

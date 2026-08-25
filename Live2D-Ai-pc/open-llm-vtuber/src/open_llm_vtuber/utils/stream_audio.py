@@ -153,7 +153,7 @@ def prepare_audio_payload(
         audio = AudioSegment.from_file(audio_path)
         _t_pydub = time.monotonic()
         audio_bytes = audio.export(format="wav").read()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise ValueError(
             f"Error loading or converting generated audio file to wav file '{audio_path}': {e}"
         )
@@ -208,6 +208,15 @@ def prepare_audio_payload(
     }
     if emotion is not None:
         payload["emotion"] = emotion
+
+    # 动作串联诊断（仅 DEBUG）：确认一次性/时间轴动作确实进入序列化 audio payload。
+    if actions is not None and (actions.motion or actions.motionTimeline):
+        logger.debug(
+            "audio payload motion={} strength={} timeline_items={}",
+            actions.motion,
+            actions.motionStrength,
+            len(actions.motionTimeline or []),
+        )
 
     return payload
 

@@ -11,10 +11,10 @@ import {
 import { ParamSource } from '../src/param-arbiter';
 
 class FakeArbiter {
-  writes: Array<{ paramId: string; value: number; fadeMs?: number }> = [];
+  writes: Array<{ paramId: string; value: number; fadeMs?: number; valueSpace?: string }> = [];
   released = 0;
-  write(w: { source: unknown; paramId: string; value: number; fadeMs?: number }) {
-    this.writes.push({ paramId: w.paramId, value: w.value, fadeMs: w.fadeMs });
+  write(w: { source: unknown; paramId: string; value: number; fadeMs?: number; valueSpace?: string }) {
+    this.writes.push({ paramId: w.paramId, value: w.value, fadeMs: w.fadeMs, valueSpace: w.valueSpace });
   }
   releaseAll(_src: unknown) {
     this.released += 1;
@@ -35,8 +35,23 @@ describe('resolveChoreography — 路由', () => {
   it('库内动作与 choreo: 前缀都能命中；未知返回 null', () => {
     expect(resolveChoreography('wave_big')).toBe('wave_big');
     expect(resolveChoreography('choreo:bow')).toBe('bow');
-    expect(resolveChoreography('nod')).toBeNull(); // 旧手势走回落
+    // 发布定版：nod/tilt（明确用户命令）从单姿态手势升级为大幅度编排，保证可见
+    expect(resolveChoreography('nod')).toBe('nod');
+    expect(resolveChoreography('tilt')).toBe('tilt');
     expect(resolveChoreography(undefined)).toBeNull();
+  });
+
+  it('nod/tilt 编排幅度明确偏离中性（避免"仅嘴动"的不可见手势）', () => {
+    const nodFrames = CHOREOGRAPHY_LIBRARY['nod'];
+    const nodDivergence = nodFrames.some((f) =>
+      Object.values(f.params).some((v) => typeof v === 'number' && Math.abs(v - 0.5) >= 0.2),
+    );
+    expect(nodDivergence).toBe(true);
+    const tiltFrames = CHOREOGRAPHY_LIBRARY['tilt'];
+    const tiltDivergence = tiltFrames.some((f) =>
+      Object.values(f.params).some((v) => typeof v === 'number' && Math.abs(v - 0.5) >= 0.2),
+    );
+    expect(tiltDivergence).toBe(true);
   });
 });
 
@@ -106,8 +121,8 @@ describe('BodyActionPlayer — 组合门面', () => {
     const clock = makeClock();
     const p = new BodyActionPlayer(arb as never, { now: clock.now });
 
-    p.play('nod');
-    expect(p.currentGesture()).toBe('nod');
+    p.play('sway'); // 单姿态手势（未纳入编排库）走 gestures 回落
+    expect(p.currentGesture()).toBe('sway');
 
     p.play('wave_big'); // 编排接管 + 清残留手势
     expect(p.currentGesture()).toBe('choreo:wave_big');
@@ -117,5 +132,47 @@ describe('BodyActionPlayer — 组合门面', () => {
     p.update(16);
     p.release();
     expect(p.currentGesture()).toBeNull();
+  });
+});
+
+describe('Preview deterministic director motion policy', () => {
+  it('look_around drives bounded gaze then returns both eyes to center', () => {
+    const frames = CHOREOGRAPHY_LIBRARY.look_around;
+    expect(frames.some((frame) => frame.params.ParamEyeBallX !== undefined)).toBe(true);
+    for (const frame of frames.slice(0, -1)) {
+      const x = frame.params.ParamEyeBallX;
+      const y = frame.params.ParamEyeBallY;
+      if (x !== undefined) expect(x).toBeGreaterThanOrEqual(0.25);
+      if (x !== undefined) expect(x).toBeLessThanOrEqual(0.75);
+      if (y !== undefined) expect(y).toBeGreaterThanOrEqual(0.45);
+      if (y !== undefined) expect(y).toBeLessThanOrEqual(0.60);
+    }
+    const last = frames[frames.length - 1].params;
+    expect(last.ParamEyeBallX).toBe(0.5);
+    expect(last.ParamEyeBallY).toBe(0.5);
+  });
+
+  it('strength 1/2/3 maps to increasing normalized motion amplitude', () => {
+    const run = (strength: number) => {
+      const arb = new FakeArbiter();
+      const clock = makeClock();
+      const player = new BodyActionPlayer(arb as never, { now: clock.now });
+      player.play('lean_in', strength);
+      return arb.writes.find((w) => w.paramId === 'ParamAngleY')?.value as number;
+    };
+    const low = run(1);
+    const medium = run(2);
+    const high = run(3);
+    expect(low).toBeLessThan(medium);
+    expect(medium).toBeLessThan(high);
+  });
+
+  it('all deterministic body writes declare normalized parameter space', () => {
+    const arb = new FakeArbiter();
+    const clock = makeClock();
+    const player = new BodyActionPlayer(arb as never, { now: clock.now });
+    player.play('look_around', 2);
+    expect(arb.writes.length).toBeGreaterThan(0);
+    expect(arb.writes.every((write) => write.valueSpace === 'normalized')).toBe(true);
   });
 });

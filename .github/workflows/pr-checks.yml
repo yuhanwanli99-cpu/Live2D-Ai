@@ -97,34 +97,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Restore pip cache
-        uses: actions/cache@v4
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
         with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements-test.txt') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
+          enable-cache: true
 
-      - name: Install Python test dependencies
+      - name: Install dependencies and run Python tests
         run: |
-          pip install --upgrade pip
-          pip install pytest pyyaml jsonschema
+          uv sync
+          uv run pytest tests/ -v --junitxml=test-results.xml
+        working-directory: Live2D-Ai-pc/open-llm-vtuber
 
       - name: Run local health check (no key)
-        run: python scripts/health_check.py
+        run: uv run --project Live2D-Ai-pc/open-llm-vtuber python scripts/health_check.py
 
       - name: Run cross-platform consistency
-        run: python shared/check_cross_platform_consistency.py
+        run: uv run --project Live2D-Ai-pc/open-llm-vtuber python shared/check_cross_platform_consistency.py
 
-      - name: Run Python tests with pytest
-        run: python -m pytest tests/ -v --junitxml=test-results.xml
-        working-directory: ./tests
-        continue-on-error: true
+      - name: Verify Android persona.yaml is synced with shared/
+        run: |
+          cmp -s shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/persona.yaml || {
+            echo "::error::Android assets/persona.yaml is out of sync with shared/persona.yaml"
+            exit 1
+          }
 
       - name: Upload Python test report
         if: always()
@@ -171,16 +171,13 @@ jobs:
         working-directory: Live2D-Ai-Android
         continue-on-error: true
 
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install ruff
-        run: pip install ruff
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Run ruff check (Python)
-        run: ruff check tests/ scripts/ shared/ --config ruff.toml
+        run: |
+          uv run ruff check .
+        working-directory: Live2D-Ai-pc/open-llm-vtuber
         continue-on-error: true
 
       - name: Upload lint report

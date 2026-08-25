@@ -31,6 +31,6 @@ lint.ignore = [
 # 行长度
 line-length = 120
 
-# 格式化
-format.target-version = "py311"
+# 格式化（注意：Ruff 的 [format] 没有 target-version 选项，
+# 格式化目标跟随顶层 target-version，见本文件第 3 行）
 format.quote-style = "double"

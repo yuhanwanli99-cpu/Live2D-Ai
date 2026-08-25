@@ -83,6 +83,8 @@ export interface SystemUi {
   log_level: string;
   /** 用户是否改动过日志级别（A1：仅用户改动才提交，避免每次保存重置回 INFO）。 */
   log_level_changed: boolean;
+  /** 开发者模式（localhost-only 调试接口开关）。缺省时不上送，保持旧保存行为。 */
+  developer_mode?: boolean;
 }
 
 export interface SettingsUiState {
@@ -347,6 +349,9 @@ export function collectPayload(ui: SettingsUiState): Record<string, unknown> {
   }
   if (ui.system.log_level_changed && ui.system.log_level) {
     payload.log_level = ui.system.log_level;
+  }
+  if (typeof ui.system.developer_mode === 'boolean') {
+    payload.developer_mode = ui.system.developer_mode;
   }
 
   return payload;

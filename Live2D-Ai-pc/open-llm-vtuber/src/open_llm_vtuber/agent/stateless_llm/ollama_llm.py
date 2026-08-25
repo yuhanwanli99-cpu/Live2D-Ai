@@ -45,7 +45,7 @@ class OllamaLLM(AsyncLLM):
             logger.critical(
                 "Fail to connect to Ollama backend. Is Ollama server running? Try running `ollama list` to start the server and try again.\nThe AI will repeat 'Error connecting chat endpoint' until the server is running."
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to preload model: {e}")
         # If keep_alive is less than 0, register cleanup to unload the model
         if unload_at_exit:

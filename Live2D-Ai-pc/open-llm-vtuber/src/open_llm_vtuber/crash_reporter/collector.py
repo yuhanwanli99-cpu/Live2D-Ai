@@ -20,6 +20,11 @@ from typing import Any
 # Sentinel for fields that failed to serialize
 _SENTINEL = "<serialization-failed>"
 
+# Process uptime baseline (epoch seconds), captured when the crash-collector
+# module is first loaded — i.e. at application startup for a crash reporter
+# that is imported early. Used to compute `uptime_seconds` in process_info.
+_PROCESS_START_TIME = time.time()
+
 
 @dataclass
 class CrashInfo:
@@ -58,7 +63,6 @@ class CrashInfo:
     ) -> CrashInfo:
         """Build a CrashInfo from an in-flight exception (uses sys.exc_info() internals)."""
         tb = exc.__traceback__
-        frames = traceback.extract_tb(tb) if tb else []
         formatted_tb = traceback.format_exception(type(exc), exc, tb)
 
         # Collect locals per frame (sanitised later by PrivacyFilter)
@@ -70,7 +74,7 @@ class CrashInfo:
                 for k, v in current.tb_frame.f_locals.items():
                     try:
                         frame_locals[k] = repr(v)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         frame_locals[k] = _SENTINEL
                 locals_per_frame.append(frame_locals)
                 current = current.tb_next
@@ -141,7 +145,7 @@ class CrashInfo:
             total, used, free = shutil.disk_usage(os.getcwd())
             info["disk_total_gb"] = round(total / (1024**3), 2)
             info["disk_free_gb"] = round(free / (1024**3), 2)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return info
 
@@ -161,7 +165,7 @@ class CrashInfo:
             info["memory_rss_mb"] = round(mem.rss / (1024 * 1024), 2)
             info["memory_vms_mb"] = round(mem.vms / (1024 * 1024), 2)
             info["cpu_percent"] = proc.cpu_percent(interval=0.05)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return info
 

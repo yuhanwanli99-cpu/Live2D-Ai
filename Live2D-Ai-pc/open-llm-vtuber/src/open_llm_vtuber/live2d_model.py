@@ -261,7 +261,7 @@ class Live2dModel:
                     return raw_data.decode(detected_encoding)
                 except UnicodeDecodeError:
                     pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error detecting encoding for {file_path}: {e}")
 
         raise UnicodeError(f"Failed to decode {file_path} with any encoding")
@@ -315,7 +315,7 @@ class Live2dModel:
                 f"Error reading model dictionary file at {self.model_dict_path}."
             )
             raise uni_e
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(
                 f"Error occurred while reading model dictionary file at {self.model_dict_path}."
             )

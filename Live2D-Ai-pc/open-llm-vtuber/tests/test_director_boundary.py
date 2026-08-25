@@ -45,9 +45,11 @@ def test_missing_motion_falls_back_to_emotion_map():
     assert result.motion_label == "shake_no"
 
 
-def test_neutral_without_motion_stays_none():
+def test_neutral_without_motion_uses_restrained_action():
+    # neutral 且无显式动作时不得静止：使用克制动作（nod）+ 最低强度
     result = _analyze('{"emotion":"neutral","motionLabel":null}')
-    assert result.motion_label is None
+    assert result.motion_label == "nod"
+    assert result.strength == 1
 
 
 def test_emotion_map_full_coverage_and_bounds():

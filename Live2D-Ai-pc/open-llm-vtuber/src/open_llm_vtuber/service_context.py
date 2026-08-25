@@ -1,54 +1,39 @@
-import os
-import json
 import asyncio
+import json
+import os
 import time
-from typing import Callable
-from loguru import logger
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import WebSocket
+from loguru import logger
 
 from prompts import prompt_loader
-from .live2d_model import Live2dModel
-from .model_registry import ModelRegistry
-from .utils.repo_paths import resolve_shared_path as _resolve_shared_path_impl
-from .asr.asr_interface import ASRInterface
-from .tts.tts_interface import TTSInterface
-from .vad.vad_interface import VADInterface
-from .agent.agents.agent_interface import AgentInterface
-from .vision_handler import VisionHandler
-from .mood_engine import MoodEngine
 
-from .mcpp.server_registry import ServerRegistry
-from .mcpp.tool_manager import ToolManager
-from .mcpp.mcp_client import MCPClient
-from .mcpp.tool_executor import ToolExecutor
-from .mcpp.tool_adapter import ToolAdapter
-
-from .asr.asr_factory import ASRFactory
-from .tts.tts_factory import TTSFactory
-from .vad.vad_factory import VADFactory
 from .agent.agent_factory import AgentFactory
-
+from .agent.agents.agent_interface import AgentInterface
+from .asr.asr_factory import ASRFactory
+from .asr.asr_interface import ASRInterface
 from .config_manager import (
-    Config,
     AgentConfig,
-    CharacterConfig,
-    SystemConfig,
     ASRConfig,
+    CharacterConfig,
+    Config,
+    SystemConfig,
     TTSConfig,
     VADConfig,
     read_yaml,
     validate_config,
 )
-
-
-def _resolve_mcp_servers_path() -> str:
-    """Resolve the MCP servers config path.
-
-    Live2D-Ai ships MCP server definitions in the cross-platform shared/mcp_tools.json
-    file rather than requiring a project-local (gitignored) mcp_servers.json, so a
-    fresh clone works out of the box. Falls back to the local file if the shared one
-    is missing (e.g. running upstream Open-LLM-VTuber standalone).
-    """
+from .live2d_model import Live2dModel
+from .model_registry import ModelRegistry
+from .mood_engine import MoodEngine
+from .tts.tts_factory import TTSFactory
+from .tts.tts_interface import TTSInterface
+from .utils.repo_paths import resolve_shared_path as _resolve_shared_path_impl
+from .vad.vad_factory import VADFactory
+from .vad.vad_interface import VADInterface
+from .vision_handler import VisionHandler
 
 
 def _strip_legacy_expression_sections(text: str) -> str:
@@ -64,7 +49,7 @@ def _strip_legacy_expression_sections(text: str) -> str:
     skip = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("## 表情控制") or stripped.startswith("## 表情强度控制"):
+        if stripped.startswith(("## 表情控制", "## 表情强度控制")):
             skip = True
             continue
         if skip and stripped.startswith("## "):
@@ -72,10 +57,6 @@ def _strip_legacy_expression_sections(text: str) -> str:
         if not skip:
             out.append(line)
     return "\n".join(out)
-    shared_path = os.path.join("..", "..", "shared", "mcp_tools.json")
-    if os.path.exists(shared_path):
-        return shared_path
-    return "mcp_servers.json"
 
 
 class ServiceContext:
@@ -83,39 +64,41 @@ class ServiceContext:
     configurations for a connected client."""
 
     def __init__(self):
-        self.config: Config = None
-        self.system_config: SystemConfig = None
-        self.character_config: CharacterConfig = None
+        self.config: Config | None = None
+        self.system_config: SystemConfig | None = None
+        self.character_config: CharacterConfig | None = None
 
-        self.live2d_model: Live2dModel = None
+        self.live2d_model: Live2dModel | None = None
         # (NEW) P3/P7：流式心情引擎（对话级 start/stop，prompt 注入用）
         self.mood_engine: MoodEngine = MoodEngine()
         # (NEW) 跨平台模型注册表（shared/model_registry.json），init_live2d 校验/回退用
         self.model_registry: ModelRegistry | None = None
-        self.asr_engine: ASRInterface = None
-        self.tts_engine: TTSInterface = None
-        self.agent_engine: AgentInterface = None
+        self.asr_engine: ASRInterface | None = None
+        self.tts_engine: TTSInterface | None = None
+        self.agent_engine: AgentInterface | None = None
         self.vad_engine: VADInterface | None = None
         self.translate_engine = None  # Kept for backward compatibility
         self.vision_handler: VisionHandler | None = None
         self._tts_warmup_task = None  # TTS 预热任务（避免首句合成冷启动数十秒）
 
-        self.mcp_server_registery: ServerRegistry | None = None
-        self.tool_adapter: ToolAdapter | None = None
-        self.tool_manager: ToolManager | None = None
-        self.mcp_client: MCPClient | None = None
-        self.tool_executor: ToolExecutor | None = None
+        # Legacy attributes retained so old integrations can inspect a stable shape.
+        # MCP runtime imports are intentionally absent from the stable PC core.
+        self.mcp_server_registry: Any | None = None
+        self.tool_adapter: Any | None = None
+        self.tool_manager: Any | None = None
+        self.mcp_client: Any | None = None
+        self.tool_executor: Any | None = None
 
         # the system prompt is a combination of the persona prompt and live2d expression prompt
-        self.system_prompt: str = None
+        self.system_prompt: str | None = None
 
         # Store the generated MCP prompt string (if MCP enabled)
         self.mcp_prompt: str = ""
 
         self.history_uid: str = ""
 
-        self.send_text: Callable = None
-        self.client_uid: str = None
+        self.send_text: Callable | None = None
+        self.client_uid: str | None = None
 
         self._vision_config_raw: dict | None = None
 
@@ -142,7 +125,7 @@ class ServiceContext:
             f"  LLM Engine: {type(self.agent_engine).__name__ if self.agent_engine else 'Not Loaded'}\n"
             f"    Agent Config: {json.dumps(self.character_config.agent_config.model_dump(), indent=6) if self.character_config.agent_config else 'None'}\n"
             f"  VAD Engine: {type(self.vad_engine).__name__ if self.vad_engine else 'Not Loaded'}\n"
-            f"    Agent Config: {json.dumps(self.character_config.vad_config.model_dump(), indent=6) if self.character_config.vad_config else 'None'}\n"
+            f"    VAD Config: {json.dumps(self.character_config.vad_config.model_dump(), indent=6) if self.character_config.vad_config else 'None'}\n"
             f"  System Prompt: {self.system_prompt or 'Not Set'}\n"
             f"  MCP Enabled: {'Yes' if self.mcp_client else 'No'}"
         )
@@ -150,94 +133,23 @@ class ServiceContext:
     # ==== Initializers
 
     async def _init_mcp_components(self, use_mcpp, enabled_servers):
-        """Initializes MCP components based on configuration, dynamically fetching tool info."""
-        logger.debug(
-            f"Initializing MCP components: use_mcpp={use_mcpp}, enabled_servers={enabled_servers}"
-        )
+        """Keep legacy MCP settings loadable while retiring MCP at runtime.
 
-        # Reset MCP components first
-        self.mcp_server_registery = None
+        The stable PC release deliberately excludes MCP execution. Old configs may
+        still contain use_mcpp/server names; they are ignored instead of crashing
+        startup or silently attempting to spawn external tool processes.
+        """
+        self.mcp_server_registry = None
+        self.tool_adapter = None
         self.tool_manager = None
         self.mcp_client = None
         self.tool_executor = None
         self.json_detector = None
         self.mcp_prompt = ""
-
-        if use_mcpp and enabled_servers:
-            # 1. Initialize ServerRegistry
-            self.mcp_server_registery = ServerRegistry(_resolve_mcp_servers_path())
-            logger.info("ServerRegistry initialized or referenced.")
-
-            # 2. Use ToolAdapter to get the MCP prompt and tools
-            if not self.tool_adapter:
-                logger.error(
-                    "ToolAdapter not initialized before calling _init_mcp_components."
-                )
-                self.mcp_prompt = "[Error: ToolAdapter not initialized]"
-                return
-
-            try:
-                (
-                    mcp_prompt_string,
-                    openai_tools,
-                    claude_tools,
-                ) = await self.tool_adapter.get_tools(enabled_servers)
-                self.mcp_prompt = mcp_prompt_string
-                logger.info(
-                    f"Dynamically generated MCP prompt string (length: {len(self.mcp_prompt)})."
-                )
-                logger.info(
-                    f"Dynamically formatted tools - OpenAI: {len(openai_tools)}, Claude: {len(claude_tools)}."
-                )
-
-                _, raw_tools_dict = await self.tool_adapter.get_server_and_tool_info(
-                    enabled_servers
-                )
-                self.tool_manager = ToolManager(
-                    formatted_tools_openai=openai_tools,
-                    formatted_tools_claude=claude_tools,
-                    initial_tools_dict=raw_tools_dict,
-                )
-                logger.info("ToolManager initialized with dynamically fetched tools.")
-
-            except Exception as e:
-                logger.error(
-                    f"Failed during dynamic MCP tool construction: {e}", exc_info=True
-                )
-                self.tool_manager = None
-                self.mcp_prompt = "[Error constructing MCP tools/prompt]"
-
-            # 4. Initialize MCPClient
-            if self.mcp_server_registery:
-                self.mcp_client = MCPClient(
-                    self.mcp_server_registery, self.send_text, self.client_uid
-                )
-                logger.info("MCPClient initialized for this session.")
-            else:
-                logger.error(
-                    "MCP enabled but ServerRegistry not available. MCPClient not created."
-                )
-                self.mcp_client = None
-
-            # 5. Initialize ToolExecutor
-            if self.mcp_client and self.tool_manager:
-                self.tool_executor = ToolExecutor(self.mcp_client, self.tool_manager)
-                logger.info("ToolExecutor initialized for this session.")
-            else:
-                logger.warning(
-                    "MCPClient or ToolManager not available. ToolExecutor not created."
-                )
-                self.tool_executor = None
-
-            logger.info("StreamJSONDetector initialized for this session.")
-
-        elif use_mcpp and not enabled_servers:
+        if use_mcpp:
             logger.warning(
-                "use_mcpp is True, but mcp_enabled_servers list is empty. MCP components not initialized."
-            )
-        else:
-            logger.debug(
-                "MCP components not initialized (use_mcpp is False or no enabled servers)."
+                "MCP support is retired in the stable PC build; legacy MCP settings "
+                "were ignored. Use native plugins for extensions."
             )
 
     async def close(self):
@@ -263,10 +175,10 @@ class ServiceContext:
         tts_engine: TTSInterface,
         vad_engine: VADInterface,
         agent_engine: AgentInterface,
-        mcp_server_registery: ServerRegistry | None = None,
-        tool_adapter: ToolAdapter | None = None,
-        send_text: Callable = None,
-        client_uid: str = None,
+        mcp_server_registry: Any | None = None,
+        tool_adapter: Any | None = None,
+        send_text: Callable | None = None,
+        client_uid: str | None = None,
         plugin_manager=None,
     ) -> None:
         """Load the ServiceContext with the reference of the provided instances."""
@@ -283,7 +195,7 @@ class ServiceContext:
         self.tts_engine = tts_engine
         self.vad_engine = vad_engine
         self.agent_engine = agent_engine
-        self.mcp_server_registery = mcp_server_registery
+        self.mcp_server_registry = mcp_server_registry
         self.tool_adapter = tool_adapter
         self.send_text = send_text
         self.client_uid = client_uid
@@ -316,18 +228,6 @@ class ServiceContext:
         self.init_tts(config.character_config.tts_config)
         self.init_vad(config.character_config.vad_config)
         self.init_vision(config)
-
-        if (
-            not self.tool_adapter
-            and config.character_config.agent_config.agent_settings.basic_memory_agent.use_mcpp
-        ):
-            if not self.mcp_server_registery:
-                logger.info(
-                    "Initializing shared ServerRegistry within load_from_config."
-                )
-                self.mcp_server_registery = ServerRegistry(_resolve_mcp_servers_path())
-            logger.info("Initializing shared ToolAdapter within load_from_config.")
-            self.tool_adapter = ToolAdapter(server_registery=self.mcp_server_registery)
 
         await self._init_mcp_components(
             config.character_config.agent_config.agent_settings.basic_memory_agent.use_mcpp,
@@ -366,32 +266,26 @@ class ServiceContext:
         logger.info(f"Initializing Live2D: {live2d_model_name}")
         try:
             model_name = self._resolve_live2d_model_name(live2d_model_name)
-            self.live2d_model = Live2dModel(
-                model_name, registry=self.model_registry
-            )
+            self.live2d_model = Live2dModel(model_name, registry=self.model_registry)
             self.character_config.live2d_model_name = model_name
             return
         except RuntimeError:
             # registry 无可用模型 → 服务器启动失败（plan 边界表）
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"Error initializing Live2D: {e}")
 
         # 回退：registry 可用 → 默认模型；registry 不可用 → 硬编码 'bai'
         try:
             fallback_name = self._fallback_live2d_model_name()
             logger.warning(f"Falling back to Live2D model: {fallback_name}")
-            self.live2d_model = Live2dModel(
-                fallback_name, registry=self.model_registry
-            )
+            self.live2d_model = Live2dModel(fallback_name, registry=self.model_registry)
             self.character_config.live2d_model_name = fallback_name
         except RuntimeError:
             # registry 无可用模型 → 服务器启动失败（plan 边界表）
             raise
-        except Exception as fallback_e:
-            logger.critical(
-                f"Error initializing fallback Live2D model: {fallback_e}"
-            )
+        except Exception as fallback_e:  # noqa: BLE001
+            logger.critical(f"Error initializing fallback Live2D model: {fallback_e}")
             logger.critical("Try to proceed without Live2D...")
 
     def _resolve_live2d_model_name(self, live2d_model_name: str) -> str:
@@ -435,14 +329,16 @@ class ServiceContext:
         try:
             engine._closed = True
             close_fn()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Error closing engine {type(engine).__name__}: {e}")
 
     def init_asr(self, asr_config: ASRConfig) -> None:
         if asr_config.asr_model == "disabled":
             self._safe_close(self.asr_engine)
             self.asr_engine = None
-            logger.info("ASR disabled (asr_model='disabled'; 启用需在 conf.yaml 改为 faster_whisper 等并配置模型)")
+            logger.info(
+                "ASR disabled (asr_model='disabled'; 启用需在 conf.yaml 改为 faster_whisper 等并配置模型)"
+            )
             return
         if not self.asr_engine or (self._last_asr_config != asr_config):
             logger.info(f"Initializing ASR: {asr_config.asr_model}")
@@ -460,13 +356,23 @@ class ServiceContext:
         if not self.tts_engine or (self._last_tts_config != tts_config):
             logger.info(f"Initializing TTS: {tts_config.tts_model}")
             self._safe_close(self.tts_engine)
-            self.tts_engine = TTSFactory.get_tts_engine(
-                tts_config.tts_model,
-                **getattr(tts_config, tts_config.tts_model.lower()).model_dump(),
-            )
-            self.character_config.tts_config = tts_config
-            self._last_tts_config = tts_config
-            self._schedule_tts_warmup()
+            try:
+                self.tts_engine = TTSFactory.get_tts_engine(
+                    tts_config.tts_model,
+                    **getattr(tts_config, tts_config.tts_model.lower()).model_dump(),
+                )
+                self.character_config.tts_config = tts_config
+                self._last_tts_config = tts_config
+                self._schedule_tts_warmup()
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    f"TTS engine '{tts_config.tts_model}' failed to initialize: {e}. "
+                    "Voice output is unavailable. "
+                    "Set tts_config.tts_model to 'edge_tts' or configure the chosen provider "
+                    "in conf.yaml, then save settings or restart."
+                )
+                self.tts_engine = None
+                self._last_tts_config = tts_config
         else:
             logger.info("TTS already initialized with the same config.")
 
@@ -494,9 +400,7 @@ class ServiceContext:
                     "首句合成已走热路径"
                 )
             except Exception as e:  # noqa: BLE001 - 预热失败不影响功能
-                logger.warning(
-                    f"[TTS] 预热失败（首句合成会较慢，不影响功能）: {e}"
-                )
+                logger.warning(f"[TTS] 预热失败（首句合成会较慢，不影响功能）: {e}")
 
         self._tts_warmup_task = loop.create_task(_warm())
 
@@ -575,7 +479,7 @@ class ServiceContext:
                 f"VisionHandler initialized (model={model}, "
                 f"interval={vision_cfg.capture_interval}s)."
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to initialize VisionHandler: {e}")
             self.vision_handler = None
 
@@ -618,8 +522,10 @@ class ServiceContext:
 
             # PC v4：初始化独立导演模型，把 joy 等表情/动作从主对话脑分流。
             try:
+                from .agent.stateless_llm_factory import (
+                    LLMFactory as StatelessLLMFactory,
+                )
                 from .director import ExpressionDirector
-                from .agent.stateless_llm_factory import LLMFactory as StatelessLLMFactory
 
                 basic = agent_config.agent_settings.basic_memory_agent
                 main_provider = basic.llm_provider if basic else "deepseek_llm"
@@ -640,17 +546,27 @@ class ServiceContext:
                     director_llm = StatelessLLMFactory.create_llm(
                         director_provider, **director_cfg
                     )
-                    self.director = ExpressionDirector(llm=director_llm)
+                    parameter_ids = getattr(
+                        self.live2d_model, "_cdi3_parameter_ids", set()
+                    )
+                    self.director = ExpressionDirector(
+                        llm=director_llm, parameter_ids=parameter_ids
+                    )
                     logger.info(
                         f"ExpressionDirector initialized with provider {director_provider} "
-                        f"model {director_cfg.get('model')}"
+                        f"model {director_cfg.get('model')}; half-body channels "
+                        f"{self.director.halfbody_channels or 'none'}"
                     )
                 else:
                     self.director = None
-                    logger.warning("Director provider config missing; using rule fallback")
+                    logger.warning(
+                        "Director provider config missing; using rule fallback"
+                    )
             except Exception as e:  # noqa: BLE001 - 导演失败不阻塞主模型
                 self.director = None
-                logger.error(f"Failed to initialize ExpressionDirector, fallback to rule: {e}")
+                logger.error(
+                    f"Failed to initialize ExpressionDirector, fallback to rule: {e}"
+                )
 
             # LLM 记忆管家：对话链结束后异步沉淀/合并/清理长期事实。
             # 复用导演 provider（低温、稍大 max_tokens 容纳 JSON 数组）；
@@ -663,7 +579,9 @@ class ServiceContext:
                     curator_cfg = dict(
                         agent_config.llm_configs.model_dump().get(director_provider, {})
                     )
-                    if director_model := getattr(self.system_config, "director_model", None):
+                    if director_model := getattr(
+                        self.system_config, "director_model", None
+                    ):
                         curator_cfg["model"] = director_model
                     curator_cfg.setdefault("temperature", 0.0)
                     curator_cfg.setdefault("max_tokens", 300)
@@ -678,9 +596,11 @@ class ServiceContext:
                         )
             except Exception as e:  # noqa: BLE001 - 管家缺席不影响对话
                 self.memory_curator = None
-                logger.warning(f"MemoryCurator init failed, memory stays regex-only: {e}")
+                logger.warning(
+                    f"MemoryCurator init failed, memory stays regex-only: {e}"
+                )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to initialize agent: {e}")
             raise
 
@@ -796,18 +716,18 @@ class ServiceContext:
                     f"Failed to load configuration from {config_file_name}"
                 )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error switching configuration: {e}")
             logger.debug(self)
             await websocket.send_text(
                 json.dumps(
                     {
                         "type": "error",
-                        "message": f"Error switching configuration: {str(e)}",
+                        "message": f"Error switching configuration: {e!s}",
                     }
                 )
             )
-            raise e
+            raise
 
 
 def _find_repo_shared_dir() -> str | None:

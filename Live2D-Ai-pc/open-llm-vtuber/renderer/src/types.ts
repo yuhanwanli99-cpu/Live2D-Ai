@@ -44,8 +44,12 @@ export interface Actions {
   sounds?: string[] | null;
   /** motionLabel 别名（整句一次性触发；存在 motionTimeline 时被忽略） */
   motion?: string | null;
+  /** 导演动作强度 1/2/3；渲染端映射为确定性幅度 */
+  motionStrength?: number | null;
   /** 表情参数覆盖：key = Cubism 参数 ID，value = 目标值 0..1 */
   parameterOverrides?: ParameterOverrides | null;
+  /** 无预设半身语义通道（-1..1；breath=0..1），渲染端按模型真实范围映射 */
+  halfBody?: Record<string, number> | null;
   /** 括注动作帧时间轴：存在时前端在音频播放到对应进度才触发，优先于 motion */
   motionTimeline?: MotionCue[] | null;
 }

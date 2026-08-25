@@ -27,7 +27,7 @@ class LLM(StatelessLLMInterface):
         self.model_path = model_path
         try:
             self.llm = Llama(model_path=model_path, **kwargs)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.critical(f"Failed to initialize Llama model: {e}")
             raise
 
@@ -71,6 +71,6 @@ class LLM(StatelessLLMInterface):
                     if content:
                         yield content
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error in chat completion: {e}")
             raise

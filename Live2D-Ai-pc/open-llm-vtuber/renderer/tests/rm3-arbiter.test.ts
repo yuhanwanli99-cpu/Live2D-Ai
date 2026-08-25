@@ -88,6 +88,18 @@ function settle(arb: ParamArbiter, steps = 20, stepMs = 100): void {
   for (let i = 0; i < steps; i++) arb.update(stepMs);
 }
 
+describe('RM3 param-arbiter — update 优化', () => {
+  it('fade 完成后不再重复写入 coreModel', () => {
+    const { arbiter, fake } = makeArbiter();
+    arbiter.write(write(ParamSource.Emotion, 'ParamBrowLY', 0.5, 'set', 0));
+    settle(arbiter);
+    const countAfterSettle = fake.writes.length;
+    arbiter.update(16);
+    arbiter.update(16);
+    expect(fake.writes.length).toBe(countAfterSettle);
+  });
+});
+
 describe('RM3 param-arbiter — 优先级仲裁（低优先不覆盖高优先）', () => {
   it('RM3-01: LipSync(L7) active 时，Emotion(L5) 写同参数被阻塞，权属保持 LipSync', () => {
     const { arbiter, fake } = makeArbiter();

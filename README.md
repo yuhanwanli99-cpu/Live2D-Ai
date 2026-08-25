@@ -1,6 +1,6 @@
 # Live2D-Ai 🐱
 
-> **v0.1.0（2026-08-15）**：核心环路真机验证完成——CosyVoice 云 TTS（minimp3）+ N.E.K.O. 情绪分类器 + 官方 CubismNativeFramework/PurismCore 渲染 + 状态机双播报/冻结免疫。详见 [CHANGELOG.md](CHANGELOG.md) 与 [HANDOVER.md](HANDOVER.md)。
+> **v0.2.0-preview.1（准备中）**：首个公开版本仅承诺 PC（WSL2 / Ubuntu Linux）源码 Preview。Android、原生 Windows 与 macOS 不属于本次支持范围。Preview 不捆绑白模型原文件，用户需从作者渠道合法取得并自行导入。
 >
 > **Live2D + AI 最小验证项目** — 验证「最小化的 AI + Live2D」闭环能跑通：文本/语音 → LLM → Live2D 表情/口型/动作。项目意义只有一件：最小代价验证链路可行 + 留下扩展接口供后续和社区开发 mod——所以叫 Live2D-Ai。
 
@@ -44,9 +44,10 @@ Live2D-Ai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 > "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
 
-**开源事实**：本项目基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK，无需注册 Live2D 账号即可编译运行，完全开源、可复制。
+**关于 Live2D 渲染（两套实现，许可不同）**：
 
-同时提供 **PC 端（WSL2/Linux 主力）**（基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)）作为另一平台（原生 Windows 已放弃）。
+- **Android 端**：基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK。
+- **PC 端（WSL2/Linux）**：基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)（MIT）构建，其 Web 渲染依赖 **Live2D Cubism Web Core**（`live2dcubismcore.min.js`），这是 **Live2D 公司的专有 Redistributable Code，不适用 AGPL/MIT**。PC-only Preview 公共发布树**不分发**该文件，也**不分发任何 Live2D 模型/TTS/ASR 模型/API Key**；用户需自行从 [Live2D 官方](https://www.live2d.com/)接受许可并下载 Cubism Web Core，并合法取得模型后本地导入。因此 PC Preview 并非“完全可复制、无需接受 Live2D 许可”。
 
 ---
 
@@ -59,9 +60,9 @@ Live2D-Ai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 - 本地配置聊天（密钥不提交）：Android 端在 `Live2D-Ai-Android/local.properties` 配置 `DEEPSEEK_API_KEY`（build.gradle 自动读入 BuildConfig）后即可聊天——默认 **DeepSeek**（智谱 GLM 提供商已移除）；PC 端在仓库根 `.env` 配置 `DEEPSEEK_API_KEY`（亦可配置 `ZHIPU_API_KEY` 走智谱 GLM，用于视觉/免费兜底，见 `Live2D-Ai-pc/README.md`）。密钥只存在于 gitignored 本地文件，不进入 git 历史
 - LLM 回复解析 `[emotion]` 标签 → Live2D 表情/动作切换
 
-**Live2D 渲染（开源核心）**：
+**Live2D 渲染（Android 端）**：
 
-- Purism Core (MIT) 替代闭源 Cubism Core，完全开源
+- Purism Core (MIT) 替代闭源 Cubism Core（Android 端开源；PC 端渲染依赖 Live2D 专有 Cubism Web Core，见上文许可说明）
 - 完整的 OpenGL ES 2.0 渲染管线：Premultiplied Alpha、裁剪掩码、MSAA 4x
 - 三线性过滤 + Mipmap，呈现光滑边缘
 - 支持 Cubism 5.0 MOC3 模型格式
@@ -94,17 +95,13 @@ Live2D-Ai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 ---
 
-## 📸 截图 | Screenshots
+## 📸 PC Preview 截图 | Screenshots
 
-> <!-- TODO: 替换为真实截图 Replace with actual screenshots -->
+| PC 对话与语音闭环 | PC 桌宠模式 |
+|---|---|
+| ![PC 对话界面](Live2D-Ai-pc/open-llm-vtuber/assets/i1_app_mode.jpg) | ![PC 桌宠模式](Live2D-Ai-pc/open-llm-vtuber/assets/i2_pet_vscode.jpg) |
 
-| Android 端 | PC 端（WSL2/Linux） |
-|-----------|---------------|
-| `[screenshot]` | `[screenshot]` |
-
-| 白 (Bai) | 对话界面 |
-|---------|---------|
-| `[screenshot]` | `[screenshot]` |
+> 截图中的模型仅用于功能展示；PC-only 公共 Preview 不捆绑其原始模型文件。
 
 ---
 
@@ -124,7 +121,7 @@ Live2D-Ai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-org/Live2D-Ai.git
+git clone https://github.com/yuhanwanli99-cpu/Live2Dai.git
 cd Live2D-Ai-Android
 
 # 构建 Debug APK（NDK 会自动下载）
@@ -152,13 +149,23 @@ adb shell am start -n com.live2d.ai.android/.MainActivity
 
 > **注意**：vivo / OPPO 等系统会在安装时弹出安全验证弹窗，需在手机上手动确认。
 
-### PC 端（WSL2/Linux 主力）
+### PC Preview（WSL2 / Ubuntu Linux）
 
 ```bash
-cd Live2D-Ai-pc
-./start.sh
+git clone https://github.com/yuhanwanli99-cpu/Live2Dai.git
+cd Live2Dai/Live2D-Ai-pc/open-llm-vtuber
+uv sync --locked
+cd renderer && npm ci && npm run build && cd ..
+uv run run_server.py
 # 浏览器访问 http://localhost:12393/
 ```
+
+支持等级：WSL2 与 Ubuntu/Linux 为 Preview 支持目标；原生 Windows 不支持，macOS 未测试，Android 不属于本次发布。
+
+> **PC Preview 不捆绑、需用户自行取得的三样东西**：
+> 1. **Live2D Cubism Web Core**（`live2dcubismcore.min.js`）：从 [Live2D 官方](https://www.live2d.com/)接受其专有许可后下载，放到 `Live2D-Ai-pc/open-llm-vtuber/renderer/public/libs/`（或对应加载路径），缺少时页面无法渲染角色。
+> 2. **Live2D 模型**：从模型作者合法渠道取得 ZIP 后，在设置页「形象 / 背景」→「上传 Live2D 模型 (.zip)」导入（例如 `bai`（白-免费版）出自作者发布视频 [BV1NqNFejEeE](https://www.bilibili.com/video/BV1NqNFejEeE/)）。
+> 3. **LLM / TTS / ASR 服务的 API Key 与配置**：项目不内置任何共享或免费 Key，请自行从服务商申请并填入。
 
 > **密钥策略**：项目**不内置任何共享 / 免费 Key，也不提供免费兜底 Provider**。
 > 首次运行前请在仓库根 `.env` 填入自己的 Key（如 `DEEPSEEK_API_KEY=sk-...`），
@@ -198,7 +205,14 @@ python scripts/verify_all.py
 cd Live2D-Ai-Android && ./gradlew test
 
 # PC 端（WSL2/Linux）测试
-cd .. && python -m pytest tests/
+cd Live2D-Ai-pc/open-llm-vtuber
+uv sync --locked
+uv run pytest tests/
+cd renderer
+npm ci
+npm test
+npm exec tsc -- --noEmit
+npm run build
 ```
 
 > 地基文档索引见 [docs/README.md](docs/README.md)，目录约定见 [docs/architecture/directory.md](docs/architecture/directory.md)。
@@ -448,20 +462,23 @@ cd Live2D-Ai-Android && ./gradlew test
 
 ## 📄 许可证 | License
 
-**AGPL-3.0-only + 商用需另行授权** © 2026 Sakura Motion Project
+**AGPL-3.0-only + 可选商业许可证** © 2026 Sakura Motion Project
 
-本项目自有代码默认以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）发布：
-修改、分发、网络服务（SaaS/托管）均须遵守 AGPL-3.0 的传染性开源义务。
+本项目自有代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0-only）发布。
+AGPL 路径允许个人或企业进行商业使用、修改、分发和网络服务，但必须遵守 AGPL-3.0
+的全部义务，包括在适用时向用户提供对应源码。
 
-**商业限制**：任何商业使用、销售、商用分发或将本项目用于商业产品 / 托管服务，
-均须事先取得著作权人的**单独书面商业授权**；未获授权不得商用。第三方组件仍遵循其原有许可（见 [NOTICE](NOTICE) / [CREDITS.md](CREDITS.md)）。
+如果希望把本项目自有代码用于闭源产品、闭源托管服务，或不履行 AGPL-3.0 的开源义务，
+可向版权所有者申请单独商业许可证。商业许可证是可选替代授权，不限制 AGPL 已授予的权利。
+第三方组件仍遵循其原有许可（见 [NOTICE](NOTICE) / [CREDITS.md](CREDITS.md)）。
 
 ### 第三方许可致谢 | Third-Party Licenses
 
 | 组件 | 许可 | 说明 |
 | ------ | ------ | ------ |
-| [Purism Core](https://github.com/SakuraMotion/PurismCore) | **MIT** | Live2D 原生引擎核心 |
-| [CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) | Apache 2.0 | Live2D Java 框架（仅着色器文件） |
+| [Purism Core](https://github.com/SakuraMotion/PurismCore) | **MIT** | Android 端 Live2D 原生引擎核心 |
+| [CubismJavaFramework](https://github.com/Live2D/CubismJavaFramework) 着色器 | **Live2D Open Software License** | Android 端 Live2D 着色器（不可改授为 AGPL/MIT） |
+| **Live2D Cubism Web Core**（`live2dcubismcore.min.js`） | **Live2D Proprietary** | PC 端 Web 渲染；公共 Preview **不分发**，用户自行从 [Live2D 官方](https://www.live2d.com/)取得 |
 | [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) | MIT | PC 桌面端基础（WSL2/Linux 主力，原生 Windows 已放弃） |
 | Jetpack Compose / Material3 | Apache 2.0 | Android UI 框架 |
 | OkHttp | Apache 2.0 | HTTP 客户端 |
@@ -470,7 +487,7 @@ cd Live2D-Ai-Android && ./gradlew test
 
 ### 关于 Live2D 模型
 
-本项目内置的 `.model3.json` / `.moc3` / 纹理文件（`bai`，白-免费版）为 B站公开 Live2D 模型，按**模型作者自定义使用条约**单独授权：允许盈利直播使用、二创、少量制作舰长礼、改色和贴图；禁止制作周边公开售卖；恶意使用时作者有权收回授权。完整条款见 `live2d-models/bai/MODEL_LICENSE.md`。模型资源**不适用**本项目代码的 AGPL 许可。
+开发仓库中使用的 `bai`（白-免费版）来自 [作者发布视频 BV1NqNFejEeE](https://www.bilibili.com/video/BV1NqNFejEeE/)，按模型作者的视频说明和自定义使用条约使用。现有条约允许盈利直播、二创、少量舰长礼以及改色和贴图，但没有明确授予在公开 Git 仓库中再分发原始 `.moc3` 和纹理文件的权利。因此 PC-only Preview 公共发布树**不捆绑该模型原文件**，用户需从作者渠道合法取得并自行导入。模型资源不适用本项目代码的 AGPL 许可。
 
 ---
 
