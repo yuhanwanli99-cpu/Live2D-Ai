@@ -45,6 +45,9 @@ EXPLICIT_ALLOW = {
     "docs/legal/pc-preview-publication.md",
     "docs/releases/v0.2.0-preview.1.md",
     "scripts/slop_miner.py",
+    # PC one-click launcher (WSL2/Linux).  Explicitly allow-listed by exact path
+    # so no OTHER Live2D-Ai-pc root files are pulled into the public tree.
+    "Live2D-Ai-pc/start.sh",
 }
 
 # --- Exclusion predicates (used both for filtering the whitelist and for the
@@ -344,6 +347,7 @@ def validate(target: Path) -> None:
         target / "shared/validate_registry.py",
         target / "tests/test_pc_zero_config.py",
         target / "scripts/slop_miner.py",
+        target / "Live2D-Ai-pc/start.sh",
     ]
     missing = [str(path.relative_to(target)) for path in required if not path.is_file()]
     if missing:

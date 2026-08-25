@@ -37,4 +37,34 @@ fi
 
 cd "$VtuberDir"
 echo "[Live2D-Ai] 启动后端... http://localhost:12393"
+
+# ---- 代理探测（仅提示，不强加） ----
+# WSL2 常用：Windows 侧代理经 host 端口转发到 WSL localhost（默认 10809）。
+# 探测顺序：1) 已设置的环境代理原样使用；2) WSL localhost:10809；3) 宿主地址同端口。
+# 只探测 10809（用户实际使用的端口），绝不误报 10808。
+ProxyPort="${LIVE2DAI_PROXY_PORT:-10809}"
+ProxyHint=""
+if [ -z "${http_proxy:-}" ] && [ -z "${https_proxy:-}" ]; then
+    if (exec 3<>"/dev/tcp/127.0.0.1/$ProxyPort") 2>/dev/null; then
+        exec 3>&- 3<&- 2>/dev/null || true
+        ProxyHint="http://127.0.0.1:$ProxyPort"
+    else
+        # 回退：WSL2 宿主地址来自 /etc/resolv.conf nameserver（Windows 主网卡 IP）。
+        HostAddr="$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)"
+        if [ -n "$HostAddr" ] && (exec 3<>"/dev/tcp/$HostAddr/$ProxyPort") 2>/dev/null; then
+            exec 3>&- 3<&- 2>/dev/null || true
+            ProxyHint="http://$HostAddr:$ProxyPort"
+        fi
+    fi
+fi
+if [ -n "$ProxyHint" ]; then
+    echo "[Live2D-Ai] 检测到本机代理: $ProxyHint（可用 export https_proxy=... 显式覆盖）"
+fi
+
+# 版本横幅：产品版本 / 后端包版本 / 前端包版本 / commit（取不到显示 unknown）
+if Banner="$(cd "$VtuberDir" && "$PY" -c \
+  'from open_llm_vtuber.versions import format_banner; print(format_banner())' 2>/dev/null)"; then
+    echo "[Live2D-Ai] $Banner"
+fi
+
 exec "$PY" run_server.py

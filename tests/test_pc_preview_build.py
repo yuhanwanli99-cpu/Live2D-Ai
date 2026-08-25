@@ -160,6 +160,16 @@ class TestBuildDoesNotLeak(unittest.TestCase):
             "release notes missing from archive",
         )
 
+        # PC one-click launcher must ship, in the archive and the output tree.
+        self.assertTrue(
+            any("Live2D-Ai-pc/start.sh" in n for n in names),
+            "start.sh missing from archive",
+        )
+        self.assertTrue(
+            (self.output / "Live2D-Ai-pc/start.sh").is_file(),
+            "start.sh missing from output tree",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
