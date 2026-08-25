@@ -4,7 +4,6 @@
 - All API calls go directly to DeepSeek / GLM (no gateway)
 """
 
-import asyncio
 import os
 import shutil
 import sys
@@ -148,4 +147,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from open_llm_vtuber.entrypoint import run_entry
+
+    # Ctrl+C 只输出简洁停止日志并以 130 退出，不打印 KeyboardInterrupt /
+    # CancelledError 的 traceback；真实启动异常仍由 Python 打印并返回非零码。
+    sys.exit(run_entry(main))

@@ -236,6 +236,8 @@ export function initSettingsPanel(
     onExternalGateChange?: (status: ExternalStatus) => void;
     /** 点击「打开开发者控制台」→ 由 main.ts 挂载独立测试台 */
     onOpenDevConsole?: () => void;
+    /** 配置保存/应用成功回调，携带最新 developer_mode，供 main.ts 决定自动开/关控制台 */
+    onConfigSaved?: (cfg: { developer_mode?: boolean }) => void;
   } = {},
 ): SettingsPanel {
   const overlay = document.createElement('div');
@@ -1075,6 +1077,7 @@ export function initSettingsPanel(
         if (data.error) throw new Error(data.error);
         // 成功 → re-populate（P1-1：UI = 磁盘 = 运行时）
         if (data.config) populate(data.config);
+        opts.onConfigSaved?.({ developer_mode: data.config?.developer_mode });
         if (token === requestToken) setErrorBar('');
         if (token === requestToken) {
           if (data.requires_restart) {

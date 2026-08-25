@@ -320,8 +320,13 @@ async def finalize_conversation_turn(
         await asyncio.gather(*tts_manager.task_list)
         await websocket_send(json.dumps({"type": "backend-synth-complete"}))
 
+        # P7-04: 正常多段语音的播放确认等待时长必须覆盖真实播放，而非固定 5s 与
+        # 语音竞速超时。以已排队音频的预估播放总时长为基准 + 缓冲，并设下限；
+        # 打断仍由 task 取消（CancelledError → finally → interrupt_conversation）即时释放。
+        _expected = tts_manager.expected_playback_seconds()
+        _playback_timeout = max(8.0, _expected + 8.0)
         response = await message_handler.wait_for_response(
-            client_uid, "frontend-playback-complete", timeout=5.0
+            client_uid, "frontend-playback-complete", timeout=_playback_timeout
         )
 
         if not response:

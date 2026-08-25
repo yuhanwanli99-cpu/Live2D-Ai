@@ -1,8 +1,10 @@
 import asyncio
 import json
+import os
 import re
 import time
 import uuid
+import wave
 from datetime import datetime
 from typing import List, Optional, Dict
 from ..logsetup import get_logger
@@ -51,6 +53,40 @@ class TTSTaskManager:
         # 初始为 "neutral"：前端默认表情即 neutral，首句 neutral 不发冗余 emotion 帧
         # （契约 P5-03：mock WS 发送数 = speak_async 调用数，3 段同 emotion 无额外帧）。
         self._last_emotion: str = "neutral"
+        # 本轮已排队音频的预估播放总时长（秒）。用于让后端等待
+        # frontend-playback-complete 的超时覆盖真实播放，而不是固定 5s 与语音竞速。
+        self._expected_playback_seconds: float = 0.0
+        # 无法解析 WAV 时长时的单 chunk 兜底估值（秒）。
+        self._chunk_duration_fallback: float = 6.0
+
+    @staticmethod
+    def _wav_duration_seconds(path: Optional[str]) -> Optional[float]:
+        """尽力读取 WAV 文件时长（秒）；非标准 WAV / 解析失败返回 None。"""
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            with wave.open(path, "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                if rate <= 0:
+                    return None
+                return float(frames) / float(rate)
+        except Exception:  # noqa: BLE001 - 时长只是超时估算，解析失败不阻断
+            return None
+
+    def expected_playback_seconds(self) -> float:
+        """本轮已排队音频的预估播放总时长（秒），供最终播放确认超时使用。"""
+        return self._expected_playback_seconds
+
+    def reset_playback_estimate(self) -> None:
+        """清空播放时长累计（打断后开始新的批次时调用）。"""
+        self._expected_playback_seconds = 0.0
+
+    def _accumulate_playback_estimate(self, audio_file_path: Optional[str]) -> None:
+        duration = self._wav_duration_seconds(audio_file_path)
+        self._expected_playback_seconds += (
+            duration if duration is not None else self._chunk_duration_fallback
+        )
 
     async def speak_async(
         self,
@@ -279,6 +315,8 @@ class TTSTaskManager:
         self._seq_started = False
         self._max_sequence_seen = 0
         self._last_emotion = "neutral"
+        # 5) 打断后累计的播放时长估值作废，下一批次从零开始
+        self.reset_playback_estimate()
 
     # ------------------------------------------------------------------ #
     # 内部
@@ -358,6 +396,8 @@ class TTSTaskManager:
             # 字幕-声音同步：句首块打标记（省略=False，保持旧 payload 形状）
             if sentence_start:
                 payload["sentence_start"] = True
+            # 累积本块真实播放时长（WAV 时长；解析失败用兜底估值），供最终确认超时覆盖播放。
+            self._accumulate_playback_estimate(audio_file_path)
             # T2: emotion 帧先入队（同一 sequence），再入队 audio payload，保持帧序
             if emotion_payload is not None:
                 await self._enqueue_payload(emotion_payload, sequence_number)

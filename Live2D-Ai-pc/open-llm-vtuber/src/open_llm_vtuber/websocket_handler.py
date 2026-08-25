@@ -286,7 +286,8 @@ class WebSocketHandler:
                     continue
 
         except WebSocketDisconnect:
-            logger.info(f"Client {client_uid} disconnected")
+            # 不在回环内重复打印：统一由 handle_disconnect() 记录一次
+            # "Client x disconnected" 并做资源清理，避免重复日志。
             raise
         except Exception as e:  # noqa: BLE001
             logger.error(f"Fatal error in WebSocket communication: {e}")

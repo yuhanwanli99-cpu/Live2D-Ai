@@ -92,6 +92,8 @@ export class WsBridge {
   onCue: ((motion: string) => void) | null = null;
   /** 开发者模式动作注入（localhost-only） */
   onDevAction: ((action: string, strength: number) => void) | null = null;
+  /** 任何动作实际下发播放（一次性 motion / 时间轴 cue / dev-action）→ 开发者面板「最近动作」 */
+  onActionPlayed: ((action: string, strength: number) => void) | null = null;
   /** 音频片转发（volumes+sliceLength → 引擎口型拉模型） */
   onAudioSlices: ((volumes: number[], sliceLengthMs?: number) => void) | null = null;
   /**
@@ -119,6 +121,7 @@ export class WsBridge {
   private motionScheduler = new MotionTimelineScheduler((motion) => {
     this.bodyMotion?.play(motion);
     this.onCue?.(motion);
+    this.onActionPlayed?.(motion, 2);
   });
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
@@ -526,6 +529,7 @@ export class WsBridge {
               `[ws-bridge] dispatch motion=${audio.actions.motion} strength=${audio.actions.motionStrength ?? 2}`,
             );
             this.bodyMotion?.play(audio.actions.motion, audio.actions.motionStrength ?? 2);
+            this.onActionPlayed?.(audio.actions.motion, audio.actions.motionStrength ?? 2);
           }
           // 字幕：audio 帧携带 display_text 时透传；subtitle 已先上屏同一句时跳过
           if (audio?.display_text) {
@@ -645,6 +649,7 @@ export class WsBridge {
           if (action) {
             this.bodyMotion?.play(action, strength);
             this.onDevAction?.(action, strength);
+            this.onActionPlayed?.(action, strength);
           }
           break;
         }

@@ -46,6 +46,8 @@ export interface DevConsole {
   close(): void;
   destroy(): void;
   root(): HTMLElement | null;
+  /** 记录一条「最近收到/执行的动作」，显示在停靠面板，便于观察动作是否真的下发。 */
+  recordAction(action: string | null | undefined, strength?: number | null, source?: string): void;
 }
 
 const STRENGTHS: Array<1 | 2 | 3> = [1, 2, 3];
@@ -65,6 +67,33 @@ const CHOREO_IDS = new Set([
   'lean_in',
   'look_around',
 ]);
+
+/** 动作的中文显示名（与 action-registry 一致；未知时回退为技术 id）。 */
+export function actionZhName(id: string): string {
+  const known: Record<string, string> = {
+    nod: '点头',
+    shake_no: '摇头',
+    tilt: '歪头',
+    look_around: '左右张望',
+    bow: '鞠躬',
+    lean_in: '靠近',
+    wave_big: '挥手',
+    bounce_happy: '蹦跳',
+    excited: '兴奋',
+    happy: '开心',
+    sad: '难过',
+    anger: '生气',
+    surprise: '惊讶',
+    fear: '害怕',
+    disgust: '嫌弃',
+    neutral: '平静',
+    stale: '待机',
+    idle: '待机',
+    sway: '摇摆',
+    listen: '倾听',
+  };
+  return known[id] ?? id;
+}
 
 /** 纯逻辑：目录 ids → 动作条目（id + kind），供 UI 渲染与 node 单测使用。 */
 export function catalogEntries(ids: string[]): Array<{ id: string; kind: 'gesture' | 'choreo' }> {
@@ -109,6 +138,11 @@ export function createDevConsole(
     <div class="dev-dock-body dev-console-body">
       <div class="settings-status-inline dev-console-status" data-status></div>
 
+      <div class="settings-section-title">最近动作</div>
+      <div class="dev-recent-actions" data-recent>
+        <span class="settings-tip">暂未收到动作</span>
+      </div>
+
       <div class="settings-section-title">导演分析</div>
       <div class="settings-section-hint">输入任意文本，查看导演的情绪 / 强度 / 动作 / 时间线结果（已脱敏）。</div>
       <textarea class="settings-config-tree dev-analyze-input" rows="3" spellcheck="false" placeholder="例如：开心地挥手说你好" aria-label="导演分析文本"></textarea>
@@ -136,6 +170,8 @@ export function createDevConsole(
   const halfbodyTip = overlay.querySelector<HTMLElement>('.dev-halfbody-tip')!;
   const actionList = overlay.querySelector<HTMLElement>('[data-actionlist]')!;
   const collapseBtn = overlay.querySelector<HTMLButtonElement>('.dev-dock-collapse')!;
+  const recentEl = overlay.querySelector<HTMLElement>('[data-recent]')!;
+  const recentEntries: Array<{ action: string; strength: number; source: string; at: number }> = [];
 
   const setStatus = (msg: string, kind: 'info' | 'ok' | 'error' = 'info') => {
     statusEl.textContent = msg;
@@ -174,6 +210,38 @@ export function createDevConsole(
     return data;
   }
 
+  function renderRecentActions(): void {
+    if (recentEntries.length === 0) {
+      recentEl.innerHTML = '<span class="settings-tip">暂未收到动作</span>';
+      return;
+    }
+    recentEl.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    for (const rec of recentEntries.slice(0, 6)) {
+      const item = document.createElement('div');
+      item.className = 'dev-recent-item';
+      const t = new Date(rec.at).toLocaleTimeString([], { hour12: false });
+      const name = actionZhName(rec.action);
+      const label = rec.action === name ? rec.action : `${name}（${rec.action}）`;
+      item.textContent = `${t} | ${label} · 强度 ${rec.strength} · ${rec.source}`;
+      frag.appendChild(item);
+    }
+    recentEl.appendChild(frag);
+  }
+
+  function recordAction(
+    action: string | null | undefined,
+    strength?: number | null,
+    source = '对话',
+  ): void {
+    const id = (action ?? '').trim().toLowerCase();
+    const s = coerceStrength(strength ?? 2);
+    recentEntries.unshift({ action: id || '-', strength: s, source, at: Date.now() });
+    if (recentEntries.length > 12) recentEntries.pop();
+    renderRecentActions();
+    devLog('motion:recorded', { action: id || null, strength: s, source });
+  }
+
   function renderActionList(): void {
     const entries = devActionRegistry.list();
     actionList.innerHTML = '';
@@ -181,6 +249,15 @@ export function createDevConsole(
       const row = document.createElement('div');
       row.className = 'dev-action-row';
       row.dataset.action = entry.id;
+
+      const nameWrap = document.createElement('div');
+      nameWrap.className = 'dev-action-name';
+      nameWrap.innerHTML = `<span class="dev-action-cn">${entry.name}</span>
+        <code class="dev-action-id">${entry.id}</code>`;
+
+      const desc = document.createElement('div');
+      desc.className = 'dev-action-desc';
+      desc.textContent = entry.description;
 
       const strengthSelect = document.createElement('select');
       strengthSelect.className = 'dev-strength';
@@ -207,7 +284,11 @@ export function createDevConsole(
       meta.className = 'settings-tip dev-action-kind';
       meta.textContent = entry.kind;
 
-      row.append(meta, strengthSelect, triggerBtn, releaseBtn);
+      const controls = document.createElement('div');
+      controls.className = 'dev-action-controls';
+      controls.append(strengthSelect, triggerBtn, releaseBtn);
+
+      row.append(nameWrap, desc, controls, meta);
       actionList.appendChild(row);
     }
   }
@@ -352,5 +433,5 @@ export function createDevConsole(
     close();
   }
 
-  return { open, close, destroy, root: () => overlay };
+  return { open, close, destroy, root: () => overlay, recordAction };
 }

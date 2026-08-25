@@ -231,9 +231,15 @@ export class BodyActionPlayer {
     // 统一幅度策略：1 克制可见 / 2 明显 / 3 强烈（轴心 0.5，结果仍 clamp [0,1]）。
     const intensity = level === 1 ? 0.7 : level === 3 ? 1.35 : 1;
     const peak = this.peakDeviation(name ?? '', intensity);
+    // 编排接管前，先清掉仍活跃的单姿态手势。注意：BodyMotionPlayer.release() 走
+    // arbiter.releaseAll(LiveEvent)，而编排与手势共用同一个 LiveEvent 源 —— 若在
+    // 编排已写帧后再调用，会把刚激活的编排参数一并释放，动作瞬间消失（这正是
+    // "dev-action / audio 动作到后端但 Live2D 肉眼不动"的根因之一）。
+    // 因此这里必须在 choreo.play() 写入之前释放旧手势，编排自身的写不受影响。
+    const hadGesture = this.gestures.currentGesture() !== null;
+    if (hadGesture) this.gestures.release();
     if (this.choreo.play(name, intensity)) {
-      console.debug(`[BodyActionPlayer] choreo=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)} peakDev=${peak.toFixed(2)}`);
-      this.gestures.release(); // 编排接管期间清掉残留单姿态
+      console.debug(`[BodyActionPlayer] choreo=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)} peakDev=${peak.toFixed(2)} clearGesture=${hadGesture}`);
       return;
     }
     console.debug(`[BodyActionPlayer] gesture=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)}`);

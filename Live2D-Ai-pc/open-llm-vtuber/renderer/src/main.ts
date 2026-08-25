@@ -63,6 +63,7 @@ import { createDefaultStorage } from './bootstrap/storage';
 import { loadLive2dModules } from './bootstrap/live2d-modules';
 import { createDevConsole } from './dev-console/dev-console';
 import { PRODUCT_VERSION, FRONTEND_VERSION } from './version-info';
+import { getConfig } from './settings/api-client';
 
 // ---- 类型导入（编译期擦除——不在运行时触碰 live2d 依赖链，node/vitest 可安全 import 本模块） ----
 import type { Live2DModel, Cubism4InternalModel } from 'pixi-live2d-display-lipsyncpatch/cubism4';
@@ -590,7 +591,28 @@ export async function initApp(containerId: string): Promise<PixiApp> {
       },
       // 开发者模式：由设置页「系统/高级 → 打开开发者控制台」触发（localhost-only）
       onOpenDevConsole: () => devConsole.open(),
+      // 保存/应用成功 → developer_mode 变化时自动开/关停靠控制台（无需再进设置点击）
+      onConfigSaved: (cfg) => {
+        const devMode = !!cfg.developer_mode;
+        if (devMode) {
+          devConsole.open();
+        } else {
+          devConsole.close();
+        }
+      },
     });
+
+    // 启动即按配置自动打开开发者控制台：developer_mode=true 时主界面加载后自动显示右侧停靠面板
+    void (async () => {
+      try {
+        const res = await getConfig();
+        if (!res.ok) return;
+        const cfg = (await res.json()) as { developer_mode?: boolean };
+        if (cfg?.developer_mode) devConsole.open();
+      } catch {
+        /* 拉取失败不阻塞主流程：用户仍可从设置入口手动打开 */
+      }
+    })();
 
     // ---- P0-3 聊天历史：连接即恢复上文 + 抽屉回看/切换/新建/删除 ----
     let currentHistoryUid: string | null = null;
@@ -821,6 +843,10 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     };
     wsBridge.onCue = (motion) => {
       pipeline.soullink?.cue(motion);
+    };
+    // 任何动作实际下发播放 → 开发者停靠面板「最近动作」实时可见
+    wsBridge.onActionPlayed = (action, strength) => {
+      devConsole.recordAction(action, strength);
     };
     wsBridge.onAudioSlices = (volumes, sliceMs) => {
       pipeline.soullink?.feedMouth(volumes, sliceMs);

@@ -243,3 +243,61 @@ describe('createDevConsole — 导演分析', () => {
     console_.close();
   });
 });
+
+describe('createDevConsole — 中文名与最近动作', () => {
+  let host: HTMLElement;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+  });
+
+  afterEach(() => {
+    host.remove();
+    devActionRegistry.loadCatalog([]);
+  });
+
+  it('动作行同时显示中文名与技术 ID', async () => {
+    const fake = makeFakeApi(); // catalog: nod / bow / look_around
+    const console_ = createDevConsole(host, { api: fake });
+    console_.open();
+    await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
+
+    const nodRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="nod"]')!;
+    expect(nodRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('点头');
+    expect(nodRow.querySelector<HTMLElement>('.dev-action-id')!.textContent).toBe('nod');
+    expect(nodRow.querySelector<HTMLElement>('.dev-action-desc')!.textContent).toBe('轻轻点头示意');
+
+    const bowRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="bow"]')!;
+    expect(bowRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('鞠躬');
+
+    const aroundRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="look_around"]')!;
+    expect(aroundRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('左右张望');
+
+    console_.close();
+  });
+
+  it('recordAction() 把收到/执行的动作写入「最近动作」并显示强度', () => {
+    const fake = makeFakeApi();
+    const console_ = createDevConsole(host, { api: fake });
+    console_.open();
+    console_.recordAction('nod', 3, '对话');
+    const recent = host.querySelector<HTMLElement>('[data-recent]')!;
+    const text = recent.textContent ?? '';
+    expect(text).toContain('点头');
+    expect(text).toContain('nod');
+    expect(text).toContain('强度 3');
+    expect(text).toContain('对话');
+    console_.close();
+  });
+
+  it('recordAction() 空动作也记录为占位且不抛错', () => {
+    const fake = makeFakeApi();
+    const console_ = createDevConsole(host, { api: fake });
+    console_.open();
+    expect(() => console_.recordAction(null, 2)).not.toThrow();
+    const recent = host.querySelector<HTMLElement>('[data-recent]')!;
+    expect((recent.textContent ?? '').length).toBeGreaterThan(0);
+    console_.close();
+  });
+});

@@ -1024,9 +1024,9 @@
 }
 .dev-action-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--surface-1);
@@ -1034,15 +1034,60 @@
 .dev-action-row + .dev-action-row {
   margin-top: 6px;
 }
+.dev-action-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dev-action-cn {
+  font-weight: 700;
+  color: var(--text-1);
+}
+.dev-action-id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+}
+.dev-action-desc {
+  font-size: var(--fs-meta);
+  color: var(--text-4);
+}
+.dev-action-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dev-action-controls select.dev-strength {
+  width: 108px;
+}
 .dev-action-kind {
   min-width: 48px;
   text-transform: uppercase;
   font-size: var(--fs-meta);
   color: var(--text-4);
+  margin-top: 2px;
 }
-.dev-action-row select.dev-strength {
-  width: 110px;
-  margin-left: auto;
+.dev-recent-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  max-height: 130px;
+  overflow-y: auto;
+}
+.dev-recent-item {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dev-halfbody-tip {
   font-size: var(--fs-meta);
