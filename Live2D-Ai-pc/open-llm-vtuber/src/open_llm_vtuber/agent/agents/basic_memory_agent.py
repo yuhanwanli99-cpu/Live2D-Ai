@@ -1,0 +1,991 @@
+import json
+from collections.abc import AsyncIterator, Callable
+from typing import (
+    Any,
+    Literal,
+)
+
+from loguru import logger
+from prompts import prompt_loader
+
+from ...chat_history_manager import get_history
+from ...config_manager import TTSPreprocessorConfig
+from ...live2d_action import (
+    LIVE2D_ACTION_TOOL_API_NAME,
+    LIVE2D_ACTION_TOOL_NAME,
+    Live2dActionTool,
+    build_guided_system_prompt,
+    canonical_tool_api_name,
+    get_default_tool,
+    is_live2d_action_tool_name,
+    native_tools_enabled,
+)
+from ...mcpp.json_detector import StreamJSONDetector
+from ...mcpp.tool_manager import ToolManager
+from ...mcpp.types import ToolCallObject
+from ..input_types import BatchInput, TextSource
+from ..output_types import DisplayText, SentenceOutput
+from ..stateless_llm.claude_llm import AsyncLLM as ClaudeAsyncLLM
+from ..stateless_llm.openai_compatible_llm import (
+    AsyncLLM as OpenAICompatibleAsyncLLM,
+)
+from ..stateless_llm.openai_compatible_llm import ReasoningDelta
+from ..stateless_llm.stateless_llm_interface import StatelessLLMInterface
+from ..transformers import (
+    actions_extractor,
+    display_processor,
+    emo_interceptor,
+    sentence_divider,
+    tts_filter,
+)
+from .agent_interface import AgentInterface
+
+
+class BasicMemoryAgent(AgentInterface):
+    """Agent with basic chat memory and tool calling support."""
+
+    _system: str = "You are a helpful assistant."
+
+    def __init__(
+        self,
+        llm: StatelessLLMInterface,
+        system: str,
+        live2d_model,
+        tts_preprocessor_config: TTSPreprocessorConfig = None,
+        faster_first_response: bool = True,
+        segment_method: str = "pysbd",
+        use_mcpp: bool = False,
+        interrupt_method: Literal["system", "user"] = "user",
+        tool_prompts: dict[str, str] | None = None,
+        tool_manager: ToolManager | None = None,
+        tool_executor: Any | None = None,
+        mcp_prompt_string: str = "",
+        live2d_tool: Live2dActionTool | None = None,
+    ):
+        """Initialize agent with LLM and configuration."""
+        super().__init__()
+        self._memory = []
+        self._live2d_model = live2d_model
+        self._tts_preprocessor_config = tts_preprocessor_config
+        self._faster_first_response = faster_first_response
+        self._segment_method = segment_method
+        self._use_mcpp = use_mcpp
+        self.interrupt_method = interrupt_method
+        self._tool_prompts = tool_prompts or {}
+        self._interrupt_handled = False
+        self.prompt_mode_flag = False
+
+        self._tool_manager = tool_manager
+        self._tool_executor = tool_executor
+        self._mcp_prompt_string = mcp_prompt_string
+        self._json_detector = StreamJSONDetector()
+
+        # 主 LLM 原生 Live2D 动作工具（非 MCP）：None 表示每轮懒解析默认单例。
+        # provider 报告不支持 tools 后置 True，本进程内不再提供工具（安全降级）。
+        self._live2d_tool = live2d_tool
+        self._native_tools_degraded = False
+
+        self._formatted_tools_openai = []
+        self._formatted_tools_claude = []
+        if self._tool_manager:
+            self._formatted_tools_openai = self._tool_manager.get_formatted_tools(
+                "OpenAI"
+            )
+            self._formatted_tools_claude = self._tool_manager.get_formatted_tools(
+                "Claude"
+            )
+            logger.debug(
+                f"Agent received pre-formatted tools - OpenAI: {len(self._formatted_tools_openai)}, Claude: {len(self._formatted_tools_claude)}"
+            )
+        else:
+            logger.debug(
+                "ToolManager not provided, agent will not have pre-formatted tools."
+            )
+
+        self._set_llm(llm)
+        self.set_system(system if system else self._system)
+
+        if self._use_mcpp and not all(
+            [
+                self._tool_manager,
+                self._tool_executor,
+                self._json_detector,
+            ]
+        ):
+            logger.warning(
+                "use_mcpp is True, but some MCP components are missing in the agent. Tool calling might not work as expected."
+            )
+        elif not self._use_mcpp and any(
+            [
+                self._tool_manager,
+                self._tool_executor,
+                self._json_detector,
+            ]
+        ):
+            logger.warning(
+                "use_mcpp is False, but some MCP components were passed to the agent."
+            )
+
+        logger.info("BasicMemoryAgent initialized.")
+
+    def _set_llm(self, llm: StatelessLLMInterface):
+        """Set the LLM for chat completion."""
+        self._llm = llm
+        self.chat = self._chat_function_factory()
+
+    def set_system(self, system: str):
+        """Set the system prompt."""
+        logger.debug(f"Memory Agent: Setting system prompt: '''{system}'''")
+
+        if self.interrupt_method == "user":
+            system = f"{system}\n\nIf you received `[interrupted by user]` signal, you were interrupted."
+
+        self._system = system
+
+    def _add_message(
+        self,
+        message: str | list[dict[str, Any]],
+        role: str,
+        display_text: DisplayText | None = None,
+        skip_memory: bool = False,
+    ):
+        """Add message to memory."""
+        if skip_memory:
+            return
+
+        text_content = ""
+        if isinstance(message, list):
+            for item in message:
+                if item.get("type") == "text":
+                    text_content += item["text"] + " "
+            text_content = text_content.strip()
+        elif isinstance(message, str):
+            text_content = message
+        else:
+            logger.warning(
+                f"_add_message received unexpected message type: {type(message)}"
+            )
+            text_content = str(message)
+
+        if not text_content and role == "assistant":
+            return
+
+        message_data = {
+            "role": role,
+            "content": text_content,
+        }
+
+        if display_text:
+            if display_text.name:
+                message_data["name"] = display_text.name
+            if display_text.avatar:
+                message_data["avatar"] = display_text.avatar
+
+        if (
+            self._memory
+            and self._memory[-1]["role"] == role
+            and self._memory[-1]["content"] == text_content
+        ):
+            return
+
+        self._memory.append(message_data)
+
+    def set_memory_from_history(self, conf_uid: str, history_uid: str) -> None:
+        """Load memory from chat history."""
+        messages = get_history(conf_uid, history_uid)
+
+        self._memory = []
+        for msg in messages:
+            role = "user" if msg["role"] == "human" else "assistant"
+            content = msg["content"]
+            if isinstance(content, str) and content:
+                self._memory.append(
+                    {
+                        "role": role,
+                        "content": content,
+                    }
+                )
+            else:
+                logger.warning(f"Skipping invalid message from history: {msg}")
+        logger.info(f"Loaded {len(self._memory)} messages from history.")
+
+    def handle_interrupt(self, heard_response: str) -> None:
+        """Handle user interruption."""
+        if self._interrupt_handled:
+            return
+
+        self._interrupt_handled = True
+
+        if self._memory and self._memory[-1]["role"] == "assistant":
+            if not self._memory[-1]["content"].endswith("..."):
+                self._memory[-1]["content"] = heard_response + "..."
+            else:
+                self._memory[-1]["content"] = heard_response + "..."
+        else:
+            if heard_response:
+                self._memory.append(
+                    {
+                        "role": "assistant",
+                        "content": heard_response + "...",
+                    }
+                )
+
+        interrupt_role = "system" if self.interrupt_method == "system" else "user"
+        self._memory.append(
+            {
+                "role": interrupt_role,
+                "content": "[Interrupted by user]",
+            }
+        )
+        logger.info(f"Handled interrupt with role '{interrupt_role}'.")
+
+    def _to_text_prompt(self, input_data: BatchInput) -> str:
+        """Format input data to text prompt."""
+        message_parts = []
+
+        for text_data in input_data.texts:
+            if text_data.source == TextSource.INPUT:
+                message_parts.append(text_data.content)
+            elif text_data.source == TextSource.CLIPBOARD:
+                message_parts.append(
+                    f"[User shared content from clipboard: {text_data.content}]"
+                )
+
+        if input_data.images:
+            message_parts.append("\n[User has also provided images]")
+
+        return "\n".join(message_parts).strip()
+
+    def _to_messages(self, input_data: BatchInput) -> list[dict[str, Any]]:
+        """Prepare messages for LLM API call."""
+        messages = self._memory.copy()
+        user_content = []
+        text_prompt = self._to_text_prompt(input_data)
+        if text_prompt:
+            user_content.append({"type": "text", "text": text_prompt})
+
+        if input_data.images:
+            image_added = False
+            for img_data in input_data.images:
+                if isinstance(img_data.data, str) and img_data.data.startswith(
+                    "data:image"
+                ):
+                    user_content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": img_data.data, "detail": "auto"},
+                        }
+                    )
+                    image_added = True
+                else:
+                    logger.error(
+                        f"Invalid image data format: {type(img_data.data)}. Skipping image."
+                    )
+
+            if not image_added and not text_prompt:
+                logger.warning(
+                    "User input contains images but none could be processed."
+                )
+
+        if user_content:
+            user_message = {"role": "user", "content": user_content}
+            messages.append(user_message)
+
+            skip_memory = False
+            if input_data.metadata and input_data.metadata.get("skip_memory", False):
+                skip_memory = True
+
+            if not skip_memory:
+                self._add_message(
+                    text_prompt if text_prompt else "[User provided image(s)]", "user"
+                )
+        else:
+            logger.warning("No content generated for user message.")
+
+        return messages
+
+    async def _claude_tool_interaction_loop(
+        self,
+        initial_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> AsyncIterator[str | dict[str, Any]]:
+        """Handle Claude interaction loop with tool support."""
+        messages = initial_messages.copy()
+        current_turn_text = ""
+        pending_tool_calls = []
+        current_assistant_message_content = []
+
+        while True:
+            stream = self._llm.chat_completion(messages, self._system, tools=tools)
+            pending_tool_calls.clear()
+            current_assistant_message_content.clear()
+
+            async for event in stream:
+                if event["type"] == "text_delta":
+                    text = event["text"]
+                    current_turn_text += text
+                    yield text
+                    if (
+                        not current_assistant_message_content
+                        or current_assistant_message_content[-1]["type"] != "text"
+                    ):
+                        current_assistant_message_content.append(
+                            {"type": "text", "text": text}
+                        )
+                    else:
+                        current_assistant_message_content[-1]["text"] += text
+                elif event["type"] == "tool_use_complete":
+                    tool_call_data = event["data"]
+                    logger.info(
+                        f"Tool request: {tool_call_data['name']} (ID: {tool_call_data['id']})"
+                    )
+                    pending_tool_calls.append(tool_call_data)
+                    current_assistant_message_content.append(
+                        {
+                            "type": "tool_use",
+                            "id": tool_call_data["id"],
+                            "name": tool_call_data["name"],
+                            "input": tool_call_data["input"],
+                        }
+                    )
+                # elif event["type"] == "message_delta":
+                #     if event["data"]["delta"].get("stop_reason"):
+                #         stop_reason = event["data"]["delta"].get("stop_reason")
+                elif event["type"] == "message_stop":
+                    break
+                elif event["type"] == "error":
+                    logger.error(f"LLM API Error: {event['message']}")
+                    yield f"[Error from LLM: {event['message']}]"
+                    return
+
+            if pending_tool_calls:
+                filtered_assistant_content = [
+                    block
+                    for block in current_assistant_message_content
+                    if not (
+                        block.get("type") == "text"
+                        and not block.get("text", "").strip()
+                    )
+                ]
+
+                if filtered_assistant_content:
+                    messages.append(
+                        {"role": "assistant", "content": filtered_assistant_content}
+                    )
+                    assistant_text_for_memory = "".join(
+                        [
+                            c["text"]
+                            for c in filtered_assistant_content
+                            if c["type"] == "text"
+                        ]
+                    ).strip()
+                    if assistant_text_for_memory:
+                        self._add_message(assistant_text_for_memory, "assistant")
+
+                tool_results_for_llm = []
+                if not self._tool_executor:
+                    logger.error(
+                        "Claude Tool interaction requested but ToolExecutor is not available."
+                    )
+                    yield "[Error: ToolExecutor not configured]"
+                    return
+
+                tool_executor_iterator = self._tool_executor.execute_tools(
+                    tool_calls=pending_tool_calls,
+                    caller_mode="Claude",
+                )
+                try:
+                    while True:
+                        update = await anext(tool_executor_iterator)
+                        if update.get("type") == "final_tool_results":
+                            tool_results_for_llm = update.get("results", [])
+                            break
+                        else:
+                            yield update
+                except StopAsyncIteration:
+                    logger.warning(
+                        "Tool executor finished without final results marker."
+                    )
+
+                if tool_results_for_llm:
+                    messages.append({"role": "user", "content": tool_results_for_llm})
+
+                # stop_reason = None
+                continue
+            else:
+                if current_turn_text:
+                    self._add_message(current_turn_text, "assistant")
+                return
+
+    async def _openai_tool_interaction_loop(
+        self,
+        initial_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> AsyncIterator[str | dict[str, Any]]:
+        """Handle OpenAI interaction with tool support."""
+        messages = initial_messages.copy()
+        current_turn_text = ""
+        pending_tool_calls: list[ToolCallObject] | list[dict[str, Any]] = []
+        current_system_prompt = self._system
+
+        while True:
+            if self.prompt_mode_flag:
+                if self._mcp_prompt_string:
+                    current_system_prompt = (
+                        f"{self._system}\n\n{self._mcp_prompt_string}"
+                    )
+                else:
+                    logger.warning("Prompt mode active but mcp_prompt_string is empty!")
+                    current_system_prompt = self._system
+                tools_for_api = None
+            else:
+                current_system_prompt = self._system
+                tools_for_api = tools
+
+            stream = self._llm.chat_completion(
+                messages, current_system_prompt, tools=tools_for_api
+            )
+            pending_tool_calls.clear()
+            current_turn_text = ""
+            assistant_message_for_api = None
+            detected_prompt_json = None
+            goto_next_while_iteration = False
+
+            async for event in stream:
+                if isinstance(event, ReasoningDelta):
+                    # 思维链旁路：先于 str 分支（ReasoningDelta 是 str 子类，
+                    # 否则会被误吞进正文并写入记忆）
+                    yield event
+                    continue
+                if self.prompt_mode_flag:
+                    if isinstance(event, str):
+                        current_turn_text += event
+                        if self._json_detector:
+                            potential_json = self._json_detector.process_chunk(event)
+                            if potential_json:
+                                try:
+                                    if isinstance(potential_json, list):
+                                        detected_prompt_json = potential_json
+                                    elif isinstance(potential_json, dict):
+                                        detected_prompt_json = [potential_json]
+
+                                    if detected_prompt_json:
+                                        break
+                                except Exception as e:  # noqa: BLE001
+                                    logger.error(f"Error parsing detected JSON: {e}")
+                                    if self._json_detector:
+                                        self._json_detector.reset()
+                                    yield f"[Error parsing tool JSON: {e}]"
+                                    goto_next_while_iteration = True
+                                    break
+                        yield event
+                else:
+                    if isinstance(event, str):
+                        current_turn_text += event
+                        yield event
+                    elif isinstance(event, list) and all(
+                        isinstance(tc, ToolCallObject) for tc in event
+                    ):
+                        pending_tool_calls = event
+                        assistant_message_for_api = {
+                            "role": "assistant",
+                            "content": current_turn_text if current_turn_text else None,
+                            "tool_calls": [
+                                {
+                                    "id": tc.id,
+                                    "type": tc.type,
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments,
+                                    },
+                                }
+                                for tc in pending_tool_calls
+                            ],
+                        }
+                        break
+                    elif event == "__API_NOT_SUPPORT_TOOLS__":
+                        logger.warning(
+                            f"LLM {getattr(self._llm, 'model', '')} has no native tool support. Switching to prompt mode."
+                        )
+                        self.prompt_mode_flag = True
+                        if self._tool_manager:
+                            self._tool_manager.disable()
+                        if self._json_detector:
+                            self._json_detector.reset()
+                        goto_next_while_iteration = True
+                        break
+            if goto_next_while_iteration:
+                continue
+
+            if detected_prompt_json:
+                logger.info("Processing tools detected via prompt mode JSON.")
+                self._add_message(current_turn_text, "assistant")
+
+                parsed_tools = self._tool_executor.process_tool_from_prompt_json(
+                    detected_prompt_json
+                )
+                if parsed_tools:
+                    tool_results_for_llm = []
+                    if not self._tool_executor:
+                        logger.error(
+                            "Prompt Tool interaction requested but ToolExecutor/MCPClient is not available."
+                        )
+                        yield "[Error: ToolExecutor/MCPClient not configured for prompt mode]"
+                        continue
+
+                    tool_executor_iterator = self._tool_executor.execute_tools(
+                        tool_calls=parsed_tools,
+                        caller_mode="Prompt",
+                    )
+                    try:
+                        while True:
+                            update = await anext(tool_executor_iterator)
+                            if update.get("type") == "final_tool_results":
+                                tool_results_for_llm = update.get("results", [])
+                                break
+                            else:
+                                yield update
+                    except StopAsyncIteration:
+                        logger.warning(
+                            "Prompt mode tool executor finished without final results marker."
+                        )
+
+                    if tool_results_for_llm:
+                        result_strings = [
+                            res.get("content", "Error: Malformed result")
+                            for res in tool_results_for_llm
+                        ]
+                        combined_results_str = "\n".join(result_strings)
+                        messages.append(
+                            {"role": "user", "content": combined_results_str}
+                        )
+                continue
+
+            elif pending_tool_calls and assistant_message_for_api:
+                messages.append(assistant_message_for_api)
+                if current_turn_text:
+                    self._add_message(current_turn_text, "assistant")
+
+                tool_results_for_llm = []
+                if not self._tool_executor:
+                    logger.error(
+                        "OpenAI Tool interaction requested but ToolExecutor/MCPClient is not available."
+                    )
+                    yield "[Error: ToolExecutor/MCPClient not configured for OpenAI mode]"
+                    continue
+
+                tool_executor_iterator = self._tool_executor.execute_tools(
+                    tool_calls=pending_tool_calls,
+                    caller_mode="OpenAI",
+                )
+                try:
+                    while True:
+                        update = await anext(tool_executor_iterator)
+                        if update.get("type") == "final_tool_results":
+                            tool_results_for_llm = update.get("results", [])
+                            break
+                        else:
+                            yield update
+                except StopAsyncIteration:
+                    logger.warning(
+                        "OpenAI tool executor finished without final results marker."
+                    )
+
+                if tool_results_for_llm:
+                    messages.extend(tool_results_for_llm)
+                continue
+
+            else:
+                if current_turn_text:
+                    self._add_message(current_turn_text, "assistant")
+                return
+
+    def _resolve_live2d_tool(self) -> Live2dActionTool | None:
+        """解析本轮可用的原生 Live2D 动作工具；不可用一律返回 None（安全降级）。
+
+        条件：全局开关未关闭、插件已启用（available()）、provider 未被判死
+        （此前报告过不支持 tools，或 tools 请求被 HTTP 400 拒绝）。
+        工具未注入时懒解析进程内默认单例。
+        """
+        if not native_tools_enabled():
+            return None
+        if self._native_tools_degraded:
+            return None
+        if isinstance(self._llm, OpenAICompatibleAsyncLLM) and not getattr(
+            self._llm, "support_tools", True
+        ):
+            # provider 已拒绝 tools 参数（HTTP 400 / 明确不支持）：
+            # 本进程内不再提供工具，走纯文本简单路径。
+            self._native_tools_degraded = True
+            logger.warning(
+                "[live2d-tool] provider 已拒绝/不支持 tools 参数，"
+                "本进程内不再提供原生工具（ExpressionDirector 兜底不受影响）"
+            )
+            return None
+        tool = self._live2d_tool
+        if tool is None:
+            tool = get_default_tool()
+        if not tool.available():
+            return None
+        return tool
+
+    async def _openai_native_tool_loop(
+        self,
+        initial_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        live2d_tool: Live2dActionTool,
+        max_tool_rounds: int = 4,
+        system: str | None = None,
+    ) -> AsyncIterator[str | dict[str, Any]]:
+        """最小 OpenAI 兼容原生工具循环（非 MCP，任务定版）。
+
+        契约：
+        - 工具结果只回灌 API 对话列表（协议要求），绝不 yield 成文本 → 不朗读；
+          也绝不写入 ``self._memory`` 正文 → 记忆零污染。
+        - 函数名双名兼容：API 名 ``live2d_perform_action`` 与历史展示名
+          ``live2d.perform_action`` 都可解析执行；协议回显一律归一为 API 名
+          （点号名会被 provider 以 HTTP 400 拒绝）。
+        - 合法动作调用额外产出 ``{"type": "live2d_action", ...}`` 内部事件，
+          由对话层绑定到对应下一句/当前句的 Actions payload 与 TTS 音频；
+          同时产出 ``tool_call_status`` 事件供前端可见（含拒绝原因）。
+        - provider 报告 ``__API_NOT_SUPPORT_TOOLS__`` 时：立即去掉 tools 重试拿正文，
+          置位降级标记，本进程后续轮次不再提供工具（可见 warning 一次）。
+        - 工具轮次有上限，防止失控循环；超限时向模型返回可见错误结果。
+        - system：本轮生效的系统提示词。工具启用时由调用方传入
+          「人设 + 动作工具使用指导」拼接版（build_guided_system_prompt），
+          指导只在工具循环内生效，绝不写入持久 system prompt / 记忆。
+        """
+        convo: list[dict[str, Any]] = list(initial_messages)
+        offered_tools: list[dict[str, Any]] | None = tools
+        # 工具启用 = 注入短系统指导（任务定版）：普通对话克制用动作、
+        # 多步骤命令按顺序多次调用、禁止裸文本动作描写。缺省回落原 system。
+        effective_system = system if system is not None else self._system
+
+        for _round in range(max_tool_rounds + 1):
+            text = ""
+            pending_calls: list[ToolCallObject] | None = None
+            unsupported = False
+
+            stream = self._llm.chat_completion(
+                convo, effective_system, tools=offered_tools
+            )
+            async for event in stream:
+                if isinstance(event, ReasoningDelta):
+                    # 思维链旁路：不进正文、不入记忆
+                    yield event
+                    continue
+                if isinstance(event, str):
+                    if event == "__API_NOT_SUPPORT_TOOLS__":
+                        unsupported = True
+                        break
+                    text += event
+                    yield event
+                elif isinstance(event, list) and all(
+                    isinstance(tc, ToolCallObject) for tc in event
+                ):
+                    pending_calls = event
+                    break
+
+            if unsupported:
+                # 安全降级：provider 不支持 tools → 本轮去掉 tools 重试拿正文
+                if not self._native_tools_degraded:
+                    self._native_tools_degraded = True
+                    logger.warning(
+                        "[live2d-tool] 当前 provider 不支持原生 tool calling，"
+                        "已降级为纯文本对话；本进程内不再提供 "
+                        f"{LIVE2D_ACTION_TOOL_NAME}（ExpressionDirector 兜底不受影响）"
+                    )
+                text = ""
+                fallback_stream = self._llm.chat_completion(
+                    convo, effective_system
+                )
+                async for event in fallback_stream:
+                    if isinstance(event, ReasoningDelta):
+                        yield event
+                        continue
+                    if isinstance(event, str):
+                        text += event
+                        yield event
+                if text:
+                    self._add_message(text, "assistant")
+                return
+
+            if not pending_calls:
+                # 无工具调用的正常收尾：可见回复照常入记忆
+                if text:
+                    self._add_message(text, "assistant")
+                return
+
+            if _round >= max_tool_rounds:
+                # 轮次上限：立即收尾 —— 本轮已流出的文本照常入记忆/朗读，
+                # 之后到达的任何工具调用一律丢弃（可见日志），保证循环必然终止。
+                logger.warning(
+                    f"[live2d-tool] 工具轮次超过上限 {max_tool_rounds}，"
+                    f"丢弃 {len(pending_calls)} 个后续工具调用并结束本轮回复"
+                )
+                for tc in pending_calls:
+                    logger.warning(f"[live2d-tool] 已丢弃超限工具调用: {tc.function.name}")
+                if text:
+                    self._add_message(text, "assistant")
+                return
+
+            # assistant 的 tool_call 消息只进 API 会话列表（协议需要），
+            # 绝不写入 self._memory —— 工具协商对记忆不可见。
+            convo.append(
+                {
+                    "role": "assistant",
+                    "content": text or None,
+                    "tool_calls": [
+                        self._tool_call_to_api(tc) for tc in pending_calls
+                    ],
+                }
+            )
+            if text:
+                # 已说出口的文字照常入记忆（与工具调用解耦）
+                self._add_message(text, "assistant")
+
+            for index, tc in enumerate(pending_calls):
+                call_id = tc.id or f"call_{index}"
+                if not is_live2d_action_tool_name(tc.function.name):
+                    # 双名兼容：API 名（live2d_perform_action）与历史展示名
+                    # （live2d.perform_action，仅内部兼容，schema 已不再发送）
+                    # 都接受；其余名字一律拒绝。
+                    detail = (
+                        f"unknown tool: {tc.function.name!r} "
+                        f"(only {LIVE2D_ACTION_TOOL_API_NAME} is exposed)"
+                    )
+                    logger.warning(f"[live2d-tool] 拒绝未知工具调用: {detail}")
+                    yield {
+                        "type": "tool_call_status",
+                        "status": "rejected",
+                        "tool": tc.function.name,
+                        "error": detail,
+                    }
+                    convo.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": json.dumps(
+                                {"ok": False, "error": detail},
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
+
+                arguments = self._parse_tool_arguments(tc.function.arguments)
+                result = await live2d_tool.execute(arguments)
+                if result.get("ok"):
+                    logger.info(
+                        "[live2d-tool] 动作已接受，绑定下一句: action={} strength={}",
+                        result.get("action"),
+                        result.get("strength"),
+                    )
+                    # 内部绑定事件：对话层据此把动作挂到对应句的 Actions payload
+                    yield {
+                        "type": "live2d_action",
+                        "action": result["action"],
+                        "strength": result["strength"],
+                        "reason": str(arguments.get("reason") or ""),
+                        "source": "llm_tool",
+                        "tool": LIVE2D_ACTION_TOOL_NAME,
+                    }
+                    yield {
+                        "type": "tool_call_status",
+                        "status": "done",
+                        "tool": LIVE2D_ACTION_TOOL_NAME,
+                        "action": result["action"],
+                        "strength": result["strength"],
+                    }
+                else:
+                    yield {
+                        "type": "tool_call_status",
+                        "status": "rejected",
+                        "tool": LIVE2D_ACTION_TOOL_NAME,
+                        "error": result.get("error"),
+                    }
+                # 工具结果只进 API 对话列表，不朗读、不入记忆正文
+                convo.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+
+    @staticmethod
+    def _tool_call_to_api(tc: ToolCallObject) -> dict[str, Any]:
+        """ToolCallObject → OpenAI 协议 assistant.tool_calls 元素。
+
+        函数名归一为 API 合法名（canonical_tool_api_name）：历史展示名
+        ``live2d.perform_action`` 含点号，原样回显会被 provider 以 HTTP 400 拒绝。
+        """
+        return {
+            "id": tc.id or "call_0",
+            "type": tc.type or "function",
+            "function": {
+                "name": canonical_tool_api_name(tc.function.name),
+                "arguments": tc.function.arguments,
+            },
+        }
+
+    @staticmethod
+    def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
+        """解析工具参数 JSON；损坏输入降级为空参（执行器会给出可见拒绝）。"""
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            logger.warning(f"[live2d-tool] 工具参数 JSON 解析失败（按空参处理）: {exc}")
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _chat_function_factory(
+        self,
+    ) -> Callable[[BatchInput], AsyncIterator[SentenceOutput | dict[str, Any]]]:
+        """Create the chat pipeline function."""
+
+        @tts_filter(self._tts_preprocessor_config)
+        @display_processor()
+        @actions_extractor(self._live2d_model)
+        @sentence_divider(
+            faster_first_response=self._faster_first_response,
+            segment_method=self._segment_method,
+            valid_tags=["think"],
+        )
+        @emo_interceptor()
+        async def chat_with_memory(
+            input_data: BatchInput,
+        ) -> AsyncIterator[str | dict[str, Any]]:
+            """Process chat with memory and tools."""
+            self.reset_interrupt()
+            self.prompt_mode_flag = False
+
+            messages = self._to_messages(input_data)
+
+            # 主 LLM 原生 Live2D 动作工具（任务定版，优先于一切 MCP 遗留路径）：
+            # 仅对 OpenAI 兼容 provider 提供最小工具循环；其余 provider 走原
+            # 简单路径安全降级。工具结果不朗读、不入记忆正文。
+            # 工具启用时注入短系统指导（克制用动作 / 多步骤按序调用 /
+            # 禁止裸文本动作描写）——只在本轮 API 调用生效，不污染持久人设。
+            live2d_tool = self._resolve_live2d_tool()
+            if live2d_tool is not None and isinstance(
+                self._llm, OpenAICompatibleAsyncLLM
+            ):
+                logger.debug(
+                    f"Starting native tool loop with {LIVE2D_ACTION_TOOL_NAME}."
+                )
+                async for output in self._openai_native_tool_loop(
+                    messages,
+                    [live2d_tool.openai_schema],
+                    live2d_tool,
+                    system=build_guided_system_prompt(self._system),
+                ):
+                    yield output
+                return
+
+            tools = None
+            tool_mode = None
+            llm_supports_native_tools = False
+
+            if self._use_mcpp and self._tool_manager:
+                tools = None
+                if isinstance(self._llm, ClaudeAsyncLLM):
+                    tool_mode = "Claude"
+                    tools = self._formatted_tools_claude
+                    llm_supports_native_tools = True
+                elif isinstance(self._llm, OpenAICompatibleAsyncLLM):
+                    tool_mode = "OpenAI"
+                    tools = self._formatted_tools_openai
+                    llm_supports_native_tools = True
+                else:
+                    logger.warning(
+                        f"LLM type {type(self._llm)} not explicitly handled for tool mode determination."
+                    )
+
+                if llm_supports_native_tools and not tools:
+                    logger.warning(
+                        f"No tools available/formatted for '{tool_mode}' mode, despite MCP being enabled."
+                    )
+
+            if self._use_mcpp and tool_mode == "Claude":
+                logger.debug(
+                    f"Starting Claude tool interaction loop with {len(tools)} tools."
+                )
+                async for output in self._claude_tool_interaction_loop(
+                    messages, tools if tools else []
+                ):
+                    yield output
+                return
+            elif self._use_mcpp and tool_mode == "OpenAI":
+                logger.debug(
+                    f"Starting OpenAI tool interaction loop with {len(tools)} tools."
+                )
+                async for output in self._openai_tool_interaction_loop(
+                    messages, tools if tools else []
+                ):
+                    yield output
+                return
+            else:
+                logger.info("Starting simple chat completion.")
+                token_stream = self._llm.chat_completion(messages, self._system)
+                complete_response = ""
+                async for event in token_stream:
+                    text_chunk = ""
+                    if isinstance(event, dict) and event.get("type") == "text_delta":
+                        text_chunk = event.get("text", "")
+                    elif isinstance(event, ReasoningDelta):
+                        # 思维链旁路：转发给上层单独下发，不进正文、不入记忆
+                        yield event
+                    elif isinstance(event, str):
+                        text_chunk = event
+                    else:
+                        continue
+                    if text_chunk:
+                        yield text_chunk
+                        complete_response += text_chunk
+                if complete_response:
+                    self._add_message(complete_response, "assistant")
+
+        return chat_with_memory
+
+    async def chat(
+        self,
+        input_data: BatchInput,
+    ) -> AsyncIterator[SentenceOutput | dict[str, Any]]:
+        """Run chat pipeline."""
+        chat_func_decorated = self._chat_function_factory()
+        async for output in chat_func_decorated(input_data):
+            yield output
+
+    def reset_interrupt(self) -> None:
+        """Reset interrupt flag."""
+        self._interrupt_handled = False
+
+    def start_group_conversation(
+        self, human_name: str, ai_participants: list[str]
+    ) -> None:
+        """Start a group conversation."""
+        if not self._tool_prompts:
+            logger.warning("Tool prompts dictionary is not set.")
+            return
+
+        other_ais = ", ".join(name for name in ai_participants)
+        prompt_name = self._tool_prompts.get("group_conversation_prompt", "")
+
+        if not prompt_name:
+            logger.warning("No group conversation prompt name found.")
+            return
+
+        try:
+            group_context = prompt_loader.load_util(prompt_name).format(
+                human_name=human_name, other_ais=other_ais
+            )
+            self._memory.append({"role": "user", "content": group_context})
+        except FileNotFoundError:
+            logger.error(f"Group conversation prompt file not found: {prompt_name}")
+        except KeyError as e:
+            logger.error(f"Missing formatting key in group conversation prompt: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to load group conversation prompt: {e}")

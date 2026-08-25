@@ -1,0 +1,195 @@
+/* =====================================================================
+ * theme.css — Live2D-Ai PC 端唯一设计令牌（design tokens）
+ *
+ * 背景：此前聊天面板（index.html 内联 CSS，靛蓝 #6366f1）与设置中心
+ * （settings.css，品牌蓝 #4176E6）各写一套色板/字号/圆角/阴影，同一应用里
+ * 「发送」和「保存」是两种蓝，字号散落 8 档且出现"标题比正文小"的反层级
+ * （详见 docs/research/neko-ui-alignment-and-gaps.md §2.3）。
+ *
+ * 本文件是**唯一**色板与度量来源：所有面板只允许引用 var(--*)，不再手写色值。
+ *
+ * 层级约定
+ *   surface-0 最底（模态壳） → surface-3 最上（悬浮控件）
+ *   text-1 主 → text-4 失效
+ *   字号阶梯：11 / 12 / 13 / 15 / 18 / 22（删掉 10.5/11.5/12.5 这类 0.5px 档）
+ *   圆角阶梯：6 / 8 / 10 / 14 / 999
+ *   阴影阶梯：1(贴合) / 2(悬浮) / 3(模态)
+ *   动效：fast 120ms（hover）/ base 180ms（面板、气泡）/ slow 260ms（覆盖层）
+ * ===================================================================== */
+
+:root {
+  /* ── 表面（由底到上） ── */
+  --surface-0: #0f0f0f;
+  --surface-1: #151517;
+  --surface-2: #1b1b1c;
+  --surface-3: #212123;
+  --surface-4: #2c2c2e;
+  --surface-scrim: rgba(7, 7, 8, 0.72);
+
+  /* ── 毛玻璃（悬浮面板统一用这一组，避免"一个真玻璃一个假实底"） ── */
+  --glass-bg: rgba(20, 20, 24, 0.74);
+  --glass-bg-strong: rgba(15, 15, 17, 0.9);
+  --glass-blur: 18px;
+  --glass-border: rgba(255, 255, 255, 0.1);
+
+  /* ── 文本 ── */
+  --text-1: #ffffff;
+  --text-2: #d4d4d4;
+  --text-3: #adb2b8;
+  --text-4: #8b9096;
+  --text-placeholder: #5c5f63;
+
+  /* ── 品牌色（全局唯一强调色；聊天与设置共用） ── */
+  --accent: #4176e6;
+  --accent-hover: #5686fe;
+  --accent-press: #3564cc;
+  --accent-text: #93a8fe;
+  --accent-soft: rgba(65, 118, 230, 0.14);
+  --accent-ring: rgba(65, 118, 230, 0.22);
+  --accent-disabled: #2a3b5e;
+
+  /* ── 语义色 ── */
+  --ok: #22c55e;
+  --ok-text: #4ed17e;
+  --ok-soft: rgba(34, 197, 94, 0.12);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.12);
+  --danger: #ec1313;
+  --danger-text: #ef4444;
+  --danger-text-hover: #ff6b6b;
+  --danger-soft: rgba(236, 19, 19, 0.13);
+  --danger-border: rgba(236, 19, 19, 0.4);
+
+  /* ── 边框 / 分隔 ── */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --divider: #26282c;
+
+  /* ── 字体 ── */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
+    "Liberation Mono", Menlo, Courier, monospace;
+
+  /* ── 字号阶梯（6 档，标题一定大于正文） ── */
+  --fs-meta: 11px;   /* 角标、时间戳、provider id */
+  --fs-xs: 12px;     /* 次要说明、按钮 */
+  --fs-sm: 13px;     /* 正文、输入框 */
+  --fs-md: 15px;     /* 分区标题 */
+  --fs-lg: 18px;     /* 面板标题 */
+  --fs-xl: 22px;     /* 空状态大标题 */
+  --fs-mono: 12px;
+
+  --lh-tight: 1.35;
+  --lh-base: 1.55;
+
+  /* ── 间距阶梯 ── */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 20px;
+  --sp-7: 24px;
+
+  /* ── 圆角 ── */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  /* ── 阴影阶梯 ── */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 30px 80px rgba(0, 0, 0, 0.65);
+  --shadow-focus: 0 0 0 3px var(--accent-ring);
+
+  /* ── 动效 ── */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── 层级 ── */
+  --z-background: 0;
+  --z-canvas: 1;
+  --z-panel: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+}
+
+/* 统一交互反馈：所有可点元素共享同一套 hover 抬升 / 按压下沉语义 */
+.ui-lift {
+  transition: transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.ui-lift:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.ui-lift:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* 键盘可达：统一焦点环（无障碍基线，见调研 P1-8） */
+.ui-focusable:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-color: var(--accent);
+}
+
+/* 共享动画关键帧（面板/气泡/提示条共用，避免各写一套） */
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ui-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes ui-slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ui-slide-in-right {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes ui-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ui-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@keyframes ui-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes ui-ripple {
+  0% { transform: scale(0.85); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+/* 尊重系统「减少动态效果」：关掉位移/缩放类动画，仅保留即时状态变化 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .ui-lift:hover:not(:disabled) {
+    transform: none;
+  }
+}

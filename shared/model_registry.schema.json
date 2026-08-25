@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.local/schemas/model_registry.schema.json",
+  "title": "Live2D Model Registry",
+  "description": "跨平台 Live2D 模型注册表（shared/model_registry.json）的 JSON Schema。Android（assets 拷贝）与 PC（_resolve_shared_path）两端及校验脚本共同使用，作为跨端唯一真相源的格式契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "models"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "注册表 schema 版本，预留未来迁移能力；当前为 \"1.0\"。"
+    },
+    "models": {
+      "type": "array",
+      "description": "全部注册条目（含 available=false 的预留条目），至少 1 条；必须有且仅有一个 default=true 的条目。",
+      "minItems": 1,
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/modelEntry" },
+          {
+            "description": "default=true 的条目必须同时 available=true（默认模型须可加载）。",
+            "if": {
+              "properties": { "default": { "const": true } },
+              "required": ["default"]
+            },
+            "then": {
+              "properties": { "available": { "const": true } },
+              "required": ["available"]
+            }
+          }
+        ]
+      },
+      "contains": {
+        "description": "有且仅有一个条目 default=true（minContains 默认 1 + maxContains 1）。",
+        "properties": { "default": { "const": true } },
+        "required": ["default"]
+      },
+      "maxContains": 1
+    }
+  },
+  "$defs": {
+    "modelEntry": {
+      "type": "object",
+      "description": "单个 Live2D 模型的注册表条目。model3JsonPath/thumbnailPath 均相对于平台 Live2D 资源根（PC: live2d-models/，Android: assets/live2d/）。",
+      "additionalProperties": false,
+      "required": ["id", "name", "model3JsonPath", "available", "default"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "唯一标识，小写蛇形命名（如 bai）；与 PC model_dict.json 的 name 字段关联。"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "用户可见显示名（如 \"Niziiro Mao\"）。"
+        },
+        "description": {
+          "type": ["string", "null"],
+          "maxLength": 512,
+          "description": "简短描述，用于预览 UI；可省略或为 null。"
+        },
+        "model3JsonPath": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+/runtime/[a-z0-9_]+\\.model3\\.json$",
+          "minLength": 1,
+          "description": "相对路径到 *.model3.json，相对于平台 Live2D 资源根目录。"
+        },
+        "thumbnailPath": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9_]+/thumbnail\\.(png|webp)$",
+          "description": "缩略图相对路径（png/webp）；缺失（null）时 UI 使用默认占位图标。"
+        },
+        "available": {
+          "type": "boolean",
+          "description": "true = 可用；false = 已登记但资源未就绪，UI 应灰显或隐藏。"
+        },
+        "default": {
+          "type": "boolean",
+          "description": "首次启动/回退的默认模型标记；全注册表有且仅有一个条目为 true。"
+        },
+        "restrictPlatform": {
+          "type": ["string", "null"],
+          "enum": [null, "android", "pc"],
+          "description": "\"android\" / \"pc\" / null（null = 双端通用）。"
+        },
+        "metadata": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "扩展元数据（creator、license、status 等），保留字段，不做结构性约束。"
+        }
+      }
+    }
+  }
+}

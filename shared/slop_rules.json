@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "note": "SLOP 台词治理规则（PLAN-V3 §P2）。只作用于 TTS 音频文本，不影响字幕/记忆。由 scripts/slop_miner.py 挖掘候选后人工策展；pattern 用 Python re 语法，replacement 缺省为空。保持克制：只收高置信度的套话，误伤口语的规则宁可不加。",
+  "rules": [
+    { "pattern": "^总而言之[，,]?", "replacement": "", "note": "总结腔开头" },
+    { "pattern": "^总的来说[，,]?", "replacement": "", "note": "总结腔开头" },
+    { "pattern": "^综上所述[，,]?", "replacement": "", "note": "总结腔开头" },
+    { "pattern": "^总之[，,]", "replacement": "", "note": "总结腔开头（仅带标点时移除，避免误伤'总之你别怕'这类口语）" },
+    { "pattern": "值得注意的是[，,:：]?", "replacement": "", "note": "论文腔插入语" },
+    { "pattern": "值得一提的是[，,:：]?", "replacement": "", "note": "论文腔插入语" },
+    { "pattern": "在这个(?:瞬息万变|飞速发展|快速变化|日新月异|信息爆炸)的时代[，,]?", "replacement": "", "note": "时代背景套话" },
+    { "pattern": "作为一个?(?:AI|ai|人工智能)(?:助手|助理|语言模型)[，,]?", "replacement": "", "note": "AI 自指（人设对话里不应出现）" },
+    { "pattern": "无可否认[，,]?", "replacement": "", "note": "让步套话" },
+    { "pattern": "不可否认的是[，,]?", "replacement": "", "note": "让步套话" },
+    { "pattern": "^众所周知[，,]?", "replacement": "", "note": "权威腔开头" },
+    { "pattern": "(?:希望|愿)(?:这些|这个|以上)?(?:回答|内容|建议|分享)(?:能)?对你有所帮助[。！!?！]?", "replacement": "", "note": "客服式收尾" }
+  ]
+}

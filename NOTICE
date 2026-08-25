@@ -1,0 +1,73 @@
+Live2D-Ai
+Copyright (C) 2026 Sakura Motion Project
+
+Default public license: GNU Affero General Public License, version 3 only
+(AGPL-3.0-only). Commercial use is permitted when the AGPL-3.0 terms are followed.
+A separate commercial license is an optional alternative for proprietary use that
+does not follow the AGPL-3.0 obligations. See LICENSE.
+
+This NOTICE file records, for transparency and in the spirit of Section 4(d)
+of the Apache License 2.0, the third-party components governed by the
+Apache License 2.0 that this project references or is informed by.
+The project's own code is licensed under AGPL-3.0-only (see LICENSE); Apache-2.0
+components listed below are NOT re-licensed and keep their own terms.
+
+================================================================================
+Apache 2.0 Components
+================================================================================
+
+1. N.E.K.O. (Project-N-E-K-O/N.E.K.O)
+   License  : Apache License 2.0
+   Copyright: Project-N-E-K-O contributors
+   Source   : https://github.com/Project-N-E-K-O/N.E.K.O
+   Usage    : 设计参考（design reference only）— no source code copied.
+              The v3 model-adapter layer of this project
+              (`shared/model-adapter/niziiro_mao.adapter.json`, `emotionIndex`)
+              was informed by N.E.K.O.'s emotion_mapping idea (emotion name →
+              expression index). The concrete index values come from this
+              project's own existing PC/Android emotionMap convention.
+   No N.E.K.O. source code is included or distributed with this project.
+
+================================================================================
+Live2D Cubism Web Core (PC renderer, proprietary, not distributed)
+================================================================================
+
+- The PC renderer depends on Live2D Cubism Web Core
+  (`live2dcubismcore.min.js`), which is proprietary Redistributable Code
+  owned by Live2D Inc. (file header: (C) 2019 Live2D Inc. All rights reserved).
+  It is governed by the Live2D Proprietary Software License:
+    https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html
+- The PC-only Preview publication tree does NOT bundle or distribute this file.
+  Users must download it from Live2D's official channel and accept the
+  proprietary license before it can be used. It is NOT covered by the
+  project's AGPL-3.0 license and must remain under Live2D's own terms.
+
+================================================================================
+Model Asset License (not distributed in Preview)
+================================================================================
+
+- The Live2D model "bai" (白-免费版) is a third-party asset licensed under the
+  model author's custom terms (source video: https://www.bilibili.com/video/BV1NqNFejEeE/).
+  The author permits profit-making live streams, derivative works, limited
+  "舰长礼" production, and texture/color edits; public merchandise sales are
+  prohibited, and the author may revoke permission for malicious use.
+- The PC-only Preview publication tree does NOT bundle the raw model files
+  (`.moc3`, textures). Users must obtain the model lawfully from the author
+  and import it locally.
+- This model is NOT covered by the project's AGPL-3.0 license.
+
+================================================================================
+Notes (license corrections vs. earlier drafts)
+================================================================================
+
+- pymouth (organics2016/pymouth) is licensed under the **MIT License**
+  (Copyright (c) 2024 organics) — NOT Apache-2.0 as previously mislabeled.
+  It is therefore NOT listed above; its Kotlin port and PC runtime
+  dependency are declared in CREDITS.md (MIT).
+- All other Apache-2.0 dependencies of this project (Kotlin/AndroidX/OkHttp/
+  SnakeYAML/AGP/Kotlin plugins) are binary dependencies; the full list is in
+  CREDITS.md.
+
+License text reference:
+  Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+  (The full license text is not reproduced here; see the official URL above.)

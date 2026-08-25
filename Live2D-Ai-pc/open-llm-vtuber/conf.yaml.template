@@ -1,0 +1,134 @@
+# Live2D-Ai — PC-only Preview 默认配置（安全、零本地模型、零内置 Key）
+# ===================================================================
+# 本模板是公开 Preview 的初始配置。首次启动时若不存在 conf.yaml，
+# run_server.py 会自动从本模板复制一份。
+#
+# 默认策略：
+#   - 监听 127.0.0.1（仅本机）
+#   - ASR / VAD 关闭（不在启动时下载模型）
+#   - TTS 使用 Edge TTS（无需 API Key，需联网）
+#   - 开发者模式关闭
+#   - LLM Key 使用 ${XXX_API_KEY} 占位符，真实值写入仓库根 .env（已 gitignore）
+#   - 不捆绑任何 Live2D 模型或 Cubism Core，用户需自行合法取得并导入
+# ===================================================================
+
+system_config:
+  conf_version: 'v1.2.1'
+  host: '127.0.0.1'
+  port: 12393
+  live2d_fps: 120
+  config_alts_dir: 'characters'
+  developer_mode: false
+
+  tool_prompts:
+    live2d_expression_prompt: 'live2d_expression_prompt'
+    mcp_prompt: 'mcp_prompt'
+
+character_config:
+  conf_name: 'bai'
+  conf_uid: 'bai_001'
+  live2d_model_name: 'bai'
+  character_name: '白'
+  avatar: 'mao.png'
+  human_name: 'Human'
+  # persona_prompt 占位符；run_server.py 启动时会用 shared/persona.yaml 覆盖。
+  persona_prompt: '请在 shared/persona.yaml 中编辑角色人设。'
+  load_persona_from_file: 'shared/persona.yaml'
+
+  agent_config:
+    conversation_agent_choice: 'basic_memory_agent'
+    agent_settings:
+      basic_memory_agent:
+        llm_provider: 'deepseek_llm'
+        faster_first_response: true
+        segment_method: 'priority'
+        use_mcpp: false
+        mcp_enabled_servers: []
+
+    llm_configs:
+      deepseek_llm:
+        llm_api_key: '${DEEPSEEK_API_KEY}'
+        model: 'deepseek-v4-flash'
+        base_url: https://api.deepseek.com/v1
+        temperature: 0.8
+        thinking_enabled: false
+        models:
+        - deepseek-v4-flash
+        - deepseek-v4-pro
+
+      zhipu_free_llm:
+        llm_api_key: '${ZHIPU_API_KEY}'
+        model: 'glm-4.7-flash'
+        base_url: https://open.bigmodel.cn/api/paas/v4
+        temperature: 0.8
+        thinking_enabled: false
+        models:
+        - glm-4.7-flash
+
+      qwen_llm:
+        llm_api_key: '${DASHSCOPE_API_KEY}'
+        model: 'qwen3.7-flash'
+        base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+        temperature: 0.8
+        thinking_enabled: false
+        models:
+        - qwen3.7-flash
+
+  asr_config:
+    asr_model: 'disabled'
+    faster_whisper:
+      model_path: 'large-v3-turbo'
+      download_root: 'models/whisper'
+      language: 'zh'
+      device: 'auto'
+      compute_type: 'int8'
+      prompt: ''
+
+  tts_config:
+    tts_model: 'edge_tts'
+    concurrency_limit: 2
+    edge_tts:
+      voice: 'zh-CN-XiaoxiaoNeural'
+      voices:
+      - zh-CN-XiaoxiaoNeural
+      - zh-CN-XiaoyiNeural
+      - zh-CN-YunjianNeural
+      - zh-CN-YunxiNeural
+      - zh-CN-YunxiaNeural
+      - zh-CN-liaoning-XiaobeiNeural
+      - zh-CN-shaanxi-XiaoniNeural
+      - en-US-JennyNeural
+      - en-US-GuyNeural
+      - ja-JP-NanamiNeural
+      - ko-KR-SunHiNeural
+    viseme_mode: 'rms'
+
+  vad_config:
+    vad_model:
+    silero_vad:
+      orig_sr: 16000
+      target_sr: 16000
+      prob_threshold: 0.4
+      db_threshold: 60
+      required_hits: 3
+      required_misses: 24
+      smoothing_window: 5
+
+  tts_preprocessor_config:
+    remove_special_char: true
+    ignore_brackets: true
+    ignore_parentheses: true
+    ignore_asterisks: true
+    ignore_angle_brackets: true
+    translator_config:
+      translate_audio: false
+      translate_provider: 'deeplx'
+
+vision_config:
+  vision_enabled: false
+  provider: 'zhipu'
+  api_key: '${ZHIPU_API_KEY}'
+  model: 'glm-4.6v'
+  capture_interval: 5.0
+
+mcp_servers: 'shared/mcp_tools.json'
