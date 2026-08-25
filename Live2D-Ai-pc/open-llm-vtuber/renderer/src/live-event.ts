@@ -2,9 +2,10 @@
  * live-event.ts — PC 通用直播/弹幕事件消费者。
  *
  * 事件来源（后端 POST /api/live/event 广播）可以是任意直播平台桥或本地脚本：
- *   { "type": "danmaku", "text": "...", "user": "...", "motion": "happy", "emotion": "joy" }
+ *   { "type": "danmaku", "text": "...", "user": "...", "motion": "nod", "emotion": "joy" }
  *
- * 本模块只做前端「呈现」：身体动作 + 表情 + 可选 toast/字幕回调。
+ * 本模块只做前端「呈现」：头/脸动作（六动作，见 choreography.ts SUPPORTED_ACTIONS）
+ * + 表情 + 可选 toast/字幕回调。已删除动作由 BodyActionPlayer 统一 no-op。
  * 若要弹幕文字进入 LLM 对话，应走既有的 /api/external/chat 链路，不要在这里重复实现。
  */
 
@@ -18,7 +19,7 @@ export interface LiveEventPayload {
   event?: LiveEventKind;
   text?: string;
   user?: string;
-  /** 半身动作名（见 body-motion.ts BodyGesture） */
+  /** 头/脸动作名（六动作之一，见 choreography.ts SUPPORTED_ACTIONS） */
   motion?: string;
   /** 表情 key（joy/sad/angry/surprise/fear/disgust/neutral/love） */
   emotion?: string;

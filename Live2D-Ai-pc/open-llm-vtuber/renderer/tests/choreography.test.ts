@@ -1,264 +1,272 @@
 /**
- * choreography 编排导演层测试：关键帧时序、幅度缩放、打断、回落路由。
+ * choreography 编排导演层测试（六动作定版）：
+ *  - 动作库只含六个头/脸动作 + 全部参数在白名单内、身体通道绝迹；
+ *  - 关键帧时序 / 幅度缩放（强度 1/2/3 单调）/ 打断与回落路由；
+ *  - 播完 / release 经真实 ParamArbiter 回 profile 默认（FakeCoreModel 实证）。
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   CHOREOGRAPHY_LIBRARY,
   ChoreographyPlayer,
   BodyActionPlayer,
   resolveChoreography,
+  SUPPORTED_ACTIONS,
 } from '../src/choreography';
-import { ParamSource } from '../src/param-arbiter';
+import { HEAD_FACE_PARAM_WHITELIST, FORBIDDEN_BODY_PARAMS, ActionPriority } from '../src/action-policy';
+import { ParamArbiter, ParamSource } from '../src/param-arbiter';
+import { FakeCoreModel, BAI_LIKE_RANGES, makeTicker } from './helpers/fake-core-model';
 
-class FakeArbiter {
-  writes: Array<{ paramId: string; value: number; fadeMs?: number; valueSpace?: string }> = [];
-  released = 0;
-  write(w: { source: unknown; paramId: string; value: number; fadeMs?: number; valueSpace?: string }) {
-    this.writes.push({ paramId: w.paramId, value: w.value, fadeMs: w.fadeMs, valueSpace: w.valueSpace });
-  }
-  releaseAll(_src: unknown) {
-    this.released += 1;
-  }
-}
+const DELETED_ACTIONS = [
+  'happy', 'excited', 'sway', 'bow', 'lean_in', 'wave', 'wave_big', 'bounce_happy',
+];
 
-function makeClock() {
-  let t = 1000;
-  return {
-    now: () => t,
-    advance: (ms: number) => {
-      t += ms;
-    },
-  };
+function makeArbiter() {
+  const core = new FakeCoreModel();
+  return new ParamArbiter({ coreModel: core });
 }
 
 describe('resolveChoreography — 路由', () => {
-  it('库内动作与 choreo: 前缀都能命中；未知返回 null', () => {
-    expect(resolveChoreography('wave_big')).toBe('wave_big');
-    expect(resolveChoreography('choreo:bow')).toBe('bow');
-    // 发布定版：nod/tilt（明确用户命令）从单姿态手势升级为大幅度编排，保证可见
-    expect(resolveChoreography('nod')).toBe('nod');
-    expect(resolveChoreography('tilt')).toBe('tilt');
-    expect(resolveChoreography(undefined)).toBeNull();
+  it('六动作与 choreo: 前缀都能命中', () => {
+    for (const id of SUPPORTED_ACTIONS) {
+      expect(resolveChoreography(id)).toBe(id);
+      expect(resolveChoreography(`choreo:${id}`)).toBe(id);
+      expect(resolveChoreography(id.toUpperCase())).toBe(id);
+    }
   });
 
-  it('nod/tilt 编排幅度明确偏离中性（避免"仅嘴动"的不可见手势）', () => {
-    const nodFrames = CHOREOGRAPHY_LIBRARY['nod'];
-    const nodDivergence = nodFrames.some((f) =>
-      Object.values(f.params).some((v) => typeof v === 'number' && Math.abs(v - 0.5) >= 0.2),
-    );
-    expect(nodDivergence).toBe(true);
-    const tiltFrames = CHOREOGRAPHY_LIBRARY['tilt'];
-    const tiltDivergence = tiltFrames.some((f) =>
-      Object.values(f.params).some((v) => typeof v === 'number' && Math.abs(v - 0.5) >= 0.2),
-    );
-    expect(tiltDivergence).toBe(true);
+  it('已删除动作（happy/excited/sway/bow/lean_in/wave/bounce 等）→ null，不再播放', () => {
+    for (const id of DELETED_ACTIONS) {
+      expect(resolveChoreography(id)).toBeNull();
+      expect(resolveChoreography(`choreo:${id}`)).toBeNull();
+    }
+    expect(resolveChoreography(undefined)).toBeNull();
+    expect(resolveChoreography('')).toBeNull();
+  });
+
+  it('SUPPORTED_ACTIONS 与模板库键完全一致（公开面 = 六动作）', () => {
+    expect([...Object.keys(CHOREOGRAPHY_LIBRARY)].sort()).toEqual([...SUPPORTED_ACTIONS].sort());
+    expect(SUPPORTED_ACTIONS).toEqual(['nod', 'shake_no', 'tilt', 'look_around', 'listen', 'surprise']);
   });
 });
 
-describe('ChoreographyPlayer — 时间轴执行', () => {
-  it('首帧立即写入，后续帧按 at 推进，播完释放回基线', () => {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const p = new ChoreographyPlayer(arb as never, { now: clock.now });
-    expect(p.play('shake_no')).toBe(true);
-    expect(p.isPlaying()).toBe(true);
-    // 首帧已写（AngleX=0.16）
-    expect(arb.writes.some((w) => w.paramId === 'ParamAngleX' && w.value < 0.3)).toBe(true);
-
-    clock.advance(400); // 到第二帧(190ms)+第三帧(380ms)
-    p.update(0);
-    expect(arb.writes.some((w) => w.paramId === 'ParamAngleX' && w.value > 0.8)).toBe(true);
-
-    clock.advance(2000); // 远超末帧 → 自动释放
-    p.update(0);
-    expect(p.isPlaying()).toBe(false);
-    expect(arb.released).toBe(1);
-  });
-
-  it('intensity 以 0.5 为不动点缩放幅度', () => {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const p = new ChoreographyPlayer(arb as never, { now: clock.now });
-    p.play('lean_in', 0.5); // 帧值 0.78 → 0.5+(0.28*0.5)=0.64
-    const y = arb.writes.find((w) => w.paramId === 'ParamAngleY');
-    expect(y?.value).toBeCloseTo(0.64, 5);
-  });
-
-  it('cancel 后不再推进；新 play 重置时间轴', () => {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const p = new ChoreographyPlayer(arb as never, { now: clock.now });
-    p.play('bow');
-    const countAtCancel = arb.writes.length;
-    p.cancel();
-    clock.advance(5000);
-    p.update(0);
-    expect(arb.writes.length).toBe(countAtCancel);
-
-    expect(p.play('choreo:bounce_happy')).toBe(true); // 前缀形式也可
-    clock.advance(50);
-    p.update(0);
-    expect(arb.writes.length).toBeGreaterThan(countAtCancel);
-  });
-
-  it('所有模板最后一帧都回中性（0.5）且时间戳递增', () => {
+describe('CHOREOGRAPHY_LIBRARY — 静态校验', () => {
+  it('全部参数都在头/脸白名单内，身体通道从未出现在任何模板', () => {
+    const used = new Set<string>();
     for (const [name, frames] of Object.entries(CHOREOGRAPHY_LIBRARY)) {
+      for (const frame of frames) {
+        for (const paramId of Object.keys(frame.delta)) used.add(paramId);
+      }
+      void name;
+    }
+    expect(used.size).toBeGreaterThan(0);
+    for (const paramId of used) {
+      expect(
+        HEAD_FACE_PARAM_WHITELIST.has(paramId),
+        `${paramId} 不在白名单`,
+      ).toBe(true);
+    }
+    for (const forbidden of FORBIDDEN_BODY_PARAMS) {
+      expect(used.has(forbidden), `禁止通道 ${forbidden} 出现在模板`).toBe(false);
+    }
+  });
+
+  it('每条模板时间戳递增，末帧为空 delta（= 触发 release 回默认，不写假中性值）', () => {
+    for (const [name, frames] of Object.entries(CHOREOGRAPHY_LIBRARY)) {
+      expect(frames.length).toBeGreaterThanOrEqual(2);
       for (let i = 1; i < frames.length; i++) {
         expect(frames[i].at).toBeGreaterThanOrEqual(frames[i - 1].at);
       }
-      const lastParams = frames[frames.length - 1].params;
-      const values = Object.values(lastParams);
-      expect(values.length).toBeGreaterThan(0);
-      for (const v of values) expect(v).toBeCloseTo(0.5, 4);
+      expect(Object.keys(frames[frames.length - 1].delta), `${name} 末帧应空`).toHaveLength(0);
       void name;
     }
   });
-});
 
-describe('BodyActionPlayer — 组合门面与单 active 调度', () => {
-  it('同优先级不同动作进 pending，当前动作结束后接续播放（不打断不叠加）', () => {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const p = new BodyActionPlayer(arb as never, { now: clock.now });
+  it('轴约定：nod=AngleY 两拍、shake_no=AngleX 左右两拍、tilt=AngleZ 单侧', () => {
+    // nod：只用 AngleY，且上下往返 ≥2 次（符号交替）
+    const nodSigns = CHOREOGRAPHY_LIBRARY.nod
+      .map((f) => Math.sign(f.delta.ParamAngleY ?? 0))
+      .filter((s) => s !== 0);
+    expect(CHOREOGRAPHY_LIBRARY.nod.every((f) => !('ParamAngleX' in f.delta || 'ParamAngleZ' in f.delta))).toBe(true);
+    let alternations = 0;
+    for (let i = 1; i < nodSigns.length; i++) if (nodSigns[i] !== nodSigns[i - 1]) alternations++;
+    expect(alternations).toBeGreaterThanOrEqual(3); // 上-下-上-下
 
-    p.play('sway'); // 单姿态手势走 gestures
-    expect(p.currentGesture()).toBe('sway');
+    // shake_no：只用 AngleX，左右往返
+    const shake = CHOREOGRAPHY_LIBRARY.shake_no;
+    expect(shake.every((f) => !('ParamAngleY' in f.delta || 'ParamAngleZ' in f.delta))).toBe(true);
+    const shakeSigns = shake.map((f) => Math.sign(f.delta.ParamAngleX ?? 0)).filter((s) => s !== 0);
+    let shakeAlt = 0;
+    for (let i = 1; i < shakeSigns.length; i++) if (shakeSigns[i] !== shakeSigns[i - 1]) shakeAlt++;
+    expect(shakeAlt).toBeGreaterThanOrEqual(3);
 
-    p.play('wave_big'); // 同优先级 → 不打断，进唯一 pending
-    expect(p.currentGesture()).toBe('sway');
-    expect(p.pendingAction()).toBe('choreo:wave_big');
-
-    clock.advance(2000); // sway hold 1800 自然结束 → 启动 pending
-    p.update(16);
-    expect(p.currentGesture()).toBe('choreo:wave_big');
-
-    clock.advance(2000); // wave_big 播完回中性
-    p.update(16);
-    expect(p.currentGesture()).toBeNull();
-    expect(arb.released).toBeGreaterThanOrEqual(1);
+    // tilt：只用 AngleZ，且全程同一侧（单侧保持后回中）
+    const tilt = CHOREOGRAPHY_LIBRARY.tilt;
+    expect(tilt.every((f) => !('ParamAngleX' in f.delta || 'ParamAngleY' in f.delta))).toBe(true);
+    const tiltSigns = new Set(tilt.map((f) => Math.sign(f.delta.ParamAngleZ ?? 0)).filter((s) => s !== 0));
+    expect(tiltSigns.size).toBe(1);
   });
 
-  it('更高优先级动作立即打断当前动作；被打断动作不进入 pending', () => {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const p = new BodyActionPlayer(arb as never, { now: clock.now });
+  it('look_around 眼睛先行（首帧只有 EyeBallX），头部随后轻随；listen 轻幅度+凝视+眉；surprise 睁眼+挑眉+张嘴', () => {
+    const look = CHOREOGRAPHY_LIBRARY.look_around;
+    expect(Object.keys(look[0].delta)).toEqual(['ParamEyeBallX']);
+    expect(look.some((f) => 'ParamAngleX' in f.delta && 'ParamEyeBallX' in f.delta)).toBe(true);
 
-    p.play('wave_big', 2, { priority: 1, source: 'audio' }); // 情绪兜底
-    expect(p.currentGesture()).toBe('choreo:wave_big');
+    const listen = CHOREOGRAPHY_LIBRARY.listen;
+    expect(listen.some((f) => 'ParamEyeBallX' in f.delta)).toBe(true); // 凝视
+    expect(listen.some((f) => 'ParamBrowLY' in f.delta)).toBe(true); // 微眉
+    for (const f of listen.slice(0, -1)) {
+      for (const v of Object.values(f.delta)) expect(Math.abs(v as number)).toBeLessThan(0.3); // 轻
+    }
 
-    p.play('nod', 3, { priority: 3, source: 'dev' }); // dev 显式（最高）
+    const surprise = CHOREOGRAPHY_LIBRARY.surprise;
+    expect((surprise[0].delta.ParamEyeLOpen ?? 0) > 0.4).toBe(true); // 正向睁眼（非 0 占位）
+    expect((surprise[0].delta.ParamMouthOpenY ?? 0) > 0.5).toBe(true);
+    expect((surprise[0].delta.ParamBrowLY ?? 0) > 0.5).toBe(true);
+    expect(Math.abs(surprise[0].delta.ParamAngleY ?? 0)).toBeLessThan(0.3); // 头部只是轻微
+  });
+});
+
+describe('ChoreographyPlayer — 时间轴执行（真实 arbiter + FakeCoreModel）', () => {
+  it('首帧立即写入模型，后续帧按 at 推进，播完释放并回 profile 默认', () => {
+    const core = new FakeCoreModel();
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const p = new ChoreographyPlayer(arb, { now: ticker.now });
+
+    expect(p.play('shake_no')).toBe(true);
+    expect(p.isPlaying()).toBe(true);
+    for (let i = 0; i < 12; i++) ticker.tick(arb, p); // 首帧 fade（90ms）完成后
+    // 首拍已写到位（AngleX 向一侧偏转，模型空间偏离默认明显）
+    expect(Math.abs(core.last('ParamAngleX') ?? 0)).toBeGreaterThan(8);
+
+    ticker.advanceMs(400); // 到第二/三关键帧
+    p.update(0);
+    for (let i = 0; i < 12; i++) ticker.tick(arb, p); // fade 跨越中线，出现另一方向
+    const signs = new Set(core.history('ParamAngleX').map((v) => Math.sign(v)));
+    expect(signs.size).toBe(2); // 已出现左右两个方向
+
+    ticker.advanceMs(2000); // 远超末帧 → 自动释放回默认
+    p.update(0);
+    for (let i = 0; i < 60; i++) ticker.tick(arb, p);
+    expect(p.isPlaying()).toBe(false);
+    expect(arb.getCurrentSource('ParamAngleX')).toBe(-1);
+    expect(core.last('ParamAngleX')).toBeCloseTo(BAI_LIKE_RANGES.ParamAngleX.defaultValue, 2);
+  });
+
+  it('cancel 后不再推进；新 play 重置时间轴', () => {
+    const core = new FakeCoreModel();
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const p = new ChoreographyPlayer(arb, { now: ticker.now });
+    p.play('nod');
+    for (let i = 0; i < 10; i++) ticker.tick(arb, p);
+    p.cancel(); // nod 不写 AngleZ：cancel 后它必须保持零写入
+    ticker.advanceMs(5000);
+    p.update(0);
+    for (let i = 0; i < 5; i++) ticker.tick(arb, p);
+    expect(core.history('ParamAngleZ')).toHaveLength(0);
+
+    expect(p.play('choreo:tilt')).toBe(true); // 前缀形式也可，时间轴重置后首帧立即生效
+    for (let i = 0; i < 10; i++) ticker.tick(arb, p);
+    expect(core.history('ParamAngleZ').length).toBeGreaterThan(0);
+  });
+
+  it('intensity 缩放语义幅度：strength 1 < 2 < 3 单调', () => {
+    const run = (intensity: number) => {
+      const core = new FakeCoreModel();
+      const arb = new ParamArbiter({ coreModel: core });
+      const ticker = makeTicker();
+      const p = new ChoreographyPlayer(arb, { now: ticker.now });
+      p.play('tilt', intensity);
+      for (let i = 0; i < 20; i++) ticker.tick(arb, p); // 推进 fade 到保持段
+      return Math.max(...core.history('ParamAngleZ').map((v) => Math.abs(v)));
+    };
+    const low = run(0.7);
+    const mid = run(1);
+    const high = run(1.35);
+    expect(low).toBeLessThan(mid);
+    expect(mid).toBeLessThan(high);
+  });
+});
+
+describe('BodyActionPlayer — 组合门面与单 active 调度（保留优先级 + 冷却）', () => {
+  it('同优先级不同动作进 pending，当前结束后接续播放（不打断不叠加）', () => {
+    const arb = makeArbiter();
+    const ticker = makeTicker();
+    const p = new BodyActionPlayer(arb, { now: ticker.now, cooldownMs: 0 });
+
+    p.play('nod', 2, { priority: ActionPriority.Live, source: 'dev' });
     expect(p.currentGesture()).toBe('choreo:nod');
+
+    p.play('tilt', 2, { priority: ActionPriority.Live, source: 'dev' }); // 同优先级 → 唯一 pending
+    expect(p.currentGesture()).toBe('choreo:nod');
+    expect(p.pendingAction()).toBe('choreo:tilt');
+
+    // nod 总时长 ~1000ms+fade → tick 过后接续 tilt
+    for (let i = 0; i < 90; i++) ticker.tick(arb, p, 16);
+    expect(p.currentGesture()).toBe('choreo:tilt');
+
+    for (let i = 0; i < 120; i++) ticker.tick(arb, p, 16);
+    expect(p.currentGesture()).toBeNull();
+  });
+
+  it('更高优先级动作立即打断当前动作；被打断动作不进入 pending，参数立即开始回默认', () => {
+    const core = new FakeCoreModel();
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const p = new BodyActionPlayer(arb, { now: ticker.now });
+
+    p.play('look_around', 2, { priority: ActionPriority.Fallback, source: 'audio' });
+    expect(p.currentGesture()).toBe('choreo:look_around');
+
+    p.play('nod', 3, { priority: ActionPriority.Live, source: 'dev' }); // dev 显式（最高）
+    expect(p.currentGesture()).toBe('choreo:nod');
+    expect(p.currentPriority()).toBe(ActionPriority.Live);
     expect(p.pendingAction()).toBeNull();
+
+    // 打断瞬间 LiveEvent 记录被释放（修复：cancelActive 现在真的 releaseAll）
+    expect(arb.getCurrentSource('ParamEyeBallX')).toBe(-1);
+
+    for (let i = 0; i < 200; i++) ticker.tick(arb, p, 16);
+    expect(p.currentGesture()).toBeNull();
+    expect(core.last('ParamAngleY') ?? BAI_LIKE_RANGES.ParamAngleY.defaultValue)
+      .toBeCloseTo(BAI_LIKE_RANGES.ParamAngleY.defaultValue, 2);
+  });
+
+  it('release/stop 立即清空 current 与 pending，并把 LiveEvent 全部释放（回默认）', () => {
+    const core = new FakeCoreModel();
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const p = new BodyActionPlayer(arb, { now: ticker.now });
+
+    p.play('surprise', 3, { priority: ActionPriority.Live, source: 'dev' });
+    p.play('nod', 2, { priority: ActionPriority.Fallback, source: 'audio' }); // 低优先级 → pending
+    expect(p.pendingAction()).toBe('choreo:nod');
 
     p.release();
     expect(p.currentGesture()).toBeNull();
-  });
-});
+    expect(p.pendingAction()).toBeNull();
+    expect(arb.getCurrentSource('ParamMouthOpenY')).toBe(-1);
+    expect(arb.getCurrentSource('ParamAngleY')).toBe(-1);
 
-describe('Preview deterministic director motion policy', () => {
-  it('look_around drives bounded gaze then returns both eyes to center', () => {    const frames = CHOREOGRAPHY_LIBRARY.look_around;
-    expect(frames.some((frame) => frame.params.ParamEyeBallX !== undefined)).toBe(true);
-    for (const frame of frames.slice(0, -1)) {
-      const x = frame.params.ParamEyeBallX;
-      const y = frame.params.ParamEyeBallY;
-      if (x !== undefined) expect(x).toBeGreaterThanOrEqual(0.25);
-      if (x !== undefined) expect(x).toBeLessThanOrEqual(0.75);
-      if (y !== undefined) expect(y).toBeGreaterThanOrEqual(0.45);
-      if (y !== undefined) expect(y).toBeLessThanOrEqual(0.60);
+    // 继续 tick：pending 不复活；嘴回默认 0（而不是停在惊讶的 0.9）
+    for (let i = 0; i < 80; i++) ticker.tick(arb, p, 16);
+    expect(p.currentGesture()).toBeNull();
+    expect(core.last('ParamMouthOpenY')).toBeCloseTo(0, 2);
+  });
+
+  it('已删除动作请求为 no-op：不改变当前播放状态', () => {
+    const arb = makeArbiter();
+    const ticker = makeTicker();
+    const p = new BodyActionPlayer(arb, { now: ticker.now });
+    p.play('nod', 2, { priority: ActionPriority.Live, source: 'dev' });
+    for (const dead of DELETED_ACTIONS) {
+      p.play(dead, 3, { priority: ActionPriority.Live, source: 'dev' });
     }
-    const last = frames[frames.length - 1].params;
-    expect(last.ParamEyeBallX).toBe(0.5);
-    expect(last.ParamEyeBallY).toBe(0.5);
-  });
+    expect(p.currentGesture()).toBe('choreo:nod');
+    expect(p.pendingAction()).toBeNull();
 
-  it('strength 1/2/3 maps to increasing normalized motion amplitude', () => {
-    const run = (strength: number) => {
-      const arb = new FakeArbiter();
-      const clock = makeClock();
-      const player = new BodyActionPlayer(arb as never, { now: clock.now });
-      player.play('lean_in', strength);
-      return arb.writes.find((w) => w.paramId === 'ParamAngleY')?.value as number;
-    };
-    const low = run(1);
-    const medium = run(2);
-    const high = run(3);
-    expect(low).toBeLessThan(medium);
-    expect(medium).toBeLessThan(high);
-  });
-
-  it('all deterministic body writes declare normalized parameter space', () => {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const player = new BodyActionPlayer(arb as never, { now: clock.now });
-    player.play('look_around', 2);
-    expect(arb.writes.length).toBeGreaterThan(0);
-    expect(arb.writes.every((write) => write.valueSpace === 'normalized')).toBe(true);
-  });
-});
-
-describe('Preview unified amplitude policy — 参数峰值验收', () => {
-  // 每次播放后抓取该源本次写入的快照（BodyActionPlayer 组合门面调完即生效）。
-  function snapshotAfterPlay(name: string, strength: number) {
-    const arb = new FakeArbiter();
-    const clock = makeClock();
-    const player = new BodyActionPlayer(arb as never, { now: clock.now });
-    player.play(name, strength);
-    const peak: Record<string, number> = {};
-    for (const w of arb.writes) {
-      if (w.valueSpace !== 'normalized' || w.paramId === undefined) continue;
-      const d = Math.abs((w.value as number) - 0.5);
-      if (!(w.paramId in peak) || d > peak[w.paramId]) peak[w.paramId] = d;
-    }
-    return { arb, peak };
-  }
-
-  it('strength 3 的头部/身体关键参数达到明确可见阈值（偏离中性>=0.25）', () => {
-    const cases: Array<[string, string[]]> = [
-      ['nod', ['ParamAngleX', 'ParamBodyAngleX']],
-      ['tilt', ['ParamAngleZ', 'ParamBodyAngleZ']],
-      ['bow', ['ParamAngleX', 'ParamBodyAngleX']],
-      ['shake_no', ['ParamAngleX']],
-      ['lean_in', ['ParamAngleY', 'ParamBodyAngleX']],
-    ];
-    for (const [name, params] of cases) {
-      const { peak } = snapshotAfterPlay(name, 3);
-      for (const p of params) {
-        expect(peak[p]).toBeGreaterThanOrEqual(0.25);
-      }
-    }
-  });
-
-  it('六显式命令强度 1/2/3 单调递增（克制 < 明显 < 强烈）', () => {
-    const commands = ['nod', 'tilt', 'shake_no', 'look_around', 'bow', 'lean_in'];
-    for (const name of commands) {
-      const peakLow = Math.max(...Object.values(snapshotAfterPlay(name, 1).peak));
-      const peakMid = Math.max(...Object.values(snapshotAfterPlay(name, 2).peak));
-      const peakHigh = Math.max(...Object.values(snapshotAfterPlay(name, 3).peak));
-      expect(peakLow).toBeLessThan(peakMid);
-      expect(peakMid).toBeLessThan(peakHigh);
-      expect(peakHigh).toBeGreaterThan(0.25);
-    }
-  });
-
-  it('强度 1 克制但仍可见（至少一个关键参数偏离中性>=0.12）', () => {
-    const commands = ['nod', 'tilt', 'shake_no', 'look_around', 'bow', 'lean_in'];
-    for (const name of commands) {
-      const peakMax = Math.max(...Object.values(snapshotAfterPlay(name, 1).peak));
-      expect(peakMax).toBeGreaterThanOrEqual(0.12);
-    }
-  });
-
-  it('所有写入在 0..1 内且编排末帧回中性（不越界、不残留）', () => {
-    for (const name of Object.keys(CHOREOGRAPHY_LIBRARY)) {
-      const { arb } = snapshotAfterPlay(name, 3);
-      for (const w of arb.writes) {
-        expect((w.value as number)).toBeGreaterThanOrEqual(0);
-        expect((w.value as number)).toBeLessThanOrEqual(1);
-      }
-      const last = CHOREOGRAPHY_LIBRARY[name][CHOREOGRAPHY_LIBRARY[name].length - 1];
-      for (const v of Object.values(last.params)) {
-        expect(v).toBeCloseTo(0.5, 4);
-      }
-    }
+    p.play('idle'); // release 语义别名
+    expect(p.currentGesture()).toBeNull();
   });
 });

@@ -60,38 +60,30 @@ function devLog(event: string, data: Record<string, unknown>): void {
   console.info(`[dev] ${event}`, { ...data });
 }
 
-/** Choreography action ids that are timeline choreography（对应 renderer CHOREOGRAPHY_LIBRARY 中
- *  属于 PC Preview 安全半身目录的子集；不含 wave_big/bounce_happy 等 bai 无对应能力的动作）。 */
+/** Choreography action ids that are timeline choreography（六动作定版：
+ *  CHOREOGRAPHY_LIBRARY 全部成员；bow/lean_in/wave_big/bounce_happy 等身体类
+ *  动作已删除，不再属于任何 UI 分类）。 */
 const CHOREO_IDS = new Set([
-  'bow',
-  'shake_no',
-  'lean_in',
-  'look_around',
   'nod',
+  'shake_no',
   'tilt',
+  'look_around',
+  'listen',
+  'surprise',
 ]);
 
-/** 动作的中文显示名（优先消费后端 action_meta；此处为离线回退，不含 wave/bounce）。 */
+/** 动作的中文显示名（优先消费后端 action_meta；此处为离线回退，
+ *  仅含六动作 + release(idle)，不含 bow/happy/sway/wave/bounce）。 */
 export function actionZhName(id: string): string {
   const known: Record<string, string> = {
     nod: '点头',
     shake_no: '摇头',
     tilt: '歪头',
     look_around: '左右张望',
-    bow: '鞠躬',
-    lean_in: '靠近',
-    excited: '兴奋',
-    happy: '开心',
-    sway: '摇摆',
     listen: '倾听',
-    sad: '难过',
-    anger: '生气',
     surprise: '惊讶',
-    fear: '害怕',
-    disgust: '嫌弃',
-    neutral: '平静',
     idle: '待机',
-    breathe: '呼吸',
+    release: '释放回默认',
   };
   return known[id] ?? id;
 }
@@ -146,7 +138,7 @@ export function createDevConsole(
 
       <div class="settings-section-title">导演分析</div>
       <div class="settings-section-hint">输入任意文本，查看导演的情绪 / 强度 / 动作 / 时间线结果（已脱敏）。</div>
-      <textarea class="settings-config-tree dev-analyze-input" rows="3" spellcheck="false" placeholder="例如：开心地挥手说你好" aria-label="导演分析文本"></textarea>
+      <textarea class="settings-config-tree dev-analyze-input" rows="3" spellcheck="false" placeholder="例如：真的吗？（惊讶地）我不信" aria-label="导演分析文本"></textarea>
       <div class="settings-editor-actions">
         <button class="btn primary dev-analyze-btn" type="button">分析</button>
         <span class="settings-tip">本地仅调用导演逻辑，不发送到对话链。</span>
@@ -154,7 +146,7 @@ export function createDevConsole(
       <pre class="dev-result dev-analyze-result" hidden></pre>
 
       <div class="settings-section-title">动作触发</div>
-      <div class="settings-section-hint">目录来自后端白名单；模型无手臂/全身骨骼，挥手/鼓掌/蹦跳等以「上身近似」表达。</div>
+      <div class="settings-section-hint">目录来自后端白名单；动作只覆盖头/脸参数（点头/摇头/歪头/张望/倾听/惊讶），身体通道已全面禁止。</div>
       <div class="settings-editor-actions">
         <button class="btn ghost dev-catalog-btn" type="button">刷新动作目录</button>
         <span class="dev-halfbody-tip settings-tip"></span>

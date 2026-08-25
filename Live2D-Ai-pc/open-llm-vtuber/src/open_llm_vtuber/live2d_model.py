@@ -35,28 +35,25 @@ _JSON_NAKED_RE = re.compile(r"\{.*\}", re.DOTALL)
 _DEFAULT_MOTION_LABEL_ALIASES = frozenset()
 _MOTION_LABEL_ALIASES = _DEFAULT_MOTION_LABEL_ALIASES
 
-# PC 关键词兜底词表（契约 v3-features §1.1 锁死，[UNSURE-FT1 终裁 2026-08-09]）
-# 与 Android KeywordMotionTable 完全对齐 6 中文词（移除"你好"与英文扩展词，双端一致优先于 kugutu 补充建议）。
-MOTION_KEYWORDS: dict[str, str] = {
-    # 与 Android KeywordMotionTable 完全对齐（D2：同词同义）
-    "挥手": "wave",
-    "招招手": "wave",
-    "打招呼": "wave",
-    "再见": "special_02",
-    "拜拜": "special_02",
-    "掰掰": "special_02",
-}
+# PC 关键词兜底词表（定版：空表）。
+# 六动作目录收敛后，旧词表（挥手/招招手/打招呼 → wave；再见/拜拜/掰掰 →
+# special_02）全部删除：bai 无手臂/预设动作参数，这些词无法诚实映射到
+# nod/shake_no/tilt/look_around/listen/surprise 中的任何一个，一律不产动作。
+# 显式用户命令走 director.detect_user_motion_command（点头/摇头/歪头/张望，
+# 带疑问/否定语境保护）；AI 自主动走括注舞台说明（director.stage_gesture_*）
+# 与语义导演。本表保留结构供未来「可诚实映射」的关键词进入。
+MOTION_KEYWORDS: dict[str, str] = {}
 
 
 def extract_motion_keyword(text: str) -> str | None:
-    """关键词兜底：从净化后句子文本匹配 MOTION_KEYWORDS 词表，返回 motionLabel 别名。
+    """关键词兜底：从净化后句子文本匹配 MOTION_KEYWORDS 词表，返回 motionLabel。
 
-    契约 v3-features §1.1/§1.2 锁死：
-      - 大小写不敏感子串匹配（text.lower() 后查 lowercase 词表）
-      - 按词表顺序扫描，首个命中的别名返回；同别名只取最早命中
-      - 无命中 → None（前端消费：motion 为空 → 随机 Talk）
+    定版（六动作目录收敛）：词表为空 —— 无法诚实映射的词不产动作，
+    本函数对任何输入返回 None（保持签名与调用点兼容）。
 
-    输入：净化后句子文本（sentence.text，非 tag 文本）；输出：motionLabel 别名（小写）或 None。
+    历史（已删除）：挥手/招招手/打招呼 → wave、再见/拜拜/掰掰 → special_02；
+    这些 id 不在 motion_catalog.SAFE_MOTION_IDS 内，即使残留也会被下游
+    sanitize_motion 清空，这里直接不再产出。
     """
     if not isinstance(text, str) or not text:
         return None
@@ -447,8 +444,8 @@ class Live2dModel:
         返回 dict 形如：
           {"expressionMix": [{"name": "joy", "weight": 0.7}, ...],
            "parameterOverrides": {"ParamEyeLOpen": 1.2},
-           "motionLabel": "wave" | None}
-        或 None（降级信号）。
+           "motionLabel": "nod" | None}
+        或 None（降级信号）。motionLabel 只可能是六动作目录内的 id 或 None。
         """
         raw = self._extract_json_candidate(text)
         if raw is None:

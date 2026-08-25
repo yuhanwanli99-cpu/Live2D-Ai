@@ -70,10 +70,16 @@ interface SourceRecord {
 
 /** 单参数仲裁状态 */
 interface ParamState {
+  /** 参数 ID（release 回默认时查 profile 用） */
+  paramId: string;
   /** 各源最后有效写入（含被阻塞的低优先级记录，用于回退） */
   sources: Map<ParamSource, SourceRecord>;
-  /** 当前驱动该参数的源（-1 = 无源驱动，回退到 0） */
+  /** 当前驱动该参数的源（-1 = 无源驱动，回退到 profile 默认） */
   activeSource: ParamSource | -1;
+  /** 当前呈现值所处数值空间（fromValue/currentValue/toValue 均在此空间） */
+  valueSpace: ValueSpace;
+  /** 该参数是否曾被任何源激活过（首次激活时以 profile 默认值为 fade 基线） */
+  activated: boolean;
   /** 当前输出值（lerp 后） */
   currentValue: number;
   /** fade 起始值 */
@@ -117,6 +123,14 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+/** 数值空间：'model' = 模型原始值；'normalized' = 0..1 归一化值 */
+type ValueSpace = 'model' | 'normalized';
+
+/** 模型值 → 归一化（0..1）；range 保证 maximum > minimum */
+function normalizedFromModelValue(range: { minimum: number; maximum: number }, modelValue: number): number {
+  return clamp01((modelValue - range.minimum) / (range.maximum - range.minimum));
+}
+
 /**
  * 参数仲裁器——多轨融合核心。
  *
@@ -155,8 +169,11 @@ export class ParamArbiter {
     let state = this.paramStates.get(req.paramId);
     if (!state) {
       state = {
+        paramId: req.paramId,
         sources: new Map(),
         activeSource: -1,
+        valueSpace: 'model',
+        activated: false,
         currentValue: 0,
         fromValue: 0,
         toValue: 0,
@@ -202,9 +219,8 @@ export class ParamArbiter {
       // fadeMs === 0 → activate() 时已立即生效，此处直接沿用 currentValue
 
       const range = this.profile.ranges[paramId];
-      const storedIsNormalized = state.activeSource !== -1 &&
-        state.sources.get(state.activeSource)?.valueSpace === 'normalized';
-      const modelValue = (range && storedIsNormalized)
+      // 呈现值空间由 state.valueSpace 跟踪（release 后源记录已删除，不能反查 sources）
+      const modelValue = (range && state.valueSpace === 'normalized')
         ? normalizedToModelValue(range, state.currentValue)
         : state.currentValue;
       coreModel?.setParameterValueById?.(paramId, modelValue);
@@ -214,7 +230,8 @@ export class ParamArbiter {
 
   /**
    * 释放某个源对某参数的控制（如口型结束）。
-   * 若该源正驱动此参数 → 回退到剩余最高优先级源的最后有效值（或 0）。
+   * 若该源正驱动此参数 → 回退到剩余最高优先级源的最后有效值；
+   * 无剩余源 → 回模型/profile 运行时默认值（绝不硬写 0 / 假 0.5）。
    */
   release(paramId: string, source: ParamSource): void {
     const state = this.paramStates.get(paramId);
@@ -224,20 +241,12 @@ export class ParamArbiter {
     state.sources.delete(source);
 
     if (state.activeSource !== source) return;
-
-    const fallback = this.pickFallback(state);
-    if (fallback) {
-      state.activeSource = fallback.source;
-      const target = this.computeTarget(fallback.rec.mode, fallback.rec.value, state.currentValue);
-      this.fadeTo(state, target, fallback.rec.fadeMs);
-    } else {
-      state.activeSource = -1;
-      this.fadeTo(state, 0, releasedFadeMs); // 无低优先级源 → 回退到 0
-    }
+    this.fallBackAfterRelease(state, releasedFadeMs);
   }
 
   /**
-   * 释放某源对所有参数的控制（如表情结束 → 回退到 idle/mood 基线）。
+   * 释放某源对所有参数的控制（如表情结束 → 回退到 idle/mood 基线；
+   * 无低优先级源时逐参数回模型/profile 运行时默认值）。
    */
   releaseAll(source: ParamSource): void {
     for (const state of this.paramStates.values()) {
@@ -249,21 +258,12 @@ export class ParamArbiter {
 
       const releasedFadeMs = state.sources.get(source)?.fadeMs ?? 0;
       state.sources.delete(source);
-
-      const fallback = this.pickFallback(state);
-      if (fallback) {
-        state.activeSource = fallback.source;
-        const target = this.computeTarget(fallback.rec.mode, fallback.rec.value, state.currentValue);
-        this.fadeTo(state, target, fallback.rec.fadeMs);
-      } else {
-        state.activeSource = -1;
-        this.fadeTo(state, 0, releasedFadeMs);
-      }
+      this.fallBackAfterRelease(state, releasedFadeMs);
     }
   }
 
   /**
-   * 当前驱动某参数的源（-1 = 无源驱动，即回退到 0）。
+   * 当前驱动某参数的源（-1 = 无源驱动，即回退到 profile 默认）。
    */
   getCurrentSource(paramId: string): ParamSource | -1 {
     const state = this.paramStates.get(paramId);
@@ -271,7 +271,7 @@ export class ParamArbiter {
   }
 
   /**
-   * 清空全部仲裁状态，并把已知参数写回 0（模型复位）。
+   * 清空全部仲裁状态，并把已知参数写回 profile 默认（模型复位）。
    */
   reset(): void {
     const coreModel = this.model?.coreModel;
@@ -284,10 +284,95 @@ export class ParamArbiter {
 
   // ---- 内部实现 ----
 
+  /**
+   * release/releaseAll 之后的回退：
+   *  - 有低优先级源 → 回退到该源的最后有效值（跨空间时先换算到该源空间）；
+   *  - 无任何剩余源 → 回模型/profile 运行时默认值（归一化空间则换算为归一化默认），
+   *    绝不把眼/嘴/头硬写 0 或假 0.5。
+   */
+  private fallBackAfterRelease(state: ParamState, releasedFadeMs: number): void {
+    const fallback = this.pickFallback(state);
+    const range = this.profile.ranges[state.paramId];
+
+    if (fallback) {
+      const recSpace: ValueSpace = fallback.rec.valueSpace ?? 'model';
+      if (recSpace !== state.valueSpace && range) {
+        const modelValue = state.valueSpace === 'normalized'
+          ? normalizedToModelValue(range, state.currentValue)
+          : state.currentValue;
+        state.currentValue = recSpace === 'normalized'
+          ? normalizedFromModelValue(range, modelValue)
+          : modelValue;
+        state.fromValue = state.currentValue;
+      }
+      state.valueSpace = recSpace;
+      state.activeSource = fallback.source;
+      const target = this.computeTarget(fallback.rec.mode, fallback.rec.value, state.currentValue);
+      this.fadeTo(state, target, fallback.rec.fadeMs);
+      return;
+    }
+
+    state.activeSource = -1;
+    let target = 0; // profile 无该参数范围（未知通道）：保持旧兜底 0
+    if (range) {
+      target = range.defaultValue;
+      if (state.valueSpace === 'normalized') {
+        target = normalizedFromModelValue(range, range.defaultValue);
+      }
+    }
+    // 目标本身就是合法默认值 → 不再 clamp01（模型空间角度默认可能超出 [0,1]）
+    this.fadeToRaw(state, target, releasedFadeMs);
+  }
+
+  /** 发起一次 fade 过渡（fadeMs<=0 立即到位） */
+  private fadeTo(state: ParamState, target: number, fadeMs: number): void {
+    state.fromValue = state.currentValue;
+    state.toValue = clamp01(target);
+    state.fadeMs = fadeMs > 0 ? fadeMs : 0;
+    state.elapsed = 0;
+    state.dirty = true;
+    if (fadeMs <= 0) {
+      state.currentValue = state.toValue;
+    }
+  }
+
+  /** 同 fadeTo，但目标不 clamp01（用于回 profile 默认：目标已合法） */
+  private fadeToRaw(state: ParamState, target: number, fadeMs: number): void {
+    const v = Number.isFinite(target) ? target : 0;
+    state.fromValue = state.currentValue;
+    state.toValue = v;
+    state.fadeMs = fadeMs > 0 ? fadeMs : 0;
+    state.elapsed = 0;
+    state.dirty = true;
+    if (fadeMs <= 0) {
+      state.currentValue = v;
+    }
+  }
+
   /** 让某源成为某参数的驱动源，启动 fade 过渡 */
   private activate(state: ParamState, source: ParamSource): void {
     const rec = state.sources.get(source);
     if (!rec) return;
+
+    // 数值空间切换：把当前呈现值换算到本次写入的空间，保证 fade 全程同空间插值
+    const recSpace: ValueSpace = rec.valueSpace ?? 'model';
+    const range = this.profile.ranges[state.paramId];
+    if (!state.activated) {
+      // 首次激活：以 profile 运行时默认值为基线（而不是任意 0），动作从默认姿态平滑出发
+      const base = range ? range.defaultValue : 0;
+      state.currentValue = (recSpace === 'normalized' && range)
+        ? normalizedFromModelValue(range, base)
+        : base;
+      state.activated = true;
+    } else if (recSpace !== state.valueSpace && range) {
+      const modelValue = state.valueSpace === 'normalized'
+        ? normalizedToModelValue(range, state.currentValue)
+        : state.currentValue;
+      state.currentValue = recSpace === 'normalized'
+        ? normalizedFromModelValue(range, modelValue)
+        : modelValue;
+    }
+    state.valueSpace = recSpace;
 
     const target = this.computeTarget(rec.mode, rec.value, state.currentValue);
     state.activeSource = source;
@@ -341,18 +426,6 @@ export class ParamArbiter {
       case 'set':
       default:
         return clamp01(value);
-    }
-  }
-
-  /** 发起一次 fade 过渡（fadeMs<=0 立即到位） */
-  private fadeTo(state: ParamState, target: number, fadeMs: number): void {
-    state.fromValue = state.currentValue;
-    state.toValue = clamp01(target);
-    state.fadeMs = fadeMs > 0 ? fadeMs : 0;
-    state.elapsed = 0;
-    state.dirty = true;
-    if (fadeMs <= 0) {
-      state.currentValue = state.toValue;
     }
   }
 

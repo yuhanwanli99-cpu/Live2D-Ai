@@ -24,7 +24,10 @@ _log = get_logger("dev")
 # Deterministic body action IDs supported by the renderer's BodyActionPlayer.
 # Single source of truth: the shared half-body motion catalog. Adding an entry
 # there automatically surfaces it in the dev console UI, no UI code changes.
-# `bounce_happy` (full-body jump) is intentionally absent; `idle` is release-only.
+# Preview scope: only the six parametrically-honest half-body motions
+# (nod/shake_no/tilt/look_around/listen/surprise) are triggerable; `idle` is
+# release-only. Any removed id (happy/excited/sway/bow/lean_in/wave_big/
+# bounce_happy) is rejected here with 400 and never produced downstream.
 
 _DEV_MODE_ENV_KEYS = ("1", "true", "yes")
 

@@ -16,6 +16,7 @@ from typing import Any
 from loguru import logger
 
 from .halfbody import available_halfbody_channels
+from .motion_catalog import SAFE_MOTION_IDS, sanitize_motion
 
 VALID_EMOTIONS = {
     "neutral", "joy", "anger", "sadness", "surprise", "fear", "smirk", "disgust",
@@ -26,12 +27,12 @@ _DIRECTOR_SYSTEM = (
     "Given one spoken sentence, output ONLY one JSON object on one line, no prose, no markdown. "
     'Fields: {"emotion":"one of neutral/joy/anger/sadness/surprise/fear/smirk/disgust",'
     ' "strength":1|2|3,'
-    ' "motionLabel":"one of nod/tilt/sway/happy/surprise/listen/excited/'
-    'bow/shake_no/lean_in/look_around" or null,'
+    ' "motionLabel":"one of nod/shake_no/tilt/look_around/listen/surprise" or null,'
     ' "parameterOverrides":{}}. '
     "Choose only the semantic motionLabel; the client owns deterministic body and gaze timelines. "
-    "The avatar has no arm or full-body bones: wave/clap/bounce intent is expressed as upper-body "
-    "happy/excited sway, so do not invent wave_big/bounce_happy/full-body labels. "
+    "The avatar supports exactly these six motions via head/eye/brow/mouth parameter animation. "
+    "It has no arm, hand, full-body, or translation parameters: any label outside the six "
+    "(invented or legacy) is invalid - use null when nothing fits. "
     "Do not output halfBody, gaze, head/body parameter values, or mouth/lip-sync channels. "
     "Pick the motionLabel that best matches the sentence tone; most sentences have one. "
     "Use null only when truly nothing fits. parameterOverrides is legacy-only and should normally be empty."
@@ -81,36 +82,29 @@ class DirectorResult:
         }
 
 
-# 情绪 → 半身动作兜底映射（8 key 全覆盖；值为前端 BodyActionPlayer 可路由的动作名，
-# 含编排库动作 shake_no 等，前端 resolveChoreography 自动路由）
+# 情绪 → 动作兜底（严格克制，定版）：只允许 surprise → surprise 一条映射；
+# 其余情绪（joy/anger/sadness/fear/smirk/disgust）一律 None —— 不强行动作，
+# 不用近似动作冒充（无法诚实映射的情绪不产动作）。
 _EMOTION_MOTION = {
-    "joy": "happy",
     "surprise": "surprise",
-    "sadness": "listen",
-    "fear": "listen",
-    "anger": "shake_no",
-    "smirk": "tilt",
-    "disgust": "tilt",
 }
 
-# neutral 兜底动作：克制、现有合法动作库成员（避免普通对话完全静止）。
-# 强度用最低档 1；仅在没有命令/导演动作/情绪动作时启用。
-_NEUTRAL_MOTION = "nod"
+# neutral 兜底动作：不产出任何动作（None）；强度用最低档 1。
+_NEUTRAL_MOTION: str | None = None
 _NEUTRAL_STRENGTH = 1
 
 # 显式用户动作命令（优先级最高）：用户在输入里明确要求角色做某个动作时，
 # 回应句按此动作执行，不再只依赖导演模型猜测。词序长者优先，避免子串歧义。
+# 定版只保留 Bai 可诚实表达的四个动作命令；鞠躬/靠近等已删除（无对应参数）。
 _USER_MOTION_COMMANDS: dict[str, tuple[str, ...]] = {
     "nod": ("点点头", "点一下头", "点个头", "点头"),
     "shake_no": ("摇摇头", "摇一下头", "摇个头", "摇头"),
     "tilt": ("歪一下头", "歪歪头", "歪个头", "歪头"),
     "look_around": ("张望一下", "看看周围", "看看四周", "东张西望", "左顾右盼", "张望"),
-    "bow": ("鞠个躬", "鞠一躬", "鞠躬", "弯腰行礼"),
-    "lean_in": ("靠近一点", "凑近一点", "靠近些", "凑过来", "凑近", "靠近"),
 }
 
 # 疑问/否定语境保护：整句命中即视为“讨论动作”而非“命令动作”，
-# 避免「为什么摇头/别摇头/怎么张望/什么叫鞠躬」误触发。
+# 避免「为什么摇头/别摇头/怎么张望」误触发。
 # 保守策略：宁可漏触发，也不误触发（用户侧要求明确）。
 _USER_MOTION_GUARD_TERMS = (
     "为什么", "为何", "为啥", "怎么", "干嘛", "什么叫", "什么是",
@@ -118,11 +112,11 @@ _USER_MOTION_GUARD_TERMS = (
 )
 
 
-def _resolve_motion(emotion: str, motion: str | None) -> str:
-    """动作边界收敛：候选 → 白名单，越界/缺失 → 情绪映射兜底，仍缺 → neutral 克制动作。"""
+def _resolve_motion(emotion: str, motion: str | None) -> str | None:
+    """动作边界收敛：候选 → 白名单；越界/缺失 → 情绪映射兜底；仍缺 → None。"""
     if motion and motion in _VALID_MOTIONS:
         return motion
-    return _EMOTION_MOTION.get(emotion) or _NEUTRAL_MOTION
+    return _EMOTION_MOTION.get(emotion)
 
 
 def detect_user_motion_command(text: str | None) -> str | None:
@@ -147,33 +141,21 @@ def detect_user_motion_command(text: str | None) -> str | None:
 
 
 # 舞台说明/动作括注 → 半身动作（bai 无 motion3，走参数驱动）
-# 值可以是单姿态手势（BodyGesture），也可以是编排动作（choreography 库：
-# 时间轴关键帧、大幅度；前端 resolveChoreography 自动路由）。
+# 定版只保留六个 Bai 可诚实表达的动作；挥手/鼓掌/蹦跳/鞠躬/凑近/摇摆等
+# 关键词一律不匹配（返回 None，不产出任何近似冒充动作）。
 _STAGE_GESTURE_KEYWORDS = {
     "nod": ("点头", "颔首", "轻轻点头"),
-    "tilt": ("歪头", "侧头", "歪了歪头"),
-    "sway": ("扇风", "挥手扇", "晃了晃", "摇摆", "摇手"),
-    # bai 无手臂参数：挥手/招手/欢呼 一律用「上身开心摆动」的上身近似，
-    # 不做真正的挥手/拍手。
-    "happy": ("招手", "挥手", "挥手打招呼", "用力挥手", "比心", "拍手", "欢呼"),
-    "surprise": ("惊讶", "睁大", "捂嘴", "震惊"),
-    "listen": ("倾听", "思考", "托腮", "歪着脑袋想"),
-    # 鼓掌/蹦跳属于手臂/全身动作（与半身参数驱动冲突），映射到安全的上身「兴奋」替代。
-    "excited": ("鼓掌", "雀跃", "蹦跳", "跳起来", "蹦蹦跳跳"),
-    # —— 编排动作（大幅度时间轴）——
-    "bow": ("鞠躬", "弯腰", "低头行礼", "前倾行礼"),
     "shake_no": ("摇头", "用力摇头"),
-    "lean_in": ("凑近", "靠近", "贴近", "凑过来", "前倾"),
+    "tilt": ("歪头", "侧头", "歪了歪头"),
     "look_around": ("张望", "左顾右盼", "东张西望"),
+    "listen": ("倾听", "思考", "托腮", "歪着脑袋想"),
+    "surprise": ("惊讶", "震惊", "睁大"),
 }
 
-# 动作边界白名单：单姿态手势 + 编排库动作（与前端 resolveChoreography/BodyGesture 对齐）。
-# 导演 LLM 输出的 motionLabel 必须落在集合内，越界一律丢弃并走情绪映射兜底 —— 这就是
-# "参数使用说明定义的脚本动作边界"：LLM 只能选，不能发明。
+# 动作边界白名单：与 motion_catalog.SAFE_MOTION_IDS 单一来源对齐。
+# 导演 LLM 输出的 motionLabel 必须落在集合内，越界一律丢弃并走情绪映射兜底。
 # 注意：`idle` 仅作为开发者面板 release 语义，不作为逐句可触发的 motion。
-_VALID_MOTIONS = frozenset(_STAGE_GESTURE_KEYWORDS) | {
-    "excited", "surprise", "listen", "sway", "nod", "tilt", "happy",
-}
+_VALID_MOTIONS = frozenset(SAFE_MOTION_IDS)
 
 # 动作括注统一正则（与 filter_parentheses 的全角/半角覆盖一致；不支持跨层嵌套，
 # 与既有 stage_gesture 行为对齐）
@@ -293,7 +275,7 @@ def normalize_chunk_timeline(
     # 真正小于 min_gap 的仍被过滤。
     threshold = float(min_gap) - 1e-9
     for cue in sorted(cues, key=lambda c: float(c.get("at", 0))):
-        motion = str(cue.get("motion") or "").strip().lower()
+        motion = sanitize_motion(str(cue.get("motion") or "").strip().lower())
         if not motion or motion in seen_motions:
             continue
         at = float(cue.get("at", 0))
@@ -316,7 +298,7 @@ def rule_fallback(text: str) -> DirectorResult:
         emotion = "sadness"
     elif any(k in lowered for k in ("哇", "什么", "真的吗", "天哪")):
         emotion = "surprise"
-    # neutral 也使用克制动作（不静止）；其他情绪走情绪映射兜底
+    # neutral 不产出动作（None，避免无意义抖动）；其他情绪严格走情绪映射兜底
     motion = _resolve_motion(emotion, None)
     strength = _NEUTRAL_STRENGTH if emotion == "neutral" else 2
     return DirectorResult(
@@ -433,7 +415,9 @@ def sanitize_director_result(data: dict[str, Any]) -> dict[str, Any]:
     """Sanitize a DirectorResult dict for developer-mode display.
 
     Strips raw LLM output and any credential-like fields so the dev endpoint
-    never leaks prompts, keys, or upstream internals.
+    never leaks prompts, keys, or upstream internals. motionLabel 与
+    motionTimeline 逐帧过动作目录白名单：已删/未知 id 一律清空（dev 协议
+    与公开协议同边界，绝不回显已删动作 id）。
     """
     if not isinstance(data, dict):
         return {}
@@ -450,6 +434,29 @@ def sanitize_director_result(data: dict[str, Any]) -> dict[str, Any]:
     for key in allowed:
         if key in data:
             out[key] = data[key]
+    # 动作目录白名单：motionLabel / timeline 帧里的已删 id → None / 丢弃
+    if "motionLabel" in out:
+        label = out.get("motionLabel")
+        out["motionLabel"] = (
+            sanitize_motion(label) if isinstance(label, str) else None
+        )
+    if isinstance(out.get("motionTimeline"), list):
+        clean_timeline: list[dict[str, Any]] = []
+        for frame in out["motionTimeline"]:
+            if not isinstance(frame, dict):
+                continue
+            frame_motion = frame.get("motion")
+            safe_frame_motion = (
+                sanitize_motion(frame_motion)
+                if isinstance(frame_motion, str)
+                else None
+            )
+            if not safe_frame_motion:
+                continue
+            clean_frame = dict(frame)
+            clean_frame["motion"] = safe_frame_motion
+            clean_timeline.append(clean_frame)
+        out["motionTimeline"] = clean_timeline
     # Clamp parameter overrides to safe numeric values / keys
     overrides = out.get("parameterOverrides")
     if isinstance(overrides, dict):

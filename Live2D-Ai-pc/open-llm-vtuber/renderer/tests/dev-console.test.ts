@@ -42,7 +42,7 @@ function makeFakeApi(overrides: Partial<DevApi> = {}): DevApi & {
     catalog: async () => {
       calls.catalog += 1;
       return jsonResponse(200, {
-        actions: ['nod', 'bow', 'look_around'],
+        actions: ['nod', 'tilt', 'look_around'],
         halfbody_channels: ['headX', 'headY'],
         capabilities: {},
       });
@@ -53,7 +53,7 @@ function makeFakeApi(overrides: Partial<DevApi> = {}): DevApi & {
     },
     analyze: async (text) => {
       calls.analyze.push(text);
-      return jsonResponse(200, { emotion: 'joy', strength: 0.8, motion: 'wave_big', motion_strength: 2, motion_timeline: [] });
+      return jsonResponse(200, { emotion: 'joy', strength: 0.8, motion: 'surprise', motion_strength: 2, motion_timeline: [] });
     },
     ...overrides,
   };
@@ -85,7 +85,8 @@ describe('createDevConsole — 生命周期与渲染', () => {
     const rows = host.querySelectorAll('.dev-action-row');
     expect(rows.length).toBe(3);
     const kinds = Array.from(host.querySelectorAll('.dev-action-kind')).map((k) => k.textContent);
-    // 目录按字典序渲染：nod / bow / look_around 均为半身编排动作（CHOREOGRAPHY_LIBRARY）
+    // 目录按字典序渲染：nod / look_around / tilt 均为编排动作（六动作 CHOREOGRAPHY_LIBRARY；
+    // 后端目录若混入已删除动作会被前端过滤，不再渲染身体类分类）
     expect(kinds).toEqual(['choreo', 'choreo', 'choreo']);
     console_.close();
   });
@@ -207,14 +208,14 @@ describe('createDevConsole — 动作触发', () => {
     const console_ = createDevConsole(host, { api: fake });
     console_.open();
     await vi.waitFor(() =>
-      expect(host.querySelector<HTMLElement>('.dev-action-row[data-action="bow"]')).not.toBeNull(),
+      expect(host.querySelector<HTMLElement>('.dev-action-row[data-action="tilt"]')).not.toBeNull(),
     );
-    const row = host.querySelector<HTMLElement>('.dev-action-row[data-action="bow"]')!;
+    const row = host.querySelector<HTMLElement>('.dev-action-row[data-action="tilt"]')!;
     row.querySelector<HTMLButtonElement>('.dev-release-btn')!.click();
     await vi.waitFor(() => expect(fake.calls.trigger.length).toBe(1));
-    expect(fake.calls.trigger[0]).toEqual({ action: 'bow', strength: 2, release: true });
+    expect(fake.calls.trigger[0]).toEqual({ action: 'tilt', strength: 2, release: true });
     await vi.waitFor(() =>
-      expect(host.querySelector<HTMLElement>('[data-status]')!.textContent).toContain('已释放 bow'),
+      expect(host.querySelector<HTMLElement>('[data-status]')!.textContent).toContain('已释放 tilt'),
     );
     console_.close();
   });
@@ -260,14 +261,14 @@ describe('createDevConsole — 导演分析', () => {
       expect(host.querySelector<HTMLElement>('.dev-analyze-input')).not.toBeNull(),
     );
     const input = host.querySelector<HTMLTextAreaElement>('.dev-analyze-input')!;
-    input.value = '开心地挥手说你好';
+    input.value = '真的吗？（惊讶地）我不信';
     host.querySelector<HTMLButtonElement>('.dev-analyze-btn')!.click();
     // 结果渲染是异步的：等待 JSON 真正显示
     const result = host.querySelector<HTMLElement>('.dev-analyze-result')!;
     await vi.waitFor(() => expect(result.textContent).toContain('"emotion": "joy"'));
-    expect(fake.calls.analyze).toEqual(['开心地挥手说你好']);
+    expect(fake.calls.analyze).toEqual(['真的吗？（惊讶地）我不信']);
     expect(result.hidden).toBe(false);
-    expect(result.textContent).toContain('"motion": "wave_big"');
+    expect(result.textContent).toContain('"motion": "surprise"');
 
     // 空文本：不发请求，状态显示错误
     input.value = '   ';
@@ -306,7 +307,7 @@ describe('createDevConsole — 中文名与最近动作', () => {
   });
 
   it('动作行同时显示中文名与技术 ID', async () => {
-    const fake = makeFakeApi(); // catalog: nod / bow / look_around
+    const fake = makeFakeApi(); // catalog: nod / tilt / look_around
     const console_ = createDevConsole(host, { api: fake });
     console_.open();
     await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
@@ -314,10 +315,10 @@ describe('createDevConsole — 中文名与最近动作', () => {
     const nodRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="nod"]')!;
     expect(nodRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('点头');
     expect(nodRow.querySelector<HTMLElement>('.dev-action-id')!.textContent).toBe('nod');
-    expect(nodRow.querySelector<HTMLElement>('.dev-action-desc')!.textContent).toBe('轻轻点头示意');
+    expect(nodRow.querySelector<HTMLElement>('.dev-action-desc')!.textContent).toBe('头部上下轻点两下');
 
-    const bowRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="bow"]')!;
-    expect(bowRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('鞠躬');
+    const tiltRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="tilt"]')!;
+    expect(tiltRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('歪头');
 
     const aroundRow = host.querySelector<HTMLElement>('.dev-action-row[data-action="look_around"]')!;
     expect(aroundRow.querySelector<HTMLElement>('.dev-action-cn')!.textContent).toBe('左右张望');

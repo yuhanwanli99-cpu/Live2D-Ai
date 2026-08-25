@@ -35,8 +35,11 @@ describe('mapEmotionToIntent — 8key → naturalVAD 意图', () => {
 });
 
 describe('mapCueToIntent — 括注动作名重音', () => {
-  it('wave_big → joy 重音；未知动作 → neutral 轻脉冲', () => {
-    expect(mapCueToIntent('wave_big').emotion).toBe('joy');
+  it('nod → joy 重音；已删除/未知动作 → neutral 轻脉冲', () => {
+    expect(mapCueToIntent('nod').emotion).toBe('joy');
+    expect(mapCueToIntent('shake_no').emotion).toBe('anger');
+    // 已删除动作（身体类）不再有专属映射
+    expect(mapCueToIntent('wave_big').emotion).toBe('neutral');
     expect(mapCueToIntent('mystery_move').emotion).toBe('neutral');
   });
 });

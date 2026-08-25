@@ -1,10 +1,11 @@
-"""显式用户动作命令 + 动作优先级 + neutral 克制动作 + 句首唯一动作 测试。
+"""显式用户动作命令 + 动作优先级 + neutral 无动作 + 句首唯一动作 测试。
 
 契约（发布定版）：
-- detect_user_motion_command：用户输入里的 点头/摇头/歪头/张望/鞠躬/靠近
-  映射现有合法动作；疑问/否定语境（为什么/别/怎么/…）整句不触发；
+- detect_user_motion_command：用户输入里的 点头/摇头/歪头/张望
+  映射合法动作；鞠躬/靠近/鼓掌/挥挥手/跳起来 不产出任何动作；
+  疑问/否定语境（为什么/别/怎么/…）整句不触发；
 - 优先级：显式用户命令 > 导演 motion_label（含括注时间轴首帧）> 情绪兜底；
-- neutral 不得静止：规则与 LLM 路径都回落克制动作 nod（强度 1）；
+- neutral 不产出动作（None）；anger/sadness 等也无情绪兜底动作；
 - 一次性 actions.motion 只挂句首首个 audio payload，后续 chunk 清掉
   （motionTimeline 按块携带不受影响）。
 """
@@ -18,7 +19,6 @@ from open_llm_vtuber.conversations.conversation_utils import (
 )
 from open_llm_vtuber.conversations.single_conversation import _apply_director
 from open_llm_vtuber.director import (
-    _NEUTRAL_MOTION,
     ExpressionDirector,
     detect_user_motion_command,
     rule_fallback,
@@ -33,8 +33,12 @@ def test_command_mapping_basic():
     assert detect_user_motion_command("你摇摇头") == "shake_no"
     assert detect_user_motion_command("歪一下头") == "tilt"
     assert detect_user_motion_command("张望一下") == "look_around"
-    assert detect_user_motion_command("鞠个躬") == "bow"
-    assert detect_user_motion_command("靠近一点") == "lean_in"
+    # 已删除的命令不产出任何动作
+    assert detect_user_motion_command("鞠个躬") is None
+    assert detect_user_motion_command("靠近一点") is None
+    assert detect_user_motion_command("鼓掌") is None
+    assert detect_user_motion_command("挥挥手") is None
+    assert detect_user_motion_command("跳起来") is None
 
 
 def test_command_requires_explicit_keyword():
@@ -64,18 +68,22 @@ def test_command_polite_request_still_works():
 # ------------------------------------------------------------------ rule_fallback 兜底
 
 
-def test_rule_fallback_neutral_uses_restrained_motion():
+def test_rule_fallback_neutral_has_no_motion():
     result = rule_fallback("就是一句普通的话")
     assert result.emotion == "neutral"
-    assert result.motion_label == _NEUTRAL_MOTION
+    assert result.motion_label is None
     assert result.strength == 1
 
 
-def test_rule_fallback_emotion_maps_and_keeps_strength_2():
+def test_rule_fallback_joy_has_no_motion_surprise_maps():
+    # 定版：情绪兜底只允许 surprise→surprise；joy 不再强行动作。
     joy = rule_fallback("哈哈太好了")
     assert joy.emotion == "joy"
-    assert joy.motion_label == "happy"
-    assert joy.strength == 2
+    assert joy.motion_label is None
+
+    surprise = rule_fallback("哇，天哪！")
+    assert surprise.emotion == "surprise"
+    assert surprise.motion_label == "surprise"
 
 
 # -------------------------------------------------------------- _apply_director 优先级
@@ -121,19 +129,28 @@ def test_user_command_overrides_director_motion():
 
 
 def test_director_motion_used_without_user_command():
-    ctx = _make_context('{"emotion":"joy","strength":3,"motionLabel":"sway"}')
+    ctx = _make_context('{"emotion":"surprise","strength":3,"motionLabel":"sway"}')
     out = _sentence()
     _run(_apply_director(ctx, out, user_text="你好呀"))
-    assert out.actions.motion == "sway"
+    # sway 已从目录删除 → 丢弃越界 label；surprise 情绪兜底 → surprise
+    assert out.actions.motion == "surprise"
     assert out.actions.motionStrength == 3
 
 
-def test_neutral_flows_into_actions_motion():
+def test_director_invalid_label_without_fallback_is_none():
+    ctx = _make_context('{"emotion":"joy","strength":3,"motionLabel":"sway"}')
+    out = _sentence()
+    _run(_apply_director(ctx, out, user_text="你好呀"))
+    # sway 已删 + joy 无情绪兜底 → 不产任何动作（None，不强行动作）。
+    assert out.actions.motion is None
+    assert "motion" not in out.actions.to_dict()
+
+
+def test_neutral_has_no_actions_motion():
     ctx = _make_context('{"emotion":"neutral","motionLabel":null}')
     out = _sentence()
     _run(_apply_director(ctx, out, user_text=""))
-    assert out.actions.motion == _NEUTRAL_MOTION
-    assert out.actions.motionStrength == 1
+    assert out.actions.motion is None
 
 
 def test_user_command_overrides_bracket_timeline():
@@ -189,3 +206,63 @@ def test_one_shot_motion_only_on_first_chunk():
     assert second["actions"].motion is None
     # 原 actions 不被污染
     assert out.actions.motion == "nod"
+
+
+# ------------------------------------------- sentence.after 广播不互相清空动作
+
+
+class _FakePluginHost:
+    """按预置结果列表回放 emit_event 的桩（模拟多插件广播）。"""
+
+    def __init__(self, results):
+        self._results = results
+        self.calls = []
+
+    def emit_event(self, name, payload):
+        self.calls.append((name, payload))
+        return [
+            {"plugin": f"p{i}", "ok": True, "result": r}
+            for i, r in enumerate(self._results)
+        ]
+
+
+def _manager_with(results):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(host=_FakePluginHost(results))
+
+
+def test_plugin_without_motion_key_does_not_clobber_motion():
+    # sentence.after 是广播：mood-tts 等未参与动作决策的插件（结果无 "motion"
+    # 键）不得把已定动作清空。
+    import asyncio
+
+    out = SentenceOutput(
+        display_text=DisplayText(text="好的呢"),
+        tts_text="好的呢",
+        actions=Actions(motion="nod"),
+    )
+    manager = _RecorderTtsManager()
+    plugins = _manager_with([{"mood": {"tier": "neutral"}, "tts_style": {}}])
+    asyncio.run(
+        handle_sentence_output(out, None, None, _noop_ws_send, manager, plugin_manager=plugins)
+    )
+    assert manager.calls[0]["actions"].motion == "nod"
+
+
+def test_plugin_motion_still_goes_through_whitelist():
+    # 插件显式给出的 motion 仍然过目录白名单：合法保留、已删 id 清空、可覆盖。
+    import asyncio
+
+    out = SentenceOutput(
+        display_text=DisplayText(text="好的呢"),
+        tts_text="好的呢",
+        actions=Actions(motion="nod"),
+    )
+    manager = _RecorderTtsManager()
+    plugins = _manager_with([{"motion": "tilt"}, {"motion": "happy"}])
+    asyncio.run(
+        handle_sentence_output(out, None, None, _noop_ws_send, manager, plugin_manager=plugins)
+    )
+    # body-director 给 tilt，随后插件给已删 id happy → 收敛为 None（不回退旧值）
+    assert manager.calls[0]["actions"].motion is None

@@ -1,183 +1,188 @@
 /**
- * action-ticker-observability.test.ts
+ * action-ticker-observability.test.ts（六动作定版）
  *
- * 端到端动作可观测性测试：
- * - 用户实测「dev-action / audio 动作都到后端，但 Live2D 肉眼无动作」。
- * - 此前 choreography.test.ts 用 FakeArbiter 只验证「函数被调用、写到 arbiter 记录」，
- *   从不驱动真实 ParamArbiter.update() 到 FakeCoreModel，因此无法证明「模型参数真的变了」。
- * - 本测试改用真实 ParamArbiter + FakeCoreModel，模拟 ticker 逐帧推进：
- *      play() → choreo.pump()（写 arbiter, LiveEvent 最高优先）
- *      → arbiter.update(delta)（lerp fade → normalizedToModelValue → setParameterValueById 写 coreModel）
- *   断言 coreModel 中 ParamAngleX/ParamBodyAngleX 等「确实从中性偏离」且「末帧回中性」。
- *
- * 数值空间说明：arbiter.update 对 valueSpace:'normalized' 的源，把归一化 0..1 映射到模型
- * 真实范围（Fake 范围 -30..30，默认 0）。因此归一化 0.5 == 模型 0（中性）。本测试以模型
- * 默认值 0 为中性基准，断言写入的模型值偏离该基准。
+ * 端到端动作可观测性：play() → 编排泵写 arbiter（LiveEvent）→ arbiter.update()
+ * lerp fade → normalizedToModelValue → setParameterValueById 写 FakeCoreModel。
+ * 断言「模型参数真的动了」且动在正确的轴上：
+ *   nod=AngleY / shake_no=AngleX / tilt=AngleZ / look_around=EyeBallX 先行+AngleX 轻随
+ *   listen=轻 AngleY/Z + 凝视/眉 / surprise=EyeOpen+BrowY+MouthOpenY+轻 AngleY；
+ * 并断言 fade 时长与模板一致、播完/释放回 profile 运行时默认（含 EyeLOpen 默认 1）。
  */
 import { describe, it, expect } from 'vitest';
 import { BodyActionPlayer, CHOREOGRAPHY_LIBRARY } from '../src/choreography';
 import { ParamArbiter, ParamSource } from '../src/param-arbiter';
+import type { ParamWrite } from '../src/param-arbiter';
+import { FakeCoreModel, BAI_LIKE_RANGES, makeTicker } from './helpers/fake-core-model';
 
-/** 记录 setParameterValueById 写入的 FakeCoreModel（构造出 arbiter 需要的参数范围） */
-interface FakeParamInfo {
-  minimum: number;
-  maximum: number;
-  defaultValue: number;
-}
+const DEFAULTS = BAI_LIKE_RANGES;
 
-const RANGES: Record<string, FakeParamInfo> = {
-  ParamAngleX: { minimum: -30, maximum: 30, defaultValue: 0 },
-  ParamAngleY: { minimum: -30, maximum: 30, defaultValue: 0 },
-  ParamAngleZ: { minimum: -30, maximum: 30, defaultValue: 0 },
-  ParamBodyAngleX: { minimum: -30, maximum: 30, defaultValue: 0 },
-  ParamBodyAngleY: { minimum: -30, maximum: 30, defaultValue: 0 },
-  ParamBodyAngleZ: { minimum: -30, maximum: 30, defaultValue: 0 },
-  ParamEyeBallX: { minimum: -1, maximum: 1, defaultValue: 0 },
-  ParamEyeBallY: { minimum: -1, maximum: 1, defaultValue: 0 },
-};
-
-class FakeCoreModel {
-  ids: string[] = Object.keys(RANGES);
-  writes: Array<{ id: string; value: number }> = [];
-  getParameterCount(): number {
-    return this.ids.length;
-  }
-  getParameterId(i: number): string {
-    return this.ids[i];
-  }
-  getParameterMinimumValue(i: number): number {
-    return RANGES[this.ids[i]].minimum;
-  }
-  getParameterMaximumValue(i: number): number {
-    return RANGES[this.ids[i]].maximum;
-  }
-  getParameterDefaultValue(i: number): number {
-    return RANGES[this.ids[i]].defaultValue;
-  }
-  getModel(): unknown {
-    return undefined;
-  }
-  setParameterValueById(id: string, value: number): void {
-    this.writes.push({ id, value });
-  }
-  last(id: string): number | undefined {
-    for (let i = this.writes.length - 1; i >= 0; i--) {
-      if (this.writes[i].id === id) return this.writes[i].value;
-    }
-    return undefined;
-  }
-}
-
-interface FakeInternalModel {
-  coreModel: FakeCoreModel;
-}
-
-/** 关键动作参数模型默认值 = 中性（本 Fake 均为 0） */
-const NEUTRAL = 0;
-
-/** 把模型值偏离（绝对值）折算成归一化偏离（范围 -30..30 → 除 30），便于表达“幅度阈值” */
-function normalizedDeviation(modelValue: number): number {
-  return Math.abs(modelValue - NEUTRAL) / 30;
-}
-
-function makeTicker() {
-  let t = 0;
-  return {
-    now: () => t,
-    /** 推进时钟 + 推进一次 choreo/arbiter，模拟一个渲染 tick */
-    tick: (arb: ParamArbiter, bap: BodyActionPlayer, deltaMs: number) => {
-      t += deltaMs;
-      bap.update(deltaMs); // choreo pump（用 now() 判定到点关键帧）
-      arb.update(deltaMs); // lerp fade → 写 coreModel
-    },
+/** 带写入记录的真实仲裁器（捕获 fadeMs，用于断言 fade 时长与模板一致） */
+function makeRecordingArbiter(core: FakeCoreModel) {
+  const arb = new ParamArbiter({ coreModel: core });
+  const writes: Array<{ paramId: string; value: number; fadeMs: number }> = [];
+  const original = arb.write.bind(arb);
+  const recorder = (req: ParamWrite): void => {
+    writes.push({ paramId: req.paramId, value: req.value, fadeMs: req.fadeMs });
+    original(req);
   };
+  (arb as unknown as { write: typeof recorder }).write = recorder;
+  return { arb, writes };
 }
 
-/** fade 收敛需要的 tick 数（nod fade 上限 300ms；给足余量） */
-const CONFIDENCE_TICKS = 40;
+function makeEnv() {
+  const core = new FakeCoreModel();
+  const { arb, writes } = makeRecordingArbiter(core);
+  const ticker = makeTicker();
+  const bap = new BodyActionPlayer(arb, { now: ticker.now });
+  return { core, arb, writes, ticker, bap };
+}
+
+/** 播放一个动作直到自然结束并让 fade 完全收敛 */
+function playToCompletion(env: ReturnType<typeof makeEnv>, name: string, strength = 2) {
+  const { arb, ticker, bap } = env;
+  bap.play(name, strength);
+  for (let i = 0; i < 300 && (bap.currentGesture() !== null || i < 10); i++) {
+    ticker.tick(arb, bap, 16);
+  }
+  // release fade 收敛（最长 ~500ms）
+  for (let i = 0; i < 60; i++) ticker.tick(arb, bap, 16);
+}
 
 describe('动作端到端可观测性：真实 arbiter → FakeCoreModel', () => {
-  it('dev-action 一次性动作 nod 让 coreModel 参数实际偏离并回中', () => {
-    const internalModel: FakeInternalModel = { coreModel: new FakeCoreModel() };
-    const arb = new ParamArbiter(internalModel);
-    const ticker = makeTicker();
-    const bap = new BodyActionPlayer(arb, { now: ticker.now });
+  it('nod：AngleY 上下两拍明显偏离，AngleX/AngleZ 保持默认', () => {
+    const env = makeEnv();
+    env.bap.play('nod', 2);
+    expect(env.arb.getCurrentSource('ParamAngleY')).toBe(ParamSource.LiveEvent);
 
-    // dev-action 入径：ws-bridge dev-action → bodyMotion.play('nod', 2)
-    bap.play('nod', 2);
-    expect(arb.getCurrentSource('ParamAngleX')).toBe(ParamSource.LiveEvent);
-
-    let peakAngleX = 0;
-    for (let i = 0; i < CONFIDENCE_TICKS * 5; i++) {
-      ticker.tick(arb, bap, 16);
-      const v = internalModel.coreModel.last('ParamAngleX') ?? NEUTRAL;
-      const dev = normalizedDeviation(v);
-      if (dev > peakAngleX) peakAngleX = dev;
+    let peakY = 0;
+    let peakX = 0;
+    let peakZ = 0;
+    for (let i = 0; i < 200; i++) {
+      env.ticker.tick(env.arb, env.bap, 16);
+      peakY = Math.max(peakY, Math.abs((env.core.last('ParamAngleY') ?? DEFAULTS.ParamAngleY.defaultValue) - DEFAULTS.ParamAngleY.defaultValue));
+      peakX = Math.max(peakX, Math.abs(env.core.last('ParamAngleX') ?? 0));
+      peakZ = Math.max(peakZ, Math.abs(env.core.last('ParamAngleZ') ?? 0));
     }
-    // nod 首帧 0.06、次帧 0.94（归一化）→ 模型值明显偏离中性
-    expect(peakAngleX).toBeGreaterThan(0.4);
-    // 播完自动释放 → LiveEvent 源移除 → 无更低源 → 回中性（模型 0）
-    expect(arb.getCurrentSource('ParamAngleX')).toBe(-1);
-    expect(internalModel.coreModel.last('ParamAngleX')).toBeCloseTo(NEUTRAL, 2);
+    expect(peakY).toBeGreaterThan(8); // ±30 范围内 0.55 幅度 ≈ ±16.5
+    expect(peakX).toBe(0); // 轴正确：点头不转头
+    expect(peakZ).toBe(0);
+
+    // 播完自动释放 → 回默认 0
+    expect(env.arb.getCurrentSource('ParamAngleY')).toBe(-1);
+    expect(env.core.last('ParamAngleY')).toBeCloseTo(DEFAULTS.ParamAngleY.defaultValue, 2);
   });
 
-  it('audio 一次性 motion<wave_big> 播放后释放回中性不留残影', () => {
-    const internalModel: FakeInternalModel = { coreModel: new FakeCoreModel() };
-    const arb = new ParamArbiter(internalModel);
-    const ticker = makeTicker();
-    const bap = new BodyActionPlayer(arb, { now: ticker.now });
+  it('shake_no：AngleX 左右两拍（符号交替），其余头轴不动', () => {
+    const env = makeEnv();
+    env.bap.play('shake_no', 2);
+    for (let i = 0; i < 200; i++) env.ticker.tick(env.arb, env.bap, 16);
 
-    bap.play('wave_big', 3); // audio.actions.motion 入径
-    let peakBodyZ = 0;
-    for (let i = 0; i < CONFIDENCE_TICKS * 6; i++) {
-      ticker.tick(arb, bap, 16);
-      const v = internalModel.coreModel.last('ParamBodyAngleZ') ?? NEUTRAL;
-      peakBodyZ = Math.max(peakBodyZ, normalizedDeviation(v));
-    }
-    expect(peakBodyZ).toBeGreaterThan(0.4); // 曾大幅左右摆动
-    expect(arb.getCurrentSource('ParamBodyAngleZ')).toBe(-1);
-    expect(internalModel.coreModel.last('ParamBodyAngleZ')).toBeCloseTo(NEUTRAL, 2);
+    const xs = env.core.history('ParamAngleX').filter((v) => Math.abs(v) > 5);
+    expect(xs.length).toBeGreaterThanOrEqual(4); // 两拍往返的多次采样
+    let alt = 0;
+    for (let i = 1; i < xs.length; i++) if (Math.sign(xs[i]) !== Math.sign(xs[i - 1])) alt++;
+    expect(alt).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...env.core.history('ParamAngleY').map((v) => Math.abs(v)))).toBeLessThan(1e-6);
+    expect(Math.max(...env.core.history('ParamAngleZ').map((v) => Math.abs(v)))).toBeLessThan(1e-6);
+    expect(env.core.writtenParams().has('ParamBodyAngleX')).toBe(false); // 无身体写入
   });
 
-  it('强度 3 峰值入参不越界、输出模型值有限且在合法范围', () => {
-    const internalModel: FakeInternalModel = { coreModel: new FakeCoreModel() };
-    const arb = new ParamArbiter(internalModel);
-    const ticker = makeTicker();
-    const bap = new BodyActionPlayer(arb, { now: ticker.now });
+  it('tilt：AngleZ 单侧保持（全部非零偏移同号），回中归默认', () => {
+    const env = makeEnv();
+    env.bap.play('tilt', 2);
+    for (let i = 0; i < 200; i++) env.ticker.tick(env.arb, env.bap, 16);
 
-    bap.play('bow', 3);
-    let sawWrite = false;
-    for (let i = 0; i < CONFIDENCE_TICKS * 5; i++) {
-      ticker.tick(arb, bap, 16);
-      if (internalModel.coreModel.writes.length > 0) sawWrite = true;
-    }
-    expect(sawWrite).toBe(true);
-    for (const w of internalModel.coreModel.writes) {
+    const zs = env.core.history('ParamAngleZ');
+    const signs = new Set(zs.filter((v) => Math.abs(v) > 2).map((v) => Math.sign(v)));
+    expect(signs.size).toBe(1); // 单侧
+    expect(zs.some((v) => Math.abs(v) > 8)).toBe(true); // 保持段明显
+    expect(env.core.last('ParamAngleZ')).toBeCloseTo(DEFAULTS.ParamAngleZ.defaultValue, 2); // 回中
+  });
+
+  it('look_around：EyeBallX 先行于 AngleX（写入顺序），两者都回默认', () => {
+    const env = makeEnv();
+    env.bap.play('look_around', 2);
+    for (let i = 0; i < 250; i++) env.ticker.tick(env.arb, env.bap, 16);
+
+    const firstEye = env.core.writes.findIndex((w) => w.id === 'ParamEyeBallX');
+    const firstHead = env.core.writes.findIndex((w) => w.id === 'ParamAngleX');
+    expect(firstEye).toBeGreaterThanOrEqual(0);
+    expect(firstHead).toBeGreaterThan(firstEye); // 眼先行，头随动
+    expect(Math.abs(env.core.history('ParamEyeBallX').at(-1)! - DEFAULTS.ParamEyeBallX.defaultValue)).toBeLessThan(0.05);
+    expect(Math.abs(env.core.last('ParamAngleX')!)).toBeLessThan(1.5);
+  });
+
+  it('listen：轻幅度（头部 |dev| < surprise/nod 峰值的一半）+ 眉/凝视参与；surprise：眼眉嘴正向大偏离', () => {
+    const listenEnv = makeEnv();
+    listenEnv.bap.play('listen', 2);
+    for (let i = 0; i < 260; i++) listenEnv.ticker.tick(listenEnv.arb, listenEnv.bap, 16);
+
+    const headDev = (core: FakeCoreModel, id: string) =>
+      Math.max(...core.history(id).map((v) => Math.abs(v - DEFAULTS[id].defaultValue)));
+    const listenPeak = Math.max(headDev(listenEnv.core, 'ParamAngleY'), headDev(listenEnv.core, 'ParamAngleZ'));
+    expect(listenPeak).toBeGreaterThan(0.5); // 有可感知幅度
+    expect(listenPeak).toBeLessThan(6); // 轻（nod/shake ≈ 16）
+    expect(headDev(listenEnv.core, 'ParamBrowLY')).toBeGreaterThan(0); // 微眉
+    expect(headDev(listenEnv.core, 'ParamEyeBallX')).toBeGreaterThan(0); // 凝视
+
+    const surEnv = makeEnv();
+    surEnv.bap.play('surprise', 2);
+    for (let i = 0; i < 220; i++) surEnv.ticker.tick(surEnv.arb, surEnv.bap, 16);
+    expect(headDev(surEnv.core, 'ParamMouthOpenY')).toBeGreaterThan(0.3); // 张嘴（默认 0）
+    expect(headDev(surEnv.core, 'ParamBrowLY')).toBeGreaterThan(0.2); // 挑眉
+    expect(headDev(surEnv.core, 'ParamEyeLOpen')).toBeGreaterThan(0.01); // 睁眼方向有偏移
+    expect(headDev(surEnv.core, 'ParamAngleY')).toBeLessThan(8); // 头部只是轻微
+
+    // surprise 结束后眼部回默认 1（不是硬写 0！）
+    expect(surEnv.core.last('ParamEyeLOpen')).toBeCloseTo(DEFAULTS.ParamEyeLOpen.defaultValue, 2);
+    expect(surEnv.arb.getCurrentSource('ParamMouthOpenY')).toBe(-1);
+  });
+
+  it('强度 3 峰值输出模型值有限且在合法范围内', () => {
+    const env = makeEnv();
+    playToCompletion(env, 'look_around', 3);
+    expect(env.core.writes.length).toBeGreaterThan(0);
+    for (const w of env.core.writes) {
       expect(Number.isFinite(w.value)).toBe(true);
-      expect(w.value).toBeGreaterThanOrEqual(RANGES[w.id].minimum);
-      expect(w.value).toBeLessThanOrEqual(RANGES[w.id].maximum);
+      expect(w.value).toBeGreaterThanOrEqual(DEFAULTS[w.id].minimum - 1e-9);
+      expect(w.value).toBeLessThanOrEqual(DEFAULTS[w.id].maximum + 1e-9);
     }
   });
+});
 
-  it('编排模板末帧全部为归一化 0.5（中性）', () => {
+describe('fade 时长正确（写入 fadeMs 与模板一致）', () => {
+  it('每个动作逐关键帧写入的 fadeMs 序列 == 该参数在模板中的 fadeMs 序列', () => {
     for (const [name, frames] of Object.entries(CHOREOGRAPHY_LIBRARY)) {
-      const last = frames[frames.length - 1].params;
-      for (const v of Object.values(last)) {
-        expect(v).toBeCloseTo(0.5, 4);
+      const env = makeEnv();
+      env.bap.play(name, 2);
+      // 只推进泵（不推进 fade 也无妨——recorder 在 write 时即捕获 fadeMs）
+      env.bap.update(0);
+      for (const f of frames) {
+        env.ticker.advanceMs(f.at + (f.at === 0 ? 0 : 1));
+        env.bap.update(0);
       }
-      void name;
+      for (const paramId of new Set(frames.flatMap((f) => Object.keys(f.delta)))) {
+        const expected = frames
+          .filter((f) => paramId in f.delta)
+          .map((f) => f.fadeMs ?? 160);
+        const actual = env.writes
+          .filter((w) => w.paramId === paramId)
+          .map((w) => w.fadeMs);
+        expect(actual, `${name}:${paramId} fadeMs 序列`).toEqual(expected);
+      }
     }
   });
 });
 
 describe('BodyActionPlayer×ParamArbiter 契约', () => {
-  it('play 后 getCurrentSource 为 LiveEvent，release 后回到 -1', () => {
-    const internalModel: FakeInternalModel = { coreModel: new FakeCoreModel() };
-    const arb = new ParamArbiter(internalModel);
-    const bap = new BodyActionPlayer(arb, { now: makeTicker().now });
-    bap.play('tilt', 2);
-    expect(arb.getCurrentSource('ParamAngleZ')).toBe(ParamSource.LiveEvent);
-    bap.release();
-    expect(arb.getCurrentSource('ParamAngleZ')).toBe(-1);
+  it('play 后 getCurrentSource 为 LiveEvent，release 后回到 -1 且模型回默认', () => {
+    const env = makeEnv();
+    env.bap.play('tilt', 2);
+    env.ticker.tick(env.arb, env.bap);
+    expect(env.arb.getCurrentSource('ParamAngleZ')).toBe(ParamSource.LiveEvent);
+    env.bap.release();
+    expect(env.arb.getCurrentSource('ParamAngleZ')).toBe(-1);
+    for (let i = 0; i < 40; i++) env.ticker.tick(env.arb, env.bap);
+    expect(env.core.last('ParamAngleZ')).toBeCloseTo(DEFAULTS.ParamAngleZ.defaultValue, 2);
   });
 });

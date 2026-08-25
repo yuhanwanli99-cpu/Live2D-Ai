@@ -1,72 +1,88 @@
+/**
+ * body-motion 兼容层测试（六动作定版）：
+ *  - 旧参数姿态表（sway/happy/excited + ParamBodyAngle*）已删除；
+ *  - resolveBodyGesture 只认六个头/脸动作；已删除/未知动作 → null；
+ *  - BodyMotionPlayer = BodyActionPlayer 别名（单 active 调度 + release 语义）。
+ */
 import { describe, it, expect } from 'vitest';
 import {
-  BODY_GESTURE_PARAMS,
+  BODY_GESTURES,
   BodyMotionPlayer,
   resolveBodyGesture,
 } from '../src/body-motion';
-import { ParamSource } from '../src/param-arbiter';
+import { SUPPORTED_ACTIONS } from '../src/choreography';
+import { ActionPriority } from '../src/action-policy';
+import { ParamArbiter } from '../src/param-arbiter';
+import { FakeCoreModel, BAI_LIKE_RANGES, makeTicker } from './helpers/fake-core-model';
 
-function makeArbiter() {
-  const writes: any[] = [];
-  return {
-    writes,
-    write(req: any) {
-      writes.push(req);
-    },
-    releaseAll(source: any) {
-      writes.push({ __releaseAll: source });
-    },
-  };
-}
-
-describe('body-motion resolveBodyGesture', () => {
-  it('已知动作原样返回', () => {
-    expect(resolveBodyGesture('happy')).toBe('happy');
+describe('resolveBodyGesture — 六动作归一化', () => {
+  it('已知动作原样返回（大小写不敏感）', () => {
     expect(resolveBodyGesture('NOD')).toBe('nod');
+    expect(resolveBodyGesture('shake_no')).toBe('shake_no');
+    expect(resolveBodyGesture('look_around')).toBe('look_around');
+    for (const id of SUPPORTED_ACTIONS) {
+      expect(resolveBodyGesture(id)).toBe(id);
+    }
   });
 
-  it('未知/空动作回退 idle', () => {
-    expect(resolveBodyGesture('dance')).toBe('idle');
-    expect(resolveBodyGesture(undefined)).toBe('idle');
+  it('idle / release / 空 → idle（release 语义）', () => {
+    expect(resolveBodyGesture('idle')).toBe('idle');
+    expect(resolveBodyGesture('release')).toBe('idle');
     expect(resolveBodyGesture('')).toBe('idle');
+    expect(resolveBodyGesture(undefined)).toBe('idle');
+    expect(resolveBodyGesture(null)).toBe('idle');
+  });
+
+  it('已删除动作（happy/excited/sway/bow/lean_in/wave/bounce 等）与未知动作 → null', () => {
+    for (const dead of ['happy', 'excited', 'sway', 'bow', 'lean_in', 'wave', 'wave_big', 'bounce_happy', 'dance']) {
+      expect(resolveBodyGesture(dead)).toBeNull();
+    }
+  });
+
+  it('BODY_GESTURES 与 choreography 六动作一致，不含任何身体动作', () => {
+    expect([...BODY_GESTURES].sort()).toEqual([...SUPPORTED_ACTIONS].sort());
+    expect(BODY_GESTURES).not.toContain('sway');
+    expect(BODY_GESTURES).not.toContain('happy');
+    expect(BODY_GESTURES).not.toContain('excited');
   });
 });
 
-describe('BodyMotionPlayer', () => {
-  it('播放 happy 会以 LiveEvent 源写参数，并在 hold 后 release', () => {
-    let now = 1000;
-    const arbiter = makeArbiter();
-    const player = new BodyMotionPlayer(arbiter as any, { now: () => now, holdMs: 500 });
+describe('BodyMotionPlayer（= BodyActionPlayer 别名）', () => {
+  it('播放 nod 以 LiveEvent 源写 AngleY，release 后回 profile 默认', () => {
+    const core = new FakeCoreModel();
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const player = new BodyMotionPlayer(arb, { now: ticker.now });
+
+    player.play('nod', 2, { priority: ActionPriority.Live, source: 'dev' });
+    expect(player.currentGesture()).toBe('choreo:nod');
+    for (let i = 0; i < 12; i++) ticker.tick(arb, player); // fade 完成
+    // 轴正确：nod 只动 AngleY（默认 0），绝不动身体通道
+    expect(Math.abs(core.last('ParamAngleY') ?? NaN)).toBeGreaterThan(8);
+    expect(core.writtenParams().has('ParamBodyAngleX')).toBe(false);
+
+    player.release();
+    for (let i = 0; i < 60; i++) ticker.tick(arb, player);
+    expect(player.currentGesture()).toBeNull();
+    expect(core.last('ParamAngleY')).toBeCloseTo(BAI_LIKE_RANGES.ParamAngleY.defaultValue, 2);
+  });
+
+  it('播放已删除动作是 no-op；播放 idle 直接释放', () => {
+    const core = new FakeCoreModel();
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const player = new BodyMotionPlayer(arb, { now: ticker.now });
 
     player.play('happy');
-    expect(player.currentGesture()).toBe('happy');
-    expect(arbiter.writes.filter((w) => w.__releaseAll).length).toBe(0);
-    expect(arbiter.writes.some((w) => w.source === ParamSource.LiveEvent)).toBe(true);
-
-    now = 1499;
-    player.update(16);
-    expect(player.currentGesture()).toBe('happy');
-
-    now = 1500;
-    player.update(16);
     expect(player.currentGesture()).toBeNull();
-    expect(arbiter.writes.some((w) => w.__releaseAll === ParamSource.LiveEvent)).toBe(true);
-  });
+    expect(core.writes).toHaveLength(0);
 
-  it('播放 idle 直接 release，不写参数', () => {
-    const arbiter = makeArbiter();
-    const player = new BodyMotionPlayer(arbiter as any);
-    player.play('idle');
+    player.play('tilt');
+    ticker.tick(arb, player);
+    expect(core.writes.length).toBeGreaterThan(0);
+
+    player.play('idle'); // release 别名
     expect(player.currentGesture()).toBeNull();
-    expect(arbiter.writes.some((w) => w.__releaseAll === ParamSource.LiveEvent)).toBe(true);
-    expect(arbiter.writes.filter((w) => !w.__releaseAll).length).toBe(0);
-  });
-
-  it('参数表只包含 bai 实读存在的半身参数', () => {
-    for (const gesture of Object.keys(BODY_GESTURE_PARAMS)) {
-      for (const paramId of Object.keys((BODY_GESTURE_PARAMS as any)[gesture])) {
-        expect(paramId).toMatch(/^Param(Angle|BodyAngle)/);
-      }
-    }
+    expect(arb.getCurrentSource('ParamAngleZ')).toBe(-1);
   });
 });

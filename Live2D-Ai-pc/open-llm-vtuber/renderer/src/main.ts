@@ -185,6 +185,9 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     app.screen?.height ?? container.clientHeight ?? FALLBACK_HEIGHT;
 
   /** 构建渲染管线：仲裁器 → 消费者 → 待机控制器 → WS 分发接线 */
+  // 修复「arbiter 每帧双 update 只推进一次」的看门狗时间戳（canonical 推进时刻）。
+  let lastArbiterCanonicalAdvanceAt = -Infinity;
+  const ARBITER_ADVANCE_WATCHDOG_MS = 250;
   const createPipeline = (
     model: Live2DModel | null,
     internalModel: Cubism4InternalModel | null,
@@ -224,6 +227,8 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     // 注意：必须用 ?. 同时防护 imEvents 自身为 null（启动时空转管线传 null）——
     // a.on?.() 只防 on 缺失，a 为 null 时读 .on 依旧抛 TypeError。
     imEvents?.on?.('afterMotionUpdate', () => {
+      // 单帧单推进（canonical）：afterMotionUpdate 是 arbiter 的常规推进点。
+      lastArbiterCanonicalAdvanceAt = performance.now();
       pipeline.arbiter.update(lastFrameDeltaMs);
       if (PERFORMANCE_ENGINE === 'soullink') pipeline.soullink?.frame(lastFrameDeltaMs / 1000);
     });
@@ -409,6 +414,10 @@ export async function initApp(containerId: string): Promise<PixiApp> {
 
   // ---- RM6 待机循环 + RM3 仲裁器写入（每帧：眨眼/呼吸/微表情/小动作 → 仲裁器合并写 coreModel） ----
   let lastFrameDeltaMs = FRAME_MS;
+  // 修复「arbiter 每帧双 update 只推进一次」：arbiter.update 此前在 ticker 与
+  // afterMotionUpdate 各调用一次，同一帧内 fade 被 2 倍速推进。afterMotionUpdate
+  // 是唯一常规推进点（模型参数重置之后，写入才不会被覆盖）；ticker 只在其停摆
+  // （无模型 / 事件缺失 / 模型暂停）超过阈值时兜底推进，保证任何时刻每帧恰好一次。
   app.ticker?.add((dt) => {
     const deltaMs = dt * FRAME_MS;
     lastFrameDeltaMs = deltaMs;
@@ -417,7 +426,10 @@ export async function initApp(containerId: string): Promise<PixiApp> {
     pipeline.microExpr.update(deltaMs);
     pipeline.idleMotion?.update(deltaMs);
     pipeline.bodyMotion.update(deltaMs);
-    pipeline.arbiter.update(deltaMs);
+    if (performance.now() - lastArbiterCanonicalAdvanceAt >= ARBITER_ADVANCE_WATCHDOG_MS) {
+      pipeline.arbiter.update(deltaMs); // 兜底推进（canonical 已推进时跳过）
+      lastArbiterCanonicalAdvanceAt = performance.now();
+    }
     if (PERFORMANCE_ENGINE === 'soullink' && pipeline.soullink) {
       pipeline.soullink.frame(deltaMs / 1000); // 保底：事件缺失时也推进引擎
     }

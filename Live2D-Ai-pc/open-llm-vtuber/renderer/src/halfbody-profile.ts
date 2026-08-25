@@ -1,5 +1,7 @@
 /** Capability-aware preset-free half-body model profile. */
 
+import { FORBIDDEN_BODY_PARAMS } from './action-policy';
+
 export interface ParameterRange {
   id: string;
   minimum: number;
@@ -21,6 +23,11 @@ type CoreModelLike = {
   getModel?: () => { parameters?: { ids?: unknown[]; minimumValues?: ArrayLike<number>; maximumValues?: ArrayLike<number>; defaultValues?: ArrayLike<number> } };
 };
 
+/**
+ * 语义通道 → 参数 ID 映射（六动作定版：仅头 / 眼 / 眉 / 呼吸）。
+ * bodyX/bodyY/bodyZ（ParamBodyAngle*）已彻底移除——任何身体 / 肩 / 胯 / 腿通道
+ * 都被 action-policy 的 FORBIDDEN_BODY_PARAMS 禁止，不再作为能力暴露。
+ */
 export const HALF_BODY_CHANNEL_IDS: Record<string, string[]> = {
   headX: ['ParamAngleX'], headY: ['ParamAngleY'], headZ: ['ParamAngleZ'],
   gazeX: ['ParamEyeBallX'], gazeY: ['ParamEyeBallY'],
@@ -28,7 +35,6 @@ export const HALF_BODY_CHANNEL_IDS: Record<string, string[]> = {
   browAngle: ['ParamBrowLAngle', 'ParamBrowRAngle'],
   browForm: ['ParamBrowLForm', 'ParamBrowRForm'],
   breath: ['ParamBreath'],
-  bodyX: ['ParamBodyAngleX'], bodyY: ['ParamBodyAngleY'], bodyZ: ['ParamBodyAngleZ'],
 };
 
 function idText(value: unknown): string {
@@ -75,6 +81,8 @@ export function expandHalfBodyIntent(intent: Record<string, number>, profile: Ha
   for (const [channel, rawValue] of Object.entries(intent ?? {})) {
     if (!profile.capabilities[channel] || !Number.isFinite(rawValue)) continue;
     for (const id of HALF_BODY_CHANNEL_IDS[channel] ?? []) {
+      // 防御性过滤：任何身体通道（ParamBodyAngle* 等）即使混入也绝不落盘
+      if (FORBIDDEN_BODY_PARAMS.has(id)) continue;
       const range = profile.ranges[id];
       if (!range) continue;
       const semantic = channel === 'breath' ? Math.min(1, Math.max(0, rawValue)) * 2 - 1 : rawValue;

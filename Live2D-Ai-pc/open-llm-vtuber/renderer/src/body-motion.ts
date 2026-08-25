@@ -1,180 +1,34 @@
 /**
- * body-motion.ts — PC 半身身体动作播放器（参数驱动，LiveEvent 优先级）
+ * body-motion.ts — 六动作定版后的兼容层（deprecated）
  *
- * 背景：bai 模型没有 motion3 文件，因此不能用 model.motion() 播放成品动作。
- * 本模块用 Cubism 身体参数做「可立即生效」的半身动作（点头/歪头/摇摆/兴奋/倾听），
- * 全部经 ParamArbiter 的 LiveEvent 源写入，动作结束后 release 回 idle/mood 基线。
+ * 用户终验定版（2026-08-25）：公开动作只保留六个「头 / 脸」动作 + release：
+ *   nod / shake_no / tilt / look_around / listen / surprise
+ * 旧的 BodyMotionPlayer 参数姿态表（sway/happy/excited + ParamBodyAngle*）
+ * 已彻底删除——身体 / 肩 / 胯 / 腿通道被 action-policy 的 FORBIDDEN_BODY_PARAMS
+ * 全面禁止，动作播放统一走 choreography.ts 的 BodyActionPlayer（单 active 调度 +
+ * profile 语义映射 + release 回模型默认）。
  *
- * 为什么参数基线取 0.5：bai.cdi3.json 中的 ParamAngleX/Y/Z、ParamBodyAngleX/Y/Z
- * 是旋转/角度参数，Live2D 常见中性值为 0.5；0 和 1 分别是两个方向的最大偏转。
+ * 本文件只保留向后兼容的别名与归一化函数，供旧调用点/测试平稳迁移：
+ *   - BodyMotionPlayer = BodyActionPlayer 别名；
+ *   - resolveBodyGesture(name) → 命中六动作返回 id，已删除/未知动作返回 null。
  */
 
-import { ParamArbiter, ParamSource } from './param-arbiter';
-import { sanitizeOverrides } from './action-policy';
-import type { ParameterOverrides } from './types';
+import { SUPPORTED_ACTIONS, resolveChoreography } from './choreography';
 
-export type BodyGesture =
-  | 'idle'
-  | 'nod'
-  | 'tilt'
-  | 'sway'
-  | 'happy'
-  | 'surprise'
-  | 'listen'
-  | 'excited';
+export { BodyActionPlayer as BodyMotionPlayer } from './choreography';
+export { SUPPORTED_ACTIONS };
 
-export interface BodyMotionOptions {
-  /** 动作保持时长 ms（默认 1800，之后 release 回 idle 基线） */
-  holdMs?: number;
-  /** 参数过渡时长 ms（默认 220，短促有弹性） */
-  fadeMs?: number;
-  /** 时间源（测试可注入；默认 Date.now） */
-  now?: () => number;
-}
-
-interface BodyMotionState {
-  gesture: BodyGesture;
-  startedAt: number;
-  holdMs: number;
-}
+/** 受支持的六个头/脸动作 id 列表（等价 SUPPORTED_ACTIONS，语义化命名导出）。 */
+export const BODY_GESTURES: readonly string[] = SUPPORTED_ACTIONS;
 
 /**
- * 半身动作参数表：key 与 bai.cdi3.json 实读一致；0.5 为中性。
- * 用户定版：只允许头/眼/眉/嘴/呼吸/BodyAngleX/Z 等已验证半身通道。
- * 已移除会造成全身位移 / BodyY 纵向跳跃的 ParamBodyAngleY（见 action-policy FORBIDDEN）。
+ * 归一化动作名：命中六动作返回小写 id；'idle'/空/'release' 返回 'idle'
+ * （由播放器的 release 语义处理）；已删除动作（happy/excited/sway/bow/
+ * lean_in/wave/bounce 等）与未知名一律返回 null → 播放器 no-op。
  */
-export const BODY_GESTURE_PARAMS: Record<BodyGesture, ParameterOverrides> = {
-  idle: {},
-  nod: {
-    ParamAngleX: 0.20,
-    ParamAngleY: 0.5,
-    ParamBodyAngleX: 0.30,
-  },
-  tilt: {
-    ParamAngleZ: 0.18,
-    ParamBodyAngleZ: 0.26,
-  },
-  sway: {
-    ParamBodyAngleZ: 0.24,
-    ParamAngleZ: 0.34,
-    ParamBodyAngleX: 0.30,
-  },
-  happy: {
-    ParamAngleX: 0.24,
-    ParamAngleY: 0.68,
-    ParamBodyAngleX: 0.42,
-    ParamBodyAngleZ: 0.24,
-  },
-  surprise: {
-    ParamAngleY: 0.5,
-    ParamAngleX: 0.22,
-    ParamBodyAngleX: 0.26,
-  },
-  listen: {
-    ParamAngleY: 0.28,
-    ParamBodyAngleX: 0.22,
-    ParamAngleZ: 0.20,
-  },
-  excited: {
-    ParamAngleX: 0.20,
-    ParamAngleY: 0.72,
-    ParamBodyAngleX: 0.42,
-    ParamBodyAngleZ: 0.28,
-  },
-};
-
-/** 归一化动作名（未知/空 → 'idle'） */
-export function resolveBodyGesture(gesture: string | undefined | null): BodyGesture {
+export function resolveBodyGesture(gesture: string | undefined | null): string | null {
   if (!gesture) return 'idle';
   const key = String(gesture).trim().toLowerCase();
-  return BODY_GESTURE_PARAMS[key as BodyGesture] ? (key as BodyGesture) : 'idle';
-}
-
-/**
- * 身体动作播放器。
- *
- * 用法：
- *   const body = new BodyMotionPlayer(arbiter);
- *   app.ticker.add(() => body.update(deltaMs));
- *   body.play('happy');
- */
-export class BodyMotionPlayer {
-  private readonly arbiter: ParamArbiter;
-  private readonly options: Required<BodyMotionOptions>;
-  private state: BodyMotionState | null = null;
-
-  constructor(arbiter: ParamArbiter, options: BodyMotionOptions = {}) {
-    this.arbiter = arbiter;
-    this.options = {
-      holdMs: options.holdMs ?? 1800,
-      fadeMs: options.fadeMs ?? 220,
-      now: options.now ?? Date.now,
-    };
-  }
-
-  /** 播放一个半身动作。idle/未知动作 = 立即 release；intensity 以 0.5 为中心缩放。 */
-  play(gesture: string | undefined | null, intensity = 1): void {
-    const key = resolveBodyGesture(gesture);
-    if (key === 'idle') {
-      this.release();
-      return;
-    }
-    this.writeParams(BODY_GESTURE_PARAMS[key], intensity);
-    this.state = {
-      gesture: key,
-      startedAt: this.options.now(),
-      holdMs: this.options.holdMs,
-    };
-  }
-
-  /** 每帧推进：hold 时间到点则释放参数控制，回退到 idle/mood 基线。 */
-  update(deltaMs: number): void {
-    if (!this.state) return;
-    const dt = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0;
-    // 用真实时钟推进，避免测试/后台 tab 下 delta 漂移导致动作粘住
-    const elapsed = this.options.now() - this.state.startedAt;
-    if (elapsed >= this.state.holdMs) {
-      this.release();
-      return;
-    }
-    // 保证即使 delta 异常，下次 tick 仍会继续检查
-    void dt;
-  }
-
-  /** 立即释放 LiveEvent 源对全部参数的控制。 */
-  release(): void {
-    this.state = null;
-    this.arbiter.releaseAll(ParamSource.LiveEvent);
-  }
-
-  /** 当前正在播放的动作（无 = null） */
-  currentGesture(): BodyGesture | null {
-    return this.state?.gesture ?? null;
-  }
-
-  private writeParams(params: ParameterOverrides, intensity = 1): void {
-    const now = this.options.now();
-    // 统一幅度：允许 strong(1.35) 明显放大；weak(0.7) 收缩。轴心 0.5，结果 clamp [0,1]。
-    const gain = Math.min(1.5, Math.max(0.4, Number.isFinite(intensity) ? intensity : 1));
-    let peak = 0;
-    const applied: Record<string, number> = {};
-    // 白名单过滤：任何未经核验的通道（如 ParamBodyAngleY）在写入前被丢弃
-    for (const [paramId, rawValue] of Object.entries(sanitizeOverrides(params))) {
-      const value = Math.min(1, Math.max(0, 0.5 + (rawValue - 0.5) * gain));
-      applied[paramId] = value;
-      peak = Math.max(peak, Math.abs(value - 0.5));
-      this.arbiter.write({
-        source: ParamSource.LiveEvent,
-        paramId,
-        value,
-        mode: 'set',
-        fadeMs: this.options.fadeMs,
-        timestamp: now,
-        valueSpace: 'normalized',
-      });
-    }
-    console.debug(
-      `[BodyMotion] gesture=${this.state?.gesture ?? ''} gain=${gain.toFixed(2)} peakDev=${peak.toFixed(2)} params=${JSON.stringify(applied)}`,
-    );
-  }
+  if (key === 'idle' || key === '' || key === 'release') return 'idle';
+  return resolveChoreography(key);
 }

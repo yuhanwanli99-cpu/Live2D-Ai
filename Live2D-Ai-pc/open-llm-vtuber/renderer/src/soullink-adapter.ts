@@ -36,11 +36,11 @@ export const EMOTION_VAD: Record<string, { valence: number; arousal: number; dom
   disgust:  { valence: -0.5, arousal: -0.1, dominance: 0.4 },
 };
 
-/** 括注/动作名 → 重音情绪提示（cue 到点时的 intent 来源） */
+/** 括注/动作名 → 重音情绪提示（cue 到点时的 intent 来源；六动作定版，
+ *  happy/sway/excited/wave_big/bow/bounce_happy 等已删除动作不再映射） */
 export const MOTION_EMOTION_HINT: Record<string, string> = {
-  nod: 'joy', tilt: 'smirk', sway: 'joy', happy: 'joy', surprise: 'surprise',
-  listen: 'neutral', excited: 'joy', wave_big: 'joy', bow: 'neutral',
-  shake_no: 'anger', lean_in: 'smirk', look_around: 'fear', bounce_happy: 'joy',
+  nod: 'joy', tilt: 'smirk', surprise: 'surprise',
+  listen: 'neutral', shake_no: 'anger', look_around: 'fear',
 };
 
 export interface EmotionIntentLike {

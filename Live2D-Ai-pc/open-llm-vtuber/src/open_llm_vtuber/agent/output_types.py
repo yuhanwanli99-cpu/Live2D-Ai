@@ -10,6 +10,9 @@ class Actions:
     pictures: list[str] | None = None
     sounds: list[str] | None = None
     motion: str | None = None  # M1 §3.4 预锁：motionLabel 别名；M3 从 motionLabel 填充，M8 前端消费
+    # Preview 定版：motion 只能是 motion_catalog.SAFE_MOTION_IDS 六动作之一
+    # （nod/shake_no/tilt/look_around/listen/surprise）；idle 仅作 release。
+    # 其余任何 id 都已被后端 sanitize 为 None，绝不下发。
     motionStrength: int | None = None  # 导演强度 1/2/3；渲染端映射为确定性动作幅度
     parameterOverrides: dict | None = None  # 兼容：模型参数绝对值直通
     # 无预设半身语义意图：headX/gazeX/bodyX 等归一化通道；渲染端按模型真实范围映射。

@@ -115,7 +115,7 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
       slice_length: 20,
       visemes: [],
       audio: 'QUFB',
-      actions: { motion: 'nod', motionTimeline: [{ at: 0.5, motion: 'happy' }] },
+      actions: { motion: 'nod', motionTimeline: [{ at: 0.5, motion: 'listen' }] },
     });
     // 时间轴接管：一次性 motion 不立即触发
     expect(bodyPlay).not.toHaveBeenCalled();
@@ -133,7 +133,7 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
     el.emit('timeupdate');
     expect(bodyPlay).toHaveBeenCalledTimes(1);
     expect(bodyPlay).toHaveBeenCalledWith(
-      'happy',
+      'listen',
       2,
       expect.objectContaining({ source: 'cue' }),
     );
@@ -150,12 +150,12 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
       slice_length: 20,
       visemes: [],
       audio: 'QUFB',
-      actions: { motion: 'sway' },
+      actions: { motion: 'look_around' },
     });
 
     expect(bodyPlay).toHaveBeenCalledTimes(1);
     expect(bodyPlay).toHaveBeenCalledWith(
-      'sway',
+      'look_around',
       2,
       expect.objectContaining({ source: 'audio' }),
     );
@@ -173,7 +173,7 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
       slice_length: 20,
       visemes: [],
       audio: 'QUFB',
-      actions: { motionTimeline: [{ at: 0.9, motion: 'excited' }] },
+      actions: { motionTimeline: [{ at: 0.9, motion: 'surprise' }] },
     });
     await flushMicrotasks();
 

@@ -5,9 +5,11 @@
 「事件」广播给所有打开中的 Live2D 前端：
 
     POST /api/live/event
-    {"type":"danmaku","text":"你好呀","user":"小明","motion":"happy","emotion":"joy"}
+    {"type":"danmaku","text":"你好呀","user":"小明","motion":"nod","emotion":"joy"}
 
 前端收到后由 renderer/src/live-event.ts 消费：身体动作 + 表情 + toast。
+motion 只接受动作目录（motion_catalog.SAFE_MOTION_IDS）内的六个 id；
+其他值（含已删除的 happy/excited/sway 等）一律丢弃，不产动作。
 若事件文本还需要进入 LLM 对话，请使用既有的 /api/external/chat；本接口
 只负责「呈现层事件」，避免把弹幕风暴直接灌进 LLM。
 
@@ -29,6 +31,7 @@ from loguru import logger
 from starlette.responses import JSONResponse
 
 from .local_state import JsonState
+from .motion_catalog import sanitize_motion
 
 MAX_TEXT_CHARS = 500
 MAX_EVENTS_PER_MIN = 60
@@ -163,7 +166,11 @@ def _extract_token(request: Request, payload: dict[str, Any] | None) -> str:
 
 
 def sanitize_live_event(payload: dict[str, Any]) -> dict[str, Any]:
-    """只保留前端需要且安全的字段，未知字段丢弃。"""
+    """只保留前端需要且安全的字段，未知字段丢弃。
+
+    动作边界：motion 必须落在动作目录白名单（六个安全动作）内，
+    已删/未知 id 一律丢弃 —— 任何外部 payload 都不能让前端播已删动作。
+    """
     event: dict[str, Any] = {}
     for key in _ALLOWED_EVENT_FIELDS:
         if key in payload:
@@ -180,6 +187,15 @@ def sanitize_live_event(payload: dict[str, Any]) -> dict[str, Any]:
         event["strength"] = max(1, min(3, int(event["strength"])))
     if not isinstance(event.get("parameterOverrides"), dict):
         event.pop("parameterOverrides", None)
+    if "motion" in event:
+        raw_motion = event.get("motion")
+        safe_motion = (
+            sanitize_motion(raw_motion) if isinstance(raw_motion, str) else None
+        )
+        if safe_motion:
+            event["motion"] = safe_motion
+        else:
+            event.pop("motion", None)
     return event
 
 

@@ -382,7 +382,7 @@ describe('RM7 ws-bridge — 消息分发', () => {
 
     ws.simulateMessage({
       type: 'live-event',
-      event: { type: 'danmaku', text: '你好', user: '小明', motion: 'happy', emotion: 'joy' },
+      event: { type: 'danmaku', text: '你好', user: '小明', motion: 'surprise', emotion: 'joy' },
     });
 
     expect(onLiveEvent).toHaveBeenCalledTimes(1);
@@ -390,7 +390,7 @@ describe('RM7 ws-bridge — 消息分发', () => {
       type: 'danmaku',
       text: '你好',
       user: '小明',
-      motion: 'happy',
+      motion: 'surprise',
       emotion: 'joy',
     });
     bridge.disconnect();
@@ -626,12 +626,12 @@ describe('RM7 ws-bridge — 音频生命周期（seq 多块 / 分条上屏 / 完
       volumes: [0.3],
       slice_length: 20,
       visemes: [],
-      actions: { motion: 'bow' },
+      actions: { motion: 'tilt' },
     });
 
     expect(bodyMotionMock.play).toHaveBeenCalledTimes(1);
     expect(bodyMotionMock.play).toHaveBeenCalledWith(
-      'bow',
+      'tilt',
       2,
       expect.objectContaining({ source: 'audio' }),
     );
@@ -651,7 +651,7 @@ describe('RM7 ws-bridge — 音频生命周期（seq 多块 / 分条上屏 / 完
       actions: {
         motion: 'nod',
         motionStrength: 2,
-        motionTimeline: [{ at: 0.2, motion: 'wave_big' }],
+        motionTimeline: [{ at: 0.2, motion: 'look_around' }],
       },
     });
 

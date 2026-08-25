@@ -108,11 +108,11 @@ async def _apply_director(
     """PC v4：把情绪/表情/动作分流到独立导演模型，覆盖主对话脑 actions。
 
     动作优先级（任务定版）：
-        1. 显式用户动作命令（用户输入里的 点头/摇头/歪头/张望/鞠躬/靠近，
-           带疑问/否定语境保护）——最高，覆盖导演/括注；
+        1. 显式用户动作命令（用户输入里的 点头/摇头/歪头/张望，带疑问/否定
+           语境保护）——最高，覆盖导演/括注；
         2. 导演 motion_label（括注时间轴首帧也算导演产物）；
-        3. 情绪映射兜底；
-        4. neutral 克制动作（导演 analyze 已处理，此处不改变）。
+        3. 情绪映射兜底（克制：仅 surprise→surprise，其余情绪无动作）。
+    任何来源的 motion 都会过 motion_catalog 白名单收敛，不在白名单清空为 None。
     导演不可用/失败时保留主对话脑原有 actions，不阻断说话。
     """
     if not isinstance(output_item, SentenceOutput):
@@ -156,11 +156,18 @@ async def _apply_director(
             result.strength = 2
         result.motion_label = user_cmd
         timeline = []
+    # 任何来源的 motion 都必须过白名单：括注时间轴逐帧收敛为六个安全动作。
+    from ..motion_catalog import sanitize_motion
+
+    timeline = [c for c in timeline if sanitize_motion(c.get("motion"))]
     result.motion_timeline = list(timeline)
     if timeline:
         result.motion_label = timeline[0]["motion"]
-    if result.motion_label:
-        actions.motion = result.motion_label
+    # 最终防线：导演/命令/情绪兜底产出的动作也必须过白名单（已删 id → None）。
+    safe_motion = sanitize_motion(result.motion_label)
+    result.motion_label = safe_motion
+    if safe_motion:
+        actions.motion = safe_motion
         actions.motionStrength = result.strength
         # Preview 协议可选元数据（旧客户端忽略）：来源 + 调度优先级 + 建议时长。
         # 显式用户命令 > 括注时间轴 > 导演/情绪推理。

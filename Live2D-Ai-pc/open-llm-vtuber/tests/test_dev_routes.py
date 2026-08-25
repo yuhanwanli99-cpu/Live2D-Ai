@@ -166,9 +166,13 @@ class TestCatalog:
             assert isinstance(entry["release_only"], bool)
         assert isinstance(body["halfbody_channels"], list)
         assert isinstance(body["capabilities"], dict)
-        # 核心动作必须出现在白名单里
-        for action in ("nod", "shake_no", "tilt", "look_around", "bow", "lean_in"):
+        # 六个可触发动作 + idle(release) 必须出现在白名单里
+        for action in ("nod", "shake_no", "tilt", "look_around", "listen", "surprise"):
             assert action in body["actions"]
+        # 已删动作（bow/lean_in/happy/excited/sway/wave_big/bounce_happy）
+        # 绝不出现在 dev 目录 —— 与公开/导演协议同一目录边界。
+        for removed in ("bow", "lean_in", "happy", "excited", "sway", "wave_big", "bounce_happy"):
+            assert removed not in body["actions"], removed
         # idle 仅作为 release，不能作为正向触发
         idle_entry = next(e for e in entries if e["id"] == "idle")
         assert idle_entry["release_only"] is True
@@ -238,6 +242,19 @@ class TestTrigger:
         assert r.json()["error"] == "unknown action"
         assert dev_env.ws.broadcasts == []
 
+    @pytest.mark.parametrize(
+        "removed",
+        ["happy", "excited", "sway", "bow", "lean_in", "wave_big", "bounce_happy"],
+    )
+    def test_trigger_removed_ids_rejected_400(self, dev_env, removed):
+        # 定版目录收敛：任何已删动作 id 的显式请求一律安全 400，绝不广播。
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        r = dev_env.client.post("/api/dev/actions/trigger", json={"action": removed})
+        assert r.status_code == 400, removed
+        assert r.json()["error"] == "unknown action"
+        assert dev_env.ws.broadcasts == []
+
     def test_trigger_unknown_action_400(self, dev_env):
         dev_env.enable_dev_mode()
         dev_env.enable_localhost()
@@ -294,7 +311,10 @@ class TestDirectorAnalyze:
             motion_label="happy",
             parameter_overrides={"ParamAngleX": 10.0, "ParamBad": "string-should-drop"},
             half_body={"bodyX": -12.3},
-            motion_timeline=[{"at": 0.5, "motion": "nod"}],
+            motion_timeline=[
+                {"at": 0.5, "motion": "nod"},
+                {"at": 0.7, "motion": "sway"},
+            ],
             source="test",
             raw="SECRET prompt with api_key=sk-xxxx and system prompt internals",
         )
@@ -311,10 +331,10 @@ class TestDirectorAnalyze:
         assert r.status_code == 200
         body = r.json()
         assert fake_director.calls == ["说点高兴的事"]
-        # 允许字段存在且值正确
+        # 允许字段存在且值正确；已删 id（happy/sway）被目录白名单清空/丢弃
         assert body["emotion"] == "joy"
         assert body["strength"] == 3
-        assert body["motionLabel"] == "happy"
+        assert body["motionLabel"] is None
         assert body["halfBody"] == {"bodyX": -12.3}
         assert body["motionTimeline"] == [{"at": 0.5, "motion": "nod"}]
         # 脱敏：raw 绝不返回；非法参数值被钳制剔除
@@ -322,6 +342,31 @@ class TestDirectorAnalyze:
         assert "SECRET" not in str(body)
         assert "sk-" not in str(body)
         assert body["parameterOverrides"] == {"ParamAngleX": 10.0}
+
+    def test_analyze_never_echoes_removed_motion_ids(self, dev_env):
+        # dev 协议与公开协议同边界：任何已删动作 id 都不得从该端点回显。
+        fake_director = _FakeDirector(
+            result=DirectorResult(
+                emotion="neutral",
+                strength=2,
+                motion_label=None,
+                motion_timeline=[
+                    {"at": 0.1, "motion": "happy"},
+                    {"at": 0.2, "motion": "bounce_happy"},
+                    {"at": 0.3, "motion": "lean_in"},
+                ],
+            )
+        )
+        dev_env.ctx.director = fake_director
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        r = dev_env.client.post("/api/dev/director/analyze", json={"text": "hi"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["motionLabel"] is None
+        assert body["motionTimeline"] == []
+        for removed in ("happy", "excited", "sway", "bow", "lean_in", "wave_big", "bounce_happy"):
+            assert removed not in str(body)
 
     def test_analyze_empty_text_400(self, dev_env):
         dev_env.enable_dev_mode()

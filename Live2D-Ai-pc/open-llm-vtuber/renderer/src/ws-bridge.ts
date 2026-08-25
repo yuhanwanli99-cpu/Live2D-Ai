@@ -223,7 +223,7 @@ export class WsBridge {
     return this.ws !== null && this.ws.readyState === 1; // 1 = WebSocket.OPEN
   }
 
-  /** 当前半身动作（dev console 状态显示用） */
+  /** 当前动作（dev console 状态显示用；六动作之一或 null） */
   currentBodyGesture(): string | null {
     return this.bodyMotion?.currentGesture() ?? null;
   }
@@ -292,12 +292,12 @@ export class WsBridge {
     this.emotionConsumer = consumer;
   }
 
-  /** 设置半身动作播放器（对话 actions.motion → bodyMotion.play） */
+  /** 设置头/脸动作播放器（对话 actions.motion → bodyMotion.play，六动作 + release） */
   setBodyMotion(player: BodyActionPlayer): void {
     this.bodyMotion = player;
   }
 
-  /** 设置无预设半身语义控制器。 */
+  /** 设置无预设语义控制器（仅头/眼/眉/呼吸通道；身体通道已被禁止）。 */
   setHalfBodyController(controller: HalfBodyController): void {
     this.halfBody = controller;
   }

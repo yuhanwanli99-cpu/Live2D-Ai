@@ -46,14 +46,14 @@ describe('LiveEventController', () => {
       type: 'danmaku',
       text: '你好',
       user: '小明',
-      motion: 'wave',
+      motion: 'nod',
       emotion: 'joy',
       strength: 3,
       parameterOverrides: { ParamAngleX: 0.6 },
     });
 
     expect(body.play).toHaveBeenCalledWith(
-      'wave',
+      'nod',
       3,
       expect.objectContaining({ source: 'live' }),
     );

@@ -18,6 +18,7 @@ from typing import Any
 from loguru import logger
 
 from ..context_compactor import ContextCompactor
+from ..motion_catalog import sanitize_motion
 from ..tts.tts_instruction_library import get_instruction
 
 
@@ -231,31 +232,21 @@ class ContextCompactorPlugin:
         }
 
 
-# 情绪 → 半身动作确定性兜底（与 director._EMOTION_MOTION 同思路，8 key 全覆盖）；
-# 主脑/导演没给出 motion 时，保证"有情绪就有对应肢体表达"，而不是静默无动作。
+# 情绪 → 动作确定性兜底（与 director._EMOTION_MOTION 同源同边界，定版）：
+# 只允许 surprise → surprise 一条映射；其余情绪一律 None —— 不强行动作，
+# 更不允许出现已删 id（happy/sway/excited 等 Bai 无法诚实表达的动作）。
 _EMOTION_GESTURE_FALLBACK = {
-    "joy": "happy",
     "surprise": "surprise",
-    "sadness": "listen",
-    "fear": "listen",
-    "smirk": "tilt",
-    "anger": "sway",
-}
-
-# 心情分层兜底（PC-L4）：正向心情给兴奋表达
-_MOOD_TIER_GESTURE_FALLBACK = {
-    "happy": "excited",
-    "ecstatic": "excited",
 }
 
 
 class BodyDirectorPlugin:
     """身体/表情导演插件的确定性兜底。
 
-    优先沿用调用方已经解析出的 motion 与参数覆盖；缺失时按
-    情绪（8 key）→ 心情分层映射出参数驱动手势（bai 无 motion3，
-    前端 BodyMotionPlayer 执行参数形变），不再原样透传空动作。
-    该插件不另起 LLM，全部为确定性映射。
+    优先沿用调用方已经解析出的 motion 与参数覆盖（透传前同样过动作目录
+    白名单，已删 id → None）；缺失时按情绪映射出兜底动作（定版仅
+    surprise → surprise，其余情绪不产动作）。bai 无 motion3，前端
+    BodyActionPlayer 执行参数形变。该插件不另起 LLM，全部为确定性映射。
     """
 
     id = "body-director"
@@ -263,13 +254,12 @@ class BodyDirectorPlugin:
     def handle_event(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         if name != "sentence.after":
             return {}
-        motion = payload.get("motion")
+        motion = sanitize_motion(payload.get("motion"))
         if not motion:
+            # 情绪兜底只认 surprise → surprise；心情分层（happy/ecstatic 等）
+            # 不再触发任何动作 —— 无法诚实映射的输入一律不产动作。
             emotion = str(payload.get("emotion") or "neutral").lower()
-            mood_tier = str(payload.get("mood_tier") or "").lower()
-            motion = _EMOTION_GESTURE_FALLBACK.get(emotion) or _MOOD_TIER_GESTURE_FALLBACK.get(
-                mood_tier
-            )
+            motion = _EMOTION_GESTURE_FALLBACK.get(emotion)
         return {
             "body_frames": [],
             "parameterOverrides": payload.get("parameterOverrides") or {},

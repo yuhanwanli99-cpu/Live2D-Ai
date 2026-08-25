@@ -15,6 +15,7 @@ from ..asr.asr_interface import ASRInterface
 from ..live2d_model import Live2dModel
 from ..tts.tts_interface import TTSInterface
 from ..director import normalize_chunk_timeline, project_motion_cues_into_chunks
+from ..motion_catalog import sanitize_motion
 from ..utils.stream_audio import prepare_audio_payload
 from ..utils.tts_preprocessor import filter_parentheses
 # 对话编排链路统一 "flow" 标签（字幕/分块/插件分发等关键节点）
@@ -205,10 +206,22 @@ async def handle_sentence_output(
                         continue
                     if isinstance(result.get("parameterOverrides"), dict) and actions is not None:
                         actions.parameterOverrides = result["parameterOverrides"] or actions.parameterOverrides
-                    if result.get("motion") and actions is not None:
-                        actions.motion = result["motion"]
+                    # 插件任何来源的 motion 都必须过公开目录白名单（已删 id → None）。
+                    # 只在插件显式给出 "motion" 键时才覆盖：sentence.after 是广播事件，
+                    # 未参与动作决策的插件（mood-tts/记忆/压缩等）不能把已定动作清空。
+                    if actions is not None and "motion" in result:
+                        raw_plugin_motion = result.get("motion")
+                        actions.motion = sanitize_motion(
+                            raw_plugin_motion
+                            if isinstance(raw_plugin_motion, str)
+                            else None
+                        )
             except Exception as e:  # noqa: BLE001 - 导演失败必须可见，不打断说话
                 logger.error(f"sentence.after plugin dispatch failed (visible fallback): {e}")
+
+        # 插件分发完成后再次收敛：任何来源的 motion 都不允许出现已删动作 id。
+        if actions is not None:
+            actions.motion = sanitize_motion(actions.motion)
 
         # 小节化：把句子切成小块再逐块进 TTS 队列，降低单次 CPU 合成时长，
         # 让首块音频更早进播放队列（顺序播放由 tts_manager 保证）。
