@@ -15,34 +15,16 @@ from fastapi.responses import JSONResponse
 
 from ..halfbody import available_halfbody_channels
 from ..logsetup import get_logger
+from ..motion_catalog import ALLOWED_ACTIONS, MOTION_METADATA
 from ..service_context import ServiceContext
 from ..websocket_handler import WebSocketHandler
 
 _log = get_logger("dev")
 
 # Deterministic body action IDs supported by the renderer's BodyActionPlayer.
-# This is the single source of truth: adding an entry here automatically
-# surfaces it in the dev console UI, no UI code changes required.
-ALLOWED_ACTIONS: frozenset[str] = frozenset(
-    {
-        # Single-pose body gestures
-        "idle",
-        "nod",
-        "tilt",
-        "sway",
-        "happy",
-        "surprise",
-        "listen",
-        "excited",
-        # Choreography timeline actions
-        "wave_big",
-        "bow",
-        "bounce_happy",
-        "shake_no",
-        "lean_in",
-        "look_around",
-    }
-)
+# Single source of truth: the shared half-body motion catalog. Adding an entry
+# there automatically surfaces it in the dev console UI, no UI code changes.
+# `bounce_happy` (full-body jump) is intentionally absent; `idle` is release-only.
 
 _DEV_MODE_ENV_KEYS = ("1", "true", "yes")
 
@@ -113,9 +95,24 @@ def init_dev_routes(
             return denied
 
         channels = available_halfbody_channels(_parameter_ids(default_context_cache))
+        action_meta = [
+            {
+                "id": mid,
+                "label": str(meta.get("label") or mid),
+                "description": str(meta.get("description") or ""),
+                "halfbody": bool(meta.get("halfbody", True)),
+                "suggested_duration_ms": int(meta.get("suggested_duration_ms", 1000)),
+                "release_only": bool(meta.get("release_only", False)),
+            }
+            for mid in sorted(ALLOWED_ACTIONS)
+            if (meta := MOTION_METADATA.get(mid))
+        ]
         return JSONResponse(
             {
+                # 兼容层：旧前端 dev-console 的 loadCatalog 期望纯 id 列表；
+                # 富元数据（中文 label/描述/halfbody/时长/release）走 action_meta。
                 "actions": sorted(ALLOWED_ACTIONS),
+                "action_meta": action_meta,
                 "halfbody_channels": list(channels),
                 "capabilities": {ch: True for ch in channels},
             }
@@ -133,10 +130,13 @@ def init_dev_routes(
             return JSONResponse({"error": "invalid json"}, status_code=400)
 
         release = bool(payload.get("release", False))
+        action = str(payload.get("action", "")).strip().lower()
+        # idle 只能作为 release：显式请求 idle 触发一律转为释放回中，
+        # 避免「重复触发 idle 回中」造成参数抖动（release_only 语义）。
+        if action == "idle" and not release:
+            release = True
         if release:
             action = "idle"
-        else:
-            action = str(payload.get("action", "")).strip().lower()
         if action not in ALLOWED_ACTIONS:
             return JSONResponse(
                 {"error": "unknown action", "allowed": sorted(ALLOWED_ACTIONS)},

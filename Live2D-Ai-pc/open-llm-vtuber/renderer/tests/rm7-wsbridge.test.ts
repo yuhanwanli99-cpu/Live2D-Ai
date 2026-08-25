@@ -608,7 +608,11 @@ describe('RM7 ws-bridge — 音频生命周期（seq 多块 / 分条上屏 / 完
     });
 
     expect(bodyMotionMock.play).toHaveBeenCalledTimes(1);
-    expect(bodyMotionMock.play).toHaveBeenCalledWith('nod', 3);
+    expect(bodyMotionMock.play).toHaveBeenCalledWith(
+      'nod',
+      3,
+      expect.objectContaining({ source: 'audio' }),
+    );
     bridge.disconnect();
   });
 
@@ -626,7 +630,11 @@ describe('RM7 ws-bridge — 音频生命周期（seq 多块 / 分条上屏 / 完
     });
 
     expect(bodyMotionMock.play).toHaveBeenCalledTimes(1);
-    expect(bodyMotionMock.play).toHaveBeenCalledWith('bow', 2);
+    expect(bodyMotionMock.play).toHaveBeenCalledWith(
+      'bow',
+      2,
+      expect.objectContaining({ source: 'audio' }),
+    );
     bridge.disconnect();
   });
 

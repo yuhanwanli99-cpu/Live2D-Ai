@@ -132,7 +132,11 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
     el.currentTime = 5;
     el.emit('timeupdate');
     expect(bodyPlay).toHaveBeenCalledTimes(1);
-    expect(bodyPlay).toHaveBeenCalledWith('happy');
+    expect(bodyPlay).toHaveBeenCalledWith(
+      'happy',
+      2,
+      expect.objectContaining({ source: 'cue' }),
+    );
     bridge.disconnect();
   });
 
@@ -150,7 +154,11 @@ describe('ws-bridge × motionTimeline — 播放位置触发的半身动作', ()
     });
 
     expect(bodyPlay).toHaveBeenCalledTimes(1);
-    expect(bodyPlay).toHaveBeenCalledWith('sway', 2);
+    expect(bodyPlay).toHaveBeenCalledWith(
+      'sway',
+      2,
+      expect.objectContaining({ source: 'audio' }),
+    );
     await flushMicrotasks();
     bridge.disconnect();
   });

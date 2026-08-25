@@ -27,7 +27,7 @@ _DIRECTOR_SYSTEM = (
     'Fields: {"emotion":"one of neutral/joy/anger/sadness/surprise/fear/smirk/disgust",'
     ' "strength":1|2|3,'
     ' "motionLabel":"one of nod/tilt/sway/happy/surprise/listen/excited/'
-    'wave_big/bow/shake_no/lean_in/look_around/bounce_happy" or null,'
+    'wave_big/bow/shake_no/lean_in/look_around" or null,'
     ' "parameterOverrides":{}}. '
     "Choose only the semantic motionLabel; the client owns deterministic body and gaze timelines. "
     "Do not output halfBody, gaze, head/body parameter values, or mouth/lip-sync channels. "
@@ -154,10 +154,10 @@ _STAGE_GESTURE_KEYWORDS = {
     "happy": ("招手", "比心", "拍手", "欢呼"),
     "surprise": ("惊讶", "睁大", "捂嘴", "震惊"),
     "listen": ("倾听", "思考", "托腮", "歪着脑袋想"),
-    "excited": ("鼓掌", "雀跃"),
+    # 蹦跳属于全身动作（与半身参数驱动冲突），映射到安全的上身「兴奋」替代。
+    "excited": ("鼓掌", "雀跃", "蹦跳", "跳起来", "蹦蹦跳跳"),
     # —— 编排动作（大幅度时间轴）——
     "wave_big": ("挥手", "挥手打招呼", "用力挥手"),
-    "bounce_happy": ("蹦跳", "跳起来", "蹦蹦跳跳"),
     "bow": ("鞠躬", "弯腰", "低头行礼"),
     "shake_no": ("摇头", "用力摇头"),
     "lean_in": ("凑近", "靠近", "贴近", "凑过来"),
@@ -167,8 +167,9 @@ _STAGE_GESTURE_KEYWORDS = {
 # 动作边界白名单：单姿态手势 + 编排库动作（与前端 resolveChoreography/BodyGesture 对齐）。
 # 导演 LLM 输出的 motionLabel 必须落在集合内，越界一律丢弃并走情绪映射兜底 —— 这就是
 # "参数使用说明定义的脚本动作边界"：LLM 只能选，不能发明。
+# 注意：`idle` 仅作为开发者面板 release 语义，不作为逐句可触发的 motion。
 _VALID_MOTIONS = frozenset(_STAGE_GESTURE_KEYWORDS) | {
-    "idle", "excited", "surprise", "listen", "sway", "nod", "tilt", "happy",
+    "excited", "surprise", "listen", "sway", "nod", "tilt", "happy",
 }
 
 # 动作括注统一正则（与 filter_parentheses 的全角/半角覆盖一致；不支持跨层嵌套，
@@ -266,6 +267,39 @@ def project_motion_cues_into_chunks(
     for item in sliced:
         item.sort(key=lambda c: c["at"])
     return sliced
+
+
+def normalize_chunk_timeline(
+    cues: list[dict[str, Any]], min_gap: float = 0.2
+) -> list[dict[str, Any]]:
+    """同一 TTS 分块内的动作时间轴：去重 + 强制最小间隔，避免冲突动作打架。
+
+    - 同一 motion 在该块内多次出现只保留首个；
+    - 两个不同动作若 at 间隔 < min_gap，保留前者（紧贴的 cue 在渲染端容易
+      互相覆盖，产生抖动/半截动作）；
+    - 输入为空 / 异常 → []。
+
+    保持 projector 的输出形态：[{"at": float, "motion": str}, ...]（at 保留 4 位小数）。
+    """
+    if not cues:
+        return []
+    kept: list[dict[str, Any]] = []
+    seen_motions: set[str] = set()
+    last_at = -1.0
+    # 浮点宽容：刚好落在 min_gap 边界的 cue 不应因 0.3-0.1=0.19999… 被误杀；
+    # 真正小于 min_gap 的仍被过滤。
+    threshold = float(min_gap) - 1e-9
+    for cue in sorted(cues, key=lambda c: float(c.get("at", 0))):
+        motion = str(cue.get("motion") or "").strip().lower()
+        if not motion or motion in seen_motions:
+            continue
+        at = float(cue.get("at", 0))
+        if kept and at - last_at < threshold:
+            continue
+        kept.append({"at": round(at, 4), "motion": motion})
+        seen_motions.add(motion)
+        last_at = at
+    return kept
 
 
 def rule_fallback(text: str) -> DirectorResult:

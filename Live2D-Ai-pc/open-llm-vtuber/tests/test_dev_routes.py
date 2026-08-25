@@ -152,13 +152,28 @@ class TestCatalog:
         r = dev_env.client.get("/api/dev/actions/catalog")
         assert r.status_code == 200
         body = r.json()
-        assert set(body["actions"]) == set(ALLOWED_ACTIONS)
+        # 兼容层：actions 保持旧前端 dev-console 期望的纯 id 列表。
         assert body["actions"] == sorted(ALLOWED_ACTIONS)
+        # 富目录：中文 label / description / halfbody / 建议时长 / release_only。
+        entries = body["action_meta"]
+        assert {e["id"] for e in entries} == set(ALLOWED_ACTIONS)
+        for entry in entries:
+            assert isinstance(entry["label"], str) and entry["label"]
+            assert isinstance(entry["description"], str)
+            assert entry["halfbody"] is True, entry["id"]
+            assert isinstance(entry["suggested_duration_ms"], int)
+            assert entry["suggested_duration_ms"] > 0
+            assert isinstance(entry["release_only"], bool)
         assert isinstance(body["halfbody_channels"], list)
         assert isinstance(body["capabilities"], dict)
         # 核心动作必须出现在白名单里
-        for action in ("nod", "shake_no", "tilt", "look_around", "bow", "lean_in", "idle"):
+        for action in ("nod", "shake_no", "tilt", "look_around", "bow", "lean_in"):
             assert action in body["actions"]
+        # idle 仅作为 release，不能作为正向触发
+        idle_entry = next(e for e in entries if e["id"] == "idle")
+        assert idle_entry["release_only"] is True
+        # 全身跳跃动作不得出现在可触发目录
+        assert "bounce_happy" not in body["actions"]
 
     def test_catalog_halfbody_channels_from_model_params(self, dev_env, monkeypatch):
         # live2d_model 带 _cdi3_parameter_ids 时，halfbody 通道按参数集推导。
@@ -199,6 +214,27 @@ class TestTrigger:
         assert r.status_code == 200
         assert r.json()["action"] == "idle"
         assert dev_env.ws.broadcasts == [("idle", 2)]
+
+    def test_trigger_idle_explicit_is_treated_as_release(self, dev_env):
+        # idle 只能作为 release：显式请求 idle 触发也一律转为释放回中，
+        # 不重复触发「回中」动作，避免参数抖动。
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        r = dev_env.client.post("/api/dev/actions/trigger", json={"action": "idle"})
+        assert r.status_code == 200
+        assert r.json()["action"] == "idle"
+        assert dev_env.ws.broadcasts == [("idle", 2)]
+
+    def test_trigger_full_body_action_rejected(self, dev_env):
+        # 全身跳跃动作（bounce_happy）不在安全半身目录内，必须 400。
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        r = dev_env.client.post(
+            "/api/dev/actions/trigger", json={"action": "bounce_happy", "strength": 2}
+        )
+        assert r.status_code == 400
+        assert r.json()["error"] == "unknown action"
+        assert dev_env.ws.broadcasts == []
 
     def test_trigger_unknown_action_400(self, dev_env):
         dev_env.enable_dev_mode()

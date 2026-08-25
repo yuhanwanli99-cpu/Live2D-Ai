@@ -162,13 +162,34 @@ async def _apply_director(
     if result.motion_label:
         actions.motion = result.motion_label
         actions.motionStrength = result.strength
+        # Preview 协议可选元数据（旧客户端忽略）：来源 + 调度优先级 + 建议时长。
+        # 显式用户命令 > 括注时间轴 > 导演/情绪推理。
+        if user_cmd:
+            actions.source = "user_command"
+            actions.priority = 100
+        elif timeline:
+            actions.source = "stage_direction"
+            actions.priority = 60
+        else:
+            actions.source = "director"
+            actions.priority = 50
+        try:
+            from ..motion_catalog import MOTION_METADATA
+
+            meta = MOTION_METADATA.get(actions.motion)
+            if meta is not None:
+                actions.suggested_duration_ms = int(meta.get("suggested_duration_ms", 1000))
+        except Exception:  # noqa: BLE001 - 元数据缺失不影响动作下发
+            pass
         logger.info(
-            "action payload: motion={} strength={} emotion={} timeline_items={} command={}",
+            "action payload: motion={} strength={} emotion={} timeline_items={} command={} source={} priority={}",
             result.motion_label,
             result.strength,
             result.emotion,
             len(timeline),
             bool(user_cmd),
+            actions.source,
+            actions.priority,
         )
     if result.parameter_overrides:
         actions.parameterOverrides = result.parameter_overrides

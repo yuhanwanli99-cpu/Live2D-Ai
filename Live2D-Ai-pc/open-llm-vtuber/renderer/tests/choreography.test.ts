@@ -115,21 +115,41 @@ describe('ChoreographyPlayer — 时间轴执行', () => {
   });
 });
 
-describe('BodyActionPlayer — 组合门面', () => {
-  it('编排名走 choreo，手势名走 gestures；update 双驱动', () => {
+describe('BodyActionPlayer — 组合门面与单 active 调度', () => {
+  it('同优先级不同动作进 pending，当前动作结束后接续播放（不打断不叠加）', () => {
     const arb = new FakeArbiter();
     const clock = makeClock();
     const p = new BodyActionPlayer(arb as never, { now: clock.now });
 
-    p.play('sway'); // 单姿态手势（未纳入编排库）走 gestures 回落
+    p.play('sway'); // 单姿态手势走 gestures
     expect(p.currentGesture()).toBe('sway');
 
-    p.play('wave_big'); // 编排接管 + 清残留手势
-    expect(p.currentGesture()).toBe('choreo:wave_big');
-    expect(arb.released).toBe(1); // gestures.release 被调
+    p.play('wave_big'); // 同优先级 → 不打断，进唯一 pending
+    expect(p.currentGesture()).toBe('sway');
+    expect(p.pendingAction()).toBe('choreo:wave_big');
 
-    clock.advance(3000);
+    clock.advance(2000); // sway hold 1800 自然结束 → 启动 pending
     p.update(16);
+    expect(p.currentGesture()).toBe('choreo:wave_big');
+
+    clock.advance(2000); // wave_big 播完回中性
+    p.update(16);
+    expect(p.currentGesture()).toBeNull();
+    expect(arb.released).toBeGreaterThanOrEqual(1);
+  });
+
+  it('更高优先级动作立即打断当前动作；被打断动作不进入 pending', () => {
+    const arb = new FakeArbiter();
+    const clock = makeClock();
+    const p = new BodyActionPlayer(arb as never, { now: clock.now });
+
+    p.play('wave_big', 2, { priority: 1, source: 'audio' }); // 情绪兜底
+    expect(p.currentGesture()).toBe('choreo:wave_big');
+
+    p.play('nod', 3, { priority: 3, source: 'dev' }); // dev 显式（最高）
+    expect(p.currentGesture()).toBe('choreo:nod');
+    expect(p.pendingAction()).toBeNull();
+
     p.release();
     expect(p.currentGesture()).toBeNull();
   });

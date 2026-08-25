@@ -19,7 +19,7 @@
  */
 import { LipSync, VisemeFrame } from './lip-sync';
 import { EmotionConsumer } from './emotion-consumer';
-import { BodyActionPlayer } from './choreography';
+import { BodyActionPlayer, ActionPriority } from './choreography';
 import { MotionTimelineScheduler } from './motion-timeline';
 import { HalfBodyController } from './halfbody-controller';
 import type { HistoryEntry, HistoryMessage } from './history';
@@ -119,7 +119,8 @@ export class WsBridge {
    * 正在播放的音频元素上，播放到对应进度才 bodyMotion.play。
    */
   private motionScheduler = new MotionTimelineScheduler((motion) => {
-    this.bodyMotion?.play(motion);
+    // 播放进度 cue：高于情绪兜底，低于 dev 显式触发
+    this.bodyMotion?.play(motion, 2, { priority: ActionPriority.Cue, source: 'cue' });
     this.onCue?.(motion);
     this.onActionPlayed?.(motion, 2);
   });
@@ -405,6 +406,8 @@ export class WsBridge {
    */
   stopAudio(): void {
     this.motionScheduler.cancel();
+    // 停止/打断：立即清空动作调度（含 pending），动作参数回中到 idle/mood 基线
+    this.bodyMotion?.release();
     this.audioQueue.length = 0;
     if (this.currentAudio) {
       try {
@@ -528,7 +531,11 @@ export class WsBridge {
             console.debug(
               `[ws-bridge] dispatch motion=${audio.actions.motion} strength=${audio.actions.motionStrength ?? 2}`,
             );
-            this.bodyMotion?.play(audio.actions.motion, audio.actions.motionStrength ?? 2);
+            // 情绪/导演兜底动作：可被 timeline cue 与 dev 显式动作打断
+            this.bodyMotion?.play(audio.actions.motion, audio.actions.motionStrength ?? 2, {
+              priority: ActionPriority.Fallback,
+              source: 'audio',
+            });
             this.onActionPlayed?.(audio.actions.motion, audio.actions.motionStrength ?? 2);
           }
           // 字幕：audio 帧携带 display_text 时透传；subtitle 已先上屏同一句时跳过
@@ -647,7 +654,11 @@ export class WsBridge {
           const action = typeof payload?.action === 'string' ? payload.action : '';
           const strength = typeof payload?.strength === 'number' ? payload.strength : 2;
           if (action) {
-            this.bodyMotion?.play(action, strength);
+            // 开发者显式触发：最高优先级，可打断一切动作
+            this.bodyMotion?.play(action, strength, {
+              priority: ActionPriority.Live,
+              source: 'dev',
+            });
             this.onDevAction?.(action, strength);
             this.onActionPlayed?.(action, strength);
           }

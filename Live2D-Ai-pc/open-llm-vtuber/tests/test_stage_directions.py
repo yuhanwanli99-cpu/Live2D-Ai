@@ -32,4 +32,10 @@ def test_stage_gesture_choreography_keywords():
     assert stage_gesture("（用力摇头）不行哦") == "shake_no"
     assert stage_gesture("（凑近屏幕）让我看看") == "lean_in"
     assert stage_gesture("（左右张望）有人吗") == "look_around"
-    assert stage_gesture("（蹦蹦跳跳）太棒啦") == "bounce_happy"
+
+
+def test_stage_gesture_bounce_maps_to_safe_excited():
+    # 蹦跳属全身动作（与半身参数驱动冲突），映射到安全的上身「兴奋」替代，
+    # 不再产出 bounce_happy。
+    assert stage_gesture("（蹦蹦跳跳）太棒啦") == "excited"
+    assert stage_gesture("（高兴得跳起来）太棒啦") == "excited"

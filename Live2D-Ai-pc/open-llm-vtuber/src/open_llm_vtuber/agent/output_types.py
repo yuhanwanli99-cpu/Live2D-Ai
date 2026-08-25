@@ -20,6 +20,15 @@ class Actions:
     # 解析、conversation_utils 按 split_tts_chunks 切片。存在时前端按进度调度触发，
     # 忽略一次性 motion 字段（避免双重触发）；to_dict() 对 None 自动省略，向后兼容。
     motionTimeline: list[dict] | None = None
+    # —— Preview 协议可选元数据（旧客户端忽略未知字段；None 时 to_dict 省略，向后兼容）——
+    # 动作来源：user_command / stage_direction / director / emotion / plugin 等，供前端
+    # 调度优先级与开发者面板展示。
+    source: str | None = None
+    # 调度优先级：数值越大越优先（显式用户命令=100、括注时间轴=60、导演/情绪=50），
+    # 前端与后端据此在冲突时做覆盖。
+    priority: int | None = None
+    # 建议执行时长（毫秒），来自动作目录；前端可覆盖，用于动作播放窗口调度。
+    suggested_duration_ms: int | None = None
 
     def to_dict(self) -> dict:
         """Convert Actions object to a dictionary for JSON serialization"""

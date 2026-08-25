@@ -14,7 +14,7 @@ from ..agent.input_types import BatchInput, TextData, ImageData, TextSource, Ima
 from ..asr.asr_interface import ASRInterface
 from ..live2d_model import Live2dModel
 from ..tts.tts_interface import TTSInterface
-from ..director import project_motion_cues_into_chunks
+from ..director import normalize_chunk_timeline, project_motion_cues_into_chunks
 from ..utils.stream_audio import prepare_audio_payload
 from ..utils.tts_preprocessor import filter_parentheses
 # 对话编排链路统一 "flow" 标签（字幕/分块/插件分发等关键节点）
@@ -225,6 +225,19 @@ async def handle_sentence_output(
             tts_chunks,
             len(filter_parentheses(display_text.text or "")),
         )
+
+        # 显式用户动作命令（priority=100）覆盖本句括注时间轴：用户明确要求就按
+        # 用户来，防止前端按括注时间轴忽略一次性命令动作（命令不执行）。
+        if (
+            actions is not None
+            and getattr(actions, "priority", None) == 100
+            and getattr(actions, "source", None) == "user_command"
+        ):
+            per_chunk_cues = [[] for _ in tts_chunks]
+        else:
+            # 同一句内时间轴：去重 + 最小间隔，避免冲突动作在同一块/相邻块打架
+            # （同一 motion 只触发一次；靠得太近的不同动作保留前者）。
+            per_chunk_cues = [normalize_chunk_timeline(cues) for cues in per_chunk_cues]
         has_timeline = any(per_chunk_cues)
         base_actions = actions
         if has_timeline and actions is not None:

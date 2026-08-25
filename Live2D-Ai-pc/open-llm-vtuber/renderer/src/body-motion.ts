@@ -10,6 +10,7 @@
  */
 
 import { ParamArbiter, ParamSource } from './param-arbiter';
+import { sanitizeOverrides } from './action-policy';
 import type { ParameterOverrides } from './types';
 
 export type BodyGesture =
@@ -37,9 +38,10 @@ interface BodyMotionState {
   holdMs: number;
 }
 
-/** 半身动作参数表：key 与 bai.cdi3.json 实读一致；0.5 为中性
- *  统一幅度策略：base 值本身即明显偏离中性（贴近参数两端），
- *  再经 BodyMotionPlayer.writeParams 的 intensity 缩放（weak 0.7 / mid 1.0 / strong 1.35）。
+/**
+ * 半身动作参数表：key 与 bai.cdi3.json 实读一致；0.5 为中性。
+ * 用户定版：只允许头/眼/眉/嘴/呼吸/BodyAngleX/Z 等已验证半身通道。
+ * 已移除会造成全身位移 / BodyY 纵向跳跃的 ParamBodyAngleY（见 action-policy FORBIDDEN）。
  */
 export const BODY_GESTURE_PARAMS: Record<BodyGesture, ParameterOverrides> = {
   idle: {},
@@ -53,34 +55,31 @@ export const BODY_GESTURE_PARAMS: Record<BodyGesture, ParameterOverrides> = {
     ParamBodyAngleZ: 0.26,
   },
   sway: {
-    ParamBodyAngleZ: 0.16,
-    ParamBodyAngleY: 0.66,
-    ParamAngleZ: 0.30,
+    ParamBodyAngleZ: 0.24,
+    ParamAngleZ: 0.34,
+    ParamBodyAngleX: 0.30,
   },
   happy: {
     ParamAngleX: 0.24,
     ParamAngleY: 0.68,
-    ParamBodyAngleX: 0.28,
-    ParamBodyAngleY: 0.72,
+    ParamBodyAngleX: 0.42,
     ParamBodyAngleZ: 0.24,
   },
   surprise: {
     ParamAngleY: 0.5,
     ParamAngleX: 0.22,
     ParamBodyAngleX: 0.26,
-    ParamBodyAngleY: 0.5,
   },
   listen: {
     ParamAngleY: 0.28,
-    ParamBodyAngleY: 0.30,
+    ParamBodyAngleX: 0.22,
     ParamAngleZ: 0.20,
   },
   excited: {
     ParamAngleX: 0.20,
     ParamAngleY: 0.72,
-    ParamBodyAngleX: 0.22,
-    ParamBodyAngleY: 0.78,
-    ParamBodyAngleZ: 0.20,
+    ParamBodyAngleX: 0.42,
+    ParamBodyAngleZ: 0.28,
   },
 };
 
@@ -159,7 +158,8 @@ export class BodyMotionPlayer {
     const gain = Math.min(1.5, Math.max(0.4, Number.isFinite(intensity) ? intensity : 1));
     let peak = 0;
     const applied: Record<string, number> = {};
-    for (const [paramId, rawValue] of Object.entries(params)) {
+    // 白名单过滤：任何未经核验的通道（如 ParamBodyAngleY）在写入前被丢弃
+    for (const [paramId, rawValue] of Object.entries(sanitizeOverrides(params))) {
       const value = Math.min(1, Math.max(0, 0.5 + (rawValue - 0.5) * gain));
       applied[paramId] = value;
       peak = Math.max(peak, Math.abs(value - 0.5));

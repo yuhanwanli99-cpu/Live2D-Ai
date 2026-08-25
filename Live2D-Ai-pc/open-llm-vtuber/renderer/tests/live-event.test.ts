@@ -52,7 +52,11 @@ describe('LiveEventController', () => {
       parameterOverrides: { ParamAngleX: 0.6 },
     });
 
-    expect(body.play).toHaveBeenCalledWith('wave');
+    expect(body.play).toHaveBeenCalledWith(
+      'wave',
+      3,
+      expect.objectContaining({ source: 'live' }),
+    );
     expect(emotion.applyEmotion).toHaveBeenCalledWith('joy', 3, 260);
     expect(emotion.consume).toHaveBeenCalledWith({ ParamAngleX: 0.6 }, 260);
     expect(onText).toHaveBeenCalledTimes(1);

@@ -9,7 +9,7 @@
  */
 
 import { EmotionConsumer } from './emotion-consumer';
-import { BodyActionPlayer } from './choreography';
+import { BodyActionPlayer, ActionPriority } from './choreography';
 
 export type LiveEventKind = 'danmaku' | 'gift' | 'follow' | 'like' | 'command' | string;
 
@@ -70,7 +70,11 @@ export class LiveEventController {
     const payload = normalizeLiveEvent(raw);
 
     if (payload.motion) {
-      this.body.play(payload.motion);
+      // 直播/弹幕事件触发：与 dev 显式触发同级（最高），可打断情绪兜底与 cue
+      this.body.play(payload.motion, payload.strength ?? 2, {
+        priority: ActionPriority.Live,
+        source: 'live',
+      });
     }
 
     if (payload.emotion) {
