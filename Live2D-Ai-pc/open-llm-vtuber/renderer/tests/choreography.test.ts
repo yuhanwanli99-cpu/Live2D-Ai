@@ -1,6 +1,6 @@
 /**
- * choreography 编排导演层测试（六动作定版）：
- *  - 动作库只含六个头/脸动作 + 全部参数在白名单内、身体通道绝迹；
+ * choreography 编排导演层测试：
+ *  - 动作库 = 基础六动作 + 能力门控扩展十动作；全部参数在白名单内、身体通道绝迹；
  *  - 关键帧时序 / 幅度缩放（强度 1/2/3 单调）/ 打断与回落路由；
  *  - 播完 / release 经真实 ParamArbiter 回 profile 默认（FakeCoreModel 实证）。
  */
@@ -26,7 +26,7 @@ function makeArbiter() {
 }
 
 describe('resolveChoreography — 路由', () => {
-  it('六动作与 choreo: 前缀都能命中', () => {
+  it('白名单动作与 choreo: 前缀都能命中', () => {
     for (const id of SUPPORTED_ACTIONS) {
       expect(resolveChoreography(id)).toBe(id);
       expect(resolveChoreography(`choreo:${id}`)).toBe(id);
@@ -43,9 +43,13 @@ describe('resolveChoreography — 路由', () => {
     expect(resolveChoreography('')).toBeNull();
   });
 
-  it('SUPPORTED_ACTIONS 与模板库键完全一致（公开面 = 六动作）', () => {
+  it('SUPPORTED_ACTIONS 与模板库键完全一致（公开面 = 白名单动作）', () => {
     expect([...Object.keys(CHOREOGRAPHY_LIBRARY)].sort()).toEqual([...SUPPORTED_ACTIONS].sort());
-    expect(SUPPORTED_ACTIONS).toEqual(['nod', 'shake_no', 'tilt', 'look_around', 'listen', 'surprise']);
+    expect(SUPPORTED_ACTIONS).toEqual([
+      'nod', 'shake_no', 'tilt', 'look_around', 'listen', 'surprise',
+      'look_up', 'look_down', 'glance_left', 'glance_right',
+      'wink_left', 'wink_right', 'smile', 'frown', 'pout', 'wry_mouth', 'deep_breath',
+    ]);
   });
 });
 
@@ -268,5 +272,39 @@ describe('BodyActionPlayer — 组合门面与单 active 调度（保留优先�
 
     p.play('idle'); // release 语义别名
     expect(p.currentGesture()).toBeNull();
+  });
+
+  it('能力门控：模型缺门槛参数的动作 play 为 no-op（与后端目录同边界）', () => {
+    // 无 Param4/Param6 的模型（多数非 bai 模型）：pout / wry_mouth 不可用
+    const ranges = { ...BAI_LIKE_RANGES };
+    delete (ranges as Record<string, unknown>).Param4;
+    delete (ranges as Record<string, unknown>).Param5;
+    delete (ranges as Record<string, unknown>).Param6;
+    const core = new FakeCoreModel(ranges);
+    const arb = new ParamArbiter({ coreModel: core });
+    const ticker = makeTicker();
+    const p = new BodyActionPlayer(arb, { now: ticker.now });
+
+    p.play('pout', 2, { priority: ActionPriority.Live, source: 'dev' });
+    p.play('wry_mouth', 2, { priority: ActionPriority.Live, source: 'dev' });
+    expect(p.currentGesture()).toBeNull();
+    expect(core.writes).toHaveLength(0);
+    expect(p.isActionAvailable('pout')).toBe(false);
+    expect(p.isActionAvailable('smile')).toBe(true);
+    // nod 无门槛 → 恒可用
+    expect(p.isActionAvailable('nod')).toBe(true);
+    p.play('nod', 2);
+    expect(p.currentGesture()).toBe('choreo:nod');
+
+    // 完整 bai 形状模型：pout / wry_mouth 可用且真实写通道
+    const core2 = new FakeCoreModel();
+    const arb2 = new ParamArbiter({ coreModel: core2 });
+    const ticker2 = makeTicker();
+    const p2 = new BodyActionPlayer(arb2, { now: ticker2.now });
+    p2.release();
+    p2.play('pout', 2, { priority: ActionPriority.Live, source: 'dev' });
+    expect(p2.currentGesture()).toBe('choreo:pout');
+    for (let i = 0; i < 12; i++) ticker2.tick(arb2, p2, 16);
+    expect((core2.last('Param4') ?? 0)).toBeGreaterThan(0.1);
   });
 });

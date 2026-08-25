@@ -15,19 +15,26 @@ from fastapi.responses import JSONResponse
 
 from ..halfbody import available_halfbody_channels
 from ..logsetup import get_logger
-from ..motion_catalog import ALLOWED_ACTIONS, MOTION_METADATA
+from ..motion_catalog import (
+    ALLOWED_ACTIONS,
+    MOTION_METADATA,
+    MOTION_REQUIRED_PARAMS,
+    allowed_actions_for_parameter_ids,
+    motions_for_parameter_ids,
+)
 from ..service_context import ServiceContext
 from ..websocket_handler import WebSocketHandler
 
 _log = get_logger("dev")
 
 # Deterministic body action IDs supported by the renderer's BodyActionPlayer.
-# Single source of truth: the shared half-body motion catalog. Adding an entry
-# there automatically surfaces it in the dev console UI, no UI code changes.
-# Preview scope: only the six parametrically-honest half-body motions
-# (nod/shake_no/tilt/look_around/listen/surprise) are triggerable; `idle` is
-# release-only. Any removed id (happy/excited/sway/bow/lean_in/wave_big/
-# bounce_happy) is rejected here with 400 and never produced downstream.
+# Single source of truth: the shared head/face motion catalog. The catalog is
+# additionally filtered by the loaded model's runtime parameter set:
+# capability-gated actions (pout→Param4 / wry_mouth→Param6 / look_up→AngleY+
+# EyeBallY / ...) only surface when every required parameter exists; with no
+# model info the catalog degrades to the requirement-free base six + idle.
+# Preview scope: removed ids (happy/excited/sway/bow/lean_in/wave_big/
+# bounce_happy) are still rejected here with 400 and never produced downstream.
 
 _DEV_MODE_ENV_KEYS = ("1", "true", "yes")
 
@@ -97,7 +104,11 @@ def init_dev_routes(
         if denied is not None:
             return denied
 
-        channels = available_halfbody_channels(_parameter_ids(default_context_cache))
+        param_ids = _parameter_ids(default_context_cache)
+        channels = available_halfbody_channels(param_ids)
+        # 运行时能力过滤：模型缺门槛参数的动作（如无 Param4 的 pout）
+        # 不进目录——UI 不显示、触发拒绝，绝不广播一个必然无效的动作。
+        available = allowed_actions_for_parameter_ids(param_ids)
         action_meta = [
             {
                 "id": mid,
@@ -106,15 +117,17 @@ def init_dev_routes(
                 "halfbody": bool(meta.get("halfbody", True)),
                 "suggested_duration_ms": int(meta.get("suggested_duration_ms", 1000)),
                 "release_only": bool(meta.get("release_only", False)),
+                "requires": sorted(MOTION_REQUIRED_PARAMS.get(mid, ())),
             }
-            for mid in sorted(ALLOWED_ACTIONS)
+            for mid in sorted(available)
             if (meta := MOTION_METADATA.get(mid))
         ]
         return JSONResponse(
             {
                 # 兼容层：旧前端 dev-console 的 loadCatalog 期望纯 id 列表；
-                # 富元数据（中文 label/描述/halfbody/时长/release）走 action_meta。
-                "actions": sorted(ALLOWED_ACTIONS),
+                # 富元数据（中文 label/描述/halfbody/时长/release/requires）
+                # 走 action_meta。
+                "actions": sorted(available),
                 "action_meta": action_meta,
                 "halfbody_channels": list(channels),
                 "capabilities": {ch: True for ch in channels},
@@ -134,6 +147,8 @@ def init_dev_routes(
 
         release = bool(payload.get("release", False))
         action = str(payload.get("action", "")).strip().lower()
+        param_ids = _parameter_ids(default_context_cache)
+        available = allowed_actions_for_parameter_ids(param_ids)
         # idle 只能作为 release：显式请求 idle 触发一律转为释放回中，
         # 避免「重复触发 idle 回中」造成参数抖动（release_only 语义）。
         if action == "idle" and not release:
@@ -142,7 +157,24 @@ def init_dev_routes(
             action = "idle"
         if action not in ALLOWED_ACTIONS:
             return JSONResponse(
-                {"error": "unknown action", "allowed": sorted(ALLOWED_ACTIONS)},
+                {"error": "unknown action", "allowed": sorted(available)},
+                status_code=400,
+            )
+        # 静态合法但当前模型缺门槛参数 → 拒绝触发（目录本就不显示，
+        # 这里是 API 直连的最终防线）。
+        if action not in available:
+            required = sorted(MOTION_REQUIRED_PARAMS.get(action, ()))
+            _log.warning(
+                "dev action rejected (model lacks params): action={} required={}",
+                action,
+                required,
+            )
+            return JSONResponse(
+                {
+                    "error": "action not supported by loaded model",
+                    "action": action,
+                    "required_params": required,
+                },
                 status_code=400,
             )
 
@@ -199,7 +231,14 @@ def init_dev_routes(
 
         from ..director import sanitize_director_result
 
-        sanitized = sanitize_director_result(result.to_dict())
+        # dev 协议与公开协议同边界：回显前按当前模型能力目录再收敛一次
+        # （模型缺门槛参数的动作 id 不从 dev 端点回显）。
+        sanitized = sanitize_director_result(
+            result.to_dict(),
+            allowed_motions=motions_for_parameter_ids(
+                _parameter_ids(default_context_cache)
+            ),
+        )
         _log.info("dev director analyze: input_len={} emotion={!r} action={!r}", len(text), sanitized.get("emotion"), sanitized.get("action"))
         return JSONResponse(sanitized)
 

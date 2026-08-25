@@ -1,14 +1,18 @@
-"""PC Preview 半身安全动作目录 / 协议元数据 / 时间轴去重测试。
+"""PC Preview 头/脸安全动作目录 / 能力过滤 / 协议元数据 / 时间轴去重测试。
 
 覆盖任务要求：
-1) 目录精确等于六动作（nod/shake_no/tilt/look_around/listen/surprise）+ idle 仅 release；
+1) 目录 = 基础六动作（nod/shake_no/tilt/look_around/listen/surprise）
+   + 能力门控扩展十一动作（look_up/look_down/glance_left/glance_right/
+   wink_left/wink_right/smile/frown/pout/wry_mouth/deep_breath）+ idle 仅 release；
    不再包含 bounce_happy / wave_big / happy / excited / sway / bow / lean_in 等
-   Bai 无法诚实表达的动作；
-2) payload 可选 source/priority/duration 元数据，且旧客户端兼容（None 省略）；
-3) 同一句时间轴去重 + 最小间隔；显式用户命令覆盖时间轴；
-4) 导演/规则/括注/插件/用户命令任何来源的 motion 都必须过白名单，
+   模型无法诚实表达的动作；
+2) 运行时能力过滤：模型参数集缺门槛参数（如 pout 的 Param4）的动作
+   不进目录；参数集未知时 fail-closed 只保留基础六动作；
+3) payload 可选 source/priority/duration 元数据，且旧客户端兼容（None 省略）；
+4) 同一句时间轴去重 + 最小间隔；显式用户命令覆盖时间轴；
+5) 导演/规则/括注/插件/用户命令任何来源的 motion 都必须过白名单，
    「鞠躬/靠近一点/鼓掌/挥挥手/跳起来」不产出任何动作；
-5) catalog 中文描述只精确描述参数效果，不含挥手/鼓掌/蹦跳/鞠躬/凑近/摇摆语义。
+6) catalog 中文描述只精确描述参数效果，不含挥手/鼓掌/蹦跳/鞠躬/凑近/摇摆语义。
 """
 
 import asyncio
@@ -16,9 +20,14 @@ from types import SimpleNamespace
 
 from open_llm_vtuber.motion_catalog import (
     ALLOWED_ACTIONS,
+    BASE_MOTION_IDS,
+    CAPABILITY_GATED_MOTION_IDS,
     MOTION_METADATA,
+    MOTION_REQUIRED_PARAMS,
     RELEASE_ONLY_MOTIONS,
     SAFE_MOTION_IDS,
+    allowed_actions_for_parameter_ids,
+    motions_for_parameter_ids,
     sanitize_motion,
 )
 from open_llm_vtuber.director import (
@@ -31,13 +40,35 @@ from open_llm_vtuber.director import (
 )
 from open_llm_vtuber.agent.output_types import Actions, DisplayText, SentenceOutput
 
-# 定版：公开目录精确等于六动作 + idle(release)
-_EXPECTED_SAFE = ("nod", "shake_no", "tilt", "look_around", "listen", "surprise")
+# 定版：公开目录精确等于 基础六动作 + 能力门控扩展十一动作 + idle(release)
+_EXPECTED_BASE = ("nod", "shake_no", "tilt", "look_around", "listen", "surprise")
+_EXPECTED_GATED = (
+    "look_up",
+    "look_down",
+    "glance_left",
+    "glance_right",
+    "wink_left",
+    "wink_right",
+    "smile",
+    "frown",
+    "pout",
+    "wry_mouth",
+    "deep_breath",
+)
 _FORBIDDEN_SEMANTIC_WORDS = ("挥手", "鼓掌", "蹦跳", "鞠躬", "凑近", "摇摆")
+
+# bai 形状模型的完整头/脸参数集（含非标 Param4 嘟嘴 / Param6 歪嘴）
+_BAI_PARAM_IDS = frozenset({
+    "ParamAngleX", "ParamAngleY", "ParamAngleZ",
+    "ParamEyeLOpen", "ParamEyeROpen", "ParamEyeBallX", "ParamEyeBallY",
+    "ParamBrowLY", "ParamBrowRY",
+    "ParamMouthOpenY", "ParamMouthForm",
+    "ParamBreath", "Param4", "Param5", "Param6",
+})
 
 
 # ─────────────────────────────────────────────
-# 1) 安全半身动作目录
+# 1) 安全动作目录
 # ─────────────────────────────────────────────
 def test_catalog_excludes_full_body_and_arm_actions():
     for bad in ("bounce_happy", "wave_big", "happy", "excited", "sway", "bow", "lean_in"):
@@ -46,10 +77,56 @@ def test_catalog_excludes_full_body_and_arm_actions():
         assert bad not in _VALID_MOTIONS, bad
 
 
-def test_safe_motion_ids_exact_six():
-    assert SAFE_MOTION_IDS == _EXPECTED_SAFE
-    assert _VALID_MOTIONS == frozenset(_EXPECTED_SAFE)
-    assert ALLOWED_ACTIONS == frozenset(_EXPECTED_SAFE) | frozenset({"idle"})
+def test_safe_motion_ids_exact_extended_catalog():
+    assert BASE_MOTION_IDS == _EXPECTED_BASE
+    assert CAPABILITY_GATED_MOTION_IDS == _EXPECTED_GATED
+    assert SAFE_MOTION_IDS == _EXPECTED_BASE + _EXPECTED_GATED
+    assert _VALID_MOTIONS == frozenset(SAFE_MOTION_IDS)
+    assert ALLOWED_ACTIONS == frozenset(SAFE_MOTION_IDS) | frozenset({"idle"})
+
+
+def test_capability_required_params_declared_for_all_gated_actions():
+    # 扩展动作必须声明门槛；基础六动作不声明（渲染端逐通道降级即可诚实表达）
+    for mid in _EXPECTED_GATED:
+        required = MOTION_REQUIRED_PARAMS.get(mid)
+        assert required, mid
+        assert isinstance(required, frozenset) and len(required) > 0, mid
+    for mid in _EXPECTED_BASE:
+        assert MOTION_REQUIRED_PARAMS.get(mid) is None, mid
+    # 门槛参数本身必须是模型头/脸通道，绝不包含身体通道
+    for required in MOTION_REQUIRED_PARAMS.values():
+        for param_id in required:
+            assert param_id.startswith("Param"), param_id
+            assert "Body" not in param_id and "Leg" not in param_id and "Hip" not in param_id
+
+
+def test_motions_for_parameter_ids_filters_by_runtime_capability():
+    # 完整 bai 参数集 → 全部动作可用
+    assert set(motions_for_parameter_ids(_BAI_PARAM_IDS)) == set(SAFE_MOTION_IDS)
+    # 缺 Param4 → pout 消失，其余保留
+    no_p4 = motions_for_parameter_ids(_BAI_PARAM_IDS - {"Param4"})
+    assert "pout" not in no_p4
+    assert "wry_mouth" in no_p4
+    # 缺 Param6 → wry_mouth 消失，pout 保留
+    no_p6 = motions_for_parameter_ids(_BAI_PARAM_IDS - {"Param6"})
+    assert "wry_mouth" not in no_p6
+    assert "pout" in no_p6
+    # look_up 需要 AngleY+EyeBallY 同时存在：缺一即不可用
+    no_geyeballY = motions_for_parameter_ids(_BAI_PARAM_IDS - {"ParamEyeBallY"})
+    assert "look_up" not in no_geyeballY and "look_down" not in no_geyeballY
+    # wink 单眼独立门控
+    no_el = motions_for_parameter_ids(_BAI_PARAM_IDS - {"ParamEyeLOpen"})
+    assert "wink_left" not in no_el and "wink_right" in no_el
+
+
+def test_motions_for_parameter_ids_fail_closed_on_unknown_model():
+    # 参数集为空/None（模型未加载或不可知）→ 只保留无门槛基础六动作
+    assert motions_for_parameter_ids(set()) == _EXPECTED_BASE
+    assert motions_for_parameter_ids(None) == _EXPECTED_BASE
+    allowed = allowed_actions_for_parameter_ids(None)
+    assert allowed == frozenset(_EXPECTED_BASE) | RELEASE_ONLY_MOTIONS
+    # idle 始终作为 release 语义可用
+    assert "idle" in allowed_actions_for_parameter_ids(_BAI_PARAM_IDS - {"Param4"})
 
 
 def test_metadata_descriptions_without_forbidden_semantics():
@@ -109,6 +186,69 @@ def test_all_safe_motions_have_full_metadata():
         assert meta["halfbody"] is True, mid
         assert isinstance(meta["suggested_duration_ms"], int) and meta["suggested_duration_ms"] > 0
         assert meta["release_only"] is False, mid
+
+
+def test_gated_motion_metadata_is_honest_about_requirements():
+    # 能力门控动作的中文说明必须诚实说明参数依赖（中文名/说明不许夸大）。
+    for mid in ("pout", "wry_mouth"):
+        desc = str(MOTION_METADATA[mid]["description"])
+        for param_id in MOTION_REQUIRED_PARAMS[mid]:
+            assert param_id in desc, (mid, param_id)
+        assert "不出现在目录" in desc or "不提供" in desc, mid
+    # look_up/look_down 说明同时提到 AngleY 与 EyeBallY
+    for mid in ("look_up", "look_down"):
+        desc = str(MOTION_METADATA[mid]["description"])
+        assert "AngleY" in desc and "EyeBallY" in desc, mid
+
+
+# ─────────────────────────────────────────────
+# 1.5) 导演能力边界：模型缺门槛参数时 label 同样按越界处理
+# ─────────────────────────────────────────────
+def _analyze_with_params(payload: str, parameter_ids: set[str] | None = None):
+    director = ExpressionDirector(llm=_FakeLLM(payload), parameter_ids=parameter_ids)
+    return asyncio.run(director.analyze("随便一句话"))
+
+
+def test_director_capability_gate_drops_pout_without_param4():
+    # 无 Param4 的模型：pout 是能力越界 → 丢弃；joy 无情绪兜底 → None。
+    result = _analyze_with_params(
+        '{"emotion":"joy","strength":2,"motionLabel":"pout"}',
+        parameter_ids=set(_BAI_PARAM_IDS) - {"Param4"},
+    )
+    assert result.motion_label != "pout"
+    assert result.motion_label is None
+
+
+def test_director_capability_gate_keeps_pout_with_param4():
+    # 完整 bai 参数集：pout 合法保留；基础动作不受影响。
+    full = set(_BAI_PARAM_IDS)
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"pout"}', full).motion_label == "pout"
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"smile"}', full).motion_label == "smile"
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"nod"}', full).motion_label == "nod"
+
+
+def test_director_unknown_model_fail_closed_to_base_six():
+    # 参数集未知（空）→ 只有基础六动作可选，扩展 label 一律越界丢弃。
+    empty = set()
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"pout"}', empty).motion_label is None
+    assert _analyze_with_params('{"emotion":"surprise","motionLabel":"deep_breath"}', empty).motion_label == "surprise"
+    assert _analyze_with_params('{"emotion":"joy","motionLabel":"listen"}', empty).motion_label == "listen"
+
+
+def test_director_system_prompt_matches_capability_set():
+    # 提示词与实例能力集同源：缺 Param4 时提示词不出现 pout。
+    director = ExpressionDirector(
+        llm=None,
+        parameter_ids=set(_BAI_PARAM_IDS) - {"Param4", "Param6"},
+    )
+    assert "pout" not in director.system_prompt
+    assert "wry_mouth" not in director.system_prompt
+    assert "smile" in director.system_prompt and "nod" in director.system_prompt
+    # 模块级默认提示词仍覆盖完整静态目录（供测试/日志）。
+    from open_llm_vtuber.director import _DIRECTOR_SYSTEM
+
+    for motion in SAFE_MOTION_IDS:
+        assert motion in _DIRECTOR_SYSTEM, motion
 
 
 # ─────────────────────────────────────────────

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Built-in native plugin manifests for the PC backend."""
 
 from __future__ import annotations
@@ -14,6 +13,12 @@ _NATIVE_PLUGINS: list[tuple[str, str, list[str], list[str]]] = [
     ("context-compactor", "Context Compactor", ["llm.before"], ["context_compaction"]),
     ("body-director", "Body Director", ["sentence.after"], ["motion"]),
     ("mood-tts-director", "Mood TTS Director", ["sentence.after"], ["mood", "tts_style"]),
+    (
+        "live2d-action",
+        "Live2D Action Tool",
+        ["tool.native"],
+        ["live2d_motion"],
+    ),
     ("asr", "ASR", ["input.audio"], ["asr"]),
     ("knowledge", "Knowledge", ["llm.before"], ["knowledge"]),
     ("web-search", "Web Search", ["tool"], ["web_search"]),
@@ -31,6 +36,7 @@ _NATIVE_ENTRYPOINTS = {
     "mood-tts-director": "open_llm_vtuber.plugins.native_runtime:MoodTtsDirectorPlugin",
     "knowledge": "open_llm_vtuber.plugins.native_runtime:KnowledgePlugin",
     "web-search": "open_llm_vtuber.plugins.native_runtime:WebSearchPlugin",
+    "live2d-action": "open_llm_vtuber.plugins.native_runtime:Live2dActionPlugin",
 }
 
 # 各原生插件的 implementation 分类：
@@ -39,13 +45,14 @@ _NATIVE_ENTRYPOINTS = {
 #   core    - 能力由核心链路实现，非插件门控
 #   stub    - 纯占位，无运行时、无核心实现
 _NATIVE_IMPLEMENTATION = {
-    # runtime (6)
+    # runtime (7)
     "memory": "runtime",
     "context-compactor": "runtime",
     "body-director": "runtime",
     "mood-tts-director": "runtime",
     "knowledge": "runtime",
     "web-search": "runtime",
+    "live2d-action": "runtime",
     # gated (5)
     "input-port": "gated",
     "live-ingress": "gated",
@@ -66,6 +73,10 @@ _NATIVE_ZH = {
     "context-compactor": ("上下文压缩", "分层摘要、token 预算与压缩计划"),
     "body-director": ("身体/表情导演", "半身动作、表情混合与 motion 选择"),
     "mood-tts-director": ("心情/TTS 导演", "心情分层与 TTS 风格/instruction"),
+    "live2d-action": (
+        "Live2D 动作工具",
+        "主对话 LLM 可自主调用的 live2d.perform_action 原生工具（严格白名单）",
+    ),
     "asr": ("语音识别", "语音输入转写"),
     "knowledge": ("知识库", "本地知识库检索与来源引用"),
     "web-search": ("联网查询", "联网搜索工具"),
@@ -85,7 +96,7 @@ def register_all(manager) -> None:
                 name=name,
                 name_zh=name_zh,
                 version="1.0.0",
-                description="Built-in {} plugin".format(name),
+                description=f"Built-in {name} plugin",
                 description_zh=description_zh,
                 origin="native",
                 hook_points=list(hook_points),

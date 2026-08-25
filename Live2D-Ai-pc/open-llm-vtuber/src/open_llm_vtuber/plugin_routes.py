@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """HTTP management routes for the plugin registry.
 
 除插件注册表外，本模块还暴露「长期记忆」的可视化管理端点（/api/memory/*），
@@ -14,6 +13,7 @@ from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from .logsetup import get_logger
+from .plugins.health import aggregate_health
 from .plugins.manager import PluginManager
 
 _log = get_logger("memory")
@@ -41,6 +41,15 @@ def _public(manager: PluginManager, manifest) -> dict[str, Any]:
     data["implementation"] = manager.implementation(manifest.id)
     data["enabled"] = manager.is_enabled(manifest.id)
     data["status"] = manager.status(manifest.id)
+    # 健康/效果可观测：loaded、调用次数、最近事件/错误（回答「插件是否工作」）。
+    runtime = manager.host.get_status().get(manifest.id, {})
+    data["health"] = {
+        "loaded": bool(runtime.get("loaded", False)),
+        "calls": int(runtime.get("calls", 0)),
+        "errors": int(runtime.get("errors", 0)),
+        "last_event": runtime.get("last_event"),
+        "last_error": runtime.get("last_error"),
+    }
     return data
 
 
@@ -68,6 +77,17 @@ def init_plugin_routes(manager: PluginManager) -> APIRouter:
     """Create an APIRouter exposing /api/plugins management endpoints."""
     router = APIRouter()
 
+    # 注意：/api/plugins/health 是固定路径，必须先于 /api/plugins/{plugin_id}
+    # 注册，否则会被动态路由吞掉。
+    @router.get("/api/plugins/health")
+    async def plugins_health() -> dict[str, Any]:
+        """插件系统健康/效果聚合：loaded/enabled、调用次数、原生工具注册状态。"""
+        try:
+            return aggregate_health(manager)
+        except Exception as exc:  # noqa: BLE001 - 状态损坏必须可见，不能裸 500
+            _log.error("plugins health aggregation failed: {}", exc)
+            return _error(500, f"插件健康聚合失败: {exc}")
+
     @router.get("/api/plugins")
     async def list_plugins() -> dict[str, Any]:
         return {"ok": True, "plugins": [_public(manager, m) for m in manager.list_plugins()]}
@@ -76,7 +96,7 @@ def init_plugin_routes(manager: PluginManager) -> APIRouter:
     async def get_plugin(plugin_id: str):
         manifest = manager.get_plugin(plugin_id)
         if manifest is None:
-            return _error(404, "Unknown plugin id: {}".format(plugin_id))
+            return _error(404, f"Unknown plugin id: {plugin_id}")
         return {"ok": True, "plugin": _public(manager, manifest)}
 
     @router.post("/api/plugins/{plugin_id}/enable")

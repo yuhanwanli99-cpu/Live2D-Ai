@@ -1,19 +1,31 @@
 /**
- * choreography.ts — 头部 / 面部动作引擎（用户终验定版）
+ * choreography.ts — 头部 / 面部动作引擎
  *
- * 定版口径（2026-08-25 用户终验）：
- *  - 只保留六个通用「头 / 脸」动作 + release：
+ * 口径：
+ *  - 基础六动作 + 能力门控扩展十一动作 + release：
  *        nod        点头（AngleY 上下 2 拍）
  *        shake_no   摇头（AngleX 左右 2 拍）
  *        tilt       歪头（AngleZ 单侧保持后回中）
  *        look_around 左右张望（先眼动，再头随动）
  *        listen     倾听（轻微 AngleZ/AngleY + 稳定视线 + 微眉，不写身体）
  *        surprise   惊讶（睁眼 + 挑眉 + 张嘴 + 头部轻微后仰）
- *  - 彻底禁止任何 ParamBodyAngle* / 肩 / 胯 / 腿通道；动作系统不再声称
+ *        look_up / look_down   视线先行（EyeBallY）+ 头部 AngleY 随动
+ *        glance_left / glance_right 仅眼球 EyeBallX 快速侧瞥（头不动）
+ *        wink_left / wink_right 单眼快速闭合再睁开
+ *        smile      嘴角上扬（MouthForm）+ 微眉 + 双眼轻眯
+ *        frown      眉毛下压 + 嘴角下压（MouthForm 负向）
+ *        pout       嘟嘴通道 Param4（模型缺参时不可用）
+ *        wry_mouth  歪嘴通道 Param6（模型缺参时不可用）
+ *        deep_breath 呼吸 ParamBreath 深吸后缓慢回落
+ *  - 彻底禁止任何 ParamBodyAngle* / 肩 / 胯 / 腿通道；动作系统不声称
  *    「半身 / body」动作，只有头部与面部参数。
  *  - 正确轴约定：AngleX=左右转头(yaw)、AngleY=上下点头(pitch)、AngleZ=侧倾(roll)。
  *  - 所有中性 / 默认由 profile（min/max/defaultValue）映射，不假设眼嘴 0.5；
  *    release 回 profile 默认值（由 ParamArbiter 的 release 语义完成）。
+ *  - 强度校准：1=轻微但可见、2=正常清晰、3=强烈但安全 clamp
+ *    （STRENGTH_INTENSITY；逐帧 delta 与归一化值双重钳制，绝不越出模型范围）。
+ *  - 能力门控：ACTION_REQUIRED_PARAMS 列出动作所需参数集，模型缺任一参数 →
+ *    该动作不可用（play no-op），目录与后端 motion_catalog 同步过滤。
  *  - 单一 active 动作调度器：同一时刻只播一个动作；同动作重复 / 冷却期忽略；
  *    更高优先级安全打断；相同 / 更低优先级进唯一 pending 槽；播放结束 / release 回中。
  *
@@ -22,11 +34,12 @@
 
 import { ParamArbiter, ParamSource } from './param-arbiter';
 import { ActionPriority, sanitizeOverrides } from './action-policy';
+import { ACTION_REQUIRED_PARAMS } from './action-policy';
 import { semanticToNormalized, type ParameterRange } from './halfbody-profile';
 
 export { ActionPriority } from './action-policy';
 
-/** 受支持的六个头部 / 面部动作 + release（released 用 'idle' / '' 表达）。 */
+/** 受支持的头/脸动作 + release（released 用 'idle' / '' 表达）。 */
 export const SUPPORTED_ACTIONS: readonly string[] = [
   'nod',
   'shake_no',
@@ -34,6 +47,17 @@ export const SUPPORTED_ACTIONS: readonly string[] = [
   'look_around',
   'listen',
   'surprise',
+  'look_up',
+  'look_down',
+  'glance_left',
+  'glance_right',
+  'wink_left',
+  'wink_right',
+  'smile',
+  'frown',
+  'pout',
+  'wry_mouth',
+  'deep_breath',
 ];
 
 export function isSupportedAction(id: string | null | undefined): boolean {
@@ -52,7 +76,9 @@ export interface Keyframe {
 }
 
 /**
- * 六动作模板库（全部只含白名单头 / 脸参数；末帧为空 delta 表示回默认）。
+ * 头/脸动作模板库（全部只含白名单头/脸参数；末帧为空 delta 表示回默认）。
+ * 能力门控动作（pout/wry_mouth 等）的参数由播放器按模型 profile 二次把关：
+ * 缺参动作在 play 入口即被拒绝，缺参通道逐帧跳过。
  */
 export const CHOREOGRAPHY_LIBRARY: Record<string, Keyframe[]> = {
   // 点头：AngleY（pitch，上下点头）往返两拍
@@ -97,15 +123,90 @@ export const CHOREOGRAPHY_LIBRARY: Record<string, Keyframe[]> = {
     { at: 500, fadeMs: 120, delta: { ParamEyeLOpen: 0.6, ParamEyeROpen: 0.6, ParamBrowLY: 0.6, ParamBrowRY: 0.6, ParamMouthOpenY: 0.7, ParamAngleY: 0.15 } },
     { at: 900, fadeMs: 400, delta: {} },
   ],
+  // 向上看：眼球 EyeBallY 先行上移，头部 AngleY（pitch）轻抬随动，保持后回中
+  look_up: [
+    { at: 0, fadeMs: 160, delta: { ParamEyeBallY: 0.5 } },
+    { at: 180, fadeMs: 240, delta: { ParamEyeBallY: 0.45, ParamAngleY: 0.5 } },
+    { at: 950, fadeMs: 400, delta: {} },
+  ],
+  // 向下看：镜像——眼球先行下移、头部低俯随动
+  look_down: [
+    { at: 0, fadeMs: 160, delta: { ParamEyeBallY: -0.5 } },
+    { at: 180, fadeMs: 240, delta: { ParamEyeBallY: -0.45, ParamAngleY: -0.5 } },
+    { at: 950, fadeMs: 400, delta: {} },
+  ],
+  // 瞟一眼（EyeBallX 负方向）：仅眼动、头不动，快瞥即回
+  glance_left: [
+    { at: 0, fadeMs: 110, delta: { ParamEyeBallX: -0.85 } },
+    { at: 420, fadeMs: 260, delta: {} },
+  ],
+  // 瞟一眼（EyeBallX 正方向）
+  glance_right: [
+    { at: 0, fadeMs: 110, delta: { ParamEyeBallX: 0.85 } },
+    { at: 420, fadeMs: 260, delta: {} },
+  ],
+  // 眨左眼：仅左眼闭合再睁开（负向 delta = 从默认开度向闭合方向），右眼不动
+  wink_left: [
+    { at: 0, fadeMs: 90, delta: { ParamEyeLOpen: -1 } },
+    { at: 360, fadeMs: 140, delta: {} },
+  ],
+  // 眨右眼
+  wink_right: [
+    { at: 0, fadeMs: 90, delta: { ParamEyeROpen: -1 } },
+    { at: 360, fadeMs: 140, delta: {} },
+  ],
+  // 微笑：嘴角上扬 + 眉毛微抬 + 双眼轻眯（EyeOpen 小幅回落）
+  smile: [
+    { at: 0, fadeMs: 180, delta: { ParamMouthForm: 0.85, ParamBrowLY: 0.25, ParamBrowRY: 0.25, ParamEyeLOpen: -0.15, ParamEyeROpen: -0.15 } },
+    { at: 800, fadeMs: 200, delta: { ParamMouthForm: 0.6, ParamBrowLY: 0.18, ParamBrowRY: 0.18, ParamEyeLOpen: -0.1, ParamEyeROpen: -0.1 } },
+    { at: 1500, fadeMs: 380, delta: {} },
+  ],
+  // 皱眉：眉毛下压 + 嘴角下压（MouthForm 负向），保持后回中
+  frown: [
+    { at: 0, fadeMs: 180, delta: { ParamBrowLY: -0.75, ParamBrowRY: -0.75, ParamMouthForm: -0.6 } },
+    { at: 800, fadeMs: 220, delta: { ParamBrowLY: -0.55, ParamBrowRY: -0.55, ParamMouthForm: -0.45 } },
+    { at: 1500, fadeMs: 380, delta: {} },
+  ],
+  // 嘟嘴：bai 类模型专用通道 Param4；模型缺参时动作整体不可用（play 拒绝）
+  pout: [
+    { at: 0, fadeMs: 200, delta: { Param4: 0.9 } },
+    { at: 900, fadeMs: 240, delta: { Param4: 0.6 } },
+    { at: 1600, fadeMs: 400, delta: {} },
+  ],
+  // 歪嘴：专用通道 Param6 单侧拉动保持后回中
+  wry_mouth: [
+    { at: 0, fadeMs: 160, delta: { Param6: 0.85 } },
+    { at: 700, fadeMs: 200, delta: { Param6: 0.55 } },
+    { at: 1300, fadeMs: 360, delta: {} },
+  ],
+  // 深呼吸：ParamBreath 深吸抬升 → 屏息回落一点 → 呼气回默认
+  deep_breath: [
+    { at: 0, fadeMs: 500, delta: { ParamBreath: 0.95 } },
+    { at: 1200, fadeMs: 300, delta: { ParamBreath: 0.55 } },
+    { at: 1700, fadeMs: 600, delta: {} },
+  ],
 };
 
-/** 解析动作名：命中六动作库返回 id，否则 null（未知 / 已删除动作 → 不播放）。 */
+/** 解析动作名：命中动作库返回 id，否则 null（未知 / 已删除动作 → 不播放）。 */
 export function resolveChoreography(name: string | undefined | null): string | null {
   if (!name) return null;
   const key = name.startsWith('choreo:') ? name.slice(7) : name;
   const id = key.trim().toLowerCase();
   return CHOREOGRAPHY_LIBRARY[id] ? id : null;
 }
+
+/**
+ * 强度 → 语义幅度缩放（用户校准口径）：
+ *   1 = 轻微但可见（0.6）
+ *   2 = 正常清晰，即原「强度 3」的视觉水平（1.35）
+ *   3 = 强烈但安全 clamp（1.8；逐帧 delta 与归一化值双重钳制，
+ *       峰值封顶在 [-1,1] 语义区间内，绝不越出模型 min/max）
+ */
+export const STRENGTH_INTENSITY: Readonly<Record<1 | 2 | 3, number>> = {
+  1: 0.6,
+  2: 1.35,
+  3: 1.8,
+};
 
 /**
  * 时间轴播放器：按真实时钟推进关键帧，逐帧写入 Arbiter（LiveEvent 源）。
@@ -128,6 +229,11 @@ export class ChoreographyPlayer {
     this.ranges = arbiter.getHalfBodyProfile().ranges;
   }
 
+  /** 模型是否具备某参数（能力门控查询；profile 未加载 → false）。 */
+  hasParameter(paramId: string): boolean {
+    return Boolean(this.ranges[paramId]);
+  }
+
   /** 播放一段动作；未知 / 未受支持返回 false。intensity 缩放语义幅度。 */
   play(name: string | undefined | null, intensity = 1): boolean {
     const id = resolveChoreography(name);
@@ -136,7 +242,7 @@ export class ChoreographyPlayer {
     const frames = CHOREOGRAPHY_LIBRARY[id];
     if (!frames || frames.length === 0) return false;
     this.activeId = id;
-    this.intensity = Math.min(1.35, Math.max(0.5, Number.isFinite(intensity) ? intensity : 1));
+    this.intensity = Math.min(2, Math.max(0.4, Number.isFinite(intensity) ? intensity : 1));
     this.pending = frames.map((f) => ({ at: f.at, fadeMs: f.fadeMs ?? 160, delta: { ...f.delta } }));
     this.startedAt = this.now();
     const last = this.pending[this.pending.length - 1];
@@ -226,12 +332,14 @@ interface ActiveAction {
 }
 
 /**
- * 单一 active 动作调度器（用户终验定版，仅六个头 / 脸动作 + release）：
+ * 单一 active 动作调度器（头/脸动作 + release）：
  *  - 同一时刻只播放一个动作（单 active）；
  *  - 同动作正在播放 / 冷却期内重复请求 → 忽略；
  *  - 更高优先级动作 → 安全打断（arbiter fade 提供短过渡）；
  *  - 相同 / 更低优先级动作 → 进入唯一 pending 槽（替换旧 pending，不叠加不抖动）；
  *  - 未知 / 已删除动作（bow/lean_in/sway/happy/excited/wave_big/bounce_happy 等）→ no-op；
+ *  - 能力门控：当前模型缺动作所需参数（如无 Param4 的 pout）→ no-op，
+ *    与后端目录能力过滤同一边界；
  *  - 动作自然结束自动回 profile 默认；stop / release 立即清空 current 与 pending。
  */
 export class BodyActionPlayer {
@@ -252,8 +360,8 @@ export class BodyActionPlayer {
 
   /**
    * 请求播放一个动作。
-   * @param name 动作名（六个头/脸动作之一）；'idle' / '' / null = release
-   * @param strength 强度 1/2/3
+   * @param name 动作名（SUPPORTED_ACTIONS 之一）；'idle' / '' / null = release
+   * @param strength 强度 1/2/3（1=轻微可见、2=正常清晰、3=强烈但安全 clamp）
    * @param meta 优先级与来源（决定打断/排队语义）
    */
   play(name: string | undefined | null, strength = 2, meta: ActionMeta = {}): void {
@@ -264,6 +372,7 @@ export class BodyActionPlayer {
     }
     const id = resolveChoreography(rawId);
     if (!id) return; // 未知 / 已删除动作：no-op，不改变当前状态
+    if (!this.isActionAvailable(id)) return; // 模型缺门槛参数：no-op（与后端目录同边界）
 
     const req: ActiveAction = {
       id,
@@ -320,6 +429,21 @@ export class BodyActionPlayer {
     return this.current?.priority ?? null;
   }
 
+  /**
+   * 动作在当前模型上是否可诚实执行：所需参数（ACTION_REQUIRED_PARAMS）
+   * 全部存在。无门槛动作（基础六动作）恒可用。
+   */
+  isActionAvailable(id: string): boolean {
+    const required = ACTION_REQUIRED_PARAMS[id];
+    if (!required || required.length === 0) return true;
+    return required.every((paramId) => this.choreo.hasParameter(paramId));
+  }
+
+  /** 当前模型可用的动作 id 列表（能力过滤后，供面板/测试对齐目录）。 */
+  availableActions(): string[] {
+    return SUPPORTED_ACTIONS.filter((id) => this.isActionAvailable(id));
+  }
+
   /** 当前 pending 的动作名（单一槽位；无 = null） */
   pendingAction(): string | null {
     if (!this.pending) return null;
@@ -365,8 +489,13 @@ export class BodyActionPlayer {
     );
   }
 
+  /** 强度 1/2/3 → 语义幅度缩放（STRENGTH_INTENSITY 校准表；非法档位回 2）。 */
   private intensityOf(level: number): number {
-    return level === 1 ? 0.7 : level === 3 ? 1.35 : 1;
+    return level === 1
+      ? STRENGTH_INTENSITY[1]
+      : level === 3
+        ? STRENGTH_INTENSITY[3]
+        : STRENGTH_INTENSITY[2];
   }
 
   /** 语义幅度峰值（用于可观测日志；范围上限为最小轴的最大可能幅度）。 */

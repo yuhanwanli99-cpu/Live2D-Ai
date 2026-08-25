@@ -8,8 +8,10 @@
  *   - getModel().parameters.{ids,minimumValues,maximumValues,defaultValues}
  *     （buildHalfBodyProfile 的第二取数路径；对齐真实 core 的 TypedArray 形状）
  *
- * 参数范围取 bai 类模型的典型值：头部 ±30°（默认 0）、眼球 ±1（默认 0）、
- * 眼开合 -0.1..1.2（默认 1 = 睁眼！）、眉 ±1、嘴 [0,1]/[-1,1]、呼吸 [0,1]。
+ * 参数范围取 bai 模型的真实形状：头部 ±30°（默认 0）、眼球 ±1（默认 0）、
+ * 眼开合 -0.1..1.2（默认 1 = 睁眼！）、眉 ±1、嘴 [0,1]/[-1,1]、呼吸 [0,1]、
+ * 嘟嘴 Param4 [0,1]（默认 0）、歪嘴 Param6 [-1,1]（默认 0）——与 bai.cdi3.json
+ * 的「嘟嘴/歪嘴」通道同构。
  * 故意包含 ParamBodyAngleX/Y/Z（模型存在这些通道）——用于断言动作系统绝不写身体。
  */
 
@@ -33,7 +35,11 @@ export const BAI_LIKE_RANGES: Record<string, FakeParamInfo> = {
   ParamMouthOpenY: { minimum: 0, maximum: 1, defaultValue: 0 },
   ParamMouthForm: { minimum: -1, maximum: 1, defaultValue: 0 },
   ParamBreath: { minimum: 0, maximum: 1, defaultValue: 0.5 },
-  // 身体通道：模型存在，但六动作定版后禁止任何写入
+  // bai 非标面部通道：嘟嘴(Param4)/歪嘴(Param6)——能力门控动作 pout/wry_mouth 依赖
+  Param4: { minimum: 0, maximum: 1, defaultValue: 0 }, // 嘟嘴
+  Param5: { minimum: 0, maximum: 1, defaultValue: 0 }, // Mouth Pucker Widen（模型存在，动作不用）
+  Param6: { minimum: -1, maximum: 1, defaultValue: 0 }, // 歪嘴
+  // 身体通道：模型存在，但动作定版后禁止任何写入
   ParamBodyAngleX: { minimum: -10, maximum: 10, defaultValue: 0 },
   ParamBodyAngleY: { minimum: 0, maximum: 1, defaultValue: 0 },
   ParamBodyAngleZ: { minimum: -10, maximum: 10, defaultValue: 0 },

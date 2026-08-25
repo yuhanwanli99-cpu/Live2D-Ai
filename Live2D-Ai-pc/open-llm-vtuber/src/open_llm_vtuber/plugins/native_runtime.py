@@ -267,6 +267,49 @@ class BodyDirectorPlugin:
         }
 
 
+class Live2dActionPlugin:
+    """Live2D 动作原生工具插件：把 ``live2d.perform_action`` 暴露给主对话 LLM。
+
+    与其他插件的区别：本插件不参与 handle_event 钩子流，能力经由
+    BasicMemoryAgent 的最小 OpenAI 兼容工具循环直接暴露（非 MCP）。
+    工具实例是进程内单例（live2d_action.get_default_tool），agent 循环与
+    本插件共享同一份校验逻辑与统计；enable/disable 通过 on_enable/on_disable
+    钩子实时切换工具可用性。
+    """
+
+    id = "live2d-action"
+
+    def __init__(self):
+        from ..live2d_action import get_default_tool
+
+        self.tool = get_default_tool()
+
+    def handle_event(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        # 不消费任何钩子事件；保留空实现以兼容 host 统一遍历。
+        return {}
+
+    def on_enable(self) -> None:
+        """PluginManager.enable 生命周期钩子：恢复工具可用。"""
+        self.tool.set_enabled(True)
+        logger.info("[live2d-action] 插件已启用：live2d.perform_action 对主 LLM 可见")
+
+    def on_disable(self) -> None:
+        """PluginManager.disable 生命周期钩子：立即对主 LLM 隐藏工具。"""
+        self.tool.set_enabled(False)
+        logger.warning(
+            "[live2d-action] 插件已禁用：live2d.perform_action 已从工具列表移除"
+            "（ExpressionDirector 兜底继续负责动作）"
+        )
+
+    def registration(self) -> dict[str, Any]:
+        """注册信息（/api/plugins/health 与启动报告消费）。"""
+        return self.tool.describe_registration()
+
+    def health(self) -> dict[str, Any]:
+        """健康/效果统计（调用次数、最近动作/错误）。"""
+        return self.tool.stats()
+
+
 class MoodTtsDirectorPlugin:
     """心情/TTS 导演插件的确定性兜底。
 

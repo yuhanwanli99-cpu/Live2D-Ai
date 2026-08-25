@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Plugin registry manager: manifest storage, enable/disable, status."""
 
 from __future__ import annotations
@@ -6,6 +5,8 @@ from __future__ import annotations
 import importlib
 import os
 from typing import Any
+
+from loguru import logger
 
 from .host import PluginHost
 from .manifest import PluginManifest
@@ -52,9 +53,7 @@ class PluginManager:
         """Add a manifest to the registry and enable it by default when asked."""
         if manifest.origin not in ("native", "external"):
             raise ValueError(
-                "plugin '{}' has invalid origin '{}' (must be 'native' or 'external')".format(
-                    manifest.id, manifest.origin
-                )
+                f"plugin '{manifest.id}' has invalid origin '{manifest.origin}' (must be 'native' or 'external')"
             )
         self._registry[manifest.id] = manifest
         self._enabled[manifest.id] = bool(manifest.default_enabled)
@@ -96,14 +95,38 @@ class PluginManager:
         self.host.register(instance)
         if isinstance(instance, _FailingPlugin):
             self.host.record_error(plugin_id, instance.message)
+        self._lifecycle_hook(instance, "on_enable", plugin_id)
         return manifest
 
     def disable(self, plugin_id: str) -> PluginManifest:
         """Disable a plugin and remove its instance from the host."""
         manifest = self._require(plugin_id)
         self._enabled[plugin_id] = False
+        # 先触发 on_disable 再摘除实例：让插件有机会对外声明"即将不可用"。
+        instance = self.host.get_instance(plugin_id)
+        if instance is not None:
+            self._lifecycle_hook(instance, "on_disable", plugin_id)
         self.host.unregister(plugin_id)
         return manifest
+
+    @staticmethod
+    def _lifecycle_hook(instance: Any, method: str, plugin_id: str) -> None:
+        """调用插件可选的生命周期钩子（on_enable/on_disable）。
+
+        钩子异常只打日志，绝不阻断 enable/disable 本身（失败可见但不致命）。
+        """
+        hook = getattr(instance, method, None)
+        if not callable(hook):
+            return
+        try:
+            hook()
+        except Exception as exc:  # noqa: BLE001 - 钩子失败必须可见但不阻断
+            logger.warning(
+                "plugin %s lifecycle %s failed (ignored): %s",
+                plugin_id,
+                method,
+                exc,
+            )
 
     def status(self, plugin_id: str) -> str:
         """Return a truthful runtime-status string for a plugin id.
@@ -127,10 +150,33 @@ class PluginManager:
             return "ok"
         return self.implementation(plugin_id)
 
+    def health(self) -> dict[str, dict[str, Any]]:
+        """聚合健康/效果快照（设置页与 /api/plugins/health 消费）。
+
+        每个插件返回 loaded/enabled/status + 调用次数/最近事件/错误，
+        让「插件是否真的工作」在 API 层可直接回答。
+        """
+        statuses = self.host.get_status()
+        plugins: dict[str, dict[str, Any]] = {}
+        for manifest in self.list_plugins():
+            runtime = statuses.get(manifest.id, {})
+            plugins[manifest.id] = {
+                "loaded": bool(runtime.get("loaded", False)),
+                "enabled": self.is_enabled(manifest.id),
+                "status": self.status(manifest.id),
+                "implementation": self.implementation(manifest.id),
+                "entrypoint": manifest.entrypoint,
+                "calls": int(runtime.get("calls", 0)),
+                "errors": int(runtime.get("errors", 0)),
+                "last_event": runtime.get("last_event"),
+                "last_error": runtime.get("last_error"),
+            }
+        return plugins
+
     def _require(self, plugin_id: str) -> PluginManifest:
         manifest = self._registry.get(plugin_id)
         if manifest is None:
-            raise ValueError("Unknown plugin id: {}".format(plugin_id))
+            raise ValueError(f"Unknown plugin id: {plugin_id}")
         return manifest
 
     def _instantiate(self, manifest: PluginManifest) -> Any:
@@ -173,9 +219,7 @@ class PluginManager:
         module_name, _, attr_name = entrypoint.partition(":")
         if not module_name or not attr_name:
             raise ValueError(
-                "entrypoint must look like 'module.path:attribute', got {!r}".format(
-                    entrypoint
-                )
+                f"entrypoint must look like 'module.path:attribute', got {entrypoint!r}"
             )
         module = importlib.import_module(module_name)
         obj: Any = module

@@ -11,6 +11,7 @@
 
 import { getDevCatalog, triggerDevAction, analyzeDevDirector } from '../settings/api-client';
 import { devActionRegistry } from './action-registry';
+import { SUPPORTED_ACTIONS } from '../choreography';
 import { icon } from '../icons';
 
 export interface DevCatalog {
@@ -60,20 +61,14 @@ function devLog(event: string, data: Record<string, unknown>): void {
   console.info(`[dev] ${event}`, { ...data });
 }
 
-/** Choreography action ids that are timeline choreography（六动作定版：
- *  CHOREOGRAPHY_LIBRARY 全部成员；bow/lean_in/wave_big/bounce_happy 等身体类
- *  动作已删除，不再属于任何 UI 分类）。 */
-const CHOREO_IDS = new Set([
-  'nod',
-  'shake_no',
-  'tilt',
-  'look_around',
-  'listen',
-  'surprise',
-]);
+/** Choreography action ids that are timeline choreography（白名单动作：
+ *  直接取自 choreography 的 SUPPORTED_ACTIONS 单一来源，新增动作自动进入
+ *  choreo 分类；bow/lean_in/wave_big/bounce_happy 等身体类动作已删除，
+ *  不属于任何 UI 分类）。 */
+const CHOREO_IDS: ReadonlySet<string> = new Set<string>(SUPPORTED_ACTIONS);
 
 /** 动作的中文显示名（优先消费后端 action_meta；此处为离线回退，
- *  仅含六动作 + release(idle)，不含 bow/happy/sway/wave/bounce）。 */
+ *  仅含白名单动作 + release(idle)，不含 bow/happy/sway/wave/bounce）。 */
 export function actionZhName(id: string): string {
   const known: Record<string, string> = {
     nod: '点头',
@@ -82,6 +77,17 @@ export function actionZhName(id: string): string {
     look_around: '左右张望',
     listen: '倾听',
     surprise: '惊讶',
+    look_up: '向上看',
+    look_down: '向下看',
+    glance_left: '瞟一眼（一侧）',
+    glance_right: '瞟一眼（另一侧）',
+    wink_left: '眨左眼',
+    wink_right: '眨右眼',
+    smile: '微笑',
+    frown: '皱眉',
+    pout: '嘟嘴',
+    wry_mouth: '歪嘴',
+    deep_breath: '深呼吸',
     idle: '待机',
     release: '释放回默认',
   };
@@ -146,7 +152,7 @@ export function createDevConsole(
       <pre class="dev-result dev-analyze-result" hidden></pre>
 
       <div class="settings-section-title">动作触发</div>
-      <div class="settings-section-hint">目录来自后端白名单；动作只覆盖头/脸参数（点头/摇头/歪头/张望/倾听/惊讶），身体通道已全面禁止。</div>
+      <div class="settings-section-hint">目录来自后端白名单并按当前模型参数能力过滤（缺门槛参数的动作不显示）；动作只覆盖头/脸参数，身体通道已全面禁止。</div>
       <div class="settings-editor-actions">
         <button class="btn ghost dev-catalog-btn" type="button">刷新动作目录</button>
         <span class="dev-halfbody-tip settings-tip"></span>

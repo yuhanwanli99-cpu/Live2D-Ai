@@ -10,33 +10,55 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
 from .halfbody import available_halfbody_channels
-from .motion_catalog import SAFE_MOTION_IDS, sanitize_motion
+from .motion_catalog import (
+    SAFE_MOTION_IDS,
+    motions_for_parameter_ids,
+    sanitize_motion,
+)
 
 VALID_EMOTIONS = {
     "neutral", "joy", "anger", "sadness", "surprise", "fear", "smirk", "disgust",
 }
 
-_DIRECTOR_SYSTEM = (
+_DIRECTOR_SYSTEM_TEMPLATE = (
     "You are an expression director for a Live2D avatar. "
     "Given one spoken sentence, output ONLY one JSON object on one line, no prose, no markdown. "
     'Fields: {"emotion":"one of neutral/joy/anger/sadness/surprise/fear/smirk/disgust",'
     ' "strength":1|2|3,'
-    ' "motionLabel":"one of nod/shake_no/tilt/look_around/listen/surprise" or null,'
+    ' "motionLabel":"one of {motions}" or null,'
     ' "parameterOverrides":{}}. '
     "Choose only the semantic motionLabel; the client owns deterministic body and gaze timelines. "
-    "The avatar supports exactly these six motions via head/eye/brow/mouth parameter animation. "
-    "It has no arm, hand, full-body, or translation parameters: any label outside the six "
+    "The avatar supports exactly these head/face motions via head/eye/brow/mouth parameter "
+    "animation ({motion_count} available on the loaded model). "
+    "It has no arm, hand, full-body, or translation parameters: any label outside the list "
     "(invented or legacy) is invalid - use null when nothing fits. "
     "Do not output halfBody, gaze, head/body parameter values, or mouth/lip-sync channels. "
     "Pick the motionLabel that best matches the sentence tone; most sentences have one. "
     "Use null only when truly nothing fits. parameterOverrides is legacy-only and should normally be empty."
 )
+
+
+def _director_system_prompt(motions: Iterable[str]) -> str:
+    """按可用动作集生成导演系统提示词（提示词与目录永不漂移）。
+
+    用 replace 而非 str.format：模板里含大量 JSON 字面花括号
+    （{"emotion":...} 等），format 会把它们误当占位符抛 KeyError。
+    """
+    motion_list = ", ".join(motions)
+    return _DIRECTOR_SYSTEM_TEMPLATE.replace("{motions}", motion_list).replace(
+        "{motion_count}", str(len(list(motions)))
+    )
+
+
+# 模块级默认提示词：完整静态目录（供测试/日志引用）。
+_DIRECTOR_SYSTEM = _director_system_prompt(tuple(SAFE_MOTION_IDS))
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
@@ -112,9 +134,16 @@ _USER_MOTION_GUARD_TERMS = (
 )
 
 
-def _resolve_motion(emotion: str, motion: str | None) -> str | None:
-    """动作边界收敛：候选 → 白名单；越界/缺失 → 情绪映射兜底；仍缺 → None。"""
-    if motion and motion in _VALID_MOTIONS:
+def _resolve_motion(
+    emotion: str, motion: str | None, valid_motions: Iterable[str] | None = None
+) -> str | None:
+    """动作边界收敛：候选 → 能力过滤白名单；越界/缺失 → 情绪映射兜底；仍缺 → None。
+
+    valid_motions 缺省时用完整静态目录（SAFE_MOTION_IDS）；ExpressionDirector
+    实例会传入按当前模型参数集能力过滤后的子集（如模型无 Param4 则 pout 越界）。
+    """
+    allowed = frozenset(valid_motions) if valid_motions is not None else _VALID_MOTIONS
+    if motion and motion in allowed:
         return motion
     return _EMOTION_MOTION.get(emotion)
 
@@ -154,7 +183,9 @@ _STAGE_GESTURE_KEYWORDS = {
 
 # 动作边界白名单：与 motion_catalog.SAFE_MOTION_IDS 单一来源对齐。
 # 导演 LLM 输出的 motionLabel 必须落在集合内，越界一律丢弃并走情绪映射兜底。
-# 注意：`idle` 仅作为开发者面板 release 语义，不作为逐句可触发的 motion。
+# 注意 1：`idle` 仅作为开发者面板 release 语义，不作为逐句可触发的 motion。
+# 注意 2：ExpressionDirector 实例另持能力过滤子集（motions_for_parameter_ids）——
+# 模型缺少门槛参数（如 pout 的 Param4）时，对应 label 同样按越界处理。
 _VALID_MOTIONS = frozenset(SAFE_MOTION_IDS)
 
 # 动作括注统一正则（与 filter_parentheses 的全角/半角覆盖一致；不支持跨层嵌套，
@@ -323,7 +354,12 @@ class ExpressionDirector:
     ):
         self._llm = llm
         self._parameter_ids = set(parameter_ids or ())
+        # 能力过滤动作集：只有当前模型参数集能诚实表达的动作才允许导演选择。
+        # 参数集为空（模型未加载）→ fail-closed，仅基础六动作可选。
+        self.valid_motions = frozenset(motions_for_parameter_ids(self._parameter_ids))
         self.halfbody_channels = available_halfbody_channels(self._parameter_ids)
+        # 提示词与能力过滤集同源生成：模型缺参数的动作名绝不进入提示词。
+        self.system_prompt = _director_system_prompt(sorted(self.valid_motions))
         if timeout is None:
             # DeepSeek 等推理型模型首 token 延迟常在 1-2s+；默认 1.5s 会让导演
             # 几乎每句都超时、静默回落规则兜底（表现为表情/动作「不生效」）。
@@ -356,11 +392,12 @@ class ExpressionDirector:
                 if emotion == "neutral":
                     strength = _NEUTRAL_STRENGTH
                 motion = data.get("motionLabel") or data.get("motion")
-                # 动作边界：LLM 只能在白名单内选择；越界/缺失 → 情绪映射
-                # 兜底；仍缺（neutral）→ 克制动作（不静止、不静默）
+                # 动作边界：LLM 只能在「能力过滤后的白名单」内选择；越界/缺失 →
+                # 情绪映射兜底；仍缺（neutral）→ 克制动作（不静止、不静默）。
+                # 能力越界（如模型无 Param4 时选 pout）与未知 id 同等对待。
                 if isinstance(motion, str):
                     motion = motion.strip().lower() or None
-                motion = _resolve_motion(emotion, motion)
+                motion = _resolve_motion(emotion, motion, self.valid_motions)
                 overrides = data.get("parameterOverrides") or {}
                 if not isinstance(overrides, dict):
                     overrides = {}
@@ -393,10 +430,10 @@ class ExpressionDirector:
     async def _call_llm(self, text: str) -> str:
         import asyncio
 
-        prompt = f"{_DIRECTOR_SYSTEM}\n\nSentence: {text}\nJSON:"
+        prompt = f"{self.system_prompt}\n\nSentence: {text}\nJSON:"
         stream = self._llm.chat_completion(
             [{"role": "user", "content": prompt}],
-            system=_DIRECTOR_SYSTEM,
+            system=self.system_prompt,
         )
         chunks: list[str] = []
 
@@ -411,16 +448,33 @@ class ExpressionDirector:
         return "".join(chunks).strip()
 
 
-def sanitize_director_result(data: dict[str, Any]) -> dict[str, Any]:
+def sanitize_director_result(
+    data: dict[str, Any],
+    allowed_motions: Iterable[str] | None = None,
+) -> dict[str, Any]:
     """Sanitize a DirectorResult dict for developer-mode display.
 
     Strips raw LLM output and any credential-like fields so the dev endpoint
     never leaks prompts, keys, or upstream internals. motionLabel 与
     motionTimeline 逐帧过动作目录白名单：已删/未知 id 一律清空（dev 协议
     与公开协议同边界，绝不回显已删动作 id）。
+
+    allowed_motions 提供时（如 dev 端点传入当前模型能力过滤后的目录），
+    能力越界但静态合法的 id（模型缺 Param4 时的 pout）同样被清空；
+    缺省则只按静态目录 sanitize（与旧调用点行为一致）。
     """
     if not isinstance(data, dict):
         return {}
+    allowed_set = frozenset(allowed_motions) if allowed_motions is not None else None
+
+    def _clean_motion(value: Any) -> str | None:
+        safe = sanitize_motion(value) if isinstance(value, str) else None
+        if not safe:
+            return None
+        if allowed_set is not None and safe not in allowed_set:
+            return None
+        return safe
+
     allowed = {
         "emotion",
         "strength",
@@ -436,21 +490,13 @@ def sanitize_director_result(data: dict[str, Any]) -> dict[str, Any]:
             out[key] = data[key]
     # 动作目录白名单：motionLabel / timeline 帧里的已删 id → None / 丢弃
     if "motionLabel" in out:
-        label = out.get("motionLabel")
-        out["motionLabel"] = (
-            sanitize_motion(label) if isinstance(label, str) else None
-        )
+        out["motionLabel"] = _clean_motion(out.get("motionLabel"))
     if isinstance(out.get("motionTimeline"), list):
         clean_timeline: list[dict[str, Any]] = []
         for frame in out["motionTimeline"]:
             if not isinstance(frame, dict):
                 continue
-            frame_motion = frame.get("motion")
-            safe_frame_motion = (
-                sanitize_motion(frame_motion)
-                if isinstance(frame_motion, str)
-                else None
-            )
+            safe_frame_motion = _clean_motion(frame.get("motion"))
             if not safe_frame_motion:
                 continue
             clean_frame = dict(frame)

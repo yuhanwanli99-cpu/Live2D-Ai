@@ -14,25 +14,25 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
+from .backgrounds import BackgroundStore, init_background_routes
+from .config_manager.utils import Config
+from .config_transfer import init_config_transfer_routes
+from .external_input import ExternalInputGate, init_external_input_routes
+from .frontend_version import init_frontend_version_routes
+from .live_event import LiveEventGate, init_live_event_routes
+from .model_upload import init_model_upload_routes
+from .plugin_routes import init_plugin_routes
+from .plugins.manager import PluginManager
 from .routes import (
     init_client_ws_route,
     init_config_routes,
     init_dev_routes,
-    init_webtool_routes,
     init_proxy_route,
+    init_webtool_routes,
 )
-from .external_input import ExternalInputGate, init_external_input_routes
-from .live_event import LiveEventGate, init_live_event_routes
-from .backgrounds import BackgroundStore, init_background_routes
-from .config_transfer import init_config_transfer_routes
-from .model_upload import init_model_upload_routes
-from .voice_library import init_voice_library_routes
 from .service_context import ServiceContext
+from .voice_library import init_voice_library_routes
 from .websocket_handler import WebSocketHandler
-from .config_manager.utils import Config
-from .plugins.manager import PluginManager
-from .plugin_routes import init_plugin_routes
-from .frontend_version import init_frontend_version_routes
 
 
 # Create a custom StaticFiles class that adds CORS headers
@@ -144,6 +144,17 @@ class WebSocketServer:
         self.plugin_manager = PluginManager()
         self.plugin_manager.load_native()
         self.app.include_router(init_plugin_routes(self.plugin_manager))
+        # 启动可观测（任务定版）：逐条打印插件与原生工具是否真的生效，
+        # 让「插件是否工作」在启动日志里可直接回答。
+        from .logsetup import get_logger
+        from .plugins.health import startup_report
+
+        _plugin_log = get_logger("plugins")
+        for line in startup_report(self.plugin_manager):
+            if "未生效" in line or "异常" in line:
+                _plugin_log.warning(line)
+            else:
+                _plugin_log.info(line)
         # 让每个会话上下文都能访问到同一个插件宿主（WebSocketHandler 会透传）。
         self.default_context_cache.plugin_manager = self.plugin_manager
 

@@ -121,7 +121,9 @@ describe('动作端到端可观测性：真实 arbiter → FakeCoreModel', () =>
       Math.max(...core.history(id).map((v) => Math.abs(v - DEFAULTS[id].defaultValue)));
     const listenPeak = Math.max(headDev(listenEnv.core, 'ParamAngleY'), headDev(listenEnv.core, 'ParamAngleZ'));
     expect(listenPeak).toBeGreaterThan(0.5); // 有可感知幅度
-    expect(listenPeak).toBeLessThan(6); // 轻（nod/shake ≈ 16）
+    // 强度 2 校准为原「3」的视觉水平（0.16×1.35×30° ≈ 6.5°），
+    // 仍远小于 nod 峰值（≈22.3°）的一半 —— 「轻」的设计意图不变。
+    expect(listenPeak).toBeLessThan(11);
     expect(headDev(listenEnv.core, 'ParamBrowLY')).toBeGreaterThan(0); // 微眉
     expect(headDev(listenEnv.core, 'ParamEyeBallX')).toBeGreaterThan(0); // 凝视
 
@@ -131,7 +133,7 @@ describe('动作端到端可观测性：真实 arbiter → FakeCoreModel', () =>
     expect(headDev(surEnv.core, 'ParamMouthOpenY')).toBeGreaterThan(0.3); // 张嘴（默认 0）
     expect(headDev(surEnv.core, 'ParamBrowLY')).toBeGreaterThan(0.2); // 挑眉
     expect(headDev(surEnv.core, 'ParamEyeLOpen')).toBeGreaterThan(0.01); // 睁眼方向有偏移
-    expect(headDev(surEnv.core, 'ParamAngleY')).toBeLessThan(8); // 头部只是轻微
+    expect(headDev(surEnv.core, 'ParamAngleY')).toBeLessThan(10); // 头部只是轻微（0.2×1.35×30° ≈ 8.1°）
 
     // surprise 结束后眼部回默认 1（不是硬写 0！）
     expect(surEnv.core.last('ParamEyeLOpen')).toBeCloseTo(DEFAULTS.ParamEyeLOpen.defaultValue, 2);

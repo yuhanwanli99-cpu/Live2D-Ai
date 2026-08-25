@@ -93,4 +93,27 @@ describe('DevActionRegistry — 集成（UI 只出现六动作 + release）', ()
     expect(nod.description).toContain('轻点');
     expect(listen.name).toBe('倾听');
   });
+
+  it('扩展动作（能力门控）由后端目录下发时注册为 choreo 并带诚实中文名', () => {
+    // 后端已按模型参数能力过滤；只要下发即代表当前模型可诚实执行。
+    const reg = new DevActionRegistry();
+    const ids = [
+      'nod', 'shake_no', 'tilt', 'look_around', 'listen', 'surprise',
+      'look_up', 'look_down', 'glance_left', 'glance_right',
+      'wink_left', 'wink_right', 'smile', 'frown', 'pout', 'wry_mouth', 'deep_breath',
+      'idle',
+    ];
+    reg.loadCatalog(ids);
+    for (const id of ids) {
+      if (id === 'idle') continue;
+      expect(reg.isAllowed(id), id).toBe(true);
+      expect(reg.list().find((e) => e.id === id)?.kind).toBe('choreo');
+    }
+    expect(reg.isAllowed('idle')).toBe(true);
+    const pout = reg.list().find((e) => e.id === 'pout')!;
+    expect(pout.name).toBe('嘟嘴');
+    expect(pout.description).toContain('Param4');
+    // 未下发的动作（如该模型缺参数）不会凭空出现
+    expect(reg.isAllowed('bow')).toBe(false);
+  });
 });

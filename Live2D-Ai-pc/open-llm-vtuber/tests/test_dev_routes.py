@@ -25,6 +25,19 @@ from fastapi.testclient import TestClient
 from open_llm_vtuber.api import dev_routes as dev_routes_module
 from open_llm_vtuber.api.dev_routes import ALLOWED_ACTIONS, init_dev_routes
 from open_llm_vtuber.director import DirectorResult
+from open_llm_vtuber.motion_catalog import (
+    MOTION_REQUIRED_PARAMS,
+    allowed_actions_for_parameter_ids,
+)
+
+# bai 形状模型参数集（含非标 Param4 嘟嘴 / Param6 歪嘴）
+_BAI_PARAM_IDS = {
+    "ParamAngleX", "ParamAngleY", "ParamAngleZ",
+    "ParamEyeLOpen", "ParamEyeROpen", "ParamEyeBallX", "ParamEyeBallY",
+    "ParamBrowLY", "ParamBrowRY",
+    "ParamMouthOpenY", "ParamMouthForm",
+    "ParamBreath", "Param4", "Param5", "Param6",
+}
 
 
 class _FakeDirector:
@@ -152,11 +165,13 @@ class TestCatalog:
         r = dev_env.client.get("/api/dev/actions/catalog")
         assert r.status_code == 200
         body = r.json()
-        # 兼容层：actions 保持旧前端 dev-console 期望的纯 id 列表。
-        assert body["actions"] == sorted(ALLOWED_ACTIONS)
-        # 富目录：中文 label / description / halfbody / 建议时长 / release_only。
+        # 模型未知（live2d_model=None）→ fail-closed：目录只含无门槛基础动作 + idle
+        expected = allowed_actions_for_parameter_ids(set())
+        assert body["actions"] == sorted(expected)
+        assert set(body["actions"]) <= set(ALLOWED_ACTIONS)  # 永远是静态白名单子集
+        # 富目录：中文 label / description / halfbody / 建议时长 / release / requires。
         entries = body["action_meta"]
-        assert {e["id"] for e in entries} == set(ALLOWED_ACTIONS)
+        assert {e["id"] for e in entries} == set(body["actions"])
         for entry in entries:
             assert isinstance(entry["label"], str) and entry["label"]
             assert isinstance(entry["description"], str)
@@ -164,11 +179,18 @@ class TestCatalog:
             assert isinstance(entry["suggested_duration_ms"], int)
             assert entry["suggested_duration_ms"] > 0
             assert isinstance(entry["release_only"], bool)
+            assert isinstance(entry["requires"], list)
+            assert set(entry["requires"]) == set(
+                MOTION_REQUIRED_PARAMS.get(entry["id"], ())
+            )
         assert isinstance(body["halfbody_channels"], list)
         assert isinstance(body["capabilities"], dict)
-        # 六个可触发动作 + idle(release) 必须出现在白名单里
+        # 六个基础动作 + idle(release) 必须出现在白名单里
         for action in ("nod", "shake_no", "tilt", "look_around", "listen", "surprise"):
             assert action in body["actions"]
+        # 能力门控动作在模型参数集未知时不显示（fail-closed）
+        for gated in ("look_up", "glance_left", "wink_left", "smile", "pout", "wry_mouth", "deep_breath"):
+            assert gated not in body["actions"], gated
         # 已删动作（bow/lean_in/happy/excited/sway/wave_big/bounce_happy）
         # 绝不出现在 dev 目录 —— 与公开/导演协议同一目录边界。
         for removed in ("bow", "lean_in", "happy", "excited", "sway", "wave_big", "bounce_happy"):
@@ -176,6 +198,7 @@ class TestCatalog:
         # idle 仅作为 release，不能作为正向触发
         idle_entry = next(e for e in entries if e["id"] == "idle")
         assert idle_entry["release_only"] is True
+        assert idle_entry["requires"] == []
         # 全身跳跃/手臂动作（bounce_happy / wave_big）不得出现在可触发目录
         # —— bai 无全身位移与手臂参数，不能叫「蹦跳/挥手」。
         assert "bounce_happy" not in body["actions"]
@@ -191,6 +214,32 @@ class TestCatalog:
         r = dev_env.client.get("/api/dev/actions/catalog")
         assert r.status_code == 200
         assert isinstance(r.json()["halfbody_channels"], list)
+
+    def test_catalog_capability_filtered_by_loaded_model(self, dev_env):
+        # 完整 bai 参数集 → 全部 17 动作 + idle 都进目录；requires 如实下发。
+        dev_env.ctx.live2d_model = SimpleNamespace(_cdi3_parameter_ids=set(_BAI_PARAM_IDS))
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        body = dev_env.client.get("/api/dev/actions/catalog").json()
+        expected = allowed_actions_for_parameter_ids(_BAI_PARAM_IDS)
+        assert set(body["actions"]) == set(expected)
+        assert len([a for a in body["actions"] if a != "idle"]) == 17
+        meta = {e["id"]: e for e in body["action_meta"]}
+        assert sorted(meta["pout"]["requires"]) == ["Param4"]
+        assert sorted(meta["wry_mouth"]["requires"]) == ["Param6"]
+        assert sorted(meta["look_up"]["requires"]) == ["ParamAngleY", "ParamEyeBallY"]
+
+    def test_catalog_drops_pout_when_param4_missing(self, dev_env):
+        # 模型缺 Param4 → pout 不显示；其余能力门控动作不受影响。
+        dev_env.ctx.live2d_model = SimpleNamespace(
+            _cdi3_parameter_ids=_BAI_PARAM_IDS - {"Param4"}
+        )
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        body = dev_env.client.get("/api/dev/actions/catalog").json()
+        assert "pout" not in body["actions"]
+        assert "wry_mouth" in body["actions"]
+        assert "smile" in body["actions"]
 
 
 # ─────────────────────────────────────────────
@@ -264,6 +313,50 @@ class TestTrigger:
         assert body["error"] == "unknown action"
         assert "allowed" in body
         assert dev_env.ws.broadcasts == []
+
+    def test_trigger_capability_gated_action_rejected_without_param4(self, dev_env):
+        # 静态合法但模型缺门槛参数（无 Param4 的 pout）→ 拒绝且不广播。
+        dev_env.ctx.live2d_model = SimpleNamespace(
+            _cdi3_parameter_ids=_BAI_PARAM_IDS - {"Param4"}
+        )
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        r = dev_env.client.post(
+            "/api/dev/actions/trigger", json={"action": "pout", "strength": 2}
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert body["error"] == "action not supported by loaded model"
+        assert body["required_params"] == ["Param4"]
+        assert dev_env.ws.broadcasts == []
+
+    def test_trigger_capability_gated_action_ok_with_param4(self, dev_env):
+        # 完整 bai 参数集 → pout / smile / deep_breath 可正常触发广播。
+        dev_env.ctx.live2d_model = SimpleNamespace(_cdi3_parameter_ids=set(_BAI_PARAM_IDS))
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        for action, strength in (("pout", 2), ("wry_mouth", 1), ("deep_breath", 3)):
+            r = dev_env.client.post(
+                "/api/dev/actions/trigger", json={"action": action, "strength": strength}
+            )
+            assert r.status_code == 200, (action, r.text)
+            assert r.json()["ok"] is True
+        assert dev_env.ws.broadcasts == [("pout", 2), ("wry_mouth", 1), ("deep_breath", 3)]
+
+    def test_trigger_base_actions_still_work_without_model_info(self, dev_env):
+        # 模型未知（live2d_model=None）→ 无门槛基础动作仍可触发；
+        # 能力门控动作（smile 需眉+嘴形）fail-closed 拒绝。
+        dev_env.enable_dev_mode()
+        dev_env.enable_localhost()
+        assert dev_env.ctx.live2d_model is None
+        r = dev_env.client.post("/api/dev/actions/trigger", json={"action": "nod"})
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        assert dev_env.ws.broadcasts == [("nod", 2)]
+
+        r2 = dev_env.client.post("/api/dev/actions/trigger", json={"action": "smile"})
+        assert r2.status_code == 400
+        assert dev_env.ws.broadcasts == [("nod", 2)]
 
     def test_trigger_strength_out_of_range_coerced_to_2(self, dev_env):
         dev_env.enable_dev_mode()

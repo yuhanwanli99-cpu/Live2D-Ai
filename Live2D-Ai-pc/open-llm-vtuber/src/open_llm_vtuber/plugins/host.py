@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 """Runtime plugin host: loads plugin instances and emits hook events safely."""
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 
@@ -12,15 +12,26 @@ class LoadedPlugin:
     A plugin instance may expose a handle_event(name, payload) method, or may
     itself be callable as instance(name, payload). Native stubs have neither
     and are treated as no-op plugins.
+
+    观测字段：calls/last_event 记录事件分发次数与最近事件名；errors/
+    last_error/last_error_at 记录异常历史，供 /api/plugins/health 回答
+    「插件是否真的在工作」。
     """
 
     def __init__(self, plugin_id: str, instance: Any):
         self.id = plugin_id
         self.instance = instance
         self.error: str | None = None
+        self.calls: int = 0
+        self.errors: int = 0
+        self.last_event: str | None = None
+        self.last_error: str | None = None
+        self.last_error_at: float | None = None
 
     def handle_event(self, name: str, payload: dict[str, Any]) -> Any:
         handler = getattr(self.instance, "handle_event", None)
+        self.calls += 1
+        self.last_event = name
         if callable(handler):
             return handler(name, payload)
         if callable(self.instance):
@@ -59,6 +70,9 @@ class PluginHost:
         loaded = self._plugins.get(plugin_id)
         if loaded is not None:
             loaded.error = message
+            loaded.errors += 1
+            loaded.last_error = message
+            loaded.last_error_at = time.time()
 
     def get_instance(self, plugin_id: str):
         """Return the raw runtime instance of a loaded plugin (or None).
@@ -83,12 +97,23 @@ class PluginHost:
                 events.append({"plugin": plugin_id, "ok": True, "result": result})
             except Exception as exc:  # noqa: BLE001 - boundary of the plugin system
                 loaded.error = str(exc) or exc.__class__.__name__
+                loaded.errors += 1
+                loaded.last_error = loaded.error
+                loaded.last_error_at = time.time()
                 events.append({"plugin": plugin_id, "ok": False, "error": loaded.error})
         return events
 
     def get_status(self) -> dict[str, dict[str, Any]]:
-        """Return per-plugin runtime status (loaded + optional error)."""
+        """Return per-plugin runtime status (loaded + error + observability)."""
         return {
-            plugin_id: {"loaded": True, "error": loaded.error}
+            plugin_id: {
+                "loaded": True,
+                "error": loaded.error,
+                "calls": loaded.calls,
+                "errors": loaded.errors,
+                "last_event": loaded.last_event,
+                "last_error": loaded.last_error,
+                "last_error_at": loaded.last_error_at,
+            }
             for plugin_id, loaded in self._plugins.items()
         }

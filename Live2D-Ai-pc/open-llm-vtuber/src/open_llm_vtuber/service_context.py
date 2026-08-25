@@ -268,6 +268,7 @@ class ServiceContext:
             model_name = self._resolve_live2d_model_name(live2d_model_name)
             self.live2d_model = Live2dModel(model_name, registry=self.model_registry)
             self.character_config.live2d_model_name = model_name
+            self._sync_native_tool_capabilities()
             return
         except RuntimeError:
             # registry 无可用模型 → 服务器启动失败（plan 边界表）
@@ -281,12 +282,69 @@ class ServiceContext:
             logger.warning(f"Falling back to Live2D model: {fallback_name}")
             self.live2d_model = Live2dModel(fallback_name, registry=self.model_registry)
             self.character_config.live2d_model_name = fallback_name
+            self._sync_native_tool_capabilities()
         except RuntimeError:
             # registry 无可用模型 → 服务器启动失败（plan 边界表）
             raise
         except Exception as fallback_e:  # noqa: BLE001
             logger.critical(f"Error initializing fallback Live2D model: {fallback_e}")
             logger.critical("Try to proceed without Live2D...")
+
+    def _sync_native_tool_capabilities(self) -> None:
+        """把当前模型的 cdi3 参数集同步给原生动作工具（能力过滤白名单）。
+
+        与 ExpressionDirector 的能力过滤同源（motions_for_parameter_ids）：
+        模型缺参数的动作（如无 Param4 的 pout）不会出现在工具 enum 里，
+        即使被调用也会被拒绝。任何失败只告警，不影响模型加载。
+        """
+        try:
+            from .live2d_action import get_default_tool
+
+            parameter_ids = getattr(self.live2d_model, "_cdi3_parameter_ids", set())
+            get_default_tool().configure_allowed_actions(parameter_ids)
+        except Exception as e:  # noqa: BLE001 - 能力同步失败不阻断启动
+            logger.warning(f"Native tool capability sync failed (ignored): {e}")
+
+    def _log_native_tool_status(self) -> None:
+        """启动日志：明确插件与 native tool 是否真的生效（解决「插件是否工作」）。"""
+        try:
+            from .agent.stateless_llm.openai_compatible_llm import (
+                AsyncLLM as OpenAICompatibleAsyncLLM,
+            )
+            from .live2d_action import get_default_tool, native_tools_enabled
+
+            tool = get_default_tool()
+            llm = getattr(self.agent_engine, "_llm", None)
+            provider_ok = isinstance(llm, OpenAICompatibleAsyncLLM)
+
+            if not native_tools_enabled():
+                logger.warning(
+                    "[NativeTool] live2d.perform_action 已通过 "
+                    "LIVE2DAI_NATIVE_TOOLS=off 显式关闭"
+                )
+                return
+            if not tool.available():
+                logger.warning(
+                    "[NativeTool] live2d.perform_action 不可用：live2d-action 插件"
+                    "未启用/未加载（可在设置 → 插件中检查 /api/plugins/health）"
+                )
+                return
+            if not provider_ok:
+                provider_name = type(llm).__name__ if llm is not None else "unknown"
+                logger.warning(
+                    "[NativeTool] live2d.perform_action 已注册，但当前 LLM provider "
+                    f"({provider_name}) 不走 OpenAI 兼容工具循环；本会话不提供该工具，"
+                    "ExpressionDirector 兜底继续负责动作"
+                )
+                return
+            logger.info(
+                "[NativeTool] live2d.perform_action 生效：主对话 LLM 可自主调用；"
+                "白名单 {} 个动作 [{}]（ExpressionDirector 作为 fallback）",
+                len(tool.allowed_actions),
+                ", ".join(tool.allowed_actions),
+            )
+        except Exception as e:  # noqa: BLE001 - 状态日志失败不影响功能
+            logger.warning(f"Native tool status log failed (ignored): {e}")
 
     def _resolve_live2d_model_name(self, live2d_model_name: str) -> str:
         """校验请求的模型名；未登记或已登记但不可用时回退到注册表默认模型。
@@ -520,6 +578,9 @@ class ServiceContext:
             self.character_config.agent_config = agent_config
             self.system_prompt = system_prompt
 
+            # 启动可观测（任务定版）：明确 native tool 是否真的对当前会话生效。
+            self._log_native_tool_status()
+
             # PC v4：初始化独立导演模型，把 joy 等表情/动作从主对话脑分流。
             try:
                 from .agent.stateless_llm_factory import (
@@ -600,7 +661,7 @@ class ServiceContext:
                     f"MemoryCurator init failed, memory stays regex-only: {e}"
                 )
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(f"Failed to initialize agent: {e}")
             raise
 
@@ -716,7 +777,7 @@ class ServiceContext:
                     f"Failed to load configuration from {config_file_name}"
                 )
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(f"Error switching configuration: {e}")
             logger.debug(self)
             await websocket.send_text(

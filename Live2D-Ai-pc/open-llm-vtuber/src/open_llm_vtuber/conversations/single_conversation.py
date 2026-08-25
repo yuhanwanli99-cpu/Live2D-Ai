@@ -102,6 +102,78 @@ async def _safe_mood(mood_engine, method: str, *args) -> None:
         logger.warning(f"mood_engine.{method} failed (ignored): {e}")
 
 
+# 主 LLM 原生工具动作的调度优先级（Preview 协议元数据）：
+# user_command(100) > llm_tool(90) > stage_direction(60) > director(50)。
+_LLM_TOOL_PRIORITY = 90
+
+
+def _bind_pending_llm_action(output_item, pending: list[dict]) -> None:
+    """把主 LLM 原生工具产出的待绑定动作挂到下一句 SentenceOutput 上。
+
+    工具调用在文本流中先于其后的正文出现，因此「下一个切出的句子」即工具
+    语义上的当前句/下一句；一次绑定消费一条，多余动作留给后续句子。
+    """
+    if not pending or not isinstance(output_item, SentenceOutput):
+        return
+    event = pending.pop(0)
+    output_item._native_action = {
+        "action": str(event.get("action") or ""),
+        "strength": event.get("strength"),
+        "reason": str(event.get("reason") or ""),
+        "source": "llm_tool",
+    }
+
+
+def _apply_native_tool_action(
+    context: ServiceContext, output_item, native_action: dict
+) -> None:
+    """主 LLM 显式工具动作 → Actions payload（优先级高于 ExpressionDirector）。
+
+    动作 id 已在 live2d_action.execute 白名单层收敛过，这里仍过一遍目录白名单
+    作为最终防线；emotion 保持 neutral、不跑导演 LLM（省一次每句调用，
+    表情由既有 [emo] 拦截/mood 链路负责）。
+    """
+    from ..director import DirectorResult
+    from ..motion_catalog import MOTION_METADATA, sanitize_motion
+
+    actions = output_item.actions
+    motion = sanitize_motion(native_action.get("action"))
+    if actions is None or not motion:
+        # 非法动作不产 payload（拒绝日志已在工具层打出）
+        logger.warning(
+            f"[llm_tool] 动作未通过白名单，忽略: {native_action.get('action')!r}"
+        )
+        return
+    try:
+        strength = max(1, min(3, int(native_action.get("strength") or 2)))
+    except (TypeError, ValueError):
+        strength = 2
+    actions.motion = motion
+    actions.motionStrength = strength
+    actions.source = "llm_tool"
+    actions.priority = _LLM_TOOL_PRIORITY
+    try:
+        meta = MOTION_METADATA.get(motion) or {}
+        actions.suggested_duration_ms = int(meta.get("suggested_duration_ms", 1000))
+    except Exception:  # noqa: BLE001 - 元数据缺失不影响动作下发
+        pass
+    # handle_sentence_output 从 _director_result 读 emotion/strength 下发表情帧；
+    # 复用该通道保持单一下发路径（source 标记 llm_tool 便于开发者面板区分）。
+    output_item._director_result = DirectorResult(
+        emotion="neutral",
+        strength=strength,
+        motion_label=motion,
+        source="llm_tool",
+    )
+    logger.info(
+        "action payload: motion={} strength={} source=llm_tool priority={} reason={!r}",
+        motion,
+        strength,
+        _LLM_TOOL_PRIORITY,
+        native_action.get("reason") or None,
+    )
+
+
 async def _apply_director(
     context: ServiceContext, output_item, user_text: str = ""
 ) -> None:
@@ -110,13 +182,32 @@ async def _apply_director(
     动作优先级（任务定版）：
         1. 显式用户动作命令（用户输入里的 点头/摇头/歪头/张望，带疑问/否定
            语境保护）——最高，覆盖导演/括注；
-        2. 导演 motion_label（括注时间轴首帧也算导演产物）；
-        3. 情绪映射兜底（克制：仅 surprise→surprise，其余情绪无动作）。
+        2. 主 LLM 原生工具动作（live2d.perform_action，source=llm_tool）——
+           高于导演与括注；命中时跳过导演分析（导演仅作 fallback）；
+           若同一句同时存在显式用户命令，用户命令仍最高；
+        3. 导演 motion_label（括注时间轴首帧也算导演产物）；
+        4. 情绪映射兜底（克制：仅 surprise→surprise，其余情绪无动作）。
     任何来源的 motion 都会过 motion_catalog 白名单收敛，不在白名单清空为 None。
     导演不可用/失败时保留主对话脑原有 actions，不阻断说话。
     """
     if not isinstance(output_item, SentenceOutput):
         return
+
+    # 优先级 2：主 LLM 原生工具动作。除非同句还有显式用户命令（优先级 1），
+    # 否则直接生效并跳过导演 —— ExpressionDirector 仅在无工具动作时兜底。
+    native_action = getattr(output_item, "_native_action", None)
+    if native_action:
+        user_cmd_override = False
+        try:
+            from ..director import detect_user_motion_command
+
+            user_cmd_override = bool(detect_user_motion_command(user_text))
+        except Exception:  # noqa: BLE001 - 命令识别失败按无命令处理
+            user_cmd_override = False
+        if not user_cmd_override:
+            _apply_native_tool_action(context, output_item, native_action)
+            return
+
     director = getattr(context, "director", None)
     if director is None:
         return
@@ -229,16 +320,20 @@ async def _consume_extra_agent_stream(
     tts_manager: TTSTaskManager,
     mood_engine,
     agent_output_stream,
+    pending_llm_actions: list[dict] | None = None,
 ) -> tuple[str, bool]:
     """消费多段对话的后续 agent 流：每段走 process_agent_output（含字幕/TTS 队列）。
 
     返回 (累计文本, 是否遇到 [DONE] 终止标记)。播放/打断仍由 tts_manager 统一负责。
+    pending_llm_actions：主 LLM 原生工具动作跨段共享队列（动作绑定下一段首句）。
     """
     collected = ""
     done = False
+    pending = pending_llm_actions if pending_llm_actions is not None else []
     try:
         async for output_item in agent_output_stream:
             if isinstance(output_item, (SentenceOutput, AudioOutput)):
+                _bind_pending_llm_action(output_item, pending)
                 await _apply_director(context, output_item)
                 _mood_tier = "neutral"
                 if mood_engine is not None:
@@ -451,6 +546,10 @@ async def process_single_conversation(
         if images:
             logger.info(f"With {len(images)} images")
 
+        # 主 LLM 原生工具动作队列：live2d_action 事件入队，绑定到下一句
+        # （在 agent 流 try 之外初始化，异常路径也不会 NameError）
+        pending_llm_actions: list[dict] = []
+
         try:
             # agent.chat yields Union[SentenceOutput, Dict[str, Any]]
             agent_output_stream = context.agent_engine.chat(batch_input)
@@ -463,6 +562,21 @@ async def process_single_conversation(
                     )
                     _first_llm_item_logged = True
                 if (
+                    isinstance(output_item, dict)
+                    and output_item.get("type") == "live2d_action"
+                ):
+                    # 主 LLM 原生工具（live2d.perform_action）动作：先入队，
+                    # 绑定到对应下一句/当前句的 Actions payload 与 TTS 音频。
+                    # 事件本身不朗读、不入记忆。
+                    pending_llm_actions.append(dict(output_item))
+                    logger.info(
+                        "[llm_tool] 动作待绑定: action={} strength={} queue={}",
+                        output_item.get("action"),
+                        output_item.get("strength"),
+                        len(pending_llm_actions),
+                    )
+
+                elif (
                     isinstance(output_item, dict)
                     and output_item.get("type") == "tool_call_status"
                 ):
@@ -529,6 +643,8 @@ async def process_single_conversation(
 
                 elif isinstance(output_item, (SentenceOutput, AudioOutput)):
                     # Handle SentenceOutput or AudioOutput
+                    # 主 LLM 原生工具动作绑定到本句（若有待绑定动作）
+                    _bind_pending_llm_action(output_item, pending_llm_actions)
                     # PC v4：把表情/动作分析分流到导演模型，覆盖主脑 actions。
                     # 传入原始用户文本，使显式动作命令（点头/摇头等）优先级最高。
                     await _apply_director(context, output_item, user_text=raw_user_text)
@@ -595,7 +711,12 @@ async def process_single_conversation(
             )
             cont_stream = context.agent_engine.chat(cont_batch)
             part, done = await _consume_extra_agent_stream(
-                context, websocket_send, tts_manager, mood_engine, cont_stream
+                context,
+                websocket_send,
+                tts_manager,
+                mood_engine,
+                cont_stream,
+                pending_llm_actions=pending_llm_actions,
             )
             full_response += part
             if done:
@@ -646,7 +767,7 @@ async def process_single_conversation(
         _interrupted = True
         logger.info(f"🤡👍 Conversation {session_emoji} cancelled because interrupted.")
         raise
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error(f"Error in conversation chain: {e}")
         await websocket_send(
             json.dumps({"type": "error", "message": f"Conversation error: {e!s}"})

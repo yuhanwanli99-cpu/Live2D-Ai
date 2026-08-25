@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator, Callable
 from typing import (
     Any,
@@ -10,6 +11,12 @@ from prompts import prompt_loader
 
 from ...chat_history_manager import get_history
 from ...config_manager import TTSPreprocessorConfig
+from ...live2d_action import (
+    LIVE2D_ACTION_TOOL_NAME,
+    Live2dActionTool,
+    get_default_tool,
+    native_tools_enabled,
+)
 from ...mcpp.json_detector import StreamJSONDetector
 from ...mcpp.tool_manager import ToolManager
 from ...mcpp.types import ToolCallObject
@@ -50,6 +57,7 @@ class BasicMemoryAgent(AgentInterface):
         tool_manager: ToolManager | None = None,
         tool_executor: Any | None = None,
         mcp_prompt_string: str = "",
+        live2d_tool: Live2dActionTool | None = None,
     ):
         """Initialize agent with LLM and configuration."""
         super().__init__()
@@ -68,6 +76,11 @@ class BasicMemoryAgent(AgentInterface):
         self._tool_executor = tool_executor
         self._mcp_prompt_string = mcp_prompt_string
         self._json_detector = StreamJSONDetector()
+
+        # 主 LLM 原生 Live2D 动作工具（非 MCP）：None 表示每轮懒解析默认单例。
+        # provider 报告不支持 tools 后置 True，本进程内不再提供工具（安全降级）。
+        self._live2d_tool = live2d_tool
+        self._native_tools_degraded = False
 
         self._formatted_tools_openai = []
         self._formatted_tools_claude = []
@@ -584,6 +597,216 @@ class BasicMemoryAgent(AgentInterface):
                     self._add_message(current_turn_text, "assistant")
                 return
 
+    def _resolve_live2d_tool(self) -> Live2dActionTool | None:
+        """解析本轮可用的原生 Live2D 动作工具；不可用一律返回 None（安全降级）。
+
+        条件：全局开关未关闭、插件已启用（available()）、provider 未被判死
+        （此前报告过不支持 tools）。工具未注入时懒解析进程内默认单例。
+        """
+        if not native_tools_enabled():
+            return None
+        if self._native_tools_degraded:
+            return None
+        tool = self._live2d_tool
+        if tool is None:
+            tool = get_default_tool()
+        if not tool.available():
+            return None
+        return tool
+
+    async def _openai_native_tool_loop(
+        self,
+        initial_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        live2d_tool: Live2dActionTool,
+        max_tool_rounds: int = 4,
+    ) -> AsyncIterator[str | dict[str, Any]]:
+        """最小 OpenAI 兼容原生工具循环（非 MCP，任务定版）。
+
+        契约：
+        - 工具结果只回灌 API 对话列表（协议要求），绝不 yield 成文本 → 不朗读；
+          也绝不写入 ``self._memory`` 正文 → 记忆零污染。
+        - 合法动作调用额外产出 ``{"type": "live2d_action", ...}`` 内部事件，
+          由对话层绑定到对应下一句/当前句的 Actions payload 与 TTS 音频；
+          同时产出 ``tool_call_status`` 事件供前端可见（含拒绝原因）。
+        - provider 报告 ``__API_NOT_SUPPORT_TOOLS__`` 时：立即去掉 tools 重试拿正文，
+          置位降级标记，本进程后续轮次不再提供工具（可见 warning 一次）。
+        - 工具轮次有上限，防止失控循环；超限时向模型返回可见错误结果。
+        """
+        convo: list[dict[str, Any]] = list(initial_messages)
+        offered_tools: list[dict[str, Any]] | None = tools
+
+        for _round in range(max_tool_rounds + 1):
+            text = ""
+            pending_calls: list[ToolCallObject] | None = None
+            unsupported = False
+
+            stream = self._llm.chat_completion(
+                convo, self._system, tools=offered_tools
+            )
+            async for event in stream:
+                if isinstance(event, ReasoningDelta):
+                    # 思维链旁路：不进正文、不入记忆
+                    yield event
+                    continue
+                if isinstance(event, str):
+                    if event == "__API_NOT_SUPPORT_TOOLS__":
+                        unsupported = True
+                        break
+                    text += event
+                    yield event
+                elif isinstance(event, list) and all(
+                    isinstance(tc, ToolCallObject) for tc in event
+                ):
+                    pending_calls = event
+                    break
+
+            if unsupported:
+                # 安全降级：provider 不支持 tools → 本轮去掉 tools 重试拿正文
+                if not self._native_tools_degraded:
+                    self._native_tools_degraded = True
+                    logger.warning(
+                        "[live2d-tool] 当前 provider 不支持原生 tool calling，"
+                        "已降级为纯文本对话；本进程内不再提供 "
+                        f"{LIVE2D_ACTION_TOOL_NAME}（ExpressionDirector 兜底不受影响）"
+                    )
+                text = ""
+                fallback_stream = self._llm.chat_completion(convo, self._system)
+                async for event in fallback_stream:
+                    if isinstance(event, ReasoningDelta):
+                        yield event
+                        continue
+                    if isinstance(event, str):
+                        text += event
+                        yield event
+                if text:
+                    self._add_message(text, "assistant")
+                return
+
+            if not pending_calls:
+                # 无工具调用的正常收尾：可见回复照常入记忆
+                if text:
+                    self._add_message(text, "assistant")
+                return
+
+            if _round >= max_tool_rounds:
+                # 轮次上限：立即收尾 —— 本轮已流出的文本照常入记忆/朗读，
+                # 之后到达的任何工具调用一律丢弃（可见日志），保证循环必然终止。
+                logger.warning(
+                    f"[live2d-tool] 工具轮次超过上限 {max_tool_rounds}，"
+                    f"丢弃 {len(pending_calls)} 个后续工具调用并结束本轮回复"
+                )
+                for tc in pending_calls:
+                    logger.warning(f"[live2d-tool] 已丢弃超限工具调用: {tc.function.name}")
+                if text:
+                    self._add_message(text, "assistant")
+                return
+
+            # assistant 的 tool_call 消息只进 API 会话列表（协议需要），
+            # 绝不写入 self._memory —— 工具协商对记忆不可见。
+            convo.append(
+                {
+                    "role": "assistant",
+                    "content": text or None,
+                    "tool_calls": [
+                        self._tool_call_to_api(tc) for tc in pending_calls
+                    ],
+                }
+            )
+            if text:
+                # 已说出口的文字照常入记忆（与工具调用解耦）
+                self._add_message(text, "assistant")
+
+            for index, tc in enumerate(pending_calls):
+                call_id = tc.id or f"call_{index}"
+                if tc.function.name != LIVE2D_ACTION_TOOL_NAME:
+                    detail = (
+                        f"unknown tool: {tc.function.name!r} "
+                        f"(only {LIVE2D_ACTION_TOOL_NAME} is exposed)"
+                    )
+                    logger.warning(f"[live2d-tool] 拒绝未知工具调用: {detail}")
+                    yield {
+                        "type": "tool_call_status",
+                        "status": "rejected",
+                        "tool": tc.function.name,
+                        "error": detail,
+                    }
+                    convo.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": json.dumps(
+                                {"ok": False, "error": detail},
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
+
+                arguments = self._parse_tool_arguments(tc.function.arguments)
+                result = await live2d_tool.execute(arguments)
+                if result.get("ok"):
+                    logger.info(
+                        "[live2d-tool] 动作已接受，绑定下一句: action={} strength={}",
+                        result.get("action"),
+                        result.get("strength"),
+                    )
+                    # 内部绑定事件：对话层据此把动作挂到对应句的 Actions payload
+                    yield {
+                        "type": "live2d_action",
+                        "action": result["action"],
+                        "strength": result["strength"],
+                        "reason": str(arguments.get("reason") or ""),
+                        "source": "llm_tool",
+                        "tool": LIVE2D_ACTION_TOOL_NAME,
+                    }
+                    yield {
+                        "type": "tool_call_status",
+                        "status": "done",
+                        "tool": LIVE2D_ACTION_TOOL_NAME,
+                        "action": result["action"],
+                        "strength": result["strength"],
+                    }
+                else:
+                    yield {
+                        "type": "tool_call_status",
+                        "status": "rejected",
+                        "tool": LIVE2D_ACTION_TOOL_NAME,
+                        "error": result.get("error"),
+                    }
+                # 工具结果只进 API 对话列表，不朗读、不入记忆正文
+                convo.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+
+    @staticmethod
+    def _tool_call_to_api(tc: ToolCallObject) -> dict[str, Any]:
+        """ToolCallObject → OpenAI 协议 assistant.tool_calls 元素。"""
+        return {
+            "id": tc.id or "call_0",
+            "type": tc.type or "function",
+            "function": {
+                "name": tc.function.name,
+                "arguments": tc.function.arguments,
+            },
+        }
+
+    @staticmethod
+    def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
+        """解析工具参数 JSON；损坏输入降级为空参（执行器会给出可见拒绝）。"""
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            logger.warning(f"[live2d-tool] 工具参数 JSON 解析失败（按空参处理）: {exc}")
+            return {}
+        return data if isinstance(data, dict) else {}
+
     def _chat_function_factory(
         self,
     ) -> Callable[[BatchInput], AsyncIterator[SentenceOutput | dict[str, Any]]]:
@@ -606,6 +829,25 @@ class BasicMemoryAgent(AgentInterface):
             self.prompt_mode_flag = False
 
             messages = self._to_messages(input_data)
+
+            # 主 LLM 原生 Live2D 动作工具（任务定版，优先于一切 MCP 遗留路径）：
+            # 仅对 OpenAI 兼容 provider 提供最小工具循环；其余 provider 走原
+            # 简单路径安全降级。工具结果不朗读、不入记忆正文。
+            live2d_tool = self._resolve_live2d_tool()
+            if live2d_tool is not None and isinstance(
+                self._llm, OpenAICompatibleAsyncLLM
+            ):
+                logger.debug(
+                    f"Starting native tool loop with {LIVE2D_ACTION_TOOL_NAME}."
+                )
+                async for output in self._openai_native_tool_loop(
+                    messages,
+                    [live2d_tool.openai_schema],
+                    live2d_tool,
+                ):
+                    yield output
+                return
+
             tools = None
             tool_mode = None
             llm_supports_native_tools = False
