@@ -36,10 +36,13 @@ print(
     f"[Live2D-Ai] 日志级别: {_effective_level}（控制台）+ logs/server.log（滚动文件）"
 )
 
-# 版本横幅：产品版本 / 后端包版本 / 前端包版本 / commit（build/启动一次性探测，取不到 unknown）
-from open_llm_vtuber.versions import format_banner
+# 版本横幅：产品版本 / 后端包版本 / 前端包版本 / commit（build/启动一次性探测，取不到 unknown）。
+# 从 start.sh 启动时已打印过一次并设置 LIVE2DAI_BANNER_SHOWN=1，这里跳过避免重复；
+# 直接运行 run_server.py 时无该标记，仍会打印一次。
+if os.environ.get("LIVE2DAI_BANNER_SHOWN") != "1":
+    from open_llm_vtuber.versions import format_banner
 
-print(f"[Live2D-Ai] {format_banner()}")
+    print(f"[Live2D-Ai] {format_banner()}")
 
 from open_llm_vtuber.config_manager.main import Config
 from open_llm_vtuber.config_manager.utils import (

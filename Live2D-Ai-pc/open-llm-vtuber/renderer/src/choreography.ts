@@ -43,63 +43,65 @@ const NEUTRAL: ParameterOverrides = {
 export const CHOREOGRAPHY_LIBRARY: Record<string, Keyframe[]> = {
   // 点头（明确命令）：头部上下明确点两次，最后回中性。此前 nod 走单姿态手势
   // （ParamAngleX 仅 0.5→0.32，幅度过小近乎不可见），提升为大幅度编排保证可见。
+  // 统一幅度策略：头部角度贴近参数两端（0.06~0.94），上身作为第二通道同步跟随。
   nod: [
-    { at: 0,    fadeMs: 140, params: { ParamAngleX: 0.18, ParamAngleY: 0.5, ParamBodyAngleX: 0.38 } },
-    { at: 260,  fadeMs: 140, params: { ParamAngleX: 0.78, ParamAngleY: 0.5, ParamBodyAngleX: 0.60 } },
-    { at: 520,  fadeMs: 140, params: { ParamAngleX: 0.22, ParamAngleY: 0.5, ParamBodyAngleX: 0.40 } },
-    { at: 780,  fadeMs: 140, params: { ParamAngleX: 0.80, ParamAngleY: 0.5, ParamBodyAngleX: 0.62 } },
+    { at: 0,    fadeMs: 140, params: { ParamAngleX: 0.06, ParamAngleY: 0.5, ParamBodyAngleX: 0.28 } },
+    { at: 260,  fadeMs: 140, params: { ParamAngleX: 0.94, ParamAngleY: 0.5, ParamBodyAngleX: 0.72 } },
+    { at: 520,  fadeMs: 140, params: { ParamAngleX: 0.10, ParamAngleY: 0.5, ParamBodyAngleX: 0.30 } },
+    { at: 780,  fadeMs: 140, params: { ParamAngleX: 0.92, ParamAngleY: 0.5, ParamBodyAngleX: 0.74 } },
     { at: 1120, fadeMs: 300, params: NEUTRAL },
   ],
   // 歪头（明确命令）：头部+上身明确侧倾两拍，最后回中性。
   tilt: [
-    { at: 0,    fadeMs: 200, params: { ParamAngleZ: 0.22, ParamAngleY: 0.62, ParamBodyAngleZ: 0.30 } },
-    { at: 700,  fadeMs: 220, params: { ParamAngleZ: 0.74, ParamAngleY: 0.38, ParamBodyAngleZ: 0.68 } },
+    { at: 0,    fadeMs: 200, params: { ParamAngleZ: 0.06, ParamAngleY: 0.66, ParamBodyAngleZ: 0.18 } },
+    { at: 700,  fadeMs: 220, params: { ParamAngleZ: 0.94, ParamAngleY: 0.34, ParamBodyAngleZ: 0.82 } },
     { at: 1500, fadeMs: 360, params: NEUTRAL },
   ],
   // 大幅挥手：身体左右大幅摇摆两轮 + 头部随动（无手臂参数模型的挥手等价表达）
   wave_big: [
-    { at: 0,    fadeMs: 160, params: { ParamBodyAngleZ: 0.18, ParamAngleZ: 0.32, ParamAngleY: 0.58 } },
-    { at: 340,  fadeMs: 180, params: { ParamBodyAngleZ: 0.82, ParamAngleZ: 0.68 } },
-    { at: 700,  fadeMs: 180, params: { ParamBodyAngleZ: 0.18, ParamAngleZ: 0.32 } },
-    { at: 1060, fadeMs: 180, params: { ParamBodyAngleZ: 0.82, ParamAngleZ: 0.68 } },
+    { at: 0,    fadeMs: 160, params: { ParamBodyAngleZ: 0.06, ParamAngleZ: 0.20, ParamAngleY: 0.62 } },
+    { at: 340,  fadeMs: 180, params: { ParamBodyAngleZ: 0.94, ParamAngleZ: 0.80 } },
+    { at: 700,  fadeMs: 180, params: { ParamBodyAngleZ: 0.06, ParamAngleZ: 0.20 } },
+    { at: 1060, fadeMs: 180, params: { ParamBodyAngleZ: 0.94, ParamAngleZ: 0.80 } },
     { at: 1420, fadeMs: 260, params: NEUTRAL },
   ],
   // 鞠躬：深低头 + 上身前倾（AngleX 大幅下压），停顿后缓起
   bow: [
-    { at: 0,    fadeMs: 300, params: { ParamAngleX: 0.88, ParamAngleY: 0.36, ParamBodyAngleX: 0.78 } },
-    { at: 700,  fadeMs: 240, params: { ParamAngleX: 0.88, ParamAngleY: 0.36, ParamBodyAngleX: 0.78 } },
+    { at: 0,    fadeMs: 300, params: { ParamAngleX: 0.94, ParamAngleY: 0.30, ParamBodyAngleX: 0.86 } },
+    { at: 700,  fadeMs: 240, params: { ParamAngleX: 0.94, ParamAngleY: 0.30, ParamBodyAngleX: 0.86 } },
     { at: 1300, fadeMs: 420, params: NEUTRAL },
   ],
   // 开心蹦跳：身体上下弹三下（BodyAngleY 快速往复）+ 头部雀跃
   bounce_happy: [
-    { at: 0,    fadeMs: 110, params: { ParamBodyAngleY: 0.62, ParamAngleY: 0.66 } },
-    { at: 200,  fadeMs: 110, params: { ParamBodyAngleY: 0.40, ParamAngleY: 0.44 } },
-    { at: 400,  fadeMs: 110, params: { ParamBodyAngleY: 0.64, ParamAngleY: 0.68 } },
-    { at: 600,  fadeMs: 110, params: { ParamBodyAngleY: 0.38, ParamAngleY: 0.42 } },
-    { at: 800,  fadeMs: 110, params: { ParamBodyAngleY: 0.63, ParamAngleY: 0.67 } },
+    { at: 0,    fadeMs: 110, params: { ParamBodyAngleY: 0.72, ParamAngleY: 0.76 } },
+    { at: 200,  fadeMs: 110, params: { ParamBodyAngleY: 0.28, ParamAngleY: 0.24 } },
+    { at: 400,  fadeMs: 110, params: { ParamBodyAngleY: 0.74, ParamAngleY: 0.78 } },
+    { at: 600,  fadeMs: 110, params: { ParamBodyAngleY: 0.26, ParamAngleY: 0.22 } },
+    { at: 800,  fadeMs: 110, params: { ParamBodyAngleY: 0.73, ParamAngleY: 0.77 } },
     { at: 1050, fadeMs: 300, params: NEUTRAL },
   ],
   // 用力摇头：头部左右大幅快速三连
   shake_no: [
-    { at: 0,   fadeMs: 100, params: { ParamAngleX: 0.16 } },
-    { at: 190, fadeMs: 100, params: { ParamAngleX: 0.84 } },
-    { at: 380, fadeMs: 100, params: { ParamAngleX: 0.16 } },
-    { at: 570, fadeMs: 100, params: { ParamAngleX: 0.84 } },
-    { at: 760, fadeMs: 100, params: { ParamAngleX: 0.30 } },
+    { at: 0,   fadeMs: 100, params: { ParamAngleX: 0.06 } },
+    { at: 190, fadeMs: 100, params: { ParamAngleX: 0.94 } },
+    { at: 380, fadeMs: 100, params: { ParamAngleX: 0.06 } },
+    { at: 570, fadeMs: 100, params: { ParamAngleX: 0.94 } },
+    { at: 760, fadeMs: 100, params: { ParamAngleX: 0.22 } },
     { at: 980, fadeMs: 260, params: NEUTRAL },
   ],
   // 凑近倾听：上身前倾贴近镜头感，保持后缓缓退回
   lean_in: [
-    { at: 0,    fadeMs: 420, params: { ParamAngleY: 0.72, ParamBodyAngleX: 0.40, ParamAngleX: 0.36 } },
-    { at: 1100, fadeMs: 300, params: { ParamAngleY: 0.74, ParamBodyAngleX: 0.38 } },
+    { at: 0,    fadeMs: 420, params: { ParamAngleY: 0.78, ParamBodyAngleX: 0.30, ParamAngleX: 0.26 } },
+    { at: 1100, fadeMs: 300, params: { ParamAngleY: 0.80, ParamBodyAngleX: 0.28 } },
     { at: 1900, fadeMs: 480, params: NEUTRAL },
   ],
   // 左右张望：眼睛先于头部移动，限制在安全范围，结束强制回中。
+  // 头部/上身贴近两端，眼球保持在测试锁定的安全区间内（EyeBallX 0.25~0.75）。
   look_around: [
     { at: 0, fadeMs: 180, params: { ParamEyeBallX: 0.30, ParamEyeBallY: 0.54 } },
-    { at: 160, fadeMs: 300, params: { ParamAngleX: 0.16, ParamBodyAngleX: 0.34, ParamEyeBallX: 0.28, ParamEyeBallY: 0.54 } },
+    { at: 160, fadeMs: 300, params: { ParamAngleX: 0.06, ParamBodyAngleX: 0.24, ParamEyeBallX: 0.28, ParamEyeBallY: 0.54 } },
     { at: 850, fadeMs: 180, params: { ParamEyeBallX: 0.70, ParamEyeBallY: 0.52 } },
-    { at: 1010, fadeMs: 300, params: { ParamAngleX: 0.84, ParamBodyAngleX: 0.66, ParamEyeBallX: 0.72, ParamEyeBallY: 0.52 } },
+    { at: 1010, fadeMs: 300, params: { ParamAngleX: 0.94, ParamBodyAngleX: 0.76, ParamEyeBallX: 0.72, ParamEyeBallY: 0.52 } },
     { at: 1850, fadeMs: 400, params: NEUTRAL },
   ],
 };
@@ -136,7 +138,9 @@ export class ChoreographyPlayer {
     this.cancel();
     const frames = CHOREOGRAPHY_LIBRARY[id];
     this.activeId = id;
-    this.intensity = Math.min(1.2, Math.max(0.4, intensity || 1));
+    // 统一幅度策略：允许 level-3 放大到 1.5（仍然 clamp [0,1]，且轴心 0.5 不动点），
+    // 使中/强档肉眼可辨；weak 档收缩但保持可见。
+    this.intensity = Math.min(1.5, Math.max(0.4, intensity || 1));
     this.pending = frames.map((f) => ({ ...f, params: { ...f.params } }));
     this.startedAt = this.now();
     const last = this.pending[this.pending.length - 1];
@@ -224,14 +228,31 @@ export class BodyActionPlayer {
 
   play(name: string | undefined | null, strength = 2): void {
     const level = strength === 1 || strength === 2 || strength === 3 ? strength : 2;
-    const intensity = level === 1 ? 0.72 : level === 3 ? 1.18 : 1;
+    // 统一幅度策略：1 克制可见 / 2 明显 / 3 强烈（轴心 0.5，结果仍 clamp [0,1]）。
+    const intensity = level === 1 ? 0.7 : level === 3 ? 1.35 : 1;
+    const peak = this.peakDeviation(name ?? '', intensity);
     if (this.choreo.play(name, intensity)) {
-      console.debug(`[BodyActionPlayer] choreo=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)}`);
+      console.debug(`[BodyActionPlayer] choreo=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)} peakDev=${peak.toFixed(2)}`);
       this.gestures.release(); // 编排接管期间清掉残留单姿态
       return;
     }
     console.debug(`[BodyActionPlayer] gesture=${name ?? ''} level=${level} intensity=${intensity.toFixed(2)}`);
     this.gestures.play(name, intensity);
+  }
+
+  /** 指导编排动作相对中性的最大偏差（结果值空间，用于可观测日志与验收）。 */
+  private peakDeviation(name: string | undefined | null, intensity: number): number {
+    const id = resolveChoreography(name);
+    if (!id) return 0;
+    let peak = 0;
+    for (const f of CHOREOGRAPHY_LIBRARY[id]) {
+      for (const v of Object.values(f.params)) {
+        if (typeof v !== 'number') continue;
+        const scaled = Math.min(1, Math.max(0, 0.5 + (v - 0.5) * intensity));
+        peak = Math.max(peak, Math.abs(scaled - 0.5));
+      }
+    }
+    return peak;
   }
 
   update(deltaMs: number): void {

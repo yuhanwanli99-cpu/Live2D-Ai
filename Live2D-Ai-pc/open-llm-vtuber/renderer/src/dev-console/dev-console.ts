@@ -93,40 +93,38 @@ export function createDevConsole(
   const api = opts.api ?? defaultDevApi;
 
   const overlay = document.createElement('div');
-  overlay.className = 'settings-overlay dev-console-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
+  overlay.className = 'dev-dock dev-dock-right';
+  overlay.setAttribute('role', 'complementary');
   overlay.setAttribute('aria-label', '开发者控制台');
 
   overlay.innerHTML = `
-    <div class="settings-box dev-console-box">
-      <div class="settings-header">
-        <div class="settings-header-title">
-          开发者控制台
-          <small>本机导演 / 动作测试台</small>
-        </div>
-        <button class="settings-close ui-lift dev-console-close" type="button" title="关闭（Esc）" aria-label="关闭开发者控制台">${icon('close')}</button>
+    <div class="dev-dock-header">
+      <div class="dev-dock-title">
+        开发者控制台
+        <small>本机导演 / 动作测试台</small>
       </div>
-      <div class="dev-console-body">
-        <div class="settings-status-inline dev-console-status" data-status></div>
+      <button class="dev-dock-collapse ui-lift" type="button" title="折叠" aria-label="折叠开发者控制台">${icon('chevron')}</button>
+      <button class="settings-close ui-lift dev-console-close" type="button" title="关闭（Esc）" aria-label="关闭开发者控制台">${icon('close')}</button>
+    </div>
+    <div class="dev-dock-body dev-console-body">
+      <div class="settings-status-inline dev-console-status" data-status></div>
 
-        <div class="settings-section-title">导演分析</div>
-        <div class="settings-section-hint">输入任意文本，查看导演的情绪 / 强度 / 动作 / 时间线结果（已脱敏）。</div>
-        <textarea class="settings-config-tree dev-analyze-input" rows="4" spellcheck="false" placeholder="例如：开心地挥手说你好" aria-label="导演分析文本"></textarea>
-        <div class="settings-editor-actions">
-          <button class="btn primary dev-analyze-btn" type="button">分析</button>
-          <span class="settings-tip">本地仅调用导演逻辑，不发送到对话链。</span>
-        </div>
-        <pre class="dev-result dev-analyze-result" hidden></pre>
-
-        <div class="settings-section-title">动作触发</div>
-        <div class="settings-section-hint">目录来自后端白名单；不支持的动作为灰色不可触发。</div>
-        <div class="settings-editor-actions">
-          <button class="btn ghost dev-catalog-btn" type="button">刷新动作目录</button>
-          <span class="dev-halfbody-tip settings-tip"></span>
-        </div>
-        <div class="dev-action-list" data-actionlist></div>
+      <div class="settings-section-title">导演分析</div>
+      <div class="settings-section-hint">输入任意文本，查看导演的情绪 / 强度 / 动作 / 时间线结果（已脱敏）。</div>
+      <textarea class="settings-config-tree dev-analyze-input" rows="3" spellcheck="false" placeholder="例如：开心地挥手说你好" aria-label="导演分析文本"></textarea>
+      <div class="settings-editor-actions">
+        <button class="btn primary dev-analyze-btn" type="button">分析</button>
+        <span class="settings-tip">本地仅调用导演逻辑，不发送到对话链。</span>
       </div>
+      <pre class="dev-result dev-analyze-result" hidden></pre>
+
+      <div class="settings-section-title">动作触发</div>
+      <div class="settings-section-hint">目录来自后端白名单；不支持的动作为灰色不可触发。</div>
+      <div class="settings-editor-actions">
+        <button class="btn ghost dev-catalog-btn" type="button">刷新动作目录</button>
+        <span class="dev-halfbody-tip settings-tip"></span>
+      </div>
+      <div class="dev-action-list" data-actionlist></div>
     </div>
   `;
 
@@ -137,6 +135,7 @@ export function createDevConsole(
   const catalogBtn = overlay.querySelector<HTMLButtonElement>('.dev-catalog-btn')!;
   const halfbodyTip = overlay.querySelector<HTMLElement>('.dev-halfbody-tip')!;
   const actionList = overlay.querySelector<HTMLElement>('[data-actionlist]')!;
+  const collapseBtn = overlay.querySelector<HTMLButtonElement>('.dev-dock-collapse')!;
 
   const setStatus = (msg: string, kind: 'info' | 'ok' | 'error' = 'info') => {
     statusEl.textContent = msg;
@@ -308,18 +307,30 @@ export function createDevConsole(
       }
     })();
   });
-  overlay.querySelector<HTMLButtonElement>('.dev-console-close')!.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
+  const closeBtn = overlay.querySelector<HTMLButtonElement>('.dev-console-close')!;
+  closeBtn.addEventListener('click', close);
+
+  // 折叠：仅隐藏面板主体（保留顶部窄条），不销毁实例，方便随时展开对照模型。
+  collapseBtn.addEventListener('click', () => {
+    const collapsed = overlay.classList.toggle('collapsed');
+    const label = collapsed ? '展开开发者控制台' : '折叠开发者控制台';
+    collapseBtn.setAttribute('aria-label', label);
+    collapseBtn.title = label;
   });
 
   const escHandler = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && overlay.classList.contains('open')) close();
+    if (e.key === 'Escape' && overlay.parentNode === target) close();
   };
 
   function open(): void {
-    target.appendChild(overlay);
-    document.addEventListener('keydown', escHandler);
+    // 幂等：已在 DOM 中则不重复 append，避免重复拉取目录/重复监听
+    if (overlay.parentNode !== target) {
+      target.appendChild(overlay);
+      document.addEventListener('keydown', escHandler);
+    }
+    overlay.classList.remove('collapsed');
+    collapseBtn.setAttribute('aria-label', '折叠开发者控制台');
+    collapseBtn.title = '折叠开发者控制台';
     // 打开即拉一次目录；失败仅反映到状态行，不阻塞面板
     setStatus('', 'info');
     void (async () => {
@@ -330,17 +341,11 @@ export function createDevConsole(
         showError(err);
       }
     })();
-    // 触发重排后再加 .open，确保动画生效
-    requestAnimationFrame(() => overlay.classList.add('open'));
   }
 
   function close(): void {
-    overlay.classList.remove('open');
     document.removeEventListener('keydown', escHandler);
-    // 动画结束后移除节点，避免残留阴影/键盘监听
-    setTimeout(() => {
-      if (overlay.parentNode === target) target.removeChild(overlay);
-    }, 160);
+    if (overlay.parentNode === target) target.removeChild(overlay);
   }
 
   function destroy(): void {

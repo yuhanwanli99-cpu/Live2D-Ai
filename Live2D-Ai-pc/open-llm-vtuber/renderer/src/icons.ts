@@ -27,7 +27,8 @@ export type IconName =
   | 'check'
   | 'stop'
   | 'alert'
-  | 'info';
+  | 'info'
+  | 'chevron';
 
 /** 统一图标外壳：stroke 版（线性图标，视觉重量一致） */
 const stroke = (body: string, extra = ''): string =>
@@ -60,6 +61,8 @@ const PATHS: Record<IconName, string> = {
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
   alert: '<path d="M12 4.5 21 19.5H3z"/><path d="M12 10v4"/><path d="M12 16.6h.01"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><path d="M12 7.8h.01"/>',
+  // 折叠/展开箭头：展开状态为右双线箭头，CSS 中 collapsed 时旋转为左双线箭头
+  chevron: '<path d="M9 6l6 6-6 6"/>',
 };
 
 /**

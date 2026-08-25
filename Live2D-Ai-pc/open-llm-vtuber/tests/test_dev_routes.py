@@ -375,7 +375,13 @@ def _repo_conf_text() -> str:
     here = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(here)  # open-llm-vtuber/
     with open(os.path.join(project_root, "conf.yaml"), "r", encoding="utf-8") as f:
-        return f.read()
+        text = f.read()
+    # 测试必须是 hermetic：开发者本机 conf.yaml 可能开着 developer_mode，
+    # 但这里需要「默认关闭」的确定基线，否则 test_disable_default_gate_403 会因
+    # 开发者实时配置(false→true)而误判失败。强制覆盖为 false。
+    text = text.replace("developer_mode: true", "developer_mode: false")
+    text = text.replace("developer_mode: True", "developer_mode: false")
+    return text
 
 
 @pytest.fixture

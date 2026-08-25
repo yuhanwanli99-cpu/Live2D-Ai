@@ -67,4 +67,8 @@ if Banner="$(cd "$VtuberDir" && "$PY" -c \
     echo "[Live2D-Ai] $Banner"
 fi
 
+# 由 start.sh 打印过一次版本横幅；run_server.py 检测到该标记则跳过，避免重复打印。
+# （直接运行 run_server.py 时无此标记，仍会打印一次。）
+export LIVE2DAI_BANNER_SHOWN=1
+
 exec "$PY" run_server.py

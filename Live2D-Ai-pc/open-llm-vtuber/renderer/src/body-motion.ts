@@ -37,47 +37,50 @@ interface BodyMotionState {
   holdMs: number;
 }
 
-/** 半身动作参数表：key 与 bai.cdi3.json 实读一致；0.5 为中性 */
+/** 半身动作参数表：key 与 bai.cdi3.json 实读一致；0.5 为中性
+ *  统一幅度策略：base 值本身即明显偏离中性（贴近参数两端），
+ *  再经 BodyMotionPlayer.writeParams 的 intensity 缩放（weak 0.7 / mid 1.0 / strong 1.35）。
+ */
 export const BODY_GESTURE_PARAMS: Record<BodyGesture, ParameterOverrides> = {
   idle: {},
   nod: {
-    ParamAngleX: 0.32,
+    ParamAngleX: 0.20,
     ParamAngleY: 0.5,
-    ParamBodyAngleX: 0.52,
+    ParamBodyAngleX: 0.30,
   },
   tilt: {
-    ParamAngleZ: 0.62,
-    ParamBodyAngleZ: 0.56,
+    ParamAngleZ: 0.18,
+    ParamBodyAngleZ: 0.26,
   },
   sway: {
-    ParamBodyAngleZ: 0.34,
-    ParamBodyAngleY: 0.56,
-    ParamAngleZ: 0.44,
+    ParamBodyAngleZ: 0.16,
+    ParamBodyAngleY: 0.66,
+    ParamAngleZ: 0.30,
   },
   happy: {
-    ParamAngleX: 0.4,
-    ParamAngleY: 0.58,
-    ParamBodyAngleX: 0.56,
-    ParamBodyAngleY: 0.55,
-    ParamBodyAngleZ: 0.52,
+    ParamAngleX: 0.24,
+    ParamAngleY: 0.68,
+    ParamBodyAngleX: 0.28,
+    ParamBodyAngleY: 0.72,
+    ParamBodyAngleZ: 0.24,
   },
   surprise: {
     ParamAngleY: 0.5,
-    ParamAngleX: 0.55,
-    ParamBodyAngleX: 0.62,
+    ParamAngleX: 0.22,
+    ParamBodyAngleX: 0.26,
     ParamBodyAngleY: 0.5,
   },
   listen: {
-    ParamAngleY: 0.42,
-    ParamBodyAngleY: 0.44,
-    ParamAngleZ: 0.48,
+    ParamAngleY: 0.28,
+    ParamBodyAngleY: 0.30,
+    ParamAngleZ: 0.20,
   },
   excited: {
-    ParamAngleX: 0.42,
-    ParamAngleY: 0.6,
-    ParamBodyAngleX: 0.58,
-    ParamBodyAngleY: 0.62,
-    ParamBodyAngleZ: 0.56,
+    ParamAngleX: 0.20,
+    ParamAngleY: 0.72,
+    ParamBodyAngleX: 0.22,
+    ParamBodyAngleY: 0.78,
+    ParamBodyAngleZ: 0.20,
   },
 };
 
@@ -152,9 +155,14 @@ export class BodyMotionPlayer {
 
   private writeParams(params: ParameterOverrides, intensity = 1): void {
     const now = this.options.now();
-    const gain = Math.min(1.2, Math.max(0.4, Number.isFinite(intensity) ? intensity : 1));
+    // 统一幅度：允许 strong(1.35) 明显放大；weak(0.7) 收缩。轴心 0.5，结果 clamp [0,1]。
+    const gain = Math.min(1.5, Math.max(0.4, Number.isFinite(intensity) ? intensity : 1));
+    let peak = 0;
+    const applied: Record<string, number> = {};
     for (const [paramId, rawValue] of Object.entries(params)) {
       const value = Math.min(1, Math.max(0, 0.5 + (rawValue - 0.5) * gain));
+      applied[paramId] = value;
+      peak = Math.max(peak, Math.abs(value - 0.5));
       this.arbiter.write({
         source: ParamSource.LiveEvent,
         paramId,
@@ -165,5 +173,8 @@ export class BodyMotionPlayer {
         valueSpace: 'normalized',
       });
     }
+    console.debug(
+      `[BodyMotion] gesture=${this.state?.gesture ?? ''} gain=${gain.toFixed(2)} peakDev=${peak.toFixed(2)} params=${JSON.stringify(applied)}`,
+    );
   }
 }

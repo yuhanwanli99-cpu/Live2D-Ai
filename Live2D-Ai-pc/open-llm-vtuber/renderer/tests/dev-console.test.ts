@@ -62,15 +62,15 @@ describe('createDevConsole — 生命周期与渲染', () => {
     devActionRegistry.loadCatalog([]);
   });
 
-  it('open() 挂载覆盖层并自动拉取动作目录', async () => {
+  it('open() 挂载非模态停靠面板并自动拉取动作目录', async () => {
     const fake = makeFakeApi();
     const console_ = createDevConsole(host, { api: fake });
     console_.open();
     // 目录渲染是异步的（fetch → loadCatalog → render），等待动作行出现再断言
     await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
     expect(fake.calls.catalog).toBe(1);
-    const overlay = host.querySelector('.dev-console-overlay');
-    expect(overlay).not.toBeNull();
+    const dock = host.querySelector('.dev-dock');
+    expect(dock).not.toBeNull();
     const rows = host.querySelectorAll('.dev-action-row');
     expect(rows.length).toBe(3);
     const kinds = Array.from(host.querySelectorAll('.dev-action-kind')).map((k) => k.textContent);
@@ -79,16 +79,46 @@ describe('createDevConsole — 生命周期与渲染', () => {
     console_.close();
   });
 
-  it('close() 移除覆盖层', async () => {
+  it('close() 移除停靠面板', async () => {
     const fake = makeFakeApi();
     const console_ = createDevConsole(host, { api: fake });
     console_.open();
     await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
-    expect(host.querySelector('.dev-console-overlay')).not.toBeNull();
+    expect(host.querySelector('.dev-dock')).not.toBeNull();
     console_.close();
-    // 动画移除 160ms
-    await new Promise((r) => setTimeout(r, 200));
-    expect(host.querySelector('.dev-console-overlay')).toBeNull();
+    expect(host.querySelector('.dev-dock')).toBeNull();
+  });
+
+  it('非模态：菜单不应用全屏遮罩类，点击外部不关闭', async () => {
+    const fake = makeFakeApi();
+    const console_ = createDevConsole(host, { api: fake });
+    console_.open();
+    await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
+    const dock = host.querySelector<HTMLElement>('.dev-dock')!;
+    // 不继承 settings-overlay（全屏 scrim）语义；aria-modal 必须为 false/absent
+    expect(dock.classList.contains('settings-overlay')).toBe(false);
+    expect(dock.classList.contains('dev-console-overlay')).toBe(false);
+    expect(dock.getAttribute('aria-modal')).not.toBe('true');
+    // 点击 dock 外部（body）不应关闭面板（非模态）
+    document.body.click();
+    expect(host.querySelector('.dev-dock')).not.toBeNull();
+    console_.close();
+  });
+
+  it('折叠按钮隐藏主体、保留窄条；再次点击恢复', async () => {
+    const fake = makeFakeApi();
+    const console_ = createDevConsole(host, { api: fake });
+    console_.open();
+    await vi.waitFor(() => expect(host.querySelectorAll('.dev-action-row').length).toBe(3));
+    const dock = host.querySelector<HTMLElement>('.dev-dock')!;
+    const collapse = dock.querySelector<HTMLButtonElement>('.dev-dock-collapse')!;
+    collapse.click();
+    expect(dock.classList.contains('collapsed')).toBe(true);
+    // 折叠态仍保留 dock 根（窄条），不卸载
+    expect(host.querySelector('.dev-dock')).not.toBeNull();
+    collapse.click();
+    expect(dock.classList.contains('collapsed')).toBe(false);
+    console_.close();
   });
 });
 

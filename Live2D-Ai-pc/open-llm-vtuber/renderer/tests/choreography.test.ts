@@ -79,9 +79,9 @@ describe('ChoreographyPlayer — 时间轴执行', () => {
     const arb = new FakeArbiter();
     const clock = makeClock();
     const p = new ChoreographyPlayer(arb as never, { now: clock.now });
-    p.play('lean_in', 0.5); // 帧值 0.72 → 0.5+(0.22*0.5)=0.61
+    p.play('lean_in', 0.5); // 帧值 0.78 → 0.5+(0.28*0.5)=0.64
     const y = arb.writes.find((w) => w.paramId === 'ParamAngleY');
-    expect(y?.value).toBeCloseTo(0.61, 5);
+    expect(y?.value).toBeCloseTo(0.64, 5);
   });
 
   it('cancel 后不再推进；新 play 重置时间轴', () => {
@@ -136,8 +136,7 @@ describe('BodyActionPlayer — 组合门面', () => {
 });
 
 describe('Preview deterministic director motion policy', () => {
-  it('look_around drives bounded gaze then returns both eyes to center', () => {
-    const frames = CHOREOGRAPHY_LIBRARY.look_around;
+  it('look_around drives bounded gaze then returns both eyes to center', () => {    const frames = CHOREOGRAPHY_LIBRARY.look_around;
     expect(frames.some((frame) => frame.params.ParamEyeBallX !== undefined)).toBe(true);
     for (const frame of frames.slice(0, -1)) {
       const x = frame.params.ParamEyeBallX;
@@ -174,5 +173,72 @@ describe('Preview deterministic director motion policy', () => {
     player.play('look_around', 2);
     expect(arb.writes.length).toBeGreaterThan(0);
     expect(arb.writes.every((write) => write.valueSpace === 'normalized')).toBe(true);
+  });
+});
+
+describe('Preview unified amplitude policy — 参数峰值验收', () => {
+  // 每次播放后抓取该源本次写入的快照（BodyActionPlayer 组合门面调完即生效）。
+  function snapshotAfterPlay(name: string, strength: number) {
+    const arb = new FakeArbiter();
+    const clock = makeClock();
+    const player = new BodyActionPlayer(arb as never, { now: clock.now });
+    player.play(name, strength);
+    const peak: Record<string, number> = {};
+    for (const w of arb.writes) {
+      if (w.valueSpace !== 'normalized' || w.paramId === undefined) continue;
+      const d = Math.abs((w.value as number) - 0.5);
+      if (!(w.paramId in peak) || d > peak[w.paramId]) peak[w.paramId] = d;
+    }
+    return { arb, peak };
+  }
+
+  it('strength 3 的头部/身体关键参数达到明确可见阈值（偏离中性>=0.25）', () => {
+    const cases: Array<[string, string[]]> = [
+      ['nod', ['ParamAngleX', 'ParamBodyAngleX']],
+      ['tilt', ['ParamAngleZ', 'ParamBodyAngleZ']],
+      ['bow', ['ParamAngleX', 'ParamBodyAngleX']],
+      ['shake_no', ['ParamAngleX']],
+      ['lean_in', ['ParamAngleY', 'ParamBodyAngleX']],
+    ];
+    for (const [name, params] of cases) {
+      const { peak } = snapshotAfterPlay(name, 3);
+      for (const p of params) {
+        expect(peak[p]).toBeGreaterThanOrEqual(0.25);
+      }
+    }
+  });
+
+  it('六显式命令强度 1/2/3 单调递增（克制 < 明显 < 强烈）', () => {
+    const commands = ['nod', 'tilt', 'shake_no', 'look_around', 'bow', 'lean_in'];
+    for (const name of commands) {
+      const peakLow = Math.max(...Object.values(snapshotAfterPlay(name, 1).peak));
+      const peakMid = Math.max(...Object.values(snapshotAfterPlay(name, 2).peak));
+      const peakHigh = Math.max(...Object.values(snapshotAfterPlay(name, 3).peak));
+      expect(peakLow).toBeLessThan(peakMid);
+      expect(peakMid).toBeLessThan(peakHigh);
+      expect(peakHigh).toBeGreaterThan(0.25);
+    }
+  });
+
+  it('强度 1 克制但仍可见（至少一个关键参数偏离中性>=0.12）', () => {
+    const commands = ['nod', 'tilt', 'shake_no', 'look_around', 'bow', 'lean_in'];
+    for (const name of commands) {
+      const peakMax = Math.max(...Object.values(snapshotAfterPlay(name, 1).peak));
+      expect(peakMax).toBeGreaterThanOrEqual(0.12);
+    }
+  });
+
+  it('所有写入在 0..1 内且编排末帧回中性（不越界、不残留）', () => {
+    for (const name of Object.keys(CHOREOGRAPHY_LIBRARY)) {
+      const { arb } = snapshotAfterPlay(name, 3);
+      for (const w of arb.writes) {
+        expect((w.value as number)).toBeGreaterThanOrEqual(0);
+        expect((w.value as number)).toBeLessThanOrEqual(1);
+      }
+      const last = CHOREOGRAPHY_LIBRARY[name][CHOREOGRAPHY_LIBRARY[name].length - 1];
+      for (const v of Object.values(last.params)) {
+        expect(v).toBeCloseTo(0.5, 4);
+      }
+    }
   });
 });
