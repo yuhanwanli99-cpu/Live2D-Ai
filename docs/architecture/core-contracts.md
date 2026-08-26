@@ -113,3 +113,22 @@ SPEAKING
 3. `shared/check_cross_platform_consistency.py` 全绿
 4. Android 核心状态机穷举测试全绿
 5. 无 API Key、无网络时，配置解析 / 状态机 / TTS 降级链行为确定
+
+
+## 7. Renderer 参数空间约定
+
+PC 渲染器（`renderer/src/`）同时处理两类参数写入源：
+
+- **model 空间**：绝对 Cubism 参数值（例如 `ParamAngleX` 的 -30..30）。
+- **normalized 空间**：0..1 的归一化值，需要按每个参数的 min/default/max 映射到 model 空间。
+
+### 规则
+
+1. 写入 `ParamArbiter` 时，通过 `valueSpace: 'model' | 'normalized'` 显式声明值空间；未声明时默认 `model`。
+2. `HalfBodyController`、表情、口型等来源如果产生 normalized 值，必须标记 `valueSpace: 'normalized'`。
+3. `ParamArbiter.update()` 负责把 normalized 源映射到 model 空间后再写入 coreModel，保证多源混合时单位一致。
+4. 每个参数在 fade 完成后若值未变化，通过 `dirty` 标记跳过重复写入，降低 GPU/CPU 开销。
+
+### 为何需要区分
+
+历史 bug：`HalfBodyController` 直接写入 normalized 值，而 `EmotionConsumer` 写入 model 值，导致半身动作后表情参数被错误缩放。统一 valueSpace 后，所有源在仲裁前已对齐到同一空间。

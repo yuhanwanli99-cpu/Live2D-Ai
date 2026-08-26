@@ -1,3 +1,13 @@
+# Rust 重建：Bakeoff 选定 Ayagami 并 pin 引入 crates/l2d（2026-08-26）
+
+- **选型落地**（RFC D4）：依据双 bakeoff 报告（`docs/verification/rust-bakeoff-ayagami.md` / `-mocari.md`）选定 **Ayagami** 为 runtime/render 底座，git 依赖 pin rev `640ae4b10bad8def1adcacdada4f8241b484c169` 引入 `crates/l2d`（未复制源码、未 commit）；Mocari 不引入，保留为未引入参考与动画补充候选。决策记录新增 `docs/verification/rust-bakeoff-decision.md`；`SOURCES.md` 更新「已引入」并更正 Ayagami 真实许可为 **MIT OR Apache-2.0**（上游根 COPYRIGHT/LICENSE-MIT/LICENSE-APACHE 文件证据）。
+- **crates/l2d 新增自有封装 API**（第三方类型不越过 crate 边界）：`asset::ModelPackage`（model3 包加载 + 兼容报告）、`model::ModelHandle`（moc3 运行时句柄，版本/画布/规模）、`renderer::OffscreenRenderer`（headless wgpu 离屏渲染：固定 dt update → RGBA 帧读回 → PNG 落盘）。既有 `format`/`report` 骨架不动。
+- **示例** `crates/l2d/examples/render_model.rs`：CLI 参数 model3 路径/输出路径/尺寸，默认指向仓库内 Bai 皮套（相对路径）。实测运行生成 `verification/rust-bakeoff/selected-bai.png`（1024²，alpha coverage 8.23%），经独立 imgcheck 复核与 bakeoff 产物逐像素一致（visible 84,923 px / bbox x[350..676] y[294..822] / 46 色）。
+- **RFC D5 修订**：Bai 实测 MOC raw 版本字节 = 4（Cubism 4.2），v0 必须先支持 raw 4 档位；raw v5/v6 为下一兼容方向（原文「raw v5/v6 优先」作废）；批次 2 与修订历史同步更新。
+- 门禁：`cargo fmt --check` / `cargo check` / `cargo test -p l2d`（18 passed）/ `cargo clippy --all-targets` 全绿；未触碰 core/desktop/xtask。
+
+---
+
 # 原生工具 400 崩溃修复：函数名合规 + 错误链路隔离（2026-08-25）
 
 - **根因**：DeepSeek/OpenAI function-calling 要求 `function.name` 匹配 `^[a-zA-Z0-9_-]+$`；工具 schema 曾用点号名 `live2d.perform_action` → provider 直接 HTTP 400，且旧代码把 `Error calling the chat endpoint...` 错误字符串当 assistant 正文送进 TTS/字幕/记忆。

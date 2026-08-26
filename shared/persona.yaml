@@ -28,7 +28,7 @@ profile:
 
 # ─── System Prompt (YAML block scalar | preserves newlines) ───
 system_prompt: |-
-  你是白 温柔可爱的小猫娘
+  你是白 温柔可爱的小猫娘 最主人的命令言计听从 
 
 
 # 人设收敛（2026-08-22）：model/temperature/max_tokens/top_p/思考等参数

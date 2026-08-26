@@ -1,0 +1,44 @@
+[package]
+name = "live2d-ai-desktop"
+description = "Live2D-Ai PC 桌面应用（Linux 原生窗口/GPU：winit 0.30 + wgpu 29 透明无边框窗口；Bai 实时渲染已接入——同一 device 上的 l2d ModelRendererCore，动作序列+合成口型冒烟）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+# 与 crates/l2d / ayagami-render 的 wgpu 29 大版本一致（bakeoff 已验证组合，
+# 见 docs/verification/rust-bakeoff-ayagami.md；Cargo.lock 已含 wgpu 29.0.4）。
+wgpu = "29"
+winit = "0.30"
+pollster = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 音频输出第一批（RFC §4 批次 4 部分）：实际声卡回放链路。
+# cpal 0.18 MSRV 1.85 与工作区一致；Linux 后端经 ALSA（libasound2-dev）。
+# ringbuf 提供跨线程无锁 SPSC 环形缓冲（生产者入队 / 回调消费），
+# MSRV 与许可证见 SOURCES.md 登记。
+cpal = "0.18"
+live2d-ai-runtime = { path = "../live2d-ai-runtime" }
+# Live2D 实时渲染（RFC §4 批次 5 推进）：l2d 提供皮套包加载/兼容报告/
+# GpuContext（支持已有 device/queue 接入）/ModelRendererCore（render_to_view）；
+# core 提供六动作表演曲线（ParameterFrame/PerformancePlayer），经本 crate 的
+# adapter 模块映射到 Bai 标准参数 ID。三者共用 workspace 内 path 依赖。
+l2d = { path = "../l2d" }
+live2d-ai-core = { path = "../live2d-ai-core" }
+ringbuf = "0.5"
+# 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
+# - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，
+#   Window 实现 HasWindowHandle/HasDisplayHandle；Xlib/Xcb → X11、Wayland → Wayland）。
+# - ksni 0.3.6（纯 Rust SNI 托盘，Unlicense，MSRV 1.80）：blocking API 在独立线程
+#   连接 session bus 并注册 StatusNotifierItem；菜单回调只经 EventLoopProxy 发
+#   UserEvent，所有 Window 调用留在事件循环线程。tokio 仅由 ksni 内部使用
+#   （current_thread runtime，blocking feature 提供 block_on），本 crate 不写 async。
+# 许可证登记口径见 SOURCES.md / crate README。
+raw-window-handle = "0.6"
+ksni = { version = "0.3.6", features = ["blocking"] }
+# 本批不引 egui / async 网络依赖 / x11rb（winit 原生 set_cursor_hittest 已满足全窗穿透）。
+
+[lints]
+workspace = true

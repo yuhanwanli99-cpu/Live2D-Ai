@@ -1,0 +1,31 @@
+# Live2D-Ai — Rust 重建 workspace（第一批，2026-08）
+# 仅含 Rust 重建的 crate；旧项目（Live2D-Ai-pc / Live2D-Ai-Android）不在 workspace 内，互不影响。
+# 本文件为根清单，无 package（根不产 crate）。
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/l2d",
+    "crates/live2d-ai-core",
+    "crates/live2d-ai-desktop",
+    "crates/live2d-ai-runtime",
+    "crates/l2d-wasm-demo",
+    "xtask",
+]
+
+# 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
+# 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
+rust-version = "1.87"
+license = "AGPL-3.0-only"
+authors = ["Sakura Motion Project"]
+
+# rustfmt/clippy 基础设置（rustfmt 细则见根 rustfmt.toml）
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = "warn"

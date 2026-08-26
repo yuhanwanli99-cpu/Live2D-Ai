@@ -1,0 +1,16 @@
+# l2d-wasm-demo 的 Trunk 配置（trunk serve / trunk build 均读取）。
+# 工具链：trunk（https://trunkrs.dev），Rust 目标固定 wasm32-unknown-unknown。
+
+[build]
+# index HTML 入口（trunk 会把 wasm-bindgen 产物注入该文件并输出到 dist/）
+target = "index.html"
+dist = "dist"
+release = false
+
+# 可选：把 /models 代理到本机静态模型目录服务（见 README「模型静态目录挂载」）。
+# 启动一个静态服务后取消注释，例如静态服务根目录已含 models/：
+#   python3 -m http.server 8123 --directory <你的模型目录的父目录>
+#
+# [[proxy]]
+# rewrite = "/models/"
+# backend = "http://127.0.0.1:8123/models/"

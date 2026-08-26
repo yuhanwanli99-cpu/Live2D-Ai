@@ -1,36 +1,69 @@
-# PROGRESS — 无人值守执行跟踪
+# 工程质量任务进度
 
-> 目标：①完成 PLAN-V3 P0-P2（soullink 表演引擎复用）②防回归严格测试 ③深度审计+大范围重构（不改外部行为）。
-> 运行模式：无人值守；所有进度落盘本文件；重构提交信息 refactor:*；测试失败立即回滚并记录。
+> **2026-08-25 交接**：当前轮次修改已落盘并暂停，详细交接见 [docs/development/HANDOFF-2026-08-25-runtime-fixes.md](docs/development/HANDOFF-2026-08-25-runtime-fixes.md)。
 
-## 环境/工具备注
-- 分支：refactor/elegance（基线快照自 main@af14074）
-- get_goal 工具绑定异常（binding error），目标以本文件为准；每轮尝试重读
-- 冒烟清单中"肉眼可辨"项无法无人值守验证 → P2 默认值切换被门控为【需人工冒烟后执行】，其余照常
-- 基线（2026-08-22）：PC pytest **421 passed**（含 SLOP 治理 14 例）；renderer vitest 28files/**408 passed**（含 soullink loader 回归 4 例）；tsc strict clean
+见 [docs/plans/post-launch-quality-roadmap.md](docs/plans/post-launch-quality-roadmap.md)。
 
-## 提交索引
-| hash | 类型 | 说明 |
-| --- | --- | --- |
-| 45a45df | feat | 表演编排层+多LLM管家+插件做实+记忆UI+日志升级（基线代码快照） |
-| 714f84a | docs | PLAN-V3/调研报告/plugin-sdk 契约等文档 |
-| 10b688d | fix(p1) | profile 直链解析修复（soullink 模式 404 回退根因）+ 引擎动态 chunk 隔离 legacy 路径 + 启动首错上屏 |
-| b85e384 | feat(p2) | SLOP 台词治理：离线挖掘器 + shared/slop_rules.json 策展表 + tts_filter 运行时正则治理（12 条种子规则，仅影响 TTS 音频） |
+## 当前状态（2026-08-24）
 
-## 阶段看板
-| 阶段 | 状态 | 备注 |
-| --- | --- | --- |
-| P0 Spike（profile 生成+headless 冒烟） | ✅ 完成 GO | verification/soullink-p0-report.md；发现：非标彩蛋参数未自动入档（需手工扩展/LLM refine）；能力检测与人盘互证 |
-| P1 双跑开关（performanceEngine=legacy|soullink + 适配器 + 单测） | ✅ 完成（c9585fb，收尾修复 10b688d） | soullink-adapter.ts+ws-bridge 三回调+main 相位钩子；10b688d 修掉 profile 直链 404 根因（此前 soullink 模式必回退 legacy）并实现引擎动态分块隔离；vitest 28files/408 passed；tsc clean；bundle 重建 |
-| P2 默认切换+退役 legacy | 🔶 受限部分完成 | 默认值切换**门控人工冒烟**（无人值守不做主观判定）；legacy 退役同样建议人工确认后执行——两项均已就绪，切换成本=改一行默认值+删文件 |
-| P2 台词质量治理（SLOP 脚本） | ✅ 完成（b85e384） | scripts/slop_miner.py 离线挖掘（.json/.jsonl 双格式+套话家族分桶）→ shared/slop_rules.json 人工策展（12 条种子规则）→ slop_rules.py 运行时懒加载+tts_filter 尾部正则治理；只影响 TTS 音频不影响字幕/记忆；坏条目跳过可见、缺失文件空规则不崩。待真实聊天历史积累后跑一轮 `python scripts/slop_miner.py chat_history/` 策展扩充 |
-| 审计(AUDIT.md)/重构(REFACTOR_PLAN.md) | ✅ 完成 | AUDIT.md（PC6+R2+A1 项全带证据）；REFACTOR_PLAN.md R1-R4 执行完毕（b9a38aa/9f13945/b4d154f），R5/R6 缓行有据；REFACTOR_SUMMARY.md 总结对账 |
+- [x] 计划文档：已创建
+- [x] Phase 0：测试基线已验证（pytest 437 passed，vitest 417 passed，tsc pass）
+  - [ ] 实际 `uv sync` 未能执行：当前环境无 uv 二进制，但依赖已通过现有 .venv 验证；CI 已启用 uv cache 与 Python 3.12
+- [x] Phase 1 部分完成：`routes.py` 从 2066 行拆至 1671 行
+  - [x] 新建 `services/config_service.py`、`services/config_routes_helpers.py`
+  - [x] 新建 `services/llm_routes_helpers.py`、`utils/http_utils.py`
+  - [x] 新建 `services/tts_routes_helpers.py`
+  - [x] 新建 `validators/log_level.py`、`validators/url_trust.py`
+  - [ ] 剩余：LLM/TTS endpoint 逻辑进一步服务化、routes.py 历史 broad-exception 清理
+- [x] Phase 2 部分完成：
+  - [x] 创建 `renderer/src/settings/api-client.ts` 脚手架
+  - [ ] 未 wired：`settings-ui.ts` 仍保持原状以确保 tsc/vitest 通过；需后续逐步替换 fetch 调用
+- [x] Phase 3 部分完成：
+  - [x] CI 升级 Python 3.12、启用 uv cache
+  - [x] CI 增加 Android persona.yaml 与 shared/ 一致性校验
+  - [ ] 剩余：关闭 ruff continue-on-error、修复历史 broad-exception
+- [x] Phase 4 部分完成：
+  - [x] 创建 `docs/development/uv-workflow.md`
+  - [x] 在 `docs/architecture/core-contracts.md` 补充参数空间约定
+  - [ ] 剩余：打 tag、最终全量验证
 
-## P0 执行记录
-- [x] npm 安装 engine/profile-generator@0.1.0-beta.1（锁版本）
-- [x] 生成 shared/model-profiles/bai.profile.json（heuristic；FACS 24→mapped 20；usedCdi 16/128）
-- [x] headless 冒烟 PASS：未知参数 0；眨眼幅度 0.887；呼吸波动 0.900
-- [x] 报告落盘 verification/soullink-p0-report.md
+## 验证结果
 
-## 已知风险/跳过记录
-- （暂无）
+- PC pytest：437 passed
+- renderer vitest：417 passed
+- renderer tsc --noEmit：pass
+
+## 2026-08-24 执行 1-2-3-4 计划
+
+- [x] pytest 基线保持：437 passed（PC 后端）
+- [x] renderer vitest 基线保持：417 passed；tsc --noEmit 通过
+- [x] 后端 service 拆分：
+  - `services/llm_service.py`：模型发现 / LLM 测试 / Provider 检查 LLM 部分
+  - `services/model_service.py`：模型注册表读取、扫描、形象热切换
+  - `services/tts_service.py`：TTS Provider 检查、TTS 试听
+  - `services/local_tts_service.py`：本地 Melo TTS 试听与音频下载
+  - `services/config_endpoint_service.py`：/api/config/tree 原子写 + Pydantic 校验
+- [x] `routes.py` 由 2066 行降至 1157 行（init_config_routes 降至 ~993 行）
+- [x] 渲染层 `settings/api-client.ts` 封装所有设置面板 fetch，已接入 `settings-ui.ts`，`tsc --noEmit` 通过
+- [x] 全仓库 BLE001（盲目捕获 Exception）已归零；未移除 ruff continue-on-error（ruff.yml 本身已无 continue-on-error）
+- [ ] 剩余：将 `update_config`（~416 行）进一步拆入 `ConfigEndpointService`，目标 `routes.py` <1000 行
+## 2026-08-24 PC Preview 发布治理
+
+- [x] 许可证统一为标准 AGPL-3.0-only；商业使用遵守 AGPL 即可，另提供可选闭源商业许可证
+- [x] 白模型来源记录为 Bilibili BV1NqNFejEeE；公共 PC Preview 不捆绑未明确授权再分发的模型原文件
+- [x] 导演改为只选择语义动作；连续 halfBody/gaze 输出被忽略，渲染端确定性执行并自动回中
+- [x] 动作 strength 1/2/3 已贯通后端协议与 renderer，幅度可区分
+- [x] look_around 眼球时间线限制在安全区，结束回到 ParamEyeBallX/Y=0.5
+- [x] routes.py 从 1157 行降至 11 行兼容组装层；设置、catalog、config update、proxy、webtool/ASR/TTS WS 全部迁入 api/
+- [x] 新增 route 架构门禁，禁止 routes.py 回涨超过 600 行或重新吸收音频/proxy endpoints
+- [x] 新增 PC Preview CI：uv sync --locked、pytest、renderer test/typecheck/build、Gitleaks、公开树策略
+- [x] 新增 CONTRIBUTING/SECURITY/CODE_OF_CONDUCT/COMMERCIAL-LICENSE、Issue/PR 模板和 PC 发布策略
+- [x] 当前全量验证：PC pytest 445 passed；renderer 427 passed；tsc pass；Vite production build pass
+- [x] 已生成并验证 PC-only 公共源码归档：约 8MB/402 文件，不含模型/缓存/密钥；归档内 Python 440 passed
+- [x] 公共无模型 renderer 干净 npm ci：414 passed + 6 私有模型资产测试 skipped；tsc/build pass
+- [x] Vite/Vitest 升级至安全版本，npm audit 0 vulnerabilities
+- [x] Renderer 上帝文件治理：settings HTML 模板迁入 settings/panel-template.ts（2130→1920 行）；main bootstrap storage/live2d loader 迁入 bootstrap/（935→856 行）；新增架构/行为测试
+- [ ] 外部 CI 尚需在 GitHub 实际执行 uv sync --locked 与 Gitleaks 全历史扫描
+- [x] 公共无模型归档已在 Linux 实际启动：默认绑定 127.0.0.1；无 Key 时 /health、首页、/api/config、/api/models 均 200，设置响应不含 key
+- [ ] 尚需导入合法模型做浏览器渲染，并用真实 Provider 做对话/TTS/口型/动作/打断 smoke，之后 tag
+

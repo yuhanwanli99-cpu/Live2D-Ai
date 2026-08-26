@@ -139,3 +139,8 @@ analysis/**/tmp/
 
 # 本地后台运行残留
 nohup.out
+
+# Rust / Cargo workspace 本地产物（RFC docs/plans/RUST-REWRITE-RFC.md）
+# 注意：Cargo.lock **保留入库**（可复现构建），绝不忽略。
+/target/
+**/*.rs.bk
