@@ -1,11 +1,12 @@
 //! 根级集成测试：跨子系统场景，证明根 `State` 是唯一 epoch owner。
 //!
 //! 覆盖：stop 不漂移 epoch（含 ID 重用隔离）、优先级仲裁经根事件生效、
-//! release/interrupt 经根事件收尾、多句 turn、音频队列串行。
+//! release/interrupt 经根事件收尾、多句 turn、**turn 终态双闩锁**
+//! （生成终态 + 播放终态，节点 A P0-1/P0-3）。
 
 use live2d_ai_core::{
     ActionCommand, ActionDropReason, ActionEffect, ActionId, ActionSource, DropReason, Effect,
-    Epoch, Event, ModelCapabilities, SemanticAction, State, Strength, apply,
+    Epoch, Event, GenerationOutcome, ModelCapabilities, SemanticAction, State, Strength, apply,
 };
 
 const E0: Epoch = Epoch::ZERO;
@@ -42,28 +43,30 @@ fn add_sentence(state: &mut State, turn: u64, sentence_id: u64) -> Vec<Effect> {
     apply(state, event)
 }
 
-/// 以当前 epoch 盖章宣告音频块就绪。
-fn ready(state: &mut State, turn: u64, sentence: u64, chunk: u64) -> Vec<Effect> {
-    let event = Event::AudioChunkReady {
-        epoch: state.epoch,
-        turn_id: turn.into(),
-        sentence_id: sentence.into(),
-        chunk_id: chunk.into(),
-    };
-    apply(state, event)
+/// 以当前 epoch 盖章宣告播放开始（首个非空 PCM 块成功入环的事实）。
+fn started(state: &mut State, turn: u64) -> Vec<Effect> {
+    apply(
+        state,
+        Event::PlaybackStarted {
+            epoch: state.epoch,
+            turn_id: turn.into(),
+        },
+    )
 }
 
-/// 以当前 epoch 盖章宣告播放完成。
-fn done(state: &mut State, chunk: u64) -> Vec<Effect> {
-    let event = Event::AudioChunkFinished {
-        epoch: state.epoch,
-        chunk_id: chunk.into(),
-    };
-    apply(state, event)
+/// 以当前 epoch 盖章宣告 DAC 排空。
+fn drained(state: &mut State, turn: u64) -> Vec<Effect> {
+    apply(
+        state,
+        Event::PlaybackDrained {
+            epoch: state.epoch,
+            turn_id: turn.into(),
+        },
+    )
 }
 
-/// 一个已就绪的多句会话：turn#1 含句 1/2/3，chunk 10 播放中、11/12 排队。
-fn multi_sentence_state_with_queue() -> State {
+/// 一个已就绪的多句会话：turn#1 含句 1/2/3，播放已开始（Speaking）。
+fn multi_sentence_state_speaking() -> State {
     let mut state = State::default();
     assert_eq!(
         submit(&mut state, 1, 1),
@@ -71,26 +74,18 @@ fn multi_sentence_state_with_queue() -> State {
     );
     add_sentence(&mut state, 1, 2);
     add_sentence(&mut state, 1, 3);
-    assert_eq!(
-        ready(&mut state, 1, 1, 10),
-        vec![Effect::PlayAudio {
-            chunk_id: 10.into()
-        }]
-    );
-    // 忙碌时后续块静默入队（无 PlayAudio）。
-    assert_eq!(ready(&mut state, 1, 2, 11), Vec::<Effect>::new());
-    assert_eq!(ready(&mut state, 1, 3, 12), Vec::<Effect>::new());
-    assert_eq!(state.active_audio, Some(10_u64.into()));
-    assert_eq!(state.pending_audio, [11_u64.into(), 12_u64.into()]);
+    // 播放事实只翻相位，不产生效果（PCM 由 supervisor 直接入环）。
+    assert_eq!(started(&mut state, 1), Vec::<Effect>::new());
+    assert_eq!(state.phase, live2d_ai_core::Phase::Speaking);
     state
 }
 
 /// stop 推进 epoch **恰好一次**并原子清空全部子系统；此后旧代次的
-/// 音频/动作/turn 迟到事件全部被根闸门丢弃，新代次用同样的 id 一切照常
+/// 播放/动作/turn 迟到事件全部被根闸门丢弃，新代次用同样的 id 一切照常
 /// —— 无 epoch 漂移。
 #[test]
 fn stop_does_not_drift_epoch_and_gates_every_subsystem() {
-    let mut state = multi_sentence_state_with_queue();
+    let mut state = multi_sentence_state_speaking();
     state.action.capabilities = ModelCapabilities::all();
     let nod = act(ActionId::Nod, Strength::Low, ActionSource::LlmTool);
     assert_eq!(
@@ -98,13 +93,11 @@ fn stop_does_not_drift_epoch_and_gates_every_subsystem() {
         vec![Effect::Action(ActionEffect::Start { action: nod })]
     );
 
-    // ---- stop：一次事件清空 audio 队列 + 动作 + turn，epoch 只 +1。----
+    // ---- stop：一次事件清空播放簿记 + 动作 + turn，epoch 只 +1。----
     let effects = apply(&mut state, Event::StopRequested);
     assert_eq!(state.epoch, Epoch::from(1));
     assert_eq!(state.phase, live2d_ai_core::Phase::Idle);
     assert!(state.active_turn.is_none());
-    assert_eq!(state.active_audio, None);
-    assert!(state.pending_audio.is_empty());
     assert!(state.action.current.is_none());
     assert_eq!(
         effects,
@@ -122,15 +115,22 @@ fn stop_does_not_drift_epoch_and_gates_every_subsystem() {
     // ---- 旧代次（epoch 0）迟到事件：全部 StaleEpoch 且状态逐字节不变。----
     let snapshot = state.clone();
     let late = vec![
-        Event::AudioChunkReady {
+        Event::PlaybackStarted {
             epoch: E0,
             turn_id: 1.into(),
-            sentence_id: 1.into(),
-            chunk_id: 13.into(),
         },
-        Event::AudioChunkFinished {
+        Event::PlaybackDrained {
             epoch: E0,
-            chunk_id: 10.into(),
+            turn_id: 1.into(),
+        },
+        Event::PlaybackCleared {
+            epoch: E0,
+            turn_id: 1.into(),
+        },
+        Event::GenerationFinished {
+            epoch: E0,
+            turn_id: 1.into(),
+            outcome: GenerationOutcome::Completed,
         },
         play(0, nod),
         Event::Action {
@@ -141,10 +141,6 @@ fn stop_does_not_drift_epoch_and_gates_every_subsystem() {
             epoch: E0,
             turn_id: 1.into(),
             sentence_id: 4.into(),
-        },
-        Event::TurnFinished {
-            epoch: E0,
-            turn_id: 1.into(),
         },
         Event::UserSubmitted {
             epoch: E0,
@@ -173,16 +169,8 @@ fn stop_does_not_drift_epoch_and_gates_every_subsystem() {
         vec![Effect::StartThinking { turn_id: 1.into() }]
     );
     add_sentence(&mut state, 1, 2);
-    assert_eq!(
-        ready(&mut state, 1, 1, 10), // chunk id 重用 → 立刻开播
-        vec![Effect::PlayAudio {
-            chunk_id: 10.into()
-        }]
-    );
-    assert_eq!(
-        done(&mut state, 10), // 新代次的完成正常消费
-        Vec::<Effect>::new()
-    );
+    assert_eq!(started(&mut state, 1), Vec::<Effect>::new()); // id 重用照常起播
+    assert_eq!(drained(&mut state, 1).len(), 0); // 无生成闩 → 只落播放闩，不终态
     assert_eq!(
         apply(&mut state, play(1, nod)), // 新代次的表演正常起播
         vec![Effect::Action(ActionEffect::Start { action: nod })]
@@ -243,16 +231,16 @@ fn priority_arbitration_flows_through_root_events() {
 }
 
 /// release / interrupt 经根事件收尾：恰好一个 End 效果，**不**推进 epoch；
-/// 音频队列不受影响继续串行；之后 stop 仍能原子清理剩余子系统。
+/// 播放侧簿记不受影响；之后 stop 仍能原子清理剩余子系统。
 #[test]
 fn release_and_interrupt_end_actions_without_epoch_bump() {
-    let mut state = multi_sentence_state_with_queue(); // 无动作在演
+    let mut state = multi_sentence_state_speaking(); // 无动作在演
     state.action.capabilities = ModelCapabilities::all();
 
     let nod = act(ActionId::Nod, Strength::Low, ActionSource::LlmTool);
     apply(&mut state, play(0, nod));
 
-    // release：一个 End；audio 队列与 epoch 完全不受影响。
+    // release：一个 End；播放簿记与 epoch 完全不受影响。
     let epoch = state.epoch;
     let effects = apply(
         &mut state,
@@ -266,7 +254,7 @@ fn release_and_interrupt_end_actions_without_epoch_bump() {
         vec![Effect::Action(ActionEffect::End { action: nod })]
     );
     assert!(state.action.current.is_none());
-    assert_eq!(state.active_audio, Some(10_u64.into()));
+    assert_eq!(state.phase, live2d_ai_core::Phase::Speaking);
     assert_eq!(state.epoch, E0);
 
     // interrupt：同样一个 End。
@@ -285,18 +273,9 @@ fn release_and_interrupt_end_actions_without_epoch_bump() {
     );
     assert_eq!(state.epoch, E0);
 
-    // 音频队列继续串行：front 完成 → 启动下一块。
-    assert_eq!(
-        done(&mut state, 10),
-        vec![Effect::PlayAudio {
-            chunk_id: 11.into()
-        }]
-    );
-
-    // 最后 stop 一次性收掉剩余的 turn + audio。
+    // 最后 stop 一次性收掉剩余的 turn + 播放簿记。
     let effects = apply(&mut state, Event::StopRequested);
     assert_eq!(state.epoch, Epoch::from(1));
-    assert_eq!(state.active_audio, None);
     assert_eq!(
         effects,
         vec![
@@ -310,46 +289,48 @@ fn release_and_interrupt_end_actions_without_epoch_bump() {
     );
 }
 
-/// 多句 + 队列串行端到端：块按计划顺序串行消费，重复就绪被拒，
-/// TurnFinished 后可开下一轮。
+/// 端到端双闩锁：流式时序（Started → 生成完成 → Drained）下 turn 恰好一次
+/// 收口，且完成后可开下一轮——「Engine Done ≠ turn 完成」的集成证据。
 #[test]
-fn multi_sentence_turn_serializes_audio_in_plan_order() {
-    let mut state = multi_sentence_state_with_queue();
+fn happy_path_double_latch_then_next_turn() {
+    let mut state = multi_sentence_state_speaking();
 
-    // 依次完成 front 块：10 → 11 → 12，每步只启动下一块。
-    assert_eq!(
-        done(&mut state, 10),
-        vec![Effect::PlayAudio {
-            chunk_id: 11.into()
-        }]
-    );
-    assert_eq!(
-        done(&mut state, 11),
-        vec![Effect::PlayAudio {
-            chunk_id: 12.into()
-        }]
-    );
-
-    // 中途重复就绪正在播的 12 → DuplicateChunk。
-    assert_eq!(
-        ready(&mut state, 1, 3, 12),
-        vec![Effect::Dropped {
-            reason: DropReason::DuplicateChunk {
-                chunk_id: 12.into()
-            }
-        }]
-    );
-
-    assert_eq!(done(&mut state, 12), Vec::<Effect>::new());
-
-    // TurnFinished 收尾：无残留音频 → 仅 GoIdle，可开下一轮。
-    let turn_finished = Event::TurnFinished {
+    // 生成先于播放结束：turn 必须存活（等待 DAC 排空）。
+    let gen_evt = Event::GenerationFinished {
         epoch: state.epoch,
         turn_id: 1.into(),
+        outcome: GenerationOutcome::Completed,
     };
-    assert_eq!(apply(&mut state, turn_finished), vec![Effect::GoIdle]);
+    assert_eq!(apply(&mut state, gen_evt.clone()), Vec::<Effect>::new());
+    assert!(state.active_turn.is_some());
+
+    // 排空 ⇒ 恰好一次 TurnCompleted + GoIdle。
+    let effects = drained(&mut state, 1);
+    assert_eq!(
+        effects,
+        vec![
+            Effect::TurnCompleted {
+                turn_id: 1.into(),
+                outcome: GenerationOutcome::Completed,
+            },
+            Effect::GoIdle
+        ]
+    );
+    assert_eq!(state.phase, live2d_ai_core::Phase::Idle);
+
+    // 完成后可开下一轮（pending Say 启动的前提条件）。
     assert_eq!(
         submit(&mut state, 2, 9),
         vec![Effect::StartThinking { turn_id: 2.into() }]
     );
+
+    // 上一轮迟到的重复 GenerationFinished（同 id 同代次不可能重现，
+    // 这里用旧轮 id）→ UnknownTurn，不污染新一轮。
+    assert_eq!(
+        apply(&mut state, gen_evt),
+        vec![Effect::Dropped {
+            reason: DropReason::UnknownTurn { turn_id: 1.into() }
+        }]
+    );
+    assert!(state.active_turn.is_some());
 }

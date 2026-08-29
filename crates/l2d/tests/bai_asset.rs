@@ -17,8 +17,7 @@ use l2d::model::LoadedModel;
 use l2d::renderer::{FIXED_DT_60HZ, OffscreenRenderer};
 
 /// 仓库内 Bai 皮套清单路径（相对本 crate 的 CARGO_MANIFEST_DIR）。
-const BAI_MODEL3: &str =
-    "../../Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json";
+const BAI_MODEL3: &str = "../../assets/models/bai/runtime/bai.model3.json";
 
 /// bakeoff 1024² 产物 bbox（含端点），按比例缩放到当前渲染尺寸。
 const BAKEOFF_BBOX_1024: (u32, u32, u32, u32) = (350, 294, 676, 822);

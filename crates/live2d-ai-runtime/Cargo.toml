@@ -11,7 +11,15 @@ authors.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 serde = { version = "1", features = ["derive"] }
+# `serde_with::rust::double_option` 让 `Option<Option<T>>` 在 JSON 端真实可区分：
+# - 字段缺省 → None（不修改）
+# - 显式 null → Some(None)（清空）
+# - 显式值 → Some(Some(v))（覆盖）
+# v3 仍与 serde 1 兼容（与 settings 的「三态」补丁语义对齐）。
+serde_with = { version = "3", default-features = false, features = ["std", "macros"] }
 serde_json = "1"
+# `live2d-ai.toml` 应用配置解析（settings 模块）。
+toml = "0.9"
 thiserror = "2"
 url = "2"
 # 对话引擎（`conversation` 模块）的异步设施：

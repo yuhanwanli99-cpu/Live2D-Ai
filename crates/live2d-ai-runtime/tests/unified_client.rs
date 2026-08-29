@@ -8,6 +8,14 @@
 //! - 密钥只进 `Authorization` 头；无 key 时头不存在；Debug 不泄露；
 //! - TTS `/audio/speech` 请求形状（默认 `response_format=pcm`）+ chunked bytes
 //!   原样转发，且 raw PCM 字节流可跨任意 chunk 切割增量解码。
+//!
+//! 行数豁免：本文件 546 行超 ≤500 红线（豁免上限 1000）。
+//! 豁免理由：测试文件 9 个用例均为「单文件 mock TCP 端 + 端到端断言」的小循环，
+//! 强行拆分为多文件会要求把 mock 服务端构造（`PlannedResponse` / `spawn_server` /
+//! `sse_data` / `llm_client` 等）和 SSE 字节构造器抽到 common 模块——这会改动
+//! common 的公共面，而 common 同时被 `conversation_engine_*` 三个集成测试使用，
+//! 会扩大改动半径、引入与本任务无关的回归风险；本任务 scope 明确不在拆分该文件。
+//! 因此维持单文件、附头注豁免。
 
 use std::time::Duration;
 

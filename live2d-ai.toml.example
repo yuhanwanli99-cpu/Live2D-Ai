@@ -1,0 +1,39 @@
+# Live2D-Ai 桌面端配置模板（Rust 版，live2d-ai-runtime::settings 解析）。
+#
+# 用法：
+#   cp live2d-ai.toml.example live2d-ai.toml
+# 然后按需修改。所有段与字段都有默认值：最小可用配置只需
+# [llm] base_url/model 与 [tts] base_url。
+#
+# 安全边界：
+#   API Key 不写进本文件——在 api_key_env 写环境变量**名**，
+#   运行时从进程环境读取；变量未设置或为空串 = 不发送 Authorization 头。
+#
+# 注意：未知字段会导致启动报错（防拼写错误静默失效），不要随意加自定义键。
+
+[llm]
+# OpenAI-compatible 服务基址（尾部 / 可省略），请求路径 <base_url>/chat/completions
+base_url = "http://127.0.0.1:11434/v1"
+# 模型名（原样进入请求体 model 字段）
+model = "qwen2.5:7b"
+# 存放 API key 的环境变量名；本地无鉴权服务直接删除此行
+# api_key_env = "LIVE2D_AI_LLM_API_KEY"
+
+[tts]
+# OpenAI-compatible 服务基址，请求路径 <base_url>/audio/speech
+base_url = "http://127.0.0.1:8000/v1"
+# 可选模型名；删除此行则请求体不带 model 字段（由服务端默认决定）
+# model = "tts-1"
+# 音色（请求体 voice 字段）
+voice = "alloy"
+# 存放 API key 的环境变量名；本地无鉴权服务直接删除此行
+# api_key_env = "LIVE2D_AI_TTS_API_KEY"
+# 返回 raw PCM 流的解释规格（response_format 固定请求 pcm = s16le interleaved）
+# sample_rate = 24000
+# channels = 1
+
+[persona]
+# 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息
+system_prompt = "你是桌面上的 Live2D 桌宠。用简短、口语化的中文回答；动作只通过工具触发。"
+# 保留的历史轮数上限（一轮 = 一条 user + 一条 assistant）；0 = 每轮独立
+max_history_pairs = 0

@@ -31,14 +31,13 @@ logs/
 .env
 .env.local
 
+# Rust 桌面端本机配置（含个人服务地址/persona；模板 live2d-ai.toml.example 入库）
+/live2d-ai.toml
+crates/**/live2d-ai.toml
+
 # 外部文字接入开关状态（本机运行态：含访问令牌，勿入库）
-Live2D-Ai-pc/open-llm-vtuber/external_input.json
 # 当前选中的角色背景图（本机运行态，勿入库）
-Live2D-Ai-pc/open-llm-vtuber/background_state.json
 # 用户上传的角色背景图（本机内容，勿入库；仅保留 backgrounds/README.md）
-Live2D-Ai-pc/open-llm-vtuber/backgrounds/*
-!Live2D-Ai-pc/open-llm-vtuber/backgrounds/README.md
-!Live2D-Ai-pc/open-llm-vtuber/backgrounds/.gitkeep
 
 # Node / Electron
 node_modules/
@@ -91,7 +90,6 @@ pi-session-dump/
 .agents/
 
 # PC frontend runtime binaries — re-fetch via npm / upstream repo
-Live2D-Ai-pc/open-llm-vtuber/frontend/libs/
 
 # Local packaging artifacts
 dist.zip
@@ -118,18 +116,18 @@ Live2D-Ai-debug*.apk
 .kotlin
 
 # 前端编译产物（spoq-fix：出仓，构建时生成）
-Live2D-Ai-pc/open-llm-vtuber/frontend/assets/*.js
-Live2D-Ai-pc/open-llm-vtuber/frontend/assets/*.css
+
+# Live2D 模型二进制资产（未获作者公开再分发授权，不入库；仅保留目录与说明）
+assets/models/*
+!assets/models/README.md
+!assets/models/.gitkeep
 
 # 运行时/agent 状态与产物（spoq-fix 出仓）
 .pi-glla/
 .pi-lens.json
 spoq/work/
-Live2D-Ai-pc/open-llm-vtuber/renderer/public/libs/
 
 # renderer 调试/构建残留（spoq-fix 出仓）
-Live2D-Ai-pc/open-llm-vtuber/renderer/_bcheck.mjs
-Live2D-Ai-pc/open-llm-vtuber/renderer/public/
 
 # 一次性任务交接/审计工作产物（session dumps）——不入库
 **/handoff*.json
@@ -144,3 +142,6 @@ nohup.out
 # 注意：Cargo.lock **保留入库**（可复现构建），绝不忽略。
 /target/
 **/*.rs.bk
+
+# cargo 缓存（本机依赖副本，勿入库）
+.cargo-home/

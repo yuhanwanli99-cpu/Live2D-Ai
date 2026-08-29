@@ -75,6 +75,7 @@ pub mod dialogue;
 pub mod error;
 pub mod llm;
 pub mod secret;
+pub mod settings;
 pub mod sse;
 pub mod tool;
 pub mod tts;
@@ -93,6 +94,9 @@ pub use dialogue::{
 pub use error::{Error, Result};
 pub use llm::{ChatMessage, LlmEvent, Role};
 pub use secret::ApiSecret;
+pub use settings::patch::{PatchOutcome, SettingsPatch, apply_patch, plan_atomic_write};
+pub use settings::view::SettingsView;
+pub use settings::{AppSettings, ResolvedSettings, SettingsError};
 pub use sse::{SseDecoder, SseEvent};
 pub use tool::{
     Live2dPerformActionArgs, PERFORM_ACTION_TOOL_NAME, PerformAction, perform_action_tool,

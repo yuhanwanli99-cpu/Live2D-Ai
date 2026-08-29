@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live2D-Ai 配置面板</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Live2D-Ai</h1>
+  <span class="ver" id="ver">v…</span>
+  <span class="stat"><span class="dot idle" id="dot"></span><span id="conn">连接中…</span></span>
+  <span class="stat">WS: <span id="wsBadge" class="status">—</span></span>
+  <span class="stat">LLM: <span id="llmBadge" class="status">—</span></span>
+  <span class="stat">TTS: <span id="ttsBadge" class="status">—</span></span>
+  <span style="flex:1"></span>
+  <button class="secondary" id="btnRefresh">刷新</button>
+</header>
+
+<main>
+  <div>
+    <section class="card">
+      <h2>LLM 配置</h2>
+      <label>base_url <span class="field-meta">（OpenAI 兼容端点）</span></label>
+      <input type="text" id="llmBaseUrl" placeholder="http://127.0.0.1:11434/v1">
+      <label>model</label>
+      <input type="text" id="llmModel" placeholder="qwen2.5:7b">
+      <label>api_key_env <span class="field-meta">环境变量名（非密钥本身）</span></label>
+      <input type="text" id="llmApiKeyEnv" placeholder="环境变量名（非密钥）">
+      <div class="row">
+        <button class="secondary" id="btnTestLlm">测试 LLM 连接</button>
+        <span class="status" id="llmTestResult"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>TTS 配置</h2>
+      <label>base_url</label>
+      <input type="text" id="ttsBaseUrl" placeholder="http://127.0.0.1:8000/v1">
+      <label>voice</label>
+      <input type="text" id="ttsVoice" placeholder="alloy">
+      <label>api_key_env <span class="field-meta">环境变量名（非密钥本身）</span></label>
+      <input type="text" id="ttsApiKeyEnv" placeholder="环境变量名（非密钥）">
+      <div class="row">
+        <button class="secondary" id="btnTestTts">测试 TTS 连接</button>
+        <span class="status" id="ttsTestResult"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>系统提示词 &amp; 开发者模式</h2>
+      <label>system_prompt</label>
+      <textarea id="systemPrompt" rows="5" placeholder="你是桌宠……"></textarea>
+      <label class="checkbox">
+        <input type="checkbox" id="devMode">
+        开发者模式（开启后允许查看日志端点；写入设置后立即生效）
+      </label>
+      <div class="row buttons">
+        <button id="btnSave">保存</button>
+        <button class="secondary" id="btnReload">重新载入</button>
+        <button class="danger" id="btnClearKey">清除密钥绑定</button>
+      </div>
+      <div class="status" id="saveStatus"></div>
+    </section>
+  </div>
+
+  <aside>
+    <section class="card">
+      <h2>运行状态</h2>
+      <dl class="kv">
+        <dt>config</dt><dd id="cfgPath">—</dd>
+        <dt>启动</dt><dd id="startedAt">—</dd>
+        <dt>uptime</dt><dd id="uptime">—</dd>
+        <dt>model</dt><dd id="activeModel">—</dd>
+        <dt>audio</dt><dd id="audio">—</dd>
+        <dt>dev_mode</dt><dd id="devModeStatus">—</dd>
+        <dt>epoch</dt><dd id="epoch">—</dd>
+        <dt>LLM base</dt><dd id="llmBase">—</dd>
+        <dt>LLM has_key</dt><dd id="llmHasKey">—</dd>
+        <dt>TTS base</dt><dd id="ttsBase">—</dd>
+        <dt>TTS has_key</dt><dd id="ttsHasKey">—</dd>
+      </dl>
+    </section>
+
+    <section class="card" id="logsCard">
+      <h2>最近日志 <span class="field-meta" id="logsFile"></span></h2>
+      <div class="row buttons">
+        <button class="secondary" id="btnReloadLogs">重新拉取</button>
+        <span class="status" id="logsStatus">dev_mode 关闭</span>
+      </div>
+      <pre id="logs">（等待开启 dev_mode）</pre>
+    </section>
+  </aside>
+</main>
+
+<!-- D5-W2 任务：对话区 + 模型展示区（D6 布局：左配置 / 中展示 / 底输入）。
+     live2d-display 占位由 D3 填充；chat-panel 含消息流 + 状态条 + 底栏输入。 -->
+<section class="stage" aria-label="展示与对话区">
+  <div class="live2d-display" id="live2d-display">
+    <span class="placeholder">Live2D 展示区（D3 批次填充）</span>
+  </div>
+
+  <div class="chat-panel" id="chat-panel">
+    <div class="chat-header">
+      <span class="chat-title">对话</span>
+      <span class="chat-status status" id="chat-status">空闲</span>
+    </div>
+    <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
+      <div class="chat-empty" id="chat-empty">（暂无消息；在下方输入并发送）</div>
+    </div>
+    <div class="chat-composer" id="chat-composer">
+      <textarea id="chat-input" rows="2" placeholder="输入消息，Enter 发送，Shift+Enter 换行" data-testid="chat-input"></textarea>
+      <div class="chat-actions">
+        <button id="chat-send" data-testid="chat-send">发送</button>
+        <button class="danger" id="chat-stop" data-testid="chat-stop" disabled>停止</button>
+        <span class="status" id="chat-hint">就绪</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="toast"></div>
+
+<footer>
+  API 与页面同源（loopback 端口） · WS <code>/ws/state</code> · 离线可用 · 数据来自
+  <code>GET /api/v1/app/capabilities</code> + <code>/api/v1/app/status</code> +
+  <code>POST /api/v1/chat</code> + <code>/ws/state</code>。
+</footer>
+
+<script src="/static/app.js"></script>
+<script src="/static/chat.js"></script>
+</body>
+</html>

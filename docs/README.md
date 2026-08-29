@@ -19,7 +19,9 @@
 
 ## 规划
 
-- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，当前执行口径，含本地 Melo TTS）**](plans/PLAN-V2-PC-LOCAL-TTS.md)
+- [**Rust 重建 RFC（当前执行口径）**](plans/RUST-REWRITE-RFC.md)
+- [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](plans/node-a-wiring-audit-brief.md)
+- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，含本地 Melo TTS）**](plans/PLAN-V2-PC-LOCAL-TTS.md)
 - [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](plans/PLAN-V3-SOULLINK-PERFORMANCE.md)
 - [PLAN-V1.md（上一版 PC 计划，已被 V2 取代）](plans/PLAN-V1.md)
 - [PLAN.md](../PLAN.md)（架构演进历史）

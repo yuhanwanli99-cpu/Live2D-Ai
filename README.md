@@ -47,7 +47,18 @@ Live2D-Ai = Live2D + AI + TTS。项目的全部意义只有一件事：**做一�
 **关于 Live2D 渲染（两套实现，许可不同）**：
 
 - **Android 端**：基于 [Purism Core](https://github.com/SakuraMotion/PurismCore)（MIT 开源许可）替代 Live2D 官方的闭源 Cubism SDK。
-- **PC 端（WSL2/Linux）**：基于 [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)（MIT）构建，其 Web 渲染依赖 **Live2D Cubism Web Core**（`live2dcubismcore.min.js`），这是 **Live2D 公司的专有 Redistributable Code，不适用 AGPL/MIT**。PC-only Preview 公共发布树**不分发**该文件，也**不分发任何 Live2D 模型/TTS/ASR 模型/API Key**；用户需自行从 [Live2D 官方](https://www.live2d.com/)接受许可并下载 Cubism Web Core，并合法取得模型后本地导入。因此 PC Preview 并非“完全可复制、无需接受 Live2D 许可”。
+- **PC 端（Rust 重构，当前唯一主线）**：基于 [Ayagami](https://github.com/)（MIT OR Apache-2.0，pin rev）+ wgpu 29 原生渲染，不依赖 Live2D Cubism 专有 Web Core；模型仍需用户合法取得（本仓库**不分发任何 Live2D 模型**——`assets/models/` 仅保留目录与说明，二进制不入库）。
+
+### 🗄️ Python 版（Open-LLM-VTuber fork）退役说明
+
+`Live2D-Ai-pc/` 已于 **2026-08-28** 从主线移除，Rust 重构（`crates/`）成为唯一主线。完整 Python 源码保留在 git 历史中（tag `py-legacy` 或退役前提交）：
+
+```bash
+git tag -l py-legacy           # 查看退役标签
+git checkout py-legacy         # 检出含 Python 版的完整历史
+```
+
+后续不再对 Python 版做任何维护或功能移植；`docs/architecture/` 中的双端对照文档仅作历史参考。
 
 ---
 

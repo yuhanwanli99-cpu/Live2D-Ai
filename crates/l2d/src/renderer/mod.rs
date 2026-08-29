@@ -6,7 +6,10 @@
 //!   （嵌入现有 wgpu 应用）；
 //! - [`ModelRendererCore`]（[`model_core`]）：渲染核心——上游 [`ModelRenderer`]
 //!   封装 + 姿态分层栈（见 [`crate::pose_stack`]），与具体输出目标解耦，
-//!   可把一帧渲染到**任意视图**（[`ModelRendererCore::render_to_view`]）；
+//!   可把一帧渲染到**任意视图**——实时路径调只提交的
+//!   [`ModelRendererCore::render_to_view_submit`]，离屏/确定性测试可继续
+//!   调用阻塞包装 [`ModelRendererCore::render_to_view`]（精确等待本帧
+//!   submission 完成，不再用无索引 `wait_indefinitely`）；
 //! - [`OffscreenRenderer`]（[`offscreen`]）：便利层——持有离屏目标纹理，
 //!   提供 new/resize/render_frame/PNG 落盘等一步到位 API。
 //!
@@ -294,6 +297,25 @@ mod tests {
         let err: RenderError = crate::pose_stack::InvalidDt(-1.0).into();
         assert_eq!(err, RenderError::InvalidDt(-1.0));
         assert!(err.to_string().contains("-1"));
+    }
+
+    /// 编译期契约锁：双 API 签名必须保持——
+    /// `render_to_view_submit` 返回 `wgpu::SubmissionIndex`（实时路径使用），
+    /// `render_to_view` 是 `Result<(), RenderError>` 阻塞包装。
+    /// 类型不匹配会直接编译失败，不需要 GPU。
+    #[test]
+    fn render_api_signatures_are_stable() {
+        // 函数指针类型检查：故意只取签名不调用。
+        let _submit: fn(
+            &mut ModelRendererCore,
+            &wgpu::TextureView,
+            wgpu::TextureFormat,
+        ) -> Result<wgpu::SubmissionIndex, RenderError> = ModelRendererCore::render_to_view_submit;
+        let _blocking: fn(
+            &mut ModelRendererCore,
+            &wgpu::TextureView,
+            wgpu::TextureFormat,
+        ) -> Result<(), RenderError> = ModelRendererCore::render_to_view;
     }
 
     #[test]

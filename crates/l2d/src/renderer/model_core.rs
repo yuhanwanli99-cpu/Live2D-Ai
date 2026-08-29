@@ -131,16 +131,21 @@ impl ModelRendererCore {
         self.transform = transform;
     }
 
-    /// 把当前状态的一帧渲染到任意视图。
+    /// 编码当前状态的一帧并提交到队列，**不等待 GPU 完成**——返回本帧的
+    /// [`wgpu::SubmissionIndex`]，调用方可借此精确等待自己的提交。
     ///
     /// 视图尺寸应与视口一致（mask 与出图 1:1）；实际使用的变换 =
     /// **矩形视口等比适配**（[`aspect_fit_transform`]）× 逻辑变换，
     /// 非正方形视口不拉伸。
-    pub fn render_to_view(
+    ///
+    /// 实时路径（桌面交换链 / WASM `rAF`）应只调用本方法，避免 CPU 阻塞
+    /// 等待 GPU；离屏读回等需要"帧已完成"语义的场景使用阻塞包装
+    /// [`render_to_view`](Self::render_to_view)。
+    pub fn render_to_view_submit(
         &mut self,
         view: &wgpu::TextureView,
         format: wgpu::TextureFormat,
-    ) -> Result<(), RenderError> {
+    ) -> Result<wgpu::SubmissionIndex, RenderError> {
         let options = RenderOptions {
             transform: aspect_fit_transform(self.viewport.0, self.viewport.1) * self.transform,
             mask_dimensions: UVec2::new(self.viewport.0, self.viewport.1),
@@ -172,10 +177,29 @@ impl ModelRendererCore {
             });
             self.renderer.render(&mut pass, format);
         }
-        self.gpu.queue().submit(Some(encoder.finish()));
+        Ok(self.gpu.queue().submit(Some(encoder.finish())))
+    }
+
+    /// 阻塞包装：编码 + 提交 + **仅等待本帧的 submission 完成**。
+    ///
+    /// 内部调用 [`render_to_view_submit`](Self::render_to_view_submit)，
+    /// 然后 `device.poll(Wait { submission_index: Some(index), timeout: None })`——
+    /// 只精确等待自己刚提交的那一帧，**不再用无索引 `wait_indefinitely()`
+    /// 等待调用时"最新全部工作"**，避免与同 device 上其它路径抢锁。
+    ///
+    /// 离屏读回与确定性测试继续使用本版本；实时路径必须改调 submit 版本。
+    pub fn render_to_view(
+        &mut self,
+        view: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> Result<(), RenderError> {
+        let index = self.render_to_view_submit(view, format)?;
         self.gpu
             .device()
-            .poll(wgpu::PollType::wait_indefinitely())
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(index),
+                timeout: None,
+            })
             .map_err(|e| RenderError::Poll(format!("frame wait failed: {e}")))?;
         Ok(())
     }

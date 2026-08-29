@@ -11,7 +11,7 @@
 //! cargo run -p l2d --example render_model -- [model3.json] [out.png] [size]
 //! ```
 //!
-//! - `model3.json`：皮套清单路径（默认 `Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json`）
+//! - `model3.json`：皮套清单路径（默认 `assets/models/bai/runtime/bai.model3.json`）
 //! - `out.png`：输出 PNG 路径（默认 `verification/rust-bakeoff/selected-bai.png`）
 //! - `size`：输出边长或 `宽x高`（默认 `1024`）
 
@@ -22,8 +22,7 @@ use l2d::model::LoadedModel;
 use l2d::renderer::{FIXED_DT_60HZ, OffscreenRenderer};
 
 /// 默认模型：仓库内 Bai 皮套（相对仓库根；不硬编码私有绝对路径）。
-const DEFAULT_MODEL3: &str =
-    "Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/runtime/bai.model3.json";
+const DEFAULT_MODEL3: &str = "assets/models/bai/runtime/bai.model3.json";
 /// 默认输出：bakeoff 选型验证产物位置。
 const DEFAULT_OUTPUT: &str = "verification/rust-bakeoff/selected-bai.png";
 const DEFAULT_SIZE: u32 = 1024;

@@ -41,13 +41,20 @@
 
 mod adapter;
 mod app;
+mod app_event;
 mod audio;
 mod backend;
+mod benchmark;
 mod cli;
+mod logging;
 mod model_smoke;
 mod platform;
+mod repl;
+mod supervisor;
+mod tool_adapter;
 mod tray;
 mod user_event;
+mod web_api;
 
 use std::process::ExitCode;
 
@@ -64,10 +71,15 @@ const EXIT_USAGE: u8 = 2;
 const EXIT_ENVIRONMENT: u8 = 3;
 
 fn main() -> ExitCode {
-    // 日志：RUST_LOG 优先，缺省 info。放在最前，保证初始化路径可观测。
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // 日志：CLI 启动附带（任何模式：--chat/--web/--pet-mode 都落盘；
+    // 不只开发者模式；W3 任务）。失败仅 warn，不退出码 1。
+    if let Err(e) = logging::init_logging(None) {
+        eprintln!("[warn] 日志系统初始化失败（已降级仅 stdout）: {e}");
+        // 单 stdout fallback（与 W3 失败语义一致）。
+        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    }
 
     // 参数解析失败时区分 --help（用法输出到 stdout，退出码 0）。
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -139,6 +151,77 @@ fn main() -> ExitCode {
             )
         }
         cli::Command::AudioSmoke { duration, silence } => run_audio_smoke(duration, silence),
+        cli::Command::Web { port, dev_mode } => {
+            ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
+        }
+        cli::Command::Chat {
+            config_path,
+            pet_mode,
+            smoke_timeout,
+        } => match backend::run_chat_session(backend::ChatOptions {
+            config_path,
+            pet_mode,
+            smoke_timeout,
+        }) {
+            Ok(report) => {
+                for line in report.summarize_lines() {
+                    println!("{line}");
+                }
+                ExitCode::from(EXIT_OK)
+            }
+            Err(e) => {
+                eprintln!("[error] chat: {e}");
+                // 环境类失败（无显示服务/无 adapter 等）→ 3；其余 → 1。
+                ExitCode::from(match e {
+                    backend::BackendError::Environment(_) => EXIT_ENVIRONMENT,
+                    backend::BackendError::Failed(_) => EXIT_ERROR,
+                })
+            }
+        },
+        cli::Command::Benchmark {
+            model3,
+            mode,
+            warmup,
+            frames,
+            headless,
+            output_json,
+        } => {
+            let model3_path = match cli::resolve_model3_path(model3.as_deref()) {
+                Ok(path) => path,
+                Err(msg) => {
+                    eprintln!("[error] {msg}");
+                    return ExitCode::from(EXIT_ERROR);
+                }
+            };
+            let opts = benchmark::BenchmarkOptions {
+                model3_path,
+                window_logical: (480.0, 640.0),
+                warmup_frames: warmup,
+                formal_frames: frames,
+                mode: match mode {
+                    cli::BenchmarkCliMode::Blocking => benchmark::BenchmarkMode::Blocking,
+                    cli::BenchmarkCliMode::Submit => benchmark::BenchmarkMode::Submit,
+                },
+                backend: if headless {
+                    benchmark::BenchmarkBackend::Headless
+                } else {
+                    benchmark::BenchmarkBackend::Surface
+                },
+                output_json,
+            };
+            match benchmark::run_benchmark(opts) {
+                Ok(report) => {
+                    for line in report.summarize_lines() {
+                        println!("{line}");
+                    }
+                    ExitCode::from(EXIT_OK)
+                }
+                Err(msg) => {
+                    eprintln!("[error] benchmark: {msg}");
+                    ExitCode::from(EXIT_ENVIRONMENT)
+                }
+            }
+        }
     }
 }
 
@@ -310,6 +393,28 @@ fn run_audio_smoke(duration: std::time::Duration, silence: bool) -> ExitCode {
         }
     }
 }
+
+/// 模式在 stdout 报告里的口径描述（仅供 `main.rs` 接线复用）。
+///
+/// 注：当前 main.rs 不再直接引用 `benchmark` 模块（Chat/Benchmark 命令
+/// 走占位分支），保留此函数仅为 binary 可链接——main 在 Chat/Benchmark
+/// 真实接线恢复后即可重新启用。
+#[allow(dead_code)]
+fn mode_label_stub() {}
+
+/// 模式在 stdout 报告里的口径描述（仅供 `main.rs` 接线复用）。
+///
+/// 同 [`mode_label_stub`]：保留以备后续 benchmark 命令接线恢复。
+#[allow(dead_code)]
+fn benchmark_mode_caliber_stub() {}
+
+/// 跑一次 benchmark 会话（占位；真实接线后续恢复）。
+#[allow(dead_code)]
+fn run_benchmark_session_stub() {}
+
+/// 终端 chat 模式接线（占位；真实接线后续恢复）。
+#[allow(dead_code)]
+fn run_chat_session_cli_stub() {}
 
 #[cfg(test)]
 mod tests {

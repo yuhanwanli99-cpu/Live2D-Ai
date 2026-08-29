@@ -15,6 +15,21 @@ winit = "0.30"
 pollster = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 日志落盘（W3 任务：CLI 启动附带；任何模式都落盘）：
+# - tracing-appender 0.2（tokio-rs 官方配套，MIT）：按天滚动 + 自动
+#   `live2d-ai.log.YYYY-MM-DD` 后缀 + `live2d-ai.log` 指向最新；轻量、零
+#   依赖传递；脱敏走 logging.rs 的 SanitizingWriter 兜底。
+# - 引入位置见 `crates/live2d-ai-desktop/src/logging.rs`。
+# 许可证登记见 SOURCES.md。
+tracing-appender = "0.2"
+# benchmark-only JSON 报告（C7/C8 P1-2）：BenchmarkReport 派生 Serialize；
+# main.rs 在 --benchmark-output 路径下用 serde_json 序列化。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# D-P0A 复审修复：settings_routes::PatchBody 用 serde_with::double_option
+# 区分段级三态（缺省 / null / 对象），与 runtime `SettingsPatch` 同语义；
+# 避免为单段字段维护两套手写反序列化器。
+serde_with = "3"
 # 音频输出第一批（RFC §4 批次 4 部分）：实际声卡回放链路。
 # cpal 0.18 MSRV 1.85 与工作区一致；Linux 后端经 ALSA（libasound2-dev）。
 # ringbuf 提供跨线程无锁 SPSC 环形缓冲（生产者入队 / 回调消费），
@@ -38,7 +53,52 @@ ringbuf = "0.5"
 # 许可证登记口径见 SOURCES.md / crate README。
 raw-window-handle = "0.6"
 ksni = { version = "0.3.6", features = ["blocking"] }
-# 本批不引 egui / async 网络依赖 / x11rb（winit 原生 set_cursor_hittest 已满足全窗穿透）。
+# 最终接线（节点 A 步骤 8，2026-08-26）：supervisor 的异步设施。
+# - current_thread runtime 跑在独立 OS 线程（D1：winit 主线程零 async）；
+# - `macros` 提供 select!（引擎事件/控制/排空观察的扇入）；
+# - `sync` 提供有界 Say 通道与引擎事件通道；
+# - tokio-util 复用 runtime crate 同款 CancellationToken 语义。
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros"] }
+tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
+egui = "0.35"
+egui-winit = "0.35"
+egui-wgpu = "0.35"
+# 本批不引 egui / x11rb（winit 原生 set_cursor_hittest 已满足全窗穿透）。
+# D2 HTTP 接线（节点 D 后端层，2026-08-28）：
+# - tiny_http 0.12（纯 Rust，无 TLS、零 async 运行时、循环回环绑定即用）：
+#   比 axum 省 5+ 传递依赖（hyper/tower-http/matchit 等），本场景仅 21 个端点
+#   + loopback 默认端口路由表手写即可；handler 同步阻塞适合 supervisor 之外
+#   的控制平面命令路径（控制命令不抢 supervisor 线程）。
+# - 不复用 supervisor 的 tokio runtime：HTTP 与 supervisor 解耦，互不阻塞；
+#   PATCH settings 后的"配置变更通知"经 mpsc 单向通知，supervisor 在下一个
+#   turn 边界自行重建 OpenAiClient。
+tiny_http = "0.12"
+# 端口号解析 + 控制命令的 mpsc（与 supervisor 共享的 `tokio` runtime 之外的
+# std mpsc 足以；避免再引 sync_channel crate）。
+once_cell = { version = "1", default-features = false }
+# 配置文件路径解析（XDG 跨平台）：directories-next 4.x 维护活跃、AGPL 兼容。
+directories = "5"
+# D2 HTTP server 接线（节点 D 后端层，2026-08-28）：
+# - reqwest 0.12 仅用于 settings/test/{llm,tts} 端点直接发测试请求——
+#   runtime 的 `OpenAiClient::new` 不暴露 `from_parts`（私有字段），
+#   且默认构造的 reqwest::Client 无 timeout，故 test 端点走独立 client。
+# - url 2.x 与 runtime 同款（base_url 拼接）。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+url = "2"
+# futures_util 仅 test 端点读 SSE chunked stream 用。
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# WebSocket 桥（W2 任务，2026-08-29）：
+# - tungstenite 0.24 纯 Rust WS 实现（MIT/Apache-2.0，仓库根 LICENSE 双许可确认），
+#   `default-features = true` 仅启用 `handshake` 子集（不需要 TLS/async），
+#   可与 tiny_http 0.12 的 `Request::upgrade` 拼装：
+#   `tungstenite::accept(stream)` 直接对升级后的 `Box<dyn ReadWrite + Send>` 走
+#   服务端握手。该组合避免了引入 hyper/tower 整条 axum 生态（与 D2 选型一致：
+#   依赖最小化）。引入位置：`web_api/ws.rs`（生产 Server 角色）；测试走 `connect()`
+#   也用本 crate（无 `url` feature 时连接需手动构造 header，本任务不依赖 url feature）。
+tungstenite = { version = "0.24" }
+
+[dev-dependencies]
+# 仅供测试；生产路径下由 main.rs 在 [dependencies] 直接使用。
 
 [lints]
 workspace = true

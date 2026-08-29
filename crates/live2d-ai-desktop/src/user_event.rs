@@ -19,6 +19,8 @@
 pub enum PetUserEvent {
     /// 切换点击穿透（交互模式 ⇄ 穿透模式）。
     TrayToggleClickThrough,
+    /// 显式设置点击穿透（REPL `/release` = 关闭穿透恢复交互；不经 toggle）。
+    TraySetClickThrough(bool),
     /// 切换置顶。
     TrayToggleAlwaysOnTop,
     /// 切换窗口显示/隐藏（托盘恢复入口：隐藏后由此唤回）。
@@ -106,6 +108,7 @@ pub fn event_target(event: PetUserEvent, current: bool) -> Option<EventTarget> {
     let next = flip(current);
     match event {
         PetUserEvent::TrayToggleClickThrough => Some(EventTarget::ClickThrough(next)),
+        PetUserEvent::TraySetClickThrough(v) => Some(EventTarget::ClickThrough(v)),
         PetUserEvent::TrayToggleAlwaysOnTop => Some(EventTarget::AlwaysOnTop(next)),
         PetUserEvent::TrayToggleVisible => Some(EventTarget::Visible(next)),
         PetUserEvent::TraySetVisible(v) => Some(EventTarget::Visible(v)),

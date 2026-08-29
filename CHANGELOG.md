@@ -1,3 +1,61 @@
+# Rust 重建：发布前测试增强 + 节点 C 前期准备（2026-08-27 第六批）
+
+- **发布前测试增强**（节点 B 复审遗留三条，全部补齐）：新增 `supervisor/tests_stall.rs`——`stop_during_tts_in_flight_yields_no_completion_and_reopens`（TTS 在飞 stop ⇒ 零 TurnCompleted/Drained + 第二轮正常收口且请求体无被停轮历史）、`stop_during_pending_pcm_pump_advances_epoch_without_completion`（Stage B 泵驻留窗口 stop ⇒ 零收口事实 + 根推进 epoch=1）、`stall_timeout_fatal_terminates_after_5s_zero_progress`（StallProducer 永远 WouldBlock{0}+healthy ⇒ 5s 后 GenerationFinished{completed:false} + TurnCompleted{outcome_completed:false}）。support.rs 新增 `spawn_tts_mock_slow` / `StallProducer` 两个 helper。
+- **行数合规**：tests_fault.rs 524→338（迁出 stop_during_drain 至 tests_stall.rs）；turn.rs 547 / tests_stall.rs 530 在 ≤1000 豁免区间并头注技术理由（三宏与 run_one_turn 局部状态强绑定，抽函数必撞 biased select 借用冲突）。
+- **节点 C 前期准备**：`docs/plans/node-c-render-platform-audit-brief.md` 69→93 行——6 个定位点全部更新到拆分后位置（app.rs→app/ 目录：frame.rs:55-61 非阻塞 Poll / bootstrap.rs:66-71 request_adapter / surface.rs:5-8 契约注释等），新增「拆分后位置更新」对照表 + 「待裁决复核」标注；C1–C11 措辞未动。交叉验证证据落盘 `docs/verification/node-c-location-recheck-2026-08-27.md`（207 行，grep 证据+上下文+结论）。
+- **门禁**：workspace **318 passed / 0 failed**（×2 稳定，desktop 101）；fmt --all 干净；clippy 仅 PetUserEvent Tray 前缀豁免；无 >1000 行源文件。节点 C 的 C1–C11 裁决交由高级 AI 执行（另调）。
+
+---
+
+# Rust 重建：节点 B 第四/五轮收口——关闭通道忙循环修复，节点 B 正式通过（2026-08-27 第五批）
+
+- **B4-P0 关闭通道忙循环**（第五轮复审唯一阻断项）：运行中直接 drop `SupervisorHandle`（不调 quit）⇒ 三个 sender 全销毁 ⇒ `control_rx.recv()` 永久立即返回 `None`，biased select 中 control 臂排第一且永久就绪 ⇒ 每轮必赢 ⇒ `gen_fut` 永无轮询机会 ⇒ supervisor 线程忙循环无法回收。修复：turn.rs 三个阶段统一——通道关闭**按 Quit 处理**（`*quitting = true` + 完整 do_stop! 事务），`control_closed`/`finish_closed` 守卫**摘除永久就绪臂**（阶段 A 写后循环继续为真读；阶段 B/drain 写后即 return 为死赋值，删除并注释），gen_fut 始终 await 到自然返回（D2 契约保持）。
+- **新增回归测试** `dropping_handle_during_generation_cancels_and_reaps_supervisor`：slow LLM 在飞 → 直接 drop handle（不 stop/quit）→ 有限时间内观察 ShutdownReady + 无第二个 LLM 请求；测试带超时保护不会自挂。
+- **口径修正**：stop-during-drain「未提交历史」改硬证据——stop 后不 quit、发第二轮、断言第二轮请求体仅 system+user（无被停轮 assistant 历史）；tests_pcm 两条如实声明为组件链路测试（BL-2 才是 Stage B 整链路）。
+- **节点 B 正式通过**（第五轮复审）：root epoch 单一权威 / stop 先推进 epoch 再取消清环 / 双闩锁顺序 / GenerationFinished 恰一次 / partial-write 即报 Started / 多次 WouldBlock 无损 / fault→Failed / fatal-after-started 必报 Cleared / stop-during-drain 三不 / action 完成保留原始 epoch / pending Say 被 stop 清除 / sender 断开不忙循环 / shutdown 有限时间回收——全部闭合。
+- **门禁**：workspace **315 passed / 0 failed**（×2 稳定，desktop 98）；fmt --all 干净；clippy 仅 PetUserEvent Tray 前缀豁免；无 >1000 行源文件。遗留（不阻断）：stop-during-TTS / stop-during-pending-pump / 真实 stall 超时三条测试增强项列入发布前清单。
+
+---
+
+# Rust 重建：节点 B 第三轮 P0 收口 + 大文件拆分（2026-08-26 第四批）
+
+- **B3-P0-1 pending 泵无损**（复审实锤：Stage B 仅重试一次即析构 prep → 尾段静默截断、5s 哨兵不可达）：`WouldBlock{accepted}` 后同一 prepared **放回 `pending_pcm`** 继续泵送直至完全入环 / stop / fault / 连续 5 秒零进展；`accepted > 0` 即重置 `stall_ticks`（计时口径＝连续零进展，非累计泵时）。
+- **B3-P0-2 root outcome 归一化**：声卡 fault/stall 属内部致命 ⇒ Stage C 统一 `GenerationOutcome::Failed`——生成期 fault 引擎报 Cancelled 不再冒充用户取消；泵期 stall 不再先报 Completed 再打补丁。仅真实用户取消得 Cancelled，LLM 中途失败沿用引擎 Failed。
+- **B3-P0-3 stop-after-drain 竞态切断**：drain-watch 中执行 do_stop! 后**立即 return**，旧 turn 的提交、fallback、一切生成侧副作用被禁止（否则 fallback 会被盖上新 epoch，形成「stop 复活动作」竞态）；提交门禁改用当前 `stopped` 权威值而非 Stage A 快照。
+- **测试 truthing**（复审判定「测试声明不成立」的对应补正）：BL-2 增补 root 事实顺序与计数断言（Started<GenFinished<Drained<TurnCompleted(Completed)，GenFinished/Drained/TurnCompleted 各恰 1 次、Dropped==0）；partial-write 测试重写为经真实 `try_enqueue_prepared` 路径；新增 supervisor 全链路测试：多次 WouldBlock 样本无损、内部音频故障最终 TurnCompleted(Failed)、stop-during-drain 三不（不提交/fallback/新动作）、`report_action_finished` 经真实 finish 通道到达 supervisor。
+- **大文件拆分**（用户新约束：经手文件 ≤500 行，豁免上限 1000）：supervisor.rs / app.rs / audio.rs / core lib.rs / dialogue.rs / conversation_engine.rs 集成测试全部模块化拆分。
+
+---
+
+# Rust 重建：节点 A 裁决 P0 契约修复 + 最终接线落地，真实对话闭环打通（2026-08-26）
+
+- **步骤 1–7（P0 契约地基）**：core 双闩锁（`GenerationFinished/PlaybackStarted/PlaybackDrained/PlaybackCleared` 四事实 ⇒ `TurnCompleted` 恰一次，per-chunk 音频调度删除）；`PreparedPcm` 全有或重试入环（WouldBlock 零丢失、转换恰一次、整帧对齐；兼容壳保留冒烟）；cpal 错误回调置位 `fault` 健康闩 + `MouthSnapshot{level,audio_epoch,healthy}` 只读句柄（D5）；history 显式提交 `commit_completed_turn`（P0-4，run_turn 不再自行提交）；`ParameterMask` 稀疏所有权（P0-5：只写持有通道、释放即 clear、idle 可接管；诚实声明 v0 无自动眨眼）；`ActionPlaybackFinished{epoch,action}` 身份化自然完成（P0-6）；`EngineEvent::Terminal{status}` 三态统一（D8：LLM 中途失败不清已入队语音、残余不再 TTS；终态 3s 有界投递兜底）；stop_and_clear 的 audio epoch 自增移出重试循环（D7）。
+- **步骤 8–11（最终接线，经审批推进）**：`AppEvent{Tray,Render,Conversation,ShutdownReady}` 统一事件入口（D4）；**supervisor**（独立 OS 线程 + current_thread Tokio runtime，独占 root reducer/engine/AudioOutputFacade）：EngineEvent 代次守卫消费、PCM 永不过 AppEvent（supervisor 内 prepare→有界入环，`WouldBlock` 触发 select 守卫停读下一事件 + 周期泵重试）、**四条件 Drained 门控**（生成终态∧无 pending∧确曾起播∧ring 排空健康——生成中途短暂排空绝不算数）、root Effect→RenderCommand 投影、render_epoch 镜像防御闸门（D9）、VoiceStarted/VoiceEnded 口型归零协议（非 Speaking 强制电平 0）、Say 有界容量 1 + Stop/Quit 无界控制通道（D14）、`/stop` 七步事务（D7 顺序）、统一 shutdown handshake（/quit=CloseRequested=TrayExit，500ms watchdog）（D13）、工具强度非法即拒绝不 clamp + 仅根接受（Start/Transition）抑制 fallback + fallback 输入用完整 assistant_text（D11）；REPL stdin 线程 + `--chat [--config] [--pet-mode]` CLI。
+- **闭环证据**：新增 `closed_loop_two_turns_commit_history_via_drain_path` 集成测试——两轮真实 mock LLM/TTS 流式交互后，第二轮请求体携带第一轮 user/assistant 历史（历史只能经 supervisor 排空后的显式提交进入），quit 后 ShutdownReady 如期出现。`--chat` 缺配置 → 可见错误 + 模板指引 + 退出码 1（契约实测）。
+- **门禁**：workspace `fmt --check` 干净；`clippy --workspace --all-targets` 仅剩既有的 PetUserEvent Tray 前缀警告（枚举更名属外观项，随下次托盘批次处理）；全量测试 **310 passed / 0 failed**（l2d 42+2 · core 33+4 · desktop 93 · runtime 107+12+9+8）。运行方式：`cp live2d-ai.toml.example live2d-ai.toml && cargo run -p live2d-ai-desktop -- --chat`。
+
+---
+
+# Rust 重建：平台能力实测证据回收 + WASM 发布门禁通过（2026-08-26 第二批）
+
+- **WSLg 平台能力实测**（RFC 批次 6 验证回收）：X11 pet-mode 90 帧（置顶生效/穿透 API 生效/透明 available；无 D-Bus ⇒ 托盘降级可见且自动穿透正确禁用）；Wayland 60 帧（置顶如实 unavailable、穿透/透明 available）；全局定位两会话均被合成器拒绝（回读远偏离，如实记 unavailable——WSLg 行为，真实 WM 待节点 C 复测）；模型冒烟 120 帧六动作顺序执行 + 口型通道 writes=120 peak=0.871；音频冒烟无声卡退出码 3（环境分类正确）。证据矩阵落盘 `docs/verification/desktop-platform-smoke-2026-08-26.md`。
+- **性能量化基线（节点 C 输入）**：llvmpipe 软渲染 frame_time avg≈116ms / max≈144ms（当前 `render_to_view` 每帧阻塞 wait 的实测代价，非阻塞化改造前后须同法对比）。
+- **WASM demo 构建门禁 ✅**：安装 trunk 0.21.14 后 `trunk build --release` 通过，dist 产物验证落盘（index.html + JS glue 111KB + wasm 5.2MB）；源码要件此前已确认（`ModelPackage::from_memory_map` 内存构造、`BROWSER_WEBGPU | GL` 回退）。清单第 4 项收口。
+- **desktop crate README 更新**：修复滞后两个批次的能力叙述（「没有任何初始化路径/request_feature 默认拒绝」→「有代码路径 ≠ 运行时生效」口径）、架构清单补全 6 个模块、追加两轮冒烟验证记录。
+- **节点 C 审计交接文档前置**：`docs/plans/node-c-render-platform-audit-brief.md`——渲染热路径阻塞点已核实到行号（model_core.rs:176-179 wait_indefinitely；mod.rs:210 离屏合法阻塞；app.rs:942 壳路径已是非阻塞形态），C1–C11 裁决清单（API 拆分形状/异步失效映射/in-flight 上限/resize 时序/WASM poll 差异/benchmark 协议/平台承诺表终稿）。
+- 门禁：workspace clippy 复跑仅剩既有 PetUserEvent 前缀警告（该枚举为节点 A D4 重构对象）；release 全 workspace 构建另见下批记录。
+
+---
+
+# Rust 重建：应用配置加载 + 终端 REPL 纯解析 + 接线前审计交接（2026-08-26）
+
+- **应用配置 `live2d-ai.toml`**（`live2d-ai-runtime::settings`，新模块）：`[llm]`/`[tts]`/`[persona]` 三段反序列化 → `resolve()` 产出 `LlmConfig`/`TtsConfig`/`ConversationConfig`；密钥不进文件——文件写环境变量**名**（`api_key_env`），运行时读取后包 `ApiSecret`（未设置/空串=不发 Authorization 头）；未知字段拒绝解析（防拼写错误静默失效）、段整体缺省回退默认、URL 与 env 名在 resolve 阶段按段名报错。新增依赖 `toml = "0.9"`。模板落盘根目录 `live2d-ai.toml.example`（经 `include_str!` 成为 `AppSettings::example_toml()`，模板本身有解析测试锁定）；`.gitignore` 屏蔽本机 `live2d-ai.toml`。
+- **终端 REPL 纯解析**（`live2d-ai-desktop/src/repl.rs`，新模块）：`parse_line` 一行文本 → `ReplCommand::{Say,Stop,Release,Quit,Unknown}`；空行/#注释忽略、命令大小写不敏感、`/exit`=`/quit` 别名、未知 `/` 词归 Unknown 由调用方提示；零 IO 零线程，接线留待最终接线批次。7 个表驱动测试全绿。
+- **desktop 基线修复**：复跑发现 `backend::tests::description_declares_pet_capabilities_and_runtime_gate` 失败——根因是描述文本漂移（`WINIT_WGPU_NOTES` 缺「静态声明 ≠ 运行时承诺」gate 口径行），测试正确；补第六行 gate 说明 + 契约 doc 注释，测试零改动。desktop 恢复 **80 passed / 0 failed**。
+- **高级节点 A 审计交接**：`docs/plans/node-a-wiring-audit-brief.md`——给接线前高级审计的完整交接文档：现状快照、关键契约速查（run_turn/EngineEvent/PlaybackHandle/PerformancePlayer/PetUserEvent 签名与行号）、14 个必须裁决问题（进程结构与所有权 D1-D5 / turn 生命周期与取消 D6-D9 / 动作口型仲裁 D10-D12 / REPL 与退出 D13-D14）、建议接线架构草案、审计输出格式。实现方将以裁决为唯一规则源开始接线。
+
+---
+
 # Rust 重建：Bakeoff 选定 Ayagami 并 pin 引入 crates/l2d（2026-08-26）
 
 - **选型落地**（RFC D4）：依据双 bakeoff 报告（`docs/verification/rust-bakeoff-ayagami.md` / `-mocari.md`）选定 **Ayagami** 为 runtime/render 底座，git 依赖 pin rev `640ae4b10bad8def1adcacdada4f8241b484c169` 引入 `crates/l2d`（未复制源码、未 commit）；Mocari 不引入，保留为未引入参考与动画补充候选。决策记录新增 `docs/verification/rust-bakeoff-decision.md`；`SOURCES.md` 更新「已引入」并更正 Ayagami 真实许可为 **MIT OR Apache-2.0**（上游根 COPYRIGHT/LICENSE-MIT/LICENSE-APACHE 文件证据）。

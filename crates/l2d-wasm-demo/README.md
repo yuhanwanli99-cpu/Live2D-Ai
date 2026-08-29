@@ -51,9 +51,9 @@ trunk serve --release          # 默认 http://127.0.0.1:8080
   并启用 `Trunk.toml` 中现成的 `[[proxy]]` 示例：
 
   ```bash
-  # 例：模型位于 <repo>/Live2D-Ai-pc/open-llm-vtuber/live2d-models/bai/runtime/…
+  # 例：模型位于 <repo>/assets/models/bai/runtime/…
   python3 -m http.server 8123 \
-    --directory <repo>/Live2D-Ai-pc/open-llm-vtuber/live2d-models
+    --directory <repo>/assets/models
   # 然后取消 Trunk.toml 里 [[proxy]] 的注释（rewrite=/models/ → backend 上面的服务）
   ```
 

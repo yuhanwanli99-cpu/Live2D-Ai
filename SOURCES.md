@@ -36,6 +36,14 @@ Mocari 保持「仅登记、未引入」，作为未引入参考与动画补充�
 | --- | --- | --- | --- |
 | **PurismCore** | 本仓库既有资产：`Live2D-Ai-Android` 内 vendored 的 C99 原生层（`cpp/purism/`，25 个 `.c/.h`，全部带 `SPDX-License-Identifier: MIT`，见 `docs/research/license-report.md` §1） | MIT | 作为 Rust 渲染实现的**行为 Oracle 对照**：同一输入下核对顶点/裁剪/动画输出是否一致 |
 
+### UI 候选（设置面板；2026-08-28 选型已定）
+
+| 名称 | 上游 | 许可证 | 语言 | 状态 | 登记目的 |
+| --- | --- | --- | --- | --- | --- |
+| **egui** | <https://github.com/emilk/egui>（crates.io `egui` 0.35） | **MIT OR Apache-2.0**（双许可；上游 `LICENSE-MIT` / `LICENSE-APACHE`） | 纯 Rust 即时模式 GUI | **已引入**（见下节「已引入」）；版本 0.35（2026-08-28 查询 crates.io） | 桌面端设置面板 UI 框架：调研报告 `docs/plans/ui-selection-report-2026-08-28.md` 选型 A 路线，与 wgpu 29 / winit 0.30 大版本完全对齐 |
+| **egui-winit** | <https://github.com/emilk/egui>（crates.io `egui-winit` 0.35） | **MIT OR Apache-2.0**（同 crate 仓库） | 纯 Rust winit 0.30 桥 | **已引入**（与 egui 同版本） | 面板 winit 事件桥（`State::new` / `on_window_event` / `take_egui_input`） |
+| **egui-wgpu** | <https://github.com/emilk/egui>（crates.io `egui-wgpu` 0.35） | **MIT OR Apache-2.0**（同 crate 仓库） | 纯 Rust wgpu 29 渲染后端 | **已引入**（与 egui 同版本） | 面板 GPU 渲染（`Renderer::new` / `update_buffers` / `render`） |
+
 - PurismCore 属于旧 Android 项目保留资产（RFC 范围外，不动）；Rust workspace
   （`crates/l2d` 等）**未复制、未编译链接其任何代码**，仅以其运行行为为正确性参照。
 - 对照结论（后续批次）记录于此处及 `docs/verification/`。
@@ -47,8 +55,17 @@ Mocari 保持「仅登记、未引入」，作为未引入参考与动画补充�
 | 名称 | 引入方式与位置 | 固定 rev | 许可证 | 引入日期 | 决策依据 |
 | --- | --- | --- | --- | --- | --- |
 | **Ayagami**（`ayagami` + `ayagami-render`） | `crates/l2d/Cargo.toml` git 依赖（未复制/vendored 源码；crate 对外仅暴露自有封装 API，第三方类型不越过 crate 边界） | [`640ae4b10bad8def1adcacdada4f8241b484c169`](https://github.com/AyagamiDev/ayagami)（**禁止浮动分支**；升级 rev 须重新验证并同步本文件） | MIT OR Apache-2.0（上游根 `COPYRIGHT`/`LICENSE-MIT`/`LICENSE-APACHE`） | 2026-08-26 | RFC D4 Bakeoff：`docs/verification/rust-bakeoff-decision.md`；验证报告 `docs/verification/rust-bakeoff-ayagami.md` |
+| **egui** + **egui-winit** + **egui-wgpu**（0.35 全家） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`egui = "0.35"` / `egui-winit = "0.35"` / `egui-wgpu = "0.35"`；通过 `Cargo.lock` 锁版本，未复制源码） | crates.io `0.35.x` 系列（升级须重跑 `cargo check -p live2d-ai-desktop --all-targets` 并同步本文件） | MIT OR Apache-2.0（上游 `LICENSE-MIT` / `LICENSE-APACHE`，与 crates/l2d 双许可一致） | 2026-08-28 | 选型报告 `docs/plans/ui-selection-report-2026-08-28.md` §二 A 路线：与 wgpu 29 / winit 0.30 大版本完全对齐；同栈共享 device/queue，零第二 GPU 上下文 |
+| **tiny_http**（D2 HTTP 接线，2026-08-28） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`tiny_http = "0.12"`；通过 `Cargo.lock` 锁版本） | crates.io `0.12.x` 系列（升级须重跑门禁并同步本文件） | **MIT OR Apache-2.0**（上游 `LICENSE-MIT` / `LICENSE-APACHE` 双许可；与 crates/l2d / egui 同款许可边界） | 2026-08-28 | 节点 D2 选型：loopback 控制平面 HTTP 服务的最小依赖面（无 TLS / 零 async 运行时 / 阻塞 handler 适合 supervisor 之外的控制命令路径）；选型理由记录在 `crates/live2d-ai-desktop/Cargo.toml` 的 `tiny_http` 注释块 |
+| **reqwest** + **url** + **futures-util**（D2 settings/test/{llm,tts} 端点） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（reqwest 0.12 已带 rustls-tls / json / stream features；`url = "2"`；`futures-util = "0.3"` 仅 std feature） | crates.io 现行（与 `live2d-ai-runtime` 同步锁定） | **MIT OR Apache-2.0**（reqwest 0.12 / url 2 / futures-util 0.3 上游双许可） | 2026-08-28 | 节点 D2 test 端点直发最小 LLM/TTS 请求：runtime 的 `OpenAiClient::new` 不暴露 from_parts（私有字段），且默认构造的 `reqwest::Client` 无 timeout——test 端点必须自构带 timeout 的 client；D2 与 runtime crate 共享同一 reqwest / url 版本，避免传递冲突 |
+| **tracing-appender**（W3 日志落盘） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`tracing-appender = "0.2"`） | crates.io `0.2.x` 系列（升级须重跑门禁并同步本文件） | **MIT**（上游 `LICENSE` 单许可；tokio-rs 官方配套 crate） | 2026-08-29 | W3 任务：CLI 启动附带（任何模式 `--chat`/`--web`/`--pet-mode` 都落盘）——`tracing_appender::rolling::daily` 自动按天滚动（`live2d-ai.log.YYYY-MM-DD` 后缀）；非阻塞 `non_blocking` 包装 + `SanitizingWriter`（`crates/live2d-ai-desktop/src/logging.rs`）兜底脱敏 P0-1 密钥明文。许可证与本 crate AGPL-3.0-only 边界无冲突 |
+| **tungstenite**（W2 WebSocket 桥，2026-08-29） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`tungstenite = "0.24"`，default features = handshake 子集） | crates.io `0.24.x` 系列（升级须重跑门禁并同步本文件） | **MIT OR Apache-2.0**（上游 `LICENSE-MIT`/`LICENSE-APACHE` 双许可，与 tiny_http / reqwest 等同款许可边界） | 2026-08-29 | W2 任务：实现 `/ws/runtime` + `/ws/state` 升级 + JSON 文本帧广播——`tungstenite::accept` 与 `tiny_http::Request::upgrade` 返回的 `Box<dyn ReadWrite + Send>` 直接拼装，**避免**引入 axum/hyper/tower 整条栈（与 D2 选型一致：依赖最小化）。`default-features = true` 仅启用 `handshake` 子集（不需要 TLS/async）。引入位置：`crates/live2d-ai-desktop/src/web_api/ws.rs`（生产 Server 角色）；测试客户端走 `tungstenite::handshake::{derive_accept_key,client::generate_key}` + std TcpStream 手工走 RFC 6455 握手。**已知限制**：v1 reader 持锁阻塞 read 与 writer 抢锁 send 之间存在短暂延迟（mpsc 256 帧缓冲不丢消息；断线语义 §4.6 允许）；v2 计划拆分 read-half/write-half |
 
 - Mocari 未引入（无 crates/l2d 依赖、无源码复制），仅作参考。
+- egui 0.35 全家（egui / egui-winit / egui-wgpu）通过 crates.io 引入，与 crates/l2d
+  共享 MIT OR Apache-2.0 双许可——与本 crate（`crates/live2d-ai-desktop`，AGPL-3.0-only）
+  许可边界无冲突。版本 0.35 与本项目 wgpu 29 / winit 0.30 大版本对齐（选型报告第 26-31
+  行证据链）。
 
 ---
 

@@ -11,6 +11,6 @@ release = false
 # 启动一个静态服务后取消注释，例如静态服务根目录已含 models/：
 #   python3 -m http.server 8123 --directory <你的模型目录的父目录>
 #
-# [[proxy]]
-# rewrite = "/models/"
-# backend = "http://127.0.0.1:8123/models/"
+[[proxy]]
+rewrite = "/models/"
+backend = "http://127.0.0.1:8123"
