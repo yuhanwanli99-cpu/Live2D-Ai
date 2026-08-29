@@ -54,7 +54,7 @@
 //! - `cargo test -p live2d-ai-desktop --all-targets` 全绿。
 //! - `settings_ui.rs` ≤ 1000 行（W7 加表单 / 保存按钮后突破 500；本批在
 //!   头注显式豁免 1000 软上限，未来如需继续扩 UI 段，应拆 `settings_ui_*.rs`）。
-//! **行数豁免（≤1000）**：本文件 601 行——表单 UI + save 逻辑 + 面板渲染同文件（egui 闭包捕获状态强耦合，拆分破坏借用结构）；测试已拆 settings_ui_tests.rs。
+//! - **行数豁免（≤1000）**：本文件 601 行——表单 UI + save 逻辑 + 面板渲染同文件（egui 闭包捕获状态强耦合，拆分破坏借用结构）；测试已拆 settings_ui_tests.rs。
 //!
 
 #![allow(clippy::needless_pass_by_value)] // API 形状按接线契约

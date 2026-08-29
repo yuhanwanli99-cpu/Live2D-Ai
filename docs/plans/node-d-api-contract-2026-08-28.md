@@ -462,12 +462,14 @@ HTTP /api/v1/commands/{id}/invoke
 | `/api/v1/settings/export` | GET | 冻结 |
 | `/api/v1/settings/test/llm` | POST | 冻结 |
 | `/api/v1/settings/test/tts` | POST | 冻结 |
-| `/api/v1/models` | GET | 冻结 |
-| `/api/v1/models` | POST | 冻结 |
-| `/api/v1/models/{id}` | GET | 冻结 |
-| `/api/v1/models/{id}` | PATCH | 冻结（仅 display_name） |
-| `/api/v1/models/{id}` | DELETE | 冻结 |
-| `/api/v1/models/{id}/activate` | POST | 冻结 |
+| `/api/v1/models` | GET | **D3 已实现**（2026-08-28，受控本地导入模式） |
+| `/api/v1/models` | POST | D3.2 后置（ZIP 上传；本批不实现） |
+| `/api/v1/models/import` | POST | **D3 已实现**（受控本地导入，body `{"id":"bai"}`） |
+| `/api/v1/models/{id}` | GET | **D3 已实现** |
+| `/api/v1/models/{id}` | PATCH | D3.2 后置（仅 display_name） |
+| `/api/v1/models/{id}` | DELETE | **D3 已实现**（激活模型 → 409 model_active） |
+| `/api/v1/models/{id}/activate` | POST | **D3 已实现**（requires_restart: false） |
+| `/api/v1/models/{id}/display` | PATCH | **D3 已实现**（§8.1/§8.2 段级 patch） |
 | `/api/v1/commands` | GET | 冻结 |
 | `/api/v1/commands/{id}/invoke` | POST | 冻结 |
 | `/api/v1/scripts` | GET | 冻结 |
@@ -475,6 +477,17 @@ HTTP /api/v1/commands/{id}/invoke
 | `/api/v1/scripts/{id}/invoke` | POST | 冻结（dev-mode gate） |
 | `/ws/runtime` | WS | 冻结 |
 | `/ws/state` | WS | 冻结 |
+
+**D3 实施口径（2026-08-28 落地）**：
+
+- **导入模型**：D3 本批**只**实现"受控本地导入"——body 指定 `assets/models/<id>/` 下相对路径，后端 `l2d::asset::ModelPackage::load` 严格校验，登记到 `~/.local/share/live2d-ai/model_registry.json`（原子写回）。ZIP multipart 上传（前端拖入）标 **D3.2 后置**（目录穿越校验复杂；先做路径安全 + 校验跑通）。
+- **registry 路径**：`directories::ProjectDirs::data_dir()/model_registry.json`（XDG 派生；与 D1 §1.3 "沙箱路径 `~/.local/share/live2d-ai/`" 一致）。
+- **路径安全**（P0-4）：`normalize_relative_id` 拒绝 `..`、`.` 开头、路径分隔符、`\`、NUL、非 ASCII；handler `resolve_safe_path` 用 `canonicalize` 校验最终路径必须落在 `assets_root` 之下（防符号链接外指）。
+- **激活模型不可删**：DELETE 在 `active_id == id` 时回 409 model_active（与 D1 §1.3 冻结一致）。
+- **StageConfig schema**：D3 落地 `live2d_ai_desktop::web_api::models_routes::registry::{ModelDisplay, StageConfig, FitMode, BackgroundType}`（snake_case、`deny_unknown_fields`、`serde_json::to_vec_pretty` round-trip OK）。`StoredManifest` = `l2d::asset::PackageManifest` 的可序列化投影（`l2d` crate 不实现 Serialize/Deserialize，避免跨 crate 改动）。
+- **mutating 安全**：`RouteId::Models` 加入 `security::is_mutating_route`；dispatch 入口自动做 Origin + Content-Type 校验。
+- **D3 测试**：36 条新单测（registry round-trip / 路径穿越拒绝 / 合法/非法 model3 目录 / activate 语义 / delete 语义 / display 持久化 / DTO schema），均位于 `crates/live2d-ai-desktop/src/web_api/models_routes/tests_models_routes.rs`。
+- **D3.2 后置清单**：`POST /api/v1/models`（multipart zip）、`PATCH /api/v1/models/{id}`（display_name）、`background_image` 独立图片注册表、`activate` 后 supervisor 热重载（当前 `requires_restart: false`；后续 supervisor 重建路径接进 PATCH /settings 闭环）。
 
 **冻结后变更规则**：加字段允许（向后兼容），并相应更新 §6 字段对齐表；
 减字段 / 改名 / 改枚举值集合禁止（破坏前端），需要时走 `/api/v2`。
@@ -508,9 +521,45 @@ HTTP /api/v1/commands/{id}/invoke
    + WS 端到端 9 事件类型烟雾测试。
 2. **D3（Live2D 展示 schema）**：落地 `StageConfig` Rust 类型 + §8.1/8.2
    字段；egui 面板加"模型" tab。门禁：schema round-trip + frame.rs 集成。
+   **2026-08-28 状态**：§8.1/§8.2 schema 已落地（`models_routes::registry`）；
+   registry + 资产 API（6 条子路由）已实现 + 36 条单测；egui 面板
+   滑条绑定延后到 settings_ui 重构批次。渲染路线裁决见
+   `docs/plans/node-d-d3-rendering-route.md`（**A 路线 — 浏览器直接渲染**）。
 3. **D4（命令注册协议）**：落地 `CommandDescriptor` + `inventory` 收集；
    实现 §7 仲裁路径 + `forbidden_paths.rs` 审计。门禁：7.3 grep 0 命中
    + 三个命令的端到端测试。
+
+   **D4 落地状态（2026-08-29）**：
+   - `crates/live2d-ai-desktop/src/web_api/command_registry.rs`
+     （**新增**）：静态命令清单 6 基础动作（nod / shake_no / tilt /
+     look_around / listen / surprise，对齐 `live2d_ai_core::ActionId::ALL`）
+     + 2 组合编排（`live2d_compose_greeting` = nod+listen；
+     `live2d_compose_react` = tilt+surprise）。JSON Schema 2020-12
+     子集（strength 1..=3 默认 2 / repeat 1..=3 默认 1 / gap_ms 0..=2000
+     默认 250）。
+   - `crates/live2d-ai-desktop/src/web_api/commands_routes.rs`（**新增**）：
+     `GET /api/v1/commands` + `POST /api/v1/commands/{id}/invoke`。
+     仲裁路径：handler → `SupervisorHandle::trigger_action`
+     → supervisor `action_tx` 通道 → 空闲态 `RootEvent::Action`
+     → core capability gate / 优先级 / 幂等 → `AppEvent::Render`。
+   - `crates/live2d-ai-desktop/src/supervisor.rs`：
+     `SupervisorHandle::trigger_action` + `make_user_action`（user_command
+     来源，优先级 100）；`run_forever` `select!` 增加 `action_rx` 分支。
+   - `crates/live2d-ai-desktop/src/web_api/{mod,dispatch}.rs`：注册
+     `RouteId::Commands` + `is_commands_subpath` + 派发。
+   - `crates/live2d-ai-desktop/src/web_api/chat.js`：dev_mode 开启时
+     挂载「动作控制」面板（命令列表 → 动态表单 → invoke）。
+   - 测试：40 条 D4 单测（registry 17 + routes 23）；`--all-targets`
+     全部绿（424 passed / 0 failed；351 baseline + 73 新增含 D3）。
+   - grep 审计（§7.3 强制）：
+     `grep -rE "core::apply\(|Event::Action\s*\{|ActionCommand::Play\s*\{" \
+      crates/live2d-ai-desktop/src/web_api/` → 0 命中（web_api 内
+     不触碰 core 仲裁入口；唯一 `Event::Action` 出现是 supervisor
+     线程内 `run_forever` 空闲态 select 处理）。
+   - 注意：`security.rs` 冻结，故 `is_mutating_route` 未扩展到
+     `RouteId::Commands`；`commands_routes::handle_commands_route` 在
+     handler 入口主动调 `check_mutating_request` 完成 Origin + CT
+     校验（语义等价；后续解冻 security.rs 时可平移回 dispatch 层）。
 4. **D5（Web 前端）**：消费本表 HTTP/WS；与原生 egui 共享 §8 schema。
    门禁：与原生 panel 字段一致性 + WS 重连退避演练。
 

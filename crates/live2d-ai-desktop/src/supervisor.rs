@@ -74,7 +74,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use live2d_ai_core::{
-    Effect as RootEffect, Event as RootEvent, ModelCapabilities, SemanticAction, State as RootState,
+    ActionCommand, ActionSource, Effect as RootEffect, Event as RootEvent, ModelCapabilities,
+    SemanticAction, State as RootState,
 };
 
 /// root 事件的唯一入口（core 的自由函数 `apply` 的薄包装；保证调用点风格统一）。
@@ -142,6 +143,13 @@ pub struct SupervisorHandle {
     say_tx: mpsc::Sender<String>,
     control_tx: mpsc::UnboundedSender<ControlCommand>,
     finish_tx: mpsc::UnboundedSender<ActionFinishedFact>,
+    /// **D4（命令注册协议）**：web 端命令面板触发的用户动作通道。
+    /// 容量无界（控制命令类不阻塞；与 `control_tx` 同等待遇——D14）。
+    /// 经此通道进入的 action 走 core `RootEvent::Action` 路径，由
+    /// [`ActionSource::UserCommand`] 来源（优先级 100，最高）排队，
+    /// capability gate / 优先级仲裁 / 幂等仍由 core 决定——**禁止**
+    /// handler 直接调 `core::apply` 或写 `ActionState::current`。
+    action_tx: mpsc::UnboundedSender<SemanticAction>,
     join: Option<std::thread::JoinHandle<()>>,
     /// 「reload 待处理」标志：handle.reload() 置位，supervisor 在 idle
     /// select / turn 收口兜底时消费。**绕过 turn.rs 的 channel recv**——
@@ -212,6 +220,39 @@ impl SupervisorHandle {
         if let Some(h) = self.join.take() {
             let _ = h.join();
         }
+    }
+
+    /// **D4（命令注册协议）**：web 端命令面板触发的用户动作。
+    ///
+    /// 走独立 `action_tx` 通道（unbounded）→ supervisor 空闲态 `select!`
+    /// 收到后 → `root_apply(RootEvent::Action { ..., command: Play })`
+    /// → 经 core 仲裁（capability gate / 优先级 / 幂等）→ `forward_effects`
+    /// → `AppEvent::Render`。**禁止**任何 handler 直接调 `core::apply`
+    /// 或构造 `AppEvent::Render` 跳过仲裁（§7.3 grep 审计）。
+    ///
+    /// 非阻塞、幂等；动作重复或 capability 缺失时由 core 端发 `Dropped`
+    /// 效果并通过 `AppEvent::RootAudit` 下发（前端在 WS 看不到副作用）。
+    ///
+    /// 返回 `true` = 已入队；`false` = supervisor 已关（unbounded 通道
+    /// 实际不会满，仅在所有 receiver 都 drop 时返回 `false`）。
+    pub fn trigger_action(&self, action: SemanticAction) -> bool {
+        self.action_tx.send(action).is_ok()
+    }
+
+    /// **D4**：构造带 [`ActionSource::UserCommand`] 来源的语义动作。
+    /// `strength` 1..=3 越界返回 `None`（**拒绝不 clamp**，与 D11 裁决一致）。
+    /// `action` 不在 core 6 选 1 返回 `None`。
+    pub fn make_user_action(
+        action: live2d_ai_core::ActionId,
+        strength: u8,
+    ) -> Option<SemanticAction> {
+        let s = match strength {
+            1 => live2d_ai_core::action::Strength::Low,
+            2 => live2d_ai_core::action::Strength::Medium,
+            3 => live2d_ai_core::action::Strength::High,
+            _ => return None,
+        };
+        Some(SemanticAction::new(action, s, ActionSource::UserCommand))
     }
 
     /// 测试专用：访问 `reload_pending` 原子标志的只读视图。
@@ -303,6 +344,8 @@ pub fn spawn_supervisor(
     let (say_tx, say_rx) = mpsc::channel(1);
     let (control_tx, control_rx) = mpsc::unbounded_channel();
     let (finish_tx, finish_rx) = mpsc::unbounded_channel();
+    // **D4**：web 端命令面板动作通道（unbounded；与 control_tx 同类）。
+    let (action_tx, action_rx) = mpsc::unbounded_channel::<SemanticAction>();
     let reload_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // P1WS-1：当前 epoch 镜像（外部 HTTP/Status 端读这里）；启动时 = 0
     // （与 `RootState::default().epoch.get()` 一致）。
@@ -323,6 +366,7 @@ pub fn spawn_supervisor(
                 say_rx,
                 control_rx,
                 finish_rx,
+                action_rx,
                 reload_pending_for_thread,
                 current_epoch_for_thread,
                 emit,
@@ -334,17 +378,23 @@ pub fn spawn_supervisor(
         say_tx,
         control_tx,
         finish_tx,
+        action_tx,
         join: Some(join),
         reload_pending,
         current_epoch,
     }
 }
 
+// **D4**：新增 `action_rx` 第 4 个 receiver 通道，函数参数从 7 增至 8
+// 超过 clippy 默认阈值；显式 `allow` 维持与既有一致风格（参数按
+// 所有权通道顺序排列，非可拆分组）。
+#[allow(clippy::too_many_arguments)]
 async fn run_forever(
     config: SupervisorConfig,
     mut say_rx: mpsc::Receiver<String>,
     mut control_rx: mpsc::UnboundedReceiver<ControlCommand>,
     mut finish_rx: mpsc::UnboundedReceiver<ActionFinishedFact>,
+    mut action_rx: mpsc::UnboundedReceiver<SemanticAction>,
     reload_pending: Arc<std::sync::atomic::AtomicBool>,
     current_epoch: Arc<std::sync::atomic::AtomicU64>,
     emit: Emit,
@@ -391,6 +441,26 @@ async fn run_forever(
                         epoch: fact.epoch.into(),
                         action: fact.action,
                     });
+                    handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
+                }
+            }
+            // **D4（命令注册协议）**：web 端命令面板触发的用户动作。
+            // 走与 tool_action 同构的 core 仲裁路径：
+            //   RootEvent::Action → core 闸门（capability gate / 优先级 / 幂等）
+            //   → forward_effects → AppEvent::Render。handler **不**直接
+            //   调 core::apply，也不写 AppEvent::Render 跳过仲裁（§7.3）。
+            // 来源固定为 ActionSource::UserCommand（构造于 trigger_action），
+            // 优先级 100（最高），可抢占其它来源动作。
+            action = action_rx.recv() => {
+                if let Some(action) = action {
+                    let cur = root.epoch;
+                    let effects = root_apply(
+                        &mut root,
+                        RootEvent::Action {
+                            epoch: cur,
+                            command: ActionCommand::Play { action },
+                        },
+                    );
                     handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
                 }
             }

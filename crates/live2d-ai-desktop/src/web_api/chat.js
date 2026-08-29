@@ -370,6 +370,10 @@
   // ---- 启动 ----
   connectWs();
   setChatStatus("空闲", "");
+  // D4：dev_mode 开启时挂载「动作控制」面板（命令目录 → 动态表单 → invoke）。
+  // 拉取一次 /api/v1/app/status 取 dev_mode（与 app.js 拉取路径一致；
+  // 独立 fetch 不依赖 app.js 暴露 window 变量——保持模块解耦）。
+  fetchDevModeAndMount();
 
   // 暴露给 app.js / 测试（供调试 / 集成检查使用）。
   // P1WS-2：增加 reconnect backoff / noReconnect / subscribed API 便于测试。
@@ -379,5 +383,117 @@
     state: chatState,
     scheduleReconnect: scheduleReconnect,
     backoffSeconds: function () { return Math.round(chatState.wsBackoffMs / 1000); },
+    // D4：暴露动作面板给调试 / 集成测试。
+    actions: { invoke: invokeAction, list: listActions },
   };
+
+  // D4：动作控制面板（dev_mode 门控；§7.3 仲裁路径不变）。
+  const AP = { list: null, detail: null, result: null, commands: null, mounted: false, devMode: false };
+
+  async function fetchDevModeAndMount() {
+    try { const s = await (await fetch("/api/v1/app/status")).json(); AP.devMode = !!(s && s.dev_mode); } catch (_) { return; }
+    if (AP.devMode) mountActionPanel();
+  }
+
+  function mountActionPanel() {
+    if (AP.mounted || !AP.devMode) return;
+    const cp = document.getElementById("chat-panel");
+    if (!cp || document.getElementById("actions-card")) { AP.mounted = true; return; }
+    const c = document.createElement("section");
+    c.className = "card actions-card"; c.id = "actions-card";
+    c.innerHTML = '<h2>动作控制 <span class="field-meta">dev_mode</span></h2><div class="row buttons"><button class="secondary" id="actions-refresh">刷新</button><span class="status" id="actions-status">就绪</span></div><div class="actions-list" id="actions-list" role="list"></div><div class="actions-detail" id="actions-detail" aria-live="polite"></div><pre class="actions-result" id="actions-result" aria-live="polite"></pre>';
+    cp.parentNode.insertBefore(c, cp);
+    AP.list = c.querySelector("#actions-list");
+    AP.detail = c.querySelector("#actions-detail");
+    AP.result = c.querySelector("#actions-result");
+    AP.mounted = true;
+    c.querySelector("#actions-refresh").addEventListener("click", refreshActionPanel);
+    refreshActionPanel();
+  }
+
+  async function listActions() {
+    try {
+      const r = await fetch("/api/v1/commands", { method: "GET" });
+      if (!r.ok) { renderActionResult({ error: "list_failed", status: r.status }); return []; }
+      AP.commands = ((await r.json()).commands) || [];
+      return AP.commands;
+    } catch (e) { renderActionResult({ error: "list_network", message: String(e) }); return []; }
+  }
+
+  function renderItem(c) {
+    const tgt = c.target_action ? "→ " + esc(c.target_action) : (typeof c.step_count === "number" ? "→ " + c.step_count + " 步" : "");
+    return '<div class="action-item" data-action-id="' + esc(c.id) + '"><span class="action-name">' + esc(c.name) + '</span><span class="action-id">' + esc(c.id) + '</span><span class="action-kind ' + esc(c.kind) + '">' + esc(c.kind) + '</span><span class="action-target">' + tgt + '</span><div class="action-desc">' + esc(c.description) + '</div></div>';
+  }
+
+  async function refreshActionPanel() {
+    if (!AP.mounted) return;
+    setActionsStatus("加载中…", "warn");
+    const cmds = await listActions();
+    if (!cmds.length) { AP.list.innerHTML = '<div class="chat-empty">（无命令）</div>'; setActionsStatus("无命令", "err"); return; }
+    const groups = [["single", "基础动作"], ["composed", "组合编排"]];
+    AP.list.innerHTML = groups.filter(([k]) => cmds.some((c) => c.kind === k)).map(([k, h]) => {
+      const items = cmds.filter((c) => c.kind === k).map(renderItem).join("");
+      return '<div class="actions-group"><h3>' + h + "</h3>" + items + "</div>";
+    }).join("");
+    setActionsStatus("已加载 " + cmds.length + " 命令", "ok");
+    AP.list.querySelectorAll("[data-action-id]").forEach((el) =>
+      el.addEventListener("click", () => showActionDetail(el.getAttribute("data-action-id"))));
+  }
+
+  function showActionDetail(id) {
+    const c = AP.commands && AP.commands.find((x) => x.id === id);
+    if (!c) { AP.detail.innerHTML = '<div class="chat-empty">（命令已变更，请刷新）</div>'; return; }
+    const props = (c.params_schema && c.params_schema.properties) || {};
+    const mk = (k, p) => {
+      if (p.enum && Array.isArray(p.enum)) return '<select id="act-param-' + esc(k) + '">' +
+        p.enum.map((v) => '<option value="' + esc(String(v)) + '">' + esc(String(v)) + '</option>').join("") + "</select>";
+      if (p.type === "integer" || p.type === "number") {
+        const a = (n) => n != null ? ' ' + n + '="' + esc(String(p[n])) + '"' : "";
+        return '<input type="number" id="act-param-' + esc(k) + '"' + a("default") + a("minimum") + a("maximum") + ' step="1" />';
+      }
+      const d = p.default != null ? ' value="' + esc(String(p.default)) + '"' : "";
+      return '<input type="text" id="act-param-' + esc(k) + '"' + d + " />";
+    };
+    const inputs = Object.keys(props).map((k) => '<label>' + esc(k) + '</label>' + mk(k, props[k] || {})) || ['<div class="field-meta">（无参数）</div>'];
+    AP.detail.innerHTML = '<div class="action-detail-title">' + esc(c.name) + ' <span class="action-id">' + esc(c.id) + '</span></div><div class="action-desc">' + esc(c.description) + '</div><div class="action-form">' + inputs.join("") + '</div><div class="row buttons"><button id="act-execute" data-testid="act-execute">执行</button><button class="secondary" id="act-cancel">取消</button></div>';
+    AP.detail.querySelector("#act-execute").addEventListener("click", () => executeAction(c));
+    AP.detail.querySelector("#act-cancel").addEventListener("click", () => { AP.detail.innerHTML = ""; });
+  }
+
+  function collectFormParams() {
+    const params = {};
+    AP.detail.querySelectorAll("[id^='act-param-']").forEach((el) => {
+      const key = el.id.replace(/^act-param-/, "");
+      let v = el.value;
+      if (el.type === "number") { v = v === "" ? null : Number(v); if (v != null && !Number.isFinite(v)) v = null; }
+      if (v !== null && v !== undefined) params[key] = v;
+    });
+    return params;
+  }
+
+  async function executeAction(c) {
+    setActionsStatus("执行中…", "warn");
+    AP.result.textContent = "";
+    const r = await invokeAction(c.id, collectFormParams());
+    if (r && r.accepted) setActionsStatus("已接受 (epoch " + (r.epoch || "?") + ")", "ok");
+    else if (r && r.error) setActionsStatus("失败", "err");
+    else setActionsStatus("未知响应", "warn");
+  }
+
+  async function invokeAction(id, params) {
+    try {
+      const r = await fetch("/api/v1/commands/" + encodeURIComponent(id) + "/invoke", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params || {}),
+      });
+      const text = await r.text();
+      let body = null; try { body = text ? JSON.parse(text) : null; } catch (_) {}
+      renderActionResult(r.status === 200 ? body : { error: body && body.error, status: r.status, raw: text });
+      return body;
+    } catch (e) { renderActionResult({ error: "network", message: String(e) }); return { error: "network", message: String(e) }; }
+  }
+
+  function renderActionResult(obj) { try { AP.result.textContent = JSON.stringify(obj, null, 2); } catch (_) { AP.result.textContent = String(obj); } }
+  function setActionsStatus(label, kind) { const el = document.getElementById("actions-status"); if (el) { el.textContent = label; el.className = "status " + (kind || ""); } }
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 })();

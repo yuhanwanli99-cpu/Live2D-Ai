@@ -117,7 +117,6 @@ function renderBadges() {
   els.devModeStatus.textContent = s.dev_mode ? "true" : "false";
   els.devModeStatus.className = s.dev_mode ? "ok" : "";
 }
-
 function renderAll() {
   if (state.capabilities) els.ver.textContent = "v" + state.capabilities.version;
   if (state.status) {

@@ -27,8 +27,9 @@
 //! - `POST /api/v1/chat/stop` → `chat.stop`（W2：停止当前轮）
 //! - `GET /api/v1/logs`（dev_mode=true） → `logs.get`
 //! - `GET /api/v1/logs/levels`（dev_mode=true） → `logs.levels`
+//! - `GET / POST / PATCH / DELETE /api/v1/models*` → `models`（D3 落地，2026-08-28）
 //! - `GET /ws/runtime` / `GET /ws/state` → WS 升级（独立处理，不经 dispatch）
-//! - 其它（models / commands / scripts）→ `not_implemented`（501；D3/D4 填）
+//! - 其它（commands / scripts）→ `not_implemented`（501；D4 填）
 
 use std::sync::Arc;
 
@@ -43,12 +44,20 @@ use crate::web_api::app_routes::{CapabilitiesContext, StatusContext};
 pub mod app_routes;
 pub mod chat_routes;
 pub mod cli_entry;
+/// D4 命令注册表（6 基础动作 + 2 组合编排；静态编译期清单）。
+pub mod command_registry;
+/// D4 命令 HTTP 端点（GET /commands + POST /commands/{id}/invoke）。
+pub mod commands_routes;
 /// HTTP 派发（method+path → RouteId → handler；D-P0B 安全校验 + D-P0C
 /// 动态装配 supervisor）。拆分承载：保持 `mod.rs` ≤ 500。
 pub mod dispatch;
 pub mod dto;
 pub mod index_html;
 pub mod log_routes;
+/// 模型资产路由（D3，2026-08-28）：`/api/v1/models*` 端点 + registry
+/// + 路径安全 + 原子写回。子模块化（`models_routes::handlers` 等），
+/// 本文件仅声明入口。
+pub mod models_routes;
 /// 通用 JSON 错误响应 helper（D-P0B 拆分承载，2026-08-29）。
 pub(crate) mod responses;
 /// 本地 Web 安全边界（D-P0B，2026-08-29）。
@@ -56,6 +65,12 @@ pub mod security;
 pub mod settings_routes;
 /// Supervisor 运行时槽位（D-P0C 拆分承载）。
 pub mod supervisor_slot;
+/// D4：命令注册表测试（独立文件，保持 `command_registry.rs` 主体 ≤500）。
+#[cfg(test)]
+mod tests_command_registry;
+/// D4：命令路由测试（独立文件，保持 `commands_routes.rs` 主体 ≤500）。
+#[cfg(test)]
+mod tests_commands_routes;
 #[cfg(test)]
 mod tests_dev_mode;
 #[cfg(test)]
@@ -104,6 +119,18 @@ pub enum RouteId {
     /// `GET /`、`GET /index.html`、`GET /static/{style.css,app.js}`（W8 任务）。
     /// 全部走 [`index_html::lookup_static`] 取 (body, mime) 静态分发。
     IndexHtml,
+    /// `GET /api/v1/models`、`GET /api/v1/models/{id}`、`POST
+    /// /api/v1/models/import`、`POST /api/v1/models/{id}/activate`、
+    /// `PATCH /api/v1/models/{id}/display`、`DELETE /api/v1/models/{id}`
+    /// —— 全部统一到 `Models`，由 `models_routes::dispatch` 内部按子路由
+    /// 派发（D3 2026-08-28）。
+    Models,
+    /// D4：命令注册端点。
+    /// - `GET /api/v1/commands` → `commands.list`（列表；非 mutating）
+    /// - `POST /api/v1/commands/{id}/invoke` → `commands.invoke`（mutating）
+    ///
+    /// 两个动作统一为一个 `RouteId`，由 [`commands_routes`] 内部按 method 派发。
+    Commands,
     /// 已冻结但本批未实现（D3/D4/D5 填充）。
     NotImplemented,
     /// 路径完全未匹配。
@@ -125,6 +152,8 @@ impl RouteId {
             Self::LogsGet => "logs.get",
             Self::LogsLevels => "logs.levels",
             Self::IndexHtml => "index.html",
+            Self::Models => "models",
+            Self::Commands => "commands",
             Self::NotImplemented => "not_implemented",
             Self::NotFound => "not_found",
         }
@@ -170,11 +199,83 @@ pub fn match_route(method: &Method, path: &str) -> RouteId {
         RouteId::LogsGet
     } else if path == "/api/v1/logs/levels" && *method == Method::Get {
         RouteId::LogsLevels
+    } else if path == "/api/v1/commands"
+        || (path.starts_with("/api/v1/commands/") && is_commands_subpath(path))
+    {
+        // D4（2026-08-29）：命令注册端点。
+        // - `GET /api/v1/commands` → 列表
+        // - `POST /api/v1/commands/{id}/invoke` → 触发命令
+        // method 校验在 `commands_routes` handler 内（统一为
+        // `RouteId::Commands`，按 method 走 list / invoke 分支）。
+        RouteId::Commands
+    } else if path == "/api/v1/models"
+        || path == "/api/v1/models/import"
+        || (path.starts_with("/api/v1/models/") && is_models_subpath(path))
+    {
+        // D3（2026-08-28）：`/api/v1/models*` 系列统一到 `RouteId::Models`，
+        // 由 `models_routes::dispatch` 内部按子路由细分（List/Import/Get/
+        // Delete/Activate/Display）。`is_models_subpath` 校验路径形态合法
+        // （避免任意字符串被接受为 id）。
+        RouteId::Models
     } else if path.starts_with("/api/v1/") {
         // 已冻结但本批未实现（D3/D4/D5）。
         RouteId::NotImplemented
     } else {
         RouteId::NotFound
+    }
+}
+
+/// 路径形态合法性校验（仅用于路由表匹配；handler 内再走 `match_model_route`）。
+///
+/// 合法形态：
+/// - `/api/v1/models/{id}` — id 不含 `/`、不含 `..`、不含 `\\`；
+/// - `/api/v1/models/{id}/activate` — 仅 POST 允许（method 在 handler 内判）；
+/// - `/api/v1/models/{id}/display` — 仅 PATCH 允许（method 在 handler 内判）。
+fn is_models_subpath(path: &str) -> bool {
+    let rest = path.strip_prefix("/api/v1/models/").unwrap_or("");
+    if rest.is_empty() {
+        return false;
+    }
+    let mut parts = rest.split('/');
+    let id = parts.next().unwrap_or("");
+    if id.is_empty() || id.contains("..") || id.contains('\\') {
+        return false;
+    }
+    match parts.next() {
+        None => true,
+        Some("activate") => parts.next().is_none(),
+        Some("display") => parts.next().is_none(),
+        _ => false,
+    }
+}
+
+/// 路径形态合法性校验（仅用于 `/api/v1/commands*` 路由表匹配）。
+///
+/// 合法形态：
+/// - `/api/v1/commands/{id}/invoke` — id 必须是 snake_case（与
+///   [`commands_routes::extract_command_id`] 一致）；`method` 在
+///   `commands_routes` handler 内判（POST = invoke，其它 = 405）。
+///
+/// 不接受 `..` / `\\` / 非 snake_case（防路径猜测旁路）。
+fn is_commands_subpath(path: &str) -> bool {
+    let rest = path.strip_prefix("/api/v1/commands/").unwrap_or("");
+    if rest.is_empty() {
+        return false;
+    }
+    let mut parts = rest.split('/');
+    let id = parts.next().unwrap_or("");
+    if id.is_empty() || id.contains("..") || id.contains('\\') {
+        return false;
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return false;
+    }
+    match parts.next() {
+        Some("invoke") => parts.next().is_none(),
+        _ => false,
     }
 }
 
@@ -204,6 +305,10 @@ pub struct ServerContext {
     /// 默认 = `SecurityContext::new(0, false)`；`start_server` 装配时由
     /// `cli_entry` 用真实 port 覆盖。
     pub security: crate::web_api::security::SecurityContext,
+    /// 模型 registry 共享句柄（D3 2026-08-28）。
+    /// 启动时 `ServerContext::new` 调用 [`models_routes::default_store`]
+    /// 从磁盘加载（缺失 = 空 registry，损坏 = stderr 警告 + 空 registry）。
+    pub models: crate::web_api::models_routes::ModelStore,
 }
 
 impl ServerContext {
@@ -223,6 +328,7 @@ impl ServerContext {
             supervisor_slot: supervisor_slot::SupervisorSlot::new(),
             broadcaster: crate::web_api::ws::Broadcaster::new(),
             security: crate::web_api::security::SecurityContext::new(0, false),
+            models: crate::web_api::models_routes::default_store(),
         }
     }
 
