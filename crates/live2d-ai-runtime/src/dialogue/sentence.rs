@@ -90,15 +90,15 @@ impl SentenceAssembler {
     /// 的每一步都只由当前缓冲内容决定，与 delta 到达方式无关。
     fn reduce(&mut self, eof: bool, out: &mut Vec<String>) {
         loop {
-            if let Some(end) = self.sentence_end_in_buf(eof) {
-                if self.buf[..end].chars().count() <= self.max_chars {
-                    // 句子恒非空（至少含一个终止符），is_empty 分支仅为防御。
-                    let sentence: String = self.buf.drain(..end).collect();
-                    if !sentence.is_empty() {
-                        out.push(sentence);
-                    }
-                    continue;
+            if let Some(end) = self.sentence_end_in_buf(eof)
+                && self.buf[..end].chars().count() <= self.max_chars
+            {
+                // 句子恒非空（至少含一个终止符），is_empty 分支仅为防御。
+                let sentence: String = self.buf.drain(..end).collect();
+                if !sentence.is_empty() {
+                    out.push(sentence);
                 }
+                continue;
             }
             if self.buf.chars().count() > self.max_chars {
                 let cut = self.byte_of_char(self.max_chars);

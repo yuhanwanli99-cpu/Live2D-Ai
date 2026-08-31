@@ -265,10 +265,10 @@ pub fn run_benchmark(opts: BenchmarkOptions) -> Result<BenchmarkReport, String> 
         BenchmarkBackend::Headless => runners_headless::run_benchmark_headless(opts),
     }?;
     // `--benchmark-output`：报告落盘 JSON（失败不吞主结果——仅打日志）。
-    if let Some(path) = &output_json {
-        if let Err(e) = write_report_json(&report, path) {
-            eprintln!("[warn] benchmark JSON 落盘失败（不影响 stdout 报告）: {e}");
-        }
+    if let Some(path) = &output_json
+        && let Err(e) = write_report_json(&report, path)
+    {
+        eprintln!("[warn] benchmark JSON 落盘失败（不影响 stdout 报告）: {e}");
     }
     Ok(report)
 }

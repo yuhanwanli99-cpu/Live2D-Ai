@@ -176,12 +176,11 @@ fn inject_clear_key_flag(patch: &mut SettingsPatch, body: &PatchBody) {
         }
     }
     // TTS 段
-    if let Some(Some(tts_body)) = body.tts.as_ref() {
-        if let Some(tts_outer) = patch.tts.as_mut() {
-            if let Some(inner) = tts_outer.as_mut() {
-                apply_inject_rules_tts(inner, tts_body.clear_api_key);
-            }
-        }
+    if let Some(Some(tts_body)) = body.tts.as_ref()
+        && let Some(tts_outer) = patch.tts.as_mut()
+        && let Some(inner) = tts_outer.as_mut()
+    {
+        apply_inject_rules_tts(inner, tts_body.clear_api_key);
     }
 }
 
@@ -308,15 +307,15 @@ pub fn apply_and_write(
         // 写盘前创建父目录（P0-4 关联）：首次保存时 `~/.config/live2d-ai/`
         // 不存在也能成功。
         let target = std::path::Path::new(config_path);
-        if let Some(parent) = target.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    ErrorResponse::new(ErrorDetail::new(
-                        "persist_failed",
-                        format!("create_dir_all {}: {e}", parent.display()),
-                    ))
-                })?;
-            }
+        if let Some(parent) = target.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ErrorResponse::new(ErrorDetail::new(
+                    "persist_failed",
+                    format!("create_dir_all {}: {e}", parent.display()),
+                ))
+            })?;
         }
         let tmp = plan_atomic_write(target, &toml_text)
             .map_err(|e| ErrorResponse::new(ErrorDetail::new("persist_failed", e)))?;

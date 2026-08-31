@@ -35,11 +35,11 @@ pub(super) fn compute_dir_size(dir: &Path) -> io::Result<u64> {
         };
         if meta.is_file() {
             total += meta.len();
-        } else if meta.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&p) {
-                for e in entries.flatten() {
-                    stack.push(e.path());
-                }
+        } else if meta.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&p)
+        {
+            for e in entries.flatten() {
+                stack.push(e.path());
             }
         }
     }

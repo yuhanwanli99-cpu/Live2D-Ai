@@ -533,10 +533,10 @@ impl BenchmarkApp {
         self.reconfigure_current();
         // 视口同步：与 surface 尺寸保持一致（C4 复审精度改进——与 configure
         // 同一份尺寸快照）。
-        if let (Some(core), Some(cfg)) = (self.core.as_mut(), self.surface_config.as_ref()) {
-            if let Err(e) = core.set_viewport(cfg.width.max(1), cfg.height.max(1)) {
-                warn!("recreate_surface 同步模型视口失败: {e}");
-            }
+        if let (Some(core), Some(cfg)) = (self.core.as_mut(), self.surface_config.as_ref())
+            && let Err(e) = core.set_viewport(cfg.width.max(1), cfg.height.max(1))
+        {
+            warn!("recreate_surface 同步模型视口失败: {e}");
         }
         info!("benchmark surface 因 Lost 重建完成");
         Ok(())

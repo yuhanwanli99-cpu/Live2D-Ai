@@ -106,10 +106,10 @@ impl RmsMeter {
 
             self.sum_squares += square;
             self.window.push_back(sample);
-            if self.window.len() > self.window_len {
-                if let Some(old) = self.window.pop_front() {
-                    self.sum_squares -= f64::from(old) * f64::from(old);
-                }
+            if self.window.len() > self.window_len
+                && let Some(old) = self.window.pop_front()
+            {
+                self.sum_squares -= f64::from(old) * f64::from(old);
             }
             debug_assert!(!self.window.is_empty());
 

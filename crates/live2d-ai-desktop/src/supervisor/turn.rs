@@ -421,11 +421,11 @@ pub(crate) async fn run_one_turn(
             },
         );
         for e in &fx {
-            if let RootEffect::TurnCompleted { outcome: oc, .. } = e {
-                if matches!(oc, GenerationOutcome::Completed) {
-                    completed_completed_effect_seen = true;
-                    ts_turn_completed = Some(Instant::now());
-                }
+            if let RootEffect::TurnCompleted { outcome: oc, .. } = e
+                && matches!(oc, GenerationOutcome::Completed)
+            {
+                completed_completed_effect_seen = true;
+                ts_turn_completed = Some(Instant::now());
             }
         }
         forward_effects(root.epoch.get(), &fx, audio.as_deref(), emit);
@@ -584,23 +584,22 @@ pub(crate) async fn run_one_turn(
     // ================= D11 fallback（恰一次；完整正文为输入） ==================
     if content_worth_fallback(outcome, turn_phase.assistant_text_len)
         && !turn_phase.accepted_tool_seen
-    {
-        if let Some(rule_action) = live2d_ai_core::action::rule_fallback(
+        && let Some(rule_action) = live2d_ai_core::action::rule_fallback(
             &turn_phase.report.assistant_text,
             &root.action.capabilities,
-        ) {
-            let cur = root.epoch;
-            let effects = root_apply(
-                root,
-                RootEvent::Action {
-                    epoch: cur,
-                    command: ActionCommand::Play {
-                        action: rule_action,
-                    },
+        )
+    {
+        let cur = root.epoch;
+        let effects = root_apply(
+            root,
+            RootEvent::Action {
+                epoch: cur,
+                command: ActionCommand::Play {
+                    action: rule_action,
                 },
-            );
-            forward_effects(root.epoch.get(), &effects, audio.as_deref(), emit);
-        }
+            },
+        );
+        forward_effects(root.epoch.get(), &effects, audio.as_deref(), emit);
     }
 
     // 节点 D 链路耗时埋点收口：把所有阶段时间戳转换为相对 `turn_submit`

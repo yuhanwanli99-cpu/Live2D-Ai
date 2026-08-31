@@ -143,7 +143,13 @@ impl RgbaFrame {
         if self.pixels.is_empty() || self.width == 0 || self.height == 0 {
             return 0.0;
         }
-        let opaque = self.pixels.chunks_exact(4).filter(|px| px[3] != 0).count();
+        let opaque = self
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|px| px[3] != 0)
+            .count();
         opaque as f64 / (self.width as f64 * self.height as f64)
     }
 
@@ -154,7 +160,7 @@ impl RgbaFrame {
             return None;
         }
         let mut bbox: Option<(u32, u32, u32, u32)> = None;
-        for (i, px) in self.pixels.chunks_exact(4).enumerate() {
+        for (i, px) in self.pixels.as_chunks::<4>().0.iter().enumerate() {
             if px[3] == 0 {
                 continue;
             }

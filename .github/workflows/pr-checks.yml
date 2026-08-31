@@ -3,7 +3,7 @@
 # 触发器: pull_request → main
 # Jobs:
 #   - rust-build-test : Rust workspace build/test/fmt/clippy
-#   - msrv-check      : Rust 1.87 (MSRV) 仅 cargo check
+#   - msrv-check      : Rust 1.92 (MSRV) 仅 cargo check
 #   - root-py-tests   : 仓库根 tests/ 的健康 Python 测试（不依赖已归档目录）
 # =============================================================================
 name: PR Checks
@@ -56,11 +56,11 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Job A2: MSRV check（workspace 声明 rust-version=1.87；只跑 cargo check，
-  # 不重跑全部测试——个人项目简洁优先）
+  # Job A2: MSRV check（workspace 声明 rust-version=1.92——egui 0.35 下限；
+  # 只跑 cargo check，不重跑全部测试——个人项目简洁优先）
   # ────────────────────────────────────────────────────────────────────────────
   msrv-check:
-    name: MSRV 1.87 Check
+    name: MSRV 1.92 Check
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -68,8 +68,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust 1.87 (MSRV)
-        uses: dtolnay/rust-toolchain@1.87.0
+      - name: Install Rust 1.92 (MSRV)
+        uses: dtolnay/rust-toolchain@1.92.0
         with:
           profile: minimal
 

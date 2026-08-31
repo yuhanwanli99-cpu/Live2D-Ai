@@ -327,10 +327,10 @@ pub(crate) fn handle_display(
     };
     if let Err(e) = store.persist() {
         // 写盘失败：reload 内存 state（best-effort：从磁盘读回）。
-        if let Ok(reloaded) = ModelRegistry::load_from_path(&store.registry_path) {
-            if let Ok(mut g) = store.inner.write() {
-                *g = reloaded;
-            }
+        if let Ok(reloaded) = ModelRegistry::load_from_path(&store.registry_path)
+            && let Ok(mut g) = store.inner.write()
+        {
+            *g = reloaded;
         }
         return persist_failed_response(&e);
     }
@@ -369,10 +369,10 @@ pub(crate) fn handle_delete(store: &ModelStore, id: &str) -> Response<Cursor<Vec
     };
     if let Err(e) = store.persist() {
         // 回滚：把删除的 entry 插回去。
-        if let Some(e) = prev_entry {
-            if let Ok(mut g) = store.inner.write() {
-                g.entries.insert(normalized.clone(), e);
-            }
+        if let Some(e) = prev_entry
+            && let Ok(mut g) = store.inner.write()
+        {
+            g.entries.insert(normalized.clone(), e);
         }
         return persist_failed_response(&e);
     }

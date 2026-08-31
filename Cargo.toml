@@ -19,7 +19,9 @@ version = "0.1.0"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
-rust-version = "1.87"
+# 2026-08-31 再修正：1.87 → 1.92——egui 0.35 全家（egui/egui-winit/egui-wgpu）
+# 要求 rustc 1.92（实测 `cargo +1.87 check` 报 1.92 上限）；1.87 是假下限。
+rust-version = "1.92"
 license = "AGPL-3.0-only"
 authors = ["Sakura Motion Project"]
 

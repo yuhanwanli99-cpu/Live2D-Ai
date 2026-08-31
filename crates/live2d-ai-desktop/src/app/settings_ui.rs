@@ -344,13 +344,21 @@ pub(crate) fn save_draft(
     let path = std::path::Path::new(config_path);
     // F2b-M0-2：**先读磁盘既有配置**，只合并 UI 暴露字段——保留
     // tts.model / sample_rate / channels 等隐藏字段（避免「只改 LLM 却
-    // 重置 TTS 音频规格」）。磁盘无配置（首次保存）→ 全量创建。
+    // 重置 TTS 音频规格」）。仅当文件**不存在**（首次保存）→ 全量创建；
+    // 已存在但解析失败（损坏/格式过期）→ 拒绝覆盖（避免把坏配置写死）。
     let next = match live2d_ai_runtime::AppSettings::load_from_path(path) {
         Ok(mut s) => {
             apply_draft(&mut s, draft);
             s
         }
-        Err(_) => draft_to_settings(draft),
+        // 仅「文件不存在」= 首次保存 → 全量创建；
+        // 已存在但解析失败（损坏/格式过期）→ 拒绝覆盖（避免把坏配置写死）。
+        Err(live2d_ai_runtime::settings::SettingsError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            draft_to_settings(draft)
+        }
+        Err(e) => return Err(format!("既有配置解析失败，拒绝覆盖: {e}")),
     };
     // F2b-M0-1：写盘**前**统一配置校验（URL / env 名 / audio spec）。
     // `resolve_with(|_| None)` 不要求真实 key 存在，但会校验语法——

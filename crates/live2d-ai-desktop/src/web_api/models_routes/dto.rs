@@ -180,20 +180,20 @@ impl DisplayModelPatch {
                 return Err(format!("model.scale 必须 > 0（收到 {v}）"));
             }
         }
-        if let Some(v) = self.offset_x {
-            if !v.is_finite() {
-                return Err("model.offset_x 必须有限".into());
-            }
+        if let Some(v) = self.offset_x
+            && !v.is_finite()
+        {
+            return Err("model.offset_x 必须有限".into());
         }
-        if let Some(v) = self.offset_y {
-            if !v.is_finite() {
-                return Err("model.offset_y 必须有限".into());
-            }
+        if let Some(v) = self.offset_y
+            && !v.is_finite()
+        {
+            return Err("model.offset_y 必须有限".into());
         }
-        if let Some(v) = self.rotation {
-            if !v.is_finite() {
-                return Err("model.rotation 必须有限".into());
-            }
+        if let Some(v) = self.rotation
+            && !v.is_finite()
+        {
+            return Err("model.rotation 必须有限".into());
         }
         Ok(())
     }
@@ -229,15 +229,15 @@ impl DisplayStagePatch {
     /// - `background_opacity` 必须 ∈ [0, 1] 且 finite；
     /// - `background_color` 必须匹配 `#RRGGBB` 或 `#RRGGBBAA`。
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(w) = self.width {
-            if w == 0 {
-                return Err("stage.width 必须 > 0（收到 0）".into());
-            }
+        if let Some(w) = self.width
+            && w == 0
+        {
+            return Err("stage.width 必须 > 0（收到 0）".into());
         }
-        if let Some(h) = self.height {
-            if h == 0 {
-                return Err("stage.height 必须 > 0（收到 0）".into());
-            }
+        if let Some(h) = self.height
+            && h == 0
+        {
+            return Err("stage.height 必须 > 0（收到 0）".into());
         }
         if let Some(op) = self.background_opacity {
             if !op.is_finite() {
@@ -249,12 +249,12 @@ impl DisplayStagePatch {
                 ));
             }
         }
-        if let Some(color) = self.background_color.as_deref() {
-            if !is_hex_color(color) {
-                return Err(format!(
-                    "stage.background_color 必须为 #RRGGBB 或 #RRGGBBAA（收到 {color:?}）"
-                ));
-            }
+        if let Some(color) = self.background_color.as_deref()
+            && !is_hex_color(color)
+        {
+            return Err(format!(
+                "stage.background_color 必须为 #RRGGBB 或 #RRGGBBAA（收到 {color:?}）"
+            ));
         }
         Ok(())
     }

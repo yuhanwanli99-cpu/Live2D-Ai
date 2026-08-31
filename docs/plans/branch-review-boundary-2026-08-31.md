@@ -32,7 +32,7 @@ main (af140744)                 ← 旧全栈基线（Py PC + Android + shared�
 ### 审查重点清单（主分支 Rust 部分）
 | 项 | 位置 | 说明 |
 |---|---|---|
-| workspace 结构 | `Cargo.toml` | 6 member，edition 2024，rust-version 1.87 |
+| workspace 结构 | `Cargo.toml` | 6 member，edition 2024，rust-version 1.92（egui 0.35 下限；2026-08-31 从 1.87 修正） |
 | core reducer | `crates/live2d-ai-core/src/` | 纯 reducer 状态机（5 rs） |
 | runtime 设置 | `crates/live2d-ai-runtime/src/settings/` | 18 rs（含 serde 三态/原子写回） |
 | desktop 入口 | `crates/live2d-ai-desktop/src/` | 10 rs（cli/app/tray/user_event） |

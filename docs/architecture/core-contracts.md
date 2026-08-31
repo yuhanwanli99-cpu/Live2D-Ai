@@ -83,7 +83,7 @@ GENERATING（turn）
 
 任何改动必须保证：
 
-1. `cargo test --workspace --all-targets` 全绿（当前 670 + 3 doctest）。
+1. `cargo test --workspace --all-targets` 全绿（当前 674 + 3 doctest）。
 2. `cargo fmt --all --check` 干净。
 3. `cargo clippy --workspace --all-targets -- -D warnings` 干净。
 4. root `pytest tests/` 全绿（当前 22 passed, 1 skipped——Android 归档后合理跳过）。

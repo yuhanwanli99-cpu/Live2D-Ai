@@ -22,15 +22,15 @@ use crate::state::{Phase, PlaybackState, State, Turn};
 /// 不 panic、不 I/O；同类事件的处理结果只依赖 `state` 与 `event` 自身。
 pub fn apply(state: &mut State, event: Event) -> Vec<Effect> {
     // ---- 1. 根 epoch 闸门：旧代次（含 ID 重用后的迟到事件）确定性丢弃。----
-    if let Some(event_epoch) = event.epoch() {
-        if event_epoch != state.epoch {
-            return vec![Effect::Dropped {
-                reason: DropReason::StaleEpoch {
-                    event_epoch,
-                    current_epoch: state.epoch,
-                },
-            }];
-        }
+    if let Some(event_epoch) = event.epoch()
+        && event_epoch != state.epoch
+    {
+        return vec![Effect::Dropped {
+            reason: DropReason::StaleEpoch {
+                event_epoch,
+                current_epoch: state.epoch,
+            },
+        }];
     }
 
     // ---- 2. 同代次规则。----
@@ -149,12 +149,12 @@ fn playback_started(state: &mut State, turn_id: TurnId) -> Vec<Effect> {
         matches!(current, PlaybackState::NeverStarted)
     });
     // 迁移成功（效果向量为空）时首次起播翻相位；被丢弃则状态未变、无相位变化。
-    if effects.is_empty() {
-        if let Some(turn) = &state.active_turn {
-            if turn.playback == PlaybackState::Playing && state.phase == Phase::Thinking {
-                state.phase = Phase::Speaking;
-            }
-        }
+    if effects.is_empty()
+        && let Some(turn) = &state.active_turn
+        && turn.playback == PlaybackState::Playing
+        && state.phase == Phase::Thinking
+    {
+        state.phase = Phase::Speaking;
     }
     effects
 }
