@@ -51,6 +51,8 @@ pub mod commands_routes;
 /// HTTP 派发（method+path → RouteId → handler；D-P0B 安全校验 + D-P0C
 /// 动态装配 supervisor）。拆分承载：保持 `mod.rs` ≤ 500。
 pub mod dispatch;
+/// Web 静态资产：/models/* 模型资产 + /render* WASM 渲染页（节点 E E2）。
+pub mod wasm_assets;
 pub mod dto;
 pub mod index_html;
 pub mod log_routes;
@@ -456,6 +458,14 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
                 let resp = crate::web_api::ws::ws_method_or_path_error(&method, &path);
                 let _ = request.respond(resp);
             }
+            continue;
+        }
+        // 节点 E E2：Web 静态资产（/models/* 模型资产 + /render* WASM 渲染页）。
+        // 先于 dispatch 处理（纯读盘静态，非 API；GET 无 body 不 consume）。
+        if let Some(resp) =
+            crate::web_api::wasm_assets::handle_assets(&method, &path)
+        {
+            let _ = request.respond(resp);
             continue;
         }
         // HTTP：抽 (origin, content_type) → dispatch_with_security。
