@@ -2239,6 +2239,7 @@ dependencies = [
  "ksni",
  "l2d",
  "live2d-ai-core",
+ "live2d-ai-mod-system",
  "live2d-ai-runtime",
  "once_cell",
  "pollster",

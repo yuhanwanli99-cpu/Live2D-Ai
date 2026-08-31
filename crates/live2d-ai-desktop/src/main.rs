@@ -46,6 +46,7 @@ mod backend;
 mod benchmark;
 mod cli;
 mod logging;
+mod mod_registry;
 mod model_smoke;
 mod platform;
 mod repl;
