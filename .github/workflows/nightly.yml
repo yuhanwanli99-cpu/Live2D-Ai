@@ -1,8 +1,9 @@
 # =============================================================================
-# Nightly — 夜间全量构建 (Phase 1 — 不含 Emulator / Instrumentation 测试)
+# Nightly — 夜间全量门禁（Rust 重构后）
 # 触发器: cron (UTC 02:00) | workflow_dispatch
-# Phase 2: 添加 Android Emulator + instrumentation 测试
-# Phase 3: 添加 release signing + 失败通知
+# Jobs:
+#   - rust-full-test    : 全量 build/test/fmt/clippy（覆盖所有 workspace member）
+#   - rust-release-build: needs: rust-full-test，cargo build --release，上传 desktop 二进制
 # =============================================================================
 name: Nightly
 
@@ -11,172 +12,69 @@ on:
     - cron: "0 2 * * *"
   workflow_dispatch:
 
-env:
-  ANDROID_NDK_VERSION: "27.0.12077973"
-
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
-  # Job 1: 全量测试 (单元测试 + lint + Python)
+  # Job 1: 全量门禁 — build / test / fmt / clippy
   # ────────────────────────────────────────────────────────────────────────────
-  full-test:
-    name: Full Test Suite
+  rust-full-test:
+    name: Rust Full Test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    env:
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || '' }}
-      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY || '' }}
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17 (Temurin)
-        uses: actions/setup-java@v4
+      - name: Install Rust toolchain (stable + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          java-version: "17"
-          distribution: "temurin"
+          profile: minimal
+          components: rustfmt, clippy
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
 
-      - name: Restore Gradle cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+      - name: Build workspace
+        run: cargo build --workspace
 
-      - name: Install NDK r27 (${{ env.ANDROID_NDK_VERSION }})
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27
-          link-to-sdk: true
+      - name: Test workspace
+        run: cargo test --workspace
 
-      - name: Set NDK environment
-        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Grant gradlew execute permission
-        run: chmod +x gradlew
-        working-directory: Live2D-Ai-Android
-
-      - name: Run Android unit tests
-        run: ./gradlew test
-        working-directory: Live2D-Ai-Android
-
-      - name: Run Android lint
-        run: ./gradlew lint
-        working-directory: Live2D-Ai-Android
-
-      - name: Upload Android test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: nightly-test-report-android
-          path: Live2D-Ai-Android/app/build/reports/tests/**
-          retention-days: 14
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install dependencies and run Python tests
-        run: |
-          uv sync
-          uv run pytest tests/ -v --junitxml=test-results.xml
-          uv run ruff check .
-        working-directory: Live2D-Ai-pc/open-llm-vtuber
-        continue-on-error: true
-
-      - name: Run local health check (no key)
-        run: uv run --project Live2D-Ai-pc/open-llm-vtuber python scripts/health_check.py
-
-      - name: Run cross-platform consistency
-        run: uv run --project Live2D-Ai-pc/open-llm-vtuber python shared/check_cross_platform_consistency.py
-
-      - name: Verify Android persona.yaml is synced with shared/
-        run: |
-          cmp -s shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/persona.yaml || {
-            echo "::error::Android assets/persona.yaml is out of sync with shared/persona.yaml"
-            exit 1
-          }
-
-      - name: Upload Python test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: nightly-test-report-python
-          path: test-results.xml
-          retention-days: 14
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace -- -D warnings
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Job 2: 全量构建 (debug APK)
+  # Job 2: 全量发布构建 — release desktop 二进制
   # ────────────────────────────────────────────────────────────────────────────
-  build-apk:
-    name: Build APK (Nightly)
-    needs: full-test
+  rust-release-build:
+    name: Rust Release Build
+    needs: rust-full-test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    env:
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || '' }}
-      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY || '' }}
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17 (Temurin)
-        uses: actions/setup-java@v4
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          java-version: "17"
-          distribution: "temurin"
+          profile: minimal
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
 
-      - name: Restore Gradle cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+      - name: Build release binary (workspace)
+        run: cargo build --release --workspace
 
-      - name: Install NDK r27 (${{ env.ANDROID_NDK_VERSION }})
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27
-          link-to-sdk: true
-
-      - name: Set NDK environment
-        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
-
-      - name: Grant gradlew execute permission
-        run: chmod +x gradlew
-        working-directory: Live2D-Ai-Android
-
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
-        working-directory: Live2D-Ai-Android
-
-      - name: Upload APK artifact
+      - name: Upload desktop binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: live2d-ai-nightly-${{ github.sha }}
-          path: Live2D-Ai-Android/app/build/outputs/apk/debug/app-debug.apk
+          path: target/release/live2d-ai-desktop
           if-no-files-found: warn
           retention-days: 14
           compression-level: 6

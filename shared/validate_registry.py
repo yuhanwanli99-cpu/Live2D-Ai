@@ -12,9 +12,13 @@ Checks:
      - the default entry is available=true
      - model ids are unique
      - each model3JsonPath directory prefix matches its model id
-  3. Every available=true entry's model3.json exists on BOTH platform roots
-     (Android: assets/live2d/, PC: live2d-models/). Unavailable entries are
-     placeholders and are exempt from the file check.
+  3. Every available=true entry's model3.json exists on each declared platform
+     root. Platform roots are opt-in via env (VALIDATE_REGISTRY_PLATFORM_ROOTS,
+     JSON like {"android": "/abs/path", "pc": "/abs/path"}); when unset or any
+     root is missing on disk, that platform's file check is skipped (warn).
+     History: Live2D-Ai-Android / Live2D-Ai-pc have been archived; the legacy
+     hard-coded platform roots are removed. Re-declare via env when the
+     corresponding codebases are restored locally.
 
 Usage:  python shared/validate_registry.py
 Exit:   0 = all checks passed, 1 = validation failed, 2 = environment error
@@ -22,6 +26,7 @@ Exit:   0 = all checks passed, 1 = validation failed, 2 = environment error
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -29,10 +34,34 @@ ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = ROOT / "shared" / "model_registry.json"
 SCHEMA_PATH = ROOT / "shared" / "model_registry.schema.json"
 
-PLATFORM_ROOTS = {
-    "android": ROOT / "Live2D-Ai-Android" / "app" / "src" / "main" / "assets" / "live2d",
-    "pc": ROOT / "Live2D-Ai-pc" / "open-llm-vtuber" / "live2d-models",
-}
+
+def _load_platform_roots() -> dict[str, Path]:
+    """Load opt-in platform roots from env (JSON object).
+
+    Returns an empty dict when unset / unparsable — file-existence step then
+    no-ops, keeping schema + invariant checks runnable on archived repos.
+    """
+    raw = os.environ.get("VALIDATE_REGISTRY_PLATFORM_ROOTS")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"warn: VALIDATE_REGISTRY_PLATFORM_ROOTS 不是合法 JSON，已忽略: {raw!r}")
+        return {}
+    if not isinstance(data, dict):
+        print(f"warn: VALIDATE_REGISTRY_PLATFORM_ROOTS 顶层必须是对象，已忽略: {raw!r}")
+        return {}
+    result: dict[str, Path] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or not isinstance(value, str) or not value:
+            print(f"warn: 跳过非法 platform root 条目: {key!r}={value!r}")
+            continue
+        result[key] = Path(value)
+    return result
+
+
+PLATFORM_ROOTS: dict[str, Path] = _load_platform_roots()
 
 
 def schema_error_path(error) -> str:

@@ -15,7 +15,11 @@
 /// - `Toggle*` 由菜单勾选项发送，目标态 = 当前态取反（当前态由共享原子簿记）；
 /// - `TraySetVisible` 为显式目标态版本（托盘图标左键激活用它发「取反后的显式值」）；
 /// - 所有事件的落地实现都在事件循环线程（见 `app.rs` 的 user_event 处理）。
+///
+/// `Tray` 前缀是刻意语义（标识事件来源 = 托盘线程，与 winit user_event 通道一致），
+/// 去前缀会丢失来源语义，故豁免 clippy::enum_variant_names。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum PetUserEvent {
     /// 切换点击穿透（交互模式 ⇄ 穿透模式）。
     TrayToggleClickThrough,

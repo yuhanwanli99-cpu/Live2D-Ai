@@ -1,7 +1,8 @@
 # =============================================================================
-# Build & Upload — APK 构建 + Artifact 上传
+# Build & Upload — Rust Release 构建 + Artifact 上传
 # 触发器: push → main | workflow_dispatch (手动)
-# Job: build-apk
+# Job: rust-release-build
+# 产物: target/release/live2d-ai-desktop（live2d-ai-desktop crate 二进制）
 # =============================================================================
 name: Build & Upload Artifact
 
@@ -13,111 +14,57 @@ on:
       - "docs/**"
       - ".pi/**"
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: "构建类型"
-        type: choice
-        options:
-          - debug
-          - release
-        default: "debug"
-
-env:
-  ANDROID_NDK_VERSION: "27.0.12077973"
 
 jobs:
-  build-apk:
-    name: Build APK
+  rust-release-build:
+    name: Build Rust Release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    env:
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || '' }}
-      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY || '' }}
+    timeout-minutes: 45
 
     outputs:
-      apk_name: ${{ steps.metadata.outputs.apk_name }}
-      apk_size_bytes: ${{ steps.metadata.outputs.apk_size_bytes }}
+      binary_size_bytes: ${{ steps.metadata.outputs.binary_size_bytes }}
       build_duration_seconds: ${{ steps.metadata.outputs.build_duration_seconds }}
       commit_sha: ${{ steps.metadata.outputs.commit_sha }}
-      build_type: ${{ steps.metadata.outputs.build_type }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17 (Temurin)
-        uses: actions/setup-java@v4
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          java-version: "17"
-          distribution: "temurin"
+          profile: minimal
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
 
-      - name: Restore Gradle cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      - name: Install NDK r27 (${{ env.ANDROID_NDK_VERSION }})
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27
-          link-to-sdk: true
-
-      - name: Set NDK environment
-        run: echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
-
-      - name: Grant gradlew execute permission
-        run: chmod +x gradlew
-        working-directory: Live2D-Ai-Android
-
-      - name: Build APK
+      - name: Build release binary (workspace)
         id: build
         run: |
           BUILD_START=$(date +%s)
-          if [[ "${{ github.event.inputs.build_type || 'debug' }}" == "release" ]]; then
-            ./gradlew assembleRelease
-          else
-            ./gradlew assembleDebug
-          fi
+          cargo build --release --workspace
           BUILD_END=$(date +%s)
           echo "duration=$(( BUILD_END - BUILD_START ))" >> "$GITHUB_OUTPUT"
-        working-directory: Live2D-Ai-Android
 
-      - name: Collect APK metadata
+      - name: Collect binary metadata
         id: metadata
         run: |
-          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
-          APK_PATH="app/build/outputs/apk/${BUILD_TYPE}/app-${BUILD_TYPE}.apk"
-          APK_NAME="live2d-ai-android-${BUILD_TYPE}-${GITHUB_SHA::7}.apk"
-
-          # Copy the real Gradle output to a friendly, unique name so the
-          # upload step below has a stable path to reference (the raw
-          # app-${BUILD_TYPE}.apk name is overwritten on every build).
-          cp "$APK_PATH" "$APK_NAME"
-
-          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
-          echo "apk_size_bytes=$(stat -c%s "$APK_PATH" 2>/dev/null || echo 0)" >> "$GITHUB_OUTPUT"
+          BIN_PATH="target/release/live2d-ai-desktop"
+          if [ -f "$BIN_PATH" ]; then
+            SIZE=$(stat -c%s "$BIN_PATH")
+          else
+            echo "::error::expected binary not found at $BIN_PATH"
+            exit 1
+          fi
+          echo "binary_size_bytes=${SIZE}" >> "$GITHUB_OUTPUT"
           echo "build_duration_seconds=${{ steps.build.outputs.duration }}" >> "$GITHUB_OUTPUT"
           echo "commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "build_type=${BUILD_TYPE}" >> "$GITHUB_OUTPUT"
-        working-directory: Live2D-Ai-Android
 
-      - name: Upload APK artifact
+      - name: Upload desktop binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: live2d-ai-android-${{ github.event.inputs.build_type || 'debug' }}-${{ github.sha }}
-          path: Live2D-Ai-Android/${{ steps.metadata.outputs.apk_name }}
+          name: live2d-ai-desktop-release-${{ github.sha }}
+          path: target/release/live2d-ai-desktop
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
@@ -127,133 +74,6 @@ jobs:
           echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Build type**: ${{ steps.metadata.outputs.build_type }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Build type**: release" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Duration**: ${{ steps.metadata.outputs.build_duration_seconds }}s" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **APK size**: ${{ steps.metadata.outputs.apk_size_bytes }} bytes" >> "$GITHUB_STEP_SUMMARY"
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # Job: build-pc-windows — PC 便携版 zip 打包（uv-venv-bundle）
-  # 与 build-apk 并列、互不阻塞（无 needs: 依赖），共用 push main + workflow_dispatch 触发
-  # 核心步骤直接调用 task-pkg-build 交付的一体化打包脚本 scripts/assemble_zip.py
-  # （内部完成: staging 拷贝 → uv sync → 捆绑托管解释器 → 便携 ffmpeg → 哨兵校验 → zip → verify_package）
-  # 产物: build/live2d-ai-pc-windows-<sha7>.zip
-  # ────────────────────────────────────────────────────────────────────────────
-  build-pc-windows:
-    name: Build PC Windows (Portable Zip)
-    runs-on: windows-latest
-    timeout-minutes: 45
-
-    steps:
-      # 1. Checkout（含 submodule；本仓库无 gitlink，submodules 为幂等 no-op）
-      - name: Checkout code (with submodules)
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # 2. 补齐 frontend/libs（.gitignore 排除、未入库；上游 Open-LLM-VTuber-Web build 分支 pin 版本）
-      #    已本地核验: ac7de8e 的 libs/ 与仓库本地 frontend/libs 逐文件 md5 一致（仅 CRLF 差异）
-      #    libs/ 已存在时跳过（幂等）；文件数 < 10 视为上游布局变化，fail-fast
-      - name: Materialize frontend/libs (gitignored, pinned upstream)
-        shell: bash
-        run: |
-          LIBS_DIR="Live2D-Ai-pc/open-llm-vtuber/frontend/libs"
-          if [ -f "$LIBS_DIR/live2dcubismcore.js" ]; then
-            echo "frontend/libs already present ($(ls "$LIBS_DIR" | wc -l) files) — skipping fetch"
-          else
-            echo "frontend/libs missing in checkout — fetching from upstream build branch (pinned)"
-            curl -fsSL -o /tmp/oltv-web.tar.gz \
-              "https://github.com/Open-LLM-VTuber/Open-LLM-VTuber-Web/archive/ac7de8e880d803e4bda64aadda88208708d081ef.tar.gz"
-            tar -xzf /tmp/oltv-web.tar.gz -C /tmp
-            mkdir -p "$LIBS_DIR"
-            cp -r /tmp/Open-LLM-VTuber-Web-ac7de8e880d803e4bda64aadda88208708d081ef/libs/. "$LIBS_DIR/"
-            echo "Fetched $(ls "$LIBS_DIR" | wc -l) frontend lib files"
-          fi
-          COUNT=$(ls "$LIBS_DIR" | wc -l)
-          if [ "$COUNT" -lt 10 ]; then
-            echo "::error::frontend/libs incomplete ($COUNT files, expected >= 10) — upstream layout may have changed"
-            exit 1
-          fi
-
-      # 3. 安装 uv
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-
-      # 4. 一体化打包（task-pkg-build 交付的 scripts/assemble_zip.py）
-      #    偏差说明：plan v2 §7.2 的步骤 3-9（uv sync / 可移植性检查 / ffmpeg / 哨兵 / pytest / zip / verify）
-      #    已被 delivered 脚本内部接管，CI 直接调用脚本（plan 依赖图未预见到的一体化入口）
-      - name: Assemble portable zip
-        run: python scripts/assemble_zip.py
-
-      # 5. 可移植性回归探针（非阻塞 + ::error:: 醒目告警）
-      #    背景：uv 在 Windows 上为 managed-python venv 生成的 Scripts/python.exe 是 trampoline，
-      #    内嵌基座解释器的绝对路径（本地已用 strings 验证二进制内含 AppData 绝对路径），
-      #    改写 pyvenv.cfg home 无法使其可移植 —— 这是 plan v2 的核心假设缺陷（详见交付说明）。
-      #    task-pkg-build 已在打包时捆绑 python/ 并改写 home=python（相对），但仅此不足以启动，
-      #    需额外用捆绑的 python/python.exe 覆盖 .venv/Scripts/python.exe（本地已验证可行）。
-      #    本探针在 CI 上真实模拟“无托管 Python 机器”，作为该问题的回归门禁；
-      #    修复落地后本步骤自动转绿，在此之前保持失败告警但不上传损坏产物也不阻塞 build-apk。
-      - name: Portability probe (packaged venv on clean machine)
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $appDir = Join-Path $PWD 'build/staging/Live2D-Ai-pc/open-llm-vtuber'
-          $venvPy = Join-Path $appDir '.venv/Scripts/python.exe'
-          if (-not (Test-Path $venvPy)) {
-            Write-Host "::warning::staging venv not found at $appDir — skipping probe (assemble step failed earlier?)"
-            exit 0
-          }
-
-          $homeLine = (Get-Content (Join-Path $appDir '.venv/pyvenv.cfg') | Where-Object { $_ -like 'home = *' })
-          Write-Host "packaged pyvenv.cfg: $homeLine"
-          if ($homeLine -match '^home\s*=\s*[A-Za-z]:') {
-            Write-Host '::error::packaged pyvenv.cfg home is absolute — NOT portable'
-            exit 1
-          }
-          Write-Host 'OK: packaged pyvenv.cfg home is relative'
-
-          # 模拟最终用户机器：隐藏全部 uv 托管 Python 后运行打包的 venv
-          $installDir = (uv python dir).Trim()
-          Write-Host "uv python install dir: $installDir"
-          $moved = @()
-          $rc = 0
-          $out = ''
-          try {
-            Get-ChildItem -Path $installDir -Directory | Where-Object { $_.Name -like 'cpython-*' } | ForEach-Object {
-              $bak = "$($_.FullName).__portability_probe_bak__"
-              if (Test-Path $bak) { Remove-Item -Recurse -Force $bak }
-              Rename-Item -Path $_.FullName -NewName "$($_.Name).__portability_probe_bak__"
-              $moved += $_
-            }
-            Push-Location $appDir
-            $out = & '.venv\Scripts\python.exe' --version 2>&1
-            $rc = $LASTEXITCODE
-            Pop-Location
-          } catch {
-            Write-Host "::warning::portability probe error: $_"
-          } finally {
-            foreach ($d in $moved) {
-              $b = "$($d.FullName).__portability_probe_bak__"
-              if (Test-Path $b) { Rename-Item -Path $b -NewName $d.Name | Out-Null }
-            }
-          }
-          if ($rc -ne 0) {
-            Write-Host "::error::PORTABILITY PROBE FAILED (rc=$rc): $out"
-            Write-Host '::error::Packaged .venv/Scripts/python.exe cannot start without the CI uv-managed python.'
-            Write-Host '::error::uv Windows venv python.exe is a trampoline with an embedded absolute path.'
-            Write-Host '::error::Proven fix: in scripts/assemble_zip.py, copy the bundled python/python.exe over .venv/Scripts/python.exe (home stays relative "python").'
-            exit 1
-          } else {
-            Write-Host "OK: packaged venv runs without uv-managed python: $out"
-          }
-
-      # 6. 上传 artifact（命名: live2d-ai-pc-windows-<full sha>，与 build-apk 风格一致）
-      - name: Upload PC Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: live2d-ai-pc-windows-${{ github.sha }}
-          path: build/live2d-ai-pc-windows-*.zip
-          if-no-files-found: error
-          retention-days: 30
-          compression-level: 6
-
+          echo "- **Binary size**: ${{ steps.metadata.outputs.binary_size_bytes }} bytes" >> "$GITHUB_STEP_SUMMARY"

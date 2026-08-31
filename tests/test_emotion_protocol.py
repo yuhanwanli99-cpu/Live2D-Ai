@@ -3,7 +3,7 @@
 覆盖:
 - C22a: shared/emotion-protocol.md 存在
 - C22b: 含 B/C/D/E/F 全部段落标题
-- C-p2: shared/persona.yaml YAML 合法（含 name/role/system_prompt/model/temperature/max_tokens/vision_model）
+- C-p2: shared/persona.yaml YAML 合法（含 name/role/system_prompt/profile；model 等已收敛进 LLM 设置）
 
 风格: unittest + 直读文件（对齐 test_persona_shared.py）。
 """
@@ -65,16 +65,16 @@ class TestEmotionProtocol(unittest.TestCase):
             persona = yaml.safe_load(f)
 
         self.assertIsNotNone(persona, "persona.yaml 解析为 None")
+        # 2026-08-22 人设收敛：model/temperature/max_tokens/vision_model 归 LLM 设置，
+        # persona 顶层只承载 name/role/profile/system_prompt。
         for field in (
             "name",
             "role",
             "system_prompt",
-            "model",
-            "temperature",
-            "max_tokens",
-            "vision_model",
+            "profile",
         ):
             self.assertIn(field, persona, f"persona.yaml 缺少字段: {field}")
+        self.assertNotIn("model", persona, "persona.yaml 不应再含 model（已收敛进 LLM 设置）")
 
 
 if __name__ == "__main__":
