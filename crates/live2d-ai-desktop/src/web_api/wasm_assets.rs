@@ -110,8 +110,16 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
         // scan dist 的 hash
         let dist_dir = wasm_dist_dir();
         return Some(match wasm_hash_from_dist(&dist_dir) {
-            Some(hash) => html_response(StatusCode(200), &render_html(&hash), "text/html; charset=utf-8"),
-            None => json_error(StatusCode(503), "wasm_unavailable", "WASM 产物缺失：请先 trunk build l2d-wasm-demo"),
+            Some(hash) => html_response(
+                StatusCode(200),
+                &render_html(&hash),
+                "text/html; charset=utf-8",
+            ),
+            None => json_error(
+                StatusCode(503),
+                "wasm_unavailable",
+                "WASM 产物缺失：请先 trunk build l2d-wasm-demo",
+            ),
         });
     }
     if let Some(rel) = path.strip_prefix("/render/") {
@@ -122,7 +130,7 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
                 let mime = wasm_mime(rel);
                 Some(bytes_response(StatusCode(200), bytes, mime))
             }
-            Err(e) => Some(json_error(StatusCode(404), "not_found", &format!("{e}"))),
+            Err(e) => Some(json_error(StatusCode(404), "not_found", &e.to_string())),
         };
     }
     if let Some(rel) = path.strip_prefix("/models/") {
@@ -137,7 +145,7 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
                 let mime = model_mime(&rel);
                 Some(bytes_response(StatusCode(200), bytes, mime))
             }
-            Err(e) => Some(json_error(StatusCode(404), "not_found", &format!("{e}"))),
+            Err(e) => Some(json_error(StatusCode(404), "not_found", &e.to_string())),
         };
     }
     None
@@ -179,7 +187,8 @@ fn read_file_safe(root: &Path, rel: &str) -> Result<Vec<u8>, String> {
     }
     let mut f = std::fs::File::open(&full).map_err(|e| format!("打开失败: {e}"))?;
     let mut buf = Vec::new();
-    f.read_to_end(&mut buf).map_err(|e| format!("读取失败: {e}"))?;
+    f.read_to_end(&mut buf)
+        .map_err(|e| format!("读取失败: {e}"))?;
     Ok(buf)
 }
 
@@ -197,24 +206,35 @@ fn model_mime(rel: &str) -> &'static str {
     if rel.ends_with(".png") {
         "image/png"
     } else if rel.ends_with(".json") {
-        "application/json; charset=utf-8"
-    } else if rel.ends_with(".model3.json") {
+        // 覆盖 .json / .model3.json / .physics3.json / .cdi3.json / .vtube.json。
         "application/json; charset=utf-8"
     } else {
         "application/octet-stream"
     }
 }
 
-fn html_response(status: StatusCode, body: &str, mime: &'static str) -> Response<std::io::Cursor<Vec<u8>>> {
+fn html_response(
+    status: StatusCode,
+    body: &str,
+    mime: &'static str,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     bytes_response(status, body.as_bytes().to_vec(), mime)
 }
 
-fn bytes_response(status: StatusCode, bytes: Vec<u8>, mime: &'static str) -> Response<std::io::Cursor<Vec<u8>>> {
+fn bytes_response(
+    status: StatusCode,
+    bytes: Vec<u8>,
+    mime: &'static str,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     use tiny_http::Header;
     Response::from_data(bytes)
         .with_status_code(status)
-        .with_header(Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).expect("Content-Type 头"))
-        .with_header(Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).expect("Cache-Control 头"))
+        .with_header(
+            Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).expect("Content-Type 头"),
+        )
+        .with_header(
+            Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).expect("Cache-Control 头"),
+        )
 }
 
 fn json_error(status: StatusCode, code: &str, message: &str) -> Response<std::io::Cursor<Vec<u8>>> {
@@ -254,8 +274,14 @@ mod tests {
 
     #[test]
     fn mime_map() {
-        assert_eq!(model_mime("bai/runtime/bai.model3.json"), "application/json; charset=utf-8");
-        assert_eq!(model_mime("bai/runtime/bai.moc3"), "application/octet-stream");
+        assert_eq!(
+            model_mime("bai/runtime/bai.model3.json"),
+            "application/json; charset=utf-8"
+        );
+        assert_eq!(
+            model_mime("bai/runtime/bai.moc3"),
+            "application/octet-stream"
+        );
         assert_eq!(model_mime("bai/runtime/texture_00.png"), "image/png");
         assert!(model_mime("bai/runtime/bai.16384").starts_with("application/"));
     }

@@ -10,6 +10,7 @@ members = [
     "crates/live2d-ai-desktop",
     "crates/live2d-ai-runtime",
     "crates/l2d-wasm-demo",
+    "crates/live2d-ai-mod-system",
     "xtask",
 ]
 

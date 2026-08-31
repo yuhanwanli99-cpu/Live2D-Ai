@@ -2261,6 +2261,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "live2d-ai-mod-system"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde_json",
+]
+
+[[package]]
 name = "live2d-ai-runtime"
 version = "0.1.0"
 dependencies = [
