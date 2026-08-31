@@ -159,6 +159,10 @@ pub(crate) struct ChatBridge {
     pub(crate) supervisor: std::sync::Arc<crate::supervisor::SupervisorHandle>,
     /// 只读口型快照。`None` = 无音频设备降级（dry-run）：口型电平恒 0。
     pub(crate) snapshot: Option<crate::audio::MouthSnapshot>,
+    /// 配置文件路径（`live2d-ai.toml`）。原生 egui 设置面板保存按钮的写盘
+    /// 目标；同时用于启动时把已加载 `AppSettings` 回显到表单 `Draft`。
+    /// `None` = 面板无可写目标（理论上 chat 模式恒为 `Some`）。
+    pub(crate) config_path: Option<String>,
 }
 
 /// shutdown handshake 兜底上限（D13 裁决）：超过即警告强退。

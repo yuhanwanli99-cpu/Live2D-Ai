@@ -64,7 +64,7 @@ pub fn dispatch_with_security(
     let route = match_route(method, path);
     // D-P0B：mutating 端点先做安全校验（Origin + Content-Type）。
     // 只读端点（GET/IndexHtml/NotFound 等）跳过——无 CSRF 风险。
-    if crate::web_api::security::is_mutating_route(route) {
+    if crate::web_api::security::is_mutating_route(route, method) {
         let body_present = !body_str.is_empty();
         if let Err(err) = crate::web_api::security::check_mutating_request(
             origin,
@@ -173,23 +173,16 @@ pub fn dispatch_with_security(
             crate::web_api::models_routes::dispatch(&ctx.models, method, path, body_str)
         }
         // D4（2026-08-29）：命令注册端点。
-        // - `GET /api/v1/commands` → 列表（`commands.list`）
+        // - `GET /api/v1/commands` → 列表（`commands.list`，只读）
         // - `POST /api/v1/commands/{id}/invoke` → 触发命令
-        //   （`commands.invoke`；mutating 路径）
-        // mutating 校验：因 security.rs 冻结（`is_mutating_route` 未扩展
-        // 到本 RouteId），本端点暂时**不**走 dispatch 入口的
-        // `check_mutating_request` 短路——Origin + Content-Type 校验
-        // 移到 handler 内部（`commands_routes::handle_invoke_command`
-        // 返回 403 时直接拒绝）。这是临时折衷，task D4 的「严格仲裁」
-        // 要求的是「不绕过 core 仲裁」，handler 内做 Origin/CT 等价校验
-        // 仍满足门禁。
+        //   （`commands.invoke`，mutating）
+        // mutating 校验已由 dispatch 入口统一处理（`is_mutating_route`
+        // 按 `RouteId::Commands + POST` 触发），handler 无需再校验。
         RouteId::Commands => crate::web_api::commands_routes::handle_commands_route(
             ctx.try_get_supervisor().as_ref(),
             method,
             path,
             body_str,
-            origin,
-            content_type,
         ),
         RouteId::NotImplemented => not_implemented_response(route.as_str()),
         RouteId::NotFound => not_found_response(path),

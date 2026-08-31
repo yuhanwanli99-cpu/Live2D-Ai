@@ -5,6 +5,19 @@
 > 本文档是第一批实现的依据：仓库根新增 Cargo workspace（`crates/*` + `xtask`），不触碰 `Live2D-Ai-pc/`、`Live2D-Ai-Android/` 与 `shared/`
 > 关联：`../README.md`（文档索引）、`../architecture/core-contracts.md`（契约）、`../verification/`（验收报告）
 
+> **状态修订（2026-08-31，节点 D 复审后）**：本文档为**历史决策记录**，以下表述已
+> 被后续批次超越，阅读时以当前代码为准：
+> - 「旧 Android/Python 保留不动」→ 已归档：`Live2D-Ai-Android/` 归档到
+>   `android-archive` 分支（见 `ANDROID_ARCHIVE_POINTER.md`），`Live2D-Ai-pc/`
+>   已删除（git 历史保留，tag `py-legacy`）。
+> - 「第一批不做 GPU/network/audio」→ 已全部落地：wgpu 原生渲染、OpenAI 兼容
+>   LLM/TTS 网络层、cpal 音频输出、egui 设置面板、supervisor + WebSocket 事件流、
+>   Web 配置面板（`--web`）均已实现。
+> - 「desktop 只打印架构」→ `--chat` 终端对话 / `--web` Web 面板已接线。
+> - 「runtime tokio 只在 dev dependency」→ 生产路径（supervisor 事件循环）已用
+>   tokio current_thread runtime。
+> 当前权威架构见 `docs/architecture/core-contracts.md`（已同步重写）。
+
 ---
 
 ## 0. 摘要

@@ -14,7 +14,7 @@
 //!   解决；本批 v1 测试仅覆盖 mpsc 端 + 一条 basic e2e（不依赖 reader 持锁
 //!   的同步信号）。
 //!
-//! # 关键线程模型
+//! # 关键线程模型（M0-7 简化后）
 //!
 //! ```text
 //! supervisor 线程                broadcaster（任意线程）
@@ -22,18 +22,17 @@
 //!   │            ▼                 │    遍历 WsWriter 列表（= Vec<SyncSender>）
 //!   │  broadcast()                 │    各自 try_send 到 mpsc
 //!   ▼                             ▼
-//!                            per-connection 写线程
-//!                            │  rx.recv（阻塞）→ 抢 ws 锁 send
-//!                            ▼
-//! per-connection 读线程（handler）
-//!   │  阻塞 w.read（持 ws 锁）
-//!   │  消费 ping/close/Err
+//!                            per-connection actor 线程（独占 ws + 持有 broadcast rx）
+//!                            │  cmd_rx.recv_timeout(HEARTBEAT_INTERVAL)
+//!                            │    Ok → 解析 + wrap seq/ts → ws.write
+//!                            │    Timeout → 发 heartbeat 帧 → ws.write
+//!                            │    Disconnected → ws.close → unsubscriber → return
 //! ```
 //!
-//! **设计要点**：`WsWriter` 改为 mpsc `SyncSender<String>`，广播器与 ws 锁
-//! 完全解耦。writer 线程**不**与 broadcast 持锁——broadcast 只与 mpsc 缓冲
-//! 交互。reader 持锁期间 writer 短暂阻塞 send，但 mpsc 缓冲 256 条不丢。
-//! v1 接受"reader 长时阻塞 → writer 暂缓 send"——断线语义 §4.6 允许延迟。
+//! **设计要点**：`WsWriter` 改为 mpsc `SyncSender<String>`，广播器与 ws
+//! 完全解耦——broadcast 只与 mpsc 缓冲交互。actor 单线程独占持有 ws：
+//! 没有 reader/writer 锁争用，不需要 main_loop 转发线程（M0-7 之前有）。
+//! broadcast 走 `try_send` 不阻塞，慢订阅者下次失败时移除。
 //! **行数豁免（≤1000）**：WS 端到端测试合集（944 行），含并发/生命周期/seq/投影多套件；继续拆分会把 e2e 场景撕裂，故保留单文件并头注豁免。
 //!
 
@@ -397,7 +396,7 @@ fn ws_and_http_concurrent() {
         "HTTP 响应 < 3s；实测 {http_elapsed:?}（修复前会 timeout）"
     );
 
-    // 7) WS 收事件：P1WS-2 连接建立后服务端先发 subscribe_ack（契约 §4.4），
+    // 7) WS 收事件：M0-7 连接建立后服务端先发 subscribe_ack（契约 §4.4），
     //    然后测试线程 broadcast → ws_client 收 1 帧。
     thread::sleep(Duration::from_millis(100));
     eprintln!("test: reading subscribe_ack from WS");
@@ -409,10 +408,9 @@ fn ws_and_http_concurrent() {
         "WS 首帧应为 subscribe_ack（契约 §4.4）"
     );
     assert!(ack_v["seq"].is_u64(), "subscribe_ack 应含 seq");
-    // P1WS-2 设计：actor 不调 `ws.read()`，靠 `cmd_rx.recv_timeout(50ms)`
-    // 周期处理 broadcast。test 线程 broadcast → main_loop 100ms tick
-    // 转发到 actor → actor 50ms 内处理 → 写到 ws。
-    // 等待最多 300ms 让 broadcast 帧到 client。
+    // M0-7 设计：actor 直连 broadcast rx（MPSC），广播帧 → actor
+    // `cmd_rx.recv_timeout(HEARTBEAT_INTERVAL)` 在下一个 tick 内拿到
+    // → 包装 seq/ts → 写到 ws。等待最多 300ms 让 broadcast 帧到 client。
     eprintln!("test: broadcasting 1 frame");
     bc_test.broadcast(r#"{"type":"ping","data":{"k":"v"}}"#);
     eprintln!("test: reading broadcast frame from WS");
@@ -665,7 +663,8 @@ mod ws_unit_tests {
 //
 // **测试设计**：不走完整 run_request_loop（会卡在 test 线程 join），
 // 而是直接调 `Broadcaster::try_subscribe` + `unsubscribe` 模拟连接
-// 建立/退出。这覆盖 P1WS-2 的核心契约：**unsubscribe 显式回收**。
+// 建立/退出。这覆盖 M0-7 的核心契约：**unsubscribe 显式回收**——
+// actor 退出时主动 unsubscriber(conn_id)，不依赖下次 broadcast try_send 失败。
 
 #[cfg(test)]
 mod lifecycle_tests {
@@ -821,16 +820,15 @@ mod lifecycle_e2e {
     ///
     /// 循环结束后断言 subscriber_count == 0 且 HTTP 全部 200。
     ///
-    /// **P1WS-2 已知限制**（契约 partial，详见 contract doc §4.3 状态列）：
-    /// tungstenite 0.24 `read()` 在阻塞 I/O EOF 时 busy-wait（内部
-    /// `read_frame` 把 `Ok(0)` 映射为 `Ok(None)`，外层 `read()` 据此无限
-    /// 循环）。actor 因此**不**调 `ws.read()`，靠主线程 unsubscriber
-    /// 在 30s idle timeout 或 server shutdown 时回收槽位。client close
-    /// 检测走 30s 兜底，**不**走 immediate read。
+    /// **M0-7 简化后**：actor **不**读客户端帧（WebSocket 是单向事件流）。
+    /// client close 检测**不**走 socket read（tungstenite 0.24 `read()`
+    /// 在阻塞 I/O EOF 时 busy-wait），靠 server shutdown 时 broadcast
+    /// `tx` drop 触发 actor `Disconnected` 退出，或写失败（如 client close）
+    /// 主动退出。M0-7 + F3 移除 30s idle 软判——heartbeat 10s 替代保持
+    /// 连接活跃。
     ///
     /// **本测试验证**：40 次循环中 HTTP 始终可响应 + unsubscriber 显式
-    /// 路径下 subscriber_count 必能回 0。完整 30s idle 兜底**不**在本
-    /// 测试（CI 跑 30s+ 太慢）。
+    /// 路径下 subscriber_count 必能回 0。
     #[test]
     fn real_ws_40_iterations_with_http_concurrent() {
         let server = Server::http("127.0.0.1:0").expect("bind :0");
@@ -856,8 +854,8 @@ mod lifecycle_e2e {
         assert_eq!(resp, 200, "初始 HTTP 应 200");
 
         // 2) 40 次 WS 握手 + 客户端 close 循环。
-        // **本测试不依赖 client close detection**（EOF busy-wait 缺陷）：
-        // 显式调 `bc_test.clear()` 模拟 main thread unsubscriber 路径，
+        // **本测试不依赖 actor 自己检测 client close**（actor 不读 socket）：
+        // 显式调 `bc_test.clear()` 模拟 actor 退出时的 unsubscriber 路径，
         // 验证 HTTP 始终可响应 + broadcaster 槽位可被显式回收。
         for i in 0..40 {
             let mut ws = do_client_handshake(ip);
@@ -869,15 +867,13 @@ mod lifecycle_e2e {
                 1,
                 "iter {i}: WS 连接后 subscriber_count 应 = 1"
             );
-            // 客户端 close（best-effort；server 端 actor 不依赖此事件）。
+            // 客户端 close（best-effort；server 端 actor 不依赖此事件，
+            // 仅在下一次 heartbeat 写失败时主动退出）。
             let _ = ws.shutdown(std::net::Shutdown::Both);
             drop(ws);
-            // **显式模拟 main thread 退出时的 unsubscriber 调用**：
-            // 实际生产路径中 main thread 在 100ms tick 后调
-            // `unsubscriber(conn_id)`，本测试用 `clear()` 直接验证
-            // subscriber_count 必能回 0。
-            // 注：P1WS-2 完整修复需要 ws 端可读 client close 帧——靠
-            // 30s idle timeout 或 P1WS-3 引入 custom TcpListener + set_read_timeout。
+            // **显式模拟 actor 退出时的 unsubscriber 调用**：生产路径
+            // 由 actor 退出前主动 unsubscriber(conn_id) 触发；本测试
+            // 用 `clear()` 直接验证 subscriber_count 必能回 0。
             bc_test.clear();
             assert_eq!(
                 bc_test.subscriber_count(),

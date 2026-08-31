@@ -14,7 +14,7 @@
 //! - `is_truthy_env_value` / `extract_origin_and_ct` / `is_mutating_route` /
 //!   错误体契约。
 
-use tiny_http::Header;
+use tiny_http::{Header, Method};
 
 use super::security::{
     MutatingCheckError, SecurityContext, check_mutating_request, check_ws_origin,
@@ -327,17 +327,40 @@ fn extract_origin_and_ct_case_insensitive() {
 #[test]
 fn mutating_route_classification() {
     use super::RouteId;
-    assert!(is_mutating_route(RouteId::SettingsPatch));
-    assert!(is_mutating_route(RouteId::SettingsTestLlm));
-    assert!(is_mutating_route(RouteId::SettingsTestTts));
-    assert!(is_mutating_route(RouteId::ChatPost));
-    assert!(is_mutating_route(RouteId::ChatStop));
-    assert!(!is_mutating_route(RouteId::AppCapabilities));
-    assert!(!is_mutating_route(RouteId::AppStatus));
-    assert!(!is_mutating_route(RouteId::SettingsGet));
-    assert!(!is_mutating_route(RouteId::LogsGet));
-    assert!(!is_mutating_route(RouteId::LogsLevels));
-    assert!(!is_mutating_route(RouteId::IndexHtml));
+    // 恒 mutating（任意 method 都 true；dispatch 入口已先做 method 校验）。
+    assert!(is_mutating_route(RouteId::SettingsPatch, &Method::Patch));
+    assert!(is_mutating_route(RouteId::SettingsTestLlm, &Method::Post));
+    assert!(is_mutating_route(RouteId::SettingsTestTts, &Method::Post));
+    assert!(is_mutating_route(RouteId::ChatPost, &Method::Post));
+    assert!(is_mutating_route(RouteId::ChatStop, &Method::Post));
+    // 恒只读。
+    assert!(!is_mutating_route(RouteId::AppCapabilities, &Method::Get));
+    assert!(!is_mutating_route(RouteId::AppStatus, &Method::Get));
+    assert!(!is_mutating_route(RouteId::SettingsGet, &Method::Get));
+    assert!(!is_mutating_route(RouteId::LogsGet, &Method::Get));
+    assert!(!is_mutating_route(RouteId::LogsLevels, &Method::Get));
+    assert!(!is_mutating_route(RouteId::IndexHtml, &Method::Get));
+}
+
+/// Commands 路由按 method 区分：POST invoke = mutating；GET list = 只读。
+#[test]
+fn mutating_route_commands_by_method() {
+    use super::RouteId;
+    assert!(is_mutating_route(RouteId::Commands, &Method::Post));
+    assert!(!is_mutating_route(RouteId::Commands, &Method::Get));
+}
+
+/// Models 路由按 method 区分：GET list/get 只读；POST import/activate、
+/// PATCH display、DELETE delete 全部 mutating。
+#[test]
+fn mutating_route_models_by_method() {
+    use super::RouteId;
+    // 只读。
+    assert!(!is_mutating_route(RouteId::Models, &Method::Get));
+    // mutating：import / activate (POST), display (PATCH), delete (DELETE)。
+    assert!(is_mutating_route(RouteId::Models, &Method::Post));
+    assert!(is_mutating_route(RouteId::Models, &Method::Patch));
+    assert!(is_mutating_route(RouteId::Models, &Method::Delete));
 }
 
 // ============================================================================

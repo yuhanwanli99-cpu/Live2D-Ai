@@ -250,18 +250,25 @@ impl ShellApp {
             .chat
             .as_ref()
             .map(|b| std::sync::Arc::clone(&b.supervisor));
+        // M0-5 修复：从 ChatBridge 取真实 config_path（chat 模式恒为 Some），
+        // 与 web_api `ServerContext::config_path` 同源——保存按钮有了写盘目标。
+        let config_path_for_ui = self.chat.as_ref().and_then(|b| b.config_path.clone());
         let mut ui_state = crate::app::settings_ui::init(
             &device_ref,
             format,
             0,
-            // `config_path` 与 web_api `ServerContext::config_path` 同源；
-            // 当前 `RunOptions` 未暴露该字段（chat 装配在 backend 层落地），
-            // 暂以 `None` 注入：保存按钮在无 path 时按失败处理，提示用户
-            // 走 Web PATCH 或配置文件直改——避免「面板声称成功但实际未写」
-            // 的混淆。后续 `RunOptions` 加 `config` 字段时回填此处。
-            None,
+            config_path_for_ui.clone(),
             supervisor_for_ui,
         );
+        // M0-5 修复：启动时把磁盘上已加载的 settings 回显到表单 Draft，
+        // 避免「面板空表单 + 保存覆盖原配置」的闭环缺口。config 解析失败
+        // （首次无配置）时保持默认 Draft，保存按钮仍提示无 path 走引导。
+        if let Some(path) = config_path_for_ui.as_deref()
+            && let Ok(loaded) =
+                live2d_ai_runtime::AppSettings::load_from_path(std::path::Path::new(path))
+        {
+            ui_state.draft = crate::app::settings_ui::settings_to_draft(&loaded);
+        }
         // 真实 `State::new`：传 0.35 真实签名所需的 `&dyn HasDisplayHandle` =
         // `&Window`（winit 0.30 的 Window 自带 rwh_06 HasDisplayHandle impl）。
         ui_state.winit_state = Some(egui_winit::State::new(

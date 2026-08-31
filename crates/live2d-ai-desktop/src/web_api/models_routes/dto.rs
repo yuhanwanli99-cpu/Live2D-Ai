@@ -99,6 +99,19 @@ pub struct DisplayPatchBody {
     pub stage: Option<DisplayStagePatch>,
 }
 
+impl DisplayPatchBody {
+    /// 跨段校验：依次调用 model/stage 的 `validate`，首个失败短路返回。
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(m) = &self.model {
+            m.validate()?;
+        }
+        if let Some(s) = &self.stage {
+            s.validate()?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DisplayModelPatch {
@@ -150,6 +163,40 @@ impl DisplayModelPatch {
             target.fit_mode = v;
         }
     }
+
+    /// 产品级最小校验（仅检查 None 之外的字段）。
+    ///
+    /// 规则：
+    /// - `scale` 必须 > 0 且 finite；
+    /// - `offset_x` / `offset_y` / `rotation` 必须 finite。
+    ///
+    /// 返回首个失败原因（行内 400 invalid_params 用）。
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(v) = self.scale {
+            if !v.is_finite() {
+                return Err("model.scale 必须有限（不允许 NaN/Inf）".into());
+            }
+            if v <= 0.0 {
+                return Err(format!("model.scale 必须 > 0（收到 {v}）"));
+            }
+        }
+        if let Some(v) = self.offset_x {
+            if !v.is_finite() {
+                return Err("model.offset_x 必须有限".into());
+            }
+        }
+        if let Some(v) = self.offset_y {
+            if !v.is_finite() {
+                return Err("model.offset_y 必须有限".into());
+            }
+        }
+        if let Some(v) = self.rotation {
+            if !v.is_finite() {
+                return Err("model.rotation 必须有限".into());
+            }
+        }
+        Ok(())
+    }
 }
 
 impl DisplayStagePatch {
@@ -174,4 +221,53 @@ impl DisplayStagePatch {
             target.background_opacity = v;
         }
     }
+
+    /// 产品级最小校验（仅检查 None 之外的字段）。
+    ///
+    /// 规则：
+    /// - `width` / `height` 必须 > 0（拒绝 0，避免渲染 0×0 stage）；
+    /// - `background_opacity` 必须 ∈ [0, 1] 且 finite；
+    /// - `background_color` 必须匹配 `#RRGGBB` 或 `#RRGGBBAA`。
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(w) = self.width {
+            if w == 0 {
+                return Err("stage.width 必须 > 0（收到 0）".into());
+            }
+        }
+        if let Some(h) = self.height {
+            if h == 0 {
+                return Err("stage.height 必须 > 0（收到 0）".into());
+            }
+        }
+        if let Some(op) = self.background_opacity {
+            if !op.is_finite() {
+                return Err("stage.background_opacity 必须有限".into());
+            }
+            if !(0.0..=1.0).contains(&op) {
+                return Err(format!(
+                    "stage.background_opacity 必须在 [0, 1]（收到 {op}）"
+                ));
+            }
+        }
+        if let Some(color) = self.background_color.as_deref() {
+            if !is_hex_color(color) {
+                return Err(format!(
+                    "stage.background_color 必须为 #RRGGBB 或 #RRGGBBAA（收到 {color:?}）"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// 手写 hex 颜色校验：`#` + 6 或 8 位 `[0-9a-fA-F]`（不接受 `#RGB`/`rgba()`/`named`）。
+fn is_hex_color(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.len() != 7 && bytes.len() != 9 {
+        return false;
+    }
+    if bytes[0] != b'#' {
+        return false;
+    }
+    bytes[1..].iter().all(|b| b.is_ascii_hexdigit())
 }

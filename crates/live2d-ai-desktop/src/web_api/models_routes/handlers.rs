@@ -13,7 +13,7 @@
 //! - 错误响应一律走 [`bad_request`] / [`not_found_response`] /
 //!   [`conflict_response`] / [`persist_failed_response`] 四个 helper。
 
-use std::io::{self, Cursor};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use tiny_http::{Header, Response, StatusCode};
@@ -30,6 +30,7 @@ use super::registry::{
     ModelDisplay, ModelEntry, ModelRegistry, ModelSource, StoredManifest, default_stage,
     normalize_relative_id,
 };
+use super::util::{compute_dir_size, find_model3_json, now_iso8601};
 
 // =====================================================================
 // 路径安全：拒绝 `..` / 绝对路径 / 符号链接外指
@@ -84,14 +85,21 @@ pub(crate) fn handle_list(store: &ModelStore) -> Response<Cursor<Vec<u8>>> {
     let mut items: Vec<ModelListItem> = snapshot
         .entries
         .values()
-        .map(|e| entry_to_list_item(e, snapshot.active_id.as_deref()))
+        .map(|e| entry_to_list_item(store, e, snapshot.active_id.as_deref()))
         .collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));
     json_response(StatusCode(200), &ModelListResponse { models: items })
 }
 
-fn entry_to_list_item(entry: &ModelEntry, active_id: Option<&str>) -> ModelListItem {
-    let size = compute_dir_size(&entry.absolute_dir).unwrap_or(0);
+fn entry_to_list_item(
+    store: &ModelStore,
+    entry: &ModelEntry,
+    active_id: Option<&str>,
+) -> ModelListItem {
+    // 绝对路径每次由 assets_root + 相对路径派生（P1-4：避免 WSL/HOME
+    // 迁移后旧 registry 失效）。
+    let abs_dir = store.assets_root.join(&entry.relative_dir);
+    let size = compute_dir_size(&abs_dir).unwrap_or(0);
     ModelListItem {
         id: entry.id.clone(),
         display_name: entry.display_name.clone(),
@@ -119,7 +127,7 @@ pub(crate) fn handle_get(store: &ModelStore, id: &str) -> Response<Cursor<Vec<u8
     };
     match snapshot.entries.get(&normalized) {
         Some(e) => {
-            let item = entry_to_list_item(e, snapshot.active_id.as_deref());
+            let item = entry_to_list_item(store, e, snapshot.active_id.as_deref());
             json_response(StatusCode(200), &item)
         }
         None => not_found_response("model_not_found", &format!("模型 {normalized:?} 不存在")),
@@ -170,12 +178,23 @@ pub(crate) fn handle_import(store: &ModelStore, body_str: &str) -> Response<Curs
     };
 
     let manifest = StoredManifest::from(package.manifest());
+    // P1-4：只存相对 `assets_root` 的路径；handler 端按需派生绝对路径。
+    // `model3_path` 必须在 `abs_dir` 之下（`find_model3_json` 只扫
+    // `abs_dir` 顶层），因此相对路径 = `id/<file_name>`。
+    let model3_rel_path = format!(
+        "{}/{}",
+        id,
+        model3_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("model.model3.json"),
+    );
     let new_entry = ModelEntry {
         id: id.clone(),
         display_name: id.clone(),
         source: ModelSource::LocalImport,
-        absolute_dir: abs_dir.clone(),
-        model3_path: model3_path.clone(),
+        relative_dir: id.clone(),
+        model3_rel_path: model3_rel_path.clone(),
         manifest,
         display: ModelDisplay::default(),
         stage: default_stage(),
@@ -202,6 +221,8 @@ pub(crate) fn handle_import(store: &ModelStore, body_str: &str) -> Response<Curs
         }
         return persist_failed_response(&e);
     }
+    // `ImportResponse.model3_json_path` 保持原 D1 §6.3 契约：相对
+    // `data_dir`（`assets_root` 父目录），不是相对 `assets_root`。
     let parent_data = store.assets_root.parent().unwrap_or(&store.assets_root);
     let rel_model3 = model3_path
         .strip_prefix(parent_data)
@@ -252,7 +273,9 @@ pub(crate) fn handle_activate(store: &ModelStore, id: &str) -> Response<Cursor<V
         &ActivateResponse {
             active_id: normalized,
             prev_active_id: prev,
-            requires_restart: false,
+            // D3.2 热重载完成前，激活只改 registry 不重载 renderer/supervisor，
+            // 如实上报 requires_restart=true（避免前端误以为已生效）。
+            requires_restart: true,
         },
     )
 }
@@ -273,6 +296,12 @@ pub(crate) fn handle_display(
             return bad_request("invalid_payload", &format!("请求 body 解析失败: {e}"));
         }
     };
+    // 产品级最小校验（scale>0、width/height>0、opacity∈[0,1]、hex color）
+    // —— 失败 → 400 invalid_params（与 invalid_payload 区分：前者表结构对、
+    // 值越界；后者表结构错）。
+    if let Err(e) = body.validate() {
+        return bad_request("invalid_params", &e);
+    }
     // 关键：先在写锁中完成内存变更，**释放写锁**再调 `persist`。
     let updated_entry: Option<ModelEntry> = {
         let mut g = match store.inner.write() {
@@ -307,7 +336,11 @@ pub(crate) fn handle_display(
     }
     // 200 + 回最新 entry 摘要。
     let active = store.inner.read().ok().and_then(|g| g.active_id.clone());
-    let item = entry_to_list_item(&updated_entry.expect("entry just set"), active.as_deref());
+    let item = entry_to_list_item(
+        store,
+        &updated_entry.expect("entry just set"),
+        active.as_deref(),
+    );
     json_response(StatusCode(200), &item)
 }
 
@@ -344,96 +377,6 @@ pub(crate) fn handle_delete(store: &ModelStore, id: &str) -> Response<Cursor<Vec
         return persist_failed_response(&e);
     }
     Response::from_data(Vec::new()).with_status_code(StatusCode(204))
-}
-
-// =====================================================================
-// 工具
-// =====================================================================
-
-fn find_model3_json(dir: &Path) -> Option<PathBuf> {
-    let entries = std::fs::read_dir(dir).ok()?;
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_file()
-            && p.extension().and_then(|s| s.to_str()) == Some("json")
-            && p.file_name()
-                .and_then(|s| s.to_str())
-                .is_some_and(|n| n.ends_with(".model3.json"))
-        {
-            return Some(p);
-        }
-    }
-    None
-}
-
-fn compute_dir_size(dir: &Path) -> io::Result<u64> {
-    let mut total = 0u64;
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(p) = stack.pop() {
-        let meta = match std::fs::symlink_metadata(&p) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        if meta.is_file() {
-            total += meta.len();
-        } else if meta.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&p) {
-                for e in entries.flatten() {
-                    stack.push(e.path());
-                }
-            }
-        }
-    }
-    Ok(total)
-}
-
-/// ISO 8601 UTC 毫秒精度（与 `app_routes::system_time_iso8601` 同口径）。
-fn now_iso8601() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let total_ms = dur.as_millis();
-    let secs = (total_ms / 1000) as i64;
-    let ms = (total_ms % 1000) as u32;
-    let (y, mo, d, h, mi, s) = unix_secs_to_ymdhms(secs);
-    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{ms:03}Z")
-}
-
-fn unix_secs_to_ymdhms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
-    if secs < 0 {
-        return (1970, 1, 1, 0, 0, 0);
-    }
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let hour = (rem / 3600) as u32;
-    let min = ((rem % 3600) / 60) as u32;
-    let sec = (rem % 60) as u32;
-    let mut y = 1970i32;
-    let mut d = days;
-    loop {
-        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-        let yd = if leap { 366 } else { 365 };
-        if d < yd {
-            break;
-        }
-        d -= yd;
-        y += 1;
-        if y > 2100 {
-            return (1970, 1, 1, 0, 0, 0);
-        }
-    }
-    let mdays: [u32; 12] = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-    let mut m = 0usize;
-    while m < 12 && d >= mdays[m] as i64 {
-        d -= mdays[m] as i64;
-        m += 1;
-    }
-    (y, (m as u32) + 1, (d as u32) + 1, hour, min, sec)
 }
 
 // ----- 错误响应 helper -----

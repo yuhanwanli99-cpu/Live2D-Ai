@@ -3,18 +3,16 @@
 //! 与 `commands_routes.rs` 主体分离（≤500 行约束；本文件**仅**含
 //! `#[cfg(test)]` 代码）。`commands_routes` 主体对外暴露的
 //! `handle_list_commands` / `handle_invoke_command` / `extract_command_id`
-//! / `check_origin_and_ct` 全部为 `pub` 或 `pub(crate)`，可在此直接
-//! 调用。
+//! 全部为 `pub` 或 `pub(crate)`，可在此直接调用。
 //!
 //! 覆盖：
-//! 1. **GET 列表**：8 条命令齐备 + 含 `kind` / `target_action` / `step_count`。
+//! 1. **GET 列表**：6 条命令齐备 + 含 `kind` / `target_action`。
 //! 2. **POST invoke**：
 //!    - 无 supervisor → 503；
-//!    - 非法 strength / repeat / 未知字段 / 非 JSON body → 400；
+//!    - 非法 strength / 未知字段 / 非 JSON body → 400；
 //!    - 未知 / 空 / 非 snake_case id → 404；
-//!    - 有 supervisor → 200 + accepted + epoch + steps 计数；
-//!    - 组合命令 → 200 + kind="composed" + steps=2；
-//!    - 空 body → 走默认值（strength=2, repeat=1）。
+//!    - 有 supervisor → 200 + accepted + epoch + steps=1；
+//!    - 空 body → 走默认值（strength=2）。
 //! 3. **extract_command_id** 单元：基本 / 空 / 非 snake / 错前缀。
 //! 4. **不变量（grep 审计）**：`commands_routes.rs` 主体**不**直接
 //!    调 `core::apply` / 构造 `Event::Action` / 构造 `AppEvent::Render`。
@@ -70,17 +68,17 @@ fn spawn_minimal_supervisor() -> (std::sync::Arc<SupervisorHandle>, std::path::P
     (sup, tmp)
 }
 #[test]
-fn list_commands_returns_eight_entries() {
+fn list_commands_returns_six_entries() {
     let resp = handle_list_commands(&Method::Get, "/api/v1/commands");
     assert_eq!(resp.status_code().0, 200);
     let b = body(resp);
     let v: Value = serde_json::from_str(&b).unwrap();
     let arr = v["commands"].as_array().unwrap();
-    assert_eq!(arr.len(), 8);
+    assert_eq!(arr.len(), 6);
 }
 
 #[test]
-fn list_commands_includes_kind_and_step_count() {
+fn list_commands_includes_kind_and_target_action() {
     let resp = handle_list_commands(&Method::Get, "/api/v1/commands");
     let v: Value = serde_json::from_str(&body(resp)).unwrap();
     let arr = v["commands"].as_array().unwrap();
@@ -90,12 +88,6 @@ fn list_commands_includes_kind_and_step_count() {
         .unwrap();
     assert_eq!(nod["kind"], "single");
     assert_eq!(nod["target_action"], "nod");
-    let greet = arr
-        .iter()
-        .find(|c| c["id"] == "live2d_compose_greeting")
-        .unwrap();
-    assert_eq!(greet["kind"], "composed");
-    assert_eq!(greet["step_count"], 2);
 }
 
 #[test]
@@ -170,8 +162,9 @@ fn invoke_illegal_strength_returns_400() {
     assert!(b.contains("strength"), "got: {b}");
 }
 
+/// v1 不支持 `repeat`：未知字段一律 400。
 #[test]
-fn invoke_illegal_repeat_returns_400() {
+fn invoke_illegal_unknown_field_replaces_repeat() {
     let resp = handle_invoke_command(
         None,
         &Method::Post,
@@ -179,6 +172,9 @@ fn invoke_illegal_repeat_returns_400() {
         r#"{"repeat":0}"#,
     );
     assert_eq!(resp.status_code().0, 400);
+    let b = body(resp);
+    assert!(b.contains("invalid_params"), "got: {b}");
+    assert!(b.contains("未知字段"), "got: {b}");
 }
 
 #[test]
@@ -212,7 +208,7 @@ fn invoke_with_supervisor_returns_200_accepted() {
         Some(&sup),
         &Method::Post,
         "/api/v1/commands/live2d_perform_action_nod/invoke",
-        r#"{"strength":3,"repeat":2}"#,
+        r#"{"strength":3}"#,
     );
     assert_eq!(resp.status_code().0, 200, "invoke 应被接受");
     let b = body(resp);
@@ -220,31 +216,10 @@ fn invoke_with_supervisor_returns_200_accepted() {
     assert_eq!(v["accepted"], true);
     assert_eq!(v["command_id"], "live2d_perform_action_nod");
     assert_eq!(v["kind"], "single");
-    assert_eq!(v["steps"], 2); // repeat=2
+    assert_eq!(v["steps"], 1); // v1 恒为 1
     assert_eq!(v["action"], "nod");
     // epoch 来自 supervisor 镜像
     assert!(v["epoch"].is_u64());
-
-    sup.quit();
-    let _ = std::fs::remove_file(&tmp);
-}
-
-#[test]
-fn invoke_composed_with_supervisor_returns_200() {
-    let (sup, tmp) = spawn_minimal_supervisor();
-    let resp = handle_invoke_command(
-        Some(&sup),
-        &Method::Post,
-        "/api/v1/commands/live2d_compose_greeting/invoke",
-        r#"{"gap_ms":500}"#,
-    );
-    assert_eq!(resp.status_code().0, 200);
-    let v: Value = serde_json::from_str(&body(resp)).unwrap();
-    assert_eq!(v["accepted"], true);
-    assert_eq!(v["kind"], "composed");
-    assert_eq!(v["steps"], 2);
-    // composed 不携带 action
-    assert!(v.get("action").is_none() || v["action"].is_null());
 
     sup.quit();
     let _ = std::fs::remove_file(&tmp);
@@ -261,7 +236,7 @@ fn invoke_empty_body_uses_defaults() {
     );
     assert_eq!(resp.status_code().0, 200);
     let v: Value = serde_json::from_str(&body(resp)).unwrap();
-    assert_eq!(v["steps"], 1); // 默认 repeat=1
+    assert_eq!(v["steps"], 1);
     assert_eq!(v["action"], "tilt");
     sup.quit();
     let _ = std::fs::remove_file(&tmp);

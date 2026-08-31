@@ -9,29 +9,30 @@
 //!   路径不变。
 //! - 断线语义（D1 §4.6）：WS 断开不影响 supervisor。
 //!
-//! # 线程模型（2026-08-29 D5 修复 + P1WS-2 升级）
+//! # 线程模型（M0-7 + F3 简化）
 //!
 //! ```text
 //! start_server 主 accept 线程 (tiny_http)
 //!   │ recv → req.upgrade() (写 101) + derive_accept_key 头
-//!   │ spawn "ws-conn-{id}" → 立即 return
-//! ws-conn 主线程 (per-connection, 持有 mpsc rx + cmd_tx)
-//!   │ rx.recv_timeout 周期: 等广播帧 → cmd_tx.send(WriteText)
-//!   │ rx 断开 / 30s 主动 unsubscriber: cmd_tx.send(Close) → return
-//! ws-actor 线程 (per-connection, 独占 WebSocket)
-//!   │ 阻塞 ws.read_message → 处理 close/ping/subscribe
-//!   │ 处理 cmd_rx (WriteText/Close)
-//!   │ 自动 pong (tungstenite 内置)
+//!   │ spawn "ws-actor-{id}" → 立即 return
+//! ws-actor 线程 (per-connection, 独占 WebSocket + 持有 broadcast rx)
+//!   │ cmd_rx.recv_timeout(HEARTBEAT_INTERVAL) → 收广播帧 → 写 ws
+//!   │ Timeout → 发 heartbeat 帧（保活）→ 写失败退出
+//!   │ Disconnected → close + unsubscriber(conn_id) → return
 //! Broadcaster (任意线程)
-//!   │ broadcast_typed(event) → 遍历 ConnectionHandle → 包装 seq/ts → mpsc try_send
+//!   │ broadcast(typed_event) → 遍历 ConnectionHandle → tx.try_send(String)
 //! ```
 //!
 //! **关键不变量**：
-//! - `handle_ws_request` **不**阻塞主 accept 循环（写 101 + 派生 ws-conn
+//! - `handle_ws_request` **不**阻塞主 accept 循环（写 101 + 派生 ws-actor
 //!   后立即 return）；HTTP/chat 请求可与 WS 收发真正并发。
+//! - 每连接**一个** actor 线程，独占持有 `ws` —— 没有 read/write 线程锁争用。
 //! - 每连接 `next_seq` 由 actor 维护，**不**用全局 static（契约 §4.2）。
 //! - 连接退出时 `unsubscriber(conn_id)` 显式回收 broadcaster 槽位，
 //!   不依赖下次广播的 try_send 失败延迟回收。
+//! - WebSocket 是**单向事件流**：客户端命令全部走 HTTP，WS 不读 socket。
+//!   前端**不**应发文本 `subscribe` / `ping` —— 这些会被底层 auto-pong
+//!   静默丢弃（无业务回包）。
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -68,12 +69,12 @@ pub const WS_CONN_LIMIT: usize = 32;
 
 /// 单连接在 broadcaster 侧的句柄。
 ///
-/// `unsubscriber` 在连接线程退出时被调用（**先**于 actor 退出），让
-/// broadcaster 立即回收槽位，**不**依赖下次 broadcast try_send 失败。
+/// `unsubscriber` 在 actor 退出时被调用（关闭 ws 后），让 broadcaster
+/// 立即回收槽位，**不**依赖下次 broadcast try_send 失败。
 #[derive(Clone)]
 struct ConnectionHandle {
     conn_id: u64,
-    /// 文本帧 sender（actor 收 + 包装 seq/ts 后写入 ws）。
+    /// 文本帧 sender（actor 收 + 包装 seq/ts 后写入 ws；M0-7 单线程直连）。
     tx: WsWriter,
 }
 
@@ -171,8 +172,8 @@ impl Broadcaster {
 }
 
 impl Drop for Broadcaster {
-    /// broadcaster drop 时所有 ConnectionHandle 的 tx 被 drop → 各 ws-conn
-    /// 主线程 rx 断开 → 发 Close 命令 → actor 优雅退出 → 槽位回收。
+    /// broadcaster drop 时所有 ConnectionHandle 的 tx 被 drop → 各 ws-actor
+    /// 线程 rx 断开 → actor 优雅退出（close + unsubscriber）→ 槽位回收。
     ///
     /// **不**在 Drop 里**主动**调 unsubscribe（unsubscribe 闭包本身依赖
     /// broadcaster 状态——已经 drop，再调会死锁）。
@@ -182,7 +183,7 @@ impl Drop for Broadcaster {
         if n > 0 {
             tracing::debug!(
                 remaining = n,
-                "Broadcaster drop：等待剩余 ws-conn 线程自行退出（rx 断链传播）"
+                "Broadcaster drop：等待剩余 ws-actor 线程自行退出（rx 断链传播）"
             );
         }
     }
@@ -221,8 +222,9 @@ pub fn check_request_origin(
 /// - 当前调用方 = **主 accept 循环**（`start_server`）：写 101 + 构造
 ///   `WebSocket::from_partially_read` 跳过 tungstenite::accept（避免双 101
 ///   协议错）+ 计数门控；然后**立刻 return**——主循环继续。
-/// - 派生 `ws-conn-{id}` 双线程（主线程 + actor 线程，详见
-///   [`connection::spawn_connection_threads`]）。
+/// - 派生 `ws-actor-{id}` **单线程**（独占 ws + broadcast rx；详见
+///   [`connection::spawn_connection_threads`]）。M0-7 简化：移除主转发线程，
+///   actor 直接 recv broadcast 通道——消除 ws 写锁争用与无意义 CPU tick。
 pub fn handle_ws_request(
     req: Request,
     broadcaster: Broadcaster,
@@ -275,7 +277,7 @@ pub fn handle_ws_request(
 
     // 5) 计数门控（升级成功后双重保险）+ 分配 conn_id。
     let (tx, rx) = mpsc::sync_channel::<String>(256);
-    let conn_id = match broadcaster.try_subscribe(tx.clone()) {
+    let conn_id = match broadcaster.try_subscribe(tx) {
         Ok(id) => id,
         Err(()) => {
             drop(ws);
@@ -283,12 +285,12 @@ pub fn handle_ws_request(
         }
     };
 
-    // 6) 派生 per-connection 双线程。
+    // 6) 派生 per-connection actor 线程（M0-7 单线程模型：actor 直连 broadcast rx）。
     let bc_for_unsub = broadcaster.clone();
     let unsubscriber: connection::Unsubscriber = Box::new(move |id: u64| {
         bc_for_unsub.unsubscribe(id);
     });
-    let _join = connection::spawn_connection_threads(ws, tx, rx, conn_id, unsubscriber);
+    let _join = connection::spawn_connection_threads(ws, rx, conn_id, unsubscriber);
 
     Ok(())
 }

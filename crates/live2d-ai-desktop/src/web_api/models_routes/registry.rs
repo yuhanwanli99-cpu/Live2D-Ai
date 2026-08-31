@@ -8,6 +8,10 @@
 //! - **路径安全**：[`normalize_relative_id`] 拒绝 `..`、绝对路径特征、
 //!   连续 `/` / `.` 折叠；handler 端再走 [`crate::web_api::models_routes::handlers`]
 //!   路径层校验。
+//! - **路径存相对值**（P1-4）：`ModelEntry.relative_dir` / `model3_rel_path`
+//!   只存相对 `assets_root` 的字符串；绝对路径在每次 handler 调用时由
+//!   `assets_root.join(...)` 派生——避免 WSL 迁移 / `HOME` 改变 / `data_dir`
+//!   改变后旧 registry 失效。
 //! - **StageConfig 与 D1 §8.1/§8.2 对齐**：snake_case 字段名、有限枚举集合。
 //!
 //! 不引入额外依赖（serde + serde_json + 标准库）。
@@ -282,14 +286,28 @@ impl From<&l2d::asset::LayoutBox> for StoredLayout {
 }
 
 /// registry 中单条模型记录。
+///
+/// 路径字段（**相对 assets_root**；绝对路径由 handler 调用时按
+/// `assets_root.join(relative_*)` 派生，避免 WSL 迁移 / `HOME` 改变 /
+/// `data_dir` 改变时旧 registry 失效）：
+/// - [`relative_dir`](Self::relative_dir)：相对 `assets_root` 的目录
+///   （如 `"bai"`）。
+/// - [`model3_rel_path`](Self::model3_rel_path)：相对 `assets_root` 的
+///   `*.model3.json` 路径（如 `"bai/runtime/bai.model3.json"`）。
+///
+/// **兼容策略**：v1 旧 registry 文件存的字段名为 `absolute_dir` /
+/// `model3_path`（绝对路径）。新字段名无 `default`，反序列化失败走
+/// P1-5 的损坏降级路径——`model_registry.json.corrupt-<ts>` 备份后用
+/// 空 registry 重新持久化。registry 是运行时数据，可重建（用户重
+/// 跑 import 即可）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelEntry {
     pub id: String,
     pub display_name: String,
     pub source: ModelSource,
-    pub absolute_dir: PathBuf,
-    pub model3_path: PathBuf,
+    pub relative_dir: String,
+    pub model3_rel_path: String,
     pub manifest: StoredManifest,
     pub display: ModelDisplay,
     pub stage: StageConfig,

@@ -30,8 +30,9 @@
 //! 注：D1 §1.3 冻结的端点表里 `POST /api/v1/models` (multipart zip) 与
 //! `PATCH /api/v1/models/{id}` (display_name) 标 D3.2 后置；本批**不**实现。
 
+use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use tiny_http::{Method, Response};
@@ -39,6 +40,7 @@ use tiny_http::{Method, Response};
 pub mod dto;
 pub mod handlers;
 pub mod registry;
+mod util;
 
 #[cfg(test)]
 mod tests_models_routes;
@@ -150,10 +152,25 @@ impl ModelStore {
                 // 首次启动正常路径。
             }
             Err(e) => {
-                eprintln!(
-                    "[warn] registry 加载失败（{}），使用空 registry: {e}",
-                    store.registry_path.display()
-                );
+                // P1-5：损坏 registry 不再静默丢失——先备份原文件到
+                // `<path>.corrupt-<unix_secs>`，再用空 registry 启动。
+                // 这样用户可手工从备份恢复或审计内容；后续 persist 仍
+                // 会覆盖 registry_path（损坏副本保留在 `.corrupt-*` 里）。
+                let ts = util::now_unix_secs();
+                let backup = append_corrupt_suffix(&store.registry_path, ts);
+                match fs::copy(&store.registry_path, &backup) {
+                    Ok(n) => eprintln!(
+                        "[warn] registry 损坏（{}），已备份为 {}（{} 字节）：{e}。使用空 registry。",
+                        store.registry_path.display(),
+                        backup.display(),
+                        n,
+                    ),
+                    Err(copy_err) => eprintln!(
+                        "[warn] registry 损坏（{}），且备份失败（{}）：{copy_err}。原文件保留，使用空 registry：{e}",
+                        store.registry_path.display(),
+                        backup.display(),
+                    ),
+                }
             }
         }
         store
@@ -251,4 +268,12 @@ fn extract_id_from_activate(path: &str) -> String {
 fn extract_id_from_display(path: &str) -> String {
     let rest = path.strip_prefix("/api/v1/models/").unwrap_or("");
     rest.strip_suffix("/display").unwrap_or("").to_string()
+}
+
+/// 给损坏 registry 文件名追加 `.corrupt-<ts>` 后缀（保留下原始扩展名，
+/// 便于手工查阅）。`ts` 通常是 unix 秒（u64/i64 都可以）。
+fn append_corrupt_suffix(path: &Path, ts: i64) -> PathBuf {
+    let mut s = path.as_os_str().to_os_string();
+    s.push(format!(".corrupt-{ts}"));
+    PathBuf::from(s)
 }

@@ -1,134 +1,100 @@
-# Live2D-Ai 核心契约与架构边界
+# Live2D-Ai 核心契约与架构边界（Rust 重构版）
 
-> 状态：地基文档 v0.1
-> 目标：把“最小核心闭环”的稳定接口固定下来，让后续重构、插件化、双端一致性都有可依赖的边界。
+> 状态：2026-08-31 按 Rust 重构现状重写（原版描述 Android/Python 双端，已归档，
+> 见 `ANDROID_ARCHIVE_POINTER.md` 与 tag `py-legacy`）。
+> 目标：把 Rust 重建的最小核心闭环的稳定接口固定下来，让后续扩展、可观测性、
+> Web 集成都有可依赖的边界。
 
-## 1. 项目最小核心闭环
+## 1. 最小核心闭环
 
 ```
 文本/语音
-  → LLM（流式回复 + 情绪）
-  → TTS（语音合成 + 嘴型数据）
-  → Live2D（表情 / 口型 / 动作 / 待机）
+  → LLM（OpenAI 兼容 /chat/completions，流式 SSE）
+  → TTS（OpenAI 兼容 /audio/speech）
+  → Live2D（表情 / 口型 / 动作 / 待机；wgpu 原生渲染）
 ```
 
-当前 Android 与 PC 都围绕这条闭环实现，但实现细节不同。核心契约要保证：
+单一 Rust workspace（`crates/*`）实现，无第二语言运行时。核心契约保证：
 
-- 两端对同一份 `shared/` 配置有相同理解；
-- 核心环路的“状态 / 事件 / 副作用指令”可被纯逻辑测试；
-- TTS / LLM / 表情 / 动作都通过接口接缝解耦，不直接依赖具体厂商。
+- 纯 reducer 状态机（`live2d-ai-core`）无 IO、无 async，可穷举测试；
+- LLM/TTS provider 走统一 OpenAI 兼容协议，不绑定厂商 SDK；
+- 动作/口型/渲染经 supervisor 事件循环串行化，主线程只做窗口与渲染副作用。
 
-## 2. 核心模块边界
+## 2. 分层与模块边界（crates/*）
 
-### 2.1 Android 核心层（`app/src/main/java/com/live2d/ai/android/core/`）
-
-| 模块 | 职责 | 稳定接口 |
+| crate | 职责 | 关键不变量 |
 | --- | --- | --- |
-| `LoopStateMachine` | 三态状态机：IDLE / SENDING / SPEAKING | `transition(state, event)`、`transition(event)` |
-| `LoopCoordinator` | 状态机副作用执行与编排 | `sendMessage(text)`、`onEvent(event)`、`attachView(host)` |
-| `LlmLink` | LLM 冷流接口 | `send(text): Flow<LlmEvent>`、`reset()` |
-| `HttpLlmLink` | DeepSeek/OpenAI 兼容 SSE 实现 | 实现 `LlmLink` |
-| `ExpressionSink` | 表情落点 | `apply(emotion)`、`release()` |
-| `SpeechSink` | 语音播报落点 | `speak(text)`、`stop()` |
-| `LoopViewHost` | Live2D 视图宿主接缝 | `zeroMouth()`、`onAttach()`、`onDetach()` |
+| `live2d-ai-core` | 纯 reducer 状态机（epoch/turn/sentence/audio-chunk + 动作仲裁） | 零第三方依赖；epoch 仅根 State 持有；stop 推进 epoch |
+| `live2d-ai-runtime` | LLM/TTS 网络层、settings（三态 patch/原子写回）、conversation | SSE decoder 不依赖 chunk 边界；`ApiSecret` 不实现 serde |
+| `l2d` | Live2D 模型资产（model3/moc3/physics）与 renderer 封装 | Ayagami pin 固定 rev；路径拒绝绝对/反斜杠/`..` |
+| `live2d-ai-desktop` | 窗口（winit+wgpu）、音频（cpal）、supervisor、Web API、egui 设置面板 | supervisor 独占 reducer/engine/audio；PCM 不经 AppEvent |
+| `l2d-wasm-demo` | 浏览器渲染验证（wasm32） | 与桌面共享 `l2d` renderer core |
+| `xtask` | Rust 占比统计等工程工具 | — |
 
-### 2.2 Android TTS 层
-
-| 模块 | 职责 | 稳定接口 |
-| --- | --- | --- |
-| `TtsProvider` | TTS 引擎统一接口 | `speak(text)`、`stop()`、`isSpeaking`、`audioFrameFlow` |
-| `TtsProviderRegistry` | 引擎注册与降级链 | `register()`、`cascade()`、`get()`、`all()` |
-| `VoiceIoController` | 播报统一入口 + LipSync 驱动 | `speak(text)`、`stopSpeaking()`、`isSpeaking` |
-
-### 2.3 PC 核心层（`Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/`）
-
-| 模块 | 职责 | 稳定接口 |
-| --- | --- | --- |
-| `conversations/tts_manager.TTSTaskManager` | TTS 并发合成 + 顺序发送 | `speak_async()`、`flush()`、`interrupt()` |
-| `mood_engine.MoodEngine` | 持续心情值 → 表情/TTS/prompt 微调 | `on_emotion_event()`、`get_mood_tier()`、`get_tts_modifier()` |
-| `tts/tts_interface.TTSInterface` | TTS 引擎统一接口 | `synthesize()` 等 |
-| `agent/stateless_llm/stateless_llm_interface` | LLM 统一接口 | `chat()` / `stream_chat()` |
-
-## 3. 共享契约（`shared/`）
-
-| 文件 | 内容 | 使用方 |
-| --- | --- | --- |
-| `persona.yaml` | 人设、system prompt、模型参数 | Android assets + PC conf |
-| `model_registry.json` | Live2D 模型注册表 | Android assets + PC fallback |
-| `model-adapter/bai.adapter.json` | 表情索引 / 参数帧 / motion 别名 | Android + PC 一致性校验 |
-| `emotion-protocol.md` | 8 表情协议、JSON/`[keyword]` 降级规则 | Android + PC 解析 |
-| `mcp_tools.json` | MCP 工具定义 | PC MCP 服务 + Android 预留 |
-| `model_dict.json` | **LLM 模型路由表**（注意：不是 PC Live2D model_dict） | PC / 未来 Android LLM 配置 |
-
-> ⚠️ 易混淆点：
-> - `shared/model_dict.json` = LLM 路由表（deepseek / glm 等）
-> - `Live2D-Ai-pc/open-llm-vtuber/model_dict.json` = PC Live2D 模型字典（name / emotionMap / url）
-> - 两者名称相同但用途不同，文档中必须区分。
-
-## 4. 状态机契约（Android）
+## 3. 核心状态机契约（live2d-ai-core）
 
 ```
 IDLE
-  ├─ SubmitText        → SENDING: [LlmSend, UiAddUserBubble]
-  └─ Reset             → IDLE:   [SpeechStop, MouthZero, ExprRelease, LlmReset]
+  ├─ UserSubmitted        → GENERATING（turn 内）: 开闩锁
+  ├─ Action               → 动作仲裁（capability gate / 优先级 / 幂等）
+  └─ StopRequested        → 推进 epoch，拦截所有迟到事件
 
-SENDING
-  ├─ LlmDelta          → SENDING: [UiAppendStreamBubble]
-  ├─ LlmCompleted      → SPEAKING: [ExprApply, SpeechSpeak]
-  ├─ LlmFailed         → IDLE:   [UiShowError]
-  └─ Reset             → IDLE:   [reset commands]
-
-SPEAKING
-  ├─ SubmitText        → SENDING: [SpeechStop, MouthZero, ExprRelease, LlmSend]  // 打断
-  ├─ SpeakFinished     → IDLE:   [MouthZero, ExprRelease]
-  ├─ SpeakFailed       → IDLE:   [MouthZero, ExprRelease]
-  └─ Reset             → IDLE:   [reset commands]
+GENERATING（turn）
+  ├─ GenerationFinished   → 恰一次；双闩锁（generation + playback）收口
+  ├─ ActionPlaybackFinished→ 携带动作身份，避免旧动作完成误伤新动作
+  └─ StopRequested        → do_stop：root epoch → cancel → clear pending → VoiceEnded
 ```
 
 核心不变量：
 
-- I1：SENDING 中拒绝新提交，至多一个 LLM 请求在途。
-- I2：TTS 播报单走廊，双播报免疫。
-- I3：LLM 冷流单消费者。
-- I6：视图接线替换语义，不累积双 hook。
-- I7：任意副作用异常 fail-safe 回 IDLE。
+- I1：`StopRequested` 是唯一推进 epoch 的事件；epoch 单调且只增。
+- I2：迟到事件（旧 epoch 的生成/完成）统一拦截，不污染新代次。
+- I3：动作子状态不复制 epoch；自然完成携带动作身份。
+- I4：`PerformancePlayer` 无内部时钟，调用者注入 dt（可测试）。
 
-## 5. 扩展边界（未来插件）
+## 4. Supervisor 契约（live2d-ai-desktop）
 
-所有“非最小闭环”能力都应走扩展接口，而不是进入核心：
+- supervisor = 独立 OS 线程 + `current_thread` tokio runtime。
+- `run_one_turn` 五阶段：生成循环 → pending pump → GenerationFinished 恰一次 → 收尾。
+- 控制命令：`Stop` / `Quit` / `Reload`。turn 收尾**不** drain 通道（Quit/Stop 由
+  空闲态 select 自然消费；Reload 走 `reload_pending` 原子标志）。
+- 正常 turn 完成**不**发 `NewEpoch`（epoch 未变）；`NewEpoch` 只由 stop 路径发。
 
-- `ChatHook`：beforeSend / afterReceive
-- `ToolDefinition`：LLM 工具调用
-- `TtsProvider` / `LlmLink`：Provider 接缝
-- 视觉、记忆、主动陪伴、Agent 工具：插件实现
+## 5. Web API 契约（web_api）
 
-核心只依赖接口，不依赖具体插件。
+- loopback-only（`127.0.0.1`）；默认拒绝跨域（不回 `Access-Control-Allow-Origin`）。
+- mutating 端点（settings PATCH / chat / commands invoke / models 写操作）统一走
+  dispatch 的 Origin + Content-Type 校验（`is_mutating_route(route, method)`）。
+- 命令 invoke 必须经 `SupervisorHandle::trigger_action` → core 仲裁，禁止绕过。
+- WS：单向事件流（`turn_state` / `text_delta` / `runtime_status` / `subscribe_ack`），
+  客户端命令走 HTTP；服务端每 10s heartbeat，写失败即退并 unsubscribe。
 
-## 6. 验收口径
+## 6. 共享资产（shared/）现状
 
-任何改动只要影响以下任一项，必须保证不破坏：
+| 文件 | 状态 |
+| --- | --- |
+| `persona.yaml` | 历史模板资产；Rust 侧用 `[persona] system_prompt`（见裁决 §8） |
+| `model_registry.json` / `model_registry.schema.json` | 历史清单；Rust 用 XDG data_dir 独立 registry |
+| `emotion-protocol.md` | 历史协议文档（Rust 动作集已收敛为 6 基础动作） |
+| `model-adapter/` | 历史适配器；Rust 用 `BaiParamAdapter` |
+| `mcp_tools.json` / `model_dict.json` | 历史 LLM/工具定义；Rust 走 OpenAI 兼容 + tool 描述 |
 
-1. Android JVM 单测全绿（当前 663）
-2. PC pytest 全绿（当前 150）
-3. `shared/check_cross_platform_consistency.py` 全绿
-4. Android 核心状态机穷举测试全绿
-5. 无 API Key、无网络时，配置解析 / 状态机 / TTS 降级链行为确定
+## 7. 验收口径
 
+任何改动必须保证：
 
-## 7. Renderer 参数空间约定
+1. `cargo test --workspace --all-targets` 全绿（当前 665 + 3 doctest）。
+2. `cargo fmt --all --check` 干净。
+3. `cargo clippy --workspace --all-targets -- -D warnings` 干净。
+4. root `pytest tests/` 全绿（当前 22 passed, 1 skipped——Android 归档后合理跳过）。
+5. 无 API Key、无网络时：配置解析 / 状态机 / TTS 降级行为确定（不崩溃、常驻引导）。
+6. 安全红线：密钥不进 GET/日志/WS/导出；loopback-only；mutating 需
+   `application/json`；命令 invoke 必经 core 仲裁。
 
-PC 渲染器（`renderer/src/`）同时处理两类参数写入源：
+## 8. 历史决策对 Rust 的影响（摘要）
 
-- **model 空间**：绝对 Cubism 参数值（例如 `ParamAngleX` 的 -30..30）。
-- **normalized 空间**：0..1 的归一化值，需要按每个参数的 min/default/max 映射到 model 空间。
-
-### 规则
-
-1. 写入 `ParamArbiter` 时，通过 `valueSpace: 'model' | 'normalized'` 显式声明值空间；未声明时默认 `model`。
-2. `HalfBodyController`、表情、口型等来源如果产生 normalized 值，必须标记 `valueSpace: 'normalized'`。
-3. `ParamArbiter.update()` 负责把 normalized 源映射到 model 空间后再写入 coreModel，保证多源混合时单位一致。
-4. 每个参数在 fade 完成后若值未变化，通过 `dirty` 标记跳过重复写入，降低 GPU/CPU 开销。
-
-### 为何需要区分
-
-历史 bug：`HalfBodyController` 直接写入 normalized 值，而 `EmotionConsumer` 写入 model 值，导致半身动作后表情参数被错误缩放。统一 valueSpace 后，所有源在仲裁前已对齐到同一空间。
+- 已迁移：6 基础动作、release 控制语义、动作强度 1–3、persona system prompt 概念、
+  OpenAI 兼容 LLM/TTS、model3 资产结构、settings 分区思想。
+- 明确废弃：SLOP 规则（Py TTS 链路）、soullink 表演引擎、8 情绪协议完整消费路径、
+  背景导入 / 模型 ZIP 上传（D3.2 后置）、动作时间线（v1 无编排）。
+- 待裁决：`shared/persona.yaml` 的权威地位（见 `docs/plans/branch-review-boundary-2026-08-31.md`）。

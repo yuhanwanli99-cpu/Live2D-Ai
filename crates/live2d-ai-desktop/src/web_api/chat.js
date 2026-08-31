@@ -430,7 +430,7 @@
     setActionsStatus("加载中…", "warn");
     const cmds = await listActions();
     if (!cmds.length) { AP.list.innerHTML = '<div class="chat-empty">（无命令）</div>'; setActionsStatus("无命令", "err"); return; }
-    const groups = [["single", "基础动作"], ["composed", "组合编排"]];
+    const groups = [["single", "基础动作"]];
     AP.list.innerHTML = groups.filter(([k]) => cmds.some((c) => c.kind === k)).map(([k, h]) => {
       const items = cmds.filter((c) => c.kind === k).map(renderItem).join("");
       return '<div class="actions-group"><h3>' + h + "</h3>" + items + "</div>";

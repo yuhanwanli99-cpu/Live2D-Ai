@@ -293,18 +293,42 @@ pub fn extract_origin_and_ct(headers: &[tiny_http::Header]) -> (Option<String>, 
     (origin, ct)
 }
 
-/// 路由 ID 是否需要 mutating 安全校验。
+/// 路由 + method 是否需要 mutating 安全校验。
 ///
-/// 与 [`crate::web_api::RouteId`] 同步：SettingsPatch / SettingsTestLlm /
-/// SettingsTestTts / ChatPost / ChatStop 都属于 mutating；其余为只读。
-pub fn is_mutating_route(route: crate::web_api::RouteId) -> bool {
+/// 与 [`crate::web_api::RouteId`] 同步：
+/// - **恒 mutating**（只看 route）：`SettingsPatch` / `SettingsTestLlm` /
+///   `SettingsTestTts` / `ChatPost` / `ChatStop`；
+/// - **按 method 区分**：
+///   - `Commands` + POST（invoke）= mutating；`Commands` + GET（list）= 只读；
+///   - `Models` + GET（list/get）= 只读；
+///     `Models` + POST（import / activate）/ PATCH（display）/
+///     DELETE（delete）= mutating。
+/// - **恒只读**：`AppCapabilities` / `AppStatus` / `SettingsGet` /
+///   `LogsGet` / `LogsLevels` / `IndexHtml` / `NotImplemented` /
+///   `NotFound`。
+pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Method) -> bool {
     use crate::web_api::RouteId;
-    matches!(
-        route,
+    use tiny_http::Method;
+    match route {
+        // Commands 路由按 method 区分：GET list 只读，POST invoke mutating。
+        RouteId::Commands => *method == Method::Post,
+        // Models 路由按 method 区分：GET list/get 只读；POST import /
+        // POST activate / PATCH display / DELETE delete 全部 mutating。
+        RouteId::Models => matches!(*method, Method::Post | Method::Patch | Method::Delete),
+        // 其余 mutating 端点（method 由 dispatch 入口先做校验）。
         RouteId::SettingsPatch
-            | RouteId::SettingsTestLlm
-            | RouteId::SettingsTestTts
-            | RouteId::ChatPost
-            | RouteId::ChatStop
-    )
+        | RouteId::SettingsTestLlm
+        | RouteId::SettingsTestTts
+        | RouteId::ChatPost
+        | RouteId::ChatStop => true,
+        // 只读端点。
+        RouteId::AppCapabilities
+        | RouteId::AppStatus
+        | RouteId::SettingsGet
+        | RouteId::LogsGet
+        | RouteId::LogsLevels
+        | RouteId::IndexHtml
+        | RouteId::NotImplemented
+        | RouteId::NotFound => false,
+    }
 }

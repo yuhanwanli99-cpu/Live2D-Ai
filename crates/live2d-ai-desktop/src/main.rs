@@ -34,10 +34,9 @@
 //!   `--pet-mode` 桌宠模式（默认置顶+穿透+托盘恢复入口）；`--smoke-frames N`
 //!   帧数后自动退出；`--audio-smoke` 音频输出冒烟（无音频设备退出码 3）。
 //!
-//! 网络（LLM/TTS HTTP）仍未接入
-//! （RFC `docs/plans/RUST-REWRITE-RFC.md` §4 批次 5/6；D10：应用本体原生渲染）。
-//!
-//! 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准（见本 crate `README.md`）。
+//! - 网络（LLM/TTS HTTP）经 OpenAI 兼容协议接入：`--chat` 终端对话 /
+//!   `--web` Web 面板（supervisor + WebSocket 事件流，见 [`web_api`]）。
+//! - 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准（见本 crate `README.md`）。
 
 mod adapter;
 mod app;
@@ -235,7 +234,7 @@ fn print_info() {
         "  phase  : desktop-pet window — winit+wgpu 透明无边框窗口壳、置顶/底部右侧定位/\
          点击穿透/交互态拖动（RawWindowHandle 实测 X11 vs Wayland）、ksni 托盘、\
          同一 device 上的 l2d ModelRendererCore 实时渲染与实际声卡输出链路已接入；\
-         网络（LLM/TTS HTTP）未接入"
+         网络（LLM/TTS HTTP）经 OpenAI 兼容协议接入（--chat / --web）"
     );
     println!("  target : {arch}-{os} (family: {family})");
     println!("  rust   : MSRV {}", env!("CARGO_PKG_RUST_VERSION"));
@@ -393,28 +392,6 @@ fn run_audio_smoke(duration: std::time::Duration, silence: bool) -> ExitCode {
         }
     }
 }
-
-/// 模式在 stdout 报告里的口径描述（仅供 `main.rs` 接线复用）。
-///
-/// 注：当前 main.rs 不再直接引用 `benchmark` 模块（Chat/Benchmark 命令
-/// 走占位分支），保留此函数仅为 binary 可链接——main 在 Chat/Benchmark
-/// 真实接线恢复后即可重新启用。
-#[allow(dead_code)]
-fn mode_label_stub() {}
-
-/// 模式在 stdout 报告里的口径描述（仅供 `main.rs` 接线复用）。
-///
-/// 同 [`mode_label_stub`]：保留以备后续 benchmark 命令接线恢复。
-#[allow(dead_code)]
-fn benchmark_mode_caliber_stub() {}
-
-/// 跑一次 benchmark 会话（占位；真实接线后续恢复）。
-#[allow(dead_code)]
-fn run_benchmark_session_stub() {}
-
-/// 终端 chat 模式接线（占位；真实接线后续恢复）。
-#[allow(dead_code)]
-fn run_chat_session_cli_stub() {}
 
 #[cfg(test)]
 mod tests {

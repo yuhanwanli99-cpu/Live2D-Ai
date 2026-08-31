@@ -636,8 +636,9 @@ pub(crate) async fn run_one_turn(
         },
     ));
 
-    emit(AppEvent::Conversation(ConversationUiEvent::NewEpoch {
-        epoch: root.epoch.get(),
-    }));
+    // 正常完成**不**发 NewEpoch：epoch 未变，前端已由
+    // `turn_state{completed}` 收口当前 assistant bubble；
+    // 再发 new_epoch 会让前端误开一个空 bubble。
+    // NewEpoch 只由 stop 路径（`do_stop!`）在真正推进 epoch 时发送。
     !stopped
 }

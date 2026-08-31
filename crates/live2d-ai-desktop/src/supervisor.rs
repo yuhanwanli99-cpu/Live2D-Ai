@@ -488,8 +488,11 @@ async fn run_forever(
                     // 兜底：「在飞 turn 中到达的 Reload」走原子标志
                     // [`SupervisorHandle::reload_pending`]，turn.rs no-op
                     // channel 消息但**不清标志**。turn 收口后统一消费。
-                    // 同时把 channel 里可能积压的 Quit/Stop 等其它命令吞掉。
-                    while control_rx.try_recv().is_ok() {}
+                    // **不 drain control_rx**：turn 内到达的 Quit/Stop 已在
+                    // turn.rs select 内处理（quitting=true / do_stop），
+                    // turn 收尾后仍积压的命令由外层空闲态 select 自然消费
+                    // （删除旧的无条件 `while try_recv().is_ok(){}` drain——
+                    // 它会吞掉恰好落在收尾边界的 Quit，导致应用不退出）。
                     apply_reload(
                         &mut engine,
                         config_path.as_deref(),

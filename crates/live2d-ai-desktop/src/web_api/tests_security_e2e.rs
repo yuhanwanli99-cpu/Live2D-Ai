@@ -244,8 +244,14 @@ fn dispatch_patch_dev_flag_allows_no_origin_and_non_json() {
 fn mutating_routes_classification_sanity() {
     use super::RouteId;
     use super::security::is_mutating_route;
-    assert!(is_mutating_route(RouteId::SettingsPatch));
-    assert!(is_mutating_route(RouteId::ChatPost));
-    assert!(!is_mutating_route(RouteId::SettingsGet));
-    assert!(!is_mutating_route(RouteId::IndexHtml));
+    use tiny_http::Method;
+    assert!(is_mutating_route(RouteId::SettingsPatch, &Method::Patch));
+    assert!(is_mutating_route(RouteId::ChatPost, &Method::Post));
+    assert!(is_mutating_route(RouteId::Commands, &Method::Post));
+    assert!(is_mutating_route(RouteId::Models, &Method::Post));
+    assert!(is_mutating_route(RouteId::Models, &Method::Delete));
+    assert!(!is_mutating_route(RouteId::SettingsGet, &Method::Get));
+    assert!(!is_mutating_route(RouteId::IndexHtml, &Method::Get));
+    assert!(!is_mutating_route(RouteId::Commands, &Method::Get));
+    assert!(!is_mutating_route(RouteId::Models, &Method::Get));
 }

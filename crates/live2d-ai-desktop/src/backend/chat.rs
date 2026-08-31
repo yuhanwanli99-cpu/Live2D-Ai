@@ -200,6 +200,8 @@ pub fn run_chat_session(opts: ChatOptions) -> Result<RunReport, BackendError> {
         Some(ChatBridge {
             supervisor: std::sync::Arc::clone(&supervisor),
             snapshot,
+            // 与 SupervisorConfig.config_path 同源：原生设置面板写盘目标。
+            config_path: Some(config_path.to_string_lossy().into_owned()),
         }),
     );
     let run_result = event_loop
