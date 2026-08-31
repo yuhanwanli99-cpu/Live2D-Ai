@@ -153,3 +153,145 @@ fn save_draft_empty_key_env_normalizes_to_none_on_reload() {
     assert_eq!(loaded.tts.api_key_env.as_deref(), Some("ONLY_TTS_KEY"));
     let _ = std::fs::remove_file(&tmp_path);
 }
+
+// =====================================================================
+// F2b（2026-08-31 高级复审）：
+//   1. 保存前统一配置校验（非法 URL / env 名 → Err，磁盘不变，不 reload）
+//   2. apply_draft 只合并 UI 暴露字段（隐藏 TTS 字段原样保留）
+// =====================================================================
+
+/// 构造一个**带隐藏 TTS 字段**的初始配置（model=Some / 48kHz / 双声道）。
+fn write_initial_config_with_hidden_tts(path: &std::path::Path) {
+    use live2d_ai_runtime::settings::{AppSettings, LlmSettings, PersonaSettings, TtsSettings};
+    let s = AppSettings {
+        llm: LlmSettings {
+            base_url: "https://api.example-llm.com/v1".into(),
+            model: "init-llm".into(),
+            api_key_env: Some("INIT_LLM_KEY".into()),
+        },
+        tts: TtsSettings {
+            base_url: "https://api.example-tts.com/v1".into(),
+            model: Some("tts-1-hd".into()),
+            voice: "nova".into(),
+            api_key_env: Some("INIT_TTS_KEY".into()),
+            sample_rate: 48_000,
+            channels: 2,
+        },
+        persona: PersonaSettings {
+            system_prompt: "初始人设".into(),
+            max_history_pairs: 4,
+        },
+        dev_mode: false,
+    };
+    std::fs::write(path, s.to_toml_string()).expect("写初始配置成功");
+}
+
+/// F2b-M0-1：非法 LLM URL → save_draft 返回 Err，磁盘字节不变。
+#[test]
+fn invalid_llm_url_does_not_modify_disk() {
+    let tmp_path = std::env::temp_dir().join(format!(
+        "live2d_ai_test_f2b_invalid_llm_url_{}.toml",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&tmp_path);
+    write_initial_config_with_hidden_tts(&tmp_path);
+    let before = std::fs::read(&tmp_path).expect("读初始配置");
+
+    let mut draft = settings_to_draft(
+        &live2d_ai_runtime::AppSettings::load_from_path(&tmp_path).expect("加载初始配置"),
+    );
+    draft.llm_base_url = "not a url".into(); // 非法 URL
+
+    let config_str = tmp_path.to_string_lossy().into_owned();
+    let err = save_draft(&draft, &config_str, None).expect_err("非法 URL 必须保存失败");
+    assert!(
+        err.contains("配置校验失败"),
+        "错误信息应含校验失败，got: {err}"
+    );
+
+    let after = std::fs::read(&tmp_path).expect("读磁盘");
+    assert_eq!(before, after, "磁盘配置必须字节不变");
+    let _ = std::fs::remove_file(&tmp_path);
+}
+
+/// F2b-M0-1：非法 TTS URL → save_draft 返回 Err，磁盘不变。
+#[test]
+fn invalid_tts_url_does_not_modify_disk() {
+    let tmp_path = std::env::temp_dir().join(format!(
+        "live2d_ai_test_f2b_invalid_tts_url_{}.toml",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&tmp_path);
+    write_initial_config_with_hidden_tts(&tmp_path);
+    let before = std::fs::read(&tmp_path).expect("读初始配置");
+
+    let mut draft = settings_to_draft(
+        &live2d_ai_runtime::AppSettings::load_from_path(&tmp_path).expect("加载初始配置"),
+    );
+    draft.tts_base_url = "ftp://not-http".into(); // 非法 scheme
+
+    let config_str = tmp_path.to_string_lossy().into_owned();
+    let err = save_draft(&draft, &config_str, None).expect_err("非法 TTS URL 必须保存失败");
+    assert!(err.contains("配置校验失败"), "got: {err}");
+
+    let after = std::fs::read(&tmp_path).expect("读磁盘");
+    assert_eq!(before, after, "磁盘配置必须字节不变");
+    let _ = std::fs::remove_file(&tmp_path);
+}
+
+/// F2b-M0-1：非法 env 名 → save_draft 返回 Err，磁盘不变。
+#[test]
+fn invalid_api_key_env_does_not_modify_disk() {
+    let tmp_path = std::env::temp_dir().join(format!(
+        "live2d_ai_test_f2b_invalid_env_{}.toml",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&tmp_path);
+    write_initial_config_with_hidden_tts(&tmp_path);
+    let before = std::fs::read(&tmp_path).expect("读初始配置");
+
+    let mut draft = settings_to_draft(
+        &live2d_ai_runtime::AppSettings::load_from_path(&tmp_path).expect("加载初始配置"),
+    );
+    draft.llm_api_key_env = Some("INVALID-NAME".into()); // 含连字符，非法 env 名
+
+    let config_str = tmp_path.to_string_lossy().into_owned();
+    let err = save_draft(&draft, &config_str, None).expect_err("非法 env 名必须保存失败");
+    assert!(err.contains("配置校验失败"), "got: {err}");
+
+    let after = std::fs::read(&tmp_path).expect("读磁盘");
+    assert_eq!(before, after, "磁盘配置必须字节不变");
+    let _ = std::fs::remove_file(&tmp_path);
+}
+
+/// F2b-M0-2：只改 LLM model → 隐藏 TTS 字段（model/sample_rate/channels）原样保留。
+#[test]
+fn saving_visible_fields_preserves_hidden_tts_fields() {
+    let tmp_path = std::env::temp_dir().join(format!(
+        "live2d_ai_test_f2b_preserve_tts_{}.toml",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&tmp_path);
+    write_initial_config_with_hidden_tts(&tmp_path);
+
+    let mut draft = settings_to_draft(
+        &live2d_ai_runtime::AppSettings::load_from_path(&tmp_path).expect("加载初始配置"),
+    );
+    // 用户只改 LLM model。
+    draft.llm_model = "ui-new-model".into();
+
+    let config_str = tmp_path.to_string_lossy().into_owned();
+    save_draft(&draft, &config_str, None).expect("合法保存成功");
+
+    let loaded = live2d_ai_runtime::AppSettings::load_from_path(&tmp_path).expect("重读配置");
+    assert_eq!(loaded.llm.model, "ui-new-model", "LLM model 已更新");
+    assert_eq!(
+        loaded.tts.model.as_deref(),
+        Some("tts-1-hd"),
+        "隐藏字段 tts.model 必须保留"
+    );
+    assert_eq!(loaded.tts.sample_rate, 48_000, "tts.sample_rate 必须保留");
+    assert_eq!(loaded.tts.channels, 2, "tts.channels 必须保留");
+    assert_eq!(loaded.tts.voice, "nova", "tts.voice（UI 暴露字段）不变");
+    let _ = std::fs::remove_file(&tmp_path);
+}

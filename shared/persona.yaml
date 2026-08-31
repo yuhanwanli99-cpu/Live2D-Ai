@@ -1,24 +1,15 @@
-# Live2D-Ai — Gentle Cute Girl Persona 「白 (Bai)」 (Shared / Cross-Platform)
+# Live2D-Ai — Gentle Cute Girl Persona 「白 (Bai)」 (历史模板资产)
 # ============================================================
-# This file is the SINGLE SOURCE OF TRUTH for character persona.
-#
-# Referenced by:
-#   - Desktop:  Live2D-Ai-pc/open-llm-vtuber/conf.yaml via load_persona_from_file
-#   - Android:  assets/persona.yaml (sync from this file)
-#
-# Editing this file affects BOTH platforms automatically.
-# See docs/plan-C.md for the customization guide.
-#
-# 契约：contract-shared.md §S1（S1-01 ~ S1-04，tier: premium）
-
 # ⚠️ 状态（2026-08-31，Rust 重构后）：
 #   - `Live2D-Ai-pc/` 已删除（git 历史保留，tag `py-legacy`）；
 #   - `Live2D-Ai-Android/` 已归档（见 ANDROID_ARCHIVE_POINTER.md）；
 #   - Rust 桌面端（当前主力）的 persona 由 `live2d-ai.toml` 的 `[persona]
 #     system_prompt` 承载，**不**读取本文件。
-#   → 本文件当前为**历史/模板资产**，不再宣称「运行时单一真理源」。
+#   → 本文件为**历史/模板资产**，**不**是运行时单一真理源。
 #   → 若未来 Rust 端恢复读取本文件，需另行裁决（见
 #     docs/plans/branch-review-boundary-2026-08-31.md §8）。
+#   → 历史引用（已失效）：Live2D-Ai-pc conf.yaml 经 load_persona_from_file、
+#     Android assets/persona.yaml 同步；曾宣称「编辑即双端生效」。
 
 name: "白 (Bai)"
 role: "gentle cute anime girl assistant companion"

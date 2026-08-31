@@ -653,18 +653,17 @@ mod ws_unit_tests {
 }
 
 // =============================================================================
-// P1WS-2：连接生命周期 端到端测试
+// 连接生命周期：broadcaster 槽位簿记测试（**非**真实 WS E2E）
 // =============================================================================
 //
 // 验证：
-// - 40 次连接/断开不耗尽槽位（subscriber_count 必能回到 0）；
-// - HTTP 始终可响应（WS 与 HTTP 真正并发，不互相阻塞）；
-// - 客户端 close 后 server 端槽位回落（显式 unsubscribe 路径）。
+// - 40 次 try_subscribe/unsubscribe 不耗尽槽位（subscriber_count 必能回 0）。
 //
-// **测试设计**：不走完整 run_request_loop（会卡在 test 线程 join），
-// 而是直接调 `Broadcaster::try_subscribe` + `unsubscribe` 模拟连接
-// 建立/退出。这覆盖 M0-7 的核心契约：**unsubscribe 显式回收**——
-// actor 退出时主动 unsubscriber(conn_id)，不依赖下次 broadcast try_send 失败。
+// **测试设计**（2026-08-31 复审改名）：不走真实 TCP/WS 连接——直接调
+// `Broadcaster::try_subscribe` + `unsubscribe` 验证**簿记正确性**
+// （unsubscribe 显式回收，不依赖下次 broadcast try_send 失败）。
+// 真实 socket 的「客户端 close → heartbeat 写失败 → actor 退出 →
+// unsubscriber 调用」链路由 `lifecycle_e2e::*`（真 WS 握手）覆盖。
 
 #[cfg(test)]
 mod lifecycle_tests {

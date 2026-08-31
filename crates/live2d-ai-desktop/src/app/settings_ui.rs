@@ -250,11 +250,12 @@ pub(crate) fn handle_window_event(
     }
 }
 
-/// 草稿 → `AppSettings`：UI 保存时调用。
+/// 草稿 → `AppSettings`：首次创建（磁盘无配置）时使用；也供 round-trip 测试。
 ///
-/// 由 [`save_draft`]（保存按钮落盘）与 W6 之前的 round-trip 测试共用——
-/// 现在 UI 实际有「保存」按钮调用 [`save_draft`]，本函数不再需要
-/// `#[allow(dead_code)]`。
+/// **F2b 语义**：本函数**全量重建** `AppSettings`（TTS 隐藏字段
+/// `model/sample_rate/channels` 走 default）。仅当磁盘**无**既有配置
+/// （首次保存）时才可安全使用——存在既有配置时必须走
+/// [`apply_draft`]（只合并 UI 暴露字段，保留隐藏字段）。
 pub(crate) fn draft_to_settings(d: &Draft) -> AppSettings {
     AppSettings {
         llm: LlmSettings {
@@ -279,6 +280,26 @@ pub(crate) fn draft_to_settings(d: &Draft) -> AppSettings {
         // W7 任务：dev_mode 由 UI 显式字段控制（checkbox 双向绑定）。
         dev_mode: d.dev_mode,
     }
+}
+
+/// **F2b**：把 UI 草稿**只合并**到既有 `AppSettings` 的 UI 暴露字段。
+///
+/// 只改 9 个字段（llm.base_url/model/api_key_env、tts.base_url/voice/
+/// api_key_env、persona.system_prompt/max_history_pairs、dev_mode）；
+/// **不动**隐藏字段（tts.model / tts.sample_rate / tts.channels 及未来
+/// 新增字段）——避免「用户只改 LLM，TTS 音频规格被重置为默认」的损坏。
+///
+/// 草稿空 `api_key_env`（UI 清空）→ `None`（与 `draft_to_settings` 同语义）。
+pub(crate) fn apply_draft(target: &mut AppSettings, d: &Draft) {
+    target.llm.base_url = d.llm_base_url.clone();
+    target.llm.model = d.llm_model.clone();
+    target.llm.api_key_env = d.llm_api_key_env.clone().filter(|s| !s.is_empty());
+    target.tts.base_url = d.tts_base_url.clone();
+    target.tts.voice = d.tts_voice.clone();
+    target.tts.api_key_env = d.tts_api_key_env.clone().filter(|s| !s.is_empty());
+    target.persona.system_prompt = d.persona_system_prompt.clone();
+    target.persona.max_history_pairs = d.persona_max_history_pairs;
+    target.dev_mode = d.dev_mode;
 }
 
 /// `AppSettings` → 草稿：UI 启动 / 「重新载入」时调用。
@@ -320,12 +341,30 @@ pub(crate) fn save_draft(
     config_path: &str,
     supervisor: Option<&Arc<SupervisorHandle>>,
 ) -> Result<(), String> {
-    let next = draft_to_settings(draft);
+    let path = std::path::Path::new(config_path);
+    // F2b-M0-2：**先读磁盘既有配置**，只合并 UI 暴露字段——保留
+    // tts.model / sample_rate / channels 等隐藏字段（避免「只改 LLM 却
+    // 重置 TTS 音频规格」）。磁盘无配置（首次保存）→ 全量创建。
+    let next = match live2d_ai_runtime::AppSettings::load_from_path(path) {
+        Ok(mut s) => {
+            apply_draft(&mut s, draft);
+            s
+        }
+        Err(_) => draft_to_settings(draft),
+    };
+    // F2b-M0-1：写盘**前**统一配置校验（URL / env 名 / audio spec）。
+    // `resolve_with(|_| None)` 不要求真实 key 存在，但会校验语法——
+    // 失败返回 Err，**不**创建/替换目标配置、不触发 reload。
+    next.resolve_with(|_| None)
+        .map_err(|e| format!("配置校验失败: {e}"))?;
     let toml_text = next.to_toml_string();
     // 拒绝空内容由 plan_atomic_write 内部保证（避免误存空配置）。
-    let tmp = plan_atomic_write(std::path::Path::new(config_path), &toml_text)
-        .map_err(|e| format!("原子写回失败: {e}"))?;
-    std::fs::rename(&tmp, config_path).map_err(|e| format!("rename {}: {e}", tmp.display()))?;
+    let tmp = plan_atomic_write(path, &toml_text).map_err(|e| format!("原子写回失败: {e}"))?;
+    // rename 失败时清理 tmp（plan_atomic_write 已保证 tmp 存在）。
+    if let Err(e) = std::fs::rename(&tmp, config_path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("rename {}: {e}", tmp.display()));
+    }
     if let Some(h) = supervisor {
         h.reload();
     }
