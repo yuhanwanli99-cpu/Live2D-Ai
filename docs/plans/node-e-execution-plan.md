@@ -43,7 +43,14 @@
 - [ ] **E6**（T2 前端完成，T1b 后端进行中）：Mod 管理 UI。
   - [x] **E6-T2**（子代理 `c6f0e120`，已返回+review 通过）：app.js `renderMods`/`modAction`/MOD_STATUS/MOD_ACTIONS + 抽屉 3 处接线；index.html `#grp-mods` 骨架（静态编译语义提示）。500 行 node --check 过；按契约先行（后端未就绪行内降级）。注意：E6-T1 首派（`cfb1ae69`）中途耗尽零落盘，已派 E6-T1b 接替。
   - [ ] **E6-T1b**（子代理 `2da66d71`，进行中）：mods_routes.rs + ServerContext 挂 ModRegistry + main.rs 装配 + 前置路由（时间盒任务书）。
-  - [ ] E6 验收：端到端 curl（list/enable/disable/restart）+ 全量门禁 + commit + tag `node-e-e6`。
+  - [x] **E6-T1b**（子代理 `2da66d71`，已返回+独立复核通过）：mods_routes.rs（GET list + POST enable/disable/restart，403/404/405/415 全覆盖）+ ServerContext.mod_registry + cli_entry 装配 + 前置路由。e2e curl 全链路（disabled→enable→running→disable→restart）+ 门禁全绿（主代理独立复核一致）。
+  - [x] **E6 验收**：commit `9efe8905` + tag `node-e-e6`。
+- [ ] **E7**（进行中）：Pet/Director Mod。
+  - [x] **E7-T1**（子代理 `5dc44d21`，已返回+review 通过）：director crate（326 行）——TurnStarted 触发白名单过滤动作序列（performance sequence 演示）+ ActionFinished 记录 + 4 测试绿（含非法动作过滤验证）。
+  - [ ] **E7-T3**（进行中，子代理见下）：两工厂注册 AVAILABLE_MOD_FACTORIES + workspace 成员 + manifest 启用 + e2e。
+  - [x] **E7-T2**（子代理 `e50d42e0`，已返回+review 通过）：pet-desktop crate v1 骨架（242 行）——settings schema 3 字段 + Voice 事件 voice_active 状态翻转 + 3 测试绿，无 GUI 依赖，根 Cargo.toml 还原干净。小瑕疵：头注"节点 E E6"笔误（应为 E7），验收时容忍或 E7-T3 顺带修。
+  - [ ] **E7-T3**（依赖 T1+T2）：两工厂注册进 AVAILABLE_MOD_FACTORIES + manifest 默认启用 + e2e 验证。
+  - [ ] E7 验收：全量门禁 + commit + tag `node-e-e7`。
 - [ ] **E7**（依赖 E5 Mod 架构）：pet-desktop / director Mod（含 performance sequence 能力）——届时再原子化拆分。
 
 ## 最终验收（全部完成后）
