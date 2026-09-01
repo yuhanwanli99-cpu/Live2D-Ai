@@ -56,6 +56,8 @@ pub(crate) static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFacto
     &live2d_ai_mod_external_input::FACTORY,
     &live2d_ai_mod_director::FACTORY,
     &live2d_ai_mod_pet_desktop::FACTORY,
+    &live2d_ai_mod_local_llm::FACTORY,
+    &live2d_ai_mod_local_tts::FACTORY,
 ];
 
 mod repl;

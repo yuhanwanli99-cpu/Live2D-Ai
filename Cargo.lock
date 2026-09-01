@@ -2241,6 +2241,8 @@ dependencies = [
  "live2d-ai-core",
  "live2d-ai-mod-director",
  "live2d-ai-mod-external-input",
+ "live2d-ai-mod-local-llm",
+ "live2d-ai-mod-local-tts",
  "live2d-ai-mod-pet-desktop",
  "live2d-ai-mod-system",
  "live2d-ai-runtime",
@@ -2275,6 +2277,24 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-external-input"
+version = "0.1.0"
+dependencies = [
+ "live2d-ai-mod-system",
+ "log",
+ "serde_json",
+]
+
+[[package]]
+name = "live2d-ai-mod-local-llm"
+version = "0.1.0"
+dependencies = [
+ "live2d-ai-mod-system",
+ "log",
+ "serde_json",
+]
+
+[[package]]
+name = "live2d-ai-mod-local-tts"
 version = "0.1.0"
 dependencies = [
  "live2d-ai-mod-system",
