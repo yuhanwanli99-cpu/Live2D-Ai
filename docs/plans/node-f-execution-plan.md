@@ -9,10 +9,11 @@
 - [x] **F1** 主页 65% 区接入 /render（tag `node-f-f1`，`87b4ce2a`）
 - [x] **F2** 设置抽屉信息架构重排（tag `node-f-f2`，`568f8f81`）
 - [x] **F3** renderMods 监听器累积 bug + 去重（tag `node-f-f3`，`ca62b558`）
-- [ ] **F5** dispatch_event → per-Mod on_event 路由（子代理 `f6e2b065` 进行中；共享 runtime 槽位方案；director TurnStarted 序列生效前提）
-- [ ] **F6-T1** WS 音频帧后端（子代理 `11720e96` —— `build_audio_frames`/`broadcast_audio_frames` 已落盘 55 测试绿，待 review 提交）
-- [ ] **F6-T2** PCM 流经处接线（supervisor/audio 侧调 broadcast_audio_frames；含 cpal 双声消解开关）
-- [ ] **F6-T3** 前端 audio 帧播放器（chat.js：AudioContext 队列 + volume 口型联动 + epoch 打断，参照 py 版 ws-bridge.ts 语义）
+- [ ] **F5** dispatch_event → per-Mod on_event 路由（子代理 `f6e2b065` 进行中；SharedRuntime 槽位已见落盘）
+- [x] **F6-T1** WS 音频帧后端（tag `node-f-f6t1`，`98c48c53`）
+- [x] **F6-T2** PCM 接线（tag `node-f-f6t2`，`37f1b490`；AUDIO_CB thread-local + `LIVE2D_AI_WS_AUDIO=1` 开关）
+- [x] **F6-T3** 前端播放器（tag `node-f-f6t3`，`acd557ed`；AudioContext 队列+epoch 打断+口型双通道）
+- [ ] **F6 端到端验收**：`LIVE2D_AI_WS_AUDIO=1` 起服务 → 配好 LLM/TTS → 浏览器发消息 → **浏览器出声**（人类实测，需真实 LLM/TTS 端点）
 - [ ] **F7** README CLI 段落张力修正（小）
 - P0 验收：浏览器端到端——发消息→流式回复→**浏览器出声**（Windows 声卡）→口型动。这是"开箱即用"的定义线。
 
