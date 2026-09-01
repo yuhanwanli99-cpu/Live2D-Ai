@@ -1,6 +1,9 @@
 //! 最终接线中枢 [`spawn_supervisor`]：把「终端输入 → LLM → TTS → PCM → 声卡
 //! → 动作/口型事实回报」串成真实闭环（节点 A 步骤 8 批准范围）。
 //!
+//! **行数豁免（≤1000 头注）**：F6-T2 接线（WS 音频广播）新增 thread-local
+//! 载体 `AUDIO_CB` + `spawn_supervisor_with_audio`，当前 577 行（≤1000）。
+//!
 //! # 进程结构与所有权（D1/D2/D3 裁决落地）
 //!
 //! ```text
@@ -268,6 +271,19 @@ impl SupervisorHandle {
 
 type Emit = Arc<dyn Fn(AppEvent) + Send + Sync>;
 
+/// 音频帧广播回调的线程局部载体。
+///
+/// F6-T2 接线（WS 音频广播）：**PCM 绝不经 AppEvent**（见本模块头注），因此
+/// 不能走 `emit` 闭包。为把 `emit_audio` 植入 `handle_engine_event`（其签名由
+/// `turn.rs`/test 共享，不能改动）之内，`spawn_supervisor_impl` 在**子线程入
+/// 口**把回调存入本线程局部；`handlers::handle_engine_event` 在 `AudioChunk`
+/// 分支读取之。生产装配（cli_entry）在 `LIVE2D_AI_WS_AUDIO=1` 时传入 Some，否则
+/// 传 None——默认行为与 `emit` 分支一致（关闭 WS 音频，仅 cpal 播放）。
+pub(crate) type AudioCb = dyn Fn(u64, &[f32], live2d_ai_runtime::AudioSpec) + Send + Sync;
+thread_local! {
+    static AUDIO_CB: std::cell::RefCell<Option<Arc<AudioCb>>> = const { std::cell::RefCell::new(None) };
+}
+
 /// 从磁盘最新配置构造新的 [`OpenAiClient`] + [`ConversationConfig`]（热重载核心）。
 ///
 /// **不**触碰 [`ConversationEngine::history`]（旧 engine 跨重建保留历史不现实——
@@ -337,9 +353,38 @@ fn apply_reload(
 }
 
 /// 启动 supervisor：独立 OS 线程 + 独立 Tokio current-thread runtime（D1）。
+///
+/// **向后兼容**：保持原 2-arg 签名 ——不设置 `emit_audio`（默认 `None`，
+/// 仅 cpal 播放）。F6-T2 接线需 WS 音频广播时，用
+/// [`spawn_supervisor_with_audio`]（传入 `Some` 闭包）。
 pub fn spawn_supervisor(
     config: SupervisorConfig,
     emit: impl Fn(AppEvent) + Send + Sync + 'static,
+) -> SupervisorHandle {
+    spawn_supervisor_impl(config, emit, None)
+}
+
+/// 启动 supervisor（带 WS 音频广播回调）——F6-T2 接线。
+///
+/// `emit_audio` 为 `Some` 时，PCM 经 cpal 播放的同时被推送到 WS 广播
+/// （`Broadcaster::broadcast_audio_frames`）；为 `None` 时仅 cpal 播放
+/// （等价于 [`spawn_supervisor`]）。双声问题消解见 `cli_entry::build_web_supervisor`
+/// 文档 ——默认闭 `LIVE2D_AI_WS_AUDIO=1` 时才开启。
+pub fn spawn_supervisor_with_audio(
+    config: SupervisorConfig,
+    emit: impl Fn(AppEvent) + Send + Sync + 'static,
+    emit_audio: Arc<AudioCb>,
+) -> SupervisorHandle {
+    spawn_supervisor_impl(config, emit, Some(emit_audio))
+}
+
+/// 共享子线程入口：`emit_audio` 以 `Option<Arc<…>>` 传入。
+/// 子线程入口安装线程局部回调，供 `handlers::handle_engine_event` 在
+/// `AudioChunk` 分支读取（PCM 绝不经 AppEvent，详见本模块头注）。
+fn spawn_supervisor_impl(
+    config: SupervisorConfig,
+    emit: impl Fn(AppEvent) + Send + Sync + 'static,
+    emit_audio: Option<Arc<AudioCb>>,
 ) -> SupervisorHandle {
     let (say_tx, say_rx) = mpsc::channel(1);
     let (control_tx, control_rx) = mpsc::unbounded_channel();
@@ -357,6 +402,9 @@ pub fn spawn_supervisor(
     let join = std::thread::Builder::new()
         .name("l2d-supervisor".to_owned())
         .spawn(move || {
+            // F6-T2：在子线程入口安装线程局部音频回调，供 handlers::handle_engine_event
+            // 在 AudioChunk 分支读取。线程退出时该线程局部随线程灭亡，无需显式清理。
+            AUDIO_CB.with(|cell| *cell.borrow_mut() = emit_audio);
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

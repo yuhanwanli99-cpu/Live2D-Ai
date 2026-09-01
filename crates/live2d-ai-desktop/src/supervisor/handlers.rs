@@ -93,7 +93,12 @@ pub(crate) fn handle_engine_event(
                 ErrorKind::IncompleteTools(_) => {}
             }
         }
-        EngineEvent::AudioChunk { samples, spec, .. } => {
+        EngineEvent::AudioChunk {
+            epoch,
+            samples,
+            spec,
+            ..
+        } => {
             if samples.is_empty() {
                 return; // 句尾 final_chunk 允许为空：无音频语义
             }
@@ -131,6 +136,14 @@ pub(crate) fn handle_engine_event(
                     *pending_pcm = Some(prepared); // 停止读下一事件：背压回传 TTS
                 }
             }
+            // F6-T2：PCM 绝不经 AppEvent——在 cpal 入环之外同步推 WS。
+            // 线程局部回调由 `spawn_supervisor_impl` 在子线程安装；默认为 None
+            //          （现网不变），仅 `LIVE2D_AI_WS_AUDIO=1` 时为 Some。
+            super::AUDIO_CB.with(|cell| {
+                if let Some(cb) = cell.borrow().as_ref() {
+                    cb(*epoch, samples, *spec);
+                }
+            });
             // dry-run（无声卡）：跳过入环、永不报 Started。
         }
         // 终态事件：supervisor 以 gen_fut 返回的 TurnReport 为权威，忽略之。

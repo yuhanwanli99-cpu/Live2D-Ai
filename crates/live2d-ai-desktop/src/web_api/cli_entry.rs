@@ -26,7 +26,9 @@ use tracing::warn;
 
 use crate::audio::AudioOutputFacade;
 use crate::mod_registry::ModRegistry;
-use crate::supervisor::{SupervisorConfig, SupervisorHandle, spawn_supervisor};
+use crate::supervisor::{
+    AudioCb, SupervisorConfig, SupervisorHandle, spawn_supervisor, spawn_supervisor_with_audio,
+};
 use crate::web_api::ws;
 use crate::web_api::{ServerContext, start_server};
 
@@ -188,21 +190,62 @@ pub(crate) fn build_web_supervisor(
 
     // emit 闭包：捕获 broadcaster 的 clone（与 ctx.broadcaster 同一实例）。
     let emit_bc = broadcaster;
-    let handle = Arc::new(spawn_supervisor(
-        SupervisorConfig {
-            client,
-            conversation: resolved.conversation,
-            capabilities: ModelCapabilities::all(),
-            audio,
-            config_path: Some(path.to_string_lossy().into_owned()),
-        },
-        move |ev| {
-            // 投影 + 广播；P1 事件 None → 静默。
-            if let Some(frame) = ws::app_event_to_ws_frame(&ev) {
-                emit_bc.broadcast(&frame.to_string());
-            }
-        },
-    ));
+    let handle = Arc::new({
+        // F6-T2 接线（WS 音频广播）。双声问题消解：默认闭
+        // （`LIVE2D_AI_WS_AUDIO=1` 时才开启）——现网行为不变，仅 cpal 播放。
+        // 开关打开后，PCM 同时推给 WS 广播（前端播放器消费）；cpal
+        // 仍在服务端播放——**两个路径都响**，属 v1 已知缺陷，待前端播放器
+        // 就绪后 F6-T3 把默认翻转并文档化。
+        let ws_audio_on = std::env::var("LIVE2D_AI_WS_AUDIO").as_deref() == Ok("1");
+        if ws_audio_on {
+            println!("web: LIVE2D_AI_WS_AUDIO=1 —— WS 音频广播已开启（F6-T2）");
+            let bc = emit_bc.clone();
+            let audio_cb: Arc<AudioCb> = Arc::new(
+                move |epoch: u64, samples: &[f32], spec: live2d_ai_runtime::AudioSpec| {
+                    // f32 ∈ [-1,1] → s16le 字节（crate::audio::f32_to_i16），
+                    // 交给 ws::Broadcaster::broadcast_audio_frames（内部切片 + base64）。
+                    let i16s: Vec<i16> = samples
+                        .iter()
+                        .map(|&s| crate::audio::f32_to_i16(s))
+                        .collect();
+                    let bytes: Vec<u8> = i16s.iter().flat_map(|v| v.to_le_bytes()).collect();
+                    bc.broadcast_audio_frames(epoch, &bytes, spec.sample_rate());
+                },
+            );
+            spawn_supervisor_with_audio(
+                SupervisorConfig {
+                    client,
+                    conversation: resolved.conversation,
+                    capabilities: ModelCapabilities::all(),
+                    audio,
+                    config_path: Some(path.to_string_lossy().into_owned()),
+                },
+                move |ev| {
+                    // 投影 + 广播；P1 事件 None → 静默。
+                    if let Some(frame) = ws::app_event_to_ws_frame(&ev) {
+                        emit_bc.broadcast(&frame.to_string());
+                    }
+                },
+                audio_cb,
+            )
+        } else {
+            spawn_supervisor(
+                SupervisorConfig {
+                    client,
+                    conversation: resolved.conversation,
+                    capabilities: ModelCapabilities::all(),
+                    audio,
+                    config_path: Some(path.to_string_lossy().into_owned()),
+                },
+                move |ev| {
+                    // 投影 + 广播；P1 事件 None → 静默。
+                    if let Some(frame) = ws::app_event_to_ws_frame(&ev) {
+                        emit_bc.broadcast(&frame.to_string());
+                    }
+                },
+            )
+        }
+    });
 
     Ok(handle)
 }
