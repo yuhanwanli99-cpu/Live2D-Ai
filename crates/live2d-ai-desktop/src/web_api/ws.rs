@@ -169,6 +169,19 @@ impl Broadcaster {
         self.inner.lock().expect("broadcaster mutex").clear();
         self.subscribed_count.store(0, Ordering::Release);
     }
+
+    /// 构造音频帧并逐帧广播（封装 [`build_audio_frames`] + [`broadcast`]）。
+    ///
+    /// **接线便利**：调用方（如 cli_entry emit 闭包）在拿到
+    /// broadcaster + 一段 s16le PCM 时可直接调。注意：当前 v1 路径下 PCM
+    /// 不经 AppEvent（详见 supervisor.rs 文档约束），因此**需要在 PCM 流经处**
+    /// 显式调用本方法——见报告“接线点结论”。
+    #[allow(dead_code)]
+    pub fn broadcast_audio_frames(&self, epoch: u64, pcm: &[u8], sample_rate: u32) {
+        for frame in build_audio_frames(epoch, pcm, sample_rate) {
+            self.broadcast(&frame);
+        }
+    }
 }
 
 impl Drop for Broadcaster {
@@ -222,7 +235,7 @@ pub fn check_request_origin(
 /// - 当前调用方 = **主 accept 循环**（`start_server`）：写 101 + 构造
 ///   `WebSocket::from_partially_read` 跳过 tungstenite::accept（避免双 101
 ///   协议错）+ 计数门控；然后**立刻 return**——主循环继续。
-/// - 派生 `ws-actor-{id}` **单线程**（独占 ws + broadcast rx；详见
+/// - **派生** `ws-actor-{id}` **单线程**（独占 ws + broadcast rx；详见
 ///   [`connection::spawn_connection_threads`]）。M0-7 简化：移除主转发线程，
 ///   actor 直接 recv broadcast 通道——消除 ws 写锁争用与无意义 CPU tick。
 pub fn handle_ws_request(
@@ -373,3 +386,334 @@ fn ws_origin_denied_response(origin: Option<&str>) -> Response<std::io::Cursor<V
 
 // 序列号 wrapper helper 已迁到 [`connection::wrap_preserialized_with_seq`]——
 // 每连接 actor 持有自己的 ConnectionState，避免全局 static SEQ。
+
+// --------------------------------------------------------------------------
+// WS 音频帧（W2+ / F6-T2 接入，v1 最小可播）
+// --------------------------------------------------------------------------
+//
+// 把 s16le PCM 切成 ~20 ms base64 音频帧，协议参照 py 版 `prepare_audio_payload`。
+// v1 简化为单声道、单 `volume` 标量（RMS/32768，保留 3 位），不下发 viseme。
+//
+// 帧 JSON 形如：
+// {"type":"audio","data":{"epoch":1,"audio":"<base64 s16le>","sample_rate":24000,
+//   "slice_ms":20,"volume":0.3,"start":true,"end":false}}
+//
+// - 每片 = sample_rate * 2 bytes/sample * 20ms / 1000；
+// - 首片 start=true，末片 end=true；
+// - volume = 本片 RMS，归一化到 [0,1]，保留 3 位小数。
+
+/// 每片毫秒数（v1 固定 20 ms，与 RMS_WINDOW_MS / TTS chunk 同尺度）。
+#[allow(dead_code)]
+pub const AUDIO_SLICE_MS: u32 = 20;
+/// s16le 每样本字节数。
+#[allow(dead_code)]
+const S16LE_BYTES_PER_SAMPLE: usize = 2;
+/// s16 最大值（用于归一化）：32768.0。
+#[allow(dead_code)]
+const S16_NORM: f32 = 32_768.0;
+
+/// 把一段 s16le PCM 按 ~20 ms 切片，产出 WS 音频帧 JSON 字符串列表。
+///
+/// - `epoch`：所属业务轮次；
+/// - `pcm`：s16le 交错样本字节（mono 视为单声道；多声道时仅首声道参与 RMS，
+///   其它声道字节原样 Base64 透传）；
+/// - `sample_rate`：PCM 采样率（Hz）；
+/// - 返回值：空输入 → 空 Vec；非空 → ≥1 帧，首帧 `start=true`，末帧 `end=true`。
+pub fn build_audio_frames(epoch: u64, pcm: &[u8], sample_rate: u32) -> Vec<String> {
+    if pcm.is_empty() || sample_rate == 0 {
+        return Vec::new();
+    }
+    // 每片字节数 = sample_rate * 2 bytes/sample * slice_ms / 1000。
+    let slice_bytes = (sample_rate as usize * S16LE_BYTES_PER_SAMPLE * AUDIO_SLICE_MS as usize)
+        .div_ceil(1000)
+        .max(S16LE_BYTES_PER_SAMPLE);
+    let total = pcm.chunks(slice_bytes).count();
+    let mut out = Vec::with_capacity(total);
+    for (i, slice) in pcm.chunks(slice_bytes).enumerate() {
+        let start = i == 0;
+        let end = i + 1 == total;
+        let volume = rms_s16le_mono(slice);
+        let b64 = base64_encode(slice);
+        let frame = serde_json::json!({
+            "type": "audio",
+            "data": {
+                "epoch": epoch,
+                "audio": b64,
+                "sample_rate": sample_rate,
+                "slice_ms": AUDIO_SLICE_MS,
+                "volume": volume,
+                "start": start,
+                "end": end,
+            }
+        });
+        out.push(frame.to_string());
+    }
+    out
+}
+
+/// s16le 单声道片的 RMS 音量归一化标量 ∈ [0, 1]，保留 3 位。
+///
+/// 对多声道输入（>2 字节/样本），仅首声道用于 RMS；其它声道忽略。
+/// 样本数不足整取时，余数样本参与 RMS 但不做填充。
+#[allow(dead_code)]
+fn rms_s16le_mono(slice: &[u8]) -> f32 {
+    let n = slice.len() / S16LE_BYTES_PER_SAMPLE;
+    if n == 0 {
+        return 0.0;
+    }
+    let mut sum_sq: f64 = 0.0;
+    for i in 0..n {
+        let off = i * S16LE_BYTES_PER_SAMPLE;
+        let sample = i16::from_le_bytes([slice[off], slice[off + 1]]);
+        let f = (sample as f32 / S16_NORM).clamp(-1.0, 1.0);
+        let fv = f as f64;
+        sum_sq += fv * fv;
+    }
+    let rms = (sum_sq / n as f64).sqrt();
+    // rms 已经 [0,1] 归一化，保留 3 位小数。
+    let normalized = rms as f32;
+    (normalized * 1000.0).round() / 1000.0
+}
+
+/// 把字节片 Base64（标准表）编码 —— 自包含实现（避免新增 crate 依赖）。
+///
+/// **注**：若日后 desktop Cargo.toml 加入 `base64 = "0.22"`，可替换为
+/// `base64::engine::general_purpose::STANDARD.encode(slice)`。
+#[allow(dead_code)]
+fn base64_encode(slice: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(slice.len().div_ceil(3) * 4);
+    for chunk in slice.as_chunks::<3>().0 {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk[1] as u32;
+        let b2 = chunk[2] as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 0x3F) as usize] as char);
+        out.push(TABLE[((n >> 12) & 0x3F) as usize] as char);
+        out.push(TABLE[((n >> 6) & 0x3F) as usize] as char);
+        out.push(TABLE[(n & 0x3F) as usize] as char);
+    }
+    let rem = slice.len() % 3;
+    if rem == 1 {
+        let b0 = slice[slice.len() - 1] as u32;
+        let n = b0 << 16;
+        out.push(TABLE[((n >> 18) & 0x3F) as usize] as char);
+        out.push(TABLE[((n >> 12) & 0x3F) as usize] as char);
+        out.push('=');
+        out.push('=');
+    } else if rem == 2 {
+        let b0 = slice[slice.len() - 2] as u32;
+        let b1 = slice[slice.len() - 1] as u32;
+        let n = (b0 << 16) | (b1 << 8);
+        out.push(TABLE[((n >> 18) & 0x3F) as usize] as char);
+        out.push(TABLE[((n >> 12) & 0x3F) as usize] as char);
+        out.push(TABLE[((n >> 6) & 0x3F) as usize] as char);
+        out.push('=');
+    }
+    out
+}
+
+// --------------------------------------------------------------------------
+// WS 音频帧测试
+// --------------------------------------------------------------------------
+
+#[cfg(test)]
+mod audio_frame_tests {
+    use super::*;
+
+    /// 把 Base64（标准表）字符串解码回字节 —— 自包含实现（测试用）。
+    fn decode_b64(s: &str) -> Vec<u8> {
+        const REV: [u8; 256] = {
+            let mut rev = [255u8; 256];
+            let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut i = 0;
+            while i < 64 {
+                rev[table[i] as usize] = i as u8;
+                i += 1;
+            }
+            rev
+        };
+        let mut out = Vec::with_capacity(s.len() * 3 / 4);
+        let mut buf = [0u8; 4];
+        let mut n = 0usize;
+        for &b in s.as_bytes() {
+            if b == b'=' {
+                break;
+            }
+            let v = REV[b as usize];
+            if v == 255 {
+                continue; // 跳过非法/空白字符
+            }
+            buf[n] = v;
+            n += 1;
+            if n == 4 {
+                out.push(((buf[0] as u32) << 2 | (buf[1] as u32) >> 4) as u8);
+                out.push(((buf[1] as u32 & 0x0F) << 4 | (buf[2] as u32) >> 2) as u8);
+                out.push(((buf[2] as u32 & 0x03) << 6 | (buf[3] as u32)) as u8);
+                n = 0;
+            }
+        }
+        if n == 2 {
+            out.push(((buf[0] as u32) << 2 | (buf[1] as u32) >> 4) as u8);
+        } else if n == 3 {
+            out.push(((buf[0] as u32) << 2 | (buf[1] as u32) >> 4) as u8);
+            out.push(((buf[1] as u32 & 0x0F) << 4 | (buf[2] as u32) >> 2) as u8);
+        }
+        out
+    }
+
+    /// 每片字节数计算 helper。
+    fn slice_bytes_for_rate(sample_rate: u32) -> usize {
+        (sample_rate as usize * S16LE_BYTES_PER_SAMPLE * AUDIO_SLICE_MS as usize)
+            .div_ceil(1000)
+            .max(S16LE_BYTES_PER_SAMPLE)
+    }
+
+    /// i16 向量转为 s16le 字节。
+    fn i16_to_bytes(samples: &[i16]) -> Vec<u8> {
+        samples.iter().flat_map(|&s| s.to_le_bytes()).collect()
+    }
+
+    /// 空输入 → 空帧列表。
+    #[test]
+    fn empty_input_yields_empty() {
+        let frames = build_audio_frames(0, &[], 24000);
+        assert!(frames.is_empty(), "空 PCM 应产出 0 帧");
+    }
+
+    /// 零采样率 → 空帧列表（防除零）。
+    #[test]
+    fn zero_sample_rate_yields_empty() {
+        let frames = build_audio_frames(1, &[0u8; 16], 0);
+        assert!(frames.is_empty(), "零采样率应产出 0 帧");
+    }
+
+    /// 24 kHz 1 秒 s16le mono PCM → 50 帧（20 ms / 帧）。
+    #[test]
+    fn one_second_24khz_yields_50_frames() {
+        let sample_rate: u32 = 24000;
+        let one_sec = i16_to_bytes(&vec![0i16; sample_rate as usize]);
+
+        let frames = build_audio_frames(0, &one_sec, sample_rate);
+        assert_eq!(frames.len(), 50, "24kHz 1s 应切 50 帧（每帧 20ms）");
+    }
+
+    /// 首帧 start=true，末帧 end=true，中间帧 start/end 均 false。
+    #[test]
+    fn start_and_end_flags_on_boundary_frames() {
+        let sample_rate: u32 = 24000;
+        let one_sec = i16_to_bytes(&vec![0i16; sample_rate as usize]);
+        let frames = build_audio_frames(0, &one_sec, sample_rate);
+        assert!(!frames.is_empty());
+
+        let first: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
+        let last: serde_json::Value =
+            serde_json::from_str(&frames[frames.len() - 1]).expect("json");
+        assert_eq!(first["data"]["start"], true, "首帧 start 应为 true");
+        assert_eq!(last["data"]["end"], true, "末帧 end 应为 true");
+
+        if frames.len() > 2 {
+            let mid: serde_json::Value = serde_json::from_str(&frames[1]).expect("json");
+            assert_eq!(mid["data"]["start"], false, "中间帧 start 应为 false");
+            assert_eq!(mid["data"]["end"], false, "中间帧 end 应为 false");
+        }
+    }
+
+    /// volume ∈ [0, 1]，保留 3 位。
+    #[test]
+    fn volume_in_unit_range() {
+        let sample_rate: u32 = 24000;
+        // 填充 0.5 振幅正弦（i16 = 32767 * 0.5 ≈ 16383）。
+        let samples: Vec<i16> = (0..sample_rate as usize)
+            .map(|i| {
+                let phase = i as f32 / sample_rate as f32 * 2.0 * std::f32::consts::PI * 440.0;
+                (phase.sin() * 16383.0) as i16
+            })
+            .collect();
+        let pcm = i16_to_bytes(&samples);
+        let frames = build_audio_frames(0, &pcm, sample_rate);
+        for raw in &frames {
+            let v: serde_json::Value = serde_json::from_str(raw).expect("json");
+            let vol = v["data"]["volume"].as_f64().expect("volume f64");
+            assert!((0.0..=1.0).contains(&vol), "volume 超出 [0,1]: {vol}");
+        }
+    }
+
+    /// base64 可解码回原字节（round-trip）。
+    #[test]
+    fn base64_round_trips_original_bytes() {
+        let sample_rate: u32 = 24000;
+        let raw_samples: Vec<i16> = (0..1920).map(|i| (i as i16) * 10).collect();
+        let pcm = i16_to_bytes(&raw_samples);
+        let frames = build_audio_frames(0, &pcm, sample_rate);
+        assert!(!frames.is_empty());
+
+        let first: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
+        let b64 = first["data"]["audio"].as_str().expect("audio b64 str");
+        let decoded = decode_b64(b64);
+        let expected_len = pcm.len().min(slice_bytes_for_rate(sample_rate));
+        assert_eq!(decoded.len(), expected_len);
+        assert_eq!(&decoded[..], &pcm[..decoded.len()]);
+    }
+
+    /// 帧 schema 校验：type/audio/sample_rate/slice_ms/volume/start/end。
+    #[test]
+    fn frame_schema_shape() {
+        let sample_rate: u32 = 24000;
+        // 480 i16 样本 = 960 字节 = 1 片（24kHz 20ms）。
+        let pcm = i16_to_bytes(&vec![0i16; 480]);
+        let frames = build_audio_frames(42, &pcm, sample_rate);
+        assert_eq!(frames.len(), 1, "960 字节 = 1 片（24kHz 20ms）");
+        let v: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
+        assert_eq!(v["type"], "audio");
+        assert_eq!(v["data"]["epoch"], 42);
+        assert_eq!(v["data"]["sample_rate"], 24000);
+        assert_eq!(v["data"]["slice_ms"], 20);
+        assert_eq!(v["data"]["start"], true);
+        assert_eq!(v["data"]["end"], true);
+        assert!(v["data"]["volume"].as_f64().is_some());
+        assert!(v["data"]["audio"].as_str().is_some());
+    }
+
+    /// silent（全零）PCM → volume == 0.0。
+    #[test]
+    fn silent_pcm_zero_volume() {
+        let sample_rate: u32 = 24000;
+        let pcm = i16_to_bytes(&vec![0i16; 960]);
+        let frames = build_audio_frames(0, &pcm, sample_rate);
+        let v: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
+        assert_eq!(v["data"]["volume"], 0.0, "静音应 volume=0");
+    }
+
+    /// broadcaster.broadcast_audio_frames 在有订阅者时能收到音频帧。
+    #[test]
+    fn broadcast_audio_frames_delivers_to_subscriber() {
+        let bc = Broadcaster::new();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<String>(32);
+        bc.try_subscribe(tx).expect("subscribe");
+
+        let sample_rate: u32 = 24000;
+        // 480 i16 样本 = 960 字节 = 1 片（24kHz 20ms）。
+        let pcm = i16_to_bytes(&vec![100i16; 480]);
+        bc.broadcast_audio_frames(1, &pcm, sample_rate);
+
+        let received = rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .expect("收到音频帧");
+        let v: serde_json::Value = serde_json::from_str(&received).expect("json");
+        assert_eq!(v["type"], "audio");
+        assert_eq!(v["data"]["epoch"], 1);
+        assert_eq!(v["data"]["start"], true);
+        assert_eq!(v["data"]["end"], true);
+    }
+
+    /// 无订阅者时广播音频帧也是安全的 no-op。
+    #[test]
+    fn broadcast_audio_frames_no_subscribers_is_safe() {
+        let bc = Broadcaster::new();
+        let sample_rate: u32 = 24000;
+        let pcm = i16_to_bytes(&vec![0i16; 480]);
+        bc.broadcast_audio_frames(0, &pcm, sample_rate); // 不应 panic
+        assert_eq!(bc.subscriber_count(), 0);
+    }
+}
