@@ -31,14 +31,19 @@
 
 - [x] **E5-T2**（子代理 `ff3d69d5`，已返回+review 通过）：host 接线——Cargo.toml 加 external-input 依赖；main.rs 加 `AVAILABLE_MOD_FACTORIES` 静态注册（`#[expect(dead_code)]`，E5-T3 消费）；mod_registry 加 `say_source` 字段 + `set_say_source()` + `make_services` 接收 say。441 desktop 测试绿；本 3 文件 clippy 干净。⚠ 发现 E5-T1 遗留 `field_reassign_with_default` lint（workspace clippy 失败）→ 已派 E5-T1b 修复。
 - [x] **E5-T1b**（子代理 `a23a536e`，已返回+review 通过）：修 E5-T1 遗留 clippy lint——tests 改结构体字面量构造，去 `mut`。3 测试绿 + workspace clippy 干净 + fmt 干净。
-- [ ] **E5-T3**（进行中，子代理见下）：`POST /api/v1/external/chat` 端点（external_routes.rs 新文件 + dispatch 路由 + 未启用 404）。
+- [x] **E5-T3**（子代理 `0f6aee8d`，已返回+独立复核通过）：`external_routes.rs` 新文件（POST /api/v1/external/chat：loopback+Origin 同源+json 校验，405/415/403/400/503 全覆盖，≤2000 字符）+ mod.rs 两处接线。curl 冒烟 200/415/405；workspace 0 failed、fmt/clippy 干净（主代理独立复核一致）。
+- [x] **E5 验收**：commit `c0cd2416` + tag `node-e-e5`。
+- [x] **E3 验收**：commit `dae4bab0` + tag `node-e-e3`（E3-T1/T2/T3 返回并 review 后提交，前端 4 文件 + plan 文档）。
 - [ ] **E5-T3**（依赖 E5-T2）：新文件 `web_api/external_routes.rs`——`POST /api/v1/external/chat`（body `{"text": ...}` → `say()`），`dispatch.rs` 加路由，external-input 未启用时 404。验收：curl 验证 + 全测试绿。
 - [x] **E3-T2**（子代理 `0e198481`，已返回+review 通过）：app.js 抽屉逻辑（lazyLoadDrawer/setDrawer/toggleDrawer/closeDrawer/renderGroups）+ capability 驱动（基于 dto.rs 真实 AppInfo 字段，不猜测能力位）+ style.css `#chatHint`→`#chat-hint` 修复。node --check OK，452 行。
 - [x] **E3-T3**（子代理 `32699b70`，已返回+review 通过）：chat.js 全量引用审计——8 静态 id 全在、actions-card 动态挂载自包含、空引用均有 guard，**零改动**（499 行不变）。node --check 过。E3 前端三块齐。
 - [ ] **E3-T3**（依赖 E3-T2）：`web_api/chat.js` 适配新 DOM（对话面板在新布局下的选择器核对）。验收：自查 + 不破坏现有 WS/发送逻辑。
 - [ ] **E5 验收**（依赖 E5-T3）：主 Agent 复核全量门禁 → commit + tag `node-e-e5`。
 - [ ] **E3 验收**（依赖 E3-T3）：主 Agent 复核（curl 首页 200 + 结构自查）→ commit + tag `node-e-e3`。
-- [ ] **E6**（依赖 E5 API + E3 布局）：Mod 管理 UI（列表/状态/enable-disable/restart + schema 渲染）——届时再原子化拆分。
+- [ ] **E6**（T2 前端完成，T1b 后端进行中）：Mod 管理 UI。
+  - [x] **E6-T2**（子代理 `c6f0e120`，已返回+review 通过）：app.js `renderMods`/`modAction`/MOD_STATUS/MOD_ACTIONS + 抽屉 3 处接线；index.html `#grp-mods` 骨架（静态编译语义提示）。500 行 node --check 过；按契约先行（后端未就绪行内降级）。注意：E6-T1 首派（`cfb1ae69`）中途耗尽零落盘，已派 E6-T1b 接替。
+  - [ ] **E6-T1b**（子代理 `2da66d71`，进行中）：mods_routes.rs + ServerContext 挂 ModRegistry + main.rs 装配 + 前置路由（时间盒任务书）。
+  - [ ] E6 验收：端到端 curl（list/enable/disable/restart）+ 全量门禁 + commit + tag `node-e-e6`。
 - [ ] **E7**（依赖 E5 Mod 架构）：pet-desktop / director Mod（含 performance sequence 能力）——届时再原子化拆分。
 
 ## 最终验收（全部完成后）

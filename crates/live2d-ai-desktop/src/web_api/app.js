@@ -126,6 +126,52 @@ function renderGroups() {
   }
 }
 
+// ---- Mod 管理 ----
+const MOD_STATUS = {running:["运行中","ok"],disabled:["已禁用","warn"],failed:["失败","err"],starting:["启动中","warn"],stopping:["停止中","warn"]};
+const MOD_ACTIONS = {enable:"启用",disable:"禁用",restart:"重启"};
+async function renderMods() {
+  const list = $("modsList");
+  if (!list) return; list.innerHTML = "";
+  let mods, err = null;
+  try { mods = await api("GET", "/api/v1/mods"); } catch (e) { err = e; }
+  if (err) {
+    const m = err.status === 404 || err.network ? "Mod API 不可用（后端未就绪）"
+      : "加载失败：" + (err.error ? err.error.message : err.message);
+    list.innerHTML = '<span class="field-meta">' + m + '</span>';
+    return;
+  }
+  const arr = (mods && mods.mods) || [];
+  if (!arr.length) { list.innerHTML = '<span class="field-meta">（无 Mod）</span>'; return; }
+  list.innerHTML = arr.map((m) => {
+    const [sLabel, sCls] = MOD_STATUS[m.status] || ["未知", "dim"];
+    const bd = (a) => !m.enabled || a === "enable" ? "starting|running".includes(m.status) : a === "disable" ? m.status === "stopping" : "starting|stopping".includes(m.status);
+    return '<div class="row mods-row"><span class="mods-label">'
+      + m.name + " (" + m.id + ") v" + m.version + "</span>"
+      + '<span class="status ' + sCls + '">' + sLabel + "</span>"
+      + ["enable", "disable", "restart"].map((a) =>
+        '<button class="secondary" data-mod="' + m.id + '" data-action="' + a + '" '
+        + (bd(a) ? "" : "disabled") + ">" + MOD_ACTIONS[a] + "</button>").join("")
+      + "</div>";
+  }).join("");
+  list.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-action]");
+    if (b) modAction(b.dataset.mod, b.dataset.action);
+  });
+}
+async function modAction(modId, action) {
+  try {
+    const data = await api("POST", "/api/v1/mods/" + encodeURIComponent(modId) + "/" + action, {});
+    if (data && data.ok === false) {
+      toast("Mod 操作失败：" + (data.error ? data.error.message : "未知"), "err");
+    } else {
+      toast("Mod 已" + (MOD_ACTIONS[action] || action), "ok");
+    }
+    renderMods();
+  } catch (e) {
+    toast("Mod 操作失败：" + (e.error ? e.error.message : e.message), "err");
+  }
+}
+
 // 同步 LLM/TTS 顶栏徽章（status 拉取也用，节省一次 renderAll）
 function renderBadges() {
   const s = state.status;
@@ -404,6 +450,7 @@ function lazyLoadDrawer() {
   } else {
     renderGroups();
   }
+  renderMods();
   if (!state.settingsView) {
     api("GET", "/api/v1/settings").then((sv) => {
       state.settingsView = sv;
@@ -436,6 +483,7 @@ els.btnReloadLogs.addEventListener("click", refreshLogs);
 els.btnSettings.addEventListener("click", () => {
   if (!state.drawerLoaded) { state.drawerLoaded = true; lazyLoadDrawer(); }
   toggleDrawer();
+  if (state.drawerOpen && state.drawerLoaded) renderMods();
 });
 els.settingsOverlay.addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => {

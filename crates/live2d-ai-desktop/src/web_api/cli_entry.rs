@@ -25,6 +25,7 @@ use live2d_ai_runtime::{AppSettings, OpenAiClient};
 use tracing::warn;
 
 use crate::audio::AudioOutputFacade;
+use crate::mod_registry::ModRegistry;
 use crate::supervisor::{SupervisorConfig, SupervisorHandle, spawn_supervisor};
 use crate::web_api::ws;
 use crate::web_api::{ServerContext, start_server};
@@ -77,7 +78,18 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     // 1) 构造 ServerContext（内部自带空 Broadcaster；后续若装配 supervisor，
     //    会**替换**为 emit 闭包用的同一实例——保证 WS 客户端与 supervisor
     //    共享订阅者集合）。
-    let mut ctx = ServerContext::new(settings, config_path.clone(), dev_mode_override);
+    let mut ctx = ServerContext::new(settings, config_path.clone(), dev_mode_override)
+        // 1a) 装配 ModRegistry（节点 E5，2026-08-30）：用静态编译的
+        //     AVAILABLE_MOD_FACTORIES + manifest 配置；start_all() 启动 enabled Mod。
+        .with_mod_registry({
+            let mut reg = ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}));
+            reg.start_all();
+            println!(
+                "web: ModRegistry 已装配（注册 {} 个 Mod）",
+                crate::AVAILABLE_MOD_FACTORIES.len()
+            );
+            reg
+        });
 
     // 2) 装配 supervisor（仅当配置文件存在且可解析）。
     let supervisor_opt = if std::path::Path::new(&config_path).is_file() {

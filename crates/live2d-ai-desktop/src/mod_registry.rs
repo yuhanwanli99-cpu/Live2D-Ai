@@ -24,8 +24,6 @@
 //! 当前 `AVAILABLE_MOD_FACTORIES` 为空数组，故 `ModRegistry` 尚未被
 //! supervisor 装配。标 `#![allow(dead_code)]` 而不删除——E5/E7 接入后移除。
 
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -69,6 +67,7 @@ pub struct ModRegistry {
     /// 当前 dropped 事件计数（可观察）。
     dropped_events: Arc<AtomicU64>,
     /// 阻塞 supervisor 的慢 Mod 计数（观测值；v1 不阻塞）。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     blocking_mods: Arc<Mutex<Vec<&'static str>>>,
     next_sub_id: AtomicU64,
     /// 每个 Mod 的 subscription id（E4a 接口占位；v1 只登记不细粒度路由）。
@@ -212,6 +211,7 @@ impl ModRegistry {
     }
 
     /// 覆盖注入 say 通道（host 装配 supervisor 后调用；下次 enable/restart 生效）。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn set_say_source(&mut self, say: Arc<dyn Fn(String) -> bool + Send + Sync>) {
         self.say_source = Some(say);
     }
@@ -247,6 +247,7 @@ impl ModRegistry {
     }
 
     /// reload_config（更新 config + 重新 start）。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn reload_config(
         &mut self,
         id: &'static str,
@@ -268,26 +269,31 @@ impl ModRegistry {
     }
 
     /// 全部已注册 id。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn ids(&self) -> Vec<&'static str> {
         self.entries.keys().copied().collect()
     }
 
     /// 已注册的 settings spec（前端渲染）。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn settings_spec(&self, id: &'static str) -> Option<&ModSettingsSpec> {
         self.settings_specs.get(id)
     }
 
     /// 投递一个事件到 worker（有界；满则丢弃计数，不阻塞）。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn dispatch_event(&self, topic: ModEventTopic, payload: &str) -> bool {
         self.event_tx.try_send((topic, payload.to_string())).is_ok()
     }
 
     /// dropped 事件计数（观测值）。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn dropped_events(&self) -> u64 {
         self.dropped_events.load(Ordering::Relaxed)
     }
 
     /// 关闭全部 worker。
+    #[allow(dead_code)] // E5/E7 supervisor 接入后启用。
     pub fn shutdown(&mut self) {
         for e in self.entries.values_mut() {
             if let Some(mut rt) = e.runtime.take() {

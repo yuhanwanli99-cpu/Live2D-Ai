@@ -11,6 +11,7 @@ members = [
     "crates/live2d-ai-runtime",
     "crates/l2d-wasm-demo",
     "crates/live2d-ai-mod-system",
+    "crates/live2d-ai-mod-external-input",
     "xtask",
 ]
 

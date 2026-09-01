@@ -319,6 +319,9 @@ mod tests {
             broadcaster: crate::web_api::ws::Broadcaster::new(),
             security: sec,
             models: crate::web_api::models_routes::default_store(),
+            mod_registry: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
+            )),
         }
     }
 }

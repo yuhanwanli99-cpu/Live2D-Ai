@@ -61,6 +61,9 @@ pub mod log_routes;
 /// + 路径安全 + 原子写回。子模块化（`models_routes::handlers` 等），
 /// 本文件仅声明入口。
 pub mod models_routes;
+/// Mod 管理 HTTP API（节点 E5 补充，2026-08-30）：
+/// `GET /api/v1/mods` 与 `POST /api/v1/mods/{id}/{action}`。
+pub mod mods_routes;
 /// 通用 JSON 错误响应 helper（D-P0B 拆分承载，2026-08-29）。
 pub(crate) mod responses;
 /// 本地 Web 安全边界（D-P0B，2026-08-29）。
@@ -314,6 +317,11 @@ pub struct ServerContext {
     /// 启动时 `ServerContext::new` 调用 [`models_routes::default_store`]
     /// 从磁盘加载（缺失 = 空 registry，损坏 = stderr 警告 + 空 registry）。
     pub models: crate::web_api::models_routes::ModelStore,
+    /// Mod registry 共享句柄（节点 E5，2026-08-30）。
+    /// 启动时 `cli_entry` 装配真实 `ModRegistry`（静态编译的
+    /// `AVAILABLE_MOD_FACTORIES` + manifest）；其它路径（测试 / 缺省）
+    /// 用空 registry 占位。handler 经 `lock()` 调用 enable/disable/restart/list。
+    pub mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
 }
 
 impl ServerContext {
@@ -334,6 +342,9 @@ impl ServerContext {
             broadcaster: crate::web_api::ws::Broadcaster::new(),
             security: crate::web_api::security::SecurityContext::new(0, false),
             models: crate::web_api::models_routes::default_store(),
+            mod_registry: Arc::new(std::sync::Mutex::new(
+                crate::mod_registry::ModRegistry::new(&[], &serde_json::json!({})),
+            )),
         }
     }
 
@@ -349,6 +360,13 @@ impl ServerContext {
     #[allow(dead_code)] // 由 cli_entry::run_web_mode 装配时调用。
     pub fn with_security(mut self, sec: crate::web_api::security::SecurityContext) -> Self {
         self.security = sec;
+        self
+    }
+
+    /// 注入 Mod registry（链式 builder）。`cli_entry` 在 web 启动时调用，
+    /// 传入静态编译的 `AVAILABLE_MOD_FACTORIES` 装配后的 `ModRegistry`。
+    pub fn with_mod_registry(mut self, registry: crate::mod_registry::ModRegistry) -> Self {
+        self.mod_registry = Arc::new(std::sync::Mutex::new(registry));
         self
     }
 
@@ -487,6 +505,21 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             let _ = request.respond(resp);
             continue;
         }
+        // 节点 E5-T3（2026-08-30）：Mod 管理路由（GET /api/v1/mods +
+        // POST /api/v1/mods/{id}/{action}）。前置于 dispatch：自身完成
+        // loopback + json 校验（GET 不校验 Origin，POST 复用 security 判定）。
+        if let Some(resp) = crate::web_api::mods_routes::handle_mods_route(
+            &ctx,
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+        ) {
+            let _ = request.respond(resp);
+            continue;
+        }
+
         let response = dispatch_with_security(
             &ctx,
             &method,
