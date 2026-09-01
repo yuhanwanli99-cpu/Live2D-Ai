@@ -153,10 +153,10 @@ async function renderMods() {
         + (bd(a) ? "" : "disabled") + ">" + MOD_ACTIONS[a] + "</button>").join("")
       + "</div>";
   }).join("");
-  list.addEventListener("click", (e) => {
+  list.onclick = (e) => {
     const b = e.target.closest("button[data-action]");
     if (b) modAction(b.dataset.mod, b.dataset.action);
-  });
+  };
 }
 async function modAction(modId, action) {
   try {
@@ -192,21 +192,16 @@ function renderBadges() {
   if (s.config_path) els.cfgPath.textContent = s.config_path;
   els.epoch.textContent = s.current_epoch;
   els.devModeStatus.textContent = s.dev_mode ? "true" : "false";
-  els.devModeStatus.className = s.dev_mode ? "ok" : "";
+  els.devModeStatus.className = s.dev_mode ? "status ok" : "status";
 }
 function renderAll() {
   if (state.capabilities) els.ver.textContent = "v" + state.capabilities.version;
   if (state.status) {
     const s = state.status;
-    els.cfgPath.textContent = s.config_path || "—";
     els.startedAt.textContent = s.started_at || "—";
-    els.uptime.textContent = s.uptime_s + "s";
     els.activeModel.textContent = s.active_model_id || "—";
     els.audio.textContent = s.audio
       ? (s.audio.backend + (s.audio.available ? " ✓" : " (unavailable)")) : "—";
-    els.devModeStatus.textContent = s.dev_mode ? "true" : "false";
-    els.devModeStatus.className = s.dev_mode ? "ok" : "";
-    els.epoch.textContent = s.current_epoch;
     els.llmBase.textContent = s.llm.base_url || "—";
     els.llmHasKey.textContent = s.llm.has_api_key ? "true" : "false";
     els.llmHasKey.className = s.llm.has_api_key ? "ok" : "err";
