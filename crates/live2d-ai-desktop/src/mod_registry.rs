@@ -75,6 +75,9 @@ pub struct ModRegistry {
     subscriptions: BTreeMap<&'static str, Vec<SubscriptionId>>,
     /// 已注册的 settings schema（Mod 管理 UI / 前端消费）。
     settings_specs: BTreeMap<&'static str, ModSettingsSpec>,
+    /// supervisor say 注入源（host 装配 supervisor 后通过 set_say_source 设置；
+    /// 未设置时 make_services 用默认 no-op）。
+    say_source: Option<Arc<dyn Fn(String) -> bool + Send + Sync>>,
 }
 
 impl ModRegistry {
@@ -122,6 +125,7 @@ impl ModRegistry {
             next_sub_id: AtomicU64::new(1),
             subscriptions: BTreeMap::new(),
             settings_specs: BTreeMap::new(),
+            say_source: None,
         }
     }
 
@@ -148,7 +152,11 @@ impl ModRegistry {
             .get(id)
             .map(|r| r.config.clone())
             .unwrap_or_default();
-        match factory.create(self.make_services(id), config) {
+        let say = self
+            .say_source
+            .clone()
+            .unwrap_or_else(|| Arc::new(|_text: String| true));
+        match factory.create(self.make_services(id, say), config) {
             Ok(mut runtime) => {
                 let mut registrar = HostRegistrar {
                     mod_id: id,
@@ -186,17 +194,26 @@ impl ModRegistry {
     }
 
     /// 构造 ModServices（映射到 host 能力；v1 用闭包桥接，E5/E7 接 supervisor）。
-    fn make_services(&self, _mod_id: &'static str) -> ModServices {
+    fn make_services(
+        &self,
+        _mod_id: &'static str,
+        say: Arc<dyn Fn(String) -> bool + Send + Sync>,
+    ) -> ModServices {
         // v1：ModServices 用 no-op 闭包占位；E5/E7 接入 supervisor 的 say/action_tx。
         // 动作固定优先级：由 host 把 ActionRequest 映射（此处不做，E5 接真正通道）。
         ModServices::new(
             ModActionSender::new(|_| true),
-            SaySender::new(|_| true),
+            SaySender::new(move |text| say(text)),
             ModEventSender::new(|_topic, _payload| true),
             ModLogger::new(|_lvl, msg| {
                 tracing::info!(target: "mod", "{}", msg);
             }),
         )
+    }
+
+    /// 覆盖注入 say 通道（host 装配 supervisor 后调用；下次 enable/restart 生效）。
+    pub fn set_say_source(&mut self, say: Arc<dyn Fn(String) -> bool + Send + Sync>) {
+        self.say_source = Some(say);
     }
 
     /// enable 一个 Mod（已禁用时创建实例 + start）。

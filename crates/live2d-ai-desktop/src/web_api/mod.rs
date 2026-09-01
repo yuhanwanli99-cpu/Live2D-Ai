@@ -52,6 +52,9 @@ pub mod commands_routes;
 /// 动态装配 supervisor）。拆分承载：保持 `mod.rs` ≤ 500。
 pub mod dispatch;
 pub mod dto;
+/// 外部文本注入端点（节点 E5-T3）：`POST /api/v1/external/chat → say →
+/// 主链路`。静态前置路由（见 `run_request_loop` E5-T3 判定点）。
+pub mod external_routes;
 pub mod index_html;
 pub mod log_routes;
 /// 模型资产路由（D3，2026-08-28）：`/api/v1/models*` 端点 + registry
@@ -470,6 +473,20 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         let headers = request.headers().to_vec();
         let (origin, content_type) = crate::web_api::security::extract_origin_and_ct(&headers);
         let body_str = read_body_from_request(&mut request);
+        // 节点 E5-T3：外部文本注入端点（POST /api/v1/external/chat → say →
+        // 主链路）。前置于 dispatch_with_security，自身完成 loopback + json
+        // 校验（详见 external_routes 头注）。
+        if let Some(resp) = crate::web_api::external_routes::handle_external_chat(
+            &ctx,
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+        ) {
+            let _ = request.respond(resp);
+            continue;
+        }
         let response = dispatch_with_security(
             &ctx,
             &method,

@@ -49,6 +49,12 @@ mod logging;
 mod mod_registry;
 mod model_smoke;
 mod platform;
+
+/// 已编译进本二进制的 Mod 工厂（静态注册；启用与否由 manifest `[mods.<id>]` 决定）。
+#[expect(dead_code)]
+static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] =
+    &[&live2d_ai_mod_external_input::FACTORY];
+
 mod repl;
 mod supervisor;
 mod tool_adapter;

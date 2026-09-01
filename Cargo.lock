@@ -2239,6 +2239,7 @@ dependencies = [
  "ksni",
  "l2d",
  "live2d-ai-core",
+ "live2d-ai-mod-external-input",
  "live2d-ai-mod-system",
  "live2d-ai-runtime",
  "once_cell",
@@ -2259,6 +2260,15 @@ dependencies = [
  "url",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "live2d-ai-mod-external-input"
+version = "0.1.0"
+dependencies = [
+ "live2d-ai-mod-system",
+ "log",
+ "serde_json",
 ]
 
 [[package]]
