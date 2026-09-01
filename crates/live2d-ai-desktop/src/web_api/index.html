@@ -64,7 +64,20 @@
 
   <section id="grp-appearance" class="settings-group">
     <h2>外观与舞台</h2>
-    <p class="field-meta">（开发中）</p>
+    <section class="card">
+      <h2>舞台配置（本地预览）</h2>
+      <label>模型缩放 <span class="field-meta">0.5–1.5（步 0.05）</span></label>
+      <input type="range" id="appScale" min="0.5" max="1.5" step="0.05" value="1.0">
+      <label class="checkbox">
+        <input type="checkbox" id="appBgDark" checked>
+        暗色背景
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" id="appLipSyncToggle" checked>
+        口型联动
+      </label>
+      <p class="field-meta">以上仅本地预览；不写入后端。</p>
+    </section>
   </section>
 
   <section id="grp-ai" class="settings-group">
@@ -130,12 +143,21 @@
 
   <section id="grp-actions" class="settings-group">
     <h2>动作与互动</h2>
-    <p class="field-meta">（开发中）</p>
+    <p class="field-meta">动作需 Live2D 模型 + director 编排 Mod 配合（P1）</p>
+    <section class="card">
+      <h2>基础动作</h2>
+      <div id="actionsList" class="actions-list"></div>
+    </section>
   </section>
 
   <section id="grp-models" class="settings-group">
     <h2>模型管理</h2>
-    <p class="field-meta">（开发中）</p>
+    <div class="row buttons">
+      <button class="secondary" id="btnRefreshModels">刷新</button>
+      <span class="status" id="modelsStatus">就绪</span>
+    </div>
+    <div id="modelsList" class="models-list"></div>
+    <p class="field-meta">模型资产本地持有（assets/models/…）未导入时显示提示。</p>
   </section>
 
   <section id="grp-system" class="settings-group">

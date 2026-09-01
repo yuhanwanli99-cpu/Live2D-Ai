@@ -1,16 +1,13 @@
 "use strict";
-// Live2D-Ai 配置面板前端（W8 任务）。
-// 数据源：同源 /api/v1/* 端点（capabilities / status / settings / logs / test）。
-// 密钥语义：api_key_env 字段只承载「环境变量名」（不接触密钥本身）。
+// Live2D-Ai 配置面板前端（W8 任务）。数据源：同源 /api/v1/* 端点。
 
 const state = {
-  capabilities: null,
-  status: null,
-  settingsView: null,
-  llmKeyTouched: false,
-  ttsKeyTouched: false,
-  drawerOpen: false,
-  drawerLoaded: false,
+  capabilities: null, status: null, settingsView: null,
+  llmKeyTouched: false, ttsKeyTouched: false,
+  drawerOpen: false, drawerLoaded: false,
+  actionStrengths: {}, // 动作强度缓存（actionId -> 1..3，默认 2）
+  appearance: { scale: 1.0, dark: true, lipSync: true, }, // 外观与舞台（纯本地）
+  models: null, modelsError: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +31,11 @@ const els = {
   btnRefresh: $("btnRefresh"), toast: $("toast"),
   btnSettings: $("btnSettings"), settingsDrawer: $("settings-drawer"),
   settingsOverlay: $("settings-overlay"), grpLogs: $("grp-logs"),
+  actionsList: $("actionsList"),
+  appScale: $("appScale"), appBgDark: $("appBgDark"),
+  appLipSyncToggle: $("appLipSyncToggle"), live2dFrame: $("live2d-frame"),
+  modelsList: $("modelsList"), btnRefreshModels: $("btnRefreshModels"),
+  modelsStatus: $("modelsStatus"),
 };
 
 const STATUS_POLL_MS = 5000;
@@ -48,7 +50,6 @@ function toast(msg, kind) {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { els.toast.style.display = "none"; }, 3500);
 }
-
 // ---- HTTP ----
 async function api(method, path, body) {
   const opts = { method, headers: {} };
@@ -78,8 +79,6 @@ function setConn(kind, label) {
   els.dot.className = "dot " + kind;
   els.conn.textContent = label;
 }
-
-// ---- 加载 ----
 async function loadAll() {
   setConn("loading", "加载中…");
   try {
@@ -99,13 +98,10 @@ async function loadAll() {
   }
 }
 
-// ---- capability 驱动：8 分组可见性 / 表单禁用 ----
-// capabilities 端点字段集合（参考 dto::AppInfo 序列化）：
-//   app/version/schema_version/actions/action_sources/strength_levels/
-//   model_upload_supported/script_invoke_supported/runtime_ws/state_ws/ws_protocol_version
-// 其中 **不**包含 llm/tts/character 的细分能力位。按契约「找不到对应能力映射就保持现状」：
-// grp-appearance / grp-actions / grp-models / grp-mods 固定占位「（开发中）」；
-// grp-ai / grp-character / grp-system 表单字段原样保留可编辑（能力位缺失不 disable）。
+// ---- capability 驱动：分组可见性 ----
+// capabilities 端点字段：app/version/schema_version/actions/action_sources/
+//   strength_levels/model_upload_supported/script_invoke_supported/runtime_ws/state_ws/
+//   ws_protocol_version（参考 dto::AppInfo 序列化）。
 function renderGroups() {
   const cap = state.capabilities;
   if (!cap) return;
@@ -124,9 +120,132 @@ function renderGroups() {
       els.logsStatus.className = "status warn";
     }
   }
+  // 动作与互动：按能力驱动渲染（actions 为空则用内置 6 个）。
+  renderActions();
 }
 
-// ---- Mod 管理 ----
+// ---- 动作与互动 ----
+const BUILTIN_ACTIONS = [
+  ["点头","live2d_perform_action_nod"],["摇头","live2d_perform_action_shake_no"],
+  ["歪头","live2d_perform_action_tilt"],["环视","live2d_perform_action_look_around"],
+  ["倾听","live2d_perform_action_listen"],["惊讶","live2d_perform_action_surprise"],
+];
+function resolveActions() {
+  const cap = state.capabilities;
+  const names = cap && cap.actions && cap.actions.length ? cap.actions : null;
+  if (!names) return BUILTIN_ACTIONS.map((a) => a[0]);
+  return names.map((n) => {
+    const hit = BUILTIN_ACTIONS.find((a) => a[0] === n || a[1].endsWith(n));
+    return hit ? hit[0] : n;
+  });
+}
+function strengthOf(name) {
+  const v = state.actionStrengths[name];
+  return v >= 1 && v <= 3 ? v : 2;
+}
+function renderActions() {
+  const list = els.actionsList;
+  if (!list) return;
+  const names = resolveActions();
+  list.innerHTML = names.map((name) => {
+    const cmdId = (BUILTIN_ACTIONS.find((a) => a[0] === name) || ["", ""])[1];
+    return '<div class="row"><span style="flex:1">' + name + '</span>'
+      + '<label class="field-meta" style="min-width:7ch;text-align:right">强度：<input type="number" min="1" max="3" value="' + strengthOf(name) + '" data-action="' + name + '" style="width:3ch"></label>'
+      + '<button class="secondary" data-try="' + name + '" data-cmd="' + cmdId + '">试演</button></div>';
+  }).join("");
+  list.oninput = (e) => {
+    const inp = e.target.closest('input[data-action]');
+    if (!inp) return;
+    let v = parseInt(inp.value, 10);
+    if (!v || v < 1) v = 1; if (v > 3) v = 3;
+    inp.value = String(v); state.actionStrengths[inp.dataset.action] = v;
+    postStageConfig();
+  };
+  list.onclick = (e) => {
+    const b = e.target.closest("button[data-try]");
+    if (!b) return;
+    invokeAction(b.dataset.try, b.dataset.cmd);
+  };
+}
+async function invokeAction(name, cmdId) {
+  const strength = strengthOf(name);
+  try {
+    await api("POST", "/api/v1/commands/" + encodeURIComponent(cmdId) + "/invoke", { strength });
+    toast("试演 " + name + "：已发送（strength=" + strength + "）", "ok");
+  } catch (e) {
+    toast("试演 " + name + " 失败：" + (e.error ? e.error.code + "：" + e.error.message : e.message), "err");
+  }
+}
+// ---- 外观与舞台 ----
+function postStageConfig() {
+  const frame = els.live2dFrame;
+  if (!frame || !frame.contentWindow) return;
+  frame.contentWindow.postMessage({ type: "stage-config", scale: state.appearance.scale, dark: state.appearance.dark, lipSync: state.appearance.lipSync }, "*");
+}
+function bindAppearance() {
+  if (!els.appScale) return;
+  const clamp = (v) => Math.max(0.5, Math.min(1.5, v));
+  const setLs = (k, v) => localStorage.setItem("dsh.app." + k, String(v));
+  const getLs = (k) => localStorage.getItem("dsh.app." + k);
+  const ls = getLs("scale");
+  if (ls !== null) { state.appearance.scale = clamp(parseFloat(ls) || 1.0); els.appScale.value = state.appearance.scale.toFixed(2); }
+  const ld = getLs("dark");
+  if (ld !== null) { state.appearance.dark = ld === "true"; els.appBgDark.checked = state.appearance.dark; }
+  const ll = getLs("lipSync");
+  if (ll !== null) { state.appearance.lipSync = ll === "true"; els.appLipSyncToggle.checked = state.appearance.lipSync; }
+  els.appScale.addEventListener("input", () => {
+    let v = clamp(parseFloat(els.appScale.value) || 1.0);
+    els.appScale.value = v.toFixed(2); state.appearance.scale = v; setLs("scale", v); postStageConfig();
+  });
+  if (els.appBgDark) els.appBgDark.addEventListener("change", () => {
+    state.appearance.dark = els.appBgDark.checked; setLs("dark", state.appearance.dark); postStageConfig();
+  });
+  if (els.appLipSyncToggle) els.appLipSyncToggle.addEventListener("change", () => {
+    state.appearance.lipSync = els.appLipSyncToggle.checked; setLs("lipSync", state.appearance.lipSync); postStageConfig();
+  });
+}
+// ---- 模型管理 ----
+async function loadModels() {
+  const st = els.modelsStatus;
+  if (st) { st.textContent = "加载中…"; st.className = "status"; }
+  try {
+    const data = await api("GET", "/api/v1/models");
+    state.models = data; state.modelsError = null;
+    if (st) { st.textContent = "共 " + (data.models || []).length + " 个"; st.className = "status ok"; }
+  } catch (e) {
+    state.models = null; state.modelsError = e;
+    if (st) { st.textContent = "加载失败：" + (e.error ? e.error.code + "：" + e.error.message : e.message); st.className = "status err"; }
+  }
+  renderModels();
+}
+function renderModels() {
+  const list = els.modelsList;
+  if (!list) return;
+  const models = (state.models && state.models.models) || [];
+  if (state.modelsError || !models.length) {
+    list.innerHTML = '<span class="field-meta">' + (state.modelsError ? "加载失败 / 暂无模型" : "暂无模型（本地 assets/models/bai 未导入时显示此提示）") + '</span>';
+    return;
+  }
+  list.innerHTML = models.map((m) =>
+    '<div class="row"><span style="flex:1">' + m.id + ' / ' + (m.display_name || m.id) + '</span>'
+    + (m.active ? '<span class="status ok">当前</span>' : '<span class="status">闲置</span>')
+    + '<button class="secondary" data-activate="' + m.id + '">设为当前</button></div>'
+  ).join("");
+  list.onclick = (e) => {
+    const b = e.target.closest("button[data-activate]");
+    if (!b) return;
+    activateModel(b.dataset.activate);
+  };
+}
+async function activateModel(id) {
+  try {
+    await api("POST", "/api/v1/models/" + encodeURIComponent(id) + "/activate", {});
+    toast("已设为当前：" + id, "ok");
+  } catch (e) {
+    toast("激活失败：" + (e.error ? e.error.code + "：" + e.error.message : e.message), "err");
+  }
+  await loadModels();
+}
 const MOD_STATUS = {running:["运行中","ok"],disabled:["已禁用","warn"],failed:["失败","err"],starting:["启动中","warn"],stopping:["停止中","warn"]};
 const MOD_ACTIONS = {enable:"启用",disable:"禁用",restart:"重启"};
 async function renderMods() {
@@ -172,7 +291,7 @@ async function modAction(modId, action) {
   }
 }
 
-// 同步 LLM/TTS 顶栏徽章（status 拉取也用，节省一次 renderAll）
+// 同步 LLM/TTS 顶栏徽章（status 拉取也复用，节省一次 renderAll）。
 function renderBadges() {
   const s = state.status;
   if (!s) return;
@@ -234,9 +353,8 @@ function renderAll() {
     }
   }
   renderGroups();
+  if (state.models) renderModels();
 }
-
-// ---- 保存 ----
 function buildPatch() {
   const sv = state.settingsView || { llm: {}, tts: {}, persona: {} };
   const patch = {};
@@ -280,15 +398,8 @@ function buildPatch() {
   return patch;
 }
 
-// D-P0C（2026-08-29）：apply_status 文案映射。
-// **前端字符串锚点**：后端 [`ApplyStatus`] 序列化是 snake_case
-//（"applied" / "restart_required" / "queued" / "no_supervisor"）；
-// 改动需同步本表与 `dto.rs::ApplyStatus`。
-//
-// 三档语义：
-// - applied：动态装配 / 热重载已生效 → 可立即对话。
-// - restart_required / queued：需重启/稍后生效 → 提示但不报红。
-// - no_supervisor：纯控制平面模式（dev-only）→ 提示「不装对话引擎」。
+// D-P0C（2026-08-29）：apply_status 文案映射。后端 [`ApplyStatus`] 序列化是 snake_case
+//（"applied" / "restart_required" / "queued" / "no_supervisor"）；改动需同步本表与 `dto.rs::ApplyStatus`。
 const APPLY_STATUS_TEXT = {
   applied: { toast: "已保存并热重载", status: "已保存于 " },
   restart_required: { toast: "已保存，需重启生效", status: "已保存（需重启）" },
@@ -297,7 +408,7 @@ const APPLY_STATUS_TEXT = {
 };
 
 function applyStatusText(applyStatus) {
-  // 容错：未知状态 = 当作 no_supervisor 提示，不让前端崩。
+  // 容错：未知状态 = 当作 no_supervisor 提示。
   return APPLY_STATUS_TEXT[applyStatus] || APPLY_STATUS_TEXT.no_supervisor;
 }
 
@@ -310,19 +421,15 @@ async function save() {
     state.settingsView = resp.settings;
     state.llmKeyTouched = false;
     state.ttsKeyTouched = false;
-    // D-P0C：按 `apply_status` 字段显示不同文案（避免「已热重载」与
-    // 「实际 503」错位——旧版无 apply_status 时退回旧文案）。
+    // D-P0C：按 `apply_status` 显示不同文案；applied 时刷新让对话区可用于。
     const applyStatus = resp.apply_status || "no_supervisor";
     const text = applyStatusText(applyStatus);
     toast(text.toast, applyStatus === "applied" ? "ok" : "warn");
-    els.saveStatus.textContent =
-      text.status + new Date().toLocaleTimeString();
-    // apply_status=applied 时，刷新 status 让对话区立即可用（不一定
-    // 要等下一次 poll）；其他状态不强拉——避免误导。
+    els.saveStatus.textContent = text.status + new Date().toLocaleTimeString();
     if (applyStatus === "applied") {
       await loadAll();
     } else {
-      // 至少刷新 settings 视图（不刷新 status；supervisor 槽位空。
+      // 至少刷新 settings 视图（不刷新 status；supervisor 槽位空）。
       await api("GET", "/api/v1/settings").then((sv) => {
         state.settingsView = sv;
       }).catch(() => {});
@@ -347,7 +454,7 @@ async function clearKeyBinding() {
   if (!confirm("确认清除 LLM 与 TTS 的 api_key_env 绑定？此操作立即写盘。")) return;
   els.saveStatus.textContent = "清除中…";
   try {
-    // 段级 clear_api_key：每段独立，避免误伤（与 v0 顶层标志的差异）。
+    // 段级 clear_api_key：每段独立，避免误伤。
     const patch = {
       llm: { api_key_env: null, clear_api_key: true },
       tts: { api_key_env: null, clear_api_key: true },
@@ -391,8 +498,6 @@ async function testEndpoint(btn, resultEl, path) {
     btn.disabled = false;
   }
 }
-
-// ---- 日志 ----
 let logsTimer = null;
 async function refreshLogs() {
   if (!state.settingsView || !state.settingsView.dev_mode) {
@@ -432,10 +537,6 @@ function startLogsPoll() {
     if (state.settingsView && state.settingsView.dev_mode) refreshLogs();
   }, LOGS_POLL_MS);
 }
-
-// ---- 抽屉逻辑 ----
-// 打开抽屉时才触发一次懒加载：pull capabilities + settings，渲染分组。
-// 已由 loadAll() 拉取过则直接渲染；否则补拉。
 function lazyLoadDrawer() {
   if (!state.capabilities) {
     api("GET", "/api/v1/app/capabilities").then((cap) => {
@@ -446,6 +547,7 @@ function lazyLoadDrawer() {
     renderGroups();
   }
   renderMods();
+  loadModels();
   if (!state.settingsView) {
     api("GET", "/api/v1/settings").then((sv) => {
       state.settingsView = sv;
@@ -453,7 +555,6 @@ function lazyLoadDrawer() {
     }).catch(() => {});
   }
 }
-
 function setDrawer(open) {
   state.drawerOpen = open;
   els.settingsDrawer.hidden = !open;
@@ -473,6 +574,10 @@ els.btnTestLlm.addEventListener("click", () => testEndpoint(els.btnTestLlm, els.
 els.btnTestTts.addEventListener("click", () => testEndpoint(els.btnTestTts, els.ttsTestResult, "/api/v1/settings/test/tts"));
 els.btnRefresh.addEventListener("click", loadAll);
 els.btnReloadLogs.addEventListener("click", refreshLogs);
+// 外观与舖控件绑定（本地状态 + postMessage）。
+bindAppearance();
+// 模型管理按钮绑定。
+if (els.btnRefreshModels) els.btnRefreshModels.addEventListener("click", loadModels);
 
 // 抽屉开关事件
 els.btnSettings.addEventListener("click", () => {
