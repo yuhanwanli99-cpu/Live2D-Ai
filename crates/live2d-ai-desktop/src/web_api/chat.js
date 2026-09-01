@@ -144,6 +144,7 @@
   async function sendChat() {
     const text = (chatEls.input.value || "").trim();
     if (!text) return;
+    const ctx0 = ensureAudioCtx(); if (ctx0) { try { ctx0.resume().catch(() => {}); } catch (_) {} }
     if (chatState.streaming) {
       setHint("生成中…请先停止当前轮", "warn");
       return;
@@ -214,6 +215,101 @@
     chatEls.wsBadge.className = "status " + (kind || "");
   }
 
+  // ---- WS 音频帧播放队列（D5-W2 / F6-T2）：s16le mono 20ms 帧 → Float32 → AudioBuffer → 链式衔接；epoch 打断；volume 驱口型。
+  const audioPlayer = { ctx: null, nextStart: 0, queue: [], active: [], epoch: null, frameCount: 0 };
+
+  function ensureAudioCtx() {
+    if (audioPlayer.ctx) return audioPlayer.ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { console.warn("AudioContext 不可用，音频播放已停用"); return null; }
+    try { audioPlayer.ctx = new AC(); } catch (e) { console.warn("AudioContext 创建失败：" + e); return null; }
+    if (audioPlayer.ctx.state === "suspended") { try { audioPlayer.ctx.resume().catch(() => {}); } catch (e) { console.warn("AudioContext resume 失败：" + e); } }
+    return audioPlayer.ctx;
+  }
+
+  // 用户首次交互 → 释放 autoplay 限制（点击发送/键盘/触摸均算手势）。
+  function onFirstInteraction() {
+    const ctx = ensureAudioCtx();
+    if (ctx) { try { ctx.resume().catch(() => {}); } catch (_) {} }
+    document.removeEventListener("click", onFirstInteraction);
+    document.removeEventListener("keydown", onFirstInteraction);
+    document.removeEventListener("touchstart", onFirstInteraction);
+  }
+  document.addEventListener("click", onFirstInteraction);
+  document.addEventListener("keydown", onFirstInteraction);
+  document.addEventListener("touchstart", onFirstInteraction);
+
+  function interruptAudio() {
+    while (audioPlayer.active.length) { const s = audioPlayer.active.pop(); try { s.stop(); } catch (_) {} }
+    audioPlayer.queue = []; audioPlayer.active = []; audioPlayer.nextStart = 0; audioPlayer.frameCount = 0;
+  }
+
+  function b64ToFloat32(b64) {
+    const bin = atob(b64); const n = bin.length >> 1; const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const lo = bin.charCodeAt(i * 2); const hi = bin.charCodeAt(i * 2 + 1);
+      let s = (lo | (hi << 8)) | 0; s = (s << 16) >> 16; out[i] = s / 32768;  // LE s16le → 归一化 float32
+    }
+    return out;
+  }
+
+  function decodeAudioFrame(payload) {
+    const f32 = b64ToFloat32(payload.audio);
+    const sr = payload.sample_rate || 24000;
+    const buf = audioPlayer.ctx.createBuffer(1, f32.length, sr);
+    buf.getChannelData(0).set(f32);
+    return buf;
+  }
+
+  // 单源链式衔接：等前一个 source onended → 排下一下，nextStartTime 保证 20ms 片连续。
+  function scheduleAudio() {
+    const ctx = audioPlayer.ctx;
+    if (!ctx || audioPlayer.queue.length === 0) { if (!ctx) audioPlayer.nextStart = 0; return; }
+    if (audioPlayer.active.length > 0) return;            // 等待 onended 驱动下帧
+    const item = audioPlayer.queue[0];
+    const when = Math.max(ctx.currentTime, audioPlayer.nextStart || ctx.currentTime);
+    const src = ctx.createBufferSource();
+    src.buffer = item.buffer; src.connect(ctx.destination);
+    audioPlayer.active.push(src);
+    src.onended = function () {
+      audioPlayer.active = audioPlayer.active.filter(function (s) { return s !== src; });
+      if (audioPlayer.queue[0] === item) audioPlayer.queue.shift();
+      if (item.end) { audioPlayer.nextStart = 0; }        // end 帧 → 重置基准（下一句从头排）
+      else { audioPlayer.nextStart = when + item.buffer.duration; }
+      if (audioPlayer.queue.length === 0) audioPlayer.nextStart = 0;
+      scheduleAudio();
+    };
+    src.start(when);
+    audioPlayer.nextStart = when + item.buffer.duration;
+  }
+
+  function pushAudioVolume(vol) {
+    window.L2D_AUDIO_VOLUME = vol;                        // 全局可读（wasm 渲染端轮询消费）
+    try { const f = document.getElementById("live2d-frame"); if (f && f.contentWindow) f.contentWindow.postMessage({ type: "audio-volume", value: vol }, "*"); } catch (_) {}
+  }
+
+  function onAudioFrame(p) {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const epoch = p.epoch;
+    // epoch 打断：start 且 epoch 变化 → 清空；旧 epoch 帧丢弃。
+    if (p.start) {
+      if (audioPlayer.epoch == null || audioPlayer.epoch !== epoch) {
+        interruptAudio(); audioPlayer.epoch = epoch; audioPlayer.frameCount = 0;
+        setChatStatus("播放中", "ok"); setHint("音频流开始 (epoch " + (epoch == null ? "?" : epoch) + ")");
+      }
+    } else if (audioPlayer.epoch == null || audioPlayer.epoch !== epoch) {
+      return;                                             // 旧 epoch 帧丢弃
+    }
+    audioPlayer.frameCount++;
+    let buf;
+    try { buf = decodeAudioFrame(p); } catch (e) { console.warn("音频帧解码失败：" + e); return; }
+    audioPlayer.queue.push({ buffer: buf, end: !!p.end });
+    pushAudioVolume(typeof p.volume === "number" ? p.volume : 0);
+    if (p.end) { setChatStatus("播放结束", ""); setHint("音频流结束 (" + audioPlayer.frameCount + " 帧)", ""); }
+    scheduleAudio();
+  }
+
   function handleWsMessage(ev) {
     let data = null;
     try { data = JSON.parse(ev.data); } catch (_) { return; }
@@ -238,6 +334,10 @@
       } else {
         setChatStatus(status === "completed" ? "已完成" : "失败", status === "completed" ? "ok" : "err");
       }
+      // F6-T2：turn 非 running → 打断当前音频播放（epoch 对齐/清空队列）。
+      if (typeof status === "string" && status !== "running") { interruptAudio(); audioPlayer.epoch = null; }
+    } else if (type === "audio") {
+      onAudioFrame(payload);
     } else if (type === "text_delta") {
       // P1WS-1：后端 text_delta 双形态——
       //   1) {epoch, text, ts_ms}  → LLM 流式正文片段（**新**）
@@ -385,6 +485,7 @@
     backoffSeconds: function () { return Math.round(chatState.wsBackoffMs / 1000); },
     // D4：暴露动作面板给调试 / 集成测试。
     actions: { invoke: invokeAction, list: listActions },
+    resumeAudioContext: ensureAudioCtx,
   };
 
   // D4：动作控制面板（dev_mode 门控；§7.3 仲裁路径不变）。
