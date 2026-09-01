@@ -56,9 +56,9 @@ Live2D-Ai/
 
 3 个 Mod 作为主仓库 workspace 成员（默认 enable 由 manifest 控制）：
 ```
-crates/external-input/   外部事件接入 Mod
-crates/pet-desktop/      桌宠透传 Mod（演示，不迁移现有 native desktop）
-crates/director/         导演系统 Mod（需先有 performance sequence 能力）
+crates/live2d-ai-mod-external-input/  外部事件接入 Mod（`POST /api/v1/external/chat`）
+crates/live2d-ai-mod-pet-desktop/    桌宠窗口 Mod v1 骨架（settings schema + Voice 事件占位；窗口生命周期/悬浮窗/点击穿透/托盘接线后置）
+crates/live2d-ai-mod-director/       动作编排 Mod（E7 落地：config 驱动白名单动作序列；performance sequence 能力由此实现）
 ```
 各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。
 

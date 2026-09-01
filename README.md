@@ -72,14 +72,16 @@ Rust 重构（`crates/`）是**唯一主线**。
 - **supervisor 事件循环**：独立线程 + current_thread tokio，五阶段 turn
 
 ### Web 前端（主仓库 UI）
-- **16:9 桌面布局**：左 Live2D 展示区 65% + 右对话区 35%
-- 右上角 ⚙ 设置浮层（可滑动）：模型展示 / AI 与语音 / 角色 / 动作与互动 /
-  模型管理 / 系统与高级 / 开发者日志 / Mod 管理
+- **65/35 布局**：左 Live2D 展示区 65% + 右对话区 35%
+- 右上角 ⚙ 设置抽屉 8 分组：模型展示 / AI 与语音 / 角色 / 动作与互动 /
+  模型管理 / 系统与高级 / 开发者日志 / **Mod 管理**
 - 对话区（酒馆风格消息流）+ 动作快捷按钮（dev_mode 门控）
-- wasm 渲染 Live2D 模型（浏览器）
+- WASM 渲染入口：`/render` 页面 + `/models/*` 模型资产（`l2d-wasm-demo` / `wasm_assets.rs`）
 
 ### Mod 系统（live2d-ai-mod-system）
 - **trait 注册中心**：`ModFactory` / `ModRuntime` + `ModRegistrar`
+- **实态**：3 个 Mod 已编译进二进制，`/api/v1/mods` 支持 enable/disable/restart；
+  设置抽屉第 8 组为 Mod 管理，运行时开关 + 失败隔离
 - 静态编译组合 + enable/disable + restart + reload_config + 状态机（Disabled/Starting/Running/Failed/Stopping）
 - 事件有界 channel + 独立 worker（Mod 失败不影响主链路）
 - Settings 纯数据 schema（前端统一渲染，禁 Mod 注入 HTML/JS）
@@ -106,11 +108,13 @@ cargo build --release
 # 浏览器访问 http://localhost:18080/
 ```
 
-### 启动原生桌宠（Mod: pet-desktop）
+### 启动原生桌宠（Mod: live2d-ai-mod-pet-desktop）
 ```bash
-./target/release/live2d-ai-desktop --chat --pet-mode --config live2d-ai.toml
-# F10 唤出原生设置面板；托盘切换穿透/置顶/显隐/退出
+./target/release/live2d-ai-desktop --web --http-port 18080  # 优先：Web UI（主入口）
 ```
+> **状态**：pet-desktop 为 v1 骨架。窗口生命周期 / 悬浮窗 / 点击穿透 / 托盘菜单接线后置，
+> 当前 `--pet-mode` 为演示占位，主入口请使用 `--web`。`--chat` / `--pet-mode` 等 CLI
+> 模式为历史产物，待 v1 窗口生命周期接线后逐步恢复。
 
 ### CLI 模式一览
 ```bash
@@ -146,6 +150,9 @@ crates/
   live2d-ai-desktop   supervisor 事件循环 + Web API + 窗口 + 音频 + 托盘
   l2d-wasm-demo       Web 渲染核心（被 Web 前端复用）
   live2d-ai-mod-system  Mod trait/factory/registry/services/status/topics
+  live2d-ai-mod-external-input  外部事件接入 Mod（`POST /api/v1/external/chat`）
+  live2d-ai-mod-director      动作编排 Mod（config 驱动白名单动作序列）
+  live2d-ai-mod-pet-desktop   桌宠窗口 Mod v1 骨架（窗口生命周期接线后置）
 xtask                 工程工具（Rust 占比统计）
 ```
 
@@ -159,7 +166,7 @@ xtask                 工程工具（Rust 占比统计）
 
 ### Mod 边界
 ```
-主仓库核心链路 ←── live2d-ai-mod-system trait 接口 ──→ 3 个 Mod 子仓库
+主仓库核心链路 ←── live2d-ai-mod-system trait 接口 ──→ 3 个 Mod（workspace crate，已编译进二进制）
                      │                                      │
                      │ ModContext: trigger_action/say/on_event │
                      │            /register_settings/...      │
