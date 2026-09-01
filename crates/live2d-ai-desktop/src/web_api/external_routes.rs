@@ -34,12 +34,27 @@
 //!   (503) 即结束。
 //! - **文本长度**：≤2000 字符，否则 `400 text_too_long`。
 //! - **JSON 解析失败 / `text` 非字符串 / 空**：`400 invalid_payload`。
+//! - **可选 token 鉴权**：当环境变量 `EXTERNAL_INPUT_TOKEN` 存在时，
+//!   要求请求体 `token` 字段或 `Authorization: Bearer <token>` 匹配；
+//!   否则 `401 unauthorized`。env 未设 → 不鉴权（向后兼容，参见
+//!   [`check_token`] 与 [`bearer_token`]）。
+//!
+//! # token 来源说明
+//!
+//! v1 鉴权 token 来源于**环境变量** `EXTERNAL_INPUT_TOKEN`（而非 Mod config），
+//! 这样 handler 保持与 `ModRegistry` 解耦——`ServerContext` 没有 mod_registry
+//! 槽位，本函数仅访问 `ServerContext.security` 与 `supervisor_slot`。
+//! Mod settings 中的 `token` 字段（secret）用于前端渲染；运行时 host 负责把
+//! 设置值写入环境变量后再启动 server（E6 再接入 Mod config 回环）。
 
 use std::io::Cursor;
 
 use tiny_http::{Header, Method, Response, StatusCode};
 
 use crate::web_api::ServerContext;
+
+/// 鉴权 token 来源的环境变量名（v1 简化：从环境变量读，不穿 Mod config）。
+const TOKEN_ENV_VAR: &str = "EXTERNAL_INPUT_TOKEN";
 
 /// 路由前缀（v1 固定一个外部文本端点）。
 const EXTERNAL_CHAT_PATH: &str = "/api/v1/external/chat";
@@ -94,13 +109,23 @@ pub fn handle_external_chat(
             &err,
         ));
     }
-    // JSON 解析 + 字段校验。
-    let text: String = match parse_text(body) {
-        Ok(t) => t,
+    // JSON 解析（一次性抽取 text + 可选 token）。
+    let parsed = match parse_payload(body) {
+        Ok(p) => p,
         Err(msg) => {
             return Some(json_error(StatusCode(400), "invalid_payload", &msg));
         }
     };
+    // 可选 token 鉴权：env `EXTERNAL_INPUT_TOKEN` 设了才要求鉴权。
+    let env_token = std::env::var(TOKEN_ENV_VAR).ok();
+    if !check_token(parsed.token.as_deref(), None, env_token.as_deref()) {
+        return Some(json_error(
+            StatusCode(401),
+            "unauthorized",
+            "token 缺失或不匹配（env EXTERNAL_INPUT_TOKEN 已设）",
+        ));
+    }
+    let text = parsed.text;
     // 文本长度。
     if text.chars().count() > MAX_TEXT_LEN {
         return Some(json_error(
@@ -138,10 +163,10 @@ pub fn handle_external_chat(
     Some(ok_response(StatusCode(200), &body_json.to_string()))
 }
 
-/// 从 JSON body `{"text": "..."}` 抽取 text。
+/// 从 JSON body `{"text": "...", "token": "..."}` 抽取 text 与可选 token。
 ///
-/// 要求：`text` 为非空字符串。
-fn parse_text(body: &str) -> Result<String, String> {
+/// 要求：`text` 为非空字符串；`token` 如存在必须为字符串（鉴权用）。
+fn parse_payload(body: &str) -> Result<Payload, String> {
     let v: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("JSON 解析失败: {e}"))?;
     let Some(text) = v.get("text") else {
@@ -154,7 +179,65 @@ fn parse_text(body: &str) -> Result<String, String> {
     if s.is_empty() {
         return Err("`text` 不得为空".to_string());
     }
-    Ok(s.to_string())
+    // 可选 token 字段（string）。
+    let token = match v.get("token") {
+        Some(t) if t.is_string() => t.as_str().map(|s| s.to_string()),
+        Some(_) => return Err("`token` 必须为字符串".to_string()),
+        None => None,
+    };
+    Ok(Payload {
+        text: s.to_string(),
+        token,
+    })
+}
+
+/// 解析出的请求体（text + 可选 token）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Payload {
+    text: String,
+    token: Option<String>,
+}
+
+/// 可选 token 鉴权的纯函数。
+///
+/// - `env_token` 为 `None` 时 → 始终通过（env 未设，向后兼容）。
+/// - `env_token` 为 `Some(t)` 时 → 仅当 `body_token` 或
+///   `auth_header`（`Authorization: Bearer <token>`）与之相等时放行。
+///   二者均缺/不匹配 → 拒绝。
+///
+/// 该函数不读环境，不依赖全局状态，便于 `#[cfg(test)]` 注入。
+pub fn check_token(
+    body_token: Option<&str>,
+    auth_header: Option<&str>,
+    env_token: Option<&str>,
+) -> bool {
+    match env_token {
+        None => true,
+        Some(expected) => {
+            // 优先 body token；其次 Authorization: Bearer。
+            let body_ok = body_token.map(|b| b == expected).unwrap_or(false);
+            let bearer_ok = auth_header
+                .and_then(|h| bearer_token(Some(h)))
+                .map(|t| t == expected)
+                .unwrap_or(false);
+            body_ok || bearer_ok
+        }
+    }
+}
+
+/// 从 `Authorization` 头值提取 bearer token。
+///
+/// 仅当前缀 `Bearer `（大小写不敏感）存在时返回值；否则 `None`。
+/// 例如 `"Bearer abc"` → `Some("abc")`；`"abc"` → `None`。
+fn bearer_token(auth_header: Option<&str>) -> Option<&str> {
+    let h = auth_header?;
+    let lower = h.to_ascii_lowercase();
+    if !lower.starts_with("bearer ") {
+        return None;
+    }
+    // 跳过 `bearer ` 前缀（7 字节），原串切片（大小写已校验）。
+    let token = &h[7..];
+    if token.is_empty() { None } else { Some(token) }
 }
 
 /// 构造一个 JSON 响应（status + body；Content-Type application/json）。
@@ -301,6 +384,66 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(400));
+    }
+
+    // --- 可选 token 鉴权（纯函数，无 env 副作用） ---
+
+    #[test]
+    fn check_token_no_env_always_ok() {
+        // env 未设 → 无论 body/header 如何都放行。
+        assert!(check_token(None, None, None));
+        assert!(check_token(Some("x"), None, None));
+        assert!(check_token(None, Some("Bearer x"), None));
+        assert!(check_token(Some("x"), Some("Bearer y"), None));
+    }
+
+    #[test]
+    fn check_token_body_match_passes() {
+        assert!(check_token(Some("secret"), None, Some("secret")));
+    }
+
+    #[test]
+    fn check_token_body_mismatch_fails() {
+        assert!(!check_token(Some("wrong"), None, Some("secret")));
+    }
+
+    #[test]
+    fn check_token_missing_fails() {
+        // env 设了但 body/header 均无 token → 拒绝。
+        assert!(!check_token(None, None, Some("secret")));
+    }
+
+    #[test]
+    fn check_token_bearer_match_passes() {
+        assert!(check_token(None, Some("Bearer secret"), Some("secret")));
+    }
+
+    #[test]
+    fn check_token_bearer_mismatch_fails() {
+        assert!(!check_token(None, Some("Bearer wrong"), Some("secret")));
+        // 不是 Bearer 格式 → 不匹配。
+        assert!(!check_token(None, Some("wrong"), Some("secret")));
+    }
+
+    #[test]
+    fn bearer_token_extracts_correctly() {
+        assert_eq!(bearer_token(Some("Bearer abc")), Some("abc"));
+        assert_eq!(bearer_token(Some("bearer abc")), Some("abc"));
+        // 缺 `Bearer ` 前缀 → None。
+        assert_eq!(bearer_token(Some("abc")), None);
+        // 空 token → None。
+        assert_eq!(bearer_token(Some("Bearer ")), None);
+        assert_eq!(bearer_token(None), None);
+    }
+
+    #[test]
+    fn check_token_body_takes_priority_over_mismatched_bearer() {
+        // body token 匹配即可放行。
+        assert!(check_token(
+            Some("secret"),
+            Some("Bearer wrong"),
+            Some("secret")
+        ));
     }
 
     // --- test helper ---
