@@ -41,3 +41,31 @@
 - **Qwen3.5-4B**：Q4 ~2.5GB / Q5 ~2.9GB，RTX 5060 8GB 充裕；经 ollama/llama-server 的 OpenAI 兼容端点接入（不 FFI 嵌入推理，守住 Rust 边界）——F8 形态。
 - **平台窗壳结论**：Web 核心（HTTP+WS+浏览器）天然全平台；桌宠透传/手机悬浮窗必须薄原生壳（Tauri / Kotlin WebView），已是最小代价方案。
 - **双声问题**：F6-T2 落地后服务端 cpal 播放与前端播放并存会双声——需 settings 开关（默认前端播放=平台解锁），服务端播放保留给 headless 场景。
+
+## P1 完成状态（已 tag `p1.0.0`）✅
+
+- F8 local-llm（`p1-f8`，含 F9 local-tts）：5 Mod 全注册 AVAILABLE_MOD_FACTORIES，20 组测试绿、rust-ratio PASS。
+- F10 external-input token 鉴权（`p1-f10`）：纯函数 check_token + docs。
+- F2b 抽屉三占位组填实（`p1-f2b`）：动作面板/外观舞台/模型管理，9 新函数。
+- P1 完成 tag `p1.0.0`。
+
+## P2 完成状态（已 tag `p2.0.0`）✅（本会话可验证项全落地）
+
+- **G2** headless/Termux 部署（`p2-g2`）：`--web` 已证纯 headless，0 代码改动，docs/headless-deploy.md。
+- **G3** CI 多平台 release-build（`p2-g3`）：ubuntu/windows/macos 三平台二进制 + wasm 可选，无 Tauri/WebView2 依赖。
+- **P2 全量门禁**：20 组测试 ok、fmt/clippy 干净、rust-ratio PASS。
+
+### ⚠ F4 / G1 为真机验证任务（本会话不可验证，已列为规格待真机实施）
+
+**F4 Tauri 桌宠壳（PC 透明窗/点击穿透/托盘）**：
+- 本会话无法验证（WSL 无桌面会话/D-Bus，透明窗/置顶/托盘需真实桌面；已实测托盘因无 D-Bus 失败）。
+- **不引入** Tauri 依赖污染主仓库 95% Rust 边界。
+- 实施规格（真机）：Tauri v2 壳工程 → 透明窗+`set_ignore_cursor_events`（穿透）+托盘+WebView 加载 `--web` 主页；`settings_ui.rs`(egui) 迁入 pet-desktop Mod；Win/Mac/Linux 一壳三平台。注：Wayland 穿透受限（合成器），Windows 最佳。
+- G3 已产出三平台后端二进制供真机接入壳。
+
+**G1 Android 悬浮窗壳**：
+- 需真机 SYSTEM_ALERT_WINDOW 权限 + WebView（Termux 拿不到悬浮窗权限）。
+- 实施规格：Kotlin + WebView 指向 `http://<host>:<port>`，模型/对话/音频全走现有 Web 前端。
+
+**平台窗壳总原则**（调研存档）：Web 核心天然全平台；桌宠透传/手机悬浮窗必须薄原生壳（Tauri / Kotlin WebView）——已是最小代价方案，F4/G1 均为独立壳工程，不污染核心。
+
