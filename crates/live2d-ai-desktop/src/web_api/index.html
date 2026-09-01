@@ -23,7 +23,7 @@
 <main class="app-layout">
   <!-- 左 65%：Live2D 展示区 -->
   <section id="live2d-display" class="live2d-display">
-    <span class="placeholder">Live2D 展示区（D3 批次填充）</span>
+    <span class="placeholder">Live2D 展示区</span>
   </section>
 
   <!-- 右 35%：对话面板 -->
@@ -55,8 +55,8 @@
     <a href="#grp-character">角色</a>
     <a href="#grp-actions">动作与互动</a>
     <a href="#grp-models">模型管理</a>
-    <a href="#grp-system">系统与高级</a>
-    <a href="#grp-logs">开发者日志</a>
+    <a href="#grp-status">系统状态</a>
+    <a href="#grp-system">开发者</a>
     <a href="#grp-mods">Mod 管理</a>
   </nav>
   <div class="settings-content">
@@ -98,10 +98,30 @@
     </section>
   </section>
 
+  <section id="grp-status" class="settings-group">
+    <h2>系统状态</h2>
+    <section class="card">
+      <h2>运行状态</h2>
+      <dl class="kv">
+        <dt>config</dt><dd id="cfgPath">—</dd>
+        <dt>启动</dt><dd id="startedAt">—</dd>
+        <dt>uptime</dt><dd id="uptime">—</dd>
+        <dt>model</dt><dd id="activeModel">—</dd>
+        <dt>audio</dt><dd id="audio">—</dd>
+        <dt>dev_mode</dt><dd id="devModeStatus">—</dd>
+        <dt>epoch</dt><dd id="epoch">—</dd>
+        <dt>LLM base</dt><dd id="llmBase">—</dd>
+        <dt>LLM has_key</dt><dd id="llmHasKey">—</dd>
+        <dt>TTS base</dt><dd id="ttsBase">—</dd>
+        <dt>TTS has_key</dt><dd id="ttsHasKey">—</dd>
+      </dl>
+    </section>
+  </section>
+
   <section id="grp-character" class="settings-group">
     <h2>角色</h2>
     <section class="card">
-      <h2>系统提示词 &amp; 开发者模式</h2>
+      <h2>系统提示词</h2>
       <label>system_prompt</label>
       <textarea id="systemPrompt" rows="5" placeholder="你是桌宠……"></textarea>
     </section>
@@ -118,29 +138,21 @@
   </section>
 
   <section id="grp-system" class="settings-group">
-    <h2>系统与高级</h2>
-    <label class="checkbox">
-      <input type="checkbox" id="devMode">
-      开发者模式（开启后允许查看日志端点；写入设置后立即生效）
-    </label>
-    <div class="row buttons">
-      <button id="btnSave">保存</button>
-      <button class="secondary" id="btnReload">重新载入</button>
-      <button class="danger" id="btnClearKey">清除密钥绑定</button>
+    <h2>开发者</h2>
+    <div id="grp-logs">
+      <label class="checkbox">
+        <input type="checkbox" id="devMode">
+        开发者模式（开启后允许查看日志端点；写入设置后立即生效）
+      </label>
+      <section class="card" id="logsCard">
+        <h2>最近日志 <span class="field-meta" id="logsFile"></span></h2>
+        <div class="row buttons">
+          <button class="secondary" id="btnReloadLogs">重新拉取</button>
+          <span class="status" id="logsStatus">dev_mode 关闭</span>
+        </div>
+        <pre id="logs">（等待开启 dev_mode）</pre>
+      </section>
     </div>
-    <div class="status" id="saveStatus"></div>
-  </section>
-
-  <section id="grp-logs" class="settings-group">
-    <h2>开发者日志</h2>
-    <section class="card" id="logsCard">
-      <h2>最近日志 <span class="field-meta" id="logsFile"></span></h2>
-      <div class="row buttons">
-        <button class="secondary" id="btnReloadLogs">重新拉取</button>
-        <span class="status" id="logsStatus">dev_mode 关闭</span>
-      </div>
-      <pre id="logs">（等待开启 dev_mode）</pre>
-    </section>
   </section>
 
   <section id="grp-mods" class="settings-group">
@@ -149,27 +161,16 @@
     <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>
   </section>
   </div> <!-- /.settings-content -->
-</div> <!-- /#settings-drawer -->
 
-<!-- 运行状态（固定在聊天面板底部外部） -->
-<div id="statusPanel">
-  <section class="card">
-    <h2>运行状态</h2>
-    <dl class="kv">
-      <dt>config</dt><dd id="cfgPath">—</dd>
-      <dt>启动</dt><dd id="startedAt">—</dd>
-      <dt>uptime</dt><dd id="uptime">—</dd>
-      <dt>model</dt><dd id="activeModel">—</dd>
-      <dt>audio</dt><dd id="audio">—</dd>
-      <dt>dev_mode</dt><dd id="devModeStatus">—</dd>
-      <dt>epoch</dt><dd id="epoch">—</dd>
-      <dt>LLM base</dt><dd id="llmBase">—</dd>
-      <dt>LLM has_key</dt><dd id="llmHasKey">—</dd>
-      <dt>TTS base</dt><dd id="ttsBase">—</dd>
-      <dt>TTS has_key</dt><dd id="ttsHasKey">—</dd>
-    </dl>
-  </section>
-</div>
+  <div id="drawer-savebar">
+    <span class="status" id="saveStatus"></span>
+    <div class="row buttons">
+      <button id="btnSave">保存</button>
+      <button class="secondary" id="btnReload">重新载入</button>
+      <button class="danger" id="btnClearKey">清除密钥绑定</button>
+    </div>
+  </div>
+</div> <!-- /#settings-drawer -->
 
 <div id="toast"></div>
 
