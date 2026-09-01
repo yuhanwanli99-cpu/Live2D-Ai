@@ -9,7 +9,7 @@
 - [x] **F1** 主页 65% 区接入 /render（tag `node-f-f1`，`87b4ce2a`）
 - [x] **F2** 设置抽屉信息架构重排（tag `node-f-f2`，`568f8f81`）
 - [x] **F3** renderMods 监听器累积 bug + 去重（tag `node-f-f3`，`ca62b558`）
-- [ ] **F5** dispatch_event → per-Mod on_event 路由（子代理 `f6e2b065` 进行中；SharedRuntime 槽位已见落盘）
+- [x] **F5** dispatch_event → per-Mod on_event 路由（tag `node-f-f5`，`86f593b0`；SharedRuntime 槽位 + try_lock 竞争跳过 + 失败清槽隔离，7 测试全绿）
 - [x] **F6-T1** WS 音频帧后端（tag `node-f-f6t1`，`98c48c53`）
 - [x] **F6-T2** PCM 接线（tag `node-f-f6t2`，`37f1b490`；AUDIO_CB thread-local + `LIVE2D_AI_WS_AUDIO=1` 开关）
 - [x] **F6-T3** 前端播放器（tag `node-f-f6t3`，`acd557ed`；AudioContext 队列+epoch 打断+口型双通道）
