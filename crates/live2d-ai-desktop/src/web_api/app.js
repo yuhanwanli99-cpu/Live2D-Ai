@@ -9,6 +9,8 @@ const state = {
   settingsView: null,
   llmKeyTouched: false,
   ttsKeyTouched: false,
+  drawerOpen: false,
+  drawerLoaded: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +32,8 @@ const els = {
   logsCard: $("logsCard"), logsFile: $("logsFile"), logsPre: $("logs"),
   logsStatus: $("logsStatus"), btnReloadLogs: $("btnReloadLogs"),
   btnRefresh: $("btnRefresh"), toast: $("toast"),
+  btnSettings: $("btnSettings"), settingsDrawer: $("settings-drawer"),
+  settingsOverlay: $("settings-overlay"), grpLogs: $("grp-logs"),
 };
 
 const STATUS_POLL_MS = 5000;
@@ -92,6 +96,33 @@ async function loadAll() {
   } catch (e) {
     setConn("err", "连接失败");
     toast("加载失败：" + (e.error ? e.error.message : e.message), "err");
+  }
+}
+
+// ---- capability 驱动：8 分组可见性 / 表单禁用 ----
+// capabilities 端点字段集合（参考 dto::AppInfo 序列化）：
+//   app/version/schema_version/actions/action_sources/strength_levels/
+//   model_upload_supported/script_invoke_supported/runtime_ws/state_ws/ws_protocol_version
+// 其中 **不**包含 llm/tts/character 的细分能力位。按契约「找不到对应能力映射就保持现状」：
+// grp-appearance / grp-actions / grp-models / grp-mods 固定占位「（开发中）」；
+// grp-ai / grp-character / grp-system 表单字段原样保留可编辑（能力位缺失不 disable）。
+function renderGroups() {
+  const cap = state.capabilities;
+  if (!cap) return;
+  const sv = state.settingsView || { dev_mode: false };
+
+  // #grp-logs：仅 dev_mode 开启时显示，否则提示。
+  if (sv.dev_mode) {
+    els.grpLogs.style.removeProperty("display");
+    if (els.logsCard) els.logsCard.classList.remove("hidden");
+  } else {
+    els.grpLogs.style.display = "none";
+    if (els.logsCard) els.logsCard.classList.add("hidden");
+    if (els.logsPre) els.logsPre.textContent = "（需开启开发者模式）";
+    if (els.logsStatus) {
+      els.logsStatus.textContent = "dev_mode 关闭";
+      els.logsStatus.className = "status warn";
+    }
   }
 }
 
@@ -161,6 +192,7 @@ function renderAll() {
       els.logsCard.classList.add("hidden");
     }
   }
+  renderGroups();
 }
 
 // ---- 保存 ----
@@ -360,6 +392,35 @@ function startLogsPoll() {
   }, LOGS_POLL_MS);
 }
 
+// ---- 抽屉逻辑 ----
+// 打开抽屉时才触发一次懒加载：pull capabilities + settings，渲染分组。
+// 已由 loadAll() 拉取过则直接渲染；否则补拉。
+function lazyLoadDrawer() {
+  if (!state.capabilities) {
+    api("GET", "/api/v1/app/capabilities").then((cap) => {
+      state.capabilities = cap;
+      renderGroups();
+    }).catch(() => {});
+  } else {
+    renderGroups();
+  }
+  if (!state.settingsView) {
+    api("GET", "/api/v1/settings").then((sv) => {
+      state.settingsView = sv;
+      renderAll();
+    }).catch(() => {});
+  }
+}
+
+function setDrawer(open) {
+  state.drawerOpen = open;
+  els.settingsDrawer.hidden = !open;
+  els.settingsDrawer.classList.toggle("open", open);
+  els.settingsOverlay.hidden = !open;
+}
+function toggleDrawer() { setDrawer(!state.drawerOpen); }
+function closeDrawer() { setDrawer(false); }
+
 // ---- 事件 ----
 els.llmApiKeyEnv.addEventListener("input", () => { state.llmKeyTouched = true; });
 els.ttsApiKeyEnv.addEventListener("input", () => { state.ttsKeyTouched = true; });
@@ -370,6 +431,16 @@ els.btnTestLlm.addEventListener("click", () => testEndpoint(els.btnTestLlm, els.
 els.btnTestTts.addEventListener("click", () => testEndpoint(els.btnTestTts, els.ttsTestResult, "/api/v1/settings/test/tts"));
 els.btnRefresh.addEventListener("click", loadAll);
 els.btnReloadLogs.addEventListener("click", refreshLogs);
+
+// 抽屉开关事件
+els.btnSettings.addEventListener("click", () => {
+  if (!state.drawerLoaded) { state.drawerLoaded = true; lazyLoadDrawer(); }
+  toggleDrawer();
+});
+els.settingsOverlay.addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && state.drawerOpen) closeDrawer();
+});
 
 // ---- 启动 ----
 loadAll().then(() => { startLogsPoll(); });
