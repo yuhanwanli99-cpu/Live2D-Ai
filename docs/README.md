@@ -59,6 +59,10 @@
 
 - `docs/screenshots/`（历史验收截图）
 
+## 部署
+
+- [Headless / Termux 部署指南](headless-deploy.md)
+
 ## 根文档
 
 - [README.md](../README.md)
