@@ -208,14 +208,12 @@ function postStageConfig() {
   postToStage({ type: "stage-config", scale: state.appearance.scale, dark: state.appearance.dark, lipSync: state.appearance.lipSync });
 }
 function bindAppearance() {
-  // P0-5 标注：三控件对应渲染端 bridge 未就绪，标记 data-pending 并提示文案。
-  const pendingCtrls = [els.appScale, els.appBgDark, els.appLipSyncToggle];
-  pendingCtrls.forEach((c) => { if (c) c.setAttribute("data-pending", "renderer bridge"); });
+  // P0-5：iframe bridge 已真实接通（stage-config/audio-volume/action-state/load-model）。
+  // 移除过时标记，不再呈现"成功但未生效"假象。
   if (els.appLipSyncToggle && els.appLipSyncToggle.parentNode) {
-    // 更新相邻 field-meta 文案为诚实标注（而非假装完成）。
     const parent = els.appLipSyncToggle.parentNode;
     const meta = parent.querySelector(".field-meta");
-    if (meta) meta.textContent = "已发送至渲染端（接收侧 P0-2a 交付后生效）";
+    if (meta) meta.textContent = "已接通渲染端";
   }
   if (!els.appScale) return;
   const clamp = (v) => Math.max(0.5, Math.min(1.5, v));

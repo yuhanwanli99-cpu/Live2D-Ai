@@ -143,7 +143,8 @@
 
   <section id="grp-actions" class="settings-group">
     <h2>动作与互动</h2>
-    <p class="field-meta">动作需 Live2D 模型 + director 编排 Mod 配合（P1）</p>
+    <p class="field-meta">已接通（动作经 core 仲裁 + 渲染端表演）</p>
+    <p class="field-meta">需要运行中的 supervisor 与已加载模型</p>
     <section class="card">
       <h2>基础动作</h2>
       <div id="actionsList" class="actions-list"></div>
@@ -157,6 +158,7 @@
       <span class="status" id="modelsStatus">就绪</span>
     </div>
     <div id="modelsList" class="models-list"></div>
+    <p class="field-meta">切换会实时重载渲染端模型</p>
     <p class="field-meta">模型资产本地持有（assets/models/…）未导入时显示提示。</p>
   </section>
 
@@ -181,6 +183,7 @@
   <section id="grp-mods" class="settings-group">
     <h2>Mod 管理</h2>
     <p class="field-meta">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建应用。</p>
+    <p class="field-meta">local-llm/local-tts 需本机装有 ollama/kokoroi-rs；启用后自动探测并写入 LLM/TTS 设置（externally_managed 可外管）</p>
     <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>
   </section>
   </div> <!-- /.settings-content -->
