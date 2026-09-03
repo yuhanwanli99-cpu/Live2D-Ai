@@ -166,6 +166,7 @@ pub(crate) fn canvas_pixel_size(canvas: &HtmlCanvasElement, window: &Window) -> 
 
 /// iframe bridge 接收状态（P0-2a）：父页 postMessage → 可见效果。
 /// 首帧后由 main.rs 的 message listener 写入；rAF 循环每帧读取产生可见效果。
+#[derive(Clone)]
 pub(crate) struct BridgeState {
     /// stage-config.scale（canvas CSS 缩放，默认 1.0）
     pub scale: f32,
@@ -182,6 +183,7 @@ pub(crate) struct BridgeState {
 }
 
 /// 进行中的动作动画（无内置 motion 段时的参数等效实现）。
+#[derive(Clone)]
 pub(crate) struct ActiveAction {
     /// 动作名（nod/shake_no/tilt/look_around/listen/surprise）
     pub name: String,
@@ -195,7 +197,14 @@ pub(crate) struct ActiveAction {
 
 impl Default for BridgeState {
     fn default() -> Self {
-        Self { scale: 1.0, dark: true, lip_sync: true, volume: 0.0, volume_display: 0.0, action: None }
+        Self {
+            scale: 1.0,
+            dark: true,
+            lip_sync: true,
+            volume: 0.0,
+            volume_display: 0.0,
+            action: None,
+        }
     }
 }
 
@@ -363,13 +372,19 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
 ///   `Validation` → 首次提示后跳过本帧、连续第二次命中视为 fatal 并停循环
 ///   （见 P0-2-2 裁决）。
 pub(crate) fn tick(slot: &FrameSlot, state: &SharedState) {
-    let mut st = state.borrow_mut();
-
-    if let Err(e) = st.core.update(FIXED_DT_60HZ) {
-        status(&format!("停止渲染循环：update({FIXED_DT_60HZ}) 失败：{e}"));
-        return;
+    // P0-2a-3：固定 dt 步进姿态/物理 → 每帧应用 bridge 状态 → 取 texture → render/present。
+    {
+        let mut st = state.borrow_mut();
+        if let Err(e) = st.core.update(FIXED_DT_60HZ) {
+            status(&format!("停止渲染循环：update({FIXED_DT_60HZ}) 失败：{e}"));
+            return;
+        }
     }
 
+    // bridge 状态 → 可见效果（口型/动作/缩放/背景），独立借用窗口。
+    apply_bridge_effects(state);
+
+    let mut st = state.borrow_mut();
     let keep_going = match st.surface.get_current_texture() {
         wgpu::CurrentSurfaceTexture::Success(frame) => {
             st.validation_streak = 0;
@@ -434,6 +449,77 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState) {
         write_hud_if_due(state);
         crate::web::schedule_frame(slot);
     }
+}
+
+/// P0-2a-3：每帧把 bridge 状态应用为可见效果（口型/动作/缩放/背景）。
+/// 由 `tick` 在 `core.update` 后、渲染前调用。
+pub(crate) fn apply_bridge_effects(state: &SharedState) {
+    let now_ms = web_sys::window()
+        .and_then(|w| w.performance())
+        .map(|p| p.now())
+        .unwrap_or(0.0);
+    // 先 immutable borrow：衰减音量显示、判定动画是否结束、取出 clone 值。
+    let (apply_mouth, apply_action, scale, dark) = {
+        let mut st = state.borrow_mut();
+        // 口型衰减：display = volume.max(display*0.85)
+        st.bridge.volume_display = st.bridge.volume.max(st.bridge.volume_display * 0.85);
+        // 动画结束判定：t>=1 清除 Action（end 帧也会写入 None，这里兜底）。
+        if let Some(a) = &st.bridge.action {
+            if now_ms - a.started_ms >= a.duration_ms {
+                st.bridge.action = None;
+            }
+        }
+        (
+            st.bridge.lip_sync.then(|| st.bridge.volume_display),
+            st.bridge.action.clone(),
+            st.bridge.scale,
+            st.bridge.dark,
+        )
+    };
+    // 后 mutable borrow：写入 core 参数 + canvas CSS。
+    let mut st = state.borrow_mut();
+
+    // 口型（lip_sync on 且 volume>0.01）：ParamMouthOpenY；静音写 0 收口。
+    let mouth = apply_mouth.filter(|v| *v > 0.01).unwrap_or(0.0);
+    let _ = st.core.set_parameter("ParamMouthOpenY", mouth);
+
+    // 动作参数等效动画（override 层最高优先级）。
+    if let Some(a) = &apply_action {
+        let t = ((now_ms - a.started_ms) / a.duration_ms).clamp(0.0, 1.0) as f32;
+        let m = a.strength_mult;
+        let wave = (t * std::f32::consts::PI * 2.0).sin();
+        match a.name.as_str() {
+            "nod" => {
+                let _ = st.core.override_parameter("ParamAngleX", wave * 12.0 * m);
+            }
+            "shake_no" => {
+                let _ = st.core.override_parameter("ParamAngleY", wave * 14.0 * m);
+            }
+            "tilt" => {
+                let _ = st.core
+                    .override_parameter("ParamAngleZ", (t * std::f32::consts::PI).sin() * 10.0 * m);
+            }
+            "look_around" => {
+                let _ = st.core
+                    .override_parameter("ParamAngleX", (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m);
+            }
+            "listen" => {
+                let _ = st.core
+                    .override_parameter("ParamAngleZ", 8.0 * m * (1.0 - t));
+            }
+            "surprise" => {
+                let _ = st.core
+                    .override_parameter("ParamMouthOpenY", (t * std::f32::consts::PI).sin() * 0.8 * m);
+            }
+            _ => {}
+        }
+    }
+
+    // 缩放（CSS transform，避免 GPU 重分配）+ 背景暗色。
+    let style = st.canvas.style();
+    let _ = style.set_property("transform", &format!("scale({scale})"));
+    let bg = if dark { "#101418" } else { "#e8ecf1" };
+    let _ = style.set_property("background-color", bg);
 }
 
 /// 渲染一帧并 present。返回 `false` 表示致命错误、应停止循环。

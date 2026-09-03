@@ -87,6 +87,30 @@ mod web {
         });
     }
 
+    /// fetch model3 清单 → 按 manifest 引用逐个 fetch 资源 → 内存组包 →
+    /// [`LoadedModel::resolve`]。供首次加载与换模型复用（P0-2a-3 真实重载）。
+    async fn load_model_from_url(
+        window: &web_sys::Window,
+        model_url: &str,
+    ) -> Result<LoadedModel, String> {
+        status("正在按 manifest 引用拉取资源…");
+        let model3_bytes = net::fetch_bytes(window, model_url)
+            .await
+            .map_err(|e| format!("清单加载失败（{model_url}）：{e}"))?;
+        let refs = net::extract_refs(&model3_bytes)?;
+        let mut resources = std::collections::BTreeMap::new();
+        for rel in refs.unique_paths() {
+            let url = net::resolve_relative(model_url, &rel);
+            let bytes = net::fetch_bytes(window, &url)
+                .await
+                .map_err(|e| format!("资源 `{rel}` 加载失败（{url}）：{e}"))?;
+            resources.insert(rel.clone(), bytes);
+        }
+        let package = l2d::asset::ModelPackage::from_memory_map(&model3_bytes, &resources)
+            .map_err(|e| format!("ModelPackage::from_memory 失败：{e}"))?;
+        LoadedModel::resolve(package).map_err(|e| format!("moc3 解析失败：{e}"))
+    }
+
     /// 一次性启动流程：fetch 清单 → fetch 资源 → 内存组包 → GPU 初始化 →
     /// 安装 resize 监听 → 进入 rAF 固定 dt 渲染循环。
     async fn run() -> Result<(), String> {
@@ -102,25 +126,8 @@ mod web {
         let model_url = net::model_url_from_query(&window);
 
         status(&format!("正在加载模型清单 {model_url} …"));
-        let model3_bytes = net::fetch_bytes(&window, &model_url)
-            .await
-            .map_err(|e| format!("清单加载失败（{model_url}）：{e}"))?;
+        let loaded = load_model_from_url(&window, &model_url).await?;
 
-        status("正在按 manifest 引用拉取资源…");
-        let refs = net::extract_refs(&model3_bytes)?;
-        let mut resources = std::collections::BTreeMap::new();
-        for rel in refs.unique_paths() {
-            let url = net::resolve_relative(&model_url, &rel);
-            let bytes = net::fetch_bytes(&window, &url)
-                .await
-                .map_err(|e| format!("资源 `{rel}` 加载失败（{url}）：{e}"))?;
-            resources.insert(rel.clone(), bytes);
-        }
-
-        status("正在组装 ModelPackage 并解析 moc3…");
-        let package = l2d::asset::ModelPackage::from_memory_map(&model3_bytes, &resources)
-            .map_err(|e| format!("ModelPackage::from_memory 失败：{e}"))?;
-        let loaded = LoadedModel::resolve(package).map_err(|e| format!("moc3 解析失败：{e}"))?;
         let summary = load_summary(&model_url, &loaded);
 
         status(&format!(
@@ -256,9 +263,28 @@ mod web {
                     }
                 }
                 "load-model" => {
-                    // URL 存入 status 提示；真实重载在 P0-2a-3 段实现（rAF/异步加载）。
                     if let Some(url) = v.get("url").and_then(|x| x.as_str()) {
-                        status(&format!("收到换模型请求（P0-2a-3 实现重载）: {url}"));
+                        let url = url.to_owned();
+                        // 异步换模型：不要阻塞 rAF 循环。
+                        let reload_state = handler_state.clone();
+                        let window = web_sys::window();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            status("切换模型中…");
+                            match window {
+                                Some(win) => {
+                                    match load_model_from_url(&win, &url).await {
+                                        Ok(loaded) => {
+                                            match reload_state.borrow_mut().core.load_model(&loaded) {
+                                                Ok(()) => status("模型已切换"),
+                                                Err(e) => status(&format!("渲染核心换模型失败：{e}")),
+                                            }
+                                        }
+                                        Err(e) => status(&format!("切换失败: {e}")),
+                                    }
+                                }
+                                None => status("切换失败: 无 window 对象"),
+                            }
+                        });
                     }
                 }
                 _ => {} // 未知类型忽略
