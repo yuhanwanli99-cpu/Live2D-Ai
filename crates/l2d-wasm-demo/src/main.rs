@@ -262,7 +262,7 @@ mod web {
                             name: action,
                             strength_mult,
                             started_ms: now,
-                            duration_ms: 800.0,
+                            duration_ms: 1500.0,
                         });
                     } else if state_word == "end" {
                         st.bridge.action = None;

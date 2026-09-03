@@ -196,7 +196,10 @@ pub(crate) struct ActiveAction {
     pub strength_mult: f32,
     /// 开始时刻（performance.now() 毫秒）
     pub started_ms: f64,
-    /// 动画时长（默认 800ms；end 帧提前结束）
+    /// 动画时长（默认 1500ms；end 帧提前结束）。
+    ///
+    /// 800ms 实测因波形 `(t*2π).sin()` 整周期过快、肉眼难辨且 end 帧易提前清除而
+    /// 看不见动作；延长到 1500ms 使单次摆动达到约 3/4 周期，人眼可清晰捕捉。
     pub duration_ms: f64,
 }
 
@@ -458,6 +461,38 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState) {
     }
 }
 
+/// 所有动作动画可能驱动的参数 ID。
+///
+/// 用于 action 结束时从 final_override 层清除 stale 值；
+/// ParamMouthOpenY 同时由 lip_sync 写入 input 层，此处仅清 override 层
+///（input 层由 lip_sync 自己的 set_parameter 调用管理）。
+const ACTION_PARAM_IDS: &[&str] = &["ParamAngleX", "ParamAngleY", "ParamAngleZ", "ParamMouthOpenY"];
+
+/// 纯函数：给定动作名 + 归一化时间 t（0..=1） + 强度倍率 m，返回该时刻所有
+/// 应被写入的参数 —— 值对列表 `(id, value)`。
+///
+/// 抽取为纯函数以便 `#[cfg(test)]` 在 native target 下无 web_sys 依赖即可验证。
+/// 与 `apply_bridge_effects` 中实时计算保持一致（单一真实来源）。
+///
+/// 波形约定：
+/// - nod / shake_no / look_around ： `wave = sin(t·2π)` 正弦摆动
+/// - tilt / listen ：线性或半正弦插值
+/// - surprise ： `sin(t·π)` 上拱口（张大→收口）
+///
+/// 边界性质：t=0 与 t=1 时所有参数值均为 0（起止复位），确保动作自然衔接。
+pub(crate) fn action_params(name: &str, t: f32, m: f32) -> Vec<(&'static str, f32)> {
+    let wave = (t * std::f32::consts::PI * 2.0).sin();
+    match name {
+        "nod" => vec![("ParamAngleX", wave * 12.0 * m)],
+        "shake_no" => vec![("ParamAngleY", wave * 14.0 * m)],
+        "tilt" => vec![("ParamAngleZ", (t * std::f32::consts::PI).sin() * 10.0 * m)],
+        "look_around" => vec![("ParamAngleX", (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m)],
+        "listen" => vec![("ParamAngleZ", 8.0 * m * (1.0 - t))],
+        "surprise" => vec![("ParamMouthOpenY", (t * std::f32::consts::PI).sin() * 0.8 * m)],
+        _ => vec![],
+    }
+}
+
 /// P0-2a-3：每帧把 bridge 状态应用为可见效果（口型/动作/缩放/背景）。
 /// 由 `tick` 在 `core.update` 后、渲染前调用。
 pub(crate) fn apply_bridge_effects(state: &SharedState) {
@@ -491,40 +526,30 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
     let _ = st.core.set_parameter("ParamMouthOpenY", mouth);
 
     // 动作参数等效动画（override 层最高优先级）。
+    //
+    // 层级选择依据：PoseStack finalize 合成顺序为
+    //   base ← idle ← input ← physics ← final_override
+    // final_override 层在物理输出之后再应用，故物理引擎 **无法** 清除 / 覆盖
+    // 动作参数 —— `override_parameter` 写在最高优先级层，确保动作始终可见。
+    //
+    // 旧实现仅在 `if let Some(a) = &apply_action` 分支写入 override 值，但在
+    // action 结束（action 变为 None）时从不清除，导致 stale override 值永久
+    // 卡死在 final_override 层 —— 表现为「动作结束后模型卡在最后一帧姿态」。
+    // 修复：action 不活跃时主动 `clear_override_parameter`，让模型归还
+    // idle/physics/lip_sync 的自然状态。
     if let Some(a) = &apply_action {
         let t = ((now_ms - a.started_ms) / a.duration_ms).clamp(0.0, 1.0) as f32;
-        let m = a.strength_mult;
-        let wave = (t * std::f32::consts::PI * 2.0).sin();
-        match a.name.as_str() {
-            "nod" => {
-                let _ = st.core.override_parameter("ParamAngleX", wave * 12.0 * m);
-            }
-            "shake_no" => {
-                let _ = st.core.override_parameter("ParamAngleY", wave * 14.0 * m);
-            }
-            "tilt" => {
-                let _ = st
-                    .core
-                    .override_parameter("ParamAngleZ", (t * std::f32::consts::PI).sin() * 10.0 * m);
-            }
-            "look_around" => {
-                let _ = st.core.override_parameter(
-                    "ParamAngleX",
-                    (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m,
-                );
-            }
-            "listen" => {
-                let _ = st
-                    .core
-                    .override_parameter("ParamAngleZ", 8.0 * m * (1.0 - t));
-            }
-            "surprise" => {
-                let _ = st.core.override_parameter(
-                    "ParamMouthOpenY",
-                    (t * std::f32::consts::PI).sin() * 0.8 * m,
-                );
-            }
-            _ => {}
+        let params = action_params(&a.name, t, a.strength_mult);
+        for (id, value) in &params {
+            let _ = st.core.override_parameter(id, *value);
+        }
+    } else {
+        // action 未激活：清除所有可能由 action 写入的 override 参数，
+        // 防止上一轮 action 的 stale 值卡死在 final_override 层。
+        // ParamMouthOpenY 在 input 层由 lip_sync 写入，此处仅清 override，
+        // 不影响收入同步。
+        for id in ACTION_PARAM_IDS {
+            let _ = st.core.clear_override_parameter(id);
         }
     }
 
@@ -662,5 +687,68 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         super::status(&line);
         // 重置统计窗，准备下一轮 500ms 累计。
         state.borrow_mut().hud.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// nod 动作在 t=0.25（波峰）时 ParamAngleX 应非零且等于最大值 12.0。
+    /// wave = sin(π/2) = 1.0，value = 12.0 * 1.0 * 1.0 = 12.0。
+    #[test]
+    fn nod_peak_at_quarter_time() {
+        let params = action_params("nod", 0.25, 1.0);
+        assert_eq!(params.len(), 1, "nod 应驱动恰好一个参数");
+        assert_eq!(params[0].0, "ParamAngleX");
+        assert!(params[0].1.abs() > 1e-5, "t=0.25 时 nod 值应非零");
+        assert!((params[0].1 - 12.0).abs() < 1e-5, "t=0.25 时 nod 应达到峰值 12.0");
+    }
+
+    /// 所有已知动作在 t=0 与 t=1 时参数值均为 0（起止复位）。
+    #[test]
+    fn actions_reset_at_boundaries() {
+        for name in ["nod", "shake_no", "tilt", "look_around", "listen", "surprise"] {
+            for &t in &[0.0_f32, 1.0] {
+                let params = action_params(name, t, 1.0);
+                for (_, v) in &params {
+                    assert!(
+                        v.abs() < 1e-5,
+                        "{name} t={t} 时值应为 0，实际 {v}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 未知动作名返回空参数列表。
+    #[test]
+    fn unknown_action_returns_empty() {
+        assert!(action_params("unknown", 0.5, 1.0).is_empty());
+    }
+
+    /// 强度倍率 m 正比缩放所有参数值。
+    #[test]
+    fn strength_scales_values() {
+        let weak = action_params("nod", 0.25, 0.6);
+        let strong = action_params("nod", 0.25, 1.5);
+        assert!((weak[0].1 - 12.0 * 0.6).abs() < 1e-5);
+        assert!((strong[0].1 - 12.0 * 1.5).abs() < 1e-5);
+    }
+
+    /// ACTION_PARAM_IDS 覆盖所有动作可能写入的参数。
+    #[test]
+    fn action_param_ids_covers_all_actions() {
+        use std::collections::HashSet;
+        let set: HashSet<&str> = ACTION_PARAM_IDS.iter().copied().collect();
+        for name in ["nod", "shake_no", "tilt", "look_around", "listen", "surprise"] {
+            let params = action_params(name, 0.5, 1.0);
+            for (id, _) in &params {
+                assert!(
+                    set.contains(id),
+                    "{name} 写入的参数 {id} 不在 ACTION_PARAM_IDS 中"
+                );
+            }
+        }
     }
 }
