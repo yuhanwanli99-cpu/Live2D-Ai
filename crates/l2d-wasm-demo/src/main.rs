@@ -147,6 +147,9 @@ mod web {
         core.set_viewport(config.width, config.height)
             .map_err(|e| format!("视口设置失败：{e}"))?;
 
+        // 捕获 layout 初始 transform，供 set_transform 每帧在其基础上叠加用户缩放/平移。
+        let layout_transform = core.transform();
+
         // 先取尺寸副本（config 即将移入共享态）。
         let (width, height) = (config.width, config.height);
         let state: SharedState = Rc::new(RefCell::new(surface::FrameState {
@@ -160,6 +163,7 @@ mod web {
             validation_streak: 0,
             hud: surface::HudState::default(),
             bridge: surface::BridgeState::default(),
+            last_layout_transform: layout_transform,
         }));
         install_resize_handler(&state);
 
@@ -493,8 +497,8 @@ mod web {
     fn start_render_loop(state: SharedState) {
         let slot: FrameSlot = Rc::new(RefCell::new(None));
         let slot_for_closure = Rc::clone(&slot);
-        *slot.borrow_mut() = Some(Closure::new(move |_timestamp_ms: f64| {
-            surface::tick(&slot_for_closure, &state);
+        *slot.borrow_mut() = Some(Closure::new(move |timestamp_ms: f64| {
+            surface::tick(&slot_for_closure, &state, timestamp_ms);
         }));
         schedule_frame(&slot);
     }

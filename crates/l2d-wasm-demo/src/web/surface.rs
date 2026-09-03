@@ -18,6 +18,7 @@
 
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
+use glam::f32::{Affine2, Vec2};
 use l2d::renderer::{FIXED_DT_60HZ, GpuContext, ModelRendererCore};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{HtmlCanvasElement, Window};
@@ -28,6 +29,13 @@ use crate::web::net::js_str;
 /// HUD 统计窗口长度（ms）。500ms 刷新一次 DOM，远低于每帧刷屏成本；
 /// 同时能覆盖足够多的帧样本估出稳定 FPS。
 const HUD_INTERVAL_MS: f64 = 500.0;
+
+/// 口型音量显示衰减时间常数（ms）。
+/// `volume_display *= exp(-dt_ms / TAU_MS)` —— 衰减到 37% 需时 TAU_MS。
+/// 160ms 使普通语速下的音节尖端自然衰落，避免高帧率（240fps）下口型
+/// 死板硬扣音量峰值。该时间常数与帧率无关：60fps 与 240fps 分别给出
+/// `exp(-16.67/160)≈0.902` 与 `exp(-4.17/160)≈0.974`，总衰减速率一致。
+const TAU_MS: f64 = 160.0;
 
 /// 创建 Canvas surface 并协商设备/格式/尺寸（WebGPU 优先，WebGL2 回退）。
 ///
@@ -235,6 +243,10 @@ pub(crate) struct FrameState {
     /// 运行时 HUD 统计（adapter 固定在首次写入时快照，其余每 500ms 刷新）。
     pub(crate) hud: HudState,
     pub bridge: BridgeState,
+    /// load_model 后立即捕获的 layout 初始 transform（Affine2）。
+    /// 每帧 set_transform 都在此基础上右乘用户缩放/平移，保持 layout 构图
+    /// 不变，仅叠加交互变换。
+    pub(crate) last_layout_transform: Affine2,
 }
 
 /// 运行时性能 HUD 统计态。
@@ -253,6 +265,9 @@ pub(crate) struct HudState {
     last_cpu_ms: f64,
     adapter_line: Option<String>,
     last_fps: f64,
+    /// 上一帧 rAF 时间戳（performance.now()，毫秒）。用于计算真实帧间 dt。
+    /// None 表示首帧，dt 使用 FIXED_DT_60HZ 兜底。
+    last_frame_ms: Option<f64>,
 }
 
 impl Default for HudState {
@@ -268,6 +283,7 @@ impl Default for HudState {
             last_cpu_ms: 0.0,
             adapter_line: None,
             last_fps: 0.0,
+            last_frame_ms: None,
         }
     }
 }
@@ -381,7 +397,7 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
 /// - `Timeout` / `Occluded` → 静默跳过本帧；
 ///   `Validation` → 首次提示后跳过本帧、连续第二次命中视为 fatal 并停循环
 ///   （见 P0-2-2 裁决）。
-pub(crate) fn tick(slot: &FrameSlot, state: &SharedState) {
+pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
     // P0-2a-3：固定 dt 步进姿态/物理 → 每帧应用 bridge 状态 → 取 texture → render/present。
     {
         let mut st = state.borrow_mut();
@@ -391,8 +407,21 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState) {
         }
     }
 
+    // 计算真实帧间隔 dt（毫秒）：用于 dt 归一化的口型衰减。
+    // 第一次调用（last_frame_ms == None）用 FIXED_DT 兜底 16.67ms。
+    // 然后记录本帧时间，供下帧计算。
+    let dt_millis = {
+        let mut st = state.borrow_mut();
+        let dt = match st.hud.last_frame_ms {
+            Some(prev) if prev > 0.0 && now_ms > prev => now_ms - prev,
+            _ => FIXED_DT_60HZ as f64 * 1000.0,
+        };
+        st.hud.last_frame_ms = Some(now_ms);
+        dt
+    };
+
     // bridge 状态 → 可见效果（口型/动作/缩放/背景），独立借用窗口。
-    apply_bridge_effects(state);
+    apply_bridge_effects(state, dt_millis);
 
     let mut st = state.borrow_mut();
     let keep_going = match st.surface.get_current_texture() {
@@ -495,16 +524,25 @@ pub(crate) fn action_params(name: &str, t: f32, m: f32) -> Vec<(&'static str, f3
 
 /// P0-2a-3：每帧把 bridge 状态应用为可见效果（口型/动作/缩放/背景）。
 /// 由 `tick` 在 `core.update` 后、渲染前调用。
-pub(crate) fn apply_bridge_effects(state: &SharedState) {
+///
+/// `dt_millis`：真实帧间隔（毫秒），用于 dt 归一化的口型衰减，避免高帧率
+///（如 240fps）下口型/动作"动得飞快"。
+pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     let now_ms = web_sys::window()
         .and_then(|w| w.performance())
         .map(|p| p.now())
         .unwrap_or(0.0);
-    // 先 immutable borrow：衰减音量显示、判定动画是否结束、取出 clone 值。
-    let (apply_mouth, apply_action, scale, dark) = {
+    // 先 immutable borrow：dt 归一化口型衰减、判定动画是否结束、取出 clone 值。
+    let (apply_mouth, apply_action, scale, offset_x, offset_y, dark) = {
         let mut st = state.borrow_mut();
-        // 口型衰减：display = volume.max(display*0.85)
-        st.bridge.volume_display = st.bridge.volume.max(st.bridge.volume_display * 0.85);
+        // 口型衰减（dt 归一化）：volume_display *= exp(-dt_ms / TAU_MS)
+        // 再取 max(volume, ...) 保持峰值不掉落。
+        // 该公式与帧率无关：60fps 与 240fps 衰减速率一致
+        //   60fps:  exp(-16.67/160) ≈ 0.902
+        //   240fps: exp(-4.17/160) ≈ 0.974
+        // 二者单帧衰减不同，但*速率*相同——这是正确的物理行为。
+        let decay = (-dt_millis / TAU_MS).exp();
+        st.bridge.volume_display = st.bridge.volume.max(st.bridge.volume_display * decay as f32);
         // 动画结束判定：t>=1 清除 Action（end 帧也会写入 None，这里兜底）。
         if let Some(a) = &st.bridge.action
             && now_ms - a.started_ms >= a.duration_ms
@@ -515,10 +553,12 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
             st.bridge.lip_sync.then(|| st.bridge.volume_display),
             st.bridge.action.clone(),
             st.bridge.scale,
+            st.bridge.offset_x,
+            st.bridge.offset_y,
             st.bridge.dark,
         )
     };
-    // 后 mutable borrow：写入 core 参数 + canvas CSS。
+
     let mut st = state.borrow_mut();
 
     // 口型（lip_sync on 且 volume>0.01）：ParamMouthOpenY；静音写 0 收口。
@@ -553,56 +593,31 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
         }
     }
 
-    // 缩放 + 平移（CSS 层，避 GPU 重分配）。
+    // 缩放 + 平移（模型级逻辑变换，背景不受影响）。
     //
-    // 方案说明：`ModelRendererCore` 公开 `set_transform(Affine2)`，但 `Affine2`
-    // 来自 `glam`，而 `l2d-wasm-demo` 未把 `glam` 列为直接依赖（且本次任务仅允
-    // 许改动 `main.rs`/`surface.rs`，不能改 `Cargo.toml`），因此在 `surface.rs`
-    // 里无法构造 `Affine2` 值来写入逻辑变换 → **放弃方案 A（l2d transform API）**。
-    // 走 **方案 C**：在 canvas CSS 层做缩放与平移。
+    // 方案 A（l2d `set_transform(Affine2)`）：
+    // `ModelRendererCore::set_transform` 直接设 `self.transform`（模型逻辑变换），
+    // 渲染时 `aspect_fit_transform(viewport) * self.transform` 叠加 —— 这已是
+    // layout_transform 初始值的基础上进行额外变换，背景 clear color 与 canvas
+    // 尺寸完全不受影响，实现"仅模型缩放"。
     //
-    // 可视性问题：原实现单靠 `transform: scale()` 视觉无效，因为 canvas CSS 尺寸
-    // 钉在 `100%`（index.html），缩放后 overflow 的内容被裁剪。修法：
-    //  1) 赋予 canvas 显式的 CSS 宽/高 = 基准宽高 × scale，使「缩放后的盒子」
-    //     真实变动（而非 100%）→ 放大/缩小立即可见；
-    //  2) `position: absolute` 脱离文档流，`left/top` 用 `50% - 盒子一半 + offset`
-    //     居中并平移（50% 相对于存放盒 #stage，非 canvas 自身）。
-    // 背景色沿用原语义。
-    let style = st.canvas.style();
-    // 基准 CSS 宽高 = 绘制缓冲的物理宽高除以 DPR cap（与 canvas_pixel_size 的
-    // 逆运算），二者乘 scale 即为放缩后的显示尺寸。
-    let dpr = st.window.device_pixel_ratio().clamp(1.0, DPR_CAP) as f32;
-    let base_w_css = (st.config.width as f32) / dpr;
-    let base_h_css = (st.config.height as f32) / dpr;
-    let css_w = base_w_css * scale;
-    let css_h = base_h_css * scale;
-    // scale 与 pan 统一写一组内联样式（覆盖 index.html 的 width:100%/height:100%）。
-    let _ = style.set_property("position", "absolute");
-    // 居中 + 平移：left/top 用 50% - 盒子一半 + offset，50% 相对于存放
-    // 盒（#stage）而非 canvas 自身，避免与缩放后的自身尺寸套嵌。
-    // offset 单位 = CSS 像素。
-    let ox = st.bridge.offset_x;
-    let oy = st.bridge.offset_y;
-    let _ = style.set_property("width", &format!("{css_w:.3}px"));
-    let _ = style.set_property("height", &format!("{css_h:.3}px"));
-    let _ = style.set_property(
-        "left",
-        &format!(
-            "calc(50% - {half_w:.3}px + {ox}px)",
-            half_w = css_w * 0.5,
-            ox = ox
-        ),
-    );
-    let _ = style.set_property(
-        "top",
-        &format!(
-            "calc(50% - {half_h:.3}px + {oy}px)",
-            half_h = css_h * 0.5,
-            oy = oy
-        ),
-    );
+    // 关键：`set_transform` 是赋值（替换整个 transform 字段），不是累乘。
+    // 因此 tick 每帧都必须在 `last_layout_transform`（load_model 后一次性捕获
+    // 的 layout 初始值）基础上右乘用户缩放/平移，才能保持 layout 构图
+    // 不变，仅叠加用户交互。
+    //
+    // offset_x/offset_y 存储的 CSS 像素单位，直接作为 NDC 平移分量
+    // （bridge comment 声明"已换算为 NDC"），scale 作用于模型自身以
+    //   画布中心为锚。
+    let base = st.last_layout_transform;
+    let tx = Affine2::from_scale(Vec2::splat(scale))
+        * Affine2::from_translation(Vec2::new(offset_x, offset_y));
+    st.core.set_transform(base * tx);
+
+    // 背景色：仅 canvas CSS background-color，与模型 viewport 清空色
+    // (wgpu::Color::TRANSPARENT) 独立，缩放不影响背景。
     let bg = if dark { "#101418" } else { "#e8ecf1" };
-    let _ = style.set_property("background-color", bg);
+    let _ = st.canvas.style().set_property("background-color", bg);
 }
 
 /// 渲染一帧并 present。返回 `false` 表示致命错误、应停止循环。
