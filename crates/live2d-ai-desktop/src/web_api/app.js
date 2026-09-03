@@ -130,6 +130,14 @@ const BUILTIN_ACTIONS = [
   ["歪头","live2d_perform_action_tilt"],["环视","live2d_perform_action_look_around"],
   ["倾听","live2d_perform_action_listen"],["惊讶","live2d_perform_action_surprise"],
 ];
+// cmdId → iframe bridge action id（英文 id）映射。
+// 取自 BUILTIN_ACTIONS 的 command id 后缀；未命中则原样回传 cmdId。
+// 例：live2d_perform_action_nod → nod ; live2d_perform_action_tilt → tilt
+function cmdIdToStageAction(cmdId) {
+  if (!cmdId) return "";
+  const m = cmdId.match(/live2d_perform_action_(.+)$/);
+  return m ? m[1] : cmdId;
+}
 function resolveActions() {
   const cap = state.capabilities;
   const names = cap && cap.actions && cap.actions.length ? cap.actions : null;
@@ -169,20 +177,46 @@ function renderActions() {
 }
 async function invokeAction(name, cmdId) {
   const strength = strengthOf(name);
+  const actionId = cmdIdToStageAction(cmdId); // 映射到 iframe bridge action id（英文 id）
   try {
     await api("POST", "/api/v1/commands/" + encodeURIComponent(cmdId) + "/invoke", { strength });
+    // bridge 通知：动作开始 → 800ms 后发送结束（v1 固定时长 end）。
+    postToStage({ type: "action-state", action: actionId, state: "start", strength });
+    setTimeout(() => { postToStage({ type: "action-state", action: actionId, state: "end", strength }); }, 800);
     toast("试演 " + name + "：已发送（strength=" + strength + "）", "ok");
   } catch (e) {
     toast("试演 " + name + " 失败：" + (e.error ? e.error.code + "：" + e.error.message : e.message), "err");
   }
 }
+// ---- iframe bridge 发送 helper ----
+// 规范化 postMessage 到 live2d-frame iframe；统一判 iframe 存在 + contentWindow 可用 + try/catch。
+// chat.js 通过 window.postToStage 复用（见 chat.js 尾部 window 挂载）。
+function postToStage(msg) {
+  try {
+    const frame = els.live2dFrame;
+    if (!frame || !frame.contentWindow) return false;
+    frame.contentWindow.postMessage(msg, "*");
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+window.postToStage = postToStage; // 供 chat.js（独立 IIFE）复用，避免硬依赖
+
 // ---- 外观与舞台 ----
 function postStageConfig() {
-  const frame = els.live2dFrame;
-  if (!frame || !frame.contentWindow) return;
-  frame.contentWindow.postMessage({ type: "stage-config", scale: state.appearance.scale, dark: state.appearance.dark, lipSync: state.appearance.lipSync }, "*");
+  postToStage({ type: "stage-config", scale: state.appearance.scale, dark: state.appearance.dark, lipSync: state.appearance.lipSync });
 }
 function bindAppearance() {
+  // P0-5 标注：三控件对应渲染端 bridge 未就绪，标记 data-pending 并提示文案。
+  const pendingCtrls = [els.appScale, els.appBgDark, els.appLipSyncToggle];
+  pendingCtrls.forEach((c) => { if (c) c.setAttribute("data-pending", "renderer bridge"); });
+  if (els.appLipSyncToggle && els.appLipSyncToggle.parentNode) {
+    // 更新相邻 field-meta 文案为诚实标注（而非假装完成）。
+    const parent = els.appLipSyncToggle.parentNode;
+    const meta = parent.querySelector(".field-meta");
+    if (meta) meta.textContent = "已发送至渲染端（接收侧 P0-2a 交付后生效）";
+  }
   if (!els.appScale) return;
   const clamp = (v) => Math.max(0.5, Math.min(1.5, v));
   const setLs = (k, v) => localStorage.setItem("dsh.app." + k, String(v));
@@ -239,8 +273,12 @@ function renderModels() {
 }
 async function activateModel(id) {
   try {
-    await api("POST", "/api/v1/models/" + encodeURIComponent(id) + "/activate", {});
+    const resp = await api("POST", "/api/v1/models/" + encodeURIComponent(id) + "/activate", {});
     toast("已设为当前：" + id, "ok");
+    // bridge 通知：加载模型。url 构造规则 v1：/models/<id>/runtime/<id>.model3.json
+    // 若 activate 响应含路径字段（model_url / url），优先用响应值。
+    const modelUrl = (resp && (resp.model_url || resp.url)) || "/models/" + encodeURIComponent(id) + "/runtime/" + encodeURIComponent(id) + ".model3.json";
+    postToStage({ type: "load-model", url: modelUrl });
   } catch (e) {
     toast("激活失败：" + (e.error ? e.error.code + "：" + e.error.message : e.message), "err");
   }
