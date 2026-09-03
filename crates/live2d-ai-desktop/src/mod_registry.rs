@@ -285,12 +285,32 @@ impl ModRegistry {
         self.enable(id)
     }
 
+    /// enable 前注入 config（存在时先 reload_config 再 enable）。
+    ///
+    /// 用于 HTTP `POST /api/v1/mods/{id}/enable` 的 body 透传：
+    /// 前端可在 enable 时同时下发 config，host 先写入 config 再启动 Mod
+    ///（`start_one` 读取 `entries[id].config`），避免「enable 后再 POST
+    /// /config 再 restart」的两步操作。
+    pub fn enable_with_config(
+        &mut self,
+        id: &'static str,
+        config: serde_json::Value,
+    ) -> Result<(), ModError> {
+        self.reload_config(id, config)?;
+        self.enable(id)
+    }
+
     #[allow(dead_code)]
     #[rustfmt::skip]
     pub fn reload_config(&mut self, id: &'static str, config: serde_json::Value) -> Result<(), ModError> {
         let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
         e.config = config;
         Ok(())
+    }
+
+    /// 查询指定 Mod 是否已启用（供 web API 路由判断 config 更新后是否 restart）。
+    pub fn is_enabled(&self, id: &'static str) -> bool {
+        self.entries.get(id).map(|e| e.enabled).unwrap_or(false)
     }
 
     /// 状态观察（Mod 管理 UI）。
@@ -597,6 +617,57 @@ mod tests {
         }
         assert!(cleared, "on_event 失败后 runtime 槽位应被清空");
         assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}")); // 二次 dispatch 不 panic。
+    }
+
+    // ------------------------------------------------------- enable_with_config test
+
+    thread_local! {
+        /// ConfigCaptureMod 把 factory.create 收到的 config 写到此处。
+        static CAPTURED_CONFIG: std::cell::RefCell<Option<serde_json::Value>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    #[rustfmt::skip]
+    struct ConfigCaptureMod;
+    impl ModFactory for ConfigCaptureMod {
+        fn descriptor(&self) -> &'static ModDescriptor {
+            static D: ModDescriptor = ModDescriptor {
+                id: "config_capture",
+                name: "ConfigCapture",
+                version: "0.1.0",
+                api_version: 1,
+            };
+            &D
+        }
+        fn create(
+            &self,
+            _: ModServices,
+            config: serde_json::Value,
+        ) -> Result<Box<dyn ModRuntime>, ModError> {
+            CAPTURED_CONFIG.with(|c| *c.borrow_mut() = Some(config));
+            Ok(Box::new(ConfigCaptureRuntime))
+        }
+    }
+    struct ConfigCaptureRuntime;
+    impl ModRuntime for ConfigCaptureRuntime {
+        fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+            Ok(())
+        }
+    }
+    static CONFIG_FACTORIES: &[&dyn ModFactory] = &[&ConfigCaptureMod];
+
+    /// enable_with_config 应在 start_one 之前写入 config，使 factory.create
+    /// 收到注入的 config。
+    #[rustfmt::skip]
+    #[test]
+    fn enable_with_config_passes_config_to_runtime() {
+        CAPTURED_CONFIG.with(|c| c.borrow_mut().take()); // 清残留。
+        let mut reg = ModRegistry::new(CONFIG_FACTORIES, &serde_json::json!({}));
+        let injected = serde_json::json!({"key": "value", "n": 42});
+        reg.enable_with_config("config_capture", injected.clone()).expect("enable_with_config");
+        // enable_with_config 会调用 start_one → factory.create 捕获 config。
+        let got = CAPTURED_CONFIG.with(|c| c.borrow().clone());
+        assert_eq!(got.as_ref(), Some(&injected), "factory.create 应收到注入的 config，got {got:?}");
     }
 
     // ------------------------------------------------------- HostChannels tests

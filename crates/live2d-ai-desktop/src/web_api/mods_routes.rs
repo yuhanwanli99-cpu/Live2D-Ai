@@ -125,8 +125,9 @@ pub fn handle_mods_route(
         ));
     }
 
-    // 执行操作：借出 id（body 在本路由仅作占位，不消费）。
-    let _ = body;
+    // 执行操作：借出 id。
+    // - "enable"：body 可选携带 `{"config":{...}}`，有则 enable_with_config。
+    // - "config"：body 必须携带 `{"config":{...}}`，reload_config + (enabled 则 restart)。
     // enable/disable/restart 的 id 参数是 `&'static str`：Box::leak 转换。
     // 未知 id 在 registry 内部以 ModError::Other 返回，下文映射为 404。
     let id_static: &'static str = Box::leak(id.to_string().into_boxed_str());
@@ -134,8 +135,83 @@ pub fn handle_mods_route(
         .mod_registry
         .lock()
         .expect("mod_registry mutex poisoned");
+
+    // "config" action：提前处理（需要解析 body + 可能二次锁定 registry）。
+    if action == "config" {
+        // POST /api/v1/mods/{id}/config：body 必须 `{"config":{...}}`。
+        let parsed = match serde_json::from_str::<serde_json::Value>(body) {
+            Ok(v) => v,
+            Err(e) => {
+                drop(registry);
+                return Some(json_error(
+                    StatusCode(400),
+                    "bad_request",
+                    format!("无效 JSON body：{e}"),
+                ));
+            }
+        };
+        let Some(config) = parsed.get("config") else {
+            drop(registry);
+            return Some(json_error(
+                StatusCode(400),
+                "bad_request",
+                "body 必须包含 \"config\" 字段".to_string(),
+            ));
+        };
+        let enabled = registry.is_enabled(id_static);
+        let reload_result = registry.reload_config(id_static, config.clone());
+        drop(registry);
+        match reload_result {
+            Ok(()) => {
+                if enabled {
+                    // 立即 restart 使 config 生效。
+                    let mut reg2 = ctx
+                        .mod_registry
+                        .lock()
+                        .expect("mod_registry mutex poisoned");
+                    match reg2.restart(id_static) {
+                        Ok(()) => {
+                            return Some(ok_response(
+                                StatusCode(200),
+                                r#"{"ok":true,"restarted":true}"#,
+                            ));
+                        }
+                        Err(e) => {
+                            return Some(json_error(
+                                StatusCode(409),
+                                "mod_error",
+                                format!("reload 成功但 restart 失败：{e}"),
+                            ));
+                        }
+                    }
+                }
+                return Some(ok_response(
+                    StatusCode(200),
+                    r#"{"ok":true,"enabled":false}"#,
+                ));
+            }
+            Err(live2d_ai_mod_system::ModError::Other(_)) => {
+                return Some(json_error(
+                    StatusCode(404),
+                    "not_found",
+                    format!("Mod {id} 不在注册表"),
+                ));
+            }
+            Err(e) => {
+                return Some(json_error(StatusCode(409), "mod_error", e.to_string()));
+            }
+        }
+    }
+
     let result = match action {
-        "enable" => registry.enable(id_static),
+        "enable" => {
+            // body 可选 `{"config":{...}}`。
+            let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+            match parsed.as_ref().and_then(|v| v.get("config")) {
+                Some(config) => registry.enable_with_config(id_static, config.clone()),
+                None => registry.enable(id_static),
+            }
+        }
         "disable" => registry.disable(id_static),
         "restart" => registry.restart(id_static),
         _ => {
@@ -262,5 +338,57 @@ mod tests {
         let _ = reader.read_to_string(&mut s);
         assert!(s.contains("\"mods\""), "body = {s}");
         assert!(s.contains("[]"), "body = {s}");
+    }
+
+    /// POST /api/v1/mods/{id}/config 路由匹配测试。
+    /// - 空 registry 时 reload_config 返回 Other → 404。
+    #[test]
+    fn config_route_match_unknown_id_returns_404() {
+        let sec = SecurityContext::new(18099, true);
+        let ctx = dummy_ctx(sec);
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/nope/config",
+            r#"{"config":{"a":1}}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(404));
+    }
+
+    /// POST /api/v1/mods/{id}/config：无效 JSON → 400。
+    #[test]
+    fn config_route_bad_json_returns_400() {
+        let sec = SecurityContext::new(18099, true);
+        let ctx = dummy_ctx(sec);
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/nope/config",
+            r#"not json"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(400));
+    }
+
+    /// POST /api/v1/mods/{id}/config：缺少 config 字段 → 400。
+    #[test]
+    fn config_route_missing_config_returns_400() {
+        let sec = SecurityContext::new(18099, true);
+        let ctx = dummy_ctx(sec);
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/nope/config",
+            r#"{"other":"value"}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(400));
     }
 }

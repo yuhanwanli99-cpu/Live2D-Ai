@@ -127,7 +127,7 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
             let sup_for_say = Arc::clone(supervisor);
             let sup_for_reload = Arc::clone(supervisor);
             let cfg_path_for_settings = config_path.clone();
-            ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}))
+            ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &mods_manifest_for_web())
                 .with_host_channels(crate::mod_registry::HostChannels {
                     trigger_action: Arc::new(move |req| {
                         let Some(id) = crate::mod_registry::parse_action_id(req.action) else {
@@ -218,7 +218,7 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
             println!(
                 "web: 无 supervisor，ModRegistry 以 no-op HostChannels 启动（Mod action 会被丢弃）"
             );
-            ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}))
+            ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &mods_manifest_for_web())
         }
     };
     let mut registry = registry;
@@ -371,6 +371,27 @@ pub fn config_path_for_web() -> String {
         return p.display().to_string();
     }
     "live2d-ai.toml".to_string()
+}
+
+/// Mod manifest：`<config_dir>/mods.json`（不存在 = 空 manifest，向后兼容）。
+///
+/// 格式：`{"mods":{"<id>":{"enabled":bool,"config":{...}}}}`
+///
+/// - 路径 = `config_path_for_web()` 所在目录的 `mods.json`
+///   （即 `live2d-ai.toml` 同目录；web 模式下 config_path 可能来自 cwd
+///   或 `~/.config/live2d-ai/`）。
+/// - 不存在文件 = `{}`（`ModRegistry::new` 用 `parse_mod_config` 解读，
+///   空 manifest 使全部 Mod 保持禁用 —— 向后兼容）。
+fn mods_manifest_for_web() -> serde_json::Value {
+    let dir = std::path::Path::new(&config_path_for_web())
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let path = dir.join("mods.json");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
 }
 
 /// 回收 supervisor 线程：server 退出后取回所有权并 join。
