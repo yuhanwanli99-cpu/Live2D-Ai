@@ -9,15 +9,16 @@
 <body>
 
 <header class="topbar">
+  <span class="logo-dot"></span>
   <h1>Live2D-Ai</h1>
   <span class="ver" id="ver">v…</span>
-  <span class="stat"><span class="dot idle" id="dot"></span><span id="conn">连接中…</span></span>
+  <span class="stat"><span class="pill"><span class="dot idle" id="dot"></span><span id="conn">连接中…</span></span></span>
   <span class="stat">WS: <span id="wsBadge" class="status">—</span></span>
   <span class="stat">LLM: <span id="llmBadge" class="status">—</span></span>
   <span class="stat">TTS: <span id="ttsBadge" class="status">—</span></span>
   <span style="flex:1"></span>
-  <button class="secondary" id="btnRefresh">刷新</button>
-  <button id="btnSettings" class="secondary" aria-label="打开设置">⚙</button>
+  <button class="icon-btn" id="btnRefresh" title="刷新">↻</button>
+  <button class="icon-btn" id="btnSettings" aria-label="打开设置" title="设置">⚙</button>
 </header>
 
 <main class="app-layout">
@@ -25,6 +26,11 @@
   <section id="live2d-display" class="live2d-display">
     <iframe id="live2d-frame" src="/render" title="Live2D 渲染"
       allow="accelerometer; autoplay" style="border:0;width:100%;height:100%;"></iframe>
+    <div class="stage-toolbar" id="stageToolbar">
+      <button class="stage-btn" id="btnZoomIn"  title="放大">＋</button>
+      <button class="stage-btn" id="btnZoomOut" title="缩小">－</button>
+      <button class="stage-btn" id="btnResetView" title="复位视角">⟲</button>
+    </div>
   </section>
 
   <!-- 右 35%：对话面板 -->
@@ -63,7 +69,7 @@
   <div class="settings-content">
 
   <section id="grp-appearance" class="settings-group">
-    <h2>外观与舞台</h2>
+    <h2 class="group-title">外观与舞台</h2>
     <section class="card">
       <h2>舞台配置（本地预览）</h2>
       <label>模型缩放 <span class="field-meta">0.5–1.5（步 0.05）</span></label>
@@ -81,7 +87,7 @@
   </section>
 
   <section id="grp-ai" class="settings-group">
-    <h2>AI 与语音</h2>
+    <h2 class="group-title">AI 与语音</h2>
 
     <section class="card">
       <h2>LLM 配置</h2>
@@ -113,7 +119,7 @@
   </section>
 
   <section id="grp-status" class="settings-group">
-    <h2>系统状态</h2>
+    <h2 class="group-title">系统状态</h2>
     <section class="card">
       <h2>运行状态</h2>
       <dl class="kv">
@@ -133,7 +139,7 @@
   </section>
 
   <section id="grp-character" class="settings-group">
-    <h2>角色</h2>
+    <h2 class="group-title">角色</h2>
     <section class="card">
       <h2>系统提示词</h2>
       <label>system_prompt</label>
@@ -142,7 +148,7 @@
   </section>
 
   <section id="grp-actions" class="settings-group">
-    <h2>动作与互动</h2>
+    <h2 class="group-title">动作与互动</h2>
     <p class="field-meta">已接通（动作经 core 仲裁 + 渲染端表演）</p>
     <p class="field-meta">需要运行中的 supervisor 与已加载模型</p>
     <section class="card">
@@ -152,7 +158,7 @@
   </section>
 
   <section id="grp-models" class="settings-group">
-    <h2>模型管理</h2>
+    <h2 class="group-title">模型管理</h2>
     <div class="row buttons">
       <button class="secondary" id="btnRefreshModels">刷新</button>
       <span class="status" id="modelsStatus">就绪</span>
@@ -163,7 +169,7 @@
   </section>
 
   <section id="grp-system" class="settings-group">
-    <h2>开发者</h2>
+    <h2 class="group-title">开发者</h2>
     <div id="grp-logs">
       <label class="checkbox">
         <input type="checkbox" id="devMode">
@@ -181,7 +187,7 @@
   </section>
 
   <section id="grp-mods" class="settings-group">
-    <h2>Mod 管理</h2>
+    <h2 class="group-title">Mod 管理</h2>
     <p class="field-meta">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建应用。</p>
     <p class="field-meta">local-llm/local-tts 需本机装有 ollama/kokoroi-rs；启用后自动探测并写入 LLM/TTS 设置（externally_managed 可外管）</p>
     <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>

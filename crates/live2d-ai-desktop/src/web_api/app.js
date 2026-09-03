@@ -36,6 +36,8 @@ const els = {
   appLipSyncToggle: $("appLipSyncToggle"), live2dFrame: $("live2d-frame"),
   modelsList: $("modelsList"), btnRefreshModels: $("btnRefreshModels"),
   modelsStatus: $("modelsStatus"),
+  stageToolbar: $("stageToolbar"), btnZoomIn: $("btnZoomIn"),
+  btnZoomOut: $("btnZoomOut"), btnResetView: $("btnResetView"),
 };
 
 const STATUS_POLL_MS = 5000;
@@ -612,6 +614,10 @@ els.btnRefresh.addEventListener("click", loadAll);
 els.btnReloadLogs.addEventListener("click", refreshLogs);
 // 外观与舖控件绑定（本地状态 + postMessage）。
 bindAppearance();
+// A1: 舞台缩放/复位悬浮控制条 → postToStage({type:"stage-zoom",dir})。
+if (els.btnZoomIn) els.btnZoomIn.addEventListener("click", () => postToStage({ type: "stage-zoom", dir: "in" }));
+if (els.btnZoomOut) els.btnZoomOut.addEventListener("click", () => postToStage({ type: "stage-zoom", dir: "out" }));
+if (els.btnResetView) els.btnResetView.addEventListener("click", () => postToStage({ type: "stage-zoom", dir: "reset" }));
 // 模型管理按钮绑定。
 if (els.btnRefreshModels) els.btnRefreshModels.addEventListener("click", loadModels);
 
