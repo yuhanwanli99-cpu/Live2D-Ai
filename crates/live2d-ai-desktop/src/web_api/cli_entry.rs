@@ -125,6 +125,8 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         Some(supervisor) => {
             let sup_for_actions = Arc::clone(supervisor);
             let sup_for_say = Arc::clone(supervisor);
+            let sup_for_reload = Arc::clone(supervisor);
+            let cfg_path_for_settings = config_path.clone();
             ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}))
                 .with_host_channels(crate::mod_registry::HostChannels {
                     trigger_action: Arc::new(move |req| {
@@ -146,6 +148,70 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                         sup_for_actions.trigger_action(act)
                     }),
                     say: Arc::new(move |t| sup_for_say.say(t)),
+                    // P0-4 真实闭环：Mod 探测就绪后通过 event_tx 发送
+                    // `{"__apply_settings":true,"patch":{...}}`，这里复用
+                    // settings_routes 的 PATCH 内核完成写盘 + supervisor.reload。
+                    apply_settings: Arc::new(move |patch_json: serde_json::Value| {
+                        use live2d_ai_runtime::settings::patch::SettingsPatch;
+                        use live2d_ai_runtime::AppSettings;
+                        // patch_json 是 namespaced JSON（如 {"llm":{"base_url":...}}），
+                        // 反序列化为 SettingsPatch 三态结构。
+                        let patch: SettingsPatch =
+                            match serde_json::from_value(patch_json) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    tracing::error!(target: "mod", "apply_settings patch 反序列化失败: {e}");
+                                    return false;
+                                }
+                            };
+                        // 读取当前 settings，应用 patch，写盘。
+                        let current = match AppSettings::load_from_path(&cfg_path_for_settings) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::error!(target: "mod", "apply_settings 读取当前配置失败: {e}");
+                                return false;
+                            }
+                        };
+                        let (next, outcome) = match live2d_ai_runtime::settings::patch::apply_patch(&current, &patch) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                tracing::error!(target: "mod", "apply_settings apply_patch 失败: {e}");
+                                return false;
+                            }
+                        };
+                        // 只有真正变更才写盘。
+                        if !matches!(outcome, live2d_ai_runtime::settings::patch::PatchOutcome::Updated) {
+                            tracing::info!(target: "mod", "apply_settings 无变更，跳过写盘");
+                            // 即使无变更，也触发 reload 让 supervisor 重读（探活确认）。
+                            sup_for_reload.reload();
+                            return true;
+                        }
+                        let toml_text = next.to_toml_string();
+                        let target = std::path::Path::new(&cfg_path_for_settings);
+                        if let Some(parent) = target.parent()
+                            && !parent.as_os_str().is_empty()
+                        && let Err(e) = std::fs::create_dir_all(parent)
+                        {
+                            tracing::error!(target: "mod", "apply_settings create_dir_all 失败: {e}");
+                            return false;
+                        }
+                        let tmp = match live2d_ai_runtime::settings::patch::plan_atomic_write(target, &toml_text) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                tracing::error!(target: "mod", "apply_settings plan_atomic_write 失败: {e}");
+                                return false;
+                            }
+                        };
+                        if let Err(e) = std::fs::rename(&tmp, target) {
+                            let _ = std::fs::remove_file(&tmp);
+                            tracing::error!(target: "mod", "apply_settings rename 失败: {e}");
+                            return false;
+                        }
+                        tracing::info!(target: "mod", "apply_settings 写盘成功，触发 supervisor.reload()");
+                        sup_for_reload.reload();
+                        true
+                    }),
+                    config_path: config_path.clone(),
                 })
         }
         None => {

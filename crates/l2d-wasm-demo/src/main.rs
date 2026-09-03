@@ -271,17 +271,15 @@ mod web {
                         wasm_bindgen_futures::spawn_local(async move {
                             status("切换模型中…");
                             match window {
-                                Some(win) => {
-                                    match load_model_from_url(&win, &url).await {
-                                        Ok(loaded) => {
-                                            match reload_state.borrow_mut().core.load_model(&loaded) {
-                                                Ok(()) => status("模型已切换"),
-                                                Err(e) => status(&format!("渲染核心换模型失败：{e}")),
-                                            }
+                                Some(win) => match load_model_from_url(&win, &url).await {
+                                    Ok(loaded) => {
+                                        match reload_state.borrow_mut().core.load_model(&loaded) {
+                                            Ok(()) => status("模型已切换"),
+                                            Err(e) => status(&format!("渲染核心换模型失败：{e}")),
                                         }
-                                        Err(e) => status(&format!("切换失败: {e}")),
                                     }
-                                }
+                                    Err(e) => status(&format!("切换失败: {e}")),
+                                },
                                 None => status("切换失败: 无 window 对象"),
                             }
                         });

@@ -496,20 +496,26 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
                 let _ = st.core.override_parameter("ParamAngleY", wave * 14.0 * m);
             }
             "tilt" => {
-                let _ = st.core
+                let _ = st
+                    .core
                     .override_parameter("ParamAngleZ", (t * std::f32::consts::PI).sin() * 10.0 * m);
             }
             "look_around" => {
-                let _ = st.core
-                    .override_parameter("ParamAngleX", (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m);
+                let _ = st.core.override_parameter(
+                    "ParamAngleX",
+                    (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m,
+                );
             }
             "listen" => {
-                let _ = st.core
+                let _ = st
+                    .core
                     .override_parameter("ParamAngleZ", 8.0 * m * (1.0 - t));
             }
             "surprise" => {
-                let _ = st.core
-                    .override_parameter("ParamMouthOpenY", (t * std::f32::consts::PI).sin() * 0.8 * m);
+                let _ = st.core.override_parameter(
+                    "ParamMouthOpenY",
+                    (t * std::f32::consts::PI).sin() * 0.8 * m,
+                );
             }
             _ => {}
         }

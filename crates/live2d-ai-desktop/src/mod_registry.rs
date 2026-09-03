@@ -49,6 +49,23 @@ pub struct HostChannels {
     pub trigger_action: Arc<dyn Fn(ActionRequest) -> bool + Send + Sync>,
     /// 文本 → supervisor.say（主链路）
     pub say: Arc<dyn Fn(String) -> bool + Send + Sync>,
+    /// **P0-4 真实闭环**：本地 Mod（local-llm / local-tts）探测到服务就绪后，
+    /// 通过此通道把探测到的 `base_url` / `model` / `voice` 写回 runtime settings
+    ///（复用 settings PATCH 语义：`{"llm":{"base_url":...,"model":...}}`），
+    /// 写盘成功后 host 触发 `supervisor.reload()` —— 形成「spawn → 探活 → 写
+    /// 配置 → 热重载」的真实闭环，而非仅凭 TCP 探活。
+    ///
+    /// 参数为 namespaced JSON patch 体（对应 `SettingsPatch` 的 JSON 形态）；
+    /// host 复用 `settings_routes::handle_patch` 内核完成「apply_patch →
+    /// plan_atomic_write → fs::rename → reload」全链。返回 `true` 表示写盘
+    /// 成功（或无变更），`false` 表示写盘失败。
+    ///
+    /// `config_path` 来自 [`HostChannels::config_path`] —— host 在构造时
+    /// 注入真实 `live2d-ai.toml` 路径，Mod 无需感知文件位置。
+    pub apply_settings: Arc<dyn Fn(serde_json::Value) -> bool + Send + Sync>,
+    /// 真实 `live2d-ai.toml` 路径（host 注入；供 Mod 在 apply_settings 失败时
+    /// 记录精确落盘目标，不再探测文件系统）。
+    pub config_path: String,
 }
 
 /// 把 `ActionRequest.action`（`&'static str`，如 `"nod"`）映射为 `ActionId`。
@@ -197,9 +214,11 @@ impl ModRegistry {
     }
 
     #[rustfmt::skip]
-    fn make_services(&self, _mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
+    fn make_services(&self, mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
         let host = self.host.clone();
         let trigger_action = host.as_ref().map(|h| h.trigger_action.clone());
+        let apply_settings = host.as_ref().map(|h| h.apply_settings.clone());
+        let config_path = host.as_ref().map(|h| h.config_path.clone()).unwrap_or_default();
         ModServices::new(
             // ActionRequest → host.trigger_action（固定映射进 core 仲裁）
             ModActionSender::new(move |req| match &trigger_action {
@@ -208,8 +227,34 @@ impl ModRegistry {
             }),
             // SaySender 保持现有 say(t)
             SaySender::new(move |t| say(t)),
-            // Mod→host 方向 v1 日志汇：保留现有 logger 行为，但先 tracing::info! 记录 topic/payload
-            ModEventSender::new(|topic, payload| {
+            // Mod→host event：P0-4 真实闭环 —— 拦截 `payload` 中携带
+            // `"__apply_settings": true` 的 JSON，提取 `patch` 字段经
+            // `apply_settings` 写盘 + reload。其他事件按 v1 行为透传日志。
+            ModEventSender::new(move |topic, payload| {
+                let Some(apply) = apply_settings.as_ref() else {
+                    tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
+                    return true;
+                };
+                let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
+                    tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
+                    return true;
+                };
+                let has_marker = json
+                    .get("__apply_settings")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if has_marker
+                    && let Some(patch) = json.get("patch")
+                {
+                    let ok = apply(patch.clone());
+                    tracing::info!(
+                        target: "mod",
+                        mod_id, config_path,
+                        "P0-4 apply_settings {}: patch={}",
+                        if ok { "success" } else { "failed" }, patch
+                    );
+                    return ok;
+                }
                 tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
                 true
             }),
@@ -574,6 +619,8 @@ mod tests {
                     true
                 }),
                 say: Arc::new(|_| true),
+                apply_settings: Arc::new(|_| true),
+                config_path: String::new(),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         // action_tx 从 TestActionRuntime 捕获到全局。
@@ -610,6 +657,8 @@ mod tests {
                     recorded.lock().unwrap().push(t);
                     true
                 }),
+                apply_settings: Arc::new(|_| true),
+                config_path: String::new(),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let text = "hello from mod".to_string();
