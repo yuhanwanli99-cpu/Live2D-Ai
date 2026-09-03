@@ -82,3 +82,13 @@
 - [ ] **P0-4** local-llm/tts 写 runtime settings + reload + 真实 API 探测 + externally_managed
 - [ ] **P0-5** 未接通 UI 诚实标注/隐藏
 - 验收：缩放滑块画面即变 / 切背景即变 / 出声口型动 / 点 nod 模型点头 / 激活模型 iframe 换载 / Mod 启用后 settings 被真实更新。全部通过才打 `p3-integrity`。
+
+## P3 真实性收口（dev/integrity 分支）✅ 已 tag `p3-integrity`
+
+- P0-1 release WASM+HighPerformance+DPR+HUD（`p3-p01`）
+- P0-2a-1/2/3 bridge 数据层/listener/可见效果（`p3-p02a-1/2/3`）+ P0-2b 发送侧（`p3-p02b`）
+- P0-3 HostChannels 真接线（`p3-p03`；动作→core 仲裁 LlmTool 固定档）
+- P0-4 local 推理真实闭环（`p3-p04`；真 HTTP 探测→写 settings→reload；externally_managed）
+- P0-5 诚实标注（`p3-p05`）
+- 门禁：20 组/746 passed/0 失败；fmt/clippy/rust-ratio PASS；冒烟 home/render/wasm 200 + 5 Mod
+- 待人类真机验收（5 条可见标准）：缩放滑块画面变 / 切背景变 / 出声口型动 / 点 nod 模型点头 / 激活模型换载；需真实 LLM+TTS 端点
