@@ -25,6 +25,10 @@ use web_sys::{HtmlCanvasElement, Window};
 use super::status;
 use crate::web::net::js_str;
 
+/// HUD 统计窗口长度（ms）。500ms 刷新一次 DOM，远低于每帧刷屏成本；
+/// 同时能覆盖足够多的帧样本估出稳定 FPS。
+const HUD_INTERVAL_MS: f64 = 500.0;
+
 /// 创建 Canvas surface 并协商设备/格式/尺寸（WebGPU 优先，WebGL2 回退）。
 ///
 /// 回退语义由 wgpu 承担：instance 同时声明 `BROWSER_WEBGPU | GL` 后端，
@@ -53,7 +57,12 @@ pub(crate) async fn init_gpu(
         .map_err(|e| format!("创建 surface 失败：{e}"))?;
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
+            // Live2D 主展示路径：优先独显 / 高性能 adapter。
+            // 双显卡 Windows 上，LowPower 让浏览器选核显，导致帧率下降；
+            // HighPerformance 走 NVIDIA/AMD 独显，才能承担实时 moc3 渲染 +
+            // IK 骨骼计算。（PowerPreference 只是 Hint，浏览器仍可据电源与
+            // 用户设定覆写——这里只表达“愿选性能优的”。）
+            power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         })
@@ -119,9 +128,35 @@ pub(crate) fn backend_label(adapter: &wgpu::Adapter) -> String {
     format!("{:?} ({})", info.backend, info.name)
 }
 
+/// 供 HUD 展示用的 adapter 原始信息：
+/// - `backend`：wgpu 后端枚举（Vulkan/Dx12/Metal/Gl/BrowserWebGpu …）；
+/// - `name`：adapter 设备名（如 `NVIDIA GeForce RTX 5060`）；
+/// - `is_webgpu`：是否走浏览器原生 WebGPU 路径（BrowserWebGpu => true，
+///   Gl => WebGL2 回退 => false）。
+pub(crate) fn adapter_info(adapter: &wgpu::Adapter) -> (wgpu::Backend, String, bool) {
+    let info = adapter.get_info();
+    (
+        info.backend,
+        info.name.clone(),
+        info.backend == wgpu::Backend::BrowserWebGpu,
+    )
+}
+
 /// CSS 像素 × devicePixelRatio = 期望的物理画布尺寸（至少 1×1）。
+///
+/// **DPR 钳制**（C4 裁决 v1）：物理像素 = CSS 尺寸 × `min(dpr, 1.5)`。
+/// 全面屏 / 高 DPI 屏的 dpr 常达 2–3，裸采会把像素数翻到 4–9 倍，压垮
+/// WebGPU 着色器与 16ms 预算——Live2D 的骨骼 IK + 多层混合已是瓶颈。
+/// 钢鞥 1.5 可在锐度与性能间取平衡：
+///   - Performance 0.75：像素数最少，最省 GPU，适应旧设备；
+///   - Balanced 1.0  ：dpr 钳至 1.0，1:1 渲染，中等清晰度；
+///   - Quality 1.5  ：当前默认 cap，钝化 2 以上高 DPI 冗余像素。
+///
+/// v1 不暴露 UI 档位，固定 1.5 cap；如后需切换等级，改 `DPR_CAP` 即可。
+const DPR_CAP: f64 = 1.5;
 pub(crate) fn canvas_pixel_size(canvas: &HtmlCanvasElement, window: &Window) -> (u32, u32) {
-    let dpr = window.device_pixel_ratio().max(1.0);
+    // 钳 dpr 到 [1, DPR_CAP]，保证最小 1 倍（HiDPI 缩放也得有下限）。
+    let dpr = window.device_pixel_ratio().clamp(1.0, DPR_CAP);
     let css_w = canvas.client_width().max(0) as f64;
     let css_h = canvas.client_height().max(0) as f64;
     let width = ((css_w * dpr).round() as u32).max(1);
@@ -143,6 +178,91 @@ pub(crate) struct FrameState {
     /// `>= 2` 时判定为 fatal、写状态栏并停 rAF 调度，避免 GPU 校验错误
     /// 状态下无限重试。任意非 Validation 取帧结果会清零。
     pub(crate) validation_streak: u8,
+    /// 运行时 HUD 统计（adapter 固定在首次写入时快照，其余每 500ms 刷新）。
+    pub(crate) hud: HudState,
+}
+
+/// 运行时性能 HUD 统计态。
+///
+/// 生命周期：rAF 循环内逐帧累积，错峰 500ms 刷屏一次 DOM。
+/// - `window_start`：当前统计窗起点（performance.now()）；
+/// - `frame_count`：本窗内已渲染帧数；
+/// - `cpu_time_sum`：本窗内 CPU 渲染耗时总和（ms），滑动求平均帧耗时；
+/// - `last_cpu_ms`：最近一次渲染耗时（ms），用于实时反馈；
+/// - `adapter_line`：adapter 信息快照（一次性写入）；
+/// - `pending`/`due`：500ms 刷新节拍标记。
+pub(crate) struct HudState {
+    window_start: f64,
+    frame_count: u32,
+    cpu_time_sum: f64,
+    last_cpu_ms: f64,
+    adapter_line: Option<String>,
+    last_fps: f64,
+}
+
+impl Default for HudState {
+    fn default() -> Self {
+        let now = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(0.0);
+        Self {
+            window_start: now,
+            frame_count: 0,
+            cpu_time_sum: 0.0,
+            last_cpu_ms: 0.0,
+            adapter_line: None,
+            last_fps: 0.0,
+        }
+    }
+}
+
+impl HudState {
+    /// 一次性写入 adapter 信息（在 init_gpu 后、rAF 启动前调用）。
+    pub(crate) fn snapshot_adapter(
+        &mut self,
+        backend: wgpu::Backend,
+        adapter_name: &str,
+        is_webgpu: bool,
+    ) {
+        // WebGPU 原生路 → "WebGPU"；GL 回退 → "WebGL2"。
+        let api = if is_webgpu { "WebGPU" } else { "WebGL2" };
+        self.adapter_line = Some(format!("{backend}/{api} ({adapter_name})"));
+    }
+
+    /// 记录一帧 CPU 渲染耗时（由 render_and_present 调用）。
+    pub(crate) fn record_frame(&mut self, cpu_ms: f64) {
+        self.frame_count = self.frame_count.saturating_add(1);
+        self.cpu_time_sum += cpu_ms;
+        self.last_cpu_ms = cpu_ms;
+    }
+
+    /// 是否到了 500ms 刷新 DOM 的时机。
+    pub(crate) fn due(&self) -> bool {
+        let now = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(0.0);
+        now - self.window_start >= HUD_INTERVAL_MS
+    }
+
+    /// 刷新统计窗：结算当前 FPS/CPU 均值，重置计数器。
+    pub(crate) fn flush(&mut self) {
+        let elapsed = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(self.window_start + HUD_INTERVAL_MS)
+            - self.window_start;
+        if elapsed > 0.0 && self.frame_count > 0 {
+            self.last_fps = (self.frame_count as f64 / elapsed) * 1000.0;
+        }
+        self.window_start = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(self.window_start + HUD_INTERVAL_MS);
+        self.frame_count = 0;
+        self.cpu_time_sum = 0.0;
+    }
 }
 
 pub(crate) type SharedState = Rc<RefCell<FrameState>>;
@@ -273,6 +393,9 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState) {
 
     drop(st);
     if keep_going {
+        // 错峰 500ms 刷新一次 HUD（DOM 写操作），再重新调度下一帧。
+        // write_hud_if_due/clone 已完成的 state borrow，新 borrow 互不冲突。
+        write_hud_if_due(state);
         crate::web::schedule_frame(slot);
     }
 }
@@ -287,15 +410,77 @@ pub(crate) fn render_and_present(st: &mut FrameState, frame: wgpu::SurfaceTextur
     let view = frame
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
+    // CPU frame time：只统计提交命令缓冲所用时，排除了取 texture / present
+    // 本身（后者由浏览器在合成线程完成）。这里衡量的是 JS↔GPU 命令桥开销，
+    // 也就是骨骼 IK + draw 提交的本地开销——最能反馈渲染核心热点的指标。
+    let t0 = performance_now();
     match st.core.render_to_view_submit(&view, st.config.format) {
         Ok(submission) => {
             let _ = submission; // 可选：记录 last_submission 供错误状态栏
             frame.present();
+            let cpu_ms = performance_now() - t0;
+            st.hud.record_frame(cpu_ms);
             true
         }
         Err(e) => {
+            // 统计失败不计入 FPS：本帧未真正渲染出像素。
             status(&format!("停止渲染循环：render_to_view_submit 失败：{e}"));
             false
         }
+    }
+}
+
+/// `performance.now()` 封装（wasm 单线程，不存在时回 0）。
+fn performance_now() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map(|p| p.now())
+        .unwrap_or(0.0)
+}
+
+/// 每 500ms 刷新一次运行时 HUD（adapter / canvas / dpr / FPS / cpu ms）。
+/// 由 `tick` 在错峰内调用，避免每帧刷 DOM。
+pub(crate) fn write_hud_if_due(state: &SharedState) {
+    // 先 immutable borrow 读数据；错峰判定与 DOM 写完成后 drop，再 mut borrow 重置窗。
+    let (due, line) = {
+        let st = state.borrow();
+        if !st.hud.due() {
+            return;
+        }
+        // canvas CSS 尺寸 × DPR cap = 物理尺寸。
+        let css_w = st.canvas.client_width().max(0);
+        let css_h = st.canvas.client_height().max(0);
+        let dpr = st.window.device_pixel_ratio().clamp(1.0, DPR_CAP);
+        let (phys_w, phys_h) = (st.config.width, st.config.height);
+        let adapter_line = st
+            .hud
+            .adapter_line
+            .clone()
+            .unwrap_or_else(|| "<adapter unknown>".to_owned());
+        // 本窗 CPU 均值 ms / 帧。
+        let cpu_ms = if st.hud.frame_count > 0 {
+            st.hud.cpu_time_sum / st.hud.frame_count as f64
+        } else {
+            0.0
+        };
+        (
+            true,
+            format!(
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms",
+                adapter_line = adapter_line,
+                css_w = css_w,
+                css_h = css_h,
+                dpr = dpr,
+                phys_w = phys_w,
+                phys_h = phys_h,
+                fps = st.hud.last_fps,
+                cpu = cpu_ms,
+            ),
+        )
+    };
+    if due {
+        super::status(&line);
+        // 重置统计窗，准备下一轮 500ms 累计。
+        state.borrow_mut().hud.flush();
     }
 }

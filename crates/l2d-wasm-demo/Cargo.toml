@@ -30,6 +30,7 @@ web-sys = { version = "0.3", features = [
     "EventTarget",
     "HtmlCanvasElement",
     "Location",
+    "Performance",
     "Response",
     "UrlSearchParams",
     "Window",

@@ -61,7 +61,7 @@ mod web {
     pub(crate) mod net;
     pub(crate) mod surface;
 
-    use surface::{FrameSlot, SharedState, backend_label, init_gpu, install_resize_handler};
+    use surface::{FrameSlot, SharedState, adapter_info, init_gpu, install_resize_handler};
 
     /// 缺省模型清单 URL：约定宿主在 `/models/<...>` 暴露用户合法持有的皮套
     /// （挂载方式见本 crate README）；本仓库不内置、不分发任何模型资产。
@@ -146,12 +146,20 @@ mod web {
             window: window.clone(),
             warned_validation: false,
             validation_streak: 0,
+            hud: surface::HudState::default(),
         }));
         install_resize_handler(&state);
 
+        // 一次性快照 adapter 信息到 HUD（供 500ms 周期内反复渲染）。
+        let (backend, adp_name, is_webgpu) = adapter_info(&adapter);
+        state
+            .borrow_mut()
+            .hud
+            .snapshot_adapter(backend, &adp_name, is_webgpu);
+
+        let api = if is_webgpu { "WebGPU" } else { "WebGL2" };
         status(&format!(
-            "{summary}\nGPU 后端：{}；画布 {width}x{height}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
-            backend_label(&adapter),
+            "{summary}\nGPU: {backend}/{api} ({adp_name})；画布 {width}x{height}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
         ));
 
         start_render_loop(state);

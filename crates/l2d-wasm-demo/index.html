@@ -34,9 +34,13 @@
         margin: 0;
         padding: 8px 12px;
         max-height: 10em;
+        max-width: 100%;
         overflow: auto;
-        white-space: pre-wrap;
-        word-break: break-all;
+        /* 运行时 HUD 为单行紧凑指标：pre 禁止换行、长行横向滚动；
+           加载阶段的多行文本依然允许换行。 */
+        white-space: pre;
+        word-break: keep-all;
+        font-family: ui-monospace, "SF Mono", "Courier New", monospace;
         font-size: 12px;
         line-height: 1.5;
         color: #9fd0a0;
