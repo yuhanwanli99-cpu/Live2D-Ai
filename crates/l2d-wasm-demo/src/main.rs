@@ -57,6 +57,11 @@ mod web {
     use l2d::renderer::{FIXED_DT_60HZ, ModelRendererCore};
     use wasm_bindgen::{JsCast, JsValue, closure::Closure};
     use web_sys::{HtmlCanvasElement, MessageEvent};
+    // 交互属性（movementX/clientX/deltaY/button 等）通过 js_sys::Reflect 读取，
+    // 绕过 web-sys 需额外开启 PointerEvent/WheelEvent 特征的限制（本 crate 仅
+    // 允许改动 main.rs/surface.rs，故不改 Cargo.toml）。Reflect 在 js-sys
+    // default feature 即有（非 unstable 门控），`js_sys_unstable_apis` 默认 off。
+    use js_sys::Reflect;
 
     pub(crate) mod net;
     pub(crate) mod surface;
@@ -171,6 +176,7 @@ mod web {
         ));
 
         install_stage_bridge(&state);
+        install_stage_interaction(&state);
         start_render_loop(state);
         Ok(())
     }
@@ -221,7 +227,7 @@ mod web {
             match kind {
                 "stage-config" => {
                     if let Some(s) = v.get("scale").and_then(|x| x.as_f64()) {
-                        st.bridge.scale = (s as f32).clamp(0.5, 1.5);
+                        st.bridge.scale = (s as f32).clamp(0.5, 2.0);
                     }
                     if let Some(d) = v.get("dark").and_then(|x| x.as_bool()) {
                         st.bridge.dark = d;
@@ -295,7 +301,186 @@ mod web {
         closure.forget(); // 页面级 listener，长生命周期
     }
 
-    /// 启动自调度的 rAF 循环（标准 Rc<RefCell<Option<Closure>>> 递归持有模式）。
+    /// 鼠标/触控直接交互（py 版语义对齐）：
+    /// - **左键拖动** → 累加平移到 bridge.offset_x/offset_y（CSS 像素）；
+    /// - **滚轮** → 放大/缩小 bridge.scale（0.5..2.0，步进 1.1×，以视口中心为锚）；
+    /// - **双击** → 重置 scale=1.0 / offset=0；
+    /// - wheel 滑块发来的 stage-config.scale 写同一变量，故滚轮与滑块互不冲突。
+    ///
+    /// 监听器闭包以 `JsValue` 入参（`Closure<dyn FnMut(JsValue)>`），JS 在回调时把
+    /// DOM Event 当 JsValue 传进来；属性（movementX/clientX/deltaY/button/pointerId
+    /// 等）通过 `js_sys::Reflect` 读取。这绕过了 web-sys 的 PointerEvent/WheelEvent/
+    /// MouseEvent 需额外开启 crate feature 的限制（本 crate 仅允许改动 main.rs/
+    /// surface.rs，不改 Cargo.toml）。Reflect 属于 js-sys 默认 feature、不受
+    /// `js_sys_unstable_apis` 门控，故无需额外依赖。方法调用（preventDefault/
+    /// setPointerCapture）亦经 Reflect 取 Function 后 `.call0/.call1`，全部 `.ok()`
+    /// 容错，不 panic。listeners `forget()`（页面级，长生命周期），注册失败
+    /// `.is_ok()` 吞错不中断。
+    fn install_stage_interaction(state: &SharedState) {
+        let window = match web_sys::window() {
+            Some(w) => w,
+            None => return,
+        };
+        // 拖拽会话状态： dragging + 上上一帧鼠标位置（client 坐标，CSS 像素）。
+        #[derive(Clone, Copy, Default)]
+        struct DragState {
+            dragging: bool,
+            last_x: f64,
+            last_y: f64,
+        }
+        let drag: Rc<RefCell<DragState>> = Rc::new(RefCell::new(DragState::default()));
+
+        // 读取 JsValue 事件属性为 f64（失败默认 0）—— web-sys 的 PointerEvent/
+        // WheelEvent/MouseEvent 需额外开启 crate feature，本 crate 仅允许改动
+        // main.rs/surface.rs（不改 Cargo.toml），故用 js_sys::Reflect 绕行。
+        // 闭包以 `JsValue` 入参（`Closure<dyn FnMut(JsValue)>`），JS 把 DOM Event
+        // 传进来；Reflect 读字段，任何异常 `.ok()`/`.unwrap_or` 容错，不 panic。
+        // 用 `fn`（而非闭包）定义，以便多个 move 闭包共享使用（闭包非 Copy，
+        // 不能被多次 move 进不同的监听器）。
+        fn f64_field(ev: &JsValue, name: &str) -> f64 {
+            Reflect::get(ev, &JsValue::from_str(name))
+                .ok()
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0)
+        }
+        // 对 JsValue 对象调用无参方法（如 preventDefault）。
+        fn call0(ev: &JsValue, name: &str) {
+            let _ = (|| {
+                let m = Reflect::get(ev, &JsValue::from_str(name)).ok()?;
+                let f = m.dyn_into::<js_sys::Function>().ok()?;
+                let _ = f.call0(ev);
+                Some(())
+            })();
+        }
+        // 对 target 对象调用方法（如 setPointerCapture）。
+        fn call_on_target(ev: &JsValue, method: &str, pid: &JsValue) {
+            let _ = (|| {
+                let target = Reflect::get(ev, &JsValue::from_str("target")).ok()?;
+                let m = Reflect::get(&target, &JsValue::from_str(method)).ok()?;
+                let f = m.dyn_into::<js_sys::Function>().ok()?;
+                let _ = f.call1(&target, pid);
+                Some(())
+            })();
+        }
+
+        // pointerdown（button 0）
+        {
+            let drag = drag.clone();
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+                if f64_field(&ev, "button") != 0.0 {
+                    return;
+                }
+                let cx = f64_field(&ev, "clientX");
+                let cy = f64_field(&ev, "clientY");
+                {
+                    let mut d = drag.borrow_mut();
+                    d.dragging = true;
+                    d.last_x = cx;
+                    d.last_y = cy;
+                }
+                // set_pointer_capture(pointerId) — 鼠标离开 canvas 仍收获后续事件。
+                let pid = Reflect::get(&ev, &JsValue::from_str("pointerId"))
+                    .ok()
+                    .unwrap_or(JsValue::from(0.0));
+                call_on_target(&ev, "setPointerCapture", &pid);
+            });
+            if window
+                .add_event_listener_with_callback("pointerdown", closure.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                closure.forget();
+            }
+        }
+
+        // pointermove（dragging 时累加位移）
+        {
+            let st = state.clone();
+            let drag = drag.clone();
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+                if !drag.borrow().dragging {
+                    return;
+                }
+                let d = *drag.borrow();
+                // 优先 movementX/movementY（相对位移），回退到 client 差值。
+                let mx = f64_field(&ev, "movementX");
+                let my = f64_field(&ev, "movementY");
+                let (dx, dy) = if mx == 0.0 && my == 0.0 {
+                    let cx = f64_field(&ev, "clientX");
+                    let cy = f64_field(&ev, "clientY");
+                    (cx - d.last_x, cy - d.last_y)
+                } else {
+                    (mx, my)
+                };
+                {
+                    let mut st = st.borrow_mut();
+                    st.bridge.offset_x += dx as f32;
+                    st.bridge.offset_y += dy as f32;
+                }
+                // 更新锚点。
+                let mut d2 = drag.borrow_mut();
+                d2.last_x = f64_field(&ev, "clientX");
+                d2.last_y = f64_field(&ev, "clientY");
+            });
+            if window
+                .add_event_listener_with_callback("pointermove", closure.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                closure.forget();
+            }
+        }
+
+        // pointerup / pointercancel → 停止拖拽
+        {
+            let drag = drag.clone();
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |_ev: JsValue| {
+                drag.borrow_mut().dragging = false;
+            });
+            if window
+                .add_event_listener_with_callback("pointerup", closure.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                closure.forget();
+            }
+        }
+
+        // wheel → 缩放（deltaY<0 放大 ×1.1，>=0 时缩小 ÷1.1），钳 0.5..2.0。
+        {
+            let st = state.clone();
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+                let delta_y = f64_field(&ev, "deltaY");
+                let factor = if delta_y < 0.0 { 1.1_f32 } else { 1.0 / 1.1 };
+                {
+                    let mut st = st.borrow_mut();
+                    st.bridge.scale = (st.bridge.scale * factor).clamp(0.5, 2.0);
+                }
+                // 阻止页面滚动惯性。
+                call0(&ev, "preventDefault");
+            });
+            if window
+                .add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                closure.forget();
+            }
+        }
+
+        // dblclick → 重置 scale / offset
+        {
+            let st = state.clone();
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |_ev: JsValue| {
+                let mut st = st.borrow_mut();
+                st.bridge.scale = 1.0;
+                st.bridge.offset_x = 0.0;
+                st.bridge.offset_y = 0.0;
+            });
+            if window
+                .add_event_listener_with_callback("dblclick", closure.as_ref().unchecked_ref())
+                .is_ok()
+            {
+                closure.forget();
+            }
+        }
+    }
     fn start_render_loop(state: SharedState) {
         let slot: FrameSlot = Rc::new(RefCell::new(None));
         let slot_for_closure = Rc::clone(&slot);

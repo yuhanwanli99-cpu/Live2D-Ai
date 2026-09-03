@@ -168,8 +168,13 @@ pub(crate) fn canvas_pixel_size(canvas: &HtmlCanvasElement, window: &Window) -> 
 /// 首帧后由 main.rs 的 message listener 写入；rAF 循环每帧读取产生可见效果。
 #[derive(Clone)]
 pub(crate) struct BridgeState {
-    /// stage-config.scale（canvas CSS 缩放，默认 1.0）
+    /// stage-config.scale（滚轮/滑块缩放，0.5..2.0，默认 1.0）。
+    /// 应用为 ModelRendererCore 的逻辑变换缩放（以画布中心为锚）。
     pub scale: f32,
+    /// 左键拖动累计平移（NDC 单位，Default 0.0）。
+    /// 由 pointermove 在拖盘过程中写入，写入前已换算为 NDC。
+    pub offset_x: f32,
+    pub offset_y: f32,
     /// stage-config.dark（背景暗色，默认 true）
     pub dark: bool,
     /// stage-config.lipSync（口型开关，默认 true）
@@ -199,6 +204,8 @@ impl Default for BridgeState {
     fn default() -> Self {
         Self {
             scale: 1.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
             dark: true,
             lip_sync: true,
             volume: 0.0,
@@ -521,9 +528,46 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
         }
     }
 
-    // 缩放（CSS transform，避免 GPU 重分配）+ 背景暗色。
+    // 缩放 + 平移（CSS 层，避 GPU 重分配）。
+    //
+    // 方案说明：`ModelRendererCore` 公开 `set_transform(Affine2)`，但 `Affine2`
+    // 来自 `glam`，而 `l2d-wasm-demo` 未把 `glam` 列为直接依赖（且本次任务仅允
+    // 许改动 `main.rs`/`surface.rs`，不能改 `Cargo.toml`），因此在 `surface.rs`
+    // 里无法构造 `Affine2` 值来写入逻辑变换 → **放弃方案 A（l2d transform API）**。
+    // 走 **方案 C**：在 canvas CSS 层做缩放与平移。
+    //
+    // 可视性问题：原实现单靠 `transform: scale()` 视觉无效，因为 canvas CSS 尺寸
+    // 钉在 `100%`（index.html），缩放后 overflow 的内容被裁剪。修法：
+    //  1) 赋予 canvas 显式的 CSS 宽/高 = 基准宽高 × scale，使「缩放后的盒子」
+    //     真实变动（而非 100%）→ 放大/缩小立即可见；
+    //  2) `position: absolute` 脱离文档流 + `left/top` 做平移；
+    //  3) `transform-origin: 0 0` + `translate` 在绝对定位盒上滑动。
+    // 背景色沿用原语义。
     let style = st.canvas.style();
-    let _ = style.set_property("transform", &format!("scale({scale})"));
+    // 基准 CSS 宽高 = 绘制缓冲的物理宽高除以 DPR cap（与 canvas_pixel_size 的
+    // 逆运算），二者乘 scale 即为放缩后的显示尺寸。
+    let dpr = st.window.device_pixel_ratio().clamp(1.0, DPR_CAP) as f32;
+    let base_w_css = (st.config.width as f32) / dpr;
+    let base_h_css = (st.config.height as f32) / dpr;
+    let css_w = base_w_css * scale;
+    let css_h = base_h_css * scale;
+    // scale 与 pan 统一写一组内联样式（覆盖 index.html 的 width:100%/height:100%）。
+    let _ = style.set_property("position", "absolute");
+    // 居中 + 平移：left/top 用 50% - 盒子一半 + offset，50% 相对于存放
+    // 盒（#stage）而非 canvas 自身，避免与缩放后的自身尺寸套嵌。
+    // offset 单位 = CSS 像素。
+    let ox = st.bridge.offset_x;
+    let oy = st.bridge.offset_y;
+    let _ = style.set_property("width", &format!("{css_w:.3}px"));
+    let _ = style.set_property("height", &format!("{css_h:.3}px"));
+    let _ = style.set_property(
+        "left",
+        &format!("calc(50% - {half_w:.3}px + {ox}px)", half_w = css_w * 0.5, ox = ox),
+    );
+    let _ = style.set_property(
+        "top",
+        &format!("calc(50% - {half_h:.3}px + {oy}px)", half_h = css_h * 0.5, oy = oy),
+    );
     let bg = if dark { "#101418" } else { "#e8ecf1" };
     let _ = style.set_property("background-color", bg);
 }
