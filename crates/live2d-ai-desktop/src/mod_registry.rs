@@ -30,7 +30,32 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use live2d_ai_core::action::ActionId;
+use live2d_ai_mod_system::services::ActionRequest;
 use live2d_ai_mod_system::*;
+
+// ---------------------------------------------------------------- HostChannels
+
+/// Host 真实通道（构造 registry 时注入；动作经 host 固定映射进 core 仲裁）。
+///
+/// Mod → host 的真实回路（P0-3 前半）：`ActionRequest.action (&'static str)`
+/// 通过 [`parse_action_id`] 映射为 `ActionId`，然后构造 `SemanticAction`
+/// 经 `supervisor.trigger_action` 进入 core 仲裁；`say` 直通 supervisor.say。
+/// 来源固定为 `ActionSource::LlmTool`（Mod 动作固定优先级档——E0 ADR §2.1），
+/// 不暴露自定优先级、不绕过 core 仲裁。
+#[derive(Clone)]
+pub struct HostChannels {
+    /// ActionRequest → SemanticAction（固定映射） → supervisor.trigger_action
+    pub trigger_action: Arc<dyn Fn(ActionRequest) -> bool + Send + Sync>,
+    /// 文本 → supervisor.say（主链路）
+    pub say: Arc<dyn Fn(String) -> bool + Send + Sync>,
+}
+
+/// 把 `ActionRequest.action`（`&'static str`，如 `"nod"`）映射为 `ActionId`。
+/// 区分大小写严格匹配 `ActionId::name()` 输出；未知动作返回 `None`。
+pub fn parse_action_id(action: &str) -> Option<ActionId> {
+    ActionId::ALL.iter().find(|a| a.name() == action).copied()
+}
 
 /// worker 线程可安全访问的 per-Mod runtime 快照（ModRuntime: Send）.
 type SharedRuntime = Arc<Mutex<Option<Box<dyn ModRuntime>>>>;
@@ -73,6 +98,7 @@ pub struct ModRegistry {
     settings_specs: BTreeMap<&'static str, ModSettingsSpec>,
     say_source: Option<Arc<dyn Fn(String) -> bool + Send + Sync>>,
     runtimes: BTreeMap<&'static str, SharedRuntime>, // per-Mod runtime 槽位。
+    host: Option<HostChannels>,                      // P0-3 HostChannels（action + say 真实回路）。
 }
 
 impl ModRegistry {
@@ -114,7 +140,15 @@ impl ModRegistry {
             settings_specs: BTreeMap::new(),
             say_source: None,
             runtimes,
+            host: None,
         }
+    }
+
+    /// 注入 HostChannels（builder；cli_entry 链式调用）。
+    /// Host 固定映射 Mod action → SemanticAction::LlmTool 优先级档。
+    pub fn with_host_channels(mut self, host: HostChannels) -> Self {
+        self.host = Some(host);
+        self
     }
     pub fn start_all(&mut self) {
         let ids: Vec<_> = self
@@ -132,7 +166,9 @@ impl ModRegistry {
     fn start_one(&mut self, id: &'static str) {
         let Some(&factory) = self.factories.iter().find(|f| f.descriptor().id == id) else { return };
         let config = self.entries.get(id).map(|r| r.config.clone()).unwrap_or_default();
-        let say = self.say_source.clone().unwrap_or_else(|| Arc::new(|_: String| true));
+        let say = self.say_source.clone()
+            .or_else(|| self.host.as_ref().map(|h| h.say.clone()))
+            .unwrap_or_else(|| Arc::new(|_: String| true));
         match factory.create(self.make_services(id, say), config) {
             Ok(mut runtime) => {
                 let mut registrar = HostRegistrar { mod_id: id,
@@ -162,12 +198,23 @@ impl ModRegistry {
 
     #[rustfmt::skip]
     fn make_services(&self, _mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
-        ModServices::new(ModActionSender::new(|_| true), SaySender::new(move |t| say(t)),
-            ModEventSender::new(|_, _| true), ModLogger::new(|_lvl, msg| tracing::info!(target: "mod", "{}", msg)))
-    }
-    #[allow(dead_code)]
-    pub fn set_say_source(&mut self, say: Arc<dyn Fn(String) -> bool + Send + Sync>) {
-        self.say_source = Some(say);
+        let host = self.host.clone();
+        let trigger_action = host.as_ref().map(|h| h.trigger_action.clone());
+        ModServices::new(
+            // ActionRequest → host.trigger_action（固定映射进 core 仲裁）
+            ModActionSender::new(move |req| match &trigger_action {
+                Some(f) => f(req),
+                None => { tracing::debug!(target:"mod", "no host channel: action {} dropped", req.action); false }
+            }),
+            // SaySender 保持现有 say(t)
+            SaySender::new(move |t| say(t)),
+            // Mod→host 方向 v1 日志汇：保留现有 logger 行为，但先 tracing::info! 记录 topic/payload
+            ModEventSender::new(|topic, payload| {
+                tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
+                true
+            }),
+            ModLogger::new(|_lvl, msg| tracing::info!(target: "mod", "{}", msg)),
+        )
     }
 
     #[rustfmt::skip]
@@ -402,6 +449,44 @@ mod tests {
         assert_eq!(c["port"], 1);
     }
 
+    // ------------------------------------------------------- HostChannels tests
+
+    thread_local! {
+        /// TestActionRuntime 把创建时的 ModServices 存进来，供测试直接调用。
+        static CAPTURED_SERVICES: std::cell::RefCell<Option<ModServices>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// TestActionMod：捕获 ModServices 给测试直调 action_tx / say_tx。
+    #[rustfmt::skip]
+    struct TestActionMod;
+    impl ModFactory for TestActionMod {
+        fn descriptor(&self) -> &'static ModDescriptor {
+            static D: ModDescriptor = ModDescriptor {
+                id: "action_test",
+                name: "ActionTest",
+                version: "0.1.0",
+                api_version: 1,
+            };
+            &D
+        }
+        fn create(
+            &self,
+            services: ModServices,
+            _: serde_json::Value,
+        ) -> Result<Box<dyn ModRuntime>, ModError> {
+            CAPTURED_SERVICES.with(|c| *c.borrow_mut() = Some(services));
+            Ok(Box::new(TestActionRuntime))
+        }
+    }
+    struct TestActionRuntime;
+    impl ModRuntime for TestActionRuntime {
+        fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+            Ok(())
+        }
+    }
+    static ACTION_FACTORIES: &[&dyn ModFactory] = &[&TestActionMod];
+
     /// 事件送达测试：enable TestMod，start_all 后 dispatch_event，
     /// 轮询（最多 ~500ms）直到记录非空。
     #[rustfmt::skip]
@@ -467,5 +552,75 @@ mod tests {
         }
         assert!(cleared, "on_event 失败后 runtime 槽位应被清空");
         assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}")); // 二次 dispatch 不 panic。
+    }
+
+    // ------------------------------------------------------- HostChannels tests
+
+    /// HostChannels action 回路测试：启用 TestActionMod，获取其 services.action_tx，
+    /// 提交 ActionRequest("nod")，断言 host.trigger_action 记录到 Vec 含 "nod".
+    #[rustfmt::skip]
+    #[test]
+    fn action_request_reaches_host_channel() {
+        CAPTURED_SERVICES.with(|c| c.borrow_mut().take()); // 清上一轮残留。
+        let recorded: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorded_c = recorded.clone();
+        let mut reg = ModRegistry::new(
+                ACTION_FACTORIES,
+                &serde_json::json!({"mods":{"action_test":{"enabled":true}}}),
+            )
+            .with_host_channels(HostChannels {
+                trigger_action: Arc::new(move |req| {
+                    recorded.lock().unwrap().push(req.action.to_string());
+                    true
+                }),
+                say: Arc::new(|_| true),
+            });
+        reg.start_all(); // 触发 factory.create → 捕获 services。
+        // action_tx 从 TestActionRuntime 捕获到全局。
+        let req = ActionRequest {
+            mod_id: "action_test",
+            action: "nod",
+            strength: 2,
+        };
+        let sent = CAPTURED_SERVICES.with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|s| s.action_tx.request(req.clone()))
+                .unwrap_or(false)
+        });
+        assert!(sent, "ActionRequest 应被 host channel 接受");
+        let got = recorded_c.lock().unwrap().clone();
+        assert!(got.iter().any(|a| a == "nod"), "记录应含动作名 'nod'，got {got:?}");
+    }
+
+    /// HostChannels say 回路测试：提交文本，断言 host.say 记录到 Vec。
+    #[rustfmt::skip]
+    #[test]
+    fn say_reaches_host_channel() {
+        CAPTURED_SERVICES.with(|c| c.borrow_mut().take()); // 清上一轮残留。
+        let recorded: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorded_c = recorded.clone();
+        let mut reg = ModRegistry::new(
+                ACTION_FACTORIES,
+                &serde_json::json!({"mods":{"action_test":{"enabled":true}}}),
+            )
+            .with_host_channels(HostChannels {
+                trigger_action: Arc::new(|_| true),
+                say: Arc::new(move |t| {
+                    recorded.lock().unwrap().push(t);
+                    true
+                }),
+            });
+        reg.start_all(); // 触发 factory.create → 捕获 services。
+        let text = "hello from mod".to_string();
+        let sent = CAPTURED_SERVICES.with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|s| s.say_tx.say(text.clone()))
+                .unwrap_or(false)
+        });
+        assert!(sent, "say 应被 host channel 接受");
+        let got = recorded_c.lock().unwrap().clone();
+        assert!(got.iter().any(|t| t == "hello from mod"), "记录应含文本，got {got:?}");
     }
 }

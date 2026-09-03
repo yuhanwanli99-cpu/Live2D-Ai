@@ -80,20 +80,11 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     // 1) 构造 ServerContext（内部自带空 Broadcaster；后续若装配 supervisor，
     //    会**替换**为 emit 闭包用的同一实例——保证 WS 客户端与 supervisor
     //    共享订阅者集合）。
-    let mut ctx = ServerContext::new(settings, config_path.clone(), dev_mode_override)
-        // 1a) 装配 ModRegistry（节点 E5，2026-08-30）：用静态编译的
-        //     AVAILABLE_MOD_FACTORIES + manifest 配置；start_all() 启动 enabled Mod。
-        .with_mod_registry({
-            let mut reg = ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}));
-            reg.start_all();
-            println!(
-                "web: ModRegistry 已装配（注册 {} 个 Mod）",
-                crate::AVAILABLE_MOD_FACTORIES.len()
-            );
-            reg
-        });
+    let mut ctx = ServerContext::new(settings, config_path.clone(), dev_mode_override);
 
     // 2) 装配 supervisor（仅当配置文件存在且可解析）。
+    //    **先于 ModRegistry 启动**：registry 需把 supervisor 作为 HostChannels
+    //    回路注入；supervisor 持 Arc 副本供 HostChannels 闭包捕获。
     let supervisor_opt = if std::path::Path::new(&config_path).is_file() {
         // 把 ctx.broadcaster 借给 supervisor emit 闭包（避免双 Broadcaster）。
         match build_web_supervisor(&config_path, ctx.broadcaster.clone()) {
@@ -124,6 +115,53 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         println!("web: 无配置文件，跳过 supervisor 装配（纯控制平面）");
         None
     };
+
+    // 3) 装配 ModRegistry（节点 E5，2026-08-30）：用静态编译的
+    //    AVAILABLE_MOD_FACTORIES + manifest 配置；start_all() 启动 enabled Mod。
+    //    若 supervisor 已就绪，注入 HostChannels（P0-3 Mod→host 真实回路）：
+    //    ActionRequest → ActionId 固定映射 → supervisor.trigger_action；
+    //    say → supervisor.say。
+    let registry = match &supervisor_opt {
+        Some(supervisor) => {
+            let sup_for_actions = Arc::clone(supervisor);
+            let sup_for_say = Arc::clone(supervisor);
+            ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}))
+                .with_host_channels(crate::mod_registry::HostChannels {
+                    trigger_action: Arc::new(move |req| {
+                        let Some(id) = crate::mod_registry::parse_action_id(req.action) else {
+                            tracing::debug!(target: "mod", "未知 action '{}'", req.action);
+                            return false;
+                        };
+                        let Some(strength) = live2d_ai_core::Strength::from_level(req.strength)
+                        else {
+                            tracing::debug!(target: "mod", "非法 strength {}", req.strength);
+                            return false;
+                        };
+                        // Mod 动作固定映射为 LlmTool 档（host 固定优先级，不暴露自定）。
+                        let act = live2d_ai_core::SemanticAction::new(
+                            id,
+                            strength,
+                            live2d_ai_core::ActionSource::LlmTool,
+                        );
+                        sup_for_actions.trigger_action(act)
+                    }),
+                    say: Arc::new(move |t| sup_for_say.say(t)),
+                })
+        }
+        None => {
+            println!(
+                "web: 无 supervisor，ModRegistry 以 no-op HostChannels 启动（Mod action 会被丢弃）"
+            );
+            ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &serde_json::json!({}))
+        }
+    };
+    let mut registry = registry;
+    registry.start_all();
+    println!(
+        "web: ModRegistry 已装配 + 启动（注册 {} 个 Mod）",
+        crate::AVAILABLE_MOD_FACTORIES.len()
+    );
+    ctx = ctx.with_mod_registry(registry);
 
     match start_server(ctx.clone(), port) {
         Ok(addr) => {
