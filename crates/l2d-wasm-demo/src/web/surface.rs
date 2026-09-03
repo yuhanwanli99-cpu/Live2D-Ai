@@ -164,6 +164,41 @@ pub(crate) fn canvas_pixel_size(canvas: &HtmlCanvasElement, window: &Window) -> 
     (width, height)
 }
 
+/// iframe bridge 接收状态（P0-2a）：父页 postMessage → 可见效果。
+/// 首帧后由 main.rs 的 message listener 写入；rAF 循环每帧读取产生可见效果。
+pub(crate) struct BridgeState {
+    /// stage-config.scale（canvas CSS 缩放，默认 1.0）
+    pub scale: f32,
+    /// stage-config.dark（背景暗色，默认 true）
+    pub dark: bool,
+    /// stage-config.lipSync（口型开关，默认 true）
+    pub lip_sync: bool,
+    /// 最近 audio-volume（0..1；每 20ms 音频帧更新）
+    pub volume: f32,
+    /// 衰减后的口型显示值（rAF 每帧 volume_display = volume.max(volume_display*0.85)）
+    pub volume_display: f32,
+    /// 进行中的参数等效动画（action-state start 创建 / end 或 t>=1 结束）
+    pub action: Option<ActiveAction>,
+}
+
+/// 进行中的动作动画（无内置 motion 段时的参数等效实现）。
+pub(crate) struct ActiveAction {
+    /// 动作名（nod/shake_no/tilt/look_around/listen/surprise）
+    pub name: String,
+    /// 强度倍率（strength 1/2/3 → 0.6/1.0/1.5）
+    pub strength_mult: f32,
+    /// 开始时刻（performance.now() 毫秒）
+    pub started_ms: f64,
+    /// 动画时长（默认 800ms；end 帧提前结束）
+    pub duration_ms: f64,
+}
+
+impl Default for BridgeState {
+    fn default() -> Self {
+        Self { scale: 1.0, dark: true, lip_sync: true, volume: 0.0, volume_display: 0.0, action: None }
+    }
+}
+
 /// rAF 循环共享态：渲染核心 + surface + 配置 + 尺寸来源。
 pub(crate) struct FrameState {
     pub(crate) core: ModelRendererCore,
@@ -180,6 +215,7 @@ pub(crate) struct FrameState {
     pub(crate) validation_streak: u8,
     /// 运行时 HUD 统计（adapter 固定在首次写入时快照，其余每 500ms 刷新）。
     pub(crate) hud: HudState,
+    pub bridge: BridgeState,
 }
 
 /// 运行时性能 HUD 统计态。

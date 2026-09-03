@@ -2145,6 +2145,7 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "l2d",
+ "live2d-ai-core",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",

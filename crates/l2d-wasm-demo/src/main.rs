@@ -147,6 +147,7 @@ mod web {
             warned_validation: false,
             validation_streak: 0,
             hud: surface::HudState::default(),
+            bridge: surface::BridgeState::default(),
         }));
         install_resize_handler(&state);
 
