@@ -56,7 +56,7 @@ mod web {
     use l2d::model::LoadedModel;
     use l2d::renderer::{FIXED_DT_60HZ, ModelRendererCore};
     use wasm_bindgen::{JsCast, JsValue, closure::Closure};
-    use web_sys::HtmlCanvasElement;
+    use web_sys::{HtmlCanvasElement, MessageEvent};
 
     pub(crate) mod net;
     pub(crate) mod surface;
@@ -163,6 +163,7 @@ mod web {
             "{summary}\nGPU: {backend}/{api} ({adp_name})；画布 {width}x{height}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
         ));
 
+        install_stage_bridge(&state);
         start_render_loop(state);
         Ok(())
     }
@@ -192,6 +193,59 @@ mod web {
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "未知".to_owned()),
         )
+    }
+
+    /// 注册父页 → WASM 的 message listener（P0-2a-2）：4 类消息写入 bridge 状态。
+    /// rAF 循环（另一函数）每帧读取 bridge 产生可见效果。
+    fn install_stage_bridge(state: &SharedState) {
+        let handler_state = state.clone();
+        let closure = Closure::<dyn FnMut(MessageEvent)>::new(move |ev: MessageEvent| {
+            // data() → JsValue → String → serde_json::Value
+            let Some(text) = ev.data().as_string() else { return };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+            let Some(kind) = v.get("type").and_then(|t| t.as_str()) else { return };
+            let mut st = handler_state.borrow_mut();
+            match kind {
+                "stage-config" => {
+                    if let Some(s) = v.get("scale").and_then(|x| x.as_f64()) {
+                        st.bridge.scale = (s as f32).clamp(0.5, 1.5);
+                    }
+                    if let Some(d) = v.get("dark").and_then(|x| x.as_bool()) { st.bridge.dark = d; }
+                    if let Some(l) = v.get("lipSync").and_then(|x| x.as_bool()) { st.bridge.lip_sync = l; }
+                }
+                "audio-volume" => {
+                    if let Some(vol) = v.get("value").and_then(|x| x.as_f64()) {
+                        st.bridge.volume = (vol as f32).clamp(0.0, 1.0);
+                    }
+                }
+                "action-state" => {
+                    let action = v.get("action").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    let state_word = v.get("state").and_then(|x| x.as_str()).unwrap_or("");
+                    let strength_mult = match v.get("strength").and_then(|x| x.as_f64()).unwrap_or(2.0) as u8 {
+                        1 => 0.6, 3 => 1.5, _ => 1.0,
+                    };
+                    if state_word == "start" {
+                        let now = web_sys::window().map(|w| w.performance().map(|p| p.now()).unwrap_or(0.0)).unwrap_or(0.0);
+                        st.bridge.action = Some(surface::ActiveAction {
+                            name: action, strength_mult, started_ms: now, duration_ms: 800.0,
+                        });
+                    } else if state_word == "end" {
+                        st.bridge.action = None;
+                    }
+                }
+                "load-model" => {
+                    // URL 存入 status 提示；真实重载在 P0-2a-3 段实现（rAF/异步加载）。
+                    if let Some(url) = v.get("url").and_then(|x| x.as_str()) {
+                        status(&format!("收到换模型请求（P0-2a-3 实现重载）: {url}"));
+                    }
+                }
+                _ => {} // 未知类型忽略
+            }
+        });
+        if let Some(window) = web_sys::window() {
+            let _ = window.add_event_listener_with_callback("message", closure.as_ref().unchecked_ref());
+        }
+        closure.forget(); // 页面级 listener，长生命周期
     }
 
     /// 启动自调度的 rAF 循环（标准 Rc<RefCell<Option<Closure>>> 递归持有模式）。
