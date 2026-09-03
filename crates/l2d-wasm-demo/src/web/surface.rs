@@ -471,10 +471,10 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
         // 口型衰减：display = volume.max(display*0.85)
         st.bridge.volume_display = st.bridge.volume.max(st.bridge.volume_display * 0.85);
         // 动画结束判定：t>=1 清除 Action（end 帧也会写入 None，这里兜底）。
-        if let Some(a) = &st.bridge.action {
-            if now_ms - a.started_ms >= a.duration_ms {
-                st.bridge.action = None;
-            }
+        if let Some(a) = &st.bridge.action
+            && now_ms - a.started_ms >= a.duration_ms
+        {
+            st.bridge.action = None;
         }
         (
             st.bridge.lip_sync.then(|| st.bridge.volume_display),
@@ -540,8 +540,8 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
     // 钉在 `100%`（index.html），缩放后 overflow 的内容被裁剪。修法：
     //  1) 赋予 canvas 显式的 CSS 宽/高 = 基准宽高 × scale，使「缩放后的盒子」
     //     真实变动（而非 100%）→ 放大/缩小立即可见；
-    //  2) `position: absolute` 脱离文档流 + `left/top` 做平移；
-    //  3) `transform-origin: 0 0` + `translate` 在绝对定位盒上滑动。
+    //  2) `position: absolute` 脱离文档流，`left/top` 用 `50% - 盒子一半 + offset`
+    //     居中并平移（50% 相对于存放盒 #stage，非 canvas 自身）。
     // 背景色沿用原语义。
     let style = st.canvas.style();
     // 基准 CSS 宽高 = 绘制缓冲的物理宽高除以 DPR cap（与 canvas_pixel_size 的
@@ -562,11 +562,19 @@ pub(crate) fn apply_bridge_effects(state: &SharedState) {
     let _ = style.set_property("height", &format!("{css_h:.3}px"));
     let _ = style.set_property(
         "left",
-        &format!("calc(50% - {half_w:.3}px + {ox}px)", half_w = css_w * 0.5, ox = ox),
+        &format!(
+            "calc(50% - {half_w:.3}px + {ox}px)",
+            half_w = css_w * 0.5,
+            ox = ox
+        ),
     );
     let _ = style.set_property(
         "top",
-        &format!("calc(50% - {half_h:.3}px + {oy}px)", half_h = css_h * 0.5, oy = oy),
+        &format!(
+            "calc(50% - {half_h:.3}px + {oy}px)",
+            half_h = css_h * 0.5,
+            oy = oy
+        ),
     );
     let bg = if dark { "#101418" } else { "#e8ecf1" };
     let _ = style.set_property("background-color", bg);
