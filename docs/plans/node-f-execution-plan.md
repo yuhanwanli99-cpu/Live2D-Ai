@@ -92,3 +92,29 @@
 - P0-5 诚实标注（`p3-p05`）
 - 门禁：20 组/746 passed/0 失败；fmt/clippy/rust-ratio PASS；冒烟 home/render/wasm 200 + 5 Mod
 - 待人类真机验收（5 条可见标准）：缩放滑块画面变 / 切背景变 / 出声口型动 / 点 nod 模型点头 / 激活模型换载；需真实 LLM+TTS 端点
+
+## P3.1 用户实测修复（2026-09-03，用户 5 条实测反馈驱动）✅
+
+用户实测结果：①缩放滑块无效 ②背景切换不可见 ③无 TTS 可测 ④动作全失败 ⑤验收目的不清。修复：
+
+- [x] **F-a** 鼠标拖动平移+滚轮缩放（tag `p3-fa`）：py 版交互对齐（pointer/wheel/dblclick，CSS 盒模型方案——l2d transform 需 glam 被正确排除）
+- [x] **F-c** 动作三重根因（tag `p3-fc`）：1500ms + stale override 清除（核心 bug）+ end 帧配合；PoseStack 合成序已核实（override 最高优先级）
+- [x] **F-d** 本地推理实操指南（`6aaa9861`）：docs/local-inference-setup.md
+- [x] **F-e** Mod 配置管道 4 断点（tag `p3-fe`）：mods.json manifest / enable 透传 config / POST /mods/{id}/config——配置层闭合
+- [x] **F-b 部分替代**：背景问题根因 = canvas 被 wgpu 清屏覆盖，CSS 背景不可见。jpg 导入待做（需 wgpu 底图层渲染）——列入下轮
+- [x] N.E.K.O 调研归档（`e4639ff9`）：3 借鉴（口型 motion 曲线清洗 / director emotion_mapping schema / proactive vision 需 native host）
+- 门禁：20 组 750 passed / 0 失败；fmt/clippy/rust-ratio PASS
+
+## 待用户重测清单（明确操作步骤）
+
+1. **拖动/缩放**：浏览器 `/render` 或主页 65% 区 → 左键拖动模型平移、滚轮缩放（0.5-2.0×）、双击复位
+2. **动作**：⚙→动作与互动→点「点头」→模型点头约 1.5 秒（6 个动作逐一试）
+3. **TTS→口型**：按 docs/local-inference-setup.md 装 kokoroi-rs（或 Windows ollama 侧）→ enable local-tts → 发消息 → 浏览器出声 + 口型开合
+4. **背景图导入**：未实现（需 wgpu 底图层）——下轮排期
+5. **换模型**：需第二个模型导入（模型管理组）——依赖资产
+
+## 下轮排期建议（优先级序）
+1. 背景图导入（wgpu 底图层）+ 纹理档位选择（4096/8192/16384）
+2. director 事件生产侧投影（supervisor→dispatch_event，TurnStarted 序列生效）
+3. l2d motion loader 清口型曲线（N.E.K.O 借鉴 1）
+4. director emotion_mapping schema（N.E.K.O 借鉴 2）
