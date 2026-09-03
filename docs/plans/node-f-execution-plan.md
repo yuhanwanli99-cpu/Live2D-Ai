@@ -69,3 +69,16 @@
 
 **平台窗壳总原则**（调研存档）：Web 核心天然全平台；桌宠透传/手机悬浮窗必须薄原生壳（Tauri / Kotlin WebView）——已是最小代价方案，F4/G1 均为独立壳工程，不污染核心。
 
+
+## P3 真实性收口（dev/integrity 分支，验收=可见效果，非"测试绿"）
+
+> 审计裁决：dev/node-p1-p2 定性「功能骨架 / integration incomplete」。原 p1/p2 tag 保留为回滚锚点。
+> 审计核实的假接线：debug WASM 23MB / LowPower adapter / WASM 无 message listener（外观·口型·动作·换模型全 no-op 消费）/ ModServices no-op sender / dispatch_event 无生产者 / local-llm·tts 不写 runtime settings。
+
+- [x] **P0-1a** release WASM：dist 5.27MB（原 23.7MB debug）
+- [ ] **P0-1b** HighPerformance + DPR cap + FPS/adapter 状态栏
+- [ ] **P0-2** iframe bridge（WASM message listener: stage-config/audio-volume/action-state/load-model）
+- [ ] **P0-3** Mod HostServices 真接线（action→supervisor 仲裁 / event 生产侧 dispatch / say_source）
+- [ ] **P0-4** local-llm/tts 写 runtime settings + reload + 真实 API 探测 + externally_managed
+- [ ] **P0-5** 未接通 UI 诚实标注/隐藏
+- 验收：缩放滑块画面即变 / 切背景即变 / 出声口型动 / 点 nod 模型点头 / 激活模型 iframe 换载 / Mod 启用后 settings 被真实更新。全部通过才打 `p3-integrity`。
