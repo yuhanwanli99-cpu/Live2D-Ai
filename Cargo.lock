@@ -2143,6 +2143,7 @@ dependencies = [
 name = "l2d-wasm-demo"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "js-sys",
  "l2d",
  "live2d-ai-core",

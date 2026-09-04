@@ -101,7 +101,8 @@ mod tests {
     fn style_css_is_non_empty_and_uses_vars() {
         assert!(!STYLE_CSS.is_empty());
         assert!(STYLE_CSS.contains(":root"));
-        assert!(STYLE_CSS.contains("--accent"));
+        // UI 重做规格 C2：品牌蓝 token（NEKO #40C5F1）取代旧 --accent。
+        assert!(STYLE_CSS.contains("--color-main"));
         assert!(STYLE_CSS.contains("@media"));
     }
 

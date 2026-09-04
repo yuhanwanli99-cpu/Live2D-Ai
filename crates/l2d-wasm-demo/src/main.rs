@@ -241,14 +241,16 @@ mod web {
                     }
                 }
                 // UI 精修规格 A2：控制条 +/−/复位（主 Agent 设计，wasm listener 落地）。
-                "stage-zoom" => {
-                    match v.get("dir").and_then(|x| x.as_str()).unwrap_or("") {
-                        "in" => st.bridge.scale = (st.bridge.scale * 1.1).clamp(0.5, 2.0),
-                        "out" => st.bridge.scale = (st.bridge.scale / 1.1).clamp(0.5, 2.0),
-                        "reset" => { st.bridge.scale = 1.0; st.bridge.offset_x = 0.0; st.bridge.offset_y = 0.0; }
-                        _ => {}
+                "stage-zoom" => match v.get("dir").and_then(|x| x.as_str()).unwrap_or("") {
+                    "in" => st.bridge.scale = (st.bridge.scale * 1.1).clamp(0.5, 2.0),
+                    "out" => st.bridge.scale = (st.bridge.scale / 1.1).clamp(0.5, 2.0),
+                    "reset" => {
+                        st.bridge.scale = 1.0;
+                        st.bridge.offset_x = 0.0;
+                        st.bridge.offset_y = 0.0;
                     }
-                }
+                    _ => {}
+                },
                 "audio-volume" => {
                     if let Some(vol) = v.get("value").and_then(|x| x.as_f64()) {
                         st.bridge.volume = (vol as f32).clamp(0.0, 1.0);

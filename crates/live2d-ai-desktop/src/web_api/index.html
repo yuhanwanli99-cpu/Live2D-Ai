@@ -53,156 +53,139 @@
   </aside>
 </main>
 
-<!-- 设置抽屉 -->
+<!-- 设置模态 -->
 <div id="settings-overlay" hidden></div>
-<div id="settings-drawer" hidden>
-  <nav class="settings-nav">
-    <a href="#grp-appearance">外观与舞台</a>
-    <a href="#grp-ai">AI 与语音</a>
-    <a href="#grp-character">角色</a>
-    <a href="#grp-actions">动作与互动</a>
-    <a href="#grp-models">模型管理</a>
-    <a href="#grp-status">系统状态</a>
-    <a href="#grp-system">开发者</a>
-    <a href="#grp-mods">Mod 管理</a>
-  </nav>
-  <div class="settings-content">
-
-  <section id="grp-appearance" class="settings-group">
-    <h2 class="group-title">外观与舞台</h2>
-    <section class="card">
-      <h2>舞台配置（本地预览）</h2>
-      <label>模型缩放 <span class="field-meta">0.5–1.5（步 0.05）</span></label>
-      <input type="range" id="appScale" min="0.5" max="1.5" step="0.05" value="1.0">
-      <label class="checkbox">
-        <input type="checkbox" id="appBgDark" checked>
-        暗色背景
-      </label>
-      <label class="checkbox">
-        <input type="checkbox" id="appLipSyncToggle" checked>
-        口型联动
-      </label>
-      <p class="field-meta">以上仅本地预览；不写入后端。</p>
-    </section>
-  </section>
-
-  <section id="grp-ai" class="settings-group">
-    <h2 class="group-title">AI 与语音</h2>
-
-    <section class="card">
-      <h2>LLM 配置</h2>
-      <label>base_url <span class="field-meta">（OpenAI 兼容端点）</span></label>
-      <input type="text" id="llmBaseUrl" placeholder="http://127.0.0.1:11434/v1">
-      <label>model</label>
-      <input type="text" id="llmModel" placeholder="qwen2.5:7b">
-      <label>api_key_env <span class="field-meta">环境变量名（非密钥本身）</span></label>
-      <input type="text" id="llmApiKeyEnv" placeholder="环境变量名（非密钥）">
-      <div class="row">
-        <button class="secondary" id="btnTestLlm">测试 LLM 连接</button>
-        <span class="status" id="llmTestResult"></span>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>TTS 配置</h2>
-      <label>base_url</label>
-      <input type="text" id="ttsBaseUrl" placeholder="http://127.0.0.1:8000/v1">
-      <label>voice</label>
-      <input type="text" id="ttsVoice" placeholder="alloy">
-      <label>api_key_env <span class="field-meta">环境变量名（非密钥本身）</span></label>
-      <input type="text" id="ttsApiKeyEnv" placeholder="环境变量名（非密钥）">
-      <div class="row">
-        <button class="secondary" id="btnTestTts">测试 TTS 连接</button>
-        <span class="status" id="ttsTestResult"></span>
-      </div>
-    </section>
-  </section>
-
-  <section id="grp-status" class="settings-group">
-    <h2 class="group-title">系统状态</h2>
-    <section class="card">
-      <h2>运行状态</h2>
-      <dl class="kv">
-        <dt>config</dt><dd id="cfgPath">—</dd>
-        <dt>启动</dt><dd id="startedAt">—</dd>
-        <dt>uptime</dt><dd id="uptime">—</dd>
-        <dt>model</dt><dd id="activeModel">—</dd>
-        <dt>audio</dt><dd id="audio">—</dd>
-        <dt>dev_mode</dt><dd id="devModeStatus">—</dd>
-        <dt>epoch</dt><dd id="epoch">—</dd>
-        <dt>LLM base</dt><dd id="llmBase">—</dd>
-        <dt>LLM has_key</dt><dd id="llmHasKey">—</dd>
-        <dt>TTS base</dt><dd id="ttsBase">—</dd>
-        <dt>TTS has_key</dt><dd id="ttsHasKey">—</dd>
-      </dl>
-    </section>
-  </section>
-
-  <section id="grp-character" class="settings-group">
-    <h2 class="group-title">角色</h2>
-    <section class="card">
-      <h2>系统提示词</h2>
-      <label>system_prompt</label>
-      <textarea id="systemPrompt" rows="5" placeholder="你是桌宠……"></textarea>
-    </section>
-  </section>
-
-  <section id="grp-actions" class="settings-group">
-    <h2 class="group-title">动作与互动</h2>
-    <p class="field-meta">已接通（动作经 core 仲裁 + 渲染端表演）</p>
-    <p class="field-meta">需要运行中的 supervisor 与已加载模型</p>
-    <section class="card">
-      <h2>基础动作</h2>
-      <div id="actionsList" class="actions-list"></div>
-    </section>
-  </section>
-
-  <section id="grp-models" class="settings-group">
-    <h2 class="group-title">模型管理</h2>
-    <div class="row buttons">
-      <button class="secondary" id="btnRefreshModels">刷新</button>
-      <span class="status" id="modelsStatus">就绪</span>
-    </div>
-    <div id="modelsList" class="models-list"></div>
-    <p class="field-meta">切换会实时重载渲染端模型</p>
-    <p class="field-meta">模型资产本地持有（assets/models/…）未导入时显示提示。</p>
-  </section>
-
-  <section id="grp-system" class="settings-group">
-    <h2 class="group-title">开发者</h2>
-    <div id="grp-logs">
-      <label class="checkbox">
-        <input type="checkbox" id="devMode">
-        开发者模式（开启后允许查看日志端点；写入设置后立即生效）
-      </label>
-      <section class="card" id="logsCard">
-        <h2>最近日志 <span class="field-meta" id="logsFile"></span></h2>
+<div id="settings-modal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <header class="settings-modal-header">
+    <h2 id="settingsTitle">设置</h2>
+    <button class="settings-close" id="btnSettingsClose" aria-label="关闭">✕</button>
+  </header>
+  <div class="settings-modal-body">
+    <nav class="settings-rail" id="settingsRail">
+      <!-- 由 app.js 按 section 注册生成；每项 data-section -->
+    </nav>
+    <div class="settings-section-area" id="settingsSectionArea">
+      <!-- 一次只渲染一个 section -->
+      <section data-panel="appearance" class="settings-section">
+        <h2>舞台配置（本地预览）</h2>
+        <section class="card">
+          <h2>舞台配置（本地预览）</h2>
+          <label>模型缩放 <span class="field-meta">0.5–1.5（步 0.05）</span></label>
+          <input type="range" id="appScale" min="0.5" max="1.5" step="0.05" value="1.0">
+          <label class="checkbox">
+            <input type="checkbox" id="appBgDark" checked>
+            暗色背景
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="appLipSyncToggle" checked>
+            口型联动
+          </label>
+          <p class="field-meta">以上仅本地预览；不写入后端。</p>
+        </section>
+      </section>
+      <section data-panel="ai" class="settings-section">
+        <section class="card">
+          <h2>LLM 配置</h2>
+          <label>base_url <span class="field-meta">（OpenAI 兼容端点）</span></label>
+          <input type="text" id="llmBaseUrl" placeholder="http://127.0.0.1:11434/v1">
+          <label>model</label>
+          <input type="text" id="llmModel" placeholder="qwen2.5:7b">
+          <label>api_key_env <span class="field-meta">环境变量名（非密钥本身）</span></label>
+          <input type="text" id="llmApiKeyEnv" placeholder="环境变量名（非密钥）">
+          <div class="row">
+            <button class="secondary" id="btnTestLlm">测试 LLM 连接</button>
+            <span class="status" id="llmTestResult"></span>
+          </div>
+        </section>
+        <section class="card">
+          <h2>TTS 配置</h2>
+          <label>base_url</label>
+          <input type="text" id="ttsBaseUrl" placeholder="http://127.0.0.1:8000/v1">
+          <label>voice</label>
+          <input type="text" id="ttsVoice" placeholder="alloy">
+          <label>api_key_env <span class="field-meta">环境变量名（非密钥本身）</span></label>
+          <input type="text" id="ttsApiKeyEnv" placeholder="环境变量名（非密钥）">
+          <div class="row">
+            <button class="secondary" id="btnTestTts">测试 TTS 连接</button>
+            <span class="status" id="ttsTestResult"></span>
+          </div>
+        </section>
+      </section>
+      <section data-panel="character" class="settings-section">
+        <section class="card">
+          <h2>系统提示词</h2>
+          <label>system_prompt</label>
+          <textarea id="systemPrompt" rows="5" placeholder="你是桌宠……"></textarea>
+        </section>
+      </section>
+      <section data-panel="actions" class="settings-section">
+        <p class="field-meta">已接通（动作经 core 仲裁 + 渲染端表演）</p>
+        <p class="field-meta">需要运行中的 supervisor 与已加载模型</p>
+        <section class="card">
+          <h2>基础动作</h2>
+          <div id="actionsList" class="actions-list"></div>
+        </section>
+      </section>
+      <section data-panel="models" class="settings-section">
         <div class="row buttons">
-          <button class="secondary" id="btnReloadLogs">重新拉取</button>
-          <span class="status" id="logsStatus">dev_mode 关闭</span>
+          <button class="secondary" id="btnRefreshModels">刷新</button>
+          <span class="status" id="modelsStatus">就绪</span>
         </div>
-        <pre id="logs">（等待开启 dev_mode）</pre>
+        <div id="modelsList" class="models-list"></div>
+        <p class="field-meta">切换会实时重载渲染端模型</p>
+        <p class="field-meta">模型资产本地持有（assets/models/…）未导入时显示提示。</p>
+      </section>
+      <section data-panel="status" class="settings-section">
+        <section class="card">
+          <h2>运行状态</h2>
+          <dl class="kv">
+            <dt>config</dt><dd id="cfgPath">—</dd>
+            <dt>启动</dt><dd id="startedAt">—</dd>
+            <dt>uptime</dt><dd id="uptime">—</dd>
+            <dt>model</dt><dd id="activeModel">—</dd>
+            <dt>audio</dt><dd id="audio">—</dd>
+            <dt>dev_mode</dt><dd id="devModeStatus">—</dd>
+            <dt>epoch</dt><dd id="epoch">—</dd>
+            <dt>LLM base</dt><dd id="llmBase">—</dd>
+            <dt>LLM has_key</dt><dd id="llmHasKey">—</dd>
+            <dt>TTS base</dt><dd id="ttsBase">—</dd>
+            <dt>TTS has_key</dt><dd id="ttsHasKey">—</dd>
+            <dt>supervisor</dt><dd id="supervisor">—</dd>
+          </dl>
+        </section>
+      </section>
+      <section data-panel="dev" class="settings-section">
+        <div id="grp-logs">
+          <label class="checkbox">
+            <input type="checkbox" id="devMode">
+            开发者模式（开启后允许查看日志端点；写入设置后立即生效）
+          </label>
+          <section class="card" id="logsCard">
+            <h2>最近日志 <span class="field-meta" id="logsFile"></span></h2>
+            <div class="row buttons">
+              <button class="secondary" id="btnReloadLogs">重新拉取</button>
+              <span class="status" id="logsStatus">dev_mode 关闭</span>
+            </div>
+            <pre id="logs">（等待开启 dev_mode）</pre>
+          </section>
+        </div>
+      </section>
+      <section data-panel="mods" class="settings-section">
+        <p class="field-meta">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建应用。</p>
+        <p class="field-meta">local-llm/local-tts 需本机装有 ollama/kokoroi-rs；启用后自动探测并写入 LLM/TTS 设置（externally_managed 可外管）</p>
+        <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>
       </section>
     </div>
-  </section>
-
-  <section id="grp-mods" class="settings-group">
-    <h2 class="group-title">Mod 管理</h2>
-    <p class="field-meta">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建应用。</p>
-    <p class="field-meta">local-llm/local-tts 需本机装有 ollama/kokoroi-rs；启用后自动探测并写入 LLM/TTS 设置（externally_managed 可外管）</p>
-    <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>
-  </section>
-  </div> <!-- /.settings-content -->
-
-  <div id="drawer-savebar">
-    <span class="status" id="saveStatus"></span>
-    <div class="row buttons">
-      <button id="btnSave">保存</button>
-      <button class="secondary" id="btnReload">重新载入</button>
-      <button class="danger" id="btnClearKey">清除密钥绑定</button>
-    </div>
+    <footer class="settings-modal-footer" id="drawer-savebar">
+      <span class="status" id="saveStatus"></span>
+      <div class="row buttons">
+        <button id="btnSave">保存</button>
+        <button class="secondary" id="btnReload">重新载入</button>
+        <button class="danger" id="btnClearKey">清除密钥绑定</button>
+      </div>
+    </footer>
   </div>
-</div> <!-- /#settings-drawer -->
+</div>
 
 <div id="toast"></div>
 

@@ -495,7 +495,12 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
 /// 用于 action 结束时从 final_override 层清除 stale 值；
 /// ParamMouthOpenY 同时由 lip_sync 写入 input 层，此处仅清 override 层
 ///（input 层由 lip_sync 自己的 set_parameter 调用管理）。
-const ACTION_PARAM_IDS: &[&str] = &["ParamAngleX", "ParamAngleY", "ParamAngleZ", "ParamMouthOpenY"];
+const ACTION_PARAM_IDS: &[&str] = &[
+    "ParamAngleX",
+    "ParamAngleY",
+    "ParamAngleZ",
+    "ParamMouthOpenY",
+];
 
 /// 纯函数：给定动作名 + 归一化时间 t（0..=1） + 强度倍率 m，返回该时刻所有
 /// 应被写入的参数 —— 值对列表 `(id, value)`。
@@ -515,9 +520,15 @@ pub(crate) fn action_params(name: &str, t: f32, m: f32) -> Vec<(&'static str, f3
         "nod" => vec![("ParamAngleX", wave * 12.0 * m)],
         "shake_no" => vec![("ParamAngleY", wave * 14.0 * m)],
         "tilt" => vec![("ParamAngleZ", (t * std::f32::consts::PI).sin() * 10.0 * m)],
-        "look_around" => vec![("ParamAngleX", (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m)],
+        "look_around" => vec![(
+            "ParamAngleX",
+            (t * 3.0 * std::f32::consts::PI).sin() * 10.0 * m,
+        )],
         "listen" => vec![("ParamAngleZ", 8.0 * m * (1.0 - t))],
-        "surprise" => vec![("ParamMouthOpenY", (t * std::f32::consts::PI).sin() * 0.8 * m)],
+        "surprise" => vec![(
+            "ParamMouthOpenY",
+            (t * std::f32::consts::PI).sin() * 0.8 * m,
+        )],
         _ => vec![],
     }
 }
@@ -542,7 +553,10 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         //   240fps: exp(-4.17/160) ≈ 0.974
         // 二者单帧衰减不同，但*速率*相同——这是正确的物理行为。
         let decay = (-dt_millis / TAU_MS).exp();
-        st.bridge.volume_display = st.bridge.volume.max(st.bridge.volume_display * decay as f32);
+        st.bridge.volume_display = st
+            .bridge
+            .volume
+            .max(st.bridge.volume_display * decay as f32);
         // 动画结束判定：t>=1 清除 Action（end 帧也会写入 None，这里兜底）。
         if let Some(a) = &st.bridge.action
             && now_ms - a.started_ms >= a.duration_ms
@@ -717,20 +731,27 @@ mod tests {
         assert_eq!(params.len(), 1, "nod 应驱动恰好一个参数");
         assert_eq!(params[0].0, "ParamAngleX");
         assert!(params[0].1.abs() > 1e-5, "t=0.25 时 nod 值应非零");
-        assert!((params[0].1 - 12.0).abs() < 1e-5, "t=0.25 时 nod 应达到峰值 12.0");
+        assert!(
+            (params[0].1 - 12.0).abs() < 1e-5,
+            "t=0.25 时 nod 应达到峰值 12.0"
+        );
     }
 
     /// 所有已知动作在 t=0 与 t=1 时参数值均为 0（起止复位）。
     #[test]
     fn actions_reset_at_boundaries() {
-        for name in ["nod", "shake_no", "tilt", "look_around", "listen", "surprise"] {
+        for name in [
+            "nod",
+            "shake_no",
+            "tilt",
+            "look_around",
+            "listen",
+            "surprise",
+        ] {
             for &t in &[0.0_f32, 1.0] {
                 let params = action_params(name, t, 1.0);
                 for (_, v) in &params {
-                    assert!(
-                        v.abs() < 1e-5,
-                        "{name} t={t} 时值应为 0，实际 {v}"
-                    );
+                    assert!(v.abs() < 1e-5, "{name} t={t} 时值应为 0，实际 {v}");
                 }
             }
         }
@@ -756,7 +777,14 @@ mod tests {
     fn action_param_ids_covers_all_actions() {
         use std::collections::HashSet;
         let set: HashSet<&str> = ACTION_PARAM_IDS.iter().copied().collect();
-        for name in ["nod", "shake_no", "tilt", "look_around", "listen", "surprise"] {
+        for name in [
+            "nod",
+            "shake_no",
+            "tilt",
+            "look_around",
+            "listen",
+            "surprise",
+        ] {
             let params = action_params(name, 0.5, 1.0);
             for (id, _) in &params {
                 assert!(

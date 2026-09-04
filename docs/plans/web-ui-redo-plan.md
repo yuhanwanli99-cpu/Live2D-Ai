@@ -76,3 +76,11 @@
 | section 组合 | 全静态平铺 | capability 驱动 + 分域注册 |
 | 视觉 | 粗糙 | 胶囊化 + 统一色板/字体/圆角 |
 | Rust 占比 | >95% | 不变（路线 A） |
+
+## 七、用户审核确认（2026-09-03）✅
+
+- **路线 A**：非框架 vanilla JS + include_str 嵌入；Rust 占比不变。✅
+- **前端豁免**：include_str 嵌入的前端 JS 行**不计入** Rust 占比分母（`cargo run -p xtask -- rust-ratio` 只看 `.rs` 物理行；前端文件豁免）。✅
+- **品牌蓝**：主色调用 NEKO `#40C5F1`（`--color-n-main`）。✅
+
+> 已确认方向。工程骨架（design token + rail+模态）由主 Agent 定规格（伪代码/设计），子代理严格照实现，不自由发挥。

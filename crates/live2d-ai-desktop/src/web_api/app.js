@@ -4,7 +4,7 @@
 const state = {
   capabilities: null, status: null, settingsView: null,
   llmKeyTouched: false, ttsKeyTouched: false,
-  drawerOpen: false, drawerLoaded: false,
+  settingsOpen: false, settingsLoaded: false,
   actionStrengths: {}, // 动作强度缓存（actionId -> 1..3，默认 2）
   appearance: { scale: 1.0, dark: true, lipSync: true, }, // 外观与舞台（纯本地）
   models: null, modelsError: null,
@@ -29,8 +29,10 @@ const els = {
   logsCard: $("logsCard"), logsFile: $("logsFile"), logsPre: $("logs"),
   logsStatus: $("logsStatus"), btnReloadLogs: $("btnReloadLogs"),
   btnRefresh: $("btnRefresh"), toast: $("toast"),
-  btnSettings: $("btnSettings"), settingsDrawer: $("settings-drawer"),
-  settingsOverlay: $("settings-overlay"), grpLogs: $("grp-logs"),
+  btnSettings: $("btnSettings"), settingsModal: $("settings-modal"),
+  settingsRail: $("settingsRail"), settingsSectionArea: $("settingsSectionArea"),
+  settingsOverlay: $("settings-overlay"), btnSettingsClose: $("btnSettingsClose"),
+  grpLogs: $("grp-logs"),
   actionsList: $("actionsList"),
   appScale: $("appScale"), appBgDark: $("appBgDark"),
   appLipSyncToggle: $("appLipSyncToggle"), live2dFrame: $("live2d-frame"),
@@ -39,6 +41,74 @@ const els = {
   stageToolbar: $("stageToolbar"), btnZoomIn: $("btnZoomIn"),
   btnZoomOut: $("btnZoomOut"), btnResetView: $("btnResetView"),
 };
+
+// ---- 设置模态 + 左导航 rail ----
+// section 注册（按 deepseekharness slots 思想）——规格 C3 字面。
+const SETTINGS_SECTIONS = [
+  { id:"appearance", label:"外观" }, { id:"ai", label:"AI 与语音" },
+  { id:"character", label:"角色" }, { id:"actions", label:"动作" },
+  { id:"models", label:"模型" }, { id:"status", label:"系统状态" },
+  { id:"dev", label:"开发者" }, { id:"mods", label:"Mod" },
+];
+let activeSection = "ai";
+function renderRail() {
+  if (!els.settingsRail) return;
+  els.settingsRail.innerHTML = SETTINGS_SECTIONS.map((s) =>
+    '<button class="settings-rail-item" data-section="' + s.id + '">' + s.label + "</button>"
+  ).join("");
+}
+// rail 点击委托：点击任一 .settings-rail-item → setActiveSection。
+if (els.settingsRail) {
+  els.settingsRail.addEventListener("click", (e) => {
+    const item = e.target.closest(".settings-rail-item");
+    if (item) setActiveSection(item.dataset.section);
+  });
+}
+function setActiveSection(id) {
+  activeSection = id;
+  document.querySelectorAll(".settings-rail-item").forEach((r) =>
+    r.classList.toggle("active", r.dataset.section === id)
+  );
+  document.querySelectorAll(".settings-section").forEach((s) =>
+    s.classList.toggle("active", s.dataset.panel === id)
+  );
+  // capability 驱动：renderGroups 原有逻辑迁入钩入，按 section 校验显隐。
+  if (id === "dev" || id === "mods") renderGroups();
+  if (id === "mods") renderMods();
+  if (id === "models") loadModels();
+  if (id === "actions") renderActions();
+}
+function openSettings() {
+  if (!state.settingsLoaded) { state.settingsLoaded = true; loadSettingsLazy(); }
+  els.settingsModal.hidden = false;
+  els.settingsOverlay.hidden = false;
+  renderRail();
+  setActiveSection(activeSection);
+}
+function closeSettings() {
+  els.settingsModal.hidden = true;
+  els.settingsOverlay.hidden = true;
+  state.settingsOpen = false;
+}
+function loadSettingsLazy() {
+  if (!state.capabilities) {
+    api("GET", "/api/v1/app/capabilities").then((cap) => {
+      state.capabilities = cap; renderGroups();
+    }).catch(() => {});
+  } else {
+    renderGroups();
+  }
+  renderMods();
+  loadModels();
+  if (!state.settingsView) {
+    api("GET", "/api/v1/settings").then((sv) => {
+      state.settingsView = sv; renderAll();
+    }).catch(() => {});
+  }
+}
+function toggleSettings() {
+  if (state.settingsOpen) { closeSettings(); } else { openSettings(); }
+}
 
 const STATUS_POLL_MS = 5000;
 const LOGS_POLL_MS = 8000;
@@ -575,33 +645,6 @@ function startLogsPoll() {
     if (state.settingsView && state.settingsView.dev_mode) refreshLogs();
   }, LOGS_POLL_MS);
 }
-function lazyLoadDrawer() {
-  if (!state.capabilities) {
-    api("GET", "/api/v1/app/capabilities").then((cap) => {
-      state.capabilities = cap;
-      renderGroups();
-    }).catch(() => {});
-  } else {
-    renderGroups();
-  }
-  renderMods();
-  loadModels();
-  if (!state.settingsView) {
-    api("GET", "/api/v1/settings").then((sv) => {
-      state.settingsView = sv;
-      renderAll();
-    }).catch(() => {});
-  }
-}
-function setDrawer(open) {
-  state.drawerOpen = open;
-  els.settingsDrawer.hidden = !open;
-  els.settingsDrawer.classList.toggle("open", open);
-  els.settingsOverlay.hidden = !open;
-}
-function toggleDrawer() { setDrawer(!state.drawerOpen); }
-function closeDrawer() { setDrawer(false); }
-
 // ---- 事件 ----
 els.llmApiKeyEnv.addEventListener("input", () => { state.llmKeyTouched = true; });
 els.ttsApiKeyEnv.addEventListener("input", () => { state.ttsKeyTouched = true; });
@@ -621,15 +664,14 @@ if (els.btnResetView) els.btnResetView.addEventListener("click", () => postToSta
 // 模型管理按钮绑定。
 if (els.btnRefreshModels) els.btnRefreshModels.addEventListener("click", loadModels);
 
-// 抽屉开关事件
+// 设置模态开关事件（topbar ⚙ btnSettings → openSettings；遮罩/Esc/✕ → closeSettings）。
 els.btnSettings.addEventListener("click", () => {
-  if (!state.drawerLoaded) { state.drawerLoaded = true; lazyLoadDrawer(); }
-  toggleDrawer();
-  if (state.drawerOpen && state.drawerLoaded) renderMods();
+  state.settingsOpen = true; openSettings();
 });
-els.settingsOverlay.addEventListener("click", closeDrawer);
+if (els.btnSettingsClose) els.btnSettingsClose.addEventListener("click", closeSettings);
+els.settingsOverlay.addEventListener("click", closeSettings);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && state.drawerOpen) closeDrawer();
+  if (e.key === "Escape" && state.settingsOpen) closeSettings();
 });
 
 // ---- 启动 ----
