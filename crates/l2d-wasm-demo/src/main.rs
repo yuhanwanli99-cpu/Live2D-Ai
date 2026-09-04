@@ -276,21 +276,24 @@ mod web {
                             .unwrap_or("")
                             .to_string();
                         let state_word = v.get("state").and_then(|x| x.as_str()).unwrap_or("");
+                        // 强度档位 → 语义幅度倍率（py 0.6/1.35/1.8 过猛，取保守档 0.6/1.0/1.35）。
                         let strength_mult =
                             match v.get("strength").and_then(|x| x.as_f64()).unwrap_or(2.0) as u8 {
                                 1 => 0.6,
-                                3 => 1.5,
+                                3 => 1.35,
                                 _ => 1.0,
                             };
                         if state_word == "start" {
                             let now = web_sys::window()
                                 .map(|w| w.performance().map(|p| p.now()).unwrap_or(0.0))
                                 .unwrap_or(0.0);
+                            // 先查关键帧表总时长（含末帧尾 fade）再 move name。
+                            let duration_ms = surface::choreography_total_ms(&action);
                             st.bridge.action = Some(surface::ActiveAction {
                                 name: action,
                                 strength_mult,
                                 started_ms: now,
-                                duration_ms: 1500.0,
+                                duration_ms: duration_ms as f64,
                             });
                         } else if state_word == "end" {
                             st.bridge.action = None;
