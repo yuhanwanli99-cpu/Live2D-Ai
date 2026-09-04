@@ -246,7 +246,11 @@ pub(crate) struct FrameState {
     /// load_model 后立即捕获的 layout 初始 transform（Affine2）。
     /// 每帧 set_transform 都在此基础上右乘用户缩放/平移，保持 layout 构图
     /// 不变，仅叠加交互变换。
+    /// 累积未模拟的真实时间（秒）：用于帧率无关的固定 dt 步进（R4）。
+    /// rAF 时间戳到达时累加 real_dt，直到累积 >= FIXED_DT_60HZ 再消费一次
+    /// core.update，避免 240Hz 时物理/姿态模拟跑到 4× 速度。
     pub(crate) last_layout_transform: Affine2,
+    pub(crate) accumulator: f64,
 }
 
 /// 运行时性能 HUD 统计态。
@@ -268,6 +272,9 @@ pub(crate) struct HudState {
     /// 上一帧 rAF 时间戳（performance.now()，毫秒）。用于计算真实帧间 dt。
     /// None 表示首帧，dt 使用 FIXED_DT_60HZ 兜底。
     last_frame_ms: Option<f64>,
+    /// R4：最近一次 tick 消耗的模拟步数（core.update 调用次数）。
+    /// 证明帧率无关：60fps 恒为 1，240fps 偶尔 2-4。
+    last_sim_steps: u32,
 }
 
 impl Default for HudState {
@@ -284,6 +291,7 @@ impl Default for HudState {
             adapter_line: None,
             last_fps: 0.0,
             last_frame_ms: None,
+            last_sim_steps: 0,
         }
     }
 }
@@ -398,26 +406,31 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
 ///   `Validation` → 首次提示后跳过本帧、连续第二次命中视为 fatal 并停循环
 ///   （见 P0-2-2 裁决）。
 pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
-    // P0-2a-3：固定 dt 步进姿态/物理 → 每帧应用 bridge 状态 → 取 texture → render/present。
-    {
-        let mut st = state.borrow_mut();
-        if let Err(e) = st.core.update(FIXED_DT_60HZ) {
-            status(&format!("停止渲染循环：update({FIXED_DT_60HZ}) 失败：{e}"));
-            return;
-        }
-    }
-
-    // 计算真实帧间隔 dt（毫秒）：用于 dt 归一化的口型衰减。
-    // 第一次调用（last_frame_ms == None）用 FIXED_DT 兜底 16.67ms。
-    // 然后记录本帧时间，供下帧计算。
+    // R4：帧率无关的时间积累。rAF 时间戳 → real_dt（秒，0.1s 防巨步）→
+    // 累积到 accumulator，直到 >= FIXED_DT_60HZ 才消费一次 core.update。
+    // 这样 60fps 与 240fps 每秒模拟步数一致（60 步），避免 240fps 跑到 4× 速度。
     let dt_millis = {
         let mut st = state.borrow_mut();
-        let dt = match st.hud.last_frame_ms {
-            Some(prev) if prev > 0.0 && now_ms > prev => now_ms - prev,
-            _ => FIXED_DT_60HZ as f64 * 1000.0,
+        let real_dt = match st.hud.last_frame_ms {
+            Some(prev) if now_ms > prev => ((now_ms - prev) / 1000.0).clamp(0.0, 0.1),
+            _ => FIXED_DT_60HZ as f64,
         };
         st.hud.last_frame_ms = Some(now_ms);
-        dt
+        st.accumulator += real_dt;
+        let mut steps = 0u32;
+        while st.accumulator >= FIXED_DT_60HZ as f64 && steps < 5 {
+            if let Err(e) = st.core.update(FIXED_DT_60HZ) {
+                drop(st);
+                status(&format!("停止渲染循环：update({FIXED_DT_60HZ}) 失败：{e}"));
+                return;
+            }
+            st.accumulator -= FIXED_DT_60HZ as f64;
+            steps += 1;
+        }
+        // 记录本轮模拟步数供 HUD 显示（R4）。
+        st.hud.last_sim_steps = steps;
+        // real_dt 毫秒用于口型衰减（dt 归一化）。
+        real_dt * 1000.0
     };
 
     // bridge 状态 → 可见效果（口型/动作/缩放/背景），独立借用窗口。
@@ -624,9 +637,9 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     // （bridge comment 声明"已换算为 NDC"），scale 作用于模型自身以
     //   画布中心为锚。
     let base = st.last_layout_transform;
-    let tx = Affine2::from_scale(Vec2::splat(scale))
-        * Affine2::from_translation(Vec2::new(offset_x, offset_y));
-    st.core.set_transform(base * tx);
+    let user_transform = Affine2::from_translation(Vec2::new(offset_x, offset_y))
+        * Affine2::from_scale(Vec2::splat(scale));
+    st.core.set_transform(base * user_transform);
 
     // 背景色：仅 canvas CSS background-color，与模型 viewport 清空色
     // (wgpu::Color::TRANSPARENT) 独立，缩放不影响背景。
@@ -700,7 +713,7 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,
@@ -709,6 +722,7 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
                 phys_h = phys_h,
                 fps = st.hud.last_fps,
                 cpu = cpu_ms,
+                sim = st.hud.last_sim_steps,
             ),
         )
     };

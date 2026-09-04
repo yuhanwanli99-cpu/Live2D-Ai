@@ -67,7 +67,6 @@
     <div class="settings-section-area" id="settingsSectionArea">
       <!-- 一次只渲染一个 section -->
       <section data-panel="appearance" class="settings-section">
-        <h2>舞台配置（本地预览）</h2>
         <section class="card">
           <h2>舞台配置（本地预览）</h2>
           <label>模型缩放 <span class="field-meta">0.5–1.5（步 0.05）</span></label>
@@ -80,7 +79,7 @@
             <input type="checkbox" id="appLipSyncToggle" checked>
             口型联动
           </label>
-          <p class="field-meta">以上仅本地预览；不写入后端。</p>
+          <p class="field-meta">本地预览（不写入后端）</p>
         </section>
       </section>
       <section data-panel="ai" class="settings-section">
@@ -175,7 +174,7 @@
         <p class="field-meta">local-llm/local-tts 需本机装有 ollama/kokoroi-rs；启用后自动探测并写入 LLM/TTS 设置（externally_managed 可外管）</p>
         <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>
       </section>
-    </div>
+    </div><!--/settings-modal-body-->
     <footer class="settings-modal-footer" id="drawer-savebar">
       <span class="status" id="saveStatus"></span>
       <div class="row buttons">

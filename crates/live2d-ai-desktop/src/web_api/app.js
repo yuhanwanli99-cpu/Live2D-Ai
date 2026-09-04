@@ -8,6 +8,7 @@ const state = {
   actionStrengths: {}, // 动作强度缓存（actionId -> 1..3，默认 2）
   appearance: { scale: 1.0, dark: true, lipSync: true, }, // 外观与舞台（纯本地）
   models: null, modelsError: null,
+  stageAck: null, // R5：渲染端的 stage-ack 快照（收到 ACK 才算真正生效）
 };
 
 const $ = (id) => document.getElementById(id);
@@ -252,28 +253,48 @@ async function invokeAction(name, cmdId) {
   const actionId = cmdIdToStageAction(cmdId); // 映射到 iframe bridge action id（英文 id）
   try {
     await api("POST", "/api/v1/commands/" + encodeURIComponent(cmdId) + "/invoke", { strength });
-    // bridge 通知：动作开始 → 800ms 后发送结束（v1 固定时长 end）。
+    // bridge 通知：动作开始 → wasm 端按 1500ms 自然结束（不再发送 end 指令）。
+    // end 消息保留供外部强制停止，但试演不再提前发送 end。
     postToStage({ type: "action-state", action: actionId, state: "start", strength });
-    setTimeout(() => { postToStage({ type: "action-state", action: actionId, state: "end", strength }); }, 800);
-    toast("试演 " + name + "：已发送（strength=" + strength + "）", "ok");
+    toast("试演 " + name + "：已提交（等待渲染端 ACK）", "ok");
   } catch (e) {
     toast("试演 " + name + " 失败：" + (e.error ? e.error.code + "：" + e.error.message : e.message), "err");
   }
 }
 // ---- iframe bridge 发送 helper ----
 // 规范化 postMessage 到 live2d-frame iframe；统一判 iframe 存在 + contentWindow 可用 + try/catch。
-// chat.js 通过 window.postToStage 复用（见 chat.js 尾部 window 挂载）。
+// **R2 修复**：wasm listener 只接受 String（ev.data().as_string()），必须 JSON.stringify；
+// 同时传 location.origin（同源校验）。chat.js 通过 window.postToStage 复用。
 function postToStage(msg) {
   try {
     const frame = els.live2dFrame;
     if (!frame || !frame.contentWindow) return false;
-    frame.contentWindow.postMessage(msg, "*");
+    frame.contentWindow.postMessage(JSON.stringify(msg), location.origin);
     return true;
   } catch (_) {
     return false;
   }
 }
 window.postToStage = postToStage; // 供 chat.js（独立 IIFE）复用，避免硬依赖
+
+// R5：监听渲染端 postMessage 回的 stage-ack，存入 state.stageAck 供 UI 读取真实状态。
+// 收到 ACK 才 toast「渲染端已应用」，而非在 postMessage 后立即提示。
+window.addEventListener("message", (ev) => {
+  // 同源校验（wasm 仅回 postMessage("*")，此处用 origin 过滤）
+  if (ev.origin !== location.origin) return;
+  let msg;
+  try { msg = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data; } catch (_) { return; }
+  if (msg && msg.type === "stage-ack") {
+    state.stageAck = {
+      applied: msg.applied,
+      scale: msg.scale,
+      offset_x: msg.offset_x,
+      offset_y: msg.offset_y,
+      msg_type: msg.msg_type,
+    };
+    toast("渲染端已应用", "ok");
+  }
+});
 
 // ---- 外观与舞台 ----
 function postStageConfig() {
@@ -285,7 +306,7 @@ function bindAppearance() {
   if (els.appLipSyncToggle && els.appLipSyncToggle.parentNode) {
     const parent = els.appLipSyncToggle.parentNode;
     const meta = parent.querySelector(".field-meta");
-    if (meta) meta.textContent = "已接通渲染端";
+    if (meta) meta.textContent = "本地预览（不写入后端）";
   }
   if (!els.appScale) return;
   const clamp = (v) => Math.max(0.5, Math.min(1.5, v));

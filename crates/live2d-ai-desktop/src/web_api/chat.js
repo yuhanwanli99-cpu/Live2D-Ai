@@ -293,8 +293,9 @@
     } else if (typeof window.postToStage === "undefined") {
       // app.js 尚未定义 postToStage 时， chat.js 自行暴露一个最小实现，
       // 避免后续消息丢失；app.js 加载后其 postToStage 会覆盖。
+      // **R2**：wasm listener 只接 String——fallback 也必须 JSON.stringify + 同源 target。
       window.postToStage = function (m) {
-        try { const f = document.getElementById("live2d-frame"); if (f && f.contentWindow) f.contentWindow.postMessage(m, "*"); } catch (_) {}
+        try { const f = document.getElementById("live2d-frame"); if (f && f.contentWindow) f.contentWindow.postMessage(JSON.stringify(m), location.origin); } catch (_) {}
         return true;
       };
       try { window.postToStage(msg); } catch (_) {}

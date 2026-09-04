@@ -11,6 +11,9 @@ export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 
 PORT="${2:-18080}"
 if [ "$1" != "--no-build" ]; then
+  echo "==> 构建 release WASM（l2d-wasm-demo）"
+  unset NO_COLOR
+  (cd crates/l2d-wasm-demo && trunk build)
   echo "==> 构建 live2d-ai-desktop …"
   cargo build -p live2d-ai-desktop
 fi
@@ -20,4 +23,8 @@ sleep 0.5
 
 echo "==> 启动 web 服务 @ http://127.0.0.1:${PORT}"
 echo "    浏览器打开后请 Ctrl+Shift+R 硬刷新生效"
+if [ -d "crates/l2d-wasm-demo/dist" ]; then
+  echo "==> WASM dist 构建产物："
+  ls -la crates/l2d-wasm-demo/dist/*_bg.wasm
+fi
 LIVE2D_AI_WS_AUDIO=1 ./target/debug/live2d-ai-desktop --web --http-port "${PORT}"

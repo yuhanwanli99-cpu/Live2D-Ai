@@ -36,11 +36,6 @@ const EXCLUDED_DIR_NAMES: [&str; 6] = [
     ".venv",
 ];
 
-/// 前端豁免：web_api 的前端文件（index.html/app.js/chat.js/style.css）经
-/// include_str 嵌入，不计 Rust 占比。该目录下的前端源文件（硬编码色值、
-/// 平铺/模态结构、设置面板逻辑）不属于第一方可执行 Rust 源码。
-const FRONTEND_EXEMPT_DIR: &str = "web_api";
-
 /// 未显式传参时的占比门槛（百分比）。
 const DEFAULT_THRESHOLD: f64 = 95.0;
 
@@ -245,10 +240,6 @@ fn walk(dir: &Path, stats: &mut ScanStats) -> io::Result<()> {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if is_hidden_dir(&name) || EXCLUDED_DIR_NAMES.contains(&name.as_ref()) {
-                continue;
-            }
-            // 前端豁免：跳过 src/web_api（经 include_str! 嵌入的前端文件，不计 Rust 占比）。
-            if name == FRONTEND_EXEMPT_DIR {
                 continue;
             }
             walk(&path, stats)?;

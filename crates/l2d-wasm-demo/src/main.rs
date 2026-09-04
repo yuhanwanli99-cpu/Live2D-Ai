@@ -164,6 +164,7 @@ mod web {
             hud: surface::HudState::default(),
             bridge: surface::BridgeState::default(),
             last_layout_transform: layout_transform,
+            accumulator: 0.0,
         }));
         install_resize_handler(&state);
 
@@ -214,10 +215,12 @@ mod web {
 
     /// 注册父页 → WASM 的 message listener（P0-2a-2）：4 类消息写入 bridge 状态。
     /// rAF 循环（另一函数）每帧读取 bridge 产生可见效果。
+    /// **R2**：父页已改发 JSON 字符串（stringify）；处理成功后回 `stage-ack` 给父页
+    /// （未收 ACK 前父页不得提示"已生效"）。
     fn install_stage_bridge(state: &SharedState) {
         let handler_state = state.clone();
         let closure = Closure::<dyn FnMut(MessageEvent)>::new(move |ev: MessageEvent| {
-            // data() → JsValue → String → serde_json::Value
+            // data() → JsValue → String → serde_json::Value（父页 R2 后 stringify）
             let Some(text) = ev.data().as_string() else {
                 return;
             };
@@ -227,86 +230,117 @@ mod web {
             let Some(kind) = v.get("type").and_then(|t| t.as_str()) else {
                 return;
             };
-            let mut st = handler_state.borrow_mut();
-            match kind {
-                "stage-config" => {
-                    if let Some(s) = v.get("scale").and_then(|x| x.as_f64()) {
-                        st.bridge.scale = (s as f32).clamp(0.5, 2.0);
+            // 应用消息 → 记录待 ACK 的类型（borrow 结束后回执）。
+            let mut applied = false;
+            {
+                let mut st = handler_state.borrow_mut();
+                match kind {
+                    "stage-config" => {
+                        if let Some(s) = v.get("scale").and_then(|x| x.as_f64()) {
+                            st.bridge.scale = (s as f32).clamp(0.5, 2.0);
+                        }
+                        if let Some(d) = v.get("dark").and_then(|x| x.as_bool()) {
+                            st.bridge.dark = d;
+                        }
+                        if let Some(l) = v.get("lipSync").and_then(|x| x.as_bool()) {
+                            st.bridge.lip_sync = l;
+                        }
+                        applied = true;
                     }
-                    if let Some(d) = v.get("dark").and_then(|x| x.as_bool()) {
-                        st.bridge.dark = d;
-                    }
-                    if let Some(l) = v.get("lipSync").and_then(|x| x.as_bool()) {
-                        st.bridge.lip_sync = l;
-                    }
-                }
-                // UI 精修规格 A2：控制条 +/−/复位（主 Agent 设计，wasm listener 落地）。
-                "stage-zoom" => match v.get("dir").and_then(|x| x.as_str()).unwrap_or("") {
-                    "in" => st.bridge.scale = (st.bridge.scale * 1.1).clamp(0.5, 2.0),
-                    "out" => st.bridge.scale = (st.bridge.scale / 1.1).clamp(0.5, 2.0),
-                    "reset" => {
-                        st.bridge.scale = 1.0;
-                        st.bridge.offset_x = 0.0;
-                        st.bridge.offset_y = 0.0;
-                    }
-                    _ => {}
-                },
-                "audio-volume" => {
-                    if let Some(vol) = v.get("value").and_then(|x| x.as_f64()) {
-                        st.bridge.volume = (vol as f32).clamp(0.0, 1.0);
-                    }
-                }
-                "action-state" => {
-                    let action = v
-                        .get("action")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let state_word = v.get("state").and_then(|x| x.as_str()).unwrap_or("");
-                    let strength_mult =
-                        match v.get("strength").and_then(|x| x.as_f64()).unwrap_or(2.0) as u8 {
-                            1 => 0.6,
-                            3 => 1.5,
-                            _ => 1.0,
-                        };
-                    if state_word == "start" {
-                        let now = web_sys::window()
-                            .map(|w| w.performance().map(|p| p.now()).unwrap_or(0.0))
-                            .unwrap_or(0.0);
-                        st.bridge.action = Some(surface::ActiveAction {
-                            name: action,
-                            strength_mult,
-                            started_ms: now,
-                            duration_ms: 1500.0,
-                        });
-                    } else if state_word == "end" {
-                        st.bridge.action = None;
-                    }
-                }
-                "load-model" => {
-                    if let Some(url) = v.get("url").and_then(|x| x.as_str()) {
-                        let url = url.to_owned();
-                        // 异步换模型：不要阻塞 rAF 循环。
-                        let reload_state = handler_state.clone();
-                        let window = web_sys::window();
-                        wasm_bindgen_futures::spawn_local(async move {
-                            status("切换模型中…");
-                            match window {
-                                Some(win) => match load_model_from_url(&win, &url).await {
-                                    Ok(loaded) => {
-                                        match reload_state.borrow_mut().core.load_model(&loaded) {
-                                            Ok(()) => status("模型已切换"),
-                                            Err(e) => status(&format!("渲染核心换模型失败：{e}")),
-                                        }
-                                    }
-                                    Err(e) => status(&format!("切换失败: {e}")),
-                                },
-                                None => status("切换失败: 无 window 对象"),
+                    // UI 精修规格 A2：控制条 +/−/复位（主 Agent 设计，wasm listener 落地）。
+                    "stage-zoom" => {
+                        match v.get("dir").and_then(|x| x.as_str()).unwrap_or("") {
+                            "in" => st.bridge.scale = (st.bridge.scale * 1.1).clamp(0.5, 2.0),
+                            "out" => st.bridge.scale = (st.bridge.scale / 1.1).clamp(0.5, 2.0),
+                            "reset" => {
+                                st.bridge.scale = 1.0;
+                                st.bridge.offset_x = 0.0;
+                                st.bridge.offset_y = 0.0;
                             }
-                        });
+                            _ => {}
+                        }
+                        applied = true;
+                    }
+                    "audio-volume" => {
+                        if let Some(vol) = v.get("value").and_then(|x| x.as_f64()) {
+                            st.bridge.volume = (vol as f32).clamp(0.0, 1.0);
+                        }
+                        applied = true;
+                    }
+                    "action-state" => {
+                        let action = v
+                            .get("action")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let state_word = v.get("state").and_then(|x| x.as_str()).unwrap_or("");
+                        let strength_mult =
+                            match v.get("strength").and_then(|x| x.as_f64()).unwrap_or(2.0) as u8 {
+                                1 => 0.6,
+                                3 => 1.5,
+                                _ => 1.0,
+                            };
+                        if state_word == "start" {
+                            let now = web_sys::window()
+                                .map(|w| w.performance().map(|p| p.now()).unwrap_or(0.0))
+                                .unwrap_or(0.0);
+                            st.bridge.action = Some(surface::ActiveAction {
+                                name: action,
+                                strength_mult,
+                                started_ms: now,
+                                duration_ms: 1500.0,
+                            });
+                        } else if state_word == "end" {
+                            st.bridge.action = None;
+                        }
+                        applied = true;
+                    }
+                    "load-model" => {
+                        if let Some(url) = v.get("url").and_then(|x| x.as_str()) {
+                            let url = url.to_owned();
+                            applied = true;
+                            // 异步换模型：不要阻塞 rAF 循环。
+                            let reload_state = handler_state.clone();
+                            let window = web_sys::window();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                status("切换模型中…");
+                                match window {
+                                    Some(win) => match load_model_from_url(&win, &url).await {
+                                        Ok(loaded) => {
+                                            match reload_state.borrow_mut().core.load_model(&loaded)
+                                            {
+                                                Ok(()) => status("模型已切换"),
+                                                Err(e) => {
+                                                    status(&format!("渲染核心换模型失败：{e}"))
+                                                }
+                                            }
+                                        }
+                                        Err(e) => status(&format!("切换失败: {e}")),
+                                    },
+                                    None => status("切换失败: 无 window 对象"),
+                                }
+                            });
+                        }
+                    }
+                    _ => {} // 未知类型忽略
+                }
+            } // borrow 作用域结束
+            // **R2**：应用成功 → 回 `stage-ack` 给父页（父页收 ACK 前不得提示"已生效"）。
+            if applied {
+                if let Some(win) = web_sys::window() {
+                    let ack = serde_json::json!({
+                        "type": "stage-ack",
+                        "applied": true,
+                        "msg_type": kind,
+                        "scale": handler_state.borrow().bridge.scale,
+                        "offset_x": handler_state.borrow().bridge.offset_x,
+                        "offset_y": handler_state.borrow().bridge.offset_y,
+                    })
+                    .to_string();
+                    if let Ok(Some(parent)) = win.parent() {
+                        let _ = parent.post_message(&JsValue::from_str(&ack), "*");
                     }
                 }
-                _ => {} // 未知类型忽略
             }
         });
         if let Some(window) = web_sys::window() {
@@ -428,8 +462,12 @@ mod web {
                 };
                 {
                     let mut st = st.borrow_mut();
-                    st.bridge.offset_x += dx as f32;
-                    st.bridge.offset_y += dy as f32;
+                    let css_w = st.canvas.client_width().max(1) as f32;
+                    let css_h = st.canvas.client_height().max(1) as f32;
+                    let dx_ndc = 2.0 * dx as f32 / css_w;
+                    let dy_ndc = -2.0 * dy as f32 / css_h;
+                    st.bridge.offset_x = (st.bridge.offset_x + dx_ndc).clamp(-1.5, 1.5);
+                    st.bridge.offset_y = (st.bridge.offset_y + dy_ndc).clamp(-1.5, 1.5);
                 }
                 // 更新锚点。
                 let mut d2 = drag.borrow_mut();
