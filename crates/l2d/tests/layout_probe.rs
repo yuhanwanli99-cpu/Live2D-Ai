@@ -30,19 +30,38 @@ fn probe_user_transform_semantics() {
     let base = Affine2::from_translation(Vec2::new(layout.center_x, layout.center_y))
         * Affine2::from_scale(Vec2::new(layout.width, layout.height))
         * whole_canvas;
-    println!("base: scale≈{:.6} tx={:+.4} ty={:+.4}", scale_of(&base), base.translation.x, base.translation.y);
+    println!(
+        "base: scale≈{:.6} tx={:+.4} ty={:+.4}",
+        scale_of(&base),
+        base.translation.x,
+        base.translation.y
+    );
 
     // 右乘（当前实现）：base * scale(1.1)
     let right = base * Affine2::from_scale(Vec2::splat(1.1));
-    println!("右乘 scale1.1 → 合成 scale≈{:.6} tx={:+.4}", scale_of(&right), right.translation.x);
+    println!(
+        "右乘 scale1.1 → 合成 scale≈{:.6} tx={:+.4}",
+        scale_of(&right),
+        right.translation.x
+    );
 
     // 左乘（提议）：user * base —— 世界空间（NDC）作用
     let user = Affine2::from_scale(Vec2::splat(1.1));
     let left = user * base;
-    println!("左乘 scale1.1 → 合成 scale≈{:.6} tx={:+.4} ty={:+.4}", scale_of(&left), left.translation.x, left.translation.y);
+    println!(
+        "左乘 scale1.1 → 合成 scale≈{:.6} tx={:+.4} ty={:+.4}",
+        scale_of(&left),
+        left.translation.x,
+        left.translation.y
+    );
 
     // 左乘 offset=0.2 + scale=1.1：世界平移 0.2 NDC —— 用户直觉
-    let user_t = Affine2::from_translation(Vec2::new(0.2, 0.0)) * Affine2::from_scale(Vec2::splat(1.1));
+    let user_t =
+        Affine2::from_translation(Vec2::new(0.2, 0.0)) * Affine2::from_scale(Vec2::splat(1.1));
     let left2 = user_t * base;
-    println!("左乘 offset0.2+scale1.1 → scale≈{:.4} tx={:+.4}", scale_of(&left2), left2.translation.x);
+    println!(
+        "左乘 offset0.2+scale1.1 → scale≈{:.4} tx={:+.4}",
+        scale_of(&left2),
+        left2.translation.x
+    );
 }
