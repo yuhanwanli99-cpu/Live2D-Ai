@@ -150,6 +150,11 @@ mod web {
         // 捕获 layout 初始 transform，供 set_transform 每帧在其基础上叠加用户缩放/平移。
         let layout_transform = core.transform();
 
+        // 初始化 RM6 待机生命体征采样器：用当前时间 performance.now() 作为种子，
+        // 保证每次加载时待机随机（呼吸周期/眨眼间隔/微表情间隔各不相同）。
+        let now_ms = window.performance().map(|p| p.now()).unwrap_or(0.0);
+        let idle = surface::IdleState::new(now_ms);
+
         // 先取尺寸副本（config 即将移入共享态）。
         let (width, height) = (config.width, config.height);
         let state: SharedState = Rc::new(RefCell::new(surface::FrameState {
@@ -163,6 +168,7 @@ mod web {
             validation_streak: 0,
             hud: surface::HudState::default(),
             bridge: surface::BridgeState::default(),
+            idle,
             last_layout_transform: layout_transform,
             accumulator: 0.0,
         }));

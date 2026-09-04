@@ -254,6 +254,8 @@ pub(crate) struct FrameState {
     /// 运行时 HUD 统计（adapter 固定在首次写入时快照，其余每 500ms 刷新）。
     pub(crate) hud: HudState,
     pub bridge: BridgeState,
+    /// RM6 待机生命体征采样器（呼吸/眨眼/微表情）。
+    pub(crate) idle: IdleState,
     /// load_model 后立即捕获的 layout 初始 transform（Affine2）。
     /// 每帧 set_transform 都在此基础上右乘用户缩放/平移，保持 layout 构图
     /// 不变，仅叠加交互变换。
@@ -514,13 +516,118 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
     }
 }
 
-/// 所有动作动画可能驱动的参数 ID。
+/// RM6 待机生命体征层（idle-breath / idle-blink / idle-micro-expr）。
 ///
-/// 用于 action 结束时从 final_override 层清除 stale 值；
-/// ParamMouthOpenY 同时由 lip_sync 写入 input 层，此处仅清 override 层
-///（input 层由 lip_sync 自己的 set_parameter 调用管理）。
-/// 关键帧表 CHOREOGRAPHY 逐条照抄 py 版 `choreography.ts`（MIT），故
-/// 可能出现以下所有 ID：AngleX/Y/Z、EyeBallX、EyeL/R open、BrowLY/RY、MouthOpenY。
+/// 照抄 py 版 `idle-breath.ts` / `idle-blink.ts` / `idle-micro-expr.ts`（MIT），
+/// 写入 input 层 `set_parameter` —— 优先级低于动作的 final_override 层，
+/// 因此做 nod 时头部角度自然盖过 idle 微表情；但 breath/blink 参数
+/// （ParamBreath / ParamEyeLOpen / ParamEyeROpen）动作不写入它们，
+/// 二者天然不打架。
+///
+/// 状态机与 py 版同构：
+/// - **呼吸**：周期 [3.1, 5]s 随机锁定，正弦 `0.5 + 0.15*sin(2π·t/period)`。
+/// - **眨眼**：间隔 [3000, 7500]ms 随机触发；闭眼 75ms 线性 1→0；睁眼
+///   [150,300]ms 随机线性 0→1。状态机：Open → Closing → Opening → Open。
+/// - **微表情**：间隔 [3,6]s 随机触发；随机选一个参数 ±0.05，400ms fade。
+///
+/// 与 py 版差异（v1 简化）：
+/// - py 版会在动作播放期间**挂起** idle（surprise 用 override 层写 EyeLOpen/ROpen
+///   时，idle blink 被挂起避免冲突）；本版**不挂起**——动作 override 层盖住同名
+///   参数即可，呼吸/眨眼参数（ParamBreath/EyeL/R）动作不动它们，天然不打架。
+///   详见 `apply_idle_life`。
+///
+/// dt 来源：`apply_bridge_effects(state, dt_millis)` 已有 dt（R4 加的），
+/// idle 采样用它，帧率无关。
+///
+/// RNG：wasm 环境无 `rand` crate（体积与 Send 约束），手写 xorshift64。
+/// 种子用启动时 `performance.now() as u64`——每次加载不同，待机天然随机。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BlinkPhase {
+    /// 睁眼待机：不写参数（保持 1.0），等待随机间隔。
+    Open,
+    /// 闭眼中：线性 1→0，固定 75ms。
+    Closing,
+    /// 睁眼中：线性 0→1，随机 [150,300]ms。
+    Opening,
+}
+
+/// idle 生命体征采样器状态（储存在 FrameState，跨帧持续）。
+///
+/// xorshift64 状态 `rng_state` 永不为 0（见 `rng_next` 种子保证）。
+pub(crate) struct IdleState {
+    /// 呼吸周期 ms（随机锁定 [3100, 5000]）。
+    breath_period_ms: f64,
+    /// 呼吸相位起点（performance.now() 毫秒）。
+    breath_t0_ms: f64,
+    /// 下次眨眼触发时刻（now + rand[3000,7500]）。
+    blink_next_ms: f64,
+    /// 眨眼当前相位。
+    blink_phase: BlinkPhase,
+    /// 眨眼当前相位已推进 ms。
+    blink_phase_ms: f64,
+    /// 单次闭眼固定时长 ms（py 版 75ms 定步长）。
+    blink_close_ms: f64,
+    /// 本次睁眼总时长 ms（随机 [150,300]）。
+    blink_open_ms: f64,
+    /// 下次微表情触发时刻（now + rand[3000,6000]）。
+    micro_next_ms: f64,
+    /// 进行中的微表情：(参数 ID, 目标 delta, 开始时刻 ms)。
+    /// fade 进 1/3 → 停 1/3 → fade 出 1/3，共 400ms。
+    micro_active: Option<(String, f32, f64)>,
+    /// xorshift64 状态（永不为 0）。
+    rng_state: u64,
+}
+
+impl IdleState {
+    /// 用当前时间作为种子，随机初始化呼吸周期 / 眨眼间隔 / 微表情间隔。
+    pub(crate) fn new(now_ms: f64) -> Self {
+        // xorshift64 种子：performance.now() 微秒部分 + 恒定盐，保证非零。
+        let mut s = (now_ms as u64).wrapping_mul(0x9E3779B97F4A6295) | 1;
+        let breath_period_ms = rng_range_f64(&mut s, 3100.0, 5000.0);
+        let blink_next_ms = now_ms + rng_range_f64(&mut s, 3000.0, 7500.0);
+        let micro_next_ms = now_ms + rng_range_f64(&mut s, 3000.0, 6000.0);
+        let blink_open_ms = rng_range_f64(&mut s, 150.0, 300.0);
+        Self {
+            breath_period_ms,
+            breath_t0_ms: now_ms,
+            blink_next_ms,
+            blink_phase: BlinkPhase::Open,
+            blink_phase_ms: 0.0,
+            blink_close_ms: 75.0,
+            blink_open_ms,
+            micro_next_ms,
+            micro_active: None,
+            rng_state: s,
+        }
+    }
+}
+
+/// xorshift64 伪随机（wasm 无 rand crate，手写）。
+/// 三次异或移位，状态永不为 0（`new` 用 `| 1` 保证）。
+#[inline]
+fn rng_next(state: &mut u64) -> u64 {
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    *state
+}
+
+/// 返回 `[min, max)` 区间内的随机 f64。
+#[inline]
+fn rng_range_f64(state: &mut u64, min: f64, max: f64) -> f64 {
+    let span = max - min;
+    // 取 state 高 53 位（u64 → [0,1)）以保证精度。
+    let r = (rng_next(state) >> 11) as f64 / ((1u64 << 53) as f64);
+    min + r * span
+}
+
+/// 眨眼闭眼/睁眼线性插值因子（0..=1）。
+#[inline]
+fn blink_factor(phase_ms: f64, duration_ms: f64) -> f64 {
+    (phase_ms / duration_ms).clamp(0.0, 1.0)
+}
+
+/// 所有动作动画可能驱动的参数 ID。
 const ACTION_PARAM_IDS: &[&str] = &[
     "ParamAngleX",
     "ParamAngleY",
@@ -867,7 +974,7 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         .map(|p| p.now())
         .unwrap_or(0.0);
     // 先 immutable borrow：dt 归一化口型衰减、判定动画是否结束、取出 clone 值。
-    let (apply_mouth, apply_action, scale, offset_x, offset_y, dark) = {
+    let (apply_mouth, apply_action, scale, offset_x, offset_y, _dark) = {
         let mut st = state.borrow_mut();
         // 口型衰减（dt 归一化）：volume_display *= exp(-dt_ms / TAU_MS)
         // 再取 max(volume, ...) 保持峰值不掉落。
@@ -965,6 +1072,155 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         let _ = st.canvas.style().set_property("background-color", bg);
         st.bridge.applied_dark = st.bridge.dark;
     }
+
+    // RM6 待机生命体征层（呼吸/眨眼/微表情）——写入 input 层，优先级低于
+    // 动作 final_override 层（动作做 nod 时头部角度盖过 idle 微表情）。
+    //
+    // 叠加语义（v1 简化，见 IdleState 注释）：
+    // - 动作 override 层盖住同名参数 → 做 surprise 时 EyeLOpen/ROpen 被覆盖，
+    //   动作结束后 override 清除 → idle blink 自动恢复（input 层持续写入）。
+    // - breath/blink 参数（ParamBreath / EyeL/R）动作不写入 → 天然不打架。
+    // - py 版会在动作播放时**挂起** idle，本版不挂起 —— 纯参数层面天然互斥。
+    //
+    // dt 来源：`apply_bridge_effects(state, dt_millis)` 已有 dt（R4 加的），
+    // idle 采样用它，帧率无关。
+    //
+    // 呼吸永不打断（底层持续）；眨眼/微表情状态机用 dt_ms 推进。
+    apply_idle_life(&mut st, now_ms, dt_millis);
+}
+
+/// RM6 待机生命体征采样：呼吸 / 眨眼 / 微表情，每帧调用一次。
+///
+/// 写入 input 层 `set_parameter`（优先级低于动作 final_override 层）。
+/// 公式与 py 版 `idle-breath.ts` / `idle-blink.ts` / `idle-micro-expr.ts`（MIT）同构。
+///
+/// - **呼吸**：`0.5 + 0.15*sin(2π*(now-t0)/period)` → ParamBreath，永不打断。
+/// - **眨眼**：状态机推进（dt 归一化）；Closing 线性 1→0（75ms）；
+///   Opening 线性 0→1（随机 150-300ms）。写入 ParamEyeLOpen/ROpen。
+/// - **微表情**：到触发时刻随机选参 ±0.05，400ms fade（进 1/3 → 停 1/3 → 出 1/3）。
+///   `base` 为对应参数中性值（嘴形 0.5，眉/眼球 0.0）。
+///
+/// 与 py 版差异：py 版微表情触发时对**所有** MICRO_PARAMS 同时写入一个 batch；
+/// 本版**随机选一个**参数做一次性小偏移（更自然、减轻写入），fade 仍 400ms。
+/// 详见 IdleState 文档注释。
+pub(crate) fn apply_idle_life(st: &mut FrameState, now_ms: f64, dt_ms: f64) {
+    // ---- 呼吸：正弦波，永不打断 ----
+    // value = 0.5 + 0.15 * sin(2π * (now - t0) / period) ∈ [0.35, 0.65]
+    let breath = {
+        let phase = (now_ms - st.idle.breath_t0_ms) / st.idle.breath_period_ms;
+        0.5 + 0.15 * (2.0 * std::f64::consts::PI * phase).sin()
+    };
+    let _ = st.core.set_parameter("ParamBreath", breath as f32);
+
+    // ---- 眨眼：状态机 ----
+    // 推进当前相位计时；到时切换。Closing 线性 1→0；Opening 线性 0→1。
+    st.idle.blink_phase_ms += dt_ms;
+    match st.idle.blink_phase {
+        BlinkPhase::Open => {
+            // 睁眼待机：不写参数（保持 1.0），等待随机间隔。
+            if now_ms >= st.idle.blink_next_ms {
+                st.idle.blink_phase = BlinkPhase::Closing;
+                st.idle.blink_phase_ms = 0.0;
+                // 首帧写入 1.0（开始下降）。
+                let _ = st.core.set_parameter("ParamEyeLOpen", 1.0);
+                let _ = st.core.set_parameter("ParamEyeROpen", 1.0);
+            }
+        }
+        BlinkPhase::Closing => {
+            // 线性 1→0，固定 75ms。
+            let f = (1.0 - blink_factor(st.idle.blink_phase_ms, st.idle.blink_close_ms)) as f32;
+            let _ = st.core.set_parameter("ParamEyeLOpen", f);
+            let _ = st.core.set_parameter("ParamEyeROpen", f);
+            if st.idle.blink_phase_ms >= st.idle.blink_close_ms {
+                // 闭眼到位 → 进入睁眼，随机 [150,300]ms。
+                st.idle.blink_phase = BlinkPhase::Opening;
+                st.idle.blink_phase_ms = 0.0;
+                st.idle.blink_open_ms = rng_range_f64(&mut st.idle.rng_state, 150.0, 300.0);
+            }
+        }
+        BlinkPhase::Opening => {
+            // 线性 0→1，随机时长。
+            let f = blink_factor(st.idle.blink_phase_ms, st.idle.blink_open_ms) as f32;
+            let _ = st.core.set_parameter("ParamEyeLOpen", f);
+            let _ = st.core.set_parameter("ParamEyeROpen", f);
+            if st.idle.blink_phase_ms >= st.idle.blink_open_ms {
+                // 睁眼完成 → 回到 Open，单次写回 1.0。
+                let _ = st.core.set_parameter("ParamEyeLOpen", 1.0);
+                let _ = st.core.set_parameter("ParamEyeROpen", 1.0);
+                st.idle.blink_phase = BlinkPhase::Open;
+                st.idle.blink_phase_ms = 0.0;
+                // 下一次间隔：[3000, 7500]ms。
+                st.idle.blink_next_ms =
+                    now_ms + rng_range_f64(&mut st.idle.rng_state, 3000.0, 7500.0);
+            }
+        }
+    }
+
+    // ---- 微表情：间隔触发，随机参数 ±0.05，400ms fade ----
+    // fade 三段：推进 1/3（0→delta）→ 停 1/3（持 delta）→ 缩退 1/3（delta→0）。
+    // end_t = start_ms + 400ms；过时清除（恢复 base）。
+    const MICRO_FADE_MS: f64 = 400.0;
+    let micro_done = if let Some((param, delta, start_ms)) = &st.idle.micro_active {
+        let elapsed = now_ms - *start_ms;
+        if elapsed >= MICRO_FADE_MS {
+            // 结束：清参数回 base（input 层 set base 值），清活跃。
+            let base = micro_param_base(param);
+            let _ = st.core.set_parameter(param, base as f32);
+            st.idle.micro_active = None;
+            // 排下一次：[3000, 6000]ms。
+            st.idle.micro_next_ms = now_ms + rng_range_f64(&mut st.idle.rng_state, 3000.0, 6000.0);
+            true
+        } else if elapsed >= MICRO_FADE_MS * 2.0 / 3.0 {
+            // 阶段 3：缩退 delta→0，线性。
+            let s = (1.0 - (elapsed - MICRO_FADE_MS * 2.0 / 3.0) / (MICRO_FADE_MS / 3.0))
+                .clamp(0.0, 1.0);
+            let v = (micro_param_base(param) + *delta as f64 * s) as f32;
+            let _ = st.core.set_parameter(param, v);
+            true
+        } else if elapsed >= MICRO_FADE_MS / 3.0 {
+            // 阶段 2：停（持 delta 峰值）。
+            let v = (micro_param_base(param) + *delta as f64) as f32;
+            let _ = st.core.set_parameter(param, v);
+            false
+        } else {
+            // 阶段 1：推进 0→delta。
+            let s = (elapsed / (MICRO_FADE_MS / 3.0)).clamp(0.0, 1.0);
+            let v = (micro_param_base(param) + *delta as f64 * s) as f32;
+            let _ = st.core.set_parameter(param, v);
+            false
+        }
+    } else {
+        false
+    };
+    // 只有活跃微表情已结束（或从未启动），才检查是否触发新的。
+    if !micro_done && now_ms >= st.idle.micro_next_ms {
+        // 随机选一个参数 + 随机 ±0.05 delta。
+        let params = [
+            "ParamBrowLY",
+            "ParamBrowRY",
+            "ParamMouthForm",
+            "ParamEyeBallX",
+            "ParamEyeBallY",
+        ];
+        let idx = (rng_next(&mut st.idle.rng_state) % params.len() as u64) as usize;
+        let param = params[idx].to_string();
+        let delta = (rng_range_f64(&mut st.idle.rng_state, 0.0, 1.0) - 0.5) * 0.1; // ±0.05
+        let start_ms = now_ms;
+        // 立即写初始值（base + 0），fade-in 逐渐推进。
+        let _ = st
+            .core
+            .set_parameter(&param, micro_param_base(&param) as f32);
+        st.idle.micro_active = Some((param, delta as f32, start_ms));
+    }
+}
+
+/// 微表情参数的中性基线值（对应 M3 参数表 neutral）。
+/// 嘴形 0.5，眉毛/眼球 0.0。
+fn micro_param_base(param: &str) -> f64 {
+    match param {
+        "ParamMouthForm" => 0.5,
+        _ => 0.0,
+    }
 }
 
 /// 渲染一帧并 present。返回 `false` 表示致命错误、应停止循环。
@@ -1010,6 +1266,10 @@ fn performance_now() -> f64 {
 pub(crate) fn write_hud_if_due(state: &SharedState) {
     // 先 immutable borrow 读数据；错峰判定与 DOM 写完成后 drop，再 mut borrow 重置窗。
     let (due, line) = {
+        let now_hud = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(0.0);
         let st = state.borrow();
         if !st.hud.due() {
             return;
@@ -1039,10 +1299,25 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
             st.bridge.msg_recv,
             st.bridge.last_msg
         );
+        // RM6 待机生命体征快照：呼吸正弦值 + 眨眼相位回路。
+        // breath 复算自正弦公式；blink 显示当前相位 + 相位内推进。
+        let breath = {
+            let phase = (now_hud - st.idle.breath_t0_ms) / st.idle.breath_period_ms;
+            0.5 + 0.15 * (2.0 * std::f64::consts::PI * phase).sin()
+        };
+        let blink_phase_str = match st.idle.blink_phase {
+            BlinkPhase::Open => "O",
+            BlinkPhase::Closing => "C",
+            BlinkPhase::Opening => "P",
+        };
+        let idle_diag = format!(
+            "idle: b{breath:.2} bl{blink_phase_str}{:.0}",
+            st.idle.blink_phase_ms
+        );
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {stage_diag}",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {stage_diag} | {idle_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,
@@ -1052,6 +1327,7 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
                 fps = st.hud.last_fps,
                 cpu = cpu_ms,
                 sim = st.hud.last_sim_steps,
+                idle_diag = idle_diag,
             ),
         )
     };
