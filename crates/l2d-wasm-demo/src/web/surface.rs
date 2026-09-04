@@ -185,6 +185,9 @@ pub(crate) struct BridgeState {
     pub offset_y: f32,
     /// stage-config.dark（背景暗色，默认 true）
     pub dark: bool,
+    /// 已写到 DOM 的 background-color 值（用于只在变化时写 DOM，规避每帧
+    /// set_property 触发 style recalc 的抖动——240Hz 下 DOM 写是主卡点）。
+    pub applied_dark: bool,
     /// stage-config.lipSync（口型开关，默认 true）
     pub lip_sync: bool,
     /// 最近 audio-volume（0..1；每 20ms 音频帧更新）
@@ -222,6 +225,7 @@ impl Default for BridgeState {
             offset_x: 0.0,
             offset_y: 0.0,
             dark: true,
+            applied_dark: false,
             lip_sync: true,
             volume: 0.0,
             volume_display: 0.0,
@@ -948,8 +952,19 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
 
     // 背景色：仅 canvas CSS background-color，与模型 viewport 清空色
     // (wgpu::Color::TRANSPARENT) 独立，缩放不影响背景。
-    let bg = if dark { "#101418" } else { "#e8ecf1" };
-    let _ = st.canvas.style().set_property("background-color", bg);
+    //
+    // 仅在值变化时写 DOM。`apply_bridge_effects` 每帧调用（rAF 循环），
+    // 而 `dark` 只在 stage-config 消息时变化——每次都 set_property 会触发
+    // style recalc（240Hz = 秒 240 次 DOM 写），是用户实测 "FPS 高但卡"
+    // 的根因。`applied_dark` 记录"已写到 DOM 的值"，相等时跳过写。
+    //
+    // `applied_dark: false` 初始值：index.html 的 canvas CSS 背景色可能
+    // 与 #101418 不一致，首帧不写会闪烁——保守地强制首帧写一次同步。
+    if st.bridge.dark != st.bridge.applied_dark {
+        let bg = if st.bridge.dark { "#101418" } else { "#e8ecf1" };
+        let _ = st.canvas.style().set_property("background-color", bg);
+        st.bridge.applied_dark = st.bridge.dark;
+    }
 }
 
 /// 渲染一帧并 present。返回 `false` 表示致命错误、应停止循环。
