@@ -234,6 +234,8 @@ mod web {
             let mut applied = false;
             {
                 let mut st = handler_state.borrow_mut();
+                st.bridge.msg_recv += 1;
+                st.bridge.last_msg = kind.to_string();
                 match kind {
                     "stage-config" => {
                         if let Some(s) = v.get("scale").and_then(|x| x.as_f64()) {
@@ -327,6 +329,10 @@ mod web {
             } // borrow 作用域结束
             // **R2**：应用成功 → 回 `stage-ack` 给父页（父页收 ACK 前不得提示"已生效"）。
             if applied {
+                {
+                    let mut st = handler_state.borrow_mut();
+                    st.bridge.msg_applied += 1;
+                }
                 if let Some(win) = web_sys::window() {
                     let ack = serde_json::json!({
                         "type": "stage-ack",

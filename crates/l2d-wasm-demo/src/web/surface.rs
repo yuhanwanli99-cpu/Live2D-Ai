@@ -193,6 +193,10 @@ pub(crate) struct BridgeState {
     pub volume_display: f32,
     /// 进行中的参数等效动画（action-state start 创建 / end 或 t>=1 结束）
     pub action: Option<ActiveAction>,
+    /// 诊断（P3.1）：收到的消息数 / 应用数 / 最近类型——HUD 显示定位"模型不见"。
+    pub msg_recv: u32,
+    pub msg_applied: u32,
+    pub last_msg: String,
 }
 
 /// 进行中的动作动画（无内置 motion 段时的参数等效实现）。
@@ -222,6 +226,9 @@ impl Default for BridgeState {
             volume: 0.0,
             volume_display: 0.0,
             action: None,
+            msg_recv: 0,
+            msg_applied: 0,
+            last_msg: String::new(),
         }
     }
 }
@@ -710,10 +717,14 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         } else {
             0.0
         };
+        let stage_diag = format!(
+            "stage: scale={:.2} off=({:+.2},{:+.2}) msg={}/{} [{}]",
+            st.bridge.scale, st.bridge.offset_x, st.bridge.offset_y,
+            st.bridge.msg_applied, st.bridge.msg_recv, st.bridge.last_msg);
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {stage_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,
