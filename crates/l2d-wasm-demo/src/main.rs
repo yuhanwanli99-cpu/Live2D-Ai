@@ -170,7 +170,6 @@ mod web {
             bridge: surface::BridgeState::default(),
             idle,
             last_layout_transform: layout_transform,
-            accumulator: 0.0,
         }));
         install_resize_handler(&state);
 

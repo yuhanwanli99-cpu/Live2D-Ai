@@ -263,7 +263,6 @@ pub(crate) struct FrameState {
     /// rAF 时间戳到达时累加 real_dt，直到累积 >= FIXED_DT_60HZ 再消费一次
     /// core.update，避免 240Hz 时物理/姿态模拟跑到 4× 速度。
     pub(crate) last_layout_transform: Affine2,
-    pub(crate) accumulator: f64,
 }
 
 /// 运行时性能 HUD 统计态。
