@@ -25,6 +25,7 @@
   --sh-glow: 0 0 0 1px var(--brand-glow), 0 0 12px var(--brand-glow);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; font-size: 15px; }
 body {
   background: var(--bg-0); color: var(--fg);
@@ -166,6 +167,25 @@ button { font-family: var(--font); cursor: pointer; }
 }
 .statusbar .sep { color: var(--line); }
 
+/* ===== 动作触发浮窗（可拖动） ===== */
+.act-panel {
+  position: fixed; right: 24px; bottom: 60px; width: 280px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--sh-3); z-index: 90; overflow: hidden;
+}
+.act-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s-2) var(--s-3); background: var(--bg-3);
+  font-size: 12px; font-weight: 600; color: var(--fg-hi); cursor: move; user-select: none;
+}
+.act-body { padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-3); }
+.act-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--s-2); }
+.act-btn { padding: 10px 0; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-2); color: var(--fg); font-size: 12px; transition: all var(--t-fast) var(--ease); }
+.act-btn:hover { border-color: var(--brand); color: var(--brand); }
+.act-btn:active { transform: scale(.95); }
+.act-strength { display: flex; align-items: center; gap: var(--s-3); }
+.act-log { font: 10px var(--mono); color: var(--fg-low); max-height: 80px; overflow-y: auto; border-top: 1px solid var(--line-soft); padding-top: var(--s-2); }
+
 /* ===== 设置模态（点 ⚙ 打开） ===== */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; }
 .settings-modal {
@@ -289,6 +309,7 @@ button { font-family: var(--font); cursor: pointer; }
     <span class="pill warn"><span class="dot"></span>TTS</span>
     <span class="spacer"></span>
     <button class="icon-btn" title="刷新"><svg class="ib-svg"><use href="#i-motion"/></svg></button>
+    <button class="icon-btn" title="动作触发" aria-haspopup="dialog" onclick="const p=document.getElementById('actPanel');p.hidden=!p.hidden"><svg class="ib-svg"><use href="#i-motion"/></svg></button>
     <button class="icon-btn" title="设置" aria-haspopup="dialog" onclick="document.getElementById('ov').hidden=false;document.getElementById('modal').hidden=false;"><svg class="ib-svg"><use href="#i-tools"/></svg></button>
   </header>
 
@@ -334,6 +355,29 @@ button { font-family: var(--font); cursor: pointer; }
   </footer>
 </div>
 
+<!-- 动作触发浮窗（py 式功能：主动触发编排测试；可拖动） -->
+<div class="act-panel" id="actPanel" hidden>
+  <div class="act-head" id="actDrag">
+    <span>动作触发</span>
+    <button class="icon-btn" onclick="document.getElementById('actPanel').hidden=true">✕</button>
+  </div>
+  <div class="act-body">
+    <div class="act-grid">
+      <button class="act-btn" onclick="actFire('nod')">点头</button>
+      <button class="act-btn" onclick="actFire('shake_no')">摇头</button>
+      <button class="act-btn" onclick="actFire('tilt')">歪头</button>
+      <button class="act-btn" onclick="actFire('look_around')">环视</button>
+      <button class="act-btn" onclick="actFire('listen')">倾听</button>
+      <button class="act-btn" onclick="actFire('surprise')">惊讶</button>
+    </div>
+    <div class="act-strength">
+      <span class="lbl">强度</span>
+      <span class="seg"><button class="seg-btn" onclick="segSel(this)">1</button><button class="seg-btn active" onclick="segSel(this)">2</button><button class="seg-btn" onclick="segSel(this)">3</button></span>
+    </div>
+    <div class="act-log" id="actLog">（触发记录）</div>
+  </div>
+</div>
+
 <div class="overlay" id="ov" hidden onclick="closeModal()"></div>
 <div class="settings-modal" id="modal" hidden role="dialog" aria-modal="true">
   <div class="settings-header">
@@ -346,8 +390,6 @@ button { font-family: var(--font); cursor: pointer; }
       <button class="rail-item" data-s="ai" onclick="sel(this)"><svg class="ico-svg"><use href="#i-mic"/></svg>AI 与语音</button>
       <button class="rail-item" data-s="character" onclick="sel(this)"><svg class="ico-svg"><use href="#i-user"/></svg>角色</button>
       <button class="rail-item" data-s="actions" onclick="sel(this)"><svg class="ico-svg"><use href="#i-motion"/></svg>动作与互动</button>
-      <button class="rail-item" data-s="models" onclick="sel(this)"><svg class="ico-svg"><use href="#i-box"/></svg>模型管理</button>
-      <button class="rail-item" data-s="status" onclick="sel(this)"><svg class="ico-svg"><use href="#i-gauge"/></svg>系统状态</button>
       <button class="rail-item" data-s="dev" onclick="sel(this)"><svg class="ico-svg"><use href="#i-tools"/></svg>开发者</button>
       <button class="rail-item" data-s="mods" onclick="sel(this)"><svg class="ico-svg"><use href="#i-puzzle"/></svg>Mod 管理</button>
     </nav>
@@ -457,6 +499,30 @@ function modToggle(cb) {
   const badge = row.querySelector('.badge');
   if (badge) badge.hidden = !badge.hidden;
 }
+let actStrength = 2;
+function actFire(name) {
+  // 真实实现: postToStage({type:"action-state", action:name, state:"start", strength}) + POST /commands invoke
+  const log = document.getElementById('actLog');
+  log.innerHTML = `<div>${new Date().toLocaleTimeString()} ${name} (强度${actStrength})</div>` + log.innerHTML;
+}
+// 浮窗拖动
+(function () {
+  const panel = document.getElementById('actPanel');
+  const head = document.getElementById('actDrag');
+  let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
+  head.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    drag = true; sx = e.clientX - ox; sy = e.clientY - oy;
+    head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener('pointermove', e => {
+    if (!drag) return;
+    ox = e.clientX - sx; oy = e.clientY - sy;
+    panel.style.right = 'auto'; panel.style.bottom = 'auto';
+    panel.style.left = ox + 'px'; panel.style.top = oy + 'px';
+  });
+  head.addEventListener('pointerup', () => drag = false);
+})();
 function sel(btn) {
   document.querySelectorAll('.rail-item').forEach(r => r.classList.remove('active'));
   btn.classList.add('active');
