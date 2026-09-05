@@ -138,9 +138,10 @@ fn index_html_template_contains_chat_panel_dom() {
     assert!(index_html::INDEX_HTML.contains("id=\"chat-status\""));
     // 状态徽章（WS 连接状态）。
     assert!(index_html::INDEX_HTML.contains("id=\"wsBadge\""));
-    // Live2D 展示区占位（D3 后续填充；本批先留位）。
+    // Live2D 展示区：真实舞台 /render iframe（v2.5 迁移替换了原占位串 "Live2D 展示区"）。
     assert!(index_html::INDEX_HTML.contains("id=\"live2d-display\""));
-    assert!(index_html::INDEX_HTML.contains("Live2D 展示区"));
+    assert!(index_html::INDEX_HTML.contains("id=\"live2d-frame\""));
+    assert!(index_html::INDEX_HTML.contains("src=\"/render\""));
 }
 
 /// D5-W2 任务：chat.js 含 WebSocket 端点 + 关键事件类型 + 重连逻辑。

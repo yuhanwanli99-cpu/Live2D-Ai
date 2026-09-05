@@ -46,39 +46,103 @@ const els = {
 // ---- 设置模态 + 左导航 rail ----
 // section 注册（按 deepseekharness slots 思想）——规格 C3 字面。
 const SETTINGS_SECTIONS = [
-  { id:"appearance", label:"外观" }, { id:"ai", label:"AI 与语音" },
-  { id:"character", label:"角色" }, { id:"actions", label:"动作" },
-  { id:"models", label:"模型" }, { id:"status", label:"系统状态" },
-  { id:"dev", label:"开发者" }, { id:"mods", label:"Mod" },
+  { id:"character", label:"角色与人设", icon:"i-user" },
+  { id:"appearance", label:"外观与舞台", icon:"i-palette" },
+  { id:"ai", label:"AI 与语音", icon:"i-mic" },
+  { id:"actions", label:"动作与互动", icon:"i-motion" },
+  { id:"dev", label:"开发者", icon:"i-tools" },
+  { id:"mods", label:"Mod 管理", icon:"i-puzzle" },
 ];
-let activeSection = "ai";
+let activeSection = "character";
 function renderRail() {
   if (!els.settingsRail) return;
+  // rail 已在 HTML 静态存在（含 SVG 图标与 data-s）——动态渲染仅兜底/保持兼容。
+  const exists = els.settingsRail.querySelectorAll(".rail-item").length;
+  if (exists >= SETTINGS_SECTIONS.length) return; // 静态 rail 已就绪
   els.settingsRail.innerHTML = SETTINGS_SECTIONS.map((s) =>
-    '<button class="settings-rail-item" data-section="' + s.id + '">' + s.label + "</button>"
+    '<button class="rail-item" data-s="' + s.id + '">' +
+    '<svg class="ico-svg"><use href="#' + s.icon + '"/></svg>' +
+    '<span class="lbl-t">' + s.label + '</span></button>'
   ).join("");
 }
-// rail 点击委托：点击任一 .settings-rail-item → setActiveSection。
+// rail 点击委托：点击任一 .rail-item → setActiveSection。
 if (els.settingsRail) {
   els.settingsRail.addEventListener("click", (e) => {
-    const item = e.target.closest(".settings-rail-item");
-    if (item) setActiveSection(item.dataset.section);
+    const item = e.target.closest(".rail-item");
+    if (item) setActiveSection(item.dataset.s);
   });
 }
 function setActiveSection(id) {
   activeSection = id;
-  document.querySelectorAll(".settings-rail-item").forEach((r) =>
-    r.classList.toggle("active", r.dataset.section === id)
+  document.querySelectorAll(".rail-item").forEach((r) =>
+    r.classList.toggle("active", r.dataset.s === id)
   );
   document.querySelectorAll(".settings-section").forEach((s) =>
-    s.classList.toggle("active", s.dataset.panel === id)
+    s.classList.toggle("active", s.dataset.p === id)
   );
-  // capability 驱动：renderGroups 原有逻辑迁入钩入，按 section 校验显隐。
   if (id === "dev" || id === "mods") renderGroups();
   if (id === "mods") renderMods();
-  if (id === "models") loadModels();
   if (id === "actions") renderActions();
+  if (id === "appearance") bindAppearance();
 }
+let actStrength = 2;
+function segSel(btn) {
+  const seg = btn.closest(".seg");
+  if (seg) seg.querySelectorAll(".seg-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  const v = parseInt(btn.dataset.v || btn.textContent, 10);
+  if (!isNaN(v)) actStrength = v;
+}
+function segColor(btn, mode) {
+  segSel(btn);
+  postToStage({ type: "stage-config", bg: mode });
+}
+function actFire(actName) {
+  const log = $("actLog");
+  if (log) {
+    const line = document.createElement("div");
+    line.textContent = new Date().toLocaleTimeString() + " " + actName + " (强度" + actStrength + ")";
+    log.insertBefore(line, log.firstChild);
+  }
+  // 触发真实动作：go to stage + commands invoke
+  const cmds = { nod:"live2d_perform_action_nod", shake_no:"live2d_perform_action_shake_no",
+    tilt:"live2d_perform_action_tilt", look_around:"live2d_perform_action_look_around",
+    listen:"live2d_perform_action_listen", surprise:"live2d_perform_action_surprise" };
+  const cmdId = cmds[actName] || ("live2d_perform_action_" + actName);
+  invokeAction(actName, cmdId);
+}
+function toggleActPanel() {
+  const p = $("actPanel");
+  if (p) p.hidden = !p.hidden;
+}
+// 动作浮窗交互委托
+(function bindActPanel() {
+  const panel = $("actPanel");
+  if (!panel) return;
+  const head = $("actDrag");
+  if (head) {
+    let sx=0, sy=0, ox=0, oy=0, drag=false;
+    head.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
+      drag=true; sx=e.clientX-ox; sy=e.clientY-oy;
+      head.setPointerCapture(e.pointerId);
+    });
+    head.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      ox=e.clientX-sx; oy=e.clientY-sy;
+      panel.style.right="auto"; panel.style.bottom="auto";
+      panel.style.left=ox+"px"; panel.style.top=oy+"px";
+    });
+    head.addEventListener("pointerup", () => drag=false);
+  }
+  panel.addEventListener("click", (e) => {
+    const b = e.target.closest(".act-btn[data-act]");
+    if (b) actFire(b.dataset.act);
+  });
+  const close = $("btnActClose");
+  if (close) close.addEventListener("click", () => panel.hidden = true);
+})();
+
 function openSettings() {
   if (!state.settingsLoaded) { state.settingsLoaded = true; loadSettingsLazy(); }
   els.settingsModal.hidden = false;
@@ -675,6 +739,7 @@ els.btnClearKey.addEventListener("click", clearKeyBinding);
 els.btnTestLlm.addEventListener("click", () => testEndpoint(els.btnTestLlm, els.llmTestResult, "/api/v1/settings/test/llm"));
 els.btnTestTts.addEventListener("click", () => testEndpoint(els.btnTestTts, els.ttsTestResult, "/api/v1/settings/test/tts"));
 els.btnRefresh.addEventListener("click", loadAll);
+if (els.btnActions) els.btnActions.addEventListener("click", toggleActPanel);
 els.btnReloadLogs.addEventListener("click", refreshLogs);
 // 外观与舖控件绑定（本地状态 + postMessage）。
 bindAppearance();
