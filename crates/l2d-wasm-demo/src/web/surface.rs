@@ -1055,7 +1055,7 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     let base = st.last_layout_transform;
     let user_transform = Affine2::from_translation(Vec2::new(offset_x, offset_y))
         * Affine2::from_scale(Vec2::splat(scale));
-    st.core.set_transform(base * user_transform);
+    st.core.set_transform(user_transform * base); // 左乘: NDC 屏幕空间等比缩放+平移(修上下压缩)
 
     // 背景色：仅 canvas CSS background-color，与模型 viewport 清空色
     // (wgpu::Color::TRANSPARENT) 独立，缩放不影响背景。

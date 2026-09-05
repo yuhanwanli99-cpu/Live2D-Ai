@@ -1,4 +1,4 @@
-//! 临时探针 2：验证左乘/右乘用户变换的数值语义（定位"模型不见"）。验证后删除。
+//! 探针 3：左乘用户变换（NDC 空间）语义验证。验证后删除。
 use glam::Affine2;
 use glam::Vec2;
 use l2d::asset::ModelPackage;
@@ -13,55 +13,29 @@ fn scale_of(t: &Affine2) -> f64 {
 }
 
 #[test]
-fn probe_user_transform_semantics() {
+fn probe_left_multiply_screen_space() {
     let package = ModelPackage::load(BAI).expect("load bai");
     let loaded = LoadedModel::resolve(package).expect("resolve");
-    // layout_transform 是 pub(crate)——经由 wasm 侧同款途径：core.transform() 不可用，
-    // 此处用 BehaviorThread 等价：从 l2d 公开 API 只能拿 canvas/layout，
-    // 所以这里手动复算 layout_transform（公式与 l2d/src/renderer/mod.rs:233 一致）。
     let canvas = loaded.handle().canvas();
-    let canvas_dims = Vec2::new(canvas.width_units, canvas.height_units);
-    let canvas_center = Vec2::new(canvas.center_x_units, canvas.center_y_units);
     let layout = loaded.manifest().layout;
-    let whole_canvas = Affine2::from_translation(-Vec2::ONE)
-        * Affine2::from_scale(Vec2::new(2.0, 2.0) / canvas_dims)
-        * Affine2::from_translation(canvas_center)
-        * Affine2::from_scale(Vec2::splat(canvas.pixels_per_unit));
     let base = Affine2::from_translation(Vec2::new(layout.center_x, layout.center_y))
         * Affine2::from_scale(Vec2::new(layout.width, layout.height))
-        * whole_canvas;
-    println!(
-        "base: scale≈{:.6} tx={:+.4} ty={:+.4}",
-        scale_of(&base),
-        base.translation.x,
-        base.translation.y
-    );
-
-    // 右乘（当前实现）：base * scale(1.1)
-    let right = base * Affine2::from_scale(Vec2::splat(1.1));
-    println!(
-        "右乘 scale1.1 → 合成 scale≈{:.6} tx={:+.4}",
-        scale_of(&right),
-        right.translation.x
-    );
-
-    // 左乘（提议）：user * base —— 世界空间（NDC）作用
-    let user = Affine2::from_scale(Vec2::splat(1.1));
-    let left = user * base;
-    println!(
-        "左乘 scale1.1 → 合成 scale≈{:.6} tx={:+.4} ty={:+.4}",
-        scale_of(&left),
-        left.translation.x,
-        left.translation.y
-    );
-
-    // 左乘 offset=0.2 + scale=1.1：世界平移 0.2 NDC —— 用户直觉
-    let user_t =
-        Affine2::from_translation(Vec2::new(0.2, 0.0)) * Affine2::from_scale(Vec2::splat(1.1));
-    let left2 = user_t * base;
-    println!(
-        "左乘 offset0.2+scale1.1 → scale≈{:.4} tx={:+.4}",
-        scale_of(&left2),
-        left2.translation.x
-    );
+        * (Affine2::from_translation(-Vec2::ONE)
+            * Affine2::from_scale(Vec2::new(2.0, 2.0) / Vec2::new(canvas.width_units, canvas.height_units))
+            * Affine2::from_translation(Vec2::new(canvas.center_x_units, canvas.center_y_units))
+            * Affine2::from_scale(Vec2::splat(canvas.pixels_per_unit)));
+    println!("base: sx={:.6} sy={:.6} tx={:+.4} ty={:+.4}",
+        base.matrix2.x_axis.x, base.matrix2.y_axis.y, base.translation.x, base.translation.y);
+    // 左乘（NDC 屏幕空间）：scale=1.1 + offset=0.1
+    let user = Affine2::from_translation(Vec2::new(0.1, 0.0))
+        * Affine2::from_scale(Vec2::splat(1.1));
+    let combined = user * base;
+    println!("左乘 s1.1+ox0.1: sx={:.4} sy={:.4} tx={:+.4} ty={:+.4}",
+        combined.matrix2.x_axis.x, combined.matrix2.y_axis.y,
+        combined.translation.x, combined.translation.y);
+    // 断言：x/y 等比放大（无变形），平移为 NDC 直加
+    assert!((combined.matrix2.x_axis.x - base.matrix2.x_axis.x * 1.1).abs() < 1e-5);
+    assert!((combined.matrix2.y_axis.y - base.matrix2.y_axis.y * 1.1).abs() < 1e-5);
+    assert!((combined.translation.x - (base.translation.x * 1.1 + 0.1)).abs() < 1e-5);
+    assert!((combined.translation.y - base.translation.y * 1.1).abs() < 1e-5);
 }
