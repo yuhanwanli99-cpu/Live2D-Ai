@@ -188,8 +188,11 @@ impl PoseStack {
             idle.set(&self.breath_key, v);
         }
         if self.has_angle_z {
-            let wave = ((time * std::f32::consts::PI).sin() * 15.0) as i32;
-            idle.set(&self.angle_key, wave as f32);
+            // P3.1 修复：i32 截断会让正弦在峰值（导数≈0）处连续多帧停在同
+            // 一整数再跳变——表现为"摆到最左/最右卡一下"。改为连续 f32；
+            // 幅度 15°→3°（轻微摇晃，py 版生命体征同级），周期放慢一倍。
+            let wave = (time * std::f32::consts::PI / 2.0).sin() * 3.0;
+            idle.set(&self.angle_key, wave);
         }
 
         // ---- physics 层：工作姿态 ← 上帧输出 ⊕ 本帧信号（idle+input）----
