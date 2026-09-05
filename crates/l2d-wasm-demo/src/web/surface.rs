@@ -419,29 +419,29 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
 ///   `Validation` → 首次提示后跳过本帧、连续第二次命中视为 fatal 并停循环
 ///   （见 P0-2-2 裁决）。
 pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
-    // R4：帧率无关的时间积累。rAF 时间戳 → real_dt（秒，0.1s 防巨步）→
-    // 累积到 accumulator，直到 >= FIXED_DT_60HZ 才消费一次 core.update。
-    // 这样 60fps 与 240fps 每秒模拟步数一致（60 步），避免 240fps 跑到 4× 速度。
+    // **P3.1 修正（R4 撤销）**：R4 的 60Hz accumulator 修好了"240Hz 四倍速"，
+    // 但引入了"姿态每 4 帧跳一次"的视觉步进（240Hz 上 sim 0,0,0,1 轮转 → 摆动卡顿）。
+    //
+    // 实际核实：ayagami `PhysicsEngine::update(pose, dt)` **原生支持任意 dt**——
+    // 内部按 min_fps 自动拆分 ticks（physics.rs:466-480），pose_stack 的 idle/呼吸
+    // 是墙钟正弦（elapsed 累计真实 dt，帧率无关）。因此**直接用真实 dt 更新**：
+    // - 每帧都推进姿态 → 渲染连续无跳变；
+    // - 物理由引擎内部分步保稳定；
+    // - 速度仍与墙钟一致（dt 真实）。
+    // dt 钳制 [1/240, 1/15]s：防巨步（切后台回来）与零步。
     let dt_millis = {
         let mut st = state.borrow_mut();
         let real_dt = match st.hud.last_frame_ms {
-            Some(prev) if now_ms > prev => ((now_ms - prev) / 1000.0).clamp(0.0, 0.1),
+            Some(prev) if now_ms > prev => ((now_ms - prev) / 1000.0).clamp(1.0 / 240.0, 1.0 / 15.0),
             _ => FIXED_DT_60HZ as f64,
         };
         st.hud.last_frame_ms = Some(now_ms);
-        st.accumulator += real_dt;
-        let mut steps = 0u32;
-        while st.accumulator >= FIXED_DT_60HZ as f64 && steps < 5 {
-            if let Err(e) = st.core.update(FIXED_DT_60HZ) {
-                drop(st);
-                status(&format!("停止渲染循环：update({FIXED_DT_60HZ}) 失败：{e}"));
-                return;
-            }
-            st.accumulator -= FIXED_DT_60HZ as f64;
-            steps += 1;
+        st.hud.last_sim_steps = 1; // 每帧恰好一次 update（HUD 口径保持）
+        if let Err(e) = st.core.update(real_dt as f32) {
+            drop(st);
+            status(&format!("停止渲染循环：update({real_dt:.4}s) 失败：{e}"));
+            return;
         }
-        // 记录本轮模拟步数供 HUD 显示（R4）。
-        st.hud.last_sim_steps = steps;
         // real_dt 毫秒用于口型衰减（dt 归一化）。
         real_dt * 1000.0
     };
