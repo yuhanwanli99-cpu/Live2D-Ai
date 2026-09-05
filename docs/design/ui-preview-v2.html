@@ -211,6 +211,29 @@ button { font-family: var(--font); cursor: pointer; }
 }
 .field-row input[type=text]:focus, .field-row select:focus { outline: none; border-color: var(--brand); box-shadow: var(--sh-glow); }
 .field-row input[type=checkbox] { accent-color: var(--brand); width: 16px; height: 16px; }
+/* 分段按钮（锁定/释放、色调三选） */
+.seg { display: inline-flex; gap: var(--s-1); }
+.seg-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-mid); font-size: 12px; transition: all var(--t-fast) var(--ease); }
+.seg-btn:hover { border-color: var(--fg-low); color: var(--fg); }
+.seg-btn.active { background: rgba(64,197,241,.12); border-color: var(--brand); color: var(--brand); }
+.seg-btn .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+/* 酒馆式多行字段（col 变体） */
+.field-row.col { flex-direction: column; align-items: stretch; gap: var(--s-1); border-bottom: 0; padding-bottom: 0; }
+.field-row.col + .field-row.col { padding-top: 0; }
+.field-row.col textarea { width: 100%; background: var(--bg-2); color: var(--fg-hi); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); font: 13px/1.6 var(--font); resize: vertical; min-height: 44px; transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.field-row.col textarea:focus { outline: none; border-color: var(--brand); box-shadow: var(--sh-glow); }
+/* 实时日志流 */
+.log-stream { background: #0a0c10; border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s-3); font: 11px/1.7 var(--mono); height: 260px; overflow-y: auto; }
+.log-stream::-webkit-scrollbar { width: 6px; }
+.log-stream::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.log-line { display: flex; gap: var(--s-2); white-space: pre-wrap; word-break: break-all; }
+.log-line .lt { color: var(--fg-low); flex-shrink: 0; }
+.log-line .lv { flex-shrink: 0; font-weight: 600; }
+.log-line .lv.info { color: var(--brand); }
+.log-line .lv.warn { color: var(--warn); }
+.log-line .lv.err { color: var(--err); }
+.log-line .lv.dbg { color: var(--fg-low); }
+.log-line .lm { color: var(--fg); }
 /* toggle switch（Mod 运行时开关） */
 .toggle { position: relative; display: inline-block; width: 40px; height: 22px; cursor: pointer; }
 .toggle input { opacity: 0; width: 0; height: 0; }
@@ -340,16 +363,18 @@ button { font-family: var(--font); cursor: pointer; }
       </section>
       <section class="settings-section" data-p="ai">
         <h3 class="sec-title">AI 与语音</h3>
-        <p class="sec-desc">对话与语音服务端点（OpenAI 兼容）。</p>
+        <p class="sec-desc">对话与语音服务。本地推理由 Mod 接管时，字段自动切换为只读回显。</p>
         <div class="group-title">LLM <span class="mode-tag" id="llmModeTag">外部 API 模式</span></div>
-        <div class="field-row" id="llmExtFields"><label class="lbl" for="f-llm-url">Base URL</label><input id="f-llm-url" type="text" value="http://127.0.0.1:11434/v1"></div>
-        <div class="field-row" id="llmLocalHint" hidden><span class="lbl">本地推理<small>local-llm Mod 已接管端点</small></span><span class="mode-note">http://127.0.0.1:11434/v1 · qwen3.5:4b</span></div>
+        <div class="field-row"><label class="lbl" for="f-llm-url">服务地址</label><input id="f-llm-url" type="text" value="http://127.0.0.1:11434/v1"></div>
         <div class="field-row"><label class="lbl" for="f-llm-model">模型</label><input id="f-llm-model" type="text" value="qwen3.5:4b"></div>
-        <div class="field-row"><label class="lbl" for="f-llm-key">API Key 环境变量<small>存变量名，非密钥</small></label><input id="f-llm-key" type="text" placeholder="（未绑定）"></div>
+        <div class="field-row"><label class="lbl" for="f-llm-key">密钥环境变量<small>存变量名，非密钥</small></label><input id="f-llm-key" type="text" placeholder="（未绑定）"></div>
         <div class="group-title">TTS <span class="mode-tag" id="ttsModeTag">外部 API 模式</span></div>
-        <div class="field-row" id="ttsExtFields"><label class="lbl" for="f-tts-url">Base URL</label><input id="f-tts-url" type="text" placeholder="http://127.0.0.1:8000/v1"></div>
-        <div class="field-row" id="ttsLocalHint" hidden><span class="lbl">本地推理<small>local-tts Mod 已接管端点</small></span><span class="mode-note">http://127.0.0.1:8000/v1 · af_heart</span></div>
+        <div class="field-row"><label class="lbl" for="f-tts-url">服务地址</label><input id="f-tts-url" type="text" placeholder="http://127.0.0.1:8000/v1"></div>
         <div class="field-row"><label class="lbl" for="f-tts-voice">音色</label><input id="f-tts-voice" type="text" placeholder="af_heart"></div>
+        <div class="group-title">版本</div>
+        <div class="field-row"><span class="lbl">前端</span><span class="mode-note" id="verFront">v0.1.0</span></div>
+        <div class="field-row"><span class="lbl">后端</span><span class="mode-note" id="verBack">v0.1.0 (8bc3d5c3)</span></div>
+        <div class="field-row"><span class="lbl">Mod 系统 API</span><span class="mode-note">v1</span></div>
       </section>
       <section class="settings-section" data-p="status">
         <h3 class="sec-title">系统状态</h3>
@@ -366,9 +391,13 @@ button { font-family: var(--font); cursor: pointer; }
       </section>
       <section class="settings-section" data-p="actions">
         <h3 class="sec-title">动作与互动</h3>
-        <p class="sec-desc">Live2D 动作触发与互动规则。</p>
-        <div class="field-row"><label class="lbl" for="f-idle">空闲随机动作</label><input id="f-idle" type="checkbox" checked></div>
+        <p class="sec-desc">表演层开关与动作触发。动作经 core 仲裁 + 渲染端表演。</p>
+        <div class="group-title">互动开关</div>
+        <div class="field-row"><label class="lbl" for="f-lip">口型联动<small>TTS 音频驱动口形</small></label><input id="f-lip" type="checkbox" checked></div>
+        <div class="field-row"><label class="lbl" for="f-idle">空闲随机动作<small>空闲时自动小动作</small></label><input id="f-idle" type="checkbox" checked></div>
         <div class="field-row"><label class="lbl" for="f-click">点击触发互动</label><input id="f-click" type="checkbox" checked></div>
+        <div class="group-title">基础动作试演</div>
+        <div id="actionsList" class="actions-list"></div>
       </section>
       <section class="settings-section" data-p="models">
         <h3 class="sec-title">模型管理</h3>
@@ -377,12 +406,15 @@ button { font-family: var(--font); cursor: pointer; }
       </section>
       <section class="settings-section" data-p="dev">
         <h3 class="sec-title">开发者</h3>
-        <p class="sec-desc">调试与日志。</p>
-        <div class="field-row"><label class="lbl" for="f-debug">调试面板</label><input id="f-debug" type="checkbox"></div>
-        <div class="field-row"><label class="lbl" for="f-log-level">日志级别</label>
-          <select id="f-log-level"><option>info</option><option>debug</option><option>trace</option></select>
-        </div>
+        <p class="sec-desc">运行状态快照与实时日志（实时滚动）。</p>
+        <div class="group-title">系统状态</div>
+        <div class="field-row"><label class="lbl" for="f-cfg">配置文件</label><input id="f-cfg" type="text" value="~/.config/live2d-ai/live2d-ai.toml" readonly></div>
+        <div class="field-row"><label class="lbl" for="f-audio">音频设备</label><input id="f-audio" type="text" value="dry-run（无设备）" readonly></div>
+        <div class="field-row"><label class="lbl" for="f-uptime">运行时长</label><input id="f-uptime" type="text" value="1h 23m" readonly></div>
+        <div class="group-title">实时日志 <span class="mode-tag">RUST_LOG 级别联动</span></div>
+        <div class="log-stream" id="logStream"><div class="log-line"><span class="lt">02:45:01</span><span class="lv info">INFO</span><span class="lm">web: supervisor 已启动</span></div><div class="log-line"><span class="lt">02:45:01</span><span class="lv info">INFO</span><span class="lm">ModRegistry 已装配 + 启动（注册 5 个 Mod）</span></div><div class="log-line"><span class="lt">02:45:02</span><span class="lv warn">WARN</span><span class="lm">音频设备不可用，supervisor 进入 dry-run</span></div><div class="log-line"><span class="lt">02:45:03</span><span class="lv info">INFO</span><span class="lm">web-api: 已监听 127.0.0.1:18080</span></div><div class="log-line"><span class="lt">02:46:12</span><span class="lv dbg">DEBUG</span><span class="lm">bridge: stage-zoom reset applied (scale=1.00)</span></div></div>
       </section>
+
       <section class="settings-section" data-p="mods">
         <h3 class="sec-title">Mod 管理</h3>
         <p class="sec-desc">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建。</p>
@@ -422,6 +454,14 @@ document.querySelector('.btn-save').addEventListener('click', () => {
   document.querySelector('.btn-save').classList.remove('dirty');
   document.querySelector('.settings-footer .status').textContent = '已保存';
 });
+function segSel(btn) {
+  btn.parentNode.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function segColor(btn, mode) {
+  segSel(btn);
+  // 演示：真实实现发 stage-config {bg: mode}
+}
 function modToggle(cb) {
   // 演示：切换后显示"待重启"徽章（真实实现调 POST /api/v1/mods/{id}/config）
   const row = cb.closest('.field-row');
