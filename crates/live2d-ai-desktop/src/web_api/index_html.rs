@@ -121,6 +121,31 @@ mod tests {
         assert!(APP_JS.contains("dev_mode"));
         // 「已保存并热重载」用户反馈。
         assert!(APP_JS.contains("已保存并热重载"));
+        // v2.5 迁移锚点：设置 rail/分区切换 + 动作网格委托 + actFire。
+        assert!(APP_JS.contains("SETTINGS_SECTIONS"));
+        assert!(APP_JS.contains("setActiveSection"));
+        assert!(APP_JS.contains("actFire"));
+        assert!(APP_JS.contains(".act-grid .act-btn[data-act]"));
+        assert!(APP_JS.contains("openSettings"));
+    }
+
+    /// v2.5 迁移：设置模态 + 遮罩必须可开（overlay class 缺失会致 backdrop 无样式且点击异常）。
+    #[test]
+    fn index_html_settings_modal_bridge_ok() {
+        // 遮罩必须带 .overlay（preview 是 class="overlay" id="ov"，迁移成 id="settings-overlay" 时丢了类）。
+        assert!(INDEX_HTML.contains("id=\"settings-overlay\" class=\"overlay\""));
+        assert!(INDEX_HTML.contains("id=\"settings-modal\""));
+        // 6 分区 rail（data-s）。
+        assert_eq!(
+            INDEX_HTML.matches("data-s=\"").count(),
+            6,
+            "left rail 应恰有 6 个 data-s 分区项"
+        );
+        // 状态栏（statusbar 用 class，无 id）。
+        assert!(INDEX_HTML.contains("class=\"statusbar\""));
+        // 动作浮窗。
+        assert!(INDEX_HTML.contains("id=\"actPanel\""));
+        assert!(INDEX_HTML.contains("id=\"btnActions\""));
     }
 
     /// D5-W2 任务：chat.js 含 WebSocket 连接、text_delta 处理、重连逻辑。

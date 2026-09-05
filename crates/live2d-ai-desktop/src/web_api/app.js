@@ -142,6 +142,12 @@ function toggleActPanel() {
   const close = $("btnActClose");
   if (close) close.addEventListener("click", () => panel.hidden = true);
 })();
+// 设置面板「动作与互动 → 基础动作试演」网格按钮（.act-grid .act-btn[data-act]）复用 actFire，
+// 与 #actPanel 浮窗一致；全局委托避免 per-button 绑定。
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".act-grid .act-btn[data-act]");
+  if (b) actFire(b.dataset.act);
+});
 
 function openSettings() {
   if (!state.settingsLoaded) { state.settingsLoaded = true; loadSettingsLazy(); }
@@ -245,11 +251,13 @@ function renderGroups() {
   const sv = state.settingsView || { dev_mode: false };
 
   // #grp-logs：仅 dev_mode 开启时显示，否则提示。
+  // v2.5 HTML 里日志区没有独立的 grp-logs 容器，直接以 logsCard 显示/隐藏（grpLogs 兼容旧 HTML，防空引用）。
+  const grp = els.grpLogs;
   if (sv.dev_mode) {
-    els.grpLogs.style.removeProperty("display");
+    if (grp) grp.style.removeProperty("display");
     if (els.logsCard) els.logsCard.classList.remove("hidden");
   } else {
-    els.grpLogs.style.display = "none";
+    if (grp) grp.style.display = "none";
     if (els.logsCard) els.logsCard.classList.add("hidden");
     if (els.logsPre) els.logsPre.textContent = "（需开启开发者模式）";
     if (els.logsStatus) {
