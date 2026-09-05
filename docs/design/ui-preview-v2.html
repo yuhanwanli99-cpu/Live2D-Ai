@@ -181,7 +181,7 @@ button { font-family: var(--font); cursor: pointer; }
 .settings-section .sec-desc { font-size: 12px; color: var(--fg-low); margin: 0 0 var(--s-5); }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line-soft); }
 .field-row:last-child { border-bottom: 0; }
-.field-row .lbl { font-size: 13px; color: var(--fg); flex-shrink: 0; }
+.field-row .lbl { font-size: 13px; color: var(--fg); flex-shrink: 0; cursor: pointer; }
 .field-row .lbl small { display: block; font-size: 11px; color: var(--fg-low); margin-top: 2px; }
 .field-row input[type=text], .field-row select {
   width: 300px; background: var(--bg-2); color: var(--fg-hi);
@@ -206,6 +206,10 @@ button { font-family: var(--font); cursor: pointer; }
 .btn-ghost { padding: 8px 16px; border-radius: var(--r-pill); border: 1px solid var(--line); background: transparent; color: var(--fg); }
 .btn-ghost:hover { background: var(--bg-2); }
 .btn-danger-ghost { padding: 8px 16px; border-radius: var(--r-pill); border: 1px solid rgba(248,113,113,.4); background: transparent; color: var(--err); }
+@media (max-height: 640px) {
+  body { overflow: auto; }
+  .app { height: auto; min-height: 100vh; }
+}
 </style>
 </head>
 <body>
@@ -219,7 +223,7 @@ button { font-family: var(--font); cursor: pointer; }
     <span class="pill warn"><span class="dot"></span>TTS 未配</span>
     <span class="spacer"></span>
     <button class="icon-btn" title="刷新">⟳</button>
-    <button class="icon-btn" title="设置" onclick="document.getElementById('ov').hidden=false;document.getElementById('modal').hidden=false;">⚙</button>
+    <button class="icon-btn" title="设置" aria-haspopup="dialog" onclick="document.getElementById('ov').hidden=false;document.getElementById('modal').hidden=false;">⚙</button>
   </header>
 
   <div class="main">
@@ -263,11 +267,11 @@ button { font-family: var(--font); cursor: pointer; }
   </footer>
 </div>
 
-<div class="overlay" id="ov" hidden onclick="document.getElementById('ov').hidden=true;document.getElementById('modal').hidden=true;"></div>
+<div class="overlay" id="ov" hidden onclick="closeModal()"></div>
 <div class="settings-modal" id="modal" hidden role="dialog" aria-modal="true">
   <div class="settings-header">
     <h2>设置</h2>
-    <button class="icon-btn" onclick="document.getElementById('ov').hidden=true;document.getElementById('modal').hidden=true;">✕</button>
+    <button class="icon-btn" onclick="closeModal()">✕</button>
   </div>
   <div class="settings-body">
     <nav class="settings-rail" id="rail">
@@ -284,9 +288,9 @@ button { font-family: var(--font); cursor: pointer; }
       <section class="settings-section active" data-p="appearance">
         <h3 class="sec-title">外观与舞台</h3>
         <p class="sec-desc">舞台表现调整，本地预览即时生效。</p>
-        <div class="field-row"><span class="lbl">模型缩放<small>0.5 – 2.0</small></span><input type="text" value="1.0"></div>
-        <div class="field-row"><span class="lbl">暗色背景</span><input type="checkbox" checked></div>
-        <div class="field-row"><span class="lbl">口型联动</span><input type="checkbox" checked></div>
+        <div class="field-row"><label class="lbl" for="f-scale">模型缩放<small>0.5 – 2.0</small></label><input id="f-scale" type="text" value="1.0"></div>
+        <div class="field-row"><label class="lbl" for="f-dark">暗色背景</label><input id="f-dark" type="checkbox" checked></div>
+        <div class="field-row"><label class="lbl" for="f-lip">口型联动</label><input id="f-lip" type="checkbox" checked></div>
         <div class="group-title">背景图</div>
         <div class="field-row"><span class="lbl">自定义背景<small>jpg / png，本地路径</small></span><input type="text" placeholder="（未设置）"></div>
       </section>
@@ -294,28 +298,53 @@ button { font-family: var(--font); cursor: pointer; }
         <h3 class="sec-title">AI 与语音</h3>
         <p class="sec-desc">对话与语音服务端点（OpenAI 兼容）。</p>
         <div class="group-title">LLM</div>
-        <div class="field-row"><span class="lbl">Base URL</span><input type="text" value="http://127.0.0.1:11434/v1"></div>
-        <div class="field-row"><span class="lbl">模型</span><input type="text" value="qwen3.5:4b"></div>
-        <div class="field-row"><span class="lbl">API Key 环境变量<small>存变量名，非密钥</small></span><input type="text" placeholder="（未绑定）"></div>
+        <div class="field-row"><label class="lbl" for="f-llm-url">Base URL</label><input id="f-llm-url" type="text" value="http://127.0.0.1:11434/v1"></div>
+        <div class="field-row"><label class="lbl" for="f-llm-model">模型</label><input id="f-llm-model" type="text" value="qwen3.5:4b"></div>
+        <div class="field-row"><label class="lbl" for="f-llm-key">API Key 环境变量<small>存变量名，非密钥</small></label><input id="f-llm-key" type="text" placeholder="（未绑定）"></div>
         <div class="group-title">TTS</div>
-        <div class="field-row"><span class="lbl">Base URL</span><input type="text" placeholder="http://127.0.0.1:8000/v1"></div>
-        <div class="field-row"><span class="lbl">音色</span><input type="text" placeholder="af_heart"></div>
+        <div class="field-row"><label class="lbl" for="f-tts-url">Base URL</label><input id="f-tts-url" type="text" placeholder="http://127.0.0.1:8000/v1"></div>
+        <div class="field-row"><label class="lbl" for="f-tts-voice">音色</label><input id="f-tts-voice" type="text" placeholder="af_heart"></div>
       </section>
       <section class="settings-section" data-p="status">
         <h3 class="sec-title">系统状态</h3>
         <p class="sec-desc">运行时只读快照。</p>
-        <div class="field-row"><span class="lbl">配置文件</span><input type="text" value="~/.config/live2d-ai/live2d-ai.toml" readonly style="font-family:var(--mono);color:var(--fg-mid)"></div>
-        <div class="field-row"><span class="lbl">运行时长</span><input type="text" value="1h 23m" readonly style="font-family:var(--mono)"></div>
-        <div class="field-row"><span class="lbl">音频</span><input type="text" value="dry-run（无设备）" readonly style="font-family:var(--mono);color:var(--warn)"></div>
+        <div class="field-row"><label class="lbl" for="f-cfg">配置文件</label><input id="f-cfg" type="text" value="~/.config/live2d-ai/live2d-ai.toml" readonly style="font-family:var(--mono);color:var(--fg-mid)"></div>
+        <div class="field-row"><label class="lbl" for="f-uptime">运行时长</label><input id="f-uptime" type="text" value="1h 23m" readonly style="font-family:var(--mono)"></div>
+        <div class="field-row"><label class="lbl" for="f-audio">音频</label><input id="f-audio" type="text" value="dry-run（无设备）" readonly style="font-family:var(--mono);color:var(--warn)"></div>
+      </section>
+      <section class="settings-section" data-p="character">
+        <h3 class="sec-title">角色</h3>
+        <p class="sec-desc">人格设定与对话风格。</p>
+        <div class="field-row"><label class="lbl" for="f-persona-name">角色名称</label><input id="f-persona-name" type="text" value="Bai"></div>
+        <div class="field-row"><label class="lbl" for="f-persona-prompt">系统提示词<small>System Prompt</small></label><input id="f-persona-prompt" type="text" placeholder="（未设置）"></div>
+      </section>
+      <section class="settings-section" data-p="actions">
+        <h3 class="sec-title">动作与互动</h3>
+        <p class="sec-desc">Live2D 动作触发与互动规则。</p>
+        <div class="field-row"><label class="lbl" for="f-idle">空闲随机动作</label><input id="f-idle" type="checkbox" checked></div>
+        <div class="field-row"><label class="lbl" for="f-click">点击触发互动</label><input id="f-click" type="checkbox" checked></div>
+      </section>
+      <section class="settings-section" data-p="models">
+        <h3 class="sec-title">模型管理</h3>
+        <p class="sec-desc">Live2D 模型文件与切换。</p>
+        <div class="field-row"><label class="lbl" for="f-model-path">当前模型路径<small>本地路径</small></label><input id="f-model-path" type="text" value="./models/bai/bai.model3.json" readonly></div>
+      </section>
+      <section class="settings-section" data-p="dev">
+        <h3 class="sec-title">开发者</h3>
+        <p class="sec-desc">调试与日志。</p>
+        <div class="field-row"><label class="lbl" for="f-debug">调试面板</label><input id="f-debug" type="checkbox"></div>
+        <div class="field-row"><label class="lbl" for="f-log-level">日志级别</label>
+          <select id="f-log-level"><option>info</option><option>debug</option><option>trace</option></select>
+        </div>
       </section>
       <section class="settings-section" data-p="mods">
         <h3 class="sec-title">Mod 管理</h3>
         <p class="sec-desc">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建。</p>
-        <div class="field-row"><span class="lbl">external-input<small>外部事件接入 v0.1.0</small></span><input type="checkbox"></div>
-        <div class="field-row"><span class="lbl">director<small>动作编排 v0.1.0</small></span><input type="checkbox"></div>
-        <div class="field-row"><span class="lbl">pet-desktop<small>桌宠窗口 v0.1.0（骨架）</small></span><input type="checkbox"></div>
-        <div class="field-row"><span class="lbl">local-llm<small>本地大模型 v0.1.0</small></span><input type="checkbox"></div>
-        <div class="field-row"><span class="lbl">local-tts<small>本地语音合成 v0.1.0</small></span><input type="checkbox"></div>
+        <div class="field-row"><label class="lbl" for="f-mod-external-input">external-input<small>外部事件接入 v0.1.0</small></span><input type="checkbox"></div>
+        <div class="field-row"><label class="lbl" for="f-mod-director">director<small>动作编排 v0.1.0</small></span><input type="checkbox"></div>
+        <div class="field-row"><label class="lbl" for="f-mod-pet-desktop">pet-desktop<small>桌宠窗口 v0.1.0（骨架）</small></span><input type="checkbox"></div>
+        <div class="field-row"><label class="lbl" for="f-mod-local-llm">local-llm<small>本地大模型 v0.1.0</small></span><input type="checkbox"></div>
+        <div class="field-row"><label class="lbl" for="f-mod-local-tts">local-tts<small>本地语音合成 v0.1.0</small></span><input type="checkbox"></div>
       </section>
     </div>
   </div>
@@ -327,6 +356,26 @@ button { font-family: var(--font); cursor: pointer; }
   </div>
 </div>
 <script>
+function closeModal() {
+  document.getElementById('ov').hidden = true;
+  document.getElementById('modal').hidden = true;
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('modal').hidden) closeModal();
+});
+let dirty = false;
+document.querySelectorAll('.settings-body input, .settings-body select').forEach(el => {
+  el.addEventListener('input', () => {
+    dirty = true;
+    document.querySelector('.btn-save').classList.add('dirty');
+    document.querySelector('.settings-footer .status').textContent = '有未保存的变更';
+  });
+});
+document.querySelector('.btn-save').addEventListener('click', () => {
+  dirty = false;
+  document.querySelector('.btn-save').classList.remove('dirty');
+  document.querySelector('.settings-footer .status').textContent = '已保存';
+});
 function sel(btn) {
   document.querySelectorAll('.rail-item').forEach(r => r.classList.remove('active'));
   btn.classList.add('active');
