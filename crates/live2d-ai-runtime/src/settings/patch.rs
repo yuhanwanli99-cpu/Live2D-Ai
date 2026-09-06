@@ -190,6 +190,22 @@ pub struct PersonaPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub max_history_pairs: Option<Option<usize>>,
+    /// 角色名称（酒馆卡 name；`null` = 清除）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub name: Option<Option<String>>,
+    /// 角色描述（identity · background；`null` = 清除）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub description: Option<Option<String>>,
 }
 
 /// `apply_patch` 的结果——上层据此决定要不要触发磁盘写回。
@@ -380,6 +396,14 @@ pub fn apply_patch(
                     next.persona.max_history_pairs = 0;
                     changed = true;
                 }
+                if !next.persona.name.is_empty() {
+                    next.persona.name = String::new();
+                    changed = true;
+                }
+                if !next.persona.description.is_empty() {
+                    next.persona.description = String::new();
+                    changed = true;
+                }
             }
             Some(fields) => {
                 if let Some(v) = &fields.system_prompt {
@@ -393,6 +417,20 @@ pub fn apply_patch(
                     let new = v.unwrap_or(0);
                     if next.persona.max_history_pairs != new {
                         next.persona.max_history_pairs = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.name {
+                    let new = v.clone().unwrap_or_default();
+                    if next.persona.name != new {
+                        next.persona.name = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.description {
+                    let new = v.clone().unwrap_or_default();
+                    if next.persona.description != new {
+                        next.persona.description = new;
                         changed = true;
                     }
                 }

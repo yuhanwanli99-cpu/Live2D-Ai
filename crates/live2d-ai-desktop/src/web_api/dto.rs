@@ -309,6 +309,8 @@ mod tests {
             persona: PersonaSettings {
                 system_prompt: "你是桌宠".into(),
                 max_history_pairs: 2,
+                name: "NEKO".into(),
+                description: "一只会说话的猫娘桌宠。".into(),
             },
             dev_mode: false,
         }

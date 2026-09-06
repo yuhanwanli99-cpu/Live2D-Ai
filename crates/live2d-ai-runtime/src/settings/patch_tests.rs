@@ -33,6 +33,8 @@ fn sample() -> AppSettings {
         persona: PersonaSettings {
             system_prompt: "你是桌宠".into(),
             max_history_pairs: 2,
+            name: "NEKO".into(),
+            description: "猫娘".into(),
         },
         dev_mode: false,
     }
@@ -136,6 +138,8 @@ fn patch_with_new_value_overrides() {
         persona: Some(Some(PersonaPatch {
             system_prompt: Some(Some("新提示".into())),
             max_history_pairs: Some(Some(4)),
+            name: None,
+            description: None,
         })),
         ..Default::default()
     };

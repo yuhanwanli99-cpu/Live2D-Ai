@@ -18,6 +18,9 @@ const els = {
   llmBaseUrl: $("llmBaseUrl"), llmModel: $("llmModel"), llmApiKeyEnv: $("llmApiKeyEnv"),
   ttsBaseUrl: $("ttsBaseUrl"), ttsVoice: $("ttsVoice"), ttsApiKeyEnv: $("ttsApiKeyEnv"),
   systemPrompt: $("systemPrompt"), devMode: $("devMode"),
+  personaName: $("f-p-name"), personaDesc: $("f-p-desc"),
+  appIdleToggle: $("f-idle"), appClickToggle: $("f-click"),
+  bgFileBtn: $("f-bgimg-btn"), bgFileInput: $("f-bgimg-input"), bgClearBtn: $("f-bgimg-clear"),
   btnSave: $("btnSave"), btnReload: $("btnReload"), btnClearKey: $("btnClearKey"),
   btnTestLlm: $("btnTestLlm"), btnTestTts: $("btnTestTts"),
   llmTestResult: $("llmTestResult"), ttsTestResult: $("ttsTestResult"),
@@ -370,7 +373,16 @@ window.addEventListener("message", (ev) => {
 
 // ---- 外观与舞台 ----
 function postStageConfig() {
-  postToStage({ type: "stage-config", scale: state.appearance.scale, dark: state.appearance.dark, lipSync: state.appearance.lipSync });
+  const cfg = {
+    type: "stage-config",
+    scale: state.appearance.scale,
+    dark: state.appearance.dark,
+    lipSync: state.appearance.lipSync,
+  };
+  // B1：互动/空闲开关（f-idle / f-click），缺元素则不发该字段。
+  if (els.appIdleToggle) cfg.idleEnabled = els.appIdleToggle.checked;
+  if (els.appClickToggle) cfg.clickEnabled = els.appClickToggle.checked;
+  postToStage(cfg);
 }
 function bindAppearance() {
   // P0-5：iframe bridge 已真实接通（stage-config/audio-volume/action-state/load-model）。
@@ -400,6 +412,46 @@ function bindAppearance() {
   if (els.appLipSyncToggle) els.appLipSyncToggle.addEventListener("change", () => {
     state.appearance.lipSync = els.appLipSyncToggle.checked; setLs("lipSync", state.appearance.lipSync); postStageConfig();
   });
+}
+// ---- B1/C2：互动开关 + 自定义背景（本地，postToStage 即时生效）----
+function bindStageInteractions() {
+  // B1：空闲随机动作 / 点击互动开关 → stage-config（不持久化）。
+  if (els.appIdleToggle) {
+    els.appIdleToggle.addEventListener("change", () => postStageConfig());
+  }
+  if (els.appClickToggle) {
+    els.appClickToggle.addEventListener("change", () => postStageConfig());
+  }
+  // C2：自定义背景图（本地 FileReader → dataURL → stage-bg；localStorage 记忆）。
+  const BG_LS_KEY = "dsh.stage.bg";
+  function clearBg() {
+    localStorage.removeItem(BG_LS_KEY);
+    postToStage({ type: "stage-bg", dataUrl: null });
+    toast("已清除背景图", "ok");
+  }
+  if (els.bgFileBtn && els.bgFileInput) {
+    els.bgFileBtn.addEventListener("click", () => els.bgFileInput.click());
+    els.bgFileInput.addEventListener("change", () => {
+      const f = els.bgFileInput.files && els.bgFileInput.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || "");
+        try { localStorage.setItem(BG_LS_KEY, dataUrl); } catch (_) { /* 超限忽略 */ }
+        postToStage({ type: "stage-bg", dataUrl });
+        toast("背景图已应用（本地）", "ok");
+      };
+      reader.onerror = () => toast("背景图读取失败", "err");
+      reader.readAsDataURL(f);
+      els.bgFileInput.value = "";
+    });
+  }
+  if (els.bgClearBtn) els.bgClearBtn.addEventListener("click", clearBg);
+  // 加载时恢复：有记忆 → 补发 stage-bg；无 → 不发（wasm 默认无背景）。
+  try {
+    const saved = localStorage.getItem(BG_LS_KEY);
+    if (saved) postToStage({ type: "stage-bg", dataUrl: saved });
+  } catch (_) { /* 忽略 */ }
 }
 // ---- 模型管理 ----
 async function loadModels() {
@@ -545,6 +597,12 @@ function renderAll() {
     if (document.activeElement !== els.systemPrompt) {
       els.systemPrompt.value = sv.persona.system_prompt || "";
     }
+    if (els.personaName && document.activeElement !== els.personaName) {
+      els.personaName.value = sv.persona.name || "";
+    }
+    if (els.personaDesc && document.activeElement !== els.personaDesc) {
+      els.personaDesc.value = sv.persona.description || "";
+    }
     if (document.activeElement !== els.devMode) els.devMode.checked = !!sv.dev_mode;
     if (sv.dev_mode) {
       els.logsCard.classList.remove("hidden");
@@ -593,6 +651,15 @@ function buildPatch() {
   const persona = {};
   if (els.systemPrompt.value !== (sv.persona.system_prompt || "")) {
     persona.system_prompt = els.systemPrompt.value;
+  }
+  // 角色卡：空输入 = null（清除字段，与后端「非空才写入」语义一致）。
+  if (els.personaName) {
+    const nv = els.personaName.value.trim();
+    if (nv !== (sv.persona.name || "")) persona.name = nv === "" ? null : nv;
+  }
+  if (els.personaDesc) {
+    const dv = els.personaDesc.value.trim();
+    if (dv !== (sv.persona.description || "")) persona.description = dv === "" ? null : dv;
   }
   if (Object.keys(persona).length) patch.persona = persona;
   patch.dev_mode = els.devMode.checked ? true : false;
@@ -751,6 +818,8 @@ if (els.btnActions) els.btnActions.addEventListener("click", toggleActPanel);
 els.btnReloadLogs.addEventListener("click", refreshLogs);
 // 外观与舖控件绑定（本地状态 + postMessage）。
 bindAppearance();
+// B1/C2：互动开关 + 自定义背景绑定。
+bindStageInteractions();
 // A1: 舞台缩放/复位悬浮控制条 → postToStage({type:"stage-zoom",dir})。
 if (els.btnZoomIn) els.btnZoomIn.addEventListener("click", () => postToStage({ type: "stage-zoom", dir: "in" }));
 if (els.btnZoomOut) els.btnZoomOut.addEventListener("click", () => postToStage({ type: "stage-zoom", dir: "out" }));

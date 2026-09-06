@@ -190,6 +190,17 @@ pub(crate) struct BridgeState {
     pub applied_dark: bool,
     /// stage-config.lipSync（口型开关，默认 true）
     pub lip_sync: bool,
+    /// stage-config.idleEnabled（空闲随机动作开关，默认 true；false 时跳过
+    /// 呼吸/眨眼/微表情等 idle 生命体征层，模型静止）。
+    pub idle_enabled: bool,
+    /// stage-config.clickEnabled（点击/拖动互动开关，默认 true；false 时
+    /// 忽略 pointerdown 拖拽与双击缩放，模型不因交互移动）。
+    pub click_enabled: bool,
+    /// stage-bg.dataUrl（自定义背景图 dataURL；None = 无背景图）。
+    /// 应用为 canvas CSS background-image（cover 缩放），与 background-color 共存。
+    pub bg_data_url: Option<String>,
+    /// 已写到 DOM 的 background-image 值（只在变化时写 DOM，规避每帧 style recalc）。
+    pub applied_bg: Option<String>,
     /// 最近 audio-volume（0..1；每 20ms 音频帧更新）
     pub volume: f32,
     /// 衰减后的口型显示值（rAF 每帧 volume_display = volume.max(volume_display*0.85)）
@@ -227,6 +238,10 @@ impl Default for BridgeState {
             dark: true,
             applied_dark: false,
             lip_sync: true,
+            idle_enabled: true,
+            click_enabled: true,
+            bg_data_url: None,
+            applied_bg: None,
             volume: 0.0,
             volume_display: 0.0,
             action: None,
@@ -431,7 +446,9 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
     let dt_millis = {
         let mut st = state.borrow_mut();
         let real_dt = match st.hud.last_frame_ms {
-            Some(prev) if now_ms > prev => ((now_ms - prev) / 1000.0).clamp(1.0 / 240.0, 1.0 / 15.0),
+            Some(prev) if now_ms > prev => {
+                ((now_ms - prev) / 1000.0).clamp(1.0 / 240.0, 1.0 / 15.0)
+            }
             _ => FIXED_DT_60HZ as f64,
         };
         st.hud.last_frame_ms = Some(now_ms);
@@ -1071,6 +1088,19 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         let _ = st.canvas.style().set_property("background-color", bg);
         st.bridge.applied_dark = st.bridge.dark;
     }
+    // C2：自定义背景图（dataURL）→ canvas CSS background-image（cover）。
+    // 与 background-color 独立：设了背景图则盖住底色，清除则恢复。
+    // 同样只在变化时写 DOM（applied_bg 记录上个值）。
+    if st.bridge.bg_data_url != st.bridge.applied_bg {
+        let css_val = match &st.bridge.bg_data_url {
+            Some(url) if !url.is_empty() => {
+                format!("url({url}) center/cover no-repeat")
+            }
+            _ => "none".to_string(),
+        };
+        let _ = st.canvas.style().set_property("background-image", &css_val);
+        st.bridge.applied_bg = st.bridge.bg_data_url.clone();
+    }
 
     // RM6 待机生命体征层（呼吸/眨眼/微表情）——写入 input 层，优先级低于
     // 动作 final_override 层（动作做 nod 时头部角度盖过 idle 微表情）。
@@ -1085,7 +1115,10 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     // idle 采样用它，帧率无关。
     //
     // 呼吸永不打断（底层持续）；眨眼/微表情状态机用 dt_ms 推进。
-    apply_idle_life(&mut st, now_ms, dt_millis);
+    // B1：idleEnabled=false 时跳过 idle 生命体征层（模型静止，仅保留 lip_sync）。
+    if st.bridge.idle_enabled {
+        apply_idle_life(&mut st, now_ms, dt_millis);
+    }
 }
 
 /// RM6 待机生命体征采样：呼吸 / 眨眼 / 微表情，每帧调用一次。

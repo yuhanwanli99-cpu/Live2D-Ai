@@ -33,6 +33,10 @@ voice = "alloy"
 # channels = 1
 
 [persona]
+# 角色名称（酒馆卡 name；空 = 未设置，不注入）。
+name = ""
+# 角色描述（identity · background；空 = 未设置，不注入）。
+description = ""
 # 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息
 system_prompt = "你是桌面上的 Live2D 桌宠。用简短、口语化的中文回答；动作只通过工具触发。"
 # 保留的历史轮数上限（一轮 = 一条 user + 一条 assistant）；0 = 每轮独立

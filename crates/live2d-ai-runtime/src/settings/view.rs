@@ -54,6 +54,8 @@ pub struct TtsView {
 pub struct PersonaView {
     pub system_prompt: String,
     pub max_history_pairs: usize,
+    pub name: String,
+    pub description: String,
 }
 
 impl From<&LlmSettings> for LlmView {
@@ -84,6 +86,8 @@ impl From<&PersonaSettings> for PersonaView {
         Self {
             system_prompt: s.system_prompt.clone(),
             max_history_pairs: s.max_history_pairs,
+            name: s.name.clone(),
+            description: s.description.clone(),
         }
     }
 }

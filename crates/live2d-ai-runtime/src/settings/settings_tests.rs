@@ -336,3 +336,92 @@ fn dev_mode_three_state_patch_round_trip() {
         on.dev_mode
     );
 }
+
+/// 角色卡：persona name/description 写入 + 生效 system_prompt 拼接（5 分支）。
+#[test]
+fn persona_name_desc_round_trip_and_effective_prompt() {
+    use super::build_effective_system_prompt;
+
+    // ① TOML 读写 round-trip。
+    let toml_text = r#"
+[persona]
+name = "NEKO"
+description = "一只会说话的猫娘桌宠。"
+system_prompt = "用简短口语回答。"
+max_history_pairs = 2
+"#;
+    let s = AppSettings::from_toml_str(toml_text).expect("parse");
+    assert_eq!(s.persona.name, "NEKO");
+    assert_eq!(s.persona.description, "一只会说话的猫娘桌宠。");
+
+    // ② 生效 prompt 拼接（5 分支）。
+    let cases = [
+        // (name, desc, base, expected)
+        ("", "", "", ""),
+        ("", "", "base提示", "base提示"),
+        ("NEKO", "", "base提示", "[角色卡] 名称：NEKO\n\nbase提示"),
+        ("", "猫娘", "base提示", "[角色卡]\n描述：猫娘\n\nbase提示"),
+        (
+            "NEKO",
+            "猫娘",
+            "base提示",
+            "[角色卡] 名称：NEKO\n描述：猫娘\n\nbase提示",
+        ),
+    ];
+    for (name, desc, base, want) in cases {
+        assert_eq!(
+            build_effective_system_prompt(name, desc, base),
+            want,
+            "build_effective_system_prompt(name={name:?}, desc={desc:?}, base={base:?})"
+        );
+    }
+
+    // ③ 经 resolve() 注入会话（base 为空时仍拼角色卡）。
+    let s2 = AppSettings::from_toml_str(
+        "[llm]\nbase_url=\"http://127.0.0.1:11434/v1\"\n[tts]\nbase_url=\"http://127.0.0.1:8000/v1\"\n[persona]\nname=\"Neko\"\ndescription=\"猫娘\"\n",
+    )
+    .expect("parse");
+    let resolved = s2.resolve().expect("resolve");
+    assert_eq!(
+        resolved.conversation.system_prompt,
+        "[角色卡] 名称：Neko\n描述：猫娘"
+    );
+}
+
+/// persona name/description 补丁三态（patch 级）。
+#[test]
+fn persona_name_desc_patch_tri_state() {
+    use crate::settings::patch::PersonaPatch;
+    let s = AppSettings::from_toml_str(
+        "[persona]\nname=\"OLD\"\ndescription=\"OLD-DESC\"\nsystem_prompt=\"p\"\n",
+    )
+    .expect("parse");
+    // 写新值。
+    let patch = SettingsPatch {
+        persona: Some(Some(PersonaPatch {
+            system_prompt: None,
+            max_history_pairs: None,
+            name: Some(Some("NEW".into())),
+            description: Some(Some("NEW-DESC".into())),
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&s, &patch).expect("apply");
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert_eq!(next.persona.name, "NEW");
+    assert_eq!(next.persona.description, "NEW-DESC");
+
+    // null = 清除。
+    let clear = SettingsPatch {
+        persona: Some(Some(PersonaPatch {
+            system_prompt: None,
+            max_history_pairs: None,
+            name: Some(None),
+            description: Some(None),
+        })),
+        ..Default::default()
+    };
+    let (next, _) = apply_patch(&s, &clear).expect("apply clear");
+    assert!(next.persona.name.is_empty());
+    assert!(next.persona.description.is_empty());
+}

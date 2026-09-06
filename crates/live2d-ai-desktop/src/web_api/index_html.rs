@@ -149,6 +149,26 @@ mod tests {
         assert!(INDEX_HTML.contains("id=\"btnActions\""));
     }
 
+    /// 设置接线：角色卡姓名/描述 + 互动开关 + 背景图控件必须存在（spec web-ui-settings-wiring-v1）。
+    #[test]
+    fn index_html_settings_wiring_controls_ok() {
+        assert!(INDEX_HTML.contains("id=\"f-p-name\""));
+        assert!(INDEX_HTML.contains("id=\"f-p-desc\""));
+        assert!(INDEX_HTML.contains("id=\"f-idle\""));
+        assert!(INDEX_HTML.contains("id=\"f-click\""));
+        assert!(INDEX_HTML.contains("id=\"f-bgimg-btn\""));
+        assert!(INDEX_HTML.contains("id=\"f-bgimg-input\""));
+        assert!(INDEX_HTML.contains("id=\"f-bgimg-clear\""));
+        // app.js 侧接线锚点。
+        assert!(APP_JS.contains("personaName"));
+        assert!(APP_JS.contains("bindStageInteractions"));
+        assert!(APP_JS.contains("idleEnabled"));
+        assert!(APP_JS.contains("clickEnabled"));
+        assert!(APP_JS.contains("stage-bg"));
+        // persona 补丁空串 = null 清除语义。
+        assert!(APP_JS.contains("persona.name = nv === \"\" ? null : nv"));
+    }
+
     /// D5-W2 任务：chat.js 含 WebSocket 连接、text_delta 处理、重连逻辑。
     /// 通过字符串锚点确保前端真在消费核心链路。
     #[test]

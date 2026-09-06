@@ -252,6 +252,12 @@ mod web {
                         if let Some(l) = v.get("lipSync").and_then(|x| x.as_bool()) {
                             st.bridge.lip_sync = l;
                         }
+                        if let Some(id) = v.get("idleEnabled").and_then(|x| x.as_bool()) {
+                            st.bridge.idle_enabled = id;
+                        }
+                        if let Some(ck) = v.get("clickEnabled").and_then(|x| x.as_bool()) {
+                            st.bridge.click_enabled = ck;
+                        }
                         applied = true;
                     }
                     // UI 精修规格 A2：控制条 +/−/复位（主 Agent 设计，wasm listener 落地）。
@@ -272,6 +278,14 @@ mod web {
                         if let Some(vol) = v.get("value").and_then(|x| x.as_f64()) {
                             st.bridge.volume = (vol as f32).clamp(0.0, 1.0);
                         }
+                        applied = true;
+                    }
+                    // C2：自定义背景图（dataURL；null/empty = 清除）。
+                    "stage-bg" => {
+                        st.bridge.bg_data_url = match v.get("dataUrl").and_then(|x| x.as_str()) {
+                            Some(u) if !u.is_empty() => Some(u.to_string()),
+                            _ => None,
+                        };
                         applied = true;
                     }
                     "action-state" => {
@@ -428,9 +442,14 @@ mod web {
 
         // pointerdown（button 0）
         {
+            let st = state.clone();
             let drag = drag.clone();
             let closure = Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
                 if f64_field(&ev, "button") != 0.0 {
+                    return;
+                }
+                // B1：clickEnabled=false 时不进入拖拽（模型不因交互移动）。
+                if !st.borrow().bridge.click_enabled {
                     return;
                 }
                 let cx = f64_field(&ev, "clientX");
@@ -461,6 +480,10 @@ mod web {
             let drag = drag.clone();
             let closure = Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
                 if !drag.borrow().dragging {
+                    return;
+                }
+                // B1：clickEnabled=false 时忽略拖拽位移（pointerdown 已拦截，双保险）。
+                if !st.borrow().bridge.click_enabled {
                     return;
                 }
                 let d = *drag.borrow();
@@ -514,6 +537,10 @@ mod web {
         {
             let st = state.clone();
             let closure = Closure::<dyn FnMut(JsValue)>::new(move |ev: JsValue| {
+                // B1：clickEnabled=false 时滚轮缩放也禁用（属交互）。
+                if !st.borrow().bridge.click_enabled {
+                    return;
+                }
                 let delta_y = f64_field(&ev, "deltaY");
                 let factor = if delta_y < 0.0 { 1.1_f32 } else { 1.0 / 1.1 };
                 {
@@ -535,6 +562,10 @@ mod web {
         {
             let st = state.clone();
             let closure = Closure::<dyn FnMut(JsValue)>::new(move |_ev: JsValue| {
+                // B1：clickEnabled=false 时双击复位也禁用（属交互）。
+                if !st.borrow().bridge.click_enabled {
+                    return;
+                }
                 let mut st = st.borrow_mut();
                 st.bridge.scale = 1.0;
                 st.bridge.offset_x = 0.0;

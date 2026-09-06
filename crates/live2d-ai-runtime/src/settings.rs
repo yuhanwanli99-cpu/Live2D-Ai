@@ -177,6 +177,37 @@ pub struct PersonaSettings {
     /// 保留的历史轮数上限；`0` = 每轮独立（默认，最小闭环先不做记忆）。
     #[serde(default)]
     pub max_history_pairs: usize,
+    /// 角色名称（酒馆卡用；空 = 未设置）。
+    #[serde(default)]
+    pub name: String,
+    /// 角色描述（identity · background；空 = 未设置）。
+    #[serde(default)]
+    pub description: String,
+}
+
+/// 把角色卡 name/description 拼接到 system_prompt 前的纯函数（空字段跳过）。
+///
+/// 返回：`[角色卡] 名称/描述\n\n{base}`；两字段皆空时原样返回 `base`。
+/// **不修改** `system_prompt` 原值，只在 resolve 时拼接产物进入会话。
+pub fn build_effective_system_prompt(name: &str, description: &str, base: &str) -> String {
+    if name.is_empty() && description.is_empty() {
+        return base.to_string();
+    }
+    let mut card = String::from("[角色卡]");
+    if !name.is_empty() {
+        card.push_str(" 名称：");
+        card.push_str(name);
+    }
+    if !description.is_empty() {
+        card.push_str("\n描述：");
+        card.push_str(description);
+    }
+    let mut out = card;
+    if !base.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(base);
+    }
+    out
 }
 
 /// 解析产物：三份可直接交给引擎/客户端使用的配置视图。
@@ -258,7 +289,11 @@ impl AppSettings {
                 spec,
             },
             conversation: ConversationConfig {
-                system_prompt: self.persona.system_prompt.clone(),
+                system_prompt: build_effective_system_prompt(
+                    &self.persona.name,
+                    &self.persona.description,
+                    &self.persona.system_prompt,
+                ),
                 max_history_pairs: self.persona.max_history_pairs,
                 ..ConversationConfig::default()
             },

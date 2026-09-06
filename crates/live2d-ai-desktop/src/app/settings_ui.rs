@@ -276,6 +276,8 @@ pub(crate) fn draft_to_settings(d: &Draft) -> AppSettings {
         persona: PersonaSettings {
             system_prompt: d.persona_system_prompt.clone(),
             max_history_pairs: d.persona_max_history_pairs,
+            // name/description 由 Web 设置（角色卡）写入；egui F10 面板暂不暴露。
+            ..PersonaSettings::default()
         },
         // W7 任务：dev_mode 由 UI 显式字段控制（checkbox 双向绑定）。
         dev_mode: d.dev_mode,
