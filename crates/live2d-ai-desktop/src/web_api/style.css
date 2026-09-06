@@ -208,7 +208,7 @@ button { font-family: var(--font); cursor: pointer; }
 .rail-item .ico-svg, .ib-svg { color: currentColor; }
 .rail-item.active .ico-svg { color: var(--brand); }
 .ib-svg { width: 15px; height: 15px; }
-.rail-item .lbl-t { display: none; }
+.rail-item .lbl-t { flex: 1; }
 .section-area { flex: 1; overflow-y: auto; padding: var(--s-5) var(--s-6); }
 .section-area::-webkit-scrollbar { width: 6px; }
 .section-area::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
