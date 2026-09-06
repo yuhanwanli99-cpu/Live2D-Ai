@@ -94,6 +94,7 @@
       <button class="rail-item" data-s="appearance"><svg class="ico-svg"><use href="#i-palette"/></svg><span class="lbl-t">外观与舞台</span></button>
       <button class="rail-item" data-s="ai"><svg class="ico-svg"><use href="#i-mic"/></svg><span class="lbl-t">AI 与语音</span></button>
       <button class="rail-item" data-s="actions"><svg class="ico-svg"><use href="#i-motion"/></svg><span class="lbl-t">动作与互动</span></button>
+      <button class="rail-item" data-s="models"><svg class="ico-svg"><use href="#i-box"/></svg><span class="lbl-t">模型管理</span></button>
       <button class="rail-item" data-s="dev"><svg class="ico-svg"><use href="#i-tools"/></svg><span class="lbl-t">开发者</span></button>
       <button class="rail-item" data-s="mods"><svg class="ico-svg"><use href="#i-puzzle"/></svg><span class="lbl-t">Mod 管理</span></button>
     </nav>
@@ -119,13 +120,13 @@
       <!-- 外观与舞台 -->
       <section data-p="appearance" class="settings-section">
         <h3 class="sec-title">外观与舞台</h3>
-        <p class="sec-desc">交互模式与舞台色调，本地预览即时生效。</p>
-        <div class="group-title">交互</div>
-        <div class="field-row"><span class="lbl">鼠标交互<small>锁定=拖动/滚轮无效；释放=按住移动、滚轮缩放</small></span><span class="seg"><button class="seg-btn active" onclick="segSel(this)">锁定</button><button class="seg-btn" onclick="segSel(this)">释放</button></span></div>
-        <div class="group-title">舞台色调</div>
-        <div class="field-row"><span class="lbl">背景色</span><span class="seg"><button class="seg-btn" onclick="segColor(this,'light')"><span class="sw" style="background:#e8ecf1"></span>白</button><button class="seg-btn active" onclick="segColor(this,'dark')"><span class="sw" style="background:#101418"></span>黑</button><button class="seg-btn" onclick="segColor(this,'cyan')"><span class="sw" style="background:#0d1f24"></span>青</button></span></div>
+        <p class="sec-desc">交互模式与舞台色调，本地预览即时生效（不写入后端）。</p>
+        <div class="group-title">舞台</div>
+        <div class="field-row"><label class="lbl" for="appScale">缩放<small>0.5 ×–1.5 ×，本地预览</small></label><input type="range" id="appScale" min="0.5" max="1.5" step="0.05" value="1.0"></div>
+        <div class="field-row"><label class="lbl" for="appBgDark">暗色底色<small>黑 / 白底色切换，刷新记忆</small></label><input type="checkbox" id="appBgDark" checked></div>
+        <div class="field-row"><label class="lbl" for="appLipSyncToggle">口型联动<small>TTS 音频驱动口形</small></label><input type="checkbox" id="appLipSyncToggle" checked></div>
         <div class="group-title">背景图</div>
-        <div class="field-row"><label class="lbl" for="f-bgimg-input">自定义背景<small>jpg / png</small></label><button class="btn-ghost" id="f-bgimg-btn" style="padding:6px 14px">选择文件…</button><button class="btn-ghost" id="f-bgimg-clear" style="padding:6px 14px">清除背景</button><input type="file" id="f-bgimg-input" accept="image/jpeg,image/png" hidden></div>
+        <div class="field-row"><label class="lbl" for="f-bgimg-input">自定义背景<small>jpg / png，本地记忆</small></label><button class="btn-ghost" id="f-bgimg-btn" style="padding:6px 14px">选择文件…</button><button class="btn-ghost" id="f-bgimg-clear" style="padding:6px 14px">清除背景</button><input type="file" id="f-bgimg-input" accept="image/jpeg,image/png" hidden></div>
       </section>
 
       <!-- AI 与语音 -->
@@ -152,7 +153,6 @@
         <h3 class="sec-title">动作与互动</h3>
         <p class="sec-desc">表演层开关与动作触发。动作经 core 仲裁 + 渲染端表演。</p>
         <div class="group-title">互动开关</div>
-        <div class="field-row"><label class="lbl" for="appLipSyncToggle">口型联动<small>TTS 音频驱动口形</small></label><input type="checkbox" id="appLipSyncToggle" checked></div>
         <div class="field-row"><label class="lbl" for="f-idle">空闲随机动作</label><input id="f-idle" type="checkbox" checked></div>
         <div class="field-row"><label class="lbl" for="f-click">点击触发互动</label><input id="f-click" type="checkbox" checked></div>
         <div class="group-title">基础动作试演</div>
@@ -164,6 +164,14 @@
           <button class="act-btn" data-act="listen">倾听</button>
           <button class="act-btn" data-act="surprise">惊讶</button>
         </div>
+      </section>
+
+      <!-- 模型管理 -->
+      <section data-p="models" class="settings-section">
+        <h3 class="sec-title">模型管理</h3>
+        <p class="sec-desc">本地模型注册表：查看与设为当前。切换模型实时重载渲染。</p>
+        <div class="row buttons"><button class="secondary" id="btnRefreshModels">刷新</button><span class="status" id="modelsStatus">加载中…</span></div>
+        <div class="actions-list" id="modelsList"><span class="field-meta">（加载中…）</span></div>
       </section>
 
       <!-- 开发者（含系统状态 + 日志流） -->

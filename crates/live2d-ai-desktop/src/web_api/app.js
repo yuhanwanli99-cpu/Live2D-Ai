@@ -53,6 +53,7 @@ const SETTINGS_SECTIONS = [
   { id:"appearance", label:"外观与舞台", icon:"i-palette" },
   { id:"ai", label:"AI 与语音", icon:"i-mic" },
   { id:"actions", label:"动作与互动", icon:"i-motion" },
+  { id:"models", label:"模型管理", icon:"i-box" },
   { id:"dev", label:"开发者", icon:"i-tools" },
   { id:"mods", label:"Mod 管理", icon:"i-puzzle" },
 ];
@@ -86,6 +87,7 @@ function setActiveSection(id) {
   if (id === "dev" || id === "mods") renderGroups();
   if (id === "mods") renderMods();
   if (id === "actions") renderActions();
+  if (id === "models") loadModels();
   if (id === "appearance") bindAppearance();
 }
 let actStrength = 2;
@@ -95,10 +97,6 @@ function segSel(btn) {
   btn.classList.add("active");
   const v = parseInt(btn.dataset.v || btn.textContent, 10);
   if (!isNaN(v)) actStrength = v;
-}
-function segColor(btn, mode) {
-  segSel(btn);
-  postToStage({ type: "stage-config", bg: mode });
 }
 function actFire(actName) {
   const log = $("actLog");
@@ -141,6 +139,8 @@ function toggleActPanel() {
   panel.addEventListener("click", (e) => {
     const b = e.target.closest(".act-btn[data-act]");
     if (b) actFire(b.dataset.act);
+    const sg = e.target.closest(".seg-btn[data-v]");
+    if (sg) segSel(sg);
   });
   const close = $("btnActClose");
   if (close) close.addEventListener("click", () => panel.hidden = true);
@@ -392,26 +392,35 @@ function bindAppearance() {
     const meta = parent.querySelector(".field-meta");
     if (meta) meta.textContent = "本地预览（不写入后端）";
   }
-  if (!els.appScale) return;
+  // 每个控件独立绑定；缺一个不影响其余（此前 appScale 缺失导致整体提前 return，
+  // 连带 appLipSyncToggle 的 change 监听绑不上——口型开关点击不生效）。
   const clamp = (v) => Math.max(0.5, Math.min(1.5, v));
   const setLs = (k, v) => localStorage.setItem("dsh.app." + k, String(v));
   const getLs = (k) => localStorage.getItem("dsh.app." + k);
-  const ls = getLs("scale");
-  if (ls !== null) { state.appearance.scale = clamp(parseFloat(ls) || 1.0); els.appScale.value = state.appearance.scale.toFixed(2); }
-  const ld = getLs("dark");
-  if (ld !== null) { state.appearance.dark = ld === "true"; els.appBgDark.checked = state.appearance.dark; }
-  const ll = getLs("lipSync");
-  if (ll !== null) { state.appearance.lipSync = ll === "true"; els.appLipSyncToggle.checked = state.appearance.lipSync; }
-  els.appScale.addEventListener("input", () => {
-    let v = clamp(parseFloat(els.appScale.value) || 1.0);
-    els.appScale.value = v.toFixed(2); state.appearance.scale = v; setLs("scale", v); postStageConfig();
-  });
-  if (els.appBgDark) els.appBgDark.addEventListener("change", () => {
-    state.appearance.dark = els.appBgDark.checked; setLs("dark", state.appearance.dark); postStageConfig();
-  });
-  if (els.appLipSyncToggle) els.appLipSyncToggle.addEventListener("change", () => {
-    state.appearance.lipSync = els.appLipSyncToggle.checked; setLs("lipSync", state.appearance.lipSync); postStageConfig();
-  });
+  if (els.appScale) {
+    const ls = getLs("scale");
+    if (ls !== null) { state.appearance.scale = clamp(parseFloat(ls) || 1.0); els.appScale.value = state.appearance.scale.toFixed(2); }
+    els.appScale.addEventListener("input", () => {
+      let v = clamp(parseFloat(els.appScale.value) || 1.0);
+      els.appScale.value = v.toFixed(2); state.appearance.scale = v; setLs("scale", v); postStageConfig();
+    });
+  }
+  if (els.appBgDark) {
+    const ld = getLs("dark");
+    if (ld !== null) { state.appearance.dark = ld === "true"; els.appBgDark.checked = state.appearance.dark; }
+    els.appBgDark.addEventListener("change", () => {
+      state.appearance.dark = els.appBgDark.checked; setLs("dark", state.appearance.dark); postStageConfig();
+    });
+  }
+  if (els.appLipSyncToggle) {
+    const ll = getLs("lipSync");
+    if (ll !== null) { state.appearance.lipSync = ll === "true"; els.appLipSyncToggle.checked = state.appearance.lipSync; }
+    els.appLipSyncToggle.addEventListener("change", () => {
+      state.appearance.lipSync = els.appLipSyncToggle.checked; setLs("lipSync", state.appearance.lipSync); postStageConfig();
+    });
+  }
+  // 初始同步一次 stage-config，保证后端/bridge 与 UI 一致（含 idle/click 开关）。
+  postStageConfig();
 }
 // ---- B1/C2：互动开关 + 自定义背景（本地，postToStage 即时生效）----
 function bindStageInteractions() {

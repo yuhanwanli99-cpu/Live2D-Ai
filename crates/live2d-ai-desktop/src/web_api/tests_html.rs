@@ -144,6 +144,34 @@ fn index_html_template_contains_chat_panel_dom() {
     assert!(index_html::INDEX_HTML.contains("src=\"/render\""));
 }
 
+/// 设置线条迁移/接线锁：模型管理与外观控件必须存在于 HTML，且 app.js 确实消费它们。
+///
+/// 此处锁住的是「前端 DOM ↔ JS 逻辑」的对应关系——此前 app.js 有完整
+/// `loadModels/renderModels/activateModel` 与 `bindAppearance`，但 v2.5 迁移
+/// 丢了 `modelsList/modelsStatus/btnRefreshModels/appScale/appBgDark` 等元素，
+/// 导致模型管理区空转、`bindAppearance` 因 appScale 缺失提前 return 使口型开关失效。
+#[test]
+fn index_html_template_contains_model_and_appearance_dom() {
+    // 模型管理区（rail `data-s="models"` + section `data-p="models"`）。
+    assert!(index_html::INDEX_HTML.contains("data-s=\"models\""));
+    assert!(index_html::INDEX_HTML.contains("data-p=\"models\""));
+    assert!(index_html::INDEX_HTML.contains("id=\"modelsList\""));
+    assert!(index_html::INDEX_HTML.contains("id=\"modelsStatus\""));
+    assert!(index_html::INDEX_HTML.contains("id=\"btnRefreshModels\""));
+    // 外观与舞台（appScale 缩放 / appBgDark 暗色）。
+    assert!(index_html::INDEX_HTML.contains("id=\"appScale\""));
+    assert!(index_html::INDEX_HTML.contains("id=\"appBgDark\""));
+    // app.js 消费上述元素（证明不是死 DOM）。
+    assert!(index_html::APP_JS.contains("els.modelsList"));
+    assert!(index_html::APP_JS.contains("els.appScale"));
+    assert!(index_html::APP_JS.contains("els.appBgDark"));
+    // 修复回归锁：`bindAppearance` 不再因缺元素整体提前 return（此前
+    // `if (!els.appScale) return;` 会让 appLipSyncToggle 监听绑不上）。
+    assert!(index_html::APP_JS.contains("if (els.appScale)"));
+    assert!(index_html::APP_JS.contains("if (els.appBgDark)"));
+    assert!(index_html::APP_JS.contains("if (els.appLipSyncToggle)"));
+}
+
 /// D5-W2 任务：chat.js 含 WebSocket 端点 + 关键事件类型 + 重连逻辑。
 #[test]
 fn chat_js_contains_ws_event_handlers_and_reconnect() {

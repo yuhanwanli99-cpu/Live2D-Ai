@@ -136,12 +136,13 @@ mod tests {
         assert!(INDEX_HTML.contains("id=\"settings-overlay\" class=\"overlay\""));
         // 模态必须带 .settings-modal 类（CSS 是类选择器；只有 id 会导致整个模态无样式不可见）。
         assert!(INDEX_HTML.contains("id=\"settings-modal\" class=\"settings-modal\""));
-        // 6 分区 rail（data-s）。
+        // 7 分区 rail（data-s）——模型管理为 v2.5 接线新增分区。
         assert_eq!(
             INDEX_HTML.matches("data-s=\"").count(),
-            6,
-            "left rail 应恰有 6 个 data-s 分区项"
+            7,
+            "left rail 应恰有 7 个 data-s 分区项（角色/外观/AI/动作/模型/开发者/Mod）"
         );
+        assert!(INDEX_HTML.contains("data-s=\"models\""));
         // 状态栏（statusbar 用 class，无 id）。
         assert!(INDEX_HTML.contains("class=\"statusbar\""));
         // 动作浮窗。
