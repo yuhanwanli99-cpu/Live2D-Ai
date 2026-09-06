@@ -239,18 +239,6 @@ button { font-family: var(--font); cursor: pointer; }
 .field-row.col + .field-row.col { padding-top: 0; }
 .field-row.col textarea { width: 100%; background: var(--bg-2); color: var(--fg-hi); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); font: 13px/1.6 var(--font); resize: vertical; min-height: 44px; transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
 .field-row.col textarea:focus { outline: none; border-color: var(--brand); box-shadow: var(--sh-glow); }
-/* 实时日志流 */
-.log-stream { background: #0a0c10; border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s-3); font: 11px/1.7 var(--mono); height: 260px; overflow-y: auto; }
-.log-stream::-webkit-scrollbar { width: 6px; }
-.log-stream::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
-.log-line { display: flex; gap: var(--s-2); white-space: pre-wrap; word-break: break-all; }
-.log-line .lt { color: var(--fg-low); flex-shrink: 0; }
-.log-line .lv { flex-shrink: 0; font-weight: 600; }
-.log-line .lv.info { color: var(--brand); }
-.log-line .lv.warn { color: var(--warn); }
-.log-line .lv.err { color: var(--err); }
-.log-line .lv.dbg { color: var(--fg-low); }
-.log-line .lm { color: var(--fg); }
 /* toggle switch（Mod 运行时开关） */
 .toggle { position: relative; display: inline-block; width: 40px; height: 22px; cursor: pointer; }
 .toggle input { opacity: 0; width: 0; height: 0; }
@@ -258,8 +246,6 @@ button { font-family: var(--font); cursor: pointer; }
 .toggle .slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; background: var(--fg-mid); border-radius: 50%; transition: transform var(--t-norm) var(--ease), background var(--t-norm) var(--ease); }
 .toggle input:checked + .slider { background: rgba(64,197,241,.25); border-color: var(--brand); }
 .toggle input:checked + .slider::before { transform: translateX(18px); background: var(--brand); }
-.mod-state { display: flex; align-items: center; gap: var(--s-2); }
-.badge { font-size: 10px; padding: 1px 8px; border-radius: var(--r-pill); background: rgba(251,191,36,.12); color: var(--warn); border: 1px solid rgba(251,191,36,.3); }
 .mode-tag { font-size: 10px; padding: 1px 8px; border-radius: var(--r-pill); background: rgba(64,197,241,.12); color: var(--brand); border: 1px solid rgba(64,197,241,.3); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .mode-note { font: 12px var(--mono); color: var(--fg-mid); }
 .group-title { font-size: 12px; font-weight: 600; color: var(--fg-mid); text-transform: uppercase; letter-spacing: 1px; margin: var(--s-5) 0 var(--s-2); }

@@ -446,9 +446,11 @@ function bindStageInteractions() {
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = String(reader.result || "");
-        try { localStorage.setItem(BG_LS_KEY, dataUrl); } catch (_) { /* 超限忽略 */ }
+        let persisted = true;
+        try { localStorage.setItem(BG_LS_KEY, dataUrl); } catch (_) { persisted = false; }
         postToStage({ type: "stage-bg", dataUrl });
-        toast("背景图已应用（本地）", "ok");
+        // localStorage 超限（如 >5MB jpg 的 dataURL）：本次会话仍生效，但刷新不记忆。
+        toast(persisted ? "背景图已应用（本地）" : "背景图已应用；图片过大，刷新后不会保留", persisted ? "ok" : "warn");
       };
       reader.onerror = () => toast("背景图读取失败", "err");
       reader.readAsDataURL(f);
