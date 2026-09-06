@@ -134,7 +134,8 @@ mod tests {
     fn index_html_settings_modal_bridge_ok() {
         // 遮罩必须带 .overlay（preview 是 class="overlay" id="ov"，迁移成 id="settings-overlay" 时丢了类）。
         assert!(INDEX_HTML.contains("id=\"settings-overlay\" class=\"overlay\""));
-        assert!(INDEX_HTML.contains("id=\"settings-modal\""));
+        // 模态必须带 .settings-modal 类（CSS 是类选择器；只有 id 会导致整个模态无样式不可见）。
+        assert!(INDEX_HTML.contains("id=\"settings-modal\" class=\"settings-modal\""));
         // 6 分区 rail（data-s）。
         assert_eq!(
             INDEX_HTML.matches("data-s=\"").count(),

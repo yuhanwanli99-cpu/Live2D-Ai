@@ -303,6 +303,13 @@ button { font-family: var(--font); cursor: pointer; }
 .kv dd { margin:0; font-family:var(--mono); color:var(--fg); }
 pre { font:11px/1.6 var(--mono); background:var(--bg-0); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s-3); overflow:auto; color:var(--fg); }
 .checkbox { font-size:13px; color:var(--fg); display:flex; gap:8px; align-items:center; }
+/* v2.5 补漏：HTML 使用但 CSS 缺失的类 */
+.live2d-display { position: relative; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--sh-2); }
+.settings-section-area { flex: 1; overflow-y: auto; padding: var(--s-4) var(--s-5); }
+.chat-status { font-size: 12px; color: var(--fg-mid); }
+.chat-title { font-size: 14px; font-weight: 600; color: var(--fg-hi); }
+.dot.idle { background: var(--fg-low); }
+.row.buttons { justify-content: flex-end; }
 .secondary { padding:6px 14px; border-radius:var(--r-md); border:1px solid var(--line); background:var(--bg-2); color:var(--fg); cursor:pointer; }
 .secondary:hover { background:var(--bg-3); }
 .btn-danger-ghost, .btn-ghost, .btn-save { padding:8px 16px; border-radius:var(--r-pill); cursor:pointer; font:13px var(--font); }
