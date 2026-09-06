@@ -32,6 +32,7 @@ const els = {
   ttsBase: $("ttsBase"), ttsHasKey: $("ttsHasKey"),
   logsCard: $("logsCard"), logsFile: $("logsFile"), logsPre: $("logs"),
   logsStatus: $("logsStatus"), btnReloadLogs: $("btnReloadLogs"),
+  logLevel: $("logLevel"),
   btnRefresh: $("btnRefresh"), toast: $("toast"),
   btnSettings: $("btnSettings"), settingsModal: $("settings-modal"),
   settingsRail: $("settingsRail"), settingsSectionArea: $("settingsSectionArea"),
@@ -778,12 +779,46 @@ async function testEndpoint(btn, resultEl, path) {
   }
 }
 let logsTimer = null;
+// 日志级别严重度排序（越高越严重；trace 最低）。用于「级别≥」过滤。
+const LOG_LEVEL_RANK = { trace: 0, debug: 1, info: 2, warn: 3, error: 4 };
+// 从 /api/v1/logs/levels 拉取已知级别，填充「级别≥」下拉（保留「全部」）。
+async function populateLogLevels() {
+  if (!els.logLevel || els.logLevel.dataset.loaded === "1") return;
+  try {
+    const r = await api("GET", "/api/v1/logs/levels");
+    const lv = (r && r.levels) || [];
+    // 只保留在默认下拉里还没有的级别（trace/debug/info/warn/error，按严重度升序）。
+    const known = Object.keys(LOG_LEVEL_RANK);
+    const merged = known.filter((k) => lv.includes(k));
+    els.logLevel.innerHTML = '<option value="all">全部</option>' +
+      merged.map((k) => '<option value="' + k + '">' + k + '</option>').join("");
+    els.logLevel.dataset.loaded = "1";
+  } catch (_) { /* levels 端点不可用（非 dev_mode 等）：保持仅「全部」 */ }
+}
+// 解析单行日志的级别 token（形如 "…  INFO target: msg"），无则 null。
+function parseLogLevel(line) {
+  const m = line.match(/\s(trace|debug|info|warn|error)\s/i);
+  return m ? m[1].toLowerCase() : null;
+}
+// 按「级别≥」过滤显示：selected=all → 全部；否则只显示 rank ≥ 选中级别的行。
+function filterLogLines(lines, selected) {
+  if (!selected || selected === "all") return { shown: lines, filtered: 0 };
+  const min = LOG_LEVEL_RANK[selected];
+  if (min === undefined) return { shown: lines, filtered: 0 };
+  const shown = lines.filter((l) => {
+    const lv = parseLogLevel(l);
+    if (lv === null) return true; // 无级别行（如空行/标题）始终保留
+    return (LOG_LEVEL_RANK[lv] ?? 2) >= min;
+  });
+  return { shown, filtered: lines.length - shown.length };
+}
 async function refreshLogs() {
   if (!state.settingsView || !state.settingsView.dev_mode) {
     els.logsCard.classList.add("hidden");
     return;
   }
   els.logsCard.classList.remove("hidden");
+  if (els.logLevel) await populateLogLevels();
   try {
     const r = await api("GET", "/api/v1/logs");
     els.logsFile.textContent = r.file ? "（" + r.file + "）" : "";
@@ -791,9 +826,14 @@ async function refreshLogs() {
     if (!lines.length) {
       els.logsPre.textContent = "（无日志）";
     } else {
-      els.logsPre.textContent = lines.join("\n");
+      const sel = els.logLevel ? els.logLevel.value : "all";
+      const { shown, filtered } = filterLogLines(lines, sel);
+      els.logsPre.textContent = shown.join("\n");
       if (r.truncated) {
         els.logsPre.textContent = "…（已截断，仅显示最近 200 行）\n" + els.logsPre.textContent;
+      }
+      if (filtered > 0) {
+        els.logsPre.textContent += "\n…（已隐藏 " + filtered + " 行，级别≥" + sel + "）";
       }
     }
     els.logsStatus.textContent = "已拉取 " + lines.length + " 行";
@@ -827,6 +867,7 @@ els.btnTestTts.addEventListener("click", () => testEndpoint(els.btnTestTts, els.
 els.btnRefresh.addEventListener("click", loadAll);
 if (els.btnActions) els.btnActions.addEventListener("click", toggleActPanel);
 els.btnReloadLogs.addEventListener("click", refreshLogs);
+if (els.logLevel) els.logLevel.addEventListener("change", refreshLogs);
 // 外观与舖控件绑定（本地状态 + postMessage）。
 bindAppearance();
 // B1/C2：互动开关 + 自定义背景绑定。

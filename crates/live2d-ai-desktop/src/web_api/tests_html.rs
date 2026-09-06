@@ -172,6 +172,24 @@ fn index_html_template_contains_model_and_appearance_dom() {
     assert!(index_html::APP_JS.contains("if (els.appLipSyncToggle)"));
 }
 
+/// 日志分级 UI（Phase 4：RUST_LOG 分级进 logs/levels UI）。
+///
+/// 后端 `/api/v1/logs/levels` 已存在并测试（返回 5 级，dev_mode 门控）；
+/// 本测试锁住前端消费——`id="logLevel"` 下拉存在，且 app.js 有级别过滤逻辑
+/// （`LOG_LEVEL_RANK` / `filterLogLines` / `populateLogLevels`），避免"后端就绪、
+/// 前端空白"的空转。
+#[test]
+fn index_html_template_has_log_level_filter_ui() {
+    assert!(index_html::INDEX_HTML.contains("id=\"logLevel\""));
+    // 消费点：level 下拉触发重滤 + 分级常驻过滤逻辑。
+    assert!(index_html::APP_JS.contains("els.logLevel"));
+    assert!(index_html::APP_JS.contains("LOG_LEVEL_RANK"));
+    assert!(index_html::APP_JS.contains("filterLogLines"));
+    assert!(index_html::APP_JS.contains("populateLogLevels"));
+    // 级别下拉监听 change → refreshLogs 重滤。
+    assert!(index_html::APP_JS.contains("els.logLevel.addEventListener(\"change\", refreshLogs)"));
+}
+
 /// D5-W2 任务：chat.js 含 WebSocket 端点 + 关键事件类型 + 重连逻辑。
 #[test]
 fn chat_js_contains_ws_event_handlers_and_reconnect() {
