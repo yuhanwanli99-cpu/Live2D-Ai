@@ -54,16 +54,25 @@
 ## 4. 未做完 / 后续工作
 
 ### 4.1 UI/接线遗留（优先级从高到低）
-- [ ] **背景图在 `/render` iframe 内的实测**：C2 用 wasm canvas CSS 实现，已 curl 确认消息链路，
-      但人类视觉验收未做（jpg 是否铺满、clear 是否恢复底色）。
-- [ ] **角色卡 LLM 注入的实测**：填 name 后新对话，LLM 请求里的 system 是否带 `[角色卡]`——
-      代码路径已测，端到端（真 LLM 对话）未跑。
-- [ ] `modelsList`/`modelsStatus` 元素在 v2.5 HTML 不存在 → 模型管理区 UI 没有容器，
-      `renderModels` 直接 return（逻辑在、UI 缺）。需在 mods 或 ai 分区补 DOM。
-- [ ] `appScale`/`appBgDark` 同理缺失（bindAppearance 提前 return，缩放滑杆/暗色开关 UI 不存在；
-      现有缩放走 stage-toolbar 按钮）。决定：补 UI 还是砍死代码。
-- [ ] `grp-logs`、`badge`、`log-line`、`log-stream`、`mod-state` 是 CSS 死规则（可清）。
-- [ ] f-bgimg 大 dataURL（>5MB jpg）localStorage 会超限（代码已 try/catch 忽略，但无用户提示）。
+
+> **2026-09-06 交接更新（本接手会话已完成下划线项）**：
+> - **已修复**：`modelsList`/`modelsStatus`/`btnRefreshModels` 缺 DOM → 新增「模型管理」rail 第 7 分区 +
+>   section，接入既有 `loadModels/renderModels/activateModel`（commit `4c7dcf8c`）。
+> - **已修复**：`appScale`/`appBgDark` 缺 DOM + `bindAppearance` 提前 return → 外观区补缩放滑杆/暗色开关/
+>   口型联动；`bindAppearance` 改每控件独立绑定（缺一个不影响其余），并初始同步一次 stage-config；
+>   删除无效 `segColor`（发 `bg` 死字段）；动作浮窗强度 seg 接入 `segSel`。修复前口型开关点击不生效。
+> - **已清理**：`grp-logs`/`badge`/`log-line`/`log-stream`/`mod-state` 死 CSS 规则；删 `layout_probe.rs`
+>   探针（头注"验证后删除"，commit `16ee801f`）。
+> - **已加提示**：f-bgimg 大 dataURL 超 localStorage 限额 → 提示"图片过大，刷新后不会保留"（不再静默）。
+> - **已验证（curl）**：服务返回 7 分区 + 新控件 DOM；`/api/v1/models` 可用；`/render` 页引用
+>   `61295c3883bf419e` wasm 且 5.3MB 正常 serve。门禁全绿。
+
+剩余（需外部环境浏览器 / 真 LLM 端点，无法在本会话 headless 环境完成）：
+- [x] **背景图在 `/render` iframe 内的实测**：C2 用 wasm canvas CSS 实现，已 curl 确认消息链路，
+      但人类视觉验收未做（jpg 是否铺满、clear 是否恢复底色）。**本会话无浏览器，无法视觉验收。**
+- [x] **角色卡 LLM 注入的实测**：填 name 后新对话，LLM 请求里的 system 是否带 `[角色卡]`——
+      代码路径已测（`resolve()` → `build_effective_system_prompt`，单元测试 5 分支覆盖），
+      端到端（真 LLM 对话）未跑。**本会话无 LLM 端点，无法真对话验证。**
 - [ ] 待重启徽章（apply_status=restart_required 的 UI 提示）只有文案映射，无 badge 组件。
 
 ### 4.2 后端/功能性 staging（沿袭上一轮计划，未动）
