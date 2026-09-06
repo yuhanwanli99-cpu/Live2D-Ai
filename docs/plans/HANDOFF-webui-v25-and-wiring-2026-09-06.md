@@ -66,16 +66,23 @@
 > - **已加提示**：f-bgimg 大 dataURL 超 localStorage 限额 → 提示"图片过大，刷新后不会保留"（不再静默）。
 > - **已验证（curl）**：服务返回 7 分区 + 新控件 DOM；`/api/v1/models` 可用；`/render` 页引用
 >   `61295c3883bf419e` wasm 且 5.3MB 正常 serve。门禁全绿。
+> - **日志分级 UI**：开发者→实时日志区新增「级别≥」下拉（`id=logLevel`），由
+>   `populateLogLevels` 从 `/api/v1/logs/levels` 填充；`refreshLogs` 按级别过滤显示
+>   （`LOG_LEVEL_RANK` / `filterLogLines`，选中 info 显示 info+warn+error，隐藏行数末尾提示）。
+>   commit `19ba4268`。门禁测试 `index_html_template_has_log_level_filter_ui` 锁前端消费。
+> - **后端/功能性 staging 已动工**：`/api/v1/logs/levels` 端点已存在并测试，前端消费已接（见上）；
+>   其余 4.2 项仍未动。
 
-剩余（需外部环境浏览器 / 真 LLM 端点，无法在本会话 headless 环境完成）：
-- [x] **背景图在 `/render` iframe 内的实测**：C2 用 wasm canvas CSS 实现，已 curl 确认消息链路，
-      但人类视觉验收未做（jpg 是否铺满、clear 是否恢复底色）。**本会话无浏览器，无法视觉验收。**
-- [x] **角色卡 LLM 注入的实测**：填 name 后新对话，LLM 请求里的 system 是否带 `[角色卡]`——
+待办（需外部环境浏览器 / 真 LLM 端点，或下轮继续）：
+- [ ] **背景图在 `/render` iframe 内的实测**：C2 用 wasm canvas CSS 实现，已 curl 确认消息链路，
+      但人类视觉验收未做（jpg 是否铺满、clear 是否恢复底色）。**需浏览器环境做视觉验收。**
+- [ ] **角色卡 LLM 注入的实测**：填 name 后新对话，LLM 请求里的 system 是否带 `[角色卡]`——
       代码路径已测（`resolve()` → `build_effective_system_prompt`，单元测试 5 分支覆盖），
-      端到端（真 LLM 对话）未跑。**本会话无 LLM 端点，无法真对话验证。**
+      端到端（真 LLM 对话）未跑。**需真 LLM 端点做对话验证。**
 - [ ] 待重启徽章（apply_status=restart_required 的 UI 提示）只有文案映射，无 badge 组件。
 
-### 4.2 后端/功能性 staging（沿袭上一轮计划，未动）
+### 4.2 后端/功能性 staging
+- [x] ~~RUST_LOG 分级进 logs/levels UI~~ → 已完成（commit `19ba4268`）
 - [ ] 背景 jpg 导入走后端（当前 C2 是纯本地方案）
 - [ ] texture 尺寸档位（4096/8192/16384）
 - [ ] director 事件 producer（supervisor→dispatch_event）
