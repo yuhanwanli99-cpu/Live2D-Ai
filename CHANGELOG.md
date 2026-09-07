@@ -1,3 +1,17 @@
+# v0.3.0（稳定版，Rust 主线）— 通用人形皮套 AI 接入一体化平台（2026-09）
+
+- **平台定位（文档治理）**：重构 README / AGENTS / AGENT 为「通用人形皮套 AI 接入一体化平台
+  （非绑死单模型 / 非复杂上层）」；旧 Python/Android 文档加「已归档」banner（PLAN / PROGRESS）。
+- **渲染纹理 / 离屏靶标档位 ADR 冻结**：`docs/architecture/renderer-texture-tier-adr.md`（4096/8192/16384），
+  接档实现与真机验证按 ADR 排期。
+- **未来路线图**：`docs/plans/future-roadmap-2026-09.md`（P0 滚项 / 外部验收 / 后续三档）。
+- **迭代引用**：本版收编 dev/integrity 主线（S1/S2 事件桥与 director whitelist 修复、
+  P3/P3.1 真实性收口、P1 5-Mod 开箱即用）映射为稳定版 v0.3.0；workspace 由 0.1.0 → 0.3.0。
+- **验收门禁**：workspace 763 tests 通过；fmt / clippy `-D warnings` / rust-ratio（95.28%）全绿；
+  详见 `docs/releases/v0.3.0.md`。外部验收项（S3 真机 16384、S4 档位视觉、F6 出声端到端）留待真机。
+
+---
+
 # Rust 重建：发布前测试增强 + 节点 C 前期准备（2026-08-27 第六批）
 
 - **发布前测试增强**（节点 B 复审遗留三条，全部补齐）：新增 `supervisor/tests_stall.rs`——`stop_during_tts_in_flight_yields_no_completion_and_reopens`（TTS 在飞 stop ⇒ 零 TurnCompleted/Drained + 第二轮正常收口且请求体无被停轮历史）、`stop_during_pending_pcm_pump_advances_epoch_without_completion`（Stage B 泵驻留窗口 stop ⇒ 零收口事实 + 根推进 epoch=1）、`stall_timeout_fatal_terminates_after_5s_zero_progress`（StallProducer 永远 WouldBlock{0}+healthy ⇒ 5s 后 GenerationFinished{completed:false} + TurnCompleted{outcome_completed:false}）。support.rs 新增 `spawn_tts_mock_slow` / `StallProducer` 两个 helper。

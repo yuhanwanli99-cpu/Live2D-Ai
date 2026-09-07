@@ -1,9 +1,10 @@
 # Live2D-Ai 🐱
 
-> **v0.3.0（Rust 完全重构）**：Live2D + AI + TTS 桌面桌宠，主仓库为**最小最简核心链路**
-> （TTS + LLM + Live2D + Web UI），增强能力通过 **Mod 边界**隔离（失败不影响主链路）。
+> **v0.3.0（Rust 完全重构）**：**通用人形皮套 AI 接入一体化平台**——AI × Live2D 人形皮套的
+> 通用接入与应用层。**不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
+> **不做复杂上层**（实现保持最小）：核心为**最小最简核心链路**（TTS + LLM + Live2D + Web UI），
+> 增强能力通过 **Mod 边界**隔离（失败不影响主链路）。
 > 平台：Linux / WSL2（PC 主力）。Android、原生 Windows 不属本次范围。
-> 模型不捆绑分发，用户需从作者渠道合法取得并自行导入（`assets/models/` 仅保留目录与说明）。
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-AGPL--3.0--only-blueviolet" alt="License AGPL-3.0-only"/>
@@ -21,8 +22,9 @@
 > **不做功能竞赛，只打磨一个最小最优秀的核心。**
 
 Live2D-Ai = Live2D + AI + TTS。全部意义只有一个：把「文本/语音 → LLM → TTS → Live2D
-表情/口型/动作」这条链路打磨到极致——架构干净、代码精简、每行有测试证据，**并留下
-扩展接口供后续和社区开发 Mod**。
+表情/口型/动作」这条链路打磨到极致——架构干净、代码精简、每行有测试证据，**并作为
+一个通用接入容器**：模型由用户合法导入，**不绑定任何单一模型/形象**；核心保持最小，
+复杂能力留给社区通过 **Mod 边界**接入。
 
 ```
 ┌──────────────────────────────────────┐
@@ -43,9 +45,9 @@ Live2D-Ai = Live2D + AI + TTS。全部意义只有一个：把「文本/语音 �
 
 ## 📖 项目简介 | Overview
 
-**Live2D-Ai** 是一个 **AI × Live2D 桌宠**——用 **Live2D 模型角色**进行**语音对话**，
+**Live2D-Ai** 是一个 **通用人形皮套 AI 接入平台**——用 **Live2D 人形皮套角色**进行**语音对话**，
 通过 **LLM** 理解并回应，同时根据对话实时切换表情、驱动口型。核心只留最小闭环，
-增强能力全部走 Mod 边界。
+增强能力全部走 Mod 边界；**模型不绑定**，用户合法导入任意人形皮套接入。
 
 > "欢迎回来～今天也要一起加油哦！" —— 白 (Bai)
 
@@ -54,11 +56,12 @@ Apache-2.0，pin rev）+ wgpu 29，不依赖 Live2D 专有 Cubism 闭源 SDK。�
 
 ### 🗄️ Python / Android 退役说明
 
-`Live2D-Ai-pc/`（Python）与 `Live2D-Ai-Android/`（Kotlin）已从主线移除：
+作为通用人形皮套一体化平台的**唯一实现基线**，Rust 主线（`crates/`）取代了旧的
+Python/Android 双端栈。`Live2D-Ai-pc/`（Python）与 `Live2D-Ai-Android/`（Kotlin）已从主线移除：
 - Python 版保留在 git 历史（tag `py-legacy`）
 - Android 版归档到远端 `android-archive` 分支（见 `ANDROID_ARCHIVE_POINTER.md`）
 
-Rust 重构（`crates/`）是**唯一主线**。
+Rust 重构（`crates/`）是**唯一实现主线**；模型与形象的接入由用户合法导入承载（非平台实现内置）。
 
 ---
 
@@ -133,7 +136,7 @@ cargo test --workspace --all-targets
 cargo test --doc --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-# 根级 Python 测试（健康检查）
+# 根级健康检查（可选；纯本地无 Key 断言）
 python3 -m pytest tests/ -q
 ```
 

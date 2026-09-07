@@ -6,15 +6,17 @@
 ## 项目背景
 
 - 文档索引见 `docs/README.md`；核心契约与目录约定见 `docs/architecture/core-contracts.md` 与 `docs/architecture/directory.md`。
-- Live2D-Ai 是 **Rust 桌宠**：Live2D + AI + TTS 桌面应用，主仓库为**最小最简核心链路**
-  （TTS + LLM + Live2D + Web UI），验证「文本/语音 → LLM → 表情/口型/动作」闭环。
-- **唯一主线** = Rust workspace（`crates/`）：`l2d` / `live2d-ai-core` / `live2d-ai-runtime` /
+- 定位：**通用人形皮套 AI 接入一体化平台**——AI + Live2D 人形皮套的通用接入与应用层，
+  **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
+  **不做复杂上层**（实现保持最小）。核心为 **Rust 桌宠主线**：Live2D + AI + TTS，
+  主仓库为**最小最简核心链路**（TTS + LLM + Live2D + Web UI），验证「文本/语音 → LLM → 表情/口型/动作」闭环。
+- **唯一实现主线** = Rust workspace（`crates/`）：`l2d` / `live2d-ai-core` / `live2d-ai-runtime` /
   `live2d-ai-desktop` / `l2d-wasm-demo` / `xtask`（+ 节点 E 新增 `live2d-ai-mod-system`）。
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （远端 `android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
 - 主仓库保持 **95-99% Rust**（xtask `rust-ratio` 门禁默认 95%）。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  3 个 Mod（external-input / pet-desktop / director）为 workspace crate，默认不启用。
+  5 个 Mod（external-input / pet-desktop / director / local-llm / local-tts）为 workspace crate，默认不启用。
 
 ## 开发约定
 

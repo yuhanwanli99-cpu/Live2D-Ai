@@ -1,6 +1,11 @@
 # Live2D-Ai — 架构规划
 
-> ⚠️ **本文件为架构演进历史（截至 2026-08-05）。当前执行计划见 [docs/plans/PLAN-V2-PC-LOCAL-TTS.md](docs/plans/PLAN-V2-PC-LOCAL-TTS.md)（2026-08-21 定稿，仅 PC 端，新增本地 Melo TTS 接口；Android 冻结在 v0.1.0）。**
+> ⚠️ **本文件为已归档的演进历史（Python/Android 双端时代，截至 2026-08）**，仅作历史回溯，
+> **不是当前架构**。当前实现与执行口径见 `README.md`、`AGENTS.md`、`docs/README.md` 与 `docs/plans/`
+> （node-e-*/ node-f-*/ integrity 等 Rust 主线计划）。本文件内嵌的 `live2d-ai-pc/`、
+> `run_server.py`、`ChatService.kt` 等均为已退役双端栈的旧记录。
+
+> （保留下方原有历史 banner 供追溯）
 
 > 更新日期: 2026-08-05 | 当前版本: **v0（开发中，作者自测）** | 架构: 两端独立直连
 

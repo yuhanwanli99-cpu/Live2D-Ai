@@ -6,6 +6,7 @@
 
 - [架构总览](architecture/ARCHITECTURE.md)
 - [核心契约与架构边界](architecture/core-contracts.md)
+- [渲染纹理 / 离屏靶标档位 ADR（4096/8192/16384）](architecture/renderer-texture-tier-adr.md)
 - [PC 无预设半身联动实现](architecture/pc-presetfree-halfbody-control.md)
 - [目录约定](architecture/directory.md)
 - [外部文字接入接口契约](architecture/external-text-input.md)
@@ -20,6 +21,8 @@
 ## 规划
 
 - [**Rust 重建 RFC（当前执行口径）**](plans/RUST-REWRITE-RFC.md)
+- [**未来路线图（2026-09，P0 滚项/外部验收/后续）**](plans/future-roadmap-2026-09.md)
+- [**接手修复与渲染档位计划（2026-09-07，S1/S2 完成）**](plans/integrity-takeover-fix-plan-2026-09-07.md)
 - [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](plans/node-a-wiring-audit-brief.md)
 - [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，含本地 Melo TTS）**](plans/PLAN-V2-PC-LOCAL-TTS.md)
 - [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](plans/PLAN-V3-SOULLINK-PERFORMANCE.md)

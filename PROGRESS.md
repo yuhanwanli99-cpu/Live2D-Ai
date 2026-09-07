@@ -1,5 +1,9 @@
 # 工程质量任务进度
 
+> 🗄️ **本文件已归档（Python 时代工程质量进度，2026-06 双端栈）**。Rust 主线的进度与
+> 执行计划见 `docs/plans/`（node-e-* / node-f-* / integrity 等）与 `CHANGELOG.md`。
+> 下方内容保留为历史记录，不再反映当前架构。
+
 > **2026-08-25 交接**：当前轮次修改已落盘并暂停，详细交接见 [docs/development/HANDOFF-2026-08-25-runtime-fixes.md](docs/development/HANDOFF-2026-08-25-runtime-fixes.md)。
 
 见 [docs/plans/post-launch-quality-roadmap.md](docs/plans/post-launch-quality-roadmap.md)。

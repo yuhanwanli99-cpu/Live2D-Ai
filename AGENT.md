@@ -1,130 +1,92 @@
 # Live2D-Ai — 项目总览
 
-> 更新日期: 2026-08-07
-> 项目定位: **Live2D + AI 最小验证项目** — 验证最小化 AI+Live2D 闭环（文本/语音 → LLM → 表情/口型/动作），留下扩展接口供后续和社区开发 mod。当前版本: v0（作者自测，不对外发布）
-> 架构理念: **pi-agent 精神** — 最小核心 + 可扩展（核心只装不可拆的原子能力，其余全部走插件 SDK）
-> 当前架构: **两端独立直连**（无中心化后端）
+> 更新日期: 2026-09
+> 项目定位: **通用人形皮套 AI 接入一体化平台**（Live2D humanoid-avatar AI-integration platform）——
+> AI + Live2D 人形皮套的通用接入与应用层。**不绑定任何单一模型**（模型由用户合法导入，`assets/models/`
+> 不捆绑二进制），**不做复杂上层**（实现保持最简：核心链路 + Mod 边界）。
+> 实现: Rust workspace（`crates/`），Python/Android 双端已归档（`py-legacy` / `android-archive`）。
+> 架构理念: **pi-agent 精神** — 最小核心 + 可扩展（核心只装不可拆的原子能力，其余全部走 Mod 边界）。
 
 ---
 
 ## 快速导航
 
 | 文档 | 说明 |
-| ------ | ------ |
-| **`HANDOVER.md`** | **★ 必读** — 完整项目交接（架构、Bug修复记录、动画系统、构建部署） |
-| **`PLAN.md`** | 架构演进历史（Plan A/B/C → 当前直连架构） |
+|------|------|
+| **`README.md`** | **首读** — 定位、快速开始、架构、Mod 接入 |
 | **`AGENTS.md`** | 项目级通用说明（结构/背景，任何 CLI agent 可读） |
-| `docs/README.md` | **文档索引（推荐先读）** |
+| `docs/README.md` | 文档索引 |
 | `docs/architecture/core-contracts.md` | 核心契约与架构边界 |
-| `docs/architecture/directory.md` | 目录约定 |
+| `docs/architecture/directory.md` | 目录约定（Rust 结构） |
 | `docs/architecture/ARCHITECTURE.md` | 技术栈详表 |
-| `docs/architecture/renderer-algorithm.md` | Cubism 渲染算法逆向分析 |
-| `docs/architecture/mask-premake-algorithm.md` | Mask FBO 渲染算法 |
-| `docs/verification/verification-win.md` | 桌面端配置验证报告 |
-| `Live2D-Ai-Android/app/libs/README.md` | Live2D SDK 依赖说明 |
-| `.pi/lessons-learned.md` | 经验教训库（新手上路必读） |
+| `docs/plans/node-e-execution-plan.md` | Mod 系统（节点 E）执行计划 |
+| `docs/plans/node-f-execution-plan.md` | 核心链路收口 → 5 Mod 开箱即用（节点 F）|
+| `CHANGELOG.md` | 版本变更记录 |
+| `HANDOVER.md` | 历史交接文档 |
 
 ---
 
 ## 当前架构
 
 ```
-┌──────────────────────────────┐    ┌──────────────────────────────┐
-│   Windows Desktop            │    │   Android                    │
-│                              │    │                              │
-│   Open-LLM-VTuber (Python)   │    │   Kotlin + Compose           │
-│   ├── DeepSeek API 直连      │    │   ├── DeepSeek API (OkHttp)  │
-│   ├── Edge TTS / GLM-4V     │    │   ├── Edge TTS                │
-│   ├── Faster-Whisper ASR    │    │   ├── GLM-4V 视觉             │
-│   └── Live2D Web 渲染       │    │   ├── Live2D (Purism Core)    │
-│                              │    │   └── Emotion → LipSync      │
-│   配置: conf.yaml            │    │                              │
-│   人设: shared/persona.yaml  │    │   配置: assets/persona.yaml  │
-└──────────────────────────────┘    └──────────────────────────────┘
-                                        ↑
-                                   ┌────┴────┐
-                                   │ shared/ │ ← 单源真理
-                                   └─────────┘
+┌─────────────────────────────────────────────┐
+│         通用人形皮套 AI 接入一体化平台        │
+│  （最小最简核心链路 + Mod 边界，非绑死单模型）    │
+├─────────────────────────────────────────────┤
+│   核心链路：文本/语音 → LLM → TTS → Live2D    │
+│   表情/口型/动作                              │
+│                                             │
+│   Rust workspace（crates/）                  │
+│   ├── l2d                 渲染封装（wgpu 29） │
+│   ├── live2d-ai-core      纯 reducer 状态机   │
+│   ├── live2d-ai-runtime   LLM/TTS + settings  │
+│   ├── live2d-ai-desktop   supervisor + Web API│
+│   ├── l2d-wasm-demo       Web 渲染核心         │
+│   ├── live2d-ai-mod-system  Mod trait/注册中心  │
+│   ├── …-mod-external-input/director/pet-desktop│
+│   ├── …-mod-local-llm / -local-tts              │
+│   └── xtask（根目录）      工程工具（Rust 占比）    │
+└─────────────────────────────────────────────┘
 ```
 
----
-
-## 关键变更（相对于旧架构）
-
-| 变更 | 旧 | 新 |
-| ------ | ----- | ----- |
-| 后端架构 | Gateway (FastAPI) + Bridge (WebSocket) 三层 | **两端独立直连** LLM API |
-| Live2D 原生层 | Cubism Core AAR（闭源，需Live2D许可） | **Purism Core** (MIT开源) |
-| Live2D Java层 | 反射调用 (~600行) | **CubismJavaFramework** (直接API) |
-| 配置管理 | 分散在各端 | `shared/persona.yaml` **单源真理** |
-
----
-
-## 项目结构
-
-```
-Live2D-Ai\
-├── shared/                  ← ★ 跨平台共享配置（单源真理）
-│   ├── persona.yaml         ←   人设（编辑此文件影响两端）
-│   ├── mcp_tools.json       ←   MCP 工具定义
-│   └── model_dict.json      ←   模型路由表
-│
-├── Live2D-Ai-Android/          ← ★ Android 原生应用（主力平台）
-│   └── app/src/main/
-│       ├── cpp/             ←   Purism Core (MIT) 源码
-│       ├── java/com/live2d/ai/android/  ← Kotlin 源码
-│       └── assets/live2d/   ←   Live2D 模型
-│
-├── Live2D-Ai-pc/                 ← ★ PC 端（WSL2/Linux 主力）
-│   ├── open-llm-vtuber/     ←   Open-LLM-VTuber 后端
-│   └── start.sh             ←   一键启动脚本（WSL2）
-│
-├── docs/                    ← 文档
-├── tests/                   ← 测试
-├── scripts/                 ← 辅助脚本
-├── archive/                 ← 旧架构文件归档
-└── HANDOVER.md              ← ★ 交接文档（首读）
-```
+**Mod 边界**：增强能力（外部事件接入 / 动作编排 / 桌宠窗口 / 本地 LLM / 本地 TTS）均为 workspace crate，
+经 `live2d-ai-mod-system` trait 注册，默认不启用；失败不影响核心链路。
 
 ---
 
 ## 快速命令
 
 ```bash
-# 编辑人设
-vim shared/persona.yaml
-# 同步到 Android
-cp shared/persona.yaml Live2D-Ai-Android/app/src/main/assets/
+# 全量门禁（提交前必须）
+cargo test --workspace --all-targets
+cargo test --doc --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p xtask -- rust-ratio   # 门槛 95%
 
-# 构建 Android APK
-cd Live2D-Ai-Android && ./gradlew assembleDebug
-
-# PC 端一键启动（WSL2）
-cd Live2D-Ai-pc && ./start.sh
-
-# 运行测试
-cd Live2D-Ai-Android && ./gradlew test
-python -m pytest tests/
+# 构建 + 启动 Web 端（主入口）
+cargo build --release
+./target/release/live2d-ai-desktop --web --http-port 18080
 ```
 
 ---
 
 ## 开发须知
 
-1. **Purism Core** (<https://github.com/SakuraMotion/PurismCore>) MIT 许可，CMake+NDK 自动编译
-2. **JNI 陷阱**: `getPartOpacities()` 返回 COPY，修改必须用 `setPartOpacity()` 写入
-3. **动画更新顺序**: Motion → EyeBlink → Breath → Physics → **第一次 model.update()** → Pose → **第二次 model.update()**
-4. **色器**: 7个 GLES 2.0 着色器，在 `assets/shaders/` 下
-5. 详细 Bug 修复记录见 `HANDOVER.md` 第四章
+1. **门禁四件**：workspace 全量测试 + doc 测试 + fmt + clippy `-D warnings` + rust-ratio（≥95%）。
+2. **源码 ≤500 行**（豁免 ≤1000 需头注理由）；测试文件 ≤800 行。
+3. **密钥安全**：密钥不进 GET/日志/WS/导出；loopback-only；mutating 需 `application/json`。
+4. **模型不捆绑**：`assets/models/` 仅目录+说明，模型二进制由用户合法导入后放置。
+5. **Mod 边界**：Mod 必须经 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁。
 
 ---
 
 ## 经验教训
 
-> 启动前务必阅读 `.pi/lessons-learned.md`
+> Rust 时代几个值得记下的坑：
 
 | 教训 | 说明 |
-| ------ | ------ |
-| vivo 安全拦截 | 已自动化：`scripts/deploy_android.sh install` 会用 `scripts/adb_ui_tap.py` dump UI 树找真实按钮坐标自动点掉安全弹窗（不再需要手动确认，也不再用盲点固定坐标）|
-| Purism Core 自动编译 | 无需手动下载 AAR，CMake 自动编译 |
-| Pose 双 update | Pose 必须在第一次 model.update() 之后，并再跑一次 update |
+|------|------|
+| 浏览器缓存 | `run-web.sh` 构建+启动后必须 Ctrl+Shift+R 硬刷新；用户报「旧实现」先查 dist hash 与二进制 mtime（`scripts/diag-stale.sh` 五步）|
+| 迁移丢 class 是系统性模式 | preview 用 `class=… id=…`，迁移只搬 id →「样式不生效」先查 CSS 选择器失配 |
+| headless 无独立 GPU | 软渲染（llvmpipe）无法验证 wgpu HighPerformance / 16384 档，真机验收需外部渲染环境 |
