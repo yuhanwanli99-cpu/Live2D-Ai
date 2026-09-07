@@ -253,6 +253,7 @@ pub(super) fn spawn_text_only_collector(
             capabilities: live2d_ai_core::ModelCapabilities::all(),
             audio: None,
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);

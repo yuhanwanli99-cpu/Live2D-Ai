@@ -13,8 +13,19 @@
 use live2d_ai_mod_system::services::ActionRequest;
 use live2d_ai_mod_system::*;
 
-/// 动作名白名单（6 个基础动作）。
-const ACTIONS_WHITELIST: &[&str] = &["nod", "shake", "tilt", "look_around", "listen", "surprise"];
+/// 动作名白名单（6 个基础动作；名字与 `live2d_ai_core::ActionId::name()`
+/// 严格一致，host 侧 `parse_action_id` 按 `name()` 严格匹配）。
+///
+/// 注意：摇头是 `"shake_no"`（不是 `"shake"`）——与 core 协议名对齐，
+/// 否则 host `parse_action_id("shake")` 返回 `None` 导致摇头永远不触发。
+const ACTIONS_WHITELIST: &[&str] = &[
+    "nod",
+    "shake_no",
+    "tilt",
+    "look_around",
+    "listen",
+    "surprise",
+];
 
 /// Mod 描述符（静态身份）。
 const DESCRIPTOR: ModDescriptor = ModDescriptor {
@@ -107,7 +118,8 @@ impl DirectorRuntime {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(600);
 
-        // 解析 sequence，默认 ["nod", "shake"]。
+        // 解析 sequence，默认 ["nod", "shake_no"]（摇头用协议名 "shake_no"，与
+        // core `ActionId::name()` 一致；"shake" 是历史错误名，host 侧会拒绝）。
         let raw_seq: Vec<String> = cfg
             .get("sequence")
             .and_then(serde_json::Value::as_array)
@@ -116,7 +128,7 @@ impl DirectorRuntime {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_else(|| vec!["nod".to_string(), "shake".to_string()]);
+            .unwrap_or_else(|| vec!["nod".to_string(), "shake_no".to_string()]);
 
         self.sequence.clear();
         self.invalid_actions.clear();
@@ -276,6 +288,63 @@ mod tests {
         // 非法动作被过滤，仅收到白名单合法项，顺序 preserved。
         let actions = received.lock().unwrap();
         assert_eq!(*actions, vec!["nod", "tilt"]);
+    }
+
+    #[test]
+    fn default_sequence_uses_protocol_action_names() {
+        // 空 config → 默认序列必须用 core `ActionId::name()` 协议名，
+        // 尤其是摇头必须是 "shake_no" 而非 "shake"（后者 host parse 会拒绝）。
+        let received: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let received_clone = received.clone();
+        let services = ModServices::new(
+            ModActionSender::new(move |req: ActionRequest| {
+                received_clone.lock().unwrap().push(req.action);
+                true
+            }),
+            SaySender::new(|_| true),
+            ModEventSender::new(|_t, _p| true),
+            ModLogger::new(|_l, _m| {}),
+        );
+        let mut rt = DirectorFactory
+            .create(services, serde_json::json!({}))
+            .unwrap();
+        let mut mock = MockRegistrar::default();
+        rt.start(&mut mock).unwrap();
+
+        // 默认序列 ["nod","shake_no"]：摇头以协议名（非 "shake"）通过白名单发送。
+        rt.on_event(ModEventTopic::TurnStarted, "").unwrap();
+        let actions = received.lock().unwrap();
+        assert_eq!(*actions, vec!["nod", "shake_no"]);
+    }
+
+    #[test]
+    fn whitelist_excludes_legacy_shake_misspelling() {
+        // 用户配了历史错误名 "shake"，应被过滤（host 会拒绝它）；
+        // 配 "shake_no" 则被接受。行为经 received 通道验证。
+        let received: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let received_clone = received.clone();
+        let services = ModServices::new(
+            ModActionSender::new(move |req: ActionRequest| {
+                received_clone.lock().unwrap().push(req.action);
+                true
+            }),
+            SaySender::new(|_| true),
+            ModEventSender::new(|_t, _p| true),
+            ModLogger::new(|_l, _m| {}),
+        );
+        let mut rt = DirectorFactory
+            .create(
+                services,
+                serde_json::json!({ "sequence": ["nod", "shake", "shake_no", "tilt"] }),
+            )
+            .unwrap();
+        let mut mock = MockRegistrar::default();
+        rt.start(&mut mock).unwrap();
+
+        rt.on_event(ModEventTopic::TurnStarted, "").unwrap();
+        let actions = received.lock().unwrap();
+        // "shake" 被过滤（host 不认），"shake_no" 与 "tilt" 被接受。
+        assert_eq!(*actions, vec!["nod", "shake_no", "tilt"]);
     }
 
     #[test]

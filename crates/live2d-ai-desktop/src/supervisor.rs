@@ -85,9 +85,10 @@ use live2d_ai_core::{
 pub(crate) fn root_apply(root: &mut RootState, event: RootEvent) -> Vec<RootEffect> {
     live2d_ai_core::apply(root, event)
 }
+use live2d_ai_mod_system::ModEventTopic;
 use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, OpenAiClient};
 
-use crate::app_event::AppEvent;
+use crate::app_event::{AppEvent, ConversationUiEvent};
 
 mod handlers;
 mod turn;
@@ -139,6 +140,13 @@ pub struct SupervisorConfig {
     /// 在空闲态会重读该路径以重建 client；`None` 时 Reload 直接 no-op
     /// （测试或 `--web` 模式可借此禁用热重载）。
     pub config_path: Option<String>,
+    /// host→Mod 事件桥（None = 不投递；测试 / 无 Mod 场景）。
+    ///
+    /// 由 supervisor 在 turn 生命周期点调用（非阻塞）。回调内部经
+    /// `ModRegistry::dispatch_event` 投递到 Mod worker（有界 channel，
+    /// 满则丢弃计数）；**不携带密钥**，payload 为 turn/action/voice 等
+    /// 非敏感字符串。设计见 docs/plans/integrity-takeover-fix-plan-2026-09-07.md §3。
+    pub mod_events: Option<ModEventSink>,
 }
 
 /// supervisor 对外句柄：三条命令入口 + 关机回收。
@@ -271,6 +279,13 @@ impl SupervisorHandle {
 
 type Emit = Arc<dyn Fn(AppEvent) + Send + Sync>;
 
+/// host→Mod 事件投递回调（`SupervisorConfig.mod_events`）。
+///
+/// 由 supervisor 在 turn 生命周期点调用（`dispatch_event` 非阻塞，满则丢弃），
+/// 不携带密钥；payload 为 turn/action/voice 等非敏感字符串。引入 Type alias
+/// 以消解 clippy「very complex type」告警。
+pub type ModEventSink = Arc<dyn Fn(ModEventTopic, &str) + Send + Sync>;
+
 /// 音频帧广播回调的线程局部载体。
 ///
 /// F6-T2 接线（WS 音频广播）：**PCM 绝不经 AppEvent**（见本模块头注），因此
@@ -397,6 +412,20 @@ fn spawn_supervisor_impl(
     let current_epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let emit: Emit = Arc::new(emit);
+    // **Mod 事件桥（d2）**：包裹 AppEvent 发射——转发给 AppEvent 消费端的
+    // 同时，把 `AppEvent::Conversation` 三变体投影为对应 `ModEventTopic`
+    // 投递给 Mod worker（`dispatch_event` 非阻塞，满则丢弃）。`mod_events`
+    // 为 `Option<Arc<F>>`，测试/无 Mod 时传 None（包裹闭包内 no-op）。
+    let mod_events_for_emit = config.mod_events.clone();
+    let emit: Emit = Arc::new(move |ev: AppEvent| {
+        emit(ev.clone());
+        if let Some(f) = &mod_events_for_emit
+            && let Some((topic, payload)) = project_conversation_to_mod(&ev)
+        {
+            f(topic, &payload);
+        }
+    });
+    let mod_events_for_thread = config.mod_events.clone();
     let reload_pending_for_thread = Arc::clone(&reload_pending);
     let current_epoch_for_thread = Arc::clone(&current_epoch);
     let join = std::thread::Builder::new()
@@ -418,6 +447,7 @@ fn spawn_supervisor_impl(
                 reload_pending_for_thread,
                 current_epoch_for_thread,
                 emit,
+                mod_events_for_thread,
             ));
         })
         .expect("启动 supervisor 线程");
@@ -430,6 +460,31 @@ fn spawn_supervisor_impl(
         join: Some(join),
         reload_pending,
         current_epoch,
+    }
+}
+
+/// 把 `AppEvent::Conversation` 投影为对应的 Mod 事件（纯函数，便于单测）。
+///
+/// 返回 `Some((ModEventTopic, payload))` 时，调用方经 `mod_events` 桥（`dispatch_event`）
+/// 投递给 Mod worker。三变体：
+/// - `TextDelta` → `ModEventTopic::TextDelta`（payload = 增量文本）;
+/// - `VoiceStarted` → `ModEventTopic::VoiceStarted`（payload = epoch 字符串）;
+/// - `VoiceEnded` → `ModEventTopic::VoiceEnded`（payload = epoch 字符串）。
+///
+/// 非 Conversation 变体（Render / RootAudit / Tray / ShutdownReady）返回 `None`，
+/// 因为 Mod 事件主题只覆盖对话/动作生命周期（见 topics.rs）。
+fn project_conversation_to_mod(ev: &AppEvent) -> Option<(ModEventTopic, String)> {
+    match ev {
+        AppEvent::Conversation(ConversationUiEvent::TextDelta { text, .. }) => {
+            Some((ModEventTopic::TextDelta, text.clone()))
+        }
+        AppEvent::Conversation(ConversationUiEvent::VoiceStarted { epoch }) => {
+            Some((ModEventTopic::VoiceStarted, epoch.to_string()))
+        }
+        AppEvent::Conversation(ConversationUiEvent::VoiceEnded { epoch }) => {
+            Some((ModEventTopic::VoiceEnded, epoch.to_string()))
+        }
+        _ => None,
     }
 }
 
@@ -446,6 +501,7 @@ async fn run_forever(
     reload_pending: Arc<std::sync::atomic::AtomicBool>,
     current_epoch: Arc<std::sync::atomic::AtomicU64>,
     emit: Emit,
+    mod_events: Option<ModEventSink>,
 ) {
     let SupervisorConfig {
         client,
@@ -453,6 +509,7 @@ async fn run_forever(
         capabilities,
         mut audio,
         config_path,
+        mod_events: _,
     } = config;
 
     let mut root = RootState::default();
@@ -483,6 +540,11 @@ async fn run_forever(
             },
             fact = finish_rx.recv() => {
                 if let Some(fact) = fact {
+                    // **Mod 事件桥（d2）**：动作自然完成 → `ActionFinished`。
+                    // payload = 动作协议名（`ActionId::name()`），director 可据此推进编序。
+                    if let Some(f) = &mod_events {
+                        f(ModEventTopic::ActionFinished, fact.action.action.name());
+                    }
                     // B-P0-5（关键）：使用**事实自带的原始 epoch**原样上报；
                     // 重盖当前值会让跨代复用的迟到完成误伤新代次的同名动作。
                     let effects = root_apply(&mut root, RootEvent::ActionPlaybackFinished {
@@ -517,6 +579,11 @@ async fn run_forever(
                     next_turn_id += 1;
                     let cur_epoch = root.epoch;
                     let epoch = cur_epoch.get();
+                    // **Mod 事件桥（d2）**：新 turn 提交 → `TurnStarted`。
+                    // payload = 当前 turn id；director 据此按 config.sequence 自动编序。
+                    if let Some(f) = &mod_events {
+                        f(ModEventTopic::TurnStarted, &next_turn_id.to_string());
+                    }
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
                     // 同步写；UserSubmitted 不动 epoch（root 现状保持），但
                     // 仍把当前值同步给镜像以覆盖 boot 时 0。
@@ -560,6 +627,60 @@ async fn run_forever(
 }
 
 // ---------------------------------------------------------------- 闭环集成测试
+
+/// `project_conversation_to_mod` 投影语义（AppEvent::Conversation → ModEventTopic）。
+#[cfg(test)]
+mod tests_mod_projections {
+    use super::*;
+
+    #[test]
+    fn text_delta_projects_to_text_delta_with_payload() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::TextDelta {
+            epoch: 3,
+            ts_ms: 42,
+            text: "你好".to_string(),
+        });
+        assert_eq!(
+            project_conversation_to_mod(&ev),
+            Some((ModEventTopic::TextDelta, "你好".to_string()))
+        );
+    }
+
+    #[test]
+    fn voice_started_projects_with_epoch_payload() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::VoiceStarted { epoch: 7 });
+        assert_eq!(
+            project_conversation_to_mod(&ev),
+            Some((ModEventTopic::VoiceStarted, "7".to_string()))
+        );
+    }
+
+    #[test]
+    fn voice_ended_projects_with_epoch_payload() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::VoiceEnded { epoch: 9 });
+        assert_eq!(
+            project_conversation_to_mod(&ev),
+            Some((ModEventTopic::VoiceEnded, "9".to_string()))
+        );
+    }
+
+    #[test]
+    fn non_conversation_events_yield_none() {
+        use crate::app_event::RenderCommand;
+        use crate::user_event::PetUserEvent;
+        let render = AppEvent::Render(RenderCommand::CeasePerforming { epoch: 1 });
+        let audit = AppEvent::RootAudit(crate::app_event::RootFact::Dropped);
+        let tray = AppEvent::Tray(PetUserEvent::TrayExit);
+        let shutdown = AppEvent::ShutdownReady;
+        for ev in [render, audit, tray, shutdown] {
+            assert_eq!(
+                project_conversation_to_mod(&ev),
+                None,
+                "非 Conversation 事件不应投影"
+            );
+        }
+    }
+}
 
 #[cfg(test)]
 mod support;

@@ -45,6 +45,7 @@ fn engine_events_carry_ts_ms_and_turn_stages_emitted() {
             audio: None,
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -130,6 +131,7 @@ fn turn_stage_timings_are_monotonic_with_audio() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);

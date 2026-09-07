@@ -44,7 +44,9 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::supervisor::SupervisorHandle;
+use live2d_ai_mod_system::ModEventTopic;
+
+use crate::supervisor::{ModEventSink, SupervisorHandle};
 use crate::web_api::app_routes::StatusContext;
 use crate::web_api::dto::ApplyStatus;
 use crate::web_api::ws;
@@ -103,14 +105,25 @@ impl SupervisorSlot {
         config_path: &str,
         broadcaster: ws::Broadcaster,
         status_ctx: &StatusContext,
+        mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
     ) -> ApplyStatus {
         if let Some(existing) = self.try_get() {
             // 已存在：reload 触发热重载（同原语义）。
             existing.reload();
             return ApplyStatus::Applied;
         }
-        // 槽位空：动态装配。
-        match crate::web_api::cli_entry::build_web_supervisor(config_path, broadcaster) {
+        // 槽位空：动态装配。**Mod 事件桥（d2）**：动态装配路径的 supervisor
+        // 直接捕获 `mod_registry`，emit `ModEventTopic` → `dispatch_event`。
+        let mod_events: Option<ModEventSink> = {
+            let reg = mod_registry.clone();
+            Some(Arc::new(move |t: ModEventTopic, p: &str| {
+                if let Ok(reg) = reg.lock() {
+                    let _ = reg.dispatch_event(t, p);
+                }
+            }))
+        };
+        match crate::web_api::cli_entry::build_web_supervisor(config_path, broadcaster, mod_events)
+        {
             Ok(handle) => {
                 // P1WS-1 同步：注入 epoch 读源到 StatusContext（首次装配
                 // 路径与 `cli_entry` 启动路径同源；保证 `/api/v1/app/status`
@@ -204,6 +217,7 @@ mod tests {
                 capabilities: live2d_ai_core::ModelCapabilities::all(),
                 audio: None,
                 config_path: None,
+                mod_events: None,
             },
             |_ev| {},
         ))

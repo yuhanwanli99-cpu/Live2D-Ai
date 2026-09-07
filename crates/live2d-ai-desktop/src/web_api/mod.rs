@@ -399,6 +399,7 @@ impl ServerContext {
             &self.status_ctx.config_path,
             self.broadcaster.clone(),
             &self.status_ctx,
+            self.mod_registry.clone(),
         )
     }
 

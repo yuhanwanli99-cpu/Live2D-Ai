@@ -21,13 +21,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use live2d_ai_core::ModelCapabilities;
+use live2d_ai_mod_system::ModEventTopic;
 use live2d_ai_runtime::{AppSettings, OpenAiClient};
 use tracing::warn;
 
 use crate::audio::AudioOutputFacade;
 use crate::mod_registry::ModRegistry;
 use crate::supervisor::{
-    AudioCb, SupervisorConfig, SupervisorHandle, spawn_supervisor, spawn_supervisor_with_audio,
+    AudioCb, ModEventSink, SupervisorConfig, SupervisorHandle, spawn_supervisor,
+    spawn_supervisor_with_audio,
 };
 use crate::web_api::ws;
 use crate::web_api::{ServerContext, start_server};
@@ -85,9 +87,30 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     // 2) 装配 supervisor（仅当配置文件存在且可解析）。
     //    **先于 ModRegistry 启动**：registry 需把 supervisor 作为 HostChannels
     //    回路注入；supervisor 持 Arc 副本供 HostChannels 闭包捕获。
+    //
+    //    **Mod 事件桥（d2）**：supervisor 在 turn 生命周期点 emit `ModEventTopic`，
+    //    但 registry 在此刻尚未装配（下步才建）。用晚绑定 holder
+    //    `mod_bridge: Arc<Mutex<Option<dyn Fn>>>`——supervisor 捕获该 holder 的
+    //    转发闭包（此时为 no-op/待注入），registry 建好后（步骤 3 末尾）把真实
+    //    路由到 `dispatch_event` 的闭包**安装**进去。动态装配路径
+    //    （`supervisor_slot::ensure_after_patch`）另走直接捕获 `ctx.mod_registry`。
+    let mod_bridge: Arc<std::sync::Mutex<Option<ModEventSink>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let mod_events_for_supervisor: Option<ModEventSink> = {
+        let bridge = mod_bridge.clone();
+        Some(Arc::new(move |t: ModEventTopic, p: &str| {
+            if let Some(f) = bridge.lock().ok().and_then(|g| g.clone()) {
+                f(t, p);
+            }
+        }))
+    };
     let supervisor_opt = if std::path::Path::new(&config_path).is_file() {
         // 把 ctx.broadcaster 借给 supervisor emit 闭包（避免双 Broadcaster）。
-        match build_web_supervisor(&config_path, ctx.broadcaster.clone()) {
+        match build_web_supervisor(
+            &config_path,
+            ctx.broadcaster.clone(),
+            mod_events_for_supervisor,
+        ) {
             Ok(handle) => {
                 println!("web: supervisor 已启动（详见日志）");
                 // P1WS-1：先**包成 Arc** 再注入到 StatusContext（`Arc` 是
@@ -229,6 +252,21 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     );
     ctx = ctx.with_mod_registry(registry);
 
+    // **Mod 事件桥（d2）**：registry 已装配（`ctx.mod_registry`），把真实路由
+    // 到 `dispatch_event` 的闭包安装进晚绑定 holder——supervisor 从此 emit 的
+    // `ModEventTopic` 都会经 `dispatch_event`（有界 channel，失败隔离）投递到
+    // Mod worker。只安装一次（startup 装配）；无 supervisor 时 skip。
+    if supervisor_opt.is_some() {
+        let reg = ctx.mod_registry.clone();
+        if let Ok(mut guard) = mod_bridge.lock() {
+            *guard = Some(Arc::new(move |t: ModEventTopic, p: &str| {
+                if let Ok(reg) = reg.lock() {
+                    let _ = reg.dispatch_event(t, p);
+                }
+            }));
+        }
+    }
+
     match start_server(ctx.clone(), port) {
         Ok(addr) => {
             println!("web: server 退出（{addr:?}）");
@@ -263,9 +301,14 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
 /// → 动态装配 → 立即可对话）。返回 `Result<Arc<SupervisorHandle>, String>`
 /// 失败时 caller 决定如何回报（dispatch → `RestartRequired`，cli_entry 启动
 /// 路径 → eprintln + 槽位保持空）。
+///
+/// `mod_events`：host→Mod 事件桥回调（`SupervisorConfig.mod_events`）。调用方
+/// 需传入能在 ModRegistry 装配后路由到 `dispatch_event` 的闭包；启动路径用
+/// 晚绑定 holder（registry 后建），动态路径直接捕获 `ctx.mod_registry`。
 pub(crate) fn build_web_supervisor(
     config_path: &str,
     broadcaster: ws::Broadcaster,
+    mod_events: Option<ModEventSink>,
 ) -> Result<Arc<SupervisorHandle>, String> {
     let path = PathBuf::from(config_path);
     let settings =
@@ -323,6 +366,7 @@ pub(crate) fn build_web_supervisor(
                     capabilities: ModelCapabilities::all(),
                     audio,
                     config_path: Some(path.to_string_lossy().into_owned()),
+                    mod_events: mod_events.clone(),
                 },
                 move |ev| {
                     // 投影 + 广播；P1 事件 None → 静默。
@@ -340,6 +384,7 @@ pub(crate) fn build_web_supervisor(
                     capabilities: ModelCapabilities::all(),
                     audio,
                     config_path: Some(path.to_string_lossy().into_owned()),
+                    mod_events: mod_events.clone(),
                 },
                 move |ev| {
                     // 投影 + 广播；P1 事件 None → 静默。

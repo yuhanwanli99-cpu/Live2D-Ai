@@ -43,6 +43,7 @@ fn spawn_test_supervisor(
             capabilities: live2d_ai_core::ModelCapabilities::all(),
             audio: None,
             config_path: Some(tmp.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         |_ev| {},
     ));

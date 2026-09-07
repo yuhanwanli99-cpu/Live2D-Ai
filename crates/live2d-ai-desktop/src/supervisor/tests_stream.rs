@@ -266,6 +266,7 @@ fn supervisor_handle_current_epoch_starts_at_zero() {
             capabilities: ModelCapabilities::all(),
             audio: None,
             config_path: Some(tmp.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         |_ev| {},
     ));

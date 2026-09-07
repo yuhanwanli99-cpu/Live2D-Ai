@@ -56,6 +56,7 @@ fn stop_during_tts_in_flight_yields_no_completion_and_reopens() {
             audio: None, // dry-run：聚焦控制面语义，不掺 PCM 路径,
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -173,6 +174,7 @@ fn stop_during_pending_pcm_pump_advances_epoch_without_completion() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -286,6 +288,7 @@ fn stall_timeout_fatal_terminates_after_5s_zero_progress() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -426,6 +429,7 @@ fn stop_during_drain_produces_no_commit_no_fallback_no_new_action() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);

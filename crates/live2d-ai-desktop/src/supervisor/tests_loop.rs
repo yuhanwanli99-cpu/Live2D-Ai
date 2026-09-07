@@ -45,6 +45,7 @@ fn closed_loop_two_turns_commit_history_via_drain_path() {
             audio: None, // dry-run：无声卡也必须完成闭环（这正是 CI 形态）,
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             eprintln!("[chat-loop] emit: {ev:?}");
@@ -110,6 +111,97 @@ fn closed_loop_two_turns_commit_history_via_drain_path() {
     assert_eq!(msgs[3]["content"], "第二轮");
 }
 
+/// **d2 事件桥**：supervisor 在 turn 提交点 emit `ModEventTopic::TurnStarted`
+/// 到注入的 `mod_events` 回调（host→Mod 事件桥的生产侧）。
+///
+/// 验证「supervisor 生产 TurnStarted → 回调收到」，证明 `dispatch_event` 的
+/// 生产路径已打通（不再是 node-f P3 审计的「dispatch_event 无生产者」）。
+#[test]
+fn supervisor_emits_turn_started_to_mod_events() {
+    let mod_topics: Arc<Mutex<Vec<(ModEventTopic, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let mod_topics_clone = mod_topics.clone();
+
+    let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let sse = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"好。。\"}}]}\n\n",
+        "data: [DONE]\n\n"
+    )
+    .to_owned();
+    let llm_base = spawn_llm_mock(llm_bodies.clone(), sse);
+    let tts_base = spawn_tts_mock();
+    let client = live2d_ai_runtime::OpenAiClient::new(
+        live2d_ai_runtime::LlmConfig::new(llm_base.clone(), "test-model"),
+        live2d_ai_runtime::TtsConfig::new(tts_base.clone(), "alloy"),
+    )
+    .expect("client");
+
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let emit_collector = collector.clone();
+    let handle = spawn_supervisor(
+        SupervisorConfig {
+            client,
+            conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
+            capabilities: live2d_ai_core::ModelCapabilities::all(),
+            audio: None,
+            config_path: None,
+            mod_events: Some(Arc::new(move |t, p| {
+                mod_topics_clone
+                    .lock()
+                    .expect("poison")
+                    .push((t, p.to_string()));
+            })),
+        },
+        move |ev| emit_collector.lock().expect("poison").push(ev),
+    );
+
+    // 提交一轮对话 → supervisor 必须在进入 turn 前 emit TurnStarted。
+    assert!(handle.say("触发一轮"), "空闲态 Say 必须入队");
+    let gen_finished = |c: &Collector| {
+        c.lock()
+            .expect("poison")
+            .iter()
+            .filter(|e| matches!(e, AppEvent::RootAudit(RootFact::GenerationFinished { .. })))
+            .count()
+    };
+    assert!(
+        wait_for(Duration::from_secs(3), || gen_finished(&collector) >= 1),
+        "turn 应在超时前收口"
+    );
+
+    // TurnStarted + TextDelta 都已到达 mod_events（证明「显式调用」与
+    // 「emit 包裹投影」两个生产路径都打通）。
+    let topics = mod_topics.lock().expect("poison");
+    assert!(
+        topics.iter().any(|(t, _)| *t == ModEventTopic::TurnStarted),
+        "应启动 TurnStarted: {topics:?}"
+    );
+    assert!(
+        topics.iter().any(|(t, _)| *t == ModEventTopic::TextDelta),
+        "流式文本也应投影到 TextDelta: {topics:?}"
+    );
+    // TurnStarted 的 payload 是 turn id（>0）。
+    let ts_payload = topics
+        .iter()
+        .find(|(t, _)| *t == ModEventTopic::TurnStarted)
+        .map(|(_, p)| p.clone())
+        .unwrap();
+    assert!(
+        ts_payload.parse::<u64>().unwrap_or(0) >= 1,
+        "payload 是 turn id"
+    );
+
+    handle.stop();
+    handle.quit();
+    let _ = wait_for(Duration::from_secs(2), || {
+        collector
+            .lock()
+            .expect("poison")
+            .iter()
+            .any(|e| matches!(e, AppEvent::ShutdownReady))
+    });
+    handle.join();
+}
+
 /// BL-2 真实双闩锁： PCM 入环 ⇒ VoiceStarted； 排空 ⇒ VoiceEnded；
 /// turn 收口； 退出握手。注入 detached 生产者（ring=4 设备样本，
 /// TTS 回 8 ⇒ 必走 WouldBlock→pending 泵）。
@@ -151,6 +243,7 @@ fn bl2_real_double_latch_with_detached_producer() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -297,6 +390,7 @@ fn stop_clears_pending_say() {
             audio: None,
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -355,6 +449,7 @@ fn gen_finished_exactly_once_per_turn() {
             audio: None,
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);

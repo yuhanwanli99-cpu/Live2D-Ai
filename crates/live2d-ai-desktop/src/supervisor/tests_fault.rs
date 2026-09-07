@@ -48,6 +48,7 @@ fn dropping_handle_during_generation_cancels_and_reaps_supervisor() {
             audio: None,
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -113,6 +114,7 @@ fn fatal_after_started_reports_cleared() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             // VoiceStarted 到达即刻注错：复现「开始播放即失效」。
@@ -186,6 +188,7 @@ fn internal_audio_fault_yields_turn_completed_failed() {
             audio: Some(producer),
 
             config_path: None,
+            mod_events: None,
         },
         move |ev| {
             if matches!(
@@ -275,6 +278,7 @@ fn action_finished_fact_travels_real_finish_channel() {
                 audio: None,
 
                 config_path: None,
+                mod_events: None,
             },
             move |ev| {
                 ec.lock().expect("poison").push(ev);

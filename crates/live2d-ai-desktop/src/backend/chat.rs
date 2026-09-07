@@ -177,6 +177,7 @@ pub fn run_chat_session(opts: ChatOptions) -> Result<RunReport, BackendError> {
             // 热重载源：与配置解析共用同一路径；String 而非 PathBuf 是为
             // 与 [`crate::web_api::ServerContext::config_path`] 类型一致。
             config_path: Some(config_path.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         {
             let p = proxy.clone();

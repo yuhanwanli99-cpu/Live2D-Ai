@@ -332,7 +332,6 @@ impl ModRegistry {
     }
 
     /// 投递事件到 worker（有界；满则丢弃计数，不阻塞）。
-    #[allow(dead_code)]
     pub fn dispatch_event(&self, topic: ModEventTopic, payload: &str) -> bool {
         self.event_tx.try_send((topic, payload.to_string())).is_ok()
     }

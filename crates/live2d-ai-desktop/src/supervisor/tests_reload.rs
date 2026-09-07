@@ -49,6 +49,7 @@ fn spawn_text_only_collector_with_path(
             capabilities: ModelCapabilities::all(),
             audio: None,
             config_path: Some(config_path.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -128,6 +129,7 @@ fn reload_rebuilds_client_after_config_save() {
             capabilities: ModelCapabilities::all(),
             audio: None,
             config_path: Some(tmp.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -223,6 +225,7 @@ fn reload_falls_back_on_invalid_url() {
             capabilities: ModelCapabilities::all(),
             audio: None,
             config_path: Some(tmp.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -313,6 +316,7 @@ fn reload_during_inflight_turn_applies_to_next_turn() {
             capabilities: ModelCapabilities::all(),
             audio: None,
             config_path: Some(tmp.to_string_lossy().into_owned()),
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
@@ -424,6 +428,7 @@ fn reload_without_config_path_is_noop() {
             capabilities: ModelCapabilities::all(),
             audio: None,
             config_path: None, // 关键：未配置
+            mod_events: None,
         },
         move |ev| {
             ec.lock().expect("poison").push(ev);
