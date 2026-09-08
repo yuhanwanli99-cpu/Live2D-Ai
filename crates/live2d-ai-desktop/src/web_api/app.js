@@ -12,6 +12,8 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+// 仅当元素存在且未聚焦时写入值（避免覆盖用户正在编辑的输入框）。
+const setIf = (el, v) => { if (el && document.activeElement !== el) el.value = v; };
 const els = {
   ver: $("ver"), conn: $("conn"), dot: $("dot"),
   llmBadge: $("llmBadge"), ttsBadge: $("ttsBadge"),
@@ -183,10 +185,6 @@ function loadSettingsLazy() {
     }).catch(() => {});
   }
 }
-function toggleSettings() {
-  if (state.settingsOpen) { closeSettings(); } else { openSettings(); }
-}
-
 const STATUS_POLL_MS = 5000;
 const LOGS_POLL_MS = 8000;
 
@@ -283,9 +281,7 @@ const BUILTIN_ACTIONS = [
   ["歪头","live2d_perform_action_tilt"],["环视","live2d_perform_action_look_around"],
   ["倾听","live2d_perform_action_listen"],["惊讶","live2d_perform_action_surprise"],
 ];
-// cmdId → iframe bridge action id（英文 id）映射。
-// 取自 BUILTIN_ACTIONS 的 command id 后缀；未命中则原样回传 cmdId。
-// 例：live2d_perform_action_nod → nod ; live2d_perform_action_tilt → tilt
+// cmdId → iframe bridge action id（英文 id）：取 command id 后缀，未命中原样回传。
 function cmdIdToStageAction(cmdId) {
   if (!cmdId) return "";
   const m = cmdId.match(/live2d_perform_action_(.+)$/);
@@ -342,9 +338,8 @@ async function invokeAction(name, cmdId) {
   }
 }
 // ---- iframe bridge 发送 helper ----
-// 规范化 postMessage 到 live2d-frame iframe；统一判 iframe 存在 + contentWindow 可用 + try/catch。
-// **R2 修复**：wasm listener 只接受 String（ev.data().as_string()），必须 JSON.stringify；
-// 同时传 location.origin（同源校验）。chat.js 通过 window.postToStage 复用。
+// 统一 postMessage 到 live2d-frame（判存在 + try/catch）；wasm 只收 String 必须 JSON.stringify，
+// 同时传 location.origin 同源校验；chat.js 经 window.postToStage 复用。
 function postToStage(msg) {
   try {
     const frame = els.live2dFrame;
@@ -357,8 +352,7 @@ function postToStage(msg) {
 }
 window.postToStage = postToStage; // 供 chat.js（独立 IIFE）复用，避免硬依赖
 
-// R5：监听渲染端 postMessage 回的 stage-ack，存入 state.stageAck 供 UI 读取真实状态。
-// 收到 ACK 才 toast「渲染端已应用」，而非在 postMessage 后立即提示。
+// R5：监听渲染端 stage-ack 快照，收到 ACK 才 toast「已应用」。
 window.addEventListener("message", (ev) => {
   // 同源校验（wasm 仅回 postMessage("*")，此处用 origin 过滤）
   if (ev.origin !== location.origin) return;
@@ -621,32 +615,17 @@ function renderAll() {
     const sv = state.settingsView;
     if (document.activeElement !== els.llmBaseUrl) els.llmBaseUrl.value = sv.llm.base_url || "";
     if (document.activeElement !== els.llmModel) els.llmModel.value = sv.llm.model || "";
-    if (!state.llmKeyTouched && document.activeElement !== els.llmApiKeyEnv) {
-      els.llmApiKeyEnv.value = sv.llm.has_api_key ? "(已绑定)" : "";
-    }
+    if (!state.llmKeyTouched) setIf(els.llmApiKeyEnv, sv.llm.has_api_key ? "(已绑定)" : "");
     if (document.activeElement !== els.ttsBaseUrl) els.ttsBaseUrl.value = sv.tts.base_url || "";
     if (document.activeElement !== els.ttsVoice) els.ttsVoice.value = sv.tts.voice || "";
-    if (!state.ttsKeyTouched && document.activeElement !== els.ttsApiKeyEnv) {
-      els.ttsApiKeyEnv.value = sv.tts.has_api_key ? "(已绑定)" : "";
-    }
-    if (document.activeElement !== els.systemPrompt) {
-      els.systemPrompt.value = sv.persona.system_prompt || "";
-    }
-    if (els.personaName && document.activeElement !== els.personaName) {
-      els.personaName.value = sv.persona.name || "";
-    }
-    if (els.personaDesc && document.activeElement !== els.personaDesc) {
-      els.personaDesc.value = sv.persona.description || "";
-    }
-    if (els.personaPersona && document.activeElement !== els.personaPersona) {
-      els.personaPersona.value = sv.persona.personality || "";
-    }
-    if (els.personaScenario && document.activeElement !== els.personaScenario) {
-      els.personaScenario.value = sv.persona.scenario || "";
-    }
-    if (els.personaFirst && document.activeElement !== els.personaFirst) {
-      els.personaFirst.value = sv.persona.first || "";
-    }
+    if (!state.ttsKeyTouched) setIf(els.ttsApiKeyEnv, sv.tts.has_api_key ? "(已绑定)" : "");
+    setIf(els.systemPrompt, sv.persona.system_prompt || "");
+    const p = sv.persona || {};
+    setIf(els.personaName, p.name || "");
+    setIf(els.personaDesc, p.description || "");
+    setIf(els.personaPersona, p.personality || "");
+    setIf(els.personaScenario, p.scenario || "");
+    setIf(els.personaFirst, p.first || "");
     if (document.activeElement !== els.devMode) els.devMode.checked = !!sv.dev_mode;
     if (sv.dev_mode) {
       els.logsCard.classList.remove("hidden");
@@ -722,8 +701,7 @@ function buildPatch() {
   return patch;
 }
 
-// D-P0C（2026-08-29）：apply_status 文案映射。后端 [`ApplyStatus`] 序列化是 snake_case
-//（"applied" / "restart_required" / "queued" / "no_supervisor"）；改动需同步本表与 `dto.rs::ApplyStatus`。
+// D-P0C：apply_status 文案映射（snake_case，需与 dto.rs::ApplyStatus 同步）。
 const APPLY_STATUS_TEXT = {
   applied: { toast: "已保存并热重载", status: "已保存于 " },
   restart_required: { toast: "已保存，需重启生效", status: "已保存（需重启）" },
