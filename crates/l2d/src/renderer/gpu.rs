@@ -6,7 +6,7 @@
 //!   容器内通常落到软件光栅），也可用**已有 device/queue** 接入
 //!   （[`GpuContext::from_parts`]，嵌入现有 wgpu 应用/窗口应用）。
 
-use super::RenderError;
+use super::{RenderError, RenderTier};
 
 /// 共享 GPU 上下文（廉价 [`Clone`] 语义经 `Arc` 在调用方持有）。
 #[derive(Clone)]
@@ -20,8 +20,17 @@ impl GpuContext {
     /// headless 初始化：尝试 Vulkan → GL → 全部后端。
     ///
     /// 容器/无显卡环境通常落到软件光栅（功能验证有效，性能不代表真机）。
+    /// 使用默认档位（[`RenderTier::DEFAULT`]）。
     pub fn headless() -> Result<Self, RenderError> {
-        let (adapter_label, device, queue) = init_headless_device()?;
+        Self::headless_with_tier(RenderTier::DEFAULT)
+    }
+
+    /// 同 [`Self::headless`]，但按指定档位构造 `max_texture_dimension_2d`。
+    ///
+    /// 档位=4096/8192 时 wgpu `Limits::default()` 已满足；档位=16384 需把上限
+    /// 显式设为 16384 才能建立对应尺寸的离屏 target。
+    pub fn headless_with_tier(tier: RenderTier) -> Result<Self, RenderError> {
+        let (adapter_label, device, queue) = init_headless_device(tier)?;
         Ok(Self {
             device,
             queue,
@@ -72,7 +81,9 @@ impl std::fmt::Debug for GpuContext {
 }
 
 /// headless 设备初始化（bakeoff 验证的回退顺序）。
-fn init_headless_device() -> Result<(String, wgpu::Device, wgpu::Queue), RenderError> {
+fn init_headless_device(
+    tier: RenderTier,
+) -> Result<(String, wgpu::Device, wgpu::Queue), RenderError> {
     let attempts: &[(&str, wgpu::Backends)] = &[
         ("vulkan", wgpu::Backends::VULKAN),
         ("gl", wgpu::Backends::GL),
@@ -101,10 +112,15 @@ fn init_headless_device() -> Result<(String, wgpu::Device, wgpu::Queue), RenderE
 
         let info = adapter.get_info();
         let adapter_label = format!("{} ({:?}, {})", info.name, info.backend, info.driver_info);
+        // 按档位构造 limits：只有 16384 档需要把 max_texture_dimension_2d 显式升高。
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: tier.required_max_texture_dimension(),
+            ..wgpu::Limits::default()
+        };
         match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("l2d-headless"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
+            required_limits: limits,
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::default(),
             trace: wgpu::Trace::Off,

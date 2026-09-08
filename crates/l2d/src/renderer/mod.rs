@@ -26,10 +26,12 @@
 mod gpu;
 mod model_core;
 mod offscreen;
+pub mod tier;
 
 pub use gpu::GpuContext;
 pub use model_core::ModelRendererCore;
 pub use offscreen::OffscreenRenderer;
+pub use tier::RenderTier;
 
 use std::{path::Path, sync::Arc};
 
