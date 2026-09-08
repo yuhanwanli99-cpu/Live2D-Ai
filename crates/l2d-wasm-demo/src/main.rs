@@ -54,7 +54,7 @@ mod web {
     use std::{cell::RefCell, rc::Rc};
 
     use l2d::model::LoadedModel;
-    use l2d::renderer::{FIXED_DT_60HZ, ModelRendererCore};
+    use l2d::renderer::{FIXED_DT_60HZ, ModelRendererCore, RenderTier};
     use wasm_bindgen::{JsCast, JsValue, closure::Closure};
     use web_sys::{HtmlCanvasElement, MessageEvent};
     // 交互属性（movementX/clientX/deltaY/button 等）通过 js_sys::Reflect 读取，
@@ -257,6 +257,12 @@ mod web {
                         }
                         if let Some(ck) = v.get("clickEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.click_enabled = ck;
+                        }
+                        // ADR §3.3：渲染档位（4096/8192/16384）；非法值忽略。
+                        if let Some(t) = v.get("tier").and_then(|x| x.as_u64())
+                            && let Some(tier) = RenderTier::from_side(t as u32)
+                        {
+                            st.bridge.tier = tier;
                         }
                         applied = true;
                     }

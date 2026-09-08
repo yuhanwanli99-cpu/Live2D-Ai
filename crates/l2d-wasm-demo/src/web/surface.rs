@@ -19,7 +19,7 @@
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use glam::f32::{Affine2, Vec2};
-use l2d::renderer::{FIXED_DT_60HZ, GpuContext, ModelRendererCore};
+use l2d::renderer::{FIXED_DT_60HZ, GpuContext, ModelRendererCore, RenderTier};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{HtmlCanvasElement, Window};
 
@@ -117,7 +117,7 @@ pub(crate) async fn init_gpu(
         .or_else(|| caps.alpha_modes.first().copied())
         .ok_or_else(|| "surface 无可用 alpha 合成模式".to_owned())?;
 
-    let (width, height) = canvas_pixel_size(canvas, window);
+    let (width, height) = canvas_pixel_size(canvas, window, RenderTier::DEFAULT);
     let mut config = surface
         .get_default_config(&adapter, width, height)
         .ok_or_else(|| "无法协商 surface 配置".to_owned())?;
@@ -160,16 +160,23 @@ pub(crate) fn adapter_info(adapter: &wgpu::Adapter) -> (wgpu::Backend, String, b
 ///   - Balanced 1.0  ：dpr 钳至 1.0，1:1 渲染，中等清晰度；
 ///   - Quality 1.5  ：当前默认 cap，钝化 2 以上高 DPI 冗余像素。
 ///
-/// v1 不暴露 UI 档位，固定 1.5 cap；如后需切换等级，改 `DPR_CAP` 即可。
+/// **档位钳制**（ADR §3.3）：`tier.side()` 作为物理画布目标侧边的**上限**，
+/// 实际尺寸 = `min(clamp 后的值, tier.side())`，避免超大离屏 target 超 sampler
+/// 上限/显存预算而失败。默认档位 [`RenderTier::DEFAULT`] 不影响既有 1.5 cap。
 const DPR_CAP: f64 = 1.5;
-pub(crate) fn canvas_pixel_size(canvas: &HtmlCanvasElement, window: &Window) -> (u32, u32) {
+pub(crate) fn canvas_pixel_size(
+    canvas: &HtmlCanvasElement,
+    window: &Window,
+    tier: RenderTier,
+) -> (u32, u32) {
     // 钳 dpr 到 [1, DPR_CAP]，保证最小 1 倍（HiDPI 缩放也得有下限）。
     let dpr = window.device_pixel_ratio().clamp(1.0, DPR_CAP);
     let css_w = canvas.client_width().max(0) as f64;
     let css_h = canvas.client_height().max(0) as f64;
     let width = ((css_w * dpr).round() as u32).max(1);
     let height = ((css_h * dpr).round() as u32).max(1);
-    (width, height)
+    let side = tier.side();
+    (width.min(side), height.min(side))
 }
 
 /// iframe bridge 接收状态（P0-2a）：父页 postMessage → 可见效果。
@@ -196,6 +203,8 @@ pub(crate) struct BridgeState {
     /// stage-config.clickEnabled（点击/拖动互动开关，默认 true；false 时
     /// 忽略 pointerdown 拖拽与双击缩放，模型不因交互移动）。
     pub click_enabled: bool,
+    /// 渲染档位（ADR §3.3：离屏 target 侧边上限，默认 [`RenderTier::DEFAULT`]）。
+    pub tier: RenderTier,
     /// stage-bg.dataUrl（自定义背景图 dataURL；None = 无背景图）。
     /// 应用为 canvas CSS background-image（cover 缩放），与 background-color 共存。
     pub bg_data_url: Option<String>,
@@ -240,6 +249,7 @@ impl Default for BridgeState {
             lip_sync: true,
             idle_enabled: true,
             click_enabled: true,
+            tier: RenderTier::DEFAULT,
             bg_data_url: None,
             applied_bg: None,
             volume: 0.0,
@@ -394,7 +404,7 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
         let state = Rc::clone(state);
         move || {
             let mut st = state.borrow_mut();
-            let (width, height) = canvas_pixel_size(&st.canvas, &st.window);
+            let (width, height) = canvas_pixel_size(&st.canvas, &st.window, st.bridge.tier);
             if (width, height) == (st.config.width, st.config.height) {
                 return;
             }

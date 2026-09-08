@@ -33,6 +33,16 @@ impl RenderTier {
     pub fn required_max_texture_dimension(self) -> u32 {
         self.side()
     }
+
+    /// 从侧边像素数解析档位（4096/8192/16384）；非法值返回 `None`。
+    pub fn from_side(side: u32) -> Option<Self> {
+        match side {
+            4096 => Some(Self::Tier4096),
+            8192 => Some(Self::Tier8192),
+            16384 => Some(Self::Tier16384),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -61,5 +71,14 @@ mod tests {
         ] {
             assert_eq!(tier.required_max_texture_dimension(), tier.side());
         }
+    }
+
+    #[test]
+    fn from_side_parses_known_and_rejects_unknown() {
+        assert_eq!(RenderTier::from_side(4096), Some(RenderTier::Tier4096));
+        assert_eq!(RenderTier::from_side(8192), Some(RenderTier::Tier8192));
+        assert_eq!(RenderTier::from_side(16384), Some(RenderTier::Tier16384));
+        assert_eq!(RenderTier::from_side(2048), None);
+        assert_eq!(RenderTier::from_side(0), None);
     }
 }
