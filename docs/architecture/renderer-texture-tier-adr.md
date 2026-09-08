@@ -1,6 +1,6 @@
 # ADR：渲染纹理 / 离屏靶标档位（4096 / 8192 / 16384）
 
-> 状态：**设计冻结（接口定义先行）**，2026-09
+> 状态：**接口已落地、真机验收仍属外部**，2026-09
 > 分支：`dev/integrity`
 > 关联：`docs/plans/integrity-takeover-fix-plan-2026-09-07.md` §4（渲染档位可行性）
 > 本 ADR 定义「纹理档位」如何落在离屏渲染 target 尺寸与设备 limits 上。**当前环境（llvmpipe
@@ -105,8 +105,8 @@ limits.max_texture_dimension_2d = tier.required_max_texture_dimension(); // 默�
   回退上一档 + toast，不 crash。`cargo test --workspace --all-targets` 全绿（含 tier 解析/钳制单测）。
 
 ## 6. 范围界定
-- **本期（可门禁交付）**：接口冻结文档 + tier 常量/解析/钳制代码 + 单测（属可选、放未来实现）；此文档先行。
-- **外部验收期**：S3 真机 16384 target 验证 + wasm 浏览器档位实测。
+- **本期（已落地）**：tier 常量/解析/钳制代码 + 单测 + 接口冻结文档均已合入；`RenderTier` 枚举、native limits 按档、wasm surface 钳制、前端档位下拉全部实现。
+- **外部验收期**：S3 真机 16384 target 验证 + wasm 浏览器档位实测（仍属外部，不在门禁范围）。
 
 ## 变更历史
 - 2026-09：设计冻结（文档先行，代码原生/浏览器档位按此 ADR 分属 native/surface。
