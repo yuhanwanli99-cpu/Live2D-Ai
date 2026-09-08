@@ -267,6 +267,27 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         }
     }
 
+    // 配置文件热重载文件监听器（2026-08-31）：监听 `live2d-ai.toml` 外部修改，
+    // 检测到变更后触发 supervisor reload。仅在 supervisor 已装配时启用。
+    let _file_watcher = if let Some(sup) = &supervisor_opt {
+        match crate::web_api::file_watcher::FileWatcher::watch_config(
+            &config_path,
+            Arc::clone(sup),
+            500, // 500ms 防抖
+        ) {
+            Ok(w) => {
+                println!("web: 配置文件热重载监听已启用（{}）", config_path);
+                Some(w)
+            }
+            Err(e) => {
+                eprintln!("[warn] 配置文件热重载监听启用失败: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     match start_server(ctx.clone(), port) {
         Ok(addr) => {
             println!("web: server 退出（{addr:?}）");

@@ -83,6 +83,8 @@ pub struct ActivateResponse {
     pub prev_active_id: Option<String>,
     /// v1 = false（supervisor 重新加载延后到 settings_p0c 闭环或重启）。
     pub requires_restart: bool,
+    /// 模型 runtime URL（`/models/<model3_rel_path>`），供前端直接加载。
+    pub model_url: String,
 }
 
 /// `PATCH /api/v1/models/{id}/display` 请求 body。

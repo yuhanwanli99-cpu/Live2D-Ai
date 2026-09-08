@@ -183,6 +183,15 @@ pub struct PersonaSettings {
     /// 角色描述（identity · background；空 = 未设置）。
     #[serde(default)]
     pub description: String,
+    /// 个性（personality · speech style；空 = 未设置）。
+    #[serde(default)]
+    pub personality: String,
+    /// 场景（scenario · world；空 = 未设置）。
+    #[serde(default)]
+    pub scenario: String,
+    /// 开场白（first message；空 = 未设置）。
+    #[serde(default)]
+    pub first: String,
 }
 
 /// 把角色卡 name/description 拼接到 system_prompt 前的纯函数（空字段跳过）。

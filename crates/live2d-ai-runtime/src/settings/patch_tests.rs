@@ -35,6 +35,7 @@ fn sample() -> AppSettings {
             max_history_pairs: 2,
             name: "NEKO".into(),
             description: "猫娘".into(),
+            ..Default::default()
         },
         dev_mode: false,
     }
@@ -140,6 +141,9 @@ fn patch_with_new_value_overrides() {
             max_history_pairs: Some(Some(4)),
             name: None,
             description: None,
+            personality: None,
+            scenario: None,
+            first: None,
         })),
         ..Default::default()
     };

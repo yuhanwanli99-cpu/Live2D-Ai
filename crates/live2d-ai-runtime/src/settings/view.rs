@@ -56,6 +56,9 @@ pub struct PersonaView {
     pub max_history_pairs: usize,
     pub name: String,
     pub description: String,
+    pub personality: String,
+    pub scenario: String,
+    pub first: String,
 }
 
 impl From<&LlmSettings> for LlmView {
@@ -88,6 +91,9 @@ impl From<&PersonaSettings> for PersonaView {
             max_history_pairs: s.max_history_pairs,
             name: s.name.clone(),
             description: s.description.clone(),
+            personality: s.personality.clone(),
+            scenario: s.scenario.clone(),
+            first: s.first.clone(),
         }
     }
 }

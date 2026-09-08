@@ -103,6 +103,9 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 #   依赖最小化）。引入位置：`web_api/ws.rs`（生产 Server 角色）；测试走 `connect()`
 #   也用本 crate（无 `url` feature 时连接需手动构造 header，本任务不依赖 url feature）。
 tungstenite = { version = "0.24" }
+# 文件监听热重载（2026-08-31）：`notify` 8.x 跨平台文件事件监听（inotify/FSEvents/ReadDirectoryChangesW），
+# 用于检测 `live2d-ai.toml` 外部修改并触发 supervisor reload。
+notify = "8"
 
 [dev-dependencies]
 # 仅供测试；生产路径下由 main.rs 在 [dependencies] 直接使用。

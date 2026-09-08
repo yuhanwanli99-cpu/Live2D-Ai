@@ -19,6 +19,7 @@ const els = {
   ttsBaseUrl: $("ttsBaseUrl"), ttsVoice: $("ttsVoice"), ttsApiKeyEnv: $("ttsApiKeyEnv"),
   systemPrompt: $("systemPrompt"), devMode: $("devMode"),
   personaName: $("f-p-name"), personaDesc: $("f-p-desc"),
+  personaPersona: $("f-p-persona"), personaScenario: $("f-p-scenario"), personaFirst: $("f-p-first"),
   appIdleToggle: $("f-idle"), appClickToggle: $("f-click"),
   bgFileBtn: $("f-bgimg-btn"), bgFileInput: $("f-bgimg-input"), bgClearBtn: $("f-bgimg-clear"),
   btnSave: $("btnSave"), btnReload: $("btnReload"), btnClearKey: $("btnClearKey"),
@@ -45,6 +46,7 @@ const els = {
   modelsStatus: $("modelsStatus"),
   stageToolbar: $("stageToolbar"), btnZoomIn: $("btnZoomIn"),
   btnZoomOut: $("btnZoomOut"), btnResetView: $("btnResetView"),
+  btnActions: $("btnActions"),
 };
 
 // ---- 设置模态 + 左导航 rail ----
@@ -260,9 +262,11 @@ function renderGroups() {
   if (sv.dev_mode) {
     if (grp) grp.style.removeProperty("display");
     if (els.logsCard) els.logsCard.classList.remove("hidden");
+    if (els.btnActions) els.btnActions.classList.remove("hidden");
   } else {
     if (grp) grp.style.display = "none";
     if (els.logsCard) els.logsCard.classList.add("hidden");
+    if (els.btnActions) els.btnActions.classList.add("hidden");
     if (els.logsPre) els.logsPre.textContent = "（需开启开发者模式）";
     if (els.logsStatus) {
       els.logsStatus.textContent = "dev_mode 关闭";
@@ -449,9 +453,13 @@ function bindStageInteractions() {
         const dataUrl = String(reader.result || "");
         let persisted = true;
         try { localStorage.setItem(BG_LS_KEY, dataUrl); } catch (_) { persisted = false; }
-        postToStage({ type: "stage-bg", dataUrl });
+        const sent = postToStage({ type: "stage-bg", dataUrl });
         // localStorage 超限（如 >5MB jpg 的 dataURL）：本次会话仍生效，但刷新不记忆。
-        toast(persisted ? "背景图已应用（本地）" : "背景图已应用；图片过大，刷新后不会保留", persisted ? "ok" : "warn");
+        if (sent) {
+          toast(persisted ? "背景图已应用（本地）" : "背景图已应用；图片过大，刷新后不会保留", persisted ? "ok" : "warn");
+        } else {
+          toast("背景图已保存，但渲染端未加载（刷新后生效）", "warn");
+        }
       };
       reader.onerror = () => toast("背景图读取失败", "err");
       reader.readAsDataURL(f);
@@ -615,6 +623,15 @@ function renderAll() {
     if (els.personaDesc && document.activeElement !== els.personaDesc) {
       els.personaDesc.value = sv.persona.description || "";
     }
+    if (els.personaPersona && document.activeElement !== els.personaPersona) {
+      els.personaPersona.value = sv.persona.personality || "";
+    }
+    if (els.personaScenario && document.activeElement !== els.personaScenario) {
+      els.personaScenario.value = sv.persona.scenario || "";
+    }
+    if (els.personaFirst && document.activeElement !== els.personaFirst) {
+      els.personaFirst.value = sv.persona.first || "";
+    }
     if (document.activeElement !== els.devMode) els.devMode.checked = !!sv.dev_mode;
     if (sv.dev_mode) {
       els.logsCard.classList.remove("hidden");
@@ -672,6 +689,18 @@ function buildPatch() {
   if (els.personaDesc) {
     const dv = els.personaDesc.value.trim();
     if (dv !== (sv.persona.description || "")) persona.description = dv === "" ? null : dv;
+  }
+  if (els.personaPersona) {
+    const pv = els.personaPersona.value.trim();
+    if (pv !== (sv.persona.personality || "")) persona.personality = pv === "" ? null : pv;
+  }
+  if (els.personaScenario) {
+    const sv2 = els.personaScenario.value.trim();
+    if (sv2 !== (sv.persona.scenario || "")) persona.scenario = sv2 === "" ? null : sv2;
+  }
+  if (els.personaFirst) {
+    const fv = els.personaFirst.value.trim();
+    if (fv !== (sv.persona.first || "")) persona.first = fv === "" ? null : fv;
   }
   if (Object.keys(persona).length) patch.persona = persona;
   patch.dev_mode = els.devMode.checked ? true : false;

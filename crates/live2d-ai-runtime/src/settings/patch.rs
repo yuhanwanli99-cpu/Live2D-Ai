@@ -206,6 +206,30 @@ pub struct PersonaPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub description: Option<Option<String>>,
+    /// 个性（personality · speech style；`null` = 清除）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub personality: Option<Option<String>>,
+    /// 场景（scenario · world；`null` = 清除）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub scenario: Option<Option<String>>,
+    /// 开场白（first message；`null` = 清除）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub first: Option<Option<String>>,
 }
 
 /// `apply_patch` 的结果——上层据此决定要不要触发磁盘写回。
@@ -404,6 +428,18 @@ pub fn apply_patch(
                     next.persona.description = String::new();
                     changed = true;
                 }
+                if !next.persona.personality.is_empty() {
+                    next.persona.personality = String::new();
+                    changed = true;
+                }
+                if !next.persona.scenario.is_empty() {
+                    next.persona.scenario = String::new();
+                    changed = true;
+                }
+                if !next.persona.first.is_empty() {
+                    next.persona.first = String::new();
+                    changed = true;
+                }
             }
             Some(fields) => {
                 if let Some(v) = &fields.system_prompt {
@@ -431,6 +467,27 @@ pub fn apply_patch(
                     let new = v.clone().unwrap_or_default();
                     if next.persona.description != new {
                         next.persona.description = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.personality {
+                    let new = v.clone().unwrap_or_default();
+                    if next.persona.personality != new {
+                        next.persona.personality = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.scenario {
+                    let new = v.clone().unwrap_or_default();
+                    if next.persona.scenario != new {
+                        next.persona.scenario = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.first {
+                    let new = v.clone().unwrap_or_default();
+                    if next.persona.first != new {
+                        next.persona.first = new;
                         changed = true;
                     }
                 }

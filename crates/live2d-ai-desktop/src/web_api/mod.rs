@@ -101,6 +101,9 @@ pub mod wasm_assets;
 /// WebSocket 桥（W2 任务，2026-08-29）。
 pub mod ws;
 
+/// 配置文件热重载文件监听器（2026-08-31）。
+pub mod file_watcher;
+
 /// 路由 ID（method+path 解析结果）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteId {

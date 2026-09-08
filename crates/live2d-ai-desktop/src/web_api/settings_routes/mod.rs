@@ -22,7 +22,7 @@
 //! 「动态装配 / 触发 reload」决策，把 [`ApplyStatus`] 回填到响应 body
 //! ——前端按状态显示正确文案，不再误报「已热重载」与「实际 503」错位。
 
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use tiny_http::{Response, StatusCode};
 
 use live2d_ai_runtime::AppSettings;
@@ -33,20 +33,6 @@ use live2d_ai_runtime::settings::view::settings_to_view;
 
 use crate::web_api::app_routes::json_response;
 use crate::web_api::dto::{ApplyStatus, ErrorDetail, ErrorResponse};
-
-/// `Option<Option<T>>` 手工反序列化（与 runtime `serde_with::double_option`
-/// 同语义；desktop crate 不直接依赖 `serde_with`，复用其规则成本过高）。
-///
-/// - JSON 缺省 → `None`（不修改）
-/// - JSON `null` → `Some(None)`（显式清除）
-/// - JSON 值 `v` → `Some(Some(v))`（覆盖）
-fn deserialize_double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
 
 /// `GET /api/v1/settings` 处理器。
 pub fn handle_get(current: &AppSettings) -> Response<std::io::Cursor<Vec<u8>>> {
@@ -93,7 +79,10 @@ pub struct PatchBody {
     /// - 缺省 = `None`（不修改）
     /// - `null` = `Some(None)`（显式关闭）
     /// - `true|false` = `Some(Some(b))`（显式设置）
-    #[serde(default, deserialize_with = "deserialize_double_option")]
+    #[serde(
+        default,
+        deserialize_with = "::serde_with::rust::double_option::deserialize"
+    )]
     pub dev_mode: Option<Option<bool>>,
 }
 

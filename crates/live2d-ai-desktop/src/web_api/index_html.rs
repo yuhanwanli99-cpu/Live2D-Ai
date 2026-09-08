@@ -191,9 +191,6 @@ mod tests {
         // P1WS-2 新增：subscribe_ack 处理 + shutdown_ready 不重连。
         assert!(CHAT_JS.contains("subscribe_ack"));
         assert!(CHAT_JS.contains("noReconnect"));
-        // P1WS-2 客户端 subscribe 首帧（chat.js 用 JSON.stringify 序列化；
-        // 源文件带空格所以用含空格匹配）。
-        assert!(CHAT_JS.contains("type: \"subscribe\""));
         // 发送/停止端点。
         assert!(CHAT_JS.contains("/api/v1/chat"));
         assert!(CHAT_JS.contains("/api/v1/chat/stop"));

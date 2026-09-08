@@ -403,6 +403,9 @@ fn persona_name_desc_patch_tri_state() {
             max_history_pairs: None,
             name: Some(Some("NEW".into())),
             description: Some(Some("NEW-DESC".into())),
+            personality: None,
+            scenario: None,
+            first: None,
         })),
         ..Default::default()
     };
@@ -418,6 +421,9 @@ fn persona_name_desc_patch_tri_state() {
             max_history_pairs: None,
             name: Some(None),
             description: Some(None),
+            personality: None,
+            scenario: None,
+            first: None,
         })),
         ..Default::default()
     };

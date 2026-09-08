@@ -391,13 +391,6 @@
       // P1WS-2 新增事件：模型动作表演。
       // P1 占位：仅记录到 hint，便于后续接入 cap-aware UI（不冒泡 UI）。
       setHint("动作 " + (payload.kind || "?") + " " + (payload.action && payload.action.action ? payload.action.action : ""));
-    } else if (type === "pong") {
-      // P1WS-2 文本 pong（契约 §4.5）；不做事，UI 不变。
-      setHint("pong (seq=" + (data.seq || "?") + ")");
-    } else if (type === "error") {
-      // P1WS-2：服务端 error 帧（契约 §5 风格）。
-      setChatStatus("错误", "err");
-      setHint("server error: " + (payload.code || "?") + " " + (payload.message || ""), "err");
     }
   }
 
@@ -443,13 +436,6 @@
       setWsBadge("已连接", "ok");
       // P1WS-2 退避重置：下次断开时从 1s 起。
       chatState.wsBackoffMs = 1000;
-      // P1WS-2 契约 §4.4：连接建立后**立即**发 subscribe 帧（首帧）。
-      // topics v1 = 空（"全部接受"语义；runtime.* 透传）。
-      try {
-        ws.send(JSON.stringify({ type: "subscribe", topics: [] }));
-      } catch (e) {
-        // send 失败 → 走 onclose 路径
-      }
       // 重连成功拉一次 status，确保 epoch/运行态对齐。
       fetch("/api/v1/app/status").then((r) => r.json()).then((s) => {
         if (s && typeof s.current_epoch !== "undefined") {

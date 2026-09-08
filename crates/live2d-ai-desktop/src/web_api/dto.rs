@@ -311,6 +311,7 @@ mod tests {
                 max_history_pairs: 2,
                 name: "NEKO".into(),
                 description: "一只会说话的猫娘桌宠。".into(),
+                ..Default::default()
             },
             dev_mode: false,
         }

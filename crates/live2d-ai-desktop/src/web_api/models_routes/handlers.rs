@@ -248,7 +248,7 @@ pub(crate) fn handle_activate(store: &ModelStore, id: &str) -> Response<Cursor<V
     // 关键：必须先**释放**写锁再 `persist`（`persist` 内部 `read()` 在
     // 写锁未释放时死锁——`std::sync::RwLock` 不支持递归）。先把要返回的
     // 数据从写锁中克隆出来，释放写锁后再做副作用（原子写盘）。
-    let prev: Option<String> = {
+    let (prev, model_url): (Option<String>, String) = {
         let mut g = match store.inner.write() {
             Ok(g) => g,
             Err(e) => return persist_failed_response(&format!("registry 锁毒化: {e}")),
@@ -257,8 +257,14 @@ pub(crate) fn handle_activate(store: &ModelStore, id: &str) -> Response<Cursor<V
             return not_found_response("model_not_found", &format!("模型 {normalized:?} 不存在"));
         }
         let prev = g.active_id.clone();
+        // 克隆 model3_rel_path 用于构造 runtime URL（在释放写锁前）。
+        let model_url = g
+            .entries
+            .get(&normalized)
+            .map(|e| format!("/models/{}", e.model3_rel_path))
+            .unwrap_or_else(|| format!("/models/{normalized}/runtime/{normalized}.model3.json"));
         g.active_id = Some(normalized.clone());
-        prev
+        (prev, model_url)
     };
     // 写锁已释放；现在调 `persist` 安全。
     if let Err(e) = store.persist() {
@@ -276,6 +282,7 @@ pub(crate) fn handle_activate(store: &ModelStore, id: &str) -> Response<Cursor<V
             // D3.2 热重载完成前，激活只改 registry 不重载 renderer/supervisor，
             // 如实上报 requires_restart=true（避免前端误以为已生效）。
             requires_restart: true,
+            model_url,
         },
     )
 }

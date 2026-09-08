@@ -36,7 +36,7 @@
   <span class="pill" title="TTS 状态">TTS: <span id="ttsBadge" class="status">—</span></span>
   <span style="flex:1"></span>
   <button class="icon-btn" id="btnRefresh" title="刷新"><svg class="ib-svg"><use href="#i-reset"/></svg></button>
-  <button class="icon-btn" id="btnActions" title="动作触发" aria-haspopup="dialog"><svg class="ib-svg"><use href="#i-spark"/></svg></button>
+  <button class="icon-btn hidden" id="btnActions" title="动作触发" aria-haspopup="dialog"><svg class="ib-svg"><use href="#i-spark"/></svg></button>
   <button class="icon-btn" id="btnSettings" title="设置" aria-haspopup="dialog"><svg class="ib-svg"><use href="#i-tools"/></svg></button>
 </header>
 
@@ -164,6 +164,8 @@
           <button class="act-btn" data-act="listen">倾听</button>
           <button class="act-btn" data-act="surprise">惊讶</button>
         </div>
+        <div class="group-title">动作列表</div>
+        <div class="actions-list" id="actionsList"><span class="field-meta">（加载中…）</span></div>
       </section>
 
       <!-- 模型管理 -->
@@ -196,9 +198,11 @@
         </div>
         <div class="group-title">实时日志</div>
         <div class="row buttons"><button class="secondary" id="btnReloadLogs">重新拉取</button><label class="field-meta" for="logLevel">级别≥</label><select id="logLevel"><option value="all">全部</option></select><span class="status" id="logsStatus">dev_mode 关闭</span></div>
-        <pre id="logs">（等待开启 dev_mode）</pre>
-        <span class="field-meta" id="logsFile" hidden></span>
-        <section class="card" id="logsCard" hidden></section>
+        <div id="grp-logs">
+          <pre id="logs">（等待开启 dev_mode）</pre>
+          <span class="field-meta" id="logsFile" hidden></span>
+          <section class="card" id="logsCard" hidden></section>
+        </div>
       </section>
 
       <!-- Mod 管理 -->

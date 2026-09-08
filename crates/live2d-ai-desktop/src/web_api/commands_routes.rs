@@ -72,6 +72,8 @@ pub struct CommandSummary {
     /// 基础命令的目标动作名（与 `live2d_ai_core::ActionId::name()` 同构）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_action: Option<&'static str>,
+    /// 该命令触发的 `SemanticAction` 数量（v1 Single 恒为 1）。
+    pub step_count: usize,
 }
 
 /// `POST /api/v1/commands/{id}/invoke` 响应。
@@ -108,6 +110,7 @@ pub fn handle_list_commands(method: &Method, path: &str) -> Response<Cursor<Vec<
             allowed_sources: c.allowed_sources,
             kind: kind_str(&c.kind),
             target_action: single_target(&c.kind),
+            step_count: step_count_of(&c.kind),
         })
         .collect();
     let body = serde_json::to_vec(&CommandsListResponse { commands })
@@ -136,6 +139,13 @@ pub fn handle_commands_route(
 const fn kind_str(kind: &CommandKind) -> &'static str {
     match kind {
         CommandKind::Single { .. } => "single",
+    }
+}
+
+/// 该命令触发的 `SemanticAction` 数量（v1 Single 恒为 1）。
+const fn step_count_of(kind: &CommandKind) -> usize {
+    match kind {
+        CommandKind::Single { .. } => 1,
     }
 }
 
