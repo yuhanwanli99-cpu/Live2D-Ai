@@ -114,6 +114,13 @@ pub struct OpenAiClient {
 
 impl OpenAiClient {
     /// 创建客户端。HTTP 层使用 rustls + 内置 webpki 根证书。
+    ///
+    /// `pool_max_idle_per_host(0)`：禁用空闲连接复用。集成测试的 mock TCP 服务器
+    /// 以 `connection: close` + 半关闭结束每次响应，若 reqwest 复用了这类连接，
+    /// 会在下一个 TTS/LLM 请求读到 `hyper::Error(IncompleteMessage)` 而误判为失败
+    /// （`live2d-ai-runtime` 的 `tool_call_becomes_tool_action_event` 曾因此间歇性红）。
+    /// 桌面端 LLM 每轮本就单连接、TTS 按句请求，禁用池化带来的握手开销可忽略；
+    /// streaming 响应本就不参与池化复用。
     pub fn new(llm: LlmConfig, tts: TtsConfig) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(concat!(
@@ -121,6 +128,7 @@ impl OpenAiClient {
                 "/",
                 env!("CARGO_PKG_VERSION")
             ))
+            .pool_max_idle_per_host(0)
             .build()?;
         Ok(Self { http, llm, tts })
     }
