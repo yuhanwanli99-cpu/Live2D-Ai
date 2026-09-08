@@ -69,9 +69,13 @@
    中止、无 commit。涉及大改（如 app.js 减重）的任务，子代理易超上下文，建议拆小或主代理亲自做。
 3. **子代理提交未必 fmt 干净**：T04 的 main.rs 数组超宽，集成后 `cargo fmt --check` 报警，
    由主代理 `cargo fmt --all` 修复。（凡集成子代理 commit，务必复核 fmt。）
-4. **`live2d-ai-runtime` 存在 flaky 集成测试**：`tool_call_becomes_tool_action_event`
-   （mock HTTP 服务 + async 管道时序），**全量并行运行偶发 FAIL**、单跑多通过，与 l2d 改动无关。
-   建议后续加固：拆端口/加超时上限或 `#[serial]`，避免 CI 偶发红。
+4. **`live2d-ai-runtime` 曾存在 flaky 集成测试**：`tool_call_becomes_tool_action_event`
+   （mock HTTP 服务 + async 管道时序）。**根因已定位并修复**：`OpenAiClient` 的 reqwest 客户端
+   池机会复用 mock 服务器已 `connection: close` 的半关闭连接，下一个 TTS/LLM 请求读到
+   hyper::Error(IncompleteMessage) 而误判 TurnStatus::Failed。修法：给 client 加
+   `.pool_max_idle_per_host(0)` 禁空闲复用。**实证 50/50 通过**（原 ~50% 抖动）；
+   并复核该测试在 main 上同样抖动，与本轮的 l2d 改动无关。
+   此修复是我（接手后的主代理）在 `52280d25` 落地的。
 5. **wasm crate 有既存 clippy warning**（`net.rs` 两处 `collapsible_if`）——只在
    `--target wasm32` 下暴露，不在 native workspace 门禁内；本轮未动，非回归。
 
@@ -79,10 +83,12 @@
 
 ## 4. 未做完 / 后续工作
 
-### 4.1 本轮已知技术债（可直接续作）
-- [ ] **app.js 行数仍 >760 预算**（当前 943 行）：渲染档位下拉已加入，但**未强制减重**——减重会
-      触及核心对话/流式逻辑、风险高。若做，建议独立重构轮，先建行为基线（现有 tests_html 锁 id 可兜底）。
-- [ ] **flaky 测试加固**：`tool_call_becomes_tool_action_event`（见 §3.4）。
+### 4.1 技术债处置（接手后的主代理已于 2026-09-08 续作）
+- [x] **flaky 测试加固**：`tool_call_becomes_tool_action_event` 已修（见 §3.4；commit `52280d25`）。
+- [~] **app.js 减重**：安全瘦身 `943 → 921` 行（commit `280a25db`；删死代码 + 压缩冗余注释 +
+      renderAll 用 setIf 统一赋值），`node --check` 通过、desktop 489 测试全绿。
+      **仍距 spec-v2 预算 ≤760 差 ~161 行**，为真实功能代码（配置面板 25+ 函数），
+      按「触核心逻辑即停」原则未强制删除。若要继续压，需独立重构轮并先建行为基线（tests_html 可兜底）。
 
 ### 4.2 外部验收项（需真机 / 浏览器 / 真实端点，不 fake 视为完成）
 - [ ] **S3 原生 16384 离屏 target 实例**：需带独立 GPU 环境实测 16384 能否建立 + 给出典型卡安全档。
