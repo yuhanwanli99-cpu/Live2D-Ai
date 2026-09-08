@@ -6,7 +6,7 @@ const state = {
   llmKeyTouched: false, ttsKeyTouched: false,
   settingsOpen: false, settingsLoaded: false,
   actionStrengths: {}, // 动作强度缓存（actionId -> 1..3，默认 2）
-  appearance: { scale: 1.0, dark: true, lipSync: true, }, // 外观与舞台（纯本地）
+  appearance: { scale: 1.0, dark: true, lipSync: true, tier: 4096, }, // 外观与舞台（纯本地）
   models: null, modelsError: null,
   stageAck: null, // R5：渲染端的 stage-ack 快照（收到 ACK 才算真正生效）
 };
@@ -40,7 +40,7 @@ const els = {
   settingsOverlay: $("settings-overlay"), btnSettingsClose: $("btnSettingsClose"),
   grpLogs: $("grp-logs"),
   actionsList: $("actionsList"),
-  appScale: $("appScale"), appBgDark: $("appBgDark"),
+  appScale: $("appScale"), appBgDark: $("appBgDark"), appRenderTier: $("appRenderTier"),
   appLipSyncToggle: $("appLipSyncToggle"), live2dFrame: $("live2d-frame"),
   modelsList: $("modelsList"), btnRefreshModels: $("btnRefreshModels"),
   modelsStatus: $("modelsStatus"),
@@ -387,6 +387,8 @@ function postStageConfig() {
   // B1：互动/空闲开关（f-idle / f-click），缺元素则不发该字段。
   if (els.appIdleToggle) cfg.idleEnabled = els.appIdleToggle.checked;
   if (els.appClickToggle) cfg.clickEnabled = els.appClickToggle.checked;
+  // ADR §3.4：渲染档位（4096/8192/16384），与前几项一致走本地预览。
+  if (els.appRenderTier) cfg.tier = state.appearance.tier;
   postToStage(cfg);
 }
 function bindAppearance() {
@@ -422,6 +424,19 @@ function bindAppearance() {
     if (ll !== null) { state.appearance.lipSync = ll === "true"; els.appLipSyncToggle.checked = state.appearance.lipSync; }
     els.appLipSyncToggle.addEventListener("change", () => {
       state.appearance.lipSync = els.appLipSyncToggle.checked; setLs("lipSync", state.appearance.lipSync); postStageConfig();
+    });
+  }
+  // ADR §3.4：渲染档位（4096/8192/16384），本地记忆 dsh.app.tier。
+  if (els.appRenderTier) {
+    const lt = getLs("tier");
+    if (lt !== null && ["4096","8192","16384"].includes(lt)) {
+      state.appearance.tier = parseInt(lt, 10); els.appRenderTier.value = lt;
+    } else {
+      els.appRenderTier.value = String(state.appearance.tier);
+    }
+    els.appRenderTier.addEventListener("change", () => {
+      state.appearance.tier = parseInt(els.appRenderTier.value, 10) || 4096;
+      setLs("tier", state.appearance.tier); postStageConfig();
     });
   }
   // 初始同步一次 stage-config，保证后端/bridge 与 UI 一致（含 idle/click 开关）。

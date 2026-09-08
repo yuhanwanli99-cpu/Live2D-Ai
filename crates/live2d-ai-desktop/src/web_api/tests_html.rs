@@ -158,13 +158,15 @@ fn index_html_template_contains_model_and_appearance_dom() {
     assert!(index_html::INDEX_HTML.contains("id=\"modelsList\""));
     assert!(index_html::INDEX_HTML.contains("id=\"modelsStatus\""));
     assert!(index_html::INDEX_HTML.contains("id=\"btnRefreshModels\""));
-    // 外观与舞台（appScale 缩放 / appBgDark 暗色）。
+    // 外观与舞台（appScale 缩放 / appBgDark 暗色 / appRenderTier 渲染档位）。
     assert!(index_html::INDEX_HTML.contains("id=\"appScale\""));
     assert!(index_html::INDEX_HTML.contains("id=\"appBgDark\""));
+    assert!(index_html::INDEX_HTML.contains("id=\"appRenderTier\""));
     // app.js 消费上述元素（证明不是死 DOM）。
     assert!(index_html::APP_JS.contains("els.modelsList"));
     assert!(index_html::APP_JS.contains("els.appScale"));
     assert!(index_html::APP_JS.contains("els.appBgDark"));
+    assert!(index_html::APP_JS.contains("els.appRenderTier"));
     // 修复回归锁：`bindAppearance` 不再因缺元素整体提前 return（此前
     // `if (!els.appScale) return;` 会让 appLipSyncToggle 监听绑不上）。
     assert!(index_html::APP_JS.contains("if (els.appScale)"));

@@ -123,6 +123,11 @@
         <p class="sec-desc">交互模式与舞台色调，本地预览即时生效（不写入后端）。</p>
         <div class="group-title">舞台</div>
         <div class="field-row"><label class="lbl" for="appScale">缩放<small>0.5 ×–1.5 ×，本地预览</small></label><input type="range" id="appScale" min="0.5" max="1.5" step="0.05" value="1.0"></div>
+        <div class="field-row"><label class="lbl" for="appRenderTier">渲染档位<small>离屏 target 侧边上限，本地预览</small></label><select id="appRenderTier">
+          <option value="4096">4096（默认・轻量）</option>
+          <option value="8192">8192（精绘・高档 GPU）</option>
+          <option value="16384">16384（超清・独立 GPU）</option>
+        </select></div>
         <div class="field-row"><label class="lbl" for="appBgDark">暗色底色<small>黑 / 白底色切换，刷新记忆</small></label><input type="checkbox" id="appBgDark" checked></div>
         <div class="field-row"><label class="lbl" for="appLipSyncToggle">口型联动<small>TTS 音频驱动口形</small></label><input type="checkbox" id="appLipSyncToggle" checked></div>
         <div class="group-title">背景图</div>
