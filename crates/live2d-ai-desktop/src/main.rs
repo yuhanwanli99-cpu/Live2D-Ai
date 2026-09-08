@@ -434,7 +434,13 @@ mod tests {
             .collect();
         ids.sort();
 
-        let mut expected = vec!["external-input", "director", "pet-desktop", "local-llm", "local-tts"];
+        let mut expected = vec![
+            "external-input",
+            "director",
+            "pet-desktop",
+            "local-llm",
+            "local-tts",
+        ];
         expected.sort();
 
         assert_eq!(
