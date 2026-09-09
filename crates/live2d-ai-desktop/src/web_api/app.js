@@ -575,18 +575,14 @@ async function modAction(modId, action) {
 function renderBadges() {
   const s = state.status;
   if (!s) return;
-  if (s.llm) {
-    els.llmBadge.textContent = s.llm.configured
-      ? (s.llm.has_api_key ? "已配置" : "未配密钥") : "未配置";
-    els.llmBadge.className = "status " + (s.llm.configured
-      ? (s.llm.has_api_key ? "ok" : "warn") : "err");
-  }
-  if (s.tts) {
-    els.ttsBadge.textContent = s.tts.configured
-      ? (s.tts.has_api_key ? "已配置" : "未配密钥") : "未配置";
-    els.ttsBadge.className = "status " + (s.tts.configured
-      ? (s.tts.has_api_key ? "ok" : "warn") : "err");
-  }
+  ["llm","tts"].forEach((k) => {
+    const svc = s[k];
+    if (!svc) return;
+    els[k + "Badge"].textContent = svc.configured
+      ? (svc.has_api_key ? "已配置" : "未配密钥") : "未配置";
+    els[k + "Badge"].className = "status " + (svc.configured
+      ? (svc.has_api_key ? "ok" : "warn") : "err");
+  });
   els.uptime.textContent = s.uptime_s + "s";
   if (s.config_path) els.cfgPath.textContent = s.config_path;
   els.epoch.textContent = s.current_epoch;
