@@ -14,6 +14,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 // 仅当元素存在且未聚焦时写入值（避免覆盖用户正在编辑的输入框）。
 const setIf = (el, v) => { if (el && document.activeElement !== el) el.value = v; };
+ // 元素表（全量索引，键名即 DOM id——tests_html 锚点锁定，勿删改）
 const els = {
   ver: $("ver"), conn: $("conn"), dot: $("dot"),
   llmBadge: $("llmBadge"), ttsBadge: $("ttsBadge"),
@@ -26,29 +27,23 @@ const els = {
   bgFileBtn: $("f-bgimg-btn"), bgFileInput: $("f-bgimg-input"), bgClearBtn: $("f-bgimg-clear"),
   btnSave: $("btnSave"), btnReload: $("btnReload"), btnClearKey: $("btnClearKey"),
   btnTestLlm: $("btnTestLlm"), btnTestTts: $("btnTestTts"),
-  llmTestResult: $("llmTestResult"), ttsTestResult: $("ttsTestResult"),
-  saveStatus: $("saveStatus"),
+  llmTestResult: $("llmTestResult"), ttsTestResult: $("ttsTestResult"), saveStatus: $("saveStatus"),
   cfgPath: $("cfgPath"), startedAt: $("startedAt"), uptime: $("uptime"),
-  activeModel: $("activeModel"), audio: $("audio"),
-  devModeStatus: $("devModeStatus"), epoch: $("epoch"),
+  activeModel: $("activeModel"), audio: $("audio"), devModeStatus: $("devModeStatus"), epoch: $("epoch"),
   llmBase: $("llmBase"), llmHasKey: $("llmHasKey"),
   ttsBase: $("ttsBase"), ttsHasKey: $("ttsHasKey"),
   logsCard: $("logsCard"), logsFile: $("logsFile"), logsPre: $("logs"),
-  logsStatus: $("logsStatus"), btnReloadLogs: $("btnReloadLogs"),
-  logLevel: $("logLevel"),
+  logsStatus: $("logsStatus"), btnReloadLogs: $("btnReloadLogs"), logLevel: $("logLevel"),
   btnRefresh: $("btnRefresh"), toast: $("toast"),
   btnSettings: $("btnSettings"), settingsModal: $("settings-modal"),
   settingsRail: $("settingsRail"), settingsSectionArea: $("settingsSectionArea"),
   settingsOverlay: $("settings-overlay"), btnSettingsClose: $("btnSettingsClose"),
-  grpLogs: $("grp-logs"),
-  actionsList: $("actionsList"),
+  grpLogs: $("grp-logs"), actionsList: $("actionsList"),
   appScale: $("appScale"), appBgDark: $("appBgDark"), appRenderTier: $("appRenderTier"),
   appLipSyncToggle: $("appLipSyncToggle"), live2dFrame: $("live2d-frame"),
-  modelsList: $("modelsList"), btnRefreshModels: $("btnRefreshModels"),
-  modelsStatus: $("modelsStatus"),
+  modelsList: $("modelsList"), btnRefreshModels: $("btnRefreshModels"), modelsStatus: $("modelsStatus"),
   stageToolbar: $("stageToolbar"), btnZoomIn: $("btnZoomIn"),
-  btnZoomOut: $("btnZoomOut"), btnResetView: $("btnResetView"),
-  btnActions: $("btnActions"),
+  btnZoomOut: $("btnZoomOut"), btnResetView: $("btnResetView"), btnActions: $("btnActions"),
 };
 
 // ---- 设置模态 + 左导航 rail ----
@@ -245,10 +240,7 @@ async function loadAll() {
   }
 }
 
-// ---- capability 驱动：分组可见性 ----
-// capabilities 端点字段：app/version/schema_version/actions/action_sources/
-//   strength_levels/model_upload_supported/script_invoke_supported/runtime_ws/state_ws/
-//   ws_protocol_version（参考 dto::AppInfo 序列化）。
+// ---- capability 驱动：分组可见性（字段清单参考 dto::AppInfo）----
 function renderGroups() {
   const cap = state.capabilities;
   if (!cap) return;

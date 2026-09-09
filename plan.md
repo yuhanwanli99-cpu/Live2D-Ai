@@ -159,7 +159,7 @@ execution:
             - --color
             - never
           class: light
-    - id: C002
+    - id: C004
       epic: E-B
       role: builder
       mode: write
@@ -168,10 +168,14 @@ execution:
       depends_on: []
       write_paths:
         - crates/live2d-ai-desktop/src/web_api/app.js
-      objective: 减重 I——bindAppearance 四控件 loop 化 + persona 五字段 loop 化（行为基线保护下）
-      expected_patch_lines: 45
+        - crates/live2d-ai-desktop/src/web_api/index_html.rs
+        - crates/live2d-ai-desktop/src/web_api/tests_html.rs
+      objective: 减重 III（窄切）——els 大对象改每行多个条目（保留全部条目与键名，不删除任何元素引用）
+        以及顶部类型注释压行（保留功能相关注释）
+      expected_patch_lines: 30
       acceptance:
-        - 行为测试全绿；node --check 通过；行数较 921 下降
+        - cargo test -p live2d-ai-desktop --color never 全绿（含行为基线 + HTML 锚点）
+        - node --check 通过；行数较 905 下降；行为基线全 PASS
       verify:
         - cwd: .
           command: cargo
@@ -179,8 +183,6 @@ execution:
             - test
             - -p
             - live2d-ai-desktop
-            - --test
-            - webapp_behavior
             - --color
             - never
           class: light
