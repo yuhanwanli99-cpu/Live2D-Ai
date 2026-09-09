@@ -88,6 +88,141 @@ function __done(name) {
 }
 "#;
 
+const SCENE_PURE: &str = r#"
+// 纯函数电池：不依赖 DOM/网络，全部直接调用顶层函数。
+(function () {
+  try {
+    // resolveActions：无 capabilities -> 内置 6 个；actions 为空 -> 内置；命中映射；未命中回传。
+    state.capabilities = null;
+    eq("pure/no-cap", resolveActions().join(","), "点头,摇头,歪头,环视,倾听,惊讶");
+    state.capabilities = { actions: [] };
+    eq("pure/empty-actions", resolveActions().length, 6);
+    state.capabilities = { actions: ["nod", "custom_fancy", "live2d_perform_action_tilt"] };
+    eq("pure/map-hit", resolveActions().join(","), "点头,custom_fancy,歪头");
+    // strengthOf：缺省 2；越界回退 2；1..3 保留。
+    state.actionStrengths = {};
+    eq("pure/strength-default", strengthOf("nod"), 2);
+    state.actionStrengths = { nod: 3 };
+    eq("pure/strength-3", strengthOf("nod"), 3);
+    eq("pure/strength-0", strengthOf("shake_no"), 2);
+    eq("pure/strength-9", strengthOf("x"), 2);
+    // applyStatusText：四个已知 + 未知回退 no_supervisor。
+    eq("pure/apply-applied", applyStatusText("applied").toast, "已保存并热重载");
+    eq("pure/apply-restart", applyStatusText("restart_required").toast, "已保存，需重启生效");
+    eq("pure/apply-queued", applyStatusText("queued").toast, "已保存，配置将在下次对话时应用");
+    eq("pure/apply-unknown", applyStatusText("whatever").toast, "已保存，配置将在下次重启后生效");
+    // parseLogLevel：大小写不敏感；无等级 -> null。
+    eq("pure/parse-info", parseLogLevel("2026-01-01 10:00:00 INFO plugin: hello"), "info");
+    eq("pure/parse-error", parseLogLevel("  ERROR boom"), "error");
+    eq("pure/parse-none", parseLogLevel("plain line without level"), null);
+    // filterLogLines：全部/未知回退/级别过滤计数与无等级行保留。
+    const lines = ["a INFO x", "b DEBUG y", "c WARN v", "d", "e ERROR z"];
+    let r = filterLogLines(lines, "all");
+    eq("pure/filter-all-shown", r.shown.join("|"), lines.join("|"));
+    eq("pure/filter-all-count", r.filtered, 0);
+    r = filterLogLines(lines, "warn");
+    eq("pure/filter-warn-shown", r.shown.join("|"), "c WARN v|d|e ERROR z");
+    eq("pure/filter-warn-filtered", r.filtered, 2);
+    r = filterLogLines(lines, "bogus");
+    eq("pure/filter-unknown", r.shown.join("|"), lines.join("|"));
+    // cmdIdToStageAction 兜底（冒烟已覆盖主要路径）
+    eq("pure/cmd-suffix", cmdIdToStageAction("live2d_perform_action_listen"), "listen");
+  } catch (e) { __fail("pure", e); }
+  __done("pure");
+})();
+"#;
+
+const SCENE_SETTINGS: &str = r#"
+// buildPatch / renderAll / save 热腰带（DOM 桩读取真实元素属性）。
+(function () {
+  try {
+    const sv = {
+      llm: { base_url: "http://llm.default", model: "m1", has_api_key: false },
+      tts: { base_url: "http://tts.default", voice: "v1", has_api_key: false },
+      persona: { name: "n1", description: "d1", personality: "p1", scenario: "s1", first: "f1" },
+      dev_mode: false,
+    };
+    state.settingsView = sv;
+    state.capabilities = { version: "9.9" };
+    state.status = { uptime_s: 7, started_at: "now", active_model_id: "vm1", audio: { backend: "rw", available: true }, llm: { base_url: "uL", has_api_key: false }, tts: { base_url: "uT", has_api_key: false }, config_path: "/cfg", current_epoch: 3, dev_mode: false };
+    __setRoute((path, o) => {
+      if (path === "/api/v1/app/status") return { status: 200, body: state.status };
+      if (path === "/api/v1/app/capabilities") return { status: 200, body: { version: "1.0" } };
+      if (path === "/api/v1/settings" && o.method === "PATCH") return { status: 200, body: { apply_status: "applied", settings: sv } };
+      if (path === "/api/v1/settings") return { status: 200, body: sv };
+      return { status: 200, body: {} };
+    });
+    renderAll();
+    eq("set/version", els.ver.textContent, "v9.9");
+    eq("set/uptime", els.uptime.textContent, "7s");
+    eq("set/activeModel", els.activeModel.textContent, "vm1");
+    // 无变更时 buildPatch 仅 dev_mode 段。
+    const p0 = buildPatch();
+    ok("set/patch-empty", !p0.llm && !p0.tts && !p0.persona, JSON.stringify(p0));
+    eq("set/patch-dev", p0.dev_mode, false);
+    // 改 llm base_url + voice + persona 名称空 -> null-clear。
+    els.llmBaseUrl.value = "http://new";
+    els.ttsVoice.value = "v9";
+    els.personaName.value = "   ";
+    const p1 = buildPatch();
+    eq("set/llm-base", p1.llm.base_url, "http://new");
+    eq("set/tts-voice", p1.tts.voice, "v9");
+    eq("set/persona-null", p1.persona.name, null);
+    // keyTouched + 占位符：(已绑定) 或空 -> 段级清除（api_key_env=null + clear_api_key），真实值 -> 直写。
+    state.llmKeyTouched = true; state.ttsKeyTouched = false;
+    els.llmApiKeyEnv.value = "(已绑定)";
+    const p2 = buildPatch();
+    eq("set/key-clear-env", p2.llm.api_key_env, null);
+    eq("set/key-clear-flag", p2.llm.clear_api_key, true);
+    ok("set/key-tts-untouched", p2.tts && p2.tts.clear_api_key === undefined, JSON.stringify(p2));
+    els.llmApiKeyEnv.value = "sk-real";
+    const p3 = buildPatch();
+    eq("set/key-write", p3.llm.api_key_env, "sk-real");
+    ok("set/key-write-noclear", p3.llm.clear_api_key === undefined, JSON.stringify(p3.llm));
+    // renderAll 的 (已绑定) 占位：has_api_key=true 且未 touched。
+    state.llmKeyTouched = false;
+    state.settingsView = { ...sv, llm: { ...sv.llm, has_api_key: true } };
+    state.status = { ...state.status, llm: { ...state.status.llm, has_api_key: true } };
+    renderAll();
+    eq("set/placeholder", els.llmApiKeyEnv.value, "(已绑定)");
+    // activeElement 是正在编辑的输入时，renderAll 不覆盖（先聚焦再改值再渲染——值必须是保留态）。
+    document.activeElement = els.llmBaseUrl;
+    els.llmBaseUrl.value = "http://focus-kept";
+    renderAll();
+    eq("set/focus-kept", els.llmBaseUrl.value, "http://focus-kept");
+    // 焦点释放后 renderAll 应写回 sv 的值。
+    document.activeElement = null;
+    renderAll();
+    eq("set/focus-revealed", els.llmBaseUrl.value, "http://llm.default");
+    // save() happy path：PATCH 携带 buildPatch 结果，apply_status=applied -> 刷新 + 文案。
+    __fetched.length = 0;
+    els.llmBaseUrl.value = "http://new2";
+    save().then(() => {
+      const patch = __fetched.find((f) => f.opts && f.opts.method === "PATCH" && f.path === "/api/v1/settings");
+      ok("set/save-PATCH", !!patch, "未发 PATCH");
+      eq("set/save-payload-llm", JSON.parse(patch.opts.body).llm.base_url, "http://new2");
+      eq("set/save-applytext", els.saveStatus.textContent, "已保存于 " + new Date().toLocaleTimeString());
+      // reloadForm 会重置 keyTouched 并重新拉取。
+      state.llmKeyTouched = true; state.ttsKeyTouched = true;
+      reloadForm().then(() => {
+        eq("set/reload-reset", state.llmKeyTouched || state.ttsKeyTouched, false);
+        // clearKeyBinding：段级清两个 provider。
+        __fetched.length = 0;
+        clearKeyBinding().then(() => {
+          const cp = __fetched.find((f) => f.opts && f.opts.method === "PATCH");
+          ok("set/clear-PATCH", cp, "未发清除 PATCH");
+          const pb = JSON.parse(cp.opts.body);
+          eq("set/clear-llm", pb.llm.clear_api_key, true);
+          eq("set/clear-tts", pb.tts.clear_api_key, true);
+          eq("set/clear-touch-reset", state.llmKeyTouched || state.ttsKeyTouched, false);
+          __done("settings");
+        }).catch((e) => { __fail("set/clear", e); __done("settings"); });
+      }).catch((e) => { __fail("set/reload", e); __done("settings"); });
+    }).catch((e) => { __fail("set/save", e); __done("settings"); });
+  } catch (e) { __fail("settings", e); __done("settings"); }
+})();
+"#;
+
 const SMOKE: &str = r#"
 // 冒烟：纯函数 cmdIdToStageAction 的映射与未知回退。
 (function () {
@@ -128,10 +263,16 @@ fn run_node(script: &str) -> Result<String, String> {
         .wait_with_output()
         .map_err(|e| format!("wait node 失败: {e}"))?;
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() {
         return Err(format!(
-            "node 退出码 {}；stderr: {}",
+            "node 退出码 {}；stdout: {}\nstderr: {}",
             out.status,
+            if stdout.is_empty() {
+                "（无）"
+            } else {
+                &stdout
+            },
             if stderr.is_empty() {
                 "（无）"
             } else {
@@ -143,7 +284,11 @@ fn run_node(script: &str) -> Result<String, String> {
 }
 
 /// 行为基线场景表：新增场景 = 在给定常量写 JS 断言，并在此登记。
-const SCENARIOS: &[(&str, &str)] = &[("smoke", SMOKE)];
+const SCENARIOS: &[(&str, &str)] = &[
+    ("smoke", SMOKE),
+    ("pure", SCENE_PURE),
+    ("settings", SCENE_SETTINGS),
+];
 
 #[test]
 fn webapp_behavior_baseline() {

@@ -141,14 +141,11 @@ execution:
         - M01
       write_paths:
         - crates/live2d-ai-desktop/tests/webapp_behavior.rs
-      objective: E9 全量行为场景（纯函数电池 + buildPatch/keyEnv/save 热路 + appearance/stage-config/logs 流程）
-      expected_patch_lines: 420
+      objective: E-A appearance/stage-config/logs 流程场景——只加 SCENE_STAGE 常量 + SCENARIOS 注册一行
+      expected_patch_lines: 150
       acceptance:
-        - 纯函数：cmdIdToStageAction / resolveActions / strengthOf / applyStatusText / parseLogLevel / filterLogLines
-        - persona 五字段 diff + 空→null；llm/tts 与 voice diff；(已绑定) 占位；keyTouched；activeElement 跳过
-        - save() happy path（apply_status 文案映射 + 刷新）、reloadForm、clearKeyBinding
-        - bindAppearance 四控件（localStorage 读写、tier 合法性、postStageConfig 字段与档位）
-        - postAlso/refreshLogs（拉取/过滤/403）、loadAll 冒烟
+        - bindAppearance 四控件：localStorage 读写回放、tier 非法值保持默认、postStageConfig 输出字段 scale/dark/lipSync/tier/idleEnabled/clickEnabled
+        - refreshLogs：拉取/级别过滤/403 分支；loadAll 冒烟（capabilities/status/settings 三端点 stub）
         - cargo test -p live2d-ai-desktop --test webapp_behavior 全绿
       verify:
         - cwd: .
