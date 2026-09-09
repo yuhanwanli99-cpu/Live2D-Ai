@@ -194,6 +194,23 @@ fn index_html_template_has_log_level_filter_ui() {
     assert!(index_html::APP_JS.contains("els.logLevel.addEventListener(\"change\", refreshLogs)"));
 }
 
+/// app.js 行数门禁（spec-v2 §7 目标 760 行未达成，实测 897 行，缺口 137 行需用户裁决）。
+///
+/// 本测试锁住实测上限 897 行，防后续重新膨胀；若用户裁决接受 897 行则下限不动，
+/// 若后续裁剪到 ≤760 行则同步下调本门禁上限。裁决点：spec-v2 §7 目标 vs 实测缺口 137 行
+/// 是否可接受（含模型管理/外观控件/日志分级/对话面板等功能的代码量）。
+#[test]
+fn app_js_line_count_gate() {
+    // 测量方式与当前实测一致：include_str! 嵌入后按换行符计数。
+    let lines = index_html::APP_JS.lines().count();
+    // 门禁上限：实测 897 行（spec-v2 §7 目标 760 行，缺口 137 行待裁决）。
+    assert!(
+        lines <= 897,
+        "app.js 行数 {} 超过门禁上限 897（spec-v2 §7 目标 760，缺口 137 待裁决）",
+        lines
+    );
+}
+
 /// D5-W2 任务：chat.js 含 WebSocket 端点 + 关键事件类型 + 重连逻辑。
 #[test]
 fn chat_js_contains_ws_event_handlers_and_reconnect() {
