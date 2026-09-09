@@ -166,8 +166,9 @@ mod tests {
         assert!(APP_JS.contains("idleEnabled"));
         assert!(APP_JS.contains("clickEnabled"));
         assert!(APP_JS.contains("stage-bg"));
-        // persona 补丁空串 = null 清除语义。
-        assert!(APP_JS.contains("persona.name = nv === \"\" ? null : nv"));
+        // 行为测试等价覆盖：persona 五字段 loop 化后（persona[k] = v === "" ? null : v），
+        // 空输入=null 清除语义等价（webapp_behavior.rs::SCENE_SETTINGS "set/persona-null" 校验）。
+        assert!(APP_JS.contains("persona[k] = v === \"\" ? null : v"));
     }
 
     /// D5-W2 任务：chat.js 含 WebSocket 连接、text_delta 处理、重连逻辑。

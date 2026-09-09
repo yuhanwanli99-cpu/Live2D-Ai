@@ -164,14 +164,16 @@ fn index_html_template_contains_model_and_appearance_dom() {
     assert!(index_html::INDEX_HTML.contains("id=\"appRenderTier\""));
     // app.js 消费上述元素（证明不是死 DOM）。
     assert!(index_html::APP_JS.contains("els.modelsList"));
-    assert!(index_html::APP_JS.contains("els.appScale"));
-    assert!(index_html::APP_JS.contains("els.appBgDark"));
     assert!(index_html::APP_JS.contains("els.appRenderTier"));
-    // 修复回归锁：`bindAppearance` 不再因缺元素整体提前 return（此前
-    // `if (!els.appScale) return;` 会让 appLipSyncToggle 监听绑不上）。
-    assert!(index_html::APP_JS.contains("if (els.appScale)"));
-    assert!(index_html::APP_JS.contains("if (els.appBgDark)"));
-    assert!(index_html::APP_JS.contains("if (els.appLipSyncToggle)"));
+    // 行为测试等价覆盖：bindAppearance 四控件 loop 化后，控件通过 APPEARANCE_CONTROLS
+    // 注册并用 `if (!el) return` 独立守卫——缺元素不影响其余（等价原 `if (els.x){...}`；
+    // 行为基线见 webapp_behavior.rs::SCENE_STAGE）。
+    assert!(index_html::APP_JS.contains("APPEARANCE_CONTROLS"));
+    assert!(index_html::APP_JS.contains("appScale"));
+    assert!(index_html::APP_JS.contains("appBgDark"));
+    assert!(index_html::APP_JS.contains("appLipSyncToggle"));
+    assert!(index_html::APP_JS.contains("appRenderTier"));
+    assert!(index_html::APP_JS.contains("if (!el) return"));
 }
 
 /// 日志分级 UI（Phase 4：RUST_LOG 分级进 logs/levels UI）。

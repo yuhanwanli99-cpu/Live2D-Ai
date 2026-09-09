@@ -393,49 +393,47 @@ function bindAppearance() {
     const meta = parent.querySelector(".field-meta");
     if (meta) meta.textContent = "本地预览（不写入后端）";
   }
-  // 每个控件独立绑定；缺一个不影响其余（此前 appScale 缺失导致整体提前 return，
-  // 连带 appLipSyncToggle 的 change 监听绑不上——口型开关点击不生效）。
+  // bindAppearance 四控件 loop 化（appScale/appBgDark/appLipSyncToggle/appRenderTier）：
+  // 共享「读 LS → 同步 state.appearance + el → 监听改变 → 写 LS + postStageConfig」。
+  // 行为基线保护：`if (!el) return` 等价原 `if (els.x){...}` 早返——缺元素不影响其余控件。
   const clamp = (v) => Math.max(0.5, Math.min(1.5, v));
   const setLs = (k, v) => localStorage.setItem("dsh.app." + k, String(v));
   const getLs = (k) => localStorage.getItem("dsh.app." + k);
-  if (els.appScale) {
-    const ls = getLs("scale");
-    if (ls !== null) { state.appearance.scale = clamp(parseFloat(ls) || 1.0); els.appScale.value = state.appearance.scale.toFixed(2); }
-    els.appScale.addEventListener("input", () => {
-      let v = clamp(parseFloat(els.appScale.value) || 1.0);
-      els.appScale.value = v.toFixed(2); state.appearance.scale = v; setLs("scale", v); postStageConfig();
-    });
-  }
-  if (els.appBgDark) {
-    const ld = getLs("dark");
-    if (ld !== null) { state.appearance.dark = ld === "true"; els.appBgDark.checked = state.appearance.dark; }
-    els.appBgDark.addEventListener("change", () => {
-      state.appearance.dark = els.appBgDark.checked; setLs("dark", state.appearance.dark); postStageConfig();
-    });
-  }
-  if (els.appLipSyncToggle) {
-    const ll = getLs("lipSync");
-    if (ll !== null) { state.appearance.lipSync = ll === "true"; els.appLipSyncToggle.checked = state.appearance.lipSync; }
-    els.appLipSyncToggle.addEventListener("change", () => {
-      state.appearance.lipSync = els.appLipSyncToggle.checked; setLs("lipSync", state.appearance.lipSync); postStageConfig();
-    });
-  }
-  // ADR §3.4：渲染档位（4096/8192/16384），本地记忆 dsh.app.tier。
-  if (els.appRenderTier) {
-    const lt = getLs("tier");
-    if (lt !== null && ["4096","8192","16384"].includes(lt)) {
-      state.appearance.tier = parseInt(lt, 10); els.appRenderTier.value = lt;
-    } else {
-      els.appRenderTier.value = String(state.appearance.tier);
+  APPEARANCE_CONTROLS.forEach((c) => {
+    const el = els[c.el];
+    if (!el) return;
+    const ls = getLs(c.k);
+    if (ls !== null) {
+      if (c.kin === "range") {
+        const v = clamp(parseFloat(ls) || 1.0); el.value = v.toFixed(2); state.appearance[c.k] = v;
+      } else if (c.kin === "bool") {
+        const v = ls === "true"; el.checked = v; state.appearance[c.k] = v;
+      } else if (c.kin === "tier") {
+        if (c.opts.includes(ls)) { const v = parseInt(ls, 10); el.value = ls; state.appearance[c.k] = v; }
+        else { el.value = String(state.appearance[c.k]); }
+      }
     }
-    els.appRenderTier.addEventListener("change", () => {
-      state.appearance.tier = parseInt(els.appRenderTier.value, 10) || 4096;
-      setLs("tier", state.appearance.tier); postStageConfig();
+    el.addEventListener(c.kin === "range" ? "input" : "change", () => {
+      if (c.kin === "range") {
+        let v = clamp(parseFloat(el.value) || 1.0); el.value = v.toFixed(2); state.appearance[c.k] = v; setLs(c.k, v);
+      } else if (c.kin === "bool") {
+        const v = el.checked; state.appearance[c.k] = v; setLs(c.k, v);
+      } else if (c.kin === "tier") {
+        const v = parseInt(el.value, 10) || 4096; state.appearance[c.k] = v; setLs(c.k, v);
+      }
+      postStageConfig();
     });
-  }
+  });
   // 初始同步一次 stage-config，保证后端/bridge 与 UI 一致（含 idle/click 开关）。
   postStageConfig();
 }
+// bindAppearance 四控件 loop 配置：kind(range/bool/tier)决定 parse+序列化方式。
+const APPEARANCE_CONTROLS = [
+  { el: "appScale", k: "scale", kin: "range" },
+  { el: "appBgDark", k: "dark", kin: "bool" },
+  { el: "appLipSyncToggle", k: "lipSync", kin: "bool" },
+  { el: "appRenderTier", k: "tier", kin: "tier", opts: ["4096", "8192", "16384"] },
+];
 // ---- B1/C2：互动开关 + 自定义背景（本地，postToStage 即时生效）----
 function bindStageInteractions() {
   // B1：空闲随机动作 / 点击互动开关 → stage-config（不持久化）。
@@ -595,6 +593,12 @@ function renderBadges() {
   els.devModeStatus.textContent = s.dev_mode ? "true" : "false";
   els.devModeStatus.className = s.dev_mode ? "status ok" : "status";
 }
+// persona 五字段 loop 配置：el id ↔ persona 字段映射。
+const PERSONA_FIELDS = [
+  ["personaName", "name"], ["personaDesc", "description"],
+  ["personaPersona", "personality"], ["personaScenario", "scenario"],
+  ["personaFirst", "first"],
+];
 function renderAll() {
   if (state.capabilities) els.ver.textContent = "v" + state.capabilities.version;
   if (state.status) {
@@ -621,11 +625,8 @@ function renderAll() {
     if (!state.ttsKeyTouched) setIf(els.ttsApiKeyEnv, sv.tts.has_api_key ? "(已绑定)" : "");
     setIf(els.systemPrompt, sv.persona.system_prompt || "");
     const p = sv.persona || {};
-    setIf(els.personaName, p.name || "");
-    setIf(els.personaDesc, p.description || "");
-    setIf(els.personaPersona, p.personality || "");
-    setIf(els.personaScenario, p.scenario || "");
-    setIf(els.personaFirst, p.first || "");
+    // persona 五字段 loop 化（behavioral-equivalent）。
+    PERSONA_FIELDS.forEach(([e, k]) => setIf(els[e], p[k] || ""));
     if (document.activeElement !== els.devMode) els.devMode.checked = !!sv.dev_mode;
     if (sv.dev_mode) {
       els.logsCard.classList.remove("hidden");
@@ -675,27 +676,14 @@ function buildPatch() {
   if (els.systemPrompt.value !== (sv.persona.system_prompt || "")) {
     persona.system_prompt = els.systemPrompt.value;
   }
-  // 角色卡：空输入 = null（清除字段，与后端「非空才写入」语义一致）。
-  if (els.personaName) {
-    const nv = els.personaName.value.trim();
-    if (nv !== (sv.persona.name || "")) persona.name = nv === "" ? null : nv;
-  }
-  if (els.personaDesc) {
-    const dv = els.personaDesc.value.trim();
-    if (dv !== (sv.persona.description || "")) persona.description = dv === "" ? null : dv;
-  }
-  if (els.personaPersona) {
-    const pv = els.personaPersona.value.trim();
-    if (pv !== (sv.persona.personality || "")) persona.personality = pv === "" ? null : pv;
-  }
-  if (els.personaScenario) {
-    const sv2 = els.personaScenario.value.trim();
-    if (sv2 !== (sv.persona.scenario || "")) persona.scenario = sv2 === "" ? null : sv2;
-  }
-  if (els.personaFirst) {
-    const fv = els.personaFirst.value.trim();
-    if (fv !== (sv.persona.first || "")) persona.first = fv === "" ? null : fv;
-  }
+  // 角色卡：空输入 = null（清除字段，与后端「非空才写入」语义一致）。persona 五字段 loop 化。
+  PERSONA_FIELDS.forEach(([e, k]) => {
+    const el = els[e];
+    if (el) {
+      const v = el.value.trim();
+      if (v !== (sv.persona[k] || "")) persona[k] = v === "" ? null : v;
+    }
+  });
   if (Object.keys(persona).length) patch.persona = persona;
   patch.dev_mode = els.devMode.checked ? true : false;
   return patch;
