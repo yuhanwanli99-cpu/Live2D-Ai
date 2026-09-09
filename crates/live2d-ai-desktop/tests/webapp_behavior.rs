@@ -283,11 +283,111 @@ fn run_node(script: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+const SCENE_STAGE: &str = r#"
+(async function () {
+  try {
+    // ===== bindAppearance：localStorage 读写回放 + tier 非法值 + postStageConfig 字段 =====
+    localStorage.setItem("dsh.app.scale", "1.25");
+    localStorage.setItem("dsh.app.dark", "false");
+    localStorage.setItem("dsh.app.lipSync", "false");
+    localStorage.setItem("dsh.app.tier", "99999"); // 非法值，应保持默认 4096
+
+    const staged = [];
+    postToStage = (msg) => { staged.push(msg); return true; };
+
+    bindAppearance();
+
+    // 读回放：localStorage → state
+    eq("appearance/scale-ls", state.appearance.scale, 1.25);
+    eq("appearance/dark-ls", state.appearance.dark, false);
+    eq("appearance/lipSync-ls", state.appearance.lipSync, false);
+    eq("appearance/tier-invalid", state.appearance.tier, 4096);
+
+    // postStageConfig 输出字段
+    ok("stage/emitted", staged.length > 0, "未发出 stage-config");
+    const cfg = staged[0];
+    eq("stage/type", cfg.type, "stage-config");
+    eq("stage/scale", cfg.scale, 1.25);
+    eq("stage/dark", cfg.dark, false);
+    eq("stage/lipSync", cfg.lipSync, false);
+    eq("stage/tier", cfg.tier, 4096);
+    ok("stage/idleEnabled", "idleEnabled" in cfg, "缺少 idleEnabled");
+    ok("stage/clickEnabled", "clickEnabled" in cfg, "缺少 clickEnabled");
+
+    // 写回放：模拟 input 事件 → localStorage 写入
+    els.appScale.value = "1.3";
+    els.appScale._emit("input");
+    eq("appearance/scale-write", localStorage.getItem("dsh.app.scale"), "1.3");
+
+    // ===== refreshLogs：拉取/级别过滤/403 =====
+    // app.js 启动时 loadAll 已同步捕获默认路由（返回 {}），会覆盖 state.settingsView。
+    // 等待 loadAll 完成后再设置状态与路由。
+    while (!state.settingsView) { await Promise.resolve(); }
+    state.settingsView = { dev_mode: true };
+    __setRoute((path) => {
+      if (path === "/api/v1/logs") return { status: 200, body: { file: "t.log", lines: [
+        "2024-01-01 INFO first",
+        "2024-01-01 DEBUG debug msg",
+        "2024-01-01 WARN warn msg",
+        "2024-01-01 ERROR error msg"
+      ]}};
+      if (path === "/api/v1/logs/levels") return { status: 200, body: { levels: ["trace","debug","info","warn","error"] }};
+      if (path === "/api/v1/settings") return { status: 200, body: {
+        dev_mode: true,
+        llm: { base_url: "", model: "", has_api_key: false },
+        tts: { base_url: "", voice: "", has_api_key: false },
+        persona: { system_prompt: "", name: "", description: "", personality: "", scenario: "", first: "" }
+      }};
+      return { status: 200, body: {} };
+    });
+
+    await refreshLogs();
+    ok("logs/fetched", els.logsStatus.textContent.includes("已拉取"), "未拉取日志");
+
+    // 级别过滤：选 warn，仅保留 warn/error
+    if (els.logLevel) {
+      els.logLevel.value = "warn";
+      await refreshLogs();
+      const t = els.logsPre.textContent;
+      ok("logs/filter-keep", t.includes("warn msg") && t.includes("error msg"), "应保留 warn/error");
+      ok("logs/filter-drop", !t.includes("first") && !t.includes("debug msg"), "应过滤 info/debug");
+    }
+
+    // 403 分支
+    __setRoute((path) => {
+      if (path === "/api/v1/logs") return { status: 403, body: { error: { message: "forbidden" } }};
+      return { status: 200, body: {} };
+    });
+    await refreshLogs();
+    eq("logs/403", els.logsStatus.textContent, "403 — dev_mode 已关闭");
+
+    // ===== loadAll 冒烟（capabilities/status/settings 三端点） =====
+    __setRoute((path) => {
+      if (path === "/api/v1/app/capabilities") return { status: 200, body: { version: "1.0.0" }};
+      if (path === "/api/v1/app/status") return { status: 200, body: { uptime_s: 42 }};
+      if (path === "/api/v1/settings") return { status: 200, body: {
+        dev_mode: true,
+        llm: { base_url: "", model: "", has_api_key: false },
+        tts: { base_url: "", voice: "", has_api_key: false },
+        persona: { system_prompt: "", name: "", description: "", personality: "", scenario: "", first: "" }
+      }};
+      return { status: 200, body: {} };
+    });
+    await loadAll();
+    ok("loadAll/cap", state.capabilities && state.capabilities.version === "1.0.0", "capabilities");
+    ok("loadAll/st", state.status && state.status.uptime_s === 42, "status");
+    ok("loadAll/sv", state.settingsView && state.settingsView.dev_mode === true, "settings");
+  } catch (e) { __fail("stage", e); }
+  __done("stage");
+})();
+"#;
+
 /// 行为基线场景表：新增场景 = 在给定常量写 JS 断言，并在此登记。
 const SCENARIOS: &[(&str, &str)] = &[
     ("smoke", SMOKE),
     ("pure", SCENE_PURE),
     ("settings", SCENE_SETTINGS),
+    ("stage", SCENE_STAGE),
 ];
 
 #[test]
