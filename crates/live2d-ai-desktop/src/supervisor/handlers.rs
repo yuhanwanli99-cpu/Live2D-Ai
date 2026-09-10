@@ -36,14 +36,25 @@ pub(crate) fn handle_engine_event(
     emit: &Emit,
 ) {
     match ev {
-        EngineEvent::TextDelta { epoch, ts_ms, text } => {
+        EngineEvent::TextDelta { text, .. } => {
             *assistant_text_len += text.chars().count();
             print!("{text}");
             use std::io::Write as _;
             let _ = std::io::stdout().flush();
-            // P1WS-1：把真实 LLM 流式文本透传给 UI/WS。
+            // **不再在此上屏**（2026-09-10 用户裁决：一句一单元，先完整合成再显示）。
+            //
+            // 这里仍是「LLM 正文增量」的原始流，只做控制台回显与长度统计；
+            // 真正推给 UI/WS 的文字由下面的 `SentenceVoiced` 承载 —— 那一刻该句
+            // 语音**已经合成完毕**，于是文字与声音同拍，而不是领先好几秒。
+            //
+            // 若哪天要恢复「边生成边上屏」，把 emit 挪回这里即可（其余不动）。
+        }
+        EngineEvent::SentenceVoiced {
+            epoch, ts_ms, text, ..
+        } => {
+            // P1WS-1 语义保留：真实 text payload 透传给 UI/WS。
             // - 不变 core reducer（只走 emit）；
-            // - 不变 TurnCompleted/双闩锁语义（TextDelta 不触发任何 root 事件）；
+            // - 不变 TurnCompleted/双闩锁语义（文本不触发任何 root 事件）；
             // - `epoch` 来自引擎事件本身（与 `ev_epoch(&ev)` 一致），便于
             //   前端按 epoch 分组气泡；
             // - `ts_ms` 保留供节点 D 链路耗时可视化（ws 投影可选携带）。
@@ -156,6 +167,7 @@ pub(crate) fn ev_epoch(ev: &EngineEvent) -> u64 {
         EngineEvent::TextDelta { epoch, .. }
         | EngineEvent::ToolAction { epoch, .. }
         | EngineEvent::AudioChunk { epoch, .. }
+        | EngineEvent::SentenceVoiced { epoch, .. }
         | EngineEvent::Error { epoch, .. }
         | EngineEvent::Terminal { epoch, .. } => *epoch,
     }
@@ -168,6 +180,7 @@ pub(crate) fn ev_ts_ms(ev: &EngineEvent) -> Option<u64> {
         EngineEvent::TextDelta { ts_ms, .. }
         | EngineEvent::ToolAction { ts_ms, .. }
         | EngineEvent::AudioChunk { ts_ms, .. }
+        | EngineEvent::SentenceVoiced { ts_ms, .. }
         | EngineEvent::Error { ts_ms, .. }
         | EngineEvent::Terminal { ts_ms, .. } => Some(*ts_ms),
     }

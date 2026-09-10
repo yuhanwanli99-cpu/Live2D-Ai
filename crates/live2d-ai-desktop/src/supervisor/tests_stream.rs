@@ -1,9 +1,10 @@
-//! P1WS-1：真实 LLM 流式文本透传（text_delta emit）+ epoch 镜像。
+//! 文本上屏时机（**一句一单元，先完整合成再显示**）+ epoch 镜像。
 //!
-//! 这些测试不依赖真 LLM（避免 CI 噪声）——直接调
-//! `handlers::handle_engine_event` 喂 `EngineEvent::TextDelta`，断言
-//! collector 收到 `AppEvent::Conversation(ConversationUiEvent::TextDelta)`
-//! 携带真实 text payload。
+//! **2026-09-10 行为变更**：`EngineEvent::TextDelta`（LLM 原始增量）**不再**上屏，
+//! 它只做控制台回显与字符计数；真正推给 UI/WS 的文字由
+//! `EngineEvent::SentenceVoiced`（该句**语音已完整合成**）承载。
+//! 因此本文件的断言从「TextDelta 触发 emit」改为「TextDelta 不 emit、
+//! SentenceVoiced 才 emit」。
 //!
 //! epoch 镜像相关：
 //! - `supervisor.current_epoch()` 启动瞬间 = 0；
@@ -24,14 +25,15 @@ use super::support::{Collector, wait_for};
 use super::*;
 use crate::app_event::{AppEvent, ConversationUiEvent};
 
-/// P1WS-1：handler 处理 TextDelta 时 emit `Conversation(TextDelta)` 含真实
-/// text payload——前端经 `ws::app_event_to_ws_frame` 投影为
-/// `{type:"text_delta",data:{epoch, ts_ms, text}}`。
+/// **回归（2026-09-10）**：原始 LLM 增量**不**上屏，只有「该句已合成」才上屏。
 ///
-/// **不**依赖真 LLM：直接构造 `EngineEvent::TextDelta` 喂
-/// `handle_engine_event`，断言 collector 收到对应事件。
+/// 这条锁的是「一句一单元：先完整合成、再显示」契约——若有人把 emit 挪回
+/// `EngineEvent::TextDelta` 分支，本测试立刻变红（文字会重新跑在声音前面）。
+///
+/// 前端经 `ws::app_event_to_ws_frame` 把 `Conversation(TextDelta)` 投影为
+/// `{type:"text_delta",data:{epoch, ts_ms, text}}`。
 #[test]
-fn handle_engine_event_emits_text_delta_with_text_payload() {
+fn sentence_voiced_emits_text_delta_but_raw_deltas_do_not() {
     let collector: Collector = Arc::new(Mutex::new(Vec::new()));
     let ec = collector.clone();
     let emit: Emit = Arc::new(move |ev: AppEvent| {
@@ -52,7 +54,7 @@ fn handle_engine_event_emits_text_delta_with_text_payload() {
     let mut saw_llm_error = false;
     let mut audio: Option<Box<dyn crate::audio::PcmProducer>> = None;
 
-    // 喂 3 个 TextDelta 片段。
+    // 先喂 3 个原始 LLM 增量（属于同一句，尚未合成）。
     let deltas = [
         EngineEvent::TextDelta {
             epoch: 5,
@@ -70,9 +72,9 @@ fn handle_engine_event_emits_text_delta_with_text_payload() {
             text: "世".to_string(),
         },
     ];
-    for d in &deltas {
+    let mut feed = |ev: &EngineEvent| {
         super::handlers::handle_engine_event(
-            d,
+            ev,
             &mut root,
             &mut audio,
             1,
@@ -85,47 +87,57 @@ fn handle_engine_event_emits_text_delta_with_text_payload() {
             &mut saw_llm_error,
             &emit,
         );
+    };
+    for d in &deltas {
+        feed(d);
     }
 
-    // 断言：3 个 TextDelta 都被 emit，payload 完整。
+    // 关键断言 1：原始增量**不得**上屏。
+    assert!(
+        collector.lock().expect("poison").is_empty(),
+        "LLM 原始增量不得上屏（文字必须等该句合成完毕）"
+    );
+
+    // 再喂「本句已合成」事件（整句文本）。
+    feed(&EngineEvent::SentenceVoiced {
+        epoch: 5,
+        ts_ms: 900,
+        sentence_seq: 1,
+        text: "你好，世".to_string(),
+    });
+
     let events = collector.lock().expect("poison");
     let text_deltas: Vec<&ConversationUiEvent> = events
         .iter()
         .filter_map(|e| match e {
-            AppEvent::Conversation(ConversationUiEvent::TextDelta { .. }) => {
-                if let AppEvent::Conversation(ui) = e {
-                    Some(ui)
-                } else {
-                    None
-                }
-            }
+            AppEvent::Conversation(ui @ ConversationUiEvent::TextDelta { .. }) => Some(ui),
             _ => None,
         })
         .collect();
-    assert_eq!(text_deltas.len(), 3, "3 个 TextDelta 全部应被 emit");
-
-    // 校验 payload 完整（epoch/ts_ms/text 字段一致）。
-    let mut concatenated = String::new();
-    for (i, td) in text_deltas.iter().enumerate() {
-        if let ConversationUiEvent::TextDelta { epoch, ts_ms, text } = td {
-            assert_eq!(*epoch, 5, "deltas[{i}].epoch");
-            assert_eq!(*ts_ms, 100 + (i as u64) * 10, "deltas[{i}].ts_ms");
-            concatenated.push_str(text);
-        } else {
-            panic!("should be TextDelta");
-        }
+    assert_eq!(
+        text_deltas.len(),
+        1,
+        "每句恰好一次上屏（一句一单元），实际 {}",
+        text_deltas.len()
+    );
+    if let ConversationUiEvent::TextDelta { epoch, ts_ms, text } = text_deltas[0] {
+        assert_eq!(*epoch, 5);
+        // ts_ms 必须是**合成完成**时刻，不是 LLM 产生时刻。
+        assert_eq!(*ts_ms, 900, "上屏时刻应取 SentenceVoiced 的 ts_ms");
+        assert_eq!(text, "你好，世", "整句文本逐字无损");
+    } else {
+        panic!("should be TextDelta");
     }
-    assert_eq!(concatenated, "你好，世", "text 应按字累加（无截断/排序错）");
 
-    // 副断言：assistant_text_len 累计 = "你" 1 + "好，" 2 + "世" 1 = 4 chars。
-    // （这是 TextDelta 的内部统计，前端不感知；只校验不被回归破坏。）
+    // 副断言：assistant_text_len 仍按原始增量累计 = 1 + 2 + 1 = 4 chars。
+    // （这是内部统计，前端不感知；只校验不被回归破坏。）
     assert_eq!(assistant_text_len, 4, "text 字符计数应累计");
 }
 
-/// P1WS-1：`ConversationUiEvent::TextDelta` 的 ts_ms 与 `EngineEvent::TextDelta`
-/// 的 ts_ms 一一对应（链路耗时可视化保留）。本测试断言 0 边界。
+/// 上屏事件的 ts_ms 与 `EngineEvent::SentenceVoiced` 一一对应
+/// （链路耗时可视化保留）。本测试断言 0 边界。
 #[test]
-fn text_delta_zero_ts_ms_is_preserved() {
+fn sentence_voiced_zero_ts_ms_is_preserved() {
     let collector: Collector = Arc::new(Mutex::new(Vec::new()));
     let ec = collector.clone();
     let emit: Emit = Arc::new(move |ev: AppEvent| {
@@ -143,9 +155,10 @@ fn text_delta_zero_ts_ms_is_preserved() {
     let mut saw_llm_error = false;
     let mut audio: Option<Box<dyn crate::audio::PcmProducer>> = None;
 
-    let ev = EngineEvent::TextDelta {
+    let ev = EngineEvent::SentenceVoiced {
         epoch: 0,
         ts_ms: 0,
+        sentence_seq: 1,
         text: "x".to_string(),
     };
     super::handlers::handle_engine_event(

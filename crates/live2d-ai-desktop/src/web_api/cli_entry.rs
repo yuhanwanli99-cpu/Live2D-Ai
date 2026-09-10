@@ -363,6 +363,24 @@ pub(crate) fn build_web_supervisor(
 
     // emit 闭包：捕获 broadcaster 的 clone（与 ctx.broadcaster 同一实例）。
     let emit_bc = broadcaster;
+    // **输出静音（2026-09-10 用户裁决）**：默认静音——不出声但仍驱动口型。
+    //
+    // 在**服务端**强制，而不是客户端：客户端静音绕不过 Service Worker 缓存的
+    // 旧前端、遗留的 JS 前端 `/`、以及任何第三方客户端。语义与实现见
+    // `ws::build_audio_frames` 的 `mute` 参数。
+    //
+    // 需要出声：`LIVE2D_AI_UNMUTE_AUDIO=1`。
+    let muted = std::env::var("LIVE2D_AI_UNMUTE_AUDIO").as_deref() != Ok("1");
+    emit_bc.set_muted(muted);
+    // 回读实际生效值（而不是复用入参）：确认 set/get 这条链路是通的。
+    if emit_bc.is_muted() {
+        println!(
+            "web: 输出静音=ON（服务端下发零 PCM + 真实 volume）——不出声，口型照常；\
+             需要出声设 LIVE2D_AI_UNMUTE_AUDIO=1"
+        );
+    } else {
+        println!("web: 输出静音=OFF（LIVE2D_AI_UNMUTE_AUDIO=1）——浏览器会出声");
+    }
     let handle = Arc::new({
         // WS 音频广播（F6-T2）：browser 模式下它是出声的**唯一路径**，默认开；
         // server 模式下需显式 `LIVE2D_AI_WS_AUDIO=1` 才额外广播（旧行为，二者都响）。

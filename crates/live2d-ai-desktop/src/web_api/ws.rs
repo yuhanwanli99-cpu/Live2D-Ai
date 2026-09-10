@@ -34,7 +34,7 @@
 //!   前端**不**应发文本 `subscribe` / `ping` —— 这些会被底层 auto-pong
 //!   静默丢弃（无业务回包）。
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
@@ -86,10 +86,19 @@ struct ConnectionHandle {
 /// - `broadcast(typed_event)` 广播**未**含 seq/ts 的 typed event，seq/ts
 ///   由各连接的 actor 包装（每连接独立 seq）。
 /// - 死 sender 由下次 broadcast try_send 失败回收（仍保留向后兼容）。
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Broadcaster {
     inner: Arc<Mutex<Vec<ConnectionHandle>>>,
     subscribed_count: Arc<AtomicUsize>,
+    /// **输出静音**（默认 `true`，2026-09-10 用户裁决）。
+    ///
+    /// 为 true 时下发给所有客户端的 PCM 全部置零、`volume` 仍为真实值 ——
+    /// 即「谁都发不出声音，但口型照常」。语义与理由见
+    /// [`build_audio_frames`] 的 `mute` 参数。
+    ///
+    /// 放在服务端而不是客户端：客户端侧的静音绕不过 Service Worker 缓存的
+    /// 旧前端、遗留 JS 前端与第三方客户端。
+    muted: Arc<AtomicBool>,
     /// 已经广播过音频的 epoch（存 epoch + 1，0 = 尚未广播任何音频）。
     ///
     /// 用来把 audio.start 还原成它文档里的语义：**本轮语音的首片**。
@@ -102,10 +111,35 @@ pub struct Broadcaster {
     audio_epoch_seen: Arc<AtomicU64>,
 }
 
+impl Default for Broadcaster {
+    /// 默认**静音**（见 [`Self::muted`]）。
+    ///
+    /// 手写而不是 `derive`：`AtomicBool` 的 `Default` 是 `false`，
+    /// 而产品默认必须是「不出声」。
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+            subscribed_count: Arc::new(AtomicUsize::new(0)),
+            muted: Arc::new(AtomicBool::new(true)),
+            audio_epoch_seen: Arc::new(AtomicU64::new(0)),
+        }
+    }
+}
+
 impl Broadcaster {
     /// 新建空广播器（订阅上限 = [`WS_CONN_LIMIT`]）。
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 当前是否静音输出。
+    pub fn is_muted(&self) -> bool {
+        self.muted.load(Ordering::Acquire)
+    }
+
+    /// 设置静音输出（服务端权威，立即对后续分片生效）。
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::Release);
     }
 
     /// 尝试注册一个新连接；超额时返回 `Err(())`。
@@ -193,7 +227,8 @@ impl Broadcaster {
         let token = epoch.wrapping_add(1);
         let previous = self.audio_epoch_seen.swap(token, Ordering::AcqRel);
         let segment_start = previous != token;
-        for frame in build_audio_frames(epoch, pcm, sample_rate, segment_start) {
+        let muted = self.muted.load(Ordering::Acquire);
+        for frame in build_audio_frames(epoch, pcm, sample_rate, segment_start, muted) {
             self.broadcast(&frame);
         }
     }
@@ -439,12 +474,26 @@ const S16_NORM: f32 = 32_768.0;
 ///   `start=true`，否则所有帧 `start=false`。一轮语音会被切成多个 200 ms
 ///   分片分别调用本函数，只有第一次调用该传 true（见
 ///   [`Broadcaster::broadcast_audio_frames`]）；
+/// - `mute`：**静音输出**。为 true 时下发的 PCM 字节全部置零（长度不变），
+///   但 `volume` **仍按原始样本计算** —— 于是「任何客户端都发不出声音」，
+///   而口型驱动所需的信息完整保留；
 /// - 返回值：空输入 → 空 Vec；非空 → ≥1 帧，**本段**末帧 `end=true`。
+///
+/// # 为什么在服务端静音（2026-09-10 用户裁决）
+///
+/// 用户要求「关掉声音但保留口型」。若只在某个客户端做静音，就绕不过：
+/// 浏览器 Service Worker 缓存下来的**旧前端**、遗留的原生 JS 前端 `/`、
+/// 以及任何第三方客户端。静音属于**产品语义**，必须在音频的**源头**强制，
+/// 而不是指望每个消费者自觉。
+///
+/// 置零而不是「不发帧」：分片节奏与时间轴保持不变（客户端仍按同样节奏排片），
+/// 口型的到期释放不会漂移；旧客户端「照常播放」——只是播的是静音。
 pub fn build_audio_frames(
     epoch: u64,
     pcm: &[u8],
     sample_rate: u32,
     segment_start: bool,
+    mute: bool,
 ) -> Vec<String> {
     if pcm.is_empty() || sample_rate == 0 {
         return Vec::new();
@@ -458,8 +507,14 @@ pub fn build_audio_frames(
     for (i, slice) in pcm.chunks(slice_bytes).enumerate() {
         let start = segment_start && i == 0;
         let end = i + 1 == total;
+        // volume 永远取自**原始**样本：静音不能把口型一起关掉。
         let volume = rms_s16le_mono(slice);
-        let b64 = base64_encode(slice);
+        let b64 = if mute {
+            // 零填充到相同字节数（s16le 全零 = 绝对静音）。
+            base64_encode(&vec![0u8; slice.len()])
+        } else {
+            base64_encode(slice)
+        };
         let frame = serde_json::json!({
             "type": "audio",
             "data": {
@@ -470,6 +525,7 @@ pub fn build_audio_frames(
                 "volume": volume,
                 "start": start,
                 "end": end,
+                "muted": mute,
             }
         });
         out.push(frame.to_string());
@@ -603,15 +659,71 @@ mod audio_frame_tests {
     /// 空输入 → 空帧列表。
     #[test]
     fn empty_input_yields_empty() {
-        let frames = build_audio_frames(0, &[], 24000, true);
+        let frames = build_audio_frames(0, &[], 24000, true, false);
         assert!(frames.is_empty(), "空 PCM 应产出 0 帧");
     }
 
     /// 零采样率 → 空帧列表（防除零）。
     #[test]
     fn zero_sample_rate_yields_empty() {
-        let frames = build_audio_frames(1, &[0u8; 16], 0, true);
+        let frames = build_audio_frames(1, &[0u8; 16], 0, true, false);
         assert!(frames.is_empty(), "零采样率应产出 0 帧");
+    }
+
+    /// **静音契约（2026-09-10 用户裁决）**：`mute=true` 时
+    /// ① 下发的 PCM 必须**全零**（谁都发不出声，与客户端缓存/第三方客户端无关）；
+    /// ② `volume` 必须**仍是真实值**（口型不能跟着被关掉）；
+    /// ③ 分片数量与长度不变（时间轴与排片节奏不漂移）。
+    #[test]
+    fn muted_frames_carry_silence_but_real_volume() {
+        let sample_rate: u32 = 24000;
+        // 非零样本：若静音被实现成「整帧丢弃」或「volume 也清零」，本测试必红。
+        let loud = i16_to_bytes(&vec![16_000i16; sample_rate as usize]);
+
+        let normal = build_audio_frames(0, &loud, sample_rate, true, false);
+        let muted = build_audio_frames(0, &loud, sample_rate, true, true);
+
+        assert_eq!(
+            muted.len(),
+            normal.len(),
+            "静音不得改变分片数量（时间轴必须一致）"
+        );
+
+        // 静音帧的 audio 必须恰好等于「同长度全零」的 base64。
+        let silent_b64 = base64_encode(&vec![0u8; slice_bytes_for_rate(sample_rate)]);
+
+        for (i, (n, m)) in normal.iter().zip(muted.iter()).enumerate() {
+            let nv: serde_json::Value = serde_json::from_str(n).expect("normal json");
+            let mv: serde_json::Value = serde_json::from_str(m).expect("muted json");
+
+            // ② volume 一致且非零（真实电平被保留）。
+            let nvol = nv["data"]["volume"].as_f64().expect("volume");
+            let mvol = mv["data"]["volume"].as_f64().expect("volume");
+            assert!(nvol > 0.0, "前置：原始样本应有非零音量");
+            assert_eq!(mvol, nvol, "静音不得改变 volume（第 {i} 帧）");
+
+            // ① 静音帧 PCM 全零。
+            let naudio = nv["data"]["audio"].as_str().expect("audio");
+            let maudio = mv["data"]["audio"].as_str().expect("audio");
+            assert_eq!(maudio, silent_b64, "静音帧 PCM 必须全零（第 {i} 帧）");
+            assert_ne!(naudio, silent_b64, "前置：正常帧应含非零样本（第 {i} 帧）");
+
+            // 观测字段：前端可据此提示「已静音」。
+            assert_eq!(mv["data"]["muted"], serde_json::Value::Bool(true));
+            assert_eq!(nv["data"]["muted"], serde_json::Value::Bool(false));
+        }
+    }
+
+    /// 静音**默认开启**，且 `set_muted` 立即生效；clone 共享同一开关。
+    #[test]
+    fn broadcaster_is_muted_by_default() {
+        let bc = Broadcaster::new();
+        assert!(bc.is_muted(), "默认必须静音（不出声但保留口型）");
+        bc.set_muted(false);
+        assert!(!bc.is_muted(), "set_muted(false) 应即时生效");
+        let alias = bc.clone();
+        alias.set_muted(true);
+        assert!(bc.is_muted(), "clone 应共享同一 muted 状态");
     }
 
     /// 24 kHz 1 秒 s16le mono PCM → 50 帧（20 ms / 帧）。
@@ -620,7 +732,7 @@ mod audio_frame_tests {
         let sample_rate: u32 = 24000;
         let one_sec = i16_to_bytes(&vec![0i16; sample_rate as usize]);
 
-        let frames = build_audio_frames(0, &one_sec, sample_rate, true);
+        let frames = build_audio_frames(0, &one_sec, sample_rate, true, false);
         assert_eq!(frames.len(), 50, "24kHz 1s 应切 50 帧（每帧 20ms）");
     }
 
@@ -629,7 +741,7 @@ mod audio_frame_tests {
     fn start_and_end_flags_on_boundary_frames() {
         let sample_rate: u32 = 24000;
         let one_sec = i16_to_bytes(&vec![0i16; sample_rate as usize]);
-        let frames = build_audio_frames(0, &one_sec, sample_rate, true);
+        let frames = build_audio_frames(0, &one_sec, sample_rate, true, false);
         assert!(!frames.is_empty());
 
         let first: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
@@ -657,7 +769,7 @@ mod audio_frame_tests {
             })
             .collect();
         let pcm = i16_to_bytes(&samples);
-        let frames = build_audio_frames(0, &pcm, sample_rate, true);
+        let frames = build_audio_frames(0, &pcm, sample_rate, true, false);
         for raw in &frames {
             let v: serde_json::Value = serde_json::from_str(raw).expect("json");
             let vol = v["data"]["volume"].as_f64().expect("volume f64");
@@ -671,7 +783,7 @@ mod audio_frame_tests {
         let sample_rate: u32 = 24000;
         let raw_samples: Vec<i16> = (0..1920).map(|i| (i as i16) * 10).collect();
         let pcm = i16_to_bytes(&raw_samples);
-        let frames = build_audio_frames(0, &pcm, sample_rate, true);
+        let frames = build_audio_frames(0, &pcm, sample_rate, true, false);
         assert!(!frames.is_empty());
 
         let first: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
@@ -688,7 +800,7 @@ mod audio_frame_tests {
         let sample_rate: u32 = 24000;
         // 480 i16 样本 = 960 字节 = 1 片（24kHz 20ms）。
         let pcm = i16_to_bytes(&vec![0i16; 480]);
-        let frames = build_audio_frames(42, &pcm, sample_rate, true);
+        let frames = build_audio_frames(42, &pcm, sample_rate, true, false);
         assert_eq!(frames.len(), 1, "960 字节 = 1 片（24kHz 20ms）");
         let v: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
         assert_eq!(v["type"], "audio");
@@ -706,7 +818,7 @@ mod audio_frame_tests {
     fn silent_pcm_zero_volume() {
         let sample_rate: u32 = 24000;
         let pcm = i16_to_bytes(&vec![0i16; 960]);
-        let frames = build_audio_frames(0, &pcm, sample_rate, true);
+        let frames = build_audio_frames(0, &pcm, sample_rate, true, false);
         let v: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
         assert_eq!(v["data"]["volume"], 0.0, "静音应 volume=0");
     }
@@ -750,7 +862,7 @@ mod audio_frame_tests {
     fn segment_start_false_marks_no_frame_as_start() {
         let sample_rate: u32 = 24000;
         let two_sec = i16_to_bytes(&vec![0i16; sample_rate as usize * 2]);
-        let frames = build_audio_frames(3, &two_sec, sample_rate, false);
+        let frames = build_audio_frames(3, &two_sec, sample_rate, false, false);
         assert_eq!(frames.len(), 100, "2 s / 20 ms = 100 帧");
         for (i, raw) in frames.iter().enumerate() {
             let v: serde_json::Value = serde_json::from_str(raw).expect("json");
