@@ -40,11 +40,13 @@ import '../chat/chat_message.dart';
 import '../design/breakpoints.dart';
 import '../design/tokens.dart';
 import '../settings/settings_sections.dart';
+import '../live2d/live2d_bridge.dart';
 import '../state/ui_phase.dart';
 import '../ui/chat_panel.dart';
 import '../ui/connection_badge.dart';
 import '../ui/error_banner.dart';
 import '../ui/settings_scaffold.dart';
+import '../ui/stage_host.dart';
 import '../ui/state_pill.dart';
 import '../ui/theme.dart';
 import 'app_shortcuts.dart';
@@ -89,6 +91,10 @@ class AppShell extends StatefulWidget {
     this.shortcuts = const AppShortcutCallbacks(isMacOS: false),
     this.announcement,
     this.modelName,
+    this.stagePhase = Live2DBridgePhase.loading,
+    this.stageProgress,
+    this.stageError,
+    this.onRetryStage,
     super.key,
   });
 
@@ -171,6 +177,24 @@ class AppShell extends StatefulWidget {
 
   /// 当前模型名（舞台的语义标签用）。
   final String? modelName;
+
+  // ── 渲染面状态（转给 `StageHost` 的覆盖层）──
+  //
+  // 这些**必须真的传进 `StageHost`**：第一版里 `StageHost` 写好了却没人用，
+  // 于是「模型加载中 / 加载失败 + 重试」的覆盖层与**舞台语义标签**都不在成品里。
+  // 是靠「构建产物里搜不到『Live2D 舞台』这句话」才发现的（见 v0.4.13）。
+
+  /// 渲染面阶段。
+  final Live2DBridgePhase stagePhase;
+
+  /// 加载进度 0..1。
+  final double? stageProgress;
+
+  /// 渲染面错误文案。
+  final String? stageError;
+
+  /// 「重试」（重建 iframe）。
+  final VoidCallback? onRetryStage;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -324,7 +348,17 @@ class AppShellState extends State<AppShell> {
           final bool compact = sizeClass.isCompact;
           final bool inlineSettings = settingsHostOf(sizeClass) == SettingsHost.inline;
 
-          final Widget stage = RepaintBoundary(key: stageKey, child: widget.stage);
+          // **必须走 `StageHost`**：加载/错误覆盖层与舞台语义都在它里面。
+          // 直接铺 `RepaintBoundary(child: widget.stage)` 会让那些东西全部失效。
+          final Widget stage = StageHost(
+            key: stageKey,
+            stage: widget.stage,
+            phase: widget.stagePhase,
+            progress: widget.stageProgress,
+            errorMessage: widget.stageError,
+            onRetry: widget.onRetryStage,
+            modelName: widget.modelName,
+          );
 
           // ── 关键：三种断点共用同一个 Flex，只换 direction 与子项 flex。
           //    子树形状不变 ⇒ 舞台 Element 不被反激活 ⇒ iframe 不重建。 ──

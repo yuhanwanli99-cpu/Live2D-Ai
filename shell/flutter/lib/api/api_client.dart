@@ -54,7 +54,16 @@ class ApiClient {
       value = value.substring(0, value.length - 1);
     }
     if (value.isEmpty) {
-      return Uri.base.origin; // 同源相对路径的绝对化根
+      // 同源相对路径的绝对化根。
+      //
+      // `Uri.base.origin` 对**非 http(s) 方案会抛**（`file://` 尤其常见）。
+      // 生产（Web）里 `Uri.base` 一定是 http(s)，所以这不是线上缺陷；
+      // 但它在 `flutter test` 里会让 `ApiClient()` 直接构造失败——
+      // 于是「用真控制器当桩」这种很自然的测试写法会莫名其妙地崩。
+      // 回落一个 loopback 地址，构造永不抛；真要用的时候 base 都会被显式给出。
+      final Uri base = Uri.base;
+      if (base.scheme == 'http' || base.scheme == 'https') return base.origin;
+      return 'http://127.0.0.1';
     }
     return value;
   }

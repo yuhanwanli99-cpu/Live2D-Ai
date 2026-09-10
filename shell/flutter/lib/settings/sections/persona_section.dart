@@ -111,6 +111,23 @@ class PersonaSection extends StatelessWidget {
           description: '支持酒馆（SillyTavern）角色卡：`.json`，或**内嵌人设的 PNG**'
               '（`tEXt`/`chara`）。纯本地解析，不上传任何东西。',
         ),
+        // **必须有这个按钮**。第一版只声明了 `onImport` 却没画按钮，
+        // 于是整个导入功能在界面上**点不到**（而且被 dart2js 当死代码裁掉，
+        // 连提示文案都没进构建产物——是靠搜产物发现的）。
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: onImport == null
+                ? null
+                : () => onImport!(
+                    // 真正的结果由宿主在读完文件后回填；这里只为触发选择框。
+                    const PersonaImportResult(error: 'pending'),
+                  ),
+            icon: const Icon(Icons.upload_file_outlined, size: 16),
+            label: const Text('选择角色卡文件（.json / .png）'),
+          ),
+        ),
+        const SizedBox(height: Space.s3),
         if (importMessage != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s2),

@@ -36,6 +36,7 @@ import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
 import 'app/app_shell.dart';
 import 'app/app_shortcuts.dart';
+import 'live2d/live2d_bridge.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
 import 'settings/sections/actions_section.dart';
@@ -221,6 +222,9 @@ class _ShellRootState extends State<ShellRoot> {
 
   /// 当前模型名（舞台语义标签用）。
   String _modelName = '';
+
+  /// 渲染面阶段（`StageHost` 的覆盖层与舞台语义要用）。
+  Live2DBridgePhase _stagePhase = Live2DBridgePhase.loading;
 
   /// 开发者模式（来自 `GET /api/v1/app/status`，与 `--dev-mode` 启动参数一致）。
   ///
@@ -828,6 +832,61 @@ class _ShellRootState extends State<ShellRoot> {
     return ordered;
   }
 
+  /// 快捷键帮助（`Ctrl/Cmd + /`）。
+  ///
+  /// 内容来自 `shortcutHelp()`——**唯一文案来源**，改快捷键定义时帮助自动跟上。
+  /// 第一版定义了它却没接任何入口，于是被 dart2js 当死代码裁掉。
+  Future<void> _showShortcutHelp() async {
+    final bool isMac = defaultTargetPlatform == TargetPlatform.macOS;
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('快捷键'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            for (final ShortcutHelpEntry e in shortcutHelp(isMacOS: isMac))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 110,
+                      child: Text(
+                        e.keys,
+                        style: Theme.of(dialogContext).textTheme.labelLarge,
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(e.action),
+                          if (e.note != null)
+                            Text(
+                              e.note!,
+                              style: Theme.of(dialogContext).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 打开设置前的兜底：**懒加载一次**。
   void _onSectionChanged(SettingsSection next) {
     setState(() => _section = next);
@@ -860,6 +919,11 @@ class _ShellRootState extends State<ShellRoot> {
             onReady: _applyPrefs,
             onError: (String message) =>
                 _ui.onBridgePhase(message.isNotEmpty),
+            onPhaseChanged: (Live2DBridgePhase phase) {
+              if (mounted && phase != _stagePhase) {
+                setState(() => _stagePhase = phase);
+              }
+            },
           ),
           phase: _ui.phase,
           wsStatus: _ui.wsStatus,
@@ -914,6 +978,10 @@ class _ShellRootState extends State<ShellRoot> {
           ),
           // ── P6：无障碍 ──
           modelName: _modelName,
+          stagePhase: _stagePhase,
+          stageProgress: _stageKey.currentState?.bridge?.progress,
+          stageError: _stageKey.currentState?.errorMessage,
+          onRetryStage: () => _stageKey.currentState?.retry(),
           announcement: _live.hasAnnouncement ? _live.announcement : null,
           shortcuts: AppShortcutCallbacks(
             isMacOS: defaultTargetPlatform == TargetPlatform.macOS,
@@ -931,6 +999,7 @@ class _ShellRootState extends State<ShellRoot> {
                 _shellKey.currentState?.openSettings() ?? Future<void>.value(),
               );
             },
+            onHelp: () => unawaited(_showShortcutHelp()),
           ),
         );
       },

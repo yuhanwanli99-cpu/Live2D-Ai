@@ -5,6 +5,7 @@ import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/chat/chat_message.dart';
 import 'package:live2d_ai_shell/design/breakpoints.dart';
+import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/settings/settings_sections.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
@@ -74,6 +75,10 @@ class _HostState extends State<_Host> {
     onMutedChanged: (_) {},
     sections: visibleSections(devMode: widget.devMode),
     section: section,
+    // `ready` 而不是默认的 `loading`：加载覆盖层里那条不确定进度的进度条是
+    // **无限动画**，会让本文件里所有的 `pumpAndSettle` 全部超时
+    // （规格 §11.3 已知的坑）。
+    stagePhase: Live2DBridgePhase.ready,
     onSectionChanged: (SettingsSection next) => setState(() => section = next),
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         Text('PANE:${s.label}'),
@@ -211,6 +216,8 @@ void main() {
         home: AppShell(
           stage: _CountingStage(onInit: () => inits++),
           phase: UiPhase.idle,
+          // 同上：`loading` 会让 `pumpAndSettle` 卡在无限动画上。
+          stagePhase: Live2DBridgePhase.ready,
           wsStatus: status,
           messages: const <Never>[],
           input: TextEditingController(),

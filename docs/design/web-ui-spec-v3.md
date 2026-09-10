@@ -1431,6 +1431,7 @@ test/admin_api_test.dart                test/settings_api_test.dart
 test/action_dispatch_test.dart          test/action_ui_p5_test.dart
 test/semantics_test.dart                test/no_backdrop_filter_test.dart
 test/keyboard_test.dart                 test/audio_epoch_gate_test.dart
+test/wiring_test.dart
 test/semantics_test.dart                test/no_backdrop_filter_test.dart
 ```
 
@@ -2105,6 +2106,52 @@ macOS 用 `meta`（⌘），其余用 `control`。**不要两个都绑**：在 W
 于是「写成什么样」无法回归。这与 P1（帧解析）、P2（动作来源）、P5（动作通道）
 是**同一类问题**——本项目对它的通用解法是把判据抽成纯函数或纯数据，
 让 `flutter test` 能加载。**新增逻辑时先问「它能不能不碰 web」**。
+
+---
+
+### 13.11 交付核对抓出的**三处「写好了但点不到」**（2026-09-10，v0.4.13）
+
+收尾时用了一个新办法核对交付：**在构建产物 `main.dart.js` 里搜每个阶段/每个红线的
+特征字符串**（非 ASCII 要按 dart2js 的 `\uXXXX` 转义搜）。结果抓到三处
+**源码里存在、但应用里根本触发不到**的功能——三者都**编译通过、测试全绿**，
+因为没有测试问「它被用上了吗」。
+
+| # | 死掉的东西 | 后果 | 根因 |
+|---|---|---|---|
+| 1 | `StageHost` **没有任何调用点** | P6 的「Live2D 舞台」语义标签、加载/错误覆盖层 + 重试**全都不在成品里** | `main.dart` 把裸 `Live2DStage` 直接交给外壳；外壳里也是裸 `RepaintBoundary` |
+| 2 | `shortcutHelp()` **没有任何调用点** | `Ctrl/Cmd + /` 什么都不会发生，帮助内容被 dart2js 当死代码裁掉 | 定义了内容但没做入口（`onHelp` 从未传过） |
+| 3 | `PersonaSection.onImport` **从未被调用** | **角色卡导入**（P4 的差异化功能）在界面上**没有按钮** | 只声明了回调，没画控件 |
+
+#### 修法
+
+1. 外壳**真的**用 `StageHost` 包舞台；为此把渲染面状态（phase/progress/error/重试）
+   从 `main.dart` 透传下去，并给 `Live2DStage` 加 `onPhaseChanged` 回调——
+   没有它宿主拿不到阶段变化（`Live2DStage` 内部 `setState` 只重建自己），
+   覆盖层会**永远停在 loading**。
+2. `Ctrl/Cmd + /` → 帮助弹层，内容直接来自 `shortcutHelp()`（唯一文案来源）。
+3. `PersonaSection` 画「选择角色卡文件（.json / .png）」按钮。
+
+#### 防复发：`test/wiring_test.dart`
+
+加了**接线守卫**：逐个点名「一旦没接线就是用户可见功能缺失」的构造
+（`StageHost(` / `shortcutHelp(` / `applyPersonaImport(` / `LiveRegionThrottle(` /
+`ActionDispatch(` / `mustInterruptAudio(` / `decideAudioFrame(`），断言它们在
+**自己文件之外**被引用过；并补了角色卡导入按钮的 widget 测试。
+
+不做通用死代码检测：Web 上没有反射，而通用扫描会误报一片（公开 API 本来就允许没人调）。
+**逐个点名 + 每条写清后果**才是这个项目能维护得住的做法。
+
+#### 顺带修掉两个真实问题
+
+- **`ApiClient()` 在非 http(s) 环境下构造即抛**：`_normalize` 里裸用
+  `Uri.base.origin`，而它对 `file://` 会抛。生产（Web）里 `Uri.base` 一定是
+  http(s)，所以不是线上缺陷——但它在 `flutter test` 里会让「用真控制器当桩」
+  这种很自然的写法直接崩。已回落到 loopback。
+- **`pumpAndSettle` 与加载覆盖层死锁**：`StageHost` 接进外壳后，
+  默认 `stagePhase: loading` 会渲染不确定进度的进度条（**无限动画**），
+  于是三处测试文件里的 `pumpAndSettle` 全部超时。这正是规格 §11.3 列为已知坑的那条。
+  修法是**测试侧显式声明**阶段（`ready`），并为加载/错误覆盖层单写一条用
+  `pump` 推进的测试——**不是**去改生产默认值。
 
 ---
 

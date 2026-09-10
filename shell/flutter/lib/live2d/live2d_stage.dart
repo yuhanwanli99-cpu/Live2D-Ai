@@ -19,6 +19,7 @@ class Live2DStage extends StatefulWidget {
     this.tier,
     this.onError,
     this.onReady,
+    this.onPhaseChanged,
   });
 
   /// 可选：渲染面模型路径（缺省由渲染端决定）。
@@ -26,6 +27,12 @@ class Live2DStage extends StatefulWidget {
   final double scale;
   final bool dark;
   final int? tier;
+
+  /// 渲染面阶段变化（宿主据此刷新覆盖层与舞台语义）。
+  ///
+  /// 没有它的话，宿主拿不到阶段变化：`Live2DStage` 内部 `setState` 只重建自己，
+  /// 父级不会跟着重建，于是 `StageHost` 的加载覆盖层会**永远停在 loading**。
+  final void Function(Live2DBridgePhase phase)? onPhaseChanged;
 
   /// 错误回调（宿主可用于日志或全局提示）。
   final ValueChanged<String>? onError;
@@ -49,6 +56,7 @@ class Live2DStageState extends State<Live2DStage> {
   /// 最近一条渲染面回执。**收到它才说明渲染面真的应用了**——
   /// 收条之前不得提示「已生效」（R2 的规矩）。
   StageAckEvent? _lastAck;
+  Live2DBridgePhase? _lastReportedPhase;
   int _generation = 0;
   bool _readyNotified = false;
 
@@ -72,6 +80,12 @@ class Live2DStageState extends State<Live2DStage> {
 
   void _onBridgeChanged() {
     if (!mounted) return;
+    // 阶段变化先报给宿主（覆盖层/语义都靠它）。
+    final phase = _bridge?.phase;
+    if (phase != null && phase != _lastReportedPhase) {
+      _lastReportedPhase = phase;
+      widget.onPhaseChanged?.call(phase);
+    }
     final error = _bridge?.errorMessage;
     if (error != null && _bridge?.phase == Live2DBridgePhase.error) {
       widget.onError?.call(error);
@@ -118,6 +132,7 @@ class Live2DStageState extends State<Live2DStage> {
 
   /// 最近一条 `stage-ack`。
   StageAckEvent? get lastAck => _lastAck;
+
 
   /// 心跳：把桥上的回执抄一份到 State 上，便于宿主同步读取。
   void _captureAck() {
@@ -188,6 +203,10 @@ class Live2DStageState extends State<Live2DStage> {
   }
 
   /// 错误后重建 iframe（也适用于渲染端热更新后的重试）。
+  /// 「重试」：重建 iframe（并重置错误态）。
+  ///
+  /// 宿主只需要 `GlobalKey<Live2DStageState>.currentState?.retry()`，
+  /// 不必知道舞台内部是怎么重挂的。
   void retry() {
     final previous = _bridge;
     _bridge = null;
@@ -196,6 +215,8 @@ class Live2DStageState extends State<Live2DStage> {
       unawaited(previous.destroy());
     }
     _hostError = null;
+    // 重建后要**重新上报**阶段（否则宿主停在旧的 error 覆盖层上）。
+    _lastReportedPhase = null;
     setState(() => _generation++);
   }
 

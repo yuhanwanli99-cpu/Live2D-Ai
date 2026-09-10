@@ -1,3 +1,66 @@
+# v0.4.13 — 交付核对抓出三处「写好了但点不到」（前端 542 → 553）
+
+收尾时换了个办法核对交付：**在构建产物 `main.dart.js` 里搜每个阶段的特征字符串**
+（非 ASCII 按 dart2js 的 `\uXXXX` 转义搜）。这个办法当场抓到三处
+**源码里存在、应用里却触发不到**的功能——三者都**编译通过、测试全绿**，
+因为没有测试问过「它被用上了吗」。
+
+| # | 死掉的东西 | 后果 |
+|---|---|---|
+| 1 | `StageHost` **没有任何调用点** | P6 的「Live2D 舞台」语义标签、加载/错误覆盖层 + 重试**全都不在成品里** |
+| 2 | `shortcutHelp()` **没有任何调用点** | `Ctrl/Cmd + /` 什么都不会发生，帮助内容被 dart2js 当死代码裁掉 |
+| 3 | `PersonaSection.onImport` **从未被调用** | **角色卡导入**（P4 的差异化功能）界面上**没有按钮** |
+
+## 修法
+
+1. 外壳**真的**用 `StageHost` 包舞台；为此把渲染面状态（phase / progress / error /
+   重试）从 `main.dart` 透传下去，并给 `Live2DStage` 加 `onPhaseChanged` 回调——
+   没有它宿主拿不到阶段变化（`Live2DStage` 内部 `setState` 只重建自己），
+   覆盖层会**永远停在 loading**。
+2. `Ctrl/Cmd + /` → 帮助弹层，内容直接来自 `shortcutHelp()`（唯一文案来源）。
+3. `PersonaSection` 画「选择角色卡文件（.json / .png）」按钮。
+
+## 防复发：`test/wiring_test.dart`
+
+**接线守卫**：逐个点名「一旦没接线就是用户可见功能缺失」的构造
+（`StageHost(` / `shortcutHelp(` / `applyPersonaImport(` / `LiveRegionThrottle(` /
+`ActionDispatch(` / `mustInterruptAudio(` / `decideAudioFrame(`），断言它们在
+**自己文件之外**被引用过；并补了角色卡导入按钮的 widget 测试。
+
+不做通用死代码检测：Web 上没有反射，通用扫描会误报一片（公开 API 本来就允许没人调）。
+**逐个点名 + 每条写清后果**才维护得住。
+
+## 顺带修掉两个真实问题
+
+- **`ApiClient()` 在非 http(s) 环境下构造即抛**：`_normalize` 里裸用
+  `Uri.base.origin`，它对 `file://` 会抛。生产（Web）里 `Uri.base` 一定是 http(s)，
+  不是线上缺陷——但它在 `flutter test` 里会让「用真控制器当桩」这种很自然的写法
+  直接崩。已回落 loopback。
+- **`pumpAndSettle` 与加载覆盖层死锁**：`StageHost` 接进外壳后，默认
+  `stagePhase: loading` 会渲染不确定进度的进度条（**无限动画**），于是三处测试文件
+  的 `pumpAndSettle` 全部超时——正是规格 §11.3 列为已知坑的那条。修法是**测试侧
+  显式声明**阶段（`ready`），并为覆盖层单写一条用 `pump` 推进的测试，
+  **不去改生产默认值**。
+
+## 交付核对（新增的验证手段）
+
+产物里搜特征字符串，**16/16 项全部命中**（P2 来源徽标、P3 离线横幅、P4 角色卡导入/
+`clear_api_key`/`apply_status`、P5 `action-state`/幂等提示、P6 舞台语义/快捷键帮助/
+键盘解锁/未保存 Pill/两个静音、自托管字体），且**无** `gstatic.com/flutter-canvaskit`。
+这个手段已写进规格 §13.11——它抓的是**测试结构上抓不到的那一类**问题。
+
+## 测试（前端 542 → **553**）
+
+- `wiring_test.dart`（8 条）：6 条接线守卫 + 2 条角色卡导入按钮。
+- `app_shell_layout_test.dart` +3：舞台**真的是** `StageHost`、loading 覆盖层、
+  error 覆盖层 + 可点的重试。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **553 通过 / 0 失败**；
+`flutter build web --release --base-href /app/ --no-web-resources-cdn` 通过、无 CDN 引用。
+Rust 侧未改动：fmt/clippy 干净、815 通过 / 0 失败、doctest 3、`rust-ratio` PASS。
+
 # v0.4.12 — 补齐规格 §11.4 里**最后两条**没被测试守住的钉子（前端 531 → 542）
 
 规格 §11.4 点名了 14 条「缺一不可」的回归钉子。P6 收口时逐条核对，发现

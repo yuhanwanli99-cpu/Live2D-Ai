@@ -5,7 +5,9 @@ import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/app/nav_host.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/design/breakpoints.dart';
+import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/settings/settings_sections.dart';
+import 'package:live2d_ai_shell/ui/stage_host.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
@@ -30,6 +32,8 @@ class _ShellHost extends StatefulWidget {
     required this.muted,
     required this.volume,
     this.onSectionChanged,
+    this.stagePhase = Live2DBridgePhase.ready,
+    this.onRetryStage,
   });
 
   final UiPhase phase;
@@ -39,6 +43,15 @@ class _ShellHost extends StatefulWidget {
   final bool muted;
   final double volume;
   final ValueChanged<SettingsSection>? onSectionChanged;
+
+  /// 默认 `ready`：**不是** `loading`。
+  ///
+  /// `loading` 会渲染一个不确定进度的 `LinearProgressIndicator`（无限动画），
+  /// 于是每一个用 `pumpAndSettle` 的测试都会超时——规格 §11.3 把这条列为
+  /// 已知的坑（「`pumpAndSettle` 在无限动画上死锁」）。
+  /// 覆盖层本身有专门的一条测试。
+  final Live2DBridgePhase stagePhase;
+  final VoidCallback? onRetryStage;
 
   @override
   State<_ShellHost> createState() => _ShellHostState();
@@ -63,6 +76,8 @@ class _ShellHostState extends State<_ShellHost> {
     onMutedChanged: (_) {},
     sections: widget.sections,
     section: section,
+    stagePhase: widget.stagePhase,
+    onRetryStage: widget.onRetryStage,
     onSectionChanged: (SettingsSection next) {
       widget.onSectionChanged?.call(next);
       setState(() => section = next);
@@ -80,6 +95,8 @@ Widget shellUnderTest({
   ValueChanged<SettingsSection>? onSectionChanged,
   bool muted = false,
   double volume = 0.8,
+  Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
+  VoidCallback? onRetryStage,
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: _ShellHost(
@@ -90,6 +107,8 @@ Widget shellUnderTest({
     muted: muted,
     volume: volume,
     onSectionChanged: onSectionChanged,
+    stagePhase: stagePhase,
+    onRetryStage: onRetryStage,
   ),
 );
 
@@ -108,6 +127,8 @@ Future<void> pumpShell(
   ValueChanged<SettingsSection>? onSectionChanged,
   bool muted = false,
   double volume = 0.8,
+  Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
+  VoidCallback? onRetryStage,
 }) async {
   await tester.binding.setSurfaceSize(Size(width, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -120,6 +141,8 @@ Future<void> pumpShell(
       onSectionChanged: onSectionChanged,
       muted: muted,
       volume: volume,
+      stagePhase: stagePhase,
+      onRetryStage: onRetryStage,
     ),
   );
   await tester.pump();
@@ -374,6 +397,44 @@ void main() {
       await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
       await tester.pumpAndSettle();
       expect(picked, contains(SettingsSection.tts));
+    });
+  });
+
+  group('接线：外壳**真的**把舞台包进了 StageHost', () {
+    testWidgets('舞台是 StageHost（不是裸 RepaintBoundary）', (WidgetTester tester) async {
+      // 这条是有来历的：第一版 `StageHost` 写好了却没人用，
+      // 于是「模型加载中 / 加载失败 + 重试」的覆盖层与**舞台语义标签**
+      // 都不在成品里——是靠「构建产物里搜不到『Live2D 舞台』这句话」发现的。
+      await pumpShell(tester, width: 1400);
+      expect(find.byType(StageHost), findsOneWidget);
+    });
+
+    testWidgets('loading 阶段显示加载覆盖层（含舞台语义）', (WidgetTester tester) async {
+      // 用 `pump` 而不是 `pumpAndSettle`：不确定进度的进度条是无限动画
+      // （规格 §11.3 的已知坑）。
+      await tester.binding.setSurfaceSize(const Size(1400, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        shellUnderTest(stagePhase: Live2DBridgePhase.loading),
+      );
+      await tester.pump();
+      expect(find.textContaining('模型加载中'), findsOneWidget);
+    });
+
+    testWidgets('error 阶段显示错误覆盖层 + 可点的重试', (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      int retried = 0;
+      await tester.pumpWidget(
+        shellUnderTest(
+          stagePhase: Live2DBridgePhase.error,
+          onRetryStage: () => retried++,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('模型加载失败'), findsOneWidget);
+      await tester.tap(find.text('重试'));
+      expect(retried, 1);
     });
   });
 
