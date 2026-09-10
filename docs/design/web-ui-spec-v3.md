@@ -1407,17 +1407,25 @@ lib/ui/section_header.dart              lib/ui/state_pill.dart
 lib/ui/streaming_indicator.dart         lib/ui/audio_bar.dart
 lib/ui/chat_panel.dart                  lib/ui/message_bubble.dart
 lib/ui/connection_badge.dart            lib/ui/error_banner.dart
-lib/ui/stage_host.dart
+lib/ui/stage_host.dart                  lib/ui/field_row.dart
+lib/settings/settings_controller.dart   lib/settings/persona_card.dart
+lib/settings/persona_import.dart        lib/api/models_api.dart
+lib/api/mods_api.dart                   lib/api/diagnostics_api.dart
+lib/settings/sections/llm_section.dart  lib/settings/sections/tts_section.dart
+lib/settings/sections/persona_section.dart
+lib/settings/sections/actions_section.dart
+lib/settings/sections/dev_tools_section.dart
+lib/settings/sections/pane_helpers.dart
 test/ws_frame_test.dart                 test/action_history_test.dart
 test/action_event_test.dart             test/action_log_controller_test.dart
 test/action_ui_test.dart                test/commands_api_test.dart
 test/ui_phase_test.dart                 test/ui_state_tracker_test.dart
 test/app_shell_layout_test.dart         test/stage_keepalive_test.dart
-test/audio_bar_test.dart
-test/settings_controller_test.dart      test/app_shell_layout_test.dart
-test/stage_keepalive_test.dart          test/settings_sections_test.dart
-test/semantics_test.dart                test/audio_bar_test.dart
-test/no_backdrop_filter_test.dart
+test/audio_bar_test.dart                test/field_row_test.dart
+test/settings_controller_test.dart      test/settings_sections_test.dart
+test/settings_scaffold_test.dart        test/persona_import_test.dart
+test/admin_api_test.dart                test/settings_api_test.dart
+test/semantics_test.dart                test/no_backdrop_filter_test.dart
 ```
 
 > **已在同一轮落地、本列表刻意不再重复**（§0.3-5）：`lib/api/settings_models.dart`
@@ -1810,6 +1818,106 @@ token 的守卫交给 §2.8）。
 `StreamingIndicator` 与 `StatePill` **共用** `thinkingBreath`：两个「思考中」
 指示器同频，看起来是有意为之。（曾有第三个 `streamingDots`，与
 `interruptedHold` 同值 1200 ms，被「同值档位没有信息量」那条令牌规则正确地拦掉了。）
+
+---
+
+### 13.7 P4 落地时的发现与裁决（2026-09-10）
+
+#### ① 两个**能力缺口**：`apply_status` 与 `clear_api_key` 前端根本表达不出来
+
+规格 §4.4 要求「必须消费 `apply_status`」，但 `SettingsPatchResult` **没有这个字段**；
+§4.3 的表格里有「清除密钥绑定 → `{"llm":{"clear_api_key": true}}`」，
+但 `LlmSettingsPatch` / `TtsSettingsPatch` **都没有 `clearApiKey`**。
+
+⇒ 两处都补上了。第二条不是纸面问题：**「清除密钥绑定」这个能力此前在前端完全不可达**
+（就算硬编码也构造不出那个 JSON）。补上后实测走通：
+
+```
+PATCH {"llm":{"clear_api_key":true}} → persisted:true, apply_status:applied
+GET  → "has_api_key": false，且配置文件里的 api_key_env 行消失
+```
+
+（验证后已用快照逐字节还原，md5 `b13317da193dd7038e032b33d245418f`。）
+
+**只发 `clear_api_key: true`，不额外塞 `api_key_env: null`**：服务端的
+`inject_clear_key_flag` 规则 1 已经负责「段在场 + clear + 没给值 → 注入字段级清除」。
+两套机制表达同一件事，将来语义漂移时没人知道该信哪个。
+
+#### ② `FieldRow` 要拆成一组小 widget，**不要**写成泛型大 widget
+
+第一版是 `FieldRow<T>` 带 6 个具名构造（`.slider`/`.toggle`/…）。编译器报了
+**19 个错**：`T` 不能用在常量列表里、每个构造要把用不到的字段显式初始化、
+回调类型还得 `as dynamic` 强转。读起来也比分开写更费劲。
+⇒ 改为 `_FieldShell`（共用外壳）+ `SliderField`/`ToggleField`/`TextFieldRow`/
+`NumberField`/`SegmentedField`/`DropdownField`/`ReadonlyField`/`FieldActionRow`。
+**类型是真类型，测试也能按 widget 类型定位。**
+
+顺带定了一条：**只读值用文本，不用禁用输入框**——禁用输入框会让用户以为
+「本来能改，现在不能」，只读文本才诚实地表达「这不是可配置项」。
+
+#### ③ `allowDragZoom` / `tier` 进 `DisplayPrefs`，**必须同时进 `==` 与 `hashCode`**
+
+`AppShell` 的 `_updatePrefs` 用 `if (next == _prefs) return;` 做短路。漏字段
+= 「改了不生效」，而且**界面上完全看不出来**（滑杆能动、值却不落盘也不下发）。
+⇒ 两个字段都进 `==`/`hashCode`/`toString`，并加一条专门的钉子测试
+（`display_prefs_test.dart`：`base == base.copyWith(allowDragZoom: false)` 必须为假）。
+
+`allowDragZoom` 下发到渲染面 `sync.clickEnabled`（`l2d-wasm-demo/src/main.rs:334`），
+它管的是**拖动 / 滚轮 / 双击复位**。所以文案是「允许拖动与缩放」，
+**不是**「点击互动」——后者会让用户以为点角色会没反应（调研 control §9-7）。
+
+#### ④ 「动作试演」留到 P5，**不占位假装有**
+
+§4.1.5 的 B 组（动作触发按钮）需要 `POST /api/v1/commands/{id}/invoke` 与
+「正在演」状态，是一条独立通道。P4 的「动作与互动」只交付 A 组（舞台与口型，
+纯本地）+ C 组（动作日志，P2 成果），B 组**如实写明属于下一阶段**。
+
+#### ⑤ 角色卡导入：PNG 的 `iTXt` **压缩**分支不支持（诚实记录）
+
+只读 `tEXt`（未压缩）与 `iTXt` 中 `compression_flag == 0` 的块。
+`iTXt` 压缩需要 zlib 解压：Web 上 `dart:io` 的 `ZLibCodec` 不可用，
+为这一个分支引 `package:archive` 不值得。**如实报错**，不返回半个卡。
+
+顺带定了一条判据：一张 JSON 是不是角色卡，看**有没有出现过任何已映射的键**，
+而不是「值是否非空」——`{"foo":1}` 该被拒（否则界面显示「已导入」而四项全空），
+而 `{"name":123}` 该被接受（那是一张真的卡里的一处坏字段）。
+
+#### ⑥ 前端比裸 HTTP **更保守**：`pruneAgainstRemote`
+
+`max_tokens` 的「省略」与「显式 512」在服务端是**不同的存储状态**
+（`None` vs `Some(512)`），虽然生效值相同。实测：手工发
+`{"llm":{"max_tokens":512}}` 会 `persisted:true` 并**改写配置文件**。
+
+前端走 `edit()` 时不会发生这件事——`pruneAgainstRemote` 会把「与远端生效值相同」
+的字段**撤回**（等价于没改）。即：用户在输入框里把 512 敲成 512，不会写盘。
+这条是刻意的：**能不动用户的文件就不动。**
+
+#### ⑦ 服务端缺陷（**已确认、本轮不修**）：外部改配置后 HTTP 快照不刷新
+
+实测（本机 v0.4.8）：
+
+```
+1. 手工把 live2d-ai.toml 的 model 改成 "stale-probe-model"
+2. 等文件监听触发 → 日志确认 "配置文件外部修改 detected，触发 supervisor reload"
+3. GET /api/v1/settings      → llm.model = "deepseek-flash"   ← 旧值
+   GET /api/v1/app/status    → llm.model = "deepseek-flash"   ← 旧值
+4. 随便发一个 NoChange PATCH → 之后 GET 才变成新值
+```
+
+原因（读源码确认）：`file_watcher.rs` 只调 `supervisor.reload()`；
+`StatusContext.settings`（`app_routes.rs:51`）**只被 PATCH 路径的 `swap_settings`
+更新**（`dispatch.rs:116`）。
+
+**影响**：手工编辑配置文件后，supervisor 用的是新配置，而界面显示的是旧配置——
+**两者不一致且界面在说谎**。前端**做不到**修复（不能靠「偷偷发一个 PATCH」去
+刷新，那会改写用户的文件）。
+
+**对 P4 的影响**：设置面板的「加载」只对**通过界面改过**的设置可靠。
+诊断分区如实标注日志需要 dev_mode；不对设置面承诺「反映手工编辑」。
+
+**修法**（单独一轮）：给 `StatusContext` 加一个「从磁盘重读」的入口，
+让 `file_watcher` 在 reload 成功后调用它（顺带把 `to_toml_string` 换成
+`toml_edit` 以保住注释——那是另一个已确认缺陷，见 v0.4.7 的 CHANGELOG）。
 
 ---
 

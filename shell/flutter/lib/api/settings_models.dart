@@ -233,6 +233,7 @@ class LlmSettingsPatch {
     this.model,
     this.apiKeyEnv,
     this.maxTokens,
+    this.clearApiKey = false,
   });
 
   final Tri<String>? baseUrl;
@@ -252,12 +253,24 @@ class LlmSettingsPatch {
   /// - 字段留 `null` → JSON 里**不出现**该键 → 保持原值。
   final Tri<int>? maxTokens;
 
+  /// 段级「清除密钥绑定」标志（`clear_api_key: true`）。
+  ///
+  /// **为什么光发 `api_key_env: null` 不够**：服务端的 P0-2 保护把
+  /// 「不带 `clear_api_key` 的 `api_key_env: null`」当成**保持原值**
+  /// （防止「只改一个字段却把别的字段清了」那类事故）。要真的清除，
+  /// 必须同时给出这个显式意图。
+  ///
+  /// 与 [apiKeyEnv] 同时给出时**新值优先**（服务端 `apply_inject_rules` 规则 2）。
+  final bool clearApiKey;
+
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'model', model);
     putTri<String>(out, 'api_key_env', apiKeyEnv);
     putTri<int>(out, 'max_tokens', maxTokens);
+    // 段级清除意图：**不是**三态字段，是布尔标志。
+    if (clearApiKey) out['clear_api_key'] = true;
     return out;
   }
 
@@ -273,6 +286,7 @@ class TtsSettingsPatch {
     this.apiKeyEnv,
     this.sampleRate,
     this.channels,
+    this.clearApiKey = false,
   });
 
   final Tri<String>? baseUrl;
@@ -282,6 +296,9 @@ class TtsSettingsPatch {
   final Tri<int>? sampleRate;
   final Tri<int>? channels;
 
+  /// 段级「清除密钥绑定」标志（语义见 `LlmSettingsPatch.clearApiKey`）。
+  final bool clearApiKey;
+
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'base_url', baseUrl);
@@ -290,6 +307,7 @@ class TtsSettingsPatch {
     putTri<String>(out, 'api_key_env', apiKeyEnv);
     putTri<int>(out, 'sample_rate', sampleRate);
     putTri<int>(out, 'channels', channels);
+    if (clearApiKey) out['clear_api_key'] = true;
     return out;
   }
 
@@ -423,8 +441,50 @@ class SettingsTestOutcome {
 /// `PATCH /api/v1/settings` 的响应。
 ///
 /// 契约：服务端回 `{"persisted": bool, "settings": {…}}`。
+/// 写盘后 supervisor 的装载/重载状态（`dto.rs::ApplyStatus`，`snake_case`）。
+///
+/// **必须消费它**：写盘成功不等于生效。不区分就会出现
+/// 「提示已热重载但实际 503」的错位——用户按提示发了消息却收不到回复。
+enum ApplyStatus {
+  /// supervisor 动态创建成功 / reload 已触发 → 可以立刻对话。
+  applied('applied'),
+
+  /// 写盘成功，但无法动态创建 supervisor（配置不全）→ **需重启**。
+  restartRequired('restart_required'),
+
+  /// reload 已排队、异步生效中。
+  ///
+  /// 服务端注释说明当前实现下**实际不会产生**该值（装配/重建都在请求线程内
+  /// 完成），保留作未来异步路径。前端仍然要处理它——协议里有的取值都要兜住。
+  queued('queued'),
+
+  /// 写盘成功但**没有** supervisor（dev-only 控制平面 / 关掉了对话引擎）。
+  noSupervisor('no_supervisor'),
+
+  /// 未识别取值（协议新增而前端还旧）。**不静默当成 applied**。
+  unknown('unknown');
+
+  const ApplyStatus(this.wire);
+
+  final String wire;
+
+  static ApplyStatus fromWire(String? raw) {
+    for (final ApplyStatus value in values) {
+      if (value != unknown && value.wire == raw) return value;
+    }
+    return unknown;
+  }
+
+  /// 是否「已经生效、可以直接对话」。
+  bool get isLive => this == ApplyStatus.applied;
+}
+
 class SettingsPatchResult {
-  const SettingsPatchResult({required this.persisted, required this.settings});
+  const SettingsPatchResult({
+    required this.persisted,
+    required this.settings,
+    this.applyStatus = ApplyStatus.unknown,
+  });
 
   /// 服务端是否**真的写回了磁盘**。
   ///
@@ -435,11 +495,17 @@ class SettingsPatchResult {
   /// 应用补丁**之后**的服务端权威设置（用它回填界面，不要用本地草稿）。
   final SettingsView settings;
 
+  /// 写盘后的生效状态（缺省 `unknown`：旧服务端 / 字段缺失）。
+  final ApplyStatus applyStatus;
+
   factory SettingsPatchResult.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
     return SettingsPatchResult(
       persisted: j['persisted'] == true,
       settings: SettingsView.fromJson(_obj(j['settings'])),
+      applyStatus: ApplyStatus.fromWire(
+        j['apply_status'] is String ? j['apply_status']! as String : null,
+      ),
     );
   }
 }

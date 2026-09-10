@@ -23,6 +23,12 @@ class SettingsScaffold extends StatelessWidget {
     this.leading,
     this.trailing,
     this.onClose,
+    this.dirty = false,
+    this.saving = false,
+    this.onSave,
+    this.onDiscard,
+    this.statusMessage,
+    this.statusIsError = false,
     super.key,
   });
 
@@ -44,8 +50,21 @@ class SettingsScaffold extends StatelessWidget {
   /// 关闭浮层。
   final VoidCallback? onClose;
 
+  /// 有没有未保存的改动。
+  final bool dirty;
+
+  /// 是否正在保存。
+  final bool saving;
+  final VoidCallback? onSave;
+  final VoidCallback? onDiscard;
+
+  /// 上次保存的结果文案（**按 `apply_status` 分流**，见 §4.4）。
+  final String? statusMessage;
+  final bool statusIsError;
+
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
 
     return Column(
@@ -67,6 +86,44 @@ class SettingsScaffold extends StatelessWidget {
                   description: selected.description,
                 ),
               ),
+              // **未保存必须有可见提示**（规格 §4.3 的硬要求）：
+              // 现状完全缺失，用户改完就切走、改动无声消失。
+              if (dirty)
+                Padding(
+                  padding: const EdgeInsets.only(right: Space.s1),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppPalette.warning.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      border: Border.all(
+                        color: AppPalette.warning.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Space.s2,
+                        vertical: 2,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Icon(
+                            Icons.circle,
+                            size: 7,
+                            color: AppPalette.warning,
+                          ),
+                          const SizedBox(width: Space.s1),
+                          Text(
+                            '未保存',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: AppPalette.warning,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ?trailing,
               if (onClose != null)
                 IconButton(
@@ -102,6 +159,51 @@ class SettingsScaffold extends StatelessWidget {
             child: child,
           ),
         ),
+        // ── 保存 / 放弃操作条（**只在有改动或刚有结果时出现**，
+        //    常驻一条空操作条是纯噪声） ──
+        if (dirty || statusMessage != null)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: colors.hairline)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Space.s3,
+                Space.s2,
+                Space.s3,
+                Space.s2,
+              ),
+              child: Row(
+                children: <Widget>[
+                  if (statusMessage != null)
+                    Expanded(
+                      child: Text(
+                        statusMessage!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: statusIsError
+                              ? AppPalette.danger
+                              : colors.contentMuted,
+                        ),
+                      ),
+                    )
+                  else
+                    const Spacer(),
+                  if (dirty && onDiscard != null)
+                    TextButton(
+                      onPressed: saving ? null : onDiscard,
+                      child: const Text('放弃'),
+                    ),
+                  if (dirty && onSave != null) ...<Widget>[
+                    const SizedBox(width: Space.s2),
+                    FilledButton(
+                      onPressed: saving ? null : onSave,
+                      child: Text(saving ? '保存中…' : '保存'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }

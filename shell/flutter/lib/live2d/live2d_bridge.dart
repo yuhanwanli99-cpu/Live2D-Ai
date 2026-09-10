@@ -91,6 +91,7 @@ class Live2DBridge extends ChangeNotifier {
     double? scale,
     bool? dark,
     int? tier,
+    bool? clickEnabled,
     bool? paused,
     bool? lipSync,
     bool? idleEnabled,
@@ -101,6 +102,10 @@ class Live2DBridge extends ChangeNotifier {
     if (scale != null) payload['scale'] = scale;
     if (dark != null) payload['dark'] = dark;
     if (tier != null) payload['tier'] = tier;
+    // 渲染面读的是 `sync.clickEnabled`（`l2d-wasm-demo/src/main.rs:334`）——
+    // 它管的是**拖动 / 滚轮 / 双击复位**，与「点击角色有没有反应」无关。
+    // 所以 UI 文案是「允许拖动与缩放」，不是「点击互动」。
+    if (clickEnabled != null) payload['clickEnabled'] = clickEnabled;
     if (paused != null) payload['paused'] = paused;
     if (lipSync != null) payload['lipSync'] = lipSync;
     if (idleEnabled != null) payload['idleEnabled'] = idleEnabled;

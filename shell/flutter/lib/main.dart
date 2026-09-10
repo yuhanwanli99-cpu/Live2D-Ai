@@ -16,25 +16,34 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
 import 'api/api_client.dart';
 import 'api/commands_api.dart';
+import 'api/diagnostics_api.dart';
+import 'api/models_api.dart';
+import 'api/mods_api.dart';
+import 'api/settings_models.dart';
 import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
 import 'app/app_shell.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
+import 'settings/sections/actions_section.dart';
+import 'settings/sections/dev_tools_section.dart';
+import 'settings/sections/llm_section.dart';
+import 'settings/sections/persona_section.dart';
+import 'settings/sections/tts_section.dart';
+import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/ui_state_tracker.dart';
-import 'ui/action_history_view.dart';
-import 'ui/display_panel.dart';
 import 'ui/error_banner.dart';
-import 'ui/settings_scaffold.dart';
-import 'ui/section_header.dart';
+import 'design/tokens.dart';
 import 'ui/theme.dart';
 
 /// 本地显示偏好的存储键（localStorage）。
@@ -63,6 +72,53 @@ void saveDisplayPrefs(DisplayPrefs prefs) {
   } catch (_) {
     // 忽略：偏好丢失不影响本次会话。
   }
+}
+
+/// 让用户挑一个本地文件并读成字节（**组合根专有**：需要 `package:web`）。
+///
+/// 为什么不用文件选择器插件：一次 `<input type=file>` 就够了，
+/// 引一个插件只为这个属于典型的「顺手加一个」。
+/// 用户取消选择时返回 `null`（**不当成错误**）。
+Future<Uint8List?> pickLocalFile() async {
+  final web.HTMLInputElement input =
+      web.document.createElement('input') as web.HTMLInputElement;
+  input.type = 'file';
+  // 酒馆卡常见两种：`.json` 与内嵌人设的 `.png`。
+  input.accept = '.json,.png,application/json,image/png';
+  final Completer<Uint8List?> done = Completer<Uint8List?>();
+  input.onchange = ((web.Event _) {
+    final web.FileList? files = input.files;
+    if (files == null || files.length == 0) {
+      if (!done.isCompleted) done.complete(null);
+      return;
+    }
+    final web.File file = files.item(0)!;
+    final web.FileReader reader = web.FileReader();
+    reader.onload = ((web.Event _) {
+      final Object? result = reader.result;
+      if (result == null) {
+        if (!done.isCompleted) done.complete(null);
+        return;
+      }
+      final ByteBuffer buffer =
+          (result as JSArrayBuffer).toDart.asUint8List().buffer;
+      if (!done.isCompleted) {
+        done.complete(buffer.asUint8List());
+      }
+    }).toJS;
+    reader.onerror = ((web.Event _) {
+      if (!done.isCompleted) done.complete(null);
+    }).toJS;
+    reader.readAsArrayBuffer(file);
+  }).toJS;
+  // **取消选择也要能收口**：`oncancel` 在旧浏览器上可能不触发，
+  // 所以这里不做超时兜底——用户若一直不选，这个 Future 就挂着，
+  // 而它没有任何副作用（不占资源、不改状态）。
+  input.oncancel = ((web.Event _) {
+    if (!done.isCompleted) done.complete(null);
+  }).toJS;
+  input.click();
+  return done.future;
 }
 
 void main() {
@@ -116,6 +172,28 @@ class _ShellRootState extends State<ShellRoot> {
   /// 服务端静音观测值（WS `audio.muted`，**只读**）。
   bool _serverMuted = false;
 
+  // ── P4：设置草稿 + 四个管理面 ──
+  late final SettingsController _settings;
+  late final ModelsApi _modelsApi;
+  late final ModsApi _modsApi;
+  late final DiagnosticsApi _diagApi;
+
+  List<ModelInfo> _models = const <ModelInfo>[];
+  List<ModInfo> _mods = const <ModInfo>[];
+  List<LogLine> _logs = const <LogLine>[];
+  String? _logsError;
+  Map<String, Object?> _status = const <String, Object?>{};
+  AppCapabilities _capabilities = const AppCapabilities();
+  bool _adminLoading = false;
+  String? _adminError;
+  String? _busyId;
+  String? _actionMessage;
+  String? _llmTest;   bool _llmTesting = false;
+  String? _ttsTest;   bool _ttsTesting = false;
+  String? _importMessage; bool _importFailed = false;
+  bool _copied = false;
+  bool _settingsLoadedOnce = false;
+
   /// 开发者模式（来自 `GET /api/v1/app/status`，与 `--dev-mode` 启动参数一致）。
   ///
   /// 取不到就是 `false`：dev 分区多显示一项的风险，远小于「开发模式下少东西」。
@@ -127,6 +205,10 @@ class _ShellRootState extends State<ShellRoot> {
     _prefs = loadDisplayPrefs();
     _api = ApiClient();
     _commandsApi = CommandsApi();
+    _modelsApi = ModelsApi();
+    _modsApi = ModsApi();
+    _diagApi = DiagnosticsApi();
+    _settings = SettingsController(api: _api);
     _ws = WsClient();
     _audio = AudioPlayer();
     // 静音与音量是纯本机输出设置（不经渲染面）：**默认出声**。
@@ -184,6 +266,10 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_statusSubscription?.cancel());
     unawaited(_eventSubscription?.cancel());
     _ui.dispose();
+    _settings.dispose();
+    _modelsApi.dispose();
+    _modsApi.dispose();
+    _diagApi.dispose();
     _chat.dispose();
     _ws.dispose();
     _audio.dispose();
@@ -200,6 +286,9 @@ class _ShellRootState extends State<ShellRoot> {
       lipSync: _prefs.lipSync,
       idleEnabled: _prefs.idleEnabled,
       mouthSensitivity: _prefs.mouthSensitivity,
+      // 「允许拖动与缩放」下发到渲染面的 `sync.clickEnabled`。
+      clickEnabled: _prefs.allowDragZoom,
+      tier: _prefs.tier,
     );
   }
 
@@ -253,57 +342,353 @@ class _ShellRootState extends State<ShellRoot> {
     ];
   }
 
-  /// 分区内容构建器。P3 只有「动作与互动」是真内容，其余如实说明「还没接上」。
+  // ── 管理面加载（模型 / Mod / 诊断） ───────────────────────────────
+
+  /// 进设置面时懒加载一次。**不放在 initState**：这些数据多数时候用不到，
+  /// 启动就打三个请求是白花钱（也拖慢首屏）。
+  Future<void> _ensureSettingsLoaded() async {
+    if (_settingsLoadedOnce) return;
+    _settingsLoadedOnce = true;
+    await Future.wait<void>(<Future<void>>[
+      _settings.load(),
+      _loadAdmin(),
+    ]);
+  }
+
+  Future<void> _loadAdmin() async {
+    setState(() {
+      _adminLoading = true;
+      _adminError = null;
+    });
+    try {
+      final List<ModelInfo> models = await _modelsApi.list();
+      final List<ModInfo> mods = await _modsApi.list();
+      final Map<String, Object?> status = await _diagApi.status();
+      final AppCapabilities caps = await _diagApi.capabilities();
+      if (!mounted) return;
+      setState(() {
+        _models = models;
+        _mods = mods;
+        _status = status;
+        _capabilities = caps;
+        _adminLoading = false;
+      });
+      // 日志只有 dev_mode 才可读——**分开取**，403 不该让整个面板失败。
+      await _loadLogs();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _adminError = e.toString();
+        _adminLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadLogs() async {
+    try {
+      final List<LogLine> lines = await _diagApi.logs(limit: 200);
+      if (!mounted) return;
+      setState(() {
+        _logs = lines;
+        _logsError = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _logs = const <LogLine>[];
+        // 403 dev_mode_required 是**预期**结果，原文照显（不伪装成空日志）。
+        _logsError = e.code == 'dev_mode_required'
+            ? '日志需要服务端以 dev_mode 启动才可读'
+            : e.toString();
+      });
+    }
+  }
+
+  /// 「保存」：走 `SettingsController`，文案由 `apply_status` 决定。
+  Future<void> _saveSettings() async {
+    final SaveOutcome outcome = await _settings.save();
+    if (!mounted) return;
+    setState(() {});
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(outcome.message),
+        backgroundColor: outcome.needsAttention
+            ? AppPalette.warning
+            : null,
+      ),
+    );
+    // 保存的是 dev_mode 时，重新取一次状态（诊断面板要跟着变）。
+    if (outcome.isSuccess) unawaited(_loadLogs());
+  }
+
+  /// 未保存改动的确认框。**三处拦截共用**（换分区 / 关浮层 / 刷新页面）。
+  Future<bool> _confirmDiscard() async {
+    if (!_settings.dirty) return true;
+    final bool? leave = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('有未保存的改动'),
+        content: const Text('离开会丢掉这些改动。要先保存吗？'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('留下'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await _saveSettings();
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop(true);
+              }
+            },
+            child: const Text('保存并离开'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('放弃改动'),
+          ),
+        ],
+      ),
+    );
+    return leave ?? false;
+  }
+
+  /// 连通性自检：结果**内联在字段下方**（不用 toast，一闪而过看不清）。
+  Future<void> _testLlm() async {
+    setState(() => _llmTesting = true);
+    try {
+      final SettingsTestOutcome o = await _api.testLlm();
+      if (!mounted) return;
+      setState(() {
+        _llmTesting = false;
+        _llmTest = o.ok
+            ? 'ok · ${o.latencyMs ?? '?'} ms'
+                '${o.modelEcho == null || o.modelEcho!.isEmpty ? '' : ' · 模型：${o.modelEcho}'}'
+            : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _llmTesting = false;
+        _llmTest = '失败：${e.message}';
+      });
+    }
+  }
+
+  Future<void> _testTts() async {
+    setState(() => _ttsTesting = true);
+    try {
+      final SettingsTestOutcome o = await _api.testTts();
+      if (!mounted) return;
+      setState(() {
+        _ttsTesting = false;
+        _ttsTest = o.ok
+            ? 'ok · ${o.latencyMs ?? '?'} ms'
+            : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _ttsTesting = false;
+        _ttsTest = '失败：${e.message}';
+      });
+    }
+  }
+
+  /// 角色卡导入：**文件读取在组合根**（`dart:html`/`package:web` 只能在这里）。
+  Future<void> _pickPersonaCard() async {
+    final Uint8List? bytes = await pickLocalFile();
+    if (bytes == null || !mounted) return;
+    final ({String message, bool failed}) r = applyPersonaImport(
+      controller: _settings,
+      bytes: bytes,
+    );
+    setState(() {
+      _importMessage = r.message;
+      _importFailed = r.failed;
+    });
+  }
+
+  Future<void> _activateModel(String id) async {
+    setState(() => _busyId = id);
+    try {
+      final ActivateResult r = await _modelsApi.activate(id);
+      if (!mounted) return;
+      setState(() {
+        _busyId = null;
+        // **如实上报 requires_restart**：不谎报「已生效」。
+        _actionMessage = r.requiresRestart
+            ? '已切换到 ${r.activeId}，**需重启服务端**才生效'
+            : '已切换到 ${r.activeId}';
+      });
+      await _loadAdmin();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busyId = null;
+        _actionMessage = '激活失败：${e.message}';
+      });
+    }
+  }
+
+  Future<void> _toggleMod(String id, bool enabled) async {
+    setState(() => _busyId = id);
+    try {
+      await _modsApi.setEnabled(id, enabled);
+      if (!mounted) return;
+      setState(() {
+        _busyId = null;
+        _actionMessage = '${enabled ? '已启用' : '已停用'} $id';
+      });
+      await _loadAdmin();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busyId = null;
+        _actionMessage = '操作失败：${e.message}';
+      });
+    }
+  }
+
+  Future<void> _copyDiagnostics(DiagnosticsSnapshot snapshot) async {
+    await copySnapshot(snapshot);
+    if (!mounted) return;
+    setState(() => _copied = true);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (mounted) setState(() => _copied = false);
+  }
+
+  /// 分区内容构建器：8 个分区各自的 pane。
   Widget _buildSection(BuildContext context, SettingsSection section) {
-    switch (section) {
-      case SettingsSection.actions:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    // 未加载出来时先显示骨架，而不是一个空面板让人以为坏了。
+    if (!_settings.loaded && _settings.loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 64),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final SettingsView? view = _settings.remote;
+    if (view == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Column(
           children: <Widget>[
-            const SectionHeader(
-              title: '舞台与口型',
-              description: '这些参数只影响本机显示，实时下发到渲染面。',
+            Text('读不到服务端设置', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Text(
+              _settings.error ?? '未知原因',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-            DisplayPanel(
-              prefs: _prefs,
-              onChanged: _updatePrefs,
-              showHeader: false,
-            ),
-            const Divider(),
-            const SectionHeader(
-              title: '动作记录',
-              description: '谁触发的动作会记在这里——你点的、还是 AI 自己做的。',
-            ),
-            SizedBox(
-              height: 320,
-              child: ListenableBuilder(
-                listenable: _chat.actionLog,
-                builder: (BuildContext context, Widget? _) => ActionHistoryView(
-                  entries: _chat.actionLog.entries,
-                  current: _chat.actionLog.current,
-                  droppedCount: _chat.actionLog.droppedCount,
-                  onClear: _chat.actionLog.clear,
-                ),
-              ),
+            const SizedBox(height: 12),
+            FilledButton.tonal(
+              onPressed: () => unawaited(_settings.load()),
+              child: const Text('重试'),
             ),
           ],
-        );
-      case SettingsSection.persona:
-      case SettingsSection.models:
-      case SettingsSection.llm:
-      case SettingsSection.tts:
-      case SettingsSection.mods:
-      case SettingsSection.diagnostics:
-      case SettingsSection.developer:
-        return SettingsPendingPane(section: section);
+        ),
+      );
     }
+
+    switch (section) {
+      case SettingsSection.persona:
+        return PersonaSection(
+          controller: _settings,
+          view: view,
+          devMode: _devMode,
+          importMessage: _importMessage,
+          importFailed: _importFailed,
+          onImport: (_) => unawaited(_pickPersonaCard()),
+        );
+      case SettingsSection.models:
+        return ModelsSection(
+          models: _models,
+          loading: _adminLoading,
+          error: _adminError,
+          devMode: _devMode,
+          busyId: _busyId,
+          activateMessage: _actionMessage,
+          onActivate: _activateModel,
+          onReload: _loadAdmin,
+        );
+      case SettingsSection.llm:
+        return LlmSection(
+          controller: _settings,
+          view: view,
+          devMode: _devMode,
+          onTest: _testLlm,
+          testResult: _llmTest,
+          testing: _llmTesting,
+        );
+      case SettingsSection.tts:
+        return TtsSection(
+          controller: _settings,
+          view: view,
+          devMode: _devMode,
+          serverMuted: _serverMuted,
+          onTest: _testTts,
+          testResult: _ttsTest,
+          testing: _ttsTesting,
+        );
+      case SettingsSection.actions:
+        return ActionsSection(
+          prefs: _prefs,
+          onPrefsChanged: _updatePrefs,
+          actionLog: _chat.actionLog,
+          devMode: _devMode,
+        );
+      case SettingsSection.mods:
+        return ModsSection(
+          mods: _mods,
+          loading: _adminLoading,
+          error: _adminError,
+          busyId: _busyId,
+          onToggle: _toggleMod,
+          onReload: _loadAdmin,
+        );
+      case SettingsSection.diagnostics:
+        return DiagnosticsSection(
+          status: _status,
+          capabilities: _capabilities,
+          wsStatusLabel: _ui.wsStatus.description,
+          logs: _logs,
+          logsError: _logsError,
+          devMode: _devMode,
+          copied: _copied,
+          onReload: _loadAdmin,
+          onCopy: _copyDiagnostics,
+        );
+      case SettingsSection.developer:
+        return DeveloperSection(
+          devMode: _devMode,
+          // dev_mode 走设置草稿（顶层三态），保存后才写盘。
+          onDevModeChanged: (bool v) => _settings.edit(
+            (SettingsDraft d) => d.devMode = v,
+          ),
+          // 启动参数强制开启时**不谎报可关**。
+          forcedByLaunchFlag: false,
+        );
+    }
+  }
+
+  /// 打开设置前的兜底：**懒加载一次**。
+  void _onSectionChanged(SettingsSection next) {
+    setState(() => _section = next);
+    unawaited(_ensureSettingsLoaded());
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       // 三处都并进来：聊天（消息/错误）、相位、音频解锁状态。
-      listenable: Listenable.merge(<Listenable>[_chat, _ui, _audio.unlockState]),
+      listenable: Listenable.merge(<Listenable>[
+        _chat,
+        _ui,
+        _audio.unlockState,
+        _settings,
+      ]),
       builder: (BuildContext context, Widget? _) {
         return AppShell(
           stage: Live2DStage(
@@ -340,10 +725,19 @@ class _ShellRootState extends State<ShellRoot> {
           onRetryLast: () => unawaited(_send()),
           sections: visibleSections(devMode: _devMode),
           section: _section,
-          onSectionChanged: (SettingsSection next) =>
-              setState(() => _section = next),
+          onSectionChanged: _onSectionChanged,
           sectionBuilder: _buildSection,
           devMode: _devMode,
+          // ── 设置草稿的生命周期（外壳只呈现与拦截，状态在 SettingsController） ──
+          settingsDirty: _settings.dirty,
+          settingsSaving: _settings.saving,
+          settingsStatus: _settings.error ?? _settings.lastOutcome?.message,
+          settingsStatusIsError:
+              _settings.error != null ||
+              _settings.lastOutcome == SaveOutcome.failed,
+          onSaveSettings: () => unawaited(_saveSettings()),
+          onDiscardSettings: _settings.discard,
+          confirmDiscard: _confirmDiscard,
         );
       },
     );

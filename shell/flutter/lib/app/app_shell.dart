@@ -30,6 +30,8 @@
 /// **Esc / 侧板右上角 ✕ / 再点一次 rail 上的同一个分区（切换语义）**。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -74,6 +76,13 @@ class AppShell extends StatefulWidget {
     this.onUserGesture,
     this.onRetryLast,
     this.devMode = false,
+    this.settingsDirty = false,
+    this.settingsSaving = false,
+    this.settingsStatus,
+    this.settingsStatusIsError = false,
+    this.onSaveSettings,
+    this.onDiscardSettings,
+    this.confirmDiscard,
     super.key,
   });
 
@@ -117,6 +126,25 @@ class AppShell extends StatefulWidget {
   sectionBuilder;
 
   final bool devMode;
+
+  // ── 设置草稿的生命周期（外壳只负责**呈现与拦截**，不持有状态） ──
+  //
+  // 状态在 `SettingsController` 里；外壳拿到的只是「dirty 吗 / 在保存吗 /
+  // 上次结果是什么」。这样外壳保持可测（不需要造一个真的 ApiClient）。
+
+  /// 有没有未保存的改动。
+  final bool settingsDirty;
+  final bool settingsSaving;
+
+  /// 上次保存的结果文案（已按 `apply_status` 分流）。
+  final String? settingsStatus;
+  final bool settingsStatusIsError;
+
+  final VoidCallback? onSaveSettings;
+  final VoidCallback? onDiscardSettings;
+
+  /// **三处拦截**的统一问询：返回 `true` = 可以离开（用户选择放弃）。
+  final Future<bool> Function()? confirmDiscard;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -206,7 +234,7 @@ class AppShellState extends State<AppShell> {
         selected: sectionNotifier.value,
       );
       if (!mounted) return;
-      if (picked != null) _select(picked);
+      if (picked != null) _selectGuarded(picked);
     }
     if (!mounted) return;
 
@@ -229,13 +257,32 @@ class AppShellState extends State<AppShell> {
             SettingsScaffold(
               sections: widget.sections,
               selected: section,
-              onSelect: _select,
+              // 换分区也要过拦截（「离开分区」是规格 §4.3 的三处拦截之一）。
+              onSelect: _selectGuarded,
               onClose: onClose,
+              dirty: widget.settingsDirty,
+              saving: widget.settingsSaving,
+              onSave: widget.onSaveSettings,
+              onDiscard: widget.onDiscardSettings,
+              statusMessage: widget.settingsStatus,
+              statusIsError: widget.settingsStatusIsError,
               child:
                   widget.sectionBuilder?.call(context, section) ??
                   SettingsPendingPane(section: section),
             ),
       );
+
+  /// 换分区前先过草稿拦截。
+  void _selectGuarded(SettingsSection next) {
+    final Future<bool> Function()? ask = widget.confirmDiscard;
+    if (ask == null || next == sectionNotifier.value) {
+      _select(next);
+      return;
+    }
+    unawaited(() async {
+      if (await ask()) _select(next);
+    }());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -354,7 +401,7 @@ class AppShellState extends State<AppShell> {
                   final SettingsSection picked = SettingsSection.byIndex(index);
                   // 已选中同一个分区且侧板开着 → 收起（切换语义）。
                   final bool toggle = picked == current;
-                  if (picked != current) _select(picked);
+                  if (picked != current) _selectGuarded(picked);
                   openSettings(sizeClass: sizeClass, toggle: toggle);
                 },
                 destinations: <NavigationRailDestination>[

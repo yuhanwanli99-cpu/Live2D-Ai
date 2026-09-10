@@ -14,6 +14,8 @@ class DisplayPrefs {
     this.idleEnabled = true,
     this.muted = false,
     this.volume = defaultVolume,
+    this.allowDragZoom = true,
+    this.tier = defaultTier,
   });
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
@@ -46,6 +48,27 @@ class DisplayPrefs {
   /// 滑杆位置到线性增益是**非线性**换算（感知压缩），见 `audio/gain.dart`。
   final double volume;
 
+  /// 是否允许**拖动与滚轮缩放**模型（渲染面协议 `sync.clickEnabled`）。
+  ///
+  /// # 文案必须是「允许拖动与缩放」，不是「点击互动」
+  ///
+  /// 这个开关在渲染面关掉的是**拖拽 / 滚轮 / 双击复位**，与「点击角色有没有
+  /// 反应」无关。同类项目里就因为把它叫成「点击互动」而让用户以为点角色会
+  /// 没反应（调研 control §9-7）。默认 `true`（保持既有手感）。
+  final bool allowDragZoom;
+
+  /// 渲染档位（4096 / 8192 / 16384）。
+  ///
+  /// **只在开发者模式里暴露**：它是性能与画质的权衡，需要档位知识
+  /// （规格 §4.1.5 的 A 组把它列为 dev）。
+  final int tier;
+
+  /// 默认档位。
+  static const int defaultTier = 8192;
+
+  /// 合法档位（**唯一真源**，下拉/分段与 clamp 都读它）。
+  static const List<int> tiers = <int>[4096, 8192, 16384];
+
   /// 主音量默认值与区间。
   static const double defaultVolume = 1.0;
   static const double minVolume = 0.0;
@@ -70,6 +93,8 @@ class DisplayPrefs {
     bool? idleEnabled,
     bool? muted,
     double? volume,
+    bool? allowDragZoom,
+    int? tier,
   }) {
     return DisplayPrefs(
       scale: scale ?? this.scale,
@@ -78,6 +103,8 @@ class DisplayPrefs {
       idleEnabled: idleEnabled ?? this.idleEnabled,
       muted: muted ?? this.muted,
       volume: volume ?? this.volume,
+      allowDragZoom: allowDragZoom ?? this.allowDragZoom,
+      tier: tier ?? this.tier,
     );
   }
 
@@ -89,6 +116,8 @@ class DisplayPrefs {
     'idleEnabled': idleEnabled,
     'muted': muted,
     'volume': volume,
+    'allowDragZoom': allowDragZoom,
+    'tier': tier,
   };
 
   /// 反序列化：**永不抛异常**。
@@ -106,6 +135,9 @@ class DisplayPrefs {
       idleEnabled: _readBool(json['idleEnabled'], true),
       muted: _readBool(json['muted'], false),
       volume: clampVolume(_readDouble(json['volume'], defaultVolume)),
+      // 旧存档没有这两个字段 → 用新默认值（不是 false/0）。
+      allowDragZoom: _readBool(json['allowDragZoom'], true),
+      tier: clampTier(_readInt(json['tier'], defaultTier)),
     );
   }
 
@@ -138,6 +170,10 @@ class DisplayPrefs {
   static bool _readBool(Object? raw, bool fallback) =>
       raw is bool ? raw : fallback;
 
+  /// 读 int（非数字回落默认）。
+  static int _readInt(Object? raw, int fallback) =>
+      raw is num ? raw.toInt() : fallback;
+
   @override
   bool operator ==(Object other) =>
       other is DisplayPrefs &&
@@ -146,15 +182,42 @@ class DisplayPrefs {
       other.lipSync == lipSync &&
       other.idleEnabled == idleEnabled &&
       other.muted == muted &&
-      other.volume == volume;
+      other.volume == volume &&
+      other.allowDragZoom == allowDragZoom &&
+      other.tier == tier;
 
   @override
-  int get hashCode =>
-      Object.hash(scale, mouthSensitivity, lipSync, idleEnabled, muted, volume);
+  int get hashCode => Object.hash(
+    scale,
+    mouthSensitivity,
+    lipSync,
+    idleEnabled,
+    muted,
+    volume,
+    allowDragZoom,
+    tier,
+  );
 
   @override
   String toString() =>
       'DisplayPrefs(scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
-      'volume: $volume)';
+      'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier)';
+}
+
+/// 把档位夹到 [DisplayPrefs.tiers] 里的**最近合法值**。
+///
+/// 不是简单把区间夹住：`10000` 落在 8192 与 16384 之间，夹成区间边界会得到
+/// 一个渲染面根本不认识的档位。取最近合法档位才是「宽容但正确」。
+int clampTier(int value) {
+  int best = DisplayPrefs.tiers.first;
+  int bestDistance = (value - best).abs();
+  for (final int tier in DisplayPrefs.tiers) {
+    final int distance = (value - tier).abs();
+    if (distance < bestDistance) {
+      best = tier;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }

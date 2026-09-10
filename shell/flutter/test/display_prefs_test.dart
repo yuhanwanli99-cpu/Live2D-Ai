@@ -200,4 +200,70 @@ void main() {
       expect(DisplayPrefs.maxMouthSensitivity, lessThanOrEqualTo(4.0));
     });
   });
+
+  _p4NewFieldsTests();
+}
+
+void _p4NewFieldsTests() {
+  group('P4 新增字段：allowDragZoom 与 tier', () {
+    test('默认值：允许拖动缩放 = true，档位 = 8192', () {
+      const DisplayPrefs p = DisplayPrefs();
+      expect(p.allowDragZoom, isTrue, reason: '保持既有手感，默认允许');
+      expect(p.tier, 8192);
+      expect(DisplayPrefs.tiers, <int>[4096, 8192, 16384]);
+    });
+
+    test('旧存档（没有这两个字段）→ 按新默认读，而不是 false/0', () {
+      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
+        'scale': 1.2,
+        'volume': 0.5,
+      });
+      expect(p.allowDragZoom, isTrue);
+      expect(p.tier, DisplayPrefs.defaultTier);
+      expect(p.scale, 1.2);
+    });
+
+    test('tier 夹到**最近合法档位**（不是区间边界）', () {
+      // 不是简单 clamp：10000 更接近 8192。
+      expect(clampTier(10000), 8192);
+      // 中点 12288：12000 距 8192 更近（3808 < 4384），13000 距 16384 更近。
+      expect(clampTier(12000), 8192, reason: '12000 距 8192 更近');
+      expect(clampTier(13000), 16384, reason: '13000 距 16384 更近');
+      expect(clampTier(1), 4096);
+      expect(clampTier(999999), 16384);
+      expect(clampTier(8192), 8192);
+      expect(DisplayPrefs.fromJson(<String, Object?>{'tier': 10000}).tier, 8192);
+      expect(DisplayPrefs.fromJson(<String, Object?>{'tier': 'x'}).tier, 8192);
+    });
+
+    test('copyWith 能单独改这两个字段，且互不影响', () {
+      const DisplayPrefs p = DisplayPrefs();
+      final DisplayPrefs a = p.copyWith(allowDragZoom: false);
+      expect(a.allowDragZoom, isFalse);
+      expect(a.tier, p.tier);
+      final DisplayPrefs b = p.copyWith(tier: 4096);
+      expect(b.tier, 4096);
+      expect(b.allowDragZoom, isTrue);
+    });
+
+    test('往返幂等', () {
+      final DisplayPrefs p = const DisplayPrefs()
+          .copyWith(allowDragZoom: false, tier: 16384);
+      expect(DisplayPrefs.fromJson(p.toJson()), p);
+    });
+
+    // 这一条是「静默失效」的钉子：`AppShell` 的 `_updatePrefs` 用
+    // `next == _prefs` 做短路，**漏字段就等于改了不生效**。
+    test('== 与 hashCode 覆盖了新字段（漏了就会「改了不生效」）', () {
+      const DisplayPrefs base = DisplayPrefs();
+      expect(base == base.copyWith(allowDragZoom: false), isFalse);
+      expect(base == base.copyWith(tier: 4096), isFalse);
+      expect(
+        base.copyWith(allowDragZoom: false).hashCode == base.hashCode,
+        isFalse,
+      );
+      expect(base.copyWith(tier: 4096).hashCode == base.hashCode, isFalse);
+      expect(base == base.copyWith(), isTrue);
+    });
+  });
 }

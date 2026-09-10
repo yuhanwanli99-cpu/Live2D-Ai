@@ -1,3 +1,96 @@
+# v0.4.9 — P4 设置全量：草稿/三态拦截 + 8 个分区 + 角色卡导入（前端 324 → 441）
+
+## 两个**能力缺口**：规格要求了，但前端根本表达不出来
+
+1. **`apply_status` 没被解析**。规格 §4.4 明确「必须消费 `apply_status`」，否则会出现
+   「提示已热重载但实际 503」的错位——用户按提示发消息却收不到回复。
+   但 `SettingsPatchResult` **没有这个字段**。
+2. **「清除密钥绑定」在前端不可达**。§4.3 的表格里写着
+   `{"llm":{"clear_api_key": true}}`，可 `LlmSettingsPatch`/`TtsSettingsPatch`
+   **都没有 `clearApiKey`**——就算硬编码也构造不出那个 JSON。
+
+都补上了。第二条实测走通（**验证后已用快照逐字节还原配置**）：
+
+```
+PATCH {"llm":{"clear_api_key":true}} → persisted:true, apply_status:applied
+GET  → "has_api_key": false，配置文件里的 api_key_env 行消失
+```
+
+只发 `clear_api_key: true`，不额外塞 `api_key_env: null`——服务端的
+`inject_clear_key_flag` 规则 1 已经负责注入字段级清除；两套机制表达同一件事，
+将来语义漂移时没人知道该信哪个。
+
+## 新增
+
+- `settings/settings_controller.dart`：**改动集**草稿（不是完整副本）+ dirty +
+  `save`/`discard` + `apply_status` 分流 + `confirmLeave`（三处拦截的统一入口）。
+  `pruneAgainstRemote` 让 dirty 与「用户是否真的改了值」一致，而不是
+  「是否碰过控件」——否则「点开又改回去」会永久显示「未保存」，用户只能靠
+  保存一次来消掉这行提示。
+- `ui/field_row.dart`：`SliderField`/`ToggleField`/`TextFieldRow`/`NumberField`/
+  `SegmentedField`/`DropdownField`/`ReadonlyField`/`FieldActionRow`，
+  统一「图标 + 标签 + 控件 + 帮助 + **语义值** + **错误槽**」。
+- `settings/persona_card.dart` + `settings/persona_import.dart`：酒馆角色卡导入，
+  支持 **V1 扁平 / V2 嵌套 JSON** 与 **PNG 内嵌 `tEXt`/`chara`**。
+  **零新依赖**（手写 PNG 分块，只读不解码像素）。
+- `api/models_api.dart` + `api/mods_api.dart` + `api/diagnostics_api.dart` 与
+  8 个分区 pane。
+- `SettingsScaffold` 的草稿生命周期 UI：**「未保存」Pill** + 保存/放弃操作条 +
+  保存结果行（按 `apply_status` 分流）。规格指出这项现状**完全缺失**。
+- `DisplayPrefs` 新增 `allowDragZoom` 与 `tier`，并把前者下发到渲染面的
+  `sync.clickEnabled`。
+
+## 四条**刻意的设计决定**
+
+1. **只读值用文本，不用禁用输入框**——禁用输入框会让用户以为「本来能改，现在不能」。
+2. **`FieldRow` 拆成一组小 widget，不写泛型大 widget**：第一版 `FieldRow<T>` 带 6 个
+   具名构造，编译器报了 **19 个错**（`T` 不能用在常量列表、每个构造要初始化用不到的
+   字段、回调要 `as dynamic` 强转）。拆开后类型是真类型。
+3. **「动作试演」留到 P5，不占位假装有**——它需要 core 的动作通道。
+4. **不内置任何预设角色卡**（用户明确要求）。
+
+## 三条**诚实记录**
+
+1. **PNG 的 `iTXt` 压缩分支不支持**：需要 zlib 解压，Web 上 `dart:io` 的
+   `ZLibCodec` 不可用，为这一个分支引 `package:archive` 不值得 → **如实报错**，
+   不返回半个卡。
+2. **前端比裸 HTTP 更保守**：`max_tokens` 的「省略」与「显式 512」在服务端是
+   不同存储状态（`None` vs `Some(512)`）。实测手工发 `{"llm":{"max_tokens":512}}`
+   会 `persisted:true` 并**改写配置文件**；前端走 `edit()` 时不会——
+   `pruneAgainstRemote` 会把「与远端生效值相同」的字段撤回。**能不动用户的文件就不动。**
+3. **服务端缺陷（已确认、本轮不修）**：外部修改 `live2d-ai.toml` 后，文件监听只
+   `supervisor.reload()`，**不刷新 `StatusContext.settings`** → `GET /api/v1/settings`
+   与 `app/status` 长期返回旧值，直到有人发一次 PATCH。实测：把 model 改成
+   `stale-probe-model` 并等 reload 成功后，两个端点仍报 `deepseek-flash`。
+   后果是「supervisor 用新配置、界面显示旧配置」——**界面在说谎**，而前端做不到
+   修复（不能靠偷偷发 PATCH 去刷新，那会改写用户文件）。已记进规格 §13.7-⑦。
+
+## 一个必须同时改两处的地方（静默失效）
+
+`allowDragZoom` / `tier` 必须同时进 `DisplayPrefs` 的 `==` 与 `hashCode`：
+`AppShell._updatePrefs` 用 `if (next == _prefs) return;` 短路，**漏字段 =
+「改了不生效」，且界面上完全看不出来**。加了一条专门的钉子测试。
+
+## 测试（前端 324 → **441**）
+
+- `settings_controller_test.dart`（30 条）：dirty 与键序无关 / `Tri.keep` 不计 dirty /
+  改回原值不算改 / 只改一个字段不误伤同段其它字段 / `apply_status` 四种取值分流 /
+  未识别取值**不谎报已生效** / 缺字段按需重启 / 失败保留草稿 / 400 的
+  `url_invalid` 与 `invalid_env_name` 可分辨 / 超时 / GET-PATCH 乱序 / 三处拦截。
+- `field_row_test.dart`（20 条）：语义值、越界数字**不回调**、
+  **用户正在编辑时外部回填不打断光标**、错误槽内联、分段按钮 >5 项被断言拦下。
+- `persona_import_test.dart`（16 条）：**真实 PNG 字节**（747 B，Python zlib+CRC 生成，
+  内嵌 V2 卡）走通解析；V1/V2/字段类型不对/缺 data/坏 JSON/截断 PNG/base64 损坏。
+- `admin_api_test.dart`（15 条）：真实抓包的 models/mods/capabilities/status 夹具；
+  `logs` 的 403 `dev_mode_required` **抛结构化错误而不是空列表**。
+- `settings_scaffold_test.dart`（11 条）+ `settings_sections_test.dart`（13 条）。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **441 通过 / 0 失败**；
+`flutter build web --release --base-href /app/ --no-web-resources-cdn` 通过（无 CDN 引用）。
+Rust 侧未改动：fmt/clippy 干净、815 通过 / 0 失败、doctest 3、`rust-ratio` PASS。
+
 # v0.4.8 — P3 外壳骨架：三档布局 + 舞台保活 + 常驻状态元件（前端 217 → 324）
 
 ## 缺陷：舞台会被重建
