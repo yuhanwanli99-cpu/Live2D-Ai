@@ -30,6 +30,23 @@
 //! 浏览器实跑步骤（`trunk serve --release` 与模型静态目录挂载要求）见本 crate
 //! README。Bai 资产**不复制**进本 crate 或任何公共包。
 
+/// 口型开合量换算（**平台无关**：原生与 wasm 都编译，故原生 `cargo test` 可回归）。
+///
+/// 刻意**不**放在 [`web`] 里——那会被 `#[cfg(target_arch = "wasm32")]` 挡在
+/// 原生测试之外，等于没有回归（2026-09-10 实测踩到）。
+///
+/// 原生 target 下本模块只被 `#[cfg(test)]` 使用（渲染逻辑全在 wasm-only 的
+/// [`web`] 里），因此对非 wasm 放宽 `dead_code`——wasm 下仍按常规检查。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod mouth;
+
+/// 参数语义值 → 模型值换算（同样**平台无关**，原生可回归）。
+///
+/// 修的是「关键帧被原样写入 ±30 量程的头部角度参数 → 动作幅度只有 1.8%、
+/// 肉眼不可见」这个真实缺陷，详见模块头注。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod param_scale;
+
 fn main() {
     // wasm32：真实入口。
     #[cfg(target_arch = "wasm32")]
@@ -303,6 +320,13 @@ mod web {
                         }
                         if let Some(l) = payload.get("lipSync").and_then(|x| x.as_bool()) {
                             st.bridge.lip_sync = l;
+                        }
+                        // 口型灵敏度（0..=MAX）：非法/越界值 clamp，不拒绝整条消息。
+                        if let Some(s) = payload.get("mouthSensitivity").and_then(|x| x.as_f64())
+                            && s.is_finite()
+                        {
+                            st.bridge.mouth_sensitivity =
+                                (s as f32).clamp(0.0, crate::mouth::MAX_MOUTH_SENSITIVITY);
                         }
                         if let Some(id) = payload.get("idleEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.idle_enabled = id;

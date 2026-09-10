@@ -25,6 +25,9 @@ use web_sys::{HtmlCanvasElement, Window};
 
 use super::status;
 use crate::web::net::js_str;
+// 口型换算放在**平台无关**的 `crate::mouth`（原生 `cargo test` 可回归；
+// 若留在本模块会被 wasm32 cfg 挡在原生测试之外）。
+use crate::mouth::{DEFAULT_MOUTH_SENSITIVITY, mouth_open_from_level};
 
 /// HUD 统计窗口长度（ms）。500ms 刷新一次 DOM，远低于每帧刷屏成本；
 /// 同时能覆盖足够多的帧样本估出稳定 FPS。
@@ -32,10 +35,12 @@ const HUD_INTERVAL_MS: f64 = 500.0;
 
 /// 口型音量显示衰减时间常数（ms）。
 /// `volume_display *= exp(-dt_ms / TAU_MS)` —— 衰减到 37% 需时 TAU_MS。
-/// 160ms 使普通语速下的音节尖端自然衰落，避免高帧率（240fps）下口型
-/// 死板硬扣音量峰值。该时间常数与帧率无关：60fps 与 240fps 分别给出
-/// `exp(-16.67/160)≈0.902` 与 `exp(-4.17/160)≈0.974`，总衰减速率一致。
-const TAU_MS: f64 = 160.0;
+///
+/// **2026-09-10 由 160 调至 90**：dB 映射后口型幅度已经够大，160ms 的慢衰减会把
+/// 快速连续音节糊成一片（嘴一直张着不闭合）。90ms 让每个音节的「开—合」都看得见。
+/// 该时间常数与帧率无关：60fps 与 240fps 分别给出 `exp(-16.67/90)≈0.831` 与
+/// `exp(-4.17/90)≈0.955`，总衰减速率一致。
+const TAU_MS: f64 = 90.0;
 
 /// 创建 Canvas surface 并协商设备/格式/尺寸（WebGPU 优先，WebGL2 回退）。
 ///
@@ -207,6 +212,11 @@ pub(crate) struct BridgeState {
     pub applied_dark: bool,
     /// stage-config.lipSync（口型开关，默认 true）
     pub lip_sync: bool,
+    /// stage-config.mouthSensitivity（口型灵敏度，默认 1.0）。
+    ///
+    /// 乘在 [`mouth_open_from_level`] 的 dB 映射结果上；`1.0` 即「实测真实语音
+    /// 的 p90 约开到 0.58」的标定值。范围由 `stage-config` 侧 clamp 到 `[0,4]`。
+    pub mouth_sensitivity: f32,
     /// stage-config.idleEnabled（空闲随机动作开关，默认 true；false 时跳过
     /// 呼吸/眨眼/微表情等 idle 生命体征层，模型静止）。
     pub idle_enabled: bool,
@@ -257,6 +267,7 @@ impl Default for BridgeState {
             dark: true,
             applied_dark: false,
             lip_sync: true,
+            mouth_sensitivity: DEFAULT_MOUTH_SENSITIVITY,
             idle_enabled: true,
             click_enabled: true,
             tier: RenderTier::DEFAULT,
@@ -976,6 +987,15 @@ fn blend(
 /// 纯函数：给定动作名 + 已过毫秒 `elapsed_ms` + 强度倍率 `strength_mult`，
 /// 返回该时刻所有应写入 final_override 的 `(id, value)` 列表。
 ///
+/// **返回值是「模型域」值**（已按各参数量程换算），可直接 `override_parameter`。
+/// 编舞表 `CHOREOGRAPHY` 里存的是**语义域**值（`-1..1`，0 = 默认位）；
+/// 换算由 [`crate::param_scale::semantic_to_param`] 完成并在本函数出口统一应用——
+/// 放在出口而不是调用点，是为了让「忘了换算」在结构上不可能发生。
+///
+/// 历史缺陷（2026-09-10 修复）：早期直接把语义值原样写进模型，而 Bai 的
+/// `ParamAngleX/Y/Z` 量程是 ±30，导致 nod 只有 0.55 度（约目标的 1.8%），
+/// 动作肉眼不可见。回归测试见 `crate::param_scale` 的单测（原生可跑）。
+///
 /// 抽出为纯函数以便 `#[cfg(test)]` 在 native target 下无 web_sys 依赖即可验证。
 /// 与 `apply_bridge_effects` 中实时计算保持一致（单一真实来源）。
 ///
@@ -988,6 +1008,14 @@ pub(crate) fn action_frames(
     elapsed_ms: f32,
     strength_mult: f32,
 ) -> Vec<(&'static str, f32)> {
+    semantic_frames(name, elapsed_ms, strength_mult)
+        .into_iter()
+        .map(|(id, semantic)| (id, crate::param_scale::semantic_to_param(id, semantic)))
+        .collect()
+}
+
+/// [`action_frames`] 的**语义域**内核（未换算量程，便于与 py 版逐值对照）。
+fn semantic_frames(name: &str, elapsed_ms: f32, strength_mult: f32) -> Vec<(&'static str, f32)> {
     // 找动作。
     let frames = match CHOREOGRAPHY.iter().find(|(n, _)| str_eq(n, name)) {
         Some((_, f)) => *f,
@@ -1048,7 +1076,7 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         .map(|p| p.now())
         .unwrap_or(0.0);
     // 先 immutable borrow：dt 归一化口型衰减、判定动画是否结束、取出 clone 值。
-    let (apply_mouth, apply_action, scale, offset_x, offset_y, _dark) = {
+    let (apply_mouth, apply_mouth_sensitivity, apply_action, scale, offset_x, offset_y, _dark) = {
         let mut st = state.borrow_mut();
         // 口型衰减（dt 归一化）：volume_display *= exp(-dt_ms / TAU_MS)
         // 再取 max(volume, ...) 保持峰值不掉落。
@@ -1069,6 +1097,7 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         }
         (
             st.bridge.lip_sync.then(|| st.bridge.volume_display),
+            st.bridge.mouth_sensitivity,
             st.bridge.action.clone(),
             st.bridge.scale,
             st.bridge.offset_x,
@@ -1079,8 +1108,15 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
 
     let mut st = state.borrow_mut();
 
-    // 口型（lip_sync on 且 volume>0.01）：ParamMouthOpenY；静音写 0 收口。
-    let mouth = apply_mouth.filter(|v| *v > 0.01).unwrap_or(0.0);
+    // 口型：线性 RMS → dB 映射 → ParamMouthOpenY。
+    //
+    // **2026-09-10 修复**：旧实现把原始 RMS 直接写进参数（且只在 >0.01 时写），
+    // 实测真实语音 RMS 中位数仅 ~0.03 → 嘴几乎不动。dB 映射见
+    // [`mouth_open_from_level`]；静音（低于 -36 dBFS）自然归零，故不再需要
+    // 旧的门限过滤（那个门限还会让轻声段落整段闭嘴）。
+    let mouth = apply_mouth.map_or(0.0, |raw| {
+        mouth_open_from_level(raw, apply_mouth_sensitivity)
+    });
     let _ = st.core.set_parameter("ParamMouthOpenY", mouth);
 
     // 动作参数等效动画（override 层最高优先级）。
@@ -1432,33 +1468,60 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
 mod tests {
     use super::*;
 
-    /// nod 在 elapsed=0 时 ParamAngleY 应等于 -0.55 × 倍率（首帧持值）。
+    /// **语义域内核**与 py `choreography.ts` 逐值对齐（未换算量程）。
+    ///
+    /// 单独测这一层：换算是 [`action_frames`] 出口统一做的，两者分开才看得清
+    /// 「编舞数值是否照抄正确」与「量程换算是否正确」。
     #[test]
-    fn nod_start_value() {
-        let params = action_frames("nod", 0.0, 1.0);
+    fn nod_semantic_kernel_matches_py_choreography() {
+        let params = semantic_frames("nod", 0.0, 1.0);
         assert_eq!(params.len(), 1, "nod 应驱动恰好一个参数");
         assert_eq!(params[0].0, "ParamAngleY");
         assert!(
             (params[0].1 - (-0.55)).abs() < 1e-5,
-            "t=0 时 nod 应为 -0.55"
+            "语义域 t=0 时 nod 应为 -0.55"
+        );
+    }
+
+    /// **回归（2026-09-10）**：`action_frames` 出口必须换算到模型量程。
+    ///
+    /// 历史缺陷：语义值被原样写入 ±30 量程的 `ParamAngleY` → 只有 0.55 度，
+    /// 动作肉眼不可见。
+    #[test]
+    fn nod_start_value_is_in_model_domain() {
+        let params = action_frames("nod", 0.0, 1.0);
+        assert_eq!(params.len(), 1, "nod 应驱动恰好一个参数");
+        assert_eq!(params[0].0, "ParamAngleY");
+        let expected = -0.55 * crate::param_scale::HEAD_ANGLE_SCALE;
+        assert!(
+            (params[0].1 - expected).abs() < 1e-4,
+            "t=0 时 nod 应为 {expected} 度（模型域），实际 {}",
+            params[0].1
+        );
+        // 可见性：幅度必须显著大于「未换算」的旧行为。
+        assert!(
+            params[0].1.abs() > 1.0,
+            "头部动作不足 1 度，肉眼不可见：{}",
+            params[0].1
         );
         let weak = action_frames("nod", 0.0, 0.6);
         assert!(
-            (weak[0].1 - (-0.55 * 0.6)).abs() < 1e-5,
+            (weak[0].1 - (expected * 0.6)).abs() < 1e-4,
             "强度 0.6 应缩放值"
         );
     }
 
-    /// nod 在关键帧交界处（elapsed=240ms）应达到 +0.45 × 倍率。
+    /// nod 在关键帧交界处（elapsed=240ms）应达到 +0.45 × 倍率（模型域）。
     /// 区间 [0,240): prev=帧0(-0.55) cur=帧1(+0.45, fade120)；
     /// 于 240ms 进入下一区间 [240,500)：prev=帧1(+0.45) cur=帧2(-0.50)
     /// fade_start=500-120=380 → 240<380 → s=0 → 取 prev +0.45。
     #[test]
     fn nod_at_keyframe_boundary() {
         let params = action_frames("nod", 240.0, 1.0);
+        let expected = 0.45 * crate::param_scale::HEAD_ANGLE_SCALE;
         assert!(
-            (params[0].1 - 0.45).abs() < 1e-5,
-            "elapsed=240 时 nod 应为 +0.45"
+            (params[0].1 - expected).abs() < 1e-4,
+            "elapsed=240 时 nod 应为 +{expected} 度"
         );
     }
 
@@ -1514,10 +1577,11 @@ mod tests {
     /// 强度倍率 m 正比缩放所有参数值。
     #[test]
     fn strength_scales_values() {
+        let base = -0.55 * crate::param_scale::HEAD_ANGLE_SCALE;
         let weak = action_frames("nod", 0.0, 0.6);
         let strong = action_frames("nod", 0.0, 1.35);
-        assert!((weak[0].1 - (-0.55 * 0.6)).abs() < 1e-5);
-        assert!((strong[0].1 - (-0.55 * 1.35)).abs() < 1e-5);
+        assert!((weak[0].1 - (base * 0.6)).abs() < 1e-4);
+        assert!((strong[0].1 - (base * 1.35)).abs() < 1e-4);
     }
 
     /// choreoraphy_total_ms 产出正确的末帧时长（at + fade）。
