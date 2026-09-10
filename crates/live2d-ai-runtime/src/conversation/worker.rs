@@ -91,6 +91,29 @@ pub(super) async fn tts_worker(ctx: TtsWorkerCtx, mut rx: mpsc::Receiver<TtsJob>
 
 /// 合成一句话：请求 `/audio/speech` → 增量解码 → 按上限切块发送。
 async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) -> SynthOutcome {
+    // **TTS 未接入（2026-09-10）**：`base_url` 为空 = 本轮未选定 TTS。
+    // 不报错、不阻塞文本流：为空句发一个 `final_chunk`，上层闩锁照常推进。
+    if !ctx.client.tts().is_configured() {
+        let delivered = send_event(
+            &ctx.event_tx,
+            &ctx.cancel,
+            EngineEvent::AudioChunk {
+                epoch: ctx.epoch,
+                ts_ms: ctx.turn_started.elapsed().as_millis() as u64,
+                sentence_seq: job.sentence_seq,
+                samples: Vec::new(),
+                spec,
+                final_chunk: true,
+            },
+        )
+        .await;
+        return if delivered {
+            SynthOutcome::Done
+        } else {
+            SynthOutcome::Cancelled
+        };
+    }
+
     // 格式门禁：本引擎只承诺 pcm（默认配置恒满足；显式改配置则明确报错）。
     if let Err(e) =
         crate::audio::ensure_supported_format(ctx.client.tts().response_format.as_deref())
@@ -105,6 +128,18 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
             Err(e) => return SynthOutcome::Failed(ErrorKind::Tts(e)),
         },
     };
+
+    // **WAV 容器（2026-09-10，CosyVoice 3 接入）**：需要先拿到完整 RIFF 头才能
+    // 确定真实规格，故整段收集后解析——单句 TTS 音频很短，缓冲无碍。
+    if ctx
+        .client
+        .tts()
+        .response_format
+        .as_deref()
+        .is_some_and(|f| f.trim().eq_ignore_ascii_case(crate::audio::WAV_FORMAT))
+    {
+        return synthesize_wav_sentence(ctx, job, speech).await;
+    }
 
     // 增量解码：任意字节切割安全（半个样本留到下批）；块大小受限避免无限内存。
     let mut decoder = PcmS16LeDecoder::new(spec);
@@ -169,6 +204,91 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
     }
     SynthOutcome::Done
 }
+
+/// WAV 句合成：整段收集 → [`crate::audio::parse_wav_s16`] → 按 `chunk_samples` 切块发事件。
+///
+/// 与裸 PCM 路径的两点差异：
+/// 1. **必须缓冲整段**（RIFF 头声明规格，`data` 块可能不在首个 chunk 内）；
+/// 2. 事件里的 `spec` 用**容器内声明**的规格（可能与 `[tts] sample_rate/channels`
+///    不一致——以容器为准，播放端据此重采样）。
+///
+/// 上限 [`MAX_WAV_BYTES`] 防异常服务端打满内存；超限报 `Decode` 错误而非静默截断。
+async fn synthesize_wav_sentence(
+    ctx: &TtsWorkerCtx,
+    job: &TtsJob,
+    mut speech: std::pin::Pin<Box<dyn futures_util::Stream<Item = crate::Result<Vec<u8>>> + Send>>,
+) -> SynthOutcome {
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        let chunk = tokio::select! {
+            _ = ctx.cancel.cancelled() => return SynthOutcome::Cancelled,
+            next = speech.next() => match next {
+                Some(chunk) => chunk,
+                None => break,
+            },
+        };
+        let bytes = match chunk {
+            Ok(bytes) => bytes,
+            Err(e) => return SynthOutcome::Failed(ErrorKind::Tts(e)),
+        };
+        if buf.len() + bytes.len() > MAX_WAV_BYTES {
+            return SynthOutcome::Failed(ErrorKind::Decode(crate::Error::InvalidAudioConfig {
+                message: format!("WAV 响应超过 {MAX_WAV_BYTES} 字节上限"),
+            }));
+        }
+        buf.extend_from_slice(&bytes);
+    }
+
+    let parsed = match crate::audio::parse_wav_s16(&buf) {
+        Ok(parsed) => parsed,
+        Err(e) => return SynthOutcome::Failed(ErrorKind::Decode(e)),
+    };
+    let spec = parsed.spec;
+    let mut pending = parsed.samples;
+
+    // 非末块：留出末块（含空尾块）作 final_chunk，保证每句恰好一个 final_chunk。
+    while pending.len() > ctx.chunk_samples {
+        let block = take_leading_chunk(&mut pending, ctx.chunk_samples);
+        let delivered = send_event(
+            &ctx.event_tx,
+            &ctx.cancel,
+            EngineEvent::AudioChunk {
+                epoch: ctx.epoch,
+                ts_ms: ctx.turn_started.elapsed().as_millis() as u64,
+                sentence_seq: job.sentence_seq,
+                samples: block,
+                spec,
+                final_chunk: false,
+            },
+        )
+        .await;
+        if !delivered {
+            return SynthOutcome::Cancelled;
+        }
+    }
+
+    let tail = std::mem::take(&mut pending);
+    let delivered = send_event(
+        &ctx.event_tx,
+        &ctx.cancel,
+        EngineEvent::AudioChunk {
+            epoch: ctx.epoch,
+            ts_ms: ctx.turn_started.elapsed().as_millis() as u64,
+            sentence_seq: job.sentence_seq,
+            samples: tail,
+            spec,
+            final_chunk: true,
+        },
+    )
+    .await;
+    if !delivered {
+        return SynthOutcome::Cancelled;
+    }
+    SynthOutcome::Done
+}
+
+/// 单句 WAV 响应上限（64 MiB）：防异常服务端把内存打满。
+const MAX_WAV_BYTES: usize = 64 * 1024 * 1024;
 
 /// 取走缓冲区前 `limit` 个样本（不足则全取）。独立成函数便于单测切块逻辑。
 pub(super) fn take_leading_chunk(buffer: &mut Vec<f32>, limit: usize) -> Vec<f32> {

@@ -24,11 +24,11 @@
 //! - `command`（String，缺省 `"ollama"`）：推理进程命令。
 //! - `args`（String 数组，缺省 `["serve"]`）：启动参数。
 //! - `port`（u16，缺省 `11434`）：就绪探测端口。
-//! - `model`（String，缺省 `"qwen3.5:4b"`）：模型名称。
+//! - `model`（String，缺省空）：模型名；**只有显式配置才写回 settings**（不覆盖 toml 选择）。
 //! - `base_path`（String，可选）：工作目录。
 //! - `auto_start`（bool，缺省 `true`）：start 时自动 spawn。
 //! - `health_timeout_ms`（u64，缺省 `15000`）：就绪探测超时。
-//! - `externally_managed`（bool，缺省 `false`）：为 `true` 时不 spawn 子进程，
+//! - `externally_managed`（bool，缺省 `true`）：为 `true` 时不 spawn 子进程，
 //!   仅探活 + 写 settings（用户在外部启动 Windows Ollama 等服务）。
 //!
 //! # 版本
@@ -46,9 +46,12 @@ use std::time::{Duration, Instant};
 const DEFAULT_COMMAND: &str = "ollama";
 const DEFAULT_ARGS: &[&str] = &["serve"];
 const DEFAULT_PORT: u16 = 11434;
-const DEFAULT_MODEL: &str = "qwen3.5:4b";
 const DEFAULT_HEALTH_TIMEOUT_MS: u64 = 15000;
-const DEFAULT_EXTERNALLY_MANAGED: bool = false;
+/// 缺省**外部管理**：只探活 + 写 settings，不 spawn 子进程。
+///
+/// 2026-09-10 点火轮：本地实现由用户自带（任何 OpenAI 兼容端点），
+/// Mod 不再默认去 spawn 一个可能并不存在的进程。
+const DEFAULT_EXTERNALLY_MANAGED: bool = true;
 
 /// Mod 描述符（静态身份）。
 const DESCRIPTOR: ModDescriptor = ModDescriptor {
@@ -147,12 +150,17 @@ impl LocalLlmRuntime {
             .unwrap_or(DEFAULT_PORT)
     }
 
-    fn model(&self) -> String {
+    /// Mod 配置里**显式**给出的模型名；空/缺失 = 不写回 settings。
+    ///
+    /// 只写用户明确配置的值，避免 Mod 覆盖 `live2d-ai.toml` 里既有的模型选择
+    /// （用户自带实现时，模型名应由用户决定）。
+    fn model_explicit(&self) -> Option<String> {
         self.config
             .get("model")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or(DEFAULT_MODEL)
-            .to_string()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
     }
 
     fn base_path(&self) -> Option<String> {
@@ -178,7 +186,7 @@ impl LocalLlmRuntime {
         )
     }
 
-    /// 读取 `externally_managed` 配置（缺省 `false`）。
+    /// 读取 `externally_managed` 配置（缺省 `true`）。
     fn externally_managed(&self) -> bool {
         self.config
             .get("externally_managed")
@@ -254,7 +262,7 @@ impl LocalLlmRuntime {
         let ready = self.ready.clone();
         let logger = self.services.logger.clone();
         let event_tx = self.services.event_tx.clone();
-        let model = self.model();
+        let model = self.model_explicit();
         let base_url = format!("http://127.0.0.1:{port}/v1");
         let socket_addr: std::net::SocketAddr = format!("127.0.0.1:{port}")
             .parse()
@@ -284,7 +292,15 @@ impl LocalLlmRuntime {
             let apply = |patch: serde_json::Value| {
                 event_tx.try_emit(ModEventTopic::ModelActivated, &patch.to_string())
             };
-            probe_and_configure(port, &ready, &logger, &probe, &apply, &base_url, &model);
+            probe_and_configure(
+                port,
+                &ready,
+                &logger,
+                &probe,
+                &apply,
+                &base_url,
+                model.as_deref(),
+            );
         });
     }
 
@@ -369,20 +385,21 @@ fn probe_and_configure(
     probe: &dyn Fn(u16) -> Result<(), String>,
     apply: &dyn Fn(serde_json::Value) -> bool,
     base_url: &str,
-    model: &str,
+    model: Option<&str>,
 ) {
     match probe(port) {
         Ok(()) => {
             ready.store(true, Ordering::SeqCst);
             logger.info("local-llm 探测通过，服务就绪");
+            // `base_url` 必写（这就是 Mod 的全部价值：把端点接到主链路）；
+            // `model` 仅在 Mod 显式配置时写，避免覆盖用户在 toml 里的选择。
+            let mut llm = serde_json::json!({ "base_url": base_url });
+            if let Some(m) = model {
+                llm["model"] = serde_json::Value::String(m.to_string());
+            }
             let patch = serde_json::json!({
                 "__apply_settings": true,
-                "patch": {
-                    "llm": {
-                        "base_url": base_url,
-                        "model": model,
-                    }
-                }
+                "patch": { "llm": llm }
             });
             if !apply(patch) {
                 logger.warn("local-llm apply_settings 调用失败");
@@ -602,7 +619,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(rt.port(), DEFAULT_PORT);
-        assert_eq!(rt.model(), DEFAULT_MODEL);
+        assert_eq!(rt.model_explicit(), None);
         assert!(rt.auto_start());
         assert_eq!(
             rt.health_timeout_ms(),
@@ -648,7 +665,7 @@ mod tests {
         // 非法/缺失值 → 缺省，不 panic。
         assert_eq!(rt.command(), DEFAULT_COMMAND);
         assert_eq!(rt.port(), DEFAULT_PORT);
-        assert_eq!(rt.model(), DEFAULT_MODEL);
+        assert_eq!(rt.model_explicit(), None);
         assert!(rt.auto_start());
         assert_eq!(
             rt.args(),
@@ -664,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn externally_managed_defaults_false() {
+    fn externally_managed_defaults_true() {
         let rt = LocalLlmRuntime {
             services: test_services(),
             config: serde_json::json!({}),
@@ -673,7 +690,8 @@ mod tests {
             ready: Arc::new(AtomicBool::new(false)),
             last_error: None,
         };
-        assert!(!rt.externally_managed());
+        // 2026-09-10 点火轮：默认不 spawn（本地实现由用户自带的 OpenAI 兼容端点承担）。
+        assert!(rt.externally_managed());
     }
 
     /// externally_managed=true 时不 spawn 子进程，但探测线程仍会启动
@@ -734,7 +752,7 @@ mod tests {
         };
 
         let base_url = "http://127.0.0.1:11434/v1";
-        let model = "qwen3.5:4b";
+        let model = Some("qwen3:4b");
         let logger = ModLogger::new(|_l, _m| {});
 
         super::probe_and_configure(11434, &ready, &logger, &probe, &apply, base_url, model);
@@ -751,7 +769,7 @@ mod tests {
             patch["patch"]["llm"]["base_url"],
             "http://127.0.0.1:11434/v1"
         );
-        assert_eq!(patch["patch"]["llm"]["model"], "qwen3.5:4b");
+        assert_eq!(patch["patch"]["llm"]["model"], "qwen3:4b");
     }
 
     /// probe_and_configure：探测失败时 ready 保持 false，不发送 patch。
@@ -778,7 +796,7 @@ mod tests {
             &probe,
             &apply,
             "http://127.0.0.1:11434/v1",
-            "qwen3.5:4b",
+            Some("qwen3:4b"),
         );
 
         // 验证 ready 保持 false，apply 不被调用。

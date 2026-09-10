@@ -130,6 +130,12 @@ pub struct TtsSettings {
     /// 音色（请求体 `voice` 字段）。
     #[serde(default = "default_voice")]
     pub voice: String,
+    /// 返回格式：`"pcm"`（默认，裸 s16le 流式）或 `"wav"`（RIFF 容器，一次性解析）。
+    ///
+    /// 2026-09-10：CosyVoice 3 的 OpenAI 兼容层（如 CosyVoice3-API）默认返回
+    /// WAV，故此处需填 `"wav"`；其余保持默认 `"pcm"`。
+    #[serde(default = "default_response_format")]
+    pub response_format: String,
     /// 可选：存放 API key 的环境变量名。省略 = 不鉴权。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
@@ -146,6 +152,10 @@ fn default_voice() -> String {
     "alloy".to_string()
 }
 
+fn default_response_format() -> String {
+    crate::audio::SUPPORTED_FORMAT.to_string()
+}
+
 fn default_sample_rate() -> u32 {
     AudioSpec::DEFAULT_SAMPLE_RATE
 }
@@ -160,6 +170,7 @@ impl Default for TtsSettings {
             base_url: String::new(),
             model: None,
             voice: default_voice(),
+            response_format: default_response_format(),
             api_key_env: None,
             sample_rate: AudioSpec::DEFAULT_SAMPLE_RATE,
             channels: AudioSpec::DEFAULT_CHANNELS,
@@ -277,7 +288,13 @@ impl AppSettings {
         };
 
         validate_base_url("llm", &self.llm.base_url)?;
-        validate_base_url("tts", &self.tts.base_url)?;
+        // **TTS 选型待定（2026-09-10）**：`base_url` 为空 = 明确「未配置」，
+        // 不报错；引擎走空句路径（见 `conversation::worker`）。
+        if !self.tts.base_url.trim().is_empty() {
+            validate_base_url("tts", &self.tts.base_url)?;
+            // 格式门禁：只接受 pcm / wav（mp3/flac 等明确报错，不假装支持）。
+            crate::audio::ensure_supported_format(Some(&self.tts.response_format))?;
+        }
 
         // sample_rate/channels 为 0 时经 AudioSpec::new 显式报配置错误
         //（serde 默认值非零，只有显式写 0 才会走到这里）。
@@ -294,7 +311,7 @@ impl AppSettings {
                 model: self.tts.model.clone(),
                 api_key: tts_key,
                 voice: self.tts.voice.clone(),
-                response_format: Some(crate::audio::SUPPORTED_FORMAT.to_string()),
+                response_format: Some(self.tts.response_format.clone()),
                 spec,
             },
             conversation: ConversationConfig {

@@ -28,36 +28,49 @@
 //!
 //! # 格式门禁
 //!
-//! WAV / MP3 / FLAC 等容器或压缩格式一律返回
-//! [`Error::UnsupportedFormat`](crate::Error::UnsupportedFormat)——本批不假装
-//! 支持它们的流式解码。
+//! 支持两种：
+//! - `"pcm"`：裸 little-endian signed 16-bit，[`PcmS16LeDecoder`] **流式**增量解码；
+//! - `"wav"`：RIFF/WAVE 容器（PCM 16-bit），[`wav::parse_wav_s16`] **一次性**解析
+//!   ——为 CosyVoice 3 等「OpenAI 兼容层默认返回 WAV」的服务准备（2026-09-10）。
+//!
+//! MP3 / FLAC / Opus 等仍未支持，一律
+//! [`Error::UnsupportedFormat`](crate::Error::UnsupportedFormat)。
 
 mod decoder;
 mod queue;
 mod resample;
 mod rms;
 mod spec;
+pub mod wav;
 
 pub use decoder::PcmS16LeDecoder;
 pub use queue::SampleQueue;
 pub use resample::{convert_spec, map_channels, resample_linear};
 pub use rms::RmsMeter;
 pub use spec::AudioSpec;
+pub use wav::{WavPcm, parse_wav_s16};
 
-/// 本批唯一保证支持的 TTS `response_format` 取值。
+/// 裸 PCM（默认）：little-endian signed 16-bit interleaved。
 pub const SUPPORTED_FORMAT: &str = "pcm";
+/// WAV 容器（PCM 16-bit）：CosyVoice 3 的 OpenAI 兼容层默认返回它。
+pub const WAV_FORMAT: &str = "wav";
 
-/// 格式门禁：校验 TTS `response_format` 是否为本批保证可解码的 raw PCM。
+/// 格式门禁：校验 TTS `response_format` 是否可解码。
 ///
-/// - `Some("pcm")`（大小写不敏感、允许首尾空白）→ `Ok(())`；
+/// - `Some("pcm" | "wav")`（大小写不敏感、允许首尾空白）→ `Ok(())`；
 /// - `None`（未指定格式，交由服务端默认决定）与一切其他取值
-///   （`"wav"` / `"mp3"` / …）→ [`Error::UnsupportedFormat`](crate::Error::UnsupportedFormat)。
+///   （`"mp3"` / `"flac"` / …）→ [`Error::UnsupportedFormat`](crate::Error::UnsupportedFormat)。
 ///
-/// 上层在把网络字节喂给 [`PcmS16LeDecoder`] 之前应先过这道门；
-/// 默认配置下 [`TtsConfig`](crate::TtsConfig) 已固定请求 `"pcm"`。
+/// 上层据 [`TtsConfig::response_format`](crate::TtsConfig) 选择解码路径：
+/// `pcm` 走 [`PcmS16LeDecoder`]，`wav` 走 [`parse_wav_s16`]。
 pub fn ensure_supported_format(response_format: Option<&str>) -> crate::Result<()> {
     match response_format.map(str::trim) {
-        Some(fmt) if fmt.eq_ignore_ascii_case(SUPPORTED_FORMAT) => Ok(()),
+        Some(fmt)
+            if fmt.eq_ignore_ascii_case(SUPPORTED_FORMAT)
+                || fmt.eq_ignore_ascii_case(WAV_FORMAT) =>
+        {
+            Ok(())
+        }
         other => Err(crate::Error::UnsupportedFormat {
             format: other.unwrap_or("<未指定，服务端默认>").to_string(),
         }),
@@ -70,15 +83,21 @@ mod tests {
     use crate::Error;
 
     #[test]
-    fn format_gate_accepts_pcm_case_insensitively() {
-        assert!(ensure_supported_format(Some("pcm")).is_ok());
-        assert!(ensure_supported_format(Some("PCM")).is_ok());
-        assert!(ensure_supported_format(Some(" pcm ")).is_ok());
+    fn format_gate_accepts_pcm_and_wav_case_insensitively() {
+        for ok in [
+            Some("pcm"),
+            Some("PCM"),
+            Some(" pcm "),
+            Some("wav"),
+            Some("WAV"),
+        ] {
+            assert!(ensure_supported_format(ok).is_ok(), "{ok:?}");
+        }
     }
 
     #[test]
     fn format_gate_rejects_other_formats_and_unspecified() {
-        for bad in [None, Some("wav"), Some("mp3"), Some("opus"), Some("pcmx")] {
+        for bad in [None, Some("mp3"), Some("flac"), Some("opus"), Some("pcmx")] {
             let err = ensure_supported_format(bad).expect_err("must reject");
             assert!(
                 matches!(err, Error::UnsupportedFormat { .. }),

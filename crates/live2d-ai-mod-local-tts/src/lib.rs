@@ -1,8 +1,11 @@
 //! live2d-ai-mod-local-tts（节点 E E5）。
 //!
 //! v1 进程生命周期管理 Mod：管理本地 TTS 推理进程
-//! （kokoroi-rs 或同类 OpenAI 兼容 `/v1/audio/speech` 服务）的
+//! （**2026-09-10 起默认面向 CosyVoice 3** 的 OpenAI 兼容层，
+//! 如社区 `CosyVoice3-API`；同类 OpenAI 兼容 `/v1/audio/speech` 服务同样适用）的
 //! spawn / 就绪探测 / 回收 / endpoint 自动探测。
+//!
+//! 接入文档：`docs/architecture/cosyvoice3-tts-integration.md`。
 //!
 //! # v1 范围声明
 //!
@@ -22,14 +25,17 @@
 //!
 //! # 配置字段
 //!
-//! - `command`（String，缺省 `"kokoroi-rs"`）：TTS 服务可执行命令。
-//! - `args`（String 数组，缺省 `["serve","--port","8000"]`）：启动参数
-//!   （示例；真实参数以后端为准）。
-//! - `port`（u16，缺省 `8000`）：探测就绪的 TCP 端口。
-//! - `voice`（String，缺省 `"af_heart"`）：Kokoro 声线 id。
+//! - `command`（String，缺省 `"cosyvoice3-api"`）：TTS 服务可执行命令
+//!   （仅 `externally_managed=false` 时使用；缺省不 spawn）。
+//! - `args`（String 数组，缺省 `["--port","8080"]`）：启动参数
+//!   （示例；真实参数以你的部署为准）。
+//! - `port`（u16，缺省 `8080`）：探测就绪的 TCP 端口（CosyVoice3-API 默认 8080；
+//!   官方 FastAPI 默认 50000）。
+//! - `voice`（String，缺省空）：**已注册的克隆音色 id**（CosyVoice3 无内置音色，
+//!   需先 `POST /v1/voices/register`）；只有显式配置才写回 settings。
 //! - `auto_start`（bool，缺省 `true`）：start 时自动 spawn。
 //! - `health_timeout_ms`（u64，缺省 `15000`）：就绪探测超时。
-//! - `externally_managed`（bool，缺省 `false`）：为 `true` 时不 spawn 子进程，
+//! - `externally_managed`（bool，缺省 `true`）：为 `true` 时不 spawn 子进程，
 //!   仅探活 + 写 settings（用户在外部起服务）。
 //!
 //! # 版本
@@ -44,12 +50,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 默认配置常量（与 `config` 字段缺省一致）。
-const DEFAULT_COMMAND: &str = "kokoroi-rs";
-const DEFAULT_ARGS: &[&str] = &["serve", "--port", "8000"];
-const DEFAULT_PORT: u16 = 8000;
-const DEFAULT_VOICE: &str = "af_heart";
+const DEFAULT_COMMAND: &str = "cosyvoice3-api";
+const DEFAULT_ARGS: &[&str] = &["--port", "8080"];
+const DEFAULT_PORT: u16 = 8080;
 const DEFAULT_HEALTH_TIMEOUT_MS: u64 = 15000;
-const DEFAULT_EXTERNALLY_MANAGED: bool = false;
+/// 缺省**外部管理**：只探活 + 写 settings，不 spawn 子进程。
+///
+/// 2026-09-10 点火轮：本地实现由用户自带（任何 OpenAI 兼容 `/audio/speech` 端点），
+/// Mod 不再默认去 spawn 一个可能并不存在的进程。
+const DEFAULT_EXTERNALLY_MANAGED: bool = true;
 
 /// Mod 描述符（静态身份）。
 const DESCRIPTOR: ModDescriptor = ModDescriptor {
@@ -147,12 +156,16 @@ impl LocalTtsRuntime {
             .unwrap_or(DEFAULT_PORT as u64) as u16
     }
 
-    fn voice(&self) -> String {
+    /// Mod 配置里**显式**给出的声线；空/缺失 = 不写回 settings。
+    ///
+    /// 只写用户明确配置的值，避免 Mod 覆盖 `live2d-ai.toml` 里既有的声线选择。
+    fn voice_explicit(&self) -> Option<String> {
         self.config
             .get("voice")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or(DEFAULT_VOICE)
-            .to_string()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
     }
 
     fn auto_start(&self) -> bool {
@@ -171,7 +184,7 @@ impl LocalTtsRuntime {
         )
     }
 
-    /// 读取 `externally_managed` 配置（缺省 `false`）。
+    /// 读取 `externally_managed` 配置（缺省 `true`）。
     fn externally_managed(&self) -> bool {
         self.config
             .get("externally_managed")
@@ -195,29 +208,26 @@ impl LocalTtsRuntime {
         let child_shared = self.child.clone();
         let logger = self.services.logger.clone();
         let event_tx = self.services.event_tx.clone();
-        let voice = self.voice();
+        let voice = self.voice_explicit();
         let base_url = format!("http://127.0.0.1:{port}/v1");
         let socket_addr: std::net::SocketAddr = format!("127.0.0.1:{port}")
             .parse()
             .unwrap_or_else(|_| "127.0.0.1:8000".parse().unwrap());
 
         if !self.externally_managed() {
-            let child = std::process::Command::new(&command)
-                .args(&args)
-                .spawn()
-                .map_err(|e| {
+            match std::process::Command::new(&command).args(&args).spawn() {
+                Ok(child) => {
+                    // 存入共享句柄。
+                    let mut guard = self.child.lock().unwrap();
+                    *guard = Some(child);
+                }
+                Err(e) => {
+                    // **M4 统一语义（2026-09-10）**：spawn 失败只记录，不让 Mod start 失败 ——
+                    // 服务可能已在外部运行，探测线程仍会尝试探活；与 local-llm 行为对齐。
                     let msg = format!("spawn TTS 进程失败 ({command} {args:?}): {e}");
                     self.last_error = Some(msg.clone());
-                    ModError::Init {
-                        mod_id: "local-tts".to_string(),
-                        message: msg,
-                    }
-                })?;
-
-            // 存入共享句柄。
-            {
-                let mut guard = self.child.lock().unwrap();
-                *guard = Some(child);
+                    logger.error(&msg);
+                }
             }
         } else {
             logger.info("local-tts externally_managed=true，跳过 spawn，仅探活 + 写 settings");
@@ -249,7 +259,15 @@ impl LocalTtsRuntime {
             let apply = |patch: serde_json::Value| {
                 event_tx.try_emit(ModEventTopic::VoiceStarted, &patch.to_string())
             };
-            probe_and_configure(port, &ready, &logger, &probe, &apply, &base_url, &voice);
+            probe_and_configure(
+                port,
+                &ready,
+                &logger,
+                &probe,
+                &apply,
+                &base_url,
+                voice.as_deref(),
+            );
         });
 
         Ok(())
@@ -442,20 +460,20 @@ fn probe_and_configure(
     probe: &dyn Fn(u16) -> Result<(), String>,
     apply: &dyn Fn(serde_json::Value) -> bool,
     base_url: &str,
-    voice: &str,
+    voice: Option<&str>,
 ) {
     match probe(port) {
         Ok(()) => {
             ready.store(true, Ordering::SeqCst);
             logger.info("local-tts 探测通过，服务就绪");
+            // `base_url` 必写；`voice` 仅在 Mod 显式配置时写（不覆盖用户选择）。
+            let mut tts = serde_json::json!({ "base_url": base_url });
+            if let Some(v) = voice {
+                tts["voice"] = serde_json::Value::String(v.to_string());
+            }
             let patch = serde_json::json!({
                 "__apply_settings": true,
-                "patch": {
-                    "tts": {
-                        "base_url": base_url,
-                        "voice": voice,
-                    }
-                }
+                "patch": { "tts": tts }
             });
             if !apply(patch) {
                 logger.warn("local-tts apply_settings 调用失败");
@@ -576,7 +594,7 @@ mod tests {
         );
         assert_eq!(rt.port(), DEFAULT_PORT);
         assert!(rt.auto_start());
-        assert_eq!(rt.voice(), DEFAULT_VOICE);
+        assert_eq!(rt.voice_explicit(), None);
         assert_eq!(
             rt.health_timeout_ms(),
             Duration::from_millis(DEFAULT_HEALTH_TIMEOUT_MS)
@@ -607,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn externally_managed_defaults_false() {
+    fn externally_managed_defaults_true() {
         let rt = LocalTtsRuntime {
             services: test_services(),
             config: serde_json::json!({}),
@@ -616,7 +634,8 @@ mod tests {
             ready: Arc::new(AtomicBool::new(false)),
             last_error: None,
         };
-        assert!(!rt.externally_managed());
+        // 2026-09-10 点火轮：默认不 spawn（本地实现由用户自带的 OpenAI 兼容端点承担）。
+        assert!(rt.externally_managed());
     }
 
     /// externally_managed=true 时不 spawn 子进程，仅探活 + 写 settings。
@@ -655,7 +674,7 @@ mod tests {
         // 模拟就绪探测成功 → 直接构造 patch 并验证。
         let port = 8000u16;
         let base_url = format!("http://127.0.0.1:{port}/v1");
-        let voice = rt.voice();
+        let voice = Some("af_heart".to_string());
 
         let probe = |_p: u16| Ok(());
         let apply = move |patch: serde_json::Value| {
@@ -666,7 +685,15 @@ mod tests {
         let ready = Arc::new(AtomicBool::new(false));
         let logger = ModLogger::new(|_l, _m| {});
 
-        super::probe_and_configure(port, &ready, &logger, &probe, &apply, &base_url, &voice);
+        super::probe_and_configure(
+            port,
+            &ready,
+            &logger,
+            &probe,
+            &apply,
+            &base_url,
+            voice.as_deref(),
+        );
 
         assert!(ready.load(Ordering::SeqCst));
         let patched = captured.lock().unwrap().clone();
@@ -678,7 +705,7 @@ mod tests {
             patch["patch"]["tts"]["base_url"],
             "http://127.0.0.1:8000/v1"
         );
-        assert_eq!(patch["patch"]["tts"]["voice"], DEFAULT_VOICE);
+        assert_eq!(patch["patch"]["tts"]["voice"], "af_heart");
     }
 
     /// HTTP 探测函数单测：无法连接时返回 Err。

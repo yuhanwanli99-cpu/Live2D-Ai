@@ -72,6 +72,14 @@ impl TtsConfig {
         }
     }
 
+    /// 是否已配置 TTS 端点。
+    ///
+    /// 2026-09-10：TTS 选型未定期间 `base_url` 允许为空 —— 表示「本轮不接 TTS」，
+    /// 引擎走空句路径（只出文本、不合成音频），不报错。
+    pub fn is_configured(&self) -> bool {
+        !self.base_url.trim().is_empty()
+    }
+
     /// 覆盖 PCM 流规格（采样率/声道数）。规格合法性在 [`AudioSpec::new`]
     /// 构造时已校验（非零），此处无需再验。
     pub fn with_spec(mut self, spec: AudioSpec) -> Self {

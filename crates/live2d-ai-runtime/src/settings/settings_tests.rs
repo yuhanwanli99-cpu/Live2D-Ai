@@ -98,18 +98,16 @@ fn unknown_field_is_rejected_not_silently_ignored() {
 }
 
 #[test]
-fn missing_section_or_bad_url_surfaces_at_resolve_not_parse() {
-    // 段整体缺省是合法 TOML（容器级 default 兜底），但空 base_url 在
-    // resolve 阶段按段名报错——「语法」与「运行配置」分层报告。
+fn missing_tts_section_is_allowed_but_bad_url_still_errors() {
+    // 段整体缺省是合法 TOML（容器级 default 兜底）。
+    // **2026-09-10**：TTS 选型未定 —— `[tts]` 缺失 / 空 base_url 是**合法**状态
+    // （引擎走空句路径：只出文本、不合成音频）；但非空非法 URL 仍然报错。
     let no_tts = "[llm]\nbase_url = \"http://a/v1\"\nmodel = \"m\"\n";
-    let err = AppSettings::from_toml_str(no_tts)
+    let resolved = AppSettings::from_toml_str(no_tts)
         .expect("段缺省可解析")
         .resolve_with(|_| None)
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        SettingsError::InvalidBaseUrl { section: "tts", .. }
-    ));
+        .expect("TTS 未配置应可解析（空句路径）");
+    assert!(!resolved.tts.is_configured(), "空 base_url = 未配置");
 
     let bad_url =
         "[llm]\nbase_url = \"not a url\"\nmodel = \"m\"\n\n[tts]\nbase_url = \"http://b\"\n";
