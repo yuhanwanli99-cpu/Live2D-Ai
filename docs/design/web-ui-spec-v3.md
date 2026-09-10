@@ -1416,6 +1416,8 @@ lib/settings/sections/persona_section.dart
 lib/settings/sections/actions_section.dart
 lib/settings/sections/dev_tools_section.dart
 lib/settings/sections/pane_helpers.dart
+lib/actions/action_dispatch.dart        lib/ui/action_grid.dart
+lib/ui/action_toolbar.dart
 test/ws_frame_test.dart                 test/action_history_test.dart
 test/action_event_test.dart             test/action_log_controller_test.dart
 test/action_ui_test.dart                test/commands_api_test.dart
@@ -1425,6 +1427,7 @@ test/audio_bar_test.dart                test/field_row_test.dart
 test/settings_controller_test.dart      test/settings_sections_test.dart
 test/settings_scaffold_test.dart        test/persona_import_test.dart
 test/admin_api_test.dart                test/settings_api_test.dart
+test/action_dispatch_test.dart          test/action_ui_p5_test.dart
 test/semantics_test.dart                test/no_backdrop_filter_test.dart
 ```
 
@@ -1918,6 +1921,87 @@ GET  → "has_api_key": false，且配置文件里的 api_key_env 行消失
 **修法**（单独一轮）：给 `StatusContext` 加一个「从磁盘重读」的入口，
 让 `file_watcher` 在 reload 成功后调用它（顺带把 `to_toml_string` 换成
 `toml_edit` 以保住注释——那是另一个已确认缺陷，见 v0.4.7 的 CHANGELOG）。
+
+---
+
+### 13.8 P5 落地时的发现与裁决（2026-09-10）
+
+#### ① **动作通道此前根本没接上**（本轮最重要的一条）
+
+前端**从来没有调用过** `action-state`：`grep -rn "sendActionState\|action-state" lib/`
+在 P5 之前**零命中**。后果是「AI 触发了点头」只进了动作日志，**模型一次都没动过**。
+
+`action_state` 帧一直被 `ChatController` 消费进历史（P2 的成果），但没有任何代码
+把它转成渲染面的下行消息。⇒ P5 补上：WS `action_state` → `bridge.sendActionState`
+（用户手点与 AI 触发走**同一条**下行通道——渲染面不需要区分来源，仲裁已经在 core 做完）。
+
+#### ② 渲染面读 `action` 的位置违反自己的信封约定
+
+`action-state` 分支里：`let action = v.get("action")`（**信封根**，`main.rs:380`），
+而 `state` / `strength` 从**归一化后的 `payload`** 读（同文件 384/392）。
+
+所以 `{"version":1,"type":"action-state","payload":{"action":"nod",…}}`
+会让 `action` 为空 → **模型不动，且不报错、日志里也没有**。正确形状：
+
+```json
+{"version":1,"type":"action-state","action":"nod","payload":{"state":"start","strength":2}}
+```
+
+`live2d_bridge_test.dart` 钉住了「`action` 在根、且 payload 里**不该**再写一份」。
+**这是渲染面的不一致**（同一分支两种读法），后端冻结期内前端照做并记录在案。
+
+#### ③ `state` 只有 `start` / `end`，**没有 `stop`**
+
+渲染面判定是 `if state_word == "start" { … } else if state_word == "end" { … }`
+（`main.rs:399/410`）。第一版桥写的是 `state: 'stop'`——**被静默忽略**：
+动作会自然演完，所以平时看不出问题，只有「抢占/打断时旧动作停不下来」才露出来。
+已改为 `end`，并加了 `assert`（传别的值直接断言失败，不再让它悄悄溜过去）。
+
+#### ④ 服务端**永远不发 `cease`** → 「正在演」会永久卡住（**已确认缺陷**）
+
+`cease` 帧由 `ActionEffect::End` 驱动，而 `End` 来自 `ActionCommand::Release`——
+**全仓库没有任何 `Release` 调用点**（桌面包与 director Mod 里只有 `Play`）。
+
+实测：invoke 一个 `nod` 后监听 30 秒，只收到一条 `perform`，**没有 `cease`**。
+单动作因此永远收不了口。
+
+**影响**（若前端不兜）：「正在演」按钮永久卡住、动作日志的当前项永不结束——
+用户看到的是「点了一次之后按钮就一直是灰的」。
+
+**前端的兜底**（本轮做）：`ActionDispatch` 给「正在演」装一个**本地到期**，
+时长取自**渲染面自己的关键帧表**（`surface.rs::choreography_total_ms` 及其断言：
+nod 1320 / shake_no 1000 / tilt 1500 / look_around 1920 / listen 2180 / surprise 1300，
+未知 1500 ms）+ 250 ms 余量。**不是猜的**——抄的是渲染面已测过的值，出处写在代码里。
+
+**它不是权威**：真收到 `cease` 时立刻以 `cease` 为准，并撤销本地定时器。
+`expiredLocally` 标志记录「这次结束是本地兜底的」，供诊断。
+
+**根因修法**（单独一轮，后端）：在动作自然结束处调 `ActionCommand::Release`
+（或让 director 承担——但 director 默认停用，所以手动/规则动作应当有兜底收口）。
+
+#### ⑤ 重复点击的解释**只能本地做**
+
+core 对「动作 + 强度 + 来源完全相同」返回 `Dropped(AlreadyActive)`（幂等），
+但 **HTTP 响应里看不出来**：实测两次 invoke 的响应一字不差（都是 `accepted: true`）。
+用户看到的是「点了没反应且没有任何解释」。
+
+⇒ `ActionDispatch.recordInvoke` 记住最近一次 `(action, strength, 时间)`，
+窗口内同键重复 → 弹一条**解释**（「同一动作正在播放，重复点击不会重播」）。
+窗口取 2 s，比多数动作的编排时长短，所以是**保守**的（宁可漏提示，不误报）。
+
+#### ⑥ 舞台缩放的**真值必须来自 `stage-ack`**
+
+渲染面自己算缩放（`scale * 1.1` 或 `/ 1.1`，clamp 0.5..2.0；`reset` 还归零偏移），
+父页发的是 `dir: in|out|reset`、**不是**目标值。所以角标上的百分比
+**在收到 `stage-ack` 之前显示 `—`**（不猜）——否则到 2.0 上限时界面会显示
+「220%」而模型没动。
+
+#### ⑦ 一处必须记下的 lint 让步
+
+动作兜底时长表放在 `lib/actions/action_dispatch.dart`，里面有裸 `Duration(milliseconds:)`，
+被设计令牌门禁拦下。这是**渲染面的动画时序**，不是 UI 过渡时长。
+⇒ 在 lint 里加了一个**逐个点名**的豁免集 `kProtocolTimingFiles`
+（只列这一个文件，不豁免整个目录——豁免面越小越难被侵蚀）。
 
 ---
 

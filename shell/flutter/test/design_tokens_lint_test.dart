@@ -21,6 +21,16 @@ bool isProtocolDurationPath(String path) =>
     path.startsWith('lib/audio/') ||
     path.startsWith('lib/live2d/');
 
+/// **逐个点名**的协议时长文件（不是整个目录）。
+///
+/// 豁免面越小越难被侵蚀——所以这里只列具体文件，不列目录。
+const Set<String> kProtocolTimingFiles = <String>{
+  // 动作兜底时长表：镜像渲染面 `surface.rs::choreography_total_ms`
+  // （nod 1320 / shake_no 1000 / …）与它的尾 fade 余量。
+  // 这是**渲染面的动画时序**，不是 UI 过渡时长——UI 过渡该用 `AppDurations`。
+  'lib/actions/action_dispatch.dart',
+};
+
 /// 一条扫描规则。
 class Rule {
   const Rule({
@@ -83,7 +93,9 @@ final List<Rule> kRules = <Rule>[
     why: 'UI 动效时长只能取 AppDurations 的 4 档',
     // 协议目录 + 令牌声明文件（`AppDurations` 本身就是在那里定义的）。
     exempt: (String p) =>
-        isProtocolDurationPath(p) || kTokenDeclarationFiles.contains(p),
+        isProtocolDurationPath(p) ||
+        kProtocolTimingFiles.contains(p) ||
+        kTokenDeclarationFiles.contains(p),
   ),
 ];
 

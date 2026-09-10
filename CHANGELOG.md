@@ -1,3 +1,92 @@
+# v0.4.10 — P5 动作通道：让模型**真的动**（前端 441 → 495）
+
+## 本轮最重要的一条：动作通道此前**根本没接上**
+
+`grep -rn "sendActionState|action-state" lib/` 在 P5 之前**零命中**。后果：
+
+> 「AI 触发了点头」只进了动作日志，**模型一次都没动过**。
+
+`action_state` 帧从 P2 起就被消费进历史，但**没有任何代码**把它转成渲染面的
+下行消息。P5 补上这条线：WS `action_state` → `bridge.sendActionState`
+（用户手点与 AI 触发走**同一条**通道——渲染面不需要区分来源，仲裁已在 core 做完）。
+
+## 三个协议坑，每个都会**静默失效**
+
+1. **`action` 必须挂在信封根。** 渲染面在这一分支里从**根**读 `action`
+   （`v.get("action")`，`main.rs:380`），却从 `payload` 读 `state`/`strength`
+   （同文件 384/392）。放进 payload 会让 `action` 为空 → **模型不动、不报错、
+   日志里也没有**。测试钉住了「根级 `action`、且 payload 里不该再写一份」。
+2. **`state` 只有 `start` / `end`，没有 `stop`。** 第一版写的是 `stop`，
+   渲染面**直接忽略**——平时看不出来（动作会自然演完），只有「抢占时旧动作停不下来」
+   才露出来。已改为 `end`，并加 `assert` 让错误值过不了编译期之后的运行。
+3. **缩放真值必须来自 `stage-ack`。** 渲染面自己算缩放（±10%，clamp 0.5..2.0），
+   父页发的是 `dir`。所以角标上的百分比**在收到 ack 之前显示 `—`**——
+   否则到上限时界面会显示「220%」而模型没动。
+
+## 一个**已确认的服务端缺陷**（本轮不修，前端兜住）
+
+**服务端永远不发 `cease`**：它由 `ActionEffect::End` 驱动，而 `End` 来自
+`ActionCommand::Release` —— 全仓库**没有任何 `Release` 调用点**
+（桌面包与 director Mod 里只有 `Play`）。
+
+实测：invoke 一个 `nod` 后监听 **30 秒，只收到一条 `perform`，没有 `cease`**。
+
+若不兜，表现是「点一次动作后按钮永远是灰的、动作日志的当前项永不结束」。
+
+**前端的兜底**：给「正在演」装一个**本地到期**，时长取自**渲染面自己的关键帧表**
+（`surface.rs::choreography_total_ms` 及其断言：nod 1320 / shake_no 1000 /
+tilt 1500 / look_around 1920 / listen 2180 / surprise 1300，未知 1500 ms）
++ 250 ms 余量——**不是猜的**，抄的是渲染面已测过的值，出处写在代码里。
+真收到 `cease` 时立刻以 `cease` 为准并撤销本地定时器。
+
+## 新增
+
+- `api/commands_api.dart` 的 `invoke`（`POST /api/v1/commands/{id}/invoke`）
+  + `CommandInvokeResult`。
+- `actions/action_dispatch.dart`：本地幂等提示 + 「正在演」游标 + 兜底到期。
+- `ui/action_grid.dart`：6 动作 × **强度 SEG**（不是滑杆——1/2/3 是离散档位）
+  + 「正在演」进度环 + 读屏念「X，正在演」+ 超 8 槽**不静默丢弃**。
+- `ui/action_toolbar.dart`：舞台左下常驻浮标（高频优先，≤8 槽）。
+- `ui/action_toolbar.dart` 的 `StageCornerControls`：舞台右下缩小/放大/复位三键。
+- 桥扩展：`sendActionState` / `sendStageZoom` / `sendStageBg` + `StageAckEvent`
+  （`acks` 流 + `lastAck`）。
+
+## 两个工程决定
+
+1. **组件自己订阅 `ActionDispatch`**（`ActionGrid` / `ActionToolbar` 内部包
+   `ListenableBuilder`）。让每个调用方都记得包一层是不可靠的——漏一个地方的表现是
+   「点了动作按钮不变忙碌态」，且只在真机上看得出来。
+2. **超 8 槽的动作如实说明**：「另有 N 个动作未显示（屏幕槽位上限 8）」，
+   不静默丢弃。8 这个数是 VRChat「up to 8 controls per menu」与 VTS
+   `onScreenButtonID` 1–8 双源收敛的结果。
+
+## 测试（前端 441 → **495**）
+
+- `live2d_bridge_test.dart` +7：**根级 `action`**（含「payload 里不该有 action」）、
+  `state=end`、传 `stop` 被断言拦下、`stage-zoom` 只发 `dir` 不发数值、
+  `stage-bg` 的清除语义、`stage-ack` 解析（含 `applied:false` 与缺字段不抛）。
+- `action_dispatch_test.dart` +24：幂等窗口（同键/异键/边界/强度不同不算重复）、
+  抢占、`useLocalExpiry` 开关、**时长表与渲染面 `choreography_total_ms` 对齐**、
+  兜底到期与 `cease` 的优先级。
+- `action_ui_p5_test.dart` +16：不硬编码 6 个动作、强度是 SEG 不是滑杆、
+  共享忙碌态、无 ack 时不显示百分比。
+- `commands_api_test.dart` +5：invoke 的三种响应（成功 / 缺 strength 时不写该字段 /
+  400 `invalid_params` / 网络失败），以及**「重复点击响应一字不差」**这条实证。
+
+## 顺带修掉一个真实竞态（测试抓的）
+
+本地兜底到期回调里**必须比对动作名**：`Timer.cancel()` 挡不住**已经排进事件队列**
+的回调，不比对的话被抢占的旧动作的到期回调会把**新动作**的「正在演」清掉——
+表现是「刚点的动作只闪一下就不忙了」。测试（抢占那条）当场抓到。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **495 通过 / 0 失败**；
+`flutter build web --release --base-href /app/ --no-web-resources-cdn` 通过（无 CDN 引用）。
+Rust 侧未改动：fmt/clippy 干净、815 通过 / 0 失败、doctest 3、`rust-ratio` PASS。
+实测（静音探针实例）：3 次 invoke → 3 条 `action_state{perform, user_command}`
+且**动作名与强度与请求一致**。
+
 # v0.4.9 — P4 设置全量：草稿/三态拦截 + 8 个分区 + 角色卡导入（前端 324 → 441）
 
 ## 两个**能力缺口**：规格要求了，但前端根本表达不出来

@@ -83,6 +83,8 @@ class AppShell extends StatefulWidget {
     this.onSaveSettings,
     this.onDiscardSettings,
     this.confirmDiscard,
+    this.stageCorner,
+    this.stageToolbar,
     super.key,
   });
 
@@ -145,6 +147,17 @@ class AppShell extends StatefulWidget {
 
   /// **三处拦截**的统一问询：返回 `true` = 可以离开（用户选择放弃）。
   final Future<bool> Function()? confirmDiscard;
+
+  // ── 舞台上的常驻浮标 ──
+  //
+  // 由宿主构造并注入：外壳不知道动作工具条是什么，只知道「舞台右下角有个浮标」。
+  // 这样外壳的布局测试不需要造一整套动作目录。
+
+  /// 右下角（动作工具条 / 舞台角标三键，二选一或叠放）。
+  final Widget? stageCorner;
+
+  /// 左下角（备用槽位；当前用于将来的 Mod 动作）。
+  final Widget? stageToolbar;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -326,6 +339,19 @@ class AppShellState extends State<AppShell> {
                           onDismiss: closeSettings,
                           child: _settingsSurface(onClose: closeSettings),
                         ),
+                      ),
+                    // 舞台浮标：**压在舞台之上**，不占布局、不挤舞台宽度。
+                    if (widget.stageToolbar != null)
+                      Positioned(
+                        left: 0,
+                        bottom: 0,
+                        child: widget.stageToolbar!,
+                      ),
+                    if (widget.stageCorner != null)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: widget.stageCorner!,
                       ),
                   ],
                 ),

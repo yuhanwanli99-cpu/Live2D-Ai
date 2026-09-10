@@ -217,6 +217,8 @@ void main() {
       );
     });
   });
+
+  _p5InvokeTests();
 }
 
 /// 一个最小的「连接失败」异常（不 import dart:io，保持 VM/Web 同构）。
@@ -224,4 +226,106 @@ class SocketExceptionStub implements Exception {
   const SocketExceptionStub();
   @override
   String toString() => 'connection refused';
+}
+
+void _p5InvokeTests() {
+  group('invoke：动作通道（P5）', () {
+    test('真实抓包形状的响应', () async {
+      late http.Request seen;
+      final CommandsApi api = CommandsApi(
+        base: 'http://127.0.0.1:18080',
+        client: MockClient((http.Request r) async {
+          seen = r;
+          return jsonResponse(
+            '{"accepted":true,"epoch":0,'
+            '"command_id":"live2d_perform_action_nod","kind":"single",'
+            '"steps":1,"action":"nod"}',
+            200,
+          );
+        }),
+      );
+      final CommandInvokeResult r = await api.invoke(
+        'live2d_perform_action_nod',
+        strength: 2,
+      );
+      expect(seen.method, 'POST');
+      expect(seen.url.path, '/api/v1/commands/live2d_perform_action_nod/invoke');
+      expect(jsonDecode(seen.body), <String, Object?>{'strength': 2});
+      expect(r.accepted, isTrue);
+      expect(r.commandId, 'live2d_perform_action_nod');
+      expect(r.kind, 'single');
+      expect(r.steps, 1);
+      expect(r.action, 'nod');
+    });
+
+    test('不给强度时 body 里**不出现** strength（服务端用自己的默认档）', () async {
+      late http.Request seen;
+      final CommandsApi api = CommandsApi(
+        base: 'http://x',
+        client: MockClient((http.Request r) async {
+          seen = r;
+          return jsonResponse('{"accepted":true,"command_id":"c"}', 200);
+        }),
+      );
+      await api.invoke('c');
+      expect(jsonDecode(seen.body), <String, Object?>{});
+    });
+
+    test('强度越界 → 400 invalid_params（实测 strength=9）', () async {
+      final CommandsApi api = CommandsApi(
+        base: 'http://x',
+        client: MockClient(
+          (_) async => jsonResponse(
+            '{"error":{"code":"invalid_params",'
+            '"message":"strength 必须在 1..=3 范围（收到 9）"}}',
+            400,
+          ),
+        ),
+      );
+      expect(
+        () => api.invoke('c', strength: 9),
+        throwsA(
+          isA<ApiException>()
+              .having((ApiException e) => e.code, 'code', 'invalid_params')
+              .having((ApiException e) => e.status, 'status', 400),
+        ),
+      );
+    });
+
+    test('**重复点击服务端也回 accepted:true**（所以幂等提示只能本地做）', () async {
+      int calls = 0;
+      final CommandsApi api = CommandsApi(
+        base: 'http://x',
+        client: MockClient((_) async {
+          calls++;
+          return jsonResponse(
+            '{"accepted":true,"epoch":0,"command_id":"c","kind":"single",'
+            '"steps":1,"action":"nod"}',
+            200,
+          );
+        }),
+      );
+      final CommandInvokeResult a = await api.invoke('c', strength: 2);
+      final CommandInvokeResult b = await api.invoke('c', strength: 2);
+      expect(calls, 2);
+      expect(
+        a.accepted && b.accepted,
+        isTrue,
+        reason: '响应里分辨不出 Dropped(AlreadyActive)——这条是 ActionDispatch 存在的理由',
+      );
+    });
+
+    test('网络失败 → network_error', () async {
+      final CommandsApi api = CommandsApi(
+        base: 'http://x',
+        client: MockClient((_) async => throw const SocketExceptionStub()),
+      );
+      expect(
+        () => api.invoke('c'),
+        throwsA(
+          isA<ApiException>().having((ApiException e) => e.code, 'code', 'network_error'),
+        ),
+      );
+    });
+  });
 }

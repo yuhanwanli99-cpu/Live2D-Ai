@@ -193,7 +193,95 @@ class CommandsApi {
     return const CommandCatalog.empty();
   }
 
+  /// `POST /api/v1/commands/{id}/invoke` → 让 core 仲裁并触发。
+  ///
+  /// # 两个必须知道的事实
+  ///
+  /// 1. **重复点击会回 `accepted: true`**——服务端对「动作+强度+来源完全相同」
+  ///    返回 `Dropped(AlreadyActive)` 幂等，但**响应里看不出来**（实测两次
+  ///    invoke 的响应一字不差）。所以「同一动作正在播放」的提示**只能本地做**。
+  /// 2. `strength` 越界是 **400 `invalid_params`**（实测 `9` → 400）。
+  ///    分段按钮只给 1/2/3，前端不会发越界值；但错误路径仍要能显示。
+  Future<CommandInvokeResult> invoke(String id, {int? strength}) async {
+    final http.Response response;
+    try {
+      response = await _client.post(
+        Uri.parse('$_base/api/v1/commands/${Uri.encodeComponent(id)}/invoke'),
+        headers: const <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, Object?>{'strength': ?strength}),
+      );
+    } catch (error) {
+      throw ApiException('network_error', '无法连接后端：$error');
+    }
+    if (response.statusCode != 200) {
+      final Map<String, Object?> body = _decode(response.body);
+      final Object? err = body['error'];
+      throw ApiException(
+        err is Map && err['code'] is String
+            ? err['code']! as String
+            : 'http_${response.statusCode}',
+        err is Map && err['message'] is String
+            ? err['message']! as String
+            : '触发失败',
+        status: response.statusCode,
+      );
+    }
+    return CommandInvokeResult.fromJson(_decode(response.body));
+  }
+
   void dispose() => _client.close();
+
+  /// 宽容取对象（坏 JSON → 空对象）。
+  Map<String, Object?> _decode(String body) {
+    try {
+      final Object? decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final Map<String, Object?> out = <String, Object?>{};
+        decoded.forEach((Object? k, Object? v) {
+          if (k is String) out[k] = v;
+        });
+        return out;
+      }
+    } catch (_) {
+      // 坏 JSON → 空对象。
+    }
+    return const <String, Object?>{};
+  }
+}
+
+/// `POST /api/v1/commands/{id}/invoke` 的响应（真实抓包形状）。
+class CommandInvokeResult {
+  const CommandInvokeResult({
+    required this.accepted,
+    required this.epoch,
+    required this.commandId,
+    required this.kind,
+    required this.steps,
+    this.action,
+  });
+
+  final bool accepted;
+  final int epoch;
+  final String commandId;
+
+  /// `single` 或 `sequence`。
+  final String kind;
+
+  /// 编排的步数（单动作为 1）。
+  final int steps;
+
+  /// 最终表演的动作协议名（多步指令可能为 `null`）。
+  final String? action;
+
+  factory CommandInvokeResult.fromJson(Map<String, Object?> json) =>
+      CommandInvokeResult(
+        accepted: json['accepted'] == true,
+        epoch: _intOrNull(json['epoch']) ?? 0,
+        commandId: _str(json['command_id']),
+        kind: _str(json['kind']),
+        steps: _intOrNull(json['steps']) ?? 1,
+        action: json['action'] is String ? json['action']! as String : null,
+      );
 }
 
 int? _intOrNull(Object? value) {

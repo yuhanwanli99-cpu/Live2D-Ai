@@ -11,9 +11,12 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../actions/action_dispatch.dart';
 import '../../actions/action_log_controller.dart';
+import '../../api/commands_api.dart';
 import '../../design/tokens.dart';
 import '../../settings/display_prefs.dart';
+import '../../ui/action_grid.dart';
 import '../../ui/action_history_view.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
@@ -24,6 +27,11 @@ class ActionsSection extends StatelessWidget {
     required this.onPrefsChanged,
     required this.actionLog,
     this.devMode = false,
+    this.commands = const <CommandInfo>[],
+    this.dispatch,
+    this.onInvoke,
+    this.strength = 2,
+    this.onStrengthChanged,
     super.key,
   });
 
@@ -35,6 +43,21 @@ class ActionsSection extends StatelessWidget {
   final ActionLogController actionLog;
 
   final bool devMode;
+
+  // ── B 组：动作试演（P5 接上；走 core 仲裁，不绕过） ──
+
+  /// 服务端给的可触发动作（**不硬编码 6 个**）。
+  final List<CommandInfo> commands;
+
+  /// 忙碌态与幂等提示。
+  final ActionDispatch? dispatch;
+
+  /// 触发（调用方负责走 `CommandsApi.invoke`）。
+  final void Function(CommandInfo command)? onInvoke;
+
+  /// 强度档位（1..3）。
+  final int strength;
+  final ValueChanged<int>? onStrengthChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -93,12 +116,35 @@ class ActionsSection extends StatelessWidget {
             description: '性能与画质的权衡；需要档位知识，所以进开发者层',
           ),
         const Divider(),
-        // 动作试演（B 组）**属 P5**：不占位假装有。
+        const SectionHeader(
+          title: '互动',
+          description: '「允许拖动与缩放」管的是**拖拽 / 滚轮 / 双击复位**，'
+              '与「点击角色有没有反应」无关。',
+        ),
+        ToggleField(
+          label: '允许拖动与缩放',
+          icon: Icons.pan_tool_outlined,
+          value: prefs.allowDragZoom,
+          onChanged: (bool v) =>
+              onPrefsChanged(prefs.copyWith(allowDragZoom: v)),
+          description: '关掉后模型不因拖动/滚轮移动；缩放仍可用舞台右下角的按钮',
+        ),
+        const Divider(),
         const SectionHeader(
           title: '动作试演',
-          description: '动作触发按钮在下一阶段接上（需要 core 的动作通道）。'
-              '现在你可以让 AI 自己动，或从舞台上的动作工具条触发。',
+          description: '手动触发走 core 仲裁（不绕过）。'
+              '「正在演」以服务端回报为准——重复点击不会重播。',
         ),
+        if (dispatch != null && onInvoke != null)
+          ActionGrid(
+            commands: commands,
+            strength: strength,
+            onStrengthChanged: onStrengthChanged ?? (_) {},
+            onInvoke: onInvoke!,
+            dispatch: dispatch!,
+          )
+        else
+          const Text('动作目录尚未加载。'),
         const Divider(),
         const SectionHeader(
           title: '动作记录',

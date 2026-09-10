@@ -45,6 +45,10 @@ class Live2DStage extends StatefulWidget {
 class Live2DStageState extends State<Live2DStage> {
   Live2DBridge? _bridge;
   String? _hostError;
+
+  /// 最近一条渲染面回执。**收到它才说明渲染面真的应用了**——
+  /// 收条之前不得提示「已生效」（R2 的规矩）。
+  StageAckEvent? _lastAck;
   int _generation = 0;
   bool _readyNotified = false;
 
@@ -112,8 +116,51 @@ class Live2DStageState extends State<Live2DStage> {
     widget.onError?.call(message);
   }
 
+  /// 最近一条 `stage-ack`。
+  StageAckEvent? get lastAck => _lastAck;
+
+  /// 心跳：把桥上的回执抄一份到 State 上，便于宿主同步读取。
+  void _captureAck() {
+    final ack = _bridge?.lastAck;
+    if (ack != null && !identical(ack, _lastAck)) _lastAck = ack;
+  }
+
   /// 实时口型（0..1），由音频 RMS 包络驱动。
   void setMouth(double level) => _bridge?.sendMouth(level);
+
+  /// 协议 v1 `action-state`：让模型真的演这个动作。
+  ///
+  /// **根级 `action`** 是渲染面的要求（它从信封根读 `action`、从 payload 读
+  /// `state`/`strength`）——详见 `live2d_bridge.dart` 的头注。
+  Future<void> sendActionState({
+    required String action,
+    String state = 'start',
+    int? strength,
+  }) async {
+    final bridge = _bridge;
+    // 未就绪时命令会入队（桥负责），所以这里不丢弃。
+    await bridge?.sendActionState(
+      action: action,
+      state: state,
+      strength: strength,
+    );
+    _captureAck();
+  }
+
+  /// 协议 v1 `stage-zoom`（`in` / `out` / `reset`）。
+  ///
+  /// 渲染面自己算缩放（±10%，clamp 0.5..2.0），所以**不发数值**；
+  /// 应用后的真值从 [lastAck] 取（`scale`/`offsetX`/`offsetY`）。
+  Future<void> sendStageZoom(String dir) async {
+    await _bridge?.sendStageZoom(dir);
+    _captureAck();
+  }
+
+  /// 协议 v1 `stage-bg`（dataURL；`null` = 清除）。
+  Future<void> sendStageBg(String? dataUrl) async {
+    await _bridge?.sendStageBg(dataUrl);
+    _captureAck();
+  }
 
   /// 同步舞台外观（协议 v1 `sync`）。
   void sync({
