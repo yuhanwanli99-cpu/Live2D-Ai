@@ -15,6 +15,15 @@ import 'message_bubble.dart';
 import 'streaming_indicator.dart';
 import 'theme.dart';
 
+/// 聊天列表保留的**最大条数**。
+///
+/// 取值理由：聊天历史**不落盘**（用户裁决），纯内存；500 条足以覆盖一次长会话，
+/// 又不至于让 `ListView` 的语义树与读屏浏览退化。超出后**丢最旧的**——
+/// 无限增长的长会话会让「往上翻」变成不可用操作。
+///
+/// 刻意在**视图层**裁剪而不是数据层：数据层裁剪会让「完整对话」无法导出排查。
+const int kChatHistoryLimit = 500;
+
 class ChatPanel extends StatelessWidget {
   const ChatPanel({
     required this.messages,
@@ -34,6 +43,7 @@ class ChatPanel extends StatelessWidget {
     this.onEnableSound,
     this.onOpenSettings,
     this.onRetryLast,
+    this.announcement,
     super.key,
   });
 
@@ -64,129 +74,146 @@ class ChatPanel extends StatelessWidget {
   /// 最后一条失败消息的重试。
   final VoidCallback? onRetryLast;
 
+  /// 节流后的播报文本（转给流式气泡的 `liveRegion`）。
+  final String? announcement;
+
   @override
   Widget build(BuildContext context) {
+    // 只渲染最后 [kChatHistoryLimit] 条（**不**在数据层裁剪：
+    // 数据层裁剪会让「完整对话」无法导出/排查，而视图层裁剪只影响渲染）。
+    final List<ChatMessage> visible = messages.length > kChatHistoryLimit
+        ? messages.sublist(messages.length - kChatHistoryLimit)
+        : messages;
+
     // 聊天面用**独立底色**与舞台分隔：舞台是纯黑（`stageBackdrop`），
     // 聊天面板盖在它上面时必须自己撑出一个面，否则气泡看起来是浮在黑底上。
     return ColoredBox(
       color: AppPalette.chatPanelSurface,
-      child: Column(
-        children: <Widget>[
-          // ── 头部：**只有**设置入口 ──
-          //
-          // 状态胶囊**不在这里**：它已经常驻在 AppBar 上（与连接徽标并列）。
-          // 同一个相位在两处渲染就是「同一件事长出两套视觉」的微缩版——
-          // 规格 §6.3 硬规则 1 明确禁止（同类项目的原病就是 6 个状态共用 1 种
-          // 视觉，以及反过来一个状态散成多处）。测试里有一条断言
-          // 「AppBar 只有 1 个状态胶囊」把这个重复钉死。
-          if (onOpenSettings != null)
+      // 聊天面板是一个面板 → 一个焦点组（规格 §9.2-1）。
+      child: FocusTraversalGroup(
+        policy: OrderedTraversalPolicy(),
+        child: Column(
+          children: <Widget>[
+            // ── 头部：**只有**设置入口 ──
+            //
+            // 状态胶囊**不在这里**：它已经常驻在 AppBar 上（与连接徽标并列）。
+            // 同一个相位在两处渲染就是「同一件事长出两套视觉」的微缩版——
+            // 规格 §6.3 硬规则 1 明确禁止（同类项目的原病就是 6 个状态共用 1 种
+            // 视觉，以及反过来一个状态散成多处）。测试里有一条断言
+            // 「AppBar 只有 1 个状态胶囊」把这个重复钉死。
+            if (onOpenSettings != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.s2,
+                  Space.s1,
+                  Space.s2,
+                  0,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    const Spacer(),
+                    IconButton(
+                      onPressed: onOpenSettings,
+                      tooltip: '设置',
+                      icon: const Icon(Icons.settings_outlined),
+                    ),
+                  ],
+                ),
+              ),
+            if (error != null)
+              ErrorBanner(
+                message: error!,
+                onDismiss: onDismissError,
+                actions: errorActions,
+              ),
+            // ── 消息列表 ──
+            Expanded(
+              child: visible.isEmpty
+                  ? const _ChatEmptyState()
+                  : ListView.builder(
+                      // 从底部开始：IM 的常规。**不**给 itemExtent（气泡高度可变）。
+                      reverse: true,
+                      padding: const EdgeInsets.symmetric(vertical: Space.s2),
+                      itemCount: visible.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        final ChatMessage m =
+                            visible[visible.length - 1 - index];
+                        return MessageBubble(
+                          message: m,
+                          onRetry: m.isPlaceholder ? onRetryLast : null,
+                          // 只给**最后一条**（正在流式的那个）挂播报；
+                          // 历史消息传 null，否则读屏会把整段历史重念一遍。
+                          announcement:
+                              index == 0 && m.streaming ? announcement : null,
+                        );
+                      },
+                    ),
+            ),
+            // 流式提示：贴在做消息列表下方（列表是 reverse 的，视觉上就是列表尾部）。
+            // `thinking` 之外**彻底不占位**（不渲染空 SizedBox，避免留一段
+            // 说不清来历的空白）。
+            StreamingIndicator(phase: phase),
+            // ── 音频条：常驻、在输入框**上方**（规格 §7.4） ──
+            DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: appColorsOf(context).hairline),
+                ),
+              ),
+              child: AudioBar(
+                volume: volume,
+                muted: muted,
+                onVolumeChanged: onVolumeChanged,
+                onMutedChanged: onMutedChanged,
+                serverMuted: serverMuted,
+                audioUnlocked: audioUnlocked,
+                onEnableSound: onEnableSound,
+              ),
+            ),
+            // ── 输入区 ──
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                Space.s2,
+                Space.s3,
                 Space.s1,
-                Space.s2,
-                0,
+                Space.s3,
+                Space.s3,
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
-                  const Spacer(),
-                  IconButton(
-                    onPressed: onOpenSettings,
-                    tooltip: '设置',
-                    icon: const Icon(Icons.settings_outlined),
+                  Expanded(
+                    child: TextField(
+                      controller: input,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => onSend(),
+                      decoration: const InputDecoration(
+                        hintText: '说点什么…（Enter 发送）',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
                   ),
+                  const SizedBox(width: Space.s2),
+                  // 一轮进行中时，发送键变「停止」——避免用户以为发了没反应。
+                  if (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                    IconButton.filledTonal(
+                      onPressed: onStop,
+                      tooltip: '停止',
+                      icon: const Icon(Icons.stop),
+                    )
+                  else
+                    IconButton.filled(
+                      onPressed: onSend,
+                      tooltip: '发送',
+                      icon: const Icon(Icons.send),
+                    ),
                 ],
               ),
             ),
-          if (error != null)
-            ErrorBanner(
-              message: error!,
-              onDismiss: onDismissError,
-              actions: errorActions,
-            ),
-          // ── 消息列表 ──
-          Expanded(
-            child: messages.isEmpty
-                ? const _ChatEmptyState()
-                : ListView.builder(
-                    // 从底部开始：IM 的常规。**不**给 itemExtent（气泡高度可变）。
-                    reverse: true,
-                    padding: const EdgeInsets.symmetric(vertical: Space.s2),
-                    itemCount: messages.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      final ChatMessage m =
-                          messages[messages.length - 1 - index];
-                      return MessageBubble(
-                        message: m,
-                        onRetry: m.isPlaceholder ? onRetryLast : null,
-                      );
-                    },
-                  ),
-          ),
-          // 流式提示：贴在做消息列表下方（列表是 reverse 的，视觉上就是列表尾部）。
-          // `thinking` 之外**彻底不占位**（不渲染空 SizedBox，避免留一段
-          // 说不清来历的空白）。
-          StreamingIndicator(phase: phase),
-          // ── 音频条：常驻、在输入框**上方**（规格 §7.4） ──
-          DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: appColorsOf(context).hairline),
-              ),
-            ),
-            child: AudioBar(
-              volume: volume,
-              muted: muted,
-              onVolumeChanged: onVolumeChanged,
-              onMutedChanged: onMutedChanged,
-              serverMuted: serverMuted,
-              audioUnlocked: audioUnlocked,
-              onEnableSound: onEnableSound,
-            ),
-          ),
-          // ── 输入区 ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Space.s3,
-              Space.s1,
-              Space.s3,
-              Space.s3,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Expanded(
-                  child: TextField(
-                    controller: input,
-                    minLines: 1,
-                    maxLines: 4,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => onSend(),
-                    decoration: const InputDecoration(
-                      hintText: '说点什么…（Enter 发送）',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: Space.s2),
-                // 一轮进行中时，发送键变「停止」——避免用户以为发了没反应。
-                if (phase == UiPhase.thinking || phase == UiPhase.speaking)
-                  IconButton.filledTonal(
-                    onPressed: onStop,
-                    tooltip: '停止',
-                    icon: const Icon(Icons.stop),
-                  )
-                else
-                  IconButton.filled(
-                    onPressed: onSend,
-                    tooltip: '发送',
-                    icon: const Icon(Icons.send),
-                  ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

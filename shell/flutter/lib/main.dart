@@ -19,6 +19,7 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
@@ -34,6 +35,7 @@ import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
 import 'app/app_shell.dart';
+import 'app/app_shortcuts.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
 import 'settings/sections/actions_section.dart';
@@ -43,6 +45,7 @@ import 'settings/sections/persona_section.dart';
 import 'settings/sections/tts_section.dart';
 import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
+import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
 import 'ui/action_grid.dart';
 import 'ui/action_toolbar.dart';
@@ -152,6 +155,7 @@ class ShellRoot extends StatefulWidget {
 
 class _ShellRootState extends State<ShellRoot> {
   final GlobalKey<Live2DStageState> _stageKey = GlobalKey<Live2DStageState>();
+  final GlobalKey<AppShellState> _shellKey = GlobalKey<AppShellState>();
   final TextEditingController _input = TextEditingController();
 
   late final ApiClient _api;
@@ -210,6 +214,13 @@ class _ShellRootState extends State<ShellRoot> {
 
   /// 渲染面回报的实际缩放（`stage-ack`；未收到时为 null，**不猜**）。
   double? _stageScaleFromAck;
+
+  // ── P6：无障碍 ──
+  /// 流式回复的**节流播报**（读屏用；`text_delta` 是毫秒级的，不节流会淹没读屏）。
+  final LiveRegionThrottle _live = LiveRegionThrottle();
+
+  /// 当前模型名（舞台语义标签用）。
+  String _modelName = '';
 
   /// 开发者模式（来自 `GET /api/v1/app/status`，与 `--dev-mode` 启动参数一致）。
   ///
@@ -288,6 +299,7 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_statusSubscription?.cancel());
     unawaited(_eventSubscription?.cancel());
     _ui.dispose();
+    _live.dispose();
     _settings.dispose();
     _modelsApi.dispose();
     _modsApi.dispose();
@@ -299,6 +311,22 @@ class _ShellRootState extends State<ShellRoot> {
     _commandsApi.dispose();
     _input.dispose();
     super.dispose();
+  }
+
+  /// 把流式正文喂给节流播报器。
+  ///
+  /// **按「整句到达」优先**：末尾出现句末标点就立刻播报；否则按 1.5 s 限速。
+  /// 两级放行的判据在 `LiveRegionThrottle.feed` 里，可单测。
+  void _syncLiveRegion() {
+    final ChatMessage? last = _chat.messages.isEmpty ? null : _chat.messages.last;
+    if (last == null) return;
+    if (last.role != ChatRole.assistant) return;
+    if (!last.streaming) {
+      // 收口：把最后一小段补播一次（末尾往往没有句末标点，比如「好呀」）。
+      _live.finish(last.text);
+      return;
+    }
+    _live.feed(last.text);
   }
 
   /// WS 的动作事件 → **真的让模型动** + 本地忙碌态。
@@ -410,10 +438,12 @@ class _ShellRootState extends State<ShellRoot> {
     _input.clear();
     _ui.markTurnAccepted();
     await _chat.send(text);
+    _syncLiveRegion();
   }
 
   Future<void> _stop() async {
     await _chat.stop();
+    _syncLiveRegion();
     // 停止后立刻收口并显示「已打断」（不等服务端的 turn_state，那是它的节奏）。
     _ui.markStopped();
   }
@@ -466,10 +496,12 @@ class _ShellRootState extends State<ShellRoot> {
       final Map<String, Object?> status = await _diagApi.status();
       final AppCapabilities caps = await _diagApi.capabilities();
       if (!mounted) return;
+      final Object? activeModel = status['active_model_id'];
       setState(() {
         _models = models;
         _mods = mods;
         _status = status;
+        if (activeModel is String) _modelName = activeModel;
         _capabilities = caps;
         _adminLoading = false;
       });
@@ -804,9 +836,13 @@ class _ShellRootState extends State<ShellRoot> {
 
   @override
   Widget build(BuildContext context) {
+    // 正文一变就同步播报（节流在 `_live` 里做）。
+    _syncLiveRegion();
+
     return ListenableBuilder(
       // 三处都并进来：聊天（消息/错误）、相位、音频解锁状态。
       listenable: Listenable.merge(<Listenable>[
+        _live,
         _chat,
         _ui,
         _audio.unlockState,
@@ -815,6 +851,7 @@ class _ShellRootState extends State<ShellRoot> {
       ]),
       builder: (BuildContext context, Widget? _) {
         return AppShell(
+          key: _shellKey,
           stage: Live2DStage(
             key: _stageKey,
             dark: true,
@@ -874,6 +911,26 @@ class _ShellRootState extends State<ShellRoot> {
           stageCorner: StageCornerControls(
             onZoom: (String dir) => unawaited(_zoom(dir)),
             scaleFromAck: _stageScaleFromAck,
+          ),
+          // ── P6：无障碍 ──
+          modelName: _modelName,
+          announcement: _live.hasAnnouncement ? _live.announcement : null,
+          shortcuts: AppShortcutCallbacks(
+            isMacOS: defaultTargetPlatform == TargetPlatform.macOS,
+            onSend: () => unawaited(_send()),
+            onStop: () => unawaited(_stop()),
+            // 覆盖层优先：它关掉了就不再停止本轮。
+            onDismissOverlay: () {
+              final AppShellState? shell = _shellKey.currentState;
+              if (shell == null || !shell.settingsOpen) return false;
+              shell.closeSettings();
+              return true;
+            },
+            onOpenSettings: () {
+              unawaited(
+                _shellKey.currentState?.openSettings() ?? Future<void>.value(),
+              );
+            },
           ),
         );
       },

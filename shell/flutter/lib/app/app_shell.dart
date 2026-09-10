@@ -47,6 +47,7 @@ import '../ui/error_banner.dart';
 import '../ui/settings_scaffold.dart';
 import '../ui/state_pill.dart';
 import '../ui/theme.dart';
+import 'app_shortcuts.dart';
 import 'nav_host.dart';
 
 class AppShell extends StatefulWidget {
@@ -85,6 +86,9 @@ class AppShell extends StatefulWidget {
     this.confirmDiscard,
     this.stageCorner,
     this.stageToolbar,
+    this.shortcuts = const AppShortcutCallbacks(isMacOS: false),
+    this.announcement,
+    this.modelName,
     super.key,
   });
 
@@ -158,6 +162,15 @@ class AppShell extends StatefulWidget {
 
   /// 左下角（备用槽位；当前用于将来的 Mod 动作）。
   final Widget? stageToolbar;
+
+  /// 全局快捷键（规格 §9.3）。外壳只负责**挂上去**，动作由宿主给。
+  final AppShortcutCallbacks shortcuts;
+
+  /// 节流后的播报文本（转给流式气泡的 `liveRegion`）。
+  final String? announcement;
+
+  /// 当前模型名（舞台的语义标签用）。
+  final String? modelName;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -376,7 +389,7 @@ class AppShellState extends State<AppShell> {
             ],
           );
 
-          return Scaffold(
+          final Widget scaffold = Scaffold(
             appBar: AppBar(
               title: const Text('Live2D Ai'),
               actions: <Widget>[
@@ -400,6 +413,17 @@ class AppShellState extends State<AppShell> {
               ],
             ),
             body: compact ? body : _withRail(sizeClass, body),
+          );
+
+          // 快捷键挂在**根**（`CallbackShortcuts` 最省样板，且不吞未匹配的键）。
+          // 外面再包一个 `FocusTraversalGroup`：整页的 Tab 顺序是确定的，
+          // 不会因为某次重构而静默改变。
+          return CallbackShortcuts(
+            bindings: widget.shortcuts.bindings(),
+            child: FocusTraversalGroup(
+              policy: OrderedTraversalPolicy(),
+              child: scaffold,
+            ),
           );
         },
       ),
@@ -463,5 +487,6 @@ class AppShellState extends State<AppShell> {
     onEnableSound: widget.onEnableSound,
     onOpenSettings: compact ? () => openSettings() : null,
     onRetryLast: widget.onRetryLast,
+    announcement: widget.announcement,
   );
 }

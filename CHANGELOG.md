@@ -1,3 +1,79 @@
+# v0.4.11 — P6 无障碍与性能收口（前端 495 → 531，前端阶段全部完成）
+
+规格 §9 说得很直白：「全仓库 `Semantics` / `FocusTraversalGroup` / `Shortcuts` /
+`prefers-reduced-motion` **零命中**。无障碍目前完全不存在，属于**从零补**」。
+本轮把它补上了，并给红线加了静态守卫。
+
+## 无障碍
+
+- **舞台语义**：`Semantics(label: 'Live2D 舞台，正在显示 <模型名>')`。平台视图对读屏
+  是黑盒——不给标签的话，读屏用户完全不知道页面里有一个 Live2D 舞台。
+  **语义只包舞台本体**：第一版 `excludeSemantics` 写在包住整个 `Stack` 的位置，
+  把「模型加载失败 + 重试」的语义一起吃掉，**读屏用户再也点不到重试**。
+- **流式播报**：`LiveRegionThrottle` —— `text_delta` 是毫秒级的，直接挂
+  `liveRegion` 会把读屏淹没。放行条件是**两条之一**：末尾出现句末标点
+  （`。！？…；`/换行）→ 立刻播；否则距上次 ≥ 1.5 s → 播当前整段。
+  `finish()` 补播最后一段（末尾往往没有标点，比如「好呀」）。
+- **焦点**：`FocusTraversalGroup(policy: OrderedTraversalPolicy())` 挂在根、
+  聊天面板、设置面板、舞台、音频条；音频条内用 `NumericFocusOrder` 固定
+  「音量 → 静音」的顺序（顺序跟随 Widget 树会在重构时**静默**改变）。
+- **键盘**：`Ctrl/Cmd + Enter` 发送（多行输入框里 Enter 是换行，所以必须补）、
+  `Esc`、`Ctrl/Cmd + ,` 打开设置、`Ctrl/Cmd + /` 帮助。
+  **`Esc` 一次只做一件事**：覆盖层关掉了就不再停止本轮。**模态优先且不覆盖它**。
+  平台修饰键**只绑一个**（mac 用 ⌘、其余用 Ctrl）——两个都绑会出现
+  「按 Win+Enter 发消息」。
+- **键盘也解锁音频**（钉子 9）：`HardwareKeyboard` 全局处理器（**返回 false 不吞键**）
+  + 既有指针路径。此前只挂指针，**纯键盘用户永远没有声音**且界面不解释。
+
+## 性能与红线（静态守卫）
+
+- `RepaintBoundary` 包住舞台（30 Hz 口型不牵动聊天列表）。
+- **聊天列表上限 500**（视图层裁剪：数据层裁剪会让完整对话无法导出排查）。
+- **`no_backdrop_filter_test.dart`**（新，把红线集中到一处）：
+  `BackdropFilter` = 0、`ImageFilter.blur` = 0、`contentFaint` 不得承载文字、
+  导入守卫（`display_prefs`/`gain`/`breakpoints` 只准 `dart:*`；
+  `package:web` 只准出现在四个白名单文件）、舞台必须有 `RepaintBoundary`。
+  同时**从 `design_tokens_lint_test.dart` 移走** `BackdropFilter` 规则——
+  同一条红线的两处实现迟早会漂移。
+
+## 一个设计放宽（让覆盖层可测）
+
+`StageHost.stage` 原本声明为具体的 `Live2DStage`，于是想测覆盖层与语义就只能
+造一个真的 iframe。规格 §11.3 要求「用可注入的 stage 占位，**不要**为测试给 stage
+加分支」——放宽为 `Widget` 后才做得到。
+
+## 新增人工清单
+
+`docs/verification/flutter-shell-manual-checklist.md`（132 行）：规格 §11.5 的 7 项
++ 本轮新增 3 项（reduced motion / 角色卡导入 / 动作通道），每项写明
+「为什么必须人工」与可勾选的期望。
+
+## 测试（前端 495 → **531**）
+
+- `semantics_test.dart`（21 条）：舞台语义（含「不念 null」与
+  「覆盖层语义没被吃掉」）、liveRegion 只在流式气泡上、节流器 8 条
+  （整句立刻播 / 间隔放行 / 文本没变不播 / finish 补播 / reset）、
+  快捷键表与绑定表、reduced motion。
+- `keyboard_test.dart`（7 条）：**按任意键触发解锁**、指针路径保留、
+  **键盘处理器不吞键**（输入框内容正常）、列表 500 上限、
+  5 个 `WsStatus` 的文字两两不同。
+- `no_backdrop_filter_test.dart`（9 条）：四条红线 + 扫描覆盖自检。
+- `design_tokens_lint_test.dart`：加一条「不得把毛玻璃规则加回来」。
+
+## 未验证项（诚实记录）
+
+规格 §11.5-5 要求「`--profile` 构建下测帧时间」。**构建通过**（26 s），
+但本机**没有浏览器**，DevTools Performance 面板无法操作 ⇒ **帧时间是未验证项**，
+已写进人工清单 §7。同理，reduced motion 的真实系统开关、断网、WebAudio 解锁
+都属人工项。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **531 通过 / 0 失败**；
+`flutter build web --release`（`--no-web-resources-cdn`）通过、无 CDN 引用、
+自托管字体随产物分发；`--profile` 构建通过。
+Rust 侧未改动：fmt/clippy 干净、**815 通过 / 0 失败**、doctest 3、`rust-ratio` PASS。
+
 # v0.4.10 — P5 动作通道：让模型**真的动**（前端 441 → 495）
 
 ## 本轮最重要的一条：动作通道此前**根本没接上**

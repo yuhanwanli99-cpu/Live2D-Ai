@@ -14,6 +14,7 @@ class MessageBubble extends StatelessWidget {
   const MessageBubble({
     required this.message,
     this.onRetry,
+    this.announcement,
     super.key,
   });
 
@@ -21,6 +22,13 @@ class MessageBubble extends StatelessWidget {
 
   /// 失败态下的「重试」；`null` 时不显示。
   final VoidCallback? onRetry;
+
+  /// **节流后**的播报文本（`LiveRegionThrottle.announcement`）。
+  ///
+  /// 传 `null` = 这条气泡不参与 live region（历史消息不该被反复播报）。
+  /// 之所以不让气泡自己看 `message.text`：`text_delta` 是毫秒级的，
+  /// 直接挂 `liveRegion` 会把读屏淹掉——节流必须在**外面**做完再喂进来。
+  final String? announcement;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +67,12 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
           Semantics(
-            label: '${message.role.label}说：${message.text}',
+            // `liveRegion`：**只在流式中的助手气泡**上开。读屏会优先播报
+            // 这里的 `label`（已节流），历史消息保持普通节点。
+            liveRegion: announcement != null && message.streaming,
+            label: announcement == null
+                ? '${message.role.label}说：${message.text}'
+                : '${message.role.label}说：$announcement',
             excludeSemantics: true,
             child: Container(
               constraints: const BoxConstraints(maxWidth: 460),

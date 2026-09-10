@@ -1417,7 +1417,8 @@ lib/settings/sections/actions_section.dart
 lib/settings/sections/dev_tools_section.dart
 lib/settings/sections/pane_helpers.dart
 lib/actions/action_dispatch.dart        lib/ui/action_grid.dart
-lib/ui/action_toolbar.dart
+lib/ui/action_toolbar.dart            lib/state/live_region.dart
+lib/app/app_shortcuts.dart
 test/ws_frame_test.dart                 test/action_history_test.dart
 test/action_event_test.dart             test/action_log_controller_test.dart
 test/action_ui_test.dart                test/commands_api_test.dart
@@ -1428,6 +1429,8 @@ test/settings_controller_test.dart      test/settings_sections_test.dart
 test/settings_scaffold_test.dart        test/persona_import_test.dart
 test/admin_api_test.dart                test/settings_api_test.dart
 test/action_dispatch_test.dart          test/action_ui_p5_test.dart
+test/semantics_test.dart                test/no_backdrop_filter_test.dart
+test/keyboard_test.dart
 test/semantics_test.dart                test/no_backdrop_filter_test.dart
 ```
 
@@ -2002,6 +2005,76 @@ core 对「动作 + 强度 + 来源完全相同」返回 `Dropped(AlreadyActive)
 被设计令牌门禁拦下。这是**渲染面的动画时序**，不是 UI 过渡时长。
 ⇒ 在 lint 里加了一个**逐个点名**的豁免集 `kProtocolTimingFiles`
 （只列这一个文件，不豁免整个目录——豁免面越小越难被侵蚀）。
+
+---
+
+### 13.9 P6 落地时的发现与裁决（2026-09-10）
+
+#### ① `StageHost.stage` 是具体类型 `Live2DStage`，逼着测试造真 iframe
+
+规格 §11.3 明确要求「用**可注入的 stage 占位**，**不要**为测试给 stage 加分支」，
+但 `StageHost.stage` 原本声明为 `Live2DStage`（具体 widget）——于是想测覆盖层与语义
+就只能造一个真的 `Live2DStage`，而它在 VM 里只是个占位 host，测不到什么。
+⇒ 放宽为 `Widget`。宿主只需要「把某个东西铺满」，不该要求调用方给 iframe。
+这让覆盖层语义（「模型加载中」/「模型加载失败 + 重试」）可以单独测。
+
+#### ② 舞台语义**不能**包住整个 Stack
+
+第一版把 `Semantics(container: true, label: 'Live2D 舞台…', excludeSemantics: true)`
+写在包住整个 `Stack` 的位置——结果加载/错误覆盖层的语义（「模型加载中」、
+「模型加载失败」+ 「重试」按钮）被一并吃掉，**读屏用户再也点不到「重试」**。
+⇒ 语义只包**舞台本体**（`ExcludeSemantics(child: stage)`），覆盖层各自保留语义。
+
+#### ③ 播报节流是**两条件**，不是一条
+
+规格 §9.1 给的是「≥1.5 s，**或**按整句到达播报」。实现取**两条都放行**：
+- 末尾出现句末标点（`。！？…；` 与换行）→ **立刻**播报（这是语义边界）；
+- 否则距上次 ≥ `minInterval` 且正文确实变了 → 播报当前整段。
+
+只按间隔会在「一句话刚说完但还没到 1.5 s」时延迟播报；只按整句会在一长串
+没有标点的输出里哑掉。另外 `finish()` 要**补播最后一段**（末尾往往没有句末标点，
+比如「好呀」）——不补的话读屏用户永远听不到最后一句。
+
+#### ④ `Esc` 必须**一次只做一件事**
+
+`onDismissOverlay()` 返回 `true` 表示它关掉了覆盖层 → 不再触发 `onStop`。
+不区分的话一次 Esc 会「关侧板 + 停止对话」同时发生，用户会以为自己误触了停止。
+模态弹层（`showModalBottomSheet`/`showDialog`）自带 Esc 且先消费，我们**不覆盖它**。
+
+#### ⑤ 平台修饰键**只绑一个**
+
+macOS 用 `meta`（⌘），其余用 `control`。**不要两个都绑**：在 Windows 上 `meta`
+是 Win 键，绑上去会出现「按 Win+Enter 发消息」。测试断言了
+「mac 版绑定里没有 control、PC 版绑定里没有 meta」。
+
+#### ⑥ 时长门禁加了第二个点名豁免
+
+`live_region.dart` 的 1.5 s 播报间隔被「UI 动效时长只能取 AppDurations 的 4 档」
+拦下。它是**无障碍节奏**（听觉可读性下限），不是视觉过渡。
+⇒ `kProtocolTimingFiles` 改名 `kNamedTimingFiles` 并列出两个文件与各自理由
+（动作兜底时长表 / 播报间隔）。**继续逐个点名，不豁免目录。**
+
+#### ⑦ 静态红线的归属
+
+`BackdropFilter` 规则从 `design_tokens_lint_test.dart` **移出**，与
+`ImageFilter.blur`、`contentFaint` 不得承载文字、导入守卫（纯逻辑文件只 import
+`dart:*`、`package:web` 白名单）一起归 `no_backdrop_filter_test.dart`。
+同一条红线的两处实现迟早会漂移；测试里也加了一条断言防止有人把规则加回去。
+
+**导入守卫的两条**：① `display_prefs` / `gain` / `breakpoints` 只准 `dart:*`；
+② `package:web` 只准出现在四个文件（`main` / `ws_client` / `live2d_host_web` /
+`audio_player`）——**新增一项都要先问「能不能不碰 DOM」**，因为碰了就等于放弃
+该文件的 VM 可测性。
+
+#### ⑧ `--profile` 构建通过，但帧时间实测**做不了**（诚实记录）
+
+规格 §11.5-5 要求「`--profile` 构建下测帧时间」。构建通过（26 s），
+但**本机没有浏览器**，DevTools Performance 面板无法操作 ⇒ 帧时间是**未验证项**，
+已写进 `docs/verification/flutter-shell-manual-checklist.md` §7，留给人工。
+
+`docs/verification/flutter-shell-manual-checklist.md` 是新文件，覆盖规格 §11.5 的
+7 项人工自测 + 3 项本轮新增（reduced motion / 角色卡导入 / 动作通道），
+每项都写了「为什么必须人工」与可勾选的期望结果。
 
 ---
 

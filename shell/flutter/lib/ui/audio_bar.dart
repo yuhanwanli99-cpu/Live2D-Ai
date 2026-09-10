@@ -64,84 +64,97 @@ class AudioBar extends StatelessWidget {
     // 「启用声音」按钮都变成读不到/点不到的碎片，读屏只会念一句
     // 「音频 80%」。这正是「静默失效」在无障碍上的形态——
     // 测试断言了「滑杆节点自身的标签是主音量、值是 80%」把这条钉死。
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        Space.s3,
-        Space.s1,
-        Space.s2,
-        Space.s1,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(
-                muted ? Icons.volume_off : Icons.volume_up,
-                size: 18,
-                color: muted
-                    ? colors.contentMuted
-                    : theme.colorScheme.onSurface,
-              ),
-              Expanded(
-                // 读屏要能念出百分比。**不要**在外面套一层 `Semantics(label:)`：
-                // `Slider` 自身是语义叶子节点，外层 label 会变成一个独立节点
-                // 而不是它的标签（第一版就是这么写的，测试直接抓到
-                // 「找不到 '主音量 80%' 这个语义标签」）。
-                // 正确做法是用 `Slider` 自己的两个语义入口：
-                // `label`（节点标签）+ `semanticFormatterCallback`（节点值）。
-                child: Slider(
-                  value: volume,
-                  label: '主音量',
-                  // **不在静音时禁用滑杆**：静音与音量正交。
-                  onChanged: onVolumeChanged,
-                  semanticFormatterCallback: (double v) =>
-                      '${(v * 100).round()}%',
+    // **固定 Tab 顺序**（规格 §9.2-1）：不写的话顺序跟随 Widget 树，
+    // 重构时会静默变化——而「音量 → 静音」是用户的肌肉记忆顺序。
+    return FocusTraversalGroup(
+      policy: OrderedTraversalPolicy(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Space.s3,
+          Space.s1,
+          Space.s2,
+          Space.s1,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  muted ? Icons.volume_off : Icons.volume_up,
+                  size: 18,
+                  color: muted
+                      ? colors.contentMuted
+                      : theme.colorScheme.onSurface,
                 ),
-              ),
-              SizedBox(
-                width: 44,
-                child: Text(
-                  '$percent%',
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.contentMuted,
+                Expanded(
+                  // 1 = 主音量（Tab 第一站）。
+                  // 读屏要能念出百分比。**不要**在外面套一层 `Semantics(label:)`：
+                  // `Slider` 自身是语义叶子节点，外层 label 会变成一个独立节点
+                  // 而不是它的标签（第一版就是这么写的，测试直接抓到
+                  // 「找不到 '主音量 80%' 这个语义标签」）。
+                  // 正确做法是用 `Slider` 自己的两个语义入口：
+                  // `label`（节点标签）+ `semanticFormatterCallback`（节点值）。
+                  child: FocusTraversalOrder(
+                    order: const NumericFocusOrder(1),
+                    child: Slider(
+                      value: volume,
+                      label: '主音量',
+                      // **不在静音时禁用滑杆**：静音与音量正交。
+                      onChanged: onVolumeChanged,
+                      semanticFormatterCallback: (double v) =>
+                          '${(v * 100).round()}%',
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: Space.s1),
-              // 本机静音：图标开关 + **tooltip 文案逐字照抄 §7.2**。
-              IconButton(
-                onPressed: () => onMutedChanged(!muted),
-                tooltip: '本机静音',
-                isSelected: muted,
-                icon: Icon(
-                  muted ? Icons.volume_off : Icons.volume_mute_outlined,
+                SizedBox(
+                  width: 44,
+                  child: Text(
+                    '$percent%',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.contentMuted,
+                    ),
+                  ),
                 ),
-                selectedIcon: const Icon(Icons.volume_off),
-                visualDensity: VisualDensity.compact,
+                const SizedBox(width: Space.s1),
+                // 2 = 本机静音（Tab 第二站）。
+                FocusTraversalOrder(
+                  order: const NumericFocusOrder(2),
+                  // 本机静音：图标开关 + **tooltip 文案逐字照抄 §7.2**。
+                  child: IconButton(
+                    onPressed: () => onMutedChanged(!muted),
+                    tooltip: '本机静音',
+                    isSelected: muted,
+                    icon: Icon(
+                      muted ? Icons.volume_off : Icons.volume_mute_outlined,
+                    ),
+                    selectedIcon: const Icon(Icons.volume_off),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+            if (muted)
+              _Hint(
+                // 静音时**明确说明**：口型保留、音量原值还在。
+                text: '本机静音中——你这台设备听不到（口型保留）；取消静音后按 $percent% 播放',
+                tone: colors.contentMuted,
+              ),
+            if (serverMuted) _ServerMutedBadge() else const SizedBox.shrink(),
+            if (!audioUnlocked) ...<Widget>[
+              _Hint(text: '点击任意位置或按任意键以启用声音', tone: AppPalette.warning),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: onEnableSound,
+                  icon: const Icon(Icons.volume_up, size: 16),
+                  label: const Text('启用声音'),
+                ),
               ),
             ],
-          ),
-          if (muted)
-            _Hint(
-              // 静音时**明确说明**：口型保留、音量原值还在。
-              text: '本机静音中——你这台设备听不到（口型保留）；取消静音后按 $percent% 播放',
-              tone: colors.contentMuted,
-            ),
-          if (serverMuted) _ServerMutedBadge() else const SizedBox.shrink(),
-          if (!audioUnlocked) ...<Widget>[
-            _Hint(text: '点击任意位置或按任意键以启用声音', tone: AppPalette.warning),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: onEnableSound,
-                icon: const Icon(Icons.volume_up, size: 16),
-                label: const Text('启用声音'),
-              ),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }

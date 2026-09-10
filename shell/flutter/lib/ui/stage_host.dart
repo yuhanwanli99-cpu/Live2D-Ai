@@ -15,7 +15,6 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 import '../live2d/live2d_bridge.dart';
-import '../live2d/live2d_stage.dart';
 import 'theme.dart';
 
 class StageHost extends StatelessWidget {
@@ -27,11 +26,17 @@ class StageHost extends StatelessWidget {
     this.onRetry,
     this.overlayTop,
     this.corner,
+    this.modelName,
     super.key,
   });
 
   /// 舞台本体。**必须是同一个实例/同一个 key**，否则保活失效。
-  final Live2DStage stage;
+  ///
+  /// 类型是 `Widget` 而不是具体的 `Live2DStage`：宿主只需要「把某个东西铺满」，
+  /// 不该要求调用方给一个真的 iframe。这正好让覆盖层与语义可以**单独测**
+  /// （规格 §11.3 明确要求「用可注入的 stage 占位，**不要**为测试给 stage
+  /// 加分支」）。
+  final Widget stage;
 
   /// 渲染面阶段。
   final Live2DBridgePhase phase;
@@ -51,23 +56,44 @@ class StageHost extends StatelessWidget {
   /// 右下/左下的常驻角标（状态胶囊、动作工具条）。
   final Widget? corner;
 
+  /// 当前模型名（用于舞台的语义标签）。
+  ///
+  /// **平台视图对读屏是黑盒**：不给语义标签的话，读屏用户完全不知道
+  /// 页面里有一个 Live2D 舞台，更不知道在显示哪个模型。
+  final String? modelName;
+
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          // 舞台永远在树里——覆盖层只是叠上去。
-          SizedBox.expand(child: stage),
-          if (phase == Live2DBridgePhase.loading)
-            _StageLoadingOverlay(progress: progress),
-          if (phase == Live2DBridgePhase.error)
-            _StageErrorOverlay(message: errorMessage, onRetry: onRetry),
-          if (overlayTop != null)
-            Align(alignment: Alignment.topCenter, child: overlayTop),
-          if (corner != null)
-            Align(alignment: Alignment.bottomRight, child: corner),
-        ],
+      child: FocusTraversalGroup(
+        policy: OrderedTraversalPolicy(),
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            // 舞台永远在树里——覆盖层只是叠上去。
+            //
+            // 语义只包**舞台本体**，**不能**包整个 Stack：加载/错误覆盖层
+            // 各自有语义（「模型加载中」/「模型加载失败」+ 重试按钮），
+            // 在 Stack 上写 `excludeSemantics: true` 会把它们一起吃掉，
+            // 读屏用户就再也点不到「重试」了。（第一版就是这么写的。）
+            Semantics(
+              container: true,
+              label: modelName == null || modelName!.isEmpty
+                  ? 'Live2D 舞台'
+                  : 'Live2D 舞台，正在显示 $modelName',
+              // iframe 内部对读屏是黑盒 → 屏蔽，避免出现一个空节点。
+              child: ExcludeSemantics(child: SizedBox.expand(child: stage)),
+            ),
+            if (phase == Live2DBridgePhase.loading)
+              _StageLoadingOverlay(progress: progress),
+            if (phase == Live2DBridgePhase.error)
+              _StageErrorOverlay(message: errorMessage, onRetry: onRetry),
+            if (overlayTop != null)
+              Align(alignment: Alignment.topCenter, child: overlayTop),
+            if (corner != null)
+              Align(alignment: Alignment.bottomRight, child: corner),
+          ],
+        ),
       ),
     );
   }
@@ -147,10 +173,7 @@ class _StageErrorOverlay extends StatelessWidget {
               ],
               if (onRetry != null) ...<Widget>[
                 const SizedBox(height: Space.s3),
-                FilledButton.tonal(
-                  onPressed: onRetry,
-                  child: const Text('重试'),
-                ),
+                FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
               ],
             ],
           ),

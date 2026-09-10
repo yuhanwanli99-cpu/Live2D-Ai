@@ -21,14 +21,19 @@ bool isProtocolDurationPath(String path) =>
     path.startsWith('lib/audio/') ||
     path.startsWith('lib/live2d/');
 
-/// **逐个点名**的协议时长文件（不是整个目录）。
+/// **逐个点名**的时长豁免文件（不是整个目录）。
 ///
-/// 豁免面越小越难被侵蚀——所以这里只列具体文件，不列目录。
-const Set<String> kProtocolTimingFiles = <String>{
-  // 动作兜底时长表：镜像渲染面 `surface.rs::choreography_total_ms`
-  // （nod 1320 / shake_no 1000 / …）与它的尾 fade 余量。
-  // 这是**渲染面的动画时序**，不是 UI 过渡时长——UI 过渡该用 `AppDurations`。
+/// 豁免面越小越难被侵蚀——所以只列具体文件，不列目录。
+/// 两者都是「时序」但不是「UI 过渡时长」，所以不该逼它们用 `AppDurations`
+/// （那 4 档是为 hover/内容切换这类**交互过渡**定的）。
+const Set<String> kNamedTimingFiles = <String>{
+  // ① 动作兜底时长表：镜像渲染面 `surface.rs::choreography_total_ms`
+  //    （nod 1320 / shake_no 1000 / …）与它的尾 fade 余量。
+  //    这是**渲染面的动画时序**，前端只是抄了一份用来兜底。
   'lib/actions/action_dispatch.dart',
+  // ② 读屏播报的最小间隔：`text_delta` 是毫秒级的，不节流会把读屏淹没。
+  //    这是**无障碍节奏**，是听觉可读性的下限，与视觉过渡无关。
+  'lib/state/live_region.dart',
 };
 
 /// 一条扫描规则。
@@ -81,20 +86,13 @@ final List<Rule> kRules = <Rule>[
     exempt: (String p) => p == 'lib/design/breakpoints.dart',
   ),
   Rule(
-    name: '毛玻璃',
-    pattern: RegExp(r'BackdropFilter'),
-    // **无豁免**：BackdropFilter 模糊不到 iframe platform view（官方 issue
-    // #184996 / #89889），却照付离屏渲染代价。GlassPanel 用半透明纯色 + 描边。
-    why: '本项目不做毛玻璃（模糊不到 iframe，还照付代价）',
-  ),
-  Rule(
     name: '协议时长混用',
     pattern: RegExp(r'Duration\(milliseconds:'),
     why: 'UI 动效时长只能取 AppDurations 的 4 档',
     // 协议目录 + 令牌声明文件（`AppDurations` 本身就是在那里定义的）。
     exempt: (String p) =>
         isProtocolDurationPath(p) ||
-        kProtocolTimingFiles.contains(p) ||
+        kNamedTimingFiles.contains(p) ||
         kTokenDeclarationFiles.contains(p),
   ),
 ];
@@ -152,9 +150,14 @@ void main() {
       }
     });
 
-    test('毛玻璃规则没有任何豁免', () {
-      final Rule frosted = kRules.firstWhere((Rule r) => r.name == '毛玻璃');
-      expect(frosted.exempt, isNull, reason: '毛玻璃不该有豁免');
+    test('本文件不重复实现毛玻璃规则（归属 no_backdrop_filter_test.dart）', () {
+      // 同一条红线的两处实现迟早会漂移（一处改了另一处没改），所以只留一处。
+      // 毛玻璃 + ImageFilter.blur + contentFaint + 导入守卫都在
+      // `no_backdrop_filter_test.dart` 里，那个文件名就说明了它的职责。
+      expect(
+        kRules.any((Rule r) => r.name.contains('毛玻璃')),
+        isFalse,
+      );
     });
 
     test('协议时长豁免只覆盖 api/ 与 audio/ 两个目录', () {
