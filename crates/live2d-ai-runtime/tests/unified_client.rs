@@ -401,6 +401,40 @@ async fn missing_key_omits_authorization_header_entirely() {
     assert_eq!(captured.authorization, None);
 }
 
+// ------------------------------------------------- llm.max_tokens 上线形态
+
+/// `LlmConfig.max_tokens` 必须真的走到线上：非 0 → 出现；0 → 字段省略。
+///
+/// 单测只覆盖了 `chat_request_body` 的形状，这里补上「配置 → 请求体」那一段
+/// ——否则 `resolve()` 解析出来的上限被谁吞掉都不会有人发现。
+#[tokio::test]
+async fn llm_max_tokens_reaches_the_wire_and_zero_omits_the_field() {
+    for (configured, expect_on_wire) in [(512u32, Some(512u64)), (0u32, None)] {
+        let planned = PlannedResponse::sse(vec![sse_data("[DONE]")]);
+        let (base, server) = spawn_server(planned).await;
+
+        let mut cfg = LlmConfig::new(&base, "m");
+        cfg.max_tokens = configured;
+        let client = OpenAiClient::new(cfg, TtsConfig::new("http://127.0.0.1:9/v1", "alloy"))
+            .expect("client");
+        let mut stream = client.chat_stream(&[]).await.expect("ok");
+        assert!(matches!(stream.next().await, Some(Ok(LlmEvent::Done))));
+
+        let captured = server.await.expect("server task");
+        let raw = std::str::from_utf8(&captured.body).expect("request body is UTF-8");
+        let body: serde_json::Value =
+            serde_json::from_str(raw).unwrap_or_else(|e| panic!("body is not JSON: {e}"));
+        assert_eq!(body["stream"], true, "全链路仍是流式");
+        match expect_on_wire {
+            Some(v) => assert_eq!(body["max_tokens"], v, "配置了上限就必须上线"),
+            None => assert!(
+                body.get("max_tokens").is_none(),
+                "0 = 不限制 → 省略字段（某些服务把 0 当「拒绝生成」）: {body}"
+            ),
+        }
+    }
+}
+
 // ---------------------------------------------------------------- TTS
 
 #[tokio::test]

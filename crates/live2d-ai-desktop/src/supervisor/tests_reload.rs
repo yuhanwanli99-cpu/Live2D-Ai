@@ -83,6 +83,7 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
             base_url: llm_base_url.to_string(),
             model: "test-model".to_string(),
             api_key_env: None,
+            max_tokens: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
             base_url: tts_base_url.to_string(),

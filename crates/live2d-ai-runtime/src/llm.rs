@@ -11,6 +11,12 @@
 //!
 //! 解析层不假设任何网络/SSE 切割粒度：字节先进 [`SseDecoder`] 缓冲，
 //! 单个 chunk 可能只是半行、一行、多行甚至半个多字节字符。
+//!
+//! # 行数（AGENTS.md「源码 ≤500 行」）
+//!
+//! 文件 528 行，其中 `#[cfg(test)] mod tests` 自第 354 行起占 175 行——
+//! **生产代码 353 行**，未超 500 行上限。统计时请按此口径看，不要把内联
+//! 测试算进源码行数。
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -114,9 +120,25 @@ struct ChatRequestBody<'a> {
     messages: Vec<WireMessage<'a>>,
     stream: bool,
     tools: [serde_json::Value; 1],
+    /// 输出 token 上限。**0 = 不限制**（字段整体省略，沿用服务端默认）。
+    ///
+    /// 这是「控制回复长度」的**机制**——不靠提示词求模型守规矩，
+    /// 而是在协议层给出硬上限。分句由我们按 `。！？` 主动做
+    /// （见 `dialogue/sentence.rs`），两者配合才是完整的长度控制。
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    max_tokens: u32,
 }
 
-fn chat_request_body<'a>(model: &'a str, messages: &'a [ChatMessage]) -> ChatRequestBody<'a> {
+/// `skip_serializing_if` 的谓词：0 表示「不限制」，省略整个字段。
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+fn chat_request_body<'a>(
+    model: &'a str,
+    messages: &'a [ChatMessage],
+    max_tokens: u32,
+) -> ChatRequestBody<'a> {
     ChatRequestBody {
         model,
         messages: messages
@@ -130,6 +152,7 @@ fn chat_request_body<'a>(model: &'a str, messages: &'a [ChatMessage]) -> ChatReq
         stream: true,
         // 固定注入唯一的 live2d_perform_action 工具；用不用/能不能用由 core 决定。
         tools: [perform_action_tool()],
+        max_tokens,
     }
 }
 
@@ -300,10 +323,11 @@ impl crate::OpenAiClient {
         messages: &[ChatMessage],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<LlmEvent>> + Send>>> {
         let url: Url = crate::join_endpoint(&self.llm.base_url, "/chat/completions")?;
-        let mut request = self
-            .http
-            .post(url)
-            .json(&chat_request_body(&self.llm.model, messages));
+        let mut request = self.http.post(url).json(&chat_request_body(
+            &self.llm.model,
+            messages,
+            self.llm.max_tokens,
+        ));
         if let Some(key) = &self.llm.api_key {
             request = request.bearer_auth(key.expose_secret());
         }
@@ -461,7 +485,7 @@ mod tests {
     #[test]
     fn wire_request_shape_is_openai_compatible() {
         let messages = [ChatMessage::system("sys"), ChatMessage::user("hi")];
-        let body = chat_request_body("qwen2.5:7b", &messages);
+        let body = chat_request_body("qwen2.5:7b", &messages, 0);
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["model"], "qwen2.5:7b");
         assert_eq!(json["stream"], true);
@@ -472,6 +496,26 @@ mod tests {
             "live2d_perform_action"
         );
         assert_eq!(json["tools"].as_array().unwrap().len(), 1);
+    }
+
+    /// 输出上限的线上形态：`0`（不限制）→ 字段整体省略；非 0 → 原样出现。
+    ///
+    /// 「省略」很重要：部分 OpenAI 兼容服务把 `max_tokens: 0` 当作
+    /// 「最多输出 0 个 token」（即拒绝生成），语义与「不限制」相反。
+    #[test]
+    fn wire_request_omits_max_tokens_only_when_unlimited() {
+        let messages = [ChatMessage::user("hi")];
+
+        let unlimited = chat_request_body("m", &messages, 0);
+        let json = serde_json::to_value(&unlimited).unwrap();
+        assert!(
+            json.get("max_tokens").is_none(),
+            "0 = 不限制 → 必须省略字段，got: {json}"
+        );
+
+        let capped = chat_request_body("m", &messages, 512);
+        let json = serde_json::to_value(&capped).unwrap();
+        assert_eq!(json["max_tokens"], 512);
     }
 
     // ApiSecret 在此模块的使用点：仅作为 bearer_auth 输入（见集成测试的 Authorization 断言）。

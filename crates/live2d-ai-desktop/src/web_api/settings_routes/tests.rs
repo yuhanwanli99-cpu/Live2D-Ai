@@ -14,6 +14,7 @@ fn sample() -> AppSettings {
             base_url: "http://127.0.0.1:11434/v1".into(),
             model: "qwen2.5:7b".into(),
             api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),
+            max_tokens: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
             base_url: "http://127.0.0.1:8000/v1".into(),
@@ -497,4 +498,64 @@ fn handle_patch_invalid_json_returns_400() {
     let resp = handle_patch(&current, "not json", &tmp.to_string_lossy(), None);
     assert_eq!(resp.status_code().0, 400);
     let _ = std::fs::remove_file(&tmp);
+}
+
+/// `llm.max_tokens` 走完整 HTTP PATCH → 写盘 → 重载 链路。
+///
+/// 这里是**唯一**能证明「三态 + flatten + 落盘」三者真的一起工作的地方：
+/// `PatchLlmBody` 用 `#[serde(flatten)]` 展开 `LlmPatch`，而 flatten 走的是
+/// serde 的 buffered-content 反序列化路径——与直接 `from_str::<LlmPatch>`
+/// 不同，`double_option` 在那条路径上是否仍然区分 `0` / `null` / 缺省，
+/// 只有端到端跑一遍才算数。
+#[test]
+fn e2e_max_tokens_tri_state_through_http_patch() {
+    let current = sample();
+    assert_eq!(current.llm.max_tokens, None, "起点：省略 = 用默认");
+
+    // 1) 显式 0 = 不限制（必须与 null 区分开）。
+    patch_and_check(
+        &current,
+        "mt_zero",
+        r#"{"llm":{"max_tokens":0}}"#,
+        |after| assert_eq!(after.llm.max_tokens, Some(0)),
+    );
+
+    // 2) 显式 2048 = 硬上限。
+    patch_and_check(
+        &current,
+        "mt_set",
+        r#"{"llm":{"max_tokens":2048}}"#,
+        |after| assert_eq!(after.llm.max_tokens, Some(2048)),
+    );
+
+    // 3) 缺省字段 = 不动（已有值保持）。
+    let capped = AppSettings {
+        llm: live2d_ai_runtime::settings::LlmSettings {
+            max_tokens: Some(333),
+            ..current.llm.clone()
+        },
+        ..current.clone()
+    };
+    patch_and_check(
+        &capped,
+        "mt_keep",
+        r#"{"llm":{"model":"qwen2.5:14b"}}"#,
+        |after| assert_eq!(after.llm.max_tokens, Some(333)),
+    );
+
+    // 4) 显式 null = 清除 → 回落默认（视图报 512，而不是「不限制」）。
+    patch_and_check(
+        &capped,
+        "mt_clear",
+        r#"{"llm":{"max_tokens":null}}"#,
+        |after| {
+            assert_eq!(after.llm.max_tokens, None);
+            assert_eq!(
+                live2d_ai_runtime::settings::view::settings_to_view(after)
+                    .llm
+                    .max_tokens,
+                512
+            );
+        },
+    );
 }

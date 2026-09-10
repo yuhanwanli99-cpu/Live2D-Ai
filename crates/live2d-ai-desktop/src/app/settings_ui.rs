@@ -262,6 +262,9 @@ pub(crate) fn draft_to_settings(d: &Draft) -> AppSettings {
             base_url: d.llm_base_url.clone(),
             model: d.llm_model.clone(),
             api_key_env: d.llm_api_key_env.clone().filter(|s| !s.is_empty()),
+            // max_tokens 不在 v1 草稿里（egui 面板不暴露输出上限），
+            // 走省略 = DEFAULT_MAX_TOKENS；已有配置由 apply_draft 原样保留。
+            max_tokens: None,
         },
         tts: TtsSettings {
             base_url: d.tts_base_url.clone(),

@@ -92,6 +92,7 @@ class LlmSettingsView {
     required this.baseUrl,
     required this.model,
     required this.hasApiKey,
+    required this.maxTokens,
   });
 
   final String baseUrl;
@@ -100,12 +101,31 @@ class LlmSettingsView {
   /// 服务端是否已能解析到密钥。**密钥本身永远不下发**。
   final bool hasApiKey;
 
+  /// **最终生效**的输出 token 上限；`0` = 不限制。
+  ///
+  /// 服务端回的是生效值而不是原始的 `Option`：界面要显示「现在到底卡在
+  /// 多少」，回 `null` 对用户没有意义。
+  final int maxTokens;
+
+  /// 服务端在配置省略 `max_tokens` 时使用的默认上限。
+  ///
+  /// 只用于界面文案（「默认 512」）；真正生效的值以 [maxTokens] 为准——
+  /// 不拿它做本地计算，否则前后端两个默认值会各自漂移。
+  static const int defaultMaxTokens = 512;
+
+  /// `maxTokens == 0` = 不限制（协议里请求体省略该字段）。
+  bool get isMaxTokensUnlimited => maxTokens == 0;
+
   factory LlmSettingsView.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
     return LlmSettingsView(
       baseUrl: _str(j['base_url']),
       model: _str(j['model']),
       hasApiKey: j['has_api_key'] == true,
+      // 服务端缺失该字段（旧服务端）→ 回落默认；回落成 0 语义正好相反。
+      maxTokens: j.containsKey('max_tokens')
+          ? _int(j['max_tokens'])
+          : defaultMaxTokens,
     );
   }
 }
@@ -208,7 +228,12 @@ class SettingsView {
 
 /// LLM 段补丁（字段级三态）。
 class LlmSettingsPatch {
-  const LlmSettingsPatch({this.baseUrl, this.model, this.apiKeyEnv});
+  const LlmSettingsPatch({
+    this.baseUrl,
+    this.model,
+    this.apiKeyEnv,
+    this.maxTokens,
+  });
 
   final Tri<String>? baseUrl;
   final Tri<String>? model;
@@ -219,11 +244,20 @@ class LlmSettingsPatch {
   /// 「环境变量名」，密钥由服务端从进程环境读取。
   final Tri<String>? apiKeyEnv;
 
+  /// 输出 token 上限（三态）。
+  ///
+  /// **`Tri.set(0)` 与 `Tri.clear()` 是两件不同的事**，不能合并：
+  /// - `Tri.set(0)` → JSON `max_tokens: 0` → 不限制；
+  /// - `Tri.clear()` → JSON `max_tokens: null` → 清除，回落服务端默认 512；
+  /// - 字段留 `null` → JSON 里**不出现**该键 → 保持原值。
+  final Tri<int>? maxTokens;
+
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'model', model);
     putTri<String>(out, 'api_key_env', apiKeyEnv);
+    putTri<int>(out, 'max_tokens', maxTokens);
     return out;
   }
 

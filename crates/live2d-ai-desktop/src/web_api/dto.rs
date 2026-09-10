@@ -297,6 +297,7 @@ mod tests {
                 base_url: "http://127.0.0.1:11434/v1".into(),
                 model: "qwen2.5:7b".into(),
                 api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),
+                max_tokens: None,
             },
             tts: TtsSettings {
                 base_url: "http://127.0.0.1:8000/v1".into(),

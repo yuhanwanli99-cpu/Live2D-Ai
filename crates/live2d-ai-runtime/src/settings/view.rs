@@ -36,6 +36,11 @@ pub struct LlmView {
     pub base_url: String,
     pub model: String,
     pub has_api_key: bool,
+    /// **最终生效**的输出 token 上限（`0` = 不限制）。
+    ///
+    /// 回的是生效值而不是原始 `Option`：界面要显示「现在到底卡在多少」，
+    /// 显示 `null` 对用户没有意义。
+    pub max_tokens: u32,
 }
 
 /// 视图中的 TTS 段。
@@ -67,6 +72,7 @@ impl From<&LlmSettings> for LlmView {
             base_url: s.base_url.clone(),
             model: s.model.clone(),
             has_api_key: s.api_key_env.as_deref().is_some_and(|n| !n.is_empty()),
+            max_tokens: s.effective_max_tokens(),
         }
     }
 }

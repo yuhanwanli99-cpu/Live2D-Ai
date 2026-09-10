@@ -1,3 +1,77 @@
+# v0.4.7 — `llm.max_tokens`：回复长度靠机制，不靠提示词求模型守规矩（2026-09-10）
+
+## 为什么要有这个字段
+
+`persona.system_prompt` 里已经写了「每次回复只写 1–5 句话」——那是**请求**，
+不是**保证**。模型偶尔会滑出去写成小作文，而一旦写成小作文，后果是本项目
+明确定义为不可接受的：**一句太长 → 句读切分拿不到边界 → TTS 听起来断断续续**。
+
+所以补一个**协议层的硬上限**：`[llm] max_tokens`。
+（分句是我们按 `。！？…` 主动做的，见 `dialogue/sentence.rs`；两者配合才完整。）
+
+## 语义（三态，且 `0` 与「省略」不是一回事）
+
+| 配置 | 线上请求体 | 含义 |
+| --- | --- | --- |
+| `max_tokens` 省略 | `max_tokens: 512` | 用**默认**上限（`DEFAULT_MAX_TOKENS`） |
+| `max_tokens = 0` | 字段**整体省略** | **不限制**（沿用上游服务端默认） |
+| `max_tokens = 2048` | `max_tokens: 2048` | 硬上限 2048 |
+
+两个容易错的地方，都有测试钉住：
+
+1. **`0` 不能塌缩成「省略」。** 前者是「不限制」，后者是「用默认 512」——
+   语义相反。PATCH 用 `Option<Option<u32>>` 三态表达：
+   键缺省 = 不改 / `null` = 清除回落默认 / 数字（含 `0`）= 设为该值。
+2. **`0` 必须在请求体里省略字段，而不是发 `max_tokens: 0`。**
+   部分 OpenAI 兼容实现把 `0` 读成「最多输出 0 个 token」＝拒绝生成，
+   与「不限制」正好相反。
+
+默认值取 **512** 而不是刚好够用：按「1–5 句、每句 5–60 字」，
+中文约 0.6–1 token/字，5×60 字 ≈ 180–300 token。512 留了接近一倍余量——
+**宁可偶尔多切几句（每句仍完整），也不要因为卡上限把句子截断在半句。**
+
+## 改动面
+
+- `live2d-ai-runtime`：`LlmSettings.max_tokens: Option<u32>` + `DEFAULT_MAX_TOKENS`
+  + `effective_max_tokens()`；`LlmConfig.max_tokens: u32`（已解析的生效值）；
+  `ChatRequestBody.max_tokens` + `is_zero_u32`；`LlmView.max_tokens`（回**生效值**）；
+  `LlmPatch.max_tokens` 三态 + `apply_patch` 字段级/整段清空两条路径。
+- `live2d-ai-desktop`：egui 草稿构造补齐该字段（`apply_draft` 只合并 UI 暴露字段，
+  **不动**隐藏字段，所以已配置的值不会被面板保存时重置）。
+- 前端镜像：`LlmSettingsView.maxTokens`（生效值，缺字段回落 512）+
+  `LlmSettingsPatch.maxTokens: Tri<int>?`。
+- `live2d-ai.toml.example` 增加注释与注释掉的示例行；**本地 `live2d-ai.toml` 未改动**
+  （省略 = 默认 512）。
+
+## 测试（Rust 807 → 815；前端 141 → 146）
+
+- Rust 单测：默认回落 / `0` 与省略不塌缩 / TOML round-trip / 视图回生效值 /
+  线上形态（`0` 省略字段、非 0 原样出现）。
+- Rust 集成测试（真实 TCP mock）：`LlmConfig.max_tokens` **真的上线**——
+  否则「resolve 出来的上限被谁吞掉」没人会发现。
+- Rust 端到端（真实 HTTP handler → 写盘 → 重载）：flatten + `double_option`
+  在 serde 的 buffered-content 路径上是否仍区分 `0` / `null` / 缺省，
+  只有跑一遍才算数。
+- 前端：`0` / `null` / 缺键三态线上形态互不塌缩；老服务端缺字段回落 512（不是 0）。
+
+## 实测（本机 127.0.0.1:18080，重启后）
+
+```
+GET  → {"max_tokens":512}                    # 生效默认
+PATCH {"llm":{"max_tokens":0}}    → persisted:true  → GET {"max_tokens":0}    # 不限制
+PATCH {"llm":{"max_tokens":null}} → persisted:true  → GET {"max_tokens":512}  # 回落默认
+PATCH {"llm":{"model":"…"}}       → persisted:false → GET {"max_tokens":512}  # 不动
+```
+
+## 顺带发现（**本轮不修**，已记录）
+
+`PATCH /api/v1/settings` 写盘走 `toml::to_string`（`settings.rs:340`）**重建整个文件**，
+会**删光配置文件里的所有注释**——本机实测每次 PATCH 丢 2 行注释
+（`live2d-ai.toml.example` 里有 42 行）。验证完已用快照
+（md5 `b13317da193dd7038e032b33d245418f`）逐字节还原。
+修法是把写回换成 `toml_edit`（已在 `Cargo.lock` 里，属传递依赖，不新增 crate），
+按 key 就地改值、保留注释与顺序。**留到单独一轮**——本轮后端只动 `max_tokens`。
+
 # v0.4.6 — 前端 P1：WS 协议层抽取，把 9 个帧分支放进 `flutter test`（2026-09-10）
 
 ## 缺陷：整帧解析**一行都不在门禁里**

@@ -151,6 +151,67 @@ void main() {
     });
   });
 
+  group('llm.maxTokens：0（不限制）与 null（回落默认）绝不能混为一谈', () {
+    Map<String, Object?> llmJson(LlmSettingsPatch patch) =>
+        jsonDecode(jsonEncode(patch.toJson())) as Map<String, Object?>;
+
+    test('TriSet(0) 发出的是 0，不是缺键、也不是 null', () {
+      final Map<String, Object?> j = llmJson(
+        const LlmSettingsPatch(maxTokens: TriSet<int>(0)),
+      );
+      expect(j.containsKey('max_tokens'), isTrue, reason: '必须真的发出去');
+      expect(j['max_tokens'], 0, reason: '0 = 不限制，是合法显式值');
+    });
+
+    test('TriClear() 发出的是 null（清除 → 服务端回落默认 512）', () {
+      final Map<String, Object?> j = llmJson(
+        const LlmSettingsPatch(maxTokens: TriClear<int>()),
+      );
+      expect(j.containsKey('max_tokens'), isTrue);
+      expect(j['max_tokens'], isNull);
+    });
+
+    test('字段留 null = 缺键（保持原值），三者互不塌缩', () {
+      final Map<String, Object?> j = llmJson(
+        const LlmSettingsPatch(model: TriSet<String>('m')),
+      );
+      expect(j.containsKey('max_tokens'), isFalse);
+      expect(
+        jsonEncode(const LlmSettingsPatch(maxTokens: TriSet<int>(0)).toJson()),
+        isNot(jsonEncode(const LlmSettingsPatch(maxTokens: TriClear<int>()).toJson())),
+        reason: '「设为不限制」与「清除」必须是两个不同的线上形态',
+      );
+    });
+
+    test('TriKeep 不进 JSON（与字段留 null 同义）', () {
+      final Map<String, Object?> j = llmJson(
+        const LlmSettingsPatch(maxTokens: TriKeep<int>()),
+      );
+      expect(j, isEmpty);
+    });
+
+    test('响应回的是生效值：0 原样透传，缺字段回落 512', () {
+      final SettingsView unlimited = SettingsView.fromJson(<String, Object?>{
+        'llm': <String, Object?>{'max_tokens': 0},
+      });
+      expect(unlimited.llm.maxTokens, 0);
+      expect(unlimited.llm.isMaxTokensUnlimited, isTrue);
+
+      // 老服务端（含 v0.4.5 抓包）没有这个字段 → 回落默认，而不是 0。
+      final SettingsView legacy = SettingsView.fromJson(<String, Object?>{
+        'llm': <String, Object?>{'base_url': 'http://x/v1'},
+      });
+      expect(legacy.llm.maxTokens, LlmSettingsView.defaultMaxTokens);
+      expect(legacy.llm.isMaxTokensUnlimited, isFalse);
+
+      final SettingsView capped = SettingsView.fromJson(<String, Object?>{
+        'llm': <String, Object?>{'max_tokens': 2048},
+      });
+      expect(capped.llm.maxTokens, 2048);
+      expect(capped.llm.isMaxTokensUnlimited, isFalse);
+    });
+  });
+
   group('真实响应解析', () {
     test('GET 设置（真实抓包）', () {
       final SettingsView v = SettingsView.fromJson(

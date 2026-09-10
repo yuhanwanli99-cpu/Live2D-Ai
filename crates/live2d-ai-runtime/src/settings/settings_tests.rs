@@ -429,3 +429,81 @@ fn persona_name_desc_patch_tri_state() {
     assert!(next.persona.name.is_empty());
     assert!(next.persona.description.is_empty());
 }
+
+// ============================================================================
+// llm.max_tokens：输出上限的「机制」而非提示词祈求
+//   1) 省略 = 生效 512（DEFAULT_MAX_TOKENS）
+//   2) 显式 0 = 不限制（与省略是两种不同状态，不能塌缩）
+//   3) TOML round-trip 保留省略/显式两种形态
+//   4) 视图回的是**生效值**（界面要显示「现在卡在多少」）
+// ============================================================================
+
+/// 最小 TOML + 可选的 `max_tokens` 行。
+fn toml_with_max_tokens(line: &str) -> String {
+    format!(
+        "[llm]\nbase_url = \"http://127.0.0.1:11434/v1\"\nmodel = \"qwen2.5:7b\"\n{line}\n\
+         \n[tts]\nbase_url = \"http://127.0.0.1:8000/v1\"\n"
+    )
+}
+
+#[test]
+fn max_tokens_omitted_falls_back_to_default_512() {
+    let s = AppSettings::from_toml_str(&toml_with_max_tokens("")).expect("parse");
+    assert_eq!(
+        s.llm.max_tokens, None,
+        "省略必须保持 None（不是 Some(512)）"
+    );
+    assert_eq!(s.llm.effective_max_tokens(), 512);
+    assert_eq!(
+        super::DEFAULT_MAX_TOKENS,
+        512,
+        "默认值改了就要连带复核下面「默认不至于截断半句」的推理"
+    );
+}
+
+#[test]
+fn max_tokens_zero_is_unlimited_and_distinct_from_omitted() {
+    let s = AppSettings::from_toml_str(&toml_with_max_tokens("max_tokens = 0")).expect("parse");
+    assert_eq!(s.llm.max_tokens, Some(0));
+    assert_eq!(
+        s.llm.effective_max_tokens(),
+        0,
+        "0 是合法显式值 = 不限制，不能回落成 512"
+    );
+    assert_ne!(
+        s.llm.max_tokens,
+        AppSettings::from_toml_str(&toml_with_max_tokens(""))
+            .unwrap()
+            .llm
+            .max_tokens,
+        "「不限制」与「用默认」必须可区分，否则就无法表达不限制"
+    );
+}
+
+#[test]
+fn max_tokens_round_trips_through_toml_and_view_echoes_effective() {
+    // 省略态：写回也不出现该键；视图显示生效值 512。
+    let omitted = AppSettings::from_toml_str(&toml_with_max_tokens("")).expect("parse");
+    let written = omitted.to_toml_string();
+    assert!(
+        !written.contains("max_tokens"),
+        "None 时不应写出该键（skip_serializing_if）:\n{written}"
+    );
+    assert_eq!(AppSettings::from_toml_str(&written).unwrap(), omitted);
+
+    // 显式 0 与显式 4096：round-trip 逐字段相等，且视图回报生效值。
+    for value in [0u32, 4096] {
+        let s = AppSettings::from_toml_str(&toml_with_max_tokens(&format!("max_tokens = {value}")))
+            .expect("parse");
+        let back = AppSettings::from_toml_str(&s.to_toml_string()).expect("re-parse");
+        assert_eq!(back.llm.max_tokens, Some(value));
+        assert_eq!(
+            settings_to_view(&back).llm.max_tokens,
+            value,
+            "视图必须回生效值（0 原样透传 = 不限制）"
+        );
+    }
+
+    let view = settings_to_view(&omitted);
+    assert_eq!(view.llm.max_tokens, 512);
+}

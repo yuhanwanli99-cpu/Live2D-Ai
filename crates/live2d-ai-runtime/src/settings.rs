@@ -115,6 +115,29 @@ pub struct LlmSettings {
     /// 可选：存放 API key 的环境变量名。省略 = 不鉴权。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
+    /// 输出 token 上限。**省略 = 用 [`DEFAULT_MAX_TOKENS`]**；
+    /// 显式 `0` = 不限制（请求体里省略该字段）。
+    ///
+    /// 这是控制回复长度的**机制**：不靠提示词求模型守规矩，而是给出硬上限。
+    /// **注意下限陷阱**：设得太小会把句子**截断在半句**，那本身就是
+    /// 「断句」——正是本项目明确不能接受的现象。所以默认值取得偏宽。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+}
+
+/// [`LlmSettings::max_tokens`] 省略时的默认上限。
+///
+/// 取值依据：按「每次 1–5 句、每句 5–60 字」的目标，中文一字符大约 0.6–1 token，
+/// 5 句 × 60 字 ≈ 300 字 ≈ 180–300 token。512 留了接近一倍余量：
+/// **宁可偶尔长一点（多切几句，每句仍完整），也不要因为卡上限把句子截断。**
+pub const DEFAULT_MAX_TOKENS: u32 = 512;
+
+impl LlmSettings {
+    /// 最终生效的输出上限；`0` 表示不限制。
+    #[must_use]
+    pub fn effective_max_tokens(&self) -> u32 {
+        self.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS)
+    }
 }
 
 /// `[tts]` 段：OpenAI-compatible `/audio/speech` 上游。
@@ -305,6 +328,7 @@ impl AppSettings {
                 base_url: self.llm.base_url.clone(),
                 model: self.llm.model.clone(),
                 api_key: llm_key,
+                max_tokens: self.llm.effective_max_tokens(),
             },
             tts: TtsConfig {
                 base_url: self.tts.base_url.clone(),

@@ -168,6 +168,7 @@ fn write_initial_config_with_hidden_tts(path: &std::path::Path) {
             base_url: "https://api.example-llm.com/v1".into(),
             model: "init-llm".into(),
             api_key_env: Some("INIT_LLM_KEY".into()),
+            max_tokens: None,
         },
         tts: TtsSettings {
             base_url: "https://api.example-tts.com/v1".into(),

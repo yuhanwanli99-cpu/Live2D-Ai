@@ -1,9 +1,9 @@
 //! `settings::patch` 模块的单元测试。
 //!
 //! **头注豁免**：本文件为 `patch.rs` 测试拆分载体。`patch.rs` 已承载三态补丁
-//! 类型 + `apply_patch` + `plan_atomic_write` 的实现（接近 350 行），再内嵌
-//! ~210 行 `#[cfg(test)] mod tests` 会撞 500 行硬上限，故按 settings 模块
-//! 「子模块拆分」约定把 tests 单独提到本文件；断言与原文件**一字不改**。
+//! 类型 + `apply_patch` + `plan_atomic_write` 的实现（现 630 行，见其头注里的
+//! 行数豁免说明），再内嵌本文件的测试会直接撞 1000 行豁免上限，故按 settings
+//! 模块「子模块拆分」约定把 tests 单独提到本文件；断言与原文件**一字不改**。
 //! 入口在 `patch.rs::mod patch_tests;`（仅 `#[cfg(test)]` 下生效）——本文件
 //! 作为 `patch` 的子模块，可直接 `use super::*;` 访问 `patch` 的私有项。
 
@@ -21,6 +21,7 @@ fn sample() -> AppSettings {
             base_url: "http://127.0.0.1:11434/v1".into(),
             model: "qwen2.5:7b".into(),
             api_key_env: Some("LLM_KEY".into()),
+            max_tokens: None,
         },
         tts: TtsSettings {
             base_url: "http://127.0.0.1:8000/v1".into(),
@@ -83,6 +84,7 @@ fn patch_none_keeps_old_base_url() {
             base_url: None,
             model: Some(Some("gpt-4o-mini".into())),
             api_key_env: None,
+            max_tokens: None,
         })),
         ..Default::default()
     };
@@ -445,6 +447,7 @@ fn json_three_state_serialize_round_trip_preserves_three_states() {
             base_url: Some(None),            // 显式清空 → 序列化为 null
             model: Some(Some("gpt".into())), // 显式设值
             api_key_env: None,               // 缺省 → skip，不出现
+            max_tokens: None,                // 同上
         })),
         ..Default::default()
     };
@@ -479,5 +482,120 @@ fn json_three_state_serialize_round_trip_preserves_three_states() {
     assert!(
         inner.api_key_env.is_none(),
         "outer None 字段回环后仍为 None（不塌缩为 Some(None)）"
+    );
+}
+
+// ============================================================================
+// llm.max_tokens 三态：缺省=不动 / null=回落默认(512) / 数字=硬设（0 = 不限制）
+//
+// 三态在这里是**必需**的，不是仪式：`0`（不限制）与 `省略`（用默认 512）
+// 语义相反，若用 `Option<u32>` 表达就会塌缩成同一个 `None`，
+// 「把上限清掉」和「设为不限制」将无法分别表达。
+// ============================================================================
+
+#[test]
+fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
+    let s = sample();
+    assert_eq!(s.llm.max_tokens, None);
+
+    // 1) 字段缺省（outer None）= 不动：即便原值是 Some(64) 也保持。
+    let mut with_value = s.clone();
+    with_value.llm.max_tokens = Some(64);
+    let untouched = SettingsPatch {
+        llm: Some(Some(LlmPatch {
+            base_url: None,
+            model: None,
+            api_key_env: None,
+            max_tokens: None,
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&with_value, &untouched).expect("apply");
+    assert_eq!(outcome, PatchOutcome::NoChange);
+    assert_eq!(next.llm.max_tokens, Some(64), "缺省 = 不动");
+
+    // 2) 显式设值：含 0（= 不限制，必须原样存下去而不是被当成 None）。
+    for value in [0u32, 1024] {
+        let set = SettingsPatch {
+            llm: Some(Some(LlmPatch {
+                base_url: None,
+                model: None,
+                api_key_env: None,
+                max_tokens: Some(Some(value)),
+            })),
+            ..Default::default()
+        };
+        let (next, outcome) = apply_patch(&with_value, &set).expect("apply set");
+        assert_eq!(outcome, PatchOutcome::Updated);
+        assert_eq!(next.llm.max_tokens, Some(value));
+    }
+
+    // 3) 显式 null = 清除 → 回落默认（视图报 512），不是「不限制」。
+    let clear = SettingsPatch {
+        llm: Some(Some(LlmPatch {
+            base_url: None,
+            model: None,
+            api_key_env: None,
+            max_tokens: Some(None),
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&with_value, &clear).expect("apply clear");
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert_eq!(next.llm.max_tokens, None);
+    assert_eq!(
+        settings_to_view(&next).llm.max_tokens,
+        512,
+        "null = 回落默认，绝不能等于「不限制」"
+    );
+
+    // 4) 整段清空（llm: Some(None)）也要把 max_tokens 一并清回默认。
+    let (next, _) = apply_patch(
+        &with_value,
+        &SettingsPatch {
+            llm: Some(None),
+            ..Default::default()
+        },
+    )
+    .expect("apply section clear");
+    assert_eq!(next.llm.max_tokens, None);
+}
+
+/// JSON 线上形态：`0` 与 `null` 必须是**两个不同的** JSON 字面量。
+#[test]
+fn max_tokens_patch_json_keeps_zero_and_null_distinct() {
+    let set_zero: SettingsPatch = serde_json::from_str(r#"{"llm":{"max_tokens":0}}"#).unwrap();
+    assert_eq!(
+        set_zero.llm.as_ref().unwrap().as_ref().unwrap().max_tokens,
+        Some(Some(0))
+    );
+
+    let clear: SettingsPatch = serde_json::from_str(r#"{"llm":{"max_tokens":null}}"#).unwrap();
+    assert_eq!(
+        clear.llm.as_ref().unwrap().as_ref().unwrap().max_tokens,
+        Some(None)
+    );
+
+    let absent: SettingsPatch = serde_json::from_str(r#"{"llm":{"model":"m"}}"#).unwrap();
+    assert_eq!(
+        absent.llm.as_ref().unwrap().as_ref().unwrap().max_tokens,
+        None
+    );
+
+    // 写回也不塌缩。
+    assert!(
+        serde_json::to_string(&set_zero)
+            .unwrap()
+            .contains(r#""max_tokens":0"#)
+    );
+    assert!(
+        serde_json::to_string(&clear)
+            .unwrap()
+            .contains(r#""max_tokens":null"#)
+    );
+    assert!(
+        !serde_json::to_string(&absent)
+            .unwrap()
+            .contains("max_tokens")
     );
 }

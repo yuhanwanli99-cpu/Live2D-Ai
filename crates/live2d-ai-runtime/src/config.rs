@@ -16,6 +16,11 @@ pub struct LlmConfig {
     pub model: String,
     /// 可选 key。`Some` 时只写入 `Authorization: Bearer <key>` 头；本地无鉴权服务留 `None`。
     pub api_key: Option<ApiSecret>,
+    /// 输出 token 上限（**0 = 不限制**，请求体里省略该字段）。
+    ///
+    /// 已由 [`crate::settings::LlmSettings::effective_max_tokens`] 解析过默认值，
+    /// 所以这里拿到的是**最终生效值**。
+    pub max_tokens: u32,
 }
 
 impl LlmConfig {
@@ -25,6 +30,8 @@ impl LlmConfig {
             base_url: base_url.into(),
             model: model.into(),
             api_key: None,
+            // 测试/便捷构造默认不限制；生产路径由 settings 解析注入。
+            max_tokens: 0,
         }
     }
 

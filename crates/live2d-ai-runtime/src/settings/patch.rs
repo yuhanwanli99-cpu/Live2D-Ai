@@ -40,6 +40,20 @@
 //! 当前 `apply_patch` 把「显式 null」一律解释为「清除」——更贴近「最小统一
 //! 客户端」职责、与设置面板（egui）交互语义一致；HTTP PATCH 适配 D1 P0-2
 //! 由调用方负责。
+//!
+//! # 行数豁免（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）
+//!
+//! 本文件 **630 行**，超过 500 行默认上限。理由：
+//!
+//! 1. 测试**已经**按约定外提到 `patch_tests.rs`（约 600 行），这里的行数
+//!    全部是生产代码，不是靠「把测试留在文件里」堆出来的。
+//! 2. 余下内容是一个**不变量密集**的整体：`Option<Option<T>>` 三态在 JSON /
+//!    TOML / HTTP / egui 四个入口的语义必须逐条对齐（`double_option` 的
+//!    deserialize/serialize、段级 vs 字段级两条路径、`clear_api_key` 注入、
+//!    原子写回）。拆成两个文件会让「改一半忘了另一半」变成默认风险——
+//!    而这正是 W6-A 那类缺陷的成因。
+//! 3. 仍在 1000 行豁免上限内；再增长时优先拆 `plan_atomic_write`（它与三态
+//!    补丁语义正交，是最自然的第一刀）。
 
 use std::fs::File;
 use std::io::Write;
@@ -124,6 +138,16 @@ pub struct LlmPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub api_key_env: Option<Option<String>>,
+    /// 输出 token 上限（三态）：缺省=不改 / `null`=清除（回落默认） / 数字=设为该值。
+    ///
+    /// `0` 是**合法的显式值**，表示「不限制」，与 `null`（回落默认 512）不同。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub max_tokens: Option<Option<u32>>,
 }
 
 /// TTS 段字段级三态补丁。
@@ -293,6 +317,10 @@ pub fn apply_patch(
                     next.llm.api_key_env = None;
                     changed = true;
                 }
+                if next.llm.max_tokens.is_some() {
+                    next.llm.max_tokens = None; // 回落默认
+                    changed = true;
+                }
             }
             Some(fields) => {
                 // base_url：None=Keep / Some(None)=清成 "" / Some(Some(v))=赋值。
@@ -317,6 +345,13 @@ pub fn apply_patch(
                     }
                     if next.llm.api_key_env != new {
                         next.llm.api_key_env = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.max_tokens {
+                    let new = *v;
+                    if next.llm.max_tokens != new {
+                        next.llm.max_tokens = new;
                         changed = true;
                     }
                 }

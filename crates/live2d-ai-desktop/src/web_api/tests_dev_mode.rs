@@ -187,6 +187,7 @@ fn patch_no_op_does_not_change_dev_mode() {
             base_url: "http://x/v1".into(),
             model: "m".into(),
             api_key_env: None,
+            max_tokens: None,
         },
         dev_mode: true,
         ..Default::default()
