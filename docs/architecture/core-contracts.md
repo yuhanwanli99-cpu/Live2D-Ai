@@ -1,24 +1,37 @@
 # Live2D-Ai 核心契约与架构边界（Rust 重构版）
 
-> 状态：2026-08-31 按 Rust 重构现状重写（原版描述 Android/Python 双端，已归档，
-> 见 `ANDROID_ARCHIVE_POINTER.md` 与 tag `py-legacy`）。
-> 目标：把 Rust 重建的最小核心闭环的稳定接口固定下来，让后续扩展、可观测性、
-> Web 集成都有可依赖的边界。
+> 状态：2026-09-10 增补「双主导分层」与前端层豁免（原版 2026-08-31 只描述 Rust 单主线；
+> 更早版本描述 Android/Python 双端，已归档，见 `ANDROID_ARCHIVE_POINTER.md` 与 tag `py-legacy`）。
+> 目标：把核心闭环的稳定接口固定下来，让后续扩展、可观测性、Web 集成都有可依赖的边界。
 
 ## 1. 最小核心闭环
 
 ```
-文本/语音
+文本
   → LLM（OpenAI 兼容 /chat/completions，流式 SSE）
-  → TTS（OpenAI 兼容 /audio/speech）
-  → Live2D（表情 / 口型 / 动作 / 待机；wgpu 原生渲染）
+  → 分句（**只按真实句读边界**，不做句中硬切）
+  → TTS（OpenAI 兼容 /audio/speech，**一句一单元完整合成**）
+  → Live2D（口型 / 表情 / 动作 / 待机；wgpu 渲染）
 ```
 
-单一 Rust workspace（`crates/*`）实现，无第二语言运行时。核心契约保证：
+核心由**单一 Rust workspace（`crates/*`）** 实现；用户界面由 **Flutter Web（`shell/flutter/`）**
+承担，经版本化消息桥驱动 Rust 渲染面（`/render`）。契约保证：
 
 - 纯 reducer 状态机（`live2d-ai-core`）无 IO、无 async，可穷举测试；
 - LLM/TTS provider 走统一 OpenAI 兼容协议，不绑定厂商 SDK；
-- 动作/口型/渲染经 supervisor 事件循环串行化，主线程只做窗口与渲染副作用。
+- 动作/口型/渲染经 supervisor 事件循环串行化，主线程只做窗口与渲染副作用；
+- **前端不复制核心逻辑**：状态机、动作仲裁、LLM/TTS 协议只在 Rust 侧，
+  Flutter 只做展示与调度（详见 `AGENTS.md` §分层与技术栈）。
+
+### 1.1 语音输出契约（2026-09-10 用户裁决）
+
+**一句一单元：一个句子必须完整合成后连续播放。延迟可接受，断句不可接受。**
+
+- 分句只按真实句读边界（`。！？…` 等）；**禁止**按字符位置硬切
+  （历史上 `SentenceAssembler` 的 48 字位置切分会把一句话从中间劈开，
+  TTS 听感即为「断句」）；
+- 播放侧为整句完整性可引入预缓冲：宁可晚开口，不可中途卡顿；
+- 违反该契约的改动视同回归。
 
 ## 2. 分层与模块边界（crates/*）
 

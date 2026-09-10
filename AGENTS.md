@@ -1,33 +1,85 @@
 # Live2D-Ai 项目说明（AGENTS.md）
 
 > 本文件是项目级通用说明，供任何 CLI agent（pi / Claude Code / Hermes 等）读取。
-> 状态：2026-08-31 按 Rust 主线重写（原版描述 Android/Python 双端，已归档）。
+> 状态：2026-09-10 重写——确立 **Rust 核心 + Flutter 前端** 双主导分层，
+> 前端/接口层自 `rust-ratio` 门禁中**显式豁免**（原版只描述 Rust 单主线）。
 
 ## 项目背景
 
-- 文档索引见 `docs/README.md`；核心契约与目录约定见 `docs/architecture/core-contracts.md` 与 `docs/architecture/directory.md`。
+- 文档索引见 `docs/README.md`；核心契约与目录约定见 `docs/architecture/core-contracts.md`
+  与 `docs/architecture/directory.md`。
 - 定位：**通用人形皮套 AI 接入一体化平台**——AI + Live2D 人形皮套的通用接入与应用层，
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
-  **不做复杂上层**（实现保持最小）。核心为 **Rust 桌宠主线**：Live2D + AI + TTS，
-  主仓库为**最小最简核心链路**（TTS + LLM + Live2D + Web UI），验证「文本/语音 → LLM → 表情/口型/动作」闭环。
-- **唯一实现主线** = Rust workspace（`crates/`）：`l2d` / `live2d-ai-core` / `live2d-ai-runtime` /
-  `live2d-ai-desktop` / `l2d-wasm-demo` / `xtask`（+ 节点 E 新增 `live2d-ai-mod-system`）。
+  **不做复杂上层**（实现保持最小）。验证「文本 → LLM → TTS → 口型/表情/动作 → Live2D 渲染」闭环。
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （远端 `android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
-- 主仓库保持 **95-99% Rust**（xtask `rust-ratio` 门禁默认 95%）。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
   5 个 Mod（external-input / pet-desktop / director / local-llm / local-tts）为 workspace crate，默认不启用。
 
+## 分层与技术栈（**双主导**）
+
+本项目的「主导」是**两层**，不是一个语言：
+
+| 层 | 语言 / 位置 | 职责 | 门禁 |
+| --- | --- | --- | --- |
+| **核心层（Rust）** | Rust workspace `crates/*` | 渲染（`l2d`）、状态机（`live2d-ai-core`）、LLM/TTS 网络与配置（`live2d-ai-runtime`）、桌面壳与 Web API（`live2d-ai-desktop`）、wasm 渲染面（`l2d-wasm-demo`）、工程工具（`xtask`） | `cargo test/fmt/clippy` + `rust-ratio` ≥95% |
+| **前端/接口层（Flutter Web）** | `shell/flutter/`（Dart），由 Rust 在 `/app/` 同源托管 | 用户界面：Live2D 舞台、聊天、设置、外观/口型控制 | `flutter analyze` + `flutter test`（**豁免 `rust-ratio`**） |
+
+- **唯一实现主线 = 核心层 Rust workspace**（`crates/`）：`l2d` / `live2d-ai-core` /
+  `live2d-ai-runtime` / `live2d-ai-desktop` / `l2d-wasm-demo` / `xtask` / `live2d-ai-mod-system`。
+- **前端以 Flutter Web 为准**（`shell/flutter/`）。旧的**原生 JS 前端**（`/` =
+  `web_api/index.html` + `app.js` + `chat.js` + `style.css`）是**遗留实现**：
+  视觉与交互质量不达标、维护成本高，**只修致命缺陷、不再加新功能**，
+  长期由 Flutter 完全替代。新功能一律做在 Flutter 侧。
+
+### 前端层豁免的理由（显式记录，勿当成遗漏）
+
+1. **Flutter Web 无法用 `dart:ffi` 渲染**，业界统一做法是「隔离的 Web 渲染面 +
+   版本化消息桥」——本项目即「Flutter 壳 + 复用 Rust 的 `/render`（wasm）」，
+   渲染核心仍是 Rust，Dart 只承担界面与调度。
+2. `xtask` 的 `rust-ratio` 统计扩展名（`rs/wgsl/py/ts/js/c/cc/cpp/h/hpp`）**不含 `dart`**，
+   因此 Dart 不计入该门禁——这是**刻意的豁免**，不是统计漏洞。
+   `xtask` 报告会**单独打印 Dart 行数**以保证可见性（可见但不设 Rust 占比门槛）。
+3. 前端层的质量门槛改由 Flutter 自己的工具链承担：
+   `flutter analyze`（静态检查）+ `flutter test`（含音频调度等纯逻辑回归）。
+4. 治理红线仍然适用：前端**不得**绕过 core 仲裁、不得直接持有密钥、
+   不得引入设备端推理运行时（LLM/TTS 仍走统一 OpenAI 兼容端点）。
+
 ## 开发约定
 
+### 核心层（Rust）
+
 - **门禁**（提交前必须）：`cargo test --workspace --all-targets` + `cargo test --doc --workspace`
-  + `cargo fmt --all -- --check` + `cargo clippy --workspace --all-targets -- -D warnings`。
+  + `cargo fmt --all -- --check` + `cargo clippy --workspace --all-targets -- -D warnings`
+  + `cargo run -p xtask -- rust-ratio`（门槛 95%）。
 - **源码 ≤500 行**（豁免 ≤1000 需头注理由）；测试文件 ≤800 行。
-- **Rust 占比** `cargo run -p xtask -- rust-ratio`（门槛 95%）。
 - **密钥安全**：密钥不进 GET/日志/WS/导出；loopback-only；mutating 需 `application/json`。
 - **Mod 边界**：Mod 必须通过 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁。
 
+### 前端层（Flutter）
+
+- **门禁**（改动 `shell/flutter/**` 时必须）：
+  `cd shell/flutter && flutter analyze && flutter test`。
+- 前端产物**不入库**：`shell/flutter/build/`、`.dart_tool/` 已被嵌套 `.gitignore` 排除；
+  `xtask` 亦按目录名排除 `build`（否则 `main.dart.js` 会打穿占比口径）。
+- 改动前端后**必须重新构建**才生效：`flutter build web --release --base-href /app/`
+  （静态文件由服务端按请求读盘，故前端改动只需重建、不必重启后端）。
+- **协议约定**：前端与渲染面之间只走**版本化消息**（`{version,type,payload}`，见
+  `l2d-wasm-demo` 的 v1 协议）；新增字段必须向后兼容（缺省即默认值）。
+- **不得**在 Flutter 侧复制核心逻辑（状态机、动作仲裁、LLM/TTS 协议）——
+  那些属于 Rust 核心层，前端只做展示与调度。
+
+### 语音输出约定（2026-09-10 用户裁决）
+
+- **一句一单元**：一个句子必须**完整合成后连续播放**，不做句中切分、不做听感上的
+  「断断续续」。**延迟可接受，断句不可接受。**
+- 因此：分句只按真实句读边界（`。！？…` 等）切分；不允许按字符位置硬切。
+- 播放侧允许为「整句完整性」引入预缓冲；宁可晚开口，不可中途卡顿或重复。
+
 ## 变更历史
 
+- **2026-09-10**：确立 **Rust 核心 + Flutter 前端** 双主导分层；前端/接口层
+  自 `rust-ratio` 显式豁免并改由 Flutter 工具链门禁；原生 JS 前端降为遗留；
+  新增「语音输出约定（一句一单元，不断句）」。
 - **2026-08-31**：按 Rust 主线重写（移除 Android/Python 双端描述）。
 - **2026-08-09**：重写——移除 pi 专属路径引用，保留项目级通用信息。

@@ -5,13 +5,16 @@
 //!
 //! 口径（清晰可审计的物理行数）：
 //! - 统计扩展名：`rs / wgsl / py / ts / js / c / cc / cpp / h / hpp`；
+//! - **豁免扩展名**：`dart` —— 前端/接口层（`shell/flutter/`）由 Flutter 工具链
+//!   自行门禁（`flutter analyze` + `flutter test`），**不计入** Rust 占比分母；
+//!   但仍单独统计并打印，保证「豁免 ≠ 不可见」（见 [`EXEMPT_EXTENSIONS`]）；
 //! - 每文件按**物理行数**计数（与 `wc -l` 一致，可独立复核）；
 //! - 排除目录（按目录名、任意层级）：`Live2D-Ai-pc`、`Live2D-Ai-Android`、`dist`、
-//!   `target`、`node_modules`、`.venv`；
+//!   `target`、`build`、`node_modules`、`.venv`；
 //! - 另跳过隐藏目录（`.` 开头，任意层级：`.git`、`.uv-cache` 等 VCS/托管缓存）；
 //! - 不跟随目录符号链接（避免循环与逃出仓库根）。
 //!
-//! 占比 = Rust(`.rs`) 物理行数 ÷ 全部被统计文件物理行数 × 100%。
+//! 占比 = Rust(`.rs`) 物理行数 ÷ 全部**被统计（非豁免）**文件物理行数 × 100%。
 //! 低于门槛时退出码非 0（门槛默认 95，可用 `--threshold` 覆盖）。
 //!
 //! 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准。
@@ -25,6 +28,19 @@ use std::str::FromStr;
 /// 参与占比统计的第一方源码扩展名（RFC D3 口径）。
 const COUNTED_EXTENSIONS: [&str; 10] =
     ["rs", "wgsl", "py", "ts", "js", "c", "cc", "cpp", "h", "hpp"];
+
+/// **豁免**扩展名：单独统计、单独打印，但**不计入**占比分母。
+///
+/// `dart` = 前端/接口层（`shell/flutter/`）。豁免理由（2026-09-10 用户裁决，
+/// 同步记录于 `AGENTS.md` §「前端层豁免的理由」）：
+///
+/// 1. 项目采用「Rust 核心 + Flutter 前端」**双主导**分层：Flutter Web 无法用
+///    `dart:ffi` 渲染，Dart 只承担界面与调度，渲染核心仍是 Rust（`/render` wasm）；
+/// 2. 前端质量门槛由 Flutter 自己的工具链承担
+///    （`flutter analyze` + `flutter test`），不重复计入 Rust 占比；
+/// 3. **豁免不等于不可见**：本列表会被统计并在报告中单独成段打印行数，
+///    防止前端悄悄膨胀成为审计盲区。
+const EXEMPT_EXTENSIONS: [&str; 1] = ["dart"];
 
 /// 按目录名排除（任意层级）：旧双端项目 / 前端产物 / 构建产物 / 托管环境。
 ///
@@ -171,26 +187,20 @@ struct ExtensionStats {
 /// 一次扫描的总结果。
 #[derive(Debug, Default, Clone, PartialEq)]
 struct ScanStats {
-    /// 扩展名（小写）→ 统计；只包含 [`COUNTED_EXTENSIONS`] 内的键。
+    /// 扩展名（小写）→ 统计；只包含 [`COUNTED_EXTENSIONS`] 内的键（**计入**分母）。
     per_extension: Vec<(String, ExtensionStats)>,
+    /// 扩展名（小写）→ 统计；只包含 [`EXEMPT_EXTENSIONS`] 内的键（**不计入**分母）。
+    exempt_per_extension: Vec<(String, ExtensionStats)>,
 }
 
 impl ScanStats {
     fn record(&mut self, extension: &str, lines: u64) {
-        let entry = self
-            .per_extension
-            .iter_mut()
-            .find(|(name, _)| name == extension)
-            .map(|(_, stats)| stats);
-        match entry {
-            Some(stats) => {
-                stats.files += 1;
-                stats.lines += lines;
-            }
-            None => self
-                .per_extension
-                .push((extension.to_string(), ExtensionStats { files: 1, lines })),
-        }
+        record_into(&mut self.per_extension, extension, lines);
+    }
+
+    /// 记录一个**豁免**扩展名（计入可见性报告，但不进占比分母）。
+    fn record_exempt(&mut self, extension: &str, lines: u64) {
+        record_into(&mut self.exempt_per_extension, extension, lines);
     }
 
     fn lines_for(&self, extension: &str) -> u64 {
@@ -198,6 +208,22 @@ impl ScanStats {
             .iter()
             .find(|(name, _)| name == extension)
             .map_or(0, |(_, stats)| stats.lines)
+    }
+
+    /// 豁免扩展名的物理行数（可见性报告用）。
+    fn exempt_lines_for(&self, extension: &str) -> u64 {
+        self.exempt_per_extension
+            .iter()
+            .find(|(name, _)| name == extension)
+            .map_or(0, |(_, stats)| stats.lines)
+    }
+
+    fn exempt_total_files(&self) -> u64 {
+        self.exempt_per_extension.iter().map(|(_, s)| s.files).sum()
+    }
+
+    fn exempt_total_lines(&self) -> u64 {
+        self.exempt_per_extension.iter().map(|(_, s)| s.lines).sum()
     }
 
     fn total_files(&self) -> u64 {
@@ -224,9 +250,9 @@ impl ScanStats {
 fn collect_stats(root: &Path) -> io::Result<ScanStats> {
     let mut stats = ScanStats::default();
     walk(root, &mut stats)?;
-    stats
-        .per_extension
-        .sort_by(|a, b| b.1.lines.cmp(&a.1.lines).then(a.0.cmp(&b.0)));
+    for bucket in [&mut stats.per_extension, &mut stats.exempt_per_extension] {
+        bucket.sort_by(|a, b| b.1.lines.cmp(&a.1.lines).then(a.0.cmp(&b.0)));
+    }
     Ok(stats)
 }
 
@@ -252,11 +278,13 @@ fn walk(dir: &Path, stats: &mut ScanStats) -> io::Result<()> {
         if !file_type.is_file() {
             continue;
         }
-        let Some(extension) = counted_extension(&path) else {
-            continue;
-        };
+        // 先试「计入分母」的集合，再试「豁免但可见」的集合；都不匹配则跳过。
         let lines = count_physical_lines(&path)?;
-        stats.record(extension, lines);
+        if let Some(extension) = counted_extension(&path) {
+            stats.record(extension, lines);
+        } else if let Some(extension) = exempt_extension(&path) {
+            stats.record_exempt(extension, lines);
+        }
     }
     Ok(())
 }
@@ -266,13 +294,35 @@ fn is_hidden_dir(name: &str) -> bool {
     name.starts_with('.') && name != "." && name != ".."
 }
 
-/// 文件扩展名若属于统计集合则返回小写形式，否则 `None`。
+/// 文件扩展名若属于**计入分母**的统计集合则返回小写形式，否则 `None`。
 fn counted_extension(path: &Path) -> Option<&str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     COUNTED_EXTENSIONS
         .iter()
         .find(|counted| **counted == extension.as_str())
         .copied()
+}
+
+/// 文件扩展名若属于**豁免**集合（[`EXEMPT_EXTENSIONS`]）则返回小写形式。
+///
+/// 豁免项单独统计并在报告中打印，**不参与**占比计算。
+fn exempt_extension(path: &Path) -> Option<&str> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    EXEMPT_EXTENSIONS
+        .iter()
+        .find(|exempt| **exempt == extension.as_str())
+        .copied()
+}
+
+/// 把一次统计累加进指定桶（首次出现时建键）。
+fn record_into(bucket: &mut Vec<(String, ExtensionStats)>, extension: &str, lines: u64) {
+    match bucket.iter_mut().find(|(name, _)| name == extension) {
+        Some((_, stats)) => {
+            stats.files += 1;
+            stats.lines += lines;
+        }
+        None => bucket.push((extension.to_string(), ExtensionStats { files: 1, lines })),
+    }
 }
 
 /// 物理行数：`\n` 的个数；末尾无换行的残行补 1（与 `wc -l` 可对账）。
@@ -341,6 +391,34 @@ fn report(root: &Path, threshold: f64, stats: &ScanStats) {
         None => {
             println!("未找到任何被统计文件，无法计算占比");
         }
+    }
+
+    // 豁免扩展名（前端/接口层）：**单独可见**，但不进上面的分母。
+    // 目的：豁免 ≠ 不可见——前端膨胀必须在报告里看得见（见 AGENTS.md）。
+    if !stats.exempt_per_extension.is_empty() {
+        println!();
+        println!(
+            "豁免（不计入占比，前端/接口层）: {}",
+            EXEMPT_EXTENSIONS.join(" ")
+        );
+        println!("{:<10} {:>8} {:>12}", "扩展名", "文件数", "行数");
+        for (extension, ext_stats) in &stats.exempt_per_extension {
+            println!(
+                "{:<10} {:>8} {:>12}",
+                extension, ext_stats.files, ext_stats.lines
+            );
+        }
+        println!("{:-<34}", "");
+        println!(
+            "{:<10} {:>8} {:>12}",
+            "豁免合计",
+            stats.exempt_total_files(),
+            stats.exempt_total_lines()
+        );
+        println!(
+            "说明        : {} 行由 Flutter 工具链门禁（flutter analyze / test），不计入 rust-ratio",
+            stats.exempt_lines_for("dart")
+        );
     }
 }
 
@@ -452,6 +530,41 @@ mod tests {
         assert_eq!(stats.lines_for("rs"), 15);
         assert_eq!(stats.total_files(), 3);
         assert_eq!(stats.total_lines(), 22);
+    }
+
+    /// **豁免契约（2026-09-10）**：`dart` 必须**可见**（单独统计）
+    /// 且**不计入**占比分母——两者同时成立才是「豁免」，缺一即是漏洞。
+    #[test]
+    fn dart_is_visible_but_excluded_from_the_ratio() {
+        let tree = TempTree::new("dart-exempt");
+        tree.write("crates/l2d/src/lib.rs", b"pub fn a() {}\n");
+        tree.write("shell/flutter/lib/main.dart", b"void main() {}\n// x\n");
+        tree.write("shell/flutter/test/schedule_test.dart", b"// t\n");
+
+        let stats = collect_stats(&tree.root).expect("scan");
+
+        // 可见：单独成桶，行数必须在报告里能读出来。
+        assert_eq!(stats.exempt_total_files(), 2);
+        assert_eq!(stats.exempt_lines_for("dart"), 3);
+        assert_eq!(stats.exempt_total_lines(), 3);
+
+        // 不计入分母：占比仍由 rs/total(非豁免) 决定。
+        assert_eq!(stats.total_files(), 1);
+        assert_eq!(stats.total_lines(), 1);
+        assert_eq!(stats.rust_ratio_percent(), Some(100.0));
+    }
+
+    #[test]
+    fn exempt_extension_matches_case_insensitively() {
+        assert_eq!(exempt_extension(Path::new("a/b/App.DART")), Some("dart"));
+        assert_eq!(exempt_extension(Path::new("lib.rs")), None);
+        // 计入分母的扩展名不得同时被判为豁免（两个集合必须互斥）。
+        for counted in COUNTED_EXTENSIONS {
+            assert!(
+                !EXEMPT_EXTENSIONS.contains(&counted),
+                "`{counted}` 同时出现在统计与豁免集合中"
+            );
+        }
     }
 
     #[test]
