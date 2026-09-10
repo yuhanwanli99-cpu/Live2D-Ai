@@ -26,6 +26,7 @@ import 'package:flutter/services.dart';
 import '../design/breakpoints.dart';
 import '../design/tokens.dart';
 import '../settings/settings_sections.dart';
+import '../ui/theme.dart';
 
 /// 浮层的宽度/高度（**唯一定义点**，宿主与测试都读这里）。
 abstract final class NavMetrics {
@@ -44,11 +45,13 @@ abstract final class NavMetrics {
   /// compact 浮层最大高度比例。
   static const double sheetHeightFactorCompact = 0.72;
 
-  /// 展开的 rail 宽度。
-  static const double railExtendedWidth = 232;
-
-  /// 图标 rail 宽度。
-  static const double railIconWidth = 80;
+  /// 左侧分区导航的宽度（**只有一个宽度**）。
+  ///
+  /// 2026-09-11：原来是「expanded 用 232 带文字 / medium 用 80 只放图标」。
+  /// 用户裁决「尽量少用图片，用文字做按钮」之后，图标那一档就不成立了——
+  /// 而「四个汉字」在 80 px 里放不下。所以统一成一个能放下文字的宽度：
+  /// 比 232 窄（不再抢舞台），比 80 宽（文字读得出来）。
+  static const double railWidth = 168;
 
   /// 常驻聊天面板宽度（expanded）。
   static const double chatWidthExpanded = 340;
@@ -127,7 +130,8 @@ Future<SettingsSection?> showSectionDrawer({
         children: <Widget>[
           for (final SettingsSection section in sections)
             ListTile(
-              leading: Icon(section.icon),
+              // **没有 leading 图标**：用户裁决「尽量少用图片，用文字做按钮」，
+              // 而这一列本来就是靠中文标签在辨认。
               title: Text(section.label),
               subtitle: Text(section.description),
               selected: section == selected,
@@ -169,11 +173,19 @@ class InlineSettingsDock extends StatelessWidget {
             },
             child: Focus(
               autofocus: true,
-              child: Material(
-                elevation: 8,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                clipBehavior: Clip.antiAlias,
-                child: child,
+              // **不用 `Material(elevation: 8)`**：Material 的 elevation 会投一层
+              // 弥散阴影到舞台上，看起来像「贴了一张卡片」。改成实色面 + 1 px
+              // 描边——与本项目所有其它容器同一套层级表达（`GlassPanel`）。
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.xl),
+                  border: Border.all(color: appColorsOf(context).hairline),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.xl),
+                  child: child,
+                ),
               ),
             ),
           ),

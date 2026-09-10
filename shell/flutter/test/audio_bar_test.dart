@@ -37,12 +37,15 @@ Widget wrap(Widget child) => MaterialApp(
 
 void main() {
   group('命名契约（规格 §7.2 逐字照抄：同一个词不能命名两个轴）', () {
-    testWidgets('本机开关的 tooltip 是「本机静音」', (WidgetTester tester) async {
+    testWidgets('本机开关的 tooltip 是「本机静音」，且按钮是**文字**', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(wrap(buildBar().widget));
-      final IconButton button = tester.widget<IconButton>(
-        find.widgetWithIcon(IconButton, Icons.volume_mute_outlined),
-      );
-      expect(button.tooltip, '本机静音');
+      // 2026-09-11：从喇叭图标改成文字按钮（用户裁决「尽量少用图片用文字
+      // 做按钮」）。tooltip 仍然是逐字照抄的那四个字。
+      expect(find.byTooltip('本机静音'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, '静音'), findsOneWidget);
+      expect(find.byIcon(Icons.volume_mute_outlined), findsNothing);
     });
 
     testWidgets('服务端徽标写「服务端静音中」并点出环境变量名', (WidgetTester tester) async {
@@ -102,7 +105,7 @@ void main() {
         muted: false,
       );
       await tester.pumpWidget(wrap(bar.widget));
-      await tester.tap(find.byIcon(Icons.volume_mute_outlined));
+      await tester.tap(find.widgetWithText(TextButton, '静音'));
       expect(bar.mutes, <bool>[true]);
       expect(bar.volumes, isEmpty, reason: '静音不该顺手改音量');
     });
@@ -112,9 +115,8 @@ void main() {
         muted: true,
       );
       await tester.pumpWidget(wrap(bar.widget));
-      // 必须按 IconButton 定位：静音时**行首的状态图标**也是 volume_off，
-      // 裸 `find.byIcon` 会命中两个。
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.volume_off));
+      // 按钮文案随状态变（「已静音」），所以按 TextButton 而不是按文字定位。
+      await tester.tap(find.widgetWithText(TextButton, '已静音'));
       expect(bar.mutes, <bool>[false]);
     });
 

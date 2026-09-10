@@ -89,7 +89,259 @@ ThemeData buildAppTheme([AppThemeId theme = AppThemeId.fallback]) {
       AppColors.of(scheme, palette),
     ],
   );
-  return base.copyWith(textTheme: buildAppTextTheme(base.textTheme));
+  return buildAppComponents(
+    base.copyWith(textTheme: buildAppTextTheme(base.textTheme)),
+    palette,
+  );
+}
+
+/// **组件外观层**：把「一看就是 Material 默认」的那几处压下去。
+///
+/// # 为什么值得单独一层（2026-09-11 用户裁决）
+///
+/// 用户原话：「整个前端 ui 很 **ai 化同质**，看起来不舒服」。
+/// 「AI 味」在 Flutter 里的具体来源不是配色，而是**每个控件都带着 Material
+/// 的出厂造型**：`FilledButton` 的 20 px 圆角 + 高度阴影、`TextField` 的
+/// 浮动标签 + 四边框、`Dialog` 的 24 px 圆角 + elevation 6、`AppBar` 的
+/// surface tint 滚动变色、`Switch` 的默认尺寸…… 单个都「没错」，
+/// 叠在一起就是「随便一个 AI 生成的 Material demo」。
+///
+/// 这一层的做法是**统一**而不是逐个改控件：圆角只取 [AppRadius]。
+/// `md`/`lg`，描边只取 1 px hairline，**所有 elevation 归零**，
+/// 文字层级只靠 `AppFontSizes` 的 8 个槽位。控件自己的 `styleFrom` 就只剩
+/// 「这一处确实要不一样」的部分。
+///
+/// 刻意**不做**的事：不改控件的交互语义（焦点环、禁用态、水波纹都保留），
+/// 不引入自绘控件。这一层只改「长什么样」。
+ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
+  final ColorScheme scheme = base.colorScheme;
+  final AppColors colors = AppColors.of(scheme, palette);
+  final TextTheme text = base.textTheme;
+  final OutlinedBorder buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadius.md),
+  );
+  final ButtonStyle flatButton = ButtonStyle(
+    elevation: const WidgetStatePropertyAll<double>(0),
+    // 按钮文字统一用 13/w500 的 `labelLarge`，不用 Material 的 14/w500——
+    // 后者与正文同字号，按钮和正文会糊成一层。
+    textStyle: WidgetStatePropertyAll<TextStyle?>(text.labelLarge),
+    padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+      EdgeInsets.symmetric(horizontal: Space.s4, vertical: Space.s2),
+    ),
+    shape: WidgetStatePropertyAll<OutlinedBorder>(buttonShape),
+    // 最小高度 40：Material 的 40 是给触屏的拇指尺寸，保留。
+    minimumSize: const WidgetStatePropertyAll<Size>(Size(0, 40)),
+  );
+
+  return base.copyWith(
+    // ── 顶栏：**透明、无高度阴影、标题小一号且带字距** ──
+    // 标题不再抢正文的注意力（「Live2D Ai」不是用户来看的东西），
+    // 字距让它读起来像标识而不是标题。
+    appBarTheme: AppBarTheme(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: false,
+      titleSpacing: Space.s4,
+      toolbarHeight: 52,
+      titleTextStyle: text.labelLarge?.copyWith(
+        color: palette.ink,
+        letterSpacing: 2.2,
+        fontWeight: FontWeight.w600,
+      ),
+      iconTheme: IconThemeData(color: palette.ink, size: 18),
+    ),
+
+    // ── 按钮：全部压平、同一圆角、同一字级 ──
+    filledButtonTheme: FilledButtonThemeData(style: flatButton),
+    textButtonTheme: TextButtonThemeData(
+      style: flatButton.copyWith(
+        // 文字按钮是**最轻**的一档：不要底色，不要最小高度撑开布局。
+        minimumSize: const WidgetStatePropertyAll<Size>(Size(0, 32)),
+        padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+          EdgeInsets.symmetric(horizontal: Space.s2, vertical: Space.s1),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: flatButton.copyWith(
+        side: WidgetStatePropertyAll<BorderSide>(
+          BorderSide(color: colors.hairline),
+        ),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(style: flatButton),
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(
+        // **没有圆形 splash 底**：Material 的 IconButton 默认带一层
+        // `surfaceContainerHighest` 的悬停/按下底，在深色主题上是一块灰斑。
+        foregroundColor: WidgetStatePropertyAll<Color>(palette.ink),
+        iconSize: const WidgetStatePropertyAll<double>(18),
+        visualDensity: VisualDensity.compact,
+        shape: WidgetStatePropertyAll<OutlinedBorder>(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+        ),
+      ),
+    ),
+
+    // ── 输入框：**填色、无四边框、不浮动标签** ──
+    // Material 的「OutlineInputBorder + 浮动 label」是最强的一处 AI 味：
+    // 一个空框里飘着半截标题。这里改成安静的填色块，说明文字在框**上方**
+    // （`FieldRow` 一直是这么排的，是边框样式在拖后腿）。
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: palette.surfaceAlt.withValues(alpha: palette.dark ? 0.9 : 1),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: Space.s3,
+        vertical: Space.s3,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: BorderSide(color: colors.hairline),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: BorderSide(color: scheme.primary, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: BorderSide(color: palette.danger),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderSide: BorderSide(color: palette.danger, width: 1.5),
+      ),
+      hintStyle: text.bodyMedium?.copyWith(color: colors.contentFaint),
+    ),
+
+    // ── 分区导航：文字 chip，无头像图标 ──
+    chipTheme: ChipThemeData(
+      backgroundColor: Colors.transparent,
+      selectedColor: palette.surfaceAlt,
+      side: BorderSide(color: colors.hairline),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      labelStyle: text.labelLarge?.copyWith(color: palette.ink),
+      secondaryLabelStyle: text.labelLarge?.copyWith(color: palette.ink),
+      padding: const EdgeInsets.symmetric(horizontal: Space.s2),
+      showCheckmark: false,
+    ),
+
+    // ── 分段按钮：与按钮同一圆角，去掉选中勾 ──
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        textStyle: WidgetStatePropertyAll<TextStyle?>(text.labelLarge),
+        side: WidgetStatePropertyAll<BorderSide>(
+          BorderSide(color: colors.hairline),
+        ),
+        shape: WidgetStatePropertyAll<OutlinedBorder>(buttonShape),
+        visualDensity: VisualDensity.compact,
+      ),
+    ),
+
+    // ── 容器类：**elevation 一律 0**，层级靠 1 px 描边与面差 ──
+    cardTheme: CardThemeData(
+      elevation: 0,
+      color: palette.surface,
+      surfaceTintColor: Colors.transparent,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: BorderSide(color: colors.hairline),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      elevation: 0,
+      backgroundColor: palette.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        side: BorderSide(color: colors.hairline),
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      elevation: 0,
+      backgroundColor: palette.surface,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+      dragHandleColor: colors.contentFaint,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.xl),
+        ),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: palette.surfaceAlt,
+      contentTextStyle: text.bodyMedium?.copyWith(color: palette.ink),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+    ),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: palette.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: colors.hairline),
+      ),
+      textStyle: text.labelSmall?.copyWith(color: palette.ink),
+      waitDuration: AppRhythms.hintDelay,
+    ),
+
+    // ── 其余细节 ──
+    dividerTheme: DividerThemeData(
+      color: colors.hairline,
+      thickness: 1,
+      space: 1,
+    ),
+    sliderTheme: SliderThemeData(
+      trackHeight: 3,
+      activeTrackColor: scheme.primary,
+      inactiveTrackColor: colors.hairline,
+      thumbColor: scheme.primary,
+      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith<Color?>(
+        (Set<WidgetState> states) => states.contains(WidgetState.selected)
+            ? palette.onAccent
+            : colors.contentFaint,
+      ),
+      trackColor: WidgetStateProperty.resolveWith<Color?>(
+        (Set<WidgetState> states) => states.contains(WidgetState.selected)
+            ? scheme.primary
+            : colors.hoverWash,
+      ),
+      trackOutlineColor: WidgetStatePropertyAll<Color>(colors.hairline),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: scheme.primary,
+      linearTrackColor: colors.hairline,
+      circularTrackColor: colors.hairline,
+    ),
+    listTileTheme: ListTileThemeData(
+      iconColor: colors.contentMuted,
+      textColor: palette.ink,
+      selectedColor: scheme.primary,
+      selectedTileColor: colors.hoverWash,
+      titleTextStyle: text.bodyMedium?.copyWith(color: palette.ink),
+      subtitleTextStyle: text.bodySmall?.copyWith(color: colors.contentMuted),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+    ),
+  );
 }
 
 /// 取 [AppPalette] 的便捷入口。

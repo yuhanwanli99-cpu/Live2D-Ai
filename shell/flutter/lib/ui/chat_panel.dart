@@ -112,10 +112,11 @@ class ChatPanel extends StatelessWidget {
                 child: Row(
                   children: <Widget>[
                     const Spacer(),
-                    IconButton(
+                    // 文字按钮（与 AppBar 里那个同源同文案）——用户裁决
+                    // 「尽量少用图片用文字做按钮」。
+                    TextButton(
                       onPressed: onOpenSettings,
-                      tooltip: '设置',
-                      icon: const Icon(Icons.settings_outlined),
+                      child: const Text('设置'),
                     ),
                   ],
                 ),
@@ -171,6 +172,10 @@ class ChatPanel extends StatelessWidget {
               ),
             ),
             // ── 输入区 ──
+            //
+            // 发送键是一个**圆形里的上箭头**，不是写着「发送」的按钮
+            //（2026-09-11 用户裁决：「尤其是发送，用上键加圆圈而不是发送」）。
+            // 它出现在所有 IM 里，形状本身就表意，写字只多占一块地方。
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 Space.s3,
@@ -189,26 +194,24 @@ class ChatPanel extends StatelessWidget {
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => onSend(),
                       decoration: const InputDecoration(
-                        hintText: '说点什么…（Enter 发送）',
-                        isDense: true,
-                        border: OutlineInputBorder(),
+                        hintText: '说点什么…',
                       ),
                     ),
                   ),
                   const SizedBox(width: Space.s2),
-                  // 一轮进行中时，发送键变「停止」——避免用户以为发了没反应。
-                  if (phase == UiPhase.thinking || phase == UiPhase.speaking)
-                    IconButton.filledTonal(
-                      onPressed: onStop,
-                      tooltip: '停止',
-                      icon: const Icon(Icons.stop),
-                    )
-                  else
-                    IconButton.filled(
-                      onPressed: onSend,
-                      tooltip: '发送',
-                      icon: const Icon(Icons.send),
-                    ),
+                  // 一轮进行中时，同一个位置变「停止」——避免用户以为发了没反应。
+                  _RoundActionButton(
+                    icon: (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                        ? Icons.stop_rounded
+                        : Icons.arrow_upward_rounded,
+                    tooltip: (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                        ? '停止本轮'
+                        : '发送（Enter）',
+                    onPressed:
+                        (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                        ? onStop
+                        : onSend,
+                  ),
                 ],
               ),
             ),
@@ -250,6 +253,45 @@ class _ChatEmptyState extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 输入区那个**圆形按钮**（发送 / 停止共用）。
+///
+/// 单独抽出来是因为它有两个必须一起成立的性质：
+/// 1. **形状恒定为圆**（发送与停止切换时不能一个圆一个方，那会跳一下）；
+/// 2. 尺寸固定 40——比 Material 的 `IconButton` 默认 48 小一档，
+///    与输入框的实际高度对齐，不会把输入行撑高。
+class _RoundActionButton extends StatelessWidget {
+  const _RoundActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = appPaletteOf(context);
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        // 读屏念的是动作（「发送」「停止本轮」），不是图标名。
+        icon: Icon(icon),
+        style: IconButton.styleFrom(
+          backgroundColor: palette.accent,
+          foregroundColor: palette.onAccent,
+          shape: const CircleBorder(),
+          minimumSize: const Size(40, 40),
+          maximumSize: const Size(40, 40),
+          padding: EdgeInsets.zero,
         ),
       ),
     );

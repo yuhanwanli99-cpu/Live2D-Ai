@@ -170,7 +170,14 @@ void main() {
     });
 
     test('NavMetrics 自洽：rail 宽度、舞台下限、聊天宽度都不为负且有序', () {
-      expect(NavMetrics.railExtendedWidth, greaterThan(NavMetrics.railIconWidth));
+      // 2026-09-11：rail 从「两档（图标 / 图标+文字）」并为**一档**——
+      // 文字导航没有「只放图标」那一档可言（用户裁决「尽量少用图片」）。
+      expect(NavMetrics.railWidth, greaterThan(0));
+      expect(
+        NavMetrics.railWidth,
+        lessThan(NavMetrics.paneWidth),
+        reason: '导航栏不该比设置面板还宽',
+      );
       expect(
         NavMetrics.chatWidthExpanded,
         greaterThan(NavMetrics.chatWidthMedium),
@@ -187,34 +194,25 @@ void main() {
         await pumpShell(tester, width: entry.value);
 
         final SizeClass sc = Breakpoints.sizeClassOf(entry.value);
-        final Finder rail = find.byType(NavigationRail);
+        final Finder rail = find.byType(SectionRail);
 
         if (sc.isCompact) {
           expect(rail, findsNothing, reason: 'compact 不用 rail（8 分区装不下）');
-          // compact 的设置入口在聊天面板头。
-          expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
         } else {
           expect(rail, findsOneWidget);
-          final NavigationRail widget = tester.widget<NavigationRail>(rail);
           expect(
-            widget.extended,
-            sc.isExpanded,
-            reason: '只有 expanded 用带文字的 extended rail',
-          );
-          expect(
-            widget.minWidth,
-            sc.isExpanded
-                ? NavMetrics.railExtendedWidth
-                : NavMetrics.railIconWidth,
+            tester.getSize(rail).width,
+            NavMetrics.railWidth,
+            reason: 'rail 宽度是唯一定义点，medium 与 expanded 共用一个',
           );
         }
 
-        // AppBar 里的设置齿轮只在非 compact 出现。
-        final int gearInAppBar = sc.isCompact ? 0 : 1;
+        // 设置入口只有一个，且是**文字**按钮（不是齿轮图标）。
+        // compact 时它在聊天面板头，非 compact 时在 AppBar。
         expect(
-          find.byIcon(Icons.settings_outlined),
-          findsNWidgets(gearInAppBar == 1 ? 1 : 1),
-          reason: 'compact 时齿轮在聊天面板头，非 compact 时在 AppBar——总数都是 1',
+          find.text('设置'),
+          findsOneWidget,
+          reason: '设置入口必须恰好一个，且用文字（用户裁决：少用图片）',
         );
       });
     }
@@ -262,7 +260,7 @@ void main() {
       await pumpShell(tester, width: 1400);
       expect(find.byType(InlineSettingsDock), findsNothing);
 
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
       expect(find.byType(InlineSettingsDock), findsOneWidget);
@@ -277,7 +275,7 @@ void main() {
     ) async {
       await pumpShell(tester, width: 1400);
 
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       expect(find.byType(InlineSettingsDock), findsOneWidget);
 
@@ -289,7 +287,7 @@ void main() {
 
     testWidgets('expanded 侧板上的 ✕ 关闭', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
@@ -326,7 +324,7 @@ void main() {
     ) async {
       await pumpShell(tester, width: 500);
 
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       // 第 1 层：抽屉带**说明文字**（用户不该先学会产品黑话）。
       expect(find.byType(ListTile), findsWidgets);
@@ -350,7 +348,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await pumpShell(tester, width: 500);
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
       for (final SettingsSection section in visibleSections(devMode: false)) {
@@ -369,7 +367,7 @@ void main() {
       WidgetTester tester,
     ) async {
       await pumpShell(tester, width: 500);
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
       // 点障碍区关掉抽屉。
@@ -441,7 +439,7 @@ void main() {
   group('dev_mode 决定「开发模式」分区是否出现', () {
     testWidgets('dev 关 → rail 上没有开发模式', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
-      // extended rail 带文字，所以直接找文字。
+      // rail 是纯文字，所以直接找文字。
       expect(find.text('开发模式'), findsNothing);
       expect(find.text('诊断'), findsOneWidget);
     });
@@ -453,10 +451,10 @@ void main() {
         sections: visibleSections(devMode: true),
       );
       expect(find.text('开发模式'), findsOneWidget);
-      final NavigationRail rail = tester.widget<NavigationRail>(
-        find.byType(NavigationRail),
+      final SectionRail rail = tester.widget<SectionRail>(
+        find.byType(SectionRail),
       );
-      expect(rail.destinations, hasLength(8));
+      expect(rail.sections, hasLength(8));
     });
   });
 }

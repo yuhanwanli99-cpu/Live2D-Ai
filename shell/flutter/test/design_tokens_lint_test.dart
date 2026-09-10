@@ -62,8 +62,14 @@ final List<Rule> kRules = <Rule>[
     name: '裸色字面量',
     // `\b` 边界很关键：`AppColors.of(...)` 里含有子串 `Colors.of`，
     // 不加边界会把它误报成裸色。
-    pattern: RegExp(r'\bColor\(0x|\bColors\.[a-z]'),
-    why: '颜色只能来自 ColorScheme 槽位或 AppPalette/AppColors',
+    //
+    // `Colors.transparent` **豁免**（负向先行断言）：它表达的是「不画」，
+    // 不携带任何配色信息——`surfaceTintColor: Colors.transparent` 说的是
+    // 「别叠 Material 的色调层」，换成别的主题也不会变。把它也当成
+    // 「颜色决策」会逼着实现去写一个语义上不存在的令牌。
+    pattern: RegExp(r'\bColor\(0x|\bColors\.(?!transparent\b)[a-z]'),
+    why: '颜色只能来自 ColorScheme 槽位或 AppPalette/AppColors'
+        '（`Colors.transparent` 例外：它表示「不画」，不是配色）',
     exempt: kTokenDeclarationFiles.contains,
   ),
   Rule(

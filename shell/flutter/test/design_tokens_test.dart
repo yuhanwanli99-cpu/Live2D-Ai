@@ -148,7 +148,6 @@ const Set<String> kNotYetWired = <String>{
   'Space.s7',
   'Space.s8',
   'AppRadius.none',
-  'AppRadius.xl',
   'AppDurations.base',
   'AppDurations.slow',
   'AppDurations.reveal',
@@ -161,7 +160,7 @@ void main() {
       expect(AppRadius.registry.length, 7);
       expect(Space.registry.length, 9);
       expect(AppDurations.registry.length, 4);
-      expect(AppRhythms.registry.length, 2);
+      expect(AppRhythms.registry.length, 3);
       expect(Motion.names.length, 2);
       expect(AppFontSizes.registry.length, 8);
       expect(Breakpoints.registry.length, 2);

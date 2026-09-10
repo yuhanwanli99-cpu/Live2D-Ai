@@ -37,14 +37,14 @@ class MessageBubble extends StatelessWidget {
     final bool isUser = message.role == ChatRole.user;
     final bool failed = message.isPlaceholder;
 
+    // 谁说的**有独立的面色**，不是只靠左右对齐：`bubbleUser` 是强调色淡淡
+    // 压在面板上，助手用的是中性面。两者同色的话，灰度截图与低视力用户
+    // 就只剩「靠哪边」这一个通道了。
+    final AppPalette palette = appPaletteOf(context);
     final Color background = failed
-        ? appPaletteOf(context).dangerSurface
-        : (isUser ? theme.colorScheme.primaryContainer : appPaletteOf(context).surfaceAlt);
-    final Color foreground = failed
-        ? colors.contentMuted
-        : (isUser
-              ? theme.colorScheme.onPrimaryContainer
-              : theme.colorScheme.onSurface);
+        ? palette.dangerSurface
+        : (isUser ? palette.bubbleUser : palette.bubbleAssistant);
+    final Color foreground = failed ? palette.danger : palette.ink;
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -78,9 +78,9 @@ class MessageBubble extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 460),
               decoration: BoxDecoration(
                 color: background,
-                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: failed
-                    ? Border.all(color: appPaletteOf(context).dangerBorder)
+                    ? Border.all(color: palette.dangerBorder)
                     : null,
               ),
               padding: const EdgeInsets.symmetric(

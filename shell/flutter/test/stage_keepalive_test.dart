@@ -110,7 +110,7 @@ void main() {
       final int inits = await runScenario(
         tester,
         actions: (WidgetTester t) async {
-          await t.tap(find.byIcon(Icons.settings_outlined));
+          await t.tap(find.text('设置'));
           await t.pumpAndSettle();
           await t.tap(find.byIcon(Icons.close));
           await t.pumpAndSettle();

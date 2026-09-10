@@ -425,11 +425,12 @@ class AppShellState extends State<AppShell> {
                   status: widget.wsStatus,
                   onRetry: widget.onRetryConnection,
                 ),
+                // **文字按钮，不是齿轮图标**（用户裁决「尽量少用图片用文字
+                // 做按钮」）。「设置」两个字不需要翻译，齿轮要先认图标。
                 if (!compact)
-                  IconButton(
-                    tooltip: '设置',
+                  TextButton(
                     onPressed: () => openSettings(sizeClass: sizeClass),
-                    icon: const Icon(Icons.settings_outlined),
+                    child: const Text('设置'),
                   ),
                 const SizedBox(width: Space.s2),
               ],
@@ -452,37 +453,31 @@ class AppShellState extends State<AppShell> {
     );
   }
 
-  /// medium / expanded 的左侧分区 rail。
+  /// medium / expanded 的左侧分区导航（**纯文字**）。
+  ///
+  /// # 为什么不用 `NavigationRail`
+  ///
+  /// `NavigationRail` 的两档形态（80 px 只放图标 / 232 px 图标 + 文字）都成立
+  /// 在一个前提上：**图标是主要识别通道**。用户裁决「尽量少用图片，用文字
+  /// 做按钮」之后这个前提没了，于是两档并一档——一个能放下四个汉字的宽度。
+  ///
+  /// 选中态用**实色底 + 左侧 2 px 竖条**，不靠图标变色：
+  /// 竖向标记在中文标签旁边比「图标变蓝」更好认，也是文字型导航的常规做法。
   Widget _withRail(SizeClass sizeClass, Widget body) {
-    final bool extended = sizeClass.isExpanded;
     return Row(
       children: <Widget>[
         ValueListenableBuilder<SettingsSection>(
           valueListenable: sectionNotifier,
           builder: (BuildContext context, SettingsSection current, Widget? _) =>
-              NavigationRail(
-                extended: extended,
-                minWidth: extended
-                    ? NavMetrics.railExtendedWidth
-                    : NavMetrics.railIconWidth,
-                selectedIndex: current.index,
-                labelType: extended
-                    ? NavigationRailLabelType.none
-                    : NavigationRailLabelType.all,
-                onDestinationSelected: (int index) {
-                  final SettingsSection picked = SettingsSection.byIndex(index);
+              SectionRail(
+                sections: widget.sections,
+                selected: current,
+                onSelect: (SettingsSection picked) {
                   // 已选中同一个分区且侧板开着 → 收起（切换语义）。
                   final bool toggle = picked == current;
                   if (picked != current) _selectGuarded(picked);
                   openSettings(sizeClass: sizeClass, toggle: toggle);
                 },
-                destinations: <NavigationRailDestination>[
-                  for (final SettingsSection section in widget.sections)
-                    NavigationRailDestination(
-                      icon: Icon(section.icon),
-                      label: Text(section.label),
-                    ),
-                ],
               ),
         ),
         VerticalDivider(width: 1, color: appColorsOf(context).hairline),
@@ -511,4 +506,133 @@ class AppShellState extends State<AppShell> {
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
   );
+}
+
+/// 左侧分区导航：**一列文字**。
+///
+/// 刻意做得很薄：这里不需要「图标 + 徽标 + 折叠」那一套，
+/// 它只是把 8 个中文标签竖着排好，并让当前项一眼可辨。
+class SectionRail extends StatelessWidget {
+  const SectionRail({
+    required this.sections,
+    required this.selected,
+    required this.onSelect,
+    super.key,
+  });
+
+  final List<SettingsSection> sections;
+  final SettingsSection selected;
+  final ValueChanged<SettingsSection> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final AppPalette palette = appPaletteOf(context);
+    return SizedBox(
+      width: NavMetrics.railWidth,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: Space.s2),
+        children: <Widget>[
+          for (final SettingsSection section in sections)
+            _RailItem(
+              label: section.label,
+              description: section.description,
+              selected: section == selected,
+              onTap: () => onSelect(section),
+              theme: theme,
+              colors: colors,
+              palette: palette,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RailItem extends StatelessWidget {
+  const _RailItem({
+    required this.label,
+    required this.description,
+    required this.selected,
+    required this.onTap,
+    required this.theme,
+    required this.colors,
+    required this.palette,
+  });
+
+  final String label;
+  final String description;
+  final bool selected;
+  final VoidCallback onTap;
+  final ThemeData theme;
+  final AppColors colors;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.s2,
+        vertical: 1,
+      ),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        // 说明只给读屏/悬停：竖排里塞两行说明会把 8 个分区撑到放不下。
+        hint: description,
+        excludeSemantics: true,
+        child: Tooltip(
+          message: description,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: selected ? palette.surfaceAlt : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Space.s2,
+                  vertical: Space.s2,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    // 选中竖条：**形状**通道，不只靠底色深浅。
+                    Container(
+                      width: 2,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: selected ? palette.accent : Colors.transparent,
+                        // `xs`（最小合法档）而不是更小的裸值：2 px 宽的竖条上
+                        // 圆角会被 Flutter 夹到半宽，两档看起来是同一条圆头，
+                        // 那就没有理由为它开一个裸值。
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                      ),
+                    ),
+                    const SizedBox(width: Space.s2),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: selected ? palette.ink : colors.contentMuted,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

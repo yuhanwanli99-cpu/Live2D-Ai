@@ -120,6 +120,17 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// 1 px 分隔线 / 卡片描边。
   Color get line => ink.withValues(alpha: dark ? 0.14 : 0.10);
 
+  /// **用户气泡**底：强调色淡淡压在面板上。
+  ///
+  /// 为什么不能直接用 `surfaceAlt`：助手气泡用的就是它——两者同色的话，
+  /// 「谁说的」就只剩左右对齐这一个通道了（灰度截图与低视力用户都读不出来）。
+  /// 这里刻意只加 16%/10% 的强调色：够分辨，又不至于变成一块彩色补丁。
+  Color get bubbleUser =>
+      Color.alphaBlend(accent.withValues(alpha: dark ? 0.16 : 0.10), surface);
+
+  /// **助手气泡**底：比面板亮/暗一档的中性面。
+  Color get bubbleAssistant => surfaceAlt;
+
   /// 危险面上的文字色（与 [danger] 同值，单独起名是为了让调用点的意图可读）。
   Color get onDangerSurface => danger;
 
@@ -559,6 +570,16 @@ abstract final class AppRhythms {
   /// 长到人眼能读完「已打断」，短到不会和下一轮重叠。
   static const Duration interruptedHold = Duration(milliseconds: 1200);
 
+  /// 悬停提示出现前的等待（`Tooltip.waitDuration`）。
+  ///
+  /// 为什么是「节奏」而不是 `AppDurations` 里的一档：那 4 档的语义是
+  /// **一次过渡有多快**，而这是**等多久才开始**。两者混在一起会让
+  /// 「4 档」这个约束失去意义。
+  ///
+  /// 取值理由：400 ms 是桌面端悬停提示的常见量级——短到不觉得迟钝，
+  /// 长到鼠标划过时不至于一路弹提示。
+  static const Duration hintDelay = Duration(milliseconds: 400);
+
   // 刻意**没有**单独的「流式三点周期」：三点跑动与呼吸光表达的是同一件事
   // （思考中），共用 [thinkingBreath] 让两个指示器**同频**——看起来是有意为之，
   // 而不是各跑各的。两个同值令牌只会制造「改一处忘一处」的机会。
@@ -567,6 +588,7 @@ abstract final class AppRhythms {
   static const Map<String, Duration> registry = <String, Duration>{
     'thinkingBreath': thinkingBreath,
     'interruptedHold': interruptedHold,
+    'hintDelay': hintDelay,
   };
 }
 

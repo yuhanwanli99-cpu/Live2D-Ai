@@ -121,16 +121,16 @@ class AudioBar extends StatelessWidget {
                 // 2 = 本机静音（Tab 第二站）。
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(2),
-                  // 本机静音：图标开关 + **tooltip 文案逐字照抄 §7.2**。
-                  child: IconButton(
-                    onPressed: () => onMutedChanged(!muted),
-                    tooltip: '本机静音',
-                    isSelected: muted,
-                    icon: Icon(
-                      muted ? Icons.volume_off : Icons.volume_mute_outlined,
+                  // **文字开关，不是喇叭图标**（用户裁决「尽量少用图片用文字
+                  // 做按钮」）。这一处尤其值得换成文字：「静音」这两个字正好
+                  // 承载了 §7.2 那条**必须区分两个轴**的约定——喇叭划一道杠
+                  // 说不清是「你这台设备听不到」还是「服务端没出声」。
+                  child: Tooltip(
+                    message: '本机静音',
+                    child: TextButton(
+                      onPressed: () => onMutedChanged(!muted),
+                      child: Text(muted ? '已静音' : '静音'),
                     ),
-                    selectedIcon: const Icon(Icons.volume_off),
-                    visualDensity: VisualDensity.compact,
                   ),
                 ),
               ],

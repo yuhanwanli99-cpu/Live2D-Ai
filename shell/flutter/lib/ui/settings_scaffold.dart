@@ -142,8 +142,12 @@ class SettingsScaffold extends StatelessWidget {
               ],
             ),
           ),
-          // ── 分区导航：宽用 SegmentedButton 换行（不挤占内容宽度），
-          //    窄也用同一套（**不**再造第二套导航）。 ──
+          // ── 分区导航：文字 chip，可换行（不挤占内容宽度），
+          //    宽窄共用同一套（**不**再造第二套导航）。 ──
+          //
+          // **没有 `avatar: Icon(...)`**（2026-09-11 用户裁决「尽量少用图片用
+          // 文字做按钮」）：8 个中文标签本身就能分辨，前面再加一个小图标只是
+          // 噪声——而且那些图标（徽章/立方体/终端…）没有一个能一眼看懂。
           Padding(
             padding: const EdgeInsets.fromLTRB(Space.s3, 0, Space.s3, Space.s2),
             child: Wrap(
@@ -152,7 +156,6 @@ class SettingsScaffold extends StatelessWidget {
               children: <Widget>[
                 for (final SettingsSection section in sections)
                   ChoiceChip(
-                    avatar: Icon(section.icon, size: 16),
                     label: Text(section.label),
                     selected: section == selected,
                     onSelected: (_) => onSelect(section),
