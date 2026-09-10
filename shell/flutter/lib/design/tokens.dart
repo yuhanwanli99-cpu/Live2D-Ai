@@ -92,6 +92,16 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// 是不是暗色主题。
   bool get dark => brightness == Brightness.dark;
 
+  /// 舞台底的 **CSS 十六进制串**（`#rrggbb`），下发到渲染面。
+  ///
+  /// 单独一个 getter 而不是让调用方自己拼：拼法（补零、小写、不带 alpha）
+  /// 必须**唯一**——渲染面会校验这个串，格式稍有出入就会被拒而回落到默认色，
+  /// 表现为「主题切了但舞台没变」。
+  ///
+  /// 只取 RGB：舞台底是不透明纯色（有测试守着 `alpha == 1`）。
+  String get stageCss =>
+      '#${(stage.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+
   /// 强调色上的文字色：**算出来的**（对比度高的那个）。
   ///
   /// 写死白色会在「黑」主题上直接瞎掉——那套的强调色本身是近白色。

@@ -16,6 +16,7 @@ class Live2DStage extends StatefulWidget {
     this.model,
     this.scale = 1.0,
     this.dark = true,
+    this.stageColor,
     this.tier,
     this.onError,
     this.onReady,
@@ -26,6 +27,11 @@ class Live2DStage extends StatefulWidget {
   final String? model;
   final double scale;
   final bool dark;
+
+  /// 舞台纯色底（`#RRGGBB`）。**这是四套主题的舞台底真正生效的地方**。
+  ///
+  /// `null` = 不指定，渲染面按 [dark] 用历史默认色（`#101418` / `#e8ecf1`）。
+  final String? stageColor;
   final int? tier;
 
   /// 渲染面阶段变化（宿主据此刷新覆盖层与舞台语义）。
@@ -120,6 +126,7 @@ class Live2DStageState extends State<Live2DStage> {
       model: widget.model,
       scale: widget.scale,
       dark: widget.dark,
+      stageColor: widget.stageColor,
       tier: widget.tier,
     );
   }
@@ -182,6 +189,7 @@ class Live2DStageState extends State<Live2DStage> {
     String? model,
     double? scale,
     bool? dark,
+    String? stageColor,
     int? tier,
     bool? clickEnabled,
     bool? paused,
@@ -193,6 +201,7 @@ class Live2DStageState extends State<Live2DStage> {
       model: model,
       scale: scale,
       dark: dark,
+      stageColor: stageColor,
       tier: tier,
       clickEnabled: clickEnabled,
       paused: paused,

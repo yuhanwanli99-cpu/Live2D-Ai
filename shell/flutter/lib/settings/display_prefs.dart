@@ -7,10 +7,24 @@ library;
 
 import '../design/theme_id.dart';
 
+/// 舞台背景图 dataURL 的**长度上限**（字符数，不是字节）。
+///
+/// 取值理由：localStorage 的常见配额是 **5 MB / 源**，而 dataURL 是 base64
+/// （比原始字节大 33%），且它会被塞进偏好记录一起写。留 ~1.5 M 字符
+/// （约 1.1 MB 原始数据）给背景图，剩下的余量给其余偏好与将来新增字段——
+/// 一旦超配额，**整份偏好都写不进去**（不只是背景图），那会连带丢掉主题、
+/// 音量、口型设置，代价远大于「一张图没记住」。
+///
+/// 超限不是错误：**本次会话照常生效**，只是不写盘（UI 会如实说明）。
+/// 下游裁剪（canvas 缩放）没有做——它需要浏览器 canvas，属于不可测代码，
+/// 这一轮刻意不引入（见 `docs/verification/flutter-shell-manual-checklist.md`）。
+const int kStageImageMaxChars = 1500000;
+
 /// 舞台显示偏好。
 class DisplayPrefs {
   const DisplayPrefs({
     this.theme = AppThemeId.fallback,
+    this.stageImage,
     this.scale = defaultScale,
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
@@ -30,6 +44,16 @@ class DisplayPrefs {
   /// 点一下立刻生效（用户是为了「看着舒服」才切的，多一步保存会毁掉这个手感）。
   /// 与 `[tts]` 那种「核心链路配置」是两个世界的东西。
   final AppThemeId theme;
+
+  /// 用户导入的舞台背景图（dataURL）。`null` = 不用背景图，只有纯色底。
+  ///
+  /// 走渲染面协议 `stage-bg`（`canvas` 的 CSS `background-image: cover`），
+  /// **与舞台纯色底共存**：有图时盖住底色，清除后底色回来。
+  /// 所以「纯黑/纯白舞台」与「自定义展台图」不是二选一，而是叠放关系。
+  ///
+  /// 超过 [kStageImageMaxChars] 的图**不进这里**（会毁掉整份偏好的写入），
+  /// 那种情况只在会话内生效。
+  final String? stageImage;
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
   final double scale;
@@ -101,6 +125,11 @@ class DisplayPrefs {
 
   DisplayPrefs copyWith({
     AppThemeId? theme,
+    // 刻意**不能**用 `copyWith()` 把背景图设成「还是原值」——清除走
+    // `clearStageImage: true`，这样 `copyWith()` 不会因为「参数缺省 = null」
+    // 而把「设成 null（清除）」和「不改」混成同一件事。
+    String? stageImage,
+    bool clearStageImage = false,
     double? scale,
     double? mouthSensitivity,
     bool? lipSync,
@@ -112,6 +141,7 @@ class DisplayPrefs {
   }) {
     return DisplayPrefs(
       theme: theme ?? this.theme,
+      stageImage: clearStageImage ? null : (stageImage ?? this.stageImage),
       scale: scale ?? this.scale,
       mouthSensitivity: mouthSensitivity ?? this.mouthSensitivity,
       lipSync: lipSync ?? this.lipSync,
@@ -126,6 +156,7 @@ class DisplayPrefs {
   /// 序列化（写入 localStorage）。
   Map<String, Object?> toJson() => <String, Object?>{
     'theme': theme.wire,
+    'stageImage': stageImage,
     'scale': scale,
     'mouthSensitivity': mouthSensitivity,
     'lipSync': lipSync,
@@ -145,6 +176,9 @@ class DisplayPrefs {
     return DisplayPrefs(
       // 旧存档没有这个字段 → 用默认（黑），不是「假装用户选过白」。
       theme: AppThemeId.fromWire(json['theme']),
+      // 坏值（非字符串 / 超限）一律当作「没有背景图」，**不抛**：
+      // 一份被外部塞大的存储不该让舞台渲染不出来。
+      stageImage: _readStageImage(json['stageImage']),
       scale: clampScale(_readDouble(json['scale'], defaultScale)),
       mouthSensitivity: clampMouthSensitivity(
         _readDouble(json['mouthSensitivity'], defaultMouthSensitivity),
@@ -188,6 +222,13 @@ class DisplayPrefs {
   static bool _readBool(Object? raw, bool fallback) =>
       raw is bool ? raw : fallback;
 
+  /// 读背景图：非字符串 / 空串 / 超过 [kStageImageMaxChars] 都当作没有。
+  static String? _readStageImage(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    if (raw.length > kStageImageMaxChars) return null;
+    return raw;
+  }
+
   /// 读 int（非数字回落默认）。
   static int _readInt(Object? raw, int fallback) =>
       raw is num ? raw.toInt() : fallback;
@@ -196,6 +237,7 @@ class DisplayPrefs {
   bool operator ==(Object other) =>
       other is DisplayPrefs &&
       other.theme == theme &&
+      other.stageImage == stageImage &&
       other.scale == scale &&
       other.mouthSensitivity == mouthSensitivity &&
       other.lipSync == lipSync &&
@@ -208,6 +250,7 @@ class DisplayPrefs {
   @override
   int get hashCode => Object.hash(
     theme,
+    stageImage,
     scale,
     mouthSensitivity,
     lipSync,
@@ -220,7 +263,8 @@ class DisplayPrefs {
 
   @override
   String toString() =>
-      'DisplayPrefs(theme: ${theme.wire}, scale: $scale, mouth: $mouthSensitivity, '
+      'DisplayPrefs(theme: ${theme.wire}, stageImage: ${stageImage?.length ?? 0} chars, '
+      'scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
       'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier)';
 }

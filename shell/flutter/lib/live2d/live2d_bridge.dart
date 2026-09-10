@@ -140,6 +140,7 @@ class Live2DBridge extends ChangeNotifier {
     String? model,
     double? scale,
     bool? dark,
+    String? stageColor,
     int? tier,
     bool? clickEnabled,
     bool? paused,
@@ -151,6 +152,10 @@ class Live2DBridge extends ChangeNotifier {
     if (model != null) payload['model'] = model;
     if (scale != null) payload['scale'] = scale;
     if (dark != null) payload['dark'] = dark;
+    // 舞台纯色底（`#RRGGBB`）。渲染面会**校验**它，非法值回落 `dark` 的默认色。
+    // 为什么底色必须由渲染面写：舞台是 iframe，iframe 内 canvas 自带不透明
+    // 背景，会盖住父页画的任何颜色（见 `surface.rs::normalize_stage_color`）。
+    if (stageColor != null) payload['stageColor'] = stageColor;
     if (tier != null) payload['tier'] = tier;
     // 渲染面读的是 `sync.clickEnabled`（`l2d-wasm-demo/src/main.rs:334`）——
     // 它管的是**拖动 / 滚轮 / 双击复位**，与「点击角色有没有反应」无关。

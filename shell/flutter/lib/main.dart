@@ -33,6 +33,7 @@ import 'api/settings_models.dart';
 import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
+import 'design/tokens.dart';
 import 'app/app_shell.dart';
 import 'app/app_shortcuts.dart';
 import 'live2d/live2d_bridge.dart';
@@ -119,6 +120,45 @@ Future<Uint8List?> pickLocalFile() async {
   // **取消选择也要能收口**：`oncancel` 在旧浏览器上可能不触发，
   // 所以这里不做超时兜底——用户若一直不选，这个 Future 就挂着，
   // 而它没有任何副作用（不占资源、不改状态）。
+  input.oncancel = ((web.Event _) {
+    if (!done.isCompleted) done.complete(null);
+  }).toJS;
+  input.click();
+  return done.future;
+}
+
+/// 让用户挑一张本地图片，读成 **dataURL**（组合根专有：需要 `package:web`）。
+///
+/// 用 `FileReader.readAsDataURL` 而不是自己拼 base64：它按文件的真实 MIME
+/// 产出 `data:image/png;base64,…`，浏览器直接认。
+///
+/// **不做缩放**（刻意的）：裁剪要走 canvas，而 canvas 只能在浏览器里跑、
+/// 本仓库的 `flutter test` 覆盖不到——本轮不引入无法回归的代码。
+/// 代价是「大图不写盘」，由调用方按 [kStageImageMaxChars] 如实告知用户。
+Future<String?> pickImageDataUrl() async {
+  final web.HTMLInputElement input =
+      web.document.createElement('input') as web.HTMLInputElement;
+  input.type = 'file';
+  input.accept = 'image/*';
+  final Completer<String?> done = Completer<String?>();
+  input.onchange = ((web.Event _) {
+    final web.FileList? files = input.files;
+    if (files == null || files.length == 0) {
+      if (!done.isCompleted) done.complete(null);
+      return;
+    }
+    final web.FileReader reader = web.FileReader();
+    reader.onload = ((web.Event _) {
+      if (done.isCompleted) return;
+      final Object? result = reader.result;
+      done.complete(result is String && result.isNotEmpty ? result : null);
+    }).toJS;
+    // 读失败当作「取消」：不弹错误，用户看到的就是没变化。
+    reader.onerror = ((web.Event _) {
+      if (!done.isCompleted) done.complete(null);
+    }).toJS;
+    reader.readAsDataURL(files.item(0)!);
+  }).toJS;
   input.oncancel = ((web.Event _) {
     if (!done.isCompleted) done.complete(null);
   }).toJS;
@@ -231,6 +271,8 @@ class _ShellRootState extends State<ShellRoot> {
   String? _llmTest;   bool _llmTesting = false;
   String? _ttsTest;   bool _ttsTesting = false;
   String? _importMessage; bool _importFailed = false;
+  /// 舞台背景图的提示（与角色卡导入分开：两条通道的失败原因完全不同）。
+  String? _stageImageMessage; bool _stageImageFailed = false;
   bool _copied = false;
   bool _settingsLoadedOnce = false;
 
@@ -413,14 +455,25 @@ class _ShellRootState extends State<ShellRoot> {
   /// 把 [ShellRoot.prefs] 下发给渲染面（协议 v1 `sync`）。
   void _applyPrefs() {
     final DisplayPrefs prefs = widget.prefs;
+    // 主题的舞台底**必须重发**：切主题时 [Live2DStage] 会带着新值重建，
+    // 但 iframe 是保活的（`_attach` 只跑一次），所以不走这条路的话
+    // 舞台会一直停在启动时那套颜色上。
+    final AppPalette palette = AppPalette.of(prefs.theme);
     _stageKey.currentState?.sync(
       scale: prefs.scale,
+      dark: palette.dark,
+      stageColor: palette.stageCss,
       lipSync: prefs.lipSync,
       idleEnabled: prefs.idleEnabled,
       mouthSensitivity: prefs.mouthSensitivity,
       // 「允许拖动与缩放」下发到渲染面的 `sync.clickEnabled`。
       clickEnabled: prefs.allowDragZoom,
       tier: prefs.tier,
+    );
+    // 背景图与纯色底是**叠放**关系（有图盖住底色），所以单独走 `stage-bg`。
+    unawaited(
+      _stageKey.currentState?.sendStageBg(prefs.stageImage) ??
+          Future<void>.value(),
     );
   }
 
@@ -646,6 +699,45 @@ class _ShellRootState extends State<ShellRoot> {
     });
   }
 
+  /// 选一张舞台背景图。
+  ///
+  /// # 两条结果，都要如实说
+  ///
+  /// - 在 [kStageImageMaxChars] 以内 → 写进偏好（重开页面还在）。
+  /// - 超限 → **只在本次会话生效**，不写盘。UI 必须说清「重开就没了」，
+  ///   否则用户会以为它坏了。
+  Future<void> _pickStageImage() async {
+    final String? dataUrl = await pickImageDataUrl();
+    if (dataUrl == null || !mounted) return;
+    if (dataUrl.length <= kStageImageMaxChars) {
+      _updatePrefs(widget.prefs.copyWith(stageImage: dataUrl));
+      setState(() {
+        _stageImageMessage = '已应用背景图（${_kb(dataUrl.length)}，会记住）';
+        _stageImageFailed = false;
+      });
+      return;
+    }
+    // 超限：不经偏好，直接下发到渲染面（本次会话有效）。
+    unawaited(_stageKey.currentState?.sendStageBg(dataUrl) ?? Future<void>.value());
+    setState(() {
+      _stageImageMessage =
+          '图太大了（${_kb(dataUrl.length)}，上限 ${_kb(kStageImageMaxChars)}）——'
+          '本次有效，**重新打开页面会丢失**。换一张小一点的图就能记住。';
+      _stageImageFailed = true;
+    });
+  }
+
+  /// 清掉背景图（回到纯色舞台）。
+  void _clearStageImage() {
+    _updatePrefs(widget.prefs.copyWith(clearStageImage: true));
+    setState(() {
+      _stageImageMessage = '已清除背景图，回到纯色舞台';
+      _stageImageFailed = false;
+    });
+  }
+
+  static String _kb(int chars) => '约 ${(chars / 1024).round()} KB';
+
   Future<void> _activateModel(String id) async {
     setState(() => _busyId = id);
     try {
@@ -773,6 +865,10 @@ class _ShellRootState extends State<ShellRoot> {
           onPrefsChanged: _updatePrefs,
           actionLog: _chat.actionLog,
           devMode: _devMode,
+          onPickStageImage: () => unawaited(_pickStageImage()),
+          onClearStageImage: _clearStageImage,
+          stageImageMessage: _stageImageMessage,
+          stageImageFailed: _stageImageFailed,
         );
       case SettingsSection.mods:
         return ModsSection(
@@ -888,7 +984,8 @@ class _ShellRootState extends State<ShellRoot> {
           key: _shellKey,
           stage: Live2DStage(
             key: _stageKey,
-            dark: true,
+            dark: appPaletteOf(context).dark,
+            stageColor: appPaletteOf(context).stageCss,
             // 就绪后补发显示偏好：首次挂载时桥还在 loading，
             // 以及在 retry 重建 iframe 之后（旧队列已随旧桥销毁）。
             onReady: _applyPrefs,

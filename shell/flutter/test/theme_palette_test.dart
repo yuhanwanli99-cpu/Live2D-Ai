@@ -151,6 +151,21 @@ void main() {
           .toSet();
       expect(stages.length, AppThemeId.values.length);
     });
+
+    test('stageCss 是渲染面认得的 #rrggbb（补零 / 小写 / 不带 alpha）', () {
+      for (final AppThemeId id in AppThemeId.values) {
+        final String css = AppPalette.of(id).stageCss;
+        expect(
+          RegExp(r'^#[0-9a-f]{6}$').hasMatch(css),
+          isTrue,
+          reason: '$id 的 stageCss=$css 不是渲染面接受的形状（会被校验拒掉）',
+        );
+      }
+      // 逐字对照用户的「全黑/全白即可」，同时也守住「补零」这一步
+      // （漏了补零会得到 `#0` 而不是 `#000000`）。
+      expect(AppPalette.black.stageCss, '#000000');
+      expect(AppPalette.white.stageCss, '#ffffff');
+    });
   });
 
   group('ThemeExtension 结构枚举（防「加了字段忘了 copyWith / lerp」）', () {

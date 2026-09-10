@@ -315,4 +315,61 @@ void _p4NewFieldsTests() {
       expect(gray == black.copyWith(theme: AppThemeId.gray), isTrue);
     });
   });
+
+  group('舞台背景图（2026-09-11：用户自定义展台图，与纯色底叠放）', () {
+    const String tiny = 'data:image/png;base64,iVBORw0KGgo=';
+
+    test('默认没有背景图（默认是纯色舞台）', () {
+      expect(const DisplayPrefs().stageImage, isNull);
+    });
+
+    test('写进 JSON 再读回来', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(stageImage: tiny);
+      expect(DisplayPrefs.fromJson(p.toJson()).stageImage, tiny);
+    });
+
+    test('clearStageImage 是**独立**开关：不用它就无法把图设回 null', () {
+      final DisplayPrefs withImage = const DisplayPrefs().copyWith(
+        stageImage: tiny,
+      );
+      // 只传 `stageImage: null` 应该**什么都不改**（否则「不改」与「清除」
+      // 会被同一个缺省值混成同一件事）。
+      expect(withImage.copyWith(stageImage: null).stageImage, tiny);
+      expect(withImage.copyWith(clearStageImage: true).stageImage, isNull);
+    });
+
+    test('换主题不会顺手清掉背景图（两个字段正交）', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(stageImage: tiny);
+      expect(p.copyWith(theme: AppThemeId.blue).stageImage, tiny);
+    });
+
+    test('超限的图**读不进来**（写不进去的存储不该在读取时装作有）', () {
+      final Map<String, Object?> json = const DisplayPrefs().toJson()
+        ..['stageImage'] = 'x' * (kStageImageMaxChars + 1);
+      expect(DisplayPrefs.fromJson(json).stageImage, isNull);
+    });
+
+    test('刚好等于上限的图**读得进来**（边界是闭区间）', () {
+      final String atLimit = 'x' * kStageImageMaxChars;
+      final Map<String, Object?> json = const DisplayPrefs().toJson()
+        ..['stageImage'] = atLimit;
+      expect(DisplayPrefs.fromJson(json).stageImage, atLimit);
+    });
+
+    test('坏值（数字 / 空串 / null）→ 没有背景图，不抛', () {
+      for (final Object? bad in <Object?>[3, '', null, <String>[], true]) {
+        final Map<String, Object?> json = const DisplayPrefs().toJson()
+          ..['stageImage'] = bad;
+        expect(DisplayPrefs.fromJson(json).stageImage, isNull);
+      }
+    });
+
+    test('背景图参与 == / hashCode（否则换图不会下发到渲染面）', () {
+      const DisplayPrefs none = DisplayPrefs();
+      final DisplayPrefs withImage = none.copyWith(stageImage: tiny);
+      expect(withImage == none, isFalse);
+      expect(withImage.hashCode == none.hashCode, isFalse);
+      expect(withImage.copyWith(clearStageImage: true) == none, isTrue);
+    });
+  });
 }

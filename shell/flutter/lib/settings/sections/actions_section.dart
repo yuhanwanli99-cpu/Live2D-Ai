@@ -26,6 +26,7 @@ import '../../settings/display_prefs.dart';
 import '../../ui/action_history_view.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
+import '../../ui/theme.dart';
 import '../../ui/theme_picker.dart';
 
 class ActionsSection extends StatelessWidget {
@@ -34,6 +35,10 @@ class ActionsSection extends StatelessWidget {
     required this.onPrefsChanged,
     required this.actionLog,
     this.devMode = false,
+    this.onPickStageImage,
+    this.onClearStageImage,
+    this.stageImageMessage,
+    this.stageImageFailed = false,
     super.key,
   });
 
@@ -45,6 +50,14 @@ class ActionsSection extends StatelessWidget {
   final ActionLogController actionLog;
 
   final bool devMode;
+
+  /// 选/清舞台背景图。为 `null` 时按钮禁用（**不是**点了没反应）。
+  final VoidCallback? onPickStageImage;
+  final VoidCallback? onClearStageImage;
+
+  /// 上次选图的结果（超限时是**错误态**：图太大记不住）。
+  final String? stageImageMessage;
+  final bool stageImageFailed;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +74,13 @@ class ActionsSection extends StatelessWidget {
         ThemePickerField(
           value: prefs.theme,
           onChanged: (AppThemeId id) => onPrefsChanged(prefs.copyWith(theme: id)),
+        ),
+        _StageImageView(
+          hasImage: prefs.stageImage != null,
+          message: stageImageMessage,
+          failed: stageImageFailed,
+          onPick: onPickStageImage,
+          onClear: onClearStageImage,
         ),
         const Divider(),
         const SectionHeader(
@@ -145,6 +165,75 @@ class ActionsSection extends StatelessWidget {
         ),
         const SizedBox(height: Space.s3),
       ],
+    );
+  }
+}
+
+/// 舞台背景图那一行。
+///
+/// 三件事必须同时说清（否则用户会以为功能坏了）：
+/// 1. **不是二选一**——背景图盖在纯色底上，清掉图底色就回来；
+/// 2. 图太大时**本次有效但不记住**（`failed` 用警告色，不是静默成功）；
+/// 3. 按钮是**文字**，不是图标（用户裁决「尽量少用图片用文字做按钮」）。
+class _StageImageView extends StatelessWidget {
+  const _StageImageView({
+    required this.hasImage,
+    required this.message,
+    required this.failed,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final bool hasImage;
+  final String? message;
+  final bool failed;
+  final VoidCallback? onPick;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final AppPalette palette = appPaletteOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('舞台背景图', style: theme.textTheme.labelLarge),
+          const SizedBox(height: Space.s1),
+          Text(
+            '背景图**盖在纯色底上**：有图时看得到图，清掉后回到主题的纯色舞台。'
+            '超过 ${(kStageImageMaxChars / 1024).round()} KB 的图只在本次会话有效。',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colors.contentMuted,
+            ),
+          ),
+          const SizedBox(height: Space.s2),
+          Wrap(
+            spacing: Space.s2,
+            runSpacing: Space.s2,
+            children: <Widget>[
+              FilledButton.tonal(
+                onPressed: onPick,
+                child: Text(hasImage ? '换一张背景图' : '选择背景图'),
+              ),
+              if (hasImage)
+                TextButton(onPressed: onClear, child: const Text('清除背景图')),
+            ],
+          ),
+          if (message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.s1),
+              child: Text(
+                message!,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: failed ? palette.warning : colors.contentMuted,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

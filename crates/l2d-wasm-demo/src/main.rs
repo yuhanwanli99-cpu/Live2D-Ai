@@ -318,6 +318,13 @@ mod web {
                         if let Some(d) = payload.get("dark").and_then(|x| x.as_bool()) {
                             st.bridge.dark = d;
                         }
+                        // 舞台纯色底（2026-09-11）：四套主题各自的舞台底经此下发。
+                        // 显式空串 = 清掉显式色、回到 `dark` 的默认色；
+                        // 非法值同样回落（`normalize_stage_color` 返回 None），
+                        // **不拒整条消息**——其余字段照常生效。
+                        if let Some(c) = payload.get("stageColor").and_then(|x| x.as_str()) {
+                            st.bridge.stage_color = crate::web::surface::normalize_stage_color(c);
+                        }
                         if let Some(l) = payload.get("lipSync").and_then(|x| x.as_bool()) {
                             st.bridge.lip_sync = l;
                         }

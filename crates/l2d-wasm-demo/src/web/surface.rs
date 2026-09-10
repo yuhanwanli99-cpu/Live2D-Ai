@@ -194,6 +194,30 @@ pub(crate) fn canvas_pixel_size(
     (width, height)
 }
 
+/// 把父页给的舞台底色**校验**成可安全写进 CSS 的 `#RRGGBB`。
+///
+/// # 为什么要校验而不是照抄
+///
+/// 这个字符串会进 `canvas.style.setProperty("background-color", …)`。
+/// 虽然当前唯一的发送方是我们自己的前端，但 `/render` 是一个**独立页面**，
+/// 任何能 postMessage 到它的东西都能塞值进来。CSS 值允许
+/// `url(...)`、`var(...)` 等构造，照抄等于开了一个注入面。
+///
+/// 规则刻意收紧到「只认 `#RGB` / `#RRGGBB` 的十六进制」——
+/// 舞台底本来就只需要纯色；非法值返回 `None`，于是**回落到 `dark` 的默认色**，
+/// 而不是把整条 `sync` 消息拒掉（其余字段照常生效）。
+pub(crate) fn normalize_stage_color(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    let hex = s.strip_prefix('#')?;
+    if !(hex.len() == 3 || hex.len() == 6) {
+        return None;
+    }
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("#{}", hex.to_ascii_lowercase()))
+}
+
 /// iframe bridge 接收状态（P0-2a）：父页 postMessage → 可见效果。
 /// 首帧后由 main.rs 的 message listener 写入；rAF 循环每帧读取产生可见效果。
 #[derive(Clone)]
@@ -206,10 +230,23 @@ pub(crate) struct BridgeState {
     pub offset_x: f32,
     pub offset_y: f32,
     /// stage-config.dark（背景暗色，默认 true）
+    ///
+    /// 只在 [`BridgeState::stage_color`] 为 `None` 时决定背景色——它是
+    /// **历史回退路径**，保留是为了让没发 `stageColor` 的旧前端继续能用。
     pub dark: bool,
     /// 已写到 DOM 的 background-color 值（用于只在变化时写 DOM，规避每帧
     /// set_property 触发 style recalc 的抖动——240Hz 下 DOM 写是主卡点）。
     pub applied_dark: bool,
+    /// stage-config.stageColor（**舞台纯色底**，`#RRGGBB` 形式的 CSS 颜色）。
+    ///
+    /// 2026-09-11 新增（向后兼容：缺省即 `None`，行为与旧版完全一致）。
+    /// 为什么不让前端自己画：舞台是 `<iframe>` 平台视图，iframe 内的 canvas
+    /// 自带不透明背景色，会**盖住**父页画的任何底色。所以底色必须由渲染面
+    /// 自己写。用户裁决「舞台背影全黑/全白即可，中央不要放贴图」——
+    /// 四套主题各自的舞台底因此走这条通道下发。
+    pub stage_color: Option<String>,
+    /// 已写到 DOM 的 stageColor（同 `applied_dark` 的变化才写纪律）。
+    pub applied_stage_color: Option<String>,
     /// stage-config.lipSync（口型开关，默认 true）
     pub lip_sync: bool,
     /// stage-config.mouthSensitivity（口型灵敏度，默认 1.0）。
@@ -266,6 +303,8 @@ impl Default for BridgeState {
             offset_y: 0.0,
             dark: true,
             applied_dark: false,
+            stage_color: None,
+            applied_stage_color: None,
             lip_sync: true,
             mouth_sensitivity: DEFAULT_MOUTH_SENSITIVITY,
             idle_enabled: true,
@@ -1177,9 +1216,27 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     //
     // `applied_dark: false` 初始值：index.html 的 canvas CSS 背景色可能
     // 与 #101418 不一致，首帧不写会闪烁——保守地强制首帧写一次同步。
-    if st.bridge.dark != st.bridge.applied_dark {
-        let bg = if st.bridge.dark { "#101418" } else { "#e8ecf1" };
-        let _ = st.canvas.style().set_property("background-color", bg);
+    //
+    // 两路取色，**显式色优先**：
+    //   1. `stageColor`（新，四套主题各自的舞台底，如 `#000000`）；
+    //   2. `dark`（旧回退：`#101418` / `#e8ecf1`）。
+    // 两个 `applied_*` 都要参与变化判定，否则从「显式色」切回「默认」时
+    // 会因为 `dark` 没变而漏写 DOM（背景卡在上一套主题的颜色上）。
+    if st.bridge.stage_color != st.bridge.applied_stage_color
+        || st.bridge.dark != st.bridge.applied_dark
+    {
+        let bg = match st.bridge.stage_color.as_deref() {
+            Some(explicit) => explicit.to_string(),
+            None => {
+                if st.bridge.dark {
+                    "#101418".to_string()
+                } else {
+                    "#e8ecf1".to_string()
+                }
+            }
+        };
+        let _ = st.canvas.style().set_property("background-color", &bg);
+        st.bridge.applied_stage_color = st.bridge.stage_color.clone();
         st.bridge.applied_dark = st.bridge.dark;
     }
     // C2：自定义背景图（dataURL）→ canvas CSS background-image（cover）。
@@ -1467,6 +1524,49 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── 舞台底色校验（2026-09-11） ──────────────────────────────────
+
+    #[test]
+    fn stage_color_accepts_hex_and_normalizes_case() {
+        assert_eq!(normalize_stage_color("#000000").as_deref(), Some("#000000"));
+        assert_eq!(normalize_stage_color("#FFFFFF").as_deref(), Some("#ffffff"));
+        assert_eq!(normalize_stage_color("#1c1C1f").as_deref(), Some("#1c1c1f"));
+        // 三位的简写也合法（CSS 允许）。
+        assert_eq!(normalize_stage_color("#abc").as_deref(), Some("#abc"));
+        // 前后空白容忍（父页拼串时可能带上）。
+        assert_eq!(
+            normalize_stage_color("  #061223 ").as_deref(),
+            Some("#061223")
+        );
+    }
+
+    /// **注入面**：这个值会进 `style.setProperty("background-color", …)`，
+    /// 所以只认纯十六进制。任何其他构造一律拒绝（返回 None = 回落默认色）。
+    #[test]
+    fn stage_color_rejects_anything_that_is_not_plain_hex() {
+        for bad in [
+            "",
+            "#",
+            "#12",
+            "#12345",
+            "#1234567",
+            "#gggggg",
+            "red",
+            "rgb(1,2,3)",
+            "url(https://example.com/x.png)",
+            "var(--x)",
+            "#fff; background-image: url(x)",
+            "#fff}body{background:red",
+            "expression(alert(1))",
+        ] {
+            assert_eq!(
+                normalize_stage_color(bad),
+                None,
+                "{bad:?} 不该被接受——它会被原样写进 CSS"
+            );
+        }
+    }
 
     /// **语义域内核**与 py `choreography.ts` 逐值对齐（未换算量程）。
     ///
