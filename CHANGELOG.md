@@ -1,3 +1,87 @@
+# v0.4.1 — 一句一单元（不断句）+ 口型听得见 + Flutter 主导治理（2026-09-10）
+
+用户裁决：**本轮把核心 LLM + TTS + Live2D 口型联动 + UI 打磨完毕**。
+
+## 语音输出：一句一单元，不断句（**行为变更，勿回退**）
+
+- **根因**：`SentenceAssembler::DEFAULT_MAX_CHARS = 48` 会把超过 48 字的句子
+  **按字符位置硬切**。每段各发一次 TTS 请求、各带一段合成延迟 → 播放时逐段空档，
+  听感即「断断续续 / 断句」。
+- **修复**：默认上限 48 → **200**（正常口语句长约 10–40 字，永远碰不到），
+  因此**一句话恰好对应一次 TTS 请求、一次完整合成、一次连续播放**。
+- 安全阀（无标点超长输入）触发时**优先在弱标点（，、；：等）处断开**——
+  听感是自然停顿；确实没有弱标点才退回按位置硬切。
+- 契约写入 `AGENTS.md` 与 `docs/architecture/core-contracts.md` §1.1：
+  **延迟可接受，断句不可接受**。
+
+## 口型联动：从「几乎看不见」到「听得见」
+
+- **根因**：线性 RMS 被**原样**写进 `ParamMouthOpenY`（0..1）。实测真实 TTS 语音
+  的 50 ms 窗 RMS 为 p50=0.030 / p90=0.118 / max=0.282 → 嘴只张开量程的 3%–12%，
+  离屏实测形变量仅满幅的 **27%**，肉眼几乎看不出在动。
+- **修复**：改为 **dB 映射**（`-36 dBFS → 0`，`-6 dBFS → 1`，区间内线性）。
+  标定后 p50/p90/max → **0.18 / 0.58 / 0.83**，落到「明显可见」区间。
+  用 dB 而非固定增益：结果与 TTS 输出电平、音色、服务端实现无关，换后端不必重调。
+- 去掉旧的 `volume > 0.01` 门限（它会让轻声段落整段闭嘴）；衰减时间常数
+  `TAU_MS` 160 → **90 ms**（快速连续音节的「开—合」才看得见）。
+- 新增**口型灵敏度**参数（`stage-config.mouthSensitivity`，默认 1.0，clamp `[0,4]`），
+  前端有滑杆可实时调。
+- 换算逻辑放在**平台无关**的 `crates/l2d-wasm-demo/src/mouth.rs`——原先若留在
+  `web::surface` 会被 `cfg(wasm32)` 挡在原生 `cargo test` 之外，等于没有回归。
+
+## 治理：Rust 核心 + Flutter 前端「双主导」
+
+- `AGENTS.md` 重写：确立双主导分层；**前端/接口层显式豁免 `rust-ratio`**，
+  改由 `flutter analyze` + `flutter test` 门禁；原生 JS 前端（`/`）降为**遗留实现**，
+  只修致命缺陷、不再加新功能。
+- `docs/architecture/core-contracts.md` §1 同步（原「无第二语言运行时」表述作废）。
+- `xtask` 新增 `EXEMPT_EXTENSIONS = ["dart"]`：**单独统计并打印，但不计入占比分母**
+  ——「豁免 ≠ 不可见」（当前 13 文件 / 2396 行）。新增两条回归测试，
+  含「统计集合与豁免集合必须互斥」。
+
+## UI 打磨（Flutter）
+
+- 新增**外观与口型面板**：模型缩放、口型灵敏度、口型/待机开关、恢复默认。
+  宽屏侧栏 / 窄屏底部弹层同一组件；改动经协议 v1 `sync` 实时下发渲染面。
+- 显示偏好**持久化到 localStorage**，反序列化**永不抛异常**（缺字段/类型不符/
+  非有限数回落默认，越界值夹到区间）——11 条单测覆盖。
+- 舞台加载徽标显示渲染面上报的**资源进度百分比**（协议 v1 `progress`）；
+  拿不到进度时不显示假数字。
+- 渲染面 `ready` 后自动补发显示偏好（覆盖首次挂载与错误后 `retry` 重建 iframe）。
+
+## 动作幅度：修掉 wasm 侧缺失的量程换算（**重要，勿回退**）
+
+- **根因**：动作编舞表（`CHOREOGRAPHY`，照抄 py `choreography.ts`）里存的是**语义值**
+  （`-1..1`，0 = 默认位），却在 Rust 移植时被**原样**写进模型参数。而 Bai 的
+  `ParamAngleX/Y/Z` 量程是 **±30**（`bai.vtube.json` `ParameterSettings`
+  `OutputRangeLower/Upper = -30/30`），于是 `nod` 的 `-0.55` 实际只让头转
+  **0.55 度**（目标 ±16.5 度的 1.8%）——**LLM 触发点头/摇头/歪头在浏览器里几乎不可见**。
+- **修复**：新增平台无关的 `crates/l2d-wasm-demo/src/param_scale.rs`
+  （头部 ±30 / 身体 ±10 / 其余 ±1 透传），并在 `action_frames` **出口统一换算**
+  ——放在出口而非调用点，使「忘了换算」在结构上不可能发生。
+- 编舞表本身保持语义域（便于与 py 版逐值对照），语义内核拆为 `semantic_frames`。
+- 交叉验证：原生路径本来就是模型域——`live2d-ai-core` 的 `HEAD_ANGLE_LIMIT = 30.0`
+  且 `head_angle_y` 以度直接写 `ParamAngleY`；即此前**只有 wasm 路径**有这个缺陷。
+- 新增 6 条原生回归测试（含「头部动作幅度必须 > 量程的 1/4」的可见性判据）。
+
+## 门禁
+
+`cargo fmt` 干净 / `cargo clippy -D warnings` 干净 / `cargo test --workspace --all-targets`
+**804 passed / 0 failed** / `cargo test --doc` 通过 /
+`cargo check -p l2d-wasm-demo --target wasm32-unknown-unknown` 通过 /
+`rust-ratio` **95.5157% PASS**（Dart 2948 行单独可见、不计入分母）/
+`flutter analyze` 无问题 / `flutter test` **21 passed** /
+`flutter build web --release --base-href /app/` 成功。
+
+## 仍未闭环（诚实登记）
+
+- TTS 服务端不流式，RTF ≈ 1.3–1.7×（慢于实时）；句间仍有等待——按用户裁决
+  **延迟可接受**，但句内不再断。
+- STT 语音输入不存在；`--web` 无原生窗口。
+- Flutter 前端尚无完整设置面板（仅显示/口型项）；旧 JS 前端仍在（遗留）。
+
+---
+
 # v0.4.0 — 核心链路闭环 + Flutter 前端 + 四议题审计（2026-09-10）
 
 - **核心链路闭环（文本 → LLM → TTS → 口型 → Live2D 渲染）**：LLM 流式按句切分 →
