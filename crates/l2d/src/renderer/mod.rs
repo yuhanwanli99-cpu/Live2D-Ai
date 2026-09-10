@@ -234,13 +234,37 @@ pub(crate) fn readback_rgba(gpu: &GpuContext, target: &Texture) -> Result<RgbaFr
 /// （不含视口 aspect 修正；aspect 在 render 时叠加）。
 pub(crate) fn layout_transform(loaded: &LoadedModel) -> Affine2 {
     let canvas = loaded.handle().canvas();
-    let canvas_dims = glam::f32::Vec2::new(canvas.width_units, canvas.height_units);
-    let canvas_center = glam::f32::Vec2::new(canvas.center_x_units, canvas.center_y_units);
-    let layout = loaded.manifest().layout;
-    let whole_canvas = Affine2::from_translation(-Vec2::ONE)
-        * Affine2::from_scale(Vec2::new(2.0, 2.0) / canvas_dims)
+    layout_transform_from(
+        glam::f32::Vec2::new(canvas.width_units, canvas.height_units),
+        glam::f32::Vec2::new(canvas.center_x_units, canvas.center_y_units),
+        canvas.pixels_per_unit,
+        loaded.manifest().layout,
+    )
+}
+
+/// [`layout_transform`] 的纯函数内核（不依赖模型资产，便于回归测试）。
+pub(crate) fn layout_transform_from(
+    canvas_dims: Vec2,
+    canvas_center: Vec2,
+    pixels_per_unit: f32,
+    layout: crate::asset::LayoutBox,
+) -> Affine2 {
+    // **等比映射（2026-09-10 修复）**：x/y 必须用同一个缩放因子。
+    //
+    // 旧实现是 `Vec2::new(2.0, 2.0) / canvas_dims` —— **逐轴**缩放，等于把画布
+    // 强行拉成正方形：Bai 皮套的 moc3 画布是 4000×6000（竖长），于是 y 比 x 少缩
+    // 1.5 倍，模型被横向拉伸 1.5×（用户观感「上下被压扁」）。实测 x/y 比例为 1.5，
+    // 与画布 4000:6000 完全吻合。
+    //
+    // 现在以**画布宽度**为基准取等比因子 `s`，并把画布中心平移到 NDC 原点：
+    // 模型规范化空间 v ∈ [-0.5, 0.5]² 等比映射到 NDC [-1, 1]²，不产生任何拉伸。
+    // （`pixels_per_unit` 与画布宽度不一致的模型只会整体变大/变小，仍不变形。）
+    let s = 2.0 / canvas_dims.x;
+    let offset = canvas_center * s;
+    let whole_canvas = Affine2::from_translation(-offset)
+        * Affine2::from_scale(Vec2::splat(s))
         * Affine2::from_translation(canvas_center)
-        * Affine2::from_scale(Vec2::splat(canvas.pixels_per_unit));
+        * Affine2::from_scale(Vec2::splat(pixels_per_unit));
     Affine2::from_translation(glam::f32::vec2(layout.center_x, layout.center_y))
         * Affine2::from_scale(glam::f32::vec2(layout.width, layout.height))
         * whole_canvas
@@ -253,6 +277,49 @@ mod tests {
     #[test]
     fn aspect_fit_is_identity_for_square() {
         assert_eq!(aspect_fit_transform(256, 256), Affine2::IDENTITY);
+    }
+
+    /// **回归（2026-09-10）**：`layout_transform_from` 必须是**等比**映射。
+    ///
+    /// 历史缺陷：逐轴 `Vec2::new(2.0, 2.0) / canvas_dims` 把非正方形画布
+    /// （Bai 为 4000×6000）强行拉成正方形 → 模型横向拉伸 1.5×，观感「上下被压扁」。
+    /// 本测试不依赖模型资产（纯参数），CI 无资产时同样生效。
+    #[test]
+    fn layout_transform_is_uniform_for_non_square_canvas() {
+        for (w, h) in [(4000.0_f32, 6000.0_f32), (6000.0, 4000.0), (1024.0, 1024.0)] {
+            let t = layout_transform_from(
+                glam::f32::Vec2::new(w, h),
+                glam::f32::Vec2::new(w / 2.0, h / 2.0),
+                4000.0,
+                crate::asset::LayoutBox {
+                    center_x: 0.0,
+                    center_y: -0.07,
+                    width: 0.56,
+                    height: 0.56,
+                },
+            );
+            let o = t.transform_point2(glam::f32::Vec2::ZERO);
+            let dx = t.transform_point2(glam::f32::Vec2::new(1.0, 0.0)) - o;
+            let dy = t.transform_point2(glam::f32::Vec2::new(0.0, 1.0)) - o;
+            assert!(
+                (dx.x - dy.y).abs() < 1e-6,
+                "画布 {w}x{h} 必须等比：每单位 dx={} dy={}",
+                dx.x,
+                dy.y
+            );
+            // 模型空间原点（画布中心）落在 layout 中心上。
+            assert!(
+                (o.x - 0.0).abs() < 1e-6 && (o.y + 0.07).abs() < 1e-6,
+                "origin={o:?}"
+            );
+            // 正方形模型区域映射后仍是 NDC 正方形（不变形）。
+            let span = t.transform_point2(glam::f32::Vec2::new(0.5, 0.5))
+                - t.transform_point2(glam::f32::Vec2::new(-0.5, -0.5));
+            assert!(
+                (span.x - span.y).abs() < 1e-6,
+                "0.5 见方应映射为 NDC 正方形，got {span:?}"
+            );
+        }
     }
 
     #[test]

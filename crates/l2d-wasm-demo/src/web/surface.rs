@@ -176,7 +176,17 @@ pub(crate) fn canvas_pixel_size(
     let width = ((css_w * dpr).round() as u32).max(1);
     let height = ((css_h * dpr).round() as u32).max(1);
     let side = tier.side();
-    (width.min(side), height.min(side))
+    // **保比钳制**：逐维 `min(side)` 会改变宽高比（宽画布被单独削宽 → 显示时被横向拉伸），
+    // 改为「最长边超限时整体等比缩小」，保证缓冲宽高比恒等于 CSS 显示盒宽高比。
+    let longest = width.max(height);
+    if longest > side {
+        let k = side as f64 / longest as f64;
+        return (
+            ((width as f64 * k).round() as u32).max(1),
+            ((height as f64 * k).round() as u32).max(1),
+        );
+    }
+    (width, height)
 }
 
 /// iframe bridge 接收状态（P0-2a）：父页 postMessage → 可见效果。
@@ -403,17 +413,7 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
     let handler: Closure<dyn FnMut()> = Closure::new({
         let state = Rc::clone(state);
         move || {
-            let mut st = state.borrow_mut();
-            let (width, height) = canvas_pixel_size(&st.canvas, &st.window, st.bridge.tier);
-            if (width, height) == (st.config.width, st.config.height) {
-                return;
-            }
-            st.config.width = width;
-            st.config.height = height;
-            st.surface.configure(st.gpu.device(), &st.config);
-            if let Err(e) = st.core.set_viewport(width, height) {
-                status(&format!("resize 失败：{e}"));
-            }
+            sync_canvas_size(&state);
         }
     });
     let window = state.borrow().window.clone();
@@ -425,6 +425,54 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
     }
     // 页面生命周期内常驻（demo 不做卸载路径），防止闭包被回收。
     std::mem::forget(handler);
+
+    // **兜底自愈（2026-09-10）**：宿主把本页嵌进 iframe / Flutter `HtmlElementView` 时，
+    // 槽位尺寸变化不保证在 `window` 上派发 `resize`；漏掉一次就会让 canvas 位图与 CSS
+    // 显示盒尺寸不一致 → 浏览器**非等比**拉伸 → 模型看起来被压扁。
+    // 这里每 500ms 比对一次（`canvas_pixel_size` 同口径），不一致就重配 surface + 视口。
+    let resync_state = Rc::clone(state);
+    let resync: Closure<dyn FnMut()> = Closure::new(move || {
+        sync_canvas_size(&resync_state);
+    });
+    if let Some(window) = web_sys::window()
+        && window
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                resync.as_ref().unchecked_ref(),
+                500,
+            )
+            .is_ok()
+    {
+        std::mem::forget(resync);
+    }
+}
+
+/// 把 canvas 位图（缓冲）尺寸对齐到当前 CSS 显示盒 × DPR。
+///
+/// 与 [`install_resize_handler`] 的 `resize` 回调、以及 500ms 兜底定时器共用同一逻辑：
+/// 尺寸未变则 no-op（避免无谓的 `configure`）。
+///
+/// 返回是否发生了重配。
+pub(crate) fn sync_canvas_size(state: &SharedState) -> bool {
+    let mut st = state.borrow_mut();
+    let (width, height) = canvas_pixel_size(&st.canvas, &st.window, st.bridge.tier);
+    if (width, height) == (st.config.width, st.config.height) {
+        return false;
+    }
+    st.config.width = width;
+    st.config.height = height;
+    st.surface.configure(st.gpu.device(), &st.config);
+    if let Err(e) = st.core.set_viewport(width, height) {
+        status(&format!("resize 失败：{e}"));
+    }
+    true
+}
+
+/// 诊断口径：当前 CSS 显示盒 `(宽, 高)` 与钳制后的 DPR。
+///
+/// 状态栏同时打印「缓冲」与「CSS」两组尺寸——两者宽高比不一致即为压扁根因。
+pub(crate) fn canvas_css_metrics(canvas: &HtmlCanvasElement, window: &Window) -> (i32, i32, f64) {
+    let dpr = window.device_pixel_ratio().clamp(1.0, DPR_CAP);
+    (canvas.client_width(), canvas.client_height(), dpr)
 }
 
 /// 单帧：固定 dt 步进姿态/物理 → 取交换链纹理 → **render_to_view_submit** → present。

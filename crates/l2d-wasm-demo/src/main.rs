@@ -66,7 +66,9 @@ mod web {
     pub(crate) mod net;
     pub(crate) mod surface;
 
-    use surface::{FrameSlot, SharedState, adapter_info, init_gpu, install_resize_handler};
+    use surface::{
+        FrameSlot, SharedState, adapter_info, canvas_css_metrics, init_gpu, install_resize_handler,
+    };
 
     /// 缺省模型清单 URL：约定宿主在 `/models/<...>` 暴露用户合法持有的皮套
     /// （挂载方式见本 crate README）；本仓库不内置、不分发任何模型资产。
@@ -83,11 +85,24 @@ mod web {
         }
     }
 
+    /// 协议 v1 上行事件：向父页（Flutter / 宿主）发送 `{version,type,payload}`。
+    ///
+    /// 非 iframe 时 parent == self，本页 listener 按未知类型忽略，不产生副作用。
+    pub(crate) fn emit_event(ty: &str, payload: serde_json::Value) {
+        let msg = serde_json::json!({ "version": 1, "type": ty, "payload": payload }).to_string();
+        if let Some(win) = web_sys::window()
+            && let Ok(Some(parent)) = win.parent()
+        {
+            let _ = parent.post_message(&JsValue::from_str(&msg), "*");
+        }
+    }
+
     /// wasm 入口：把异步启动任务挂到微任务循环（不在顶层阻塞）。
     pub fn start() {
         wasm_bindgen_futures::spawn_local(async move {
             if let Err(err) = run().await {
                 status(&format!("启动失败：{err}"));
+                emit_event("error", serde_json::json!({ "message": err }));
             }
         });
     }
@@ -104,12 +119,19 @@ mod web {
             .map_err(|e| format!("清单加载失败（{model_url}）：{e}"))?;
         let refs = net::extract_refs(&model3_bytes)?;
         let mut resources = std::collections::BTreeMap::new();
-        for rel in refs.unique_paths() {
+        let paths = refs.unique_paths();
+        let total = paths.len().max(1);
+        for (idx, rel) in paths.into_iter().enumerate() {
             let url = net::resolve_relative(model_url, &rel);
             let bytes = net::fetch_bytes(window, &url)
                 .await
                 .map_err(|e| format!("资源 `{rel}` 加载失败（{url}）：{e}"))?;
             resources.insert(rel.clone(), bytes);
+            // v1：逐资源进度（宿主可显示加载条）。
+            emit_event(
+                "progress",
+                serde_json::json!({ "phase": "resources", "ratio": (idx + 1) as f64 / total as f64 }),
+            );
         }
         let package = l2d::asset::ModelPackage::from_memory_map(&model3_bytes, &resources)
             .map_err(|e| format!("ModelPackage::from_memory 失败：{e}"))?;
@@ -181,12 +203,17 @@ mod web {
             .snapshot_adapter(backend, &adp_name, is_webgpu);
 
         let api = if is_webgpu { "WebGPU" } else { "WebGL2" };
+        // 诊断：同时打印「缓冲」与「CSS」两组尺寸——两者宽高比不一致即为模型被压扁的根因。
+        let (css_w, css_h, dpr) = canvas_css_metrics(&canvas, &window);
         status(&format!(
-            "{summary}\nGPU: {backend}/{api} ({adp_name})；画布 {width}x{height}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
+            "{summary}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
         ));
 
         install_stage_bridge(&state);
         install_stage_interaction(&state);
+        // **协议 v1**：listener 就绪 → `ready`（宿主可开始下发）；模型已进核心 → `loaded`。
+        emit_event("ready", serde_json::json!({ "protocol": true }));
+        emit_event("loaded", serde_json::json!({ "url": model_url }));
         start_render_loop(state);
         Ok(())
     }
@@ -232,8 +259,33 @@ mod web {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
                 return;
             };
-            let Some(kind) = v.get("type").and_then(|t| t.as_str()) else {
+            let Some(raw_kind) = v.get("type").and_then(|t| t.as_str()) else {
                 return;
+            };
+            // **协议 v1（2026-09-10）**：支持 `{version:1,type,payload}` 信封；
+            // 无 `payload` 对象时回退为历史扁平消息（字段直接挂在根上）。
+            // 归一化后，下面的分支只面对一种形态。
+            let payload = v
+                .get("payload")
+                .filter(|p| p.is_object())
+                .cloned()
+                .unwrap_or_else(|| v.clone());
+            // v1 类型 → 内部分支名（旧类型原样透传，向后兼容）。
+            let kind = match raw_kind {
+                "sync" => "stage-config",
+                "mouth" => "audio-volume",
+                "stage" => "stage-config",
+                other => other,
+            };
+            // v1 `sync.payload.model`：换模型入口（等价旧 `load-model`）。
+            let sync_model_url = if raw_kind == "sync" {
+                payload
+                    .get("model")
+                    .and_then(|m| m.as_str())
+                    .filter(|u| !u.is_empty())
+                    .map(|u| u.to_owned())
+            } else {
+                None
             };
             // 应用消息 → 记录待 ACK 的类型（borrow 结束后回执）。
             let mut applied = false;
@@ -243,23 +295,23 @@ mod web {
                 st.bridge.last_msg = kind.to_string();
                 match kind {
                     "stage-config" => {
-                        if let Some(s) = v.get("scale").and_then(|x| x.as_f64()) {
+                        if let Some(s) = payload.get("scale").and_then(|x| x.as_f64()) {
                             st.bridge.scale = (s as f32).clamp(0.5, 2.0);
                         }
-                        if let Some(d) = v.get("dark").and_then(|x| x.as_bool()) {
+                        if let Some(d) = payload.get("dark").and_then(|x| x.as_bool()) {
                             st.bridge.dark = d;
                         }
-                        if let Some(l) = v.get("lipSync").and_then(|x| x.as_bool()) {
+                        if let Some(l) = payload.get("lipSync").and_then(|x| x.as_bool()) {
                             st.bridge.lip_sync = l;
                         }
-                        if let Some(id) = v.get("idleEnabled").and_then(|x| x.as_bool()) {
+                        if let Some(id) = payload.get("idleEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.idle_enabled = id;
                         }
-                        if let Some(ck) = v.get("clickEnabled").and_then(|x| x.as_bool()) {
+                        if let Some(ck) = payload.get("clickEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.click_enabled = ck;
                         }
                         // ADR §3.3：渲染档位（4096/8192/16384）；非法值忽略。
-                        if let Some(t) = v.get("tier").and_then(|x| x.as_u64())
+                        if let Some(t) = payload.get("tier").and_then(|x| x.as_u64())
                             && let Some(tier) = RenderTier::from_side(t as u32)
                         {
                             st.bridge.tier = tier;
@@ -268,7 +320,7 @@ mod web {
                     }
                     // UI 精修规格 A2：控制条 +/−/复位（主 Agent 设计，wasm listener 落地）。
                     "stage-zoom" => {
-                        match v.get("dir").and_then(|x| x.as_str()).unwrap_or("") {
+                        match payload.get("dir").and_then(|x| x.as_str()).unwrap_or("") {
                             "in" => st.bridge.scale = (st.bridge.scale * 1.1).clamp(0.5, 2.0),
                             "out" => st.bridge.scale = (st.bridge.scale / 1.1).clamp(0.5, 2.0),
                             "reset" => {
@@ -281,17 +333,23 @@ mod web {
                         applied = true;
                     }
                     "audio-volume" => {
-                        if let Some(vol) = v.get("value").and_then(|x| x.as_f64()) {
+                        // v1 口型：`mouth.payload.level`；旧协议 `audio-volume.value` 兼容保留。
+                        let value = payload
+                            .get("level")
+                            .or_else(|| payload.get("value"))
+                            .and_then(|x| x.as_f64());
+                        if let Some(vol) = value {
                             st.bridge.volume = (vol as f32).clamp(0.0, 1.0);
                         }
                         applied = true;
                     }
                     // C2：自定义背景图（dataURL；null/empty = 清除）。
                     "stage-bg" => {
-                        st.bridge.bg_data_url = match v.get("dataUrl").and_then(|x| x.as_str()) {
-                            Some(u) if !u.is_empty() => Some(u.to_string()),
-                            _ => None,
-                        };
+                        st.bridge.bg_data_url =
+                            match payload.get("dataUrl").and_then(|x| x.as_str()) {
+                                Some(u) if !u.is_empty() => Some(u.to_string()),
+                                _ => None,
+                            };
                         applied = true;
                     }
                     "action-state" => {
@@ -300,14 +358,18 @@ mod web {
                             .and_then(|x| x.as_str())
                             .unwrap_or("")
                             .to_string();
-                        let state_word = v.get("state").and_then(|x| x.as_str()).unwrap_or("");
+                        let state_word =
+                            payload.get("state").and_then(|x| x.as_str()).unwrap_or("");
                         // 强度档位 → 语义幅度倍率（py 0.6/1.35/1.8 过猛，取保守档 0.6/1.0/1.35）。
-                        let strength_mult =
-                            match v.get("strength").and_then(|x| x.as_f64()).unwrap_or(2.0) as u8 {
-                                1 => 0.6,
-                                3 => 1.35,
-                                _ => 1.0,
-                            };
+                        let strength_mult = match payload
+                            .get("strength")
+                            .and_then(|x| x.as_f64())
+                            .unwrap_or(2.0) as u8
+                        {
+                            1 => 0.6,
+                            3 => 1.35,
+                            _ => 1.0,
+                        };
                         if state_word == "start" {
                             let now = web_sys::window()
                                 .map(|w| w.performance().map(|p| p.now()).unwrap_or(0.0))
@@ -326,7 +388,7 @@ mod web {
                         applied = true;
                     }
                     "load-model" => {
-                        if let Some(url) = v.get("url").and_then(|x| x.as_str()) {
+                        if let Some(url) = payload.get("url").and_then(|x| x.as_str()) {
                             let url = url.to_owned();
                             applied = true;
                             // 异步换模型：不要阻塞 rAF 循环。
@@ -339,22 +401,81 @@ mod web {
                                         Ok(loaded) => {
                                             match reload_state.borrow_mut().core.load_model(&loaded)
                                             {
-                                                Ok(()) => status("模型已切换"),
+                                                Ok(()) => {
+                                                    status("模型已切换");
+                                                    emit_event(
+                                                        "loaded",
+                                                        serde_json::json!({ "url": url }),
+                                                    );
+                                                }
                                                 Err(e) => {
-                                                    status(&format!("渲染核心换模型失败：{e}"))
+                                                    let msg = format!("渲染核心换模型失败：{e}");
+                                                    status(&msg);
+                                                    emit_event(
+                                                        "error",
+                                                        serde_json::json!({ "message": msg }),
+                                                    );
                                                 }
                                             }
                                         }
-                                        Err(e) => status(&format!("切换失败: {e}")),
+                                        Err(e) => {
+                                            let msg = format!("切换失败: {e}");
+                                            status(&msg);
+                                            emit_event(
+                                                "error",
+                                                serde_json::json!({ "message": msg }),
+                                            );
+                                        }
                                     },
                                     None => status("切换失败: 无 window 对象"),
                                 }
                             });
                         }
                     }
+                    // v1 `destroy`：舞台复位（iframe 由宿主销毁，这里只做状态收尾）。
+                    "destroy" => {
+                        st.bridge.scale = 1.0;
+                        st.bridge.offset_x = 0.0;
+                        st.bridge.offset_y = 0.0;
+                        st.bridge.volume = 0.0;
+                        st.bridge.volume_display = 0.0;
+                        st.bridge.action = None;
+                        applied = true;
+                    }
                     _ => {} // 未知类型忽略
                 }
             } // borrow 作用域结束
+            // v1 `sync.payload.model`：异步换模型（与 `load-model` 同路径）。
+            if let Some(url) = sync_model_url {
+                let reload_state = handler_state.clone();
+                let window = web_sys::window();
+                wasm_bindgen_futures::spawn_local(async move {
+                    status("切换模型中…");
+                    match window {
+                        Some(win) => match load_model_from_url(&win, &url).await {
+                            Ok(loaded) => {
+                                match reload_state.borrow_mut().core.load_model(&loaded) {
+                                    Ok(()) => {
+                                        status("模型已切换");
+                                        emit_event("loaded", serde_json::json!({ "url": url }));
+                                    }
+                                    Err(e) => {
+                                        let msg = format!("渲染核心换模型失败：{e}");
+                                        status(&msg);
+                                        emit_event("error", serde_json::json!({ "message": msg }));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let msg = format!("切换失败: {e}");
+                                status(&msg);
+                                emit_event("error", serde_json::json!({ "message": msg }));
+                            }
+                        },
+                        None => status("切换失败: 无 window 对象"),
+                    }
+                });
+            }
             // **R2**：应用成功 → 回 `stage-ack` 给父页（父页收 ACK 前不得提示"已生效"）。
             if applied {
                 {
@@ -588,8 +709,28 @@ mod web {
     fn start_render_loop(state: SharedState) {
         let slot: FrameSlot = Rc::new(RefCell::new(None));
         let slot_for_closure = Rc::clone(&slot);
+        // v1：每秒上报一次 fps（复用 rAF 时间戳，不额外起定时器）。
+        let fps_window_start = Rc::new(RefCell::new(0.0_f64));
+        let fps_frames = Rc::new(RefCell::new(0_u32));
+        let start_for_closure = Rc::clone(&fps_window_start);
+        let frames_for_closure = Rc::clone(&fps_frames);
         *slot.borrow_mut() = Some(Closure::new(move |timestamp_ms: f64| {
             surface::tick(&slot_for_closure, &state, timestamp_ms);
+            let mut start = start_for_closure.borrow_mut();
+            let mut frames = frames_for_closure.borrow_mut();
+            if *start == 0.0 {
+                *start = timestamp_ms;
+            }
+            *frames += 1;
+            let elapsed = timestamp_ms - *start;
+            if elapsed >= 1000.0 {
+                emit_event(
+                    "fps",
+                    serde_json::json!({ "value": (*frames as f64) * 1000.0 / elapsed }),
+                );
+                *frames = 0;
+                *start = timestamp_ms;
+            }
         }));
         schedule_frame(&slot);
     }

@@ -6,8 +6,10 @@
 //! - 渲染类断言依赖 headless GPU，无后端时同样明确 skip；
 //! - 无绝对 golden 像素 hash（不同 GPU 后端逐字节不可复现），
 //!   改用「同进程双渲染 hash 必须一致」+ coverage/bbox 容差窗
-//!   （窗口值由 2026-08-26 bakeoff 1024² 产物换算，见 CHANGELOG 当日条目：
-//!   alpha coverage 8.23%，bbox x[350..676] y[294..822]）。
+//!   （窗口值来自 bakeoff 口径的 1024² 产物；**2026-09-10 等比映射修复后重测**：
+//!   alpha coverage ≈ 12.4%，bbox x[348..672] y[164..956]。
+//!   旧值 coverage 8.23% / y[294..822] 记录的是「画布 4000×6000 被逐轴拉成正方形」
+//!   导致的纵向压缩 1.5× 错误形态。）
 
 use std::path::{Path, PathBuf};
 
@@ -19,8 +21,11 @@ use l2d::renderer::{FIXED_DT_60HZ, OffscreenRenderer};
 /// 仓库内 Bai 皮套清单路径（相对本 crate 的 CARGO_MANIFEST_DIR）。
 const BAI_MODEL3: &str = "../../assets/models/bai/runtime/bai.model3.json";
 
-/// bakeoff 1024² 产物 bbox（含端点），按比例缩放到当前渲染尺寸。
-const BAKEOFF_BBOX_1024: (u32, u32, u32, u32) = (350, 294, 676, 822);
+/// bakeoff 口径 1024² 产物 bbox（含端点），按比例缩放到当前渲染尺寸。
+///
+/// 2026-09-10 重测：`layout_transform` 改为等比后，纵向由 y[294..822] 拉伸到
+/// y[164..956]（×1.5），横向 x[350..676] → x[348..672] 基本不变。
+const BAKEOFF_BBOX_1024: (u32, u32, u32, u32) = (348, 164, 672, 956);
 
 /// 解析 Bai 清单绝对路径；不存在则返回 `None`（调用方明确 skip）。
 fn bai_model3_path() -> Option<PathBuf> {
@@ -126,7 +131,7 @@ fn bai_renders_256px_with_deterministic_hash_and_toleranced_geometry() {
         "同一状态下连续两帧必须确定一致"
     );
 
-    // coverage 容差窗：bakeoff 1024² 为 8.23%；256² 允许 [1%, 40%]
+    // coverage 容差窗：等比修复后（2026-09-10）1024² 实测约 12.4%；256² 允许 [1%, 40%]
     // （下限防全透明回归，上限防意外放大铺满）。
     let coverage = first.alpha_coverage();
     assert!(
