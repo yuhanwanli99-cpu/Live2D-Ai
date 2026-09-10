@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
+import 'action_source.dart';
+
 /// `/ws/state` 事件基类。
 ///
 /// 服务端每连接包装 `{\"type\":...,\"seq\":N,\"ts\":\"...\",\"data\":{...}}`
@@ -64,19 +66,38 @@ class TextDeltaEvent extends WsEvent {
   final bool? completed;
 }
 
-/// `action_state`：动作状态（本轮不做表演，仅解析归档）。
+/// `action_state`：动作状态。
+///
+/// 协议真相：`data.action` 是**对象** `{action, strength, source}`，
+/// `data.kind == 'cease'` 时则没有 `action` 字段。详见 [ActionDetail] 的头注
+/// （那里记录了「曾经把它当字符串解析 ⇒ 来源全丢」这个已修缺陷）。
 class ActionStateEvent extends WsEvent {
   const ActionStateEvent({
     required this.epoch,
     required this.kind,
     this.action,
+    this.strength,
+    this.source = ActionSource.unknown,
     super.seq,
     super.ts,
   });
 
   final int epoch;
+
+  /// `perform`（正在表演）或 `cease`（停止表演）。
   final String kind;
+
+  /// 动作名；`cease` 时为 null。
   final String? action;
+
+  /// 强度档位（`strength_levels` = `[1,2,3]`）；缺失为 null。
+  final int? strength;
+
+  /// 谁触发的（用户 / LLM / 规则兜底）。
+  final ActionSource source;
+
+  /// 本轮是否真的有动作可展示。
+  bool get hasAction => action != null;
 }
 
 /// `audio`：base64 s16le 单声道 PCM 片（默认 20ms）。
@@ -301,10 +322,14 @@ class WsClient {
           ts: ts,
         );
       case 'action_state':
+        // `data.action` 是**对象**，不是字符串——见 [ActionDetail] 的头注。
+        final detail = ActionDetail.fromData(data['action']);
         event = ActionStateEvent(
           epoch: _int(data['epoch']),
           kind: _str(data['kind']) ?? 'unknown',
-          action: _str(data['action']),
+          action: detail.action,
+          strength: detail.strength,
+          source: detail.source,
           seq: seq,
           ts: ts,
         );
