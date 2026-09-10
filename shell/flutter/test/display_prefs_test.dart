@@ -12,6 +12,23 @@ void main() {
       expect(prefs.lipSync, isTrue);
       expect(prefs.idleEnabled, isTrue);
     });
+
+    test('默认静音：不出声但仍驱动口型（2026-09-10 用户裁决）', () {
+      const prefs = DisplayPrefs();
+      expect(prefs.muted, isTrue, reason: '默认必须静音，避免打扰用户做别的事');
+      // 静音与口型是**两个独立开关**——静音不得连带关掉口型。
+      expect(prefs.lipSync, isTrue, reason: '静音不应关闭口型');
+    });
+
+    test('静音与口型可独立切换（四象限都可表达）', () {
+      for (final muted in [true, false]) {
+        for (final lip in [true, false]) {
+          final prefs = DisplayPrefs(muted: muted, lipSync: lip);
+          expect(prefs.muted, muted);
+          expect(prefs.lipSync, lip);
+        }
+      }
+    });
   });
 
   group('反序列化永不抛异常', () {

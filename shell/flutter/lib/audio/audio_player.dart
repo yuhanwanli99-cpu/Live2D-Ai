@@ -15,10 +15,18 @@ class PcmFrame {
     required this.sampleRate,
     this.start = false,
     this.end = false,
+    this.volume,
   });
 
   final Uint8List pcm;
   final int sampleRate;
+
+  /// 服务端按**原始**样本算出的 RMS ∈ [0,1]（`data.volume`）。
+  ///
+  /// **服务端静音时这是口型的唯一来源**：PCM 被置零（谁都发不出声），
+  /// 但 volume 仍是真实值。非 null 时优先用它，而不是从（可能已置零的）
+  /// PCM 里算 RMS——否则静音会连带把口型关掉。
+  final double? volume;
 
   /// 服务端 `audio.start`：**仅表示「本轮语音的首片」**，不是时间轴重置指令。
   ///
@@ -134,14 +142,42 @@ class AudioPlayer {
   static const Duration _levelTick = Duration(milliseconds: 20);
 
   web.AudioContext? _context;
+  /// 输出增益节点：**静音时把增益设为 0**，而不是断开连接。
+  ///
+  /// 为什么用增益而不是「不连接 destination」：音频图必须保持「活着」，
+  /// 时间轴（`context.currentTime` 与排片时刻）才与真实播放一致，
+  /// 口型电平的到期释放（[LevelTimeline]）才不会漂移。
+  /// 静音只影响「听不听得到」，不影响「什么时候该动嘴」。
+  web.GainNode? _gain;
   Timer? _ticker;
   double _nextStart = 0;
   double _level = 0;
   bool _disposed = false;
+  bool _muted = true;
 
   Stream<double> get levels => _levels.stream;
   double get level => _level;
   bool get hasAudioContext => _context != null;
+
+  /// 是否静音（**只关声音，不关口型**）。
+  ///
+  /// 默认 `true`：用户明确要求「不要把声音路由到我的播放设备，影响我干别的事」
+  /// （2026-09-10）。需要出声时由 UI 开关打开。
+  bool get muted => _muted;
+
+  /// 切换静音。可在播放中随时切换（增益实时生效，不打断已排片的音频）。
+  set muted(bool value) {
+    if (_muted == value) return;
+    _muted = value;
+    final gain = _gain;
+    if (gain != null) {
+      try {
+        gain.gain.value = value ? 0.0 : 1.0;
+      } catch (_) {
+        // 上下文已关闭：下次 _ensureContext 会重建。
+      }
+    }
+  }
 
   /// 首次用户手势调用：创建并 resume AudioContext。
   void unlock() {
@@ -160,6 +196,12 @@ class AudioPlayer {
     if (existing != null) return existing;
     try {
       final context = web.AudioContext();
+      // 建立「source → gain → destination」链路；静音只改 gain。
+      // 这样即使静音，音频图仍然推进，排片时刻与口型时间线保持真实。
+      final gain = context.createGain();
+      gain.gain.value = _muted ? 0.0 : 1.0;
+      gain.connect(context.destination);
+      _gain = gain;
       _context = context;
       return context;
     } catch (_) {
@@ -170,8 +212,14 @@ class AudioPlayer {
   /// 播放一帧并推进口型包络。
   void feed(PcmFrame frame) {
     if (_disposed) return;
+    // 口型电平来源优先级：
+    // 1) 服务端 `volume`（**静音时唯一可用**：PCM 已被置零，本地 RMS 会恒为 0）；
+    // 2) 本地包络（旧服务端 / 无 volume 字段时回退）。
     // 包络在**到达时**计算：帧序即音频序，且 RMS 是流式状态。
-    final level = _envelope.push(frame.pcm, frame.sampleRate);
+    final serverVolume = frame.volume;
+    final level = serverVolume != null
+        ? serverVolume.clamp(0.0, 1.0)
+        : _envelope.push(frame.pcm, frame.sampleRate);
     final context = _ensureContext();
     if (context == null) {
       // 无 WebAudio：没有播放时刻可对齐，口型照常驱动。
@@ -203,7 +251,9 @@ class AudioPlayer {
     buffer.copyToChannel(samples.toJS, 0);
     final node = context.createBufferSource();
     node.buffer = buffer;
-    node.connect(context.destination);
+    // 接到 gain（gain → destination），而不是直接接 destination——
+    // 静音时增益为 0，音频图仍推进（见 [_ensureContext]）。
+    node.connect(_gain ?? context.destination);
     node.start(plan.when);
     _nextStart = plan.nextStartAfter;
     _scheduled.add(_ScheduledSource(node, plan.nextStartAfter));

@@ -146,8 +146,9 @@ class ChatController extends ChangeNotifier {
           :final epoch,
           :final start,
           :final end,
+          :final volume,
         ):
-        _onAudio(pcm, sampleRate, epoch, start, end);
+        _onAudio(pcm, sampleRate, epoch, start, end, volume);
       case WsErrorEvent(:final message):
         _error = message;
         notifyListeners();
@@ -172,11 +173,18 @@ class ChatController extends ChangeNotifier {
     int epoch,
     bool start,
     bool end,
+    double? volume,
   ) {
     if (_audioEpoch != null && _audioEpoch != epoch) audio.interrupt();
     _audioEpoch = epoch;
     audio.feed(
-      PcmFrame(pcm: pcm, sampleRate: sampleRate, start: start, end: end),
+      PcmFrame(
+        pcm: pcm,
+        sampleRate: sampleRate,
+        start: start,
+        end: end,
+        volume: volume,
+      ),
     );
   }
 

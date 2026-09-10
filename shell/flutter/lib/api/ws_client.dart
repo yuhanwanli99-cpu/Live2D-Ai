@@ -87,6 +87,8 @@ class AudioEvent extends WsEvent {
     required this.sampleRate,
     this.start = false,
     this.end = false,
+    this.volume,
+    this.muted = false,
     super.seq,
     super.ts,
   });
@@ -96,6 +98,16 @@ class AudioEvent extends WsEvent {
   final int sampleRate;
   final bool start;
   final bool end;
+
+  /// 服务端按本片**原始**样本算出的 RMS ∈ [0,1]（`data.volume`）。
+  ///
+  /// **静音时这是口型的唯一来源**：服务端静音会把 PCM 置零（谁都发不出声），
+  /// 但 `volume` 仍是真实值——所以「不出声但嘴照动」。因此客户端驱动口型
+  /// **优先用本字段**，只有它缺失（旧服务端）时才回退到本地 RMS。
+  final double? volume;
+
+  /// 服务端是否处于静音输出（`data.muted`，观测/诊断用）。
+  final bool muted;
 }
 
 /// 服务端 `error` 帧。
@@ -306,6 +318,8 @@ class WsClient {
               sampleRate: _intOrNull(data['sample_rate']) ?? 24000,
               start: data['start'] == true,
               end: data['end'] == true,
+              volume: _doubleOrNull(data['volume']),
+              muted: data['muted'] == true,
               seq: seq,
               ts: ts,
             );
@@ -356,5 +370,19 @@ int? _intOrNull(Object? value) {
 }
 
 int _int(Object? value) => _intOrNull(value) ?? 0;
+
+/// 宽容地解析 `double`（JSON 整数/浮点/字符串都可）。
+///
+/// 非有限值一律返回 `null`——调用方据此回退到本地计算，而不是拿 NaN 去驱动口型。
+double? _doubleOrNull(Object? value) {
+  final num? raw = switch (value) {
+    num n => n,
+    String s => num.tryParse(s),
+    _ => null,
+  };
+  if (raw == null) return null;
+  final d = raw.toDouble();
+  return d.isFinite ? d : null;
+}
 
 String? _str(Object? value) => value is String ? value : null;

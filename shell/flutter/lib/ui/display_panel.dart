@@ -87,6 +87,15 @@ class DisplayPanel extends StatelessWidget {
           SwitchListTile(
             dense: true,
             contentPadding: const EdgeInsets.only(left: 8),
+            secondary: Icon(prefs.muted ? Icons.volume_off : Icons.volume_up),
+            title: const Text('静音'),
+            subtitle: const Text('关掉声音但保留口型——不打扰你做别的事'),
+            value: prefs.muted,
+            onChanged: (bool v) => onChanged(prefs.copyWith(muted: v)),
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.only(left: 8),
             secondary: const Icon(Icons.graphic_eq),
             title: const Text('口型同步'),
             subtitle: const Text('关闭后模型不再随语音开合嘴部'),

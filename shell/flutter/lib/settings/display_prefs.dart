@@ -12,6 +12,7 @@ class DisplayPrefs {
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
     this.idleEnabled = true,
+    this.muted = true,
   });
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
@@ -30,6 +31,12 @@ class DisplayPrefs {
   /// 空闲生命体征（呼吸/眨眼/微表情）。
   final bool idleEnabled;
 
+  /// 是否静音（**只关声音，不关口型**）。
+  ///
+  /// 默认 `true`（2026-09-10 用户裁决）：声音会打扰用户做别的事，
+  /// 而口型/动作属于「看」的部分，仍应保留。
+  final bool muted;
+
   /// 缩放默认值与区间（与渲染面 clamp 一致）。
   static const double defaultScale = 1.0;
   static const double minScale = 0.5;
@@ -47,12 +54,14 @@ class DisplayPrefs {
     double? mouthSensitivity,
     bool? lipSync,
     bool? idleEnabled,
+    bool? muted,
   }) {
     return DisplayPrefs(
       scale: scale ?? this.scale,
       mouthSensitivity: mouthSensitivity ?? this.mouthSensitivity,
       lipSync: lipSync ?? this.lipSync,
       idleEnabled: idleEnabled ?? this.idleEnabled,
+      muted: muted ?? this.muted,
     );
   }
 
@@ -62,6 +71,7 @@ class DisplayPrefs {
     'mouthSensitivity': mouthSensitivity,
     'lipSync': lipSync,
     'idleEnabled': idleEnabled,
+    'muted': muted,
   };
 
   /// 反序列化：**永不抛异常**。
@@ -77,6 +87,7 @@ class DisplayPrefs {
       ),
       lipSync: _readBool(json['lipSync'], true),
       idleEnabled: _readBool(json['idleEnabled'], true),
+      muted: _readBool(json['muted'], true),
     );
   }
 
@@ -109,13 +120,15 @@ class DisplayPrefs {
       other.scale == scale &&
       other.mouthSensitivity == mouthSensitivity &&
       other.lipSync == lipSync &&
-      other.idleEnabled == idleEnabled;
+      other.idleEnabled == idleEnabled &&
+      other.muted == muted;
 
   @override
-  int get hashCode => Object.hash(scale, mouthSensitivity, lipSync, idleEnabled);
+  int get hashCode =>
+      Object.hash(scale, mouthSensitivity, lipSync, idleEnabled, muted);
 
   @override
   String toString() =>
       'DisplayPrefs(scale: $scale, mouth: $mouthSensitivity, '
-      'lipSync: $lipSync, idle: $idleEnabled)';
+      'lipSync: $lipSync, idle: $idleEnabled, muted: $muted)';
 }
