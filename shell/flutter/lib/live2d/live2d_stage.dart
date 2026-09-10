@@ -16,6 +16,7 @@ class Live2DStage extends StatefulWidget {
     this.dark = true,
     this.tier,
     this.onError,
+    this.onReady,
   });
 
   /// 可选：渲染面模型路径（缺省由渲染端决定）。
@@ -27,6 +28,13 @@ class Live2DStage extends StatefulWidget {
   /// 错误回调（宿主可用于日志或全局提示）。
   final ValueChanged<String>? onError;
 
+  /// 渲染面就绪回调（**每次**进入 ready 都触发，含错误后 [Live2DStageState.retry]
+  /// 重建 iframe）。
+  ///
+  /// 宿主用它把显示偏好（缩放/口型灵敏度）在就绪后补发一次——首次挂载时桥还在
+  /// loading，过早 `sync` 只能入队；重建 iframe 后队列已随旧桥销毁。
+  final VoidCallback? onReady;
+
   @override
   State<Live2DStage> createState() => Live2DStageState();
 }
@@ -36,6 +44,10 @@ class Live2DStageState extends State<Live2DStage> {
   Live2DBridge? _bridge;
   String? _hostError;
   int _generation = 0;
+  bool _readyNotified = false;
+
+  /// 当前消息桥（未挂载时为 `null`）。
+  Live2DBridge? get bridge => _bridge;
 
   Live2DBridgePhase get phase =>
       _bridge?.phase ?? Live2DBridgePhase.loading;
@@ -57,6 +69,14 @@ class Live2DStageState extends State<Live2DStage> {
     final error = _bridge?.errorMessage;
     if (error != null && _bridge?.phase == Live2DBridgePhase.error) {
       widget.onError?.call(error);
+    }
+    // 进入 ready 时通知一次（离开 ready 后允许再次通知，覆盖 retry/重建）。
+    final ready = _bridge?.isReady ?? false;
+    if (ready && !_readyNotified) {
+      _readyNotified = true;
+      widget.onReady?.call();
+    } else if (!ready) {
+      _readyNotified = false;
     }
     setState(() {});
   }
@@ -100,6 +120,9 @@ class Live2DStageState extends State<Live2DStage> {
     bool? dark,
     int? tier,
     bool? paused,
+    bool? lipSync,
+    bool? idleEnabled,
+    double? mouthSensitivity,
   }) {
     _bridge?.sendSync(
       model: model,
@@ -107,6 +130,9 @@ class Live2DStageState extends State<Live2DStage> {
       dark: dark,
       tier: tier,
       paused: paused,
+      lipSync: lipSync,
+      idleEnabled: idleEnabled,
+      mouthSensitivity: mouthSensitivity,
     );
   }
 
@@ -138,7 +164,7 @@ class Live2DStageState extends State<Live2DStage> {
         if (host.live2dHostSupported &&
             error == null &&
             phase == Live2DBridgePhase.loading)
-          const _StageBadge(label: '渲染面加载中…', busy: true),
+          _StageBadge(label: _loadingLabel(bridge), busy: true),
         if (error != null) _StageErrorOverlay(message: error, onRetry: retry),
         if (bridge != null && bridge.isReady && bridge.fps != null)
           Positioned(
@@ -148,6 +174,17 @@ class Live2DStageState extends State<Live2DStage> {
           ),
       ],
     );
+  }
+
+  /// 加载中文案：带上渲染面上报的资源进度（协议 v1 `progress`）。
+  ///
+  /// 进度是「已 fetch 资源数 / 总数」的比值；拿不到就退回不带百分比的文案——
+  /// 宁可不显示数字，也不显示假的数字。
+  static String _loadingLabel(Live2DBridge? bridge) {
+    final progress = bridge?.progress;
+    if (progress == null || !progress.isFinite) return '渲染面加载中…';
+    final percent = (progress.clamp(0.0, 1.0) * 100).round();
+    return '渲染面加载中 $percent%';
   }
 }
 

@@ -82,12 +82,19 @@ class Live2DBridge extends ChangeNotifier {
   }
 
   /// 协议 v1 `sync`（字段均可选）。
+  ///
+  /// `mouthSensitivity`：口型灵敏度，乘在渲染面「RMS → dB 映射」的结果上。
+  /// 默认 1.0 是实测标定值（真实语音 p90 约开到 0.58）；渲染面会 clamp 到
+  /// `[0, 4]`。字段**向后兼容**——不传即用渲染面默认值。
   Future<void> sendSync({
     String? model,
     double? scale,
     bool? dark,
     int? tier,
     bool? paused,
+    bool? lipSync,
+    bool? idleEnabled,
+    double? mouthSensitivity,
   }) {
     final payload = <String, Object?>{};
     if (model != null) payload['model'] = model;
@@ -95,6 +102,11 @@ class Live2DBridge extends ChangeNotifier {
     if (dark != null) payload['dark'] = dark;
     if (tier != null) payload['tier'] = tier;
     if (paused != null) payload['paused'] = paused;
+    if (lipSync != null) payload['lipSync'] = lipSync;
+    if (idleEnabled != null) payload['idleEnabled'] = idleEnabled;
+    if (mouthSensitivity != null && mouthSensitivity.isFinite) {
+      payload['mouthSensitivity'] = mouthSensitivity;
+    }
     return _enqueueOrSend('sync', payload);
   }
 

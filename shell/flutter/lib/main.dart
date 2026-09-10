@@ -1,12 +1,44 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:web/web.dart' as web;
 
 import 'api/api_client.dart';
 import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
 import 'live2d/live2d_stage.dart';
+import 'settings/display_prefs.dart';
+import 'ui/display_panel.dart';
+
+/// 本地显示偏好的存储键（localStorage）。
+const String kDisplayPrefsKey = 'live2d-ai.display-prefs';
+
+/// 读取本地显示偏好：**任何异常都回落默认**（坏存储不该让舞台渲染不出来）。
+DisplayPrefs loadDisplayPrefs() {
+  try {
+    final raw = web.window.localStorage.getItem(kDisplayPrefsKey);
+    if (raw == null || raw.isEmpty) return const DisplayPrefs();
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return const DisplayPrefs();
+    return DisplayPrefs.fromJson(decoded.cast<String, Object?>());
+  } catch (_) {
+    return const DisplayPrefs();
+  }
+}
+
+/// 写入本地显示偏好（失败静默：无痕模式等场景下 localStorage 可能抛错）。
+void saveDisplayPrefs(DisplayPrefs prefs) {
+  try {
+    web.window.localStorage.setItem(
+      kDisplayPrefsKey,
+      jsonEncode(prefs.toJson()),
+    );
+  } catch (_) {
+    // 忽略：偏好丢失不影响本次会话。
+  }
+}
 
 void main() {
   runApp(const Live2DShellApp());
@@ -54,9 +86,13 @@ class _AppShellState extends State<AppShell> {
   late final ChatController _chat;
   StreamSubscription<double>? _levelSubscription;
 
+  /// 本地显示偏好（模型缩放 / 口型灵敏度 / 开关）；持久化在 localStorage。
+  DisplayPrefs _prefs = const DisplayPrefs();
+
   @override
   void initState() {
     super.initState();
+    _prefs = loadDisplayPrefs();
     _api = ApiClient();
     _ws = WsClient();
     _audio = AudioPlayer();
@@ -66,6 +102,24 @@ class _AppShellState extends State<AppShell> {
       _stageKey.currentState?.setMouth(level);
     });
     _ws.connect();
+  }
+
+  /// 把 [_prefs] 下发给渲染面（协议 v1 `sync`）。
+  void _applyPrefs() {
+    _stageKey.currentState?.sync(
+      scale: _prefs.scale,
+      lipSync: _prefs.lipSync,
+      idleEnabled: _prefs.idleEnabled,
+      mouthSensitivity: _prefs.mouthSensitivity,
+    );
+  }
+
+  /// 偏好变更：更新内存 + 落盘 + 立即下发。
+  void _updatePrefs(DisplayPrefs next) {
+    if (next == _prefs) return;
+    setState(() => _prefs = next);
+    saveDisplayPrefs(next);
+    _applyPrefs();
   }
 
   @override
@@ -86,6 +140,30 @@ class _AppShellState extends State<AppShell> {
     await _chat.send(text);
   }
 
+  /// 打开「外观与口型」面板。宽屏用侧栏，窄屏用底部弹层——同一个 [DisplayPanel]。
+  Future<void> _openDisplayPanel() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: 520),
+      builder: (BuildContext sheetContext) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setSheetState) {
+            return DisplayPanel(
+              prefs: _prefs,
+              onChanged: (DisplayPrefs next) {
+                // 同时刷新弹层内部与宿主（弹层不随宿主 setState 重建）。
+                setSheetState(() {});
+                _updatePrefs(next);
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Listener(
@@ -94,8 +172,13 @@ class _AppShellState extends State<AppShell> {
       onPointerDown: (_) => _audio.unlock(),
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Live2D Ai · Flutter 外壳'),
+          title: const Text('Live2D Ai'),
           actions: <Widget>[
+            IconButton(
+              tooltip: '外观与口型',
+              onPressed: _openDisplayPanel,
+              icon: const Icon(Icons.tune),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 16),
               // 必须包在 ListenableBuilder 里：AppBar.actions 不在 body 的
@@ -120,7 +203,9 @@ class _AppShellState extends State<AppShell> {
                 final stage = Live2DStage(
                   key: _stageKey,
                   dark: true,
-                  scale: 1.0,
+                  // 就绪后补发显示偏好：首次挂载时桥还在 loading，
+                  // 以及在 retry 重建 iframe 之后（旧队列已随旧桥销毁）。
+                  onReady: _applyPrefs,
                 );
                 final panel = _ChatPanel(
                   messages: _chat.messages,
