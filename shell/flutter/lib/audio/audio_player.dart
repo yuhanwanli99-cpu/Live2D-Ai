@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
+import 'gain.dart';
 import 'schedule.dart';
 
 /// 后端 WS audio 帧解码后的 PCM（s16le 单声道）。
@@ -141,19 +142,23 @@ class AudioPlayer {
   /// 口型释放节拍：20 ms（与音频分片同尺度；消费端 Live2D 桥另有 <=30 Hz 节流）。
   static const Duration _levelTick = Duration(milliseconds: 20);
 
+  /// 增益逼近的时间常数（秒）。见 [_applyGain]。
+  static const double _gainRampSec = 0.02;
+
   web.AudioContext? _context;
-  /// 输出增益节点：**静音时把增益设为 0**，而不是断开连接。
+  /// 输出增益节点：**静音 / 音量都作用在它身上**，而不是断开连接。
   ///
   /// 为什么用增益而不是「不连接 destination」：音频图必须保持「活着」，
   /// 时间轴（`context.currentTime` 与排片时刻）才与真实播放一致，
   /// 口型电平的到期释放（[LevelTimeline]）才不会漂移。
-  /// 静音只影响「听不听得到」，不影响「什么时候该动嘴」。
+  /// 静音与音量只影响「听不听得到」，不影响「什么时候该动嘴」。
   web.GainNode? _gain;
   Timer? _ticker;
   double _nextStart = 0;
   double _level = 0;
   bool _disposed = false;
-  bool _muted = true;
+  bool _muted = false;
+  double _volume = 1.0;
 
   Stream<double> get levels => _levels.stream;
   double get level => _level;
@@ -161,21 +166,46 @@ class AudioPlayer {
 
   /// 是否静音（**只关声音，不关口型**）。
   ///
-  /// 默认 `true`：用户明确要求「不要把声音路由到我的播放设备，影响我干别的事」
-  /// （2026-09-10）。需要出声时由 UI 开关打开。
+  /// 默认 `false`（2026-09-10 用户裁决改为**默认出声**）：产品默认就该能听见。
+  /// 需要安静时由用户按静音，或跑测试/无人值守时用服务端
+  /// `LIVE2D_AI_MUTE_AUDIO=1` 在源头静音。
   bool get muted => _muted;
 
   /// 切换静音。可在播放中随时切换（增益实时生效，不打断已排片的音频）。
   set muted(bool value) {
     if (_muted == value) return;
     _muted = value;
+    _applyGain();
+  }
+
+  /// 主音量（0..1）。**与 [muted] 正交**：静音不重置它，取消静音后恢复原音量。
+  double get volume => _volume;
+
+  /// 设置主音量；非有限值按满音量处理，其余夹到 `[0,1]`。
+  set volume(double value) {
+    final next = value.isFinite ? value.clamp(0.0, 1.0) : 1.0;
+    if (_volume == next) return;
+    _volume = next;
+    _applyGain();
+  }
+
+  /// 把 [muted] / [volume] 合成为实际增益并下发给增益节点。
+  ///
+  /// 用 `setTargetAtTime`（指数逼近）而不是直接赋值 `gain.value`：拖动音量滑杆会
+  /// 连续改值，逐次直接赋值每一档都是一个台阶，听感上是 zipper noise（咔咔声）。
+  /// 20 ms 的时间常数在人耳上等同于即时，音量的换算见 [playbackGain]。
+  void _applyGain() {
     final gain = _gain;
-    if (gain != null) {
-      try {
-        gain.gain.value = value ? 0.0 : 1.0;
-      } catch (_) {
-        // 上下文已关闭：下次 _ensureContext 会重建。
-      }
+    final context = _context;
+    if (gain == null || context == null) return;
+    try {
+      gain.gain.setTargetAtTime(
+        playbackGain(volume: _volume, muted: _muted),
+        context.currentTime,
+        _gainRampSec,
+      );
+    } catch (_) {
+      // 上下文已关闭：下次 _ensureContext 会重建。
     }
   }
 
@@ -199,7 +229,7 @@ class AudioPlayer {
       // 建立「source → gain → destination」链路；静音只改 gain。
       // 这样即使静音，音频图仍然推进，排片时刻与口型时间线保持真实。
       final gain = context.createGain();
-      gain.gain.value = _muted ? 0.0 : 1.0;
+      gain.gain.value = playbackGain(volume: _volume, muted: _muted);
       gain.connect(context.destination);
       _gain = gain;
       _context = context;

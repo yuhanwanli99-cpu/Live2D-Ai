@@ -1,4 +1,57 @@
-# v0.4.2 — 微信式短对话 + 先合成后上屏 + 服务端静音（2026-09-10）
+# v0.4.3 — 默认出声 + 主音量控制（2026-09-10）
+
+用户裁决：**默认把声音打开**；跑测试/静默运行时关掉；UI 里要能调音量。
+
+## 默认改为出声（**行为变更，推翻 v0.4.2 的默认**）
+
+- `Broadcaster` 默认由「静音」改为**出声**（`muted: false`）。
+  理由：v0.4.2 为解决「客户端静音不可信」把默认设成静音，但**产品默认不该是哑巴**
+  ——用户会以为 TTS 坏了。**不出声要显式要求，不该是出厂状态。**
+- v0.4.2 的**服务端强制静音能力原样保留**，只是不再是默认：跑测试 / 无人值守用
+  `LIVE2D_AI_MUTE_AUDIO=1`，服务端下发全零 PCM + 真实 `volume`，
+  **任何客户端都发不出声**（绕不过 Service Worker 旧前端这一点仍然成立）。
+- 环境变量优先级抽成纯函数 `ws::resolve_muted(force_unmute, force_mute)` 并加测试：
+  1. `LIVE2D_AI_UNMUTE_AUDIO=1` → **出声**（旧开关，优先级最高——免得按旧文档
+     启动的脚本因为默认值翻转而静默变成静音）；
+  2. `LIVE2D_AI_MUTE_AUDIO=1` → 静音；
+  3. 都不设 → 出声。
+
+## 主音量
+
+- `DisplayPrefs.volume`（0..1，默认 `1.0`）与 `muted` **正交**：静音不重置音量，
+  取消静音后恢复用户原值。新增 `clampVolume`。
+- `AudioPlayer.volume` 落到已有的 `GainNode`；静音与音量**都只改增益、不断开连接**
+  （音频图必须保持活着，口型到期释放才不会漂移——v0.4.2 的不变量 3）。
+- 增益换算抽成**纯模块** `shell/flutter/lib/audio/gain.dart`（VM 可单测）：
+  - `gainForVolume` 是**感知压缩**（`v²`；半程 ≈ −12 dB），**不是恒等映射**——
+    WebAudio 的 `gain` 是线性振幅（[MDN GainNode](https://developer.mozilla.org/en-US/docs/Web/API/GainNode)），
+    而响度感知接近对数；线性映射的手感是「前半段几乎没变化、后半段突然变响」。
+  - `playbackGain` 合成静音与音量（静音恒为 0）。
+  - 是**手感取舍而非规范要求**，换曲线只改这一个函数。
+- 改增益用 `setTargetAtTime`（20 ms 指数逼近）而不是直接赋值：
+  拖动滑杆时逐档直接赋值会产生 zipper noise（咔咔声）。
+- UI：「外观与口型」面板新增**主音量**滑杆（显示百分比）；静音时提示
+  「取消静音后按此音量播放」，静音与口型仍是两个独立开关。
+
+## 测试
+
+- 新增 `shell/flutter/test/audio_gain_test.dart`（**15 个**）：端点、感知压缩
+  （内部点严格小于滑杆位置——谁换成恒等映射立刻变红）、半程 −12 dB、单调性、
+  越界与非有限输入恒在 `[0,1]` 且有限（防 NaN 灌进 `gain`）、`playbackGain` 四象限。
+- `display_prefs_test.dart` 补音量：与静音正交、区间自洽、非有限回落、
+  **旧版本存档兼容**（缺 `volume` 必须回落满音量，否则升级后老用户突然变哑巴）。
+- `ws.rs`：`broadcaster_is_unmuted_by_default`、`resolve_muted_defaults_to_audible`。
+- 前端测试 23 → **38**；Rust 测试 806 → **807**。
+
+## 门禁
+
+`cargo fmt` 干净 / `cargo clippy -D warnings` 干净 /
+`cargo test --workspace --all-targets` **807 passed / 0 failed** /
+`cargo test --doc` 通过 / `rust-ratio` **95.5349% PASS** /
+`flutter analyze` 无问题 / `flutter test` **38 passed** /
+`flutter build web --release` 成功。
+
+
 
 用户裁决：**AI 每次回复 1–5 句话、像微信聊天；TTS 完整合成后展示文字；
 关掉声音但保留口型（声音打扰用户做别的事）。**

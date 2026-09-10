@@ -13,11 +13,30 @@ void main() {
       expect(prefs.idleEnabled, isTrue);
     });
 
-    test('默认静音：不出声但仍驱动口型（2026-09-10 用户裁决）', () {
+    test('默认出声（2026-09-10 用户裁决：默认打开声音）', () {
       const prefs = DisplayPrefs();
-      expect(prefs.muted, isTrue, reason: '默认必须静音，避免打扰用户做别的事');
+      expect(
+        prefs.muted,
+        isFalse,
+        reason: '产品默认就该能听见，否则用户会以为 TTS 坏了',
+      );
+      expect(
+        prefs.volume,
+        DisplayPrefs.defaultVolume,
+        reason: '默认满音量',
+      );
       // 静音与口型是**两个独立开关**——静音不得连带关掉口型。
       expect(prefs.lipSync, isTrue, reason: '静音不应关闭口型');
+    });
+
+    test('静音与音量正交：静音不重置音量', () {
+      const prefs = DisplayPrefs(volume: 0.35, muted: true);
+      final unmuted = prefs.copyWith(muted: false);
+      expect(
+        unmuted.volume,
+        0.35,
+        reason: '取消静音后应恢复用户原来的音量，而不是跳回 100%',
+      );
     });
 
     test('静音与口型可独立切换（四象限都可表达）', () {
@@ -43,6 +62,8 @@ void main() {
         'mouthSensitivity': null,
         'lipSync': 1,
         'idleEnabled': 'yes',
+        'muted': 1,
+        'volume': 'loud',
       });
       expect(prefs, const DisplayPrefs());
     });
@@ -51,25 +72,31 @@ void main() {
       final prefs = DisplayPrefs.fromJson(<String, Object?>{
         'scale': double.nan,
         'mouthSensitivity': double.infinity,
+        'volume': double.nan,
       });
       expect(prefs.scale, DisplayPrefs.defaultScale);
       expect(prefs.mouthSensitivity, DisplayPrefs.defaultMouthSensitivity);
+      expect(prefs.volume, DisplayPrefs.defaultVolume);
     });
 
     test('越界值夹到区间内', () {
       final low = DisplayPrefs.fromJson(<String, Object?>{
         'scale': -5.0,
         'mouthSensitivity': 0.0,
+        'volume': -3.0,
       });
       expect(low.scale, DisplayPrefs.minScale);
       expect(low.mouthSensitivity, DisplayPrefs.minMouthSensitivity);
+      expect(low.volume, DisplayPrefs.minVolume);
 
       final high = DisplayPrefs.fromJson(<String, Object?>{
         'scale': 99.0,
         'mouthSensitivity': 99.0,
+        'volume': 99.0,
       });
       expect(high.scale, DisplayPrefs.maxScale);
       expect(high.mouthSensitivity, DisplayPrefs.maxMouthSensitivity);
+      expect(high.volume, DisplayPrefs.maxVolume);
     });
 
     test('合法值原样保留', () {
@@ -78,11 +105,26 @@ void main() {
         'mouthSensitivity': 1.8,
         'lipSync': false,
         'idleEnabled': false,
+        'muted': true,
+        'volume': 0.42,
       });
       expect(prefs.scale, 1.4);
       expect(prefs.mouthSensitivity, 1.8);
       expect(prefs.lipSync, isFalse);
       expect(prefs.idleEnabled, isFalse);
+      expect(prefs.muted, isTrue);
+      expect(prefs.volume, 0.42);
+    });
+
+    test('旧版本存档（没有 volume/muted 字段）按新默认读', () {
+      // 关键回归：volume 是后加字段，缺省必须回落到**满音量**，
+      // 而不是 0——否则升级后老用户会突然变哑巴。
+      final prefs = DisplayPrefs.fromJson(<String, Object?>{
+        'scale': 1.2,
+        'mouthSensitivity': 1.5,
+      });
+      expect(prefs.volume, DisplayPrefs.defaultVolume);
+      expect(prefs.muted, isFalse, reason: '旧存档里 muted=true 是旧默认，不该继承');
     });
 
     test('整数形式的 JSON 数值也能读（localStorage 常见）', () {
@@ -102,6 +144,8 @@ void main() {
         mouthSensitivity: 1.7,
         lipSync: false,
         idleEnabled: true,
+        muted: true,
+        volume: 0.6,
       );
       expect(DisplayPrefs.fromJson(original.toJson()), original);
     });
@@ -113,6 +157,16 @@ void main() {
       expect(changed.scale, base.scale);
       expect(changed.lipSync, base.lipSync);
       expect(changed.idleEnabled, base.idleEnabled);
+      expect(changed.muted, base.muted);
+      expect(changed.volume, base.volume);
+    });
+
+    test('copyWith 能单独改音量与静音', () {
+      const base = DisplayPrefs();
+      expect(base.copyWith(volume: 0.25).volume, 0.25);
+      expect(base.copyWith(volume: 0.25).scale, base.scale);
+      expect(base.copyWith(muted: true).muted, isTrue);
+      expect(base.copyWith(muted: true).volume, base.volume);
     });
   });
 
@@ -129,6 +183,16 @@ void main() {
           DisplayPrefs.maxMouthSensitivity,
         ),
       );
+      expect(
+        DisplayPrefs.defaultVolume,
+        inInclusiveRange(DisplayPrefs.minVolume, DisplayPrefs.maxVolume),
+      );
+    });
+
+    test('音量区间是 [0,1]（与 WebAudio 线性增益同量纲）', () {
+      expect(DisplayPrefs.minVolume, 0.0);
+      expect(DisplayPrefs.maxVolume, 1.0);
+      expect(DisplayPrefs.defaultVolume, 1.0, reason: '默认满音量');
     });
 
     test('口型灵敏度上限不超过渲染面 clamp 上限 4.0', () {

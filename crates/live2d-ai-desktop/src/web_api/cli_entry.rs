@@ -363,23 +363,33 @@ pub(crate) fn build_web_supervisor(
 
     // emit 闭包：捕获 broadcaster 的 clone（与 ctx.broadcaster 同一实例）。
     let emit_bc = broadcaster;
-    // **输出静音（2026-09-10 用户裁决）**：默认静音——不出声但仍驱动口型。
+    // **输出静音（2026-09-10 用户裁决）**：**默认出声**。
     //
-    // 在**服务端**强制，而不是客户端：客户端静音绕不过 Service Worker 缓存的
-    // 旧前端、遗留的 JS 前端 `/`、以及任何第三方客户端。语义与实现见
-    // `ws::build_audio_frames` 的 `mute` 参数。
-    //
-    // 需要出声：`LIVE2D_AI_UNMUTE_AUDIO=1`。
-    let muted = std::env::var("LIVE2D_AI_UNMUTE_AUDIO").as_deref() != Ok("1");
-    emit_bc.set_muted(muted);
+    // 静音仍然在**服务端**强制（而不是客户端）：客户端静音绕不过 Service Worker
+    // 缓存的旧前端、遗留的 JS 前端 `/`、以及任何第三方客户端。所以它保留为一个
+    // 显式开关，而不是被删掉：
+    //   - 都不设（默认）：出声。
+    //   - `LIVE2D_AI_MUTE_AUDIO=1`：强制静音——**跑测试 / 无人值守时用**，
+    //     保证任何客户端都发不出声音，不打扰用户。
+    //   - `LIVE2D_AI_UNMUTE_AUDIO=1`：显式出声。保留的旧开关，**优先级最高**，
+    //     免得旧脚本/旧文档因为默认值翻转而反直觉地变成静音。
+    let force_unmute = std::env::var("LIVE2D_AI_UNMUTE_AUDIO").as_deref() == Ok("1");
+    let force_mute = std::env::var("LIVE2D_AI_MUTE_AUDIO").as_deref() == Ok("1");
+    if force_unmute && force_mute {
+        println!("web: 同时设置了 LIVE2D_AI_UNMUTE_AUDIO 与 LIVE2D_AI_MUTE_AUDIO，按出声处理");
+    }
+    emit_bc.set_muted(ws::resolve_muted(force_unmute, force_mute));
     // 回读实际生效值（而不是复用入参）：确认 set/get 这条链路是通的。
     if emit_bc.is_muted() {
         println!(
-            "web: 输出静音=ON（服务端下发零 PCM + 真实 volume）——不出声，口型照常；\
-             需要出声设 LIVE2D_AI_UNMUTE_AUDIO=1"
+            "web: 输出静音=ON（LIVE2D_AI_MUTE_AUDIO=1：服务端下发零 PCM + 真实 volume）\
+             ——不出声，口型照常"
         );
     } else {
-        println!("web: 输出静音=OFF（LIVE2D_AI_UNMUTE_AUDIO=1）——浏览器会出声");
+        println!(
+            "web: 输出静音=OFF——默认出声（浏览器播放）；\
+             跑测试/静默运行请设 LIVE2D_AI_MUTE_AUDIO=1"
+        );
     }
     let handle = Arc::new({
         // WS 音频广播（F6-T2）：browser 模式下它是出声的**唯一路径**，默认开；

@@ -96,8 +96,9 @@ class _AppShellState extends State<AppShell> {
     _api = ApiClient();
     _ws = WsClient();
     _audio = AudioPlayer();
-    // 静音是纯本机输出设置（不经渲染面）：默认静音，避免打扰用户。
+    // 静音与音量是纯本机输出设置（不经渲染面）：默认出声。
     _audio.muted = _prefs.muted;
+    _audio.volume = _prefs.volume;
     _chat = ChatController(api: _api, ws: _ws, audio: _audio);
     // 音频 RMS → 舞台口型。
     _levelSubscription = _audio.levels.listen((level) {
@@ -121,8 +122,9 @@ class _AppShellState extends State<AppShell> {
     if (next == _prefs) return;
     setState(() => _prefs = next);
     saveDisplayPrefs(next);
-    // 静音是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
+    // 静音与音量是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
     _audio.muted = next.muted;
+    _audio.volume = next.volume;
     _applyPrefs();
   }
 

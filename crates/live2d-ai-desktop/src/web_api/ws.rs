@@ -90,12 +90,14 @@ struct ConnectionHandle {
 pub struct Broadcaster {
     inner: Arc<Mutex<Vec<ConnectionHandle>>>,
     subscribed_count: Arc<AtomicUsize>,
-    /// **输出静音**（默认 `true`，2026-09-10 用户裁决）。
+    /// **输出静音**（默认 `false` = 出声，2026-09-10 用户裁决）。
     ///
     /// 为 true 时下发给所有客户端的 PCM 全部置零、`volume` 仍为真实值 ——
     /// 即「谁都发不出声音，但口型照常」。语义与理由见
     /// [`build_audio_frames`] 的 `mute` 参数。
     ///
+    /// **默认出声**，但保留这个服务端开关：跑测试 / 无人值守时用
+    /// `LIVE2D_AI_MUTE_AUDIO=1` 打开它，任何客户端都发不出声，不必依赖前端自觉。
     /// 放在服务端而不是客户端：客户端侧的静音绕不过 Service Worker 缓存的
     /// 旧前端、遗留 JS 前端与第三方客户端。
     muted: Arc<AtomicBool>,
@@ -112,15 +114,15 @@ pub struct Broadcaster {
 }
 
 impl Default for Broadcaster {
-    /// 默认**静音**（见 [`Self::muted`]）。
+    /// 默认**出声**（见 [`Self::muted`]）。
     ///
-    /// 手写而不是 `derive`：`AtomicBool` 的 `Default` 是 `false`，
-    /// 而产品默认必须是「不出声」。
+    /// 手写而不是 `derive`：`AtomicBool` 的 `Default` 恰好也是 `false`，但两者
+    /// 语义不同（一个是「类型默认值」，一个是「产品默认出声」），不靠巧合。
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::new())),
             subscribed_count: Arc::new(AtomicUsize::new(0)),
-            muted: Arc::new(AtomicBool::new(true)),
+            muted: Arc::new(AtomicBool::new(false)),
             audio_epoch_seen: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -464,6 +466,20 @@ const S16LE_BYTES_PER_SAMPLE: usize = 2;
 #[allow(dead_code)]
 const S16_NORM: f32 = 32_768.0;
 
+/// 由两个环境变量开关决定**输出静音**状态（纯函数，便于单测）。
+///
+/// 这是「产品默认是否出声」的唯一落点，所以从 `cli_entry` 的启动分支里抽出来，
+/// 让它能被离线回归——默认值翻转是很容易被无意改回去的那类行为。
+///
+/// 规则（优先级从高到低）：
+/// 1. `force_unmute`（`LIVE2D_AI_UNMUTE_AUDIO=1`）→ **出声**。保留的旧开关，
+///    让旧脚本/旧文档不会因为默认值翻转而静默变成静音；
+/// 2. `force_mute`（`LIVE2D_AI_MUTE_AUDIO=1`）→ **静音**（跑测试 / 无人值守用）；
+/// 3. 都不设 → **出声**（2026-09-10 用户裁决的默认值）。
+pub fn resolve_muted(force_unmute: bool, force_mute: bool) -> bool {
+    !force_unmute && force_mute
+}
+
 /// 把一段 s16le PCM 按 ~20 ms 切片，产出 WS 音频帧 JSON 字符串列表。
 ///
 /// - `epoch`：所属业务轮次；
@@ -714,16 +730,37 @@ mod audio_frame_tests {
         }
     }
 
-    /// 静音**默认开启**，且 `set_muted` 立即生效；clone 共享同一开关。
+    /// **默认出声**，且 `set_muted` 立即生效；clone 共享同一开关。
     #[test]
-    fn broadcaster_is_muted_by_default() {
+    fn broadcaster_is_unmuted_by_default() {
         let bc = Broadcaster::new();
-        assert!(bc.is_muted(), "默认必须静音（不出声但保留口型）");
-        bc.set_muted(false);
-        assert!(!bc.is_muted(), "set_muted(false) 应即时生效");
+        assert!(
+            !bc.is_muted(),
+            "默认必须出声（2026-09-10 用户裁决）；静音需显式 LIVE2D_AI_MUTE_AUDIO=1"
+        );
+        bc.set_muted(true);
+        assert!(bc.is_muted(), "set_muted(true) 应即时生效");
         let alias = bc.clone();
-        alias.set_muted(true);
-        assert!(bc.is_muted(), "clone 应共享同一 muted 状态");
+        alias.set_muted(false);
+        assert!(!bc.is_muted(), "clone 应共享同一 muted 状态");
+    }
+
+    /// 环境变量 → 输出静音的优先级：默认出声；显式 UNMUTE 压过 MUTE。
+    #[test]
+    fn resolve_muted_defaults_to_audible() {
+        assert!(
+            !resolve_muted(false, false),
+            "都不设时必须出声（产品默认值）"
+        );
+        assert!(resolve_muted(false, true), "LIVE2D_AI_MUTE_AUDIO=1 应静音");
+        assert!(
+            !resolve_muted(true, false),
+            "LIVE2D_AI_UNMUTE_AUDIO=1 应出声"
+        );
+        assert!(
+            !resolve_muted(true, true),
+            "两个开关冲突时以出声为准（旧开关优先级最高）"
+        );
     }
 
     /// 24 kHz 1 秒 s16le mono PCM → 50 帧（20 ms / 帧）。

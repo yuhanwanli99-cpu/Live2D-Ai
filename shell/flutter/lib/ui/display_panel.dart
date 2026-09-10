@@ -84,12 +84,33 @@ class DisplayPanel extends StatelessWidget {
               ),
             ),
           ),
+          _SliderRow(
+            icon: prefs.muted ? Icons.volume_off : Icons.volume_up,
+            label: '主音量',
+            value: prefs.volume,
+            min: DisplayPrefs.minVolume,
+            max: DisplayPrefs.maxVolume,
+            display: '${(prefs.volume * 100).round()}%',
+            onChanged: (double v) =>
+                onChanged(prefs.copyWith(volume: DisplayPrefs.clampVolume(v))),
+          ),
+          if (prefs.muted)
+            Padding(
+              padding: const EdgeInsets.only(left: 32, bottom: 8),
+              child: Text(
+                '当前已静音——取消静音后按此音量播放',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 11,
+                ),
+              ),
+            ),
           SwitchListTile(
             dense: true,
             contentPadding: const EdgeInsets.only(left: 8),
             secondary: Icon(prefs.muted ? Icons.volume_off : Icons.volume_up),
             title: const Text('静音'),
-            subtitle: const Text('关掉声音但保留口型——不打扰你做别的事'),
+            subtitle: const Text('只关声音、保留口型——需要安静时用它'),
             value: prefs.muted,
             onChanged: (bool v) => onChanged(prefs.copyWith(muted: v)),
           ),

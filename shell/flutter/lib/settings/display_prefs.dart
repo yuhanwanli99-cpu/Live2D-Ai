@@ -12,7 +12,8 @@ class DisplayPrefs {
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
     this.idleEnabled = true,
-    this.muted = true,
+    this.muted = false,
+    this.volume = defaultVolume,
   });
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
@@ -33,9 +34,22 @@ class DisplayPrefs {
 
   /// 是否静音（**只关声音，不关口型**）。
   ///
-  /// 默认 `true`（2026-09-10 用户裁决）：声音会打扰用户做别的事，
-  /// 而口型/动作属于「看」的部分，仍应保留。
+  /// 默认 `false`（2026-09-10 用户裁决**改为默认出声**）：产品默认就该能听见，
+  /// 否则用户会以为 TTS 坏了。需要安静时由用户按静音，或跑测试/无人值守时用
+  /// 服务端 `LIVE2D_AI_MUTE_AUDIO=1` 强制静音（那样任何客户端都发不出声）。
   final bool muted;
+
+  /// 主音量（0..1，1 = 满音量）。**与 [muted] 正交**：静音时不看它，
+  /// 且不重置它——取消静音后应恢复用户原来的音量。
+  ///
+  /// 只影响「听不听得到」，不影响口型：口型由服务端 `volume` / 本地包络驱动。
+  /// 滑杆位置到线性增益是**非线性**换算（感知压缩），见 `audio/gain.dart`。
+  final double volume;
+
+  /// 主音量默认值与区间。
+  static const double defaultVolume = 1.0;
+  static const double minVolume = 0.0;
+  static const double maxVolume = 1.0;
 
   /// 缩放默认值与区间（与渲染面 clamp 一致）。
   static const double defaultScale = 1.0;
@@ -55,6 +69,7 @@ class DisplayPrefs {
     bool? lipSync,
     bool? idleEnabled,
     bool? muted,
+    double? volume,
   }) {
     return DisplayPrefs(
       scale: scale ?? this.scale,
@@ -62,6 +77,7 @@ class DisplayPrefs {
       lipSync: lipSync ?? this.lipSync,
       idleEnabled: idleEnabled ?? this.idleEnabled,
       muted: muted ?? this.muted,
+      volume: volume ?? this.volume,
     );
   }
 
@@ -72,6 +88,7 @@ class DisplayPrefs {
     'lipSync': lipSync,
     'idleEnabled': idleEnabled,
     'muted': muted,
+    'volume': volume,
   };
 
   /// 反序列化：**永不抛异常**。
@@ -87,7 +104,8 @@ class DisplayPrefs {
       ),
       lipSync: _readBool(json['lipSync'], true),
       idleEnabled: _readBool(json['idleEnabled'], true),
-      muted: _readBool(json['muted'], true),
+      muted: _readBool(json['muted'], false),
+      volume: clampVolume(_readDouble(json['volume'], defaultVolume)),
     );
   }
 
@@ -101,6 +119,12 @@ class DisplayPrefs {
   static double clampMouthSensitivity(double value) {
     if (!value.isFinite) return defaultMouthSensitivity;
     return value.clamp(minMouthSensitivity, maxMouthSensitivity);
+  }
+
+  /// 主音量夹到 `[minVolume, maxVolume]`；非有限值回落默认（满音量）。
+  static double clampVolume(double value) {
+    if (!value.isFinite) return defaultVolume;
+    return value.clamp(minVolume, maxVolume);
   }
 
   static double _readDouble(Object? raw, double fallback) {
@@ -121,14 +145,16 @@ class DisplayPrefs {
       other.mouthSensitivity == mouthSensitivity &&
       other.lipSync == lipSync &&
       other.idleEnabled == idleEnabled &&
-      other.muted == muted;
+      other.muted == muted &&
+      other.volume == volume;
 
   @override
   int get hashCode =>
-      Object.hash(scale, mouthSensitivity, lipSync, idleEnabled, muted);
+      Object.hash(scale, mouthSensitivity, lipSync, idleEnabled, muted, volume);
 
   @override
   String toString() =>
       'DisplayPrefs(scale: $scale, mouth: $mouthSensitivity, '
-      'lipSync: $lipSync, idle: $idleEnabled, muted: $muted)';
+      'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
+      'volume: $volume)';
 }
