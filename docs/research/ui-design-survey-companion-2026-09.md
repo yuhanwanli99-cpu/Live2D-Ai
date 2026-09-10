@@ -10,7 +10,7 @@
 > - `【已验证 file:line】` / 行内反引号 `文件:行` —— 直接读到源码，附路径与行号。**这是本文最主要的标注方式**：绝大多数事实性断言以行内 `文件:行` 形式给出，括号标签只用于**聚合计数、截图结论或推断**这类"证据类型不明显"的地方。
 > - `【已验证 截图】` —— 来自官方截图（源码内文档截图 / 商店页官方截图），附来源 URL；**像素级数值不据此断言**。
 > - `【推断】` —— 显式标注的推理，**不作数值断言**（全文 27 处）。
-> - `未核到` —— 该维度没有拿到一手证据。**宁可留空，不用常识补全。**（汇总见 §11，共 27 处提及、21 条独立条目。）
+> - `未核到` —— 该维度没有拿到一手证据。**宁可留空，不用常识补全。**（汇总见 §11：**13 条按维度 + 8 条按样本，共 21 条**；全文共 27 处标注。）
 >
 > 所有被调研仓库均为 zip 快照（本机 `git clone` 因 git 级代理配置失效不可用，改用 `codeload` 归档），因此**无法给出 commit hash**；引用一律用 `文件:行`。
 > 所有被引用仓库的源码树保留在 `/tmp/uisurvey/`（未写入本仓库）；本报告只新增本文件一个产物。
@@ -175,7 +175,6 @@ colors    = [primary, secondary, tertiary, isDark ? '#121212' : '#FFFFFF']
 - **动态取色**：`themeColorsHueDynamic` 开启时，色相从**背景图采样**得到（`theme-color.ts:sampleBackgroundColor` 用 `html2canvas` 采样背景顶部 140px 区域，`sampleHeight:20, sampleStride:10, scale:0.5`），或对 wave 背景取 `.widgets.top-widgets .colored-area` 的实际 `background-color`（`theme-color.ts:97-101`）。
 - 用户可见的 “配色方案” 页提供 **6 套预设**（`packages/stage-pages/src/pages/settings/system/color-presets.json`）：`default`（`color-1: null`，即不覆盖）、`morandi`、`monet`、`japanese`、`nordic`、`chinese`，每套 **8 个 hex**。例：`morandi` = `#A5978B / #D8CAAF / #B8B4A7 / #C4BCB1 / #E5DED8 / #9A8F7D / #BEB5A7 / #C9C0B6`；`chinese` = `#E4C6D0 / #A61B29 / #5D513C / #789262 / #1C0D1A / #F7C242 / #62A9DD / #8C4B3C`。
   - ⚠️ **重要修正**：`color-presets.json` 是**纯展示色卡，不参与主题计算**（它只提供 `color-N` 的 hex，用于设置页渲染色块）；真正生效的是 `themeColorsHue` 这个标量。并且**6 套预设目前只读不可点**（属未完成交互）。
-  - **待办**：以下"选中判定"的 hue 比较逻辑是 `theme.ts:35-40` 的实现，但如果预设色卡不写回 hue，则 `isColorSelectedForPrimary` 恒返回 false → 色卡永远不会显示为选中态（与"只读不可点"一致）。
 - **色相会渗透到 UI 装饰上**：header 的 AIRI logo 用 `filter: hue-rotate(calc(var(--chromatic-hue,0) * 1deg))` 跟随主题（`HeaderLink.vue:29-33`）；连 `meta[name=theme-color]` 都在跟随背景采样值更新，wave 背景每 250ms 刷新一次（`theme-color.ts:104-110`）。路由加载条 NProgress 也用同一套 `color-mix(in srgb, oklch(95% var(--chromatic-chroma-900) …) 70%, oklch(50% 0 360))`（`main.css:45`）。
   - **⚠️ 一处可直接核到的 CSS bug**：`main.css:56` 把暗色 NProgress 条写成 `` background: `color-mix(...)`; ``（**反引号模板字符串**），在纯 CSS 里非法 → `.dark #nprogress .bar` **实际不生效**（对比同文件 `:45` 的正确写法）。
 
@@ -1148,7 +1147,7 @@ titleBarOverlay: { color: '#111111', symbolColor: '#FFFFFF', height: 30 }
 5. **因为** SAP 的第三方资产有 6 份独立约束（Font Awesome 署名 / Open Runde OFL 保留字体名 / 脏词表 CC BY / Silero MIT），**所以我们应该**：引入任何图标字体/字体文件时**同时引入其许可清单**，并记录在本项目的 `SOURCES.md`（本仓已有该文件）。
 6. **因为** SAP 把**字幕浮层（`subtitle_overlay.html`）、弹幕浮层（`danmaku_overlay.html`）、桌面小岛（`island.html`）拆成独立页面**，**所以我们应该**：把“贴桌面/贴屏幕的每一类浮层”当成独立渲染入口（各自可单独开关、单独定位），而不是在一个 HTML 里用 `display` 开关。
 
-> ⚠️ **本节未核到项**：灵动岛 9 个面板的中文 UI 名（`island.html` 只有英文 class）；`listening/typing/speaking/idle` 四态文案的实际渲染位置（模板与主 JS 零引用，疑似死文案）；`vrm.js` 内 `#control-panel` 的完整尺寸/字号表（样式由 JS 拼字符串生成）；`tha.html`/`soulx.html`/`shotOverlay.html`/`chat.html` 的视觉样式；打包后的 CSS 产物内容（见 §11.13）。
+> ⚠️ **本节未核到项**：灵动岛 9 个面板的中文 UI 名（`island.html` 只有英文 class）；`listening/typing/speaking/idle` 四态文案的实际渲染位置（模板与主 JS 零引用，疑似死文案）；`vrm.js` 内 `#control-panel` 的完整尺寸/字号表（样式由 JS 拼字符串生成）；`tha.html`/`soulx.html`/`shotOverlay.html`/`chat.html` 的视觉样式；打包后的 CSS 产物内容（见 §11 第 13 条）。
 
 ---
 
@@ -1409,15 +1408,16 @@ titleBarOverlay: { color: '#111111', symbolColor: '#FFFFFF', height: 30 }
 12. **`vaul-vue`（AIRI 移动端抽屉）的内部动画时长/缓动**——源码不在本地。
 13. **SAP / Ghost Vessel 的实际渲染截图与对比度测量**——只有源码，未运行。
 
-**按项目 / 按项目细节（UI 证据不完整或仅有部分维度）：**
-13. **super-agent-party 的未核到部分**——已核到：主色 `#17827a`/`#c8815a`、9 套主题、50/50 分栏、一级侧栏 200→64px、VRM 独立窗 540×960、一级导航 11 项、系统设置 4 节、12 项缺陷（含 4 处未定义变量）。**未核到**：灵动岛 9 个面板的中文 UI 名（`island.html` 只有英文 class）；`listening/typing/speaking/idle` 四态文案的**实际渲染位置**（模板与主 JS 零引用，**疑似死文案**）；`vrm.js` 内 `#control-panel` 的完整尺寸/字号表（样式由 JS 拼字符串生成）；`tha.html` / `soulx.html` / `shotOverlay.html` / `chat.html` 的视觉样式；打包后的 `element-plus.css` / `fontawesome/*.min.css` 内容。
-14. **Ghost Vessel 的未核到部分**——已核到双窗几何、12 变量主题、无设置页（280px 浮层）、静音做法。**未核到**：`bridge/` 侧是否影响视觉；是否有非 MIT 第三方资产清单（仓库内**没有** `LICENSE-third-party`）；`prefers-reduced-motion`（**完全没有**）；`presets/` 内角色资产的具体内容与授权（`presets/README.md:20-24` 只说“可售卖纯数据”）。
-15. **Meuxe 的“自曝机制”是否被 CI 强制**——确认了 `--color-*: initial` 机制与它抓到 `clay-600` 的事实，但**未核到**仓库内是否有对应的 CI 检查脚本（可能只靠人工/一次性脚本）。**另**：Meuxe 无深色模式，其 `ChatPanel` 的 `dark` 分支是死代码（§7.3.6.4）。
-16. **Soul of Waifu 的 Web 客户端视觉**——只核到 `app/web_client/` 存在第二套 IA 与少量 CSS 事实，**未展开**其完整视觉体系；其 `CompanionSubtitleOverlay` 的**完整样式**（字号/颜色/描边）亦未逐条核到，只核到时序参数。
-17. **Nexus 的 Tailwind 工具类实际收益**——依赖在但组件里**零使用**，是计划中还是遗留**未核到**；`tokens.ts` 与 `index.css` 谁是权威**无源码可判定**（两者都被注入，冲突时以 CSSOM 内联优先为准，属【推断】）；`--radius-*` 四档同值是刻意还是复制粘贴错误**未核到**。
-18. **ghost-vessel 之外的 LunaMate / Agent-LLM-Live2D / DesktopPetMonitor / deskpet / Norma / yume / aicompanion 等 2025–2026 新项目**——**均未核到 UI 一手证据**，本报告只引用了 GitHub 搜索返回的元数据与 `awesome-ai-companion` 的分类描述。
-19. **`Miru` / `VPet-Ultra` / `AI-Vtuber(Ikaros)` / `Neuro-sama` 本身**——本报告未覆盖（前四者已在 `competitive-analysis-report.md` 中做过功能层面比较；Neuro-sama 是闭源直播形态，无 UI 可核）。
-20. **所有项目的 Live2D Cubism SDK 与内置皮套资产许可**——`OLV-Web/src/renderer/WebSDK/` 已核到是官方 Cubism SDK 样例（Core 为 **Live2D Proprietary Software License**、仅 3 个文件可再分发；Framework 对**年营收 ≥1000 万日元**企业要求 Cubism SDK Release License）。但 **my-neuro（随仓库分发 `live2dcubismcore.min.js` 且无 notice）、N.E.K.O（有 `assets/yui-*.tar.gz`、`static/mao_pro/` 但无 Cubism 许可文件）、AIRI（内置 `hiyori` 模型）三家的 Cubism 与模型资产条款均未核到**。→ **复用时必须逐项独立确认：代码许可不能替代 SDK 许可。**
+**按项目 / 按样本细节（UI 证据不完整或仅有部分维度）：**
+
+14. **super-agent-party 的未核到部分**——已核到：主色 `#17827a`/`#c8815a`、9 套主题、50/50 分栏、一级侧栏 200→64px、VRM 独立窗 540×960、一级导航 11 项、系统设置 4 节、12 项缺陷（含 4 处未定义变量）。**未核到**：灵动岛 9 个面板的中文 UI 名（`island.html` 只有英文 class）；`listening/typing/speaking/idle` 四态文案的**实际渲染位置**（模板与主 JS 零引用，**疑似死文案**）；`vrm.js` 内 `#control-panel` 的完整尺寸/字号表（样式由 JS 拼字符串生成）；`tha.html` / `soulx.html` / `shotOverlay.html` / `chat.html` 的视觉样式；打包后的 `element-plus.css` / `fontawesome/*.min.css` 内容。
+15. **Ghost Vessel 的未核到部分**——已核到双窗几何、12 变量主题、无设置页（280px 浮层）、静音做法。**未核到**：`bridge/` 侧是否影响视觉；是否有非 MIT 第三方资产清单（仓库内**没有** `LICENSE-third-party`）；`prefers-reduced-motion`（**完全没有**）；`presets/` 内角色资产的具体内容与授权（`presets/README.md:20-24` 只说“可售卖纯数据”）。
+16. **Meuxe 的“自曝机制”是否被 CI 强制**——确认了 `--color-*: initial` 机制与它抓到 `clay-600` 的事实，但**未核到**仓库内是否有对应的 CI 检查脚本（可能只靠人工/一次性脚本）。**另**：Meuxe 无深色模式，其 `ChatPanel` 的 `dark` 分支是死代码（§7.3.6.4）。
+17. **Soul of Waifu 的 Web 客户端视觉**——只核到 `app/web_client/` 存在第二套 IA 与少量 CSS 事实，**未展开**其完整视觉体系；其 `CompanionSubtitleOverlay` 的**完整样式**（字号/颜色/描边）亦未逐条核到，只核到时序参数。
+18. **Nexus 的 Tailwind 工具类实际收益**——依赖在但组件里**零使用**，是计划中还是遗留**未核到**；`tokens.ts` 与 `index.css` 谁是权威**无源码可判定**（两者都被注入，冲突时以 CSSOM 内联优先为准，属【推断】）；`--radius-*` 四档同值是刻意还是复制粘贴错误**未核到**。
+19. **ghost-vessel 之外的 LunaMate / Agent-LLM-Live2D / DesktopPetMonitor / deskpet / Norma / yume / aicompanion 等 2025–2026 新项目**——**均未核到 UI 一手证据**，本报告只引用了 GitHub 搜索返回的元数据与 `awesome-ai-companion` 的分类描述。
+20. **`Miru` / `VPet-Ultra` / `AI-Vtuber(Ikaros)` / `Neuro-sama` 本身**——本报告未覆盖（前四者已在 `competitive-analysis-report.md` 中做过功能层面比较；Neuro-sama 是闭源直播形态，无 UI 可核）。
+21. **所有项目的 Live2D Cubism SDK 与内置皮套资产许可**——`OLV-Web/src/renderer/WebSDK/` 已核到是官方 Cubism SDK 样例（Core 为 **Live2D Proprietary Software License**、仅 3 个文件可再分发；Framework 对**年营收 ≥1000 万日元**企业要求 Cubism SDK Release License）。但 **my-neuro（随仓库分发 `live2dcubismcore.min.js` 且无 notice）、N.E.K.O（有 `assets/yui-*.tar.gz`、`static/mao_pro/` 但无 Cubism 许可文件）、AIRI（内置 `hiyori` 模型）三家的 Cubism 与模型资产条款均未核到**。→ **复用时必须逐项独立确认：代码许可不能替代 SDK 许可。**
 
 ---
 
