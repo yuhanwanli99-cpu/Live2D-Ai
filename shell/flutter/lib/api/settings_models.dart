@@ -1,0 +1,431 @@
+/// 设置模型与三态补丁：**纯逻辑、无 web 依赖**，可在 VM 上单测。
+///
+/// 契约来源（读源码确认，不是猜的）：
+/// - 响应形状：`crates/live2d-ai-runtime/src/settings/view.rs`（`SettingsView` 等）
+/// - 请求形状：`crates/live2d-ai-runtime/src/settings/patch.rs`（`SettingsPatch` 等）
+/// - 路由：`PATCH /api/v1/settings`（**是 PATCH 不是 PUT**，见 `web_api/mod.rs`
+///   的 `match_route`；实测 `PUT→404` / `PATCH→200`）
+library;
+
+/// 字段级**三态**值：区分「不修改」/「显式清空」/「设为目标值」。
+///
+/// # 为什么必须专门造一个类型
+///
+/// 服务端用 `Option<Option<T>>` 表达这三态（`patch.rs` 的 `LlmPatch` 等）：
+///
+/// | 前端想表达 | 服务端收到的 JSON |
+/// | --- | --- |
+/// | 不修改 | 键**不出现** |
+/// | 显式清空 | `"field": null` |
+/// | 设为某值 | `"field": "…"` |
+///
+/// Dart 里「键不出现」与「值为 null」都能用一个可空字段表示，**两者会混成一种**。
+/// 一旦把「不修改」也序列化成 `null`，用户只改一个字段就会把同段其它字段**清空**——
+/// 这是本层最容易实现错、且后果最严重的地方（静默丢配置），
+/// 所以这里用显式三态把两者在类型上分开。
+///
+/// 用法：
+/// ```dart
+/// LlmSettingsPatch(model: Tri.set('deepseek-chat'));   // 只改 model
+/// LlmSettingsPatch(apiKeyEnv: Tri.clear());            // 显式清空 env 绑定
+/// LlmSettingsPatch();                                  // 什么都不改
+/// ```
+sealed class Tri<T> {
+  const Tri();
+
+  /// 不修改该字段（序列化时键不出现）。
+  static Tri<T> keep<T>() => TriKeep<T>();
+
+  /// 显式清空该字段（序列化为 `null`）。
+  static Tri<T> clear<T>() => TriClear<T>();
+
+  /// 设为该值。
+  static Tri<T> set<T>(T value) => TriSet<T>(value);
+}
+
+/// 「不修改」。
+final class TriKeep<T> extends Tri<T> {
+  const TriKeep();
+  @override
+  String toString() => 'Tri.keep';
+}
+
+/// 「显式清空」。
+final class TriClear<T> extends Tri<T> {
+  const TriClear();
+  @override
+  String toString() => 'Tri.clear';
+}
+
+/// 「设为该值」。
+final class TriSet<T> extends Tri<T> {
+  const TriSet(this.value);
+  final T value;
+  @override
+  String toString() => 'Tri.set($value)';
+}
+
+/// 把三态字段写进 [out]。
+///
+/// - `null`（字段没提供）与 [TriKeep] 都表示「不修改」→ **不写键**；
+/// - [TriClear] → 写 `null`；
+/// - [TriSet] → 写值。
+void putTri<T>(Map<String, Object?> out, String key, Tri<T>? field) {
+  switch (field) {
+    case null:
+    case TriKeep<T>():
+      break;
+    case TriClear<T>():
+      out[key] = null;
+    case TriSet<T>(:final T value):
+      out[key] = value;
+  }
+}
+
+/// `GET /api/v1/settings` 的 LLM 段。
+///
+/// 注意 `api_key_env` **不在响应里**（`view.rs::LlmView` 只有三个字段）——
+/// 即界面**无法回显**当前绑定的是哪个环境变量，只能显示 [hasApiKey]。
+/// 这是服务端契约的一个缺口，已记录待裁决；前端不要假装知道那个名字。
+class LlmSettingsView {
+  const LlmSettingsView({
+    required this.baseUrl,
+    required this.model,
+    required this.hasApiKey,
+  });
+
+  final String baseUrl;
+  final String model;
+
+  /// 服务端是否已能解析到密钥。**密钥本身永远不下发**。
+  final bool hasApiKey;
+
+  factory LlmSettingsView.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return LlmSettingsView(
+      baseUrl: _str(j['base_url']),
+      model: _str(j['model']),
+      hasApiKey: j['has_api_key'] == true,
+    );
+  }
+}
+
+/// `GET /api/v1/settings` 的 TTS 段。
+class TtsSettingsView {
+  const TtsSettingsView({
+    required this.baseUrl,
+    required this.model,
+    required this.voice,
+    required this.hasApiKey,
+    required this.sampleRate,
+    required this.channels,
+  });
+
+  final String baseUrl;
+
+  /// 可为 null（协议里是 `Option<String>`）。
+  final String? model;
+  final String voice;
+  final bool hasApiKey;
+  final int sampleRate;
+  final int channels;
+
+  factory TtsSettingsView.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return TtsSettingsView(
+      baseUrl: _str(j['base_url']),
+      model: j['model'] is String ? j['model']! as String : null,
+      voice: _str(j['voice']),
+      hasApiKey: j['has_api_key'] == true,
+      sampleRate: _int(j['sample_rate']),
+      channels: _int(j['channels']),
+    );
+  }
+}
+
+/// `GET /api/v1/settings` 的 persona 段（酒馆式角色卡）。
+class PersonaSettingsView {
+  const PersonaSettingsView({
+    required this.systemPrompt,
+    required this.maxHistoryPairs,
+    required this.name,
+    required this.description,
+    required this.personality,
+    required this.scenario,
+    required this.first,
+  });
+
+  final String systemPrompt;
+  final int maxHistoryPairs;
+  final String name;
+  final String description;
+  final String personality;
+  final String scenario;
+
+  /// 开场白。
+  final String first;
+
+  factory PersonaSettingsView.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return PersonaSettingsView(
+      systemPrompt: _str(j['system_prompt']),
+      maxHistoryPairs: _int(j['max_history_pairs']),
+      name: _str(j['name']),
+      description: _str(j['description']),
+      personality: _str(j['personality']),
+      scenario: _str(j['scenario']),
+      first: _str(j['first']),
+    );
+  }
+}
+
+/// `GET /api/v1/settings` 的完整响应。
+class SettingsView {
+  const SettingsView({
+    required this.llm,
+    required this.tts,
+    required this.persona,
+    required this.devMode,
+  });
+
+  final LlmSettingsView llm;
+  final TtsSettingsView tts;
+  final PersonaSettingsView persona;
+
+  /// 开发模式：开启后界面才显示高级/诊断分区（渐进披露的第二层）。
+  final bool devMode;
+
+  factory SettingsView.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return SettingsView(
+      llm: LlmSettingsView.fromJson(_obj(j['llm'])),
+      tts: TtsSettingsView.fromJson(_obj(j['tts'])),
+      persona: PersonaSettingsView.fromJson(_obj(j['persona'])),
+      devMode: j['dev_mode'] == true,
+    );
+  }
+}
+
+/// LLM 段补丁（字段级三态）。
+class LlmSettingsPatch {
+  const LlmSettingsPatch({this.baseUrl, this.model, this.apiKeyEnv});
+
+  final Tri<String>? baseUrl;
+  final Tri<String>? model;
+
+  /// 绑定的**环境变量名**（不是密钥本身）。
+  ///
+  /// 治理红线：前端**不得持有密钥**（AGENTS.md）。所以设置界面只能让用户填
+  /// 「环境变量名」，密钥由服务端从进程环境读取。
+  final Tri<String>? apiKeyEnv;
+
+  Map<String, Object?> toJson() {
+    final Map<String, Object?> out = <String, Object?>{};
+    putTri<String>(out, 'base_url', baseUrl);
+    putTri<String>(out, 'model', model);
+    putTri<String>(out, 'api_key_env', apiKeyEnv);
+    return out;
+  }
+
+  bool get isEmpty => toJson().isEmpty;
+}
+
+/// TTS 段补丁（字段级三态）。
+class TtsSettingsPatch {
+  const TtsSettingsPatch({
+    this.baseUrl,
+    this.model,
+    this.voice,
+    this.apiKeyEnv,
+    this.sampleRate,
+    this.channels,
+  });
+
+  final Tri<String>? baseUrl;
+  final Tri<String>? model;
+  final Tri<String>? voice;
+  final Tri<String>? apiKeyEnv;
+  final Tri<int>? sampleRate;
+  final Tri<int>? channels;
+
+  Map<String, Object?> toJson() {
+    final Map<String, Object?> out = <String, Object?>{};
+    putTri<String>(out, 'base_url', baseUrl);
+    putTri<String>(out, 'model', model);
+    putTri<String>(out, 'voice', voice);
+    putTri<String>(out, 'api_key_env', apiKeyEnv);
+    putTri<int>(out, 'sample_rate', sampleRate);
+    putTri<int>(out, 'channels', channels);
+    return out;
+  }
+
+  bool get isEmpty => toJson().isEmpty;
+}
+
+/// persona 段补丁（字段级三态；`Tri.clear()` = 清空该字段）。
+class PersonaSettingsPatch {
+  const PersonaSettingsPatch({
+    this.systemPrompt,
+    this.maxHistoryPairs,
+    this.name,
+    this.description,
+    this.personality,
+    this.scenario,
+    this.first,
+  });
+
+  final Tri<String>? systemPrompt;
+  final Tri<int>? maxHistoryPairs;
+  final Tri<String>? name;
+  final Tri<String>? description;
+  final Tri<String>? personality;
+  final Tri<String>? scenario;
+  final Tri<String>? first;
+
+  Map<String, Object?> toJson() {
+    final Map<String, Object?> out = <String, Object?>{};
+    putTri<String>(out, 'system_prompt', systemPrompt);
+    putTri<int>(out, 'max_history_pairs', maxHistoryPairs);
+    putTri<String>(out, 'name', name);
+    putTri<String>(out, 'description', description);
+    putTri<String>(out, 'personality', personality);
+    putTri<String>(out, 'scenario', scenario);
+    putTri<String>(out, 'first', first);
+    return out;
+  }
+
+  bool get isEmpty => toJson().isEmpty;
+}
+
+/// `PATCH /api/v1/settings` 的请求体。
+///
+/// # 段级语义（刻意只暴露安全子集）
+///
+/// 服务端支持「段显式 `null` = 整段清空」（`SettingsPatch` 的 `Option<Option<..>>`）。
+/// **本客户端刻意不提供这个能力**：把整段 LLM/TTS 配置一次抹掉是个破坏性操作，
+/// 不该作为「改设置」的副作用被顺手发出去。要清空请用字段级 `Tri.clear()`。
+/// 段为 `null` 一律表示「不动这一段」。
+class SettingsPatch {
+  const SettingsPatch({this.llm, this.tts, this.persona, this.devMode});
+
+  final LlmSettingsPatch? llm;
+  final TtsSettingsPatch? tts;
+  final PersonaSettingsPatch? persona;
+
+  /// 顶层 `dev_mode` 三态。
+  final Tri<bool>? devMode;
+
+  /// 序列化为请求体。
+  ///
+  /// 只写「真的要改」的东西：空段、空补丁、`TriKeep` 一律不出现。
+  Map<String, Object?> toJson() {
+    final Map<String, Object?> out = <String, Object?>{};
+    // **空段不写键**。服务端把 `{"llm":{}}` 当 no-op，语义上等价于不写；
+    // 但若照写，`isEmpty` 会变假，调用方就会为一个「什么都没改」的补丁
+    // 白发一次网络往返（还会让服务端白跑一遍 apply_patch）。
+    if (llm != null && !llm!.isEmpty) out['llm'] = llm!.toJson();
+    if (tts != null && !tts!.isEmpty) out['tts'] = tts!.toJson();
+    if (persona != null && !persona!.isEmpty) {
+      out['persona'] = persona!.toJson();
+    }
+    putTri<bool>(out, 'dev_mode', devMode);
+    return out;
+  }
+
+  /// 是否什么都没改（调用方可据此跳过网络请求）。
+  bool get isEmpty => toJson().isEmpty;
+}
+
+/// `POST /api/v1/settings/test/{llm,tts}` 的结果。
+///
+/// 契约：`web_api/settings_routes/test_endpoints.rs::TestOutcome`。
+class SettingsTestOutcome {
+  const SettingsTestOutcome({
+    required this.ok,
+    this.latencyMs,
+    this.modelEcho,
+    this.errorCode,
+    this.errorMessage,
+  });
+
+  final bool ok;
+
+  /// 往返耗时（毫秒）；服务端用 `u128`，这里收成 int。
+  final int? latencyMs;
+
+  /// 服务端回显的模型/音色名——用来确认「打到的确实是配置里那个」。
+  final String? modelEcho;
+
+  final String? errorCode;
+  final String? errorMessage;
+
+  factory SettingsTestOutcome.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    Map<String, Object?>? err;
+    if (j['error'] is Map) {
+      final Map<String, Object?> e = <String, Object?>{};
+      (j['error']! as Map<Object?, Object?>).forEach((
+        Object? k,
+        Object? v,
+      ) {
+        if (k is String) e[k] = v;
+      });
+      err = e;
+    }
+    return SettingsTestOutcome(
+      ok: j['ok'] == true,
+      latencyMs: j['latency_ms'] is num
+          ? (j['latency_ms']! as num).toInt()
+          : null,
+      modelEcho: j['model_echo'] is String ? j['model_echo']! as String : null,
+      errorCode: err?['code'] is String ? err!['code']! as String : null,
+      errorMessage: err?['message'] is String
+          ? err!['message']! as String
+          : null,
+    );
+  }
+}
+
+/// `PATCH /api/v1/settings` 的响应。
+///
+/// 契约：服务端回 `{"persisted": bool, "settings": {…}}`。
+class SettingsPatchResult {
+  const SettingsPatchResult({required this.persisted, required this.settings});
+
+  /// 服务端是否**真的写回了磁盘**。
+  ///
+  /// `false` 表示补丁与当前值完全一致（`PatchOutcome::NoChange`）——
+  /// 界面可以据此显示「没有变化」而不是「已保存」，两者对用户不是一回事。
+  final bool persisted;
+
+  /// 应用补丁**之后**的服务端权威设置（用它回填界面，不要用本地草稿）。
+  final SettingsView settings;
+
+  factory SettingsPatchResult.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return SettingsPatchResult(
+      persisted: j['persisted'] == true,
+      settings: SettingsView.fromJson(_obj(j['settings'])),
+    );
+  }
+}
+
+/// 宽容取字符串：非字符串一律空串（响应缺字段时界面显示空，而不是崩）。
+String _str(Object? value) => value is String ? value : '';
+
+/// 宽容取整数：JSON 里 `24000` 与 `24000.0` 都合法。
+int _int(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return 0;
+}
+
+/// 宽容取对象：不是对象就返回 null（交给各自的 `fromJson` 走默认值）。
+Map<String, Object?>? _obj(Object? value) {
+  if (value is! Map) return null;
+  final Map<String, Object?> out = <String, Object?>{};
+  value.forEach((Object? k, Object? v) {
+    if (k is String) out[k] = v;
+  });
+  return out;
+}

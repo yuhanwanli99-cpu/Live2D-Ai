@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'settings_models.dart';
+
 /// `POST /api/v1/chat` 受理响应（字段对齐 `chat_routes.rs::ChatAccepted`）。
 class ChatAccepted {
   const ChatAccepted({
@@ -35,11 +37,16 @@ class ApiException implements Exception {
 /// base 缺省 = 同源（页面 origin）；可用
 /// `--dart-define=API_BASE=http://127.0.0.1:18080` 覆盖。
 class ApiClient {
-  ApiClient({String? base})
-      : base = _normalize(base ?? const String.fromEnvironment('API_BASE'));
+  ApiClient({String? base, http.Client? client})
+    : base = _normalize(base ?? const String.fromEnvironment('API_BASE')),
+      _client = client ?? http.Client();
 
   final String base;
-  final http.Client _client = http.Client();
+
+  /// HTTP 客户端。**可注入**：`flutter test` 里用 `package:http/testing.dart`
+  /// 的 `MockClient` 就能在 VM 上覆盖全部请求/响应契约（零新依赖，
+  /// `http` 本来就是运行时依赖）。
+  final http.Client _client;
 
   static String _normalize(String raw) {
     var value = raw.trim();
@@ -93,6 +100,61 @@ class ApiClient {
     );
     if (response.statusCode != 200) throw _errorFrom(response);
     return _decodeObject(response.body);
+  }
+
+  /// `GET /api/v1/settings` → 服务端权威设置。
+  ///
+  /// **密钥永不下发**：只回 `has_api_key` 布尔（治理红线，见 AGENTS.md）。
+  Future<SettingsView> fetchSettings() async {
+    final response = await _guard(
+      () => _client.get(_uri('/api/v1/settings')),
+    );
+    if (response.statusCode != 200) throw _errorFrom(response);
+    return SettingsView.fromJson(_decodeObject(response.body));
+  }
+
+  /// `PATCH /api/v1/settings` → 部分更新。
+  ///
+  /// **是 PATCH 不是 PUT**：服务端 `match_route` 只认 `Method::Patch`，
+  /// 用 `PUT` 会 **404**（实测 `PUT→404` / `PATCH→200`）。
+  ///
+  /// 请求体只含 [patch] 里**真的给出**的字段——三态由 [SettingsPatch.toJson]
+  /// 负责。**绝不把整个表单原样发过去**：那样未触碰的字段会一并被清空。
+  Future<SettingsPatchResult> patchSettings(SettingsPatch patch) async {
+    final response = await _guard(
+      () => _client.patch(
+        _uri('/api/v1/settings'),
+        headers: const <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(patch.toJson()),
+      ),
+    );
+    if (response.statusCode != 200) throw _errorFrom(response);
+    return SettingsPatchResult.fromJson(_decodeObject(response.body));
+  }
+
+  /// `POST /api/v1/settings/test/llm`：连通性自检（回显模型名与耗时）。
+  Future<SettingsTestOutcome> testLlm({int? timeoutMs}) =>
+      _testEndpoint('llm', timeoutMs);
+
+  /// `POST /api/v1/settings/test/tts`：连通性自检（回显音色与耗时）。
+  Future<SettingsTestOutcome> testTts({int? timeoutMs}) =>
+      _testEndpoint('tts', timeoutMs);
+
+  /// 两个自检端点的共同实现。
+  ///
+  /// 注意：**自检失败通常是 200 + `ok:false` + `error`**（服务端把
+  /// 「连不上你的端点」当作一次成功的自检结果），所以 `ok` 为假时**不抛异常**——
+  /// 由调用方读 [SettingsTestOutcome.ok] 与错误详情展示。只有 HTTP 层失败才抛。
+  Future<SettingsTestOutcome> _testEndpoint(String kind, int? timeoutMs) async {
+    final response = await _guard(
+      () => _client.post(
+        _uri('/api/v1/settings/test/$kind'),
+        headers: const <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, Object?>{'timeout_ms': ?timeoutMs}),
+      ),
+    );
+    if (response.statusCode != 200) throw _errorFrom(response);
+    return SettingsTestOutcome.fromJson(_decodeObject(response.body));
   }
 
   Future<http.Response> _guard(Future<http.Response> Function() run) async {
