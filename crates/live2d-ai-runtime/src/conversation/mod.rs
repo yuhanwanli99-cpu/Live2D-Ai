@@ -292,7 +292,15 @@ mod tests {
         let config = ConversationConfig::default();
         assert_eq!(config.system_prompt, "");
         assert_eq!(config.max_history_pairs, 0);
-        assert_eq!(config.sentence_max_chars, 48);
+        // 2026-09-10：48 → 200（「一句一单元」契约，见
+        // `SentenceAssembler::DEFAULT_MAX_CHARS` 的说明）。
+        // 本测试锁的是「默认值 == 文档值」，所以跟着文档一起改，
+        // 而不是放宽断言。
+        assert_eq!(
+            config.sentence_max_chars,
+            crate::dialogue::SentenceAssembler::DEFAULT_MAX_CHARS
+        );
+        assert_eq!(config.sentence_max_chars, 200);
         assert_eq!(
             config.tts_queue_capacity,
             ConversationConfig::DEFAULT_TTS_QUEUE_CAPACITY

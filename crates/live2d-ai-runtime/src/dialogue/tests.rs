@@ -146,6 +146,81 @@ fn arbitrary_delta_splitting_is_consistent() {
     }
 }
 
+// ---------------------------------------------- 一句一单元（不断句）契约
+
+/// **回归（2026-09-10 用户裁决）**：一句话即使**远超旧上限 48 字**，
+/// 也必须作为**一整个**句子输出，不得按字符位置劈开。
+///
+/// 历史缺陷：`DEFAULT_MAX_CHARS = 48` 会把长句硬切成多段，每段各发一次 TTS
+/// 请求、各带一段合成延迟 → 播放时逐段空档，听感即「断断续续」。
+#[test]
+fn long_sentence_is_never_split_at_the_old_48_char_bound() {
+    // 60+ 字无逗号长句 + 句号 —— 旧实现会切成 ["…48字", "…剩余字。"]。
+    let long = "我一直觉得今天的天气真的很适合出门散步而且附近那家新开的咖啡店据说味道相当不错有空的话我们下午可以一起过去坐坐看看书";
+    assert!(long.chars().count() > 48, "用例需超过旧上限");
+    let text = format!("{long}。");
+    let whole = sentences_with(SentenceAssembler::DEFAULT_MAX_CHARS, &text);
+    assert_eq!(whole.len(), 1, "默认上限下长句必须整句输出，实际 {whole:?}");
+    assert_eq!(whole[0], text);
+    // 旧上限下确实会被切开：证明本用例真的覆盖了那条路径。
+    assert!(
+        sentences_with(48, &text).len() > 1,
+        "旧上限下应当被切开，否则用例没有覆盖回归点"
+    );
+}
+
+/// 默认上限必须显著高于常见口语句长，否则「一句一单元」名存实亡。
+#[test]
+fn default_max_chars_leaves_room_for_a_whole_spoken_sentence() {
+    // 绑定到局部变量而不是直接断言常量：断言常量表达式会被 clippy 的
+    // `assertions_on_constants` 判为无意义（而这条断言的意图是**契约锁**）。
+    let bound = SentenceAssembler::DEFAULT_MAX_CHARS;
+    assert!(bound >= 120, "默认安全阀过小（{bound}）：会把正常长句劈开");
+    // 且必须真的比常见口语句长留有余量：用一条典型长句验证。
+    let typical = "今天下午我打算先去图书馆还几本书然后再去超市买点东西晚上回来做饭";
+    assert!(
+        typical.chars().count() < bound,
+        "常见长句（{} 字）不应触及安全阀 {bound}",
+        typical.chars().count()
+    );
+}
+
+/// 安全阀触发时**优先在弱标点处断开**（听感是停顿），而不是按位置硬切。
+#[test]
+fn safety_valve_prefers_soft_punctuation_over_positional_cut() {
+    // 上限 10；第 6 个字符是逗号 → 应在逗号后断开，而不是切在第 10 个字符处。
+    let text = "一二三四五，六七八九十十一十二";
+    let out = sentences_with(10, text);
+    assert_eq!(
+        out[0], "一二三四五，",
+        "安全阀应切在弱标点之后，实际切在位置 10 会得到「一二三四五六七八九十」"
+    );
+    assert_eq!(out.iter().map(String::as_str).collect::<String>(), text);
+}
+
+/// 完全没有弱标点时仍须有界（退回按位置硬切），且切点落在字符边界上。
+#[test]
+fn safety_valve_still_bounds_when_no_soft_punctuation_exists() {
+    assert_eq!(
+        sentences_with(3, "一二三四五六七"),
+        ["一二三", "四五六", "七"]
+    );
+}
+
+/// 弱标点切分同样满足「任意 delta 切割结果一致 + 逐字无损」不变量。
+#[test]
+fn soft_break_cutting_keeps_the_delta_splitting_invariant() {
+    for text in [
+        "一二三四五，六七八九十，十一十二十三。",
+        "a,b,c,d,e,f,g,h,i,j,k,l",
+        "开头，然后很长很长很长很长很长很长很长很长没有句号",
+    ] {
+        for max in [1usize, 3, 6, 10, 20] {
+            assert_splitting_invariant(text, max);
+        }
+    }
+}
+
 #[test]
 fn max_buffer_bounds_pending_and_cuts_deterministically() {
     let text = "abcdefghijklmnopqrstuvwxyz"; // 26 字符，无句界
