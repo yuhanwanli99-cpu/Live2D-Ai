@@ -113,8 +113,8 @@ curl -s http://127.0.0.1:18080/api/v1/app/status | head -c 400
 | **WAV（RIFF/WAVE）解析** | runtime/src/audio/wav.rs（新增） | 仅接受 PCM 16-bit（含 WAVE_FORMAT_EXTENSIBLE 子格式）；跳过 LIST 等未知块与填充位；规格以容器头为准 |
 | WAV 句合成路径 | runtime/src/conversation/worker.rs | 整段收集 → 解析 → 按 chunk_samples 切块发事件；64 MiB 上限防内存打爆 |
 | 格式门禁 | runtime/src/audio/mod.rs | 由「只认 pcm」放宽为「pcm + wav」；mp3/flac 仍明确拒绝 |
-| `local-tts` Mod 默认对准 CosyVoice | crates/live2d-ai-mod-local-tts | 缺省端口 8080、externally_managed=true（只探活、不 spawn）；探到就写 base_url 并 reload |
-| 缺省 Mod manifest | web_api/cli_entry.rs | 无 mods.json 时内建启用 local-llm(11434) + local-tts(8080) |
+| ~~`local-tts` Mod 默认对准 CosyVoice~~ | ~~crates/live2d-ai-mod-local-tts~~ | **2026-09-11 已删除**：TTS 从 Mod 系统移出，改成核心链路。端点写 `[tts] base_url`。见 `docs/architecture/tts-is-core.md` |
+| 缺省 Mod manifest | web_api/cli_entry.rs | 无 mods.json 时内建启用 local-llm(11434)；**TTS 不在 Mod 里** |
 | TTS 可缺失 | runtime/src/conversation/worker.rs | 未配置 [tts] 时走「空句」路径：只出文本，不报错 |
 
 ### 口型链路（无需改动）

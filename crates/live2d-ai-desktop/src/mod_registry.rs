@@ -49,7 +49,7 @@ pub struct HostChannels {
     pub trigger_action: Arc<dyn Fn(ActionRequest) -> bool + Send + Sync>,
     /// 文本 → supervisor.say（主链路）
     pub say: Arc<dyn Fn(String) -> bool + Send + Sync>,
-    /// **P0-4 真实闭环**：本地 Mod（local-llm / local-tts）探测到服务就绪后，
+    /// **P0-4 真实闭环**：本地 Mod（local-llm）探测到服务就绪后，
     /// 通过此通道把探测到的 `base_url` / `model` / `voice` 写回 runtime settings
     ///（复用 settings PATCH 语义：`{"llm":{"base_url":...,"model":...}}`），
     /// 写盘成功后 host 触发 `supervisor.reload()` —— 形成「spawn → 探活 → 写

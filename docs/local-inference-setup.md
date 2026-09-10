@@ -1,8 +1,32 @@
 # 本地 TTS/LLM 接入实操指南
 
+> ## ⚠️ 部分作废（2026-09-11）
+>
+> **TTS 已从 Mod 系统移出**，改成核心链路。本文中一切
+> 「`POST /api/v1/mods/local-tts/enable`」「`[mods.local-tts]` 配置段」
+> 「`local-tts` 探测到服务就绪后写 base_url」的说法**都不再成立**。
+>
+> 现在配 TTS 只有一条路：**写 `live2d-ai.toml` 的 `[tts]` 段**
+> （或在 Flutter 的「语音合成」分区里改，它 `PATCH /api/v1/settings` 写回同一段）：
+>
+> ```toml
+> [tts]
+> base_url = "http://127.0.0.1:8080/v1"   # 任何 OpenAI 兼容 /v1/audio/speech
+> voice = "skystar"
+> response_format = "pcm"                  # pcm（默认）或 wav
+> sample_rate = 24000
+> channels = 1
+> ```
+>
+> 理由与后果见 `docs/architecture/tts-is-core.md`。
+> `local-llm` 仍然是一个 Mod，本文 LLM 相关部分继续有效。
+>
+> 另注：本文写作时的 TTS 例子是 kokoroi-rs；当前默认面向 **CosyVoice 3** 的
+> OpenAI 兼容层（见 `docs/architecture/cosyvoice3-tts-integration.md`）。
+
 > 用户实测卡在「没有 TTS，所以无法验证口型/出声」。
 > 本文档以**照抄即可执行**的命令为导向，带领你从零搭建本地 LLM + TTS 推理服务，
-> 并把它们接入 Live2D-Ai 的 `local-llm` / `local-tts` Mod，最终打通
+> 并把 LLM 接入 `local-llm` Mod、把 TTS 接入核心链路，最终打通
 > **发消息 → LLM 回复 → TTS 合成 → 浏览器播放 → 口型动**的完整闭环。
 >
 > **前提**：已按 `headless-deploy.md` 启动 `live2d-ai-desktop --web`，
@@ -21,18 +45,19 @@ winget install Ollama.Ollama
 ollama pull qwen3.5:4b
 ollama serve   # PowerShell：设 OLLAMA_HOST=0.0.0.0 再启动
 
-# 2) 下载 kokoroi-rs (Windows 静态二进制)
-#   https://github.com/doiito/kokoroi-rs/releases
-kokoroi-rs serve --port 8000 &
+# 2) 启动 TTS 上游（任何 OpenAI 兼容 /v1/audio/speech）
+#    当前默认面向 CosyVoice 3：/home/skystar/CosyVoice 3.0/scripts/3-start.sh
+#    （2026-09-11 起）TTS **不再是 Mod** —— 把端点写进 live2d-ai.toml：
+#      [tts]
+#      base_url = "http://127.0.0.1:8080/v1"
+#      voice    = "skystar"
 
-# 3) 启用 Mod（两个 POST 命令）
+# 3) 启用 LLM Mod（TTS 没有 Mod 可启用）
 curl -X POST http://127.0.0.1:18080/api/v1/mods/local-llm/enable   \
-  -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:18080'
-curl -X POST http://127.0.0.1:18080/api/v1/mods/local-tts/enable   \
   -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:18080'
 
 # 4) 验证闭环
-curl http://127.0.0.1:18080/api/v1/app/status     # tts.base_url 应填上
+curl http://127.0.0.1:18080/api/v1/app/status     # tts.base_url 应来自 [tts]
 ```
 
 ---
@@ -362,7 +387,9 @@ Live2D 口型动画）的端到端验证，需用户在本地完成实际发声�
 ## 6. 参考
 
 - **Mod 注册表**：`crates/live2d-ai-mod-local-llm/src/lib.rs`（默认 `ollama`/`11434`/`qwen3.5:4b`）
-- **TTS Mod**：`crates/live2d-ai-mod-local-tts/src/lib.rs`（默认 `kokoroi-rs`/`8000`/`af_heart`）
+- **TTS（核心链路，不是 Mod）**：`live2d-ai.toml` 的 `[tts]` 段 →
+  `crates/live2d-ai-runtime/src/settings.rs` → `runtime/src/conversation/worker.rs`。
+  论证见 `docs/architecture/tts-is-core.md`。
 - **Mod 注册中心**：`crates/live2d-ai-mod-system/src/lib.rs`
 - **Mod 管理 API**：`crates/live2d-ai-desktop/src/web_api/mods_routes.rs`
   - `POST /api/v1/mods/{id}/{action}`（action ∈ enable/disable/restart）

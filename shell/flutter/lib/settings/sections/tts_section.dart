@@ -1,12 +1,17 @@
 /// 「语音合成」分区（规格 §4.1.4）。
 ///
-/// # 三个容易写错的地方（逐条对照规格）
+/// # 四个容易写错的地方（逐条对照规格）
 ///
 /// 1. **「服务端静音」是只读状态**，绝不能做成第二个开关——
 ///    否则「我能听到」与「有没有声音被生产出来」两个轴会被同一个词命名。
 /// 2. `response_format` **不在 view 也不在 patch 里** → UI 上**不存在**这个控件。
 ///    不要「顺手加一个」。
 /// 3. 测试端点**不合成音频**（只做连通性），所以文案**不能**写成「试听」。
+/// 4. **TTS 不在 Mod 里**（2026-09-11 用户裁决）：它是核心链路
+///    （LLM → TTS → 口型），这里的 `base_url` 就是**唯一权威来源**。
+///    界面上**不要**再出现「本地 TTS Mod / 启用本地语音」这类说法——
+///    那会让人以为还有第二个开关能决定会不会出声。
+///    论证见 `docs/architecture/tts-is-core.md`。
 library;
 
 import 'package:flutter/material.dart';
@@ -49,7 +54,8 @@ class TtsSection extends StatelessWidget {
       children: <Widget>[
         const SectionHeader(
           title: '语音合成',
-          description: 'TTS 上游与音色。合成按**整句**进行，不做句中切分。',
+          description: 'TTS 上游与音色。合成按**整句**进行，不做句中切分。'
+              '这里是语音链路的**唯一权威配置**——TTS 是核心链路，不是 Mod。',
         ),
         TextFieldRow(
           label: '服务地址（base_url）',

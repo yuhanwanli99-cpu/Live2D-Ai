@@ -83,7 +83,8 @@ Rust 重构（`crates/`）是**唯一实现主线**；模型与形象的接入�
 
 ### Mod 系统（live2d-ai-mod-system）
 - **trait 注册中心**：`ModFactory` / `ModRuntime` + `ModRegistrar`
-- **实态**：5 个 Mod 已编译进二进制，`/api/v1/mods` 支持 enable/disable/restart；
+- **实态**：4 个 Mod 已编译进二进制，`/api/v1/mods` 支持 enable/disable/restart；
+  **TTS 不是 Mod**（核心链路，端点由 `live2d-ai.toml` 的 `[tts]` 段决定，见 `docs/architecture/tts-is-core.md`）
   设置抽屉第 8 组为 Mod 管理，运行时开关 + 失败隔离
 - 静态编译组合 + enable/disable + restart + reload_config + 状态机（Disabled/Starting/Running/Failed/Stopping）
 - 事件有界 channel + 独立 worker（Mod 失败不影响主链路）
@@ -169,7 +170,7 @@ xtask                 工程工具（Rust 占比统计）
 
 ### Mod 边界
 ```
-主仓库核心链路 ←── live2d-ai-mod-system trait 接口 ──→ 5 个 Mod（workspace crate，已编译进二进制）
+主仓库核心链路 ←── live2d-ai-mod-system trait 接口 ──→ 4 个 Mod（workspace crate，已编译进二进制）
                      │                                      │
                      │ ModContext: trigger_action/say/on_event │
                      │            /register_settings/...      │

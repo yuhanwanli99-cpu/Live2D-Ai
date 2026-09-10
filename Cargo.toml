@@ -15,7 +15,6 @@ members = [
     "crates/live2d-ai-mod-director",
     "crates/live2d-ai-mod-pet-desktop",
     "crates/live2d-ai-mod-local-llm",
-    "crates/live2d-ai-mod-local-tts",
     "xtask",
 ]
 

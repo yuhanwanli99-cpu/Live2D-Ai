@@ -496,23 +496,24 @@ fn mods_manifest_for_web() -> serde_json::Value {
 
 /// 内建缺省 Mod manifest（`mods.json` 缺失时使用；M1 修复）。
 ///
-/// 启用两个「OpenAI 兼容端点适配器」Mod，且 `externally_managed=true`：
-/// **只探活 + 写 `base_url`，绝不 spawn 子进程**。用户自带的
-/// LLM（缺省 `127.0.0.1:11434`）与 TTS（缺省 `127.0.0.1:8080`，CosyVoice 3）
-/// 一旦就绪，即自动写入 settings 并 `supervisor.reload()`。
+/// 启用「OpenAI 兼容端点适配器」Mod，且 `externally_managed=true`：
+/// **只探活 + 写 `base_url`，绝不 spawn 子进程**。用户自带的 LLM
+/// （缺省 `127.0.0.1:11434`）一旦就绪，即自动写入 settings 并
+/// `supervisor.reload()`。探测不到只是「未就绪」日志（15s 超时），不影响主链路。
 ///
-/// 探测不到只是「未就绪」日志（15s 超时），不影响主链路；
-/// TTS 完全未配置时引擎走「空句」路径（只出文本）。
+/// # 为什么缺省里**没有** TTS（2026-09-11 用户裁决）
+///
+/// 语音合成是**核心链路**（LLM → TTS → 口型），不是可选扩展。
+/// 它的端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段
+/// （`base_url` / `voice` / `response_format` / `sample_rate` / `channels`），
+/// 由 `live2d-ai-runtime` 直接读取并调用——**没有 Mod 夹在中间**。
+/// 详细论证见 `docs/architecture/tts-is-core.md`。
 fn default_mods_manifest() -> serde_json::Value {
     serde_json::json!({
         "mods": {
             "local-llm": {
                 "enabled": true,
                 "config": { "externally_managed": true, "port": 11434 }
-            },
-            "local-tts": {
-                "enabled": true,
-                "config": { "externally_managed": true, "port": 8080 }
             }
         }
     })
@@ -553,20 +554,26 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// M1（2026-09-10）：无 `mods.json` 时内建缺省启用两个端点适配器 Mod，
-    /// 且均为 `externally_managed=true`（只探活、不 spawn）。
-    /// TTS 缺省端口对准 CosyVoice 3 的 OpenAI 兼容层（8080）。
+    /// M1（2026-09-10）：无 `mods.json` 时内建缺省启用端点适配器 Mod，
+    /// 且为 `externally_managed=true`（只探活、不 spawn）。
+    ///
+    /// 2026-09-11：**TTS 已从 Mod 系统移出**（语音合成是核心链路，不是扩展），
+    /// 所以缺省里只剩 `local-llm`。这条断言同时守住「别再把它加回来」。
     #[test]
-    fn default_mods_manifest_enables_local_adapters() {
+    fn default_mods_manifest_enables_local_llm_only() {
         let m = default_mods_manifest();
-        for id in ["local-llm", "local-tts"] {
-            assert_eq!(m["mods"][id]["enabled"], true, "{id} 应默认启用");
-            assert_eq!(
-                m["mods"][id]["config"]["externally_managed"], true,
-                "{id} 应默认外部管理（不 spawn）"
-            );
-        }
+        assert_eq!(
+            m["mods"]["local-llm"]["enabled"], true,
+            "local-llm 应默认启用"
+        );
+        assert_eq!(
+            m["mods"]["local-llm"]["config"]["externally_managed"], true,
+            "local-llm 应默认外部管理（不 spawn）"
+        );
         assert_eq!(m["mods"]["local-llm"]["config"]["port"], 11434);
-        assert_eq!(m["mods"]["local-tts"]["config"]["port"], 8080);
+        assert!(
+            m["mods"].get("local-tts").is_none(),
+            "TTS 是核心链路（live2d-ai.toml 的 [tts]），不该再以 Mod 形式出现"
+        );
     }
 }

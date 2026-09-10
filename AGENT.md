@@ -44,12 +44,12 @@
 │   ├── l2d-wasm-demo       Web 渲染核心         │
 │   ├── live2d-ai-mod-system  Mod trait/注册中心  │
 │   ├── …-mod-external-input/director/pet-desktop│
-│   ├── …-mod-local-llm / -local-tts              │
+│   ├── …-mod-local-llm                          │
 │   └── xtask（根目录）      工程工具（Rust 占比）    │
 └─────────────────────────────────────────────┘
 ```
 
-**Mod 边界**：增强能力（外部事件接入 / 动作编排 / 桌宠窗口 / 本地 LLM / 本地 TTS）均为 workspace crate，
+**Mod 边界**：增强能力（外部事件接入 / 动作编排 / 桌宠窗口 / 本地 LLM）均为 workspace crate，
 经 `live2d-ai-mod-system` trait 注册，默认不启用；失败不影响核心链路。
 
 ---

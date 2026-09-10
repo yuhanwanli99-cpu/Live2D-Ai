@@ -57,7 +57,6 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     &live2d_ai_mod_director::FACTORY,
     &live2d_ai_mod_pet_desktop::FACTORY,
     &live2d_ai_mod_local_llm::FACTORY,
-    &live2d_ai_mod_local_tts::FACTORY,
 ];
 
 mod repl;
@@ -418,11 +417,11 @@ mod tests {
     }
 
     #[test]
-    fn mod_count_is_five() {
+    fn mod_count_is_four() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            5,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 5 Mod factories (external-input, director, pet-desktop, local-llm, local-tts)"
+            4,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 4 Mod factories (external-input, director, pet-desktop, local-llm)"
         );
     }
 
@@ -434,13 +433,7 @@ mod tests {
             .collect();
         ids.sort();
 
-        let mut expected = vec![
-            "external-input",
-            "director",
-            "pet-desktop",
-            "local-llm",
-            "local-tts",
-        ];
+        let mut expected = vec!["external-input", "director", "pet-desktop", "local-llm"];
         expected.sort();
 
         assert_eq!(

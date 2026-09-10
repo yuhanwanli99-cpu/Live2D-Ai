@@ -214,7 +214,7 @@
       <section data-p="mods" class="settings-section">
         <h3 class="sec-title">Mod 管理</h3>
         <p class="sec-desc">静态编译 Mod：启用/禁用/重启为运行时开关；安装新 Mod 需重新构建。</p>
-        <p class="sec-desc">local-llm/local-tts 需本机装有 ollama/kokoroi-rs；启用后自动探测并写入 LLM/TTS 设置。</p>
+        <p class="sec-desc">local-llm 需本机装有 ollama；启用后自动探测并写入 LLM 设置。TTS 不在 Mod 里——它是核心链路，端点由 live2d-ai.toml 的 [tts] 段决定。</p>
         <div id="modsList" class="mods-list"><span class="field-meta">（加载中…）</span></div>
       </section>
 

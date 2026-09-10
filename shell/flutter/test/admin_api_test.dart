@@ -15,12 +15,15 @@ import 'package:live2d_ai_shell/ui/error_banner.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// 全部夹具都是**真实抓包**（本机 v0.4.8，2026-09-10）。
+///
+/// 2026-09-11 修订：`local-tts` 已从 Mod 系统移出（语音合成是核心链路），
+/// 所以 Mod 夹具改用 `local-llm` 承担「运行中」那条断言。字段形状不变。
 const String kRealModelsJson = '{"models":[]}';
 
 const String kRealModsJson = '''
 {"mods":[{"api_version":1,"enabled":false,"id":"director","name":"动作编排",
 "status":"disabled","version":"0.1.0"},
-{"api_version":1,"enabled":true,"id":"local-tts","name":"本地语音合成",
+{"api_version":1,"enabled":true,"id":"local-llm","name":"本地大模型",
 "status":"running","version":"0.1.0"}]}
 ''';
 
@@ -149,7 +152,7 @@ void main() {
   });
 
   group('ModsApi', () {
-    test('真实列表：5 个 Mod，状态文字两两可辨', () async {
+    test('真实列表：夹具两个 Mod，状态文字两两可辨', () async {
       final ModsApi api = ModsApi(
         base: 'http://x',
         client: MockClient((_) async => jsonResponse(kRealModsJson, 200)),
@@ -159,7 +162,7 @@ void main() {
       expect(mods[0].id, 'director');
       expect(mods[0].enabled, isFalse);
       expect(mods[0].statusLabel, '已停用');
-      expect(mods[1].id, 'local-tts');
+      expect(mods[1].id, 'local-llm');
       expect(mods[1].isRunning, isTrue);
       expect(mods[1].statusLabel, '运行中');
     });
@@ -196,11 +199,11 @@ void main() {
           return jsonResponse('{}', 200);
         }),
       );
-      await api.setEnabled('local-tts', true);
-      await api.setEnabled('local-tts', false);
+      await api.setEnabled('local-llm', true);
+      await api.setEnabled('local-llm', false);
       expect(paths, <String>[
-        '/api/v1/mods/local-tts/enable',
-        '/api/v1/mods/local-tts/disable',
+        '/api/v1/mods/local-llm/enable',
+        '/api/v1/mods/local-llm/disable',
       ]);
     });
   });

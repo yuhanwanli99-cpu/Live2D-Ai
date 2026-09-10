@@ -14,7 +14,10 @@
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （远端 `android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  5 个 Mod（external-input / pet-desktop / director / local-llm / local-tts）为 workspace crate，默认不启用。
+  4 个 Mod（external-input / pet-desktop / director / local-llm）为 workspace crate，默认不启用。
+- **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
+  （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
+  见 `docs/architecture/tts-is-core.md`。
 
 ## 分层与技术栈（**双主导**）
 
