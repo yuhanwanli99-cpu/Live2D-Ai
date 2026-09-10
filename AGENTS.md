@@ -98,6 +98,15 @@
 
 ## 变更历史
 
+- **2026-09-11（v0.5.0）**：用户裁定「**只核心链路做丰满即可**」+「前端 ui 很 ai 化同质」。
+  据此**先删后改**：动作手动触发移出成品（只留分支 `archive/action-trigger-p5`
+  与 `docs/design/web-action-trigger-archive.md`）；清掉没有功能的占位 UI；
+  **本地 TTS 从 Mod 提升为核心链路**（`docs/architecture/tts-is-core.md`，
+  Mod 5 → 4）；新增**黑/白/蓝/灰四套配色**（主题住本地偏好，点一下立刻生效）；
+  舞台改**纯色底**（协议新增 `sync.stageColor`，由渲染面写——iframe 内 canvas
+  会盖住父页画的底色）+ 可选用户展台图；新增**组件外观统一层**
+  `buildAppComponents`（elevation 全 0、圆角/字级统一）与「**发送 = 圆形上箭头**」
+  「**尽量少用图片，用文字做按钮**」两条形状约定（`test/visual_language_test.dart`）。
 - **2026-09-10（v0.4.4 / v0.4.5）**：确立前端**离线可用**的两条硬约束——
   构建必须带 `--no-web-resources-cdn`（否则 CanvasKit 走 Google CDN，断网白屏）；
   中文字体必须自托管（否则断网豆腐块）。两者都是「有网时看不出来」的缺陷。

@@ -1,3 +1,90 @@
+# v0.5.0 — 边界收窄 + 四色主题 + 去「AI 味」（前端 553 → 590）
+
+用户对这一轮的裁决可以概括成两句话：**「为什么要多做，只核心链路做丰满即可」**
+和 **「整个前端 ui 很 ai 化同质，看起来不舒服」**。
+所以这一版**先删后改**：把没被要求的系统移出成品，再把留下的东西做扎实。
+
+## 1. 动作手动触发移出成品（前端 553 → 507）
+
+用户裁决：「动作触发本轮不需要做……只在 git 记录和文档中标注本轮曾尝试接线，
+**只在 git 历史或者分支实现**，并比较僵硬，后期接入需先优化动作，
+同时参考 py 的实现。」
+
+- 删 `actions/action_dispatch.dart`、`ui/action_grid.dart`、`ActionToolbar`、
+  外壳的 `stageToolbar` 槽位、`CommandsApi.invoke` 与 `CommandInvokeResult`
+- **下行通道完好**：`action_state` → 渲染面 `action-state`（P5 之前完全缺失的
+  那一环）照旧工作，AI/规则触发的动作仍然会让模型动
+- 存档：分支 `archive/action-trigger-p5`（含 46 条测试）+
+  `docs/design/web-action-trigger-archive.md`（撤掉的原因、精确清单、
+  再接入的 4 条前置条件、py 时代排版参考、**六条实测协议坑**）
+
+## 2. 清掉没有功能的占位 UI
+
+用户点名「热重载等有些 ui 占位但是完全没对应功能实现」。
+
+- `DeveloperSection`「还没接上的高级项」：三行写着「待定/做不到」的备忘 → 删
+- `SettingsPendingPane`：「X 还没接上」在生产路径**不可达** → 删，
+  `AppShell.sectionBuilder` 改成**必需**参数，让「没内容」在编译期报错
+- `wiring_test.dart` 的 `ActionDispatch` 守卫、时长豁免表里的 `action_dispatch.dart`
+  一并移除（**豁免表只许变小**）
+
+## 3. 本地 TTS 从 Mod 提升为核心链路（Rust）
+
+用户裁决：「tts 本地从 mod 删除。明确本地 tts 唯一权威核心链路。这个升级。」
+
+- 删整个 `crates/live2d-ai-mod-local-tts`；`AVAILABLE_MOD_FACTORIES` 5 → 4
+- 端点唯一权威来源 = `live2d-ai.toml` 的 `[tts]` 段（`.toml` 里本来就有）
+- 论证：`docs/architecture/tts-is-core.md`（TTS 在链路**中间**，不是旁边的扩展；
+  Mod 做的只是「探活后改写已经权威的配置」；`externally_managed=true` 下它连
+  子进程都不 spawn）
+- 保留 `local-llm`，与 TTS 的不对称**显式记录**为已知项
+
+## 4. 黑 / 白 / 蓝 / 灰四套配色（前端 507 → 569）
+
+- `AppThemeId`（`design/theme_id.dart`，**零 import**：`DisplayPrefs` 要依赖它）
+- `AppPalette`：从 `const` 颜色表 → `ThemeExtension`（4 套取值）
+- `ThemePickerField`：**每个色块用它自己那套配色画自己**，点之前就看得见结果
+- 主题住本地偏好（点一下立刻生效、没有保存按钮）；首选项因此从 `ShellRoot`
+  **上提到 `MaterialApp` 的父级**，否则主题作用不到 `MaterialApp` 上
+- **对比度逐主题断言**（WCAG，不是肉眼）：正文/次要文本 ≥ 4.5、
+  焦点环 ≥ 3.0、危险色 ≥ 4.5 …——这类改动最典型的翻车是把 dark-only 的
+  `#FF6B6B` 搬到白底（只有 2.5:1）
+
+## 5. 舞台：纯色底 + 可导入展台图
+
+用户裁决：「舞台背影全黑/全白即可，中央不要放舞台贴图，或者支持用户自定义
+图片导入展台。」
+
+- 协议新增 `sync.stageColor`（**向后兼容**）。必须由渲染面写：舞台是 iframe，
+  它内部 canvas 自带不透明背景，会盖住父页画的任何底色
+- 渲染面 `normalize_stage_color` **严格校验**（只认 `#RGB`/`#RRGGBB`），
+  因为 `/render` 是独立页面、且这个值会进 `setProperty`——13 个注入样本作测试
+- 三段式叠放：canvas `background-color`（主题纯色）→ canvas `background-image`
+  （用户导入的图，cover）⇒「纯色舞台」与「自定义展台图」不是二选一
+- 成品里**没有任何内置舞台图形**（「中央不要放贴图」）
+- 大图（> 1.5 M 字符）**只在本次会话生效**，UI 用警告色如实说明；
+  刻意不做 canvas 缩放（只能在浏览器跑、`flutter test` 覆盖不到）
+
+## 6. 去「AI 味」：组件外观统一层 + 文字化按钮（前端 569 → 590）
+
+- `buildAppComponents()`：elevation 全部 0、surface tint 全部透明、
+  圆角统一取 `AppRadius`、按钮文字统一 `labelLarge`、输入框改填色无边框
+- **发送 = 圆形 + 上箭头**（用户点名），思考/说话中同位置变圆形停止键
+- **文字优先**：设置入口是「设置」二字；左侧导航改自绘 `SectionRail`
+  （一档 168 px 纯文字，`NavigationRail` 的两档形态失去前提）；
+  本机静音是「静音/已静音」文字按钮；分区 chip 去掉 avatar 图标
+- 顺带修掉一处回归：`primaryContainer` 与助手气泡同色导致**两种气泡一样**
+  → 新增 `bubbleUser` / `bubbleAssistant`
+- `test/visual_language_test.dart`（12 条）把这三条形状约定钉死
+
+## 门禁
+
+`cargo fmt` 干净 / `clippy -D warnings` 干净 / **Rust 808 通过 0 失败**
+（-7 = 删掉的 Mod crate 测试）/ doctest 3 / `rust-ratio` **95.5% PASS**；
+`flutter analyze` 无问题 / **590 通过 0 失败**。
+
+---
+
 # v0.4.13 — 交付核对抓出三处「写好了但点不到」（前端 542 → 553）
 
 收尾时换了个办法核对交付：**在构建产物 `main.dart.js` 里搜每个阶段的特征字符串**

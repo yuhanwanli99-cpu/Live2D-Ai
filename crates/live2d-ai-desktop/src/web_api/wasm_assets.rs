@@ -26,6 +26,18 @@ use tiny_http::{Method, Response, StatusCode};
 ///
 /// `hash` 是 trunk 产物的 hash（形如 `3f6a9add9989bde5`），从 `dist/`
 /// 目录扫描得到（`*_bg.wasm` 文件名前缀）。
+///
+/// # 状态栏默认**不显示**（2026-09-11）
+///
+/// 用户裁决「舞台背影全黑/全白即可，中央不要放舞台贴图」。
+/// 这条状态栏是一块压在整个舞台底部的深色横条——它是**调试指标**，
+/// 而产品界面里的加载进度 / FPS / 错误都由 Flutter 壳自己画
+/// （`StageHost` 的覆盖层 + `Live2DStage` 的角标），所以它对用户是纯噪声。
+///
+/// 想说清楚的是：它此前**不是**布局问题（早已是 `position:absolute` 覆盖层），
+/// 而是**可见性问题**——不管怎么排，它都画在舞台上。
+/// 现在改成只在 `?hud=1` 时出现；`/render` 仍然可以单独打开来调试
+/// （`http://127.0.0.1:18080/render?hud=1`）。
 pub fn render_html(hash: &str) -> String {
     format!(
         r#"<!doctype html>
@@ -36,20 +48,31 @@ pub fn render_html(hash: &str) -> String {
 <title>Live2D-Ai · 模型渲染</title>
 <style>
  :root {{ color-scheme: dark; }}
- html,body {{ margin:0;height:100%;background:#101418;color:#d7dde3;font-family:system-ui,sans-serif; }}
- /* #stage 铺满画布；#status 改为**覆盖层**：
+ html,body {{ margin:0;height:100%;background:#101418;color:#d7dde3;font-family:system-ui,sans-serif;overflow:hidden; }}
+ /* #stage 铺满画布；#status 是**覆盖层**：
     否则 #status 文案变长会挤压 canvas 的 CSS 高度，而窗口尺寸未变不触发 resize，
     canvas 位图与显示盒宽高比不一致 → 浏览器非等比拉伸 → 模型被压矮（2026-09-10 实测）。 */
  #stage {{ position:absolute;inset:0; }}
  canvas {{ width:100%;height:100%;display:block; }}
- #status {{ position:absolute;left:0;right:0;bottom:0;margin:0;padding:6px 8px;
-            font-size:12px;white-space:pre-wrap;max-height:40%;overflow:auto;
-            background:rgba(16,20,24,.72); }}
+ /* 默认 display:none。要看它：地址后加 `?hud=1`（见 body 上的内联脚本）。
+    左下角小片 + 半透明底：它现在压在任何主题色的舞台上，
+    纯色文字在浅色主题上会读不出来。 */
+ #status {{ display:none;position:absolute;left:8px;bottom:8px;margin:0;padding:4px 8px;
+            max-width:calc(100% - 16px);max-height:40%;overflow:auto;
+            font-family:ui-monospace,"SF Mono","Courier New",monospace;
+            font-size:12px;white-space:pre;word-break:keep-all;
+            color:#9fd0a0;background:rgba(10,12,16,.72);
+            border:1px solid #2a323b;border-radius:6px;pointer-events:none; }}
+ body.hud #status {{ display:block; }}
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="canvas"></canvas></div>
 <pre id="status">初始化中…</pre>
+<script>
+ /* 只在 `?hud=1` 时显示状态栏。内联，不引任何依赖。 */
+ if (location.search.indexOf('hud=1') >= 0) {{ document.body.classList.add('hud'); }}
+</script>
 <script type="module">
 import init from '/render/l2d-wasm-demo-{hash}.js';
 await init({{ module_or_path: '/render/l2d-wasm-demo-{hash}_bg.wasm' }});
@@ -103,7 +126,18 @@ pub fn normalize_rel(rel: &str) -> Result<String, String> {
 /// 处理 `/models/*` 与 `/render*` 的静态资产请求。
 ///
 /// 返回 `Some(response)` 表示已处理；`None` 表示非本模块路径（caller 继续 dispatch）。
+///
+/// # 查询串在**匹配前**被剥掉（2026-09-11）
+///
+/// `tiny_http` 的 `request.url()` **带查询串**，而全仓库的路由都是精确匹配 ——
+/// 于是 `/render?hud=1` 会落到 404。HUD 开关恰好是查询串（`?hud=1`），
+/// 所以这里按 `?` 切开再做前缀匹配。**只影响匹配，不影响读盘**：
+/// `normalize_rel` 本来就拒绝 `?`，剥掉之后语义更干净。
+///
+/// 没有顺手改全局 dispatch：那会动到所有 API 路由的匹配语义，
+/// 属于「为了让一行能用而改公共面」。
 pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
+    let path: &str = path.split('?').next().unwrap_or(path);
     if *method != Method::Get {
         // 非 GET：若是我们的路径前缀回 405，否则交给 dispatch（可能 404）。
         if path.starts_with("/models/") || path.starts_with("/render") {
@@ -275,6 +309,54 @@ mod tests {
         assert!(html.contains("/render/l2d-wasm-demo-abc123.js"));
         assert!(html.contains("/render/l2d-wasm-demo-abc123_bg.wasm"));
         assert!(html.contains("id=\"canvas\""));
+    }
+
+    /// 状态栏**默认不可见**（2026-09-11 用户裁决「舞台背影全黑/全白即可」）。
+    ///
+    /// 这条守的是「舞台底部不会出现一块深色横条」：`#status` 的样式里必须有
+    /// `display:none`，且只有 `body.hud` 才把它打开——而 `body.hud` 只在
+    /// `?hud=1` 时由内联脚本加上。
+    #[test]
+    fn render_html_hides_hud_unless_explicitly_requested() {
+        let html = render_html("abc123");
+        assert!(
+            html.contains("#status { display:none;"),
+            "#status 必须默认隐藏，否则舞台底部会有一条深色横条"
+        );
+        assert!(
+            html.contains("body.hud #status { display:block; }"),
+            "必须保留 `?hud=1` 这条调试入口"
+        );
+        assert!(
+            html.contains("hud=1"),
+            "缺少开启 HUD 的判据（内联脚本读 location.search）"
+        );
+        // 舞台本体必须铺满整个 iframe（不能有布局边）。
+        assert!(html.contains("#stage { position:absolute;inset:0; }"));
+    }
+
+    /// `?hud=1` 必须能路由到 `/render`（查询串在匹配前剥掉）。
+    ///
+    /// 这条不是「顺便测一下」：HUD 开关**就是**查询串，
+    /// 而全仓库的路由都是精确匹配——不剥就会 404，HUD 永远打不开。
+    #[test]
+    fn render_route_matches_with_query_string() {
+        // 不带查询串：归本模块管。
+        let plain = handle_assets(&Method::Get, "/render").expect("应处理 /render");
+        // 带查询串：**同样归本模块管**（否则 `?hud=1` 会 404）。
+        let query = handle_assets(&Method::Get, "/render?hud=1").expect("应处理 /render?hud=1");
+        // 不断言 200：`dist/` 是构建产物，测试环境里可能还没 trunk build，
+        // 那时回 503 `wasm_unavailable` 是**正确**行为。
+        // 真正要守的是「查询串不改变路由结果」——把两种写法直接对比。
+        assert_eq!(
+            plain.status_code().0,
+            query.status_code().0,
+            "带不带 `?hud=1` 必须命中同一条路由"
+        );
+        assert_ne!(plain.status_code().0, 404, "`/render` 不该是 404");
+        // 别的路径仍然不归本模块管（不能因为剥了 `?` 就把任意路径都吃掉）。
+        assert!(handle_assets(&Method::Get, "/api/v1/settings?x=1").is_none());
+        assert!(handle_assets(&Method::Get, "/renderx").is_none());
     }
 
     #[test]
