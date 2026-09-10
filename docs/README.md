@@ -6,6 +6,7 @@
 
 - [架构总览](architecture/ARCHITECTURE.md)
 - [核心契约与架构边界](architecture/core-contracts.md)
+- [**CosyVoice 3 TTS 接入（2026-09-10，能力就绪/未部署）**](architecture/cosyvoice3-tts-integration.md)
 - [渲染纹理 / 离屏靶标档位 ADR（4096/8192/16384）](architecture/renderer-texture-tier-adr.md)
 - [PC 无预设半身联动实现](architecture/pc-presetfree-halfbody-control.md)
 - [目录约定](architecture/directory.md)
@@ -20,7 +21,10 @@
 
 ## 规划
 
-- [**Rust 重建 RFC（当前执行口径）**](plans/RUST-REWRITE-RFC.md)
+- [**交接说明（2026-09-10）：核心链路闭环 + 音频「很吵」修复**](plans/HANDOFF-2026-09-10.md)
+  ——接手先读本文：运行环境、门禁、后续待办、9 条关键陷阱、未提交清单
+- [**点火计划：核心链路闭环 + 本地 Mod（2026-09-10，当前执行口径）**](plans/PLAN-ignition-core-loop-2026-09-10.md)
+- [**Rust 重建 RFC**](plans/RUST-REWRITE-RFC.md)
 - [**未来路线图（2026-09，P0 滚项/外部验收/后续）**](plans/future-roadmap-2026-09.md)
 - [**接手修复与渲染档位计划（2026-09-07，S1/S2 完成）**](plans/integrity-takeover-fix-plan-2026-09-07.md)
 - [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](plans/node-a-wiring-audit-brief.md)
@@ -41,10 +45,15 @@
 - [Neuro-sama 架构](research/NeuroSama-architecture-research.md)
 - [N.E.K.O / Live2D 调研](research/NEURO_LIVE2D_RESEARCH.md)
 - [TTS 调研](research/tts-research-report.md)
+- [Flutter × Live2D 开源实现调研（2026-09，渲染面/消息桥/许可）](research/flutter-live2d-implementations-2026-09.md)
 - [许可报告](research/license-report.md)
 
 ## 验收与验证
 
+- [**点火自测清单（核心链路闭环，2026-09-10）**](verification/ignition-core-loop.md)
+- [**浏览器音频「很吵的杂音」根因与修复（2026-09-10）**](verification/audio-playback-noise-2026-09-10.md)
+  ——播放时间轴被分片起始标记重置，实测最多 17 个音源同时发声（重叠 529 对）；
+  修复后 0 重叠、最大同时发声 1
 - [冒烟测试清单](verification/smoke-checklist.md)
 - [桌面端验证](verification/verification-win.md)
 - [Rust Bakeoff 选型决策：Ayagami vs Mocari](verification/rust-bakeoff-decision.md)

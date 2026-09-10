@@ -2,8 +2,8 @@
 #
 # 用法：
 #   cp live2d-ai.toml.example live2d-ai.toml
-# 然后按需修改。所有段与字段都有默认值：最小可用配置只需
-# [llm] base_url/model 与 [tts] base_url。
+# 然后按需修改。所有段与字段都有默认值：本轮最小可用配置只需
+# [llm] base_url/model（TTS 选型待定，见下方 [tts] 注释）。
 #
 # 安全边界：
 #   API Key 不写进本文件——在 api_key_env 写环境变量**名**，
@@ -19,18 +19,30 @@ model = "qwen2.5:7b"
 # 存放 API key 的环境变量名；本地无鉴权服务直接删除此行
 # api_key_env = "LIVE2D_AI_LLM_API_KEY"
 
+# CosyVoice 3（2026-09-10 选定）—— OpenAI 兼容层。
+#
+# 推荐形态：社区 CosyVoice3-API（:8080），一条命令起服务：
+#   docker run -d --gpus all --shm-size=2g -p 8080:8080 \
+#     ghcr.io/hsiang-han/cosyvoice3-api:latest
+# CosyVoice3 **没有内置音色**，必须先注册一个克隆音色（zero-shot，需参考音频）。
+# 端点以**实际部署**为准——先探明再写配置（2026-09-10 实测本机部署）：
+#   curl -s http://127.0.0.1:8080/openapi.json     # 列出真实路径
+#   curl -s http://127.0.0.1:8080/v1/audio/voices  # 列出已注册音色 id
 [tts]
-# OpenAI-compatible 服务基址，请求路径 <base_url>/audio/speech
-base_url = "http://127.0.0.1:8000/v1"
-# 可选模型名；删除此行则请求体不带 model 字段（由服务端默认决定）
-# model = "tts-1"
-# 音色（请求体 voice 字段）
-voice = "alloy"
-# 存放 API key 的环境变量名；本地无鉴权服务直接删除此行
+base_url = "http://127.0.0.1:8080/v1"
+# 已注册的克隆音色 id（上一步列出的 id 之一）
+voice = "my_voice"
+# 响应格式。**必须与服务端实际返回一致**（填错会被 400 拒绝，或按错容器解析出杂音）：
+#   "pcm" = 裸 s16le 交错流（CosyVoice3-API 实测只支持这个）
+#   "wav" = RIFF 容器（服务端返回 WAV 时用；本项目会整段缓冲后再解析）
+# 2026-09-10 实测：本机 CosyVoice3-API 对 wav/mp3/opus/flac 一律 400，只有 pcm 可用。
+response_format = "pcm"
+# CosyVoice3 输出 24 kHz 单声道
+sample_rate = 24000
+channels = 1
+# 可选：模型名 / 密钥环境变量名
+# model = "cosyvoice3"
 # api_key_env = "LIVE2D_AI_TTS_API_KEY"
-# 返回 raw PCM 流的解释规格（response_format 固定请求 pcm = s16le interleaved）
-# sample_rate = 24000
-# channels = 1
 
 [persona]
 # 角色名称（酒馆卡 name；空 = 未设置，不注入）。
@@ -38,6 +50,6 @@ name = ""
 # 角色描述（identity · background；空 = 未设置，不注入）。
 description = ""
 # 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息
-system_prompt = "你是桌面上的 Live2D 桌宠。用简短、口语化的中文回答；动作只通过工具触发。"
+system_prompt = "你是桌面上的 Live2D 桌宠。用简短、口语化的中文回答。若需要配合动作，再额外调用 live2d_perform_action；**必须先输出文字回复，禁止只调用工具而不说话**。"
 # 保留的历史轮数上限（一轮 = 一条 user + 一条 assistant）；0 = 每轮独立
 max_history_pairs = 0
