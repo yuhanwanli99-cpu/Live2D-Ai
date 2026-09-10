@@ -78,9 +78,8 @@ class DisplayPanel extends StatelessWidget {
             padding: const EdgeInsets.only(left: 32, bottom: 8),
             child: Text(
               '1.00 为标定值；觉得嘴动得太小就调大',
-              style: theme.textTheme.bodySmall?.copyWith(
+              style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
-                fontSize: 11,
               ),
             ),
           ),
@@ -99,9 +98,8 @@ class DisplayPanel extends StatelessWidget {
               padding: const EdgeInsets.only(left: 32, bottom: 8),
               child: Text(
                 '当前已静音——取消静音后按此音量播放',
-                style: theme.textTheme.bodySmall?.copyWith(
+                style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
-                  fontSize: 11,
                 ),
               ),
             ),

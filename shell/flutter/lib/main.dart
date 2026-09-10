@@ -8,6 +8,8 @@ import 'api/api_client.dart';
 import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
+import 'design/breakpoints.dart';
+import 'design/tokens.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
 import 'ui/display_panel.dart';
@@ -197,7 +199,10 @@ class _AppShellState extends State<AppShell> {
           builder: (BuildContext context, Widget? _) {
             return LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
-                final wide = constraints.maxWidth >= 900;
+                final SizeClass sizeClass = Breakpoints.sizeClassOf(
+                  constraints.maxWidth,
+                );
+                final bool wide = sizeClass.hasSideChat;
                 final stage = Live2DStage(
                   key: _stageKey,
                   dark: true,
@@ -246,19 +251,20 @@ class _WsBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final AppColors colors = appColorsOf(context);
     final (String label, Color color) = switch (status) {
-      WsStatus.idle => ('WS 未连接', Colors.grey),
-      WsStatus.connecting => ('WS 连接中', Colors.amber),
-      WsStatus.connected => ('WS 已连接', Colors.greenAccent),
-      WsStatus.disconnected => ('WS 重连中', Colors.orange),
-      WsStatus.closed => ('WS 已关闭', Colors.redAccent),
+      WsStatus.idle => ('WS 未连接', colors.contentFaint),
+      WsStatus.connecting => ('WS 连接中', AppPalette.warning),
+      WsStatus.connected => ('WS 已连接', AppPalette.success),
+      WsStatus.disconnected => ('WS 重连中', AppPalette.warning),
+      WsStatus.closed => ('WS 已关闭', AppPalette.danger),
     };
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Icon(Icons.circle, size: 10, color: color),
-        const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontSize: 12)),
+        const SizedBox(width: Space.s1),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
@@ -291,17 +297,17 @@ class _ChatPanelState extends State<_ChatPanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF10131A),
+      color: AppPalette.chatPanelSurface,
       child: Column(
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: <Widget>[
-                const Expanded(
+                Expanded(
                   child: Text(
                     '对话',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 if (widget.streaming)
@@ -384,13 +390,13 @@ class _EmptyHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(Space.s6),
         child: Text(
           '还没有消息。\n输入文本开始一轮对话。',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white54),
+          style: TextStyle(color: appColorsOf(context).contentFaint),
         ),
       ),
     );
@@ -409,15 +415,15 @@ class _ErrorBanner extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF3A1D1D),
-        borderRadius: BorderRadius.circular(8),
+        color: AppPalette.dangerSurface,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.error_outline, size: 18, color: Colors.redAccent),
+          const Icon(Icons.error_outline, size: 18, color: AppPalette.danger),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(message, style: const TextStyle(fontSize: 12)),
+            child: Text(message, style: Theme.of(context).textTheme.bodySmall),
           ),
           IconButton(
             onPressed: onDismiss,
@@ -449,18 +455,17 @@ class _MessageBubble extends StatelessWidget {
           color: isUser
               ? scheme.primaryContainer
               : (message.failed
-                  ? const Color(0xFF3A1D1D)
-                  : const Color(0xFF1B2030)),
-          borderRadius: BorderRadius.circular(10),
+                  ? AppPalette.dangerSurface
+                  : AppPalette.bubbleAssistant),
+          borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
               isUser ? '你' : '助手',
-              style: TextStyle(
-                fontSize: 11,
-                color: scheme.onSurface.withValues(alpha: 0.6),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: appColorsOf(context).contentFaint,
               ),
             ),
             const SizedBox(height: 4),

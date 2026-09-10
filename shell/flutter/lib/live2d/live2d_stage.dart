@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../design/tokens.dart';
+import '../ui/theme.dart';
 import 'live2d_bridge.dart';
 import 'live2d_host_stub.dart'
     if (dart.library.js_interop) 'live2d_host_web.dart' as host;
@@ -155,7 +157,7 @@ class Live2DStageState extends State<Live2DStage> {
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        const ColoredBox(color: Color(0xFF0B0D12)),
+        const ColoredBox(color: AppPalette.stageBackdrop),
         host.buildLive2DHost(
           key: ValueKey<int>(_generation),
           onTransport: _attach,
@@ -202,8 +204,8 @@ class _StageBadge extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(999),
+            color: appColorsOf(context).glassScrim,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -218,7 +220,7 @@ class _StageBadge extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                 ],
-                Text(label, style: const TextStyle(fontSize: 12)),
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
               ],
             ),
           ),
@@ -242,9 +244,9 @@ class _StageErrorOverlay extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: const Color(0xFF3A1D1D).withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF8A3B3B)),
+            color: AppPalette.dangerSurface.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppPalette.dangerBorder),
           ),
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -252,12 +254,12 @@ class _StageErrorOverlay extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const Text(
+                Text(
                   '渲染面错误',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 6),
-                Text(message, style: const TextStyle(fontSize: 13)),
+                Text(message, style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(height: 10),
                 Align(
                   alignment: Alignment.centerRight,
