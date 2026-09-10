@@ -1400,9 +1400,20 @@ lib/settings/sections/{persona,models,llm,tts,actions,mods,diagnostics,developer
 test/design_tokens_test.dart            test/design_tokens_lint_test.dart
 test/breakpoints_test.dart              test/ui_phase_test.dart
 lib/actions/action_log_controller.dart  lib/api/commands_api.dart（P2 提前）
+lib/api/ws_status.dart                  lib/chat/chat_message.dart
+lib/state/ui_state_tracker.dart         lib/app/nav_host.dart
+lib/ui/settings_scaffold.dart           lib/ui/glass_panel.dart
+lib/ui/section_header.dart              lib/ui/state_pill.dart
+lib/ui/streaming_indicator.dart         lib/ui/audio_bar.dart
+lib/ui/chat_panel.dart                  lib/ui/message_bubble.dart
+lib/ui/connection_badge.dart            lib/ui/error_banner.dart
+lib/ui/stage_host.dart
 test/ws_frame_test.dart                 test/action_history_test.dart
 test/action_event_test.dart             test/action_log_controller_test.dart
 test/action_ui_test.dart                test/commands_api_test.dart
+test/ui_phase_test.dart                 test/ui_state_tracker_test.dart
+test/app_shell_layout_test.dart         test/stage_keepalive_test.dart
+test/audio_bar_test.dart
 test/settings_controller_test.dart      test/app_shell_layout_test.dart
 test/stage_keepalive_test.dart          test/settings_sections_test.dart
 test/semantics_test.dart                test/audio_bar_test.dart
@@ -1734,6 +1745,71 @@ token 的守卫交给 §2.8）。
 未读计数。「AI 自己触发了动作」是个转瞬即逝的信号（演完就没了），日志静静躺在
 弹层里等于没提示——这是 §8.3「三处呈现」第 3 处（舞台小卡）的**最小可用替代**；
 舞台小卡本身仍属 P5。
+
+---
+
+### 13.6 P3 落地时的新增裁决与偏离（2026-09-10）
+
+#### ① 三个纯模型被从 web 依赖后面搬出来
+
+`WsStatus`（原在 `ws_client.dart`）、`ChatMessage`/`ChatRole`（原在
+`chat_controller.dart`）都必须和 `package:web` 待在一起，于是**整个状态呈现层
+在 `flutter test` 里加载不了**——包括 §6.3 那张「色 + 形 + 字 + 节奏」映射表。
+
+→ 抽出 `api/ws_status.dart` 与 `chat/chat_message.dart`（都无 web 依赖），
+原文件 `export` 它们以保持既有 import 不变。**P1 的纪律在 P3 继续执行。**
+
+#### ② 新增 `state/ui_state_tracker.dart`（原清单里没有）
+
+`ui_phase.dart` 是纯函数，但「信号从哪来、什么时候清」同样是逻辑，而且更容易错。
+→ 抽成不碰 `package:web` 的 `UiStateTracker`（只消费已解析的 `WsEvent`/`WsStatus`），
+定时器可注入，于是「打断保持期」可确定性地单测。
+
+**它当场抓出两个真缺陷**：
+- `_cancelInterrupt()` 顺手清了 `_interrupted` 标志，导致 `new_epoch` 分支里刚设上的
+  标志被自己抹掉——「已打断」**一次都显示不出来**；
+- `error` 帧缺 `message` 时，`ws_frame.dart` 用 `?? raw` 退回整帧 JSON，而
+  `message` 是**直接上屏**的字段 → 用户会看到一坨 JSON。
+  现改为 `message` 为空串 + 新增 `raw` 承载整帧原文。
+
+#### ③ `StatePill` 只出现在 AppBar（§6.4「二选一」的落地口径）
+
+§6.4 写「聊天面板头 + 舞台角标（二选一，按断点）」。P3 实现时一度在 AppBar 与
+聊天面板头**各放一个**，测试立刻抓到「同一个相位有两份」——那正是 §6.3 硬规则 1
+要治的病。**统一为 AppBar 一处**（三种断点都在，与 `ConnectionBadge` 并列），
+`ChatPanel` 头部只留设置入口。
+
+#### ④ 内联侧板**不做**「点空白关闭」（诚实记录）
+
+§4.2 写「可 Esc / 点空白关闭」。内联侧板浮在**舞台列**之上，而舞台是 iframe
+平台视图——**平台视图先吃掉指针事件**，铺在下层的点击捕获区拿不到舞台区域的点击。
+能拿到的只有少量 Flutter 绘制的空隙，不足以称为「点空白关闭」。
+实际提供三条关闭路径：**Esc / 侧板右上角 ✕ / 再点一次 rail 上同一个分区**。
+
+#### ⑤ 设置浮层需要一个内部 `ValueNotifier` 才不显示旧内容
+
+`showModalBottomSheet` 的 `builder` **只在路由入栈时构建一次**，之后外壳
+`setState` 不会重建浮层内容。于是「在浮层里点另一个分区」或「刚点 rail 就打开浮层」
+都会显示**旧分区**——用户看到点了没反应。
+→ 外壳内部用 `ValueNotifier<SettingsSection>` 作为导航单点真相（对外仍是
+`section` + `onSectionChanged` 的受控接口，`didUpdateWidget` 同步）。
+
+#### ⑥ P3 只交付**一个**真正可用的分区
+
+8 个分区里只有「动作与互动」有真内容（迁入既有 `DisplayPanel` + P2 的
+`ActionHistoryView`）；其余 7 个用 `SettingsPendingPane` **如实写明「还没接上」**。
+理由：给一个看起来能用但点了没反应的面板，比说「还没做」更糟（同类项目最一致的
+缺陷就是「静默失效」）。7 个分区的 pane 属 P4。
+
+#### ⑦ 新增令牌家族 `AppRhythms`（语义节拍）
+
+思考呼吸（1.4 s）与打断保持（1.2 s）不属于 `AppDurations` 的「UI 过渡 4 档」，
+但**更不该**以裸 `Duration(milliseconds:)` 写在组件里——设计令牌门禁会拦，
+而且两个指示器各写一份就会跑不同步。
+→ 新增 `AppRhythms`（`thinkingBreath` / `interruptedHold`，**登记表 2 项**）。
+`StreamingIndicator` 与 `StatePill` **共用** `thinkingBreath`：两个「思考中」
+指示器同频，看起来是有意为之。（曾有第三个 `streamingDots`，与
+`interruptedHold` 同值 1200 ms，被「同值档位没有信息量」那条令牌规则正确地拦掉了。）
 
 ---
 

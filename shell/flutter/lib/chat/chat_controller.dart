@@ -4,27 +4,11 @@ import 'package:flutter/foundation.dart';
 
 import '../actions/action_log_controller.dart';
 import '../api/api_client.dart';
+import 'chat_message.dart';
+
+export 'chat_message.dart';
 import '../api/ws_client.dart';
 import '../audio/audio_player.dart';
-
-enum ChatRole { user, assistant }
-
-/// 一条聊天消息（assistant 气泡可流式追加）。
-class ChatMessage {
-  ChatMessage({
-    required this.role,
-    this.text = '',
-    this.epoch,
-    this.streaming = false,
-    this.failed = false,
-  });
-
-  final ChatRole role;
-  String text;
-  final int? epoch;
-  bool streaming;
-  bool failed;
-}
 
 /// 聊天状态：消息列表 + 流式拼接 + turn 状态 + 错误提示。
 ///

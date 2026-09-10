@@ -244,10 +244,16 @@ void main() {
       expect(e.message, '上游 401');
     });
 
-    test('`error` 帧缺 message → 退回整帧原文，便于排查', () {
+    test('`error` 帧缺 message → message 为空、原文进 raw（不上屏 JSON）', () {
       final String raw = '{"type":"error","data":{"code":"x"}}';
       final WsErrorEvent e = parseWsFrame(raw)! as WsErrorEvent;
-      expect(e.message, raw);
+      expect(e.code, 'x');
+      expect(
+        e.message,
+        isEmpty,
+        reason: 'message 是直接上屏的字段——绝不能是整帧 JSON',
+      );
+      expect(e.raw, raw, reason: '整帧原文仍要留给诊断');
     });
   });
 

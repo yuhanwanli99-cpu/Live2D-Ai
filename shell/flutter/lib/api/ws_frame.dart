@@ -151,12 +151,23 @@ class WsErrorEvent extends WsEvent {
   const WsErrorEvent({
     required this.code,
     required this.message,
+    this.raw,
     super.seq,
     super.ts,
   });
 
   final String code;
+
+  /// 服务端给的文案。**缺字段时为空串**（不是整帧原文）。
+  ///
+  /// 早先这里 `?? raw`（退回整帧 JSON），本意是「便于排查」，但 `message`
+  /// 是**直接上屏**的字段——用户会看到一坨
+  /// `{"type":"error","data":{"code":"llm_upstream"}}`。
+  /// 整帧原文另有 [raw] 承载，排查照样拿得到。
   final String message;
+
+  /// 整帧原文（诊断用；不直接上屏）。
+  final String? raw;
 }
 
 /// 未识别但合法的帧（前向兼容）。
@@ -274,9 +285,10 @@ WsEvent? parseWsFrame(String raw) {
 
     case 'error':
       return WsErrorEvent(
-        // 缺 message 时退回整帧原文，便于排查。
         code: _str(data['code']) ?? 'error',
-        message: _str(data['message']) ?? raw,
+        // 缺 message = 空串（调用方回落到 code 上屏）；整帧原文进 [raw]。
+        message: _str(data['message']) ?? '',
+        raw: raw,
         seq: seq,
         ts: ts,
       );

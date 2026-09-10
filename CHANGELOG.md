@@ -1,3 +1,85 @@
+# v0.4.8 — P3 外壳骨架：三档布局 + 舞台保活 + 常驻状态元件（前端 217 → 324）
+
+## 缺陷：舞台会被重建
+
+舞台是一个 `<iframe>` 平台视图。**它一旦离开 Widget 树就被销毁**——模型重载、
+口型时间轴清零、当前动作中断。最容易踩的写法是
+`if (compact) Column(...) else Row(...)`：拖动窗口跨过 900 px 时两套结构互换，
+子树被反激活重建，**用户拖一下窗口模型就重载了**。
+
+## 修复：三档共用同一个 `Flex`
+
+三种断点只换 `direction` 与子项宽度，**子树形状不变**；设置是浮层/叠加物，
+永远不替换舞台。`stage_keepalive_test.dart` 用「`initState` 调用次数」把这条钉死：
+
+- 打开/关闭设置侧板 → 1 次
+- **遍历 8 个分区** → 1 次
+- **跨断点改宽度**（1400→1000→500→1400→899→1280）→ 1 次
+- **外壳自己 setState 20 次**（模拟流式 delta）→ 1 次
+
+并配一条**反面测试**：把父结构从 `Row` 换成 `Column` 时 `initState` 真的会再调一次
+——否则上面几条断言全是空的。
+
+## 新增
+
+- `state/ui_phase.dart`（纯函数）+ `state/ui_state_tracker.dart`（可注入定时器）：
+  `error → offline → offline(桥) → interrupted → speaking → thinking → idle`，
+  判定顺序本身是契约，有表驱动测试。**没有 `listening`**（本项目没有输入侧）。
+- `app/app_shell.dart` + `app/nav_host.dart`：`NavigationRail`（expanded 带文字 232 /
+  medium 图标 80）/ compact 抽屉 + 浮层（严格 2 层，不用 `NavigationBar`——
+  8 个分区装不下，5+更多 就是第 3 层）。
+- 常驻元件：`ConnectionBadge`（5 态文字 + 语义，**不靠颜色**）、`StatePill`
+  （色+形+字+节奏）、`StreamingIndicator`、`ErrorBanner`（带「下一步」动作）、
+  `AudioBar`、`ChatPanel`、`MessageBubble`、`StageHost`、`GlassPanel`（**无
+  `BackdropFilter`**）、`SectionHeader`、`SettingsScaffold`。
+- **键盘解锁音频**（规格 §7.6 钉子 9）：`HardwareKeyboard` 全局处理器 + 指针，
+  两条路径都调 `audio.unlock()`。原先只挂 `onPointerDown`，
+  **纯键盘用户永远没有声音**（消息发得出去、嘴在动、但没有声音，界面还不解释）。
+  `AudioBar` 在 `AudioContext` 未 running 时显式提示 + 一个「启用声音」按钮。
+
+## 新增令牌家族 `AppRhythms`
+
+思考呼吸 1.4 s、打断保持 1.2 s 不属于 `AppDurations` 的「UI 过渡 4 档」，
+但更不该以裸 `Duration(milliseconds:)` 写在组件里（门禁会拦）。
+`StatePill` 与 `StreamingIndicator` **共用同一个节拍** → 两个「思考中」指示器同频。
+
+## 测试在实现过程中抓出的**四个真缺陷**
+
+1. **「已打断」一次都显示不出来**：`_cancelInterrupt()` 顺手清了 `_interrupted`，
+   于是 `new_epoch` 分支里刚设上的标志被自己抹掉。相位永远是 `idle`。
+2. **错误提示会显示一坨 JSON**：`error` 帧缺 `message` 时 `ws_frame.dart` 用
+   `?? raw` 退回整帧原文，而 `message` 是**直接上屏**的字段。改为 `message` 空串
+   + 新增 `raw` 承载原文（诊断照样拿得到）。
+3. **整条音频条被合并成一个语义节点**：外层 `Semantics(container: true, label: '音频')`
+   把滑杆、静音开关、徽标、按钮全吃掉，读屏只念「音频 80%」。
+   已去掉该包装，并加测试断言「滑杆节点自身的标签是主音量、值是 80%、仍可调节」。
+4. **同一个相位渲染了两份**：`StatePill` 一度同时出现在 AppBar 与聊天面板头——
+   那正是规格 §6.3 硬规则 1（「同一件事长出两套视觉」）要治的病。统一到 AppBar。
+
+另外三处**静默失效**也被测试拦住：`ChatEmptyState` 在 390 px 下溢出 19 px；
+设置浮层的 `builder` **只在入栈时构建一次**，导致「在浮层里换分区」显示旧内容
+（改用内部 `ValueNotifier` 作导航单点真相）；`Clipping` 之外还有一处
+`Colors.transparent` 裸色字面量、三处裸 `Duration`。
+
+## 一处**诚实记录的偏离**
+
+内联侧板**不做**「点空白关闭」：舞台是 iframe 平台视图，**它先吃掉指针事件**，
+铺在下层的点击捕获区拿不到舞台区域的点击。实际给三条路径：
+**Esc / 侧板 ✕ / 再点一次 rail 上同一个分区**。
+
+## P3 只交付一个真正可用的分区
+
+8 个分区里只有「动作与互动」有真内容（既有 `DisplayPanel` + P2 的动作日志）；
+其余 7 个用 `SettingsPendingPane` **如实写明「还没接上」**——
+给一个看起来能用但点了没反应的面板，比说「还没做」更糟。7 个 pane 属 P4。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **324 通过 / 0 失败**；
+`flutter build web --release --base-href /app/ --no-web-resources-cdn` 通过，
+产物无 CanvasKit CDN 引用、自托管字体随产物分发。
+实测 `127.0.0.1:18080` 上 `/app/main.dart.js` 与磁盘 md5 一致。
+
 # v0.4.7 — `llm.max_tokens`：回复长度靠机制，不靠提示词求模型守规矩（2026-09-10）
 
 ## 为什么要有这个字段

@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:js_interop';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 
 import 'gain.dart';
@@ -209,15 +209,38 @@ class AudioPlayer {
     }
   }
 
+  /// 音频是否**真的**解锁了（`AudioContext.state == 'running'`）。
+  ///
+  /// 浏览器 autoplay 限制下，没有用户手势就没有声音。这个标志让界面能把
+  /// 失败**显式化**（`AudioBar` 的「点击任意位置或按任意键以启用声音」）——
+  /// 否则纯键盘用户会遇到「消息发得出去、嘴在动、但没有声音，且界面不解释」。
+  bool get unlocked => _unlocked;
+  bool _unlocked = false;
+
+  /// 解锁状态变化（界面据此隐藏提示）。
+  final ValueNotifier<bool> unlockState = ValueNotifier<bool>(false);
+
   /// 首次用户手势调用：创建并 resume AudioContext。
   void unlock() {
     final context = _ensureContext();
     if (context == null) return;
     try {
-      context.resume().toDart.ignore();
+      context.resume().toDart.then((_) {
+        if (_disposed) return;
+        // `resume()` 是异步的：**不能**在调用后立刻读 state。
+        _setUnlocked(context.state == 'running');
+      }).catchError((Object _) {
+        // resume 失败：播放降级，但口型仍由 RMS 驱动。
+      });
     } catch (_) {
       // resume 失败：播放降级，但口型仍由 RMS 驱动
     }
+  }
+
+  void _setUnlocked(bool value) {
+    if (_unlocked == value) return;
+    _unlocked = value;
+    unlockState.value = value;
   }
 
   web.AudioContext? _ensureContext() {
@@ -361,6 +384,7 @@ class AudioPlayer {
       }
     }
     _levels.close();
+    unlockState.dispose();
   }
 }
 

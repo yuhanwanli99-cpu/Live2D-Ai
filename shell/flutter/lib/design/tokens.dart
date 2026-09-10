@@ -279,6 +279,38 @@ abstract final class AppRadius {
   // 而且会让「令牌引用」的统计出现两套写法。
 }
 
+/// **语义节拍**：不属于「UI 过渡时长」那 4 档的单点节奏。
+///
+/// 为什么要单独一个家族，而不是塞进 [AppDurations]：
+/// [AppDurations] 的语义是「一次过渡有多快」（hover/pressed/内容切换），
+/// 而这里是「一个持续状态按什么节拍呼吸」。两者混在一起会让
+/// 「4 档」这个约束失去意义（规格 §2.7 的时长阶梯就是 4 档）。
+///
+/// 三者都是**跨组件共享**的：思考呼吸同时被 `StatePill` 与
+/// `StreamingIndicator` 用，如果各自写一个 `Duration(milliseconds: 1400)`，
+/// 改一处忘一处就会让两个指示器不同步（同类项目的经典病）。
+abstract final class AppRhythms {
+  /// 思考态的呼吸周期（规格 §6.3：1.4 s）。
+  ///
+  /// 取值理由：慢到不像「加载转圈」（那会制造焦虑），快到一眼看出是活的。
+  static const Duration thinkingBreath = Duration(milliseconds: 1400);
+
+  /// 「已打断」的保持时长（规格 §6.3 的瞬时状态）。
+  ///
+  /// 长到人眼能读完「已打断」，短到不会和下一轮重叠。
+  static const Duration interruptedHold = Duration(milliseconds: 1200);
+
+  // 刻意**没有**单独的「流式三点周期」：三点跑动与呼吸光表达的是同一件事
+  // （思考中），共用 [thinkingBreath] 让两个指示器**同频**——看起来是有意为之，
+  // 而不是各跑各的。两个同值令牌只会制造「改一处忘一处」的机会。
+
+  /// 登记表（只服务测试）。
+  static const Map<String, Duration> registry = <String, Duration>{
+    'thinkingBreath': thinkingBreath,
+    'interruptedHold': interruptedHold,
+  };
+}
+
 /// 动效时长：4 档，全部具名。
 abstract final class AppDurations {
   /// hover / pressed / 开关 / 徽标切换。

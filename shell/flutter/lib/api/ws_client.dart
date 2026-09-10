@@ -11,11 +11,10 @@ import 'dart:js_interop';
 import 'package:web/web.dart' as web;
 
 import 'ws_frame.dart';
+import 'ws_status.dart';
 
 export 'ws_frame.dart';
-
-/// WS 连接状态。
-enum WsStatus { idle, connecting, connected, disconnected, closed }
+export 'ws_status.dart';
 
 /// `/ws/state` 客户端。
 ///

@@ -86,6 +86,7 @@ const List<String> kTokenFamilies = <String>[
   'AppRadius',
   'Space',
   'AppDurations',
+  'AppRhythms',
   'Motion',
   'AppPalette',
   'Breakpoints',
@@ -97,6 +98,7 @@ Map<String, Set<String>> tokenNamesByFamily() => <String, Set<String>>{
   'AppRadius': AppRadius.registry.keys.toSet(),
   'Space': Space.registry.keys.toSet(),
   'AppDurations': AppDurations.registry.keys.toSet(),
+  'AppRhythms': AppRhythms.registry.keys.toSet(),
   'Motion': Motion.names.toSet(),
   'AppPalette': AppPalette.registry.keys.toSet(),
   'Breakpoints': Breakpoints.registry.keys.toSet(),
@@ -140,15 +142,15 @@ const Set<String> kNotYetWired = <String>{
   'AppColors.serverMutedBadgeSurface',
   'AppColors.serverMutedBadgeBorder',
   // ── 间距 / 圆角 / 动效：业务组件重写时才用 ──
-  // （`Space.s1` 与 `Space.s2/s3/s5` 不在台账里：动作来源徽标与动作日志视图
-  //   P2 已接线——台账只减不增，接线了就必须从这里删掉。）
+  // 台账**只减不增**：接线了就必须从这里删掉（P2 已删 s2/s3/s5，
+  // P3 已删 s1/s4、AppRadius.xs/lg）。
   'Space.s0',
-  'Space.s4',
+  // s6 是 9 档阶梯里的 24 px。阶梯本身要保持完整（局部删除会让
+  // 「相邻档位之间只有一个档」这条设计约束失效），所以留着等 UI 用到。
+  'Space.s6',
   'Space.s7',
   'Space.s8',
   'AppRadius.none',
-  'AppRadius.xs',
-  'AppRadius.lg',
   'AppRadius.xl',
   'AppDurations.fast',
   'AppDurations.base',
@@ -164,6 +166,7 @@ void main() {
       expect(AppRadius.registry.length, 7);
       expect(Space.registry.length, 9);
       expect(AppDurations.registry.length, 4);
+      expect(AppRhythms.registry.length, 2);
       expect(Motion.names.length, 2);
       expect(AppFontSizes.registry.length, 8);
       expect(Breakpoints.registry.length, 2);
@@ -179,6 +182,7 @@ void main() {
         AppRadius.registry,
         Space.registry,
         AppDurations.registry,
+        AppRhythms.registry,
       ]) {
         final List<Object> values = reg.values.toList();
         expect(values.toSet().length, values.length, reason: '存在同值档位');
