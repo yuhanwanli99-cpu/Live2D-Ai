@@ -62,8 +62,13 @@
   `cd shell/flutter && flutter analyze && flutter test`。
 - 前端产物**不入库**：`shell/flutter/build/`、`.dart_tool/` 已被嵌套 `.gitignore` 排除；
   `xtask` 亦按目录名排除 `build`（否则 `main.dart.js` 会打穿占比口径）。
-- 改动前端后**必须重新构建**才生效：`flutter build web --release --base-href /app/`
+- 改动前端后**必须重新构建**才生效：
+  `flutter build web --release --base-href /app/ --no-web-resources-cdn`
   （静态文件由服务端按请求读盘，故前端改动只需重建、不必重启后端）。
+  **`--no-web-resources-cdn` 不是可选项**：缺省构建把 CanvasKit 指向
+  `https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，
+  而 `build/web/canvaskit/` 那份本地副本不被引用——**断网即白屏**。
+  本项目是本地优先的桌宠，不允许依赖 Google CDN（`scripts/ignite.sh` 会探测并告警）。
 - **协议约定**：前端与渲染面之间只走**版本化消息**（`{version,type,payload}`，见
   `l2d-wasm-demo` 的 v1 协议）；新增字段必须向后兼容（缺省即默认值）。
 - **不得**在 Flutter 侧复制核心逻辑（状态机、动作仲裁、LLM/TTS 协议）——

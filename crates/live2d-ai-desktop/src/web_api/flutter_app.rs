@@ -1,7 +1,12 @@
 //! Flutter Web 前端托管（`GET /app` 与 `GET /app/*`）。
 //!
 //! 服务 `shell/flutter/build/web/` 下的 Flutter Web 构建产物
-//! （`cd shell/flutter && flutter build web --release --base-href /app/`）。
+//! （`cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn`）。
+//!
+//! `--no-web-resources-cdn` **不是可选项**：缺省构建会把 CanvasKit 指向
+//! `https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，而本机
+//! `build/web/canvaskit/` 那份 37 MB 副本根本不被引用——于是**断网即白屏**。
+//! 本项目是本地优先的桌宠，不允许依赖 Google CDN。
 //!
 //! # 为什么必须同源
 //! Flutter 端用 `HtmlElementView` 内嵌 `/render` iframe，并以
@@ -67,7 +72,7 @@ pub fn handle_flutter_app(
         return Some(json_error(
             StatusCode(503),
             "flutter_build_missing",
-            "Flutter Web 产物缺失：请先执行 `cd shell/flutter && flutter build web --release --base-href /app/`",
+            "Flutter Web 产物缺失：请先执行 `cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn`",
         ));
     }
     let rel = path

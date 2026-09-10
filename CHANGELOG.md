@@ -1,3 +1,51 @@
+# v0.4.4 — 修掉「断网白屏」：CanvasKit 不再走 Google CDN（2026-09-10）
+
+**缺陷**：出厂构建的 Flutter Web 产物把 CanvasKit 指向
+`https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`——**没有外网就是白屏**。
+对一个**本地优先的桌宠**来说这是 P0：用户断网、内网、或 Google 不可达时，
+整个界面起不来。
+
+## 证据（都是从产物本身读出来的，不是推断）
+
+- 构建产物 `main.dart.js` 里**字面存在**
+  `https://www.gstatic.com/flutter-canvaskit/06a2e2a110089dff50fe635cffd2a61e1b24fbcd/`。
+- `flutter_bootstrap.js` 的决策分支是
+  `canvasKitBaseUrl || (engineRevision && !useLocalCanvasKit ? "<CDN>" : "canvaskit")`；
+  本构建 **`engineRevision` 有值、`useLocalCanvasKit` 从未被设置** → 走 CDN 分支。
+- 于是 `build/web/canvaskit/`（**37 MB**）是**死重量**：`index.html` /
+  `flutter_bootstrap.js` / `flutter.js` 里对它的引用数都是 **0**。
+
+## 修复
+
+- 构建命令加 `--no-web-resources-cdn`：CanvasKit 改用产物内那份本地副本。
+- **实测验证**：加该 flag 重建后 `main.dart.js` 中
+  `gstatic.com/flutter-canvaskit` **0 命中**；`/app/canvaskit/canvaskit.js` 与
+  `canvaskit.wasm` 均 **200**（86 987 / 7 284 602 字节）。
+- `scripts/ignite.sh` 增加**产物探测告警**：若已有产物仍引用该 CDN 就吼一声。
+  必要性：`ignite.sh` 只在产物**缺失**时才构建，`--build` 也不会重建已存在的产物，
+  所以这个坑会「静默存活到断网那一刻才暴露」。已双向验证该探测
+  （好的产物不误报、CDN 产物必命中）。
+- 同步更新 `AGENTS.md`、`shell/README.md`、`flutter_app.rs` 里的构建指引——
+  否则下一个人照旧文档构建就把缺陷带回来了。
+
+## 仍未解决（已知，另计）
+
+**中文字体仍来自 `https://fonts.gstatic.com/s/`**（Flutter Web 的缺字回落机制）。
+产物里只打包了 `MaterialIcons-Regular.otf`，本机 `fc-list :lang=zh` **0 个中文字体**。
+所以 CanvasKit 修好后，**断网仍会缺字/豆腐块**。修法是把中文字体打包 + 子集化，
+有体积代价，待裁决后单独做。
+
+## 附带修正：契约文档
+
+`shell/README.md` 的「与后端的真实契约」补全，并标注一个实测到的错误：
+设置接口是 **`PATCH /api/v1/settings`，不是 `PUT`**（`match_route` 只认
+`Method::Patch`；实测 `PUT→404` / `PATCH→200`）。同时补上 `audio` 帧的 `muted` 字段。
+
+## 门禁
+
+fmt 干净 / clippy -D warnings 干净 / cargo test --all-targets **807 passed 0 failed**
+/ doctest 3 passed / rust-ratio **95.5389% PASS**。
+
 # v0.4.3 — 默认出声 + 主音量控制（2026-09-10）
 
 用户裁决：**默认把声音打开**；跑测试/静默运行时关掉；UI 里要能调音量。

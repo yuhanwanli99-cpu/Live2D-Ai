@@ -101,14 +101,25 @@ if [ ! -f "crates/l2d-wasm-demo/dist/index.html" ]; then
 fi
 
 # ---- 3) 前端产物（/app/） ------------------------------------------------
+# `--no-web-resources-cdn` 不是可选项：缺省构建会把 CanvasKit 指向
+# https://www.gstatic.com/flutter-canvaskit/<engineRevision>/，而本机
+# build/web/canvaskit/ 那份 37 MB 副本根本不被引用 —— 于是**断网即白屏**。
+# 本项目的定位是本地优先的桌宠，不允许依赖 Google CDN。
+FLUTTER_BUILD_FLAGS="--release --base-href /app/ --no-web-resources-cdn"
 if [ ! -f "shell/flutter/build/web/index.html" ]; then
   if [ "$DO_BUILD" = "1" ]; then
-    echo "==> 构建 Flutter Web（--base-href /app/）…"
-    (cd shell/flutter && flutter pub get && flutter build web --release --base-href /app/)
+    echo "==> 构建 Flutter Web（--base-href /app/ --no-web-resources-cdn）…"
+    (cd shell/flutter && flutter pub get && flutter build web $FLUTTER_BUILD_FLAGS)
   else
     echo "[warn] Flutter Web 产物缺失：shell/flutter/build/web/index.html"
-    echo "        运行 ./scripts/ignite.sh --build，或手动：cd shell/flutter && flutter build web --release --base-href /app/"
+    echo "        运行 ./scripts/ignite.sh --build，或手动：cd shell/flutter && flutter build web $FLUTTER_BUILD_FLAGS"
   fi
+elif grep -q 'gstatic\.com/flutter-canvaskit' shell/flutter/build/web/main.dart.js 2>/dev/null; then
+  # 挡住「产物早就存在、所以 --build 不会重建」这个陷阱：CDN 依赖只在**构建期**
+  # 决定，启动期补不了。这里主动探测并吼一声，否则问题只在断网时才暴露。
+  echo "[warn] 前端产物仍引用 Google CDN 的 CanvasKit —— **断网会白屏**！"
+  echo "        必须重新构建（--build 对已存在的产物不会自动重建）：
+        cd shell/flutter && flutter build web $FLUTTER_BUILD_FLAGS"
 fi
 
 # ---- 4) 后端二进制 -------------------------------------------------------

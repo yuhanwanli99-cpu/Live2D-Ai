@@ -41,7 +41,7 @@ cd shell/flutter
 flutter pub get
 flutter analyze                 # 要求：无 error、无 warning
 flutter test                    # 协议 v1 状态机单测
-flutter build web --release --base-href /app/
+flutter build web --release --base-href /app/ --no-web-resources-cdn
 ```
 
 产物：`shell/flutter/build/web/`（`index.html` / `main.dart.js` / `flutter_bootstrap.js` /
@@ -49,6 +49,12 @@ flutter build web --release --base-href /app/
 
 **必须带 `--base-href /app/`**：产物由 Rust 挂在 `/app/` 下，不带 base href 时
 `flutter_bootstrap.js`/`main.dart.js` 会按根路径解析（`/flutter_bootstrap.js`）而 404。
+
+**必须带 `--no-web-resources-cdn`**：不加时 Flutter 会把 CanvasKit 指向
+`https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，而产物里那份
+`canvaskit/`（约 37 MB）**根本不被引用**——结果是**断网白屏**。
+本项目是本地优先的桌宠，不允许依赖 Google CDN。（`scripts/ignite.sh` 启动时会探测
+产物是否仍引用该 CDN 并告警。）
 
 ## 3. 如何被 Rust 以 `/app/` 托管
 
@@ -83,10 +89,10 @@ cargo run -p live2d-ai-desktop -- --web --http-port 18080
 
 ```bash
 # 同源相对路径（推荐，由 /app/ 托管时）
-flutter build web --release --base-href /app/
+flutter build web --release --base-href /app/ --no-web-resources-cdn
 
 # 指向固定后端（例如 Flutter 单独 flutter run 时）
-flutter build web --release --base-href /app/ \
+flutter build web --release --base-href /app/ --no-web-resources-cdn \
   --dart-define=API_BASE=http://127.0.0.1:18080 \
   --dart-define=WS_URL=ws://127.0.0.1:18080/ws/state
 ```
@@ -101,6 +107,13 @@ flutter build web --release --base-href /app/ \
   - `400 invalid_payload` / `405 method_not_allowed` / `429 busy` / `503 no_supervisor`
 - `POST /api/v1/chat/stop` → `200 {"accepted":true}`（幂等）。
 - `GET /api/v1/app/status` → 运行状态摘要（`dto.rs::AppStatus`）。
+- `GET /api/v1/app/capabilities` → 能力与版本（`{version, actions, runtime_ws, ...}`）。
+- `GET /api/v1/settings` → `{llm, tts, persona, dev_mode}`（**密钥只回 `has_api_key` 布尔**）。
+- **`PATCH /api/v1/settings`** → 部分更新设置。
+  ⚠️ 是 **`PATCH` 不是 `PUT`**：`mod.rs` 的 `match_route` 只认 `Method::Patch`，
+  用 `PUT` 会 **404**（实测 `PUT→404` / `PATCH→200`）。
+- `POST /api/v1/settings/test/llm`、`POST /api/v1/settings/test/tts` → 连通性自检。
+- `GET /api/v1/models`（含导入）、`GET /api/v1/commands`、`GET /api/v1/logs`、`GET /api/v1/mods`。
 - 错误体统一为 `{"error":{"code","message","details"}}`。
 
 ### WebSocket `/ws/state`
@@ -115,7 +128,7 @@ flutter build web --release --base-href /app/ \
 | `runtime_status` | `{event:"voice_started"\|"voice_ended"\|"new_epoch"\|"shutdown_ready", epoch?}` |
 | `text_delta` | `{epoch, ts_ms?, text}`（流式正文）或 `{epoch, completed}`（完成锚点） |
 | `action_state` | `{epoch, kind, action?}`（本轮前端只解析、不实现表演） |
-| `audio` | `{epoch, audio:<base64 s16le>, sample_rate, slice_ms:20, volume, start, end}` |
+| `audio` | `{epoch, audio:<base64 s16le>, sample_rate, slice_ms:20, volume, start, end, muted}`（`muted=true` 时 `audio` 全零但 `volume` 仍为真实值） |
 | `error` | `{code, message}` |
 
 `ws.rs` / `ws/connection.rs` 明确：**WebSocket 是单向事件流**，服务端不读客户端帧
