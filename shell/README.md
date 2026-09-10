@@ -173,14 +173,16 @@ flutter build web --release --base-href /app/ --no-web-resources-cdn \
 
 ## 8. 已知限制 / 存疑点
 
-1. **渲染端 v1 兼容性**：`crates/l2d-wasm-demo/src/main.rs` 已支持 v1
-   信封（发 `ready`/`loaded`/`progress`/`error`/`fps`，收 `sync`/`mouth`/`stage`）
-   并保留 legacy 分支。**注意**：该实现把 v1 `mouth` 映射到内部 `audio-volume` 分支，
-   而后者读取的是 `payload.value`；本前端按冻结规格发送的是 `payload.level`，
-   两者不一致时口型不会生效（需渲染端改读 `level`，或在 Flutter 侧改发 `value`）。
-   本工程严格实现冻结规格，故未改发 `value`。
+1. ~~**渲染端 v1 兼容性**：…两者不一致时口型不会生效~~ —— **该说明已过期，2026-09-10 更正**。
+   渲染端现已**优先读 `payload.level`**、仅在缺失时回退 `payload.value`
+   （`crates/l2d-wasm-demo/src/main.rs`：`payload.get("level").or_else(|| payload.get("value"))`），
+   所以本前端按 v1 规格发 `level` **是正确的**，口型正常生效，无需改发 `value`。
+   原文把「读 `value`」当成了唯一口径，会误导实现者去改协议。
 2. WS 客户端按真实协议**不发** `subscribe`/`ping`（服务端不读客户端帧）。
-3. 未实现动作/表演（`action_state` 只解析归档）。
+3. 动作**仍是只解析、不表演**，但解析已完整：`ActionStateEvent` 现在带
+   `action` / `strength` / `source`（用户 / LLM / 规则）。
+   界面尚未把 `source` 表达出来（`chat_controller` 对 `ActionStateEvent` 仍是忽略）——
+   这是设计规格 `docs/design/web-ui-spec-v3.md` §8.3 / §10-P2 的内容。
 4. 构建时 Flutter 会打印 `Expected to find fonts for (... packages/cupertino_icons/CupertinoIcons)`
    的警告：这是 Flutter 在存在文本输入控件时的既有提示；本工程按约束未引入
    `cupertino_icons` 依赖，不影响构建与运行。
