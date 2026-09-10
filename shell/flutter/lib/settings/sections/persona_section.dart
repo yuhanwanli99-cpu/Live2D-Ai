@@ -135,7 +135,7 @@ class PersonaSection extends StatelessWidget {
               importMessage!,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: importFailed
-                    ? AppPalette.danger
+                    ? appPaletteOf(context).danger
                     : appColorsOf(context).contentMuted,
               ),
             ),

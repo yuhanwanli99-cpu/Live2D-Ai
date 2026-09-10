@@ -163,7 +163,7 @@ class ModelsSection extends StatelessWidget {
             child: Text(
               '⚠ $error',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppPalette.danger,
+                color: appPaletteOf(context).danger,
               ),
             ),
           ),
@@ -265,7 +265,7 @@ class ModsSection extends StatelessWidget {
             child: Text(
               '⚠ $error',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppPalette.danger,
+                color: appPaletteOf(context).danger,
               ),
             ),
           ),

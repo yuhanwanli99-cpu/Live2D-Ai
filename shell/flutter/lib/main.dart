@@ -49,7 +49,6 @@ import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
 import 'ui/action_toolbar.dart';
 import 'ui/error_banner.dart';
-import 'design/tokens.dart';
 import 'ui/theme.dart';
 
 /// 本地显示偏好的存储键（localStorage）。
@@ -131,22 +130,59 @@ void main() {
   runApp(const Live2DShellApp());
 }
 
-/// 应用根：深色 Material 3 主题。
-class Live2DShellApp extends StatelessWidget {
+/// 应用根：Material 3 主题 + **本地显示偏好的持有者**。
+///
+/// # 为什么偏好住在根、而不是住在 `ShellRoot`
+///
+/// 主题（黑/白/蓝/灰）必须作用在 `MaterialApp` 上——而 `MaterialApp` 是
+/// `ShellRoot` 的**父级**。偏好留在子级就只能靠 `InheritedWidget` 往上捅，
+/// 或者让 `MaterialApp` 自己再读一遍 localStorage（两份真相）。
+/// 住在这里之后：**一份偏好、一次持久化、主题与组件同源**。
+class Live2DShellApp extends StatefulWidget {
   const Live2DShellApp({super.key});
+
+  @override
+  State<Live2DShellApp> createState() => _Live2DShellAppState();
+}
+
+class _Live2DShellAppState extends State<Live2DShellApp> {
+  /// 本地显示偏好（主题 / 缩放 / 口型 / 音量 / 静音），持久化在 localStorage。
+  DisplayPrefs _prefs = const DisplayPrefs();
+
+  @override
+  void initState() {
+    super.initState();
+    // 读盘只在启动时一次：之后的每一次写都是 `_update` 的副作用。
+    _prefs = loadDisplayPrefs();
+  }
+
+  /// 更新并**立即持久化**。值没变时直接返回（避免无意义的整树重建）。
+  void _update(DisplayPrefs next) {
+    if (next == _prefs) return;
+    setState(() => _prefs = next);
+    saveDisplayPrefs(next);
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Live2D Ai',
     debugShowCheckedModeBanner: false,
-    theme: buildAppTheme(),
-    home: const ShellRoot(),
+    theme: buildAppTheme(_prefs.theme),
+    home: ShellRoot(prefs: _prefs, onPrefsChanged: _update),
   );
 }
 
 /// 组合根：持有全部长生命周期对象，把回调接到新外壳上。
 class ShellRoot extends StatefulWidget {
-  const ShellRoot({super.key});
+  const ShellRoot({
+    required this.prefs,
+    required this.onPrefsChanged,
+    super.key,
+  });
+
+  /// 本地显示偏好（**由根持有**；见 `Live2DShellApp` 的说明）。
+  final DisplayPrefs prefs;
+  final ValueChanged<DisplayPrefs> onPrefsChanged;
 
   @override
   State<ShellRoot> createState() => _ShellRootState();
@@ -169,9 +205,6 @@ class _ShellRootState extends State<ShellRoot> {
   StreamSubscription<double>? _levelSubscription;
   StreamSubscription<WsStatus>? _statusSubscription;
   StreamSubscription<WsEvent>? _eventSubscription;
-
-  /// 本地显示偏好（模型缩放 / 口型灵敏度 / 音量 / 静音）；持久化在 localStorage。
-  DisplayPrefs _prefs = const DisplayPrefs();
 
   /// 当前设置分区（受控；外壳只上报意图）。
   SettingsSection _section = SettingsSection.actions;
@@ -230,7 +263,6 @@ class _ShellRootState extends State<ShellRoot> {
   @override
   void initState() {
     super.initState();
-    _prefs = loadDisplayPrefs();
     _api = ApiClient();
     _commandsApi = CommandsApi();
     _modelsApi = ModelsApi();
@@ -240,8 +272,8 @@ class _ShellRootState extends State<ShellRoot> {
     _ws = WsClient();
     _audio = AudioPlayer();
     // 静音与音量是纯本机输出设置（不经渲染面）：**默认出声**。
-    _audio.muted = _prefs.muted;
-    _audio.volume = _prefs.volume;
+    _audio.muted = widget.prefs.muted;
+    _audio.volume = widget.prefs.volume;
     _chat = ChatController(api: _api, ws: _ws, audio: _audio);
 
     // 音频 RMS → 舞台口型（30 Hz 高频信号，**不进 Widget 树**，原则 P6）。
@@ -378,24 +410,24 @@ class _ShellRootState extends State<ShellRoot> {
     setState(() => _stageScaleFromAck = _stageKey.currentState?.lastAck?.scale);
   }
 
-  /// 把 [_prefs] 下发给渲染面（协议 v1 `sync`）。
+  /// 把 [ShellRoot.prefs] 下发给渲染面（协议 v1 `sync`）。
   void _applyPrefs() {
+    final DisplayPrefs prefs = widget.prefs;
     _stageKey.currentState?.sync(
-      scale: _prefs.scale,
-      lipSync: _prefs.lipSync,
-      idleEnabled: _prefs.idleEnabled,
-      mouthSensitivity: _prefs.mouthSensitivity,
+      scale: prefs.scale,
+      lipSync: prefs.lipSync,
+      idleEnabled: prefs.idleEnabled,
+      mouthSensitivity: prefs.mouthSensitivity,
       // 「允许拖动与缩放」下发到渲染面的 `sync.clickEnabled`。
-      clickEnabled: _prefs.allowDragZoom,
-      tier: _prefs.tier,
+      clickEnabled: prefs.allowDragZoom,
+      tier: prefs.tier,
     );
   }
 
   /// 偏好变更：更新内存 + 落盘 + 立即下发。
   void _updatePrefs(DisplayPrefs next) {
-    if (next == _prefs) return;
-    setState(() => _prefs = next);
-    saveDisplayPrefs(next);
+    if (next == widget.prefs) return;
+    widget.onPrefsChanged(next);
     // 静音与音量是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
     _audio.muted = next.muted;
     _audio.volume = next.volume;
@@ -518,7 +550,7 @@ class _ShellRootState extends State<ShellRoot> {
       SnackBar(
         content: Text(outcome.message),
         backgroundColor: outcome.needsAttention
-            ? AppPalette.warning
+            ? appPaletteOf(context).warning
             : null,
       ),
     );
@@ -737,7 +769,7 @@ class _ShellRootState extends State<ShellRoot> {
         );
       case SettingsSection.actions:
         return ActionsSection(
-          prefs: _prefs,
+          prefs: widget.prefs,
           onPrefsChanged: _updatePrefs,
           actionLog: _chat.actionLog,
           devMode: _devMode,
@@ -875,11 +907,16 @@ class _ShellRootState extends State<ShellRoot> {
           onSend: () => unawaited(_send()),
           onStop: () => unawaited(_stop()),
           onRetryConnection: _ws.ensureConnected,
-          volume: _prefs.volume,
-          muted: _prefs.muted,
+          volume: widget.prefs.volume,
+          muted: widget.prefs.muted,
           onVolumeChanged: (double v) =>
-              _updatePrefs(_prefs.copyWith(volume: DisplayPrefs.clampVolume(v))),
-          onMutedChanged: (bool m) => _updatePrefs(_prefs.copyWith(muted: m)),
+              _updatePrefs(
+                widget.prefs.copyWith(
+                  volume: DisplayPrefs.clampVolume(v),
+                ),
+              ),
+          onMutedChanged: (bool m) =>
+              _updatePrefs(widget.prefs.copyWith(muted: m)),
           serverMuted: _serverMuted,
           audioUnlocked: _audio.unlocked,
           onEnableSound: _audio.unlock,

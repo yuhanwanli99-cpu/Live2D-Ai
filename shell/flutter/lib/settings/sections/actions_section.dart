@@ -1,6 +1,7 @@
-/// 「动作与互动」分区（规格 §4.1.5）。
+/// 「外观与互动」分区（规格 §4.1.5）。
 ///
-/// 两组：**A. 舞台与口型**（纯本地 `DisplayPrefs`）、**C. 动作记录**。
+/// 三组：**外观**（配色主题）、**A. 舞台与口型**、**C. 动作记录**——
+/// 三者都是**纯本地 `DisplayPrefs` + 只读日志**，不需要草稿，也没有保存按钮。
 ///
 /// # B 组「动作试演」为什么不在成品里（2026-09-11 用户裁决）
 ///
@@ -19,11 +20,13 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../actions/action_log_controller.dart';
+import '../../design/theme_id.dart';
 import '../../design/tokens.dart';
 import '../../settings/display_prefs.dart';
 import '../../ui/action_history_view.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
+import '../../ui/theme_picker.dart';
 
 class ActionsSection extends StatelessWidget {
   const ActionsSection({
@@ -47,9 +50,19 @@ class ActionsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     // 这些参数实时下发给渲染面：**没有「保存」按钮**。
     // 理由：拖滑杆时就想看到舞台反应，多一步保存会毁掉这个手感。
+    // 主题同理——点一下立刻整套换掉，正是它该有的手感。
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        const SectionHeader(
+          title: '外观',
+          description: '四套配色任选。**只影响本机显示**，选完立刻生效，不需要保存。',
+        ),
+        ThemePickerField(
+          value: prefs.theme,
+          onChanged: (AppThemeId id) => onPrefsChanged(prefs.copyWith(theme: id)),
+        ),
+        const Divider(),
         const SectionHeader(
           title: '舞台与口型',
           description: '这些参数只影响**本机显示**，改动立刻下发到渲染面，不需要保存。',

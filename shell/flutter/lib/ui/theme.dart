@@ -10,6 +10,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../design/theme_id.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 
@@ -37,20 +38,72 @@ const String kAppFontFamily = 'NotoSansSC';
 /// （`null`），这是刻意的：`TextStyle.merge` / `copyWith` 对 `null` 是「保持原值」，
 /// 于是字体族始终由 `ThemeData.fontFamily` 这**一个**入口决定，
 /// 组件层无法意外覆盖它。
-ThemeData buildAppTheme() {
+///
+/// # 主题是怎么构造的（2026-09-11 起支持 4 套配色）
+///
+/// 先用 [AppPalette] 的强调色跑一次 `ColorScheme.fromSeed`——它能一次性填满
+/// Material 的**几十个**槽位（`inverseSurface`、`surfaceTint`、各种 `on*`…），
+/// 比自己手写一遍可靠。然后**把关键的十来个槽位覆写回我们算好的值**：
+///
+/// - `fromSeed` 的色调映射会让 `primary` 与我们的 `accent` 差一截
+///   （种子只是「来源」，不是结果），实测能差到肉眼看得出；
+/// - `surface` / `onSurface` 必须**精确等于**舞台与文字色，否则面板与舞台之间
+///   会出现一条说不清来历的缝。
+///
+/// 覆写清单是「组件真的会读到、且读错会看得见」的那些——
+/// 不是把 30 个槽位全部重写（那样 `fromSeed` 就白跑了）。
+ThemeData buildAppTheme([AppThemeId theme = AppThemeId.fallback]) {
+  final AppPalette palette = AppPalette.of(theme);
   final ColorScheme scheme = ColorScheme.fromSeed(
-    seedColor: AppPalette.seed,
-    brightness: Brightness.dark,
+    seedColor: palette.accent,
+    brightness: palette.brightness,
+  ).copyWith(
+    primary: palette.accent,
+    onPrimary: palette.onAccent,
+    primaryContainer: palette.surfaceAlt,
+    onPrimaryContainer: palette.ink,
+    surface: palette.surface,
+    onSurface: palette.ink,
+    surfaceContainerHighest: palette.surfaceAlt,
+    onSurfaceVariant: palette.ink.withValues(alpha: 0.74),
+    outline: palette.line,
+    outlineVariant: palette.line,
+    error: palette.danger,
+    onError: palette.onDanger,
+    errorContainer: palette.dangerSurface,
+    onErrorContainer: palette.danger,
   );
   final ThemeData base = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: palette.brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: AppPalette.stageBackdrop,
+    scaffoldBackgroundColor: palette.stage,
+    // 亮色主题下 Material 默认那层深阴影会在纯白舞台上糊成一块灰边，
+    // 所以阴影色也跟配色走：暗主题用舞台底（本来就近黑），亮主题用淡化的墨色。
+    shadowColor: palette.dark
+        ? palette.stage
+        : palette.ink.withValues(alpha: 0.18),
     fontFamily: kAppFontFamily,
-    extensions: <ThemeExtension<dynamic>>[AppColors.of(scheme)],
+    extensions: <ThemeExtension<dynamic>>[
+      palette,
+      AppColors.of(scheme, palette),
+    ],
   );
   return base.copyWith(textTheme: buildAppTextTheme(base.textTheme));
+}
+
+/// 取 [AppPalette] 的便捷入口。
+///
+/// 与 [appColorsOf] 同样**宁可炸也不静默降级**：拿不到配色就说明
+/// `buildAppTheme` 的 `extensions:` 缺了一项，那时任何「回落默认色」都会让
+/// 界面看起来「只是颜色有点怪」，从而把真正的接线错误藏起来。
+AppPalette appPaletteOf(BuildContext context) {
+  final AppPalette? palette = Theme.of(context).extension<AppPalette>();
+  assert(
+    palette != null,
+    '主题里没有注册 AppPalette —— 检查 buildAppTheme 的 extensions',
+  );
+  return palette!;
 }
 
 /// 取 [AppColors] 的便捷入口。

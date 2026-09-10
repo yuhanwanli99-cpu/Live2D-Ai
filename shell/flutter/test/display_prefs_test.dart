@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
 
 void main() {
@@ -264,6 +265,54 @@ void _p4NewFieldsTests() {
       );
       expect(base.copyWith(tier: 4096).hashCode == base.hashCode, isFalse);
       expect(base == base.copyWith(), isTrue);
+    });
+  });
+
+  group('主题（2026-09-11 用户裁决：黑/白/蓝/灰，默认黑）', () {
+    test('默认是黑（保留产品原本的观感）', () {
+      expect(const DisplayPrefs().theme, AppThemeId.black);
+      expect(const DisplayPrefs().theme, AppThemeId.fallback);
+    });
+
+    test('四套主题都能写进 JSON 再读回来', () {
+      for (final AppThemeId id in AppThemeId.values) {
+        const DisplayPrefs base = DisplayPrefs();
+        final DisplayPrefs round = DisplayPrefs.fromJson(
+          base.copyWith(theme: id).toJson(),
+        );
+        expect(round.theme, id, reason: '$id 往返丢了');
+      }
+    });
+
+    test('旧存档（没有 theme 字段）→ 默认黑，而不是「假装用户选过白」', () {
+      final Map<String, Object?> old = const DisplayPrefs().toJson()
+        ..remove('theme');
+      expect(DisplayPrefs.fromJson(old).theme, AppThemeId.black);
+    });
+
+    test('坏 theme 值（数字 / 大小写不符 / 未知词）→ 默认黑，不抛', () {
+      for (final Object? bad in <Object?>[3, 'BLACK', 'purple', true, null]) {
+        final Map<String, Object?> json = const DisplayPrefs().toJson()
+          ..['theme'] = bad;
+        expect(DisplayPrefs.fromJson(json).theme, AppThemeId.black);
+      }
+    });
+
+    test('换主题不碰其它字段（主题是纯叠加的一维）', () {
+      const DisplayPrefs base = DisplayPrefs(muted: true, volume: 0.4);
+      final DisplayPrefs white = base.copyWith(theme: AppThemeId.white);
+      expect(white.theme, AppThemeId.white);
+      expect(white.muted, isTrue);
+      expect(white.volume, 0.4);
+      expect(white.scale, base.scale);
+    });
+
+    test('主题参与 == / hashCode（否则 `if (next == _prefs) return;` 会吞掉换肤）', () {
+      const DisplayPrefs black = DisplayPrefs();
+      final DisplayPrefs gray = black.copyWith(theme: AppThemeId.gray);
+      expect(gray == black, isFalse);
+      expect(gray.hashCode == black.hashCode, isFalse);
+      expect(gray == black.copyWith(theme: AppThemeId.gray), isTrue);
     });
   });
 }

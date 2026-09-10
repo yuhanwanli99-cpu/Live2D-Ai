@@ -38,8 +38,8 @@ class MessageBubble extends StatelessWidget {
     final bool failed = message.isPlaceholder;
 
     final Color background = failed
-        ? AppPalette.dangerSurface
-        : (isUser ? theme.colorScheme.primaryContainer : AppPalette.bubbleAssistant);
+        ? appPaletteOf(context).dangerSurface
+        : (isUser ? theme.colorScheme.primaryContainer : appPaletteOf(context).surfaceAlt);
     final Color foreground = failed
         ? colors.contentMuted
         : (isUser
@@ -80,7 +80,7 @@ class MessageBubble extends StatelessWidget {
                 color: background,
                 borderRadius: BorderRadius.circular(AppRadius.md),
                 border: failed
-                    ? Border.all(color: AppPalette.dangerBorder)
+                    ? Border.all(color: appPaletteOf(context).dangerBorder)
                     : null,
               ),
               padding: const EdgeInsets.symmetric(

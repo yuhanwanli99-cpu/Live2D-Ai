@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/design/breakpoints.dart';
 import 'package:live2d_ai_shell/design/tokens.dart';
 import 'package:live2d_ai_shell/design/typography.dart';
+import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -88,7 +89,6 @@ const List<String> kTokenFamilies = <String>[
   'AppDurations',
   'AppRhythms',
   'Motion',
-  'AppPalette',
   'Breakpoints',
   'AppColors',
 ];
@@ -100,9 +100,8 @@ Map<String, Set<String>> tokenNamesByFamily() => <String, Set<String>>{
   'AppDurations': AppDurations.registry.keys.toSet(),
   'AppRhythms': AppRhythms.registry.keys.toSet(),
   'Motion': Motion.names.toSet(),
-  'AppPalette': AppPalette.registry.keys.toSet(),
   'Breakpoints': Breakpoints.registry.keys.toSet(),
-  'AppColors': AppColors.of(_scheme).toValuesMap().keys.toSet(),
+  'AppColors': AppColors.of(_scheme, AppPalette.black).toValuesMap().keys.toSet(),
 };
 
 /// 家族的**结构成员**（是 API，但不是令牌）：登记表、派生视图、构造入口等。
@@ -129,8 +128,6 @@ const Set<String> kStructuralMembers = <String>{
 /// 规格 §2.8.2 原本要求「声明即被引用」，与它自己的分阶段路线（P0 立令牌、
 /// P3 才用）冲突；本台账是两者的调和。
 const Set<String> kNotYetWired = <String>{
-  // ── 品牌与语义色：P3 重写聊天面板 / 错误条时接线 ──
-  // （`AppPalette.warning` 不在台账里：`AppColors.of` 已经用它派生静音徽标色。）
   // ── 叠色：P3 起用（GlassPanel / 分隔线 / 悬停 / 焦点环） ──
   'AppColors.hairline',
   'AppColors.hoverWash',
@@ -152,12 +149,10 @@ const Set<String> kNotYetWired = <String>{
   'Space.s8',
   'AppRadius.none',
   'AppRadius.xl',
-  'AppDurations.fast',
   'AppDurations.base',
   'AppDurations.slow',
   'AppDurations.reveal',
   'Motion.enter',
-  'Motion.state',
 };
 
 void main() {
@@ -170,7 +165,9 @@ void main() {
       expect(Motion.names.length, 2);
       expect(AppFontSizes.registry.length, 8);
       expect(Breakpoints.registry.length, 2);
-      expect(AppPalette.registry.length, 9);
+      // 四套配色（2026-09-11）。`AppPalette` 不再是「平的令牌表」，
+      // 所以它退出了 kTokenFamilies —— 它的结构由下面「配色族」那组测试守。
+      expect(AppPalette.registry.length, AppThemeId.values.length);
       expect(AppColors.fieldCount, 9);
     });
 
@@ -278,7 +275,7 @@ void main() {
   });
 
   group('ThemeExtension 结构枚举（防「加了字段忘了 copyWith / lerp」）', () {
-    final AppColors base = AppColors.of(_scheme);
+    final AppColors base = AppColors.of(_scheme, AppPalette.black);
     final AppColors other = base.copyWith(
       hairline: const Color(0xFF010203),
       hoverWash: const Color(0xFF040506),
@@ -362,14 +359,26 @@ void main() {
       }
     });
 
-    test('配色是 dark + Material 3（写死 dark 是刻意的，不是遗漏）', () {
-      expect(theme.brightness, Brightness.dark);
-      expect(theme.useMaterial3, isTrue);
+    test('主题亮度与配色一致（四套各自成立，不是全局写死 dark）', () {
+      for (final AppThemeId id in AppThemeId.values) {
+        final ThemeData t = buildAppTheme(id);
+        expect(
+          t.brightness,
+          AppPalette.of(id).brightness,
+          reason: '$id 的主题亮度与配色不符',
+        );
+        expect(t.useMaterial3, isTrue);
+        expect(
+          t.scaffoldBackgroundColor,
+          AppPalette.of(id).stage,
+          reason: '$id 的脚手架底必须等于它的舞台底（否则面板与舞台之间会有缝）',
+        );
+      }
     });
   });
 }
 
 final ColorScheme _scheme = ColorScheme.fromSeed(
-  seedColor: AppPalette.seed,
+  seedColor: AppPalette.black.accent,
   brightness: Brightness.dark,
 );

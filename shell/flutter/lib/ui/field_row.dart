@@ -64,7 +64,7 @@ class _FieldShell extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 16,
-                  color: hasError ? AppPalette.danger : colors.contentMuted,
+                  color: hasError ? appPaletteOf(context).danger : colors.contentMuted,
                 ),
               ),
               const SizedBox(width: Space.s2),
@@ -93,7 +93,7 @@ class _FieldShell extends StatelessWidget {
               child: Text(
                 '⚠ ${error!}',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppPalette.danger,
+                  color: appPaletteOf(context).danger,
                 ),
               ),
             ),

@@ -99,7 +99,18 @@ void main() {
       'lib/design/breakpoints.dart',
     ];
 
-    test('这三个文件只 import dart:*', () {
+    /// 允许 `pureDartOnly` 里的文件依赖的**同样零依赖**的本地文件。
+    ///
+    /// 2026-09-11：`display_prefs.dart` 需要 `AppThemeId`（主题标识）。
+    /// 判定标准不是「路径白名单」，而是**依赖闭包是否仍然零依赖**——
+    /// 所以下面同时断言这些被依赖的文件自己 `import` 数为 0。
+    /// 这样放宽不会变成后门：往 `theme_id.dart` 里加一个
+    /// `import 'package:flutter/material.dart'` 会当场挂。
+    const Set<String> zeroDependencyLocals = <String>{
+      "import '../design/theme_id.dart';",
+    };
+
+    test('这三个文件只 import dart:*（或零依赖的本地文件）', () {
       for (final String path in pureDartOnly) {
         final String source = File(path).readAsStringSync();
         final List<String> imports = RegExp(r"^import .*$", multiLine: true)
@@ -108,7 +119,8 @@ void main() {
             .toList();
         for (final String line in imports) {
           expect(
-            line.contains("'dart:"),
+            line.contains("'dart:") ||
+                zeroDependencyLocals.contains(line.trim()),
             isTrue,
             reason: '$path 只能 import dart:*（纯逻辑，可在任何环境跑）：$line',
           );
@@ -117,6 +129,33 @@ void main() {
           source.contains("package:flutter"),
           isFalse,
           reason: '$path 不该依赖 Flutter（那样主题一变就要跑 widget 测试）',
+        );
+      }
+    });
+
+    test('被放行的那几个本地文件自己**零 import**（放宽不是后门）', () {
+      for (final String line in zeroDependencyLocals) {
+        final String quoted = RegExp(r"'([^']+)'").firstMatch(line)!.group(1)!;
+        // 相对 `lib/settings/`（`pureDartOnly` 里的文件都在那一层）。
+        final List<String> parts = <String>[
+          'lib',
+          'settings',
+          ...quoted.split('/'),
+        ];
+        final List<String> stack = <String>[];
+        for (final String part in parts) {
+          if (part == '..') {
+            stack.removeLast();
+          } else if (part != '.') {
+            stack.add(part);
+          }
+        }
+        final String path = stack.join('/');
+        final String source = File(path).readAsStringSync();
+        expect(
+          RegExp(r"^import ", multiLine: true).hasMatch(source),
+          isFalse,
+          reason: '$path 必须零 import，否则「纯逻辑」这个放行理由不成立',
         );
       }
     });

@@ -227,7 +227,7 @@ class Live2DStageState extends State<Live2DStage> {
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        const ColoredBox(color: AppPalette.stageBackdrop),
+        ColoredBox(color: appPaletteOf(context).stage),
         host.buildLive2DHost(
           key: ValueKey<int>(_generation),
           onTransport: _attach,
@@ -314,9 +314,9 @@ class _StageErrorOverlay extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: AppPalette.dangerSurface.withValues(alpha: 0.95),
+            color: appPaletteOf(context).dangerSurface.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: AppPalette.dangerBorder),
+            border: Border.all(color: appPaletteOf(context).dangerBorder),
           ),
           child: Padding(
             padding: const EdgeInsets.all(12),

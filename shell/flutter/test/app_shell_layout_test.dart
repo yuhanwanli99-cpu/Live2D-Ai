@@ -266,7 +266,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(InlineSettingsDock), findsOneWidget);
-      expect(find.text('PANE:动作与互动'), findsOneWidget);
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
       // 内联侧板宽度是唯一定义点。
       expect(tester.getSize(find.byType(InlineSettingsDock)).width,
           greaterThanOrEqualTo(NavMetrics.paneWidth));
@@ -281,8 +281,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(InlineSettingsDock), findsOneWidget);
 
-      // 点 rail 上「动作与互动」（当前分区）→ 收起。
-      await tester.tap(find.text('动作与互动').first);
+      // 点 rail 上「外观与互动」（当前分区）→ 收起。
+      await tester.tap(find.text('外观与互动').first);
       await tester.pumpAndSettle();
       expect(find.byType(InlineSettingsDock), findsNothing);
     });

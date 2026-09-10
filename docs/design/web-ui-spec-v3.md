@@ -2200,6 +2200,67 @@ macOS 用 `meta`（⌘），其余用 `control`。**不要两个都绑**：在 W
 
 ---
 
+## 13.13 四套配色主题（2026-09-11 用户裁决）
+
+用户原话要点：「整个前端 ui 很 ai 化同质，看起来不舒服」「配色保留黑色的同时
+支持 3 色切换，我们做 live2d 相关，支持 **黑/白/蓝/灰** 4 色先」。
+
+### 13.13.1 作废条目
+
+| 位置 | 原文 | 现状 |
+|---|---|---|
+| §2.1 / §2.8 | 令牌表把配色写成 `const` 常量类，理由是「本应用 dark-only、无换肤 ⇒ 无主题动画需求」 | **前提没了**。`AppPalette` 改为 `ThemeExtension`，4 套取值；`buildAppTheme([AppThemeId])` |
+| §11 钉子 | `theme_test.dart` 断言「配色是 dark，**写死 dark 是刻意的**」 | 改为**逐主题**断言：主题亮度 == 该配色的亮度，脚手架底 == 该配色的舞台底 |
+
+### 13.13.2 落地形态
+
+- **`AppThemeId`**（`lib/design/theme_id.dart`）：`black` / `white` / `blue` / `gray`，
+  带 `wire`（存储键，与枚举名解耦）、`label`（一个汉字）、`hint`（一句话）、
+  `fromWire`（**永不抛**，坏值回落 `fallback = black`）。
+  这个文件**零 import**——`DisplayPrefs` 要依赖它，而 `DisplayPrefs` 属于
+  「纯逻辑、可在任何环境跑」那一档（守卫见 `no_backdrop_filter_test.dart`）。
+- **`AppPalette`**（`lib/design/tokens.dart`）：从「平的 `const` 颜色表」变成
+  `ThemeExtension`，字段覆盖舞台底 / 面板 / 次级面 / 墨色 / 强调色 / 三语义色 /
+  危险面与描边；派生 `line` / `onAccent` / `onDanger`（**算出来的**，不写死）。
+- **`appPaletteOf(context)`**（`lib/ui/theme.dart`）：与 `appColorsOf` 同构，
+  拿不到就 assert 失败——**不静默回落默认色**。
+- **`ThemePickerField`**（`lib/ui/theme_picker.dart`）：四选一。
+  **每个色块用它自己那套配色画自己**（底色 = 它的舞台底、字 = 它的墨色），
+  所以点之前就能看见结果；选中态用「加粗描边 + 实心点」表达，
+  **不靠颜色**（颜色在这里已经承载了语义）。全程无图片。
+- 主题放在 **`DisplayPrefs`（本地偏好）**，不是服务端设置：
+  它是「这台设备看起来什么样」，换设备本就该各看各的；而且**点一下立刻生效、
+  没有保存按钮**——用户是为了「看着舒服」才切的。
+  首选项因此从 `ShellRoot` **上提到 `MaterialApp` 的父级**（`Live2DShellApp`），
+  否则主题作用不到 `MaterialApp` 上，只能靠子级往父级捅或读两遍 localStorage。
+
+### 13.13.3 可测约束（`test/theme_palette_test.dart`，50 条）
+
+这类改动最典型的翻车不是「不好看」，而是**某套主题上某段文字读不出来**——
+尤其亮色主题：把 dark-only 的 `#FF6B6B` 搬到白底只有 2.5:1。
+所以**逐主题**断言（WCAG 相对对比度，不是肉眼）：
+
+| 断言 | 门槛 |
+|---|---|
+| 墨色 vs 面板 / 舞台 / 次级面 | ≥ 4.5（AA 正文） |
+| 次要文本（墨色 74% 合成后）vs 面板 | ≥ 4.5 |
+| 强调色 vs 面板（焦点环，非文字） | ≥ 3.0 |
+| 强调色上的文字 | ≥ 4.5 |
+| 危险色 vs 危险面 | ≥ 4.5 |
+| 舞台底 | **alpha == 1**（纯色平面，对应「中央不要放贴图」） |
+| 黑=纯黑 `#000000` / 白=纯白 `#FFFFFF` | 逐字对应用户原话 |
+
+另加 `theme_picker_test.dart`：四个色块各自用它自己的舞台底、点击回调、
+选中态语义（`SemanticsFlag.isSelected`，不只靠描边）。
+
+### 13.13.4 已知未接线
+
+渲染面的 iframe `index.html` 自带 `background: #101418`，会**盖住** Flutter 画的
+舞台底——所以主题里的舞台色在成品上还看不见。这件事在 §13.14 一起处理
+（舞台改纯色 + 自定义背景图）。
+
+---
+
 ## 附录 A：四份调研的冲突裁决记录
 
 | # | 冲突 | 各自依据 | 裁决与理由 |

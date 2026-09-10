@@ -4,63 +4,305 @@
 /// 源文件**——其余业务代码一律引用这里的令牌，由
 /// `test/design_tokens_lint_test.dart` 扫描守住（设计规格 §2.8.3）。
 ///
-/// # 三处分工（设计规格 §2.1，不要混）
+/// # 四处分工（设计规格 §2.1，不要混）
 ///
 /// | 维度 | 载体 | 为什么 |
 /// | --- | --- | --- |
-/// | 语义槽位色 | `ColorScheme`（`theme.dart` 里 `fromSeed`） | Material 已定义，重造会双份真相 |
-/// | 依赖 `onSurface` 的叠色 | [AppColors]（`ThemeExtension`） | 必须随主题插值，`lerp` 有意义 |
-/// | 尺寸 / 时长 / 曲线 / 断点 | `const` 常量类 | 本应用 dark-only、无换肤 ⇒ 无主题动画需求，`lerp` 价值≈0 |
+/// | 语义槽位色 | `ColorScheme`（`theme.dart` 里由 [AppPalette] 直接指定） | Material 已定义，重造会双份真相 |
+/// | **整套配色**（舞台底 / 面板 / 文字 / 强调 / 语义色） | [AppPalette]（`ThemeExtension`） | 4 套主题，必须随主题切换；`lerp` 让切换可插值 |
+/// | 依赖 `onSurface` 的叠色 | [AppColors]（`ThemeExtension`） | 由当前配色派生，比写死更耐换肤 |
+/// | 尺寸 / 时长 / 曲线 / 断点 | `const` 常量类 | 与主题无关 ⇒ 无插值需求，`lerp` 价值≈0 |
 library;
 
 import 'package:flutter/material.dart';
 
 import 'breakpoints.dart';
+import 'theme_id.dart';
 
-/// 品牌色与固定底色。
+/// 一套完整的配色（**四套之一**，见 [AppThemeId]）。
 ///
-/// 这些**不随主题变化**，故用 `const` 而非 `ThemeExtension`。
-abstract final class AppPalette {
-  /// `ColorScheme.fromSeed` 的唯一种子（沿用既有产品视觉基因，不换）。
-  static const Color seed = Color(0xFF7C5CFF);
+/// # 为什么是 `ThemeExtension` 而不是 `const` 常量类
+///
+/// 旧版本这里是一个「只有 `const Color` 的静态类」，因为当时是 **dark-only**。
+/// 现在有四套主题，同一个语义槽位（「舞台底」「面板底」「危险色」）在不同主题下
+/// 必须是不同的值 —— 再写成静态常量就等于把「默认主题的值」硬编码进了
+/// 组件里，换主题时组件不会变。做成 `ThemeExtension` 之后：
+///
+/// - 组件统一写 `appPaletteOf(context).stage`，换主题自动跟随；
+/// - `lerp` 有意义（主题切换可以插值），`copyWith` 让结构测试能逐字段对账；
+/// - 「注册了没有」这件事在 `buildAppTheme` 里是编译期可见的，不会静默降级。
+///
+/// # 取值原则（不是随便挑的颜色）
+///
+/// 1. **舞台底是纯色平面**（用户裁决「舞台背影全黑/全白即可，中央不要放贴图」）：
+///    黑主题 `#000000`、白主题 `#FFFFFF`，蓝/灰是各自色相的纯色。
+/// 2. **文字与它所在的面**的对比度 ≥ 4.5:1（中文小字号的可读下限）；
+///    由 `test/theme_test.dart` 逐主题断言，不是靠眼睛。
+/// 3. **语义色按亮/暗各一套**：`#FF6B6B` 那种亮红在白底上只有 2.5:1，
+///    在浅色主题里必须换成深红。这是「只换 accent 不换语义色」最容易翻车的地方。
+/// 4. **强调色上的文字颜色是算出来的**，不是写死的（[onAccent]）。
+@immutable
+class AppPalette extends ThemeExtension<AppPalette> {
+  const AppPalette({
+    required this.id,
+    required this.brightness,
+    required this.stage,
+    required this.surface,
+    required this.surfaceAlt,
+    required this.ink,
+    required this.accent,
+    required this.success,
+    required this.warning,
+    required this.danger,
+    required this.dangerSurface,
+    required this.dangerBorder,
+  });
 
-  /// 脚手架底 + 舞台底（合并了原先散在两处的同一硬编码）。
-  static const Color stageBackdrop = Color(0xFF0B0D12);
+  /// 这是哪一套（设置里的选中态要读它）。
+  final AppThemeId id;
 
-  /// 聊天面板底。
-  static const Color chatPanelSurface = Color(0xFF10131A);
+  /// 亮 / 暗。**由配色决定，不是用户可选项**：
+  /// 「黑」「蓝」「灰」是暗色主题，「白」是亮色主题。
+  final Brightness brightness;
 
-  /// 助手气泡底。
-  static const Color bubbleAssistant = Color(0xFF1B2030);
+  /// 舞台纯色底（Live2D iframe 后面那一层）。
+  final Color stage;
 
-  /// 失败气泡 / 错误条底。
-  static const Color dangerSurface = Color(0xFF3A1D1D);
+  /// 面板底（聊天面板、设置面板）。
+  final Color surface;
 
-  /// 错误条描边。
-  static const Color dangerBorder = Color(0xFF8A3B3B);
+  /// 次级面（助手气泡、悬停的卡片）。
+  final Color surfaceAlt;
 
-  /// 语义色：成功（已连接、测试通过）。
-  static const Color success = Color(0xFF3DD68C);
+  /// 主文本色。
+  final Color ink;
 
-  /// 语义色：警告（连接中、待重启、服务端静音徽标）。
-  static const Color warning = Color(0xFFF5A524);
+  /// 强调色（发送键、焦点环、选中态）。
+  final Color accent;
 
-  /// 语义色：失败（已关闭、解析失败）。
-  static const Color danger = Color(0xFFFF6B6B);
+  /// 语义色（**按亮暗各一套**，见头注第 3 条）。
+  final Color success;
+  final Color warning;
+  final Color danger;
 
-  /// 登记表（只服务测试的声明侧枚举）。**生产代码不得用本表取值**。
-  static const Map<String, Color> registry = <String, Color>{
-    'seed': seed,
-    'stageBackdrop': stageBackdrop,
-    'chatPanelSurface': chatPanelSurface,
-    'bubbleAssistant': bubbleAssistant,
-    'dangerSurface': dangerSurface,
-    'dangerBorder': dangerBorder,
+  /// 危险状态的**面**与**描边**（错误条、失败气泡）。
+  final Color dangerSurface;
+  final Color dangerBorder;
+
+  /// 是不是暗色主题。
+  bool get dark => brightness == Brightness.dark;
+
+  /// 强调色上的文字色：**算出来的**（对比度高的那个）。
+  ///
+  /// 写死白色会在「黑」主题上直接瞎掉——那套的强调色本身是近白色。
+  Color get onAccent => _contrast(accent, Colors.white) >= _contrast(accent, _black)
+      ? Colors.white
+      : _black;
+
+  /// 危险色上的文字色（Material 的 `onError`）。
+  ///
+  /// 与 [onAccent] 同一条算法、**不写死**：暗色主题的危险色是亮红（配黑字），
+  /// 亮色主题的危险色是深红（配白字）。写死任一边都会在其中一半主题上瞎掉。
+  Color get onDanger => _contrast(danger, Colors.white) >= _contrast(danger, _black)
+      ? Colors.white
+      : _black;
+
+  /// 1 px 分隔线 / 卡片描边。
+  Color get line => ink.withValues(alpha: dark ? 0.14 : 0.10);
+
+  /// 危险面上的文字色（与 [danger] 同值，单独起名是为了让调用点的意图可读）。
+  Color get onDangerSurface => danger;
+
+  static const Color _black = Color(0xFF000000);
+
+  /// 两色的 WCAG 对比度。
+  static double _contrast(Color a, Color b) {
+    final double x = a.computeLuminance();
+    final double y = b.computeLuminance();
+    return ((x > y ? x : y) + 0.05) / ((x > y ? y : x) + 0.05);
+  }
+
+  /// 四套配色的**唯一真源**。
+  static const Map<AppThemeId, AppPalette> registry =
+      <AppThemeId, AppPalette>{
+        AppThemeId.black: black,
+        AppThemeId.white: white,
+        AppThemeId.blue: blue,
+        AppThemeId.gray: gray,
+      };
+
+  /// 按 id 取；未知回落 [AppThemeId.fallback]（**不抛**）。
+  static AppPalette of(AppThemeId id) => registry[id] ?? black;
+
+  // ────────────────────────────────────────────────────────── 四套取值
+
+  /// 黑（默认）：纯黑舞台 + 冷白强调。
+  static const AppPalette black = AppPalette(
+    id: AppThemeId.black,
+    brightness: Brightness.dark,
+    // **纯黑**，不是「接近黑」：用户明确说「舞台背影全黑即可」。
+    stage: Color(0xFF000000),
+    surface: Color(0xFF0E0E11),
+    surfaceAlt: Color(0xFF17171B),
+    ink: Color(0xFFF1F1F4),
+    accent: Color(0xFFE8E8EC),
+    success: Color(0xFF3DD68C),
+    warning: Color(0xFFF5A524),
+    danger: Color(0xFFFF6B6B),
+    dangerSurface: Color(0xFF3A1D1D),
+    dangerBorder: Color(0xFF8A3B3B),
+  );
+
+  /// 白：纯白舞台 + 近黑强调。
+  static const AppPalette white = AppPalette(
+    id: AppThemeId.white,
+    brightness: Brightness.light,
+    stage: Color(0xFFFFFFFF),
+    surface: Color(0xFFF4F4F6),
+    surfaceAlt: Color(0xFFEAEAEE),
+    ink: Color(0xFF17171A),
+    accent: Color(0xFF17171A),
+    success: Color(0xFF146B3E),
+    warning: Color(0xFF8A5A00),
+    danger: Color(0xFFC0392B),
+    dangerSurface: Color(0xFFFCEBEB),
+    dangerBorder: Color(0xFFE0A9A3),
+  );
+
+  /// 蓝：深蓝舞台 + 天蓝强调。
+  static const AppPalette blue = AppPalette(
+    id: AppThemeId.blue,
+    brightness: Brightness.dark,
+    stage: Color(0xFF061223),
+    surface: Color(0xFF0D1C33),
+    surfaceAlt: Color(0xFF16294A),
+    ink: Color(0xFFE7EFFC),
+    accent: Color(0xFF4D8DFF),
+    success: Color(0xFF3DD68C),
+    warning: Color(0xFFF5C24C),
+    danger: Color(0xFFFF7B7B),
+    dangerSurface: Color(0xFF3A1D25),
+    dangerBorder: Color(0xFF8C4453),
+  );
+
+  /// 灰：中灰舞台 + 灰白强调（比黑柔一档，不是「黑加一点灰」）。
+  static const AppPalette gray = AppPalette(
+    id: AppThemeId.gray,
+    brightness: Brightness.dark,
+    stage: Color(0xFF1C1C1F),
+    surface: Color(0xFF26262A),
+    surfaceAlt: Color(0xFF323238),
+    ink: Color(0xFFECECEF),
+    accent: Color(0xFFD8D8DE),
+    success: Color(0xFF4FD79A),
+    warning: Color(0xFFF0AE3C),
+    danger: Color(0xFFFF8080),
+    dangerSurface: Color(0xFF3B2323),
+    dangerBorder: Color(0xFF8C5050),
+  );
+
+  /// 字段名 → 值（供测试做「新增字段忘了 copyWith/lerp」的结构枚举）。
+  Map<String, Object?> toValuesMap() => <String, Object?>{
+    'stage': stage,
+    'surface': surface,
+    'surfaceAlt': surfaceAlt,
+    'ink': ink,
+    'accent': accent,
     'success': success,
     'warning': warning,
     'danger': danger,
+    'dangerSurface': dangerSurface,
+    'dangerBorder': dangerBorder,
   };
+
+  /// 配色字段个数（不含 `id` / `brightness`：它们不是颜色，不参与 lerp 对账）。
+  static const int colorFieldCount = 10;
+
+  @override
+  AppPalette copyWith({
+    AppThemeId? id,
+    Brightness? brightness,
+    Color? stage,
+    Color? surface,
+    Color? surfaceAlt,
+    Color? ink,
+    Color? accent,
+    Color? success,
+    Color? warning,
+    Color? danger,
+    Color? dangerSurface,
+    Color? dangerBorder,
+  }) {
+    return AppPalette(
+      id: id ?? this.id,
+      brightness: brightness ?? this.brightness,
+      stage: stage ?? this.stage,
+      surface: surface ?? this.surface,
+      surfaceAlt: surfaceAlt ?? this.surfaceAlt,
+      ink: ink ?? this.ink,
+      accent: accent ?? this.accent,
+      success: success ?? this.success,
+      warning: warning ?? this.warning,
+      danger: danger ?? this.danger,
+      dangerSurface: dangerSurface ?? this.dangerSurface,
+      dangerBorder: dangerBorder ?? this.dangerBorder,
+    );
+  }
+
+  @override
+  AppPalette lerp(covariant AppPalette? other, double t) {
+    if (other == null) return this;
+    return AppPalette(
+      // **离散字段不插值**：`t < 1` 时保持旧主题的身份，切完才换。
+      // id/brightness 插值出中间值没有意义（枚举无法一半黑一半白）。
+      id: t < 1 ? id : other.id,
+      brightness: t < 1 ? brightness : other.brightness,
+      stage: Color.lerp(stage, other.stage, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceAlt: Color.lerp(surfaceAlt, other.surfaceAlt, t)!,
+      ink: Color.lerp(ink, other.ink, t)!,
+      accent: Color.lerp(accent, other.accent, t)!,
+      success: Color.lerp(success, other.success, t)!,
+      warning: Color.lerp(warning, other.warning, t)!,
+      danger: Color.lerp(danger, other.danger, t)!,
+      dangerSurface: Color.lerp(dangerSurface, other.dangerSurface, t)!,
+      dangerBorder: Color.lerp(dangerBorder, other.dangerBorder, t)!,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppPalette &&
+      other.id == id &&
+      other.brightness == brightness &&
+      other.stage == stage &&
+      other.surface == surface &&
+      other.surfaceAlt == surfaceAlt &&
+      other.ink == ink &&
+      other.accent == accent &&
+      other.success == success &&
+      other.warning == warning &&
+      other.danger == danger &&
+      other.dangerSurface == dangerSurface &&
+      other.dangerBorder == dangerBorder;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    brightness,
+    stage,
+    surface,
+    surfaceAlt,
+    ink,
+    accent,
+    success,
+    warning,
+    danger,
+    dangerSurface,
+    dangerBorder,
+  );
 }
+
 
 /// 依赖 `onSurface` / `primary` 的**叠色与描边**，走 `ThemeExtension`。
 ///
@@ -80,24 +322,31 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.serverMutedBadgeBorder,
   });
 
-  /// 由 `ColorScheme` 派生一套。**唯一的构造入口**——避免各处自己乘透明度。
-  factory AppColors.of(ColorScheme scheme) {
+  /// 由 `ColorScheme` + 当前配色派生一套。**唯一的构造入口**——
+  /// 避免各处自己乘透明度。
+  ///
+  /// 叠色的透明度要按亮暗分档：暗色主题上「白字加 12% 透明」是一道可见的
+  /// 描边，在白色主题上同样 12% 的黑几乎看不见，反之亦然。所以
+  /// [glassScrim] 这类**遮罩**也跟着 [palette] 的亮暗走。
+  factory AppColors.of(ColorScheme scheme, AppPalette palette) {
     final Color on = scheme.onSurface;
-    const Color black = Color(0xFF000000);
+    final bool dark = palette.dark;
+    // 遮罩必须与背景**反向**：暗主题用黑幕，亮主题用白幕。
+    final Color veil = dark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
     return AppColors(
       // dark 下用 1 px 描边表达层级，而不是投影。
-      hairline: on.withValues(alpha: 0.12),
-      hoverWash: on.withValues(alpha: 0.06),
-      glassScrim: black.withValues(alpha: 0.60),
-      glassBarrier: black.withValues(alpha: 0.32),
+      hairline: on.withValues(alpha: dark ? 0.12 : 0.10),
+      hoverWash: on.withValues(alpha: dark ? 0.06 : 0.04),
+      glassScrim: veil.withValues(alpha: dark ? 0.60 : 0.72),
+      glassBarrier: veil.withValues(alpha: dark ? 0.32 : 0.40),
       // 承载文字信息的次要文本（≥ 12 px）。
       contentMuted: on.withValues(alpha: 0.74),
       // **仅装饰/图标**，不得承载文字信息。
       contentFaint: on.withValues(alpha: 0.60),
       // 键盘焦点环**必须不透明**（对比度要可测）。
       focusRing: scheme.primary,
-      serverMutedBadgeSurface: AppPalette.warning.withValues(alpha: 0.18),
-      serverMutedBadgeBorder: AppPalette.warning,
+      serverMutedBadgeSurface: palette.warning.withValues(alpha: 0.18),
+      serverMutedBadgeBorder: palette.warning,
     );
   }
 

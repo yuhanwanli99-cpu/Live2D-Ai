@@ -88,7 +88,7 @@ class ChatPanel extends StatelessWidget {
     // 聊天面用**独立底色**与舞台分隔：舞台是纯黑（`stageBackdrop`），
     // 聊天面板盖在它上面时必须自己撑出一个面，否则气泡看起来是浮在黑底上。
     return ColoredBox(
-      color: AppPalette.chatPanelSurface,
+      color: appPaletteOf(context).surface,
       // 聊天面板是一个面板 → 一个焦点组（规格 §9.2-1）。
       child: FocusTraversalGroup(
         policy: OrderedTraversalPolicy(),

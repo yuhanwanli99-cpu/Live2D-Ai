@@ -155,7 +155,7 @@ class _StageErrorOverlay extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(Icons.error_outline, size: 28, color: AppPalette.danger),
+              Icon(Icons.error_outline, size: 28, color: appPaletteOf(context).danger),
               const SizedBox(height: Space.s2),
               Text('模型加载失败', style: theme.textTheme.titleSmall),
               if (message != null) ...<Widget>[

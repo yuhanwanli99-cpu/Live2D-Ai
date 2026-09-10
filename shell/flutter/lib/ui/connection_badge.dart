@@ -28,10 +28,10 @@ class ConnectionBadge extends StatelessWidget {
     final TextTheme text = Theme.of(context).textTheme;
 
     final (IconData icon, Color tone) = switch (status) {
-      WsStatus.connected => (Icons.cloud_done_outlined, AppPalette.success),
-      WsStatus.connecting => (Icons.cloud_sync_outlined, AppPalette.warning),
-      WsStatus.disconnected => (Icons.cloud_off, AppPalette.danger),
-      WsStatus.closed => (Icons.cloud_off, AppPalette.danger),
+      WsStatus.connected => (Icons.cloud_done_outlined, appPaletteOf(context).success),
+      WsStatus.connecting => (Icons.cloud_sync_outlined, appPaletteOf(context).warning),
+      WsStatus.disconnected => (Icons.cloud_off, appPaletteOf(context).danger),
+      WsStatus.closed => (Icons.cloud_off, appPaletteOf(context).danger),
       WsStatus.idle => (Icons.cloud_queue, colors.contentMuted),
     };
 
@@ -80,7 +80,7 @@ class OfflineBanner extends StatelessWidget {
     final TextTheme text = Theme.of(context).textTheme;
 
     return Material(
-      color: AppPalette.danger.withValues(alpha: 0.16),
+      color: appPaletteOf(context).danger.withValues(alpha: 0.16),
       child: InkWell(
         onTap: onRetry,
         child: Padding(
@@ -90,7 +90,7 @@ class OfflineBanner extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
-              Icon(Icons.cloud_off, size: 16, color: AppPalette.danger),
+              Icon(Icons.cloud_off, size: 16, color: appPaletteOf(context).danger),
               const SizedBox(width: Space.s2),
               Expanded(
                 child: Text(
@@ -98,7 +98,7 @@ class OfflineBanner extends StatelessWidget {
                   onRetry == null
                       ? '后端未连接（${status.label}）'
                       : '后端未连接（${status.label}）· 点此重试',
-                  style: text.bodySmall?.copyWith(color: AppPalette.danger),
+                  style: text.bodySmall?.copyWith(color: appPaletteOf(context).danger),
                 ),
               ),
             ],

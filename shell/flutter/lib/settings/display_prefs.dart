@@ -5,9 +5,12 @@
 /// 持久化本身在 `main.dart` 做（那里才允许 `package:web`）。
 library;
 
+import '../design/theme_id.dart';
+
 /// 舞台显示偏好。
 class DisplayPrefs {
   const DisplayPrefs({
+    this.theme = AppThemeId.fallback,
     this.scale = defaultScale,
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
@@ -17,6 +20,16 @@ class DisplayPrefs {
     this.allowDragZoom = true,
     this.tier = defaultTier,
   });
+
+  /// 配色主题（黑/白/蓝/灰，默认黑）。
+  ///
+  /// # 为什么主题放在**本地偏好**而不是服务端设置里
+  ///
+  /// 它是「这台设备看起来是什么样」，不是「服务端怎么工作」——
+  /// 换台设备（或换个浏览器）本来就该各看各的。而且它**不需要保存按钮**：
+  /// 点一下立刻生效（用户是为了「看着舒服」才切的，多一步保存会毁掉这个手感）。
+  /// 与 `[tts]` 那种「核心链路配置」是两个世界的东西。
+  final AppThemeId theme;
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
   final double scale;
@@ -87,6 +100,7 @@ class DisplayPrefs {
   static const double maxMouthSensitivity = 3.0;
 
   DisplayPrefs copyWith({
+    AppThemeId? theme,
     double? scale,
     double? mouthSensitivity,
     bool? lipSync,
@@ -97,6 +111,7 @@ class DisplayPrefs {
     int? tier,
   }) {
     return DisplayPrefs(
+      theme: theme ?? this.theme,
       scale: scale ?? this.scale,
       mouthSensitivity: mouthSensitivity ?? this.mouthSensitivity,
       lipSync: lipSync ?? this.lipSync,
@@ -110,6 +125,7 @@ class DisplayPrefs {
 
   /// 序列化（写入 localStorage）。
   Map<String, Object?> toJson() => <String, Object?>{
+    'theme': theme.wire,
     'scale': scale,
     'mouthSensitivity': mouthSensitivity,
     'lipSync': lipSync,
@@ -127,6 +143,8 @@ class DisplayPrefs {
   factory DisplayPrefs.fromJson(Map<String, Object?>? json) {
     if (json == null) return const DisplayPrefs();
     return DisplayPrefs(
+      // 旧存档没有这个字段 → 用默认（黑），不是「假装用户选过白」。
+      theme: AppThemeId.fromWire(json['theme']),
       scale: clampScale(_readDouble(json['scale'], defaultScale)),
       mouthSensitivity: clampMouthSensitivity(
         _readDouble(json['mouthSensitivity'], defaultMouthSensitivity),
@@ -177,6 +195,7 @@ class DisplayPrefs {
   @override
   bool operator ==(Object other) =>
       other is DisplayPrefs &&
+      other.theme == theme &&
       other.scale == scale &&
       other.mouthSensitivity == mouthSensitivity &&
       other.lipSync == lipSync &&
@@ -188,6 +207,7 @@ class DisplayPrefs {
 
   @override
   int get hashCode => Object.hash(
+    theme,
     scale,
     mouthSensitivity,
     lipSync,
@@ -200,7 +220,7 @@ class DisplayPrefs {
 
   @override
   String toString() =>
-      'DisplayPrefs(scale: $scale, mouth: $mouthSensitivity, '
+      'DisplayPrefs(theme: ${theme.wire}, scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
       'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier)';
 }

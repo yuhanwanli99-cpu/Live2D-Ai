@@ -49,12 +49,17 @@ class UiPhaseView {
 /// `UiPhase` → 视觉表达（**纯函数**，可在 VM/widget 测试里直接断言）。
 ///
 /// `offline` 与 `error` 都用 danger 色，但**字与形都不同**——满足「至少两个通道」。
-UiPhaseView uiPhaseView(UiPhase phase, ColorScheme scheme, AppColors colors) =>
+UiPhaseView uiPhaseView(
+  UiPhase phase,
+  ColorScheme scheme,
+  AppColors colors,
+  AppPalette palette,
+) =>
     switch (phase) {
       UiPhase.offline => UiPhaseView(
         label: '后端未连接',
         icon: Icons.cloud_off,
-        tone: AppPalette.danger,
+        tone: palette.danger,
         filledDot: true,
       ),
       UiPhase.idle => UiPhaseView(
@@ -66,7 +71,7 @@ UiPhaseView uiPhaseView(UiPhase phase, ColorScheme scheme, AppColors colors) =>
       UiPhase.thinking => UiPhaseView(
         label: '思考中',
         icon: Icons.psychology_outlined,
-        tone: AppPalette.warning,
+        tone: palette.warning,
         filledDot: false,
       ),
       UiPhase.speaking => UiPhaseView(
@@ -84,7 +89,7 @@ UiPhaseView uiPhaseView(UiPhase phase, ColorScheme scheme, AppColors colors) =>
       UiPhase.error => UiPhaseView(
         label: '出错',
         icon: Icons.error_outline,
-        tone: AppPalette.danger,
+        tone: palette.danger,
         filledDot: false,
       ),
     };
@@ -152,7 +157,12 @@ class _StatePillState extends State<StatePill>
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
-    final UiPhaseView view = uiPhaseView(widget.phase, theme.colorScheme, colors);
+    final UiPhaseView view = uiPhaseView(
+      widget.phase,
+      theme.colorScheme,
+      colors,
+      appPaletteOf(context),
+    );
     final bool reduced = MediaQuery.disableAnimationsOf(context);
 
     final Widget body = Padding(

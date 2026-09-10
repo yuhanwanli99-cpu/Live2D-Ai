@@ -101,10 +101,10 @@ class SettingsScaffold extends StatelessWidget {
                     padding: const EdgeInsets.only(right: Space.s1),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: AppPalette.warning.withValues(alpha: 0.18),
+                        color: appPaletteOf(context).warning.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(AppRadius.pill),
                         border: Border.all(
-                          color: AppPalette.warning.withValues(alpha: 0.5),
+                          color: appPaletteOf(context).warning.withValues(alpha: 0.5),
                         ),
                       ),
                       child: Padding(
@@ -115,16 +115,16 @@ class SettingsScaffold extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            const Icon(
+                            Icon(
                               Icons.circle,
                               size: 7,
-                              color: AppPalette.warning,
+                              color: appPaletteOf(context).warning,
                             ),
                             const SizedBox(width: Space.s1),
                             Text(
                               '未保存',
                               style: theme.textTheme.labelSmall?.copyWith(
-                                color: AppPalette.warning,
+                                color: appPaletteOf(context).warning,
                               ),
                             ),
                           ],
@@ -194,7 +194,7 @@ class SettingsScaffold extends StatelessWidget {
                           statusMessage!,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: statusIsError
-                                ? AppPalette.danger
+                                ? appPaletteOf(context).danger
                                 : colors.contentMuted,
                           ),
                         ),

@@ -50,9 +50,9 @@ class ErrorBanner extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.all(Space.s2),
         decoration: BoxDecoration(
-          color: AppPalette.dangerSurface,
+          color: appPaletteOf(context).dangerSurface,
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(color: AppPalette.dangerBorder),
+          border: Border.all(color: appPaletteOf(context).dangerBorder),
         ),
         padding: const EdgeInsets.fromLTRB(Space.s3, Space.s2, Space.s1, Space.s2),
         child: Column(
@@ -66,7 +66,7 @@ class ErrorBanner extends StatelessWidget {
                   child: Icon(
                     Icons.error_outline,
                     size: 16,
-                    color: AppPalette.danger,
+                    color: appPaletteOf(context).danger,
                   ),
                 ),
                 const SizedBox(width: Space.s2),
