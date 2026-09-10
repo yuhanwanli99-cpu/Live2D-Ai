@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "l2d"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ayagami",
  "ayagami-render",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "l2d-wasm-demo"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "glam",
  "js-sys",
@@ -2287,11 +2287,11 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "live2d-ai-core"
-version = "0.4.5"
+version = "0.4.6"
 
 [[package]]
 name = "live2d-ai-desktop"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "cpal",
  "directories",
@@ -2332,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-director"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "live2d-ai-mod-system",
  "log",
@@ -2341,7 +2341,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-external-input"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "live2d-ai-mod-system",
  "log",
@@ -2350,7 +2350,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-local-llm"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "live2d-ai-mod-system",
  "log",
@@ -2359,7 +2359,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-local-tts"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "live2d-ai-mod-system",
  "log",
@@ -2368,7 +2368,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-pet-desktop"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "live2d-ai-mod-system",
  "log",
@@ -2377,7 +2377,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-system"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "log",
  "serde_json",
@@ -2385,7 +2385,7 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-runtime"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "futures-util",
  "reqwest",
@@ -5647,7 +5647,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.4.5"
+version = "0.4.6"
 
 [[package]]
 name = "yoke"

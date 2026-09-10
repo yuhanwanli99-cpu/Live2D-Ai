@@ -1,3 +1,59 @@
+# v0.4.6 — 前端 P1：WS 协议层抽取，把 9 个帧分支放进 `flutter test`（2026-09-10）
+
+## 缺陷：整帧解析**一行都不在门禁里**
+
+`api/ws_client.dart` 必须 `import 'package:web'`（浏览器 `WebSocket`），
+于是它**在 `flutter test` 里根本加载不了**——连同里面的整帧 decode：
+9 个 `type` 分支、每分支多个字段，**一个都没被测试覆盖**。
+
+这不是理论风险，已经造成过真实缺陷：`action_state` 的 `data.action` 是
+**对象** `{action, strength, source}`，代码却按字符串解析
+（`_str(data['action'])` 对 `Map` 返回 `null`），结果是
+**动作名永远为 null、来源与强度全丢**。9 个分支里错一个，没人会发现。
+
+## 修复：把纯逻辑从浏览器依赖里拔出来
+
+- 新增 `lib/api/ws_frame.dart`：只有「帧字符串 → 领域事件」这一个纯函数
+  `parseWsFrame`，**不含任何 WebSocket 生命周期**。可在 VM 上单测。
+- `lib/api/ws_client.dart` 瘦身到只做连接生命周期
+  （连接 / 重连 / 退避 / 定时器 / `shutdown_ready` 的副作用），
+  291 行删除、34 行新增。
+- `backoffForAttempt(attempt)` 也抽成纯函数：「1s→2s→4s→8s→16s→30s 上限」
+  是一条**对外承诺**，原先藏在一个 `void` 方法里自增，没有任何测试守。
+
+## 抽取过程中被新测试抓出来的**第二个**缺陷
+
+`parseWsFrame` 头注承诺「**永不抛异常**」，但 `seq` 写的是
+`(frame['seq'] as num?)?.toInt()`——服务端（或中间层）一旦给出字符串
+`"seq":"3"`，就抛 `type 'String' is not a subtype of type 'num?'`。
+
+**而且它抛在所有 `type` 分支的上游**：一帧坏 `seq` 让**整个事件流断掉**，
+不只是丢这一帧。已改为宽容解析（`_intOrNull`），并加测试钉住。
+
+> 这条正是本文件存在的意义：写测试的过程直接产出了一个真缺陷。
+> 抽取前它在浏览器里跑，谁都不会为「`seq` 恰好是字符串」去点一遍。
+
+## 测试（前端 111 → **141**）
+
+新增 `test/ws_frame_test.dart`（**25** 条），全部夹具来自**实抓**：
+
+- 每种 `type` 各一条实抓原文（`subscribe_ack` / `text_delta` ×2 形态 /
+  `turn_state` ×2 状态 / `action_state` / `audio` / `heartbeat`）。
+- `audio` 帧：`muted:true` 时 **PCM 全零但 `volume` 是真的**——
+  这是「静音时嘴照动」那条约定的现场证据，夹具里一并保留了服务端有、
+  解析层**故意不取**的 `slice_ms`，让「忽略了哪些字段」可见。
+- 坏帧矩阵：非法 JSON / 数组 / 字符串 / `null` / 缺 `type` / `type` 非字符串 /
+  `data` 非对象 / 坏 base64 / 坏 `seq`——**一律返回 `null`，永不抛**。
+- 前向兼容：未知 `type` → `UnknownWsEvent`；已知 `type` 上的新增字段被忽略。
+  另含 `error` 帧——服务端 `events.rs` 标着 **P1 partial 尚未实现**，
+  解析侧先备好并注明，避免以后误以为它已验证。
+- 退避序列 4 条（含单调不减、异常输入不越界、常量自洽）。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **141 通过 / 0 失败**。
+（前端自 `rust-ratio` 显式豁免，见 AGENTS.md。）
+
 # v0.4.5 — 自托管中文字体：断网不再变豆腐块（2026-09-10）
 
 v0.4.4 把 CanvasKit 本地化之后，**离线可用还差最后一块**：字体。
