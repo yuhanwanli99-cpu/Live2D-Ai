@@ -81,13 +81,6 @@ void main() {
       );
     });
 
-    test('`ActionDispatch` 被用上（否则「正在演」与幂等提示都不会出现）', () {
-      expect(
-        referencedOutside('ActionDispatch(', 'lib/actions/action_dispatch.dart'),
-        isTrue,
-      );
-    });
-
     test('`EpochGate` 的判据被 `ChatController` 用上（钉子 13 真的生效）', () {
       expect(
         referencedOutside('mustInterruptAudio(', 'lib/audio/epoch_gate.dart'),

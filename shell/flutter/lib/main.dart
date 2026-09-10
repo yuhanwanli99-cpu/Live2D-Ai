@@ -23,7 +23,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
-import 'actions/action_dispatch.dart';
 import 'actions/action_event.dart';
 import 'api/api_client.dart';
 import 'api/commands_api.dart';
@@ -48,7 +47,6 @@ import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
-import 'ui/action_grid.dart';
 import 'ui/action_toolbar.dart';
 import 'ui/error_banner.dart';
 import 'design/tokens.dart';
@@ -203,15 +201,13 @@ class _ShellRootState extends State<ShellRoot> {
   bool _copied = false;
   bool _settingsLoadedOnce = false;
 
-  // ── P5：动作通道 ──
-  /// 动作触发的本地状态（幂等提示 + 「正在演」游标）。
-  final ActionDispatch _dispatch = ActionDispatch();
-
-  /// 服务端给的可触发动作目录（`GET /api/v1/commands`）。
-  CommandCatalog _catalog = const CommandCatalog.empty();
-
-  /// 动作强度档位（1..3，全局一份）。
-  int _strength = 2;
+  // ── 动作通道 ──
+  /// 当前正在演的动作协议名（`null` = 没有）。
+  ///
+  /// 只服务一个协议细节：`cease` 帧**不带动作名**，而渲染面需要名字才能停下
+  /// 正确的动作。它**不是**触发状态——手动触发入口本轮已移出成品
+  ///（见 `docs/design/web-action-trigger-archive.md`）。
+  String? _performingAction;
 
   /// 渲染面回报的实际缩放（`stage-ack`；未收到时为 null，**不猜**）。
   double? _stageScaleFromAck;
@@ -291,7 +287,6 @@ class _ShellRootState extends State<ShellRoot> {
     try {
       final CommandCatalog catalog = await _commandsApi.fetchCommands();
       _chat.actionLog.useCatalog(catalog);
-      if (mounted) setState(() => _catalog = catalog);
     } catch (_) {
       // 忽略：保持恒等解析器（显示协议名）。
     }
@@ -333,19 +328,24 @@ class _ShellRootState extends State<ShellRoot> {
     _live.feed(last.text);
   }
 
-  /// WS 的动作事件 → **真的让模型动** + 本地忙碌态。
+  /// WS 的动作事件 → **真的让模型动**。
   ///
   /// 这是 P5 之前**完全缺失**的一环：`action_state` 只进了动作日志，
   /// 没有任何代码把它转成渲染面的 `action-state`，所以「AI 触发了点头」
   /// 在日志里有记录、模型却一次都没动过。
   ///
-  /// 用户手点与 AI 触发走的是**同一条**下行通道（渲染面不需要区分来源，
-  /// 仲裁已经在 core 做完了）。
+  /// # 本轮边界（2026-09-11 用户裁决）
+  ///
+  /// **下行通道保留**（AI / 规则触发的动作照演），**手动触发入口移出成品**。
+  /// 所以这里只剩「把 core 的决定转给渲染面」，不再有本地忙碌态、
+  /// 幂等提示与「正在演」按钮状态——那些只服务手动触发，已随入口一起
+  /// 归档到分支 `archive/action-trigger-p5`。
   void _onActionState(ActionStateEvent frame) {
     final ActionEvent event = ActionEvent.fromFrame(frame, receivedAt: DateTime.now());
-    _dispatch.consume(event);
     final String? action = event.action;
     if (action != null) {
+      // 游标：`cease` 帧**不带动作名**（协议如此），要靠它才能停下正确的动作。
+      _performingAction = event.isCease ? null : action;
       unawaited(
         _stageKey.currentState?.sendActionState(
               action: action,
@@ -355,11 +355,10 @@ class _ShellRootState extends State<ShellRoot> {
             Future<void>.value(),
       );
     } else if (event.isCease) {
-      // `cease` 帧**不带动作名**（协议如此）。渲染面按 `state != "start"`
-      // 停止当前动作，所以这里用一个空 action —— 但渲染面会先读根级
-      // `action` 再判 state，空 action 会让它找不到要停的动作。
-      // 因此用**当前正在演的那个**动作名去停（本地游标就是为此存在的）。
-      final String? current = _dispatch.performing;
+      // 渲染面会先读根级 `action` 再判 state，空 action 会让它找不到要停的
+      // 动作，所以用**当前正在演的那个**名字去停。
+      final String? current = _performingAction;
+      _performingAction = null;
       if (current != null) {
         unawaited(
           _stageKey.currentState?.sendActionState(
@@ -369,38 +368,6 @@ class _ShellRootState extends State<ShellRoot> {
               Future<void>.value(),
         );
       }
-    }
-  }
-
-  /// 手动触发一个动作（工具条 / 网格）。
-  ///
-  /// **重复点击仍会发出 invoke**：服务端才是仲裁者，而且重复点击的代价只是
-  /// 白跑一趟。本地只负责**给出解释**——否则用户看到的就是「点了没反应」。
-  Future<void> _invokeAction(CommandInfo command) async {
-    final String? action = command.targetAction;
-    final bool duplicate = action == null
-        ? false
-        : _dispatch.recordInvoke(action, _strength);
-    if (duplicate) {
-      final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(content: Text(_dispatch.duplicateHint), duration: const Duration(seconds: 2)),
-      );
-    }
-    try {
-      final CommandInvokeResult result = await _commandsApi.invoke(
-        command.id,
-        strength: _strength,
-      );
-      if (!mounted) return;
-      // `accepted: false` 也是合法响应（core 明确拒绝），如实提示。
-      if (!result.accepted) {
-        _dispatch.recordError('服务端未受理这次触发');
-      }
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      _dispatch.recordError(e.message);
     }
   }
 
@@ -774,11 +741,6 @@ class _ShellRootState extends State<ShellRoot> {
           onPrefsChanged: _updatePrefs,
           actionLog: _chat.actionLog,
           devMode: _devMode,
-          commands: _catalog.userInvocable,
-          dispatch: _dispatch,
-          onInvoke: (CommandInfo c) => unawaited(_invokeAction(c)),
-          strength: _strength,
-          onStrengthChanged: (int v) => setState(() => _strength = v),
         );
       case SettingsSection.mods:
         return ModsSection(
@@ -812,24 +774,6 @@ class _ShellRootState extends State<ShellRoot> {
           forcedByLaunchFlag: false,
         );
     }
-  }
-
-  /// 工具条上的动作（**高频优先**，最多 8 槽）。
-  ///
-  /// 排序规则：`kHighFrequencyActions` 里的按该顺序排前面，其余按服务端顺序。
-  /// **不硬编码哪 6 个动作存在**——`capabilities.actions` 才是真源。
-  List<CommandInfo> get _toolbarCommands {
-    final List<CommandInfo> invocable = _catalog.userInvocable;
-    final List<CommandInfo> ordered = <CommandInfo>[];
-    for (final String action in kHighFrequencyActions) {
-      for (final CommandInfo c in invocable) {
-        if (c.targetAction == action) ordered.add(c);
-      }
-    }
-    for (final CommandInfo c in invocable) {
-      if (!ordered.contains(c)) ordered.add(c);
-    }
-    return ordered;
   }
 
   /// 快捷键帮助（`Ctrl/Cmd + /`）。
@@ -906,7 +850,6 @@ class _ShellRootState extends State<ShellRoot> {
         _ui,
         _audio.unlockState,
         _settings,
-        _dispatch,
       ]),
       builder: (BuildContext context, Widget? _) {
         return AppShell(
@@ -963,15 +906,7 @@ class _ShellRootState extends State<ShellRoot> {
           onSaveSettings: () => unawaited(_saveSettings()),
           onDiscardSettings: _settings.discard,
           confirmDiscard: _confirmDiscard,
-          // ── 舞台浮标：动作工具条（左下）+ 缩放三键（右下） ──
-          // 工具条/角标**自己订阅**忙碌态，这里不必再包一层。
-          stageToolbar: _toolbarCommands.isEmpty
-              ? null
-              : ActionToolbar(
-                  commands: _toolbarCommands,
-                  onInvoke: (CommandInfo c) => unawaited(_invokeAction(c)),
-                  dispatch: _dispatch,
-                ),
+          // ── 舞台浮标：只剩缩放三键（动作工具条已随手动触发入口一起移出成品） ──
           stageCorner: StageCornerControls(
             onZoom: (String dir) => unawaited(_zoom(dir)),
             scaleFromAck: _stageScaleFromAck,

@@ -1,22 +1,26 @@
 /// 「动作与互动」分区（规格 §4.1.5）。
 ///
-/// 三组：**A. 舞台与口型**（纯本地 `DisplayPrefs`）、**B. 动作试演**
-/// （走 core 仲裁）、**C. 动作记录**。
+/// 两组：**A. 舞台与口型**（纯本地 `DisplayPrefs`）、**C. 动作记录**。
 ///
-/// P4 只做 A 与 C 的整合（`DisplayPrefs` 是纯本地、不需要草稿/保存）；
-/// **B 的动作触发按钮属 P5**——它需要 `POST /api/v1/commands/{id}/invoke`
-/// 与「正在演」状态，那是一条独立的通道。这里**不占位**假装有，
-/// 只如实说明它在下一阶段。
+/// # B 组「动作试演」为什么不在成品里（2026-09-11 用户裁决）
+///
+/// 手动触发按钮曾在 P5 接通过（`POST /api/v1/commands/{id}/invoke` +
+/// 「正在演」忙碌态）。用户主动缩减本轮边界：**触发入口移出成品**，
+/// 实现只保留在 git 历史与分支 `archive/action-trigger-p5`。
+///
+/// 留下的两个理由都写进了文档（`docs/design/web-action-trigger-archive.md`）：
+/// 一是排版僵硬、观感不达标；二是**要先把动作本身做好**（动作质量决定
+/// 触发入口值不值得存在），届时参考 Python 时代 `renderer/` 的做法重做。
+///
+/// 保留下来的「动作记录」是**只读可见性**，不是触发：它回答「刚才那下是
+/// 谁动的」（AI / 规则 / 你），这条链路 core 一直在发（`action_state.source`）。
 library;
 
 import 'package:flutter/material.dart';
 
-import '../../actions/action_dispatch.dart';
 import '../../actions/action_log_controller.dart';
-import '../../api/commands_api.dart';
 import '../../design/tokens.dart';
 import '../../settings/display_prefs.dart';
-import '../../ui/action_grid.dart';
 import '../../ui/action_history_view.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
@@ -27,11 +31,6 @@ class ActionsSection extends StatelessWidget {
     required this.onPrefsChanged,
     required this.actionLog,
     this.devMode = false,
-    this.commands = const <CommandInfo>[],
-    this.dispatch,
-    this.onInvoke,
-    this.strength = 2,
-    this.onStrengthChanged,
     super.key,
   });
 
@@ -43,21 +42,6 @@ class ActionsSection extends StatelessWidget {
   final ActionLogController actionLog;
 
   final bool devMode;
-
-  // ── B 组：动作试演（P5 接上；走 core 仲裁，不绕过） ──
-
-  /// 服务端给的可触发动作（**不硬编码 6 个**）。
-  final List<CommandInfo> commands;
-
-  /// 忙碌态与幂等提示。
-  final ActionDispatch? dispatch;
-
-  /// 触发（调用方负责走 `CommandsApi.invoke`）。
-  final void Function(CommandInfo command)? onInvoke;
-
-  /// 强度档位（1..3）。
-  final int strength;
-  final ValueChanged<int>? onStrengthChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -129,22 +113,6 @@ class ActionsSection extends StatelessWidget {
               onPrefsChanged(prefs.copyWith(allowDragZoom: v)),
           description: '关掉后模型不因拖动/滚轮移动；缩放仍可用舞台右下角的按钮',
         ),
-        const Divider(),
-        const SectionHeader(
-          title: '动作试演',
-          description: '手动触发走 core 仲裁（不绕过）。'
-              '「正在演」以服务端回报为准——重复点击不会重播。',
-        ),
-        if (dispatch != null && onInvoke != null)
-          ActionGrid(
-            commands: commands,
-            strength: strength,
-            onStrengthChanged: onStrengthChanged ?? (_) {},
-            onInvoke: onInvoke!,
-            dispatch: dispatch!,
-          )
-        else
-          const Text('动作目录尚未加载。'),
         const Divider(),
         const SectionHeader(
           title: '动作记录',

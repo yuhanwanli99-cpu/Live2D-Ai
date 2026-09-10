@@ -67,9 +67,9 @@ class AppShell extends StatefulWidget {
     required this.onVolumeChanged,
     required this.onMutedChanged,
     required this.sections,
+    required this.sectionBuilder,
     this.section = SettingsSection.actions,
     this.onSectionChanged,
-    this.sectionBuilder,
     this.error,
     this.errorActions = const <ErrorAction>[],
     this.onDismissError,
@@ -87,7 +87,6 @@ class AppShell extends StatefulWidget {
     this.onDiscardSettings,
     this.confirmDiscard,
     this.stageCorner,
-    this.stageToolbar,
     this.shortcuts = const AppShortcutCallbacks(isMacOS: false),
     this.announcement,
     this.modelName,
@@ -133,8 +132,8 @@ class AppShell extends StatefulWidget {
   final SettingsSection section;
   final ValueChanged<SettingsSection>? onSectionChanged;
 
-  /// 分区内容构建器。
-  final Widget Function(BuildContext context, SettingsSection section)?
+  /// 分区内容构建器（**必需**：外壳不自己造设置面板内容）。
+  final Widget Function(BuildContext context, SettingsSection section)
   sectionBuilder;
 
   final bool devMode;
@@ -160,14 +159,11 @@ class AppShell extends StatefulWidget {
 
   // ── 舞台上的常驻浮标 ──
   //
-  // 由宿主构造并注入：外壳不知道动作工具条是什么，只知道「舞台右下角有个浮标」。
-  // 这样外壳的布局测试不需要造一整套动作目录。
+  // 由宿主构造并注入：外壳不知道浮标是什么，只知道「舞台角落有一个」。
+  // 这样外壳的布局测试不需要造一整套舞台控件。
 
-  /// 右下角（动作工具条 / 舞台角标三键，二选一或叠放）。
+  /// 右下角（舞台角标三键）。
   final Widget? stageCorner;
-
-  /// 左下角（备用槽位；当前用于将来的 Mod 动作）。
-  final Widget? stageToolbar;
 
   /// 全局快捷键（规格 §9.3）。外壳只负责**挂上去**，动作由宿主给。
   final AppShortcutCallbacks shortcuts;
@@ -316,9 +312,7 @@ class AppShellState extends State<AppShell> {
               onDiscard: widget.onDiscardSettings,
               statusMessage: widget.settingsStatus,
               statusIsError: widget.settingsStatusIsError,
-              child:
-                  widget.sectionBuilder?.call(context, section) ??
-                  SettingsPendingPane(section: section),
+              child: widget.sectionBuilder(context, section),
             ),
       );
 
@@ -388,12 +382,6 @@ class AppShellState extends State<AppShell> {
                         ),
                       ),
                     // 舞台浮标：**压在舞台之上**，不占布局、不挤舞台宽度。
-                    if (widget.stageToolbar != null)
-                      Positioned(
-                        left: 0,
-                        bottom: 0,
-                        child: widget.stageToolbar!,
-                      ),
                     if (widget.stageCorner != null)
                       Positioned(
                         right: 0,

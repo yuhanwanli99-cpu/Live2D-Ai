@@ -19,7 +19,7 @@ enum SettingsSection {
   models('模型库', '导入、激活与舞台显示配置', Icons.view_in_ar_outlined),
   llm('LLM', '对话模型的服务地址、模型名与密钥', Icons.hub_outlined),
   tts('语音合成', 'TTS 服务、音色与采样参数', Icons.record_voice_over_outlined),
-  actions('动作与互动', '舞台口型、动作试演与拖动缩放', Icons.touch_app_outlined),
+  actions('动作与互动', '舞台口型、拖动缩放与动作记录', Icons.touch_app_outlined),
   mods('Mod', '扩展模块的启停与配置', Icons.extension_outlined),
   diagnostics('诊断', '连接、延迟、帧率与日志', Icons.monitor_heart_outlined),
   developer('开发模式', '高级参数与开发者工具', Icons.terminal_outlined);

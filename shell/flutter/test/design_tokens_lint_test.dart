@@ -24,15 +24,15 @@ bool isProtocolDurationPath(String path) =>
 /// **逐个点名**的时长豁免文件（不是整个目录）。
 ///
 /// 豁免面越小越难被侵蚀——所以只列具体文件，不列目录。
-/// 两者都是「时序」但不是「UI 过渡时长」，所以不该逼它们用 `AppDurations`
+/// 这里剩下的是「时序」但不是「UI 过渡时长」，所以不该逼它用 `AppDurations`
 /// （那 4 档是为 hover/内容切换这类**交互过渡**定的）。
+///
+/// 2026-09-11：原先还有一条 `lib/actions/action_dispatch.dart`（动作兜底时长表，
+/// 镜像渲染面 `choreography_total_ms`）。手动触发入口移出成品后它整条消失，
+/// 豁免面随之缩小——这正是「豁免表只能变小」该有的样子。
 const Set<String> kNamedTimingFiles = <String>{
-  // ① 动作兜底时长表：镜像渲染面 `surface.rs::choreography_total_ms`
-  //    （nod 1320 / shake_no 1000 / …）与它的尾 fade 余量。
-  //    这是**渲染面的动画时序**，前端只是抄了一份用来兜底。
-  'lib/actions/action_dispatch.dart',
-  // ② 读屏播报的最小间隔：`text_delta` 是毫秒级的，不节流会把读屏淹没。
-  //    这是**无障碍节奏**，是听觉可读性的下限，与视觉过渡无关。
+  // 读屏播报的最小间隔：`text_delta` 是毫秒级的，不节流会把读屏淹没。
+  // 这是**无障碍节奏**，是听觉可读性的下限，与视觉过渡无关。
   'lib/state/live_region.dart',
 };
 

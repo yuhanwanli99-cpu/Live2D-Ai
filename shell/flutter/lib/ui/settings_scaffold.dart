@@ -222,37 +222,3 @@ class SettingsScaffold extends StatelessWidget {
     );
   }
 }
-
-/// 尚未落地的分区占位。
-///
-/// **如实说明「还没有」比给一个看起来能用但点了没反应的面板好**——
-/// 后者会让用户以为是坏了（同类项目里最一致的缺陷就是「静默失效」）。
-class SettingsPendingPane extends StatelessWidget {
-  const SettingsPendingPane({required this.section, super.key});
-
-  final SettingsSection section;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Space.s5),
-      child: Column(
-        children: <Widget>[
-          Icon(section.icon, size: 28, color: colors.contentFaint),
-          const SizedBox(height: Space.s2),
-          Text('「${section.label}」还没接上', style: theme.textTheme.titleSmall),
-          const SizedBox(height: Space.s1),
-          Text(
-            '这一分区的内容仍在施工中。已经可用的是「动作与互动」。',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colors.contentMuted,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

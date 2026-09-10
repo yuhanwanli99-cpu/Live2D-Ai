@@ -8,6 +8,14 @@
 /// AGENTS.md 明令禁止的「在 Flutter 侧复制核心逻辑」。
 ///
 /// 缺省行为（取不到目录）是**显示协议名**——看得懂，且绝不编造。
+///
+/// # 这里为什么**没有** `invoke`（2026-09-11 用户裁决）
+///
+/// 本文件曾经还有 `POST /api/v1/commands/{id}/invoke`（手动触发）。
+/// 本轮边界收窄：手动触发入口移出成品，写入路径一并删除，
+/// 实现见分支 `archive/action-trigger-p5` 与
+/// `docs/design/web-action-trigger-archive.md`。
+/// **目录读取保留**——动作日志要靠它把协议名翻成中文名。
 library;
 
 import 'dart:convert';
@@ -16,7 +24,11 @@ import 'package:http/http.dart' as http;
 
 import 'api_client.dart';
 
-/// 一条动作指令。
+/// 一条动作指令（服务端 DTO 的忠实镜像）。
+///
+/// 字段比当前前端用到的多（`kind` / `step_count` / 强度 schema 等）——
+/// 这是**刻意的**：它是协议形状，不是「需要什么抄什么」的裁剪视图，
+/// 少一个字段就会让下一次接线重新猜服务端发的是什么。
 class CommandInfo {
   const CommandInfo({
     required this.id,
@@ -57,15 +69,6 @@ class CommandInfo {
 
   /// 编排指令的步数（单动作为 1）。
   final int? stepCount;
-
-  /// 是否可被 UI 直接触发（`allowed_sources` 含 `user_command`）。
-  ///
-  /// 这一条决定动作网格里哪些卡片可点：只允许 LLM 触发的指令不该出现在
-  /// 用户可点的网格里（否则点下去会被 core 拒绝，用户看到「点了没反应」）。
-  bool get userInvocable => allowedSources.contains('user_command');
-
-  /// 强度三档可用性：schema 给的上界至少到 3 才显示第三档。
-  bool get supportsHighStrength => (strengthMax ?? 3) >= 3;
 
   factory CommandInfo.fromJson(Map<String, Object?> json) {
     final Object? schema = json['params_schema'];
@@ -125,10 +128,6 @@ class CommandCatalog {
     }
     return out;
   }
-
-  /// 可被 UI 触发的动作（含中文名），按服务端返回顺序。
-  List<CommandInfo> get userInvocable =>
-      commands.where((CommandInfo c) => c.userInvocable).toList();
 
   factory CommandCatalog.fromJson(Map<String, Object?> json) {
     final Object? raw = json['commands'];
@@ -193,95 +192,7 @@ class CommandsApi {
     return const CommandCatalog.empty();
   }
 
-  /// `POST /api/v1/commands/{id}/invoke` → 让 core 仲裁并触发。
-  ///
-  /// # 两个必须知道的事实
-  ///
-  /// 1. **重复点击会回 `accepted: true`**——服务端对「动作+强度+来源完全相同」
-  ///    返回 `Dropped(AlreadyActive)` 幂等，但**响应里看不出来**（实测两次
-  ///    invoke 的响应一字不差）。所以「同一动作正在播放」的提示**只能本地做**。
-  /// 2. `strength` 越界是 **400 `invalid_params`**（实测 `9` → 400）。
-  ///    分段按钮只给 1/2/3，前端不会发越界值；但错误路径仍要能显示。
-  Future<CommandInvokeResult> invoke(String id, {int? strength}) async {
-    final http.Response response;
-    try {
-      response = await _client.post(
-        Uri.parse('$_base/api/v1/commands/${Uri.encodeComponent(id)}/invoke'),
-        headers: const <String, String>{'Content-Type': 'application/json'},
-        body: jsonEncode(<String, Object?>{'strength': ?strength}),
-      );
-    } catch (error) {
-      throw ApiException('network_error', '无法连接后端：$error');
-    }
-    if (response.statusCode != 200) {
-      final Map<String, Object?> body = _decode(response.body);
-      final Object? err = body['error'];
-      throw ApiException(
-        err is Map && err['code'] is String
-            ? err['code']! as String
-            : 'http_${response.statusCode}',
-        err is Map && err['message'] is String
-            ? err['message']! as String
-            : '触发失败',
-        status: response.statusCode,
-      );
-    }
-    return CommandInvokeResult.fromJson(_decode(response.body));
-  }
-
   void dispose() => _client.close();
-
-  /// 宽容取对象（坏 JSON → 空对象）。
-  Map<String, Object?> _decode(String body) {
-    try {
-      final Object? decoded = jsonDecode(body);
-      if (decoded is Map) {
-        final Map<String, Object?> out = <String, Object?>{};
-        decoded.forEach((Object? k, Object? v) {
-          if (k is String) out[k] = v;
-        });
-        return out;
-      }
-    } catch (_) {
-      // 坏 JSON → 空对象。
-    }
-    return const <String, Object?>{};
-  }
-}
-
-/// `POST /api/v1/commands/{id}/invoke` 的响应（真实抓包形状）。
-class CommandInvokeResult {
-  const CommandInvokeResult({
-    required this.accepted,
-    required this.epoch,
-    required this.commandId,
-    required this.kind,
-    required this.steps,
-    this.action,
-  });
-
-  final bool accepted;
-  final int epoch;
-  final String commandId;
-
-  /// `single` 或 `sequence`。
-  final String kind;
-
-  /// 编排的步数（单动作为 1）。
-  final int steps;
-
-  /// 最终表演的动作协议名（多步指令可能为 `null`）。
-  final String? action;
-
-  factory CommandInvokeResult.fromJson(Map<String, Object?> json) =>
-      CommandInvokeResult(
-        accepted: json['accepted'] == true,
-        epoch: _intOrNull(json['epoch']) ?? 0,
-        commandId: _str(json['command_id']),
-        kind: _str(json['kind']),
-        steps: _intOrNull(json['steps']) ?? 1,
-        action: json['action'] is String ? json['action']! as String : null,
-      );
 }
 
 int? _intOrNull(Object? value) {

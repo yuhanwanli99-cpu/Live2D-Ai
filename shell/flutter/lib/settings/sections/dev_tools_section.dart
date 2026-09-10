@@ -515,26 +515,6 @@ class DeveloperSection extends StatelessWidget {
               : '关闭后本分区与各分区的「开发者选项」一起隐藏',
           onChanged: onDevModeChanged,
         ),
-        const Divider(),
-        const SectionHeader(
-          title: '还没接上的高级项',
-          description: '这些需要模型知识或会被做成 Mod，**刻意不放进核心**。',
-        ),
-        const ReadonlyField(
-          label: '头身角度上限 / 参数曲线 / 物理档',
-          icon: Icons.tune,
-          text: '待定：wasm 侧目前硬编码 ±30/±10，暴露未标定滑杆会放大失真',
-        ),
-        const ReadonlyField(
-          label: '单参数滑杆',
-          icon: Icons.linear_scale,
-          text: '待定：形态是「选一个参数 → 一个滑杆 → 显式释放」',
-        ),
-        const ReadonlyField(
-          label: '动作「想动但被压住」的提示',
-          icon: Icons.block,
-          text: '做不到：core 的 Dropped 只进 tracing、不上 WS（只做前端，不加帧）',
-        ),
       ],
     );
   }
