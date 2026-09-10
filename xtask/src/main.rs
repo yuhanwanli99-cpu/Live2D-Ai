@@ -27,11 +27,15 @@ const COUNTED_EXTENSIONS: [&str; 10] =
     ["rs", "wgsl", "py", "ts", "js", "c", "cc", "cpp", "h", "hpp"];
 
 /// 按目录名排除（任意层级）：旧双端项目 / 前端产物 / 构建产物 / 托管环境。
-const EXCLUDED_DIR_NAMES: [&str; 6] = [
+///
+/// `build`：Flutter Web 等构建输出（`shell/flutter/build/web/main.dart.js` 单文件
+/// 就有 ~9 万行 js，会把「第一方源码」占比口径打穿；构建产物不是源码）。
+const EXCLUDED_DIR_NAMES: [&str; 7] = [
     "Live2D-Ai-pc",
     "Live2D-Ai-Android",
     "dist",
     "target",
+    "build",
     "node_modules",
     ".venv",
 ];

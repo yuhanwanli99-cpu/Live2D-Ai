@@ -1,0 +1,240 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import 'live2d_bridge.dart';
+import 'live2d_host_stub.dart'
+    if (dart.library.js_interop) 'live2d_host_web.dart' as host;
+import 'live2d_transport.dart';
+
+/// Live2D 舞台：持有 [Live2DBridge]，对外暴露口型与外观同步入口。
+class Live2DStage extends StatefulWidget {
+  const Live2DStage({
+    super.key,
+    this.model,
+    this.scale = 1.0,
+    this.dark = true,
+    this.tier,
+    this.onError,
+  });
+
+  /// 可选：渲染面模型路径（缺省由渲染端决定）。
+  final String? model;
+  final double scale;
+  final bool dark;
+  final int? tier;
+
+  /// 错误回调（宿主可用于日志或全局提示）。
+  final ValueChanged<String>? onError;
+
+  @override
+  State<Live2DStage> createState() => Live2DStageState();
+}
+
+/// 公开 State：宿主用 `GlobalKey<Live2DStageState>` 调 [setMouth] / [sync]。
+class Live2DStageState extends State<Live2DStage> {
+  Live2DBridge? _bridge;
+  String? _hostError;
+  int _generation = 0;
+
+  Live2DBridgePhase get phase =>
+      _bridge?.phase ?? Live2DBridgePhase.loading;
+
+  String? get errorMessage => _hostError ?? _bridge?.errorMessage;
+
+  @override
+  void dispose() {
+    final bridge = _bridge;
+    if (bridge != null) {
+      bridge.removeListener(_onBridgeChanged);
+      bridge.dispose();
+    }
+    super.dispose();
+  }
+
+  void _onBridgeChanged() {
+    if (!mounted) return;
+    final error = _bridge?.errorMessage;
+    if (error != null && _bridge?.phase == Live2DBridgePhase.error) {
+      widget.onError?.call(error);
+    }
+    setState(() {});
+  }
+
+  void _attach(Live2DTransport transport) {
+    if (!mounted) {
+      unawaited(transport.dispose());
+      return;
+    }
+    final previous = _bridge;
+    if (previous != null) {
+      previous.removeListener(_onBridgeChanged);
+      previous.dispose();
+    }
+    final bridge = Live2DBridge(transport)..addListener(_onBridgeChanged);
+    _bridge = bridge;
+    setState(() {});
+    bridge.start();
+    // ready 前会入队，ready 后按序 flush。
+    bridge.sendSync(
+      model: widget.model,
+      scale: widget.scale,
+      dark: widget.dark,
+      tier: widget.tier,
+    );
+  }
+
+  void _handleHostError(String message) {
+    if (!mounted) return;
+    setState(() => _hostError = message);
+    widget.onError?.call(message);
+  }
+
+  /// 实时口型（0..1），由音频 RMS 包络驱动。
+  void setMouth(double level) => _bridge?.sendMouth(level);
+
+  /// 同步舞台外观（协议 v1 `sync`）。
+  void sync({
+    String? model,
+    double? scale,
+    bool? dark,
+    int? tier,
+    bool? paused,
+  }) {
+    _bridge?.sendSync(
+      model: model,
+      scale: scale,
+      dark: dark,
+      tier: tier,
+      paused: paused,
+    );
+  }
+
+  /// 错误后重建 iframe（也适用于渲染端热更新后的重试）。
+  void retry() {
+    final previous = _bridge;
+    _bridge = null;
+    if (previous != null) {
+      previous.removeListener(_onBridgeChanged);
+      unawaited(previous.destroy());
+    }
+    _hostError = null;
+    setState(() => _generation++);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bridge = _bridge;
+    final error = errorMessage;
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        const ColoredBox(color: Color(0xFF0B0D12)),
+        host.buildLive2DHost(
+          key: ValueKey<int>(_generation),
+          onTransport: _attach,
+          onError: _handleHostError,
+        ),
+        if (host.live2dHostSupported &&
+            error == null &&
+            phase == Live2DBridgePhase.loading)
+          const _StageBadge(label: '渲染面加载中…', busy: true),
+        if (error != null) _StageErrorOverlay(message: error, onRetry: retry),
+        if (bridge != null && bridge.isReady && bridge.fps != null)
+          Positioned(
+            right: 12,
+            top: 12,
+            child: _StageBadge(label: '${bridge.fps} FPS'),
+          ),
+      ],
+    );
+  }
+}
+
+class _StageBadge extends StatelessWidget {
+  const _StageBadge({required this.label, this.busy = false});
+
+  final String label;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topLeft,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (busy) ...<Widget>[
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Text(label, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StageErrorOverlay extends StatelessWidget {
+  const _StageErrorOverlay({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFF3A1D1D).withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF8A3B3B)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  '渲染面错误',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                Text(message, style: const TextStyle(fontSize: 13)),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonalIcon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('重试'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

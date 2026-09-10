@@ -1,0 +1,267 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
+import 'live2d_transport.dart';
+
+/// 渲染面生命周期阶段（协议 v1 状态机）。
+enum Live2DBridgePhase { loading, ready, error, destroyed }
+
+/// 待发送命令（ready 前入队）。
+class _Pending {
+  const _Pending(this.type, this.json);
+  final String type;
+  final String json;
+}
+
+/// 协议 v1 渲染面客户端。
+///
+/// 下行（Flutter → iframe）每条消息都是 JSON 字符串：
+/// `{"version":1,"type":<sync|mouth|stage|destroy>,"payload":{...}}`。
+///
+/// 上行（iframe → Flutter）同构，但**必须容忍**历史遗留的
+/// `{"type":"stage-ack",...}`（无 version）并忽略未知 type，绝不抛异常。
+///
+/// 状态机：loading →（收到 `ready`）→ ready；失败/超时 → error；
+/// [destroy] → destroyed。ready 前的命令入队，ready 后按序 flush。
+class Live2DBridge extends ChangeNotifier {
+  Live2DBridge(this._transport) {
+    _sub = _transport.events.listen(
+      _onRaw,
+      onError: (Object error) => _fail('渲染面传输错误：$error'),
+    );
+  }
+
+  /// ready 等待上限：超过则给出可见错误（不静默白屏）。
+  static const Duration readyTimeout = Duration(seconds: 12);
+
+  /// mouth 节流：≤30Hz（33ms）。
+  static const Duration mouthMinInterval = Duration(milliseconds: 33);
+
+  /// 入队上限（超出丢最旧，避免无限堆积）。
+  static const int maxQueue = 32;
+
+  final Live2DTransport _transport;
+  final List<_Pending> _queue = <_Pending>[];
+
+  StreamSubscription<String>? _sub;
+  Timer? _readyTimer;
+  Timer? _mouthTimer;
+  DateTime? _lastMouthAt;
+  double? _pendingMouth;
+
+  Live2DBridgePhase _phase = Live2DBridgePhase.loading;
+  String? _errorMessage;
+  String? _model;
+  double? _progress;
+  int? _fps;
+  bool _modelLoaded = false;
+  bool _disposed = false;
+
+  Live2DBridgePhase get phase => _phase;
+  String? get errorMessage => _errorMessage;
+  String? get model => _model;
+  double? get progress => _progress;
+  int? get fps => _fps;
+  bool get isReady => _phase == Live2DBridgePhase.ready;
+  bool get modelLoaded => _modelLoaded;
+  int get queuedCount => _queue.length;
+
+  /// 启动 ready 超时计时（由宿主在挂载 iframe 后调用）。
+  void start() {
+    _readyTimer?.cancel();
+    _readyTimer = Timer(readyTimeout, () {
+      if (_phase == Live2DBridgePhase.loading) {
+        _fail(
+          '渲染面 ${readyTimeout.inSeconds}s 内未就绪：请确认 GET /render 可达，'
+          '且渲染端已实现协议 v1（会发 ready 帧）。',
+        );
+      }
+    });
+  }
+
+  /// 协议 v1 `sync`（字段均可选）。
+  Future<void> sendSync({
+    String? model,
+    double? scale,
+    bool? dark,
+    int? tier,
+    bool? paused,
+  }) {
+    final payload = <String, Object?>{};
+    if (model != null) payload['model'] = model;
+    if (scale != null) payload['scale'] = scale;
+    if (dark != null) payload['dark'] = dark;
+    if (tier != null) payload['tier'] = tier;
+    if (paused != null) payload['paused'] = paused;
+    return _enqueueOrSend('sync', payload);
+  }
+
+  /// 协议 v1 `stage`（暗色 / 缩放 / 档位）。
+  Future<void> sendStage({bool? dark, double? scale, int? tier}) {
+    final payload = <String, Object?>{};
+    if (dark != null) payload['dark'] = dark;
+    if (scale != null) payload['scale'] = scale;
+    if (tier != null) payload['tier'] = tier;
+    return _enqueueOrSend('stage', payload);
+  }
+
+  /// 协议 v1 `mouth`（level 0..1，实时，节流 ≤30Hz）。
+  Future<void> sendMouth(double level) {
+    final value = level.isFinite ? _clamp01(level) : 0.0;
+    final last = _lastMouthAt;
+    final now = DateTime.now();
+    if (last == null || now.difference(last) >= mouthMinInterval) {
+      _emitMouth(value);
+      return Future<void>.value();
+    }
+    // 节流窗口内：只保留最新值，窗口结束时补发（不丢最后一帧）。
+    _pendingMouth = value;
+    final wait = mouthMinInterval - now.difference(last);
+    _mouthTimer ??= Timer(wait, () {
+      _mouthTimer = null;
+      final pending = _pendingMouth;
+      _pendingMouth = null;
+      if (pending != null) _emitMouth(pending);
+    });
+    return Future<void>.value();
+  }
+
+  /// 协议 v1 `destroy`：通知渲染面释放，并关闭桥。
+  Future<void> destroy() async {
+    if (_disposed) return;
+    _readyTimer?.cancel();
+    _mouthTimer?.cancel();
+    _phase = Live2DBridgePhase.destroyed;
+    notifyListeners();
+    try {
+      await _transport.send(
+        jsonEncode(<String, Object?>{
+          'version': 1,
+          'type': 'destroy',
+          'payload': <String, Object?>{},
+        }),
+      );
+    } catch (error) {
+      _errorMessage = '发送 destroy 失败：$error';
+    }
+    dispose();
+  }
+
+  void _emitMouth(double value) {
+    _lastMouthAt = DateTime.now();
+    unawaited(_enqueueOrSend('mouth', <String, Object?>{'level': value}));
+  }
+
+  Future<void> _enqueueOrSend(String type, Map<String, Object?> payload) {
+    final json = jsonEncode(<String, Object?>{
+      'version': 1,
+      'type': type,
+      'payload': payload,
+    });
+    if (_phase == Live2DBridgePhase.ready) return _send(json);
+    if (type == 'mouth') {
+      _queue.removeWhere((pending) => pending.type == 'mouth');
+    }
+    _queue.add(_Pending(type, json));
+    while (_queue.length > maxQueue) {
+      _queue.removeAt(0);
+    }
+    return Future<void>.value();
+  }
+
+  Future<void> _send(String json) async {
+    if (_disposed) return;
+    try {
+      await _transport.send(json);
+    } catch (error) {
+      _fail('向渲染面发送失败：$error');
+    }
+  }
+
+  Future<void> _flush() async {
+    final pending = List<_Pending>.of(_queue);
+    _queue.clear();
+    for (final item in pending) {
+      await _send(item.json);
+    }
+  }
+
+  void _onRaw(String raw) {
+    if (_disposed) return;
+    Map<String, Object?> frame;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      frame = Map<String, Object?>.from(decoded);
+    } catch (_) {
+      return; // 容忍坏帧 / 非 JSON：绝不抛异常
+    }
+    final type = frame['type'];
+    if (type is! String) return; // 容忍无 type / 无 version 的遗留帧
+
+    final rawPayload = frame['payload'];
+    final payload = rawPayload is Map
+        ? Map<String, Object?>.from(rawPayload)
+        : const <String, Object?>{};
+
+    switch (type) {
+      case 'ready':
+        _phase = Live2DBridgePhase.ready;
+        _errorMessage = null;
+        _readyTimer?.cancel();
+        notifyListeners();
+        unawaited(_flush());
+      case 'loaded':
+        _modelLoaded = true;
+        // 渲染端历史上发 model，当前发 url；两者都接受。
+        final name = payload['model'] ?? payload['url'];
+        if (name is String) _model = name;
+        notifyListeners();
+      case 'progress':
+        final value = payload['progress'];
+        if (value is num) {
+          _progress = value.toDouble();
+          notifyListeners();
+        }
+      case 'error':
+        final message = payload['message'];
+        _fail(message is String && message.isNotEmpty ? message : '渲染面报告未知错误');
+      case 'fps':
+        final value = payload['fps'];
+        if (value is num) {
+          _fps = value.round();
+          notifyListeners();
+        }
+      default:
+        break; // 未知 type（含遗留 stage-ack）→ 忽略
+    }
+  }
+
+  void _fail(String message) {
+    if (_disposed) return;
+    _errorMessage = message;
+    _phase = Live2DBridgePhase.error;
+    _readyTimer?.cancel();
+    _mouthTimer?.cancel();
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _readyTimer?.cancel();
+    _mouthTimer?.cancel();
+    unawaited(_sub?.cancel());
+    unawaited(_transport.dispose());
+    super.dispose();
+  }
+}
+
+double _clamp01(double value) {
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}

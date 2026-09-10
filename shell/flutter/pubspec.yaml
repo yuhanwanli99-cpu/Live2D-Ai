@@ -1,0 +1,22 @@
+name: live2d_ai_shell
+description: "Live2D-Ai 的 Flutter Web 前端外壳（渲染面协议 v1）。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.3
+
+# 运行时外部依赖仅 http + web（见 shell/README.md「依赖约束」）。
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
