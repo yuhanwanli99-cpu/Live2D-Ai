@@ -145,3 +145,9 @@ nohup.out
 
 # cargo 缓存（本机依赖副本，勿入库）
 .cargo-home/
+
+# 本地工具/参考产物（Flutter SDK、外部仓库解包等；勿入库）
+.tools/
+
+# 运行时产物：Mod 启用状态（本机生成，含本机端口与开关；勿入库）
+/mods.json

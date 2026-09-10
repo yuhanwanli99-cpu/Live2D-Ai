@@ -1,3 +1,32 @@
+# v0.4.0 — 核心链路闭环 + Flutter 前端 + 四议题审计（2026-09-10）
+
+- **核心链路闭环（文本 → LLM → TTS → 口型 → Live2D 渲染）**：LLM 流式按句切分 →
+  TTS 逐句合成 → PCM 分片 → WS 广播 → 浏览器 WebAudio 播放 + 浏览器侧 RMS 驱动口型。
+  新增 Flutter Web 前端（`shell/`），由 Rust 在 `/app/` 同源托管（`web_api/flutter_app.rs`，
+  SPA fallback + MIME + canonicalize）；`/render`（wasm 渲染面）保持不变。
+- **音频「很吵」根因修复**（勿回退）：① 不再用 `audio.start` 重置播放时间轴（分片 1 ms 级突发，
+  曾致最多 17 个音源同时发声、529 对重叠）；② 口型电平按**播放时刻**到期释放（原超前均值 1.45 s）；
+  ③ stop 路径立即 `audio.interrupt()`。硬度对照：重叠对 529 → **0**，最大同时发声 17 → **1**。
+  服务端 `audio.start` 语义修正为「每轮语音首片」。
+- **渲染修复**：`layout_transform` 改为**等比**映射（旧实现逐轴缩放把 4000×6000 画布强行拉方，
+  模型被横向拉伸 1.5×，观感「上下压扁」）；WASM 画布尺寸保比钳制 + 500 ms 兜底自愈。
+- **TTS 接入**：CosyVoice 3（OpenAI 兼容层）；`response_format` 支持 `pcm`（默认）与 `wav`
+  （新增 RIFF 解析 `runtime/src/audio/wav.rs`）；`local-llm` / `local-tts` Mod 探活 + 写配置 + 热重载。
+- **配置/文档更正（2026-09-10 实测）**：本机 CosyVoice3-API **只支持 `response_format = "pcm"`**
+  （wav/mp3/opus/flac 一律 400），且真实端点是 `GET /v1/audio/voices` 而非文档写的
+  `POST /v1/voices/register`；`live2d-ai.toml.example` 与
+  `docs/architecture/cosyvoice3-tts-integration.md` 已按实测更正。
+- **仓库治理**：`.gitignore` 新增 `/mods.json`（运行时产物）；`shell/`（Flutter 前端）首次入库。
+- **审计**：`docs/plans/HANDOFF-2026-09-10-four-questions.md` —— 渲染亮度 / UI 增强 / TTS 速率 /
+  口型驱动四议题的实测结论与复现命令（含口型证据图 `docs/verification/assets/mouth_compare.png`）。
+- **门禁**：`cargo test --workspace --all-targets` 全绿；`cargo fmt --all -- --check` 干净；
+  `rust-ratio` 95.4692% PASS。
+- **已知未闭环（诚实登记）**：STT 语音输入不存在；`--web` 无原生窗口；TTS 实测 RTF ≈ 1.3–1.7×
+  （慢于实时，且服务端不流式，TTFA 4.3–13.7 s vs 验收线 ≤ 1 s）；口型电平为**未放大**的线性 RMS
+  （实测 p90 = 0.118，写进 0–1 参数后肉眼看不出，需约 5× 增益）；Flutter 前端尚无设置面板。
+
+---
+
 # v0.3.0（稳定版，Rust 主线）— 通用人形皮套 AI 接入一体化平台（2026-09）
 
 - **平台定位（文档治理）**：重构 README / AGENTS / AGENT 为「通用人形皮套 AI 接入一体化平台
