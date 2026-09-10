@@ -206,6 +206,7 @@ pub fn assert_epoch(events: &[EngineEvent], epoch: u64) {
             EngineEvent::TextDelta { epoch, .. }
             | EngineEvent::ToolAction { epoch, .. }
             | EngineEvent::AudioChunk { epoch, .. }
+            | EngineEvent::SentenceVoiced { epoch, .. }
             | EngineEvent::Error { epoch, .. }
             | EngineEvent::Terminal { epoch, .. } => *epoch,
         })

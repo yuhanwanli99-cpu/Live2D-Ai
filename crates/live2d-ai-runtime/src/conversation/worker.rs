@@ -107,7 +107,9 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
             },
         )
         .await;
-        return if delivered {
+        // TTS 未配置：仍按「一句一单元」上屏（纯文字模式不受影响）。
+        let voiced = delivered && emit_sentence_voiced(ctx, job).await;
+        return if voiced {
             SynthOutcome::Done
         } else {
             SynthOutcome::Cancelled
@@ -199,10 +201,32 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
         },
     )
     .await;
-    if !delivered {
+    // 顺序保证：final AudioChunk 已发出后，才发「本句已合成」——消费端先拿到声音。
+    if !delivered || !emit_sentence_voiced(ctx, job).await {
         return SynthOutcome::Cancelled;
     }
     SynthOutcome::Done
+}
+
+/// 发「本句语音已完整合成」事件（紧随 final `AudioChunk`）。
+///
+/// 返回 `false` 表示消费端已关闭（调用方应视同取消）。
+///
+/// 为什么单列一个 helper：`synthesize_sentence` 有**三处**收口
+/// （TTS 未配置 / 裸 PCM 流结束 / WAV 解析后），三处都必须发出本事件，
+/// 否则「先完整合成、再上屏文字」的契约会在某条路径上静默失效。
+async fn emit_sentence_voiced(ctx: &TtsWorkerCtx, job: &TtsJob) -> bool {
+    send_event(
+        &ctx.event_tx,
+        &ctx.cancel,
+        EngineEvent::SentenceVoiced {
+            epoch: ctx.epoch,
+            ts_ms: ctx.turn_started.elapsed().as_millis() as u64,
+            sentence_seq: job.sentence_seq,
+            text: job.text.clone(),
+        },
+    )
+    .await
 }
 
 /// WAV 句合成：整段收集 → [`crate::audio::parse_wav_s16`] → 按 `chunk_samples` 切块发事件。
@@ -281,7 +305,8 @@ async fn synthesize_wav_sentence(
         },
     )
     .await;
-    if !delivered {
+    // 顺序保证：final AudioChunk 已发出后，才发「本句已合成」——消费端先拿到声音。
+    if !delivered || !emit_sentence_voiced(ctx, job).await {
         return SynthOutcome::Cancelled;
     }
     SynthOutcome::Done

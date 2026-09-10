@@ -150,6 +150,48 @@ async fn pipeline_overlaps_llm_streaming_with_first_tts_request() {
     assert_eq!(audio[2].0, 3);
     assert!(!audio[2].1.is_empty());
 
+    // **一句一单元（2026-09-10）**：每句语音**完整合成**后恰好发一次
+    // `SentenceVoiced`，携带该句完整文本；顺序必须是「先音频、后上屏」。
+    let voiced: Vec<(u64, String)> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced {
+                sentence_seq, text, ..
+            } => Some((*sentence_seq, text.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        voiced,
+        [
+            (1, "你好呀！".to_string()),
+            (2, "今天天气不错。".to_string()),
+            (3, "好".to_string()),
+        ],
+        "每句恰好一次 SentenceVoiced，且文本完整"
+    );
+
+    // 顺序契约：第 N 句的 SentenceVoiced 必须晚于该句的 final AudioChunk。
+    for seq in 1..=3u64 {
+        let last_audio = events
+            .iter()
+            .rposition(|e| {
+                matches!(e, EngineEvent::AudioChunk { sentence_seq, final_chunk: true, .. }
+                    if *sentence_seq == seq)
+            })
+            .unwrap_or_else(|| panic!("句 {seq} 缺少 final AudioChunk"));
+        let voiced_pos = events
+            .iter()
+            .position(|e| {
+                matches!(e, EngineEvent::SentenceVoiced { sentence_seq, .. } if *sentence_seq == seq)
+            })
+            .unwrap_or_else(|| panic!("句 {seq} 缺少 SentenceVoiced"));
+        assert!(
+            last_audio < voiced_pos,
+            "句 {seq}：必须先发音频（{last_audio}）再上屏（{voiced_pos}）"
+        );
+    }
+
     // 重叠的直接证据：全局日志里 TTS 首请求先于 LLM 继续（即先于 [DONE]）。
     let log = log.lock().unwrap().clone();
     let tts_pos = log

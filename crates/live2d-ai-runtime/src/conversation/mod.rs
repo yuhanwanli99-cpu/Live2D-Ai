@@ -61,8 +61,11 @@
 //!
 //! while let Some(event) = event_rx.recv().await {
 //!     match event {
+//!         // LLM 原始增量（**不上屏**；上屏以 SentenceVoiced 为准）。
 //!         EngineEvent::TextDelta { text, .. } => print!("{text}"),
 //!         EngineEvent::AudioChunk { samples, .. } => { /* 送声卡 */ }
+//!         // 该句语音已完整合成 → 此时才把整句文字推给 UI。
+//!         EngineEvent::SentenceVoiced { text, .. } => println!("[屏] {text}"),
 //!         EngineEvent::ToolAction { .. } => { /* 转交 live2d-ai-core 仲裁 */ }
 //!         EngineEvent::Terminal { .. } => break,
 //!         EngineEvent::Error { kind, .. } => eprintln!("turn error: {kind}"),
@@ -197,6 +200,28 @@ pub enum EngineEvent {
         spec: AudioSpec,
         /// 是否为本句最后一块。
         final_chunk: bool,
+    },
+    /// 一句的语音**已完整合成**（紧随该句的 `final_chunk = true` 之后发出）。
+    ///
+    /// **为什么需要这个事件（2026-09-10 用户裁决）**：文字此前在 LLM 流式生成时
+    /// 就实时上屏，而语音要等合成本句才响 —— 文字跑在声音前面好几秒。
+    /// 现在是「**一句一单元：先完整合成，再显示**」：UI 侧的文字上屏以本事件为准，
+    /// 而不是以 LLM 增量 [`Self::TextDelta`] 为准。
+    ///
+    /// - `text`：该句**完整**文本（与 `TtsJob.text` 同源，逐字无损）；
+    /// - 顺序保证：同一句先发完 `AudioChunk`（含 final），再发本事件 ——
+    ///   消费端「先拿到声音，再上屏文字」；
+    /// - **TTS 未配置时同样发出**（空句路径也走这里），因此纯文字模式不受影响；
+    /// - 合成失败时**不发**本事件（该句文字随 `Error` 一并归属失败，不假装成功）。
+    SentenceVoiced {
+        /// 本轮轮次号。
+        epoch: u64,
+        /// 相对本轮起点的毫秒数。
+        ts_ms: u64,
+        /// 句子序号（与对应 `AudioChunk.sentence_seq` 一致）。
+        sentence_seq: u64,
+        /// 该句完整文本。
+        text: String,
     },
     /// 轮内错误。语义见 [`ErrorKind`]：可见，但未必终止本轮。
     Error {
