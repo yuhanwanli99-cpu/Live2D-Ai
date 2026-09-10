@@ -140,11 +140,10 @@ const Set<String> kNotYetWired = <String>{
   'AppColors.serverMutedBadgeSurface',
   'AppColors.serverMutedBadgeBorder',
   // ── 间距 / 圆角 / 动效：业务组件重写时才用 ──
+  // （`Space.s1` 与 `Space.s2/s3/s5` 不在台账里：动作来源徽标与动作日志视图
+  //   P2 已接线——台账只减不增，接线了就必须从这里删掉。）
   'Space.s0',
-  'Space.s2',
-  'Space.s3',
   'Space.s4',
-  'Space.s5',
   'Space.s7',
   'Space.s8',
   'AppRadius.none',

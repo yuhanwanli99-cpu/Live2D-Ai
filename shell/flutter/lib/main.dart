@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
+import 'actions/action_log_controller.dart';
 import 'api/api_client.dart';
+import 'api/commands_api.dart';
 import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
@@ -12,6 +14,7 @@ import 'design/breakpoints.dart';
 import 'design/tokens.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
+import 'ui/action_history_view.dart';
 import 'ui/display_panel.dart';
 import 'ui/theme.dart';
 
@@ -75,6 +78,7 @@ class _AppShellState extends State<AppShell> {
   final TextEditingController _input = TextEditingController();
 
   late final ApiClient _api;
+  late final CommandsApi _commandsApi;
   late final WsClient _ws;
   late final AudioPlayer _audio;
   late final ChatController _chat;
@@ -88,6 +92,7 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _prefs = loadDisplayPrefs();
     _api = ApiClient();
+    _commandsApi = CommandsApi();
     _ws = WsClient();
     _audio = AudioPlayer();
     // 静音与音量是纯本机输出设置（不经渲染面）：默认出声。
@@ -99,6 +104,20 @@ class _AppShellState extends State<AppShell> {
       _stageKey.currentState?.setMouth(level);
     });
     _ws.connect();
+    unawaited(_loadActionCatalog());
+  }
+
+  /// 取一次动作目录，把「协议名 → 中文名」灌进动作日志。
+  ///
+  /// **失败静默**：目录是可选资源。取不到就显示协议名（`nod` 而不是「点头」）——
+  /// 看得懂，且不撒谎；比起让整个界面报错，这是更好的降级。
+  /// 权威来源是服务端 `GET /api/v1/commands`，前端**不内建**映射表。
+  Future<void> _loadActionCatalog() async {
+    try {
+      _chat.actionLog.useCatalog(await _commandsApi.fetchCommands());
+    } catch (_) {
+      // 忽略：保持恒等解析器（显示协议名，不撒谎）。
+    }
   }
 
   /// 把 [_prefs] 下发给渲染面（协议 v1 `sync`）。
@@ -129,6 +148,7 @@ class _AppShellState extends State<AppShell> {
     _ws.dispose();
     _audio.dispose();
     _api.dispose();
+    _commandsApi.dispose();
     _input.dispose();
     super.dispose();
   }
@@ -164,6 +184,32 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  /// 打开「动作日志」（P2：把 core 早已下发的 `source` 显示出来）。
+  ///
+  /// 用底部弹层而不是常驻分栏：舞台是主角（原则 P1），日志是诊断面。
+  /// P3 会把入口挪进「动作与互动」分区，这里先把价值交付出来。
+  Future<void> _openActionLog() async {
+    // 打开即视为已读（入口按钮的未读角标清零）。
+    final ActionLogController log = _chat.actionLog;
+    log.markSeen();
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: 560, maxHeight: 520),
+      builder: (BuildContext sheetContext) {
+        return ListenableBuilder(
+          listenable: log,
+          builder: (BuildContext context, Widget? _) => ActionHistoryView(
+            entries: log.entries,
+            current: log.current,
+            droppedCount: log.droppedCount,
+            onClear: log.clear,
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Listener(
@@ -174,6 +220,21 @@ class _AppShellState extends State<AppShell> {
         appBar: AppBar(
           title: const Text('Live2D Ai'),
           actions: <Widget>[
+            // 动作日志入口 + **未读 AI 动作角标**：「AI 自己触发了动作」是个
+            // 转瞬即逝的信号（演完就没了）。日志静静躺在弹层里等于没提示。
+            ListenableBuilder(
+              listenable: _chat.actionLog,
+              builder: (BuildContext context, Widget? _) {
+                final int unseen = _chat.actionLog.unseenAiActions;
+                return IconButton(
+                  tooltip: unseen > 0 ? '动作日志（$unseen 条 AI 触发的未读）' : '动作日志',
+                  onPressed: _openActionLog,
+                  icon: unseen > 0
+                      ? Badge.count(count: unseen, child: const Icon(Icons.history))
+                      : const Icon(Icons.history),
+                );
+              },
+            ),
             IconButton(
               tooltip: '外观与口型',
               onPressed: _openDisplayPanel,

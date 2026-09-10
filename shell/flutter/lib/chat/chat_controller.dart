@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../actions/action_log_controller.dart';
 import '../api/api_client.dart';
 import '../api/ws_client.dart';
 import '../audio/audio_player.dart';
@@ -29,7 +30,12 @@ class ChatMessage {
 ///
 /// 数据源：`POST /api/v1/chat`（发送）、`/ws/state`（流式与音频）。
 class ChatController extends ChangeNotifier {
-  ChatController({required this.api, required this.ws, required this.audio}) {
+  ChatController({
+    required this.api,
+    required this.ws,
+    required this.audio,
+    ActionLogController? actionLog,
+  }) : actionLog = actionLog ?? ActionLogController() {
     _subscriptions.addAll(<StreamSubscription<Object?>>[
       ws.events.listen(_onWsEvent),
       ws.statuses.listen((status) {
@@ -42,6 +48,10 @@ class ChatController extends ChangeNotifier {
   final ApiClient api;
   final WsClient ws;
   final AudioPlayer audio;
+
+  /// 动作日志接线层。**由外部注入**：动作来源可见性独立于聊天，注入后
+  /// UI 可以直接监听它（单一 listenable），而不必跟着聊天消息一起重建。
+  final ActionLogController actionLog;
 
   final List<StreamSubscription<Object?>> _subscriptions =
       <StreamSubscription<Object?>>[];
@@ -118,9 +128,14 @@ class ChatController extends ChangeNotifier {
     switch (event) {
       case SubscribeAckEvent():
       case HeartbeatEvent():
-      case ActionStateEvent():
       case UnknownWsEvent():
         break;
+      case ActionStateEvent():
+        // 这里曾经是 `break;`——事件被**丢掉**，于是 core 早已下发的 `source`
+        // 在界面上完全看不见（规格 §0.3 / §8.3）。现在交给动作日志接线层。
+        // 注意它自己会广播，**不**在这里调 `notifyListeners()`：动作状态与消息
+        // 列表无关，混在一起只会让聊天列表在高频动作下无谓重建（原则 P6）。
+        actionLog.consume(event);
       case TextDeltaEvent(:final text, :final completed, :final epoch):
         if (text != null && text.isNotEmpty) _appendDelta(text, epoch);
         if (completed != null) _finishTurn(failed: completed == false);
@@ -211,6 +226,7 @@ class ChatController extends ChangeNotifier {
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
+    actionLog.dispose();
     super.dispose();
   }
 }

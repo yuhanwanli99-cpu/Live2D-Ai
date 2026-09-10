@@ -1399,7 +1399,10 @@ lib/ui/diagnostics_panel.dart           lib/ui/test_connection_button.dart
 lib/settings/sections/{persona,models,llm,tts,actions,mods,diagnostics,developer}_section.dart
 test/design_tokens_test.dart            test/design_tokens_lint_test.dart
 test/breakpoints_test.dart              test/ui_phase_test.dart
+lib/actions/action_log_controller.dart  lib/api/commands_api.dart（P2 提前）
 test/ws_frame_test.dart                 test/action_history_test.dart
+test/action_event_test.dart             test/action_log_controller_test.dart
+test/action_ui_test.dart                test/commands_api_test.dart
 test/settings_controller_test.dart      test/app_shell_layout_test.dart
 test/stage_keepalive_test.dart          test/settings_sections_test.dart
 test/semantics_test.dart                test/audio_bar_test.dart
@@ -1675,14 +1678,14 @@ token 的守卫交给 §2.8）。
 2. **分句由前端/核心代码主动做**：按 `。！？` 标记切分成多个句子
    （已有实现：`crates/live2d-ai-runtime/src/dialogue/sentence.rs`）。
    这与 AGENTS.md 的「一句一单元、不断句」契约一致，且**不再依赖模型守规矩**。
-3. **长度由 token 上限控制**（用户明确指定）——
-   ⚠️ **当前后端没有这个能力**：`crates/live2d-ai-runtime/src/llm.rs` 的
-   `ChatRequestBody` 只有 `model` / `messages` / `stream`，
-   全仓库 grep `max_tokens` **零命中**。
-   ⇒ 要落地「限定 token 输出」，需要**核心层新增**：
-   `LlmConfig.max_tokens`、`LlmSettings`/`LlmView`/`LlmPatch` 对应字段、
-   `ChatRequestBody.max_tokens`。**这是核心链路的一部分，不属于「堆砌」**，
-   但它**跨到了 Rust 侧**——是否本轮做，见 §13.4。
+3. **长度由 token 上限控制**（用户明确指定）——**已完成（v0.4.7，2026-09-10）**。
+   落地内容：`LlmConfig.max_tokens`、`LlmSettings.max_tokens` + `DEFAULT_MAX_TOKENS = 512`、
+   `LlmView.max_tokens`（回生效值）、`LlmPatch.max_tokens`（三态）、
+   `ChatRequestBody.max_tokens`（**`0` 时整个字段省略**，因为部分 OpenAI 兼容
+   实现把 `0` 读成「拒绝生成」）。前端镜像 `LlmSettingsView.maxTokens` +
+   `LlmSettingsPatch.maxTokens: Tri<int>?`。
+   > 上一版这里写的是「全仓库 grep `max_tokens` 零命中」——**那已过期**。
+   > 本轮后端**只**加了这一个字段（用户口径：「这一轮后端只多改一个 maxtoken」）。
 4. 设置里提供**酒馆式角色卡字段 + 导入**，让用户自己填/导入（见 13.4）。
 
 #### 角色卡导入：**JSON + PNG 内嵌卡**（用户选定 B）
@@ -1694,12 +1697,43 @@ token 的守卫交给 §2.8）。
 - **纯前端解析、零新依赖**（PNG chunk 解析手写即可，不需要图片库）。
 - **不内置任何预设角色卡**（用户明确要求）。
 
-### 13.4 需要用户在下一轮确认的一件事
+### 13.4 ~~需要用户在下一轮确认的一件事~~ —— **已裁决（2026-09-10）**
 
-「限定 token 输出」**必须动 Rust**（见 13.3-3），而用户在 13.2-③ 说「只做前端相关」
-（那句话的语境是**动作/dropped 帧**，不是 LLM 配置）。
-两者范围不同，**不自行假设**：下一轮向用户确认
-「`max_tokens` 属于核心链路能力，本轮一并加，还是先只做前端、把 token 上限留到下一轮」。
+「限定 token 输出」必须动 Rust（见 13.3-3），而 13.2-③ 的「只做前端相关」语境是
+**动作 / `dropped` 帧**，不是 LLM 配置。
+
+**用户裁决**：「这一轮后端只多改一个 maxtoken」——
+即 `max_tokens` **批准作为本轮唯一的 Rust 改动**，其余仍然只做前端。
+已落地并提交（v0.4.7）。
+
+### 13.5 P2 落地时新增的两条工程裁决（2026-09-10）
+
+#### ① `api/commands_api.dart` 从 P5 **提前到 P2**
+
+规格的 P5 才列 `commands_api.dart`。但 P2 要求动作日志显示**中文名**，而中文名的
+权威来源是服务端 `GET /api/v1/commands`（`target_action` + `name`）。
+
+在 Flutter 侧内建一张「`nod` → 点头」映射表有两个问题：服务端加/改动作时前端
+**静默**显示内部 id；并违反 AGENTS.md「不得在 Flutter 侧复制核心逻辑」。
+
+⇒ 把 `commands_api.dart` 提到 P2（它本来就是必须做的，只是提前）。
+**P5 不再需要新建它**，只补 `invoke`（`POST /api/v1/commands/{id}/invoke`）。
+缺省降级：取不到目录就显示**协议名**（`tilt`）——看得懂，且不撒谎。
+
+#### ② 新增 `actions/action_log_controller.dart`（原文件清单里没有）
+
+`chat_controller.dart` 必须 `import 'package:web'`，**整体在 `flutter test` 里加载不了**。
+若接线只有它一条路，P2 的全部价值（「`source` 终于看得见」）就永远测不到——
+这正是 §0.3 那个缺陷能长期存活的原因。
+
+⇒ 把「WS 帧 → 动作历史 + 未读 AI 动作计数」抽成一个**不碰 `package:web`** 的接线层，
+于是测试可以**直接喂真实抓包的帧原文**、断言历史里的中文名与来源徽标。
+`ChatController` 只持有它并转发 `action_state`（不再自己读字段）。
+
+顺带落地的**未读角标**：`perform{source: llm_tool|rule_fallback}` 会让入口按钮出现
+未读计数。「AI 自己触发了动作」是个转瞬即逝的信号（演完就没了），日志静静躺在
+弹层里等于没提示——这是 §8.3「三处呈现」第 3 处（舞台小卡）的**最小可用替代**；
+舞台小卡本身仍属 P5。
 
 ---
 
