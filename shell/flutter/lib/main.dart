@@ -11,6 +11,7 @@ import 'chat/chat_controller.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
 import 'ui/display_panel.dart';
+import 'ui/theme.dart';
 
 /// 本地显示偏好的存储键（localStorage）。
 const String kDisplayPrefsKey = 'live2d-ai.display-prefs';
@@ -50,19 +51,10 @@ class Live2DShellApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF7C5CFF),
-      brightness: Brightness.dark,
-    );
     return MaterialApp(
       title: 'Live2D Ai',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xFF0B0D12),
-      ),
+      theme: buildAppTheme(),
       home: const AppShell(),
     );
   }

@@ -69,6 +69,11 @@
   `https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，
   而 `build/web/canvaskit/` 那份本地副本不被引用——**断网即白屏**。
   本项目是本地优先的桌宠，不允许依赖 Google CDN（`scripts/ignite.sh` 会探测并告警）。
+- **中文字体必须自托管**（`assets/fonts/`，Noto Sans SC 子集，OFL-1.1）。
+  Flutter Web 的 CanvasKit **取不到设备字体**，`fontFamilyFallback` 也不会命中系统字体——
+  缺字时引擎只会去 `fonts.gstatic.com` 下载，**断网即豆腐块**（有网时看不出来）。
+  不要删掉 `ThemeData.fontFamily`，也不要改用「系统字体回落」；回归在
+  `test/theme_test.dart`（含 CJK 本地化后字体不被覆盖回 Roboto 的守卫）。
 - **协议约定**：前端与渲染面之间只走**版本化消息**（`{version,type,payload}`，见
   `l2d-wasm-demo` 的 v1 协议）；新增字段必须向后兼容（缺省即默认值）。
 - **不得**在 Flutter 侧复制核心逻辑（状态机、动作仲裁、LLM/TTS 协议）——
@@ -90,6 +95,9 @@
 
 ## 变更历史
 
+- **2026-09-10（v0.4.4 / v0.4.5）**：确立前端**离线可用**的两条硬约束——
+  构建必须带 `--no-web-resources-cdn`（否则 CanvasKit 走 Google CDN，断网白屏）；
+  中文字体必须自托管（否则断网豆腐块）。两者都是「有网时看不出来」的缺陷。
 - **2026-09-10（v0.4.3）**：语音输出约定新增「**默认出声**」与「主音量/静音与口型正交」；
   静音改为默认关闭的服务端开关 `LIVE2D_AI_MUTE_AUDIO=1`（跑测试/无人值守用）。
 - **2026-09-10**：确立 **Rust 核心 + Flutter 前端** 双主导分层；前端/接口层

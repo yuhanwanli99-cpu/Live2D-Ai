@@ -1,3 +1,70 @@
+# v0.4.5 — 自托管中文字体：断网不再变豆腐块（2026-09-10）
+
+v0.4.4 把 CanvasKit 本地化之后，**离线可用还差最后一块**：字体。
+
+## 缺陷
+
+Flutter Web（CanvasKit）**没有系统字体回落**——它取不到设备字体，
+`fontFamilyFallback` 也不会命中系统字体。遇到未打包的字形，引擎只会去
+`https://fonts.gstatic.com/` 下载 Noto。
+
+本机实测：产物里**只打包了 `MaterialIcons-Regular.otf`**；
+`fc-list :lang=zh` 返回 **0 个中文字体**。所以修好 CanvasKit 之后，
+断网仍然**中文全是豆腐块**（有网时完全看不出来——这正是它难被发现的原因）。
+
+## 修复
+
+- 自托管 **Noto Sans SC 子集**（OFL-1.1），打包进 `shell/flutter/assets/fonts/`：
+  | 文件 | 字重 | 大小 |
+  | --- | --- | --- |
+  | `NotoSansSC-AiSubset-Regular.woff2` | 400 | 3.15 MB |
+  | `NotoSansSC-AiSubset-Bold.woff2` | 700 | 3.24 MB |
+
+- **覆盖集取「整个 CJK 统一表意区」而不是「UI 里出现过的字」**：本应用显示的是
+  LLM 的**任意输出**，只留 UI 用字必然在用户看到人名/生僻词时变豆腐块。
+  实测覆盖 **20 976 个汉字** + 拉丁 + 通用标点 + CJK 标点 + 假名 + 全角 + 圈号/几何符号。
+  比「完整字体」小一个量级（可变 TTF 17.7 MB），比「只留 UI 用字」大但**真的能用**。
+- 主题抽成 `lib/ui/theme.dart` 的 `buildAppTheme()`（纯逻辑、可 VM 单测），
+  显式 `fontFamily: 'NotoSansSC'`。
+
+## 顺带修掉一个我自己引入的错
+
+可变字体的默认实例（`wght` 默认 **100**）内部名是 **`Noto Sans SC Thin`**。
+只做 `instantiateVariableFont(wght=400)` 而不改写 `name` 表，会得到一个
+**「名字写着 Thin、实际是 400」**的字体（第一版就是这样）。现已显式改写
+nameID 1/2/3/4/6/16/17，家族名为 `Noto Sans SC AiSubset`。
+
+## 许可（逐条对应 OFL-1.1）
+
+- **条件 2**（再分发须随附版权声明与许可）：`OFL.txt` 与字体同目录，
+  且登记为 Flutter asset，**随产物一起分发**。
+- **条件 3**（Modified Version 不得使用保留字体名）：保留字体名是 **`'Source'`**
+  （`OFL.txt` 第 1 行）。本字体家族名 `Noto Sans SC AiSubset` **不含该名**，故合规。
+  子集化本身属 OFL 定义的 Modified Version（"by changing formats"）。
+  > 调研阶段曾有「Noto Sans SC 子集化必须改字体名」的说法；逐字核对 OFL 后，
+  > 条件 3 限制的是**使用保留名本身**，而该名是 `'Source'` 而非 `'Noto'`。此处按原文执行。
+- 字体仍是 OFL-1.1，**不适用**本项目 AGPL-3.0；全量字体不随仓库分发。
+- 详见 `CREDITS.md` §13b 与 `shell/flutter/assets/fonts/README.md`。
+
+## 测试（前端 38 → **45**）
+
+新增 `test/theme_test.dart`（7 条），其中最关键的一条是
+**CJK 本地化后字体不得被覆盖回 Roboto**：`MaterialApp` 会按 `scriptCategory`
+取 `Typography.dense`（里面写死 `fontFamily: 'Roboto'`）再经 `ThemeData.localize`
+合并进当前主题。若合并方向反了，中文悄悄落回 Roboto，整个字体修复白做——
+**而且有网时完全看不出来**。另外三条扫描 `pubspec.yaml` 守卫
+「家族名一致 / 资产存在 / OFL 随附」，以及一条子集体量下限守卫
+（防有人把子集换成「只留 UI 用字」）。
+
+## 门禁
+
+fmt 干净 / clippy -D warnings 干净 / cargo test --all-targets **807 passed 0 failed**
+/ doctest 3 passed / rust-ratio **95.5389% PASS** / flutter analyze 无问题 /
+flutter test **45 passed** / `flutter build web --release --no-web-resources-cdn` 成功。
+
+首屏总量 16 MB（含 canvaskit.wasm 7.28 MB + 字体 6.4 MB），**全部由本机 loopback 提供**。
+
+
 # v0.4.4 — 修掉「断网白屏」：CanvasKit 不再走 Google CDN（2026-09-10）
 
 **缺陷**：出厂构建的 Flutter Web 产物把 CanvasKit 指向
@@ -100,6 +167,7 @@ fmt 干净 / clippy -D warnings 干净 / cargo test --all-targets **807 passed 0
 `flutter build web --release` 成功。
 
 
+# v0.4.2 — 微信式短对话 + 先合成后上屏 + 服务端静音（2026-09-10）
 
 用户裁决：**AI 每次回复 1–5 句话、像微信聊天；TTS 完整合成后展示文字；
 关掉声音但保留口型（声音打扰用户做别的事）。**

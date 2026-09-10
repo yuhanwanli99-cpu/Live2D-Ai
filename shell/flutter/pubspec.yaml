@@ -20,3 +20,15 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # OFL-1.1 条件 2：再分发字体必须随附版权声明与许可，故让它随产物一起走。
+    - assets/fonts/OFL.txt
+  fonts:
+    # 自托管中文子集，替代 Flutter 的 fonts.gstatic.com 缺字回落——见
+    # assets/fonts/README.md。断网可用是本项目的硬要求（本地优先的桌宠）。
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-AiSubset-Regular.woff2
+          weight: 400
+        - asset: assets/fonts/NotoSansSC-AiSubset-Bold.woff2
+          weight: 700

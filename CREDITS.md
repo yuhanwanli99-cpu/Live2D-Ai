@@ -250,6 +250,34 @@ All **MIT compatible** ✅
 
 ---
 
+## 13b. 自托管中文字体 — Flutter Web 前端（Asset，非依赖）
+
+| Asset | License | Notes |
+|---|---|---|
+| `shell/flutter/assets/fonts/NotoSansSC-AiSubset-{Regular,Bold}.woff2` | **OFL-1.1** | Noto Sans SC 的**子集**（Modified Version）：由 `google/fonts/ofl/notosanssc` 的可变字体实例化为静态 400/700 后，用 `fonttools` 子集到整个 CJK 统一表意区（20 976 汉字）+ 拉丁/标点/假名/全角。随附 `OFL.txt`。 |
+| `shell/flutter/assets/fonts/OFL.txt` | OFL-1.1 | OFL 条件 2 要求再分发时随附版权声明与许可；同时作为 Flutter asset 打进产物，随应用一起分发。 |
+
+**版权声明（OFL 条件 2，必须保留）**：
+Copyright 2014-2021 Adobe (<http://www.adobe.com/>), with Reserved Font Name 'Source'。
+
+**合规说明（逐条对应 OFL-1.1）**：
+
+- **条件 2**（随附版权声明与许可）：`OFL.txt` 与字体同目录，且登记为 Flutter asset，
+  故产物内也带有该许可。
+- **条件 3**（Modified Version 不得使用保留字体名）：保留字体名是 **`'Source'`**
+  （见 `OFL.txt` 第 1 行）。子集后的家族名是 `Noto Sans SC AiSubset`，**不含该名**，
+  故合规。子集化本身属 OFL 定义的 Modified Version（"by changing formats"）。
+- **未改授**：本字体仍是 OFL-1.1，**不适用**本项目的 AGPL-3.0。
+- 全量字体**不随仓库分发**，只分发上述子集。
+- 生成脚本与理由见 `shell/flutter/assets/fonts/README.md`。
+
+> 注：可变字体的默认实例（`wght` 默认 100）内部名是 **`Noto Sans SC Thin`**；
+> 若只是 `instantiateVariableFont(wght=400)` 而不改写 `name` 表，会得到
+> 一个「名字写着 Thin、实际是 400」的字体。本项目在生成时显式改写了
+> nameID 1/2/3/4/6/16/17。
+
+---
+
 ## License Compatibility Summary
 
 | Component | Its License | MIT Compatible? | Notes |
@@ -261,6 +289,7 @@ All **MIT compatible** ✅
 | niziiro_mao model | **Live2D Free Material License** | ❌ **No** | Official Niziiro Mao (PRO Version); ReadMe 双端已补 |
 | shizuku model | ~~Live2D Free Material License~~ | 🗑️ Removed (K1) | 已删除，不再分发 |
 | Open-LLM-VTuber (PC fork) | MIT | ✅ | Fork 上游；LICENSE 保留于 `Live2D-Ai-pc/open-llm-vtuber/LICENSE` |
+| Noto Sans SC 子集（`assets/fonts/*.woff2`） | **OFL-1.1** | ✅ | 仅打包子集、不含保留字体名 `'Source'`；随附 `OFL.txt`。**不适用**本项目 AGPL-3.0 |
 | N.E.K.O. (design ref) | Apache 2.0 | ✅ | 设计参考（emotionIndex 借鉴），未抄代码；见 root `NOTICE` |
 | pymouth (port + dep) | MIT | ✅ | Android Kotlin 移植 + PC 运行时依赖；文件头 MIT 归属 |
 | kugutu (design ref) | MIT | ✅ | 设计参考（关键词→动作词表思想），未抄代码 |
