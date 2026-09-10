@@ -55,6 +55,8 @@ pub mod dto;
 /// 外部文本注入端点（节点 E5-T3）：`POST /api/v1/external/chat → say →
 /// 主链路`。静态前置路由（见 `run_request_loop` E5-T3 判定点）。
 pub mod external_routes;
+/// Flutter Web 前端托管（`/app` 与 `/app/*`；2026-09-10 点火轮）。
+pub mod flutter_app;
 pub mod index_html;
 pub mod log_routes;
 /// 模型资产路由（D3，2026-08-28）：`/api/v1/models*` 端点 + registry
@@ -488,6 +490,12 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         // 节点 E E2：Web 静态资产（/models/* 模型资产 + /render* WASM 渲染页）。
         // 先于 dispatch 处理（纯读盘静态，非 API；GET 无 body 不 consume）。
         if let Some(resp) = crate::web_api::wasm_assets::handle_assets(&method, &path) {
+            let _ = request.respond(resp);
+            continue;
+        }
+        // 点火轮（2026-09-10）：Flutter Web 前端（`/app` 与 `/app/*`）。
+        // 与 `/render` 同源是本轮闭环的前提（Flutter 侧 iframe 的 postMessage 校验 origin）。
+        if let Some(resp) = crate::web_api::flutter_app::handle_flutter_app(&method, &path) {
             let _ = request.respond(resp);
             continue;
         }

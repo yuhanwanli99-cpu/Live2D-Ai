@@ -173,6 +173,7 @@ fn write_initial_config_with_hidden_tts(path: &std::path::Path) {
             base_url: "https://api.example-tts.com/v1".into(),
             model: Some("tts-1-hd".into()),
             voice: "nova".into(),
+            response_format: "pcm".into(),
             api_key_env: Some("INIT_TTS_KEY".into()),
             sample_rate: 48_000,
             channels: 2,

@@ -888,7 +888,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---- 启动 ----
-loadAll().then(() => { startLogsPoll(); });
+globalThis.__booted = loadAll().then(() => { startLogsPoll(); }); // 暴露启动 promise：行为基线 await 它，避免与启动续体竞态
 setInterval(() => {
   api("GET", "/api/v1/app/status").then((s) => {
     state.status = s;

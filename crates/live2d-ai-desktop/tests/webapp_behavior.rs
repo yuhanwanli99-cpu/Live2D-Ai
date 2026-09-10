@@ -60,6 +60,14 @@ global.setInterval = (fn) => { __timers.set(++__timerId, fn); return __timerId; 
 global.clearInterval = (id) => __timers.delete(id);
 global.setTimeout = (fn) => { __timers.set(++__timerId, fn); return __timerId; };
 global.clearTimeout = (id) => __timers.delete(id);
+// 固定时钟：app.js 只有两处 Date（活动日志 :105、保存状态 :706），都是纯展示文案，
+// 不参与任何计时/debounce。若不桩，断言处取时钟与实现处取时钟会跨秒边界 → 约 1/40 假失败。
+const __FIXED_MS = 1735689600000; // 2025-01-01T00:00:00Z
+const __RealDate = Date;
+global.Date = class extends __RealDate {
+  constructor(...args) { super(...(args.length ? args : [__FIXED_MS])); }
+  static now() { return __FIXED_MS; }
+};
 // fetch 桩：场景可用 __setRoute(fn) 按 (path, opts) 返回 {status, body}。默认 200 {}。
 let __routeFn = null;
 const __fetched = [];
@@ -322,7 +330,18 @@ const SCENE_STAGE: &str = r#"
     // ===== refreshLogs：拉取/级别过滤/403 =====
     // app.js 启动时 loadAll 已同步捕获默认路由（返回 {}），会覆盖 state.settingsView。
     // 等待 loadAll 完成后再设置状态与路由。
-    while (!state.settingsView) { await Promise.resolve(); }
+    // 必须等「启动链真正跑完」而不是「settingsView 变真」——默认路由 {} 是 truthy，
+    // 只让出微任务的自旋会立刻退出，随后 loadAll 的续体再把测试设的值覆盖掉
+    //（表现为 logs/403 与 logs/filter-drop 同时挂：app.js:814 提前 return，根本没写文案）。
+    // 用 app.js 暴露的 __booted；setTimeout 已被桩住，故用 setImmediate 让出宏任务，且有界。
+    {
+      let spins = 0;
+      while (!globalThis.__booted && spins < 1000) {
+        await new Promise((r) => setImmediate(r));
+        spins += 1;
+      }
+      if (globalThis.__booted) await globalThis.__booted;
+    }
     state.settingsView = { dev_mode: true };
     __setRoute((path) => {
       if (path === "/api/v1/logs") return { status: 200, body: { file: "t.log", lines: [

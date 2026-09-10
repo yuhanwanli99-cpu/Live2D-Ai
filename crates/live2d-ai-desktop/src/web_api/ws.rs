@@ -34,7 +34,7 @@
 //!   前端**不**应发文本 `subscribe` / `ping` —— 这些会被底层 auto-pong
 //!   静默丢弃（无业务回包）。
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
@@ -90,6 +90,16 @@ struct ConnectionHandle {
 pub struct Broadcaster {
     inner: Arc<Mutex<Vec<ConnectionHandle>>>,
     subscribed_count: Arc<AtomicUsize>,
+    /// 已经广播过音频的 epoch（存 epoch + 1，0 = 尚未广播任何音频）。
+    ///
+    /// 用来把 audio.start 还原成它文档里的语义：**本轮语音的首片**。
+    /// 修复前它是「每个 TTS 流式分片（约 200 ms）的首片」，一轮 8.6 s 语音会
+    /// 产出 44 个 start=true；浏览器端据此把播放时间轴拽回 now，导致一轮音频
+    /// 最多 17 片同时发声（削波杂音，实测 529 对重叠、累计 9.79 s）。
+    ///
+    /// 与 inner / subscribed_count 一样用 Arc 共享：Broadcaster 的 clone 是
+    /// 同一实例的别名。
+    audio_epoch_seen: Arc<AtomicU64>,
 }
 
 impl Broadcaster {
@@ -176,9 +186,14 @@ impl Broadcaster {
     /// broadcaster + 一段 s16le PCM 时可直接调。注意：当前 v1 路径下 PCM
     /// 不经 AppEvent（详见 supervisor.rs 文档约束），因此**需要在 PCM 流经处**
     /// 显式调用本方法——见报告“接线点结论”。
+    ///
+    /// audio.start 只在本 epoch 的**首片**上为 true（见 audio_epoch_seen）。
     #[allow(dead_code)]
     pub fn broadcast_audio_frames(&self, epoch: u64, pcm: &[u8], sample_rate: u32) {
-        for frame in build_audio_frames(epoch, pcm, sample_rate) {
+        let token = epoch.wrapping_add(1);
+        let previous = self.audio_epoch_seen.swap(token, Ordering::AcqRel);
+        let segment_start = previous != token;
+        for frame in build_audio_frames(epoch, pcm, sample_rate, segment_start) {
             self.broadcast(&frame);
         }
     }
@@ -399,7 +414,9 @@ fn ws_origin_denied_response(origin: Option<&str>) -> Response<std::io::Cursor<V
 //   "slice_ms":20,"volume":0.3,"start":true,"end":false}}
 //
 // - 每片 = sample_rate * 2 bytes/sample * 20ms / 1000；
-// - 首片 start=true，末片 end=true；
+// - **本轮首片** start=true（由 Broadcaster 按 epoch 判定，不是每个分片首片），
+//   end=true 标在**本段 PCM** 的末帧——一轮语音会被切成多个 200 ms 段分别调用，
+//   故 end 一轮出现多次，**不可**用它判定「本轮语音结束」（轮次边界看 epoch）；
 // - volume = 本片 RMS，归一化到 [0,1]，保留 3 位小数。
 
 /// 每片毫秒数（v1 固定 20 ms，与 RMS_WINDOW_MS / TTS chunk 同尺度）。
@@ -418,8 +435,17 @@ const S16_NORM: f32 = 32_768.0;
 /// - `pcm`：s16le 交错样本字节（mono 视为单声道；多声道时仅首声道参与 RMS，
 ///   其它声道字节原样 Base64 透传）；
 /// - `sample_rate`：PCM 采样率（Hz）；
-/// - 返回值：空输入 → 空 Vec；非空 → ≥1 帧，首帧 `start=true`，末帧 `end=true`。
-pub fn build_audio_frames(epoch: u64, pcm: &[u8], sample_rate: u32) -> Vec<String> {
+/// - `segment_start`：本段 PCM 是否**一轮语音的首片**——为 true 时首帧
+///   `start=true`，否则所有帧 `start=false`。一轮语音会被切成多个 200 ms
+///   分片分别调用本函数，只有第一次调用该传 true（见
+///   [`Broadcaster::broadcast_audio_frames`]）；
+/// - 返回值：空输入 → 空 Vec；非空 → ≥1 帧，**本段**末帧 `end=true`。
+pub fn build_audio_frames(
+    epoch: u64,
+    pcm: &[u8],
+    sample_rate: u32,
+    segment_start: bool,
+) -> Vec<String> {
     if pcm.is_empty() || sample_rate == 0 {
         return Vec::new();
     }
@@ -430,7 +456,7 @@ pub fn build_audio_frames(epoch: u64, pcm: &[u8], sample_rate: u32) -> Vec<Strin
     let total = pcm.chunks(slice_bytes).count();
     let mut out = Vec::with_capacity(total);
     for (i, slice) in pcm.chunks(slice_bytes).enumerate() {
-        let start = i == 0;
+        let start = segment_start && i == 0;
         let end = i + 1 == total;
         let volume = rms_s16le_mono(slice);
         let b64 = base64_encode(slice);
@@ -577,14 +603,14 @@ mod audio_frame_tests {
     /// 空输入 → 空帧列表。
     #[test]
     fn empty_input_yields_empty() {
-        let frames = build_audio_frames(0, &[], 24000);
+        let frames = build_audio_frames(0, &[], 24000, true);
         assert!(frames.is_empty(), "空 PCM 应产出 0 帧");
     }
 
     /// 零采样率 → 空帧列表（防除零）。
     #[test]
     fn zero_sample_rate_yields_empty() {
-        let frames = build_audio_frames(1, &[0u8; 16], 0);
+        let frames = build_audio_frames(1, &[0u8; 16], 0, true);
         assert!(frames.is_empty(), "零采样率应产出 0 帧");
     }
 
@@ -594,7 +620,7 @@ mod audio_frame_tests {
         let sample_rate: u32 = 24000;
         let one_sec = i16_to_bytes(&vec![0i16; sample_rate as usize]);
 
-        let frames = build_audio_frames(0, &one_sec, sample_rate);
+        let frames = build_audio_frames(0, &one_sec, sample_rate, true);
         assert_eq!(frames.len(), 50, "24kHz 1s 应切 50 帧（每帧 20ms）");
     }
 
@@ -603,7 +629,7 @@ mod audio_frame_tests {
     fn start_and_end_flags_on_boundary_frames() {
         let sample_rate: u32 = 24000;
         let one_sec = i16_to_bytes(&vec![0i16; sample_rate as usize]);
-        let frames = build_audio_frames(0, &one_sec, sample_rate);
+        let frames = build_audio_frames(0, &one_sec, sample_rate, true);
         assert!(!frames.is_empty());
 
         let first: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
@@ -631,7 +657,7 @@ mod audio_frame_tests {
             })
             .collect();
         let pcm = i16_to_bytes(&samples);
-        let frames = build_audio_frames(0, &pcm, sample_rate);
+        let frames = build_audio_frames(0, &pcm, sample_rate, true);
         for raw in &frames {
             let v: serde_json::Value = serde_json::from_str(raw).expect("json");
             let vol = v["data"]["volume"].as_f64().expect("volume f64");
@@ -645,7 +671,7 @@ mod audio_frame_tests {
         let sample_rate: u32 = 24000;
         let raw_samples: Vec<i16> = (0..1920).map(|i| (i as i16) * 10).collect();
         let pcm = i16_to_bytes(&raw_samples);
-        let frames = build_audio_frames(0, &pcm, sample_rate);
+        let frames = build_audio_frames(0, &pcm, sample_rate, true);
         assert!(!frames.is_empty());
 
         let first: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
@@ -662,7 +688,7 @@ mod audio_frame_tests {
         let sample_rate: u32 = 24000;
         // 480 i16 样本 = 960 字节 = 1 片（24kHz 20ms）。
         let pcm = i16_to_bytes(&vec![0i16; 480]);
-        let frames = build_audio_frames(42, &pcm, sample_rate);
+        let frames = build_audio_frames(42, &pcm, sample_rate, true);
         assert_eq!(frames.len(), 1, "960 字节 = 1 片（24kHz 20ms）");
         let v: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
         assert_eq!(v["type"], "audio");
@@ -680,7 +706,7 @@ mod audio_frame_tests {
     fn silent_pcm_zero_volume() {
         let sample_rate: u32 = 24000;
         let pcm = i16_to_bytes(&vec![0i16; 960]);
-        let frames = build_audio_frames(0, &pcm, sample_rate);
+        let frames = build_audio_frames(0, &pcm, sample_rate, true);
         let v: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
         assert_eq!(v["data"]["volume"], 0.0, "静音应 volume=0");
     }
@@ -715,5 +741,74 @@ mod audio_frame_tests {
         let pcm = i16_to_bytes(&vec![0i16; 480]);
         bc.broadcast_audio_frames(0, &pcm, sample_rate); // 不应 panic
         assert_eq!(bc.subscriber_count(), 0);
+    }
+
+    /// 非本轮首片（segment_start=false）：**所有**帧 start 均为 false。
+    ///
+    /// 这是「一轮语音的 200 ms 分片」中第 2..n 片的正确标记。
+    #[test]
+    fn segment_start_false_marks_no_frame_as_start() {
+        let sample_rate: u32 = 24000;
+        let two_sec = i16_to_bytes(&vec![0i16; sample_rate as usize * 2]);
+        let frames = build_audio_frames(3, &two_sec, sample_rate, false);
+        assert_eq!(frames.len(), 100, "2 s / 20 ms = 100 帧");
+        for (i, raw) in frames.iter().enumerate() {
+            let v: serde_json::Value = serde_json::from_str(raw).expect("json");
+            assert_eq!(v["data"]["start"], false, "第 {i} 帧 start 应为 false");
+        }
+        // end 只标在末帧，与 segment_start 无关。
+        let last: serde_json::Value =
+            serde_json::from_str(frames.last().expect("非空")).expect("json");
+        assert_eq!(last["data"]["end"], true);
+    }
+
+    /// **回归钉子（音质）**：一轮语音被切成多个 200 ms 分片时，只有**首片**带
+    /// start=true；换一轮（epoch 变化）后首片再次为 true。
+    ///
+    /// 修复前每个分片都带 start=true，浏览器端每片都把播放时间轴拽回 now，
+    /// 而上一片通常仍在播——一轮音频最多 17 片同时发声（削波杂音）。
+    #[test]
+    fn broadcaster_marks_only_first_chunk_of_epoch_as_start() {
+        let bc = Broadcaster::new();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<String>(64);
+        bc.try_subscribe(tx).expect("subscribe");
+
+        // 4_800 样本 @24 kHz = 200 ms = 10 片。
+        let chunk = i16_to_bytes(&vec![100i16; 4_800]);
+        let starts = |rx: &std::sync::mpsc::Receiver<String>| -> Vec<bool> {
+            (0..10)
+                .map(|_| {
+                    let raw = rx
+                        .recv_timeout(std::time::Duration::from_millis(500))
+                        .expect("收到音频帧");
+                    let v: serde_json::Value = serde_json::from_str(&raw).expect("json");
+                    v["data"]["start"].as_bool().expect("start 是 bool")
+                })
+                .collect()
+        };
+        let expect_one_start = |flags: &[bool]| {
+            assert_eq!(flags.len(), 10);
+            assert!(flags[0], "分片首帧应为 start=true");
+            assert!(
+                flags[1..].iter().all(|f| !f),
+                "分片内其余帧 start 应为 false"
+            );
+        };
+
+        // 第 1 片：本轮首片 → 唯一一次 start=true。
+        bc.broadcast_audio_frames(7, &chunk, 24_000);
+        expect_one_start(&starts(&rx));
+
+        // 第 2/3 片：同一 epoch 的后续分片 → 全 false。
+        bc.broadcast_audio_frames(7, &chunk, 24_000);
+        let second = starts(&rx);
+        assert!(second.iter().all(|f| !f), "同轮后续分片不得再发 start=true");
+        bc.broadcast_audio_frames(7, &chunk, 24_000);
+        let third = starts(&rx);
+        assert!(third.iter().all(|f| !f), "同轮后续分片不得再发 start=true");
+
+        // 新一轮：首片重新标记 start=true。
+        bc.broadcast_audio_frames(8, &chunk, 24_000);
+        expect_one_start(&starts(&rx));
     }
 }

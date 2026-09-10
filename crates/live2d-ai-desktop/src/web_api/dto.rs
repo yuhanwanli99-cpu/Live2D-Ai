@@ -302,6 +302,7 @@ mod tests {
                 base_url: "http://127.0.0.1:8000/v1".into(),
                 model: Some("tts-1".into()),
                 voice: "alloy".into(),
+                response_format: "pcm".into(),
                 api_key_env: Some("LIVE2D_AI_TTS_API_KEY".into()),
                 sample_rate: 24_000,
                 channels: 1,

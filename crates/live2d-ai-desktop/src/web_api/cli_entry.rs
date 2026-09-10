@@ -339,34 +339,37 @@ pub(crate) fn build_web_supervisor(
         .map_err(|e| format!("配置解析失败（URL/环境变量名）: {e}"))?;
     let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())
         .map_err(|e| format!("构建 LLM/TTS 客户端失败: {e}"))?;
-    // audio：有设备就开（web 模式无窗口但 cpal 流可独立跑）；无设备 dry-run。
-    let audio: Option<Box<dyn crate::audio::PcmProducer>> =
+    // **音频单源（2026-09-10 点火轮）**：默认「仅浏览器出声」——服务端不开 cpal，
+    // PCM 经 WS 广播给 Flutter Web（浏览器播放 + 浏览器侧真实 RMS 驱动口型）。
+    // `LIVE2D_AI_WEB_AUDIO=server` 退回旧行为（服务端 cpal 播放；届时默认关 WS 音频）。
+    let server_audio = std::env::var("LIVE2D_AI_WEB_AUDIO").as_deref() == Ok("server");
+    let audio: Option<Box<dyn crate::audio::PcmProducer>> = if server_audio {
         match AudioOutputFacade::open_default(resolved.tts.spec, Duration::from_millis(200)) {
             Ok(facade) => {
-                println!("[web] 检测到音频设备，已开启 cpal 输出（纯播放，无窗口）");
+                println!("[web] LIVE2D_AI_WEB_AUDIO=server —— 服务端 cpal 输出已开启");
                 Some(Box::new(facade))
-            }
-            Err(e) if e.is_environment() => {
-                println!("[web] 无可用音频输出设备，supervisor 进入 dry-run: {e}");
-                None
             }
             Err(e) => {
                 warn!("web audio 打开失败（按 dry-run 继续）: {e}");
                 None
             }
-        };
+        }
+    } else {
+        println!(
+            "[web] 音频单源=browser —— 服务端不开 cpal；PCM 经 WS 交给浏览器播放，口型由浏览器 RMS 驱动"
+        );
+        None
+    };
 
     // emit 闭包：捕获 broadcaster 的 clone（与 ctx.broadcaster 同一实例）。
     let emit_bc = broadcaster;
     let handle = Arc::new({
-        // F6-T2 接线（WS 音频广播）。双声问题消解：默认闭
-        // （`LIVE2D_AI_WS_AUDIO=1` 时才开启）——现网行为不变，仅 cpal 播放。
-        // 开关打开后，PCM 同时推给 WS 广播（前端播放器消费）；cpal
-        // 仍在服务端播放——**两个路径都响**，属 v1 已知缺陷，待前端播放器
-        // 就绪后 F6-T3 把默认翻转并文档化。
-        let ws_audio_on = std::env::var("LIVE2D_AI_WS_AUDIO").as_deref() == Ok("1");
+        // WS 音频广播（F6-T2）：browser 模式下它是出声的**唯一路径**，默认开；
+        // server 模式下需显式 `LIVE2D_AI_WS_AUDIO=1` 才额外广播（旧行为，二者都响）。
+        let ws_audio_on =
+            !server_audio || std::env::var("LIVE2D_AI_WS_AUDIO").as_deref() == Ok("1");
         if ws_audio_on {
-            println!("web: LIVE2D_AI_WS_AUDIO=1 —— WS 音频广播已开启（F6-T2）");
+            println!("web: WS 音频广播已开启（browser 播放 / 口型驱动）");
             let bc = emit_bc.clone();
             let audio_cb: Arc<AudioCb> = Arc::new(
                 move |epoch: u64, samples: &[f32], spec: live2d_ai_runtime::AudioSpec| {
@@ -439,25 +442,52 @@ pub fn config_path_for_web() -> String {
     "live2d-ai.toml".to_string()
 }
 
-/// Mod manifest：`<config_dir>/mods.json`（不存在 = 空 manifest，向后兼容）。
+/// Mod manifest：`<config_dir>/mods.json`；**不存在时回落到内建缺省**。
 ///
 /// 格式：`{"mods":{"<id>":{"enabled":bool,"config":{...}}}}`
 ///
 /// - 路径 = `config_path_for_web()` 所在目录的 `mods.json`
 ///   （即 `live2d-ai.toml` 同目录；web 模式下 config_path 可能来自 cwd
 ///   或 `~/.config/live2d-ai/`）。
-/// - 不存在文件 = `{}`（`ModRegistry::new` 用 `parse_mod_config` 解读，
-///   空 manifest 使全部 Mod 保持禁用 —— 向后兼容）。
+/// - 文件存在且可解析 → **完全覆盖**内建缺省。
+/// - 文件不存在 → 用 [`default_mods_manifest`]（2026-09-10 M1 修复）。
 fn mods_manifest_for_web() -> serde_json::Value {
     let dir = std::path::Path::new(&config_path_for_web())
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let path = dir.join("mods.json");
-    std::fs::read_to_string(&path)
+    if let Some(v) = std::fs::read_to_string(&path)
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({}))
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+    {
+        return v;
+    }
+    default_mods_manifest()
+}
+
+/// 内建缺省 Mod manifest（`mods.json` 缺失时使用；M1 修复）。
+///
+/// 启用两个「OpenAI 兼容端点适配器」Mod，且 `externally_managed=true`：
+/// **只探活 + 写 `base_url`，绝不 spawn 子进程**。用户自带的
+/// LLM（缺省 `127.0.0.1:11434`）与 TTS（缺省 `127.0.0.1:8080`，CosyVoice 3）
+/// 一旦就绪，即自动写入 settings 并 `supervisor.reload()`。
+///
+/// 探测不到只是「未就绪」日志（15s 超时），不影响主链路；
+/// TTS 完全未配置时引擎走「空句」路径（只出文本）。
+fn default_mods_manifest() -> serde_json::Value {
+    serde_json::json!({
+        "mods": {
+            "local-llm": {
+                "enabled": true,
+                "config": { "externally_managed": true, "port": 11434 }
+            },
+            "local-tts": {
+                "enabled": true,
+                "config": { "externally_managed": true, "port": 8080 }
+            }
+        }
+    })
 }
 
 /// 回收 supervisor 线程：server 退出后取回所有权并 join。
@@ -493,5 +523,22 @@ mod tests {
         assert_eq!(EXIT_OK, 0);
         assert_eq!(EXIT_ERROR, 1);
         assert_eq!(EXIT_ENVIRONMENT, 3);
+    }
+
+    /// M1（2026-09-10）：无 `mods.json` 时内建缺省启用两个端点适配器 Mod，
+    /// 且均为 `externally_managed=true`（只探活、不 spawn）。
+    /// TTS 缺省端口对准 CosyVoice 3 的 OpenAI 兼容层（8080）。
+    #[test]
+    fn default_mods_manifest_enables_local_adapters() {
+        let m = default_mods_manifest();
+        for id in ["local-llm", "local-tts"] {
+            assert_eq!(m["mods"][id]["enabled"], true, "{id} 应默认启用");
+            assert_eq!(
+                m["mods"][id]["config"]["externally_managed"], true,
+                "{id} 应默认外部管理（不 spawn）"
+            );
+        }
+        assert_eq!(m["mods"]["local-llm"]["config"]["port"], 11434);
+        assert_eq!(m["mods"]["local-tts"]["config"]["port"], 8080);
     }
 }

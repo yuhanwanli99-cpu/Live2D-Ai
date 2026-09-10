@@ -36,10 +36,15 @@ pub fn render_html(hash: &str) -> String {
 <title>Live2D-Ai · 模型渲染</title>
 <style>
  :root {{ color-scheme: dark; }}
- html,body {{ margin:0;height:100%;display:flex;flex-direction:column;background:#101418;color:#d7dde3;font-family:system-ui,sans-serif; }}
- #stage {{ flex:1;min-height:0; }}
+ html,body {{ margin:0;height:100%;background:#101418;color:#d7dde3;font-family:system-ui,sans-serif; }}
+ /* #stage 铺满画布；#status 改为**覆盖层**：
+    否则 #status 文案变长会挤压 canvas 的 CSS 高度，而窗口尺寸未变不触发 resize，
+    canvas 位图与显示盒宽高比不一致 → 浏览器非等比拉伸 → 模型被压矮（2026-09-10 实测）。 */
+ #stage {{ position:absolute;inset:0; }}
  canvas {{ width:100%;height:100%;display:block; }}
- #status {{ margin:0;padding:8px;font-size:12px;white-space:pre-wrap; }}
+ #status {{ position:absolute;left:0;right:0;bottom:0;margin:0;padding:6px 8px;
+            font-size:12px;white-space:pre-wrap;max-height:40%;overflow:auto;
+            background:rgba(16,20,24,.72); }}
 </style>
 </head>
 <body>

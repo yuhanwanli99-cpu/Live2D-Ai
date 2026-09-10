@@ -88,6 +88,7 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
             base_url: tts_base_url.to_string(),
             model: None,
             voice: "alloy".to_string(),
+            response_format: "pcm".to_string(),
             api_key_env: None,
             sample_rate: 24_000,
             channels: 1,
