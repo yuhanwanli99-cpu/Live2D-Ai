@@ -21,7 +21,7 @@ members = [
 
 # 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
 [workspace.package]
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
