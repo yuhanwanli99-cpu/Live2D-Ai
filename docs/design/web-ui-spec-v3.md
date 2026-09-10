@@ -1430,7 +1430,7 @@ test/settings_scaffold_test.dart        test/persona_import_test.dart
 test/admin_api_test.dart                test/settings_api_test.dart
 test/action_dispatch_test.dart          test/action_ui_p5_test.dart
 test/semantics_test.dart                test/no_backdrop_filter_test.dart
-test/keyboard_test.dart
+test/keyboard_test.dart                 test/audio_epoch_gate_test.dart
 test/semantics_test.dart                test/no_backdrop_filter_test.dart
 ```
 
@@ -2075,6 +2075,36 @@ macOS 用 `meta`（⌘），其余用 `control`。**不要两个都绑**：在 W
 `docs/verification/flutter-shell-manual-checklist.md` 是新文件，覆盖规格 §11.5 的
 7 项人工自测 + 3 项本轮新增（reduced motion / 角色卡导入 / 动作通道），
 每项都写了「为什么必须人工」与可勾选的期望结果。
+
+---
+
+### 13.10 钉子核对（P6 收口时逐条走过 §11.4）
+
+14 条钉子全部有**指向它的测试**。P6 收口时发现最后两条原本**测不到**，
+已在本轮补齐（见 v0.4.12）：
+
+| # | 钉子 | 守它的测试 |
+|---|---|---|
+| 1 | `action_state.data.action` 是对象 → 解出 action/strength/source | `action_source_test`、`action_event_test`、`ws_frame_test` |
+| 2 | 旧稿（字符串 action）降级为空明细而非抛 | `action_source_test` |
+| 3 | 未知 `source` → `unknown` 且 `isAiInitiated == false` | `action_source_test` |
+| 4 | 舞台保活（切分区 / 跨断点都不重建） | `stage_keepalive_test`（含**反面测试**） |
+| 5 | `DisplayPrefs` 旧存档按新默认读 | `display_prefs_test`（含 `allowDragZoom`/`tier`） |
+| 6 | 两个静音两个名字 | `audio_bar_test` |
+| 7 | 断点表驱动（1280/1279/900/899/390） | `breakpoints_test`、`app_shell_layout_test` |
+| 8 | 令牌双向枚举 | `design_tokens_test`、`design_tokens_lint_test` |
+| 9 | 键盘路径也解锁音频 | `keyboard_test` |
+| 10 | `BackdropFilter` 命中数为 0 | `no_backdrop_filter_test` |
+| 11 | `contentFaint` 不得传给 `Text` | `no_backdrop_filter_test` |
+| 12 | 8 个分区 label/description 非空且各一次 | `settings_sections_test` |
+| 13 | `new_epoch` **立即** `audio.interrupt()` | `audio_epoch_gate_test`（**本轮补齐**） |
+| 14 | logs 403 渲染成「打开开发模式后可用」而非错误横幅 | `admin_api_test`（**本轮补齐**） |
+
+**两条原本测不到的共性原因值得记下来**：判据都埋在**必须
+`import 'package:web'`** 的文件里（`chat_controller.dart` / `main.dart`），
+于是「写成什么样」无法回归。这与 P1（帧解析）、P2（动作来源）、P5（动作通道）
+是**同一类问题**——本项目对它的通用解法是把判据抽成纯函数或纯数据，
+让 `flutter test` 能加载。**新增逻辑时先问「它能不能不碰 web」**。
 
 ---
 

@@ -4,10 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:flutter/material.dart';
+
 import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/diagnostics_api.dart';
 import 'package:live2d_ai_shell/api/models_api.dart';
 import 'package:live2d_ai_shell/api/mods_api.dart';
+import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
+import 'package:live2d_ai_shell/ui/error_banner.dart';
+import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// 全部夹具都是**真实抓包**（本机 v0.4.8，2026-09-10）。
 const String kRealModelsJson = '{"models":[]}';
@@ -284,10 +289,73 @@ void main() {
       expect(c.actions, isEmpty);
     });
   });
+  _p6LogsRenderingTests();
 }
 
 class _Boom implements Exception {
   const _Boom();
   @override
   String toString() => '连接被拒绝';
+}
+
+void _p6LogsRenderingTests() {
+  group('钉子 14：logs 403 是**用户态**，不是异常', () {
+    Widget wrap(Widget child) => MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(body: SingleChildScrollView(child: child)),
+    );
+
+    testWidgets('403 文案显示为普通的灰色说明，**不是**红色错误横幅', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          DiagnosticsSection(
+            status: const <String, Object?>{},
+            capabilities: const AppCapabilities(),
+            wsStatusLabel: '已连接',
+            logs: const <LogLine>[],
+            logsError: '日志需要服务端以 dev_mode 启动才可读',
+          ),
+        ),
+      );
+      expect(find.text('日志需要服务端以 dev_mode 启动才可读'), findsOneWidget);
+      // 「把用户态当异常」是最常见的 UX 错误：这里**不该**出现错误横幅。
+      expect(find.byType(ErrorBanner), findsNothing);
+      expect(find.textContaining('⚠'), findsNothing);
+    });
+
+    testWidgets('有日志时逐行渲染（最新的在最上面）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          DiagnosticsSection(
+            status: const <String, Object?>{},
+            capabilities: const AppCapabilities(),
+            wsStatusLabel: '已连接',
+            logs: const <LogLine>[
+              LogLine(level: 'INFO', target: 'a', message: '第一条'),
+              LogLine(level: 'WARN', target: 'b', message: '第二条'),
+            ],
+          ),
+        ),
+      );
+      expect(find.textContaining('第二条'), findsOneWidget);
+      expect(find.textContaining('第一条'), findsOneWidget);
+      // 日志区必须虚拟化（长期运行会累积）。
+      expect(find.byType(ListView), findsWidgets);
+    });
+
+    testWidgets('完全没有日志时写「暂无日志」而不是留空白', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          DiagnosticsSection(
+            status: const <String, Object?>{},
+            capabilities: const AppCapabilities(),
+            wsStatusLabel: '已连接',
+          ),
+        ),
+      );
+      expect(find.text('（暂无日志）'), findsOneWidget);
+    });
+  });
 }

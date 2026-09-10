@@ -9,6 +9,7 @@ import 'chat_message.dart';
 export 'chat_message.dart';
 import '../api/ws_client.dart';
 import '../audio/audio_player.dart';
+import '../audio/epoch_gate.dart';
 
 /// 聊天状态：消息列表 + 流式拼接 + turn 状态 + 错误提示。
 ///
@@ -125,17 +126,16 @@ class ChatController extends ChangeNotifier {
         if (completed != null) _finishTurn(failed: completed == false);
       case TurnStateEvent(:final status):
         _finishTurn(failed: status == 'failed');
-      case RuntimeStatusEvent(:final event):
-        if (event == 'voice_started') {
+      case final RuntimeStatusEvent status:
+        final String name = status.event;
+        if (name == 'voice_started') {
           _streaming = true;
           notifyListeners();
         }
-        // 服务端推进 epoch = 上一轮作废（停止按钮 / 抢占）。必须**立刻**打断
-        // 已排到未来的音频：TTS 分片是 1 ms 级突发到达的，播放时间轴最多排到
-        // 3 s 之后（实测调度提前量峰值 3.03 s）。若只靠「下一帧带新 epoch」
-        // 触发打断，停止后旧音频还会继续响到新轮次开口——停止按钮等于失灵。
-        // （2026-09-10，与 schedule.dart 的时间轴修复配套）
-        if (event == 'new_epoch') {
+        // 服务端推进 epoch = 上一轮作废（停止按钮 / 抢占）。判据抽在
+        // `audio/epoch_gate.dart`（纯函数，**可单测**）——那是钉子 13，
+        // 而本文件必须 `import 'package:web'`，在 `flutter test` 里加载不了。
+        if (mustInterruptAudio(event)) {
           _audioEpoch = null;
           audio.interrupt();
         }
@@ -174,8 +174,12 @@ class ChatController extends ChangeNotifier {
     bool end,
     double? volume,
   ) {
-    if (_audioEpoch != null && _audioEpoch != epoch) audio.interrupt();
-    _audioEpoch = epoch;
+    final AudioGateDecision decision = decideAudioFrame(
+      currentEpoch: _audioEpoch,
+      incomingEpoch: epoch,
+    );
+    if (decision.interrupt) audio.interrupt();
+    _audioEpoch = decision.epoch;
     audio.feed(
       PcmFrame(
         pcm: pcm,

@@ -1,3 +1,50 @@
+# v0.4.12 — 补齐规格 §11.4 里**最后两条**没被测试守住的钉子（前端 531 → 542）
+
+规格 §11.4 点名了 14 条「缺一不可」的回归钉子。P6 收口时逐条核对，发现
+**钉子 13 与 14 没有测试**——不是没实现，而是实现的判据**藏在测不到的地方**。
+
+## 钉子 13：`new_epoch` 必须**立刻**打断音频
+
+**缺陷本身**：TTS 分片是 1 ms 级突发到达的（一句 2 s 音频眨眼间到齐），
+播放时间轴最多排到 **3 s 之后**。若只在「下一帧带新 epoch」时才比较代次，
+用户按下停止后**旧音频还会继续响到新轮次开口**——停止按钮等于失灵。
+
+**为什么原本测不到**：判据埋在 `chat_controller.dart` 里，而那个文件必须
+`import 'package:web'`，在 `flutter test` 里**加载不了**。于是这条回归永远抓不住。
+
+**修法**：抽出 `audio/epoch_gate.dart`（纯函数）：
+- `mustInterruptAudio(event)` —— 只有 `new_epoch` 为真；
+- `audioEpochChanged(current:, incoming:)` —— 跨轮残留的片也要打断；
+  `current == null`（还没开始过）不算切换；
+- `decideAudioFrame(...)` —— **先判变化、再更新代次**。顺序反了的话
+  `audioEpochChanged` 永远为假，跨轮残留的片就漏掉了（测试里专门钉了这条反例）。
+
+`ChatController` 改成调用这三个纯函数，行为不变。
+
+## 钉子 14：logs 403 是**用户态**，不是异常
+
+后端在 `dev_mode=false` 时对 `/api/v1/logs` 确实回 **403 `dev_mode_required`**。
+把用户态当异常渲染是最常见的 UX 错误。
+`main.dart` 里早就把它折成「日志需要服务端以 dev_mode 启动才可读」，
+但**没有测试**守着「它渲染成灰色说明而不是红色错误横幅」。
+
+**修法**：`admin_api_test.dart` 新增 3 条 widget 测试：
+403 文案以普通文字出现、**不出现 `ErrorBanner` 也没有 `⚠`**、日志逐行渲染
+（最新在最上）、完全没日志时写「（暂无日志）」而不是留空白。
+
+## 测试（前端 531 → **542**）
+
+- `audio_epoch_gate_test.dart`（9 条）：`new_epoch` 立刻打断、其余
+  `runtime_status` 事件不打断、其它帧类型一律不打断、缺 `event` 字段不抛；
+  代次比较的四种情形（未开始 / 同代 / 前进 / 回跳）与**顺序反例钉子**。
+- `admin_api_test.dart` +3：钉子 14 的渲染三条。
+
+## 门禁
+
+`flutter analyze` 无问题；`flutter test` **542 通过 / 0 失败**；
+`flutter build web --release --base-href /app/ --no-web-resources-cdn` 通过、无 CDN 引用。
+Rust 侧未改动：fmt/clippy 干净、815 通过 / 0 失败、doctest 3、`rust-ratio` PASS。
+
 # v0.4.11 — P6 无障碍与性能收口（前端 495 → 531，前端阶段全部完成）
 
 规格 §9 说得很直白：「全仓库 `Semantics` / `FocusTraversalGroup` / `Shortcuts` /
