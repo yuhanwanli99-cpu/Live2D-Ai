@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/design/theme_id.dart';
@@ -370,6 +372,45 @@ void _p4NewFieldsTests() {
       expect(withImage == none, isFalse);
       expect(withImage.hashCode == none.hashCode, isFalse);
       expect(withImage.copyWith(clearStageImage: true) == none, isTrue);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // P0-3（2026-09-11）：区间常量必须有**唯一真源**
+  //
+  // `DisplayPrefs.minScale/maxScale/minMouthSensitivity/maxMouthSensitivity`
+  // 同时被两处消费：① `clampScale` / `clampMouthSensitivity`（协议侧，
+  // 真正决定发给渲染面的值）；② 「外观与互动」分区的滑杆 `min:` / `max:`
+  // （用户看到并能拖的范围）。
+  //
+  // 滑杆曾经把这四个数**再写一遍字面量**，于是会有「滑杆能拖到 2.0，
+  // 但 clamp 只到 1.8」这种只有手拖到底才会发现的错位。
+  // 这条测试直接扫源码，钉死滑杆不许再写字面量。
+  // ───────────────────────────────────────────────────────────────────────────
+  group('P0-3：滑杆区间与 clamp 共用同一组常量', () {
+    test('appearance_section 的滑杆不写字面量区间', () {
+      final String src =
+          File('lib/settings/sections/appearance_section.dart').readAsStringSync();
+      for (final String literal in <String>['0.5', '2.0', '0.2', '3.0']) {
+        expect(
+          RegExp('(min|max):\\s*$literal\\b').hasMatch(src),
+          isFalse,
+          reason: '滑杆又写死了区间字面量 $literal，应当读 DisplayPrefs 常量',
+        );
+      }
+    });
+
+    test('滑杆确实读了那四个常量（防「删掉字面量但也没接上」）', () {
+      final String src =
+          File('lib/settings/sections/appearance_section.dart').readAsStringSync();
+      for (final String name in <String>[
+        'DisplayPrefs.minScale',
+        'DisplayPrefs.maxScale',
+        'DisplayPrefs.minMouthSensitivity',
+        'DisplayPrefs.maxMouthSensitivity',
+      ]) {
+        expect(src.contains(name), isTrue, reason: '滑杆没有读 $name');
+      }
     });
   });
 }

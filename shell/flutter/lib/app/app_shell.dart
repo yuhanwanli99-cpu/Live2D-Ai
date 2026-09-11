@@ -3,7 +3,7 @@
 /// # 保活是这一层唯一的硬约束
 ///
 /// 舞台是一个 `<iframe>` 平台视图。它一旦离开 Widget 树，iframe 就被销毁，
-/// 模型重载、口型时间轴清零、当前动作中断。所以：
+/// 模型重载、口型时间轴清零。所以：
 ///
 /// - **三种断点共用同一个 `Flex`**（只换 `direction` 与子项宽度），
 ///   **不写** `if (compact) Column(...) else Row(...)`。后者在两套结构之间切换时
@@ -68,13 +68,19 @@ import '../live2d/stage_pointer_interceptor.dart';
 import '../state/ui_phase.dart';
 import '../ui/chat_panel.dart';
 import '../ui/connection_badge.dart';
+import '../chat/chat_session.dart';
 import '../ui/error_banner.dart';
+import '../ui/glass_rim.dart';
+import '../ui/session_sheet.dart';
 import '../ui/settings_scaffold.dart';
+import '../ui/soft_motion.dart';
 import '../ui/stage_host.dart';
 import '../ui/state_pill.dart';
 import '../ui/theme.dart';
 import 'app_shortcuts.dart';
+import 'collapsible_panel.dart';
 import 'nav_host.dart';
+import 'page_cross_fade.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -94,7 +100,7 @@ class AppShell extends StatefulWidget {
     required this.sectionBuilder,
     this.onEnsureSectionLoaded,
     this.settingsChanges = const NeverNotifies(),
-    this.section = SettingsSection.actions,
+    this.section = SettingsSection.appearance,
     this.onSectionChanged,
     this.error,
     this.errorActions = const <ErrorAction>[],
@@ -113,6 +119,12 @@ class AppShell extends StatefulWidget {
     this.onDiscardSettings,
     this.confirmDiscard,
     this.stageCorner,
+    this.sessions = const <ChatSession>[],
+    this.activeSessionId,
+    this.onNewSession,
+    this.onSelectSession,
+    this.onRenameSession,
+    this.onDeleteSession,
     this.shortcuts = const AppShortcutCallbacks(isMacOS: false),
     this.announcement,
     this.modelName,
@@ -214,6 +226,17 @@ class AppShell extends StatefulWidget {
   /// 右下角（舞台角标三键）。
   final Widget? stageCorner;
 
+  /// 会话列表（已按最近使用排序）。空 = 还没建过会话。
+  final List<ChatSession> sessions;
+
+  /// 当前会话 id（`null` = 没有）。
+  final String? activeSessionId;
+
+  final VoidCallback? onNewSession;
+  final ValueChanged<String>? onSelectSession;
+  final void Function(String id, String title)? onRenameSession;
+  final ValueChanged<String>? onDeleteSession;
+
   /// 全局快捷键（规格 §9.3）。外壳只负责**挂上去**，动作由宿主给。
   final AppShortcutCallbacks shortcuts;
 
@@ -305,12 +328,30 @@ class AppShellState extends State<AppShell> {
     widget.onSectionChanged?.call(section);
   }
 
+  /// 打开会话列表（底部浮层）。
+  ///
+  /// 与设置浮层同一套宿主约定：`showModalBottomSheet` + 指针垫层
+  ///（浮层压在舞台上，不垫就点不着）。**重命名与删除都在浮层内部行内完成**，
+  /// 不新开 overlay——理由见 `ui/session_sheet.dart` 的头注。
+  Future<void> openSessions() => showSessionSheet(
+    context: context,
+    sessions: widget.sessions,
+    activeId: widget.activeSessionId,
+    onNew: () => widget.onNewSession?.call(),
+    onSelect: (String id) => widget.onSelectSession?.call(id),
+    onRename: (String id, String title) =>
+        widget.onRenameSession?.call(id, title),
+    onDelete: (String id) => widget.onDeleteSession?.call(id),
+  );
+
   /// 「设置」按钮 / compact 聊天面板头的入口 → 打开设置。
   ///
   /// 三种断点的分流就在这里（也是唯一的入口）：
   /// - expanded：内联侧板（纯 `setState`，不开路由）；
-  /// - medium：底部浮层；
-  /// - compact：抽屉（第 1 层）→ 底部浮层（第 2 层）。
+  /// - compact：**页内整页过渡**（[PageCrossFade]）。2026-09-11（P2-1）改的：
+  ///   过去是「抽屉（第 1 层）→ 浮层（第 2 层）」**两步跳**，观感上像弹了两次，
+  ///   而且「先选分区」这件事**恰好**掩盖了一个加载 bug（见下）；
+  /// - medium：底部浮层。
   ///
   /// # 打开之前必须先让宿主**加载当前分区的内容**（2026-09-11 修）
   ///
@@ -321,33 +362,24 @@ class AppShellState extends State<AppShell> {
   /// 分区，恰好走了加载那条路。
   ///
   /// 所以加载**不能**挂在「分区变了」上（那是结果，不是原因）——
-  /// 「打开设置」本身就是那个原因。
+  /// 「打开设置」本身就是那个原因。改成整页过渡之后那条巧合没有了，
+  /// 这条调用也成了 compact 唯一的加载触发点。
   Future<void> openSettings({SizeClass? sizeClass}) async {
     final SizeClass sc =
         sizeClass ?? Breakpoints.sizeClassOf(MediaQuery.sizeOf(context).width);
 
-    if (settingsHostOf(sc) == SettingsHost.inline) {
+    // inline 与 page 都是**页内**宿主：切一个布尔 + 触发加载，不开路由。
+    if (settingsHostOf(sc) != SettingsHost.sheet) {
       setState(() => settingsOpen = true);
       widget.onEnsureSectionLoaded?.call();
       return;
     }
 
-    if (sc.isCompact) {
-      final SettingsSection? picked = await showSectionDrawer(
-        context: context,
-        devMode: widget.devMode,
-        selected: sectionNotifier.value,
-      );
-      if (!mounted) return;
-      if (picked != null) _selectGuarded(picked);
-    } else {
-      widget.onEnsureSectionLoaded?.call();
-    }
+    widget.onEnsureSectionLoaded?.call();
     if (!mounted) return;
 
     await showSettingsSheet(
       context: context,
-      sizeClass: sc,
       // 用**浮层自己的** context 关掉自己：用外壳的 context 去 `maybePop`
       // 依赖「浮层恰好是栈顶」这个巧合，不稳健。
       //
@@ -369,7 +401,10 @@ class AppShellState extends State<AppShell> {
   ///
   /// 两者都必须在**浮层内部**订阅。靠外层重建是没有用的：
   /// 浮层的 builder 不会因为外壳 `setState` 而重跑。
-  Widget _settingsSurface({required VoidCallback onClose}) => ListenableBuilder(
+  Widget _settingsSurface({
+    required VoidCallback onClose,
+    bool narrow = false,
+  }) => ListenableBuilder(
     listenable: widget.settingsChanges,
     builder: (BuildContext context, Widget? _) =>
         ValueListenableBuilder<SettingsSection>(
@@ -378,6 +413,8 @@ class AppShellState extends State<AppShell> {
               SettingsScaffold(
               sections: widget.sections,
               selected: section,
+              // 窄屏（compact 整页）把分区导航压成单行横向滚动。
+              narrow: narrow,
               // 换分区也要过拦截（「离开分区」是规格 §4.3 的三处拦截之一）。
               onSelect: _selectGuarded,
               onClose: onClose,
@@ -416,7 +453,9 @@ class AppShellState extends State<AppShell> {
             constraints.maxWidth,
           );
           final bool compact = sizeClass.isCompact;
-          final bool inlineSettings = settingsHostOf(sizeClass) == SettingsHost.inline;
+          final SettingsHost host = settingsHostOf(sizeClass);
+          final bool inlineSettings = host == SettingsHost.inline;
+          final bool pageSettings = host == SettingsHost.page;
 
           // **必须走 `StageHost`**：加载/错误覆盖层与舞台语义都在它里面。
           // 直接铺 `RepaintBoundary(child: widget.stage)` 会让那些东西全部失效。
@@ -440,23 +479,35 @@ class AppShellState extends State<AppShell> {
                 child: Stack(
                   children: <Widget>[
                     Positioned.fill(child: stage),
-                    if (widget.wsStatus != WsStatus.connected)
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        // 横幅压在舞台顶端：不垫一层指针垫层的话「点此重试」
-                        // 点不着（2026-09-11 之前一直是这样）。
-                        child: StagePointerInterceptor(
+                    // 断线横幅常驻在树里，靠**纵向折叠**滑入/滑出
+                    // （2026-09-11，P1-2）。条件插入会让它「啪」地出现，
+                    // 而断线本身已经是一次惊吓，不该再补一个跳变。
+                    //
+                    // 垫层跟着 `enabled` 一起收：横幅折到 0 高之后，
+                    // 舞台顶端那一条必须还给 iframe（否则拖不动模型）。
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: StagePointerInterceptor(
+                        enabled: widget.wsStatus != WsStatus.connected,
+                        child: CollapsiblePanel(
+                          expanded: widget.wsStatus != WsStatus.connected,
+                          axis: Axis.vertical,
                           child: OfflineBanner(
                             status: widget.wsStatus,
                             onRetry: widget.onRetryConnection,
                           ),
                         ),
                       ),
-                    if (settingsOpen && inlineSettings)
+                    ),
+                    // 内联侧板**常驻在树里**（`expanded` 只折宽度，不卸载）：
+                    // 关掉再打开时滚动位置、分区草稿、内联测试结果都还在。
+                    // 见 `InlineSettingsDock` 与 `CollapsiblePanel` 的头注。
+                    if (inlineSettings)
                       Positioned.fill(
                         child: InlineSettingsDock(
+                          expanded: settingsOpen,
                           onDismiss: closeSettings,
                           child: _settingsSurface(onClose: closeSettings),
                         ),
@@ -510,31 +561,81 @@ class AppShellState extends State<AppShell> {
                 ),
                 // **文字按钮，不是齿轮图标**（用户裁决「尽量少用图片用文字
                 // 做按钮」）。「设置」两个字不需要翻译，齿轮要先认图标。
-                if (!compact)
+                //
+                // compact 不在这里放：它把整个工作台换成了设置页
+                // （`PageCrossFade`），入口在聊天面板头部（那一屏本来就窄，
+                // AppBar 上再挤一个按钮会跟两个徽标打架）。
+                if (!compact) ...<Widget>[
+                  TextButton(
+                    onPressed: () => unawaited(openSessions()),
+                    child: const Text('会话'),
+                  ),
                   TextButton(
                     onPressed: () => openSettings(sizeClass: sizeClass),
                     child: const Text('设置'),
                   ),
+                ],
                 const SizedBox(width: Space.s2),
               ],
             ),
-            body: body,
+            // compact 的「整页设置」包在最外层：它要盖住**整个 body**
+            // （舞台 + 聊天），而不是只盖住其中一列。
+            body: pageSettings
+                ? PageCrossFade(
+                    showSecond: settingsOpen,
+                    first: body,
+                    second: StagePointerInterceptor(
+                      // 收起时把舞台那一块还给 iframe（否则 compact 下
+                      // **永远拖不动模型**）。与 `CollapsiblePanel` 那处
+                      // 同一类问题、同一个开关。
+                      enabled: settingsOpen,
+                      child: _compactSettingsPage(),
+                    ),
+                  )
+                : body,
           );
 
           // 快捷键挂在**根**（`CallbackShortcuts` 最省样板，且不吞未匹配的键）。
           // 外面再包一个 `FocusTraversalGroup`：整页的 Tab 顺序是确定的，
           // 不会因为某次重构而静默改变。
-          return CallbackShortcuts(
-            bindings: widget.shortcuts.bindings(),
-            child: FocusTraversalGroup(
-              policy: OrderedTraversalPolicy(),
-              child: scaffold,
+          //
+          // 最外层是**启动揭示**（`AppDurations.reveal`，仅此一处长动画）：
+          // 舞台 iframe 的第一帧是空白，这一次淡入把那段白挡在背后。
+          // 它的控制器住在 State 里，所以外壳被 WS 事件频繁重建也**只播一次**。
+          return StartupReveal(
+            child: CallbackShortcuts(
+              bindings: widget.shortcuts.bindings(),
+              child: FocusTraversalGroup(
+                policy: OrderedTraversalPolicy(),
+                child: scaffold,
+              ),
             ),
           );
         },
       ),
     );
   }
+
+  /// compact 的整页设置（[PageCrossFade] 的第二页）。
+  ///
+  /// 外形是一次性的：一层实色底 + 内边距 + 内容，**没有卡片、没有圆角、
+  /// 没有阴影**——它就是「另一个页面」，不是浮在工作台上的面板。
+  ///
+  /// 底必须是**不透明**的：第一页（工作台）在它后面淡出，透出来就会花。
+  /// 用 `colorScheme.surface`（与设置栈其余部分同一套面），不新造颜色。
+  Widget _compactSettingsPage() => ColoredBox(
+    color: Theme.of(context).colorScheme.surface,
+    child: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Space.s2),
+        // 整页设置也带一圈边缘高光（P3-1）——它同样压在舞台上。
+        child: GlassRim(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: _settingsSurface(onClose: closeSettings, narrow: true),
+        ),
+      ),
+    ),
+  );
 
   Widget _chat({required bool compact}) => ChatPanel(
     messages: widget.messages,
@@ -553,6 +654,7 @@ class AppShellState extends State<AppShell> {
     audioUnlocked: widget.audioUnlocked,
     onEnableSound: widget.onEnableSound,
     onOpenSettings: compact ? () => openSettings() : null,
+    onOpenSessions: compact ? () => unawaited(openSessions()) : null,
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
   );

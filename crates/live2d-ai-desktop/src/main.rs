@@ -61,7 +61,6 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
 
 mod repl;
 mod supervisor;
-mod tool_adapter;
 mod tray;
 mod user_event;
 mod web_api;

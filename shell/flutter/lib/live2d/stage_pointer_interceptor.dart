@@ -67,12 +67,32 @@ import 'stage_pointer_interceptor_stub.dart'
 ///
 /// 非 web 平台是透明的（直接返回 [child]），所以 widget 测试里它只是一个
 /// 可被 `find.byType` 认出来的标记。
+///
+/// # [enabled]：垫层自己也要能被关掉（2026-09-11，P1-1 加的）
+///
+/// 垫层的代价是「这块区域的指针回到父页」——**包括它没收起来的时候**。
+/// 一旦某个控件改成「折叠而不是卸载」（见 `CollapsiblePanel`：
+/// 折起来时子树仍在树里），它外面那层垫层也会一直留着：收起后宽度为 0
+/// 看着没事，但只要它的盒子还有面积，舞台那一块就**再也拖不动模型**了。
+///
+/// 所以垫层必须能跟着收起：`enabled: false` 时把 DOM 元素的
+/// `pointer-events` 设成 `none`，指针重新落到 iframe（模型照常可拖）。
+/// 刻意用「改样式」而不是「不挂载」：不挂载会换掉 widget 类型 →
+/// 下面的子树重建 → 折叠面板的保活白做了。
 class StagePointerInterceptor extends StatelessWidget {
-  const StagePointerInterceptor({required this.child, super.key});
+  const StagePointerInterceptor({
+    required this.child,
+    this.enabled = true,
+    super.key,
+  });
 
   /// 真正要接收指针的内容。
   final Widget child;
 
+  /// `false` = 暂时把这一块的指针还给舞台。
+  final bool enabled;
+
   @override
-  Widget build(BuildContext context) => impl.buildStagePointerInterceptor(child);
+  Widget build(BuildContext context) =>
+      impl.buildStagePointerInterceptor(child, enabled: enabled);
 }

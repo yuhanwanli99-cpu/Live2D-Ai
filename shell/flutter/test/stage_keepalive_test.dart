@@ -48,7 +48,7 @@ class _Host extends StatefulWidget {
 }
 
 class _HostState extends State<_Host> {
-  SettingsSection section = SettingsSection.actions;
+  SettingsSection section = SettingsSection.appearance;
 
   /// 消息列表（测试用：`bump` 会往里塞消息，触发外壳重建）。
   final List<ChatMessage> messages = <ChatMessage>[];

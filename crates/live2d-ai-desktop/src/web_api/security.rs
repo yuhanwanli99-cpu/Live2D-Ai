@@ -299,19 +299,18 @@ pub fn extract_origin_and_ct(headers: &[tiny_http::Header]) -> (Option<String>, 
 /// - **恒 mutating**（只看 route）：`SettingsPatch` / `SettingsTestLlm` /
 ///   `SettingsTestTts` / `ChatPost` / `ChatStop`；
 /// - **按 method 区分**：
-///   - `Commands` + POST（invoke）= mutating；`Commands` + GET（list）= 只读；
 ///   - `Models` + GET（list/get）= 只读；
 ///     `Models` + POST（import / activate）/ PATCH（display）/
 ///     DELETE（delete）= mutating。
 /// - **恒只读**：`AppCapabilities` / `AppStatus` / `SettingsGet` /
 ///   `LogsGet` / `LogsLevels` / `NotImplemented` /
 ///   `NotFound`。
+///
+/// 2026-09-11：动作命令端点（`RouteId::Commands`）随动作系统整体删除。
 pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Method) -> bool {
     use crate::web_api::RouteId;
     use tiny_http::Method;
     match route {
-        // Commands 路由按 method 区分：GET list 只读，POST invoke mutating。
-        RouteId::Commands => *method == Method::Post,
         // Models 路由按 method 区分：GET list/get 只读；POST import /
         // POST activate / PATCH display / DELETE delete 全部 mutating。
         RouteId::Models => matches!(*method, Method::Post | Method::Patch | Method::Delete),

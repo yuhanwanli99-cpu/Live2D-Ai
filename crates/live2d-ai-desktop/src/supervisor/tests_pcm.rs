@@ -48,6 +48,7 @@ fn partial_write_reports_playback_started_immediately() {
         sentence_seq: 1,
         samples,
         spec: src_spec,
+        first_chunk: true,
         final_chunk: true,
     };
 
@@ -68,8 +69,6 @@ fn partial_write_reports_playback_started_immediately() {
     let mut pending_pcm: Option<PreparedPcm> = None;
     let mut playback_started = false;
     let mut voice_started_emitted = false;
-    let mut accepted_tool_seen = false;
-    let mut assistant_text_len = 0usize;
     let mut saw_fatal_kind = false;
     let mut saw_llm_error = false;
     let mut audio: Option<Box<dyn crate::audio::PcmProducer>> = Some(producer);
@@ -84,8 +83,6 @@ fn partial_write_reports_playback_started_immediately() {
         &mut pending_pcm,
         &mut playback_started,
         &mut voice_started_emitted,
-        &mut accepted_tool_seen,
-        &mut assistant_text_len,
         &mut saw_fatal_kind,
         &mut saw_llm_error,
         &emit,

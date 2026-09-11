@@ -172,25 +172,6 @@ pub fn sse_content(text: &str) -> Vec<u8> {
     format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{text}\"}}}}]}}\n\n").into_bytes()
 }
 
-/// 工具调用增量事件。`arguments` 是**线上原样**的参数 JSON 文本片段
-/// （serde_json 负责把它作为字符串值正确转义，避免手写大括号出错）。
-#[allow(dead_code)] // 公共基建：仅 lifecycle 用，tts_flow 不引用
-pub fn sse_tool(index: usize, id: &str, name: &str, arguments: &str) -> Vec<u8> {
-    let chunk = serde_json::json!({
-        "choices": [{
-            "delta": {
-                "tool_calls": [{
-                    "index": index,
-                    "id": id,
-                    "type": "function",
-                    "function": { "name": name, "arguments": arguments },
-                }],
-            },
-        }],
-    });
-    format!("data: {chunk}\n\n").into_bytes()
-}
-
 pub fn sse_done() -> Vec<u8> {
     b"data: [DONE]\n\n".to_vec()
 }
@@ -204,7 +185,6 @@ pub fn assert_epoch(events: &[EngineEvent], epoch: u64) {
         .iter()
         .map(|e| match e {
             EngineEvent::TextDelta { epoch, .. }
-            | EngineEvent::ToolAction { epoch, .. }
             | EngineEvent::AudioChunk { epoch, .. }
             | EngineEvent::SentenceVoiced { epoch, .. }
             | EngineEvent::Error { epoch, .. }

@@ -1,5 +1,9 @@
-//! `ConversationEngine` 生命周期集成测试：流水线重叠、工具调用、
+//! `ConversationEngine` 生命周期集成测试：流水线重叠、
 //! 取消与预取消、消费者离场。
+//!
+//! 2026-09-11 用户裁决：LLM 不暴露任何工具、只做对话——本文件里
+//! 「完整工具调用 → ToolAction」「残缺工具调用 → IncompleteTools」两条
+//! 用例已随工具整体删除。
 //!
 //! 历史提交契约见 `conversation_engine_history.rs`（独立文件，控制本文件体量）。
 
@@ -8,7 +12,7 @@ mod common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use live2d_ai_runtime::{ConversationConfig, EngineEvent, PerformAction, TurnStatus};
+use live2d_ai_runtime::{ConversationConfig, EngineEvent, TurnStatus};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -16,8 +20,8 @@ use tokio_util::sync::CancellationToken;
 
 use common::{
     Handler, STEP_TIMEOUT, assert_epoch, assert_single_terminal_last, close_sock, collect_audio,
-    drain_events, engine, find_error_kind, read_request, read_speech_input, respond_pieces,
-    spawn_multi_server, spawn_tts_mock, sse_content, sse_done, sse_tool, write_head, write_pieces,
+    drain_events, engine, read_request, read_speech_input, spawn_multi_server, spawn_tts_mock,
+    sse_content, sse_done, write_head, write_pieces,
 };
 
 /// 流水线重叠 + TTS 严格串行 + 奇数字节 PCM 解码 + 终态顺序 + 历史提交。
@@ -211,113 +215,6 @@ async fn pipeline_overlaps_llm_streaming_with_first_tts_request() {
     assert_eq!(eng.history_len(), 1);
     eng.clear_history();
     assert_eq!(eng.history_len(), 0);
-}
-
-/// 完整工具调用 → ToolAction 事件；正文照常切句/TTS 不受影响。
-#[tokio::test]
-async fn tool_call_becomes_tool_action_event() {
-    let llm_base = spawn_multi_server(respond_pieces(
-        200,
-        "OK",
-        "text/event-stream",
-        vec![
-            sse_content("点头吧。好"),
-            sse_tool(
-                0,
-                "call_9",
-                "live2d_perform_action",
-                r#"{"action":"nod","strength":2}"#,
-            ),
-            sse_done(),
-        ],
-    ))
-    .await;
-    let (tts_base, tts_inputs) = spawn_tts_mock().await;
-
-    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
-    let (event_tx, event_rx) = mpsc::channel(64);
-    let report = eng
-        .run_turn(3, "同意一下", event_tx, CancellationToken::new())
-        .await;
-    assert_eq!(report.status, TurnStatus::Completed);
-
-    let events = drain_events(event_rx).await;
-    assert_epoch(&events, 3);
-    assert_single_terminal_last(&events, TurnStatus::Completed);
-
-    let tools: Vec<_> = events
-        .iter()
-        .filter_map(|e| match e {
-            EngineEvent::ToolAction {
-                epoch,
-                index,
-                id,
-                args,
-                ..
-            } => Some((*epoch, *index, id.clone(), args.clone())),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(tools.len(), 1, "{events:?}");
-    assert_eq!(tools[0].0, 3);
-    assert_eq!(tools[0].1, 0);
-    assert_eq!(tools[0].2.as_deref(), Some("call_9"));
-    assert_eq!(tools[0].3.action, PerformAction::Nod);
-    assert_eq!(tools[0].3.strength, 2);
-
-    // 文本没有被工具阻断：两句都完成 TTS。
-    assert_eq!(*tts_inputs.lock().unwrap(), ["点头吧。", "好"]);
-    assert_eq!(collect_audio(&events).len(), 2);
-}
-
-/// 残缺工具调用：Error 可见，但不阻断已生成文本/TTS；最终仍是 Completed+Done。
-#[tokio::test]
-async fn incomplete_tool_error_is_visible_without_blocking_text() {
-    let llm_base = spawn_multi_server(respond_pieces(
-        200,
-        "OK",
-        "text/event-stream",
-        vec![
-            sse_content("先说话。"),
-            // 故意截断 arguments：流结束时结算为类型化 Incomplete。
-            sse_tool(0, "c0", "live2d_perform_action", r#"{"action":"nod","#),
-            sse_done(),
-        ],
-    ))
-    .await;
-    let (tts_base, tts_inputs) = spawn_tts_mock().await;
-
-    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
-    let (event_tx, event_rx) = mpsc::channel(64);
-    let report = eng
-        .run_turn(4, "嗯", event_tx, CancellationToken::new())
-        .await;
-    // 可恢复错误不改变 Completed 语义；正文完整。
-    assert_eq!(report.status, TurnStatus::Completed);
-    assert_eq!(report.assistant_text, "先说话。");
-
-    let events = drain_events(event_rx).await;
-    assert_epoch(&events, 4);
-    assert_single_terminal_last(&events, TurnStatus::Completed);
-    // 已生成文本的音频完整交付。
-    assert_eq!(*tts_inputs.lock().unwrap(), ["先说话。"]);
-    assert_eq!(collect_audio(&events).len(), 1);
-    // 没有任何 ToolAction（调用未完成），但有类型化 IncompleteTools 错误事件。
-    assert!(
-        events
-            .iter()
-            .all(|e| !matches!(e, EngineEvent::ToolAction { .. }))
-    );
-    match find_error_kind(&events) {
-        Some(live2d_ai_runtime::ErrorKind::IncompleteTools(err)) => {
-            assert_eq!(err.calls.len(), 1);
-            assert_eq!(err.calls[0].index, 0);
-            assert_eq!(err.calls[0].id.as_deref(), Some("c0"));
-        }
-        other => panic!("期望 IncompleteTools 错误，实际 {other:?}"),
-    }
-    // 步骤 7/D8：残缺工具不阻断已生成内容，本轮整体仍算完成。
-    assert_single_terminal_last(&events, TurnStatus::Completed);
 }
 
 /// 中途取消：终态恰为一次 Terminal{Cancelled}，其后无任何事件

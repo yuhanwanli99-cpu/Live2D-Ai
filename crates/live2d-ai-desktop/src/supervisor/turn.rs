@@ -38,7 +38,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use live2d_ai_core::{
-    ActionCommand, Effect as RootEffect, Event as RootEvent, GenerationOutcome, State as RootState,
+    Effect as RootEffect, Event as RootEvent, GenerationOutcome, State as RootState,
 };
 use live2d_ai_runtime::{ConversationEngine, EngineEvent, TurnReport};
 
@@ -46,8 +46,8 @@ use crate::app_event::{AppEvent, ConversationUiEvent, TurnStageTimings};
 use crate::audio::{PreparedPcm, TryEnqueue};
 
 use super::handlers::{
-    content_worth_fallback, drain_residual_events, emit_voice_ended_if_needed, ev_epoch, ev_ts_ms,
-    forward_effects, gen_outcome, handle_engine_event,
+    drain_residual_events, emit_voice_ended_if_needed, ev_epoch, ev_ts_ms, forward_effects,
+    gen_outcome, handle_engine_event,
 };
 use super::{ActionFinishedFact, ControlCommand, Emit, root_apply};
 
@@ -76,8 +76,6 @@ pub(crate) async fn run_one_turn(
     let mut saw_fatal_kind = false;
     let mut saw_llm_error = false;
     let mut audio_stalled = false;
-    let mut accepted_tool_seen = false;
-    let mut assistant_text_len = 0usize;
     let mut stopped = false;
 
     // ---- 节点 D 可观测性：链路阶段耗时埋点（不侵入 core reducer）。
@@ -90,10 +88,6 @@ pub(crate) async fn run_one_turn(
     let mut ts_playback_started: Option<Instant> = None;
     let mut ts_playback_drained: Option<Instant> = None;
     let mut ts_turn_completed: Option<Instant> = None;
-    // 节点 D 阶段占位：当前实现未挂载 core 仲裁耗时（动作→Perform 路径
-    // 由 `forward_effects` 串行直发，无本地墙钟可采），保留字段便于未来
-    // 扩展；保持 0 不影响其它阶段的递增断言。
-    let action_dispatch_total_ms: u64 = 0;
 
     // B4-P0：句柄被 drop ⇒ sender 全部销毁 ⇒ receiver 永久就绪 None。
     // biased select 中若不给已关闭的通道摘臂，control 臂会每轮必赢，
@@ -189,8 +183,6 @@ pub(crate) async fn run_one_turn(
         stopped: bool,
         saw_llm_error: bool,
         saw_fatal_kind: bool,
-        accepted_tool_seen: bool,
-        assistant_text_len: usize,
     }
     let turn_phase: GenOut = {
         // gen 臂是唯一 break 出口且必先赋值；跨 select 静态不可见。
@@ -280,8 +272,6 @@ pub(crate) async fn run_one_turn(
                                     &ev, root, audio, turn_id,
                                     &mut pending_pcm,
                                     &mut playback_started, &mut voice_started_emitted,
-                                    &mut accepted_tool_seen,
-                                    &mut assistant_text_len,
                                     &mut saw_fatal_kind, &mut saw_llm_error, emit,
                                 );
                             }
@@ -307,8 +297,6 @@ pub(crate) async fn run_one_turn(
             stopped,
             saw_llm_error,
             saw_fatal_kind,
-            accepted_tool_seen,
-            assistant_text_len,
         }
     }; // ← engine 借用随块结束释放
 
@@ -581,26 +569,16 @@ pub(crate) async fn run_one_turn(
         engine.commit_completed_turn(&user_text, &turn_phase.report.assistant_text);
     }
 
-    // ================= D11 fallback（恰一次；完整正文为输入） ==================
-    if content_worth_fallback(outcome, turn_phase.assistant_text_len)
-        && !turn_phase.accepted_tool_seen
-        && let Some(rule_action) = live2d_ai_core::action::rule_fallback(
-            &turn_phase.report.assistant_text,
-            &root.action.capabilities,
-        )
-    {
-        let cur = root.epoch;
-        let effects = root_apply(
-            root,
-            RootEvent::Action {
-                epoch: cur,
-                command: ActionCommand::Play {
-                    action: rule_action,
-                },
-            },
-        );
-        forward_effects(root.epoch.get(), &effects, audio.as_deref(), emit);
-    }
+    // 2026-09-11 用户裁决：LLM 不暴露任何工具、只做对话——动作系统整体移除。
+    // 这里原有两块动作触发路径已**整块删除**：
+    //   1. `EngineEvent::ToolAction` → `tool_adapter::wire_to_semantic` → core 仲裁；
+    //   2. **D11 文本规则 fallback**（LLM 没调工具时按正文规则 `rule_fallback`
+    //      触发动作，`ActionSource::RuleFallback`）——它是第二条触发源，会绕过
+    //      工具适配器直接驱动动作，故一并拆除（连带
+    //      `handlers::content_worth_fallback` 判据与 `accepted_tool_seen` 门闩）。
+    // core 的 action 子系统本身保留在 `live2d-ai-core`（内部自洽、有单测），
+    // 但不再被本链路驱动——它是休眠能力，不属于「文本 → LLM → TTS → 口型 →
+    // 渲染」这条成品链路。
 
     // 节点 D 链路耗时埋点收口：把所有阶段时间戳转换为相对 `turn_submit`
     // 的毫秒数；阶段未触达则保持 0（与 `Default` 一致）。stopped 路径
@@ -625,7 +603,6 @@ pub(crate) async fn run_one_turn(
         tts_synth_ms,
         tts_first_chunk_ms: elapsed_ms(ts_first_audio_chunk),
         audio_play_ms,
-        action_dispatch_ms: action_dispatch_total_ms,
         turn_total_ms: elapsed_ms(ts_turn_completed),
     };
     emit(AppEvent::RootAudit(

@@ -162,6 +162,24 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
   `gestures.ts` 的 `keywords[]` 词表（关键词→动作）为蓝本评估本项目文本关键
   词→动作联动；**未复制其词表或代码**。
 
+### 6.5 Morrow（明隙）— 前端观感参考（设计参考；本期未抄代码）
+
+- **License:** Apache License 2.0
+- **Copyright:** 2026 StarrySky7D4 and contributors
+- **Source:** https://github.com/StarrySky7D4/morrow
+- **取证 commit:** `a3c1766`（Release v0.1.9-test.1）
+- **Usage:** **设计参考与源码结构分析**。本项目
+  [`docs/plans/PLAN-frontend-strengthening-2026-09-11.md`](docs/plans/PLAN-frontend-strengthening-2026-09-11.md)
+  逐文件评估了其前端观感资产（指针跟随边缘光、可插值材质模型、折叠面板保活、
+  双页交叉过渡、视觉审查工具），用于填补本项目「设计令牌齐全但动效接线为零」的缺口。
+  **截至 2026-09-11，本仓库未复制其任何源代码**；一旦按该计划落地，需在此补记
+  被移植的文件与修改说明（Apache 2.0 §4(b)）。
+- **参考截图:** `docs/design/assets/morrow-reference-2026-09-11/`（Morrow 运行界面截图，
+  仅作观感比对，随本文件一并标注归属与许可）。
+- **明确不采纳的部分:** 其 `BackdropFilter` 玻璃（本项目舞台为平台视图，规格 §12-7
+  禁用）、其断点与时长散值（本项目为 3 档断点 + 4 档时长令牌）、
+  其 3619 行单文件装配与默认级 lint 门禁。
+
 ---
 
 ## 7. Kotlin Standard Libraries

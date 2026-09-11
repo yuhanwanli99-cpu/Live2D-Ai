@@ -42,6 +42,7 @@ class ChatPanel extends StatelessWidget {
     this.audioUnlocked = true,
     this.onEnableSound,
     this.onOpenSettings,
+    this.onOpenSessions,
     this.onRetryLast,
     this.announcement,
     super.key,
@@ -70,6 +71,9 @@ class ChatPanel extends StatelessWidget {
 
   /// 设置入口（compact 断点在面板头给一个齿轮按钮）。
   final VoidCallback? onOpenSettings;
+
+  /// 会话列表入口（只有 compact 传；非 compact 的入口在 AppBar）。
+  final VoidCallback? onOpenSessions;
 
   /// 最后一条失败消息的重试。
   final VoidCallback? onRetryLast;
@@ -101,7 +105,7 @@ class ChatPanel extends StatelessWidget {
             // 规格 §6.3 硬规则 1 明确禁止（同类项目的原病就是 6 个状态共用 1 种
             // 视觉，以及反过来一个状态散成多处）。测试里有一条断言
             // 「AppBar 只有 1 个状态胶囊」把这个重复钉死。
-            if (onOpenSettings != null)
+            if (onOpenSettings != null || onOpenSessions != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   Space.s2,
@@ -112,12 +116,21 @@ class ChatPanel extends StatelessWidget {
                 child: Row(
                   children: <Widget>[
                     const Spacer(),
-                    // 文字按钮（与 AppBar 里那个同源同文案）——用户裁决
+                    // 文字按钮（与 AppBar 里那两个同源同文案）——用户裁决
                     // 「尽量少用图片用文字做按钮」。
-                    TextButton(
-                      onPressed: onOpenSettings,
-                      child: const Text('设置'),
-                    ),
+                    //
+                    // compact 下 AppBar 不放这两个按钮（那一屏本来就窄，
+                    // 再挤会跟状态胶囊、连接徽标打架），入口全部收在这里。
+                    if (onOpenSessions != null)
+                      TextButton(
+                        onPressed: onOpenSessions,
+                        child: const Text('会话'),
+                      ),
+                    if (onOpenSettings != null)
+                      TextButton(
+                        onPressed: onOpenSettings,
+                        child: const Text('设置'),
+                      ),
                   ],
                 ),
               ),

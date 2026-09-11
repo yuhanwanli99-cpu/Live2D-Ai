@@ -441,7 +441,7 @@ fn ws_and_http_concurrent() {
 
 #[cfg(test)]
 mod ws_unit_tests {
-    use crate::app_event::{AppEvent, ConversationUiEvent, RenderCommand, RootFact};
+    use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
     use crate::web_api::ws::{
         Broadcaster, WS_CONN_LIMIT, app_event_to_ws_frame, epoch_secs_to_ymdhms, iso8601_now_ms,
     };
@@ -608,40 +608,10 @@ mod ws_unit_tests {
 
     #[test]
     fn p1_events_return_none() {
-        // P1WS-2：`Render(Perform)` 现在映射为 `action_state`（P1-4 新增）。
-        // 仅 Dropped / TurnStages / Tray / 仍 P1 pending 的事件返回 None。
+        // 仍 P1 pending 的事件返回 None（Dropped / TurnStages / Tray）。
+        // `action_state` 的投影已随动作系统整体删除（2026-09-11 用户裁决），
+        // `AppEvent::Render` 变体本身不复存在。
         assert!(app_event_to_ws_frame(&AppEvent::RootAudit(RootFact::Dropped)).is_none());
-    }
-
-    /// P1WS-2：action_state 投影（P1-4 增量）。
-    #[test]
-    fn render_perform_maps_to_action_state_perform() {
-        let ev = AppEvent::Render(RenderCommand::Perform {
-            epoch: 11,
-            action: live2d_ai_core::SemanticAction::new(
-                live2d_ai_core::ActionId::Nod,
-                live2d_ai_core::Strength::Medium,
-                live2d_ai_core::ActionSource::RuleFallback,
-            ),
-        });
-        let v = app_event_to_ws_frame(&ev).expect("must map");
-        assert_eq!(v["type"], "action_state");
-        assert_eq!(v["data"]["epoch"], 11);
-        assert_eq!(v["data"]["kind"], "perform");
-        assert_eq!(v["data"]["action"]["action"], "nod");
-        assert_eq!(v["data"]["action"]["strength"], 2);
-        assert_eq!(v["data"]["action"]["source"], "rule_fallback");
-    }
-
-    /// P1WS-2：`Render(CeasePerforming)` → action_state kind=cease（**无** action 字段）。
-    #[test]
-    fn render_cease_maps_to_action_state_cease() {
-        let ev = AppEvent::Render(RenderCommand::CeasePerforming { epoch: 12 });
-        let v = app_event_to_ws_frame(&ev).expect("must map");
-        assert_eq!(v["type"], "action_state");
-        assert_eq!(v["data"]["epoch"], 12);
-        assert_eq!(v["data"]["kind"], "cease");
-        assert!(v["data"].get("action").is_none(), "cease 帧不应带 action");
     }
 
     #[test]

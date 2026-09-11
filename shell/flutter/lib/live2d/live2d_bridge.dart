@@ -179,55 +179,6 @@ class Live2DBridge extends ChangeNotifier {
     return _enqueueOrSend('stage', payload);
   }
 
-  /// 协议 v1 `action-state`：让渲染面**真的演这个动作**。
-  ///
-  /// # 一个必须照做的协议怪癖（读渲染面源码确认）
-  ///
-  /// 渲染面读 `action` 是从**信封根**读的：
-  /// `let action = v.get("action")`（`l2d-wasm-demo/src/main.rs:380`），
-  /// 而 `state` / `strength` 是从**归一化后的 payload** 读的（同文件 384/392）。
-  ///
-  /// 也就是说这一条**不能**把 `action` 放进 payload：
-  ///
-  /// ```text
-  /// {"version":1,"type":"action-state","payload":{"action":"nod","state":"start"}}
-  ///   → v.get("action") = None → action 为空 → 模型不动，且不报错
-  ///
-  /// {"version":1,"type":"action-state","action":"nod",
-  ///  "payload":{"state":"start","strength":2}}                      ← 正确
-  /// ```
-  ///
-  /// 这条**静默失效**（不报错、不动、日志里也没有）已经在本项目里潜伏过一轮：
-  /// 前端此前**根本没有调用过** `action-state`，所以「AI 触发了动作」只进了
-  /// 动作日志，模型一次都没动过。测试钉住了根级 `action` 的位置。
-  ///
-  /// `state`：**只有 `start` 与 `end` 两个合法值**。
-  ///
-  /// 渲染面的判定是 `if state_word == "start" { … } else if state_word == "end"`
-  /// （`l2d-wasm-demo/src/main.rs:399/410`）——**没有 `stop` 分支**。
-  /// 早先这里写的是 `stop`，渲染面**直接忽略**（既不停也不报错）。
-  /// 这是「静默失效」的又一例：动作会自然演完，所以看起来一切正常，
-  /// 只有「抢占/打断时旧动作停不下来」才会露出来。
-  Future<void> sendActionState({
-    required String action,
-    String state = 'start',
-    int? strength,
-  }) {
-    assert(
-      state == 'start' || state == 'end',
-      '渲染面只认 start/end；传别的值会被静默忽略',
-    );
-    if (action.isEmpty) return Future<void>.value();
-    final payload = <String, Object?>{'state': state};
-    if (strength != null) payload['strength'] = strength;
-    // `action` 挂在**信封根**（见上面的说明）——这是刻意的，不是笔误。
-    return _enqueueOrSend(
-      'action-state',
-      payload,
-      extraRoot: <String, Object?>{'action': action},
-    );
-  }
-
   /// 协议 v1 `stage-zoom`：`dir` ∈ `in` / `out` / `reset`。
   ///
   /// 渲染面自己算缩放（±10%，clamp 0.5..2.0；`reset` 同时把偏移归零），
@@ -289,17 +240,10 @@ class Live2DBridge extends ChangeNotifier {
     unawaited(_enqueueOrSend('mouth', <String, Object?>{'level': value}));
   }
 
-  Future<void> _enqueueOrSend(
-    String type,
-    Map<String, Object?> payload, {
-    Map<String, Object?>? extraRoot,
-  }) {
+  Future<void> _enqueueOrSend(String type, Map<String, Object?> payload) {
     final json = jsonEncode(<String, Object?>{
       'version': 1,
       'type': type,
-      // `extraRoot` 存在的原因是渲染面有一条**从信封根读字段**的分支
-      // （`action-state` 的 `action`）。展开顺序保证它不会覆盖 version/type/payload。
-      ...?extraRoot,
       'payload': payload,
     });
     if (_phase == Live2DBridgePhase.ready) return _send(json);

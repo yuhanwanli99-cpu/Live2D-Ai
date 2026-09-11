@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/ui/field_row.dart';
+import 'package:live2d_ai_shell/ui/inline_notice.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 Widget wrap(Widget child) => MaterialApp(
@@ -342,7 +343,7 @@ void main() {
   });
 
   group('错误槽：内联在字段下方，不用 toast', () {
-    testWidgets('有错误时显示 ⚠ 与文案', (WidgetTester tester) async {
+    testWidgets('有错误时显示**图标 + 文案**（不是 `⚠` 字符）', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           TextFieldRow(
@@ -354,10 +355,21 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('⚠ base_url 非法'), findsOneWidget);
+      // 2026-09-11（P1-5）：错误槽改成统一的 `InlineNotice`——
+      // 图标是 Material 图标，不再是 `⚠` 这个字符（字形/基线跨平台不一致，
+      // 而且它躲过了「图标要能对齐」这件事）。所以判据是「文案 + 图标都在」。
+      expect(find.textContaining('base_url 非法'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(InlineNotice),
+          matching: find.byIcon(Icons.error_outline),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('⚠'), findsNothing);
     });
 
-    testWidgets('空错误串不显示（避免一个空的 ⚠）', (WidgetTester tester) async {
+    testWidgets('空错误串不显示（避免一个空的提示框）', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           TextFieldRow(
@@ -420,7 +432,7 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('⚠ 连不上 http://x'), findsOneWidget);
+      expect(find.textContaining('连不上 http://x'), findsOneWidget);
     });
   });
 }

@@ -8,12 +8,18 @@
 /// 2. **失败要有「下一步」**：`429 busy` 给「打断并重发」、`503 no_supervisor`
 ///    给「去 LLM 设置」、`network_error` 给「重试」。只报告不给出路的错误提示
 ///    会让用户停在原地。
+///
+/// # 2026-09-11（P1-5）：本组件只剩「接口」，外形交给 `InlineNotice`
+///
+/// 同一件事过去有三套写法（这里、`field_row` 的 `'⚠ $error'`、
+/// `dev_tools_section` 的同一句字面文本）。现在**外形只有 `InlineNotice`
+/// 一处**，本组件只负责把 `ErrorAction` 翻译过去、并固定成 danger 档。
+/// 这样「错误长什么样」以后只改一个文件。
 library;
 
 import 'package:flutter/material.dart';
 
-import '../design/tokens.dart';
-import 'theme.dart';
+import 'inline_notice.dart';
 
 /// 错误横幅上的一个动作。
 class ErrorAction {
@@ -40,69 +46,18 @@ class ErrorBanner extends StatelessWidget {
   final List<ErrorAction> actions;
 
   @override
-  Widget build(BuildContext context) {
-    final AppColors colors = appColorsOf(context);
-    final TextTheme text = Theme.of(context).textTheme;
-
-    return Semantics(
-      liveRegion: true,
-      container: true,
-      child: Container(
-        margin: const EdgeInsets.all(Space.s2),
-        decoration: BoxDecoration(
-          color: appPaletteOf(context).dangerSurface,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(color: appPaletteOf(context).dangerBorder),
+  Widget build(BuildContext context) => InlineNotice(
+    message: message,
+    onDismiss: onDismiss,
+    actions: <NoticeAction>[
+      for (int i = 0; i < actions.length; i++)
+        NoticeAction(
+          label: actions[i].label,
+          onPressed: actions[i].onPressed,
+          // **只有一个动作时它才是主动作**。两个都做成实心，用户就得先读
+          // 完两个再决定按哪个——那正是「提示给了路却还是停在原地」。
+          primary: actions.length == 1,
         ),
-        padding: const EdgeInsets.fromLTRB(Space.s3, Space.s2, Space.s1, Space.s2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(top: 1),
-                  child: Icon(
-                    Icons.error_outline,
-                    size: 16,
-                    color: appPaletteOf(context).danger,
-                  ),
-                ),
-                const SizedBox(width: Space.s2),
-                Expanded(
-                  child: Text(
-                    message,
-                    style: text.bodySmall?.copyWith(color: colors.contentMuted),
-                  ),
-                ),
-                if (onDismiss != null)
-                  IconButton(
-                    onPressed: onDismiss,
-                    icon: const Icon(Icons.close, size: 16),
-                    tooltip: '关闭提示',
-                    visualDensity: VisualDensity.compact,
-                    color: colors.contentMuted,
-                  ),
-              ],
-            ),
-            if (actions.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(left: 24, top: Space.s1),
-                child: Wrap(
-                  spacing: Space.s2,
-                  children: <Widget>[
-                    for (final ErrorAction action in actions)
-                      TextButton(
-                        onPressed: action.onPressed,
-                        child: Text(action.label),
-                      ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+    ],
+  );
 }

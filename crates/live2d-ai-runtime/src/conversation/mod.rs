@@ -11,11 +11,14 @@
 //!   └─ TextDelta ───────────►│ event_tx │  └─ PcmS16LeDecoder 增量解码
 //!      DialogueAssembler      ◄────────┤     └─ AudioChunk{final_chunk=false…}
 //!      └─ SentenceReady ──► 有界队列 ──► │  末尾 AudioChunk{final_chunk=true}
-//!      └─ ToolReady ─────► ToolAction   │  严格按 sentence_seq 串行
 //! ```
 //!
 //! LLM 边流边切句，第一句进队后 TTS worker **立刻**开始合成——不等 LLM 结束；
 //! 队列满时推送阻塞（背压回传到 LLM 消费速率），内存因此有界。
+//!
+//! 2026-09-11 用户裁决：**LLM 不暴露任何工具，只做对话**——过去图中那条
+//! `ToolReady ──► ToolAction` 支线（工具调用 → 动作事件）已整体移除，
+//! 引擎只产出正文文本、语音与终态。
 //!
 //! # 事件契约
 //!
@@ -23,10 +26,10 @@
 //!   二次闸门（丢弃过期轮次的迟到事件）；
 //! - 每次成功运行的收尾**恰好一个终态序列**：
 //!   三态统一经 `Terminal { status }` 收场（步骤 7 / D8）：正常 → `Completed`；
-//!   可恢复错误（如残缺工具调用）→ 先可见 `Error`，终态仍按整体结果判定；
 //!   致命/取消各有专属 status。`Terminal` 保证出现在「LLM 已结束 **且**
 //!   TTS worker 完全排空」之后；
-//! - 每句音频恰好一个 `final_chunk = true` 的 [`EngineEvent::AudioChunk`]，
+//! - 每句音频恰好一个 `first_chunk = true` 与一个 `final_chunk = true` 的
+//!   [`EngineEvent::AudioChunk`]（首块/末块，共同界定这一句的音频边界），
 //!   `sentence_seq` 从 1 开始严格递增，与播放顺序一致。
 //!
 //! # 取消与并发
@@ -66,7 +69,6 @@
 //!         EngineEvent::AudioChunk { samples, .. } => { /* 送声卡 */ }
 //!         // 该句语音已完整合成 → 此时才把整句文字推给 UI。
 //!         EngineEvent::SentenceVoiced { text, .. } => println!("[屏] {text}"),
-//!         EngineEvent::ToolAction { .. } => { /* 转交 live2d-ai-core 仲裁 */ }
 //!         EngineEvent::Terminal { .. } => break,
 //!         EngineEvent::Error { kind, .. } => eprintln!("turn error: {kind}"),
 //!     }
@@ -94,7 +96,6 @@ pub use engine::ConversationEngine;
 use std::time::Duration;
 
 use crate::audio::AudioSpec;
-use crate::dialogue::IncompleteToolCalls;
 use crate::error::Error;
 
 /// 终态事件的有界投递上限（附带发现 #3 兜底）：卡死的消费端最多拖住
@@ -171,24 +172,11 @@ pub enum EngineEvent {
         /// 文本增量片段。
         text: String,
     },
-    /// 一个完整且校验通过的工具调用（名称必为 `live2d_perform_action`）。
-    /// 是否执行、强度是否越界由 core 仲裁。
-    ToolAction {
-        /// 本轮轮次号。
-        epoch: u64,
-        /// 相对本轮起点的毫秒数。
-        ts_ms: u64,
-        /// 该调用在本次响应内的流式下标。
-        index: usize,
-        /// 服务端调用 id（wire 未携带时为 `None`）。
-        id: Option<String>,
-        /// 解析后的动作参数。
-        args: crate::tool::Live2dPerformActionArgs,
-    },
     /// 一段增量解码后的音频样本（interleaved f32 ∈ [-1, 1]）。
     ///
     /// 同一句内按顺序发出；每句**恰好一个** `final_chunk = true` 的事件
-    /// （该句最后一个块，样本数可能为 0）。
+    /// （该句最后一个块，样本数可能为 0），以及**恰好一个**
+    /// `first_chunk = true` 的事件（该句第一个块）。
     AudioChunk {
         /// 本轮轮次号。
         epoch: u64,
@@ -200,6 +188,18 @@ pub enum EngineEvent {
         samples: Vec<f32>,
         /// PCM 流规格（采样率/声道数，来自 `TtsConfig::spec`）。
         spec: AudioSpec,
+        /// 是否为本句**第一块**（2026-09-11 新增）。
+        ///
+        /// 与 `final_chunk` 配对，共同给出**句子级的音频边界**：一句音频会被切成
+        /// 十几块，而播放端必须按**句**而不是按**块**对齐（口型包络、播放时间线，
+        /// 以及「一句一单元」的封装）。
+        ///
+        /// **为什么必须由引擎给出**：桌面端曾经用 epoch 记账推 `start`
+        /// （`audio_epoch_seen`，整轮只可能出现一次），实测 WS 上出现
+        /// 「0 个 start、13 个 end」——前端按 `start`→`end` 攒句会攒错、
+        /// 播出来断断续续。句子的首/末块只有引擎知道，所以它是引擎的契约，
+        /// 不该让消费端去推断。
+        first_chunk: bool,
         /// 是否为本句最后一块。
         final_chunk: bool,
     },
@@ -250,23 +250,22 @@ pub enum EngineEvent {
     },
 }
 
-/// 错误分类：LLM / 工具残缺 / TTS / 解码 / 背压。
+/// 错误分类：LLM / TTS / 解码 / 背压。
 ///
-/// - [`ErrorKind::Llm`] 与 [`ErrorKind::IncompleteTools`] 不阻断**已生成**内容：
-///   已完整切句并入队的句子仍会被 TTS worker 排空播放；二者本轮终态分别为
-///   `Terminal { Failed }` / `Terminal { Completed }`；
+/// - [`ErrorKind::Llm`] 不阻断**已生成**内容：已完整切句并入队的句子仍会被
+///   TTS worker 排空播放；
 /// - [`ErrorKind::Tts`] / [`ErrorKind::Decode`] / [`ErrorKind::Backpressure`]
 ///   是生成侧致命错误：立即停止生成，未合成的排队句子被丢弃，发完 `Error`
 ///   后以 `Terminal { Failed }` 收场。
+///
+/// 2026-09-11 用户裁决后，`IncompleteTools`（残缺工具调用）变体已随工具一起
+/// 删除——不再存在「工具调用」这条可恢复错误路径。
 #[derive(Debug, thiserror::Error)]
 pub enum ErrorKind {
     /// LLM 阶段的传输/协议/状态码错误。**不取消 TTS worker**：
     /// 已入队句子照常合成播放，未封口残余不再送 TTS（D8 裁决）。
     #[error("LLM 阶段错误: {0}")]
     Llm(#[source] Error),
-    /// 流结束时仍有残缺工具调用（类型化详情）。**可见但不阻断**已生成文本/TTS。
-    #[error("工具调用未完成: {0}")]
-    IncompleteTools(IncompleteToolCalls),
     /// TTS 请求/传输错误（致命：丢弃剩余排队句子并结束本轮）。
     #[error("TTS 阶段错误: {0}")]
     Tts(#[source] Error),
@@ -307,7 +306,6 @@ pub struct TurnReport {
 #[cfg(test)]
 mod tests {
     use crate::config::{LlmConfig, TtsConfig};
-    use crate::tool::Live2dPerformActionArgs;
 
     use super::*;
     use crate::OpenAiClient;
@@ -449,22 +447,5 @@ mod tests {
         assert_eq!(engine.config().system_prompt, "s");
         let cloned = engine.clone();
         assert_eq!(cloned.config(), engine.config());
-    }
-
-    // 类型触达（保证 wire 参数类型出现在引擎公共面上）。
-    #[test]
-    fn tool_args_type_is_reexported_through_events() {
-        fn accepts(_: EngineEvent) {}
-        accepts(EngineEvent::ToolAction {
-            epoch: 1,
-            ts_ms: 0,
-            index: 0,
-            id: None,
-            args: Live2dPerformActionArgs {
-                action: crate::tool::PerformAction::Nod,
-                strength: 1,
-                reason: None,
-            },
-        });
     }
 }

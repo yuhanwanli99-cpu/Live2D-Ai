@@ -15,6 +15,7 @@ import '../../design/tokens.dart';
 import '../../ui/emphasized_text.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
+import '../../ui/inline_notice.dart';
 import '../../ui/theme.dart';
 
 /// 列表里的一行（四个分区共用）。
@@ -161,12 +162,8 @@ class ModelsSection extends StatelessWidget {
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s2),
-            child: Text(
-              '⚠ $error',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: appPaletteOf(context).danger,
-              ),
-            ),
+            // 同上：统一走 `InlineNotice`（2026-09-11，P1-5）。
+            child: InlineNotice(message: error!),
           ),
         if (activateMessage != null)
           Padding(
@@ -254,7 +251,6 @@ class ModsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -266,12 +262,8 @@ class ModsSection extends StatelessWidget {
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s2),
-            child: Text(
-              '⚠ $error',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: appPaletteOf(context).danger,
-              ),
-            ),
+            // 同上：统一走 `InlineNotice`（2026-09-11，P1-5）。
+            child: InlineNotice(message: error!),
           ),
         if (loading && mods.isEmpty)
           const Padding(
@@ -393,13 +385,6 @@ class DiagnosticsSection extends StatelessWidget {
           description: 'Web 模式下音频单源是**浏览器**，服务端没有声卡是预期的',
         ),
         ReadonlyField(
-          label: '可用动作',
-          icon: Icons.touch_app_outlined,
-          text: capabilities.actions.isEmpty
-              ? '（能力快照未取到）'
-              : capabilities.actions.join('、'),
-        ),
-        ReadonlyField(
           label: 'LLM / TTS 配置',
           icon: Icons.hub_outlined,
           text: 'LLM: ${(llm as Map<String, Object?>?)?['model'] ?? '未配置'}'
@@ -472,8 +457,6 @@ class DiagnosticsSection extends StatelessWidget {
     'llm=${status['llm']}',
     'tts=${status['tts']}',
     'dev_mode=${status['dev_mode']}',
-    'actions=${capabilities.actions.join(',')}',
-    'sources=${capabilities.actionSources.join(',')}',
   ];
 }
 

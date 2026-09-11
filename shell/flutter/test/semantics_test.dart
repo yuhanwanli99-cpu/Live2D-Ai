@@ -219,7 +219,11 @@ void main() {
       final List<ShortcutHelpEntry> mac = shortcutHelp(isMacOS: true);
       final List<ShortcutHelpEntry> pc = shortcutHelp(isMacOS: false);
       expect(mac, hasLength(4));
-      expect(mac.first.keys, contains('⌘'));
+      // macOS 用 ASCII `Cmd` 而不是 `⌘`：后者不在自托管子集里，上屏会让
+      // CanvasKit 去 fonts.gstatic.com 拉字体（断网即豆腐块）。见
+      // `app_shortcuts.shortcutModifierLabel` 的注释与 `font_subset_test.dart`。
+      expect(mac.first.keys, contains('Cmd'));
+      expect(mac.first.keys, isNot(contains('⌘')));
       expect(pc.first.keys, contains('Ctrl'));
       expect(mac.first.action, '发送消息');
       expect(pc[1].keys, 'Esc');

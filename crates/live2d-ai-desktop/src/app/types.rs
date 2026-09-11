@@ -229,12 +229,16 @@ pub(crate) struct ShellApp {
     /// 命令与快照桥。None = 冒烟模式（原语义不变）。
     pub(crate) chat: Option<ChatBridge>,
     /// 业务代次镜像（D9 防御闸门）：只能被 supervisor 下发的 NewEpoch 刷新，
-    /// 绝不自增；Render/Conversation 事件携带的 epoch 不匹配即丢弃。
+    /// 绝不自增；Conversation 事件携带的 epoch 不匹配即丢弃。
     pub(crate) render_epoch: u64,
     /// 口型活跃窗口：VoiceStarted..VoiceEnded 区间内才使用真实 RMS 电平；
     /// 其余时刻强制 0.0——不依赖回调自然衰减（D5 口型归零协议）。
     pub(crate) voice_active: bool,
     /// 当前在演动作（自然完成回报需携带身份，P0-6）。
+    ///
+    /// 2026-09-11 用户裁决后**恒为 `None`**：唯一写入点 `apply_render_command`
+    /// 已随 `AppEvent::Render` / `RenderCommand` 删除；保留字段只为让
+    /// `frame.rs` 的完成回报分支保持形状（休眠，不再触发）。
     pub(crate) performing: Option<(u64, live2d_ai_core::SemanticAction)>,
     /// 关机 handshake 发起时刻（超时兜底判定起点）。
     pub(crate) quitting_since: Option<Instant>,

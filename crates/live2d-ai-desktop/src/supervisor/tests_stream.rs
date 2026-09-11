@@ -48,8 +48,6 @@ fn sentence_voiced_emits_text_delta_but_raw_deltas_do_not() {
     let mut pending_pcm: Option<crate::audio::PreparedPcm> = None;
     let mut playback_started = false;
     let mut voice_started_emitted = false;
-    let mut accepted_tool_seen = false;
-    let mut assistant_text_len = 0usize;
     let mut saw_fatal_kind = false;
     let mut saw_llm_error = false;
     let mut audio: Option<Box<dyn crate::audio::PcmProducer>> = None;
@@ -81,8 +79,6 @@ fn sentence_voiced_emits_text_delta_but_raw_deltas_do_not() {
             &mut pending_pcm,
             &mut playback_started,
             &mut voice_started_emitted,
-            &mut accepted_tool_seen,
-            &mut assistant_text_len,
             &mut saw_fatal_kind,
             &mut saw_llm_error,
             &emit,
@@ -128,10 +124,6 @@ fn sentence_voiced_emits_text_delta_but_raw_deltas_do_not() {
     } else {
         panic!("should be TextDelta");
     }
-
-    // 副断言：assistant_text_len 仍按原始增量累计 = 1 + 2 + 1 = 4 chars。
-    // （这是内部统计，前端不感知；只校验不被回归破坏。）
-    assert_eq!(assistant_text_len, 4, "text 字符计数应累计");
 }
 
 /// 上屏事件的 ts_ms 与 `EngineEvent::SentenceVoiced` 一一对应
@@ -149,8 +141,6 @@ fn sentence_voiced_zero_ts_ms_is_preserved() {
     let mut pending_pcm: Option<crate::audio::PreparedPcm> = None;
     let mut playback_started = false;
     let mut voice_started_emitted = false;
-    let mut accepted_tool_seen = false;
-    let mut assistant_text_len = 0usize;
     let mut saw_fatal_kind = false;
     let mut saw_llm_error = false;
     let mut audio: Option<Box<dyn crate::audio::PcmProducer>> = None;
@@ -169,8 +159,6 @@ fn sentence_voiced_zero_ts_ms_is_preserved() {
         &mut pending_pcm,
         &mut playback_started,
         &mut voice_started_emitted,
-        &mut accepted_tool_seen,
-        &mut assistant_text_len,
         &mut saw_fatal_kind,
         &mut saw_llm_error,
         &emit,

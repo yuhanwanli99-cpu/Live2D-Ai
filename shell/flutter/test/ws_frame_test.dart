@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:live2d_ai_shell/api/action_source.dart';
 import 'package:live2d_ai_shell/api/ws_frame.dart';
 
 /// **真实抓包**的 `/ws/state` 原文（本机 v0.4.6，2026-09-10）。
@@ -39,7 +38,14 @@ const String kRealTurnStateFailed =
     '{"data":{"epoch":0,"status":"failed"},"seq":2,'
     '"ts":"2026-09-10T12:13:43.310Z","type":"turn_state"}';
 
-const String kRealActionStateRuleFallback =
+/// **已废弃**的 `action_state` 帧（本机 v0.4.6，2026-09-10 实抓）。
+///
+/// 2026-09-11：LLM 裁定为无工具、只做对话，动作子系统整条移除，
+/// `ActionStateEvent` 类与解析分支都删了。这条夹具**故意留着**，用途变成
+/// 「旧服务端 / 迟到的动作帧打到新前端」的回归——它必须安全降级成
+/// [UnknownWsEvent]，既不抛异常、也不被误当成别的类型。
+/// 别再按旧语义改它（那是历史形状，不是当前协议）。
+const String kStaleActionStateFrame =
     '{"data":{"action":{"action":"surprise","source":"rule_fallback","strength":3},'
     '"epoch":0,"kind":"perform"},"seq":566,'
     '"ts":"2026-09-10T12:14:53.166Z","type":"action_state"}';
@@ -96,17 +102,6 @@ void main() {
       final TurnStateEvent bad =
           parseWsFrame(kRealTurnStateFailed)! as TurnStateEvent;
       expect(bad.status, 'failed', reason: '失败轮也要能让 UI 收口，不能吞掉');
-    });
-
-    test('action_state：data.action 是对象；rule_fallback 档位要落对', () {
-      final ActionStateEvent e =
-          parseWsFrame(kRealActionStateRuleFallback)! as ActionStateEvent;
-      expect(e.kind, 'perform');
-      expect(e.action, 'surprise');
-      expect(e.strength, 3);
-      expect(e.source, ActionSource.ruleFallback);
-      expect(e.hasAction, isTrue);
-      expect(e.source.isAiInitiated, isTrue);
     });
 
     test('heartbeat：只带 seq/ts', () {
@@ -172,6 +167,54 @@ void main() {
         isNull,
       );
     });
+
+    // ── 2026-09-11 新契约的可选字段：前后兼容是硬要求（旧服务端不发） ──
+    test('sentence_seq 缺失 → null（攒句退化为「上次封口后继续」，不报错）', () {
+      final AudioEvent e = parseWsFrame(
+        '{"type":"audio","data":{"audio":"AAAA"}}',
+      )! as AudioEvent;
+      expect(e.sentenceSeq, isNull);
+    });
+
+    test('sentence_seq / start / end 按新契约解析', () {
+      final AudioEvent e = parseWsFrame(
+        '{"type":"audio","data":{"audio":"AAAA","start":true,"end":true,'
+        '"sentence_seq":3}}',
+      )! as AudioEvent;
+      expect(e.sentenceSeq, 3);
+      expect(e.start, isTrue);
+      expect(e.end, isTrue);
+    });
+
+    test('整句 wav 直通钩子：带了就用、缺省为 null、坏了不毁整帧', () {
+      final AudioEvent e = parseWsFrame(
+        '{"type":"audio","data":{"audio":"AAAA","wav":"QUJD"}}',
+      )! as AudioEvent;
+      expect(e.wav, isNotNull);
+      expect(e.wav!.length, 3, reason: '"QUJD" = ABC');
+
+      final AudioEvent missing = parseWsFrame(
+        '{"type":"audio","data":{"audio":"AAAA"}}',
+      )! as AudioEvent;
+      expect(missing.wav, isNull);
+
+      // 坏 wav：当作没有，仍按分片处理（与「坏一帧就丢整帧」相反——这里还能留
+      // 有用的 audio 分片）。
+      final AudioEvent bad = parseWsFrame(
+        '{"type":"audio","data":{"audio":"AAAA","wav":"!!!bad!!!"}}',
+      )! as AudioEvent;
+      expect(bad.wav, isNull);
+      expect(bad.pcm.length, 3);
+    });
+
+    test('只有 wav 没有 audio 分片时仍是可用的一帧（前向兼容）', () {
+      final AudioEvent e = parseWsFrame(
+        '{"type":"audio","data":{"wav":"QUJD","sample_rate":16000}}',
+      )! as AudioEvent;
+      expect(e.wav!.length, 3);
+      expect(e.pcm, isEmpty);
+      expect(e.sampleRate, 16000);
+    });
   });
 
   group('坏帧：永不抛异常（协议是外部输入）', () {
@@ -222,6 +265,15 @@ void main() {
       expect(u.type, 'brand_new_thing');
       expect(u.data['a'], 1);
       expect(u.data['b'], <Object?>[2]);
+    });
+
+    test('**已移除的 `action_state` 帧安全降级**（旧服务端 / 迟到帧）', () {
+      // 动作子系统删除后这条 type 不再有事件类——它现在就是一个「未知 type」。
+      // 但旧服务端（或切换期间的半新半旧部署）仍可能发它，所以必须：
+      // 既不抛、也不被误判成别的类型，而是老实进 UnknownWsEvent。
+      final WsEvent? e = parseWsFrame(kStaleActionStateFrame);
+      expect(e, isA<UnknownWsEvent>());
+      expect((e! as UnknownWsEvent).type, 'action_state');
     });
 
     test('已知 type 上的**新增**字段被忽略，不报错', () {
@@ -350,11 +402,12 @@ void main() {
 
   group('纯函数契约：解析无副作用、可重复调用', () {
     test('同一帧解析两次结果一致（不缓存、不改内部状态）', () {
-      final WsEvent a = parseWsFrame(kRealActionStateRuleFallback)!;
-      final WsEvent b = parseWsFrame(kRealActionStateRuleFallback)!;
-      expect(a, isA<ActionStateEvent>());
-      expect((a as ActionStateEvent).action, (b as ActionStateEvent).action);
-      expect(a.source, b.source);
+      // 夹具换成仍在协议里的 `text_delta`（原用 `action_state`，该帧已移除）。
+      final WsEvent a = parseWsFrame(kRealTextDelta)!;
+      final WsEvent b = parseWsFrame(kRealTextDelta)!;
+      expect(a, isA<TextDeltaEvent>());
+      expect((a as TextDeltaEvent).text, (b as TextDeltaEvent).text);
+      expect(a.epoch, b.epoch);
     });
 
     test('解析层不碰连接：shutdown_ready 只产出事件，不关闭任何东西', () {

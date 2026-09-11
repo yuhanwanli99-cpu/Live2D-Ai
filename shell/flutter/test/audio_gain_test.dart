@@ -79,31 +79,4 @@ void main() {
       expect(gainForVolume(double.negativeInfinity), 1.0);
     });
   });
-
-  group('playbackGain 四象限', () {
-    test('静音恒为 0，与音量无关', () {
-      for (final v in <double>[0.0, 0.3, 0.7, 1.0]) {
-        expect(
-          playbackGain(volume: v, muted: true),
-          0.0,
-          reason: '静音时 volume=$v 也必须完全无声',
-        );
-      }
-    });
-
-    test('未静音时等于音量曲线', () {
-      for (final v in <double>[0.0, 0.25, 0.5, 1.0]) {
-        expect(playbackGain(volume: v, muted: false), gainForVolume(v));
-      }
-    });
-
-    test('音量 0 且未静音也是无声（两条路径都通向静音）', () {
-      expect(playbackGain(volume: 0.0, muted: false), 0.0);
-    });
-
-    test('静音不依赖音量：音量满也未静音→满增益，静音→零', () {
-      expect(playbackGain(volume: 1.0, muted: false), 1.0);
-      expect(playbackGain(volume: 1.0, muted: true), 0.0);
-    });
-  });
 }

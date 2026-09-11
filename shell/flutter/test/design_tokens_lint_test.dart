@@ -92,6 +92,26 @@ final List<Rule> kRules = <Rule>[
     exempt: (String p) => p == 'lib/design/breakpoints.dart',
   ),
   Rule(
+    name: '裸间距',
+    // **只扫 `EdgeInsets` 里的数字实参**，不扫 `SizedBox`/`width:`/`height:`。
+    //
+    // 为什么收窄（2026-09-11，P4-2 —— 这是实施时改的口径）：
+    // `width:` / `height:` 在本项目里绝大多数是**元素自身尺寸**
+    // （图标 18、发送键 40×40、数值列 44/52/56/110/150、描边 1 px、
+    // 流式圆点 3–4 px），不是「元素之间的间距」。把它们也拦下来会逼着
+    // 实现去写一堆语义不存在的令牌（把 1 px 描边写成 `Space.s1` = 4 是
+    // **改设计**，不是归位），那样的门禁只会被当成噪音关掉。
+    //
+    // `EdgeInsets` 则是**没有歧义**的间距：它的每个数字都在说
+    // 「这里离那边多远」。所以这一条拦得住真问题，又不会误伤。
+    pattern: RegExp(
+      r'EdgeInsets\.\w+\([^)]*(?<![\w.])(?!(?:Space|OpticalNudge)\.)\d',
+    ),
+    why: '间距只能取 Space 的 9 档（4 px 网格）；1–2 px 的基线微调取 '
+        'OpticalNudge——两者是不同的概念，别混',
+    exempt: kTokenDeclarationFiles.contains,
+  ),
+  Rule(
     name: '协议时长混用',
     pattern: RegExp(r'Duration\(milliseconds:'),
     why: 'UI 动效时长只能取 AppDurations 的 4 档',
@@ -169,7 +189,9 @@ void main() {
     test('协议时长豁免只覆盖 api/ 与 audio/ 两个目录', () {
       expect(isProtocolDurationPath('lib/api/ws_client.dart'), isTrue);
       expect(isProtocolDurationPath('lib/audio/schedule.dart'), isTrue);
-      expect(isProtocolDurationPath('lib/ui/display_panel.dart'), isFalse);
+      // 这里原本拿 `lib/ui/display_panel.dart` 当反例；该文件是死代码，已于
+      // 2026-09-11 删除（前端加强计划 P0-1），反例改用仍然存在的 UI 文件。
+      expect(isProtocolDurationPath('lib/ui/state_pill.dart'), isFalse);
       expect(isProtocolDurationPath('lib/design/tokens.dart'), isFalse);
     });
   });

@@ -111,8 +111,9 @@ ThemeData buildAppTheme([AppThemeId theme = AppThemeId.fallback]) {
 /// 文字层级只靠 `AppFontSizes` 的 8 个槽位。控件自己的 `styleFrom` 就只剩
 /// 「这一处确实要不一样」的部分。
 ///
-/// 刻意**不做**的事：不改控件的交互语义（焦点环、禁用态、水波纹都保留），
-/// 不引入自绘控件。这一层只改「长什么样」。
+/// 刻意**不做**的事：不改控件的交互语义（禁用态、水波纹、`highlightMode`
+/// 都保留），不引入自绘控件。这一层只改「长什么样」——**焦点环的形状**也算
+/// 「长什么样」（见 [focusSide]）。
 ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
   final ColorScheme scheme = base.colorScheme;
   final AppColors colors = AppColors.of(scheme, palette);
@@ -120,6 +121,26 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
   final OutlinedBorder buttonShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(AppRadius.md),
   );
+
+  /// 焦点可见性：**1 px 不透明 `focusRing` 边框**（规格 §9.2）。
+  ///
+  /// # 为什么是边框，不是阴影（2026-09-11 接线，P1-4）
+  ///
+  /// Material 默认的焦点提示在深色主题上是一层很淡的 overlay，
+  /// 四套配色下对比度**没法逐主题断言**——而本项目的红线是
+  /// 「对比度必须可测」（`theme_palette_test.dart` 逐主题验 ≥ 4.5:1）。
+  /// 换成 1 px 实心描边之后，焦点环走和其他颜色**同一套**断言。
+  ///
+  /// 另一条：**不要覆盖 `FocusManager.highlightMode`**。触屏用户本来就不该
+  /// 看到焦点环（那是 Material 的既定语义），本层只决定「环长什么样」。
+  WidgetStateProperty<BorderSide?> focusSide(BorderSide? resting) =>
+      WidgetStateProperty.resolveWith<BorderSide?>((Set<WidgetState> states) {
+        if (states.contains(WidgetState.focused)) {
+          return BorderSide(color: colors.focusRing, width: 1);
+        }
+        return resting;
+      });
+
   final ButtonStyle flatButton = ButtonStyle(
     elevation: const WidgetStatePropertyAll<double>(0),
     // 按钮文字统一用 13/w500 的 `labelLarge`，不用 Material 的 14/w500——
@@ -131,6 +152,9 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
     shape: WidgetStatePropertyAll<OutlinedBorder>(buttonShape),
     // 最小高度 40：Material 的 40 是给触屏的拇指尺寸，保留。
     minimumSize: const WidgetStatePropertyAll<Size>(Size(0, 40)),
+    // 无描边的按钮（Filled / Text / Elevated）平时不带边，**只在获得键盘焦点时**
+    // 长出一圈 focusRing。
+    side: focusSide(null),
   );
 
   return base.copyWith(
@@ -166,9 +190,8 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: flatButton.copyWith(
-        side: WidgetStatePropertyAll<BorderSide>(
-          BorderSide(color: colors.hairline),
-        ),
+        // 有边按钮：平时是 hairline，**焦点时换成 focusRing**（不是两套并存）。
+        side: focusSide(BorderSide(color: colors.hairline)),
       ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(style: flatButton),
@@ -184,6 +207,8 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
             borderRadius: BorderRadius.circular(AppRadius.sm),
           ),
         ),
+        // 图标按钮没有文字标签，键盘用户尤其需要看得见焦点在哪。
+        side: focusSide(null),
       ),
     ),
 

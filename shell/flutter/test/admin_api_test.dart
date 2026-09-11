@@ -209,18 +209,22 @@ void main() {
   });
 
   group('DiagnosticsApi', () {
-    test('capabilities：动作清单来自服务端（前端不硬编码 6 个）', () async {
+    test('capabilities：解析版本与能力位（动作清单已随动作子系统移除）', () async {
       final DiagnosticsApi api = DiagnosticsApi(
         base: 'http://x',
         client: MockClient((_) async => jsonResponse(kRealCapabilitiesJson, 200)),
       );
       final AppCapabilities c = await api.capabilities();
       expect(c.app, 'live2d-ai-desktop');
-      expect(c.actions, hasLength(6));
-      expect(c.actions, contains('look_around'));
-      expect(c.strengthLevels, <int>[1, 2, 3]);
+      // 2026-09-11：LLM 无工具、只做对话，`actions` / `action_sources` /
+      // `strength_levels` 三个字段已从 AppCapabilities 删除（`/api/v1/commands`
+      // 动作目录端点也删了）。夹具里仍留着这三个键，正好钉住「服务端多发的
+      // 未知字段被忽略、不报错」这条前向兼容纪律。
       expect(c.wsProtocolVersion, 1);
       expect(c.modelUploadSupported, isTrue);
+      expect(c.scriptInvokeSupported, isTrue);
+      expect(c.runtimeWs, '/ws/runtime');
+      expect(c.stateWs, '/ws/state');
     });
 
     test('status：能读出 active_model_id 与 dev_mode', () async {
@@ -292,8 +296,7 @@ void main() {
       );
       expect(await api.status(), isEmpty);
       expect(await api.logs(), isEmpty);
-      final AppCapabilities c = await api.capabilities();
-      expect(c.actions, isEmpty);
+      expect((await api.capabilities()).app, isEmpty);
     });
   });
   _p6LogsRenderingTests();

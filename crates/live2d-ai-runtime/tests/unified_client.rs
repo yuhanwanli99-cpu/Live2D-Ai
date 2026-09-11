@@ -1,16 +1,16 @@
 //! 集成测试：本地 tokio TCP mock 服务（不引第三方 mock 依赖）。
 //!
 //! 覆盖：
-//! - SSE 事件被 TCP 切割到「半行」级别仍正确解码；
-//! - `tool_calls.function.name` 单事件内劈开、`arguments` 跨多个 SSE 事件分块拼接；
+//! - SSE 事件被 TCP 切割到「半行」级别仍正确解码（含多字节字符）；
 //! - `[DONE]` 终止与「对端未发 `[DONE]` 即关流」的兜底 Done；
 //! - 非 2xx 状态码 → 可观测的 [`Error::Status`]；
 //! - 密钥只进 `Authorization` 头；无 key 时头不存在；Debug 不泄露；
+//! - **请求体不含 `tools` 键**（2026-09-11 用户裁决：LLM 不暴露任何工具）；
 //! - TTS `/audio/speech` 请求形状（默认 `response_format=pcm`）+ chunked bytes
 //!   原样转发，且 raw PCM 字节流可跨任意 chunk 切割增量解码。
 //!
-//! 行数豁免：本文件 546 行超 ≤500 红线（豁免上限 1000）。
-//! 豁免理由：测试文件 9 个用例均为「单文件 mock TCP 端 + 端到端断言」的小循环，
+//! 行数豁免：本文件超 ≤500 红线（豁免上限 1000）。
+//! 豁免理由：测试文件各用例均为「单文件 mock TCP 端 + 端到端断言」的小循环，
 //! 强行拆分为多文件会要求把 mock 服务端构造（`PlannedResponse` / `spawn_server` /
 //! `sse_data` / `llm_client` 等）和 SSE 字节构造器抽到 common 模块——这会改动
 //! common 的公共面，而 common 同时被 `conversation_engine_*` 三个集成测试使用，
@@ -195,33 +195,23 @@ fn llm_client(llm_base: &str) -> OpenAiClient {
 // ---------------------------------------------------------------- LLM 流式
 
 #[tokio::test]
-async fn llm_stream_survives_half_line_cuts_and_split_tool_fragments() {
-    // 一个完整 SSE 事件的字节流被劈在 JSON 字符串中间（TCP 半行切割）。
-    let name_event_head =
-        br#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"live2d_perfor"#.to_vec();
-    // 注意：tail 补完 JSON 后必须带上事件边界的空行（\n\n）。
-    let name_event_tail = br#"m_action"}}]}}]}
-
-"#
-    .to_vec();
-
-    // arguments 是标准的跨事件分块：两个片段拼回完整 JSON（含非 ASCII reason）。
-    let args_frag_1 = sse_data(
-        r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"action\":\"nod\""}}]}}]}"#,
-    );
-    let args_frag_2 = sse_data(
-        r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":",\"strength\":3,\"reason\":\"嗯\"}"}}]}}]}"#,
-    );
+async fn llm_stream_survives_half_line_cuts_and_multibyte_payloads() {
+    // 一个完整 SSE 事件的字节流被劈在 JSON 字符串中间（TCP 半行切割），
+    // 且切点落在**多字节字符内部** —— 解码层必须缓冲到完整字符再解析。
+    let whole_event = "data: {\"choices\":[{\"delta\":{\"content\":\"再见了\"}}]}\n\n"
+        .as_bytes()
+        .to_vec();
+    // 尾部 `了"}}]}\n\n` 共 10 字节；从倒数第 9 字节切即落在「了」的 UTF-8 序列内。
+    let cut = whole_event.len() - 9;
+    let split_event_head = whole_event[..cut].to_vec();
+    let split_event_tail = whole_event[cut..].to_vec();
 
     let planned = PlannedResponse::sse(vec![
         b": keep-alive\n\n".to_vec(),
         sse_data(r#"{"choices":[{"delta":{"role":"assistant","content":"你好"}}]}"#),
         sse_data(r#"{"choices":[{"delta":{"content":"呀"}}]}"#),
-        // 名字事件：先写半个事件，停顿，再补完 —— 解码层必须缓冲而不是按行猜。
-        name_event_head.clone(),
-        name_event_tail.clone(),
-        args_frag_1,
-        args_frag_2,
+        split_event_head,
+        split_event_tail,
         sse_data("[DONE]"),
     ]);
     let (base, server) = spawn_server(planned).await;
@@ -229,7 +219,7 @@ async fn llm_stream_survives_half_line_cuts_and_split_tool_fragments() {
     let mut stream = llm_client(&base)
         .chat_stream(&[
             ChatMessage::system("你是桌宠"),
-            ChatMessage::user("点头同意一下"),
+            ChatMessage::user("打个招呼"),
         ])
         .await
         .expect("chat_stream");
@@ -244,41 +234,10 @@ async fn llm_stream_survives_half_line_cuts_and_split_tool_fragments() {
         vec![
             LlmEvent::TextDelta("你好".to_string()),
             LlmEvent::TextDelta("呀".to_string()),
-            LlmEvent::ToolCallDelta {
-                index: 0,
-                id: Some("call_1".to_string()),
-                name: Some("live2d_perform_action".to_string()),
-                arguments: String::new(),
-            },
-            LlmEvent::ToolCallDelta {
-                index: 0,
-                id: None,
-                name: None,
-                arguments: "{\"action\":\"nod\"".to_string(),
-            },
-            LlmEvent::ToolCallDelta {
-                index: 0,
-                id: None,
-                name: None,
-                arguments: ",\"strength\":3,\"reason\":\"嗯\"}".to_string(),
-            },
+            LlmEvent::TextDelta("再见了".to_string()),
             LlmEvent::Done,
         ]
     );
-
-    // 拼接出的参数能还原成 wire 类型。
-    let joined: String = events
-        .iter()
-        .filter_map(|e| match e {
-            LlmEvent::ToolCallDelta { arguments, .. } => Some(arguments.as_str()),
-            _ => None,
-        })
-        .collect();
-    let args: live2d_ai_runtime::Live2dPerformActionArgs =
-        serde_json::from_str(&joined).expect("valid tool args json");
-    assert_eq!(args.action, live2d_ai_runtime::PerformAction::Nod);
-    assert_eq!(args.strength, 3);
-    assert_eq!(args.reason.as_deref(), Some("嗯"));
 
     // 请求形状断言。
     let captured = server.await.expect("server task");
@@ -302,10 +261,9 @@ async fn llm_stream_survives_half_line_cuts_and_split_tool_fragments() {
     assert_eq!(body["stream"], true);
     assert_eq!(body["messages"][0]["role"], "system");
     assert_eq!(body["messages"][1]["role"], "user");
-    assert_eq!(
-        body["tools"][0]["function"]["name"],
-        "live2d_perform_action"
-    );
+    // **2026-09-11 用户裁决**：LLM 不暴露任何工具，只做对话 → 请求体**不含**
+    // `tools` 键（工具一旦出现，模型有时只发工具调用、正文一个字都不发）。
+    assert!(body.get("tools").is_none(), "请求体不得含 tools 键: {body}");
 
     // 请求体里绝不允许出现密钥明文。
     assert!(

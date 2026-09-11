@@ -15,8 +15,8 @@
 //! - [`frame`]：每帧取帧与渲染（`draw_and_present_clear` /
 //!   `draw_and_present_model` / `render_frame` / `frame_target_reached`）。
 //! - [`interaction`]：托盘/用户事件落地（`handle_tray_event`）、
-//!   渲染命令落地（`apply_render_command`）、对话 UI 事件落地
-//!   （`apply_conversation_ui`）。
+//!   对话 UI 事件落地（`apply_conversation_ui`）。
+//!   （原 `apply_render_command` 渲染命令落地已于 2026-09-11 随动作系统删除。）
 //! - [`handler`]：`ApplicationHandler<AppEvent>` impl（`resumed` / `user_event` /
 //!   `window_event` / `about_to_wait` / `new_events` / `exiting`）。
 //! - [`shutdown`]：关机 handshake（`request_shutdown`） + 兜底 watchdog。

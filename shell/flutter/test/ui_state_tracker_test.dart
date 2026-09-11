@@ -311,7 +311,7 @@ void main() {
   });
 
   group('不相关帧一律不消费、不通知', () {
-    test('audio / heartbeat / subscribe_ack / action_state / 未知帧', () {
+    test('audio / heartbeat / subscribe_ack / 已移除的 action_state / 未知帧', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       int notified = 0;
@@ -321,6 +321,8 @@ void main() {
         '{"type":"heartbeat","seq":9}',
         '{"type":"subscribe_ack","data":{"topics":[]}}',
         '{"type":"audio","data":{"audio":"AAAA","sample_rate":24000}}',
+        // 2026-09-11：动作子系统移除后 `action_state` 不再有事件类，
+        // 走「未知帧」分支。旧服务端 / 迟到帧同样必须被安全忽略。
         '{"type":"action_state","data":{"kind":"perform",'
             '"action":{"action":"nod","source":"llm_tool","strength":2}}}',
         '{"type":"brand_new","data":{}}',

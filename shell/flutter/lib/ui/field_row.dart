@@ -25,6 +25,8 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 import 'emphasized_text.dart';
+import 'inline_notice.dart';
+import 'soft_motion.dart';
 import 'theme.dart';
 
 /// 字段行的形态（**声明出来是为了可枚举与可测试**，而不是靠 widget 类型猜）。
@@ -61,7 +63,7 @@ class _FieldShell extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: Space.s3),
                 child: Icon(
                   icon,
                   size: 16,
@@ -88,16 +90,22 @@ class _FieldShell extends StatelessWidget {
               ),
             ],
           ),
-          if (hasError)
-            Padding(
-              padding: const EdgeInsets.only(left: 24, top: 2),
-              child: Text(
-                '⚠ ${error!}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: appPaletteOf(context).danger,
-                ),
-              ),
-            ),
+          // 结果行**渐入渐出**（2026-09-11，P2-2）。
+          //
+          // 过去它是条件插入：测试一返回就「啪」地多出一行，把下面的字段
+          // 整体推下去——用户正在看的那个字段会跳。`SoftSwap` 让新旧内容
+          // 交叉淡入的同时**旧内容不再吃指针与语义**，高度也随动画长出来。
+          SoftSwap(
+            child: hasError
+                ? Padding(
+                    padding: const EdgeInsets.only(left: Space.s6, top: OpticalNudge.thin),
+                    // 用统一的 `InlineNotice`（紧凑档）而不是红色小字 +
+                    // 一个 `⚠` 字符：字符冒充图标在不同平台字形/基线都不一样，
+                    // 也躲过了「图标要能对齐」这件事（2026-09-11，P1-5）。
+                    child: InlineNotice(message: error!, dense: true),
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
       ),
     );

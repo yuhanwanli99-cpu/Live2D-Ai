@@ -54,7 +54,7 @@ class StageHost extends StatelessWidget {
   /// 顶部覆盖层（离线横幅）。
   final Widget? overlayTop;
 
-  /// 右下/左下的常驻角标（状态胶囊、动作工具条）。
+  /// 右下/左下的常驻角标（状态胶囊、缩放三键）。
   final Widget? corner;
 
   /// 当前模型名（用于舞台的语义标签）。

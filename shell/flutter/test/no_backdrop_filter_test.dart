@@ -160,13 +160,13 @@ void main() {
       }
     });
 
-    test('design/** 与 state/** 与 actions/** 不许 import package:web', () {
+    test('design/** 与 state/** 不许 import package:web', () {
+      // 2026-09-11：原先这里还有 `lib/actions/`（动作子系统）——该目录已随
+      // 动作功能整条删除，条件里就不再留一个永远匹配不到的死路径。
       final List<String> hits = scan(
         RegExp(r"import 'package:web"),
         skip: (String path) =>
-            !path.startsWith('lib/design/') &&
-            !path.startsWith('lib/state/') &&
-            !path.startsWith('lib/actions/'),
+            !path.startsWith('lib/design/') && !path.startsWith('lib/state/'),
       );
       expect(hits, isEmpty, reason: hits.join('\n'));
     });

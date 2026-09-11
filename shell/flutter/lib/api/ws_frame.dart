@@ -4,9 +4,11 @@
 ///
 /// `api/ws_client.dart` 必须 `import 'package:web'`（`WebSocket`），
 /// 于是**整帧 decode（type 分发 + 各字段解析）在 `flutter test` 里根本跑不到**——
-/// 只能在浏览器里跑。这正是 `action_state` 把对象当字符串解析那个缺陷
+/// 只能在浏览器里跑。这正是历史上 `action_state` 把对象当字符串解析那个缺陷
 /// （`action` 永远为 null、`source`/`strength` 全丢）能长期存活的原因：
 /// 9 个分支、每分支多个字段，一个都不在门禁里。
+/// （`action_state` 分支本身已于 2026-09-11 随动作子系统删除——LLM 无工具、
+/// 服务端不再下发该帧；这段记录保留，是为了说明本文件为什么必须存在。）
 ///
 /// 本文件只负责「帧字符串 → 领域事件」这一个纯函数，**不含 WebSocket 生命周期**。
 /// 连接/重连/定时器仍留在 `ws_client.dart`。
@@ -14,8 +16,6 @@ library;
 
 import 'dart:convert';
 import 'dart:typed_data';
-
-import 'action_source.dart';
 
 /// `/ws/state` 事件基类。
 ///
@@ -81,40 +81,6 @@ class TextDeltaEvent extends WsEvent {
   final bool? completed;
 }
 
-/// `action_state`：动作状态。
-///
-/// 协议真相：`data.action` 是**对象** `{action, strength, source}`，
-/// `data.kind == 'cease'` 时则没有 `action` 字段。详见 [ActionDetail] 的头注
-/// （那里记录了「曾经把它当字符串解析 ⇒ 来源全丢」这个已修缺陷）。
-class ActionStateEvent extends WsEvent {
-  const ActionStateEvent({
-    required this.epoch,
-    required this.kind,
-    this.action,
-    this.strength,
-    this.source = ActionSource.unknown,
-    super.seq,
-    super.ts,
-  });
-
-  final int epoch;
-
-  /// `perform`（正在表演）或 `cease`（停止表演）。
-  final String kind;
-
-  /// 动作名；`cease` 时为 null。
-  final String? action;
-
-  /// 强度档位（`strength_levels` = `[1,2,3]`）；缺失为 null。
-  final int? strength;
-
-  /// 谁触发的（用户 / LLM / 规则兜底）。
-  final ActionSource source;
-
-  /// 本轮是否真的有动作可展示。
-  bool get hasAction => action != null;
-}
-
 /// `audio`：base64 s16le 单声道 PCM 片（默认 20ms）。
 class AudioEvent extends WsEvent {
   const AudioEvent({
@@ -125,6 +91,8 @@ class AudioEvent extends WsEvent {
     this.end = false,
     this.volume,
     this.muted = false,
+    this.sentenceSeq,
+    this.wav,
     super.seq,
     super.ts,
   });
@@ -132,7 +100,16 @@ class AudioEvent extends WsEvent {
   final int epoch;
   final Uint8List pcm;
   final int sampleRate;
+
+  /// 某一句的**首片**（2026-09-11 新契约：每句恰好一次）。
+  ///
+  /// **不可当攒句闸门**：旧服务端这里是**轮级**标记（`previous != token` 记账，
+  /// 实测正文只有一句时收到 0 个 `start=true`）。前端的用法是防御性的——
+  /// 累积中途遇到 `start` 说明上一句缺了 `end`，丢弃半截重来。见
+  /// `lib/audio/sentence_assembler.dart` 头注。
   final bool start;
+
+  /// 某一句的**末片**：前端攒句的**唯一闸门**（`end=true` → 封 WAV 去播）。
   final bool end;
 
   /// 服务端按本片**原始**样本算出的 RMS ∈ [0,1]（`data.volume`）。
@@ -144,6 +121,17 @@ class AudioEvent extends WsEvent {
 
   /// 服务端是否处于静音输出（`data.muted`，观测/诊断用）。
   final bool muted;
+
+  /// 同一句的分片归组序号（`data.sentence_seq`，可选；从 1 严格递增）。
+  ///
+  /// 新旧兼容：缺字段 → `null`，前端退化为「上次封口后继续累积」，不报错。
+  final int? sentenceSeq;
+
+  /// **整句 WAV 直通**（`data.wav` base64，前向兼容钩子）。
+  ///
+  /// 当前服务端只发 `audio` 分片，所以恒为 `null`；将来若帧上直接带封好的
+  /// 整句 WAV，前端直接拿它播、不再攒片（见 `sentence_assembler.dart`）。
+  final Uint8List? wav;
 }
 
 /// 服务端 `error` 帧。
@@ -298,31 +286,33 @@ WsEvent? parseWsFrame(String raw) {
         ts: ts,
       );
 
-    case 'action_state':
-      // `data.action` 是**对象**，不是字符串——见 [ActionDetail] 的头注。
-      final ActionDetail detail = ActionDetail.fromData(data['action']);
-      return ActionStateEvent(
-        epoch: _int(data['epoch']),
-        kind: _str(data['kind']) ?? 'unknown',
-        action: detail.action,
-        strength: detail.strength,
-        source: detail.source,
-        seq: seq,
-        ts: ts,
-      );
-
     case 'audio':
       final String? encoded = _str(data['audio']);
-      if (encoded == null) return null; // 没有音频体：丢弃
+      // 前向兼容的可选字段：`wav`（整句封好的 WAV，直通播放）——将来服务端
+      // 只带 `wav` 不带 `audio` 分片时，这一帧仍然可用。
+      final String? rawWav = _str(data['wav']);
+      final bool hasWav = rawWav != null && rawWav.isNotEmpty;
+      if (encoded == null && !hasWav) return null; // 没有音频体：丢弃
       try {
+        Uint8List? wav;
+        if (hasWav) {
+          try {
+            wav = base64Decode(rawWav);
+          } catch (_) {
+            wav = null; // 坏 wav：当作没有，仍按分片处理
+          }
+        }
         return AudioEvent(
           epoch: _int(data['epoch']),
-          pcm: base64Decode(encoded),
+          pcm: encoded == null ? Uint8List(0) : base64Decode(encoded),
           sampleRate: _intOrNull(data['sample_rate']) ?? 24000,
           start: data['start'] == true,
           end: data['end'] == true,
           volume: _doubleOrNull(data['volume']),
           muted: data['muted'] == true,
+          // 可选字段：缺失 → null，前端退化为「上次封口后继续累积」，不报错。
+          sentenceSeq: _intOrNull(data['sentence_seq']),
+          wav: wav,
           seq: seq,
           ts: ts,
         );

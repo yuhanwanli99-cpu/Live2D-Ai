@@ -126,18 +126,18 @@ fn route_dispatch_table_is_stable() {
     // D3（2026-08-28）：`/api/v1/models` 现在走 `RouteId::Models`（统一
     // 由 models_routes::dispatch 派发）；保留旧断言注释便于理解演化。
     assert_eq!(match_route(&Method::Get, "/api/v1/models"), RouteId::Models);
-    // D4（2026-08-29）：`/api/v1/commands` 走 `RouteId::Commands`。
+    // 2026-09-11 用户裁决：动作命令端点（`/api/v1/commands*`）已随动作系统
+    // 整体删除 → 它现在是「未实现前缀」501，不再是专用路由。
     assert_eq!(
         match_route(&Method::Get, "/api/v1/commands"),
-        RouteId::Commands
+        RouteId::NotImplemented
     );
-    // D4：POST 命令端点也走 RouteId::Commands（handler 内按 method 派发 list/invoke）。
     assert_eq!(
         match_route(
             &Method::Post,
             "/api/v1/commands/live2d_perform_action_nod/invoke"
         ),
-        RouteId::Commands
+        RouteId::NotImplemented
     );
     // 不存在路径。
     assert_eq!(match_route(&Method::Get, "/nope"), RouteId::NotFound);
@@ -162,7 +162,6 @@ fn route_id_as_str_is_stable() {
     assert_eq!(RouteId::LogsGet.as_str(), "logs.get");
     assert_eq!(RouteId::LogsLevels.as_str(), "logs.levels");
     assert_eq!(RouteId::Models.as_str(), "models");
-    assert_eq!(RouteId::Commands.as_str(), "commands");
     assert_eq!(RouteId::NotImplemented.as_str(), "not_implemented");
     assert_eq!(RouteId::NotFound.as_str(), "not_found");
 }

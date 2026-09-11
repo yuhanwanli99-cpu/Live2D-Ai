@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
+import '../ui/soft_motion.dart';
 import '../ui/theme.dart';
 import 'live2d_bridge.dart';
 import 'live2d_host_stub.dart'
     if (dart.library.js_interop) 'live2d_host_web.dart' as host;
 import 'live2d_transport.dart';
-import 'stage_pointer_interceptor.dart';
 
 /// Live2D 舞台：持有 [Live2DBridge]，对外暴露口型与外观同步入口。
 class Live2DStage extends StatefulWidget {
@@ -64,7 +64,8 @@ class Live2DStage extends StatefulWidget {
 }
 
 /// 公开 State：宿主用 `GlobalKey<Live2DStageState>` 调 [setMouth] / [sync]。
-class Live2DStageState extends State<Live2DStage> {
+class Live2DStageState extends State<Live2DStage>
+    with SingleTickerProviderStateMixin {
   Live2DBridge? _bridge;
   String? _hostError;
 
@@ -75,6 +76,33 @@ class Live2DStageState extends State<Live2DStage> {
   int _generation = 0;
   bool _readyNotified = false;
 
+  /// ── 舞台底的**插值**（2026-09-11，P1-3） ──
+  ///
+  /// 问题：切主题时 `MaterialApp` 会用 200 ms 把整套配色**插值**过去，
+  /// 而舞台底是渲染面（iframe）自己画的——它只认一个终色。于是切的那一瞬间
+  /// 界面在渐变、舞台已经跳到终色，看起来像「舞台先闪了一下」。
+  ///
+  /// 做法：舞台自己跑一条**同样 200 ms** 的动画（`AppDurations.base` 正是
+  /// `MaterialApp` 的 `kThemeAnimationDuration`），每一帧把插值出来的颜色
+  /// 拼成 `#rrggbb` 发给渲染面。观感上两边就是一起变的。
+  ///
+  /// 代价是这 200 ms 内会多发十几条 `sync`。可以接受：`sync` 是幂等的状态帧，
+  /// 桥会把它们按序 flush；渲染面只认最后一个。
+  late final AnimationController _stageColorMotion;
+
+  /// 动画起点（当前屏幕上那个颜色）。首帧没有起点，直接就位。
+  Color? _stageColorFrom;
+  Color? _stageColorTo;
+
+  /// 当前应当显示在舞台上的底色。
+  Color? get _displayedStageColor {
+    final Color? to = _stageColorTo;
+    if (to == null) return null;
+    final Color? from = _stageColorFrom;
+    if (from == null) return to;
+    return Color.lerp(from, to, _stageColorMotion.value);
+  }
+
   /// 当前消息桥（未挂载时为 `null`）。
   Live2DBridge? get bridge => _bridge;
 
@@ -84,7 +112,48 @@ class Live2DStageState extends State<Live2DStage> {
   String? get errorMessage => _hostError ?? _bridge?.errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    _stageColorTo = parseStageColorCss(widget.stageColor);
+    _stageColorMotion = AnimationController(
+      vsync: this,
+      // 初值是 `Duration.zero`：真正生效的时长在 `didUpdateWidget` 里经
+      // `appMotion(context, …)` 设好再 `forward()`（那里才有 context，
+      // 也才过得了「减少动画」这道闸门）。构造处的时长从不用来跑动画。
+      duration: Duration.zero,
+      // 初值 1：首帧不播动画（页面第一次出现时不该有底色渐变）。
+      value: 1,
+    )..addListener(_pushStageColor);
+  }
+
+  @override
+  void didUpdateWidget(Live2DStage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.stageColor == oldWidget.stageColor) return;
+    final Color? next = parseStageColorCss(widget.stageColor);
+    // 从**当前显示值**续接，而不是从旧终值——连续切两次主题时不会跳回去。
+    _stageColorFrom = _displayedStageColor;
+    _stageColorTo = next;
+    if (_stageColorFrom == null || next == null) {
+      // 拿不到起点或终点（例如 `null` = 交给渲染面按 dark 决定）→ 直接就位。
+      _stageColorMotion.value = 1;
+      _pushStageColor();
+      return;
+    }
+    _stageColorMotion
+      ..duration = appMotion(context, AppDurations.base)
+      ..forward(from: 0);
+  }
+
+  void _pushStageColor() {
+    final Color? color = _displayedStageColor;
+    if (color == null) return;
+    _bridge?.sendSync(stageColor: stageColorCss(color));
+  }
+
+  @override
   void dispose() {
+    _stageColorMotion.dispose();
     final bridge = _bridge;
     if (bridge != null) {
       bridge.removeListener(_onBridgeChanged);
@@ -165,25 +234,6 @@ class Live2DStageState extends State<Live2DStage> {
   /// 实时口型（0..1），由音频 RMS 包络驱动。
   void setMouth(double level) => _bridge?.sendMouth(level);
 
-  /// 协议 v1 `action-state`：让模型真的演这个动作。
-  ///
-  /// **根级 `action`** 是渲染面的要求（它从信封根读 `action`、从 payload 读
-  /// `state`/`strength`）——详见 `live2d_bridge.dart` 的头注。
-  Future<void> sendActionState({
-    required String action,
-    String state = 'start',
-    int? strength,
-  }) async {
-    final bridge = _bridge;
-    // 未就绪时命令会入队（桥负责），所以这里不丢弃。
-    await bridge?.sendActionState(
-      action: action,
-      state: state,
-      strength: strength,
-    );
-    _captureAck();
-  }
-
   /// 协议 v1 `stage-zoom`（`in` / `out` / `reset`）。
   ///
   /// 渲染面自己算缩放（±10%，clamp 0.5..2.0），所以**不发数值**；
@@ -247,25 +297,38 @@ class Live2DStageState extends State<Live2DStage> {
   @override
   Widget build(BuildContext context) {
     final bridge = _bridge;
-    final error = errorMessage;
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        ColoredBox(color: appPaletteOf(context).stage),
+        // 舞台底有两层真相：渲染面画的那层（iframe 里 canvas 的
+        // `background-color`）与**这一层**（iframe 还没加载完、或渲染面
+        // 拒绝了这个颜色时的兜底面）。两层必须同时变，否则会看到
+        // 「底下的面已经到终色、上面的 iframe 还在旧色」。
+        // 所以这里也读同一个插值值（P1-3）。
+        AnimatedBuilder(
+          animation: _stageColorMotion,
+          builder: (BuildContext context, Widget? _) => ColoredBox(
+            color: _displayedStageColor ?? appPaletteOf(context).stage,
+          ),
+        ),
         host.buildLive2DHost(
           key: ValueKey<int>(_generation),
           onTransport: _attach,
           onError: _handleHostError,
         ),
-        if (host.live2dHostSupported &&
-            error == null &&
-            phase == Live2DBridgePhase.loading)
-          _StageBadge(label: _loadingLabel(bridge), busy: true),
-        // 错误条压在 iframe 上：不垫一层指针垫层的话「重试」点不着。
-        if (error != null)
-          StagePointerInterceptor(
-            child: _StageErrorOverlay(message: error, onRetry: retry),
-          ),
+        // ── 加载态与错误态**不在这里画**（2026-09-11 修的双覆盖层） ──
+        //
+        // 过去这里另有一套「渲染面加载中 N%」徽标 + 「渲染面错误 + 重试」条，
+        // 而 `StageHost` 同样画了一套「模型加载中 N%」幕布 + 「模型加载失败 +
+        // 重试」。两套叠在舞台同一块区域上，用户会**同时看到两个重试按钮**、
+        // 加载时看到两条不同措辞的进度。
+        //
+        // 现在唯一实现是 `StageHost`（它同时负责语义标签与指针垫层），
+        // 本组件只保留**非状态类**的装饰徽标（FPS）。宿主拿阶段的方式是
+        // `onPhaseChanged`，拿错误的方式是 `errorMessage`，重建的方式是
+        // `retry()` —— 三条通路都在，一套 UI 就够。
+        //
+        // 回归：`test/stage_overlay_single_test.dart`。
         if (bridge != null && bridge.isReady && bridge.fps != null)
           Positioned(
             right: 12,
@@ -275,102 +338,59 @@ class Live2DStageState extends State<Live2DStage> {
       ],
     );
   }
-
-  /// 加载中文案：带上渲染面上报的资源进度（协议 v1 `progress`）。
-  ///
-  /// 进度是「已 fetch 资源数 / 总数」的比值；拿不到就退回不带百分比的文案——
-  /// 宁可不显示数字，也不显示假的数字。
-  static String _loadingLabel(Live2DBridge? bridge) {
-    final progress = bridge?.progress;
-    if (progress == null || !progress.isFinite) return '渲染面加载中…';
-    final percent = (progress.clamp(0.0, 1.0) * 100).round();
-    return '渲染面加载中 $percent%';
-  }
 }
 
+/// 解析渲染面认的舞台底色串（`#rgb` / `#rrggbb`）。
+///
+/// 渲染面**只认这两种**，这里也**只认这两种**：认不出来就返回 `null`
+/// （= 不指定，让渲染面按 `dark` 自己决定）。宁可不发，也不要发一个格式
+/// 可疑的串过去被静默拒掉——那会表现成「主题切了但舞台没变」，
+/// 而且**不报错**。
+Color? parseStageColorCss(String? css) {
+  if (css == null) return null;
+  final RegExpMatch? m = RegExp(
+    r'^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$',
+  ).firstMatch(css.trim());
+  if (m == null) return null;
+  String hex = m.group(1)!;
+  if (hex.length == 3) {
+    hex = hex.split('').map((String c) => '$c$c').join();
+  }
+  // 这是从**字符串**还原出来的颜色，不是设计决策——所以拼装用 `fromARGB`
+  // 而不是写一个 `Color(0x…)` 字面量（后者会被裸色扫描当成绕过令牌的配色）。
+  final int value = int.parse(hex, radix: 16);
+  return Color.fromARGB(
+    255,
+    (value >> 16) & 0xFF,
+    (value >> 8) & 0xFF,
+    value & 0xFF,
+  );
+}
+
+/// 舞台角上的装饰徽标（目前只有 FPS）。
+///
+/// **只是一个药丸本身**，不带 `Align`：定位由调用方的 `Positioned` 决定。
+/// 过去它在内部又套了一层 `Align(topLeft)`，而调用方写的是
+/// `Positioned(right: 12, top: 12)` —— `Align` 会撑满 Positioned 给的松弛约束，
+/// 于是「右上角」实际渲染在左上角。去掉内层 `Align` 后位置才真的由调用方说了算。
 class _StageBadge extends StatelessWidget {
-  const _StageBadge({required this.label, this.busy = false});
+  const _StageBadge({required this.label});
 
   final String label;
-  final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.topLeft,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: appColorsOf(context).glassScrim,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (busy) ...<Widget>[
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Text(label, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-        ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: appColorsOf(context).glassScrim,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
-    );
-  }
-}
-
-class _StageErrorOverlay extends StatelessWidget {
-  const _StageErrorOverlay({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.bottomCenter,
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: appPaletteOf(context).dangerSurface.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: appPaletteOf(context).dangerBorder),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '渲染面错误',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 6),
-                Text(message, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.tonalIcon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('重试'),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.s3,
+          vertical: Space.s1,
         ),
+        child: Text(label, style: Theme.of(context).textTheme.bodySmall),
       ),
     );
   }

@@ -1,19 +1,21 @@
 //! 统一应用事件 [`AppEvent`]：winit 事件循环的**唯一**跨线程入口（D4 裁决）。
 //!
 //! 三类生产者全部只经 [`winit::event_loop::EventLoopProxy`] 发送本枚举：
-//! - **supervisor 线程**（Tokio 后台线程）：下发渲染命令与对话侧状态；
+//! - **supervisor 线程**（Tokio 后台线程）：下发对话侧状态、审计事实与错误；
 //! - **REPL stdin 线程**：转发显式退出请求；
 //! - **托盘线程**：沿用既有轻量 [`PetUserEvent`] 包装（不变）。
 //!
 //! 类型边界（D4/D14 裁决原文）：
 //! - **PCM 绝不进入 AppEvent**——音频块由 supervisor 直接写入声卡 facade；
 //! - **Say 文本绝不进入 AppEvent**——聊天输入走有界命令通道进 supervisor；
-//! - 每个 [`RenderCommand`] / [`ConversationUiEvent`] 都携带产生它的业务
-//!   **epoch**；ShellApp 维护 `render_epoch` 镜像（只能被下发的最新值更新，
-//!   绝不自增），与命令上的 epoch 不符即丢弃——这是副作用执行端的
-//!   **防御性闸门**（权威闸门仍在 core reducer，见 D9）。
+//! - 每个 [`ConversationUiEvent`] 都携带产生它的业务 **epoch**；ShellApp 维护
+//!   镜像（只能被下发的最新值更新，绝不自增），与事件上的 epoch 不符即丢弃——
+//!   这是副作用执行端的**防御性闸门**（权威闸门仍在 core reducer，见 D9）。
+//!
+//! 2026-09-11 用户裁决：LLM 不暴露任何工具、只做对话——动作系统（含
+//! `AppEvent::Render(RenderCommand::…)` 表演投影与 `SemanticAction` 依赖）
+//! 已整体移除；本枚举只承载对话状态、root 审计事实、错误与生命周期。
 
-use live2d_ai_core::SemanticAction;
 use live2d_ai_runtime::ErrorKind;
 
 use crate::user_event::PetUserEvent;
@@ -23,9 +25,7 @@ use crate::user_event::PetUserEvent;
 pub enum AppEvent {
     /// 托盘菜单命令（既有路径原样包装）。
     Tray(PetUserEvent),
-    /// 表演侧渲染命令（root Effect 的副作用投影）。
-    Render(RenderCommand),
-    /// 对话侧状态通知（口型门控与 render_epoch 镜像维护用）。
+    /// 对话侧状态通知（口型门控与 epoch 镜像维护用）。
     Conversation(ConversationUiEvent),
     /// root 侧关键事实的审计投影（节点 B 复审要求：UI 事件之外，
     /// 测试必须能观察 root 事实顺序——Started/GenerationFinished/Drained/
@@ -147,28 +147,8 @@ pub struct TurnStageTimings {
     pub tts_first_chunk_ms: u64,
     /// 首 chunk 入环 → `PlaybackDrained`（端到端播放耗时）。
     pub audio_play_ms: u64,
-    /// `ToolAction` → 仲裁 → `Perform` 效果（按动作累加）。
-    pub action_dispatch_ms: u64,
     /// 提交 → `TurnCompleted`（端到端 turn 总耗时）。
     pub turn_total_ms: u64,
-}
-
-/// 渲染命令（root Effect 投影；epoch 为该效果所属代次）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RenderCommand {
-    /// 表演指定动作（`Play` 与抢占 `Transition` 统一为「改为表演新动作」；
-    /// capability gate 与优先级仲裁已在 core reducer 完成）。
-    Perform {
-        /// 所属业务代次。
-        epoch: u64,
-        /// 要表演的动作（含强度与来源；来源仅观测用）。
-        action: SemanticAction,
-    },
-    /// 立即停止表演（stop / interrupt / End 效果共用；对空闲 player 幂等无害）。
-    CeasePerforming {
-        /// 所属业务代次。
-        epoch: u64,
-    },
 }
 
 /// 对话侧状态通知（携带业务 epoch；不含任何音频载荷）。

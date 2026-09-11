@@ -15,17 +15,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::app_event::{AppEvent, ConversationUiEvent, RenderCommand, RootFact};
+use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
 
 /// 把 [`AppEvent`] 投影为 D1 §4.3 WS 帧 JSON（`None` = P1 暂不实现）。
 ///
 /// **状态（2026-09-11 更新）**：
-/// - **已实现**（7/9）：`turn_state` / `runtime_status` / `text_delta` /
-///   `action_state`（来自 `AppEvent::Render` 投影）/ **`error`**。
+/// - **已实现**：`turn_state` / `runtime_status` / `text_delta` / **`error`**。
 ///   `error` 曾长期标为「P1 partial：依赖 `AppEvent` 扩展」——2026-09-11
 ///   补上 `AppEvent::Error` 变体后接线（用户报「后端出错无具体错误代码、
 ///   前端无法知道错误信息」，根因就是这里从来没有 `error` 帧）。
-/// - **P1 partial**：`tool_action` 仍需 `AppEvent::ToolAction` 变体。
+/// - **已移除**：`action_state`（来自 `AppEvent::Render` 投影）——2026-09-11
+///   用户裁决「LLM 不暴露任何工具，只做对话」，动作系统整体拆除后
+///   `AppEvent::Render` / `RenderCommand` 不再存在，本投影随之删除。
 /// - **P1 pending（需要 supervisor 信号源）**：`audio_status` /
 ///   `mouth_level` / `model_status` 仍 P1。
 ///
@@ -33,7 +34,6 @@ use crate::app_event::{AppEvent, ConversationUiEvent, RenderCommand, RootFact};
 /// Conversation(Voice*|NewEpoch) + ShutdownReady) / `text_delta`
 ///（含 Conversation(TextDelta) 真实 text payload；保留
 /// GenerationFinished 作为「完成锚点」兼容旧前端）。
-/// P1WS-2 新增：`action_state`（AppEvent::Render 投影）。
 /// 2026-09-11 新增：`error`（AppEvent::Error 投影；见下）。
 pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
     let mut frame = WsFrame::new();
@@ -126,33 +126,6 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
                 "hint": err.hint,
                 "epoch": err.epoch,
                 "fatal": err.fatal,
-            }));
-        }
-        // P1WS-2 新增：`action_state` 投影（来自 `AppEvent::Render`）。
-        AppEvent::Render(RenderCommand::Perform { epoch, action }) => {
-            // 手动 snake_case 序列化（`ActionSource` 当前没有 serde 派生；
-            // 契约 §6.1 要求 `user_command` / `llm_tool` / `rule_fallback`）。
-            let source = match action.source {
-                live2d_ai_core::ActionSource::UserCommand => "user_command",
-                live2d_ai_core::ActionSource::LlmTool => "llm_tool",
-                live2d_ai_core::ActionSource::RuleFallback => "rule_fallback",
-            };
-            frame.set_type("action_state");
-            frame.set_data(serde_json::json!({
-                "epoch": epoch,
-                "kind": "perform",
-                "action": {
-                    "action": action.action.name(),
-                    "strength": action.strength.level(),
-                    "source": source,
-                },
-            }));
-        }
-        AppEvent::Render(RenderCommand::CeasePerforming { epoch }) => {
-            frame.set_type("action_state");
-            frame.set_data(serde_json::json!({
-                "epoch": epoch,
-                "kind": "cease",
             }));
         }
         // P1 pending（需要 supervisor 信号源）：

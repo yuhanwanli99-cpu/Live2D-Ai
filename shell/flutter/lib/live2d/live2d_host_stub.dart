@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../design/tokens.dart';
+
 import 'live2d_transport.dart';
 
 /// 非 web 平台没有 `HtmlElementView`，不支持内嵌 `/render`。
@@ -19,7 +21,7 @@ Widget buildLive2DHost({
       final TextTheme text = Theme.of(context).textTheme;
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(Space.s6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[

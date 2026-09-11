@@ -91,9 +91,18 @@ pub(super) async fn tts_worker(ctx: TtsWorkerCtx, mut rx: mpsc::Receiver<TtsJob>
 
 /// 合成一句话：请求 `/audio/speech` → 增量解码 → 按上限切块发送。
 async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) -> SynthOutcome {
-    // **TTS 未接入（2026-09-10）**：`base_url` 为空 = 本轮未选定 TTS。
-    // 不报错、不阻塞文本流：为空句发一个 `final_chunk`，上层闩锁照常推进。
-    if !ctx.client.tts().is_configured() {
+    // **不发 HTTP 的两种情形，走同一条「静音句」收口**：发一个空 `final_chunk`
+    // 再发 `SentenceVoiced`，文本不丢、闩锁照常推进。
+    //
+    // ① **TTS 未接入（2026-09-10）**：`base_url` 为空 = 本轮未选定 TTS。
+    // ② **纯空白句（2026-09-11 修，实测缺陷）**：分句器把**换行**也算句读
+    //    （`is_terminator` 含 `'\n'`），所以模型输出 `"你好！\n"` 会切出一个只含
+    //    空白的「句子」。它 `is_empty() == false`（因此躲过了分句器的非空守卫）
+    //    却会被 TTS 上游 trim 成空串，上游直接回
+    //    `400 {"detail":"input 为空"}`——而 TTS 错误是 **fatal**，于是一句纯空白
+    //    会把**整轮**判失败（用户看到的是「说了半句就没了」）。
+    //    这里不发这个注定失败的请求，也不让分句器丢字符（那是它的硬不变量）。
+    if !ctx.client.tts().is_configured() || job.text.trim().is_empty() {
         let delivered = send_event(
             &ctx.event_tx,
             &ctx.cancel,
@@ -103,11 +112,13 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
                 sentence_seq: job.sentence_seq,
                 samples: Vec::new(),
                 spec,
+                // 空句：这一块既是首块也是末块。
+                first_chunk: true,
                 final_chunk: true,
             },
         )
         .await;
-        // TTS 未配置：仍按「一句一单元」上屏（纯文字模式不受影响）。
+        // 仍按「一句一单元」上屏（纯文字模式 / 空白句都不受影响的文本侧）。
         let voiced = delivered && emit_sentence_voiced(ctx, job).await;
         return if voiced {
             SynthOutcome::Done
@@ -146,6 +157,8 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
     // 增量解码：任意字节切割安全（半个样本留到下批）；块大小受限避免无限内存。
     let mut decoder = PcmS16LeDecoder::new(spec);
     let mut pending: Vec<f32> = Vec::new();
+    // 「本句是否已经发过块」——`first_chunk` 的唯一来源（见 `EngineEvent::AudioChunk`）。
+    let mut sent_any = false;
     loop {
         let chunk = tokio::select! {
             _ = ctx.cancel.cancelled() => return SynthOutcome::Cancelled,
@@ -172,10 +185,12 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
                     sentence_seq: job.sentence_seq,
                     samples: block,
                     spec,
+                    first_chunk: !sent_any,
                     final_chunk: false,
                 },
             )
             .await;
+            sent_any = true;
             if !delivered {
                 return SynthOutcome::Cancelled;
             }
@@ -197,6 +212,8 @@ async fn synthesize_sentence(ctx: &TtsWorkerCtx, spec: AudioSpec, job: &TtsJob) 
             sentence_seq: job.sentence_seq,
             samples: tail,
             spec,
+            // 前面一块都没发过 ⇒ 这个末块同时也是首块（短句 / 空句）。
+            first_chunk: !sent_any,
             final_chunk: true,
         },
     )
@@ -269,6 +286,8 @@ async fn synthesize_wav_sentence(
     };
     let spec = parsed.spec;
     let mut pending = parsed.samples;
+    // 同裸 PCM 路径：`first_chunk` 由「本句是否已发过块」决定。
+    let mut sent_any = false;
 
     // 非末块：留出末块（含空尾块）作 final_chunk，保证每句恰好一个 final_chunk。
     while pending.len() > ctx.chunk_samples {
@@ -282,10 +301,12 @@ async fn synthesize_wav_sentence(
                 sentence_seq: job.sentence_seq,
                 samples: block,
                 spec,
+                first_chunk: !sent_any,
                 final_chunk: false,
             },
         )
         .await;
+        sent_any = true;
         if !delivered {
             return SynthOutcome::Cancelled;
         }
@@ -301,6 +322,8 @@ async fn synthesize_wav_sentence(
             sentence_seq: job.sentence_seq,
             samples: tail,
             spec,
+            // 前面一块都没发过 ⇒ 这个末块同时也是首块。
+            first_chunk: !sent_any,
             final_chunk: true,
         },
     )

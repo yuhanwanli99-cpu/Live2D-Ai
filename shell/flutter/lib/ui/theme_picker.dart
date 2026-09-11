@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 
 import '../design/theme_id.dart';
 import '../design/tokens.dart';
+import 'soft_motion.dart';
 import 'theme.dart';
 
 class ThemePickerField extends StatelessWidget {
@@ -102,7 +103,10 @@ class _ThemeSwatch extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(AppRadius.md),
           child: AnimatedContainer(
-            duration: AppDurations.fast,
+            // 走 `appMotion` 而不是直接给令牌：**令牌对、闸门漏**是这类改动
+            // 最阴的失败方式——观感正常，只有开了「减少动画」的用户那里它照动，
+            // 而且不报错（2026-09-11，P1 的 motion_wiring 扫描抓到的就是它）。
+            duration: appMotion(context, AppDurations.fast),
             curve: Motion.state,
             width: 64,
             height: 44,

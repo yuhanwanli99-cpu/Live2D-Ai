@@ -203,8 +203,10 @@ fn turn_stage_timings_are_monotonic_with_audio() {
     );
 }
 
-/// EngineEvent 各变体均带 `ts_ms`：构造一个 `[EngineEvent; 5]` 的全
-/// 变体数组，断言所有 `ts_ms` 都为 0 即可（构造期必须接受此字段）。
+/// EngineEvent 各变体均带 `ts_ms`：构造一个全变体数组，断言各 `ts_ms`
+/// 被原样读出（构造期必须接受此字段）。
+///
+/// 2026-09-11：`EngineEvent::ToolAction` 已随动作系统移除，变体数由 6 降为 5。
 #[test]
 fn engine_event_variants_accept_ts_ms_field() {
     let events: [EngineEvent; 5] = [
@@ -213,24 +215,20 @@ fn engine_event_variants_accept_ts_ms_field() {
             ts_ms: 7,
             text: "x".into(),
         },
-        EngineEvent::ToolAction {
-            epoch: 1,
-            ts_ms: 8,
-            index: 0,
-            id: None,
-            args: live2d_ai_runtime::Live2dPerformActionArgs {
-                action: live2d_ai_runtime::PerformAction::Nod,
-                strength: 1,
-                reason: None,
-            },
-        },
         EngineEvent::AudioChunk {
             epoch: 1,
             ts_ms: 9,
             sentence_seq: 1,
             samples: vec![0.0f32, 0.1],
             spec: live2d_ai_runtime::AudioSpec::new(24_000, 1).expect("spec"),
+            first_chunk: true,
             final_chunk: false,
+        },
+        EngineEvent::SentenceVoiced {
+            epoch: 1,
+            ts_ms: 8,
+            sentence_seq: 1,
+            text: "x".into(),
         },
         EngineEvent::Error {
             epoch: 1,
@@ -250,7 +248,6 @@ fn engine_event_variants_accept_ts_ms_field() {
         // ev_ts_ms 不可见（pub(crate)），但我们用匹配直接读出 ts_ms。
         let ts = match e {
             EngineEvent::TextDelta { ts_ms, .. }
-            | EngineEvent::ToolAction { ts_ms, .. }
             | EngineEvent::AudioChunk { ts_ms, .. }
             | EngineEvent::SentenceVoiced { ts_ms, .. }
             | EngineEvent::Error { ts_ms, .. }
@@ -258,5 +255,5 @@ fn engine_event_variants_accept_ts_ms_field() {
         };
         stamps.push(ts);
     }
-    assert_eq!(stamps, vec![7, 8, 9, 10, 11], "每个变体必须带 ts_ms");
+    assert_eq!(stamps, vec![7, 9, 8, 10, 11], "每个变体必须带 ts_ms");
 }

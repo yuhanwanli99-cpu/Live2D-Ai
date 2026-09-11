@@ -17,14 +17,16 @@ import 'package:http/http.dart' as http;
 import 'api_client.dart';
 
 /// `GET /api/v1/app/capabilities` 的能力快照。
+///
+/// 2026-09-11：`actions` / `action_sources` / `strength_levels` 三个字段随
+/// 动作子系统一并删除（用户裁定 LLM 无工具、只做对话；`/api/v1/commands`
+/// 动作目录端点也删了）。服务端若仍下发这三个键，这里**忽略即可**——
+/// 未知字段本来就被容忍。
 class AppCapabilities {
   const AppCapabilities({
     this.app = '',
     this.version = '',
     this.schemaVersion = 0,
-    this.actions = const <String>[],
-    this.actionSources = const <String>[],
-    this.strengthLevels = const <int>[],
     this.modelUploadSupported = false,
     this.scriptInvokeSupported = false,
     this.runtimeWs = '',
@@ -35,11 +37,6 @@ class AppCapabilities {
   final String app;
   final String version;
   final int schemaVersion;
-
-  /// 可用动作（snake_case）。**动作按钮由它驱动显隐/置灰，不硬编码 6 个。**
-  final List<String> actions;
-  final List<String> actionSources;
-  final List<int> strengthLevels;
   final bool modelUploadSupported;
   final bool scriptInvokeSupported;
   final String runtimeWs;
@@ -50,14 +47,6 @@ class AppCapabilities {
     app: _str(json['app']),
     version: _str(json['version']),
     schemaVersion: _int(json['schema_version']),
-    actions: _strList(json['actions']),
-    actionSources: _strList(json['action_sources']),
-    strengthLevels: json['strength_levels'] is List
-        ? (json['strength_levels']! as List)
-              .whereType<num>()
-              .map((num n) => n.toInt())
-              .toList()
-        : const <int>[],
     modelUploadSupported: json['model_upload_supported'] == true,
     scriptInvokeSupported: json['script_invoke_supported'] == true,
     runtimeWs: _str(json['runtime_ws']),
@@ -186,10 +175,6 @@ Map<String, Object?> _stringKeys(Map<Object?, Object?> raw) {
   });
   return out;
 }
-
-List<String> _strList(Object? value) => value is List
-    ? value.whereType<String>().toList()
-    : const <String>[];
 
 String _str(Object? value) => value is String ? value : '';
 int _int(Object? value) => value is num ? value.toInt() : 0;

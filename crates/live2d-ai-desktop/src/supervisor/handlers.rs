@@ -2,20 +2,33 @@
 //!
 //! 本文件是 [`crate::supervisor`] 私有子模块：保留 `pub(crate)` 可见性使
 //! `tests.rs`（同级）可直接调用 `handle_engine_event` / `forward_effects`
-//! 完成 6 条 P0 真实闭环测试；外部 crate 仍只看到 `spawn_supervisor` /
+//! 完成真实闭环测试；外部 crate 仍只看到 `spawn_supervisor` /
 //! [`SupervisorHandle`]。**禁止展开宏**（1 号裁决）—— 共享宏
 //! `do_stop!` / `on_action_finished!` / `on_any_pcm_progress!` 留于
 //! `turn.rs` 内的 [`run_one_turn`] 局部作用域。
+//!
+//! # 动作投影已整体移除（2026-09-11 用户裁决）
+//!
+//! 用户裁决：**LLM 不暴露任何工具，只做对话**（「llm 不暴露任何工具只做对话」）。
+//! 据此本文件删掉了两条动作触发路径及其投影：
+//! - `EngineEvent::ToolAction` → `tool_adapter::wire_to_semantic` → core 仲裁；
+//! - `RootEffect::Action(..)` → `AppEvent::Render(RenderCommand::…)` 的副作用翻译。
+//!
+//! 也就是说：`live2d-ai-core` 的 action 子系统（`core::action` reducer、
+//! capability gate、优先级仲裁、`rule_fallback`）本身**仍然存在、内部自洽且
+//! 有单测**，但**不再被对话链路驱动**——它是**休眠的内部能力**，不属于本产品
+//! 的成品链路（文本 → LLM → TTS → 口型 → 渲染）。按任务约定，
+//! `crates/live2d-ai-core/` 本次**不动**：既不移除该子系统，也不为它保留
+//! desktop 侧接线（留着空接线反而会被误读为「还在用」）。
 
 use tokio::sync::mpsc;
 
 use live2d_ai_core::{
-    ActionCommand, ActionEffect, DropReason as CoreDropReason, Effect as RootEffect,
-    Event as RootEvent, GenerationOutcome,
+    DropReason as CoreDropReason, Effect as RootEffect, Event as RootEvent, GenerationOutcome,
 };
 use live2d_ai_runtime::{EngineEvent, ErrorKind, TurnStatus};
 
-use crate::app_event::{AppErrorEvent, AppEvent, ConversationUiEvent, RenderCommand};
+use crate::app_event::{AppErrorEvent, AppEvent, ConversationUiEvent};
 use crate::audio::{PreparedPcm, TryEnqueue};
 
 use super::{Emit, RootState, root_apply};
@@ -29,21 +42,18 @@ pub(crate) fn handle_engine_event(
     pending_pcm: &mut Option<PreparedPcm>,
     playback_started: &mut bool,
     voice_started_emitted: &mut bool,
-    accepted_tool_seen: &mut bool,
-    assistant_text_len: &mut usize,
     saw_fatal_kind: &mut bool,
     saw_llm_error: &mut bool,
     emit: &Emit,
 ) {
     match ev {
         EngineEvent::TextDelta { text, .. } => {
-            *assistant_text_len += text.chars().count();
             print!("{text}");
             use std::io::Write as _;
             let _ = std::io::stdout().flush();
             // **不再在此上屏**（2026-09-10 用户裁决：一句一单元，先完整合成再显示）。
             //
-            // 这里仍是「LLM 正文增量」的原始流，只做控制台回显与长度统计；
+            // 这里仍是「LLM 正文增量」的原始流，只做控制台回显；
             // 真正推给 UI/WS 的文字由下面的 `SentenceVoiced` 承载 —— 那一刻该句
             // 语音**已经合成完毕**，于是文字与声音同拍，而不是领先好几秒。
             //
@@ -63,35 +73,6 @@ pub(crate) fn handle_engine_event(
                 ts_ms: *ts_ms,
                 text: text.clone(),
             }));
-        }
-        EngineEvent::ToolAction { args, .. } => {
-            // D11 第一步：wire 合法性（非法 strength 直接拒绝、绝不 clamp）。
-            match crate::tool_adapter::wire_to_semantic(args.clone()) {
-                Ok(sa) => {
-                    let cur = root.epoch;
-                    let effects = root_apply(
-                        root,
-                        RootEvent::Action {
-                            epoch: cur,
-                            command: ActionCommand::Play { action: sa },
-                        },
-                    );
-                    // 第二步：「被接受」＝根产出 Start/Transition；capability
-                    // 缺失/幂等/低优先级拒绝都不算接受、也不抑制 fallback。
-                    let accepted = effects.iter().any(|e| {
-                        matches!(
-                            e,
-                            RootEffect::Action(ActionEffect::Start { .. })
-                                | RootEffect::Action(ActionEffect::Transition { .. })
-                        )
-                    });
-                    if accepted {
-                        *accepted_tool_seen = true;
-                    }
-                    forward_effects(root.epoch.get(), &effects, audio.as_deref(), emit);
-                }
-                Err(reason) => println!("\n[tool] {reason}"),
-            }
         }
         EngineEvent::Error { kind, epoch, .. } => {
             // 2026-09-11：错误必须**同时**可被三种消费者看见——
@@ -121,19 +102,28 @@ pub(crate) fn handle_engine_event(
                 ErrorKind::Tts(_) | ErrorKind::Decode(_) | ErrorKind::Backpressure { .. } => {
                     *saw_fatal_kind = true;
                 }
-                ErrorKind::IncompleteTools(_) => {}
             }
         }
         EngineEvent::AudioChunk {
             epoch,
             samples,
             spec,
+            sentence_seq,
+            first_chunk,
+            final_chunk,
             ..
         } => {
-            if samples.is_empty() {
-                return; // 句尾 final_chunk 允许为空：无音频语义
-            }
-            if let Some(producer) = audio {
+            // **空样本块**（2026-09-11 修）：引擎允许某句的末块样本数为 0
+            // （句子样本数正好是 `audio_chunk_samples` 整数倍时就会出现）。
+            // 过去这里直接 `return`，把那一块连同它的 `final_chunk=true` 一起丢了
+            // ——于是那一句在 WS 上永远没有 `end=true`，前端等不到句尾闸门。
+            //
+            // 现在**只跳过声卡入环**（空样本没有可播的东西，入环会破坏
+            // partial-write/排空语义），WS 广播照常进行：`build_audio_frames`
+            // 会为空 PCM 发一帧只有边界、没有音频体的句界帧。
+            if !samples.is_empty()
+                && let Some(producer) = audio
+            {
                 debug_assert!(
                     pending_pcm.is_none(),
                     "背压实例化点失效：select 守卫应在读取前拦住"
@@ -170,9 +160,20 @@ pub(crate) fn handle_engine_event(
             // F6-T2：PCM 绝不经 AppEvent——在 cpal 入环之外同步推 WS。
             // 线程局部回调由 `spawn_supervisor_impl` 在子线程安装；默认为 None
             //          （现网不变），仅 `LIVE2D_AI_WS_AUDIO=1` 时为 Some。
+            //
+            // 2026-09-11：把**句子边界**（`sentence_seq` / `first_chunk` /
+            // `final_chunk`）一并透传——WS 帧的 `start`/`end` 必须按**句**给出，
+            // 而不是按 epoch 记账去推（旧做法实测产出「0 个 start、13 个 end」）。
             super::AUDIO_CB.with(|cell| {
                 if let Some(cb) = cell.borrow().as_ref() {
-                    cb(*epoch, samples, *spec);
+                    cb(
+                        *epoch,
+                        samples,
+                        *spec,
+                        *sentence_seq,
+                        *first_chunk,
+                        *final_chunk,
+                    );
                 }
             });
             // dry-run（无声卡）：跳过入环、永不报 Started。
@@ -185,7 +186,6 @@ pub(crate) fn handle_engine_event(
 pub(crate) fn ev_epoch(ev: &EngineEvent) -> u64 {
     match ev {
         EngineEvent::TextDelta { epoch, .. }
-        | EngineEvent::ToolAction { epoch, .. }
         | EngineEvent::AudioChunk { epoch, .. }
         | EngineEvent::SentenceVoiced { epoch, .. }
         | EngineEvent::Error { epoch, .. }
@@ -198,7 +198,6 @@ pub(crate) fn ev_epoch(ev: &EngineEvent) -> u64 {
 pub(crate) fn ev_ts_ms(ev: &EngineEvent) -> Option<u64> {
     match ev {
         EngineEvent::TextDelta { ts_ms, .. }
-        | EngineEvent::ToolAction { ts_ms, .. }
         | EngineEvent::AudioChunk { ts_ms, .. }
         | EngineEvent::SentenceVoiced { ts_ms, .. }
         | EngineEvent::Error { ts_ms, .. }
@@ -221,6 +220,10 @@ pub(crate) fn emit_voice_ended_if_needed(
 
 /// root Effect → AppEvent / 声卡副作用的唯一翻译处。
 /// StopPlayback 在此真实执行打断（它只来自 stop 事务路径）。
+///
+/// 2026-09-11：`RootEffect::Action(..)` 四条投影分支已删除（动作系统整体移除，
+/// 见文件头注）。core 若产出 Action 效果（例如 dormant 的 action reducer 被
+/// 外部直接驱动），desktop 侧不再有对应副作用——这正是「不接线」的含义。
 pub(crate) fn forward_effects(
     epoch: u64,
     effects: &[RootEffect],
@@ -246,24 +249,9 @@ pub(crate) fn forward_effects(
                     },
                 ));
             }
-            RootEffect::Action(ActionEffect::Start { action }) => {
-                emit(AppEvent::Render(RenderCommand::Perform {
-                    epoch,
-                    action: *action,
-                }));
-            }
-            RootEffect::Action(ActionEffect::Transition { to, .. }) => {
-                emit(AppEvent::Render(RenderCommand::Perform {
-                    epoch,
-                    action: *to,
-                }));
-            }
-            RootEffect::Action(ActionEffect::End { .. }) => {
-                emit(AppEvent::Render(RenderCommand::CeasePerforming { epoch }));
-            }
-            RootEffect::Action(ActionEffect::Dropped { reason }) => {
-                tracing::debug!(?reason, "动作指令被 core 仲裁拒绝");
-            }
+            // 动作效果：2026-09-11 起不再有桌面侧投影（无 AppEvent::Render）。
+            // 保留显式分支（而非 `_` 兜底）以便未来新增效果时编译器点名。
+            RootEffect::Action(_) => {}
             RootEffect::Dropped { reason } => {
                 match reason {
                     CoreDropReason::StaleActionCompletion { finished, .. } => {
@@ -292,14 +280,4 @@ pub(crate) fn gen_outcome(status: TurnStatus) -> GenerationOutcome {
         TurnStatus::Failed => GenerationOutcome::Failed,
         TurnStatus::Cancelled => GenerationOutcome::Cancelled,
     }
-}
-
-pub(crate) fn content_worth_fallback(
-    outcome: GenerationOutcome,
-    assistant_text_len: usize,
-) -> bool {
-    matches!(
-        outcome,
-        GenerationOutcome::Completed | GenerationOutcome::Failed
-    ) && assistant_text_len > 0
 }

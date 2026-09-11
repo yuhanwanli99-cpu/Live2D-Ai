@@ -1,22 +1,22 @@
 //! LLM：OpenAI-compatible `/chat/completions`（固定 `stream=true`，SSE 按 chunk 消费）。
 //!
-//! 事件流语义（fragment 语义，调用方按序拼接）：
+//! 事件流语义：
 //! - [`LlmEvent::TextDelta`]：正文文本增量；
-//! - [`LlmEvent::ToolCallDelta`]：工具调用增量。`index` 是该调用在本次响应内的
-//!   流式下标（wire 缺省按 0），`id` 是服务端调用 id（通常仅首个分片携带）；
-//!   `name` 是**本次 chunk 的名字片段**（OpenAI 通常一次性给全，其后为 `None`）；
-//!   `arguments` 是**本次 chunk 的参数 JSON 片段**（标准行为就是跨多个 SSE 事件
-//!   分块到达，必须拼接后再解析）；
 //! - [`LlmEvent::Done`]：收到 `[DONE]`；对端未发 `[DONE]` 就关流时也兜底补发一次。
+//!
+//! 2026-09-11 用户裁决：**LLM 不暴露任何工具，只做对话**。请求体因此**不含**
+//! `tools` 字段，本模块也不再解析任何 tool-call 流（`ToolCallDelta` 已删除）。
+//! 原因（用户裁决原文「llm 不暴露任何工具只做对话」）：带工具 + 空提示词时模型
+//! 有时只发工具调用、**一个字正文都不发**——turn 成功结束却说不出话。
+//! 回归见 `wire_request_has_no_tools_key`。
 //!
 //! 解析层不假设任何网络/SSE 切割粒度：字节先进 [`SseDecoder`] 缓冲，
 //! 单个 chunk 可能只是半行、一行、多行甚至半个多字节字符。
 //!
 //! # 行数（AGENTS.md「源码 ≤500 行」）
 //!
-//! 文件 528 行，其中 `#[cfg(test)] mod tests` 自第 354 行起占 175 行——
-//! **生产代码 353 行**，未超 500 行上限。统计时请按此口径看，不要把内联
-//! 测试算进源码行数。
+//! 生产代码（`#[cfg(test)] mod tests` 之前）未超 500 行上限。统计时请按此
+//! 口径看，不要把内联测试算进源码行数。
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -28,7 +28,6 @@ use url::Url;
 
 use crate::error::{Error, Result};
 use crate::sse::SseDecoder;
-use crate::tool::perform_action_tool;
 
 /// 消息角色（v0 只需要三种）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,17 +90,6 @@ impl ChatMessage {
 pub enum LlmEvent {
     /// 正文文本增量片段。
     TextDelta(String),
-    /// 工具调用增量（见模块文档的 fragment 语义）。
-    ToolCallDelta {
-        /// 该调用在本次响应内的流式下标（wire 缺省按 0）。
-        index: usize,
-        /// 服务端调用 id；通常仅首个分片携带，后续分片为 `None`。
-        id: Option<String>,
-        /// 本次 chunk 携带的名字片段；本 chunk 无名字时为 `None`。
-        name: Option<String>,
-        /// 本次 chunk 携带的参数 JSON 片段（可为空串）。
-        arguments: String,
-    },
     /// 流正常结束。
     Done,
 }
@@ -119,7 +107,6 @@ struct ChatRequestBody<'a> {
     model: &'a str,
     messages: Vec<WireMessage<'a>>,
     stream: bool,
-    tools: [serde_json::Value; 1],
     /// 输出 token 上限。**0 = 不限制**（字段整体省略，沿用服务端默认）。
     ///
     /// 这是「控制回复长度」的**机制**——不靠提示词求模型守规矩，
@@ -150,8 +137,6 @@ fn chat_request_body<'a>(
             .collect(),
         // 固定 stream=true：唯一路径就是 SSE 增量流。
         stream: true,
-        // 固定注入唯一的 live2d_perform_action 工具；用不用/能不能用由 core 决定。
-        tools: [perform_action_tool()],
         max_tokens,
     }
 }
@@ -172,28 +157,6 @@ struct ChatChunkChoice {
 struct ChatDelta {
     #[serde(default)]
     content: Option<String>,
-    #[serde(default)]
-    tool_calls: Option<Vec<ChatToolCall>>,
-}
-
-#[derive(Deserialize)]
-struct ChatToolCall {
-    #[serde(default)]
-    function: Option<ChatToolFunction>,
-    /// 流式下标：同轮多个调用靠它分组；个别 provider 缺省时按 0。
-    #[serde(default)]
-    index: usize,
-    /// 服务端调用 id：通常仅首个分片携带。
-    #[serde(default)]
-    id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ChatToolFunction {
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    arguments: Option<String>,
 }
 
 /// 把一条 SSE data 映射为零或多个 [`LlmEvent`]（或一个可观测错误）。
@@ -220,34 +183,12 @@ fn map_sse_data(data: &str, done: &mut bool, out: &mut Vec<Result<LlmEvent>>) {
     };
 
     for choice in &chunk.choices {
-        let delta = &choice.delta;
-
-        match delta.content.as_deref() {
-            Some(text) if !text.is_empty() => {
-                out.push(Ok(LlmEvent::TextDelta(text.to_string())));
-            }
-            _ => {}
-        }
-
-        if let Some(calls) = &delta.tool_calls {
-            for call in calls {
-                let (name, arguments) = match &call.function {
-                    Some(function) => (
-                        function.name.clone().filter(|n| !n.is_empty()),
-                        function.arguments.clone().unwrap_or_default(),
-                    ),
-                    // 只带 id/index 的分片也透传：组装层靠它把 id 关联到对应调用。
-                    None => (None, String::new()),
-                };
-                if name.is_some() || !arguments.is_empty() || call.id.is_some() {
-                    out.push(Ok(LlmEvent::ToolCallDelta {
-                        index: call.index,
-                        id: call.id.clone(),
-                        name,
-                        arguments,
-                    }));
-                }
-            }
+        // 2026-09-11：只认正文。响应里若出现 `tool_calls`（例如服务端仍带旧
+        // 工具定义），serde 忽略未声明字段，这里自然不产出任何事件。
+        if let Some(text) = choice.delta.content.as_deref()
+            && !text.is_empty()
+        {
+            out.push(Ok(LlmEvent::TextDelta(text.to_string())));
         }
     }
 }
@@ -390,77 +331,6 @@ mod tests {
     }
 
     #[test]
-    fn tool_arguments_fragments_concatenate_across_events() {
-        let (events, errors, _) = map_all(&[
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\
-              \"type\":\"function\",\"function\":{\"name\":\"live2d_perform_action\"}}]}}]}",
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\
-              \"function\":{\"arguments\":\"{\\\"action\\\":\\\"nod\\\"\"}}]}}]}",
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\
-              \"function\":{\"arguments\":\",\\\"strength\\\":2}\"}}]}}]}",
-        ]);
-        assert!(errors.is_empty());
-
-        let mut name: Option<String> = None;
-        let mut args = String::new();
-        for event in &events {
-            if let LlmEvent::ToolCallDelta {
-                name: fragment,
-                arguments,
-                ..
-            } = event
-            {
-                if fragment.is_some() {
-                    name = fragment.clone();
-                }
-                args.push_str(arguments);
-            }
-        }
-        assert_eq!(name.as_deref(), Some("live2d_perform_action"));
-        assert_eq!(args, "{\"action\":\"nod\",\"strength\":2}");
-
-        // 拼接结果可反序列化回 wire 类型。
-        let parsed: crate::tool::Live2dPerformActionArgs = serde_json::from_str(&args).unwrap();
-        assert_eq!(parsed.action, crate::tool::PerformAction::Nod);
-        assert_eq!(parsed.strength, 2);
-    }
-
-    #[test]
-    fn tool_call_index_and_id_are_forwarded_with_defaults() {
-        // 带 index/id 的分片原样透传；缺 index 的分片按协议缺省为 0；只带 id 也透传。
-        let (events, errors, _) = map_all(&[
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"a\",\
-              \"type\":\"function\",\"function\":{\"name\":\"x\"}}]}}]}",
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"b\",\"type\":\"function\"}]}}]}",
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"{}\"}}]}}]}",
-        ]);
-        assert!(errors.is_empty());
-        assert_eq!(
-            events,
-            vec![
-                LlmEvent::ToolCallDelta {
-                    index: 1,
-                    id: Some("a".to_string()),
-                    name: Some("x".to_string()),
-                    arguments: String::new(),
-                },
-                LlmEvent::ToolCallDelta {
-                    index: 0,
-                    id: Some("b".to_string()),
-                    name: None,
-                    arguments: String::new(),
-                },
-                LlmEvent::ToolCallDelta {
-                    index: 0,
-                    id: None,
-                    name: None,
-                    arguments: "{}".to_string(),
-                },
-            ]
-        );
-    }
-
-    #[test]
     fn malformed_json_yields_observable_error() {
         let (events, errors, _) = map_all(&["{not json"]);
         assert!(events.is_empty());
@@ -470,9 +340,11 @@ mod tests {
     }
 
     #[test]
-    fn empty_content_and_bare_tool_call_are_skipped() {
-        // 空 content 与「既无 function 也无 id」的 tool_call 不产生噪声事件；
-        // 只带 id 的分片会透传（组装层靠它关联 id），见 index/id 转发测试。
+    fn empty_content_and_tool_call_only_chunks_are_skipped() {
+        // 空 content、空 choices、以及**只带 tool_calls** 的 chunk 都不产生事件。
+        // 最后一条即用户裁决的直接后果：LLM 不再暴露工具，tool-call 流被忽略
+        // ——过去它会变成 `ToolCallDelta`，是「模型只调工具、一个字都不说」
+        // 那条空转 turn 的入口。
         let (events, errors, _) = map_all(&[
             "{\"choices\":[{\"delta\":{\"content\":\"\"}}]}",
             "{\"choices\":[]}",
@@ -491,11 +363,32 @@ mod tests {
         assert_eq!(json["stream"], true);
         assert_eq!(json["messages"][0]["role"], "system");
         assert_eq!(json["messages"][1]["role"], "user");
-        assert_eq!(
-            json["tools"][0]["function"]["name"],
-            "live2d_perform_action"
-        );
-        assert_eq!(json["tools"].as_array().unwrap().len(), 1);
+    }
+
+    /// **本任务最重要的断言（2026-09-11 用户裁决）**：请求体**不含** `tools` 键。
+    ///
+    /// 用户裁决原文：「llm 不暴露任何工具只做对话」。工具一旦出现，模型有时只发
+    /// 工具调用、正文一个字都不发——turn 成功却什么都没说。所以这里不是断言
+    /// 「tools 为空数组」，而是断言**键根本不存在**：空数组仍会在 wire 上宣告
+    /// 「本模型支持工具」，语义完全不同。
+    #[test]
+    fn wire_request_has_no_tools_key() {
+        let messages = [
+            ChatMessage::system("sys"),
+            ChatMessage::user("hi"),
+            ChatMessage::assistant("yo"),
+        ];
+        // 覆盖有/无 max_tokens 两条序列化分支，tools 在两种情况下都不得出现。
+        for max_tokens in [0u32, 512] {
+            let json = serde_json::to_value(chat_request_body("m", &messages, max_tokens)).unwrap();
+            assert!(
+                json.get("tools").is_none(),
+                "LLM 请求体不得含 tools 键（max_tokens={max_tokens}），got: {json}"
+            );
+            // 顺带锁住「没有别的工具别名」：function/tool_choice 也不该出现。
+            assert!(json.get("tool_choice").is_none(), "got: {json}");
+            assert!(json.get("functions").is_none(), "got: {json}");
+        }
     }
 
     /// 输出上限的线上形态：`0`（不限制）→ 字段整体省略；非 0 → 原样出现。

@@ -1,6 +1,8 @@
-//! 故障/止损/finish 通道专项：声卡 fatal 路径归一化为 Failed、stop-during-drain
-//! 禁止 commit/fallback/后续 Perform、finish 事实穿越 root 闸门（自然完成 vs
-//! 跨代次 StaleEpoch）。
+//! 故障/止损/finish 通道专项：声卡 fatal 路径归一化为 Failed、
+//! finish 事实穿越 root 闸门（自然完成 vs 跨代次 StaleEpoch）。
+//!
+//! 2026-09-11：动作系统整体移除，「禁止 commit/fallback/后续 Perform」那条
+//! 专项随 `RenderCommand` 一起删除。
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,7 +11,7 @@ use live2d_ai_core::{ActionId, ActionSource, Strength};
 
 use super::support::{
     Collector, count_fact, facts, has_dropped, make_fault_producer, spawn_llm_mock,
-    spawn_llm_mock_slow, spawn_text_only_collector, spawn_tts_mock, wait_for,
+    spawn_llm_mock_slow, spawn_tts_mock, wait_for,
 };
 use super::*;
 use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
@@ -250,94 +252,46 @@ fn internal_audio_fault_yields_turn_completed_failed() {
 
 // ---- P0-6: action_finished_fact_travels_real_finish_channel ----
 //
-// 基线：spawn_supervisor 空闲态 handle.report_action_finished(0, action) ⇒
-// collector 断言 RootFact::Dropped 出现（事实穿越真实 finish_rx 通道到达 root，
-// 由 root 闸门判定 StaleEpoch ⇒ Dropped，forward_effects 把 Dropped 投影为
+// 空闲态 `handle.report_action_finished(0, action)` ⇒ collector 断言
+// RootFact::Dropped 出现（事实穿越真实 finish_rx 通道到达 root，由 root 闸门
+// 判定 StaleEpoch ⇒ Dropped，forward_effects 把 Dropped 投影为
 // RootFact::Dropped）。
 //
-// 进阶：让 epoch0 出现 Render(Perform)，handle.report_action_finished(0, action) ⇒
-// 随后出现 Render(RenderCommand::CeasePerforming{epoch:0})，且全程无 Dropped
-// （动作的"自然完成"以 root 闸门接受，root 触发 ActionEffect::End ⇒ 翻译为
-// CeasePerforming，不走 Dropped 路径）。
+// 2026-09-11 用户裁决：动作系统整体移除（LLM 不暴露任何工具，只做对话，
+// 文本规则 fallback 一并拆除）。原先本用例的「进阶」半边——靠
+// `rule_fallback("好的")` 触发 `Render(Perform)` 再回报自然完成——已不可能
+// 成立（既没有动作来源，也没有 `RenderCommand` 投影），故整段删除；
+// 保留下来的空闲态半边仍是 finish 通道端到端可达性的有效证据。
 #[test]
 fn action_finished_fact_travels_real_finish_channel() {
-    // ---- 基线：空闲态 finish ⇒ Dropped ----
-    {
-        let collector: Collector = Arc::new(Mutex::new(Vec::new()));
-        let ec = collector.clone();
-        let client = live2d_ai_runtime::OpenAiClient::new(
-            live2d_ai_runtime::LlmConfig::new("http://127.0.0.1:1", "m"),
-            live2d_ai_runtime::TtsConfig::new("http://127.0.0.1:1", "v"),
-        )
-        .expect("client");
-        let handle = spawn_supervisor(
-            SupervisorConfig {
-                client,
-                conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
-                capabilities: live2d_ai_core::ModelCapabilities::all(),
-                audio: None,
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let ec = collector.clone();
+    let client = live2d_ai_runtime::OpenAiClient::new(
+        live2d_ai_runtime::LlmConfig::new("http://127.0.0.1:1", "m"),
+        live2d_ai_runtime::TtsConfig::new("http://127.0.0.1:1", "v"),
+    )
+    .expect("client");
+    let handle = spawn_supervisor(
+        SupervisorConfig {
+            client,
+            conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
+            capabilities: live2d_ai_core::ModelCapabilities::all(),
+            audio: None,
 
-                config_path: None,
-                mod_events: None,
-            },
-            move |ev| {
-                ec.lock().expect("poison").push(ev);
-            },
-        );
-
-        let action = SemanticAction::new(ActionId::Nod, Strength::Low, ActionSource::LlmTool);
-        handle.report_action_finished(0, action);
-
-        assert!(
-            wait_for(Duration::from_secs(2), || has_dropped(&collector)),
-            "事实必须经真实 finish_rx 通道到达 root 并被投影为 Dropped"
-        );
-
-        handle.quit();
-        assert!(wait_for(Duration::from_secs(2), || collector
-            .lock()
-            .expect("poison")
-            .iter()
-            .any(|e| matches!(e, AppEvent::ShutdownReady))));
-        handle.join();
-    }
-
-    // ---- 进阶：fallback "好的" ⇒ Perform{epoch:0}，随后 finish ⇒ CeasePerforming{epoch:0} ----
-    let (handle, collector, _) = spawn_text_only_collector(
-        "data: {\"choices\":[{\"delta\":{\"content\":\"好的\"}}]}\n\ndata: [DONE]\n\n".to_owned(),
+            config_path: None,
+            mod_events: None,
+        },
+        move |ev| {
+            ec.lock().expect("poison").push(ev);
+        },
     );
-    assert!(handle.say("hi"));
-    let action = SemanticAction::new(ActionId::Nod, Strength::Low, ActionSource::RuleFallback);
-    // 等 Perform{epoch:0, action=...} 出现再回报完成。
-    let action_for_match = action;
-    assert!(
-        wait_for(Duration::from_secs(3), || collector
-            .lock()
-            .expect("poison")
-            .iter()
-            .any(|e| matches!(
-                e,
-                AppEvent::Render(crate::app_event::RenderCommand::Perform { epoch: 0, action: a })
-                    if *a == action_for_match
-            ))),
-        "「好的」必须经 fallback ⇒ Perform{{epoch:0,action}}"
-    );
+
+    let action = SemanticAction::new(ActionId::Nod, Strength::Low, ActionSource::LlmTool);
     handle.report_action_finished(0, action);
+
     assert!(
-        wait_for(Duration::from_secs(3), || collector
-            .lock()
-            .expect("poison")
-            .iter()
-            .any(|e| matches!(
-                e,
-                AppEvent::Render(crate::app_event::RenderCommand::CeasePerforming { epoch: 0 })
-            ))),
-        "finish 经真实通道 ⇒ root ActionEffect::End ⇒ CeasePerforming{{epoch:0}}"
-    );
-    // 全程无 Dropped（动作完成被 root 接受，未被丢弃）。
-    assert!(
-        !has_dropped(&collector),
-        "自然完成路径不得触发 Dropped 投影"
+        wait_for(Duration::from_secs(2), || has_dropped(&collector)),
+        "事实必须经真实 finish_rx 通道到达 root 并被投影为 Dropped"
     );
 
     handle.quit();

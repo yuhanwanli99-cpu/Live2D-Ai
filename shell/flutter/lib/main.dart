@@ -6,10 +6,12 @@
 /// | 逻辑 | 去处 | 测试 |
 /// |---|---|---|
 /// | 帧解析 | `api/ws_frame.dart` | `ws_frame_test.dart` |
-/// | 动作来源 / 历史 | `actions/*` | `action_*_test.dart` |
 /// | 界面相位派生 | `state/ui_phase.dart` + `state/ui_state_tracker.dart` | 两个 `ui_*_test.dart` |
 /// | 主题 / 令牌 / 断点 | `ui/theme.dart`、`design/*` | `theme_test.dart` 等 |
 /// | 外壳与布局 | `app/app_shell.dart` | `app_shell_layout_test.dart`、`stage_keepalive_test.dart` |
+///
+/// （2026-09-11：本表原先还有一行「动作来源 / 历史 → `actions/*`」。用户裁定
+/// LLM 无工具、只做对话，动作子系统整条移除，该行的文件与测试一并删除。）
 ///
 /// 本文件剩下的只有「谁持有谁」「哪个回调接哪个方法」——那部分没有分支逻辑。
 library;
@@ -23,9 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
-import 'actions/action_event.dart';
 import 'api/api_client.dart';
-import 'api/commands_api.dart';
 import 'api/diagnostics_api.dart';
 import 'api/models_api.dart';
 import 'api/mods_api.dart';
@@ -33,13 +33,14 @@ import 'api/settings_models.dart';
 import 'api/ws_client.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
+import 'chat/chat_session.dart';
 import 'design/tokens.dart';
 import 'app/app_shell.dart';
 import 'app/app_shortcuts.dart';
 import 'live2d/live2d_bridge.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
-import 'settings/sections/actions_section.dart';
+import 'settings/sections/appearance_section.dart';
 import 'settings/sections/dev_tools_section.dart';
 import 'settings/sections/llm_section.dart';
 import 'settings/sections/persona_section.dart';
@@ -48,12 +49,18 @@ import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
-import 'ui/action_toolbar.dart';
 import 'ui/error_banner.dart';
+import 'ui/stage_corner_controls.dart';
 import 'ui/theme.dart';
 
 /// 本地显示偏好的存储键（localStorage）。
 const String kDisplayPrefsKey = 'live2d-ai.display-prefs';
+
+/// 聊天会话存档的存储键（localStorage）。
+///
+/// 与 `kDisplayPrefsKey` 分开：偏好是「小而常变」，会话是「大而不常变」。
+/// 混在一个键里会让每次拖音量滑杆都重写整份聊天记录。
+const String kChatSessionsKey = 'live2d-ai.chat-sessions';
 
 /// 读取本地显示偏好：**任何异常都回落默认**（坏存储不该让舞台渲染不出来）。
 DisplayPrefs loadDisplayPrefs() {
@@ -77,6 +84,36 @@ void saveDisplayPrefs(DisplayPrefs prefs) {
     );
   } catch (_) {
     // 忽略：偏好丢失不影响本次会话。
+  }
+}
+
+/// 读取聊天会话存档：**任何异常都回落空 store**。
+///
+/// 与 `loadDisplayPrefs` 同一条纪律：一份被改坏 / 版本不符的存储不该让
+/// 聊天区打不开——最坏情况是「历史没了」，而不是「页面崩了」。
+ChatSessionStore loadChatSessions() {
+  try {
+    final String? raw = web.window.localStorage.getItem(kChatSessionsKey);
+    if (raw == null || raw.isEmpty) return ChatSessionStore.empty();
+    return ChatSessionStore.fromJson(jsonDecode(raw));
+  } catch (_) {
+    return ChatSessionStore.empty();
+  }
+}
+
+/// 写入聊天会话存档（失败静默：无痕模式 / 配额满都会抛）。
+///
+/// **配额满不是假设**：localStorage 常见上限 5 MB，而 `ChatSessionStore`
+/// 用 `maxSessions` × `kMaxMessagesPerSession` 双重夹持把体积压在配额内。
+/// 即便如此，写失败也只丢「这次之后的新记录」，不该影响正在进行的对话。
+void saveChatSessions(ChatSessionStore store) {
+  try {
+    web.window.localStorage.setItem(
+      kChatSessionsKey,
+      jsonEncode(store.toJson()),
+    );
+  } catch (_) {
+    // 忽略：存储不可用不影响本次会话。
   }
 }
 
@@ -234,7 +271,6 @@ class _ShellRootState extends State<ShellRoot> {
   final TextEditingController _input = TextEditingController();
 
   late final ApiClient _api;
-  late final CommandsApi _commandsApi;
   late final WsClient _ws;
   late final AudioPlayer _audio;
   late final ChatController _chat;
@@ -247,7 +283,7 @@ class _ShellRootState extends State<ShellRoot> {
   StreamSubscription<WsEvent>? _eventSubscription;
 
   /// 当前设置分区（受控；外壳只上报意图）。
-  SettingsSection _section = SettingsSection.actions;
+  SettingsSection _section = SettingsSection.appearance;
 
   /// 服务端静音观测值（WS `audio.muted`，**只读**）。
   bool _serverMuted = false;
@@ -267,7 +303,12 @@ class _ShellRootState extends State<ShellRoot> {
   bool _adminLoading = false;
   String? _adminError;
   String? _busyId;
-  String? _actionMessage;
+
+  /// 「模型库 / Mod」管理操作的结果（激活、启停）。**与动作子系统无关**——
+  /// 2026-09-11 由 `_adminMessage` 改名而来：那是个误导性的旧名字，
+  /// 让人以为它属于已被删除的动作链路（实际服务的是 `_activateModel`
+  /// 与 `_toggleMod`）。行为不变。
+  String? _adminMessage;
   String? _llmTest;   bool _llmTesting = false;
   String? _ttsTest;   bool _ttsTesting = false;
   String? _importMessage; bool _importFailed = false;
@@ -276,13 +317,12 @@ class _ShellRootState extends State<ShellRoot> {
   bool _copied = false;
   bool _settingsLoadedOnce = false;
 
-  // ── 动作通道 ──
-  /// 当前正在演的动作协议名（`null` = 没有）。
-  ///
-  /// 只服务一个协议细节：`cease` 帧**不带动作名**，而渲染面需要名字才能停下
-  /// 正确的动作。它**不是**触发状态——手动触发入口本轮已移出成品
-  ///（见 `docs/design/web-action-trigger-archive.md`）。
-  String? _performingAction;
+  // ── 动作子系统已于 2026-09-11 移除（用户裁决：LLM 无工具、只做对话）──
+  //
+  // 这里曾经有 `_performingAction`（当前正在演的动作协议名）与 `_onActionState`
+  // （把 WS `action_state` 帧转成渲染面的 `action-state`）。随
+  // `live2d_perform_action` 工具、`action_state` 帧与 `/api/v1/commands`
+  // 端点一起删除——服务端不再发这一帧，前端也就不再有任何动作通道。
 
   /// 渲染面回报的实际缩放（`stage-ack`；未收到时为 null，**不猜**）。
   double? _stageScaleFromAck;
@@ -306,7 +346,6 @@ class _ShellRootState extends State<ShellRoot> {
   void initState() {
     super.initState();
     _api = ApiClient();
-    _commandsApi = CommandsApi();
     _modelsApi = ModelsApi();
     _modsApi = ModsApi();
     _diagApi = DiagnosticsApi();
@@ -316,7 +355,17 @@ class _ShellRootState extends State<ShellRoot> {
     // 静音与音量是纯本机输出设置（不经渲染面）：**默认出声**。
     _audio.muted = widget.prefs.muted;
     _audio.volume = widget.prefs.volume;
-    _chat = ChatController(api: _api, ws: _ws, audio: _audio);
+    // 会话存档：启动时读一次，之后每次变动写回。
+    //
+    // **落盘时机由 `ChatController` 决定**（一轮结束 / 会话操作），
+    // 不是每条消息——`text_delta` 是毫秒级的，逐条写会把主线程拖垮。
+    _chat = ChatController(
+      api: _api,
+      ws: _ws,
+      audio: _audio,
+      sessions: loadChatSessions(),
+      persistSessions: saveChatSessions,
+    );
 
     // 音频 RMS → 舞台口型（30 Hz 高频信号，**不进 Widget 树**，原则 P6）。
     _levelSubscription = _audio.levels.listen((level) {
@@ -331,13 +380,9 @@ class _ShellRootState extends State<ShellRoot> {
       if (event is AudioEvent && event.muted != wasMuted) {
         setState(() => _serverMuted = event.muted);
       }
-      if (event is ActionStateEvent) {
-        _onActionState(event);
-      }
     });
 
     _ws.connect();
-    unawaited(_loadActionCatalog());
     unawaited(_loadAppStatus());
   }
 
@@ -349,20 +394,6 @@ class _ShellRootState extends State<ShellRoot> {
       if (mounted && dev != _devMode) setState(() => _devMode = dev);
     } catch (_) {
       // 忽略：保持 false。
-    }
-  }
-
-  /// 取一次动作目录，把「协议名 → 中文名」灌进动作日志。
-  ///
-  /// **失败静默**：目录是可选资源。取不到就显示协议名（`nod` 而不是「点头」）——
-  /// 看得懂，且不撒谎。权威来源是服务端 `GET /api/v1/commands`，
-  /// 前端**不内建**映射表（AGENTS.md：不得复制核心逻辑）。
-  Future<void> _loadActionCatalog() async {
-    try {
-      final CommandCatalog catalog = await _commandsApi.fetchCommands();
-      _chat.actionLog.useCatalog(catalog);
-    } catch (_) {
-      // 忽略：保持恒等解析器（显示协议名）。
     }
   }
 
@@ -381,7 +412,6 @@ class _ShellRootState extends State<ShellRoot> {
     _ws.dispose();
     _audio.dispose();
     _api.dispose();
-    _commandsApi.dispose();
     _input.dispose();
     super.dispose();
   }
@@ -402,48 +432,13 @@ class _ShellRootState extends State<ShellRoot> {
     _live.feed(last.text);
   }
 
-  /// WS 的动作事件 → **真的让模型动**。
-  ///
-  /// 这是 P5 之前**完全缺失**的一环：`action_state` 只进了动作日志，
-  /// 没有任何代码把它转成渲染面的 `action-state`，所以「AI 触发了点头」
-  /// 在日志里有记录、模型却一次都没动过。
-  ///
-  /// # 本轮边界（2026-09-11 用户裁决）
-  ///
-  /// **下行通道保留**（AI / 规则触发的动作照演），**手动触发入口移出成品**。
-  /// 所以这里只剩「把 core 的决定转给渲染面」，不再有本地忙碌态、
-  /// 幂等提示与「正在演」按钮状态——那些只服务手动触发，已随入口一起
-  /// 归档到分支 `archive/action-trigger-p5`。
-  void _onActionState(ActionStateEvent frame) {
-    final ActionEvent event = ActionEvent.fromFrame(frame, receivedAt: DateTime.now());
-    final String? action = event.action;
-    if (action != null) {
-      // 游标：`cease` 帧**不带动作名**（协议如此），要靠它才能停下正确的动作。
-      _performingAction = event.isCease ? null : action;
-      unawaited(
-        _stageKey.currentState?.sendActionState(
-              action: action,
-              state: event.isCease ? 'end' : 'start',
-              strength: event.strength,
-            ) ??
-            Future<void>.value(),
-      );
-    } else if (event.isCease) {
-      // 渲染面会先读根级 `action` 再判 state，空 action 会让它找不到要停的
-      // 动作，所以用**当前正在演的那个**名字去停。
-      final String? current = _performingAction;
-      _performingAction = null;
-      if (current != null) {
-        unawaited(
-          _stageKey.currentState?.sendActionState(
-                action: current,
-                state: 'end',
-              ) ??
-              Future<void>.value(),
-        );
-      }
-    }
-  }
+  // ── 动作子系统已于 2026-09-11 整条移除（用户裁决：LLM 无工具、只做对话）──
+  //
+  // 这里曾经是 `_onActionState`：把 WS 的 `action_state` 帧投影成 `ActionEvent`，
+  // 再转成渲染面的 `action-state`（含 `cease` 帧要靠 `_performingAction` 游标
+  // 找回动作名才能停）。随着 `live2d_perform_action` 工具、`action_state` 帧与
+  // `/api/v1/commands` 端点一起删除——服务端不再发这一帧，前端也就没有任何
+  // 动作通道可接了。触发与日志的归档见分支 `archive/action-trigger-p5`。
 
   /// 舞台角标三键 → 渲染面（渲染面自己算缩放，真值从 `stage-ack` 取）。
   Future<void> _zoom(String dir) async {
@@ -462,14 +457,20 @@ class _ShellRootState extends State<ShellRoot> {
   /// 发下去的是旧主题的 `stageColor`，而之后再没人重发。
   void _applyPrefs([DisplayPrefs? override]) {
     final DisplayPrefs prefs = override ?? widget.prefs;
-    // 主题的舞台底**必须重发**：切主题时 [Live2DStage] 会带着新值重建，
-    // 但 iframe 是保活的（`_attach` 只跑一次），所以不走这条路的话
-    // 舞台会一直停在启动时那套颜色上。
     final AppPalette palette = AppPalette.of(prefs.theme);
+    // **`stageColor` 不在这里发**（2026-09-11，P1-3）。
+    //
+    // 它过去由这里下发：切主题时一按就发终色 ⇒ 界面还在 200 ms 里插值，
+    // 舞台已经跳到终色（「舞台先闪一下」）。现在舞台底由
+    // [Live2DStage] 自己跑一条**同样 200 ms** 的动画逐帧下发，
+    // 两边的观感才是一起变的。
+    //
+    // 仍然保留的是「首帧 / 重建 iframe 后的补发」：那条路在
+    // `Live2DStage._attach()` 里（它用的是 `widget.stageColor`），
+    // 所以这里不需要也不该再发一次。
     _stageKey.currentState?.sync(
       scale: prefs.scale,
       dark: palette.dark,
-      stageColor: palette.stageCss,
       lipSync: prefs.lipSync,
       idleEnabled: prefs.idleEnabled,
       mouthSensitivity: prefs.mouthSensitivity,
@@ -523,7 +524,8 @@ class _ShellRootState extends State<ShellRoot> {
     if (message == null && code == null) return const <ErrorAction>[];
     ErrorAction goto(SettingsSection section, String label) => ErrorAction(
       label: label,
-      onPressed: () => setState(() => _section = section),
+      // 走唯一入口：切分区会清掉一次性结果（P2-2）。
+      onPressed: () => _gotoSection(section),
     );
     if (code != null) {
       if (code.startsWith('llm_') || code == 'no_supervisor') {
@@ -675,11 +677,15 @@ class _ShellRootState extends State<ShellRoot> {
   }
 
   /// 连通性自检：结果**内联在字段下方**（不用 toast，一闪而过看不清）。
+  ///
+  /// 结果落地前先对一次 [_resultEpoch]：用户在这几秒里切走了分区的话，
+  /// 这条结果落在一个他已经离开的分区上，看起来会像是「刚测的」。
   Future<void> _testLlm() async {
+    final int epoch = _resultEpoch;
     setState(() => _llmTesting = true);
     try {
       final SettingsTestOutcome o = await _api.testLlm();
-      if (!mounted) return;
+      if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _llmTesting = false;
         _llmTest = o.ok
@@ -688,7 +694,7 @@ class _ShellRootState extends State<ShellRoot> {
             : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _llmTesting = false;
         _llmTest = '失败：${e.message}';
@@ -697,10 +703,11 @@ class _ShellRootState extends State<ShellRoot> {
   }
 
   Future<void> _testTts() async {
+    final int epoch = _resultEpoch;
     setState(() => _ttsTesting = true);
     try {
       final SettingsTestOutcome o = await _api.testTts();
-      if (!mounted) return;
+      if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _ttsTesting = false;
         _ttsTest = o.ok
@@ -708,7 +715,7 @@ class _ShellRootState extends State<ShellRoot> {
             : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _ttsTesting = false;
         _ttsTest = '失败：${e.message}';
@@ -777,7 +784,7 @@ class _ShellRootState extends State<ShellRoot> {
       setState(() {
         _busyId = null;
         // **如实上报 requires_restart**：不谎报「已生效」。
-        _actionMessage = r.requiresRestart
+        _adminMessage = r.requiresRestart
             ? '已切换到 ${r.activeId}，**需重启服务端**才生效'
             : '已切换到 ${r.activeId}';
       });
@@ -786,7 +793,7 @@ class _ShellRootState extends State<ShellRoot> {
       if (!mounted) return;
       setState(() {
         _busyId = null;
-        _actionMessage = '激活失败：${e.message}';
+        _adminMessage = '激活失败：${e.message}';
       });
     }
   }
@@ -798,14 +805,14 @@ class _ShellRootState extends State<ShellRoot> {
       if (!mounted) return;
       setState(() {
         _busyId = null;
-        _actionMessage = '${enabled ? '已启用' : '已停用'} $id';
+        _adminMessage = '${enabled ? '已启用' : '已停用'} $id';
       });
       await _loadAdmin();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _busyId = null;
-        _actionMessage = '操作失败：${e.message}';
+        _adminMessage = '操作失败：${e.message}';
       });
     }
   }
@@ -823,14 +830,14 @@ class _ShellRootState extends State<ShellRoot> {
     // 未加载出来时先显示骨架，而不是一个空面板让人以为坏了。
     if (!_settings.loaded && _settings.loading) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 64),
+        padding: EdgeInsets.symmetric(vertical: Space.s8),
         child: Center(child: CircularProgressIndicator()),
       );
     }
     final SettingsView? view = _settings.remote;
     if (view == null) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
+        padding: const EdgeInsets.symmetric(vertical: Space.s7),
         child: Column(
           children: <Widget>[
             Text('读不到服务端设置', style: Theme.of(context).textTheme.titleSmall),
@@ -867,7 +874,7 @@ class _ShellRootState extends State<ShellRoot> {
           error: _adminError,
           devMode: _devMode,
           busyId: _busyId,
-          activateMessage: _actionMessage,
+          activateMessage: _adminMessage,
           onActivate: _activateModel,
           onReload: _loadAdmin,
         );
@@ -890,11 +897,10 @@ class _ShellRootState extends State<ShellRoot> {
           testResult: _ttsTest,
           testing: _ttsTesting,
         );
-      case SettingsSection.actions:
-        return ActionsSection(
+      case SettingsSection.appearance:
+        return AppearanceSection(
           prefs: widget.prefs,
           onPrefsChanged: _updatePrefs,
-          actionLog: _chat.actionLog,
           devMode: _devMode,
           onPickStageImage: () => unawaited(_pickStageImage()),
           onClearStageImage: _clearStageImage,
@@ -951,7 +957,7 @@ class _ShellRootState extends State<ShellRoot> {
           children: <Widget>[
             for (final ShortcutHelpEntry e in shortcutHelp(isMacOS: isMac))
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(vertical: Space.s1),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -991,9 +997,52 @@ class _ShellRootState extends State<ShellRoot> {
   }
 
   /// 打开设置前的兜底：**懒加载一次**。
-  void _onSectionChanged(SettingsSection next) {
-    setState(() => _section = next);
+  void _onSectionChanged(SettingsSection next) => _gotoSection(next);
+
+  /// 切换设置分区（**唯一入口**）。
+  ///
+  /// # 为什么必须走这一个入口（2026-09-11，P2-2）
+  ///
+  /// 过去有两个地方各自 `setState(() => _section = …)`：分区 chip（这里）
+  /// 与错误横幅的「去 LLM 设置 / 去语音合成设置」按钮。于是**内联结果**
+  /// （`_llmTest` / `_ttsTest` / `_adminMessage` / `_importMessage` /
+  /// `_stageImageMessage`）会一直挂在 State 上：用户测出「失败：401」，
+  /// 修好配置、切到别的分区、再回来——**那句失效的结论还在**，
+  /// 而它描述的已经是上一套配置了。
+  ///
+  /// 现在切分区**先清掉这些一次性结果**，并且用 [_resultEpoch] 把
+  /// 「切走之后才回来的响应」也丢掉（否则那个迟到的结果会落在用户已经
+  /// 离开的分区上，看起来像是刚测的）。
+  void _gotoSection(SettingsSection next) {
+    if (next == _section) return;
+    setState(() {
+      _section = next;
+      _clearTransientResults();
+    });
     unawaited(_ensureSettingsLoaded());
+  }
+
+  /// 一次性结果代际。切分区时自增 ⇒ 在途的异步结果作废。
+  int _resultEpoch = 0;
+
+  /// 清掉所有「只对当下这一眼有效」的内联结果。
+  ///
+  /// 调用方：[_gotoSection]。**不要**在别处随手调——它会让进行中的
+  /// 连通性自检结果被静默丢弃（那正是 [_resultEpoch] 想要的效果，
+  /// 但只有在「用户已经离开那个分区」时才成立）。
+  void _clearTransientResults() {
+    _resultEpoch++;
+    _llmTest = null;
+    _llmTesting = false;
+    _ttsTest = null;
+    _ttsTesting = false;
+    _adminMessage = null;
+    _importMessage = null;
+    _importFailed = false;
+    _stageImageMessage = null;
+    _stageImageFailed = false;
+    _copied = false;
+    _adminError = null;
   }
 
   @override
@@ -1086,7 +1135,15 @@ class _ShellRootState extends State<ShellRoot> {
           onSaveSettings: () => unawaited(_saveSettings()),
           onDiscardSettings: _settings.discard,
           confirmDiscard: _confirmDiscard,
-          // ── 舞台浮标：只剩缩放三键（动作工具条已随手动触发入口一起移出成品） ──
+          // ── 舞台浮标：只剩缩放三键（原文件 `action_toolbar.dart` 已按实际内容
+          //    改名为 `ui/stage_corner_controls.dart`；动作工具条早已移出成品） ──
+          // ── 多会话（P-会话：**本地记录**，模型记忆待实现） ──
+          sessions: _chat.sessions.byRecency,
+          activeSessionId: _chat.sessions.activeId,
+          onNewSession: _chat.newSession,
+          onSelectSession: _chat.selectSession,
+          onRenameSession: _chat.renameSession,
+          onDeleteSession: _chat.deleteSession,
           stageCorner: StageCornerControls(
             onZoom: (String dir) => unawaited(_zoom(dir)),
             scaleFromAck: _stageScaleFromAck,

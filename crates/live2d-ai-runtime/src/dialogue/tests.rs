@@ -1,12 +1,12 @@
-//! `dialogue` 模块单元测试：句切分 / 工具调用组装 / 编排保序。
+//! `dialogue` 模块单元测试：句切分 / 编排收尾。
+//!
+//! 2026-09-11 用户裁决后，工具调用组装与「文本 vs 工具保序」相关用例整体删除
+//! （LLM 不暴露任何工具，只做对话）。
 
 use super::*;
-use crate::Live2dPerformActionArgs;
 use crate::LlmEvent;
-use crate::dialogue::tool::IncompleteReason;
-use crate::tool::PerformAction;
 
-// ------------------------------------------------------------ 工具
+// ------------------------------------------------------------ 句切分
 
 fn sentences_with(max: usize, input: &str) -> Vec<String> {
     let mut s = SentenceAssembler::new(max);
@@ -264,139 +264,7 @@ fn flush_resolves_hanging_terminators_and_tail() {
     assert_eq!(s.flush(), ["再见"]);
 }
 
-// ------------------------------------------------------------ 工具调用
-
-const NAME: &str = "live2d_perform_action";
-
-fn nod_args(strength: u8) -> Live2dPerformActionArgs {
-    Live2dPerformActionArgs {
-        action: PerformAction::Nod,
-        strength,
-        reason: None,
-    }
-}
-
-#[test]
-fn multiple_calls_assembled_by_index_across_fragments() {
-    let mut t = ToolCallAssembler::new();
-    // 两个调用交错到达；name 也劈成两个分片。
-    t.push(0, Some("call_a"), Some("live2d_perform"), "");
-    t.push(0, None, Some("_action"), "{\"action\":\"nod\",");
-    t.push(1, Some("call_b"), Some(NAME), "{\"action\":\"tilt\"");
-    t.push(1, None, None, ",\"strength\":3}");
-
-    // call_0 的参数还缺一截：封存只取走已完整的 call_1（首现顺序语义不变）。
-    let ready = t.seal_parseable();
-    assert_eq!(ready.len(), 1);
-    assert_eq!(ready[0].index, 1);
-    assert_eq!(ready[0].id.as_deref(), Some("call_b"));
-    assert_eq!(ready[0].arguments.action, PerformAction::Tilt);
-    assert_eq!(ready[0].arguments.strength, 3);
-
-    // 补齐 call_0 后 DONE 收尾。
-    t.push(0, None, None, "\"strength\":2}");
-    assert!(!t.is_empty());
-    let rest = t.finish().expect("call_0 应结算成功");
-    assert_eq!(rest.len(), 1);
-    assert_eq!(rest[0].index, 0);
-    assert_eq!(rest[0].id.as_deref(), Some("call_a"));
-    assert_eq!(rest[0].arguments, nod_args(2));
-}
-
-#[test]
-fn partial_arguments_are_not_sealed_until_complete() {
-    let mut t = ToolCallAssembler::new();
-    t.push(0, Some("c"), Some(NAME), "{\"action\":\"no");
-    assert!(t.seal_parseable().is_empty());
-    t.push(0, None, None, "d\",\"strength\":1}");
-    let ready = t.seal_parseable();
-    assert_eq!(ready.len(), 1);
-    assert_eq!(ready[0].arguments, nod_args(1));
-    assert!(t.is_empty());
-}
-
-#[test]
-fn missing_fragment_yields_typed_incomplete() {
-    // 丢掉中间一段 arguments → JSON 不完整。
-    let t = {
-        let mut t = ToolCallAssembler::new();
-        t.push(0, Some("c0"), Some(NAME), "{\"action\":\"nod\",");
-        // 缺 ",\"strength\":2}"
-        t
-    };
-    let err = t.finish().expect_err("应报类型化 Incomplete");
-    assert_eq!(err.calls.len(), 1);
-    assert_eq!(err.calls[0].index, 0);
-    assert_eq!(err.calls[0].id.as_deref(), Some("c0"));
-    assert!(matches!(
-        err.calls[0].reason,
-        IncompleteReason::InvalidArgumentsJson(_)
-    ));
-    assert!(err.to_string().contains("1 个工具调用未完成"));
-}
-
-#[test]
-fn missing_name_and_empty_arguments_are_typed() {
-    let mut t = ToolCallAssembler::new();
-    t.push(0, None, None, "{}");
-    t.push(1, Some("c1"), Some(NAME), "");
-    let err = t.finish().expect_err("两个都残缺");
-    assert_eq!(err.calls.len(), 2);
-    assert_eq!(err.calls[0].reason, IncompleteReason::MissingName);
-    assert_eq!(err.calls[1].reason, IncompleteReason::MissingArguments);
-}
-
-#[test]
-fn unsupported_tool_name_is_rejected() {
-    let mut t = ToolCallAssembler::new();
-    t.push(0, Some("x"), Some("search_web"), "{\"query\":\"hi\"}");
-    let err = t.finish().expect_err("只接受 live2d_perform_action");
-    assert_eq!(
-        err.calls[0].reason,
-        IncompleteReason::UnsupportedTool("search_web".to_string())
-    );
-    assert!(err.to_string().contains(NAME));
-}
-
-#[test]
-fn finish_returns_all_remaining_calls_in_first_seen_order() {
-    let mut t = ToolCallAssembler::new();
-    t.push(
-        2,
-        Some("c2"),
-        Some(NAME),
-        "{\"action\":\"listen\",\"strength\":1}",
-    );
-    t.push(
-        0,
-        Some("c0"),
-        Some(NAME),
-        "{\"action\":\"surprise\",\"strength\":3}",
-    );
-    let done = t.finish().expect("全部完整");
-    assert_eq!(done.iter().map(|c| c.index).collect::<Vec<_>>(), [2, 0]);
-}
-
-#[test]
-fn wire_default_index_zero_groups_id_only_fragments() {
-    // wire 层对缺 index 的分片补 0：id-only 分片也能把 id 关联到同一调用。
-    let mut t = ToolCallAssembler::new();
-    t.push(0, Some("only-id-chunk"), None, "");
-    t.push(0, None, Some(NAME), "{\"action\":\"nod\",\"strength\":1}");
-    let done = t.finish().expect("ok");
-    assert_eq!(done[0].id.as_deref(), Some("only-id-chunk"));
-}
-
 // ------------------------------------------------------------ 对话编排
-
-fn tool_delta(index: usize, id: Option<&str>, arguments: &str) -> LlmEvent {
-    LlmEvent::ToolCallDelta {
-        index,
-        id: id.map(str::to_owned),
-        name: Some(NAME.to_string()),
-        arguments: arguments.to_string(),
-    }
-}
 
 fn sentence_texts(events: &[DialogueEvent]) -> Vec<String> {
     events
@@ -409,71 +277,25 @@ fn sentence_texts(events: &[DialogueEvent]) -> Vec<String> {
 }
 
 #[test]
-fn dialogue_keeps_network_order_between_text_and_tools() {
+fn dialogue_text_deltas_become_sentences_then_exactly_one_done() {
     let mut d = DialogueAssembler::new(64);
     let mut out = Vec::new();
     out.extend(d.push(&LlmEvent::TextDelta("好的。".into())));
-    out.extend(d.push(&tool_delta(
-        0,
-        Some("t0"),
-        "{\"action\":\"nod\",\"strength\":1}",
-    )));
-    // 新 index 出现 → 封存 call0（插在正确位置）。
-    out.extend(d.push(&tool_delta(
-        1,
-        Some("t1"),
-        "{\"action\":\"tilt\",\"strength\":2}",
-    )));
-    // 正文恢复 → 先封存 call1，再出句子。
-    out.extend(d.push(&LlmEvent::TextDelta("完成！".into())));
-    out.extend(d.flush());
+    // 半句：还不出句界。
+    out.extend(d.push(&LlmEvent::TextDelta("完成".into())));
+    out.extend(d.push(&LlmEvent::TextDelta("！".into())));
+    out.extend(d.push(&LlmEvent::Done));
 
     assert_eq!(sentence_texts(&out), ["好的。", "完成！"]);
-    let tool_indexes: Vec<usize> = out
-        .iter()
-        .filter_map(|e| match e {
-            DialogueEvent::ToolReady { call } => Some(call.index),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(tool_indexes, [0, 1]);
-    // 网络顺序：S(T0 前) → T0 → T1 → S(T1 后) → Done。
-    assert!(matches!(
-        out.last(),
-        Some(DialogueEvent::Done {
-            incomplete_tools: None
-        })
-    ));
     let seq: Vec<&str> = out
         .iter()
         .map(|e| match e {
             DialogueEvent::SentenceReady { .. } => "S",
-            DialogueEvent::ToolReady { .. } => "T",
-            DialogueEvent::Done { .. } => "D",
+            DialogueEvent::Done => "D",
         })
         .collect();
-    assert_eq!(seq, ["S", "T", "T", "S", "D"]);
-}
-
-#[test]
-fn dialogue_reports_incomplete_tools_at_done() {
-    let mut d = DialogueAssembler::new(64);
-    let mut out = d.push(&LlmEvent::TextDelta("点头".into()));
-    out.extend(d.push(&tool_delta(0, Some("t0"), "{\"action\":\"nod\","))); // 故意截断
-    out.extend(d.flush());
-    assert_eq!(sentence_texts(&out), ["点头"]);
-    match out.last() {
-        Some(DialogueEvent::Done {
-            incomplete_tools: Some(err),
-        }) => {
-            assert_eq!(err.calls[0].index, 0);
-            assert!(matches!(
-                err.calls[0].reason,
-                IncompleteReason::InvalidArgumentsJson(_)
-            ));
-        }
-        other => panic!("期望携带 Incomplete 的 Done，实际 {other:?}"),
-    }
+    assert_eq!(seq, ["S", "S", "D"]);
+    assert!(matches!(out.last(), Some(DialogueEvent::Done)));
 }
 
 #[test]
@@ -482,12 +304,7 @@ fn dialogue_flush_is_fallback_done_and_terminal() {
     d.push(&LlmEvent::TextDelta("还没说完".into()));
     let out = d.flush();
     assert_eq!(sentence_texts(&out), ["还没说完"]);
-    assert!(matches!(
-        out.last(),
-        Some(DialogueEvent::Done {
-            incomplete_tools: None
-        })
-    ));
+    assert!(matches!(out.last(), Some(DialogueEvent::Done)));
     // 终态：flush/push 都不再产生事件。
     assert!(d.flush().is_empty());
     assert!(d.push(&LlmEvent::TextDelta("迟到的".into())).is_empty());
@@ -495,50 +312,15 @@ fn dialogue_flush_is_fallback_done_and_terminal() {
 }
 
 #[test]
-fn dialogue_explicit_done_matches_flush() {
+fn dialogue_done_is_idempotent_and_matches_flush_shape() {
     let mut d = DialogueAssembler::new(64);
-    d.push(&tool_delta(0, None, "{\"action\":\"nod\",\"strength\":2}"));
+    d.push(&LlmEvent::TextDelta("你好。".into()));
     let out = d.push(&LlmEvent::Done);
-    assert_eq!(out.len(), 2); // ToolReady + Done
-    assert!(matches!(out[0], DialogueEvent::ToolReady { .. }));
-    assert!(matches!(
-        out[1],
-        DialogueEvent::Done {
-            incomplete_tools: None
-        }
-    ));
-}
-
-#[test]
-fn dialogue_tools_only_stream_keeps_order_without_text() {
-    let mut d = DialogueAssembler::new(64);
-    let mut out = Vec::new();
-    out.extend(d.push(&tool_delta(
-        0,
-        Some("a"),
-        "{\"action\":\"listen\",\"strength\":1}",
-    )));
-    // call_1 出现 → 封存 call_0。
-    out.extend(d.push(&tool_delta(
-        1,
-        Some("b"),
-        "{\"action\":\"surprise\",\"strength\":3}",
-    )));
-    out.extend(d.flush());
-    let seq: Vec<&str> = out
-        .iter()
-        .map(|e| match e {
-            DialogueEvent::ToolReady { .. } => "T",
-            DialogueEvent::Done { .. } => "D",
-            DialogueEvent::SentenceReady { .. } => "S",
-        })
-        .collect();
-    assert_eq!(seq, ["T", "T", "D"]);
-    assert!(
-        out.iter()
-            .take(2)
-            .all(|e| matches!(e, DialogueEvent::ToolReady { .. }))
-    );
+    assert_eq!(out.len(), 2); // SentenceReady + Done
+    assert!(matches!(out[0], DialogueEvent::SentenceReady { .. }));
+    assert!(matches!(out[1], DialogueEvent::Done));
+    // 第二次 Done（或 flush）不再产出。
+    assert!(d.push(&LlmEvent::Done).is_empty());
 }
 
 #[test]

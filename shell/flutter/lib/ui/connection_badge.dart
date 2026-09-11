@@ -79,6 +79,17 @@ class OfflineBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
 
+    // 连上了就**什么都不画**（2026-09-11，P1-2）。
+    //
+    // 过去这条横幅是条件插入的（`if (ws != connected)`），所以它从不需要回答
+    // 「已连接时显示什么」。现在它常驻在树里、靠折叠滑入滑出，
+    // 于是「已连接」这一态必须自己说清楚——否则会渲染出
+    // **「后端未连接（已连接）」**这种自相矛盾的文案（真的会，只是被折起来了）。
+    //
+    // 在这里返回 `SizedBox.shrink()` 而不是让调用方判断：这样无论谁把它挂在
+    // 哪里，它都不会说谎。
+    if (status == WsStatus.connected) return const SizedBox.shrink();
+
     return Material(
       color: appPaletteOf(context).danger.withValues(alpha: 0.16),
       child: InkWell(

@@ -52,7 +52,7 @@ Widget _shell({
     onVolumeChanged: (_) {},
     onMutedChanged: (_) {},
     sections: visibleSections(),
-    section: SettingsSection.actions,
+    section: SettingsSection.appearance,
     onSectionChanged: (_) {},
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         Text('PANE:${s.label}'),
@@ -157,12 +157,14 @@ void main() {
       expectIntercepted(find.text('PANE:外观与互动'), '底部浮层内容');
     });
 
-    testWidgets('compact 抽屉条目有垫层', (WidgetTester tester) async {
+    testWidgets('compact 整页设置有垫层（2026-09-11 P2-1：不再是抽屉）', (
+      WidgetTester tester,
+    ) async {
       await _pump(tester, width: 500);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.byType(ListTile), findsWidgets);
-      expectIntercepted(find.text('外观与互动'), 'compact 抽屉条目');
+      expect(find.byType(ListTile), findsNothing, reason: '抽屉已经不在成品里了');
+      expectIntercepted(find.text('PANE:外观与互动'), 'compact 整页设置');
     });
   });
 }

@@ -341,14 +341,6 @@ fn mutating_route_classification() {
     assert!(!is_mutating_route(RouteId::LogsLevels, &Method::Get));
 }
 
-/// Commands 路由按 method 区分：POST invoke = mutating；GET list = 只读。
-#[test]
-fn mutating_route_commands_by_method() {
-    use super::RouteId;
-    assert!(is_mutating_route(RouteId::Commands, &Method::Post));
-    assert!(!is_mutating_route(RouteId::Commands, &Method::Get));
-}
-
 /// Models 路由按 method 区分：GET list/get 只读；POST import/activate、
 /// PATCH display、DELETE delete 全部 mutating。
 #[test]

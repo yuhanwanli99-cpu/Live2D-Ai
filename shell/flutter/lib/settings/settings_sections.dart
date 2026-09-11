@@ -7,6 +7,11 @@
 /// 顺序 = 声明顺序（枚举天然有序）：
 /// **角色（人设 + 模型）→ 能力（LLM + TTS）→ 外观与互动 → 扩展/诊断/开发**。
 ///
+/// 2026-09-11：`actions` 分区项改名为 `appearance`（label 不变）。
+/// **分区枚举没有持久化**（`localStorage` 只存 `DisplayPrefs` 与聊天会话，
+/// 见 `main.dart` 的两个存储键），所以改名不影响老用户——打开时恒落在
+/// `main.dart` 的默认分区上，不存在「按 index/name 读回旧分区」的路径。
+///
 /// 每项**强制带 `description`**：用户不该先学会产品黑话才能看懂一个分区是干什么的。
 /// 由 `settings_sections_test.dart` 断言非空 + 无重号。
 library;
@@ -19,7 +24,7 @@ enum SettingsSection {
   models('模型库', '导入、激活与舞台显示配置', Icons.view_in_ar_outlined),
   llm('LLM', '对话模型的服务地址、模型名与密钥', Icons.hub_outlined),
   tts('语音合成', 'TTS 服务、音色与采样参数', Icons.record_voice_over_outlined),
-  actions('外观与互动', '配色主题、舞台口型、拖动缩放与动作记录', Icons.tune),
+  appearance('外观与互动', '配色主题、舞台口型、拖动缩放与展台图', Icons.tune),
   mods('Mod', '扩展模块的启停与配置', Icons.extension_outlined),
   diagnostics('诊断', '连接、延迟、帧率与日志', Icons.monitor_heart_outlined),
   developer('开发模式', '高级参数与开发者工具', Icons.terminal_outlined);

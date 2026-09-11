@@ -11,9 +11,11 @@ import 'dart:js_interop';
 import 'package:web/web.dart' as web;
 
 import 'ws_frame.dart';
+import 'ws_liveness.dart';
 import 'ws_status.dart';
 
 export 'ws_frame.dart';
+export 'ws_liveness.dart';
 export 'ws_status.dart';
 
 /// `/ws/state` 客户端。
@@ -96,11 +98,40 @@ class WsClient {
   ///
   /// 服务端会被反复重启（配置热重载 / 重新部署），一旦连接停摆，页面就会
   /// 「POST 成功但收不到回复」。发送消息前调用本方法可保证随时自愈。
+  ///
+  /// **2026-09-11 修**：这里的判据曾经是 `_socket != null`——把「有没有
+  /// socket 对象」当成了「连接还活着」。但 `close()` 之后 `onclose` 是
+  /// **异步**回调，这中间 `_socket` 仍非 null 而连接已经废了；而
+  /// `_handleText` 里 `shutdown_ready` 走的正是「先 close 再退避重连」。
+  /// 于是这份**专为「发出去没回应」而写的保险**，恰好在最需要它的那一刻
+  /// 变成空操作。现在按 `readyState` 判（判据抽在 `ws_liveness.dart`，
+  /// 纯逻辑、有回归）。
   void ensureConnected() {
-    if (_disposed || _socket != null) return;
+    if (_disposed) return;
+    final web.WebSocket? socket = _socket;
+    if (socket != null && isLiveSocket(socket.readyState)) return;
+    if (socket != null) {
+      // 僵尸对象：摘掉它并立刻重开（不等 `onclose` / 退避计时器——
+      // 用户正在等回复，退避的 30s 上限在这里是不可接受的）。
+      _detach(socket);
+      _socket = null;
+    }
     _reconnectTimer?.cancel();
     _attempt = 0;
     _open();
+  }
+
+  /// 摘掉一个 socket 的全部回调并关闭它（不再由它驱动任何状态）。
+  void _detach(web.WebSocket socket) {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    try {
+      socket.close();
+    } catch (_) {
+      // 已关闭 / 已释放
+    }
   }
 
   void _scheduleReconnect() {
@@ -138,15 +169,7 @@ class WsClient {
     final web.WebSocket? socket = _socket;
     _socket = null;
     if (socket != null) {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      try {
-        socket.close();
-      } catch (_) {
-        // 已关闭
-      }
+      _detach(socket);
     }
     _setStatus(WsStatus.closed);
     _events.close();

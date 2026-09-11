@@ -228,40 +228,6 @@ pub(super) fn detached_audio(
     (Box::new(h), r)
 }
 
-/// 构造本测试可复用的 supervisor 句柄 + 事件收集器（dry-run 文本模式）。
-pub(super) fn spawn_text_only_collector(
-    llm_sse: String,
-) -> (
-    super::SupervisorHandle,
-    Collector,
-    Arc<Mutex<Vec<serde_json::Value>>>,
-) {
-    let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
-    let llm_base = spawn_llm_mock(llm_bodies.clone(), llm_sse);
-    let tts_base = spawn_tts_mock();
-    let client = live2d_ai_runtime::OpenAiClient::new(
-        live2d_ai_runtime::LlmConfig::new(llm_base, "test-model"),
-        live2d_ai_runtime::TtsConfig::new(tts_base, "alloy"),
-    )
-    .expect("client");
-    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
-    let ec = collector.clone();
-    let handle = super::spawn_supervisor(
-        super::SupervisorConfig {
-            client,
-            conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
-            capabilities: live2d_ai_core::ModelCapabilities::all(),
-            audio: None,
-            config_path: None,
-            mod_events: None,
-        },
-        move |ev| {
-            ec.lock().expect("poison").push(ev);
-        },
-    );
-    (handle, collector, llm_bodies)
-}
-
 /// 故障注入 producer：当 `fault` 置位后 `try_enqueue_prepared` 立刻回
 /// `WouldBlock{accepted:0}`、`is_drained/healthy` 一并返回 false——模拟
 /// 声卡在播放过程中挂掉。让 `fatal_after_started` 与

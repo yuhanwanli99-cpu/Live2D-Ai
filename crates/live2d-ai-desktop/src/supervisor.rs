@@ -59,10 +59,10 @@
 //!   `do_stop!` / `on_action_finished!` / `on_any_pcm_progress!`（必须同
 //!   文件——1 号裁决）。`run_forever` 经 `turn::run_one_turn` 调度。
 //! - `super::handlers`：`handle_engine_event` / `forward_effects` /
-//!   `ev_epoch` / `drain_residual_events` / `gen_outcome` /
-//!   `content_worth_fallback` / `emit_voice_ended_if_needed` 七个
-//!   翻译层纯函数。`pub(crate)` 使同级 `tests_loop.rs` / `tests_pcm.rs` /
-//!   `tests_fault.rs` 可直接调用。
+//!   `ev_epoch` / `ev_ts_ms` / `drain_residual_events` / `gen_outcome` /
+//!   `emit_voice_ended_if_needed` 七个翻译层纯函数。`pub(crate)` 使同级
+//!   `tests_loop.rs` / `tests_pcm.rs` / `tests_fault.rs` 可直接调用。
+//!   （原第八个 `content_worth_fallback` 已随 2026-09-11 动作系统移除而删除。）
 //! - `super::tests_loop` / `super::tests_pcm` / `super::tests_fault`
 //!   （cfg(test)）：闭环端到端测试 + 6 条 P0 真实闭环用例；共用基建在
 //!   `super::support`。
@@ -77,8 +77,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use live2d_ai_core::{
-    ActionCommand, ActionSource, Effect as RootEffect, Event as RootEvent, ModelCapabilities,
-    SemanticAction, State as RootState,
+    ActionCommand, Effect as RootEffect, Event as RootEvent, ModelCapabilities, SemanticAction,
+    State as RootState,
 };
 
 /// root 事件的唯一入口（core 的自由函数 `apply` 的薄包装；保证调用点风格统一）。
@@ -154,12 +154,14 @@ pub struct SupervisorHandle {
     say_tx: mpsc::Sender<String>,
     control_tx: mpsc::UnboundedSender<ControlCommand>,
     finish_tx: mpsc::UnboundedSender<ActionFinishedFact>,
-    /// **D4（命令注册协议）**：web 端命令面板触发的用户动作通道。
+    /// **Mod 边界 / 外部触发**：进 core 仲裁的用户动作通道。
     /// 容量无界（控制命令类不阻塞；与 `control_tx` 同等待遇——D14）。
-    /// 经此通道进入的 action 走 core `RootEvent::Action` 路径，由
-    /// [`ActionSource::UserCommand`] 来源（优先级 100，最高）排队，
+    /// 经此通道进入的 action 走 core `RootEvent::Action` 路径，
     /// capability gate / 优先级仲裁 / 幂等仍由 core 决定——**禁止**
     /// handler 直接调 `core::apply` 或写 `ActionState::current`。
+    ///
+    /// 2026-09-11：原 `D4 命令注册协议` 的 web 命令面板入口已随
+    /// `/api/v1/commands` 端点删除；本通道现仅由 Mod host channels 使用。
     action_tx: mpsc::UnboundedSender<SemanticAction>,
     join: Option<std::thread::JoinHandle<()>>,
     /// 「reload 待处理」标志：handle.reload() 置位，supervisor 在 idle
@@ -233,37 +235,24 @@ impl SupervisorHandle {
         }
     }
 
-    /// **D4（命令注册协议）**：web 端命令面板触发的用户动作。
+    /// **D4（命令注册协议）**：外部（Mod host channels 等）触发的用户动作。
     ///
     /// 走独立 `action_tx` 通道（unbounded）→ supervisor 空闲态 `select!`
     /// 收到后 → `root_apply(RootEvent::Action { ..., command: Play })`
-    /// → 经 core 仲裁（capability gate / 优先级 / 幂等）→ `forward_effects`
-    /// → `AppEvent::Render`。**禁止**任何 handler 直接调 `core::apply`
-    /// 或构造 `AppEvent::Render` 跳过仲裁（§7.3 grep 审计）。
+    /// → 经 core 仲裁（capability gate / 优先级 / 幂等）→ `forward_effects`。
+    /// **禁止**任何 handler 直接调 `core::apply`（§7.3 grep 审计）。
     ///
     /// 非阻塞、幂等；动作重复或 capability 缺失时由 core 端发 `Dropped`
-    /// 效果并通过 `AppEvent::RootAudit` 下发（前端在 WS 看不到副作用）。
+    /// 效果并通过 `AppEvent::RootAudit` 下发。
+    ///
+    /// 2026-09-11 用户裁决：LLM 工具与 `/api/v1/commands` 端点已删除，
+    /// `AppEvent::Render` 动作投影也随之移除——本通道仍可把动作送进 core
+    /// reducer（Mod 边界用量），但桌面侧不再有任何表演副作用。
     ///
     /// 返回 `true` = 已入队；`false` = supervisor 已关（unbounded 通道
     /// 实际不会满，仅在所有 receiver 都 drop 时返回 `false`）。
     pub fn trigger_action(&self, action: SemanticAction) -> bool {
         self.action_tx.send(action).is_ok()
-    }
-
-    /// **D4**：构造带 [`ActionSource::UserCommand`] 来源的语义动作。
-    /// `strength` 1..=3 越界返回 `None`（**拒绝不 clamp**，与 D11 裁决一致）。
-    /// `action` 不在 core 6 选 1 返回 `None`。
-    pub fn make_user_action(
-        action: live2d_ai_core::ActionId,
-        strength: u8,
-    ) -> Option<SemanticAction> {
-        let s = match strength {
-            1 => live2d_ai_core::action::Strength::Low,
-            2 => live2d_ai_core::action::Strength::Medium,
-            3 => live2d_ai_core::action::Strength::High,
-            _ => return None,
-        };
-        Some(SemanticAction::new(action, s, ActionSource::UserCommand))
     }
 
     /// 测试专用：访问 `reload_pending` 原子标志的只读视图。
@@ -294,7 +283,11 @@ pub type ModEventSink = Arc<dyn Fn(ModEventTopic, &str) + Send + Sync>;
 /// 口**把回调存入本线程局部；`handlers::handle_engine_event` 在 `AudioChunk`
 /// 分支读取之。生产装配（cli_entry）在 `LIVE2D_AI_WS_AUDIO=1` 时传入 Some，否则
 /// 传 None——默认行为与 `emit` 分支一致（关闭 WS 音频，仅 cpal 播放）。
-pub(crate) type AudioCb = dyn Fn(u64, &[f32], live2d_ai_runtime::AudioSpec) + Send + Sync;
+/// 末尾三个参数是**句子边界**：`sentence_seq` / `first_chunk` / `final_chunk`
+/// （2026-09-11 新增）。WS 帧的 `start`/`end` 必须按**句**给出——见
+/// [`crate::web_api::ws::build_audio_frames`]。
+pub(crate) type AudioCb =
+    dyn Fn(u64, &[f32], live2d_ai_runtime::AudioSpec, u64, bool, bool) + Send + Sync;
 thread_local! {
     static AUDIO_CB: std::cell::RefCell<Option<Arc<AudioCb>>> = const { std::cell::RefCell::new(None) };
 }
@@ -554,13 +547,14 @@ async fn run_forever(
                     handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
                 }
             }
-            // **D4（命令注册协议）**：web 端命令面板触发的用户动作。
-            // 走与 tool_action 同构的 core 仲裁路径：
+            // **Mod 边界 / 外部触发**：经 `action_tx` 到达的用户动作。
+            // 走 core 仲裁路径：
             //   RootEvent::Action → core 闸门（capability gate / 优先级 / 幂等）
-            //   → forward_effects → AppEvent::Render。handler **不**直接
-            //   调 core::apply，也不写 AppEvent::Render 跳过仲裁（§7.3）。
-            // 来源固定为 ActionSource::UserCommand（构造于 trigger_action），
-            // 优先级 100（最高），可抢占其它来源动作。
+            //   → forward_effects。handler **不**直接调 core::apply（§7.3）。
+            //
+            // 2026-09-11：原 D4 web 命令面板与本条注释里的
+            // `AppEvent::Render` 投影均已随动作系统删除；core reducer 仍在，
+            // 但桌面侧不再有表演副作用。
             action = action_rx.recv() => {
                 if let Some(action) = action {
                     let cur = root.epoch;
@@ -666,13 +660,13 @@ mod tests_mod_projections {
 
     #[test]
     fn non_conversation_events_yield_none() {
-        use crate::app_event::RenderCommand;
         use crate::user_event::PetUserEvent;
-        let render = AppEvent::Render(RenderCommand::CeasePerforming { epoch: 1 });
+        // 2026-09-11：`AppEvent::Render` 已随动作系统删除，这里改用剩下的
+        // 非 Conversation 变体覆盖「不应投影」的语义。
         let audit = AppEvent::RootAudit(crate::app_event::RootFact::Dropped);
         let tray = AppEvent::Tray(PetUserEvent::TrayExit);
         let shutdown = AppEvent::ShutdownReady;
-        for ev in [render, audit, tray, shutdown] {
+        for ev in [audit, tray, shutdown] {
             assert_eq!(
                 project_conversation_to_mod(&ev),
                 None,

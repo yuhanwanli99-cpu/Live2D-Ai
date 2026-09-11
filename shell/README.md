@@ -190,7 +190,9 @@ flutter build web --release --base-href /app/ --no-web-resources-cdn \
 2. WS 客户端按真实协议**不发** `subscribe`/`ping`（服务端不读客户端帧）。
 3. 动作**仍是只解析、不表演**，但解析已完整：`ActionStateEvent` 现在带
    `action` / `strength` / `source`（用户 / LLM / 规则）。
-   界面尚未把 `source` 表达出来（`chat_controller` 对 `ActionStateEvent` 仍是忽略）——
+   界面**已经**把 `source` 表达出来（`lib/ui/action_source_badge.dart` +
+   `lib/ui/action_history_view.dart`，在 `actions_section.dart` 里接线）——
+   这条说明 2026-09-11 更正：过去写的是「界面尚未表达」，与代码不符。
    这是设计规格 `docs/design/web-ui-spec-v3.md` §8.3 / §10-P2 的内容。
 4. 构建时 Flutter 会打印 `Expected to find fonts for (... packages/cupertino_icons/CupertinoIcons)`
    的警告：这是 Flutter 在存在文本输入控件时的既有提示；本工程按约束未引入

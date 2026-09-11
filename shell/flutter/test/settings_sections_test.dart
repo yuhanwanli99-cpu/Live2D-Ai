@@ -50,13 +50,15 @@ void main() {
       expect(icons, hasLength(8));
     });
 
-    test('顺序 = 声明顺序：角色 → 能力 → 行为 → 扩展/诊断/开发', () {
+    test('顺序 = 声明顺序：角色 → 能力 → 外观与互动 → 扩展/诊断/开发', () {
       expect(SettingsSection.values.map((SettingsSection s) => s.name), <String>[
         'persona',
         'models',
         'llm',
         'tts',
-        'actions',
+        // 2026-09-11：动作子系统移除时这里由 `actions` 改名为 `appearance`
+        // （label「外观与互动」不变）。索引位置保持不变，改的是名字。
+        'appearance',
         'mods',
         'diagnostics',
         'developer',

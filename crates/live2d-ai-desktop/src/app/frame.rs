@@ -242,8 +242,13 @@ impl ShellApp {
                         TickOutcome::Playing => {}
                     }
                 } else {
-                    // chat 模式：表演源是 supervisor 下发的 RenderCommand——
-                    // 直接推进 player；自然完成即记下身份（P0-6）。
+                    // chat 模式：直接推进 player；自然完成即记下身份（P0-6）。
+                    //
+                    // 2026-09-11 用户裁决：动作系统整体移除——原先的表演源
+                    // （`RenderCommand` → `apply_render_command`）已删除，因此
+                    // `self.performing` **不再有任何写入点**，本分支的
+                    // `natural_finish` 恒为 `None`（动作完成回报通道保留但休眠）。
+                    // 播放器本身照常推进：它同时服务于 model-smoke 的脚本动作。
                     match model
                         .driver
                         .player_mut()

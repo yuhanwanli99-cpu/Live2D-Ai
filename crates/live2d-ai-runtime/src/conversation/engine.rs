@@ -170,7 +170,7 @@ impl ConversationEngine {
             },
         };
 
-        // ---- 阶段 1：LLM 流式循环（边流边发 TextDelta / ToolAction / 入队句子）。
+        // ---- 阶段 1：LLM 流式循环（边流边发 TextDelta / 入队句子）。
         if let Some(mut stream) = stream {
             'llm: loop {
                 let item = tokio::select! {
@@ -265,44 +265,9 @@ impl ConversationEngine {
                                 }
                             }
                         }
-                        DialogueEvent::ToolReady { call } => {
-                            let delivered = send_event(
-                                &event_tx,
-                                &cancel,
-                                EngineEvent::ToolAction {
-                                    epoch,
-                                    ts_ms: now_ms(),
-                                    index: call.index,
-                                    id: call.id,
-                                    args: call.arguments,
-                                },
-                            )
-                            .await;
-                            if !delivered {
-                                tx_closed = true;
-                                break 'llm;
-                            }
-                        }
-                        // 残缺工具调用：立即可见，但不阻断已生成文本/TTS。
-                        // （真正的流结束以 `None` 分支为准。）
-                        DialogueEvent::Done { incomplete_tools } => {
-                            if let Some(incomplete) = incomplete_tools {
-                                let delivered = send_event(
-                                    &event_tx,
-                                    &cancel,
-                                    EngineEvent::Error {
-                                        epoch,
-                                        ts_ms: now_ms(),
-                                        kind: ErrorKind::IncompleteTools(incomplete),
-                                    },
-                                )
-                                .await;
-                                if !delivered {
-                                    tx_closed = true;
-                                    break 'llm;
-                                }
-                            }
-                        }
+                        // 流结束标记（`Done`/`flush`）。真正的「流已耗尽」以
+                        // 上面的 `stream.next()` 返回 `None` 为准，这里无事可做。
+                        DialogueEvent::Done => {}
                     }
                 }
             }

@@ -34,8 +34,13 @@ class ShortcutHelpEntry {
   final String? note;
 }
 
-/// 按平台给按键前缀（macOS → ⌘，其余 → Ctrl）。
-String shortcutModifierLabel({required bool isMacOS}) => isMacOS ? '⌘' : 'Ctrl';
+/// 按平台给按键前缀（macOS → `Cmd`，其余 → `Ctrl`）。
+///
+/// **用 ASCII 的 `Cmd` 而不是 `⌘`（U+2318）**（2026-09-11）：那个符号不在
+/// 自托管的中文子集里，一旦上屏就会让 CanvasKit 去 `fonts.gstatic.com` 拉
+/// 回退字体——踩中「断网即豆腐块」的硬约束（同批修掉的还有流式光标 `▍`）。
+/// `Cmd` 在任何字体里都有，代价只是不够「原生」。
+String shortcutModifierLabel({required bool isMacOS}) => isMacOS ? 'Cmd' : 'Ctrl';
 
 /// 快捷键清单。
 List<ShortcutHelpEntry> shortcutHelp({required bool isMacOS}) {

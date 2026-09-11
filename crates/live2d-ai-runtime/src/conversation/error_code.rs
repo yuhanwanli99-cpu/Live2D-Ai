@@ -26,7 +26,9 @@
 //! | `Tts(Status 400)` | `tts_upstream_400` | 是 |
 //! | `Decode(_)` | `decode_pcm_unaligned` | 是 |
 //! | `Backpressure{..}` | `tts_backpressure` | 是 |
-//! | `IncompleteTools(_)` | `tools_incomplete` | 否 |
+//!
+//! 2026-09-11 用户裁决后 `IncompleteTools(_)` / `tools_incomplete` 一行已随
+//! 工具移除删除（LLM 不暴露任何工具，不再有「工具调用残缺」这条错误路径）。
 //!
 //! `fatal` 与 supervisor 的 `saw_fatal_kind` 判据一致（见
 //! `supervisor::handlers::handle_engine_event`）——**唯一口径**，前端据此决定
@@ -45,11 +47,10 @@ impl ErrorKind {
             ErrorKind::Tts(e) => format!("tts_{}", e.code_suffix()),
             ErrorKind::Decode(e) => format!("decode_{}", e.code_suffix()),
             ErrorKind::Backpressure { .. } => "tts_backpressure".to_string(),
-            ErrorKind::IncompleteTools(_) => "tools_incomplete".to_string(),
         }
     }
 
-    /// 出错阶段（`llm` / `tts` / `decode` / `tools`）。
+    /// 出错阶段（`llm` / `tts` / `decode`）。
     ///
     /// **与 [`Self::code`] 的前缀同源**：`code()` 总是以本值开头（回归测试锁定），
     /// 这样日志里既能按 `stage` 粗筛、也能按 `code` 精确定位。背压归 `tts`——
@@ -59,14 +60,13 @@ impl ErrorKind {
             ErrorKind::Llm(_) => "llm",
             ErrorKind::Tts(_) | ErrorKind::Backpressure { .. } => "tts",
             ErrorKind::Decode(_) => "decode",
-            ErrorKind::IncompleteTools(_) => "tools",
         }
     }
 
     /// 是否致命（丢弃剩余排队句子、立即结束本轮）。
     ///
     /// **口径唯一**：与 supervisor 的 `saw_fatal_kind` 完全一致——
-    /// `Llm` / `IncompleteTools` 不致命（已生成的语音继续播完，见 D8 裁决）。
+    /// `Llm` 不致命（已生成的语音继续播完，见 D8 裁决）。
     pub fn is_fatal(&self) -> bool {
         matches!(
             self,
@@ -98,9 +98,6 @@ impl ErrorKind {
             ErrorKind::Backpressure { .. } => {
                 Some("下游播放长期不消费：确认前端音频播放未被暂停或浏览器标签页未休眠".to_string())
             }
-            ErrorKind::IncompleteTools(_) => Some(
-                "模型输出被截断在工具调用中间：可提高 [llm] max_tokens 或换更稳的模型".to_string(),
-            ),
         }
     }
 }
@@ -162,7 +159,6 @@ fn hint_for(e: &Error, stage: &str, non_auth_note: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dialogue::IncompleteToolCalls;
 
     fn status_err(code: u16) -> Error {
         Error::status(
@@ -181,7 +177,6 @@ mod tests {
             ErrorKind::Backpressure {
                 message: "队列满".into(),
             },
-            ErrorKind::IncompleteTools(IncompleteToolCalls { calls: vec![] }),
         ];
         for k in kinds {
             assert!(
@@ -237,16 +232,12 @@ mod tests {
     }
 
     #[test]
-    fn backpressure_and_tools_have_stable_codes() {
+    fn backpressure_has_stable_code() {
         let bp = ErrorKind::Backpressure {
             message: "超时".into(),
         };
         assert_eq!(bp.code(), "tts_backpressure");
         assert!(bp.is_fatal());
-
-        let tools = ErrorKind::IncompleteTools(IncompleteToolCalls { calls: vec![] });
-        assert_eq!(tools.code(), "tools_incomplete");
-        assert!(!tools.is_fatal());
     }
 
     /// 非 401/403 的上游状态不产生鉴权误导文案。

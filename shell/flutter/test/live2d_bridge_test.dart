@@ -58,75 +58,11 @@ void main() {
     bridge.dispose();
   });
 
-  // ── P5：动作通道 + 舞台角标 + 回执 ──────────────────────────────
-
-  group('action-state 的**根级 action**（渲染面按根读，放 payload 里会静默失效）', () {
-    test('action 在信封根，state/strength 在 payload', () async {
-      final transport = _FakeTransport();
-      final bridge = Live2DBridge(transport);
-      transport.emit('{"version":1,"type":"ready","payload":{}}');
-      await Future<void>.delayed(Duration.zero);
-
-      await bridge.sendActionState(action: 'nod', strength: 2);
-
-      expect(transport.sent, hasLength(1));
-      final Map<String, Object?> frame =
-          jsonDecode(transport.sent.single) as Map<String, Object?>;
-      // 这两条断言就是「模型到底会不会动」的全部依据。
-      expect(
-        frame['action'],
-        'nod',
-        reason: '渲染面从**信封根**读 action（l2d-wasm-demo/src/main.rs:380）；'
-            '放进 payload 会让 action 为空、模型不动且不报错',
-      );
-      expect((frame['payload']! as Map<String, Object?>)['state'], 'start');
-      expect((frame['payload']! as Map<String, Object?>)['strength'], 2);
-      expect(
-        (frame['payload']! as Map<String, Object?>).containsKey('action'),
-        isFalse,
-        reason: 'payload 里的 action 是死字段，不要写进去误导后来人',
-      );
-      await bridge.destroy();
-    });
-
-    test('state=end 用于收口（**不是 stop**——渲染面没有 stop 分支）', () async {
-      final transport = _FakeTransport();
-      final bridge = Live2DBridge(transport);
-      transport.emit('{"version":1,"type":"ready","payload":{}}');
-      await Future<void>.delayed(Duration.zero);
-
-      await bridge.sendActionState(action: 'tilt', state: 'end');
-      final Map<String, Object?> frame =
-          jsonDecode(transport.sent.single) as Map<String, Object?>;
-      expect(frame['action'], 'tilt');
-      expect((frame['payload']! as Map<String, Object?>)['state'], 'end');
-      expect(
-        (frame['payload']! as Map<String, Object?>).containsKey('strength'),
-        isFalse,
-      );
-      await bridge.destroy();
-    });
-
-    test('传非 start/end 的 state 会被断言拦下（渲染面会静默忽略）', () async {
-      final transport = _FakeTransport();
-      final bridge = Live2DBridge(transport);
-      expect(
-        () => bridge.sendActionState(action: 'nod', state: 'stop'),
-        throwsA(isA<AssertionError>()),
-      );
-      bridge.dispose();
-    });
-
-    test('空动作名不发（避免渲染面收到一个停不掉的空动作）', () async {
-      final transport = _FakeTransport();
-      final bridge = Live2DBridge(transport);
-      transport.emit('{"version":1,"type":"ready","payload":{}}');
-      await Future<void>.delayed(Duration.zero);
-      await bridge.sendActionState(action: '');
-      expect(transport.sent, isEmpty);
-      await bridge.destroy();
-    });
-  });
+  // ── 舞台角标 + 回执 ────────────────────────────────────────────
+  //
+  // 2026-09-11：这里原有一组 `action-state`（动作通道）测试，
+  // 随动作子系统（`live2d_perform_action` 工具 / `action_state` 帧 /
+  // `sendActionState`）整条移除。缩放 / 背景 / 回执三条通路不受影响。
 
   group('stage-zoom / stage-bg：只发意图，不算数值', () {
     test('stage-zoom 发 dir，不发 scale', () async {

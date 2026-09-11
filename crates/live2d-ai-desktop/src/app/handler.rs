@@ -1,7 +1,7 @@
 //! `ApplicationHandler<AppEvent>` 实现（事件循环主骨架）。
 //!
 //! - [`ShellApp::resumed`]：转交 `bootstrap`。
-//! - [`ShellApp::user_event`]：托盘/渲染命令/对话 UI 事件分发。
+//! - [`ShellApp::user_event`]：托盘 / 对话 UI / 错误 / 生命周期事件分发。
 //! - [`ShellApp::window_event`]：关闭 / 鼠标左键 / Resize / DPI / Redraw /
 //!   Occluded 等窗口事件。
 //! - [`ShellApp::about_to_wait`]：shutdown watchdog + 超时兜底 + 初始定位
@@ -31,7 +31,6 @@ impl ApplicationHandler<AppEvent> for ShellApp {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
             AppEvent::Tray(pe) => self.handle_tray_event(event_loop, pe),
-            AppEvent::Render(cmd) => self.apply_render_command(cmd),
             AppEvent::Conversation(ui) => self.apply_conversation_ui(ui),
             // root 审计投影：窗口侧不消费，只留调试通道（测试经 collector 断言）。
             AppEvent::RootAudit(fact) => {

@@ -169,7 +169,7 @@ void main() {
         wrap(
           SettingsScaffold(
             sections: visibleSections(),
-            selected: SettingsSection.actions,
+            selected: SettingsSection.appearance,
             onSelect: (_) => picked++,
             child: const Text('PANE'),
           ),
@@ -205,7 +205,7 @@ void main() {
         wrap(
           SettingsScaffold(
             sections: visibleSections(),
-            selected: SettingsSection.actions,
+            selected: SettingsSection.appearance,
             onSelect: (_) {},
             child: const SizedBox.shrink(),
           ),

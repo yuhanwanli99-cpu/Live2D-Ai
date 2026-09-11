@@ -1,16 +1,20 @@
-//! 托盘 / 渲染命令 / 对话 UI 事件落地（事件循环线程内）。
+//! 托盘 / 对话 UI 事件落地（事件循环线程内）。
 //!
 //! - [`ShellApp::handle_tray_event`]：托盘菜单事件 → 窗口能力意图 → `Window`
 //!   调用，幂等。
-//! - [`ShellApp::apply_render_command`]：渲染命令落地（含 epoch 镜像闸门）。
 //! - [`ShellApp::apply_conversation_ui`]：对话侧状态镜像（epoch 刷新与
 //!   口型活跃门控）。
+//!
+//! 2026-09-11 用户裁决：LLM 不暴露任何工具、只做对话——原先的
+//! `ShellApp::apply_render_command`（渲染命令落地 / 动作表演入口）已随
+//! `AppEvent::Render` 与 `RenderCommand` 一并删除。窗口侧不再有**任何**动作
+//! 表演入口；本模块只处理托盘与对话状态。
 
-use tracing::{debug, info, trace};
+use tracing::{info, trace};
 use winit::event_loop::ActiveEventLoop;
 
 use crate::app::types::ShellApp;
-use crate::app_event::{ConversationUiEvent, RenderCommand};
+use crate::app_event::ConversationUiEvent;
 use crate::backend::StopReason;
 use crate::user_event::{EventTarget, PetUserEvent, event_target};
 
@@ -45,38 +49,6 @@ impl ShellApp {
             return;
         }
         self.sync_tray();
-    }
-
-    /// 渲染命令落地（副作用执行端；epoch 镜像防御闸门，权威闸在 core）。
-    pub(crate) fn apply_render_command(&mut self, cmd: RenderCommand) {
-        let (cmd_epoch, kind) = match cmd {
-            RenderCommand::Perform { epoch, action } => (epoch, Some(action)),
-            RenderCommand::CeasePerforming { epoch } => (epoch, None),
-        };
-        if cmd_epoch != self.render_epoch {
-            debug!(
-                cmd_epoch,
-                render_epoch = self.render_epoch,
-                ?kind,
-                "陈旧渲染命令被镜像闸门丢弃"
-            );
-            return;
-        }
-        match kind {
-            Some(action) => {
-                if let Some(model) = self.model.as_mut() {
-                    model.driver.player_mut().play(action);
-                }
-                self.performing = Some((cmd_epoch, action));
-                info!(?action, "表演开始（chat）");
-            }
-            None => {
-                if let Some(model) = self.model.as_mut() {
-                    model.driver.player_mut().interrupt();
-                }
-                self.performing = None;
-            }
-        }
     }
 
     /// 对话侧状态落地：镜像刷新与口型活跃门控。

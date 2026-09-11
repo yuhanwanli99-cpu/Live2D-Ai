@@ -175,7 +175,6 @@ class UiStateTracker extends ChangeNotifier {
         return true;
       case SubscribeAckEvent():
       case HeartbeatEvent():
-      case ActionStateEvent():
       case AudioEvent():
       case UnknownWsEvent():
         return false;

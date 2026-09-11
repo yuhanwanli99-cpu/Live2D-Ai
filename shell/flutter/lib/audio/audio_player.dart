@@ -1,160 +1,102 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:js_interop';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 
 import 'gain.dart';
-import 'schedule.dart';
+import 'sentence_assembler.dart';
+import 'wav.dart';
 
-/// 后端 WS audio 帧解码后的 PCM（s16le 单声道）。
-class PcmFrame {
-  const PcmFrame({
-    required this.pcm,
-    required this.sampleRate,
-    this.start = false,
-    this.end = false,
-    this.volume,
-  });
+/// [PcmFrame] 的家搬到了纯逻辑模块 `sentence_assembler.dart`（它同时是装配器的
+/// 输入，两份同形 DTO 没有意义）。这里 re-export，**旧调用方
+/// （`import 'audio/audio_player.dart'` 拿 `PcmFrame`）一行都不用改**。
+export 'sentence_assembler.dart' show PcmFrame;
 
-  final Uint8List pcm;
-  final int sampleRate;
+/// 一次正在播放（或已排队）的句子：媒体元素 + blob URL + 它的包络。
+class _Playback {
+  _Playback({required this.sentence, this.element, this.url});
 
-  /// 服务端按**原始**样本算出的 RMS ∈ [0,1]（`data.volume`）。
-  ///
-  /// **服务端静音时这是口型的唯一来源**：PCM 被置零（谁都发不出声），
-  /// 但 volume 仍是真实值。非 null 时优先用它，而不是从（可能已置零的）
-  /// PCM 里算 RMS——否则静音会连带把口型关掉。
-  final double? volume;
+  final AssembledSentence sentence;
 
-  /// 服务端 `audio.start`：**仅表示「本轮语音的首片」**，不是时间轴重置指令。
-  ///
-  /// 调度**不读**本字段（原因见 [scheduleSlice] 的长注释）：曾据它把时间轴
-  /// 拽回 now，导致一轮音频最多 17 片同时发声。保留字段以便协议自描述与排查。
-  final bool start;
+  /// 承载这一句的 `<audio>`。`null` = **降级**：本浏览器建不出媒体元素
+  /// （[AudioPlayer._mediaSupported] 已为 false），这一句只能靠本地时钟模拟
+  /// 时间轴来驱动口型（见 [AudioPlayer._play]），发不出声音。
+  final web.HTMLAudioElement? element;
 
-  /// 服务端 `audio.end`：仅作协议标记，调度不使用。
-  final bool end;
+  /// `URL.createObjectURL` 的返回值。**必须在句尾 `revoke`**——不回收就是
+  /// 把整句音频（几十 KB ~ 几百 KB）连同 blob 一起永久留在页面内存里。
+  /// 降级句没有 URL（`null`）。
+  final String? url;
+
+  /// 降级句的播放进度时钟（媒体元素没有时用它当时间轴）。
+  final Stopwatch clock = Stopwatch();
+
+  /// DOM 事件是否已经收过尾（`ended` 与 ticker 兜底可能同时到）。
+  bool released = false;
 }
 
-/// s16le → [-1,1] 的 RMS 包络。
+/// 播放器：**攒一句 → 封 WAV → `<audio>` 媒体元素播**（2026-09-11 重写）。
 ///
-/// 参数与后端 `RmsMeter` 对齐：窗口 50ms、attack 0.03s、release 0.10s，
-/// 按每帧（默认 20ms）推进。输出 `level ∈ [0,1]`。
-class MouthEnvelope {
-  MouthEnvelope({
-    this.windowSec = 0.05,
-    this.attackSec = 0.03,
-    this.releaseSec = 0.10,
-  });
-
-  final double windowSec;
-  final double attackSec;
-  final double releaseSec;
-
-  final ListQueue<double> _squares = ListQueue<double>();
-  int _rate = 0;
-  int _windowSamples = 0;
-  double _sumSquares = 0;
-  double _level = 0;
-
-  double get level => _level;
-
-  void reset() {
-    _squares.clear();
-    _sumSquares = 0;
-    _level = 0;
-  }
-
-  /// 推入一帧 PCM，返回平滑后的口型 level。
-  double push(Uint8List pcm, int sampleRate) {
-    final rate = sampleRate > 0 ? sampleRate : 24000;
-    if (rate != _rate) {
-      _rate = rate;
-      _windowSamples = math.max(1, (rate * windowSec).round());
-      _squares.clear();
-      _sumSquares = 0;
-    }
-    final samples = pcm.length ~/ 2;
-    if (samples == 0) return _level;
-    for (var i = 0; i < samples; i++) {
-      var value = (pcm[i * 2 + 1] << 8) | pcm[i * 2];
-      if (value >= 0x8000) value -= 0x10000;
-      final normalized = value / 32768.0;
-      final square = normalized * normalized;
-      _squares.addLast(square);
-      _sumSquares += square;
-    }
-    while (_squares.length > _windowSamples) {
-      _sumSquares -= _squares.removeFirst();
-    }
-    final count = _squares.length;
-    final rms = count == 0 ? 0.0 : math.sqrt(_sumSquares / count);
-    final target = rms < 0 ? 0.0 : (rms > 1 ? 1.0 : rms);
-    final frameSec = samples / rate;
-    final tau = target > _level ? attackSec : releaseSec;
-    var alpha = tau <= 0 ? 1.0 : frameSec / tau;
-    if (alpha < 0) {
-      alpha = 0;
-    } else if (alpha > 1) {
-      alpha = 1;
-    }
-    _level += (target - _level) * alpha;
-    if (_level < 0) {
-      _level = 0;
-    } else if (_level > 1) {
-      _level = 1;
-    }
-    return _level;
-  }
-}
-
-class _ScheduledSource {
-  const _ScheduledSource(this.node, this.endTime);
-
-  final web.AudioBufferSourceNode node;
-  final double endTime;
-}
-
-/// WebAudio 播放器 + 口型包络。
+/// # 为什么从 Web Audio 换成媒体元素（用户裁决，结论有实测支撑）
 ///
-/// 三条不变量（「很吵的杂音」+「口型超前」两个缺陷的完整修复，
-/// 算术核心与证据见 [scheduleSlice] / [LevelTimeline] 的长注释）：
+/// 用户报「我这浏览器禁用声音但是依旧有声音传出」。查证两条事实：
 ///
-/// 1. **时间轴只前进**：每片经 [scheduleSlice] 排在 `_nextStart`，**绝不因服务端
-///    分片起始标记回退**。只有 [interrupt]（epoch 切换 / stop）才清零重排。
-///    WebAudio 对同时发声的音源逐样本相加，回退即与上一片重叠 → 削波杂音。
-/// 2. **口型按播放时刻释放**：包络在到达时计算（顺序与音频一致），但经
-///    [LevelTimeline] 延迟到真正出声的时刻才推给渲染面——TTS 分片是 1 ms 级
-///    突发，直接在到达时推电平会让嘴唇比声音早最多 3.36 s。
-/// 3. **降级不破链**：无 WebAudio 或单帧调度失败只影响该帧，口型照常驱动。
+/// 1. **后端根本不发声**：`GET /api/v1/app/status` 的 `audio.backend = "none"`、
+///    `available: false`（硬编码于 `app_routes.rs`）——声音只可能来自浏览器；
+/// 2. **Web Audio 与媒体元素走两套权限**：Web Audio 归 Chromium 的
+///    **autoplay 策略**管（有用户手势 `resume()` 就能响），而站点的
+///    「声音 = 阻止」是作用在**媒体元素**上的。用 `AudioContext` +
+///    每 20 ms 一片 `AudioBufferSourceNode` 播放，站点级静音拦不住它——
+///    这正是「禁了还有声」。
 ///
-/// 浏览器 autoplay 限制：首次用户手势调用 [unlock] resume 上下文。
+/// 所以播放路径改为：整句 PCM 包成 **WAV**（44 字节头 + 裸 PCM，零依赖，
+/// 见 [wavFromPcm16]）→ `Blob` → `URL.createObjectURL` → `HTMLAudioElement.play()`。
+/// 静音/音量直接作用在 `element.muted` / `element.volume` 上——这是本次改动的
+/// **全部意义**：让浏览器站点的「声音 = 阻止」真的能管住它。
+///
+/// # 为什么是 WAV 不是 MP3
+///
+/// 用户最初要求推 mp3，但本机 TTS **实测出不了 mp3**：`response_format=mp3`
+/// → **HTTP 400**、`wav` → **400**、只有 `pcm` → **200**（24 kHz s16le 单声道）。
+/// 要么后端自造编码器（与「运行时依赖 = 0」冲突），要么用 WAV。
+///
+/// # 附带的收益：一整类「电流声」缺陷随之消失
+///
+/// Web Audio 逐片播放时，context 采样率不是 PCM 率的整数倍就会**每片**重采样
+/// 一次（滤波器启动瞬态 → 50 Hz 咔哒串；实测边界跳变 16.36× 片内均值，
+/// 原生率只有 0.91×）。媒体元素吃的是**一整个 WAV 文件**，解码器只做一次
+/// 连续重采样，这类缺陷从结构上不再存在（旧的 `sample_rate.dart` 整条判定
+/// 随之删除）。
+///
+/// # 不变量
+///
+/// 1. **一句一单元**：攒到 `end` 才封 WAV；封好的句子进 [SerialQueue] **串行**
+///    播放，上一句没 `ended` 之前绝不开下一句（重叠/断句比延迟糟得多）；
+/// 2. **口型按播放进度**：媒体元素没有逐片播放时刻，30 ms 轮询
+///    `element.currentTime` 后用 [levelAtSec] 在句内包络上取值；没在播就发 0，
+///    [interrupt] 立即发 0；
+/// 3. **blob URL 生命周期与句子绑定**：句尾 / 出错 / interrupt / dispose 都要
+///    `revokeObjectURL`（漏一次就漏一整句音频的内存）；
+/// 4. **降级不破链**：建元素 / 建 blob / `play()` 任何一步失败都只影响这一句——
+///    不抛、不卡住队列。没有媒体后端时这一句以**降级句**入队（本地时钟当播放
+///    时间轴，只有口型没有声音），队列顺序与口型照常；autoplay 被拦时这一句停在
+///    队首等用户手势（[unlock] 会重试）。两种情况都通过 [unlocked] /
+///    [unlockState] 显式暴露给界面（`AudioBar` 的「点击任意位置或按任意键以
+///    启用声音」）。
 class AudioPlayer {
-  final StreamController<double> _levels =
-      StreamController<double>.broadcast();
-  final MouthEnvelope _envelope = MouthEnvelope();
-  final LevelTimeline _pendingLevels = LevelTimeline();
-  final List<_ScheduledSource> _scheduled = <_ScheduledSource>[];
+  final StreamController<double> _levels = StreamController<double>.broadcast();
+  final SentenceAssembler _assembler = SentenceAssembler();
+  final SerialQueue<_Playback> _queue = SerialQueue<_Playback>();
 
-  /// 口型释放节拍：20 ms（与音频分片同尺度；消费端 Live2D 桥另有 <=30 Hz 节流）。
-  static const Duration _levelTick = Duration(milliseconds: 20);
+  /// 口型轮询节拍：30 ms（≤ 33 ms）。消费端（Live2D 桥）另有 ≤30 Hz 节流，
+  /// 所以再密也不会更快上屏。
+  static const Duration _levelTick = Duration(milliseconds: 30);
 
-  /// 增益逼近的时间常数（秒）。见 [_applyGain]。
-  static const double _gainRampSec = 0.02;
+  /// WAV 的 MIME：媒体元素据此选解复用器（`<audio>` 不靠扩展名）。
+  static const String _wavMime = 'audio/wav';
 
-  web.AudioContext? _context;
-  /// 输出增益节点：**静音 / 音量都作用在它身上**，而不是断开连接。
-  ///
-  /// 为什么用增益而不是「不连接 destination」：音频图必须保持「活着」，
-  /// 时间轴（`context.currentTime` 与排片时刻）才与真实播放一致，
-  /// 口型电平的到期释放（[LevelTimeline]）才不会漂移。
-  /// 静音与音量只影响「听不听得到」，不影响「什么时候该动嘴」。
-  web.GainNode? _gain;
   Timer? _ticker;
-  double _nextStart = 0;
   double _level = 0;
   bool _disposed = false;
   bool _muted = false;
@@ -162,7 +104,12 @@ class AudioPlayer {
 
   Stream<double> get levels => _levels.stream;
   double get level => _level;
-  bool get hasAudioContext => _context != null;
+
+  /// 播放后端是否可用。**名字沿用旧契约**（调用方语义不变），在媒体元素路径下
+  /// 它表示「能建出 `HTMLAudioElement` 且建 blob 没抛」——探测失败即置 false，
+  /// 界面据此不再承诺「开启声音」。
+  bool get hasAudioContext => _mediaSupported;
+  bool _mediaSupported = true;
 
   /// 是否静音（**只关声音，不关口型**）。
   ///
@@ -171,70 +118,56 @@ class AudioPlayer {
   /// `LIVE2D_AI_MUTE_AUDIO=1` 在源头静音。
   bool get muted => _muted;
 
-  /// 切换静音。可在播放中随时切换（增益实时生效，不打断已排片的音频）。
+  /// 切换静音：直接改媒体元素的 `muted`（**不改音量**，二者正交）。
   set muted(bool value) {
     if (_muted == value) return;
     _muted = value;
-    _applyGain();
+    _applyOutput();
   }
 
   /// 主音量（0..1）。**与 [muted] 正交**：静音不重置它，取消静音后恢复原音量。
   double get volume => _volume;
 
   /// 设置主音量；非有限值按满音量处理，其余夹到 `[0,1]`。
+  ///
+  /// 曲线用 [gainForVolume]（`v²` 的温和感知压缩）写到 `element.volume` 上：
+  /// 与旧 GainNode 的听感完全一致，手感不变。
   set volume(double value) {
-    final next = value.isFinite ? value.clamp(0.0, 1.0) : 1.0;
+    final double next = value.isFinite ? value.clamp(0.0, 1.0) : 1.0;
     if (_volume == next) return;
     _volume = next;
-    _applyGain();
+    _applyOutput();
   }
 
-  /// 把 [muted] / [volume] 合成为实际增益并下发给增益节点。
+  /// 音频是否**真的**解锁了（用户手势已发生、媒体元素可用）。
   ///
-  /// 用 `setTargetAtTime`（指数逼近）而不是直接赋值 `gain.value`：拖动音量滑杆会
-  /// 连续改值，逐次直接赋值每一档都是一个台阶，听感上是 zipper noise（咔咔声）。
-  /// 20 ms 的时间常数在人耳上等同于即时，音量的换算见 [playbackGain]。
-  void _applyGain() {
-    final gain = _gain;
-    final context = _context;
-    if (gain == null || context == null) return;
-    try {
-      gain.gain.setTargetAtTime(
-        playbackGain(volume: _volume, muted: _muted),
-        context.currentTime,
-        _gainRampSec,
-      );
-    } catch (_) {
-      // 上下文已关闭：下次 _ensureContext 会重建。
-    }
-  }
-
-  /// 音频是否**真的**解锁了（`AudioContext.state == 'running'`）。
-  ///
-  /// 浏览器 autoplay 限制下，没有用户手势就没有声音。这个标志让界面能把
-  /// 失败**显式化**（`AudioBar` 的「点击任意位置或按任意键以启用声音」）——
-  /// 否则纯键盘用户会遇到「消息发得出去、嘴在动、但没有声音，且界面不解释」。
+  /// 媒体元素没有 `AudioContext.resume()`，解锁的语义变成「用户手势已发生，
+  /// 之后 `element.play()` 会被 autoplay 策略放行」。这个标志让界面能把失败
+  /// **显式化**——否则纯键盘用户会遇到「消息发得出去、嘴在动、但没有声音，
+  /// 且界面不解释」。
   bool get unlocked => _unlocked;
   bool _unlocked = false;
 
   /// 解锁状态变化（界面据此隐藏提示）。
   final ValueNotifier<bool> unlockState = ValueNotifier<bool>(false);
 
-  /// 首次用户手势调用：创建并 resume AudioContext。
+  /// 首次用户手势调用：探测媒体元素后端，并**重试**被 autoplay 拦下的句子。
   void unlock() {
-    final context = _ensureContext();
-    if (context == null) return;
+    if (_disposed) return;
     try {
-      context.resume().toDart.then((_) {
-        if (_disposed) return;
-        // `resume()` 是异步的：**不能**在调用后立刻读 state。
-        _setUnlocked(context.state == 'running');
-      }).catchError((Object _) {
-        // resume 失败：播放降级，但口型仍由 RMS 驱动。
-      });
+      // 能力探针：建得出就说明本浏览器有媒体元素后端。探针不插进 DOM、不发声。
+      web.HTMLAudioElement();
+      _mediaSupported = true;
+      _setUnlocked(true);
     } catch (_) {
-      // resume 失败：播放降级，但口型仍由 RMS 驱动
+      // 没有媒体元素后端：播放降级，但口型照常（降级不破链）。
+      _mediaSupported = false;
+      _setUnlocked(false);
+      return;
     }
+    // 因为 autoplay 被拒而停在队首的那一句，现在立刻重试。
+    final _Playback? current = _queue.current;
+    if (current?.element?.paused ?? false) _play(current!);
   }
 
   void _setUnlocked(bool value) {
@@ -243,86 +176,250 @@ class AudioPlayer {
     unlockState.value = value;
   }
 
-  web.AudioContext? _ensureContext() {
-    if (_disposed) return null;
-    final existing = _context;
-    if (existing != null) return existing;
-    try {
-      final context = web.AudioContext();
-      // 建立「source → gain → destination」链路；静音只改 gain。
-      // 这样即使静音，音频图仍然推进，排片时刻与口型时间线保持真实。
-      final gain = context.createGain();
-      gain.gain.value = playbackGain(volume: _volume, muted: _muted);
-      gain.connect(context.destination);
-      _gain = gain;
-      _context = context;
-      return context;
-    } catch (_) {
-      return null; // 无 WebAudio：静音播放，口型照常
-    }
-  }
-
-  /// 播放一帧并推进口型包络。
+  /// 播放一帧：喂给攒句器；一句齐了就入队。
   void feed(PcmFrame frame) {
     if (_disposed) return;
-    // 口型电平来源优先级：
-    // 1) 服务端 `volume`（**静音时唯一可用**：PCM 已被置零，本地 RMS 会恒为 0）；
-    // 2) 本地包络（旧服务端 / 无 volume 字段时回退）。
-    // 包络在**到达时**计算：帧序即音频序，且 RMS 是流式状态。
-    final serverVolume = frame.volume;
-    final level = serverVolume != null
-        ? serverVolume.clamp(0.0, 1.0)
-        : _envelope.push(frame.pcm, frame.sampleRate);
-    final context = _ensureContext();
-    if (context == null) {
-      // 无 WebAudio：没有播放时刻可对齐，口型照常驱动。
-      _emitLevel(level);
+    final AssembledSentence? sentence;
+    try {
+      sentence = _assembler.push(frame);
+    } catch (_) {
+      return; // 坏帧只丢这一帧，不影响后续与口型。
+    }
+    if (sentence != null) _enqueue(sentence);
+  }
+
+  /// **收尾**：把还在攒的半截封成一句（服务端漏发 `end` 时的兜底）。
+  ///
+  /// 只在「一轮已收口、不会再有本句分片」时调用——这是防「最后一句话永远卡在
+  /// 累积里播不出来」的安全网，不是常规路径（常规路径认 `end`）。
+  void flush() {
+    if (_disposed) return;
+    final AssembledSentence? sentence = _assembler.flush();
+    if (sentence != null) _enqueue(sentence);
+  }
+
+  /// 打断当前播放（epoch 切换 / 抢占 / stop）并清零口型。
+  void interrupt() {
+    _assembler.clear();
+    for (final _Playback item in _queue.all) {
+      _release(item);
+    }
+    _queue.clear();
+    _stopTicker();
+    _emitLevel(0);
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    interrupt();
+    _disposed = true;
+    _levels.close();
+    unlockState.dispose();
+  }
+
+  // ───────────────────────────── 播放队列（串行） ─────────────────────────────
+
+  void _enqueue(AssembledSentence sentence) {
+    // 媒体不可用时不丢句子，而是入一个**降级句**：顺序契约（一句一单元）照旧，
+    // 只是它没有声音、只有口型（见 [_play]）。丢掉才会「破链」——后面的句子
+    // 会一股脑涌上来。
+    final _Playback item = _create(sentence) ?? _Playback(sentence: sentence);
+    _queue.add(item);
+    _startNextIfIdle();
+  }
+
+  /// 把一句封成「blob URL + `<audio>`」，失败返回 null（降级）。
+  ///
+  /// 顺序有讲究：**先建元素、再建 blob、最后才 `createObjectURL`**。这样任何一步
+  /// 在中途抛（媒体后端不可用）时都还没有 URL 要回收；万一 URL 建好之后才抛，
+  /// catch 里补一次 `revoke`——否则这一句的音频就永远留在内存里（blob URL 不回收
+  /// = 整句音频不回收）。
+  _Playback? _create(AssembledSentence sentence) {
+    String? url;
+    try {
+      final web.HTMLAudioElement element = web.HTMLAudioElement();
+      final web.Blob blob = web.Blob(
+        <JSAny>[sentence.bytes.toJS].toJS,
+        web.BlobPropertyBag(type: _wavMime),
+      );
+      url = web.URL.createObjectURL(blob);
+      element.src = url;
+      element.preload = 'auto';
+      final _Playback item =
+          _Playback(sentence: sentence, element: element, url: url);
+      element.addEventListener('ended', ((web.Event _) => _onEnded(item)).toJS);
+      element.addEventListener('error', ((web.Event _) => _onError(item)).toJS);
+      _applyOutputTo(item);
+      // 部分浏览器要求媒体元素在文档里才肯解码。`display:none` 不占布局。
+      try {
+        element.style.display = 'none';
+        web.document.body?.append(element);
+      } catch (_) {
+        // 插不进 DOM 也照播（Chrome/Firefox 对游离的 audio 元素一样放行）。
+      }
+      return item;
+    } catch (_) {
+      _mediaSupported = false;
+      if (url != null) {
+        try {
+          web.URL.revokeObjectURL(url);
+        } catch (_) {
+          // 回收失败也只能算了：不能因为清理失败把这一帧变成异常。
+        }
+      }
+      return null;
+    }
+  }
+
+  /// 空闲就放行队首；**还有一句在播时什么都不做**（一句一单元）。
+  void _startNextIfIdle() {
+    if (_disposed) return;
+    final _Playback? item = _queue.takeNext();
+    if (item == null) return;
+    _play(item);
+    _ticker ??= Timer.periodic(_levelTick, (_) => _tick());
+  }
+
+  void _play(_Playback item) {
+    final web.HTMLAudioElement? element = item.element;
+    if (element == null) {
+      // 降级：没有媒体后端 → 用本地时钟当播放时间轴，口型照常按包络走。
+      // 这是「降级不破链」的字面含义：声音没了，链路（口型 + 队列顺序）还在。
+      item.clock
+        ..reset()
+        ..start();
       return;
     }
+    _applyOutputTo(item);
     try {
-      final when = _schedule(context, frame);
-      // 电平延迟到**真正出声的时刻**再释放（不变量 2）。
-      _pendingLevels.push(when, level);
-      _ticker ??= Timer.periodic(_levelTick, (_) => _tick());
+      element.play().toDart.then((_) {
+        if (_disposed || item.released) return;
+        _setUnlocked(true);
+      }).catchError((Object _) {
+        // autoplay 被拒 / 元素不可播：**不崩、不吞队列**——界面重新显示
+        // 「点击任意位置或按任意键以启用声音」，用户下一次手势时 [unlock] 会
+        // 重试这一句（它还在队首，blob URL 也还在，没有泄漏）。
+        if (_disposed || item.released) return;
+        _setUnlocked(false);
+      });
     } catch (_) {
-      // 单帧调度失败不影响后续帧与口型。
-      _emitLevel(level);
+      // 同步抛（媒体后端整个不可用）：跳过这一句，别卡住后面的。
+      _mediaSupported = false;
+      _finish(item);
     }
   }
 
-  /// 排一片音频，返回其开始播放的时刻（AudioContext 时间轴）。
-  double _schedule(web.AudioContext context, PcmFrame frame) {
-    final samples = _toFloat32(frame.pcm);
-    if (samples.isEmpty) return context.currentTime;
-    _prune(context);
-    final plan = scheduleSlice(
-      nextStart: _nextStart,
-      now: context.currentTime,
-      durationSec: samples.length / frame.sampleRate,
-    );
-    final buffer = context.createBuffer(1, samples.length, frame.sampleRate);
-    buffer.copyToChannel(samples.toJS, 0);
-    final node = context.createBufferSource();
-    node.buffer = buffer;
-    // 接到 gain（gain → destination），而不是直接接 destination——
-    // 静音时增益为 0，音频图仍推进（见 [_ensureContext]）。
-    node.connect(_gain ?? context.destination);
-    node.start(plan.when);
-    _nextStart = plan.nextStartAfter;
-    _scheduled.add(_ScheduledSource(node, plan.nextStartAfter));
-    return plan.when;
+  /// DOM `ended`：这一句自然播完。
+  void _onEnded(_Playback item) => _finish(item);
+
+  /// DOM `error`：解码/加载失败（坏 WAV、blob 被回收）。跳过这一句，链条不断。
+  void _onError(_Playback item) {
+    if (!_disposed) _setUnlocked(false);
+    _finish(item);
   }
 
-  /// 释放到期的口型电平；待释放队列排空即停表（不在空闲时占着定时器）。
+  /// 收尾一句：出队、释放 blob URL、让位给下一句。
+  void _finish(_Playback item) {
+    if (identical(_queue.current, item)) {
+      _queue.finishCurrent();
+      _release(item);
+      _emitLevel(0);
+      _startNextIfIdle();
+    } else {
+      // 迟到的 ended/error（例如 interrupt 已经把它摘掉）：只保证释放。
+      _release(item);
+    }
+    if (_queue.isEmpty) _stopTicker();
+  }
+
+  /// 释放一句占用的一切：暂停、摘 DOM、**revoke blob URL**。
+  void _release(_Playback item) {
+    if (item.released) return;
+    item.released = true;
+    item.clock.stop();
+    final web.HTMLAudioElement? element = item.element;
+    if (element != null) {
+      try {
+        element.pause();
+      } catch (_) {
+        // 从未开始播放
+      }
+      try {
+        element.remove();
+      } catch (_) {
+        // 不在 DOM 里
+      }
+    }
+    final String? url = item.url;
+    if (url != null) {
+      try {
+        // **顺序在播放结束之后**：blob 已经在媒体元素里解码完，此时 revoke 不会
+        // 截断声音，却能立刻把这句音频从内存里放掉。
+        web.URL.revokeObjectURL(url);
+      } catch (_) {
+        // 已回收 / 环境不支持
+      }
+    }
+  }
+
+  // ───────────────────────────── 口型（按播放进度） ─────────────────────────────
+
+  /// 30 ms 轮询：按 `currentTime` 在句内包络上取值。
+  ///
+  /// 结束判定优先用 DOM 的 `ended` **事件**（[AudioPlayer._onEnded]），这里只做
+  /// 兜底：`ended` 万一没到（异步竞态 / 元素被换掉），这一句就会永远占着队首，
+  /// 后面所有句子全被卡死——比早收尾几十毫秒糟得多。
   void _tick() {
-    final context = _context;
-    if (_disposed || context == null) {
+    if (_disposed) {
       _stopTicker();
       return;
     }
-    final due = _pendingLevels.drain(context.currentTime);
-    if (due != null) _emitLevel(due);
-    if (_pendingLevels.isEmpty) _stopTicker();
+    final _Playback? item = _queue.current;
+    if (item == null) {
+      _stopTicker();
+      _emitLevel(0);
+      return;
+    }
+    final web.HTMLAudioElement? element = item.element;
+    double progress;
+    bool atEnd;
+    bool audible;
+    try {
+      if (element == null) {
+        // 降级句：本地时钟就是播放进度；它「本该有声」，所以口型照走。
+        progress = item.clock.elapsedMilliseconds / 1000;
+        atEnd = progress >= item.sentence.durationSec;
+        audible = true;
+      } else {
+        progress = element.currentTime;
+        atEnd = element.ended || progress >= _totalSec(item, element);
+        // 暂停中（缓冲 / 被 autoplay 拦下）＝ 此刻没有声音 → 口型回 0，
+        // 别张着嘴发呆。
+        audible = !element.paused;
+      }
+    } catch (_) {
+      _finish(item);
+      return;
+    }
+    if (atEnd) {
+      _finish(item);
+      return;
+    }
+    _emitLevel(audible ? item.sentence.levelAt(progress) : 0);
+  }
+
+  /// 这一句的**总时长**（判定「播完了没有」用）。
+  ///
+  /// 首选媒体元素自己解码出的 `duration`（权威）。它要等元数据到才有值（此前是
+  /// NaN），那时用封 WAV 时算出的 [AssembledSentence.durationSec] 兜底，并留
+  /// 200 ms 余量——宁可多等一瞬，也不能把还没放完的一句提前掐掉（那会与下一句
+  /// 重叠，正是「一句一单元」要禁止的）。
+  static double _totalSec(_Playback item, web.HTMLAudioElement element) {
+    final double real = element.duration;
+    if (real.isFinite && real > 0) return real;
+    return item.sentence.durationSec > 0
+        ? item.sentence.durationSec + 0.2
+        : double.infinity;
   }
 
   void _stopTicker() {
@@ -335,66 +432,28 @@ class AudioPlayer {
     if (!_levels.isClosed) _levels.add(level);
   }
 
-  void _prune(web.AudioContext context) {
-    final now = context.currentTime;
-    _scheduled.removeWhere((scheduled) {
-      if (scheduled.endTime > now) return false;
-      try {
-        scheduled.node.disconnect();
-      } catch (_) {
-        // 节点已结束
-      }
-      return true;
-    });
-  }
+  // ───────────────────────────── 输出设置 ─────────────────────────────
 
-  /// 打断当前播放（epoch 切换 / stop）并清零口型。
-  void interrupt() {
-    for (final scheduled in _scheduled) {
-      try {
-        scheduled.node.stop();
-      } catch (_) {
-        // 未 start 或已停止
-      }
-      try {
-        scheduled.node.disconnect();
-      } catch (_) {
-        // 已断开
-      }
+  /// 把 [muted] / [volume] 写到**所有**已知元素（正在播的 + 排队的）。
+  ///
+  /// 静音用 `element.muted`、音量用 `element.volume`——**不是**断开输出：
+  /// 这两者只影响「听不听得到」，不影响播放时间轴，所以口型与音量/静音正交。
+  void _applyOutput() {
+    for (final _Playback item in _queue.all) {
+      _applyOutputTo(item);
     }
-    _scheduled.clear();
-    _pendingLevels.clear();
-    _stopTicker();
-    _nextStart = 0;
-    _envelope.reset();
-    _emitLevel(0);
   }
 
-  void dispose() {
-    if (_disposed) return;
-    interrupt();
-    _disposed = true;
-    final context = _context;
-    _context = null;
-    if (context != null) {
-      try {
-        context.close().toDart.ignore();
-      } catch (_) {
-        // 上下文已关闭
-      }
+  void _applyOutputTo(_Playback item) {
+    final web.HTMLAudioElement? element = item.element;
+    if (element == null) return; // 降级句：没有元素可设
+    try {
+      // 静音用浏览器自己的 `muted`、音量用 `volume`：站点级「声音 = 阻止」
+      // 作用在媒体元素上，这两条正是本次改动的目的。
+      element.muted = _muted;
+      element.volume = gainForVolume(_volume);
+    } catch (_) {
+      // 元素已被释放：忽略。
     }
-    _levels.close();
-    unlockState.dispose();
   }
-}
-
-Float32List _toFloat32(Uint8List pcm) {
-  final count = pcm.length ~/ 2;
-  final out = Float32List(count);
-  for (var i = 0; i < count; i++) {
-    var value = (pcm[i * 2 + 1] << 8) | pcm[i * 2];
-    if (value >= 0x8000) value -= 0x10000;
-    out[i] = value / 32768.0;
-  }
-  return out;
 }

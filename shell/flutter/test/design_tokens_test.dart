@@ -59,20 +59,59 @@ String stripCommentsAndStrings(String src) {
   return out.toString();
 }
 
-/// 统计 `lib/**` 里 `Family.name` 形式的引用次数。
+/// 统计 `lib/**` 里对令牌的**真实引用**次数。
+///
+/// # 为什么不能只数 `Family.name`（2026-09-11 修的假阴性）
+///
+/// `AppColors` 是 `ThemeExtension`，**没有任何一处代码写得出 `AppColors.hairline`**
+/// ——它必须从 context 取。真实写法只有两种：
+///
+/// ```dart
+/// appColorsOf(context).hairline            // ① 就地取
+/// final AppColors colors = appColorsOf(context);  … colors.hairline   // ② 先绑局部
+/// ```
+///
+/// 旧实现只匹配 `AppColors.hairline`，于是这 9 个令牌的引用数**永远是 0**：
+/// 「声明↔引用双向对账」在那条路径上恒真，`kNotYetWired` 台账里
+/// 已经接线的条目也永远不会被判成过期——**门禁在假装工作**。
+///
+/// 本实现同时识别三种形式：
+/// 1. `Family.name`（常量类令牌，如 `Space.s3` / `AppDurations.base`）；
+/// 2. `appColorsOf(...).name`（就地取）；
+/// 3. `AppColors alias = …` 之后出现的 `alias.name`（先绑局部）。
+///
+/// 形式 3 靠**类型标注**识别别名，不做类型推断——只扫 `lib/**`，
+/// 且别名写法在本仓库只有 `colors` 一种，精确够用。
 Map<String, int> countTokenReferences(String root, List<String> families) {
-  final RegExp pattern = RegExp(
+  final RegExp direct = RegExp(
     '\\b(${families.join('|')})\\.([A-Za-z][A-Za-z0-9_]*)',
   );
+  final RegExp accessor = RegExp(
+    r'AppColors\s*Of\s*\([^)]*\)\s*\.\s*([A-Za-z][A-Za-z0-9_]*)',
+    caseSensitive: false,
+  );
+  final RegExp aliasDecl = RegExp(r'\bAppColors\s+([a-z_][A-Za-z0-9_]*)\b');
   final Map<String, int> counts = <String, int>{};
+  void bump(String key) => counts[key] = (counts[key] ?? 0) + 1;
   for (final FileSystemEntity entity in Directory(root).listSync(
     recursive: true,
   )) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
     final String src = stripCommentsAndStrings(entity.readAsStringSync());
-    for (final RegExpMatch m in pattern.allMatches(src)) {
-      final String key = '${m.group(1)}.${m.group(2)}';
-      counts[key] = (counts[key] ?? 0) + 1;
+    for (final RegExpMatch m in direct.allMatches(src)) {
+      bump('${m.group(1)}.${m.group(2)}');
+    }
+    for (final RegExpMatch m in accessor.allMatches(src)) {
+      bump('AppColors.${m.group(1)}');
+    }
+    final Set<String> aliases = <String>{
+      for (final RegExpMatch m in aliasDecl.allMatches(src)) m.group(1)!,
+    };
+    for (final String alias in aliases) {
+      final RegExp aliasUse = RegExp('\\b$alias\\.([A-Za-z][A-Za-z0-9_]*)');
+      for (final RegExpMatch m in aliasUse.allMatches(src)) {
+        bump('AppColors.${m.group(1)}');
+      }
     }
   }
   return counts;
@@ -128,30 +167,40 @@ const Set<String> kStructuralMembers = <String>{
 /// 规格 §2.8.2 原本要求「声明即被引用」，与它自己的分阶段路线（P0 立令牌、
 /// P3 才用）冲突；本台账是两者的调和。
 const Set<String> kNotYetWired = <String>{
-  // ── 叠色：P3 起用（GlassPanel / 分隔线 / 悬停 / 焦点环） ──
-  'AppColors.hairline',
-  'AppColors.hoverWash',
-  'AppColors.glassScrim',
-  'AppColors.glassBarrier',
-  'AppColors.contentMuted',
-  'AppColors.contentFaint',
-  'AppColors.focusRing',
-  'AppColors.serverMutedBadgeSurface',
-  'AppColors.serverMutedBadgeBorder',
-  // ── 间距 / 圆角 / 动效：业务组件重写时才用 ──
+  // ── 叠色 ──
+  //
+  // **2026-09-11 修正**：这里原本列了 9 个 `AppColors.*`，但其中 7 个
+  // （hairline / hoverWash / glassScrim / contentMuted / contentFaint /
+  // serverMutedBadgeSurface / serverMutedBadgeBorder）**其实早就接线了**。
+  // 它们之所以一直显示「未接线」，是因为 `countTokenReferences` 只认
+  // `AppColors.hairline` 这种写不出来的形式（该类型必须从 context 取）。
+  // 尺子已修（见该函数头注），台账随之只减不增。
+  //
+  // **2026-09-11 再修正**：`focusRing` 已在 P1-4 接到 `buildAppComponents`
+  // 的 `focusSide()` 上；最后剩下的 `glassBarrier` 也在 P3-2 接到了
+  // `GlassRim` 的冷色段上。**`AppColors` 至此全部接线，台账清空。**
+  // ── 间距 / 圆角 ──
+  //
+  // **2026-09-11（P4-2）再减三条**：`Space.s6`(24) / `s7`(32) / `s8`(48)
+  // 过去「留着等 UI 用到」，其实一直有地方在用裸数字写同样的值。
+  // 这一轮把 `EdgeInsets` 里的裸数字全部归位，它们自然就被引用了——
+  // 顺带新增了「裸间距」扫描规则（见 `design_tokens_lint_test.dart`）。
+  //
   // 台账**只减不增**：接线了就必须从这里删掉（P2 已删 s2/s3/s5，
   // P3 已删 s1/s4、AppRadius.xs/lg）。
   'Space.s0',
-  // s6 是 9 档阶梯里的 24 px。阶梯本身要保持完整（局部删除会让
-  // 「相邻档位之间只有一个档」这条设计约束失效），所以留着等 UI 用到。
-  'Space.s6',
-  'Space.s7',
-  'Space.s8',
   'AppRadius.none',
-  'AppDurations.base',
-  'AppDurations.slow',
-  'AppDurations.reveal',
-  'Motion.enter',
+  // ── 动效：**2026-09-11 已全部接线**，从台账里删掉 ──
+  //
+  // `AppDurations.base/slow/reveal` 与 `Motion.enter` 曾长期挂在这里，
+  // 因为那时全应用只有一处 `AnimatedContainer`——令牌齐全、接线为零。
+  // 前端加强计划 P1-0/P1-1（`lib/ui/soft_motion.dart` +
+  // `lib/app/collapsible_panel.dart`）把它们接上了：
+  // `appMotion(context, AppDurations.xxx)` 是 now 唯一出口。
+  //
+  // 2026-09-11（P1-2）：`AppDurations.reveal` 已接到 `StartupReveal`
+  // （`lib/ui/soft_motion.dart`）——外壳首帧淡入一次，把舞台 iframe 的
+  // 空白首帧挡在背后。4 档时长至此**全部接线**。
 };
 
 void main() {
@@ -167,7 +216,8 @@ void main() {
       // 四套配色（2026-09-11）。`AppPalette` 不再是「平的令牌表」，
       // 所以它退出了 kTokenFamilies —— 它的结构由下面「配色族」那组测试守。
       expect(AppPalette.registry.length, AppThemeId.values.length);
-      expect(AppColors.fieldCount, 9);
+      // 2026-09-11（P3-1）：+`rimHighlight`（玻璃边缘高光的基色）。
+      expect(AppColors.fieldCount, 10);
     });
 
     test('尺寸/时长类家族的取值两两互异（防「四档同值」这种没有信息量的令牌）', () {
@@ -283,6 +333,7 @@ void main() {
       contentMuted: const Color(0xFF0D0E0F),
       contentFaint: const Color(0xFF101112),
       focusRing: const Color(0xFF131415),
+      rimHighlight: const Color(0xFF1A1B1C),
       serverMutedBadgeSurface: const Color(0xFF161718),
       serverMutedBadgeBorder: const Color(0xFF191A1B),
     );
@@ -296,6 +347,7 @@ void main() {
         base.copyWith(contentMuted: const Color(0xFF010203)),
         base.copyWith(contentFaint: const Color(0xFF010203)),
         base.copyWith(focusRing: const Color(0xFF010203)),
+        base.copyWith(rimHighlight: const Color(0xFF010203)),
         base.copyWith(serverMutedBadgeSurface: const Color(0xFF010203)),
         base.copyWith(serverMutedBadgeBorder: const Color(0xFF010203)),
       ];

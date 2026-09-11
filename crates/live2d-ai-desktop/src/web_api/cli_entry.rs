@@ -416,7 +416,12 @@ pub(crate) fn build_web_supervisor(
             println!("web: WS 音频广播已开启（browser 播放 / 口型驱动）");
             let bc = emit_bc.clone();
             let audio_cb: Arc<AudioCb> = Arc::new(
-                move |epoch: u64, samples: &[f32], spec: live2d_ai_runtime::AudioSpec| {
+                move |epoch: u64,
+                      samples: &[f32],
+                      spec: live2d_ai_runtime::AudioSpec,
+                      sentence_seq: u64,
+                      first_chunk: bool,
+                      final_chunk: bool| {
                     // f32 ∈ [-1,1] → s16le 字节（crate::audio::f32_to_i16），
                     // 交给 ws::Broadcaster::broadcast_audio_frames（内部切片 + base64）。
                     let i16s: Vec<i16> = samples
@@ -424,7 +429,15 @@ pub(crate) fn build_web_supervisor(
                         .map(|&s| crate::audio::f32_to_i16(s))
                         .collect();
                     let bytes: Vec<u8> = i16s.iter().flat_map(|v| v.to_le_bytes()).collect();
-                    bc.broadcast_audio_frames(epoch, &bytes, spec.sample_rate());
+                    // 句子边界一并下传：WS 的 start/end 要按句给（不是按 epoch）。
+                    bc.broadcast_audio_frames(
+                        epoch,
+                        &bytes,
+                        spec.sample_rate(),
+                        sentence_seq,
+                        first_chunk,
+                        final_chunk,
+                    );
                 },
             );
             spawn_supervisor_with_audio(

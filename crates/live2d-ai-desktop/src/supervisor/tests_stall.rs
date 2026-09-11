@@ -1,6 +1,6 @@
 //! 发布前专项测试（节点 B 遗留清单）：TTS 在飞 stop、pending PCM 泵期 stop、
 //! 真实 stall 5s 致命收尾，外加从 `tests_fault.rs` 迁来的
-//! `stop_during_drain_produces_no_commit_no_fallback_no_new_action`（语义上
+//! `stop_during_drain_produces_no_commit_and_clean_next_round`（语义上
 //! 也是「stop during drain-watch」，与本文件的「stop during X」主题一致）。
 //! 全部走 `spawn_supervisor` 真实链路，复用 `support.rs` 中既有 helper。
 //!
@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use super::support::{
     Collector, count_fact, detached_audio, facts, make_stall_producer, spawn_llm_mock,
-    spawn_text_only_collector, spawn_tts_mock, spawn_tts_mock_slow, wait_for,
+    spawn_tts_mock, spawn_tts_mock_slow, wait_for,
 };
 use super::*;
 use crate::app_event::{AppEvent, RootFact};
@@ -352,47 +352,21 @@ fn stall_timeout_fatal_terminates_after_5s_zero_progress() {
     handle.join();
 }
 
-// ---- P0-5: stop_during_drain_produces_no_commit_no_fallback_no_new_action ----
+// ---- P0-5: stop_during_drain_produces_no_commit_and_clean_next_round ----
 //
 // 真实进入 drain-watch：consumer 拖慢排空，collector 观察到
 // 「GenerationFinished 已出现 && PlaybackDrained 未出现」窗口后 sleep 30ms
-// 再 handle.stop()。三不断言：
+// 再 handle.stop()。断言：
 //   (a) 全程零 TurnCompleted、零 PlaybackDrained；
 //   (b) 新一轮请求体不含被停止轮 assistant 正文（证明未提交历史）；
-//   (c) 无任何止损后被盖新 epoch 的 Render(RenderCommand::Perform) 动作。
+//   (c) 第二轮正常收口。
 //
-// 控制组（fallback 文本"好的"）：先单独验证 "好的" ⇒ Perform 被发出；再用
-// 同一文本跑 stop 变体断言无 Perform。
+// 2026-09-11 用户裁决：动作系统整体移除——原先的「控制组先证 `好的` ⇒
+// Render(Perform)」以及断言「stop 后无 Perform」都已不可能成立
+// （`rule_fallback` 触发源与 `RenderCommand` 投影一并拆除），故删除该部分；
+// 本用例保留 stop-during-drain 的提交/收口语义，这部分与本裁决无关。
 #[test]
-fn stop_during_drain_produces_no_commit_no_fallback_no_new_action() {
-    // ---- 控制组：先证 "好的" ⇒ Perform 真实发出 ----
-    {
-        // dry-run，无声卡 ⇒ 无 PlaybackStarted，但 fallback 仍走 D11。
-        let (handle_c, coll_c, _) = spawn_text_only_collector(
-            "data: {\"choices\":[{\"delta\":{\"content\":\"好的\"}}]}\n\ndata: [DONE]\n\n"
-                .to_owned(),
-        );
-        assert!(handle_c.say("hi"));
-        assert!(
-            wait_for(Duration::from_secs(3), || coll_c
-                .lock()
-                .expect("poison")
-                .iter()
-                .any(|e| matches!(
-                    e,
-                    AppEvent::Render(crate::app_event::RenderCommand::Perform { .. })
-                ))),
-            "对照组：「好的」必须经 rule_fallback ⇒ Perform"
-        );
-        handle_c.quit();
-        assert!(wait_for(Duration::from_secs(2), || coll_c
-            .lock()
-            .expect("poison")
-            .iter()
-            .any(|e| matches!(e, AppEvent::ShutdownReady))));
-        handle_c.join();
-    }
-
+fn stop_during_drain_produces_no_commit_and_clean_next_round() {
     // ---- 变体：drain-watch 中打 stop ----
     let (producer, mut render) = detached_audio(4);
     // consumer 极慢（每 80ms 取 16 设备样本）——保证 drain-watch 长时间停留。
@@ -462,7 +436,7 @@ fn stop_during_drain_produces_no_commit_no_fallback_no_new_action() {
     std::thread::sleep(Duration::from_millis(30));
     handle.stop();
 
-    // 关停句柄后充分等待（确保无迟到 TurnCompleted / Drained / Perform）。
+    // 关停句柄后充分等待（确保无迟到 TurnCompleted / Drained）。
     std::thread::sleep(Duration::from_millis(200));
 
     // 断言 (a)：零 TurnCompleted、零 PlaybackDrained。
@@ -508,16 +482,7 @@ fn stop_during_drain_produces_no_commit_no_fallback_no_new_action() {
     consumer_stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = consumer.join();
 
-    // 断言 (c)：全程无 Perform（包括 stop 之后）。
-    assert!(
-        !collector.lock().expect("poison").iter().any(|e| matches!(
-            e,
-            AppEvent::Render(crate::app_event::RenderCommand::Perform { .. })
-        )),
-        "stop 变体全程不得发出 Render(Perform)——fallback 必须被抑制"
-    );
-
-    // 断言 (d)：第二轮 LLM 请求体**不含**被停轮的 assistant 正文。
+    // 断言 (c)：第二轮 LLM 请求体**不含**被停轮的 assistant 正文。
     // 若被停轮历史被错误提交，第二轮请求体会带 system+user(hi)+assistant(好的)
     // +user(第二轮) 四段；正确实现只有 system+user(第二轮) 两段。
     let bodies = llm_bodies.lock().expect("poison");

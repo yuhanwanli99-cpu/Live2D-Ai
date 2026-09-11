@@ -196,3 +196,108 @@ async fn queue_push_timeout_yields_backpressure_error() {
     // 兜底：确保测试间用到的 STEP_TIMEOUT 常量未被误删。
     let _ = STEP_TIMEOUT;
 }
+
+/// **纯空白句不得发 TTS 请求，且不得把整轮判失败**（2026-09-11 修，实测缺陷）。
+///
+/// 来历：分句器把**换行**也算句读（`dialogue::sentence::is_terminator` 含 `'\n'`），
+/// 所以模型吐出一个前导换行（或句间换行后紧跟正文）时，会切出一个**只含空白**的
+/// 「句子」。它 `is_empty() == false` 因而躲过分句器的非空守卫，却会被 TTS 上游
+/// trim 成空串，上游直接回 `400 {"detail":"input 为空"}`——而 TTS 错误是 **fatal**，
+/// 于是一句纯空白把**整轮**判失败。真机日志原文（2026-09-11 13:28:02）：
+///
+/// ```text
+/// ERROR TTS 阶段错误: 上游非成功状态 400 Bad Request: {"detail":"input 为空"}
+/// code=tts_upstream_400 stage=tts fatal=true
+/// ```
+///
+/// 修法：`synthesize_sentence` 对 `text.trim().is_empty()` 的句子**不发 HTTP**，
+/// 与「TTS 未配置」走同一条静音句路径（发空 `final_chunk` + `SentenceVoiced`）——
+/// 文本不丢（分句器的「逐字不丢」不变量不动），链路不断。
+#[tokio::test]
+async fn whitespace_only_sentence_never_reaches_tts_and_turn_completes() {
+    let llm_base = spawn_multi_server(Handler::new(|mut sock| {
+        Box::pin(async move {
+            let _req = common::read_request(&mut sock).await;
+            // 前导换行 → 切出纯空白句 `"\n"`；随后是正常句。
+            let pieces = [
+                // 注意：要给 **JSON 转义**后的 `\n`（真实换行会让 SSE JSON 非法）。
+                sse_content("\\n"),
+                sse_content("你好。"),
+                sse_done(),
+            ];
+            let total: usize = pieces.iter().map(Vec::len).sum();
+            write_head(&mut sock, 200, "OK", "text/event-stream", total).await;
+            write_pieces(&mut sock, &pieces, 5).await;
+            close_sock(&mut sock).await;
+        })
+    }))
+    .await;
+    // 自定义 TTS mock：**复刻真实上游**——空 input 回 400（CosyVoice 实测行为）。
+    // 用 spawn_tts_mock 不行：它对本任何 input 都回 200，那样「空白句有没有被发出去」
+    // 只能靠请求计数发现，整轮失败的后果反而测不到。
+    let tts_inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let inputs_h = tts_inputs.clone();
+    let tts_base = spawn_multi_server(Handler::new(move |mut sock| {
+        let inputs = inputs_h.clone();
+        Box::pin(async move {
+            let input = read_speech_input(&mut sock).await;
+            inputs.lock().unwrap().push(input.clone());
+            if input.trim().is_empty() {
+                let body: Vec<u8> = "{\"detail\":\"input 为空\"}".as_bytes().to_vec();
+                let total = body.len();
+                write_head(&mut sock, 400, "Bad Request", "application/json", total).await;
+                write_pieces(&mut sock, &[body], 5).await;
+                close_sock(&mut sock).await;
+                return;
+            }
+            let n = input.chars().count().max(2);
+            let samples: Vec<i16> = (0..n).map(|k| ((k % 13) as i16 + 1) * 97).collect();
+            let bytes: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+            let pieces: Vec<Vec<u8>> = bytes.chunks(3).map(<[u8]>::to_vec).collect();
+            let total: usize = pieces.iter().map(Vec::len).sum();
+            write_head(&mut sock, 200, "OK", "audio/pcm", total).await;
+            write_pieces(&mut sock, &pieces, 5).await;
+            close_sock(&mut sock).await;
+        })
+    }))
+    .await;
+
+    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(21, "hi", event_tx, CancellationToken::new())
+        .await;
+
+    // ① 关键回归：整轮必须**完成**，不能被一句空白判失败。
+    assert_eq!(
+        report.status,
+        TurnStatus::Completed,
+        "纯空白句把整轮判失败了（历史缺陷：TTS 400 input 为空 → fatal）"
+    );
+
+    // ② 空白句**从未**发起 TTS 请求；只有正常句到达。
+    let inputs = tts_inputs.lock().unwrap().clone();
+    assert_eq!(inputs.len(), 1, "只应有一句正常请求，实际 {inputs:?}");
+    assert_eq!(inputs[0].trim(), "你好。");
+    assert!(
+        inputs.iter().all(|i| !i.trim().is_empty()),
+        "任何空白句都不该发到 TTS 上游：{inputs:?}"
+    );
+
+    // ③ 文本侧仍按「一句一单元」上屏：空白句也发过 SentenceVoiced（逐字不丢）。
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 21);
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        voiced.iter().any(|t| t.trim().is_empty()),
+        "空白句的文本不该被丢掉（分句器保证逐字不丢）：{voiced:?}"
+    );
+    assert!(voiced.iter().any(|t| t.contains("你好")), "{voiced:?}");
+}

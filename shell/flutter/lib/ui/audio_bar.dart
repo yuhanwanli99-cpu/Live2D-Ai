@@ -217,7 +217,7 @@ class _Hint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(left: Space.s1, bottom: 2),
+    padding: const EdgeInsets.only(left: Space.s1, bottom: OpticalNudge.thin),
     child: Text(
       text,
       style: Theme.of(context).textTheme.labelSmall?.copyWith(color: tone),

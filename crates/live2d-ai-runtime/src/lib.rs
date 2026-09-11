@@ -9,8 +9,10 @@
 //! WAV / MP3 等明确 [`Error::UnsupportedFormat`]，不假装支持。
 //!
 //! 职责边界：
-//! - 动作能力 gate 与优先级仲裁由 `live2d-ai-core` 处理；本 crate 只固定
-//!   `live2d_perform_action` 的 wire 类型与请求 schema；
+//! - 2026-09-11 用户裁决：**LLM 不暴露任何工具，只做对话**（「llm 不暴露任何工具
+//!   只做对话」）。本 crate 因此不再定义任何 tool schema / 参数 wire 类型，
+//!   请求体也不带 `tools`；动作能力 gate 与优先级仲裁仍由 `live2d-ai-core`
+//!   持有，但**不再从对话链路驱动**（core 的 action 子系统保留为内部能力）；
 //! - 密钥用 [`ApiSecret`] 包装：`Debug`/`Display` 恒定脱敏；密钥**只**进入
 //!   `Authorization: Bearer …` 头，不进 URL、不进请求体、不进错误文本；
 //! - TLS 固定 rustls（reqwest `default-features = false` + `rustls-tls`），
@@ -31,20 +33,19 @@
 //!     TtsConfig::new("http://127.0.0.1:8000/v1", "alloy"),
 //! )?;
 //!
-//! // LLM：SSE 增量流（TextDelta / ToolCallDelta / Done）。
+//! // LLM：SSE 增量流（TextDelta / Done）。
 //! let mut stream = client
 //!     .chat_stream(&[ChatMessage::user("打个招呼")])
 //!     .await?;
 //! while let Some(event) = stream.next().await {
 //!     match event? {
 //!         LlmEvent::TextDelta(t) => print!("{t}"),
-//!         LlmEvent::ToolCallDelta { .. } => {}
 //!         LlmEvent::Done => break,
 //!     }
 //! }
 //!
-//! // 对话流编排（纯逻辑）：把上面的增量流整理成「完整句 / 完整工具调用 / 结束」，
-//! // 文本与工具保持网络顺序；见 [`dialogue`] 模块与 `DialogueAssembler`。
+//! // 对话流编排（纯逻辑）：把上面的增量流整理成「完整句 / 结束」，
+//! // 见 [`dialogue`] 模块与 `DialogueAssembler`。
 //!
 //! // TTS：chunked bytes 原样转发；默认已请求 response_format=pcm（s16le）。
 //! let mut speech = client.synthesize_speech("你好").await?;
@@ -77,7 +78,6 @@ pub mod llm;
 pub mod secret;
 pub mod settings;
 pub mod sse;
-pub mod tool;
 pub mod tts;
 
 use url::Url;
@@ -87,10 +87,7 @@ pub use config::{LlmConfig, TtsConfig};
 pub use conversation::{
     ConversationConfig, ConversationEngine, EngineEvent, ErrorKind, TurnReport, TurnStatus,
 };
-pub use dialogue::{
-    DialogueAssembler, DialogueEvent, IncompleteReason, IncompleteToolCall, IncompleteToolCalls,
-    ParsedToolCall, SentenceAssembler, ToolCallAssembler,
-};
+pub use dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler};
 pub use error::{Error, Result};
 pub use llm::{ChatMessage, LlmEvent, Role};
 pub use secret::ApiSecret;
@@ -98,9 +95,6 @@ pub use settings::patch::{PatchOutcome, SettingsPatch, apply_patch, plan_atomic_
 pub use settings::view::SettingsView;
 pub use settings::{AppSettings, ResolvedSettings, SettingsError};
 pub use sse::{SseDecoder, SseEvent};
-pub use tool::{
-    Live2dPerformActionArgs, PERFORM_ACTION_TOOL_NAME, PerformAction, perform_action_tool,
-};
 
 /// 统一 OpenAI-compatible 客户端：持有 HTTP 连接池与两份端点配置。
 ///
@@ -118,7 +112,8 @@ impl OpenAiClient {
     /// `pool_max_idle_per_host(0)`：禁用空闲连接复用。集成测试的 mock TCP 服务器
     /// 以 `connection: close` + 半关闭结束每次响应，若 reqwest 复用了这类连接，
     /// 会在下一个 TTS/LLM 请求读到 `hyper::Error(IncompleteMessage)` 而误判为失败
-    /// （`live2d-ai-runtime` 的 `tool_call_becomes_tool_action_event` 曾因此间歇性红）。
+    /// （历史上那条工具调用的集成测试曾因此间歇性红；该测试已于 2026-09-11
+    /// 随工具移除一并删除，池化策略本身保持不变）。
     /// 桌面端 LLM 每轮本就单连接、TTS 按句请求，禁用池化带来的握手开销可忽略；
     /// streaming 响应本就不参与池化复用。
     pub fn new(llm: LlmConfig, tts: TtsConfig) -> Result<Self> {

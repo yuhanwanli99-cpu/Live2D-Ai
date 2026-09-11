@@ -167,18 +167,9 @@ pub fn dispatch_with_security(
         RouteId::Models => {
             crate::web_api::models_routes::dispatch(&ctx.models, method, path, body_str)
         }
-        // D4（2026-08-29）：命令注册端点。
-        // - `GET /api/v1/commands` → 列表（`commands.list`，只读）
-        // - `POST /api/v1/commands/{id}/invoke` → 触发命令
-        //   （`commands.invoke`，mutating）
-        // mutating 校验已由 dispatch 入口统一处理（`is_mutating_route`
-        // 按 `RouteId::Commands + POST` 触发），handler 无需再校验。
-        RouteId::Commands => crate::web_api::commands_routes::handle_commands_route(
-            ctx.try_get_supervisor().as_ref(),
-            method,
-            path,
-            body_str,
-        ),
+        // D4（2026-08-29）的动作命令端点已于 2026-09-11 整体删除（用户裁决：
+        // LLM 不暴露任何工具、只做对话）——`/api/v1/commands*` 现在落回
+        // `RouteId::NotImplemented`（501）。
         RouteId::NotImplemented => not_implemented_response(route.as_str()),
         RouteId::NotFound => not_found_response(path),
     };

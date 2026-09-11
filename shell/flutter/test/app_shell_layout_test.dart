@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/app/app_shell.dart';
+import 'package:live2d_ai_shell/app/collapsible_panel.dart';
 import 'package:live2d_ai_shell/app/nav_host.dart';
+import 'package:live2d_ai_shell/app/page_cross_fade.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/design/breakpoints.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
@@ -10,6 +12,15 @@ import 'package:live2d_ai_shell/settings/settings_sections.dart';
 import 'package:live2d_ai_shell/ui/stage_host.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+
+/// 设置侧板里那个折叠容器。
+///
+/// **必须限定范围**：断线横幅也是 `CollapsiblePanel`（P1-2 起常驻在树里），
+/// 所以 `find.byType(CollapsiblePanel)` 会匹配到两个。
+Finder dockPanel() => find.descendant(
+  of: find.byType(InlineSettingsDock),
+  matching: find.byType(CollapsiblePanel),
+);
 
 /// 五档视口宽度（规格 §10.3 P3 的验收清单：1280/1279/900/899/390）。
 const Map<String, double> kWidths = <String, double>{
@@ -96,7 +107,7 @@ class _ShellHostState extends State<_ShellHost> {
 Widget shellUnderTest({
   UiPhase phase = UiPhase.idle,
   WsStatus ws = WsStatus.connected,
-  SettingsSection section = SettingsSection.actions,
+  SettingsSection section = SettingsSection.appearance,
   List<SettingsSection>? sections,
   ValueChanged<SettingsSection>? onSectionChanged,
   VoidCallback? onEnsureSectionLoaded,
@@ -132,7 +143,7 @@ Future<void> pumpShell(
   double width = 1400,
   UiPhase phase = UiPhase.idle,
   WsStatus ws = WsStatus.connected,
-  SettingsSection section = SettingsSection.actions,
+  SettingsSection section = SettingsSection.appearance,
   List<SettingsSection>? sections,
   ValueChanged<SettingsSection>? onSectionChanged,
   VoidCallback? onEnsureSectionLoaded,
@@ -164,23 +175,21 @@ Future<void> pumpShell(
 
 void main() {
   group('断点 → 导航形态（纯函数 + 渲染两层都验）', () {
-    test('settingsHostOf：只有 expanded 内联，其余浮层', () {
+    test('settingsHostOf：expanded 内联 / compact 整页 / medium 浮层', () {
+      // 2026-09-11（P2-1）：compact 从「抽屉 + 浮层」改成**页内整页过渡**，
+      // 所以有了第三种宿主。三种宿主各有各的理由，见 `SettingsHost` 头注。
       expect(settingsHostOf(SizeClass.expanded), SettingsHost.inline);
       expect(settingsHostOf(SizeClass.medium), SettingsHost.sheet);
-      expect(settingsHostOf(SizeClass.compact), SettingsHost.sheet);
+      expect(settingsHostOf(SizeClass.compact), SettingsHost.page);
     });
 
-    test('sheetConstraintsOf：compact 比 medium 更窄更矮', () {
+    test('sheetConstraintsOf：浮层只有 medium 会走（P2-1 之后）', () {
+      // 2026-09-11：compact 改成整页过渡，`SettingsHost.sheet` 只剩 medium。
+      // 这里同时钉「约束真的按视口高度算」和「没有第二条分支」。
       const Size viewport = Size(1000, 800);
-      final BoxConstraints medium =
-          sheetConstraintsOf(SizeClass.medium, viewport);
-      final BoxConstraints compact =
-          sheetConstraintsOf(SizeClass.compact, viewport);
-      expect(medium.maxWidth, NavMetrics.sheetMaxWidthMedium);
-      expect(compact.maxWidth, NavMetrics.sheetMaxWidthCompact);
-      expect(compact.maxWidth, lessThan(medium.maxWidth));
-      expect(compact.maxHeight, lessThan(medium.maxHeight));
-      expect(medium.maxHeight, 800 * NavMetrics.sheetHeightFactorMedium);
+      final BoxConstraints b = sheetConstraintsOf(viewport);
+      expect(b.maxWidth, NavMetrics.sheetMaxWidthMedium);
+      expect(b.maxHeight, 800 * NavMetrics.sheetHeightFactorMedium);
     });
 
     test('NavMetrics 自洽：舞台下限、聊天宽度都不为负且有序', () {
@@ -282,7 +291,17 @@ void main() {
   group('设置宿主分流', () {
     testWidgets('expanded 点齿轮 → 内联侧板（不是路由浮层）', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
-      expect(find.byType(InlineSettingsDock), findsNothing);
+      // 2026-09-11（P1-1）：侧板**常驻在树里**（折叠而不是卸载，见
+      // `CollapsiblePanel`），所以「没打开」的判据不再是 findsNothing，
+      // 而是**折叠到 0 宽**——这比原来的判据更强：既证明它没收起错，
+      // 也证明它确实还活着。
+      expect(find.byType(InlineSettingsDock), findsOneWidget);
+      expect(
+        tester.getSize(dockPanel()).width,
+        lessThan(1),
+        reason: '没打开时侧板应当折到 0 宽（注意 dock 本身是 Positioned.fill，'
+            '它的宽度是整列，要用里面那个折叠容器量）',
+      );
 
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
@@ -294,13 +313,22 @@ void main() {
           greaterThanOrEqualTo(NavMetrics.paneWidth));
     });
 
-    testWidgets('expanded 侧板上的 ✕ 关闭', (WidgetTester tester) async {
+    testWidgets('expanded 侧板上的 ✕ 关闭（折回 0 宽，但不卸载）', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
+      expect(tester.getSize(dockPanel()).width,
+          greaterThanOrEqualTo(NavMetrics.paneWidth));
+
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
-      expect(find.byType(InlineSettingsDock), findsNothing);
+      expect(
+        tester.getSize(dockPanel()).width,
+        lessThan(1),
+        reason: '关闭 = 折叠到 0，不是从树里拿掉',
+      );
+      // 内容还在树里（这正是「再打开时滚动位置还在」的来源）。
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
     });
 
     testWidgets('medium 点「设置」→ 底部浮层（不开内联侧板）', (WidgetTester tester) async {
@@ -326,63 +354,110 @@ void main() {
       expect(find.text('PANE:外观与互动'), findsNothing);
     });
 
-    testWidgets('compact 抽屉是第 1 层、浮层是第 2 层（严格 2 层）', (
+    // ── 2026-09-11（P2-1）：compact 改成**页内整页过渡** ──
+    //
+    // 过去这里钉的是「抽屉是第 1 层、浮层是第 2 层（严格 2 层）」。
+    // 现在是**一次过渡到位**：工作台淡出、设置页淡入，分区切换用面板内
+    // 那一行 chip（宽窄共用同一套）。披露层数从 2 变成 **1**。
+    //
+    // 下面这几条是等价的行为断言——换成新形态之后，**原来承诺的东西
+    // 一样都不能少**：8 个分区都在、能切、能关、能保住工作台状态。
+    testWidgets('compact 点「设置」→ 整页过渡（不是抽屉、也不是浮层）', (
       WidgetTester tester,
     ) async {
       await pumpShell(tester, width: 500);
 
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      // 第 1 层：抽屉带**说明文字**（用户不该先学会产品黑话）。
-      expect(find.byType(ListTile), findsWidgets);
-      expect(find.text('扩展模块的启停与配置'), findsOneWidget);
 
-      // 抽屉是滚动列表：390/500 px 高的视口装不下 7 项 × ~72 px，
-      // 末尾的「诊断」要滚一下才可见。这本身是正常行为（抽屉可滚动）。
-      await tester.dragUntilVisible(
-        find.text('诊断'),
-        find.byType(ListView),
-        const Offset(0, -80),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('诊断'));
-      await tester.pumpAndSettle();
-      // 第 2 层：浮层内容。
-      expect(find.text('PANE:诊断'), findsOneWidget);
+      expect(find.byType(PageCrossFade), findsOneWidget);
+      // 一次到位：没有抽屉（`ListTile`），也没有底部浮层（`BottomSheet`）。
+      expect(find.byType(ListTile), findsNothing, reason: '还有抽屉 = 还是两步跳');
+      expect(find.byType(BottomSheet), findsNothing, reason: '还是浮层 = 还是两步跳');
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
     });
 
-    testWidgets('compact 抽屉列出**全部**可见分区（滚到底也一项不少）', (
+    testWidgets('compact 列出**全部**可见分区（一个都不少）', (
       WidgetTester tester,
     ) async {
       await pumpShell(tester, width: 500);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
+      // 导航就是面板内的 chip 行——**窄屏与宽屏同一套**（不再有两套导航）。
+      // 芯片行可横向滚动，所以逐个滚动到可见再断言。
       for (final SettingsSection section in visibleSections()) {
         await tester.dragUntilVisible(
-          find.text(section.label),
-          find.byType(ListView),
-          const Offset(0, -80),
+          find.widgetWithText(ChoiceChip, section.label),
+          find.byType(SingleChildScrollView).first,
+          const Offset(-120, 0),
         );
-        expect(find.text(section.label), findsOneWidget, reason: section.label);
-        expect(find.text(section.description), findsOneWidget);
+        expect(
+          find.widgetWithText(ChoiceChip, section.label),
+          findsOneWidget,
+          reason: section.label,
+        );
       }
-      // 「开发模式」也在抽屉里（它不再随 dev_mode 隐藏——否则打不开 dev_mode）。
-      expect(find.text('开发模式'), findsOneWidget);
+      // 「开发模式」也在（它不随 dev_mode 隐藏——否则界面上打不开 dev_mode）。
+      expect(find.widgetWithText(ChoiceChip, '开发模式'), findsOneWidget);
     });
 
-    testWidgets('compact 抽屉直接关掉 → 不打开第 2 层（不卡住）', (
+    testWidgets('compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）', (
       WidgetTester tester,
     ) async {
       await pumpShell(tester, width: 500);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
-      // 点障碍区关掉抽屉。
-      await tester.tapAt(const Offset(10, 10));
+      await tester.dragUntilVisible(
+        find.widgetWithText(ChoiceChip, '诊断'),
+        find.byType(SingleChildScrollView).first,
+        const Offset(-120, 0),
+      );
+      await tester.tap(find.widgetWithText(ChoiceChip, '诊断'));
       await tester.pumpAndSettle();
-      expect(find.text('PANE:诊断'), findsNothing);
-      expect(find.byType(ListTile), findsNothing);
+
+      expect(find.text('PANE:诊断'), findsOneWidget);
+      expect(find.text('PANE:外观与互动'), findsNothing);
+      // 还在设置页上（不是「选完就关」）。
+      expect(find.byType(PageCrossFade), findsOneWidget);
+    });
+
+    testWidgets('compact 关掉设置 → 回到工作台（Esc 与 ✕ 两条路都通）', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester, width: 500);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      // 设置页折成「不画」（`Offstage`），但**仍在树里**（保活）。
+      expect(find.byType(PageCrossFade), findsOneWidget);
+      // 注意 `skipOffstage: false`：这一页现在**就是** offstage 的，
+      // 默认的 finder 会跳过它（那正是「找得到 / 找不到」在这里不可用的原因）。
+      final Finder hiddenPane = find.text(
+        'PANE:外观与互动',
+        skipOffstage: false,
+      );
+      expect(hiddenPane, findsOneWidget, reason: '关掉设置把设置页卸载了 —— 保活没了');
+      expect(
+        tester
+            .widget<Offstage>(
+              find
+                  .ancestor(
+                    of: hiddenPane,
+                    matching: find.byType(Offstage, skipOffstage: false),
+                  )
+                  .first,
+            )
+            .offstage,
+        isTrue,
+        reason: '关掉之后设置页还在被画出来',
+      );
+      // 工作台重新可见（聊天输入框回来了）。
+      expect(find.byType(TextField), findsWidgets);
     });
   });
 
@@ -461,7 +536,17 @@ void main() {
     testWidgets('设置面板里 8 个分区都在，含「开发模式」', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       // 分区导航现在只有面板里那一行 chip（rail 已删）。
-      expect(find.byType(ChoiceChip), findsNothing, reason: '面板没打开时不该有它');
+      //
+      // 2026-09-11（P1-1）：侧板改成「折叠而不是卸载」之后，chip **一直在树里**
+      // ——所以「面板没打开」的判据是**折到 0 宽 + 不进焦点序**，
+      // 而不是「找不到」。后者已经不可能成立了（那正是保活的代价）。
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
+      expect(tester.getSize(dockPanel()).width, lessThan(1));
+      expect(
+        Focus.of(tester.element(find.byType(ChoiceChip).first)).canRequestFocus,
+        isFalse,
+        reason: '折起来的面板不能进 Tab 序（ExcludeFocus）',
+      );
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       expect(find.byType(ChoiceChip), findsNWidgets(8));
@@ -512,7 +597,7 @@ void main() {
 
         // compact 额外走一层抽屉：选分区。
         if (Breakpoints.sizeClassOf(entry.value).isCompact) {
-          await tester.tap(find.text(SettingsSection.actions.label).last);
+          await tester.tap(find.text(SettingsSection.appearance.label).last);
           await tester.pumpAndSettle();
         }
         expect(
@@ -555,7 +640,7 @@ void main() {
       // 再点 ✕ 收起（rail 已删，收起只有 ✕ / Esc 两条路）。
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
-      expect(find.byType(InlineSettingsDock), findsNothing);
+      expect(tester.getSize(dockPanel()).width, lessThan(1));
       expect(ensure, 1, reason: '收起不该再加载一次');
     });
   });
