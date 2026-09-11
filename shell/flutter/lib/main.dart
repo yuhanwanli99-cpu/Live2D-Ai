@@ -594,7 +594,9 @@ class _ShellRootState extends State<ShellRoot> {
         _logs = const <LogLine>[];
         // 403 dev_mode_required 是**预期**结果，原文照显（不伪装成空日志）。
         _logsError = e.code == 'dev_mode_required'
-            ? '日志需要服务端以 dev_mode 启动才可读'
+            // 文案要指**界面上的开关**：过去说「需服务端以 dev_mode 启动」，
+            // 而那时界面上根本打不开它（开关被自己所在的分区藏起来了）。
+            ? '日志需要先打开「开发模式」（设置 → 开发模式）'
             : e.toString();
       });
     }

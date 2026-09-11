@@ -426,7 +426,7 @@ class DiagnosticsSection extends StatelessWidget {
         const SizedBox(height: Space.s3),
         const SectionHeader(
           title: '日志',
-          description: '需要服务端以 dev_mode 启动才可读；只读最后一屏，不做实时跟随。',
+          description: '需要先打开「开发模式」；只读最后一屏，不做实时跟随。',
         ),
         if (logsError != null)
           Text(
