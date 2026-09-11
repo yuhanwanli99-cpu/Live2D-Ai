@@ -44,12 +44,24 @@ class ChatController extends ChangeNotifier {
 
   bool _streaming = false;
   String? _error;
+
+  /// 最近一次错误的**机器码**（`llm_upstream_401` / `tts_transport` …）。
+  ///
+  /// 与 [error] 的关系：`error` 是给人看的一行（码 + 说明 + 提示），本字段是
+  /// 给代码分支用的锚点——错误横幅据此决定「下一步」按钮是「去 LLM 设置」
+  /// 还是「去语音合成设置」，**不去解析显示文案**（文案会改，码是契约）。
+  String? _errorCode;
+
   WsStatus _wsStatus = WsStatus.idle;
   ChatMessage? _assistant;
   int? _audioEpoch;
 
   bool get streaming => _streaming;
   String? get error => _error;
+
+  /// 最近一次错误的机器码（见 [_errorCode]）。
+  String? get errorCode => _errorCode;
+
   WsStatus get wsStatus => _wsStatus;
 
   /// 发送用户文本；成功则建流式 assistant 气泡，失败写入可见错误。
@@ -63,6 +75,7 @@ class ChatController extends ChangeNotifier {
     messages.add(ChatMessage(role: ChatRole.user, text: text));
     _streaming = true;
     _error = null;
+    _errorCode = null;
     notifyListeners();
     try {
       final accepted = await api.sendChat(text);
@@ -77,6 +90,9 @@ class ChatController extends ChangeNotifier {
       notifyListeners();
     } on ApiException catch (error) {
       _error = error.toString();
+      // 本地（HTTP）失败也有码——`ApiClient._errorFrom` 从响应体里取的
+      // `error.code`（`busy` / `no_supervisor` / `invalid_payload` …）。
+      _errorCode = error.code;
       _streaming = false;
       messages.add(
         ChatMessage(role: ChatRole.assistant, text: '⚠ ${error.message}', failed: true),
@@ -106,6 +122,7 @@ class ChatController extends ChangeNotifier {
 
   void clearError() {
     _error = null;
+    _errorCode = null;
     notifyListeners();
   }
 
@@ -148,8 +165,12 @@ class ChatController extends ChangeNotifier {
           :final volume,
         ):
         _onAudio(pcm, sampleRate, epoch, start, end, volume);
-      case WsErrorEvent(:final message):
-        _error = message;
+      case WsErrorEvent(:final code, :final message, :final hint):
+        // **错误码上屏**（2026-09-11）：`code` 是契约锚点，也是后端日志里的
+        // 字段名——只有 message 时用户根本无法定位（「上游非成功状态 401」
+        // 查不到任何东西）。`hint` 由后端给，前端只显示。
+        _error = formatWsError(code: code, message: message, hint: hint);
+        _errorCode = code;
         notifyListeners();
     }
   }
@@ -206,6 +227,16 @@ class ChatController extends ChangeNotifier {
     }
     _assistant = null;
     _streaming = false;
+    // **失败但没收到 `error` 帧**：老实说「不知道为什么」，并指向诊断日志。
+    // 以前这里什么都不设——界面上只有一个灰掉的「（生成失败）」气泡，用户
+    // 既没有码也没有去处可查（「前端无法知道错误信息」）。既然现在后端会发
+    // `error` 帧（带码），收不到就说明是「旧服务端 / 帧被截断 / 真的静默失败」，
+    // 这三种都该明说，而不是假装知道原因。
+    if (failed && _error == null) {
+      _error = '本轮失败，但服务端未给出错误详情'
+          '（可打开「设置 → 开发模式 → 诊断日志」查看后端日志）';
+      _errorCode = 'turn_failed_no_detail';
+    }
     notifyListeners();
   }
 

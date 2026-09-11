@@ -356,6 +356,8 @@ pub fn handle_patch(
     let body = match PatchBody::parse(body_str) {
         Ok(b) => b,
         Err(e) => {
+            // 2026-09-11：解析失败也要留痕（过去只进 HTTP 响应体，日志里没有）。
+            tracing::warn!(code = "invalid_payload", "PATCH body 解析失败：{e}");
             return error_response(StatusCode(400), "invalid_payload", e);
         }
     };
@@ -378,17 +380,40 @@ pub fn handle_patch(
     };
     inject_clear_key_flag(&mut patch, &body);
     match apply_and_write(current, &patch, config_path, after_hook) {
-        Ok(resp) => json_response(StatusCode(200), &resp),
+        Ok(resp) => {
+            // 审计轨迹：「我改过设置」这件事本身要留痕（persisted=false 表示
+            // 服务端认为是 no-op）。写盘失败的分支在下面打 warn。
+            tracing::info!(
+                persisted = resp.persisted,
+                apply_status = ?resp.apply_status,
+                "设置已应用"
+            );
+            json_response(StatusCode(200), &resp)
+        }
         // 400 类错误统一映射。
         Err(e)
             if e.error.code == "url_invalid"
                 || e.error.code == "invalid_env_name"
                 || e.error.code == "invalid_payload" =>
         {
+            tracing::warn!(
+                code = e.error.code,
+                status = 400,
+                "设置写入被拒：{}",
+                e.error.message
+            );
             error_response_from(StatusCode(400), e)
         }
         // 500 类。
-        Err(e) => error_response_from(StatusCode(500), e),
+        Err(e) => {
+            tracing::error!(
+                code = e.error.code,
+                status = 500,
+                "设置写入失败：{}",
+                e.error.message
+            );
+            error_response_from(StatusCode(500), e)
+        }
     }
 }
 

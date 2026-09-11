@@ -128,3 +128,63 @@ fn dispatch_settings_patch_failure_does_not_reload() {
     let _ = std::fs::remove_file(&tmp);
     drop(supervisor);
 }
+
+/// 外部手改配置 → 快照必须跟着变（2026-09-11 修）。
+///
+/// 复现的真实症状：用户在编辑器里改了 `live2d-ai.toml` 的提示词，文件监听器
+/// 只 `supervisor.reload()` 重建了 client，`GET /api/v1/settings` 仍回旧值；
+/// 更糟的是下一次界面「保存」会拿**旧快照**做合并后整份写回，把手改的内容
+/// 覆盖掉——看起来就是「改了提示词就被吃掉」。
+#[test]
+fn refresh_from_disk_syncs_snapshot_and_dev_mode() {
+    let tmp = std::env::temp_dir().join(format!(
+        "live2d_ai_test_refresh_{}.toml",
+        std::process::id()
+    ));
+    let mut on_disk = AppSettings::default();
+    on_disk.persona.system_prompt = "磁盘上的新提示词".to_string();
+    on_disk.dev_mode = true;
+    std::fs::write(&tmp, on_disk.to_toml_string()).expect("write");
+
+    // 快照是**旧**的（模拟「启动后用户才在编辑器里改」）。
+    let mut stale = AppSettings::default();
+    stale.persona.system_prompt = "启动时的旧提示词".to_string();
+    stale.dev_mode = false;
+    let ctx = ServerContext::new(stale, tmp.to_string_lossy().into_owned(), None);
+    assert!(!ctx.status_ctx.dev_mode());
+
+    assert!(ctx.status_ctx.refresh_from_disk(&tmp.to_string_lossy()));
+    assert_eq!(
+        ctx.status_ctx.settings_snapshot().persona.system_prompt,
+        "磁盘上的新提示词"
+    );
+    assert!(
+        ctx.status_ctx.dev_mode(),
+        "dev_mode 必须跟着磁盘走（否则日志端点门控与配置分叉）"
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// 配置写坏（语法错误）时**保留旧快照**并返回 false——界面不该跟着一起坏。
+#[test]
+fn refresh_from_disk_keeps_snapshot_on_broken_toml() {
+    let tmp = std::env::temp_dir().join(format!(
+        "live2d_ai_test_refresh_broken_{}.toml",
+        std::process::id()
+    ));
+    std::fs::write(&tmp, "这不是 = = 合法 TOML [").expect("write");
+
+    let mut old = AppSettings::default();
+    old.persona.system_prompt = "旧值".to_string();
+    let ctx = ServerContext::new(old, tmp.to_string_lossy().into_owned(), None);
+
+    assert!(!ctx.status_ctx.refresh_from_disk(&tmp.to_string_lossy()));
+    assert_eq!(
+        ctx.status_ctx.settings_snapshot().persona.system_prompt,
+        "旧值",
+        "解析失败时必须保留旧快照"
+    );
+
+    let _ = std::fs::remove_file(&tmp);
+}

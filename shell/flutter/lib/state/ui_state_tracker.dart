@@ -10,6 +10,13 @@
 /// 本文件**不碰 `package:web`**：它只消费已经解析好的 [WsEvent] 与 [WsStatus]，
 /// 于是可以喂真实抓包的帧、断言派生出的 [UiPhase]。
 ///
+/// # 错误文案的**唯一**格式（2026-09-11）
+///
+/// `error` 帧有两条消费路径：本类（顶部横幅，在 `main.dart` 里优先级更高）
+/// 与 `ChatController`（聊天面板）。两边都调 `formatWsError`，保证
+/// 「码 + 说明 + 提示」在任何一处上屏时都不丢——过去本类只放 `message`，
+/// 恰好把 `code` 丢在了用户真正看得见的那条路径上。
+///
 /// # 定时器可注入
 ///
 /// 「已打断」是一个**有保持期的瞬时状态**（`kInterruptedHold`）。为了让测试
@@ -49,6 +56,7 @@ class UiStateTracker extends ChangeNotifier {
   bool _interrupted = false;
   bool _errorActive = false;
   String? _errorMessage;
+  String? _errorCode;
   Timer? _interruptTimer;
 
   /// 已释放。
@@ -78,7 +86,16 @@ class UiStateTracker extends ChangeNotifier {
   bool get errorActive => _errorActive;
 
   /// 最近一条错误文案（`error` 帧 / `turn_state: failed`）。
+  ///
+  /// **含错误码**：由 `formatWsError` 拼成 `code：message（hint）`。
+  /// 2026-09-11 修：这里原先只放 `message`，而本字段在 `main.dart` 里
+  /// **优先于** `ChatController.error` 上屏——于是即便后端把码发过来了，
+  /// 用户看到的仍是「上游非成功状态 401」这种没有码的散文（用户原话：
+  /// 「后端出错无具体错误代码」「前端无法知道错误信息」）。
   String? get errorMessage => _errorMessage;
+
+  /// 最近一条错误的机器码（与 [errorMessage] 成对；供「下一步」按钮分流）。
+  String? get errorCode => _errorCode;
 
   // ── 输入 ──────────────────────────────────────────────────────────
 
@@ -103,6 +120,7 @@ class UiStateTracker extends ChangeNotifier {
     _turnActive = true;
     _errorActive = false; // 新一轮开始先收掉上一轮的错
     _errorMessage = null;
+    _errorCode = null;
     notifyListeners();
   }
 
@@ -139,13 +157,20 @@ class UiStateTracker extends ChangeNotifier {
         _voiceActive = false;
         if (status == 'failed') {
           _errorActive = true;
-          _errorMessage ??= '本轮生成失败';
+          // 已经收到过带码的 `error` 帧就不要覆盖它——那帧信息更全。
+          // 没有的话老实说「没有详情」，并给出去处（诊断日志）。
+          _errorMessage ??= '本轮生成失败：服务端未给出错误详情'
+              '（可看「设置 → 开发模式 → 诊断日志」）';
+          _errorCode ??= 'turn_failed_no_detail';
         }
         notifyListeners();
         return true;
-      case WsErrorEvent(:final message, :final code):
+      case WsErrorEvent(:final message, :final code, :final hint):
         _errorActive = true;
-        _errorMessage = message.isEmpty ? code : message;
+        // 与 `ChatController` 用**同一个**格式化函数：两条订阅路径上屏文案
+        // 一致，不会出现「聊天面板有码、顶部横幅没码」这种分裂。
+        _errorMessage = formatWsError(code: code, message: message, hint: hint);
+        _errorCode = code;
         notifyListeners();
         return true;
       case SubscribeAckEvent():
@@ -168,6 +193,7 @@ class UiStateTracker extends ChangeNotifier {
     if (!_errorActive && _errorMessage == null) return;
     _errorActive = false;
     _errorMessage = null;
+    _errorCode = null;
     notifyListeners();
   }
 

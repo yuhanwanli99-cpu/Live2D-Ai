@@ -253,14 +253,42 @@ void main() {
         frame('{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}'),
       );
       expect(tracker.phase, UiPhase.error);
-      expect(tracker.errorMessage, '上游 401');
+      // 2026-09-11：文案必须带码（`code：message`），因为**这条**路径才是
+      // `main.dart` 里上屏的那一条（`_ui.errorMessage ?? _chat.error`）。
+      expect(tracker.errorMessage, 'llm_upstream：上游 401');
+      expect(tracker.errorCode, 'llm_upstream');
     });
 
-    test('error 帧缺 message → 用 code', () {
+    test('error 帧缺 message → 只剩 code（不留空冒号）', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.consume(frame('{"type":"error","data":{"code":"llm_upstream"}}'));
       expect(tracker.errorMessage, 'llm_upstream');
+      expect(tracker.errorCode, 'llm_upstream');
+    });
+
+    // 回归：曾出现「后端把码发来了，界面上还是只有散文」——因为本类把 hint
+    // 和 code 都丢了，而它优先级更高。
+    test('error 帧的 hint 与 stage 不丢', () {
+      final UiStateTracker tracker = UiStateTracker();
+      tracker.onWsStatus(WsStatus.connected);
+      tracker.consume(
+        frame(
+          '{"type":"error","data":{"code":"llm_upstream_401","stage":"llm",'
+          '"message":"上游非成功状态 401","hint":"确认 api_key_env 已设置"}}',
+        ),
+      );
+      expect(tracker.errorMessage, 'llm_upstream_401：上游非成功状态 401（确认 api_key_env 已设置）');
+      expect(tracker.errorCode, 'llm_upstream_401');
+    });
+
+    test('turn_state failed 且无 error 帧 → 明说没有详情并给出去处', () {
+      final UiStateTracker tracker = UiStateTracker();
+      tracker.onWsStatus(WsStatus.connected);
+      tracker.consume(frame('{"type":"turn_state","data":{"status":"failed"}}'));
+      expect(tracker.errorMessage, contains('未给出错误详情'));
+      expect(tracker.errorMessage, contains('诊断日志'));
+      expect(tracker.errorCode, 'turn_failed_no_detail');
     });
 
     test('用户关掉错误 → 回落', () {
@@ -270,6 +298,7 @@ void main() {
       tracker.clearError();
       expect(tracker.phase, UiPhase.idle);
       expect(tracker.errorMessage, isNull);
+      expect(tracker.errorCode, isNull);
     });
 
     test('没有错误时 clearError 不通知', () {

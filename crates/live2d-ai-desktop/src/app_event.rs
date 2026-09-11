@@ -14,6 +14,7 @@
 //!   **防御性闸门**（权威闸门仍在 core reducer，见 D9）。
 
 use live2d_ai_core::SemanticAction;
+use live2d_ai_runtime::ErrorKind;
 
 use crate::user_event::PetUserEvent;
 
@@ -30,12 +31,75 @@ pub enum AppEvent {
     /// 测试必须能观察 root 事实顺序——Started/GenerationFinished/Drained/
     /// TurnCompleted/Cleared 与丢弃原因）。
     RootAudit(RootFact),
+    /// **链路错误**（LLM / TTS / 解码 / 背压）的对外投影。
+    ///
+    /// 2026-09-11 补：此前 `AppEvent` **没有**错误变体，引擎错误只在
+    /// `handlers::handle_engine_event` 里 `println!` 上屏——于是
+    /// 「UI 只知道本轮失败，不知道为什么」（WS 从来不发 `error` 帧），
+    /// 后端日志也只有散文没有码。本变体是那条断线的修复点：
+    /// 同一份 `AppErrorEvent` 同时进 `tracing`（落盘）与 WS（上屏）。
+    Error(AppErrorEvent),
     /// supervisor 已完成停机清理（关闭流、释放引擎）——事件循环此刻才允许退出。
     ///
     /// `/quit`、`CloseRequested`、`TrayExit` 三者共用同一 shutdown handshake：
     /// 主线程收到请求后置 quitting 并给 supervisor 发 Quit，同时启动 500ms
     /// 兜底计时；提前收到本变体即立刻退出，否则超时强退并打警告。
     ShutdownReady,
+}
+
+/// 一条链路错误的**可观测快照**（错误码 + 阶段 + 文案 + 提示）。
+///
+/// 字段全部是「给人看 / 给机器分支」的纯数据，不含密钥、不含请求头。
+/// `code` 的取值契约见 `live2d_ai_runtime::conversation::ErrorKind::code`
+/// 所在模块的头注（`<stage>_<suffix>`，例如 `llm_upstream_401`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppErrorEvent {
+    /// 稳定机器码，例如 `llm_upstream_401` / `tts_transport`。
+    pub code: String,
+    /// 出错阶段：`llm` / `tts` / `decode` / `tools`（= `code` 的前缀）。
+    pub stage: String,
+    /// 人类可读描述（通常含上游状态码与响应体片段）。
+    pub message: String,
+    /// 一句可执行的处置提示（由后端给出，前端只显示）。
+    pub hint: Option<String>,
+    /// 产生该错误的业务代次（前端据此判断「这是不是我已经作废的那一轮」）。
+    pub epoch: u64,
+    /// 是否致命：`false` = 已生成的语音仍会播完（LLM 阶段失败）；
+    /// `true` = 剩余排队句子被丢弃、本轮立即结束。
+    pub fatal: bool,
+}
+
+impl AppErrorEvent {
+    /// 由引擎错误构造（**唯一**投影入口，避免各处各写一份映射）。
+    ///
+    /// `epoch` 取自 `EngineEvent::Error` 自带字段，不另行推断。
+    pub fn from_kind(kind: &ErrorKind, epoch: u64) -> Self {
+        Self {
+            code: kind.code(),
+            stage: kind.stage().to_string(),
+            message: kind.to_string(),
+            hint: kind.hint(),
+            epoch,
+            fatal: kind.is_fatal(),
+        }
+    }
+
+    /// 单行日志文本（`code` 在最前，便于 `grep '^\[error\] llm_upstream_401'`）。
+    ///
+    /// 与 WS 帧用**同一个** `code`——「日志里搜到的码」和「界面上看到的码」
+    /// 必须是同一个字符串，否则对不上号。
+    pub fn log_line(&self) -> String {
+        match &self.hint {
+            Some(h) => format!(
+                "[error] {} {}（epoch={}）: {} | 处置: {h}",
+                self.code, self.stage, self.epoch, self.message
+            ),
+            None => format!(
+                "[error] {} {}（epoch={}）: {}",
+                self.code, self.stage, self.epoch, self.message
+            ),
+        }
+    }
 }
 
 /// root 关键事实的枚举化审计记录（只读投影；专供测试断言与诊断日志）。
@@ -149,5 +213,57 @@ pub enum ConversationUiEvent {
 pub fn send_app_event(proxy: &winit::event_loop::EventLoopProxy<AppEvent>, event: AppEvent) {
     if let Err(e) = proxy.send_event(event) {
         tracing::debug!(error = %e, "AppEvent 投递失败（事件循环可能已退出）");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use live2d_ai_runtime::Error as RtError;
+
+    fn llm_401() -> ErrorKind {
+        ErrorKind::Llm(RtError::Status {
+            status: reqwest::StatusCode::UNAUTHORIZED,
+            body: "Authentication Fails (governor)".to_string(),
+        })
+    }
+
+    /// 投影入口是**唯一**映射点：码/阶段/致命性三者一次算清。
+    #[test]
+    fn from_kind_carries_code_stage_and_fatality() {
+        let e = AppErrorEvent::from_kind(&llm_401(), 5);
+        assert_eq!(e.code, "llm_upstream_401");
+        assert_eq!(e.stage, "llm");
+        assert_eq!(e.epoch, 5);
+        assert!(!e.fatal);
+        assert!(e.hint.as_deref().unwrap_or("").contains("api_key_env"));
+        assert_eq!(
+            e.message,
+            "LLM 阶段错误: 上游非成功状态 401 Unauthorized: Authentication Fails (governor)"
+        );
+    }
+
+    /// 日志行与 WS 帧必须是**同一个** code（用户拿界面上的码去日志里搜）。
+    #[test]
+    fn log_line_starts_with_code_and_includes_hint() {
+        let e = AppErrorEvent::from_kind(&llm_401(), 5);
+        let line = e.log_line();
+        assert!(line.starts_with("[error] llm_upstream_401"), "line: {line}");
+        assert!(line.contains("epoch=5"), "line: {line}");
+        assert!(line.contains("处置:"), "line: {line}");
+    }
+
+    /// 致命错误在窗口侧也带 fatal（决定前端是否还要等这一轮）。
+    #[test]
+    fn fatal_kinds_are_flagged() {
+        let e = AppErrorEvent::from_kind(
+            &ErrorKind::Backpressure {
+                message: "队列满".into(),
+            },
+            1,
+        );
+        assert_eq!(e.code, "tts_backpressure");
+        assert_eq!(e.stage, "tts");
+        assert!(e.fatal);
     }
 }

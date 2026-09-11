@@ -77,6 +77,35 @@ pub enum Error {
 }
 
 impl Error {
+    /// 稳定、机器可读的**错误原因后缀**（供 `ErrorKind::code` 拼出完整错误码）。
+    ///
+    /// 取值是**契约**：前端 / 日志 / 测试按它分支，改动等同协议变更。上游状态码
+    /// 直接进码（`upstream_401`），因为「401 缺密钥」与「429 限流」必须一眼分开
+    /// ——那正是 2026-09-11「后端出错无具体错误代码」的根因。
+    pub fn code_suffix(&self) -> String {
+        match self {
+            Error::Status { status, .. } => format!("upstream_{}", status.as_u16()),
+            Error::Http(_) => "transport".to_string(),
+            Error::InvalidBaseUrl { .. } => "base_url_invalid".to_string(),
+            Error::Sse { .. } => "sse_parse".to_string(),
+            Error::Json(_) => "json".to_string(),
+            Error::UnsupportedFormat { .. } => "audio_format".to_string(),
+            Error::TruncatedPcm { .. } => "pcm_unaligned".to_string(),
+            Error::InvalidAudioConfig { .. } => "audio_config".to_string(),
+        }
+    }
+
+    /// 上游 HTTP 状态码（非 [`Error::Status`] 时为 `None`）。
+    ///
+    /// 单独暴露：调用方常需「只按状态码分流」（401 → 查密钥、429 → 退避），
+    /// 不该去解析 `Display` 字符串。
+    pub fn upstream_status(&self) -> Option<u16> {
+        match self {
+            Error::Status { status, .. } => Some(status.as_u16()),
+            _ => None,
+        }
+    }
+
     /// 构造带截断响应体片段的状态错误（按字符截断，避免劈开 UTF-8）。
     pub(crate) fn status(status: StatusCode, body: &str) -> Self {
         let mut snippet: String = body.chars().take(MAX_SNIPPET_CHARS).collect();
@@ -122,5 +151,66 @@ mod tests {
             }
             other => panic!("unexpected variant: {other:?}"),
         }
+    }
+
+    /// 错误码后缀是**契约**：每个变体一个稳定取值，上游状态码进码。
+    #[test]
+    fn code_suffix_is_stable_per_variant() {
+        assert_eq!(
+            Error::status(StatusCode::UNAUTHORIZED, "Authentication Fails").code_suffix(),
+            "upstream_401"
+        );
+        assert_eq!(
+            Error::status(StatusCode::TOO_MANY_REQUESTS, "slow down").code_suffix(),
+            "upstream_429"
+        );
+        assert_eq!(
+            Error::InvalidBaseUrl {
+                url: "ftp://x".into()
+            }
+            .code_suffix(),
+            "base_url_invalid"
+        );
+        assert_eq!(
+            Error::Sse {
+                message: "坏 data 行".into()
+            }
+            .code_suffix(),
+            "sse_parse"
+        );
+        assert_eq!(
+            Error::UnsupportedFormat {
+                format: "mp3".into()
+            }
+            .code_suffix(),
+            "audio_format"
+        );
+        assert_eq!(
+            Error::TruncatedPcm { trailing_bytes: 1 }.code_suffix(),
+            "pcm_unaligned"
+        );
+        assert_eq!(
+            Error::InvalidAudioConfig {
+                message: "sample_rate=0".into()
+            }
+            .code_suffix(),
+            "audio_config"
+        );
+    }
+
+    /// 状态码单独可取（调用方不必解析 Display 字符串）。
+    #[test]
+    fn upstream_status_reads_status_variant_only() {
+        assert_eq!(
+            Error::status(StatusCode::FORBIDDEN, "no").upstream_status(),
+            Some(403)
+        );
+        assert_eq!(
+            Error::Sse {
+                message: "x".into()
+            }
+            .upstream_status(),
+            None
+        );
     }
 }

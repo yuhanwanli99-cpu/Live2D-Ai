@@ -147,15 +147,29 @@ class AudioEvent extends WsEvent {
 }
 
 /// 服务端 `error` 帧。
+///
+/// **2026-09-11 起后端真的会发这一帧了**：此前 `AppEvent` 没有错误变体，
+/// 服务端投影表里也没有 `error` 分支——这个类一直存在、却永远收不到实例，
+/// 所以界面上只能显示「本轮失败」而说不出原因（用户报「后端出错无具体错误
+/// 代码」「前端无法知道错误信息」）。
 class WsErrorEvent extends WsEvent {
   const WsErrorEvent({
     required this.code,
     required this.message,
+    this.hint,
+    this.stage,
+    this.fatal = false,
+    this.epoch,
     this.raw,
     super.seq,
     super.ts,
   });
 
+  /// 稳定机器码（契约）：`<stage>_<suffix>`，如 `llm_upstream_401`。
+  ///
+  /// **永不为空**——`message`/`hint` 都可能缺省，只有它是可靠锚点。
+  /// 同一个字符串也出现在后端日志里（`code=llm_upstream_401`），
+  /// 用户可以直接拿它去诊断日志里搜。
   final String code;
 
   /// 服务端给的文案。**缺字段时为空串**（不是整帧原文）。
@@ -166,8 +180,41 @@ class WsErrorEvent extends WsEvent {
   /// 整帧原文另有 [raw] 承载，排查照样拿得到。
   final String message;
 
+  /// 服务端给的**处置提示**（如「确认 [llm] api_key_env 指向的环境变量在
+  /// 后端进程环境里已设置」）。旧服务端没有这个字段 → `null`。
+  final String? hint;
+
+  /// 出错阶段：`llm` / `tts` / `decode` / `tools`（旧服务端 → `null`）。
+  final String? stage;
+
+  /// 是否致命：`false` = 已生成的语音仍会播完；`true` = 本轮立即结束。
+  final bool fatal;
+
+  /// 产生该错误的业务代次（旧服务端 → `null`）。
+  ///
+  /// 用来区分「当前这一轮失败」与「已经被 stop 作废的那一轮迟到的错误」。
+  final int? epoch;
+
   /// 整帧原文（诊断用；不直接上屏）。
   final String? raw;
+}
+
+/// 把 `error` 帧拼成**给人看的一行**：`code：message（hint）`。
+///
+/// 为什么把 `code` 放最前：它是唯一永远在场的字段，也是与后端日志对齐的键。
+/// 只有 `message` 时用户看到「上游非成功状态 401」却不知道去哪查；带上
+/// `llm_upstream_401` 就能在诊断日志里精确搜到同一行。
+///
+/// 纯函数（无 IO），单测覆盖 `ws_frame_test.dart`。
+String formatWsError({
+  required String code,
+  required String message,
+  String? hint,
+}) {
+  final StringBuffer out = StringBuffer(code);
+  if (message.isNotEmpty) out.write('：$message');
+  if (hint != null && hint.isNotEmpty) out.write('（$hint）');
+  return out.toString();
 }
 
 /// 未识别但合法的帧（前向兼容）。
@@ -288,6 +335,11 @@ WsEvent? parseWsFrame(String raw) {
         code: _str(data['code']) ?? 'error',
         // 缺 message = 空串（调用方回落到 code 上屏）；整帧原文进 [raw]。
         message: _str(data['message']) ?? '',
+        // 2026-09-11 新增字段；旧服务端缺省 → null（前向兼容）。
+        hint: _str(data['hint']),
+        stage: _str(data['stage']),
+        fatal: data['fatal'] == true,
+        epoch: _intOrNull(data['epoch']),
         raw: raw,
         seq: seq,
         ts: ts,

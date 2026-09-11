@@ -314,6 +314,27 @@ void main() {
       expect(t.controller.draft.llmBaseUrl, '不是URL');
     });
 
+    // 2026-09-11：上屏文案必须带上服务端给的具体错误——只显示「保存失败」
+    // 等于「后端出错无具体错误代码」（用户原话）。
+    test('上屏文案带上服务端错误码（messageWith）', () async {
+      final t = build(patchStatus: 400);
+      await t.controller.load();
+      t.controller.edit((SettingsDraft d) => d.llmBaseUrl = '不是URL');
+      final SaveOutcome outcome = await t.controller.save();
+      final String shown = outcome.messageWith(error: t.controller.error);
+      expect(shown, startsWith('保存失败：'));
+      expect(shown, contains('url_invalid'), reason: '码必须在文案里: $shown');
+    });
+
+    test('成功结局不吃 error 参数（避免「已保存并生效：xxx」这种怪句子）', () {
+      expect(
+        SaveOutcome.savedApplied.messageWith(error: 'HTTP 500 boom'),
+        '已保存并生效',
+      );
+      expect(SaveOutcome.failed.messageWith(), '保存失败');
+      expect(SaveOutcome.failed.messageWith(error: '   '), '保存失败');
+    });
+
     test('网络失败 → failed，且不 dirty 变假', () async {
       final t = build(throwNetwork: true);
       await t.controller.load();

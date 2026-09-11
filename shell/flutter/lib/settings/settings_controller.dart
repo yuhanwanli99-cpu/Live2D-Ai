@@ -198,6 +198,20 @@ extension SaveOutcomeMessage on SaveOutcome {
     SaveOutcome.failed => '保存失败',
   };
 
+  /// 上屏文案：失败时**带上服务端给的具体错误**（码 + 说明）。
+  ///
+  /// 2026-09-11 修：`SnackBar` 过去只显示 [message]，于是任何失败都塌缩成一句
+  /// 「保存失败」——用户的原话是「后端出错无具体错误代码」（PATCH 的 400/500
+  /// 响应体里其实一直带着 `code` + `message`，只是没人把它送上去）。
+  ///
+  /// `error` 取自 `SettingsController.error`（`ApiException.toString()`，
+  /// 形如 `HTTP 400 invalid_payload：base_url 非法`）。非失败结局忽略它。
+  String messageWith({String? error}) {
+    if (this != SaveOutcome.failed) return message;
+    final String detail = error?.trim() ?? '';
+    return detail.isEmpty ? message : '$message：$detail';
+  }
+
   /// 是否是「成功」类（绿）；`noChange` 与 `failed` 都不是。
   bool get isSuccess =>
       this == SaveOutcome.savedApplied ||

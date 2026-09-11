@@ -83,6 +83,8 @@
 //! - [`engine`]：`ConversationEngine` 主体（`run_turn`、历史装配与提交）。
 
 mod engine;
+/// `ErrorKind` 的可观测投影（错误码 / 阶段 / 提示）。**纯函数**，见文件头注。
+mod error_code;
 mod events;
 mod queue;
 mod worker;

@@ -19,15 +19,13 @@ use crate::app_event::{AppEvent, ConversationUiEvent, RenderCommand, RootFact};
 
 /// 把 [`AppEvent`] 投影为 D1 §4.3 WS 帧 JSON（`None` = P1 暂不实现）。
 ///
-/// **P1WS-2 实现状态**（详见 `docs/plans/node-d-api-contract-2026-08-28.md`
-/// §4.3 状态列）：
-/// - **已实现**（6/9）：`turn_state` / `runtime_status` / `text_delta` /
-///   `action_state`（来自 `AppEvent::Render` 投影）。
-/// - **P1 partial（依赖 AppEvent 扩展）**：`error` / `tool_action` 需要
-///   `AppEvent::Error` / `AppEvent::ToolAction` 变体；当前 `app_event.rs`
-///   没有这两类事件源（错误/工具调用目前只在 supervisor 内部
-///   `handlers::handle_engine_event` 处理，未投影为 `AppEvent`）。等
-///   `app_event.rs` 加 `Error` / `ToolAction` 变体后即可挂接。
+/// **状态（2026-09-11 更新）**：
+/// - **已实现**（7/9）：`turn_state` / `runtime_status` / `text_delta` /
+///   `action_state`（来自 `AppEvent::Render` 投影）/ **`error`**。
+///   `error` 曾长期标为「P1 partial：依赖 `AppEvent` 扩展」——2026-09-11
+///   补上 `AppEvent::Error` 变体后接线（用户报「后端出错无具体错误代码、
+///   前端无法知道错误信息」，根因就是这里从来没有 `error` 帧）。
+/// - **P1 partial**：`tool_action` 仍需 `AppEvent::ToolAction` 变体。
 /// - **P1 pending（需要 supervisor 信号源）**：`audio_status` /
 ///   `mouth_level` / `model_status` 仍 P1。
 ///
@@ -36,6 +34,7 @@ use crate::app_event::{AppEvent, ConversationUiEvent, RenderCommand, RootFact};
 ///（含 Conversation(TextDelta) 真实 text payload；保留
 /// GenerationFinished 作为「完成锚点」兼容旧前端）。
 /// P1WS-2 新增：`action_state`（AppEvent::Render 投影）。
+/// 2026-09-11 新增：`error`（AppEvent::Error 投影；见下）。
 pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
     let mut frame = WsFrame::new();
     match event {
@@ -108,6 +107,26 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
         AppEvent::ShutdownReady => {
             frame.set_type("runtime_status");
             frame.set_data(serde_json::json!({ "event": "shutdown_ready" }));
+        }
+        // 2026-09-11：链路错误 → `error` 帧。
+        //
+        // 帧形状（前端 `WsErrorEvent` 消费；`data.code` 是**契约**）：
+        // `{"type":"error","data":{"code":"llm_upstream_401","stage":"llm",
+        //   "message":"LLM 阶段错误: 上游非成功状态 401 …",
+        //   "hint":"确认 [llm] api_key_env …","epoch":1,"fatal":false}}`
+        //
+        // `message` 与 `hint` 都可能是空串/null（旧服务端没有 hint 字段，
+        // 前端按缺省处理）；`code` **永不**为空——它是前端唯一可靠的锚点。
+        AppEvent::Error(err) => {
+            frame.set_type("error");
+            frame.set_data(serde_json::json!({
+                "code": err.code,
+                "stage": err.stage,
+                "message": err.message,
+                "hint": err.hint,
+                "epoch": err.epoch,
+                "fatal": err.fatal,
+            }));
         }
         // P1WS-2 新增：`action_state` 投影（来自 `AppEvent::Render`）。
         AppEvent::Render(RenderCommand::Perform { epoch, action }) => {

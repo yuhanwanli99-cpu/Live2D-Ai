@@ -15,7 +15,7 @@ use live2d_ai_core::{
 };
 use live2d_ai_runtime::{EngineEvent, ErrorKind, TurnStatus};
 
-use crate::app_event::{AppEvent, ConversationUiEvent, RenderCommand};
+use crate::app_event::{AppErrorEvent, AppEvent, ConversationUiEvent, RenderCommand};
 use crate::audio::{PreparedPcm, TryEnqueue};
 
 use super::{Emit, RootState, root_apply};
@@ -93,8 +93,28 @@ pub(crate) fn handle_engine_event(
                 Err(reason) => println!("\n[tool] {reason}"),
             }
         }
-        EngineEvent::Error { kind, .. } => {
-            println!("\n[error] {kind}");
+        EngineEvent::Error { kind, epoch, .. } => {
+            // 2026-09-11：错误必须**同时**可被三种消费者看见——
+            //   1. 后端日志（`tracing::error!` → stdout + 文件双 sink，带
+            //      timestamp/level/target 与 `code=` 结构化字段；过去这里只有
+            //      `println!`，文件 sink 里一个字都没有，用户「看后端日志」时
+            //      什么也找不到）；
+            //   2. 前端（`AppEvent::Error` → WS `error` 帧，带同一个 `code`）；
+            //   3. 终端（保留原样的 `println!`，`--chat` 交互路径在读）。
+            // `code` 在三条路径里是**同一个字符串**，用户才能拿界面上看到的码
+            // 去日志里搜。
+            let app_err = AppErrorEvent::from_kind(kind, *epoch);
+            tracing::error!(
+                code = %app_err.code,
+                stage = %app_err.stage,
+                epoch = app_err.epoch,
+                fatal = app_err.fatal,
+                hint = app_err.hint.as_deref().unwrap_or(""),
+                "{app_err_message}",
+                app_err_message = app_err.message,
+            );
+            println!("\n{}", app_err.log_line());
+            emit(AppEvent::Error(app_err));
             // 失败归因观察（步骤 7/D8）：二者分别驱动排空策略的分支判定。
             match kind {
                 ErrorKind::Llm(_) => *saw_llm_error = true,

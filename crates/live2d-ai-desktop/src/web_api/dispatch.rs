@@ -14,8 +14,6 @@ use std::io::Cursor;
 
 use tiny_http::{Method, Response};
 
-use live2d_ai_runtime::AppSettings;
-
 use crate::web_api::app_routes::{handle_capabilities, handle_status};
 use crate::web_api::log_routes::{handle_logs, handle_logs_levels};
 use crate::web_api::responses::{
@@ -72,19 +70,22 @@ pub fn dispatch_with_security(
             &ctx.security,
             body_present,
         ) {
-            tracing::debug!(
+            // 2026-09-11：从 `debug!` 提到 `warn!`——这是一次**会到用户脸上的
+            // 失败**（403），默认 level=info 的日志里必须看得见。前端把 403 当
+            // 普通报错显示，日志若也静默，就没人能解释那个 403 是怎么来的。
+            tracing::warn!(
+                code = err.as_code(),
+                status = err.as_status(),
                 path = %path,
                 origin = ?origin,
                 content_type = ?content_type,
                 body_present,
-                "mutating 校验失败: {} ({})",
-                err.as_code(),
-                err.as_status(),
+                "mutating 请求被安全校验拒绝"
             );
             return crate::web_api::security::mutating_check_error_response(&err);
         }
     }
-    match route {
+    let resp = match route {
         RouteId::AppCapabilities => handle_capabilities(),
         RouteId::AppStatus => handle_status(&ctx.status_ctx),
         RouteId::SettingsGet => {
@@ -105,15 +106,14 @@ pub fn dispatch_with_security(
             // 校验失败（400）或磁盘错误（500）→ 不通知 supervisor（保留旧
             // engine，避免「用户改一半」也被吞掉）。仅 200 时刷新
             // StatusContext 内的 settings 视图——失败时 GET 仍能拿到旧值。
-            if resp.status_code().0 == 200
-                && let Ok(updated) = AppSettings::load_from_path(&config_path)
-            {
-                // W7 任务：dev_mode 跟随 settings 翻转（PATCH 写盘后立即生效；
-                // 日志端点门控取 StatusContext.dev_mode()）。仅在真变时 store。
-                if updated.dev_mode != ctx.status_ctx.dev_mode() {
-                    ctx.status_ctx.set_dev_mode(updated.dev_mode);
+            if resp.status_code().0 == 200 {
+                // W7：`dev_mode` 跟随 settings 翻转（PATCH 写盘后立即生效；
+                // 日志端点门控取 StatusContext.dev_mode()）。与文件监听器
+                // 那条外部修改路径**共用同一个** `refresh_from_disk`，避免
+                // 「两条更新路径各写一份」而语义漂移。
+                if ctx.status_ctx.refresh_from_disk(&config_path) {
+                    tracing::debug!(path = %config_path, "PATCH 后已刷新设置快照");
                 }
-                ctx.status_ctx.swap_settings(updated);
                 // 注意：apply_status 已在 hook 内计算并写入 resp body；此处
                 // 不再调 `request_reload`（hook 内部已处理动态装配 + reload）。
             }
@@ -181,5 +181,54 @@ pub fn dispatch_with_security(
         ),
         RouteId::NotImplemented => not_implemented_response(route.as_str()),
         RouteId::NotFound => not_found_response(path),
+    };
+    log_request_outcome(method, path, route, &resp);
+    resp
+}
+
+/// 请求级日志（2026-09-11 补）。
+///
+/// # 为什么必须有
+///
+/// 用户报「后端出错无具体错误代码；看后端日志，什么都没有」。查证：本函数
+/// 所在模块此前**一行请求日志都没有**——成功的请求不可见（改了什么没人知道），
+/// 失败的请求也不可见（400/500 的 code 只写进了 HTTP 响应体，落盘为零）。
+/// 于是「日志不够细」不是感觉，是事实。
+///
+/// # 分级口径（与默认 `info` 落盘配合）
+///
+/// - `>= 500` → `error`：真故障；
+/// - `>= 400` → `warn`：用户能在界面上看到的拒绝（含 403 安全校验）；
+/// - **mutating 成功**（PATCH/POST/PUT/DELETE）→ `info`：这是「我改过什么」的
+///   审计轨迹——「改提示词」这一类操作从此在日志里留痕；
+/// - 其余成功读取 → `debug`：GET 太密，不占默认档位（排障时开
+///   `LIVE2D_AI_LOG_FILE=debug` 即可全量）。
+///
+/// 路径/方法/路由/状态码全是非敏感字段；**不记录请求体**（设置补丁里含提示词、
+/// 端点地址等用户内容，且没有任何诊断问题需要它）。
+fn log_request_outcome(
+    method: &Method,
+    path: &str,
+    route: RouteId,
+    resp: &Response<Cursor<Vec<u8>>>,
+) {
+    let status = resp.status_code().0;
+    let route = route.as_str();
+    if status >= 500 {
+        tracing::error!(%method, path, route, status, "请求处理失败");
+    } else if status >= 400 {
+        tracing::warn!(%method, path, route, status, "请求被拒绝");
+    } else if is_mutating_method(method) {
+        tracing::info!(%method, path, route, status, "变更请求成功");
+    } else {
+        tracing::debug!(%method, path, route, status, "请求成功");
     }
+}
+
+/// 是否变更型方法（与 `security::is_mutating_route` 的方法口径一致）。
+fn is_mutating_method(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::Post | Method::Patch | Method::Put | Method::Delete
+    )
 }

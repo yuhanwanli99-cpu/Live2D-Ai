@@ -244,6 +244,33 @@ void main() {
       expect(e.message, '上游 401');
     });
 
+    // 2026-09-11：后端补上了 `AppEvent::Error` 变体与 WS 投影，这一帧**真的会到**。
+    // 形状由 `web_api/ws/events.rs` 的 `AppEvent::Error` 分支决定。
+    test('`error` 帧完整形状（code/stage/message/hint/epoch/fatal）', () {
+      final WsErrorEvent e =
+          parseWsFrame(
+                '{"type":"error","data":{"code":"llm_upstream_401","stage":"llm",'
+                '"message":"LLM 阶段错误: 上游非成功状态 401 Unauthorized",'
+                '"hint":"确认 [llm] api_key_env 指向的环境变量已设置",'
+                '"epoch":3,"fatal":false}}',
+              )!
+              as WsErrorEvent;
+      expect(e.code, 'llm_upstream_401');
+      expect(e.stage, 'llm');
+      expect(e.hint, contains('api_key_env'));
+      expect(e.fatal, isFalse);
+      expect(e.epoch, 3);
+    });
+
+    test('旧服务端的 `error` 帧（无 stage/hint/fatal）不报错，缺省补 null/false', () {
+      final WsErrorEvent e =
+          parseWsFrame('{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}')!
+              as WsErrorEvent;
+      expect(e.stage, isNull);
+      expect(e.hint, isNull);
+      expect(e.fatal, isFalse);
+    });
+
     test('`error` 帧缺 message → message 为空、原文进 raw（不上屏 JSON）', () {
       final String raw = '{"type":"error","data":{"code":"x"}}';
       final WsErrorEvent e = parseWsFrame(raw)! as WsErrorEvent;
@@ -254,6 +281,35 @@ void main() {
         reason: 'message 是直接上屏的字段——绝不能是整帧 JSON',
       );
       expect(e.raw, raw, reason: '整帧原文仍要留给诊断');
+    });
+  });
+
+  // 上屏文案：码必须在最前（它是唯一永不为空的字段，也是去后端日志里搜的键）。
+  group('formatWsError：给人看的一行', () {
+    test('三件套齐全 → `code：message（hint）`', () {
+      expect(
+        formatWsError(
+          code: 'llm_upstream_401',
+          message: '上游非成功状态 401',
+          hint: '检查 api_key_env',
+        ),
+        'llm_upstream_401：上游非成功状态 401（检查 api_key_env）',
+      );
+    });
+
+    test('缺 message / 缺 hint 都不留空括号', () {
+      expect(
+        formatWsError(code: 'llm_upstream_401', message: ''),
+        'llm_upstream_401',
+      );
+      expect(
+        formatWsError(code: 'llm_transport', message: '连不上', hint: ''),
+        'llm_transport：连不上',
+      );
+      expect(
+        formatWsError(code: 'llm_transport', message: '', hint: '看 base_url'),
+        'llm_transport（看 base_url）',
+      );
     });
   });
 

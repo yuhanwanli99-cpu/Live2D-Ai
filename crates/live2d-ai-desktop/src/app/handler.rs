@@ -37,6 +37,12 @@ impl ApplicationHandler<AppEvent> for ShellApp {
             AppEvent::RootAudit(fact) => {
                 tracing::debug!(?fact, "root 审计事实");
             }
+            // 链路错误（2026-09-11）：窗口侧不消费——它已经由 supervisor
+            // `tracing::error!` 落盘、并经 WS `error` 帧上屏。这里只留一条
+            // debug 通道，保证「谁在监听 AppEvent」的测试仍能观察到。
+            AppEvent::Error(err) => {
+                tracing::debug!(code = %err.code, epoch = err.epoch, "链路错误（窗口侧观察通道）");
+            }
             AppEvent::ShutdownReady => {
                 info!("shutdown handshake 完成（supervisor 清理完毕），退出事件循环");
                 event_loop.exit();

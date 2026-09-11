@@ -273,11 +273,23 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
 
     // 配置文件热重载文件监听器（2026-08-31）：监听 `live2d-ai.toml` 外部修改，
     // 检测到变更后触发 supervisor reload。仅在 supervisor 已装配时启用。
+    //
+    // 2026-09-11：reload 之后**还要刷新设置快照**（`post_reload`）。只 reload
+    // client 会让「界面显示的值」与「磁盘上的值」静默分叉——用户手改提示词后
+    // 界面上看到的还是旧值，而且下一次界面「保存」会把旧快照整份写回、
+    // 把手改的内容覆盖掉（实测复现）。
     let _file_watcher = if let Some(sup) = &supervisor_opt {
+        let status_for_watch = ctx.status_ctx.clone();
+        let path_for_watch = config_path.clone();
         match crate::web_api::file_watcher::FileWatcher::watch_config(
             &config_path,
             Arc::clone(sup),
             500, // 500ms 防抖
+            Some(Box::new(move || {
+                if status_for_watch.refresh_from_disk(&path_for_watch) {
+                    tracing::info!(path = %path_for_watch, "外部修改已同步进设置快照");
+                }
+            })),
         ) {
             Ok(w) => {
                 println!("web: 配置文件热重载监听已启用（{}）", config_path);

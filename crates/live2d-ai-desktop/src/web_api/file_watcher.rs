@@ -24,14 +24,23 @@ pub struct FileWatcher {
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
+/// 外部修改被接受后要做的**副作用**（在 reload 之后、防抖之前调用）。
+///
+/// 存在的理由：`supervisor.reload()` 只重建 LLM/TTS client，**不**刷新
+/// `StatusContext` 里的设置快照——那会让「界面上显示的值」与「磁盘上的值」
+/// 静默分叉（详见 `StatusContext::refresh_from_disk` 的说明）。
+pub type PostReloadHook = Box<dyn Fn() + Send>;
+
 impl FileWatcher {
     /// 监听 `config_path` 的外部修改，检测到变更时调用 `supervisor.reload()`。
     ///
     /// `debounce_ms`：防抖窗口（毫秒），避免编辑器一次保存触发多次 reload。
+    /// `post_reload`：reload 之后的额外副作用（刷新设置快照）；`None` = 只 reload。
     pub fn watch_config(
         config_path: impl AsRef<Path>,
         supervisor: Arc<SupervisorHandle>,
         debounce_ms: u64,
+        post_reload: Option<PostReloadHook>,
     ) -> Result<Self, String> {
         let config_path = config_path.as_ref().to_path_buf();
         // notify 监听目录，所以取父目录。
@@ -55,6 +64,7 @@ impl FileWatcher {
                     supervisor,
                     stop_flag_clone,
                     debounce_ms,
+                    post_reload,
                 );
             })
             .map_err(|e| format!("启动文件监听线程失败: {e}"))?;
@@ -71,6 +81,7 @@ impl FileWatcher {
         supervisor: Arc<SupervisorHandle>,
         stop_flag: Arc<AtomicBool>,
         debounce_ms: u64,
+        post_reload: Option<PostReloadHook>,
     ) {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
         let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event, _>| {
@@ -122,6 +133,12 @@ impl FileWatcher {
                         pending = false;
                         tracing::info!("配置文件外部修改 detected，触发 supervisor reload");
                         supervisor.reload();
+                        // **快照也要刷新**（2026-09-11 修）：只 reload client 会让
+                        // `GET /api/v1/settings` 与磁盘分叉，且用户手改的值会在
+                        // 下一次界面「保存」时被旧快照覆盖回去。
+                        if let Some(hook) = &post_reload {
+                            hook();
+                        }
                         // 防抖：等待期间忽略新事件。
                         std::thread::sleep(debounce);
                         // 清空可能累积的事件。

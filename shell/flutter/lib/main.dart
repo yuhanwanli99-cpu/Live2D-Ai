@@ -513,7 +513,31 @@ class _ShellRootState extends State<ShellRoot> {
   }
 
   /// 错误提示的「下一步」（规格 §6.6：失败必须有出路，不能只报告）。
-  List<ErrorAction> _errorActions(String? message) {
+  ///
+  /// **优先按 `code` 分支**（2026-09-11）：码是契约、文案会改，拿显示文案做
+  /// `contains` 判断迟早会漂移。最典型的是 `llm_upstream_401`——后端提示
+  /// 「去后端进程环境设 `api_key_env`」，界面上能做的下一步就是**跳到 LLM
+  /// 分区**看端点/密钥配置。只有码缺失（旧服务端 / 非链路错误）时才回退到
+  /// 原来的文案启发式。
+  List<ErrorAction> _errorActions(String? message, {String? code}) {
+    if (message == null && code == null) return const <ErrorAction>[];
+    ErrorAction goto(SettingsSection section, String label) => ErrorAction(
+      label: label,
+      onPressed: () => setState(() => _section = section),
+    );
+    if (code != null) {
+      if (code.startsWith('llm_') || code == 'no_supervisor') {
+        return <ErrorAction>[goto(SettingsSection.llm, '去 LLM 设置')];
+      }
+      if (code.startsWith('tts_') || code.startsWith('decode_')) {
+        return <ErrorAction>[goto(SettingsSection.tts, '去语音合成设置')];
+      }
+      if (code == 'busy') {
+        return <ErrorAction>[
+          ErrorAction(label: '打断并重发', onPressed: () => unawaited(_stop())),
+        ];
+      }
+    }
     if (message == null) return const <ErrorAction>[];
     if (message.contains('busy') || message.contains('上一轮')) {
       return <ErrorAction>[
@@ -524,12 +548,7 @@ class _ShellRootState extends State<ShellRoot> {
       ];
     }
     if (message.contains('no_supervisor') || message.contains('未就绪')) {
-      return <ErrorAction>[
-        ErrorAction(
-          label: '去 LLM 设置',
-          onPressed: () => setState(() => _section = SettingsSection.llm),
-        ),
-      ];
+      return <ErrorAction>[goto(SettingsSection.llm, '去 LLM 设置')];
     }
     return <ErrorAction>[
       ErrorAction(label: '重试', onPressed: () => unawaited(_send())),
@@ -611,7 +630,9 @@ class _ShellRootState extends State<ShellRoot> {
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(outcome.message),
+        // 失败时把服务端给的 `code：message` 一起上屏（`messageWith`）——
+        // 只显示「保存失败」等同于「没有错误代码」（用户 2026-09-11 报）。
+        content: Text(outcome.messageWith(error: _settings.error)),
         backgroundColor: outcome.needsAttention
             ? appPaletteOf(context).warning
             : null,
@@ -1034,7 +1055,11 @@ class _ShellRootState extends State<ShellRoot> {
           onEnableSound: _audio.unlock,
           onUserGesture: _audio.unlock,
           error: _ui.errorMessage ?? _chat.error,
-          errorActions: _errorActions(_ui.errorMessage ?? _chat.error),
+          errorActions: _errorActions(
+            _ui.errorMessage ?? _chat.error,
+            // 顶部横幅（`_ui`）优先，所以它也优先提供码——两处都存了同一份。
+            code: _ui.errorCode ?? _chat.errorCode,
+          ),
           onDismissError: () {
             _ui.clearError();
             _chat.clearError();

@@ -133,6 +133,40 @@ impl StatusContext {
     pub fn dev_mode(&self) -> bool {
         self.dev_mode.load(std::sync::atomic::Ordering::Acquire)
     }
+
+    /// 从磁盘重读配置并刷新快照；`true` = 确实刷新了。
+    ///
+    /// # 为什么需要（2026-09-11 实测发现）
+    ///
+    /// 用户直接在编辑器里改 `live2d-ai.toml` 时，`file_watcher` 只调了
+    /// `supervisor.reload()`（重建 LLM/TTS client），**没有**刷新
+    /// `StatusContext` 里的快照。后果有两个，都是静默的：
+    ///
+    /// 1. `GET /api/v1/settings` 继续返回**改之前**的值——设置面板显示的和
+    ///    磁盘上的不是一回事（实测：磁盘已改回人设，接口仍回上一次 PATCH 的值）；
+    /// 2. 更糟的是 `PATCH` 以**快照**为基准做三态合并后整份写回——用户手改的
+    ///    提示词会在下一次「保存」时被旧值覆盖回去，看起来就像「改了提示词就
+    ///    被吃掉 / 改崩了」。
+    ///
+    /// 与 PATCH 路径共用同一套口径（换快照 + `dev_mode` 跟随），避免两条更新
+    /// 路径各写一份而漂移。
+    pub fn refresh_from_disk(&self, config_path: &str) -> bool {
+        let updated = match AppSettings::load_from_path(config_path) {
+            Ok(u) => u,
+            Err(e) => {
+                // 解析失败（编辑器保存到一半 / 语法错误）：保留旧快照——把损坏的
+                // 配置换上去只会让界面跟着一起坏。但必须留痕：用户会问
+                // 「为什么我改了没生效」。
+                tracing::warn!(path = config_path, error = %e, "配置文件重读失败，保留旧快照");
+                return false;
+            }
+        };
+        if updated.dev_mode != self.dev_mode() {
+            self.set_dev_mode(updated.dev_mode);
+        }
+        self.swap_settings(updated);
+        true
+    }
 }
 
 /// `GET /api/v1/app/capabilities` 处理器（纯函数 + context）。

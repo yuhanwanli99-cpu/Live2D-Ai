@@ -529,6 +529,49 @@ mod ws_unit_tests {
         assert_eq!(v["data"]["completed"], true);
     }
 
+    /// 2026-09-11 回归：链路错误**必须**投影成 `error` 帧，且带机器可读的
+    /// `code`。此前 `AppEvent` 没有 Error 变体、投影表里也没有这一支——
+    /// 前端因此永远收不到错误详情（用户原话：「前端无法知道错误信息」）。
+    #[test]
+    fn app_error_maps_to_error_frame_with_code() {
+        use crate::app_event::AppErrorEvent;
+        use live2d_ai_runtime::{Error as RtError, ErrorKind};
+
+        // 直接构造变体：`Error::status` 是 runtime 内部构造器（pub(crate)），
+        // 跨 crate 测试用公开字段即可。
+        let kind = ErrorKind::Llm(RtError::Status {
+            status: reqwest::StatusCode::UNAUTHORIZED,
+            body: "Authentication Fails (governor)".to_string(),
+        });
+        let ev = AppEvent::Error(AppErrorEvent::from_kind(&kind, 3));
+        let v = app_event_to_ws_frame(&ev).expect("error 必须投影（不能是 None）");
+        assert_eq!(v["type"], "error");
+        assert_eq!(v["data"]["code"], "llm_upstream_401");
+        assert_eq!(v["data"]["stage"], "llm");
+        assert_eq!(v["data"]["epoch"], 3);
+        assert_eq!(v["data"]["fatal"], false, "LLM 失败不致命");
+        let message = v["data"]["message"].as_str().expect("message 必为字符串");
+        assert!(message.contains("401"), "message 要含状态码: {message}");
+        let hint = v["data"]["hint"].as_str().expect("401 必须带处置提示");
+        assert!(hint.contains("api_key_env"), "hint: {hint}");
+    }
+
+    /// 致命错误（TTS）在帧里必须标 `fatal: true`——前端据此不再等这一轮。
+    #[test]
+    fn fatal_error_frame_flags_fatal() {
+        use crate::app_event::AppErrorEvent;
+        use live2d_ai_runtime::{Error as RtError, ErrorKind};
+
+        let kind = ErrorKind::Tts(RtError::Status {
+            status: reqwest::StatusCode::BAD_REQUEST,
+            body: "bad voice".to_string(),
+        });
+        let v = app_event_to_ws_frame(&AppEvent::Error(AppErrorEvent::from_kind(&kind, 8)))
+            .expect("must map");
+        assert_eq!(v["data"]["code"], "tts_upstream_400");
+        assert_eq!(v["data"]["fatal"], true);
+    }
+
     /// P1WS-1：Conversation(TextDelta) → text_delta + text payload。
     /// 真实 LLM 流式正文片段路径——前端按 epoch 追加到气泡。
     #[test]
