@@ -183,15 +183,9 @@ void main() {
       expect(medium.maxHeight, 800 * NavMetrics.sheetHeightFactorMedium);
     });
 
-    test('NavMetrics 自洽：rail 宽度、舞台下限、聊天宽度都不为负且有序', () {
-      // 2026-09-11：rail 从「两档（图标 / 图标+文字）」并为**一档**——
-      // 文字导航没有「只放图标」那一档可言（用户裁决「尽量少用图片」）。
-      expect(NavMetrics.railWidth, greaterThan(0));
-      expect(
-        NavMetrics.railWidth,
-        lessThan(NavMetrics.paneWidth),
-        reason: '导航栏不该比设置面板还宽',
-      );
+    test('NavMetrics 自洽：舞台下限、聊天宽度都不为负且有序', () {
+      // 2026-09-11：左侧分区 rail 已删（用户裁决「把左边的这些设置一级选项
+      // 去掉留给舞台」），所以这里不再有 rail 宽度这一项。
       expect(
         NavMetrics.chatWidthExpanded,
         greaterThan(NavMetrics.chatWidthMedium),
@@ -208,18 +202,14 @@ void main() {
         await pumpShell(tester, width: entry.value);
 
         final SizeClass sc = Breakpoints.sizeClassOf(entry.value);
-        final Finder rail = find.byType(SectionRail);
 
-        if (sc.isCompact) {
-          expect(rail, findsNothing, reason: 'compact 不用 rail（8 分区装不下）');
-        } else {
-          expect(rail, findsOneWidget);
-          expect(
-            tester.getSize(rail).width,
-            NavMetrics.railWidth,
-            reason: 'rail 宽度是唯一定义点，medium 与 expanded 共用一个',
-          );
-        }
+        // 非 compact：body 只有「舞台 | 聊天」两列 ⇒ **恰好一条竖分隔线**。
+        // 左侧 rail 若偷偷长回来，这里会变成两条。
+        expect(
+          find.byType(VerticalDivider),
+          sc.isCompact ? findsNothing : findsOneWidget,
+          reason: '左侧不该再有第二列（rail 已删，宽度留给舞台）',
+        );
 
         // 设置入口只有一个，且是**文字**按钮（不是齿轮图标）。
         // compact 时它在聊天面板头，非 compact 时在 AppBar。
@@ -230,6 +220,26 @@ void main() {
         );
       });
     }
+
+    testWidgets('rail 让出来的宽度**真的**给了舞台（非 compact）', (
+      WidgetTester tester,
+    ) async {
+      // 1280 下删掉 rail 之前，舞台列 = 1280 - 168(rail) - 1 - 340(chat) ≈ 771；
+      // 删掉之后应当 ≈ 1280 - 1 - 340 = 939。这里直接按「宽度 - 聊天 - 分隔线」
+      // 断言，rail 一旦回来就会红。
+      for (final double width in <double>[1280, 1400, 1000]) {
+        await pumpShell(tester, width: width);
+        final SizeClass sc = Breakpoints.sizeClassOf(width);
+        final double chat = sc.isExpanded
+            ? NavMetrics.chatWidthExpanded
+            : NavMetrics.chatWidthMedium;
+        expect(
+          tester.getSize(find.byType(StageHost)).width,
+          closeTo(width - chat - 1, 1.5),
+          reason: 'width=$width：舞台列必须拿到除聊天列与 1 px 分隔线之外的全部宽度',
+        );
+      }
+    });
   });
 
   group('常驻元件（规格 §6.4：连接态常驻可见）', () {
@@ -284,21 +294,6 @@ void main() {
           greaterThanOrEqualTo(NavMetrics.paneWidth));
     });
 
-    testWidgets('expanded 再点同一个 rail 分区 → 收起（切换语义）', (
-      WidgetTester tester,
-    ) async {
-      await pumpShell(tester, width: 1400);
-
-      await tester.tap(find.text('设置'));
-      await tester.pumpAndSettle();
-      expect(find.byType(InlineSettingsDock), findsOneWidget);
-
-      // 点 rail 上「外观与互动」（当前分区）→ 收起。
-      await tester.tap(find.text('外观与互动').first);
-      await tester.pumpAndSettle();
-      expect(find.byType(InlineSettingsDock), findsNothing);
-    });
-
     testWidgets('expanded 侧板上的 ✕ 关闭', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       await tester.tap(find.text('设置'));
@@ -308,29 +303,27 @@ void main() {
       expect(find.byType(InlineSettingsDock), findsNothing);
     });
 
-    testWidgets('medium 点 rail → 底部浮层（不开内联侧板）', (WidgetTester tester) async {
+    testWidgets('medium 点「设置」→ 底部浮层（不开内联侧板）', (WidgetTester tester) async {
       await pumpShell(tester, width: 1000);
 
-      await tester.tap(find.text('LLM').first);
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
       expect(find.byType(InlineSettingsDock), findsNothing);
       // 浮层里是同一个 SettingsScaffold → 同一个内容构建器。
-      expect(find.text('PANE:LLM'), findsOneWidget);
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
     });
 
     testWidgets('medium 浮层里换分区，浮层不关（就地换内容）', (WidgetTester tester) async {
       await pumpShell(tester, width: 1000);
-      await tester.tap(find.text('LLM').first);
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.text('PANE:LLM'), findsOneWidget);
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
 
-      // 必须按 ChoiceChip 定位：`find.text('语音合成').first` 会命中**后面**
-      // 被模态障碍层盖住的 rail 标签（tree 顺序在前），点不中。
       await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
       await tester.pumpAndSettle();
       expect(find.text('PANE:语音合成'), findsOneWidget);
-      expect(find.text('PANE:LLM'), findsNothing);
+      expect(find.text('PANE:外观与互动'), findsNothing);
     });
 
     testWidgets('compact 抽屉是第 1 层、浮层是第 2 层（严格 2 层）', (
@@ -394,10 +387,21 @@ void main() {
   });
 
   group('分区导航受控：外壳不改分区，只上报意图', () {
-    testWidgets('点 rail 上报 onSectionChanged', (WidgetTester tester) async {
+    testWidgets('打开设置本身**不**改分区（只有点分区才改）', (WidgetTester tester) async {
       final List<SettingsSection> picked = <SettingsSection>[];
       await pumpShell(tester, width: 1400, onSectionChanged: picked.add);
-      await tester.tap(find.text('模型库').first);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(picked, isEmpty, reason: '打开面板不是「换分区」');
+      expect(find.text('PANE:外观与互动'), findsOneWidget);
+    });
+
+    testWidgets('点内联侧板里的分区 chip 上报 onSectionChanged', (WidgetTester tester) async {
+      final List<SettingsSection> picked = <SettingsSection>[];
+      await pumpShell(tester, width: 1400, onSectionChanged: picked.add);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '模型库'));
       await tester.pumpAndSettle();
       expect(picked, <SettingsSection>[SettingsSection.models]);
     });
@@ -405,7 +409,7 @@ void main() {
     testWidgets('点浮层里的分区 chip 也上报', (WidgetTester tester) async {
       final List<SettingsSection> picked = <SettingsSection>[];
       await pumpShell(tester, width: 1000, onSectionChanged: picked.add);
-      await tester.tap(find.text('LLM').first);
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
       await tester.pumpAndSettle();
@@ -454,15 +458,15 @@ void main() {
   group('「开发模式」分区**恒在**（否则 dev_mode 在界面上打不开）', () {
     // 2026-09-11 修：过去 dev_mode 关时这个分区被藏起来，而唯一能打开
     // dev_mode 的开关就在它里面 —— 死循环，只有 curl 能开。
-    testWidgets('rail 上 8 个分区都在，含「开发模式」', (WidgetTester tester) async {
+    testWidgets('设置面板里 8 个分区都在，含「开发模式」', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
-      // rail 是纯文字，所以直接找文字。
-      expect(find.text('开发模式'), findsOneWidget);
-      expect(find.text('诊断'), findsOneWidget);
-      final SectionRail rail = tester.widget<SectionRail>(
-        find.byType(SectionRail),
-      );
-      expect(rail.sections, hasLength(8));
+      // 分区导航现在只有面板里那一行 chip（rail 已删）。
+      expect(find.byType(ChoiceChip), findsNothing, reason: '面板没打开时不该有它');
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
+      expect(find.widgetWithText(ChoiceChip, '开发模式'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, '诊断'), findsOneWidget);
     });
   });
   // ─────────────────────────────────────────────────────────────
@@ -548,9 +552,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(ensure, 1);
 
-      // 再点 rail 上同一个分区 → 收起。
-      await tester.tap(find.text(SettingsSection.actions.label).first);
+      // 再点 ✕ 收起（rail 已删，收起只有 ✕ / Esc 两条路）。
+      await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
+      expect(find.byType(InlineSettingsDock), findsNothing);
       expect(ensure, 1, reason: '收起不该再加载一次');
     });
   });

@@ -123,8 +123,11 @@ void main() {
       final int inits = await runScenario(
         tester,
         actions: (WidgetTester t) async {
+          // 分区导航现在只有面板内那一行 chip（左侧 rail 已删）。
+          await t.tap(find.text('设置'));
+          await t.pumpAndSettle();
           for (final SettingsSection section in visibleSections()) {
-            await t.tap(find.text(section.label).first);
+            await t.tap(find.widgetWithText(ChoiceChip, section.label));
             await t.pumpAndSettle();
           }
         },

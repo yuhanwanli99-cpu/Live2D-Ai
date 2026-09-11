@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 import '../live2d/live2d_bridge.dart';
+import '../live2d/stage_pointer_interceptor.dart';
 import 'theme.dart';
 
 class StageHost extends StatelessWidget {
@@ -84,10 +85,17 @@ class StageHost extends StatelessWidget {
               // iframe 内部对读屏是黑盒 → 屏蔽，避免出现一个空节点。
               child: ExcludeSemantics(child: SizedBox.expand(child: stage)),
             ),
+            // 覆盖层压在 iframe 之上 ⇒ **必须**垫一层指针垫层：否则它们会
+            // 「看得见、点不着」（错误态的「重试」按钮就是这么失效的）。
+            // 见 `StagePointerInterceptor` 的头注。
             if (phase == Live2DBridgePhase.loading)
-              _StageLoadingOverlay(progress: progress),
+              StagePointerInterceptor(
+                child: _StageLoadingOverlay(progress: progress),
+              ),
             if (phase == Live2DBridgePhase.error)
-              _StageErrorOverlay(message: errorMessage, onRetry: onRetry),
+              StagePointerInterceptor(
+                child: _StageErrorOverlay(message: errorMessage, onRetry: onRetry),
+              ),
             if (overlayTop != null)
               Align(alignment: Alignment.topCenter, child: overlayTop),
             if (corner != null)

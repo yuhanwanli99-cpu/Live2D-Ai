@@ -21,13 +21,36 @@
 /// 但没有声音），这与「默认出声，否则用户会以为 TTS 坏了」的意图直接冲突。
 /// 所以同时挂两条路径：指针 + `HardwareKeyboard` 全局处理器。
 ///
+/// # 压在舞台上的控件必须垫指针垫层（2026-09-11 修）
+///
+/// 舞台是 `<iframe>` 平台视图：它在 DOM 里排在 Flutter 画布**之上**，而画布是
+/// `pointer-events: none`。指针落在舞台区域时会进 **iframe 自己的文档**，父页
+/// （Flutter）一个都收不到——于是所有压在舞台上的 Flutter 控件都是
+/// **「看得见、点不着、也滑不动」**：设置面板整块（medium 下几乎全在舞台上方）、
+/// 断线横幅的「点此重试」、舞台右下角的缩放四键、错误覆盖层的「重试」。
+///
+/// 修法：给它们套一层 [StagePointerInterceptor]（原理见其头注）。
+/// **以后新增任何压在舞台上的可交互控件，都要照做。**
+///
+/// # 左侧不再有分区 rail（2026-09-11 用户裁决）
+///
+/// 用户：「把左边的这些设置一级选项去掉留给舞台」。于是 `SectionRail` 整个删除，
+/// 那一列 168 px 全部还给舞台。导航不再有第二个入口：
+///
+/// - 入口只有**一处**：非 compact 是 AppBar 的「设置」按钮，compact 是聊天面板头；
+/// - 分区切换在**面板内部**（`SettingsScaffold` 的 chip 行）——它本来就是导航的真身，
+///   rail 只是它的副本（同一个 `sectionNotifier` 驱动的第二处渲染）。
+///
+/// 顺带删掉的行为：以前「再点一次 rail 上同一个分区」会收起侧板。现在收起只有
+/// **✕ / Esc**（`showModalBottomSheet` 另有自带的关闭手势）。
+///
 /// # 诚实记录的偏离：内联侧板不实现「点空白关闭」
 ///
-/// 规格 §4.2 写的是「可 Esc / 点空白关闭」。内联侧板浮在**舞台列**之上，
-/// 而舞台是 iframe 平台视图——**平台视图会先吃掉指针事件**，铺在下层的
-/// 点击捕获区拿不到舞台区域的点击。能拿到的只有少量 Flutter 绘制的空隙，
-/// 那不足以称为「点空白关闭」。因此实际提供三条关闭路径：
-/// **Esc / 侧板右上角 ✕ / 再点一次 rail 上的同一个分区（切换语义）**。
+/// 规格 §4.2 写的是「可 Esc / 点空白关闭」。垫层只罩得住**它包起来的那个盒子**，
+/// 而「点空白关闭」要求整块舞台都接得住点击——那得在设置打开期间把整个舞台铺一层
+/// 遮挡，代价是「设置开着时还能拖模型」（渲染面 `sync.clickEnabled` 的真实交互）
+/// 一起没了。两害相权，先不铺。因此收起路径是**✕ / Esc**；
+/// `showModalBottomSheet` 自带的模态障碍层同理，在舞台区域不生效。
 library;
 
 import 'dart:async';
@@ -41,6 +64,7 @@ import '../design/breakpoints.dart';
 import '../design/tokens.dart';
 import '../settings/settings_sections.dart';
 import '../live2d/live2d_bridge.dart';
+import '../live2d/stage_pointer_interceptor.dart';
 import '../state/ui_phase.dart';
 import '../ui/chat_panel.dart';
 import '../ui/connection_badge.dart';
@@ -281,14 +305,12 @@ class AppShellState extends State<AppShell> {
     widget.onSectionChanged?.call(section);
   }
 
-  /// rail / 齿轮 / 抽屉 → 打开设置。
+  /// 「设置」按钮 / compact 聊天面板头的入口 → 打开设置。
   ///
   /// 三种断点的分流就在这里（也是唯一的入口）：
   /// - expanded：内联侧板（纯 `setState`，不开路由）；
   /// - medium：底部浮层；
   /// - compact：抽屉（第 1 层）→ 底部浮层（第 2 层）。
-  ///
-  /// 再点一次 rail 上**同一个**分区 = 收起内联侧板（切换语义）。
   ///
   /// # 打开之前必须先让宿主**加载当前分区的内容**（2026-09-11 修）
   ///
@@ -300,14 +322,13 @@ class AppShellState extends State<AppShell> {
   ///
   /// 所以加载**不能**挂在「分区变了」上（那是结果，不是原因）——
   /// 「打开设置」本身就是那个原因。
-  Future<void> openSettings({SizeClass? sizeClass, bool toggle = false}) async {
+  Future<void> openSettings({SizeClass? sizeClass}) async {
     final SizeClass sc =
         sizeClass ?? Breakpoints.sizeClassOf(MediaQuery.sizeOf(context).width);
 
     if (settingsHostOf(sc) == SettingsHost.inline) {
-      setState(() => settingsOpen = toggle ? !settingsOpen : true);
-      // 收起时不必加载（把网络请求省下来）。
-      if (settingsOpen) widget.onEnsureSectionLoaded?.call();
+      setState(() => settingsOpen = true);
+      widget.onEnsureSectionLoaded?.call();
       return;
     }
 
@@ -329,8 +350,13 @@ class AppShellState extends State<AppShell> {
       sizeClass: sc,
       // 用**浮层自己的** context 关掉自己：用外壳的 context 去 `maybePop`
       // 依赖「浮层恰好是栈顶」这个巧合，不稳健。
-      builder: (BuildContext sheetContext) => _settingsSurface(
-        onClose: () => Navigator.of(sheetContext).pop(),
+      //
+      // 浮层压在舞台上（medium 下几乎整块）⇒ 必须垫指针垫层，
+      // 否则整块设置面板「看得见、点不着、也滑不动」。
+      builder: (BuildContext sheetContext) => StagePointerInterceptor(
+        child: _settingsSurface(
+          onClose: () => Navigator.of(sheetContext).pop(),
+        ),
       ),
     );
   }
@@ -419,9 +445,13 @@ class AppShellState extends State<AppShell> {
                         top: 0,
                         left: 0,
                         right: 0,
-                        child: OfflineBanner(
-                          status: widget.wsStatus,
-                          onRetry: widget.onRetryConnection,
+                        // 横幅压在舞台顶端：不垫一层指针垫层的话「点此重试」
+                        // 点不着（2026-09-11 之前一直是这样）。
+                        child: StagePointerInterceptor(
+                          child: OfflineBanner(
+                            status: widget.wsStatus,
+                            onRetry: widget.onRetryConnection,
+                          ),
                         ),
                       ),
                     if (settingsOpen && inlineSettings)
@@ -432,11 +462,14 @@ class AppShellState extends State<AppShell> {
                         ),
                       ),
                     // 舞台浮标：**压在舞台之上**，不占布局、不挤舞台宽度。
+                    // 压着 iframe 就必须垫指针垫层，否则四键全点不着。
                     if (widget.stageCorner != null)
                       Positioned(
                         right: 0,
                         bottom: 0,
-                        child: widget.stageCorner!,
+                        child: StagePointerInterceptor(
+                          child: widget.stageCorner!,
+                        ),
                       ),
                   ],
                 ),
@@ -485,7 +518,7 @@ class AppShellState extends State<AppShell> {
                 const SizedBox(width: Space.s2),
               ],
             ),
-            body: compact ? body : _withRail(sizeClass, body),
+            body: body,
           );
 
           // 快捷键挂在**根**（`CallbackShortcuts` 最省样板，且不吞未匹配的键）。
@@ -500,39 +533,6 @@ class AppShellState extends State<AppShell> {
           );
         },
       ),
-    );
-  }
-
-  /// medium / expanded 的左侧分区导航（**纯文字**）。
-  ///
-  /// # 为什么不用 `NavigationRail`
-  ///
-  /// `NavigationRail` 的两档形态（80 px 只放图标 / 232 px 图标 + 文字）都成立
-  /// 在一个前提上：**图标是主要识别通道**。用户裁决「尽量少用图片，用文字
-  /// 做按钮」之后这个前提没了，于是两档并一档——一个能放下四个汉字的宽度。
-  ///
-  /// 选中态用**实色底 + 左侧 2 px 竖条**，不靠图标变色：
-  /// 竖向标记在中文标签旁边比「图标变蓝」更好认，也是文字型导航的常规做法。
-  Widget _withRail(SizeClass sizeClass, Widget body) {
-    return Row(
-      children: <Widget>[
-        ValueListenableBuilder<SettingsSection>(
-          valueListenable: sectionNotifier,
-          builder: (BuildContext context, SettingsSection current, Widget? _) =>
-              SectionRail(
-                sections: widget.sections,
-                selected: current,
-                onSelect: (SettingsSection picked) {
-                  // 已选中同一个分区且侧板开着 → 收起（切换语义）。
-                  final bool toggle = picked == current;
-                  if (picked != current) _selectGuarded(picked);
-                  openSettings(sizeClass: sizeClass, toggle: toggle);
-                },
-              ),
-        ),
-        VerticalDivider(width: 1, color: appColorsOf(context).hairline),
-        Expanded(child: body),
-      ],
     );
   }
 
@@ -556,135 +556,6 @@ class AppShellState extends State<AppShell> {
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
   );
-}
-
-/// 左侧分区导航：**一列文字**。
-///
-/// 刻意做得很薄：这里不需要「图标 + 徽标 + 折叠」那一套，
-/// 它只是把 8 个中文标签竖着排好，并让当前项一眼可辨。
-class SectionRail extends StatelessWidget {
-  const SectionRail({
-    required this.sections,
-    required this.selected,
-    required this.onSelect,
-    super.key,
-  });
-
-  final List<SettingsSection> sections;
-  final SettingsSection selected;
-  final ValueChanged<SettingsSection> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    final AppPalette palette = appPaletteOf(context);
-    return SizedBox(
-      width: NavMetrics.railWidth,
-      child: ListView(
-        padding: const EdgeInsets.symmetric(vertical: Space.s2),
-        children: <Widget>[
-          for (final SettingsSection section in sections)
-            _RailItem(
-              label: section.label,
-              description: section.description,
-              selected: section == selected,
-              onTap: () => onSelect(section),
-              theme: theme,
-              colors: colors,
-              palette: palette,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RailItem extends StatelessWidget {
-  const _RailItem({
-    required this.label,
-    required this.description,
-    required this.selected,
-    required this.onTap,
-    required this.theme,
-    required this.colors,
-    required this.palette,
-  });
-
-  final String label;
-  final String description;
-  final bool selected;
-  final VoidCallback onTap;
-  final ThemeData theme;
-  final AppColors colors;
-  final AppPalette palette;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.s2,
-        vertical: 1,
-      ),
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: label,
-        // 说明只给读屏/悬停：竖排里塞两行说明会把 8 个分区撑到放不下。
-        hint: description,
-        excludeSemantics: true,
-        child: Tooltip(
-          message: description,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: selected ? palette.surfaceAlt : Colors.transparent,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Space.s2,
-                  vertical: Space.s2,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    // 选中竖条：**形状**通道，不只靠底色深浅。
-                    Container(
-                      width: 2,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: selected ? palette.accent : Colors.transparent,
-                        // `xs`（最小合法档）而不是更小的裸值：2 px 宽的竖条上
-                        // 圆角会被 Flutter 夹到半宽，两档看起来是同一条圆头，
-                        // 那就没有理由为它开一个裸值。
-                        borderRadius: BorderRadius.circular(AppRadius.xs),
-                      ),
-                    ),
-                    const SizedBox(width: Space.s2),
-                    Expanded(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: selected ? palette.ink : colors.contentMuted,
-                          fontWeight: selected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// 一个**永不通知**的 [Listenable]。

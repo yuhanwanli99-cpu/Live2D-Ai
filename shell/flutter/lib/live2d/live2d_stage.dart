@@ -8,6 +8,7 @@ import 'live2d_bridge.dart';
 import 'live2d_host_stub.dart'
     if (dart.library.js_interop) 'live2d_host_web.dart' as host;
 import 'live2d_transport.dart';
+import 'stage_pointer_interceptor.dart';
 
 /// Live2D 舞台：持有 [Live2DBridge]，对外暴露口型与外观同步入口。
 class Live2DStage extends StatefulWidget {
@@ -260,7 +261,11 @@ class Live2DStageState extends State<Live2DStage> {
             error == null &&
             phase == Live2DBridgePhase.loading)
           _StageBadge(label: _loadingLabel(bridge), busy: true),
-        if (error != null) _StageErrorOverlay(message: error, onRetry: retry),
+        // 错误条压在 iframe 上：不垫一层指针垫层的话「重试」点不着。
+        if (error != null)
+          StagePointerInterceptor(
+            child: _StageErrorOverlay(message: error, onRetry: retry),
+          ),
         if (bridge != null && bridge.isReady && bridge.fps != null)
           Positioned(
             right: 12,

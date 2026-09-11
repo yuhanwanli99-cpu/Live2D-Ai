@@ -2,9 +2,13 @@
 ///
 /// | 断点 | 宿主 |
 /// |---|---|
-/// | ≥1280 expanded | 内联侧板（400 px，浮在舞台列右缘），Esc / 点空白关闭 |
+/// | ≥1280 expanded | 内联侧板（400 px，浮在舞台列右缘） |
 /// | 900–1279 medium | `showModalBottomSheet(isScrollControlled, maxWidth 560, maxHeight 0.78h)` |
 /// | <900 compact | 抽屉列 8 项 → 选中后再弹 sheet（严格 2 层） |
+///
+/// 「Esc / 点空白关闭」两条**只在浮层成立**（`showModalBottomSheet` 自带 Esc；
+/// 障碍层在舞台区域点不着，见 `StagePointerInterceptor` 头注）；内联侧板只有
+/// **✕ / Esc**，因为左侧 rail 已删（2026-09-11 用户裁决）。
 ///
 /// # 为什么必须共用一个内容 Widget
 ///
@@ -25,6 +29,7 @@ import 'package:flutter/services.dart';
 
 import '../design/breakpoints.dart';
 import '../design/tokens.dart';
+import '../live2d/stage_pointer_interceptor.dart';
 import '../settings/settings_sections.dart';
 import '../ui/theme.dart';
 
@@ -45,13 +50,12 @@ abstract final class NavMetrics {
   /// compact 浮层最大高度比例。
   static const double sheetHeightFactorCompact = 0.72;
 
-  /// 左侧分区导航的宽度（**只有一个宽度**）。
+  /// ~~左侧分区导航的宽度~~（**2026-09-11 已删除：用户裁决「把左边的这些设置
+  /// 一级选项去掉留给舞台」**）。
   ///
-  /// 2026-09-11：原来是「expanded 用 232 带文字 / medium 用 80 只放图标」。
-  /// 用户裁决「尽量少用图片，用文字做按钮」之后，图标那一档就不成立了——
-  /// 而「四个汉字」在 80 px 里放不下。所以统一成一个能放下文字的宽度：
-  /// 比 232 窄（不再抢舞台），比 80 宽（文字读得出来）。
-  static const double railWidth = 168;
+  /// 分区导航现在只有**面板内部**那一行 chip（`SettingsScaffold`），
+  /// 所以不再需要第二套宽度常量。留这条注释是为了让「以前有过 rail、
+  /// 为什么没了」可被检索到——不要把它当占位值重新加回来。
 
   /// 常驻聊天面板宽度（expanded）。
   static const double chatWidthExpanded = 340;
@@ -124,20 +128,23 @@ Future<SettingsSection?> showSectionDrawer({
   ),
   builder: (BuildContext sheetContext) {
     final List<SettingsSection> sections = visibleSections();
-    return SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        children: <Widget>[
-          for (final SettingsSection section in sections)
-            ListTile(
-              // **没有 leading 图标**：用户裁决「尽量少用图片，用文字做按钮」，
-              // 而这一列本来就是靠中文标签在辨认。
-              title: Text(section.label),
-              subtitle: Text(section.description),
-              selected: section == selected,
-              onTap: () => Navigator.of(sheetContext).pop(section),
-            ),
-        ],
+    // 抽屉压在舞台下半部（compact）⇒ 垫指针垫层，否则整列条目点不着。
+    return StagePointerInterceptor(
+      child: SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: <Widget>[
+            for (final SettingsSection section in sections)
+              ListTile(
+                // **没有 leading 图标**：用户裁决「尽量少用图片，用文字做按钮」，
+                // 而这一列本来就是靠中文标签在辨认。
+                title: Text(section.label),
+                subtitle: Text(section.description),
+                selected: section == selected,
+                onTap: () => Navigator.of(sheetContext).pop(section),
+              ),
+          ],
+        ),
       ),
     );
   },
@@ -145,9 +152,10 @@ Future<SettingsSection?> showSectionDrawer({
 
 /// 设置侧板（expanded 的内联浮层）。
 ///
-/// 铺在舞台列**之上**（不是新增一列）：1280 下「232 rail + 400 设置 + 340 聊天」
-/// 会把舞台压到 268 px，而舞台是产品核心（原则 P1）。浮在右缘时左侧仍有
-/// 约 300 px 舞台可见——「拖滑杆立刻看到舞台反应」这个唯一必须保住的手感还在。
+/// 铺在舞台列**之上**（不是新增一列）：1280 下「400 设置 + 340 聊天」会与舞台
+/// 分宽度，而舞台是产品核心（原则 P1）。浮在右缘时左侧仍有约 540 px 舞台可见
+/// ——「拖滑杆立刻看到舞台反应」这个唯一必须保住的手感还在。
+/// （2026-09-11 删掉左侧 168 px 的 rail 之后，这里的可见舞台从约 370 px 涨到约 540 px。）
 class InlineSettingsDock extends StatelessWidget {
   const InlineSettingsDock({
     required this.child,
@@ -176,15 +184,20 @@ class InlineSettingsDock extends StatelessWidget {
               // **不用 `Material(elevation: 8)`**：Material 的 elevation 会投一层
               // 弥散阴影到舞台上，看起来像「贴了一张卡片」。改成实色面 + 1 px
               // 描边——与本项目所有其它容器同一套层级表达（`GlassPanel`）。
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(AppRadius.xl),
-                  border: Border.all(color: appColorsOf(context).hairline),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.xl),
-                  child: child,
+              //
+              // 侧板整块压在舞台列上 ⇒ **必须**垫指针垫层：没有它，整块设置
+              // 面板都是「看得见、点不着、滑不动」（2026-09-11 用户报告的正是它）。
+              child: StagePointerInterceptor(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.xl),
+                    border: Border.all(color: appColorsOf(context).hairline),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.xl),
+                    child: child,
+                  ),
                 ),
               ),
             ),

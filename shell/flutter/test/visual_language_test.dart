@@ -157,34 +157,32 @@ void main() {
       );
     });
 
-    testWidgets('左侧导航里**一个图标都没有**（8 个中文标签自己就能分辨）', (
+    testWidgets('分区导航是**文字 chip**，没有图标 avatar（8 个中文标签自带辨识度）', (
       WidgetTester tester,
     ) async {
+      // 2026-09-11：左侧 rail 已删（用户裁决「把左边的这些设置一级选项去掉
+      // 留给舞台」），分区导航只剩面板里这一行 chip —— 约定照旧适用于它。
       await tester.binding.setSurfaceSize(const Size(1400, 800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       int picked = 0;
       await tester.pumpWidget(
         wrap(
-          SectionRail(
+          SettingsScaffold(
             sections: visibleSections(),
             selected: SettingsSection.actions,
             onSelect: (_) => picked++,
+            child: const Text('PANE'),
           ),
         ),
       );
-      expect(find.byType(SectionRail), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(SectionRail),
-          matching: find.byType(Icon),
-        ),
-        findsNothing,
-        reason: '用户裁决「尽量少用图片用文字做按钮」',
-      );
-      // 8 个分区都能点。
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
       for (final SettingsSection s in visibleSections()) {
-        expect(find.text(s.label), findsOneWidget);
+        final ChoiceChip chip = tester.widget<ChoiceChip>(
+          find.widgetWithText(ChoiceChip, s.label),
+        );
+        expect(chip.avatar, isNull, reason: '用户裁决「尽量少用图片用文字做按钮」');
       }
+      // 8 个分区都能点。
       await tester.tap(find.text('诊断'));
       expect(picked, 1);
     });
