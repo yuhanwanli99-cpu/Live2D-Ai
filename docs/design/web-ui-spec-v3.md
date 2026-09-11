@@ -878,7 +878,6 @@ enum UiPhase { offline, idle, thinking, speaking, interrupted, error }
 
 class UiSignals {
   final WsStatus wsStatus;        // 由 api/ 层提供
-  final bool bridgeError;         // Live2DBridgePhase == error
   final bool turnActive;          // POST 已受理且本轮未收口
   final bool voiceActive;         // 收到 voice_started、未收到 voice_ended
   final bool interrupted;         // 收到 new_epoch 后 1.2s 窗口内
@@ -893,7 +892,6 @@ UiPhase deriveUiPhase(UiSignals s);
 ```
 errorActive            → error
 wsStatus != connected  → offline
-bridgeError            → offline
 interrupted            → interrupted
 voiceActive            → speaking
 turnActive             → thinking
@@ -2384,6 +2382,38 @@ localStorage（常见配额 5 MB / 源）。所以：
 ——**两种气泡同色**，「谁说的」退化成只剩左右对齐一个通道。
 新增 `AppPalette.bubbleUser`（强调色 16%/10% 压在面板上）与 `bubbleAssistant`，
 两个面明确分开。
+
+---
+
+## 13.16 状态胶囊不再冒充「后端未连接」（2026-09-11，撤销 §6.3 的一条派生）
+
+**症状**（真机验收时在**普通刷新后**就撞上）：胶囊写「状态：后端未连接」，
+而紧挨着的连接徽标写「实时通道：实时通道正常」—— 同一个界面给出两个相反的结论。
+
+**两个根因**：
+
+1. **`bridgeError → offline` 本身就是错的口径。**
+   渲染面（iframe + wasm）出错时后端**明明是连着的**；那条链路上根本没有后端。
+   把「舞台坏了」说成「后端未连接」，用户会去查错方向。
+2. **那个信号只置位、永不清除。**
+   `main.dart` 的接线是 `onError: (m) => _ui.onBridgePhase(m.isNotEmpty)`——
+   `onError` 只在有错时回调，所以参数恒为 `true`；`onBridgePhase(false)`
+   **全仓库没有任何调用点**。于是渲染面**任何一次瞬时**错误都会把胶囊
+   **永久**钉在「后端未连接」，直到用户刷新页面。
+
+**裁决**：**删掉这条派生**（`UiSignals.bridgeError` / `UiStateTracker.onBridgePhase`
+一并删除）。`offline` 的**唯一**判据回到「WS 不可用」。
+
+**为什么删而不是改口径**：渲染面自己的失败已经有**它该在的地方**——
+`StageHost` 的「模型加载失败 + 重试」覆盖层（它才是可行动的那个入口）。
+在顶栏再长一个更不准的通道，正是 §6.3 硬规则 1 明令禁止的
+「同一件事长出两套视觉」。
+
+**顺带修掉的一个测试谎**：原来那条测试名叫
+「`bridgeError` 只在**连不上**时才把相位推成 `offline`」，
+而它体内把 WS 设成 `connected` 之后仍然断言 `offline` —— 名字与断言互相矛盾。
+现在换成两条正向断言：「WS 连着时相位只由轮次信号决定」与
+「`offline` 的唯一判据是 WS 不可用，且**重连后能回到正常态**」。
 
 ---
 

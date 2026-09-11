@@ -58,7 +58,6 @@ enum UiPhase {
 class UiSignals {
   const UiSignals({
     this.wsConnected = false,
-    this.bridgeError = false,
     this.turnActive = false,
     this.voiceActive = false,
     this.interrupted = false,
@@ -68,8 +67,6 @@ class UiSignals {
   /// `WsStatus == connected`。
   final bool wsConnected;
 
-  /// 渲染面进入 `Live2DBridgePhase.error`。
-  final bool bridgeError;
 
   /// `POST /api/v1/chat` 已受理且本轮尚未收口。
   final bool turnActive;
@@ -85,14 +82,12 @@ class UiSignals {
 
   UiSignals copyWith({
     bool? wsConnected,
-    bool? bridgeError,
     bool? turnActive,
     bool? voiceActive,
     bool? interrupted,
     bool? errorActive,
   }) => UiSignals(
     wsConnected: wsConnected ?? this.wsConnected,
-    bridgeError: bridgeError ?? this.bridgeError,
     turnActive: turnActive ?? this.turnActive,
     voiceActive: voiceActive ?? this.voiceActive,
     interrupted: interrupted ?? this.interrupted,
@@ -101,7 +96,7 @@ class UiSignals {
 
   @override
   String toString() =>
-      'UiSignals(ws: $wsConnected, bridgeError: $bridgeError, '
+      'UiSignals(ws: $wsConnected, '
       'turn: $turnActive, voice: $voiceActive, interrupted: $interrupted, '
       'error: $errorActive)';
 }
@@ -112,8 +107,15 @@ class UiSignals {
 ///
 /// 1. **`errorActive` 最先**：错误必须能盖住一切。若排在 `voiceActive` 后面，
 ///    一轮中途失败时界面会一直显示「说话中」，用户看不到失败。
-/// 2. **连接不可用 → `offline` 先于 `bridgeError`**：后端都连不上时，
-///    渲染面报的错多半是次生现象，报「后端未连接」更接近用户能行动的原因。
+/// 2. **`offline` 只看「后端连不上」这一个判据**（2026-09-11 修）。
+///    过去这里还有一条 `bridgeError → offline`，它有两个问题：
+///    ① 渲染面（iframe）出错时后端**明明是连着的**，胶囊却写「后端未连接」
+///       —— 而旁边的连接徽标写「已连接」，两个元件互相矛盾；
+///    ② 那个信号**只置位、永不清除**（见 `UiStateTracker` 的旧 `onBridgePhase`），
+///       于是渲染面任何一次**瞬时**错误都会把胶囊**永久**钉在错误态，
+///       直到用户刷新页面。
+///    渲染面自己的失败已经有**它该在的地方**：舞台上的「模型加载失败 + 重试」
+///    覆盖层。同一条错误长出两个通道，正是规格 §6.3 明令禁止的。
 /// 3. **`interrupted` 先于 `speaking`**：打断的意义就是「原本在说话，现在停了」。
 ///    若 `voiceActive` 还残留着（`voice_ended` 尚未到达），排在后面会让
 ///    「已打断」**永远显示不出来**。这是个容易写反的地方，有专门测试。
@@ -122,7 +124,6 @@ class UiSignals {
 UiPhase deriveUiPhase(UiSignals s) {
   if (s.errorActive) return UiPhase.error;
   if (!s.wsConnected) return UiPhase.offline;
-  if (s.bridgeError) return UiPhase.offline;
   if (s.interrupted) return UiPhase.interrupted;
   if (s.voiceActive) return UiPhase.speaking;
   if (s.turnActive) return UiPhase.thinking;

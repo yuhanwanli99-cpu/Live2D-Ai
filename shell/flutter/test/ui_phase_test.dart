@@ -5,14 +5,12 @@ import 'package:live2d_ai_shell/state/ui_phase.dart';
 /// 构造信号（只写关心的那一位，其余保持默认 = 全 false）。
 UiSignals sig({
   bool ws = false,
-  bool bridge = false,
   bool turn = false,
   bool voice = false,
   bool interrupted = false,
   bool error = false,
 }) => UiSignals(
   wsConnected: ws,
-  bridgeError: bridge,
   turnActive: turn,
   voiceActive: voice,
   interrupted: interrupted,
@@ -34,13 +32,14 @@ void main() {
       ('error 盖住 interrupted', sig(ws: true, interrupted: true, error: true), UiPhase.error),
       ('error 优先于 offline', sig(error: true), UiPhase.error),
 
-      // 连接不可用 → offline，先于 bridgeError。
+      // **offline 的唯一判据是「WS 不可用」**（2026-09-11 修）。
+      // 渲染面的失败不再参与相位派生：它有自己的舞台覆盖层，
+      // 而且旧信号只置位不清除，会永久钉住胶囊（详见 ui_phase.dart 头注）。
       ('未连上 → offline', sig(turn: true), UiPhase.offline),
-      ('未连上但渲染面也报错 → 仍是 offline（后端原因更可行动）',
-          sig(bridge: true), UiPhase.offline),
-      ('连上了但渲染面报错 → offline', sig(ws: true, bridge: true), UiPhase.offline),
-      ('连上了、渲染面报错、还在说话 → offline（错误覆盖层优先级更高）',
-          sig(ws: true, bridge: true, voice: true), UiPhase.offline),
+      ('未连上、还在说话 → 仍是 offline（连不上优先）', sig(voice: true),
+          UiPhase.offline),
+      ('连上了 → 即使本轮还开着也是 thinking（不是 offline）',
+          sig(ws: true, turn: true), UiPhase.thinking),
 
       // interrupted 必须先于 speaking（最容易写反的一处）。
       ('打断中、voiceActive 还残留 → interrupted（不是 speaking）',
@@ -98,7 +97,6 @@ void main() {
     test('默认全 false（不假设任何东西是活的）', () {
       const UiSignals s = UiSignals();
       expect(s.wsConnected, isFalse);
-      expect(s.bridgeError, isFalse);
       expect(s.turnActive, isFalse);
       expect(s.voiceActive, isFalse);
       expect(s.interrupted, isFalse);

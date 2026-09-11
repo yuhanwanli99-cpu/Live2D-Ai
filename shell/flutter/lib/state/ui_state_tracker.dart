@@ -44,7 +44,6 @@ class UiStateTracker extends ChangeNotifier {
   final TimerFactory _newTimer;
 
   WsStatus _wsStatus = WsStatus.idle;
-  bool _bridgeError = false;
   bool _turnActive = false;
   bool _voiceActive = false;
   bool _interrupted = false;
@@ -63,7 +62,6 @@ class UiStateTracker extends ChangeNotifier {
   /// 当前信号快照。
   UiSignals get signals => UiSignals(
     wsConnected: _wsStatus.isUsable,
-    bridgeError: _bridgeError,
     turnActive: _turnActive,
     voiceActive: _voiceActive,
     interrupted: _interrupted,
@@ -98,15 +96,6 @@ class UiStateTracker extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 渲染面阶段变化（只有 `error` 会影响相位）。
-  ///
-  /// `loading` **不算** `bridgeError`：模型加载中不是故障，
-  /// 把它当错误会让首屏 12 秒里一直显示「出错」。
-  void onBridgePhase(bool hasError) {
-    if (_bridgeError == hasError) return;
-    _bridgeError = hasError;
-    notifyListeners();
-  }
 
   /// `POST /api/v1/chat` 已受理 → 本轮开始。
   void markTurnAccepted() {

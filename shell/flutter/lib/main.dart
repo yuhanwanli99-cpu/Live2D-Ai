@@ -999,8 +999,6 @@ class _ShellRootState extends State<ShellRoot> {
             // 就绪后补发显示偏好：首次挂载时桥还在 loading，
             // 以及在 retry 重建 iframe 之后（旧队列已随旧桥销毁）。
             onReady: _applyPrefs,
-            onError: (String message) =>
-                _ui.onBridgePhase(message.isNotEmpty),
             onPhaseChanged: (Live2DBridgePhase phase) {
               if (mounted && phase != _stagePhase) {
                 setState(() => _stagePhase = phase);

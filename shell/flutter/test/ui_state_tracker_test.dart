@@ -81,31 +81,33 @@ void main() {
     });
   });
 
-  group('渲染面错误', () {
-    test('bridgeError 只在**连不上**时才把相位推成 offline', () {
+  group('渲染面失败**不再**冒充「后端未连接」（2026-09-11 修）', () {
+    // 过去这里有一条 `bridgeError → offline`，两个毛病：
+    //   ① 渲染面（iframe）出错时后端明明连着，胶囊却写「后端未连接」，
+    //      而旁边的连接徽标写「已连接」—— 同一个界面两个相反的结论；
+    //   ② 那个信号只置位、永不清除（`onBridgePhase(false)` 全仓库无人调用），
+    //      于是**任何一次瞬时**的渲染面错误都会把胶囊**永久**钉住。
+    // 现在渲染面的失败只出现在**舞台自己的**「加载失败 + 重试」覆盖层上。
+    test('WS 连着时，相位**只**由轮次信号决定（与渲染面无关）', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      tracker.onBridgePhase(true);
+      expect(tracker.phase, UiPhase.idle);
+      tracker.markTurnAccepted();
+      expect(tracker.phase, UiPhase.thinking);
+    });
+
+    test('`offline` 的唯一判据是「WS 不可用」', () {
+      final UiStateTracker tracker = UiStateTracker();
+      tracker.onWsStatus(WsStatus.connected);
+      expect(tracker.phase, isNot(UiPhase.offline));
+      tracker.onWsStatus(WsStatus.disconnected);
       expect(tracker.phase, UiPhase.offline);
-      tracker.onBridgePhase(false);
-      expect(tracker.phase, UiPhase.idle);
-    });
-
-    test('loading 不算错误（首屏 12 秒不能一直显示「出错」）', () {
-      final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      // `onBridgePhase` 只接受「是否 error」，loading 由调用方折算成 false。
-      tracker.onBridgePhase(false);
-      expect(tracker.phase, UiPhase.idle);
-    });
-
-    test('重复设置同一个值不通知', () {
-      final UiStateTracker tracker = UiStateTracker();
-      tracker.onBridgePhase(true);
-      int notified = 0;
-      tracker.addListener(() => notified++);
-      tracker.onBridgePhase(true);
-      expect(notified, 0);
+      expect(
+        tracker.phase,
+        isNot(UiPhase.offline),
+        reason: '重连之后必须能回到正常态（旧实现把这一条钉死了）',
+      );
     });
   });
 
@@ -317,7 +319,6 @@ void main() {
     test('一次真实成功轮：thinking → speaking → completed → idle', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      tracker.onBridgePhase(false);
 
       tracker.markTurnAccepted();
       expect(tracker.phase, UiPhase.thinking);
