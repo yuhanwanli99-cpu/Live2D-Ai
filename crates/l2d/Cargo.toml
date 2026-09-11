@@ -1,0 +1,30 @@
+[package]
+name = "l2d"
+description = "Live2D 皮套格式、兼容报告与离屏渲染封装（runtime/render 底座为 pin 的 Ayagami，见 SOURCES.md）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+authors.workspace = true
+
+[dependencies]
+# Bakeoff 选定的 runtime/render 底座（RFC D4；决策记录见 docs/verification/rust-bakeoff-decision.md）。
+# 固定 rev，禁止浮动分支；升级 rev 必须重新走验证流程并同步 SOURCES.md。
+# 许可：上游 MIT OR Apache-2.0（上游仓库根 LICENSE-MIT / LICENSE-APACHE / COPYRIGHT），与本 crate 双许可相容。
+ayagami = { git = "https://github.com/AyagamiDev/ayagami", rev = "640ae4b10bad8def1adcacdada4f8241b484c169" }
+ayagami-render = { git = "https://github.com/AyagamiDev/ayagami", rev = "640ae4b10bad8def1adcacdada4f8241b484c169" }
+# 与 ayagami-render 内部 wgpu 29 同大版本（bakeoff 已验证的组合，见 rust-bakeoff-ayagami.md）。
+wgpu = "29"
+glam = { version = "0.33", features = ["bytemuck"] }
+pollster = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# 仅 example 使用：`static_frame_trace` 需要 `log::Log` 实现来截获
+# ayagami-render 的 trace/debug 事件做静止帧观测。运行时/renderer 不依赖。
+[dev-dependencies]
+log = "0.4"
+
+[lints]
+workspace = true

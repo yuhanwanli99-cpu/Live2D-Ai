@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+description = "Live2D-Ai 工程工具（第一批：rust-ratio 第一方源码 Rust 占比统计）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+# 第一批：零依赖（纯 std 实现目录扫描）
+
+[lints]
+workspace = true

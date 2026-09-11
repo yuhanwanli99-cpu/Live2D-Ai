@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plan-task-chat-tool-loop.schema.json",
+  "title": "ChatService Tool-Calling Loop Design Schema",
+  "description": "类型定义、状态机、不变量、测试矩阵的正式规范——与 plan-task-chat-tool-loop.md 对应",
+  "type": "object",
+  "properties": {
+    "data_models": {
+      "type": "object",
+      "description": "ApiModels.kt 新增/修改的数据类型",
+      "properties": {
+        "FunctionSpec": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "parameters": { "type": "object", "description": "JsonObject — JSON Schema for tool parameters" },
+            "strict": { "type": "boolean", "default": false }
+          },
+          "required": ["name", "description", "parameters"]
+        },
+        "ToolDef": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "function" },
+            "function": { "$ref": "#/properties/data_models/properties/FunctionSpec" }
+          },
+          "required": ["type", "function"]
+        },
+        "ToolCall": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "type": "string", "const": "function" },
+            "function": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "arguments": { "type": "string", "description": "JSON string of arguments" }
+              },
+              "required": ["name", "arguments"]
+            }
+          },
+          "required": ["id", "type", "function"]
+        },
+        "ChatMessage": {
+          "type": "object",
+          "description": "修改：新增 tool_calls / tool_call_id 可选字段",
+          "properties": {
+            "role": { "type": "string", "enum": ["system", "user", "assistant", "tool"] },
+            "content": { "type": ["string", "null"] },
+            "tool_calls": { "type": "array", "items": { "$ref": "#/properties/data_models/properties/ToolCall" } },
+            "tool_call_id": { "type": "string" }
+          },
+          "required": ["role"]
+        },
+        "ChatRequest": {
+          "type": "object",
+          "description": "修改：新增 tools / tool_choice 可选字段",
+          "properties": {
+            "model": { "type": "string" },
+            "messages": { "type": "array", "items": { "$ref": "#/properties/data_models/properties/ChatMessage" } },
+            "temperature": { "type": "number" },
+            "max_tokens": { "type": "integer" },
+            "stream": { "type": "boolean" },
+            "tools": { "type": ["array", "null"], "items": { "$ref": "#/properties/data_models/properties/ToolDef" } },
+            "tool_choice": { "type": ["string", "null"], "enum": ["auto", "none", "required", null] }
+          },
+          "required": ["model", "messages", "stream"]
+        }
+      }
+    },
+    "interfaces": {
+      "type": "object",
+      "description": "新增/修改的 Kotlin 接口",
+      "properties": {
+        "ConfirmationGate": {
+          "type": "object",
+          "description": "core 内部接口（不放入 plugin-sdk）",
+          "properties": {
+            "package": { "type": "string", "const": "com.live2d.ai.android" },
+            "type": { "type": "string", "const": "fun interface" },
+            "method": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "const": "confirm" },
+                "params": {
+                  "type": "array",
+                  "items": [
+                    { "name": "tool", "type": "ToolDefinition" },
+                    { "name": "argsJson", "type": "String" }
+                  ]
+                },
+                "return": { "type": "Boolean" },
+                "modifier": { "type": "string", "const": "suspend" }
+              }
+            }
+          }
+        },
+        "ChatService": {
+          "type": "object",
+          "description": "构造函数新增参数",
+          "properties": {
+            "new_params": {
+              "type": "object",
+              "properties": {
+                "tools": { "type": "List<ToolDefinition>", "default": "emptyList()" },
+                "confirmationGate": { "type": "ConfirmationGate?", "default": "null" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "state_machine": {
+      "type": "object",
+      "description": "tool-calling 循环的状态转换定义",
+      "properties": {
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "condition": { "type": "string" },
+              "action": { "type": "string" }
+            },
+            "required": ["from", "to", "condition"]
+          }
+        }
+      },
+      "default": {
+        "states": [
+          { "id": "BUILD_REQUEST", "description": "构建 ChatRequest（含 tools + messages）" },
+          { "id": "HTTP_POST", "description": "POST /chat/completions（非流式）" },
+          { "id": "PARSE_RESPONSE", "description": "反序列化 ChatResponse，提取 choices[0].message" },
+          { "id": "EXECUTE_TOOLS", "description": "遍历 tool_calls，查表执行（含确认拦截）" },
+          { "id": "APPEND_RESULTS", "description": "将 assistant(tool_calls) + tool 消息追加到 messages" },
+          { "id": "EMIT_FINAL", "description": "退出循环，发射最终文本到 Flow" },
+          { "id": "ERROR_EXIT", "description": "API 错误或超轮次，发射错误信息" }
+        ],
+        "transitions": [
+          { "from": "BUILD_REQUEST", "to": "HTTP_POST", "condition": "always" },
+          { "from": "HTTP_POST", "to": "PARSE_RESPONSE", "condition": "response.isSuccessful" },
+          { "from": "HTTP_POST", "to": "ERROR_EXIT", "condition": "!response.isSuccessful" },
+          { "from": "PARSE_RESPONSE", "to": "EXECUTE_TOOLS", "condition": "message.tool_calls 非空 且 round < MAX_TOOL_ROUNDS" },
+          { "from": "PARSE_RESPONSE", "to": "EMIT_FINAL", "condition": "message.tool_calls 为空（纯文本回复）" },
+          { "from": "PARSE_RESPONSE", "to": "ERROR_EXIT", "condition": "round >= MAX_TOOL_ROUNDS" },
+          { "from": "EXECUTE_TOOLS", "to": "APPEND_RESULTS", "condition": "所有 tool_calls 已执行完毕（含确认/拒绝/异常）" },
+          { "from": "APPEND_RESULTS", "to": "BUILD_REQUEST", "condition": "always（继续循环，让 LLM 处理工具结果）" }
+        ]
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "description": "必须始终保持的不变量",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^I[0-9]+$" },
+          "description": { "type": "string" },
+          "verification": { "type": "string" }
+        },
+        "required": ["id", "description", "verification"]
+      },
+      "default": [
+        {
+          "id": "I1",
+          "description": "tools 列表为空 → requestedTools == null → stream=true → 行为与现状完全一致",
+          "verification": "单元测试：断言请求体中不含 'tools' 字段，且 stream=true"
+        },
+        {
+          "id": "I2",
+          "description": "requiresConfirmation=true 且 ConfirmationGate.confirm() 返回 false → tool.execute() 从未被调用",
+          "verification": "单元测试：mock ToolDefinition，verify(exactly=0) execute()"
+        },
+        {
+          "id": "I3",
+          "description": "单轮 tool-calling 循环不超过 MAX_TOOL_ROUNDS=8",
+          "verification": "单元测试：mock LLM 连续返回 tool_calls，验证第 9 轮被截断且 emit 错误"
+        },
+        {
+          "id": "I4",
+          "description": "单个 tool.execute() 抛异常不中断循环（try/catch 隔离），异常消息作为 tool result 回填",
+          "verification": "单元测试：mock 两个工具，第一个抛异常，验证第二个仍被调用"
+        },
+        {
+          "id": "I5",
+          "description": "confirmationGate == null 且 requiresConfirmation=true → 工具被拒绝（安全默认，不执行）",
+          "verification": "单元测试：不注入 ConfirmationGate，验证危险工具 execute 未被调用"
+        },
+        {
+          "id": "I6",
+          "description": "ChatMessage 反序列化向后兼容：无 tool_calls/tool_call_id 的旧 JSON 正常解析",
+          "verification": "ignoreUnknownKeys=true + 新字段均为可空类型 → 旧测试全过"
+        }
+      ]
+    },
+    "test_matrix": {
+      "type": "object",
+      "description": "ChatServiceTest 需新增的测试用例矩阵",
+      "properties": {
+        "test_cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "setup": { "type": "string" },
+              "expected": { "type": "string" },
+              "invariant_covered": { "type": "array", "items": { "type": "string" } },
+              "priority": { "type": "string", "enum": ["blocking", "high", "medium"] }
+            },
+            "required": ["id", "name", "setup", "expected", "priority"]
+          }
+        }
+      },
+      "default": {
+        "test_cases": [
+          {
+            "id": "T1",
+            "name": "无工具注册 — 行为完全不变（回归）",
+            "setup": "ChatService(tools=emptyList())，MockWebServer 返回正常 SSE 流式响应",
+            "expected": "请求体不含 'tools' 字段，stream=true；Flow 逐 delta 发射文本",
+            "invariant_covered": ["I1"],
+            "priority": "blocking"
+          },
+          {
+            "id": "T2",
+            "name": "有工具 — LLM 返回 tool_call — 正确执行并回填",
+            "setup": "注册一个 requiresConfirmation=false 的 mock 工具；MockWebServer 第一响应返回 tool_calls JSON，第二响应返回自然语言文本",
+            "expected": "工具 execute() 被调用一次；最终 Flow 发射自然语言文本；messages 中包含 assistant(tool_calls) + tool 消息",
+            "invariant_covered": [],
+            "priority": "blocking"
+          },
+          {
+            "id": "T3",
+            "name": "危险工具 — 用户拒绝 — execute 从未被调用",
+            "setup": "注册 requiresConfirmation=true 的 mock 工具；注入 ConfirmationGate 返回 false；MockWebServer 返回 tool_calls",
+            "expected": "execute() 从未被调用；工具结果消息为 '用户拒绝执行'；LLM 收到拒绝结果",
+            "invariant_covered": ["I2"],
+            "priority": "blocking"
+          },
+          {
+            "id": "T4",
+            "name": "危险工具 — 用户同意 — 正常执行",
+            "setup": "注册 requiresConfirmation=true 的 mock 工具；注入 ConfirmationGate 返回 true",
+            "expected": "execute() 被调用一次",
+            "invariant_covered": [],
+            "priority": "high"
+          },
+          {
+            "id": "T5",
+            "name": "循环上限 — 第 9 轮被截断",
+            "setup": "MockWebServer 连续返回 tool_calls（无限循环），MAX_TOOL_ROUNDS=8",
+            "expected": "第 8 轮后退出循环，emit 错误信息；实际 HTTP 请求不超过 8 次",
+            "invariant_covered": ["I3"],
+            "priority": "high"
+          },
+          {
+            "id": "T6",
+            "name": "工具执行异常 — 不中断循环",
+            "setup": "注册两个工具 A 和 B；MockWebServer 返回 tool_calls=[A, B]；A.execute() 抛 RuntimeException",
+            "expected": "A 的结果为异常信息；B 仍被正常执行；循环继续",
+            "invariant_covered": ["I4"],
+            "priority": "high"
+          },
+          {
+            "id": "T7",
+            "name": "confirmationGate=null — 危险工具被拒绝（安全默认）",
+            "setup": "ChatService(confirmationGate=null)，注册 requiresConfirmation=true 的工具",
+            "expected": "execute() 从未被调用；工具结果消息为 '用户拒绝执行'",
+            "invariant_covered": ["I5"],
+            "priority": "blocking"
+          },
+          {
+            "id": "T8",
+            "name": "工具未注册 — 返回错误但不崩溃",
+            "setup": "LLM 返回的 tool_call name 在 PluginManager.tools 中不存在",
+            "expected": "工具结果消息为 '未找到工具: xxx'；循环继续",
+            "invariant_covered": [],
+            "priority": "high"
+          },
+          {
+            "id": "T9",
+            "name": "多轮工具调用 — LLM 需要多次调用工具",
+            "setup": "注册两个工具；MockWebServer 第一响应 tool_calls→[A]，第二响应 tool_calls→[B]，第三响应纯文本",
+            "expected": "A 和 B 各被调用一次；最终 Flow 发射第三响应的文本",
+            "invariant_covered": [],
+            "priority": "high"
+          },
+          {
+            "id": "T10",
+            "name": "旧 ChatService(apiKey, baseUrl) 次构造函数 — 向后兼容",
+            "setup": "使用 ChatService(\"key\", \"http://localhost:xxx\") 次构造函数",
+            "expected": "tools=emptyList(), confirmationGate=null → 行为与 T1 一致",
+            "invariant_covered": ["I1"],
+            "priority": "blocking"
+          }
+        ]
+      }
+    },
+    "constants": {
+      "type": "object",
+      "properties": {
+        "MAX_TOOL_ROUNDS": { "type": "integer", "const": 8, "description": "单次 sendMessage() 中最大工具调用轮次" },
+        "TOOL_ROLE": { "type": "string", "const": "tool", "description": "工具结果消息的 role 值" },
+        "FINISH_REASON_TOOL_CALLS": { "type": "string", "const": "tool_calls", "description": "DeepSeek 返回 tool_call 时的 finish_reason" },
+        "DEFAULT_TOOL_CHOICE": { "type": "string", "const": "auto", "description": "tools 非空时的默认 tool_choice" }
+      }
+    },
+    "message_sequence": {
+      "type": "object",
+      "description": "单轮 tool-calling 产生的消息序列模板",
+      "properties": {
+        "single_tool_call": {
+          "type": "array",
+          "description": "单次工具调用的消息序列",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step": { "type": "integer" },
+              "role": { "type": "string" },
+              "content": { "type": "string" },
+              "tool_calls": { "type": "string" },
+              "tool_call_id": { "type": "string" }
+            }
+          },
+          "default": [
+            { "step": 1, "role": "user", "content": "用户原始消息" },
+            { "step": 2, "role": "assistant", "content": "null", "tool_calls": "[{id, function: {name, arguments}}]" },
+            { "step": 3, "role": "tool", "content": "工具执行结果 JSON", "tool_call_id": "call_xxx" },
+            { "step": 4, "role": "assistant", "content": "LLM 最终自然语言回复" }
+          ]
+        },
+        "multi_tool_call": {
+          "type": "array",
+          "description": "单轮中 LLM 并行调用多个工具时的消息序列",
+          "items": {
+            "type": "object"
+          },
+          "default": [
+            { "step": 1, "role": "user", "content": "用户消息" },
+            { "step": 2, "role": "assistant", "content": "null", "tool_calls": "[{tool_a}, {tool_b}]" },
+            { "step": 3, "role": "tool", "content": "tool_a 结果", "tool_call_id": "call_a" },
+            { "step": 4, "role": "tool", "content": "tool_b 结果", "tool_call_id": "call_b" },
+            { "step": 5, "role": "assistant", "content": "LLM 最终回复" }
+          ]
+        },
+        "multi_round_tool_call": {
+          "type": "array",
+          "description": "多轮工具调用（LLM 根据第一轮结果决定第二轮调用）",
+          "items": {
+            "type": "object"
+          },
+          "default": [
+            { "step": 1, "role": "user", "content": "用户消息" },
+            { "step": 2, "role": "assistant", "content": "null", "tool_calls": "[{tool_a}]" },
+            { "step": 3, "role": "tool", "content": "tool_a 结果", "tool_call_id": "call_a" },
+            { "step": 4, "role": "assistant", "content": "null", "tool_calls": "[{tool_b}]" },
+            { "step": 5, "role": "tool", "content": "tool_b 结果", "tool_call_id": "call_b" },
+            { "step": 6, "role": "assistant", "content": "LLM 最终回复" }
+          ]
+        }
+      }
+    }
+  }
+}

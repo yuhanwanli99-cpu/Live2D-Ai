@@ -1,0 +1,44 @@
+[package]
+name = "l2d-wasm-demo"
+description = "l2d 的可选 WASM 渲染演示（浏览器 WebGPU→WebGL 回退；RFC D10；仅编译门禁交付，见 README）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+publish = false
+
+# RFC D11：应用侧 crate 一律 AGPL-3.0-only，以仓库根 LICENSE 为准（本 crate 不双许可）。
+# 依赖口径：全部依赖均为 wasm32 目标专属的常规生态件（wasm-bindgen 系 / wgpu /
+# serde_json / trunk 构建工具），按 SOURCES.md「常规依赖」豁免逐个登记；
+# Ayagami 底座经由 crates/l2d 的既有 pin 引入，本 crate 不直接依赖、不复制其源码。
+
+[dependencies]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+l2d = { path = "../l2d" }
+glam = "0.33"
+live2d-ai-core = { path = "../live2d-ai-core", default-features = false }
+serde_json = "1"
+# wgpu 29 与 l2d/ayagami 同大版本；webgl 特性启用 WebGL2 回退后端
+# （WebGPU 特性由 wgpu 默认特性携带）。native 构建不拉取任何 web 栈。
+wgpu = { version = "29", features = ["webgl"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Document",
+    "Element",
+    "EventTarget",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "Location",
+    "MessageEvent",
+    "Performance",
+    "Response",
+    "UrlSearchParams",
+    "Window",
+] }
+
+[lints]
+workspace = true

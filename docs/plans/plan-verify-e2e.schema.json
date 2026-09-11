@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.dev/schemas/plan-verify-e2e.schema.json",
+  "title": "Live2D-Ai E2E Verification Plan Schema",
+  "description": "结构化端到端验证计划 — 定义验证项的输入/输出/通过标准",
+  "type": "object",
+  "required": ["plan", "checks", "results"],
+  "properties": {
+
+    "plan": {
+      "type": "object",
+      "description": "验证计划元数据",
+      "required": ["version", "target_device", "target_apk", "features"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "计划版本号",
+          "example": "1.0.0"
+        },
+        "target_device": {
+          "type": "string",
+          "description": "目标测试设备 ADB 标识",
+          "example": "192.168.0.102:5555"
+        },
+        "target_apk": {
+          "type": "string",
+          "description": "目标 APK 文件路径 (相对于 Live2D-Ai-Android/)",
+          "example": "app/build/outputs/apk/debug/app-debug.apk"
+        },
+        "features": {
+          "type": "array",
+          "description": "待验证的功能模块",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "priority"],
+            "properties": {
+              "id": { "type": "string", "description": "功能模块 ID", "example": "live2d-render" },
+              "name": { "type": "string", "description": "功能模块名称", "example": "Live2D 渲染" },
+              "priority": { "type": "string", "enum": ["P0", "P1", "P2"], "description": "优先级" },
+              "description": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "checks": {
+      "type": "array",
+      "description": "验证项列表 (按实施顺序排列)",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "phase", "feature", "priority", "method", "pass_criteria"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "唯一标识符，格式: {前缀}{序号} (R=Render, C=Chat, T=TTS, A=ASR, B=Bug)",
+            "pattern": "^[RCTAB]\\d+$",
+            "example": "R1"
+          },
+          "name": {
+            "type": "string",
+            "description": "验证项简短名称",
+            "example": "模型加载"
+          },
+          "phase": {
+            "type": "integer",
+            "description": "所属验证阶段 (0=构建链修复, 1=构建部署, 2=功能P0, 3=深度验证)",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "feature": {
+            "type": "string",
+            "enum": ["live2d-render", "deepseek-chat", "edge-tts", "asr", "build", "deploy", "regression"],
+            "description": "所属功能模块"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["P0", "P1", "P2"],
+            "description": "优先级: P0=阻断(必须通过), P1=重要, P2=低风险"
+          },
+          "method": {
+            "type": "string",
+            "description": "验证方法描述",
+            "example": "截图 + 像素分析，非黑像素 > 10,000"
+          },
+          "pass_criteria": {
+            "type": "string",
+            "description": "通过标准的具体量化指标",
+            "example": "非黑像素数 > 10,000 且无 UnsatisfiedLinkError"
+          },
+          "command": {
+            "type": "string",
+            "description": "可选: 用于自动验证的 shell 命令"
+          },
+          "blocking": {
+            "type": "boolean",
+            "description": "是否为阻塞项 — 失败则后续验证跳过",
+            "default": false
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "是否需要人工判断 (无法自动化)",
+            "default": false
+          }
+        }
+      }
+    },
+
+    "results": {
+      "type": "object",
+      "description": "验证结果输出格式 (由执行代理填充)",
+      "required": ["timestamp", "device", "build", "checks", "summary"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "验证完成时间 (ISO 8601)",
+          "example": "2026-07-22T15:30:00+08:00"
+        },
+        "device": {
+          "type": "string",
+          "description": "实际使用的测试设备",
+          "example": "192.168.0.102:5555"
+        },
+        "build": {
+          "type": "object",
+          "required": ["success", "apk_path"],
+          "properties": {
+            "success": { "type": "boolean" },
+            "apk_path": { "type": "string" },
+            "duration_s": { "type": "number", "description": "构建耗时(秒)" },
+            "size_bytes": { "type": "integer", "description": "APK 大小(字节)" },
+            "gradle_version": { "type": "string", "example": "8.12" },
+            "errors": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "构建错误信息 (success=false 时填充)"
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "description": "每个验证项的结果",
+          "items": {
+            "type": "object",
+            "required": ["id", "result"],
+            "properties": {
+              "id": { "type": "string", "description": "对应 checks[].id" },
+              "result": {
+                "type": "string",
+                "enum": ["PASS", "FAIL", "CONDITIONAL_PASS", "SKIPPED", "BLOCKED"],
+                "description": "验证结果: PASS=通过, FAIL=失败, CONDITIONAL_PASS=有条件通过(附注), SKIPPED=因前置失败跳过, BLOCKED=环境限制无法验证"
+              },
+              "evidence": {
+                "type": "string",
+                "description": "验证证据 (日志片段、截图路径、数值等)"
+              },
+              "note": {
+                "type": "string",
+                "description": "附注说明 (CONDITIONAL_PASS/FAIL/BLOCKED 时必须填写)"
+              },
+              "screenshot": {
+                "type": "string",
+                "description": "关联截图路径"
+              },
+              "duration_ms": {
+                "type": "number",
+                "description": "该验证项耗时(毫秒)"
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "required": ["total", "pass", "fail", "conditional_pass", "blocked", "overall"],
+          "properties": {
+            "total": { "type": "integer", "description": "总验证项数" },
+            "pass": { "type": "integer", "description": "通过数" },
+            "fail": { "type": "integer", "description": "失败数" },
+            "conditional_pass": { "type": "integer", "description": "有条件通过数" },
+            "blocked": { "type": "integer", "description": "环境限制无法验证数" },
+            "skipped": { "type": "integer", "description": "因前置失败跳过数" },
+            "overall": {
+              "type": "string",
+              "enum": ["PASS", "FAIL", "CONDITIONAL_PASS"],
+              "description": "整体结论: PASS=所有P0通过, FAIL=任一P0失败, CONDITIONAL_PASS=所有P0通过但P1有条件失败"
+            }
+          }
+        }
+      }
+    }
+  }
+}

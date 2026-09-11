@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<!-- l2d-wasm-demo 页面壳：canvas 渲染区 + <pre id="status"> 状态栏。
+     trunk build 会把 wasm-bindgen 产物注入本文件；不引入任何第三方前端依赖。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live2D-Ai · l2d WASM demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #101418;
+        color: #d7dde3;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        overflow: hidden;
+      }
+      /* 舞台 = **整个 iframe**。canvas 绝对定位铺满，不留任何布局边。
+         2026-09-11：此前是 flex 列（#stage 撑满 + 底部 #status 占一行），
+         于是舞台底部永远有一条 12 px 的深色状态条——在「舞台背影全黑/全白」
+         这个要求下它是可见的瑕疵：父页看到的不是一整块纯色。 */
+      #stage {
+        position: absolute;
+        inset: 0;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+      }
+      /* 运行时 HUD：**默认不显示**（它只是调试指标，产品界面由 Flutter 壳
+         自己画 FPS / 加载 / 错误）。要看它就在 URL 上加 `?hud=1`。
+         浮在左下角、自带半透明底片——因为它现在压在任意主题色的舞台上，
+         纯色文字在浅色主题上会读不出来。 */
+      #status {
+        display: none;
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        margin: 0;
+        padding: 4px 8px;
+        max-width: calc(100% - 16px);
+        max-height: 10em;
+        overflow: auto;
+        /* 单行紧凑指标：pre 禁止换行、长行横向滚动；加载阶段的多行文本允许换行。 */
+        white-space: pre;
+        word-break: keep-all;
+        font-family: ui-monospace, "SF Mono", "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #9fd0a0;
+        background: rgba(10, 12, 16, 0.72);
+        border: 1px solid #2a323b;
+        border-radius: 6px;
+        pointer-events: none;
+      }
+      body.hud #status {
+        display: block;
+      }
+      #status.error {
+        color: #ff8f8f;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="canvas"></canvas></div>
+    <pre id="status">初始化中…</pre>
+    <script>
+      /* 只在 `?hud=1` 时显示状态栏。内联脚本，不引任何依赖。 */
+      if (location.search.indexOf('hud=1') >= 0) {
+        document.body.classList.add('hud');
+      }
+    </script>
+  </body>
+</html>

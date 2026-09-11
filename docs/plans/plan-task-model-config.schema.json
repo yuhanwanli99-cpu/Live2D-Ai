@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.dev/schemas/model-meta-config.schema.json",
+  "title": "ModelMetaConfig",
+  "description": "从 cdi3.json + pose3.json 解析的模型元配置序列化格式。用于调试日志和缓存（运行时使用内存对象，此 schema 用于序列化/反序列化边界）。",
+  "type": "object",
+  "required": ["version", "parameters", "semantic"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema 版本号，用于未来兼容"
+    },
+    "modelName": {
+      "type": "string",
+      "description": "模型名称（从 cdi3.json 文件名推断，如 'niziiro_mao'）"
+    },
+    "parameters": {
+      "type": "array",
+      "description": "所有参数元数据（与 MOC3 参数顺序一致）",
+      "items": {
+        "$ref": "#/$defs/ParameterMeta"
+      }
+    },
+    "semantic": {
+      "$ref": "#/$defs/SemanticIndex"
+    },
+    "poseMeta": {
+      "oneOf": [
+        { "$ref": "#/$defs/PoseMeta" },
+        { "type": "null" }
+      ],
+      "description": "Pose 元数据，模型无 pose3.json 时为 null"
+    }
+  },
+  "$defs": {
+    "ParameterMeta": {
+      "type": "object",
+      "required": ["id", "groupId", "name", "index"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "参数 ID（MOC3 中的原始名称），如 'ParamEyeLOpen'"
+        },
+        "groupId": {
+          "type": "string",
+          "description": "所属参数组 ID，如 'ParamGroupEyes'。无分组时为空字符串"
+        },
+        "name": {
+          "type": "string",
+          "description": "人类可读名称，如 'Eye L_Open'"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "在 MOC3 参数数组中的 0-based 索引"
+        }
+      }
+    },
+    "SemanticIndex": {
+      "type": "object",
+      "required": [
+        "eyeLeftOpenIdx",
+        "eyeRightOpenIdx",
+        "mouthOpenIndices",
+        "breathParams",
+        "angleXIdx",
+        "angleYIdx",
+        "angleZIdx",
+        "bodyAngleXIdx"
+      ],
+      "properties": {
+        "eyeLeftOpenIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "左眼睁开参数索引。-1 表示模型无此参数"
+        },
+        "eyeRightOpenIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "右眼睁开参数索引。-1 表示模型无此参数"
+        },
+        "mouthOpenIndices": {
+          "type": "array",
+          "description": "口型同步参数索引列表（可能有多个，如 ParamA + ParamMouthOpenY）",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "breathParams": {
+          "type": "array",
+          "description": "呼吸参数定义列表",
+          "items": {
+            "$ref": "#/$defs/BreathParamDef"
+          }
+        },
+        "angleXIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "头部旋转 X 参数索引。-1 表示无此参数"
+        },
+        "angleYIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "头部旋转 Y 参数索引。-1 表示无此参数"
+        },
+        "angleZIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "头部旋转 Z 参数索引。-1 表示无此参数"
+        },
+        "bodyAngleXIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "身体旋转 X 参数索引（呼吸用）。-1 表示无此参数"
+        }
+      }
+    },
+    "BreathParamDef": {
+      "type": "object",
+      "required": ["index", "id", "offset", "peak", "cycle", "weight"],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "参数索引"
+        },
+        "id": {
+          "type": "string",
+          "description": "参数 ID（调试用），如 'ParamAngleX'"
+        },
+        "offset": {
+          "type": "number",
+          "description": "呼吸基线值（正弦波的 DC 偏移）"
+        },
+        "peak": {
+          "type": "number",
+          "description": "呼吸幅度（正弦波的振幅）"
+        },
+        "cycle": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "呼吸周期（秒）"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "呼吸权重（0~1），用于混合强度"
+        }
+      }
+    },
+    "PoseMeta": {
+      "type": "object",
+      "required": ["groups"],
+      "properties": {
+        "groups": {
+          "type": "array",
+          "description": "Pose 分组列表，每组是一组互斥的 part",
+          "items": {
+            "$ref": "#/$defs/PoseGroup"
+          }
+        }
+      }
+    },
+    "PoseGroup": {
+      "type": "object",
+      "required": ["partIds"],
+      "properties": {
+        "partIds": {
+          "type": "array",
+          "description": "组内 part ID 列表，如 ['PartArmLA', 'PartArmLB']",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "driverParamIdx": {
+          "type": "integer",
+          "minimum": -1,
+          "default": -1,
+          "description": "驱动此组选择的参数索引。-1 表示无驱动参数，始终选第一个 part 可见"
+        },
+        "driverThreshold": {
+          "type": "number",
+          "default": 0.5,
+          "description": "驱动参数的阈值：值 < 阈值 → partIds[0] 可见，否则 → partIds[1] 可见"
+        },
+        "groupName": {
+          "type": "string",
+          "description": "组的语义名称（从 ParameterGroups Name 推导），如 'Arm L'。调试用"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": 1,
+      "modelName": "niziiro_mao",
+      "parameters": [
+        { "id": "ParamEyeLOpen", "groupId": "ParamGroupEyes", "name": "Eye L_Open", "index": 5 },
+        { "id": "ParamEyeROpen", "groupId": "ParamGroupEyes", "name": "Eye R_Open", "index": 8 },
+        { "id": "ParamA", "groupId": "ParamGroupMouth", "name": "A", "index": 23 },
+        { "id": "ParamAngleX", "groupId": "ParamGroupFace", "name": "Angle_X", "index": 0 },
+        { "id": "ParamBreath", "groupId": "ParamGroupBody", "name": "Breath", "index": 27 }
+      ],
+      "semantic": {
+        "eyeLeftOpenIdx": 5,
+        "eyeRightOpenIdx": 8,
+        "mouthOpenIndices": [23],
+        "breathParams": [
+          { "index": 0, "id": "ParamAngleX", "offset": 0.0, "peak": 15.0, "cycle": 6.5345, "weight": 0.5 },
+          { "index": 27, "id": "ParamBreath", "offset": 0.5, "peak": 0.5, "cycle": 3.2345, "weight": 0.5 }
+        ],
+        "angleXIdx": 0,
+        "angleYIdx": 1,
+        "angleZIdx": 2,
+        "bodyAngleXIdx": 25
+      },
+      "poseMeta": {
+        "groups": [
+          {
+            "partIds": ["PartArmLA", "PartArmLB"],
+            "driverParamIdx": 30,
+            "driverThreshold": 0.5,
+            "groupName": "Arm L"
+          },
+          {
+            "partIds": ["PartArmRA", "PartArmRB"],
+            "driverParamIdx": 34,
+            "driverThreshold": 0.5,
+            "groupName": "Arm R"
+          }
+        ]
+      }
+    }
+  ]
+}

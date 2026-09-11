@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live2D-Ai UI 设计预览 v2</title>
+<style>
+/* ===== Design Token v2（规格文件 docs/design/web-ui-spec-v2.md 第二节） ===== */
+:root {
+  --brand: #40C5F1; --brand-deep: #22b3ff;
+  --brand-glow: rgba(64, 197, 241, .25);
+  --bg-0: #0b0d11; --bg-1: #12151a; --bg-2: #1a1e25; --bg-3: #222731;
+  --glass: rgba(18, 21, 26, .55);
+  --fg-hi: #eef2f7; --fg: #c9d1dc; --fg-mid: #8a93a3; --fg-low: #5b6472;
+  --ok: #34d399; --warn: #fbbf24; --err: #f87171; --accent-2: #f7b955;
+  --line: #262c36; --line-soft: rgba(255,255,255,.06);
+  --r-pill: 999px; --r-lg: 14px; --r-md: 10px; --r-sm: 6px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
+  --font: 'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  --mono: 'JetBrains Mono','SF Mono',Consolas,'Courier New',monospace;
+  --ease: cubic-bezier(.4,0,.2,1); --ease-out: cubic-bezier(.16,1,.3,1);
+  --t-fast: 120ms; --t-norm: 200ms; --t-slow: 320ms;
+  --sh-1: 0 1px 3px rgba(0,0,0,.3); --sh-2: 0 4px 16px rgba(0,0,0,.4);
+  --sh-3: 0 8px 40px rgba(0,0,0,.5);
+  --sh-glow: 0 0 0 1px var(--brand-glow), 0 0 12px var(--brand-glow);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; padding: 0; font-size: 15px; }
+body {
+  background: var(--bg-0); color: var(--fg);
+  font: 15px/1.6 var(--font); min-height: 100vh; overflow: hidden;
+}
+button { font-family: var(--font); cursor: pointer; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ===== 整体布局 ===== */
+.app { display: grid; grid-template-rows: 44px 1fr 24px; height: 100vh; }
+.main { display: grid; grid-template-columns: 65fr 35fr; gap: var(--s-2); padding: var(--s-2); overflow: hidden; background: var(--bg-0); }
+
+/* ===== topbar ===== */
+.topbar {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: 0 var(--s-4); background: var(--glass); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line); z-index: 10;
+}
+.logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand);
+  animation: breathe 3s var(--ease) infinite; }
+@keyframes breathe { 0%,100% { opacity: 1; box-shadow: 0 0 6px var(--brand-glow);} 50% { opacity:.6; box-shadow:none; } }
+.topbar h1 { font-size: 14px; font-weight: 600; margin: 0; color: var(--fg-hi); letter-spacing: .3px; }
+.ver { color: var(--fg-low); font: 11px var(--mono); }
+.topbar .spacer { flex: 1; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px;
+  border-radius: var(--r-pill); border: 1px solid var(--line-soft);
+  font-size: 11px; color: var(--fg-mid); background: transparent;
+}
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-low); }
+.pill.ok .dot { background: var(--ok); }
+.pill.warn { background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.25); }
+.pill.warn .dot { background: var(--warn); }
+.pill.err { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.25); }
+.pill.err .dot { background: var(--err); }
+.icon-btn {
+  width: 32px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-md);
+  color: var(--fg-mid); font-size: 14px; transition: all var(--t-fast) var(--ease);
+}
+.icon-btn:hover { background: var(--bg-3); color: var(--fg-hi); border-color: var(--line); }
+
+/* ===== stage ===== */
+.stage {
+  position: relative; overflow: hidden; border-radius: var(--r-lg); border: 1px solid var(--line);
+  background: radial-gradient(ellipse at 50% 60%, #131820 0%, var(--bg-0) 70%);
+}
+.stage-glow {
+  position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%);
+  width: 46%; height: 14%; border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(64,197,241,.18) 0%, rgba(64,197,241,.05) 45%, transparent 70%);
+  pointer-events: none;
+}
+.stage .model-img {
+  position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 4%;
+}
+.stage .model-img svg.silhouette { height: 80%; opacity: .9; }
+.stage .model-img img { height: 92%; object-fit: contain; object-position: bottom; filter: drop-shadow(0 12px 40px rgba(0,0,0,.6)); }
+.stage .model-img img { height: 92%; filter: drop-shadow(0 12px 40px rgba(0,0,0,.6)); }
+.stage-toolbar {
+  position: absolute; top: var(--s-3); right: var(--s-3);
+  display: flex; gap: var(--s-1); padding: var(--s-1);
+  background: var(--glass); backdrop-filter: blur(8px);
+  border: 1px solid var(--line-soft); border-radius: var(--r-md);
+  opacity: .4; transition: opacity 160ms var(--ease);
+}
+.stage:hover .stage-toolbar { opacity: .95; }
+.stage-btn {
+  width: 36px; height: 36px; border-radius: var(--r-md); border: 0;
+  background: transparent; color: var(--fg); font-size: 16px;
+  transition: background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.stage-btn:hover { background: var(--bg-3); transform: scale(1.05); }
+.stage-hint {
+  position: absolute; left: var(--s-3); bottom: var(--s-2);
+  font: 11px var(--mono); color: var(--fg-low); opacity: 0;
+  transition: opacity 160ms var(--ease); pointer-events: none;
+}
+.stage:hover .stage-hint { opacity: .8; }
+
+/* ===== chat-panel ===== */
+.chat-panel { display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--sh-2); overflow: hidden; }
+.chat-header {
+  height: 40px; display: flex; align-items: center; gap: var(--s-2);
+  padding: 0 var(--s-4); border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.chat-header .title { font-size: 12px; font-weight: 600; color: var(--fg); letter-spacing: 1px; }
+.chat-header .state { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-mid); }
+.chat-header .state .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.chat-messages { flex: 1; overflow-y: auto; padding: var(--s-4) var(--s-4); display: flex; flex-direction: column; gap: var(--s-3); }
+.msg { flex-direction: row; align-items: flex-start; gap: var(--s-2); }
+.msg .body-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.chat-messages::-webkit-scrollbar { width: 6px; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.chat-empty { text-align: center; color: var(--fg-low); padding: 40px 0; font-size: 12px; }
+.chat-empty .arrow { font-size: 20px; display: block; margin-bottom: var(--s-2); color: var(--brand); }
+.msg { display: flex; flex-direction: column; gap: 2px; max-width: 78%; animation: msg-in 240ms var(--ease-out); }
+@keyframes msg-in { from { opacity: 0; transform: translateY(6px); } }
+.msg .avatar {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600;
+}
+.msg.user .avatar { background: var(--bg-3); color: var(--fg-mid); order: 2; }
+.msg.assistant .avatar { background: rgba(64,197,241,.15); color: var(--brand); border: 1px solid rgba(64,197,241,.3); }
+.msg.user { align-self: flex-end; align-items: flex-end; }
+.msg .bubble { padding: 8px 12px; border-radius: var(--r-lg); font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.msg.user .bubble { background: rgba(247,185,85,.10); border: 1px solid rgba(247,185,85,.28); border-bottom-right-radius: 4px; }
+.msg.assistant .bubble { background: var(--bg-2); border-left: 2px solid var(--brand); border-bottom-left-radius: 4px; }
+.msg .meta { font: 10px var(--mono); color: var(--fg-low); padding: 0 4px; }
+.msg .cursor { color: var(--brand); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.chat-composer { border-top: 1px solid var(--line); padding: var(--s-3) var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); background: var(--bg-1); flex-shrink: 0; }
+.chat-composer textarea {
+  background: var(--bg-2); color: var(--fg-hi); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: var(--s-2) var(--s-3); font: 13px/1.5 var(--font);
+  resize: none; min-height: 54px; max-height: 140px; transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.chat-composer textarea:focus { outline: none; border-color: var(--brand); box-shadow: var(--sh-glow); }
+.composer-row { display: flex; align-items: center; gap: var(--s-2); }
+.send-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 0;
+  background: var(--brand); color: #0b0d11; font-size: 16px; font-weight: 700;
+  transition: transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.send-btn:hover { transform: scale(1.05); filter: brightness(1.1); }
+.chat-composer.generating .stop-btn { display: inline-flex; }
+.chat-composer.generating .send-btn { display: none; }
+.stop-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--err);
+  background: transparent; color: var(--err); font-size: 12px; display: none;
+}
+.composer-hint { flex: 1; text-align: right; font: 10px var(--mono); color: var(--fg-low); }
+
+/* ===== statusbar ===== */
+.statusbar {
+  display: flex; align-items: center; gap: var(--s-4); padding: 0 var(--s-4);
+  background: var(--bg-1); border-top: 1px solid var(--line);
+  font: 11px var(--mono); color: var(--fg-low);
+}
+.statusbar .sep { color: var(--line); }
+
+/* ===== 动作触发浮窗（可拖动） ===== */
+.act-panel {
+  position: fixed; right: 24px; bottom: 60px; width: 280px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--sh-3); z-index: 90; overflow: hidden;
+}
+.act-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s-2) var(--s-3); background: var(--bg-3);
+  font-size: 12px; font-weight: 600; color: var(--fg-hi); cursor: move; user-select: none;
+}
+.act-body { padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-3); }
+.act-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--s-2); }
+.act-btn { padding: 10px 0; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-2); color: var(--fg); font-size: 12px; transition: all var(--t-fast) var(--ease); }
+.act-btn:hover { border-color: var(--brand); color: var(--brand); }
+.act-btn:active { transform: scale(.95); }
+.act-strength { display: flex; align-items: center; gap: var(--s-3); }
+.act-log { font: 10px var(--mono); color: var(--fg-low); max-height: 80px; overflow-y: auto; border-top: 1px solid var(--line-soft); padding-top: var(--s-2); }
+
+/* ===== 设置模态（点 ⚙ 打开） ===== */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; }
+.settings-modal {
+  position: fixed; inset: 0; margin: auto; width: min(1020px, 94vw); height: min(680px, 92vh);
+  background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--sh-3); z-index: 100; display: flex; flex-direction: column; overflow: hidden;
+  animation: modal-in 320ms var(--ease-out);
+}
+@keyframes modal-in { from { opacity: 0; transform: scale(.96); } }
+.settings-header { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--s-5); border-bottom: 1px solid var(--line); }
+.settings-header h2 { font-size: 15px; font-weight: 600; margin: 0; color: var(--fg-hi); }
+.settings-body { flex: 1; display: flex; overflow: hidden; }
+.settings-rail { width: 180px; border-right: 1px solid var(--line); padding: var(--s-3) var(--s-2); overflow-y: auto; }
+.rail-item {
+  display: flex; align-items: center; gap: var(--s-3); width: 100%;
+  padding: var(--s-2) var(--s-3); border-radius: var(--r-md); border: 0; background: transparent;
+  color: var(--fg-mid); font-size: 13px; text-align: left;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.rail-item:hover { background: var(--bg-2); color: var(--fg); }
+.rail-item.active { background: var(--bg-3); color: var(--fg-hi); box-shadow: inset 3px 0 0 var(--brand); }
+.rail-item .ico-svg { width: 16px; height: 16px; flex-shrink: 0; }
+.rail-item .ico-svg, .ib-svg { color: currentColor; }
+.rail-item.active .ico-svg { color: var(--brand); }
+.ib-svg { width: 15px; height: 15px; }
+.rail-item .lbl-t { display: none; }
+.section-area { flex: 1; overflow-y: auto; padding: var(--s-5) var(--s-6); }
+.section-area::-webkit-scrollbar { width: 6px; }
+.section-area::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.settings-section { display: none; }
+.settings-section.active { display: block; animation: sec-in 200ms var(--ease); }
+@keyframes sec-in { from { opacity: 0; transform: translateX(8px); } }
+.settings-section .sec-title { font-size: 16px; font-weight: 600; color: var(--fg-hi); margin: 0 0 var(--s-1); }
+.settings-section .sec-desc { font-size: 12px; color: var(--fg-low); margin: 0 0 var(--s-5); }
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line-soft); }
+.field-row:last-child { border-bottom: 0; }
+.field-row .lbl { font-size: 13px; color: var(--fg); flex-shrink: 0; cursor: pointer; }
+.field-row .lbl small { display: block; font-size: 11px; color: var(--fg-low); margin-top: 2px; }
+.field-row input[type=text], .field-row select {
+  width: 300px; background: var(--bg-2); color: var(--fg-hi);
+  border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 12px; font: 13px var(--font);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.field-row input[type=text]:focus, .field-row select:focus { outline: none; border-color: var(--brand); box-shadow: var(--sh-glow); }
+.field-row input[type=checkbox] { accent-color: var(--brand); width: 16px; height: 16px; }
+/* 分段按钮（锁定/释放、色调三选） */
+.seg { display: inline-flex; gap: var(--s-1); }
+.seg-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-mid); font-size: 12px; transition: all var(--t-fast) var(--ease); }
+.seg-btn:hover { border-color: var(--fg-low); color: var(--fg); }
+.seg-btn.active { background: rgba(64,197,241,.12); border-color: var(--brand); color: var(--brand); }
+.seg-btn .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+/* 酒馆式多行字段（col 变体） */
+.field-row.col { flex-direction: column; align-items: stretch; gap: var(--s-1); border-bottom: 0; padding-bottom: 0; }
+.field-row.col + .field-row.col { padding-top: 0; }
+.field-row.col textarea { width: 100%; background: var(--bg-2); color: var(--fg-hi); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); font: 13px/1.6 var(--font); resize: vertical; min-height: 44px; transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.field-row.col textarea:focus { outline: none; border-color: var(--brand); box-shadow: var(--sh-glow); }
+/* 实时日志流 */
+.log-stream { background: #0a0c10; border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s-3); font: 11px/1.7 var(--mono); height: 260px; overflow-y: auto; }
+.log-stream::-webkit-scrollbar { width: 6px; }
+.log-stream::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.log-line { display: flex; gap: var(--s-2); white-space: pre-wrap; word-break: break-all; }
+.log-line .lt { color: var(--fg-low); flex-shrink: 0; }
+.log-line .lv { flex-shrink: 0; font-weight: 600; }
+.log-line .lv.info { color: var(--brand); }
+.log-line .lv.warn { color: var(--warn); }
+.log-line .lv.err { color: var(--err); }
+.log-line .lv.dbg { color: var(--fg-low); }
+.log-line .lm { color: var(--fg); }
+/* toggle switch（Mod 运行时开关） */
+.toggle { position: relative; display: inline-block; width: 40px; height: 22px; cursor: pointer; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .slider { position: absolute; inset: 0; background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--r-pill); transition: background var(--t-norm) var(--ease); }
+.toggle .slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; background: var(--fg-mid); border-radius: 50%; transition: transform var(--t-norm) var(--ease), background var(--t-norm) var(--ease); }
+.toggle input:checked + .slider { background: rgba(64,197,241,.25); border-color: var(--brand); }
+.toggle input:checked + .slider::before { transform: translateX(18px); background: var(--brand); }
+.mod-state { display: flex; align-items: center; gap: var(--s-2); }
+.badge { font-size: 10px; padding: 1px 8px; border-radius: var(--r-pill); background: rgba(251,191,36,.12); color: var(--warn); border: 1px solid rgba(251,191,36,.3); }
+.mode-tag { font-size: 10px; padding: 1px 8px; border-radius: var(--r-pill); background: rgba(64,197,241,.12); color: var(--brand); border: 1px solid rgba(64,197,241,.3); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mode-note { font: 12px var(--mono); color: var(--fg-mid); }
+.group-title { font-size: 12px; font-weight: 600; color: var(--fg-mid); text-transform: uppercase; letter-spacing: 1px; margin: var(--s-5) 0 var(--s-2); }
+.settings-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--s-3);
+  padding: var(--s-3) var(--s-5); border-top: 1px solid var(--line); background: var(--bg-2);
+}
+.settings-footer .status { font-size: 12px; color: var(--fg-low); margin-right: auto; }
+.btn-save {
+  padding: 8px 24px; border-radius: var(--r-pill); border: 0;
+  background: var(--brand); color: #0b0d11; font-weight: 600; font-size: 13px;
+  transition: filter var(--t-fast) var(--ease);
+}
+.btn-save.dirty { animation: glow-breathe 2s var(--ease) infinite; }
+@keyframes glow-breathe { 0%,100% { box-shadow: var(--sh-glow); } 50% { box-shadow: none; } }
+.btn-ghost { padding: 8px 16px; border-radius: var(--r-pill); border: 1px solid var(--line); background: transparent; color: var(--fg); }
+.btn-ghost:hover { background: var(--bg-2); }
+.btn-danger-ghost { padding: 8px 16px; border-radius: var(--r-pill); border: 1px solid rgba(248,113,113,.4); background: transparent; color: var(--err); }
+@media (max-height: 640px) {
+  body { overflow: auto; }
+  .app { height: auto; min-height: 100vh; }
+}
+</style>
+</head>
+<body><svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><path d="M8 14c1.2 1.5 2.7 2.2 4 2.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-motion" viewBox="0 0 24 24"><path d="M4 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+<symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 18l4-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-tools" viewBox="0 0 24 24"><path d="M14 6a4 4 0 0 1 5.5-3.7L16 6l2 2 3.7-3.5A4 4 0 0 1 18 10l-8 8-3-3 8-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-spark" viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+<symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M9 4a2 2 0 1 1 4 0v2h3a1 1 0 0 1 1 1v3h2a2 2 0 1 1 0 4h-2v3a1 1 0 0 1-1 1h-3v-2a2 2 0 1 0-4 0v2H6a1 1 0 0 1-1-1v-3H3a2 2 0 1 1 0-4h2V7a1 1 0 0 1 1-1h3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+</defs></svg>
+<div class="app">
+  <header class="topbar">
+    <span class="logo-dot"></span>
+    <h1>Live2D-Ai</h1><span class="ver">v0.1.0</span>
+    <span class="pill ok" title="连接/WS 正常 · LLM 已配 · TTS 未配"><span class="dot"></span>系统正常</span>
+    <span class="pill warn"><span class="dot"></span>TTS</span>
+    <span class="spacer"></span>
+    <button class="icon-btn" title="刷新"><svg class="ib-svg"><use href="#i-reset"/></svg></button>
+    <button class="icon-btn" title="动作触发" aria-haspopup="dialog" onclick="const p=document.getElementById('actPanel');p.hidden=!p.hidden"><svg class="ib-svg"><use href="#i-spark"/></svg></button>
+    <button class="icon-btn" title="设置" aria-haspopup="dialog" onclick="document.getElementById('ov').hidden=false;document.getElementById('modal').hidden=false;"><svg class="ib-svg"><use href="#i-tools"/></svg></button>
+  </header>
+
+  <div class="main">
+    <section class="stage">
+      <div class="stage-glow"></div>
+      <div class="model-img"><svg class="silhouette" viewBox="0 0 200 300" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="100" cy="285" rx="55" ry="10" fill="rgba(64,197,241,.12)"/>
+  <path d="M100 40 C82 40 70 55 70 74 C70 86 76 96 84 102 C60 112 46 140 44 180 L46 250 C48 270 70 278 100 278 C130 278 152 270 154 250 L156 180 C154 140 140 112 116 102 C124 96 130 86 130 74 C130 55 118 40 100 40 Z"
+        fill="rgba(64,197,241,.08)" stroke="rgba(64,197,241,.35)" stroke-width="1.5"/>
+  <circle cx="100" cy="75" r="26" fill="rgba(64,197,241,.06)" stroke="rgba(64,197,241,.35)" stroke-width="1.5"/>
+  <text x="100" y="200" text-anchor="middle" fill="rgba(64,197,241,.4)" font-size="11" font-family="monospace">等待模型加载…</text>
+</svg>（模型渲染 PNG 缺失——预览占位）</div>')"></div>
+      <div class="stage-toolbar">
+        <button class="stage-btn" title="放大"><svg class="ib-svg"><use href="#i-plus"/></svg></button>
+        <button class="stage-btn" title="缩小"><svg class="ib-svg"><use href="#i-minus"/></svg></button>
+        <button class="stage-btn" title="复位视角"><svg class="ib-svg"><use href="#i-reset"/></svg></button>
+      </div>
+      <div class="stage-hint">GPU: Vulkan/WebGPU (NVIDIA RTX 5060) | FPS 240 | sim 1/frame | idle: b0.52 bl OPEN</div>
+    </section>
+
+    <aside class="chat-panel">
+      <div class="chat-header">
+        <span class="title">对话</span>
+        <span class="state"><span class="dot"></span>空闲</span>
+      </div>
+      <div class="chat-messages" id="msgs">
+        <div class="msg assistant"><span class="avatar">?</span><div class="bubble">{{character_name}} 的开场白将由人格配置提供。<span class="cursor">▍</span></div><div class="meta">开场白</div></div>
+        <div class="msg user"><span class="avatar">你</span><div class="bubble">（示例消息——运行时由用户输入）</div><div class="meta">10:24 · epoch 3</div></div>
+        <div class="msg assistant"><span class="avatar">?</span><div class="bubble">（示例回复——运行时由 LLM 生成）<span class="cursor">▍</span></div><div class="meta">10:24</div></div>
+      </div>
+      <div class="chat-composer">
+        <textarea placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <div class="composer-row">
+          <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+          <button class="stop-btn" title="停止" style="display:none">■</button>
+          <button class="send-btn" title="发送">↑</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <span>127.0.0.1:18080</span><span class="sep">│</span>
+    <span>AGPL-3.0</span><span class="sep">│</span>
+    <span>Mod 5/5</span><span class="sep">│</span>
+    <span>WASM 7f0417b2</span><span class="sep">│</span>
+    <span>设计预览 v2 — 非运行态</span>
+  </footer>
+</div>
+
+<!-- 动作触发浮窗（py 式功能：主动触发编排测试；可拖动） -->
+<div class="act-panel" id="actPanel" hidden>
+  <div class="act-head" id="actDrag">
+    <span>动作触发</span>
+    <button class="icon-btn" onclick="document.getElementById('actPanel').hidden=true">✕</button>
+  </div>
+  <div class="act-body">
+    <div class="act-grid">
+      <button class="act-btn" onclick="actFire('nod')">点头</button>
+      <button class="act-btn" onclick="actFire('shake_no')">摇头</button>
+      <button class="act-btn" onclick="actFire('tilt')">歪头</button>
+      <button class="act-btn" onclick="actFire('look_around')">环视</button>
+      <button class="act-btn" onclick="actFire('listen')">倾听</button>
+      <button class="act-btn" onclick="actFire('surprise')">惊讶</button>
+    </div>
+    <div class="act-strength">
+      <span class="lbl">强度</span>
+      <span class="seg"><button class="seg-btn" onclick="segSel(this)">1</button><button class="seg-btn active" onclick="segSel(this)">2</button><button class="seg-btn" onclick="segSel(this)">3</button></span>
+    </div>
+    <div class="act-log" id="actLog">（触发记录）</div>
+  </div>
+</div>
+
+<div class="overlay" id="ov" hidden onclick="closeModal()"></div>
+<div class="settings-modal" id="modal" hidden role="dialog" aria-modal="true">
+  <div class="settings-header">
+    <h2>设置</h2>
+    <button class="icon-btn" onclick="closeModal()"><svg class="ib-svg"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="settings-body">
+    <nav class="settings-rail" id="rail">
+      <button class="rail-item" data-s="appearance" onclick="sel(this)"><svg class="ico-svg"><use href="#i-palette"/></svg>外观与舞台</button>
+      <button class="rail-item" data-s="ai" onclick="sel(this)"><svg class="ico-svg"><use href="#i-mic"/></svg>AI 与语音</button>
+      <button class="rail-item" data-s="character" onclick="sel(this)"><svg class="ico-svg"><use href="#i-user"/></svg>角色</button>
+      <button class="rail-item" data-s="actions" onclick="sel(this)"><svg class="ico-svg"><use href="#i-motion"/></svg>动作与互动</button>
+      <button class="rail-item" data-s="dev" onclick="sel(this)"><svg class="ico-svg"><use href="#i-tools"/></svg>开发者</button>
+      <button class="rail-item" data-s="mods" onclick="sel(this)"><svg class="ico-svg"><use href="#i-puzzle"/></svg>Mod 管理</button>
+    </nav>
+    <div class="section-area">
+            <section class="settings-section active" data-p="character">
+        <h3 class="sec-title">角色与人设</h3>
+        <p class="sec-desc">酒馆式角色卡——字段全部进 prompt 组装；当前模型与其绑定。</p>
+        <div class="group-title">角色卡</div>
+        <div class="field-row"><label class="lbl" for="f-p-name">角色名称</label><input id="f-p-name" type="text" placeholder="{{character_name}}"></div>
+        <div class="field-row col"><label class="lbl" for="f-p-desc">角色描述<small>identity · background</small></label><textarea id="f-p-desc" rows="3" placeholder="她是一只……"></textarea></div>
+        <div class="field-row col"><label class="lbl" for="f-p-persona">个性<small>personality · speech style</small></label><textarea id="f-p-persona" rows="3" placeholder="活泼、好奇心强……"></textarea></div>
+        <div class="field-row col"><label class="lbl" for="f-p-scenario">场景<small>scenario · world</small></label><textarea id="f-p-scenario" rows="2" placeholder="在一间安静的书房里……"></textarea></div>
+        <div class="field-row col"><label class="lbl" for="f-p-first">开场白<small>first message</small></label><textarea id="f-p-first" rows="2" placeholder="你好呀……"></textarea></div>
+        <div class="group-title">绑定模型</div>
+        <div class="field-row"><label class="lbl" for="f-model-path">当前模型<small>model3.json · 切换实时重载</small></label><input id="f-model-path" type="text" value="./models/bai/bai.model3.json" readonly></div>
+        <div class="field-row"><span class="lbl">切换</span><button class="btn-ghost" style="padding:6px 14px">选择模型文件…</button></div>
+      </section>
+      <section class="settings-section" data-p="appearance">
+        <h3 class="sec-title">外观与舞台</h3>
+        <p class="sec-desc">交互模式与舞台色调，本地预览即时生效。</p>
+        <div class="group-title">交互</div>
+        <div class="field-row"><span class="lbl">鼠标交互<small>锁定=拖动/滚轮无效；释放=按住移动、滚轮缩放</small></span><span class="seg"><button class="seg-btn active" onclick="segSel(this)">锁定</button><button class="seg-btn" onclick="segSel(this)">释放</button></span></div>
+        <div class="group-title">舞台色调</div>
+        <div class="field-row"><span class="lbl">背景色</span><span class="seg"><button class="seg-btn" onclick="segColor(this,'light')"><span class="sw" style="background:#e8ecf1"></span>白</button><button class="seg-btn active" onclick="segColor(this,'dark')"><span class="sw" style="background:#101418"></span>黑</button><button class="seg-btn" onclick="segColor(this,'cyan')"><span class="sw" style="background:#0d1f24"></span>青</button></span></div>
+        <div class="field-row"><label class="lbl" for="f-bgimg">背景图<small>jpg / png</small></label><button class="btn-ghost" style="padding:6px 14px">选择文件…</button></div>
+      </section>
+      <section class="settings-section" data-p="ai">
+        <h3 class="sec-title">AI 与语音</h3>
+        <p class="sec-desc">对话与语音服务。本地推理由 Mod 接管时字段自动切只读。</p>
+        <div class="group-title">LLM <span class="mode-tag">外部 API 模式</span></div>
+        <div class="field-row"><label class="lbl" for="f-llm-url">服务地址</label><input id="f-llm-url" type="text" value="http://127.0.0.1:11434/v1"></div>
+        <div class="field-row"><label class="lbl" for="f-llm-model">模型</label><input id="f-llm-model" type="text" value="qwen3.5:4b"></div>
+        <div class="field-row"><label class="lbl" for="f-llm-key">密钥环境变量<small>存变量名</small></label><input id="f-llm-key" type="text" placeholder="（未绑定）"></div>
+        <div class="group-title">TTS <span class="mode-tag">外部 API 模式</span></div>
+        <div class="field-row"><label class="lbl" for="f-tts-url">服务地址</label><input id="f-tts-url" type="text" placeholder="http://127.0.0.1:8000/v1"></div>
+        <div class="field-row"><label class="lbl" for="f-tts-voice">音色</label><input id="f-tts-voice" type="text" placeholder="af_heart"></div>
+        <div class="group-title">版本</div>
+        <div class="field-row"><span class="lbl">前端</span><span class="mode-note">v0.1.0</span></div>
+        <div class="field-row"><span class="lbl">后端</span><span class="mode-note">v0.1.0 (8bc3d5c3)</span></div>
+      </section>
+      <section class="settings-section" data-p="actions">
+        <h3 class="sec-title">动作与互动</h3>
+        <p class="sec-desc">表演层开关与动作触发。动作经 core 仲裁 + 渲染端表演。</p>
+        <div class="field-row"><label class="lbl" for="f-lip">口型联动<small>TTS 音频驱动口形</small></label><input id="f-lip" type="checkbox" checked></div>
+        <div class="field-row"><label class="lbl" for="f-idle">空闲随机动作</label><input id="f-idle" type="checkbox" checked></div>
+        <div class="field-row"><label class="lbl" for="f-click">点击触发互动</label><input id="f-click" type="checkbox" checked></div>
+        <div class="group-title">基础动作试演</div>
+        <div class="act-grid" style="grid-template-columns:1fr 1fr 1fr">
+          <button class="act-btn" onclick="actFire('nod')">点头</button>
+          <button class="act-btn" onclick="actFire('shake_no')">摇头</button>
+          <button class="act-btn" onclick="actFire('tilt')">歪头</button>
+          <button class="act-btn" onclick="actFire('look_around')">环视</button>
+          <button class="act-btn" onclick="actFire('listen')">倾听</button>
+          <button class="act-btn" onclick="actFire('surprise')">惊讶</button>
+        </div>
+      </section>
+      <section class="settings-section" data-p="dev">
+        <h3 class="sec-title">开发者</h3>
+        <p class="sec-desc">运行状态与实时日志。</p>
+        <div class="field-row"><label class="lbl" for="f-audio">音频设备</label><input id="f-audio" type="text" value="dry-run（无设备）" readonly></div>
+        <div class="group-title">实时日志 <span class="mode-tag">RUST_LOG 联动</span></div>
+        <div class="log-stream" id="logStream"><div class="log-line"><span class="lt">02:45:01</span><span class="lv info">INFO</span><span class="lm">web: supervisor 已启动</span></div><div class="log-line"><span class="lt">02:45:02</span><span class="lv warn">WARN</span><span class="lm">音频设备不可用，supervisor 进入 dry-run</span></div><div class="log-line"><span class="lt">02:45:03</span><span class="lv info">INFO</span><span class="lm">web-api: 已监听 127.0.0.1:18080</span></div><div class="log-line"><span class="lt">02:46:12</span><span class="lv dbg">DEBUG</span><span class="lm">bridge: stage-zoom reset applied</span></div></div>
+      </section>
+      <section class="settings-section" data-p="mods">
+        <h3 class="sec-title">Mod 管理</h3>
+        <p class="sec-desc">静态编译 Mod：运行时开关；安装新 Mod 需重新构建。</p>
+        <div class="field-row"><span class="lbl"><label for="f-mod-external-input">external-input<small>外部事件接入</small></label></span><span class="mod-state"><span class="badge" hidden>待重启</span><label class="toggle"><input id="f-mod-external-input" type="checkbox" onchange="modToggle(this)"><span class="slider"></span></label></span></div>
+        <div class="field-row"><span class="lbl"><label for="f-mod-director">director<small>动作编排</small></label></span><span class="mod-state"><span class="badge" hidden>待重启</span><label class="toggle"><input id="f-mod-director" type="checkbox" onchange="modToggle(this)"><span class="slider"></span></label></span></div>
+        <div class="field-row"><span class="lbl"><label for="f-mod-pet-desktop">pet-desktop<small>桌宠窗口（骨架）</small></label></span><span class="mod-state"><span class="badge" hidden>待重启</span><label class="toggle"><input id="f-mod-pet-desktop" type="checkbox" onchange="modToggle(this)"><span class="slider"></span></label></span></div>
+        <div class="field-row"><span class="lbl"><label for="f-mod-local-llm">local-llm<small>本地大模型</small></label></span><span class="mod-state"><span class="badge" hidden>待重启</span><label class="toggle"><input id="f-mod-local-llm" type="checkbox" onchange="modToggle(this)"><span class="slider"></span></label></span></div>
+        <div class="field-row"><span class="lbl"><label for="f-mod-local-tts">local-tts<small>本地语音合成</small></label></span><span class="mod-state"><span class="badge" hidden>待重启</span><label class="toggle"><input id="f-mod-local-tts" type="checkbox" onchange="modToggle(this)"><span class="slider"></span></label></span></div>
+      </section>
+    </div>
+  </div>
+  <div class="settings-footer">
+    <span class="status">有未保存的变更</span>
+    <button class="btn-danger-ghost">清除密钥绑定</button>
+    <button class="btn-ghost">重新载入</button>
+    <button class="btn-save dirty">保存</button>
+  </div>
+</div>
+<script>
+function closeModal() {
+  document.getElementById('ov').hidden = true;
+  document.getElementById('modal').hidden = true;
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('modal').hidden) closeModal();
+});
+let dirty = false;
+document.querySelectorAll('.settings-body input, .settings-body select').forEach(el => {
+  el.addEventListener('input', () => {
+    dirty = true;
+    document.querySelector('.btn-save').classList.add('dirty');
+    document.querySelector('.settings-footer .status').textContent = '有未保存的变更';
+  });
+});
+document.querySelector('.btn-save').addEventListener('click', () => {
+  dirty = false;
+  document.querySelector('.btn-save').classList.remove('dirty');
+  document.querySelector('.settings-footer .status').textContent = '已保存';
+});
+function segSel(btn) {
+  btn.parentNode.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function segColor(btn, mode) {
+  segSel(btn);
+  // 演示：真实实现发 stage-config {bg: mode}
+}
+function modToggle(cb) {
+  // 演示：切换后显示"待重启"徽章（真实实现调 POST /api/v1/mods/{id}/config）
+  const row = cb.closest('.field-row');
+  const badge = row.querySelector('.badge');
+  if (badge) badge.hidden = !badge.hidden;
+}
+let actStrength = 2;
+function actFire(name) {
+  // 真实实现: postToStage({type:"action-state", action:name, state:"start", strength}) + POST /commands invoke
+  const log = document.getElementById('actLog');
+  log.innerHTML = `<div>${new Date().toLocaleTimeString()} ${name} (强度${actStrength})</div>` + log.innerHTML;
+}
+// 浮窗拖动
+(function () {
+  const panel = document.getElementById('actPanel');
+  const head = document.getElementById('actDrag');
+  let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
+  head.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    drag = true; sx = e.clientX - ox; sy = e.clientY - oy;
+    head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener('pointermove', e => {
+    if (!drag) return;
+    ox = e.clientX - sx; oy = e.clientY - sy;
+    panel.style.right = 'auto'; panel.style.bottom = 'auto';
+    panel.style.left = ox + 'px'; panel.style.top = oy + 'px';
+  });
+  head.addEventListener('pointerup', () => drag = false);
+})();
+function sel(btn) {
+  document.querySelectorAll('.rail-item').forEach(r => r.classList.remove('active'));
+  btn.classList.add('active');
+  const s = btn.dataset.s;
+  document.querySelectorAll('.settings-section').forEach(sec => sec.classList.toggle('active', sec.dataset.p === s));
+}
+// 演示流式光标
+const msgs = document.getElementById('msgs');
+setInterval(() => { if (Math.random() < .3) msgs.scrollTop = msgs.scrollHeight; }, 2000);
+</script>
+</body>
+</html>

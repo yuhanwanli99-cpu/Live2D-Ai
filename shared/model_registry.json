@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "models": [
+    {
+      "id": "bai",
+      "name": "白-免费版 (Bai Free)",
+      "description": "白-免费版 — B站 Live2D 模型（16384 纹理，128 参数，无 motion/exp3），打磨默认形象",
+      "model3JsonPath": "bai/runtime/bai.model3.json",
+      "thumbnailPath": null,
+      "available": true,
+      "default": true,
+      "restrictPlatform": null,
+      "metadata": {
+        "creator": "Bilibili",
+        "license": "模型作者自定义使用条约：允许盈利直播/二创/少量舰长礼/改色贴图；禁止周边公开售卖；作者可因恶意使用收回授权",
+        "licenseFile": "MODEL_LICENSE.md",
+        "version": "1.0"
+      }
+    }
+  ]
+}

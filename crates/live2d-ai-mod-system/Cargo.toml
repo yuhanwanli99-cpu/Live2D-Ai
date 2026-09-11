@@ -1,0 +1,17 @@
+[package]
+name = "live2d-ai-mod-system"
+description = "Live2D-Ai Mod 系统：trait/factory/registry/services/status/topics（节点 E E4；静态编译 Mod，enable/disable 运行时开关）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+# serde_json 用于 Mod config 数据协议（factory.create 的 config 值）。
+serde_json = "1"
+# log 用于 ModLogger（Level 枚举）。
+log = "0.4"
+
+[lints]
+workspace = true

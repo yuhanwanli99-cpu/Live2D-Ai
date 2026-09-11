@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an improvement for the PC client
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options: [PC Preview core, PC extension/plugin, Post-preview roadmap]
+    validations:
+      required: true

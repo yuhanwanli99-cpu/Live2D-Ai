@@ -1,0 +1,111 @@
+# =============================================================================
+# PR Checks — 门禁工作流（Rust 重构后）
+# 触发器: pull_request → main
+# Jobs:
+#   - rust-build-test : Rust workspace build/test/fmt/clippy
+#   - msrv-check      : Rust 1.92 (MSRV) 仅 cargo check
+#   - root-py-tests   : 仓库根 tests/ 的健康 Python 测试（不依赖已归档目录）
+# =============================================================================
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - ".pi/**"
+
+# 取消同一 PR 的重复运行（快速推新 commit 时自动取消旧 run）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job A: Rust Build & Test（覆盖 6 个 workspace member）
+  # ────────────────────────────────────────────────────────────────────────────
+  rust-build-test:
+    name: Rust Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          profile: minimal
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace -- -D warnings
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job A2: MSRV check（workspace 声明 rust-version=1.92——egui 0.35 下限；
+  # 只跑 cargo check，不重跑全部测试——个人项目简洁优先）
+  # ────────────────────────────────────────────────────────────────────────────
+  msrv-check:
+    name: MSRV 1.92 Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.92 (MSRV)
+        uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          profile: minimal
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace compiles on MSRV
+        run: cargo check --workspace
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job B: Root Python Tests（仓库根 tests/ 的健康检查，仅依赖 requirements-test.txt）
+  # ────────────────────────────────────────────────────────────────────────────
+  root-py-tests:
+    name: Root Python Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Run pytest
+        run: python -m pytest tests/ -v --junitxml=test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: root-py-test-results
+          path: test-results.xml
+          retention-days: 7

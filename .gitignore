@@ -1,0 +1,153 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific - deprecated directories (moved to archive/)
+archive/
+
+# Runtime / Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# Rust 桌面端本机配置（含个人服务地址/persona；模板 live2d-ai.toml.example 入库）
+/live2d-ai.toml
+crates/**/live2d-ai.toml
+
+# 外部文字接入开关状态（本机运行态：含访问令牌，勿入库）
+# 当前选中的角色背景图（本机运行态，勿入库）
+# 用户上传的角色背景图（本机内容，勿入库；仅保留 backgrounds/README.md）
+
+# Node / Electron
+node_modules/
+frontend/node_modules/
+
+# Android native project
+android-native/.gradle/
+android-native/build/
+android-native/app/build/
+android-native/app/.cxx/
+android-native/local.properties
+android-native/.idea/
+
+# Android project - local.properties (API keys)
+Live2D-Ai-Android/local.properties
+Live2D-Ai-Android/.gradle/
+Live2D-Ai-Android/build/
+Live2D-Ai-Android/app/build/
+Live2D-Ai-Android/app/.cxx/
+Live2D-Ai-Android/.idea/
+
+# Any local.properties anywhere (may hold live API keys)
+**/local.properties
+
+# Cache
+cache/
+
+# 聊天历史（本机私密对话内容，勿入库）
+chat_history/
+
+# uv 托管缓存与托管 Python（仅本机，勿入库；WSL2 环境准备产物）
+.uv-cache/
+.uv-python/
+# huggingface 缓存（本机 ASR 模型下载缓存，勿入库）
+.hf-cache/
+
+# Live2D Cubism native —— 历史残留槽位（spoq-fix G7：渲染由 CMake 编译 Purism Core 提供，与 AAR 无关）
+# **/libs/live2d-cubism-core.aar
+
+# sherpa-onnx engine AAR (V1.2 离线 TTS/ASR, large binary; 下载见 app/build.gradle.kts 注释)
+**/libs/sherpa-onnx-*.aar
+
+# Pi session dumps (may contain secrets)
+pi-session-dump/
+
+# Agent working dirs (should not be tracked)
+.pi/
+# Local, machine-specific MCP tool config (contains absolute host paths) — not shared across clones
+.mcp.json
+.agents/
+
+# PC frontend runtime binaries — re-fetch via npm / upstream repo
+
+# Local packaging artifacts
+dist.zip
+
+# Debug screenshots at repo root
+/chat_test.png
+/install_check.png
+/install_status.png
+/screenshot.png
+/live2d-ai_screenshot.png
+/live2d_screenshot.png
+/tailscale_config.png
+/test_qr.png
+
+# Misc local test scripts
+/_test_pi.ps1
+/pi_safe.cmd
+
+
+# Android — 构建时由 Gradle copyModelRegistry 从 shared/model_registry.json 生成
+Live2D-Ai-Android/app/src/main/assets/model_registry.json
+*.apk
+Live2D-Ai-debug*.apk
+.kotlin
+
+# 前端编译产物（spoq-fix：出仓，构建时生成）
+
+# Live2D 模型二进制资产（未获作者公开再分发授权，不入库；仅保留目录与说明）
+assets/models/*
+!assets/models/README.md
+!assets/models/.gitkeep
+
+# 运行时/agent 状态与产物（spoq-fix 出仓）
+.pi-glla/
+.pi-lens.json
+spoq/work/
+
+# renderer 调试/构建残留（spoq-fix 出仓）
+
+# 一次性任务交接/审计工作产物（session dumps）——不入库
+**/handoff*.json
+**/SETTINGS_*_HANDOFF.json
+analysis/tmp/
+analysis/**/tmp/
+
+# 本地后台运行残留
+nohup.out
+
+# Rust / Cargo workspace 本地产物（RFC docs/plans/RUST-REWRITE-RFC.md）
+# 注意：Cargo.lock **保留入库**（可复现构建），绝不忽略。
+/target/
+**/*.rs.bk
+
+# cargo 缓存（本机依赖副本，勿入库）
+.cargo-home/
+
+# 本地工具/参考产物（Flutter SDK、外部仓库解包等；勿入库）
+.tools/
+
+# 运行时产物：Mod 启用状态（本机生成，含本机端口与开关；勿入库）
+/mods.json

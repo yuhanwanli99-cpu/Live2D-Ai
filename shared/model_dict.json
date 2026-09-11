@@ -1,0 +1,50 @@
+{
+  "deepseek-v4-flash": {
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "description": "主模型 — DeepSeek V4 Flash，高速非推理模式（thinking disabled），适合实时聊天"
+  },
+  "deepseek-chat": {
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "base_url": "https://api.deepseek.com/v1",
+    "description": "备用模型 — DeepSeek Chat（V2/V3 通用），当 V4 Flash 不可用时的降级方案"
+  },
+  "glm-4.6v": {
+    "provider": "zhipu",
+    "model_name": "glm-4.6v",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "description": "视觉推理模型 — GLM-4.6V（智谱），用于图像理解和视觉问答"
+  },
+  "glm-4.7-flash": {
+    "provider": "zhipu",
+    "model_name": "glm-4.7-flash",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "description": "永久免费兜底聊天模型 — 智谱 GLM-4.7-Flash，用于零配置首次体验（个人账号限 1 并发，不适合高并发场景）"
+  },
+  "deepseek-r1": {
+    "provider": "deepseek",
+    "model_name": "deepseek-r1",
+    "base_url": "https://api.deepseek.com/v1",
+    "description": "推理模型 — DeepSeek R1（已弃用，保留作为参考），如需推理能力请使用 deepseek-reasoner"
+  },
+  "qwen3.7-flash": {
+    "provider": "qwen",
+    "model_name": "qwen3.7-flash",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "通义千问 Qwen3.7-Flash — 高速轻量，适合实时聊天"
+  },
+  "qwen3.7-plus": {
+    "provider": "qwen",
+    "model_name": "qwen3.7-plus",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "通义千问 Qwen3.7-Plus — 均衡性能，适合日常对话"
+  },
+  "qwen-max": {
+    "provider": "qwen",
+    "model_name": "qwen-max",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "description": "通义千问 Qwen-Max — 最强通用能力"
+  }
+}

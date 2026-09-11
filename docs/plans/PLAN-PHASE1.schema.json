@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.dev/schemas/phase1-interface-contract.schema.json",
+  "title": "Live2D-Ai Phase 1 Interface Contract",
+  "description": "Phase 1 架构规划的结构化接口契约 — Part A (重构) + Part B (级3推进) + Part C (UI/UX)。供 Developer 按 schema 实现、Tester 按 schema 验证。",
+  "functions": [
+    {
+      "name": "EmotionController.parseAndApply",
+      "signature": "fun parseAndApply(replyText: String): EmotionResult",
+      "params": [
+        { "name": "replyText", "type": "String", "description": "LLM 原始回复文本（含 emotion JSON 块或 [emotion] 标签）" }
+      ],
+      "returns": {
+        "type": "EmotionResult",
+        "description": "解析结果：expressionMix (表情权重混合)、parameterOverrides (参数覆盖)、cleanText (剥离标签后的纯文本)"
+      },
+      "throws": [],
+      "sideEffects": ["调用 Live2DView 设置表达式", "记录 Log.i 情感解析日志"],
+      "notes": "级3优先 (JSON) → 级2降级 (关键词匹配) → 级1兜底 (neutral)"
+    },
+    {
+      "name": "EmotionController.tryParseExpressionMix",
+      "signature": "private fun tryParseExpressionMix(jsonBlock: String): EmotionResult",
+      "params": [
+        { "name": "jsonBlock", "type": "String", "description": "```emotion 代码块内的 JSON 字符串" }
+      ],
+      "returns": {
+        "type": "EmotionResult",
+        "description": "成功解析的 EmotionResult。JSON 非法时返回 EmotionResult.fallback (neutral)"
+      },
+      "throws": [],
+      "sideEffects": []
+    },
+    {
+      "name": "ExpressionManager.setExpressionMix",
+      "signature": "fun setExpressionMix(mix: Map<String, Float>, transitionMs: Int = 300)",
+      "params": [
+        { "name": "mix", "type": "Map<String, Float>", "description": "表情名→权重 (0.0~1.0)，如 {'joy': 0.8, 'surprise': 0.2}" },
+        { "name": "transitionMs", "type": "Int", "description": "过渡动画时长 (ms)，默认 300" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["修改 Live2D 模型参数权重", "启动过渡动画协程/帧循环"]
+    },
+    {
+      "name": "ExpressionManager.setParameters",
+      "signature": "fun setParameters(params: Map<String, Float>)",
+      "params": [
+        { "name": "params", "type": "Map<String, Float>", "description": "Live2D 参数 ID → 值 (0.0~1.0 或 -1.0~1.0)，如 {'ParamEyeLOpen': 1.2}" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["直接覆盖 Live2D 模型指定参数"]
+    },
+    {
+      "name": "ExpressionManager.update",
+      "signature": "fun update(deltaTimeMs: Long)",
+      "params": [
+        { "name": "deltaTimeMs", "type": "Long", "description": "自上一帧经过的毫秒数" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["推进过渡动画，线性插值更新当前帧表情混合 → applyToModel"]
+    },
+    {
+      "name": "VisemeAnalyzer.analyze",
+      "signature": "fun analyze(pcmData: ShortArray): List<VisemeFrame>",
+      "params": [
+        { "name": "pcmData", "type": "ShortArray", "description": "PCM 16-bit mono 音频数据" }
+      ],
+      "returns": {
+        "type": "List<VisemeFrame>",
+        "description": "按时间戳排序的逐帧 viseme 序列"
+      },
+      "throws": [],
+      "sideEffects": [],
+      "notes": "级3 路径: FFT 频谱元音分类。PCM 不可用时降级到 analyzeSimple"
+    },
+    {
+      "name": "VisemeAnalyzer.analyzeSimple",
+      "signature": "fun analyzeSimple(pcmData: ShortArray): List<VisemeFrame>",
+      "params": [
+        { "name": "pcmData", "type": "ShortArray", "description": "PCM 16-bit mono 音频数据" }
+      ],
+      "returns": {
+        "type": "List<VisemeFrame>",
+        "description": "基于短时能量+过零率的粗分类 viseme 序列"
+      },
+      "throws": [],
+      "sideEffects": [],
+      "notes": "级2 降级: 无 FFT 时的简化分类"
+    },
+    {
+      "name": "VisemeTimeline.tick",
+      "signature": "fun tick(elapsedMs: Long): Pair<Float, Float>",
+      "params": [
+        { "name": "elapsedMs", "type": "Long", "description": "自播放开始经过的毫秒数" }
+      ],
+      "returns": {
+        "type": "Pair<Float, Float>",
+        "description": "(mouthOpen, mouthForm) 当前帧嘴型值，范围 0.0~1.0"
+      },
+      "throws": [],
+      "sideEffects": [],
+      "notes": "帧间线性插值平滑；超过最后帧 timestamp 时返回 (0.0, 0.0) 闭嘴"
+    },
+    {
+      "name": "VisemeTimeline.load",
+      "signature": "fun load(frames: List<VisemeFrame>)",
+      "params": [
+        { "name": "frames", "type": "List<VisemeFrame>", "description": "VisemeAnalyzer.analyze() 的输出" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["重置内部状态，准备新播放周期"]
+    },
+    {
+      "name": "MotionManager.triggerMotionByLabel",
+      "signature": "fun triggerMotionByLabel(label: String, priority: Int = 0): Boolean",
+      "params": [
+        { "name": "label", "type": "String", "description": "动作标签，如 'wave_hand' / 'clap' / 'bow'" },
+        { "name": "priority", "type": "Int", "description": "优先级，数值越大越高。0 = 默认" }
+      ],
+      "returns": {
+        "type": "Boolean",
+        "description": "true = 找到并触发了动作；false = 标签未注册"
+      },
+      "throws": [],
+      "sideEffects": ["播放 Live2D motion", "打断低优先级正在播放的动作"]
+    },
+    {
+      "name": "MotionManager.onTtsPosition",
+      "signature": "fun onTtsPosition(textPosition: Int, fullText: String)",
+      "params": [
+        { "name": "textPosition", "type": "Int", "description": "当前 TTS 播报到文本的第几个字符" },
+        { "name": "fullText", "type": "String", "description": "完整播报文本" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["如果当前位置附近匹配到动作关键词，触发对应 motion"]
+    },
+    {
+      "name": "MainChatViewModel.sendMessage",
+      "signature": "fun sendMessage(text: String)",
+      "params": [
+        { "name": "text", "type": "String", "description": "用户输入文本（含 [emotion] 标签等）" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": [
+        "更新 uiState (isLoading=true)",
+        "追加 DisplayMessage(user) 到 messages",
+        "调用 ChatService.send",
+        "流式接收 delta → 追加 DisplayMessage(assistant)",
+        "完成后调用 EmotionController.parseAndApply → VoiceIoController.speak"
+      ]
+    },
+    {
+      "name": "PluginBootstrap.loadCorePlugins",
+      "signature": "fun loadCorePlugins(pluginManager: PluginManager, context: Context, proactiveEnabled: Boolean)",
+      "params": [
+        { "name": "pluginManager", "type": "PluginManager", "description": "插件管理器实例" },
+        { "name": "context", "type": "Context", "description": "Android Context (applicationContext)" },
+        { "name": "proactiveEnabled", "type": "Boolean", "description": "是否启用主动陪伴插件" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["加载 Vision/Memory/Proactive 插件到 pluginManager"]
+    },
+    {
+      "name": "PC: Live2dModel.parse_expression_mix",
+      "signature": "def parse_expression_mix(self, str_to_check: str) -> dict",
+      "params": [
+        { "name": "str_to_check", "type": "str", "description": "LLM 回复文本（含 ```emotion JSON 块）" }
+      ],
+      "returns": {
+        "type": "dict",
+        "description": "{ 'expressionMix': {...}, 'parameterOverrides': {...}, 'transitionMs': 300, 'motionLabel': '...' }"
+      },
+      "throws": ["JSONDecodeError (内部捕获 → 降级到关键词匹配)"],
+      "sideEffects": [],
+      "notes": "级3 Python 端实现，与 Android parseAndApply 功能等价"
+    },
+    {
+      "name": "PC: extract_emotion (增强)",
+      "signature": "def extract_emotion(self, str_to_check: str) -> list",
+      "params": [
+        { "name": "str_to_check", "type": "str" }
+      ],
+      "returns": {
+        "type": "list",
+        "description": "expression index 列表。级3 JSON 解析 → 级2 关键词匹配 → 级1 空列表"
+      },
+      "throws": [],
+      "sideEffects": [],
+      "notes": "现有方法增强，新增级3 JSON 路径，保留级2/级1 降级"
+    }
+  ],
+  "dataModels": [
+    {
+      "name": "EmotionResult",
+      "fields": [
+        { "name": "expressionMix", "type": "Map<String, Float>", "nullable": false, "constraints": ["key=表情名 (neutral/joy/anger/sadness/fear/surprise/smirk/disgust)", "value=权重 (0.0~1.0)", "空 map 表示回 neutral"] },
+        { "name": "parameterOverrides", "type": "Map<String, Float>", "nullable": false, "constraints": ["key=Live2D 参数 ID (如 ParamEyeLOpen)", "value=目标值", "空 map 表示无覆盖"] },
+        { "name": "transitionMs", "type": "Int", "nullable": false, "constraints": [">= 0", "默认 300", "0 = 硬切"] },
+        { "name": "holdMs", "type": "Int", "nullable": false, "constraints": [">= 0", "默认 3000", "0 = 不自动回退"] },
+        { "name": "motionLabel", "type": "String?", "nullable": true, "constraints": ["动作标签名，如 'wave_hand'", "null = 不触发动作为"] },
+        { "name": "cleanText", "type": "String", "nullable": false, "constraints": ["剥离所有 emotion 标签后的纯文本，供 TTS 使用"] }
+      ]
+    },
+    {
+      "name": "VisemeFrame",
+      "fields": [
+        { "name": "timestampMs", "type": "Long", "nullable": false, "constraints": [">= 0", "音频播放时间轴上的位置"] },
+        { "name": "vowelLabel", "type": "String", "nullable": false, "constraints": ["A | I | U | E | O | SIL", "与 PC 端 pymouth_viseme.py VOWEL_MAP 对齐"] },
+        { "name": "mouthOpen", "type": "Float", "nullable": false, "constraints": ["0.0~1.0", "映射到 Live2D ParamMouthOpenY"] },
+        { "name": "mouthForm", "type": "Float", "nullable": false, "constraints": ["0.0~1.0", "映射到 Live2D ParamMouthForm"] }
+      ]
+    },
+    {
+      "name": "PlaybackProgress",
+      "fields": [
+        { "name": "textPosition", "type": "Int", "nullable": false, "constraints": [">= 0", "当前播报到文本的第几个字符"] },
+        { "name": "totalLength", "type": "Int", "nullable": false, "constraints": [">= 0", "文本总字符数"] }
+      ],
+      "notes": "TtsProvider 可选扩展，仅 EdgeTtsProvider/SherpaOnnxTtsProvider 支持"
+    },
+    {
+      "name": "MainChatUiState",
+      "fields": [
+        { "name": "messages", "type": "List<DisplayMessage>", "nullable": false },
+        { "name": "inputText", "type": "String", "nullable": false },
+        { "name": "isLoading", "type": "Boolean", "nullable": false, "constraints": ["LLM 生成中 = true"] },
+        { "name": "isSpeaking", "type": "Boolean", "nullable": false, "constraints": ["TTS 播报中 = true"] },
+        { "name": "personaName", "type": "String", "nullable": false, "constraints": ["从 PersonaConfig.getName() 读取"] },
+        { "name": "showSettings", "type": "Boolean", "nullable": false },
+        { "name": "showClearConfirm", "type": "Boolean", "nullable": false },
+        { "name": "showWelcome", "type": "Boolean", "nullable": false, "constraints": ["首次启动 = true"] },
+        { "name": "currentEmotion", "type": "Map<String, Float>", "nullable": false, "constraints": ["当前活跃的表情混合，供状态指示器使用"] }
+      ]
+    },
+    {
+      "name": "EmotionProtocolV1 (JSON Schema)",
+      "fields": [
+        { "name": "expressionMix", "type": "object", "nullable": false, "constraints": ["必填", "表情名→权重 (0.0~1.0)", "至少一个条目"] },
+        { "name": "parameterOverrides", "type": "object", "nullable": true, "constraints": ["可选", "Live2D 参数 ID→值"] },
+        { "name": "transitionMs", "type": "integer", "nullable": true, "constraints": ["可选", ">= 0", "默认 300"] },
+        { "name": "holdMs", "type": "integer", "nullable": true, "constraints": ["可选", ">= 0", "默认 3000", "0 = 不自动回退"] },
+        { "name": "motionLabel", "type": "string", "nullable": true, "constraints": ["可选", "动作标签名"] }
+      ],
+      "notes": "跨平台共享协议，文档化于 shared/emotion-protocol.md"
+    },
+    {
+      "name": "MOTION_KEYWORDS (动作关键词表)",
+      "fields": [
+        { "name": "wave_hand", "type": "List<String>", "nullable": false, "constraints": ["['挥手', '拜拜', '再见', '你好']"] },
+        { "name": "clap", "type": "List<String>", "nullable": false, "constraints": ["['鼓掌', '拍拍手', '好棒', '厉害']"] },
+        { "name": "bow", "type": "List<String>", "nullable": false, "constraints": ["['鞠躬', '谢谢', '对不起']"] },
+        { "name": "nod", "type": "List<String>", "nullable": false, "constraints": ["['嗯嗯', '是的', '没错', '好的']"] }
+      ],
+      "notes": "MotionManager.onTtsPosition 使用此表做关键词匹配。可扩展。"
+    }
+  ],
+  "apiEndpoints": [],
+  "cascadeStrategy": {
+    "L1_LLM_to_Expression": {
+      "level3": "parseExpressionMix: 解析 ```emotion JSON → expressionMix + parameterOverrides + transitionMs",
+      "level2_fallback": "tryParseKeywordTags: 关键词匹配 [joy]/[anger] → 单表情索引 (现有机制)",
+      "level1_fallback": "neutral: 表情索引 0，正常渲染"
+    },
+    "L2_TTS_to_Viseme": {
+      "level3": "VisemeAnalyzer.analyze: FFT 频谱 → 元音分类 A/I/U/E/O/SIL → VisemeTimeline 驱动嘴型",
+      "level2_fallback": "VisemeAnalyzer.analyzeSimple: 短时能量+过零率 → 粗分类",
+      "level1_fallback": "LipSyncMath.randomizedMouth: 随机波动 (现有机制)"
+    },
+    "L3_Motion_Linkage": {
+      "level3": "emotion JSON motionLabel + TTS 播放进度回调 → MotionManager.triggerMotionByLabel",
+      "level2_fallback": "MotionManager.onTtsPosition: TTS 文本关键词匹配 (MOTION_KEYWORDS)",
+      "level1_fallback": "idle: 单 idle 循环 (现有机制)"
+    }
+  },
+  "immutableModules": [
+    "ChatService.kt — 91 单测全过，架构合理，不动",
+    "EmotionController.kt — 91 单测全过，仅新增 parseExpressionMix 方法",
+    "VoiceIoController.kt — 91 单测全过，仅改造 speak() 流程接入 viseme/motion",
+    "Live2DRenderer.kt — 核心渲染，不动",
+    "PluginManager.kt — 接口已完备，不动",
+    "ChatHistoryStore.kt — 数据层稳定，不动",
+    "SettingsRepository.kt — 数据层稳定，仅新增少量 key",
+    "所有 TtsProvider/AsrProvider 实现 — V1.2 已落地，保持接口兼容"
+  ],
+  "fileManifest": {
+    "partA_new": [
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/MainChatViewModel.kt", "lines": "~250" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/PluginBootstrap.kt", "lines": "~100" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/Live2DStage.kt", "lines": "~80" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ChatBubbleRow.kt", "lines": "~60" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/InputBar.kt", "lines": "~100" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/StatusIndicator.kt", "lines": "~80" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ClearConfirmDialog.kt", "lines": "~40" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/WelcomeGuide.kt", "lines": "~120" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/ConfirmationDialog.kt", "lines": "~40" }
+    ],
+    "partA_modified": [
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/MainActivity.kt", "change": "767→~200 行，移除 MainChatScreen 定义" }
+    ],
+    "partB_new": [
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/VisemeAnalyzer.kt", "lines": "~300" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/VisemeTimeline.kt", "lines": "~150" },
+      { "path": "shared/emotion-protocol.md", "lines": "~80" }
+    ],
+    "partB_modified": [
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/EmotionController.kt", "change": "+~120 行 (parseExpressionMix)" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/AnimationSystem.kt", "change": "+~300 行 (ExpressionManager 表情混合 + MotionManager 标签触发)" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/VoiceIoController.kt", "change": "+~150 行 (viseme 集成 + motion 集成)" },
+      { "path": "Live2D-Ai-Android/app/src/main/java/com/live2d/ai/android/TtsProvider.kt", "change": "+~50 行 (lastAudioBytes + onPlaybackProgress 扩展)" },
+      { "path": "Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/live2d_model.py", "change": "+~120 行 (parse_expression_mix)" },
+      { "path": "Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/agent/transformers.py", "change": "+~160 行 (expressionMix 接线 + 动作联动)" },
+      { "path": "Live2D-Ai-pc/open-llm-vtuber/src/open_llm_vtuber/utils/stream_audio.py", "change": "+~120 行 (motion 时间戳注入)" }
+    ],
+    "totalEstimatedNew": "~1,320 行",
+    "totalEstimatedModified": "~1,400 行",
+    "totalEstimated": "~2,720 行"
+  }
+}

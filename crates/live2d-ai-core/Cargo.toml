@@ -1,0 +1,14 @@
+[package]
+name = "live2d-ai-core"
+description = "Live2D-Ai 纯 reducer 骨架：Epoch/TurnId/SentenceId/AudioChunkId + Phase + 事件/Effect（第一批，零依赖）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+# 第一批：零依赖（无 async / GPU / audio）
+
+[lints]
+workspace = true

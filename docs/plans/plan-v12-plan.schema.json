@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Live2D-Ai V1.2 Interface Contract",
+  "description": "TtsProvider 接口签名、注册表 schema、ASR 接口、主动陪伴插件接口、遥测事件 schema",
+  "functions": [
+    {
+      "name": "TtsProvider.speak",
+      "signature": "suspend fun speak(text: String)",
+      "params": [
+        { "name": "text", "type": "String", "description": "已剥离 [emotion] 标签的纯文本内容，非空" }
+      ],
+      "returns": { "type": "Unit", "description": "挂起到播放完成或失败；被 stop() 打断时抛出 CancellationException" },
+      "throws": ["CancellationException"],
+      "sideEffects": ["音频播放", "MediaPlayer 状态变更", "isSpeaking StateFlow 更新"]
+    },
+    {
+      "name": "TtsProvider.stop",
+      "signature": "fun stop()",
+      "params": [],
+      "returns": { "type": "Unit", "description": "立即停止当前播放，幂等" },
+      "throws": [],
+      "sideEffects": ["MediaPlayer/WebSocket 关闭", "isSpeaking StateFlow 置 false"]
+    },
+    {
+      "name": "TtsProvider.release",
+      "signature": "fun release()",
+      "params": [],
+      "returns": { "type": "Unit", "description": "释放引擎资源，幂等" },
+      "throws": [],
+      "sideEffects": ["shutdown Android TTS", "关闭 WebSocket 连接", "释放模型内存"]
+    },
+    {
+      "name": "TtsProviderRegistry.cascade",
+      "signature": "fun cascade(): List<TtsProvider>",
+      "params": [],
+      "returns": { "type": "List<TtsProvider>", "description": "按 TtsProviderInfo.priority 升序排列的降级链" },
+      "throws": [],
+      "sideEffects": []
+    },
+    {
+      "name": "TtsProviderRegistry.get",
+      "signature": "fun get(id: String): TtsProvider?",
+      "params": [
+        { "name": "id", "type": "String", "description": "Provider 唯一标识 (如 'cosyvoice_ws')" }
+      ],
+      "returns": { "type": "TtsProvider?", "description": "匹配的 Provider 实例，不存在返回 null" },
+      "throws": [],
+      "sideEffects": []
+    },
+    {
+      "name": "VoiceIoController.speak",
+      "signature": "suspend fun speak(text: String, providerId: String? = null)",
+      "params": [
+        { "name": "text", "type": "String", "description": "已剥离 [emotion] 标签的纯文本" },
+        { "name": "providerId", "type": "String?", "description": "指定 Provider ID，null 时使用降级链自动遍历" }
+      ],
+      "returns": { "type": "Unit", "description": "播报完成或所有 Provider 均失败" },
+      "throws": [],
+      "sideEffects": ["TTS 播报", "降级链遍历", "LipSync 驱动", "遥测事件记录"]
+    },
+    {
+      "name": "VoiceIoController.isSpeaking",
+      "signature": "val isSpeaking: StateFlow<Boolean>",
+      "params": [],
+      "returns": { "type": "StateFlow<Boolean>", "description": "任一已注册 Provider 处于播放状态时 = true" },
+      "throws": [],
+      "sideEffects": []
+    },
+    {
+      "name": "AsrProvider.listen",
+      "signature": "suspend fun listen(): String",
+      "params": [],
+      "returns": { "type": "String", "description": "识别的文本；失败/超时/无匹配返回空字符串 ''" },
+      "throws": [],
+      "sideEffects": ["系统麦克风占用", "网络请求 (云端 ASR)", "本地推理 (离线 ASR)"]
+    },
+    {
+      "name": "AsrProvider.stopListening",
+      "signature": "fun stopListening()",
+      "params": [],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["释放麦克风", "销毁 SpeechRecognizer/关闭 WebSocket"]
+    },
+    {
+      "name": "AsrProviderRegistry.cascade",
+      "signature": "fun cascade(): List<AsrProvider>",
+      "params": [],
+      "returns": { "type": "List<AsrProvider>", "description": "按 priority 升序的 ASR 降级链" },
+      "throws": [],
+      "sideEffects": []
+    },
+    {
+      "name": "ProactiveCheckWorker.doWork",
+      "signature": "suspend fun doWork(): Result",
+      "params": [],
+      "returns": { "type": "Result", "description": "Result.success() — 检查完成; Result.retry() — 临时失败需重试" },
+      "throws": [],
+      "sideEffects": ["sendAssistantMessage 调用 (带条件检查)", "LastInteractionTracker 写入"]
+    },
+    {
+      "name": "GreetingLlmClient.generateGreeting",
+      "signature": "suspend fun generateGreeting(personaName: String, systemPrompt: String, idleMinutes: Long, memories: List<String>? = null): String?",
+      "params": [
+        { "name": "personaName", "type": "String", "description": "猫娘人设名称" },
+        { "name": "systemPrompt", "type": "String", "description": "system prompt 全文" },
+        { "name": "idleMinutes", "type": "Long", "description": "距离上次对话的分钟数" },
+        { "name": "memories", "type": "List<String>?", "description": "可选: 从 MemoryPlugin 获取的相关记忆" }
+      ],
+      "returns": { "type": "String?", "description": "生成的问候语；null 或异常则回退到 fallbackGreetings 文案池" },
+      "throws": [],
+      "sideEffects": ["LLM API 调用"]
+    },
+    {
+      "name": "VoiceTelemetry.log",
+      "signature": "fun log(event: VoiceTelemetryEvent)",
+      "params": [
+        { "name": "event", "type": "VoiceTelemetryEvent", "description": "遥测事件 (sealed class)" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["Log.i 写入", "环形缓冲区追加 (最近 100 条)"]
+    },
+    {
+      "name": "ModelDownloadManager.download",
+      "signature": "suspend fun download(url: String, destPath: String, expectedSha256: String? = null): StateFlow<DownloadState>",
+      "params": [
+        { "name": "url", "type": "String", "description": "模型文件下载 URL" },
+        { "name": "destPath", "type": "String", "description": "目标本地文件路径" },
+        { "name": "expectedSha256", "type": "String?", "description": "可选: SHA256 校验值，下载后自动校验" }
+      ],
+      "returns": { "type": "StateFlow<DownloadState>", "description": "下载状态流 (Idle/Downloading/Verifying/Completed/Failed)" },
+      "throws": [],
+      "sideEffects": ["HTTP 下载", "文件写入", "磁盘空间检查"]
+    }
+  ],
+  "dataModels": [
+    {
+      "name": "TtsProviderInfo",
+      "fields": [
+        { "name": "id", "type": "String", "nullable": false, "constraints": ["唯一标识", "lowercase_snake_case", "如 'cosyvoice_ws'"] },
+        { "name": "name", "type": "String", "nullable": false, "constraints": ["人类可读名称", "如 'CosyVoice 云端'"] },
+        { "name": "category", "type": "TtsProviderCategory", "nullable": false, "constraints": ["CLOUD_WS | CLOUD_HTTP | LOCAL"] },
+        { "name": "requiresNetwork", "type": "Boolean", "nullable": false },
+        { "name": "health", "type": "StateFlow<TtsHealth>", "nullable": false, "constraints": ["OK | DEGRADED | UNAVAILABLE"] },
+        { "name": "priority", "type": "Int", "nullable": false, "constraints": ["降级链顺序", "0=最高优先级", "数字越小越优先"] },
+        { "name": "configurable", "type": "Boolean", "nullable": false, "constraints": ["是否有用户配置参数 (API Key等)"] }
+      ]
+    },
+    {
+      "name": "TtsProviderCategory",
+      "fields": [
+        { "name": "CLOUD_WS", "type": "enum", "nullable": false, "constraints": ["WebSocket 流式双工", "对标 N.E.K.O. ws_bistream"] },
+        { "name": "CLOUD_HTTP", "type": "enum", "nullable": false, "constraints": ["HTTP 按句请求", "对标 N.E.K.O. http_sentence"] },
+        { "name": "LOCAL", "type": "enum", "nullable": false, "constraints": ["本地离线推理", "对标 N.E.K.O. local"] }
+      ]
+    },
+    {
+      "name": "TtsHealth",
+      "fields": [
+        { "name": "OK", "type": "enum", "nullable": false, "constraints": ["引擎可用，上次调用成功"] },
+        { "name": "DEGRADED", "type": "enum", "nullable": false, "constraints": ["引擎可用但性能下降或部分功能受限", "如模型正在下载"] },
+        { "name": "UNAVAILABLE", "type": "enum", "nullable": false, "constraints": ["引擎不可用", "降级链自动跳过"] }
+      ]
+    },
+    {
+      "name": "AsrProviderInfo",
+      "fields": [
+        { "name": "id", "type": "String", "nullable": false, "constraints": ["唯一标识", "如 'sherpa_sensevoice'"] },
+        { "name": "name", "type": "String", "nullable": false },
+        { "name": "requiresNetwork", "type": "Boolean", "nullable": false },
+        { "name": "health", "type": "StateFlow<TtsHealth>", "nullable": false },
+        { "name": "priority", "type": "Int", "nullable": false, "constraints": ["降级链顺序"] }
+      ]
+    },
+    {
+      "name": "VoiceTelemetryEvent (sealed class)",
+      "fields": [
+        { "name": "TtsStarted", "type": "data class", "nullable": false, "constraints": ["providerId: String", "textLen: Int"] },
+        { "name": "TtsCompleted", "type": "data class", "nullable": false, "constraints": ["providerId: String", "durationMs: Long", "audioBytes: Int"] },
+        { "name": "TtsFailed", "type": "data class", "nullable": false, "constraints": ["providerId: String", "error: String"] },
+        { "name": "TtsDegraded", "type": "data class", "nullable": false, "constraints": ["fromProvider: String", "toProvider: String", "reason: String"] },
+        { "name": "AsrStarted", "type": "data class", "nullable": false, "constraints": ["providerId: String"] },
+        { "name": "AsrCompleted", "type": "data class", "nullable": false, "constraints": ["providerId: String", "textLen: Int", "durationMs: Long"] },
+        { "name": "AsrFailed", "type": "data class", "nullable": false, "constraints": ["providerId: String", "error: String"] }
+      ]
+    },
+    {
+      "name": "DownloadState (sealed class)",
+      "fields": [
+        { "name": "Idle", "type": "object", "nullable": false },
+        { "name": "Downloading", "type": "data class", "nullable": false, "constraints": ["progress: Float (0.0-1.0)", "downloadedBytes: Long", "totalBytes: Long"] },
+        { "name": "Verifying", "type": "object", "nullable": false },
+        { "name": "Completed", "type": "data class", "nullable": false, "constraints": ["path: String"] },
+        { "name": "Failed", "type": "data class", "nullable": false, "constraints": ["error: String"] }
+      ]
+    },
+    {
+      "name": "ProactivePluginConfig",
+      "fields": [
+        { "name": "context", "type": "Context", "nullable": false },
+        { "name": "greetingLlmClient", "type": "GreetingLlmClient", "nullable": false },
+        { "name": "idleThresholdMinutes", "type": "Long", "nullable": false, "constraints": ["default: 180 (3小时)", "DEBUG: 5"] },
+        { "name": "cooldownMinutes", "type": "Long", "nullable": false, "constraints": ["default: 360 (6小时)", "DEBUG: 2"] },
+        { "name": "quietHoursStart", "type": "Int", "nullable": false, "constraints": ["default: 23 (23:00)", "24小时制"] },
+        { "name": "quietHoursEnd", "type": "Int", "nullable": false, "constraints": ["default: 7 (07:00)", "跨天区间"] },
+        { "name": "fallbackGreetings", "type": "List<String>", "nullable": false, "constraints": ["LLM 调用失败时的兜底文案池", "至少 3 条"] }
+      ]
+    },
+    {
+      "name": "Settings 新增 SharedPreferences Keys",
+      "fields": [
+        { "name": "KEY_TTS_PROVIDER_ID", "type": "String", "nullable": false, "constraints": ["default: 'cosyvoice_ws'"] },
+        { "name": "KEY_ASR_PROVIDER_ID", "type": "String", "nullable": false, "constraints": ["default: 'sherpa_sensevoice'"] },
+        { "name": "KEY_COSYVOICE_API_KEY", "type": "String", "nullable": false, "constraints": ["default: '' (用户需自行获取)"] },
+        { "name": "KEY_PROACTIVE_ENABLED", "type": "Boolean", "nullable": false, "constraints": ["default: true"] }
+      ]
+    }
+  ],
+  "apiEndpoints": [
+    {
+      "method": "WS",
+      "path": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
+      "request": {
+        "headers": [
+          { "name": "Authorization", "type": "String", "required": true, "constraints": ["Bearer {apiKey}"] }
+        ],
+        "body": {
+          "description": "WebSocket 事件流: start-synthesis (含 model/voice/text/format) → 流式音频二进制帧 → result-generated",
+          "events": [
+            { "name": "start-synthesis", "fields": ["model", "voice", "text", "format"] },
+            { "name": "audio binary frames", "fields": ["原始音频数据 (MP3)"] },
+            { "name": "result-generated", "fields": ["task_id", "completion"] }
+          ]
+        }
+      },
+      "response": {
+        "type": "binary audio stream + JSON events",
+        "status": "WebSocket"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "https://github.com/k2-fsa/sherpa-onnx/releases/download/{version}/{model_file}",
+      "request": {},
+      "response": {
+        "type": "binary ONNX model file",
+        "status": 200,
+        "notes": "模型按需下载到 externalFilesDir/models/，不打包进 APK"
+      }
+    }
+  ],
+  "providersV12": [
+    {
+      "id": "cosyvoice_ws",
+      "name": "CosyVoice 云端",
+      "category": "CLOUD_WS",
+      "requiresNetwork": true,
+      "priority": 0,
+      "platform": ["Android", "PC"],
+      "notes": "阿里云 DashScope Realtime API; 需用户配置 apiKey"
+    },
+    {
+      "id": "sherpa_onnx_kokoro",
+      "name": "Kokoro 离线",
+      "category": "LOCAL",
+      "requiresNetwork": false,
+      "priority": 1,
+      "platform": ["Android"],
+      "notes": "sherpa-onnx + Kokoro 多语言模型 (~82MB); 按需下载"
+    },
+    {
+      "id": "system_tts",
+      "name": "系统 TTS",
+      "category": "LOCAL",
+      "requiresNetwork": false,
+      "priority": 2,
+      "platform": ["Android"],
+      "notes": "Android TextToSpeech API; 从 EdgeTtsService 剥离"
+    },
+    {
+      "id": "edge_tts",
+      "name": "Edge TTS",
+      "category": "CLOUD_WS",
+      "requiresNetwork": true,
+      "priority": 3,
+      "platform": ["Android", "PC"],
+      "notes": "微软公共端点; 中国大陆可能 403; 保留为海外备选"
+    },
+    {
+      "id": "silent",
+      "name": "静默降级",
+      "category": "LOCAL",
+      "requiresNetwork": false,
+      "priority": 4,
+      "platform": ["Android", "PC"],
+      "notes": "不播放任何音频; 最低兜底"
+    },
+    {
+      "id": "sherpa_sensevoice",
+      "name": "SenseVoice 离线 ASR",
+      "category": "LOCAL",
+      "requiresNetwork": false,
+      "priority": 0,
+      "platform": ["Android"],
+      "notes": "sherpa-onnx + SenseVoice-zh (~120MB); 按需下载"
+    },
+    {
+      "id": "system_speech_recognizer",
+      "name": "系统语音识别",
+      "category": "LOCAL",
+      "requiresNetwork": false,
+      "priority": 1,
+      "platform": ["Android"],
+      "notes": "Android SpeechRecognizer API; 部分离线 (Gboard 离线包)"
+    }
+  ],
+  "cascadeAndroid": {
+    "tts": [
+      "cosyvoice_ws → sherpa_onnx_kokoro → system_tts → silent"
+    ],
+    "asr": [
+      "sherpa_sensevoice → system_speech_recognizer → silent (返回空字符串)"
+    ]
+  },
+  "cascadePc": {
+    "tts": [
+      "local_cosyvoice/sherpa_onnx → cosyvoice_cloud → edge_tts → silent"
+    ]
+  }
+}

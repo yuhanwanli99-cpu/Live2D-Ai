@@ -1,0 +1,36 @@
+# ruff — Python lint 配置 (Phase 1)
+# 规则层级: F (Pyflakes) → E (pycodestyle) → W (pycodestyle 警告)
+target-version = "py311"
+
+# 待检查的目录
+include = ["*.py"]
+
+# 忽略路径（vendor 代码、生成文件）
+exclude = [
+  ".git",
+  "__pycache__",
+  ".pytest_cache",
+  "node_modules",
+  "venv",
+  ".venv",
+]
+
+# 启用规则集
+lint.select = [
+  "F", # Pyflakes — 逻辑错误
+  "E", # pycodestyle — 基础格式
+  "W", # pycodestyle — 警告
+  "I", # isort — import 排序
+]
+
+# 忽略特定规则（Phase 1 宽松，后续收紧）
+lint.ignore = [
+  "E501", # 行太长 — 允许 120 字符
+]
+
+# 行长度
+line-length = 120
+
+# 格式化（注意：Ruff 的 [format] 没有 target-version 选项，
+# 格式化目标跟随顶层 target-version，见本文件第 3 行）
+format.quote-style = "double"

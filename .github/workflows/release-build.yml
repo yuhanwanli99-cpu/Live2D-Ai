@@ -1,0 +1,176 @@
+# =============================================================================
+# Release Build — 跨平台发布产物构建 + Artifact 上传
+# 触发器: push tags 'v*' | workflow_dispatch
+# 说明:
+#   - 仅产出 live2d-ai-desktop 的 release 二进制（--web 后端，纯 HTTP 服务）。
+#   - 桌面壳（Tauri）与 Android 壳（G1）**不**在此矩阵，它们为独立工程。
+#   - 不发布到 GitHub Releases，仅 upload-artifact（用户下载）。
+#   - wasm 产物（l2d-wasm-demo）可选：留作注释，不在默认矩阵构建。
+# 平台:
+#   - ubuntu-latest   x86_64-unknown-linux-gnu      （headless 服务端）
+#   - windows-latest  x86_64-pc-windows-msvc        （Windows 后端）
+#   - macos-latest    aarch64-apple-darwin          （macOS Apple Silicon）
+# =============================================================================
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      build_wasm:
+        description: "同时构建 wasm 产物（l2d-wasm-demo）"
+        type: boolean
+        default: false
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job: 跨平台 release 构建 + artifact 上传
+  # ────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.os }} (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      # 三个平台各自构建 desktop 二进制；不做交叉编译（各自 runner 原生 toolchains）。
+      matrix:
+        include:
+          # Linux：headless 服务端。注意 desktop crate 用 cpal（ALSA/libasound）
+          # + winit（libxkbcommon / libdbus），标准 ubuntu-latest 需 apt 安装系统库。
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_name: live2d-ai-desktop
+            system_deps: true
+            # webkit2gtk **不**需要——本 crate 不用 WebView/Tauri；仅 winit+egui 原生渲染。
+          # Windows：x86_64-pc-windows-msvc。二进制为 .exe；无 WebView2 需求
+          # （--web 纯 tiny_http 服务，前端通过浏览器访问，非嵌入浏览器）。
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_name: live2d-ai-desktop.exe
+            system_deps: false
+          # macOS：Apple Silicon。标准 macos-latest 自带 clang toolchain，无额外系统包。
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin_name: live2d-ai-desktop
+            system_deps: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (1.92 — egui 0.35 MSRV floor)
+        uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          profile: minimal
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Linux-only: 安装音频/窗口系统库（cpal→ALSA, winit→libxkbcommon/dbus）。
+      #  Windows/macOS runner 自带所需 runtime，故跳过。
+      - name: Install system dependencies (Linux)
+        if: matrix.system_deps == true
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+               libasound2-dev libxkbcommon-x11-0 libdbus-1-dev pkg-config
+
+      # Linux 上静态链接 libc（+crt-static），避免服务器 glibc 版本不匹配；
+      # Windows/macOS 走动态链接（系统 runtime）。
+      - name: Build desktop binary (release)
+        run: |
+          if [ "${{ matrix.system_deps }}" = "true" ]; then
+            RUSTFLAGS="-C target-feature=+crt-static" cargo build -p live2d-ai-desktop --release
+          else
+            cargo build -p live2d-ai-desktop --release
+          fi
+      - name: Verify binary exists
+        run: ls -lh target/release/${{ matrix.bin_name }}
+
+      # release note：摘录 README Quick Start 片段，写入工件目录。
+      - name: Generate release notes
+        # 版本号用 printf 写入（模板表达式需展开，不能用 quoted heredoc）。
+        run: |
+          printf '# Live2D-Ai %s\n\n来自 `release-build.yml` 的跨平台二进制，**不发布到 GitHub Releases**。\n\n' '${{ github.ref_name }}' > RELEASE_NOTE.md
+          cat >> RELEASE_NOTE.md <<'EOF'
+
+          来自 `release-build.yml` 的跨平台二进制，**不发布到 GitHub Releases**。
+
+          ## 运行方式
+          ```bash
+          # 解压后，启动 --web 后端（loopback HTTP 服务）
+          ./live2d-ai-desktop --web --http-port 18080
+          # 浏览器访问 http://localhost:18080/
+          ```
+
+          ## 平台说明
+          - **Linux**：headless 服务端。依赖系统库 libasound / libxkbcommon / libdbus2
+            （标准 ubuntu-latest runner 满足）。桌面窗口模式（--pet-mode）需 X11/Wayland。
+          - **Windows**：x86_64-pc-windows-msvc。`--web` 为纯 HTTP，**无 WebView2/Runtime 需求**
+            （不使用嵌入浏览器）。桌面窗口模式（--pet-mode）仍为 v1 骨架。
+          - **macOS**：aarch64-apple-darwin（Apple Silicon）。x86_64 需用户自行 Rosetta 构建。
+
+          ## 边界约束
+          - 桌面壳（Tauri）与 Android 壳（G1）为独立工程，**不**含于本矩阵。
+          - 模型不捆绑分发，需用户从合法渠道导入。
+
+          ---
+          Live2D-Ai 🐱 — Rust 主线
+          (c) 2026 Sakura Motion Project — AGPL-3.0-only
+          EOF
+
+      - name: Upload desktop binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live2d-ai-desktop-${{ github.ref_name }}-${{ matrix.target }}
+          path: |
+            target/release/${{ matrix.bin_name }}
+            RELEASE_NOTE.md
+          if-no-files-found: error
+          retention-days: 60
+          compression-level: 6
+
+      - name: Build summary
+        run: |
+          echo "## Release Build Summary — ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag**: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Platform**: ${{ matrix.os }} / ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Binary**: target/release/${{ matrix.bin_name }}" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh target/release/${{ matrix.bin_name }} >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job: 可选 wasm 产物（l2d-wasm-demo）——默认不构建，workflow_dispatch 勾选时运行
+  # ────────────────────────────────────────────────────────────────────────────
+  wasm:
+    name: Build WASM (l2d-wasm-demo)
+    # 仅当手动触发且勾选 build_wasm 时才运行。
+    if: github.event_name == 'workflow_dispatch' && inputs.build_wasm == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          profile: minimal
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build wasm demo
+        run: cargo build -p l2d-wasm-demo --release --target wasm32-unknown-unknown
+
+      - name: Upload wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2d-wasm-demo-${{ github.ref_name }}
+          path: target/wasm32-unknown-unknown/release/l2d-wasm-demo.wasm
+          if-no-files-found: error
+          retention-days: 60
