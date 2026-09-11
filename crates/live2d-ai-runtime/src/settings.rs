@@ -364,6 +364,97 @@ impl AppSettings {
     pub fn to_toml_string(&self) -> String {
         toml::to_string(self).expect("AppSettings 序列化 infallible（仅内存操作）")
     }
+
+    /// 把自身的值**合并进**既有 TOML 文本，**保留其中的注释与排版**。
+    ///
+    /// # 为什么不能用 [`Self::to_toml_string`] 直接覆盖（2026-09-11 修）
+    ///
+    /// `toml::to_string` 是「重新生成一整份文档」——**注释、空行、键的顺序全丢**。
+    /// 而 `live2d-ai.toml` 是**手写并带大量说明**的（模板里有 46 行注释，
+    /// 解释每个字段怎么填、有哪些坑）。结果是：用户在界面上改一个开关并保存，
+    /// 配置文件里的说明就被抹平了。这不是理论风险——**当天就真的发生了一次**
+    ///（在界面上切 dev_mode → 46 行注释全部消失）。
+    ///
+    /// 依赖 `toml_edit`（本来就是 `toml` 的传递依赖，提为直接依赖不新增 crate）：
+    /// 它是**保格式**的 TOML 编辑器。
+    ///
+    /// # 语义（与 `to_toml_string` 严格对齐）
+    ///
+    /// - 键已存在 → **就地改值**，保留该值的前后装饰（缩进、行尾注释）；
+    /// - 键不存在 → 追加；
+    /// - `None` 字段 → **删掉该键**（等价于「省略」，与 `to_toml_string` 一致）；
+    /// - 表里**我们不认识的键** → 保留（原实现会连带删掉）。
+    ///
+    /// `existing` 为空串（文件不存在）时退化为 `to_toml_string`。
+    pub fn merge_into_toml(&self, existing: &str) -> Result<String, String> {
+        if existing.trim().is_empty() {
+            return Ok(self.to_toml_string());
+        }
+        let mut doc: toml_edit::DocumentMut = existing
+            .parse()
+            .map_err(|e| format!("现有配置不是合法 TOML：{e}"))?;
+        let desired: toml_edit::DocumentMut = self
+            .to_toml_string()
+            .parse()
+            .map_err(|e| format!("自身序列化不是合法 TOML：{e}"))?;
+        sync_item(doc.as_item_mut(), desired.as_item());
+        Ok(doc.to_string())
+    }
+
+    /// 合并进**磁盘上现有**的 TOML；读不到就当作「没有现有文件」。
+    ///
+    /// 这是写盘点该用的入口——它把「读现有 → 合并」这一步收在一处，
+    /// 避免三个写盘点各写一遍（漏一个就又是一次注释清空）。
+    pub fn to_toml_string_merging(&self, path: &std::path::Path) -> String {
+        let existing = std::fs::read_to_string(path).unwrap_or_default();
+        self.merge_into_toml(&existing)
+            .unwrap_or_else(|_| self.to_toml_string())
+    }
+}
+
+/// 把 `desired` 的值**就地**同步进 `dst`，尽量保留 `dst` 的注释与排版。
+///
+/// 递归规则见 [`AppSettings::merge_into_toml`]。`Item::Value` 分支刻意**改值
+/// 而不是换键**——`toml_edit` 里「键自身的前缀注释」挂在 key 上，
+/// 换键会把它们一起换掉；就地改值只动值，键与它的注释都留着。
+fn sync_item(dst: &mut toml_edit::Item, desired: &toml_edit::Item) {
+    use toml_edit::Item;
+    // `&mut *dst` 是**重借用**：直接写 `(dst, desired)` 会把 `&mut` 移动进元组，
+    // 于是最后的 `_` 分支就没法再用 `dst`（借用检查器报 use of moved value）。
+    match (&mut *dst, desired) {
+        (Item::Table(dst_table), Item::Table(desired_table)) => {
+            // ① 目标里有、期望里没有的键 → 删（`None` 字段的「省略」语义）。
+            let stale: Vec<String> = dst_table
+                .iter()
+                .map(|(k, _)| k.to_string())
+                .filter(|k| !desired_table.contains_key(k))
+                .collect();
+            for key in stale {
+                dst_table.remove(&key);
+            }
+            // ② 逐个同步；新键直接插（没有旧注释可保）。
+            for (key, want) in desired_table.iter() {
+                match dst_table.get_mut(key) {
+                    Some(got) => sync_item(got, want),
+                    None => {
+                        dst_table.insert(key, want.clone());
+                    }
+                }
+            }
+        }
+        (Item::Value(got), Item::Value(want)) => {
+            // 保留原值的装饰（行尾注释、前后空白）——只换值本身。
+            let decor = got.decor().clone();
+            let mut next = want.clone();
+            *next.decor_mut() = decor;
+            *got = next;
+        }
+        // 表数组（本项目没有）与「类型变了」（罕见）：整体替换——
+        // 比「默默留下半新半旧」好。
+        _ => {
+            *dst = desired.clone();
+        }
+    }
 }
 /// 校验环境变量名：非空、ASCII、`[A-Za-z_][A-Za-z0-9_]*`。
 fn validate_env_name(section: &'static str, name: &str) -> Result<(), SettingsError> {

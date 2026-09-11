@@ -251,7 +251,7 @@ void main() {
       );
     });
 
-    test('logs 带 level/limit 查询参数', () async {
+    test('logs **不带**查询串（服务端不读它，发了就是静默无效）', () async {
       late Uri seen;
       final DiagnosticsApi api = DiagnosticsApi(
         base: 'http://x',
@@ -260,10 +260,14 @@ void main() {
           return jsonResponse('{"lines":[]}', 200);
         }),
       );
-      await api.logs(level: 'warn', limit: 100);
+      await api.logs();
       expect(seen.path, '/api/v1/logs');
-      expect(seen.queryParameters['level'], 'warn');
-      expect(seen.queryParameters['limit'], '100');
+      expect(
+        seen.hasQuery,
+        isFalse,
+        reason: '服务端 handle_logs() 不解析查询参数；带上 ?limit= 只会'
+            '让请求在精确路径匹配下掉进 501（2026-09-11 修的老 bug）',
+      );
     });
 
     test('logs 解析（含 target 与 level）', () async {

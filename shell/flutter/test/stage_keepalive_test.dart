@@ -73,7 +73,7 @@ class _HostState extends State<_Host> {
     muted: false,
     onVolumeChanged: (_) {},
     onMutedChanged: (_) {},
-    sections: visibleSections(devMode: widget.devMode),
+    sections: visibleSections(),
     section: section,
     // `ready` 而不是默认的 `loading`：加载覆盖层里那条不确定进度的进度条是
     // **无限动画**，会让本文件里所有的 `pumpAndSettle` 全部超时
@@ -123,7 +123,7 @@ void main() {
       final int inits = await runScenario(
         tester,
         actions: (WidgetTester t) async {
-          for (final SettingsSection section in visibleSections(devMode: true)) {
+          for (final SettingsSection section in visibleSections()) {
             await t.tap(find.text(section.label).first);
             await t.pumpAndSettle();
           }
@@ -228,7 +228,7 @@ void main() {
           muted: false,
           onVolumeChanged: (_) {},
           onMutedChanged: (_) {},
-          sections: visibleSections(devMode: false),
+          sections: visibleSections(),
           sectionBuilder: (BuildContext c, SettingsSection s) =>
               const SizedBox.shrink(),
         ),

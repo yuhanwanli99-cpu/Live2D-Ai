@@ -45,15 +45,20 @@ enum SettingsSection {
       ? SettingsSection.values[index]
       : SettingsSection.values.first;
 
-  /// 是否只在 `dev_mode = true` 时渲染。
-  ///
-  /// 只有「开发模式」分区本身受此约束；分区**内部**的 dev 字段由各 pane
-  /// 自行按 `devMode` 显隐（规格 §4.1 的「层」列）。
-  bool get isDevOnly => this == SettingsSection.developer;
 }
 
-/// 按 `devMode` 过滤出可见分区（顺序不变）。
-List<SettingsSection> visibleSections({required bool devMode}) =>
-    SettingsSection.values
-        .where((SettingsSection s) => devMode || !s.isDevOnly)
-        .toList(growable: false);
+/// **全部**分区（顺序 = 枚举声明顺序）。
+///
+/// # 为什么不再按 `dev_mode` 过滤（2026-09-11 修）
+///
+/// 「渐进披露」在这里指的是**分区内部的高级字段**只出现在第二层
+/// （规格 §4.1 的「层」列），**不是**把「开发模式」这一整个分区藏起来。
+///
+/// 藏起来会形成一个走不出去的死循环：唯一能打开 `dev_mode` 的开关
+///（`DeveloperSection` 里的那个 Toggle）**自己就在被藏起来的分区里**。
+/// 结果是 `dev_mode` 在界面上**永远打不开**——只有 curl / `--dev-mode`
+/// 启动参数能开。这跟「点了没反应」是同一种病：控件在那里，但到不了。
+///
+/// 所以：分区清单恒定；`dev_mode` 只影响**分区内部**哪些字段出现。
+List<SettingsSection> visibleSections() =>
+    List<SettingsSection>.unmodifiable(SettingsSection.values);

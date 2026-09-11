@@ -24,6 +24,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
+import 'emphasized_text.dart';
 import 'theme.dart';
 
 /// 字段行的形态（**声明出来是为了可枚举与可测试**，而不是靠 widget 类型猜）。
@@ -74,7 +75,7 @@ class _FieldShell extends StatelessWidget {
                   children: <Widget>[
                     Text(label, style: theme.textTheme.labelLarge),
                     if (description != null)
-                      Text(
+                      EmphasizedText(
                         description!,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colors.contentMuted,

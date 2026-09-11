@@ -52,11 +52,49 @@ fn build_dir() -> PathBuf {
     PathBuf::from("shell/flutter/build/web")
 }
 
-/// 处理 `/app*`。返回 `None` 表示非本模块路径（交还 dispatch）。
+/// 根路径（`/` 与 `/index.html`）→ **302 到 `/app/`**。
+///
+/// # 为什么要有这个跳转（2026-09-11 用户反馈）
+///
+/// 「之前残留老前端 `/` 和 `/app` 不一样」。确实：`/` 曾经是**原生 JS 前端**
+/// （`index_html.rs` + `index.html`/`app.js`/`chat.js`/`style.css`），
+/// 与 `/app` 的 Flutter 前端是**两套不同的界面**。同一个服务、同一个端口，
+/// 打开哪个 URL 看到哪个产品——而且老那套不包含这一轮的任何界面改动。
+///
+/// AGENTS.md 早就把 JS 前端定为遗留（「只修致命缺陷、不再加新功能」），
+/// 那就**不该让它继续占着根路径**：留着就是「写好了但过时了还看得到」。
+/// 现在 `/` 是 Flutter 前端的入口，老前端整套已删除。
+///
+/// 302（不是 301）：这是「界面入口暂时在这儿」的语义，不是永久别名；
+/// 哪天要换入口，301 会被浏览器永久缓存住，很难撤。
+fn root_redirect() -> Response<std::io::Cursor<Vec<u8>>> {
+    use tiny_http::Header;
+    Response::from_data(Vec::new())
+        .with_status_code(StatusCode(302))
+        .with_header(Header::from_bytes(&b"Location"[..], &b"/app/"[..]).expect("Location 头"))
+        .with_header(
+            Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]).expect("Cache-Control 头"),
+        )
+}
+
+/// 是否为根路径（`/` 或 `/index.html`）。
+pub(crate) fn is_root_path(path: &str) -> bool {
+    path == "/" || path == "/index.html"
+}
+
+/// 处理 `/`（→ `/app/`）与 `/app*`。返回 `None` 表示非本模块路径（交还 dispatch）。
 pub fn handle_flutter_app(
     method: &Method,
     path: &str,
 ) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
+    if is_root_path(path) {
+        // 非 GET 交给 dispatch 走既有的 405 / 404 语义（别在这里造第二套）。
+        return if *method == Method::Get {
+            Some(root_redirect())
+        } else {
+            None
+        };
+    }
     if !is_app_path(path) {
         return None;
     }
@@ -202,6 +240,37 @@ mod tests {
     fn non_get_is_method_not_allowed() {
         let resp = handle_flutter_app(&Method::Post, "/app/").expect("本模块接管 /app");
         assert_eq!(resp.status_code().0, 405);
+    }
+
+    /// 根路径 → 302 到 `/app/`（2026-09-11：不再让老 JS 前端占着 `/`）。
+    ///
+    /// 这条守的是「**一个服务只有一个界面入口**」：`/` 与 `/app` 曾经是两套
+    /// 不同的前端，用户打开哪个 URL 看到哪个产品。
+    #[test]
+    fn root_paths_redirect_to_the_flutter_app() {
+        for path in ["/", "/index.html"] {
+            assert!(is_root_path(path), "{path} 应被认作根路径");
+            let resp = handle_flutter_app(&Method::Get, path).expect("本模块接管根路径");
+            assert_eq!(resp.status_code().0, 302, "{path} 应是 302");
+            let loc = resp
+                .headers()
+                .iter()
+                .find(|h| h.field.equiv("Location"))
+                .map(|h| h.value.as_str().to_string())
+                .expect("Location 头");
+            assert_eq!(loc, "/app/", "{path} 应跳到 Flutter 前端");
+        }
+        // 别的路径不受影响。
+        assert!(!is_root_path("/app/"));
+        assert!(!is_root_path("/app"));
+        assert!(!is_root_path("/render"));
+    }
+
+    /// 根路径的非 GET 不在这里拦——交回 dispatch 走既有的 method 语义。
+    #[test]
+    fn root_path_non_get_is_left_to_dispatch() {
+        assert!(handle_flutter_app(&Method::Post, "/").is_none());
+        assert!(handle_flutter_app(&Method::Patch, "/index.html").is_none());
     }
 
     #[test]

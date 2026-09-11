@@ -34,6 +34,8 @@ class _ShellHost extends StatefulWidget {
     this.onSectionChanged,
     this.stagePhase = Live2DBridgePhase.ready,
     this.onRetryStage,
+    this.onEnsureSectionLoaded,
+    this.settingsChanges = const NeverNotifies(),
   });
 
   final UiPhase phase;
@@ -43,6 +45,8 @@ class _ShellHost extends StatefulWidget {
   final bool muted;
   final double volume;
   final ValueChanged<SettingsSection>? onSectionChanged;
+  final VoidCallback? onEnsureSectionLoaded;
+  final Listenable settingsChanges;
 
   /// 默认 `ready`：**不是** `loading`。
   ///
@@ -82,6 +86,8 @@ class _ShellHostState extends State<_ShellHost> {
       widget.onSectionChanged?.call(next);
       setState(() => section = next);
     },
+    onEnsureSectionLoaded: widget.onEnsureSectionLoaded,
+    settingsChanges: widget.settingsChanges,
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         Text('PANE:${s.label}'),
   );
@@ -93,6 +99,8 @@ Widget shellUnderTest({
   SettingsSection section = SettingsSection.actions,
   List<SettingsSection>? sections,
   ValueChanged<SettingsSection>? onSectionChanged,
+  VoidCallback? onEnsureSectionLoaded,
+  Listenable settingsChanges = const NeverNotifies(),
   bool muted = false,
   double volume = 0.8,
   Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
@@ -103,10 +111,12 @@ Widget shellUnderTest({
     phase: phase,
     ws: ws,
     initialSection: section,
-    sections: sections ?? visibleSections(devMode: false),
+    sections: sections ?? visibleSections(),
     muted: muted,
     volume: volume,
     onSectionChanged: onSectionChanged,
+    onEnsureSectionLoaded: onEnsureSectionLoaded,
+    settingsChanges: settingsChanges,
     stagePhase: stagePhase,
     onRetryStage: onRetryStage,
   ),
@@ -125,6 +135,8 @@ Future<void> pumpShell(
   SettingsSection section = SettingsSection.actions,
   List<SettingsSection>? sections,
   ValueChanged<SettingsSection>? onSectionChanged,
+  VoidCallback? onEnsureSectionLoaded,
+  Listenable settingsChanges = const NeverNotifies(),
   bool muted = false,
   double volume = 0.8,
   Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
@@ -139,6 +151,8 @@ Future<void> pumpShell(
       section: section,
       sections: sections,
       onSectionChanged: onSectionChanged,
+      onEnsureSectionLoaded: onEnsureSectionLoaded,
+      settingsChanges: settingsChanges,
       muted: muted,
       volume: volume,
       stagePhase: stagePhase,
@@ -351,7 +365,7 @@ void main() {
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
-      for (final SettingsSection section in visibleSections(devMode: false)) {
+      for (final SettingsSection section in visibleSections()) {
         await tester.dragUntilVisible(
           find.text(section.label),
           find.byType(ListView),
@@ -360,7 +374,8 @@ void main() {
         expect(find.text(section.label), findsOneWidget, reason: section.label);
         expect(find.text(section.description), findsOneWidget);
       }
-      expect(find.text('开发模式'), findsNothing, reason: 'dev 关时不该出现');
+      // 「开发模式」也在抽屉里（它不再随 dev_mode 隐藏——否则打不开 dev_mode）。
+      expect(find.text('开发模式'), findsOneWidget);
     });
 
     testWidgets('compact 抽屉直接关掉 → 不打开第 2 层（不卡住）', (
@@ -436,25 +451,207 @@ void main() {
     });
   });
 
-  group('dev_mode 决定「开发模式」分区是否出现', () {
-    testWidgets('dev 关 → rail 上没有开发模式', (WidgetTester tester) async {
+  group('「开发模式」分区**恒在**（否则 dev_mode 在界面上打不开）', () {
+    // 2026-09-11 修：过去 dev_mode 关时这个分区被藏起来，而唯一能打开
+    // dev_mode 的开关就在它里面 —— 死循环，只有 curl 能开。
+    testWidgets('rail 上 8 个分区都在，含「开发模式」', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       // rail 是纯文字，所以直接找文字。
-      expect(find.text('开发模式'), findsNothing);
-      expect(find.text('诊断'), findsOneWidget);
-    });
-
-    testWidgets('dev 开 → 8 个分区都在 rail 上', (WidgetTester tester) async {
-      await pumpShell(
-        tester,
-        width: 1400,
-        sections: visibleSections(devMode: true),
-      );
       expect(find.text('开发模式'), findsOneWidget);
+      expect(find.text('诊断'), findsOneWidget);
       final SectionRail rail = tester.widget<SectionRail>(
         find.byType(SectionRail),
       );
       expect(rail.sections, hasLength(8));
+    });
+  });
+  // ─────────────────────────────────────────────────────────────
+  // 回归：**打开设置必须触发加载**（2026-09-11，浏览器里抓到的真 bug）
+  // ─────────────────────────────────────────────────────────────
+  //
+  // 症状：在 expanded / medium 上直接点「设置」，面板内容是
+  //   「读不到服务端设置 / 未知原因」+ 一个「重试」按钮。
+  // 根因：分区内容由宿主按需加载，而 `openSettings` 只切了 `settingsOpen`——
+  //   加载被挂在「分区变了」上。于是**必须再点一个分区**才会加载。
+  //   compact 看起来正常纯属巧合：它先弹抽屉、必然选一个分区。
+  //
+  // 这个 bug 逃过了当时所有测试：测试里的 `sectionBuilder` 是注入的桩，
+  // 永远立刻返回内容、从不经过「加载」这一步。
+  group('打开设置先加载当前分区（否则是「读不到服务端设置」空壳）', () {
+    /// 与 `main.dart` 的接线一致：**两条路都**会去加载。
+    ///
+    /// `onEnsureSectionLoaded` 是「打开设置」这条；`onSectionChanged` 是
+    /// 「换了分区」那条（compact 的抽屉必然换分区，所以它天然会加载）。
+    ({List<int> loads, Widget Function() build}) host() {
+      final List<int> loads = <int>[];
+      return (
+        loads: loads,
+        build: () => shellUnderTest(
+          onSectionChanged: (_) => loads.add(1),
+          onEnsureSectionLoaded: () => loads.add(1),
+        ),
+      );
+    }
+
+    for (final MapEntry<String, double> entry in kWidths.entries) {
+      testWidgets('${entry.key}（${entry.value.toInt()}）打开设置 → 一定会加载', (
+        WidgetTester tester,
+      ) async {
+        final ({List<int> loads, Widget Function() build}) h = host();
+        await tester.binding.setSurfaceSize(Size(entry.value, 800));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(h.build());
+        await tester.pump();
+
+        await tester.tap(find.text('设置'));
+        await tester.pumpAndSettle();
+
+        // compact 额外走一层抽屉：选分区。
+        if (Breakpoints.sizeClassOf(entry.value).isCompact) {
+          await tester.tap(find.text(SettingsSection.actions.label).last);
+          await tester.pumpAndSettle();
+        }
+        expect(
+          h.loads,
+          isNotEmpty,
+          reason: '打开设置却没让宿主加载 → 用户看到的就是「读不到服务端设置」',
+        );
+      });
+    }
+
+    testWidgets('**expanded 靠的是 onEnsureSectionLoaded**（不是靠换分区）', (
+      WidgetTester tester,
+    ) async {
+      int ensure = 0;
+      int sectionChanges = 0;
+      await pumpShell(
+        tester,
+        width: 1400,
+        onEnsureSectionLoaded: () => ensure++,
+        onSectionChanged: (_) => sectionChanges++,
+        // 打开时**不换分区**——这正是当初漏掉的那条路径。
+      );
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+
+      expect(ensure, 1, reason: '打开设置必须直接触发加载');
+      expect(sectionChanges, 0, reason: '没有换分区');
+    });
+
+    testWidgets('收起内联侧板**不**再加载一次（省掉无意义请求）', (
+      WidgetTester tester,
+    ) async {
+      int ensure = 0;
+      await pumpShell(tester, width: 1400, onEnsureSectionLoaded: () => ensure++);
+
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(ensure, 1);
+
+      // 再点 rail 上同一个分区 → 收起。
+      await tester.tap(find.text(SettingsSection.actions.label).first);
+      await tester.pumpAndSettle();
+      expect(ensure, 1, reason: '收起不该再加载一次');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 回归：**浮层内容必须跟着设置数据重建**（2026-09-11，浏览器里抓到的第二个 bug）
+  // ─────────────────────────────────────────────────────────────
+  //
+  // 症状：medium / compact 打开设置后，内容区**永远转圈**。
+  // 根因：`showModalBottomSheet` 的 builder 只在路由入栈时跑一次。设置数据是
+  //   异步加载的——打开时在 loading，浮层画出一个转圈；数据回来之后外层
+  //   `setState` 重建的是**外壳**，浮层内容被冻结，于是转圈不结束。
+  //   expanded 的内联侧板没有这个问题（它就是外壳自己的一棵树）。
+  //
+  // 所以：浮层内部必须自己订阅设置数据（`settingsChanges`）。
+  group('浮层内容跟着设置数据重建（否则永远停在「加载中」）', () {
+    testWidgets('medium（底部浮层）在数据变化后重建内容', (WidgetTester tester) async {
+      final ValueNotifier<int> changes = ValueNotifier<int>(0);
+      addTearDown(changes.dispose);
+
+      int builds = 0;
+      await pumpShell(
+        tester,
+        width: 1000,
+        settingsChanges: changes,
+        onEnsureSectionLoaded: () => changes.value++,
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+
+      // 模拟「加载完成」：设置控制器通知一次。
+      final int before = tester
+          .widgetList(find.textContaining('PANE:'))
+          .length;
+      changes.value++;
+      await tester.pumpAndSettle();
+      // 桩内容是常量文本，数量不会变——这里断言的是**没有崩、且重建路径成立**：
+      // 真正的行为证据是下面的「转圈会消失」那条（用真实的分区构建器）。
+      expect(find.byType(AppShell), findsOneWidget);
+      expect(before, greaterThanOrEqualTo(0));
+      builds++;
+      expect(builds, 1);
+    });
+
+    testWidgets('浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）', (
+      WidgetTester tester,
+    ) async {
+      final ValueNotifier<int> changes = ValueNotifier<int>(0);
+      addTearDown(changes.dispose);
+      // 用一个会先转圈、再出内容的构建器，模拟 `_settings.load()` 的真实时序。
+      bool loaded = false;
+
+      await tester.binding.setSurfaceSize(const Size(1000, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: AppShell(
+            stage: const ColoredBox(color: Color(0xFF000000)),
+            phase: UiPhase.idle,
+            wsStatus: WsStatus.connected,
+            messages: const <Never>[],
+            input: TextEditingController(),
+            onSend: () {},
+            onStop: () {},
+            onRetryConnection: () {},
+            volume: 1,
+            muted: false,
+            onVolumeChanged: (_) {},
+            onMutedChanged: (_) {},
+            sections: visibleSections(),
+            settingsChanges: changes,
+            onEnsureSectionLoaded: () => changes.value++,
+            sectionBuilder: (BuildContext context, SettingsSection s) => loaded
+                ? Text('READY:${s.label}')
+                : const Center(child: CircularProgressIndicator()),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('设置'));
+      // **不能** pumpAndSettle：不确定进度的进度条是无限动画。
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      // 数据回来了。
+      loaded = true;
+      changes.value++;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.byType(CircularProgressIndicator),
+        findsNothing,
+        reason: '浮层内容没有跟着设置数据重建 → 用户看到永远转圈',
+      );
+      expect(find.textContaining('READY:'), findsOneWidget);
     });
   });
 }

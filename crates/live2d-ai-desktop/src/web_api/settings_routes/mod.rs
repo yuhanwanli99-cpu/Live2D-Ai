@@ -220,7 +220,7 @@ fn apply_inject_rules_tts(
 /// **D-P0C（2026-08-29）**：增加 `apply_status` 字段——dispatch 层在写盘
 /// 成功后调用 `patch_after_hook` 拿到 [`ApplyStatus`]，回填到响应。前端
 /// 按状态显示文案（**前端字符串锚点**：`"applied"` / `"restart_required"`
-/// / `"queued"` / `"no_supervisor"`——app.js 硬编码；改动需同步）。
+/// / `"queued"` / `"no_supervisor"`——前端按此分支显示文案；改动需同步）。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PatchResponse {
     /// 是否真的写了盘（[`PatchOutcome::NoChange`] → `false`）。
@@ -292,7 +292,10 @@ pub fn apply_and_write(
     })?;
     let persisted = matches!(outcome, PatchOutcome::Updated);
     if persisted {
-        let toml_text = next.to_toml_string();
+        // **合并写回**：保留现有文件里的注释与排版。
+        // 直接 `to_toml_string()` 会重新生成整份文档、抹掉所有注释
+        //（2026-09-11 实测发生：在界面上切一次 dev_mode，46 行注释全消失）。
+        let toml_text = next.to_toml_string_merging(std::path::Path::new(config_path));
         // 写盘前创建父目录（P0-4 关联）：首次保存时 `~/.config/live2d-ai/`
         // 不存在也能成功。
         let target = std::path::Path::new(config_path);

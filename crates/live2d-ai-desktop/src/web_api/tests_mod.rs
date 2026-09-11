@@ -34,6 +34,43 @@ fn body_to_string(resp: Response<std::io::Cursor<Vec<u8>>>) -> String {
 }
 
 /// 全表 method+path → RouteId 映射（含 W2 新增 chat 端点）。
+/// **查询串必须先被剥掉**（2026-09-11 修：Flutter 诊断面板从来没拿到过日志）。
+///
+/// 症状：`GET /api/v1/logs?limit=200` → **501**（`NotImplemented`），
+/// 因为 `tiny_http` 的 `request.url()` 带着 `?...`，而路由是精确匹配。
+/// Flutter 前端恰好就是那么调的，所以诊断面板的日志区在成品里是坏的。
+#[test]
+fn strip_query_removes_search_only() {
+    assert_eq!(super::strip_query("/api/v1/logs?limit=200"), "/api/v1/logs");
+    assert_eq!(
+        super::strip_query("/api/v1/logs?level=warn&limit=100"),
+        "/api/v1/logs"
+    );
+    // 没有查询串时**原样返回**（不能把正常路径切坏）。
+    assert_eq!(super::strip_query("/api/v1/logs"), "/api/v1/logs");
+    assert_eq!(super::strip_query("/"), "/");
+    assert_eq!(super::strip_query("/render"), "/render");
+    // 空查询串（`/x?`）也剥掉。
+    assert_eq!(super::strip_query("/x?"), "/x");
+}
+
+/// 剥过之后，那些「前端带查询参数」的端点落回正确路由。
+#[test]
+fn query_strings_do_not_break_route_matching() {
+    for (raw, want) in [
+        ("/api/v1/logs?limit=200", RouteId::LogsGet),
+        ("/api/v1/logs?level=warn", RouteId::LogsGet),
+        ("/api/v1/app/status?x=1", RouteId::AppStatus),
+        ("/api/v1/settings?a=b", RouteId::SettingsGet),
+    ] {
+        assert_eq!(
+            match_route(&Method::Get, super::strip_query(raw)),
+            want,
+            "{raw} 剥掉查询串后应落到 {want:?}"
+        );
+    }
+}
+
 #[test]
 fn route_dispatch_table_is_stable() {
     assert_eq!(
@@ -75,16 +112,15 @@ fn route_dispatch_table_is_stable() {
         match_route(&Method::Get, "/api/v1/logs/levels"),
         RouteId::LogsLevels
     );
-    // W8：单页配置面板（HTML / CSS / JS）——路径白名单内全部命中。
-    assert_eq!(match_route(&Method::Get, "/"), RouteId::IndexHtml);
-    assert_eq!(match_route(&Method::Get, "/index.html"), RouteId::IndexHtml);
-    assert_eq!(
-        match_route(&Method::Get, "/static/style.css"),
-        RouteId::IndexHtml
-    );
+    // W8 的原生 JS 前端（`/` + `/static/*`）已于 2026-09-11 删除。
+    // `/` 现在由 `flutter_app::handle_flutter_app` 在**请求循环里**接管
+    // （302 → `/app/`），和 WS 路径一样**不出现在 `match_route` 的结果里**。
+    // 所以这里断言的是「dispatch 不认它」——它不该悄悄落回某个旧路由。
+    assert_eq!(match_route(&Method::Get, "/"), RouteId::NotFound);
+    assert_eq!(match_route(&Method::Get, "/index.html"), RouteId::NotFound);
     assert_eq!(
         match_route(&Method::Get, "/static/app.js"),
-        RouteId::IndexHtml
+        RouteId::NotFound
     );
     // 冻结但未实现。
     // D3（2026-08-28）：`/api/v1/models` 现在走 `RouteId::Models`（统一
@@ -125,7 +161,6 @@ fn route_id_as_str_is_stable() {
     assert_eq!(RouteId::ChatStop.as_str(), "chat.stop");
     assert_eq!(RouteId::LogsGet.as_str(), "logs.get");
     assert_eq!(RouteId::LogsLevels.as_str(), "logs.levels");
-    assert_eq!(RouteId::IndexHtml.as_str(), "index.html");
     assert_eq!(RouteId::Models.as_str(), "models");
     assert_eq!(RouteId::Commands.as_str(), "commands");
     assert_eq!(RouteId::NotImplemented.as_str(), "not_implemented");
@@ -168,7 +203,7 @@ fn dispatch_models_list_returns_200_empty() {
 #[test]
 fn dispatch_unknown_path_returns_404() {
     let ctx = ctx_with(AppSettings::default());
-    // W8 后 `/` 走 IndexHtml 路由；用不存在的路径断言 404。
+    // 用不存在的路径断言 404。
     let resp = dispatch(&ctx, &Method::Get, "/nope", "");
     assert_eq!(resp.status_code().0, 404);
 }

@@ -339,7 +339,6 @@ fn mutating_route_classification() {
     assert!(!is_mutating_route(RouteId::SettingsGet, &Method::Get));
     assert!(!is_mutating_route(RouteId::LogsGet, &Method::Get));
     assert!(!is_mutating_route(RouteId::LogsLevels, &Method::Get));
-    assert!(!is_mutating_route(RouteId::IndexHtml, &Method::Get));
 }
 
 /// Commands 路由按 method 区分：POST invoke = mutating；GET list = 只读。

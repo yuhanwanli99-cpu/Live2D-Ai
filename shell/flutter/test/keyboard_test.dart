@@ -35,7 +35,7 @@ void main() {
             muted: false,
             onVolumeChanged: (_) {},
             onMutedChanged: (_) {},
-            sections: visibleSections(devMode: false),
+            sections: visibleSections(),
             sectionBuilder: (BuildContext c, SettingsSection s) =>
                 const SizedBox.shrink(),
             onUserGesture: () => gestures++,
@@ -74,7 +74,7 @@ void main() {
             muted: false,
             onVolumeChanged: (_) {},
             onMutedChanged: (_) {},
-            sections: visibleSections(devMode: false),
+            sections: visibleSections(),
             sectionBuilder: (BuildContext c, SettingsSection s) =>
                 const SizedBox.shrink(),
             onUserGesture: () => gestures++,
@@ -105,7 +105,7 @@ void main() {
             muted: false,
             onVolumeChanged: (_) {},
             onMutedChanged: (_) {},
-            sections: visibleSections(devMode: false),
+            sections: visibleSections(),
             sectionBuilder: (BuildContext c, SettingsSection s) =>
                 const SizedBox.shrink(),
             onUserGesture: () {},
@@ -178,7 +178,7 @@ void main() {
               muted: false,
               onVolumeChanged: (_) {},
               onMutedChanged: (_) {},
-              sections: visibleSections(devMode: false),
+              sections: visibleSections(),
               sectionBuilder: (BuildContext c, SettingsSection s) =>
                   const SizedBox.shrink(),
             ),

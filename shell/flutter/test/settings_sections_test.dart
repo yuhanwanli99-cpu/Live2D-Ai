@@ -83,30 +83,35 @@ void main() {
     });
   });
 
-  group('dev_mode 只门控「开发模式」分区', () {
-    test('dev 关 → 7 个分区', () {
-      final List<SettingsSection> sections = visibleSections(devMode: false);
-      expect(sections, hasLength(7));
-      expect(sections, isNot(contains(SettingsSection.developer)));
-    });
-
-    test('dev 开 → 8 个分区，且顺序不变', () {
-      final List<SettingsSection> sections = visibleSections(devMode: true);
+  group('分区清单**恒定**（dev_mode 不再藏分区）', () {
+    // 2026-09-11 修：过去 dev_mode 关时「开发模式」分区被过滤掉，
+    // 而唯一能打开 dev_mode 的开关**就在那个分区里** —— 于是它在界面上
+    // 永远打不开（只有 curl / `--dev-mode` 能开）。死循环。
+    test('无论 dev_mode 如何，8 个分区都在（含「开发模式」）', () {
+      final List<SettingsSection> sections = visibleSections();
+      expect(sections, hasLength(8));
+      expect(sections, contains(SettingsSection.developer));
       expect(sections, SettingsSection.values);
     });
 
-    test('只有 developer 是 isDevOnly', () {
-      for (final SettingsSection s in SettingsSection.values) {
-        expect(s.isDevOnly, s == SettingsSection.developer, reason: s.name);
-      }
+    test('顺序 = 枚举声明顺序（不重排）', () {
+      expect(visibleSections(), SettingsSection.values);
     });
 
-    test('过滤后顺序与原顺序一致（不重排）', () {
-      final List<SettingsSection> visible = visibleSections(devMode: false);
-      final List<SettingsSection> expected = SettingsSection.values
-          .where((SettingsSection s) => s != SettingsSection.developer)
-          .toList();
-      expect(visible, expected);
+    test('返回的是**不可变**列表（防调用方顺手改全局顺序）', () {
+      expect(
+        () => visibleSections().add(SettingsSection.persona),
+        throwsUnsupportedError,
+      );
+    });
+
+    test('不再有 isDevOnly 这个「藏分区」的口子', () {
+      // 保留这条断言是为了说明：要藏的是**分区内的字段**，不是分区。
+      // 哪天有人想加回来，先读 `visibleSections` 的头注。
+      expect(
+        SettingsSection.values.where((SettingsSection s) => s.name == 'developer'),
+        hasLength(1),
+      );
     });
   });
 }

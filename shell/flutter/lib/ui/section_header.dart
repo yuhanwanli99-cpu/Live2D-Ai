@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
+import 'emphasized_text.dart';
 import 'theme.dart';
 
 class SectionHeader extends StatelessWidget {
@@ -27,7 +28,9 @@ class SectionHeader extends StatelessWidget {
         Text(title, style: theme.textTheme.titleMedium),
         if (description != null) ...<Widget>[
           const SizedBox(height: Space.s1),
-          Text(
+          // 说明文案里有 `**强调**`（Markdown 习惯）——必须**渲染**它，
+          // 否则用户看到的是两个字面的星号。
+          EmphasizedText(
             description!,
             style: theme.textTheme.bodySmall?.copyWith(
               color: appColorsOf(context).contentMuted,

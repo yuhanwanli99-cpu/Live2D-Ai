@@ -68,6 +68,8 @@ class AppShell extends StatefulWidget {
     required this.onMutedChanged,
     required this.sections,
     required this.sectionBuilder,
+    this.onEnsureSectionLoaded,
+    this.settingsChanges = const NeverNotifies(),
     this.section = SettingsSection.actions,
     this.onSectionChanged,
     this.error,
@@ -135,6 +137,29 @@ class AppShell extends StatefulWidget {
   /// 分区内容构建器（**必需**：外壳不自己造设置面板内容）。
   final Widget Function(BuildContext context, SettingsSection section)
   sectionBuilder;
+
+  /// 设置数据变化时通知外壳重建设置面板内容。
+  ///
+  /// # 为什么必须要（2026-09-11 浏览器里抓到的第二个 bug）
+  ///
+  /// `showModalBottomSheet` 的 `builder` **只在路由入栈时跑一次**——medium /
+  /// compact 的浮层内容因此被**冻结在打开那一刻**。设置数据是异步加载的：
+  /// 打开时还在 `loading`，浮层画出一个转圈；数据回来之后外层 `setState`
+  /// 重建的是外壳、**不是浮层**，于是那个转圈**永远转下去**。
+  ///
+  /// expanded 的内联侧板没有这个问题（它就是外壳自己的一棵树，`setState`
+  /// 直接重建它）——所以这个 bug 只在 medium / compact 上出现，
+  /// 而 widget 测试全都注入桩内容、从不经过加载，于是谁也没发现。
+  ///
+  /// 传进来的应该是 `SettingsController`（它本来就是 `ChangeNotifier`）。
+  final Listenable settingsChanges;
+
+  /// **打开设置前**让宿主把当前分区的内容加载出来。
+  ///
+  /// 外壳不持有设置数据（那是 `SettingsController` 的事），所以它只能上报
+  /// 「用户要看设置了」这个意图。少了这一步，直接点「设置」会看到一个
+  /// 「读不到服务端设置」的空壳——见 [AppShellState.openSettings] 的说明。
+  final VoidCallback? onEnsureSectionLoaded;
 
   final bool devMode;
 
@@ -264,12 +289,25 @@ class AppShellState extends State<AppShell> {
   /// - compact：抽屉（第 1 层）→ 底部浮层（第 2 层）。
   ///
   /// 再点一次 rail 上**同一个**分区 = 收起内联侧板（切换语义）。
+  ///
+  /// # 打开之前必须先让宿主**加载当前分区的内容**（2026-09-11 修）
+  ///
+  /// 分区内容是由宿主按需加载的（`SettingsController.load()`），而这里过去
+  /// 只切 `settingsOpen` —— 于是 expanded / medium 上直接点「设置」，看到的是
+  /// 一个写着**「读不到服务端设置 / 未知原因」**的空壳，**必须再点一个分区**
+  /// 才会加载。compact 之所以看起来正常，纯属巧合：它先弹抽屉、必然选一个
+  /// 分区，恰好走了加载那条路。
+  ///
+  /// 所以加载**不能**挂在「分区变了」上（那是结果，不是原因）——
+  /// 「打开设置」本身就是那个原因。
   Future<void> openSettings({SizeClass? sizeClass, bool toggle = false}) async {
     final SizeClass sc =
         sizeClass ?? Breakpoints.sizeClassOf(MediaQuery.sizeOf(context).width);
 
     if (settingsHostOf(sc) == SettingsHost.inline) {
       setState(() => settingsOpen = toggle ? !settingsOpen : true);
+      // 收起时不必加载（把网络请求省下来）。
+      if (settingsOpen) widget.onEnsureSectionLoaded?.call();
       return;
     }
 
@@ -281,6 +319,8 @@ class AppShellState extends State<AppShell> {
       );
       if (!mounted) return;
       if (picked != null) _selectGuarded(picked);
+    } else {
+      widget.onEnsureSectionLoaded?.call();
     }
     if (!mounted) return;
 
@@ -295,12 +335,21 @@ class AppShellState extends State<AppShell> {
     );
   }
 
-  /// 设置内容（三种宿主共用**同一个** widget），订阅内部分区状态。
-  Widget _settingsSurface({required VoidCallback onClose}) =>
-      ValueListenableBuilder<SettingsSection>(
-        valueListenable: sectionNotifier,
-        builder: (BuildContext context, SettingsSection section, Widget? _) =>
-            SettingsScaffold(
+  /// 设置内容（三种宿主共用**同一个** widget）。
+  ///
+  /// 订阅**两件事**：
+  /// - `sectionNotifier`：分区导航（浮层的 builder 只跑一次，不订阅就换不了区）；
+  /// - `settingsChanges`：设置数据（同上——不订阅就永远停在加载中的转圈）。
+  ///
+  /// 两者都必须在**浮层内部**订阅。靠外层重建是没有用的：
+  /// 浮层的 builder 不会因为外壳 `setState` 而重跑。
+  Widget _settingsSurface({required VoidCallback onClose}) => ListenableBuilder(
+    listenable: widget.settingsChanges,
+    builder: (BuildContext context, Widget? _) =>
+        ValueListenableBuilder<SettingsSection>(
+          valueListenable: sectionNotifier,
+          builder: (BuildContext context, SettingsSection section, Widget? _) =>
+              SettingsScaffold(
               sections: widget.sections,
               selected: section,
               // 换分区也要过拦截（「离开分区」是规格 §4.3 的三处拦截之一）。
@@ -312,8 +361,9 @@ class AppShellState extends State<AppShell> {
               onDiscard: widget.onDiscardSettings,
               statusMessage: widget.settingsStatus,
               statusIsError: widget.settingsStatusIsError,
-              child: widget.sectionBuilder(context, section),
-            ),
+                child: widget.sectionBuilder(context, section),
+              ),
+        ),
       );
 
   /// 换分区前先过草稿拦截。
@@ -635,4 +685,19 @@ class _RailItem extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 一个**永不通知**的 [Listenable]。
+///
+/// 只在宿主没接 `settingsChanges` 时当占位（测试里常见）。
+/// 刻意不写成可空 + 条件包一层：那会让「忘了接线」和「不需要」长得一模一样，
+/// 而这两件事的后果差很远——前者是又一个永远转圈的设置面板。
+class NeverNotifies implements Listenable {
+  const NeverNotifies();
+
+  @override
+  void addListener(VoidCallback listener) {}
+
+  @override
+  void removeListener(VoidCallback listener) {}
 }

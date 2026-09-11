@@ -20,7 +20,7 @@ SettingsScaffold build({
   ValueChanged<SettingsSection>? onSelect,
   VoidCallback? onClose,
 }) => SettingsScaffold(
-  sections: visibleSections(devMode: false),
+  sections: visibleSections(),
   selected: SettingsSection.llm,
   onSelect: onSelect ?? (_) {},
   onClose: onClose,
@@ -111,12 +111,12 @@ void main() {
   });
 
   group('分区导航', () {
-    testWidgets('每个分区一个 chip，且只列可见分区（dev 关 → 7 个）', (
+    testWidgets('每个分区一个 chip（8 个，含「开发模式」——它不再被藏起来）', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(wrap(build()));
-      expect(find.byType(ChoiceChip), findsNWidgets(7));
-      expect(find.text('开发模式'), findsNothing);
+      expect(find.byType(ChoiceChip), findsNWidgets(8));
+      expect(find.text('开发模式'), findsOneWidget);
     });
 
     testWidgets('点 chip 上报分区', (WidgetTester tester) async {

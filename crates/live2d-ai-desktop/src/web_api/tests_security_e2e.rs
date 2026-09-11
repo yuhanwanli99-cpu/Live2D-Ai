@@ -251,7 +251,6 @@ fn mutating_routes_classification_sanity() {
     assert!(is_mutating_route(RouteId::Models, &Method::Post));
     assert!(is_mutating_route(RouteId::Models, &Method::Delete));
     assert!(!is_mutating_route(RouteId::SettingsGet, &Method::Get));
-    assert!(!is_mutating_route(RouteId::IndexHtml, &Method::Get));
     assert!(!is_mutating_route(RouteId::Commands, &Method::Get));
     assert!(!is_mutating_route(RouteId::Models, &Method::Get));
 }

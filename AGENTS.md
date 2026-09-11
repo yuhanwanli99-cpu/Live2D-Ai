@@ -30,10 +30,12 @@
 
 - **唯一实现主线 = 核心层 Rust workspace**（`crates/`）：`l2d` / `live2d-ai-core` /
   `live2d-ai-runtime` / `live2d-ai-desktop` / `l2d-wasm-demo` / `xtask` / `live2d-ai-mod-system`。
-- **前端以 Flutter Web 为准**（`shell/flutter/`）。旧的**原生 JS 前端**（`/` =
-  `web_api/index.html` + `app.js` + `chat.js` + `style.css`）是**遗留实现**：
-  视觉与交互质量不达标、维护成本高，**只修致命缺陷、不再加新功能**，
-  长期由 Flutter 完全替代。新功能一律做在 Flutter 侧。
+- **前端以 Flutter Web 为准**（`shell/flutter/`），**且只有一个入口**：
+  `GET /` 与 `GET /index.html` **302 到 `/app/`**。
+  旧的**原生 JS 前端**（`web_api/index.html` + `app.js` + `chat.js` + `style.css`
+  + `index_html.rs`）已于 **2026-09-11 删除**——它曾在 `/` 提供一套**与 `/app`
+  不同**的界面：同一个服务两个产品，打开哪个 URL 看到哪个，是明确的坑。
+  删除后 `rust-ratio` 反而升到 ~98%（`js` 不再计入分母）。新功能一律做在 Flutter 侧。
 
 ### 前端层豁免的理由（显式记录，勿当成遗漏）
 
@@ -98,6 +100,20 @@
 
 ## 变更历史
 
+- **2026-09-11（v0.5.1）**：v0.5.0 交付后接浏览器工具做**真机验收**，
+  抓到**九个 bug**（八个逃过了当时全绿的 810+590 条测试）：
+  ① 直接点「设置」不加载（面板写「读不到服务端设置」）；
+  ② `showModalBottomSheet` 的 builder 只跑一次 → medium/compact 设置浮层**永远转圈**；
+  ③ 路由把查询串当路径 → `GET /api/v1/logs?limit=200` 回 501，诊断日志从未成功；
+  ④ `dev_mode` 的开关被自己所在的分区藏起来 → 界面上**永远打不开**；
+  ⑤ **保存设置会抹掉配置文件全部注释**（`toml::to_string` 重生成文档）——
+  当天真的发生一次，改用 `toml_edit` **就地改值**（`merge_into_toml`）；
+  ⑥ UI 文案露出 Markdown `**`（15 处）→ 新增 `EmphasizedText` 真渲染 + 扫描规则；
+  ⑦ 切主题后舞台不变色（`_applyPrefs` 读了尚未更新的 `widget.prefs`）；
+  ⑧ 缩放读数永远是 `—`（没人读渲染面首帧的 `stage-ack`）；
+  ⑨ 老 JS 前端占着 `/` 与 `/app` 是两套界面 → `/` 302 到 `/app/`，JS 前端整套删除。
+  教训：**测试全绿 ≠ 界面是对的**；异步时序、浮层构建时机、平台视图、
+  精确路径匹配这四类问题只有真的在浏览器里点一遍才会露出来。
 - **2026-09-11（v0.5.0）**：用户裁定「**只核心链路做丰满即可**」+「前端 ui 很 ai 化同质」。
   据此**先删后改**：动作手动触发移出成品（只留分支 `archive/action-trigger-p5`
   与 `docs/design/web-action-trigger-archive.md`）；清掉没有功能的占位 UI；
@@ -107,6 +123,12 @@
   会盖住父页画的底色）+ 可选用户展台图；新增**组件外观统一层**
   `buildAppComponents`（elevation 全 0、圆角/字级统一）与「**发送 = 圆形上箭头**」
   「**尽量少用图片，用文字做按钮**」两条形状约定（`test/visual_language_test.dart`）。
+  **删掉老 JS 前端**：`/` 302 → `/app/`，一个服务只有一个界面入口。
+  另修三个「只有真浏览器才抓得到」的 bug（三个都逃过了当时的全部测试）：
+  ① 直接点「设置」不触发加载 → 面板显示「读不到服务端设置」；
+  ② `showModalBottomSheet` 的 builder 只跑一次 → medium/compact 的设置浮层
+  **永远转圈**（内容不跟数据重建）；③ 路由把查询串当路径 →
+  `GET /api/v1/logs?limit=200` 回 **501**，诊断面板的日志区从来没成功过。
 - **2026-09-10（v0.4.4 / v0.4.5）**：确立前端**离线可用**的两条硬约束——
   构建必须带 `--no-web-resources-cdn`（否则 CanvasKit 走 Google CDN，断网白屏）；
   中文字体必须自托管（否则断网豆腐块）。两者都是「有网时看不出来」的缺陷。

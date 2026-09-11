@@ -209,7 +209,11 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                             sup_for_reload.reload();
                             return true;
                         }
-                        let toml_text = next.to_toml_string();
+                        // **合并写回**：保留现有配置的注释与排版。
+                        let toml_text = next
+                            .to_toml_string_merging(std::path::Path::new(
+                                &cfg_path_for_settings,
+                            ));
                         let target = std::path::Path::new(&cfg_path_for_settings);
                         if let Some(parent) = target.parent()
                             && !parent.as_os_str().is_empty()

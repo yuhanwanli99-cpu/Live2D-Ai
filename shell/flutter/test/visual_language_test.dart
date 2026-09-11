@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +13,8 @@ import 'package:live2d_ai_shell/settings/settings_sections.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/audio_bar.dart';
 import 'package:live2d_ai_shell/ui/chat_panel.dart';
+import 'package:live2d_ai_shell/ui/field_row.dart';
+import 'package:live2d_ai_shell/ui/section_header.dart';
 import 'package:live2d_ai_shell/ui/settings_scaffold.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
@@ -139,7 +143,7 @@ void main() {
             muted: false,
             onVolumeChanged: (_) {},
             onMutedChanged: (_) {},
-            sections: visibleSections(devMode: false),
+            sections: visibleSections(),
             sectionBuilder: (BuildContext c, SettingsSection s) =>
                 const SizedBox.shrink(),
           ),
@@ -162,7 +166,7 @@ void main() {
       await tester.pumpWidget(
         wrap(
           SectionRail(
-            sections: visibleSections(devMode: true),
+            sections: visibleSections(),
             selected: SettingsSection.actions,
             onSelect: (_) => picked++,
           ),
@@ -178,7 +182,7 @@ void main() {
         reason: '用户裁决「尽量少用图片用文字做按钮」',
       );
       // 8 个分区都能点。
-      for (final SettingsSection s in visibleSections(devMode: true)) {
+      for (final SettingsSection s in visibleSections()) {
         expect(find.text(s.label), findsOneWidget);
       }
       await tester.tap(find.text('诊断'));
@@ -202,7 +206,7 @@ void main() {
       await tester.pumpWidget(
         wrap(
           SettingsScaffold(
-            sections: visibleSections(devMode: false),
+            sections: visibleSections(),
             selected: SettingsSection.actions,
             onSelect: (_) {},
             child: const SizedBox.shrink(),
@@ -216,6 +220,165 @@ void main() {
       for (final ChoiceChip chip in chips) {
         expect(chip.avatar, isNull, reason: 'chip 前面的小图标是纯噪声');
       }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 文案里的 Markdown 标记必须被**渲染**，不能露给用户看
+  // ─────────────────────────────────────────────────────────────
+  //
+  // 2026-09-11 在真浏览器里看到：设置面板上到处是字面的 `**`
+  //（`**只影响本机显示**`）——文案按 Markdown 写，而 `Text` 不认它。
+  group('说明文案不露 Markdown 星号', () {
+    testWidgets('SectionHeader 的 description 渲染成粗体而不是两颗星', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const SectionHeader(
+            title: '外观',
+            description: '四套配色任选。**只影响本机显示**，选完立刻生效。',
+          ),
+        ),
+      );
+      final Iterable<Text> texts = tester.widgetList<Text>(find.byType(Text));
+      for (final Text t in texts) {
+        final InlineSpan? span = t.textSpan;
+        final String plain = span == null
+            ? (t.data ?? '')
+            : span.toPlainText();
+        expect(
+          plain.contains('**'),
+          isFalse,
+          reason: '说明文案里漏出了 Markdown 星号：$plain',
+        );
+      }
+      expect(find.textContaining('只影响本机显示'), findsOneWidget);
+    });
+
+    testWidgets('字段说明（FieldRow）同样不露星号', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          ToggleField(
+            label: '口型同步',
+            icon: Icons.graphic_eq,
+            value: true,
+            onChanged: (_) {},
+            description: '关掉后声音照放，但**嘴不动**',
+          ),
+        ),
+      );
+      final Iterable<Text> texts = tester.widgetList<Text>(find.byType(Text));
+      for (final Text t in texts) {
+        final String plain = t.textSpan?.toPlainText() ?? (t.data ?? '');
+        expect(plain.contains('**'), isFalse, reason: '漏出星号：$plain');
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 源码级卫生：`**强调**` 只能交给 EmphasizedText 画
+  // ─────────────────────────────────────────────────────────────
+  //
+  // 上一组测的是「EmphasizedText 画得对」；这一组防的是**有人又用裸 `Text`
+  // 写了一段带 `**` 的文案**——那正是 2026-09-11 在浏览器里看到的现象
+  //（`_StageImageView` 的静态说明就是漏网的那一处）。
+  //
+  // 扫描是**窗口式**的：`Text(` 的参数经常跨好几行，只比同一行会漏。
+  // 判据本身由下面的合成用例自证（不然「扫描器什么都查不出来」也会显示绿）。
+  group('源码卫生：不带 EmphasizedText 的 Text 不许出现 `**`', () {
+    /// 找出「裸 `Text(...)` 的**实参**里出现 `**`」的位置。
+    ///
+    /// 按**括号配对**取这次调用的完整实参，不是按行窗口——`Text(` 的参数经常
+    /// 跨行，而按行取窗口会把隔壁 `EmphasizedText(...)` 的文案误算进来
+    /// （第一版就是这么误报的）。
+    /// 跳过字符串字面量里的括号，否则 `Text('a)b')` 会破坏配对。
+    List<String> findBareBold(String source, {String label = ''}) {
+      final List<String> hits = <String>[];
+      // `(?<![A-Za-z_])` 很关键：`EmphasizedText(` 的结尾也是 `Text(`。
+      final RegExp re = RegExp(r'(?<![A-Za-z_])Text\(');
+      for (final RegExpMatch m in re.allMatches(source)) {
+        int depth = 0;
+        int i = m.end - 1;
+        String? quote;
+        for (; i < source.length; i++) {
+          final String ch = source[i];
+          if (quote != null) {
+            if (ch == r'\') {
+              i++;
+            } else if (ch == quote) {
+              quote = null;
+            }
+            continue;
+          }
+          if (ch == "'" || ch == '"') {
+            quote = ch;
+          } else if (ch == '(') {
+            depth++;
+          } else if (ch == ')') {
+            depth--;
+            if (depth == 0) {
+              i++;
+              break;
+            }
+          }
+        }
+        final String call = source.substring(m.start, i);
+        // 注释里的 `**` 不算（说明「语法长这样」是正常的）。
+        final String code = call
+            .split('\n')
+            .where((String l) => !l.trimLeft().startsWith('//'))
+            .join('\n');
+        if (RegExp(r'\*\*').hasMatch(code)) {
+          final int line = source.substring(0, m.start).split('\n').length;
+          hits.add('$label$line  ${call.split('\n').first.trim()}');
+        }
+      }
+      return hits;
+    }
+
+    test('扫描器能抓到违规（合成样例自证）', () {
+      const String bad = """
+      children: <Widget>[
+        Text(
+          '背景图**盖在纯色底上**：有图时看得到图。',
+          style: null,
+        ),
+      ],""";
+      expect(findBareBold(bad), isNotEmpty, reason: '扫描器连合成违规都抓不到');
+      const String good = """
+      children: <Widget>[
+        EmphasizedText(
+          '背景图**盖在纯色底上**：有图时看得到图。',
+          style: null,
+        ),
+      ],""";
+      expect(findBareBold(good), isEmpty, reason: 'EmphasizedText 是合法用法');
+      // 注释里的 `**` 不算。
+      const String commented = """
+      // 这里说 **强调** 的语法
+      Text('普通文案'),
+      """;
+      expect(findBareBold(commented), isEmpty);
+    });
+
+    test('lib/ 里没有违规', () {
+      final List<String> hits = <String>[];
+      for (final FileSystemEntity e
+          in Directory('lib').listSync(recursive: true)) {
+        if (e is! File || !e.path.endsWith('.dart')) continue;
+        // 渲染器自己当然有 `**`。
+        if (e.path.endsWith('ui/emphasized_text.dart')) continue;
+        hits.addAll(
+          findBareBold(e.readAsStringSync(), label: '${e.path}:'),
+        );
+      }
+      expect(
+        hits,
+        isEmpty,
+        reason: '这些地方会用裸 Text 把 `**` 画给用户看——'
+            '改用 EmphasizedText：\n${hits.join('\n')}',
+      );
     });
   });
 }

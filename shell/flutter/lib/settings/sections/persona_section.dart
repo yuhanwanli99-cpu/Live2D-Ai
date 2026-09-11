@@ -108,8 +108,10 @@ class PersonaSection extends StatelessWidget {
         const Divider(),
         const SectionHeader(
           title: '导入角色卡',
-          description: '支持酒馆（SillyTavern）角色卡：`.json`，或**内嵌人设的 PNG**'
-              '（`tEXt`/`chara`）。纯本地解析，不上传任何东西。',
+          // 反引号去掉：`Text` 不认 Markdown，`.json` 这种记号本身已经够清楚，
+          // 留着反引号只会多两个符号（与 `**` 同源的问题）。
+          description: '支持酒馆（SillyTavern）角色卡：.json，或**内嵌人设的 PNG**'
+              '（tEXt / chara）。纯本地解析，不上传任何东西。',
         ),
         // **必须有这个按钮**。第一版只声明了 `onImport` 却没画按钮，
         // 于是整个导入功能在界面上**点不到**（而且被 dart2js 当死代码裁掉，

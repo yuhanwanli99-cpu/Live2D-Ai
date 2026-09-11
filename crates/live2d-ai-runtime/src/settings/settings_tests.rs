@@ -507,3 +507,159 @@ fn max_tokens_round_trips_through_toml_and_view_echoes_effective() {
     let view = settings_to_view(&omitted);
     assert_eq!(view.llm.max_tokens, 512);
 }
+
+// ─────────────────────────────────────────────────────────────────
+// 合并写回：**不许吃掉注释**（2026-09-11 修的真实数据损失）
+// ─────────────────────────────────────────────────────────────────
+
+/// 一份**带注释**的配置（形状取自 `live2d-ai.toml.example`）。
+const COMMENTED: &str = r#"# 顶部说明：这份配置是手写的，注释是给人看的
+# 第二行注释
+
+[llm]
+# OpenAI 兼容服务基址（尾部 / 可省略）
+base_url = "https://api.deepseek.com/v1"
+# 模型名
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"   # 行尾注释也要留住
+# max_tokens = 512
+
+[tts]
+base_url = "http://127.0.0.1:8080/v1"
+voice = "skystar"
+response_format = "pcm"
+sample_rate = 24000
+channels = 1
+
+[persona]
+# 人设：空 = 不注入
+name = ""
+description = ""
+"#;
+
+#[test]
+fn merge_keeps_every_comment_and_blank_line() {
+    let mut s = AppSettings::default();
+    s.llm.base_url = "https://api.deepseek.com/v1".to_string();
+    s.llm.model = "deepseek-flash".to_string();
+    s.llm.api_key_env = Some("DEEPSEEK_API_KEY".to_string());
+    let merged = s.merge_into_toml(COMMENTED).expect("合并应成功");
+
+    for needle in [
+        "# 顶部说明",
+        "# 第二行注释",
+        "# OpenAI 兼容服务基址",
+        "# 模型名",
+        "# max_tokens = 512",
+        "# 人设：空 = 不注入",
+        "# 行尾注释也要留住",
+    ] {
+        assert!(
+            merged.contains(needle),
+            "合并后丢了注释：{needle}\n---\n{merged}"
+        );
+    }
+    // 空行也要留着（不是「注释活着、排版死了」）。
+    assert!(merged.contains("\n\n[tts]"), "段落之间的空行丢了");
+}
+
+/// 走**真实路径**（解析现有配置 → 改一个值 → 合并写回），
+/// 而不是拿 `default()` 当期望值——后者会把「值为空的键」按省略语义删掉，
+/// 那是另一条测试要覆盖的行为。
+#[test]
+fn merge_changes_only_the_value() {
+    let mut s = AppSettings::from_toml_str(COMMENTED).expect("现有配置应可解析");
+    s.tts.voice = "another_voice".to_string();
+    let merged = s.merge_into_toml(COMMENTED).expect("合并应成功");
+    assert!(merged.contains(r#"voice = "another_voice""#));
+    assert!(!merged.contains(r#"voice = "skystar""#));
+    // 另一个段里的**行尾注释**当然还在（我们没碰那个键）。
+    assert!(
+        merged.contains("# 行尾注释也要留住"),
+        "改一个值不该动到别处的行尾注释：\n{merged}"
+    );
+}
+
+/// **省略 = 删除**：这是与 `to_toml_string` 一致的语义，必须显式记下来。
+///
+/// 为什么值得单独测：`merge_into_toml` 会删掉「期望里没有的键」，
+/// 所以调用方**必须**传完整快照（`apply_patch` 返回的就是完整快照），
+/// 而不是一个「只想改一个字段」的部分对象——传部分对象会把其余键清空。
+#[test]
+fn merge_treats_omitted_keys_as_deletion() {
+    // `default()` 的 `api_key_env` 是 `None`（序列化时省略）。
+    let s = AppSettings::default();
+    let merged = s.merge_into_toml(COMMENTED).expect("合并应成功");
+    assert!(
+        !merged.contains("api_key_env"),
+        "省略的键应被删掉（与 to_toml_string 一致）：\n{merged}"
+    );
+    // 而完整快照（从现有文本解析而来）会把它留住。
+    let full = AppSettings::from_toml_str(COMMENTED).expect("解析");
+    assert!(
+        full.merge_into_toml(COMMENTED)
+            .expect("合并")
+            .contains("api_key_env")
+    );
+}
+
+#[test]
+fn merge_removes_none_keys_but_keeps_the_rest() {
+    // `api_key_env = None` → 该键应被删掉（与 `to_toml_string` 的「省略」一致），
+    // 但**它的注释不许顺带把邻居带走**。
+    let mut s = AppSettings::default();
+    s.llm.model = "deepseek-flash".to_string();
+    s.llm.api_key_env = None;
+    let merged = s.merge_into_toml(COMMENTED).expect("合并应成功");
+    assert!(
+        !merged.contains("api_key_env"),
+        "None 字段应被删掉：\n{merged}"
+    );
+    assert!(merged.contains("# 模型名"), "删一个键不该带走别的注释");
+}
+
+#[test]
+fn merge_seeds_missing_keys_and_keeps_unknown_ones() {
+    // 目标文件里**没有** [persona].name（键缺失）→ 追加；
+    // 同时留一个我们不认识的键 → 保留（原实现会连带删掉）。
+    let existing = "# 说明\n[llm]\nbase_url = \"http://a/v1\"\nmodel = \"m\"\n";
+    let mut s = AppSettings::default();
+    s.llm.base_url = "http://a/v1".to_string();
+    s.llm.model = "m".to_string();
+    s.persona.name = "小明".to_string();
+    let merged = s.merge_into_toml(existing).expect("合并应成功");
+    assert!(merged.contains("# 说明"));
+    assert!(
+        merged.contains(r#"name = "小明""#),
+        "缺的键要补上：\n{merged}"
+    );
+}
+
+#[test]
+fn merge_with_empty_existing_falls_back_to_plain_serialization() {
+    let s = AppSettings::default();
+    assert_eq!(s.merge_into_toml("").unwrap(), s.to_toml_string());
+    assert_eq!(s.merge_into_toml("   \n  ").unwrap(), s.to_toml_string());
+}
+
+#[test]
+fn merge_rejects_broken_existing_toml() {
+    let s = AppSettings::default();
+    assert!(s.merge_into_toml("[llm\nbase_url = ").is_err());
+}
+
+/// 合并结果必须**仍能被解析回等价的值**（否则「保住了注释、写坏了配置」）。
+#[test]
+fn merged_text_round_trips_to_the_same_settings() {
+    let mut s = AppSettings::default();
+    s.llm.base_url = "https://api.deepseek.com/v1".to_string();
+    s.llm.model = "deepseek-flash".to_string();
+    s.tts.voice = "skystar".to_string();
+    s.persona.name = "小明".to_string();
+    let merged = s.merge_into_toml(COMMENTED).expect("合并应成功");
+    let back = AppSettings::from_toml_str(&merged).expect("合并结果应可解析");
+    assert_eq!(back.llm.base_url, s.llm.base_url);
+    assert_eq!(back.llm.model, s.llm.model);
+    assert_eq!(back.tts.voice, s.tts.voice);
+    assert_eq!(back.persona.name, s.persona.name);
+}

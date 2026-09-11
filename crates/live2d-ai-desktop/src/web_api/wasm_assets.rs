@@ -127,17 +127,14 @@ pub fn normalize_rel(rel: &str) -> Result<String, String> {
 ///
 /// 返回 `Some(response)` 表示已处理；`None` 表示非本模块路径（caller 继续 dispatch）。
 ///
-/// # 查询串在**匹配前**被剥掉（2026-09-11）
+/// # 查询串
 ///
-/// `tiny_http` 的 `request.url()` **带查询串**，而全仓库的路由都是精确匹配 ——
-/// 于是 `/render?hud=1` 会落到 404。HUD 开关恰好是查询串（`?hud=1`），
-/// 所以这里按 `?` 切开再做前缀匹配。**只影响匹配，不影响读盘**：
-/// `normalize_rel` 本来就拒绝 `?`，剥掉之后语义更干净。
-///
-/// 没有顺手改全局 dispatch：那会动到所有 API 路由的匹配语义，
-/// 属于「为了让一行能用而改公共面」。
+/// 剥查询串的**正主**是请求循环入口的 [`crate::web_api::strip_query`]
+/// （2026-09-11：那里修掉了 `/api/v1/logs?limit=200` → 501 的老 bug）。
+/// 这里再剥一次是**防御性**的：`handle_assets` 也会被测试单独调用，
+/// 而 `/render?hud=1` 正是 HUD 的开关——漏剥一次就永远打不开。
 pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
-    let path: &str = path.split('?').next().unwrap_or(path);
+    let path: &str = crate::web_api::strip_query(path);
     if *method != Method::Get {
         // 非 GET：若是我们的路径前缀回 405，否则交给 dispatch（可能 404）。
         if path.starts_with("/models/") || path.starts_with("/render") {

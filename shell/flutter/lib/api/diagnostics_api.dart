@@ -102,15 +102,21 @@ class DiagnosticsApi {
       AppCapabilities.fromJson(await _getObject('/api/v1/app/capabilities'));
 
   /// `GET /api/v1/logs`（**需 `dev_mode=true`**，否则 403 `dev_mode_required`）。
-  Future<List<LogLine>> logs({String? level, int? limit}) async {
-    final StringBuffer path = StringBuffer('/api/v1/logs');
-    final List<String> query = <String>[
-      if (level != null && level.isNotEmpty) 'level=$level',
-      if (limit != null) 'limit=$limit',
-    ];
-    if (query.isNotEmpty) path.write('?${query.join('&')}');
+  ///
+  /// # 为什么**没有** `level` / `limit` 参数（2026-09-11）
+  ///
+  /// 它们曾经被发出去，但服务端**根本不读查询参数**：
+  /// `handle_logs()` 只按内置的 `MAX_LINES` 截尾，没有解析 `?limit=`。
+  /// 于是这两个参数有两个问题——一是「静默无效」（发的人以为有用），
+  /// 二是当时路由是精确匹配，带上 `?...` 会直接掉到 **501**，
+  /// 整个诊断面板的日志区在成品里从来没拿到过数据。
+  ///
+  /// 501 已在服务端修掉（请求入口统一剥查询串，见 `web_api::strip_query`）。
+  /// 这里把没用的参数**删掉**而不是留着：服务端既然不支持，
+  /// 客户端就不该假装支持；哪天要限流行数，应该服务端实现并写进契约。
+  Future<List<LogLine>> logs() async {
     final http.Response response = await _guard(
-      () => _client.get(_uri(path.toString())),
+      () => _client.get(_uri('/api/v1/logs')),
     );
     if (response.statusCode != 200) throw _error(response);
     final Object? raw = _decode(response.body)['lines'] ?? _decode(response.body)['logs'];

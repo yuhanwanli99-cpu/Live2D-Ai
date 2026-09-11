@@ -304,7 +304,7 @@ pub fn extract_origin_and_ct(headers: &[tiny_http::Header]) -> (Option<String>, 
 ///     `Models` + POST（import / activate）/ PATCH（display）/
 ///     DELETE（delete）= mutating。
 /// - **恒只读**：`AppCapabilities` / `AppStatus` / `SettingsGet` /
-///   `LogsGet` / `LogsLevels` / `IndexHtml` / `NotImplemented` /
+///   `LogsGet` / `LogsLevels` / `NotImplemented` /
 ///   `NotFound`。
 pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Method) -> bool {
     use crate::web_api::RouteId;
@@ -327,7 +327,6 @@ pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Met
         | RouteId::SettingsGet
         | RouteId::LogsGet
         | RouteId::LogsLevels
-        | RouteId::IndexHtml
         | RouteId::NotImplemented
         | RouteId::NotFound => false,
     }

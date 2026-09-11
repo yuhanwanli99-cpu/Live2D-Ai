@@ -63,7 +63,7 @@ pub fn dispatch_with_security(
 ) -> Response<Cursor<Vec<u8>>> {
     let route = match_route(method, path);
     // D-P0B：mutating 端点先做安全校验（Origin + Content-Type）。
-    // 只读端点（GET/IndexHtml/NotFound 等）跳过——无 CSRF 风险。
+    // 只读端点（GET/NotFound 等）跳过——无 CSRF 风险。
     if crate::web_api::security::is_mutating_route(route, method) {
         let body_present = !body_str.is_empty();
         if let Err(err) = crate::web_api::security::check_mutating_request(
@@ -162,11 +162,6 @@ pub fn dispatch_with_security(
                 forbidden_logs_response()
             }
         }
-        // 静态资源（HTML / CSS / JS）：W8 任务，按白名单查 (body, mime)。
-        RouteId::IndexHtml => match super::index_html::lookup_static(path) {
-            Some((body, mime)) => super::index_html::build_response(body, mime),
-            None => not_found_response(path),
-        },
         // D3（2026-08-28）：模型资产路由。所有子路由在
         // `models_routes::dispatch` 内按 method+path 细分。
         RouteId::Models => {

@@ -123,7 +123,7 @@ Future<SettingsSection?> showSectionDrawer({
         MediaQuery.sizeOf(context).height * NavMetrics.sheetHeightFactorCompact,
   ),
   builder: (BuildContext sheetContext) {
-    final List<SettingsSection> sections = visibleSections(devMode: devMode);
+    final List<SettingsSection> sections = visibleSections();
     return SafeArea(
       child: ListView(
         shrinkWrap: true,

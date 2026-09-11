@@ -12,6 +12,7 @@ import '../../api/diagnostics_api.dart';
 import '../../api/models_api.dart';
 import '../../api/mods_api.dart';
 import '../../design/tokens.dart';
+import '../../ui/emphasized_text.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
 import '../../ui/theme.dart';
@@ -170,7 +171,10 @@ class ModelsSection extends StatelessWidget {
         if (activateMessage != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s2),
-            child: Text(activateMessage!, style: theme.textTheme.bodySmall),
+            child: EmphasizedText(
+              activateMessage!,
+              style: theme.textTheme.bodySmall,
+            ),
           ),
         if (loading && models.isEmpty)
           const Padding(
@@ -512,7 +516,10 @@ class DeveloperSection extends StatelessWidget {
           enabled: !forcedByLaunchFlag,
           description: forcedByLaunchFlag
               ? '当前由启动参数强制开启，无法在界面里关闭'
-              : '关闭后本分区与各分区的「开发者选项」一起隐藏',
+              // 文案必须与**实际行为**一致（2026-09-11 修）：分区本身**不再**
+              // 随 dev_mode 隐藏——藏起来就没人能再打开它。
+              : '关闭后各分区里的「开发者选项」与诊断细节一起隐藏；'
+                    '**本分区始终可见**，否则就再也打不开它了',
           onChanged: onDevModeChanged,
         ),
       ],

@@ -453,8 +453,15 @@ class _ShellRootState extends State<ShellRoot> {
   }
 
   /// 把 [ShellRoot.prefs] 下发给渲染面（协议 v1 `sync`）。
-  void _applyPrefs() {
-    final DisplayPrefs prefs = widget.prefs;
+  /// 把显示偏好下发给渲染面（协议 v1 `sync`）。
+  ///
+  /// [override] 是**即将生效**的偏好。为什么需要它：改偏好的流程是
+  /// 「先通知宿主 → 宿主 `setState` → 本 State 的 `widget.prefs` 才更新」，
+  /// 而这里是在 `setState` **之前**同步调用的——读 `widget.prefs` 会拿到
+  /// **上一次的值**。切主题时这个时序错误的表现是「界面变白了、舞台还是黑的」：
+  /// 发下去的是旧主题的 `stageColor`，而之后再没人重发。
+  void _applyPrefs([DisplayPrefs? override]) {
+    final DisplayPrefs prefs = override ?? widget.prefs;
     // 主题的舞台底**必须重发**：切主题时 [Live2DStage] 会带着新值重建，
     // 但 iframe 是保活的（`_attach` 只跑一次），所以不走这条路的话
     // 舞台会一直停在启动时那套颜色上。
@@ -484,7 +491,8 @@ class _ShellRootState extends State<ShellRoot> {
     // 静音与音量是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
     _audio.muted = next.muted;
     _audio.volume = next.volume;
-    _applyPrefs();
+    // 传 `next` 而不是让它去读 `widget.prefs`（那还是旧值）。
+    _applyPrefs(next);
   }
 
   Future<void> _send() async {
@@ -574,7 +582,7 @@ class _ShellRootState extends State<ShellRoot> {
 
   Future<void> _loadLogs() async {
     try {
-      final List<LogLine> lines = await _diagApi.logs(limit: 200);
+      final List<LogLine> lines = await _diagApi.logs();
       if (!mounted) return;
       setState(() {
         _logs = lines;
@@ -996,6 +1004,13 @@ class _ShellRootState extends State<ShellRoot> {
                 setState(() => _stagePhase = phase);
               }
             },
+            // 渲染面回执 → 缩放百分比。**首屏也要有值**：过去只在上一次
+            // 放大/缩小时才读，于是初始状态一直显示「—」。
+            onAck: (StageAckEvent ack) {
+              if (mounted && ack.scale != _stageScaleFromAck) {
+                setState(() => _stageScaleFromAck = ack.scale);
+              }
+            },
           ),
           phase: _ui.phase,
           wsStatus: _ui.wsStatus,
@@ -1025,7 +1040,13 @@ class _ShellRootState extends State<ShellRoot> {
             _chat.clearError();
           },
           onRetryLast: () => unawaited(_send()),
-          sections: visibleSections(devMode: _devMode),
+          sections: visibleSections(),
+          // 打开设置**就要**加载（不能只靠「换分区」顺带触发，
+          // 否则 expanded/medium 直接点「设置」是个空壳）。
+          onEnsureSectionLoaded: () => unawaited(_ensureSettingsLoaded()),
+          // 浮层内容必须订阅设置数据：`showModalBottomSheet` 的 builder
+          // 只跑一次，不订阅的话「加载中」的转圈会一直转下去。
+          settingsChanges: _settings,
           section: _section,
           onSectionChanged: _onSectionChanged,
           sectionBuilder: _buildSection,

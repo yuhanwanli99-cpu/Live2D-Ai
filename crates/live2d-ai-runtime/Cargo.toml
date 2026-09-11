@@ -20,6 +20,11 @@ serde_with = { version = "3", default-features = false, features = ["std", "macr
 serde_json = "1"
 # `live2d-ai.toml` 应用配置解析（settings 模块）。
 toml = "0.9"
+# `toml_edit`：**保留注释**地写回配置（见 `AppSettings::merge_into_toml`）。
+# 它本来就是 `toml` 的传递依赖（`Cargo.lock` 里已有 0.25.13），
+# 所以这里只是把它提为直接依赖——**不新增任何 crate、不新增许可**。
+# 为什么不能用 `toml::to_string`：那是「重新生成整份文档」，注释与空行全丢。
+toml_edit = "0.25"
 thiserror = "2"
 url = "2"
 # 对话引擎（`conversation` 模块）的异步设施：

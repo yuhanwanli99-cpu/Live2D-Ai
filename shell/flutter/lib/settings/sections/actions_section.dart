@@ -26,6 +26,7 @@ import '../../settings/display_prefs.dart';
 import '../../ui/action_history_view.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
+import '../../ui/emphasized_text.dart';
 import '../../ui/theme.dart';
 import '../../ui/theme_picker.dart';
 
@@ -202,7 +203,7 @@ class _StageImageView extends StatelessWidget {
         children: <Widget>[
           Text('舞台背景图', style: theme.textTheme.labelLarge),
           const SizedBox(height: Space.s1),
-          Text(
+          EmphasizedText(
             '背景图**盖在纯色底上**：有图时看得到图，清掉后回到主题的纯色舞台。'
             '超过 ${(kStageImageMaxChars / 1024).round()} KB 的图只在本次会话有效。',
             style: theme.textTheme.labelSmall?.copyWith(
@@ -225,7 +226,7 @@ class _StageImageView extends StatelessWidget {
           if (message != null)
             Padding(
               padding: const EdgeInsets.only(top: Space.s1),
-              child: Text(
+              child: EmphasizedText(
                 message!,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: failed ? palette.warning : colors.contentMuted,

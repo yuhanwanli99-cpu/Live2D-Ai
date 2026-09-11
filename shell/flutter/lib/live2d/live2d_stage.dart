@@ -21,6 +21,7 @@ class Live2DStage extends StatefulWidget {
     this.onError,
     this.onReady,
     this.onPhaseChanged,
+    this.onAck,
   });
 
   /// 可选：渲染面模型路径（缺省由渲染端决定）。
@@ -42,6 +43,13 @@ class Live2DStage extends StatefulWidget {
 
   /// 错误回调（宿主可用于日志或全局提示）。
   final ValueChanged<String>? onError;
+
+  /// 每收到一条**新的** `stage-ack` 回调一次。
+  ///
+  /// 宿主用它把「渲染面实际生效的缩放」显示出来。缺了它，舞台角标的百分比
+  /// 只能等用户按一次放大/缩小才有值——首屏会一直显示一个「—」，
+  /// 看起来像坏了（2026-09-11 在真浏览器里就是这么显示的）。
+  final ValueChanged<StageAckEvent>? onAck;
 
   /// 渲染面就绪回调（**每次**进入 ready 都触发，含错误后 [Live2DStageState.retry]
   /// 重建 iframe）。
@@ -95,6 +103,12 @@ class Live2DStageState extends State<Live2DStage> {
     final error = _bridge?.errorMessage;
     if (error != null && _bridge?.phase == Live2DBridgePhase.error) {
       widget.onError?.call(error);
+    }
+    // 新回执 → 上报宿主（缩放百分比要从**渲染面**的真值来，不能猜）。
+    final ack = _bridge?.lastAck;
+    if (ack != null && !identical(ack, _lastAck)) {
+      _lastAck = ack;
+      widget.onAck?.call(ack);
     }
     // 进入 ready 时通知一次（离开 ready 后允许再次通知，覆盖 retry/重建）。
     final ready = _bridge?.isReady ?? false;

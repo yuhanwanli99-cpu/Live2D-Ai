@@ -370,7 +370,9 @@ pub(crate) fn save_draft(
     // 失败返回 Err，**不**创建/替换目标配置、不触发 reload。
     next.resolve_with(|_| None)
         .map_err(|e| format!("配置校验失败: {e}"))?;
-    let toml_text = next.to_toml_string();
+    // **合并写回**：保留 `live2d-ai.toml` 里的注释与排版（见
+    // `AppSettings::merge_into_toml` 的说明）。
+    let toml_text = next.to_toml_string_merging(std::path::Path::new(config_path));
     // 拒绝空内容由 plan_atomic_write 内部保证（避免误存空配置）。
     let tmp = plan_atomic_write(path, &toml_text).map_err(|e| format!("原子写回失败: {e}"))?;
     // rename 失败时清理 tmp（plan_atomic_write 已保证 tmp 存在）。

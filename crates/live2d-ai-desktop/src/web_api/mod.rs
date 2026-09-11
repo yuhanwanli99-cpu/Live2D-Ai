@@ -15,8 +15,9 @@
 //!   端点 dispatch 前做 `Origin` + `Content-Type` 校验。详见 [`security`] 模块。
 //!
 //! 路径派发表（method + path → 路由 ID）：
-//! - `GET /` 或 `GET /index.html` → `index.html`（W8：单页配置面板）
-//! - `GET /static/style.css` / `GET /static/app.js` → `index.html`（W8：同源静态资源）
+//! - `GET /` 或 `GET /index.html` → **302 到 `/app/`**（Flutter 前端入口；
+//!   原生 JS 前端已于 2026-09-11 删除，见 `flutter_app::root_redirect`）
+//! - `GET /app*` → Flutter Web 产物（`shell/flutter/build/web/`）
 //! - `GET /api/v1/app/capabilities` → `app.capabilities`
 //! - `GET /api/v1/app/status` → `app.status`
 //! - `GET /api/v1/settings` → `settings.get`
@@ -57,7 +58,6 @@ pub mod dto;
 pub mod external_routes;
 /// Flutter Web 前端托管（`/app` 与 `/app/*`；2026-09-10 点火轮）。
 pub mod flutter_app;
-pub mod index_html;
 pub mod log_routes;
 /// 模型资产路由（D3，2026-08-28）：`/api/v1/models*` 端点 + registry
 /// + 路径安全 + 原子写回。子模块化（`models_routes::handlers` 等），
@@ -82,7 +82,6 @@ mod tests_commands_routes;
 #[cfg(test)]
 mod tests_dev_mode;
 #[cfg(test)]
-mod tests_html;
 #[cfg(test)]
 mod tests_mod;
 /// D-P0C（2026-08-29）首次配置闭环：动态装配 supervisor + apply_status。
@@ -129,9 +128,6 @@ pub enum RouteId {
     LogsGet,
     /// `GET /api/v1/logs/levels`（dev_mode 门控；W3 任务）。
     LogsLevels,
-    /// `GET /`、`GET /index.html`、`GET /static/{style.css,app.js}`（W8 任务）。
-    /// 全部走 [`index_html::lookup_static`] 取 (body, mime) 静态分发。
-    IndexHtml,
     /// `GET /api/v1/models`、`GET /api/v1/models/{id}`、`POST
     /// /api/v1/models/import`、`POST /api/v1/models/{id}/activate`、
     /// `PATCH /api/v1/models/{id}/display`、`DELETE /api/v1/models/{id}`
@@ -164,13 +160,32 @@ impl RouteId {
             Self::ChatStop => "chat.stop",
             Self::LogsGet => "logs.get",
             Self::LogsLevels => "logs.levels",
-            Self::IndexHtml => "index.html",
             Self::Models => "models",
             Self::Commands => "commands",
             Self::NotImplemented => "not_implemented",
             Self::NotFound => "not_found",
         }
     }
+}
+
+/// 剥掉 URL 的查询串（`tiny_http` 的 `request.url()` **带** `?...`）。
+///
+/// # 为什么必须有（2026-09-11 修）
+///
+/// 全仓库的路由（[`match_route`]）都是**精确路径匹配**，而 `request.url()`
+/// 把查询串也带进来了 —— 于是 `GET /api/v1/logs?limit=200` 匹配不上
+/// `/api/v1/logs`，一路掉到 `NotImplemented`（**501**）。
+/// Flutter 前端恰好就是这么调的（诊断面板取日志），所以那个面板在成品里
+/// **从来没成功过**：它拿到的不是日志，是一个 501。
+///
+/// 路径匹配**不该**看见查询串——这是 HTTP 的常识，不是特例。
+/// 所以剥在**请求循环的入口**（一处），而不是每遇到一个带参端点就补一次。
+///
+/// 目前没有任何端点读查询参数（要限流/过滤都在服务端内置常量里），
+/// 所以剥掉不会丢信息；哪天要支持查询参数，应该在 `dispatch` 里显式传
+/// 解析好的 `query`，而不是让路径匹配去猜。
+pub fn strip_query(url: &str) -> &str {
+    url.split('?').next().unwrap_or(url)
 }
 
 /// 路径匹配（**纯函数**，便于单测）。
@@ -180,11 +195,6 @@ impl RouteId {
 /// WS 端点（`/ws/runtime`、`/ws/state`）由 `start_server` 单独走升级路径，
 /// **不**出现在 `match_route` 结果里（避免被 `dispatch` 误派发）。
 pub fn match_route(method: &Method, path: &str) -> RouteId {
-    // 静态资源（HTML / CSS / JS）：只接受 GET；非 GET 一律 NotFound。
-    // 路径白名单由 [`index_html::lookup_static`] 兜底（避免路径猜测旁路）。
-    if *method == Method::Get && index_html::lookup_static(path).is_some() {
-        return RouteId::IndexHtml;
-    }
     if path == "/api/v1/app/capabilities" && *method == Method::Get {
         RouteId::AppCapabilities
     } else if path == "/api/v1/app/status" && *method == Method::Get {
@@ -460,7 +470,10 @@ pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http:
 pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
     for mut request in server.incoming_requests() {
         let method = request.method().clone();
-        let path = request.url().to_string();
+        // **带查询串的原始 URL**（日志用）与**剥掉查询串的路径**（路由用）。
+        // 两者必须分开：路由是精确匹配，看见 `?limit=200` 就会掉进 501。
+        let raw_url = request.url().to_string();
+        let path = strip_query(&raw_url).to_string();
         if crate::web_api::ws::is_ws_path(&path) {
             if method == Method::Get {
                 // **D-P0B**：Origin 校验**先于** handle_ws_request——这样
