@@ -1,3 +1,17 @@
+# ⚠️ 本文档已作废（2026-08-21 的 v0.1.0 归档）
+
+> **不要再按本文档理解项目。** 它描述的是「Android 主端 + PC 端 Open-LLM-VTuber +
+> Melo TTS」那一代（v0.1.0），双端都已归档：Python 端在 tag `py-legacy`，
+> Android 端在远端 `android-archive` 分支。
+>
+> **当前项目的正确入口**：
+> - `AGENTS.md`（分层、门禁、语音契约）
+> - `docs/plans/HANDOFF-2026-09-11.md`（v0.4.13 → v0.5.1 的交接）
+> - `docs/design/web-ui-spec-v3.md`（前端设计规格，实现者照此写代码）
+> - `CHANGELOG.md`（v0.4.0 起的逐版变更）
+
+---
+
 # Live2D-Ai — 项目交接文档（v0.1.0 定稿）
 
 > 更新日期: 2026-08-21（PC 接手 + 新计划落盘）  
