@@ -1,0 +1,5 @@
+# Python 测试依赖
+# 使用: pip install -r requirements-test.txt
+
+pytest>=7.4,<9
+pyyaml>=6.0,<7

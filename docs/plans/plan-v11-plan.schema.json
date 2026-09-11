@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Live2D-Ai V1.1 Interface Contract",
+  "description": "V1.1 4-module architecture: Voice Loop, Chat Persistence, Long-term Memory, LipSync",
+  "functions": [
+    {
+      "name": "VoiceIoController.speak",
+      "signature": "(text: String): Unit (suspend)",
+      "params": [
+        {
+          "name": "text",
+          "type": "String",
+          "description": "纯文本（已剥离 [emotion] 标签），由 EmotionController.stripEmotionTags() 产出"
+        }
+      ],
+      "returns": { "type": "Unit", "description": "不返回；TTS 播放在后台进行，通过 EdgeTtsService 内部降级链执行" },
+      "throws": [],
+      "sideEffects": [
+        "Edge TTS WebSocket 合成 + MediaPlayer 播放 (或降级链)",
+        "驱动 LipSync 动画协程 (0.0~1.0 mouth open)"
+      ]
+    },
+    {
+      "name": "VoiceIoController.stopSpeaking",
+      "signature": "(): Unit",
+      "params": [],
+      "returns": { "type": "Unit", "description": "同步停止 MediaPlayer + TTS + LipSync 动画" },
+      "throws": [],
+      "sideEffects": [
+        "停止 MediaPlayer (stop/release)",
+        "停止 Android TTS",
+        "取消 LipSync 动画协程",
+        "触发 onPlaybackStateChanged(false) 回调"
+      ]
+    },
+    {
+      "name": "VoiceIoController.listen",
+      "signature": "(): String (suspend)",
+      "params": [],
+      "returns": {
+        "type": "String",
+        "description": "识别文本；失败/超时/无匹配返回空字符串 \"\""
+      },
+      "throws": [],
+      "sideEffects": [
+        "启动 Android SpeechRecognizer 录音",
+        "需要 RECORD_AUDIO 权限（调用前由 UI 层检查和请求）"
+      ]
+    },
+    {
+      "name": "VoiceIoController.release",
+      "signature": "(): Unit",
+      "params": [],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": [
+        "调用 EdgeTtsService.release() (关闭 MediaPlayer + shutdown Android TTS)",
+        "调用 VoiceInputService.stopListening() (销毁 SpeechRecognizer)"
+      ]
+    },
+    {
+      "name": "ChatHistoryStore.save",
+      "signature": "(context: Context, messages: List<DisplayMessage>, maxMessages: Int = 200): Unit",
+      "params": [
+        { "name": "context", "type": "android.content.Context", "description": "用于获取 filesDir" },
+        { "name": "messages", "type": "List<DisplayMessage>", "description": "待持久化的消息列表" },
+        { "name": "maxMessages", "type": "Int", "description": "最大保留条数，写入前 trim 到最近 maxMessages 条" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["写入 filesDir/chat_history.json (JSON 序列化)"]
+    },
+    {
+      "name": "ChatHistoryStore.load",
+      "signature": "(context: Context): List<DisplayMessage>",
+      "params": [
+        { "name": "context", "type": "android.content.Context", "description": "用于获取 filesDir" }
+      ],
+      "returns": {
+        "type": "List<DisplayMessage>",
+        "description": "消息列表；文件不存在或解析失败返回空列表"
+      },
+      "throws": [],
+      "sideEffects": ["读取 filesDir/chat_history.json (JSON 反序列化)"]
+    },
+    {
+      "name": "ChatHistoryStore.clear",
+      "signature": "(context: Context): Unit",
+      "params": [
+        { "name": "context", "type": "android.content.Context", "description": "用于获取 filesDir" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["删除 filesDir/chat_history.json；文件不存在时无操作"]
+    },
+    {
+      "name": "LlmSummaryClient.summarize",
+      "signature": "(recentTurns: List<ChatTurn>, personaName: String): String? (suspend)",
+      "params": [
+        {
+          "name": "recentTurns",
+          "type": "List<ChatTurn>",
+          "description": "近期对话轮次（来自 ChatContext.recentMessages 只读快照）"
+        },
+        {
+          "name": "personaName",
+          "type": "String",
+          "description": "人设名，用于让摘要贴合角色语气"
+        }
+      ],
+      "returns": {
+        "type": "String?",
+        "description": "事实摘要文本，如\"用户喜欢喝咖啡\"；返回 null 或空字符串表示本轮无值得记忆的内容"
+      },
+      "throws": ["调用方必须捕获所有异常（LLM 超时/API 错误/解析失败），静默跳过"],
+      "sideEffects": ["向 LLM API 发送摘要请求（非流式，~50 tokens prompt）"]
+    },
+    {
+      "name": "MemoryDao.deleteOldest",
+      "signature": "(keepCount: Int): Unit (suspend)",
+      "params": [
+        { "name": "keepCount", "type": "Int", "description": "保留最近 N 条记忆，超出部分按 createdAt 升序删除" }
+      ],
+      "returns": { "type": "Unit" },
+      "throws": [],
+      "sideEffects": ["DELETE FROM memory_facts WHERE id NOT IN (SELECT id FROM ... ORDER BY createdAt DESC LIMIT :keepCount)"]
+    },
+    {
+      "name": "MemoryKeywordMatcher.rankTop",
+      "signature": "(facts: List<MemoryFact>, userMessage: String, limit: Int = 3): List<MemoryFact>",
+      "params": [
+        { "name": "facts", "type": "List<MemoryFact>", "description": "全量记忆事实" },
+        { "name": "userMessage", "type": "String", "description": "用户当前消息（用于关键词提取和匹配）" },
+        { "name": "limit", "type": "Int", "description": "返回 top-N 条相关记忆" }
+      ],
+      "returns": {
+        "type": "List<MemoryFact>",
+        "description": "按关键词重叠打分降序排列的前 N 条记忆；无匹配时返回空列表"
+      },
+      "throws": [],
+      "sideEffects": []
+    },
+    {
+      "name": "EdgeTtsService (扩展) onPlaybackStateChanged",
+      "signature": "var onPlaybackStateChanged: ((Boolean) -> Unit)?",
+      "params": [
+        { "name": "callback param (isPlaying)", "type": "Boolean", "description": "true=TTS 开始播放, false=播放结束/停止" }
+      ],
+      "returns": { "type": "Unit (callback)" },
+      "throws": [],
+      "sideEffects": ["回调在 Android 主线程执行，负责启停 LipSync 动画协程"]
+    }
+  ],
+  "dataModels": [
+    {
+      "name": "DisplayMessage",
+      "fields": [
+        { "name": "id", "type": "String", "nullable": false, "constraints": ["UUID 格式, 作为 LazyColumn key"] },
+        { "name": "content", "type": "String", "nullable": false, "constraints": ["任意文本"] },
+        { "name": "isUser", "type": "Boolean", "nullable": false },
+        { "name": "isError", "type": "Boolean", "nullable": false, "constraints": ["true 时显示 errorContainer 配色"] },
+        { "name": "showSettingsButton", "type": "Boolean", "nullable": false, "constraints": ["true 时在气泡下方渲染'前往设置'按钮"] }
+      ]
+    },
+    {
+      "name": "ChatHistoryFile",
+      "fields": [
+        { "name": "version", "type": "Int", "nullable": false, "constraints": ["当前值为 1，用于未来迁移"] },
+        {
+          "name": "messages",
+          "type": "Array<ChatHistoryEntry>",
+          "nullable": false,
+          "constraints": ["最多 200 条；写入时 trim"]
+        }
+      ]
+    },
+    {
+      "name": "ChatHistoryEntry",
+      "fields": [
+        { "name": "id", "type": "String", "nullable": false },
+        { "name": "content", "type": "String", "nullable": false },
+        { "name": "isUser", "type": "Boolean", "nullable": false },
+        { "name": "isError", "type": "Boolean", "nullable": false },
+        { "name": "showSettingsButton", "type": "Boolean", "nullable": false }
+      ]
+    },
+    {
+      "name": "MemoryFact",
+      "fields": [
+        { "name": "id", "type": "Long", "nullable": false, "constraints": ["Room PrimaryKey, autoGenerate"] },
+        { "name": "content", "type": "String", "nullable": false, "constraints": ["事实摘要文本"] },
+        { "name": "keywords", "type": "String", "nullable": false, "constraints": ["逗号分隔的中文关键词"] },
+        { "name": "createdAt", "type": "Long", "nullable": false, "constraints": ["epoch millis"] },
+        { "name": "lastUsedAt", "type": "Long", "nullable": false, "constraints": ["epoch millis; 最后一次被检索命中的时间"] }
+      ]
+    },
+    {
+      "name": "LipSyncState",
+      "fields": [
+        { "name": "mouthValue", "type": "Float", "nullable": false, "constraints": ["[0.0, 1.0], 0.0=闭嘴, 1.0=最大张口"] },
+        { "name": "isSpeaking", "type": "Boolean", "nullable": false, "constraints": ["true=正在播放 TTS"] }
+      ]
+    }
+  ],
+  "apiEndpoints": [],
+  "hookExtensions": [
+    {
+      "name": "ChatHook (已有，无变更)",
+      "purpose": "插件对话生命周期钩子",
+      "methods": [
+        {
+          "name": "beforeSend",
+          "signature": "suspend fun beforeSend(userMessage: String, context: ChatContext): String?",
+          "usedBy": ["MemoryRecallHook (注入相关记忆)", "VisionDescribeHook (注入屏幕截图描述)"]
+        },
+        {
+          "name": "afterReceive",
+          "signature": "suspend fun afterReceive(assistantMessage: String, emotion: String?, context: ChatContext)",
+          "usedBy": ["EmotionController hook (设置表情)", "MemoryRecallHook (周期性摘要写入)", "ProactiveTrackingHook (记录最后交互时间)"]
+        }
+      ]
+    },
+    {
+      "name": "PluginHost.sendAssistantMessage (已有，无变更)",
+      "purpose": "让猫娘主动说一句话（不经过用户输入触发），供主动陪伴类插件使用",
+      "signature": "fun sendAssistantMessage(text: String, emotion: String? = null)",
+      "integrationNote": "V1.1 语音接线后，此方法应同时驱动 TTS 播报（当前只触发 onAssistantMessage 回调 → EmotionController + 气泡显示，后续需加入 EdgeTtsService.speak）"
+    }
+  ],
+  "integrationSequence": {
+    "description": "4 模块集成顺序与接线点",
+    "waves": [
+      {
+        "wave": "A",
+        "module": "模块2: 聊天历史持久化",
+        "files": ["ChatHistoryStore.kt (新增)", "MainActivity.kt (修改)"],
+        "dependsOn": [],
+        "completionCriteria": "displayMessages 重启恢复 + 清空按钮功能完整"
+      },
+      {
+        "wave": "B",
+        "module": "模块1: 语音接线 (TTS+ASR)",
+        "files": ["VoiceIoController.kt (新增)", "MainActivity.kt (修改)", "AndroidManifest.xml (确认权限)"],
+        "dependsOn": ["Wave A (UI 区域复用)"],
+        "completionCriteria": "麦克风按钮可用 + TTS 播报可听 + 权限流正确"
+      },
+      {
+        "wave": "C",
+        "module": "模块4: LipSync",
+        "files": ["MainActivity.kt (修改)", "EdgeTtsService.kt (可选修改)"],
+        "dependsOn": ["Wave B (TTS 接线完成)"],
+        "completionCriteria": "TTS 播放时嘴型动画可见 + 停止时嘴闭合"
+      },
+      {
+        "wave": "D",
+        "module": "模块3: 长期记忆集成",
+        "files": ["LlmSummaryClient.kt (新增)", "MainActivity.kt (修改)", "MemoryDao.kt (修改)", "MemoryRecallHook.kt (修改)"],
+        "dependsOn": ["Wave A (持久化路径参考)"],
+        "completionCriteria": "MemoryPlugin 加载成功 + beforeSend 注入记忆可见 + afterReceive 摘要写入 Room"
+      }
+    ]
+  }
+}

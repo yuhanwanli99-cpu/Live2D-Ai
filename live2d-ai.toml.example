@@ -1,0 +1,73 @@
+# Live2D-Ai 桌面端配置模板（Rust 版，live2d-ai-runtime::settings 解析）。
+#
+# 用法：
+#   cp live2d-ai.toml.example live2d-ai.toml
+# 然后按需修改。所有段与字段都有默认值：本轮最小可用配置只需
+# [llm] base_url/model（TTS 选型待定，见下方 [tts] 注释）。
+#
+# 安全边界：
+#   API Key 不写进本文件——在 api_key_env 写环境变量**名**，
+#   运行时从进程环境读取；变量未设置或为空串 = 不发送 Authorization 头。
+#
+# 注意：未知字段会导致启动报错（防拼写错误静默失效），不要随意加自定义键。
+
+[llm]
+# OpenAI-compatible 服务基址（尾部 / 可省略），请求路径 <base_url>/chat/completions
+base_url = "http://127.0.0.1:11434/v1"
+# 模型名（原样进入请求体 model 字段）
+model = "qwen2.5:7b"
+# 存放 API key 的环境变量名；本地无鉴权服务直接删除此行
+# api_key_env = "LIVE2D_AI_LLM_API_KEY"
+# 输出 token 上限。省略 = 512（推荐）；显式 0 = 不限制（省略请求体字段）。
+# 这是控制回复长度的硬机制（不靠提示词求模型守规矩）。
+# 注意下限陷阱：调太小会把句子截断在半句，那就是「断句」——本项目明确不接受。
+# max_tokens = 512
+
+# CosyVoice 3（2026-09-10 选定）—— OpenAI 兼容层。
+#
+# 推荐形态：社区 CosyVoice3-API（:8080），一条命令起服务：
+#   docker run -d --gpus all --shm-size=2g -p 8080:8080 \
+#     ghcr.io/hsiang-han/cosyvoice3-api:latest
+# CosyVoice3 **没有内置音色**，必须先注册一个克隆音色（zero-shot，需参考音频）。
+# 端点以**实际部署**为准——先探明再写配置（2026-09-10 实测本机部署）：
+#   curl -s http://127.0.0.1:8080/openapi.json     # 列出真实路径
+#   curl -s http://127.0.0.1:8080/v1/audio/voices  # 列出已注册音色 id
+[tts]
+base_url = "http://127.0.0.1:8080/v1"
+# 已注册的克隆音色 id（上一步列出的 id 之一）
+voice = "my_voice"
+# 响应格式。**必须与服务端实际返回一致**（填错会被 400 拒绝，或按错容器解析出杂音）：
+#   "pcm" = 裸 s16le 交错流（CosyVoice3-API 实测只支持这个）
+#   "wav" = RIFF 容器（服务端返回 WAV 时用；本项目会整段缓冲后再解析）
+# 2026-09-10 实测：本机 CosyVoice3-API 对 wav/mp3/opus/flac 一律 400，只有 pcm 可用。
+response_format = "pcm"
+# CosyVoice3 输出 24 kHz 单声道
+sample_rate = 24000
+channels = 1
+# 可选：模型名 / 密钥环境变量名
+# model = "cosyvoice3"
+# api_key_env = "LIVE2D_AI_TTS_API_KEY"
+
+[persona]
+# 角色名称（酒馆卡 name；空 = 未设置，不注入）。
+name = ""
+# 角色描述（identity · background；空 = 未设置，不注入）。
+description = ""
+# 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息。
+#
+# 下面这段是「微信式短对话」模板（2026-09-10）——配合「一句一单元」的语音契约：
+# 句数少 ⇒ TTS 请求少 ⇒ 等待短；标点用对 ⇒ 不会出现「断句」。
+# 可按自己的角色改写，但建议**保留第 1/3 条**（句数上限、句读结尾）。
+system_prompt = """
+你是桌面上的 Live2D 桌宠，正在和用户用即时通讯软件聊天。严格遵守：
+
+1. **每次回复只写 1–5 句话**，绝不超过 5 句。
+2. **每句话短**（约 5–60 字），像微信聊天一样口语、自然。
+   —— 不要写小作文，不要罗列条目，不要用 Markdown 标题/列表/加粗。
+3. **每句话必须以真实句读结尾**（。！？…），不要用逗号把好几层意思串成一长句。
+4. 语气轻松、有情绪、像朋友。
+5. 若需要配合动作，再额外调用 live2d_perform_action。
+   **必须先输出文字回复，禁止只调用工具而不说话。**
+"""
+# 保留的历史轮数上限（一轮 = 一条 user + 一条 assistant）；0 = 每轮独立
+max_history_pairs = 0

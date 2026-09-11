@@ -1,0 +1,113 @@
+[package]
+name = "live2d-ai-desktop"
+description = "Live2D-Ai PC 桌面应用（Linux 原生窗口/GPU：winit 0.30 + wgpu 29 透明无边框窗口；Bai 实时渲染已接入——同一 device 上的 l2d ModelRendererCore，动作序列+合成口型冒烟）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+# 与 crates/l2d / ayagami-render 的 wgpu 29 大版本一致（bakeoff 已验证组合，
+# 见 docs/verification/rust-bakeoff-ayagami.md；Cargo.lock 已含 wgpu 29.0.4）。
+wgpu = "29"
+winit = "0.30"
+pollster = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 日志落盘（W3 任务：CLI 启动附带；任何模式都落盘）：
+# - tracing-appender 0.2（tokio-rs 官方配套，MIT）：按天滚动 + 自动
+#   `live2d-ai.log.YYYY-MM-DD` 后缀 + `live2d-ai.log` 指向最新；轻量、零
+#   依赖传递；脱敏走 logging.rs 的 SanitizingWriter 兜底。
+# - 引入位置见 `crates/live2d-ai-desktop/src/logging.rs`。
+# 许可证登记见 SOURCES.md。
+tracing-appender = "0.2"
+# benchmark-only JSON 报告（C7/C8 P1-2）：BenchmarkReport 派生 Serialize；
+# main.rs 在 --benchmark-output 路径下用 serde_json 序列化。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# D-P0A 复审修复：settings_routes::PatchBody 用 serde_with::double_option
+# 区分段级三态（缺省 / null / 对象），与 runtime `SettingsPatch` 同语义；
+# 避免为单段字段维护两套手写反序列化器。
+serde_with = "3"
+# 音频输出第一批（RFC §4 批次 4 部分）：实际声卡回放链路。
+# cpal 0.18 MSRV 1.85 与工作区一致；Linux 后端经 ALSA（libasound2-dev）。
+# ringbuf 提供跨线程无锁 SPSC 环形缓冲（生产者入队 / 回调消费），
+# MSRV 与许可证见 SOURCES.md 登记。
+cpal = "0.18"
+live2d-ai-runtime = { path = "../live2d-ai-runtime" }
+# Live2D 实时渲染（RFC §4 批次 5 推进）：l2d 提供皮套包加载/兼容报告/
+# GpuContext（支持已有 device/queue 接入）/ModelRendererCore（render_to_view）；
+# core 提供六动作表演曲线（ParameterFrame/PerformancePlayer），经本 crate 的
+# adapter 模块映射到 Bai 标准参数 ID。三者共用 workspace 内 path 依赖。
+l2d = { path = "../l2d" }
+live2d-ai-core = { path = "../live2d-ai-core" }
+# 节点 E E4：Mod 系统（trait/factory/registry/services/status/topics）。
+live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
+live2d-ai-mod-external-input = { path = "../live2d-ai-mod-external-input" }
+live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
+live2d-ai-mod-pet-desktop = { path = "../live2d-ai-mod-pet-desktop" }
+live2d-ai-mod-local-llm = { path = "../live2d-ai-mod-local-llm" }
+ringbuf = "0.5"
+# 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
+# - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，
+#   Window 实现 HasWindowHandle/HasDisplayHandle；Xlib/Xcb → X11、Wayland → Wayland）。
+# - ksni 0.3.6（纯 Rust SNI 托盘，Unlicense，MSRV 1.80）：blocking API 在独立线程
+#   连接 session bus 并注册 StatusNotifierItem；菜单回调只经 EventLoopProxy 发
+#   UserEvent，所有 Window 调用留在事件循环线程。tokio 仅由 ksni 内部使用
+#   （current_thread runtime，blocking feature 提供 block_on），本 crate 不写 async。
+# 许可证登记口径见 SOURCES.md / crate README。
+raw-window-handle = "0.6"
+ksni = { version = "0.3.6", features = ["blocking"] }
+# 最终接线（节点 A 步骤 8，2026-08-26）：supervisor 的异步设施。
+# - current_thread runtime 跑在独立 OS 线程（D1：winit 主线程零 async）；
+# - `macros` 提供 select!（引擎事件/控制/排空观察的扇入）；
+# - `sync` 提供有界 Say 通道与引擎事件通道；
+# - tokio-util 复用 runtime crate 同款 CancellationToken 语义。
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros"] }
+tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
+egui = "0.35"
+egui-winit = "0.35"
+egui-wgpu = "0.35"
+# 本批不引 egui / x11rb（winit 原生 set_cursor_hittest 已满足全窗穿透）。
+# D2 HTTP 接线（节点 D 后端层，2026-08-28）：
+# - tiny_http 0.12（纯 Rust，无 TLS、零 async 运行时、循环回环绑定即用）：
+#   比 axum 省 5+ 传递依赖（hyper/tower-http/matchit 等），本场景仅 21 个端点
+#   + loopback 默认端口路由表手写即可；handler 同步阻塞适合 supervisor 之外
+#   的控制平面命令路径（控制命令不抢 supervisor 线程）。
+# - 不复用 supervisor 的 tokio runtime：HTTP 与 supervisor 解耦，互不阻塞；
+#   PATCH settings 后的"配置变更通知"经 mpsc 单向通知，supervisor 在下一个
+#   turn 边界自行重建 OpenAiClient。
+tiny_http = "0.12"
+# 端口号解析 + 控制命令的 mpsc（与 supervisor 共享的 `tokio` runtime 之外的
+# std mpsc 足以；避免再引 sync_channel crate）。
+once_cell = { version = "1", default-features = false }
+# 配置文件路径解析（XDG 跨平台）：directories-next 4.x 维护活跃、AGPL 兼容。
+directories = "5"
+# D2 HTTP server 接线（节点 D 后端层，2026-08-28）：
+# - reqwest 0.12 仅用于 settings/test/{llm,tts} 端点直接发测试请求——
+#   runtime 的 `OpenAiClient::new` 不暴露 `from_parts`（私有字段），
+#   且默认构造的 reqwest::Client 无 timeout，故 test 端点走独立 client。
+# - url 2.x 与 runtime 同款（base_url 拼接）。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+url = "2"
+# futures_util 仅 test 端点读 SSE chunked stream 用。
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# WebSocket 桥（W2 任务，2026-08-29）：
+# - tungstenite 0.24 纯 Rust WS 实现（MIT/Apache-2.0，仓库根 LICENSE 双许可确认），
+#   `default-features = true` 仅启用 `handshake` 子集（不需要 TLS/async），
+#   可与 tiny_http 0.12 的 `Request::upgrade` 拼装：
+#   `tungstenite::accept(stream)` 直接对升级后的 `Box<dyn ReadWrite + Send>` 走
+#   服务端握手。该组合避免了引入 hyper/tower 整条 axum 生态（与 D2 选型一致：
+#   依赖最小化）。引入位置：`web_api/ws.rs`（生产 Server 角色）；测试走 `connect()`
+#   也用本 crate（无 `url` feature 时连接需手动构造 header，本任务不依赖 url feature）。
+tungstenite = { version = "0.24" }
+# 文件监听热重载（2026-08-31）：`notify` 8.x 跨平台文件事件监听（inotify/FSEvents/ReadDirectoryChangesW），
+# 用于检测 `live2d-ai.toml` 外部修改并触发 supervisor reload。
+notify = "8"
+
+[dev-dependencies]
+# 仅供测试；生产路径下由 main.rs 在 [dependencies] 直接使用。
+
+[lints]
+workspace = true

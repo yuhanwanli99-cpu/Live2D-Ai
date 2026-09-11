@@ -1,0 +1,50 @@
+[package]
+name = "live2d-ai-runtime"
+description = "Live2D-Ai 最小统一 API 层：OpenAI-compatible LLM(SSE 流式) 与 TTS(chunked bytes) 客户端"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+# `serde_with::rust::double_option` 让 `Option<Option<T>>` 在 JSON 端真实可区分：
+# - 字段缺省 → None（不修改）
+# - 显式 null → Some(None)（清空）
+# - 显式值 → Some(Some(v))（覆盖）
+# v3 仍与 serde 1 兼容（与 settings 的「三态」补丁语义对齐）。
+serde_with = { version = "3", default-features = false, features = ["std", "macros"] }
+serde_json = "1"
+# `live2d-ai.toml` 应用配置解析（settings 模块）。
+toml = "0.9"
+# `toml_edit`：**保留注释**地写回配置（见 `AppSettings::merge_into_toml`）。
+# 它本来就是 `toml` 的传递依赖（`Cargo.lock` 里已有 0.25.13），
+# 所以这里只是把它提为直接依赖——**不新增任何 crate、不新增许可**。
+# 为什么不能用 `toml::to_string`：那是「重新生成整份文档」，注释与空行全丢。
+toml_edit = "0.25"
+thiserror = "2"
+url = "2"
+# 对话引擎（`conversation` 模块）的异步设施：
+# - `sync`：有界 mpsc 队列（LLM→TTS worker 的背压边界）；
+# - `rt`：`tokio::spawn` 单个 TTS worker 任务；
+# - `time`：可选的队列推送超时（Backpressure 错误语义）；
+# - `macros`：每个 await 点与取消令牌的 `select!`。
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros"] }
+# 协作式取消令牌 `CancellationToken`。
+tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
+
+# 测试用本地 tokio TCP mock（额外需要 net/io-util 与多线程调度器）。
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "time",
+] }
+
+[lints]
+workspace = true

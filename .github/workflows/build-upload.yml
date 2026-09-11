@@ -1,0 +1,88 @@
+# =============================================================================
+# Build & Upload — Rust Release 构建 + Artifact 上传
+# 触发器: push → main | workflow_dispatch (手动)
+# Job: rust-release-build
+# 产物: target/release/live2d-ai-desktop（live2d-ai-desktop crate 二进制）
+# =============================================================================
+name: Build & Upload Artifact
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - ".pi/**"
+  workflow_dispatch:
+
+jobs:
+  rust-release-build:
+    name: Build Rust Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    outputs:
+      binary_size_bytes: ${{ steps.metadata.outputs.binary_size_bytes }}
+      build_duration_seconds: ${{ steps.metadata.outputs.build_duration_seconds }}
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          profile: minimal
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # **必需**：desktop crate 无条件依赖 cpal（Linux 后端经 ALSA），
+      # 而 `cargo build --workspace` 会把它编出来。干净 runner 上没有
+      # `libasound2-dev`，`alsa-sys` 的 build script 会直接失败
+      # （2026-09-11 实测：runs/34658493093 的 `Build release binary (workspace)` 就是挂在这）。
+      # 与 `release-build.yml` 的 Linux 依赖步骤保持一致。
+      - name: Install system dependencies (Linux)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+               libasound2-dev libxkbcommon-x11-0 libdbus-1-dev pkg-config
+
+      - name: Build release binary (workspace)
+        id: build
+        run: |
+          BUILD_START=$(date +%s)
+          cargo build --release --workspace
+          BUILD_END=$(date +%s)
+          echo "duration=$(( BUILD_END - BUILD_START ))" >> "$GITHUB_OUTPUT"
+
+      - name: Collect binary metadata
+        id: metadata
+        run: |
+          BIN_PATH="target/release/live2d-ai-desktop"
+          if [ -f "$BIN_PATH" ]; then
+            SIZE=$(stat -c%s "$BIN_PATH")
+          else
+            echo "::error::expected binary not found at $BIN_PATH"
+            exit 1
+          fi
+          echo "binary_size_bytes=${SIZE}" >> "$GITHUB_OUTPUT"
+          echo "build_duration_seconds=${{ steps.build.outputs.duration }}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload desktop binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live2d-ai-desktop-release-${{ github.sha }}
+          path: target/release/live2d-ai-desktop
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+
+      - name: Build summary
+        run: |
+          echo "## Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Build type**: release" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Duration**: ${{ steps.metadata.outputs.build_duration_seconds }}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Binary size**: ${{ steps.metadata.outputs.binary_size_bytes }} bytes" >> "$GITHUB_STEP_SUMMARY"

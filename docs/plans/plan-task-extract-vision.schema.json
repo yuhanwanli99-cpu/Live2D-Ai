@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.dev/schemas/plugin-vision-config.json",
+  "title": "VisionPlugin Configuration",
+  "description": "构造参数定义——live2d-ai-plugin-vision 插件实例化所需的配置",
+  "type": "object",
+  "properties": {
+    "apiKey": {
+      "type": "string",
+      "description": "Zhipu (智谱) API Key，用于调用 GLM-4V 视觉模型。值为空时插件加载但不产生任何视觉能力。",
+      "examples": ["abc123def456..."]
+    },
+    "visionModel": {
+      "type": "string",
+      "description": "视觉模型名称，如 glm-4.6v。从 PersonaConfig.getVisionModel() 读取。",
+      "default": "glm-4.6v",
+      "examples": ["glm-4.6v", "glm-4v-flash"]
+    },
+    "baseUrl": {
+      "type": "string",
+      "description": "GLM API 基地址，通常无需修改。",
+      "default": "https://open.bigmodel.cn/api/paas/v4"
+    },
+    "screenshotProvider": {
+      "description": "截图能力提供者（由宿主注入）。不是 JSON 可序列化的值——在代码中以 Kotlin fun interface 形式注入。capture() 返回 null 时 plugin 静默跳过本轮注入。",
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "const": "Injected at runtime via Kotlin constructor, not JSON-serializable"
+        }
+      }
+    }
+  },
+  "required": ["apiKey", "visionModel", "screenshotProvider"],
+
+  "toolDefinitions": {
+    "capture_screen": {
+      "name": "capture_screen",
+      "description": "截取当前屏幕并理解屏幕内容。可用于查看用户正在看什么。",
+      "requiresConfirmation": false,
+      "parametersSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "分析截图时的自定义提示词。默认：'请描述当前屏幕内容'"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+
+  "hookDefinitions": {
+    "visionDescribe": {
+      "type": "beforeSend",
+      "description": "每次用户发消息前截取屏幕并通过 GLM-4V 获取描述，注入为对话附加上下文",
+      "injectionFormat": "[系统: 当前屏幕内容]\n屏幕截图描述: {description}",
+      "fallbackBehavior": "截图不可用时（ScreenshotProvider.capture()=null），返回 null，对话不受影响"
+    }
+  }
+}

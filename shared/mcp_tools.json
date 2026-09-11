@@ -1,0 +1,29 @@
+{
+  "mcp_servers": {
+    "time": {
+      "command": "uvx",
+      "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
+      "description": "查询当前时间、日期和时区信息。当用户问'现在几点'、'今天周几'、'什么日期'时使用。"
+    },
+    "ddg-search": {
+      "command": "uvx",
+      "args": ["duckduckgo-mcp-server"],
+      "description": "通过DuckDuckGo搜索引擎获取网页搜索结果。当用户问'搜索XXX'、'查一下XXX'、需要查找实时信息时使用。"
+    },
+    "weather": {
+      "command": "uvx",
+      "args": ["mcp-server-weather"],
+      "description": "查询天气信息，包括当前温度、湿度、风速、天气状况。当用户问'天气怎么样'、'今天冷吗'、'会不会下雨'时使用。默认使用Open-Meteo免费API。"
+    },
+    "filesystem": {
+      "command": "uvx",
+      "args": ["mcp-server-filesystem", "--allowed-directories=G:/git/Live2D-Ai/data"],
+      "description": "文件系统读写工具，用于保存笔记、读取文件内容。当用户说'帮我记下来'、'保存这个'、'读取文件'时使用。注意：仅允许操作 G:/git/Live2D-Ai/data/ 目录。"
+    },
+    "sequential-thinking": {
+      "command": "uvx",
+      "args": ["mcp-server-sequential-thinking"],
+      "description": "分步推理工具，用于复杂问题分解和逐步思考。当需要解决数学题、逻辑问题或需要多步推理时自动使用。"
+    }
+  }
+}

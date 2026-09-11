@@ -1,0 +1,753 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.dev/schemas/plan-task-ci.schema.json",
+  "title": "Live2D-Ai GitHub Actions CI Schema",
+  "description": "CI 工作流的结构化输入输出契约 — 定义 PR Checks、Build & Upload、Nightly 三个工作流的触发条件、输入、输出和通过标准",
+  "type": "object",
+  "required": ["workflows", "caches", "secrets", "runner"],
+  "properties": {
+
+    "workflows": {
+      "type": "object",
+      "description": "CI 工作流定义",
+      "required": ["pr_checks", "build_upload", "nightly"],
+      "properties": {
+        "pr_checks": {
+          "type": "object",
+          "description": "PR 门禁工作流 (pull_request → main)",
+          "required": ["trigger", "jobs", "outputs"],
+          "properties": {
+            "trigger": {
+              "type": "object",
+              "required": ["event", "branches"],
+              "properties": {
+                "event": {
+                  "type": "string",
+                  "const": "pull_request",
+                  "description": "GitHub 事件类型"
+                },
+                "branches": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "目标分支",
+                  "example": ["main"]
+                },
+                "paths_ignore": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "忽略路径 (不触发 CI)",
+                  "example": ["*.md", "docs/**", ".pi/**"]
+                }
+              }
+            },
+            "jobs": {
+              "type": "object",
+              "required": ["android_test", "python_test", "lint"],
+              "properties": {
+                "android_test": {
+                  "type": "object",
+                  "description": "Android 单元测试 Job (JUnit + Robolectric)",
+                  "required": ["runs_on", "timeout_minutes", "steps", "env", "cache"],
+                  "properties": {
+                    "runs_on": {
+                      "type": "string",
+                      "const": "ubuntu-latest",
+                      "description": "Runner OS"
+                    },
+                    "timeout_minutes": {
+                      "type": "integer",
+                      "description": "Job 超时(分钟)",
+                      "default": 20
+                    },
+                    "steps": {
+                      "type": "array",
+                      "description": "按顺序执行的步骤",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "action"],
+                        "properties": {
+                          "id": { "type": "string", "example": "checkout" },
+                          "name": { "type": "string", "example": "Checkout code" },
+                          "action": { "type": "string", "example": "actions/checkout@v4" },
+                          "with": { "type": "object", "description": "action 参数" },
+                          "run": { "type": "string", "description": "Shell 命令 (非 action 步骤)" }
+                        }
+                      }
+                    },
+                    "env": {
+                      "type": "object",
+                      "description": "Job 级环境变量",
+                      "properties": {
+                        "ANDROID_NDK_HOME": {
+                          "type": "string",
+                          "description": "NDK 安装路径"
+                        },
+                        "DEEPSEEK_API_KEY": {
+                          "type": "string",
+                          "description": "DeepSeek API Key (CI Secrets 注入)"
+                        },
+                        "ZHIPU_API_KEY": {
+                          "type": "string",
+                          "description": "Zhipu API Key (CI Secrets 注入)"
+                        }
+                      }
+                    },
+                    "cache": {
+                      "type": "object",
+                      "description": "缓存配置",
+                      "required": ["keys"],
+                      "properties": {
+                        "keys": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": ["id", "path", "key"],
+                            "properties": {
+                              "id": { "type": "string", "example": "gradle-cache" },
+                              "path": { "type": "string", "example": "~/.gradle/caches" },
+                              "key": { "type": "string", "description": "缓存键模板", "example": "gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts') }}" },
+                              "restore_keys": { "type": "string", "description": "降级缓存键" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "python_test": {
+                  "type": "object",
+                  "description": "Python 桌面端测试 Job (pytest)",
+                  "required": ["runs_on", "timeout_minutes", "steps"],
+                  "properties": {
+                    "runs_on": {
+                      "type": "string",
+                      "const": "ubuntu-latest"
+                    },
+                    "timeout_minutes": {
+                      "type": "integer",
+                      "default": 5
+                    },
+                    "steps": {
+                      "type": "array",
+                      "description": "按顺序执行的步骤",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "action"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "name": { "type": "string" },
+                          "action": { "type": "string" },
+                          "with": { "type": "object" },
+                          "run": { "type": "string" }
+                        }
+                      }
+                    },
+                    "python_version": {
+                      "type": "string",
+                      "description": "Python 版本",
+                      "default": "3.11"
+                    },
+                    "test_command": {
+                      "type": "string",
+                      "description": "测试执行命令",
+                      "default": "python -m pytest tests/ -v --junitxml=test-results.xml"
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "pip 安装依赖列表",
+                      "example": ["pytest", "pyyaml"]
+                    }
+                  }
+                },
+                "lint": {
+                  "type": "object",
+                  "description": "代码质量检查 Job",
+                  "required": ["runs_on", "timeout_minutes", "checks"],
+                  "properties": {
+                    "runs_on": {
+                      "type": "string",
+                      "const": "ubuntu-latest"
+                    },
+                    "timeout_minutes": {
+                      "type": "integer",
+                      "default": 10
+                    },
+                    "checks": {
+                      "type": "object",
+                      "description": "各语言 Lint 检查",
+                      "required": ["android_lint"],
+                      "properties": {
+                        "android_lint": {
+                          "type": "object",
+                          "description": "AGP 内置 lint",
+                          "properties": {
+                            "enabled": { "type": "boolean", "default": true },
+                            "command": { "type": "string", "default": "./gradlew lint" },
+                            "config_file": { "type": "string", "description": "lint.xml 路径 (可选)" }
+                          }
+                        },
+                        "ktlint": {
+                          "type": "object",
+                          "description": "Kotlin 代码风格检查 (Phase 2)",
+                          "properties": {
+                            "enabled": { "type": "boolean", "default": false },
+                            "command": { "type": "string", "default": "./gradlew ktlintCheck" }
+                          }
+                        },
+                        "detekt": {
+                          "type": "object",
+                          "description": "Kotlin 静态分析 (Phase 2)",
+                          "properties": {
+                            "enabled": { "type": "boolean", "default": false },
+                            "command": { "type": "string", "default": "./gradlew detekt" }
+                          }
+                        },
+                        "ruff": {
+                          "type": "object",
+                          "description": "Python lint (Phase 1)",
+                          "properties": {
+                            "enabled": { "type": "boolean", "default": true },
+                            "command": { "type": "string", "default": "ruff check tests/ tts/" },
+                            "config_file": { "type": "string", "default": "ruff.toml" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "outputs": {
+              "type": "object",
+              "description": "PR Checks 工作流输出",
+              "required": ["required_checks"],
+              "properties": {
+                "required_checks": {
+                  "type": "array",
+                  "description": "必须通过全部检查才允许 merge",
+                  "items": {
+                    "type": "object",
+                    "required": ["job", "result", "artifact"],
+                    "properties": {
+                      "job": {
+                        "type": "string",
+                        "enum": ["android_test", "python_test", "lint"],
+                        "description": "Job 名称"
+                      },
+                      "result": {
+                        "type": "object",
+                        "required": ["status", "pass_criteria"],
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": ["PASS", "FAIL", "SKIPPED"],
+                            "description": "Job 结果"
+                          },
+                          "pass_criteria": {
+                            "type": "string",
+                            "description": "通过标准描述",
+                            "example": "所有 test case 通过，exit code = 0"
+                          },
+                          "duration_seconds": {
+                            "type": "number",
+                            "description": "Job 耗时"
+                          }
+                        }
+                      },
+                      "artifact": {
+                        "type": "object",
+                        "description": "测试产物",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "Artifact 名称",
+                            "example": "test-report-android"
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "产物路径模式",
+                            "example": "Live2D-Ai-Android/app/build/reports/tests/**"
+                          },
+                          "retention_days": {
+                            "type": "integer",
+                            "description": "保留天数",
+                            "default": 7
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "branch_protection_checks": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "需要在 GitHub Branch Protection 中勾选的 Check 名称",
+                  "example": ["android-test", "python-test", "lint"]
+                }
+              }
+            }
+          }
+        },
+        "build_upload": {
+          "type": "object",
+          "description": "构建 & 上传工作流 (push → main + workflow_dispatch)",
+          "required": ["trigger", "jobs", "outputs"],
+          "properties": {
+            "trigger": {
+              "type": "object",
+              "required": ["events"],
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "description": "触发器列表",
+                  "items": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": ["push", "workflow_dispatch"],
+                        "description": "事件类型"
+                      },
+                      "branches": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "push 事件的目标分支",
+                        "example": ["main"]
+                      },
+                      "inputs": {
+                        "type": "object",
+                        "description": "workflow_dispatch 手动输入参数",
+                        "properties": {
+                          "build_type": {
+                            "type": "object",
+                            "required": ["type", "default", "options"],
+                            "properties": {
+                              "type": { "type": "string", "const": "choice" },
+                              "default": { "type": "string", "example": "debug" },
+                              "options": {
+                                "type": "array",
+                                "items": { "type": "string", "enum": ["debug", "release"] }
+                              },
+                              "description": { "type": "string" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "jobs": {
+              "type": "object",
+              "required": ["build_apk"],
+              "properties": {
+                "build_apk": {
+                  "type": "object",
+                  "description": "构建 APK Job",
+                  "required": ["runs_on", "timeout_minutes", "steps"],
+                  "properties": {
+                    "runs_on": {
+                      "type": "string",
+                      "const": "ubuntu-latest"
+                    },
+                    "timeout_minutes": {
+                      "type": "integer",
+                      "default": 30
+                    },
+                    "strategy": {
+                      "type": "object",
+                      "description": "构建矩阵 (多 ABI 可并行)",
+                      "properties": {
+                        "build_type": {
+                          "type": "array",
+                          "items": { "type": "string", "enum": ["debug", "release"] },
+                          "default": ["debug"]
+                        }
+                      }
+                    },
+                    "gradle_task": {
+                      "type": "string",
+                      "description": "Gradle 构建任务",
+                      "default": "assembleDebug"
+                    },
+                    "apk_output_path": {
+                      "type": "string",
+                      "description": "APK 输出路径模式",
+                      "default": "Live2D-Ai-Android/app/build/outputs/apk/debug/app-debug.apk"
+                    },
+                    "signing": {
+                      "type": "object",
+                      "description": "签名配置 (仅 release)",
+                      "properties": {
+                        "enabled": { "type": "boolean", "default": false },
+                        "keystore_secret": { "type": "string", "description": "GitHub Secret 名称", "example": "KEYSTORE_BASE64" },
+                        "password_secret": { "type": "string", "example": "KEYSTORE_PASSWORD" },
+                        "alias_secret": { "type": "string", "example": "KEY_ALIAS" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "outputs": {
+              "type": "object",
+              "description": "Build & Upload 工作流输出",
+              "required": ["artifacts"],
+              "properties": {
+                "artifacts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["name", "path", "retention_days"],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Artifact 名称模板",
+                        "example": "live2d-ai-android-debug"
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "上传文件路径",
+                        "example": "Live2D-Ai-Android/app/build/outputs/apk/debug/app-debug.apk"
+                      },
+                      "retention_days": {
+                        "type": "integer",
+                        "description": "Artifact 保留天数",
+                        "default": 30
+                      },
+                      "compression_level": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9,
+                        "description": "压缩级别",
+                        "default": 6
+                      }
+                    }
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "description": "构建元数据输出 (通过 $GITHUB_OUTPUT)",
+                  "properties": {
+                    "apk_name": { "type": "string" },
+                    "apk_size_bytes": { "type": "integer" },
+                    "build_duration_seconds": { "type": "number" },
+                    "commit_sha": { "type": "string" },
+                    "build_type": { "type": "string", "enum": ["debug", "release"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "nightly": {
+          "type": "object",
+          "description": "夜间全量构建工作流 (schedule cron)",
+          "required": ["trigger", "jobs"],
+          "properties": {
+            "trigger": {
+              "type": "object",
+              "required": ["schedule"],
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "required": ["cron"],
+                  "properties": {
+                    "cron": {
+                      "type": "string",
+                      "description": "Cron 表达式 (UTC)",
+                      "default": "0 2 * * *",
+                      "example": "0 2 * * *"
+                    }
+                  }
+                },
+                "workflow_dispatch": {
+                  "type": "boolean",
+                  "description": "是否允许手动触发",
+                  "default": true
+                }
+              }
+            },
+            "jobs": {
+              "type": "object",
+              "required": ["full_test", "build_apk"],
+              "properties": {
+                "full_test": {
+                  "type": "object",
+                  "description": "全量测试 (含 instrumentation)",
+                  "properties": {
+                    "android_unit_test": { "type": "boolean", "default": true },
+                    "android_instrumentation_test": { "type": "boolean", "default": false, "description": "Phase 2 — 需 Android Emulator" },
+                    "python_test": { "type": "boolean", "default": true },
+                    "lint": { "type": "boolean", "default": true }
+                  }
+                },
+                "build_apk": {
+                  "type": "object",
+                  "description": "全量构建 (debug + release)",
+                  "properties": {
+                    "build_types": {
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["debug", "release"] },
+                      "default": ["debug"]
+                    },
+                    "upload_artifact": { "type": "boolean", "default": true }
+                  }
+                }
+              }
+            },
+            "notifications": {
+              "type": "object",
+              "description": "失败通知配置 (Phase 2)",
+              "properties": {
+                "enabled": { "type": "boolean", "default": false },
+                "slack_webhook_secret": { "type": "string", "example": "SLACK_WEBHOOK_URL" },
+                "on_failure_only": { "type": "boolean", "default": true }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "caches": {
+      "type": "object",
+      "description": "跨 Job 共享的缓存策略",
+      "required": ["gradle", "ndk", "pip"],
+      "properties": {
+        "gradle": {
+          "type": "object",
+          "required": ["key_template", "paths"],
+          "properties": {
+            "key_template": {
+              "type": "string",
+              "description": "缓存键模板",
+              "example": "gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}"
+            },
+            "restore_keys_template": {
+              "type": "string",
+              "description": "降级匹配模板",
+              "example": "gradle-${{ runner.os }}-"
+            },
+            "paths": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "缓存路径列表",
+              "example": ["~/.gradle/caches", "~/.gradle/wrapper"]
+            }
+          }
+        },
+        "ndk": {
+          "type": "object",
+          "required": ["key_template", "paths"],
+          "properties": {
+            "key_template": {
+              "type": "string",
+              "example": "ndk-${{ runner.os }}-27.0.12077973"
+            },
+            "paths": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "NDK 安装路径",
+              "example": ["${{ env.ANDROID_NDK_HOME }}"]
+            },
+            "ndk_version": {
+              "type": "string",
+              "const": "27.0.12077973",
+              "description": "项目锁定的 NDK 版本"
+            },
+            "install_action": {
+              "type": "string",
+              "description": "安装 NDK 的 action 或命令",
+              "example": "android-actions/setup-ndk@v1"
+            }
+          }
+        },
+        "pip": {
+          "type": "object",
+          "required": ["key_template", "paths"],
+          "properties": {
+            "key_template": {
+              "type": "string",
+              "example": "pip-${{ runner.os }}-${{ hashFiles('requirements-test.txt') }}"
+            },
+            "paths": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": ["~/.cache/pip"]
+            }
+          }
+        }
+      }
+    },
+
+    "secrets": {
+      "type": "object",
+      "description": "CI 所需 GitHub Secrets 定义",
+      "required": [],
+      "properties": {
+        "DEEPSEEK_API_KEY": {
+          "type": "object",
+          "required": ["required", "usage"],
+          "properties": {
+            "required": { "type": "boolean", "default": false },
+            "usage": { "type": "string", "description": "注入位置", "example": "env: DEEPSEEK_API_KEY → BuildConfig" },
+            "risk": { "type": "string", "description": "泄露风险等级", "enum": ["low", "medium", "high"] }
+          }
+        },
+        "ZHIPU_API_KEY": {
+          "type": "object",
+          "required": ["required", "usage"],
+          "properties": {
+            "required": { "type": "boolean", "default": false },
+            "usage": { "type": "string", "example": "env: ZHIPU_API_KEY → BuildConfig" }
+          }
+        },
+        "KEYSTORE_BASE64": {
+          "type": "object",
+          "required": ["required", "usage"],
+          "properties": {
+            "required": { "type": "boolean", "default": false },
+            "usage": { "type": "string", "description": "仅 release signing (Phase 3)" }
+          }
+        },
+        "KEYSTORE_PASSWORD": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "boolean", "default": false }
+          }
+        },
+        "KEY_ALIAS": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "boolean", "default": false }
+          }
+        },
+        "KEY_PASSWORD": {
+          "type": "object",
+          "properties": {
+            "required": { "type": "boolean", "default": false }
+          }
+        }
+      }
+    },
+
+    "runner": {
+      "type": "object",
+      "description": "Runner 环境要求",
+      "required": ["os", "preinstalled", "disk_free_gb_min"],
+      "properties": {
+        "os": {
+          "type": "string",
+          "const": "ubuntu-latest",
+          "description": "所有 Job 统一使用 Ubuntu runner"
+        },
+        "preinstalled": {
+          "type": "object",
+          "description": "Runner 预装软件 (不需要 setup action 的)",
+          "properties": {
+            "java": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "预装 JDK 版本",
+              "example": ["8", "11", "17", "21"]
+            },
+            "python": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": ["3.10", "3.11", "3.12"]
+            },
+            "cmake": {
+              "type": "string",
+              "description": "预装 CMake 版本",
+              "example": "3.22.1"
+            },
+            "android_sdk": {
+              "type": "object",
+              "description": "预装 Android SDK 组件",
+              "properties": {
+                "platforms": { "type": "array", "items": { "type": "string" }, "example": ["android-33", "android-34"] },
+                "build_tools": { "type": "array", "items": { "type": "string" }, "example": ["34.0.0"] }
+              }
+            }
+          }
+        },
+        "disk_free_gb_min": {
+          "type": "integer",
+          "description": "最小空闲磁盘 (GB)",
+          "default": 10
+        }
+      }
+    },
+
+    "implementation_phases": {
+      "type": "object",
+      "description": "实施分阶段计划",
+      "required": ["phase_1", "phase_2", "phase_3"],
+      "properties": {
+        "phase_1": {
+          "type": "object",
+          "required": ["name", "files", "objective"],
+          "properties": {
+            "name": { "type": "string", "const": "Core CI — PR Checks" },
+            "objective": { "type": "string", "description": "Phase 目标" },
+            "files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": [
+                ".github/workflows/pr-checks.yml",
+                ".editorconfig",
+                "ruff.toml",
+                "requirements-test.txt"
+              ]
+            },
+            "validation": {
+              "type": "string",
+              "description": "如何验证 Phase 完成",
+              "example": "提交 PR → android-test / python-test / lint 全部 PASS"
+            }
+          }
+        },
+        "phase_2": {
+          "type": "object",
+          "required": ["name", "files", "objective"],
+          "properties": {
+            "name": { "type": "string", "const": "Build & Upload Artifact" },
+            "files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": [
+                ".github/workflows/build-upload.yml"
+              ]
+            },
+            "validation": {
+              "type": "string",
+              "example": "push to main → APK 出现在 Artifacts 中"
+            }
+          }
+        },
+        "phase_3": {
+          "type": "object",
+          "required": ["name", "files", "objective"],
+          "properties": {
+            "name": { "type": "string", "const": "Nightly + Enhanced Lint + Signing" },
+            "files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": [
+                ".github/workflows/nightly.yml"
+              ]
+            },
+            "validation": {
+              "type": "string",
+              "example": "Nightly cron 自动运行，全量测试通过"
+            }
+          }
+        }
+      }
+    }
+  }
+}

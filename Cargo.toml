@@ -1,0 +1,44 @@
+# Live2D-Ai — Rust 重建 workspace（第一批，2026-08）
+# 仅含 Rust 重建的 crate；旧项目（Live2D-Ai-pc / Live2D-Ai-Android）不在 workspace 内，互不影响。
+# 本文件为根清单，无 package（根不产 crate）。
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/l2d",
+    "crates/live2d-ai-core",
+    "crates/live2d-ai-desktop",
+    "crates/live2d-ai-runtime",
+    "crates/l2d-wasm-demo",
+    "crates/live2d-ai-mod-system",
+    "crates/live2d-ai-mod-external-input",
+    "crates/live2d-ai-mod-director",
+    "crates/live2d-ai-mod-pet-desktop",
+    "crates/live2d-ai-mod-local-llm",
+    "xtask",
+]
+
+# 第一批基础元数据，各成员可覆盖（如 crates/l2d 的 license 覆盖为 MIT OR Apache-2.0）
+[workspace.package]
+# 2026-09-11 版本线重置：0.5.1 → 0.1.0-rc.1。
+# 理由是「核心链路基线」不是 0.5.x 线上的又一次增量，而是**重新起算的第一个对外候选版**：
+# LLM 工具 + 动作系统从前后端整体拆除（LLM 只做对话）、音频改走 `<audio>` 媒体元素、
+# 句界契约改由引擎给出。按 0.5.2 递增会让「拆除」看起来像小修补，故重置到 0.1.0 线的 RC。
+# 唯一真源：各 crate 用 `version.workspace = true` 继承，代码经 `env!("CARGO_PKG_VERSION")`
+# 编译期固化并暴露到 `/api/v1/app/capabilities` 的 `version` 字段。
+version = "0.1.0-rc.1"
+edition = "2024"
+# 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
+# 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
+# 2026-08-31 再修正：1.87 → 1.92——egui 0.35 全家（egui/egui-winit/egui-wgpu）
+# 要求 rustc 1.92（实测 `cargo +1.87 check` 报 1.92 上限）；1.87 是假下限。
+rust-version = "1.92"
+license = "AGPL-3.0-only"
+authors = ["Sakura Motion Project"]
+
+# rustfmt/clippy 基础设置（rustfmt 细则见根 rustfmt.toml）
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = "warn"

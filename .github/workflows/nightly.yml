@@ -1,0 +1,88 @@
+# =============================================================================
+# Nightly — 夜间全量门禁（Rust 重构后）
+# 触发器: cron (UTC 02:00) | workflow_dispatch
+# Jobs:
+#   - rust-full-test    : 全量 build/test/fmt/clippy（覆盖所有 workspace member）
+#   - rust-release-build: needs: rust-full-test，cargo build --release，上传 desktop 二进制
+# =============================================================================
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1: 全量门禁 — build / test / fmt / clippy
+  # ────────────────────────────────────────────────────────────────────────────
+  rust-full-test:
+    name: Rust Full Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          profile: minimal
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace -- -D warnings
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: 全量发布构建 — release desktop 二进制
+  # ────────────────────────────────────────────────────────────────────────────
+  rust-release-build:
+    name: Rust Release Build
+    needs: rust-full-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          profile: minimal
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary (workspace)
+        run: cargo build --release --workspace
+
+      - name: Upload desktop binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live2d-ai-nightly-${{ github.sha }}
+          path: target/release/live2d-ai-desktop
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
+
+      - name: Nightly summary
+        run: |
+          echo "## Nightly Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Date**: $(date -u)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Trigger**: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"

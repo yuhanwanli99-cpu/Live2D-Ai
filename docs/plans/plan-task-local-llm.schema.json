@@ -1,0 +1,812 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://live2d-ai.dev/schemas/plan-task-local-llm.schema.json",
+  "title": "Live2D-Ai Android 本地 LLM 支持 Schema",
+  "description": "本地 LLM (Ollama/vLLM) 支持的模块契约 — Provider 数据模型、持久化 Schema、健康检查协议、UI 状态、降级逻辑",
+  "type": "object",
+  "required": ["providers", "persistence", "health_check", "ui_states", "data_flow", "files"],
+  "properties": {
+
+    "providers": {
+      "type": "object",
+      "description": "LLM Provider 类型与配置模型",
+      "required": ["provider_type_enum", "llm_provider_data_class", "preset_providers"],
+      "properties": {
+        "provider_type_enum": {
+          "type": "object",
+          "description": "ProviderType 枚举",
+          "required": ["values"],
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "description"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "enum": ["DEEPSEEK", "LOCAL"],
+                    "description": "Provider 类型标识"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "中文说明",
+                    "example": "云端 DeepSeek API"
+                  }
+                }
+              },
+              "example": [
+                { "name": "DEEPSEEK", "description": "云端 DeepSeek API" },
+                { "name": "LOCAL", "description": "本地 LLM (Ollama/vLLM)" }
+              ]
+            }
+          }
+        },
+        "llm_provider_data_class": {
+          "type": "object",
+          "description": "LLMProvider 数据类字段",
+          "required": ["fields"],
+          "properties": {
+            "fields": {
+              "type": "object",
+              "required": ["type", "baseUrl", "apiKey", "modelName", "displayName"],
+              "properties": {
+                "type": {
+                  "type": "object",
+                  "required": ["kotlin_type", "description"],
+                  "properties": {
+                    "kotlin_type": { "type": "string", "const": "ProviderType" },
+                    "description": { "type": "string", "example": "Provider 类型枚举" }
+                  }
+                },
+                "baseUrl": {
+                  "type": "object",
+                  "required": ["kotlin_type", "format", "description", "examples"],
+                  "properties": {
+                    "kotlin_type": { "type": "string", "const": "String" },
+                    "format": { "type": "string", "const": "uri", "description": "不含尾部斜杠" },
+                    "description": { "type": "string", "example": "OpenAI 兼容 API 的 Base URL" },
+                    "examples": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "example": [
+                        "https://api.deepseek.com/v1",
+                        "http://192.168.1.100:11434/v1",
+                        "http://10.0.0.50:8000/v1"
+                      ]
+                    }
+                  }
+                },
+                "apiKey": {
+                  "type": "object",
+                  "required": ["kotlin_type", "description", "nullable"],
+                  "properties": {
+                    "kotlin_type": { "type": "string", "const": "String" },
+                    "description": { "type": "string", "example": "Bearer token; 空字符串表示无需认证 (Ollama)" },
+                    "nullable": { "type": "boolean", "const": true, "description": "Ollama 不需要 API Key" }
+                  }
+                },
+                "modelName": {
+                  "type": "object",
+                  "required": ["kotlin_type", "description", "examples"],
+                  "properties": {
+                    "kotlin_type": { "type": "string", "const": "String" },
+                    "description": { "type": "string", "example": "模型标识符" },
+                    "examples": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "example": ["deepseek-v4-flash", "qwen2.5:7b", "llama3.1:8b", "Qwen/Qwen2.5-7B-Instruct"]
+                    }
+                  }
+                },
+                "displayName": {
+                  "type": "object",
+                  "required": ["kotlin_type", "description"],
+                  "properties": {
+                    "kotlin_type": { "type": "string", "const": "String" },
+                    "description": { "type": "string", "example": "UI 显示名称" },
+                    "examples": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "example": ["DeepSeek 云端", "本地 Ollama (Qwen2.5)"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "preset_providers": {
+          "type": "object",
+          "description": "内置 Provider 实例",
+          "required": ["deepseek"],
+          "properties": {
+            "deepseek": {
+              "type": "object",
+              "required": ["type", "baseUrl", "apiKey_source", "modelName_source", "displayName"],
+              "properties": {
+                "type": { "type": "string", "const": "DEEPSEEK" },
+                "baseUrl": { "type": "string", "const": "https://api.deepseek.com/v1" },
+                "apiKey_source": { "type": "string", "const": "BuildConfig.DEEPSEEK_API_KEY" },
+                "modelName_source": { "type": "string", "const": "PersonaConfig.getModel()" },
+                "displayName": { "type": "string", "const": "DeepSeek 云端" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "persistence": {
+      "type": "object",
+      "description": "SharedPreferences 持久化 Schema",
+      "required": ["store_name", "keys"],
+      "properties": {
+        "store_name": {
+          "type": "string",
+          "const": "llm_provider",
+          "description": "SharedPreferences 文件名"
+        },
+        "keys": {
+          "type": "object",
+          "required": ["provider_type", "local_base_url", "local_api_key", "local_model"],
+          "properties": {
+            "provider_type": {
+              "type": "object",
+              "required": ["key", "type", "default", "valid_values"],
+              "properties": {
+                "key": { "type": "string", "const": "provider_type" },
+                "type": { "type": "string", "const": "String" },
+                "default": { "type": "string", "const": "DEEPSEEK" },
+                "valid_values": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["DEEPSEEK", "LOCAL"] }
+                }
+              }
+            },
+            "local_base_url": {
+              "type": "object",
+              "required": ["key", "type", "default", "validation"],
+              "properties": {
+                "key": { "type": "string", "const": "local_base_url" },
+                "type": { "type": "string", "const": "String" },
+                "default": { "type": "string", "const": "" },
+                "validation": {
+                  "type": "object",
+                  "required": ["format", "min_length"],
+                  "properties": {
+                    "format": { "type": "string", "const": "url", "description": "应为有效 URL，不含尾部斜杠" },
+                    "min_length": { "type": "integer", "const": 7, "description": "\"http://a\" 以上" }
+                  }
+                }
+              }
+            },
+            "local_api_key": {
+              "type": "object",
+              "required": ["key", "type", "default"],
+              "properties": {
+                "key": { "type": "string", "const": "local_api_key" },
+                "type": { "type": "string", "const": "String" },
+                "default": { "type": "string", "const": "", "description": "空表示无需认证" }
+              }
+            },
+            "local_model": {
+              "type": "object",
+              "required": ["key", "type", "default"],
+              "properties": {
+                "key": { "type": "string", "const": "local_model" },
+                "type": { "type": "string", "const": "String" },
+                "default": { "type": "string", "const": "", "description": "空表示未配置" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "health_check": {
+      "type": "object",
+      "description": "本地 LLM 健康检查协议",
+      "required": ["protocol", "timeout", "result_model", "fallback_behavior"],
+      "properties": {
+        "protocol": {
+          "type": "object",
+          "required": ["method", "path", "expected_status", "expected_body"],
+          "properties": {
+            "method": { "type": "string", "const": "GET" },
+            "path": { "type": "string", "const": "/models", "description": "OpenAI 兼容端点; 也接受 /v1/models" },
+            "expected_status": {
+              "type": "array",
+              "items": { "type": "integer" },
+              "example": [200]
+            },
+            "expected_body": {
+              "type": "string",
+              "const": "application/json",
+              "description": "Ollama 返回 {\"object\":\"list\",\"data\":[...]}"
+            },
+            "lightweight_alternative": {
+              "type": "object",
+              "description": "备选轻量检查",
+              "properties": {
+                "method": { "type": "string", "const": "HEAD" },
+                "path": { "type": "string", "const": "/" },
+                "expected_status": { "type": "array", "items": { "type": "integer" }, "example": [200] },
+                "note": { "type": "string", "example": "更轻量但无法验证模型列表" }
+              }
+            }
+          }
+        },
+        "timeout": {
+          "type": "object",
+          "required": ["connect_seconds", "read_seconds"],
+          "properties": {
+            "connect_seconds": { "type": "integer", "const": 5, "description": "TCP 连接超时" },
+            "read_seconds": { "type": "integer", "const": 5, "description": "响应读取超时" }
+          }
+        },
+        "result_model": {
+          "type": "object",
+          "description": "HealthResult sealed class 定义",
+          "required": ["variants"],
+          "properties": {
+            "kotlin_type": { "type": "string", "const": "sealed class" },
+            "variants": {
+              "type": "object",
+              "required": ["Ok", "Error"],
+              "properties": {
+                "Ok": {
+                  "type": "object",
+                  "required": ["kind", "fields"],
+                  "properties": {
+                    "kind": { "type": "string", "const": "object" },
+                    "fields": { "type": "object", "additionalProperties": false, "description": "无字段" }
+                  }
+                },
+                "Error": {
+                  "type": "object",
+                  "required": ["kind", "fields"],
+                  "properties": {
+                    "kind": { "type": "string", "const": "data class" },
+                    "fields": {
+                      "type": "object",
+                      "required": ["message", "code"],
+                      "properties": {
+                        "message": { "type": "string", "description": "人类可读错误描述" },
+                        "code": {
+                          "type": ["integer", "null"],
+                          "description": "HTTP 状态码或 null（连接超时/网络错误）"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fallback_behavior": {
+          "type": "object",
+          "description": "健康检查失败时的降级行为",
+          "required": ["strategy", "user_feedback", "persistence"],
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "const": "per_request_transient",
+              "description": "仅本次请求降级到 DeepSeek，不修改持久化偏好"
+            },
+            "user_feedback": {
+              "type": "object",
+              "required": ["type", "message_template"],
+              "properties": {
+                "type": { "type": "string", "const": "Toast", "description": "Android Toast 通知" },
+                "message_template": {
+                  "type": "string",
+                  "const": "本地 LLM 不可用 ({reason})，已自动切换至云端 DeepSeek",
+                  "description": "Toast 消息模板，{reason} 替换为错误原因"
+                }
+              }
+            },
+            "persistence": {
+              "type": "boolean",
+              "const": false,
+              "description": "降级不修改 SharedPreferences provider_type"
+            }
+          }
+        }
+      }
+    },
+
+    "ui_states": {
+      "type": "object",
+      "description": "SettingsScreen UI 状态模型",
+      "required": ["screen_state", "connection_test", "validation_rules"],
+      "properties": {
+        "screen_state": {
+          "type": "object",
+          "required": ["fields"],
+          "properties": {
+            "fields": {
+              "type": "object",
+              "required": ["selectedProvider", "baseUrl", "apiKey", "model", "testResult", "isLocalEnabled"],
+              "properties": {
+                "selectedProvider": {
+                  "type": "object",
+                  "required": ["type", "default", "binding"],
+                  "properties": {
+                    "type": { "type": "string", "const": "ProviderType" },
+                    "default": { "type": "string", "const": "DEEPSEEK" },
+                    "binding": { "type": "string", "example": "RadioButton Group, two options" }
+                  }
+                },
+                "baseUrl": {
+                  "type": "object",
+                  "required": ["type", "enabled_when", "placeholder"],
+                  "properties": {
+                    "type": { "type": "string", "const": "String" },
+                    "enabled_when": { "type": "string", "const": "selectedProvider == LOCAL" },
+                    "placeholder": { "type": "string", "const": "http://192.168.1.100:11434/v1" }
+                  }
+                },
+                "apiKey": {
+                  "type": "object",
+                  "required": ["type", "enabled_when", "placeholder", "optional"],
+                  "properties": {
+                    "type": { "type": "string", "const": "String" },
+                    "enabled_when": { "type": "string", "const": "selectedProvider == LOCAL" },
+                    "placeholder": { "type": "string", "const": "留空 (Ollama 无需 API Key)" },
+                    "optional": { "type": "boolean", "const": true }
+                  }
+                },
+                "model": {
+                  "type": "object",
+                  "required": ["type", "enabled_when", "placeholder"],
+                  "properties": {
+                    "type": { "type": "string", "const": "String" },
+                    "enabled_when": { "type": "string", "const": "selectedProvider == LOCAL" },
+                    "placeholder": { "type": "string", "const": "qwen2.5:7b" }
+                  }
+                },
+                "testResult": {
+                  "type": "object",
+                  "required": ["type", "nullable"],
+                  "properties": {
+                    "type": { "type": "string", "const": "HealthResult?" },
+                    "nullable": { "type": "boolean", "const": true },
+                    "description": { "type": "string", "example": "null = 未测试; Ok = 显示绿色✓; Error = 显示红色✗+原因" }
+                  }
+                },
+                "isLocalEnabled": {
+                  "type": "object",
+                  "required": ["type", "derivation"],
+                  "properties": {
+                    "type": { "type": "string", "const": "Boolean" },
+                    "derivation": { "type": "string", "const": "selectedProvider == LOCAL", "description": "派生自 selectedProvider" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "connection_test": {
+          "type": "object",
+          "required": ["trigger", "execution", "result_display"],
+          "properties": {
+            "trigger": {
+              "type": "string",
+              "const": "Button onClick",
+              "description": "用户点击\"测试连接\"按钮"
+            },
+            "execution": {
+              "type": "object",
+              "required": ["scope", "function"],
+              "properties": {
+                "scope": { "type": "string", "const": "viewModelScope.launch (Dispatchers.IO)", "description": "在 IO 协程中执行" },
+                "function": { "type": "string", "const": "LLMProviderManager.healthCheck(baseUrl)" }
+              }
+            },
+            "result_display": {
+              "type": "object",
+              "required": ["success_template", "error_template"],
+              "properties": {
+                "success_template": {
+                  "type": "string",
+                  "const": "✓ 连接成功！可用模型: {model_count} 个",
+                  "description": "绿色文字，如有模型列表则显示数量"
+                },
+                "error_template": {
+                  "type": "string",
+                  "const": "✗ 连接失败: {error_message}",
+                  "description": "红色文字"
+                }
+              }
+            }
+          }
+        },
+        "validation_rules": {
+          "type": "object",
+          "required": ["base_url", "model"],
+          "properties": {
+            "base_url": {
+              "type": "object",
+              "required": ["rule", "error_message"],
+              "properties": {
+                "rule": { "type": "string", "const": "starts with http:// or https://", "description": "必须是有效 URL 前缀" },
+                "error_message": { "type": "string", "const": "请输入有效的 URL (http:// 或 https://)" }
+              }
+            },
+            "model": {
+              "type": "object",
+              "required": ["rule", "error_message"],
+              "properties": {
+                "rule": { "type": "string", "const": "isNotBlank", "description": "不能为空" },
+                "error_message": { "type": "string", "const": "请输入模型名称" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "data_flow": {
+      "type": "object",
+      "description": "消息发送时的数据流 — Provider 选择 → 健康检查 → 请求 → 降级",
+      "required": ["send_message_flow", "provider_lifecycle", "streaming"],
+      "properties": {
+        "send_message_flow": {
+          "type": "object",
+          "required": ["steps"],
+          "properties": {
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["step", "action", "actor"],
+                "properties": {
+                  "step": { "type": "integer" },
+                  "action": { "type": "string" },
+                  "actor": { "type": "string", "enum": ["MainScreen", "LLMProviderManager", "ChatService", "OkHttp"] }
+                }
+              },
+              "example": [
+                { "step": 1, "action": "用户点击发送", "actor": "MainScreen" },
+                { "step": 2, "action": "getActiveProvider() → LLMProvider(LOCAL, ...)", "actor": "LLMProviderManager" },
+                { "step": 3, "action": "if LOCAL: healthCheck(baseUrl) → 超时", "actor": "LLMProviderManager" },
+                { "step": 4, "action": "Toast: \"本地 LLM 不可用，已切换至云端\"", "actor": "MainScreen" },
+                { "step": 5, "action": "getDeepSeekProvider() → LLMProvider(DEEPSEEK, ...)", "actor": "LLMProviderManager" },
+                { "step": 6, "action": "ChatService(provider).sendMessage(text)", "actor": "MainScreen" },
+                { "step": 7, "action": "POST https://api.deepseek.com/v1/chat/completions", "actor": "OkHttp" },
+                { "step": 8, "action": "SSE stream → Flow<String> → UI 气泡", "actor": "ChatService" }
+              ]
+            }
+          }
+        },
+        "provider_lifecycle": {
+          "type": "object",
+          "required": ["init", "switch", "degrade"],
+          "properties": {
+            "init": {
+              "type": "object",
+              "description": "冷启动加载",
+              "required": ["caller", "method", "timing"],
+              "properties": {
+                "caller": { "type": "string", "const": "MainActivity.onCreate" },
+                "method": { "type": "string", "const": "LLMProviderManager.init(context)" },
+                "timing": { "type": "string", "const": "ChatService 实例化之前" }
+              }
+            },
+            "switch": {
+              "type": "object",
+              "description": "用户在设置中切换 Provider",
+              "required": ["trigger", "effect", "chat_service_update"],
+              "properties": {
+                "trigger": { "type": "string", "const": "SettingsScreen → 选择 Provider → 保存" },
+                "effect": { "type": "string", "const": "SharedPreferences 写入 provider_type + 本地配置" },
+                "chat_service_update": {
+                  "type": "string",
+                  "const": "ChatService.updateProvider(newProvider)",
+                  "description": "运行时切换，清空对话历史（不同 Provider 的 system prompt 可能不同）"
+                }
+              }
+            },
+            "degrade": {
+              "type": "object",
+              "description": "自动降级",
+              "required": ["trigger", "scope", "effect"],
+              "properties": {
+                "trigger": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "降级触发条件",
+                  "example": [
+                    "healthCheck() 返回 Error (连接超时)",
+                    "healthCheck() 返回 Error (HTTP 4xx/5xx)",
+                    "OkHttp connectTimeout 异常"
+                  ]
+                },
+                "scope": {
+                  "type": "string",
+                  "const": "per-request",
+                  "description": "仅本次请求使用 DeepSeek，不修改 SharedPreferences"
+                },
+                "effect": {
+                  "type": "object",
+                  "required": ["chat_service", "user_notification"],
+                  "properties": {
+                    "chat_service": {
+                      "type": "string",
+                      "const": "使用 LLMProviderManager.getDeepSeekProvider() 创建临时 ChatService 或 updateProvider()"
+                    },
+                    "user_notification": {
+                      "type": "object",
+                      "required": ["type", "duration"],
+                      "properties": {
+                        "type": { "type": "string", "const": "Toast.LENGTH_SHORT" },
+                        "duration": { "type": "string", "const": "~2 seconds" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "streaming": {
+          "type": "object",
+          "description": "SSE 流式响应（不变）",
+          "required": ["protocol", "compatibility"],
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "const": "Server-Sent Events (SSE)",
+              "description": "text/event-stream"
+            },
+            "compatibility": {
+              "type": "object",
+              "required": ["deepseek", "ollama", "vllm"],
+              "properties": {
+                "deepseek": {
+                  "type": "object",
+                  "required": ["format", "example"],
+                  "properties": {
+                    "format": { "type": "string", "const": "data: {\"choices\":[{\"delta\":{\"content\":\"...\"}}]}" },
+                    "example": { "type": "string", "const": "data: {\"id\":\"...\",\"choices\":[{\"delta\":{\"content\":\"喵~\"}}]}" }
+                  }
+                },
+                "ollama": {
+                  "type": "object",
+                  "required": ["format", "note"],
+                  "properties": {
+                    "format": {
+                      "type": "string",
+                      "const": "同 DeepSeek (OpenAI-compatible)",
+                      "description": "Ollama v0.1.0+ 的 /v1/chat/completions 与 OpenAI SSE 格式完全一致"
+                    },
+                    "note": {
+                      "type": "string",
+                      "example": "Ollama 旧版需设置 OLLAMA_ORIGINS=*; 新版默认兼容"
+                    }
+                  }
+                },
+                "vllm": {
+                  "type": "object",
+                  "required": ["format", "note"],
+                  "properties": {
+                    "format": {
+                      "type": "string",
+                      "const": "同 DeepSeek (OpenAI-compatible)",
+                      "description": "vLLM 的 /v1/chat/completions 完全遵循 OpenAI SSE 格式"
+                    },
+                    "note": {
+                      "type": "string",
+                      "example": "vLLM 需启动时加 --api-key 或在设置中填写对应 key"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "files": {
+      "type": "object",
+      "required": ["new", "modified", "unchanged"],
+      "properties": {
+        "new": {
+          "type": "array",
+          "description": "新增文件",
+          "items": {
+            "type": "object",
+            "required": ["path", "responsibility", "estimated_lines"],
+            "properties": {
+              "path": { "type": "string" },
+              "responsibility": { "type": "string" },
+              "estimated_lines": { "type": "integer" }
+            }
+          },
+          "example": [
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/LLMProvider.kt",
+              "responsibility": "ProviderType 枚举 + LLMProvider data class",
+              "estimated_lines": 35
+            },
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/LLMProviderManager.kt",
+              "responsibility": "SharedPreferences 持久化、健康检查、Provider 切换、降级",
+              "estimated_lines": 120
+            },
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/ui/SettingsScreen.kt",
+              "responsibility": "Material3 Compose 设置界面",
+              "estimated_lines": 180
+            }
+          ]
+        },
+        "modified": {
+          "type": "array",
+          "description": "需要修改的现有文件",
+          "items": {
+            "type": "object",
+            "required": ["path", "change_summary", "estimated_diff_lines"],
+            "properties": {
+              "path": { "type": "string" },
+              "change_summary": { "type": "string" },
+              "estimated_diff_lines": { "type": "integer" }
+            }
+          },
+          "example": [
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/ChatService.kt",
+              "change_summary": "构造函数接受 LLMProvider；新增 updateProvider()；移除硬编码 URL；apiKey 条件注入",
+              "estimated_diff_lines": 25
+            },
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/MainActivity.kt",
+              "change_summary": "onCreate 中 init LLMProviderManager；TopAppBar 增加设置齿轮按钮→导航；sendMessage 前健康检查+降级",
+              "estimated_diff_lines": 30
+            }
+          ]
+        },
+        "unchanged": {
+          "type": "array",
+          "description": "无需改动的文件（已有依赖满足需求）",
+          "items": {
+            "type": "object",
+            "required": ["path", "why"],
+            "properties": {
+              "path": { "type": "string" },
+              "why": { "type": "string" }
+            }
+          },
+          "example": [
+            {
+              "path": "app/build.gradle.kts",
+              "why": "OkHttp 4.12.0、kotlinx-serialization-json 1.7.3、Compose Material3 — 所有依赖已就绪"
+            },
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/ApiModels.kt",
+              "why": "ChatRequest/ChatResponse/SSE 模型完全兼容 OpenAI 格式，无需修改"
+            },
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/PersonaConfig.kt",
+              "why": "system prompt / model / temperature 仍从此读取；本地 Provider 可选择覆盖 model"
+            },
+            {
+              "path": "app/src/main/java/com/live2d/ai/android/VisionService.kt",
+              "why": "视觉服务仍使用 Zhipu GLM-4V，不涉及本次改动"
+            }
+          ]
+        }
+      }
+    },
+
+    "implementation_phases": {
+      "type": "object",
+      "required": ["phase_1", "phase_2", "phase_3"],
+      "properties": {
+        "phase_1": {
+          "type": "object",
+          "required": ["name", "objective", "deliverables", "validation"],
+          "properties": {
+            "name": { "type": "string", "const": "数据层 — Provider 模型 + Manager + ChatService 适配" },
+            "objective": { "type": "string", "const": "建立 LLMProvider 抽象，ChatService 可通过参数切换后端" },
+            "deliverables": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": ["LLMProvider.kt", "LLMProviderManager.kt", "ChatService.kt (modify)"]
+            },
+            "validation": {
+              "type": "object",
+              "required": ["test_1", "test_2", "test_3"],
+              "properties": {
+                "test_1": { "type": "string", "const": "单元测试: LLMProviderManager save/load 配置正确" },
+                "test_2": { "type": "string", "const": "单元测试: healthCheck() 连接 MockWebServer 返回 Ok/Error" },
+                "test_3": { "type": "string", "const": "集成测试: ChatService(deepSeekProvider) 仍正常工作" }
+              }
+            }
+          }
+        },
+        "phase_2": {
+          "type": "object",
+          "required": ["name", "objective", "deliverables", "validation"],
+          "properties": {
+            "name": { "type": "string", "const": "UI 层 — SettingsScreen + MainScreen 集成" },
+            "objective": { "type": "string", "const": "用户可在设置界面配置本地 LLM，发送消息时自动降级" },
+            "deliverables": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": ["ui/SettingsScreen.kt", "MainActivity.kt (modify)"]
+            },
+            "validation": {
+              "type": "object",
+              "required": ["test_1", "test_2", "test_3"],
+              "properties": {
+                "test_1": { "type": "string", "const": "手动测试: 打开设置→输入 Ollama URL→保存→重启→配置保持" },
+                "test_2": { "type": "string", "const": "手动测试: 本地 Provider 选中→发送消息→本地 LLM 回复" },
+                "test_3": { "type": "string", "const": "手动测试: 断开本地 LLM→发送消息→Toast 降级提示→DeepSeek 回复" }
+              }
+            }
+          }
+        },
+        "phase_3": {
+          "type": "object",
+          "required": ["name", "objective", "deliverables", "validation"],
+          "properties": {
+            "name": { "type": "string", "const": "健壮性 — 网络配置 + 超时 + 模型列表" },
+            "objective": { "type": "string", "const": "处理 Android 明文限制、Ollama CORS、超时差异化、模型下拉选择" },
+            "deliverables": {
+              "type": "array",
+              "items": { "type": "string" },
+              "example": ["res/xml/network_security_config.xml (new)", "AndroidManifest.xml (modify)"]
+            },
+            "validation": {
+              "type": "object",
+              "required": ["test_1", "test_2", "test_3"],
+              "properties": {
+                "test_1": { "type": "string", "const": "手动测试: API 29+ 设备 HTTP 连接局域网 Ollama 成功" },
+                "test_2": { "type": "string", "const": "手动测试: 慢模型 (>30s) 不触发 OkHttp readTimeout" },
+                "test_3": { "type": "string", "const": "手动测试: 健康检查成功后显示可用模型列表" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "network_security": {
+      "type": "object",
+      "description": "Android 明文 HTTP 流量配置",
+      "required": ["issue", "solutions"],
+      "properties": {
+        "issue": {
+          "type": "string",
+          "const": "API 28+ 默认禁止 cleartext HTTP。本地 LLM 通常运行在 http:// 地址。"
+        },
+        "solutions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["approach", "recommendation"],
+            "properties": {
+              "approach": { "type": "string" },
+              "recommendation": { "type": "boolean" }
+            }
+          },
+          "example": [
+            {
+              "approach": "AndroidManifest.xml 中 android:usesCleartextTraffic=\"true\" (全局放行)",
+              "recommendation": false
+            },
+            {
+              "approach": "res/xml/network_security_config.xml 中 domain-config 精确放行局域网 IP 段 192.168.0.0/16 + 10.0.0.0/8",
+              "recommendation": true
+            }
+          ]
+        }
+      }
+    }
+
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "live2d-ai-mod-external-input"
+description = "Live2D-Ai 外部事件接入 Mod（节点 E E5）：接收主 UI 之外的外部对话输入，走同一 LLM/TTS 主链路"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
+serde_json = "1"
+log = "0.4"
+
+[lints]
+workspace = true

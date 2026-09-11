@@ -1,0 +1,34 @@
+name: live2d_ai_shell
+description: "Live2D-Ai 的 Flutter Web 前端外壳（渲染面协议 v1）。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.3
+
+# 运行时外部依赖仅 http + web（见 shell/README.md「依赖约束」）。
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # OFL-1.1 条件 2：再分发字体必须随附版权声明与许可，故让它随产物一起走。
+    - assets/fonts/OFL.txt
+  fonts:
+    # 自托管中文子集，替代 Flutter 的 fonts.gstatic.com 缺字回落——见
+    # assets/fonts/README.md。断网可用是本项目的硬要求（本地优先的桌宠）。
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-AiSubset-Regular.woff2
+          weight: 400
+        - asset: assets/fonts/NotoSansSC-AiSubset-Bold.woff2
+          weight: 700
