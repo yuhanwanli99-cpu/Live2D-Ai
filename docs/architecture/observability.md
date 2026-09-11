@@ -52,3 +52,70 @@
 
 - `python scripts/health_check.py` 无 Key、无网络可运行，退出码 0 表示本地基础健康。
 - 健康检查不修改任何文件。
+
+---
+
+## 5. 链路错误码与日志（Rust + Flutter，2026-09-11 落地）
+
+> 上面 §3/§4 描述的是**已归档的 Python 版**（`Live2D-Ai-pc/`，tag `py-legacy`）。
+> 当前主线是 Rust 核心 + Flutter 前端，可观测性契约如下。
+
+### 5.1 三条路径，同一个码
+
+一次链路错误（LLM / TTS / 解码 / 背压）必须**同时**能被三种消费者看见，
+并且三处用的是**同一个** `code` 字符串——用户才能拿界面上看到的码去日志里搜：
+
+| 消费者 | 载体 | 位置 |
+| --- | --- | --- |
+| 后端日志 | `tracing::error!(code=…, stage=…, epoch=…, fatal=…, hint=…)` | `supervisor/handlers.rs`（stdout + 文件双 sink） |
+| 前端 | `AppEvent::Error` → WS `error` 帧 | `app_event.rs` + `web_api/ws/events.rs` |
+| 终端（`--chat`） | 同一份 `AppErrorEvent::log_line()` | stdout 单行 |
+
+**为什么写成契约**：2026-09-11 之前这三条**全都断着**——错误只有 `Display`
+散文、只 `println!` 进 stdout（文件 sink 里一个字都没有）、且 `AppEvent` 压根
+没有错误变体（WS 从来不发 `error` 帧）。用户看到的界面只有「本轮失败」，
+日志里什么都没有，于是投诉「后端出错无具体错误代码 / 前端无法知道错误信息」。
+
+### 5.2 错误码表（`ErrorKind::code()`）
+
+形态 `<stage>_<suffix>`；上游 HTTP 状态码直接进码（401 与 429 必须一眼分开）。
+`hint()` 给一句**可执行**提示（如 401 → 检查 `api_key_env` 指向的环境变量在
+后端进程环境里是否已设置）；`is_fatal()` 与 supervisor 的排空策略同口径。
+
+| kind | code | fatal |
+| --- | --- | --- |
+| `Llm(Status 401)` | `llm_upstream_401` | 否（已生成语音继续播完） |
+| `Llm(Http)` | `llm_transport` | 否 |
+| `Llm(InvalidBaseUrl)` | `llm_base_url_invalid` | 否 |
+| `Llm(Sse)` | `llm_sse_parse` | 否 |
+| `Tts(Status 404)` | `tts_upstream_404` | 是 |
+| `Decode(TruncatedPcm)` | `decode_pcm_unaligned` | 是 |
+| `Backpressure` | `tts_backpressure` | 是 |
+| `IncompleteTools` | `tools_incomplete` | 否 |
+
+回归：`conversation/error_code.rs`（码/阶段/致命性/提示）、
+`app_event.rs`（投影）、`web_api/tests_ws.rs`（`error` 帧形状）、
+Flutter `test/ws_frame_test.dart` + `test/ui_state_tracker_test.dart`（上屏文案）。
+
+### 5.3 HTTP 请求级日志（`web_api/dispatch.rs`）
+
+| 条件 | 级别 | 说明 |
+| --- | --- | --- |
+| 状态 ≥ 500 | `error` | 真故障 |
+| 状态 ≥ 400 | `warn` | 用户看得见的拒绝（含 403 安全校验：`code`/`origin`/`content_type` 都记） |
+| mutating 成功（POST/PATCH/PUT/DELETE） | `info` | 「我改过什么」的审计轨迹 |
+| 其它成功读取 | `debug` | GET 太密，不占默认档位 |
+
+**不记录请求体**：设置补丁里含提示词、端点地址等用户内容，且没有任何诊断
+问题需要它。设置写盘失败另在 `settings_routes` 打 `code` + `status`。
+
+### 5.4 配置快照必须与磁盘一致
+
+`file_watcher` 检测到**外部修改**时，除 `supervisor.reload()`（重建 client）
+之外还必须刷新 `StatusContext` 快照（`refresh_from_disk`）。否则：
+
+1. `GET /api/v1/settings` 回旧值（界面显示的和磁盘上的不是一回事）；
+2. 下一次界面「保存」以**旧快照**为基准整份写回，把手改的内容**覆盖掉**。
+
+解析失败（编辑器保存到一半）时保留旧快照并打 `warn`——不把坏配置换上界面。
+回归：`web_api/tests_reload.rs::refresh_from_disk_*`。

@@ -214,3 +214,29 @@ Flutter Web 引擎会把它读进 `AccessibilityFeatures`）。
 - [ ] 设置 → Mod 分区列表里没有「本地语音合成」
 - [ ] 语音仍然正常（TTS 端点来自 `live2d-ai.toml` 的 `[tts]`，
       设置 → 「语音合成」分区里能看到并修改它）
+
+## 17. 压在舞台上的控件**必须真的点得着**（`flutter test` 覆盖不到）
+
+**为什么**：舞台是 `<iframe>` 平台视图。Flutter Web 的两张画布都是
+`pointer-events: none`，真正接指针的是 iframe 这个 DOM 元素、且它在画布之上——
+指针落在舞台区域会进 **iframe 自己的文档**，父页收不到。所以压在舞台上的 Flutter
+控件默认是**「看得见、点不着、也滑不动」**，而 widget 测试（VM、没有 DOM）
+**永远抓不到**。自动回归只到「有没有套 `StagePointerInterceptor`」为止
+（`test/stage_pointer_interceptor_test.dart`）；**「套了以后真的点得着吗」只能人点**。
+
+三种断点各来一遍（窗口宽度 ≥1280 / 900–1279 / <900）：
+- [ ] 打开设置：面板上**每一条**都能点——分区 chip 能换区、滑杆能拖、输入框能输入
+- [ ] 设置面板能**上下滚动**（滚轮停在面板上滚，不是滚了背景）
+- [ ] `expanded` 内联侧板：点 ✕ 能关、Esc 能关、rail 上再点同一分区能收起
+- [ ] `medium` / `compact`：点浮层里的「保存 / 放弃」有反应
+- [ ] 舞台**右下角**「缩小 / 100% / 放大 / 复位」四键都点得动，读数跟着变
+- [ ] 断线时（把后端停几秒）横幅上的「点此重试」点得着
+- [ ] 渲染面失败时，错误覆盖层上的「重试」点得着
+- [ ] **对照项**：舞台左侧空白区仍然能**拖动模型**——垫层只罩控件那一块，
+      不许把整块舞台的交互一起吃掉（`sync.clickEnabled`）
+- [ ] DevTools 里 `document.elementsFromPoint(x, y)` 在控件上返回
+      `DIV`（`flt-platform-view`），**不是** `IFRAME`
+
+**已知仍点不着的两处（不是回归）**：`showModalBottomSheet` 的模态障碍层
+（「点空白关闭」）与拖拽把手——它们在 `builder` 子树之外，垫层罩不到；
+取舍见 `lib/live2d/stage_pointer_interceptor.dart` 头注。

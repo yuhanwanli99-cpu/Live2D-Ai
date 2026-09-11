@@ -81,6 +81,26 @@
   `test/theme_test.dart`（含 CJK 本地化后字体不被覆盖回 Roboto 的守卫）。
 - **协议约定**：前端与渲染面之间只走**版本化消息**（`{version,type,payload}`，见
   `l2d-wasm-demo` 的 v1 协议）；新增字段必须向后兼容（缺省即默认值）。
+- **压在舞台 iframe 之上的可交互控件必须套 `StagePointerInterceptor`**
+  （`lib/live2d/`，2026-09-11 定）：Flutter Web 的两张画布都是 `pointer-events: none`，
+  真正接指针的是 iframe 那个 DOM 元素、且它在画布之上——指针落在舞台区域会进
+  iframe 自己的文档，**父页收不到**。漏套不报错，只是**「看得见、点不着、也滑不动」**
+  （设置面板、断线横幅、缩放角标、错误重试全中过），回归在
+  `test/stage_pointer_interceptor_test.dart`。
+- **链路错误必须走 `AppEvent::Error` + `tracing` + WS `error` 帧**（2026-09-11 定）：
+  一次 LLM/TTS/解码失败要同时出现在**后端日志**（`tracing::error!`，带
+  `code=` 结构化字段）与**前端**（WS `error` 帧，`{code,stage,message,hint,epoch,fatal}`），
+  且两处的 `code` 是**同一个字符串**（用户要拿界面上的码去日志里搜）。
+  错误码由 `live2d-ai-runtime::conversation::ErrorKind::code()` 给出
+  （`<stage>_<suffix>`，上游状态码进码：`llm_upstream_401`），`hint()` 给一句
+  可执行处置。**禁止**新增只 `println!` 的错误路径（不进文件 sink = 排障时一片空白），
+  **禁止**让前端从显示文案里猜错误类型（文案会改，码是契约）。
+- **请求级日志在 `web_api/dispatch.rs`**（≥500 `error` / ≥400 `warn` /
+  mutating 成功 `info` / 其余 `debug`）；**不记录请求体**（含用户提示词等内容）。
+- **配置快照必须与磁盘一致**：`file_watcher` 的外部修改路径除了
+  `supervisor.reload()` 还要 `StatusContext::refresh_from_disk`——否则
+  `GET /api/v1/settings` 回旧值，且下一次界面「保存」会把旧快照整份写回、
+  **静默覆盖用户手改的配置**。PATCH 路径与它共用同一个函数。
 - **不得**在 Flutter 侧复制核心逻辑（状态机、动作仲裁、LLM/TTS 协议）——
   那些属于 Rust 核心层，前端只做展示与调度。
 
@@ -100,8 +120,20 @@
 
 ## 变更历史
 
+- **2026-09-11（v0.5.1 追加）**：用户报「后端出错无具体错误代码 + 改动提示词就崩 +
+  看后端日志什么都没有 + 前端无法知道错误信息」。查证**三条全对**：
+  ① `dispatch.rs` 一行请求日志都没有；② 链路错误用 `println!`（不进 tracing 文件 sink）；
+  ③ `AppEvent` 没有错误变体 → WS **从来不发** `error` 帧（前端那个 `WsErrorEvent`
+  永远收不到实例）。修法：`ErrorKind::code()/stage()/is_fatal()/hint()` 错误码契约、
+  `AppEvent::Error` + `error` 帧投影、请求级日志与 403 提到 `warn`、
+  前端两条消费路径（`UiStateTracker` / `ChatController`）共用 `formatWsError`、
+  保存失败 toast 带码、错误横幅「下一步」按码分流。**顺带查出真 bug**：
+  手改 `live2d-ai.toml` 后 `GET /settings` 不跟随磁盘，下一次界面「保存」会把
+  手改内容**覆盖**掉 → 新增 `StatusContext::refresh_from_disk`（回归
+  `web_api/tests_reload.rs`）。复核：改提示词本身不失败（10 组取值全 200），
+  当前那条失败是进程环境缺 `DEEPSEEK_API_KEY` 的 401。门禁 812 + 627 全绿。
 - **2026-09-11（v0.5.1）**：v0.5.0 交付后接浏览器工具做**真机验收**，
-  抓到**九个 bug**（八个逃过了当时全绿的 810+590 条测试）：
+  抓到**十二个 bug**（大部分逃过了当时全绿的 810+590 条测试）：
   ① 直接点「设置」不加载（面板写「读不到服务端设置」）；
   ② `showModalBottomSheet` 的 builder 只跑一次 → medium/compact 设置浮层**永远转圈**；
   ③ 路由把查询串当路径 → `GET /api/v1/logs?limit=200` 回 501，诊断日志从未成功；
@@ -113,7 +145,13 @@
   ⑧ 缩放读数永远是 `—`（没人读渲染面首帧的 `stage-ack`）；
   ⑨ 老 JS 前端占着 `/` 与 `/app` 是两套界面 → `/` 302 到 `/app/`，JS 前端整套删除；
   ⑩ 状态胶囊冒充「后端未连接」（`bridgeError → offline` 口径错 + 信号只置位不清除，
-  普通刷新就能撞上）→ 删掉那条派生，渲染面失败只留在舞台自己的覆盖层上。
+  普通刷新就能撞上）→ 删掉那条派生，渲染面失败只留在舞台自己的覆盖层上；
+  ⑪ **压在舞台 iframe 上的控件全都点不着**（用户报「设置能唤醒，但点不动、不能上下滑」）
+  → 新增 `StagePointerInterceptor` 指针垫层（透明 `<div>` 平台视图，零新依赖），
+  设置面板 / 断线横幅 / 缩放角标 / 两处错误重试逐个接线（见上方前端层约定）；
+  ⑫ **删掉左侧分区 rail**（用户裁决「把左边的这些设置一级选项去掉留给舞台」）——
+  那一列 168 px 还给舞台，设置入口只剩 AppBar 的「设置」一处，分区切换在面板内的
+  chip 行（顺带删掉「再点一次 rail 上同一分区收起」的切换语义）。
   浏览器工具到位后还重验了：本次加载**外部源请求 0**（断网红线通过），
   并端到端跑通圆形↑发送键（输入 → 点按钮 → 用户气泡 → LLM 回复）。
   教训：**测试全绿 ≠ 界面是对的**；异步时序、浮层构建时机、平台视图、

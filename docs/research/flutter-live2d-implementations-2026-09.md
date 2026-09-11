@@ -98,7 +98,7 @@ Flutter Web（真正的客户端：UI / 状态 / 网络编排）
 
 | 坑 | 出处 | 处理 |
 |---|---|---|
-| 平台视图层级 / 点击穿透 | flutter#101580、#145360、#175119 | 模型舞台用独立 iframe；交互控件不叠在 iframe 上方（或让 iframe pointer-events 可控） |
+| 平台视图层级 / 点击穿透 | flutter#101580、#145360、#175119 | 模型舞台用独立 iframe；交互控件不叠在 iframe 上方（或让 iframe pointer-events 可控）。**本项目的落地（2026-09-11）**：控件确实叠在了舞台上（设置面板/断线横幅/缩放角标/错误重试），于是全部点不着——最后选了后半句的**按盒子**版本：`StagePointerInterceptor`（透明 `<div>` 平台视图垫层，与 flutter/packages 的 `pointer_interceptor` 同法）。参考 flutter/flutter#190574 |
 | 必须同源 | ai-cartoon-chat transport 校验 | Flutter 构建产物与 `/render` 都由 Rust 服务同源提供（loopback） |
 | Flutter Web 无 dart:ffi | 语言事实 | 后端必须走 HTTP/WS（现有 `--web` 正好满足） |
 | 口型假驱动 | ai-cartoon-chat renderer.js:290 | 用真实音频 RMS（后端 `RmsMeter` 参数：50ms 窗 / attack 0.03 / release 0.10） |

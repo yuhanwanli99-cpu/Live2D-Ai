@@ -434,6 +434,12 @@ SizeClass sizeClassOf(double width) =>
   内联让滑杆与舞台同屏是这个产品**唯一必须保住的手感**【调研 flutter §2.4】。
   但为保住舞台宽度，它**浮在舞台列的右侧**而不是新增一列——**这是对 flutter-arch §2.4 的修正**（见附录 A-2）。
 
+> **⚠️ 2026-09-11 用户裁决：左侧 rail 已删除。** 用户：「把左边的这些设置一级选项
+> 去掉留给舞台。」现行为：**设置入口只有 AppBar 的「设置」一处**（compact 在聊天
+> 面板头），分区切换在面板内的 chip 行（`SettingsScaffold`）。上面 §3 图里的 Rail
+> 一栏与本节两条 rail 规格**保留为历史记录**，不再是实现口径；`NavMetrics.railWidth`
+> 与 `SectionRail` 都已删除（见 `CHANGELOG.md` v0.5.1 §13、`app_shell.dart` 头注）。
+
 **900–1279（medium）——icon rail + 底部 sheet**
 
 ```
@@ -742,6 +748,11 @@ UI 处置：开关旁边显示一行「当前由启动参数强制开启」当 `
 （`main.dart:141-163` 宽屏/窄屏共用同一个 `DisplayPanel`），而 OLV-Web 的教训是「同一个数写 3 遍」
 （440px/24px 出现在 3 个文件）【调研 survey §4.1】。
 
+> **2026-09-11 修订**：左侧 rail 删除后，设置入口只剩 AppBar 的「设置」一处
+> （compact 在聊天面板头），分区切换在面板内的 chip 行。≥1280 那条写的
+> 「点空白关闭」**从未实现**（原因见 §13.12④）——收起是 **✕ / Esc**；
+> 「再点一次 rail 上同一分区」这条随 rail 一起删除。
+
 ### 4.3 草稿与未保存改动（`SettingsController` 的双源）
 
 ```dart
@@ -863,7 +874,7 @@ class SettingsController extends ChangeNotifier {
 | `text_delta` | `{text}` 或 `{completed}` | WS |
 | `action_state.kind` | `perform` / `cease`（`data.action` 为对象，含 `source`/`strength`） | WS |
 | `epoch` | 自 `chat` 受理响应与各帧 | HTTP / WS |
-| `error` 帧 | `{code, message}` | WS |
+| `error` 帧 | `{code, stage, message, hint, epoch, fatal}`——`code` 为**契约**（`<stage>_<suffix>`，如 `llm_upstream_401`），`hint` 是后端给的处置提示（旧服务端缺省） | WS |
 
 > **裁决（D）**：调研 control §5.1 把 core 的 `Phase`（`Idle`/`Thinking`/`Speaking`）也列为
 > 「已在 WS 上的状态源」。**这不准确**：`web_api/ws/*.rs` 全文**没有** `phase` 投影
@@ -951,11 +962,12 @@ otherwise              → idle
 | 429 `busy` | `ErrorBanner`：「上一轮还没结束」+「打断并重发」按钮 |
 | 503 `no_supervisor` | `ErrorBanner`：「后端对话引擎未就绪」+「去 LLM 设置」按钮（跳分区） |
 | `network_error` | `ErrorBanner`：「无法连接后端」+「重试」 |
-| WS `error` 帧 | `ErrorBanner`：`code` + `message`，可关闭；同时把 `code` 记进诊断快照 |
-| `turn_state.status == failed` | 助手气泡转失败态（`dangerSurface` + 「（生成失败）」）+ 重试按钮 |
+| WS `error` 帧 | `ErrorBanner`：**`code：message（hint）`**（`formatWsError`），可关闭；「下一步」按钮按 `code` 前缀分流（`llm_*` → 去 LLM 设置、`tts_*`/`decode_*` → 去语音合成设置）。**两条消费路径（`UiStateTracker` 与 `ChatController`）必须用同一个格式化函数**——2026-09-11 实测过「聊天面板有码、顶部横幅没码」的分裂 |
+| `turn_state.status == failed` | 助手气泡转失败态（`dangerSurface` + 「（生成失败）」）+ 重试按钮；若**没有**收到 `error` 帧，横幅明说「服务端未给出错误详情」并指向诊断日志（不假装知道原因） |
 | 本轮无文字输出 | 助手气泡写「（本轮没有文字输出——通常是模型只调用了动作工具）」（**现有行为，保留**，`chat_controller.dart:196-202`） |
 | `settings/test/llm` / `test/tts` 失败 | 结果行内联显示 `error.code` + `message` + 建议（base_url 是否可达 / 模型名是否存在），**不用 toast**（避免"一闪而过"） |
 | `PATCH` 400 `url_invalid` / `invalid_env_name` | 对应字段下方内联错误（`FieldRow` 的错误槽），**不用 toast** |
+| `PATCH` 任意失败（toast 路径） | toast 文案是「保存失败：HTTP 400 url_invalid：…」——**必须带服务端给的 `code`**，只写「保存失败」等于没有错误代码（2026-09-11 用户投诉原话） |
 | `PATCH` 返回 `RestartRequired` | `warning` 色 toast（§4.4） |
 | 渲染面 `error` 帧 / 12 s 未 `ready` | 舞台底部错误卡 + 「重试」（现有 `_StageErrorOverlay`，保留） |
 
@@ -1795,9 +1807,20 @@ token 的守卫交给 §2.8）。
 #### ④ 内联侧板**不做**「点空白关闭」（诚实记录）
 
 §4.2 写「可 Esc / 点空白关闭」。内联侧板浮在**舞台列**之上，而舞台是 iframe
-平台视图——**平台视图先吃掉指针事件**，铺在下层的点击捕获区拿不到舞台区域的点击。
-能拿到的只有少量 Flutter 绘制的空隙，不足以称为「点空白关闭」。
-实际提供三条关闭路径：**Esc / 侧板右上角 ✕ / 再点一次 rail 上同一个分区**。
+平台视图——平台视图会**吃掉指针事件**（指针进 iframe 自己的文档，父页收不到），
+铺在下层的点击捕获区拿不到舞台区域的点击。
+当时的关闭路径是 **Esc / 侧板右上角 ✕ / 再点一次 rail 上同一个分区**；
+**最后一条随左侧 rail 一起删除（2026-09-11 用户裁决，见 `CHANGELOG.md` v0.5.1 §13）**。
+
+> **2026-09-11 追加**：这条「吃指针」当时**只被当成「点空白关闭做不了」**，没意识到
+> 它同时意味着**面板自己**也点不着——用户随后就报了「设置能唤醒，但点不动、
+> 不能上下滑」。真机 DOM 是：`FLT-CANVAS-CONTAINER` 的两张画布都是
+> `pointer-events: none`，真正接指针的是 iframe 这个 DOM 元素、且在画布之上。
+> 修法是**按盒子**垫一层透明 `<div>` 平台视图（`StagePointerInterceptor`，
+> 与 flutter/packages 的 `pointer_interceptor` 同法，见 `CHANGELOG.md` v0.5.1 §12）。
+> 垫层只罩得住它包起来的盒子，所以本条**结论不变**：整块舞台的「点空白关闭」
+> 仍然不做（那要把整块舞台铺一层遮挡，代价是「设置开着时还能拖模型」一起没了）。
+> `showModalBottomSheet` 的模态障碍层与拖拽把手同理，在舞台区域不生效。
 
 #### ⑤ 设置浮层需要一个内部 `ValueNotifier` 才不显示旧内容
 

@@ -23,12 +23,21 @@ shell/flutter/
 │       ├── live2d_bridge.dart      # 协议 v1 状态机 + ready 前入队
 │       ├── live2d_host_web.dart    # HtmlElementView iframe + postMessage 校验
 │       ├── live2d_host_stub.dart   # 非 web 平台占位
-│       └── live2d_stage.dart       # StatefulWidget，对外 setMouth / sync / retry
+│       ├── live2d_stage.dart       # StatefulWidget，对外 setMouth / sync / retry
+│       ├── stage_pointer_interceptor.dart       # 压在舞台上的控件必须垫的指针垫层
+│       ├── stage_pointer_interceptor_web.dart   # web：透明 <div> 平台视图
+│       └── stage_pointer_interceptor_stub.dart  # 非 web：透明返回 child
 ├── test/live2d_bridge_test.dart # 协议 v1 状态机单元测试（VM 可跑）
 └── web/                         # index.html / manifest.json（base href 由构建注入）
 ```
 
 `build/` 已在 `shell/flutter/.gitignore` 中（`/build/`），构建产物不入库。
+
+> **压在舞台上的控件必须套 `StagePointerInterceptor`**（2026-09-11）：舞台是 `<iframe>`
+> 平台视图，DOM 上排在 Flutter 画布之上，而画布是 `pointer-events: none`——指针落在
+> 舞台区域会进 iframe 自己的文档，父页收不到。漏套不会报错，只会
+> **「看得见、点不着、也滑不动」**（设置面板、断线横幅、缩放角标、错误重试全中过）。
+> 原理与边界见该文件头注；`test/stage_pointer_interceptor_test.dart` 钉住已知接线点。
 
 ## 2. 构建
 

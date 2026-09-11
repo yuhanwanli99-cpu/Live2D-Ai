@@ -1,4 +1,87 @@
-# v0.5.1 — 验收时抓到的十一个 bug（含一次真实的数据损失）
+# v0.5.1 追加（2026-09-11）— 「后端出错无具体错误代码」的三条断线 + 一个真实的数据覆盖 bug
+
+> 用户报：「后端出错无具体错误代码，改动提示词就崩了，你看看后端日志，
+> 如果没有说明后端日志不够细」，随后补一句「前端无法知道错误信息」。
+> 查证结果：**三句话全对**。二进制版本号仍为 `0.5.1`（不发新版）。
+
+## 1. 后端日志确实不够细（事实核对）
+
+日志文件（`$XDG_DATA_HOME/live2d-ai/logs/`，tracing 文件 sink）里当时只有
+9 行，全是启动与「热重载成功」。原因有两条，都不是「日志级别没开」：
+
+- `web_api/dispatch.rs` **一行请求日志都没有**——成功的请求不可见（改了什么
+  没人知道），失败的请求也不可见（400/500 的 `code` 只写进 HTTP 响应体）；
+- 链路错误走的是 `println!("[error] {kind}")`（`supervisor/handlers.rs`），
+  **不进 tracing**，所以只出现在 stdout，文件 sink 里一个字都没有、也没有
+  时间戳/级别/模块。
+
+**修法**：① 请求级日志（≥500 `error`、≥400 `warn`、mutating 成功 `info`、
+其余读取 `debug`；**不记请求体**）；② 403 安全校验从 `debug!` 提到 `warn!`
+（它会到用户脸上）；③ 链路错误改用 `tracing::error!` 并带结构化字段。
+
+## 2. 没有错误码：`ErrorKind` 只有散文
+
+`LLM 阶段错误: 上游非成功状态 401 Unauthorized: Authentication Fails (governor)`
+——状态码埋在一句中文里，前端/脚本无从分支。新增
+`conversation/error_code.rs`：`code()`（`<stage>_<suffix>`，上游状态码直接进码：
+`llm_upstream_401`）、`stage()`、`is_fatal()`（与排空策略同口径）、
+`hint()`（**可执行**的处置提示）。
+
+## 3. 前端**结构上**收不到错误：WS 从来没有 `error` 帧
+
+`AppEvent` 没有错误变体，`app_event_to_ws_frame` 也就没有 `error` 分支
+（一直标着「P1 partial：依赖 AppEvent 扩展」）。前端那个 `WsErrorEvent` 类
+从写下那天起**永远收不到实例**，界面上只能显示「本轮失败」。
+**修法**：新增 `AppEvent::Error(AppErrorEvent)` → 投影成
+`error{code,stage,message,hint,epoch,fatal}` 帧；同一份快照同时进 tracing
+与 WS，两处的 `code` 是同一个字符串。
+
+**前端侧还修了两处**：① `UiStateTracker`（顶部横幅，`main.dart` 里优先级
+**高于** `ChatController`）把 `code`/`hint` 全丢了——实测「后端的码发到了、
+横幅上还是只有散文」；现在两条消费路径共用 `formatWsError`；
+② 保存失败 toast 只写「保存失败」，现在带服务端给的 `code：message`；
+③ 错误横幅的「下一步」按钮改为**按 `code` 前缀分流**（`llm_*` → 去 LLM 设置），
+不再解析显示文案。
+
+## 4. 顺带查出的真 bug：手改配置会被界面「保存」覆盖回去
+
+用户手改 `live2d-ai.toml`（比如换提示词）时，`file_watcher` 只调了
+`supervisor.reload()`（重建 LLM/TTS client），**没有**刷新 `StatusContext`
+里的设置快照。两个后果都是静默的：
+
+1. `GET /api/v1/settings` 继续回**改之前**的值——设置面板显示的和磁盘上的
+   不是一回事（实测：磁盘已改回人设，接口仍回上一次 PATCH 的值）；
+2. 更糟：`PATCH` 以**快照**为基准做三态合并后整份写回 → 下一次界面「保存」
+   把旧值写回去，**手改的提示词被静默覆盖**。这大概就是「改动提示词就崩了」
+   里那半个真实成分。
+
+**修法**：新增 `StatusContext::refresh_from_disk`，`file_watcher` 的 reload
+之后调用它；`dispatch` 的 PATCH 路径改用同一个函数（两条更新路径不再各写
+一份）。解析失败（编辑器保存到一半）保留旧快照并打 `warn`。
+
+## 5. 复核结论：改提示词本身**不会**失败
+
+对 `PATCH /api/v1/settings` 的 `persona.system_prompt` 做了 10 组取值（空串、
+引号、`"""`、反斜杠、结尾反斜杠、多行、制表/控制符、20k 长文、纯换行、CRLF），
+**全部 200 + 值往返一致**，写回 TOML 合法。当前环境里那条失败是
+`llm_upstream_401`，根因是**后端进程环境里没有 `DEEPSEEK_API_KEY`**
+（`scripts/ignite.sh` 会 source `./.env`，直接跑二进制不会）——与提示词无关，
+现在提示里会直说这一点。
+
+## 6. 门禁
+
+`cargo fmt --check` / `cargo clippy -D warnings` 干净；`cargo test --workspace
+--all-targets` **812 通过 0 失败**（新增 13 条：错误码表、投影、`error` 帧形状、
+快照刷新）；`flutter analyze` 无问题；`flutter test` **627 通过 0 失败**；
+`/app/` 已重建。浏览器端到端复验：横幅显示
+`llm_upstream_401：LLM 阶段错误: …（上游拒绝鉴权（HTTP 401）：确认 [llm]
+api_key_env 指向的环境变量在「后端进程」的环境里已设置且非空；提示词内容与
+鉴权无关）` + 「去 LLM 设置」按钮；日志文件里同码可搜；手改配置文件后
+`GET /api/v1/settings` 立刻跟随。
+
+---
+
+# v0.5.1 — 真机验收抓到十二个 bug（含一次真实的数据损失）+ 删掉左侧 rail
 
 v0.5.0 交付后接上浏览器工具做了真机验收。**九个问题里有八个逃过了当时的全部
 测试**（Rust 810 + Flutter 590 全绿），因为它们的共同前提是「真的在浏览器里
@@ -103,11 +186,71 @@ v0.5.0 交付后接上浏览器工具做了真机验收。**九个问题里有�
 —— 离线优先那条红线（断网白屏 / 豆腐块）可判定为通过。
 另外端到端跑通了**圆形↑发送键**：输入 → 点圆形按钮 → 用户气泡 → LLM 回复上屏。
 
+## 12. 压在舞台上的控件**全都点不着**（用户报的「设置能唤醒，但点不动、不能上下滑」）
+
+**根因**（真机 DOM，不是推断）：Flutter Web 的舞台是 `<iframe>` 平台视图；Flutter
+的两张画布都是 `pointer-events: none`，真正接指针的是 **iframe 这个 DOM 元素**，
+而它在 DOM 里**排在画布之上**。指针落在舞台区域 → 事件被派发进 **iframe 自己的
+文档** → 父页（Flutter）一个都收不到。于是 Flutter 把控件**画**在了 iframe 之上
+（上层画布），却**接不到**那一块的指针：`elementsFromPoint(500, 300)` 的答案是
+`IFRAME`，不是控件。
+
+受影响的不止设置：**medium 下几乎整块设置浮层都在舞台上方**、断线横幅的
+「点此重试」、舞台右下角的缩放四键、加载失败覆盖层的「重试」——全部
+**「看得见、点不着、也滑不动」**（`expanded` 的内联侧板、`compact` 的抽屉同理）。
+规格里「设置面板点开即时出内容」之所以在真机上看起来是好的，只因为那一条验的是
+**画出来**，不是**点得着**。
+
+**修法**：新增 `StagePointerInterceptor`（`lib/live2d/`）——在控件**下面**垫一层
+透明的 `<div>` 平台视图。它在场景里排在 iframe **之后**（控件本来就画在舞台之后），
+于是那一块的指针回到父页，Flutter 的命中测试再把事件交给真正画在上面的控件。
+与 `flutter/packages` 的 `pointer_interceptor` 同一手法（官方就是为这个问题发的包）；
+本项目运行时依赖只有 `flutter + http + web`，所以自带一版最小实现、**零新依赖**。
+接线点：内联侧板 / medium 浮层 / compact 抽屉 / 断线横幅 / 舞台角标 /
+`StageHost` 与 `Live2DStage` 的两处错误覆盖层。
+
+**仍然点不着的两处（诚实记录）**：`showModalBottomSheet` 的**模态障碍层**
+（「点空白关闭」）与**拖拽把手**——它们由 `BottomSheet` 画在 `builder` 子树
+**之外**，垫层罩不到。关设置仍是 Esc / 面板右上角 ✕ / rail 上再点一次同一分区。
+要连障碍层一起修，就得在设置打开期间把整块舞台铺一层遮挡，代价是
+**「设置开着时还能拖模型」**（渲染面 `sync.clickEnabled` 的真实交互）一起没——
+两害相权，先不换。
+
+**规矩**：以后**任何压在舞台上的可交互控件都必须套 `StagePointerInterceptor`**。
+漏了不会报错，只会点不着——所以 `test/stage_pointer_interceptor_test.dart`
+把已知接线点逐个钉住。
+
+## 13. 左侧分区 rail **删除**（2026-09-11 用户裁决「留给舞台」）
+
+用户：「把左边的这些设置一级选项去掉留给舞台。」
+
+- **删掉 `SectionRail` / `_RailItem`**（`lib/app/app_shell.dart`）与
+  `NavMetrics.railWidth`：那一列 168 px 全部还给舞台。1280 下舞台列从约 771 px
+  涨到约 939 px（`app_shell_layout_test` 直接按「总宽 − 聊天列 − 1 px 分隔线」
+  断言，rail 一旦长回来就红）。
+- **设置入口只剩一处**：非 compact 是 AppBar 的「设置」，compact 是聊天面板头
+  （这一条本来就有测试钉着：「设置入口必须恰好一个」）。分区切换在面板内的
+  chip 行（`SettingsScaffold`）——它本来就是导航的真身，rail 只是同一份
+  `sectionNotifier` 驱动的**第二处渲染**。
+- 顺带删掉「再点一次 rail 上同一个分区 = 收起侧板」的切换语义；收起只有
+  **✕ / Esc**（`showModalBottomSheet` 另有自带手势）。
+- 测试同步：`visual_language_test` 的「导航里没有图标」改判面板 chip 的
+  `avatar == null`；`stage_keepalive_test` 的「切 8 个分区」改走面板 chip。
+- **顺带记录一次「不是 bug」**：用户报「开发者选项点不动」。查证结论是
+  **它不是控件**——`开发者选项` 是 LLM / TTS 分区里的一个**小节标题**
+  （`SectionHeader`），字段（密钥环境变量名 / 清除密钥绑定 / 采样率）本来就
+  摊在它下面；后端也没有任何对应接口，与「后端没启动」无关。
+  真机复验（18080，`dev_mode=true`）：chip 换区、开关翻转（出现「未保存」+
+  保存/放弃）、滚轮滚动（`wheel` 被 Flutter `preventDefault`）、放弃草稿
+  （「未保存」徽标消失）**全部有反应**。
+
 ## 门禁
 
 `cargo fmt` 干净 / `clippy -D warnings` 干净 / **Rust 797 通过 0 失败** /
 doctest 3 / `rust-ratio` **98.02% PASS**；`flutter analyze` 无问题 /
-**610 通过 0 失败**。全部修复都在真浏览器里**复现 → 修 → 再验证**过。
+**619 通过 0 失败**（第 12 条带 8 条新测试，第 13 条把 rail 断言换成
+「舞台列宽度」断言）。全部修复都在真浏览器里**复现 → 修 → 再验证**过
+（第 12 条：`elementsFromPoint` 在设置面板上不再是 `IFRAME`）。
 
 ---
 
