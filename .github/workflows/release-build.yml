@@ -113,15 +113,25 @@ jobs:
             libasound2-dev pkg-config
           pkg-config --modversion alsa
 
-      # Linux 上静态链接 libc（+crt-static），避免服务器 glibc 版本不匹配；
-      # Windows/macOS 走动态链接（系统 runtime）。
+      # **不做 `+crt-static` 静态链接**（2026-09-12 移除，此前从未验证过）。
+      #
+      # 原先 Linux 走 `RUSTFLAGS="-C target-feature=+crt-static"`，意图是「避免服务器 glibc
+      # 版本不匹配」。实测这条路**结构性走不通**，而且是两个独立问题叠在一起：
+      #   ① `RUSTFLAGS` 是全局注入的，会一并作用到**过程宏**上 → 一旦依赖里有 proc-macro
+      #      （这里 `async-recursion`），直接报
+      #      `cannot produce proc-macro … does not support these crate types`。
+      #      改成显式 `--target x86_64-unknown-linux-gnu` 可以让 Cargo 区分 host/target
+      #      单元、绕开①，但随即暴露②：
+      #   ② `+crt-static` 让链接器走 `-static-pie`，于是 `-lasound` 要解析到**静态库**，
+      #      而 Ubuntu 的 `libasound2-dev` **只提供 `libasound.so`，没有 `libasound.a`**
+      #      → `rust-lld: error: unable to find library -lasound`。
+      #
+      # 所以 Linux 与其他平台一样**动态链接**：glibc 跟随构建 runner（Ubuntu 24.04），
+      # 运行时另需系统的 libasound / libxkbcommon / libdbus（均为常见系统库）。
+      # 真要做「可移植的静态二进制」得换 **musl** 目标（`x86_64-unknown-linux-musl`），
+      # 那是另一件需要 `musl-tools` 并单独处理 cpal/ALSA 的事，不在本 RC 范围内。
       - name: Build desktop binary (release)
-        run: |
-          if [ "${{ matrix.system_deps }}" = "true" ]; then
-            RUSTFLAGS="-C target-feature=+crt-static" cargo build -p live2d-ai-desktop --release
-          else
-            cargo build -p live2d-ai-desktop --release
-          fi
+        run: cargo build -p live2d-ai-desktop --release
       - name: Verify binary exists
         run: ls -lh target/release/${{ matrix.bin_name }}
 
@@ -142,8 +152,10 @@ jobs:
           ```
 
           ## 平台说明
-          - **Linux**：headless 服务端。依赖系统库 libasound / libxkbcommon / libdbus2
-            （标准 ubuntu-latest runner 满足）。桌面窗口模式（--pet-mode）需 X11/Wayland。
+          - **Linux**：headless 服务端，**动态链接**（glibc 跟随构建 runner = Ubuntu 24.04，
+            另需系统库 libasound / libxkbcommon / libdbus）。旧的 `+crt-static` 静态链接已移除：
+            它要求 `libasound.a`，而 Ubuntu 的 `libasound2-dev` 不提供该静态库。
+            桌面窗口模式（--pet-mode）需 X11/Wayland。
           - **Windows**：x86_64-pc-windows-msvc。`--web` 为纯 HTTP，**无 WebView2/Runtime 需求**
             （不使用嵌入浏览器）。桌面窗口模式（--pet-mode）仍为 v1 骨架。
           - **macOS**：aarch64-apple-darwin（Apple Silicon）。x86_64 需用户自行 Rosetta 构建。
