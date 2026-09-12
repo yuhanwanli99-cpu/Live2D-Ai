@@ -33,6 +33,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
+    # **必需**：`windows-latest` 上 `run:` 的默认 shell 是 **PowerShell**，
+    # 而本 workflow 的步骤用的是 POSIX 语法（`if [ ]; then … fi`、`ls -lh`、
+    # `printf` + quoted heredoc、`"$GITHUB_STEP_SUMMARY"`）。PowerShell 解析不了，
+    # 步骤会以 exit 1 立刻失败——2026-09-11 实测：`windows-latest` 的
+    # `Build desktop binary (release)` 就是死在这里（同一 run 里 macOS 正常）。
+    # windows-latest 自带 Git Bash，所以统一用 bash。
+    defaults:
+      run:
+        shell: bash
+
     strategy:
       fail-fast: false
       # 三个平台各自构建 desktop 二进制；不做交叉编译（各自 runner 原生 toolchains）。
@@ -69,12 +79,20 @@ jobs:
       - name: Cache cargo registry & build artifacts
         uses: Swatinem/rust-cache@v2
 
-      # Linux-only: 安装音频/窗口系统库（cpal→ALSA, winit→libxkbcommon/dbus）。
+      # Linux-only: 安装音频系统库。
+      # **只要两个**（2026-09-11 收窄，证据是本地能编过的最小集合就是这两个）：
+      #   - `libasound2-dev`：`alsa-sys` 经 pkg-config 在**构建期**链接 ALSA（cpal 的 Linux 后端）
+      #   - `pkg-config`：上面那条的查找工具
+      # 原先还装了 `libxkbcommon-x11-0` 与 `libdbus-1-dev`，但**构建期并不需要**：
+      #   - `x11-dl` / `xkbcommon-dl` 是 **dlopen** 包装（运行时才找 .so，不用 -dev 头文件）
+      #   - `zbus` 是**纯 Rust**；`libdbus-sys` 根本不在 `Cargo.lock` 里
+      # 而那几个多余包正是 2026-09-11 `runs/34659978040` 里 Linux job 挂在
+      # 「Install system dependencies」exit 100 的原因。故收窄到最小集合。
       #  Windows/macOS runner 自带所需 runtime，故跳过。
       - name: Install system dependencies (Linux)
         if: matrix.system_deps == true
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-               libasound2-dev libxkbcommon-x11-0 libdbus-1-dev pkg-config
+               libasound2-dev pkg-config
 
       # Linux 上静态链接 libc（+crt-static），避免服务器 glibc 版本不匹配；
       # Windows/macOS 走动态链接（系统 runtime）。
