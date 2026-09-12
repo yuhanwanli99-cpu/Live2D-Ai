@@ -38,16 +38,30 @@ jobs:
       - name: Cache cargo registry & build artifacts
         uses: Swatinem/rust-cache@v2
 
-      # **必需**：desktop crate 无条件依赖 cpal（Linux 后端经 ALSA），
+      # **必需**：desktop crate **无条件**依赖 cpal（Linux 后端经 ALSA），
       # 而 `cargo build --workspace` 会把它编出来。干净 runner 上没有
       # `libasound2-dev`，`alsa-sys` 的 build script 会直接失败
       # （2026-09-11 实测：runs/34658493093 的 `Build release binary (workspace)` 就是挂在这）。
-      # **只要两个**——`x11-dl`/`xkbcommon-dl` 是 dlopen、`zbus` 是纯 Rust，
-      # 构建期都不需要对应的 -dev 包（`libdbus-sys` 根本不在 Cargo.lock 里）。
-      # 见 `release-build.yml` 同名步骤的说明。
+      # `x11-dl`/`xkbcommon-dl` 是 dlopen、`zbus` 是纯 Rust，都不需要对应 -dev 包。
+      #
+      # 这步在 Linux 上以 **exit 100** 反复失败，根因**未确定**：
+      # 「包名不存在」已排除（noble 上 `libasound2-dev` 在 `pool/main/…`，收窄到两包后
+      # 同样失败）。判定依据打到日志，且**不用退出码当成功判据**——与
+      # `release-build.yml` 同名步骤保持同一命令体（条件不同：那边按 matrix 门控）。
       - name: Install system dependencies (Linux)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-               libasound2-dev pkg-config
+        run: |
+          set -x
+          lsb_release -a || cat /etc/os-release
+          echo "--- update 前（runner 自带索引，仅作基线）---"
+          apt-cache policy libasound2-dev || true
+          sudo apt-get -o Acquire::Retries=3 update
+          echo "--- update 后（install 实际会看到的索引）---"
+          apt-cache policy libasound2-dev || true
+          candidate="$(apt-cache policy libasound2-dev | awk '/Candidate:/ {print $2}')"
+          test -n "$candidate" && test "$candidate" != "(none)"
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+            libasound2-dev pkg-config
+          pkg-config --modversion alsa
 
       - name: Build release binary (workspace)
         id: build
