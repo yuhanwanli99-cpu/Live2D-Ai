@@ -42,10 +42,12 @@ jobs:
       # 而 `cargo build --workspace` 会把它编出来。干净 runner 上没有
       # `libasound2-dev`，`alsa-sys` 的 build script 会直接失败
       # （2026-09-11 实测：runs/34658493093 的 `Build release binary (workspace)` 就是挂在这）。
-      # 与 `release-build.yml` 的 Linux 依赖步骤保持一致。
+      # **只要两个**——`x11-dl`/`xkbcommon-dl` 是 dlopen、`zbus` 是纯 Rust，
+      # 构建期都不需要对应的 -dev 包（`libdbus-sys` 根本不在 Cargo.lock 里）。
+      # 见 `release-build.yml` 同名步骤的说明。
       - name: Install system dependencies (Linux)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-               libasound2-dev libxkbcommon-x11-0 libdbus-1-dev pkg-config
+               libasound2-dev pkg-config
 
       - name: Build release binary (workspace)
         id: build
