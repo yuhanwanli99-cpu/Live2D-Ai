@@ -79,20 +79,39 @@ jobs:
       - name: Cache cargo registry & build artifacts
         uses: Swatinem/rust-cache@v2
 
-      # Linux-only: 安装音频系统库。
-      # **只要两个**（2026-09-11 收窄，证据是本地能编过的最小集合就是这两个）：
-      #   - `libasound2-dev`：`alsa-sys` 经 pkg-config 在**构建期**链接 ALSA（cpal 的 Linux 后端）
-      #   - `pkg-config`：上面那条的查找工具
-      # 原先还装了 `libxkbcommon-x11-0` 与 `libdbus-1-dev`，但**构建期并不需要**：
-      #   - `x11-dl` / `xkbcommon-dl` 是 **dlopen** 包装（运行时才找 .so，不用 -dev 头文件）
-      #   - `zbus` 是**纯 Rust**；`libdbus-sys` 根本不在 `Cargo.lock` 里
-      # 而那几个多余包正是 2026-09-11 `runs/34659978040` 里 Linux job 挂在
-      # 「Install system dependencies」exit 100 的原因。故收窄到最小集合。
-      #  Windows/macOS runner 自带所需 runtime，故跳过。
+      # Linux-only: 安装 ALSA 的 dev 头文件（Windows/macOS runner 自带所需 runtime，故跳过）。
+      #   - `libasound2-dev`：`alsa-sys` 经 pkg-config 在**构建期**链接 ALSA（cpal 的 Linux 后端）。
+      #     `cpal` 是 `live2d-ai-desktop` 的**无条件**依赖（无 target 门控、无 feature），
+      #     所以这一步绕不过去——除非改 Cargo 语义，那不该由 CI 修复来承担。
+      #   - `pkg-config`：上面那条的查找工具（runner 镜像其实已预装，列着无害）。
+      #     `x11-dl`/`xkbcommon-dl` 是 dlopen 包装、`zbus` 是纯 Rust，都不需要对应 -dev 包。
+      #
+      # 2026-09-11 起这步在 Linux 上以 **exit 100** 反复失败（runs/34659978040、34660260293）。
+      # **已排除「包名不存在」**：`libasound2-dev` / `libxkbcommon-x11-0` / `libdbus-1-dev`
+      # 在 Ubuntu noble 上**都存在且都在 main**（`pool/main/…`）；而且收窄到两个包之后
+      # **同样失败**，所以**根因至今未确定**——不要再写「多余包导致失败」这类未经证实的结论。
+      #
+      # 因此这一步把**判定依据**打进日志，并且**不用 apt 的退出码当成功判据**：
+      #   - `lsb_release` → 坐实 runner 到底是不是 noble（镜像漂移）
+      #   - update **前/后**各打一次 `apt-cache policy` → 区分「索引本来就不全」
+      #     与「update 把索引弄坏了」（pre 有候选、post 变没）
+      #   - `Candidate` 非空硬校验 → 没有候选就立刻在这里失败，不拖到编译期报 alsa-sys 的天书
+      #   - `pkg-config --modversion alsa` → 装上了没；构建期真能找到 ALSA 才算过
       - name: Install system dependencies (Linux)
         if: matrix.system_deps == true
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-               libasound2-dev pkg-config
+        run: |
+          set -x
+          lsb_release -a || cat /etc/os-release
+          echo "--- update 前（runner 自带索引，仅作基线）---"
+          apt-cache policy libasound2-dev || true
+          sudo apt-get -o Acquire::Retries=3 update
+          echo "--- update 后（install 实际会看到的索引）---"
+          apt-cache policy libasound2-dev || true
+          candidate="$(apt-cache policy libasound2-dev | awk '/Candidate:/ {print $2}')"
+          test -n "$candidate" && test "$candidate" != "(none)"
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+            libasound2-dev pkg-config
+          pkg-config --modversion alsa
 
       # Linux 上静态链接 libc（+crt-static），避免服务器 glibc 版本不匹配；
       # Windows/macOS 走动态链接（系统 runtime）。
