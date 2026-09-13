@@ -86,6 +86,16 @@ pub(crate) fn handle_engine_event(
                 text: text.clone(),
             }));
         }
+        EngineEvent::TextFallback { epoch, ts_ms, text } => {
+            // rc.3 N0 正文兜底（2026-09-13）：失败轮把**整轮正文**交给 UI，
+            // 前端按覆盖式设置并标注「未收尾」。健康路径不受影响——
+            // 引擎只在 Failed 时发本事件（见 `EngineEvent::TextFallback`）。
+            emit(AppEvent::Conversation(ConversationUiEvent::TextFallback {
+                epoch: *epoch,
+                ts_ms: *ts_ms,
+                text: text.clone(),
+            }));
+        }
         EngineEvent::Error { kind, epoch, .. } => {
             // 2026-09-11：错误必须**同时**可被三种消费者看见——
             //   1. 后端日志（`tracing::error!` → stdout + 文件双 sink，带
@@ -201,6 +211,7 @@ pub(crate) fn ev_epoch(ev: &EngineEvent) -> u64 {
         | EngineEvent::ReasoningDelta { epoch, .. }
         | EngineEvent::AudioChunk { epoch, .. }
         | EngineEvent::SentenceVoiced { epoch, .. }
+        | EngineEvent::TextFallback { epoch, .. }
         | EngineEvent::Error { epoch, .. }
         | EngineEvent::Terminal { epoch, .. } => *epoch,
     }
@@ -214,6 +225,7 @@ pub(crate) fn ev_ts_ms(ev: &EngineEvent) -> Option<u64> {
         | EngineEvent::ReasoningDelta { ts_ms, .. }
         | EngineEvent::AudioChunk { ts_ms, .. }
         | EngineEvent::SentenceVoiced { ts_ms, .. }
+        | EngineEvent::TextFallback { ts_ms, .. }
         | EngineEvent::Error { ts_ms, .. }
         | EngineEvent::Terminal { ts_ms, .. } => Some(*ts_ms),
     }

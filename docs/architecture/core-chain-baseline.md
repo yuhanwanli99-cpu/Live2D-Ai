@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | 1 | 文本 → LLM 请求 | 前端 `chat_controller.send` → `POST /api/v1/chat` |
 | 2 | LLM 流式（**无 tools**） | `crates/live2d-ai-runtime/src/llm.rs`；`tools` 字段已删除并有断言守着 |
-| 3 | 按句读切句、整句合成后上屏 | `conversation/engine.rs` → `EngineEvent::SentenceVoiced` → WS `text_delta`（`supervisor/handlers.rs`） |
+| 3 | 按句读切句、整句合成后上屏 | `conversation/engine.rs` → `EngineEvent::SentenceVoiced` → WS `text_delta`（`supervisor/handlers.rs`）；失败轮另有 `TextFallback` 兜底（见 §2.1） |
 | 4 | TTS 合成 | `live2d-ai-runtime/src/tts.rs`：`POST <tts.base_url>/audio/speech`，`response_format="pcm"` |
 | 5 | 音频下发 | WS `audio` 帧：`{audio(base64), epoch, sample_rate, start, end, volume, muted}` |
 | 6 | 前端播放 | `shell/flutter/lib/audio/audio_player.dart`（**正在改为 `<audio>` + WAV**，见下） |
@@ -35,6 +35,49 @@
 | 8 | 口型落地 | bridge `mouth` → iframe → `l2d-wasm-demo/src/web/surface.rs` `set_parameter("ParamMouthOpenY", …)` |
 | 9 | 皮套渲染 | `/render`（wasm，WebGPU→WebGL 回退） |
 | 10 | 前端 UI | `/app/`（Flutter Web，`/` 302 到它） |
+
+### 2.1 正文上屏的「同拍」契约：健康 vs 失败（rc.3 N0，2026-09-13）
+
+**默认仍同拍**：健康路径上屏的闸门是「该句语音**已完整合成**」——
+`EngineEvent::SentenceVoiced` → `ConversationUiEvent::TextDelta` →
+WS `text_delta`（前端**追加**）。`EngineEvent::TextDelta`（LLM 原始增量）
+**只做控制台回显**，不上屏（2026-09-10 用户裁决），文字因此不会跑到声音前面。
+
+代价是：**任何让某句凑不齐的原因，都会让整轮一个字都不上屏**——TTS 挂了、
+合成失败、LLM 中途断流（残余没封口）。用户看到的是「模型没有返回」，
+而模型其实已经写完了正文。rc.3 补的是**异常让位**（默认契约不变）：
+
+```text
+健康轮（Completed）                          失败轮（Failed）
+──────────────────────────────              ──────────────────────────────
+TextDelta ──► 控制台回显                      TextDelta ──► 控制台回显
+SentenceReady ──► TTS 队列                    SentenceReady ──► TTS 队列
+  └─ AudioChunk ──► WS audio                   └─ AudioChunk ──► WS audio
+  └─ SentenceVoiced ──► WS text_delta（追加）    └─（TTS 失败：到此为止）
+       …（逐句重复）…                            Error(Tts)
+Terminal{Completed}                           TextFallback ──► WS text_fallback（覆盖）
+                                                Terminal{Failed}
+```
+
+`EngineEvent::TextFallback` 的三条判据（现行语义，改动前先改这里）：
+
+1. **只在 `Failed` 且已有正文时发**——`Cancelled`（用户按了停止）不补文字；
+2. `text` 是**整轮正文**（`TurnReport::assistant_text`），前端**整段设置**、
+   **不是**追加：整段天然幂等，也不必去算「已上屏的前缀到哪结束」（那受切句器
+   trim 影响，用字符串前缀推导会算错）；
+3. 它发在 `Terminal` **之前**（终态仍是最后一个事件），且 `Completed` 轮
+   **永不**发——所以它抢不了健康路径的跑。
+
+前端消费：`ChatController._applyTextFallback`（覆盖 + `ChatMessage.unfinished`），
+气泡上加一行 `kUnfinishedTurnCaption`（「未收尾：本轮语音未合成完…」），
+且该标记**落盘**——刷新后那段文字还在，就必须仍带这个限定。
+
+回归（任何一条红了都说明契约被改坏）：
+`conversation_engine_tts_flow::tts_failure_falls_back_to_the_generated_text`、
+`…::completed_turn_never_emits_text_fallback`、
+`supervisor::tests_stream::text_fallback_emits_its_own_ui_event`、
+`web_api::tests_ws::ws_unit_tests::conversation_text_fallback_maps_to_its_own_frame`、
+`test/ws_frame_test.dart`、`test/message_bubble_test.dart`。
 
 ## 3. 已经移出链路的东西（**不要**再当成产品功能）
 

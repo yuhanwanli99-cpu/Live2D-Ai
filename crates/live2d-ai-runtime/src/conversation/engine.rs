@@ -316,6 +316,24 @@ impl ConversationEngine {
             debug_assert!(llm_finished, "非取消/非致命路径必须来自正常流耗尽");
             TurnStatus::Completed
         };
+        // ---- 阶段 4：正文兜底（rc.3 N0，2026-09-13）----
+        // 失败轮里已经生成的正文不能因为「某句没凑齐」而整体消失：健康路径上屏
+        // 仍以 `SentenceVoiced` 为准（文字与声音同拍），但失败轮缺一个出口，
+        // 用户会以为「模型没回」。这里在终态**之前**补一次 `TextFallback`，
+        // 携带**整轮正文**（不是残余）——消费端按覆盖式设置，天然幂等。
+        // 只在 `Failed` 发：`Cancelled`（用户按了停止）不该再补一段文字。
+        if status == TurnStatus::Failed && !assistant_text.is_empty() {
+            let _ = send_event(
+                &event_tx,
+                &cancel,
+                EngineEvent::TextFallback {
+                    epoch,
+                    ts_ms: now_ms(),
+                    text: assistant_text.clone(),
+                },
+            )
+            .await;
+        }
         // 终态兜底投递：消费端卡死时最多等 [`super::TERMINAL_SEND_TIMEOUT`]，
         // 之后放弃——supervisor 的权威终态是 [`TurnReport`]，不依赖本事件送达。
         send_terminal(

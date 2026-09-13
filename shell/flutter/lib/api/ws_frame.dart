@@ -101,6 +101,24 @@ class ReasoningDeltaEvent extends WsEvent {
   final String? text;
 }
 
+/// `text_fallback`：**失败轮的正文兜底**（rc.3 N0，2026-09-13）。
+///
+/// 与 [TextDeltaEvent] 的消费语义**相反**：
+/// - `text_delta` 是健康路径的**增量**（与声音同拍），前端**追加**；
+/// - `text_fallback` 是失败路径的**一次性整段**，前端**设置**（覆盖）并标注
+///   「未收尾」——这样它天然幂等，不必区分「已上屏的前缀」与「未收尾的残余」。
+///
+/// 服务端只在失败轮且已有正文时发它（健康轮永不发），所以它不会让文字重新跑到
+/// 声音前面。
+class TextFallbackEvent extends WsEvent {
+  const TextFallbackEvent({this.epoch, this.text, super.seq, super.ts});
+
+  final int? epoch;
+
+  /// **整轮正文**（覆盖式设置，非增量片段）。
+  final String? text;
+}
+
 /// `audio`：base64 s16le 单声道 PCM 片（默认 20ms）。
 class AudioEvent extends WsEvent {
   const AudioEvent({
@@ -309,6 +327,15 @@ WsEvent? parseWsFrame(String raw) {
     case 'reasoning_delta':
       // 未知 type 在旧客户端被忽略，所以这是向后兼容的新增帧。
       return ReasoningDeltaEvent(
+        epoch: _intOrNull(data['epoch']),
+        text: _str(data['text']),
+        seq: seq,
+        ts: ts,
+      );
+
+    case 'text_fallback':
+      // 未知 type 在旧客户端被忽略，所以这是向后兼容的新增帧。
+      return TextFallbackEvent(
         epoch: _intOrNull(data['epoch']),
         text: _str(data['text']),
         seq: seq,

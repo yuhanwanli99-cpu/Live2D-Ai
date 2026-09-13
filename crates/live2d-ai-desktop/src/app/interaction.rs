@@ -74,6 +74,8 @@ impl ShellApp {
             // 思考同样不上 native UI：winit 路径只维护 render_epoch
             // （web 路径经 WS 投影给前端气泡的「思考」折叠区）。
             ConversationUiEvent::ReasoningDelta { .. } => {}
+            // 正文兜底同样只走 WS：winit 路径不显示文本（同一套理由）。
+            ConversationUiEvent::TextFallback { .. } => {}
         }
     }
 }

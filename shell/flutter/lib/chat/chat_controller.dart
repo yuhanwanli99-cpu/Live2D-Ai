@@ -175,6 +175,10 @@ class ChatController extends ChangeNotifier {
         // 也**不**触发 `_streaming`——「正在思考」不等于「正文已开始」，
         // 混用会让输入框的停止态与文字气泡的流式态对不上。
         if (text != null && text.isNotEmpty) _appendReasoning(text, epoch);
+      case TextFallbackEvent(:final text, :final epoch):
+        // rc.3 N0 正文兜底：失败轮把**整轮正文**交过来，**覆盖式**设置并标注
+        // 「未收尾」（见 [_applyTextFallback]）。
+        if (text != null && text.isNotEmpty) _applyTextFallback(text, epoch);
       case TurnStateEvent(:final status):
         _finishTurn(failed: status == 'failed');
       case final RuntimeStatusEvent status:
@@ -266,6 +270,32 @@ class ChatController extends ChangeNotifier {
       _assistant = bubble;
     }
     bubble.reasoning += text;
+    notifyListeners();
+  }
+
+  /// 失败轮的正文兜底（`text_fallback`，rc.3 N0，2026-09-13）。
+  ///
+  /// **整段设置**（不是追加）并打上 `unfinished`：服务端发的是**整轮正文**，
+  /// 而已上屏的句子只是它的（大致）前缀——追加会让正文出现两遍。覆盖天然幂等，
+  /// 也不必去算「已上屏的前缀到哪结束」（那受切句器 trim 影响，算不准）。
+  ///
+  /// 为什么要能建气泡：理论上 `send()` 已经建好了；但「服务端主动开口」或
+  /// 「帧先于 HTTP 响应到达」时 `_assistant` 还可能是 null，那时照样要收下
+  /// —— 丢帧就等于又把正文丢了。
+  void _applyTextFallback(String text, int? epoch) {
+    var bubble = _assistant;
+    if (bubble == null) {
+      bubble = ChatMessage(
+        role: ChatRole.assistant,
+        epoch: epoch,
+        streaming: true,
+      );
+      sessions.append(bubble);
+    }
+    bubble.text = text;
+    bubble.unfinished = true;
+    _assistant = bubble;
+    _streaming = true;
     notifyListeners();
   }
 

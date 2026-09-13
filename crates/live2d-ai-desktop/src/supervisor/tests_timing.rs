@@ -206,14 +206,21 @@ fn turn_stage_timings_are_monotonic_with_audio() {
 /// EngineEvent 各变体均带 `ts_ms`：构造一个全变体数组，断言各 `ts_ms`
 /// 被原样读出（构造期必须接受此字段）。
 ///
-/// 2026-09-11：`EngineEvent::ToolAction` 已随动作系统移除，变体数由 6 降为 5。
+/// 2026-09-11：`EngineEvent::ToolAction` 已随动作系统移除。
+/// 2026-09-13：补上此前漏构造的 `ReasoningDelta`，并加入 rc.3 N0 的
+/// `TextFallback`——**每个**变体都要在这里出现，否则本测试名不副实。
 #[test]
 fn engine_event_variants_accept_ts_ms_field() {
-    let events: [EngineEvent; 5] = [
+    let events: [EngineEvent; 7] = [
         EngineEvent::TextDelta {
             epoch: 1,
             ts_ms: 7,
             text: "x".into(),
+        },
+        EngineEvent::ReasoningDelta {
+            epoch: 1,
+            ts_ms: 12,
+            text: "想".into(),
         },
         EngineEvent::AudioChunk {
             epoch: 1,
@@ -229,6 +236,11 @@ fn engine_event_variants_accept_ts_ms_field() {
             ts_ms: 8,
             sentence_seq: 1,
             text: "x".into(),
+        },
+        EngineEvent::TextFallback {
+            epoch: 1,
+            ts_ms: 13,
+            text: "兜底正文".into(),
         },
         EngineEvent::Error {
             epoch: 1,
@@ -251,10 +263,15 @@ fn engine_event_variants_accept_ts_ms_field() {
             | EngineEvent::ReasoningDelta { ts_ms, .. }
             | EngineEvent::AudioChunk { ts_ms, .. }
             | EngineEvent::SentenceVoiced { ts_ms, .. }
+            | EngineEvent::TextFallback { ts_ms, .. }
             | EngineEvent::Error { ts_ms, .. }
             | EngineEvent::Terminal { ts_ms, .. } => *ts_ms,
         };
         stamps.push(ts);
     }
-    assert_eq!(stamps, vec![7, 9, 8, 10, 11], "每个变体必须带 ts_ms");
+    assert_eq!(
+        stamps,
+        vec![7, 12, 9, 8, 13, 10, 11],
+        "每个变体必须带 ts_ms"
+    );
 }
