@@ -443,6 +443,22 @@ void _reasoningFrameTests() {
     expect(r.seq, 7);
   });
 
+  /// **真实抓包**（2026-09-13，服务端 0.1.0-rc.2 实测）：
+  /// `deepseek-flash` 是推理模型，`GET /ws/state` 上收到的一帧原文。
+  ///
+  /// 这条钉的是「服务端真的这么发」——本 feature 的首次浏览器验证就吃过一次
+  /// 假阴性：语义树里看不到思考区，一度被读成「前端没渲染」，实际是气泡的
+  /// `excludeSemantics: true` 把它折进了 label。**形状要按抓包改，不要凭印象改**。
+  test('reasoning_delta：真实抓包原文能解析', () {
+    const String captured =
+        '{"data":{"epoch":0,"text":"我们需要","ts_ms":630},"seq":371,'
+        '"ts":"2026-09-13T11:25:35.701Z","type":"reasoning_delta"}';
+    final WsEvent? ev = parseWsFrame(captured);
+    expect(ev, isA<ReasoningDeltaEvent>());
+    expect((ev! as ReasoningDeltaEvent).text, '我们需要');
+    expect((ev as ReasoningDeltaEvent).epoch, 0);
+  });
+
   test('reasoning_delta：缺 text 不抛，按 null 处理', () {
     final WsEvent? ev = parseWsFrame(
       '{"type":"reasoning_delta","data":{"epoch":1}}',
