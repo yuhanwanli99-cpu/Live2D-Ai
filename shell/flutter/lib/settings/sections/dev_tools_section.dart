@@ -10,6 +10,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../api/api_client.dart';
 import '../../api/diagnostics_api.dart';
 import '../../api/models_api.dart';
 import '../../api/mods_api.dart';
@@ -307,6 +308,7 @@ class ModsSection extends StatelessWidget {
     required this.loading,
     this.error,
     this.onToggle,
+    this.onSaveConfig,
     this.onReload,
     this.busyId,
     super.key,
@@ -316,6 +318,13 @@ class ModsSection extends StatelessWidget {
   final bool loading;
   final String? error;
   final Future<void> Function(String id, bool enabled)? onToggle;
+
+  /// 保存某个 Mod 的配置（`POST /api/v1/mods/{id}/config`）。
+  ///
+  /// 为 null 时展开的表单只读展现、保存按钮禁用——**不假装能保存**。
+  final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
+      onSaveConfig;
+
   final Future<void> Function()? onReload;
   final String? busyId;
 
@@ -348,18 +357,28 @@ class ModsSection extends StatelessWidget {
           )
         else
           for (final ModInfo m in mods)
-            AdminRow(
-              title: m.name.isEmpty ? m.id : m.name,
-              subtitle: '${m.id} · v${m.version} · api v${m.apiVersion}',
-              // **状态用文字**（「运行中」/「已停用」），不靠颜色。
-              badges: <String>[m.statusLabel],
-              trailing: Switch(
-                value: m.enabled,
-                onChanged: busyId != null || onToggle == null
-                    ? null
-                    : (bool v) => onToggle!(m.id, v),
+            // 有 spec 的 Mod 展开后按 spec 渲表单；旧 Mod（无 spec）保持
+            // 「一行 + 开关」的现状——这是 M2 明确要求的兼容面。
+            if (m.settingsSpec == null || m.settingsSpec!.fields.isEmpty)
+              AdminRow(
+                title: m.name.isEmpty ? m.id : m.name,
+                subtitle: '${m.id} · v${m.version} · api v${m.apiVersion}',
+                // **状态用文字**（「运行中」/「已停用」），不靠颜色。
+                badges: <String>[m.statusLabel],
+                trailing: Switch(
+                  value: m.enabled,
+                  onChanged: busyId != null || onToggle == null
+                      ? null
+                      : (bool v) => onToggle!(m.id, v),
+                ),
+              )
+            else
+              _ModConfigTile(
+                mod: m,
+                busy: busyId != null,
+                onToggle: onToggle,
+                onSaveConfig: onSaveConfig,
               ),
-            ),
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
           Align(
@@ -373,6 +392,245 @@ class ModsSection extends StatelessWidget {
         ],
       ],
     );
+  }
+}
+
+/// 一个有 `settings_spec` 的 Mod：展开后按 spec 渲染配置表单。
+///
+/// # 为什么表单状态住在这里而不是宿主
+///
+/// 宿主只负责「把保存请求发出去」；每个 Mod 的字段草稿、保存中的禁用、
+/// 成功/失败文案都是**这一张卡片**的局部状态。放进宿主会让「保存了哪个
+/// Mod 的哪一项」与全局的 `_adminMessage` 缠在一起，也给不出逐卡片的结果。
+class _ModConfigTile extends StatefulWidget {
+  const _ModConfigTile({
+    required this.mod,
+    required this.busy,
+    required this.onToggle,
+    required this.onSaveConfig,
+  });
+
+  final ModInfo mod;
+  final bool busy;
+  final Future<void> Function(String id, bool enabled)? onToggle;
+  final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
+      onSaveConfig;
+
+  @override
+  State<_ModConfigTile> createState() => _ModConfigTileState();
+}
+
+class _ModConfigTileState extends State<_ModConfigTile> {
+  /// 每个字段的当前值：服务端 config 优先，缺该键回落 spec 默认值。
+  late Map<String, Object?> _values = _initialValues();
+
+  bool _saving = false;
+  String? _message;
+  bool _messageIsError = false;
+
+  ModSettingsSpec get _spec => widget.mod.settingsSpec!;
+
+  Map<String, Object?> _initialValues() {
+    final Map<String, Object?> out = <String, Object?>{};
+    for (final ModSettingField f in _spec.fields) {
+      out[f.key] = widget.mod.config.containsKey(f.key)
+          ? widget.mod.config[f.key]
+          : f.defaultValue;
+    }
+    return out;
+  }
+
+  @override
+  void didUpdateWidget(_ModConfigTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 宿主保存后重取列表 → 服务端的 config 是新的，用它回填草稿。
+    // （保存成功那一刻，服务端归一化后的值才是真相。）
+    if (!identical(oldWidget.mod.config, widget.mod.config)) {
+      _values = _initialValues();
+    }
+  }
+
+  bool _boolValue(ModSettingField f) => _values[f.key] is bool
+      ? _values[f.key]! as bool
+      : f.defaultValue == true;
+
+  int _intValue(ModSettingField f) {
+    final Object? raw = _values[f.key];
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw) ?? 0;
+    return 0;
+  }
+
+  String _stringValue(ModSettingField f) {
+    final Object? raw = _values[f.key];
+    return raw is String ? raw : '';
+  }
+
+  String _selectValue(ModSettingField f) {
+    final String raw = _stringValue(f);
+    if (f.options.any((ModSelectOption o) => o.value == raw)) return raw;
+    return f.options.first.value;
+  }
+
+  /// 组装要提交的 config。
+  ///
+  /// 从服务端已有 config 出发、只覆盖本 Mod 在 spec 里声明的字段：
+  /// spec 之外的既有键（未来扩展）不该被一次「保存」顺手抹掉。
+  Map<String, Object?> _buildConfig() {
+    final Map<String, Object?> next = Map<String, Object?>.of(widget.mod.config);
+    for (final ModSettingField f in _spec.fields) {
+      // secret 留空 = 「不修改」：服务端不回值，发空串会把已存的密钥清掉。
+      if (f.kind == ModFieldKind.string &&
+          f.secret &&
+          _stringValue(f).isEmpty) {
+        continue;
+      }
+      next[f.key] = switch (f.kind) {
+        ModFieldKind.bool => _boolValue(f),
+        ModFieldKind.number => _intValue(f),
+        ModFieldKind.select => _selectValue(f),
+        ModFieldKind.string => _stringValue(f),
+      };
+    }
+    return next;
+  }
+
+  Future<void> _save() async {
+    final Future<ModConfigResult> Function(String, Map<String, Object?>)? save =
+        widget.onSaveConfig;
+    if (save == null) return;
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    try {
+      final ModConfigResult result = await save(widget.mod.id, _buildConfig());
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _messageIsError = !result.ok;
+        _message = result.ok ? _okMessage(result) : '保存失败：服务端返回 ok=false';
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _messageIsError = true;
+        // 带上错误码：用户要拿界面上的码去日志里搜（项目错误契约）。
+        _message = '保存失败：$e';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _messageIsError = true;
+        _message = '保存失败：$e';
+      });
+    }
+  }
+
+  String _okMessage(ModConfigResult r) {
+    if (r.restarted) return '已保存，服务端已重启';
+    if (r.enabled == false) return '已保存，Mod 已停用';
+    return '已保存';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ModInfo m = widget.mod;
+    return ExpansionTile(
+      // 头部复用 AdminRow：标题/副标题/状态徽标与无 spec 的 Mod 完全一致。
+      title: AdminRow(
+        title: m.name.isEmpty ? m.id : m.name,
+        subtitle: '${m.id} · v${m.version} · api v${m.apiVersion}',
+        badges: <String>[m.statusLabel],
+        trailing: Switch(
+          value: m.enabled,
+          onChanged: widget.busy || widget.onToggle == null
+              ? null
+              : (bool v) => widget.onToggle!(m.id, v),
+        ),
+      ),
+      childrenPadding: const EdgeInsets.only(
+        left: Space.s3,
+        right: Space.s3,
+        bottom: Space.s2,
+      ),
+      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        for (final ModSettingField f in _spec.fields) _field(f),
+        const SizedBox(height: Space.s2),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _saving || widget.onSaveConfig == null
+                ? null
+                : () => unawaited(_save()),
+            icon: _saving
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined, size: 16),
+            label: Text(_saving ? '保存中…' : '保存'),
+          ),
+        ),
+        if (_message != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Space.s2),
+            child: InlineNotice(
+              message: _message!,
+              severity: _messageIsError
+                  ? NoticeSeverity.danger
+                  : NoticeSeverity.info,
+              dense: true,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _field(ModSettingField f) {
+    switch (f.kind) {
+      case ModFieldKind.bool:
+        return ToggleField(
+          label: f.label,
+          icon: Icons.toggle_on,
+          value: _boolValue(f),
+          onChanged: (bool v) => setState(() => _values[f.key] = v),
+        );
+      case ModFieldKind.string:
+        return TextFieldRow(
+          label: f.label,
+          icon: f.secret ? Icons.key_outlined : Icons.text_fields,
+          value: _stringValue(f),
+          obscure: f.secret,
+          description: f.secret ? '留空表示不修改（服务端不回传密钥）' : null,
+          onChanged: (String v) => setState(() => _values[f.key] = v),
+        );
+      case ModFieldKind.number:
+        return NumberField(
+          label: f.label,
+          icon: Icons.tag,
+          value: _intValue(f),
+          // 尊重 spec 的 min/max：`NumberField` 对越界输入**不回调**。
+          min: f.min?.toInt(),
+          max: f.max?.toInt(),
+          onChanged: (int v) => setState(() => _values[f.key] = v),
+        );
+      case ModFieldKind.select:
+        return DropdownField<String>(
+          label: f.label,
+          icon: Icons.list_alt,
+          value: _selectValue(f),
+          options: <FieldOption<String>>[
+            for (final ModSelectOption o in f.options)
+              FieldOption<String>(value: o.value, label: o.label),
+          ],
+          onChanged: (String v) => setState(() => _values[f.key] = v),
+        );
+    }
   }
 }
 

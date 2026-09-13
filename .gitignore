@@ -151,3 +151,5 @@ nohup.out
 
 # 运行时产物：Mod 启用状态（本机生成，含本机端口与开关；勿入库）
 /mods.json
+# persona Mod 的主链提示词基线快照（本机运行态，勿入库）
+/persona-mod-base.txt

@@ -191,6 +191,24 @@ extension _ShellAdminWiring on _ShellRootState {
     }
   }
 
+  /// 保存一个 Mod 的配置（`POST /api/v1/mods/{id}/config`）。
+  ///
+  /// 服务端对 mutating 请求校验 `Content-Type: application/json` 与 loopback
+  /// Origin（浏览器自动带 Origin）——两样由 `ModsApi.setConfig` 保证。
+  /// 失败**不在这里吞**：抛回给卡片，由它把带码的文案显示在字段下面。
+  Future<ModConfigResult> _saveModConfig(
+    String id,
+    Map<String, Object?> config,
+  ) async {
+    final ModConfigResult result = await _modsApi.setConfig(id, config);
+    if (!mounted) return result;
+    _adminMessage = result.ok ? '$id 配置已保存' : '$id 配置保存失败';
+    _refresh();
+    // 重新取一次列表：让界面回填服务端归一化后的 config（卡片据此刷新草稿）。
+    await _loadAdmin();
+    return result;
+  }
+
   Future<void> _copyDiagnostics(DiagnosticsSnapshot snapshot) async {
     await copySnapshot(snapshot);
     if (!mounted) return;

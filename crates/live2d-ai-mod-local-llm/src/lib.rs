@@ -94,12 +94,67 @@ impl Default for LocalLlmRuntime {
     }
 }
 
+/// local-llm 的 settings schema（**静态**；factory 与 runtime.start 共用同一份）。
+///
+/// 7 字段，纯数据——前端按类型渲染，Mod 不注入 HTML/JS。
+fn local_llm_settings_spec() -> ModSettingsSpec {
+    ModSettingsSpec {
+        mod_id: "local-llm".to_string(),
+        title: "本地大模型".to_string(),
+        version: 1,
+        fields: vec![
+            ModSettingField::String {
+                key: "command".to_string(),
+                label: "推理进程命令".to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "args".to_string(),
+                label: "启动参数（JSON 数组字符串）".to_string(),
+                secret: false,
+            },
+            ModSettingField::Number {
+                key: "port".to_string(),
+                label: "服务端口".to_string(),
+                min: 1024.0,
+                max: 65535.0,
+            },
+            ModSettingField::String {
+                key: "model".to_string(),
+                label: "模型名称".to_string(),
+                secret: false,
+            },
+            ModSettingField::Bool {
+                key: "auto_start".to_string(),
+                label: "自动启动推理进程".to_string(),
+                default: true,
+            },
+            ModSettingField::Number {
+                key: "health_timeout_ms".to_string(),
+                label: "就绪探测超时（毫秒）".to_string(),
+                min: 1000.0,
+                max: 60000.0,
+            },
+            ModSettingField::Bool {
+                key: "externally_managed".to_string(),
+                label: "外部管理（不 spawn 子进程，仅探活 + 写 settings）".to_string(),
+                default: false,
+            },
+        ],
+    }
+}
+
 /// local-llm 工厂。
 pub struct LocalLlmFactory;
 
 impl ModFactory for LocalLlmFactory {
     fn descriptor(&self) -> &'static ModDescriptor {
         &DESCRIPTOR
+    }
+
+    /// M2：未启用也能拿到 schema（见 trait 文档）。
+    fn settings_spec(&self) -> Option<ModSettingsSpec> {
+        Some(local_llm_settings_spec())
     }
 
     fn create(
@@ -428,52 +483,9 @@ impl LocalLlmRuntime {
 
 impl ModRuntime for LocalLlmRuntime {
     fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
-        // 注册 settings schema（前端统一渲染 “本地大模型” 面板）：7 字段。
-        let spec = ModSettingsSpec {
-            mod_id: "local-llm".to_string(),
-            title: "本地大模型".to_string(),
-            version: 1,
-            fields: vec![
-                ModSettingField::String {
-                    key: "command".to_string(),
-                    label: "推理进程命令".to_string(),
-                    secret: false,
-                },
-                ModSettingField::String {
-                    key: "args".to_string(),
-                    label: "启动参数（JSON 数组字符串）".to_string(),
-                    secret: false,
-                },
-                ModSettingField::Number {
-                    key: "port".to_string(),
-                    label: "服务端口".to_string(),
-                    min: 1024.0,
-                    max: 65535.0,
-                },
-                ModSettingField::String {
-                    key: "model".to_string(),
-                    label: "模型名称".to_string(),
-                    secret: false,
-                },
-                ModSettingField::Bool {
-                    key: "auto_start".to_string(),
-                    label: "自动启动推理进程".to_string(),
-                    default: true,
-                },
-                ModSettingField::Number {
-                    key: "health_timeout_ms".to_string(),
-                    label: "就绪探测超时（毫秒）".to_string(),
-                    min: 1000.0,
-                    max: 60000.0,
-                },
-                ModSettingField::Bool {
-                    key: "externally_managed".to_string(),
-                    label: "外部管理（不 spawn 子进程，仅探活 + 写 settings）".to_string(),
-                    default: false,
-                },
-            ],
-        };
-        registrar.register_settings(spec)?;
+        // 注册 settings schema（与 factory.settings_spec() 同源：静态 schema）。
+        // 未启用时 host 也能从 factory 拿到同一份（M2：开关还关着也能渲染表单）。
+        registrar.register_settings(local_llm_settings_spec())?;
 
         // 订阅 ModelActivated（v1 仅记录日志）。
         registrar.subscribe(ModEventTopic::ModelActivated)?;

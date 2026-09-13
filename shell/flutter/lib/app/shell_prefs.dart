@@ -59,7 +59,14 @@ extension _ShellPrefsWiring on _ShellRootState {
   /// 偏好变更：更新内存 + 落盘 + 立即下发。
   void _updatePrefs(DisplayPrefs next) {
     if (next == widget.prefs) return;
-    widget.onPrefsChanged(next);
+    // 落盘结果要接住：写失败（无痕 / 配额满 / 存储被禁）过去是**静默**的，
+    // 用户看到「已应用」却在刷新后丢失（rc.3 §9.1 候选原因 1）。
+    final bool saved = widget.onPrefsChanged(next);
+    if (!saved) {
+      _stageImageMessage =
+          '偏好没能写入本机存储（无痕模式 / 存储被禁 / 配额满）——本次会话有效，刷新会丢。';
+      _stageImageFailed = true;
+    }
     // 静音与音量是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
     _audio.muted = next.muted;
     _audio.volume = next.volume;
@@ -75,8 +82,18 @@ extension _ShellPrefsWiring on _ShellRootState {
   /// - 超限 → **只在本次会话生效**，不写盘。UI 必须说清「重开就没了」，
   ///   否则用户会以为它坏了。
   Future<void> _pickStageImage() async {
-    final String? dataUrl = await pickImageDataUrl();
-    if (dataUrl == null || !mounted) return;
+    final ({String? dataUrl, String? error}) picked = await pickImageDataUrl();
+    if (!mounted) return;
+    final String? dataUrl = picked.dataUrl;
+    if (dataUrl == null) {
+      // 取消 → 静默（用户自己关的对话框）；读失败 → 说实话。
+      if (picked.error != null) {
+        _stageImageMessage = picked.error;
+        _stageImageFailed = true;
+        _refresh();
+      }
+      return;
+    }
     if (dataUrl.length <= kStageImageMaxChars) {
       _updatePrefs(widget.prefs.copyWith(stageImage: dataUrl));
       _stageImageMessage = '已应用背景图（${_kb(dataUrl.length)}，会记住）';

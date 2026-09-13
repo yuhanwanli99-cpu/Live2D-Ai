@@ -12,7 +12,6 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
-import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
@@ -41,15 +40,20 @@ DisplayPrefs loadDisplayPrefs() {
   }
 }
 
-/// 写入本地显示偏好（失败静默：无痕模式等场景下 localStorage 可能抛错）。
-void saveDisplayPrefs(DisplayPrefs prefs) {
+/// 写入本地显示偏好；返回**是否真的写进去了**。
+///
+/// 无痕模式 / 配额满 / 站点存储被禁都会抛异常。以前返回 `void` 且静默吞掉，
+/// 于是用户「选了背景图 → 界面显示已应用 → 刷新就没了」而无任何解释
+/// （rc.3 §9.1 候选原因 1）。现在如实返回，由调用方给一句可执行的文案。
+bool saveDisplayPrefs(DisplayPrefs prefs) {
   try {
     web.window.localStorage.setItem(
       kDisplayPrefsKey,
       jsonEncode(prefs.toJson()),
     );
+    return true;
   } catch (_) {
-    // 忽略：偏好丢失不影响本次会话。
+    return false;
   }
 }
 
@@ -83,52 +87,6 @@ void saveChatSessions(ChatSessionStore store) {
   }
 }
 
-/// 让用户挑一个本地文件并读成字节（**组合根专有**：需要 `package:web`）。
-///
-/// 为什么不用文件选择器插件：一次 `<input type=file>` 就够了，
-/// 引一个插件只为这个属于典型的「顺手加一个」。
-/// 用户取消选择时返回 `null`（**不当成错误**）。
-Future<Uint8List?> pickLocalFile() async {
-  final web.HTMLInputElement input =
-      web.document.createElement('input') as web.HTMLInputElement;
-  input.type = 'file';
-  // 酒馆卡常见两种：`.json` 与内嵌人设的 `.png`。
-  input.accept = '.json,.png,application/json,image/png';
-  final Completer<Uint8List?> done = Completer<Uint8List?>();
-  input.onchange = ((web.Event _) {
-    final web.FileList? files = input.files;
-    if (files == null || files.length == 0) {
-      if (!done.isCompleted) done.complete(null);
-      return;
-    }
-    final web.File file = files.item(0)!;
-    final web.FileReader reader = web.FileReader();
-    reader.onload = ((web.Event _) {
-      final Object? result = reader.result;
-      if (result == null) {
-        if (!done.isCompleted) done.complete(null);
-        return;
-      }
-      final ByteBuffer buffer =
-          (result as JSArrayBuffer).toDart.asUint8List().buffer;
-      if (!done.isCompleted) {
-        done.complete(buffer.asUint8List());
-      }
-    }).toJS;
-    reader.onerror = ((web.Event _) {
-      if (!done.isCompleted) done.complete(null);
-    }).toJS;
-    reader.readAsArrayBuffer(file);
-  }).toJS;
-  // **取消选择也要能收口**：`oncancel` 在旧浏览器上可能不触发，
-  // 所以这里不做超时兜底——用户若一直不选，这个 Future 就挂着，
-  // 而它没有任何副作用（不占资源、不改状态）。
-  input.oncancel = ((web.Event _) {
-    if (!done.isCompleted) done.complete(null);
-  }).toJS;
-  input.click();
-  return done.future;
-}
 
 /// 让用户挑一张本地图片，读成 **dataURL**（组合根专有：需要 `package:web`）。
 ///
@@ -138,33 +96,42 @@ Future<Uint8List?> pickLocalFile() async {
 /// **不做缩放**（刻意的）：裁剪要走 canvas，而 canvas 只能在浏览器里跑、
 /// 本仓库的 `flutter test` 覆盖不到——本轮不引入无法回归的代码。
 /// 代价是「大图不写盘」，由调用方按 [kStageImageMaxChars] 如实告知用户。
-Future<String?> pickImageDataUrl() async {
+///
+/// 返回 **取消 / 成功 / 读失败** 三态：取消（`dataUrl==null && error==null`）
+/// 不该弹东西；读失败（`error!=null`）必须说实话——以前读失败与取消不可区分，
+/// 用户看到的就是「点了选图没反应」。
+Future<({String? dataUrl, String? error})> pickImageDataUrl() async {
   final web.HTMLInputElement input =
       web.document.createElement('input') as web.HTMLInputElement;
   input.type = 'file';
   input.accept = 'image/*';
-  final Completer<String?> done = Completer<String?>();
+  final Completer<({String? dataUrl, String? error})> done =
+      Completer<({String? dataUrl, String? error})>();
+  void finish(String? dataUrl, String? error) {
+    if (!done.isCompleted) done.complete((dataUrl: dataUrl, error: error));
+  }
+
   input.onchange = ((web.Event _) {
     final web.FileList? files = input.files;
     if (files == null || files.length == 0) {
-      if (!done.isCompleted) done.complete(null);
+      finish(null, null); // 取消
       return;
     }
     final web.FileReader reader = web.FileReader();
     reader.onload = ((web.Event _) {
-      if (done.isCompleted) return;
       final Object? result = reader.result;
-      done.complete(result is String && result.isNotEmpty ? result : null);
+      if (result is String && result.isNotEmpty) {
+        finish(result, null);
+      } else {
+        finish(null, '这张图读不出内容（可能不是浏览器能识别的图片格式）');
+      }
     }).toJS;
-    // 读失败当作「取消」：不弹错误，用户看到的就是没变化。
     reader.onerror = ((web.Event _) {
-      if (!done.isCompleted) done.complete(null);
+      finish(null, '读取图片失败（文件可能已被移动、删除或没有读取权限）');
     }).toJS;
     reader.readAsDataURL(files.item(0)!);
   }).toJS;
-  input.oncancel = ((web.Event _) {
-    if (!done.isCompleted) done.complete(null);
-  }).toJS;
+  input.oncancel = ((web.Event _) => finish(null, null)).toJS;
   input.click();
   return done.future;
 }

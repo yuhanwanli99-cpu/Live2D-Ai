@@ -52,12 +52,7 @@ class SettingsDraft {
   int? ttsSampleRate;
   int? ttsChannels;
 
-  // ── persona ──
-  String? personaName;
-  String? personaDescription;
-  String? personaPersonality;
-  String? personaScenario;
-  String? personaFirst;
+  // ── persona（M5.1：只剩系统提示词与历史轮数；卡字段已迁出主链） ──
   String? personaSystemPrompt;
   int? personaMaxHistoryPairs;
 
@@ -124,11 +119,6 @@ class SettingsDraft {
 
   PersonaSettingsPatch? _personaPatch() {
     final PersonaSettingsPatch patch = PersonaSettingsPatch(
-      name: _tri(personaName),
-      description: _tri(personaDescription),
-      personality: _tri(personaPersonality),
-      scenario: _tri(personaScenario),
-      first: _tri(personaFirst),
       systemPrompt: _tri(personaSystemPrompt),
       maxHistoryPairs: personaMaxHistoryPairs == null
           ? null
@@ -154,11 +144,6 @@ class SettingsDraft {
     clearTtsApiKey = false;
     ttsSampleRate = null;
     ttsChannels = null;
-    personaName = null;
-    personaDescription = null;
-    personaPersonality = null;
-    personaScenario = null;
-    personaFirst = null;
     personaSystemPrompt = null;
     personaMaxHistoryPairs = null;
     devMode = null;
@@ -383,17 +368,6 @@ class SettingsController extends ChangeNotifier {
       _draft.ttsSampleRate = null;
     }
     if (_draft.ttsChannels == remote.tts.channels) _draft.ttsChannels = null;
-    if (_draft.personaName == remote.persona.name) _draft.personaName = null;
-    if (_draft.personaDescription == remote.persona.description) {
-      _draft.personaDescription = null;
-    }
-    if (_draft.personaPersonality == remote.persona.personality) {
-      _draft.personaPersonality = null;
-    }
-    if (_draft.personaScenario == remote.persona.scenario) {
-      _draft.personaScenario = null;
-    }
-    if (_draft.personaFirst == remote.persona.first) _draft.personaFirst = null;
     if (_draft.personaSystemPrompt == remote.persona.systemPrompt) {
       _draft.personaSystemPrompt = null;
     }

@@ -14,8 +14,7 @@ const String kRealSettingsJson = '''
 "has_api_key":true},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0,
-"name":"","description":"","personality":"","scenario":"","first":""},
+"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0},
 "dev_mode":false}
 ''';
 
@@ -25,8 +24,7 @@ const String kRealPatchResponseJson = '''
 "model":"deepseek-flash","has_api_key":true},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0,
-"name":"","description":"","personality":"","scenario":"","first":""},
+"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0},
 "dev_mode":false}}
 ''';
 
@@ -108,26 +106,43 @@ void main() {
       expect(const SettingsPatch().toJson().containsKey('dev_mode'), isFalse);
     });
 
-    test('persona 多字段混合三态', () {
+    test('persona 只剩两个键（M5.1 主链收敛）', () {
       final Map<String, Object?> body = const SettingsPatch(
         persona: PersonaSettingsPatch(
-          name: TriSet<String>('小星'),
-          first: TriClear<String>(),
+          systemPrompt: TriSet<String>('你是猫'),
+          maxHistoryPairs: TriSet<int>(6),
         ),
       ).toJson();
       final Map<String, Object?> p = body['persona']! as Map<String, Object?>;
-      expect(p['name'], '小星');
-      expect(p.containsKey('first'), isTrue);
-      expect(p['first'], isNull);
-      expect(p.containsKey('description'), isFalse);
-      // 整数三态
-      final Map<String, Object?> b2 = const SettingsPatch(
-        persona: PersonaSettingsPatch(maxHistoryPairs: TriSet<int>(6)),
-      ).toJson();
-      expect(
-        (b2['persona']! as Map<String, Object?>)['max_history_pairs'],
-        6,
-      );
+      expect(p, <String, Object?>{
+        'system_prompt': '你是猫',
+        'max_history_pairs': 6,
+      });
+      // 酒馆卡字段迁到 Mod 后，主链补丁**再也发不出**这些键。
+      for (final String gone in <String>[
+        'name',
+        'description',
+        'personality',
+        'scenario',
+        'first',
+      ]) {
+        expect(p.containsKey(gone), isFalse, reason: '$gone 不该再进主链 PATCH');
+      }
+    });
+
+    test('persona 视图忽略旧卡字段（解析了界面就会长回去）', () {
+      final SettingsView v = SettingsView.fromJson(<String, Object?>{
+        'persona': <String, Object?>{
+          'system_prompt': '你是猫',
+          'max_history_pairs': 3,
+          'name': 'Neko',
+          'personality': '慵懒',
+          'scenario': '桌面',
+          'first': '喵',
+        },
+      });
+      expect(v.persona.systemPrompt, '你是猫');
+      expect(v.persona.maxHistoryPairs, 3);
     });
   });
 

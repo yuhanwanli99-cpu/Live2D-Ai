@@ -163,38 +163,31 @@ class TtsSettingsView {
   }
 }
 
-/// `GET /api/v1/settings` 的 persona 段（酒馆式角色卡）。
+/// `GET /api/v1/settings` 的 persona 段。
+///
+/// # 2026-09-13（rc.4 M5.1）：只剩两个字段
+///
+/// 酒馆角色卡的 name / description / personality / scenario / first 已从
+/// **主链**迁出，改由标准 Mod live2d-ai-mod-persona 承担
+/// （docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md §9.1）。
+/// 服务端 View 与 PATCH 都只认 system_prompt 与 max_history_pairs；
+/// 这里**刻意不解析**旧的卡字段——解析了界面就会又长回去。
 class PersonaSettingsView {
   const PersonaSettingsView({
     required this.systemPrompt,
     required this.maxHistoryPairs,
-    required this.name,
-    required this.description,
-    required this.personality,
-    required this.scenario,
-    required this.first,
   });
 
   final String systemPrompt;
-  final int maxHistoryPairs;
-  final String name;
-  final String description;
-  final String personality;
-  final String scenario;
 
-  /// 开场白。
-  final String first;
+  /// 历史轮数上限（会话基建；0 = 不带历史）。
+  final int maxHistoryPairs;
 
   factory PersonaSettingsView.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
     return PersonaSettingsView(
       systemPrompt: _str(j['system_prompt']),
       maxHistoryPairs: _int(j['max_history_pairs']),
-      name: _str(j['name']),
-      description: _str(j['description']),
-      personality: _str(j['personality']),
-      scenario: _str(j['scenario']),
-      first: _str(j['first']),
     );
   }
 }
@@ -315,34 +308,22 @@ class TtsSettingsPatch {
 }
 
 /// persona 段补丁（字段级三态；`Tri.clear()` = 清空该字段）。
+///
+/// # 只允许这两个键（M5.1 主链收敛）
+///
+/// 服务端 PATCH 的 persona 也只接受 system_prompt / max_history_pairs；
+/// 酒馆卡字段迁到 Mod 后，这里再出现 name/first 之类的键就是**协议外字段**
+/// （服务端会拒或静默忽略）。类型上只暴露这两个字段，从根上堵住「顺手加一个」。
 class PersonaSettingsPatch {
-  const PersonaSettingsPatch({
-    this.systemPrompt,
-    this.maxHistoryPairs,
-    this.name,
-    this.description,
-    this.personality,
-    this.scenario,
-    this.first,
-  });
+  const PersonaSettingsPatch({this.systemPrompt, this.maxHistoryPairs});
 
   final Tri<String>? systemPrompt;
   final Tri<int>? maxHistoryPairs;
-  final Tri<String>? name;
-  final Tri<String>? description;
-  final Tri<String>? personality;
-  final Tri<String>? scenario;
-  final Tri<String>? first;
 
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'system_prompt', systemPrompt);
     putTri<int>(out, 'max_history_pairs', maxHistoryPairs);
-    putTri<String>(out, 'name', name);
-    putTri<String>(out, 'description', description);
-    putTri<String>(out, 'personality', personality);
-    putTri<String>(out, 'scenario', scenario);
-    putTri<String>(out, 'first', first);
     return out;
   }
 
