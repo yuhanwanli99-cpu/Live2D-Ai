@@ -396,6 +396,7 @@ class SettingsTestOutcome {
     required this.ok,
     this.latencyMs,
     this.modelEcho,
+    this.note,
     this.errorCode,
     this.errorMessage,
   });
@@ -407,6 +408,12 @@ class SettingsTestOutcome {
 
   /// 服务端回显的模型/音色名——用来确认「打到的确实是配置里那个」。
   final String? modelEcho;
+
+  /// 成功但有话要说（例如「上游可达但未提供 /models」）。
+  ///
+  /// **只有真有解释价值时才非空**——服务端刻意不在成功路径上默认塞一句，
+  /// 否则每次自检都多一句噪音，用户很快就不看它了（见服务端 `TestOutcome::note`）。
+  final String? note;
 
   final String? errorCode;
   final String? errorMessage;
@@ -430,6 +437,7 @@ class SettingsTestOutcome {
           ? (j['latency_ms']! as num).toInt()
           : null,
       modelEcho: j['model_echo'] is String ? j['model_echo']! as String : null,
+      note: j['note'] is String ? j['note']! as String : null,
       errorCode: err?['code'] is String ? err!['code']! as String : null,
       errorMessage: err?['message'] is String
           ? err!['message']! as String

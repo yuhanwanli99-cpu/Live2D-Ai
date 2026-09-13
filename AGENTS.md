@@ -218,6 +218,16 @@
   「0 个 start、13 个 end」，前端会把一句切成十几段播）。**空末块也要发边界帧**
   （`audio: ""` + `end: true`）——句子样本数是 `audio_chunk_samples` 整数倍时末块
   0 样本，漏掉它就等于让那一句永远没有句尾闸门。
+- **「连通性自检」只测连通，不合成**（2026-09-13，起因是实测假失败）：
+  `POST /api/v1/settings/test/tts` 打的是 `GET {tts.base_url}/models`（毫秒级），
+  **不再真合成一次**。三个理由都实测过：本机合成一次 2.4s 而自检默认只等 3s；
+  链路正在合成时再点自检会稳定报 `timeout`（**而同时语音完全正常**）；
+  HTTP 循环是单线程的，同步探针会把整个 API 占住它等待的全长。
+  **自检与产品链路抢资源的代价是「自检说谎」**——那比没有自检更坏。
+  失败分类：401/403 → `auth_failed`；404 → **算通过**（上游回话即可达，`/models`
+  并非所有语音实现都提供）+ 一句 `note` 说明；其余 4xx/5xx → `protocol_error`。
+  密钥读取一律走 `secrets::lookup`（这里也曾直接读进程环境 → 非 `ignite.sh` 启动时
+  出现同一类假失败）。
 - **分句器把换行也算句读**，因此会产生**纯空白句**：这类句子**不发 TTS 请求**
   （上游会回 400 "input 为空"，而 TTS 错误是 fatal，会把整轮判失败），走静音句
   路径即可（2026-09-11 修）。
@@ -251,7 +261,7 @@
   修法：解析 `reasoning_content` 单列 `LlmEvent::ReasoningDelta` → WS **新帧
   `reasoning_delta`** → 前端气泡的**「思考」折叠区**；默认上限 512 → **4096**；
   「只有思考没有正文」单独收口。见下方「推理模型的思考」小节。
-  门禁：cargo **790** 通过 / clippy 0 warning / rust-ratio **96.9681% PASS**；
+  门禁：cargo **795** 通过 / clippy 0 warning / rust-ratio **96.9754% PASS**；
   flutter analyze 无问题 + **813** 测试通过（含无头浏览器验收补丁）；`ignite.sh --check` 四项全 ok；
   `verify_core_chain.py`（长思考提问）**18 跳全过**。
   发布说明（含点火记录与已知问题）：`docs/releases/v0.1.0-rc.2.md`。

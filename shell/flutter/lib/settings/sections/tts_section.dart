@@ -176,8 +176,12 @@ class TtsSection extends StatelessWidget {
             label: '连通性自检',
             icon: Icons.wifi_tethering,
             actionLabel: '测试连接',
-            // 规格明确：**不能**宣传成「试听」。
-            description: '只检查端点可达与音色是否被接受，**不会播放**音频',
+            // 规格明确：**不能**宣传成「试听」。2026-09-13 再收紧：
+            // 自检**不再合成**（只探 `GET /models`，毫秒级）——原实现会真合成一次，
+            // 既慢（本机 2.4s）又与真实链路抢上游，还因此在链路繁忙时报假失败
+            //（用户原话：「自检没通，但可以正常播放声音」）。
+            description: '只检查端点**可达与鉴权**，不合成、不播放音频。'
+                '要确认「真的能出声」，发一条消息即可听见',
             busy: testing,
             onPressed: () => onTest!(),
             result: testResult,

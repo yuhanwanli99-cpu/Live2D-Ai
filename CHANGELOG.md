@@ -57,9 +57,17 @@
 - **「只有思考没有正文」的收口**：新增 `TurnSettlement.keepReasoningOnly`——
   保留气泡（思考是本轮唯一内容，不能当空气泡丢掉）并给一句可行动的说明。
 
+## 补丁（2026-09-13，rc.2 内）：「TTS 连通性自检」不再说谎
+
+用户报「自检没通，但可以正常播放声音」。查证：自检原来会**真合成一次**（本机 2.4s），
+而默认只等 3s；**链路正在合成时点自检稳定报 timeout，同时语音完全正常**；
+且 HTTP 循环是单线程的，同步探针会把整个 API 占住它等待的全长。
+现在自检打 `GET {tts.base_url}/models`（1–2 ms、不加载模型、不抢上游），
+404 算可达（上游回话即通）并附 `note`；两处自检的密钥读取改走 `secrets::lookup`。
+
 ## 门禁
 
-cargo **790** passed / fmt 干净 / clippy **0 warning** / rust-ratio **96.9681% PASS**；
+cargo **795** passed / fmt 干净 / clippy **0 warning** / rust-ratio **96.9754% PASS**；
 flutter analyze 无问题 / flutter test **813** passed；`ignite.sh --check` 四项全 ok。
 `verify_core_chain.py` 11 跳 OK、3 跳因**本机 TTS 端点未启动**而红（详见发布说明 §4.1）。
 
