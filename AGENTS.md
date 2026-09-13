@@ -56,6 +56,26 @@
 4. 治理红线仍然适用：前端**不得**绕过 core 仲裁、不得直接持有密钥、
    不得引入设备端推理运行时（LLM/TTS 仍走统一 OpenAI 兼容端点）。
 
+## 工作区与点火纪律（WSL2 ↔ Windows，2026-09-12 定）
+
+核心开发**只在 WSL2**（`/home/skystar/Live2D-Ai`）；Windows 侧只承担**浏览器肉眼验收**。
+两边不做第二套真相，也不互相复制产物。
+
+| 角色 | 职责 |
+| --- | --- |
+| **WSL2**（唯一开发环境 + **唯一进程宿主**） | `cargo` 全部构建与测试；Flutter SDK 在 `~/flutter`；**服务进程一律在这里起**（`./scripts/ignite.sh`，默认端口 18080）；前端构建 `flutter build web --release --base-href /app/ --no-web-resources-cdn` |
+| **Windows** | 只做两件事：开浏览器点 `http://127.0.0.1:18080/app/`；把看/听的结论写回。**不跑二进制、不编 Flutter** |
+| **产物** | 单一真源 = WSL 的 `shell/flutter/build/web`。`LIVE2D_AI_FLUTTER_WEB_DIR` 一律写 **WSL 路径**；**不要**引入 Windows UNC 路径写法（`\\wsl.localhost\…`）——只有「哪天真的在 Windows 上跑二进制」才需要，那不在本计划内 |
+
+- `scripts/ignite.sh` 会把 `LIVE2D_AI_FLUTTER_WEB_DIR` 锚定成仓库内绝对路径，
+  所以「cwd 不对 → `/app/` 503」不该再出现；503 响应体现在会**列出实际找过的每个路径**。
+- **点火体检**：服务跑起来后另开一个终端跑 `./scripts/ignite.sh --check`，断言
+  `GET /` = 302 → `/app/`、`GET /app/` = 200、`index.html` 与 `main.dart.js`
+  **不含 `gstatic.com/flutter-canvaskit`**（断网红线）。这三条只有真起过一次服务才验得到，
+  单元测试覆盖不了托管层与产物内容。
+
+详细分工与验收：`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §3。
+
 ## 开发约定
 
 ### 核心层（Rust）

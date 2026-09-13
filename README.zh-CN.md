@@ -63,6 +63,24 @@ Live2D 模型请放到本地 `assets/models/`（见 `assets/models/README.md`）
 --benchmark [P]         # 渲染 benchmark
 ```
 
+### 点火（WSL2 → Windows 浏览器）
+
+**开发与「服务进程」都在 WSL2 侧**；Windows 只负责开浏览器（不跑二进制、不编 Flutter）。
+
+```bash
+./scripts/ignite.sh            # 预检 + 启动，默认端口 18080
+./scripts/ignite.sh --build    # 先重建 Rust + Flutter Web 再启动
+./scripts/ignite.sh --check    # 对**已启动**的服务做点火体检
+```
+
+然后打开 <http://127.0.0.1:18080/app/>（`/` 会 302 跳到 `/app/`）。
+前端产物的单一真源是 `shell/flutter/build/web`；`LIVE2D_AI_FLUTTER_WEB_DIR`
+请保持 **WSL 路径**（脚本已替你设好）。
+
+`--check` 会断言 `GET /` = 302 → `/app/`、`GET /app/` = 200，以及服务吐出的
+`index.html` / `main.dart.js` **不含** `gstatic.com/flutter-canvaskit` 引用
+（断网红线——走了 CDN 就是断网白屏）。
+
 ### 测试
 ```bash
 cargo test --workspace --all-targets

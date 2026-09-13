@@ -11,6 +11,7 @@
 #   ./scripts/ignite.sh                 # 预检 + 启动（不重新构建）
 #   ./scripts/ignite.sh --build         # 先构建 Rust + Flutter Web 再启动
 #   ./scripts/ignite.sh --port 18100    # 指定端口（默认 18080）
+#   ./scripts/ignite.sh --check [--port N]  # 只对**已启动**的服务做点火体检，不自启
 #
 # 说明：本地 LLM/TTS 由你自己提供（任何 OpenAI 兼容实现），本脚本只做探测与提示，
 #       不会下载模型、不会启动推理进程。两个本地 Mod 也会在后台自动探活。
@@ -19,6 +20,15 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$HOME/flutter/bin:$PATH"
 export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+
+# 前端产物目录一律锚定到**本仓库根**（上面已 cd 到根）。
+# 后端只认 `LIVE2D_AI_FLUTTER_WEB_DIR` + 若干 cwd 相对候选，cwd 一变就退化成
+# `/app/` 503；这里显式给绝对路径，使那种误判从根上不可能。
+# 若外部已设成别的值，明说会被覆盖——否则用户会以为它生效了。
+if [ -n "${LIVE2D_AI_FLUTTER_WEB_DIR:-}" ] && [ "$LIVE2D_AI_FLUTTER_WEB_DIR" != "$PWD/shell/flutter/build/web" ]; then
+  echo "[warn] 忽略外部 LIVE2D_AI_FLUTTER_WEB_DIR=$LIVE2D_AI_FLUTTER_WEB_DIR，改用仓库内产物目录"
+fi
+export LIVE2D_AI_FLUTTER_WEB_DIR="$PWD/shell/flutter/build/web"
 
 # 导入 ./.env（如 DEEPSEEK_API_KEY）——Rust 侧只读**进程环境**，不读 .env 文件。
 # 只回显变量名，不回显值。
@@ -29,16 +39,69 @@ fi
 
 PORT=18080
 DO_BUILD=0
+DO_CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --build) DO_BUILD=1 ;;
+    --check) DO_CHECK=1 ;;
     --port) shift; PORT="${1:-18080}" ;;
     --port=*) PORT="${1#*=}" ;;
-    -h|--help) sed -n "2,20p" "$0"; exit 0 ;;
+    -h|--help) sed -n "2,17p" "$0"; exit 0 ;;
     *) echo "[warn] 未知参数：$1" ;;
   esac
   shift || true
 done
+
+# ---- 0) 点火体检（--check）------------------------------------------------
+# 只戳**已经在跑**的那个服务，验证三件事：`/` 302 到 `/app/`、`/app/` 200、
+# 产物不引用 Google CDN 的 CanvasKit。断言写在脚本里，是因为这三条都只有
+# 「真的起过一次服务」才验得到——单元测试覆盖不到托管层与产物内容。
+# 不自启服务（否则端口冲突时的失败会伪装成「探针失败」）。
+if [ "$DO_CHECK" = "1" ]; then
+  base="http://127.0.0.1:${PORT}"
+  fail=0
+  echo "==> 点火体检：$base（--check 不自启服务；请先在另一终端跑 ./scripts/ignite.sh）"
+
+  headers=$(curl -s -o /dev/null -D - --max-time 5 "$base/" 2>/dev/null || true)
+  root_code=$(printf '%s\n' "$headers" | awk 'NR==1{print $2}')
+  root_loc=$(printf '%s\n' "$headers" | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r' | head -1)
+  if [ "$root_code" = "302" ] && [ "$root_loc" = "/app/" ]; then
+    echo "    [ok]   GET / → 302 Location: /app/"
+  else
+    echo "    [FAIL] GET / 期望 302 → /app/，实得 ${root_code:-无响应} Location=${root_loc:-无}"
+    fail=1
+  fi
+
+  app_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$base/app/" 2>/dev/null || echo 000)
+  if [ "$app_code" = "200" ]; then
+    echo "    [ok]   GET /app/ → 200"
+  else
+    echo "    [FAIL] GET /app/ 期望 200，实得 $app_code"
+    fail=1
+  fi
+
+  # CDN 依赖只看**服务实际吐出的字节**（与浏览器拿到的一致），不看本地文件。
+  for f in index.html main.dart.js; do
+    fcode=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$base/app/$f" 2>/dev/null || echo 000)
+    if [ "$fcode" != "200" ]; then
+      echo "    [FAIL] GET /app/$f 期望 200，实得 $fcode"
+      fail=1
+    elif curl -s --max-time 15 "$base/app/$f" 2>/dev/null | grep -q 'gstatic\.com/flutter-canvaskit'; then
+      echo "    [FAIL] /app/$f 仍引用 Google CDN 的 CanvasKit —— 断网会白屏"
+      echo "           重新构建：cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn"
+      fail=1
+    else
+      echo "    [ok]   /app/$f 不依赖 Google CDN"
+    fi
+  done
+
+  if [ "$fail" = "0" ]; then
+    echo "==> 体检通过（Windows 浏览器打开 ${base}/app/ 做最后一步肉眼看/听）"
+  else
+    echo "==> 体检失败：见上面的 [FAIL]"
+  fi
+  exit "$fail"
+fi
 
 echo "==> Live2D-Ai 点火检查"
 
