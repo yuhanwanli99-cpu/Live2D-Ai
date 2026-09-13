@@ -110,6 +110,8 @@ pub struct ModRegistry {
     say_source: Option<Arc<dyn Fn(String) -> bool + Send + Sync>>,
     runtimes: BTreeMap<&'static str, SharedRuntime>, // per-Mod runtime 槽位。
     host: Option<HostChannels>,                      // P0-3 HostChannels（action + say 真实回路）。
+    /// `mods.json` 路径（rc.4 M1）；未注入 = 纯内存（单测）。
+    manifest_path: Option<std::path::PathBuf>,
 }
 
 impl ModRegistry {
@@ -152,6 +154,62 @@ impl ModRegistry {
             say_source: None,
             runtimes,
             host: None,
+            manifest_path: None,
+        }
+    }
+
+    /// 注入 `mods.json` 路径（builder；rc.4 M1 起 enable/disable/config 会原子写回）。
+    pub fn with_manifest_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.manifest_path = Some(path.into());
+        self
+    }
+
+    /// 原子写回 `mods.json`（rc.4 M1）。
+    ///
+    /// 写入内容 = **当前全部注册 Mod** 的 `enabled` + `config`（含未启用者，
+    /// 否则重新启用另一个 Mod 会把前一个的状态丢掉）。
+    ///
+    /// - 未注入路径（单测 / 纯内存）→ no-op；
+    /// - 复用 `live2d-ai-runtime` 的 `plan_atomic_write`（tmp + fdatasync + rename，
+    ///   与 `live2d-ai.toml` 同一条原子写纪律）；
+    /// - **best-effort**：内存状态已变更，磁盘失败只记 `error` 日志并继续——
+    ///   HTTP 不该因为磁盘只读就谎报「操作失败」（用户会看到开关没动）。
+    fn persist_manifest(&self) {
+        let Some(path) = self.manifest_path.as_deref() else {
+            return;
+        };
+        let mut mods = serde_json::Map::new();
+        for (id, e) in &self.entries {
+            mods.insert(
+                (*id).to_string(),
+                serde_json::json!({ "enabled": e.enabled, "config": e.config }),
+            );
+        }
+        let doc = serde_json::json!({ "mods": mods });
+        let text = match serde_json::to_string_pretty(&doc) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(target: "mod", "mods.json 序列化失败: {e}");
+                return;
+            }
+        };
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            tracing::error!(target: "mod", path = %path.display(), "mods.json 目录创建失败: {e}");
+            return;
+        }
+        match live2d_ai_runtime::settings::patch::plan_atomic_write(path, &text) {
+            Ok(tmp) => {
+                if let Err(e) = std::fs::rename(&tmp, path) {
+                    let _ = std::fs::remove_file(&tmp);
+                    tracing::error!(target: "mod", path = %path.display(), "mods.json rename 失败: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::error!(target: "mod", path = %path.display(), "mods.json 写盘失败: {e}");
+            }
         }
     }
 
@@ -176,6 +234,20 @@ impl ModRegistry {
     #[rustfmt::skip]
     fn start_one(&mut self, id: &'static str) {
         let Some(&factory) = self.factories.iter().find(|f| f.descriptor().id == id) else { return };
+        // M3：启动时校验 API 版本；不兼容 → Failed，主链不崩（factory 不被 create）。
+        if factory.descriptor().api_version != live2d_ai_mod_system::MOD_API_VERSION {
+            let msg = format!(
+                "Mod {id} 声明 api_version={} 与宿主 MOD_API_VERSION={} 不兼容",
+                factory.descriptor().api_version,
+                live2d_ai_mod_system::MOD_API_VERSION
+            );
+            tracing::warn!(target: "mod", "{msg}");
+            if let Some(e) = self.entries.get_mut(id) {
+                e.status = ModStatus::Failed { message: msg.clone() };
+                e.last_error = Some(msg);
+            }
+            return;
+        }
         let config = self.entries.get(id).map(|r| r.config.clone()).unwrap_or_default();
         let say = self.say_source.clone()
             .or_else(|| self.host.as_ref().map(|h| h.say.clone()))
@@ -268,6 +340,7 @@ impl ModRegistry {
         e.enabled = true;
         e.status = ModStatus::Starting;
         self.start_one(id);
+        self.persist_manifest(); // M1：写回 mods.json，重启状态不丢。
         Ok(())
     }
 
@@ -277,6 +350,7 @@ impl ModRegistry {
         if let Some(mut rt) = self.runtimes.get(id).and_then(|s| s.lock().unwrap().take()) { let _ = rt.shutdown(); }
         e.enabled = false;
         e.status = ModStatus::Disabled;
+        self.persist_manifest(); // M1：写回 mods.json。
         Ok(())
     }
 
@@ -305,6 +379,7 @@ impl ModRegistry {
     pub fn reload_config(&mut self, id: &'static str, config: serde_json::Value) -> Result<(), ModError> {
         let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
         e.config = config;
+        self.persist_manifest(); // M1：config 也写回 mods.json。
         Ok(())
     }
 
@@ -477,6 +552,42 @@ mod tests {
         assert!(!enabled);
     }
 
+    /// M3：`api_version` 不兼容 → Failed，且 factory.create 不被调用（主链不崩）。
+    #[test]
+    fn incompatible_api_version_fails_without_crashing() {
+        struct BadApiMod;
+        impl ModFactory for BadApiMod {
+            fn descriptor(&self) -> &'static ModDescriptor {
+                static D: ModDescriptor = ModDescriptor {
+                    id: "bad_api",
+                    name: "BadApi",
+                    version: "0.1.0",
+                    api_version: 999,
+                };
+                &D
+            }
+            fn create(
+                &self,
+                _: ModServices,
+                _: serde_json::Value,
+            ) -> Result<Box<dyn ModRuntime>, ModError> {
+                panic!("api_version 不兼容时不得 create");
+            }
+        }
+        static BAD: &[&dyn ModFactory] = &[&BadApiMod];
+        let mut reg = ModRegistry::new(
+            BAD,
+            &serde_json::json!({"mods":{"bad_api":{"enabled":true}}}),
+        );
+        reg.start_all();
+        let (_, status, enabled) = reg.list()[0].clone();
+        assert!(
+            matches!(status, ModStatus::Failed { .. }),
+            "应 Failed，got {status:?}"
+        );
+        assert!(enabled, "manifest 里的 enabled 意图保留");
+    }
+
     #[test]
     fn enable_runs_mod() {
         let mut reg = ModRegistry::new(
@@ -514,6 +625,69 @@ mod tests {
         let (e, c) = parse_mod_config(&manifest, "x");
         assert!(e);
         assert_eq!(c["port"], 1);
+    }
+
+    // ------------------------------------------------------- M1 持久化（rc.4）
+
+    /// M1：enable/disable 原子写回 `mods.json`，重启（重新构造 registry）状态不丢。
+    #[test]
+    fn enable_disable_persist_manifest_and_round_trip() {
+        let dir = std::env::temp_dir().join(format!("l2d-mod-test-enable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mods.json");
+
+        {
+            let mut reg = ModRegistry::new(FACTORIES, &serde_json::json!({}))
+                .with_manifest_path(path.clone());
+            reg.enable("test").unwrap();
+            assert!(reg.is_enabled("test"));
+        }
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["mods"]["test"]["enabled"], true, "enable 应写回磁盘: {v}");
+
+        // 重启语义：用磁盘内容重建 registry，开关仍在。
+        let reg2 = ModRegistry::new(FACTORIES, &v);
+        assert!(reg2.is_enabled("test"), "重启后 enable 状态应保持");
+
+        // disable 同样写回。
+        let mut reg3 = ModRegistry::new(FACTORIES, &v).with_manifest_path(path.clone());
+        reg3.disable("test").unwrap();
+        let v3: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            v3["mods"]["test"]["enabled"], false,
+            "disable 应写回磁盘: {v3}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// M1：reload_config（POST …/config 内核）也写回 config，且不丢其它 Mod。
+    #[test]
+    fn reload_config_persists_manifest() {
+        let dir = std::env::temp_dir().join(format!("l2d-mod-test-config-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mods.json");
+
+        let mut reg =
+            ModRegistry::new(FACTORIES, &serde_json::json!({})).with_manifest_path(path.clone());
+        reg.reload_config("test", serde_json::json!({"port": 1_234}))
+            .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            v["mods"]["test"]["config"]["port"], 1_234,
+            "config 应写回磁盘: {v}"
+        );
+        assert_eq!(
+            v["mods"]["test"]["enabled"], false,
+            "未启用者也要保留在 manifest 里"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ------------------------------------------------------- HostChannels tests

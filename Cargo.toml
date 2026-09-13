@@ -14,6 +14,8 @@ members = [
     "crates/live2d-ai-mod-external-input",
     "crates/live2d-ai-mod-pet-desktop",
     "crates/live2d-ai-mod-local-llm",
+    # rc.4 M3：新 Mod 模板（不注册进 AVAILABLE_MOD_FACTORIES，只作为复制起点 + 活文档）。
+    "crates/live2d-ai-mod-template",
     "xtask",
 ]
 
