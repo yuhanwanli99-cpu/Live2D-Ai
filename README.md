@@ -55,12 +55,24 @@ cargo build --release
 Put Live2D model files under `assets/models/` locally (see `assets/models/README.md`). Nothing under that path is shipped in git.
 
 ### Useful CLI modes
+
+The main entry (what `scripts/ignite.sh` serves, and what acceptance targets):
+
 ```bash
---web [--http-port P]   # Web UI (main entry)
---chat                  # Terminal dialogue loop
---model-smoke [P]       # Render smoke
---audio-smoke           # Audio smoke
---benchmark [P]         # Render benchmark
+--web [--http-port P]   # Web UI — the main entry
+```
+
+Second shells and tools — they compile and run, but they are **not** on the product
+path and are **not** acceptance targets. Who sleeps, why, and who may wake it:
+see the dormancy ledger in [AGENTS.md](./AGENTS.md).
+
+```bash
+--chat                  # Terminal dialogue shell (second shell, dormant)
+--window-smoke          # Transparent-window smoke (native shell)
+--model-smoke [P]       # Render smoke (native shell)
+--pet-mode              # Desktop-pet window (native shell, dormant)
+--audio-smoke           # Audio smoke (tool)
+--benchmark [P]         # Render benchmark (tool; never a production default)
 ```
 
 ### Ignition (WSL2 → Windows browser)

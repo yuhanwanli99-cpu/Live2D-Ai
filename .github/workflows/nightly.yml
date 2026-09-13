@@ -2,7 +2,9 @@
 # Nightly — 夜间全量门禁（Rust 重构后）
 # 触发器: cron (UTC 02:00) | workflow_dispatch
 # Jobs:
-#   - rust-full-test    : 全量 build/test/fmt/clippy（覆盖所有 workspace member）
+#   - rust-full-test    : 全量 build/test(--all-targets)/doc/fmt/clippy + rust-ratio
+#   - core-chain-verify : 端到端核心链探针（**opt-in**：仅在配置仓库变量
+#                         LIVE2D_AI_VERIFY_BASE_URL 时跑；缺配置明确跳过，不伪造绿灯）
 #   - rust-release-build: needs: rust-full-test，cargo build --release，上传 desktop 二进制
 # =============================================================================
 name: Nightly
@@ -35,16 +37,59 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build workspace
-        run: cargo build --workspace
+        run: cargo build --workspace --all-targets
 
       - name: Test workspace
-        run: cargo test --workspace
+        run: cargo test --workspace --all-targets
+
+      # doc 测试与 --all-targets 是两套目标：前者跑 rustdoc 示例，后者跑
+      # bin/lib/tests/examples。只跑其一都会漏（本地门禁两条都跑）。
+      - name: Test doc examples
+        run: cargo test --doc --workspace
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+      - name: Clippy (deny warnings, all targets)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # 前端/接口层豁免 rust-ratio，但**分母仍在**——这条断言第一方 Rust 占比
+      # 不低于 95%（xtask 会单独打印 Dart 行数，保证豁免可见而不是隐形）。
+      - name: Rust ratio (>= 95%)
+        run: cargo run -p xtask -- rust-ratio
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 3: 端到端核心链探针（**需要活的 LLM/TTS 端点**，故默认不跑）
+  #
+  # 它测的是真链路：POST /chat → LLM → TTS → 音频帧 → 口型。CI 里既没有上游端点
+  # 也没有密钥，硬跑只会天天红——而「天天红」比没有这条更坏（AGENTS.md
+  # 「自检与产品链路抢资源 → 自检说谎」是同一条教训）。
+  #
+  # 所以：配了仓库变量 `LIVE2D_AI_VERIFY_BASE_URL`（Variables，不是 Secrets——
+  # 它只是地址）才跑；没配就**明确跳过**，绝不伪造绿灯。
+  # ────────────────────────────────────────────────────────────────────────────
+  core-chain-verify:
+    name: Core Chain Verify (opt-in)
+    needs: rust-full-test
+    if: ${{ vars.LIVE2D_AI_VERIFY_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 脚本只用标准库（urllib），不需要 pip install。
+      # 长思考提问需要更长窗口——所以带 --timeout 300（默认 90 会误判超时）。
+      - name: Run core-chain probes
+        env:
+          LIVE2D_AI_BASE: ${{ vars.LIVE2D_AI_VERIFY_BASE_URL }}
+        run: python3 scripts/verify_core_chain.py --timeout 300
 
   # ────────────────────────────────────────────────────────────────────────────
   # Job 2: 全量发布构建 — release desktop 二进制

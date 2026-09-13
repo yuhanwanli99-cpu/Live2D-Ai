@@ -2,9 +2,11 @@
 # PR Checks — 门禁工作流（Rust 重构后）
 # 触发器: pull_request → main
 # Jobs:
-#   - rust-build-test : Rust workspace build/test/fmt/clippy
+#   - rust-build-test : Rust workspace build/test(--all-targets)/doc/fmt/clippy + rust-ratio
 #   - msrv-check      : Rust 1.92 (MSRV) 仅 cargo check
-#   - root-py-tests   : 仓库根 tests/ 的健康 Python 测试（不依赖已归档目录）
+#   - root-py-tests   : 仓库根 tests/ 的历史资产测试（shared/ 协议文件存在性/合法性）
+# 前端门禁在单独的 flutter-checks.yml（paths: shell/flutter/**）——纯 Rust/文档 PR
+# 不必等 Flutter 工具链。
 # =============================================================================
 name: PR Checks
 
@@ -44,16 +46,26 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build workspace
-        run: cargo build --workspace
+        run: cargo build --workspace --all-targets
 
       - name: Test workspace
-        run: cargo test --workspace
+        run: cargo test --workspace --all-targets
+
+      # doc 测试与 --all-targets 是两套目标：前者跑 rustdoc 示例，后者跑
+      # bin/lib/tests/examples。只跑其一都会漏（本地门禁两条都跑）。
+      - name: Test doc examples
+        run: cargo test --doc --workspace
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+      - name: Clippy (deny warnings, all targets)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # 前端/接口层豁免 rust-ratio，但**分母仍在**——这条断言第一方 Rust 占比
+      # 不低于 95%（xtask 会单独打印 Dart 行数，保证豁免可见而不是隐形）。
+      - name: Rust ratio (>= 95%)
+        run: cargo run -p xtask -- rust-ratio
 
   # ────────────────────────────────────────────────────────────────────────────
   # Job A2: MSRV check（workspace 声明 rust-version=1.92——egui 0.35 下限；
@@ -80,7 +92,12 @@ jobs:
         run: cargo check --workspace
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Job B: Root Python Tests（仓库根 tests/ 的健康检查，仅依赖 requirements-test.txt）
+  # Job B: Root Python Tests
+  #
+  # 仓库根 `tests/` 是 Python/Android 双端时代留下的**历史资产**（校验
+  # `shared/emotion-protocol.md` / `persona.yaml` / `model_registry.json`
+  # 的存在性与合法性）。Rust/Flutter 主线不消费这些文件，但它们仍在树里，所以这条
+  # 门禁保留——不是为了产品，而是为了「留下的东西别悄悄烂掉」。
   # ────────────────────────────────────────────────────────────────────────────
   root-py-tests:
     name: Root Python Tests
