@@ -17,8 +17,9 @@
 //! - 仅 GET；非 GET 回 405。
 //! - 路径经 [`normalize_rel`] 校验（拒绝 `..` / 绝对路径 / `\`），读盘前再
 //!   canonicalize 确认未越出构建目录。
-//! - 构建目录可经 `LIVE2D_AI_FLUTTER_WEB_DIR` 覆盖（默认 `<cwd>/shell/flutter/build/web`）。
-//! - 产物缺失 → 503 + 明确指引（不留白屏）。
+//! - 构建目录可经 `LIVE2D_AI_FLUTTER_WEB_DIR` 覆盖，否则按候选序列探测（见
+//!   [`build_dir_candidates`]）：cwd 相对 → 可执行文件相对 → 仓库根相对。
+//! - 产物缺失 → 503 + **列出实际找过的路径**（不留白屏，也不留一片空白的排障）。
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -35,21 +36,75 @@ pub(crate) fn is_app_path(path: &str) -> bool {
     path == APP_PREFIX || path.starts_with("/app/")
 }
 
-/// Flutter Web 构建目录（env 覆盖 > cwd 相对 > workspace 相对）。
-fn build_dir() -> PathBuf {
+/// 构建目录相对仓库根的路径。
+const BUILD_REL: &str = "shell/flutter/build/web";
+
+/// Flutter Web 构建目录候选，**按优先级**排列（第一个存在的胜出）。
+///
+/// 为什么需要这么多候选：产物目录是「谁编谁决定」的（`flutter build web` 落在
+/// `shell/flutter/build/web`），而服务进程的 cwd 却可以是仓库根、`crates/`、
+/// 甚至别处。只有一个相对 cwd 的候选时，cwd 一换就退化成 503——用户看到的是
+/// 「界面打不开」，而不是「路径没对上」。这里把三种锚点都写下来：
+///
+/// 1. `LIVE2D_AI_FLUTTER_WEB_DIR`（显式覆盖；`scripts/ignite.sh` 会设置它）
+/// 2. **cwd 相对**：`shell/flutter/build/web`、`../shell/flutter/build/web`
+/// 3. **可执行文件相对**：`target/debug/` 这类目录往上找仓库根
+/// 4. **cwd 往上找仓库根**：从子目录（如 `crates/live2d-ai-desktop`）启动也能命中
+fn build_dir_candidates() -> Vec<PathBuf> {
+    let rel = Path::new(BUILD_REL);
+    let mut out = Vec::new();
     if let Ok(dir) = std::env::var("LIVE2D_AI_FLUTTER_WEB_DIR") {
-        return PathBuf::from(dir);
+        out.push(PathBuf::from(dir));
     }
-    let candidates = [
-        PathBuf::from("shell/flutter/build/web"),
-        PathBuf::from("../shell/flutter/build/web"),
-    ];
-    for c in candidates {
-        if c.is_dir() {
-            return c;
+    out.push(rel.to_path_buf());
+    out.push(Path::new("..").join(rel));
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        out.push(dir.join(rel));
+        if let Some(root) = repo_root(dir) {
+            out.push(root.join(rel));
         }
     }
-    PathBuf::from("shell/flutter/build/web")
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(root) = repo_root(&cwd)
+    {
+        out.push(root.join(rel));
+    }
+    out
+}
+
+/// 从 `start` 起向上找**仓库根**：同时含 `Cargo.toml` 与 `shell/flutter` 的最近祖先。
+///
+/// 两个条件都要：`crates/*/Cargo.toml` 遍地都是，单看 `Cargo.toml` 会在
+/// `crates/live2d-ai-desktop/` 就停下来，拼出来的路径必然不对。
+fn repo_root(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|d| d.join("Cargo.toml").is_file() && d.join("shell/flutter").is_dir())
+        .map(Path::to_path_buf)
+}
+
+/// 取候选里第一个存在的目录。
+fn resolve_build_dir() -> Option<PathBuf> {
+    build_dir_candidates().into_iter().find(|c| c.is_dir())
+}
+
+/// 产物缺失时的 503 文案：指引 + **实际找过的路径**（含 cwd）。
+fn missing_build_hint(candidates: &[PathBuf]) -> String {
+    let tried = candidates
+        .iter()
+        .map(|c| c.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let cwd = std::env::current_dir()
+        .map(|d| d.display().to_string())
+        .unwrap_or_else(|_| "<未知>".to_string());
+    format!(
+        "Flutter Web 产物缺失：请先执行 \
+         `cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn`。\
+         已找过的路径（cwd={cwd}）：{tried}"
+    )
 }
 
 /// 根路径（`/` 与 `/index.html`）→ **302 到 `/app/`**。
@@ -105,14 +160,13 @@ pub fn handle_flutter_app(
             "Flutter 前端仅支持 GET",
         ));
     }
-    let root = build_dir();
-    if !root.is_dir() {
+    let Some(root) = resolve_build_dir() else {
         return Some(json_error(
             StatusCode(503),
             "flutter_build_missing",
-            "Flutter Web 产物缺失：请先执行 `cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn`",
+            &missing_build_hint(&build_dir_candidates()),
         ));
-    }
+    };
     let rel = path
         .strip_prefix(APP_PREFIX)
         .unwrap_or("")
@@ -277,5 +331,54 @@ mod tests {
     fn unrelated_path_is_not_handled() {
         assert!(handle_flutter_app(&Method::Get, "/api/v1/chat").is_none());
         assert!(handle_flutter_app(&Method::Get, "/render").is_none());
+    }
+
+    /// cwd 相对候选永远在列表里（env 覆盖只是**插到最前**，不是唯一来源）。
+    #[test]
+    fn candidates_always_include_the_cwd_relative_default() {
+        let candidates = build_dir_candidates();
+        assert!(!candidates.is_empty(), "候选不能为空");
+        assert!(
+            candidates.contains(&PathBuf::from(BUILD_REL)),
+            "缺少 cwd 相对候选：{candidates:?}"
+        );
+    }
+
+    /// 从 crate 目录往上能找到**仓库根**（`crates/live2d-ai-desktop` 自身也有
+    /// `Cargo.toml`，所以判定必须额外要求 `shell/flutter`，否则会在这里就停住）。
+    #[test]
+    fn repo_root_skips_the_crate_manifest() {
+        let root = repo_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("应能找到仓库根");
+        assert!(
+            root.join("shell/flutter").is_dir() && root.join("crates/live2d-ai-desktop").is_dir(),
+            "仓库根不对：{}",
+            root.display()
+        );
+    }
+
+    #[test]
+    fn repo_root_is_none_outside_a_repo() {
+        assert!(repo_root(Path::new("/")).is_none());
+    }
+
+    /// 503 文案必须**列出每个找过的路径**——只给一句「请先构建」等于排障时一片空白。
+    #[test]
+    fn missing_build_hint_lists_every_tried_path() {
+        let candidates = vec![
+            PathBuf::from("/tmp/definitely/not/here"),
+            PathBuf::from("shell/flutter/build/web"),
+        ];
+        let hint = missing_build_hint(&candidates);
+        for c in &candidates {
+            assert!(
+                hint.contains(&c.display().to_string()),
+                "文案缺少路径 {}：{hint}",
+                c.display()
+            );
+        }
+        assert!(
+            hint.contains("flutter build web"),
+            "文案缺少构建指引：{hint}"
+        );
     }
 }

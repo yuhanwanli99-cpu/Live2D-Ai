@@ -63,6 +63,25 @@ Put Live2D model files under `assets/models/` locally (see `assets/models/README
 --benchmark [P]         # Render benchmark
 ```
 
+### Ignition (WSL2 → Windows browser)
+
+Development and the **server process** live in WSL2; Windows only opens a browser
+(no binaries, no Flutter builds on the Windows side).
+
+```bash
+./scripts/ignite.sh            # preflight + serve on port 18080
+./scripts/ignite.sh --build    # also rebuild Rust + Flutter Web first
+./scripts/ignite.sh --check    # health-probe an already running server
+```
+
+Then open <http://127.0.0.1:18080/app/> (`/` 302-redirects to `/app/`).
+`shell/flutter/build/web` is the single source of truth for the front-end artifacts;
+keep `LIVE2D_AI_FLUTTER_WEB_DIR` a **WSL path** (the script sets it for you).
+
+`--check` asserts `GET /` = 302 → `/app/`, `GET /app/` = 200, and that the served
+`index.html` / `main.dart.js` contain **no** `gstatic.com/flutter-canvaskit` reference
+(offline red line — a CDN build means a white screen without network).
+
 ### Tests
 ```bash
 cargo test --workspace --all-targets
