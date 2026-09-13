@@ -66,6 +66,9 @@ pub struct HostChannels {
     /// 真实 `live2d-ai.toml` 路径（host 注入；供 Mod 在 apply_settings 失败时
     /// 记录精确落盘目标，不再探测文件系统）。
     pub config_path: String,
+    /// **脱敏设置读取**（rc.4 M5）：Mod 读当前生效设置（无密钥、无变量名）。
+    /// 角色卡 Mod 用它记住主链原本的 `system_prompt`，禁用时还原。
+    pub read_settings: Arc<dyn Fn() -> serde_json::Value + Send + Sync>,
 }
 
 /// worker 线程可安全访问的 per-Mod runtime 快照（ModRuntime: Send）.
@@ -283,13 +286,20 @@ impl ModRegistry {
     fn make_services(&self, mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
         let host = self.host.clone();
         let config_path = host.as_ref().map(|h| h.config_path.clone()).unwrap_or_default();
+        // 脱敏设置读取（rc.4 M5）：无 HostChannels → 空快照。
+        // 日志字段要跨进闭包：clone 一份，避免把 config_path 的所有权交出去。
+        let config_path_for_log = config_path.clone();
+        let reader = match host.as_ref().map(|h| h.read_settings.clone()) {
+            Some(read) => ModSettingsReader::new(move || read()),
+            None => ModSettingsReader::new(|| serde_json::json!({})),
+        };
         // 一等配置写回（rc.4 M4）：host.apply_settings 包成 `ModSettingsApplier`。
         // 无 HostChannels（无 supervisor / 单测）→ 默认「拒绝一切 patch」，不静默写盘。
         let applier = match host.as_ref().map(|h| h.apply_settings.clone()) {
             Some(apply) => ModSettingsApplier::new(move |patch: serde_json::Value| {
                 let ok = apply(patch.clone());
                 tracing::info!(
-                    target: "mod", mod_id, config_path,
+                    target: "mod", mod_id, config_path = %config_path_for_log,
                     "apply_settings {}: patch={}",
                     if ok { "success" } else { "failed" }, patch
                 );
@@ -324,6 +334,8 @@ impl ModRegistry {
             ModLogger::new(|_lvl, msg| tracing::info!(target: "mod", "{}", msg)),
         )
         .with_apply_settings(applier)
+        .with_settings_reader(reader)
+        .with_config_path(config_path)
     }
 
     #[rustfmt::skip]
@@ -380,6 +392,11 @@ impl ModRegistry {
         self.entries.get(id).map(|e| e.enabled).unwrap_or(false)
     }
 
+    /// 该 Mod 的当前配置（rc.4 M2：给 `GET /api/v1/mods` 与 config 子路由用）。
+    pub fn config(&self, id: &str) -> Option<&serde_json::Value> {
+        self.entries.get(id).map(|e| &e.config)
+    }
+
     /// 状态观察（Mod 管理 UI）。
     pub fn list(&self) -> Vec<(&'static ModDescriptor, ModStatus, bool)> {
         self.entries
@@ -393,8 +410,8 @@ impl ModRegistry {
         self.entries.keys().copied().collect()
     }
 
-    #[allow(dead_code)]
-    pub fn settings_spec(&self, id: &'static str) -> Option<&ModSettingsSpec> {
+    /// 该 Mod 注册的设置 schema（rc.4 M2：`GET /api/v1/mods` 带出）。
+    pub fn settings_spec(&self, id: &str) -> Option<&ModSettingsSpec> {
         self.settings_specs.get(id)
     }
 
@@ -857,6 +874,7 @@ mod tests {
                 say: Arc::new(|_| true),
                 apply_settings: Arc::new(|_| true),
                 config_path: String::new(),
+                read_settings: Arc::new(|| serde_json::json!({})),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let req = ActionRequest {
@@ -891,6 +909,7 @@ mod tests {
                 }),
                 apply_settings: Arc::new(|_| true),
                 config_path: String::new(),
+                read_settings: Arc::new(|| serde_json::json!({})),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let text = "hello from mod".to_string();
@@ -923,6 +942,7 @@ mod tests {
                 true
             }),
             config_path: String::new(),
+            read_settings: Arc::new(|| serde_json::json!({})),
         });
         reg.start_all(); // 触发 factory.create → 捕获 services。
 

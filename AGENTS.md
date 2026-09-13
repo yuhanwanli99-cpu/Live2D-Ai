@@ -26,13 +26,13 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  3 个 Mod（external-input / pet-desktop / local-llm）为 workspace crate；**缺省只启用
-  `local-llm`**（`externally_managed=true`，见 `cli_entry::default_mods_manifest`），
-  另两个缺省停用。**Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
+  4 个 Mod（external-input / pet-desktop / local-llm / persona）为 workspace crate；
+  **缺省只启用 `local-llm`**（`externally_managed=true`，见
+  `cli_entry::default_mods_manifest`），另三个缺省停用。**Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）。
   **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
   不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
-  `main.rs` 的 `mod_count_is_three` 断言守住，**不要再挂回去**。
+  `main.rs` 的 `mod_count_is_four` 断言守住，**不要再挂回去**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -162,7 +162,7 @@
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
-护栏是两条断言：`main.rs::mod_count_is_three`（工厂数不得回到 4）与
+护栏是两条断言：`main.rs::mod_count_is_four`（工厂数不得因动作 Mod 增加）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）

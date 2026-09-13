@@ -1,0 +1,19 @@
+[package]
+name = "live2d-ai-mod-persona"
+description = "Live2D-Ai 酒馆角色卡 Mod（rc.4 M5）：导入 SillyTavern V1/V2 JSON 或内嵌 chara 的 PNG，合成 system_prompt 经一等 apply_settings 写回主链"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
+serde_json = "1"
+# PNG 内嵌卡（tEXt/iTXt 的 chara 负载）是 base64；workspace 已有 base64 0.22，
+# 提为直接依赖不新增 crate（见 SOURCES.md 登记）。
+base64 = "0.22"
+log = "0.4"
+
+[lints]
+workspace = true

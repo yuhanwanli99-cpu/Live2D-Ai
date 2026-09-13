@@ -335,99 +335,68 @@ fn dev_mode_three_state_patch_round_trip() {
     );
 }
 
-/// 角色卡：persona name/description 写入 + 生效 system_prompt 拼接（5 分支）。
+/// **rc.4 M5 主链收敛回归**：酒馆卡字段已不在 `[persona]`，出现即解析失败。
+///
+/// `PersonaSettings` 带 `deny_unknown_fields`——这条守住「卡字段不许回流主链」。
+/// 它们属于标准 Mod `live2d-ai-mod-persona`（自己的 config 住 mods.json）。
 #[test]
-fn persona_name_desc_round_trip_and_effective_prompt() {
-    use super::build_effective_system_prompt;
-
-    // ① TOML 读写 round-trip。
-    let toml_text = r#"
-[persona]
-name = "NEKO"
-description = "一只会说话的猫娘桌宠。"
-system_prompt = "用简短口语回答。"
-max_history_pairs = 2
-"#;
-    let s = AppSettings::from_toml_str(toml_text).expect("parse");
-    assert_eq!(s.persona.name, "NEKO");
-    assert_eq!(s.persona.description, "一只会说话的猫娘桌宠。");
-
-    // ② 生效 prompt 拼接（5 分支）。
-    let cases = [
-        // (name, desc, base, expected)
-        ("", "", "", ""),
-        ("", "", "base提示", "base提示"),
-        ("NEKO", "", "base提示", "[角色卡] 名称：NEKO\n\nbase提示"),
-        ("", "猫娘", "base提示", "[角色卡]\n描述：猫娘\n\nbase提示"),
-        (
-            "NEKO",
-            "猫娘",
-            "base提示",
-            "[角色卡] 名称：NEKO\n描述：猫娘\n\nbase提示",
-        ),
-    ];
-    for (name, desc, base, want) in cases {
-        assert_eq!(
-            build_effective_system_prompt(name, desc, base),
-            want,
-            "build_effective_system_prompt(name={name:?}, desc={desc:?}, base={base:?})"
+fn persona_card_fields_are_rejected_by_main_chain() {
+    for key in ["name", "description", "personality", "scenario", "first"] {
+        let text = format!("[persona]\n{key} = \"x\"\n");
+        assert!(
+            AppSettings::from_toml_str(&text).is_err(),
+            "主链 `[persona]` 不得再接受卡字段 `{key}`：{text}"
         );
     }
-
-    // ③ 经 resolve() 注入会话（base 为空时仍拼角色卡）。
-    let s2 = AppSettings::from_toml_str(
-        "[llm]\nbase_url=\"http://127.0.0.1:11434/v1\"\n[tts]\nbase_url=\"http://127.0.0.1:8000/v1\"\n[persona]\nname=\"Neko\"\ndescription=\"猫娘\"\n",
-    )
-    .expect("parse");
-    let resolved = s2.resolve().expect("resolve");
-    assert_eq!(
-        resolved.conversation.system_prompt,
-        "[角色卡] 名称：Neko\n描述：猫娘"
-    );
+    // 只留的两项可解析。
+    let ok =
+        AppSettings::from_toml_str("[persona]\nsystem_prompt = \"p\"\nmax_history_pairs = 2\n")
+            .expect("parse");
+    assert_eq!(ok.persona.system_prompt, "p");
+    assert_eq!(ok.persona.max_history_pairs, 2);
 }
 
-/// persona name/description 补丁三态（patch 级）。
+/// **rc.4 M5**：`resolve()` 原样下发 `system_prompt`（不再拼名字/简介）。
 #[test]
-fn persona_name_desc_patch_tri_state() {
-    use crate::settings::patch::PersonaPatch;
+fn resolve_passes_system_prompt_verbatim() {
     let s = AppSettings::from_toml_str(
-        "[persona]\nname=\"OLD\"\ndescription=\"OLD-DESC\"\nsystem_prompt=\"p\"\n",
+        "[llm]\nbase_url=\"http://127.0.0.1:11434/v1\"\n[tts]\nbase_url=\"http://127.0.0.1:8000/v1\"\n[persona]\nsystem_prompt=\"你是猫娘。\"\n",
     )
     .expect("parse");
+    let resolved = s.resolve().expect("resolve");
+    assert_eq!(resolved.conversation.system_prompt, "你是猫娘。");
+}
+
+/// `system_prompt` / `max_history_pairs` 的补丁三态（patch 级）。
+#[test]
+fn persona_prompt_patch_tri_state() {
+    use crate::settings::patch::PersonaPatch;
+    let s = AppSettings::from_toml_str("[persona]\nsystem_prompt=\"OLD\"\nmax_history_pairs=1\n")
+        .expect("parse");
     // 写新值。
     let patch = SettingsPatch {
         persona: Some(Some(PersonaPatch {
-            system_prompt: None,
-            max_history_pairs: None,
-            name: Some(Some("NEW".into())),
-            description: Some(Some("NEW-DESC".into())),
-            personality: None,
-            scenario: None,
-            first: None,
+            system_prompt: Some(Some("NEW".into())),
+            max_history_pairs: Some(Some(3)),
         })),
         ..Default::default()
     };
     let (next, outcome) = apply_patch(&s, &patch).expect("apply");
     assert_eq!(outcome, PatchOutcome::Updated);
-    assert_eq!(next.persona.name, "NEW");
-    assert_eq!(next.persona.description, "NEW-DESC");
+    assert_eq!(next.persona.system_prompt, "NEW");
+    assert_eq!(next.persona.max_history_pairs, 3);
 
-    // null = 清除。
+    // null = 清除（system_prompt 回空串 / 历史回 0）。
     let clear = SettingsPatch {
         persona: Some(Some(PersonaPatch {
-            system_prompt: None,
-            max_history_pairs: None,
-            name: Some(None),
-            description: Some(None),
-            personality: None,
-            scenario: None,
-            first: None,
+            system_prompt: Some(None),
+            max_history_pairs: Some(None),
         })),
         ..Default::default()
     };
     let (next, _) = apply_patch(&s, &clear).expect("apply clear");
-    assert!(next.persona.name.is_empty());
-    assert!(next.persona.description.is_empty());
+    assert!(next.persona.system_prompt.is_empty());
+    assert_eq!(next.persona.max_history_pairs, 0);
 }
 
 // ============================================================================
@@ -543,8 +512,7 @@ channels = 1
 
 [persona]
 # 人设：空 = 不注入
-name = ""
-description = ""
+system_prompt = ""
 "#;
 
 #[test]
@@ -630,17 +598,17 @@ fn merge_removes_none_keys_but_keeps_the_rest() {
 
 #[test]
 fn merge_seeds_missing_keys_and_keeps_unknown_ones() {
-    // 目标文件里**没有** [persona].name（键缺失）→ 追加；
+    // 目标文件里**没有** [persona].system_prompt（键缺失）→ 追加；
     // 同时留一个我们不认识的键 → 保留（原实现会连带删掉）。
     let existing = "# 说明\n[llm]\nbase_url = \"http://a/v1\"\nmodel = \"m\"\n";
     let mut s = AppSettings::default();
     s.llm.base_url = "http://a/v1".to_string();
     s.llm.model = "m".to_string();
-    s.persona.name = "小明".to_string();
+    s.persona.system_prompt = "小明".to_string();
     let merged = s.merge_into_toml(existing).expect("合并应成功");
     assert!(merged.contains("# 说明"));
     assert!(
-        merged.contains(r#"name = "小明""#),
+        merged.contains(r#"system_prompt = "小明""#),
         "缺的键要补上：\n{merged}"
     );
 }
@@ -665,11 +633,11 @@ fn merged_text_round_trips_to_the_same_settings() {
     s.llm.base_url = "https://api.deepseek.com/v1".to_string();
     s.llm.model = "deepseek-flash".to_string();
     s.tts.voice = "skystar".to_string();
-    s.persona.name = "小明".to_string();
+    s.persona.system_prompt = "小明".to_string();
     let merged = s.merge_into_toml(COMMENTED).expect("合并应成功");
     let back = AppSettings::from_toml_str(&merged).expect("合并结果应可解析");
     assert_eq!(back.llm.base_url, s.llm.base_url);
     assert_eq!(back.llm.model, s.llm.model);
     assert_eq!(back.tts.voice, s.tts.voice);
-    assert_eq!(back.persona.name, s.persona.name);
+    assert_eq!(back.persona.system_prompt, s.persona.system_prompt);
 }

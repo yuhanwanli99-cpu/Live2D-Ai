@@ -182,7 +182,6 @@ fn write_initial_config_with_hidden_tts(path: &std::path::Path) {
         persona: PersonaSettings {
             system_prompt: "初始人设".into(),
             max_history_pairs: 4,
-            ..PersonaSettings::default()
         },
         dev_mode: false,
     };

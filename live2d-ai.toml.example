@@ -52,11 +52,12 @@ channels = 1
 # api_key_env = "LIVE2D_AI_TTS_API_KEY"
 
 [persona]
-# 角色名称（酒馆卡 name；空 = 未设置，不注入）。
-name = ""
-# 角色描述（identity · background；空 = 未设置，不注入）。
-description = ""
 # 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息。
+#
+# rc.4 M5：主链只留 system_prompt + max_history_pairs。酒馆卡字段
+# （name/description/personality/scenario/first）与导入 UI 已迁出主链，
+# 由标准 Mod `live2d-ai-mod-persona` 承担——导入角色卡后由 Mod 合成
+# system_prompt 写回这里。见 docs/architecture/mod-product-chain.md。
 #
 # 下面这段是「微信式短对话」模板（2026-09-10）——配合「一句一单元」的语音契约：
 # 句数少 ⇒ TTS 请求少 ⇒ 等待短；标点用对 ⇒ 不会出现「断句」。
