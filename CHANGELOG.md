@@ -1,3 +1,57 @@
+# v0.1.0-rc.2 — 第二基线：动作层删到底 + 模型闭环 + `.env` 成为密钥真源（2026-09-12）
+
+> 同一 RC 线的**第二个基线**。完整发布说明见
+> [`docs/releases/v0.1.0-rc.2.md`](docs/releases/v0.1.0-rc.2.md)；
+> 范围真源见 [`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md`](docs/plans/PLAN-rc2-second-baseline-2026-09-12.md) §0。
+> 口径：可读性与工程优雅优先、**宁删勿加**、不做步骤 2。
+
+## 拆除（破坏性）
+
+- **动作层删到底**：`live2d-ai-mod-director` Mod 整体删除；`SupervisorHandle::trigger_action`
+  与 supervisor 的 `action_rx` 分支（**唯一**能把 `RootEvent::Action` 送进 core reducer 的路径）
+  删除；`HostChannels.trigger_action` / `parse_action_id` 删除（`ModServices.action_tx` 保留为
+  Mod API 契约，但注入固定休眠 sender）。
+  归档：分支 `archive/action-layer-p6`。护栏：工厂数必须 = 3、动作请求必须不被接受。
+- **渲染面编舞删除**（`l2d-wasm-demo`）：`action-state` 接收器 + `CHOREOGRAPHY` 关键帧表 +
+  `action_frames`/`blend`/`choreography_total_ms` + `param_scale.rs`（`surface.rs` 1721 → 1169 行）。
+  **待机生命体征（`IdleState` 呼吸/眨眼）一行未动。**
+- **capabilities 去广告**：删 `actions` / `action_sources` / `strength_levels` /
+  `model_upload_supported` / `script_invoke_supported`（后两个是假广告：ZIP 上传明标后置、
+  脚本端点不存在）。`schema_version` 1 → **2**。
+- **假话**：`live2d-ai.toml.example` 里教 LLM 调 `live2d_perform_action` 的那一行。
+
+## 修复（真缺陷）
+
+- **模型双轨**（「导入并激活后皮套不换」的根因）：静态 `/models/*` 读 `<cwd>/assets/models/`，
+  而 registry / import 写 XDG。现在**唯一模型根**（`web_api/model_root.rs`），XDG 那条路径删除。
+- **`find_model3_json` 只扫顶层** → `import {"id":"bai"}` 必然 400；现在向下看一层。
+- **`app/status.active_model_id` 写死 `"bai_001"`** → 现在读真实 registry（没激活过时回落到
+  确实存在于磁盘的内置模型）。
+- **`requires_restart` 恒 `true`** → 恒 `false`（渲染面本就支持热换；恒 `true` 会误导用户去重启）。
+- **前端模型闭环断裂**：`ActivateResult.modelUrl` 解析了却无人使用（`Live2DStage` 不传 `model:`）；
+  `ModelsApi.import` 全仓零调用方而空态写着「在这里导入」。现均已接线，且**等渲染面 `loaded`
+  回执**才提示「已切换」。
+- **密钥改不了**：`.env` 成为唯一真源（`.env` > 进程环境），新增 `GET/PUT /api/v1/env`
+  （只回键名与是否已设置、永不回值；原子写 + `0600` + 就地改行 + 热重载），前端设置面板可直接填 key。
+- **点火纪律**：`ignite.sh` 锚定 `LIVE2D_AI_FLUTTER_WEB_DIR` + 新增 `--check` 体检；
+  `build_dir()` 补「可执行文件相对 / 向上找仓库根」候选，503 列出找过的每个路径。
+
+## 文档
+
+- 新增 `docs/releases/v0.1.0-rc.2.md`（含点火记录与已知问题）。
+- `AGENTS.md`：新增「工作区与点火纪律（WSL2 ↔ Windows）」「动作与表演的归属（休眠台账）」
+  与「密钥真源 = `.env`」。
+- `docs/architecture/core-chain-baseline.md` §3.2/§3.3 改写为删后的真话（含推翻原判断的理由）。
+- 旧 JS 前端预览隔离到 `docs/design/legacy/` 并标注「**勿当现网**」。
+
+## 门禁
+
+cargo **784** passed / fmt 干净 / clippy **0 warning** / rust-ratio **96.9545% PASS**；
+flutter analyze 无问题 / flutter test **798** passed；`ignite.sh --check` 四项全 ok。
+`verify_core_chain.py` 11 跳 OK、3 跳因**本机 TTS 端点未启动**而红（详见发布说明 §4.1）。
+
+---
+
 # v0.1.0-rc.1 — 核心链路基线：工具/动作整体拆除 + 音频走媒体元素 + 三个真缺陷 + 版本线重置（2026-09-11）
 
 > **版本线由 `0.5.1` 重置为 `0.1.0-rc.1`**。完整发布说明见

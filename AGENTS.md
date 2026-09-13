@@ -12,9 +12,12 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.1.0-rc.1`（核心链路基线，2026-09-11）**：版本线由 `0.5.1` 重置。
+- **当前版本 `0.1.0-rc.2`（第二基线，2026-09-12）**：在 rc.1 基础上把动作层**删到底**
+  （director Mod / Action 注入 / 渲染面编舞全删，core 子系统保留但明文休眠）、打通
+  **模型库闭环**（单一模型根 + 激活即换皮）、确立 **`.env` = 唯一密钥真源**（前端可写 + 热重载）。
   LLM 工具层与动作系统**已从前后端整体拆除**——**不要**再以「LLM 调用工具」「动作系统」
-  为前提写代码或文档。发布说明：`docs/releases/v0.1.0-rc.1.md`。
+  为前提写代码或文档。发布说明：`docs/releases/v0.1.0-rc.2.md`（rc.1：
+  `docs/releases/v0.1.0-rc.1.md`）。
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （`android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
@@ -206,6 +209,31 @@
 
 ## 变更历史
 
+- **2026-09-12（v0.1.0-rc.2，第二基线）**：rc.1 之后的第二个基线。范围冻结为「瘦版」
+  （M0 点火纪律 + M1 动作裁决 + 模型闭环 + `.env` 密钥源 + 旧预览隔离）；
+  `main.dart` 大拆 / `surface.rs` 大拆 / egui feature-gate / CI 对齐**都推到 rc.3**。
+  ① **动作层删到底**：director Mod 整体删除、`SupervisorHandle::trigger_action` 与
+  supervisor 的 `action_rx` 分支删除（那是**唯一**能把 `RootEvent::Action` 送进 core
+  reducer 的路径）、`HostChannels.trigger_action` 删除（`ModServices.action_tx` 保留为
+  Mod API 契约，但注入固定休眠 sender）、渲染面 `action-state` 接收器 + 编舞表删除
+  （`surface.rs` 1721 → 1169）。**待机生命体征一行未动。**归档：`archive/action-layer-p6`。
+  ② **capabilities 去广告**：删 `actions`/`action_sources`/`strength_levels`/
+  `model_upload_supported`/`script_invoke_supported`（后两个是假广告），`schema_version` → 2。
+  ③ **模型库闭环**：新增 `web_api/model_root.rs` 定为**唯一模型根**
+  （`<cwd>/assets/models`，静态服务与 registry 同源；XDG 那条删除）、
+  `find_model3_json` 向下看一层（原来连自家的 `bai/runtime/` 都导入不了）、
+  `app/status.active_model_id` 读真实 registry、activate 恒 `requires_restart=false`
+  且 `model_url` 可 GET；前端接上 `sendSync(model:)` 并**等渲染面 `loaded` 回执**才说
+  「已切换」，同时补上一直缺的**导入入口**。
+  ④ **`.env` = 唯一密钥真源**：新增 `live2d-ai-runtime::secrets`（快照读取，不用
+  `set_var`）+ `GET/PUT /api/v1/env`（**永不回值**、原子写、`0600`、就地改行、热重载）
+  + `.env` 纳入 `file_watcher`；前端设置面板可直接填 key。
+  ⑤ **点火纪律**：`ignite.sh` 锚定 `LIVE2D_AI_FLUTTER_WEB_DIR` + `--check` 体检；
+  503 响应体列出找过的每个路径；WSL2 ↔ Windows 分工写进本文件与 README。
+  旧 JS 前端预览隔离到 `docs/design/legacy/` 并标注「**勿当现网**」。
+  门禁：cargo **784** 通过 / clippy 0 warning / rust-ratio **96.9545% PASS**；
+  flutter analyze 无问题 + **798** 测试通过；`ignite.sh --check` 四项全 ok。
+  发布说明（含点火记录与已知问题）：`docs/releases/v0.1.0-rc.2.md`。
 - **2026-09-11（v0.1.0-rc.1，核心链路基线）**：用户验收通过 → **交接落盘 + 标注基线**，
   随后裁决「**旧版本代码可只存在本地，仓库可以洗一下**」。本版：
   ① **版本线由 `0.5.1` 重置为 `0.1.0-rc.1`**（本版不是 0.5.x 的增量，而是核心链路重新
