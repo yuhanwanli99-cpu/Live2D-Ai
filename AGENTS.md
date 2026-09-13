@@ -84,6 +84,29 @@
 
 ## 开发约定
 
+### 门禁：本地必跑 vs CI 必跑（2026-09-13 rc.3 对齐）
+
+**一张表，一套真相**：本地提交前跑的命令，必须能在 CI 清单里逐条找到；CI 里没有的
+检查不进「提交前必跑」清单。对应 workflow 在 `.github/workflows/`。
+
+| 检查 | 本地命令 | CI（workflow → job） |
+| --- | --- | --- |
+| Rust 测试（lib/bin/tests/examples） | `cargo test --workspace --all-targets` | `pr-checks.yml` / `nightly.yml` → `rust-*-test` |
+| Rust doc 测试（rustdoc 示例） | `cargo test --doc --workspace` | 同上（`Test doc examples`） |
+| 格式 | `cargo fmt --all -- --check` | 同上 |
+| Clippy（全目标、0 warning） | `cargo clippy --workspace --all-targets -- -D warnings` | 同上 |
+| Rust 占比 ≥95% | `cargo run -p xtask -- rust-ratio` | 同上（`Rust ratio (>= 95%)`） |
+| MSRV 1.92 可编译 | 手动（可选） | `pr-checks.yml` → `msrv-check`（仅 `cargo check`） |
+| 前端静态检查 + 测试 | `cd shell/flutter && flutter analyze && flutter test` | `flutter-checks.yml`（`paths: shell/flutter/**`） |
+| 仓库根历史资产测试 | `python3 -m pytest tests/ -q` | `pr-checks.yml` → `root-py-tests` |
+| 端到端核心链（需活端点） | `python3 scripts/verify_core_chain.py --timeout 300` | `nightly.yml` → `core-chain-verify`（**仅当**配置仓库变量 `LIVE2D_AI_VERIFY_BASE_URL`） |
+| wasm 渲染面可编译 | `cargo check --target wasm32-unknown-unknown -p l2d-wasm-demo` | **暂无**（本地手动；wasm 改动必须 rebuild + 肉眼） |
+
+两条纪律：
+1. 端到端探针**只在有活端点时跑**，缺配置就明确跳过——绝不伪造绿灯
+   （「天天红」比没有这条更坏，与「自检说谎」是同一条教训）；
+2. wasm 那条暂时只有本地门禁——**已知缺口**，写在这里而不是假装它被 CI 守着。
+
 ### 核心层（Rust）
 
 - **门禁**（提交前必须）：`cargo test --workspace --all-targets` + `cargo test --doc --workspace`
@@ -135,6 +158,30 @@
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
 护栏是两条断言：`main.rs::mod_count_is_three`（工厂数不得回到 4）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
+
+### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
+
+**主路径是 `--web`**：Rust 服务 + Flutter Web `/app/`（`./scripts/ignite.sh` 点火）。
+桌面侧那份 **egui 原生壳**（`src/app/` + 窗口/托盘/桌宠模式）与 **`--chat` 终端壳**
+能编译、能跑，但**不在产品主路径上，也不承担验收**。
+
+rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由：本项目口径是
+「可读性优先」；gate 会把 Cargo feature 矩阵与 `cli` 的用法/测试断言一起搅动，
+而收益（编译时间/二进制体积）抵不上理解成本。等价措施是把界线**钉死**——
+本节 + `README.md` + `docs/architecture/core-chain-baseline.md` §3.6，
+**不允许第三种含糊表述**。
+
+| 对象 | 状态 | 位置 | 谁能唤醒 |
+|---|---|---|---|
+| **Web 主链**（`--web` + Flutter `/app/`） | **主线** | `web_api/` + `shell/flutter/` | 不适用（它就是主线） |
+| egui 原生壳（窗口 / 设置面 / 托盘 / 桌宠穿透） | **休眠保留**：非主线、不验收 | `src/app/`、`src/tray.rs`、`src/backend.rs`、`src/platform.rs` | 单独立项 + 先论证「谁来维护第二个 UI 壳」 |
+| `--chat` 终端壳 | **休眠保留**：非主线、不验收 | `src/repl.rs` + `cli` 的 chat 分支 | 同上 |
+| `--window-smoke` / `--model-smoke` / `--benchmark` | **工具**（冒烟/基准），**不是产品入口** | `src/model_smoke.rs`、`src/benchmark.rs` | 无（工具用途不变；`--benchmark` 明令禁止成为生产默认） |
+
+两条红线：
+1. **默认文档入口只推销 `--web` / `scripts/ignite.sh`**；
+2. **不得**再往 egui 设置面板加与 Flutter 重复的产品字段——那是「第二个产品」，
+   属于步骤 2，**停**，记到 `PLAN-rc3-structure-quality-2026-09-13.md` §10 backlog。
 
 ### 前端层（Flutter）
 

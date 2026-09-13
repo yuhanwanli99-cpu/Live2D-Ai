@@ -28,3 +28,13 @@
 
 别从这里抄。现行规格是 `docs/design/web-ui-spec-v3.md`；真值以 Flutter 源码为准
 （`shell/flutter/lib/`）。这里只作为「当时长什么样」的历史存档。
+
+## 追加（2026-09-13，rc.3）：过时的「网页 UI 规格」也搬进来
+
+`docs/design/` 顶层原本 8 项并存，其中 4 份是**旧原生 JS 前端时代**的规格：
+`web-ui-spec-v2.md`、`web-ui-polish-spec.md`、`web-ui-redo-spec-st1-2.md`、
+`web-ui-settings-wiring-v1.md`。它们描述的是**另一套已经删掉的前端**（vanilla JS + rail + 模态），
+与现行 Flutter 规格 `../web-ui-spec-v3.md` 并存只会让人读错——所以同样**隔离 + 保留**。
+
+现行规格仍然只有一份：`docs/design/web-ui-spec-v3.md`（Flutter Web）。
+`web-action-trigger-archive.md` **留在顶层**：活代码在引用它（见上文）。

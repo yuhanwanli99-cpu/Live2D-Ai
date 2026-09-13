@@ -107,7 +107,8 @@
 ## 根文档
 
 - [README.md](../README.md)
-- [HANDOVER.md](../HANDOVER.md)
 - [CHANGELOG.md](../CHANGELOG.md)
-- [AGENT.md](../AGENT.md)
-- [AGENTS.md](../AGENTS.md)
+- [AGENTS.md](../AGENTS.md)（**AI/协作者入口，现行**）
+- 归档（Python/Android 双端时代，**勿当现网**）：[docs/legacy/](legacy/README.md)
+  —— `HANDOVER.md` / `AGENT.md` / `PLAN.md` / `PROGRESS.md` /
+  `AUDIT.md` / `REFACTOR_*.md` 已搬进 `docs/legacy/`

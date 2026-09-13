@@ -1,0 +1,51 @@
+# =============================================================================
+# Flutter Checks — 前端门禁（shell/flutter/**）
+#
+# 前端/接口层豁免 rust-ratio（见 AGENTS.md「前端层豁免的理由」），质量门槛由
+# Flutter 自己的工具链承担：flutter analyze（静态检查）+ flutter test（含帧解析、
+# 音频调度、气泡渲染等纯逻辑与 widget 回归）。
+#
+# 只在 shell/flutter/** 变更时触发：纯 Rust/文档 PR 不必等 Flutter 工具链。
+# 与本地门禁逐条一致（AGENTS.md「本地必跑 vs CI 必跑」表）。
+# =============================================================================
+name: Flutter Checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "shell/flutter/**"
+      - ".github/workflows/flutter-checks.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-analyze-test:
+    name: Flutter Analyze & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter (stable) + cache
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: shell/flutter
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: shell/flutter
+        run: flutter analyze
+
+      - name: Test
+        working-directory: shell/flutter
+        run: flutter test

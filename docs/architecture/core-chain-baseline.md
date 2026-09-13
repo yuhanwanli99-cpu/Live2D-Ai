@@ -196,6 +196,27 @@ cd shell/flutter && flutter test test/font_subset_test.dart
 **换了字体没重新生成 → 红**）；② 扫 `lib/**/*.dart` 字符串字面量，出现子集外字符 → 红；
 ③ 自带小词法器（跳过注释）并有自测。已实测：把 `▍` 放回去即变红。
 
+### 3.6 原生第二壳（egui / `--chat`）：**非主线**（rc.3 裁决，2026-09-13）
+
+**唯一的产品链路是 `--web` + Flutter Web `/app/`**（§1）。桌面 crate 里还有
+一份 **egui 原生壳**（`src/app/`：窗口、设置面、托盘、桌宠穿透）与 **`--chat`
+终端壳**——它们能编译、能跑，但**不在产品链路上，也不承担验收**。
+
+rc.3 的裁决是**选项 B：不 feature-gate，把界线钉死**（计划 §5）。理由：本项目的口径是
+「可读性优先、宁删勿加」；feature-gate 会把 Cargo feature 矩阵与 `cli` 的用法/
+测试断言一起搅动，而收益（编译时间、二进制体积）抵不上理解成本。
+
+| 对象 | 状态 | 位置 |
+|---|---|---|
+| **Web 主链** | **主线** | `web_api/` + `shell/flutter/` |
+| egui 原生壳 | **休眠保留**（非主线、不验收） | `src/app/`、`src/tray.rs`、`src/backend.rs`、`src/platform.rs` |
+| `--chat` 终端壳 | **休眠保留**（非主线、不验收） | `src/repl.rs` + `cli` 的 chat 分支 |
+| `--window-smoke` / `--model-smoke` / `--benchmark` | **工具**，不是产品入口 | `src/model_smoke.rs`、`src/benchmark.rs` |
+
+「谁休眠、为什么、谁能唤醒」的完整台账在 `AGENTS.md`「原生第二壳的归属」一节；
+**不允许第三种含糊表述**。默认文档入口只推销 `--web` / `scripts/ignite.sh`
+（`README.md` 已经如此）。
+
 ## 4. 音频路径改造（已完成）
 
 用户报「浏览器禁用声音但依旧有声音传出」，并裁定：
