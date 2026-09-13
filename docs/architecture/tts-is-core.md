@@ -18,6 +18,8 @@
 
 `crates/live2d-ai-mod-local-tts` 已删除；`AVAILABLE_MOD_FACTORIES` 从 5 个变为 4 个
 （external-input / director / pet-desktop / local-llm）。
+**2026-09-12（rc.2）更新**：`live2d-ai-mod-director` 也已删除（动作层裁决），
+现为 **3 个**（external-input / pet-desktop / local-llm）。
 
 ## 2. 为什么（三条，按重要性排序）
 

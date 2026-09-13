@@ -12,7 +12,6 @@ members = [
     "crates/l2d-wasm-demo",
     "crates/live2d-ai-mod-system",
     "crates/live2d-ai-mod-external-input",
-    "crates/live2d-ai-mod-director",
     "crates/live2d-ai-mod-pet-desktop",
     "crates/live2d-ai-mod-local-llm",
     "xtask",

@@ -20,7 +20,10 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  4 个 Mod（external-input / pet-desktop / director / local-llm）为 workspace crate，默认不启用。
+  3 个 Mod（external-input / pet-desktop / local-llm）为 workspace crate，默认不启用。
+  **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
+  不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
+  `main.rs` 的 `mod_count_is_three` 断言守住，**不要再挂回去**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -86,6 +89,24 @@
 - **源码 ≤500 行**（豁免 ≤1000 需头注理由）；测试文件 ≤800 行。
 - **密钥安全**：密钥不进 GET/日志/WS/导出；loopback-only；mutating 需 `application/json`。
 - **Mod 边界**：Mod 必须通过 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁。
+
+### 动作与表演的归属（休眠台账，2026-09-12 rc.2 定）
+
+**动作在产品路径上不存在**。这不是「暂时没接」，是裁决（`docs/architecture/core-chain-baseline.md`
+§3.1）——所以每一处残留都要能回答「谁休眠、为什么、谁能唤醒」：
+
+| 对象 | 状态 | 谁能唤醒 |
+| --- | --- | --- |
+| `live2d-ai-core` 的 `action/` + `performance/` | **休眠保留**（类型 / reducer / capability gate 原样） | 只有先重新论证 `core-chain-baseline.md` §3.2 的三条理由 + `lib.rs` 第 4/6 条不变量之后 |
+| `ModServices.action_tx`（仍属 Mod API 契约） | **休眠**：host 注入固定 sender，请求只留一行 debug 日志并返回 `false` | 同上；**不得**在 `mod_registry.rs` 里私自接回真通道 |
+| `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档在 `archive/action-layer-p6` |
+| 渲染面（`l2d-wasm-demo`）的编舞残件 | **已删除**（`action-state` 接收器 + `surface.rs` 编舞） | 归档在 `archive/action-layer-p6`；恢复必须 wasm 重建 + 肉眼验收 |
+| **待机生命体征**（`IdleState` 呼吸/眨眼/微表情） | **必须保留**——与动作系统是两套机制，只共用 override 层 | 无（它一直在产品里，删动作时**绝不要**连带删它） |
+
+为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
+**只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
+护栏是两条断言：`main.rs::mod_count_is_three`（工厂数不得回到 4）与
+`mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 前端层（Flutter）
 

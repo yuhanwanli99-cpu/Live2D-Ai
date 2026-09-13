@@ -52,9 +52,13 @@ mod platform;
 
 /// 已编译进本二进制的 Mod 工厂（静态注册；启用与否由 manifest `[mods.<id>]` 决定）。
 /// 由 `cli_entry::run_web_mode` 装配 `ModRegistry`（节点 E5，2026-08-30）。
+///
+/// 2026-09-12（rc.2）：director Mod 已删除——它唯一的职责是**驱动动作序列**，
+/// 而动作在产品路径上不存在（见 `docs/architecture/core-chain-baseline.md` §3.3）。
+/// 归档点在分支 `archive/action-layer-p6`。**不要再挂回去**：
+/// 下方 `mod_count_is_three` 是防回归断言。
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
     &live2d_ai_mod_external_input::FACTORY,
-    &live2d_ai_mod_director::FACTORY,
     &live2d_ai_mod_pet_desktop::FACTORY,
     &live2d_ai_mod_local_llm::FACTORY,
 ];
@@ -415,12 +419,17 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
+    /// 防回归：**恰好 3 个** Mod 工厂。
+    ///
+    /// 2026-09-12（rc.2）director 已删除——它是动作序列的唯一驱动方，而动作在产品
+    /// 路径上不存在。数字断言存在的意义就是「不要再挂回去」：若有人把 director（或
+    /// 任何新的动作 Mod）加回静态注册，这条会立刻红。
     #[test]
-    fn mod_count_is_four() {
+    fn mod_count_is_three() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            4,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 4 Mod factories (external-input, director, pet-desktop, local-llm)"
+            3,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 3 Mod factories (external-input, pet-desktop, local-llm)"
         );
     }
 
@@ -432,7 +441,7 @@ mod tests {
             .collect();
         ids.sort();
 
-        let mut expected = vec!["external-input", "director", "pet-desktop", "local-llm"];
+        let mut expected = vec!["external-input", "pet-desktop", "local-llm"];
         expected.sort();
 
         assert_eq!(

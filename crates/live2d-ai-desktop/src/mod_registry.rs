@@ -12,11 +12,14 @@
 //! 每个 Running Mod 调 `runtime.on_event`，`Err` → 清空该 Mod runtime 槽位
 //! 并记录 `last_error`（失败隔离，核心继续）。慢/失败 Mod 不影响主链路。
 //!
-//! # 动作来源（E0 ADR §2.1）
+//! # 动作：无 host 通道（2026-09-12，rc.2）
 //!
-//! Mod 主动作经 `ModServices.action_tx` 的 `ActionRequest` 提交，host 端映射
-//! 为固定优先级（UserCommand/LlmTool/**Mod**/RuleFallback），**不**暴露自定
-//! 优先级、**不**绕过 core 仲裁。
+//! `ModServices.action_tx` 仍在（Mod API 契约），但 **host 不再提供驱动方**：
+//! 这里注入的是**固定的休眠 sender**——任何 `ActionRequest` 都只留一行 debug
+//! 日志并被丢弃。理由：动作在产品路径上不存在（`core-chain-baseline.md` §3.3），
+//! 而「一个只会静默吞掉请求的活通道」比没有通道更容易骗人。
+//! 谁要唤醒它：先看 `docs/architecture/core-chain-baseline.md` §3.3 的三条理由，
+//! 再决定是恢复 host 通道还是走步骤 2 的 Mod 能力。
 //!
 //! # 共享 runtime 槽位（E4b）
 //!
@@ -30,23 +33,20 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use live2d_ai_core::action::ActionId;
-use live2d_ai_mod_system::services::ActionRequest;
 use live2d_ai_mod_system::*;
 
 // ---------------------------------------------------------------- HostChannels
 
-/// Host 真实通道（构造 registry 时注入；动作经 host 固定映射进 core 仲裁）。
+/// Host 真实通道（构造 registry 时注入）。
 ///
-/// Mod → host 的真实回路（P0-3 前半）：`ActionRequest.action (&'static str)`
-/// 通过 [`parse_action_id`] 映射为 `ActionId`，然后构造 `SemanticAction`
-/// 经 `supervisor.trigger_action` 进入 core 仲裁；`say` 直通 supervisor.say。
-/// 来源固定为 `ActionSource::LlmTool`（Mod 动作固定优先级档——E0 ADR §2.1），
-/// 不暴露自定优先级、不绕过 core 仲裁。
+/// Mod → host 的真实回路只剩两条：`say` 直通 `supervisor.say`（主链路），
+/// `apply_settings` 复用 settings PATCH 内核（写盘 + reload）。
+///
+/// **动作不在其中**：`action_tx` 是休眠 sender（见模块头注），因为动作在产品
+/// 路径上不存在。**禁止**在这里重新接一条 `ActionRequest → core` 的线——
+/// `supervisor` 侧的 `RootEvent::Action` 注入分支已整体删除（rc.2）。
 #[derive(Clone)]
 pub struct HostChannels {
-    /// ActionRequest → SemanticAction（固定映射） → supervisor.trigger_action
-    pub trigger_action: Arc<dyn Fn(ActionRequest) -> bool + Send + Sync>,
     /// 文本 → supervisor.say（主链路）
     pub say: Arc<dyn Fn(String) -> bool + Send + Sync>,
     /// **P0-4 真实闭环**：本地 Mod（local-llm）探测到服务就绪后，
@@ -66,12 +66,6 @@ pub struct HostChannels {
     /// 真实 `live2d-ai.toml` 路径（host 注入；供 Mod 在 apply_settings 失败时
     /// 记录精确落盘目标，不再探测文件系统）。
     pub config_path: String,
-}
-
-/// 把 `ActionRequest.action`（`&'static str`，如 `"nod"`）映射为 `ActionId`。
-/// 区分大小写严格匹配 `ActionId::name()` 输出；未知动作返回 `None`。
-pub fn parse_action_id(action: &str) -> Option<ActionId> {
-    ActionId::ALL.iter().find(|a| a.name() == action).copied()
 }
 
 /// worker 线程可安全访问的 per-Mod runtime 快照（ModRuntime: Send）.
@@ -216,14 +210,20 @@ impl ModRegistry {
     #[rustfmt::skip]
     fn make_services(&self, mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
         let host = self.host.clone();
-        let trigger_action = host.as_ref().map(|h| h.trigger_action.clone());
         let apply_settings = host.as_ref().map(|h| h.apply_settings.clone());
         let config_path = host.as_ref().map(|h| h.config_path.clone()).unwrap_or_default();
         ModServices::new(
-            // ActionRequest → host.trigger_action（固定映射进 core 仲裁）
-            ModActionSender::new(move |req| match &trigger_action {
-                Some(f) => f(req),
-                None => { tracing::debug!(target:"mod", "no host channel: action {} dropped", req.action); false }
+            // 动作：**休眠** sender（rc.2）。`ModServices.action_tx` 是 Mod API 契约，
+            // 但 host 不再有驱动方——请求只留痕、被丢弃，返回 false（= 未被接受）。
+            // 不要在这里接真通道：那会重建一条通往 `RootEvent::Action` 的路。
+            ModActionSender::new(|req| {
+                tracing::debug!(
+                    target: "mod",
+                    action = req.action,
+                    mod_id = req.mod_id,
+                    "动作子系统休眠中（rc.2 起无驱动方）：ActionRequest 被丢弃"
+                );
+                false
             }),
             // SaySender 保持现有 say(t)
             SaySender::new(move |t| say(t)),
@@ -429,6 +429,9 @@ impl ModRegistrar for HostRegistrar<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // 休眠断言要构造一个 ActionRequest——它仍是 Mod API 契约（`ModServices.action_tx`
+    // 的类型），只是 host 不再有驱动方。
+    use live2d_ai_mod_system::services::ActionRequest;
 
     #[rustfmt::skip]
     struct TestMod;
@@ -671,43 +674,37 @@ mod tests {
 
     // ------------------------------------------------------- HostChannels tests
 
-    /// HostChannels action 回路测试：启用 TestActionMod，获取其 services.action_tx，
-    /// 提交 ActionRequest("nod")，断言 host.trigger_action 记录到 Vec 含 "nod".
+    /// **休眠回归（rc.2）**：Mod 提交 `ActionRequest` 不会到达任何地方。
+    ///
+    /// 这条守的是「动作在产品路径上不存在」：host 注入的是固定的休眠 sender，
+    /// 请求返回 `false`（未被接受）。若有人把 `HostChannels` 的动作回路接回来，
+    /// 这里会变成 `true`（或有东西被记录），立刻红。
     #[rustfmt::skip]
     #[test]
-    fn action_request_reaches_host_channel() {
+    fn action_request_is_dormant_not_delivered() {
         CAPTURED_SERVICES.with(|c| c.borrow_mut().take()); // 清上一轮残留。
-        let recorded: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let recorded_c = recorded.clone();
         let mut reg = ModRegistry::new(
                 ACTION_FACTORIES,
                 &serde_json::json!({"mods":{"action_test":{"enabled":true}}}),
             )
             .with_host_channels(HostChannels {
-                trigger_action: Arc::new(move |req| {
-                    recorded.lock().unwrap().push(req.action.to_string());
-                    true
-                }),
                 say: Arc::new(|_| true),
                 apply_settings: Arc::new(|_| true),
                 config_path: String::new(),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
-        // action_tx 从 TestActionRuntime 捕获到全局。
         let req = ActionRequest {
             mod_id: "action_test",
             action: "nod",
             strength: 2,
         };
-        let sent = CAPTURED_SERVICES.with(|c| {
+        let accepted = CAPTURED_SERVICES.with(|c| {
             c.borrow()
                 .as_ref()
                 .map(|s| s.action_tx.request(req.clone()))
-                .unwrap_or(false)
+                .unwrap_or(true)
         });
-        assert!(sent, "ActionRequest 应被 host channel 接受");
-        let got = recorded_c.lock().unwrap().clone();
-        assert!(got.iter().any(|a| a == "nod"), "记录应含动作名 'nod'，got {got:?}");
+        assert!(!accepted, "动作通道应休眠：ActionRequest 不得被接受");
     }
 
     /// HostChannels say 回路测试：提交文本，断言 host.say 记录到 Vec。
@@ -722,7 +719,6 @@ mod tests {
                 &serde_json::json!({"mods":{"action_test":{"enabled":true}}}),
             )
             .with_host_channels(HostChannels {
-                trigger_action: Arc::new(|_| true),
                 say: Arc::new(move |t| {
                     recorded.lock().unwrap().push(t);
                     true

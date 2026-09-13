@@ -77,8 +77,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use live2d_ai_core::{
-    ActionCommand, Effect as RootEffect, Event as RootEvent, ModelCapabilities, SemanticAction,
-    State as RootState,
+    Effect as RootEffect, Event as RootEvent, ModelCapabilities, SemanticAction, State as RootState,
 };
 
 /// root 事件的唯一入口（core 的自由函数 `apply` 的薄包装；保证调用点风格统一）。
@@ -149,20 +148,11 @@ pub struct SupervisorConfig {
     pub mod_events: Option<ModEventSink>,
 }
 
-/// supervisor 对外句柄：三条命令入口 + 关机回收。
+/// supervisor 对外句柄：两条命令入口 + 动作完成事实 + 关机回收。
 pub struct SupervisorHandle {
     say_tx: mpsc::Sender<String>,
     control_tx: mpsc::UnboundedSender<ControlCommand>,
     finish_tx: mpsc::UnboundedSender<ActionFinishedFact>,
-    /// **Mod 边界 / 外部触发**：进 core 仲裁的用户动作通道。
-    /// 容量无界（控制命令类不阻塞；与 `control_tx` 同等待遇——D14）。
-    /// 经此通道进入的 action 走 core `RootEvent::Action` 路径，
-    /// capability gate / 优先级仲裁 / 幂等仍由 core 决定——**禁止**
-    /// handler 直接调 `core::apply` 或写 `ActionState::current`。
-    ///
-    /// 2026-09-11：原 `D4 命令注册协议` 的 web 命令面板入口已随
-    /// `/api/v1/commands` 端点删除；本通道现仅由 Mod host channels 使用。
-    action_tx: mpsc::UnboundedSender<SemanticAction>,
     join: Option<std::thread::JoinHandle<()>>,
     /// 「reload 待处理」标志：handle.reload() 置位，supervisor 在 idle
     /// select / turn 收口兜底时消费。**绕过 turn.rs 的 channel recv**——
@@ -233,26 +223,6 @@ impl SupervisorHandle {
         if let Some(h) = self.join.take() {
             let _ = h.join();
         }
-    }
-
-    /// **D4（命令注册协议）**：外部（Mod host channels 等）触发的用户动作。
-    ///
-    /// 走独立 `action_tx` 通道（unbounded）→ supervisor 空闲态 `select!`
-    /// 收到后 → `root_apply(RootEvent::Action { ..., command: Play })`
-    /// → 经 core 仲裁（capability gate / 优先级 / 幂等）→ `forward_effects`。
-    /// **禁止**任何 handler 直接调 `core::apply`（§7.3 grep 审计）。
-    ///
-    /// 非阻塞、幂等；动作重复或 capability 缺失时由 core 端发 `Dropped`
-    /// 效果并通过 `AppEvent::RootAudit` 下发。
-    ///
-    /// 2026-09-11 用户裁决：LLM 工具与 `/api/v1/commands` 端点已删除，
-    /// `AppEvent::Render` 动作投影也随之移除——本通道仍可把动作送进 core
-    /// reducer（Mod 边界用量），但桌面侧不再有任何表演副作用。
-    ///
-    /// 返回 `true` = 已入队；`false` = supervisor 已关（unbounded 通道
-    /// 实际不会满，仅在所有 receiver 都 drop 时返回 `false`）。
-    pub fn trigger_action(&self, action: SemanticAction) -> bool {
-        self.action_tx.send(action).is_ok()
     }
 
     /// 测试专用：访问 `reload_pending` 原子标志的只读视图。
@@ -397,8 +367,6 @@ fn spawn_supervisor_impl(
     let (say_tx, say_rx) = mpsc::channel(1);
     let (control_tx, control_rx) = mpsc::unbounded_channel();
     let (finish_tx, finish_rx) = mpsc::unbounded_channel();
-    // **D4**：web 端命令面板动作通道（unbounded；与 control_tx 同类）。
-    let (action_tx, action_rx) = mpsc::unbounded_channel::<SemanticAction>();
     let reload_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // P1WS-1：当前 epoch 镜像（外部 HTTP/Status 端读这里）；启动时 = 0
     // （与 `RootState::default().epoch.get()` 一致）。
@@ -436,7 +404,6 @@ fn spawn_supervisor_impl(
                 say_rx,
                 control_rx,
                 finish_rx,
-                action_rx,
                 reload_pending_for_thread,
                 current_epoch_for_thread,
                 emit,
@@ -449,7 +416,6 @@ fn spawn_supervisor_impl(
         say_tx,
         control_tx,
         finish_tx,
-        action_tx,
         join: Some(join),
         reload_pending,
         current_epoch,
@@ -481,16 +447,12 @@ fn project_conversation_to_mod(ev: &AppEvent) -> Option<(ModEventTopic, String)>
     }
 }
 
-// **D4**：新增 `action_rx` 第 4 个 receiver 通道，函数参数从 7 增至 8
-// 超过 clippy 默认阈值；显式 `allow` 维持与既有一致风格（参数按
-// 所有权通道顺序排列，非可拆分组）。
 #[allow(clippy::too_many_arguments)]
 async fn run_forever(
     config: SupervisorConfig,
     mut say_rx: mpsc::Receiver<String>,
     mut control_rx: mpsc::UnboundedReceiver<ControlCommand>,
     mut finish_rx: mpsc::UnboundedReceiver<ActionFinishedFact>,
-    mut action_rx: mpsc::UnboundedReceiver<SemanticAction>,
     reload_pending: Arc<std::sync::atomic::AtomicBool>,
     current_epoch: Arc<std::sync::atomic::AtomicU64>,
     emit: Emit,
@@ -534,7 +496,9 @@ async fn run_forever(
             fact = finish_rx.recv() => {
                 if let Some(fact) = fact {
                     // **Mod 事件桥（d2）**：动作自然完成 → `ActionFinished`。
-                    // payload = 动作协议名（`ActionId::name()`），director 可据此推进编序。
+                    // payload = 动作协议名（`ActionId::name()`）。
+                    // 2026-09-12：树内已无消费者（director Mod 已删除）——话题保留，
+                    // 因为它是 Mod API 的一部分；**不代表**有任何东西在驱动动作。
                     if let Some(f) = &mod_events {
                         f(ModEventTopic::ActionFinished, fact.action.action.name());
                     }
@@ -547,34 +511,18 @@ async fn run_forever(
                     handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
                 }
             }
-            // **Mod 边界 / 外部触发**：经 `action_tx` 到达的用户动作。
-            // 走 core 仲裁路径：
-            //   RootEvent::Action → core 闸门（capability gate / 优先级 / 幂等）
-            //   → forward_effects。handler **不**直接调 core::apply（§7.3）。
-            //
-            // 2026-09-11：原 D4 web 命令面板与本条注释里的
-            // `AppEvent::Render` 投影均已随动作系统删除；core reducer 仍在，
-            // 但桌面侧不再有表演副作用。
-            action = action_rx.recv() => {
-                if let Some(action) = action {
-                    let cur = root.epoch;
-                    let effects = root_apply(
-                        &mut root,
-                        RootEvent::Action {
-                            epoch: cur,
-                            command: ActionCommand::Play { action },
-                        },
-                    );
-                    handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
-                }
-            }
+            // 2026-09-12（rc.2）：原「Mod 边界 / 外部触发」的 `action_rx` 分支已删除。
+            // 那条路径是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现，
+            // 而动作在产品路径上不存在（`docs/architecture/core-chain-baseline.md` §3.3）。
+            // core 的 action/performance 子系统仍保留但**无驱动方**——待机生命体征
+            // （`IdleState` 呼吸/眨眼）与动作是两套机制，不受此影响。
             text = say_rx.recv() => match text {
                 Some(text) => {
                     next_turn_id += 1;
                     let cur_epoch = root.epoch;
                     let epoch = cur_epoch.get();
                     // **Mod 事件桥（d2）**：新 turn 提交 → `TurnStarted`。
-                    // payload = 当前 turn id；director 据此按 config.sequence 自动编序。
+                    // payload = 当前 turn id（话题保留给 Mod；树内无消费者）。
                     if let Some(f) = &mod_events {
                         f(ModEventTopic::TurnStarted, &next_turn_id.to_string());
                     }

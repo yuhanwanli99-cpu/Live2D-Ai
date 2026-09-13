@@ -17,25 +17,22 @@ use live2d_ai_runtime::settings::view::SettingsView;
 /// `GET /api/v1/app/capabilities` 响应。
 ///
 /// 能力快照——前端用它决定按钮/页签是否显示，**不**依赖写盘/网络。
-/// `schema_version` 是契约版本（加字段 = 递增；§6 字段表 = 宪法）。
+/// `schema_version` 是契约版本（形状变化 = 递增；§6 字段表 = 宪法）。
+///
+/// **2026-09-12（rc.2）删除 5 个字段**：`actions` / `action_sources` /
+/// `strength_levels` / `model_upload_supported` / `script_invoke_supported`。
+/// 前三个描述的是**已拆除**的动作系统（`/api/v1/commands*` 端点也已删除，探到即 501）；
+/// 后两个是**假广告**——multipart ZIP 上传在 `models_routes/mod.rs` 里明标
+/// D3.2 后置、本批不实现，脚本调用端点同样不存在。**能力快照不得报未实现的能力**：
+/// 前端拿它决定显隐，报 `true` 就是让用户点到一个必然失败的按钮。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AppInfo {
     /// 应用名（稳定字符串）。
     pub app: &'static str,
     /// 语义化版本（`env!("CARGO_PKG_VERSION")`，编译期固化）。
     pub version: &'static str,
-    /// DTO schema 版本（v1 = 1；新增字段递增，便于前端 gating）。
+    /// DTO schema 版本（v1 = 1；v2 = 删除动作/上传/脚本字段）。
     pub schema_version: u32,
-    /// 可用动作列表（snake_case；与 [`live2d_ai_core::ActionId::name`] 对齐）。
-    pub actions: Vec<&'static str>,
-    /// 动作来源（snake_case；与 [`live2d_ai_core::ActionSource`] 对齐）。
-    pub action_sources: Vec<&'static str>,
-    /// 强度档位（恒为 `[1, 2, 3]`）。
-    pub strength_levels: [u8; 3],
-    /// 是否支持模型上传（v1 = `true`；D3 实现）。
-    pub model_upload_supported: bool,
-    /// 是否支持脚本调用（v1 = `true`；D4 实现）。
-    pub script_invoke_supported: bool,
     /// 运行时 WebSocket 端点路径。
     pub runtime_ws: &'static str,
     /// 状态 WebSocket 端点路径。
@@ -263,21 +260,7 @@ pub fn capabilities_info() -> AppInfo {
     AppInfo {
         app: "live2d-ai-desktop",
         version: env!("CARGO_PKG_VERSION"),
-        schema_version: 1,
-        // 与 live2d_ai_core::ActionId::ALL 顺序一致（nod/shake_no/tilt/look_around/listen/surprise）。
-        actions: vec![
-            "nod",
-            "shake_no",
-            "tilt",
-            "look_around",
-            "listen",
-            "surprise",
-        ],
-        // 与 live2d_ai_core::ActionSource 三个变体对应（user_command/llm_tool/rule_fallback）。
-        action_sources: vec!["user_command", "llm_tool", "rule_fallback"],
-        strength_levels: [1, 2, 3],
-        model_upload_supported: true,
-        script_invoke_supported: true,
+        schema_version: 2,
         runtime_ws: "/ws/runtime",
         state_ws: "/ws/state",
         ws_protocol_version: 1,
@@ -319,6 +302,10 @@ mod tests {
         }
     }
 
+    /// 能力快照的**稳定字段** + 「不得再广告已拆除能力」的回归。
+    ///
+    /// 2026-09-12（rc.2）：动作 / 上传 / 脚本五个字段已删除。这条测试的**核心**
+    /// 是断言它们**不回来**——能力快照报 `true` 等于让用户点一个必然失败的按钮。
     #[test]
     fn app_info_carries_version_and_stable_fields() {
         let info = capabilities_info();
@@ -327,19 +314,24 @@ mod tests {
         // version 来自编译期 CARGO_PKG_VERSION，非空字符串即可。
         assert!(json["version"].is_string());
         assert!(!json["version"].as_str().unwrap().is_empty());
-        assert_eq!(json["schema_version"], 1);
-        // 6 个动作（与 core ActionId::ALL 一致）。
-        let actions = json["actions"].as_array().unwrap();
-        assert_eq!(actions.len(), 6);
-        assert!(actions.contains(&serde_json::json!("nod")));
-        // 3 个 source。
-        let sources = json["action_sources"].as_array().unwrap();
-        assert_eq!(sources.len(), 3);
-        // 强度档位。
-        assert_eq!(json["strength_levels"], serde_json::json!([1, 2, 3]));
+        // v2 = 删掉动作/上传/脚本字段后的形状。
+        assert_eq!(json["schema_version"], 2);
         // WS 路径。
         assert_eq!(json["runtime_ws"], "/ws/runtime");
         assert_eq!(json["state_ws"], "/ws/state");
+        // 已拆除能力的字段**不得**出现在快照里。
+        for gone in [
+            "actions",
+            "action_sources",
+            "strength_levels",
+            "model_upload_supported",
+            "script_invoke_supported",
+        ] {
+            assert!(
+                json.get(gone).is_none(),
+                "capabilities 不得再广告已拆除能力：{gone} 仍在响应里"
+            );
+        }
     }
 
     #[test]

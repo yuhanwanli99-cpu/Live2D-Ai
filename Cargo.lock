@@ -2302,7 +2302,6 @@ dependencies = [
  "ksni",
  "l2d",
  "live2d-ai-core",
- "live2d-ai-mod-director",
  "live2d-ai-mod-external-input",
  "live2d-ai-mod-local-llm",
  "live2d-ai-mod-pet-desktop",
@@ -2327,15 +2326,6 @@ dependencies = [
  "url",
  "wgpu",
  "winit",
-]
-
-[[package]]
-name = "live2d-ai-mod-director"
-version = "0.1.0-rc.1"
-dependencies = [
- "live2d-ai-mod-system",
- "log",
- "serde_json",
 ]
 
 [[package]]
