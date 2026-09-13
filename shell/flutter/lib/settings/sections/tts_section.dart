@@ -16,10 +16,12 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../api/env_api.dart';
 import '../../api/settings_models.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
 import '../settings_controller.dart';
+import 'env_key_field.dart';
 import 'pane_helpers.dart';
 
 class TtsSection extends StatelessWidget {
@@ -28,6 +30,9 @@ class TtsSection extends StatelessWidget {
     required this.view,
     required this.devMode,
     this.serverMuted = false,
+    this.envKey,
+    this.envFile,
+    this.onSaveKey,
     this.onTest,
     this.testResult,
     this.testing = false,
@@ -37,6 +42,13 @@ class TtsSection extends StatelessWidget {
   final SettingsController controller;
   final SettingsView view;
   final bool devMode;
+
+  /// 本段声明的密钥键状态（`GET /api/v1/env`；`null` = 没绑定变量名）。
+  final EnvKey? envKey;
+  final String? envFile;
+
+  /// 保存密钥（`PUT /api/v1/env`）。见 `llm_section.dart` 头注的密钥说明。
+  final Future<void> Function(String key, String value)? onSaveKey;
 
   /// 服务端静音观测值（WS `audio.muted`，**只读**）。
   final bool serverMuted;
@@ -92,10 +104,18 @@ class TtsSection extends StatelessWidget {
           description: '当前值；改它后果严重（改错 = 全是噪声），所以只在开发者模式里可改',
         ),
         ReadonlyField(
-          label: '密钥状态',
-          icon: Icons.key_outlined,
-          text: tts.hasApiKey ? '已配置' : '未配置',
+          label: '密钥绑定',
+          icon: Icons.link,
+          // 同 LLM：这里说的是「变量名有没有声明」，值在下面那一行填。
+          text: tts.hasApiKey ? '已声明密钥的环境变量名' : '未绑定密钥（本地 TTS 通常不需要）',
         ),
+        if (envKey != null)
+          EnvKeyField(
+            sectionLabel: '语音合成',
+            status: envKey,
+            onSave: onSaveKey,
+            debugHint: envFile,
+          ),
         // **只读徽标**：服务端静音不是开关。
         ReadonlyField(
           label: '服务端静音',

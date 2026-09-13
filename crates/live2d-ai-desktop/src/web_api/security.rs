@@ -302,6 +302,7 @@ pub fn extract_origin_and_ct(headers: &[tiny_http::Header]) -> (Option<String>, 
 ///   - `Models` + GET（list/get）= 只读；
 ///     `Models` + POST（import / activate）/ PATCH（display）/
 ///     DELETE（delete）= mutating。
+/// - **按 method 区分**：`Env` + GET = 只读；`Env` + PUT = mutating。
 /// - **恒只读**：`AppCapabilities` / `AppStatus` / `SettingsGet` /
 ///   `LogsGet` / `LogsLevels` / `NotImplemented` /
 ///   `NotFound`。
@@ -314,6 +315,8 @@ pub fn is_mutating_route(route: crate::web_api::RouteId, method: &tiny_http::Met
         // Models 路由按 method 区分：GET list/get 只读；POST import /
         // POST activate / PATCH display / DELETE delete 全部 mutating。
         RouteId::Models => matches!(*method, Method::Post | Method::Patch | Method::Delete),
+        // `/api/v1/env`：GET 只读；PUT 写密钥文件（rc.2）。
+        RouteId::Env => *method == Method::Put,
         // 其余 mutating 端点（method 由 dispatch 入口先做校验）。
         RouteId::SettingsPatch
         | RouteId::SettingsTestLlm

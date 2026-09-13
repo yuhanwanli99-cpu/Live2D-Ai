@@ -279,7 +279,7 @@ fn rebuild_engine_from_config(
         AppSettings::load_from_path(config_path).map_err(|e| format!("读取/解析配置失败: {e}"))?;
     // 2) 解析环境变量（用生产 lookup，与 chat 装配同语义）。
     let resolved = settings
-        .resolve_with(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        .resolve_with(live2d_ai_runtime::secrets::lookup)
         .map_err(|e| format!("配置解析失败（URL/环境变量名）: {e}"))?;
     // 3) 构造新 client。
     let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())

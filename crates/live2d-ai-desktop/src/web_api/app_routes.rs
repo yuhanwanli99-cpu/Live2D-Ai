@@ -179,7 +179,9 @@ pub fn handle_capabilities() -> Response<std::io::Cursor<Vec<u8>>> {
 
 /// `GET /api/v1/app/status` 处理器。
 ///
-/// `env_lookup` 决定 `has_api_key`；通常传 `|n| std::env::var(n).ok()`。
+/// `has_api_key` 的来源是**密钥真源**（`.env` 快照 > 进程环境，见
+/// `live2d_ai_runtime::secrets`）：用 `std::env::var` 直接读会让「界面上刚写了
+/// key、状态栏还说未配置」。
 /// `active_model_id` 由调用方从**真实 registry** 读出（见
 /// [`crate::web_api::models_routes::active_model_id`]）——这里不再有写死的 id。
 pub fn handle_status(
@@ -187,8 +189,12 @@ pub fn handle_status(
     active_model_id: String,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let settings = ctx.settings_snapshot();
-    let env_lookup = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-    let status = build_status(ctx, &settings, &env_lookup, active_model_id);
+    let status = build_status(
+        ctx,
+        &settings,
+        &live2d_ai_runtime::secrets::lookup,
+        active_model_id,
+    );
     json_response(StatusCode(200), &status)
 }
 

@@ -1,21 +1,26 @@
 /// 「LLM」分区（规格 §4.1.3）。
 ///
-/// # 密钥红线的严格落地
+/// # 密钥（rc.2 2026-09-12 改了这里的说法）
 ///
-/// 视图侧**永远不返回变量名**，只回 `has_api_key`；密文本体不在
-/// `AppSettings` 里，只在进程环境变量里。所以这里**根本没有「输入 API key
-/// 明文」这条路**——只能填「存放密钥的变量名」。
+/// - **变量名**（`api_key_env`）属于 **dev** 层，改它容易把自己弄成未配置；
+/// - **变量值**现在有地方填了：[`EnvKeyField`] 经 `PUT /api/v1/env` 写进 `.env`，
+///   写完热重载、立即生效。以前只能在启动脚本/进程环境里设，界面上改不了——
+///   于是「保存了还是 401」且无处可改。
 ///
-/// `api_key_env` 属于 **dev** 层（普通用户改它容易把自己弄成未配置），
-/// 但 `has_api_key` 徽标在普通层——用户需要知道「有没有配好」。
+/// 红线没变：值**只往上走**，`GET /api/v1/env` 只回键名与「是否已设置」。
+/// 所以 [LlmSettingsView.hasApiKey]（来自 `GET /settings`）表达的仍然是
+/// **「配置里声明了键名」**，不是「值已经拿到」——两者文案必须分开说，
+/// 否则用户看到「已配置」却还在 401。
 library;
 
 import 'package:flutter/material.dart';
 
+import '../../api/env_api.dart';
 import '../../api/settings_models.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
 import '../settings_controller.dart';
+import 'env_key_field.dart';
 import 'pane_helpers.dart';
 
 class LlmSection extends StatelessWidget {
@@ -23,6 +28,9 @@ class LlmSection extends StatelessWidget {
     required this.controller,
     required this.view,
     required this.devMode,
+    this.envKey,
+    this.envFile,
+    this.onSaveKey,
     this.onTest,
     this.testResult,
     this.testing = false,
@@ -32,6 +40,15 @@ class LlmSection extends StatelessWidget {
   final SettingsController controller;
   final SettingsView view;
   final bool devMode;
+
+  /// 本段声明的密钥键状态（`GET /api/v1/env`；`null` = 没绑定变量名）。
+  final EnvKey? envKey;
+
+  /// `.env` 路径（只在提示里出现，用于排障）。
+  final String? envFile;
+
+  /// 保存密钥（`PUT /api/v1/env`）；`null` = 不可写（未加载/无键名）。
+  final Future<void> Function(String key, String value)? onSaveKey;
 
   /// 连通性自检（`POST /api/v1/settings/test/llm`）。
   final Future<void> Function()? onTest;
@@ -87,11 +104,21 @@ class LlmSection extends StatelessWidget {
           }),
         ),
         ReadonlyField(
-          label: '密钥状态',
-          icon: Icons.key_outlined,
-          text: llm.hasApiKey ? '已配置（服务端能从环境变量读到）' : '未配置',
-          description: '密钥本身永不下发，界面只能看到「配没配好」',
+          label: '密钥绑定',
+          icon: Icons.link,
+          // 这里说的是**变量名有没有声明**（`GET /settings` 只知道这个）。
+          // 值有没有拿到看下面那一行的「已设置/未设置」——两句分开说，
+          // 否则「已配置」会与 401 同时出现。
+          text: llm.hasApiKey ? '已声明密钥的环境变量名' : '未绑定密钥（无鉴权）',
+          description: '密钥本体永不下发；值请在下面填写（写进 .env）',
         ),
+        if (envKey != null)
+          EnvKeyField(
+            sectionLabel: '对话模型',
+            status: envKey,
+            onSave: onSaveKey,
+            debugHint: envFile,
+          ),
         if (devMode) ...<Widget>[
           const Divider(),
           const SectionHeader(

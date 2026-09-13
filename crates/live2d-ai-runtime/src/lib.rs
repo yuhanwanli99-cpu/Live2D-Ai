@@ -76,6 +76,9 @@ pub mod dialogue;
 pub mod error;
 pub mod llm;
 pub mod secret;
+/// `.env` = 唯一密钥真源（rc.2 2026-09-12）：快照读取 + 就地写回 + 热重载。
+/// 生产代码读密钥**只能**走 [`secrets::lookup`]，不要直接 `std::env::var`。
+pub mod secrets;
 pub mod settings;
 pub mod sse;
 pub mod tts;
