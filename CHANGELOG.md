@@ -1,3 +1,52 @@
+# v0.1.0-rc.4 — Mod 产品链路 + 角色卡标准 Mod + 主链人设收敛（2026-09-13）
+
+> 同一 RC 线的**第四个基线**。完整发布说明见
+> [`docs/releases/v0.1.0-rc.4.md`](docs/releases/v0.1.0-rc.4.md)；
+> 范围真源见 [`PLAN-rc4-mod-product-chain-2026-09-13.md`](docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
+> 口径：主链慎加收敛、Mod 可加、正式 Mod=Rust/C 为主、禁止唤醒 Action。
+
+## 新增（Mod 产品链路）
+
+- **契约文档** `docs/architecture/mod-product-chain.md`：静态编译模型、契约面、
+  加新 Mod 勾选表、正式版 Rust/C 规则、失败隔离、非目标；旧 `plugin-sdk.md` 降为历史。
+- **`mods.json` 持久化（M1）**：`enable` / `disable` / `config` **原子写回**
+  （`plan_atomic_write`）；回归「写 → 重建 registry → 状态仍在」。
+- **模板 + 版本门禁（M3）**：`crates/live2d-ai-mod-template`（不注册）；
+  `descriptor.api_version` 不兼容 → `Failed` 且 **factory.create 不被调用**。
+- **`apply_settings` 一等化（M4）**：`ModServices.apply_settings` + 脱敏 `settings` +
+  `config_path`；**删除** `__apply_settings` 事件走私。
+- **`settings_spec` 发现闭环（M2）**：`ModFactory::settings_spec`（静态，未启用也拿得到）；
+  `GET /api/v1/mods` 带 `config` + `settings_spec`（`secret` 脱敏）+ `GET …/config`；
+  Flutter `ModsSection` 按 kind 渲 Bool/String/Number/Select + 保存（secret 留空不提交）。
+- **角色卡标准 Mod（M5）**：`live2d-ai-mod-persona`（SillyTavern V1/V2 JSON + PNG
+  `chara` → 合成 `system_prompt`；禁用按 `persona-mod-base.txt` 基线还原）；
+  Mod 数 3 → 4（`mod_count_is_four`）。
+
+## 变更（主链收敛，**破坏性**）
+
+- `[persona]` **只留** `system_prompt` + `max_history_pairs`；删 5 个酒馆卡字段与
+  `build_effective_system_prompt`；Flutter 删 `persona_card.dart` / `persona_import.dart`
+  与导入 UI（「人设」分区只剩系统提示词）。
+- **升级需手改一次**：老 `live2d-ai.toml` 的卡字段会让启动解析失败
+  （`deny_unknown_fields`，错误会指出键名）。
+
+## 修复（Win 舞台背景图，rc.3 §9.1）
+
+- `Live2DStage` 挂桥 / 重建 iframe 时**补发** `stage-bg`（`sync` 不带该通道）。
+- `saveDisplayPrefs` 返回 `bool`，写失败（无痕 / 配额 / 存储禁用）不再静默。
+- `pickImageDataUrl` 三态：取消 / 成功 / 读失败（不再让读失败冒充取消）。
+- **Win 肉眼验收待做**（选图 → 舞台可见变化 → 清图还原）。
+
+## 门禁
+
+- `cargo test --workspace --all-targets`：**822 通过 / 0 失败**；
+- `cargo test --doc --workspace`：3 通过；`clippy -D warnings`：0 warning；`fmt`：通过；
+- `rust-ratio`：**97.0776% PASS**（门槛 95%）；
+- `flutter analyze` 无问题 + `flutter test` **819 通过**；
+- `./scripts/ignite.sh --check` 四项全 ok；API 端到端验证角色卡写回 / 还原。
+
+---
+
 # v0.1.0-rc.3 — 结构质量：正文兜底 + God Object/大文件止血 + 双壳裁决 + 门禁对齐（2026-09-13）
 
 > 同一 RC 线的**第三个基线**。完整发布说明见

@@ -22,6 +22,8 @@ import 'package:live2d_ai_shell/ui/theme.dart';
 ///    当死代码裁掉，`Ctrl+/` 什么都不会发生；
 /// 3. `PersonaSection.onImport` **声明了却从没被调用** —— 角色卡导入
 ///    （P4 的差异化功能）在界面上没有按钮。
+///    （2026-09-13 M5.1：角色卡导入整条迁到标准 Mod，这条守卫与函数一起删除；
+///    历史上它抓到的正是「控件声明了却没画」这类静默失效。）
 ///
 /// 三者都**编译通过、测试全绿**——因为没有测试问「它被用上了吗」。
 /// 这个文件就是那个问题。
@@ -64,16 +66,6 @@ void main() {
       );
     });
 
-    test('`applyPersonaImport` 被用上（否则角色卡导入点了没反应）', () {
-      expect(
-        referencedOutside(
-          'applyPersonaImport(',
-          'lib/settings/sections/persona_section.dart',
-        ),
-        isTrue,
-      );
-    });
-
     test('`LiveRegionThrottle` 被用上（否则流式播报根本不会挂）', () {
       expect(
         referencedOutside('LiveRegionThrottle(', 'lib/state/live_region.dart'),
@@ -93,7 +85,7 @@ void main() {
     });
   });
 
-  group('PersonaSection 的导入入口**真的画出来了**', () {
+  group('PersonaSection：主链只剩系统提示词（M5.1）', () {
     Widget wrap(Widget child) => MaterialApp(
       theme: buildAppTheme(),
       home: Scaffold(body: SingleChildScrollView(child: child)),
@@ -102,30 +94,27 @@ void main() {
     /// 最小可渲染的设置控制器（只要 `loaded` 为真、`draft` 可用即可）。
     SettingsView emptyView() => SettingsView.fromJson(const <String, Object?>{});
 
-    testWidgets('有「选择角色卡文件」按钮，且点击会触发 onImport', (
-      WidgetTester tester,
-    ) async {
-      int taps = 0;
+    testWidgets('只画系统提示词；卡字段与导入按钮都不在了', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           PersonaSection(
             controller: _StubController(),
             view: emptyView(),
             devMode: false,
-            onImport: (_) => taps++,
           ),
         ),
       );
-      final Finder button = find.textContaining('选择角色卡文件');
-      expect(button, findsOneWidget, reason: '没有按钮 = 用户点不到导入功能');
-      // 角色卡分区很长，按钮在 800x600 的测试视口里在折叠线以下 → 先滚进来。
-      await tester.ensureVisible(button);
-      await tester.pump();
-      await tester.tap(button);
-      expect(taps, 1);
+      expect(find.text('系统提示词（system_prompt）'), findsOneWidget);
+      // 酒馆卡字段与导入 UI 已迁到标准 Mod，主链分区里不该再有它们。
+      for (final String gone in <String>['名称', '描述', '性格', '场景', '开场白']) {
+        expect(find.text(gone), findsNothing, reason: '$gone 不该还在主链人设分区');
+      }
+      expect(find.textContaining('选择角色卡文件'), findsNothing);
     });
 
-    testWidgets('没有 onImport 时按钮禁用（而不是点了没反应）', (WidgetTester tester) async {
+    testWidgets('历史轮数只在 devMode 出现（会话基建，不是主可见项）', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         wrap(
           PersonaSection(
@@ -135,13 +124,18 @@ void main() {
           ),
         ),
       );
-      final Finder button = find.textContaining('选择角色卡文件');
-      await tester.ensureVisible(button);
-      await tester.pump();
-      final OutlinedButton btn = tester.widget<OutlinedButton>(
-        find.ancestor(of: button, matching: find.byType(OutlinedButton)),
+      expect(find.text('历史轮数上限'), findsNothing);
+
+      await tester.pumpWidget(
+        wrap(
+          PersonaSection(
+            controller: _StubController(),
+            view: emptyView(),
+            devMode: true,
+          ),
+        ),
       );
-      expect(btn.onPressed, isNull);
+      expect(find.text('历史轮数上限'), findsOneWidget);
     });
   });
 }

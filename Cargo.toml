@@ -33,8 +33,12 @@ members = [
 # 2026-09-12（rc.2「第二基线」）：动作层删到底（director Mod + Action 注入 + 渲染面编舞）、
 # 模型库闭环打通（单一模型根 + 激活即换皮）、`.env` 成为唯一密钥真源。范围见
 # `docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §0；发布说明见
-# `docs/releases/v0.1.0-rc.3.md`。
-version = "0.1.0-rc.3"
+# 2026-09-13（rc.4「Mod 产品链路 + 主链人设收敛」）：Mod 成为产品链路
+# （持久化 / settings_spec 表单 / 模板 + api_version 门禁 / 一等 apply_settings）、
+# 角色卡从主链抽成标准 Mod、主链 `[persona]` 只留 system_prompt。
+# 范围见 `docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md`；
+# 发布说明见 `docs/releases/v0.1.0-rc.4.md`。
+version = "0.1.0-rc.4"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

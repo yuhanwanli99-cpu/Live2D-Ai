@@ -18,6 +18,7 @@ class Live2DStage extends StatefulWidget {
     this.scale = 1.0,
     this.dark = true,
     this.stageColor,
+    this.stageImage,
     this.tier,
     this.onError,
     this.onReady,
@@ -34,6 +35,16 @@ class Live2DStage extends StatefulWidget {
   ///
   /// `null` = 不指定，渲染面按 [dark] 用历史默认色（`#101418` / `#e8ecf1`）。
   final String? stageColor;
+
+  /// 自定义舞台背景图（dataURL）。`null` = 只有纯色底。
+  ///
+  /// **为什么舞台自己持这个值**：`stage-bg` 是独立于 `sync` 的通道，
+  /// 而 iframe 是**可重建**的（首帧前入队、错误后 retry、热更新重挂）。
+  /// 只在「偏好变化」时发一次的旧实现，会在「iframe 还没就绪」与「重建」
+  /// 两种情况下把图丢掉——那正是 Win 侧换背景图失败的现场。
+  /// 现在 `_attach` 每次挂桥都重发一次，与 `stageColor` 同一条纪律。
+  final String? stageImage;
+
   final int? tier;
 
   /// 渲染面阶段变化（宿主据此刷新覆盖层与舞台语义）。
@@ -129,6 +140,12 @@ class Live2DStageState extends State<Live2DStage>
   @override
   void didUpdateWidget(Live2DStage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 背景图是独立通道：先处理它，**不能**因为底色没变就被下面的 return 跳过。
+    if (widget.stageImage != oldWidget.stageImage) {
+      unawaited(
+        _bridge?.sendStageBg(widget.stageImage) ?? Future<void>.value(),
+      );
+    }
     if (widget.stageColor == oldWidget.stageColor) return;
     final Color? next = parseStageColorCss(widget.stageColor);
     // 从**当前显示值**续接，而不是从旧终值——连续切两次主题时不会跳回去。
@@ -213,6 +230,8 @@ class Live2DStageState extends State<Live2DStage>
       stageColor: widget.stageColor,
       tier: widget.tier,
     );
+    // 首帧 / 重建 iframe 后**补发背景图**（sync 不带 stage-bg 通道）。
+    unawaited(bridge.sendStageBg(widget.stageImage));
   }
 
   void _handleHostError(String message) {

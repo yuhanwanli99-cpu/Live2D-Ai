@@ -425,53 +425,8 @@ impl PersonaRuntime {
 
 impl ModRuntime for PersonaRuntime {
     fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
-        registrar.register_settings(ModSettingsSpec {
-            mod_id: DESCRIPTOR.id.to_string(),
-            title: DESCRIPTOR.name.to_string(),
-            version: 1,
-            fields: vec![
-                ModSettingField::String {
-                    key: "card_path".to_string(),
-                    label: "角色卡文件路径（.json / 内嵌 chara 的 .png）".to_string(),
-                    secret: false,
-                },
-                ModSettingField::String {
-                    key: "card_json".to_string(),
-                    label: "角色卡 JSON 文本（与路径二选一，优先）".to_string(),
-                    secret: false,
-                },
-                ModSettingField::Bool {
-                    key: "include_discipline".to_string(),
-                    label: "附加对话纪律模板".to_string(),
-                    default: true,
-                },
-                ModSettingField::Bool {
-                    key: "say_first_mes".to_string(),
-                    label: "启用时朗读开场白".to_string(),
-                    default: false,
-                },
-                ModSettingField::String {
-                    key: "name".to_string(),
-                    label: "覆盖：名称".to_string(),
-                    secret: false,
-                },
-                ModSettingField::String {
-                    key: "description".to_string(),
-                    label: "覆盖：描述".to_string(),
-                    secret: false,
-                },
-                ModSettingField::String {
-                    key: "personality".to_string(),
-                    label: "覆盖：性格".to_string(),
-                    secret: false,
-                },
-                ModSettingField::String {
-                    key: "scenario".to_string(),
-                    label: "覆盖：场景".to_string(),
-                    secret: false,
-                },
-            ],
-        })?;
+        // 静态 schema（factory.settings_spec 同源）：未启用也能渲染表单。
+        registrar.register_settings(persona_settings_spec())?;
         self.registered = true;
         self.apply_from_config();
         Ok(())
@@ -507,12 +462,68 @@ impl ModRuntime for PersonaRuntime {
     }
 }
 
+/// 角色卡 Mod 的 settings schema（**静态**；factory 与 runtime.start 共用）。
+fn persona_settings_spec() -> ModSettingsSpec {
+    ModSettingsSpec {
+        mod_id: DESCRIPTOR.id.to_string(),
+        title: DESCRIPTOR.name.to_string(),
+        version: 1,
+        fields: vec![
+            ModSettingField::String {
+                key: "card_path".to_string(),
+                label: "角色卡文件路径（.json / 内嵌 chara 的 .png）".to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "card_json".to_string(),
+                label: "角色卡 JSON 文本（与路径二选一，优先）".to_string(),
+                secret: false,
+            },
+            ModSettingField::Bool {
+                key: "include_discipline".to_string(),
+                label: "附加对话纪律模板".to_string(),
+                default: true,
+            },
+            ModSettingField::Bool {
+                key: "say_first_mes".to_string(),
+                label: "启用时朗读开场白".to_string(),
+                default: false,
+            },
+            ModSettingField::String {
+                key: "name".to_string(),
+                label: "覆盖：名称".to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "description".to_string(),
+                label: "覆盖：描述".to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "personality".to_string(),
+                label: "覆盖：性格".to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "scenario".to_string(),
+                label: "覆盖：场景".to_string(),
+                secret: false,
+            },
+        ],
+    }
+}
+
 /// 静态工厂。
 pub struct PersonaFactory;
 
 impl ModFactory for PersonaFactory {
     fn descriptor(&self) -> &'static ModDescriptor {
         &DESCRIPTOR
+    }
+
+    /// M2：未启用也能拿到 schema（前端先填卡、再启用）。
+    fn settings_spec(&self) -> Option<ModSettingsSpec> {
+        Some(persona_settings_spec())
     }
 
     fn create(

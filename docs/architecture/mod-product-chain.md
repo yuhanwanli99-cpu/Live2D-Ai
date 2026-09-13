@@ -20,9 +20,12 @@ disable / config 是**运行时开关**，不是加载器：
 | --- | --- |
 | `ModFactory` / `ModRuntime` | 静态注册的工厂 + 实例；`start` 注册能力，`shutdown` 收尾 |
 | `ModRegistrar` | `register_settings(spec)` / `subscribe(topic)` / `unsubscribe(id)`；**不暴露**宽泛 reload / register_action_source |
+| `ModFactory::settings_spec()` | **静态** schema（rc.4 M2）：未启用也能拿到，前端可「先填配置、再启用」；缺省 `None` = 沿用运行时 `register_settings` |
 | `ModSettingsSpec` | 纯数据 schema（Bool/String/Number/Select），前端统一渲染；**禁止** Mod 注入 HTML/JS |
 | `ModServices.say_tx` | 外部文本 → `supervisor.say`（主链路） |
-| `ModServices.apply_settings` | **一等**配置写回（rc.4）：namespaced JSON patch → 写盘 + `supervisor.reload()` |
+| `ModServices.apply_settings` | **一等**配置写回（rc.4 M4）：namespaced JSON patch → 写盘 + `supervisor.reload()`；未注入 host 时**默认拒绝** |
+| `ModServices.settings` | **脱敏设置读取**（rc.4 M5）：`read()` 返回当前设置快照（无密钥、无 `api_key_env` 变量名），供 Mod 记忆基线并还原 |
+| `ModServices.config_path` | 真实 `live2d-ai.toml` 路径（host 注入，Mod 不自行探测） |
 | `ModServices.logger` | 带 `mod_id` 的 tracing 日志 |
 | `ModServices.action_tx` | **休眠**（rc.2 起）：host 注入固定 sender，请求只留一行 debug 并返回 `false`；**禁止**私自唤醒 |
 | `MOD_API_VERSION` | 当前 `1`；Mod 的 `descriptor.api_version` 不对齐 → 启动即 `Failed`，主链不崩 |
@@ -49,6 +52,9 @@ disable / config 是**运行时开关**，不是加载器：
 - **写回（rc.4 M1）**：`enable` / `disable` / `config` 都**原子写**该文件（tmp + rename），
   重启状态不丢；磁盘不可写时保留内存状态并记 `error` 日志。
 - `config` 只属于 **Mod 自己**（namespaced），**不回流**主 `live2d-ai.toml` 的 `[persona]` 等段。
+- **对外读法（rc.4 M2）**：`GET /api/v1/mods` 每个条目带 `config` 与 `settings_spec`
+  （schema，无则为 `null`）；`settings_spec.fields[].kind` ∈ `bool/string/number/select`。
+  `secret=true` 的字段值**永不出现在 GET**；另有 `GET /api/v1/mods/{id}/config` 单读。
 
 ## 5. 现行 Mod
 
@@ -60,6 +66,15 @@ disable / config 是**运行时开关**，不是加载器：
 | `persona` | off | Rust | 酒馆角色卡（rc.4 M5）：导入 V2 JSON/PNG → 合成 `system_prompt` |
 
 `live2d-ai-mod-template` 是**模板 crate**，不注册进 `AVAILABLE_MOD_FACTORIES`。
+
+### 5.1 从 rc.3 升级：`[persona]` 迁移（**必须手改一次**）
+
+`PersonaSettings` 带 `deny_unknown_fields`。rc.4 删掉卡字段后，旧的
+`live2d-ai.toml` 里若还有 `name` / `description` / `personality` /
+`scenario` / `first`，启动会**解析失败**（错误会指出具体键名）。处理：
+删掉这几行（人设改由 `persona` Mod 的 `card_path` / `card_json` 提供），
+或直接用新的 `live2d-ai.toml.example`。`[persona]` 只保留
+`system_prompt` 与 `max_history_pairs`。
 
 ## 6. 正式版规则（Rust/C 为主）
 

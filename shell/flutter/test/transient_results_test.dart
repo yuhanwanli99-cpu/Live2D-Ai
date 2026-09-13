@@ -2,9 +2,10 @@
 ///
 /// # 被修掉的是什么
 ///
-/// 五个「一次性结果」挂在 `MainApp` 的 State 上：
-/// `_llmTest` / `_ttsTest` / `_adminMessage` / `_importMessage` /
-/// `_stageImageMessage`。它们过去只在**下一次同类操作**时才被覆盖，
+/// 四个「一次性结果」挂在 `MainApp` 的 State 上：
+/// `_llmTest` / `_ttsTest` / `_adminMessage` / `_stageImageMessage`
+/// （2026-09-13 M5.1：`_importMessage` 随角色卡导入迁出主链而删除）。
+/// 它们过去只在**下一次同类操作**时才被覆盖，
 /// 切分区不重置。于是：用户测出「失败：401」→ 修好配置 → 切走 → 切回来，
 /// **那句失效的结论还在**，而它描述的已经是上一套配置了。
 ///
@@ -111,8 +112,8 @@ void main() {
     });
   });
 
-  group('P2-2：五个一次性结果全在清理范围内', () {
-    test('清的就是这五个（不是只清了一两个）', () {
+  group('P2-2：四个一次性结果全在清理范围内', () {
+    test('清的就是这四个（不是只清了一两个）', () {
       final String src = mainSource();
       final int start = src.indexOf('void _clearTransientResults()');
       expect(start, greaterThan(0));
@@ -121,7 +122,6 @@ void main() {
         '_llmTest',
         '_ttsTest',
         '_adminMessage',
-        '_importMessage',
         '_stageImageMessage',
       ]) {
         expect(
@@ -134,7 +134,6 @@ void main() {
       for (final String flag in <String>[
         '_llmTesting',
         '_ttsTesting',
-        '_importFailed',
         '_stageImageFailed',
       ]) {
         expect(body.contains('$flag = false'), isTrue, reason: '$flag 没有复位');

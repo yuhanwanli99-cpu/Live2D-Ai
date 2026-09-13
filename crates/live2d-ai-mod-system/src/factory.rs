@@ -19,6 +19,19 @@ pub trait ModFactory: Send + Sync {
     /// 静态描述符。
     fn descriptor(&self) -> &'static ModDescriptor;
 
+    /// **静态**设置 schema（rc.4 M2）。
+    ///
+    /// 与 `ModRuntime::start` 里 `register_settings` 的差别只有一个：
+    /// **未启用也能拿到**。前端要在「开关还关着」时就渲染配置表单
+    /// （尤其是缺省停用的 Mod：先让用户填好再启用），而 `start` 有副作用
+    /// （spawn / 写配置），不能为了拿 schema 去跑它。
+    ///
+    /// 缺省 `None` = 沿用运行时注册（旧 Mod 不必改）；两者都提供时以
+    /// 运行时注册为准（后者可携带动态字段）。
+    fn settings_spec(&self) -> Option<crate::settings::ModSettingsSpec> {
+        None
+    }
+
     /// 构造一个 Mod 实例。
     ///
     /// `config` = 该 Mod 的 namespaced JSON 配置（`~/.config/live2d-ai/mods/<id>.json`

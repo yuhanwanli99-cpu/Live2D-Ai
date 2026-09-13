@@ -73,19 +73,6 @@ extension _ShellSettingsWiring on _ShellRootState {
     return leave ?? false;
   }
 
-  /// 角色卡导入：**文件读取在组合根**（`dart:html`/`package:web` 只能在这里）。
-  Future<void> _pickPersonaCard() async {
-    final Uint8List? bytes = await pickLocalFile();
-    if (bytes == null || !mounted) return;
-    final ({String message, bool failed}) r = applyPersonaImport(
-      controller: _settings,
-      bytes: bytes,
-    );
-    _importMessage = r.message;
-    _importFailed = r.failed;
-    _refresh();
-  }
-
   /// 分区内容构建器：8 个分区各自的 pane。
   Widget _buildSection(BuildContext context, SettingsSection section) {
     // 未加载出来时先显示骨架，而不是一个空面板让人以为坏了。
@@ -120,13 +107,11 @@ extension _ShellSettingsWiring on _ShellRootState {
 
     switch (section) {
       case SettingsSection.persona:
+        // M5.1：主链只剩系统提示词；角色卡导入已迁到标准 Mod，这里没有接线。
         return PersonaSection(
           controller: _settings,
           view: view,
           devMode: _devMode,
-          importMessage: _importMessage,
-          importFailed: _importFailed,
-          onImport: (_) => unawaited(_pickPersonaCard()),
         );
       case SettingsSection.models:
         return ModelsSection(
@@ -182,6 +167,8 @@ extension _ShellSettingsWiring on _ShellRootState {
           error: _adminError,
           busyId: _busyId,
           onToggle: _toggleMod,
+          // M2：有 settings_spec 的 Mod 展开后按 spec 渲表单，保存走这里。
+          onSaveConfig: _saveModConfig,
           onReload: _loadAdmin,
         );
       case SettingsSection.diagnostics:

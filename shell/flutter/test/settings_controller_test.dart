@@ -15,9 +15,7 @@ const String kGetJson = '''
 "has_api_key":true,"max_tokens":512},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0,
-"name":"Neko","description":"一只猫","personality":"慵懒","scenario":"桌面",
-"first":"喵"},
+"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0},
 "dev_mode":false}
 ''';
 
@@ -96,7 +94,7 @@ void main() {
       expect(t.controller.remote!.llm.model, 'deepseek-flash');
       expect(t.controller.remote!.llm.maxTokens, 512);
       expect(t.controller.remote!.tts.voice, 'skystar');
-      expect(t.controller.remote!.persona.name, 'Neko');
+      expect(t.controller.remote!.persona.systemPrompt, isNotEmpty);
       expect(t.controller.dirty, isFalse);
       expect(t.controller.error, isNull);
     });
@@ -281,8 +279,7 @@ void main() {
 "has_api_key":true,"max_tokens":512},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"","max_history_pairs":0,"name":"","description":"",
-"personality":"","scenario":"","first":""},
+"persona":{"system_prompt":"","max_history_pairs":0},
 "dev_mode":false}
 ''';
       final t = build(
@@ -294,7 +291,7 @@ void main() {
       await t.controller.save();
       expect(t.controller.remote!.llm.model, 'gpt');
       expect(
-        t.controller.remote!.persona.name,
+        t.controller.remote!.persona.systemPrompt,
         '',
         reason: '回填必须来自响应——否则本地会显示服务端并不认可的值',
       );
@@ -460,11 +457,56 @@ void main() {
       await t.controller.load();
       t.controller.edit((SettingsDraft d) {
         d.llmModel = 'gpt';
-        d.personaName = 'Inu';
+        d.personaSystemPrompt = '你是猫';
       });
       final Map<String, Object?> json = t.controller.draft.toPatch().toJson();
       expect(json.keys.toSet(), <String>{'llm', 'persona'});
       expect(json.containsKey('tts'), isFalse, reason: '没碰 tts 就不该出现空段');
+    });
+  });
+
+  group('M5.1：主链 persona 只剩 system_prompt / max_history_pairs', () {
+    test('persona 补丁再也发不出卡字段', () async {
+      final t = build();
+      await t.controller.load();
+      t.controller.edit((SettingsDraft d) {
+        d.personaSystemPrompt = '你是猫';
+        d.personaMaxHistoryPairs = 6;
+      });
+      final Map<String, Object?> persona =
+          t.controller.draft.toPatch().toJson()['persona']!
+              as Map<String, Object?>;
+      expect(persona, <String, Object?>{
+        'system_prompt': '你是猫',
+        'max_history_pairs': 6,
+      });
+      for (final String gone in <String>[
+        'name',
+        'description',
+        'personality',
+        'scenario',
+        'first',
+      ]) {
+        expect(
+          persona.containsKey(gone),
+          isFalse,
+          reason: '$gone 已迁到 Mod，不该再进主链 PATCH',
+        );
+      }
+    });
+
+    test('服务端仍发旧卡字段时，View 只取这两项（解析了会长回去）', () {
+      final SettingsView v = SettingsView.fromJson(<String, Object?>{
+        'persona': <String, Object?>{
+          'system_prompt': '你是猫',
+          'max_history_pairs': 3,
+          'name': 'Neko',
+          'personality': '慵懒',
+          'first': '喵',
+        },
+      });
+      expect(v.persona.systemPrompt, '你是猫');
+      expect(v.persona.maxHistoryPairs, 3);
     });
   });
 

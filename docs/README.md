@@ -22,7 +22,11 @@
 
 ## 版本与发布
 
-- [**v0.1.0-rc.3 — 结构质量（当前）**](releases/v0.1.0-rc.3.md)
+- [**v0.1.0-rc.4 — Mod 产品链路 + 主链人设收敛（当前）**](releases/v0.1.0-rc.4.md)
+  ——Mod 从骨架变产品链路（mods.json 持久化 / `settings_spec` 表单 / 模板 + api_version 门禁 /
+  一等 `apply_settings` / 脱敏设置读取）、酒馆角色卡抽成**第一条标准 Mod**、
+  主链 `[persona]` 只留 `system_prompt` + `max_history_pairs`、Win 舞台背景图修复
+- [v0.1.0-rc.3 — 结构质量](releases/v0.1.0-rc.3.md)
 - [v0.1.0-rc.2 — 第二基线](releases/v0.1.0-rc.2.md)
   ——动作层**删到底**（director Mod / Action 注入 / 渲染面编舞全删，core 子系统明文休眠）、
   **模型库闭环**（单一模型根 + 激活即换皮 + 导入入口）、**`.env` = 唯一密钥真源**（前端可写 + 热重载）、

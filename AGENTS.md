@@ -12,15 +12,20 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.1.0-rc.3`（结构质量，2026-09-13）**：主链与 rc.2 相同
-  （文本 → LLM 纯对话 → TTS → 口型 → Live2D + Flutter UI）；本版收的是**结构债与同拍脆点**：
-  **正文兜底**（TTS 挂了也看得见已生成的正文，WS 新帧 `text_fallback`）、
-  `main.dart` 1288→543、`surface.rs` 1167→24、`ws.rs` 1073→263、
-  测试 monolith 按场景切开、**原生第二壳裁决为「非主线」**（休眠台账见下）、
-  **CI = 本地门禁一张表**。发布说明：`docs/releases/v0.1.0-rc.3.md`。
-  rc.2（第二基线：动作层删到底 + 模型库闭环 + `.env` 密钥真源）：
-  `docs/releases/v0.1.0-rc.2.md`。**LLM 工具层与动作系统已整体拆除**——**不要**再以
-  「LLM 调用工具」「动作系统」为前提写代码或文档。
+- **当前版本 `0.1.0-rc.4`（Mod 产品链路 + 主链人设收敛，2026-09-13）**：
+  主链 LLM→TTS→口型→Live2D 未变；本版把 Mod 从「能编进 binary 的骨架」做成
+  **产品链路**——`mods.json` 启停/配置**原子写回**、`GET /api/v1/mods` 带
+  `settings_spec`+`config`（`secret` 字段脱敏）供 Flutter 渲染表单、新 Mod 模板 crate +
+  `descriptor.api_version` 门禁、`ModServices.apply_settings` **一等化**（删掉旧的
+  `__apply_settings` 事件走私）；**酒馆角色卡抽成第一条标准 Mod**
+  `live2d-ai-mod-persona`（V1/V2 JSON + PNG `chara` → 合成 `system_prompt`），
+  主链 `[persona]` **只剩** `system_prompt` + `max_history_pairs`（**升级需手改一次
+  旧 toml**，见发布说明 §4.3）；Win 舞台背景图三处根因修复。发布说明：
+  `docs/releases/v0.1.0-rc.4.md`。上一版 rc.3 是结构质量（正文兜底 / 拆大文件 /
+  双壳休眠 / CI 对齐）：`docs/releases/v0.1.0-rc.3.md`；rc.2（第二基线：动作层删到底 +
+  模型库闭环 + `.env` 密钥真源）：`docs/releases/v0.1.0-rc.2.md`。
+  **LLM 工具层与动作系统已整体拆除**——**不要**再以「LLM 调用工具」「动作系统」为前提
+  写代码或文档。
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （`android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
@@ -287,6 +292,25 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-13（v0.1.0-rc.4，Mod 产品链路 + 主链人设收敛）**：主链
+  LLM→TTS→口型→Live2D 未变。① **Mod 产品链路（M0–M4）**：新增
+  `docs/architecture/mod-product-chain.md`（契约 + 加新 Mod 勾选表 + 正式版 Rust/C 规则）；
+  `mods.json` 启停/配置**原子写回**（`plan_atomic_write`）；`crates/live2d-ai-mod-template`
+  模板 + `descriptor.api_version` 门禁（不兼容 → Failed 不崩）；`ModServices.apply_settings`
+  **一等化**并**删除** `__apply_settings` 事件走私；补 `ModServices.settings`（脱敏读取）
+  + `config_path`。② **schema 发现（M2）**：`ModFactory::settings_spec`（静态，未启用也拿得到）
+  → `GET /api/v1/mods` 带 `config` + `settings_spec`（secret 脱敏）+ `GET …/config`；
+  Flutter `ModsSection` 按 kind 渲 Bool/String/Number/Select + 保存，secret 留空不提交。
+  ③ **角色卡标准 Mod（M5）**：`live2d-ai-mod-persona`（Rust）解析 SillyTavern V1/V2 JSON +
+  PNG `chara` → 合成 `system_prompt` 经一等 `apply_settings` 写回，禁用时按
+  `persona-mod-base.txt` 基线**还原**；主链 `[persona]` 只留 `system_prompt` +
+  `max_history_pairs`（**破坏性：老 toml 卡字段会解析失败，升级需手改一次**），Flutter 删
+  `persona_card.dart`/`persona_import.dart` 与导入 UI；Mod 数 3 → 4（`mod_count_is_four`）。
+  ④ **Win stage-bg（M6）**：`Live2DStage` 挂桥/重建时补发 `stage-bg`；`saveDisplayPrefs`
+  返回 bool（写失败给老实文案）；`pickImageDataUrl` 三态（读失败不再冒充取消）。
+  **Win 肉眼验收待做**。门禁：cargo **822** 通过 / clippy 0 warning / rust-ratio
+  **97.0776% PASS**；flutter analyze 无问题 + **819** 测试通过；`ignite.sh --check` 四项全 ok；
+  API 端到端验证角色卡写回/还原。发布说明：`docs/releases/v0.1.0-rc.4.md`。
 - **2026-09-13（v0.1.0-rc.3，结构质量）**：主链一行未改，收的是「挡住正式 0.1.0」的两类东西。
   ① **正文兜底（N0）**：上屏闸门是「该句语音已合成完毕」（同拍契约），代价是 TTS 故障 /
   半句切不出 / LLM 中途断流时**整轮一个字都不上屏**。新增 `EngineEvent::TextFallback` →

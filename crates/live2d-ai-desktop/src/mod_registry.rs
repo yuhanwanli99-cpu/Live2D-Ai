@@ -138,6 +138,17 @@ impl ModRegistry {
             entries.insert(desc.id, reg);
             runtimes.insert(desc.id, Arc::new(Mutex::new(None)));
         }
+        // M2：**静态** settings schema（factory 提供）——未启用的 Mod 也有表单，
+        // 前端可以「先填配置、再启用」。运行时 register_settings 仍会覆盖它
+        // （后者可携带动态字段）。
+        let mut settings_specs = BTreeMap::new();
+        for factory in factories {
+            if let Some(spec) = factory.settings_spec()
+                && spec.validate().is_ok()
+            {
+                settings_specs.insert(factory.descriptor().id, spec);
+            }
+        }
         let dropped = Arc::clone(&dropped_events);
         let runtimes_for_worker = runtimes.clone();
         let worker_join = std::thread::Builder::new()
@@ -153,7 +164,7 @@ impl ModRegistry {
             blocking_mods,
             next_sub_id: AtomicU64::new(1),
             subscriptions: BTreeMap::new(),
-            settings_specs: BTreeMap::new(),
+            settings_specs,
             say_source: None,
             runtimes,
             host: None,
@@ -697,6 +708,49 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// M2：**静态** settings schema——未启用的 Mod 也能拿到（前端先填再启用）。
+    #[test]
+    fn static_settings_spec_available_when_disabled() {
+        struct StaticSpecMod;
+        impl ModFactory for StaticSpecMod {
+            fn descriptor(&self) -> &'static ModDescriptor {
+                static D: ModDescriptor = ModDescriptor {
+                    id: "static_spec",
+                    name: "StaticSpec",
+                    version: "0.1.0",
+                    api_version: 1,
+                };
+                &D
+            }
+            fn settings_spec(&self) -> Option<ModSettingsSpec> {
+                Some(ModSettingsSpec {
+                    mod_id: "static_spec".to_string(),
+                    title: "静态".to_string(),
+                    version: 1,
+                    fields: vec![ModSettingField::Bool {
+                        key: "on".to_string(),
+                        label: "开".to_string(),
+                        default: true,
+                    }],
+                })
+            }
+            fn create(
+                &self,
+                _: ModServices,
+                _: serde_json::Value,
+            ) -> Result<Box<dyn ModRuntime>, ModError> {
+                Ok(Box::new(TestRuntime))
+            }
+        }
+        static F: &[&dyn ModFactory] = &[&StaticSpecMod];
+        let reg = ModRegistry::new(F, &serde_json::json!({}));
+        assert!(!reg.is_enabled("static_spec"), "缺省不启用");
+        assert!(
+            reg.settings_spec("static_spec").is_some(),
+            "未启用也要有 schema（factory 静态提供）"
+        );
     }
 
     // ------------------------------------------------------- HostChannels tests

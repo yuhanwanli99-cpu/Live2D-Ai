@@ -111,11 +111,14 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
     _prefs = loadDisplayPrefs();
   }
 
-  /// 更新并**立即持久化**。值没变时直接返回（避免无意义的整树重建）。
-  void _update(DisplayPrefs next) {
-    if (next == _prefs) return;
+  /// 更新并**立即持久化**；返回**是否真的写进了本机存储**。
+  ///
+  /// 值没变时直接返回 `true`（没有需要写的东西）。写失败（无痕 / 配额满 /
+  /// 存储被禁）由调用方决定怎么如实告诉用户——这里不再静默吞掉。
+  bool _update(DisplayPrefs next) {
+    if (next == _prefs) return true;
     setState(() => _prefs = next);
-    saveDisplayPrefs(next);
+    return saveDisplayPrefs(next);
   }
 
   @override
@@ -137,7 +140,9 @@ class ShellRoot extends StatefulWidget {
 
   /// 本地显示偏好（**由根持有**；见 `Live2DShellApp` 的说明）。
   final DisplayPrefs prefs;
-  final ValueChanged<DisplayPrefs> onPrefsChanged;
+
+  /// 上报偏好变更；返回**是否成功落盘**（失败时调用方给一句可执行文案）。
+  final bool Function(DisplayPrefs) onPrefsChanged;
 
   @override
   State<ShellRoot> createState() => _ShellRootState();
@@ -199,8 +204,7 @@ class _ShellRootState extends State<ShellRoot> {
   String? _adminMessage;
   String? _llmTest;   bool _llmTesting = false;
   String? _ttsTest;   bool _ttsTesting = false;
-  String? _importMessage; bool _importFailed = false;
-  /// 舞台背景图的提示（与角色卡导入分开：两条通道的失败原因完全不同）。
+  /// 舞台背景图的提示（选图与其它通道的失败原因完全不同）。
   String? _stageImageMessage; bool _stageImageFailed = false;
   bool _copied = false;
   bool _settingsLoadedOnce = false;
@@ -362,8 +366,8 @@ class _ShellRootState extends State<ShellRoot> {
   ///
   /// 过去有两个地方各自 `setState(() => _section = …)`：分区 chip（这里）
   /// 与错误横幅的「去 LLM 设置 / 去语音合成设置」按钮。于是**内联结果**
-  /// （`_llmTest` / `_ttsTest` / `_adminMessage` / `_importMessage` /
-  /// `_stageImageMessage`）会一直挂在 State 上：用户测出「失败：401」，
+  /// （`_llmTest` / `_ttsTest` / `_adminMessage` / `_stageImageMessage`）
+  /// 会一直挂在 State 上：用户测出「失败：401」，
   /// 修好配置、切到别的分区、再回来——**那句失效的结论还在**，
   /// 而它描述的已经是上一套配置了。
   ///
@@ -394,8 +398,6 @@ class _ShellRootState extends State<ShellRoot> {
     _ttsTest = null;
     _ttsTesting = false;
     _adminMessage = null;
-    _importMessage = null;
-    _importFailed = false;
     _stageImageMessage = null;
     _stageImageFailed = false;
     _copied = false;
@@ -426,6 +428,9 @@ class _ShellRootState extends State<ShellRoot> {
             model: _activeModelUrl,
             dark: appPaletteOf(context).dark,
             stageColor: appPaletteOf(context).stageCss,
+            // 背景图也是**舞台状态**：传进来后，一旦 iframe 重建（首帧 / retry）
+            // 舞台自己就能补发，不再依赖「恰好有另一次偏好变更」。
+            stageImage: widget.prefs.stageImage,
             // 就绪后补发显示偏好：首次挂载时桥还在 loading，
             // 以及在 retry 重建 iframe 之后（旧队列已随旧桥销毁）。
             onReady: _applyPrefs,

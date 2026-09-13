@@ -20,7 +20,7 @@ import 'package:flutter/material.dart';
 
 /// 8 个设置分区。
 enum SettingsSection {
-  persona('角色卡', '人设、开场白与历史轮数', Icons.badge_outlined),
+  persona('人设', '主链系统提示词与历史轮数', Icons.badge_outlined),
   models('模型库', '导入、激活与舞台显示配置', Icons.view_in_ar_outlined),
   llm('LLM', '对话模型的服务地址、模型名与密钥', Icons.hub_outlined),
   tts('语音合成', 'TTS 服务、音色与采样参数', Icons.record_voice_over_outlined),
