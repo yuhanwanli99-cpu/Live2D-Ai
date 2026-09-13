@@ -108,9 +108,25 @@ class MessageBubble extends StatelessWidget {
             // `liveRegion`：**只在流式中的助手气泡**上开。读屏会优先播报
             // 这里的 `label`（已节流），历史消息保持普通节点。
             liveRegion: announcement != null && message.streaming,
-            label: announcement == null
-                ? '${message.role.label}说：${message.text}'
-                : '${message.role.label}说：$announcement',
+            // 2026-09-13：label 里补一句「含思考 N 字」。
+            //
+            // 两个理由，都很具体：
+            // 1. **可达性**：`excludeSemantics: true` 会把整条气泡折成一个节点，
+            //    而思考折叠区就在这条气泡里——不写进 label，读屏用户**完全不知道
+            //    有思考**（连「有个可展开的开关」都听不到）。
+            // 2. 把「思考是否真的到了渲染层」变成可观测事实：不写进 label，
+            //    只能靠截图肉眼看，任何基于 DOM 的自动检查都看不到它（本条
+            //    feature 自己的验证就踩过这个坑）。
+            //
+            // **不播报思考正文**：它通常比回复长 5–20 倍（实测 1200+ 字），
+            // 读屏会淹掉真正的回复。只报「有多少字」。
+            // 已知缺口：折叠开关本身对读屏不可达（`excludeSemantics` 会连它一起
+            // 折掉），要修得把思考区从这条气泡的语义子树里拆出来，留 rc.3。
+            label: <String>[
+              '${message.role.label}说：${announcement ?? message.text}',
+              if (message.reasoning.trim().isNotEmpty)
+                '（含思考 ${message.reasoning.characters.length} 字）',
+            ].join(),
             excludeSemantics: true,
             child: Container(
               // **相对宽度**，不是写死的 460（见文件头注 ②）。
