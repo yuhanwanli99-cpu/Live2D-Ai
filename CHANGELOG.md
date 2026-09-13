@@ -60,7 +60,7 @@
 ## 门禁
 
 cargo **790** passed / fmt 干净 / clippy **0 warning** / rust-ratio **96.9681% PASS**；
-flutter analyze 无问题 / flutter test **812** passed；`ignite.sh --check` 四项全 ok。
+flutter analyze 无问题 / flutter test **813** passed；`ignite.sh --check` 四项全 ok。
 `verify_core_chain.py` 11 跳 OK、3 跳因**本机 TTS 端点未启动**而红（详见发布说明 §4.1）。
 
 ---
