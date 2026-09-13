@@ -37,7 +37,9 @@ pub use descriptor::{ModDescriptor, ModId};
 pub use error::ModError;
 pub use factory::{ModAction, ModFactory, ModRuntime};
 pub use registry::{ModRegistrar, SubscriptionId};
-pub use services::{ModActionSender, ModEventSender, ModLogger, ModServices, SaySender};
+pub use services::{
+    ModActionSender, ModEventSender, ModLogger, ModServices, ModSettingsApplier, SaySender,
+};
 pub use settings::{ModSettingField, ModSettingsSpec, SelectOption};
 pub use status::ModStatus;
 pub use topics::ModEventTopic;
