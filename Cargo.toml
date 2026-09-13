@@ -29,8 +29,8 @@ members = [
 # 2026-09-12（rc.2「第二基线」）：动作层删到底（director Mod + Action 注入 + 渲染面编舞）、
 # 模型库闭环打通（单一模型根 + 激活即换皮）、`.env` 成为唯一密钥真源。范围见
 # `docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §0；发布说明见
-# `docs/releases/v0.1.0-rc.2.md`。
-version = "0.1.0-rc.2"
+# `docs/releases/v0.1.0-rc.3.md`。
+version = "0.1.0-rc.3"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

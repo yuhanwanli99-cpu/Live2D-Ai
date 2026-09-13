@@ -1,3 +1,63 @@
+# v0.1.0-rc.3 — 结构质量：正文兜底 + God Object/大文件止血 + 双壳裁决 + 门禁对齐（2026-09-13）
+
+> 同一 RC 线的**第三个基线**。完整发布说明见
+> [`docs/releases/v0.1.0-rc.3.md`](docs/releases/v0.1.0-rc.3.md)；
+> 范围真源见 [`PLAN-rc3-structure-quality-2026-09-13.md`](docs/plans/PLAN-rc3-structure-quality-2026-09-13.md)。
+> 口径：可读性优先、**宁删勿加**、不做步骤 2。
+
+## 新增（同拍契约的异常让位）
+
+- **正文兜底**：上屏闸门仍是「该句语音已合成完毕」（健康轮文字与声音同拍，**未改**）。
+  新增 `EngineEvent::TextFallback` → `ConversationUiEvent::TextFallback` →
+  WS **新帧 `text_fallback`**：只在 `Failed` 且已有正文时发一次，携带**整轮正文**
+  （不是残余；前端**整段设置**而不是追加，天然幂等），发在 `Terminal` 之前，
+  `Completed` 轮**永不**发。前端气泡加「未收尾」说明行，且该标记**落盘**。
+- `test/developer_section_test.dart`：开发模式开关「强制开启时不许看起来能关」。
+
+## 修复（真缺陷）
+
+- **收尾事件被静默丢弃**（真机验收抓到，`e17b33d0`）：`run_one_turn` Stage A 的
+  biased `select!` 选中 `gen_fut` 臂后不再回头 poll `event_rx`，于是引擎
+  **收尾时同步发出**的那批事件被 `drain_residual_events` 丢掉——`TextFallback`
+  首当其冲（表现为「TTS 挂了 → 界面只显示（生成失败）」）。修法：生成返回后先把通道按正常
+  路径排空。回归 `failed_turn_delivers_generated_text_via_text_fallback` **已实测
+  「去掉修复即红」**。
+- `forcedByLaunchFlag` 不再写死 `false`（改由「有效 dev_mode vs 落盘设置」推出）
+  ——旧实现是「看起来能关、关完服务端还是 on」。
+- `chat_panel.dart`「聊天历史**不落盘**」的过时注释（多会话存储接线后早就不成立）。
+
+## 结构（先删后拆）
+
+- `shell/flutter/lib/main.dart`：**1288 → 543 行**。按行为边界外移到
+  `app/shell_admin.dart`(205) / `shell_settings.dart`(211) / `shell_prefs.dart`(103) /
+  `shell_chat.dart`(52) / `browser_io.dart`(170，唯一 `package:web` 处) /
+  `shortcut_help_dialog.dart`(66) / `ui/error_actions.dart`(59)。**零行为变化**
+  （109 个字面量多重集一致）。
+- `crates/l2d-wasm-demo/src/web/surface.rs`：**1167 → 24 行**（render 440 / input 316 /
+  idle 270 / gpu 163）。v1 协议与 `IdleState`（呼吸/眨眼/微表情）**未动**。
+- `crates/live2d-ai-desktop/src/web_api/ws.rs`：**1073 → 263 行**
+  （audio 204 / broadcaster 215 / audio_tests 407）。
+- `tests_models_routes.rs`：**1249 → 4 个场景文件**（48 条测试一条不少）。
+- 删死字段 `FrameState.warned_validation`、重复头注与过时注释；修 `net.rs` 两处
+  wasm 目标下的 clippy `collapsible_if`。
+
+## 治理 / 文档
+
+- **双壳裁决（选项 B）**：egui 原生壳 / `--chat` **非主线**，休眠台账进 `AGENTS.md`
+  （谁休眠 / 为什么 / 谁能唤醒），并钉进 `README.md` 与 `core-chain-baseline.md` §3.6。
+  **不做** feature-gate（理由写在台账里）。
+- **CI = 本地一套真相**：`pr-checks.yml` / `nightly.yml` 补 `--all-targets` /
+  `--doc` / `rust-ratio` / clippy `--all-targets`；新增
+  `flutter-checks.yml`（`paths: shell/flutter/**`）——CI 之前**完全不管前端**；
+  nightly 新增端到端探针 job（**只在配置 `LIVE2D_AI_VERIFY_BASE_URL` 时跑**，缺配置
+  明确跳过，不伪造绿灯）；AGENTS 出一张「本地必跑 vs CI 必跑」表；`CONTRIBUTING.md`
+  **整份重写**（旧版还在教已归档的 Python/Android 双端）。
+- **可读性收尾（部分）**：仓库根 8 份 Python 时代旧计划 → `docs/legacy/`；
+  `docs/design/` 4 份旧 JS 规格 → `docs/design/legacy/`（现行只剩
+  `web-ui-spec-v3.md`）。
+
+---
+
 # v0.1.0-rc.2 — 第二基线：动作层删到底 + 模型闭环 + `.env` 成为密钥真源（2026-09-12）
 
 > 同一 RC 线的**第二个基线**。完整发布说明见
