@@ -88,6 +88,16 @@
   + `cargo run -p xtask -- rust-ratio`（门槛 95%）。
 - **源码 ≤500 行**（豁免 ≤1000 需头注理由）；测试文件 ≤800 行。
 - **密钥安全**：密钥不进 GET/日志/WS/导出；loopback-only；mutating 需 `application/json`。
+- **密钥真源 = `.env`**（2026-09-12 rc.2 用户口径）：查找优先级 **`.env` 快照 >
+  进程环境 > 无（不鉴权）**；`live2d-ai.toml` 只持 `api_key_env`（变量**名**）。
+  - 读取**只能**走 `live2d_ai_runtime::secrets::lookup`——直接 `std::env::var`
+    会绕过 `.env`，于是「界面上刚写了 key、链路还说没配置」。
+  - 写入走 **`PUT /api/v1/env`**（`{"key","value"}`；空值 = 清除）：原子写 +
+    `0600` + **就地改行**（保留注释，与 `merge_into_toml` 同一条教训）；
+    `GET /api/v1/env` **只回键名 + 是否已设置，永不回值**；写操作日志不记 body。
+  - **热重载**：写入后刷新快照 + `supervisor.reload()`；`.env` 也在
+    `file_watcher` 的监视集里（外部手改同样即时生效——与「配置快照必须与磁盘
+    一致」是同一条纪律）。
 - **Mod 边界**：Mod 必须通过 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁。
 
 ### 动作与表演的归属（休眠台账，2026-09-12 rc.2 定）

@@ -81,7 +81,7 @@ pub fn run_chat_session(opts: ChatOptions) -> Result<RunReport, BackendError> {
     let settings = AppSettings::load_from_path(&config_path)
         .map_err(|e| BackendError::Failed(format!("读取/解析配置文件失败: {e}")))?;
     let resolved = settings
-        .resolve_with(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        .resolve_with(live2d_ai_runtime::secrets::lookup)
         .map_err(|e| BackendError::Failed(format!("配置解析失败（URL/环境变量名）: {e}")))?;
     println!(
         "chat: LLM {} 模型 {}；TTS {} 音色 {}",

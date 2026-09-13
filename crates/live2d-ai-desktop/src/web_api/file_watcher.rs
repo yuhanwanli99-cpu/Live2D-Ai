@@ -1,7 +1,12 @@
 //! 配置文件热重载文件监听器（2026-08-31）。
 //!
-//! 用 `notify` 跨平台监听 `live2d-ai.toml` 的外部修改（如用户手动编辑），
-//! 检测到变更后触发 supervisor reload，实现真正的热重载。
+//! 用 `notify` 跨平台监听 `live2d-ai.toml`（**以及同目录的 `.env`**）的外部修改
+//! （如用户手动编辑），检测到变更后触发 supervisor reload，实现真正的热重载。
+//!
+//! 2026-09-12（rc.2）：监视集加入 `.env`。密钥的真源是 `.env`（见
+//! `live2d_ai_runtime::secrets`），用户手改它之后必须能生效；否则「改完 key
+//! 还是 401」会以另一种形式回来。`post_reload` 钩子因此要**同时**刷新设置快照
+//! 与密钥快照（调用方负责，见 `cli_entry`）。
 //!
 //! 设计：
 //! - 后台线程跑 `notify` 事件循环（`notify::recommended_watcher`）。
@@ -32,10 +37,12 @@ pub struct FileWatcher {
 pub type PostReloadHook = Box<dyn Fn() + Send>;
 
 impl FileWatcher {
-    /// 监听 `config_path` 的外部修改，检测到变更时调用 `supervisor.reload()`。
+    /// 监听 `config_path`（及同目录 `.env`）的外部修改，检测到变更时调用
+    /// `supervisor.reload()`。
     ///
     /// `debounce_ms`：防抖窗口（毫秒），避免编辑器一次保存触发多次 reload。
-    /// `post_reload`：reload 之后的额外副作用（刷新设置快照）；`None` = 只 reload。
+    /// `post_reload`：reload 之后的额外副作用（刷新设置快照 / 密钥快照）；
+    /// `None` = 只 reload。
     pub fn watch_config(
         config_path: impl AsRef<Path>,
         supervisor: Arc<SupervisorHandle>,
@@ -48,10 +55,15 @@ impl FileWatcher {
             .parent()
             .ok_or_else(|| format!("配置文件无父目录: {}", config_path.display()))?
             .to_path_buf();
-        let target_name = config_path
-            .file_name()
-            .ok_or_else(|| format!("配置文件无文件名: {}", config_path.display()))?
-            .to_os_string();
+        // 监视集：配置文件 + 同目录的 `.env`（密钥真源，rc.2）。
+        // 两者都在仓库根，`notify` 又只能监听目录，所以一个目录 + 两个文件名。
+        let mut targets = vec![
+            config_path
+                .file_name()
+                .ok_or_else(|| format!("配置文件无文件名: {}", config_path.display()))?
+                .to_os_string(),
+        ];
+        targets.push(std::ffi::OsString::from(".env"));
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_flag_clone = stop_flag.clone();
 
@@ -60,7 +72,7 @@ impl FileWatcher {
             .spawn(move || {
                 Self::run(
                     watch_dir,
-                    target_name,
+                    targets,
                     supervisor,
                     stop_flag_clone,
                     debounce_ms,
@@ -77,7 +89,7 @@ impl FileWatcher {
 
     fn run(
         watch_dir: PathBuf,
-        target_name: std::ffi::OsString,
+        targets: Vec<std::ffi::OsString>,
         supervisor: Arc<SupervisorHandle>,
         stop_flag: Arc<AtomicBool>,
         debounce_ms: u64,
@@ -86,12 +98,11 @@ impl FileWatcher {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
         let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event, _>| {
             if let Ok(event) = res {
-                // 过滤：只关心目标文件的写入/创建/重命名事件。
-                if event
-                    .paths
-                    .iter()
-                    .any(|p| p.file_name().map(|n| n == target_name).unwrap_or(false))
-                {
+                // 过滤：只关心监视集里的文件的写入/创建/重命名事件。
+                if event.paths.iter().any(|p| {
+                    p.file_name()
+                        .is_some_and(|n| targets.iter().any(|t| t == n))
+                }) {
                     match event.kind {
                         notify::EventKind::Modify(_) | notify::EventKind::Create(_) => {
                             let _ = tx.send(());

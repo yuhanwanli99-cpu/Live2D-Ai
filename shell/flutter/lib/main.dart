@@ -27,6 +27,7 @@ import 'package:web/web.dart' as web;
 
 import 'api/api_client.dart';
 import 'api/diagnostics_api.dart';
+import 'api/env_api.dart';
 import 'api/models_api.dart';
 import 'api/mods_api.dart';
 import 'api/settings_models.dart';
@@ -291,10 +292,14 @@ class _ShellRootState extends State<ShellRoot> {
   // ── P4：设置草稿 + 四个管理面 ──
   late final SettingsController _settings;
   late final ModelsApi _modelsApi;
+  late final EnvApi _envApi;
   late final ModsApi _modsApi;
   late final DiagnosticsApi _diagApi;
 
   List<ModelInfo> _models = const <ModelInfo>[];
+  /// 密钥真源状态（`GET /api/v1/env`）：键名 + 是否已设置（**没有值**）。
+  EnvStatus _envStatus = const EnvStatus();
+
   /// 当前要渲染面加载的模型 URL（来自 activate 响应的 `model_url`）。
   ///
   /// 为什么要存它：activate 只改后端 registry，**换皮发生在 iframe 里**
@@ -353,6 +358,7 @@ class _ShellRootState extends State<ShellRoot> {
     super.initState();
     _api = ApiClient();
     _modelsApi = ModelsApi();
+    _envApi = EnvApi();
     _modsApi = ModsApi();
     _diagApi = DiagnosticsApi();
     _settings = SettingsController(api: _api);
@@ -412,6 +418,7 @@ class _ShellRootState extends State<ShellRoot> {
     _live.dispose();
     _settings.dispose();
     _modelsApi.dispose();
+    _envApi.dispose();
     _modsApi.dispose();
     _diagApi.dispose();
     _chat.dispose();
@@ -586,6 +593,14 @@ class _ShellRootState extends State<ShellRoot> {
       final List<ModInfo> mods = await _modsApi.list();
       final Map<String, Object?> status = await _diagApi.status();
       final AppCapabilities caps = await _diagApi.capabilities();
+      // 密钥真源状态（键名 + 是否已设置）。**永不包含值**。
+      // 失败不连坐：`/env` 挂了不该让整个管理面板报错，所以单独兜底。
+      EnvStatus env = _envStatus;
+      try {
+        env = await _envApi.list();
+      } on ApiException {
+        env = _envStatus;
+      }
       if (!mounted) return;
       final Object? activeModel = status['active_model_id'];
       setState(() {
@@ -594,6 +609,7 @@ class _ShellRootState extends State<ShellRoot> {
         _status = status;
         if (activeModel is String) _modelName = activeModel;
         _capabilities = caps;
+        _envStatus = env;
         _adminLoading = false;
       });
       // 日志只有 dev_mode 才可读——**分开取**，403 不该让整个面板失败。
@@ -604,6 +620,25 @@ class _ShellRootState extends State<ShellRoot> {
         _adminError = e.toString();
         _adminLoading = false;
       });
+    }
+  }
+
+  /// 保存一个密钥到 `.env`（`PUT /api/v1/env`），写完**立即生效**。
+  ///
+  /// 契约（rc.2）：`.env` 是唯一密钥真源；后端写完刷新快照 + 重建 LLM/TTS client，
+  /// 所以这里不需要（也不该）提示「重启」或「重跑 ignite.sh」。
+  ///
+  /// 值**只在参数里出现**：不写进 state、不进日志、不回显。保存后重读一次
+  /// `GET /api/v1/env` 只为刷新「已设置/未设置」这个布尔。
+  Future<void> _saveEnvKey(String key, String value) async {
+    await _envApi.write(key, value);
+    if (!mounted) return;
+    try {
+      final EnvStatus env = await _envApi.list();
+      if (!mounted) return;
+      setState(() => _envStatus = env);
+    } on ApiException {
+      // 写成功了但读状态失败：不动现有状态（`EnvKeyField` 自己的提示仍然准确）。
     }
   }
 
@@ -944,6 +979,9 @@ class _ShellRootState extends State<ShellRoot> {
           controller: _settings,
           view: view,
           devMode: _devMode,
+          envKey: _envStatus.forSection('llm'),
+          envFile: _envStatus.envFile,
+          onSaveKey: _saveEnvKey,
           onTest: _testLlm,
           testResult: _llmTest,
           testing: _llmTesting,
@@ -954,6 +992,9 @@ class _ShellRootState extends State<ShellRoot> {
           view: view,
           devMode: _devMode,
           serverMuted: _serverMuted,
+          envKey: _envStatus.forSection('tts'),
+          envFile: _envStatus.envFile,
+          onSaveKey: _saveEnvKey,
           onTest: _testTts,
           testResult: _ttsTest,
           testing: _ttsTesting,

@@ -51,6 +51,16 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     let config_path = config_path_for_web();
     println!("web: 配置文件路径 {config_path}");
 
+    // **密钥真源在启动时读一次**（rc.2 2026-09-12）：`.env` 快照 > 进程环境。
+    // 只报键数量，**不报键名也不报值**（键名会出现在日志里，属于不必要的暴露）。
+    match live2d_ai_runtime::secrets::refresh_from_disk() {
+        Ok(n) => println!(
+            "web: 密钥真源已载入（{}，{n} 个键；`.env` > 进程环境）",
+            live2d_ai_runtime::secrets::env_file_path().display()
+        ),
+        Err(e) => eprintln!("[warn] 读取 .env 失败（沿用进程环境）: {e}"),
+    }
+
     // 读取配置（缺失 = 默认）。
     let settings = if std::path::Path::new(&config_path).is_file() {
         match AppSettings::load_from_path(&config_path) {
@@ -253,13 +263,17 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         }
     }
 
-    // 配置文件热重载文件监听器（2026-08-31）：监听 `live2d-ai.toml` 外部修改，
-    // 检测到变更后触发 supervisor reload。仅在 supervisor 已装配时启用。
+    // 配置文件热重载文件监听器（2026-08-31）：监听 `live2d-ai.toml` **与同目录
+    // `.env`** 的外部修改，检测到变更后触发 supervisor reload。仅在 supervisor
+    // 已装配时启用。
     //
     // 2026-09-11：reload 之后**还要刷新设置快照**（`post_reload`）。只 reload
     // client 会让「界面显示的值」与「磁盘上的值」静默分叉——用户手改提示词后
     // 界面上看到的还是旧值，而且下一次界面「保存」会把旧快照整份写回、
     // 把手改的内容覆盖掉（实测复现）。
+    //
+    // 2026-09-12（rc.2）：`.env` 也在监视集里——密钥真源被手改后必须生效，
+    // 否则「改完 key 还是 401」会以另一种形式回来。所以钩子里**同时**刷新密钥快照。
     let _file_watcher = if let Some(sup) = &supervisor_opt {
         let status_for_watch = ctx.status_ctx.clone();
         let path_for_watch = config_path.clone();
@@ -270,6 +284,10 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
             Some(Box::new(move || {
                 if status_for_watch.refresh_from_disk(&path_for_watch) {
                     tracing::info!(path = %path_for_watch, "外部修改已同步进设置快照");
+                }
+                match live2d_ai_runtime::secrets::refresh_from_disk() {
+                    Ok(n) => tracing::info!(keys = n, "外部修改已同步进密钥快照"),
+                    Err(e) => tracing::warn!(error = %e, "密钥快照刷新失败（沿用旧快照）"),
                 }
             })),
         ) {
@@ -333,7 +351,7 @@ pub(crate) fn build_web_supervisor(
     let settings =
         AppSettings::load_from_path(&path).map_err(|e| format!("读取/解析配置失败: {e}"))?;
     let resolved = settings
-        .resolve_with(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        .resolve_with(live2d_ai_runtime::secrets::lookup)
         .map_err(|e| format!("配置解析失败（URL/环境变量名）: {e}"))?;
     let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())
         .map_err(|e| format!("构建 LLM/TTS 客户端失败: {e}"))?;

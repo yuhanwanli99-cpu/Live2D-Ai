@@ -30,11 +30,16 @@ if [ -n "${LIVE2D_AI_FLUTTER_WEB_DIR:-}" ] && [ "$LIVE2D_AI_FLUTTER_WEB_DIR" != 
 fi
 export LIVE2D_AI_FLUTTER_WEB_DIR="$PWD/shell/flutter/build/web"
 
-# 导入 ./.env（如 DEEPSEEK_API_KEY）——Rust 侧只读**进程环境**，不读 .env 文件。
+# 导入 ./.env（如 DEEPSEEK_API_KEY）。
+#
+# 2026-09-12（rc.2）起 **`.env` 就是密钥的唯一真源**：Rust 侧自己读 `.env`
+# （`live2d_ai_runtime::secrets`，优先级 `.env` > 进程环境），前端也能经
+# `PUT /api/v1/env` 写它并热重载。所以下面这段 `set -a; . ./.env` **不再是
+# 必需**——保留只是为了兼容「别的工具/Mod 也读进程环境」的用法。
 # 只回显变量名，不回显值。
 if [ -f .env ]; then
   set -a; . ./.env; set +a
-  echo "==> 已导入 .env：$(grep -oE "^[A-Z_]+=" .env | tr -d "=" | tr "\n" " ")"
+  echo "==> 已导出 .env 到进程环境（Rust 侧也直接读 .env）：$(grep -oE "^[A-Z_]+=" .env | tr -d "=" | tr "\n" " ")"
 fi
 
 PORT=18080

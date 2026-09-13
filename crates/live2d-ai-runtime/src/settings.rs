@@ -280,11 +280,15 @@ impl AppSettings {
         Self::from_toml_str(&text)
     }
 
-    /// 用**当前进程环境**解析成 [`ResolvedSettings`]。
+    /// 用**密钥真源**（`.env` 快照 > 进程环境）解析成 [`ResolvedSettings`]。
     ///
-    /// 环境变量未设置或为空串都视为「无鉴权」（CI 里常导出空变量，不应报错）。
+    /// 未设置或为空串都视为「无鉴权」（CI 里常导出空变量，不应报错）。
+    ///
+    /// 2026-09-12（rc.2）：以前只读进程环境，于是「界面里能改模型名、却改不了
+    /// key」——用户改完还是 401。现在密钥以 `.env` 为唯一真源
+    /// （[`crate::secrets`]），进程环境仍然兼容（`.env` 优先）。
     pub fn resolve(&self) -> Result<ResolvedSettings, SettingsError> {
-        self.resolve_with(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        self.resolve_with(crate::secrets::lookup)
     }
 
     /// 注入式解析：`lookup` 返回 `None` 表示该环境变量不存在。

@@ -22,6 +22,8 @@
 //! - `GET /api/v1/app/status` → `app.status`
 //! - `GET /api/v1/settings` → `settings.get`
 //! - `PATCH /api/v1/settings` → `settings.patch`
+//! - `GET /api/v1/env` → `env`（键名 + 是否已设置；**不回显值**）
+//! - `PUT /api/v1/env` → `env`（写 `.env` 单键 + 热重载）
 //! - `POST /api/v1/settings/test/llm` → `settings.test_llm`
 //! - `POST /api/v1/settings/test/tts` → `settings.test_tts`
 //! - `POST /api/v1/chat` → `chat.post`（W2：HTTP 对话入口）
@@ -55,6 +57,9 @@ pub mod cli_entry;
 /// 动态装配 supervisor）。拆分承载：保持 `mod.rs` ≤ 500。
 pub mod dispatch;
 pub mod dto;
+/// 密钥真源端点（rc.2 2026-09-12）：`GET /api/v1/env` +
+/// `PUT /api/v1/env`。**永不回显密钥值**，写盘走 `.env` + 热重载。
+pub mod env_routes;
 /// 外部文本注入端点（节点 E5-T3）：`POST /api/v1/external/chat → say →
 /// 主链路`。静态前置路由（见 `run_request_loop` E5-T3 判定点）。
 pub mod external_routes;
@@ -132,6 +137,9 @@ pub enum RouteId {
     /// —— 全部统一到 `Models`，由 `models_routes::dispatch` 内部按子路由
     /// 派发（D3 2026-08-28）。
     Models,
+    /// `GET /api/v1/env`（读键名 + 是否已设置，**永不回显值**）与
+    /// `PUT /api/v1/env`（写 `.env` 的单个键 + 热重载；rc.2 2026-09-12）。
+    Env,
     /// 已冻结但本批未实现（D3/D5 填充）。
     NotImplemented,
     /// 路径完全未匹配。
@@ -153,6 +161,7 @@ impl RouteId {
             Self::LogsGet => "logs.get",
             Self::LogsLevels => "logs.levels",
             Self::Models => "models",
+            Self::Env => "env",
             Self::NotImplemented => "not_implemented",
             Self::NotFound => "not_found",
         }
@@ -222,6 +231,10 @@ pub fn match_route(method: &Method, path: &str) -> RouteId {
         // Delete/Activate/Display）。`is_models_subpath` 校验路径形态合法
         // （避免任意字符串被接受为 id）。
         RouteId::Models
+    } else if path == "/api/v1/env" {
+        // GET = 读键名与「是否已设置」；PUT = 写 `.env`。
+        // 其它 method 落到 handler 内返 405（与 chat 同款处理）。
+        RouteId::Env
     } else if path.starts_with("/api/v1/") {
         // 已冻结但本批未实现（D3/D5）。
         RouteId::NotImplemented

@@ -93,6 +93,23 @@ pub fn dispatch_with_security(
             let model_id = crate::web_api::models_routes::active_model_id(&ctx.models);
             handle_status(&ctx.status_ctx, model_id)
         }
+        RouteId::Env => {
+            // GET = 读键名 + 是否已设置（永不回显值）；PUT = 写 `.env` + 热重载。
+            // 重载走 `ensure_supervisor_after_patch` 的同一套语义：写盘成功后让
+            // supervisor 重建 LLM/TTS client，新 key **不重启**即生效。
+            let s = ctx.status_ctx.settings_snapshot();
+            match *method {
+                Method::Get => crate::web_api::env_routes::handle_get(&s),
+                Method::Put => match crate::web_api::env_routes::handle_put(&s, method, body_str) {
+                    Ok(resp) => {
+                        ctx.ensure_supervisor_after_patch();
+                        resp
+                    }
+                    Err(resp) => resp,
+                },
+                _ => crate::web_api::env_routes::method_not_allowed(),
+            }
+        }
         RouteId::SettingsGet => {
             let s = ctx.status_ctx.settings_snapshot();
             handle_get(&s)
