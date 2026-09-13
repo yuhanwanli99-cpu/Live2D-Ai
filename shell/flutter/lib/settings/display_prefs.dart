@@ -2,7 +2,7 @@
 ///
 /// 单独成文件的理由：这些值会被持久化（localStorage）并在启动时反序列化，
 /// 「非法/缺失/越界输入回落到什么」是必须能回归的算术，不该埋在 UI 里。
-/// 持久化本身在 `main.dart` 做（那里才允许 `package:web`）。
+/// 持久化本身在 `app/browser_io.dart` 做（那里才允许 `package:web`）。
 library;
 
 import '../design/theme_id.dart';
