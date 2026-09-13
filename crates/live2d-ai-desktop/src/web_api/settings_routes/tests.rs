@@ -28,7 +28,6 @@ fn sample() -> AppSettings {
         persona: live2d_ai_runtime::settings::PersonaSettings {
             system_prompt: "你是桌宠".into(),
             max_history_pairs: 2,
-            ..live2d_ai_runtime::settings::PersonaSettings::default()
         },
         dev_mode: false,
     }

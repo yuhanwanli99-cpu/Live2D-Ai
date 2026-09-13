@@ -47,6 +47,8 @@ live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 live2d-ai-mod-external-input = { path = "../live2d-ai-mod-external-input" }
 live2d-ai-mod-pet-desktop = { path = "../live2d-ai-mod-pet-desktop" }
 live2d-ai-mod-local-llm = { path = "../live2d-ai-mod-local-llm" }
+# rc.4 M5：角色卡标准 Mod（主链只留 system_prompt，卡字段由它合成写回）。
+live2d-ai-mod-persona = { path = "../live2d-ai-mod-persona" }
 ringbuf = "0.5"
 # 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
 # - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，

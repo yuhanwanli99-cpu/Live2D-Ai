@@ -231,6 +231,20 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                         true
                     }),
                     config_path: config_path.clone(),
+                    // rc.4 M5：脱敏设置读取——Mod 可读当前生效设置（无密钥、无变量名），
+                    // 角色卡 Mod 用它记住主链原本的 system_prompt 以便禁用时还原。
+                    read_settings: {
+                        let path_for_read = config_path.clone();
+                        Arc::new(move || {
+                            let Ok(s) = live2d_ai_runtime::AppSettings::load_from_path(&path_for_read) else {
+                                return serde_json::json!({});
+                            };
+                            serde_json::to_value(
+                                live2d_ai_runtime::settings::view::settings_to_view(&s),
+                            )
+                            .unwrap_or_else(|_| serde_json::json!({}))
+                        })
+                    },
                 })
                 // rc.4 M1：注入 manifest 路径，enable/disable/config 原子写回。
                 .with_manifest_path(mods_path_for_web())

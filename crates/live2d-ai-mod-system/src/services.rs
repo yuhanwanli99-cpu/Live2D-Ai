@@ -134,6 +134,30 @@ impl ModSettingsApplier {
     }
 }
 
+/// Mod → host 配置**读取**（脱敏快照；rc.4 M5）。
+///
+/// 与 `apply_settings` 对称：返回当前生效的 namespaced settings JSON
+/// （由 host 用脱敏视图构造——**不含任何密钥明文，也不含 `api_key_env` 变量名**）。
+/// 角色卡 Mod 用它记住「主链原本的 system_prompt」，从而在禁用时还原。
+#[derive(Clone)]
+pub struct ModSettingsReader {
+    inner: std::sync::Arc<dyn Fn() -> serde_json::Value + Send + Sync>,
+}
+
+impl ModSettingsReader {
+    /// 由 host 注入实现。
+    pub fn new(f: impl Fn() -> serde_json::Value + Send + Sync + 'static) -> Self {
+        Self {
+            inner: std::sync::Arc::new(f),
+        }
+    }
+
+    /// 读取当前设置快照（namespaced JSON）。
+    pub fn read(&self) -> serde_json::Value {
+        (self.inner)()
+    }
+}
+
 /// Host 注入 Mod 的服务集合。
 #[derive(Clone)]
 pub struct ModServices {
@@ -143,6 +167,10 @@ pub struct ModServices {
     pub logger: ModLogger,
     /// 一等配置写回（rc.4 M4）；未注入时为「拒绝一切 patch」的默认实现。
     pub apply_settings: ModSettingsApplier,
+    /// 脱敏设置读取（rc.4 M5）；未注入时返回空对象。
+    pub settings: ModSettingsReader,
+    /// 真实 `live2d-ai.toml` 路径（host 注入；失败时用于精确报错，不再自行探测）。
+    pub config_path: String,
 }
 
 impl ModServices {
@@ -159,12 +187,26 @@ impl ModServices {
             logger,
             // 默认实现拒绝写入：显式注入才开通（避免单测/无 supervisor 环境静默写盘）。
             apply_settings: ModSettingsApplier::new(|_| false),
+            settings: ModSettingsReader::new(|| serde_json::json!({})),
+            config_path: String::new(),
         }
     }
 
     /// builder：注入一等配置写回（host 的 `make_services` 用）。
     pub fn with_apply_settings(mut self, applier: ModSettingsApplier) -> Self {
         self.apply_settings = applier;
+        self
+    }
+
+    /// builder：注入脱敏设置读取。
+    pub fn with_settings_reader(mut self, reader: ModSettingsReader) -> Self {
+        self.settings = reader;
+        self
+    }
+
+    /// builder：注入配置文件路径。
+    pub fn with_config_path(mut self, path: impl Into<String>) -> Self {
+        self.config_path = path.into();
         self
     }
 }

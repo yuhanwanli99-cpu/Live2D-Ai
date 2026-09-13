@@ -54,16 +54,14 @@ pub struct TtsView {
     pub channels: u16,
 }
 
-/// 视图中的 persona 段。
+/// 视图中的 persona 段（rc.4 M5：主链只留 `system_prompt` + `max_history_pairs`）。
+///
+/// 酒馆卡字段不再出现在主设置里——它们属于标准 Mod `live2d-ai-mod-persona`，
+/// 经 `GET /api/v1/mods` 的 settings_spec 暴露。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PersonaView {
     pub system_prompt: String,
     pub max_history_pairs: usize,
-    pub name: String,
-    pub description: String,
-    pub personality: String,
-    pub scenario: String,
-    pub first: String,
 }
 
 impl From<&LlmSettings> for LlmView {
@@ -95,11 +93,6 @@ impl From<&PersonaSettings> for PersonaView {
         Self {
             system_prompt: s.system_prompt.clone(),
             max_history_pairs: s.max_history_pairs,
-            name: s.name.clone(),
-            description: s.description.clone(),
-            personality: s.personality.clone(),
-            scenario: s.scenario.clone(),
-            first: s.first.clone(),
         }
     }
 }
