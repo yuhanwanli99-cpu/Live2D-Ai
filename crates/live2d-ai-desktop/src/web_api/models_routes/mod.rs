@@ -43,7 +43,13 @@ pub mod registry;
 mod util;
 
 #[cfg(test)]
-mod tests_models_routes;
+mod tests_models_common;
+#[cfg(test)]
+mod tests_models_core;
+#[cfg(test)]
+mod tests_models_handlers;
+#[cfg(test)]
+mod tests_models_p1;
 
 pub(crate) use registry::{ModelRegistry, atomic_write_json};
 
