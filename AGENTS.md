@@ -252,7 +252,7 @@
   `reasoning_delta`** → 前端气泡的**「思考」折叠区**；默认上限 512 → **4096**；
   「只有思考没有正文」单独收口。见下方「推理模型的思考」小节。
   门禁：cargo **790** 通过 / clippy 0 warning / rust-ratio **96.9681% PASS**；
-  flutter analyze 无问题 + **812** 测试通过；`ignite.sh --check` 四项全 ok；
+  flutter analyze 无问题 + **813** 测试通过（含无头浏览器验收补丁）；`ignite.sh --check` 四项全 ok；
   `verify_core_chain.py`（长思考提问）**18 跳全过**。
   发布说明（含点火记录与已知问题）：`docs/releases/v0.1.0-rc.2.md`。
 - **2026-09-11（v0.1.0-rc.1，核心链路基线）**：用户验收通过 → **交接落盘 + 标注基线**，
