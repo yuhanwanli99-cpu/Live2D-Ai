@@ -1,8 +1,11 @@
 //! 模型 registry（持久化 + 路径安全 + 原子写回 + DTO 类型）。
 //!
 //! 设计：
-//! - **单一文件 JSON**：`model_registry.json`，与 `assets/models/<id>/...`
-//!   并列在 data 根目录下（XDG `~/.local/share/live2d-ai/`）。
+//! - **单一文件 JSON**：`model_registry.json`，住在**模型根内部**
+//!   （`assets/models/model_registry.json`；路径由
+//!   [`crate::web_api::model_root::registry_path`] 给出）。
+//! - **单一模型根**（rc.2 2026-09-12）：registry 里的相对路径一律相对
+//!   **仓库 `assets/models/`**——与静态 `/models/*` 完全同一个根。
 //! - **原子写回**（与 W1 settings 写盘口径一致）：`atomic_write_json`
 //!   内部 = 写 `<file>.tmp.<pid>` → `fdatasync` → rename。
 //! - **路径安全**：[`normalize_relative_id`] 拒绝 `..`、绝对路径特征、
@@ -108,34 +111,6 @@ fn append_tmp_suffix(path: &Path, pid: u32) -> PathBuf {
     let mut s = path.as_os_str().to_os_string();
     s.push(format!(".tmp.{pid}"));
     PathBuf::from(s)
-}
-
-/// 解析默认 registry 路径（XDG data_dir + `model_registry.json`）。
-///
-/// 暴露给同 crate 其它模块复用同一 XDG 派生（避免分散）。
-/// 本批 D3 handler 全走 `ModelStore::registry_path` 字段；保留此函数
-/// 供未来 settings / log / supervisor 等模块复用。
-#[allow(dead_code)]
-pub fn registry_path_for() -> PathBuf {
-    use directories::ProjectDirs;
-    let data_dir = ProjectDirs::from("dev", "live2d-ai", "live2d-ai")
-        .map(|p| p.data_dir().to_path_buf())
-        .or_else(|| {
-            std::env::var_os("XDG_DATA_HOME")
-                .map(PathBuf::from)
-                .map(|p| p.join("live2d-ai"))
-        })
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| {
-                let mut p = PathBuf::from(h);
-                p.push(".local");
-                p.push("share");
-                p.push("live2d-ai");
-                p
-            })
-        })
-        .unwrap_or_else(|| PathBuf::from("live2d-ai-data"));
-    data_dir.join("model_registry.json")
 }
 
 // =====================================================================

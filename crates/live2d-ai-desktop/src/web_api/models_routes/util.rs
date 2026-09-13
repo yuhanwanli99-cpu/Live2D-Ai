@@ -7,8 +7,39 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 在 `dir` 顶层找一个 `*.model3.json` 文件（取第一个匹配的）。
+/// 在 `dir` 下找一个 `*.model3.json` 文件：先看顶层，**再向下看一层**
+/// （子目录按名字排序，取第一个命中）。
+///
+/// # 为什么要向下看一层（rc.2 2026-09-12）
+///
+/// 本仓库的既有布局就是深一层：`assets/models/bai/runtime/bai.model3.json`。
+/// 原实现只扫顶层，于是 `POST /models/import {"id":"bai"}` 必然回
+/// `400 invalid_model3_json`——「连自家自带的模型都导入失败」。
+///
+/// **只限一层**：更深会开始把临时目录、备份目录、另一个模型包也当成命中，
+/// 「导入 id=X 却登记到 X 内部某个无关包」是很难查的错。只递归一层时，
+/// 命中集合仍是「这个 id 自己」加「它的直接子目录」，语义可控。
+///
+/// 不展开符号链接目录（与 `compute_dir_size` 的保守口径一致）。
 pub(super) fn find_model3_json(dir: &Path) -> Option<PathBuf> {
+    if let Some(p) = find_model3_json_shallow(dir) {
+        return Some(p);
+    }
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| !p.is_symlink() && p.is_dir())
+        .collect();
+    // 排序保证确定性：同一目录树每次导入得到同一个 model3.json。
+    subdirs.sort();
+    subdirs
+        .into_iter()
+        .find_map(|d| find_model3_json_shallow(&d))
+}
+
+/// 只在 `dir` 顶层找一个 `*.model3.json`（取第一个匹配的）。
+fn find_model3_json_shallow(dir: &Path) -> Option<PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     for e in entries.flatten() {
         let p = e.path();

@@ -180,18 +180,27 @@ pub fn handle_capabilities() -> Response<std::io::Cursor<Vec<u8>>> {
 /// `GET /api/v1/app/status` 处理器。
 ///
 /// `env_lookup` 决定 `has_api_key`；通常传 `|n| std::env::var(n).ok()`。
-pub fn handle_status(ctx: &StatusContext) -> Response<std::io::Cursor<Vec<u8>>> {
+/// `active_model_id` 由调用方从**真实 registry** 读出（见
+/// [`crate::web_api::models_routes::active_model_id`]）——这里不再有写死的 id。
+pub fn handle_status(
+    ctx: &StatusContext,
+    active_model_id: String,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     let settings = ctx.settings_snapshot();
     let env_lookup = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-    let status = build_status(ctx, &settings, &env_lookup);
+    let status = build_status(ctx, &settings, &env_lookup, active_model_id);
     json_response(StatusCode(200), &status)
 }
 
 /// 把 [`StatusContext`] 序列化为 [`dto::AppStatus`]。
+///
+/// `active_model_id` 是**入参**而不是这里算出来的：它来自模型 registry
+/// （`ModelStore`），而 `StatusContext` 只持配置与 epoch，看不到 registry。
 pub fn build_status(
     ctx: &StatusContext,
     settings: &AppSettings,
     env_lookup: &dyn Fn(&str) -> Option<String>,
+    active_model_id: String,
 ) -> dto::AppStatus {
     let uptime_s = SystemTime::now()
         .duration_since(ctx.started_at)
@@ -209,7 +218,7 @@ pub fn build_status(
         started_at: system_time_iso8601(ctx.started_at),
         uptime_s,
         config_path: ctx.config_path.clone(),
-        active_model_id: "bai_001",
+        active_model_id,
         audio: dto::AudioStatus {
             backend: "none",
             available: false,
@@ -326,7 +335,7 @@ mod tests {
     fn status_unconfigured_shows_zero_or_empty() {
         let settings = AppSettings::default();
         let ctx = StatusContext::new(settings, "/tmp/cfg.toml".into(), None);
-        let st = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let st = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(st.config_path, "/tmp/cfg.toml");
         assert!(!st.llm.configured);
         assert!(!st.tts.configured);
@@ -346,10 +355,10 @@ mod tests {
         s.llm.api_key_env = Some("LIVE2D_AI_LLM_API_KEY".into());
         let ctx = StatusContext::new(s.clone(), "/tmp/cfg.toml".into(), None);
         // env 注入 → true。
-        let st = build_status(&ctx, &s, &env_with_keys);
+        let st = build_status(&ctx, &s, &env_with_keys, String::new());
         assert!(st.llm.has_api_key);
         // env 未注入 → false。
-        let st = build_status(&ctx, &s, &env_no_keys);
+        let st = build_status(&ctx, &s, &env_no_keys, String::new());
         assert!(!st.llm.has_api_key);
     }
 
@@ -410,22 +419,22 @@ mod tests {
     fn status_current_epoch_defaults_to_zero_and_overridable() {
         let ctx = StatusContext::new(AppSettings::default(), "/tmp/cfg.toml".into(), None);
         // 默认读源 = 常 0。
-        let s0 = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let s0 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(s0.current_epoch, 0, "默认应 = 0");
 
         // 注入读源（v1 占位：返回固定 42）。
         ctx.set_epoch_source(Box::new(|| 42));
-        let s1 = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let s1 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(s1.current_epoch, 42, "注入后应 = 42");
 
         // 二次注入：返回 7。
         ctx.set_epoch_source(Box::new(|| 7));
-        let s2 = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let s2 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(s2.current_epoch, 7, "二次注入覆盖前值");
 
         // 兜底：清空到常量 0。
         ctx.set_epoch_source(Box::new(|| 0));
-        let s3 = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let s3 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(s3.current_epoch, 0, "再覆回 0");
     }
 
@@ -443,12 +452,12 @@ mod tests {
         }));
 
         // 第一次读：counter=10。
-        let s0 = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let s0 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(s0.current_epoch, 10);
 
         // counter 推进到 99，**不**重新注入；下次 build_status 仍走读源。
         counter.store(99, Ordering::Release);
-        let s1 = build_status(&ctx, &AppSettings::default(), &env_no_keys);
+        let s1 = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(s1.current_epoch, 99, "读源应每次调用（不缓存）");
     }
 }
