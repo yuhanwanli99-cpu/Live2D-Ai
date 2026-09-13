@@ -51,7 +51,7 @@ git clone /home/skystar/Live2D-Ai-LEGACY-FULL-HISTORY.bundle Live2D-Ai-full-rest
 **不再可用**（远端已删）：
 
 ```bash
-# git clone -b android-archive https://github.com/yuhanwanli99-cpu/Live2Dai.git   # ← 会失败
+# git clone -b android-archive https://github.com/yuhanwanli99-cpu/Live2D-Ai.git   # ← 会失败（该分支的远端 ref 已删）
 ```
 
 校验本地归档完整性：

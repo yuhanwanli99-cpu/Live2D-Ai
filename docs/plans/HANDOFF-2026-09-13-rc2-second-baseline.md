@@ -223,3 +223,32 @@ powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name
 - 提交信息写清「**删除了什么**」「**为什么**」，以及门禁数字；
 - **发布顺序**：先本地提交 + tag → Windows 肉眼点火通过 → 再
   `git push origin main && git push origin v0.1.0-rc.2`（**不许先推、后发现 `/app/` 503**）。
+
+### 9.1 推送记录（2026-09-13，**已完成**）
+
+```
+65e62115..6ab4a074  main -> main
+ * [new tag]        v0.1.0-rc.2 -> v0.1.0-rc.2
+```
+
+`git ls-remote` 与本地逐一对应：`main` = `6ab4a074`、tag 对象 = `82bd78c7`。
+
+**两个坑（下次直接照做）**：
+
+1. **GitHub 仓库已改名**：`yuhanwanli99-cpu/Live2Dai` → **`Live2D-Ai`**。GitHub 会重定向旧名
+   （push 会成功，但回一句 `remote: This repository moved…`）；本地 `origin` 已更正为规范地址。
+   仓库里若再见到旧名，按旧名处理即可（`ANDROID_ARCHIVE_POINTER.md` 那处已修）。
+2. **凭据在 Windows 侧，而 WSL 不继承 Windows 用户级环境变量**：`echo $GITHUB_TOKEN` 在 bash 里
+   是**空**的。要读得**直接读注册表**（与当前进程环境无关）：
+
+   ```bash
+   powershell.exe -NoProfile -Command '[Environment]::GetEnvironmentVariable("GITHUB_TOKEN","User")' \
+     | tr -d '\r\n' > ~/.git-token && chmod 600 ~/.git-token
+   git -c 'credential.helper=!f(){ echo username=yuhanwanli99-cpu; echo "password=$(cat "$HOME/.git-token")"; };f' \
+       push origin main v0.1.0-rc.2
+   shred -u ~/.git-token        # 用完即毁；token 本体留在 Windows 用户变量里
+   ```
+
+   token 是**细粒度 PAT**，只给了该仓库 **Contents: Read and write**（+ 强制的 Metadata: Read-only）——
+   够推提交与 tag；**没给** Workflows（本轮不含 `.github/workflows/**` 改动；哪天要改 CI，
+   push 会被拒，那时才需要加这一项）。
