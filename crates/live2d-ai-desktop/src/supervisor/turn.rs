@@ -292,6 +292,34 @@ pub(crate) async fn run_one_turn(
                 }
             }
         }
+        // ---- 生成返回后**必须先把通道里剩下的事件按正常路径处理掉**
+        //      （2026-09-13 rc.3 N0 修，真机抓到的缺陷）----
+        //
+        // `gen_fut` 的**最后一次轮询**可能在返回前同步塞进若干事件
+        // （`send_event` 在缓冲未满时立即完成）。而 biased select 一旦选中
+        // `gen_fut` 臂就立刻返回，**不会**回头再 poll 上面的 `event_rx` 臂——
+        // 于是这批事件留在通道里，被后面的 `drain_residual_events` **静默丢掉**。
+        //
+        // 真机实测（TTS 传输失败）：`EngineEvent::TextFallback`（**已经生成的
+        // 整轮正文**）正是这样被丢掉的——用户看到「（生成失败）」而不是正文。
+        // 顺序不变、语义不变：仍走同一个 `handle_engine_event`。
+        for _ in 0..256 {
+            let Ok(ev) = event_rx.try_recv() else { break };
+            if ev_epoch(&ev) == root.epoch.get() {
+                handle_engine_event(
+                    &ev,
+                    root,
+                    audio,
+                    turn_id,
+                    &mut pending_pcm,
+                    &mut playback_started,
+                    &mut voice_started_emitted,
+                    &mut saw_fatal_kind,
+                    &mut saw_llm_error,
+                    emit,
+                );
+            }
+        }
         GenOut {
             report: report_slot.take().expect("生成阶段必须以 TurnReport 返回"),
             stopped,
