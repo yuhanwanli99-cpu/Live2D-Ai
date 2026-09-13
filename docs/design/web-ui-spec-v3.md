@@ -3,8 +3,9 @@
 > 状态：**可执行设计规格**，面向照此写 Dart 代码的实现者。
 > 范围：`shell/flutter/`（Flutter Web 外壳，由 Rust 在 `/app/` 同源托管）。
 > 产物：本文件。**不要求实现者读 `docs/design/web-ui-spec-v2.md` / `web-ui-redo-spec-st1-2.md` /
-> `web-ui-polish-spec.md` / `ui-preview-v2.html`** —— 那几份是已废弃的原生 JS 前端时代的产物，
-> 与本规格无继承关系，**不作为设计依据**。
+> `web-ui-polish-spec.md` / `legacy/ui-preview-v2-oldjs.html`** —— 那几份是已废弃的原生 JS 前端时代的产物，
+> 与本规格无继承关系，**不作为设计依据**。（旧预览已于 rc.2 移进 `docs/design/legacy/` 并改名
+> `-oldjs`；理由见那里的 README——它和现行规格摆在同层会被误当现网。）
 >
 > 输入（本规格的全部依据，均已实读）：
 > 1. `docs/research/ui-design-survey-companion-2026-09.md`（1447 行，同类产品视觉语言与 IA）
