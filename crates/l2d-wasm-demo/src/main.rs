@@ -21,8 +21,10 @@
 //! 渲染循环内的致命错误同样写状态栏后停止循环。
 //!
 //! 文件拆分（wasm-only）：
-//! - `main.rs`：本文件——入口与 rAF 调度骨架。
-//! - `surface.rs`：WebGPU/WebGL2 surface 协商、FrameState、单帧状态机（C4 裁决）。
+//! - `main.rs`：本文件——入口、协议 v1 消息桥 / 指针交互与 rAF 调度骨架。
+//! - `surface.rs` + `surface/`：渲染面按行为边界分为 `gpu`（surface 协商）、
+//!   `render`（单帧状态机与 HUD）、`input`（舞台输入状态与可见效果）、
+//!   `idle`（待机生命体征）。
 //! - `net.rs`：fetch / URL 工具 / model3.json 引用解析。
 //!
 //! 交付口径（2026-08-26）：本环境无浏览器/无 GPU 实跑条件，**只完成编译门禁**
@@ -57,7 +59,7 @@ fn main() {
 /// 浏览器实现入口（仅在 wasm32 下编译；依赖也全部 target-gated，native 构建零 web 栈）。
 ///
 /// 子模块拆分：
-/// - [`surface`]：surface 协商 / FrameState / 单帧调度（详见 `surface.rs`）。
+/// - [`surface`]：渲染面（`gpu` / `render` / `input` / `idle` 四个行为边界）。
 /// - [`net`]：fetch / URL 工具 / 清单解析（详见 `net.rs`）。
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -196,7 +198,6 @@ mod web {
             gpu,
             canvas: canvas.clone(),
             window: window.clone(),
-            warned_validation: false,
             validation_streak: 0,
             hud: surface::HudState::default(),
             bridge: surface::BridgeState::default(),

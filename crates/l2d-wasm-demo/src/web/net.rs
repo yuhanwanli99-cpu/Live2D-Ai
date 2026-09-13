@@ -39,12 +39,11 @@ pub(crate) fn js_str(v: &JsValue) -> String {
 pub(crate) fn model_url_from_query(window: &Window) -> String {
     let search = window.location().search().unwrap_or_default();
     let trimmed = search.strip_prefix('?').unwrap_or(&search);
-    if let Ok(params) = web_sys::UrlSearchParams::new_with_str(trimmed) {
-        if let Some(m) = params.get("model") {
-            if !m.is_empty() {
-                return m;
-            }
-        }
+    if let Ok(params) = web_sys::UrlSearchParams::new_with_str(trimmed)
+        && let Some(m) = params.get("model")
+        && !m.is_empty()
+    {
+        return m;
     }
     DEFAULT_MODEL_URL.to_owned()
 }
