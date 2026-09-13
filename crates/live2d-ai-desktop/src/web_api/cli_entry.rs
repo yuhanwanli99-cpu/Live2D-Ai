@@ -232,12 +232,15 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                     }),
                     config_path: config_path.clone(),
                 })
+                // rc.4 M1：注入 manifest 路径，enable/disable/config 原子写回。
+                .with_manifest_path(mods_path_for_web())
         }
         None => {
             println!(
                 "web: 无 supervisor，ModRegistry 以 no-op HostChannels 启动（Mod action 会被丢弃）"
             );
             ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &mods_manifest_for_web())
+                .with_manifest_path(mods_path_for_web())
         }
     };
     let mut registry = registry;
@@ -509,11 +512,7 @@ pub fn config_path_for_web() -> String {
 /// - 文件存在且可解析 → **完全覆盖**内建缺省。
 /// - 文件不存在 → 用 [`default_mods_manifest`]（2026-09-10 M1 修复）。
 fn mods_manifest_for_web() -> serde_json::Value {
-    let dir = std::path::Path::new(&config_path_for_web())
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let path = dir.join("mods.json");
+    let path = mods_path_for_web();
     if let Some(v) = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
@@ -521,6 +520,15 @@ fn mods_manifest_for_web() -> serde_json::Value {
         return v;
     }
     default_mods_manifest()
+}
+
+/// `mods.json` 路径 = `live2d-ai.toml` 同目录（rc.4 M1 起也是**写回目标**）。
+pub fn mods_path_for_web() -> std::path::PathBuf {
+    std::path::Path::new(&config_path_for_web())
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("mods.json")
 }
 
 /// 内建缺省 Mod manifest（`mods.json` 缺失时使用；M1 修复）。

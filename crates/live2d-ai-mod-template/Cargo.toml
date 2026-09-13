@@ -1,0 +1,16 @@
+[package]
+name = "live2d-ai-mod-template"
+description = "Live2D-Ai Mod 模板 crate（rc.4 M3）：复制它并按 docs/architecture/mod-product-chain.md §3 勾选表注册新 Mod；本 crate 自身不注册进 AVAILABLE_MOD_FACTORIES"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
+serde_json = "1"
+log = "0.4"
+
+[lints]
+workspace = true
