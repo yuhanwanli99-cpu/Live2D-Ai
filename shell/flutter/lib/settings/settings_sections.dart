@@ -9,7 +9,7 @@
 ///
 /// 2026-09-11：`actions` 分区项改名为 `appearance`（label 不变）。
 /// **分区枚举没有持久化**（`localStorage` 只存 `DisplayPrefs` 与聊天会话，
-/// 见 `main.dart` 的两个存储键），所以改名不影响老用户——打开时恒落在
+/// 见 `app/browser_io.dart` 的两个存储键），所以改名不影响老用户——打开时恒落在
 /// `main.dart` 的默认分区上，不存在「按 index/name 读回旧分区」的路径。
 ///
 /// 每项**强制带 `description`**：用户不该先学会产品黑话才能看懂一个分区是干什么的。
