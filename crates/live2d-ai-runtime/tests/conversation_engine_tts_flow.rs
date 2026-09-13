@@ -399,3 +399,50 @@ async fn completed_turn_never_emits_text_fallback() {
         "健康轮不得发正文兜底：{events:?}"
     );
 }
+
+/// **rc.3 N0 探针：TTS 传输层失败（连不上）也必须有正文兜底**（2026-09-13）。
+///
+/// 为什么单列：真机验收时把 `[tts] base_url` 指到一个死端口，浏览器上看到的
+/// 仍是「（生成失败）」而不是正文——而上面那条 500 的用例是通过的。传输失败与
+/// 上游 5xx 走的是**不同的**错误构造路径（`Error::Transport` vs `Error::Status`），
+/// 所以必须单独钉住，不能靠「都是 Tts」推断。
+#[tokio::test]
+async fn tts_transport_failure_also_falls_back_to_the_generated_text() {
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content("探针句一。探针句二"), sse_done()],
+    ))
+    .await;
+
+    // 127.0.0.1:9 = discard 端口，本机不监听 → 连接被拒（传输层失败）。
+    let mut eng = engine(
+        &llm_base,
+        "http://127.0.0.1:9/v1",
+        ConversationConfig::default(),
+    );
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(41, "hi", event_tx, CancellationToken::new())
+        .await;
+    assert_eq!(report.status, TurnStatus::Failed);
+    assert_eq!(report.assistant_text, "探针句一。探针句二");
+
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 41);
+    assert_single_terminal_last(&events, TurnStatus::Failed);
+    let fallbacks: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::TextFallback { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fallbacks,
+        ["探针句一。探针句二"],
+        "TTS 传输失败同样必须兜底整轮正文：{events:?}"
+    );
+    assert!(matches!(find_error_kind(&events), Some(ErrorKind::Tts(_))));
+}

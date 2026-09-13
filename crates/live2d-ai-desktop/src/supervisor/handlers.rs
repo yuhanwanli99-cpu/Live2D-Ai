@@ -293,6 +293,10 @@ pub(crate) fn forward_effects(
 
 pub(crate) fn drain_residual_events(rx: &mut mpsc::Receiver<EngineEvent>) {
     // 上限防御：正常 close 后至多几个事件；异常时也不无限自旋。
+    //
+    // **只用于 stop/cancel 路径**（那时丢弃是对的：终止轮次的事实不再有意义）。
+    // 正常收尾路径上不能丢——生成返回后仍可能有一批事件在通道里，必须走
+    // [`handle_engine_event`]（见 `turn.rs` Stage A 末尾的排空循环）。
     for _ in 0..256 {
         if rx.try_recv().is_err() {
             break;

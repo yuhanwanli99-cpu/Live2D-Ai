@@ -558,3 +558,92 @@ fn late_finish_cross_epoch_is_neutralized_via_supervisor() {
     ));
     assert_eq!(root.action.current, Some(nod1), "后来者不得被误伤");
 }
+
+/// **rc.3 N0 回归（2026-09-13，真机抓到的缺陷）**：失败轮里**已经生成的正文**
+/// 必须经 `ConversationUiEvent::TextFallback` 交给 UI。
+///
+/// 它同时钉住 supervisor 的一个**时序缺陷**：`gen_fut` 的**最后一次轮询**可能
+/// 在返回前同步塞进若干引擎事件（`send_event` 在缓冲未满时立即完成），而
+/// biased `select!` 一旦选中 `gen_fut` 臂就立刻返回、**不会**回头再 poll
+/// 上面的 `event_rx` 臂——那批事件落在通道里，被收尾的
+/// `drain_residual_events` 静默丢掉。
+///
+/// 真机表现（2026-09-13，TTS 指着死端口）：WS 上只有 `error` + `turn_state`，
+/// 一个字都没有；界面上是「（生成失败）」而不是正文。修法见 `turn.rs` Stage A 末尾
+/// 的「生成返回后排空通道」循环。
+#[test]
+fn failed_turn_delivers_generated_text_via_text_fallback() {
+    let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let sse = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"第一句。第二\"}}]}\n\n",
+        "data: [DONE]\n\n"
+    )
+    .to_owned();
+    let llm_base = spawn_llm_mock(llm_bodies.clone(), sse);
+
+    // TTS 指向本机 discard 端口：**传输层**失败（与上游 5xx 是不同的错误路径）。
+    let client = live2d_ai_runtime::OpenAiClient::new(
+        live2d_ai_runtime::LlmConfig::new(llm_base, "test-model"),
+        live2d_ai_runtime::TtsConfig::new("http://127.0.0.1:9/v1", "alloy"),
+    )
+    .expect("client");
+
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let emit_collector = collector.clone();
+    let handle = spawn_supervisor(
+        SupervisorConfig {
+            client,
+            conversation: live2d_ai_runtime::ConversationConfig::new(""),
+            capabilities: live2d_ai_core::ModelCapabilities::all(),
+            audio: None,
+            config_path: None,
+            mod_events: None,
+        },
+        move |ev| {
+            emit_collector.lock().expect("poison").push(ev);
+        },
+    );
+
+    assert!(handle.say("测试"), "空闲态 Say 必须入队");
+    let finished = |c: &Collector| {
+        c.lock().expect("poison").iter().any(|e| {
+            matches!(
+                e,
+                AppEvent::RootAudit(crate::app_event::RootFact::GenerationFinished { .. })
+            )
+        })
+    };
+    assert!(
+        wait_for(Duration::from_secs(5), || finished(&collector)),
+        "本轮应在超时前收口（失败也要收口）"
+    );
+
+    handle.quit();
+    assert!(
+        wait_for(Duration::from_secs(2), || {
+            collector
+                .lock()
+                .expect("poison")
+                .iter()
+                .any(|e| matches!(e, AppEvent::ShutdownReady))
+        }),
+        "supervisor 退出前必须发 ShutdownReady"
+    );
+    handle.join();
+
+    let events = collector.lock().expect("poison");
+    let fallbacks: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            AppEvent::Conversation(ConversationUiEvent::TextFallback { text, .. }) => {
+                Some(text.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fallbacks,
+        ["第一句。第二"],
+        "失败轮必须把**整轮正文**交给 UI（否则用户看到的是「模型没回」）：{events:?}"
+    );
+}
