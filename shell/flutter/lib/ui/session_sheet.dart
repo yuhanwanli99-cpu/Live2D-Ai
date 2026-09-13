@@ -20,6 +20,17 @@ import '../design/tokens.dart';
 import '../live2d/stage_pointer_interceptor.dart';
 import 'theme.dart';
 
+/// 会话列表顶部那行说明：**本地记录 ≠ 模型记忆**（rc.3 N3，2026-09-13）。
+///
+/// 它必须说清两件事，否则用户会误读：
+/// ① 这些会话只在本机（localStorage）——换设备/清站点数据就没了；
+/// ② 模型**看不到**它们：每轮 `POST /api/v1/chat` 只带当前这一句，
+///    所谓「记忆」不由这里提供。
+///
+/// 与 `chat/chat_session.dart` 的模型说明同源，放在 UI 侧只因为它是**给人看的文案**。
+const String kSessionsAreLocalNote =
+    '这些会话只是本机记录，不是模型记忆（每轮只把当前这句发给模型）。';
+
 /// 打开会话浮层。
 Future<void> showSessionSheet({
   required BuildContext context,
@@ -151,6 +162,20 @@ class _SessionSheetState extends State<SessionSheet> {
           ),
         ),
         Divider(height: 1, color: colors.hairline),
+        // ── 「本地记录 ≠ 模型记忆」的明示（rc.3 N3，2026-09-13）──
+        //
+        // 多会话只存在**本机**（localStorage）；每轮发出去的仍然只有当前这一句
+        // （`POST /api/v1/chat` 的 body 是 `{text}`）。不写清楚，用户会以为
+        // 「切了会话 = 模型换了记忆」——那是两件事。
+        Padding(
+          padding: const EdgeInsets.only(left: Space.s4, top: Space.s2, right: Space.s4),
+          child: Text(
+            kSessionsAreLocalNote,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.contentMuted,
+            ),
+          ),
+        ),
         if (widget.sessions.isEmpty)
           Padding(
             padding: const EdgeInsets.all(Space.s5),
