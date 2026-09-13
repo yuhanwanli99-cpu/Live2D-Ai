@@ -248,6 +248,7 @@ fn engine_event_variants_accept_ts_ms_field() {
         // ev_ts_ms 不可见（pub(crate)），但我们用匹配直接读出 ts_ms。
         let ts = match e {
             EngineEvent::TextDelta { ts_ms, .. }
+            | EngineEvent::ReasoningDelta { ts_ms, .. }
             | EngineEvent::AudioChunk { ts_ms, .. }
             | EngineEvent::SentenceVoiced { ts_ms, .. }
             | EngineEvent::Error { ts_ms, .. }

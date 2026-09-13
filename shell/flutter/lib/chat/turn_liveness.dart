@@ -44,6 +44,20 @@ enum TurnSettlement {
   /// 一个是模型的产出，一个是用户的意志。用同一句话会把用户自己按的停止
   /// 说成「模型没返回文字」。
   stopped,
+
+  /// 没有正文，**但有思考**（2026-09-13，推理模型）。
+  ///
+  /// 为什么单列一类：实测推理模型的思考会占用同一份输出预算，长思考的提问
+  /// 会把正文挤到为空或只剩半句——而半句切不出完整句，于是**一个字都不上屏**。
+  /// 这时界面上其实**有**东西可看（思考就在气泡上），只是没有正文。
+  ///
+  /// 处理方式与 [wordless] 不同：
+  /// - [wordless] → 换成一条**系统行**（气泡里确实什么都没有）；
+  /// - [keepReasoningOnly] → **保留气泡**（思考留给用户看），由气泡自己
+  ///   标一句 [kReasoningOnlyCaption] 说明「只有思考、没有正文」。
+  ///
+  /// 若这里也换成系统行，就等于把用户最想看的那段思考**扔掉**。
+  keepReasoningOnly,
 }
 
 /// 一轮收口方式的判据。
@@ -60,10 +74,13 @@ TurnSettlement settleTurn({
   required bool failed,
   required String text,
   bool stopped = false,
+  bool hasReasoning = false,
 }) {
   if (text.trim().isNotEmpty) return TurnSettlement.keep;
   if (failed) return TurnSettlement.failed;
-  return stopped ? TurnSettlement.stopped : TurnSettlement.wordless;
+  if (stopped) return TurnSettlement.stopped;
+  // 「只有思考」优先于「什么都没有」：气泡里有真内容，不能当空气泡丢掉。
+  return hasReasoning ? TurnSettlement.keepReasoningOnly : TurnSettlement.wordless;
 }
 
 /// 实时通道掉了、而**有一轮正在进行** → 必须就地收口。
@@ -93,6 +110,15 @@ bool mustReleaseTurnOnWsLoss({
 /// 那句话既解释不了现象、又让用户以为还有个动作系统在跑，故删去——
 /// 只说「本轮没有返回文字」，原因留给诊断日志。
 const String kWordlessTurnNotice = '本轮模型没有返回文字';
+
+/// 「只有思考、没有正文」时气泡上的说明行（2026-09-13）。
+///
+/// 它必须**同时**说清两件事：发生了什么（只有思考）+ 下一步能做什么
+/// （调大输出上限）。只说「没有返回文字」会把用户送回原来那个坑——
+/// 界面上有一条系统行，但他依然不知道模型其实想了 1200 字、也不知道去哪改。
+const String kReasoningOnlyCaption =
+    '本轮只有思考、没有正文（正文可能被「输出 token 上限」截断；'
+    '可在「设置 → 对话模型」把它调大）';
 
 /// 通道中断导致本轮收口时的错误码（与后端 `ErrorKind::code()` 同一约定：
 /// 用户拿界面上的码去日志里搜）。

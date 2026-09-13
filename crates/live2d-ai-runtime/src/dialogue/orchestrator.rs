@@ -53,6 +53,10 @@ impl DialogueAssembler {
                 .into_iter()
                 .map(|text| DialogueEvent::SentenceReady { text })
                 .collect(),
+            // 思考**必须**在这里被吞掉：它一旦进句子装配器就会被合成语音
+            // （模型会把思考念出来）。它只走 `EngineEvent::ReasoningDelta`
+            // 那条独立通道给 UI 看。
+            LlmEvent::ReasoningDelta(_) => Vec::new(),
             LlmEvent::Done => self.end(),
         }
     }

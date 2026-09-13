@@ -543,7 +543,11 @@ fn e2e_max_tokens_tri_state_through_http_patch() {
         |after| assert_eq!(after.llm.max_tokens, Some(333)),
     );
 
-    // 4) 显式 null = 清除 → 回落默认（视图报 512，而不是「不限制」）。
+    // 4) 显式 null = 清除 → 回落默认（视图报默认值，而不是「不限制」）。
+    //
+    // 断言**引用常量**而不是写死数字：默认值本身是策略（2026-09-13 因推理模型
+    // 的思考占用输出预算，512 → 4096），钉死数字会让「改策略」看起来像
+    // 「改坏了」，而这条测试真正要守的是「null 会回落到默认、不是不限制」。
     patch_and_check(
         &capped,
         "mt_clear",
@@ -554,7 +558,7 @@ fn e2e_max_tokens_tri_state_through_http_patch() {
                 live2d_ai_runtime::settings::view::settings_to_view(after)
                     .llm
                     .max_tokens,
-                512
+                live2d_ai_runtime::settings::DEFAULT_MAX_TOKENS
             );
         },
     );

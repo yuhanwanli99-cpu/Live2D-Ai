@@ -71,6 +71,9 @@ impl ShellApp {
             // P1WS-1：TextDelta 走 WS 通道给 web 前端，winit 路径不显示文本——
             // 仅维护 render_epoch 镜像即可（已被 NewEpoch 权威下发过）。
             ConversationUiEvent::TextDelta { .. } => {}
+            // 思考同样不上 native UI：winit 路径只维护 render_epoch
+            // （web 路径经 WS 投影给前端气泡的「思考」折叠区）。
+            ConversationUiEvent::ReasoningDelta { .. } => {}
         }
     }
 }

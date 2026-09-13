@@ -545,7 +545,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
     assert_eq!(next.llm.max_tokens, None);
     assert_eq!(
         settings_to_view(&next).llm.max_tokens,
-        512,
+        crate::settings::DEFAULT_MAX_TOKENS,
         "null = 回落默认，绝不能等于「不限制」"
     );
 

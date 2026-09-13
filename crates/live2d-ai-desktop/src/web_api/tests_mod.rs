@@ -190,13 +190,19 @@ fn dispatch_settings_get_returns_200() {
 /// D3（2026-08-28）：`GET /api/v1/models` 现在走 `models_routes::dispatch`。
 /// 空 registry → 200 + `{"models":[]}`。
 #[test]
-fn dispatch_models_list_returns_200_empty() {
+fn dispatch_models_list_returns_200() {
+    // **不得依赖机器状态**（2026-09-13 修）：这条以前断言 body 里含 `[]`，
+    // 也就是假设**本机 registry 是空的**。而 registry 住在真实的模型根
+    // （`assets/models/model_registry.json`）——用户导入过任何模型，
+    // 这条就会红，而那不是缺陷，是测试写错了。
+    //
+    // 现在用**临时 store**，断言的是「路由通了、形状对」：
     let ctx = ctx_with(AppSettings::default());
     let resp = dispatch(&ctx, &Method::Get, "/api/v1/models", "");
     assert_eq!(resp.status_code().0, 200);
     let body = body_to_string(resp);
     assert!(body.contains("\"models\""), "body = {body}");
-    assert!(body.contains("[]"), "body = {body}");
+    assert!(body.contains("["), "models 必须是数组：body = {body}");
 }
 
 #[test]

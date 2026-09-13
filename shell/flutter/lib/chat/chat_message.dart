@@ -48,6 +48,7 @@ class ChatMessage {
     this.epoch,
     this.streaming = false,
     this.failed = false,
+    this.reasoning = '',
   });
 
   final ChatRole role;
@@ -55,6 +56,18 @@ class ChatMessage {
   final int? epoch;
   bool streaming;
   bool failed;
+
+  /// 推理模型的**思考**正文（`reasoning_delta` 累积；2026-09-13）。
+  ///
+  /// # 为什么不落盘（`toJson` / `fromJson` 都不含它）
+  ///
+  /// 思考通常比正文长 **5–20 倍**（实测一个普通提问 1200+ 字思考 vs 20 字回复）。
+  /// 写进 localStorage 会让会话存档膨胀一个数量级，而它的价值只在
+  /// 「刚发生的那一轮」——用户想看的是「它刚才怎么想的」。
+  ///
+  /// 代价说清楚：**刷新页面后旧气泡不再有思考**。这是刻意的取舍，不是遗漏。
+  /// 要改成持久化，需要同时给会话存档加体积上限（否则长会话会顶穿配额）。
+  String reasoning;
 
   /// 是否是一条「系统提示」而不是真实回复（失败/无输出的占位文案）。
   ///

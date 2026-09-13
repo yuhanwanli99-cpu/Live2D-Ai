@@ -69,6 +69,7 @@ const String kHeartbeat =
     '{"type":"heartbeat","seq":9,"ts":"2026-09-10T12:15:00.000Z"}';
 
 void main() {
+  _reasoningFrameTests();
   group('真实帧 → 领域事件（每种 type 一条，全部来自实抓）', () {
     test('subscribe_ack：首帧，topics 可为空列表', () {
       final WsEvent? e = parseWsFrame(kRealSubscribeAck);
@@ -421,5 +422,41 @@ void main() {
       expect(e.event, 'shutdown_ready');
       expect(e.epoch, isNull, reason: '这一支服务端确实不带 epoch');
     });
+  });
+}
+
+// ── 思考帧（2026-09-13）──────────────────────────────────────────────
+//
+// 实测上游 `deepseek-flash` 是推理模型：正文之外还有 `reasoning_content`。
+// 服务端把它投影成**独立**的 `reasoning_delta` 帧（不复用 `text_delta`），
+// 因为两者语义不同：`text_delta` 与音频同拍，思考没有声音可对。
+void _reasoningFrameTests() {
+  test('reasoning_delta：解析出 text / epoch', () {
+    final WsEvent? ev = parseWsFrame(
+      '{"type":"reasoning_delta","seq":7,"ts":"2026-09-13T00:00:00.000Z",'
+      '"data":{"epoch":1,"ts_ms":42,"text":"先看题目…"}}',
+    );
+    expect(ev, isA<ReasoningDeltaEvent>());
+    final ReasoningDeltaEvent r = ev! as ReasoningDeltaEvent;
+    expect(r.text, '先看题目…');
+    expect(r.epoch, 1);
+    expect(r.seq, 7);
+  });
+
+  test('reasoning_delta：缺 text 不抛，按 null 处理', () {
+    final WsEvent? ev = parseWsFrame(
+      '{"type":"reasoning_delta","data":{"epoch":1}}',
+    );
+    expect(ev, isA<ReasoningDeltaEvent>());
+    expect((ev! as ReasoningDeltaEvent).text, isNull);
+  });
+
+  /// 它是**独立**类型：不能被解析成 TextDeltaEvent（否则思考会被追加进正文，
+  /// 等于把内心独白当回复、还会被送去合成语音）。
+  test('reasoning_delta 不得退化成 text_delta', () {
+    final WsEvent? ev = parseWsFrame(
+      '{"type":"reasoning_delta","data":{"text":"x"}}',
+    );
+    expect(ev, isNot(isA<TextDeltaEvent>()));
   });
 }

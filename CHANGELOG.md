@@ -44,10 +44,23 @@
 - `docs/architecture/core-chain-baseline.md` §3.2/§3.3 改写为删后的真话（含推翻原判断的理由）。
 - 旧 JS 前端预览隔离到 `docs/design/legacy/` 并标注「**勿当现网**」。
 
+## 补丁（2026-09-13，rc.2 内）：推理模型的思考 + 输出上限
+
+- **思考（`reasoning_content`）以前被整条丢弃**：实测上游 `deepseek-flash` 是推理模型，
+  而 SSE 解析只读 `content`。现在单列 `LlmEvent::ReasoningDelta` →
+  `EngineEvent::ReasoningDelta` → WS **新帧 `reasoning_delta`** → 前端气泡的
+  **「思考」折叠区**（默认折叠；只有思考没有正文时默认展开并说明原因）。
+  纪律：思考**不进句子装配器、不进 TTS**（否则会把内心独白念出来）。
+- **默认输出上限 512 → 4096**：思考与正文**共用**这份预算。实测同一提问
+  512 时 `finish_reason=length`、正文只剩 25 字且断在 `\sqrt{a`；4096 时完整。
+  而**半句切不出完整句** ⇒ 前端一个字都不上屏 ⇒ 用户看到「模型没有返回」。
+- **「只有思考没有正文」的收口**：新增 `TurnSettlement.keepReasoningOnly`——
+  保留气泡（思考是本轮唯一内容，不能当空气泡丢掉）并给一句可行动的说明。
+
 ## 门禁
 
-cargo **784** passed / fmt 干净 / clippy **0 warning** / rust-ratio **96.9545% PASS**；
-flutter analyze 无问题 / flutter test **798** passed；`ignite.sh --check` 四项全 ok。
+cargo **790** passed / fmt 干净 / clippy **0 warning** / rust-ratio **96.9681% PASS**；
+flutter analyze 无问题 / flutter test **812** passed；`ignite.sh --check` 四项全 ok。
 `verify_core_chain.py` 11 跳 OK、3 跳因**本机 TTS 端点未启动**而红（详见发布说明 §4.1）。
 
 ---

@@ -152,6 +152,11 @@ class UiStateTracker extends ChangeNotifier {
           return true;
         }
         return false;
+      // 思考**不改任何相位**：它是旁注，不代表「本轮已开始出声」或「已收到正文」。
+      // 若把「正在思考」当成 turnActive/voiceActive，状态胶囊会在正文到来前
+      // 就亮起「正在回复」，而那时一个字都还没有。
+      case ReasoningDeltaEvent():
+        return false;
       case TurnStateEvent(:final status):
         _turnActive = false;
         _voiceActive = false;

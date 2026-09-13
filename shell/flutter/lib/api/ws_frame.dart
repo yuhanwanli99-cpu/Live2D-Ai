@@ -81,6 +81,26 @@ class TextDeltaEvent extends WsEvent {
   final bool? completed;
 }
 
+/// `reasoning_delta`：推理模型的**思考**增量（2026-09-13）。
+///
+/// 与 [TextDeltaEvent] 严格分开，理由有二：
+/// 1. **语义不同**：`text_delta` 是「会对上声音的正文」（服务端在该句语音合成完毕
+///    才发），思考没有声音可对；
+/// 2. **不能混**：若把思考当正文追加到气泡里，界面会把内心独白当回复显示。
+///
+/// 它只进气泡的「思考」折叠区，**不落盘**（见 `ChatMessage.reasoning`）。
+class ReasoningDeltaEvent extends WsEvent {
+  const ReasoningDeltaEvent({
+    this.epoch,
+    this.text,
+    super.seq,
+    super.ts,
+  });
+
+  final int? epoch;
+  final String? text;
+}
+
 /// `audio`：base64 s16le 单声道 PCM 片（默认 20ms）。
 class AudioEvent extends WsEvent {
   const AudioEvent({
@@ -282,6 +302,15 @@ WsEvent? parseWsFrame(String raw) {
         completed: data['completed'] is bool
             ? data['completed'] as bool
             : null,
+        seq: seq,
+        ts: ts,
+      );
+
+    case 'reasoning_delta':
+      // 未知 type 在旧客户端被忽略，所以这是向后兼容的新增帧。
+      return ReasoningDeltaEvent(
+        epoch: _intOrNull(data['epoch']),
+        text: _str(data['text']),
         seq: seq,
         ts: ts,
       );
