@@ -231,9 +231,36 @@ powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name
  * [new tag]        v0.1.0-rc.2 -> v0.1.0-rc.2
 ```
 
-`git ls-remote` 与本地逐一对应：`main` = `6ab4a074`、tag 对象 = `82bd78c7`。
+#### 最终远端状态（**匿名** `git ls-remote` 核对，无凭据也读得到——仓库是公开的）
 
-**两个坑（下次直接照做）**：
+| ref | 远端 | 本地 |
+|---|---|---|
+| `refs/heads/main` | **`6ab4a074`** | `bfdd1420`（**领先 1 个 docs-only 提交**） |
+| `refs/tags/v0.1.0-rc.2` | **`82bd78c7`** → 指向 `6ab4a074` | 同 |
+
+⇒ **代码、计划、交接、发布说明与 tag 都已经在远端**（`6ab4a074` 就是那个提交）。
+本地多出来的 `bfdd1420` **只有文档**：它记录的就是这次推送本身（外加一处旧仓库名更正）——
+属于「先有鸡还是先有蛋」，推的时候它还不存在。
+
+**为什么没跟上**：按建议「推完立刻销毁 token」，token 在第一次 push 之后就被销毁了，
+所以这条文档提交 push 时认证失败（`remote: Invalid username or token`）。
+**这不是缺陷**，别再花时间排查它——补推只需一条命令（见 §9.2 路线 A，**不需要 token**）。
+
+#### 9.2 补推那条 docs 提交（可选，两条路都不必再造 token）
+
+**路线 A（推荐）** —— 用 Windows 侧 Git 已有的凭据，把 WSL 仓当远端：
+
+```powershell
+cd C:\Users\33784\.copilot\repos\Live2Dai
+git remote add wsl \\wsl.localhost\Ubuntu\home\skystar\Live2D-Ai   # 已存在就跳过
+git fetch wsl main
+git push origin wsl/main:main
+```
+
+**路线 B** —— 在 Windows 用户级变量里放一把**新的**细粒度 PAT（仅该仓库 `Contents: Read and write`），
+然后按下面的方式在 WSL 里读（注意：**WSL 不继承 Windows 用户变量**）。
+
+#### 9.3 两个坑（下次直接照做）
 
 1. **GitHub 仓库已改名**：`yuhanwanli99-cpu/Live2Dai` → **`Live2D-Ai`**。GitHub 会重定向旧名
    （push 会成功，但回一句 `remote: This repository moved…`）；本地 `origin` 已更正为规范地址。
@@ -246,9 +273,14 @@ powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name
      | tr -d '\r\n' > ~/.git-token && chmod 600 ~/.git-token
    git -c 'credential.helper=!f(){ echo username=yuhanwanli99-cpu; echo "password=$(cat "$HOME/.git-token")"; };f' \
        push origin main v0.1.0-rc.2
-   shred -u ~/.git-token        # 用完即毁；token 本体留在 Windows 用户变量里
+   shred -u ~/.git-token        # WSL 侧用完即毁，不留副本
    ```
 
    token 是**细粒度 PAT**，只给了该仓库 **Contents: Read and write**（+ 强制的 Metadata: Read-only）——
    够推提交与 tag；**没给** Workflows（本轮不含 `.github/workflows/**` 改动；哪天要改 CI，
    push 会被拒，那时才需要加这一项）。
+
+   > **本轮实际发生的事**：第一次 push 成功后，按「用完即销毁」的建议把 token 也销毁了，
+   > 于是紧接着的那条文档提交推不动（`remote: Invalid username or token`）。
+   > **这个结果是预期的、也是正确的**——重要的东西（代码 / 计划 / 交接 / 发布说明 / tag）
+   > 在第一次 push 时就已经落地。下次要用就按上面的最小权限**重新申请一把**。
