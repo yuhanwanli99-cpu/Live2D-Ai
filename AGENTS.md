@@ -12,12 +12,15 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.1.0-rc.2`（第二基线，2026-09-12）**：在 rc.1 基础上把动作层**删到底**
-  （director Mod / Action 注入 / 渲染面编舞全删，core 子系统保留但明文休眠）、打通
-  **模型库闭环**（单一模型根 + 激活即换皮）、确立 **`.env` = 唯一密钥真源**（前端可写 + 热重载）。
-  LLM 工具层与动作系统**已从前后端整体拆除**——**不要**再以「LLM 调用工具」「动作系统」
-  为前提写代码或文档。发布说明：`docs/releases/v0.1.0-rc.2.md`（rc.1：
-  `docs/releases/v0.1.0-rc.1.md`）。
+- **当前版本 `0.1.0-rc.3`（结构质量，2026-09-13）**：主链与 rc.2 相同
+  （文本 → LLM 纯对话 → TTS → 口型 → Live2D + Flutter UI）；本版收的是**结构债与同拍脆点**：
+  **正文兜底**（TTS 挂了也看得见已生成的正文，WS 新帧 `text_fallback`）、
+  `main.dart` 1288→543、`surface.rs` 1167→24、`ws.rs` 1073→263、
+  测试 monolith 按场景切开、**原生第二壳裁决为「非主线」**（休眠台账见下）、
+  **CI = 本地门禁一张表**。发布说明：`docs/releases/v0.1.0-rc.3.md`。
+  rc.2（第二基线：动作层删到底 + 模型库闭环 + `.env` 密钥真源）：
+  `docs/releases/v0.1.0-rc.2.md`。**LLM 工具层与动作系统已整体拆除**——**不要**再以
+  「LLM 调用工具」「动作系统」为前提写代码或文档。
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （`android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
@@ -281,6 +284,39 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-13（v0.1.0-rc.3，结构质量）**：主链一行未改，收的是「挡住正式 0.1.0」的两类东西。
+  ① **正文兜底（N0）**：上屏闸门是「该句语音已合成完毕」（同拍契约），代价是 TTS 故障 /
+  半句切不出 / LLM 中途断流时**整轮一个字都不上屏**。新增 `EngineEvent::TextFallback` →
+  `ConversationUiEvent::TextFallback` → WS **新帧 `text_fallback`**（覆盖式整段正文，
+  不是残余；只在 `Failed` 发、在 `Terminal` 之前、健康轮永不发），前端气泡加
+  「未收尾」说明行且**落盘**；契约写进 `core-chain-baseline.md` §2.1。
+  **真机又抓到一个时序缺陷并修掉**：`run_one_turn` Stage A 的 biased `select!` 选中
+  `gen_fut` 臂后不再回头 poll `event_rx`，引擎收尾时**同步发出**的那批事件被
+  `drain_residual_events` 静默丢掉（`TextFallback` 首当其冲）→ 现在生成返回后先把
+  通道排空；回归已实测「去掉修复即红」。
+  ② **结构减法（N1）**：`main.dart` 1288→**543**（admin/settings/模型库/偏好回调外移到
+  `app/shell_*.dart`，`package:web` 收进 `app/browser_io.dart`）；
+  `surface.rs` 1167→**24**（render/input/idle/gpu，`IdleState` 逐字保留）；
+  `ws.rs` 1073→**263**（audio/broadcaster 子模块）；`tests_models_routes.rs`
+  1249→**4 个场景文件**（48 条测试一条不少）。
+  ③ **双壳裁决（N2）**：egui 原生壳 / `--chat` **非主线**，休眠台账进 AGENTS
+  （**选项 B：不 feature-gate**，理由与红线写在台账里）。
+  ④ **半接线清干净（N3）**：`forcedByLaunchFlag` 不再写死 `false`（改由「有效
+  dev_mode vs 落盘设置」推出）；修掉 `chat_panel.dart`「历史不落盘」的过时注释；
+  UI 明示**会话记录 ≠ 模型记忆**；设置/诊断文案反向扫描无已删能力残留。
+  ⑤ **门禁对齐（N4）**：`pr-checks.yml` / `nightly.yml` 补 `--all-targets` /
+  `--doc` / `rust-ratio` / clippy `--all-targets`；新增
+  `flutter-checks.yml`（`paths: shell/flutter/**`）——CI 之前**完全不管前端**；
+  nightly 新增端到端探针 job（**只在配置 `LIVE2D_AI_VERIFY_BASE_URL` 时跑**，缺配置明确
+  跳过，不伪造绿灯）；AGENTS 出一张「本地必跑 vs CI 必跑」表；`CONTRIBUTING.md` 整份
+  重写（旧版还在教已归档的 Python 双端）。
+  ⑥ **可读性收尾（N5，部分）**：仓库根 8 份 Python 时代旧计划 → `docs/legacy/`；
+  `docs/design/` 4 份旧 JS 规格 → `docs/design/legacy/`（现行只剩
+  `web-ui-spec-v3.md`）。
+  门禁：cargo **801** 通过 / clippy 0 warning / rust-ratio **97.0054% PASS**；
+  flutter analyze 无问题 + **822** 测试通过；`ignite.sh --check` 四项全 ok；
+  `verify_core_chain.py --timeout 300` **18 跳全过**。
+  发布说明：`docs/releases/v0.1.0-rc.3.md`。
 - **2026-09-12（v0.1.0-rc.2，第二基线）**：rc.1 之后的第二个基线。范围冻结为「瘦版」
   （M0 点火纪律 + M1 动作裁决 + 模型闭环 + `.env` 密钥源 + 旧预览隔离）；
   `main.dart` 大拆 / `surface.rs` 大拆 / egui feature-gate / CI 对齐**都推到 rc.3**。
