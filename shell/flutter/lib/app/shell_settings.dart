@@ -203,8 +203,15 @@ extension _ShellSettingsWiring on _ShellRootState {
           onDevModeChanged: (bool v) => _settings.edit(
             (SettingsDraft d) => d.devMode = v,
           ),
-          // 启动参数强制开启时**不谎报可关**。
-          forcedByLaunchFlag: false,
+          // 启动参数强制开启时**不谎报可关**（rc.3 N3，2026-09-13 接线）。
+          //
+          // 判据：**有效** dev_mode（`GET /api/v1/app/status` 的 `dev_mode`，
+          // 已含 `--dev-mode` 的覆盖）是 on，而**落盘设置**是 off——那就只可能是
+          // 启动参数压着，界面里关不掉。
+          //
+          // 旧实现写死 `false`：开关看起来能关，关完服务端还是 on
+          // （「看起来关了、其实没关」）。两者都由既有字段推出，**没有新增协议字段**。
+          forcedByLaunchFlag: _devMode && !view.devMode,
         );
     }
   }
