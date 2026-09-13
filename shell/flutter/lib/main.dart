@@ -752,7 +752,10 @@ class _ShellRootState extends State<ShellRoot> {
       setState(() {
         _ttsTesting = false;
         _ttsTest = o.ok
-            ? 'ok · ${o.latencyMs ?? '?'} ms'
+            // 成功时把服务端的 note 也带上（例如「上游可达但未提供 /models」）
+            // ——否则用户会以为「自检通过 = 合成没问题」，而下一次合成失败时
+            // 又回到「明明通过了却不行」的困惑。
+            ? 'ok · ${o.latencyMs ?? '?'} ms${o.note == null ? '' : ' · ${o.note}'}'
             : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
       });
     } on ApiException catch (e) {
