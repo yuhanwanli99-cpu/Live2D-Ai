@@ -1,6 +1,6 @@
 # Live2D-Ai
 
-**v0.1.0-rc.1** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
+**v0.1.0-rc.2** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
 
 Live2D-Ai wires a single core loop and keeps everything else behind a Mod boundary:
 
@@ -33,7 +33,7 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ### Platform (this baseline)
 - Primary: **Linux / WSL2**.
-- Android and native Windows desktop are out of scope for `0.1.0-rc.1`.
+- Android and native Windows desktop are out of scope for the `0.1.0` RC line.
 
 ---
 

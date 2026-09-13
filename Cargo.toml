@@ -25,7 +25,12 @@ members = [
 # 句界契约改由引擎给出。按 0.5.2 递增会让「拆除」看起来像小修补，故重置到 0.1.0 线的 RC。
 # 唯一真源：各 crate 用 `version.workspace = true` 继承，代码经 `env!("CARGO_PKG_VERSION")`
 # 编译期固化并暴露到 `/api/v1/app/capabilities` 的 `version` 字段。
-version = "0.1.0-rc.1"
+#
+# 2026-09-12（rc.2「第二基线」）：动作层删到底（director Mod + Action 注入 + 渲染面编舞）、
+# 模型库闭环打通（单一模型根 + 激活即换皮）、`.env` 成为唯一密钥真源。范围见
+# `docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §0；发布说明见
+# `docs/releases/v0.1.0-rc.2.md`。
+version = "0.1.0-rc.2"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
