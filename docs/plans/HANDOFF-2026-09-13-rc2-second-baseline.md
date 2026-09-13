@@ -93,6 +93,10 @@ cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resou
 - `GET /api/v1/app/status` → `active_model_id=bai`（读真实 registry）
 - `PUT /api/v1/env`（幂等回写）→ 响应**不含值**、`.env` 行数与注释不变、权限仍 `0600`，日志随即出现「热重载成功」
 - TTS 自检：空闲 **1–2 ms**；**链路正在合成时 2/110/3 ms 全 `ok:true`**（修前是 `timeout`）
+- 长思考轮的**帧时间线**（`/ws/state` 实采，25 句）：**每句 `start`/`end` 逐一配对**、
+  `turn_state=completed`、末帧 `text_delta{completed:true}` 收口。
+  ⇒ 也解释了为什么 `verify_core_chain.py` 用默认 `--timeout 90` 跑长提问会红两条：
+  **25 句的合成超过了 90s 窗口**，是探针超时而不是链路问题——长提问请带 `--timeout 300`
 
 ### 3.2 无头浏览器（Windows Chrome 152 + CDP 9222，七项证据法）
 
