@@ -295,6 +295,12 @@ class _ShellRootState extends State<ShellRoot> {
   late final DiagnosticsApi _diagApi;
 
   List<ModelInfo> _models = const <ModelInfo>[];
+  /// 当前要渲染面加载的模型 URL（来自 activate 响应的 `model_url`）。
+  ///
+  /// 为什么要存它：activate 只改后端 registry，**换皮发生在 iframe 里**
+  /// （`sync.payload.model`）。不把它存下来，舞台在 retry / 重建 iframe 之后
+  /// 会退回默认模型——「激活了但没换皮」的另一种形态。
+  String? _activeModelUrl;
   List<ModInfo> _mods = const <ModInfo>[];
   List<LogLine> _logs = const <LogLine>[];
   String? _logsError;
@@ -776,17 +782,44 @@ class _ShellRootState extends State<ShellRoot> {
 
   static String _kb(int chars) => '约 ${(chars / 1024).round()} KB';
 
+  /// 激活模型：**改 registry + 让舞台真的换皮**，两件都做完才算成功。
+  ///
+  /// 契约（rc.2 冻结）：后端 `POST /models/{id}/activate` 只登记 + 回一个可 GET 的
+  /// `model_url`，**不推送、不通知渲染面**；换模由这里 `sendSync(model:)` 发起，
+  /// 并以渲染面 `loaded` 回执为准。**收条之前一律不说「已切换」**——
+  /// 那正是「激活了但没换皮」最伤人的地方：用户看界面说成功了，舞台还是旧皮。
   Future<void> _activateModel(String id) async {
-    setState(() => _busyId = id);
+    setState(() {
+      _busyId = id;
+      _adminMessage = '正在切换模型…';
+    });
     try {
       final ActivateResult r = await _modelsApi.activate(id);
       if (!mounted) return;
+      if (r.modelUrl.isEmpty) {
+        // 没给可加载地址 = 换不了皮，如实说，别报成功。
+        setState(() {
+          _busyId = null;
+          _adminMessage = '已登记 ${r.activeId}，但服务端没有返回可加载的 model_url，舞台未切换';
+        });
+        await _loadAdmin();
+        return;
+      }
+      // 先记住：retry / 重建 iframe 后仍加载这个模型。
+      setState(() => _activeModelUrl = r.modelUrl);
+      final bool swapped =
+          await _stageKey.currentState?.swapModel(r.modelUrl) ?? false;
+      if (!mounted) return;
       setState(() {
         _busyId = null;
-        // **如实上报 requires_restart**：不谎报「已生效」。
-        _adminMessage = r.requiresRestart
-            ? '已切换到 ${r.activeId}，**需重启服务端**才生效'
-            : '已切换到 ${r.activeId}';
+        if (swapped) {
+          _adminMessage = '已切换到 ${r.activeId}（舞台已确认生效）';
+        } else if (r.requiresRestart) {
+          _adminMessage = '已切换到 ${r.activeId}，但渲染面未确认；服务端称需重启生效';
+        } else {
+          _adminMessage =
+              '已登记 ${r.activeId}，但渲染面未回执：舞台可能仍是上一个模型（可重试或看舞台错误层）';
+        }
       });
       await _loadAdmin();
     } on ApiException catch (e) {
@@ -794,6 +827,33 @@ class _ShellRootState extends State<ShellRoot> {
       setState(() {
         _busyId = null;
         _adminMessage = '激活失败：${e.message}';
+      });
+    }
+  }
+
+  /// 导入一个已在 `assets/models/<id>/` 下的模型目录。
+  ///
+  /// 后端不做文件上传（ZIP 上传是后置项，且此前被能力快照谎报为 supported）：
+  /// 用户放好文件，这里登记 + 校验。**先刷新 registry 视图，再让用户点激活**——
+  /// 不自动激活：激活会让舞台换皮，属于用户可见的动作，不该由一次「导入」代劳。
+  Future<void> _importModel(String id) async {
+    setState(() {
+      _busyId = id;
+      _adminMessage = '正在导入 $id…';
+    });
+    try {
+      await _modelsApi.import(id);
+      if (!mounted) return;
+      setState(() {
+        _busyId = null;
+        _adminMessage = '已导入 $id，点「激活」即可换皮';
+      });
+      await _loadAdmin();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busyId = null;
+        _adminMessage = '导入失败：${e.message}';
       });
     }
   }
@@ -876,6 +936,7 @@ class _ShellRootState extends State<ShellRoot> {
           busyId: _busyId,
           activateMessage: _adminMessage,
           onActivate: _activateModel,
+          onImport: _importModel,
           onReload: _loadAdmin,
         );
       case SettingsSection.llm:
@@ -1064,6 +1125,9 @@ class _ShellRootState extends State<ShellRoot> {
           key: _shellKey,
           stage: Live2DStage(
             key: _stageKey,
+            // 激活过的模型（null = 渲染面默认模型）。传它是为了让 retry /
+            // 重建 iframe 之后不只是「没换皮」，而是回到用户选的那个。
+            model: _activeModelUrl,
             dark: appPaletteOf(context).dark,
             stageColor: appPaletteOf(context).stageCss,
             // 就绪后补发显示偏好：首次挂载时桥还在 loading，

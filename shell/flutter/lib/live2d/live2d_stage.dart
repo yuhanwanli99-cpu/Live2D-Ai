@@ -249,6 +249,22 @@ class Live2DStageState extends State<Live2DStage>
     _captureAck();
   }
 
+  /// 协议 v1 `sync` 换模型，并**等到渲染面回执**才返回（R2 规矩）。
+  ///
+  /// 实现委托给 [`Live2DBridge.swapModel`]（协议层负责「发 sync 并等 loaded」）；
+  /// 这里只处理「桥还没挂上」的情况。
+  ///
+  /// 返回 `true` = 渲染面确认真的换了；`false` = 没换成（超时 / 报错 / 回执报的是
+  /// 别的 url）。调用方拿 `false` 时应如实说「已登记，但舞台未确认」。
+  Future<bool> swapModel(
+    String url, {
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    final Live2DBridge? bridge = _bridge;
+    if (bridge == null) return false;
+    return bridge.swapModel(url, timeout: timeout);
+  }
+
   /// 同步舞台外观（协议 v1 `sync`）。
   void sync({
     String? model,
