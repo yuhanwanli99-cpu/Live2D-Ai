@@ -551,6 +551,33 @@ mod ws_unit_tests {
         assert_eq!(v["data"]["text"], "先看题目…");
     }
 
+    /// **rc.3 N0（2026-09-13）**：失败轮的正文兜底投影成**独立**帧类型
+    /// `text_fallback`。
+    ///
+    /// 为什么不能复用 `text_delta`：后者的消费语义是「**追加**到气泡正文」
+    /// 且与音频同拍；兜底要求前端「**整段设置**」并标注「未收尾」——混用 type 会
+    /// 让正文出现两遍。独立 type 也让旧客户端自然忽略（`default: break`）。
+    ///
+    /// 帧形状（与 `reasoning_delta` 同构，宁少字段）：
+    /// `{"type":"text_fallback","data":{"epoch":N,"ts_ms":M,"text":"…"}}`
+    #[test]
+    fn conversation_text_fallback_maps_to_its_own_frame() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::TextFallback {
+            epoch: 9,
+            ts_ms: 880,
+            text: "第一句。第二".to_string(),
+        });
+        let v = app_event_to_ws_frame(&ev).expect("must map");
+        assert_eq!(v["type"], "text_fallback");
+        assert_ne!(v["type"], "text_delta", "兜底不得复用正文帧类型");
+        assert_ne!(v["type"], "error", "兜底不是错误帧（错误另有一条）");
+        assert_eq!(v["data"]["epoch"], 9);
+        assert_eq!(v["data"]["ts_ms"], 880);
+        assert_eq!(v["data"]["text"], "第一句。第二");
+        // 宁少字段：不发明 turn_id 之类的跨层新字段。
+        assert!(v["data"].get("turn_id").is_none());
+    }
+
     /// 2026-09-11 回归：链路错误**必须**投影成 `error` 帧，且带机器可读的
     /// `code`。此前 `AppEvent` 没有 Error 变体、投影表里也没有这一支——
     /// 前端因此永远收不到错误详情（用户原话：「前端无法知道错误信息」）。

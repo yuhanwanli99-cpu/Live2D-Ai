@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/chat/chat_message.dart';
+import 'package:live2d_ai_shell/chat/turn_liveness.dart';
 import 'package:live2d_ai_shell/ui/message_bubble.dart';
 import 'package:live2d_ai_shell/ui/soft_motion.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
@@ -45,6 +46,7 @@ List<TextSpan> spansOf(WidgetTester tester) {
 
 void main() {
   _reasoningSectionTests();
+  _unfinishedCaptionTests();
   group('P2-3：正文真的渲染 Markdown', () {
     testWidgets('`**粗体**` 走粗体 span，且**星号不在文本里**', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(MessageBubble(message: msg('这是**重点**。'))));
@@ -327,5 +329,35 @@ void _reasoningSectionTests() {
       expect(find.textContaining('已思考'), findsNothing);
       expect(find.textContaining('思考'), findsNothing);
     });
+  });
+}
+
+/// **rc.3 N0（2026-09-13）**：兜底正文的「未收尾」说明行。
+///
+/// 说明行同时是可达性通道：气泡整条被 `excludeSemantics` 折成**一个**节点，
+/// 说明行不进 label 就等于读屏用户看不到（本项目为此踩过坑，见 HANDOFF 7.1）。
+void _unfinishedCaptionTests() {
+  ChatMessage unfinished() => ChatMessage(
+    role: ChatRole.assistant,
+    text: '第一句。第二',
+    unfinished: true,
+  );
+
+  testWidgets('unfinished：说明行画出来，正文原样保留', (WidgetTester tester) async {
+    await tester.pumpWidget(wrap(MessageBubble(message: unfinished())));
+    expect(find.text(kUnfinishedTurnCaption), findsOneWidget);
+    expect(find.textContaining('第一句。第二'), findsWidgets);
+  });
+
+  testWidgets('非 unfinished：不画说明行（不许滥报）', (WidgetTester tester) async {
+    await tester.pumpWidget(wrap(MessageBubble(message: msg('正常回复。'))));
+    expect(find.text(kUnfinishedTurnCaption), findsNothing);
+  });
+
+  testWidgets('unfinished：语义 label 带「未收尾」', (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await tester.pumpWidget(wrap(MessageBubble(message: unfinished())));
+    expect(find.bySemanticsLabel(RegExp('未收尾')), findsOneWidget);
+    handle.dispose();
   });
 }

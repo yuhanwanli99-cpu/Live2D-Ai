@@ -131,6 +131,16 @@ const String kWsDroppedMidTurnCode = 'ws_dropped_mid_turn';
 /// 消息」，又回到了「与坏了无法区分」那个坑。
 const String kWsDroppedMidTurnMessage = '本轮回复未收到（实时通道断开）';
 
+/// 失败轮的正文是**兜底**来的时，气泡上的说明行（rc.3 N0，2026-09-13）。
+///
+/// 必须**同时**说清两件事：
+/// ① 这段文字是真的（模型确实生成了，不是伪造的占位）；
+/// ② 它**没有语音收尾**（TTS 失败 / 该句没合成完，所以同拍契约让位了）。
+///
+/// 只说「生成失败」会把真实内容说成没发生过；什么都不说又会让用户以为
+/// 「语音坏了而正文是完整的」——两者都是名实不符。
+const String kUnfinishedTurnCaption = '未收尾：本轮语音未合成完，以上是已生成的正文';
+
 /// 用户主动停止、且一个字都还没收到时的那条系统提示。
 const String kStoppedTurnNotice = '已停止本轮';
 

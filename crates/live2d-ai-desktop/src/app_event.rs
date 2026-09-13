@@ -188,11 +188,14 @@ pub enum ConversationUiEvent {
         /// 所属业务代次。
         epoch: u64,
     },
-    /// LLM 正文增量（真实 text payload；P1WS-1 引入；2026-08-29）。
+    /// LLM 正文**整句**（真实 text payload；P1WS-1 引入；2026-08-29）。
     ///
-    /// 由 supervisor 在 `EngineEvent::TextDelta` 处投影；携带**原始增量文本**
-    /// 与产生它时引擎内部记录的 `ts_ms`（用于链路耗时可视化）。壳侧收到后
-    /// 可选渲染（winit 路径无需显示文本——只维护 render_epoch；web 路径
+    /// 由 supervisor 在 `EngineEvent::SentenceVoiced` 处投影——**不是**在
+    /// `EngineEvent::TextDelta` 处（那一条只做控制台回显，见
+    /// `supervisor/handlers.rs`）。这是「一句一单元：先完整合成再显示」契约的
+    /// 落点：文字与声音同拍，而不是领先好几秒。
+    ///
+    /// 壳侧收到后可选渲染（winit 路径无需显示文本——只维护 render_epoch；web 路径
     /// 经 `ws::app_event_to_ws_frame` 投影为 `text_delta` 帧给前端气泡追加）。
     TextDelta {
         /// 所属业务代次。
@@ -200,6 +203,25 @@ pub enum ConversationUiEvent {
         /// 引擎记录的产生时刻（相对本轮起点的毫秒数；可观测性用途）。
         ts_ms: u64,
         /// 文本增量片段（来自 LLM stream chunk；未做切句假设）。
+        text: String,
+    },
+    /// **正文兜底**：失败轮把已经生成的正文整段交给 UI（rc.3 N0，2026-09-13）。
+    ///
+    /// 投影自 `EngineEvent::TextFallback`，web 路径为 `text_fallback` 帧。
+    /// 与 [`Self::TextDelta`] 的分工：
+    /// - `TextDelta` 是**健康路径**的上屏（与声音同拍，前端**追加**）；
+    /// - `TextFallback` 是**失败路径**的一次性兜底（前端**整段设置**并标注
+    ///   「未收尾」），只在 `TurnStatus::Failed` 且已有正文时出现——
+    ///   健康轮永远不发。
+    ///
+    /// 为什么必须整段而不是只有残余：残余的边界受切句器 trim 影响，前端用字符串
+    /// 前缀推导会算错；整段设置天然幂等（详见 `EngineEvent::TextFallback`）。
+    TextFallback {
+        /// 所属业务代次。
+        epoch: u64,
+        /// 引擎记录的产生时刻（相对本轮起点的毫秒数；可观测性用途）。
+        ts_ms: u64,
+        /// 整轮正文（覆盖式设置，非增量）。
         text: String,
     },
 }

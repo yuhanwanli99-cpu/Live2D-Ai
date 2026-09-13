@@ -281,3 +281,68 @@ fn supervisor_handle_current_epoch_starts_at_zero() {
     });
     let _ = std::fs::remove_file(&tmp);
 }
+/// **rc.3 N0 回归（2026-09-13）**：失败轮的正文兜底必须投影到
+/// `ConversationUiEvent::TextFallback`，供 WS 转成 `text_fallback` 帧。
+///
+/// 与上一条测试互补：上一条锁「健康路径靠 SentenceVoiced 上屏」，本条锁
+/// 「失败路径有兜底出口」，且兜底**不走** `TextDelta`——否则前端会把兜底
+/// 当增量追加、正文出现两遍。
+#[test]
+fn text_fallback_emits_its_own_ui_event() {
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let ec = collector.clone();
+    let emit: Emit = Arc::new(move |ev: AppEvent| {
+        ec.lock().expect("poison").push(ev);
+    });
+
+    let mut root = RootState::default();
+    root.action.capabilities = live2d_ai_core::ModelCapabilities::all();
+
+    let mut pending_pcm: Option<crate::audio::PreparedPcm> = None;
+    let mut playback_started = false;
+    let mut voice_started_emitted = false;
+    let mut saw_fatal_kind = false;
+    let mut saw_llm_error = false;
+    let mut audio: Option<Box<dyn crate::audio::PcmProducer>> = None;
+
+    super::handlers::handle_engine_event(
+        &EngineEvent::TextFallback {
+            epoch: 5,
+            ts_ms: 777,
+            text: "第一句。第二".to_string(),
+        },
+        &mut root,
+        &mut audio,
+        1,
+        &mut pending_pcm,
+        &mut playback_started,
+        &mut voice_started_emitted,
+        &mut saw_fatal_kind,
+        &mut saw_llm_error,
+        &emit,
+    );
+
+    let events = collector.lock().expect("poison");
+    let fallbacks: Vec<&ConversationUiEvent> = events
+        .iter()
+        .filter_map(|e| match e {
+            AppEvent::Conversation(ui @ ConversationUiEvent::TextFallback { .. }) => Some(ui),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fallbacks.len(), 1, "兜底必须恰好投影一次");
+    if let ConversationUiEvent::TextFallback { epoch, ts_ms, text } = fallbacks[0] {
+        assert_eq!(*epoch, 5);
+        assert_eq!(*ts_ms, 777);
+        assert_eq!(text, "第一句。第二", "整轮正文原样透传");
+    } else {
+        panic!("should be TextFallback");
+    }
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            AppEvent::Conversation(ConversationUiEvent::TextDelta { .. })
+        )),
+        "兜底不得走 TextDelta 分支（那是健康路径的增量上屏）"
+    );
+}

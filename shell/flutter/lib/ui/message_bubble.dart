@@ -126,6 +126,9 @@ class MessageBubble extends StatelessWidget {
               '${message.role.label}说：${announcement ?? message.text}',
               if (message.reasoning.trim().isNotEmpty)
                 '（含思考 ${message.reasoning.characters.length} 字）',
+              // rc.3 N0：把「这段正文没有语音收尾」也变成可被读屏与自动检查
+              // 看见的事实（与「含思考 N 字」同一条纪律）。
+              if (message.unfinished) '（未收尾）',
             ].join(),
             excludeSemantics: true,
             child: Container(
@@ -196,6 +199,21 @@ class MessageBubble extends StatelessWidget {
                         ),
                     ],
                   ),
+                  // ── 兜底正文的说明行（rc.3 N0，2026-09-13）──
+                  //
+                  // 位置在正文**之下**：它是对这段文字的注脚（「没有语音收尾」），
+                  // 不是内容本身。只在 `unfinished` 且确有正文时出现——
+                  // 空气泡另有失败/系统行那条路。
+                  if (message.unfinished && message.text.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Space.s1),
+                      child: Text(
+                        kUnfinishedTurnCaption,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.contentMuted,
+                        ),
+                      ),
+                    ),
                   // ── 底部动作条：复制（+ 失败时的重试） ──
                   //
                   // 只在**非流式**时出现：流式期间文本还在变，复制到的会是

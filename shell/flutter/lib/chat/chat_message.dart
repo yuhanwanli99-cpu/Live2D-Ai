@@ -49,6 +49,7 @@ class ChatMessage {
     this.streaming = false,
     this.failed = false,
     this.reasoning = '',
+    this.unfinished = false,
   });
 
   final ChatRole role;
@@ -69,6 +70,14 @@ class ChatMessage {
   /// 要改成持久化，需要同时给会话存档加体积上限（否则长会话会顶穿配额）。
   String reasoning;
 
+  /// 这一轮的正文是**失败兜底**（`text_fallback` 帧）来的：真实生成、
+  /// 但没有语音收尾（rc.3 N0，2026-09-13）。
+  ///
+  /// 只在气泡上加一条说明行（[kUnfinishedTurnCaption]），**不改**文字本身——
+  /// 文字是真实收到的内容，丢了就是篡改记录。与 [reasoning] 不同，它**要落盘**：
+  /// 刷新后那段文字还在，就必须还带着「未收尾」这个限定。
+  bool unfinished;
+
   /// 是否是一条「系统提示」而不是真实回复（失败/无输出的占位文案）。
   ///
   /// 气泡据此换底色（`dangerSurface`），而不是靠「文字里有没有 ⚠」。
@@ -83,6 +92,7 @@ class ChatMessage {
     'text': text,
     if (epoch != null) 'epoch': epoch,
     if (failed) 'failed': true,
+    if (unfinished) 'unfinished': true,
   };
 
   /// 反序列化：**坏数据返回 `null`（丢弃这一条），绝不抛**。
@@ -106,6 +116,7 @@ class ChatMessage {
       text: rawText,
       epoch: rawEpoch is int ? rawEpoch : null,
       failed: raw['failed'] == true,
+      unfinished: raw['unfinished'] == true,
     );
   }
 }

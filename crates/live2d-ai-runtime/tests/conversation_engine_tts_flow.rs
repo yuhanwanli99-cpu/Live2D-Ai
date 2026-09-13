@@ -301,3 +301,101 @@ async fn whitespace_only_sentence_never_reaches_tts_and_turn_completes() {
     );
     assert!(voiced.iter().any(|t| t.contains("你好")), "{voiced:?}");
 }
+
+/// **rc.3 N0 正文兜底（2026-09-13）**：TTS 致命失败时，已经生成的正文必须经
+/// `TextFallback` 交给 UI——否则用户看到的是「模型没有返回」，而模型其实写完了。
+///
+/// 三条断言缺一不可：
+/// ① 失败轮**恰好一次** `TextFallback`，且 `text` 是**整轮正文**（不是残余）；
+/// ② 它在 `Terminal` **之前**（终态仍是最后一个事件）；
+/// ③ 同一轮的 `Error(Tts)` 照旧上报（兜底不掩盖错误）。
+#[tokio::test]
+async fn tts_failure_falls_back_to_the_generated_text() {
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content("第一句。第二"), sse_done()],
+    ))
+    .await;
+
+    // TTS 首笔即 500（致命）；第二句「第二」本就不会被送出。
+    let tts_base = spawn_multi_server(respond_pieces(
+        500,
+        "Internal Server Error",
+        "application/json",
+        vec![br#"{"error":"engine offline"}"#.to_vec()],
+    ))
+    .await;
+
+    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(31, "hi", event_tx, CancellationToken::new())
+        .await;
+    assert_eq!(report.status, TurnStatus::Failed);
+
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 31);
+    assert_single_terminal_last(&events, TurnStatus::Failed);
+
+    let fallbacks: Vec<(usize, &str)> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e {
+            EngineEvent::TextFallback { text, .. } => Some((i, text.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fallbacks.len(),
+        1,
+        "失败轮必须恰好兜底一次，实际 {}：{events:?}",
+        fallbacks.len()
+    );
+    assert_eq!(
+        fallbacks[0].1, "第一句。第二",
+        "兜底必须是**整轮正文**（含未成句残余），不是残余单独一段"
+    );
+
+    let terminal_at = events
+        .iter()
+        .position(|e| matches!(e, EngineEvent::Terminal { .. }))
+        .expect("有终态");
+    assert!(
+        fallbacks[0].0 < terminal_at,
+        "兜底必须在 Terminal 之前（终态是最后一个事件）"
+    );
+    assert!(matches!(find_error_kind(&events), Some(ErrorKind::Tts(_))));
+}
+
+/// 健康轮**绝不**发 `TextFallback`：它只在失败时兜底，一旦健康路径也发，
+/// 文字就会重新跑到声音前面（那正是 2026-09-10 用户裁决要修的事）。
+#[tokio::test]
+async fn completed_turn_never_emits_text_fallback() {
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content("你好呀。"), sse_done()],
+    ))
+    .await;
+    let (tts_base, _tts_inputs) = spawn_tts_mock().await;
+
+    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(32, "hi", event_tx, CancellationToken::new())
+        .await;
+    assert_eq!(report.status, TurnStatus::Completed);
+
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 32);
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, EngineEvent::TextFallback { .. })),
+        "健康轮不得发正文兜底：{events:?}"
+    );
+}

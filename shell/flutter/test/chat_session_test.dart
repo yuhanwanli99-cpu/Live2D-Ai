@@ -299,6 +299,24 @@ void main() {
       final ChatSessionStore back = ChatSessionStore.fromJson(store.toJson());
       expect(back.messages.single.failed, isTrue);
     });
+
+    test('未收尾兜底标记要落盘（重开页面仍要标「未收尾」）', () {
+      // rc.3 N0（2026-09-13）：兜底正文是**真实内容**，所以文字必须留下；
+      // 但它没有语音收尾，这个限定也必须一起留下——否则刷新后那段文字看起来
+      // 与正常回复一模一样，等于把「未收尾」这个事实抹掉了。
+      final ChatSessionStore store = ChatSessionStore.empty();
+      store.append(
+        ChatMessage(
+          role: ChatRole.assistant,
+          text: '第一句。第二',
+          unfinished: true,
+        ),
+        now: at(0),
+      );
+      final ChatSessionStore back = ChatSessionStore.fromJson(store.toJson());
+      expect(back.messages.single.text, '第一句。第二');
+      expect(back.messages.single.unfinished, isTrue);
+    });
   });
 
   group('序列化：坏数据**永不抛**（丢一条，不丢整段历史）', () {

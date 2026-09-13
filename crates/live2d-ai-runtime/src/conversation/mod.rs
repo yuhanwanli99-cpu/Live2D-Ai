@@ -71,6 +71,8 @@
 //!         EngineEvent::AudioChunk { samples, .. } => { /* 送声卡 */ }
 //!         // 该句语音已完整合成 → 此时才把整句文字推给 UI。
 //!         EngineEvent::SentenceVoiced { text, .. } => println!("[屏] {text}"),
+//!         // 失败轮的**整段**正文兜底（覆盖式设置；健康轮不会出现）。
+//!         EngineEvent::TextFallback { text, .. } => println!("[兜底] {text}"),
 //!         EngineEvent::Terminal { .. } => break,
 //!         EngineEvent::Error { kind, .. } => eprintln!("turn error: {kind}"),
 //!     }
@@ -237,6 +239,36 @@ pub enum EngineEvent {
         /// 句子序号（与对应 `AudioChunk.sentence_seq` 一致）。
         sentence_seq: u64,
         /// 该句完整文本。
+        text: String,
+    },
+    /// **正文兜底**：本轮以 [`TurnStatus::Failed`] 收场时，把**已经生成**的
+    /// 正文整段交给 UI（2026-09-13，rc.3 N0）。
+    ///
+    /// # 它解决什么
+    ///
+    /// 健康路径上屏的闸门是 [`Self::SentenceVoiced`]——「该句语音已合成完毕」
+    /// 才把文字交给 UI，于是文字与声音同拍（用户裁决，不改）。代价是：
+    /// **任何让某句凑不齐的原因，都会让整轮一个字都不上屏**——TTS 挂了、
+    /// 合成失败、LLM 中途断流（残余没封口）。用户看到的是「模型没有返回」，
+    /// 而模型其实已经写完了正文。
+    ///
+    /// # 语义（消费端必须按此实现）
+    ///
+    /// - `text` 是**整轮正文**（`TurnReport::assistant_text`），**不是**未上屏的
+    ///   残余。消费端要**整段设置**（覆盖该轮气泡的正文），不能追加——这样它
+    ///   天然幂等，也不必去算「已上屏的前缀到哪结束」（前缀边界受切句器 trim
+    ///   影响，用字符串前缀推导会算错）；
+    /// - 只在 `Failed` 时发：用户主动停止（`Cancelled`）不该再补一段文字；
+    /// - 正文为空时不发（没有可兜底的东西）；
+    /// - 只发一次，且在 [`Self::Terminal`] **之前**（终态仍是最后一个事件）；
+    /// - **不**抢占健康路径：`Completed` 轮永远不发本事件，所以文字不会
+    ///   重新跑到声音前面。
+    TextFallback {
+        /// 本轮轮次号。
+        epoch: u64,
+        /// 相对本轮起点的毫秒数。
+        ts_ms: u64,
+        /// 整轮正文（覆盖式设置，非增量）。
         text: String,
     },
     /// 轮内错误。语义见 [`ErrorKind`]：可见，但未必终止本轮。

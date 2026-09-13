@@ -20,7 +20,8 @@ use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
 /// 把 [`AppEvent`] 投影为 D1 §4.3 WS 帧 JSON（`None` = P1 暂不实现）。
 ///
 /// **状态（2026-09-11 更新）**：
-/// - **已实现**：`turn_state` / `runtime_status` / `text_delta` / **`error`**。
+/// - **已实现**：`turn_state` / `runtime_status` / `text_delta` /
+///   `reasoning_delta` / `text_fallback` / **`error`**。
 ///   `error` 曾长期标为「P1 partial：依赖 `AppEvent` 扩展」——2026-09-11
 ///   补上 `AppEvent::Error` 变体后接线（用户报「后端出错无具体错误代码、
 ///   前端无法知道错误信息」，根因就是这里从来没有 `error` 帧）。
@@ -90,6 +91,19 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
             // 而且旧前端会把思考当正文追加（那是**错的**，等于把内心独白当回复）。
             // 未知 type 在旧客户端被忽略（`default: break`），所以这是向后兼容的新增。
             frame.set_type("reasoning_delta");
+            frame.set_data(serde_json::json!({
+                "epoch": epoch,
+                "ts_ms": ts_ms,
+                "text": text,
+            }));
+        }
+        AppEvent::Conversation(ConversationUiEvent::TextFallback { epoch, ts_ms, text }) => {
+            // **失败路径的正文兜底**（rc.3 N0，2026-09-13）。独立帧类型：
+            // `text_delta` 的消费语义是「追加」且与音频同拍，而本帧要求前端
+            // **整段设置**并标注「未收尾」——混用 type 会让前端把兜底当增量追加，
+            // 正文出现两遍。未知 type 在旧客户端被忽略（`default: break`），
+            // 所以这是向后兼容的新增。
+            frame.set_type("text_fallback");
             frame.set_data(serde_json::json!({
                 "epoch": epoch,
                 "ts_ms": ts_ms,

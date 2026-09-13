@@ -178,6 +178,10 @@ class UiStateTracker extends ChangeNotifier {
         _errorCode = code;
         notifyListeners();
         return true;
+      // 正文兜底只往气泡里补文字，**不改相位**：收口仍由紧随其后的
+      // `turn_state`（或 `text_delta{completed}`）负责。
+      case TextFallbackEvent():
+        return false;
       case SubscribeAckEvent():
       case HeartbeatEvent():
       case AudioEvent():

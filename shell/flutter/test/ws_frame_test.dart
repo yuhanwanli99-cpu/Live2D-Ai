@@ -70,6 +70,7 @@ const String kHeartbeat =
 
 void main() {
   _reasoningFrameTests();
+  _textFallbackFrameTests();
   group('真实帧 → 领域事件（每种 type 一条，全部来自实抓）', () {
     test('subscribe_ack：首帧，topics 可为空列表', () {
       final WsEvent? e = parseWsFrame(kRealSubscribeAck);
@@ -474,5 +475,46 @@ void _reasoningFrameTests() {
       '{"type":"reasoning_delta","data":{"text":"x"}}',
     );
     expect(ev, isNot(isA<TextDeltaEvent>()));
+  });
+}
+
+/// **rc.3 N0（2026-09-13）**：失败轮的正文兜底帧 `text_fallback`。
+///
+/// 形状与 `reasoning_delta` 同构（`seq`/`ts` 在**根**上，
+/// 见 HANDOFF 7.6），由服务端 `web_api/ws/events.rs` 的投影 + 连接层包装产生；
+/// 帧形状同时被 Rust 侧 `conversation_text_fallback_maps_to_its_own_frame` 钉住。
+///
+/// 这条夹具**尚未经真机抓包**（帧是 rc.3 新加的）——点火后应按抓包原文替换，
+/// 「形状按抓包改，不要凭印象改」这条纪律见 HANDOFF 7.6。
+void _textFallbackFrameTests() {
+  const String frame =
+      '{"data":{"epoch":3,"text":"第一句。第二","ts_ms":880},"seq":412,'
+      '"ts":"2026-09-13T12:00:00.000Z","type":"text_fallback"}';
+
+  test('text_fallback：解析出整段正文 / epoch', () {
+    final WsEvent? ev = parseWsFrame(frame);
+    expect(ev, isA<TextFallbackEvent>());
+    final TextFallbackEvent f = ev! as TextFallbackEvent;
+    expect(f.text, '第一句。第二');
+    expect(f.epoch, 3);
+    expect(f.seq, 412);
+  });
+
+  /// 它是**独立**类型：若退化成 `TextDeltaEvent`，前端会按「追加」处理，
+  /// 而服务端发的是整轮正文 —— 正文会原样出现两遍。
+  test('text_fallback 不得退化成 text_delta（那是追加语义）', () {
+    final WsEvent? ev = parseWsFrame(
+      '{"type":"text_fallback","data":{"text":"x"}}',
+    );
+    expect(ev, isA<TextFallbackEvent>());
+    expect(ev, isNot(isA<TextDeltaEvent>()));
+  });
+
+  test('text_fallback：缺 text 不抛，按 null 处理', () {
+    final WsEvent? ev = parseWsFrame(
+      '{"type":"text_fallback","data":{"epoch":1}}',
+    );
+    expect(ev, isA<TextFallbackEvent>());
+    expect((ev! as TextFallbackEvent).text, isNull);
   });
 }

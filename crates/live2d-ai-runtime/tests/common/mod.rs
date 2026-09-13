@@ -188,6 +188,7 @@ pub fn assert_epoch(events: &[EngineEvent], epoch: u64) {
             | EngineEvent::ReasoningDelta { epoch, .. }
             | EngineEvent::AudioChunk { epoch, .. }
             | EngineEvent::SentenceVoiced { epoch, .. }
+            | EngineEvent::TextFallback { epoch, .. }
             | EngineEvent::Error { epoch, .. }
             | EngineEvent::Terminal { epoch, .. } => *epoch,
         })
