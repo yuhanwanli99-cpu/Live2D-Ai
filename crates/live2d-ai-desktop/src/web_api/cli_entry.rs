@@ -163,9 +163,9 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
             ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &mods_manifest_for_web())
                 .with_host_channels(crate::mod_registry::HostChannels {
                     say: Arc::new(move |t| sup_for_say.say(t)),
-                    // P0-4 真实闭环：Mod 探测就绪后通过 event_tx 发送
-                    // `{"__apply_settings":true,"patch":{...}}`，这里复用
-                    // settings_routes 的 PATCH 内核完成写盘 + supervisor.reload。
+                    // P0-4 真实闭环：Mod 探测就绪后经一等的
+                    // `ModServices.apply_settings` 提交 namespaced patch（rc.4 M4），
+                    // 这里复用 settings_routes 的 PATCH 内核完成写盘 + supervisor.reload。
                     apply_settings: Arc::new(move |patch_json: serde_json::Value| {
                         use live2d_ai_runtime::settings::patch::SettingsPatch;
                         use live2d_ai_runtime::AppSettings;

@@ -282,8 +282,24 @@ impl ModRegistry {
     #[rustfmt::skip]
     fn make_services(&self, mod_id: &'static str, say: Arc<dyn Fn(String) -> bool + Send + Sync>) -> ModServices {
         let host = self.host.clone();
-        let apply_settings = host.as_ref().map(|h| h.apply_settings.clone());
         let config_path = host.as_ref().map(|h| h.config_path.clone()).unwrap_or_default();
+        // 一等配置写回（rc.4 M4）：host.apply_settings 包成 `ModSettingsApplier`。
+        // 无 HostChannels（无 supervisor / 单测）→ 默认「拒绝一切 patch」，不静默写盘。
+        let applier = match host.as_ref().map(|h| h.apply_settings.clone()) {
+            Some(apply) => ModSettingsApplier::new(move |patch: serde_json::Value| {
+                let ok = apply(patch.clone());
+                tracing::info!(
+                    target: "mod", mod_id, config_path,
+                    "apply_settings {}: patch={}",
+                    if ok { "success" } else { "failed" }, patch
+                );
+                ok
+            }),
+            None => ModSettingsApplier::new(move |_patch| {
+                tracing::info!(target: "mod", mod_id, "无 HostChannels：apply_settings 被拒绝");
+                false
+            }),
+        };
         ModServices::new(
             // 动作：**休眠** sender（rc.2）。`ModServices.action_tx` 是 Mod API 契约，
             // 但 host 不再有驱动方——请求只留痕、被丢弃，返回 false（= 未被接受）。
@@ -299,39 +315,15 @@ impl ModRegistry {
             }),
             // SaySender 保持现有 say(t)
             SaySender::new(move |t| say(t)),
-            // Mod→host event：P0-4 真实闭环 —— 拦截 `payload` 中携带
-            // `"__apply_settings": true` 的 JSON，提取 `patch` 字段经
-            // `apply_settings` 写盘 + reload。其他事件按 v1 行为透传日志。
-            ModEventSender::new(move |topic, payload| {
-                let Some(apply) = apply_settings.as_ref() else {
-                    tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
-                    return true;
-                };
-                let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
-                    tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
-                    return true;
-                };
-                let has_marker = json
-                    .get("__apply_settings")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                if has_marker
-                    && let Some(patch) = json.get("patch")
-                {
-                    let ok = apply(patch.clone());
-                    tracing::info!(
-                        target: "mod",
-                        mod_id, config_path,
-                        "P0-4 apply_settings {}: patch={}",
-                        if ok { "success" } else { "failed" }, patch
-                    );
-                    return ok;
-                }
+            // Mod→host event：只透传日志。配置写回走一等的 `apply_settings`
+            // （rc.4 M4）——旧的 `{"__apply_settings":true,...}` 事件走私已删除。
+            ModEventSender::new(|topic, payload| {
                 tracing::info!(target: "mod", topic = topic.as_str(), payload, "Mod→host event");
                 true
             }),
             ModLogger::new(|_lvl, msg| tracing::info!(target: "mod", "{}", msg)),
         )
+        .with_apply_settings(applier)
     }
 
     #[rustfmt::skip]
@@ -911,5 +903,57 @@ mod tests {
         assert!(sent, "say 应被 host channel 接受");
         let got = recorded_c.lock().unwrap().clone();
         assert!(got.iter().any(|t| t == "hello from mod"), "记录应含文本，got {got:?}");
+    }
+
+    /// **M4 一等 apply_settings**：Mod 经 `services.apply_settings` 提交的 patch
+    /// 必须到达 host 注入的回调（不再需要 `__apply_settings` 事件信封）。
+    #[test]
+    fn apply_settings_applier_reaches_host() {
+        CAPTURED_SERVICES.with(|c| c.borrow_mut().take()); // 清上一轮残留。
+        let captured: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_c = captured.clone();
+        let mut reg = ModRegistry::new(
+            ACTION_FACTORIES,
+            &serde_json::json!({"mods":{"action_test":{"enabled":true}}}),
+        )
+        .with_host_channels(HostChannels {
+            say: Arc::new(|_| true),
+            apply_settings: Arc::new(move |patch| {
+                captured_c.lock().unwrap().push(patch);
+                true
+            }),
+            config_path: String::new(),
+        });
+        reg.start_all(); // 触发 factory.create → 捕获 services。
+
+        let patch = serde_json::json!({"llm": {"base_url": "http://127.0.0.1:11434/v1"}});
+        let accepted = CAPTURED_SERVICES.with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|s| s.apply_settings.apply(patch.clone()))
+                .unwrap_or(false)
+        });
+        assert!(accepted, "一等 apply_settings 应被 host 接受");
+        let got = captured.lock().unwrap().clone();
+        assert_eq!(got.len(), 1, "host 应收到一次 patch");
+        assert_eq!(got[0]["llm"]["base_url"], "http://127.0.0.1:11434/v1");
+    }
+
+    /// **M4 默认拒绝**：没有 HostChannels 时 `apply_settings` 返回 `false`
+    /// （单测 / 无 supervisor 环境不得静默写盘）。
+    #[test]
+    fn apply_settings_defaults_to_rejected() {
+        let services = ModServices::new(
+            ModActionSender::new(|_| false),
+            SaySender::new(|_| true),
+            ModEventSender::new(|_, _| true),
+            ModLogger::new(|_, _| {}),
+        );
+        assert!(
+            !services
+                .apply_settings
+                .apply(serde_json::json!({"llm": {}})),
+            "未注入 host 时必须拒绝"
+        );
     }
 }

@@ -105,6 +105,35 @@ impl ModLogger {
     }
 }
 
+/// Mod → host 配置写回（**一等 API**，rc.4 M4）。
+///
+/// 取代旧的 `__apply_settings` 事件走私：Mod 直接拿到一个
+/// `Fn(namespaced JSON patch) -> bool`，host 内部复用 settings PATCH 内核
+/// （apply_patch → 原子写盘 → `supervisor.reload()`）。返回 `true` = 写盘成功
+/// （或无变更），`false` = 写盘失败。
+///
+/// **边界**：patch 是 `live2d-ai.toml` 的 namespaced JSON 形态（如
+/// `{"llm":{"base_url":"..."}}`）；Mod **不得**借此写主链语义之外的键
+/// （写不存在的键由 host 的 SettingsPatch 反序列化拒绝）。
+#[derive(Clone)]
+pub struct ModSettingsApplier {
+    inner: std::sync::Arc<dyn Fn(serde_json::Value) -> bool + Send + Sync>,
+}
+
+impl ModSettingsApplier {
+    /// 由 host 注入实现。
+    pub fn new(f: impl Fn(serde_json::Value) -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            inner: std::sync::Arc::new(f),
+        }
+    }
+
+    /// 应用一个 namespaced JSON patch；返回写盘 + reload 是否成功。
+    pub fn apply(&self, patch: serde_json::Value) -> bool {
+        (self.inner)(patch)
+    }
+}
+
 /// Host 注入 Mod 的服务集合。
 #[derive(Clone)]
 pub struct ModServices {
@@ -112,6 +141,8 @@ pub struct ModServices {
     pub say_tx: SaySender,
     pub event_tx: ModEventSender,
     pub logger: ModLogger,
+    /// 一等配置写回（rc.4 M4）；未注入时为「拒绝一切 patch」的默认实现。
+    pub apply_settings: ModSettingsApplier,
 }
 
 impl ModServices {
@@ -126,6 +157,14 @@ impl ModServices {
             say_tx,
             event_tx,
             logger,
+            // 默认实现拒绝写入：显式注入才开通（避免单测/无 supervisor 环境静默写盘）。
+            apply_settings: ModSettingsApplier::new(|_| false),
         }
+    }
+
+    /// builder：注入一等配置写回（host 的 `make_services` 用）。
+    pub fn with_apply_settings(mut self, applier: ModSettingsApplier) -> Self {
+        self.apply_settings = applier;
+        self
     }
 }

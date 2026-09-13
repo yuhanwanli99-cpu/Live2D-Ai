@@ -14,9 +14,9 @@
 //!   不 panic——无命令时不能崩）。
 //! - 就绪探测：TCP 端口通后进行真实 HTTP 探测（`/api/tags` for ollama /
 //!   `/v1/models` for OpenAI 兼容）；探测通过 → 就绪 + 自动写回 settings。
-//! - **P0-4 真实闭环**：就绪后通过 `event_tx` 发送
-//!   `{"__apply_settings":true,"patch":{...}}`，host 复用 settings PATCH 内核
-//!   写盘 + `supervisor.reload()` —— 形成「spawn → 探活 → 写配置 → 热重载」闭环。
+//! - **P0-4 真实闭环（rc.4 M4 起走一等 API）**：就绪后通过
+//!   `ModServices.apply_settings` 提交 namespaced patch，host 复用 settings PATCH
+//!   内核写盘 + `supervisor.reload()` —— 形成「spawn → 探活 → 写配置 → 热重载」闭环。
 //! - `shutdown`：回收子进程（`kill()` + `wait()`），复位状态。
 //!
 //! # 配置字段
@@ -252,16 +252,15 @@ impl LocalLlmRuntime {
     /// 1. TCP `connect_timeout` 直至端口开放；
     /// 2. TCP 通后立即做真实 HTTP GET（手写 HTTP/1.1，30 行 std）探测 API 就绪：
     ///    ollama 用 `/api/tags`，OpenAI 兼容用 `/v1/models`；
-    /// 3. HTTP 返回 2xx → `ready=true` + 通过 `event_tx` 发送
-    ///    `{"__apply_settings":true,"patch":{"llm":{"base_url":...,"model":...}}}`
-    ///    触发 host 写盘 + reload（P0-4 真实闭环）；
+    /// 3. HTTP 返回 2xx → `ready=true` + 通过 `services.apply_settings` 提交
+    ///    `{"llm":{"base_url":...,"model":...}}` 触发 host 写盘 + reload（P0-4 闭环）；
     /// 4. HTTP 探测失败 → `ready=false`（TCP 通但 API 不通 = 未就绪）。
     ///
     /// `externally_managed=true` 时同样探测 —— 用户自己起服务，Mod 探活 + 写配置。
     fn start_probe_thread(&self, port: u16, timeout: Duration) {
         let ready = self.ready.clone();
         let logger = self.services.logger.clone();
-        let event_tx = self.services.event_tx.clone();
+        let apply_settings = self.services.apply_settings.clone();
         let model = self.model_explicit();
         let base_url = format!("http://127.0.0.1:{port}/v1");
         let socket_addr: std::net::SocketAddr = format!("127.0.0.1:{port}")
@@ -289,9 +288,8 @@ impl LocalLlmRuntime {
                 Self::http_get(&base_url, "/api/tags", Duration::from_secs(2))
                     .or_else(|_| Self::http_get(&base_url, "/v1/models", Duration::from_secs(2)))
             };
-            let apply = |patch: serde_json::Value| {
-                event_tx.try_emit(ModEventTopic::ModelActivated, &patch.to_string())
-            };
+            // rc.4 M4：一等配置写回（原 `event_tx` + `__apply_settings` 走私已删）。
+            let apply = |patch: serde_json::Value| apply_settings.apply(patch);
             probe_and_configure(
                 port,
                 &ready,
@@ -372,11 +370,11 @@ impl LocalLlmRuntime {
 /// 探测 + 写 settings 的纯逻辑函数（P0-4 真实闭环）。
 ///
 /// `probe`：探测函数（生产路径为 `http_get`，测试路径为 mock）。
-/// `apply`：settings patch 应用函数（生产路径为 `event_tx.try_emit`，
+/// `apply`：settings patch 应用函数（生产路径为 `services.apply_settings`，
 /// 测试路径为 mock）。
 ///
-/// 探测成功 → `ready=true` + 构造 `{"__apply_settings":true,"patch":{...}}`，
-/// 交给 `apply` 回调完成写盘 + reload。
+/// 探测成功 → `ready=true` + 构造 namespaced patch `{"llm":{...}}`，
+/// 交给 `apply` 回调完成写盘 + reload（rc.4 M4 一等 API）。
 /// 探测失败 → `ready=false`，记录日志。
 fn probe_and_configure(
     port: u16,
@@ -397,10 +395,8 @@ fn probe_and_configure(
             if let Some(m) = model {
                 llm["model"] = serde_json::Value::String(m.to_string());
             }
-            let patch = serde_json::json!({
-                "__apply_settings": true,
-                "patch": { "llm": llm }
-            });
+            // rc.4 M4：一等 API——直接就是 namespaced patch，不再包 `__apply_settings` 信封。
+            let patch = serde_json::json!({ "llm": llm });
             if !apply(patch) {
                 logger.warn("local-llm apply_settings 调用失败");
             }
@@ -764,12 +760,9 @@ mod tests {
         let captured_val = captured.lock().unwrap().take();
         assert!(captured_val.is_some(), "apply_settings payload 应被捕获");
         let patch = captured_val.unwrap();
-        assert_eq!(patch["__apply_settings"], true);
-        assert_eq!(
-            patch["patch"]["llm"]["base_url"],
-            "http://127.0.0.1:11434/v1"
-        );
-        assert_eq!(patch["patch"]["llm"]["model"], "qwen3:4b");
+        // rc.4 M4：patch 就是 namespaced JSON（无 `__apply_settings` 信封）。
+        assert_eq!(patch["llm"]["base_url"], "http://127.0.0.1:11434/v1");
+        assert_eq!(patch["llm"]["model"], "qwen3:4b");
     }
 
     /// probe_and_configure：探测失败时 ready 保持 false，不发送 patch。
