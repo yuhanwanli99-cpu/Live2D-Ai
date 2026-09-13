@@ -103,6 +103,21 @@
     一致」是同一条纪律）。
 - **Mod 边界**：Mod 必须通过 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁。
 
+### 推理模型的「思考」（2026-09-13 定）
+
+上游可能是**推理模型**（实测 `deepseek-flash`）：除正文外还发 `reasoning_content`。
+
+- 解析层必须**单列**一类事件（`LlmEvent::ReasoningDelta`），**不得**并进正文；
+- **思考不进句子装配器、不进 TTS**——否则模型会把内心独白念出来（回归：
+  `llm::reasoning_tests::reasoning_never_reaches_the_sentence_assembler`）；
+- WS 用**独立帧类型** `reasoning_delta`（不复用 `text_delta`：后者的语义是
+  「与音频同拍的正文」，混用会把思考追加进气泡正文）；
+- **思考与正文共用 `max_tokens`**：所以默认上限是 **4096** 而不是 512。上限过小的
+  表现不是「回复短一点」，而是**正文被挤成半句 → 切不出完整句 → 一个字都不上屏**
+  （用户看到「模型没有返回」）。改这个默认值前先重跑 `settings_tests` 里那段实测记录；
+- 前端思考**不落盘**（比正文长 5–20 倍，写进 localStorage 会膨胀一个数量级）；
+  刷新后旧气泡不再有思考，这是刻意取舍。
+
 ### 动作与表演的归属（休眠台账，2026-09-12 rc.2 定）
 
 **动作在产品路径上不存在**。这不是「暂时没接」，是裁决（`docs/architecture/core-chain-baseline.md`
@@ -231,8 +246,14 @@
   ⑤ **点火纪律**：`ignite.sh` 锚定 `LIVE2D_AI_FLUTTER_WEB_DIR` + `--check` 体检；
   503 响应体列出找过的每个路径；WSL2 ↔ Windows 分工写进本文件与 README。
   旧 JS 前端预览隔离到 `docs/design/legacy/` 并标注「**勿当现网**」。
-  门禁：cargo **784** 通过 / clippy 0 warning / rust-ratio **96.9545% PASS**；
-  flutter analyze 无问题 + **798** 测试通过；`ignite.sh --check` 四项全 ok。
+  ⑥ **补丁（2026-09-13，rc.2 内，实测抓到）**：上游是**推理模型**，思考与正文共用
+  `max_tokens`——512 时正文被挤成半句、**一个字都不上屏**（用户报「模型没有返回」）。
+  修法：解析 `reasoning_content` 单列 `LlmEvent::ReasoningDelta` → WS **新帧
+  `reasoning_delta`** → 前端气泡的**「思考」折叠区**；默认上限 512 → **4096**；
+  「只有思考没有正文」单独收口。见下方「推理模型的思考」小节。
+  门禁：cargo **790** 通过 / clippy 0 warning / rust-ratio **96.9681% PASS**；
+  flutter analyze 无问题 + **812** 测试通过；`ignite.sh --check` 四项全 ok；
+  `verify_core_chain.py`（长思考提问）**18 跳全过**。
   发布说明（含点火记录与已知问题）：`docs/releases/v0.1.0-rc.2.md`。
 - **2026-09-11（v0.1.0-rc.1，核心链路基线）**：用户验收通过 → **交接落盘 + 标注基线**，
   随后裁决「**旧版本代码可只存在本地，仓库可以洗一下**」。本版：

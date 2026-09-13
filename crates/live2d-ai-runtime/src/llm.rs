@@ -2,7 +2,18 @@
 //!
 //! 事件流语义：
 //! - [`LlmEvent::TextDelta`]：正文文本增量；
+//! - [`LlmEvent::ReasoningDelta`]：**思考**增量（推理模型）；
 //! - [`LlmEvent::Done`]：收到 `[DONE]`；对端未发 `[DONE]` 就关流时也兜底补发一次。
+//!
+//! # 思考（`reasoning_content`，2026-09-13）
+//!
+//! 实测上游 `deepseek-flash` **是推理模型**：每个 delta 除了 `content` 还带
+//! `reasoning_content`。以前这里只读 `content`，思考被**静默丢弃**——用户既看不到
+//! 思考，也解释不了「为什么回复像是被截断了」。
+//!
+//! 两条纪律：
+//! 1. **思考永不进 TTS、不进切句器**（它是给人看的，不是给嘴念的）；
+//! 2. 思考与正文是**两份独立事件**，顺序按上游到达顺序，合并/展示由前端决定。
 //!
 //! 2026-09-11 用户裁决：**LLM 不暴露任何工具，只做对话**。请求体因此**不含**
 //! `tools` 字段，本模块也不再解析任何 tool-call 流（`ToolCallDelta` 已删除）。
@@ -90,6 +101,11 @@ impl ChatMessage {
 pub enum LlmEvent {
     /// 正文文本增量片段。
     TextDelta(String),
+    /// **思考**增量片段（推理模型的 `reasoning_content` / `reasoning`）。
+    ///
+    /// 与 [`LlmEvent::TextDelta`] 严格分开：调用方**不得**把思考当正文
+    /// （既不能合成语音，也不能进句子装配器）。
+    ReasoningDelta(String),
     /// 流正常结束。
     Done,
 }
@@ -157,6 +173,12 @@ struct ChatChunkChoice {
 struct ChatDelta {
     #[serde(default)]
     content: Option<String>,
+    /// 推理模型的思考增量。字段名不统一：官方/多数网关用 `reasoning_content`，
+    /// 也有实现只叫 `reasoning`——**两个都认**，谁先有内容就取谁。
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    reasoning: Option<String>,
 }
 
 /// 把一条 SSE data 映射为零或多个 [`LlmEvent`]（或一个可观测错误）。
@@ -189,6 +211,16 @@ fn map_sse_data(data: &str, done: &mut bool, out: &mut Vec<Result<LlmEvent>>) {
             && !text.is_empty()
         {
             out.push(Ok(LlmEvent::TextDelta(text.to_string())));
+        }
+        // 2026-09-13：思考增量单列一类事件（见模块头注的两条纪律）。
+        if let Some(text) = choice
+            .delta
+            .reasoning_content
+            .as_deref()
+            .or(choice.delta.reasoning.as_deref())
+            && !text.is_empty()
+        {
+            out.push(Ok(LlmEvent::ReasoningDelta(text.to_string())));
         }
     }
 }
@@ -417,5 +449,82 @@ mod tests {
         let key = ApiSecret::new("sk-x");
         assert_eq!(key.expose_secret(), "sk-x");
         let _ = LlmConfig::new("http://a", "m").with_api_key(key);
+    }
+}
+
+#[cfg(test)]
+mod reasoning_tests {
+    use super::*;
+
+    fn parse(data: &str) -> Vec<LlmEvent> {
+        let mut done = false;
+        let mut out = Vec::new();
+        map_sse_data(data, &mut done, &mut out);
+        out.into_iter().filter_map(Result::ok).collect()
+    }
+
+    /// 推理模型：`reasoning_content` 必须产出**独立**事件，不能被丢掉、
+    /// 也不能混进正文（混进去就会被合成为语音——把内心独白念出来）。
+    #[test]
+    fn reasoning_content_becomes_its_own_event() {
+        let evs = parse(r#"{"choices":[{"delta":{"reasoning_content":"先看题目…"}}]}"#);
+        assert_eq!(evs, vec![LlmEvent::ReasoningDelta("先看题目…".into())]);
+    }
+
+    /// 同一 chunk 里既有思考又有正文时，**顺序保持且两者分开**。
+    #[test]
+    fn reasoning_and_content_in_one_chunk_stay_separate() {
+        let evs = parse(r#"{"choices":[{"delta":{"reasoning_content":"想","content":"答"}}]}"#);
+        assert_eq!(
+            evs,
+            vec![
+                LlmEvent::TextDelta("答".into()),
+                LlmEvent::ReasoningDelta("想".into()),
+            ]
+        );
+    }
+
+    /// 有的网关字段名只叫 `reasoning`——也要认。
+    #[test]
+    fn reasoning_alias_is_accepted() {
+        let evs = parse(r#"{"choices":[{"delta":{"reasoning":"think"}}]}"#);
+        assert_eq!(evs, vec![LlmEvent::ReasoningDelta("think".into())]);
+    }
+
+    /// 空思考不产出事件（与空正文一致）。
+    #[test]
+    fn empty_reasoning_yields_nothing() {
+        assert!(parse(r#"{"choices":[{"delta":{"reasoning_content":""}}]}"#).is_empty());
+    }
+
+    /// **思考不进句子装配器**：哪怕给足句读、哪怕收尾结算，都不得变成句子
+    /// （一旦变成句子就会被送去 TTS——那等于把内心独白念出来）。
+    #[test]
+    fn reasoning_never_reaches_the_sentence_assembler() {
+        use crate::dialogue::{DialogueAssembler, DialogueEvent};
+        let mut o = DialogueAssembler::new(120);
+        assert!(
+            o.push(&LlmEvent::ReasoningDelta("我先想一想。".into()))
+                .is_empty()
+        );
+        // 收尾必定返回 `Done`（恰一次），所以不能断言「空」——要断言的是
+        // **没有任何 SentenceReady**。
+        let out = o.flush();
+        assert!(
+            !out.iter()
+                .any(|e| matches!(e, DialogueEvent::SentenceReady { .. })),
+            "思考不得在收尾时被结算成句子：{out:?}"
+        );
+
+        // 对照：正文照常成句（悬挂句由 flush 结算）。
+        let mut o2 = DialogueAssembler::new(120);
+        let _ = o2.push(&LlmEvent::TextDelta("你好。".into()));
+        let out = o2.flush();
+        assert!(
+            out.iter().any(
+                |e| matches!(e, DialogueEvent::SentenceReady { text } if text.contains("你好"))
+            ),
+            "正文应正常成句：{out:?}"
+        );
     }
 }

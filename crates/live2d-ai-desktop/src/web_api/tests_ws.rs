@@ -529,6 +529,28 @@ mod ws_unit_tests {
         assert_eq!(v["data"]["completed"], true);
     }
 
+    /// 2026-09-13：思考（`reasoning_content`）投影成**独立**帧类型
+    /// `reasoning_delta`。
+    ///
+    /// 为什么不能复用 `text_delta`：`text_delta` 的正文与音频同拍、会被追加到
+    /// 气泡正文；思考没有声音可对，且长得像内心独白——混进正文就等于
+    /// 「把模型的自言自语当回复显示」（而且旧前端会把它当正文）。
+    /// 独立 type 也让旧客户端自然忽略（`default: break`），是向后兼容的新增。
+    #[test]
+    fn conversation_reasoning_delta_maps_to_its_own_frame() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::ReasoningDelta {
+            epoch: 3,
+            ts_ms: 42,
+            text: "先看题目…".to_string(),
+        });
+        let v = app_event_to_ws_frame(&ev).expect("must map");
+        assert_eq!(v["type"], "reasoning_delta");
+        assert_ne!(v["type"], "text_delta", "思考不得复用正文帧类型");
+        assert_eq!(v["data"]["epoch"], 3);
+        assert_eq!(v["data"]["ts_ms"], 42);
+        assert_eq!(v["data"]["text"], "先看题目…");
+    }
+
     /// 2026-09-11 回归：链路错误**必须**投影成 `error` 帧，且带机器可读的
     /// `code`。此前 `AppEvent` 没有 Error 变体、投影表里也没有这一支——
     /// 前端因此永远收不到错误详情（用户原话：「前端无法知道错误信息」）。

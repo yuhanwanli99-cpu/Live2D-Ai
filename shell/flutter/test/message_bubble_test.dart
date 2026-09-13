@@ -44,6 +44,7 @@ List<TextSpan> spansOf(WidgetTester tester) {
 }
 
 void main() {
+  _reasoningSectionTests();
   group('P2-3：正文真的渲染 Markdown', () {
     testWidgets('`**粗体**` 走粗体 span，且**星号不在文本里**', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(MessageBubble(message: msg('这是**重点**。'))));
@@ -237,6 +238,94 @@ void main() {
     testWidgets('存在 SoftSwap（不是硬切）', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(MessageBubble(message: msg('内容'))));
       expect(find.byType(SoftSwap), findsWidgets);
+    });
+  });
+}
+
+// ── 思考折叠区（2026-09-13，推理模型）────────────────────────────────
+//
+// 现场：`deepseek-flash` 的思考与正文共用输出预算；截断时正文一个字都上不了屏，
+// 而思考其实收到了 1200+ 字。所以思考既要有地方显示（折叠区），
+// 也要在「只有思考」时默认展开并说明白——否则用户看到的仍然是「无返回」。
+void _reasoningSectionTests() {
+  ChatMessage withReasoning(
+    String text,
+    String reasoning, {
+    bool streaming = false,
+  }) => ChatMessage(
+    role: ChatRole.assistant,
+    text: text,
+    reasoning: reasoning,
+    streaming: streaming,
+  );
+
+  group('思考折叠区', () {
+    testWidgets('默认折叠：只显示「已思考 N 字」，正文完整可见', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: withReasoning('你好。', '我先想一想该怎么打招呼。'),
+          ),
+        ),
+      );
+      expect(find.textContaining('已思考'), findsOneWidget);
+      // 折叠状态下思考正文不上屏。
+      expect(find.textContaining('我先想一想'), findsNothing);
+      // 而真正的回复在屏上（折叠区不能把回复挤掉）。
+      expect(find.textContaining('你好。'), findsOneWidget);
+    });
+
+    testWidgets('点标题展开/收起', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(message: withReasoning('你好。', '我先想一想。')),
+        ),
+      );
+      await tester.tap(find.textContaining('已思考'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('我先想一想'), findsOneWidget);
+      // 再点收起。
+      await tester.tap(find.textContaining('思考（'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('我先想一想'), findsNothing);
+    });
+
+    testWidgets('流式中：标题是「思考中…」，条数实时长', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: withReasoning('', '正在推理', streaming: true),
+          ),
+        ),
+      );
+      expect(find.textContaining('思考中'), findsOneWidget);
+    });
+
+    testWidgets('只有思考、没有正文 → 默认展开 + 说明行（并**不**摆「…」占位）', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: withReasoning('', '我算一下：7²+11²+13²=339。'),
+          ),
+        ),
+      );
+      // 默认展开：思考就是本轮唯一内容，折叠起来等于什么都没显示。
+      expect(find.textContaining('我算一下'), findsOneWidget);
+      // 说明行同时给出「发生了什么」与「下一步」（文案本身在 turn_liveness 测试里钉）。
+      expect(find.textContaining('只有思考'), findsOneWidget);
+      expect(find.textContaining('输出 token 上限'), findsOneWidget);
+      // 不能同时摆一个「…」占位——那会让人以为还在等（其实已收口）。
+      expect(find.text('…'), findsNothing);
+    });
+
+    testWidgets('没有思考时：不出现任何思考区（普通回复保持原样）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(MessageBubble(message: msg('你好。'))),
+      );
+      expect(find.textContaining('已思考'), findsNothing);
+      expect(find.textContaining('思考'), findsNothing);
     });
   });
 }

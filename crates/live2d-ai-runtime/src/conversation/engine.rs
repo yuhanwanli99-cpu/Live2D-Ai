@@ -226,6 +226,24 @@ impl ConversationEngine {
                     }
                 }
 
+                // 思考：只转发给 UI，**不进** assembler（一旦进了就会被合成语音）。
+                if let LlmEvent::ReasoningDelta(text) = &event {
+                    let delivered = send_event(
+                        &event_tx,
+                        &cancel,
+                        EngineEvent::ReasoningDelta {
+                            epoch,
+                            ts_ms: now_ms(),
+                            text: text.clone(),
+                        },
+                    )
+                    .await;
+                    if !delivered {
+                        tx_closed = true;
+                        break 'llm;
+                    }
+                }
+
                 for dialogue in assembler.push(&event) {
                     match dialogue {
                         DialogueEvent::SentenceReady { text } => {

@@ -33,13 +33,16 @@
 //!     TtsConfig::new("http://127.0.0.1:8000/v1", "alloy"),
 //! )?;
 //!
-//! // LLM：SSE 增量流（TextDelta / Done）。
+//! // LLM：SSE 增量流（TextDelta / ReasoningDelta / Done）。
 //! let mut stream = client
 //!     .chat_stream(&[ChatMessage::user("打个招呼")])
 //!     .await?;
 //! while let Some(event) = stream.next().await {
 //!     match event? {
 //!         LlmEvent::TextDelta(t) => print!("{t}"),
+//!         // 思考单列一类：推理模型（如 deepseek-flash）会先吐 `reasoning_content`。
+//!         // 它**不是**正文——不要合成语音、不要当回复显示（详见 `llm` 模块头注）。
+//!         LlmEvent::ReasoningDelta(_think) => {}
 //!         LlmEvent::Done => break,
 //!     }
 //! }
@@ -96,7 +99,7 @@ pub use llm::{ChatMessage, LlmEvent, Role};
 pub use secret::ApiSecret;
 pub use settings::patch::{PatchOutcome, SettingsPatch, apply_patch, plan_atomic_write};
 pub use settings::view::SettingsView;
-pub use settings::{AppSettings, ResolvedSettings, SettingsError};
+pub use settings::{AppSettings, DEFAULT_MAX_TOKENS, ResolvedSettings, SettingsError};
 pub use sse::{SseDecoder, SseEvent};
 
 /// 统一 OpenAI-compatible 客户端：持有 HTTP 连接池与两份端点配置。

@@ -92,13 +92,18 @@ class LlmSection extends StatelessWidget {
         NumberField(
           label: '输出 token 上限',
           icon: Icons.straighten,
-          // 服务端回的是**生效值**（0=不限制，省略=512），所以这里不会是 null；
-          // 兜底 0 只为类型安全。
+          // 服务端回的是**生效值**（显式 0 = 不限制；省略时 = 服务端默认），
+          // 所以这里不会是 null；兜底 0 只为类型安全。
           value: effTriInt(d.llmMaxTokens, llm.maxTokens) ?? 0,
           min: 0,
           max: 32768,
-          description: '0 = 不限制；省略 = 服务端默认 512。'
-              '调太小会把句子截断在半句——那本身就是「断句」',
+          // 2026-09-13：默认值从 512 提到 4096——推理模型的**思考也占这份预算**，
+          // 512 时一个普通提问的思考就能把正文挤成半句，而半句切不出完整句，
+          // 界面上一个字都不会出现（用户报「无模型返回」的根因之一）。
+          // 文案必须说清「这是上限、不是配额」，否则用户不敢调大。
+          description: '0 = 不限制；省略 = 服务端默认。'
+              '**推理模型的思考也占这份预算**：调太小会把正文挤成半句甚至为空，'
+              '表现为「模型没有返回」——不要调小',
           onChanged: (int v) => controller.edit((SettingsDraft draft) {
             draft.llmMaxTokens = Tri.set(v);
           }),

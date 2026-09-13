@@ -66,6 +66,8 @@
 //!     match event {
 //!         // LLM 原始增量（**不上屏**；上屏以 SentenceVoiced 为准）。
 //!         EngineEvent::TextDelta { text, .. } => print!("{text}"),
+//!         // 思考（推理模型）：只给 UI 看，不进 TTS、不成句。
+//!         EngineEvent::ReasoningDelta { text, .. } => print!("[想] {text}"),
 //!         EngineEvent::AudioChunk { samples, .. } => { /* 送声卡 */ }
 //!         // 该句语音已完整合成 → 此时才把整句文字推给 UI。
 //!         EngineEvent::SentenceVoiced { text, .. } => println!("[屏] {text}"),
@@ -170,6 +172,18 @@ pub enum EngineEvent {
         /// 相对本轮起点的毫秒数（单调递增；用于链路耗时可视化）。
         ts_ms: u64,
         /// 文本增量片段。
+        text: String,
+    },
+    /// **思考**增量（推理模型的 `reasoning_content`）。
+    ///
+    /// 与 [`Self::TextDelta`] 严格分开，**不**进句子装配器、**不**合成语音：
+    /// 它是给人看的。前端把它挂在气泡的「思考」折叠区里。
+    ReasoningDelta {
+        /// 本轮轮次号。
+        epoch: u64,
+        /// 相对本轮起点的毫秒数。
+        ts_ms: u64,
+        /// 思考增量片段。
         text: String,
     },
     /// 一段增量解码后的音频样本（interleaved f32 ∈ [-1, 1]）。

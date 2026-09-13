@@ -160,6 +160,22 @@ pub enum ConversationUiEvent {
         /// 新的当前代次。
         epoch: u64,
     },
+    /// **思考**增量（推理模型的 `reasoning_content`；2026-09-13）。
+    ///
+    /// 与 [`Self::TextDelta`] 的重要区别：`TextDelta` 走的是
+    /// 「该句**语音已合成完毕**」（`SentenceVoiced`）→ 文字与声音同拍；
+    /// 而思考**没有声音可对**，所以它直达 UI，不做任何音频同步。
+    ///
+    /// 用途：web 路径投影为 `reasoning_delta` 帧，前端挂在气泡的「思考」折叠区。
+    /// **不得**把它当正文用（不合成、不进句子装配器、不进历史）。
+    ReasoningDelta {
+        /// 所属业务代次。
+        epoch: u64,
+        /// 引擎记录的产生时刻（相对本轮起点的毫秒数）。
+        ts_ms: u64,
+        /// 思考增量片段。
+        text: String,
+    },
     /// 本轮开始发声：首个非空 PCM 成功入环（声卡回调即将消费）。
     /// ShellApp 进入「口型活跃」状态：按 MouthSnapshot 电平驱动口型。
     VoiceStarted {

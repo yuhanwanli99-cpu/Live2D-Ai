@@ -12,6 +12,7 @@ import 'package:live2d_ai_shell/chat/turn_liveness.dart';
 /// `package:web`），所以这段逻辑必须在纯模块里才测得到——这就是本文件存在的
 /// 理由，也是它必须覆盖「空气泡 ≠ 删掉」这条回归的理由。
 void main() {
+  _reasoningOnlyTests();
   group('settleTurn：一轮结束时气泡怎么收口', () {
     test('有文字 → 原样保留', () {
       expect(
@@ -140,6 +141,62 @@ void main() {
     test('「上一轮被新代次作废」的码与文案都在', () {
       expect(kTurnPreemptedCode, 'turn_preempted');
       expect(kTurnPreemptedMessage, isNotEmpty);
+    });
+  });
+}
+
+// ── 只有思考、没有正文（2026-09-13，推理模型实测）────────────────────
+//
+// 现场：`deepseek-flash` 的思考与正文共用输出预算，512 上限时正文被挤成
+// 25 字且以 `\sqrt{a` 收尾——切不出完整句，于是**一个字都不上屏**。
+// 这时气泡上其实有思考可看，所以不能按「什么都没有」处理（那会把用户
+// 最想看的内容扔掉）。
+void _reasoningOnlyTests() {
+  group('只有思考的收口', () {
+    test('没有正文但有思考 → keepReasoningOnly（保留气泡）', () {
+      expect(
+        settleTurn(failed: false, text: '', hasReasoning: true),
+        TurnSettlement.keepReasoningOnly,
+      );
+    });
+
+    test('连思考都没有 → 仍然是 wordless（换成系统行）', () {
+      expect(
+        settleTurn(failed: false, text: ''),
+        TurnSettlement.wordless,
+      );
+    });
+
+    test('有正文时思考不改变结论 → keep', () {
+      expect(
+        settleTurn(failed: false, text: '你好。', hasReasoning: true),
+        TurnSettlement.keep,
+      );
+    });
+
+    test('失败/用户停止优先于「只有思考」', () {
+      expect(
+        settleTurn(failed: true, text: '', hasReasoning: true),
+        TurnSettlement.failed,
+      );
+      expect(
+        settleTurn(failed: false, text: '', hasReasoning: true, stopped: true),
+        TurnSettlement.stopped,
+      );
+    });
+
+    test('空白正文（只有空格）也按「没有正文」处理', () {
+      expect(
+        settleTurn(failed: false, text: '   \n ', hasReasoning: true),
+        TurnSettlement.keepReasoningOnly,
+      );
+    });
+
+    test('说明行必须同时给出「发生了什么」与「下一步」', () {
+      expect(kReasoningOnlyCaption, contains('思考'));
+      expect(kReasoningOnlyCaption, contains('没有正文'));
+      // 只说「没有返回文字」会把用户送回原来那个坑：不知道去哪改。
+      expect(kReasoningOnlyCaption, contains('输出 token 上限'));
     });
   });
 }

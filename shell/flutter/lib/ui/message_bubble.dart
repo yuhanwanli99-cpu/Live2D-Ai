@@ -24,6 +24,7 @@ import 'package:flutter/services.dart';
 
 import '../chat/chat_markdown.dart';
 import '../chat/chat_message.dart';
+import '../chat/turn_liveness.dart';
 import '../design/tokens.dart';
 import 'soft_motion.dart';
 import 'theme.dart';
@@ -51,6 +52,8 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColors colors = appColorsOf(context);
+    final bool onlyReasoning =
+        message.text.trim().isEmpty && message.reasoning.trim().isNotEmpty;
 
     // ── 系统提示：**不走气泡那条路**（2026-09-11）──
     //
@@ -129,16 +132,32 @@ class MessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
+                  // ── 思考（推理模型；2026-09-13）──
+                  //
+                  // 位置在正文**之上**：思考先于答案发生，顺序与模型一致。
+                  // 正文为空时它默认展开并带一句说明——那种情况（思考吃掉了
+                  // 输出预算）正是用户最需要看到它的时刻。
+                  if (message.reasoning.trim().isNotEmpty)
+                    _ReasoningSection(
+                      text: message.reasoning,
+                      streaming: message.streaming,
+                      onlyReasoning: message.text.trim().isEmpty,
+                      mutedColor: colors.contentMuted,
+                      borderColor: colors.hairline,
+                    ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: <Widget>[
-                      Flexible(
-                        child: _MessageBody(
-                          text: placeholderOnly ? '…' : message.text,
-                          color: foreground,
+                      // 只有思考、没有正文时**不**摆一个「…」占位：那会让人以为
+                      // 还在等回复，而实际上这一轮已经收口了（说明行会讲清楚）。
+                      if (message.text.isNotEmpty || !onlyReasoning)
+                        Flexible(
+                          child: _MessageBody(
+                            text: placeholderOnly ? '…' : message.text,
+                            color: foreground,
+                          ),
                         ),
-                      ),
                       // 流式光标：只在**正文已经来了**的时候显示，
                       // 否则会与上面的「…」重复。
                       //
@@ -176,6 +195,117 @@ class MessageBubble extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 「思考」折叠区（推理模型的 `reasoning_content`；2026-09-13）。
+///
+/// # 为什么默认折叠
+///
+/// 思考通常比正文长 **5–20 倍**（实测 1200+ 字 vs 20 字回复）。默认展开会把
+/// 真正的回复挤出屏幕——用户要的是「先看到回复，需要时才看它怎么想的」。
+///
+/// **例外**：正文为空时默认展开（`onlyReasoning`）——那种情况思考就是本轮唯一
+/// 的内容，折叠起来等于什么都没显示（那正是用户报过的「无模型返回」）。
+///
+/// # 为什么用自绘的开关而不是 `ExpansionTile`
+///
+/// `ExpansionTile` 自带 Material 的边距/分隔线/水波纹，与本项目「圆角统一、
+/// elevation 全 0、文字做按钮」的外观约定冲突（见 `AGENTS.md` 前端层约定），
+/// 而且它会拖进一个不小的组件树。这里只需要「一行可点的标题 + 一段可折叠文字」。
+class _ReasoningSection extends StatefulWidget {
+  const _ReasoningSection({
+    required this.text,
+    required this.streaming,
+    required this.onlyReasoning,
+    required this.mutedColor,
+    required this.borderColor,
+  });
+
+  final String text;
+  final bool streaming;
+  final bool onlyReasoning;
+  final Color mutedColor;
+  final Color borderColor;
+
+  @override
+  State<_ReasoningSection> createState() => _ReasoningSectionState();
+}
+
+class _ReasoningSectionState extends State<_ReasoningSection> {
+  bool? _expandedOverride;
+
+  bool get _expanded => _expandedOverride ?? widget.onlyReasoning;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final int chars = widget.text.characters.length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // 标题行：整行可点（`InkWell` 之外用 `GestureDetector`——这里在
+          // 气泡内部，父层已有自己的手势处理，水波纹反而会串味）。
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _expandedOverride = !_expanded),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                  color: widget.mutedColor,
+                ),
+                const SizedBox(width: Space.s1),
+                Text(
+                  widget.streaming
+                      ? '思考中…（$chars 字）'
+                      : _expanded
+                      ? '思考（$chars 字）'
+                      : '已思考 $chars 字（点开看）',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: widget.mutedColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.s1),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(Space.s2),
+                decoration: BoxDecoration(
+                  // 左侧竖线 + 弱色字：一眼看出「这是旁注，不是角色说的话」。
+                  border: Border(
+                    left: BorderSide(color: widget.borderColor, width: 2),
+                  ),
+                ),
+                child: Text(
+                  widget.text,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: widget.mutedColor,
+                  ),
+                ),
+              ),
+            ),
+          if (widget.onlyReasoning && !widget.streaming)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.s1),
+              child: Text(
+                kReasoningOnlyCaption,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: widget.mutedColor,
+                ),
+              ),
+            ),
         ],
       ),
     );

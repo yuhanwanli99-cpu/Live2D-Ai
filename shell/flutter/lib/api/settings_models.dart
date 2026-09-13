@@ -249,7 +249,7 @@ class LlmSettingsPatch {
   ///
   /// **`Tri.set(0)` 与 `Tri.clear()` 是两件不同的事**，不能合并：
   /// - `Tri.set(0)` → JSON `max_tokens: 0` → 不限制；
-  /// - `Tri.clear()` → JSON `max_tokens: null` → 清除，回落服务端默认 512；
+  /// - `Tri.clear()` → JSON `max_tokens: null` → 清除，回落服务端默认；
   /// - 字段留 `null` → JSON 里**不出现**该键 → 保持原值。
   final Tri<int>? maxTokens;
 

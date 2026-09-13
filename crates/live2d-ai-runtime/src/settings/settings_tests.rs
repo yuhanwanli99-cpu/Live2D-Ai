@@ -447,17 +447,27 @@ fn toml_with_max_tokens(line: &str) -> String {
 }
 
 #[test]
-fn max_tokens_omitted_falls_back_to_default_512() {
+fn max_tokens_omitted_falls_back_to_default() {
     let s = AppSettings::from_toml_str(&toml_with_max_tokens("")).expect("parse");
     assert_eq!(
         s.llm.max_tokens, None,
-        "省略必须保持 None（不是 Some(512)）"
+        "省略必须保持 None（不是 Some(默认值)）"
     );
-    assert_eq!(s.llm.effective_max_tokens(), 512);
-    assert_eq!(
-        super::DEFAULT_MAX_TOKENS,
-        512,
-        "默认值改了就要连带复核下面「默认不至于截断半句」的推理"
+    assert_eq!(s.llm.effective_max_tokens(), super::DEFAULT_MAX_TOKENS);
+    // 默认值是**策略**，钉住它的具体数字只会让「改策略」看起来像「改坏了」。
+    // 真正要守的是：它必须**留得下一次推理**。
+    //
+    // 2026-09-13 实测依据（改这个数之前请重跑一遍）：
+    //   `deepseek-flash` 用同一份 `max_tokens` 同时容纳思考与正文。
+    //   - 一个普通「你好」：思考 97 字、正文 23 字；
+    //   - 一个要几步推理的提问：思考 1235–1602 字。
+    //   512 时后者 `finish_reason=length`，正文只剩 25 字且以 `\sqrt{a` 收尾
+    //   ——切不出完整句，前端**一个字都不上屏**（用户报「无模型返回」）。
+    // 编译期断言（不是运行时 assert!：两边都是常量，clippy 会判
+    // `assertions_on_constants`，而且编译期失败得更早）。
+    const _: () = assert!(
+        super::DEFAULT_MAX_TOKENS >= 2048,
+        "默认上限必须给思考留出空间（实测长思考 1200–1600 token）"
     );
 }
 
@@ -505,7 +515,7 @@ fn max_tokens_round_trips_through_toml_and_view_echoes_effective() {
     }
 
     let view = settings_to_view(&omitted);
-    assert_eq!(view.llm.max_tokens, 512);
+    assert_eq!(view.llm.max_tokens, super::DEFAULT_MAX_TOKENS);
 }
 
 // ─────────────────────────────────────────────────────────────────

@@ -170,6 +170,11 @@ class ChatController extends ChangeNotifier {
       case TextDeltaEvent(:final text, :final completed, :final epoch):
         if (text != null && text.isNotEmpty) _appendDelta(text, epoch);
         if (completed != null) _finishTurn(failed: completed == false);
+      case ReasoningDeltaEvent(:final text, :final epoch):
+        // 思考**只累积、不落盘**（见 `ChatMessage.reasoning` 的取舍说明），
+        // 也**不**触发 `_streaming`——「正在思考」不等于「正文已开始」，
+        // 混用会让输入框的停止态与文字气泡的流式态对不上。
+        if (text != null && text.isNotEmpty) _appendReasoning(text, epoch);
       case TurnStateEvent(:final status):
         _finishTurn(failed: status == 'failed');
       case final RuntimeStatusEvent status:
@@ -244,6 +249,26 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 累积思考片段到当前（或新建的）助手气泡。
+  ///
+  /// 与 [`_appendDelta`] 共用「气泡引用」语义：思考先到而正文还没到时，
+  /// 这里**建**一个气泡并挂住它，等正文（`SentenceVoiced`）到了再往里写正文——
+  /// 这样界面不会先出现一个空气泡，也不会出现两条气泡。
+  void _appendReasoning(String text, int? epoch) {
+    var bubble = _assistant;
+    if (bubble == null) {
+      bubble = ChatMessage(
+        role: ChatRole.assistant,
+        epoch: epoch,
+        streaming: true,
+      );
+      sessions.append(bubble);
+      _assistant = bubble;
+    }
+    bubble.reasoning += text;
+    notifyListeners();
+  }
+
   void _onAudio(
     Uint8List pcm,
     int sampleRate,
@@ -311,8 +336,16 @@ class ChatController extends ChangeNotifier {
       // 现在的第三条路：**换一条系统行**（`ChatRole.system`）。事实照说，
       // 但一眼就能看出那不是角色说的话。**用户主动停止**也走这条路，
       // 但用另一句话（[kStoppedTurnNotice]）——别把用户的意志说成模型的产出。
-      switch (settleTurn(failed: failed, text: bubble.text, stopped: stopped)) {
+      switch (settleTurn(
+        failed: failed,
+        text: bubble.text,
+        stopped: stopped,
+        hasReasoning: bubble.reasoning.trim().isNotEmpty,
+      )) {
         case TurnSettlement.keep:
+        // 只有思考：**保留气泡**（思考是用户要看的内容），由气泡自己标一句
+        // 「只有思考、没有正文」（见 `kReasoningOnlyCaption`）。
+        case TurnSettlement.keepReasoningOnly:
           break;
         case TurnSettlement.failed:
           bubble.failed = true;

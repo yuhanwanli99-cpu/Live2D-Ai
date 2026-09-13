@@ -185,6 +185,7 @@ pub fn assert_epoch(events: &[EngineEvent], epoch: u64) {
         .iter()
         .map(|e| match e {
             EngineEvent::TextDelta { epoch, .. }
+            | EngineEvent::ReasoningDelta { epoch, .. }
             | EngineEvent::AudioChunk { epoch, .. }
             | EngineEvent::SentenceVoiced { epoch, .. }
             | EngineEvent::Error { epoch, .. }

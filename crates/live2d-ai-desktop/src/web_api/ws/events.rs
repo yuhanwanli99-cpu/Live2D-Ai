@@ -83,6 +83,19 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
                 "text": text,
             }));
         }
+        AppEvent::Conversation(ConversationUiEvent::ReasoningDelta { epoch, ts_ms, text }) => {
+            // **独立帧类型**（不复用 `text_delta`）：两者的消费语义不同——
+            // `text_delta` 与音频同拍、会追加到气泡正文；思考只进「思考」折叠区，
+            // 且可能比正文长得多。用同一个 type 加标志位会让前端每条都要分支判断，
+            // 而且旧前端会把思考当正文追加（那是**错的**，等于把内心独白当回复）。
+            // 未知 type 在旧客户端被忽略（`default: break`），所以这是向后兼容的新增。
+            frame.set_type("reasoning_delta");
+            frame.set_data(serde_json::json!({
+                "epoch": epoch,
+                "ts_ms": ts_ms,
+                "text": text,
+            }));
+        }
         AppEvent::Conversation(ConversationUiEvent::VoiceStarted { epoch }) => {
             frame.set_type("runtime_status");
             frame.set_data(serde_json::json!({

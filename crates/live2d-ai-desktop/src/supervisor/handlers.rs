@@ -59,6 +59,18 @@ pub(crate) fn handle_engine_event(
             //
             // 若哪天要恢复「边生成边上屏」，把 emit 挪回这里即可（其余不动）。
         }
+        EngineEvent::ReasoningDelta {
+            epoch, ts_ms, text, ..
+        } => {
+            // 思考**直接上屏**：它没有音频可对齐（见 `ConversationUiEvent` 注释）。
+            emit(AppEvent::Conversation(
+                ConversationUiEvent::ReasoningDelta {
+                    epoch: *epoch,
+                    ts_ms: *ts_ms,
+                    text: text.clone(),
+                },
+            ));
+        }
         EngineEvent::SentenceVoiced {
             epoch, ts_ms, text, ..
         } => {
@@ -186,6 +198,7 @@ pub(crate) fn handle_engine_event(
 pub(crate) fn ev_epoch(ev: &EngineEvent) -> u64 {
     match ev {
         EngineEvent::TextDelta { epoch, .. }
+        | EngineEvent::ReasoningDelta { epoch, .. }
         | EngineEvent::AudioChunk { epoch, .. }
         | EngineEvent::SentenceVoiced { epoch, .. }
         | EngineEvent::Error { epoch, .. }
@@ -198,6 +211,7 @@ pub(crate) fn ev_epoch(ev: &EngineEvent) -> u64 {
 pub(crate) fn ev_ts_ms(ev: &EngineEvent) -> Option<u64> {
     match ev {
         EngineEvent::TextDelta { ts_ms, .. }
+        | EngineEvent::ReasoningDelta { ts_ms, .. }
         | EngineEvent::AudioChunk { ts_ms, .. }
         | EngineEvent::SentenceVoiced { ts_ms, .. }
         | EngineEvent::Error { ts_ms, .. }
