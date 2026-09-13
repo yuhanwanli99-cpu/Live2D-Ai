@@ -55,7 +55,9 @@ cd shell/flutter && flutter analyze && flutter test
 - **动作系统不在产品路径上**：不得恢复 `RootEvent::Action` / director / 渲染面编舞；
   待机生命体征（`IdleState`）必须保留。
 - **第二壳非主线**（egui 原生壳 / `--chat`）：不要往里加与 Flutter 重复的产品字段。
-- 新能力必须经 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁。
+- 新能力必须经 `live2d-ai-mod-system` 接入，不得绕过 core 仲裁；加新 Mod 走
+  [`docs/architecture/mod-product-chain.md`](docs/architecture/mod-product-chain.md) 的勾选表
+  （正式/稳定 Mod 必须以 **Rust/C 为主**，非 Rust/C 只能标实验）。
 
 Contributions to project-owned code are accepted under AGPL-3.0-only. By submitting a
 contribution, you confirm that you have the right to provide it under that license.

@@ -28,8 +28,11 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ### Mods
 - Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Bundled Mods (compiled in): external input, pet-desktop (skeleton), local LLM.
+- Bundled Mods (compiled in): external input, pet-desktop (skeleton), local LLM,
+  persona card. Only `local-llm` is enabled by default.
 - Mod failure disables that Mod only; the core loop keeps running.
+- Contract, "add a Mod" checklist and the stable-release (Rust/C) rule:
+  [`docs/architecture/mod-product-chain.md`](docs/architecture/mod-product-chain.md).
 
 ### Platform (this baseline)
 - Primary: **Linux / WSL2**.
