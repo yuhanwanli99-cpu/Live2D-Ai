@@ -187,12 +187,12 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
     None
 }
 
-/// `<cwd>/assets/models`（与原生桌宠模型加载同源）。
+/// `<cwd>/assets/models`（**唯一模型根**；与模型库 registry / import 同源）。
+///
+/// 别名到 [`crate::web_api::model_root::model_root`]：这里曾经自带一份 cwd 解析，
+/// 而 registry 另写 XDG——那正是「激活了但没换皮」的成因。现在只有一处定义。
 fn assets_models_dir() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("assets")
-        .join("models")
+    crate::web_api::model_root::model_root()
 }
 
 /// `crates/l2d-wasm-demo/dist`（workspace 相对路径）。

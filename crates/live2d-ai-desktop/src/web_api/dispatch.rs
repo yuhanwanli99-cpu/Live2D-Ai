@@ -87,7 +87,12 @@ pub fn dispatch_with_security(
     }
     let resp = match route {
         RouteId::AppCapabilities => handle_capabilities(),
-        RouteId::AppStatus => handle_status(&ctx.status_ctx),
+        RouteId::AppStatus => {
+            // `active_model_id` 从**真实 registry** 读（rc.2 2026-09-12 之前写死
+            // `"bai_001"`，所以「激活了但状态栏不变」是必然的）。
+            let model_id = crate::web_api::models_routes::active_model_id(&ctx.models);
+            handle_status(&ctx.status_ctx, model_id)
+        }
         RouteId::SettingsGet => {
             let s = ctx.status_ctx.settings_snapshot();
             handle_get(&s)

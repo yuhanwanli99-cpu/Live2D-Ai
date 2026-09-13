@@ -34,7 +34,6 @@ use super::dto::{DisplayModelPatch, DisplayStagePatch};
 use super::registry::{
     BackgroundType, FitMode, ModelDisplay, ModelEntry, ModelRegistry, ModelSource, StageConfig,
     StoredLayout, StoredManifest, atomic_write_json, default_stage, normalize_relative_id,
-    registry_path_for,
 };
 use super::{ModelRouteId, dispatch, handlers, match_model_route};
 
@@ -687,9 +686,18 @@ fn dto_background_type_parsing() {
 // ============================================================================
 
 #[test]
-fn registry_path_for_is_stable_string() {
-    let p = registry_path_for();
-    assert!(p.ends_with("model_registry.json"));
+fn registry_path_is_inside_the_single_model_root() {
+    // rc.2 2026-09-12：registry 与静态 `/models/*` 必须共用**同一个根**
+    // （`assets/models/`）。曾经 registry 走 XDG、静态服务走 cwd，于是
+    // 「导入并激活后皮套不换」——这条守的就是那个回归。
+    let root = crate::web_api::model_root::model_root();
+    let p = crate::web_api::model_root::registry_path();
+    assert!(p.ends_with("model_registry.json"), "{}", p.display());
+    assert!(
+        p.starts_with(&root),
+        "registry 必须在模型根内部：{}",
+        p.display()
+    );
 }
 
 #[test]
@@ -1117,5 +1125,125 @@ fn p1_5_backup_filename_has_unix_secs_suffix() {
     for b in &backups {
         cleanup(b);
     }
+    cleanup(&assets_root);
+}
+
+// ============================================================================
+// 8. A1（rc.2 2026-09-12）：单一模型根 + 深一层布局 + 热换契约
+// ============================================================================
+
+/// 造一个**深一层**的模型包：`assets/<id>/runtime/<id>.model3.json`。
+///
+/// 这正是本仓库的既有布局（`assets/models/bai/runtime/bai.model3.json`）——
+/// 旧实现只扫顶层，于是「导入自家自带的模型」必然 400。
+fn make_nested_package(id: &str) -> PathBuf {
+    let assets_root = tmp_dir(&format!("nested_assets_{id}"));
+    cleanup(&assets_root);
+    let runtime = assets_root.join(id).join("runtime");
+    std::fs::create_dir_all(&runtime).expect("create runtime dir");
+    let mut moc3 = vec![0u8; 64];
+    moc3[..4].copy_from_slice(b"MOC3");
+    moc3[4] = 4;
+    std::fs::write(runtime.join("bai.moc3"), &moc3).expect("write moc3");
+    std::fs::write(runtime.join("tex_00.png"), b"\x89PNG-fake").expect("write tex");
+    std::fs::write(
+        runtime.join("bai.model3.json"),
+        br#"{"Version":3,"FileReferences":{"Moc":"bai.moc3","Textures":["tex_00.png"]}}"#,
+    )
+    .expect("write model3");
+    assets_root
+}
+
+/// 深一层布局：import 认得它，登记的相对路径含 `runtime/`，
+/// activate 回的 `model_url` 能被静态路由**原样 GET** 到。
+///
+/// 这三条缺一条就是线上那句「激活成功但皮套不换」。
+#[test]
+fn a1_nested_layout_imports_and_activates_with_a_getable_url() {
+    let assets_root = make_nested_package("deep");
+    let reg = tmp_path("a1_nested");
+    cleanup(&reg);
+    let store = ModelStore::new(assets_root.clone(), reg.clone());
+
+    let resp = dispatch(
+        &store,
+        &Method::Post,
+        "/api/v1/models/import",
+        r#"{"id":"deep"}"#,
+    );
+    assert_eq!(
+        resp.status_code().0,
+        200,
+        "深一层布局必须能导入：{}",
+        body_to_string(resp)
+    );
+    let loaded = ModelRegistry::load_from_path(&reg).expect("registry on disk");
+    let entry = loaded.entries.get("deep").expect("entry");
+    // 相对路径必须保留 runtime/ 段（旧实现拼 file_name 会丢掉它 → model_url 404）。
+    assert_eq!(entry.model3_rel_path, "deep/runtime/bai.model3.json");
+
+    // activate → model_url 必须与静态路由的口径一致，且文件真的在。
+    let resp = dispatch(&store, &Method::Post, "/api/v1/models/deep/activate", "");
+    assert_eq!(resp.status_code().0, 200);
+    let body = body_to_string(resp);
+    assert!(
+        body.contains("\"model_url\":\"/models/deep/runtime/bai.model3.json\""),
+        "body = {body}"
+    );
+    assert!(
+        store
+            .assets_root
+            .join("deep/runtime/bai.model3.json")
+            .is_file(),
+        "model_url 指向的文件必须存在（否则前端拿到一个必然 404 的地址）"
+    );
+
+    cleanup(&reg);
+    cleanup(&assets_root);
+}
+
+/// 热换契约（rc.2 冻结）：activate **恒** `requires_restart=false`。
+///
+/// 恒 `true` 会骗前端提示「需重启」，而渲染面本来就支持热换——这正是
+/// 「激活了但没换皮」那一格的成因。真需要重启时应逐案返 `true` 并说明理由。
+#[test]
+fn a1_activate_reports_hot_swap_not_restart() {
+    let (assets_root, _) = make_minimal_package("hot");
+    let reg = tmp_path("a1_hot");
+    cleanup(&reg);
+    let store = ModelStore::new(assets_root.clone(), reg.clone());
+    let _ = dispatch(
+        &store,
+        &Method::Post,
+        "/api/v1/models/import",
+        r#"{"id":"hot"}"#,
+    );
+    let resp = dispatch(&store, &Method::Post, "/api/v1/models/hot/activate", "");
+    assert_eq!(resp.status_code().0, 200);
+    let body = body_to_string(resp);
+    assert!(body.contains("\"requires_restart\":false"), "body = {body}");
+    assert!(body.contains("\"active_id\":\"hot\""), "body = {body}");
+
+    cleanup(&reg);
+    cleanup(&assets_root);
+}
+
+/// registry 的 `active_id` 与状态栏读数同源：activate 之后状态栏必须变。
+#[test]
+fn a1_active_model_id_follows_the_registry() {
+    let (assets_root, _) = make_minimal_package("follow");
+    let reg = tmp_path("a1_follow");
+    cleanup(&reg);
+    let store = ModelStore::new(assets_root.clone(), reg.clone());
+    let _ = dispatch(
+        &store,
+        &Method::Post,
+        "/api/v1/models/import",
+        r#"{"id":"follow"}"#,
+    );
+    let _ = dispatch(&store, &Method::Post, "/api/v1/models/follow/activate", "");
+    assert_eq!(super::active_model_id(&store), "follow");
+
+    cleanup(&reg);
     cleanup(&assets_root);
 }

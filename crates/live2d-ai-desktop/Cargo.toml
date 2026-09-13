@@ -81,8 +81,9 @@ tiny_http = "0.12"
 # 端口号解析 + 控制命令的 mpsc（与 supervisor 共享的 `tokio` runtime 之外的
 # std mpsc 足以；避免再引 sync_channel crate）。
 once_cell = { version = "1", default-features = false }
-# 配置文件路径解析（XDG 跨平台）：directories-next 4.x 维护活跃、AGPL 兼容。
-directories = "5"
+# 2026-09-12（rc.2）：`directories` 依赖已移除——它只剩「模型 registry 走 XDG」这一处
+# 用处，而模型根已统一为仓库 `assets/models/`（见 `web_api/model_root.rs`）。
+# 配置文件路径解析本来就不走它（走显式路径 + cwd 相对候选）。
 # D2 HTTP server 接线（节点 D 后端层，2026-08-28）：
 # - reqwest 0.12 仅用于 settings/test/{llm,tts} 端点直接发测试请求——
 #   runtime 的 `OpenAiClient::new` 不暴露 `from_parts`（私有字段），

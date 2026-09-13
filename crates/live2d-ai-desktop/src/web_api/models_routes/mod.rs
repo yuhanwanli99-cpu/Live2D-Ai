@@ -188,27 +188,55 @@ impl ModelStore {
     }
 }
 
+/// 模型根与 registry 路径——**都来自 [`crate::web_api::model_root`]**。
+///
+/// 2026-09-12（rc.2）：这里以前返回 XDG `~/.local/share/live2d-ai/models`（`assets_root`）
+/// 与同目录下的 `model_registry.json`，而静态 `/models/*` 读的是 `<cwd>/assets/models/`
+/// ——**两个根**，于是「导入并激活后皮套不换」。现在只有一个根：仓库 `assets/models/`。
+/// XDG 那条路径已删除（本机该目录从未存在，无内容需迁移）。
+/// `GET /api/v1/app/status` 的 `active_model_id`：**舞台此刻显示哪个模型**。
+///
+/// 语义不是「registry 里恰好写了什么」，而是「用户看到的是哪个」，逐级回落：
+///
+/// 1. registry 有 `active_id`（用户 activate 过）→ **就是它**；
+/// 2. 否则回落到渲染面自带的默认模型（`l2d-wasm-demo::DEFAULT_MODEL_URL`
+///    = `/models/bai/runtime/bai.model3.json`）——stage 首帧加载的就是它，
+///    所以报它是**如实**；**且只在那个文件真的存在时**才报（否则就是新的假广告：
+///    状态栏说有模型，舞台上什么都没有）；
+/// 3. 两者都不成立 → `""`（诚实：没有模型可显示）。
+///
+/// 2026-09-12（rc.2）之前这里恒为 `"bai_001"`——一个 registry 里根本不存在的
+/// 字符串，所以「激活了但状态栏不变」是必然的。
+pub(crate) fn active_model_id(store: &ModelStore) -> String {
+    let registered = store.inner.read().ok().and_then(|g| g.active_id.clone());
+    pick_active_model_id(
+        registered.as_deref(),
+        crate::web_api::model_root::builtin_model_id(),
+        crate::web_api::model_root::builtin_model3_path().is_file(),
+    )
+}
+
+/// [`active_model_id`] 的纯决策内核（不碰注册表与文件系统，便于穷举用例）。
+fn pick_active_model_id(
+    registered: Option<&str>,
+    builtin_id: &str,
+    builtin_present: bool,
+) -> String {
+    if let Some(id) = registered
+        && !id.is_empty()
+    {
+        return id.to_string();
+    }
+    if builtin_present && !builtin_id.is_empty() {
+        return builtin_id.to_string();
+    }
+    String::new()
+}
+
 fn default_paths() -> (PathBuf, PathBuf) {
-    let data_dir = directories::ProjectDirs::from("dev", "live2d-ai", "live2d-ai")
-        .map(|p| p.data_dir().to_path_buf())
-        .or_else(|| {
-            std::env::var_os("XDG_DATA_HOME")
-                .map(PathBuf::from)
-                .map(|p| p.join("live2d-ai"))
-        })
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| {
-                let mut p = PathBuf::from(h);
-                p.push(".local");
-                p.push("share");
-                p.push("live2d-ai");
-                p
-            })
-        })
-        .unwrap_or_else(|| PathBuf::from("live2d-ai-data"));
     (
-        data_dir.join("models"),
-        data_dir.join("model_registry.json"),
+        crate::web_api::model_root::model_root(),
+        crate::web_api::model_root::registry_path(),
     )
 }
 
@@ -276,4 +304,35 @@ fn append_corrupt_suffix(path: &Path, ts: i64) -> PathBuf {
     let mut s = path.as_os_str().to_os_string();
     s.push(format!(".corrupt-{ts}"));
     PathBuf::from(s)
+}
+
+#[cfg(test)]
+mod active_model_id_tests {
+    use super::pick_active_model_id;
+
+    #[test]
+    fn registered_wins() {
+        assert_eq!(pick_active_model_id(Some("neko"), "bai", true), "neko");
+    }
+
+    /// 没有激活过任何模型时，报**stage 实际会加载的那个**——而不是空串，
+    /// 也不是一个 registry 里不存在的 id。
+    #[test]
+    fn falls_back_to_the_builtin_that_actually_exists() {
+        assert_eq!(pick_active_model_id(None, "bai", true), "bai");
+    }
+
+    /// 内置模型文件不在磁盘上时**不许**报它：那会变成「状态栏说有模型、
+    /// 舞台上什么都没有」的新假广告。
+    #[test]
+    fn missing_builtin_reports_nothing() {
+        assert_eq!(pick_active_model_id(None, "bai", false), "");
+        assert_eq!(pick_active_model_id(None, "", true), "");
+    }
+
+    #[test]
+    fn empty_registered_value_is_treated_as_absent() {
+        assert_eq!(pick_active_model_id(Some(""), "bai", true), "bai");
+        assert_eq!(pick_active_model_id(Some(""), "bai", false), "");
+    }
 }

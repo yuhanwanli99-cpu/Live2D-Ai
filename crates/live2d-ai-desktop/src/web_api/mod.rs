@@ -61,6 +61,9 @@ pub mod external_routes;
 /// Flutter Web 前端托管（`/app` 与 `/app/*`；2026-09-10 点火轮）。
 pub mod flutter_app;
 pub mod log_routes;
+/// **唯一模型根**（rc.2，2026-09-12）：静态 `/models/*` 与模型库 registry /
+/// import 共用的那一个根。两个根会导致「激活了但没换皮」，见模块头注。
+pub(crate) mod model_root;
 /// 模型资产路由（D3，2026-08-28）：`/api/v1/models*` 端点 + registry
 /// + 路径安全 + 原子写回。子模块化（`models_routes::handlers` 等），
 /// 本文件仅声明入口。

@@ -53,8 +53,9 @@ pub struct AppStatus {
     pub uptime_s: u64,
     /// 当前生效的配置文件路径（`live2d-ai.toml` 解析路径；v1 = 启动时确定）。
     pub config_path: String,
-    /// 当前激活的模型 id（v1 = "bai_001"；D3 实现可配置）。
-    pub active_model_id: &'static str,
+    /// 当前激活的模型 id（读真实 registry；未激活过时为内置默认模型的 id，
+    /// 详见 [`crate::web_api::models_routes::active_model_id`]）。
+    pub active_model_id: String,
     /// 音频后端描述。
     pub audio: AudioStatus,
     /// LLM 配置摘要。

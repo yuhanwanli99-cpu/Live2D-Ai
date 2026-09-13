@@ -179,16 +179,14 @@ pub(crate) fn handle_import(store: &ModelStore, body_str: &str) -> Response<Curs
 
     let manifest = StoredManifest::from(package.manifest());
     // P1-4：只存相对 `assets_root` 的路径；handler 端按需派生绝对路径。
-    // `model3_path` 必须在 `abs_dir` 之下（`find_model3_json` 只扫
-    // `abs_dir` 顶层），因此相对路径 = `id/<file_name>`。
-    let model3_rel_path = format!(
-        "{}/{}",
-        id,
-        model3_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("model.model3.json"),
-    );
+    // 用 `strip_prefix` 而不是「`id/` + file_name」：`find_model3_json` 允许
+    // **向下看一层**（`bai/runtime/bai.model3.json`），那种布局下拼 file_name
+    // 会丢掉 `runtime/` 段，于是回给前端的 `model_url` 404——「激活成功但换不了皮」。
+    let model3_rel_path = model3_path
+        .strip_prefix(&store.assets_root)
+        .unwrap_or(&model3_path)
+        .to_string_lossy()
+        .replace('\\', "/");
     let new_entry = ModelEntry {
         id: id.clone(),
         display_name: id.clone(),
@@ -221,19 +219,18 @@ pub(crate) fn handle_import(store: &ModelStore, body_str: &str) -> Response<Curs
         }
         return persist_failed_response(&e);
     }
-    // `ImportResponse.model3_json_path` 保持原 D1 §6.3 契约：相对
-    // `data_dir`（`assets_root` 父目录），不是相对 `assets_root`。
-    let parent_data = store.assets_root.parent().unwrap_or(&store.assets_root);
-    let rel_model3 = model3_path
-        .strip_prefix(parent_data)
-        .unwrap_or(&model3_path)
-        .to_string_lossy()
-        .to_string();
+    // `ImportResponse.model3_json_path`：**相对模型根**（`assets/models/`）的路径。
+    //
+    // 旧实现返回「相对 `assets_root` 父目录」的路径（那时 `assets_root` 是 XDG 的
+    // `.../live2d-ai/models`，父目录 = data_dir，对应 D1 §6.3 的 data_dir 口径）。
+    // rc.2 统一模型根之后没有独立的 data_dir 了，而前端**从不读这个字段**
+    // （它只消费 `model_url`），所以直接给模型根相对路径——比维护一个已经
+    // 不存在的概念更诚实。
     json_response(
         StatusCode(200),
         &ImportResponse {
             id,
-            model3_json_path: rel_model3,
+            model3_json_path: model3_rel_path,
             applied: false,
         },
     )
@@ -279,9 +276,16 @@ pub(crate) fn handle_activate(store: &ModelStore, id: &str) -> Response<Cursor<V
         &ActivateResponse {
             active_id: normalized,
             prev_active_id: prev,
-            // D3.2 热重载完成前，激活只改 registry 不重载 renderer/supervisor，
-            // 如实上报 requires_restart=true（避免前端误以为已生效）。
-            requires_restart: true,
+            // **热换契约（rc.2 2026-09-12 冻结）**：activate 只改 registry 并回一个
+            // **可 GET 的** `model_url`（`/models/<rel>`，静态路由读同一个根）；
+            // 真正换模由**前端** `sendSync(model: url)` 发起，以渲染面
+            // `stage-ack` / `loaded` 回执为准——后端不推送、不通知渲染面。
+            //
+            // 渲染面本来就支持热换，所以这里**恒为 `false`**：恒为 `true` 会骗前端
+            // 去提示「需重启」，而重启其实不是必需的（这正是「激活了但没换皮」
+            // 那一格的成因）。若哪天某个模型确实热换不了，再按 A1.4 逐案返 `true`
+            // 并在响应里说明理由——**不允许**因为「省事」恒为 `true`。
+            requires_restart: false,
             model_url,
         },
     )
