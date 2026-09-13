@@ -271,28 +271,10 @@ pub(crate) struct BridgeState {
     pub volume: f32,
     /// 衰减后的口型显示值（rAF 每帧 volume_display = volume.max(volume_display*0.85)）
     pub volume_display: f32,
-    /// 进行中的参数等效动画（action-state start 创建 / end 或 t>=1 结束）
-    pub action: Option<ActiveAction>,
     /// 诊断（P3.1）：收到的消息数 / 应用数 / 最近类型——HUD 显示定位"模型不见"。
     pub msg_recv: u32,
     pub msg_applied: u32,
     pub last_msg: String,
-}
-
-/// 进行中的动作动画（无内置 motion 段时的参数等效实现）。
-#[derive(Clone)]
-pub(crate) struct ActiveAction {
-    /// 动作名（nod/shake_no/tilt/look_around/listen/surprise）
-    pub name: String,
-    /// 强度倍率（strength 1/2/3 → 0.6/1.0/1.5）
-    pub strength_mult: f32,
-    /// 开始时刻（performance.now() 毫秒）
-    pub started_ms: f64,
-    /// 动画时长（默认 1500ms；end 帧提前结束）。
-    ///
-    /// 800ms 实测因波形 `(t*2π).sin()` 整周期过快、肉眼难辨且 end 帧易提前清除而
-    /// 看不见动作；延长到 1500ms 使单次摆动达到约 3/4 周期，人眼可清晰捕捉。
-    pub duration_ms: f64,
 }
 
 impl Default for BridgeState {
@@ -314,7 +296,6 @@ impl Default for BridgeState {
             applied_bg: None,
             volume: 0.0,
             volume_display: 0.0,
-            action: None,
             msg_recv: 0,
             msg_applied: 0,
             last_msg: String::new(),
@@ -643,10 +624,9 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
 /// RM6 待机生命体征层（idle-breath / idle-blink / idle-micro-expr）。
 ///
 /// 照抄 py 版 `idle-breath.ts` / `idle-blink.ts` / `idle-micro-expr.ts`（MIT），
-/// 写入 input 层 `set_parameter` —— 优先级低于动作的 final_override 层，
-/// 因此做 nod 时头部角度自然盖过 idle 微表情；但 breath/blink 参数
-/// （ParamBreath / ParamEyeLOpen / ParamEyeROpen）动作不写入它们，
-/// 二者天然不打架。
+/// 写入 input 层 `set_parameter`。2026-09-12（rc.2）起其上不再有动作
+/// `final_override` 层（动作已整体删除），breath/blink 参数
+/// （ParamBreath / ParamEyeLOpen / ParamEyeROpen）仍然只由这里驱动。
 ///
 /// 状态机与 py 版同构：
 /// - **呼吸**：周期 [3.1, 5]s 随机锁定，正弦 `0.5 + 0.15*sin(2π·t/period)`。
@@ -751,359 +731,6 @@ fn blink_factor(phase_ms: f64, duration_ms: f64) -> f64 {
     (phase_ms / duration_ms).clamp(0.0, 1.0)
 }
 
-/// 所有动作动画可能驱动的参数 ID。
-const ACTION_PARAM_IDS: &[&str] = &[
-    "ParamAngleX",
-    "ParamAngleY",
-    "ParamAngleZ",
-    "ParamEyeBallX",
-    "ParamEyeLOpen",
-    "ParamEyeROpen",
-    "ParamBrowLY",
-    "ParamBrowRY",
-    "ParamMouthOpenY",
-];
-
-/// 语义关键帧（照抄 py `choreography.ts`）。
-/// - `at_ms`：相对动作开始的毫秒时刻；
-/// - `fade_ms`：到达本帧值的缓动时长（ease-in 窗 `[at-fade, at]`）；
-/// - `delta`：各参数相对 profile 默认的语义偏移 —— -1..1，0=默认位；
-///   末帧空切片表示「释放回默认」（向 0 过渡）。
-#[derive(Clone, Copy)]
-pub(crate) struct Keyframe {
-    pub at_ms: f32,
-    pub fade_ms: f32,
-    pub delta: &'static [(&'static str, f32)],
-}
-
-/// 关键帧编舞库：`(动作名, 关键帧序列)`，数值**逐条照抄** py 版
-/// `choreography.ts` (MIT)。动作节奏（两拍 / 多段缓动）与旧实现的
-/// 单周期正弦完全不同 —— 这是「体感很快」手感的直接修复。
-const CHOREOGRAPHY: &[(&str, &[Keyframe])] = &[
-    (
-        "nod",
-        &[
-            Keyframe {
-                at_ms: 0.0,
-                fade_ms: 120.0,
-                delta: &[("ParamAngleY", -0.55)],
-            },
-            Keyframe {
-                at_ms: 240.0,
-                fade_ms: 120.0,
-                delta: &[("ParamAngleY", 0.45)],
-            },
-            Keyframe {
-                at_ms: 500.0,
-                fade_ms: 120.0,
-                delta: &[("ParamAngleY", -0.50)],
-            },
-            Keyframe {
-                at_ms: 760.0,
-                fade_ms: 120.0,
-                delta: &[("ParamAngleY", 0.40)],
-            },
-            Keyframe {
-                at_ms: 1000.0,
-                fade_ms: 320.0,
-                delta: &[],
-            },
-        ],
-    ),
-    (
-        "shake_no",
-        &[
-            Keyframe {
-                at_ms: 0.0,
-                fade_ms: 90.0,
-                delta: &[("ParamAngleX", -0.55)],
-            },
-            Keyframe {
-                at_ms: 180.0,
-                fade_ms: 90.0,
-                delta: &[("ParamAngleX", 0.55)],
-            },
-            Keyframe {
-                at_ms: 360.0,
-                fade_ms: 90.0,
-                delta: &[("ParamAngleX", -0.50)],
-            },
-            Keyframe {
-                at_ms: 540.0,
-                fade_ms: 90.0,
-                delta: &[("ParamAngleX", 0.50)],
-            },
-            Keyframe {
-                at_ms: 700.0,
-                fade_ms: 300.0,
-                delta: &[],
-            },
-        ],
-    ),
-    (
-        "tilt",
-        &[
-            Keyframe {
-                at_ms: 0.0,
-                fade_ms: 220.0,
-                delta: &[("ParamAngleZ", -0.50)],
-            },
-            Keyframe {
-                at_ms: 650.0,
-                fade_ms: 220.0,
-                delta: &[("ParamAngleZ", -0.40)],
-            },
-            Keyframe {
-                at_ms: 1100.0,
-                fade_ms: 400.0,
-                delta: &[],
-            },
-        ],
-    ),
-    (
-        "look_around",
-        &[
-            Keyframe {
-                at_ms: 0.0,
-                fade_ms: 140.0,
-                delta: &[("ParamEyeBallX", -0.55)],
-            },
-            Keyframe {
-                at_ms: 200.0,
-                fade_ms: 260.0,
-                delta: &[("ParamEyeBallX", -0.35), ("ParamAngleX", -0.50)],
-            },
-            Keyframe {
-                at_ms: 750.0,
-                fade_ms: 180.0,
-                delta: &[("ParamEyeBallX", 0.60)],
-            },
-            Keyframe {
-                at_ms: 950.0,
-                fade_ms: 260.0,
-                delta: &[("ParamEyeBallX", 0.40), ("ParamAngleX", 0.50)],
-            },
-            Keyframe {
-                at_ms: 1500.0,
-                fade_ms: 420.0,
-                delta: &[],
-            },
-        ],
-    ),
-    (
-        "listen",
-        &[
-            Keyframe {
-                at_ms: 0.0,
-                fade_ms: 300.0,
-                delta: &[
-                    ("ParamAngleZ", -0.16),
-                    ("ParamAngleY", 0.12),
-                    ("ParamEyeBallX", -0.22),
-                    ("ParamBrowLY", 0.12),
-                    ("ParamBrowRY", 0.12),
-                ],
-            },
-            Keyframe {
-                at_ms: 900.0,
-                fade_ms: 300.0,
-                delta: &[
-                    ("ParamAngleZ", -0.14),
-                    ("ParamAngleY", 0.10),
-                    ("ParamEyeBallX", -0.18),
-                    ("ParamBrowLY", 0.10),
-                    ("ParamBrowRY", 0.10),
-                ],
-            },
-            Keyframe {
-                at_ms: 1700.0,
-                fade_ms: 480.0,
-                delta: &[],
-            },
-        ],
-    ),
-    (
-        "surprise",
-        &[
-            Keyframe {
-                at_ms: 0.0,
-                fade_ms: 120.0,
-                delta: &[
-                    ("ParamEyeLOpen", 0.85),
-                    ("ParamEyeROpen", 0.85),
-                    ("ParamBrowLY", 0.80),
-                    ("ParamBrowRY", 0.80),
-                    ("ParamMouthOpenY", 0.90),
-                    ("ParamAngleY", 0.20),
-                ],
-            },
-            Keyframe {
-                at_ms: 500.0,
-                fade_ms: 120.0,
-                delta: &[
-                    ("ParamEyeLOpen", 0.60),
-                    ("ParamEyeROpen", 0.60),
-                    ("ParamBrowLY", 0.60),
-                    ("ParamBrowRY", 0.60),
-                    ("ParamMouthOpenY", 0.70),
-                    ("ParamAngleY", 0.15),
-                ],
-            },
-            Keyframe {
-                at_ms: 900.0,
-                fade_ms: 400.0,
-                delta: &[],
-            },
-        ],
-    ),
-];
-
-/// `const` 可用的字节相等比较（stable `PartialEq` for `&[u8]` 非 const）。
-const fn str_eq(a: &str, b: &str) -> bool {
-    let ab = a.as_bytes();
-    let bb = b.as_bytes();
-    if ab.len() != bb.len() {
-        return false;
-    }
-    let mut i = 0;
-    while i < ab.len() {
-        if ab[i] != bb[i] {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
-/// 动作总时长（含末帧尾 fade），用于 `ActiveAction.duration_ms` 建立时查表。
-/// 数值 = 末关键帧 `at + fade`（照抄 py 尾 fade）。
-pub(crate) const fn choreography_total_ms(name: &str) -> f32 {
-    let mut i = 0;
-    while i < CHOREOGRAPHY.len() {
-        if str_eq(CHOREOGRAPHY[i].0, name) {
-            let frames = CHOREOGRAPHY[i].1;
-            let last = frames[frames.len() - 1];
-            return last.at_ms + last.fade_ms;
-        }
-        i += 1;
-    }
-    // 未知动作：退而使用旧的兜底时长。
-    1500.0
-}
-
-/// 在一个关键帧区间内，将 `prev` 与 `cur` 的 delta 逐参 ease-in 插值。
-/// `s` 为 smoothstep 因子（0..=1）；结果乘 `mult` 后作为 offset 写入
-/// final_override 层（override_parameter 用法不变）。
-fn blend(
-    prev: &[(&'static str, f32)],
-    cur: &[(&'static str, f32)],
-    s: f32,
-    mult: f32,
-) -> Vec<(&'static str, f32)> {
-    let one_minus = 1.0 - s;
-    // prev 与 cur 可能有不同参集，union 去重（id 在任一出现）。
-    let mut out: Vec<(&'static str, f32)> = Vec::new();
-    for (id, p) in prev {
-        let c = cur
-            .iter()
-            .find(|(cid, _)| *cid == *id)
-            .map(|(_, v)| *v)
-            .unwrap_or(0.0);
-        let value = (p * one_minus + c * s) * mult;
-        out.push((*id, value));
-    }
-    for (id, c) in cur {
-        if prev.iter().any(|(pid, _)| *pid == *id) {
-            continue;
-        }
-        let p = 0.0_f32;
-        let value = (p * one_minus + c * s) * mult;
-        out.push((*id, value));
-    }
-    out
-}
-
-/// 纯函数：给定动作名 + 已过毫秒 `elapsed_ms` + 强度倍率 `strength_mult`，
-/// 返回该时刻所有应写入 final_override 的 `(id, value)` 列表。
-///
-/// **返回值是「模型域」值**（已按各参数量程换算），可直接 `override_parameter`。
-/// 编舞表 `CHOREOGRAPHY` 里存的是**语义域**值（`-1..1`，0 = 默认位）；
-/// 换算由 [`crate::param_scale::semantic_to_param`] 完成并在本函数出口统一应用——
-/// 放在出口而不是调用点，是为了让「忘了换算」在结构上不可能发生。
-///
-/// 历史缺陷（2026-09-10 修复）：早期直接把语义值原样写进模型，而 Bai 的
-/// `ParamAngleX/Y/Z` 量程是 ±30，导致 nod 只有 0.55 度（约目标的 1.8%），
-/// 动作肉眼不可见。回归测试见 `crate::param_scale` 的单测（原生可跑）。
-///
-/// 抽出为纯函数以便 `#[cfg(test)]` 在 native target 下无 web_sys 依赖即可验证。
-/// 与 `apply_bridge_effects` 中实时计算保持一致（单一真实来源）。
-///
-/// 区间语义（照抄 py `choreography.ts`）：
-/// - 确定 `elapsed_ms` 落在 `[prev.at, cur.at)` 区间；
-/// - 缓动窗 `[cur.at - cur.fade, cur.at]` 内 smoothstep 过渡到 cur 帧值；
-/// - 末帧 delta 为空 = 释放回 0（过渡到全部归零）；超过末帧 at 后保持 0。
-pub(crate) fn action_frames(
-    name: &str,
-    elapsed_ms: f32,
-    strength_mult: f32,
-) -> Vec<(&'static str, f32)> {
-    semantic_frames(name, elapsed_ms, strength_mult)
-        .into_iter()
-        .map(|(id, semantic)| (id, crate::param_scale::semantic_to_param(id, semantic)))
-        .collect()
-}
-
-/// [`action_frames`] 的**语义域**内核（未换算量程，便于与 py 版逐值对照）。
-fn semantic_frames(name: &str, elapsed_ms: f32, strength_mult: f32) -> Vec<(&'static str, f32)> {
-    // 找动作。
-    let frames = match CHOREOGRAPHY.iter().find(|(n, _)| str_eq(n, name)) {
-        Some((_, f)) => *f,
-        None => return Vec::new(),
-    };
-    if frames.is_empty() {
-        return Vec::new();
-    }
-    // 未到第一个关键帧时刻（含起始）：钳到首帧自身。
-    if elapsed_ms <= frames[0].at_ms {
-        return blend(frames[0].delta, frames[0].delta, 0.0, strength_mult);
-    }
-    let n = frames.len();
-    // 推进 cur 至第一个 at > elapsed 的关键帧（prev = cur-1）。
-    let mut cur = 1usize;
-    while cur < n && elapsed_ms >= frames[cur].at_ms {
-        cur += 1;
-    }
-    // elapsed 达到末帧 at 及其后 → release 完成，全部归零（向 0 过渡完毕）。
-    // 末帧 fade_ms 用作 release 缓动窗（见上），at+fade 即总时长；
-    // 此后持续 0 直到 duration_ms 清除 action。
-    if cur >= n {
-        let mut out: Vec<(&'static str, f32)> = Vec::new();
-        let mut seen: Vec<&'static str> = Vec::new();
-        // 统计除末帧外所有关键帧中出现的参（末帧 delta 空 = release），
-        // 逐一写 0 归零，避免 stale override 卡死。
-        for frame in &frames[..n - 1] {
-            for (id, _) in frame.delta {
-                if !seen.contains(id) {
-                    seen.push(id);
-                    out.push((*id, 0.0));
-                }
-            }
-        }
-        return out;
-    }
-    let prev = &frames[cur - 1];
-    let cur_frame = &frames[cur];
-    // ease-in 窗：从 (cur.at - fade) 到 cur.at。
-    let fade_start = cur_frame.at_ms - cur_frame.fade_ms;
-    let t_factor = if cur_frame.fade_ms > 0.0 {
-        ((elapsed_ms - fade_start) / cur_frame.fade_ms).clamp(0.0, 1.0)
-    } else {
-        1.0
-    };
-    let s = t_factor * t_factor * (3.0 - 2.0 * t_factor);
-    blend(prev.delta, cur_frame.delta, s, strength_mult)
-}
-
 /// P0-2a-3：每帧把 bridge 状态应用为可见效果（口型/动作/缩放/背景）。
 /// 由 `tick` 在 `core.update` 后、渲染前调用。
 ///
@@ -1114,8 +741,8 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         .and_then(|w| w.performance())
         .map(|p| p.now())
         .unwrap_or(0.0);
-    // 先 immutable borrow：dt 归一化口型衰减、判定动画是否结束、取出 clone 值。
-    let (apply_mouth, apply_mouth_sensitivity, apply_action, scale, offset_x, offset_y, _dark) = {
+    // 先 immutable borrow：dt 归一化口型衰减，取出本帧要用的 clone 值。
+    let (apply_mouth, apply_mouth_sensitivity, scale, offset_x, offset_y, _dark) = {
         let mut st = state.borrow_mut();
         // 口型衰减（dt 归一化）：volume_display *= exp(-dt_ms / TAU_MS)
         // 再取 max(volume, ...) 保持峰值不掉落。
@@ -1128,16 +755,9 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
             .bridge
             .volume
             .max(st.bridge.volume_display * decay as f32);
-        // 动画结束判定：t>=1 清除 Action（end 帧也会写入 None，这里兜底）。
-        if let Some(a) = &st.bridge.action
-            && now_ms - a.started_ms >= a.duration_ms
-        {
-            st.bridge.action = None;
-        }
         (
             st.bridge.lip_sync.then(|| st.bridge.volume_display),
             st.bridge.mouth_sensitivity,
-            st.bridge.action.clone(),
             st.bridge.scale,
             st.bridge.offset_x,
             st.bridge.offset_y,
@@ -1158,32 +778,9 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     });
     let _ = st.core.set_parameter("ParamMouthOpenY", mouth);
 
-    // 动作参数等效动画（override 层最高优先级）。
-    //
-    // 层级选择依据：PoseStack finalize 合成顺序为
-    //   base ← idle ← input ← physics ← final_override
-    // final_override 层在物理输出之后再应用，故物理引擎 **无法** 清除 / 覆盖
-    // 动作参数 —— `override_parameter` 写在最高优先级层，确保动作始终可见。
-    //
-    // 旧实现仅在 `if let Some(a) = &apply_action` 分支写入 override 值，但在
-    // action 结束（action 变为 None）时从不清除，导致 stale override 值永久
-    // 卡死在 final_override 层 —— 表现为「动作结束后模型卡在最后一帧姿态」。
-    // 修复：action 不活跃时主动 `clear_override_parameter`，让模型归还
-    // idle/physics/lip_sync 的自然状态。
-    if let Some(a) = &apply_action {
-        let params = action_frames(&a.name, (now_ms - a.started_ms) as f32, a.strength_mult);
-        for (id, value) in &params {
-            let _ = st.core.override_parameter(id, *value);
-        }
-    } else {
-        // action 未激活：清除所有可能由 action 写入的 override 参数，
-        // 防止上一轮 action 的 stale 值卡死在 final_override 层。
-        // ParamMouthOpenY 在 input 层由 lip_sync 写入，此处仅清 override，
-        // 不影响收入同步。
-        for id in ACTION_PARAM_IDS {
-            let _ = st.core.clear_override_parameter(id);
-        }
-    }
+    // 2026-09-12（rc.2）：动作参数 override 层已整体删除（见 `core-chain-baseline.md`
+    // §3.3）。`final_override` 层因此没有任何写入方——待机生命体征走 input 层
+    // （见下方 `apply_idle_life`），口型也走 input 层，两者都不依赖它。
 
     // 缩放 + 平移（模型级逻辑变换，背景不受影响）。
     //
@@ -1253,14 +850,14 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         st.bridge.applied_bg = st.bridge.bg_data_url.clone();
     }
 
-    // RM6 待机生命体征层（呼吸/眨眼/微表情）——写入 input 层，优先级低于
-    // 动作 final_override 层（动作做 nod 时头部角度盖过 idle 微表情）。
+    // RM6 待机生命体征层（呼吸/眨眼/微表情）——写入 input 层。
     //
-    // 叠加语义（v1 简化，见 IdleState 注释）：
-    // - 动作 override 层盖住同名参数 → 做 surprise 时 EyeLOpen/ROpen 被覆盖，
-    //   动作结束后 override 清除 → idle blink 自动恢复（input 层持续写入）。
-    // - breath/blink 参数（ParamBreath / EyeL/R）动作不写入 → 天然不打架。
-    // - py 版会在动作播放时**挂起** idle，本版不挂起 —— 纯参数层面天然互斥。
+    // 2026-09-12（rc.2）：动作 override 层已删除，idle 层之上不再有 `final_override`
+    // 写入方；**这一层本身不受影响，必须保留**（`core-chain-baseline.md` §3.4：
+    // 待机生命体征与动作是两套机制）。`idle_enabled` 开关来自前端
+    //「外观与互动 → 待机小动作」。
+    //
+    // - breath/blink 参数（ParamBreath / EyeL/R）只在这里写，不与口型争参数。
     //
     // dt 来源：`apply_bridge_effects(state, dt_millis)` 已有 dt（R4 加的），
     // idle 采样用它，帧率无关。
@@ -1274,7 +871,7 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
 
 /// RM6 待机生命体征采样：呼吸 / 眨眼 / 微表情，每帧调用一次。
 ///
-/// 写入 input 层 `set_parameter`（优先级低于动作 final_override 层）。
+/// 写入 input 层 `set_parameter`。
 /// 公式与 py 版 `idle-breath.ts` / `idle-blink.ts` / `idle-micro-expr.ts`（MIT）同构。
 ///
 /// - **呼吸**：`0.5 + 0.15*sin(2π*(now-t0)/period)` → ParamBreath，永不打断。
@@ -1565,157 +1162,6 @@ mod tests {
                 None,
                 "{bad:?} 不该被接受——它会被原样写进 CSS"
             );
-        }
-    }
-
-    /// **语义域内核**与 py `choreography.ts` 逐值对齐（未换算量程）。
-    ///
-    /// 单独测这一层：换算是 [`action_frames`] 出口统一做的，两者分开才看得清
-    /// 「编舞数值是否照抄正确」与「量程换算是否正确」。
-    #[test]
-    fn nod_semantic_kernel_matches_py_choreography() {
-        let params = semantic_frames("nod", 0.0, 1.0);
-        assert_eq!(params.len(), 1, "nod 应驱动恰好一个参数");
-        assert_eq!(params[0].0, "ParamAngleY");
-        assert!(
-            (params[0].1 - (-0.55)).abs() < 1e-5,
-            "语义域 t=0 时 nod 应为 -0.55"
-        );
-    }
-
-    /// **回归（2026-09-10）**：`action_frames` 出口必须换算到模型量程。
-    ///
-    /// 历史缺陷：语义值被原样写入 ±30 量程的 `ParamAngleY` → 只有 0.55 度，
-    /// 动作肉眼不可见。
-    #[test]
-    fn nod_start_value_is_in_model_domain() {
-        let params = action_frames("nod", 0.0, 1.0);
-        assert_eq!(params.len(), 1, "nod 应驱动恰好一个参数");
-        assert_eq!(params[0].0, "ParamAngleY");
-        let expected = -0.55 * crate::param_scale::HEAD_ANGLE_SCALE;
-        assert!(
-            (params[0].1 - expected).abs() < 1e-4,
-            "t=0 时 nod 应为 {expected} 度（模型域），实际 {}",
-            params[0].1
-        );
-        // 可见性：幅度必须显著大于「未换算」的旧行为。
-        assert!(
-            params[0].1.abs() > 1.0,
-            "头部动作不足 1 度，肉眼不可见：{}",
-            params[0].1
-        );
-        let weak = action_frames("nod", 0.0, 0.6);
-        assert!(
-            (weak[0].1 - (expected * 0.6)).abs() < 1e-4,
-            "强度 0.6 应缩放值"
-        );
-    }
-
-    /// nod 在关键帧交界处（elapsed=240ms）应达到 +0.45 × 倍率（模型域）。
-    /// 区间 [0,240): prev=帧0(-0.55) cur=帧1(+0.45, fade120)；
-    /// 于 240ms 进入下一区间 [240,500)：prev=帧1(+0.45) cur=帧2(-0.50)
-    /// fade_start=500-120=380 → 240<380 → s=0 → 取 prev +0.45。
-    #[test]
-    fn nod_at_keyframe_boundary() {
-        let params = action_frames("nod", 240.0, 1.0);
-        let expected = 0.45 * crate::param_scale::HEAD_ANGLE_SCALE;
-        assert!(
-            (params[0].1 - expected).abs() < 1e-4,
-            "elapsed=240 时 nod 应为 +{expected} 度"
-        );
-    }
-
-    /// nod 在总时长末尾（1320ms）应全部归零。
-    #[test]
-    fn nod_total_zero_at_end() {
-        let params = action_frames("nod", 1320.0, 1.0);
-        for (_, v) in &params {
-            assert!(v.abs() < 1e-5, "nod 总末应归零，实际 {v}");
-        }
-    }
-
-    /// nod 在末帧 at 时（1000ms）应已趋近归零（尾 fade）。
-    #[test]
-    fn nod_tail_fades_to_zero() {
-        let params = action_frames("nod", 1000.0, 1.0);
-        let v = params
-            .iter()
-            .find(|(id, _)| *id == "ParamAngleY")
-            .map(|(_, v)| *v);
-        assert!(v.is_some(), "nod 在末帧区间仍在驱动 ParamAngleY");
-        assert!(v.unwrap().abs() < 1e-4, "nod 末帧 at 时应趋近 0");
-    }
-
-    /// 末帧空 delta 区间的 release 语义：各动作在总时长时归零。
-    #[test]
-    fn action_zero_at_total_duration() {
-        for (name, total) in [
-            ("nod", 1320.0),
-            ("shake_no", 1000.0),
-            ("tilt", 1500.0),
-            ("look_around", 1920.0),
-            ("listen", 2180.0),
-            ("surprise", 1300.0),
-        ] {
-            let params = action_frames(name, total, 1.0);
-            for (_, v) in &params {
-                assert!(
-                    v.abs() < 1e-5,
-                    "{name} 总时长 {}ms 时值应为 0，实际 {v}",
-                    total
-                );
-            }
-        }
-    }
-
-    /// 未知动作名返回空参数列表。
-    #[test]
-    fn unknown_action_returns_empty() {
-        assert!(action_frames("unknown", 500.0, 1.0).is_empty());
-    }
-
-    /// 强度倍率 m 正比缩放所有参数值。
-    #[test]
-    fn strength_scales_values() {
-        let base = -0.55 * crate::param_scale::HEAD_ANGLE_SCALE;
-        let weak = action_frames("nod", 0.0, 0.6);
-        let strong = action_frames("nod", 0.0, 1.35);
-        assert!((weak[0].1 - (base * 0.6)).abs() < 1e-4);
-        assert!((strong[0].1 - (base * 1.35)).abs() < 1e-4);
-    }
-
-    /// choreoraphy_total_ms 产出正确的末帧时长（at + fade）。
-    #[test]
-    fn duration_table_correct() {
-        assert!((choreography_total_ms("nod") - 1320.0).abs() < 1e-3);
-        assert!((choreography_total_ms("shake_no") - 1000.0).abs() < 1e-3);
-        assert!((choreography_total_ms("tilt") - 1500.0).abs() < 1e-3);
-        assert!((choreography_total_ms("look_around") - 1920.0).abs() < 1e-3);
-        assert!((choreography_total_ms("listen") - 2180.0).abs() < 1e-3);
-        assert!((choreography_total_ms("surprise") - 1300.0).abs() < 1e-3);
-        assert!((choreography_total_ms("bogus") - 1500.0).abs() < 1e-3);
-    }
-
-    /// ACTION_PARAM_IDS 覆盖所有动作可能写入的参数。
-    #[test]
-    fn action_param_ids_covers_all_actions() {
-        use std::collections::HashSet;
-        let set: HashSet<&str> = ACTION_PARAM_IDS.iter().copied().collect();
-        for name in [
-            "nod",
-            "shake_no",
-            "tilt",
-            "look_around",
-            "listen",
-            "surprise",
-        ] {
-            let params = action_frames(name, 500.0, 1.0);
-            for (id, _) in &params {
-                assert!(
-                    set.contains(id),
-                    "{name} 写入的参数 {id} 不在 ACTION_PARAM_IDS 中"
-                );
-            }
         }
     }
 }

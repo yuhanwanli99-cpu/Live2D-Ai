@@ -40,13 +40,6 @@
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod mouth;
 
-/// 参数语义值 → 模型值换算（同样**平台无关**，原生可回归）。
-///
-/// 修的是「关键帧被原样写入 ±30 量程的头部角度参数 → 动作幅度只有 1.8%、
-/// 肉眼不可见」这个真实缺陷，详见模块头注。
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-mod param_scale;
-
 fn main() {
     // wasm32：真实入口。
     #[cfg(target_arch = "wasm32")]
@@ -383,41 +376,6 @@ mod web {
                             };
                         applied = true;
                     }
-                    "action-state" => {
-                        let action = v
-                            .get("action")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let state_word =
-                            payload.get("state").and_then(|x| x.as_str()).unwrap_or("");
-                        // 强度档位 → 语义幅度倍率（py 0.6/1.35/1.8 过猛，取保守档 0.6/1.0/1.35）。
-                        let strength_mult = match payload
-                            .get("strength")
-                            .and_then(|x| x.as_f64())
-                            .unwrap_or(2.0) as u8
-                        {
-                            1 => 0.6,
-                            3 => 1.35,
-                            _ => 1.0,
-                        };
-                        if state_word == "start" {
-                            let now = web_sys::window()
-                                .map(|w| w.performance().map(|p| p.now()).unwrap_or(0.0))
-                                .unwrap_or(0.0);
-                            // 先查关键帧表总时长（含末帧尾 fade）再 move name。
-                            let duration_ms = surface::choreography_total_ms(&action);
-                            st.bridge.action = Some(surface::ActiveAction {
-                                name: action,
-                                strength_mult,
-                                started_ms: now,
-                                duration_ms: duration_ms as f64,
-                            });
-                        } else if state_word == "end" {
-                            st.bridge.action = None;
-                        }
-                        applied = true;
-                    }
                     "load-model" => {
                         if let Some(url) = payload.get("url").and_then(|x| x.as_str()) {
                             let url = url.to_owned();
@@ -470,7 +428,6 @@ mod web {
                         st.bridge.offset_y = 0.0;
                         st.bridge.volume = 0.0;
                         st.bridge.volume_display = 0.0;
-                        st.bridge.action = None;
                         applied = true;
                     }
                     _ => {} // 未知类型忽略
