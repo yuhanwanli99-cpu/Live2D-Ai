@@ -88,9 +88,18 @@ class Live2DBridge extends ChangeNotifier {
   final StreamController<StageAckEvent> _acks =
       StreamController<StageAckEvent>.broadcast();
   StageAckEvent? _lastAck;
+  final StreamController<String> _modelLoads =
+      StreamController<String>.broadcast();
 
   /// 渲染面回执流（`stage-ack`）。
   Stream<StageAckEvent> get acks => _acks.stream;
+
+  /// 渲染面**成功装载模型**的流（`loaded` 帧携带的 model / url）。
+  ///
+  /// 换模的唯一权威回执：`sync.payload.model` 发出去之后，渲染面要么回
+  /// `loaded`（换成了），要么回 `error`（没换成）。**收条之前不得说「已切换」**
+  /// ——这是 `live2d_stage.dart` 里那条 R2 规矩的同一个道理。
+  Stream<String> get modelLoads => _modelLoads.stream;
 
   /// 最近一条回执（没收到过为 `null`）。
   StageAckEvent? get lastAck => _lastAck;
@@ -117,6 +126,31 @@ class Live2DBridge extends ChangeNotifier {
   bool get isReady => _phase == Live2DBridgePhase.ready;
   bool get modelLoaded => _modelLoaded;
   int get queuedCount => _queue.length;
+
+  /// 协议 v1 `sync` 换模型，并**等到渲染面回执**才返回（R2 规矩）。
+  ///
+  /// 返回 `true` = 渲染面回了 `loaded`，且报的正是我们发出去的那个 url（**真换了**）；
+  /// `false` = 超时、渲染面报错，或回执报的是**别的** url（**没换成**）。
+  ///
+  /// 为什么必须等：`POST /models/{id}/activate` 只改后端 registry，真正换皮发生在
+  /// 这个 iframe 里。只发不等，界面就会在舞台还没换的时候说「已切换」——
+  /// 正是 rc.2 要消灭的「激活了但没换皮」。
+  Future<bool> swapModel(
+    String url, {
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    if (url.isEmpty || _disposed || _phase == Live2DBridgePhase.error) {
+      return false;
+    }
+    // 先挂监听再发：本地 iframe 的回执可能比 await 还快。
+    final Future<String> loaded = _modelLoads.stream.first;
+    await sendSync(model: url);
+    try {
+      return await loaded.timeout(timeout) == url;
+    } on TimeoutException {
+      return false;
+    }
+  }
 
   /// 启动 ready 超时计时（由宿主在挂载 iframe 后调用）。
   void start() {
@@ -303,7 +337,11 @@ class Live2DBridge extends ChangeNotifier {
         _modelLoaded = true;
         // 渲染端历史上发 model，当前发 url；两者都接受。
         final name = payload['model'] ?? payload['url'];
-        if (name is String) _model = name;
+        if (name is String) {
+          _model = name;
+          // 换模等待方按这个名字确认「换的正是我要的那个」。
+          if (!_modelLoads.isClosed) _modelLoads.add(name);
+        }
         notifyListeners();
       case 'progress':
         final value = payload['progress'];
@@ -359,6 +397,7 @@ class Live2DBridge extends ChangeNotifier {
     _readyTimer?.cancel();
     _mouthTimer?.cancel();
     unawaited(_acks.close());
+    unawaited(_modelLoads.close());
     unawaited(_sub?.cancel());
     unawaited(_transport.dispose());
     super.dispose();

@@ -27,6 +27,7 @@ class _FakeTransport implements Live2DTransport {
 }
 
 void main() {
+  _mainSwapModelTests();
   test('ready 前命令入队，ready 后按序 flush', () async {
     final transport = _FakeTransport();
     final bridge = Live2DBridge(transport);
@@ -165,6 +166,78 @@ void main() {
 
     expect(bridge.phase, Live2DBridgePhase.error);
     expect(bridge.errorMessage, '模型加载失败');
+    bridge.dispose();
+  });
+}
+
+// ── A2（rc.2 2026-09-12）：换模必须等回执 ──────────────────────────
+//
+// `POST /models/{id}/activate` 只改后端 registry；真正换皮发生在 iframe 里
+// （`sync.payload.model` → 渲染面 reload → `loaded` 帧）。这三条守的就是
+// 「收条之前不说已切换」，也是「激活了但没换皮」的回归钉子。
+
+void _mainSwapModelTests() {
+  test('swapModel：发 sync(model) 并等 loaded → true', () async {
+    final transport = _FakeTransport();
+    final bridge = Live2DBridge(transport);
+    transport.emit('{"version":1,"type":"ready","payload":{}}');
+    await Future<void>.delayed(Duration.zero);
+
+    final Future<bool> pending = bridge.swapModel('/models/neko/neko.model3.json');
+    await Future<void>.delayed(Duration.zero);
+    // 发出去的必须是 sync + model（渲染面只认这个字段）。
+    expect(transport.sent.last, contains('"type":"sync"'));
+    expect(transport.sent.last, contains('/models/neko/neko.model3.json'));
+
+    transport.emit(
+      '{"version":1,"type":"loaded","payload":{"url":"/models/neko/neko.model3.json"}}',
+    );
+    expect(await pending, isTrue);
+    expect(bridge.model, '/models/neko/neko.model3.json');
+    bridge.dispose();
+  });
+
+  test('swapModel：回执报的是**别的** url → false（没换成）', () async {
+    final transport = _FakeTransport();
+    final bridge = Live2DBridge(transport);
+    transport.emit('{"version":1,"type":"ready","payload":{}}');
+    await Future<void>.delayed(Duration.zero);
+
+    final Future<bool> pending = bridge.swapModel('/models/wanted.model3.json');
+    await Future<void>.delayed(Duration.zero);
+    transport.emit(
+      '{"version":1,"type":"loaded","payload":{"url":"/models/other.model3.json"}}',
+    );
+    expect(await pending, isFalse, reason: '换了别的模型不算「换成」');
+    bridge.dispose();
+  });
+
+  test('swapModel：没有回执 → false（宁可说没换成，也不谎报）', () async {
+    final transport = _FakeTransport();
+    final bridge = Live2DBridge(transport);
+    transport.emit('{"version":1,"type":"ready","payload":{}}');
+    await Future<void>.delayed(Duration.zero);
+
+    final bool ok = await bridge.swapModel(
+      '/models/never.model3.json',
+      timeout: const Duration(milliseconds: 30),
+    );
+    expect(ok, isFalse);
+    bridge.dispose();
+  });
+
+  test('swapModel：渲染面已在 error 态 → 立刻 false（不白等超时）', () async {
+    final transport = _FakeTransport();
+    final bridge = Live2DBridge(transport);
+    transport.emit('{"version":1,"type":"error","payload":{"message":"boom"}}');
+    await Future<void>.delayed(Duration.zero);
+    expect(bridge.phase, Live2DBridgePhase.error);
+
+    final bool ok = await bridge.swapModel(
+      '/models/x.model3.json',
+      timeout: const Duration(seconds: 5),
+    );
+    expect(ok, isFalse);
     bridge.dispose();
   });
 }

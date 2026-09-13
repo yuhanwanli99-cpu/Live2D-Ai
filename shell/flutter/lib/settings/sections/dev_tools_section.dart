@@ -5,6 +5,8 @@
 /// 职责单一，找起来靠类名即可。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -133,6 +135,7 @@ class ModelsSection extends StatelessWidget {
     this.devMode = false,
     this.onActivate,
     this.onReload,
+    this.onImport,
     this.busyId,
     this.activateMessage,
     super.key,
@@ -144,6 +147,13 @@ class ModelsSection extends StatelessWidget {
   final bool devMode;
   final Future<void> Function(String id)? onActivate;
   final Future<void> Function()? onReload;
+
+  /// 导入一个**已在磁盘上**的模型目录（`assets/models/<id>/`）。
+  ///
+  /// 后端不做文件上传（ZIP 上传是后置项且**曾被我方能力快照谎报为 supported**）：
+  /// 用户把模型放进目录，这里登记 + 校验。没有这个入口，「导入 → 激活 → 换皮」
+  /// 这条 DoD 主路径在界面上就没有起点。
+  final Future<void> Function(String id)? onImport;
 
   /// 正在激活的模型 id（禁用该行按钮，防重复提交）。
   final String? busyId;
@@ -182,7 +192,7 @@ class ModelsSection extends StatelessWidget {
           const AdminEmpty(
             icon: Icons.view_in_ar_outlined,
             title: '还没有导入模型',
-            hint: '把模型放到 assets/models/<id>/ 下，然后在这里导入。'
+            hint: '把模型放到 assets/models/<id>/ 下，然后在下面填目录名导入。'
                 '列表为空是正常的——项目刻意不捆绑模型。',
           )
         else
@@ -205,6 +215,10 @@ class ModelsSection extends StatelessWidget {
                       child: Text(busyId == m.id ? '激活中…' : '激活'),
                     ),
             ),
+        if (onImport != null) ...<Widget>[
+          const SizedBox(height: Space.s3),
+          _ImportModelField(onImport: onImport!, busy: busyId != null),
+        ],
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
           Align(
@@ -224,6 +238,62 @@ class ModelsSection extends StatelessWidget {
               '删除激活中的模型会被服务端拒绝（409 model_active）。',
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// 「导入」输入行：填 `assets/models/` 下的目录名 → `POST /models/import`。
+///
+/// 有状态只是为了拿住 `TextEditingController`；导入本身由宿主执行
+/// （它负责刷新列表与提示），成功后清空输入框。
+class _ImportModelField extends StatefulWidget {
+  const _ImportModelField({required this.onImport, required this.busy});
+
+  final Future<void> Function(String id) onImport;
+  final bool busy;
+
+  @override
+  State<_ImportModelField> createState() => _ImportModelFieldState();
+}
+
+class _ImportModelFieldState extends State<_ImportModelField> {
+  final TextEditingController _id = TextEditingController();
+
+  @override
+  void dispose() {
+    _id.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final String id = _id.text.trim();
+    if (id.isEmpty) return;
+    await widget.onImport(id);
+    if (mounted) _id.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: TextField(
+            controller: _id,
+            enabled: !widget.busy,
+            decoration: const InputDecoration(
+              isDense: true,
+              labelText: '导入模型（目录名）',
+              hintText: '例如 bai',
+            ),
+            onSubmitted: (_) => unawaited(_submit()),
+          ),
+        ),
+        const SizedBox(width: Space.s2),
+        FilledButton.tonal(
+          onPressed: widget.busy ? null : () => unawaited(_submit()),
+          child: const Text('导入'),
+        ),
       ],
     );
   }
