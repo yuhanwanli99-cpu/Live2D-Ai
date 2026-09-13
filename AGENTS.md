@@ -26,7 +26,10 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  3 个 Mod（external-input / pet-desktop / local-llm）为 workspace crate，默认不启用。
+  3 个 Mod（external-input / pet-desktop / local-llm）为 workspace crate；**缺省只启用
+  `local-llm`**（`externally_managed=true`，见 `cli_entry::default_mods_manifest`），
+  另两个缺省停用。**Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
+  `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）。
   **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
   不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
   `main.rs` 的 `mod_count_is_three` 断言守住，**不要再挂回去**。
