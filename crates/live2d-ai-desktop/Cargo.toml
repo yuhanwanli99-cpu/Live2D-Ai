@@ -45,7 +45,6 @@ live2d-ai-core = { path = "../live2d-ai-core" }
 # 节点 E E4：Mod 系统（trait/factory/registry/services/status/topics）。
 live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 live2d-ai-mod-external-input = { path = "../live2d-ai-mod-external-input" }
-live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
 live2d-ai-mod-pet-desktop = { path = "../live2d-ai-mod-pet-desktop" }
 live2d-ai-mod-local-llm = { path = "../live2d-ai-mod-local-llm" }
 ringbuf = "0.5"

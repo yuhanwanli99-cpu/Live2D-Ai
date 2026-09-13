@@ -60,8 +60,25 @@
   以它为前提，动它会牵动 reducer 的语义论证；
 - 本轮目标是把**链路**做干净，不是把每一处未接线能力都删掉——
 
-但它现在**不在产品链路里**：没有任何路径会向 core 发 `Event::Action`。
-若将来要彻底清理，必须连 `lib.rs` 的两条不变量一起重新论证。
+但它现在**不在产品链路里，而且这一点是结构性的**（2026-09-12，rc.2）：
+
+| 层级 | 状态 | 位置 |
+|---|---|---|
+| `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档在分支 `archive/action-layer-p6`；静态 Mod 工厂数由 `main.rs::mod_count_is_three` 守住 |
+| `SupervisorHandle::trigger_action` + supervisor 的 `action_rx` select 分支 | **已删除** | 那是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现 |
+| `HostChannels.trigger_action`（`ActionRequest → core` 的 host 映射） | **已删除** | `mod_registry.rs`；`ModServices.action_tx` 仍在（Mod API 契约），但注入的是**固定休眠 sender**：请求只留一行 debug 日志、返回 `false` |
+| core 动作子系统（类型 + reducer + capability gate） | **保留、休眠** | `crates/live2d-ai-core/src/action/`、`/performance/` |
+
+**谁休眠、为什么、谁能唤醒**：core 的动作/表演子系统休眠，因为产品路径上不存在动作
+（§3.1 的裁决）；唤醒 = 先重新论证本节的三条理由 + `lib.rs` 的两条不变量，
+再**显式**恢复一条 host 通道（`RootEvent::Action` 的注入分支）——而不是顺手接回去。
+
+回归钉子两条：
+`mod_registry::tests::action_request_is_dormant_not_delivered`（`ActionRequest` 必须
+**不被接受**）与 `main.rs::mod_count_is_three`（工厂数不得回到 4）。
+
+「连 `action/` + `performance/` 一起删干净」这条路依然可行，但必须连 `lib.rs` 的两条
+不变量一起重新论证——那是另一次结构改动，不在 rc.2 范围内。
 
 ### 3.3 渲染面的动作残件：**已知、休眠、暂不删**
 

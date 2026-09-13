@@ -20,15 +20,17 @@ import 'api_client.dart';
 ///
 /// 2026-09-11：`actions` / `action_sources` / `strength_levels` 三个字段随
 /// 动作子系统一并删除（用户裁定 LLM 无工具、只做对话；`/api/v1/commands`
-/// 动作目录端点也删了）。服务端若仍下发这三个键，这里**忽略即可**——
-/// 未知字段本来就被容忍。
+/// 动作目录端点也删了）。
+///
+/// 2026-09-12（rc.2）：`model_upload_supported` / `script_invoke_supported`
+/// 也删了——**它们是假广告**（multipart ZIP 上传与脚本调用端点都不存在），
+/// 服务端已同步删除。这里不再解析：前端**不持有**未实现能力的开关，
+/// 就不可能出现「按钮亮了但点了必失败」。未知字段本来就被容忍。
 class AppCapabilities {
   const AppCapabilities({
     this.app = '',
     this.version = '',
     this.schemaVersion = 0,
-    this.modelUploadSupported = false,
-    this.scriptInvokeSupported = false,
     this.runtimeWs = '',
     this.stateWs = '',
     this.wsProtocolVersion = 0,
@@ -37,8 +39,6 @@ class AppCapabilities {
   final String app;
   final String version;
   final int schemaVersion;
-  final bool modelUploadSupported;
-  final bool scriptInvokeSupported;
   final String runtimeWs;
   final String stateWs;
   final int wsProtocolVersion;
@@ -47,8 +47,6 @@ class AppCapabilities {
     app: _str(json['app']),
     version: _str(json['version']),
     schemaVersion: _int(json['schema_version']),
-    modelUploadSupported: json['model_upload_supported'] == true,
-    scriptInvokeSupported: json['script_invoke_supported'] == true,
     runtimeWs: _str(json['runtime_ws']),
     stateWs: _str(json['state_ws']),
     wsProtocolVersion: _int(json['ws_protocol_version']),

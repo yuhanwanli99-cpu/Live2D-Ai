@@ -58,8 +58,11 @@ Live2D-Ai/
 ```
 crates/live2d-ai-mod-external-input/  外部事件接入 Mod（`POST /api/v1/external/chat`）
 crates/live2d-ai-mod-pet-desktop/    桌宠窗口 Mod v1 骨架（settings schema + Voice 事件占位；窗口生命周期/悬浮窗/点击穿透/托盘接线后置）
-crates/live2d-ai-mod-director/       动作编排 Mod（E7 落地：config 驱动白名单动作序列；performance sequence 能力由此实现）
+crates/live2d-ai-mod-local-llm/      本地推理探测 Mod（探测就绪后经 apply_settings 写回 base_url/model）
 ```
+`crates/live2d-ai-mod-director/`（动作编排 Mod）已于 `0.1.0-rc.2` **删除**——它是动作序列的
+唯一驱动方，而动作在产品路径上不存在；归档在分支 `archive/action-layer-p6`。
+静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_three` 守住。
 各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。
 
 ## 清理规则

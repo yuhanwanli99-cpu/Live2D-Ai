@@ -141,35 +141,17 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
 
     // 3) 装配 ModRegistry（节点 E5，2026-08-30）：用静态编译的
     //    AVAILABLE_MOD_FACTORIES + manifest 配置；start_all() 启动 enabled Mod。
-    //    若 supervisor 已就绪，注入 HostChannels（P0-3 Mod→host 真实回路）：
-    //    ActionRequest → ActionId 固定映射 → supervisor.trigger_action；
-    //    say → supervisor.say。
+    //    若 supervisor 已就绪，注入 HostChannels（Mod→host 真实回路）：
+    //    say → supervisor.say；Mod 探测就绪的事件 → settings 写盘 + reload。
+    //    **动作不在其中**（2026-09-12，rc.2）：`ActionRequest → core` 那条线已整体
+    //    删除，动作在产品路径上不存在（core-chain-baseline.md §3.3）。
     let registry = match &supervisor_opt {
         Some(supervisor) => {
-            let sup_for_actions = Arc::clone(supervisor);
             let sup_for_say = Arc::clone(supervisor);
             let sup_for_reload = Arc::clone(supervisor);
             let cfg_path_for_settings = config_path.clone();
             ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &mods_manifest_for_web())
                 .with_host_channels(crate::mod_registry::HostChannels {
-                    trigger_action: Arc::new(move |req| {
-                        let Some(id) = crate::mod_registry::parse_action_id(req.action) else {
-                            tracing::debug!(target: "mod", "未知 action '{}'", req.action);
-                            return false;
-                        };
-                        let Some(strength) = live2d_ai_core::Strength::from_level(req.strength)
-                        else {
-                            tracing::debug!(target: "mod", "非法 strength {}", req.strength);
-                            return false;
-                        };
-                        // Mod 动作固定映射为 LlmTool 档（host 固定优先级，不暴露自定）。
-                        let act = live2d_ai_core::SemanticAction::new(
-                            id,
-                            strength,
-                            live2d_ai_core::ActionSource::LlmTool,
-                        );
-                        sup_for_actions.trigger_action(act)
-                    }),
                     say: Arc::new(move |t| sup_for_say.say(t)),
                     // P0-4 真实闭环：Mod 探测就绪后通过 event_tx 发送
                     // `{"__apply_settings":true,"patch":{...}}`，这里复用

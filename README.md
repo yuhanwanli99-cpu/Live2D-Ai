@@ -6,7 +6,7 @@ Live2D-Ai wires a single core loop and keeps everything else behind a Mod bounda
 
 **text → LLM (chat only) → TTS → lip-sync → Live2D render + Web UI**
 
-It does **not** ship or bind any character, skin, or model. You import your own lawfully obtained Live2D assets. Complex extras (desktop pet, external input, local LLM, director sequences, …) are optional Mods that fail independently of the core loop.
+It does **not** ship or bind any character, skin, or model. You import your own lawfully obtained Live2D assets. Complex extras (desktop pet, external input, local LLM, …) are optional Mods that fail independently of the core loop.
 
 > Chinese: [README.zh-CN.md](./README.zh-CN.md)
 
@@ -28,7 +28,7 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ### Mods
 - Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Bundled Mods (compiled in): external input, director, pet-desktop (skeleton), local LLM.
+- Bundled Mods (compiled in): external input, pet-desktop (skeleton), local LLM.
 - Mod failure disables that Mod only; the core loop keeps running.
 
 ### Platform (this baseline)

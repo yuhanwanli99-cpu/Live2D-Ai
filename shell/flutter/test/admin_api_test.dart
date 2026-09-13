@@ -14,26 +14,25 @@ import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/error_banner.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 全部夹具都是**真实抓包**（本机 v0.4.8，2026-09-10）。
+/// 全部夹具都是**真实抓包**（本机，2026-09-12 rc.2 形状）。
 ///
 /// 2026-09-11 修订：`local-tts` 已从 Mod 系统移出（语音合成是核心链路），
 /// 所以 Mod 夹具改用 `local-llm` 承担「运行中」那条断言。字段形状不变。
+/// 2026-09-12 修订（rc.2）：`director` Mod 已删除（动作层裁决），夹具换成
+/// `external-input`；capabilities 的 `schema_version` = 2，动作/上传/脚本五个
+/// 字段已从服务端与前端**同时**删除。
 const String kRealModelsJson = '{"models":[]}';
 
 const String kRealModsJson = '''
-{"mods":[{"api_version":1,"enabled":false,"id":"director","name":"动作编排",
+{"mods":[{"api_version":1,"enabled":false,"id":"external-input","name":"外部输入",
 "status":"disabled","version":"0.1.0"},
 {"api_version":1,"enabled":true,"id":"local-llm","name":"本地大模型",
 "status":"running","version":"0.1.0"}]}
 ''';
 
 const String kRealCapabilitiesJson = '''
-{"app":"live2d-ai-desktop","version":"0.4.7","schema_version":1,
-"actions":["nod","shake_no","tilt","look_around","listen","surprise"],
-"action_sources":["user_command","llm_tool","rule_fallback"],
-"strength_levels":[1,2,3],"model_upload_supported":true,
-"script_invoke_supported":true,"runtime_ws":"/ws/runtime",
-"state_ws":"/ws/state","ws_protocol_version":1}
+{"app":"live2d-ai-desktop","version":"0.1.0-rc.2","schema_version":2,
+"runtime_ws":"/ws/runtime","state_ws":"/ws/state","ws_protocol_version":1}
 ''';
 
 const String kRealStatusJson = '''
@@ -159,7 +158,7 @@ void main() {
       );
       final List<ModInfo> mods = await api.list();
       expect(mods, hasLength(2));
-      expect(mods[0].id, 'director');
+      expect(mods[0].id, 'external-input');
       expect(mods[0].enabled, isFalse);
       expect(mods[0].statusLabel, '已停用');
       expect(mods[1].id, 'local-llm');
@@ -209,22 +208,37 @@ void main() {
   });
 
   group('DiagnosticsApi', () {
-    test('capabilities：解析版本与能力位（动作清单已随动作子系统移除）', () async {
+    test('capabilities：解析版本与稳定字段', () async {
       final DiagnosticsApi api = DiagnosticsApi(
         base: 'http://x',
         client: MockClient((_) async => jsonResponse(kRealCapabilitiesJson, 200)),
       );
       final AppCapabilities c = await api.capabilities();
       expect(c.app, 'live2d-ai-desktop');
-      // 2026-09-11：LLM 无工具、只做对话，`actions` / `action_sources` /
-      // `strength_levels` 三个字段已从 AppCapabilities 删除（`/api/v1/commands`
-      // 动作目录端点也删了）。夹具里仍留着这三个键，正好钉住「服务端多发的
-      // 未知字段被忽略、不报错」这条前向兼容纪律。
+      expect(c.schemaVersion, 2);
       expect(c.wsProtocolVersion, 1);
-      expect(c.modelUploadSupported, isTrue);
-      expect(c.scriptInvokeSupported, isTrue);
       expect(c.runtimeWs, '/ws/runtime');
       expect(c.stateWs, '/ws/state');
+    });
+
+    test('capabilities：服务端多发的未知/已删字段被忽略（前向兼容）', () async {
+      // rc.2 从服务端删掉了动作/上传/脚本五个字段；旧版服务端仍可能下发它们
+      // （用户没重启后端）。前端**不持有**这些开关，多发的键一律忽略、不报错。
+      const String legacy = '''
+{"app":"live2d-ai-desktop","version":"0.1.0-rc.1","schema_version":1,
+"actions":["nod"],"action_sources":["llm_tool"],"strength_levels":[1,2,3],
+"model_upload_supported":true,"script_invoke_supported":true,
+"runtime_ws":"/ws/runtime","state_ws":"/ws/state","ws_protocol_version":1}
+''';
+      final DiagnosticsApi api = DiagnosticsApi(
+        base: 'http://x',
+        client: MockClient((_) async => jsonResponse(legacy, 200)),
+      );
+      final AppCapabilities c = await api.capabilities();
+      // 只认自己有的字段；未知键不进模型，也不抛异常。
+      expect(c.app, 'live2d-ai-desktop');
+      expect(c.schemaVersion, 1);
+      expect(c.runtimeWs, '/ws/runtime');
     });
 
     test('status：能读出 active_model_id 与 dev_mode', () async {

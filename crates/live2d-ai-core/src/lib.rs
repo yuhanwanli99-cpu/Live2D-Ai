@@ -30,9 +30,34 @@
 //!
 //! 本 crate 为纯逻辑；shell 负责把 [`Effect`] 翻译成真实播放/渲染动作。
 //!
+//! # 动作 / 表演子系统：**休眠**（2026-09-12，rc.2）
+//!
+//! [`action`] 与 [`performance`] **保留原样**（不变量 4 与 6 仍以它们为前提），
+//! 但它们在产品路径上**没有任何驱动方**：
+//!
+//! - 桌面侧把 `RootEvent::Action` 送进 reducer 的**唯一**通道已整体删除
+//!   （`SupervisorHandle::trigger_action` + supervisor 的 `action_rx` 分支）；
+//! - 动作序列的唯一驱动方 `live2d-ai-mod-director` 已删除；
+//! - `ModServices.action_tx` 仍在（Mod API 契约），但 host 注入的是**固定休眠
+//!   sender**：请求只留一行 debug 日志并返回 `false`。
+//!
+//! 所以这两个模块是**惰性**的——没有东西会调用它们，也就不会误触发。
+//!「谁休眠、为什么、谁能唤醒」的完整裁决见
+//! `docs/architecture/core-chain-baseline.md` §3.2 与 `AGENTS.md`
+//!「动作与表演的归属（休眠台账）」。
+//!
+//! 模块与再导出都标了 `#[doc(hidden)]`：**这不是遗漏，是归属声明**——它们不是
+//! 对外能力面，而是等待被**显式**唤醒（或显式删除）的内部残余。rc.2 不做 feature
+//! gate：那会动 Cargo feature 矩阵与 `cli/tests.rs` 的断言，归 rc.3。
+//!
+//! **待机生命体征与动作无关**：`IdleState` 在渲染面（`l2d-wasm-demo`），
+//! 与 [performance] 的动作曲线是两套机制，删动作时绝不要连带删它。
+//!
 //! 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准。
 
+#[doc(hidden)]
 pub mod action;
+#[doc(hidden)]
 pub mod performance;
 
 mod events;
@@ -43,12 +68,14 @@ mod state;
 #[cfg(test)]
 mod core_tests;
 
+#[doc(hidden)]
 pub use action::{
     ActionCommand, ActionDropReason, ActionEffect, ActionId, ActionSource, ActionState,
     ModelCapabilities, SemanticAction, Strength, apply_action,
 };
 pub use events::{DropReason, Effect, Event, GenerationOutcome};
 pub use ids::{Epoch, SentenceId, TurnId};
+#[doc(hidden)]
 pub use performance::{ParameterFrame, ParameterMask, PerformancePlayer, SampleStatus};
 pub use state::{Phase, PlaybackState, State, Turn};
 
