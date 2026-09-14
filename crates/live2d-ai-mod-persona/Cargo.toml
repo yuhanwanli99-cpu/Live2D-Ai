@@ -15,5 +15,11 @@ serde_json = "1"
 base64 = "0.22"
 log = "0.4"
 
+[dev-dependencies]
+# Wave 3 轨 E：与 memory 共存的**跨 crate 契约测试**（memory-mod-v0.md §5.1
+# last-writer-wins）。直接调用 memory 的真实纯函数 compose_injection /
+# strip_memory_block，避免在 persona 侧复刻一份 marker 规则后各自漂移。
+live2d-ai-mod-memory = { path = "../live2d-ai-mod-memory" }
+
 [lints]
 workspace = true

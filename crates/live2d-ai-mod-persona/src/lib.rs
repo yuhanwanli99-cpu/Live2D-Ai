@@ -59,6 +59,29 @@
 //! - `say_first_mes`：启用时是否朗读卡里的开场白（缺省 false）；
 //! - `name` / `description` / `personality` / `scenario`：手工覆盖（非空优先于卡）。
 //!
+//! # 与 memory 共存（last-writer-wins，无仲裁）
+//!
+//! `persona` 与 `memory`（`live2d-ai-mod-memory`）都可能写
+//! `persona.system_prompt`。两侧共用同一段契约文字，与
+//! `docs/architecture/memory-mod-v0.md` §5.1 **逐字一致**：
+//!
+//! > 两者都可能写 `persona.system_prompt`，规则是 **last-writer-wins，没有仲裁**：
+//! >
+//! > | 事件顺序 | 结果 |
+//! > | --- | --- |
+//! > | `persona` 后写 | 它的合成结果覆盖整个 `system_prompt`，**记忆块被冲掉** |
+//! > | memory 后写（下一轮） | 它在 persona 的合成结果之上重新拼上记忆块 |
+//! > | memory 停用 | `shutdown` 检查 marker，有就剥掉写回——**不留残留** |
+//! >
+//! > 这是**已知取舍**，不是 bug：主链只有一个 system 入口，加一套优先级表就是
+//! > 在核心里埋第二个产品。要「两个都生效」必须先论证仲裁规则（见 §8 非目标）。
+//!
+//! 本 Mod 侧的直接结论：`start` 是**整段替换**（不做拼接、不解析 memory 的
+//! marker），所以 persona 后写必然冲掉记忆块；`shutdown` 写回的是启用那一刻的
+//! **整段**快照，若当时含记忆块就原样还回（memory 下一轮会幂等重拼或按需剥离）。
+//! 回归在 `src/tests_e2e.rs`，用 memory crate 的**真实**
+//! `strategy::compose_injection` / `strip_memory_block`（不是本地复刻）。
+//!
 //! # 文件大小
 //!
 //! 源码 > 500 行（< 1000）：卡解析与主链写回共用同一份不变量（V2 判定 +
@@ -68,6 +91,9 @@
 //! `src/tests.rs` 略超「测试文件 ≤ 800 行」：超出的部分是启停循环三条入口
 //! （`card_json` / `card_path` JSON / `card_path` PNG）各自的端到端回归——
 //! 合并成参数化用例会把「哪条入口坏了」这个信息藏起来。
+//!
+//! Wave 3 轨 E 新增的坏卡 E2E 与共存契约**另起** `src/tests_e2e.rs`（318 行），
+//! 不再往 `tests.rs` 里加——两个文件各自守一组契约，也守住单文件行数纪律。
 
 use std::path::{Path, PathBuf};
 
@@ -732,3 +758,5 @@ pub const FACTORY: PersonaFactory = PersonaFactory;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_e2e;
