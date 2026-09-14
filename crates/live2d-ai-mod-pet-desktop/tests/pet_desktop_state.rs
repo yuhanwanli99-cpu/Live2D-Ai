@@ -358,6 +358,51 @@ fn state_json_is_a_read_only_snapshot() {
     assert_eq!(rt.opacity(), 0.7);
 }
 
+/// **Wave 3 软闭环守卫：字段集是契约**。
+///
+/// 前端（`settings/sections/dev_tools_section.dart` 的「运行态（只读）」块）
+/// 按 key 渲染本快照，所以顶层 key 集合与 `window` 的子 key 集合都不得静默增删。
+/// 增删字段 = 改契约：同步 `docs/architecture/pet-desktop-mod-v0.md` §4 与本测试。
+#[test]
+fn state_json_key_set_is_pinned() {
+    let mut rt = runtime_with(serde_json::json!({"always_on_top": false, "opacity": 0.4}));
+    let state = rt.state_json().expect("pet-desktop 必须实现 state_json");
+    let object = state.as_object().expect("state 必须是 JSON 对象");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "always_on_top",
+            "click_through",
+            "opacity",
+            "voice_active",
+            "window",
+        ],
+        "顶层字段集是前端渲染契约，不得静默增删"
+    );
+
+    let window = state["window"].as_object().expect("window 必须是对象");
+    let mut window_keys: Vec<&str> = window.keys().map(String::as_str).collect();
+    window_keys.sort_unstable();
+    assert_eq!(window_keys, vec!["opened", "reason"], "window 子字段集固定");
+}
+
+/// **软闭环的另一半**：`reason` 的字符串值是前后端共享的稳定标识。
+///
+/// Flutter 侧 `kWindowReasonNativeShellDormant` 必须逐字等于它，
+/// 否则「窗口未开（原生壳休眠），此面仅状态」那句文案会悄悄不显示
+///（前端只在 reason 命中时才写这句）。Dart 侧的守卫在
+/// `shell/flutter/test/pet_desktop_state_test.dart`。
+#[test]
+fn window_reason_string_is_stable_and_ascii() {
+    assert_eq!(WINDOW_REASON_NATIVE_SHELL_DORMANT, "native_shell_dormant");
+    assert!(
+        WINDOW_REASON_NATIVE_SHELL_DORMANT.is_ascii(),
+        "reason 是机读标识，不做本地化"
+    );
+}
+
 /// 纯函数 `build_state_json` 与 runtime 版本是同一形状（不动 runtime 也能测）。
 #[test]
 fn build_state_json_matches_runtime_shape() {

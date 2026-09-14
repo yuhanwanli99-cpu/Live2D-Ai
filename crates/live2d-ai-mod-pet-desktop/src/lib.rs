@@ -1,6 +1,23 @@
-//! live2d-ai-mod-pet-desktop（节点 E E7；Wave 2 更新 2026-09-14）。
+//! live2d-ai-mod-pet-desktop（节点 E E7；Wave 3 更新 2026-09-14）。
 //!
 //! 桌宠窗口 Mod——**配置 / 事件态的可测面 v1**。
+//!
+//! # Wave 3（2026-09-14）：软闭环 —— 产品标签「仅状态面」
+//!
+//! Wave 2 把状态做到「可读」；Wave 3 把它做成**可感知的闭环**：Flutter `/app/`
+//! 的「设置 → Mod」里展开 `pet-desktop` 就能看到本快照
+//!（`ModsApi.state(id)` → `GET /api/v1/mods/pet-desktop/state`），
+//! 改配置 → 保存 → **重新取 state**，字段跟着变。
+//!
+//! 「软闭环」= **不设窗口**。硬开窗口要唤醒休眠原生壳（`core-chain-baseline.md`
+//! §3.6 台账），Wave 3 裁决不走那条路；所以闭环的终点是**状态面**而不是像素——
+//! `window.opened` 仍恒 `false`、`reason` 仍是 `native_shell_dormant`，
+//! 前端把它如实写成「窗口未开（原生壳休眠），此面仅状态」。
+//! **本 crate 的 JSON 契约 Wave 3 一字未改**（只加了一条字段集守卫测试
+//! `state_json_key_set_is_pinned`，因为前端现在按 key 渲染）。
+//!
+//! 消费方：Flutter `shell/flutter/lib/settings/sections/dev_tools_section.dart`
+//! 的 `_ModConfigTile`（展开卡片里的「运行态（只读）」块）。
 //!
 //! # 范围声明（Wave 2：**窗口未开**）
 //!
@@ -64,6 +81,9 @@
 //! - **只读、不写盘、不阻塞**：实现只读内存字段，无 IO、无锁等待、无网络
 //!   （契约见 `live2d-ai-mod-system` 的 `ModRuntime::state_json` 头注）。
 //!   经 host 暴露为 `GET /api/v1/mods/{id}/state`（在册但暂不可读 = 503）。
+//! - **字段集是契约**（Wave 3 起有守卫测试）：顶层恰好五个 key + `window`
+//!   恰好 `{opened, reason}`。前端按 key 渲染，增删字段要同步
+//!   `docs/architecture/pet-desktop-mod-v0.md` §4。
 //!
 //! # 版本
 //!
