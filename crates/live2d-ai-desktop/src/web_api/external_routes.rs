@@ -54,6 +54,23 @@
 //!
 //! 请求侧可用 body `token` 或 `Authorization: Bearer <token>`（二选一）。
 //!
+//! # 可观察计数（Wave 3，2026-09-14）
+//!
+//! 接受的注入 / 忙碌的丢弃 / 被策略拒绝都在本 handler 里记账（Mod crate 的进程级
+//! `AtomicU64`，见 `live2d_ai_mod_external_input::counters`），并可经
+//! `GET /api/v1/mods/external-input/state` 读到：
+//!
+//! - `accepts`：`ok:true` 分支；
+//! - `busy`：`ok:false` 分支（code `busy`）；
+//! - `rejects`：**策略拒绝**——`401 unauthorized` 与 `403 mod_disabled`。
+//!   400（负载非法 / 超长）、405、415、503（未装配）**不计数**；
+//! - `v2_ignored`：body 可选字段 `v2_ignored`（sidecar 上报的
+//!   `SEND_GIFT_V2` 忽略累计值），**覆盖写**。
+//!
+//! 计数分支的回归用注入点 `inject` 驱动（见 `handle_external_chat_with`）：
+//! 真实 `SupervisorHandle::say` 走容量 1 的通道，worker 是否已 recv 的时序
+//! 不可复现，无法稳定造出「忙」。
+//!
 //! # 限制
 //!
 //! - **文本长度**：渲染后 ≤2000 字符，否则 `400 text_too_long`。
@@ -107,6 +124,34 @@ fn external_input_gate(ctx: &ServerContext) -> ModGate {
     }
 }
 
+/// 注入提供者：把一段文本交给 supervisor。
+///
+/// `Some(true)` = 已接受；`Some(false)` = 忙碌（pending 缓冲满）；
+/// `None` = supervisor 未就绪（503）。
+///
+/// 抽成参数是为了让 handler 的**计数分支**可被单测确定性地驱动：真实
+/// `SupervisorHandle::say` 走容量 1 的通道，毫秒级时序不可复现
+/// （worker 是否已 recv），而计数回归要断言「3 成功 / 1 忙」。
+type InjectFn<'a> = dyn Fn(&ServerContext, String) -> Option<bool> + 'a;
+
+/// 生产注入路径：借出 supervisor 并 `say`。
+fn supervisor_inject(ctx: &ServerContext, text: String) -> Option<bool> {
+    ctx.try_get_supervisor().map(|s| s.say(text))
+}
+
+/// 一次外部注入请求的原始字段。
+///
+/// 收进结构体而不是继续加形参：`handle_external_chat` 的 7 个形参已到
+/// clippy `too_many_arguments` 上限，注入点不能再摊平。
+struct ExternalRequest<'a> {
+    method: &'a Method,
+    path: &'a str,
+    body: &'a str,
+    origin: Option<&'a str>,
+    content_type: Option<&'a str>,
+    auth_header: Option<&'a str>,
+}
+
 /// 处理 `POST /api/v1/external/chat`（外部文本 → say → 主链路）。
 ///
 /// - 路径/方法不匹配 → `None`（交给后续 `dispatch` 继续派发）。
@@ -120,6 +165,34 @@ pub fn handle_external_chat(
     content_type: Option<&str>,
     auth_header: Option<&str>,
 ) -> Option<Response<Cursor<Vec<u8>>>> {
+    handle_external_chat_with(
+        ctx,
+        ExternalRequest {
+            method,
+            path,
+            body,
+            origin,
+            content_type,
+            auth_header,
+        },
+        &supervisor_inject,
+    )
+}
+
+/// [`handle_external_chat`] 的实现：把「怎么 say」抽成 [`InjectFn`] 注入点。
+fn handle_external_chat_with(
+    ctx: &ServerContext,
+    req: ExternalRequest<'_>,
+    inject: &InjectFn<'_>,
+) -> Option<Response<Cursor<Vec<u8>>>> {
+    let ExternalRequest {
+        method,
+        path,
+        body,
+        origin,
+        content_type,
+        auth_header,
+    } = req;
     // 路径不匹配：交还给 dispatch。
     if path != EXTERNAL_CHAT_PATH {
         return None;
@@ -157,6 +230,7 @@ pub fn handle_external_chat(
     // 启停门禁：Mod 已注册但停用 → 不注入、明确告知发送方。
     let gate = external_input_gate(ctx);
     if !gate.enabled {
+        live2d_ai_mod_external_input::record_reject();
         return Some(json_error(
             StatusCode(403),
             "mod_disabled",
@@ -178,11 +252,16 @@ pub fn handle_external_chat(
     let config_token = live2d_ai_mod_external_input::token_from_config(&gate.config);
     let effective = env_token.as_deref().or(config_token.as_deref());
     if !check_token(parsed.token.as_deref(), auth_header, effective) {
+        live2d_ai_mod_external_input::record_reject();
         return Some(json_error(
             StatusCode(401),
             "unauthorized",
             "token 缺失或不匹配（env EXTERNAL_INPUT_TOKEN 或 Mod config token 已设）",
         ));
+    }
+    // sidecar 上报的 SEND_GIFT_V2 忽略累计值（可选字段）→ 暴露到 state_json。
+    if let Some(total) = parsed.v2_ignored {
+        live2d_ai_mod_external_input::record_v2_ignored(total);
     }
     // 模板 / 前缀渲染（纯逻辑在 Mod crate；handler 不重写一份）。
     let text = live2d_ai_mod_external_input::render_from_config(&gate.config, &parsed.text);
@@ -198,9 +277,9 @@ pub fn handle_external_chat(
             ),
         ));
     }
-    // 执行：借出 supervisor say。
-    let supervisor = match ctx.try_get_supervisor() {
-        Some(s) => s,
+    // 执行：经注入点把文本交给 supervisor。
+    let ok = match inject(ctx, text.clone()) {
+        Some(ok) => ok,
         None => {
             return Some(json_error(
                 StatusCode(503),
@@ -209,11 +288,12 @@ pub fn handle_external_chat(
             ));
         }
     };
-    let ok = supervisor.say(text.clone());
-    // 返回 {"ok": true/false, ...}。
+    // 返回 {"ok": true/false, ...}；计数与分支一一对应（见 counters.rs 头注）。
     let body_json = if ok {
+        live2d_ai_mod_external_input::record_accept();
         serde_json::json!({"ok": true, "endpoint": "external.chat"})
     } else {
+        live2d_ai_mod_external_input::record_busy();
         serde_json::json!({
             "ok": false,
             "endpoint": "external.chat",
@@ -245,9 +325,18 @@ fn parse_payload(body: &str) -> Result<Payload, String> {
         Some(_) => return Err("`token` 必须为字符串".to_string()),
         None => None,
     };
+    // 可选 v2_ignored 字段（u64，sidecar 上报的 SEND_GIFT_V2 忽略累计值）。
+    let v2_ignored = match v.get("v2_ignored") {
+        Some(n) => Some(
+            n.as_u64()
+                .ok_or_else(|| "`v2_ignored` 必须为非负整数".to_string())?,
+        ),
+        None => None,
+    };
     Ok(Payload {
         text: s.to_string(),
         token,
+        v2_ignored,
     })
 }
 
@@ -256,6 +345,8 @@ fn parse_payload(body: &str) -> Result<Payload, String> {
 struct Payload {
     text: String,
     token: Option<String>,
+    /// sidecar 上报的 `SEND_GIFT_V2` 忽略累计值（可选；覆盖写进计数）。
+    v2_ignored: Option<u64>,
 }
 
 /// 可选 token 鉴权的纯函数。
@@ -462,6 +553,7 @@ mod tests {
     /// 注册表中 external-input 停用 → 403 `mod_disabled`（不静默吞文本）。
     #[test]
     fn mod_disabled_returns_403() {
+        let _guard = counter_lock(); // 403 会计 reject → 与计数回归串行。
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
         let ctx = ctx_with_manifest(sec, &serde_json::json!({}));
         let resp = call(
@@ -556,6 +648,7 @@ mod tests {
         if std::env::var(TOKEN_ENV_VAR).is_ok() {
             return;
         }
+        let _guard = counter_lock(); // 401 会计 reject → 与计数回归串行。
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
         let ctx = ctx_with_manifest(
             sec,
@@ -659,6 +752,134 @@ mod tests {
             Some("Bearer wrong"),
             Some("secret")
         ));
+    }
+
+    // --- 可观察计数（Wave 3）：3 成功 / 1 坏 token / 1 忙 ---
+
+    /// 计数器是进程级单例 → 会改计数的测试串行，delta 断言才确定。
+    fn counter_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 构造一个「POST + JSON + 无 Origin / 无 auth」的注入请求（计数回归用）。
+    fn req<'a>(method: &'a Method, body: &'a str) -> ExternalRequest<'a> {
+        ExternalRequest {
+            method,
+            path: EXTERNAL_CHAT_PATH,
+            body,
+            origin: None,
+            content_type: Some("application/json"),
+            auth_header: None,
+        }
+    }
+
+    /// 用注入点驱动 handler 的计数分支；再经**真实注册表**读 state_json
+    /// （与 `GET /api/v1/mods/external-input/state` 同一条路径）。
+    #[test]
+    fn handler_counts_accepts_rejects_busy_into_state() {
+        if std::env::var(TOKEN_ENV_VAR).is_ok() {
+            return; // env token 会覆盖 config token，坏 token 分支不成立。
+        }
+        let _guard = counter_lock();
+        let before = live2d_ai_mod_external_input::counters_snapshot();
+        let base = |k: &str| before[k].as_u64().expect("计数为整数");
+
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = ctx_with_manifest(
+            sec,
+            &serde_json::json!({"mods":{"external-input":{
+                "enabled": true,
+                "config": {"token": "cfg-secret"}
+            }}}),
+        );
+        ctx.mod_registry.lock().unwrap().start_all();
+
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_c = calls.clone();
+        let inject = move |_ctx: &ServerContext, _t: String| -> Option<bool> {
+            // 前 3 次接受，第 4 次忙碌。
+            Some(calls_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3)
+        };
+
+        for _ in 0..4 {
+            let resp = handle_external_chat_with(
+                &ctx,
+                req(&method_post(), r#"{"text":"hi","token":"cfg-secret"}"#),
+                &inject,
+            )
+            .unwrap();
+            assert_eq!(resp.status_code(), StatusCode(200));
+        }
+        // 坏 token → 401 拒绝（文本未进主链路）。
+        let resp = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi","token":"wrong"}"#),
+            &inject,
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(401));
+
+        let after = live2d_ai_mod_external_input::counters_snapshot();
+        assert_eq!(after["accepts"], base("accepts") + 3, "3 次成功");
+        assert_eq!(after["busy"], base("busy") + 1, "1 次忙");
+        assert_eq!(after["rejects"], base("rejects") + 1, "1 次坏 token");
+
+        // state_json（`GET /mods/external-input/state` 的真源）逐键一致。
+        let state = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .runtime_state("external-input")
+            .expect("runtime 已 start，state_json 可读");
+        assert_eq!(state["accepts"], after["accepts"]);
+        assert_eq!(state["busy"], after["busy"]);
+        assert_eq!(state["rejects"], after["rejects"]);
+        assert_eq!(state["ready"], serde_json::json!(true));
+    }
+
+    /// sidecar 上报的 `v2_ignored` 进 state_json（可选字段，覆盖写）。
+    #[test]
+    fn v2_ignored_reported_by_sidecar_surfaces_in_state() {
+        let _guard = counter_lock();
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = ctx_with_manifest(
+            sec,
+            &serde_json::json!({"mods":{"external-input":{"enabled": true}}}),
+        );
+        ctx.mod_registry.lock().unwrap().start_all();
+        let inject = |_ctx: &ServerContext, _t: String| -> Option<bool> { Some(true) };
+        let resp = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi","v2_ignored":7}"#),
+            &inject,
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(200));
+        let state = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .runtime_state("external-input")
+            .expect("state 可读");
+        assert_eq!(state["v2_ignored"], 7);
+    }
+
+    /// `v2_ignored` 非整数 → 400 invalid_payload（不进链路、不计数）。
+    #[test]
+    fn v2_ignored_non_integer_400() {
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = dummy_ctx(sec);
+        let resp = call(
+            &ctx,
+            &method_post(),
+            EXTERNAL_CHAT_PATH,
+            r#"{"text":"hi","v2_ignored":-1}"#,
+            None,
+            Some("application/json"),
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(400));
     }
 
     // --- test helpers ---

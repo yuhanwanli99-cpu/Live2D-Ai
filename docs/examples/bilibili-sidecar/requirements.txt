@@ -1,5 +1,8 @@
 # B 站弹幕 sidecar 最小依赖（Windows / Linux 通用，建议 Python 3.10+）
-# blivedm 负责 B 站协议（WebSocket 长连接 + 弹幕/礼物解析）；
-# aiohttp 是它的运行依赖，也是本示例建 ClientSession 用的库。
-blivedm>=2.3,<3
+#
+# blivedm 负责 B 站协议（WebSocket 长连接 + 弹幕/礼物解析）。
+# 注意：PyPI 上的 blivedm 长期停在 0.1.1（旧 API），且不含 SEND_GIFT_V2；
+# 官方仓库当前版本是 1.1.7，SEND_GIFT_V2 支持在 PR #86（2026-08-11）才合入。
+# 所以要收新的礼物推送就**不要**用 `pip install blivedm`，直接装 GitHub。
+blivedm @ git+https://github.com/xfgryujk/blivedm.git
 aiohttp>=3.9

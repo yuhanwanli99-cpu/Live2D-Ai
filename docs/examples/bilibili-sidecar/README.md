@@ -16,8 +16,9 @@ B 站直播间
    │  blivedm（WebSocket 长连接）
    ▼
 bilibili_sidecar.py
-   │  只处理 DANMU_MSG（弹幕）+ SEND_GIFT（礼物）；其它 cmd 只 log
+   │  只处理 DANMU_MSG（弹幕）+ 礼物（SEND_GIFT / SEND_GIFT_V2）；其它 cmd 只 log
    │  clean_text()：去换行/控制符、压空白、截断
+   │  节流 --min-interval-ms（缺省 1000 = 每秒最多 1 条；0 = 关）
    ▼
 POST http://127.0.0.1:18080/api/v1/external/chat
    ▼
@@ -35,17 +36,22 @@ py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# 2) 先干跑，确认清洗/前缀逻辑（不会连 B 站、也不会发 HTTP）
-$env:BILI_ROOM_ID = "123456"
-$env:SIDECAR_DRY_RUN = "1"
-python bilibili_sidecar.py
+# 2) 离线自检：清洗 / 节流 / 干跑（**不需要** blivedm、aiohttp、网络、服务端）
+python bilibili_sidecar.py --selftest
 
-# 3) 正式跑
+# 3) 干跑，确认清洗/前缀逻辑（不会连 B 站、也不会发 HTTP）
+$env:BILI_ROOM_ID = "123456"
+python bilibili_sidecar.py --dry-run
+
+# 4) 正式跑
 $env:BILI_SESSDATA = "<你的 SESSDATA>"
 $env:EXTERNAL_INPUT_TOKEN = "<与 Live2D-Ai 侧一致的 token，可留空>"
-Remove-Item Env:\SIDECAR_DRY_RUN
 python bilibili_sidecar.py
 ```
+
+> 依赖说明：PyPI 上的 `blivedm` 长期停在 0.1.1（旧 API）。`requirements.txt`
+> 改为从官方 GitHub 安装（当前 1.1.7），因为 `SEND_GIFT_V2` 支持在 PR #86
+> （2026-08-11）才合入。**不要**用 `pip install blivedm`——它会装到旧包。
 
 ---
 
@@ -82,21 +88,27 @@ python bilibili_sidecar.py
 | 给弹幕加统一前缀 | 服务端 Mod 设置 `prefix`（推荐，改一处即可）；或本地 `SIDECAR_PREFIX` |
 | 用模板改写 | 服务端 Mod 设置 `text_template`（`{text}` 是占位符） |
 | 换 Live2D-Ai 地址/端口 | `LIVE2D_AI_URL`（默认 18080，与 `ignite.sh --port` 一致） |
-| 只测清洗不入链路 | `SIDECAR_DRY_RUN=1` |
-| 少刷屏 | 在 `Live2DHandler` 里加节流（如每秒最多 1 条）；示例保持最小，不内置策略 |
+| 只测清洗不入链路 | `--dry-run`（或 `SIDECAR_DRY_RUN=1`） |
+| 少刷屏 / 防灌水 | `--min-interval-ms N`（缺省 1000 = 每秒最多 1 条；`0` = 关）；窗口内的弹幕只打印丢弃日志，不注入 |
+| 离线验证清洗 / 节流 | `python bilibili_sidecar.py --selftest`（不需要依赖与网络） |
 
 ---
 
 ## 5. 协议边界与已知缺口
 
-- **只做两件事**：`DANMU_MSG` 与 `SEND_GIFT`。其它 cmd（进场、点赞、
-  关注、上舰等）在 `_on_unknown_cmd` 里只打一行日志，**不注入**。
-- **SEND_GIFT_V2（灰度）**：B 站正在灰度新的礼物推送结构。blivedm 当前版本通常
-  只解析经典 `SEND_GIFT`；遇到 `SEND_GIFT_V2` 时会落到
-  `_on_unknown_cmd`，**只 log 不注入**（宁可漏一条礼物，不可用错误字段
-  拼出乱语）。后续兼容点：等 blivedm 上游支持该结构后，在 `Live2DHandler` 增加
-  对应回调（如 `_on_send_gift_v2`）并复用 `submit()`；在那之前**不要**
-  在 Rust 主仓里手写 B 站协议解析。
+- **只做两类事件**：`DANMU_MSG` 与礼物（`SEND_GIFT` / `SEND_GIFT_V2`）。
+  其它 cmd（进场、点赞、关注、上舰等）**不注入**（blivedm 自己 log 一次；
+  sidecar 的 `handle` 覆盖只额外处理 `SEND_GIFT_V2` 兜底，见下条）。
+- **SEND_GIFT_V2（已查证上游）**：blivedm 官方仓库在 **PR #86（2026-08-11，v1.1.7）**
+  已支持 `SEND_GIFT_V2`——它在 `handlers.py` 里把 protobuf 批量展开后
+  **复用同一个 `_on_gift` 回调**。因此本 sidecar 的单个 `_on_gift`
+  同时覆盖经典与 v2，**不需要**再写 `_on_send_gift_v2`。
+  若本地仍是旧版 blivedm（含 PyPI 上停在 0.1.1 的旧包），`SEND_GIFT_V2` 不在
+  blivedm 的 cmd 表里，会被 sidecar 的 `handle` 覆盖判定为「忽略」：
+  **只 log 不注入**（宁可漏一条，不可用错字段拼乱语），并累加
+  本地 `v2_ignored`；该计数随每次注入作为可选字段上报，服务端放进
+  `state_json`（见 `docs/external-input.md` §3 / §5.1），所以**旧版也不会
+  悄悄丢礼物**。任何情况下都**不要**在 Rust 主仓里手写 B 站协议解析。
 - **主仓禁项**：B 站协议、blivedm、WSS、开放平台 SDK、导演/动作、动态加载——
   都不进 Rust 核心（见 `AGENTS.md` 与 `docs/architecture/mod-product-chain.md`）。
 - **这不是官方 SDK**：blivedm 是第三方库，B 站接口/风控随时可能变化；sidecar 挂了
@@ -111,3 +123,5 @@ python bilibili_sidecar.py
 | `HTTP 401 unauthorized` | 服务端设了 token 但两边不一致 |
 | `服务端忙碌，本条丢弃` | 角色这轮还没说完；正常退避，或降低弹幕注入频率 |
 | 一直收不到弹幕 | 房间号是不是短号？SESSDATA 是否过期？ |
+| 弹幕时有时无 | 节流丢的？看 stderr 的「节流丢弃」行；调小 `--min-interval-ms` 或设 0 |
+| 礼物只进了老的、新的没反应 | 本地 blivedm 是否含 PR #86？看 stderr 的 `忽略 cmd=SEND_GIFT_V2` 与 `v2_ignored` |

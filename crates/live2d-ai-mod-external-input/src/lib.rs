@@ -31,10 +31,23 @@
 //! | `text_template` | 可选文本模板，`{text}` = 清洗后的外部文本；空 = 原样 |
 //! | `prefix` | 可选前缀，拼在模板结果之前（如 `[弹幕] `） |
 //!
+//! # 可观察计数（Wave 3，2026-09-14）
+//!
+//! `accepts` / `rejects` / `busy` / `v2_ignored` 经 [`counters`] 的进程级
+//! `AtomicU64` 读写：handler（HTTP 线程）在分支里 `record_*`，本 runtime 的
+//! `state_json` 把它们交给 `GET /api/v1/mods/external-input/state` 的 `state` 字段。
+//! 每个计数对应哪条分支、`rejects` 为什么不含 400/503，钉在 `counters.rs` 头注。
+//!
 //! **不要**在本 Mod 内实现 B 站协议 / blivedm / WSS——协议抓取住在
 //! Windows sidecar（见 `docs/examples/bilibili-sidecar/`），主仓只收已清洗文本。
 
 use live2d_ai_mod_system::*;
+
+pub mod counters;
+pub use counters::{
+    ExternalInputCounters, counters_snapshot, record_accept, record_busy, record_reject,
+    record_v2_ignored,
+};
 
 /// Mod 描述符（静态身份）。
 const DESCRIPTOR: ModDescriptor = ModDescriptor {
@@ -189,6 +202,21 @@ impl ModRuntime for ExternalInputRuntime {
             payload
         ));
         Ok(())
+    }
+
+    /// 只读运行态：接受 / 拒绝 / 忙 / v2_ignored 计数 + ready。
+    ///
+    /// `GET /api/v1/mods/external-input/state` 的 `state` 字段即本返回值；
+    /// 契约与分支对应表见 [`counters`]。
+    fn state_json(&mut self) -> Option<serde_json::Value> {
+        let mut snap = counters::counters_snapshot();
+        if let Some(obj) = snap.as_object_mut() {
+            obj.insert(
+                "ready".to_string(),
+                serde_json::Value::Bool(self.registered),
+            );
+        }
+        Some(snap)
     }
 
     fn shutdown(&mut self) -> Result<(), ModError> {
@@ -424,6 +452,33 @@ mod tests {
         };
         assert!(rt.say_external_with_config("主播好"));
         assert_eq!(got.lock().unwrap().as_slice(), ["[弹幕] 主播好"]);
+    }
+
+    /// `state_json`：四个计数键 + ready；键与 `counters` 契约一致。
+    #[test]
+    fn state_json_exposes_counters_and_ready() {
+        let services = ModServices::new(
+            ModActionSender::new(|_| true),
+            SaySender::new(|_| true),
+            ModEventSender::new(|_t, _p| true),
+            ModLogger::new(|_l, _m| {}),
+        );
+        let mut rt = ExternalInputFactory
+            .create(services, serde_json::json!({}))
+            .unwrap();
+        let mut mock = MockRegistrar::default();
+        rt.start(&mut mock).unwrap();
+        let state = rt.state_json().expect("external-input 必须提供 state_json");
+        for k in counters::COUNTER_KEYS {
+            assert!(state[k].is_u64(), "{k} 必须是数字");
+        }
+        assert_eq!(state["ready"], serde_json::json!(true), "已 start");
+        rt.shutdown().unwrap();
+        assert_eq!(
+            rt.state_json().unwrap()["ready"],
+            serde_json::json!(false),
+            "shutdown 后 ready=false，计数仍可读"
+        );
     }
 
     /// 测试用 ModRegistrar mock。
