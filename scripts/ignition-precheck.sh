@@ -11,7 +11,7 @@
 #   ./scripts/ignition-precheck.sh      # 终端 B：跑本预检
 #   ./scripts/ignition-precheck.sh --port 18100
 #   ./scripts/ignition-precheck.sh --token <EXTERNAL_INPUT_TOKEN>
-#   ./scripts/ignition-precheck.sh --fsm     # 额外跑七个 Mod 的 enable→state→disable 矩阵
+#   ./scripts/ignition-precheck.sh --fsm     # 额外跑五个注册 Mod 的 enable→state→disable 矩阵
 #
 # 退出码：0 = 无 FAIL；1 = 有 FAIL；2 = 参数/环境错。
 #
@@ -153,13 +153,13 @@ fi
 
 # ---------------------------------------------------------------- B. Mod 注册表
 echo ""
-echo "-- B. Mod 注册表（七个已注册；缺省只启用 external-input）"
+echo "-- B. Mod 注册表（五个已注册；wallpaper / pet-desktop 已封存；缺省只启用 external-input）"
 mods_json=$(curl -s --max-time 5 "$BASE/api/v1/mods" 2>/dev/null || echo '{}')
 ids=$(printf '%s' "$mods_json" | python3 -c '
 import sys,json
 d=json.load(sys.stdin)
 print(",".join(sorted(m["id"] for m in d.get("mods",[]))))' 2>/dev/null)
-check "已注册 Mod id 集合" "director,external-input,memory,persona,pet-desktop,voice-input,wallpaper" "$ids"
+check "已注册 Mod id 集合" "director,external-input,memory,persona,voice-input" "$ids"
 ext_enabled=$(printf '%s' "$mods_json" | python3 -c '
 import sys,json
 d=json.load(sys.stdin)
@@ -234,8 +234,13 @@ check "POST …/external-input/enable（无 body 无 CT）" "200" "$e8"
 st_keys=$(curl -s --max-time 5 "$BASE/api/v1/mods/external-input/state" 2>/dev/null | python3 -c '
 import sys,json
 s=json.load(sys.stdin).get("state",{})
-print(",".join(sorted(s.keys())))' 2>/dev/null)
-check "external-input state 键" "accepts,busy,ready,rejects,v2_ignored" "$st_keys"
+need={"accepts","rejects","busy","ready","v2_ignored"}
+missing=sorted(need-set(s.keys()))
+print("missing:"+",".join(missing) if missing else "ok:"+",".join(sorted(s.keys())))' 2>/dev/null)
+case "$st_keys" in
+  ok:*) record PASS "external-input state 必含计数键" "accepts,rejects,busy,ready,v2_ignored" "$st_keys" ;;
+  *)    record FAIL "external-input state 必含计数键" "accepts,rejects,busy,ready,v2_ignored" "$st_keys" ;;
+esac
 
 # ---------------------------------------------------------------- D. state 404 / 503 分界
 echo ""
@@ -294,8 +299,8 @@ fi
 # ---------------------------------------------------------------- G. 七 Mod FSM（可选）
 if [ "$RUN_FSM" = "1" ]; then
   echo ""
-  echo "-- G. 七 Mod enable→state→disable（--fsm）"
-  for id in external-input pet-desktop persona voice-input wallpaper memory director; do
+  echo "-- G. 五 Mod enable→state→disable（--fsm）"
+  for id in external-input persona voice-input memory director; do
     en=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/mods/$id/enable" -H "$ORIGIN" 2>/dev/null || echo 000)
     sc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/api/v1/mods/$id/state" 2>/dev/null || echo 000)
     di=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/mods/$id/disable" -H "$ORIGIN" 2>/dev/null || echo 000)
@@ -317,7 +322,7 @@ if [ "$FAILS" != "0" ]; then
   echo "  ✗ 有 FAIL：见上面 [FAIL] 行。"
 else
   echo "  ✓ 无 FAIL。人机项（舞台肉眼 / 出声 / 口型 / Mod 管理点击）见"
-  echo "    docs/plans/IGNITION-CHECKLIST-stabilize.md"
+  echo "    docs/plans/IGNITION-CHECKLIST-product-grade.md"
 fi
 echo "=========================================================="
 [ "$FAILS" = "0" ] || exit 1

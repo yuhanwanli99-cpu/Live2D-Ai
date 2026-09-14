@@ -1,5 +1,14 @@
 # 点火验收清单（stabilize）—— 给用户在 Windows 上照单验收
 
+> # ⛔ 已被取代（2026-09-14，产品级加强波次）
+>
+> 本清单是 **Wave 3 / stabilize** 那一版的点火清单，留作历史。
+> **请改用** [`IGNITION-CHECKLIST-product-grade.md`](IGNITION-CHECKLIST-product-grade.md)：
+> 它对应 tip `mod/product-grade`，注册面已从 **7 收到 5**
+>（`wallpaper` / `pet-desktop` 封存，见
+> [`../architecture/ARCHIVED-mods.md`](../architecture/ARCHIVED-mods.md)），
+> 并加强了五个 Mod 的人眼验收项。下面所有「七个 Mod」的表述**都是这段历史的**。
+
 > **这是什么**：把「用户本人在这台机器的 Windows 浏览器里真实点火」做成**逐步可勾选**的清单。
 > 每一项都写清 **操作 / 期望可见结果 / 失败时先看哪**，并明确标注
 > **〔agent 已预检〕**（机器可跑的，本轮已跑，见
