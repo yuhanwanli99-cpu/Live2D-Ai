@@ -48,12 +48,35 @@
 //! 不鉴权。请求侧用 body `token` 或 `Authorization: Bearer <token>`（二选一）。
 //! 不匹配 → `401 unauthorized`。**任何路径都不回显 token 明文**，也不写日志。
 //!
+//! # backend（`mock` | `sidecar`，Wave 3 A 轨）
+//!
+//! handler 从 Mod config 读 `backend` 并走**明确分支**，成功响应回显
+//! `"backend"`（可观察、可回归）：
+//!
+//! - `mock`（缺省）：集成方 / 测试直接喂文本；
+//! - `sidecar`：外部 ASR 进程**推**文本到本端点（Rust **不开 socket**）。
+//!
+//! 两个分支的本地落点相同（清洗 + 归一化 → `say`）；Rust **从不主动请求 ASR**，
+//! 这是结构性的（[`live2d_ai_mod_voice_input::VoiceBackend::opens_network`] 恒
+//! `false`，[`live2d_ai_mod_voice_input::RustRoute`] 只有本地变体）。
+//! sidecar 侧的全部失败面（401 / 403 / busy / empty / timeout / transport）
+//! 与逐条退避见 `docs/voice-input.md` §4.4 与 sidecar README §5。
+//!
+//! # locale（BCP-47）
+//!
+//! handler 从 Mod config 读 `locale`（缺省 `zh-CN`）并传给
+//! [`live2d_ai_mod_voice_input::prepare_transcript`]；它**只**影响文本归一化档
+//! （`zh-CN` 删 CJK 词间空格、`en-US` 补中英边界），**不影响 ASR 引擎选型**、
+//! **不**发给 sidecar。成功响应回显生效的 `locale`。
+//!
 //! # 清洗（复用，不重写）
 //!
-//! 清洗**必须**走 [`live2d_ai_mod_voice_input::clean_transcript`]：去零宽字符 /
-//! 控制字符、折叠空白、去首尾空白。本 handler **不得**内联一份等价实现——
-//! 那会让「专用端点证明 Mod 真的在主链路上」这个理由失效。清洗后为空 →
-//! `400 empty_transcript`（空转写不得进 `say`，与「空句不进 TTS」同一条纪律）。
+//! 清洗 + 归一化**必须**走 [`live2d_ai_mod_voice_input::prepare_transcript`]
+//! （内部即 [`live2d_ai_mod_voice_input::clean_transcript`] +
+//! [`live2d_ai_mod_voice_input::normalize_for_locale`]）。本 handler **不得**
+//! 内联一份等价实现——那会让「专用端点证明 Mod 真的在主链路上」这个理由失效。
+//! 清洗后为空 → `400 empty_transcript`（空转写不得进 `say`，与「空句不进 TTS」
+//! 同一条纪律）。
 //!
 //! # 其它限制
 //!
@@ -77,7 +100,7 @@ const VOICE_TRANSCRIPT_PATH: &str = "/api/v1/voice/transcript";
 /// 提供启停门禁 / token 的 Mod id。
 const MOD_ID: &str = "voice-input";
 
-/// 最大允许长度（字符，作用于**清洗后**文本）。
+/// 最大允许长度（字符，作用于**清洗 + 归一化后**文本）。
 const MAX_TEXT_LEN: usize = 2000;
 
 /// 启停门禁 + Mod 配置快照。
@@ -179,15 +202,19 @@ pub fn handle_voice_transcript(
             "token 缺失或不匹配（env VOICE_INPUT_TOKEN 或 Mod config token 已设）",
         ));
     }
-    // 清洗：**复用 Mod crate 的纯函数**（头注「清洗」）。
-    let Some(text) = live2d_ai_mod_voice_input::clean_transcript(&parsed.text) else {
+    // backend / locale 都来自 Mod config（Wave 3 A 轨：不再是死配置）。
+    // 两个 backend 在 Rust 侧都只是**本地**动作（推模式），不产生任何网络请求。
+    let backend = live2d_ai_mod_voice_input::VoiceBackend::from_config(&gate.config);
+    let locale = live2d_ai_mod_voice_input::locale_from_config(&gate.config);
+    // 清洗 + locale 归一化：**复用 Mod crate 的唯一入口**（头注「清洗 / locale」）。
+    let Some(text) = live2d_ai_mod_voice_input::prepare_transcript(&parsed.text, &locale) else {
         return Some(json_error(
             StatusCode(400),
             "empty_transcript",
             "转写清洗后为空（空白 / 零宽字符 / 控制字符）：不发空回合",
         ));
     };
-    // 长度：对**清洗后**文本判定。
+    // 长度：对**清洗 + 归一化后**文本判定。
     if text.chars().count() > MAX_TEXT_LEN {
         return Some(json_error(
             StatusCode(400),
@@ -213,7 +240,13 @@ pub fn handle_voice_transcript(
     let accepted = supervisor.say(text.clone());
     // 忙碌刻意 200 + ok:false（见头注）：发送方退避，不重试到刷屏。
     let body_json = if accepted {
-        serde_json::json!({"ok": true, "text": text})
+        // 回显生效的 backend / locale：让「分支真的走了」可观察、可回归。
+        serde_json::json!({
+            "ok": true,
+            "text": text,
+            "backend": backend.as_str(),
+            "locale": locale
+        })
     } else {
         serde_json::json!({
             "ok": false,

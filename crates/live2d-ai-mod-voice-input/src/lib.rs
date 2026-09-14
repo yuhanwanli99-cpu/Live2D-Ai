@@ -1,16 +1,32 @@
-//! live2d-ai-mod-voice-input（Wave 1 骨架 / Wave 2 A 轨接线，2026-09-14）——**语音输入 Mod**。
+//! live2d-ai-mod-voice-input（Wave 1 骨架 / Wave 2 A 轨端点 / **Wave 3 A 轨闭环**，2026-09-14）——**语音输入 Mod**。
 //!
 //! 链路定位：**语音 → 文本 → [`ModServices::say_tx`]**（与聊天框、external-input
-//! 共用同一条 LLM/TTS 主链）。本 crate 只做「拿到一段 ASR 文本 → 清洗 → say」，
-//! **不做**真正的语音识别：ASR 住在外部 sidecar（`docs/examples/voice-sidecar/`）；
-//! **sidecar 路径已通**：端点 = `POST /api/v1/voice/transcript`（`web_api/voice_routes.rs`）。
+//! 共用同一条 LLM/TTS 主链）。本 crate 只做「拿到一段 ASR 文本 → 清洗 +
+//! locale 归一化 → say」，**不做**真正的语音识别：ASR 住在外部 sidecar
+//! （`docs/examples/voice-sidecar/`）；端点 = `POST /api/v1/voice/transcript`
+//! （`web_api/voice_routes.rs`）。
 //!
-//! # 边界（Wave 1 骨架 / Wave 2 A 轨接线）
+//! # Wave 3 A 轨：把两个死配置变成可测行为
 //!
-//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_six`，**缺省停用**；
-//!   启停唯一真源 = manifest `enabled`，`default_mods_manifest` 未收录）；
-//!   handler 复用本 crate 的 `clean_transcript`（**不重写**），契约见 `docs/voice-input.md`。
-//! - **不引入**任何 ASR 依赖（whisper / onnx / 音频解码）：完整 ASR 不进 Rust 核心。
+//! - **`backend`（`mock` | `sidecar`）**：handler 读 Mod config 并走**明确分支**，
+//!   响应里回 `backend` 字段（可观察）。Rust **永远不开 socket**——
+//!   [`VoiceBackend::opens_network`] 恒 `false`、[`RustRoute`] 只有本地变体，
+//!   这是结构性保证（回归 `no_backend_opens_network`）。`mock` 由集成方/测试
+//!   直接喂文本；`sidecar` 是**推模式**（sidecar 主动 POST，Rust 只收）。
+//!   sidecar 的全部失败面（401 / 403 / busy / empty / timeout / transport）与
+//!   逐条退避见 `docs/voice-input.md` §4.4 / `docs/examples/voice-sidecar/README.md` §5。
+//! - **`locale`（BCP-47）**：真正影响 text 归一化（[`normalize`]）；
+//!   **不**影响 ASR 引擎选型、**不**随请求发给 sidecar。回归 `locale_*` 断言
+//!   `zh-CN` 删 CJK 词间空格、`en-US` 保留空格并补中英边界。
+//!
+//! # 边界
+//!
+//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_six`，
+//!   **缺省停用**；启停唯一真源 = manifest `enabled`，`default_mods_manifest` 未收录）；
+//!   handler 复用本 crate 的 [`prepare_transcript`]（=`clean_transcript` +
+//!   [`normalize_for_locale`]，**不重写**），契约见 `docs/voice-input.md`。
+//! - **不引入**任何 ASR 依赖（whisper / onnx / 音频解码），也不开 socket：完整 ASR
+//!   不进 Rust 核心。
 //! - **不接**动作通道（`action_tx` 自 rc.2 起休眠）；v0 **不订阅** host 事件。
 //!
 //! # 配置字段（settings_spec v1）
@@ -18,17 +34,18 @@
 //! | key | 语义 |
 //! |---|---|
 //! | `backend` | `mock`（缺省）＝ 由集成方/测试喂文本；`sidecar` ＝ 外部识别进程（推模式） |
-//! | `locale` | 识别语言提示（缺省 `zh-CN`） |
+//! | `locale` | 识别语言提示（缺省 `zh-CN`）→ **只**影响 text 归一化档 |
 //! | `token` | 可选访问令牌（secret）；空 = 不鉴权，且**永不**回读明文 |
 //!
 //! schema 里**没有**第二个 `enabled`：启停唯一真源是 Mod manifest 的 `enabled`
 //!（与 external-input 同口径，见 `docs/architecture/mod-product-chain.md` §4）。
 //! 与 external-input 都收敛到 `say_tx`，差别只在**输入侧**（弹幕 vs 语音转写）。
 
-use live2d_ai_mod_system::*;
+pub mod normalize;
 
-/// 缺省识别语言（settings 里 `locale` 为空/缺失时使用）。
-pub const DEFAULT_LOCALE: &str = "zh-CN";
+pub use normalize::{DEFAULT_LOCALE, LocaleProfile, locale_profile, normalize_for_locale};
+
+use live2d_ai_mod_system::*;
 
 /// Mod 描述符（静态身份）。
 pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
@@ -43,12 +60,25 @@ pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
 pub enum VoiceBackend {
     /// 占位后端：没有 ASR，由集成方/测试直接喂转写文本。
     Mock,
-    /// 外部识别进程（sidecar）——已接线：`POST /api/v1/voice/transcript`（本 crate 不开 socket）。
+    /// 外部识别进程（sidecar）——**推模式**：`POST /api/v1/voice/transcript`
+    /// （本 crate 不开 socket、不主动请求）。
     Sidecar,
 }
 
+/// Rust 侧对某个 backend 的**本地**动作。
+///
+/// 这个枚举里**没有网络变体**——`mock` / `sidecar` 都不可能让 Rust 主动发起
+/// ASR 请求（推模式）。见 [`VoiceBackend::opens_network`]。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustRoute {
+    /// `mock`：由集成方/测试喂文本，本地清洗 + 归一化后 say。
+    LocalInject,
+    /// `sidecar`：sidecar 推文本进来，本地清洗 + 归一化后 say。
+    AcceptPush,
+}
+
 impl VoiceBackend {
-    /// 稳定字符串 id（配置值 / 日志用）。
+    /// 稳定字符串 id（配置值 / 日志 / 响应回显用）。
     pub const fn as_str(self) -> &'static str {
         match self {
             VoiceBackend::Mock => "mock",
@@ -64,6 +94,21 @@ impl VoiceBackend {
             _ => VoiceBackend::Mock,
         }
     }
+
+    /// Rust 侧该走哪条**本地**路径（纯函数，可直接断言分支）。
+    pub const fn rust_route(self) -> RustRoute {
+        match self {
+            VoiceBackend::Mock => RustRoute::LocalInject,
+            VoiceBackend::Sidecar => RustRoute::AcceptPush,
+        }
+    }
+
+    /// 恒 `false`：本项目在 Rust 侧**不开 socket / 不主动请求 ASR**
+    /// （AGENTS「禁止」+ Wave 3 计划 §3A）。保留成显式函数，是为了让
+    /// 「不碰网络」成为可断言的结构，而不是一句口头约定。
+    pub const fn opens_network(self) -> bool {
+        false
+    }
 }
 
 /// 语音输入设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
@@ -75,21 +120,22 @@ pub fn voice_input_settings_spec() -> ModSettingsSpec {
         fields: vec![
             ModSettingField::Select {
                 key: "backend".to_string(),
-                label: "识别后端（不引入 ASR 本体；mock = 外部喂文本）".to_string(),
+                label: "识别后端（Rust 不开 socket；mock = 外部喂文本，sidecar = 推模式）"
+                    .to_string(),
                 options: vec![
                     SelectOption {
                         value: (VoiceBackend::Mock).as_str().to_string(),
-                        label: "mock（占位）".to_string(),
+                        label: "mock（缺省，集成方/测试喂文本）".to_string(),
                     },
                     SelectOption {
                         value: (VoiceBackend::Sidecar).as_str().to_string(),
-                        label: "sidecar（外部 ASR，占位）".to_string(),
+                        label: "sidecar（外部 ASR 推文本到端点）".to_string(),
                     },
                 ],
             },
             ModSettingField::String {
                 key: "locale".to_string(),
-                label: "识别语言（BCP-47，如 zh-CN；空 = 缺省）".to_string(),
+                label: "识别语言（BCP-47，如 zh-CN；只影响 text 归一化）".to_string(),
                 secret: false,
             },
             ModSettingField::String {
@@ -133,6 +179,7 @@ pub fn token_from_config(config: &serde_json::Value) -> Option<String> {
 ///
 /// **空结果不得喂给 `say`**：那会造出一次空输入回合，与「空句不进 TTS」
 /// 是同一条纪律（见 AGENTS「语音输出约定」）。
+/// locale 归一化是**下一步**，见 [`normalize_for_locale`] / [`prepare_transcript`]。
 pub fn clean_transcript(raw: &str) -> Option<String> {
     let mut out = String::with_capacity(raw.len());
     let mut pending_space = false;
@@ -152,6 +199,16 @@ pub fn clean_transcript(raw: &str) -> Option<String> {
         out.push(ch);
     }
     (!out.is_empty()).then_some(out)
+}
+
+/// **唯一的转写准备入口**：`clean_transcript` → [`normalize_for_locale`]。
+///
+/// handler 与 [`VoiceInputRuntime::inject_transcript`] 都走这里，保证
+/// 「端点收到的文本」与「Mod 自己注入的文本」是同一套规则。清洗后为空 → `None`。
+pub fn prepare_transcript(raw: &str, locale: &str) -> Option<String> {
+    let cleaned = clean_transcript(raw)?;
+    let normalized = normalize_for_locale(&cleaned, locale);
+    (!normalized.is_empty()).then_some(normalized)
 }
 
 /// 语音输入的运行时状态。
@@ -192,13 +249,13 @@ impl VoiceInputRuntime {
         locale_from_config(&self.config)
     }
 
-    /// **语音 → 文本 → say** 的 Rust 侧落点：清洗后送进主链路。
+    /// **语音 → 文本 → say** 的 Rust 侧落点：清洗 + locale 归一化后送进主链路。
     ///
     /// 返回 `false` 的两种情况：
     /// 1. 清洗后为空（不发空回合，只记 warn）；
-    /// 2. 主链忙碌 / 通道满（`SaySender` 既有语义，不被本 Mod 改写）。
+    /// 2. 主链忙碌 / 通道满（[`SaySender`] 既有语义，不被本 Mod 改写）。
     pub fn inject_transcript(&self, raw: &str) -> bool {
-        let Some(text) = clean_transcript(raw) else {
+        let Some(text) = prepare_transcript(raw, &self.locale()) else {
             self.services
                 .logger
                 .warn("语音转写清洗后为空，已丢弃（不发空回合）");
@@ -251,9 +308,10 @@ impl ModRuntime for VoiceInputRuntime {
         // v0 不订阅 host 事件：输入由外部推入（见模块头注）。
         self.registered = true;
         self.services.logger.info(&format!(
-            "voice-input Mod 已启动（backend={}, locale={}）",
+            "voice-input Mod 已启动（backend={}, locale={}, route={:?}）",
             self.backend().as_str(),
-            self.locale()
+            self.locale(),
+            self.backend().rust_route()
         ));
         Ok(())
     }
@@ -268,232 +326,8 @@ impl ModRuntime for VoiceInputRuntime {
 /// 装配进 `AVAILABLE_MOD_FACTORIES` 的工厂单例（`0.2.0-rc.2` 集成起已注册，缺省停用）。
 pub static FACTORY: VoiceInputFactory = VoiceInputFactory;
 
+// 回归测试拆到同目录 `tests.rs`（源文件保持 ≤500 行，与 desktop 的
+// `voice_routes_tests.rs` 同模式）。`#[path]` 让测试文件仍是本模块的子模块。
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    /// 测试用文本记录通道（say_tx 收到的话 / Mod 日志）。
-    type Recorded = Arc<Mutex<Vec<String>>>;
-
-    /// 记录 say_tx 文本 + 日志的测试 services。
-    fn recording_services() -> (ModServices, Recorded, Recorded) {
-        let said: Recorded = Arc::new(Mutex::new(Vec::new()));
-        let logs: Recorded = Arc::new(Mutex::new(Vec::new()));
-        let (s, l) = (said.clone(), logs.clone());
-        let services = ModServices::new(
-            ModActionSender::new(|_| false),
-            SaySender::new(move |text| {
-                s.lock().unwrap().push(text);
-                true
-            }),
-            ModEventSender::new(|_t, _p| true),
-            ModLogger::new(move |_lvl, msg| l.lock().unwrap().push(msg.to_string())),
-        );
-        (services, said, logs)
-    }
-
-    fn noop_services() -> ModServices {
-        ModServices::new(
-            ModActionSender::new(|_| false),
-            SaySender::new(|_| true),
-            ModEventSender::new(|_t, _p| true),
-            ModLogger::new(|_l, _m| {}),
-        )
-    }
-
-    /// 只接受 settings 注册；**任何 subscribe 都 panic**（v0 不该订阅）。
-    #[derive(Default)]
-    struct MockRegistrar {
-        specs: Vec<ModSettingsSpec>,
-    }
-    impl ModRegistrar for MockRegistrar {
-        fn register_settings(&mut self, spec: ModSettingsSpec) -> Result<(), ModError> {
-            self.specs.push(spec);
-            Ok(())
-        }
-        fn subscribe(&mut self, _t: ModEventTopic) -> Result<SubscriptionId, ModError> {
-            panic!("v0 不应订阅任何 host 事件")
-        }
-        fn unsubscribe(&mut self, _id: SubscriptionId) -> Result<(), ModError> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn descriptor_and_factory_identity() {
-        assert_eq!(DESCRIPTOR.api_version, MOD_API_VERSION);
-        assert_eq!(FACTORY.descriptor().id, "voice-input");
-        let rt: Box<dyn ModRuntime> = FACTORY
-            .create(noop_services(), serde_json::json!({}))
-            .expect("create 应成功");
-        drop(rt);
-    }
-
-    #[test]
-    fn start_registers_settings_only() {
-        let mut rt = VoiceInputRuntime::new(noop_services(), serde_json::json!({}));
-        let mut reg = MockRegistrar::default();
-        rt.start(&mut reg).expect("start 应成功");
-        assert!(rt.is_ready());
-        assert_eq!(reg.specs, vec![voice_input_settings_spec()]);
-        rt.shutdown().unwrap();
-        assert!(!rt.is_ready(), "shutdown 后不得再报 ready");
-    }
-
-    /// 静态 schema 字段齐全；**不含 `enabled`**（唯一开关是 manifest）。
-    #[test]
-    fn static_spec_fields_and_no_enabled() {
-        let spec = FACTORY.settings_spec().expect("静态 schema");
-        assert!(spec.validate().is_ok(), "字段 key 不得重复");
-        let keys: Vec<&str> = spec.fields.iter().map(|f| f.key()).collect();
-        assert_eq!(keys, vec!["backend", "locale", "token"]);
-        assert!(!keys.contains(&"enabled"), "启停只由 Mod manifest 表达");
-        assert!(matches!(
-            spec.fields[2],
-            ModSettingField::String { secret: true, .. }
-        ));
-        match &spec.fields[0] {
-            ModSettingField::Select { options, .. } => {
-                let values: Vec<&str> = options.iter().map(|o| o.value.as_str()).collect();
-                assert_eq!(values, vec!["mock", "sidecar"]);
-            }
-            other => panic!("backend 应为 Select，实际 {other:?}"),
-        }
-    }
-
-    // ---------------------------------------------------- 清洗（纯函数）
-
-    #[test]
-    fn clean_collapses_whitespace_and_trims() {
-        let c = clean_transcript;
-        assert_eq!(c("  你好  世界  ").as_deref(), Some("你好 世界"));
-        assert_eq!(c("你好\n\t世界").as_deref(), Some("你好 世界"));
-        // 全角空格同样折叠；句内标点原样保留。
-        assert_eq!(
-            c("\u{3000}你\u{3000}\u{3000}好\u{3000}").as_deref(),
-            Some("你 好")
-        );
-        assert_eq!(c("走吧？好。").as_deref(), Some("走吧？好。"));
-    }
-
-    #[test]
-    fn clean_drops_zero_width_and_control_chars() {
-        assert_eq!(
-            clean_transcript("\u{FEFF}你\u{200B}好\u{0007}").as_deref(),
-            Some("你好")
-        );
-    }
-
-    #[test]
-    fn clean_returns_none_for_blank_only() {
-        for blank in ["", "   ", "\n\t\u{3000}", "\u{200B}\u{FEFF}"] {
-            assert_eq!(
-                clean_transcript(blank),
-                None,
-                "纯空白必须回落 None: {blank:?}"
-            );
-        }
-    }
-
-    // ---------------------------------------------------- 配置读取（纯函数）
-
-    #[test]
-    fn backend_from_config_defaults_to_mock() {
-        let b = |v: serde_json::Value| VoiceBackend::from_config(&v);
-        assert_eq!(b(serde_json::json!({})), VoiceBackend::Mock);
-        assert_eq!(
-            b(serde_json::json!({"backend": "mock"})),
-            VoiceBackend::Mock
-        );
-        assert_eq!(
-            b(serde_json::json!({"backend": "sidecar"})),
-            VoiceBackend::Sidecar
-        );
-        // 未知 / 非字符串 → mock（宽容，不让配置写错打死链路）。
-        assert_eq!(
-            b(serde_json::json!({"backend": "whisper"})),
-            VoiceBackend::Mock
-        );
-        assert_eq!(b(serde_json::json!({"backend": 7})), VoiceBackend::Mock);
-        assert_eq!((VoiceBackend::Mock).as_str(), "mock");
-        assert_eq!((VoiceBackend::Sidecar).as_str(), "sidecar");
-    }
-
-    #[test]
-    fn locale_from_config_falls_back_to_default() {
-        let l = |v: serde_json::Value| locale_from_config(&v);
-        assert_eq!(l(serde_json::json!({})), DEFAULT_LOCALE);
-        assert_eq!(l(serde_json::json!({"locale": " en-US "})), "en-US");
-        assert_eq!(l(serde_json::json!({"locale": "   "})), DEFAULT_LOCALE);
-        assert_eq!(l(serde_json::json!({"locale": 42})), DEFAULT_LOCALE);
-    }
-
-    #[test]
-    fn token_from_config_trims_and_ignores_blank() {
-        let t = |v: serde_json::Value| token_from_config(&v);
-        assert_eq!(
-            t(serde_json::json!({"token": " s3cret "})),
-            Some("s3cret".to_string())
-        );
-        assert_eq!(t(serde_json::json!({"token": ""})), None);
-        assert_eq!(t(serde_json::json!({"token": "  "})), None);
-        assert_eq!(t(serde_json::json!({})), None);
-        assert_eq!(t(serde_json::json!({"token": 7})), None);
-    }
-
-    // ---------------------------------------------------- 语音 → say
-
-    #[test]
-    fn inject_transcript_cleans_before_sending() {
-        let (services, said, _logs) = recording_services();
-        let rt = VoiceInputRuntime::new(services, serde_json::json!({}));
-        assert!(rt.inject_transcript("  打开\u{3000}空调  "));
-        assert_eq!(said.lock().unwrap().as_slice(), ["打开 空调"]);
-    }
-
-    #[test]
-    fn inject_transcript_drops_blank_without_touching_say() {
-        let (services, said, logs) = recording_services();
-        let rt = VoiceInputRuntime::new(services, serde_json::json!({}));
-        assert!(!rt.inject_transcript("   "));
-        assert!(!rt.inject_transcript("\u{200B}"));
-        assert!(said.lock().unwrap().is_empty(), "空文本不得进 say_tx");
-        assert!(
-            logs.lock().unwrap().iter().any(|m| m.contains("为空")),
-            "应留下一条 warn 日志"
-        );
-    }
-
-    #[test]
-    fn inject_reports_busy_and_mock_entry_shares_path() {
-        let busy = VoiceInputRuntime::new(
-            ModServices::new(
-                ModActionSender::new(|_| false),
-                SaySender::new(|_| false),
-                ModEventSender::new(|_t, _p| true),
-                ModLogger::new(|_l, _m| {}),
-            ),
-            serde_json::json!({}),
-        );
-        assert!(!busy.inject_transcript("你好"), "忙碌时返回 false");
-
-        let (services, said, logs) = recording_services();
-        let rt = VoiceInputRuntime::new(services, serde_json::json!({"backend": "mock"}));
-        assert_eq!(rt.backend(), VoiceBackend::Mock);
-        assert!(rt.inject_mock_transcript("  你好  "));
-        assert_eq!(said.lock().unwrap().as_slice(), ["你好"]);
-        assert!(logs.lock().unwrap().iter().any(|m| m.contains("mock 后端")));
-    }
-
-    #[test]
-    fn runtime_reads_backend_and_locale_from_config() {
-        let rt = VoiceInputRuntime::new(
-            noop_services(),
-            serde_json::json!({"backend": "sidecar", "locale": "ja-JP"}),
-        );
-        assert_eq!(rt.backend(), VoiceBackend::Sidecar);
-        assert_eq!(rt.locale(), "ja-JP");
-        assert_eq!(rt.config()["backend"], serde_json::json!("sidecar"));
-    }
-}
+#[path = "tests.rs"]
+mod tests;
