@@ -28,11 +28,13 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）：运行时 enable / disable / restart。
-- 已编译进二进制的 Mod（**6 个注册**）：`external-input`、`pet-desktop`、`persona`、
-  `voice-input`、`wallpaper`、`memory`。**缺省只启用 `external-input`**，其余五个
-  都要手动开（`memory` 会写 `persona.system_prompt`，必须由用户明确打开）。
+- 已编译进二进制的 Mod（**7 个注册**，Wave 3 起）：`external-input`、`pet-desktop`、`persona`、
+  `voice-input`、`wallpaper`、`memory`、`director`。**缺省只启用 `external-input`**，其余六个
+  都要手动开（`memory` 会写 `persona.system_prompt`，必须由用户明确打开；
+  `director` 是**零投递**骨架：只写决策日志与状态面，不驱动动作）。
 - `local-llm` **已废除启动**（`0.2.0-rc.1` 移出注册表；crate 暂留仓库并标 DEPRECATED）。
-  `director` crate 已于 `0.1.0-rc.2` 删除；`0.2.0-rc.3` 只交**契约 RFC**，**不注册**。
+  rc.2 删除的那个**动作驱动** director 仍在归档分支 `archive/action-layer-p6`；
+  Wave 3 新增的是同名**零投递**最小骨架。
 - 语音输入：本机 ASR **sidecar**（你自己起的进程）把转写 POST 到
   `POST /api/v1/voice/transcript`；**ASR 不进 binary**。
 - Mod 失败仅 disable 自身，主链路继续。

@@ -60,9 +60,11 @@ crates/live2d-ai-mod-external-input/  外部事件接入 Mod（`POST /api/v1/ext
 crates/live2d-ai-mod-pet-desktop/    桌宠窗口 Mod v1 骨架（settings schema + Voice 事件占位；窗口生命周期/悬浮窗/点击穿透/托盘接线后置）
 crates/live2d-ai-mod-local-llm/      本地推理探测 Mod（探测就绪后经 apply_settings 写回 base_url/model）
 ```
-`crates/live2d-ai-mod-director/`（动作编排 Mod）已于 `0.1.0-rc.2` **删除**——它是动作序列的
+`crates/live2d-ai-mod-director/`（**动作编排** Mod）已于 `0.1.0-rc.2` **删除**——它是动作序列的
 唯一驱动方，而动作在产品路径上不存在；归档在分支 `archive/action-layer-p6`。
-静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_six` 守住（`0.2.0-rc.3` 起恰为 6）。
+Wave 3（2026-09-14）新增了一个**同名但不同职责**的 `live2d-ai-mod-director` **最小骨架**：
+只读 `TurnPrompt`/`TurnEnded`、只产决策日志与 `state_json`、**零投递**（不驱动动作）。
+静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_seven` 守住（Wave 3 起恰为 7）。
 各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。
 
 ## 清理规则

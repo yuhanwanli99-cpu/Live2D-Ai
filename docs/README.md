@@ -30,7 +30,9 @@
   ——配置 / 事件态经 `GET /api/v1/mods/pet-desktop/state` 可读；原生窗口属休眠壳，不验收
 - [**Mod 社区许可与注册边界（0.2.0-rc.1）**](architecture/mod-community-license.md)
   ——注册面开放、分发面 AGPL 兼容；闭源走商业许可/私用；**无「闭源可进默认包」承诺**
-- [**导演（director）RFC：契约先行，未注册（0.2.0-rc.3，只交文档）**](architecture/director-rfc.md)
+- [**导演（director）最小骨架（Wave 3：已注册、缺省停用、零投递）**](architecture/director-mod-v0.md)
+  ——只读 `TurnPrompt`/`TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策，只写日志 + `state_json`；
+  **不投递**任何动作 / TTS 参数。设计契约仍见 [director-rfc.md](architecture/director-rfc.md)
 - [插件 / 扩展 SDK 最小骨架（历史；已被 Mod 产品链路取代）](architecture/plugin-sdk.md)
 - [Linux（WSL2）PC 主力环境](architecture/linux-dev.md)
 - [Phase-0 架构评估](architecture/Phase-0-architecture.md)

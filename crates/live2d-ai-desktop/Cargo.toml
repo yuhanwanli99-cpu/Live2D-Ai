@@ -60,6 +60,9 @@ live2d-ai-mod-wallpaper = { path = "../live2d-ai-mod-wallpaper" }
 # **本分支不注册**进 AVAILABLE_MOD_FACTORIES——注册由集成 PR 按
 # docs/plans/parallel-mods/REGISTER-memory-v0.md 一次改到位；缺省停用。
 live2d-ai-mod-memory = { path = "../live2d-ai-mod-memory" }
+# Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 +
+# state_json，**零投递**）。**缺省停用**；注册由集成 PR（本波主 agent）一次改到位。
+live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
 ringbuf = "0.5"
 # 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
 # - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，

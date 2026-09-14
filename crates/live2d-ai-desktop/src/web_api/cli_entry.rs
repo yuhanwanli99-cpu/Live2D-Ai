@@ -642,9 +642,11 @@ mod tests {
             m["mods"].get("memory").is_none(),
             "memory 缺省停用（会写 persona.system_prompt），不得进缺省 manifest"
         );
+        // Wave 3：director 已注册（第 7 个）但仍**缺省停用**——它是零投递骨架，
+        // 打开与否纯属用户选择，不该进缺省 manifest。
         assert!(
             m["mods"].get("director").is_none(),
-            "director 在 Wave 2 只交 RFC、不注册（docs/architecture/director-rfc.md §8）"
+            "director 缺省停用（零投递骨架），不得进缺省 manifest"
         );
     }
 }

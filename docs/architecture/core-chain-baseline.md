@@ -107,7 +107,7 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 
 | 层级 | 状态 | 位置 |
 |---|---|---|
-| `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档在分支 `archive/action-layer-p6`；静态 Mod 工厂数由 `main.rs::mod_count_is_six` 守住 |
+| `live2d-ai-mod-director`（**动作序列**的唯一驱动方，rc.2 版） | **已删除** | 归档在分支 `archive/action-layer-p6`；Wave 3 的 `director` 是**同名不同职责的最小骨架**——零投递、不驱动动作（`director-mod-v0.md`） |
 | `SupervisorHandle::trigger_action` + supervisor 的 `action_rx` select 分支 | **已删除** | 那是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现 |
 | `HostChannels.trigger_action`（`ActionRequest → core` 的 host 映射） | **已删除** | `mod_registry.rs`；`ModServices.action_tx` 仍在（Mod API 契约），但注入的是**固定休眠 sender**：请求只留一行 debug 日志、返回 `false` |
 | core 动作子系统（类型 + reducer + capability gate） | **保留、休眠** | `crates/live2d-ai-core/src/action/`、`/performance/` |
@@ -118,7 +118,8 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 
 回归钉子两条：
 `mod_registry::tests::action_request_is_dormant_not_delivered`（`ActionRequest` 必须
-**不被接受**）与 `main.rs::mod_count_is_six`（工厂数恒为 6，不得因动作 Mod 增加）。
+**不被接受**）与 `main.rs::mod_count_is_seven`（工厂数恒为 7；Wave 3 的 director 骨架零投递，
+不得因**任何动作驱动方**而增加）。
 
 「连 `action/` + `performance/` 一起删干净」这条路依然可行，但必须连 `lib.rs` 的两条
 不变量一起重新论证——那是另一次结构改动，不在 rc.2 范围内。

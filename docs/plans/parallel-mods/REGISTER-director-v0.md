@@ -31,33 +31,33 @@
 
 ## 2. 集成收束待办（按 `mod-product-chain.md` §3 勾选表）
 
-- [ ] `crates/live2d-ai-desktop/Cargo.toml` 追加 path 依赖
+- [x] `crates/live2d-ai-desktop/Cargo.toml` 追加 path 依赖
       `live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }`
       （**G 轨没有该文件的所有权，故未改**）
-- [ ] `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES` 追加
+- [x] `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES` 追加
       `&live2d_ai_mod_director::FACTORY`（保持可读顺序与注释；
       建议注明「Wave 3：导演最小骨架，缺省停用，**不投递**」）
-- [ ] 数量断言 `mod_count_is_six`（`main.rs:454`）→ **改名 `mod_count_is_seven` +
+- [x] 数量断言 `mod_count_is_six`（`main.rs:454`）→ **改名 `mod_count_is_seven` +
       数字 6 → 7**（字符串里的清单加上 `director`）
-- [ ] `mod_factory_ids_match_expected`（`main.rs:463`）的 `expected` 追加
+- [x] `mod_factory_ids_match_expected`（`main.rs:463`）的 `expected` 追加
       `"director"`
-- [ ] **不改缺省 manifest**：director **缺省停用**，不进
+- [x] **不改缺省 manifest**：director **缺省停用**，不进
       `cli_entry::default_mods_manifest`；也不进 `AGENTS.md` 的「缺省只启用」句
-- [ ] `docs/architecture/mod-product-chain.md` §5 表加一行
+- [x] `docs/architecture/mod-product-chain.md` §5 表加一行
       （`director` / off / Rust / 一句说明 + 指向
       [director-mod-v0.md](../architecture/director-mod-v0.md)）
-- [ ] `AGENTS.md` 的 Mod 段（注册数 6 → 7）与「增强能力」句同步；补一句
+- [x] `AGENTS.md` 的 Mod 段（注册数 6 → 7）与「增强能力」句同步；补一句
       「director 是**只记日志、不投递**的骨架」
-- [ ] **不改全局版本号**（Wave 3 协议 §0）——版本由发布方统一处理
-- [ ] 收束后跑全量门禁（`cargo test --workspace --all-targets` / `--doc` / fmt /
+- [x] **不改全局版本号**（Wave 3 协议 §0）——版本由发布方统一处理
+- [ ] 收束后跑全量门禁（**主 agent 收束时执行**）（`cargo test --workspace --all-targets` / `--doc` / fmt /
       clippy / `xtask rust-ratio`），并确认 `mod_count_is_seven` 与
       `mod_factory_ids_match_expected` 仍绿
 - [ ] 注册后补一次**活服务**验收：`GET /api/v1/mods/director/state` = 200（启用后）
       / 503（未启用）；`GET /api/v1/mods` 里 director 的 `settings_spec` 与本文档 §1 一致
-- [ ] `docs/README.md` 第 33 行的 director 条目仍写着「契约先行，未注册（0.2.0-rc.3，
+- [x] `docs/README.md` 第 33 行的 director 条目仍写着「契约先行，未注册（0.2.0-rc.3，
       只交文档）」——收束时改成「已推进到最小骨架（缺省停用、不投递），收束注册为第 7 个」
       并补一条指向 [director-mod-v0.md](../architecture/director-mod-v0.md) 的链接
-- [ ] 可选但推荐：`docs/architecture/core-chain-baseline.md` §3.2 的休眠台账里
+- [x] 可选但推荐：`docs/architecture/core-chain-baseline.md` §3.2 的休眠台账里
       「director」一行若提到「已删除 / 未注册」，收束时补一句**当前状态**——
       **注意**：该文件属基座独占清单，只能由主 agent 改
 

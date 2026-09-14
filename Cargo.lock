@@ -2280,6 +2280,7 @@ dependencies = [
  "ksni",
  "l2d",
  "live2d-ai-core",
+ "live2d-ai-mod-director",
  "live2d-ai-mod-external-input",
  "live2d-ai-mod-memory",
  "live2d-ai-mod-persona",

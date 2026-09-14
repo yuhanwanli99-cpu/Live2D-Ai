@@ -10,7 +10,7 @@
 //!
 //! 保留 crate 只是**避免一次性大爆炸**（计划原文 `PLAN-0.2.0-rc1`：crate 可暂留
 //! 仓库不删）。`cargo test --workspace` 仍会编译/测试本 crate；但**禁止**把它
-//! 挂回 `main.rs::AVAILABLE_MOD_FACTORIES`（`mod_count_is_six` 会红）。
+//! 挂回 `main.rs::AVAILABLE_MOD_FACTORIES`（`mod_count_is_seven` 会红）。
 //! 下面的 v1 范围声明是**历史记录**，描述的是废除前的行为。
 //!
 //! # v1 范围声明（历史）

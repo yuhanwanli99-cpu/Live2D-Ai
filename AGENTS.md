@@ -12,7 +12,22 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.2.0-rc.3`（Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠，2026-09-14）**：
+- **本地集成 `mod/wave3`（Wave 3 七轨闭环，2026-09-14，未发布、不打 tag、版本仍 `0.2.0-rc.3`）**：
+  把六个已注册 Mod 补到可日用闭环并把 director 从 RFC 推进到**最小骨架**：
+  ① `voice-input`：`backend=mock|sidecar` 走明确分支（结构性不开 socket）、`locale` 真影响
+  转写归一化（新增 `normalize.rs`）、sidecar 六类失败码 + 逐条退避；
+  ② `wallpaper`：列表可增删/排序（纯函数 + 最小 UI）、`playlist_len` 从可编辑 schema 移除
+  （消除「手填被覆盖」矛盾）、interval/follow_stage 各一条 state 轨迹断言；
+  ③ `memory`：固定语料命中/不命中断言、条数上限**物理淘汰**、`writes/hits/injects/errors`
+  四计数、与 persona 的 last-writer-wins 对称回归；④ `pet-desktop`：**软闭环**（不设窗口）——
+  Flutter「Mod 管理」消费 `GET /mods/{id}/state` 展示关键字段 + 配置热更新可测；
+  ⑤ `persona`：坏卡 enable→Failed→修好→再 enable 的**值断言** E2E ×4；
+  ⑥ `external-input`：接受/拒绝/busy 计数进 `state_json`、sidecar 节流可开关、`v2_ignored` 可见；
+  ⑦ `director`：新 crate 最小骨架（零投递，缺省停用）。**基座（主 agent）**：
+  `ModEventTopic::TurnEnded`。`AVAILABLE_MOD_FACTORIES` 6 → **7**，`mod_count_is_six` →
+  `mod_count_is_seven`；**缺省仍只启用 `external-input`**。
+  **未 bump 版本、未写 rc.4 发布说明、未 push**；主链皮肤与 `l2d-wasm-demo` 一行未改。
+- **上一版 `0.2.0-rc.3`（Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠，2026-09-14）**：
   把 Wave 2 的五条并行轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 5 → **6**
   （+ **memory**，只注册、**缺省停用**），`mod_count_is_five` → `mod_count_is_six`；
   **缺省仍只启用 `external-input`**。本版的目标是「**让至少两条能力从能编译变成能演示**」：
@@ -86,18 +101,21 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  6 个 Mod（external-input / pet-desktop / persona / voice-input / wallpaper / memory）为 workspace crate；
+  7 个 Mod（external-input / pet-desktop / persona / voice-input / wallpaper / memory / director）
+  为 workspace crate；
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
-  `cli_entry::default_mods_manifest`），其余五个缺省停用（`memory` 会写
-  `persona.system_prompt`，必须由用户明确打开）。
+  `cli_entry::default_mods_manifest`），其余六个缺省停用（`memory` 会写
+  `persona.system_prompt`，必须由用户明确打开；`director` 是**零投递**骨架）。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
   **Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
-  **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
-  不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
-  `main.rs` 的 `mod_count_is_six` 断言守住，**不要再挂回去**；`0.2.0-rc.3` 的 director
-  只交 RFC（`docs/architecture/director-rfc.md`），**不注册**。
+  **rc.2 那个「动作序列唯一驱动方」的 director 已于 `0.1.0-rc.2` 删除**
+  （归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由 `main.rs` 的
+  `mod_count_is_seven` 断言守住，**动作驱动方不要再挂回去**。
+  Wave 3（2026-09-14）新增的 `live2d-ai-mod-director` 是**同名不同职责**的
+  **最小骨架**：只产决策日志与 `state_json`、**零投递**、不驱动动作
+  （`docs/architecture/director-mod-v0.md`），已注册但缺省停用。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -352,7 +370,25 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
-- **2026-09-14（v0.2.0-rc.3，Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠）**：
+- **2026-09-14（Wave 3 七轨闭环，本地 `mod/wave3`，**未发布 / 无版本变更**）：**真源 `mod/wave2` @ `1e789cb6`
+  （本地 `0.2.0-rc.3` 候选）。**基座** `118bd435`：`ModEventTopic::TurnEnded`（payload = turn id；
+  发点在 `run_one_turn` 返回之后，成功/失败都发）——Mod 终于有轮末钩子。七条轨各在自己 worktree
+  （`mod/w3-voice|wall|memory|pet|persona|external|director`）从基座起分支。① **voice**：
+  `backend`/`locale` 不再是死配置（`normalize.rs` + handler 明确分支 + 结构性无网络），sidecar
+  失败码表 401/403/busy/empty/timeout/transport + 退避，`--selftest` 49→70；② **wallpaper**：
+  列表增删/排序（纯函数 + 最小 UI）、`playlist_len` 退出可编辑 schema（消除手填矛盾）、
+  interval/follow_stage 各一条 state 轨迹；③ **memory**：固定语料质量基线（中文命中/不命中）、
+  `append_capped` 物理淘汰（`.tmp`+rename 原子重写）、`writes/hits/injects/errors` 四计数、
+  last-writer-wins 两向对称回归；④ **pet-desktop**：**软闭环**（窗口不设）——Flutter
+  「Mod 管理」消费 `/state` 展示关键字段 + 配置热更新可测；⑤ **persona**：坏卡
+  enable→Failed→修好→再 enable 的**主链值**断言 E2E ×4 + 与 memory 共存契约；
+  ⑥ **external-input**：接受/拒绝/busy 计数进 `state_json`、sidecar 节流 `--min-interval-ms`、
+  `v2_ignored` 可见；⑦ **director**：从 RFC 推进到**最小骨架**（新 crate；订阅 `TurnPrompt`+
+  `TurnEnded`；纯函数决策 `{emotion,intent,suggested_tts}`；**零投递**，`action_calls==0` /
+  `apply_calls==0` 有间谍断言），已注册但缺省停用。**FACTORIES 6 → 7**（`mod_count_is_seven`），
+  缺省 manifest 不变；**版本三处未动、未写 `docs/releases/v0.2.0-rc.4.md`、未 push**；
+  主链皮肤 / `l2d-wasm-demo` / framebuffer 一行未改。收束见
+  `docs/plans/parallel-mods/WAVE3-CLOSEOUT-2026-09-14.md`。
   基线 `mod/integrate-0.2.0-rc.2` @ `91c670aa`（**`main` 当时仍是 rc.1，故以 integrate tip 为准**），
   五条轨各在自己的 worktree/分支（`mod/memory-v0` / `mod/director-rfc` / `mod/voice-sidecar-v1` /
   `mod/wallpaper-wire` / `mod/pet-desktop-v1`）从**基座提交** `429609f2` 起分支，合入 `mod/wave2`。
