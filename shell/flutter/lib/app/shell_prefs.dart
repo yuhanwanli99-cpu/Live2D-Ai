@@ -165,6 +165,52 @@ extension _ShellPrefsWiring on _ShellRootState {
 
   void _clearShellImage() => _clearImage(forShell: true);
 
+  /// 「加入轮播」：把**当前**舞台图追加进 `stagePlaylist`（Wave 2）。
+  ///
+  /// 三条预算都在 `appendToStagePlaylist`（纯函数）里把关；这里只把**原因**
+  /// 翻译成一句可读文案——超限时列表**原样不动**，不会悄悄膨胀到把整份偏好
+  /// 写坏（rc.5 的教训，见 `kStagePlaylistMaxChars`）。
+  void _addStageImageToPlaylist() {
+    final DisplayPrefs prefs = widget.prefs;
+    final StagePlaylistAppendResult result = appendToStagePlaylist(
+      prefs.stagePlaylist,
+      prefs.stageImage,
+    );
+    if (!result.added) {
+      _setImageMessage(
+        forShell: false,
+        text: switch (result.reason) {
+          'empty' => '还没有舞台背景图——先「选择背景图」，再把它加入轮播',
+          'item_too_large' => '这张图太大了，不能进轮播列表；换一张小一点的图',
+          'limit_reached' => '轮播列表已到上限 $kStagePlaylistMaxItems 张——'
+              '先「清空轮播」再重新加入',
+          'budget_exceeded' => '轮播列表的总长度已达上限（本机存储放不下更多），'
+              '先「清空轮播」再重新加入',
+          _ => '这张图没能加入轮播列表',
+        },
+        failed: true,
+      );
+      return;
+    }
+    _updatePrefs(prefs.copyWith(stagePlaylist: result.playlist));
+    _setImageMessage(
+      forShell: false,
+      text: '已加入轮播（共 ${result.playlist.length} 张）',
+      failed: false,
+    );
+    // 列表长度变化 → 用既有 config 端点写回 Mod（它是唯一知道「有几张可切」的一方）。
+    unawaited(_syncWallpaperPlaylistLen());
+  }
+
+  /// 「清空轮播」：清空列表（`stageImage` 不动——当前这张仍留在舞台上）。
+  void _clearStagePlaylist() {
+    final DisplayPrefs prefs = widget.prefs;
+    if (prefs.stagePlaylist.isEmpty) return;
+    _updatePrefs(prefs.copyWith(stagePlaylist: const <String>[]));
+    _setImageMessage(forShell: false, text: '已清空轮播列表', failed: false);
+    unawaited(_syncWallpaperPlaylistLen());
+  }
+
   /// 落一条选图 / 清图结果——舞台与壳**各有各的那条**，不互相冒充。
   void _setImageMessage({
     required bool forShell,

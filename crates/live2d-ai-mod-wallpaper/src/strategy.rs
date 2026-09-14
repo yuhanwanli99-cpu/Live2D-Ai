@@ -29,6 +29,15 @@ pub const MIN_INTERVAL_SECS: u64 = 5;
 /// 间隔上限（秒，24h）：避免「等于关不掉」的荒唐配置。
 pub const MAX_INTERVAL_SECS: u64 = 86_400;
 
+/// 播放列表长度上限（项）。
+///
+/// 与 Flutter 侧 `DisplayPrefs.kStagePlaylistMaxItems` **同一个数**：
+/// 两边都各自钳一次，谁先写错都不会让列表无界膨胀。
+/// 16 张的理由：整份偏好写进**同一条** localStorage 记录（配额 ~5 MB），
+/// 按 `kStageImageMaxChars`（1.5 M 字符/张）算，16 张已远超配额——真正的
+/// 上限是「总字符预算」，这一条只挡住「项数无界」。
+pub const MAX_PLAYLIST_LEN: usize = 16;
+
 /// 壁纸模式（配置值 `off` / `follow_stage` / `interval`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WallpaperMode {
@@ -110,6 +119,24 @@ pub fn interval_secs_from_config(config: &serde_json::Value) -> u64 {
         .clamp(MIN_INTERVAL_SECS, MAX_INTERVAL_SECS)
 }
 
+/// 从 Mod config JSON 读取 `playlist_len` 并钳位到 `0..=MAX_PLAYLIST_LEN`。
+///
+/// - 缺字段 / 非数字 / 负数 / `NaN` / 无穷 → `0`（缺省 = 没有可切的图）；
+/// - 超出上限 → 钳到 [`MAX_PLAYLIST_LEN`]（**不报错**：前端多写一个 0 不该让
+///   Mod 起不来，策略只需知道「有几张可切」）；
+/// - 只接受整数与整数形态浮点（与 `interval_secs_from_config` 同口径）。
+pub fn playlist_len_from_config(config: &serde_json::Value) -> usize {
+    let raw = config.get("playlist_len").and_then(|v| {
+        v.as_u64().or_else(|| {
+            v.as_f64()
+                .filter(|f| f.is_finite() && *f >= 0.0)
+                .map(|f| f as u64)
+        })
+    });
+    let len = raw.unwrap_or(0);
+    len.min(MAX_PLAYLIST_LEN as u64) as usize
+}
+
 /// 一次 `tick` 的决策（纯数据；集成方把它翻译成 `DisplayPrefs` / stage-bg 动作）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WallpaperDecision {
@@ -122,6 +149,69 @@ pub enum WallpaperDecision {
         /// 目标下标（从 0 起，已按列表长度取模）。
         index: usize,
     },
+}
+
+impl WallpaperDecision {
+    /// **决策 → 显示层落点**（Wave 2 唯一真投影，纯函数）。
+    ///
+    /// Mod API 没有壁纸写入口，[`crate::WallpaperRuntime::state_json`] 把这份
+    /// patch 交给 Flutter，由 `applyWallpaperPatch` 落到 `DisplayPrefs`：
+    ///
+    /// | 决策 | patch | Flutter 落点 |
+    /// |---|---|---|
+    /// | [`WallpaperDecision::None`] | `None` | 什么都不做（**不是**「假装成功」） |
+    /// | [`WallpaperDecision::SyncStage`] | `{"sync_shell_stage_bg":true}` | `copyWith(syncShellStageBg: true)` |
+    /// | [`WallpaperDecision::Advance`] | `{"stage_index":N}` | `stageImage = playlist[N % len]` → `sendStageBg` |
+    ///
+    /// 列表为空的情形**不在这里**出现：策略层已经用
+    /// [`WallpaperDecision::None`] 表达了「没有可切的图」，
+    /// 于是不会产出「指向不存在那张图」的 patch。
+    pub fn to_prefs_patch(self) -> Option<serde_json::Value> {
+        match self {
+            WallpaperDecision::None => None,
+            WallpaperDecision::SyncStage => Some(serde_json::json!({
+                "sync_shell_stage_bg": true,
+            })),
+            WallpaperDecision::Advance { index } => Some(serde_json::json!({
+                "stage_index": index,
+            })),
+        }
+    }
+
+    /// `decision` 对象的 JSON 形态（`state_json` 的 `decision` 字段）。
+    ///
+    /// `kind` ∈ `none` / `sync_stage` / `advance`（§3B 契约）。
+    pub fn to_json(self) -> serde_json::Value {
+        match self {
+            WallpaperDecision::None => serde_json::json!({"kind": "none"}),
+            WallpaperDecision::SyncStage => serde_json::json!({"kind": "sync_stage"}),
+            WallpaperDecision::Advance { index } => {
+                serde_json::json!({"kind": "advance", "index": index})
+            }
+        }
+    }
+
+    /// 为什么是这次决策（`state_json` 的 `reason`，**给人看的诊断字段**）。
+    ///
+    /// 刻意把「`off` 不动作」与「`interval` 还没到点」分开：前端要能回答
+    /// 「壁纸怎么不动」，而这两种原因的处置完全不同。
+    pub fn reason(self, mode: WallpaperMode, playlist_len: usize) -> &'static str {
+        match self {
+            WallpaperDecision::SyncStage => "sync_stage",
+            WallpaperDecision::Advance { .. } => "advance",
+            WallpaperDecision::None => match mode {
+                WallpaperMode::Off => "mode_off",
+                WallpaperMode::FollowStage => "already_synced",
+                WallpaperMode::Interval => {
+                    if playlist_len == 0 {
+                        "playlist_empty"
+                    } else {
+                        "interval_not_due"
+                    }
+                }
+            },
+        }
+    }
 }
 
 /// 壁纸策略状态机（纯逻辑，可脱机单测）。
@@ -329,6 +419,102 @@ mod tests {
         // 钳位后 interval_ms 恒非 0。
         let c = WallpaperConfig::from_json(&serde_json::json!({"interval_secs": 0}));
         assert!(c.interval_ms() > 0);
+    }
+
+    // ---------------------------------------------------- 落点投影（Wave 2）
+
+    /// 三种决策 → 三种 patch；`None` 恒无 patch（**不是**空对象）。
+    #[test]
+    fn to_prefs_patch_projects_three_states() {
+        assert_eq!(WallpaperDecision::None.to_prefs_patch(), None);
+        assert_eq!(
+            WallpaperDecision::SyncStage.to_prefs_patch(),
+            Some(serde_json::json!({"sync_shell_stage_bg": true}))
+        );
+        assert_eq!(
+            WallpaperDecision::Advance { index: 2 }.to_prefs_patch(),
+            Some(serde_json::json!({"stage_index": 2}))
+        );
+        // 列表为空由策略层表达成 None —— 不会产出指向不存在那张图的 patch。
+        let mut s = WallpaperStrategy::new(cfg(WallpaperMode::Interval, 1), 0);
+        assert_eq!(s.tick(999_999).to_prefs_patch(), None);
+    }
+
+    #[test]
+    fn decision_json_kinds_match_contract() {
+        assert_eq!(
+            WallpaperDecision::None.to_json(),
+            serde_json::json!({"kind": "none"})
+        );
+        assert_eq!(
+            WallpaperDecision::SyncStage.to_json(),
+            serde_json::json!({"kind": "sync_stage"})
+        );
+        assert_eq!(
+            WallpaperDecision::Advance { index: 7 }.to_json(),
+            serde_json::json!({"kind": "advance", "index": 7})
+        );
+    }
+
+    #[test]
+    fn reason_distinguishes_off_from_not_due_and_empty() {
+        let r = WallpaperDecision::reason;
+        assert_eq!(
+            r(WallpaperDecision::None, WallpaperMode::Off, 3),
+            "mode_off"
+        );
+        assert_eq!(
+            r(WallpaperDecision::None, WallpaperMode::FollowStage, 0),
+            "already_synced"
+        );
+        assert_eq!(
+            r(WallpaperDecision::None, WallpaperMode::Interval, 0),
+            "playlist_empty"
+        );
+        assert_eq!(
+            r(WallpaperDecision::None, WallpaperMode::Interval, 3),
+            "interval_not_due"
+        );
+        assert_eq!(
+            r(WallpaperDecision::SyncStage, WallpaperMode::FollowStage, 0),
+            "sync_stage"
+        );
+        assert_eq!(
+            r(
+                WallpaperDecision::Advance { index: 0 },
+                WallpaperMode::Interval,
+                3
+            ),
+            "advance"
+        );
+    }
+
+    #[test]
+    fn playlist_len_from_config_defaults_zero_and_clamps() {
+        let f = playlist_len_from_config;
+        assert_eq!(f(&serde_json::json!({})), 0, "缺省 = 没有可切的图");
+        assert_eq!(f(&serde_json::json!({"playlist_len": 3})), 3);
+        assert_eq!(f(&serde_json::json!({"playlist_len": 4.0})), 4);
+        // 负数 / 非数字 / null → 0（宽容，fail-safe 到「无图可切」）。
+        assert_eq!(f(&serde_json::json!({"playlist_len": -1})), 0);
+        assert_eq!(f(&serde_json::json!({"playlist_len": "3"})), 0);
+        assert_eq!(f(&serde_json::json!({"playlist_len": null})), 0);
+        // 超上限 → 钳到 MAX_PLAYLIST_LEN（不报错）。
+        assert_eq!(
+            f(&serde_json::json!({"playlist_len": 9999})),
+            MAX_PLAYLIST_LEN
+        );
+    }
+
+    /// 从 config 构造策略时 `playlist_len` 也走同一条钳位（不是只有 runtime 记得读）。
+    #[test]
+    fn strategy_from_config_json_reads_playlist_len() {
+        let mut s = WallpaperStrategy::from_config_json(
+            &serde_json::json!({"mode": "interval", "playlist_len": 5}),
+            playlist_len_from_config(&serde_json::json!({"playlist_len": 5})),
+        );
+        assert_eq!(s.playlist_len(), 5);
+        assert_eq!(s.tick(0), WallpaperDecision::Advance { index: 0 });
     }
 
     // ---------------------------------------------------- off

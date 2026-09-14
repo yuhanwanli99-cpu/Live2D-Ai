@@ -1,5 +1,13 @@
 # REGISTER — `wallpaper`（Wave 1 → 集成 PR 用）
 
+> ⚠️ **已过时（2026-09-14 Wave 2 起）**：本文件记的是 Wave 1 的**注册待办**，
+> 注册早在 `0.2.0-rc.2` 完成；下面 §3 的「落点未接线 / `apply_decision` 是明文占位」
+> 也已被 Wave 2 B 轨取代（`apply_decision` 函数已从 crate **删除**，决策现在经
+> `state_json` 的 `prefs_patch` 落到 `DisplayPrefs`）。**现行契约与接线清单看
+> [`REGISTER-wallpaper-wire.md`](REGISTER-wallpaper-wire.md) 与
+> [`../../architecture/wallpaper-mod-v0.md`](../../architecture/wallpaper-mod-v0.md) §5**。
+> 本文件仅作历史留档。
+
 > 本文件**不是**注册动作本身，而是交给集成 PR 的**待办清单 + 接线说明**。
 > Wave 1 worker 按 [`PARALLEL-PROTOCOL-2026-09-14.md`](PARALLEL-PROTOCOL-2026-09-14.md) §3
 > **被禁止**碰 FACTORIES / `mod_count_*` / 缺省 manifest / 全局版本——这些全部留在这里。

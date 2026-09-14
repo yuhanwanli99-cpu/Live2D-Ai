@@ -34,6 +34,8 @@ class AppearanceSection extends StatelessWidget {
     this.devMode = false,
     this.onPickStageImage,
     this.onClearStageImage,
+    this.onAddToPlaylist,
+    this.onClearPlaylist,
     this.stageImageMessage,
     this.stageImageFailed = false,
     this.onPickShellImage,
@@ -52,6 +54,14 @@ class AppearanceSection extends StatelessWidget {
   /// 选/清舞台背景图。为 `null` 时按钮禁用（**不是**点了没反应）。
   final VoidCallback? onPickStageImage;
   final VoidCallback? onClearStageImage;
+
+  /// 轮播列表（Wave 2）：把**当前**舞台图追加进列表 / 清空列表。
+  ///
+  /// 列表是壁纸 Mod 唯一的图来源（`DisplayPrefs.stagePlaylist`），
+  /// 所以这里的操作只有两个——不做删除单张 / 拖排序（那是「大轮播」，
+  /// 明确不在本轮范围，见 `docs/architecture/wallpaper-mod-v0.md` §8）。
+  final VoidCallback? onAddToPlaylist;
+  final VoidCallback? onClearPlaylist;
 
   /// 上次选图的结果（超限时是**错误态**：图太大记不住）。
   final String? stageImageMessage;
@@ -82,10 +92,13 @@ class AppearanceSection extends StatelessWidget {
         ),
         _StageImageView(
           hasImage: prefs.stageImage != null,
+          playlistCount: prefs.stagePlaylist.length,
           message: stageImageMessage,
           failed: stageImageFailed,
           onPick: onPickStageImage,
           onClear: onClearStageImage,
+          onAddToPlaylist: onAddToPlaylist,
+          onClearPlaylist: onClearPlaylist,
         ),
         _ShellImageView(
           sync: prefs.syncShellStageBg,
@@ -178,20 +191,34 @@ class AppearanceSection extends StatelessWidget {
 /// 1. **不是二选一**——背景图盖在纯色底上，清掉图底色就回来；
 /// 2. 图太大时**本次有效但不记住**（`failed` 用警告色，不是静默成功）；
 /// 3. 按钮是**文字**，不是图标（用户裁决「尽量少用图片用文字做按钮」）。
+///
+/// Wave 2 追加一行**轮播列表**的最小操作：「加入轮播」把当前这张图 append 进
+/// 列表、「清空轮播」清空，并显示当前张数。列表长度是壁纸 Mod 的图来源，
+/// 有**三条预算**（每张 / 总长 / 项数）——超限时按钮仍然可按，由宿主给出
+/// 一句可读反馈（**不弹异常**、不静默膨胀）。
 class _StageImageView extends StatelessWidget {
   const _StageImageView({
     required this.hasImage,
+    required this.playlistCount,
     required this.message,
     required this.failed,
     required this.onPick,
     required this.onClear,
+    required this.onAddToPlaylist,
+    required this.onClearPlaylist,
   });
 
   final bool hasImage;
+
+  /// 轮播列表当前张数（`DisplayPrefs.stagePlaylist.length`）。
+  final int playlistCount;
+
   final String? message;
   final bool failed;
   final VoidCallback? onPick;
   final VoidCallback? onClear;
+  final VoidCallback? onAddToPlaylist;
+  final VoidCallback? onClearPlaylist;
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +262,36 @@ class _StageImageView extends StatelessWidget {
                 ),
               ),
             ),
+          const SizedBox(height: Space.s3),
+          Text('背景轮播列表', style: theme.textTheme.labelLarge),
+          const SizedBox(height: Space.s1),
+          EmphasizedText(
+            '壁纸 Mod 换图时**只从这份列表里取**（列表为空就不换）。'
+            '当前 **$playlistCount** 张，上限 $kStagePlaylistMaxItems 张、'
+            '合计 ${(kStagePlaylistMaxChars / 1024).round()} KB。'
+            '「加入轮播」把**当前这张**追加进列表。',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colors.contentMuted,
+            ),
+          ),
+          const SizedBox(height: Space.s2),
+          Wrap(
+            spacing: Space.s2,
+            runSpacing: Space.s2,
+            children: <Widget>[
+              // 没有当前图 / 到达上限时仍然可点（点了会得到一句原因），
+              // 但两个回调都为 null（没接线）时禁用——不假装能操作。
+              FilledButton.tonal(
+                onPressed: onAddToPlaylist,
+                child: const Text('加入轮播'),
+              ),
+              if (playlistCount > 0)
+                TextButton(
+                  onPressed: onClearPlaylist,
+                  child: const Text('清空轮播'),
+                ),
+            ],
+          ),
         ],
       ),
     );

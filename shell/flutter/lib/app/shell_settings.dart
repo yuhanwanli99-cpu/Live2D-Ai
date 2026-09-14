@@ -157,6 +157,9 @@ extension _ShellSettingsWiring on _ShellRootState {
           devMode: _devMode,
           onPickStageImage: () => unawaited(_pickStageImage()),
           onClearStageImage: _clearStageImage,
+          // Wave 2：轮播列表的最小操作（列表是壁纸 Mod 的唯一图来源）。
+          onAddToPlaylist: _addStageImageToPlaylist,
+          onClearPlaylist: _clearStagePlaylist,
           stageImageMessage: _stageImageMessage,
           stageImageFailed: _stageImageFailed,
           // 2026-09-14（rc.5）：壳全局背景（同步开时与舞台共用同一张图）。
