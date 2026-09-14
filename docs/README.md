@@ -74,6 +74,12 @@
 
 ## 规划
 
+- [**点火验收清单（stabilize）：给用户在 Windows 上照单勾选**](plans/IGNITION-CHECKLIST-stabilize.md)
+  ——前置（含 **TTS 未起时的预期**）/ 机器预检 / 十步人机验收（操作·期望·失败先看哪）/ 通过标准 / 签名栏；
+  配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表）
+  与实跑记录 [`STABILIZE-PRECHECK-RESULT.md`](plans/STABILIZE-PRECHECK-RESULT.md)
+  （Wave 3 之后的**稳定化小修**：修「前端 Mod 管理启停恒 415」，见
+  [`STABILIZE-CLOSEOUT.md`](plans/parallel-mods/STABILIZE-CLOSEOUT.md)；版本仍 `0.2.0-rc.3`）
 - [**Wave 3 收束报告：七个已注册 Mod 的日常闭环（2026-09-14，未发布 / 无版本变更）**](plans/parallel-mods/WAVE3-CLOSEOUT-2026-09-14.md)
   ——每轨 tip / 闭环证据 / 未决 / `v0.2.0-rc.3` §8 逐条处置 / 与将来 rc.4 的差距；
   协议见 [`PARALLEL-WAVE3-2026-09-14.md`](plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md)
