@@ -1,4 +1,4 @@
-//! live2d-ai-mod-persona（rc.4 M5）——**酒馆角色卡标准 Mod**。
+//! live2d-ai-mod-persona（rc.4 M5 立，persona-polish 打磨）——**酒馆角色卡标准 Mod**。
 //!
 //! # 它解决什么
 //!
@@ -14,12 +14,42 @@
 //! 让 Mod 在运行时另开一条人设通道，就等于在核心里偷偷埋第二个 system 来源——
 //! 那是「第二个产品」的雏形。rc.4 的口径是：**Mod 可以加，主链只留一个入口**。
 //!
+//! # 启停语义（唯一真源 = Mod manifest 的 `enabled`）
+//!
+//! - **启用**：`mods.json` 里 `mods.persona.enabled = true`（前端「Mod 管理」
+//!   或 `POST /api/v1/mods/persona/enable`）。host 才 `create` 本 runtime 并调
+//!   [`ModRuntime::start`]：载入角色卡 → 合成 → 写回主链 `system_prompt`。
+//! - **停用**：`disable`（或改 `mods.json` 后重启）。host 调 `shutdown`，
+//!   主链 `system_prompt` **还原成启用前的基线**。
+//! - 本 Mod 的 config / settings schema 里**没有**第二个 `enabled` 字段：
+//!   「Mod 开关」只能有一处真相（与 `external-input` 同一条纪律，见
+//!   `docs/architecture/mod-product-chain.md` §2）。config 里若混进 `enabled`
+//!   键，它**不参与任何判断**（`PersonaConfig` 不读它）。
+//!
+//! # 坏输入 = 显式失败（不 panic、不静默、不动主链）
+//!
+//! 一条纪律：**没真的接管主链，就不许留下「接管了」的痕迹**。
+//!
+//! | 输入 | 结局 |
+//! |---|---|
+//! | `card_json` 不是 JSON / 不是角色卡 | `start` 返回 `Err` → `ModStatus::Failed`，主链提示词一字不动 |
+//! | `card_path` 不存在 / 不是普通文件 / 读失败 | 同上，错误里带**路径**与**系统错误** |
+//! | 卡文件 > [`MAX_CARD_FILE_BYTES`] | 同上；**读盘之前**就拒（`metadata` 先量），不做「读到 OOM 再报错」 |
+//! | `card_json` > [`MAX_CARD_JSON_BYTES`] | 同上 |
+//! | PNG 截断 / chunk 长度越界 / 无 `chara` / 压缩 iTXt | 同上（`tEXt`/未压缩 `iTXt` 之外一律明确报错） |
+//! | `apply_settings` 写盘被拒 | 同上；基线快照**不落盘**（没接管就不记基线） |
+//! | 卡没配（`card_path` / `card_json` 全空、也无覆盖） | **合法 no-op**：`Running`，主链提示词保持不变 |
+//!
+//! 「失败」用 host 的失败隔离（`mod-product-chain.md` §7）：本 Mod `Failed`，
+//! 主链继续跑。**不要**改成「只写一行 warn 然后报 Running」——那会让界面显示
+//! 「运行中」而实际什么都没发生（自检说谎）。
+//!
 //! # 禁用时怎么「回到仅主链 system_prompt」
 //!
 //! `apply_settings` 会真的改写 `live2d-ai.toml`，所以 Mod 必须能还回去。
-//! 启动时它把**当前** `persona.system_prompt` 快照到 `persona-mod-base.txt`
-//! （与 `live2d-ai.toml` 同目录，Mod 自己的状态文件），关闭时写回该快照。
-//! 快照只在**首次启用**时落盘，之后的启停都以它为基线，不会被合成产物污染。
+//! 启用时它把**当前** `persona.system_prompt` 快照到 `persona-mod-base.txt`
+//! （与 `live2d-ai.toml` 同目录，Mod 自己的状态文件），停用时写回该快照。
+//! 快照只在**首次成功接管**后落盘，之后的启停都以它为基线，不会被合成产物污染。
 //!
 //! # 配置（住 `mods.json`，不回流主链）
 //!
@@ -28,6 +58,16 @@
 //! - `include_discipline`：是否附加对话纪律模板（缺省 true）；
 //! - `say_first_mes`：启用时是否朗读卡里的开场白（缺省 false）；
 //! - `name` / `description` / `personality` / `scenario`：手工覆盖（非空优先于卡）。
+//!
+//! # 文件大小
+//!
+//! 源码 > 500 行（< 1000）：卡解析与主链写回共用同一份不变量（V2 判定 +
+//! `system_prompt` 合成口径），拆成两文件只会让读者来回跳；测试已拆到
+//! `src/tests.rs`，源码保持**一个文件顺序读完**。
+//!
+//! `src/tests.rs` 略超「测试文件 ≤ 800 行」：超出的部分是启停循环三条入口
+//! （`card_json` / `card_path` JSON / `card_path` PNG）各自的端到端回归——
+//! 合并成参数化用例会把「哪条入口坏了」这个信息藏起来。
 
 use std::path::{Path, PathBuf};
 
@@ -35,15 +75,34 @@ use base64::Engine as _;
 use live2d_ai_mod_system::*;
 
 /// Mod 描述符（静态身份）。
+///
+/// `version` 随行为变化走：persona-polish 起坏配置不再「假装 Running」，
+/// 而是显式 `Failed`（见模块头注「坏输入 = 显式失败」）。
 pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
     id: "persona",
     name: "角色卡",
-    version: "0.1.0",
+    version: "0.2.0",
     api_version: MOD_API_VERSION,
 };
 
 /// 基线快照文件名（与 `live2d-ai.toml` 同目录）。
 const BASE_STATE_FILE: &str = "persona-mod-base.txt";
+
+/// 角色卡**文件**大小上限（字节）。
+///
+/// 必须**在读盘之前**判断：`fs::read` 会先吃掉整份文件，一个误指向的 GB 级
+/// 文件（或管道/设备文件）足以把常驻内存打穿——「坏输入」的正确结局是一条
+/// 可读的错误，不是 OOM。
+///
+/// 为什么是 16 MiB：PNG 卡把整张立绘和 base64 的 JSON 塞进同一个文件，
+/// 实测正常卡 < 2 MiB；16 MiB 余量给足，同时仍是一条能对用户解释清楚的界。
+pub const MAX_CARD_FILE_BYTES: u64 = 16 * 1024 * 1024;
+
+/// `card_json` **文本**大小上限（字节）。
+///
+/// `card_json` 住在 `mods.json` 里；典型 V2 卡 2–8 KiB，1 MiB 已远超任何
+/// 真实角色卡，超过它基本等于「把文件内容贴错了地方」。
+pub const MAX_CARD_JSON_BYTES: usize = 1024 * 1024;
 
 /// 对话纪律模板（可关；配合「一句一单元」的语音契约：句数少 ⇒ TTS 请求少）。
 const DISCIPLINE_TEMPLATE: &str = "【对话纪律】\n\
@@ -120,7 +179,9 @@ impl PersonaCard {
         }
         let text =
             std::str::from_utf8(bytes).map_err(|e| format!("不是 PNG 也不是 UTF-8 文本: {e}"))?;
-        PersonaCard::parse_json(text).ok_or_else(|| "不是可识别的角色卡 JSON".to_string())
+        PersonaCard::parse_json(text).ok_or_else(|| {
+            "不是可识别的角色卡 JSON（需要 V1 扁平对象，或 V2 带 `data` 的对象）".to_string()
+        })
     }
 }
 
@@ -156,6 +217,52 @@ pub fn compose_system_prompt(card: &PersonaCard, include_discipline: bool) -> St
     parts.join("\n\n")
 }
 
+// ------------------------------------------------------------------ 输入上限
+
+/// 读角色卡文件：**先量大小、再读内容**（两道闸：`metadata` + 实际读到的字节数）。
+///
+/// 第二道闸对应 TOCTOU：`metadata` 与 `read` 之间文件可能被换掉/追加；
+/// 以**真正读到的大小**为准再判一次，才谈得上「上限」。
+fn read_card_file(path: &str) -> Result<Vec<u8>, String> {
+    let p = Path::new(path);
+    let meta = std::fs::metadata(p).map_err(|e| format!("读取角色卡文件失败（{path}）: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!(
+            "角色卡路径不是普通文件（{path}）；请指向 .json 或内嵌 chara 的 .png"
+        ));
+    }
+    if meta.len() > MAX_CARD_FILE_BYTES {
+        return Err(format!(
+            "角色卡文件过大（{path}）：{} 字节，上限 {} 字节（{} MiB）",
+            meta.len(),
+            MAX_CARD_FILE_BYTES,
+            MAX_CARD_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+    let bytes = std::fs::read(p).map_err(|e| format!("读取角色卡文件失败（{path}）: {e}"))?;
+    if bytes.len() as u64 > MAX_CARD_FILE_BYTES {
+        return Err(format!(
+            "角色卡文件过大（{path}）：实际读到 {} 字节，上限 {} 字节",
+            bytes.len(),
+            MAX_CARD_FILE_BYTES
+        ));
+    }
+    Ok(bytes)
+}
+
+/// 校验 `card_json` 大小（**解析之前**，不先让 `serde_json` 吃掉整段文本）。
+fn check_card_json_size(text: &str) -> Result<(), String> {
+    if text.len() > MAX_CARD_JSON_BYTES {
+        return Err(format!(
+            "card_json 过大：{} 字节，上限 {} 字节（{} KiB）；请改用 card_path 指向文件",
+            text.len(),
+            MAX_CARD_JSON_BYTES,
+            MAX_CARD_JSON_BYTES / 1024
+        ));
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------------ PNG chara
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -164,6 +271,8 @@ const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 ///
 /// 只读 `tEXt` 与**未压缩**的 `iTXt`；压缩 `iTXt` 需要 zlib，明确报错
 /// 而不是返回空卡（与前端旧实现同一条教训）。
+///
+/// 全程只做「先量再取」的切片：块长度越界 → `Err`，不会 panic。
 fn extract_png_chara(bytes: &[u8]) -> Result<String, String> {
     let mut offset = PNG_SIGNATURE.len();
     while offset + 8 <= bytes.len() {
@@ -172,7 +281,10 @@ fn extract_png_chara(bytes: &[u8]) -> Result<String, String> {
         let data_start = offset + 8;
         let data_end = data_start + length;
         if data_end + 4 > bytes.len() {
-            return Err("PNG 数据不完整（块长度超出文件）".to_string());
+            return Err(format!(
+                "PNG 数据不完整（块长度 {length} 超出文件，剩余 {} 字节）",
+                bytes.len().saturating_sub(data_start)
+            ));
         }
         if kind == b"tEXt" {
             if let Some(text) = read_text_chunk(&bytes[data_start..data_end]) {
@@ -251,6 +363,9 @@ fn parse_chara_payload(payload: &str) -> Result<PersonaCard, String> {
 // ------------------------------------------------------------------ Runtime
 
 /// 本 Mod 的 namespaced 配置（缺省全部安全）。
+///
+/// **刻意不读 `enabled`**：Mod 的启停只由 manifest 表达（见模块头注）。
+/// 混进 config 的 `enabled` 键是**惰性**的，不参与任何判断。
 #[derive(Debug, Clone)]
 struct PersonaConfig {
     card_path: String,
@@ -283,6 +398,18 @@ impl PersonaConfig {
             scenario: s("scenario"),
         }
     }
+
+    /// 手工覆盖是否至少有一项非空。
+    fn has_overrides(&self) -> bool {
+        [
+            &self.name,
+            &self.description,
+            &self.personality,
+            &self.scenario,
+        ]
+        .iter()
+        .any(|s| !s.is_empty())
+    }
 }
 
 /// 角色卡 Mod 运行时。
@@ -290,7 +417,7 @@ pub struct PersonaRuntime {
     services: ModServices,
     config: PersonaConfig,
     registered: bool,
-    /// 主链原本的 `system_prompt`（关闭时写回；见模块头注）。
+    /// 主链原本的 `system_prompt`（停用时写回；见模块头注）。
     base_prompt: Option<String>,
 }
 
@@ -304,16 +431,22 @@ impl PersonaRuntime {
         }
     }
 
-    /// 载入卡：`card_json` 优先于 `card_path`；两者皆空 → 只有手工覆盖。
+    /// 载入卡：`card_json` 优先于 `card_path`；两者皆空 → `Ok(None)`（只有手工覆盖）。
+    ///
+    /// `Err` = **用户配了东西但它是坏的**（读不到 / 不是卡 / 超大）；
+    /// `Ok(None)` = 用户根本没配 —— 两者结局不同，绝不能混成一个「空卡」。
     fn load_card(&self) -> Result<Option<PersonaCard>, String> {
-        if !self.config.card_json.trim().is_empty() {
-            return PersonaCard::parse_json(&self.config.card_json)
-                .map(Some)
-                .ok_or_else(|| "card_json 不是可识别的角色卡 JSON".to_string());
+        let json = self.config.card_json.trim();
+        if !json.is_empty() {
+            check_card_json_size(json)?;
+            return PersonaCard::parse_json(json).map(Some).ok_or_else(|| {
+                "card_json 不是可识别的角色卡 JSON（需要 V1 扁平对象，或 V2 带 `data` 的对象）"
+                    .to_string()
+            });
         }
-        if !self.config.card_path.trim().is_empty() {
-            let bytes = std::fs::read(Path::new(&self.config.card_path))
-                .map_err(|e| format!("读取角色卡文件失败（{}）: {e}", self.config.card_path))?;
+        let path = self.config.card_path.trim();
+        if !path.is_empty() {
+            let bytes = read_card_file(path)?;
             return PersonaCard::parse_bytes(&bytes).map(Some);
         }
         Ok(None)
@@ -344,91 +477,145 @@ impl PersonaRuntime {
         Some(parent.join(BASE_STATE_FILE))
     }
 
-    /// 确保基线快照存在（首次启用时把当前主链 system_prompt 写进 Mod 状态文件）。
-    fn ensure_base_prompt(&mut self) {
-        if self.base_prompt.is_some() {
-            return;
-        }
-        let current = self
-            .services
+    /// 当前主链 `system_prompt`（脱敏设置快照里的那一份）。
+    fn current_main_prompt(&self) -> String {
+        self.services
             .settings
             .read()
             .get("persona")
             .and_then(|p| p.get("system_prompt"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
-            .to_string();
-        match self.base_state_path() {
-            Some(path) => {
-                if let Ok(saved) = std::fs::read_to_string(&path) {
-                    self.base_prompt = Some(saved);
-                    return;
+            .to_string()
+    }
+
+    /// 取得基线：内存里已有 → 直接用；磁盘上有快照 → **以快照为准**
+    /// （多次启停都回到同一条基线）；都没有 → 拿当前主链提示词当基线。
+    ///
+    /// 这里**只读不写**：落盘交给 [`Self::persist_base_prompt`]，且必须在
+    /// `apply_settings` 成功之后 —— 没真的接管主链就不许在磁盘上留基线。
+    fn ensure_base_prompt(&mut self) -> String {
+        if let Some(base) = &self.base_prompt {
+            return base.clone();
+        }
+        if let Some(path) = self.base_state_path() {
+            match std::fs::read_to_string(&path) {
+                Ok(saved) => {
+                    self.base_prompt = Some(saved.clone());
+                    return saved;
                 }
-                if let Some(parent) = path.parent()
-                    && let Err(e) = std::fs::create_dir_all(parent)
-                {
-                    self.services
-                        .logger
-                        .warn(&format!("persona 基线快照目录创建失败: {e}"));
-                }
-                if let Err(e) = std::fs::write(&path, &current) {
-                    self.services
-                        .logger
-                        .warn(&format!("persona 基线快照写入失败: {e}"));
-                }
-                self.base_prompt = Some(current);
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => self.services.logger.warn(&format!(
+                    "persona 基线快照读取失败（{}）: {e}；本次以当前主链提示词为基线",
+                    path.display()
+                )),
             }
-            None => self.base_prompt = Some(current),
+        }
+        let current = self.current_main_prompt();
+        self.base_prompt = Some(current.clone());
+        current
+    }
+
+    /// 把基线落到 Mod 状态文件（**只在成功写回主链之后**调用；已有快照不覆盖）。
+    fn persist_base_prompt(&self) {
+        let Some(base) = &self.base_prompt else {
+            return;
+        };
+        let Some(path) = self.base_state_path() else {
+            return;
+        };
+        if path.exists() {
+            return; // 已有基线：启停以它为锚，不被本次产物污染。
+        }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            self.services
+                .logger
+                .warn(&format!("persona 基线快照目录创建失败: {e}"));
+            return;
+        }
+        if let Err(e) = std::fs::write(&path, base) {
+            self.services
+                .logger
+                .warn(&format!("persona 基线快照写入失败: {e}"));
         }
     }
 
     /// 把卡合成 `system_prompt` 并写回主链。
-    fn apply_from_config(&mut self) {
-        let card = match self.load_card() {
-            Ok(Some(card)) => self.with_overrides(card),
-            Ok(None) => self.with_overrides(PersonaCard::default()),
-            Err(e) => {
-                self.services
-                    .logger
-                    .warn(&format!("persona 载入角色卡失败，保留主链现有提示词: {e}"));
-                return;
+    ///
+    /// - `Ok(())`：已写入，或**本来就没配卡**（合法 no-op：先启用、后填卡）；
+    /// - `Err(e)`：**配置坏了**（读不到 / 不是卡 / 超大 / 合成结果为空 / 写盘被拒）。
+    ///   调用方（[`ModRuntime::start`]）把它变成 `ModStatus::Failed`：界面立刻
+    ///   看得到失败，而主链 `system_prompt` **一个字都不动**（写盘在所有校验之后）。
+    fn apply_from_config(&mut self) -> Result<(), String> {
+        let card = match self.load_card()? {
+            Some(card) => self.with_overrides(card),
+            None if self.config.has_overrides() => self.with_overrides(PersonaCard::default()),
+            None => {
+                self.services.logger.info(
+                    "persona 未配置角色卡（card_path / card_json 均空、也无覆盖项），保持主链现有提示词",
+                );
+                return Ok(());
             }
         };
         let composed = compose_system_prompt(&card, self.config.include_discipline);
-        if composed.is_empty() {
-            self.services
-                .logger
-                .info("persona 没有可写入的人设（卡为空且无覆盖），保留主链现有提示词");
-            return;
+        if composed.trim().is_empty() {
+            return Err(
+                "角色卡没有产生任何可写入的人设文本（字段全空，且未启用对话纪律模板）".to_string(),
+            );
         }
-        self.ensure_base_prompt();
+        let base = self.ensure_base_prompt();
         let ok = self
             .services
             .apply_settings
             .apply(serde_json::json!({"persona": {"system_prompt": composed}}));
-        if ok {
-            self.services.logger.info(&format!(
-                "persona 已写入主链 system_prompt（来源 {}，{} 字）",
-                card.format,
-                composed.chars().count()
+        if !ok {
+            return Err(format!(
+                "apply_settings 写回主链失败（{} 不可写？），system_prompt 未改变；原基线 {base:?}",
+                self.services.config_path.trim()
             ));
-        } else {
-            self.services
-                .logger
-                .warn("persona apply_settings 失败：主链 system_prompt 未改变");
         }
+        self.persist_base_prompt();
+        self.services.logger.info(&format!(
+            "persona 已写入主链 system_prompt（来源 {}，{} 字）",
+            card.format,
+            composed.chars().count()
+        ));
         if self.config.say_first_mes && !card.first.is_empty() {
             self.services.say_tx.say(card.first.clone());
         }
+        Ok(())
     }
 }
 
 impl ModRuntime for PersonaRuntime {
+    /// 启动 = 校验配置 → 写回主链 → 注册 schema。
+    ///
+    /// 顺序是有意的：**坏配置不得留下半个副作用**（不注册、不写盘、不落基线快照）。
+    /// 坏配置 → `Err(ModError::Init)` → host 置 `ModStatus::Failed` 并停用本实例
+    /// （失败隔离见 `docs/architecture/mod-product-chain.md` §7）；**不要**退化成
+    /// 「记一行 error 然后 Ok」——那会让界面显示「运行中」而主链其实没接管（自检说谎）。
+    /// 静态 schema 仍由 `factory.settings_spec()` 提供，所以失败后前端照样拿得到
+    /// 表单去修配置。
     fn start(&mut self, registrar: &mut dyn ModRegistrar) -> Result<(), ModError> {
-        // 静态 schema（factory.settings_spec 同源）：未启用也能渲染表单。
-        registrar.register_settings(persona_settings_spec())?;
+        if let Err(e) = self.apply_from_config() {
+            self.services
+                .logger
+                .error(&format!("persona 配置无效：{e}"));
+            return Err(ModError::Init {
+                mod_id: DESCRIPTOR.id.to_string(),
+                message: e,
+            });
+        }
+        if let Err(e) = registrar.register_settings(persona_settings_spec()) {
+            // 注册失败也要**回滚**：已经写回主链的提示词不能留在那儿，
+            // 否则一个 Failed 的 Mod 却在主链上留了痕——半个副作用比不接管更坏。
+            let _ = self.shutdown();
+            return Err(e);
+        }
         self.registered = true;
-        self.apply_from_config();
         Ok(())
     }
 
@@ -453,7 +640,7 @@ impl ModRuntime for PersonaRuntime {
             } else {
                 self.services
                     .logger
-                    .warn("persona 还原主链 system_prompt 失败（apply_settings 返回 false）");
+                    .error("persona 还原主链 system_prompt 失败（apply_settings 返回 false）");
             }
         }
         self.registered = false;
@@ -463,6 +650,8 @@ impl ModRuntime for PersonaRuntime {
 }
 
 /// 角色卡 Mod 的 settings schema（**静态**；factory 与 runtime.start 共用）。
+///
+/// **不含 `enabled`**：启停只由 Mod manifest 表达（模块头注「启停语义」）。
 fn persona_settings_spec() -> ModSettingsSpec {
     ModSettingsSpec {
         mod_id: DESCRIPTOR.id.to_string(),
@@ -542,210 +731,4 @@ impl ModFactory for PersonaFactory {
 pub const FACTORY: PersonaFactory = PersonaFactory;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    /// 记录 register_settings 的测试注册器。
-    #[derive(Default)]
-    struct MockRegistrar {
-        specs: Vec<ModSettingsSpec>,
-    }
-
-    impl ModRegistrar for MockRegistrar {
-        fn register_settings(&mut self, spec: ModSettingsSpec) -> Result<(), ModError> {
-            self.specs.push(spec);
-            Ok(())
-        }
-        fn subscribe(&mut self, _topic: ModEventTopic) -> Result<SubscriptionId, ModError> {
-            Ok(SubscriptionId(1))
-        }
-        fn unsubscribe(&mut self, _id: SubscriptionId) -> Result<(), ModError> {
-            Ok(())
-        }
-    }
-
-    fn noop_services() -> ModServices {
-        ModServices::new(
-            ModActionSender::new(|_| false),
-            SaySender::new(|_| true),
-            ModEventSender::new(|_, _| true),
-            ModLogger::new(|_, _| {}),
-        )
-    }
-
-    /// 带捕获 apply + 固定 settings 快照 + config 路径的 services。
-    fn capturing_services(
-        calls: Arc<Mutex<Vec<serde_json::Value>>>,
-        base_prompt: &'static str,
-        config_path: String,
-    ) -> ModServices {
-        noop_services()
-            .with_apply_settings(ModSettingsApplier::new(move |patch| {
-                calls.lock().unwrap().push(patch);
-                true
-            }))
-            .with_settings_reader(ModSettingsReader::new(
-                move || serde_json::json!({"persona": {"system_prompt": base_prompt}}),
-            ))
-            .with_config_path(config_path)
-    }
-
-    #[test]
-    fn descriptor_is_static_and_api_compatible() {
-        assert_eq!(DESCRIPTOR.id, "persona");
-        assert_eq!(DESCRIPTOR.api_version, MOD_API_VERSION);
-    }
-
-    #[test]
-    fn parse_v1_flat_json() {
-        let card = PersonaCard::parse_json(
-            r#"{"name":"NEKO","description":"猫娘","personality":"傲娇","scenario":"咖啡馆","first_mes":"你好"}"#,
-        )
-        .expect("V1 卡应解析");
-        assert_eq!(card.name, "NEKO");
-        assert_eq!(card.first, "你好");
-        assert_eq!(card.format, "v1");
-    }
-
-    #[test]
-    fn parse_v2_nested_json() {
-        let card = PersonaCard::parse_json(
-            r#"{"spec":"chara_card_v2","spec_version":"2.0","data":{"name":"NEKO","description":"猫娘","system_prompt":"用短句。"}}"#,
-        )
-        .expect("V2 卡应解析");
-        assert_eq!(card.name, "NEKO");
-        assert_eq!(card.system_prompt, "用短句。");
-        assert_eq!(card.format, "v2");
-    }
-
-    #[test]
-    fn reject_non_card_json() {
-        assert!(PersonaCard::parse_json(r#"{"foo":1}"#).is_none());
-        assert!(PersonaCard::parse_json("not json").is_none());
-    }
-
-    fn push_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        out.extend_from_slice(kind);
-        out.extend_from_slice(data);
-        out.extend_from_slice(&[0, 0, 0, 0]); // CRC（本 Mod 不校验）
-    }
-
-    fn png_with_chara(payload: &str) -> Vec<u8> {
-        let mut out = PNG_SIGNATURE.to_vec();
-        push_chunk(&mut out, b"tEXt", format!("chara\0{payload}").as_bytes());
-        push_chunk(&mut out, b"IEND", &[]);
-        out
-    }
-
-    #[test]
-    fn parse_png_with_base64_chara() {
-        let card_json =
-            r#"{"spec":"chara_card_v2","data":{"name":"PNG猫","description":"来自 PNG"}}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(card_json.as_bytes());
-        let png = png_with_chara(&b64);
-        assert!(png.starts_with(&PNG_SIGNATURE));
-        let card = PersonaCard::parse_bytes(&png).expect("PNG 卡应解析");
-        assert_eq!(card.name, "PNG猫");
-        assert_eq!(card.description, "来自 PNG");
-        assert_eq!(card.format, "v2");
-    }
-
-    #[test]
-    fn png_without_chara_reports_honestly() {
-        let mut out = PNG_SIGNATURE.to_vec();
-        push_chunk(&mut out, b"IEND", &[]);
-        let err = PersonaCard::parse_bytes(&out).expect_err("无 chara 应报错");
-        assert!(err.contains("没有角色卡数据"), "err = {err}");
-    }
-
-    #[test]
-    fn compose_skips_empty_and_includes_discipline() {
-        let card = PersonaCard {
-            name: "NEKO".into(),
-            description: "猫娘".into(),
-            ..Default::default()
-        };
-        let with = compose_system_prompt(&card, true);
-        assert!(with.contains("[角色] NEKO"));
-        assert!(with.contains("猫娘"));
-        assert!(with.contains("【对话纪律】"));
-        let without = compose_system_prompt(&card, false);
-        assert!(!without.contains("【对话纪律】"));
-        assert_eq!(compose_system_prompt(&PersonaCard::default(), false), "");
-    }
-
-    #[test]
-    fn start_applies_and_shutdown_restores_base() {
-        let dir = std::env::temp_dir().join(format!("l2d-persona-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let config_path = dir.join("live2d-ai.toml").display().to_string();
-
-        let calls: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
-        let card = r#"{"spec":"chara_card_v2","data":{"name":"NEKO","description":"猫娘","first_mes":"你好"}}"#;
-        let mut rt = PersonaRuntime::new(
-            capturing_services(calls.clone(), "BASE", config_path.clone()),
-            PersonaConfig::from_value(&serde_json::json!({
-                "card_json": card,
-                "include_discipline": true,
-            })),
-        );
-        let mut mock = MockRegistrar::default();
-        rt.start(&mut mock).expect("start");
-        assert_eq!(mock.specs.len(), 1, "应注册 settings schema");
-        assert_eq!(mock.specs[0].fields.len(), 8);
-
-        {
-            let got = calls.lock().unwrap();
-            assert_eq!(got.len(), 1, "start 应写一次 system_prompt");
-            let prompt = got[0]["persona"]["system_prompt"].as_str().unwrap();
-            assert!(prompt.contains("[角色] NEKO"), "prompt = {prompt}");
-            assert!(prompt.contains("猫娘"));
-            assert!(prompt.contains("【对话纪律】"));
-        }
-
-        // 基线快照落盘（与 live2d-ai.toml 同目录）。
-        let saved = std::fs::read_to_string(dir.join(BASE_STATE_FILE)).expect("基线快照应存在");
-        assert_eq!(saved, "BASE");
-
-        rt.shutdown().expect("shutdown");
-        let got = calls.lock().unwrap();
-        assert_eq!(got.len(), 2, "shutdown 应还原一次");
-        assert_eq!(got[1]["persona"]["system_prompt"], "BASE");
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// 手工覆盖优先于卡字段；card_path 不存在时如实报错且不改主链。
-    #[test]
-    fn overrides_win_and_bad_path_keeps_main_prompt() {
-        let calls: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
-        let mut rt = PersonaRuntime::new(
-            capturing_services(calls.clone(), "BASE", String::new()),
-            PersonaConfig::from_value(&serde_json::json!({
-                "card_json": r#"{"name":"CARD","description":"卡描述"}"#,
-                "name": "OVERRIDE",
-            })),
-        );
-        let mut mock = MockRegistrar::default();
-        rt.start(&mut mock).unwrap();
-        {
-            let got = calls.lock().unwrap();
-            let prompt = got[0]["persona"]["system_prompt"].as_str().unwrap();
-            assert!(prompt.contains("OVERRIDE"), "覆盖应生效: {prompt}");
-            assert!(!prompt.contains("CARD"), "卡里的 name 应被覆盖: {prompt}");
-        }
-
-        let calls2: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
-        let mut bad = PersonaRuntime::new(
-            capturing_services(calls2.clone(), "BASE", String::new()),
-            PersonaConfig::from_value(&serde_json::json!({
-                "card_path": "/definitely/not/here.png",
-            })),
-        );
-        bad.start(&mut MockRegistrar::default()).unwrap();
-        assert!(calls2.lock().unwrap().is_empty(), "读卡失败不得改主链");
-    }
-}
+mod tests;
