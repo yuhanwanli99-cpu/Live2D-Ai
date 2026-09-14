@@ -1,0 +1,15 @@
+[package]
+name = "live2d-ai-mod-memory"
+description = "Live2D-Ai 本地记忆 Mod（Wave 2 C 轨 memory-v0）：纯函数词元重叠检索 + 本地 JSONL 存储 + 经 apply_settings 把 top-k 注入 persona.system_prompt（只对下一轮生效）；无向量 / embedding / 网络依赖"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+authors.workspace = true
+
+[dependencies]
+live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
+serde_json = "1"
+
+[lints]
+workspace = true

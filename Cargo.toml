@@ -22,6 +22,8 @@ members = [
     "crates/live2d-ai-mod-voice-input",
     # Wave 1（2026-09-14）：壁纸策略 Mod（何时换 / 是否与舞台同步）。
     "crates/live2d-ai-mod-wallpaper",
+    # Wave 2 C 轨（2026-09-14）：本地记忆 v0（JSONL + 词元重叠检索 → 注入 persona.system_prompt）。
+    "crates/live2d-ai-mod-memory",
     "xtask",
 ]
 

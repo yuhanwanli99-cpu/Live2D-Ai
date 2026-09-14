@@ -56,6 +56,10 @@ live2d-ai-mod-persona = { path = "../live2d-ai-mod-persona" }
 live2d-ai-mod-voice-input = { path = "../live2d-ai-mod-voice-input" }
 # Wave 1（2026-09-14）：wallpaper 策略 v0（何时换 / 是否与舞台同步）。
 live2d-ai-mod-wallpaper = { path = "../live2d-ai-mod-wallpaper" }
+# Wave 2 C 轨（2026-09-14）：memory v0（本地 JSONL 记忆 + 词元重叠检索）。
+# **本分支不注册**进 AVAILABLE_MOD_FACTORIES——注册由集成 PR 按
+# docs/plans/parallel-mods/REGISTER-memory-v0.md 一次改到位；缺省停用。
+live2d-ai-mod-memory = { path = "../live2d-ai-mod-memory" }
 ringbuf = "0.5"
 # 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
 # - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，

@@ -2281,6 +2281,7 @@ dependencies = [
  "l2d",
  "live2d-ai-core",
  "live2d-ai-mod-external-input",
+ "live2d-ai-mod-memory",
  "live2d-ai-mod-persona",
  "live2d-ai-mod-pet-desktop",
  "live2d-ai-mod-system",
@@ -2323,6 +2324,14 @@ version = "0.2.0-rc.2"
 dependencies = [
  "live2d-ai-mod-system",
  "log",
+ "serde_json",
+]
+
+[[package]]
+name = "live2d-ai-mod-memory"
+version = "0.2.0-rc.2"
+dependencies = [
+ "live2d-ai-mod-system",
  "serde_json",
 ]
 
