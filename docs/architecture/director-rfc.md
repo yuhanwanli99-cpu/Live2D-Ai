@@ -1,24 +1,32 @@
 # 导演（director）RFC：文本 → 情绪/意图 → TTS 参数 + 动作槽位
 
-> **状态**：2026-09-14 **草案 / 未实现 / 未注册**。Wave 2 **D 轨**（分支
-> `mod/director-rfc`，基座 `429609f2`）**唯一交付物就是本文档**。
-> 范围真源：[`../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md)
-> §3D；上层协议：[`../plans/parallel-mods/PARALLEL-PROTOCOL-2026-09-14.md`](../plans/parallel-mods/PARALLEL-PROTOCOL-2026-09-14.md)。
-> 相关契约：[`core-chain-baseline.md`](core-chain-baseline.md) §3（动作在产品路径上不存在）、
-> [`tts-is-core.md`](tts-is-core.md)（TTS 是核心链路，`[tts]` 是端点唯一权威）、
-> [`mod-product-chain.md`](mod-product-chain.md) §5/§6/§7。
+> **状态**：2026-09-14 **Wave 3 G 轨已推进到「可启用的最小骨架」（仍不投递、注册留给收束）**。
 >
-> **本文档不产生任何代码**：不新建 crate、不注册 `AVAILABLE_MOD_FACTORIES`、
-> 不改任何 `.rs`、不动 `mod_count_*` / 缺省 manifest / 版本号。
-> 它定义的是「将来若要做导演，契约长什么样、边界在哪、什么条件下才准晋升」。
+> - **Wave 2 D 轨**（分支 `mod/director-rfc`，基座 `429609f2`）的唯一交付物是本文档
+>   ——契约先行，**无 crate**；
+> - **Wave 3 G 轨**（分支 `mod/w3-director`，基线 `118bd435`）据此新建
+>   `crates/live2d-ai-mod-director/`：正文 → 情绪/意图/TTS **建议**的纯函数决策 +
+>   `TurnPrompt` / `TurnEnded` 订阅 + `state_json`，**零投递**；工厂注册
+>   （`AVAILABLE_MOD_FACTORIES` 6 → 7、**缺省停用**）由**主 agent 收束时**完成——
+>   **G 轨不碰** `main.rs` / `mod_count_*` / `default_mods_manifest` / 版本号。
+>   **实现契约与实测见 [`director-mod-v0.md`](director-mod-v0.md)**；
+>   本文档与它冲突时以实现面 + 回归为准，并回改本文档。
+> - 范围真源：Wave 2 §3D + Wave 3 §3G；上层协议：
+>   [`../plans/parallel-mods/PARALLEL-PROTOCOL-2026-09-14.md`](../plans/parallel-mods/PARALLEL-PROTOCOL-2026-09-14.md)。
+> - 相关契约：[`core-chain-baseline.md`](core-chain-baseline.md) §3（动作在产品路径上不存在）、
+>   [`tts-is-core.md`](tts-is-core.md)（TTS 是核心链路，`[tts]` 是端点唯一权威）、
+>   [`mod-product-chain.md`](mod-product-chain.md) §5/§6/§7。
+>
+> 本文档定义的是「导演的契约长什么样、边界在哪、什么条件下才准晋升」；
+> **它不授权任何投递**——控制面在 §5，红线在 §6 / §7。
 
 ## 0. 本轮决定摘要（先读这一节）
 
 | 决定 | 内容 | 锚点 |
 | --- | --- | --- |
-| 只交文档 | 无 `crates/live2d-ai-mod-director/`（该 crate 已于 `0.1.0-rc.2` 删除，归档分支 `archive/action-layer-p6`） | [`directory.md`](directory.md)、[`core-chain-baseline.md`](core-chain-baseline.md) §3.2 |
-| **不注册** | 不进 `AVAILABLE_MOD_FACTORIES`、不新增 id、不碰 `mod_count_is_six` / `mod_factory_ids_match_expected` | §8；Wave 2 §3D |
-| 动作只是**槽位占位** | 槽位是本文档里的**命名契约**，不是通道、不是 crate、不是注册表项 | §3.2、[`core-chain-baseline.md`](core-chain-baseline.md) §3.1 |
+| Wave 2 只交文档 → **Wave 3 已建 crate（骨架）** | Wave 2 无 `crates/live2d-ai-mod-director/`（旧 crate 已于 `0.1.0-rc.2` 删除，归档分支 `archive/action-layer-p6`）；Wave 3 G 轨新建**最小骨架**（纯函数决策 + 状态面，**零投递**） | [`director-mod-v0.md`](director-mod-v0.md)、[`directory.md`](directory.md) |
+| **本轨不注册**（主 agent 收束时注册，**缺省停用**） | G 轨不碰 `AVAILABLE_MOD_FACTORIES` / `mod_count_*` / `mod_factory_ids_match_expected`；收束时 6 → 7 | §8（Wave 3 修订）；Wave 3 §3G |
+| 动作只是**槽位占位**；骨架**连槽位都不实现** | 槽位是本文档里的**命名契约**，不是通道、不是 crate、不是注册表项；骨架的 `state_json` 不含 `slots` / `emitted` | §3.2、[`core-chain-baseline.md`](core-chain-baseline.md) §3.1 |
 | `action_tx` 保持休眠 | 不复活、不接线、不实现动作库 | §4 |
 | TTS 端点唯一权威 | `director` **不得**写 `[tts].base_url` / `api_key_env`；未来最多只能**提议** `voice` / `model` | §3.1；[`tts-is-core.md`](tts-is-core.md) §2 |
 | 情绪/意图只能 Mod 侧推导 | 主链**不新增**任何情绪字段/事件/第二 LLM 调用 | §2.2、§2.3 |
@@ -85,6 +93,12 @@
 | `Applied` / `ContractOnly` | patch 成功 / 无通道可用 | 下一轮 `TurnStarted` | 无 |
 | `Failed`（横切） | 任一环节不可用 | 下一轮 `TurnStarted` | **零**，且**绝不**把主链判失败 |
 
+> **Wave 3 G 轨骨架实现的状态子集**：`Idle → Observing → Decided → Idle`
+> （`TurnPrompt` 推导 → 记账本；`TurnEnded` 结项）。**没有** `Applied` /
+> `ContractOnly` 分支（因为骨架没有任何落点，也就不会「应用」什么）；
+> `Silent` 仍是空输入的落点；`Deriving` 是一次纯函数调用，不单独建状态。
+> 实现面见 [`director-mod-v0.md`](director-mod-v0.md) §1 / §4。
+
 **关键时序后果**（与记忆 Mod 同一条，见 [`../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md) §1 基座表）：
 `TurnPrompt` 发出时本轮请求体**马上**构建，因此导演在本轮事件里做的任何
 `apply_settings` **只对下一轮生效**。「观察到第 N 轮 → 影响第 N+1 轮」不是缺陷，
@@ -119,31 +133,38 @@
 embedding 依赖」同一条纪律）：
 
 ```rust
-// 契约草图（本轮不实现，仅定义形状）
+// Wave 3 G 轨已实现（crates/live2d-ai-mod-director/src/decision.rs）
 pub enum EmotionHint { Neutral, Happy, Sad, Angry, Surprised, Anxious, Affectionate }
 pub enum IntentHint  { Chat, Question, Greeting, Farewell, Request, Complaint, Silence }
+pub enum Lexicon     { Builtin, Strict }
+pub struct TtsSuggestion { pub speed: f64, pub pitch: f64 }
+pub struct Decision {
+    pub emotion: EmotionHint,
+    pub intent: IntentHint,
+    pub suggested_tts: TtsSuggestion,
+}
 
-pub fn derive(text: &str) -> (EmotionHint, IntentHint);
+pub fn derive(text: &str, lexicon: Lexicon) -> Decision;
 ```
 
-实现口径（写进未来的 crate 头注与单测）：
+实现口径（**已写进 crate 头注与单测**；下面五条与 `decision.rs` 逐条一致）：
 
-1. **词表打分**：固定关键词/短语表 + 程度副词权重；中文按字 bigram 与关键词双路，
-   ASCII 按词（可复用 memory 的 token 化口径，但不共享代码）；
-2. **标点/形状启发**：`？`/`?` → `Question`；`！` + 短句 → 情绪强度上调；
-   连续重复字符、颜文字/emoji 白名单 → 强度上调；
+1. **词表打分**：固定关键词/短语表（弱 = 权重 1、强 = 权重 2）求和；中文按子串匹配，
+   ASCII 按**词边界**；命中点前一个字是否定字（`不/没/未/别/无/莫`）则作废；
+2. **标点/形状启发**：`？`/`?`（或疑问词）→ `Question`；`!`/`！` 的个数
+   （**封顶 2**）只抬 `suggested_tts.pitch`，不改语速；不识别颜文字 / 重复字符；
 3. **fail-safe 到中性**：未知词、空串、纯空白、纯标点、超长截断后无命中 →
    `Neutral` + `Silence`/`Chat`。**永不**返回「错误」——没有证据不是故障；
 4. **确定性**：同一输入恒等输出；不读时钟、不读文件、不联网（单测不需要 sleep / mock）；
-5. **长度闸门**：与 `voice-input::clean_transcript` 同口径，清洗后为空 → `Silent`，
-   **不发决策**（空输入回合不得产生任何配置写入）。
+5. **长度闸门**：`trim` 后为空 → `Silent`，**不发决策**（空输入回合不得产生
+   任何配置写入）；超长按**字符**（不是字节）截断到 2000 字符。
 
 ### 2.3 明确「不做」的输入改造
 
 | 想要的输入 | 为什么不在这里做 |
 | --- | --- |
 | 主链新增 `emotion` / `mood` 字段 | 违反本题红线；且会给「LLM 必须输出结构化情绪」的假承诺（DeepSeek API 无此能力，同 [`mod-product-chain.md`](mod-product-chain.md) §8） |
-| 主链新增 `TurnEnded` / `TurnFailed` 主题 | `topics.rs` 是**基座独占文件**（Wave 2 §1 红线）。若确实需要，由主 agent 在基座补，**导演轨不得自己动**（见 §9 缺口 1） |
+| 主链新增 `TurnFailed` 主题 | `TurnEnded` 已由 **Wave 3 基座**补上（导演订阅它做轮末结项）；**`TurnFailed` 仍不存在**。`topics.rs` 是**基座独占文件**，需要时由主 agent 补，**导演轨不得自己动**（见 §9 缺口 1） |
 | 原始 LLM token 流（`EngineEvent::TextDelta`）投影给 Mod | 会破坏「正文与音频同拍」的语义分层，且思考/正文共用通道容易把 `reasoning_content` 混进来（[`AGENTS.md`](../../AGENTS.md) 推理模型一节）。**不做** |
 | 第二 LLM 调用做情绪分类 | 复制核心网络层、多一份端点与密钥路径、一轮多一次延迟与费用。**不做** |
 
@@ -169,11 +190,17 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
 
 | 档 | 参数 | 导演可否选 | 通道 | 理由 |
 | --- | --- | --- | --- | --- |
-| **A. 唯一候选** | `[tts].voice` | 未来**仅可提议**；**本轮不写**（无 crate、无写入者） | 若将来做：`ModServices.apply_settings` → `{"tts":{"voice":"…"}}` | 唯一既是「表演参数」又能经既有通道落地的键 |
+| **A. 唯一候选** | `[tts].voice` | 未来**仅可提议**；**Wave 3 骨架不写**（有 crate、**无写入者**） | 若将来做：`ModServices.apply_settings` → `{"tts":{"voice":"…"}}` | 唯一既是「表演参数」又能经既有通道落地的键 |
 | **B. 条件候选** | `[tts].model` | 同上（仅在多音色服务按 model 区分时有意义） | 同上 | 与 `voice` 同类；服务不支持时是 no-op，必须在文档里承认 |
 | **C. 禁止** | `[tts].base_url`、`api_key_env` | **红线禁止** | — | 端点唯一权威在 `live2d-ai.toml`（[`tts-is-core.md`](tts-is-core.md) §1/§2）。导演改端点 = 造出第二个权威 |
 | **C. 禁止** | `[tts].response_format` | **禁止** | — | 不是表演参数，是**解码契约**：`pcm`/`wav` 决定 [`core-chain-baseline.md`](core-chain-baseline.md) §4 的解析路径；且 patch 通道根本没有这个键 |
 | **C. 禁止** | `[tts].sample_rate`、`channels` | **禁止** | — | 被不变量锁死：`verify_core_chain.py` 断言 WS `audio` 帧的 `sample_rate` 与 `[tts]` 一致（不一致会逐片重采样 → 咔哒声，[`core-chain-baseline.md`](core-chain-baseline.md) §6.1）。改它 = 破坏已钉死的验收不变量 |
+
+**Wave 3 G 轨现状（2026-09-14）**：骨架**没有实现 A/B 档的任何写入**——
+`DirectorRuntime` 从不调用 `ModServices::apply_settings`，回归
+`tests::action_tx_and_apply_settings_are_never_called` 断言 `apply_calls == 0`；
+`suggested_tts` 只进日志与 `state_json`。下文「本轮」= Wave 2 契约轮，
+其执行边界对 Wave 3 骨架**同样成立**（更强：连写入路径都不存在）。
 
 **本轮的执行边界（比「未来能不能」更重要）**：
 
@@ -223,6 +250,10 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
    `emitted: ["comfort"]` 时**不允许**把它解释成「动作发生了」——因为动作机制
    不存在。将来若真要接真通道，必须先走 §4 + §5 的门槛，并重新论证动作裁决。
 
+**Wave 3 G 轨不实现槽位**：骨架的 `state_json` **没有** `slots` /
+`emitted` 字段（词汇尚未评审，§9 缺口 5）。上面那段 JSON 仍是**未来形态**的示例，
+不是现状；现状见 [`director-mod-v0.md`](director-mod-v0.md) §4。
+
 **为什么不干脆定义一套完整动作库？** 因为那正是 rc.2 删掉的东西
 （`archive/action-layer-p6`），且「实现动作库」是本题红线。槽位的价值在于
 **先固定词汇、不让实现自行发明协议**；代价是它现在什么都不驱动——这一点明文写出来，
@@ -244,6 +275,10 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
 - 钉子两条：`mod_registry::tests::action_request_is_dormant_not_delivered`
   （`ActionRequest` 必须**不被接受**）与 `main.rs::mod_count_is_six`
   （工厂数不得因动作 Mod 增加）。
+- **Wave 3 骨架的立场更进一步**：`director` crate **从不调用** `action_tx`
+  （**零调用**，而不是「调用了但被拒」）。回归
+  `tests::action_tx_and_apply_settings_are_never_called` 断言
+  `action_calls == 0` **且** `apply_calls == 0`。
 
 ### 4.2 导演若将来真要动它，先满足什么
 
@@ -289,11 +324,31 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
 | 5 | **动作零接触可测**：一条断言「director 不 `use` core 动作类型、不调 `action_tx`、不产出 `channel != "none"`」 | 单测 + `grep` 级检查 |
 | 6 | **不碰基座独占文件**：diff 中不含 `topics.rs` / `factory.rs` / `mod_registry.rs` / `mods_routes.rs` / `supervisor.rs` | PR diff 逐文件核对；需要改 = 基座不足，交主 agent |
 | 7 | 全量门禁绿：`cargo test --workspace --all-targets` / `--doc` / `fmt --check` / `clippy -D warnings` / `rust-ratio ≥ 95%`；`MOD_API_VERSION` 对齐 | 命令输出贴进 REGISTER |
-| 8 | **具名维护者**：`REGISTER-director.md` 写清 owner（「谁来维护第二个 UI 壳」是同一条问题） | REGISTER 文件必须点名 |
+| 8 | **具名维护者**：`REGISTER-director-v0.md` 写清 owner（「谁来维护第二个 UI 壳」是同一条问题） | REGISTER 文件必须点名 |
 | 9 | 观感与文案：`GET /api/v1/mods/director/state` 200 且**脱敏**（无 token/密钥明文，契约见 `ModRuntime::state_json` 头注）；错误码走 `director_*` 前缀进 tracing，不新增 `println!` | 路由回归 + 日志抽查 |
 
 **注**：第 1 条要求「≥3 条演示」而不是「≥3 个单测」，是刻意的——
 本仓的历史教训是异步时序 / 浮层时机 / 平台视图这类缺陷**只有真的在浏览器里点一遍才会露出来**。
+
+### 5.1.1 Wave 3 G 轨骨架的进度（对照上表）
+
+| # | 条件 | 骨架状态 |
+| --- | --- | --- |
+| 0 | 写入 `[tts].voice` 被授权 | ✗ **未授权** → 骨架选择零写入 |
+| 1 | ≥3 条用户可见演示 | ✗ 不满足（骨架**故意无差异**：不投递） |
+| 2 | 纯函数单测 ≥20 条 | ✓ **28 条**（含纯函数 14 条） |
+| 3 | 失败隔离可证明 | 部分：坏 `TurnEnded` → `errors` 不 panic；`apply_settings` 不适用（从不调用） |
+| 4 | 端点红线可测 | ✓ **更强**：`apply_calls == 0`（根本没有 patch） |
+| 5 | 动作零接触可测 | ✓ `action_calls == 0` + 不 `use` core 动作类型 + `channel:"none"` |
+| 6 | 不碰基座独占文件 | ✓ diff 只含新 crate + 根 `Cargo.toml` members + 文档 |
+| 7 | 全量门禁绿 | 本轨只跑定向门禁；全量由主 agent 收束时跑 |
+| 8 | 具名维护者 | ✓ [REGISTER-director-v0.md](../plans/parallel-mods/REGISTER-director-v0.md) §5 点名 |
+| 9 | `state` 200 且脱敏；错误码 `director_*` | 部分：`state_json` 无密钥字段、orphan 用 `director_orphan_turn_ended`；路由回归待注册后跑 |
+
+**结论**：骨架满足第 2 / 4 / 5 / 6 / 8 条（外加第 3 条一部分）。第 0 / 1 条是**产品授权**
+问题，不是实现问题——在它们满足前，本 Mod 保持「最小骨架 / 缺省停用」，
+**不得**被描述成 v1，**不得**接上任何下行通道。逐条实测见
+[`director-mod-v0.md`](director-mod-v0.md) §9 / §10。
 
 ### 5.2 第二级：晋升为**核心链路**（per-request TTS 参数覆盖）
 
@@ -329,7 +384,7 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
 | `[tts].sample_rate`、`[tts].channels` | 用户 / Flutter；同时被 `verify_core_chain.py` 不变量锁死 | **禁止** | 改了会破坏 WS 音频一致性断言 |
 | `[llm].*` | 用户 / Flutter `PATCH /api/v1/settings` | **禁止** | 导演不选模型、不碰端点、不碰密钥 |
 | 壁纸偏好 `DisplayPrefs.stageImage` / `shellImage` / `syncShellStageBg` / `stagePlaylist` | **Flutter**（localStorage，唯一写入者）；`wallpaper` Mod 只**出决策**，由 Flutter 消费后落盘 | **禁止** | 壁纸归属 B 轨（`wallpaper-mod-v0.md` §5）；导演不得直写前端偏好，也不得新增 wasm 路径 |
-| 各自 Mod 的 `mods.json` config | 各 Mod 自己的 namespaced 段 + Flutter config API | 仅自己的 `director` 段（本轮无 crate = 无写入） | 不得借 `apply_settings` 写别人的 namespace |
+| 各自 Mod 的 `mods.json` config | 各 Mod 自己的 namespaced 段 + Flutter config API | 仅自己的 `director` 段（**骨架只读**：`log_capacity` / `emotion_lexicon`，不写回） | 不得借 `apply_settings` 写别人的 namespace |
 | core 动作 / 表演状态 | **无驱动方**（休眠） | **禁止** | §4；[`core-chain-baseline.md`](core-chain-baseline.md) §3.2 |
 
 两条总结纪律：
@@ -342,15 +397,25 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
 
 ## 7. 非目标
 
-### 7.1 本轮（Wave 2 D 轨）明文不做
+### 7.1 明文不做：Wave 2 D 轨（历史）与 Wave 3 G 轨（骨架）
 
-- **不新建 crate**（无 `crates/live2d-ai-mod-director/`）、**不改任何 `.rs`**；
+**Wave 2 D 轨明文不做**（其中「不新建 crate」一条已被 Wave 3 取代）：
+
+- ~~不新建 crate~~ → **Wave 3 G 轨已新建** `crates/live2d-ai-mod-director/`（骨架）；
 - **不注册** `AVAILABLE_MOD_FACTORIES`、不新增 id、不碰 `mod_count_*` /
-  `mod_factory_ids_match_expected` / `cli_entry::default_mods_manifest` / 版本号；
-- **不复活 Action 真通道**：`action_tx` 保持休眠、core `action/` / `performance/` 不碰；
-- **不实现动作库**、不定义可播放动作、不写 wasm 协议、不新增 WS 帧；
-- 不改 persona / memory / wallpaper / voice-input / pet-desktop 任何一轨的文档或代码；
-- 不写需求里没提的「导演 UI」。
+  `mod_factory_ids_match_expected` / `cli_entry::default_mods_manifest` / 版本号
+  （**Wave 3 同样适用**：注册交给主 agent 收束）；
+- **不复活 Action 真通道**：`action_tx` 保持休眠、core `action/` / `performance/` 不碰
+  （**Wave 3 同样适用**，且骨架是**零调用**）；
+- **不实现动作库**、不定义可播放动作、不写 wasm 协议、不新增 WS 帧（**同样适用**）；
+- 不改 persona / memory / wallpaper / voice-input / pet-desktop 任何一轨的文档或代码（**同样适用**）；
+- 不写需求里没提的「导演 UI」（**同样适用**）。
+
+**Wave 3 G 轨骨架新增的不做**（逐条可测）：
+
+- **不投递**任何动作 / TTS 参数（不调 `action_tx`、不调 `apply_settings`）；
+- **不实现槽位**（`slots` / `emitted` 不进 `state_json`）；
+- **不订阅** `TextDelta`（回复侧证据仍缺，§9 缺口 2 不变）。
 
 ### 7.2 长期非目标（写进契约，防止以后被当成 backlog）
 
@@ -362,12 +427,19 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
 - 「当轮改音色」「改这一句的音色」这类**做不到**的承诺（§1、§3.1）；
 - 动态 `.so` / 热插拔市场（[`mod-product-chain.md`](mod-product-chain.md) §8）。
 
-## 8. 「不注册」决定的论证
+## 8. 注册决定的沿革：Wave 2「不注册」→ Wave 3「收束时注册为第 7 个」
 
-Wave 2 §3D 已把选择钉死：**本轮不新建 crate、不注册 `AVAILABLE_MOD_FACTORIES`**。
-本节把理由写全，供以后翻案时对照。
+Wave 2 §3D 曾把选择钉死：**不新建 crate、不注册 `AVAILABLE_MOD_FACTORIES`**。
+本节保留当时的完整论证，供翻案时对照；Wave 3 G 轨的修订见下方引用块。
 
-### 8.1 被采纳：只交文档、默认不注册
+> **Wave 3 修订（2026-09-14，G 轨）**：Wave 3 §3G 的裁决**推翻**了 Wave 2 的「连 crate
+> 都不建」——骨架已经存在（crate + 静态 schema + 两个事件订阅 + `state_json` +
+> 零投递）。**注册**（`AVAILABLE_MOD_FACTORIES` 6 → 7、`mod_count_is_seven`、
+> id 断言）由**主 agent 收束时一次完成**，**缺省停用**。§8.1 / §8.2 因此是**历史论证**；
+> 其中仍然有效的只有一句：**在 §5.1 第 0/1 条（授权 + 用户可见演示）满足前，director
+> 不得获得任何投递能力**——骨架把这句话做成了结构事实（没有任何调用点）。
+
+### 8.1 Wave 2 被采纳的方案（历史）：只交文档、默认不注册
 
 1. **没有消费者就没有产品价值**。本文档不含实现；注册一个什么都不做的工厂，
    在 `GET /api/v1/mods` 里平白多一条列表项，却是唯一一个「启用后什么都不会发生」
@@ -411,15 +483,17 @@ Wave 2 §3D 已把选择钉死：**本轮不新建 crate、不注册 `AVAILABLE_
    可预见的将来没有可接线的东西；为它占一个 Failed 槽位，只会让下一轮读者
    误以为「导演已经动过工」。
 
-**结论**：不注册。将来若要注册，走 §5.1 的 checklist + `REGISTER-director.md`，
-并由**集成方/主 agent** 改基座独占文件，导演轨自己不碰。
+**Wave 2 结论（历史）**：不注册。**Wave 3 结论**：先落 crate 骨架，注册由主 agent
+收束时做——§5.1 的 checklist 里第 2 / 4 / 5 / 6 / 8 条已满足、第 0 / 1 条未满足，因此
+注册的是「**骨架**」而不是「**v1**」，且**缺省停用、零投递**。入口：
+[REGISTER-director-v0.md](../plans/parallel-mods/REGISTER-director-v0.md)。
 
 ## 9. 未决 / 已知缺口
 
-1. **没有 `TurnEnded` / `TurnFailed` 主题**。Mod 看不到 turn 的收口，只能靠
-   下一轮 `TurnPrompt`（权威）或 `VoiceEnded`（可选、失败轮可能不发）来结束观察。
-   本轮**不动** `topics.rs`（基座独占）；若导演真要做，建议由主 agent 在基座补
-   一个 `TurnEnded{turn_id, status}`——这是**基座需求**，不是导演的实现细节。
+1. **`TurnFailed` 仍不存在**（`TurnEnded` 已由 Wave 3 基座补上）。
+   基座新增的 `TurnEnded` 语义是「这一轮结束了」，**不分成败**——需要区分成败的 Mod
+   只能结合自己订阅的事件判断，不得把它当成功回执。骨架的处置：`TurnEnded` 结项；
+   没有在飞轮则 `errors += 1`（**不是**主链失败）。
 2. **Mod 侧拿不到「收口正文」**。主链有 `TurnReport::assistant_text`，但
    `TextFallback`（失败轮整段正文）**不投影**到 Mod 主题；Mod 只能把本轮
    `TextDelta` 逐句累积出近似值，且**失败轮可能一句 `TextDelta` 都没有**。
@@ -430,8 +504,13 @@ Wave 2 §3D 已把选择钉死：**本轮不新建 crate、不注册 `AVAILABLE_
    不可接受，但**没有**解决「只影响一轮且不落盘」的通道——那需要 §5.2 的核心改动。
 5. **槽位词汇尚未评审**：`greet` / `comfort` / `agree` 只是示例。评审前不实现、
    不注册、不写进任何代码。
-6. **本轨无 cargo 改动**，因此不存在「导演的门禁数字」；§5 里的数字是
-   **准入条件**，不是本轮实测值。
+6. **门禁数字**：Wave 3 骨架实测 `cargo test -p live2d-ai-mod-director`
+   **28 passed / 0 failed**（实跑见 [`director-mod-v0.md`](director-mod-v0.md) §10）；
+   §5 表里的其它数字是**准入条件**，不是实测值。注册后的活服务路由验收待主 agent 补。
+7. **`suggested_tts` 没有消费者**：这是骨架的**定义**（零投递），不是遗漏。
+   要让它生效必须先过 §5.1 第 0/1 条；在那之前任何「接上通道」的改动都是越界。
+8. **`docs/README.md` 的 director 条目仍写着「只交文档 / 未注册」**——该文件属
+   基座独占清单，**Wave 3 G 轨不改**；由主 agent 收束时一并更新。
 
 ## 10. 参考
 
@@ -442,6 +521,7 @@ Wave 2 §3D 已把选择钉死：**本轮不新建 crate、不注册 `AVAILABLE_
   现行 Mod 表、正式版 Rust/C 规则、失败隔离
 - [`wallpaper-mod-v0.md`](wallpaper-mod-v0.md) §5 / §8：决策 → 显示层落点与「不做大轮播」
 - [`directory.md`](directory.md)：`live2d-ai-mod-director` 已于 `0.1.0-rc.2` 删除
+  （**Wave 3 G 轨已重建为骨架**，见 [`director-mod-v0.md`](director-mod-v0.md)）
 - [`mod-community-license.md`](mod-community-license.md)：注册与分发边界
 - [`../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md)
   §1（基座 `TurnPrompt` / `state_json`）、§3C（memory 注入点与边界）、§3D（本轨范围）
