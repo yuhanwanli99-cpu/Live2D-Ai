@@ -105,6 +105,11 @@ pub fn handle_mods_route(
         return Some(handle_mod_config_get(ctx, id));
     }
 
+    // GET /api/v1/mods/{id}/state → 运行态快照（Wave 2）。
+    if action == "state" && *method == Method::Get {
+        return Some(handle_mod_state_get(ctx, id));
+    }
+
     // 其余 action 仅 POST。
     if *method != Method::Post {
         return Some(json_error(
@@ -297,6 +302,43 @@ fn handle_mod_config_get(ctx: &ServerContext, id: &str) -> Response<Cursor<Vec<u
         StatusCode(200),
         &serde_json::json!({"id": id, "config": redacted}).to_string(),
     )
+}
+
+/// `GET /api/v1/mods/{id}/state`：Mod 的**只读运行态**（Wave 2）。
+///
+/// 在 `ModRuntime::state_json`（`live2d-ai-mod-system`）之前，Mod 的内部状态
+/// 只能从日志里看——「Mod 里跑了一套状态机、界面上什么也看不见」。
+/// 本路由把它变成可测面：`wallpaper` 的当前决策、`pet-desktop` 的口型 / 窗口态
+/// 都从这里出去，前端与集成测试用同一个面。
+///
+/// 状态码语义（**刻意区分 404 与 503**）：
+/// - 未知 id → `404 not_found`（这个 Mod 根本不在注册表）；
+/// - 在册但取不到快照 → `503 state_unavailable`——三种成因都归它：未启用 /
+///   本 Mod 没实现 `state_json` / Mod worker 正持 runtime 锁。
+///   前端据此显示「暂时读不到」而**不是**「这个 Mod 不存在」。
+///
+/// 只读，故与 `config` GET 同口径**不校验 Origin**（GET 无副作用）；
+/// 返回体里的 state 由各 Mod 自行脱敏（契约见 `ModRuntime::state_json` 头注）。
+fn handle_mod_state_get(ctx: &ServerContext, id: &str) -> Response<Cursor<Vec<u8>>> {
+    let registry = ctx
+        .mod_registry
+        .lock()
+        .expect("mod_registry mutex poisoned");
+    if !registry.contains(id) {
+        return json_error(StatusCode(404), "not_found", format!("Mod {id} 不在注册表"));
+    }
+    let enabled = registry.is_enabled(id);
+    match registry.runtime_state(id) {
+        Some(state) => ok_response(
+            StatusCode(200),
+            &serde_json::json!({"id": id, "enabled": enabled, "state": state}).to_string(),
+        ),
+        None => json_error(
+            StatusCode(503),
+            "state_unavailable",
+            format!("Mod {id} 运行态当前不可读（未启用 / 未实现 state_json / worker 正忙）"),
+        ),
+    }
 }
 
 /// 把 `ModSettingsSpec` 序列化成前端表单契约（`kind` 标签判类型）。
@@ -617,5 +659,137 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(400));
+    }
+
+    // ------------------------------------------- Wave 2：GET {id}/state
+
+    /// 带运行态快照的测试 Mod（`state_json` 有一份可断言的内容）。
+    struct StateModFactory;
+
+    impl live2d_ai_mod_system::ModFactory for StateModFactory {
+        fn descriptor(&self) -> &'static live2d_ai_mod_system::ModDescriptor {
+            static D: live2d_ai_mod_system::ModDescriptor = live2d_ai_mod_system::ModDescriptor {
+                id: "stateful",
+                name: "Stateful",
+                version: "0.1.0",
+                api_version: 1,
+            };
+            &D
+        }
+        fn create(
+            &self,
+            _: live2d_ai_mod_system::ModServices,
+            _: serde_json::Value,
+        ) -> Result<Box<dyn live2d_ai_mod_system::ModRuntime>, live2d_ai_mod_system::ModError>
+        {
+            Ok(Box::new(StatefulRuntime))
+        }
+    }
+
+    struct StatefulRuntime;
+
+    impl live2d_ai_mod_system::ModRuntime for StatefulRuntime {
+        fn start(
+            &mut self,
+            _: &mut dyn live2d_ai_mod_system::ModRegistrar,
+        ) -> Result<(), live2d_ai_mod_system::ModError> {
+            Ok(())
+        }
+        fn state_json(&mut self) -> Option<serde_json::Value> {
+            Some(serde_json::json!({"counter": 7, "note": "ok"}))
+        }
+    }
+
+    static STATE_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[&StateModFactory];
+
+    fn ctx_with_state_mod(enabled: bool) -> ServerContext {
+        let sec = SecurityContext::new(18099, true);
+        let ctx = dummy_ctx(sec);
+        let mut registry = crate::mod_registry::ModRegistry::new(
+            STATE_FACTORIES,
+            &serde_json::json!({"mods": {"stateful": {"enabled": enabled}}}),
+        );
+        registry.start_all();
+        *ctx.mod_registry.lock().unwrap() = registry;
+        ctx
+    }
+
+    /// 启用中的 Mod：200 + `{id, enabled, state}`。
+    #[test]
+    fn state_route_returns_runtime_snapshot() {
+        let ctx = ctx_with_state_mod(true);
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Get,
+            "/api/v1/mods/stateful/state",
+            "",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(200));
+        let body = body_string(resp);
+        assert!(body.contains("\"id\":\"stateful\""), "{body}");
+        assert!(body.contains("\"enabled\":true"), "{body}");
+        assert!(body.contains("\"counter\":7"), "应带出运行态: {body}");
+    }
+
+    /// **404 vs 503 的分界**：不在注册表 = 404；在册但没在跑 = 503。
+    #[test]
+    fn state_route_distinguishes_unknown_from_unavailable() {
+        let ctx = ctx_with_state_mod(true);
+        let unknown = handle_mods_route(
+            &ctx,
+            &Method::Get,
+            "/api/v1/mods/nope/state",
+            "",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            unknown.status_code(),
+            StatusCode(404),
+            "不存在的 Mod 必须 404（前端显示「没有这个 Mod」）"
+        );
+        let body = body_string(unknown);
+        assert!(body.contains("not_found"), "{body}");
+
+        // 同一个 Mod，停用 → 有 runtime 槽位为空 → 503。
+        let mut registry = ctx.mod_registry.lock().unwrap();
+        registry.disable("stateful").unwrap();
+        drop(registry);
+        let unavailable = handle_mods_route(
+            &ctx,
+            &Method::Get,
+            "/api/v1/mods/stateful/state",
+            "",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            unavailable.status_code(),
+            StatusCode(503),
+            "在册但取不到快照必须 503（前端显示「暂时读不到」）"
+        );
+        assert!(body_string(unavailable).contains("state_unavailable"));
+    }
+
+    /// 在册、在跑、但**没实现** `state_json` → 也是 503（不是 500）。
+    #[test]
+    fn state_route_without_state_json_is_503() {
+        let ctx = ctx_with_mod(serde_json::json!({"mods": {"specmod": {"enabled": true}}}));
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Get,
+            "/api/v1/mods/specmod/state",
+            "",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(503));
+        assert!(body_string(resp).contains("state_unavailable"));
     }
 }

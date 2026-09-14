@@ -189,6 +189,27 @@ fn supervisor_emits_turn_started_to_mod_events() {
         ts_payload.parse::<u64>().unwrap_or(0) >= 1,
         "payload 是 turn id"
     );
+    // **Wave 2**：同一提交点还必须把**本轮输入正文**交给 Mod——
+    // `TurnStarted` 只有序号，记忆 / 导演类 Mod 靠 `TurnPrompt` 拿正文。
+    let tp_payload = topics
+        .iter()
+        .find(|(t, _)| *t == ModEventTopic::TurnPrompt)
+        .map(|(_, p)| p.clone())
+        .expect("应发出 TurnPrompt");
+    assert_eq!(
+        tp_payload, "触发一轮",
+        "TurnPrompt 的 payload 是本轮输入正文"
+    );
+    // 顺序：TurnStarted 必须先于 TurnPrompt（后者依赖前者的语境）。
+    let ts_idx = topics
+        .iter()
+        .position(|(t, _)| *t == ModEventTopic::TurnStarted)
+        .unwrap();
+    let tp_idx = topics
+        .iter()
+        .position(|(t, _)| *t == ModEventTopic::TurnPrompt)
+        .unwrap();
+    assert!(ts_idx < tp_idx, "TurnStarted 应在 TurnPrompt 之前");
 
     handle.stop();
     handle.quit();

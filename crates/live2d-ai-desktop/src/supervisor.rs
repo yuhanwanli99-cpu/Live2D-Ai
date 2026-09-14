@@ -525,6 +525,13 @@ async fn run_forever(
                     // payload = 当前 turn id（话题保留给 Mod；树内无消费者）。
                     if let Some(f) = &mod_events {
                         f(ModEventTopic::TurnStarted, &next_turn_id.to_string());
+                        // **Wave 2**：紧随其后把**本轮输入正文**交给 Mod。
+                        // `TurnStarted` 的 payload 只是序号，记忆 / 导演类 Mod 需要
+                        // 正文才能检索 / 判情绪（见 `topics.rs::TurnPrompt` 头注）。
+                        // 这一行的时序含义：请求体马上就会构建，所以 Mod 在此做的
+                        // `apply_settings` 写回**只对下一轮生效**——这正是
+                        // 「检索 top-k → 注入下一轮」的预期语义，不是缺陷。
+                        f(ModEventTopic::TurnPrompt, &text);
                     }
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
                     // 同步写；UserSubmitted 不动 epoch（root 现状保持），但

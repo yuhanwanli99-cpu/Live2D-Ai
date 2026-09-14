@@ -400,13 +400,41 @@ impl ModRegistry {
     }
 
     /// 查询指定 Mod 是否已启用（供 web API 路由判断 config 更新后是否 restart）。
-    pub fn is_enabled(&self, id: &'static str) -> bool {
+    ///
+    /// 收 `&str` 而不是 `&'static str`（Wave 2）：只读查询没有理由要求调用方
+    /// 把 id 泄漏成 `'static`——`mods_routes` 的 GET 路径只有借来的 `&str`。
+    pub fn is_enabled(&self, id: &str) -> bool {
         self.entries.get(id).map(|e| e.enabled).unwrap_or(false)
     }
 
     /// 该 Mod 的当前配置（rc.4 M2：给 `GET /api/v1/mods` 与 config 子路由用）。
     pub fn config(&self, id: &str) -> Option<&serde_json::Value> {
         self.entries.get(id).map(|e| &e.config)
+    }
+
+    /// 该 Mod 是否**在注册表里**（不论启用与否）。
+    ///
+    /// 与 [`Self::is_enabled`] 的差别：`is_enabled` 对「不存在」也回 `false`，
+    /// 路由因而分不清「没这个 Mod」（404）与「有但停用」（403）。
+    pub fn contains(&self, id: &str) -> bool {
+        self.entries.contains_key(id)
+    }
+
+    /// **只读运行态快照**（Wave 2）：取一次 [`ModRuntime::state_json`]。
+    ///
+    /// 返回 `None` 的三种情况（调用方**一律**按「暂时取不到」处理，不要当错误
+    /// 写进日志刷屏）：
+    /// 1. `id` 不在注册表 —— 先查 [`Self::contains`] 再决定 404 / 503；
+    /// 2. Mod 未启用 / 已 Failed（runtime 槽位是 `None`）；
+    /// 3. Mod worker 正持着 runtime 锁（`try_lock` 失败）或本 Mod 没实现
+    ///    `state_json`。
+    ///
+    /// 刻意用 `try_lock`：web_api 线程**绝不**为一个可选 Mod 的状态等锁——
+    /// 那会让「看一眼桌宠状态」把整个 HTTP 请求循环卡在 Mod worker 上。
+    pub fn runtime_state(&self, id: &str) -> Option<serde_json::Value> {
+        let slot = self.runtimes.get(id)?;
+        let mut guard = slot.try_lock().ok()?;
+        guard.as_mut()?.state_json()
     }
 
     /// 状态观察（Mod 管理 UI）。
@@ -561,6 +589,9 @@ mod tests {
             RECEIVED.lock().unwrap().push(topic.as_str().to_string());
             Ok(())
         }
+        fn state_json(&mut self) -> Option<serde_json::Value> {
+            Some(serde_json::json!({"test_state": "ready"}))
+        }
     }
     static FACTORIES: &[&dyn ModFactory] = &[&TestMod];
 
@@ -638,6 +669,30 @@ mod tests {
     fn dispatch_event_bounded_no_block() {
         let reg = ModRegistry::new(FACTORIES, &serde_json::json!({}));
         assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}"));
+        // Wave 2 新主题同样可投递（有界 channel，不阻塞）。
+        assert!(reg.dispatch_event(ModEventTopic::TurnPrompt, "你好"));
+    }
+
+    // ------------------------------------------------- Wave 2：运行态快照面
+
+    /// 未启用 → runtime 槽位为空 → `runtime_state` 回 `None`；
+    /// 启用后由 runtime 提供快照。
+    #[test]
+    fn runtime_state_is_none_unless_running() {
+        let mut reg = ModRegistry::new(FACTORIES, &serde_json::json!({}));
+        assert!(reg.contains("test"));
+        assert!(!reg.is_enabled("test"));
+        assert!(
+            reg.runtime_state("test").is_none(),
+            "未启用时没有 runtime，快照必须是 None"
+        );
+        assert!(
+            reg.runtime_state("nope").is_none(),
+            "不存在的 Mod 也是 None（路由用 contains 区分 404）"
+        );
+        reg.enable("test").unwrap();
+        let snap = reg.runtime_state("test").expect("启用后应有快照");
+        assert_eq!(snap["test_state"], serde_json::json!("ready"));
     }
 
     #[test]

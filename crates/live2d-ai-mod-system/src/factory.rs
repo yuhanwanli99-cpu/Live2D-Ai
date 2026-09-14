@@ -66,4 +66,26 @@ pub trait ModRuntime: Send {
     fn shutdown(&mut self) -> Result<(), ModError> {
         Ok(())
     }
+
+    /// **只读运行态快照**（Wave 2 新增，2026-09-14）。
+    ///
+    /// 用途：让 host 把 Mod 的**内部状态**暴露到可测面——`GET /api/v1/mods/{id}/state`
+    /// 与前端消费（本轮使用者：`wallpaper` 的当前决策、`pet-desktop` 的口型/窗口态）。
+    /// 在它之前，Mod 的状态只能靠日志观察，前端拿不到，于是出现「Mod 里跑了一套
+    /// 状态机、界面上什么也看不见」。
+    ///
+    /// # 契约
+    ///
+    /// - 返回 `Some(json)` = 该 Mod 愿意公开的状态（**必须脱敏**：不得含 token /
+    ///   密钥明文——返回体会被前端渲染、被日志记录）；
+    /// - 返回 `None` = 本 Mod 没有可公开状态（缺省实现）；
+    /// - **只读语义**：host 只把它当「取一次快照」。允许为计算快照而推进内部游标
+    ///   （例如 `wallpaper` 用本次调用时间推进策略时钟），但**不得**在里头发起
+    ///   网络 / 写盘 / 阻塞等待——它在 web_api 线程上被调用，卡住就是卡住 HTTP；
+    /// - 取 `&mut self` 的代价：host 必须拿到 runtime 锁才能调用，因此
+    ///   **Mod worker 正在处理事件时本调用会失败（host 侧回 503）**——
+    ///   这是刻意的：宁可一次读不到，也不要让 HTTP 线程等 Mod worker。
+    fn state_json(&mut self) -> Option<serde_json::Value> {
+        None
+    }
 }
