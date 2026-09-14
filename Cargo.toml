@@ -63,7 +63,16 @@ members = [
 # （+ voice-input / + wallpaper，均**缺省停用**），`mod_count_is_five` 守住数字。
 # 主链皮肤与 `l2d-wasm-demo` / framebuffer / 背景实现**未改**。
 # 发布说明见 `docs/releases/v0.2.0-rc.2.md`。
-version = "0.2.0-rc.2"
+#
+# 2026-09-14（0.2.0-rc.3「Wave 2 五轨合成」）：让能力从「能编译」变「能演示」——
+# 语音专用端点 `POST /api/v1/voice/transcript` + 可跑 sidecar（ASR 不进 Rust）；
+# 壁纸决策真落 `DisplayPrefs`（占位删除）；新 crate `memory`（本地 JSONL + 检索注入
+# 下一轮 system_prompt）；导演 RFC 契约先行（**不注册**）；桌宠配置/事件态进 API 可测面。
+# 基座新增 `ModEventTopic::TurnPrompt` / `ModRuntime::state_json` /
+# `GET /api/v1/mods/{id}/state`。FACTORIES 5→6（+ memory，缺省停用），
+# `mod_count_is_six` 守住数字。主链皮肤与 `l2d-wasm-demo` / framebuffer **未改**。
+# 发布说明见 `docs/releases/v0.2.0-rc.3.md`。
+version = "0.2.0-rc.3"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

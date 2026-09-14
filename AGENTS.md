@@ -12,14 +12,40 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.2.0-rc.2`（Wave 1 三轨合成：voice-input + wallpaper + persona-polish，2026-09-14）**：
+- **当前版本 `0.2.0-rc.3`（Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠，2026-09-14）**：
+  把 Wave 2 的五条并行轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 5 → **6**
+  （+ **memory**，只注册、**缺省停用**），`mod_count_is_five` → `mod_count_is_six`；
+  **缺省仍只启用 `external-input`**。本版的目标是「**让至少两条能力从能编译变成能演示**」：
+  ① **语音闭环**：新增 `POST /api/v1/voice/transcript`（**专用 loopback 端点**，不是复用
+  `/api/v1/external/chat`——理由写在 `docs/voice-input.md` §10：voice 有自己的 token/locale 语义，
+  且要让 `voice-input` crate 的 `clean_transcript` 真的跑在主链路上）；handler 复用该纯函数 →
+  `supervisor.say`；**ASR 本体在 sidecar**（`docs/examples/voice-sidecar/`：`--transcriber fake|cmd:`、
+  `--dry-run`、`--selftest`、失败码 0/2/3/4/5，纯标准库），**不把 ASR SDK 链进 binary**。
+  ② **壁纸接线（结束占位）**：`WallpaperDecision::to_prefs_patch()` 是真投影（`apply_decision`
+  的 warn+false **已删除**）→ Mod `state_json()`（内部 `Instant` 喂既有纯策略）→ Flutter
+  `applyWallpaperPatch` → 既有 `DisplayPrefs` / `Live2DStage.sendStageBg`；播放列表**由 Flutter
+  偏好持有**（`stagePlaylist` + 三条预算常量），不新增图库/文件服务/wasm 路径。
+  ③ **记忆 v0**：新 crate `live2d-ai-mod-memory`（本地 JSONL + 中文 bigram/ASCII 词元重叠打分
+  top-k，**零向量云依赖**），订阅**本轮新增的** `ModEventTopic::TurnPrompt`（payload = 本轮输入
+  正文，因为 `TurnStarted` 只有 turn id）→ 经 `apply_settings` 写既有 `persona.system_prompt`；
+  **只对下一轮生效**，与 persona 是 **last-writer-wins**（无仲裁，刻意）。
+  ④ **导演 RFC**：`docs/architecture/director-rfc.md` 契约先行，**本轮不注册**（不新建 crate；
+  「注册但 enable 即 Failed」被否决的理由在 RFC §8）；动作仍是**槽位占位**，`action_tx` 保持休眠。
+  ⑤ **桌宠推进一格**：配置/事件态经 `GET /api/v1/mods/pet-desktop/state` 进可测面
+  （**窗口未开**——原生壳休眠，见下方「原生第二壳的归属」）。
+  **基座**（主 agent 独占）：`ModEventTopic::TurnPrompt`、`ModRuntime::state_json`、
+  `ModRegistry::runtime_state`、`GET /api/v1/mods/{id}/state`（404 与 503 刻意分开）。
+  **主链皮肤（LLM/TTS/口型/Live2D、壳/舞台背景）与 `l2d-wasm-demo` / framebuffer 一行未改**；
+  契约范围见 `docs/plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md`。
+  发布说明 `docs/releases/v0.2.0-rc.3.md`。
+- **上一版 `0.2.0-rc.2`（Wave 1 三轨合成：voice-input + wallpaper + persona-polish，2026-09-14）**：
   把三条并行 Mod 轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 3 → **5**
   （external-input, pet-desktop, persona, **voice-input**, **wallpaper**），
   `mod_count_is_three` → `mod_count_is_five`；**缺省仍只启用 `external-input`**
   （voice-input / wallpaper 只注册、**缺省停用**）。**主链皮肤一行未改**，
   `l2d-wasm-demo` / framebuffer / 背景实现**未碰**。persona 行为变更：**坏配置现在显式
   `Failed`**（旧行为是记一行 error 后 `Ok`，界面显示「运行中」而主链没变）。wallpaper
-  决策落点仍是**明文占位**（`apply_decision` 只对 `None` 返回 true），未接 wasm / 帧缓冲。
+  决策落点当时仍是**明文占位**（Wave 2 已接线）。
   发布说明 `docs/releases/v0.2.0-rc.2.md`。
 - **上一版 `0.2.0-rc.1`（Mod 纪元第一基线：external-input 直播刚需 + 社区许可，2026-09-14）**：
   主链皮肤（LLM→TTS→口型→Live2D、壳/舞台背景）**冻结未改**。本版把**外部事件注入**
@@ -60,16 +86,18 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  5 个 Mod（external-input / pet-desktop / persona / voice-input / wallpaper）为 workspace crate；
+  6 个 Mod（external-input / pet-desktop / persona / voice-input / wallpaper / memory）为 workspace crate；
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
-  `cli_entry::default_mods_manifest`），pet-desktop / persona / voice-input / wallpaper 缺省停用。
+  `cli_entry::default_mods_manifest`），其余五个缺省停用（`memory` 会写
+  `persona.system_prompt`，必须由用户明确打开）。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
   **Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
   **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
   不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
-  `main.rs` 的 `mod_count_is_five` 断言守住，**不要再挂回去**。
+  `main.rs` 的 `mod_count_is_six` 断言守住，**不要再挂回去**；`0.2.0-rc.3` 的 director
+  只交 RFC（`docs/architecture/director-rfc.md`），**不注册**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -199,7 +227,7 @@
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
-护栏是两条断言：`main.rs::mod_count_is_five`（工厂数不得因动作 Mod 增加）与
+护栏是两条断言：`main.rs::mod_count_is_six`（工厂数不得因动作 Mod 增加）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
@@ -324,6 +352,37 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-14（v0.2.0-rc.3，Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠）**：
+  基线 `mod/integrate-0.2.0-rc.2` @ `91c670aa`（**`main` 当时仍是 rc.1，故以 integrate tip 为准**），
+  五条轨各在自己的 worktree/分支（`mod/memory-v0` / `mod/director-rfc` / `mod/voice-sidecar-v1` /
+  `mod/wallpaper-wire` / `mod/pet-desktop-v1`）从**基座提交** `429609f2` 起分支，合入 `mod/wave2`。
+  范围真源：任务书 + `docs/plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md`（**本轮没有**更早写下的
+  Wave 2 计划文档，协议是随基座一起落盘的）。① **基座（主 agent 独占）**：`ModEventTopic::TurnPrompt`
+  （payload = 本轮输入正文——`TurnStarted` 只有 turn id，记忆/导演必须拿正文）、
+  `ModRuntime::state_json`（只读运行态快照；必须脱敏、不得写盘/阻塞）、
+  `ModRegistry::runtime_state`（`try_lock`，HTTP 绝不等 Mod worker）、
+  `GET /api/v1/mods/{id}/state`（**404「不在注册表」与 503「在册但读不到」刻意分开**）。
+  ② **A 轨语音闭环**：`POST /api/v1/voice/transcript`（专用 loopback 端点，选它而非复用
+  `/api/v1/external/chat` 的理由在 `docs/voice-input.md` §10）、`web_api/voice_routes.rs` +
+  25 条回归、`docs/voice-input.md` 契约（6 条 curl / 错误码表）；sidecar
+  `docs/examples/voice-sidecar/voice_sidecar.py`（纯标准库；`--transcriber fake|cmd:` /
+  `--dry-run` / `--selftest` / 退出码 0/2/3/4/5）+ 假音频 fixture；**ASR 不进 Rust**。
+  ③ **B 轨壁纸接线**：`apply_decision` 的 warn+false **占位整段删除**，改真投影
+  `to_prefs_patch()`；`WallpaperRuntime::state_json()` 用内部 `Instant` 喂既有纯策略（不起线程）；
+  Flutter 新增 `stagePlaylist` + 纯函数 `applyWallpaperPatch` + 「加入/清空轮播」+ 5 s 轮询闭环
+  （列表长度经既有 `POST …/config` 写回）；**framebuffer / wasm / `stage_bg` 一行未改**。
+  ④ **C 轨记忆**：新 crate `live2d-ai-mod-memory`（本地 JSONL + 中文 bigram/ASCII 词元重叠
+  Jaccard + top-k 稳定平局，**零向量云依赖**；44 条单测）→ `apply_settings` 写既有
+  `persona.system_prompt`（marker 幂等剥离；**只对下一轮生效**；与 persona **last-writer-wins**）。
+  ⑤ **D 轨导演 RFC**：`docs/architecture/director-rfc.md`（输入/输出/休眠 `action_tx`/晋升门槛/
+  与 persona·memory 的写入者×字段表/非目标），**本轮不注册**（否决「注册但 enable 即 Failed」的
+  理由在 §8）；顺带钉死四条结构性事实（Mod 侧看不到 token 流、无 per-request TTS 参数通道、
+  无 `TurnEnded` 主题、`ModelActivated` 是休眠主题）。⑥ **E 轨桌宠**：静态 `settings_spec` 与
+  `start` 同源 + `state_json()`（配置/事件态进 API 可测面）；**窗口未开**（原生壳休眠，
+  `window.opened=false` + `reason`），15 条集成测试。⑦ **收束**：`AVAILABLE_MOD_FACTORIES`
+  5 → **6**（`memory`，缺省停用；`director` 不注册），`mod_count_is_five` → `mod_count_is_six`，
+  id 断言同步，缺省 manifest 不动；版本三处 + 文档同步到 `0.2.0-rc.3`。
+  发布说明 `docs/releases/v0.2.0-rc.3.md`。
 - **2026-09-14（v0.2.0-rc.2，Wave 1 三轨合成：voice-input + wallpaper + persona-polish）**：
   把三条并行 Mod 轨道（tip `4e421993` / `64601710` / `d5d7dcef`）合入集成分支
   `mod/integrate-0.2.0-rc.2`。① **接线**：`AVAILABLE_MOD_FACTORIES` 3 → **5**

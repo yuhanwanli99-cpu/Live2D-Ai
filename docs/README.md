@@ -20,6 +20,14 @@
 - [可观测性 / 健康自检](architecture/observability.md)
 - [依赖与许可清单](architecture/dependencies.md)
 - [**Mod 产品链路**](architecture/mod-product-chain.md)
+- [**语音转写契约：`POST /api/v1/voice/transcript`（0.2.0-rc.3）**](voice-input.md)
+  ——语音 → 文本 → `clean_transcript` → `say`；**ASR 本体在 sidecar**（`docs/examples/voice-sidecar/`，Win/本机进程），Rust 侧只收已转写文本
+- [**会话记忆 Mod v0（0.2.0-rc.3，缺省停用）**](architecture/memory-mod-v0.md)
+  ——本地 JSONL + 词元重叠检索 top-k → `apply_settings` 写 `persona.system_prompt`；**只对下一轮生效**，与 persona 是 last-writer-wins
+- [**壁纸 Mod 策略 v0（0.2.0-rc.3 起落点已接线）**](architecture/wallpaper-mod-v0.md)
+  ——决策 → `state_json.prefs_patch` → Flutter `applyWallpaperPatch` → 既有 `DisplayPrefs` / `stage-bg`；不碰 framebuffer / wasm
+- [**桌宠窗口 Mod v0（0.2.0-rc.3：API 可测面，窗口未开）**](architecture/pet-desktop-mod-v0.md)
+  ——配置 / 事件态经 `GET /api/v1/mods/pet-desktop/state` 可读；原生窗口属休眠壳，不验收
 - [**Mod 社区许可与注册边界（0.2.0-rc.1）**](architecture/mod-community-license.md)
   ——注册面开放、分发面 AGPL 兼容；闭源走商业许可/私用；**无「闭源可进默认包」承诺**
 - [**导演（director）RFC：契约先行，未注册（0.2.0-rc.3，只交文档）**](architecture/director-rfc.md)
@@ -31,7 +39,9 @@
 
 ## 版本与发布
 
-- [**v0.2.0-rc.2 — Wave 1 三轨合成：voice-input + wallpaper + persona-polish（当前）**](releases/v0.2.0-rc.2.md)
+- [**v0.2.0-rc.3 — Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠**（当前）**](releases/v0.2.0-rc.3.md)
+  ——两条能力从「能编译」变「能演示」：`POST /api/v1/voice/transcript` + 可跑 sidecar（`--dry-run` / `--selftest`）；壁纸决策真落 `DisplayPrefs`（不再 warn+false）；新增 `memory` crate（本地 JSONL + 检索注入下一轮）；导演 RFC 契约先行（**不注册**）；桌宠配置/事件态进 API 可测面。`AVAILABLE_MOD_FACTORIES` 5 → **6**，主链皮肤一行未改
+- [v0.2.0-rc.2 — Wave 1 三轨合成：voice-input + wallpaper + persona-polish](releases/v0.2.0-rc.2.md)
   ——把三条并行 Mod 轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 3 → **5**
   （+ `voice-input` / + `wallpaper`，均**缺省停用**），`mod_count_is_five` 守住数字；
   persona 坏配置**显式 `Failed`**（不再假报「运行中」）；wallpaper 决策落点仍是**占位**

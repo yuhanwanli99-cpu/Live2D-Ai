@@ -62,7 +62,7 @@ crates/live2d-ai-mod-local-llm/      本地推理探测 Mod（探测就绪后经
 ```
 `crates/live2d-ai-mod-director/`（动作编排 Mod）已于 `0.1.0-rc.2` **删除**——它是动作序列的
 唯一驱动方，而动作在产品路径上不存在；归档在分支 `archive/action-layer-p6`。
-静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_five` 守住（`0.2.0-rc.2` 起恰为 5）。
+静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_six` 守住（`0.2.0-rc.3` 起恰为 6）。
 各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。
 
 ## 清理规则

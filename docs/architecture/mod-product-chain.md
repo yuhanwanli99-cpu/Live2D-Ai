@@ -56,18 +56,19 @@ disable / config 是**运行时开关**，不是加载器：
   （schema，无则为 `null`）；`settings_spec.fields[].kind` ∈ `bool/string/number/select`。
   `secret=true` 的字段值**永不出现在 GET**；另有 `GET /api/v1/mods/{id}/config` 单读。
 
-## 5. 现行 Mod（0.2.0-rc.2 起：5 个注册 + 1 个废除）
+## 5. 现行 Mod（0.2.0-rc.3 起：6 个注册 + 1 个废除）
 
 | id | 缺省 | 语言 | 说明 |
 | --- | --- | --- | --- |
 | `external-input` | **on** | Rust | 外部事件接入：`POST /api/v1/external/chat` → `say`；静态 `settings_spec`（`token` / `text_template` / `prefix`），契约见 [external-input.md](../external-input.md)，B 站弹幕示例见 [docs/examples/bilibili-sidecar](../examples/bilibili-sidecar/README.md) |
-| `pet-desktop` | off | Rust | 桌宠骨架 |
+| `pet-desktop` | off | Rust | 桌宠窗口骨架（Wave 2 E 轨 / 0.2.0-rc.3）：配置 / 事件态经 `GET /api/v1/mods/pet-desktop/state` 暴露到可测面；**窗口未开**（原生壳休眠，唤醒须先论证「谁来维护第二个 UI 壳」），见 [pet-desktop-mod-v0.md](pet-desktop-mod-v0.md) |
 | `persona` | off | Rust | 酒馆角色卡（rc.4 M5）：导入 V2 JSON/PNG → 合成 `system_prompt`；`0.2.0-rc.2` 起坏配置**显式 `Failed`**（不再假报「运行中」） |
 | `voice-input` | off | Rust | 语音输入（Wave 2 A 轨 / 0.2.0-rc.3）：`POST /api/v1/voice/transcript` → `clean_transcript` → `say` **已接线**；ASR 本体在 sidecar（Rust 侧不开 socket、不做 IPC），契约见 [voice-input.md](../voice-input.md)，示例见 [docs/examples/voice-sidecar](../examples/voice-sidecar/README.md)，接线清单见 [REGISTER-voice-sidecar-v1](../plans/parallel-mods/REGISTER-voice-sidecar-v1.md) |
-| `wallpaper` | off | Rust | 壁纸策略 v0（Wave 1 / 0.2.0-rc.2）：`mode`（off/follow_stage/interval）纯策略；决策落点仍是**明文占位**（`apply_decision` 只对 `None` 返回 `true`），见 [wallpaper-mod-v0.md](wallpaper-mod-v0.md) |
+| `wallpaper` | off | Rust | 壁纸策略（Wave 2 B 轨 / 0.2.0-rc.3 **落点已接线**）：`mode`（off/follow_stage/interval）纯策略 → `state_json.prefs_patch` → Flutter `applyWallpaperPatch` → 既有 `DisplayPrefs` / `sendStageBg`；播放列表由 Flutter 偏好持有，见 [wallpaper-mod-v0.md](wallpaper-mod-v0.md) |
+| `memory` | off | Rust | 会话记忆 v0（Wave 2 C 轨 / 0.2.0-rc.3）：本地 JSONL + 词元重叠检索 top-k → `apply_settings` 写既有 `persona.system_prompt`（**只对下一轮生效**；与 persona 是 last-writer-wins），见 [memory-mod-v0.md](memory-mod-v0.md) |
 | ~~`local-llm`~~ | — | Rust | **已废除启动**（0.2.0-rc.1）：移出 `AVAILABLE_MOD_FACTORIES`，不再编译进 binary；crate 暂留仓库（见其 lib.rs 头注），**禁止挂回** |
 
-数量由 `main.rs::mod_count_is_five` 守住。`live2d-ai-mod-template` 是**模板 crate**，
+数量由 `main.rs::mod_count_is_six` 守住。`live2d-ai-mod-template` 是**模板 crate**，
 不注册进 `AVAILABLE_MOD_FACTORIES`。
 
 许可与分发门槛（社区 Mod / 闭源 / 商业许可）见

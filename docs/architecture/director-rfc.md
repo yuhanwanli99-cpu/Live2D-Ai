@@ -17,7 +17,7 @@
 | 决定 | 内容 | 锚点 |
 | --- | --- | --- |
 | 只交文档 | 无 `crates/live2d-ai-mod-director/`（该 crate 已于 `0.1.0-rc.2` 删除，归档分支 `archive/action-layer-p6`） | [`directory.md`](directory.md)、[`core-chain-baseline.md`](core-chain-baseline.md) §3.2 |
-| **不注册** | 不进 `AVAILABLE_MOD_FACTORIES`、不新增 id、不碰 `mod_count_is_five` / `mod_factory_ids_match_expected` | §8；Wave 2 §3D |
+| **不注册** | 不进 `AVAILABLE_MOD_FACTORIES`、不新增 id、不碰 `mod_count_is_six` / `mod_factory_ids_match_expected` | §8；Wave 2 §3D |
 | 动作只是**槽位占位** | 槽位是本文档里的**命名契约**，不是通道、不是 crate、不是注册表项 | §3.2、[`core-chain-baseline.md`](core-chain-baseline.md) §3.1 |
 | `action_tx` 保持休眠 | 不复活、不接线、不实现动作库 | §4 |
 | TTS 端点唯一权威 | `director` **不得**写 `[tts].base_url` / `api_key_env`；未来最多只能**提议** `voice` / `model` | §3.1；[`tts-is-core.md`](tts-is-core.md) §2 |
@@ -242,7 +242,7 @@ pub fn derive(text: &str) -> (EmotionHint, IntentHint);
   `config_path`；`SupervisorHandle::trigger_action` 与 supervisor 的 `action_rx`
   分支已整体删除——那是**唯一**能把 `RootEvent::Action` 送进 core reducer 的路径；
 - 钉子两条：`mod_registry::tests::action_request_is_dormant_not_delivered`
-  （`ActionRequest` 必须**不被接受**）与 `main.rs::mod_count_is_five`
+  （`ActionRequest` 必须**不被接受**）与 `main.rs::mod_count_is_six`
   （工厂数不得因动作 Mod 增加）。
 
 ### 4.2 导演若将来真要动它，先满足什么
@@ -373,7 +373,7 @@ Wave 2 §3D 已把选择钉死：**本轮不新建 crate、不注册 `AVAILABLE_
    在 `GET /api/v1/mods` 里平白多一条列表项，却是唯一一个「启用后什么都不会发生」
    的条目。Wave 2 §0 的原话是「再交一个『只有 `settings_spec` + 空 tick』的半成品
    不算过关」——注册一个**连 `settings_spec` 都没有**的 doc-only 工厂只会更差。
-2. **计数断言是安全护栏，不能被稀释**。`mod_count_is_five` /
+2. **计数断言是安全护栏，不能被稀释**。`mod_count_is_six` /
    `mod_factory_ids_match_expected` 存在的意义是阻止**动作 Mod 悄悄挂回来**
    （[AGENTS.md](../../AGENTS.md)：director 是动作序列的唯一驱动方，而动作在产品路径上
    不存在，所以它被删除并由计数断言守住）。把导演加进去会**削弱**这条护栏：

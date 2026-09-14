@@ -636,5 +636,15 @@ mod tests {
             m["mods"].get("wallpaper").is_none(),
             "wallpaper 缺省停用（mode 缺省 off），不得进缺省 manifest"
         );
+        // 0.2.0-rc.3：Wave 2 的 memory 同样只注册、**缺省停用**——
+        // 它会写 `persona.system_prompt`，必须由用户明确打开。
+        assert!(
+            m["mods"].get("memory").is_none(),
+            "memory 缺省停用（会写 persona.system_prompt），不得进缺省 manifest"
+        );
+        assert!(
+            m["mods"].get("director").is_none(),
+            "director 在 Wave 2 只交 RFC、不注册（docs/architecture/director-rfc.md §8）"
+        );
     }
 }

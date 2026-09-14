@@ -7,7 +7,7 @@
 //!
 //! # 边界（Wave 1 骨架 / Wave 2 A 轨接线）
 //!
-//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，**缺省停用**；
+//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_six`，**缺省停用**；
 //!   启停唯一真源 = manifest `enabled`，`default_mods_manifest` 未收录）；
 //!   handler 复用本 crate 的 `clean_transcript`（**不重写**），契约见 `docs/voice-input.md`。
 //! - **不引入**任何 ASR 依赖（whisper / onnx / 音频解码）：完整 ASR 不进 Rust 核心。

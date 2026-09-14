@@ -1,6 +1,6 @@
 # Live2D-Ai
 
-**v0.2.0-rc.2** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
+**v0.2.0-rc.3** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
 
 Live2D-Ai wires a single core loop and keeps everything else behind a Mod boundary:
 
@@ -28,8 +28,16 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ### Mods
 - Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Bundled Mods (compiled in): external input, pet-desktop (skeleton), local LLM,
-  persona card. Only `local-llm` is enabled by default.
+- Bundled Mods (compiled in, **6 registered**): `external-input`, `pet-desktop`,
+  `persona`, `voice-input`, `wallpaper`, `memory`. **Only `external-input` is enabled
+  by default**; the other five are opt-in (`memory` writes `persona.system_prompt`,
+  so it must be turned on deliberately).
+- `local-llm` is **no longer started** (removed from the registry in `0.2.0-rc.1`;
+  the crate stays in-tree, deprecated). The `director` crate was removed in
+  `0.1.0-rc.2` — `0.2.0-rc.3` ships a **contract-only RFC** for it and does **not**
+  register it.
+- Voice input: a local ASR **sidecar** (any process you run) POSTs transcripts to
+  `POST /api/v1/voice/transcript`; no ASR runtime is linked into the binary.
 - Mod failure disables that Mod only; the core loop keeps running.
 - Contract, "add a Mod" checklist and the stable-release (Rust/C) rule:
   [`docs/architecture/mod-product-chain.md`](docs/architecture/mod-product-chain.md).
