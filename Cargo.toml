@@ -55,7 +55,13 @@ members = [
 # 抓取**不在主仓**）；**local-llm 废除启动**（移出 FACTORIES，4→3）；Mod 社区许可
 # 与分发门槛明文。主链皮肤（LLM/TTS/口型/Live2D、壳/舞台背景）冻结未改。
 # 发布说明见 `docs/releases/v0.2.0-rc.1.md`；契约见 `docs/external-input.md`。
-version = "0.2.0-rc.1"
+#
+# 2026-09-14（0.2.0-rc.2「Wave 1 三轨合成」）：把三条并行 Mod 轨道
+# （persona-polish / voice-input / wallpaper）合成一条集成分支；FACTORIES 3→5
+# （+ voice-input / + wallpaper，均**缺省停用**），`mod_count_is_five` 守住数字。
+# 主链皮肤与 `l2d-wasm-demo` / framebuffer / 背景实现**未改**。
+# 发布说明见 `docs/releases/v0.2.0-rc.2.md`。
+version = "0.2.0-rc.2"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

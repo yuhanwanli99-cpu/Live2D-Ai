@@ -30,7 +30,12 @@
 
 ## 版本与发布
 
-- [**v0.2.0-rc.1 — Mod 纪元第一基线：external-input 直播刚需 + 社区许可（当前）**](releases/v0.2.0-rc.1.md)
+- [**v0.2.0-rc.2 — Wave 1 三轨合成：voice-input + wallpaper + persona-polish（当前）**](releases/v0.2.0-rc.2.md)
+  ——把三条并行 Mod 轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 3 → **5**
+  （+ `voice-input` / + `wallpaper`，均**缺省停用**），`mod_count_is_five` 守住数字；
+  persona 坏配置**显式 `Failed`**（不再假报「运行中」）；wallpaper 决策落点仍是**占位**
+  （未碰 wasm / framebuffer）；主链皮肤一行未改
+- [v0.2.0-rc.1 — Mod 纪元第一基线：external-input 直播刚需 + 社区许可](releases/v0.2.0-rc.1.md)
   ——主链皮肤冻结不回归：外部事件（B 站弹幕/礼物）由 **Windows sidecar** 抓取清洗后
   经 `POST /api/v1/external/chat` 注入；`external-input` Mod 加强（静态 `settings_spec`、
   模板/前缀、启停门禁、token env→config 回落）；**`local-llm` 废除启动**（移出注册面）；

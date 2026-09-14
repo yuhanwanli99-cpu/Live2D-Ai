@@ -12,7 +12,16 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.2.0-rc.1`（Mod 纪元第一基线：external-input 直播刚需 + 社区许可，2026-09-14）**：
+- **当前版本 `0.2.0-rc.2`（Wave 1 三轨合成：voice-input + wallpaper + persona-polish，2026-09-14）**：
+  把三条并行 Mod 轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 3 → **5**
+  （external-input, pet-desktop, persona, **voice-input**, **wallpaper**），
+  `mod_count_is_three` → `mod_count_is_five`；**缺省仍只启用 `external-input`**
+  （voice-input / wallpaper 只注册、**缺省停用**）。**主链皮肤一行未改**，
+  `l2d-wasm-demo` / framebuffer / 背景实现**未碰**。persona 行为变更：**坏配置现在显式
+  `Failed`**（旧行为是记一行 error 后 `Ok`，界面显示「运行中」而主链没变）。wallpaper
+  决策落点仍是**明文占位**（`apply_decision` 只对 `None` 返回 true），未接 wasm / 帧缓冲。
+  发布说明 `docs/releases/v0.2.0-rc.2.md`。
+- **上一版 `0.2.0-rc.1`（Mod 纪元第一基线：external-input 直播刚需 + 社区许可，2026-09-14）**：
   主链皮肤（LLM→TTS→口型→Live2D、壳/舞台背景）**冻结未改**。本版把**外部事件注入**
   做成刚需：`POST /api/v1/external/chat` 契约文档化（text/token/Origin/loopback/忙碌/
   启停门禁/模板前缀 + curl），**B 站抓取不在主仓，在 Win sidecar**
@@ -51,16 +60,16 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  3 个 Mod（external-input / pet-desktop / persona）为 workspace crate；
+  5 个 Mod（external-input / pet-desktop / persona / voice-input / wallpaper）为 workspace crate；
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
-  `cli_entry::default_mods_manifest`），pet-desktop / persona 缺省停用。
+  `cli_entry::default_mods_manifest`），pet-desktop / persona / voice-input / wallpaper 缺省停用。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
   **Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
   **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
   不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
-  `main.rs` 的 `mod_count_is_three` 断言守住，**不要再挂回去**。
+  `main.rs` 的 `mod_count_is_five` 断言守住，**不要再挂回去**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -190,7 +199,7 @@
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
-护栏是两条断言：`main.rs::mod_count_is_three`（工厂数不得因动作 Mod 增加）与
+护栏是两条断言：`main.rs::mod_count_is_five`（工厂数不得因动作 Mod 增加）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
@@ -315,6 +324,23 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-14（v0.2.0-rc.2，Wave 1 三轨合成：voice-input + wallpaper + persona-polish）**：
+  把三条并行 Mod 轨道（tip `4e421993` / `64601710` / `d5d7dcef`）合入集成分支
+  `mod/integrate-0.2.0-rc.2`。① **接线**：`AVAILABLE_MOD_FACTORIES` 3 → **5**
+  （追加 `voice-input` / `wallpaper`），`mod_count_is_three` → `mod_count_is_five`，
+  `mod_factory_ids_match_expected` 同步五个 id；**缺省 manifest 不动**——两者只注册、
+  **缺省停用**（`external-input` 仍缺省启用）。② **persona 行为变更**：坏配置由
+  `Running` 变**显式 `Failed`**（旧行为记一行 error 后 `Ok`，界面显示「运行中」而主链
+  没变）；卡文件/JSON 体积上限、PNG `chara` 健壮性、基线快照语义厘清。③ **voice-input**：
+  新 crate 骨架（转写 → 清洗 → `say_tx`，13 条单测），ASR 后端仍是配置占位。
+  ④ **wallpaper**：新 crate 策略 v0（`mode`/`interval_secs` + 纯状态机，22 条测试），
+  决策 → `DisplayPrefs` 的落点仍是**明文占位**（`apply_decision` 只对 `None` 返回 `true`）。
+  ⑤ **文档**：`mod-product-chain.md` §5 加两行；`PARALLEL-PROTOCOL-2026-09-14.md`
+  与两份 PLAN 入库（补断链）；存活架构文档的 `mod_count_is_*` 引用同步。
+  **主链皮肤与 `l2d-wasm-demo` / framebuffer / 背景实现 diff 为空**；`local-llm` 未挂回、
+  动作层保持休眠。发布说明 `docs/releases/v0.2.0-rc.2.md`。
+  门禁：cargo **904** 通过 / 0 失败、doc 3、fmt clean、clippy 0 warning、
+  rust-ratio **96.9243% PASS**；flutter analyze 无问题 + **833** 通过。
 - **2026-09-14（v0.2.0-rc.1，Mod 纪元第一基线：external-input 直播刚需 + 社区许可）**：
   版本线 `0.1.0-rc.5` → **`0.2.0-rc.1`**（不是补丁增量：外部事件成为一等刚需）。
   **主链皮肤冻结**——LLM/TTS/口型/Live2D、壳/舞台背景一行未改。① **外部事件半成品做实**：
