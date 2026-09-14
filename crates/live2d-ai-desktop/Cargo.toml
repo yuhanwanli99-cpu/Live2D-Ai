@@ -52,10 +52,10 @@ live2d-ai-mod-pet-desktop = { path = "../live2d-ai-mod-pet-desktop" }
 # crate 暂留 workspace（见其 lib.rs 头注），但**禁止**挂回 FACTORIES。
 # rc.4 M5：角色卡标准 Mod（主链只留 system_prompt，卡字段由它合成写回）。
 live2d-ai-mod-persona = { path = "../live2d-ai-mod-persona" }
-# Wave 1（2026-09-14）：voice-input 骨架（语音转写 → 清洗 → say_tx）。此处只加
-# path 依赖保证 crate 随 workspace 编译；**不**注册进 AVAILABLE_MOD_FACTORIES，
-# 注册与数量断言改动由集成 PR 按 docs/plans/parallel-mods/REGISTER-voice-input.md 做。
+# Wave 1（2026-09-14）：voice-input 骨架（语音转写 → 清洗 → say_tx）。
 live2d-ai-mod-voice-input = { path = "../live2d-ai-mod-voice-input" }
+# Wave 1（2026-09-14）：wallpaper 策略 v0（何时换 / 是否与舞台同步）。
+live2d-ai-mod-wallpaper = { path = "../live2d-ai-mod-wallpaper" }
 ringbuf = "0.5"
 # 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
 # - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，
