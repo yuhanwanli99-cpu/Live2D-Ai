@@ -29,6 +29,14 @@
 //!   不进 Rust 核心。
 //! - **不接**动作通道（`action_tx` 自 rc.2 起休眠）；v0 **不订阅** host 事件。
 //!
+//! # 一次性命令（产品级加强波次，2026-09-15）
+//!
+//! 实现 [`ModRuntime::command`]：`selftest` 返回「当前配置是否自洽」的**脱敏**结论
+//!（生效 backend / locale 是否合法 / `token_set` / 本地路由 / `problems` / `notes`）。
+//! 真源是纯函数 [`selftest::config_selftest`]，面板「检查配置」按钮经
+//! `POST /api/v1/mods/voice-input/command` 调它；未知命令回
+//! [`ModError::UnsupportedCommand`]（host 映射 409 `unsupported_command`）。
+//!
 //! # 配置字段（settings_spec v1）
 //!
 //! | key | 语义 |
@@ -42,8 +50,10 @@
 //! 与 external-input 都收敛到 `say_tx`，差别只在**输入侧**（弹幕 vs 语音转写）。
 
 pub mod normalize;
+pub mod selftest;
 
 pub use normalize::{DEFAULT_LOCALE, LocaleProfile, locale_profile, normalize_for_locale};
+pub use selftest::config_selftest;
 
 use live2d_ai_mod_system::*;
 
@@ -249,6 +259,11 @@ impl VoiceInputRuntime {
         locale_from_config(&self.config)
     }
 
+    /// 配置自检快照（脱敏）：[`selftest::config_selftest`] 的 runtime 便捷入口。
+    pub fn selftest(&self) -> serde_json::Value {
+        config_selftest(&self.config)
+    }
+
     /// **语音 → 文本 → say** 的 Rust 侧落点：清洗 + locale 归一化后送进主链路。
     ///
     /// 返回 `false` 的两种情况：
@@ -320,6 +335,24 @@ impl ModRuntime for VoiceInputRuntime {
         self.registered = false;
         self.services.logger.info("voice-input Mod 已关闭");
         Ok(())
+    }
+
+    /// 一次性命令（产品级加强波次）：当前只认 `selftest`。
+    ///
+    /// - `selftest` → [`config_selftest`] 的**脱敏**结论（不读环境、不做 IO、不阻塞）；
+    /// - 其它命令 → [`ModError::UnsupportedCommand`]（host 回 409
+    ///   `unsupported_command`，前端据此说「这个 Mod 没有这个动作」）。
+    fn command(
+        &mut self,
+        command: &str,
+        _args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModError> {
+        match command.trim() {
+            "selftest" => Ok(self.selftest()),
+            other => Err(ModError::UnsupportedCommand {
+                command: other.to_string(),
+            }),
+        }
     }
 }
 

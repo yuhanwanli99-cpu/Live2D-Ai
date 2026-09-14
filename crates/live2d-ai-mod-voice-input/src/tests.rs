@@ -338,3 +338,186 @@ fn runtime_reads_backend_and_locale_from_config() {
     assert_eq!(rt.locale(), "ja-JP");
     assert_eq!(rt.config()["backend"], serde_json::json!("sidecar"));
 }
+
+// ---------------------------------------------------- 自检（command("selftest")）
+
+/// 缺省配置是**自洽**的：生效 mock / zh-CN，且两条「走了缺省」的提醒都在。
+#[test]
+fn selftest_default_config_is_self_consistent() {
+    let v = config_selftest(&serde_json::json!({}));
+    assert_eq!(v["ok"], serde_json::json!(true));
+    assert_eq!(v["backend"], serde_json::json!("mock"));
+    assert_eq!(v["backend_defaulted"], serde_json::json!(true));
+    assert_eq!(v["locale"], serde_json::json!("zh-CN"));
+    assert_eq!(v["locale_defaulted"], serde_json::json!(true));
+    assert_eq!(v["locale_profile"], serde_json::json!("cjk"));
+    assert_eq!(v["token_set"], serde_json::json!(false));
+    assert_eq!(v["route"], serde_json::json!("local_inject"));
+    assert_eq!(
+        v["opens_network"],
+        serde_json::json!(false),
+        "自检也必须证明 Rust 不开 socket"
+    );
+    assert_eq!(v["problems"], serde_json::json!([]));
+    let notes = v["notes"].as_array().expect("notes 是数组");
+    assert!(notes.iter().any(|n| n.as_str().unwrap().contains("mock")));
+    assert!(notes.iter().any(|n| n.as_str().unwrap().contains("zh-CN")));
+}
+
+/// backend 写错（未知字符串 / 非字符串）：链路宽容回落 mock，但自检必须点名。
+#[test]
+fn selftest_flags_unknown_backend_without_killing_the_link() {
+    for bad in [
+        serde_json::json!({"backend": "whisper"}),
+        serde_json::json!({"backend": 7}),
+    ] {
+        let v = config_selftest(&bad);
+        assert_eq!(v["ok"], serde_json::json!(false), "got: {v}");
+        assert_eq!(
+            v["backend"],
+            serde_json::json!("mock"),
+            "未知值仍回落 mock（宽容是行为，不是隐藏）: {v}"
+        );
+        assert_eq!(v["backend_valid"], serde_json::json!(false), "got: {v}");
+        assert_eq!(v["route"], serde_json::json!("local_inject"));
+        let problems = v["problems"].as_array().unwrap();
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.as_str().unwrap().contains("backend")),
+            "problems 必须点名 backend: {v}"
+        );
+    }
+    // 显式写成 mock / sidecar 都算已知。
+    for good in ["mock", "sidecar"] {
+        let v = config_selftest(&serde_json::json!({"backend": good}));
+        assert_eq!(v["backend_valid"], serde_json::json!(true), "got: {v}");
+        assert_eq!(v["ok"], serde_json::json!(true), "got: {v}");
+    }
+}
+
+/// locale 写错：回显生效值（只把「空」回落成 zh-CN），但标出它会落到拉丁档。
+#[test]
+fn selftest_flags_malformed_locale_and_reports_latin_profile() {
+    let v = config_selftest(&serde_json::json!({"locale": "!!"}));
+    assert_eq!(v["ok"], serde_json::json!(false));
+    assert_eq!(
+        v["locale"],
+        serde_json::json!("!!"),
+        "locale_from_config 只回落空值，自检如实回显"
+    );
+    assert_eq!(v["locale_valid"], serde_json::json!(false));
+    assert_eq!(v["locale_profile"], serde_json::json!("latin"));
+    assert_eq!(v["locale_defaulted"], serde_json::json!(false));
+    assert!(
+        v["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p.as_str().unwrap().contains("locale"))
+    );
+
+    // 合法 BCP-47（含区域与脚本子标签）不报问题。
+    for good in ["en-US", "zh-Hans-CN", "ja_JP"] {
+        assert_eq!(
+            config_selftest(&serde_json::json!({"locale": good}))["ok"],
+            serde_json::json!(true),
+            "{good} 应自洽"
+        );
+    }
+}
+
+/// 自检结果**绝不含 token 明文**；sidecar + 已设 token 不再提醒「未设 token」。
+#[test]
+fn selftest_never_leaks_token() {
+    let secret = "s3cret-token";
+    let v = config_selftest(&serde_json::json!({"backend": "sidecar", "token": secret}));
+    assert_eq!(v["token_set"], serde_json::json!(true));
+    assert_eq!(v["backend"], serde_json::json!("sidecar"));
+    assert_eq!(v["route"], serde_json::json!("accept_push"));
+    assert_eq!(v["opens_network"], serde_json::json!(false));
+    assert!(
+        !v.to_string().contains(secret),
+        "自检结果绝不得回显 token 明文: {v}"
+    );
+    assert!(
+        v["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|n| !n.as_str().unwrap().contains("未设 token")),
+        "已设 token 就不该再提醒: {v}"
+    );
+}
+
+/// sidecar + 未设 token：只是**提醒**（本机任何进程可推），不是硬问题。
+#[test]
+fn selftest_reminds_when_sidecar_has_no_token() {
+    let v = config_selftest(&serde_json::json!({"backend": "sidecar"}));
+    assert_eq!(
+        v["ok"],
+        serde_json::json!(true),
+        "缺 token 不该判不自洽: {v}"
+    );
+    assert!(
+        v["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("token")),
+        "应有一条 token 提醒: {v}"
+    );
+}
+
+#[test]
+fn locale_wellformed_accepts_bcp47_lite_and_rejects_garbage() {
+    for ok in ["zh", "zh-CN", "en-US", "ja_JP", "zh-Hans-CN"] {
+        assert!(selftest::locale_is_wellformed(ok), "{ok} 应合法");
+    }
+    for bad in [
+        "",
+        " ",
+        "z",
+        "中文",
+        "!!",
+        "zh CN",
+        "zh-",
+        "-CN",
+        "zh-CN-verylongsubtag",
+    ] {
+        assert!(!selftest::locale_is_wellformed(bad), "{bad} 应判非法");
+    }
+}
+
+/// 命令通道契约：认识 selftest、其它命令回 UnsupportedCommand。
+#[test]
+fn command_selftest_returns_result_unknown_is_unsupported() {
+    let mut rt = VoiceInputRuntime::new(
+        noop_services(),
+        serde_json::json!({"backend": "sidecar", "locale": "ja-JP", "token": "t"}),
+    );
+    let out = rt
+        .command("selftest", &serde_json::json!({}))
+        .expect("selftest 应被认识");
+    assert_eq!(out["backend"], serde_json::json!("sidecar"));
+    assert_eq!(out["locale"], serde_json::json!("ja-JP"));
+    assert_eq!(out["token_set"], serde_json::json!(true));
+    assert_eq!(out["route"], serde_json::json!("accept_push"));
+
+    let err = rt
+        .command("nope", &serde_json::json!({}))
+        .expect_err("未知命令必须报错");
+    assert!(
+        matches!(err, ModError::UnsupportedCommand { ref command } if command == "nope"),
+        "got: {err:?}"
+    );
+    // 前后空白容忍（host 已 trim，Mod 侧再 trim 一次）。
+    assert!(rt.command("  selftest  ", &serde_json::json!({})).is_ok());
+}
+
+#[test]
+fn runtime_selftest_matches_pure_function() {
+    let config = serde_json::json!({"backend": "mock", "locale": "en-US"});
+    let rt = VoiceInputRuntime::new(noop_services(), config.clone());
+    assert_eq!(rt.selftest(), config_selftest(&config));
+}
