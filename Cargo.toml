@@ -18,6 +18,10 @@ members = [
     "crates/live2d-ai-mod-persona",
     # rc.4 M3：新 Mod 模板（不注册进 AVAILABLE_MOD_FACTORIES，只作为复制起点 + 活文档）。
     "crates/live2d-ai-mod-template",
+    # Wave 1（2026-09-14）：壁纸策略 Mod（何时换 / 是否与舞台同步）。
+    # **未注册**进 AVAILABLE_MOD_FACTORIES——注册由集成 PR 按
+    # docs/plans/parallel-mods/REGISTER-wallpaper.md 统一做。
+    "crates/live2d-ai-mod-wallpaper",
     "xtask",
 ]
 
