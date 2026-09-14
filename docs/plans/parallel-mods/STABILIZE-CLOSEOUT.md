@@ -133,8 +133,10 @@ Windows Chrome/Edge 的 WebGPU 差异。**不声称「真实点火已完成」**
 
 ## 7. 归档点
 
-- 集成 tip：`mod/stabilize`（本文件所在提交之后不再追加功能）。
-- `0d33aa5b` = 代码 + 脚本 + 文档修正；其后仅追加本目录三份文档。
+- 集成 tip：`mod/stabilize`（**本文件所在提交即最终 tip**；之后不再追加任何改动）。
+- 稳定化**代码**提交 `0d33aa5b`（修复 + 预检脚本 + 两条 doc curl）；
+  其后一个提交 `91c27fa9` 只追加三份文档 + `docs/README.md` 索引。
+- 查最终 tip：`git -C /home/skystar/Live2D-Ai-stabilize rev-parse --short HEAD`。
 - 回滚：本波是**最小 diff**（4 个文件），`git revert` 或整体丢弃 `mod/stabilize` 都可；
   不影响其余 wave worktree。
 - **未 push**。
