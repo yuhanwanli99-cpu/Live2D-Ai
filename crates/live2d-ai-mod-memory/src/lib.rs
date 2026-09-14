@@ -63,6 +63,15 @@
 //! （「要不要往提示词里注入」，不改变「记忆照记」）。停用 Mod 时 `shutdown`
 //! 会检查当前提示词有没有本 Mod 的 marker，有就剥掉写回：**不留残留**。
 //!
+//! # 产品级加强波次（版本仍 0.2.0-rc.3）
+//!
+//! - `state_json` 新增 `records`：记忆库**当前实际条数**（只读一次全量读，
+//!   见 [`MemoryRuntime::record_count`]）；
+//! - 实现 [`ModRuntime::command`] 的 `clear`：`JsonlStore::clear` **原子重写**
+//!   JSONL 为空（`.tmp` + `rename`，不是 `remove_file`），返回
+//!   `{records, cleared, removed, residue}`；**不写** `persona.system_prompt`
+//!   （残留按既有 `strip_residue` 生命周期处理，见文档 §5.2 / §9.1）。
+//!
 //! # 失败纪律（与 persona 刻意不同）
 //!
 //! persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增量**能力：
@@ -250,6 +259,30 @@ impl MemoryRuntime {
         self.retrieve_with(query, false)
     }
 
+    /// 当前 JSONL 里的**有效记录条数**（`state_json.records` 的来源）。
+    ///
+    /// 只读纪律：走 [`JsonlStore::load`]（逐行读、不写盘、不创建文件）。
+    /// 代价是**一次本地全量读**——与每轮 `append_capped` + `retrieve_with` 的
+    /// 两次全量读是同一取舍（文档 §9 / §11.2）；`state_json` 的「不阻塞」指的是
+    /// 不等待网络 / 锁，本地顺序读不在其列。
+    ///
+    /// 读不到（路径不可解析 / IO 错）→ `None`：面板显示「—」，与 `store_path`
+    /// 为 null 同口径——「读不到」不能谎报成「0 条」。坏行不计入条数（它们不是记忆）。
+    pub fn record_count(&mut self) -> Option<usize> {
+        let store = self.store()?;
+        match store.load(0) {
+            Ok(outcome) => Some(outcome.records.len()),
+            Err(e) => {
+                self.errors += 1;
+                self.services.logger.warn(&format!(
+                    "memory 统计记忆条数失败（{}）: {e}",
+                    store.path().display()
+                ));
+                None
+            }
+        }
+    }
+
     /// 当前主链 `persona.system_prompt`（脱敏设置快照里的那一份）。
     pub fn current_main_prompt(&self) -> String {
         self.services
@@ -301,6 +334,59 @@ impl MemoryRuntime {
                 .warn("memory 剥离注入块失败（apply_settings 返回 false），提示词保留旧块");
         }
         applied
+    }
+
+    /// `command("clear")` 的实现：**原子重写** JSONL 为空，并报告可观察结果。
+    ///
+    /// 语义边界（文档 §9.1）：
+    /// - 只清 **JSONL 记忆库**，**不写** `persona.system_prompt`——注入残留按
+    ///   crate 既有 `strip_residue` 生命周期处理（停用 Mod 时剥离；下一轮有非空
+    ///   命中时 `compose_injection` 也会先剥旧再拼新），本命令**不**额外动手；
+    /// - `records` 是**清空后的现存条数**（恒 0，与 `state_json.records` 同口径），
+    ///   `removed` 是本次清掉的条数，`residue` 表示提示词里当前**是否还有**注入块
+    ///   （只读探测，供面板如实提示）；
+    /// - 累计计数 `writes` / `hits` / `injects` / `evicted` **不重置**：它们是
+    ///   生命周期计数，`records` 才是「现在库里有多少」。
+    fn clear_store(&mut self) -> Result<serde_json::Value, ModError> {
+        let Some(store) = self.store() else {
+            self.errors += 1;
+            return Err(ModError::Other(
+                "memory 存储路径未配置，无法清空（store_path 空且 host 未注入 config_path）"
+                    .to_string(),
+            ));
+        };
+        let removed = match store.load(0) {
+            Ok(outcome) => outcome.records.len(),
+            Err(e) => {
+                self.errors += 1;
+                return Err(ModError::Other(format!(
+                    "清空前读取记忆库失败（{}）: {e}",
+                    store.path().display()
+                )));
+            }
+        };
+        if let Err(e) = store.clear() {
+            self.errors += 1;
+            return Err(ModError::Other(format!(
+                "清空记忆库失败（{}）: {e}",
+                store.path().display()
+            )));
+        }
+        let residue = strategy::contains_memory_block(&self.current_main_prompt());
+        self.services.logger.info(&format!(
+            "memory 已清空记忆库（清掉 {removed} 条，文件原子重写为空；提示词注入块{}）",
+            if residue {
+                "仍在（按既有 strip_residue 语义处理）"
+            } else {
+                "本就不存在"
+            }
+        ));
+        Ok(serde_json::json!({
+            "records": 0,
+            "cleared": true,
+            "removed": removed,
+            "residue": residue,
+        }))
     }
 
     /// `TurnPrompt` 的一轮完整处理（见模块头注时序图）。
@@ -371,6 +457,26 @@ impl ModRuntime for MemoryRuntime {
         }
     }
 
+    /// 一次性命令（产品级加强波次）：当前只认识 `clear`（清空记忆库）。
+    ///
+    /// `args` 目前**不解释**（保留给将来带条件的清空）。不认识命令一律回
+    /// [`ModError::UnsupportedCommand`] → host 409 `unsupported_command`；执行
+    /// 失败用 [`ModError::Other`] → host 409 `command_failed`；未启用 / worker
+    /// 正持锁由 host 的 runtime 锁挡下 → 503 `command_unavailable`（可重试）。
+    fn command(
+        &mut self,
+        command: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModError> {
+        let _ = args;
+        match command {
+            "clear" => self.clear_store(),
+            other => Err(ModError::UnsupportedCommand {
+                command: other.to_string(),
+            }),
+        }
+    }
+
     fn shutdown(&mut self) -> Result<(), ModError> {
         // 不留残留：启用期间注入的块必须随停用一起消失（否则它会一直留在
         // live2d-ai.toml 里，连 Mod 都被禁用了还在影响提示词）。
@@ -387,17 +493,21 @@ impl ModRuntime for MemoryRuntime {
         Ok(())
     }
 
-    /// 运行态快照（**纯内存计数**，不做磁盘 IO，符合基座对 `state_json` 的契约）。
+    /// 运行态快照（**只读、不写盘**；产品级加强波次新增 `records`）。
     ///
-    /// Wave 3 起必含四个计数键 `writes` / `hits` / `injects` / `errors`；
-    /// `remembered` 与 `injected` 是 Wave 2 的兼容别名（与 `writes` / `injects`
-    /// 恒同值，由同一字段派生，不会漂移）。
+    /// `records` 需要一次本地全量读（见 [`Self::record_count`]），其余键仍是
+    /// 纯内存计数。Wave 3 起必含四个计数键 `writes` / `hits` / `injects` /
+    /// `errors`；`remembered` 与 `injected` 是 Wave 2 的兼容别名（与 `writes` /
+    /// `injects` 恒同值，由同一字段派生，不会漂移）。
     fn state_json(&mut self) -> Option<serde_json::Value> {
+        let records = self.record_count();
         Some(serde_json::json!({
             "store_path": self
                 .config
                 .resolve_store_path(&self.services.config_path)
                 .map(|p| p.display().to_string()),
+            // 记忆库里**当前实际条数**：只读探测，读不到为 null（不是 0）。
+            "records": records,
             "top_k": self.config.top_k,
             // Wave 3：max_records 现在同时是**条数上限（物理淘汰）**与检索窗口。
             "max_records": self.config.max_records,

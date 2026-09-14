@@ -439,6 +439,146 @@ fn errors_counter_counts_unresolved_path_and_rejected_inject() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+// ------------------------------- 产品级加强：records 计数 / clear 命令
+
+#[test]
+fn records_reports_current_store_count_read_only() {
+    let dir = temp_dir("records");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({}));
+    // 空库（文件不存在）→ 0 条，不是「读不到」。
+    assert_eq!(rt.state_json().unwrap()["records"], 0);
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "量子力学导论")
+        .unwrap();
+    let raw_before = std::fs::read_to_string(dir.join("memory.jsonl")).unwrap();
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["records"], 2, "现存条数 = 文件里的有效行数");
+    assert_eq!(snap["writes"], 2, "writes 是累计写入，不是现存条数");
+    // 只读：取快照不得改文件、不得创建临时文件。
+    assert_eq!(
+        std::fs::read_to_string(dir.join("memory.jsonl")).unwrap(),
+        raw_before
+    );
+    assert!(!dir.join("memory.jsonl.tmp").exists());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn records_is_null_when_store_path_unresolvable() {
+    let host = FakeHost::new("基础人设");
+    let mut rt = MemoryRuntime::new(
+        host.services(""),
+        MemoryConfig::from_value(&serde_json::json!({})),
+    );
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["store_path"], serde_json::Value::Null);
+    assert_eq!(snap["records"], serde_json::Value::Null, "读不到 ≠ 0 条");
+    assert_eq!(
+        snap["errors"], 0,
+        "路径不可解析由 store_path 表达，不谎报 error"
+    );
+}
+
+#[test]
+fn clear_command_empties_store_atomically_and_reports_counts() {
+    let dir = temp_dir("clear");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
+        .unwrap();
+    assert_eq!(rt.state_json().unwrap()["records"], 2);
+
+    let result = rt
+        .command("clear", &serde_json::json!({}))
+        .expect("clear 应成功");
+    assert_eq!(result["cleared"], true);
+    assert_eq!(result["records"], 0, "清空后现存条数 = 0");
+    assert_eq!(result["removed"], 2, "报告被清掉的条数");
+
+    // 文件真被重写：仍在、内容为空、无 .tmp 残留。
+    let path = dir.join("memory.jsonl");
+    assert!(path.exists(), "clear 用原子重写，不是 remove_file");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+    assert!(!dir.join("memory.jsonl.tmp").exists());
+
+    // state 跟随：现存 0 条；累计计数不重置。
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["records"], 0);
+    assert_eq!(snap["writes"], 2, "writes 是生命周期计数，清空不重置");
+    assert!(snap["hits"].as_u64().unwrap() >= 1);
+    // 清空后再记一轮：records 回到 1、writes +1。
+    rt.on_event(ModEventTopic::TurnPrompt, "新的记忆").unwrap();
+    let after = rt.state_json().unwrap();
+    assert_eq!(after["records"], 1);
+    assert_eq!(after["writes"], 3);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn clear_command_does_not_touch_persona_prompt() {
+    let dir = temp_dir("clear-residue");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
+        .unwrap();
+    let injected = host.main_prompt();
+    assert!(injected.contains(MEMORY_MARKER_BEGIN));
+    let patches_before = host.patches().len();
+
+    let result = rt.command("clear", &serde_json::json!({})).unwrap();
+    // 清空只动 JSONL：提示词一字不改（残留按既有 strip_residue 生命周期处理）。
+    assert_eq!(
+        host.main_prompt(),
+        injected,
+        "clear 不得顺手清 persona 提示词"
+    );
+    assert_eq!(host.patches().len(), patches_before, "clear 不得写配置");
+    assert_eq!(result["residue"], true, "如实报告提示词里仍有注入块");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn unknown_command_is_unsupported_and_side_effect_free() {
+    let dir = temp_dir("unknown-cmd");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({}));
+    let err = rt
+        .command("export", &serde_json::json!({}))
+        .expect_err("未实现的命令必须报 UnsupportedCommand");
+    assert_eq!(
+        err,
+        ModError::UnsupportedCommand {
+            command: "export".to_string()
+        }
+    );
+    assert!(!dir.join("memory.jsonl").exists());
+    assert!(host.patches().is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn clear_without_store_path_fails_as_command_failed() {
+    let host = FakeHost::new("基础人设");
+    let mut rt = MemoryRuntime::new(
+        host.services(""),
+        MemoryConfig::from_value(&serde_json::json!({})),
+    );
+    let err = rt
+        .command("clear", &serde_json::json!({}))
+        .expect_err("无路径必须失败");
+    assert!(
+        matches!(err, ModError::Other(_)),
+        "执行失败走 command_failed"
+    );
+    assert_eq!(rt.state_json().unwrap()["errors"], 1);
+}
+
 // ------------------------------------------- 与 persona 共存：last-writer-wins
 
 #[test]
