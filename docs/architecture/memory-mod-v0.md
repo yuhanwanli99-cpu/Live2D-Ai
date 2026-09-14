@@ -1,9 +1,14 @@
 # 本地记忆 Mod v0（`live2d-ai-mod-memory`）
 
-> **状态**：2026-09-14 **Wave 3 C 轨**（分支 `mod/w3-memory` @ 基座 `118bd435`）更新——
+> **状态**：2026-09-14 **产品级加强波次**（memory 轨，worktree
+> `Live2D-Ai-pg-memory` @ 基座 `72d1af17`）更新——`state_json` 新增
+> **`records`（库里当前实际条数）**、实现 **`command("clear")`**（原子重写 JSONL 为空）
+> + 产品面板（条数 / 命中 / 注入 / 淘汰 / 上轮命中 / 清空按钮 / 注入开关与 persona
+> 策略说明）+ §12 逐条可复制验收步骤。**版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。
+> 上一版：2026-09-14 **Wave 3 C 轨**（分支 `mod/w3-memory` @ 基座 `118bd435`）——
 > 补检索**质量基线 fixtures**、**条数上限物理淘汰**、`state_json` **四个计数键**，
 > 并把与 persona 的 **last-writer-wins** 用两向对称测试钉死。
-> 上一版：Wave 2 C 轨（分支 `mod/memory-v0` @ `429609f2`）起草。
+> 再上一版：Wave 2 C 轨（分支 `mod/memory-v0` @ `429609f2`）起草。
 > **注册已完成**（Wave 2 收束落盘）：memory 是 `AVAILABLE_MOD_FACTORIES` 的 6 个工厂之一，
 > **缺省停用**（`cli_entry` 缺省 manifest 不含 memory）；本轨**不改注册面**。
 > 上层协议：[PARALLEL-WAVE3-2026-09-14.md](../plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md) §3C；
@@ -141,6 +146,27 @@ marker 是固定常量（`MEMORY_MARKER_BEGIN` / `MEMORY_MARKER_END`，HTML 注�
 这是**已知取舍**，不是 bug：主链只有一个 system 入口，加一套优先级表就是
 在核心里埋第二个产品。要「两个都生效」必须先论证仲裁规则（见 §8 非目标）。
 
+**可执行建议**：想稳定用人设（persona 卡）就**别同时开 memory 注入**——两者同时
+写同一份 `system_prompt` 时，后写者会覆盖前写者；要记忆能力就要接受「人设可能被
+记忆块叠加、且 persona 后写会冲掉记忆块」这个取舍。面板上的同一条说明就在同一个
+位置（`memory_panel.dart`）。
+
+### 5.2 清空记忆库与提示词残留（产品级加强波次）
+
+`command("clear")` **只清 JSONL 记忆库**（§9.1），**不写** `persona.system_prompt`
+——**不「顺手」清 persona 的提示词**，更不做第二套「连提示词一起清」的行为
+（那正是 §5.1 禁止的第二个仲裁/合并机制）。清空前若注入过记忆块，残留按 crate
+**既有 `strip_residue` 生命周期**处理，没有新路径：
+
+| 时间点 | 残留块的下场 |
+| --- | --- |
+| 停用 Mod | `shutdown` 调 `strip_residue`：按 marker 剥掉块，base 一字不改 |
+| 下一轮**有非空命中** | `compose_injection` 先剥旧块再拼新块（幂等） |
+| 清空后**没有命中**（库里还没新记录） | 旧块**不会**被自动剥掉，会留在 `system_prompt` 里 |
+
+`clear` 的返回带 `residue: true/false` **如实报告**「提示词里现在是否还有注入块」，
+面板据此提示「停用 Mod 会按既有语义剥离」（§9.1 / §12 第 6 步）。
+
 **这条规则同时写在**
 [REGISTER-memory-v0.md](../plans/parallel-mods/REGISTER-memory-v0.md) §3.2（逐字一致），
 并由 `src/tests.rs` 的两条对称回归守住：
@@ -217,16 +243,18 @@ persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增�
    （`max_history_pairs` 本轮**未用**，留给 v1）；
 4. 不做跨会话去重 / 冲突消解 / 摘要（同一句话说两次就是两条记录）；
 5. 不做 `persona` / memory 的仲裁优先级（§5.1）；
-6. 不做记忆管理 UI（查看 / 编辑 / 删除）——API 面只有基座通用的
-   `GET /api/v1/mods/memory/state`（只读计数，见 §9）。
+6. 不做记忆**查看 / 编辑**面；唯一的删除动作是**清空整库**（面板按钮 →
+   `command("clear")`，§9.1）；API 面另有基座通用的
+   `GET /api/v1/mods/memory/state`（只读计数，见 §9）。**不做**逐条删 / 导出。
 
 ## 9. 运行态快照（`state_json`）
 
-实现基座 Wave 2 的 `ModRuntime::state_json`，**纯内存计数、不做磁盘 IO**
-（它跑在 web_api 线程上）：
+实现基座 Wave 2 的 `ModRuntime::state_json`，**只读、不写盘**；其中 `records`
+需要**一次本地全量读**（`JsonlStore::load(0)`，见 §9.1），其余键仍是纯内存计数
+（`state_json` 在 web_api 线程上被调用，「不阻塞」指不等待网络 / 锁）：
 
 ```json
-{"store_path":"…/memory.jsonl","top_k":3,"max_records":200,
+{"store_path":"…/memory.jsonl","records":12,"top_k":3,"max_records":200,
  "enabled_injection":true,"turns_seen":12,
  "writes":12,"hits":17,"injects":4,"errors":0,"evicted":2,"last_hits":2,
  "remembered":12,"injected":4}
@@ -245,14 +273,59 @@ persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增�
 `turns_seen`；`remembered` / `injected` 是 Wave 2 的**兼容别名**，由同一字段
 派生（与 `writes` / `injects` 恒同值，不会漂移）。
 
+**`records`（产品级加强波次新增）**：记忆库**当前实际条数**——逐行读 JSONL 数出来
+的有效记录数（坏行不计），**不是** `writes`（累计写入，清空也不重置）。文件不存在
+→ `0`；路径不可解析 / 读取失败 → `null`（面板显示「—」）并把失败计入 `errors`
+——「读不到」不能谎报成「0 条」。代价是一次**全量读**（与每轮两次全量读同一取舍，
+见 §11.2）；「不阻塞」指不等待网络 / 锁，本地顺序读不在其列。
+
 路由由基座提供：`GET /api/v1/mods/memory/state`（404 = 不在注册表；
 503 `state_unavailable` = 在册但未启用 / worker 正持锁）。
 
+### 9.1 清空记忆库（`command("clear")`，产品级加强波次）
+
+HTTP：`POST /api/v1/mods/memory/command`，body `{"command":"clear","args":{}}`
+（`args` 可省）。面板按钮「清空记忆库」走 `onCommand('clear')`（§12 第 6 步）。
+
+- **只动 JSONL**：`JsonlStore::clear()` = 同目录 `<store>.jsonl.tmp` + `rename`
+  **原子重写为空**，**不是** `remove_file`（理由见 `store.rs::clear` 头注）；
+  文件本来不存在也会创建一个空文件（「空库」在盘上可见）；
+- **不写 `persona.system_prompt`**：残留按既有 `strip_residue` 生命周期处理（§5.2）；
+- 返回（`200 {"ok":true,"result":{…}}`）：
+
+| 键 | 语义 |
+| --- | --- |
+| `cleared` | 恒 `true`（执行成功才有 200） |
+| `records` | **清空后**现存条数，恒 `0`（与 `state_json.records` 同口径） |
+| `removed` | 本次清掉的条数（清空前的有效记录数） |
+| `residue` | 提示词里当前是否仍有注入块（只读探测，供面板如实提示，§5.2） |
+
+- **累计计数不重置**：`writes` / `hits` / `injects` / `evicted` 是生命周期计数，
+  `records` 才是「现在库里有多少」；
+- 失败码：`409 unsupported_command`（不认识命令）/ `409 command_failed`
+  （路径不可配置 / 读失败 / 重写失败，且 `errors += 1`）/
+  `503 command_unavailable`（未启用或 Mod worker 正持锁，**可重试**）。
+
 ## 10. 门禁与测试
 
-- `cargo test -p live2d-ai-mod-memory` → **61 passed / 0 failed**（Wave 2 起 44 → Wave 3 +17）；
+- `cargo test -p live2d-ai-mod-memory --all-targets` → **69 passed / 0 failed**
+  （Wave 2 起 44 → Wave 3 +17 → 产品级加强波次 +8）；
 - `cargo fmt -p live2d-ai-mod-memory -- --check` clean；
-- `cargo clippy -p live2d-ai-mod-memory --all-targets -- -D warnings` → 0 warning。
+- `cargo clippy -p live2d-ai-mod-memory --all-targets -- -D warnings` → 0 warning；
+- `cd shell/flutter && flutter analyze` 无问题 + `flutter test` 全绿（新增
+  `test/memory_panel_test.dart`：渲染 / 清空 / 带码文案 / 说明）。
+
+产品级加强波次新增/更新的 8 条（Rust）：
+
+- **`records` 计数**（`tests.rs` 2 条）：现存条数 = 文件有效行数、取快照只读不改盘
+  （无 `.tmp`）；路径不可解析 → `null`（不是 0 条、不谎报 `errors`）；
+- **`clear` 命令**（`tests.rs` 4 条）：清空后 `records == 0` 且**文件真被重写**
+  （仍在、内容为空、无 `.tmp` 残留）、报告 `removed`、累计计数不重置、清空后再记
+  一轮 `records` 回到 1；`clear` **不碰** `persona.system_prompt`（并如实报
+  `residue`）；未知命令 → `UnsupportedCommand` 且无副作用；无路径 → `command_failed`
+  + `errors = 1`；
+- **`JsonlStore::clear`**（`store.rs` 2 条）：原子重写为空且不留临时文件；文件不存在
+  时创建空文件（「空库」在盘上可见）。
 
 Wave 3 新增/更新的 17 条：
 
@@ -277,16 +350,53 @@ self-hit / 幂等 / 停用清残留）一条未删。
 - `crates/live2d-ai-mod-memory/src/test_support.rs`（两测试模块共用替身）
 - `crates/live2d-ai-mod-memory/tests/fixtures/quality_corpus.json`（固定语料）
 - `crates/live2d-ai-mod-memory/src/{quality_tests,strategy_tests,tests}.rs`（单测）
+- `shell/flutter/lib/settings/mods/memory_panel.dart`（产品面板：计数 / 清空 / 说明）
+- `shell/flutter/test/memory_panel_test.dart`（面板单测：渲染 / 清空 / 带码文案）
 
 ## 11. 已知缺口 / 下一步
 
 1. **没有备份 / 撤销**：物理淘汰删了就没了（§6.1）。真要做，先定义备份位置、
    保留策略与恢复入口——不是「顺手加个 `.bak`」；
-2. **每轮两次全量读盘**：`append_capped` 计数读一次 + 检索读一次。默认 200 条可接受；
-   窗口放大前先做「读尾部 N 行」或索引；
+2. **全量读盘**：每轮 `append_capped` 计数读一次 + 检索读一次；每次取 `state_json`
+   （面板展开 / 刷新运行态）再读一次算 `records`。默认 200 条可接受；窗口放大前
+   先做「读尾部 N 行」或索引；
 3. **检索质量只覆盖 fixtures**：fixtures 是回归基线，不是「质量分数」；Jaccard 无 idf，
    长记录会被稀释。要改先加样例再改实现；
-4. **无记忆管理面**：删除 / 编辑 / 导出只有手工改 JSONL（与「不做 delete API」同一取舍）；
+4. **无逐条管理面**：唯一的删除动作是清空整库（§9.1）；编辑 / 导出 / 逐条删除仍只有
+   手工改 JSONL；
 5. **与 persona 的边界只有 last-writer-wins**（§5.1），无仲裁、无合并；
 6. `max_records` 同时是上限与窗口：语义重叠是刻意的（上限生效后窗口必然不溢出），
    但**改默认值前要知道它现在会删数据**。
+
+## 12. 「相关内容下一轮会被提起」逐条可复制验收
+
+前置：`memory` **缺省停用**——先在「设置 → Mod → 本地记忆」卡片标题行把它
+启用（状态变「运行中」）。运行态读数是卡片展开后的「运行态（只读）」块，
+或 `GET /api/v1/mods/memory/state`（§9）。
+
+1. **看空库**：展开卡片 → `当前条数 0`、`写入条数 0`、`上轮命中 0`。
+2. **记第一句**：聊天框发 `记住：我叫星梦，喜欢薄荷`，等这一轮回复结束
+   （停止键变回发送键）。
+3. **验写入**：点「刷新运行态」→ `当前条数 1`、`写入条数 1`、`注入轮数 0`
+   （本轮请求体在这句入库**之前**就已发出，见 §2）。
+4. **第二次提问**：发 `我叫什么？喜欢什么？`。memory 在这一轮检索到第 2 步的
+   那句话；再点「刷新运行态」，应看到 `上轮命中 ≥ 1`、`累计命中 ≥ 1`、
+   `注入轮数 1`。**注意**：这一轮的请求体里**还没有**注入块（注入只对下一轮
+   生效，§2），所以此轮回复**不要求**出现「薄荷 / 星梦」——别把它当失败。
+5. **验下一轮真被提起**：再发一句相关的话（例：`再说一次我喜欢什么`）。这一轮
+   的请求体已经带着第 4 步注入的块，回复里应出现 `薄荷` / `星梦`（或明确表示记得）。
+6. **清空**：点「清空记忆库」→ 文案 `已清空记忆库：清掉 N 条，现存 0 条`；
+   刷新运行态 → `当前条数 0`。若提示「仍留着上一轮注入的记忆块」，那是 §5.2 的
+   既有语义：停用 Mod 时 `strip_residue` 会剥掉（`clear` 本身不碰提示词）。
+7. **复跑**：清空后重复第 2–5 步应得到同样结果（幂等，不残留旧记忆）。
+
+排查（对应错误面，都带码）：
+
+- 第 4 步 `上轮命中` 仍 `0`：v0 是**词面重叠**检索，同义改写不命中（§4.1）；
+  换一句与第 2 步**有共同词**的问题，或确认 `top_k ≥ 1`；
+- 第 5 步回复没提起：确认 `enabled_injection` 没被关（面板「注入开关」说明它
+  != Mod 启停，见 §3）；确认第 4 步 `注入轮数` 真的 +1；
+- 清空失败：文案带码——`503 command_unavailable` 可重试（worker 正忙 / 未启用），
+  `409 command_failed` 看服务端日志（路径 / 权限），`404 not_found` 说明 Mod 不在注册表。
+
+> 时序真源 = §2 的时序图。**不要**期望「同轮就提起」。

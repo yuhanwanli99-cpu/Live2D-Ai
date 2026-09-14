@@ -143,6 +143,20 @@ impl JsonlStore {
         fs::rename(&tmp, &self.path)
     }
 
+    /// **原子清空**记忆库：把文件重写成**空**（同目录 `.tmp` + `rename`）。
+    ///
+    /// 为什么不是 `remove_file`：与 [`Self::rewrite`] 同一条原子纪律。
+    /// 直接删文件会在「删除」与「下一次追加」之间留下一个**不存在的库**
+    /// （`load` 会把 `NotFound` 当空库，看似等价），但一旦删除后进程崩在
+    /// 「刚删、还没重建」之间，读者就分不清「清空成功」与「库丢了」；
+    /// `rename` 是**原子替换**：读者要么看到旧内容、要么看到空文件。
+    ///
+    /// 文件本来不存在也会创建一个**空文件**——「空库」与「没有库」都算 0 条，
+    /// 但前者让「清空」这件事在文件系统上可见（大小 0、存在）。
+    pub fn clear(&self) -> std::io::Result<()> {
+        self.rewrite(&[])
+    }
+
     /// 载入记录，**只保留最新的 `max_records` 条**。
     ///
     /// 本方法**只缩载入窗口、不动文件**；真正的物理删除在
@@ -389,6 +403,43 @@ mod tests {
         assert_eq!(all.records.len(), 1);
         assert_eq!(all.records[0].text, "第3条");
         assert_eq!(fs::read_to_string(store.path()).unwrap().lines().count(), 1);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clear_rewrites_file_to_empty_atomically() {
+        let (dir, store) = temp_store("clear");
+        store.append(&rec("一", 1, 1)).unwrap();
+        store.append(&rec("二", 2, 2)).unwrap();
+        store.clear().expect("clear 应成功");
+        assert!(
+            store.path().exists(),
+            "clear 是重写不是删文件：文件必须还在"
+        );
+        assert_eq!(
+            fs::read_to_string(store.path()).unwrap(),
+            "",
+            "清空后文件内容必须为空"
+        );
+        assert!(store.load(0).unwrap().records.is_empty());
+        assert!(
+            !dir.join("memory.jsonl.tmp").exists(),
+            "rename 之后不得残留临时文件"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clear_creates_empty_file_when_store_absent() {
+        let (dir, store) = temp_store("clear-missing");
+        assert!(!store.path().exists(), "前置：库文件本来不存在");
+        store.clear().expect("clear 应成功");
+        assert!(
+            store.path().exists(),
+            "清空后留下空文件（「空库」在盘上可见）"
+        );
+        assert_eq!(fs::read_to_string(store.path()).unwrap(), "");
+        assert!(store.load(0).unwrap().records.is_empty());
         let _ = fs::remove_dir_all(dir);
     }
 
