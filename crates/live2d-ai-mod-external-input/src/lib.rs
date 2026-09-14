@@ -57,6 +57,12 @@ const DESCRIPTOR: ModDescriptor = ModDescriptor {
     api_version: 1,
 };
 
+/// 一次性命令（产品级加强波次）：清零四个可观察计数，返回**清零前**的快照。
+///
+/// 面板「重置计数」按钮经 `POST /api/v1/mods/external-input/command` 触发它；
+/// 实现对 [`counters::reset`] 的调用是唯一的清零路径。
+pub const COMMAND_RESET_COUNTERS: &str = "reset_counters";
+
 /// 外部接入设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
 ///
 /// 见模块头注「启停语义」：这里**不**含 `enabled` 字段。
@@ -133,6 +139,21 @@ pub fn token_from_config(config: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// env `EXTERNAL_INPUT_TOKEN` 是否非空（**只看存在性，绝不读取/回显明文**）。
+fn env_token_is_set() -> bool {
+    std::env::var("EXTERNAL_INPUT_TOKEN")
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+}
+
+/// 「是否已配置令牌」：Mod config 的 `token` **或** env `EXTERNAL_INPUT_TOKEN`。
+///
+/// 与 handler 的优先级同源（env 优先、其次 config、都空 = 不鉴权），但这里只回
+/// `bool`：`state_json` 会被前端渲染、被日志记录，**绝不回显明文**。
+pub fn token_is_set(config: &serde_json::Value) -> bool {
+    token_from_config(config).is_some() || env_token_is_set()
+}
+
 /// External Input 的运行时状态。
 pub struct ExternalInputRuntime {
     services: ModServices,
@@ -204,16 +225,46 @@ impl ModRuntime for ExternalInputRuntime {
         Ok(())
     }
 
-    /// 只读运行态：接受 / 拒绝 / 忙 / v2_ignored 计数 + ready。
+    /// 一次性命令（产品级加强波次）。
+    ///
+    /// 目前只有 [`COMMAND_RESET_COUNTERS`]：清零 [`counters`] 的四个可观察计数，
+    /// 返回**清零前**的快照（面板据此说「清了哪些」）。其余命令一律
+    /// `UnsupportedCommand`（host 回 409 `unsupported_command`）。
+    ///
+    /// 不做网络请求；只改进程内计数，立即返回。
+    fn command(
+        &mut self,
+        command: &str,
+        _args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModError> {
+        match command {
+            COMMAND_RESET_COUNTERS => {
+                let before = counters::reset();
+                self.services.logger.info("external-input 计数已清零");
+                Ok(serde_json::json!({"reset": true, "before": before}))
+            }
+            other => Err(ModError::UnsupportedCommand {
+                command: other.to_string(),
+            }),
+        }
+    }
+
+    /// 只读运行态：接受 / 拒绝 / 忙 / v2_ignored 计数 + ready + token_set。
     ///
     /// `GET /api/v1/mods/external-input/state` 的 `state` 字段即本返回值；
-    /// 契约与分支对应表见 [`counters`]。
+    /// 契约与分支对应表见 [`counters`]。`token_set` 只报「有没有令牌」，
+    /// **绝不回显明文**（见 [`token_is_set`]）。
     fn state_json(&mut self) -> Option<serde_json::Value> {
         let mut snap = counters::counters_snapshot();
         if let Some(obj) = snap.as_object_mut() {
             obj.insert(
                 "ready".to_string(),
                 serde_json::Value::Bool(self.registered),
+            );
+            // 令牌只报存在性：前端渲染 + 日志都不该看到明文。
+            obj.insert(
+                "token_set".to_string(),
+                serde_json::Value::Bool(token_is_set(&self.config)),
             );
         }
         Some(snap)
@@ -479,6 +530,94 @@ mod tests {
             serde_json::json!(false),
             "shutdown 后 ready=false，计数仍可读"
         );
+    }
+
+    /// 无副作用的 `ModServices`（新回归共用，避免每处重复四个 sender）。
+    fn noop_services() -> ModServices {
+        ModServices::new(
+            ModActionSender::new(|_| true),
+            SaySender::new(|_| true),
+            ModEventSender::new(|_t, _p| true),
+            ModLogger::new(|_l, _m| {}),
+        )
+    }
+
+    // ---------------------------------------------------- token_set（产品级）
+
+    /// `token_set`：config 有令牌 → true；且 **state_json 绝不回显明文**。
+    #[test]
+    fn state_json_reports_token_set_without_echoing_token() {
+        let mut rt = ExternalInputFactory
+            .create(noop_services(), serde_json::json!({"token": "s3cret"}))
+            .unwrap();
+        let state = rt.state_json().expect("state_json");
+        assert_eq!(state["token_set"], serde_json::json!(true));
+        let rendered = state.to_string();
+        assert!(
+            !rendered.contains("s3cret"),
+            "state_json 不得回显令牌明文：{rendered}"
+        );
+    }
+
+    /// config 空 + env 未设 → `token_set=false`（env 已设时本分支不成立，跳过）。
+    #[test]
+    fn state_json_reports_token_unset_when_nothing_configured() {
+        if std::env::var("EXTERNAL_INPUT_TOKEN")
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let mut rt = ExternalInputFactory
+            .create(noop_services(), serde_json::json!({}))
+            .unwrap();
+        assert_eq!(
+            rt.state_json().unwrap()["token_set"],
+            serde_json::json!(false)
+        );
+    }
+
+    // ---------------------------------------------------- command reset_counters
+
+    /// `reset_counters`：返回清零前快照，并把进程级计数清零。
+    #[test]
+    fn command_reset_counters_returns_before_and_zeroes() {
+        let _guard = counters::test_lock();
+        counters::record_accept();
+        counters::record_busy();
+        let mut rt = ExternalInputRuntime {
+            services: noop_services(),
+            config: serde_json::json!({}),
+            registered: true,
+        };
+        let seen = counters::counters_snapshot();
+        let result = rt
+            .command(COMMAND_RESET_COUNTERS, &serde_json::json!({}))
+            .expect("已知命令必须 Ok");
+        assert_eq!(result["reset"], serde_json::json!(true));
+        assert_eq!(result["before"]["accepts"], seen["accepts"]);
+        assert_eq!(result["before"]["busy"], seen["busy"]);
+        let after = counters::counters_snapshot();
+        for k in counters::COUNTER_KEYS {
+            assert_eq!(after[k], 0, "{k} 清零");
+        }
+    }
+
+    /// 不认识命令 → `UnsupportedCommand`（host 据此回 409 `unsupported_command`）。
+    #[test]
+    fn command_unknown_is_unsupported() {
+        let mut rt = ExternalInputRuntime {
+            services: noop_services(),
+            config: serde_json::json!({}),
+            registered: false,
+        };
+        let err = rt
+            .command("no_such_command", &serde_json::json!({}))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            ModError::UnsupportedCommand { ref command } if command == "no_such_command"
+        ));
     }
 
     /// 测试用 ModRegistrar mock。

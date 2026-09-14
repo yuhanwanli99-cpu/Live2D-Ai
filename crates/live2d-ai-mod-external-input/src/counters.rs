@@ -14,6 +14,9 @@
 //! 不引入第二处真相。计数只增不减（`v2_ignored` 例外，见下）、不做持久化：
 //! 进程重启即归零，这是「本机运行观察值」的定位。
 //!
+//! `command reset_counters`（产品级加强波次）是**唯一**把它们清零的路径：见
+//! [`ExternalInputCounters::reset`]——返回清零前的快照，面板据此说「清了哪些」。
+//!
 //! # 语义（每个计数对应 handler 的哪条分支）
 //!
 //! | 计数 | 含义 | 对应分支 |
@@ -84,6 +87,20 @@ impl ExternalInputCounters {
             "v2_ignored": self.v2_ignored.load(Ordering::Relaxed),
         })
     }
+
+    /// 清零四个计数，并返回**清零前**的快照（`reset_counters` 命令的唯一实现）。
+    ///
+    /// 逐字段 `swap(0)`：并发写不会丢——写线程要么在 swap 之前计入返回的
+    /// 快照、要么在 swap 之后计入新一轮，两者都有归属；返回体也正好是
+    /// 「清零那一刻的数字」，面板可以如实说「清了哪些」。
+    pub fn reset(&self) -> serde_json::Value {
+        serde_json::json!({
+            "accepts": self.accepts.swap(0, Ordering::Relaxed),
+            "rejects": self.rejects.swap(0, Ordering::Relaxed),
+            "busy": self.busy.swap(0, Ordering::Relaxed),
+            "v2_ignored": self.v2_ignored.swap(0, Ordering::Relaxed),
+        })
+    }
 }
 
 impl Default for ExternalInputCounters {
@@ -127,13 +144,28 @@ pub fn counters_snapshot() -> serde_json::Value {
     COUNTERS.snapshot()
 }
 
+/// 进程级单例：清零并返回清零前快照（`ModRuntime::command("reset_counters")` 调它）。
+pub fn reset() -> serde_json::Value {
+    COUNTERS.reset()
+}
+
+/// **测试专用**串行锁：`reset` 会把别的测试的 delta 基准打乱，凡改进程级计数的
+/// 测试都要先拿它。生产路径不碰这把锁。
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 本模块是**唯一**改进程级计数的测试（delta 断言因而确定）。
+    /// 进程级计数的 delta 断言必须在 [`test_lock`] 下串行：本模块与 `lib.rs` 的
+    /// `command` 回归都会改进程级计数，`reset` 会把别人的基准打乱。
     #[test]
     fn record_and_snapshot_are_consistent() {
+        let _guard = test_lock();
         let before = counters_snapshot();
         let base = |k: &str| before[k].as_u64().expect("计数为无符号整数");
 
@@ -178,6 +210,52 @@ mod tests {
         let snap = ExternalInputCounters::default().snapshot();
         for k in COUNTER_KEYS {
             assert_eq!(snap[k], 0, "{k} 初始为 0");
+        }
+    }
+
+    /// 独立实例 `reset`：返回清零前的四个数字，随后全部归零。
+    #[test]
+    fn reset_returns_pre_reset_snapshot_and_zeroes() {
+        let c = ExternalInputCounters::new();
+        c.record_accept();
+        c.record_accept();
+        c.record_reject();
+        c.record_busy();
+        c.record_v2_ignored(4);
+
+        let before = c.reset();
+        assert_eq!(before["accepts"], 2);
+        assert_eq!(before["rejects"], 1);
+        assert_eq!(before["busy"], 1);
+        assert_eq!(before["v2_ignored"], 4);
+
+        let after = c.snapshot();
+        for k in COUNTER_KEYS {
+            assert_eq!(after[k], 0, "{k} 清零后为 0");
+        }
+        // 清零后还能继续记（不是把计数器废掉）。
+        c.record_accept();
+        assert_eq!(c.snapshot()["accepts"], 1);
+    }
+
+    /// 进程级 `reset()`：清零并返回快照（`command reset_counters` 的真实路径）。
+    #[test]
+    fn global_reset_zeroes_process_counters() {
+        let _guard = test_lock();
+        record_accept();
+        record_reject();
+        record_busy();
+        record_v2_ignored(9);
+
+        let before = reset();
+        assert!(before["accepts"].as_u64().unwrap_or(0) >= 1);
+        assert!(before["rejects"].as_u64().unwrap_or(0) >= 1);
+        assert!(before["busy"].as_u64().unwrap_or(0) >= 1);
+        assert_eq!(before["v2_ignored"], 9);
+
+        let after = counters_snapshot();
+        for k in COUNTER_KEYS {
+            assert_eq!(after[k], 0, "{k} 进程级清零");
         }
     }
 }

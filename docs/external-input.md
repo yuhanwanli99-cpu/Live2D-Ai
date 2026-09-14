@@ -145,6 +145,7 @@ curl -s http://127.0.0.1:18080/api/v1/mods/external-input/state
 | `rejects` | **策略拒绝**：token 鉴权失败（401）或 Mod 停用（403 `mod_disabled`） | 401 / 403 |
 | `v2_ignored` | sidecar 上报的 `SEND_GIFT_V2` 忽略累计值（覆盖写） | body 可选字段，见 §3 |
 | `ready` | 该 Mod 运行时是否已 `start`（启用即 `true`） | — |
+| `token_set` | 是否已配置令牌（env `EXTERNAL_INPUT_TOKEN` **或** Mod config `token`）；**只报存在性，绝不回显明文** | — |
 
 三条边界（**与实现逐条一致**，见 `counters.rs` 头注）：
 
@@ -153,6 +154,32 @@ curl -s http://127.0.0.1:18080/api/v1/mods/external-input/state
 - 计数是**进程级** `AtomicU64`（handler 与 runtime 拿不到彼此引用），**不持久化**，
   进程重启归零——它是运行观察值，不是审计账本；
 - `v2_ignored` 是**覆盖写**：sidecar 报的是自身累计值，重复上报同一值幂等。
+
+`token_set` 是**布尔存在性**，不是令牌本身：界面据此说「已设置令牌」/
+「未设令牌：仅本机可用」。任何响应、日志、WS 帧都不出现令牌明文。
+
+---
+
+## 5.2 重置计数（`POST /api/v1/mods/external-input/command`）
+
+「重置计数」是一次性动作（改运行态、**不改配置**），走产品级加强波次新增的通用
+命令通道（与 `enable`/`disable`/`config` 同一个 `POST /api/v1/mods/{id}/{action}` 路由）：
+
+```bash
+curl -s -X POST http://127.0.0.1:18080/api/v1/mods/external-input/command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"reset_counters"}'
+# {"ok":true,"result":{"reset":true,"before":{"accepts":12,"rejects":1,"busy":3,"v2_ignored":0}}}
+```
+
+- `before` 是**清零前**的快照，面板据此说「清零前：…」；之后四个计数全为 0。
+- 错误：`400 bad_request`（body 缺非空 `command`）/ `404 not_found`（Mod 不在注册表）/
+  `409 unsupported_command`（该 Mod 不认识这条命令）/ `409 command_failed`（执行失败）/
+  `503 command_unavailable`（未启用或 Mod worker 正忙，**可重试**）。
+- 计数是进程级、不持久化：进程重启本来就归零，`reset_counters` 只是把这件事做成
+  按钮（前端「Mod 管理」→ external-input 面板的「重置计数」，二次确认后才发）。
+- 与 §7 同类：mutating 请求需 `Content-Type: application/json` + loopback Origin；
+  无 Origin 的 curl 仍需服务端 `allow_no_origin`。
 
 ---
 
@@ -285,7 +312,9 @@ print(send_to_live2d("收到新邮件提醒"))
 | 层 | 位置 |
 |---|---|
 | HTTP handler（安全 + 门禁 + 模板 + token + 计数） | `crates/live2d-ai-desktop/src/web_api/external_routes.rs` |
-| Mod（静态 settings_spec / 模板纯函数 / say / state_json） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
+| Mod（静态 settings_spec / 模板纯函数 / say / state_json / `command`） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
+| 命令通道（`reset_counters` → 409/503 分类） | `crates/live2d-ai-desktop/src/web_api/mods_routes.rs` |
+| 产品面板（计数摘要 / 令牌两态 / 模板示例 / 重置按钮） | `shell/flutter/lib/settings/mods/external_input_panel.dart` |
 | 可观察计数（AtomicU64 + 语义表） | `crates/live2d-ai-mod-external-input/src/counters.rs` |
 | sidecar（清洗 / 节流 / 自检 / v2 上报） | `docs/examples/bilibili-sidecar/bilibili_sidecar.py` |
 | 缺口断言 | `mod_count_is_five`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 3+1+1** / v2_ignored）、`counters::tests`（计数契约） |
