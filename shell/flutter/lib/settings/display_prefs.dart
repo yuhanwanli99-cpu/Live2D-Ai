@@ -477,6 +477,47 @@ StagePlaylistAppendResult appendToStagePlaylist(
   );
 }
 
+/// 第 [index] 张在列表里的下标；找不到（含 [stageImage] 为 null）→ `-1`。
+///
+/// UI 用它把「当前舞台那张」标出来。判据是**数据相等**（同一份 dataURL），
+/// 不是 Mod 游标位置：列表可以被删除 / 重排，而游标是 Mod 的运行值——
+/// 拿游标冒充「当前张」会在编辑列表后指错人。
+int stagePlaylistIndexOf(List<String> playlist, String? stageImage) {
+  if (stageImage == null) return -1;
+  for (int i = 0; i < playlist.length; i++) {
+    if (playlist[i] == stageImage) return i;
+  }
+  return -1;
+}
+
+/// 删除第 [index] 张（Wave 3）。
+///
+/// - 越界（负数 / `>= length`）→ **原样返回**入参（不抛、不猜）；
+/// - 成功 → 返回**新列表**（不改入参；删除只会让总长变小，三条预算不会被破坏）；
+/// - 不动 [DisplayPrefs.stageImage]：删除当前张不会清空舞台——用户看到的那张
+///   仍然在屏幕上，是否还在列表里由调用方决定。
+List<String> removeStagePlaylistAt(List<String> current, int index) {
+  if (index < 0 || index >= current.length) return current;
+  return <String>[...current]..removeAt(index);
+}
+
+/// 把第 [from] 张移到 [to]（都是 0-based 下标，闭区间；Wave 3）。
+///
+/// - 越界（`from` / `to` 不在 `0..length`）/ `from == to` → **原样返回**入参；
+/// - 成功 → 返回**重排后的新列表**（项集合与项数都不变，所以三条预算不受影响，
+///   也不需要写回 `playlist_len`——长度没变）。
+///
+/// 「上移」= `moveStagePlaylist(list, i, i - 1)`，「下移」= `(list, i, i + 1)`。
+List<String> moveStagePlaylist(List<String> current, int from, int to) {
+  if (from < 0 || from >= current.length) return current;
+  if (to < 0 || to >= current.length) return current;
+  if (from == to) return current;
+  final List<String> out = <String>[...current];
+  final String item = out.removeAt(from);
+  out.insert(to, item);
+  return out;
+}
+
 /// `applyWallpaperPatch` 的结果。
 class WallpaperPatchResult {
   const WallpaperPatchResult({

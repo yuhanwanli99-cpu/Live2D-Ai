@@ -316,6 +316,124 @@ void main() {
     });
   });
 
+  group('轮播列表增删 / 排序（Wave 3：最小可维护闭环）', () {
+    test('removeStagePlaylistAt 删除第 index 张、保持其余顺序、返回新列表', () {
+      final List<String> list = <String>[_img('a'), _img('b'), _img('c')];
+      final List<String> removed = removeStagePlaylistAt(list, 1);
+      expect(removed, <String>[_img('a'), _img('c')]);
+      expect(identical(removed, list), isFalse, reason: '不得原地改入参');
+      expect(list, <String>[_img('a'), _img('b'), _img('c')], reason: '入参原样');
+      // 边界：删第一张 / 最后一张。
+      expect(removeStagePlaylistAt(list, 0), <String>[_img('b'), _img('c')]);
+      expect(removeStagePlaylistAt(list, 2), <String>[_img('a'), _img('b')]);
+    });
+
+    test('removeStagePlaylistAt 越界（负数 / == length）→ 原样返回，不抛', () {
+      final List<String> list = <String>[_img('a'), _img('b')];
+      expect(identical(removeStagePlaylistAt(list, -1), list), isTrue);
+      expect(identical(removeStagePlaylistAt(list, 2), list), isTrue);
+      expect(identical(removeStagePlaylistAt(list, 99), list), isTrue);
+      // 空列表也不炸。
+      expect(removeStagePlaylistAt(<String>[], 0), isEmpty);
+    });
+
+    test('删除后长度变化 → 触发写回判据（本地 2 张、服务端 3 张）', () {
+      final List<String> list = <String>[_img('a'), _img('b'), _img('c')];
+      final int localLen = removeStagePlaylistAt(list, 0).length;
+      expect(localLen, 2);
+      expect(needsPlaylistLenWriteBack(localLen: localLen, remoteLen: 3), isTrue);
+      // 服务端已是新长度 → 不再写（写回会重启 Mod、冲掉游标）。
+      expect(needsPlaylistLenWriteBack(localLen: localLen, remoteLen: 2), isFalse);
+    });
+
+    test('moveStagePlaylist 上移：交换 i 与 i-1，其余顺序不动', () {
+      final List<String> list = <String>[_img('a'), _img('b'), _img('c')];
+      expect(
+        moveStagePlaylist(list, 1, 0),
+        <String>[_img('b'), _img('a'), _img('c')],
+      );
+      expect(
+        moveStagePlaylist(list, 2, 1),
+        <String>[_img('a'), _img('c'), _img('b')],
+      );
+      expect(identical(moveStagePlaylist(list, 1, 0), list), isFalse);
+    });
+
+    test('moveStagePlaylist 下移：交换 i 与 i+1', () {
+      final List<String> list = <String>[_img('a'), _img('b'), _img('c')];
+      expect(
+        moveStagePlaylist(list, 0, 1),
+        <String>[_img('b'), _img('a'), _img('c')],
+      );
+      expect(
+        moveStagePlaylist(list, 1, 2),
+        <String>[_img('a'), _img('c'), _img('b')],
+      );
+    });
+
+    test('moveStagePlaylist 越界 / 原地 → 原样返回（首尾按钮据此禁用）', () {
+      final List<String> list = <String>[_img('a'), _img('b')];
+      expect(identical(moveStagePlaylist(list, 0, 0), list), isTrue);
+      expect(identical(moveStagePlaylist(list, -1, 0), list), isTrue);
+      expect(identical(moveStagePlaylist(list, 2, 0), list), isTrue);
+      expect(identical(moveStagePlaylist(list, 0, -1), list), isTrue);
+      expect(identical(moveStagePlaylist(list, 0, 2), list), isTrue);
+      expect(moveStagePlaylist(<String>[], 0, 0), isEmpty);
+    });
+
+    test('重排不改长度与项集合（所以不需要写回 playlist_len）', () {
+      final List<String> list = <String>[_img('a'), _img('b'), _img('c')];
+      final List<String> moved = moveStagePlaylist(list, 2, 0);
+      expect(moved.length, list.length);
+      expect(moved.toSet(), list.toSet());
+      expect(
+        needsPlaylistLenWriteBack(localLen: moved.length, remoteLen: list.length),
+        isFalse,
+        reason: '长度没变就不该写回（每次写回都会重启 Mod）',
+      );
+    });
+
+    test('stagePlaylistIndexOf：找到当前张 / null / 不在列表 → -1', () {
+      final List<String> list = <String>[_img('a'), _img('b'), _img('c')];
+      expect(stagePlaylistIndexOf(list, _img('b')), 1);
+      expect(stagePlaylistIndexOf(list, _img('a')), 0);
+      expect(stagePlaylistIndexOf(list, null), -1, reason: '没有舞台图就没有当前张');
+      expect(stagePlaylistIndexOf(list, _img('z')), -1);
+      expect(stagePlaylistIndexOf(<String>[], _img('a')), -1);
+    });
+
+    test('组合闭环：append → move → remove 得到可预期的列表', () {
+      // 1) 加入 a、b、c。
+      List<String> list = appendToStagePlaylist(<String>[], _img('a')).playlist;
+      list = appendToStagePlaylist(list, _img('b')).playlist;
+      list = appendToStagePlaylist(list, _img('c')).playlist;
+      expect(list, <String>[_img('a'), _img('b'), _img('c')]);
+      // 2) 把 c 移到最前。
+      list = moveStagePlaylist(list, 2, 0);
+      expect(list, <String>[_img('c'), _img('a'), _img('b')]);
+      // 3) 删掉中间那张。
+      list = removeStagePlaylistAt(list, 1);
+      expect(list, <String>[_img('c'), _img('b')]);
+    });
+
+    test('删除 / 重排不碰 stageImage：当前那张仍在舞台上', () {
+      const DisplayPrefs prefs = DisplayPrefs(
+        stageImage: 'data:image/png;base64,keep',
+        stagePlaylist: <String>['data:image/png;base64,a', 'data:image/png;base64,keep'],
+      );
+      final DisplayPrefs afterRemove = prefs.copyWith(
+        stagePlaylist: removeStagePlaylistAt(prefs.stagePlaylist, 0),
+      );
+      expect(afterRemove.stageImage, 'data:image/png;base64,keep');
+      expect(afterRemove.stagePlaylist, <String>['data:image/png;base64,keep']);
+      // 重排同理。
+      final DisplayPrefs afterMove = prefs.copyWith(
+        stagePlaylist: moveStagePlaylist(prefs.stagePlaylist, 0, 1),
+      );
+      expect(afterMove.stageImage, 'data:image/png;base64,keep');
+    });
+  });
+
   group('WallpaperApi.state()：503/404 是「暂时读不到」而不是故障', () {
     test('200 → 原样返回 state 对象', () async {
       final WallpaperApi api = WallpaperApi(

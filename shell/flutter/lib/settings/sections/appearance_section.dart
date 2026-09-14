@@ -92,13 +92,18 @@ class AppearanceSection extends StatelessWidget {
         ),
         _StageImageView(
           hasImage: prefs.stageImage != null,
-          playlistCount: prefs.stagePlaylist.length,
+          playlist: prefs.stagePlaylist,
+          currentImage: prefs.stageImage,
           message: stageImageMessage,
           failed: stageImageFailed,
           onPick: onPickStageImage,
           onClear: onClearStageImage,
           onAddToPlaylist: onAddToPlaylist,
           onClearPlaylist: onClearPlaylist,
+          // 删除 / 上移下移只改**本地列表**：宿主 `_updatePrefs` 是唯一漏斗，
+          // 它在长度变化时把新长度写回 Mod config（见 shell_prefs.dart）。
+          onPlaylistChanged: (List<String> next) =>
+              onPrefsChanged(prefs.copyWith(stagePlaylist: next)),
         ),
         _ShellImageView(
           sync: prefs.syncShellStageBg,
@@ -196,22 +201,31 @@ class AppearanceSection extends StatelessWidget {
 /// 列表、「清空轮播」清空，并显示当前张数。列表长度是壁纸 Mod 的图来源，
 /// 有**三条预算**（每张 / 总长 / 项数）——超限时按钮仍然可按，由宿主给出
 /// 一句可读反馈（**不弹异常**、不静默膨胀）。
+///
+/// Wave 3 补上**增删 / 排序闭环**：每张一行「上移 / 下移 / 删除」（见
+/// [_StagePlaylistEditor]）。仍**不做**拖拽排序与缩略图——删除 / 移动本身
+/// 不会让列表超预算（只会变小或重排），所以这里的操作**不需要**预算校验。
 class _StageImageView extends StatelessWidget {
   const _StageImageView({
     required this.hasImage,
-    required this.playlistCount,
+    required this.playlist,
+    required this.currentImage,
     required this.message,
     required this.failed,
     required this.onPick,
     required this.onClear,
     required this.onAddToPlaylist,
     required this.onClearPlaylist,
+    required this.onPlaylistChanged,
   });
 
   final bool hasImage;
 
-  /// 轮播列表当前张数（`DisplayPrefs.stagePlaylist.length`）。
-  final int playlistCount;
+  /// 轮播列表（`DisplayPrefs.stagePlaylist`）。
+  final List<String> playlist;
+
+  /// 当前舞台那张图（高亮「当前」用；判据见 `stagePlaylistIndexOf`）。
+  final String? currentImage;
 
   final String? message;
   final bool failed;
@@ -219,6 +233,9 @@ class _StageImageView extends StatelessWidget {
   final VoidCallback? onClear;
   final VoidCallback? onAddToPlaylist;
   final VoidCallback? onClearPlaylist;
+
+  /// 列表编辑（删除 / 上移下移）后的**新列表**。
+  final ValueChanged<List<String>> onPlaylistChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -267,9 +284,9 @@ class _StageImageView extends StatelessWidget {
           const SizedBox(height: Space.s1),
           EmphasizedText(
             '壁纸 Mod 换图时**只从这份列表里取**（列表为空就不换）。'
-            '当前 **$playlistCount** 张，上限 $kStagePlaylistMaxItems 张、'
+            '当前 **${playlist.length}** 张，上限 $kStagePlaylistMaxItems 张、'
             '合计 ${(kStagePlaylistMaxChars / 1024).round()} KB。'
-            '「加入轮播」把**当前这张**追加进列表。',
+            '「加入轮播」把**当前这张**追加进列表；下面每张可**上移 / 下移 / 删除**。',
             style: theme.textTheme.labelSmall?.copyWith(
               color: colors.contentMuted,
             ),
@@ -285,18 +302,98 @@ class _StageImageView extends StatelessWidget {
                 onPressed: onAddToPlaylist,
                 child: const Text('加入轮播'),
               ),
-              if (playlistCount > 0)
+              if (playlist.isNotEmpty)
                 TextButton(
                   onPressed: onClearPlaylist,
                   child: const Text('清空轮播'),
                 ),
             ],
           ),
+          const SizedBox(height: Space.s2),
+          _StagePlaylistEditor(
+            playlist: playlist,
+            currentImage: currentImage,
+            onChanged: onPlaylistChanged,
+          ),
         ],
       ),
     );
   }
 }
+
+/// 轮播列表的**最小编辑器**（Wave 3）：逐张给「上移 / 下移 / 删除」。
+///
+/// # 为什么是文字按钮而不是拖拽
+///
+/// 拖拽排序要靠 gesture + 重排动画 + 落点判定，几乎全是不可单测的代码；
+/// 而列表上限只有 16 张、编辑频率极低——文字按钮已经把「删哪张 / 移到哪」
+/// 变成 `display_prefs.dart` 里两个**可 VM 断言**的纯函数。
+/// 首尾两端按钮**禁用**（不是点了没反应）：第一张不能上移、最后一张不能下移。
+///
+/// 面板里**不渲染缩略图**（性能与体积都不值得），只显示序号、大小与「当前」标记。
+class _StagePlaylistEditor extends StatelessWidget {
+  const _StagePlaylistEditor({
+    required this.playlist,
+    required this.currentImage,
+    required this.onChanged,
+  });
+
+  final List<String> playlist;
+  final String? currentImage;
+  final ValueChanged<List<String>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (playlist.isEmpty) return const SizedBox.shrink();
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final int currentIndex = stagePlaylistIndexOf(playlist, currentImage);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        for (int i = 0; i < playlist.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Space.s1),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    '第 ${i + 1} 张 · ${_imageKb(playlist[i])}'
+                    '${i == currentIndex ? ' · 当前' : ''}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: i == currentIndex
+                          ? theme.colorScheme.primary
+                          : colors.contentMuted,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: i == 0
+                      ? null
+                      : () => onChanged(moveStagePlaylist(playlist, i, i - 1)),
+                  child: const Text('上移'),
+                ),
+                TextButton(
+                  onPressed: i == playlist.length - 1
+                      ? null
+                      : () => onChanged(moveStagePlaylist(playlist, i, i + 1)),
+                  child: const Text('下移'),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      onChanged(removeStagePlaylistAt(playlist, i)),
+                  child: const Text('删除'),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 列表项大小的可读文案（dataURL 字符数 → KB）。
+String _imageKb(String dataUrl) => '约 ${(dataUrl.length / 1024).round()} KB';
 
 /// 壳全局背景那一块（2026-09-14，rc.5）。
 ///

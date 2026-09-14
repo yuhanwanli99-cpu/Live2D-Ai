@@ -9,6 +9,25 @@
 > **本分支不改注册表**：`wallpaper` 早在 `0.2.0-rc.2` 就已注册
 > （`AVAILABLE_MOD_FACTORIES` 5 项之一，**缺省停用**）。本轮只做**接线**，
 > 不碰 FACTORIES / `mod_count_*` / 缺省 manifest / 全局版本。
+>
+> ---
+>
+> ## Wave 3 更新（2026-09-14，分支 `mod/w3-wall` @ 基线 `118bd435`）
+>
+> 同一份文件继续作为 `wallpaper` 的交付说明；Wave 3 B 轨只做**列表可维护 +
+> 去掉自相矛盾字段**，注册状态不变（仍缺省停用，仍不改 FACTORIES / `mod_count_*`）：
+>
+> | 项 | 位置 | 说明 |
+> | --- | --- | --- |
+> | 列表编辑（纯函数） | `display_prefs.dart` | `removeStagePlaylistAt` / `moveStagePlaylist` / `stagePlaylistIndexOf`，越界一律原样返回（不抛） |
+> | 列表编辑（UI） | `appearance_section.dart` | 「背景轮播列表」每张一行「上移 / 下移 / 删除」（首尾按钮禁用）；显示序号 / 大小 / 「当前」 |
+> | 写回唯一漏斗 | `shell_prefs.dart::_updatePrefs` | 加入 / 清空 / 删除 / 上移下移都经它；**长度变了才** `POST …/config`（重排不写、不重启 Mod） |
+> | `playlist_len` 去表单化 | `src/lib.rs` `wallpaper_settings_spec()` | 从 schema **删除**（运行值，手填必被覆盖）；仍只读出现在 `state_json` + `GET /mods` 的 `config` |
+> | `state` 轨迹回归 | `src/lib.rs` | `interval`：`advance 0 → none → advance 1 → advance 2 → advance 0`；`follow_stage`：`sync_stage → none →`（重配置后）`sync_stage` |
+>
+> 门禁（本分支实测）：`cargo test -p live2d-ai-mod-wallpaper` **37 passed**；fmt clean；
+> clippy `--all-targets -- -D warnings` 0 warning；`flutter analyze` 无问题 +
+> 全量 `flutter test` **867 passed**（本文件相关 `wallpaper_wiring_test.dart` +10）。
 
 ## 1. 一句话
 
@@ -27,12 +46,12 @@ Flutter 纯函数 `applyWallpaperPatch` → 既有 `DisplayPrefs` / `Live2DStage
 | `decision` JSON | `src/strategy.rs` `to_json()` | `kind` ∈ `none` / `sync_stage` / `advance`（`advance` 带 `index`） |
 | `reason` 诊断 | `src/strategy.rs` `reason(mode, len)` | `mode_off` / `already_synced` / `playlist_empty` / `interval_not_due` / `sync_stage` / `advance` |
 | `state_json()` | `src/lib.rs` `impl ModRuntime` | 内部 `Instant` 算增量毫秒喂既有 `tick(delta_ms)`；返回 §3B 的**六个键**；**只在这里推进时钟**，不起线程 / 不订阅事件 / 不写盘 |
-| `playlist_len` 配置 | `src/lib.rs` schema + `src/strategy.rs` `playlist_len_from_config` | number，钳 `0..=MAX_PLAYLIST_LEN`（16），缺省 0；`start` 注册与静态 schema 仍是**同一份** |
-| 回归 | `src/lib.rs` + `src/strategy.rs` | `state_json` 形状 / 时钟推进 / off 不动作 / follow_stage 只同步一次 / 空列表 reason / `playlist_len` 两端钳位 / 重配置重读；**34 passed** |
+| `playlist_len` 配置 | `src/lib.rs` schema + `src/strategy.rs` `playlist_len_from_config` | ~~number，钳 `0..=MAX_PLAYLIST_LEN`（16），缺省 0；`start` 注册与静态 schema 仍是**同一份**~~ → **Wave 3：已从 schema 删除**（运行值只读暴露；`playlist_len_from_config` 的钳位口径不变） |
+| 回归 | `src/lib.rs` + `src/strategy.rs` | `state_json` 形状 / 时钟推进 / off 不动作 / follow_stage 只同步一次 / 空列表 reason / `playlist_len` 两端钳位 / 重配置重读；**34 passed**（Wave 3 → **37 passed**，见顶部） |
 | 偏好字段 | `shell/flutter/lib/settings/display_prefs.dart` | `stagePlaylist`（`List<String>` dataURL，缺省 `const []`），与 `stageImage` 同一条 localStorage 记录、同一份预算 |
 | 落点纯函数 | 同上 `applyWallpaperPatch(prefs, patch)` | 三种 patch + 空列表跳过（`playlist_empty`）+ `index % len` 取模 + 非法/未知不猜 |
 | 三条预算 | 同上 `kStagePlaylistMaxItems`(16) / `kStagePlaylistMaxChars` / `kStageImageMaxChars` | 见 §3；`appendToStagePlaylist` / `readStagePlaylist` 逐条把关 |
-| UI 最小操作 | `settings/sections/appearance_section.dart` | 既有「舞台背景图」区加「加入轮播」/「清空轮播」+ **显示当前张数**；超限时给可读文案，列表不动 |
+| UI 最小操作 | `settings/sections/appearance_section.dart` | 既有「舞台背景图」区加「加入轮播」/「清空轮播」+ **显示当前张数**；超限时给可读文案，列表不动。**Wave 3 追加**每张一行的「上移 / 下移 / 删除」（`_StagePlaylistEditor`），编辑只改本地列表、经 `_updatePrefs` 在长度变化时写回 |
 | 闭环接线 | `app/shell_wallpaper.dart`（新 `part`）+ `app/shell_prefs.dart` + `app/shell_admin.dart` + `main.dart` | 见 §4 |
 | 读取面 | `lib/api/wallpaper_api.dart`（新） | `GET …/wallpaper/state` + 两个纯判据（`shouldPollWallpaperState` / `needsPlaylistLenWriteBack`）+ `configWithPlaylistLen`；**零新依赖** |
 | Flutter 回归 | `test/wallpaper_wiring_test.dart` | **24 条**：三种 patch / 空列表 / 取模 / 往返序列化 / 坏值 / 三条预算 / append 三态 / 停用不轮询 / 间隔 ≥5 s / 写回判据 / API 四态 |
@@ -82,7 +101,7 @@ Rust 侧对应 `MAX_PLAYLIST_LEN = 16`（**同一个数**，两边各自钳一�
       时舞台会按列表换图；`DisplayPrefs.stagePlaylist` 是新字段，旧存档读成空列表）
 - [ ] 不改 `mod-product-chain.md` §5 表（wallpaper 行已存在）
 
-## 6. 门禁实跑结果（本分支）
+## 6. 门禁实跑结果（Wave 2 本分支；Wave 3 实测见顶部 Wave 3 段）
 
 ```text
 cargo test -p live2d-ai-mod-wallpaper                              # 34 passed; 0 failed
@@ -95,7 +114,8 @@ cd shell/flutter && flutter analyze && flutter test                # No issues; 
 ## 7. 红线复述（本分支逐条遵守）
 
 - **不改** `crates/l2d-wasm-demo/`（含 `stage_bg.rs`）/ framebuffer / `LoadOp` / wasm 任何文件；
-- **不做**在线拉图 / 图库服务 / 大轮播 / 删除单张 / 拖排序；
+- **不做**在线拉图 / 图库服务 / 大轮播 / 缩略图 / 拖排序（**删除单张与上移下移已在
+  Wave 3 做实**，见顶部 Wave 3 段）；
 - **不改** `AVAILABLE_MOD_FACTORIES` / `mod_count_*` / `mod_factory_ids_match_expected` /
   `default_mods_manifest` / 版本号 / `AGENTS.md`；
 - **不改**基座文件（`topics.rs` / `factory.rs` / `mod_registry.rs` / `mods_routes.rs` /
@@ -104,10 +124,12 @@ cd shell/flutter && flutter analyze && flutter test                # No issues; 
 
 ## 8. 未决 / 已知缺口
 
-1. 列表**没有删除单张 / 排序 / 缩略图**（只有加入与清空）——「大轮播」明确不在本轮。
+1. ~~列表**没有删除单张 / 排序 / 缩略图**（只有加入与清空）~~ → **Wave 3 关闭**：删除单张
+   与上移 / 下移已做实（纯函数 + 每行文字按钮）；**仍不做**缩略图与拖拽排序。
 2. `stagePlaylist` 与 `stageImage` 可能重复持有同一张 dataURL（无去重）；字符预算已计入。
-3. `playlist_len` 在 Mod 面板可手填，但它由前端维护：下一次列表变化会覆盖手填值
-   （文档已写明，它是运行值而非用户偏好）。
+3. ~~`playlist_len` 在 Mod 面板可手填，但它由前端维护~~ → **Wave 3 关闭**：它已从
+   `settings_spec` 删除，只在 `state_json` / `config` 里只读暴露（真源 = Flutter
+   `stagePlaylist.length`），不存在「手填被覆盖」。
 4. 前端仍**不做图片裁剪**：超大图只能「本次会话有效，不写盘」（rc.5 同款已知缺口）。
 5. 未做端到端点火肉眼验收（需启用 wallpaper + 至少两张列表图）；本分支只覆盖
    纯逻辑与 API 四态，真实 UI 验证留给收束后的 `ignite.sh` 验收。
