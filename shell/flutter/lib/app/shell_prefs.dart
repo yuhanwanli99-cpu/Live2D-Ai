@@ -74,47 +74,110 @@ extension _ShellPrefsWiring on _ShellRootState {
     _applyPrefs(next);
   }
 
-  /// 选一张舞台背景图。
+  /// 选一张背景图。`forShell` = 从「壳背景」那一行进来的。
+  ///
+  /// # 为什么两条路共用一个实现（2026-09-14，rc.5）
+  ///
+  /// 「与舞台同步」开着时，壳背景**就是**舞台那张图（`effectiveShellImage`），
+  /// 所以壳那行的选图落到的仍是 `stageImage`——两份 UI、一份真相。
+  /// 只有同步关掉时，图片才写进 `shellImage`（壳自己那张）。
   ///
   /// # 两条结果，都要如实说
   ///
   /// - 在 [kStageImageMaxChars] 以内 → 写进偏好（重开页面还在）。
-  /// - 超限 → **只在本次会话生效**，不写盘。UI 必须说清「重开就没了」，
-  ///   否则用户会以为它坏了。
-  Future<void> _pickStageImage() async {
+  /// - 超限 → 舞台可以**只在本次会话生效**（直接下发渲染面，不写盘）；
+  ///   壳没有这条通道（背景是 Flutter 自己画的），只能如实说「没应用」。
+  Future<void> _pickImage({required bool forShell}) async {
     final ({String? dataUrl, String? error}) picked = await pickImageDataUrl();
     if (!mounted) return;
     final String? dataUrl = picked.dataUrl;
     if (dataUrl == null) {
       // 取消 → 静默（用户自己关的对话框）；读失败 → 说实话。
       if (picked.error != null) {
-        _stageImageMessage = picked.error;
-        _stageImageFailed = true;
-        _refresh();
+        _setImageMessage(forShell: forShell, text: picked.error!, failed: true);
       }
       return;
     }
-    if (dataUrl.length <= kStageImageMaxChars) {
-      _updatePrefs(widget.prefs.copyWith(stageImage: dataUrl));
-      _stageImageMessage = '已应用背景图（${_kb(dataUrl.length)}，会记住）';
-      _stageImageFailed = false;
-      _refresh();
+    if (dataUrl.length > kStageImageMaxChars) {
+      if (forShell) {
+        _setImageMessage(
+          forShell: true,
+          text:
+              '图太大了（${_kb(dataUrl.length)}，上限 ${_kb(kStageImageMaxChars)}）——'
+              '壳背景没有应用。换一张小一点的图。',
+          failed: true,
+        );
+        return;
+      }
+      // 超限：不经偏好，直接下发到渲染面（本次会话有效）。
+      unawaited(
+        _stageKey.currentState?.sendStageBg(dataUrl) ?? Future<void>.value(),
+      );
+      _setImageMessage(
+        forShell: false,
+        text:
+            '图太大了（${_kb(dataUrl.length)}，上限 ${_kb(kStageImageMaxChars)}）——'
+            '本次有效，**重新打开页面会丢失**。换一张小一点的图就能记住。',
+        failed: true,
+      );
       return;
     }
-    // 超限：不经偏好，直接下发到渲染面（本次会话有效）。
-    unawaited(_stageKey.currentState?.sendStageBg(dataUrl) ?? Future<void>.value());
-    _stageImageMessage =
-        '图太大了（${_kb(dataUrl.length)}，上限 ${_kb(kStageImageMaxChars)}）——'
-        '本次有效，**重新打开页面会丢失**。换一张小一点的图就能记住。';
-    _stageImageFailed = true;
-    _refresh();
+    // 同步开着时壳与舞台共用 stageImage（一份真相）。
+    // 偏好**在 await 之后重新读**：选图对话框可能开了几秒，期间主题 / 音量可能已变，
+    // 用进对话框之前那份会把那次改动吞掉。
+    final DisplayPrefs prefs = widget.prefs;
+    final bool shared = !forShell || prefs.syncShellStageBg;
+    _updatePrefs(
+      shared
+          ? prefs.copyWith(stageImage: dataUrl)
+          : prefs.copyWith(shellImage: dataUrl),
+    );
+    _setImageMessage(
+      forShell: forShell,
+      text: shared
+          ? '已应用（与舞台共用同一张图，${_kb(dataUrl.length)}，会记住）'
+          : '已应用壳背景（${_kb(dataUrl.length)}，会记住）',
+      failed: false,
+    );
   }
 
-  /// 清掉背景图（回到纯色舞台）。
-  void _clearStageImage() {
-    _updatePrefs(widget.prefs.copyWith(clearStageImage: true));
-    _stageImageMessage = '已清除背景图，回到纯色舞台';
-    _stageImageFailed = false;
+  Future<void> _pickStageImage() => _pickImage(forShell: false);
+
+  Future<void> _pickShellImage() => _pickImage(forShell: true);
+
+  /// 清掉背景图。同步开着时清的是**共用那张**（舞台与壳一起回到各自底色）。
+  void _clearImage({required bool forShell}) {
+    final DisplayPrefs prefs = widget.prefs;
+    final bool shared = !forShell || prefs.syncShellStageBg;
+    _updatePrefs(
+      shared
+          ? prefs.copyWith(clearStageImage: true)
+          : prefs.copyWith(clearShellImage: true),
+    );
+    _setImageMessage(
+      forShell: forShell,
+      text: shared ? '已清除背景图，舞台与壳回到各自底色' : '已清除壳背景，壳回到主题底色',
+      failed: false,
+    );
+  }
+
+  void _clearStageImage() => _clearImage(forShell: false);
+
+  void _clearShellImage() => _clearImage(forShell: true);
+
+  /// 落一条选图 / 清图结果——舞台与壳**各有各的那条**，不互相冒充。
+  void _setImageMessage({
+    required bool forShell,
+    required String text,
+    required bool failed,
+  }) {
+    if (forShell) {
+      _shellImageMessage = text;
+      _shellImageFailed = failed;
+    } else {
+      _stageImageMessage = text;
+      _stageImageFailed = failed;
+    }
     _refresh();
   }
 }

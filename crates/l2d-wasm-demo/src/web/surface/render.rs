@@ -12,9 +12,11 @@ use l2d::renderer::{FIXED_DT_60HZ, GpuContext, ModelRendererCore};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{HtmlCanvasElement, Window};
 
+use super::background::BackgroundRenderer;
 use super::gpu::{DPR_CAP, canvas_pixel_size};
 use super::idle::{self, IdleState};
 use super::input::{BridgeState, apply_bridge_effects};
+use crate::stage_bg;
 use crate::web::net::js_str;
 use crate::web::status;
 
@@ -37,6 +39,8 @@ pub(crate) struct FrameState {
     /// 运行时 HUD 统计（adapter 固定在首次写入时快照，其余每 500ms 刷新）。
     pub(crate) hud: HudState,
     pub bridge: BridgeState,
+    /// 舞台背景（底色 clear 值 + 可选背景图纹理）——见 [`super::background`]。
+    pub(crate) background: BackgroundRenderer,
     /// RM6 待机生命体征采样器（呼吸/眨眼/微表情）。
     pub(crate) idle: IdleState,
     /// load_model 后立即捕获的 layout 初始 transform（Affine2）。
@@ -268,8 +272,11 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
         real_dt * 1000.0
     };
 
-    // bridge 状态 → 可见效果（口型/缩放/背景），独立借用窗口。
+    // bridge 状态 → 可见效果（口型/缩放/待机体征），独立借用窗口。
     apply_bridge_effects(state, dt_millis);
+    // 舞台背景：把父页的 `stage-bg` 请求同步到 GPU 资源（变了才动；
+    // 新图走异步解码，解码完成前先保持纯色底）。
+    super::background::sync_request(state);
 
     let mut st = state.borrow_mut();
     let keep_going = match st.surface.get_current_texture() {
@@ -344,6 +351,15 @@ pub(crate) fn tick(slot: &FrameSlot, state: &SharedState, now_ms: f64) {
 /// 返回的 `SubmissionIndex` 在交换链路径下无须等待——浏览器自身的 `present()`
 /// 负责把提交与呈现串行化。
 pub(crate) fn render_and_present(st: &mut FrameState, frame: wgpu::SurfaceTexture) -> bool {
+    let FrameState {
+        core,
+        gpu,
+        config,
+        background,
+        bridge,
+        hud,
+        ..
+    } = st;
     let view = frame
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
@@ -351,12 +367,55 @@ pub(crate) fn render_and_present(st: &mut FrameState, frame: wgpu::SurfaceTextur
     // 本身（后者由浏览器在合成线程完成）。这里衡量的是 JS↔GPU 命令桥开销，
     // 也就是骨骼 IK + draw 提交的本地开销——最能反馈渲染核心热点的指标。
     let t0 = performance_now();
-    match st.core.render_to_view_submit(&view, st.config.format) {
+
+    // ── 背景预通道（2026-09-14 rc.5）───────────────────────────────────
+    // 舞台底色与背景图都**画进 framebuffer**：WebGPU 的 canvas 只能不透明
+    // 合成，canvas 的 CSS 背景永远看不见，所以纯色底不能再依赖 CSS。
+    // 顺序：clear(stageColor) → 有图则全屏 cover 贴一层 → 下一通道叠模型。
+    let rgba = stage_bg::clear_color(bridge.stage_color.as_deref(), bridge.dark);
+    let clear = wgpu::Color {
+        r: rgba[0],
+        g: rgba[1],
+        b: rgba[2],
+        a: rgba[3],
+    };
+    background.prepare(gpu.queue(), config.width, config.height);
+    {
+        let mut encoder = gpu
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("stage background encoder"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("stage background pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            background.draw(&mut pass);
+        }
+        gpu.queue().submit(Some(encoder.finish()));
+    }
+
+    // 模型通道：**Load** —— 预通道刚铺好的底色与背景图必须留下，
+    // 若仍用默认的 Clear(TRANSPARENT) 会把背景整块擦掉。
+    match core.render_to_view_submit_with_load(&view, config.format, wgpu::LoadOp::Load) {
         Ok(submission) => {
             let _ = submission; // 可选：记录 last_submission 供错误状态栏
             frame.present();
             let cpu_ms = performance_now() - t0;
-            st.hud.record_frame(cpu_ms);
+            hud.record_frame(cpu_ms);
             true
         }
         Err(e) => {
@@ -415,10 +474,17 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         );
         // RM6 待机生命体征快照（呼吸正弦值 + 眨眼相位回路）由 idle 边界给出。
         let idle_diag = idle::diag_line(&st.idle, now_hud);
+        // 舞台背景状态（2026-09-14 rc.5）：`solid` = 纯色底，`image` = 背景图已上屏。
+        // 背景解码是异步的，选图后这里会先 solid 再 image——正是排障需要的信号。
+        let bg_diag = if st.background.applied().is_some() {
+            "bg: image"
+        } else {
+            "bg: solid"
+        };
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {stage_diag} | {idle_diag}",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {stage_diag} | {idle_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,

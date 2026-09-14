@@ -60,9 +60,6 @@ pub(crate) struct BridgeState {
     /// 只在 [`BridgeState::stage_color`] 为 `None` 时决定背景色——它是
     /// **历史回退路径**，保留是为了让没发 `stageColor` 的旧前端继续能用。
     pub dark: bool,
-    /// 已写到 DOM 的 background-color 值（用于只在变化时写 DOM，规避每帧
-    /// set_property 触发 style recalc 的抖动——240Hz 下 DOM 写是主卡点）。
-    pub applied_dark: bool,
     /// stage-config.stageColor（**舞台纯色底**，`#RRGGBB` 形式的 CSS 颜色）。
     ///
     /// 2026-09-11 新增（向后兼容：缺省即 `None`，行为与旧版完全一致）。
@@ -71,8 +68,6 @@ pub(crate) struct BridgeState {
     /// 自己写。用户裁决「舞台背影全黑/全白即可，中央不要放贴图」——
     /// 四套主题各自的舞台底因此走这条通道下发。
     pub stage_color: Option<String>,
-    /// 已写到 DOM 的 stageColor（同 `applied_dark` 的变化才写纪律）。
-    pub applied_stage_color: Option<String>,
     /// stage-config.lipSync（口型开关，默认 true）
     pub lip_sync: bool,
     /// stage-config.mouthSensitivity（口型灵敏度，默认 1.0）。
@@ -91,8 +86,6 @@ pub(crate) struct BridgeState {
     /// stage-bg.dataUrl（自定义背景图 dataURL；None = 无背景图）。
     /// 应用为 canvas CSS background-image（cover 缩放），与 background-color 共存。
     pub bg_data_url: Option<String>,
-    /// 已写到 DOM 的 background-image 值（只在变化时写 DOM，规避每帧 style recalc）。
-    pub applied_bg: Option<String>,
     /// 最近 audio-volume（0..1；每 20ms 音频帧更新）
     pub volume: f32,
     /// 衰减后的口型显示值（rAF 每帧 volume_display = volume.max(volume_display*0.85)）
@@ -110,16 +103,13 @@ impl Default for BridgeState {
             offset_x: 0.0,
             offset_y: 0.0,
             dark: true,
-            applied_dark: false,
             stage_color: None,
-            applied_stage_color: None,
             lip_sync: true,
             mouth_sensitivity: DEFAULT_MOUTH_SENSITIVITY,
             idle_enabled: true,
             click_enabled: true,
             tier: RenderTier::DEFAULT,
             bg_data_url: None,
-            applied_bg: None,
             volume: 0.0,
             volume_display: 0.0,
             msg_recv: 0,
@@ -201,52 +191,16 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
         * Affine2::from_scale(Vec2::splat(scale));
     st.core.set_transform(user_transform * base); // 左乘: NDC 屏幕空间等比缩放+平移(修上下压缩)
 
-    // 背景色：仅 canvas CSS background-color，与模型 viewport 清空色
-    // (wgpu::Color::TRANSPARENT) 独立，缩放不影响背景。
+    // 舞台底色与背景图**不在这里**画。
     //
-    // 仅在值变化时写 DOM。`apply_bridge_effects` 每帧调用（rAF 循环），
-    // 而 `dark` 只在 stage-config 消息时变化——每次都 set_property 会触发
-    // style recalc（240Hz = 秒 240 次 DOM 写），是用户实测 "FPS 高但卡"
-    // 的根因。`applied_dark` 记录"已写到 DOM 的值"，相等时跳过写。
+    // 2026-09-14（rc.5）：这里曾把 stageColor / 背景图写成 canvas 的 CSS
+    // `background-color` / `background-image`，靠「canvas 像素透明」把 CSS 露出来。
+    // 实测证伪：WebGPU 的 canvas 只能不透明合成（见 `background.rs` 头注），
+    // 透明 clear 的像素被合成为不透明黑，把 CSS 整块盖住。
     //
-    // `applied_dark: false` 初始值：index.html 的 canvas CSS 背景色可能
-    // 与 #101418 不一致，首帧不写会闪烁——保守地强制首帧写一次同步。
-    //
-    // 两路取色，**显式色优先**：
-    //   1. `stageColor`（新，四套主题各自的舞台底，如 `#000000`）；
-    //   2. `dark`（旧回退：`#101418` / `#e8ecf1`）。
-    // 两个 `applied_*` 都要参与变化判定，否则从「显式色」切回「默认」时
-    // 会因为 `dark` 没变而漏写 DOM（背景卡在上一套主题的颜色上）。
-    if st.bridge.stage_color != st.bridge.applied_stage_color
-        || st.bridge.dark != st.bridge.applied_dark
-    {
-        let bg = match st.bridge.stage_color.as_deref() {
-            Some(explicit) => explicit.to_string(),
-            None => {
-                if st.bridge.dark {
-                    "#101418".to_string()
-                } else {
-                    "#e8ecf1".to_string()
-                }
-            }
-        };
-        let _ = st.canvas.style().set_property("background-color", &bg);
-        st.bridge.applied_stage_color = st.bridge.stage_color.clone();
-        st.bridge.applied_dark = st.bridge.dark;
-    }
-    // C2：自定义背景图（dataURL）→ canvas CSS background-image（cover）。
-    // 与 background-color 独立：设了背景图则盖住底色，清除则恢复。
-    // 同样只在变化时写 DOM（applied_bg 记录上个值）。
-    if st.bridge.bg_data_url != st.bridge.applied_bg {
-        let css_val = match &st.bridge.bg_data_url {
-            Some(url) if !url.is_empty() => {
-                format!("url({url}) center/cover no-repeat")
-            }
-            _ => "none".to_string(),
-        };
-        let _ = st.canvas.style().set_property("background-image", &css_val);
-        st.bridge.applied_bg = st.bridge.bg_data_url.clone();
-    }
+    // 现在两者都由 [`super::background`] 在**背景预通道**里画进 framebuffer：
+    // `stage_color` / `dark` 决定 clear 值，`bg_data_url` 决定要不要贴纹理。
+    // 本函数只负责把 bridge 状态应用到模型（口型/缩放/待机）。
 
     // RM6 待机生命体征层（呼吸/眨眼/微表情）——写入 input 层。
     //

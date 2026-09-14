@@ -36,6 +36,10 @@ class AppearanceSection extends StatelessWidget {
     this.onClearStageImage,
     this.stageImageMessage,
     this.stageImageFailed = false,
+    this.onPickShellImage,
+    this.onClearShellImage,
+    this.shellImageMessage,
+    this.shellImageFailed = false,
     super.key,
   });
 
@@ -52,6 +56,13 @@ class AppearanceSection extends StatelessWidget {
   /// 上次选图的结果（超限时是**错误态**：图太大记不住）。
   final String? stageImageMessage;
   final bool stageImageFailed;
+
+  /// 壳全局背景的选 / 清图（2026-09-14，rc.5）。同步开着时它们改的是
+  /// **舞台那张图**（共用一份真相）；关掉才改壳自己的。
+  final VoidCallback? onPickShellImage;
+  final VoidCallback? onClearShellImage;
+  final String? shellImageMessage;
+  final bool shellImageFailed;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +86,17 @@ class AppearanceSection extends StatelessWidget {
           failed: stageImageFailed,
           onPick: onPickStageImage,
           onClear: onClearStageImage,
+        ),
+        _ShellImageView(
+          sync: prefs.syncShellStageBg,
+          // 「有没有图」按**实际会画的那张**算（同步开时就是舞台那张）。
+          hasImage: prefs.effectiveShellImage != null,
+          message: shellImageMessage,
+          failed: shellImageFailed,
+          onSyncChanged: (bool v) =>
+              onPrefsChanged(prefs.copyWith(syncShellStageBg: v)),
+          onPick: onPickShellImage,
+          onClear: onClearShellImage,
         ),
         const Divider(),
         const SectionHeader(
@@ -201,6 +223,87 @@ class _StageImageView extends StatelessWidget {
               ),
               if (hasImage)
                 TextButton(onPressed: onClear, child: const Text('清除背景图')),
+            ],
+          ),
+          if (message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.s1),
+              child: EmphasizedText(
+                message!,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: failed ? palette.warning : colors.contentMuted,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 壳全局背景那一块（2026-09-14，rc.5）。
+///
+/// 与 `_StageImageView` 一样的三条文案纪律：不是二选一、失败要说实话、
+/// 按钮是文字。多一条**同步语义**必须写清楚——「与舞台同步」开着时，
+/// 这里的选 / 清图和上面「舞台背景图」是同一份数据，不是各存一张。
+class _ShellImageView extends StatelessWidget {
+  const _ShellImageView({
+    required this.sync,
+    required this.hasImage,
+    required this.message,
+    required this.failed,
+    required this.onSyncChanged,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final bool sync;
+  final bool hasImage;
+  final String? message;
+  final bool failed;
+  final ValueChanged<bool> onSyncChanged;
+  final VoidCallback? onPick;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final AppPalette palette = appPaletteOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('壳背景', style: theme.textTheme.labelLarge),
+          const SizedBox(height: Space.s1),
+          EmphasizedText(
+            '聊天与侧栏背后的**整壳背景**，固定 15% 透明度铺一层，'
+            '**不做**透明度滑条；底色仍跟主题走。开启「与舞台同步」时与舞台共用'
+            '同一张图，关掉才用壳自己的图。',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colors.contentMuted,
+            ),
+          ),
+          const SizedBox(height: Space.s2),
+          ToggleField(
+            label: '与舞台同步',
+            icon: Icons.sync,
+            value: sync,
+            onChanged: onSyncChanged,
+            description: sync ? '壳画的就是舞台那张图（一份真相）' : '壳有自己的一张图',
+          ),
+          const SizedBox(height: Space.s2),
+          Wrap(
+            spacing: Space.s2,
+            runSpacing: Space.s2,
+            children: <Widget>[
+              FilledButton.tonal(
+                onPressed: onPick,
+                child: Text(hasImage ? '换一张壳背景图' : '选择壳背景图'),
+              ),
+              if (hasImage)
+                TextButton(onPressed: onClear, child: const Text('清除壳背景')),
             ],
           ),
           if (message != null)

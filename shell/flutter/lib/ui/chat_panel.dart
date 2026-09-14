@@ -12,6 +12,7 @@ import '../state/ui_phase.dart';
 import 'audio_bar.dart';
 import 'error_banner.dart';
 import 'message_bubble.dart';
+import 'shell_backdrop.dart';
 import 'streaming_indicator.dart';
 import 'theme.dart';
 
@@ -49,6 +50,7 @@ class ChatPanel extends StatelessWidget {
     this.onOpenSessions,
     this.onRetryLast,
     this.announcement,
+    this.backdropVisible = false,
     super.key,
   });
 
@@ -85,6 +87,12 @@ class ChatPanel extends StatelessWidget {
   /// 节流后的播报文本（转给流式气泡的 `liveRegion`）。
   final String? announcement;
 
+  /// 壳背后是否有全局背景图。
+  ///
+  /// 有才让面板留一点透（[kShellSurfaceAlpha]），没有就保持原来的不透明面——
+  /// 所以不开壳背景时这里的观感与改动前**逐像素一致**。
+  final bool backdropVisible;
+
   @override
   Widget build(BuildContext context) {
     // 只渲染最后 [kChatHistoryLimit] 条（**不**在数据层裁剪：
@@ -95,8 +103,14 @@ class ChatPanel extends StatelessWidget {
 
     // 聊天面用**独立底色**与舞台分隔：舞台是纯黑（`stageBackdrop`），
     // 聊天面板盖在它上面时必须自己撑出一个面，否则气泡看起来是浮在黑底上。
+    //
+    // 2026-09-14（rc.5）：壳背后有全局背景图时，这个面留一点透
+    // （[kShellSurfaceAlpha]）让背景透出来；没有背景图时仍是不透明面。
+    final AppPalette palette = appPaletteOf(context);
     return ColoredBox(
-      color: appPaletteOf(context).surface,
+      color: backdropVisible
+          ? palette.surface.withValues(alpha: kShellSurfaceAlpha)
+          : palette.surface,
       // 聊天面板是一个面板 → 一个焦点组（规格 §9.2-1）。
       child: FocusTraversalGroup(
         policy: OrderedTraversalPolicy(),

@@ -159,6 +159,11 @@ extension _ShellSettingsWiring on _ShellRootState {
           onClearStageImage: _clearStageImage,
           stageImageMessage: _stageImageMessage,
           stageImageFailed: _stageImageFailed,
+          // 2026-09-14（rc.5）：壳全局背景（同步开时与舞台共用同一张图）。
+          onPickShellImage: () => unawaited(_pickShellImage()),
+          onClearShellImage: _clearShellImage,
+          shellImageMessage: _shellImageMessage,
+          shellImageFailed: _shellImageFailed,
         );
       case SettingsSection.mods:
         return ModsSection(

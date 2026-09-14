@@ -2,6 +2,11 @@
 //!
 //! - [`init_gpu`]：WebGPU 优先、WebGL2 回退；显式设置
 //!   `desired_maximum_frame_latency = 2`（C3）。
+//!
+//! **2026-09-14 rc.5 记录**：曾把这里改成「WebGL2 优先」以换取透明 canvas，
+//! 但 HUD 实测用户机仍走 WebGPU（`request_gl` 未生效），且透明 canvas 在
+//! WebGPU 下结构性不可达。舞台底色与背景图现在**画进 framebuffer**
+//! （见 `background.rs`），因此不再需要动后端顺序——恢复 WebGPU 优先。
 //! - [`backend_label`] / [`adapter_info`]：实际后端与 adapter 信息（HUD 观测用）。
 //! - [`canvas_pixel_size`]：CSS 尺寸 × DPR 钳制 → 物理画布尺寸（含档位上限）。
 

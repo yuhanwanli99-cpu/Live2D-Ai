@@ -20,11 +20,20 @@ import '../design/theme_id.dart';
 /// 这一轮刻意不引入（见 `docs/verification/flutter-shell-manual-checklist.md`）。
 const int kStageImageMaxChars = 1500000;
 
+/// 壳背景图 dataURL 的长度上限。
+///
+/// **与 [kStageImageMaxChars] 同一个预算**：壳背景与舞台背景写在**同一条**
+/// localStorage 记录里，给两份独立上限只会让「整份偏好都写不进去」更容易发生。
+/// 所以这里只是给壳背景一个可读的别名，**不是第二套配额**。
+const int kShellImageMaxChars = kStageImageMaxChars;
+
 /// 舞台显示偏好。
 class DisplayPrefs {
   const DisplayPrefs({
     this.theme = AppThemeId.fallback,
     this.stageImage,
+    this.shellImage,
+    this.syncShellStageBg = true,
     this.scale = defaultScale,
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
@@ -54,6 +63,28 @@ class DisplayPrefs {
   /// 超过 [kStageImageMaxChars] 的图**不进这里**（会毁掉整份偏好的写入），
   /// 那种情况只在会话内生效。
   final String? stageImage;
+
+  /// 壳自己的背景图（dataURL）。**只在 `syncShellStageBg == false` 时使用**——
+  /// 同步开着的时候壳画的就是 [stageImage]（一份真相，见 [effectiveShellImage]）。
+  ///
+  /// 2026-09-14（rc.5）：壳（聊天 / 侧栏背后的整片区域）也可以有一张背景图，
+  /// 固定以低透明度铺在壳根，**不做**分区背景。超过 [kShellImageMaxChars]
+  /// 的图同样读不进来（理由同 [stageImage]）。
+  final String? shellImage;
+
+  /// 壳背景是否**跟随舞台**（默认 `true`）。
+  ///
+  /// 开着时 [shellImage] 不参与渲染：壳画 [stageImage]，并且「壳背景」那一行的
+  /// 选图 / 清图改的也是 [stageImage]——所以舞台与壳永远只有**一张图**，
+  /// 不存在「舞台换了、壳还是旧的」这种两份真相。
+  final bool syncShellStageBg;
+
+  /// **实际要画的**壳背景图。
+  ///
+  /// 同步开 → 舞台那张（共用一份真相）；同步关 → 壳自己那张。
+  /// 渲染层只读这个 getter，不自己去判 `syncShellStageBg`——
+  /// 判据只有一处，才不会出现两处不一致。
+  String? get effectiveShellImage => syncShellStageBg ? stageImage : shellImage;
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
   final double scale;
@@ -130,6 +161,9 @@ class DisplayPrefs {
     // 而把「设成 null（清除）」和「不改」混成同一件事。
     String? stageImage,
     bool clearStageImage = false,
+    String? shellImage,
+    bool clearShellImage = false,
+    bool? syncShellStageBg,
     double? scale,
     double? mouthSensitivity,
     bool? lipSync,
@@ -142,6 +176,8 @@ class DisplayPrefs {
     return DisplayPrefs(
       theme: theme ?? this.theme,
       stageImage: clearStageImage ? null : (stageImage ?? this.stageImage),
+      shellImage: clearShellImage ? null : (shellImage ?? this.shellImage),
+      syncShellStageBg: syncShellStageBg ?? this.syncShellStageBg,
       scale: scale ?? this.scale,
       mouthSensitivity: mouthSensitivity ?? this.mouthSensitivity,
       lipSync: lipSync ?? this.lipSync,
@@ -157,6 +193,8 @@ class DisplayPrefs {
   Map<String, Object?> toJson() => <String, Object?>{
     'theme': theme.wire,
     'stageImage': stageImage,
+    'shellImage': shellImage,
+    'syncShellStageBg': syncShellStageBg,
     'scale': scale,
     'mouthSensitivity': mouthSensitivity,
     'lipSync': lipSync,
@@ -178,7 +216,10 @@ class DisplayPrefs {
       theme: AppThemeId.fromWire(json['theme']),
       // 坏值（非字符串 / 超限）一律当作「没有背景图」，**不抛**：
       // 一份被外部塞大的存储不该让舞台渲染不出来。
-      stageImage: _readStageImage(json['stageImage']),
+      stageImage: _readImage(json['stageImage'], kStageImageMaxChars),
+      shellImage: _readImage(json['shellImage'], kShellImageMaxChars),
+      // 旧存档没有这个字段 → 默认跟随舞台（不是「各画各的」）。
+      syncShellStageBg: _readBool(json['syncShellStageBg'], true),
       scale: clampScale(_readDouble(json['scale'], defaultScale)),
       mouthSensitivity: clampMouthSensitivity(
         _readDouble(json['mouthSensitivity'], defaultMouthSensitivity),
@@ -222,10 +263,10 @@ class DisplayPrefs {
   static bool _readBool(Object? raw, bool fallback) =>
       raw is bool ? raw : fallback;
 
-  /// 读背景图：非字符串 / 空串 / 超过 [kStageImageMaxChars] 都当作没有。
-  static String? _readStageImage(Object? raw) {
+  /// 读背景图：非字符串 / 空串 / 超过 [maxChars] 都当作没有。
+  static String? _readImage(Object? raw, int maxChars) {
     if (raw is! String || raw.isEmpty) return null;
-    if (raw.length > kStageImageMaxChars) return null;
+    if (raw.length > maxChars) return null;
     return raw;
   }
 
@@ -238,6 +279,8 @@ class DisplayPrefs {
       other is DisplayPrefs &&
       other.theme == theme &&
       other.stageImage == stageImage &&
+      other.shellImage == shellImage &&
+      other.syncShellStageBg == syncShellStageBg &&
       other.scale == scale &&
       other.mouthSensitivity == mouthSensitivity &&
       other.lipSync == lipSync &&
@@ -251,6 +294,8 @@ class DisplayPrefs {
   int get hashCode => Object.hash(
     theme,
     stageImage,
+    shellImage,
+    syncShellStageBg,
     scale,
     mouthSensitivity,
     lipSync,
@@ -264,6 +309,7 @@ class DisplayPrefs {
   @override
   String toString() =>
       'DisplayPrefs(theme: ${theme.wire}, stageImage: ${stageImage?.length ?? 0} chars, '
+      'shellImage: ${shellImage?.length ?? 0} chars, syncShell: $syncShellStageBg, '
       'scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
       'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier)';

@@ -42,6 +42,14 @@
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod mouth;
 
+/// 舞台背景的纯逻辑（**平台无关**：原生与 wasm 都编译）。
+///
+/// 同样刻意**不**放在 wasm-only 的 [`web`] 里——「换算藏在 wasm 门控后面、
+/// 原生 `cargo test` 编译不到」这个坑本仓库已经踩过一次（`mouth.rs`）。
+/// base64 解码 / cover 比例 / 纯色底回退都在这，详见 `stage_bg.rs` 头注。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod stage_bg;
+
 fn main() {
     // wasm32：真实入口。
     #[cfg(target_arch = "wasm32")]
@@ -193,6 +201,8 @@ mod web {
         let (width, height) = (config.width, config.height);
         let state: SharedState = Rc::new(RefCell::new(surface::FrameState {
             core,
+            // 背景渲染器要在 gpu/config 被 move 进结构体之前构造。
+            background: surface::BackgroundRenderer::new(gpu.device(), config.format),
             surface: surface_obj,
             config,
             gpu,

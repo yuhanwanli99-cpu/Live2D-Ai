@@ -25,15 +25,23 @@ wgpu = { version = "29", features = ["webgl"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
+# 2026-09-14 rc.5：舞台背景改为画进 framebuffer，新增图像解码所需的
+# Blob / ImageBitmap / OffscreenCanvas 一族（全是 wasm32 目标专属的常规 web 件）。
 web-sys = { version = "0.3", features = [
+    "Blob",
+    "BlobPropertyBag",
     "console",
     "Document",
     "Element",
     "EventTarget",
     "HtmlCanvasElement",
     "HtmlElement",
+    "ImageBitmap",
+    "ImageData",
     "Location",
     "MessageEvent",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
     "Performance",
     "Response",
     "UrlSearchParams",
