@@ -67,6 +67,32 @@ pub enum PromptOutcome {
     },
 }
 
+/// 一份计数快照（`command("clear")` 返回**清空前**的 counts）。
+///
+/// 键名与状态面（[`DecisionLedger::state_json`]）**逐字一致**：前端一套解读，
+/// 清空回执与运行态快照不会各说各话。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LedgerCounts {
+    pub turns_seen: u64,
+    pub turns_ended: u64,
+    pub decisions: u64,
+    pub silent: u64,
+    pub errors: u64,
+}
+
+impl LedgerCounts {
+    /// 序列化成 `state_json` 里 counts 的形状。
+    pub fn to_json(self) -> serde_json::Value {
+        json!({
+            "turns_seen": self.turns_seen,
+            "turns_ended": self.turns_ended,
+            "decisions": self.decisions,
+            "silent": self.silent,
+            "errors": self.errors,
+        })
+    }
+}
+
 /// 有界决策账本：只保留最近 `capacity` 条，计数不受容量影响。
 #[derive(Debug, Clone)]
 pub struct DecisionLedger {
@@ -156,6 +182,10 @@ impl DecisionLedger {
             "silent": self.silent,
             "errors": self.errors,
             "log_capacity": self.capacity,
+            // 前端直接消费的「最近一条决策」：与 recent_decisions 的**最后一条**
+            // 逐字同形（同一个 LedgerEntry::to_json）；空账本 → null。
+            // recent_decisions 保持原样，向后兼容。
+            "latest": self.latest_json(),
             "recent_decisions": self
                 .entries
                 .iter()
@@ -197,5 +227,48 @@ impl DecisionLedger {
     /// 最近 `capacity` 条决策（旧 → 新）。
     pub fn recent(&self) -> &VecDeque<LedgerEntry> {
         &self.entries
+    }
+
+    /// **最近一条决策**（旧 → 新里的最后一条）。空账本 → `None`。
+    pub fn latest(&self) -> Option<&LedgerEntry> {
+        self.entries.back()
+    }
+
+    /// [`latest`](Self::latest) 的 JSON 形状：`None` → `null`。
+    ///
+    /// 与 `recent_decisions` 的元素**同一个** [`LedgerEntry::to_json`]，
+    /// 不新增第二种形状（避免前端要写两套解读）。
+    pub fn latest_json(&self) -> serde_json::Value {
+        self.latest()
+            .map_or(serde_json::Value::Null, LedgerEntry::to_json)
+    }
+
+    /// 当前计数快照。
+    pub fn counts(&self) -> LedgerCounts {
+        LedgerCounts {
+            turns_seen: self.turns_seen,
+            turns_ended: self.turns_ended,
+            decisions: self.decisions,
+            silent: self.silent,
+            errors: self.errors,
+        }
+    }
+
+    /// **清空账本**（`command("clear")`）：清掉条目、计数与在飞标记，
+    /// 返回 `(被清掉的条目数, 清空前的计数)`。
+    ///
+    /// 只动**内存**：不写盘、不写配置、**不投递**（`action_tx` /
+    /// `apply_settings` 零调用——回归 `command_paths_never_touch_action_or_settings`）。
+    pub fn clear(&mut self) -> (usize, LedgerCounts) {
+        let before = self.counts();
+        let removed = self.entries.len();
+        self.entries.clear();
+        self.turns_seen = 0;
+        self.turns_ended = 0;
+        self.decisions = 0;
+        self.silent = 0;
+        self.errors = 0;
+        self.open = false;
+        (removed, before)
     }
 }
