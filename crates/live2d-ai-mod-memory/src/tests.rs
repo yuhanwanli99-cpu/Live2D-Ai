@@ -1,140 +1,14 @@
-//! 运行时级回归：Mod 生命周期 + `TurnPrompt` 一轮的记/检索/注入 + 停用清残留。
+//! 运行时级回归：Mod 生命周期 + `TurnPrompt` 一轮的记/检索/注入 + 物理淘汰 +
+//! 计数 + 与 persona 共存（last-writer-wins）+ 停用清残留。
 //!
-//! 纯逻辑（分词 / 打分 / top-k / marker / 路径）的单测在 `strategy.rs`，
-//! JSONL 读写的单测在 `store.rs`；这里只测把它们接起来的行为。
+//! 纯逻辑（分词 / 打分 / top-k / marker / 路径）的单测在 `strategy_tests.rs`，
+//! JSONL 读写与物理淘汰的单测在 `store.rs`，检索质量基线在 `quality_tests.rs`；
+//! 这里只测把它们接起来的行为。替身与脚手架在 `test_support.rs`（两个模块共用）。
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 use super::*;
-
-// ---------------------------------------------------------------- 测试替身
-
-/// 记录 `register_settings` / `subscribe` 调用的注册器。
-#[derive(Default)]
-struct RecordingRegistrar {
-    specs: Vec<ModSettingsSpec>,
-    topics: Vec<ModEventTopic>,
-}
-
-impl ModRegistrar for RecordingRegistrar {
-    fn register_settings(&mut self, spec: ModSettingsSpec) -> Result<(), ModError> {
-        self.specs.push(spec);
-        Ok(())
-    }
-    fn subscribe(&mut self, topic: ModEventTopic) -> Result<SubscriptionId, ModError> {
-        self.topics.push(topic);
-        Ok(SubscriptionId(1))
-    }
-    fn unsubscribe(&mut self, _id: SubscriptionId) -> Result<(), ModError> {
-        Ok(())
-    }
-}
-
-/// 假 host：`apply_settings` 会真的改「主链提示词」快照并记录 patch；
-/// `settings` 读取同一份快照，从而复现「读 base → 剥旧块 → 重拼 → 写回」。
-#[derive(Clone)]
-struct FakeHost {
-    settings: Arc<Mutex<serde_json::Value>>,
-    patches: Arc<Mutex<Vec<serde_json::Value>>>,
-    logs: Arc<Mutex<Vec<String>>>,
-    accept: Arc<AtomicBool>,
-}
-
-impl FakeHost {
-    fn new(system_prompt: &str) -> Self {
-        Self {
-            settings: Arc::new(Mutex::new(serde_json::json!({
-                "persona": {"system_prompt": system_prompt, "max_history_pairs": 8}
-            }))),
-            patches: Arc::new(Mutex::new(Vec::new())),
-            logs: Arc::new(Mutex::new(Vec::new())),
-            accept: Arc::new(AtomicBool::new(true)),
-        }
-    }
-
-    fn services(&self, config_path: &str) -> ModServices {
-        let settings_for_read = self.settings.clone();
-        let settings_for_write = self.settings.clone();
-        let patches = self.patches.clone();
-        let logs = self.logs.clone();
-        let accept = self.accept.clone();
-        ModServices::new(
-            ModActionSender::new(|_| false),
-            SaySender::new(|_| true),
-            ModEventSender::new(|_, _| true),
-            ModLogger::new(move |_, msg| logs.lock().expect("logs lock").push(msg.to_string())),
-        )
-        .with_apply_settings(ModSettingsApplier::new(move |patch| {
-            if !accept.load(Ordering::SeqCst) {
-                return false;
-            }
-            if let Some(prompt) = patch
-                .get("persona")
-                .and_then(|p| p.get("system_prompt"))
-                .and_then(serde_json::Value::as_str)
-            {
-                settings_for_write
-                    .lock()
-                    .expect("settings lock")
-                    .as_object_mut()
-                    .expect("object")
-                    .insert(
-                        "persona".to_string(),
-                        serde_json::json!({"system_prompt": prompt}),
-                    );
-            }
-            patches.lock().expect("patches lock").push(patch);
-            true
-        }))
-        .with_settings_reader(ModSettingsReader::new(move || {
-            settings_for_read.lock().expect("settings lock").clone()
-        }))
-        .with_config_path(config_path)
-    }
-
-    fn main_prompt(&self) -> String {
-        self.settings.lock().expect("settings lock")["persona"]["system_prompt"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string()
-    }
-
-    fn patches(&self) -> Vec<serde_json::Value> {
-        self.patches.lock().expect("patches lock").clone()
-    }
-
-    fn logs(&self) -> Vec<String> {
-        self.logs.lock().expect("logs lock").clone()
-    }
-}
-
-static SEQ: AtomicU64 = AtomicU64::new(0);
-
-fn temp_dir(tag: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "l2d-memory-rt-{tag}-{}-{nanos}-{seq}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// 建一个「配置文件在 `dir` 里」的 runtime（缺省 store_path → `dir/memory.jsonl`）。
-fn runtime(dir: &std::path::Path, host: &FakeHost, config: serde_json::Value) -> MemoryRuntime {
-    let config_path = dir.join("live2d-ai.toml").display().to_string();
-    MemoryRuntime::new(
-        host.services(&config_path),
-        MemoryConfig::from_value(&config),
-    )
-}
+use crate::test_support::*;
 
 // ---------------------------------------------------------------- 生命周期
 
@@ -298,19 +172,21 @@ fn identical_repeat_turn_is_idempotent_no_second_write() {
 }
 
 #[test]
-fn max_records_bounds_the_retrieval_window() {
-    let dir = temp_dir("window");
+fn max_records_is_a_physical_count_cap_not_just_a_window() {
+    let dir = temp_dir("cap");
     let host = FakeHost::new("基础人设");
-    let mut rt = runtime(&dir, &host, serde_json::json!({"max_records": 1}));
-    rt.on_event(ModEventTopic::TurnPrompt, "量子力学导论")
-        .unwrap();
-    rt.on_event(ModEventTopic::TurnPrompt, "相对论纲要")
-        .unwrap();
-    assert!(
-        rt.retrieve("量子力学导论").is_empty(),
-        "窗口=1 时最老的记录已不在检索面内"
-    );
-    assert_eq!(rt.retrieve("相对论纲要").len(), 1);
+    let mut rt = runtime(&dir, &host, serde_json::json!({"max_records": 2}));
+    for text in ["第一条主题", "第二条主题", "第三条主题"] {
+        rt.on_event(ModEventTopic::TurnPrompt, text).unwrap();
+    }
+    // Wave 3：第 N+1 条写入后，**文件里**只剩 N 条（不是只把载入窗口调窄）。
+    let raw = std::fs::read_to_string(dir.join("memory.jsonl")).unwrap();
+    assert_eq!(raw.lines().count(), 2, "第 3 条写入后文件里只剩 N=2 条");
+    assert!(!raw.contains("第一条主题"), "最旧的被物理删除: {raw}");
+    assert!(raw.contains("第二条主题") && raw.contains("第三条主题"));
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["writes"], 3);
+    assert_eq!(snap["evicted"], 1, "淘汰计数必须可观察");
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -355,7 +231,7 @@ fn missing_store_path_is_warned_noop_not_panic() {
 fn rejected_apply_settings_is_warned_not_fatal() {
     let dir = temp_dir("reject");
     let host = FakeHost::new("基础人设");
-    host.accept.store(false, Ordering::SeqCst);
+    host.set_accept(false);
     let mut rt = runtime(&dir, &host, serde_json::json!({}));
     rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
         .unwrap();
@@ -479,4 +355,140 @@ fn config_store_path_resolution_matches_strategy() {
         Some(PathBuf::from("/etc/live2d/memory.jsonl"))
     );
     assert_eq!(default_cfg.resolve_store_path(""), None);
+}
+
+// ------------------------------------------------- Wave 3：计数 / 共存 / 无命中
+
+#[test]
+fn no_related_memory_reports_zero_hits_and_never_injects() {
+    let dir = temp_dir("nohit");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({}));
+    rt.on_event(ModEventTopic::TurnPrompt, "量子力学导论")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "帮我写一首关于星空的诗")
+        .unwrap();
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["last_hits"], 0, "词面不重叠 → 不命中");
+    assert_eq!(snap["hits"], 0, "累计命中仍为 0");
+    assert_eq!(snap["injects"], 0, "不命中 → 不注入");
+    assert!(host.patches().is_empty(), "零命中不得写配置");
+    assert_eq!(host.main_prompt(), "基础人设");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn state_json_exposes_the_four_required_counters() {
+    let dir = temp_dir("counters");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
+    // 轮 1：写入、无命中、不注入。
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        .unwrap();
+    let first = rt.state_json().unwrap();
+    assert_eq!(first["writes"], 1);
+    assert_eq!(first["hits"], 0);
+    assert_eq!(first["injects"], 0);
+    assert_eq!(first["errors"], 0);
+    assert_eq!(first["last_hits"], 0);
+    // 轮 2：命中上一条并注入。
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
+        .unwrap();
+    let second = rt.state_json().unwrap();
+    assert_eq!(second["writes"], 2);
+    assert!(second["hits"].as_u64().unwrap() >= 1, "{second}");
+    assert_eq!(second["injects"], 1);
+    assert_eq!(second["errors"], 0);
+    // 四个键必须是数字，且 Wave 2 别名与它们恒同值。
+    for key in ["writes", "hits", "injects", "errors"] {
+        assert!(second[key].is_u64(), "{key} 必须是数字: {second}");
+    }
+    assert_eq!(second["remembered"], second["writes"]);
+    assert_eq!(second["injected"], second["injects"]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn errors_counter_counts_unresolved_path_and_rejected_inject() {
+    // 路径不可解析 → errors 1、writes 0。
+    let host = FakeHost::new("基础人设");
+    let mut broken = MemoryRuntime::new(
+        host.services(""),
+        MemoryConfig::from_value(&serde_json::json!({})),
+    );
+    broken
+        .on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        .unwrap();
+    let snap = broken.state_json().unwrap();
+    assert_eq!(snap["errors"], 1);
+    assert_eq!(snap["writes"], 0);
+
+    // apply_settings 被拒 → errors 1（记忆照记，不 fatal）。
+    let dir = temp_dir("errors");
+    let host = FakeHost::new("基础人设");
+    host.set_accept(false);
+    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
+        .unwrap();
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["errors"], 1);
+    assert_eq!(snap["injects"], 0);
+    assert_eq!(snap["writes"], 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ------------------------------------------- 与 persona 共存：last-writer-wins
+
+#[test]
+fn last_writer_wins_persona_base_survives_memory_injection() {
+    // persona 先写 base（模拟其合成结果），memory 下一轮在其上重拼记忆块。
+    let dir = temp_dir("lww-persona-first");
+    let host = FakeHost::new("基础人设");
+    host.set_main_prompt("人格卡合成：你是猫娘小灰");
+    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
+    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算要省着花")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算还剩多少")
+        .unwrap();
+    let prompt = host.main_prompt();
+    assert!(prompt.starts_with("人格卡合成：你是猫娘小灰"), "{prompt}");
+    assert!(
+        prompt.contains(MEMORY_MARKER_BEGIN),
+        "memory 后写 → 块必须在: {prompt}"
+    );
+    assert!(prompt.contains("- 这个月预算要省着花"), "{prompt}");
+    assert_eq!(
+        prompt.matches(MEMORY_MARKER_BEGIN).count(),
+        1,
+        "只有一个记忆块"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn last_writer_wins_persona_overwrite_then_memory_reinjects_on_new_base() {
+    let dir = temp_dir("lww-persona-last");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
+    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算要省着花")
+        .unwrap();
+    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算还剩多少")
+        .unwrap();
+    assert!(host.main_prompt().contains(MEMORY_MARKER_BEGIN));
+    // persona 后写：整份覆盖（不含 memory marker）——last-writer-wins 的直接后果。
+    host.set_main_prompt("人格卡合成：你是猫娘小灰");
+    assert!(
+        !host.main_prompt().contains(MEMORY_MARKER_BEGIN),
+        "后写者覆盖整个 system_prompt → 记忆块被冲掉"
+    );
+    // memory 下一轮再写：它读到新的 base，重新拼上块（base 一字不改）。
+    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算还剩多少")
+        .unwrap();
+    let prompt = host.main_prompt();
+    assert!(prompt.starts_with("人格卡合成：你是猫娘小灰"), "{prompt}");
+    assert!(prompt.contains(MEMORY_MARKER_BEGIN), "{prompt}");
+    assert!(prompt.contains("- 这个月预算要省着花"), "{prompt}");
+    let _ = std::fs::remove_dir_all(dir);
 }
