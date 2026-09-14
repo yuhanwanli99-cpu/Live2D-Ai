@@ -1,4 +1,5 @@
-//! live2d-ai-mod-memory（Wave 2 C 轨，2026-09-14）——**本地记忆 v0**。
+//! live2d-ai-mod-memory（Wave 2 C 轨 2026-09-14 起草；Wave 3 C 轨 2026-09-14
+//! 补质量基线 + 条数上限物理淘汰 + 可观察计数）——**本地记忆 v0**。
 //!
 //! 一句话：把每一轮的用户输入记进本地 JSONL，并在下一轮把**最相关的 top-k**
 //! 经 [`ModServices::apply_settings`] 注入主链 `persona.system_prompt` 的一个
@@ -7,7 +8,7 @@
 //!
 //! # 注入点（钉死，不许自行改方案）
 //!
-//! 订阅基座新增的 [`ModEventTopic::TurnPrompt`]（payload = 本轮输入正文）。
+//! 订阅基座的 [`ModEventTopic::TurnPrompt`]（payload = 本轮输入正文）。
 //! 该事件在 supervisor 提交 turn 时、**请求体构建之前**发出（见
 //! `supervisor.rs` 的提交点），因此本 Mod 在这里做的 `apply_settings`
 //! **只对下一轮生效**。本文档、REGISTER 与头注**不得**写「当轮生效」——
@@ -19,11 +20,27 @@
 //! 用户输入 ──► supervisor 发 TurnStarted（turn id）
 //!              └► supervisor 发 TurnPrompt（本轮正文）   ◄── memory 在这里干活
 //!                   ├─ remember(正文, now, turn)          → 追加 memory.jsonl 一行
+//!                   │    └─ 超过 max_records → 物理淘汰最旧（Wave 3）
 //!                   ├─ 载入（窗口 max_records）+ 检索 top-k（排除刚写入的那条）
 //!                   └─ 非空 → apply_settings               → 写 live2d-ai.toml + reload
 //!              └► 构建本轮请求体（用的还是**旧** system_prompt）
 //! 下一轮 ────► 构建请求体（这时才带上本轮注入的块）
 //! ```
+//!
+//! # 质量基线（Wave 3 C 轨，`src/quality_tests.rs` + `tests/fixtures/quality_corpus.json`）
+//!
+//! 固定语料 + 「查询 → 期望命中」表，至少覆盖：中文 bigram 命中、**词面不重叠
+//! → 不命中 → 不注入**、同义改写不命中（v0 明文边界）、ASCII 大小写不敏感。
+//! 质量口径与实现同源：断言直接打 [`strategy::rank_top_k`] 与运行时
+//! `state_json.last_hits`，不靠手感。
+//!
+//! # 条数上限 = 物理淘汰（Wave 3 起，取舍见文档 §6.1）
+//!
+//! [`MemoryConfig::max_records`] 不再只是检索窗口：写入超过上限时
+//! [`store::JsonlStore::append_capped`] 会**物理重写** JSONL，只留最新 N 条
+//! （写同目录临时文件 + `rename` 原子替换）。**没有备份语义**——被淘汰的记录
+//! 不可恢复；换取的是文件有界、检索/注入不随历史无限变慢。默认 200 条即上限，
+//! 想要更长的历史就把 `max_records` 调大（最大 10000）。
 //!
 //! # 与 `persona` Mod 的边界（last-writer-wins，无仲裁）
 //!
@@ -36,8 +53,9 @@
 //! - 谁最后写谁赢，**没有仲裁、没有合并语义**。
 //!
 //! 这是**已知取舍**，不是 bug：主链只有一个 system 入口，加一套优先级表就是
-//! 在核心里埋第二个产品。要「两个都生效」得先论证仲裁规则（非目标，见
-//! `docs/architecture/memory-mod-v0.md` §4）。
+//! 在核心里埋第二个产品。规则钉死在 `docs/architecture/memory-mod-v0.md` §5.1
+//! 与 `docs/plans/parallel-mods/REGISTER-memory-v0.md` §3.2，并有两向对称回归
+//! （`tests.rs` 的 `last_writer_wins_*`）。
 //!
 //! # 启停（唯一真源 = Mod manifest 的 `enabled`）
 //!
@@ -49,30 +67,32 @@
 //!
 //! persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增量**能力：
 //! 记忆写不进去、路径不可用、`apply_settings` 被拒，都只 **warn + 本轮 no-op**，
-//! 绝不把一轮对话打挂、绝不 panic。坏行由 [`store`] 跳过并计数。
+//! 绝不把一轮对话打挂、绝不 panic。坏行由 [`store`] 跳过并计数。Wave 3 起每条
+//! 失败路径都进 `state_json.errors`，让「静默变少」可观察。
 //!
-//! # 非目标（v0，明文）
+//! # 非目标（v0/v1，明文）
 //!
-//! - **不做物理 compaction**：`max_records` 只是**检索窗口**（载入时只留最新 N 条），
-//!   JSONL 文件本身只增不删——删除/压缩留给 v1，且必须先有备份语义；
+//! - **没有备份 / 撤销语义**：条数上限淘汰是物理删除，删了就没了（取舍见文档
+//!   §6.1）；不提供导出、不做双写、不做软删除；
 //! - 不做向量 / embedding / 语义检索 / 外部记忆服务；
 //! - 不接管 LLM 客户端，不新增对话通道，不写 `persona` 之外的键；
-//! - 不做跨会话去重 / 冲突消解 / 摘要（同一句话说两次就是两条记录）。
+//! - 不做跨会话去重 / 冲突消解 / 摘要（同一句话说两次就是两条记录）；
+//! - 不做 `persona` / memory 的仲裁优先级（见上）。
 //!
 //! [`ModServices::apply_settings`]: live2d_ai_mod_system::ModServices::apply_settings
 //! [`ModServices::settings`]: live2d_ai_mod_system::ModServices::settings
 
+pub mod config;
 pub mod store;
 pub mod strategy;
 
-pub use store::{JsonlStore, LoadOutcome};
+pub use config::{MemoryConfig, memory_settings_spec};
+pub use store::{AppendOutcome, JsonlStore, LoadOutcome};
 pub use strategy::{
     DEFAULT_MAX_RECORDS, DEFAULT_STORE_FILE, DEFAULT_TOP_K, Hit, MAX_MAX_RECORDS,
     MAX_MEMORY_LINE_CHARS, MAX_TOP_K, MEMORY_MARKER_BEGIN, MEMORY_MARKER_END, MIN_MAX_RECORDS,
     MIN_TOP_K, MemoryRecord,
 };
-
-use std::path::PathBuf;
 
 use live2d_ai_mod_system::*;
 
@@ -84,105 +104,6 @@ pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
     api_version: MOD_API_VERSION,
 };
 
-/// 本 Mod 的 namespaced 配置（缺省全部安全；**没有** `enabled` 键）。
-#[derive(Debug, Clone, PartialEq)]
-pub struct MemoryConfig {
-    /// JSONL 路径；空 = 配置文件同目录的 [`DEFAULT_STORE_FILE`]。
-    pub store_path: String,
-    /// 每轮注入几条（钳在 [`MIN_TOP_K`]..=[`MAX_TOP_K`]）。
-    pub top_k: usize,
-    /// 检索窗口（钳在 [`MIN_MAX_RECORDS`]..=[`MAX_MAX_RECORDS`]）。
-    pub max_records: usize,
-    /// 是否注入（false = 只记不注入；缺省 true）。
-    pub enabled_injection: bool,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            store_path: String::new(),
-            top_k: DEFAULT_TOP_K,
-            max_records: DEFAULT_MAX_RECORDS,
-            enabled_injection: true,
-        }
-    }
-}
-
-impl MemoryConfig {
-    /// 从 namespaced JSON 读配置：**越界只钳、类型不对只用缺省**，绝不失败。
-    pub fn from_value(value: &serde_json::Value) -> Self {
-        let store_path = value
-            .get("store_path")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let number = |key: &str, default: usize, lo: usize, hi: usize| {
-            value
-                .get(key)
-                .and_then(serde_json::Value::as_f64)
-                .filter(|f| f.is_finite())
-                .map(|f| (f.round() as i64).clamp(lo as i64, hi as i64) as usize)
-                .unwrap_or(default)
-        };
-        Self {
-            store_path,
-            top_k: number("top_k", DEFAULT_TOP_K, MIN_TOP_K, MAX_TOP_K),
-            max_records: number(
-                "max_records",
-                DEFAULT_MAX_RECORDS,
-                MIN_MAX_RECORDS,
-                MAX_MAX_RECORDS,
-            ),
-            enabled_injection: value
-                .get("enabled_injection")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true),
-        }
-    }
-
-    /// 解析实际 JSONL 路径（[`strategy::resolve_store_path`] 的配置包装）。
-    pub fn resolve_store_path(&self, config_path: &str) -> Option<PathBuf> {
-        strategy::resolve_store_path(config_path, &self.store_path)
-    }
-}
-
-/// 本 Mod 的设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
-///
-/// 四个字段，`enabled_injection` 是「注入开关」——**不是**「Mod 启停开关」。
-pub fn memory_settings_spec() -> ModSettingsSpec {
-    ModSettingsSpec {
-        mod_id: DESCRIPTOR.id.to_string(),
-        title: DESCRIPTOR.name.to_string(),
-        version: 1,
-        fields: vec![
-            ModSettingField::String {
-                key: "store_path".to_string(),
-                label: format!("记忆库路径（留空 = 配置文件同目录的 {DEFAULT_STORE_FILE}）"),
-                secret: false,
-            },
-            ModSettingField::Number {
-                key: "top_k".to_string(),
-                label: format!("每轮注入条数（{MIN_TOP_K}–{MAX_TOP_K}，缺省 {DEFAULT_TOP_K}）"),
-                min: MIN_TOP_K as f64,
-                max: MAX_TOP_K as f64,
-            },
-            ModSettingField::Number {
-                key: "max_records".to_string(),
-                label: format!(
-                    "检索窗口条数（{MIN_MAX_RECORDS}–{MAX_MAX_RECORDS}，缺省 {DEFAULT_MAX_RECORDS}）"
-                ),
-                min: MIN_MAX_RECORDS as f64,
-                max: MAX_MAX_RECORDS as f64,
-            },
-            ModSettingField::Bool {
-                key: "enabled_injection".to_string(),
-                label: "把检索结果注入下一轮提示词（关掉则只记不注入）".to_string(),
-                default: true,
-            },
-        ],
-    }
-}
-
 /// 记忆 Mod 运行时。
 pub struct MemoryRuntime {
     services: ModServices,
@@ -190,8 +111,18 @@ pub struct MemoryRuntime {
     registered: bool,
     /// 本 Mod 观察到的 `TurnPrompt` 次数（记忆的 `turn` 序号来源）。
     turn_seq: u64,
-    remembered: u64,
-    injected: u64,
+    /// 成功落盘的记忆条数（`state_json.writes`；`remembered` 是同值兼容别名）。
+    writes: u64,
+    /// 累计检索到的记忆条数（跨轮累加；`last_hits` = 最近一轮）。
+    hits: u64,
+    /// 成功注入主链提示词的次数（`state_json.injects`；`injected` 是同值别名）。
+    injects: u64,
+    /// 失败路径计数：路径不可用 / 追加失败 / 读取失败 / `apply_settings` 被拒。
+    /// **不含**坏行（坏行有自己的 warn 日志，见 [`store`]）。
+    errors: u64,
+    /// 被**物理淘汰**（从 JSONL 删除）的历史条数。
+    evicted: u64,
+    /// 最近一轮检索到几条（`state_json.last_hits`）。
     last_hits: usize,
 }
 
@@ -203,8 +134,11 @@ impl MemoryRuntime {
             config,
             registered: false,
             turn_seq: 0,
-            remembered: 0,
-            injected: 0,
+            writes: 0,
+            hits: 0,
+            injects: 0,
+            errors: 0,
+            evicted: 0,
             last_hits: 0,
         }
     }
@@ -226,16 +160,17 @@ impl MemoryRuntime {
             .map(JsonlStore::new)
     }
 
-    /// 记住一条：追加 JSONL 一行。返回是否真的落盘。
+    /// 记住一条：追加 JSONL 一行；超过 `max_records` 时**物理淘汰**最旧。
     ///
-    /// 失败只 warn——记忆是增量能力，写不进去不该打断这一轮（见模块头注
-    /// 「失败纪律」）。
+    /// 失败只 warn + 计入 `errors`——记忆是增量能力，写不进去不该打断这一轮
+    /// （见模块头注「失败纪律」）。
     pub fn remember(&mut self, text: &str, ts: i64, turn: u64) -> bool {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return false;
         }
         let Some(store) = self.store() else {
+            self.errors += 1;
             self.services.logger.warn(
                 "memory 存储路径未配置（store_path 空且 host 未注入 config_path），本轮记忆被跳过",
             );
@@ -246,12 +181,26 @@ impl MemoryRuntime {
             ts,
             turn,
         };
-        match store.append(&record) {
-            Ok(()) => {
-                self.remembered += 1;
+        match store.append_capped(&record, self.config.max_records) {
+            Ok(outcome) => {
+                self.writes += 1;
+                if outcome.evicted > 0 {
+                    self.evicted += outcome.evicted as u64;
+                    self.services.logger.info(&format!(
+                        "memory 超过条数上限 {}，物理淘汰最旧 {} 条（现保留 {} 条）",
+                        self.config.max_records, outcome.evicted, outcome.kept
+                    ));
+                    if outcome.bad_lines > 0 {
+                        self.services.logger.warn(&format!(
+                            "memory 物理淘汰重写顺带清掉 {} 条坏记录",
+                            outcome.bad_lines
+                        ));
+                    }
+                }
                 true
             }
             Err(e) => {
+                self.errors += 1;
                 self.services.logger.warn(&format!(
                     "memory 追加记忆失败（{}）: {e}",
                     store.path().display()
@@ -265,7 +214,7 @@ impl MemoryRuntime {
     ///
     /// `exclude_last` = 排除载入结果的最后一条（刚被 `remember` 追加的那条，
     /// 否则它必然以 1.0 的分自命中，白白占掉一个 k 的名额）。
-    pub fn retrieve_with(&self, query: &str, exclude_last: bool) -> Vec<MemoryRecord> {
+    pub fn retrieve_with(&mut self, query: &str, exclude_last: bool) -> Vec<MemoryRecord> {
         let Some(store) = self.store() else {
             return Vec::new();
         };
@@ -286,6 +235,7 @@ impl MemoryRuntime {
                     .collect()
             }
             Err(e) => {
+                self.errors += 1;
                 self.services.logger.warn(&format!(
                     "memory 读取记忆失败（{}）: {e}",
                     store.path().display()
@@ -296,7 +246,7 @@ impl MemoryRuntime {
     }
 
     /// 检索 top-k（不排除任何记录；对外的常规读取面）。
-    pub fn retrieve(&self, query: &str) -> Vec<MemoryRecord> {
+    pub fn retrieve(&mut self, query: &str) -> Vec<MemoryRecord> {
         self.retrieve_with(query, false)
     }
 
@@ -345,6 +295,7 @@ impl MemoryRuntime {
                 .logger
                 .info("memory 已剥离注入块，主链提示词回到 base");
         } else {
+            self.errors += 1;
             self.services
                 .logger
                 .warn("memory 剥离注入块失败（apply_settings 返回 false），提示词保留旧块");
@@ -365,6 +316,7 @@ impl MemoryRuntime {
         let stored = self.remember(text, strategy::unix_now(), self.turn_seq);
         let hits = self.retrieve_with(text, stored);
         self.last_hits = hits.len();
+        self.hits += hits.len() as u64;
         let Some(patch) = self.injection_patch(&hits) else {
             if self.config.enabled_injection && hits.is_empty() {
                 self.services
@@ -374,12 +326,13 @@ impl MemoryRuntime {
             return;
         };
         if self.services.apply_settings.apply(patch) {
-            self.injected += 1;
+            self.injects += 1;
             self.services.logger.info(&format!(
                 "memory 已注入 {} 条记忆到 persona.system_prompt（只对下一轮生效）",
                 hits.len()
             ));
         } else {
+            self.errors += 1;
             self.services
                 .logger
                 .warn("memory 注入被 apply_settings 拒绝（配置不可写？），本轮 no-op");
@@ -435,6 +388,10 @@ impl ModRuntime for MemoryRuntime {
     }
 
     /// 运行态快照（**纯内存计数**，不做磁盘 IO，符合基座对 `state_json` 的契约）。
+    ///
+    /// Wave 3 起必含四个计数键 `writes` / `hits` / `injects` / `errors`；
+    /// `remembered` 与 `injected` 是 Wave 2 的兼容别名（与 `writes` / `injects`
+    /// 恒同值，由同一字段派生，不会漂移）。
     fn state_json(&mut self) -> Option<serde_json::Value> {
         Some(serde_json::json!({
             "store_path": self
@@ -442,12 +399,18 @@ impl ModRuntime for MemoryRuntime {
                 .resolve_store_path(&self.services.config_path)
                 .map(|p| p.display().to_string()),
             "top_k": self.config.top_k,
+            // Wave 3：max_records 现在同时是**条数上限（物理淘汰）**与检索窗口。
             "max_records": self.config.max_records,
             "enabled_injection": self.config.enabled_injection,
             "turns_seen": self.turn_seq,
-            "remembered": self.remembered,
-            "injected": self.injected,
+            "writes": self.writes,
+            "hits": self.hits,
+            "injects": self.injects,
+            "errors": self.errors,
+            "evicted": self.evicted,
             "last_hits": self.last_hits,
+            "remembered": self.writes,
+            "injected": self.injects,
         }))
     }
 }
@@ -481,7 +444,13 @@ impl ModFactory for MemoryFactory {
 pub const FACTORY: MemoryFactory = MemoryFactory;
 
 #[cfg(test)]
+#[path = "quality_tests.rs"]
+mod quality_tests;
+#[cfg(test)]
 #[path = "strategy_tests.rs"]
 mod strategy_tests;
+#[cfg(test)]
+#[path = "test_support.rs"]
+mod test_support;
 #[cfg(test)]
 mod tests;

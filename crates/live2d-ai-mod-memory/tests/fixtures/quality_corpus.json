@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "description": "memory v0 检索质量基线（Wave 3 C 轨）：固定语料 + 查询 → 期望命中。命中判据是词面重叠（中文 bigram / ASCII 词），不是语义相似；同义改写不命中是 v0 的明文边界。",
+  "records": [
+    { "text": "今天天气很好，我们去公园散步", "ts": 1000, "turn": 1 },
+    { "text": "今天下雨了", "ts": 2000, "turn": 2 },
+    { "text": "量子力学导论", "ts": 3000, "turn": 3 },
+    { "text": "我昨天在超市买了牛奶和鸡蛋", "ts": 4000, "turn": 4 },
+    { "text": "周末打算去看电影", "ts": 5000, "turn": 5 },
+    { "text": "API2 token rotation policy is documented", "ts": 6000, "turn": 6 }
+  ],
+  "cases": [
+    {
+      "name": "zh-weather-shares-bigrams",
+      "query": "今天天气怎么样",
+      "expect_hits": ["今天天气很好，我们去公园散步", "今天下雨了"],
+      "note": "中文 bigram 重叠（今天/天天/天气）→ 命中；分数降序，天气那条在前"
+    },
+    {
+      "name": "zh-disjoint-no-hit",
+      "query": "帮我写一首关于星空的诗",
+      "expect_hits": [],
+      "note": "词面不重叠 → 0 命中 → last_hits=0 → 不注入（必须保持 no-op）"
+    },
+    {
+      "name": "zh-paraphrase-no-lexical-overlap",
+      "query": "晴朗的日子适合出门走走",
+      "expect_hits": [],
+      "note": "同义改写但无共享词元：v0 检索是词面的，这不是 bug 是明文边界（非目标）"
+    },
+    {
+      "name": "zh-movie-shares-one-bigram",
+      "query": "电影票在哪里买",
+      "expect_hits": ["周末打算去看电影"],
+      "note": "只共享『电影』一个 bigram，Jaccard > 0 即命中"
+    },
+    {
+      "name": "ascii-token-overlap",
+      "query": "remember the API2 token rotation",
+      "expect_hits": ["API2 token rotation policy is documented"],
+      "note": "ASCII 小写按词，停用词 the 丢弃；API2 大小写不敏感"
+    }
+  ]
+}
