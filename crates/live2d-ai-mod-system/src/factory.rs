@@ -88,4 +88,33 @@ pub trait ModRuntime: Send {
     fn state_json(&mut self) -> Option<serde_json::Value> {
         None
     }
+
+    /// **一次性命令**（产品级加强波次新增）。
+    ///
+    /// 与 `Self::state_json` 的分工：
+    /// - `state_json` 是**只读快照**（面板每次展开都取）；
+    /// - `command` 是**有副作用的动作**（清空记忆库、导出、自检……），
+    ///   由 host 在用户按下按钮时调用一次。
+    ///
+    /// # 契约
+    ///
+    /// - 入参 `command` 是稳定字符串（`clear` / `export` 等），`args` 是
+    ///   JSON 对象（可空）；**命令词汇由各 Mod 自定**，host 只转达；
+    /// - 返回 `Ok(json)` = 已执行，`json` 是给前端的**脱敏**结果；
+    /// - 返回 `Err(ModError::UnsupportedCommand { .. })` = 不认识这条命令
+    ///   （host 回 409 `unsupported_command`，前端据此说「这个 Mod 没有这个动作」）；
+    /// - 返回其它 `Err` = 执行失败（host 回 409 `command_failed`）；
+    /// - 与 `state_json` 同样是 `&mut self`、同样会被 worker 锁挡住：
+    ///   Mod worker 正忙时 host 回 503，**调用方必须能重试**；
+    /// - **不得**在里头发起网络请求或无限期阻塞（它在 web_api 线程上跑）；
+    ///   本地文件 IO 是允许的（这正是命令存在的意义）。
+    fn command(
+        &mut self,
+        command: &str,
+        _args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModError> {
+        Err(ModError::UnsupportedCommand {
+            command: command.to_string(),
+        })
+    }
 }

@@ -17,6 +17,11 @@ pub enum ModError {
     Event { mod_id: String, message: String },
     /// 设置 schema 非法。
     InvalidSettings { mod_id: String, message: String },
+    /// Mod 不认识 host 发来的一次性命令（产品级加强波次新增）。
+    ///
+    /// 与 [`ModError::Other`] 分开是为了让 host 能回一个**可处置**的码：
+    /// `unsupported_command`（409）而不是笼统的「Mod 错误」。
+    UnsupportedCommand { command: String },
     /// 其它。
     Other(String),
 }
@@ -42,6 +47,9 @@ impl fmt::Display for ModError {
             }
             ModError::InvalidSettings { mod_id, message } => {
                 write!(f, "Mod {mod_id} 设置非法: {message}")
+            }
+            ModError::UnsupportedCommand { command } => {
+                write!(f, "Mod 不支持命令: {command}")
             }
             ModError::Other(s) => write!(f, "Mod 错误: {s}"),
         }

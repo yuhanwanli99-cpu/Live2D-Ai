@@ -2,8 +2,12 @@
 //!
 //! 职责：暴露 `GET /api/v1/mods`（带 `settings_spec` + `config`，rc.4 M2）、
 //! `GET /api/v1/mods/{id}/config` 与 `POST /api/v1/mods/{id}/{action}`
-//! （action ∈ enable/disable/restart/config），把 host 端 `ModRegistry` 的
+//! （action ∈ enable/disable/restart/config/command），把 host 端 `ModRegistry` 的
 //! 运行状态与可编辑配置透出给前端。
+//!
+//! `command`（产品级加强波次）是**一次性动作**通道（body
+//! `{"command":"clear","args":{}}`）：与 `config` 的差别是它不改配置、
+//! 也不重启 Mod，只让 Mod 执行一个有副作用的本地动作（如清空记忆库）。
 //!
 //! # 安全边界
 //!
@@ -26,6 +30,7 @@ use tiny_http::{Header, Method, Response, StatusCode};
 
 use live2d_ai_mod_system::{ModSettingField, ModSettingsSpec};
 
+use crate::mod_registry::ModCommandError;
 use crate::web_api::ServerContext;
 
 /// 路由前缀。
@@ -159,6 +164,73 @@ pub fn handle_mods_route(
         .mod_registry
         .lock()
         .expect("mod_registry mutex poisoned");
+
+    // "command" action（产品级加强波次）：一次性动作，不改配置、不重启 Mod。
+    //
+    // body：`{"command":"clear","args":{…}}`；`args` 可省（缺省 `{}`）。
+    // 状态码：200 ok / 400 坏 body / 404 不在注册表 / 409 不支持或执行失败
+    //（`unsupported_command` / `command_failed`）/ 503 未启用或正忙（可重试）。
+    if action == "command" {
+        if !registry.contains(id) {
+            drop(registry);
+            return Some(json_error(
+                StatusCode(404),
+                "not_found",
+                format!("Mod {id} 不在注册表"),
+            ));
+        }
+        let parsed = match serde_json::from_str::<serde_json::Value>(body) {
+            Ok(v) => v,
+            Err(e) => {
+                drop(registry);
+                return Some(json_error(
+                    StatusCode(400),
+                    "bad_request",
+                    format!("无效 JSON body：{e}"),
+                ));
+            }
+        };
+        let command = parsed
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(command) = command else {
+            drop(registry);
+            return Some(json_error(
+                StatusCode(400),
+                "bad_request",
+                "body 必须包含非空 \"command\" 字段".to_string(),
+            ));
+        };
+        let args = parsed
+            .get("args")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let result = registry.command(id, command, &args);
+        drop(registry);
+        return Some(match result {
+            Ok(value) => ok_response(
+                StatusCode(200),
+                &serde_json::json!({"ok": true, "result": value}).to_string(),
+            ),
+            Err(ModCommandError::Unsupported(c)) => json_error(
+                StatusCode(409),
+                "unsupported_command",
+                format!("Mod {id} 不支持命令：{c}"),
+            ),
+            Err(ModCommandError::Unavailable) => json_error(
+                StatusCode(503),
+                "command_unavailable",
+                format!("Mod {id} 未启用或正忙，可重试"),
+            ),
+            Err(ModCommandError::Failed(m)) => json_error(
+                StatusCode(409),
+                "command_failed",
+                format!("Mod {id} 命令失败：{m}"),
+            ),
+        });
+    }
 
     // "config" action：提前处理（需要解析 body + 可能二次锁定 registry）。
     if action == "config" {

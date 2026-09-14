@@ -96,6 +96,31 @@ impl RegisteredMod {
     }
 }
 
+/// `ModRegistry::command` 的失败分类（host 映射到 HTTP 状态码）。
+///
+/// 为什么不让 runtime 直接回 HTTP 语义：Mod 不该知道 host 的传输层
+///（与 `state_json` 返回裸 JSON 同一立场）。分类发生在这里，是因为
+/// 「未启用 / 正忙」只有 registry 知道，而「不认识这条命令」由 runtime 声明。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModCommandError {
+    /// Mod 未启用 / runtime 槽位为空 / worker 正持锁 → **503**，可重试。
+    Unavailable,
+    /// Mod 不认识这条命令 → **409** `unsupported_command`。
+    Unsupported(String),
+    /// 命令执行失败 → **409** `command_failed`（带 runtime 的错误文案）。
+    Failed(String),
+}
+
+impl std::fmt::Display for ModCommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModCommandError::Unavailable => write!(f, "Mod 未启用或正忙（可重试）"),
+            ModCommandError::Unsupported(c) => write!(f, "Mod 不支持命令: {c}"),
+            ModCommandError::Failed(m) => write!(f, "Mod 命令失败: {m}"),
+        }
+    }
+}
+
 /// 事件投递 channel 的消息。
 type EventMsg = (ModEventTopic, String);
 
@@ -435,6 +460,37 @@ impl ModRegistry {
         let slot = self.runtimes.get(id)?;
         let mut guard = slot.try_lock().ok()?;
         guard.as_mut()?.state_json()
+    }
+
+    /// **一次性命令**（产品级加强波次）：把用户按下按钮的动作转达给 Mod runtime。
+    ///
+    /// 与 `runtime_state` 共用同一把锁和同一条「不阻塞 HTTP」纪律：
+    /// - `id` 不在注册表 → 调用方**先**用 `contains` 判 404，本函数不区分；
+    /// - Mod 未启用 / worker 正持锁 → 返回 `ModCommandError::Unavailable`（503，可重试）；
+    /// - runtime 返回 `ModError::UnsupportedCommand` → `Unsupported`（409）；
+    /// - 其它 `Err` → `Failed`（409，带 runtime 的错误文案）。
+    pub fn command(
+        &self,
+        id: &str,
+        command: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModCommandError> {
+        let Some(slot) = self.runtimes.get(id) else {
+            return Err(ModCommandError::Unavailable);
+        };
+        let Ok(mut guard) = slot.try_lock() else {
+            return Err(ModCommandError::Unavailable);
+        };
+        let Some(rt) = guard.as_mut() else {
+            return Err(ModCommandError::Unavailable);
+        };
+        match rt.command(command, args) {
+            Ok(value) => Ok(value),
+            Err(ModError::UnsupportedCommand { .. }) => {
+                Err(ModCommandError::Unsupported(command.to_string()))
+            }
+            Err(e) => Err(ModCommandError::Failed(e.to_string())),
+        }
     }
 
     /// 状态观察（Mod 管理 UI）。

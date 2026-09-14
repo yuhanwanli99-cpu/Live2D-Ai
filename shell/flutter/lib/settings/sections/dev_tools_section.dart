@@ -15,6 +15,8 @@ import '../../api/diagnostics_api.dart';
 import '../../api/models_api.dart';
 import '../../api/mods_api.dart';
 import '../../design/tokens.dart';
+import '../mods/mod_panel.dart';
+import '../mods/mod_panels.dart';
 import '../../ui/emphasized_text.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';
@@ -315,7 +317,12 @@ typedef ModStateLoader = Future<ModStateResult> Function(String id);
 /// 与 Rust 的 `window_reason_string_is_stable_and_ascii`。
 const String kWindowReasonNativeShellDormant = 'native_shell_dormant';
 
-/// 已知运行态字段的中文标签。
+/// 通用运行态字段的中文标签（**兜底表**）。
+///
+/// 产品级加强波次起，**每个 Mod 自己的字段标签住在它的面板文件里**
+///（`settings/mods/*_panel.dart` 的 `stateLabels`），由 `modStateLabelsFor` 汇总。
+/// 这张表只留**跨 Mod 通用**的字段名（含历史遗留的 pet-desktop 字段——该 Mod 已封存，
+/// 但通用渲染仍认识这些 key）。
 ///
 /// 未知 key **不隐藏**（回落原始 key）——未来 Mod / 新字段不能因为前端不认识
 /// 就从界面上消失（「看得见才谈得上如实」）。
@@ -327,21 +334,36 @@ const Map<String, String> kModStateLabels = <String, String>{
   'window': '窗口',
 };
 
-/// 展示顺序：上表已知字段按声明序在前，其余按 key 字典序在后。纯函数。
-List<String> orderedModStateKeys(Map<String, Object?> state) {
+/// 某 Mod 的标签表 = 该 Mod 面板声明的标签（在前）+ 通用兜底表。
+///
+/// `modId` 为 null / 没有专用面板 → 只有兜底表。纯函数。
+Map<String, String> modStateLabelsForMod(String? modId) {
+  final Map<String, String> panel = modId == null
+      ? const <String, String>{}
+      : modStateLabelsFor(modId);
+  if (panel.isEmpty) return kModStateLabels;
+  return <String, String>{...panel, ...kModStateLabels};
+}
+
+/// 展示顺序：已知字段按「面板声明序 → 兜底表序」在前，其余按 key 字典序在后。纯函数。
+List<String> orderedModStateKeys(Map<String, Object?> state, {String? modId}) {
+  final Map<String, String> labels = modStateLabelsForMod(modId);
   final List<String> known = <String>[
-    for (final String k in kModStateLabels.keys)
+    for (final String k in labels.keys)
       if (state.containsKey(k)) k,
   ];
   final List<String> rest = <String>[
     for (final String k in state.keys)
-      if (!kModStateLabels.containsKey(k)) k,
+      if (!labels.containsKey(k)) k,
   ]..sort();
   return <String>[...known, ...rest];
 }
 
 /// 字段标签：已知字段中文，未知字段回落原始 key。纯函数。
-String modStateLabel(String key) => kModStateLabels[key] ?? key;
+///
+/// `modId` 给定时优先用该 Mod 面板声明的标签（面板优先于通用兜底表）。
+String modStateLabel(String key, {String? modId}) =>
+    modStateLabelsForMod(modId)[key] ?? key;
 
 /// 把一条 `(key, value)` 渲染成一行文字（**不靠颜色**）。纯函数，可单测。
 ///
@@ -768,6 +790,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
             ),
           ),
         _stateBlock(),
+        _panel(),
       ],
     );
   }
@@ -808,7 +831,10 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           if (state.state.isEmpty)
             Text('（该 Mod 未上报运行态字段）', style: muted)
           else
-            for (final String key in orderedModStateKeys(state.state))
+            for (final String key in orderedModStateKeys(
+              state.state,
+              modId: widget.mod.id,
+            ))
               Padding(
                 padding: const EdgeInsets.only(top: OpticalNudge.thin),
                 child: Row(
@@ -816,7 +842,10 @@ class _ModConfigTileState extends State<_ModConfigTile> {
                   children: <Widget>[
                     SizedBox(
                       width: 72,
-                      child: Text('${modStateLabel(key)}：', style: muted),
+                      child: Text(
+                        '${modStateLabel(key, modId: widget.mod.id)}：',
+                        style: muted,
+                      ),
                     ),
                     Expanded(
                       child: Text(
@@ -829,6 +858,45 @@ class _ModConfigTileState extends State<_ModConfigTile> {
               ),
       ],
     );
+  }
+
+  /// 该 Mod 的**产品面板**（产品级加强波次）：按 id 从 `settings/mods/mod_panels.dart` 取。
+  ///
+  /// 没有专用面板 / 面板返回 null → 渲染空 widget（旧 Mod 的观感一行不变）。
+  /// 面板拿到的是**已经取到的**运行态快照与两个回调，自己不做网络。
+  Widget _panel() {
+    final ModPanel? panel = modPanelFor(widget.mod.id);
+    if (panel == null) return const SizedBox.shrink();
+    final Widget? built = panel.build(
+      context,
+      ModPanelContext(
+        mod: widget.mod,
+        state: _state?.state,
+        stateLoading: _stateLoading,
+        stateError: _stateError,
+        onRefreshState: _loadState,
+        onCommand: _command,
+      ),
+    );
+    return built ?? const SizedBox.shrink();
+  }
+
+  /// `POST /api/v1/mods/{id}/command`：一次性动作（清空 / 导出 / 自检……）。
+  ///
+  /// 失败**不吞**：`ApiException` 原样抛给面板，由面板显示带错误码的文案
+  ///（与 `_stateErrorMessage` 同一纪律）。成功后立刻重取运行态，让计数跟上。
+  Future<ModCommandResult> _command(
+    String command, [
+    Map<String, Object?> args = const <String, Object?>{},
+  ]) async {
+    final ModsApi api = _ownedApi ??= ModsApi();
+    final ModCommandResult result = await api.command(
+      widget.mod.id,
+      command,
+      args: args,
+    );
+    unawaited(_loadState());
+    return result;
   }
 
   Widget _field(ModSettingField f) {

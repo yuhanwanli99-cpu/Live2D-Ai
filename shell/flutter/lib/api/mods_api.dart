@@ -197,6 +197,23 @@ class ModStateResult {
   );
 }
 
+/// `POST /api/v1/mods/{id}/command` 的结果（产品级加强波次）。
+///
+/// host 契约（`web_api/mods_routes.rs` 的 `action == "command"` 分支）：
+/// `200 {"ok":true,"result":{…}}`。`result` 的形状由各 Mod 自定
+///（与 `state` 同一立场：前端只按 key 展示、不解释语义）。
+class ModCommandResult {
+  const ModCommandResult({
+    required this.ok,
+    this.result = const <String, Object?>{},
+  });
+
+  final bool ok;
+
+  /// Mod 自报的命令结果（已脱敏）；缺省 `{}`。
+  final Map<String, Object?> result;
+}
+
 /// `GET /api/v1/mods` 的列表项。
 class ModInfo {
   const ModInfo({
@@ -328,6 +345,35 @@ class ModsApi {
     );
     if (response.statusCode != 200) throw _error(response);
     return ModStateResult.fromJson(_decode(response.body));
+  }
+
+  /// `POST /api/v1/mods/{id}/command`（产品级加强波次）——一次性动作通道。
+  ///
+  /// `command` 是稳定字符串（各 Mod 自定，如 `clear`）；`args` 缺省 `{}`。
+  /// 三种失败刻意分开（host 契约见 `mods_routes.rs`）：
+  /// - `404 not_found` → 这个 id 不在注册表；
+  /// - `409 unsupported_command` / `command_failed` → Mod 不认识这条命令 / 执行失败；
+  /// - `503 command_unavailable` → 未启用或 Mod worker 正忙，**可重试**。
+  ///
+  /// mutating 请求：必须带 `Content-Type: application/json`（Origin 由浏览器自动带）。
+  Future<ModCommandResult> command(
+    String id,
+    String command, {
+    Map<String, Object?> args = const <String, Object?>{},
+  }) async {
+    final http.Response response = await _guard(
+      () => _client.post(
+        _uri('/api/v1/mods/${Uri.encodeComponent(id)}/command'),
+        headers: const <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, Object?>{'command': command, 'args': args}),
+      ),
+    );
+    if (response.statusCode != 200) throw _error(response);
+    final Map<String, Object?> body = _decode(response.body);
+    return ModCommandResult(
+      ok: body['ok'] != false,
+      result: _obj(body['result']) ?? const <String, Object?>{},
+    );
   }
 
   Future<http.Response> _guard(Future<http.Response> Function() run) async {
