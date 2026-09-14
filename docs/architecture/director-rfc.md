@@ -273,8 +273,9 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision;
   `config_path`；`SupervisorHandle::trigger_action` 与 supervisor 的 `action_rx`
   分支已整体删除——那是**唯一**能把 `RootEvent::Action` 送进 core reducer 的路径；
 - 钉子两条：`mod_registry::tests::action_request_is_dormant_not_delivered`
-  （`ActionRequest` 必须**不被接受**）与 `main.rs::mod_count_is_seven`
-  （工厂数恒为 7；Wave 3 的 director 骨架零投递，不得因动作 Mod 增加）。
+  （`ActionRequest` 必须**不被接受**）与 `main.rs::mod_count_is_five`
+  （工厂数恒为 5；Wave 3 的 director 骨架零投递，不得因动作 Mod 增加；
+  `wallpaper` / `pet-desktop` 已于 2026-09-14 封存，见 `ARCHIVED-mods.md`）。
 - **Wave 3 骨架的立场更进一步**：`director` crate **从不调用** `action_tx`
   （**零调用**，而不是「调用了但被拒」）。回归
   `tests::action_tx_and_apply_settings_are_never_called` 断言
@@ -436,6 +437,8 @@ Wave 2 §3D 曾把选择钉死：**不新建 crate、不注册 `AVAILABLE_MOD_FA
 > 都不建」——骨架已经存在（crate + 静态 schema + 两个事件订阅 + `state_json` +
 > 零投递）。**注册**（`AVAILABLE_MOD_FACTORIES` 6 → 7、`mod_count_is_seven`、
 > id 断言）由**主 agent 收束时一次完成**，**缺省停用**。§8.1 / §8.2 因此是**历史论证**；
+> （2026-09-14 产品级加强波次又把数量从 7 收回 **5**——`wallpaper` / `pet-desktop` 封存，
+> 护栏更名为 `mod_count_is_five`；director 仍在册且仍**零投递**。见 `ARCHIVED-mods.md`。）
 > 其中仍然有效的只有一句：**在 §5.1 第 0/1 条（授权 + 用户可见演示）满足前，director
 > 不得获得任何投递能力**——骨架把这句话做成了结构事实（没有任何调用点）。
 
@@ -445,7 +448,7 @@ Wave 2 §3D 曾把选择钉死：**不新建 crate、不注册 `AVAILABLE_MOD_FA
    在 `GET /api/v1/mods` 里平白多一条列表项，却是唯一一个「启用后什么都不会发生」
    的条目。Wave 2 §0 的原话是「再交一个『只有 `settings_spec` + 空 tick』的半成品
    不算过关」——注册一个**连 `settings_spec` 都没有**的 doc-only 工厂只会更差。
-2. **计数断言是安全护栏，不能被稀释**。`mod_count_is_seven` /
+2. **计数断言是安全护栏，不能被稀释**。`mod_count_is_five` /
    `mod_factory_ids_match_expected` 存在的意义是阻止**动作 Mod 悄悄挂回来**
    （[AGENTS.md](../../AGENTS.md)：director 是动作序列的唯一驱动方，而动作在产品路径上
    不存在，所以它被删除并由计数断言守住）。把导演加进去会**削弱**这条护栏：

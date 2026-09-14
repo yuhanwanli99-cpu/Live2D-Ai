@@ -1,6 +1,16 @@
 //! live2d-ai-mod-pet-desktop（节点 E E7；Wave 3 更新 2026-09-14）。
 //!
-//! 桌宠窗口 Mod——**配置 / 事件态的可测面 v1**。
+//! # ⚠️ 已封存（ARCHIVED，2026-09-14）— 勿新用、勿挂回
+//!
+//! 本 crate **已移出 `main.rs::AVAILABLE_MOD_FACTORIES`**（7 → 5），不再编译进
+//! `live2d-ai-desktop` binary。用户裁决：**不做真窗/应用级桌宠**，本波不推。
+//! 「软闭环＝只有状态面、`window.opened` 恒 false」的裁决继续有效，但状态面本身
+//! 也不再是产品路径（不再注册即不在 `/api/v1/mods` 列表里）。crate 暂留 workspace
+//! 只为避免一次性大爆炸（可编译、可跑自身测试）；**禁止**挂回 FACTORIES。理由与
+//! 恢复条件见 `docs/architecture/ARCHIVED-mods.md`，架构文
+//! `docs/architecture/pet-desktop-mod-v0.md` 顶部有封存横幅。下面是封存前的记录。
+//!
+//! 桌宠窗口 Mod——**配置 / 事件态的可测面 v1**（历史）。
 //!
 //! # Wave 3（2026-09-14）：软闭环 —— 产品标签「仅状态面」
 //!

@@ -27,10 +27,8 @@ const int kStageImageMaxChars = 1500000;
 /// 所以这里只是给壳背景一个可读的别名，**不是第二套配额**。
 const int kShellImageMaxChars = kStageImageMaxChars;
 
-/// 壁纸轮播列表的**项数上限**。
+/// 舞台背景轮播列表（用户手动维护）的**项数上限**。
 ///
-/// 与 Rust 侧 `MAX_PLAYLIST_LEN`（`live2d-ai-mod-wallpaper/src/strategy.rs`）
-/// **同一个数**：两边各自钳一次，谁先写错都不会让列表无界膨胀。
 /// 16 张的理由见 [kStagePlaylistMaxChars]——真正的上限是**总字符预算**，
 /// 这一条只挡住「项数无界」。
 const int kStagePlaylistMaxItems = 16;
@@ -106,19 +104,16 @@ class DisplayPrefs {
   /// 判据只有一处，才不会出现两处不一致。
   String? get effectiveShellImage => syncShellStageBg ? stageImage : shellImage;
 
-  /// 壁纸轮播列表（dataURL，缺省空）。
+  /// 舞台背景轮播列表（用户手动维护，dataURL，缺省空）。
   ///
-  /// # 这是**唯一**的播放列表来源（2026-09-14，Wave 2）
+  /// 图列表住在这里——与 [stageImage] 同一条 localStorage 记录、同一份长度
+  /// 预算（[kStageImageMaxChars] / [kStagePlaylistMaxChars]）。用户在「外观与
+  /// 互动」里增删 / 排序；当前舞台那张仍是 [stageImage]，两者数据相等时由
+  /// [stagePlaylistIndexOf] 标出来。
   ///
-  /// 壁纸 Mod（`live2d-ai-mod-wallpaper`）只产决策（`stage_index`），
-  /// **不持有图片**；图列表住在这里——与 [stageImage] 同一条 localStorage
-  /// 记录、同一份长度预算（[kStageImageMaxChars] / [kStagePlaylistMaxChars]）。
-  /// Mod 决策经 `applyWallpaperPatch` 落成 `stageImage = stagePlaylist[k % len]`，
-  /// 再走既有 `Live2DStage.sendStageBg` 下发。
-  ///
-  /// 列表为空是**合法状态**（`interval` 模式会报 `playlist_empty` 并保持不动，
-  /// 不是「假装成功」）。三项预算：每项 ≤ [kStageImageMaxChars]、
-  /// 总长 ≤ [kStagePlaylistMaxChars]、项数 ≤ [kStagePlaylistMaxItems]。
+  /// 列表为空是**合法状态**（就是「没有轮播图」）。三项预算：每项 ≤
+  /// [kStageImageMaxChars]、总长 ≤ [kStagePlaylistMaxChars]、
+  /// 项数 ≤ [kStagePlaylistMaxItems]。
   final List<String> stagePlaylist;
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
@@ -479,9 +474,8 @@ StagePlaylistAppendResult appendToStagePlaylist(
 
 /// 第 [index] 张在列表里的下标；找不到（含 [stageImage] 为 null）→ `-1`。
 ///
-/// UI 用它把「当前舞台那张」标出来。判据是**数据相等**（同一份 dataURL），
-/// 不是 Mod 游标位置：列表可以被删除 / 重排，而游标是 Mod 的运行值——
-/// 拿游标冒充「当前张」会在编辑列表后指错人。
+/// UI 用它把「当前舞台那张」标出来。判据是**数据相等**（同一份 dataURL）：
+/// 列表可以被删除 / 重排，用数据比对才不会在编辑列表后指错人。
 int stagePlaylistIndexOf(List<String> playlist, String? stageImage) {
   if (stageImage == null) return -1;
   for (int i = 0; i < playlist.length; i++) {
@@ -501,11 +495,10 @@ List<String> removeStagePlaylistAt(List<String> current, int index) {
   return <String>[...current]..removeAt(index);
 }
 
-/// 把第 [from] 张移到 [to]（都是 0-based 下标，闭区间；Wave 3）。
+/// 把第 [from] 张移到 [to]（都是 0-based 下标，闭区间）。
 ///
 /// - 越界（`from` / `to` 不在 `0..length`）/ `from == to` → **原样返回**入参；
-/// - 成功 → 返回**重排后的新列表**（项集合与项数都不变，所以三条预算不受影响，
-///   也不需要写回 `playlist_len`——长度没变）。
+/// - 成功 → 返回**重排后的新列表**（项集合与项数都不变，所以三条预算不受影响）。
 ///
 /// 「上移」= `moveStagePlaylist(list, i, i - 1)`，「下移」= `(list, i, i + 1)`。
 List<String> moveStagePlaylist(List<String> current, int from, int to) {
@@ -516,89 +509,4 @@ List<String> moveStagePlaylist(List<String> current, int from, int to) {
   final String item = out.removeAt(from);
   out.insert(to, item);
   return out;
-}
-
-/// `applyWallpaperPatch` 的结果。
-class WallpaperPatchResult {
-  const WallpaperPatchResult({
-    required this.prefs,
-    required this.applied,
-    this.reason,
-  });
-
-  /// 落点后的偏好（未应用时**原样返回**入参）。
-  final DisplayPrefs prefs;
-
-  /// 是否真的改了什么。
-  final bool applied;
-
-  /// 未应用的原因（稳定字符串）：`empty_patch` / `already_synced` /
-  /// `playlist_empty` / `invalid_index` / `unknown_patch`。
-  final String? reason;
-}
-
-/// **壁纸 Mod 决策 → `DisplayPrefs` 落点**（Wave 2 纯函数，VM 可测）。
-///
-/// 输入是 Mod 的 `prefs_patch`（`GET /api/v1/mods/wallpaper/state` 的
-/// `state.prefs_patch`），契约见 `docs/architecture/wallpaper-mod-v0.md` §5：
-///
-/// | patch | 落点 |
-/// |---|---|
-/// | `null` / 非对象 / 空对象 | 不动作（`empty_patch`） |
-/// | `{"sync_shell_stage_bg":true}` | `copyWith(syncShellStageBg: true)`（幂等：已经是 true 就 `already_synced`） |
-/// | `{"stage_index":k}` | `stageImage = stagePlaylist[k % len]`；**列表为空 → 跳过**（`playlist_empty`） |
-///
-/// 「跳过」是**如实的跳过**，不是「假装成功」：调用方读 `reason` 决定要不要
-/// 说点什么。`stage_index` 越界到负数才判非法（正数由 `% len` 取模回绕）。
-WallpaperPatchResult applyWallpaperPatch(DisplayPrefs prefs, Object? patch) {
-  if (patch is! Map || patch.isEmpty) {
-    return WallpaperPatchResult(
-      prefs: prefs,
-      applied: false,
-      reason: 'empty_patch',
-    );
-  }
-  if (patch['sync_shell_stage_bg'] == true) {
-    if (prefs.syncShellStageBg) {
-      return WallpaperPatchResult(
-        prefs: prefs,
-        applied: false,
-        reason: 'already_synced',
-      );
-    }
-    return WallpaperPatchResult(
-      prefs: prefs.copyWith(syncShellStageBg: true),
-      applied: true,
-    );
-  }
-  final Object? rawIndex = patch['stage_index'];
-  if (rawIndex is num) {
-    final int index = rawIndex.toInt();
-    if (index < 0) {
-      return WallpaperPatchResult(
-        prefs: prefs,
-        applied: false,
-        reason: 'invalid_index',
-      );
-    }
-    if (prefs.stagePlaylist.isEmpty) {
-      // 空列表：明确跳过（Mod 侧对应 reason = `playlist_empty`）。
-      return WallpaperPatchResult(
-        prefs: prefs,
-        applied: false,
-        reason: 'playlist_empty',
-      );
-    }
-    final String dataUrl =
-        prefs.stagePlaylist[index % prefs.stagePlaylist.length];
-    return WallpaperPatchResult(
-      prefs: prefs.copyWith(stageImage: dataUrl),
-      applied: true,
-    );
-  }
-  return WallpaperPatchResult(
-    prefs: prefs,
-    applied: false,
-    reason: 'unknown_patch',
-  );
 }

@@ -21,6 +21,12 @@
 **2026-09-12（rc.2）更新**：`live2d-ai-mod-director` 也已删除（动作层裁决），
 现为 **3 个**（external-input / pet-desktop / local-llm）。
 
+> **2026-09-14（封存波）更新**：`wallpaper` / `pet-desktop` 已 **ARCHIVED**（移出
+> `AVAILABLE_MOD_FACTORIES`、不再编译进 binary；crate 暂留 workspace，**禁止挂回**）。
+> 当前注册数为 **5 个**：`external-input` / `persona` / `voice-input` / `memory` / `director`。
+> 理由与恢复条件见 [ARCHIVED-mods.md](ARCHIVED-mods.md)。上文的 5/4/3 等数字是当时的
+> 历史记录，保留不动。
+
 ## 2. 为什么（三条，按重要性排序）
 
 1. **它在这条链路的中间，不是在旁边。**

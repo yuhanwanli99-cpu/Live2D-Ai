@@ -1,9 +1,18 @@
 # 壁纸 Mod 策略 v0（`live2d-ai-mod-wallpaper`）
 
-> **状态**：2026-09-14 Wave 1（分支 `mod/wallpaper` @ `2d492447`）起草；
+> # ⛔ 已封存（ARCHIVED，2026-09-14）——**非产品路径**
+>
+> 本 Mod **已移出 `AVAILABLE_MOD_FACTORIES`**（7 → 5），不再注册、不再编译进 binary。
+> 用户裁决：本波**删除并封存 wallpaper Mod，不做本地下载库 / 自由切换**。
+> **用户手动的舞台/壳背景能力继续保留**（`DisplayPrefs.stageImage` / `stagePlaylist` /
+> `syncShellStageBg` 与「外观与互动」里的选图/清图 UI）——被封存的只是**自动换壁纸策略**。
+> crate 暂留 workspace 可编译可测，**禁止挂回**；原因与恢复条件见
+> [ARCHIVED-mods.md](ARCHIVED-mods.md)。**下面正文是封存前的历史记录。**
+>
+> **状态（历史）**：2026-09-14 Wave 1（分支 `mod/wallpaper` @ `2d492447`）起草；
 > `0.2.0-rc.2` 集成时按
 > [`../plans/parallel-mods/REGISTER-wallpaper.md`](../plans/parallel-mods/REGISTER-wallpaper.md)
-> **已注册**进 `AVAILABLE_MOD_FACTORIES`（Wave 3 起工厂数由 `mod_count_is_seven` 守住，**缺省停用**）。
+> **已注册**进 `AVAILABLE_MOD_FACTORIES`（封存前工厂数由 `mod_count_is_seven` 守住，**缺省停用**）。
 > **2026-09-14 Wave 2（分支 `mod/wallpaper-wire` @ 基座 `429609f2`）§5 落点已接线**：
 > Mod 决策 → `state_json` 的 `prefs_patch` → Flutter 纯函数 `applyWallpaperPatch`
 > → 既有 `DisplayPrefs` / `Live2DStage.sendStageBg`；播放列表来源 = Flutter 自己的偏好

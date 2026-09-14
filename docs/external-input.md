@@ -288,4 +288,4 @@ print(send_to_live2d("收到新邮件提醒"))
 | Mod（静态 settings_spec / 模板纯函数 / say / state_json） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
 | 可观察计数（AtomicU64 + 语义表） | `crates/live2d-ai-mod-external-input/src/counters.rs` |
 | sidecar（清洗 / 节流 / 自检 / v2 上报） | `docs/examples/bilibili-sidecar/bilibili_sidecar.py` |
-| 缺口断言 | `mod_count_is_seven`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 3+1+1** / v2_ignored）、`counters::tests`（计数契约） |
+| 缺口断言 | `mod_count_is_five`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 3+1+1** / v2_ignored）、`counters::tests`（计数契约） |

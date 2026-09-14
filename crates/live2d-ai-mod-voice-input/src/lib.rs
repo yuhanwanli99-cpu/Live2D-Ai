@@ -21,7 +21,7 @@
 //!
 //! # 边界
 //!
-//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_seven`，
+//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，
 //!   **缺省停用**；启停唯一真源 = manifest `enabled`，`default_mods_manifest` 未收录）；
 //!   handler 复用本 crate 的 [`prepare_transcript`]（=`clean_transcript` +
 //!   [`normalize_for_locale`]，**不重写**），契约见 `docs/voice-input.md`。

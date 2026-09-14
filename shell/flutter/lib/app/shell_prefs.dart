@@ -58,15 +58,10 @@ extension _ShellPrefsWiring on _ShellRootState {
 
   /// 偏好变更：更新内存 + 落盘 + 立即下发。
   ///
-  /// 这也是**轮播列表长度写回壁纸 Mod 的唯一漏斗**：加入 / 清空 / 删除 /
-  /// 上移下移都经过这里，长度变了才 `POST /mods/wallpaper/config`（上移下移
-  /// 不改长度，因此不会触发写回）。把判据放一处，才不会出现「列表改了、
-  /// Mod 还以为没有图可切」的漏接线。
+  /// 这是**纯本机偏好变更的落点**：主题 / 缩放 / 口型 / 音量 / 静音 / 背景图
+  /// 与舞台背景轮播列表都经过这里，改完立刻 `saveDisplayPrefs` 并下发渲染面。
   void _updatePrefs(DisplayPrefs next) {
     if (next == widget.prefs) return;
-    // 先与**旧值**比：下面 `widget.prefs` 由宿主 setState 之后才会更新。
-    final bool playlistLenChanged =
-        next.stagePlaylist.length != widget.prefs.stagePlaylist.length;
     // 落盘结果要接住：写失败（无痕 / 配额满 / 存储被禁）过去是**静默**的，
     // 用户看到「已应用」却在刷新后丢失（rc.3 §9.1 候选原因 1）。
     final bool saved = widget.onPrefsChanged(next);
@@ -80,7 +75,6 @@ extension _ShellPrefsWiring on _ShellRootState {
     _audio.volume = next.volume;
     // 传 `next` 而不是让它去读 `widget.prefs`（那还是旧值）。
     _applyPrefs(next);
-    if (playlistLenChanged) unawaited(_syncWallpaperPlaylistLen());
   }
 
   /// 选一张背景图。`forShell` = 从「壳背景」那一行进来的。
@@ -207,12 +201,9 @@ extension _ShellPrefsWiring on _ShellRootState {
       text: '已加入轮播（共 ${result.playlist.length} 张）',
       failed: false,
     );
-    // 长度变化 → `_updatePrefs` 的唯一漏斗会写回 Mod config（不必在这里再调）。
   }
 
   /// 「清空轮播」：清空列表（`stageImage` 不动——当前这张仍留在舞台上）。
-  ///
-  /// 写回由 `_updatePrefs` 统一处理（删除 / 重排也走同一条）。
   void _clearStagePlaylist() {
     final DisplayPrefs prefs = widget.prefs;
     if (prefs.stagePlaylist.isEmpty) return;

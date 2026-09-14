@@ -1,5 +1,17 @@
 //! live2d-ai-mod-wallpaper（Wave 1，2026-09-14）——**壁纸策略 v0**。
 //!
+//! # ⚠️ 已封存（ARCHIVED，2026-09-14）— 勿新用、勿挂回
+//!
+//! 本 crate **已移出 `main.rs::AVAILABLE_MOD_FACTORIES`**（7 → 5），不再注册进
+//! Mod 运行时、不再编译进 `live2d-ai-desktop` binary。用户的**手动**舞台/壳背景
+//! 能力（`DisplayPrefs.stageImage` / `stagePlaylist` / `syncShellStageBg` 与
+//! 「外观与互动」里的选图/清图 UI）**与本 crate 无关，继续保留**；本 crate 只提供
+//! 「何时换壁纸」的自动策略，这被用户裁决为**本波不做**。crate 暂留 workspace 只是
+//! 避免一次性大爆炸（可编译、可跑自身测试）；**禁止**挂回 FACTORIES。理由与恢复
+//! 条件见 `docs/architecture/ARCHIVED-mods.md`，架构文
+//! `docs/architecture/wallpaper-mod-v0.md` 顶部有封存横幅。下面 v0 的范围声明是
+//! **历史记录**，描述的是封存前的行为。
+//!
 //! 链路定位：本 Mod 只回答「**何时换壁纸 / 要不要和舞台同步**」，**不画图**。
 //! 真正的像素路径（stage-bg 命令 → wasm 预通道 → framebuffer）在 0.1.0-rc.5
 //! 已经定案，本 crate **一行不碰**（见 `docs/architecture/wallpaper-mod-v0.md` §2）。

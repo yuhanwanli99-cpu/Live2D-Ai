@@ -56,7 +56,7 @@ mod platform;
 /// 2026-09-12（rc.2）：director Mod 已删除——它唯一的职责是**驱动序列**，
 /// 而动作在产品路径上不存在（见 `docs/architecture/core-chain-baseline.md` §3.3）。
 /// 归档点在分支 `archive/action-layer-p6`。**不要再挂回去**：
-/// 下方 `mod_count_is_seven` 是防回归断言。
+/// 下方 `mod_count_is_five` 是防回归断言。
 ///
 /// 2026-09-14（0.2.0-rc.1）：**local-llm 已废除启动**（移出本表）——本地推理进程
 /// 管理/探活不再是产品路径；LLM 端点由 `live2d-ai.toml` 的 `[llm]` 人工配置。
@@ -75,16 +75,18 @@ mod platform;
 /// 数字 6 → 7，**同样缺省停用**（`cli_entry::default_mods_manifest` 未收录）。
 /// 与 rc.2 删除的那个 director 不同：它**不驱动动作序列**，见
 /// `docs/architecture/director-mod-v0.md` 与 `docs/architecture/director-rfc.md` §8。
+/// 2026-09-14（产品级加强波次，未 bump 版本）：**封存 `wallpaper` + `pet-desktop`**
+/// ——两者移出本表，数字 7 → **5**。crate 仍留在 workspace（可编译、可跑自身测试）
+/// 并标 ARCHIVED，**禁止挂回**；理由与恢复条件见
+/// `docs/architecture/ARCHIVED-mods.md`。用户手动的舞台/壳背景能力（`DisplayPrefs`）
+/// **不受影响**——被拆掉的只是 wallpaper **Mod** 的接线。
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
     // 0.2.0-rc.1 起**缺省启用**（直播弹幕/礼物经 sidecar 注入，见 docs/external-input.md）。
     &live2d_ai_mod_external_input::FACTORY,
-    &live2d_ai_mod_pet_desktop::FACTORY,
     // rc.4 M5：角色卡标准 Mod（缺省停用；启用后把卡合成 system_prompt 写回主链）。
     &live2d_ai_mod_persona::FACTORY,
     // Wave 1（0.2.0-rc.2）：语音转写 → 清洗 → say_tx；ASR 后端尚未接线，**缺省停用**。
     &live2d_ai_mod_voice_input::FACTORY,
-    // Wave 1（0.2.0-rc.2）：壁纸策略 v0（mode 缺省 off），**缺省停用**。
-    &live2d_ai_mod_wallpaper::FACTORY,
     // Wave 2（0.2.0-rc.3）：会话记忆 v0（本地 JSONL + 词元重叠检索）。缺省停用是
     // 刻意的——它会写 `persona.system_prompt`，用户得先明确打开。
     &live2d_ai_mod_memory::FACTORY,
@@ -449,7 +451,7 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// 防回归：**恰好 7 个** Mod 工厂。
+    /// 防回归：**恰好 5 个** Mod 工厂。
     ///
     /// 2026-09-12（rc.2）那个 director 已删除——它是动作序列的唯一驱动方，而动作在产品
     /// 路径上不存在。数字断言存在的意义就是「不要再挂回去」：若有人把**驱动动作**的
@@ -460,12 +462,15 @@ mod tests {
     /// 0.2.0-rc.3（Wave 2）：+ `memory` → 5 → 6。
     /// Wave 3（2026-09-14）：+ `director` **最小骨架**（零投递）→ 6 → 7。
     /// 与 rc.2 删除的那个不同：它不驱动动作，见 `director-mod-v0.md`。
+    /// 产品级加强波次（2026-09-14）：**封存 `wallpaper` / `pet-desktop`** → 7 → 5。
+    /// 封存（ARCHIVED）与废除（DEPRECATED）同口径：移出本表即不在启动注册表，
+    /// 断言继续守住「别再挂回来」（理由见 `docs/architecture/ARCHIVED-mods.md`）。
     #[test]
-    fn mod_count_is_seven() {
+    fn mod_count_is_five() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            7,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 7 Mod factories (external-input, pet-desktop, persona, voice-input, wallpaper, memory, director)"
+            5,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 5 Mod factories (external-input, persona, voice-input, memory, director)"
         );
     }
 
@@ -478,17 +483,14 @@ mod tests {
         ids.sort();
 
         // local-llm 已废除（0.2.0-rc.1）：不在此表即不在启动注册表。
-        // 0.2.0-rc.2（Wave 1）：+ voice-input / wallpaper。
-        // 0.2.0-rc.3（Wave 2）：+ memory。
-        // Wave 3：+ director（最小骨架，零投递，缺省停用）。
+        // wallpaper / pet-desktop 已封存（2026-09-14，产品级加强波次）：
+        // 同样不在此表即不在启动注册表，见 docs/architecture/ARCHIVED-mods.md。
         let mut expected = vec![
             "director",
             "external-input",
             "memory",
-            "pet-desktop",
             "persona",
             "voice-input",
-            "wallpaper",
         ];
         expected.sort();
 

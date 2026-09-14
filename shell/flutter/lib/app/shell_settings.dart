@@ -157,7 +157,7 @@ extension _ShellSettingsWiring on _ShellRootState {
           devMode: _devMode,
           onPickStageImage: () => unawaited(_pickStageImage()),
           onClearStageImage: _clearStageImage,
-          // Wave 2：轮播列表的最小操作（列表是壁纸 Mod 的唯一图来源）。
+          // 轮播列表的最小操作（列表由用户手动维护、只存本机）。
           onAddToPlaylist: _addStageImageToPlaylist,
           onClearPlaylist: _clearStagePlaylist,
           stageImageMessage: _stageImageMessage,

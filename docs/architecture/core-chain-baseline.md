@@ -118,8 +118,9 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 
 回归钉子两条：
 `mod_registry::tests::action_request_is_dormant_not_delivered`（`ActionRequest` 必须
-**不被接受**）与 `main.rs::mod_count_is_seven`（工厂数恒为 7；Wave 3 的 director 骨架零投递，
-不得因**任何动作驱动方**而增加）。
+**不被接受**）与 `main.rs::mod_count_is_five`（工厂数恒为 5；Wave 3 的 director 骨架零投递，
+不得因**任何动作驱动方**而增加；`wallpaper` / `pet-desktop` 已于 2026-09-14 封存，
+见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
 
 「连 `action/` + `performance/` 一起删干净」这条路依然可行，但必须连 `lib.rs` 的两条
 不变量一起重新论证——那是另一次结构改动，不在 rc.2 范围内。

@@ -6,7 +6,7 @@ Live2D-Ai wires a single core loop and keeps everything else behind a Mod bounda
 
 **text → LLM (chat only) → TTS → lip-sync → Live2D render + Web UI**
 
-It does **not** ship or bind any character, skin, or model. You import your own lawfully obtained Live2D assets. Complex extras (desktop pet, external input, local LLM, …) are optional Mods that fail independently of the core loop.
+It does **not** ship or bind any character, skin, or model. You import your own lawfully obtained Live2D assets. Complex extras (external input, persona, voice input, session memory, …) are optional Mods that fail independently of the core loop.
 
 > Chinese: [README.zh-CN.md](./README.zh-CN.md)
 
@@ -28,14 +28,21 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ### Mods
 - Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Bundled Mods (compiled in, **6 registered**): `external-input`, `pet-desktop`,
-  `persona`, `voice-input`, `wallpaper`, `memory`. **Only `external-input` is enabled
-  by default**; the other five are opt-in (`memory` writes `persona.system_prompt`,
-  so it must be turned on deliberately).
+- Mods compiled into the binary (**5 registered**): `external-input`, `persona`,
+  `voice-input`, `memory`, `director`. **Only `external-input` is enabled by default**;
+  the other four are opt-in (`memory` writes `persona.system_prompt`, so it must be
+  turned on deliberately).
+- `wallpaper` and `pet-desktop` are **ARCHIVED** (this wave): **not registered and not
+  compiled into the binary**; the crates stay in the workspace (still compiling and
+  testable) and must **not** be re-registered. See
+  [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md). The
+  user-facing stage/shell background (`DisplayPrefs`) is **kept** — it is not the
+  wallpaper Mod.
 - `local-llm` is **no longer started** (removed from the registry in `0.2.0-rc.1`;
-  the crate stays in-tree, deprecated). The `director` crate was removed in
-  `0.1.0-rc.2` — `0.2.0-rc.3` ships a **contract-only RFC** for it and does **not**
-  register it.
+  the crate stays in-tree, deprecated). The action-driving `director` crate was removed
+  in `0.1.0-rc.2` (archived on `archive/action-layer-p6`); the `director` registered
+  today is the **zero-delivery** Wave 3 skeleton
+  (contract: `docs/architecture/director-rfc.md`).
 - Voice input: a local ASR **sidecar** (any process you run) POSTs transcripts to
   `POST /api/v1/voice/transcript`; no ASR runtime is linked into the binary.
 - Mod failure disables that Mod only; the core loop keeps running.

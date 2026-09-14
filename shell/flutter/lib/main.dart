@@ -52,7 +52,6 @@ import 'api/env_api.dart';
 import 'api/models_api.dart';
 import 'api/mods_api.dart';
 import 'api/settings_models.dart';
-import 'api/wallpaper_api.dart';
 import 'api/ws_client.dart';
 import 'app/app_shell.dart';
 import 'app/app_shortcuts.dart';
@@ -81,7 +80,6 @@ part 'app/shell_admin.dart';
 part 'app/shell_chat.dart';
 part 'app/shell_prefs.dart';
 part 'app/shell_settings.dart';
-part 'app/shell_wallpaper.dart';
 
 void main() {
   runApp(const Live2DShellApp());
@@ -180,14 +178,6 @@ class _ShellRootState extends State<ShellRoot> {
   late final ModsApi _modsApi;
   late final DiagnosticsApi _diagApi;
 
-  /// 壁纸 Mod 状态读取面（Wave 2 B 轨；只读 `GET …/wallpaper/state`）。
-  late final WallpaperApi _wallpaperApi;
-
-  /// 壁纸状态轮询定时器（**唯一**生命周期入口是 `_syncWallpaperPolling`）。
-  ///
-  /// 只在 wallpaper 已启用且 `mode != off` 时存在；停用 / 关模式立刻取消。
-  Timer? _wallpaperTimer;
-
   List<ModelInfo> _models = const <ModelInfo>[];
   /// 密钥真源状态（`GET /api/v1/env`）：键名 + 是否已设置（**没有值**）。
   EnvStatus _envStatus = const EnvStatus();
@@ -264,7 +254,6 @@ class _ShellRootState extends State<ShellRoot> {
     _envApi = EnvApi();
     _modsApi = ModsApi();
     _diagApi = DiagnosticsApi();
-    _wallpaperApi = WallpaperApi();
     _settings = SettingsController(api: _api);
     _ws = WsClient();
     _audio = AudioPlayer();
@@ -300,9 +289,6 @@ class _ShellRootState extends State<ShellRoot> {
 
     _ws.connect();
     unawaited(_loadAppStatus());
-    // 壁纸 Mod 闭环引导（Wave 2）：只多一个 GET——Mod 一启用就该开始换图，
-    // 不能等用户打开设置面（`_loadAdmin` 那时才跑）。
-    unawaited(_bootstrapWallpaper());
   }
 
   @override
@@ -317,10 +303,6 @@ class _ShellRootState extends State<ShellRoot> {
     _envApi.dispose();
     _modsApi.dispose();
     _diagApi.dispose();
-    // 壁纸轮询必须随页面一起停：留着 Timer 会在页面销毁后继续打请求。
-    _wallpaperTimer?.cancel();
-    _wallpaperTimer = null;
-    _wallpaperApi.dispose();
     _chat.dispose();
     _ws.dispose();
     _audio.dispose();

@@ -65,17 +65,24 @@ Mod 与 host 编进**同一个 binary**。这正是分发面必须看许可的�
 
 ---
 
-## 4. 现行 Mod 的许可状态（0.2.0-rc.1）
+## 4. 现行 Mod 的许可状态（产品级加强波次起）
 
 全部为 **Rust + AGPL-3.0-only**，与官方分发面兼容：
 
 | Mod | 缺省 | 许可 | 分发面 |
 |---|---|---|---|
 | `external-input` | **on** | AGPL-3.0-only | 官方包内 |
-| `pet-desktop` | off | AGPL-3.0-only | 官方包内（骨架） |
 | `persona` | off | AGPL-3.0-only | 官方包内 |
+| `voice-input` | off | AGPL-3.0-only | 官方包内 |
+| `memory` | off | AGPL-3.0-only | 官方包内 |
+| `director` | off | AGPL-3.0-only | 官方包内 |
+| ~~`wallpaper`~~ | — | AGPL-3.0-only | **已封存（ARCHIVED）**（移出注册面；crate 暂留仓库） |
+| ~~`pet-desktop`~~ | — | AGPL-3.0-only | **已封存（ARCHIVED）**（移出注册面；crate 暂留仓库） |
 | ~~`local-llm`~~ | — | AGPL-3.0-only | **已废除启动**（移出注册面；crate 暂留仓库） |
 | `live2d-ai-mod-template` | — | AGPL-3.0-only | 模板 crate，**不**注册 |
+
+封存口径见 [ARCHIVED-mods.md](ARCHIVED-mods.md)；注册面现为 5 个工厂
+（`main.rs::mod_count_is_five`）。
 
 ---
 

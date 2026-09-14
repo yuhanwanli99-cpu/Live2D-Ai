@@ -55,11 +55,10 @@ class AppearanceSection extends StatelessWidget {
   final VoidCallback? onPickStageImage;
   final VoidCallback? onClearStageImage;
 
-  /// 轮播列表（Wave 2）：把**当前**舞台图追加进列表 / 清空列表。
+  /// 舞台背景轮播列表：把**当前**舞台图追加进列表 / 清空列表。
   ///
-  /// 列表是壁纸 Mod 唯一的图来源（`DisplayPrefs.stagePlaylist`），
-  /// 所以这里的操作只有两个——不做删除单张 / 拖排序（那是「大轮播」，
-  /// 明确不在本轮范围，见 `docs/architecture/wallpaper-mod-v0.md` §8）。
+  /// 列表由用户手动维护（`DisplayPrefs.stagePlaylist`），图源全部来自本机
+  /// 偏好；增删 / 排序在 [_StagePlaylistEditor] 里做，不依赖任何 Mod。
   final VoidCallback? onAddToPlaylist;
   final VoidCallback? onClearPlaylist;
 
@@ -100,8 +99,8 @@ class AppearanceSection extends StatelessWidget {
           onClear: onClearStageImage,
           onAddToPlaylist: onAddToPlaylist,
           onClearPlaylist: onClearPlaylist,
-          // 删除 / 上移下移只改**本地列表**：宿主 `_updatePrefs` 是唯一漏斗，
-          // 它在长度变化时把新长度写回 Mod config（见 shell_prefs.dart）。
+          // 删除 / 上移下移只改**本地列表**：宿主 `_updatePrefs` 是唯一落点，
+          // 改完立即写入本机偏好并下发渲染面（见 shell_prefs.dart）。
           onPlaylistChanged: (List<String> next) =>
               onPrefsChanged(prefs.copyWith(stagePlaylist: next)),
         ),
@@ -197,12 +196,12 @@ class AppearanceSection extends StatelessWidget {
 /// 2. 图太大时**本次有效但不记住**（`failed` 用警告色，不是静默成功）；
 /// 3. 按钮是**文字**，不是图标（用户裁决「尽量少用图片用文字做按钮」）。
 ///
-/// Wave 2 追加一行**轮播列表**的最小操作：「加入轮播」把当前这张图 append 进
-/// 列表、「清空轮播」清空，并显示当前张数。列表长度是壁纸 Mod 的图来源，
+/// 追加一行**背景轮播列表**的最小操作：「加入轮播」把当前这张图 append 进
+/// 列表、「清空轮播」清空，并显示当前张数。这是**用户手动维护**的图库，
 /// 有**三条预算**（每张 / 总长 / 项数）——超限时按钮仍然可按，由宿主给出
 /// 一句可读反馈（**不弹异常**、不静默膨胀）。
 ///
-/// Wave 3 补上**增删 / 排序闭环**：每张一行「上移 / 下移 / 删除」（见
+/// 另有**增删 / 排序闭环**：每张一行「上移 / 下移 / 删除」（见
 /// [_StagePlaylistEditor]）。仍**不做**拖拽排序与缩略图——删除 / 移动本身
 /// 不会让列表超预算（只会变小或重排），所以这里的操作**不需要**预算校验。
 class _StageImageView extends StatelessWidget {
@@ -283,7 +282,7 @@ class _StageImageView extends StatelessWidget {
           Text('背景轮播列表', style: theme.textTheme.labelLarge),
           const SizedBox(height: Space.s1),
           EmphasizedText(
-            '壁纸 Mod 换图时**只从这份列表里取**（列表为空就不换）。'
+            '这份列表由你手动维护，**只在本机保存**。'
             '当前 **${playlist.length}** 张，上限 $kStagePlaylistMaxItems 张、'
             '合计 ${(kStagePlaylistMaxChars / 1024).round()} KB。'
             '「加入轮播」把**当前这张**追加进列表；下面每张可**上移 / 下移 / 删除**。',

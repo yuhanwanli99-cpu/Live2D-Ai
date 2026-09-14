@@ -12,7 +12,22 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **本地集成 `mod/wave3`（Wave 3 七轨闭环，2026-09-14，未发布、不打 tag、版本仍 `0.2.0-rc.3`）**：
+- **当前本地集成 `mod/product-grade`（产品级加强波次，2026-09-14，未发布、不打 tag、
+  版本仍 `0.2.0-rc.3`）**：**封存 `wallpaper` + `pet-desktop` 两个 Mod**（用户裁决：
+  wallpaper 删除封存、本波不做；pet-desktop 封存、暂不推、不做真窗/应用级桌宠）——
+  两者移出 `AVAILABLE_MOD_FACTORIES`，7 → **5**，`mod_count_is_seven` →
+  **`mod_count_is_five`**；crate 暂留 workspace（可编译可测）并标 **ARCHIVED**，
+  **禁止挂回**。理由 / 明确没连坐删掉什么 / 恢复条件见
+  `docs/architecture/ARCHIVED-mods.md`；**用户手动的舞台/壳背景能力（`DisplayPrefs`）
+  保留**——被拆掉的只是 wallpaper **Mod** 的接线（Flutter 侧 `wallpaper_api.dart` /
+  `shell_wallpaper.dart` / `applyWallpaperPatch` 一并拆除）。其余五个 Mod 推到**产品级**：
+  `external-input`（计数进 Mod 管理 UI + sidecar 节流可配）、`voice-input`（backend/locale
+  说人话 + 失败码可读 + sidecar 最小成功路径）、`persona`（导入卡→enable→人设变→disable
+  还原，UI 内完成）、`memory`（可见条数/hits/清空 + 注入可关 + 与 persona 策略钉死）、
+  `director`（决策一等面板；**零投递不变**、不复活 Action）。**未 bump 版本、未 push**；
+  主链皮肤（LLM/TTS/口型/Live2D）与 `l2d-wasm-demo` 一行未改。
+  收束见 `docs/plans/PRODUCT-GRADE-CLOSEOUT.md`。
+- **上一版本地集成 `mod/wave3`（Wave 3 七轨闭环，2026-09-14，未发布、不打 tag、版本仍 `0.2.0-rc.3`）**：
   把六个已注册 Mod 补到可日用闭环并把 director 从 RFC 推进到**最小骨架**：
   ① `voice-input`：`backend=mock|sidecar` 走明确分支（结构性不开 socket）、`locale` 真影响
   转写归一化（新增 `normalize.rs`）、sidecar 六类失败码 + 逐条退避；
@@ -101,18 +116,22 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  7 个 Mod（external-input / pet-desktop / persona / voice-input / wallpaper / memory / director）
+  **现行 5 个注册 Mod**（external-input / persona / voice-input / memory / director）
   为 workspace crate；
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
-  `cli_entry::default_mods_manifest`），其余六个缺省停用（`memory` 会写
+  `cli_entry::default_mods_manifest`），其余四个缺省停用（`memory` 会写
   `persona.system_prompt`，必须由用户明确打开；`director` 是**零投递**骨架）。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
+  **`wallpaper` / `pet-desktop` 已于产品级加强波次封存（ARCHIVED）**
+  （移出注册表；crate 暂留 workspace 可编译可测，**禁止挂回**；
+  见 `docs/architecture/ARCHIVED-mods.md`）。用户手动的舞台/壳背景能力
+  （`DisplayPrefs`）**保留**，与被封存的 wallpaper Mod 是两回事。
   **Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
   **rc.2 那个「动作序列唯一驱动方」的 director 已于 `0.1.0-rc.2` 删除**
   （归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由 `main.rs` 的
-  `mod_count_is_seven` 断言守住，**动作驱动方不要再挂回去**。
+  `mod_count_is_five` 断言守住（产品级加强波次起恰为 **5**），**动作驱动方不要再挂回去**。
   Wave 3（2026-09-14）新增的 `live2d-ai-mod-director` 是**同名不同职责**的
   **最小骨架**：只产决策日志与 `state_json`、**零投递**、不驱动动作
   （`docs/architecture/director-mod-v0.md`），已注册但缺省停用。
@@ -245,7 +264,7 @@
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
-护栏是两条断言：`main.rs::mod_count_is_six`（工厂数不得因动作 Mod 增加）与
+护栏是两条断言：`main.rs::mod_count_is_five`（工厂数不得因动作 Mod 增加）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）

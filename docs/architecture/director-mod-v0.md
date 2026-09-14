@@ -1,9 +1,13 @@
 # 导演 Mod v0（最小骨架）：正文 → 情绪/意图/TTS 建议，**不投递**
 
 > **状态**：2026-09-14 **Wave 3 G 轨**（分支 `mod/w3-director`，基线 `118bd435`）。
-> 本 crate 是**可启用的最小骨架**，不是 v1：工厂注册（`AVAILABLE_MOD_FACTORIES`
-> 6 → 7、**缺省停用**）由**主 agent 收束时**完成——本轨**不碰** `main.rs` /
-> `mod_count_*` / `default_mods_manifest` / 版本号。
+> 本 crate 是**可启用的最小骨架**，不是 v1：工厂注册（**缺省停用**）由**主 agent 收束时**
+> 完成——本轨**不碰** `main.rs` / `mod_count_*` / `default_mods_manifest` / 版本号。
+>
+> **本波后现状**：director 已注册（缺省停用）；`AVAILABLE_MOD_FACTORIES` 共 **5 个**
+> （`external-input` / `persona` / `voice-input` / `memory` / `director`）——`wallpaper` /
+> `pet-desktop` 已 **ARCHIVED**（移出注册表、不再编译进 binary），见
+> [ARCHIVED-mods.md](ARCHIVED-mods.md)。
 >
 > 契约来源：[director-rfc.md](director-rfc.md)（Wave 2 草案）。本文档是它的**实现面**，
 > 与 `crates/live2d-ai-mod-director/` **逐条一致**；冲突时以代码 + 回归为准并回改本文档。
@@ -182,7 +186,7 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision
 | `emotion_lexicon` | Select | 情绪词表档位（`builtin` / `strict`） | `builtin` |
 
 - **没有 `enabled`**：启停唯一真源是 Mod manifest 的 `enabled`
-  （与 external-input / pet-desktop / memory 同口径，`mod-product-chain.md` §4）；
+  （与 external-input / memory 同口径，`mod-product-chain.md` §4；`pet-desktop` 已 ARCHIVED）；
 - 工厂的 `settings_spec()` 与 `start` 注册的是**同一份**（回归
   `settings_spec_has_no_enabled_and_matches_static_spec`）；
 - 坏值只回落 / 钳位，绝不失败（回归 `log_capacity_is_clamped_and_bad_values_fall_back`）。
@@ -197,7 +201,7 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision
 | `[tts].voice` / `[tts].model` | **禁止**（骨架） | RFC 允许「未来仅可提议」，但骨架**不写**——无 `apply_settings` 调用 |
 | `[tts].sample_rate` / `channels` / `response_format` | **禁止** | 被 `verify_core_chain.py` 不变量锁死 / 不是表演参数 |
 | `[llm].*` | **禁止** | — |
-| 壁纸偏好（`DisplayPrefs` / `stagePlaylist`） | **禁止** | 归 Flutter / wallpaper |
+| 壁纸偏好（`DisplayPrefs` / `stagePlaylist`） | **禁止** | 归 Flutter（`DisplayPrefs`）；wallpaper Mod 已 ARCHIVED |
 | core 动作 / 表演状态 | **禁止** | §5；动作在产品路径上不存在 |
 | 自己的 `mods.json` config | 只读（`log_capacity` / `emotion_lexicon`） | 本轮不写回 |
 
@@ -252,8 +256,9 @@ cargo clippy -p live2d-ai-mod-director --all-targets -- -D warnings   # 0 warnin
 
 ## 11. 已知缺口（Wave 3 G 轨收工时）
 
-1. **未注册**：不在 `AVAILABLE_MOD_FACTORIES`，因此 `GET /api/v1/mods/director/state`
-   当前返回 503。注册与计数断言由**主 agent 收束时**做（REGISTER §2）。
+1. **已注册（本波后）**：director 已在 `AVAILABLE_MOD_FACTORIES` 中（缺省停用），
+   `GET /api/v1/mods/director/state` 可读；计数断言 `mod_count_is_five` 守住当前 5 个
+   （原「未注册 / 503」是 Wave 3 G 轨收工时的状态，REGISTER §2 已由主 agent 收束）。
 2. **零投递是有意的**：`suggested_tts` 目前**没有消费者**。要让它生效必须先过
    RFC §5.1 第 0/1 条（授权 + 用户可见演示）；本骨架刻意不提供通道。
 3. **槽位未实现**：RFC §3.2 的 `slots` / `emitted` 不在状态面里（词汇未评审）。
@@ -261,5 +266,5 @@ cargo clippy -p live2d-ai-mod-director --all-targets -- -D warnings   # 0 warnin
    （RFC §2.1/§9 缺口 2 的口径不变）：失败轮可能一句回复都没有。
 5. **情绪词表是启发式**：中文子串匹配（`申请` 含 `请` → Request）与固定小词表，
    不是分类器；本骨架的定位就是「确定性、可单测」。
-6. **未做活服务验收**：本轨只到 `cargo test` 级别；路由 200/503 的活服务验证要等
-   注册进 FACTORIES（主 agent 收束后）。
+6. **未做活服务验收**：本轨只到 `cargo test` 级别；路由的活服务验证留待注册后的
+   主 agent 收束波次补（本波起已在 `AVAILABLE_MOD_FACTORIES` 中）。
