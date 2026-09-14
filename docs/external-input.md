@@ -60,14 +60,20 @@ Mod config 的 `token`（前端 Mod 设置里的 secret 字段）；**两者都�
 ```jsonc
 {
   "text": "要注入的文本，必填，trim() 后非空，渲染后最多 2000 字符。",
-  "token": "可选；与生效 token 匹配时放行（env 已设才需要）"
+  "token": "可选；与生效 token 匹配时放行（env 已设才需要）",
+  "v2_ignored": 0
 }
 ```
 
 **校验**：
 - `text` 缺失 / 非字符串 / 空 → `400 invalid_payload`；
 - `token` 存在但非字符串 → `400 invalid_payload`；
+- `v2_ignored` 存在但非非负整数 → `400 invalid_payload`；
 - 模板渲染后长度 > 2000 → `400 text_too_long`。
+
+> `v2_ignored` 是 sidecar 的可选自报字段：它统计「本地 blivedm 没认出来的
+> `SEND_GIFT_V2` 条数」。服务端**覆盖写**进可观察计数（见 §5.1），不参与注入。
+> 不报 = 保持上一次的值；报 0 = 归零。
 
 ---
 
@@ -118,6 +124,35 @@ sidecar 收到 `ok:false` 时打印一行告警即可，不必退出。
 - settings 表单里**没有**第二个 `enabled` 字段：避免「Mod 开关」与「配置开关」两处真相。
 - 注册表里没有该 Mod（自定义装配 / 单测上下文）→ **不设门禁**：端点是 web_api 的核心 say
   能力，不因一个可选 Mod 缺失而失效。生产装配始终包含它。
+
+---
+
+## 5.1 可观察计数（`GET /api/v1/mods/external-input/state`）
+
+「今天到底注入成功几条、被挡了几条、忙丢了几条」不该靠翻日志猜。Wave 3 起，
+handler 在分支里记账，读者从 Mod 运行态读：
+
+```bash
+curl -s http://127.0.0.1:18080/api/v1/mods/external-input/state
+# {"id":"external-input","enabled":true,"state":{
+#    "accepts":12,"rejects":1,"busy":3,"v2_ignored":0,"ready":true}}
+```
+
+| `state` 键 | 含义 | 对应 handler 分支 |
+|---|---|---|
+| `accepts` | 文本已进主链路（`supervisor.say` 返回 `true`） | 200 `ok:true` |
+| `busy` | supervisor 忙（pending 缓冲满），文本被丢弃 | 200 `ok:false` / code `busy` |
+| `rejects` | **策略拒绝**：token 鉴权失败（401）或 Mod 停用（403 `mod_disabled`） | 401 / 403 |
+| `v2_ignored` | sidecar 上报的 `SEND_GIFT_V2` 忽略累计值（覆盖写） | body 可选字段，见 §3 |
+| `ready` | 该 Mod 运行时是否已 `start`（启用即 `true`） | — |
+
+三条边界（**与实现逐条一致**，见 `counters.rs` 头注）：
+
+- `rejects` **不含** 400（负载非法 / 超长）、405、415 与 503（supervisor 未就绪）：
+  前几类是调用方/服务装配问题，不是「一条合法事件被策略挡下」；
+- 计数是**进程级** `AtomicU64`（handler 与 runtime 拿不到彼此引用），**不持久化**，
+  进程重启归零——它是运行观察值，不是审计账本；
+- `v2_ignored` 是**覆盖写**：sidecar 报的是自身累计值，重复上报同一值幂等。
 
 ---
 
@@ -200,14 +235,28 @@ print(send_to_live2d("收到新邮件提醒"))
 完整示例：`docs/examples/bilibili-sidecar/`（`bilibili_sidecar.py` +
 `requirements.txt` + README）。要点：
 
-- 依赖 `blivedm`；只处理 `DANMU_MSG` 与 `SEND_GIFT`，
-  其它 cmd 只 log（`_on_unknown_cmd`）。
+- 依赖 `blivedm`；只处理 `DANMU_MSG` 与礼物（`SEND_GIFT` /
+  `SEND_GIFT_V2`），其它 cmd 不注入（由 blivedm 自己 log 一次）。
 - 环境变量：`BILI_ROOM_ID`（**真实房间号**，短号需先转换）、
   `BILI_SESSDATA`（登录态 cookie，**账号凭据，勿入库**）、
-  `LIVE2D_AI_URL`、`EXTERNAL_INPUT_TOKEN`、`SIDECAR_DRY_RUN=1`（干跑）。
+  `LIVE2D_AI_URL`、`EXTERNAL_INPUT_TOKEN`、`SIDECAR_DRY_RUN=1`（干跑）、
+  `SIDECAR_MIN_INTERVAL_MS`（节流缺省值，命令行 `--min-interval-ms` 覆盖）。
 - 清洗：去换行/控制符、压空白、截断；再 POST 本端点。
-- **SEND_GIFT_V2 灰度**：B 站正灰度新的礼物结构；blivedm 未支持时会落到
-  `_on_unknown_cmd`，**只 log 不注入**。后续等 blivedm 上游支持再补回调；
+- **节流（可开关）**：`--min-interval-ms N`，缺省 `1000`（每秒最多一条），
+  `0` = 关闭；窗口内的弹幕**只打印丢弃日志、不注入**。命令行覆盖
+  `SIDECAR_MIN_INTERVAL_MS`。
+- **离线自检**：`python bilibili_sidecar.py --selftest`（**16 项断言**：清洗 / 节流 /
+  dry-run / 上报体 / SEND_GIFT_V2 兜底判定），**不需要** blivedm、aiohttp、网络或
+  Live2D-Ai 进程也能跑。
+- **SEND_GIFT_V2（已查证上游）**：blivedm 官方仓库在 PR #86（2026-08-11，v1.1.7）
+  已支持 `SEND_GIFT_V2`——它把 protobuf 展开后**复用同一 `_on_gift` 回调**，
+  所以本 sidecar 一个回调同时覆盖经典与 v2，无需再写第二个。若本地仍是旧版
+  blivedm（或 PyPI 上停在 0.1.1 的旧包），`SEND_GIFT_V2` 会落到
+  兜底检测（`_is_unknown_gift_v2`，见 `bilibili_sidecar.py`）：**只 log 不注入**，
+  并累加 `v2_ignored`，随每次注入上报给服务端（见 §3 / §5.1）——旧版也不至于
+  悄悄丢礼物。**注意**：blivedm 的 `BaseHandler.handle` 遇到未知 cmd 只自己 log
+  一次就 return，并不调用 `_on_unknown_cmd`；所以 sidecar 用 `handle` 覆盖 +
+  cmd 表判定，而不是依赖那个回调。
   **不要**在 Rust 主仓手写 B 站协议解析。
 
 ---
@@ -235,6 +284,8 @@ print(send_to_live2d("收到新邮件提醒"))
 
 | 层 | 位置 |
 |---|---|
-| HTTP handler（安全 + 门禁 + 模板 + token） | `crates/live2d-ai-desktop/src/web_api/external_routes.rs` |
-| Mod（静态 settings_spec / 模板纯函数 / say） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
-| 缺口断言 | `mod_count_is_seven`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀） |
+| HTTP handler（安全 + 门禁 + 模板 + token + 计数） | `crates/live2d-ai-desktop/src/web_api/external_routes.rs` |
+| Mod（静态 settings_spec / 模板纯函数 / say / state_json） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
+| 可观察计数（AtomicU64 + 语义表） | `crates/live2d-ai-mod-external-input/src/counters.rs` |
+| sidecar（清洗 / 节流 / 自检 / v2 上报） | `docs/examples/bilibili-sidecar/bilibili_sidecar.py` |
+| 缺口断言 | `mod_count_is_seven`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 3+1+1** / v2_ignored）、`counters::tests`（计数契约） |
