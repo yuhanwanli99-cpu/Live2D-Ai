@@ -408,6 +408,145 @@ fn state_json_capacity_keeps_last_n() {
 }
 
 #[test]
+fn state_json_latest_tracks_the_newest_decision() {
+    let (mut runtime, _registrar, _spies) = started(serde_json::json!({}));
+    assert!(
+        runtime.state_json().unwrap()["latest"].is_null(),
+        "空账本 latest 必须是 null（不是空对象）"
+    );
+
+    runtime
+        .on_event(ModEventTopic::TurnPrompt, "你好！今天太开心了！")
+        .unwrap();
+    // 还没收到 TurnEnded：latest 已经在飞（closed=false、turn=null）。
+    let open = runtime.state_json().unwrap();
+    assert_eq!(open["latest"]["emotion"], serde_json::json!("happy"));
+    assert_eq!(open["latest"]["closed"], serde_json::json!(false));
+    assert!(open["latest"]["turn"].is_null(), "turn id 结项时才写");
+
+    runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
+    runtime.on_event(ModEventTopic::TurnPrompt, "再见").unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "2").unwrap();
+
+    let state = runtime.state_json().unwrap();
+    let recent = state["recent_decisions"].as_array().expect("应为数组");
+    assert_eq!(
+        state["latest"], recent[1],
+        "latest 必须与 recent_decisions 的最后一条**逐字段相同**"
+    );
+    assert_eq!(state["latest"]["seq"].as_u64(), Some(2));
+    assert_eq!(state["latest"]["turn"], serde_json::json!("2"));
+    assert_eq!(state["latest"]["intent"], serde_json::json!("farewell"));
+    assert_eq!(state["latest"]["closed"], serde_json::json!(true));
+    assert_eq!(state["latest"]["delivered"], serde_json::json!(false));
+    assert_eq!(
+        state["latest"]["suggested_tts"]["speed"].as_f64(),
+        Some(1.0)
+    );
+}
+
+#[test]
+fn recent_decisions_shape_is_unchanged_with_latest_added() {
+    let (mut runtime, _registrar, _spies) = started(serde_json::json!({}));
+    runtime
+        .on_event(ModEventTopic::TurnPrompt, "你好！今天太开心了！")
+        .unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
+
+    let state = runtime.state_json().unwrap();
+    assert!(
+        state.get("recent_decisions").is_some(),
+        "recent_decisions 必须保留（向后兼容）"
+    );
+    let mut keys: Vec<String> = state["recent_decisions"][0]
+        .as_object()
+        .expect("单条应为对象")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            "closed".to_string(),
+            "delivered".to_string(),
+            "emotion".to_string(),
+            "intent".to_string(),
+            "seq".to_string(),
+            "suggested_tts".to_string(),
+            "turn".to_string(),
+        ],
+        "latest 是新增字段，单条形状一行未改"
+    );
+}
+
+#[test]
+fn clear_command_empties_ledger_and_returns_before_counts() {
+    let (mut runtime, _registrar, _spies) = started(serde_json::json!({"log_capacity": 5}));
+    for turn in 1..=3 {
+        runtime.on_event(ModEventTopic::TurnPrompt, "开心").unwrap();
+        runtime
+            .on_event(ModEventTopic::TurnEnded, &turn.to_string())
+            .unwrap();
+    }
+    runtime.on_event(ModEventTopic::TurnPrompt, "   ").unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "4").unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "4").unwrap();
+
+    let result = runtime
+        .command("clear", &serde_json::json!({}))
+        .expect("clear 应成功");
+    // 回执是**清空前**的计数（用户想知道自己刚清掉了什么）。
+    assert_eq!(result["cleared"].as_u64(), Some(3), "清掉 3 条决策条目");
+    assert_eq!(result["counts"]["decisions"].as_u64(), Some(3));
+    assert_eq!(result["counts"]["turns_seen"].as_u64(), Some(4));
+    assert_eq!(result["counts"]["turns_ended"].as_u64(), Some(4));
+    assert_eq!(result["counts"]["silent"].as_u64(), Some(1));
+    assert_eq!(result["counts"]["errors"].as_u64(), Some(1));
+
+    let state = runtime.state_json().unwrap();
+    assert_eq!(state["decisions"].as_u64(), Some(0));
+    assert_eq!(state["turns_seen"].as_u64(), Some(0));
+    assert_eq!(state["turns_ended"].as_u64(), Some(0));
+    assert_eq!(state["errors"].as_u64(), Some(0));
+    assert!(state["recent_decisions"].as_array().unwrap().is_empty());
+    assert!(state["latest"].is_null(), "清空后 latest 回到 null");
+    assert_eq!(state["delivered"], serde_json::json!(false));
+    assert_eq!(state["channel"], serde_json::json!("none"));
+
+    // 清空**不是**把 Mod 关掉：还能继续记账。
+    runtime.on_event(ModEventTopic::TurnPrompt, "你好").unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "5").unwrap();
+    let state = runtime.state_json().unwrap();
+    assert_eq!(state["decisions"].as_u64(), Some(1));
+    assert_eq!(state["latest"]["turn"], serde_json::json!("5"));
+    assert_eq!(state["errors"].as_u64(), Some(0));
+}
+
+#[test]
+fn unknown_command_is_unsupported_and_leaves_state_untouched() {
+    let (mut runtime, _registrar, _spies) = started(serde_json::json!({}));
+    runtime.on_event(ModEventTopic::TurnPrompt, "开心").unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
+    let before = runtime.state_json().unwrap();
+
+    let error = runtime
+        .command("bogus", &serde_json::json!({"x": 1}))
+        .expect_err("不认识的命令必须报 UnsupportedCommand");
+    assert_eq!(
+        error,
+        ModError::UnsupportedCommand {
+            command: "bogus".to_string()
+        }
+    );
+    assert_eq!(
+        runtime.state_json().unwrap(),
+        before,
+        "未知命令不得改状态（含账本与计数）"
+    );
+}
+
+#[test]
 fn log_capacity_is_clamped_and_bad_values_fall_back() {
     let config = |value: serde_json::Value| DirectorConfig::from_value(&value);
     assert_eq!(
@@ -484,6 +623,11 @@ fn action_tx_and_apply_settings_are_never_called() {
     }
     runtime.on_event(ModEventTopic::TurnPrompt, "").unwrap();
     runtime.on_event(ModEventTopic::TurnEnded, "4").unwrap();
+    // 产品级加强波次新增的命令通道也走一遍：认识与不认识两条路径都零投递。
+    runtime
+        .command("clear", &serde_json::json!({}))
+        .expect("clear 应成功");
+    assert!(runtime.command("bogus", &serde_json::json!({})).is_err());
     runtime.shutdown().unwrap();
 
     assert_eq!(
@@ -499,6 +643,42 @@ fn action_tx_and_apply_settings_are_never_called() {
     let state = runtime.state_json().unwrap();
     assert_eq!(state["delivered"], serde_json::json!(false));
     assert_eq!(state["channel"], serde_json::json!("none"));
+}
+
+// 零投递加强（产品级加强波次）：命令路径单独再钉一遍。
+//
+// 与上一条的分工：上一条覆盖「事件 + 命令混合」的总账；这一条只盯命令通道，
+// 把每条命令分支（clear 成功 / clear 带多余 args / 未知命令报错）都走一遍。
+// 将来往 command 里加新分支只要投递了，这两条断言立刻红。
+#[test]
+fn command_paths_never_touch_action_or_settings() {
+    let (mut runtime, _registrar, spies) = started(serde_json::json!({}));
+    runtime.on_event(ModEventTopic::TurnPrompt, "抱抱").unwrap();
+    runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
+
+    runtime
+        .command("clear", &serde_json::json!({}))
+        .expect("clear 应成功");
+    assert!(
+        runtime
+            .command("clear", &serde_json::json!({"unexpected": [1, 2]}))
+            .is_ok(),
+        "clear 忽略 args，不得因多余参数失败"
+    );
+    assert!(runtime.command("bogus", &serde_json::json!({})).is_err());
+    let _ = runtime.state_json();
+
+    runtime.shutdown().unwrap();
+    assert_eq!(
+        spies.action_calls.load(Ordering::SeqCst),
+        0,
+        "命令通道不得投递动作"
+    );
+    assert_eq!(
+        spies.apply_calls.load(Ordering::SeqCst),
+        0,
+        "命令通道不得写配置（含 TTS 建议参数）"
+    );
 }
 
 #[test]

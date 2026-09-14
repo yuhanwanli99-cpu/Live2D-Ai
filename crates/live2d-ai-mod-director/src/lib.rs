@@ -44,6 +44,15 @@
 //!   "errors": 0,
 //!   "log_capacity": 20,
 //!   "emotion_lexicon": "builtin",
+//!   "latest": {
+//!     "seq": 1,
+//!     "turn": "1",
+//!     "emotion": "happy",
+//!     "intent": "greeting",
+//!     "suggested_tts": { "speed": 1.08, "pitch": 1.2 },
+//!     "closed": true,
+//!     "delivered": false
+//!   },
 //!   "recent_decisions": [
 //!     {
 //!       "seq": 1,
@@ -62,6 +71,16 @@
 //! `recent_decisions` 只留最近 `log_capacity` 条（缺省 20，钳在 1..=200），
 //! 计数（`turns_seen` / `decisions` / `errors`）不受容量影响。
 //!
+//! `latest` = `recent_decisions` 的**最后一条**（最近一条决策，同一个
+//! `LedgerEntry::to_json` 形状），空账本 → `null`——前端不必再从数组尾部自己取。
+//!
+//! # 一次性命令（产品级加强波次）
+//!
+//! `ModRuntime::command` 只认 `"clear"`：清空决策账本（内存），返回清空前的
+//! counts；其它命令 → `Err(ModError::UnsupportedCommand)`（host 回 409
+//! `unsupported_command`）。命令路径**同样不触碰**任何下行通道
+//! （回归 `tests::command_paths_never_touch_action_or_settings`）。
+//!
 //! # 日志纪律
 //!
 //! 日志只写**推导结果与正文长度**，**不写正文原文**（请求体含用户提示词，
@@ -77,8 +96,8 @@ pub use decision::{
     Decision, EmotionHint, IntentHint, Lexicon, MAX_TEXT_CHARS, TtsSuggestion, derive,
 };
 pub use ledger::{
-    DEFAULT_LOG_CAPACITY, DecisionLedger, LedgerEntry, MAX_LOG_CAPACITY, MIN_LOG_CAPACITY,
-    PromptOutcome, clamp_log_capacity,
+    DEFAULT_LOG_CAPACITY, DecisionLedger, LedgerCounts, LedgerEntry, MAX_LOG_CAPACITY,
+    MIN_LOG_CAPACITY, PromptOutcome, clamp_log_capacity,
 };
 
 use live2d_ai_mod_system::*;
@@ -293,6 +312,38 @@ impl ModRuntime for DirectorRuntime {
         }
         Some(value)
     }
+
+    /// **一次性命令**（产品级加强波次）：只认 `"clear"`。
+    ///
+    /// - `clear` → `Ok({"cleared": <清掉的条目数>, "counts": {清空前的计数}})`；
+    /// - 其它命令 → `Err(ModError::UnsupportedCommand)`（host 回 409
+    ///   `unsupported_command`，前端据此说「这个 Mod 没有这个动作」）。
+    ///
+    /// 与 `state_json` 同一条纪律：**只动内存**——不写盘、不发网络请求、不阻塞，
+    /// 且**不触碰任何下行通道**（`action_tx` / `apply_settings` 零调用，
+    /// 回归 `tests::command_paths_never_touch_action_or_settings`）。
+    fn command(
+        &mut self,
+        command: &str,
+        _args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModError> {
+        match command {
+            "clear" => {
+                let (cleared, before) = self.ledger.clear();
+                self.services.logger.info(&format!(
+                    "director 命令 clear：清空 {cleared} 条决策（清空前 counts: turns_seen={}, decisions={}, silent={}, errors={}；未投递）",
+                    before.turns_seen, before.decisions, before.silent, before.errors
+                ));
+                Ok(serde_json::json!({
+                    "cleared": cleared,
+                    "counts": before.to_json(),
+                }))
+            }
+            other => Err(ModError::UnsupportedCommand {
+                command: other.to_string(),
+            }),
+        }
+    }
 }
 
 /// 导演 Mod 工厂。
@@ -320,7 +371,7 @@ impl ModFactory for DirectorFactory {
     }
 }
 
-/// 工厂单例（**收束时由主 agent** 注册进 `AVAILABLE_MOD_FACTORIES`，6 → 7）。
+/// 工厂单例（**已**注册进 `AVAILABLE_MOD_FACTORIES`，当前注册面共 5 个；缺省停用）。
 pub const FACTORY: DirectorFactory = DirectorFactory;
 
 #[cfg(test)]
