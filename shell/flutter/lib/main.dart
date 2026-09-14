@@ -206,6 +206,10 @@ class _ShellRootState extends State<ShellRoot> {
   String? _ttsTest;   bool _ttsTesting = false;
   /// 舞台背景图的提示（选图与其它通道的失败原因完全不同）。
   String? _stageImageMessage; bool _stageImageFailed = false;
+
+  /// 壳背景图的提示（2026-09-14，rc.5）：与舞台那条**分开**，
+  /// 否则在壳那行选完图会在舞台那行冒出一句话。
+  String? _shellImageMessage; bool _shellImageFailed = false;
   bool _copied = false;
   bool _settingsLoadedOnce = false;
 
@@ -400,6 +404,8 @@ class _ShellRootState extends State<ShellRoot> {
     _adminMessage = null;
     _stageImageMessage = null;
     _stageImageFailed = false;
+    _shellImageMessage = null;
+    _shellImageFailed = false;
     _copied = false;
     _adminError = null;
   }
@@ -449,6 +455,8 @@ class _ShellRootState extends State<ShellRoot> {
           ),
           phase: _ui.phase,
           wsStatus: _ui.wsStatus,
+          // 壳全局背景：同步开时就是舞台那张图（一份真相），关时用壳自己的。
+          shellImage: widget.prefs.effectiveShellImage,
           messages: _chat.messages,
           input: _input,
           onSend: () => unawaited(_send()),

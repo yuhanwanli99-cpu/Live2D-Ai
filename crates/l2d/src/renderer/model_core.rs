@@ -146,6 +146,32 @@ impl ModelRendererCore {
         view: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> Result<wgpu::SubmissionIndex, RenderError> {
+        // 兼容入口：历史行为 = 清成全透明（离屏读回 / 桌面壳依赖它）。
+        self.render_to_view_submit_with_load(
+            view,
+            format,
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        )
+    }
+
+    /// 与 [`render_to_view_submit`](Self::render_to_view_submit) 同一条路径，
+    /// 但由调用方决定色附着的 **load op**。
+    ///
+    /// # 谁需要它（2026-09-14 rc.5，舞台背景进 framebuffer）
+    ///
+    /// Web 端 WebGPU surface 只能以 `Opaque` 合成（wgpu 29 的
+    /// `get_capabilities` 只报 `CompositeAlphaMode::Opaque`），所以渲染面必须
+    /// **自己把舞台底色与背景图填进 framebuffer**：先用 `LoadOp::Clear(<stageColor>)`
+    /// 跑一条背景预通道，再用 `LoadOp::Load` 调本方法只叠模型——否则这次 clear
+    /// 会把背景整块擦掉。
+    ///
+    /// 默认入口仍清成透明，所以离屏读回与桌面壳的语义**一字未变**。
+    pub fn render_to_view_submit_with_load(
+        &mut self,
+        view: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+        load: wgpu::LoadOp<wgpu::Color>,
+    ) -> Result<wgpu::SubmissionIndex, RenderError> {
         let options = RenderOptions {
             transform: aspect_fit_transform(self.viewport.0, self.viewport.1) * self.transform,
             mask_dimensions: UVec2::new(self.viewport.0, self.viewport.1),
@@ -165,7 +191,7 @@ impl ModelRendererCore {
                     view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        load,
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,

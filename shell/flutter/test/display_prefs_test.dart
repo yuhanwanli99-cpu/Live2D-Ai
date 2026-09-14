@@ -413,4 +413,79 @@ void _p4NewFieldsTests() {
       }
     });
   });
+
+  group('壳背景（2026-09-14 rc.5：壳全局背景 + 与舞台同步）', () {
+    const String tiny = 'data:image/png;base64,iVBORw0KGgo=';
+
+    test('默认跟随舞台，且没有壳自己的图', () {
+      const DisplayPrefs p = DisplayPrefs();
+      expect(p.shellImage, isNull);
+      expect(p.syncShellStageBg, isTrue, reason: '出厂默认与舞台共用一张图');
+      expect(p.effectiveShellImage, isNull);
+    });
+
+    test('同步开：壳画的就是舞台那张（一份真相）', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(stageImage: tiny);
+      expect(p.effectiveShellImage, tiny);
+      // 即便壳自己那张另有值，同步开时也不参与渲染。
+      final DisplayPrefs both = p.copyWith(
+        shellImage: 'data:image/png;base64,AAA',
+      );
+      expect(both.effectiveShellImage, tiny);
+    });
+
+    test('同步关：壳画自己那张，舞台不受影响', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(
+        stageImage: tiny,
+        syncShellStageBg: false,
+      );
+      expect(p.effectiveShellImage, isNull);
+      final DisplayPrefs withShell = p.copyWith(
+        shellImage: 'data:image/png;base64,AAA',
+      );
+      expect(withShell.effectiveShellImage, 'data:image/png;base64,AAA');
+      expect(withShell.stageImage, tiny);
+    });
+
+    test('写进 JSON 再读回来（含同步开关）', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(
+        shellImage: tiny,
+        syncShellStageBg: false,
+      );
+      final DisplayPrefs back = DisplayPrefs.fromJson(p.toJson());
+      expect(back.shellImage, tiny);
+      expect(back.syncShellStageBg, isFalse);
+    });
+
+    test('旧存档没有 syncShellStageBg → 默认 true（不是各画各的）', () {
+      final Map<String, Object?> json = const DisplayPrefs().toJson()
+        ..remove('syncShellStageBg');
+      expect(DisplayPrefs.fromJson(json).syncShellStageBg, isTrue);
+    });
+
+    test('clearShellImage 是独立开关：不用它无法把壳图设回 null', () {
+      final DisplayPrefs withImage = const DisplayPrefs().copyWith(
+        shellImage: tiny,
+      );
+      expect(withImage.copyWith(shellImage: null).shellImage, tiny);
+      expect(withImage.copyWith(clearShellImage: true).shellImage, isNull);
+    });
+
+    test('坏值 / 超限的壳背景读不进来，不抛', () {
+      for (final Object? bad in <Object?>[3, '', null, <String>[], true]) {
+        final Map<String, Object?> json = const DisplayPrefs().toJson()
+          ..['shellImage'] = bad;
+        expect(DisplayPrefs.fromJson(json).shellImage, isNull);
+      }
+      final Map<String, Object?> big = const DisplayPrefs().toJson()
+        ..['shellImage'] = 'x' * (kShellImageMaxChars + 1);
+      expect(DisplayPrefs.fromJson(big).shellImage, isNull);
+    });
+
+    test('壳背景与同步开关参与 == / hashCode', () {
+      const DisplayPrefs none = DisplayPrefs();
+      expect(none.copyWith(shellImage: tiny) == none, isFalse);
+      expect(none.copyWith(syncShellStageBg: false) == none, isFalse);
+    });
+  });
 }

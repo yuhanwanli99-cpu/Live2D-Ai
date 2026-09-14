@@ -22,7 +22,11 @@
 
 ## 版本与发布
 
-- [**v0.1.0-rc.4 — Mod 产品链路 + 主链人设收敛（当前）**](releases/v0.1.0-rc.4.md)
+- [**v0.1.0-rc.5 — 壳全局背景 + 与舞台同步（当前）**](releases/v0.1.0-rc.5.md)
+  ——壳（聊天 / 侧栏背后）铺一层固定 0.15 透明度的**全局背景**，默认与舞台背景图
+  共用同一张图（`DisplayPrefs.shellImage` / `syncShellStageBg`）；只住 localStorage，
+  不写 toml、不做分区背景；主链一行未改
+- [v0.1.0-rc.4 — Mod 产品链路 + 主链人设收敛](releases/v0.1.0-rc.4.md)
   ——Mod 从骨架变产品链路（mods.json 持久化 / `settings_spec` 表单 / 模板 + api_version 门禁 /
   一等 `apply_settings` / 脱敏设置读取）、酒馆角色卡抽成**第一条标准 Mod**、
   主链 `[persona]` 只留 `system_prompt` + `max_history_pairs`、Win 舞台背景图修复

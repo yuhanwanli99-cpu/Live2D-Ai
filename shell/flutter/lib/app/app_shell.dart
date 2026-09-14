@@ -73,6 +73,7 @@ import '../ui/error_banner.dart';
 import '../ui/glass_rim.dart';
 import '../ui/session_sheet.dart';
 import '../ui/settings_scaffold.dart';
+import '../ui/shell_backdrop.dart';
 import '../ui/soft_motion.dart';
 import '../ui/stage_host.dart';
 import '../ui/state_pill.dart';
@@ -94,6 +95,7 @@ class AppShell extends StatefulWidget {
     required this.onRetryConnection,
     required this.volume,
     required this.muted,
+    this.shellImage,
     required this.onVolumeChanged,
     required this.onMutedChanged,
     required this.sections,
@@ -149,6 +151,14 @@ class AppShell extends StatefulWidget {
 
   final double volume;
   final bool muted;
+
+  /// 壳全局背景图 dataURL（`DisplayPrefs.effectiveShellImage`）。
+  ///
+  /// 2026-09-14（rc.5）：由**壳根**（本 widget）铺一层固定低透明度的背景，
+  /// 聊天 / 侧栏背后的整片区域共用它。`null` = 没有背景图，此时这一层
+  /// 退化成「只有主题底色」，观感与改动前一致。
+  final String? shellImage;
+
   final ValueChanged<double> onVolumeChanged;
   final ValueChanged<bool> onMutedChanged;
   final bool serverMuted;
@@ -546,6 +556,11 @@ class AppShellState extends State<AppShell> {
           );
 
           final Widget scaffold = Scaffold(
+            // 有壳背景时把脚手架底让给 [ShellBackdrop]（它自己铺主题底色），
+            // 否则脚手架会用它自己的不透明底把背景整块盖掉。没有背景时保持原样。
+            backgroundColor: widget.shellImage == null
+                ? null
+                : Colors.transparent,
             appBar: AppBar(
               title: const Text('Live2D Ai'),
               actions: <Widget>[
@@ -602,12 +617,19 @@ class AppShellState extends State<AppShell> {
           // 最外层是**启动揭示**（`AppDurations.reveal`，仅此一处长动画）：
           // 舞台 iframe 的第一帧是空白，这一次淡入把那段白挡在背后。
           // 它的控制器住在 State 里，所以外壳被 WS 事件频繁重建也**只播一次**。
-          return StartupReveal(
-            child: CallbackShortcuts(
-              bindings: widget.shortcuts.bindings(),
-              child: FocusTraversalGroup(
-                policy: OrderedTraversalPolicy(),
-                child: scaffold,
+          // 壳根：**全局背景**在最外一层，脚手架（含 AppBar）在它上面。
+          // 没有背景图时 [ShellBackdrop] 只画一层主题底色，与原来的
+          // `scaffoldBackgroundColor` 同色，观感不变。
+          return ShellBackdrop(
+            baseColor: appPaletteOf(context).stage,
+            image: widget.shellImage,
+            child: StartupReveal(
+              child: CallbackShortcuts(
+                bindings: widget.shortcuts.bindings(),
+                child: FocusTraversalGroup(
+                  policy: OrderedTraversalPolicy(),
+                  child: scaffold,
+                ),
               ),
             ),
           );
@@ -657,6 +679,7 @@ class AppShellState extends State<AppShell> {
     onOpenSessions: compact ? () => unawaited(openSessions()) : null,
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
+    backdropVisible: widget.shellImage != null,
   );
 }
 

@@ -12,7 +12,17 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.1.0-rc.4`（Mod 产品链路 + 主链人设收敛，2026-09-13）**：
+- **当前版本 `0.1.0-rc.5`（壳全局背景 + 与舞台同步，2026-09-14）**：
+  主链 LLM→TTS→口型→Live2D **一行未改**。本版只动前端显示层：`DisplayPrefs` 增加
+  `shellImage` 与 `syncShellStageBg`（默认 `true`＝壳与舞台**共用同一张图**，
+  `effectiveShellImage` 是一份真相）；壳根铺一层**固定 0.15 透明度**的全局背景
+  （`ui/shell_backdrop.dart`，**不做** opacity 滑条），聊天面板在有背景时留一点透
+  （`kShellSurfaceAlpha = 0.86`）但保持可读，「外观与互动」新增「壳背景」块
+  （选图 / 清图 + 与舞台同步）。背景**只住本机 `DisplayPrefs` / `localStorage`**：
+  不写 `live2d-ai.toml`、不做分区独立背景 / 轮播 / 背景 Mod / 在线拉图 / 动态加载。
+  发布说明（含 **Win 选图 → 可见 → 清图** 肉眼 checklist）：
+  `docs/releases/v0.1.0-rc.5.md`。
+- **上一版 `0.1.0-rc.4`（Mod 产品链路 + 主链人设收敛，2026-09-13）**：
   主链 LLM→TTS→口型→Live2D 未变；本版把 Mod 从「能编进 binary 的骨架」做成
   **产品链路**——`mods.json` 启停/配置**原子写回**、`GET /api/v1/mods` 带
   `settings_spec`+`config`（`secret` 字段脱敏）供 Flutter 渲染表单、新 Mod 模板 crate +
@@ -292,6 +302,55 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-14（v0.1.0-rc.5，壳全局背景 + 与舞台同步）**：主链一行未改，只动
+  前端显示层。① **偏好字段**：`DisplayPrefs` 增加 `shellImage`（壳自己那张，
+  只在同步关时用）与 `syncShellStageBg`（默认 `true`）；`effectiveShellImage`
+  getter 是唯一判据（同步开 → 舞台那张）。② **渲染**：新增 `ui/shell_backdrop.dart`
+  （`ShellBackdrop` + 纯函数 `decodeDataUrlBytes`，坏 dataURL 永不抛），
+  `AppShell` 最外层铺主题底色 + **固定 0.15** 的背景图；有背景时脚手架底透明、
+  聊天面板面透明度 `0.86`（保持可读），无背景时观感与改动前一致。
+  ③ **UI**：「外观与互动」新增「壳背景」块（选图 / 清图 + 「与舞台同步」）；
+  同步开时该行的选 / 清图改的就是 `stageImage`——**一份真相，不是两张**。
+  ④ **版本三处同步** `0.1.0-rc.5`（`Cargo.toml` / `pubspec.yaml` / README 首屏）。
+  ⑤ **rc.5 修复：舞台背景图不显示（2026-09-14，实测抓到）**——现象是标题栏
+  （Flutter 壳）能看到背景图、**Live2D 舞台仍纯黑**。根因：渲染面把
+  `canvas.style.background-image` 写成 `url(...) center/cover no-repeat`，
+  而 `background-image` 是**长手**属性、只接受 `<image>#`，位置/尺寸/重复让**整条
+  声明被 CSS 解析器丢弃**，且 `style.setProperty` 不报错——于是 backgroundImage 恒空。
+  修法：只写 `url(...)` / `none`，位置/尺寸/重复分写三个长手属性；换算抽成
+  **原生可测**的 `crates/l2d-wasm-demo/src/stage_css.rs`（旧实现埋在 wasm-only 的
+  `web::surface::input` 里，原生 `cargo test` 编译不到 = **没有回归**，与 `mouth.rs` 同款教训）。
+  （当时据「clear 为 `TRANSPARENT`、`alpha_mode` 优先 `PreMultiplied`」判断
+  「不是合成问题」——**该判断被紧接着的 ⑥ 推翻**：caps 里根本没有 PreMultiplied。）
+  渲染面产物已 `trunk build` 重建（`dist/` 被 gitignore，改 wasm 必须重建）。
+  ⑥ **rc.5 修复二（已证伪并回滚）：黑幕盖住舞台**——CSS 值合法后，加载瞬间舞台能
+  闪到背景、随后被**黑幕铺满**。根因在 wgpu 29.0.4 源码里：`webgpu` 后端的
+  `get_capabilities` **只报** `alpha_modes: vec![Opaque]`，`wgpu-core` 又以
+  `UnsupportedAlphaMode` 拒绝 caps 之外的 `alpha_mode` ⇒ WebGPU 路径**无法请求
+  `PreMultiplied`**，canvas 必然按 `Opaque` 合成，`Clear(TRANSPARENT)` 变成不透明黑。
+  曾据此改成 **WebGL2 优先** 想换透明 canvas，但**用户机 HUD 实测仍是
+  `GPU: webgpu/WebGPU`**（`request_gl` 未生效）→ 该改动已**回滚**（`gpu.rs` 恢复
+  WebGPU 优先），并判定「靠 canvas 透明露 CSS 背景」**结构性不可达**。
+  ⑦ **rc.5 修复三（最终方案）：舞台背景画进 framebuffer**——背景预通道
+  `LoadOp::Clear(<当前 stageColor>)` + 有图时全屏三角形按 `cover` 贴纹理
+  （`web/surface/background.rs`），模型通道改用新增的
+  `l2d::ModelRendererCore::render_to_view_submit_with_load(..., LoadOp::Load)` 只叠
+  Live2D、**不再 clear**；叠放语义不变（图盖纯色底、模型在最上、清图回纯色），
+  与 canvas 是否透明**完全无关**，WebGPU 保持默认。图像解码走浏览器
+  （base64 → Blob → `createImageBitmap` → OffscreenCanvas 2D → `write_texture`），
+  PNG/JPEG/WebP 全支持且**不引入 Rust 图像依赖**；坏图退回纯色底。
+  canvas 的 CSS `background-color` / `background-image` 写入**已删除**、`stage_css.rs`
+  随之删除（不透明 canvas 上永远看不见，留着只会误导）。纯逻辑在原生可测的
+  `l2d-wasm-demo/src/stage_bg.rs`（`base64_decode_data_url` / `cover_uv` /
+  `clear_color`）。HUD 新增 `bg: solid|image` 字段作为「图有没有上屏」的直接信号。
+  门禁：`flutter analyze` 无问题 + `flutter test` **833** 通过（本轮修复未改 Flutter）；
+  cargo **830** 通过 / 0 失败（rc.4 822 + `stage_bg` 8；§3.1/§3.2 的 3 条临时回归已随路线
+  废弃删除）/ doc **3** / fmt clean / clippy **0 warning** / rust-ratio **97.1135% PASS** /
+  `cargo check --target wasm32-unknown-unknown -p l2d-wasm-demo` ok。
+  发布说明（含 **Win 选图 → 可见 → 清图** 肉眼 checklist）：
+  `docs/releases/v0.1.0-rc.5.md`。**范围真源缺口**：任务书点名的
+  `docs/plans/PLAN-rc5-shell-bg-sync-2026-09-14.md` **不存在**（已确认不在任何分支 /
+  stash / 工作区），本轮以任务书逐条列出的必做 / 禁止为范围，未列出的都没做。
 - **2026-09-13（v0.1.0-rc.4，Mod 产品链路 + 主链人设收敛）**：主链
   LLM→TTS→口型→Live2D 未变。① **Mod 产品链路（M0–M4）**：新增
   `docs/architecture/mod-product-chain.md`（契约 + 加新 Mod 勾选表 + 正式版 Rust/C 规则）；

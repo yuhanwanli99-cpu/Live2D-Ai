@@ -38,7 +38,13 @@ members = [
 # 角色卡从主链抽成标准 Mod、主链 `[persona]` 只留 system_prompt。
 # 范围见 `docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md`；
 # 发布说明见 `docs/releases/v0.1.0-rc.4.md`。
-version = "0.1.0-rc.4"
+#
+# 2026-09-14（rc.5「壳全局背景 + 与舞台同步」）：DisplayPrefs 增加 `shellImage` /
+# `syncShellStageBg`（默认跟随舞台）；壳根铺一层**固定 0.15 透明度**的全局背景，
+# 聊天 / 侧栏保持可读。背景只住本机 DisplayPrefs / localStorage——不写
+# `live2d-ai.toml`、不做分区背景 / 轮播 / 在线拉图。
+# 发布说明见 `docs/releases/v0.1.0-rc.5.md`。
+version = "0.1.0-rc.5"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
