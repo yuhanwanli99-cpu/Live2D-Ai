@@ -170,6 +170,33 @@ class ModConfigResult {
   final bool? enabled;
 }
 
+/// `GET /api/v1/mods/{id}/state` 的结果（Wave 3：运行态可读）。
+///
+/// host 契约（`web_api/mods_routes.rs::handle_mod_state_get`）：
+/// `200 {"id":"…","enabled":true,"state":{…}}`。`state` 的形状由**各 Mod 自报**
+///（`ModRuntime::state_json`），前端只按 key 渲染、不解释语义。
+class ModStateResult {
+  const ModStateResult({
+    required this.id,
+    required this.enabled,
+    required this.state,
+  });
+
+  final String id;
+
+  /// 服务端回显的启用态（`state` 本身只含运行值）。
+  final bool enabled;
+
+  /// Mod 自报的运行态快照。空 map = 该 Mod 没上报任何字段。
+  final Map<String, Object?> state;
+
+  factory ModStateResult.fromJson(Map<String, Object?> json) => ModStateResult(
+    id: _str(json['id']),
+    enabled: json['enabled'] == true,
+    state: _obj(json['state']) ?? const <String, Object?>{},
+  );
+}
+
 /// `GET /api/v1/mods` 的列表项。
 class ModInfo {
   const ModInfo({
@@ -282,6 +309,25 @@ class ModsApi {
       restarted: body['restarted'] == true,
       enabled: body['enabled'] is bool ? body['enabled']! as bool : null,
     );
+  }
+
+  /// `GET /api/v1/mods/{id}/state`：Mod 的**只读运行态**（Wave 3 起前端消费）。
+  ///
+  /// 三种响应刻意分开（host 契约见 `mods_routes.rs::handle_mod_state_get`）：
+  /// - `200` → [`ModStateResult`]；
+  /// - `404 not_found` → 这个 id **不在注册表**；
+  /// - `503 state_unavailable` → 在册但**当前**读不到：未启用 / 未实现
+  ///   `state_json` / Mod worker 正持 runtime 锁。
+  ///
+  /// 两种失败都抛 `ApiException`，`code` 原样透传——界面据此说「暂时读不到」
+  /// 而**不是**「这个 Mod 不存在」（两者对用户的处置完全不同）。
+  /// 只读 GET：不校验 Origin、不需要 `Content-Type`。
+  Future<ModStateResult> state(String id) async {
+    final http.Response response = await _guard(
+      () => _client.get(_uri('/api/v1/mods/${Uri.encodeComponent(id)}/state')),
+    );
+    if (response.statusCode != 200) throw _error(response);
+    return ModStateResult.fromJson(_decode(response.body));
   }
 
   Future<http.Response> _guard(Future<http.Response> Function() run) async {

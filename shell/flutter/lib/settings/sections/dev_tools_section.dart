@@ -300,6 +300,95 @@ class _ImportModelFieldState extends State<_ImportModelField> {
   }
 }
 
+// ──────────────────────────────────────────────── Mod 运行态（Wave 3）
+
+/// 运行态读取器：`GET /api/v1/mods/{id}/state`（Wave 3 起前端消费）。
+///
+/// 用回调而不是直接传 `ModsApi`：与同文件的 `onSaveConfig` 同款——宿主接线一次，
+/// widget 测试注入 fake 即可覆盖「改配置 → 重取 state → 字段跟着变」。
+typedef ModStateLoader = Future<ModStateResult> Function(String id);
+
+/// `state_json().window.reason` 的稳定值：原生壳休眠、窗口未开。
+///
+/// **必须逐字等于** Rust 侧 `WINDOW_REASON_NATIVE_SHELL_DORMANT`
+///（`live2d-ai-mod-pet-desktop`）；守卫在 `test/pet_desktop_state_test.dart`
+/// 与 Rust 的 `window_reason_string_is_stable_and_ascii`。
+const String kWindowReasonNativeShellDormant = 'native_shell_dormant';
+
+/// 已知运行态字段的中文标签。
+///
+/// 未知 key **不隐藏**（回落原始 key）——未来 Mod / 新字段不能因为前端不认识
+/// 就从界面上消失（「看得见才谈得上如实」）。
+const Map<String, String> kModStateLabels = <String, String>{
+  'always_on_top': '总在最前',
+  'click_through': '点击穿透',
+  'opacity': '不透明度',
+  'voice_active': '语音活跃',
+  'window': '窗口',
+};
+
+/// 展示顺序：上表已知字段按声明序在前，其余按 key 字典序在后。纯函数。
+List<String> orderedModStateKeys(Map<String, Object?> state) {
+  final List<String> known = <String>[
+    for (final String k in kModStateLabels.keys)
+      if (state.containsKey(k)) k,
+  ];
+  final List<String> rest = <String>[
+    for (final String k in state.keys)
+      if (!kModStateLabels.containsKey(k)) k,
+  ]..sort();
+  return <String>[...known, ...rest];
+}
+
+/// 字段标签：已知字段中文，未知字段回落原始 key。纯函数。
+String modStateLabel(String key) => kModStateLabels[key] ?? key;
+
+/// 把一条 `(key, value)` 渲染成一行文字（**不靠颜色**）。纯函数，可单测。
+///
+/// `window` 子对象特判——软闭环的那句文案就在 [`formatWindowState`]。
+String formatModStateValue(String key, Object? value) {
+  if (key == 'window' && value is Map) {
+    return formatWindowState(_stringKeyed(value));
+  }
+  if (value is bool) return value ? '开' : '关';
+  if (value is num) {
+    return value is int ? '$value' : _trimNumber(value);
+  }
+  if (value is String) return value.isEmpty ? '（空）' : value;
+  if (value is Map) return '${value.length} 项';
+  if (value is List) return '${value.length} 项';
+  if (value == null) return '—';
+  return '$value';
+}
+
+/// `window` 子对象的展示。
+///
+/// 休眠态呈现成「窗口未开（原生壳休眠），此面仅状态」——用户看到的是
+/// **「这是刻意的」**，而不是「窗口本该开着但坏了」。纯函数，可单测。
+String formatWindowState(Map<String, Object?> window) {
+  if (window['opened'] == true) return '已打开';
+  final Object? reason = window['reason'];
+  if (reason == kWindowReasonNativeShellDormant) {
+    return '窗口未开（原生壳休眠），此面仅状态';
+  }
+  final String r = reason is String ? reason : '';
+  return r.isEmpty ? '未打开' : '未打开（$r）';
+}
+
+String _trimNumber(num value) {
+  final double d = value.toDouble();
+  if (d == d.roundToDouble() && d.abs() < 1e15) return d.toInt().toString();
+  return '$value';
+}
+
+Map<String, Object?> _stringKeyed(Map<Object?, Object?> raw) {
+  final Map<String, Object?> out = <String, Object?>{};
+  raw.forEach((Object? k, Object? v) {
+    if (k is String) out[k] = v;
+  });
+  return out;
+}
+
 // ────────────────────────────────────────────────────────────── Mod
 
 class ModsSection extends StatelessWidget {
@@ -309,6 +398,7 @@ class ModsSection extends StatelessWidget {
     this.error,
     this.onToggle,
     this.onSaveConfig,
+    this.onLoadState,
     this.onReload,
     this.busyId,
     super.key,
@@ -324,6 +414,13 @@ class ModsSection extends StatelessWidget {
   /// 为 null 时展开的表单只读展现、保存按钮禁用——**不假装能保存**。
   final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
       onSaveConfig;
+
+  /// 展开卡片时读该 Mod 的运行态（`GET /api/v1/mods/{id}/state`）。
+  ///
+  /// 为 null 时**卡片自己**造一个同源 `ModsApi()` 兜底（理由见
+  /// `_ModConfigTileState._loader` 头注）——所以真机展开就能看到运行态，
+  /// 不依赖宿主接线；测试注入 fake 则完全隔离网络。
+  final ModStateLoader? onLoadState;
 
   final Future<void> Function()? onReload;
   final String? busyId;
@@ -378,6 +475,7 @@ class ModsSection extends StatelessWidget {
                 busy: busyId != null,
                 onToggle: onToggle,
                 onSaveConfig: onSaveConfig,
+                onLoadState: onLoadState,
               ),
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
@@ -408,6 +506,7 @@ class _ModConfigTile extends StatefulWidget {
     required this.busy,
     required this.onToggle,
     required this.onSaveConfig,
+    required this.onLoadState,
   });
 
   final ModInfo mod;
@@ -415,6 +514,7 @@ class _ModConfigTile extends StatefulWidget {
   final Future<void> Function(String id, bool enabled)? onToggle;
   final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
       onSaveConfig;
+  final ModStateLoader? onLoadState;
 
   @override
   State<_ModConfigTile> createState() => _ModConfigTileState();
@@ -427,6 +527,27 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   bool _saving = false;
   String? _message;
   bool _messageIsError = false;
+
+  /// 运行态快照：展开时懒加载，保存成功后重取（Wave 3 软闭环）。
+  ModStateResult? _state;
+  String? _stateError;
+  bool _stateLoading = false;
+
+  /// host 没接线时自建的读取器（惰性；见 [_loader]）。
+  ModsApi? _ownedApi;
+
+  /// 运行态读取器：宿主传了 `onLoadState` 就用它，否则**自己造一个同源
+  /// `ModsApi()`**。
+  ///
+  /// 为什么默认自建：`ModsSection` 的宿主接线在 `app/shell_settings.dart`，
+  /// 那个文件不属本轨所有权（Wave 3 并行轨的文件边界，见
+  /// `REGISTER-pet-desktop-v1.md` §2.1）。而 `ModsApi()` 的 base 解析
+  ///（`API_BASE` → `Uri.base.origin`）与 `main.dart` 里那个**同源**，
+  /// 所以真机展开卡片就能看到运行态，不依赖额外接线；测试注入 fake 则零网络。
+  ModStateLoader get _loader => widget.onLoadState ?? _ownedLoad;
+
+  Future<ModStateResult> _ownedLoad(String id) =>
+      (_ownedApi ??= ModsApi()).state(id);
 
   ModSettingsSpec get _spec => widget.mod.settingsSpec!;
 
@@ -511,6 +632,8 @@ class _ModConfigTileState extends State<_ModConfigTile> {
         _messageIsError = !result.ok;
         _message = result.ok ? _okMessage(result) : '保存失败：服务端返回 ok=false';
       });
+      // 热更新（Wave 3）：配置改了 → 立刻重取运行态，让「字段跟着变」可见。
+      if (result.ok) unawaited(_loadState());
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -536,9 +659,66 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   }
 
   @override
+  void dispose() {
+    // 只关自己造的那个客户端；宿主注入的由宿主管生命周期。
+    _ownedApi?.dispose();
+    super.dispose();
+  }
+
+  /// 读一次运行态。失败**不吞**：错误码上屏（`state_unavailable` 与
+  /// `not_found` 的处置完全不同，见 [_stateErrorMessage]）。
+  Future<void> _loadState() async {
+    if (_stateLoading) return;
+    setState(() {
+      _stateLoading = true;
+      _stateError = null;
+    });
+    try {
+      final ModStateResult result = await _loader(widget.mod.id);
+      if (!mounted) return;
+      setState(() {
+        _stateLoading = false;
+        _state = result;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _stateLoading = false;
+        _state = null;
+        _stateError = _stateErrorMessage(e);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _stateLoading = false;
+        _state = null;
+        _stateError = '运行态读取失败：$e';
+      });
+    }
+  }
+
+  /// host 的两种失败码 → **可处置**的一句话（不谎报成「不存在」）。
+  String _stateErrorMessage(ApiException e) {
+    if (e.code == 'state_unavailable') {
+      return '运行态暂时读不到（未启用 / 未实现 state_json / worker 正忙，'
+          '503 state_unavailable）';
+    }
+    if (e.code == 'not_found') {
+      return '这个 Mod 不在服务端注册表（404 not_found）';
+    }
+    return '运行态读取失败：$e';
+  }
+
+  @override
   Widget build(BuildContext context) {
     final ModInfo m = widget.mod;
     return ExpansionTile(
+      // 展开时懒加载运行态（只展开一次；之后用块里的「刷新运行态」或保存后重取）。
+      onExpansionChanged: (bool open) {
+        if (open && !_stateLoading && _state == null && _stateError == null) {
+          unawaited(_loadState());
+        }
+      },
       // 头部复用 AdminRow：标题/副标题/状态徽标与无 spec 的 Mod 完全一致。
       title: AdminRow(
         title: m.name.isEmpty ? m.id : m.name,
@@ -587,6 +767,66 @@ class _ModConfigTileState extends State<_ModConfigTile> {
               dense: true,
             ),
           ),
+        _stateBlock(),
+      ],
+    );
+  }
+
+  /// 「运行态（只读）」块：把 `GET /api/v1/mods/{id}/state` 如实铺开。
+  ///
+  /// 字段名→中文标签的映射见 [`kModStateLabels`]；未知字段不隐藏。
+  /// `window` 的休眠文案（「窗口未开（原生壳休眠），此面仅状态」）由
+  /// [`formatWindowState`] 给出——**软闭环的可见终点**。
+  Widget _stateBlock() {
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final TextStyle? muted = theme.textTheme.bodySmall?.copyWith(
+      color: colors.contentMuted,
+    );
+    final ModStateResult? state = _state;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const SizedBox(height: Space.s3),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text('运行态（只读）', style: theme.textTheme.titleSmall),
+            ),
+            TextButton.icon(
+              onPressed: _stateLoading ? null : () => unawaited(_loadState()),
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('刷新运行态'),
+            ),
+          ],
+        ),
+        if (_stateLoading)
+          Text('读取中…', style: muted)
+        else if (_stateError != null)
+          InlineNotice(message: _stateError!, dense: true)
+        else if (state != null)
+          if (state.state.isEmpty)
+            Text('（该 Mod 未上报运行态字段）', style: muted)
+          else
+            for (final String key in orderedModStateKeys(state.state))
+              Padding(
+                padding: const EdgeInsets.only(top: OpticalNudge.thin),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    SizedBox(
+                      width: 72,
+                      child: Text('${modStateLabel(key)}：', style: muted),
+                    ),
+                    Expanded(
+                      child: Text(
+                        formatModStateValue(key, state.state[key]),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
       ],
     );
   }

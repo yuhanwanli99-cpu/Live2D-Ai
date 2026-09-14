@@ -62,6 +62,12 @@ ModSettingField _field(
   options: options,
 );
 
+/// 本文件只测配置表单；运行态显式给一份空的 fake，避免 widget 在展开时走
+/// 兜底自建的 `ModsApi()`（Wave 3 D 轨新增的运行态读取）。真机路径由
+/// `pet_desktop_state_test.dart` 覆盖。
+Future<ModStateResult> _stubState(String id) async =>
+    ModStateResult(id: id, enabled: true, state: const <String, Object?>{});
+
 ModInfo _modWithSpec() => ModInfo(
   id: 'local-llm',
   name: '本地大模型',
@@ -231,6 +237,7 @@ void main() {
           ModsSection(
             mods: <ModInfo>[_modWithSpec()],
             loading: false,
+            onLoadState: _stubState,
             onSaveConfig: (String id, Map<String, Object?> config) async {
               savedId = id;
               savedConfig = config;
@@ -276,6 +283,7 @@ void main() {
           ModsSection(
             mods: <ModInfo>[_modWithSpec()],
             loading: false,
+            onLoadState: _stubState,
             onSaveConfig: (String id, Map<String, Object?> config) async {
               savedConfig = config;
               return const ModConfigResult(ok: true);
@@ -301,6 +309,7 @@ void main() {
           ModsSection(
             mods: <ModInfo>[_modWithSpec()],
             loading: false,
+            onLoadState: _stubState,
             onSaveConfig: (String id, Map<String, Object?> config) async {
               savedConfig = config;
               return const ModConfigResult(ok: true);
@@ -325,6 +334,7 @@ void main() {
           ModsSection(
             mods: <ModInfo>[_modWithSpec()],
             loading: false,
+            onLoadState: _stubState,
             onSaveConfig: (String id, Map<String, Object?> config) async {
               throw const ApiException('bad_config', '端口非法');
             },
@@ -342,7 +352,11 @@ void main() {
     ) async {
       await tester.pumpWidget(
         _wrap(
-          ModsSection(mods: <ModInfo>[_modWithSpec()], loading: false),
+          ModsSection(
+            mods: <ModInfo>[_modWithSpec()],
+            loading: false,
+            onLoadState: _stubState,
+          ),
         ),
       );
       await _expandFirstMod(tester);

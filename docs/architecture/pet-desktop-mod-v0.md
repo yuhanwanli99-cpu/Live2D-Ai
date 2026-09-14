@@ -1,9 +1,13 @@
 # 桌宠窗口 Mod v1（`live2d-ai-mod-pet-desktop`）
 
-> 范围真源：[`PARALLEL-WAVE2-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md) §3E。
+> 范围真源：[`PARALLEL-WAVE3-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md) §3 轨 D
+>（Wave 2 起点：[`PARALLEL-WAVE2-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md) §3E）。
 > 交付清单：[`REGISTER-pet-desktop-v1.md`](../plans/parallel-mods/REGISTER-pet-desktop-v1.md)。
-> 代码：`crates/live2d-ai-mod-pet-desktop/src/lib.rs` + `tests/pet_desktop_state.rs`。
-> 基线：`mod/pet-desktop-v1` @ `429609f2`（`0.2.0-rc.2` + Wave 2 基座）。
+> 代码：`crates/live2d-ai-mod-pet-desktop/src/lib.rs` + `tests/pet_desktop_state.rs`；
+> Flutter 消费面：`shell/flutter/lib/api/mods_api.dart`（`ModsApi.state`）+
+> `shell/flutter/lib/settings/sections/dev_tools_section.dart`（`_ModConfigTile`）+
+> `shell/flutter/test/pet_desktop_state_test.dart`。
+> 基线：`mod/w3-pet` @ `118bd435`（`0.2.0-rc.3` + Wave 3 基座）。
 
 ## 1. 定位
 
@@ -14,6 +18,12 @@ Wave 2 的交付**不是**窗口本身，而是把这批配置与事件态**暴�
 `GET /api/v1/mods/pet-desktop/state`（基座 Wave 2 新增）能读到一份稳定的 JSON，
 `POST /api/v1/mods/pet-desktop/config` 改配置后它**立刻**变。在 Wave 2 之前，
 这个 crate 只在 `start` 里注册 schema 并翻转一个内存 bool——界面上什么都看不见。
+
+**Wave 3（2026-09-14，轨 D）**：把状态面接到 Flutter —— 产品标签**「仅状态面」**，
+闭环形态是**软闭环**：`/app/` → 设置 → **Mod** → 展开「桌宠窗口」→「运行态（只读）」
+块（`ModsApi.state(id)` → `GET /api/v1/mods/pet-desktop/state`）；改配置 → 保存 →
+**自动重取**，字段跟着变。**仍然不设窗口**：硬开窗口要唤醒休眠原生壳，
+违反 Wave 3 裁决——所以闭环的终点是**数据**，不是像素。
 
 **选项钉死（不得自行升级）**：本轮**不真开窗口**。开窗口属于「休眠原生壳」，
 唤醒它要先论证「谁来维护第二个 UI 壳」（§2）。
@@ -109,6 +119,17 @@ schema 里**没有**第二个 `enabled`：启停唯一真源是 Mod manifest 的
 - **`window.reason` 是稳定字符串**：前端据此区分「窗口关着」与「这个 Mod 没实现
   状态面」（后者 host 回 503，不是这个字段）。
 
+**字段集是契约**（Wave 3 起有守卫测试 `state_json_key_set_is_pinned`）：顶层恰好
+`always_on_top` / `click_through` / `opacity` / `voice_active` / `window` 五个 key，
+`window` 恰好 `{opened, reason}`。前端按 key 渲染，增删字段必须同步本节。
+
+**消费方（Wave 3）**：Flutter `settings/sections/dev_tools_section.dart` 的
+`_ModConfigTile` —— 展开卡片的「运行态（只读）」块；API 封装在
+`api/mods_api.dart` 的 `ModsApi.state(id)`。`window` 休眠时界面**逐字**显示
+「窗口未开（原生壳休眠），此面仅状态」（Dart 常量 `kWindowReasonNativeShellDormant`，
+与 Rust 的 `WINDOW_REASON_NATIVE_SHELL_DORMANT` 逐字一致——两侧各有一条守卫测试：
+`window_reason_string_is_stable_and_ascii` / 「reason 常量与 Rust 侧逐字一致」）。
+
 host 侧读取面语义（基座已有回归，本轨不改）：
 
 | 情况 | 响应 |
@@ -201,6 +222,19 @@ curl -i -s "$BASE/api/v1/mods/nope/state"           # 404 not_found
 开口期间步骤 3 的 `voice_active` 变 `true`，收声后回 `false`。
 该字段来自既有的 `VoiceStarted` / `VoiceEnded` 订阅，Wave 2 未改语义。
 
+**界面版（Wave 3 的软闭环入口，不需要另写 curl）**：`./scripts/ignite.sh` 后开
+`http://127.0.0.1:18080/app/` → 设置 → **Mod** → 展开「桌宠窗口」：
+
+1. 运行态块显示 `总在最前：开` / `点击穿透：关` / `不透明度：0.95` /
+   `语音活跃：关` / `窗口：窗口未开（原生壳休眠），此面仅状态`；
+2. 改「总在最前」→ **保存** → 保存成功后卡片自动重取 state，`总在最前` 变 `关`；
+   块头的「刷新运行态」按钮可手动重取；
+3. Mod **未启用**时该块显示「运行态暂时读不到（…503 state_unavailable）」——
+   这是 503，不是「这个 Mod 不存在」（后者 host 回 404，界面文案也不同）。
+
+`_buildConfig()` 保存时发的是**整份配置**（从服务端已有 config 出发、只覆盖 schema
+声明的字段），与上面步骤 6 的「整份替换」语义一致。
+
 **进程内版（不需要活服务）**：`cargo test -p live2d-ai-mod-pet-desktop` 里的
 `reconfigure_is_reflected_immediately` 用同一份数据形状断言了「换 config →
 下一次 `state_json` 立刻是新值」，`factory_create_carries_config_into_state` 则覆盖
@@ -208,30 +242,41 @@ host `start_one` 的 `create(services, config)` 路径。
 
 ## 6. 门禁与测试
 
-- `cargo test -p live2d-ai-mod-pet-desktop` → **15 passed / 0 failed**（集成测试
-  `tests/pet_desktop_state.rs`；lib 无内联测试，源码闸门留给实现）；
+- `cargo test -p live2d-ai-mod-pet-desktop` → **17 passed / 0 failed**（Wave 2 的 15 条
+  + Wave 3 的 2 条守卫；集成测试 `tests/pet_desktop_state.rs`，lib 无内联测试）；
 - `cargo fmt --all -- --check` clean；
 - `cargo clippy -p live2d-ai-mod-pet-desktop --all-targets -- -D warnings` → 0 warning；
-- 无 doc-test（纯数据 crate，无示例代码块）。
+- 无 doc-test（纯数据 crate，无示例代码块）；
+- Flutter（消费面）：`cd shell/flutter && flutter analyze` → No issues found；
+  `flutter test` → 全绿，含新增 `test/pet_desktop_state_test.dart` **9 条**
+  （端点/解析、503/404 分流、休眠文案、字段顺序、展开显示、**保存→重取→字段跟着变**、
+  503 上屏）。
 
 覆盖：descriptor / `api_version`、**静态 schema 与 start 注册相等**、schema 字段与
 边界且无 `enabled`、只订阅 `VoiceStarted`+`VoiceEnded`、缺省回落 `true/false/0.95`、
 config 三字段优先、`opacity` 钳位（含 NaN / ±∞ / 边界原样）、逐字段坏类型回落、
 `window` 恒休眠、事件态翻转与其它主题无副作用、`shutdown` 复位、**reconfigure 立刻
-反映**、`create` 携带 config、快照只读稳定、纯函数 `build_state_json` 与 runtime 同形。
+反映**、`create` 携带 config、快照只读稳定、纯函数 `build_state_json` 与 runtime 同形、
+**字段集被钉住**（`state_json_key_set_is_pinned`）、**reason 字面量稳定**
+（`window_reason_string_is_stable_and_ascii`）。
 
 涉及文件：
 
 - `crates/live2d-ai-mod-pet-desktop/src/lib.rs`（实现；源码 ≤500 行）
-- `crates/live2d-ai-mod-pet-desktop/tests/pet_desktop_state.rs`（15 条回归）
+- `crates/live2d-ai-mod-pet-desktop/tests/pet_desktop_state.rs`（17 条回归）
+- `shell/flutter/lib/api/mods_api.dart`（`ModStateResult` + `ModsApi.state`）
+- `shell/flutter/lib/settings/sections/dev_tools_section.dart`（运行态块 + 纯函数）
+- `shell/flutter/test/pet_desktop_state_test.dart`（9 条 Flutter 回归）
 
 ## 7. 已知缺口 / 下一步
 
 1. **窗口没开**（§2）：`window.opened` 恒 `false`。要变成 `true`，先按 §2 立项论证
    「谁来维护第二个 UI 壳」，再把落点接回 egui 原生壳——**不**在本 Mod 里起窗口。
-2. **Flutter 未消费本状态面**：`GET /api/v1/mods/pet-desktop/state` 已存在且可用，
-   但 `/app/` 里**没有**「桌宠」面板（主路径上没有桌宠窗口 UI，见 §2）。
-   若要让用户看见这三个值，属前端新增，须另立一项；本轮不做。
+2. **Flutter 已消费本状态面（Wave 3 已闭环）**：`/app/` → 设置 → Mod → 展开
+   「桌宠窗口」即可读运行态，改配置保存后字段跟着变（§5「界面版」）。
+   **仍未做**的是「桌宠窗口 UI」本身——那段闭环终点是**数据**，不是像素（§2）。
+   宿主若希望显式接线（而不是卡片自建同源 `ModsApi()`），见
+   `REGISTER-pet-desktop-v1.md` §1.4：本轨刻意不碰 `app/shell_settings.dart`。
 3. **无持久化**：`voice_active` 是进程内事件态，重启即 `false`（符合语义，不是缺陷）。
 4. **配置只在 restart 后生效**：`POST …/config` 走 host 的 `reload_config + restart`，
    这是既有产品链路口径（不是本 Mod 的选择）。Mod 未启用时 `POST …/config` 只写
@@ -247,4 +292,8 @@ config 三字段优先、`opacity` 钳位（含 NaN / ±∞ / 边界原样）、
   版本号（pet-desktop 已在表里，缺省停用不变）；
 - **不**在 `state_json` 里做 IO / 阻塞 / 加锁等待（契约见 `factory.rs` 头注）；
 - **不**把 `voice_active` 接进 TTS / 口型主链逻辑（它只是信号镜面，主链口型由既有
-  路径驱动）。
+  路径驱动）；
+- **不**改 `shell/flutter/lib/app/shell_settings.dart`（宿主接线文件，Wave 3 轨 D
+  刻意不碰，避免与 B 轨冲突）：`_ModConfigTileState._loader` 在未注入时自建**同源**
+  `ModsApi()`（base 解析与 `main.dart` 里那个一致），真机可用、测试注入 fake；
+- **不**给休眠原生壳接线（`window.opened` 恒 `false`，§2）。
