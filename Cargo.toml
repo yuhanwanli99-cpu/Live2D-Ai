@@ -24,6 +24,9 @@ members = [
     "crates/live2d-ai-mod-wallpaper",
     # Wave 2 C 轨（2026-09-14）：本地记忆 v0（JSONL + 词元重叠检索 → 注入 persona.system_prompt）。
     "crates/live2d-ai-mod-memory",
+    # Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 + state_json，
+    # 不投递）。**收束时由主 agent** 注册进 FACTORIES（6 → 7），缺省停用。
+    "crates/live2d-ai-mod-director",
     "xtask",
 ]
 

@@ -2310,6 +2310,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "live2d-ai-mod-director"
+version = "0.2.0-rc.3"
+dependencies = [
+ "live2d-ai-mod-system",
+ "serde_json",
+]
+
+[[package]]
 name = "live2d-ai-mod-external-input"
 version = "0.2.0-rc.3"
 dependencies = [
