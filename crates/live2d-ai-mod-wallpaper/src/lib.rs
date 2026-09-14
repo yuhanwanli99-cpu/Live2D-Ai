@@ -4,16 +4,20 @@
 //! 真正的像素路径（stage-bg 命令 → wasm 预通道 → framebuffer）在 0.1.0-rc.5
 //! 已经定案，本 crate **一行不碰**（见 `docs/architecture/wallpaper-mod-v0.md` §2）。
 //!
-//! # 三档模式（`settings_spec` v1 + Wave 2 的 `playlist_len`）
+//! # 三档模式（`settings_spec` v1：两个**可编辑**字段）
 //!
 //! | key | 语义 |
 //! |---|---|
 //! | `mode` | `off`（缺省）＝ 不接管；`follow_stage` ＝ 壳跟随舞台；`interval` ＝ 定时切换 |
 //! | `interval_secs` | `interval` 模式的切换间隔（秒；钳在 5..=86400，永不 0） |
-//! | `playlist_len` | 播放列表长度（有几张图可切；钳在 0..=16，缺省 0）——由 Flutter 经既有 config 端点写回 |
 //!
 //! schema 里**没有**第二个 `enabled`：启停唯一真源是 Mod manifest 的 `enabled`
 //!（与 external-input / voice-input 同口径，见 `docs/architecture/mod-product-chain.md` §4）。
+//!
+//! `playlist_len` **不是**可编辑字段（2026-09-14 Wave 3 删除）：它是**运行值**，
+//! 真源 = Flutter `DisplayPrefs.stagePlaylist.length`，由前端经既有 config 端点写回；
+//! 留在表单里手填必被下一次写回覆盖（自相矛盾），所以它只**只读**出现在
+//! [`WallpaperRuntime::state_json`] 与 `GET /api/v1/mods` 的 `config` 里。
 //!
 //! # 边界（Wave 2，2026-09-14）
 //!
@@ -63,6 +67,10 @@ pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
 /// 壁纸设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
 ///
 /// 字段顺序与 `mode` 选项顺序都是契约（单测钉住）。
+///
+/// **只有两个可编辑字段**：`playlist_len` 是运行值（真源 = Flutter
+/// `DisplayPrefs.stagePlaylist.length`），只读出现在 `state_json` 与 `config`，
+/// 不在这里——放进来手填必被前端写回覆盖（Wave 3 §3B 必做 2）。
 pub fn wallpaper_settings_spec() -> ModSettingsSpec {
     ModSettingsSpec {
         mod_id: DESCRIPTOR.id.to_string(),
@@ -93,12 +101,6 @@ pub fn wallpaper_settings_spec() -> ModSettingsSpec {
                 label: "切换间隔（秒；仅 interval 模式生效，5–86400）".to_string(),
                 min: MIN_INTERVAL_SECS as f64,
                 max: MAX_INTERVAL_SECS as f64,
-            },
-            ModSettingField::Number {
-                key: "playlist_len".to_string(),
-                label: "轮播列表长度（由前端写入；0 = 没有可切的图）".to_string(),
-                min: 0.0,
-                max: MAX_PLAYLIST_LEN as f64,
             },
         ],
     }
@@ -357,17 +359,21 @@ mod tests {
         assert!(!rt.is_ready(), "shutdown 后不得再报 ready");
     }
 
-    /// 静态 schema 字段齐全；**不含 `enabled`**（唯一开关是 manifest）。
+    /// 静态 schema 字段齐全；**不含 `enabled`**（唯一开关是 manifest），
+    /// 也**不含 `playlist_len`**（Wave 3：运行值不进表单——手填必被前端覆盖）。
     ///
-    /// `playlist_len` 是 Wave 2 新增的**前端写回位**（列表长度），
-    /// 与 `mode` / `interval_secs` 同处一份 spec —— `start` 注册的就是这一份。
+    /// `start` 注册的就是这一份（与 `settings_spec()` 不分叉）。
     #[test]
     fn static_spec_fields_and_no_enabled() {
         let spec = FACTORY.settings_spec().expect("静态 schema");
         assert!(spec.validate().is_ok(), "字段 key 不得重复");
         let keys: Vec<&str> = spec.fields.iter().map(|f| f.key()).collect();
-        assert_eq!(keys, vec!["mode", "interval_secs", "playlist_len"]);
+        assert_eq!(keys, vec!["mode", "interval_secs"]);
         assert!(!keys.contains(&"enabled"), "启停只由 Mod manifest 表达");
+        assert!(
+            !keys.contains(&"playlist_len"),
+            "playlist_len 是运行值，不得再作为可编辑字段（Wave 3 §3B 必做 2）"
+        );
         match &spec.fields[0] {
             ModSettingField::Select { options, .. } => {
                 let values: Vec<&str> = options.iter().map(|o| o.value.as_str()).collect();
@@ -382,13 +388,22 @@ mod tests {
             }
             other => panic!("interval_secs 应为 Number，实际 {other:?}"),
         }
-        match &spec.fields[2] {
-            ModSettingField::Number { min, max, .. } => {
-                assert_eq!(*min, 0.0);
-                assert_eq!(*max, MAX_PLAYLIST_LEN as f64);
-            }
-            other => panic!("playlist_len 应为 Number，实际 {other:?}"),
-        }
+    }
+
+    /// **只读面**：`playlist_len` 从可编辑 schema 删除后，数值仍可从
+    /// `config`（`GET /api/v1/mods` 原样回）与 `state_json` 读到——
+    /// 删的是「手填入口」，不是「可观察性」。
+    #[test]
+    fn playlist_len_is_run_value_read_from_config_and_state() {
+        let config = serde_json::json!({"mode": "interval", "interval_secs": 5, "playlist_len": 4});
+        let rt = WallpaperRuntime::new(noop_services(), config);
+        // 只读面 ①：config 原样持有（GET /mods 的 config 字段）。
+        assert_eq!(rt.config()["playlist_len"], serde_json::json!(4));
+        // 只读面 ②：state_json 顶部（数值真源 = Flutter stagePlaylist.length）。
+        let mut rt = rt;
+        let state = rt.state_json().unwrap();
+        assert_eq!(state["playlist_len"], serde_json::json!(4));
+        assert_eq!(state["decision"]["kind"], serde_json::json!("advance"));
     }
 
     #[test]
@@ -519,6 +534,96 @@ mod tests {
         assert_eq!(advanced["decision"]["kind"], serde_json::json!("advance"));
         assert_eq!(advanced["decision"]["index"], serde_json::json!(1));
         assert_eq!(advanced["reason"], serde_json::json!("advance"));
+    }
+
+    /// **interval 的 state 轨迹**（Wave 3 §3B 必做 3，可脚本验证）：
+    /// 相隔一个 `interval_secs` 的快照序列按
+    /// `advance 0 → none → advance 1 → advance 2 → advance 0` 推进，
+    /// `prefs_patch` 与 `reason` 逐拍对应（含取模回绕）。
+    ///
+    /// 不 sleep：直接拨 `last_state_at`（生产路径 `Instant` 增量的等价物）。
+    #[test]
+    fn state_trajectory_interval_advances_index_over_time() {
+        let mut rt = WallpaperRuntime::new(
+            noop_services(),
+            serde_json::json!({"mode": "interval", "interval_secs": 5, "playlist_len": 3}),
+        );
+        let mut kinds: Vec<String> = Vec::new();
+        let mut indices: Vec<Option<u64>> = Vec::new();
+        let mut patches: Vec<serde_json::Value> = Vec::new();
+        let mut reasons: Vec<String> = Vec::new();
+        for step in 0..5 {
+            rt.last_state_at = match step {
+                // 首帧（无上一次时刻）→ 增量 0 → 立即上屏第 0 张。
+                0 => None,
+                // 相隔 0 ms → 未到点。
+                1 => Some(Instant::now()),
+                // 相隔 6 s > 5 s → 前进一格。
+                _ => Some(Instant::now() - std::time::Duration::from_secs(6)),
+            };
+            let state = rt.state_json().unwrap();
+            kinds.push(
+                state["decision"]["kind"]
+                    .as_str()
+                    .unwrap_or("?")
+                    .to_string(),
+            );
+            indices.push(state["decision"]["index"].as_u64());
+            patches.push(state["prefs_patch"].clone());
+            reasons.push(state["reason"].as_str().unwrap_or("?").to_string());
+        }
+        assert_eq!(
+            kinds,
+            vec!["advance", "none", "advance", "advance", "advance"]
+        );
+        assert_eq!(indices, vec![Some(0), None, Some(1), Some(2), Some(0)]);
+        assert_eq!(
+            reasons,
+            vec![
+                "advance",
+                "interval_not_due",
+                "advance",
+                "advance",
+                "advance"
+            ]
+        );
+        assert_eq!(
+            patches,
+            vec![
+                serde_json::json!({"stage_index": 0}),
+                serde_json::Value::Null,
+                serde_json::json!({"stage_index": 1}),
+                serde_json::json!({"stage_index": 2}),
+                serde_json::json!({"stage_index": 0}),
+            ],
+            "prefs_patch 必须与 decision 同源（含回绕）"
+        );
+    }
+
+    /// **follow_stage 的 state 轨迹**：首次快照给出 `sync_shell_stage_bg` 决策
+    /// （patch = `{"sync_shell_stage_bg":true}`），之后恒 none；重配置后重新同步。
+    #[test]
+    fn state_trajectory_follow_stage_syncs_then_resyncs_after_reconfigure() {
+        let mut rt =
+            WallpaperRuntime::new(noop_services(), serde_json::json!({"mode": "follow_stage"}));
+        let first = rt.state_json().unwrap();
+        assert_eq!(first["decision"]["kind"], serde_json::json!("sync_stage"));
+        assert_eq!(
+            first["prefs_patch"],
+            serde_json::json!({"sync_shell_stage_bg": true})
+        );
+        let second = rt.state_json().unwrap();
+        assert_eq!(second["decision"]["kind"], serde_json::json!("none"));
+        assert!(second["prefs_patch"].is_null());
+        // 重配置（用户改了配置）→ 轨迹重新从头走一遍。
+        rt.reconfigure(serde_json::json!({"mode": "follow_stage"}));
+        rt.last_state_at = None;
+        let third = rt.state_json().unwrap();
+        assert_eq!(third["decision"]["kind"], serde_json::json!("sync_stage"));
+        assert_eq!(
+            third["prefs_patch"],
+            serde_json::json!({"sync_shell_stage_bg": true})
+        );
     }
 
     /// `off` 模式：不动作、无 patch（`prefs_patch` 明确是 `null`，
