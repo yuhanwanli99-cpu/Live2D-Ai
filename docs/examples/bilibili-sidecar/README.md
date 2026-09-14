@@ -39,7 +39,7 @@ pip install -r requirements.txt
 # 2) 离线自检：清洗 / 节流 / 干跑（**不需要** blivedm、aiohttp、网络、服务端）
 python bilibili_sidecar.py --selftest
 
-# 3) 干跑，确认清洗/前缀逻辑（不会连 B 站、也不会发 HTTP）
+# 3) 干跑：照常连 B 站收弹幕，但只打印、不发 HTTP（用于核对清洗/前缀）
 $env:BILI_ROOM_ID = "123456"
 python bilibili_sidecar.py --dry-run
 
@@ -88,7 +88,7 @@ python bilibili_sidecar.py
 | 给弹幕加统一前缀 | 服务端 Mod 设置 `prefix`（推荐，改一处即可）；或本地 `SIDECAR_PREFIX` |
 | 用模板改写 | 服务端 Mod 设置 `text_template`（`{text}` 是占位符） |
 | 换 Live2D-Ai 地址/端口 | `LIVE2D_AI_URL`（默认 18080，与 `ignite.sh --port` 一致） |
-| 只测清洗不入链路 | `--dry-run`（或 `SIDECAR_DRY_RUN=1`） |
+| 只测清洗不入链路 | `--dry-run`（或 `SIDECAR_DRY_RUN=1`）；**仍会连 B 站**，只是不发 HTTP；完全离线请用 `--selftest` |
 | 少刷屏 / 防灌水 | `--min-interval-ms N`（缺省 1000 = 每秒最多 1 条；`0` = 关）；窗口内的弹幕只打印丢弃日志，不注入 |
 | 离线验证清洗 / 节流 | `python bilibili_sidecar.py --selftest`（不需要依赖与网络） |
 

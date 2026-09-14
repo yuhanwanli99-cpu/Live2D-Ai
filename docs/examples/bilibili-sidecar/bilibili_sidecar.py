@@ -21,7 +21,7 @@ v2_ignored，并随每次注入上报给服务端（见 README §5 与 docs/exte
 
 命令行：
   --min-interval-ms N  两条注入之间的最小间隔（毫秒，缺省 1000；0 = 关闭节流）
-  --dry-run            只打印不发送（等价 SIDECAR_DRY_RUN=1）
+  --dry-run            只打印不发送（**仍会连 B 站收弹幕**；完全离线请用 --selftest）
   --selftest           跑离线自检（清洗 / 节流 / 干跑）后退出；**不需要**
                        blivedm / aiohttp / 网络 / Live2D-Ai 进程
 
@@ -331,7 +331,11 @@ def main(argv=None) -> None:
         default=MIN_INTERVAL_MS,
         help="两条注入之间的最小间隔（毫秒）；0 = 关闭节流（缺省 1000）",
     )
-    parser.add_argument("--dry-run", action="store_true", help="只打印不发送")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="只打印不发送（仍会连 B 站收弹幕；完全离线请用 --selftest）",
+    )
     parser.add_argument(
         "--selftest",
         action="store_true",

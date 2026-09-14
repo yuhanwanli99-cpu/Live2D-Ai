@@ -882,6 +882,91 @@ mod tests {
         assert_eq!(resp.status_code(), StatusCode(400));
     }
 
+    // --- 产品级加强波次：token_set / reset_counters ---
+
+    /// `state_json` 报 `token_set=true`，且**绝不回显令牌明文**。
+    #[test]
+    fn state_json_reports_token_set_without_echoing_plaintext() {
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = ctx_with_manifest(
+            sec,
+            &serde_json::json!({"mods":{"external-input":{
+                "enabled": true,
+                "config": {"token": "cfg-secret"}
+            }}}),
+        );
+        ctx.mod_registry.lock().unwrap().start_all();
+        let state = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .runtime_state("external-input")
+            .expect("runtime 已 start，state_json 可读");
+        assert_eq!(state["token_set"], serde_json::json!(true));
+        let rendered = state.to_string();
+        assert!(
+            !rendered.contains("cfg-secret"),
+            "state_json 不得回显令牌明文：{rendered}"
+        );
+    }
+
+    /// `command reset_counters`（面板「重置计数」的真实路径）：返回清零前快照
+    /// 并把 handler 记的账清零。命令经**真实注册表**转达，与
+    /// `POST /api/v1/mods/external-input/command` 同一条路。
+    #[test]
+    fn reset_counters_command_clears_handler_counts() {
+        if std::env::var(TOKEN_ENV_VAR).is_ok() {
+            return; // env token 会让不带 token 的注入 401，计数分支不按预期。
+        }
+        let _guard = counter_lock();
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = ctx_with_manifest(
+            sec,
+            &serde_json::json!({"mods":{"external-input":{"enabled": true}}}),
+        );
+        ctx.mod_registry.lock().unwrap().start_all();
+        let inject = |_ctx: &ServerContext, _t: String| -> Option<bool> { Some(true) };
+        let resp = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi","v2_ignored":5}"#),
+            &inject,
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(200));
+
+        let before = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .runtime_state("external-input")
+            .expect("state 可读");
+        assert!(
+            before["accepts"].as_u64().unwrap_or(0) >= 1,
+            "至少记了 1 次接受"
+        );
+        assert_eq!(before["v2_ignored"], 5);
+
+        let result = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .command("external-input", "reset_counters", &serde_json::json!({}))
+            .expect("reset_counters 必须被支持");
+        assert_eq!(result["reset"], serde_json::json!(true));
+        assert_eq!(result["before"]["accepts"], before["accepts"]);
+        assert_eq!(result["before"]["v2_ignored"], 5);
+
+        let after = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .runtime_state("external-input")
+            .expect("state 可读");
+        for k in ["accepts", "rejects", "busy", "v2_ignored"] {
+            assert_eq!(after[k], serde_json::json!(0), "{k} 清零");
+        }
+    }
+
     // --- test helpers ---
 
     fn dummy_ctx(sec: crate::web_api::security::SecurityContext) -> ServerContext {
