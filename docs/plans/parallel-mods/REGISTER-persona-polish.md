@@ -1,4 +1,4 @@
-# REGISTER — `persona`（persona-polish，Wave 1 → 集成 PR 用）
+# REGISTER — `persona`（Wave 1 persona-polish + Wave 3 轨 E）
 
 > 本文件**不是**注册动作本身，而是交给集成 PR 的交付说明与待办。
 > 分支 `mod/persona-polish` @ `2d492447`。范围真源
@@ -8,6 +8,11 @@
 > **本分支不新增 FACTORIES 行**：`persona` 早在 rc.4 就已注册（`main.rs`
 > 的 `AVAILABLE_MOD_FACTORIES` 第 3 项，`mod_count_is_three` 已含它）。
 > 本轮**只打磨这一个 crate**，不碰注册表、不碰其它 Mod、不碰全局版本。
+>
+> **Wave 3 轨 E 追加**：分支 `mod/w3-persona` @ `118bd435`（范围真源
+> [`PARALLEL-WAVE3-2026-09-14.md`](PARALLEL-WAVE3-2026-09-14.md) §3 轨 E）
+> 在同一个 crate 上补了坏卡 E2E 与「与 memory 共存」契约测试，见 §7。
+> §1–§6 是 Wave 1 的原始交付说明，保留作历史。
 
 ## 1. 本分支做完的（worker 侧）
 
@@ -58,10 +63,12 @@
 
 ## 5. 文件大小说明
 
-- `src/lib.rs` **734 行**（>500，<1000）：卡解析与主链写回共用同一份不变量，
-  头注已按 `AGENTS.md` 要求写明理由；
+- `src/lib.rs` **762 行**（>500，<1000）：卡解析与主链写回共用同一份不变量，
+  头注已按 `AGENTS.md` 要求写明理由（Wave 3 追加了「与 memory 共存」一节）；
 - `src/tests.rs` **849 行**（略超 800）：三条卡入口各自端到端回归，
-  合并成参数化用例会丢掉「哪条入口坏了」的信息，头注已写明。
+  合并成参数化用例会丢掉「哪条入口坏了」的信息，头注已写明；
+- `src/tests_e2e.rs` **318 行**（Wave 3 轨 E 新增）：坏卡 E2E + 共存契约
+  **另起一个文件**，不把 `tests.rs` 继续堆大。
 
 ## 6. 验收证据（本分支实测）
 
@@ -70,3 +77,65 @@ cargo test -p live2d-ai-mod-persona                                 # 32 passed;
 cargo fmt -p live2d-ai-mod-persona -- --check                       # clean
 cargo clippy -p live2d-ai-mod-persona --all-targets -- -D warnings  # 0 warning
 ```
+## 7. Wave 3 轨 E（坏卡 E2E + 与 memory 共存）
+
+> 分支 `mod/w3-persona` @ `118bd435`（Wave 3 基座）。范围真源
+> [`PARALLEL-WAVE3-2026-09-14.md`](PARALLEL-WAVE3-2026-09-14.md) §3 轨 E。
+> **不新增 FACTORIES 行 / 不改 `mod_count_*` / 不改缺省 manifest / 不动版本号。**
+
+### 7.1 新增（worker 侧）
+
+| 项 | 位置 | 说明 |
+| --- | --- | --- |
+| 坏卡 E2E ×4 | `src/tests_e2e.rs` | `ModRuntime` 级：`enable → Failed →（修好输入）→ 再 enable 真接管 → disable 回基线`；抽了坏 JSON / `card_json` 是数组 / PNG 无 `chara` 块 / 非法 UTF-8 字节四类。 |
+| 「假主链」harness | 同上 | `apply_settings` 真的改一份 `Arc<Mutex<String>>`，settings 快照读的也是它；`Failed` 断言的是**主链值一字未动**，不是 patch 计数。 |
+| 与 memory 共存 ×3 | 同上 | 直接调用 memory crate 的**真实** `strategy::compose_injection` / `strip_memory_block`（`MemoryRuntime::injection_patch` / `strip_residue` 用的就是这两个）逐行验证 §5.1。 |
+| 契约文字 | `src/lib.rs` 模块头注「与 memory 共存」 | 与 `docs/architecture/memory-mod-v0.md` §5.1 **逐字一致**。 |
+| dev-dependency | `Cargo.toml` `[dev-dependencies]` | 仅测试用 `live2d-ai-mod-memory`（path）。`Cargo.lock` 因此多一条 persona → memory 的 dev 边（无新第三方 crate）。 |
+
+### 7.2 与 memory 共存的契约（逐字引用 `docs/architecture/memory-mod-v0.md` §5.1）
+
+两者都可能写 `persona.system_prompt`，规则是 **last-writer-wins，没有仲裁**：
+
+| 事件顺序 | 结果 |
+| --- | --- |
+| `persona` 后写 | 它的合成结果覆盖整个 `system_prompt`，**记忆块被冲掉** |
+| memory 后写（下一轮） | 它在 persona 的合成结果之上重新拼上记忆块 |
+| memory 停用 | `shutdown` 检查 marker，有就剥掉写回——**不留残留** |
+
+这是**已知取舍**，不是 bug：主链只有一个 system 入口，加一套优先级表就是
+在核心里埋第二个产品。要「两个都生效」必须先论证仲裁规则（见 §8 非目标）。
+
+本 Mod 侧的直接结论：`start` 是**整段替换**（不做拼接、不解析 memory 的 marker），
+所以 persona 后写必然冲掉记忆块；`shutdown` 写回的是启用那一刻的**整段**快照，
+若当时含记忆块就原样还回（memory 下一轮会幂等重拼或按需剥离）。
+
+### 7.3 验收证据（本分支实测）
+
+```text
+cargo test -p live2d-ai-mod-persona                                 # 39 passed; 0 failed（Wave 1 的 32 + Wave 3 新增 7）
+cargo fmt -p live2d-ai-mod-persona -- --check                       # clean
+cargo clippy -p live2d-ai-mod-persona --all-targets -- -D warnings  # 0 warning
+```
+
+新增 7 条（≥6 达标）：
+
+1. `tests_e2e::bad_json_then_fixed_card_takes_over_then_disable_restores`
+2. `tests_e2e::card_json_array_then_fixed_card_takes_over_then_disable_restores`
+3. `tests_e2e::png_without_chara_then_replaced_with_a_real_card_png`
+4. `tests_e2e::illegal_bytes_card_then_fixed_card_takes_over_then_disable_restores`
+5. `tests_e2e::persona_write_wipes_memory_block_then_memory_reinjects_on_top`
+6. `tests_e2e::failed_persona_start_leaves_an_existing_memory_block_untouched`
+7. `tests_e2e::persona_disable_restores_the_snapshot_even_if_it_contained_a_memory_block`
+
+回归灵敏度（反证）实测：把 `apply_from_config` 里的 `self.load_card()?` 临时改成
+`.load_card().unwrap_or(None)`（坏输入退化成 no-op）→ 全 crate **11 条变红**，其中 5 条是
+`tests_e2e`（坏 JSON / 数组 / PNG 无 chara / 非法字节 / Failed 保留记忆块）；还原后 **39 绿**。
+
+### 7.4 集成待办（Wave 3）
+
+- [ ] 合入 `src/tests_e2e.rs`、`src/lib.rs` 头注、`src/tests.rs`（helper 可见性
+      `pub(crate)`）、`Cargo.toml`（`[dev-dependencies]`）与 `Cargo.lock`；
+- [ ] 期望 `crates/live2d-ai-mod-memory` 已合入（Wave 3 C 轨）——共存测试调用它的
+      真实纯函数，这是刻意的跨 crate 契约检查：C 轨改了 marker 口径就会在这里变红；
+- [ ] 不碰 `main.rs` / `mod_count_*` / 缺省 manifest / 版本号 / `docs/README.md`。

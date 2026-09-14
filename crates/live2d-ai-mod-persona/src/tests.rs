@@ -11,26 +11,26 @@ use std::sync::{Arc, Mutex};
 // ------------------------------------------------------------------ 测试脚手架
 
 /// 每个测试一个独立临时目录（并行跑：共用目录名会互相踩，症状是随机红）。
-struct TempDir(PathBuf);
+pub(crate) struct TempDir(PathBuf);
 
 impl TempDir {
-    fn new(tag: &str) -> Self {
+    pub(crate) fn new(tag: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("l2d-persona-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("建临时目录");
         Self(dir)
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 
     /// 与 `live2d-ai.toml` 同目录的路径（基线快照住这儿）。
-    fn config_path(&self) -> String {
+    pub(crate) fn config_path(&self) -> String {
         self.0.join("live2d-ai.toml").display().to_string()
     }
 
-    fn write(&self, name: &str, bytes: impl AsRef<[u8]>) -> PathBuf {
+    pub(crate) fn write(&self, name: &str, bytes: impl AsRef<[u8]>) -> PathBuf {
         let p = self.0.join(name);
         std::fs::write(&p, bytes).expect("写测试文件");
         p
@@ -45,8 +45,8 @@ impl Drop for TempDir {
 
 /// 记录 register_settings 的测试注册器。
 #[derive(Default)]
-struct MockRegistrar {
-    specs: Vec<ModSettingsSpec>,
+pub(crate) struct MockRegistrar {
+    pub(crate) specs: Vec<ModSettingsSpec>,
 }
 
 impl ModRegistrar for MockRegistrar {
@@ -62,7 +62,7 @@ impl ModRegistrar for MockRegistrar {
     }
 }
 
-fn noop_services() -> ModServices {
+pub(crate) fn noop_services() -> ModServices {
     ModServices::new(
         ModActionSender::new(|_| false),
         SaySender::new(|_| true),
@@ -152,17 +152,17 @@ fn prompt_of(patch: &serde_json::Value) -> String {
         .to_string()
 }
 
-const CARD_V2: &str =
+pub(crate) const CARD_V2: &str =
     r#"{"spec":"chara_card_v2","data":{"name":"NEKO","description":"猫娘","first_mes":"你好"}}"#;
 
-fn push_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+pub(crate) fn push_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&(data.len() as u32).to_be_bytes());
     out.extend_from_slice(kind);
     out.extend_from_slice(data);
     out.extend_from_slice(&[0, 0, 0, 0]); // CRC（本 Mod 不校验）
 }
 
-fn png_with_chara(payload: &str) -> Vec<u8> {
+pub(crate) fn png_with_chara(payload: &str) -> Vec<u8> {
     let mut out = PNG_SIGNATURE.to_vec();
     push_chunk(&mut out, b"tEXt", format!("chara\0{payload}").as_bytes());
     push_chunk(&mut out, b"IEND", &[]);

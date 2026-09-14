@@ -2340,6 +2340,7 @@ name = "live2d-ai-mod-persona"
 version = "0.2.0-rc.3"
 dependencies = [
  "base64",
+ "live2d-ai-mod-memory",
  "live2d-ai-mod-system",
  "log",
  "serde_json",
