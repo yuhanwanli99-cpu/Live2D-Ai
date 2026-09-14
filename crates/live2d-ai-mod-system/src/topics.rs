@@ -23,6 +23,18 @@ pub enum ModEventTopic {
     /// 「先检索、再注入下一轮」正是这个时序的预期用法（见
     /// `docs/plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md` §2）。
     TurnPrompt,
+    /// **一轮 turn 收口**（Wave 3 新增，2026-09-14）。
+    ///
+    /// 发点在 supervisor 空闲态：`turn::run_one_turn` 返回之后（无论该轮是
+    /// 正常收口还是 `TurnStatus::Failed`），payload = 该轮 turn id（与
+    /// `TurnStarted` 同一个序号）。语义是「这一轮结束了」，**不是**「成功」——
+    /// 需要区分成败的 Mod 应结合自己订阅的事件判断，不要把这个主题当成功回执。
+    ///
+    /// 用途：让 Mod 在**轮末**收口自己的 per-turn 状态（例：导演把本轮的
+    /// 决策日志结项、记忆把「本轮实际用了哪些命中」写进计数），而不是只能
+    /// 在下一轮开头补救。**时序**：与 `TurnPrompt` 同款——发出时下一轮请求体
+    /// 尚未构建，因此这里做的 `apply_settings` 对**下一轮**生效。
+    TurnEnded,
     /// LLM 流式文本增量。
     TextDelta,
     /// 动作自然播放完成（含动作身份）。
@@ -40,6 +52,7 @@ impl ModEventTopic {
     pub const ALL: &'static [ModEventTopic] = &[
         ModEventTopic::TurnStarted,
         ModEventTopic::TurnPrompt,
+        ModEventTopic::TurnEnded,
         ModEventTopic::TextDelta,
         ModEventTopic::ActionFinished,
         ModEventTopic::VoiceStarted,
@@ -52,6 +65,7 @@ impl ModEventTopic {
         match self {
             ModEventTopic::TurnStarted => "turn_started",
             ModEventTopic::TurnPrompt => "turn_prompt",
+            ModEventTopic::TurnEnded => "turn_ended",
             ModEventTopic::TextDelta => "text_delta",
             ModEventTopic::ActionFinished => "action_finished",
             ModEventTopic::VoiceStarted => "voice_started",
@@ -81,5 +95,16 @@ mod tests {
             "TurnPrompt 必须出现在 ALL 里（否则前端看不到这个可订阅主题）"
         );
         assert_eq!(ModEventTopic::TurnPrompt.as_str(), "turn_prompt");
+    }
+
+    /// Wave 3：`TurnEnded` 必须进 `ALL`（否则 Mod 发现面看不到轮末钩子），
+    /// 且 id 稳定。
+    #[test]
+    fn turn_ended_is_listed_and_stable() {
+        assert!(
+            ModEventTopic::ALL.contains(&ModEventTopic::TurnEnded),
+            "TurnEnded 必须出现在 ALL 里"
+        );
+        assert_eq!(ModEventTopic::TurnEnded.as_str(), "turn_ended");
     }
 }

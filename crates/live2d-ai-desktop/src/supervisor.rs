@@ -549,6 +549,14 @@ async fn run_forever(
                         &mut quitting, &emit,
                     )
                     .await;
+                    // **Wave 3**：本轮收口 → `TurnEnded`（payload = turn id）。
+                    // 发点在 `run_one_turn` 返回之后，**无论**该轮是正常收口还是
+                    // `TurnStatus::Failed`——语义是「这一轮结束了」，不是「成功」。
+                    // 与 `TurnPrompt` 同款时序：下一轮请求体尚未构建，因此 Mod 在
+                    // 此的 `apply_settings` 对下一轮生效（见 topics.rs 头注）。
+                    if let Some(f) = &mod_events {
+                        f(ModEventTopic::TurnEnded, &next_turn_id.to_string());
+                    }
                     // 兜底：「在飞 turn 中到达的 Reload」走原子标志
                     // [`SupervisorHandle::reload_pending`]，turn.rs no-op
                     // channel 消息但**不清标志**。turn 收口后统一消费。

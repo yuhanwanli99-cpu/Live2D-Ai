@@ -168,6 +168,19 @@ fn supervisor_emits_turn_started_to_mod_events() {
         "turn 应在超时前收口"
     );
 
+    // **Wave 3**：turn 收口后必须发出 `TurnEnded`（payload = 同一 turn id）。
+    // GenerationFinished 与 TurnEnded 之间有竞态，必须显式等到它到达再断言。
+    assert!(
+        wait_for(Duration::from_secs(3), || {
+            mod_topics
+                .lock()
+                .expect("poison")
+                .iter()
+                .any(|(t, _)| *t == ModEventTopic::TurnEnded)
+        }),
+        "turn 收口后应发出 TurnEnded"
+    );
+
     // TurnStarted + TextDelta 都已到达 mod_events（证明「显式调用」与
     // 「emit 包裹投影」两个生产路径都打通）。
     let topics = mod_topics.lock().expect("poison");
@@ -210,6 +223,18 @@ fn supervisor_emits_turn_started_to_mod_events() {
         .position(|(t, _)| *t == ModEventTopic::TurnPrompt)
         .unwrap();
     assert!(ts_idx < tp_idx, "TurnStarted 应在 TurnPrompt 之前");
+    // **Wave 3**：TurnEnded 必须在 TurnPrompt 之后，且 payload 与 TurnStarted
+    // 的 turn id 一致（同一个「第几轮」）。
+    let te_idx = topics
+        .iter()
+        .position(|(t, _)| *t == ModEventTopic::TurnEnded)
+        .expect("应发出 TurnEnded");
+    assert!(tp_idx < te_idx, "TurnEnded 应在 TurnPrompt 之后");
+    let te_payload = topics[te_idx].1.clone();
+    assert_eq!(
+        te_payload, ts_payload,
+        "TurnEnded 的 payload 是同一 turn id"
+    );
 
     handle.stop();
     handle.quit();
