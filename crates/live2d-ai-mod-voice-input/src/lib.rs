@@ -1,15 +1,15 @@
-//! live2d-ai-mod-voice-input（Wave 1，2026-09-14）——**语音输入 Mod 骨架**。
+//! live2d-ai-mod-voice-input（Wave 1 骨架 / Wave 2 A 轨接线，2026-09-14）——**语音输入 Mod**。
 //!
 //! 链路定位：**语音 → 文本 → [`ModServices::say_tx`]**（与聊天框、external-input
 //! 共用同一条 LLM/TTS 主链）。本 crate 只做「拿到一段 ASR 文本 → 清洗 → say」，
-//! **不做**真正的语音识别：ASR 住在外部 sidecar（见 `docs/examples/voice-sidecar/`）
-//! 或由集成方在进程内喂入文本。
+//! **不做**真正的语音识别：ASR 住在外部 sidecar（`docs/examples/voice-sidecar/`）；
+//! **sidecar 路径已通**：端点 = `POST /api/v1/voice/transcript`（`web_api/voice_routes.rs`）。
 //!
-//! # 边界（Wave 1；半成品是刻意的）
+//! # 边界（Wave 1 骨架 / Wave 2 A 轨接线）
 //!
-//! - **注册面**：Wave 1 分支不注册；`0.2.0-rc.2` 集成时已按 REGISTER 装配进
-//!   `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，**缺省停用**，ASR 未接线）；
-//!   启停唯一真源仍是 manifest `enabled`（`default_mods_manifest` 未收录）。
+//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，**缺省停用**；
+//!   启停唯一真源 = manifest `enabled`，`default_mods_manifest` 未收录）；
+//!   handler 复用本 crate 的 `clean_transcript`（**不重写**），契约见 `docs/voice-input.md`。
 //! - **不引入**任何 ASR 依赖（whisper / onnx / 音频解码）：完整 ASR 不进 Rust 核心。
 //! - **不接**动作通道（`action_tx` 自 rc.2 起休眠）；v0 **不订阅** host 事件。
 //!
@@ -17,7 +17,7 @@
 //!
 //! | key | 语义 |
 //! |---|---|
-//! | `backend` | `mock`（缺省）＝ 由集成方/测试喂文本；`sidecar` ＝ 外部识别进程（占位） |
+//! | `backend` | `mock`（缺省）＝ 由集成方/测试喂文本；`sidecar` ＝ 外部识别进程（推模式） |
 //! | `locale` | 识别语言提示（缺省 `zh-CN`） |
 //! | `token` | 可选访问令牌（secret）；空 = 不鉴权，且**永不**回读明文 |
 //!
@@ -43,7 +43,7 @@ pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
 pub enum VoiceBackend {
     /// 占位后端：没有 ASR，由集成方/测试直接喂转写文本。
     Mock,
-    /// 外部识别进程（sidecar）——**占位**，本 crate 不开 socket、不做 IPC。
+    /// 外部识别进程（sidecar）——已接线：`POST /api/v1/voice/transcript`（本 crate 不开 socket）。
     Sidecar,
 }
 

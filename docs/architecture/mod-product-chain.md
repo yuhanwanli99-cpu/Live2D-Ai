@@ -63,7 +63,7 @@ disable / config 是**运行时开关**，不是加载器：
 | `external-input` | **on** | Rust | 外部事件接入：`POST /api/v1/external/chat` → `say`；静态 `settings_spec`（`token` / `text_template` / `prefix`），契约见 [external-input.md](../external-input.md)，B 站弹幕示例见 [docs/examples/bilibili-sidecar](../examples/bilibili-sidecar/README.md) |
 | `pet-desktop` | off | Rust | 桌宠骨架 |
 | `persona` | off | Rust | 酒馆角色卡（rc.4 M5）：导入 V2 JSON/PNG → 合成 `system_prompt`；`0.2.0-rc.2` 起坏配置**显式 `Failed`**（不再假报「运行中」） |
-| `voice-input` | off | Rust | 语音输入骨架（Wave 1 / 0.2.0-rc.2）：语音转写 → 清洗 → `say`；`backend` 仅 `mock`/`sidecar` **配置占位**（Rust 侧不开 socket、不做 IPC），接线清单见 [REGISTER-voice-input](../plans/parallel-mods/REGISTER-voice-input.md) |
+| `voice-input` | off | Rust | 语音输入（Wave 2 A 轨 / 0.2.0-rc.3）：`POST /api/v1/voice/transcript` → `clean_transcript` → `say` **已接线**；ASR 本体在 sidecar（Rust 侧不开 socket、不做 IPC），契约见 [voice-input.md](../voice-input.md)，示例见 [docs/examples/voice-sidecar](../examples/voice-sidecar/README.md)，接线清单见 [REGISTER-voice-sidecar-v1](../plans/parallel-mods/REGISTER-voice-sidecar-v1.md) |
 | `wallpaper` | off | Rust | 壁纸策略 v0（Wave 1 / 0.2.0-rc.2）：`mode`（off/follow_stage/interval）纯策略；决策落点仍是**明文占位**（`apply_decision` 只对 `None` 返回 `true`），见 [wallpaper-mod-v0.md](wallpaper-mod-v0.md) |
 | ~~`local-llm`~~ | — | Rust | **已废除启动**（0.2.0-rc.1）：移出 `AVAILABLE_MOD_FACTORIES`，不再编译进 binary；crate 暂留仓库（见其 lib.rs 头注），**禁止挂回** |
 
