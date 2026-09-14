@@ -71,7 +71,10 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 ./scripts/ignite.sh
 
 # ② 启用 voice-input Mod（缺省**停用**，不启用会回 403 mod_disabled）
-curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable
+#    必须带 loopback Origin；不带 Origin 的纯 curl 需服务端开
+#    LIVE2D_AI_ALLOW_NO_ORIGIN=1（见 docs/external-input.md §1）
+curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable \
+  -H 'Origin: http://127.0.0.1:18080'
 
 # ③ 发这一段音频（去掉 --dry-run）
 python3 docs/examples/voice-sidecar/voice_sidecar.py \

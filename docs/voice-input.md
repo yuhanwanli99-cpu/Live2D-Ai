@@ -248,7 +248,10 @@ handler：`success_returns_200_with_cleaned_text`（缺省 zh-CN）、
 `allow_no_origin`（开发 / 工具客户端场景）。执行前先启用 Mod：
 
 ```bash
-curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable
+# 必须带 loopback Origin；不带 Origin 的纯 curl 需服务端开
+# LIVE2D_AI_ALLOW_NO_ORIGIN=1（见 docs/external-input.md §1）
+curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable \
+  -H 'Origin: http://127.0.0.1:18080'
 ```
 
 ```bash

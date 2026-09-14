@@ -9,7 +9,10 @@
 //!
 //! - GET /api/v1/mods 与 GET …/config：只读，Origin 校验不强制（CSRF 风险为 0）；
 //!   **secret=true 的字段值永不出现在响应里**（`redacted_config`）。
-//! - POST enable/disable/restart/config：mutating，需 loopback Origin + application/json；
+//! - POST enable/disable/restart/config：mutating，需 loopback Origin；
+//!   **仅当携带 body 时**才要求 application/json（`enable`/`disable` 是
+//!   无 body 控制命令，浏览器 `fetch` 不带 Content-Type）——与
+//!   [`crate::web_api::security::check_mutating_request`] 同一口径。
 //!   校验复用 [`crate::web_api::security::is_allowed_origin`] /
 //!   [`crate::web_api::security::is_json_content_type`] /
 //!   [`crate::web_api::security::mutating_check_error_response`]。
@@ -119,8 +122,15 @@ pub fn handle_mods_route(
         ));
     }
 
-    // Security：loopback Origin + application/json。
-    if !crate::web_api::security::is_json_content_type(content_type) {
+    // Security：loopback Origin + application/json（**仅当携带 body 时**）。
+    //
+    // `enable` / `disable` 是**无 body 控制命令**：浏览器
+    // `fetch('/api/v1/mods/{id}/enable', {method:'POST'})`（Flutter
+    // `ModsApi.setEnabled` 正是这么发的）不带 Content-Type。旧实现无条件要
+    // JSON CT → 前端「Mod 管理」的启停恒 415，等于整个 Mod 链路点不动。
+    // 口径与 `security::check_mutating_request` 对齐：无 body 放行 CT，
+    // Origin 才是真正的 CSRF 闸门（下一段仍严格校验）。
+    if !body.is_empty() && !crate::web_api::security::is_json_content_type(content_type) {
         return Some(json_error(
             StatusCode(415),
             "unsupported_media_type",
@@ -593,6 +603,71 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(404));
+    }
+
+    /// **回归（stabilize）**：无 body 的 enable/disable **不要求 Content-Type**。
+    ///
+    /// 触发场景（无头浏览器实测）：Flutter `ModsApi.setEnabled` 发的是
+    /// `fetch(POST)` **不带 body、不带 Content-Type**；旧实现在此处无条件要
+    /// `application/json` → 恒 415，前端「Mod 管理」的启停整个点不动。
+    /// 口径与 `security::check_mutating_request` 一致：只有带 body 才校验 CT。
+    #[test]
+    fn bodyless_enable_disable_skip_content_type_check() {
+        let ctx = ctx_with_mod(serde_json::json!({
+            "mods": {"specmod": {"enabled": true, "config": {}}}
+        }));
+        let origin = Some("http://127.0.0.1:18099");
+        for action in ["disable", "enable"] {
+            let path = format!("/api/v1/mods/specmod/{action}");
+            let resp = handle_mods_route(&ctx, &Method::Post, &path, "", origin, None)
+                .expect("mods 路由应命中");
+            assert_eq!(
+                resp.status_code(),
+                StatusCode(200),
+                "无 body 的 {action} 必须 200（旧实现会 415）"
+            );
+        }
+    }
+
+    /// 带 body 的 mutating 仍必须 `application/json`（防表单 CSRF 不回退）。
+    #[test]
+    fn body_with_non_json_content_type_is_415() {
+        let ctx = ctx_with_mod(serde_json::json!({
+            "mods": {"specmod": {"enabled": true, "config": {}}}
+        }));
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/specmod/enable",
+            r#"{"config":{"on":true}}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("text/plain"),
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(415));
+        assert!(body_string(resp).contains("unsupported_media_type"));
+    }
+
+    /// 无 body + 缺 Origin + 不允许无 Origin → 403（**不是** 415）：
+    /// Origin 才是闸门，错误面要给对，工具客户端才知道去开 allow_no_origin。
+    #[test]
+    fn bodyless_without_origin_is_403_not_415() {
+        let sec = SecurityContext::new(18099, false);
+        let ctx = dummy_ctx(sec);
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/specmod/enable",
+            "",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            resp.status_code(),
+            StatusCode(403),
+            "缺 Origin 应回 403（origin_required），不能是 415"
+        );
     }
 
     /// GET /api/v1/mods 在空 registry → 200 + `{"mods":[]}`。
