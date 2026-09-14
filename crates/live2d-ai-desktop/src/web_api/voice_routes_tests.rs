@@ -772,3 +772,79 @@ fn backend_branches_never_wait_on_network() {
     handle.quit();
     let _ = std::fs::remove_file(&tmp);
 }
+
+/// backend **配错**（未知值）：服务端宽容回落 mock，但响应回显的是**生效值**
+/// mock——「界面写着 sidecar、实际并没有在推」这件事在 200 响应里就能看见，
+/// 不需要去猜配置有没有生效（前端「检查配置」按钮走 Mod 的 selftest 同口径）。
+#[test]
+fn unknown_backend_falls_back_to_mock_in_response() {
+    let (ctx, handle, tmp) = ctx_with_supervisor("bad-backend", UNREACHABLE_LLM);
+    let ctx = with_manifest(
+        ctx,
+        &serde_json::json!({
+            "mods": {"voice-input": {"enabled": true, "config": {"backend": "whisper"}}}
+        }),
+    );
+    let resp = call(
+        &ctx,
+        &Method::Post,
+        VOICE_TRANSCRIPT_PATH,
+        r#"{"text":"  你好　世界  "}"#,
+        None,
+        Some("application/json"),
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let v: serde_json::Value = serde_json::from_str(&body_of(resp)).unwrap();
+    assert_eq!(
+        v["backend"],
+        serde_json::json!("mock"),
+        "未知 backend 回落 mock（与 crate 的 from_config 同口径）: {v}"
+    );
+    assert_eq!(
+        v["locale"],
+        serde_json::json!("zh-CN"),
+        "backend 配错不影响 locale 缺省: {v}"
+    );
+    assert_eq!(v["text"], serde_json::json!("你好世界"));
+    handle.quit();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// locale **写错**（非 BCP-47）：handler 如实回显生效值（locale_from_config 只把
+/// 空值回落 zh-CN），而归一化按 profile 落到拉丁档——保留空格、补中英边界。
+/// 与 docs/voice-input.md §6.1「空 / 未知语言 → Latin 档」逐字一致。
+#[test]
+fn malformed_locale_is_echoed_and_normalizes_as_latin() {
+    let (ctx, handle, tmp) = ctx_with_supervisor("bad-locale", UNREACHABLE_LLM);
+    let ctx = with_manifest(
+        ctx,
+        &serde_json::json!({
+            "mods": {"voice-input": {"enabled": true,
+                "config": {"backend": "mock", "locale": "!!"}}}
+        }),
+    );
+    let resp = call(
+        &ctx,
+        &Method::Post,
+        VOICE_TRANSCRIPT_PATH,
+        r#"{"text":"打开空调wifi"}"#,
+        None,
+        Some("application/json"),
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let v: serde_json::Value = serde_json::from_str(&body_of(resp)).unwrap();
+    assert_eq!(
+        v["locale"],
+        serde_json::json!("!!"),
+        "生效 locale 如实回显（自检负责点名它非法）: {v}"
+    );
+    assert_eq!(
+        v["text"],
+        serde_json::json!("打开空调 wifi"),
+        "未知语言落到拉丁档：补中英边界: {v}"
+    );
+    handle.quit();
+    let _ = std::fs::remove_file(&tmp);
+}

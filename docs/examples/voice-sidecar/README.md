@@ -106,6 +106,68 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py --audio /tmp/mic.wav \
 > 模式，只 POST 文本。`locale` 只影响**服务端**的 text 归一化（见
 > [`docs/voice-input.md`](../../voice-input.md) §6.1），不选 ASR 引擎。
 
+### 3.3 Windows 最小成功路径（PowerShell / cmd，可整段复制）
+
+本脚本**只用 Python 标准库**，所以「装依赖」= 有一个 Python 3.8+，**不需要**
+`pip install`，也没有 `requirements.txt`。在**仓库根目录**打开 PowerShell
+（`Win + X` → 终端），逐段复制；五步与脚本参数 `--selftest` / `--dry-run` /
+`--audio` / `--transcriber` 逐字对应。
+
+```powershell
+# ① 装依赖：确认 Python 在（脚本零第三方依赖）
+py -3 --version          # 没有 py 就换 python --version
+
+# ② 设后端地址与 token（token 留空 = 不鉴权；env 名与 --url / --token 等价）
+$env:VOICE_INPUT_URL = "http://127.0.0.1:18080"
+$env:VOICE_INPUT_TOKEN = ""
+
+# ③ 自检：70 项检查，离线、不发任何请求（退出码 0 = 全过）
+py -3 docs/examples/voice-sidecar/voice_sidecar.py --selftest
+
+# ④ 干跑：只打印将要 POST 的 URL 与 body（token 打码成 ***）
+py -3 docs/examples/voice-sidecar/voice_sidecar.py --audio docs/examples/voice-sidecar/fixtures/fake_zh.wav --dry-run
+
+# ⑤ 真发送（前两步见下面「真发送前的两步」）
+py -3 docs/examples/voice-sidecar/voice_sidecar.py --audio docs/examples/voice-sidecar/fixtures/fake_zh.wav
+```
+
+同一套流程在 **cmd.exe**（只是环境变量写法不同）：
+
+```bat
+:: ① 装依赖：确认 Python 在（零第三方依赖）
+py -3 --version
+
+:: ② 设后端地址与 token
+set VOICE_INPUT_URL=http://127.0.0.1:18080
+set VOICE_INPUT_TOKEN=
+
+:: ③ 自检
+py -3 docs\examples\voice-sidecar\voice_sidecar.py --selftest
+
+:: ④ 干跑
+py -3 docs\examples\voice-sidecar\voice_sidecar.py --audio docs\examples\voice-sidecar\fixtures\fake_zh.wav --dry-run
+
+:: ⑤ 真发送
+py -3 docs\examples\voice-sidecar\voice_sidecar.py --audio docs\examples\voice-sidecar\fixtures\fake_zh.wav
+```
+
+**真发送前的两步**（缺任一步都会以非 0 退出，码见 §5）：
+
+```powershell
+# A. 点火服务（项目纪律：服务在 WSL2 起；Windows 的 127.0.0.1 经 WSL2 转发可达）
+./scripts/ignite.sh
+
+# B. 启用 voice-input Mod（缺省停用，不启用 → 403 mod_disabled）
+curl.exe -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable -H "Origin: http://127.0.0.1:18080"
+```
+
+- `--transcriber` 缺省是 `fake`（读同名 `.txt`，开箱即跑）；接真实 ASR 用
+  `--transcriber 'cmd:"你的 ASR 命令"'`——PowerShell 外层用**单引号**，内层双引号
+  才会原样传给脚本；cmd 里把整段用双引号包住并转义内层引号（见 §8）。
+- `--selftest` **不需要** `--audio`；`--dry-run` 与 `--selftest` 都不发网络请求。
+- 路径正斜杠 `/` 在 PowerShell / cmd 下都可用（cmd 段用反斜杠只是习惯）。
+- 只装了 Microsoft Store 版 Python 时，把 `py -3` 换成 `python`。
+
 ---
 
 ## 4. 命令行 / 环境变量
@@ -128,13 +190,16 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py --audio /tmp/mic.wav \
 
 ## 5. 失败码表（退出码）
 
-| 退出码 | 含义 | 触发场景 |
-|---|---|---|
-| `0` | 成功 | HTTP 2xx 且响应 `ok:true` |
-| `2` | **参数或依赖错** | 缺 `--audio`、音频文件不存在/读不到、`--transcriber` 写法非法、`cmd:` 里的可执行文件不存在 |
-| `3` | **转写失败** | 同名 `.txt` 读失败、`cmd:` 非 0 退出或超时、转写清洗后为空 |
-| `4` | **HTTP 非 2xx**（或请求发不出去） | `400` / `401` / `403` / `405` / `415` / `503`；连接被拒（服务没起）、超时 |
-| `5` | **服务端 `ok:false`** | 目前只有 `busy`：主链忙碌，本条已被丢弃 |
+| 退出码 | 一句话人话 | 触发 | 处置 |
+|---|---|---|---|
+| `0` | 成功 | HTTP 2xx 且响应 `ok:true` | 无——转写已注入主链（`supervisor.say`） |
+| `2` | **参数或依赖错** | 缺 `--audio`、音频文件不存在 / 读不到、`--transcriber` 写法非法、`cmd:` 里的可执行文件不存在 | 先修命令 / 路径 / 装好 ASR CLI 再重跑；**本地**问题，重试无用 |
+| `3` | **转写失败** | 同名 `.txt` 读失败、`cmd:` 非 0 退出或超时、转写清洗后为空 | 换一段音频 / 重说 / 检查 ASR 命令；重发同样为空 |
+| `4` | **推送失败** | HTTP 非 2xx（`400` / `401` / `403` / `405` / `415` / `503`）**或**请求发不出去（连接被拒 = 服务没起；超时） | 按下表 `error.code` 逐条处置；`transport` / `timeout` 退避 1–2 s 重试 |
+| `5` | **服务端 `ok:false`** | 目前只有 `busy`：主链忙碌，本条已被丢弃 | 等 2–5 s 再发（立即重试只会继续 `busy`） |
+
+> 同一张表也写在端点契约里（[`docs/voice-input.md`](../../voice-input.md) §4.5），
+> 两边由不同轨道维护，**以脚本 `EXIT_*` 常量为代码侧真源**。
 
 服务端错误码 → 处置（脚本已内置同一张表，`ERROR_HINTS`）：
 

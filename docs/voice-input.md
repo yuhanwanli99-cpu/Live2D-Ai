@@ -13,6 +13,10 @@
 文本归一化、成功响应回显 `backend` / `locale`；sidecar 侧补齐 6 类失败的
 逐条退避（§4.4）。
 
+**产品级加强波次的变更**（同样 `0.2.0-rc.3` 内，**不 bump 版本**）：前端 Mod 面板
+把三个字段说成人话并显示**当前生效值**（§1.3）；新增 Mod 一次性命令 `selftest`
+（面板「检查配置」按钮，§5.1）；sidecar 退出码做成「码 → 一句话人话 → 处置」表（§4.5）。
+
 ---
 
 ## 0. 边界：ASR 不在主仓，在 sidecar
@@ -80,6 +84,22 @@ handler 从 Mod config 读 `locale`（缺省 `zh-CN`）并传给
 - **不影响 ASR 引擎选型**——引擎在 sidecar，由用户的 `--transcriber` 决定；
 - **不随请求发给 sidecar**——sidecar 是推模式，只 POST 文本；
 - 成功响应回显生效的 `locale`。
+
+### 1.3 说人话：这三个字段到底是什么
+
+这一段与前端 Mod 面板上的说明**逐字同源**——用户不读源码也能答上来：
+
+- **`backend = mock`**：**没有 ASR**。由集成方 / 测试**直接喂**转写文本，
+  屏幕上不会凭空出现你说的话。
+- **`backend = sidecar`**：**外部 ASR 进程**（在用户机器上）自己识别，再把文本
+  **推**到 `POST /api/v1/voice/transcript`。**Rust 侧从不开 socket、也不会主动
+  请求 sidecar**——这是推模式，不是拉模式。
+- **`locale`**：只影响转写文本的**归一化**（CJK 词间空格 / 中英边界，§6.1），
+  **不是「识别语言开关」**。识别语言由 sidecar 的 `--transcriber` 决定；
+  `locale` 也不会随请求发给 sidecar。
+
+写错时的行为是**宽容**的（不会让链路死掉），但自检会点名（§5.1）：
+未知 `backend` 值 → 按 `mock` 处理；非法 `locale`（空值除外）→ 归一化落到「拉丁」档。
 
 ---
 
@@ -182,6 +202,25 @@ HTTP **`200`**（刻意，**不用** 5xx）：请求格式没问题，是主链�
 `timeout` 与 `transport` 归**同一个退出码 4**，但打印不同分类
 （`report_send_failure` 判定 `TimeoutError` / `socket.timeout`）。
 
+### 4.5 sidecar 退出码表（码 → 一句话人话 → 处置）
+
+这是 **sidecar 脚本**（`docs/examples/voice-sidecar/voice_sidecar.py`）的进程退出码，
+与服务端 `error.code` 是**两层**：退出码是「脚本怎么结束的」，`error.code` 是
+「服务端为什么拒绝」。代码侧真源是脚本里的 `EXIT_*` 常量；`--selftest` 逐条断言，
+sidecar README §5 是同一张表。
+
+| 退出码 | 一句话人话 | 触发 | 处置 |
+|---|---|---|---|
+| `0` | 成功 | HTTP 2xx 且响应 `ok:true` | 无——转写已注入主链 |
+| `2` | 参数或依赖错 | 缺 `--audio`、音频文件不存在 / 读不到、`--transcriber` 写法非法、`cmd:` 里的可执行文件不存在 | 先修命令 / 路径 / 装好 ASR CLI 再重跑；**本地**问题，重试无用 |
+| `3` | 转写失败 | 同名 `.txt` 读失败、`cmd:` 非 0 退出或超时、转写清洗后为空 | 换一段音频 / 重说 / 检查 ASR 命令；重发同样为空 |
+| `4` | 推送失败 | HTTP 非 2xx（`400` / `401` / `403` / `405` / `415` / `503`）**或**请求发不出去（连接被拒 = 服务没点火；超时） | 按 §4.3 的 `error.code` 逐条处置；`transport` / `timeout` 退避 1–2 s 重试 |
+| `5` | 服务端 `ok:false` | 目前只有 `busy`：主链忙，本条已丢弃 | 等 2–5 s 再发（立即重试只会继续 `busy`） |
+
+> **`0` 之外的码没有「重试就好」这回事**：`2` 是本地错、`3` 是这段音频没内容、
+> `5` 是主链忙。只有 `4` 里的 `transport` / `timeout` 与 `5` 值得退避重试，
+> 其余**先修再发**（与 §4.4 的 `fix` / `backoff` / `drop` 策略一一对应）。
+
 ---
 
 ## 5. 启停语义（唯一真源 = Mod 的 `enabled`）
@@ -199,6 +238,34 @@ HTTP **`200`**（刻意，**不用** 5xx）：请求格式没问题，是主链�
 
 > 为什么缺省停用（而 `external-input` 缺省启用）：直播弹幕是「装好就能用」，
 > 语音还需要用户自己装 ASR —— 没装之前启用它只会让每一次注入都 403。
+
+### 5.1 配置自检：Mod 一次性命令 `selftest`（面板「检查配置」）
+
+前端 Mod 面板的「检查配置」按钮走基座的一次性命令通道：
+
+```http
+POST /api/v1/mods/voice-input/command
+Content-Type: application/json
+
+{"command":"selftest"}
+```
+
+成功 `200 {"ok":true,"result":{…}}`；未知命令 `409 unsupported_command`；
+Mod 未启用 / worker 正忙 `503 command_unavailable`（**可重试**）。`result` 由
+`live2d_ai_mod_voice_input::config_selftest` 产生，**只回结论、不回 token 明文**：
+
+| key | 语义 |
+|---|---|
+| `ok` | `problems` 为空（`backend` 与 `locale` 都自洽） |
+| `backend` / `backend_valid` / `backend_defaulted` | 生效后端 / 是否已知 / 是否走了缺省 |
+| `locale` / `locale_valid` / `locale_defaulted` / `locale_profile` | 生效 locale / 是否合法 BCP-47 / 是否缺省 / 归一化档（`cjk` / `latin`） |
+| `token_set` | 是否配了 token（**只回布尔**，绝不回明文 / 长度） |
+| `route` / `opens_network` | 本地路由（`local_inject` / `accept_push`）/ Rust 是否开 socket（恒 `false`） |
+| `problems` | 硬问题：`backend` 配错、`locale` 非法 |
+| `notes` | 提醒：字段走了缺省、`backend=sidecar` 未设 token |
+
+它把「宽容回落」造成的**名实不符**（界面写着 `sidecar`、实际按 `mock` 跑）变成一次
+可点的自检；回归见 Mod crate 的 `selftest_*` / `command_*`。
 
 ---
 
@@ -314,18 +381,20 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 | 你自己在键盘上打的一句话 | 前端聊天框（WS） | 一次输入 = 一次会话，不需要外部注入口 |
 | 想给「转写」加前缀 / 模板 | `/api/v1/external/chat` | voice 端点**刻意没有** `text_template` / `prefix`（语音不做模板渲染；要改文案请改人设） |
 
-**差异明细**：
+**一页对照**（voice-input vs external-input，逐维度）：
 
-| 维度 | `/api/v1/external/chat` | `/api/v1/voice/transcript` |
+| 维度 | `/api/v1/external/chat`（external-input） | `/api/v1/voice/transcript`（voice-input） |
 |---|---|---|
-| 语义 | 任意外部事件（弹幕 / 礼物 / webhook） | **语音转写**（一段音频 → 一句话） |
-| 上游 Mod | `external-input` | `voice-input` |
-| 清洗 | 无（只有 `prefix` / `text_template` 渲染） | **`clean_transcript` + locale 归一化** |
-| 错误面 | `invalid_payload` / `text_too_long` | 多一个 **`empty_transcript`** |
-| token env | `EXTERNAL_INPUT_TOKEN` | `VOICE_INPUT_TOKEN` |
+| 入口端点 | `POST /api/v1/external/chat` | `POST /api/v1/voice/transcript` |
+| 文本来源 | 弹幕 / 礼物 / webhook / 任意外部文本事件（外部进程 POST） | 一段音频的 ASR 转写（sidecar 识别后**推**到端点；Rust 不开 socket） |
+| 清洗语义 | **无清洗**；只做 `prefix` / `text_template` 渲染（要什么文案自己给） | `clean_transcript`（零宽 / 控制符 / 空白折叠）+ locale 归一化；空白转写 → `400 empty_transcript` |
+| token 语义 | `EXTERNAL_INPUT_TOKEN`（env 优先）→ Mod config `token` → 不鉴权；请求侧 body `token` 或 `Authorization: Bearer`；**永不回显** | 同左，只是 env 名换成 `VOICE_INPUT_TOKEN`、回落 voice-input Mod config `token` |
+| locale | 无（不涉及文本归一化） | Mod config `locale`（缺省 `zh-CN`）；**只**影响归一化档（CJK 词间空格 / 中英边界，§6.1），不选 ASR 引擎、不发给 sidecar |
+| 典型场景 | 直播间弹幕 / 礼物上屏（缺省启用，装好就能用） | 语音对讲 / 录音转写（缺省停用，等用户装好 ASR） |
+| 失败码 | `invalid_payload` / `text_too_long` / `unauthorized` / `mod_disabled` / `origin_denied` / `origin_required` / `405` / `415` / `503` / `busy`（200 `ok:false`） | 同左 + **`empty_transcript`**；sidecar 进程退出码另见 §4.5 |
+| 上游 Mod / 启停 | `external-input`，**缺省启用**（直播刚需） | `voice-input`，**缺省停用**（用户没装 ASR 前启用只会 403） |
 | Mod config | `token` / `prefix` / `text_template` / `listen_port` | `token` / `locale` / `backend` |
-| 成功响应 | `{"ok":true,"endpoint":"external.chat"}` | `{"ok":true,"text":"…","backend":"…","locale":"…"}` |
-| 缺省启用 | **是**（直播刚需） | **否**（等用户装好 ASR） |
+| 成功响应 | `{"ok":true,"endpoint":"external.chat",…}` | `{"ok":true,"text":"…","backend":"…","locale":"…"}` |
 
 **为什么选专用端点（已钉死，Wave 2 计划 §3A 选项 B）**：
 
@@ -342,6 +411,11 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 
 > 计划里把这个二选一列为「集成 PR 的决定」；Wave 2 A 轨就是它，
 > 所以 `docs/examples/voice-sidecar/README.md` 的「本分支未实现」占位已整体重写。
+
+> **交叉引用写在这里**（`docs/external-input.md` 由 external-input 轨道维护，
+> 本轨不修改它）：`/api/v1/external/chat` 的完整契约——token 优先级、
+> `prefix` / `text_template` 渲染语义、6 条 curl、错误表——**以
+> `docs/external-input.md` 为权威**；本页 §8 只做上面这张一页对照。
 
 ---
 
@@ -364,13 +438,16 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 | 层 | 位置 |
 |---|---|
 | HTTP handler（安全 + 门禁 + token + backend/locale + 清洗归一化 + say） | `crates/live2d-ai-desktop/src/web_api/voice_routes.rs` |
-| handler 回归（**27 条**） | `crates/live2d-ai-desktop/src/web_api/voice_routes_tests.rs` |
+| handler 回归（**29 条**） | `crates/live2d-ai-desktop/src/web_api/voice_routes_tests.rs` |
 | Mod（静态 `settings_spec` / `clean_transcript` / `normalize_for_locale` / `prepare_transcript` / `inject_transcript` / `RustRoute`） | `crates/live2d-ai-mod-voice-input/src/lib.rs` + `src/normalize.rs` |
-| Mod 回归（**21 条**） | `crates/live2d-ai-mod-voice-input/src/tests.rs` |
+| Mod 配置自检（纯函数，`command("selftest")` 的真源） | `crates/live2d-ai-mod-voice-input/src/selftest.rs` |
+| Mod 回归（**29 条**） | `crates/live2d-ai-mod-voice-input/src/tests.rs` |
+| 产品面板（人话解释 / 当前生效值 / 检查配置 / 出错怎么办） | `shell/flutter/lib/settings/mods/voice_input_panel.dart` |
+| 面板回归（**7 条**） | `shell/flutter/test/voice_input_panel_test.dart` |
 | sidecar 示例 + `--selftest`（70 项）+ 退避表 | `docs/examples/voice-sidecar/` |
 | 接线清单 | `docs/plans/parallel-mods/REGISTER-voice-sidecar-v1.md` |
 
-回归覆盖面（`voice_routes_tests.rs`，27 条）：路径不命中 → `None`、405（多种方法）、
+回归覆盖面（`voice_routes_tests.rs`，29 条）：路径不命中 → `None`、405（多种方法）、
 415（错 CT / 缺 CT）、403（坏 Origin / 缺 Origin）、403 `mod_disabled`、
 门禁三态（停用 403 / 启用过门禁 / 不在册不设门禁）、`invalid_payload` 四种形态、
 `empty_transcript` 与 `invalid_payload` 区分、`text_too_long` + 2000 边界、
@@ -378,4 +455,11 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 `effective_token` 优先级纯函数、`check_token` / `bearer_token` 纯函数、
 200 成功回显处理后文本 + `backend` / `locale`（缺省 mock/zh-CN）、
 **`sidecar` 分支 + config `en-US` 归一化**、**黑洞端点下不等网络**、
-200 busy（`ok:false`，确定性构造 in-flight 回合）、空转写不占 `say` 缓冲。
+200 busy（`ok:false`，确定性构造 in-flight 回合）、空转写不占 `say` 缓冲、
+**`backend` 配错回落 mock 在响应里可观察**、**非法 `locale` 回显并按拉丁档归一化**。
+
+Mod crate（`tests.rs`，29 条）另外覆盖：`backend` / `locale` 配置解析与回落、
+清洗与两档归一化的纯函数、注入只碰 `say_tx`（`action_tx` 休眠）、
+**配置自检 `selftest`**（缺省自洽 / backend 配错点名 / locale 非法点名 /
+token 明文绝不出现在结果里 / sidecar 未设 token 只提醒）与命令通道
+（`selftest` 被认识、未知命令回 `UnsupportedCommand`）。
