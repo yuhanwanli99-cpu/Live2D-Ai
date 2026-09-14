@@ -7,9 +7,9 @@
 //!
 //! # 边界（Wave 1；半成品是刻意的）
 //!
-//! - **不注册**进 `AVAILABLE_MOD_FACTORIES`：注册由集成 PR 按
-//!   `docs/plans/parallel-mods/REGISTER-voice-input.md` 统一做；本分支不得碰
-//!   FACTORIES / `mod_count_*` / 缺省 manifest / 全局版本（PARALLEL-PROTOCOL §3）。
+//! - **注册面**：Wave 1 分支不注册；`0.2.0-rc.2` 集成时已按 REGISTER 装配进
+//!   `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，**缺省停用**，ASR 未接线）；
+//!   启停唯一真源仍是 manifest `enabled`（`default_mods_manifest` 未收录）。
 //! - **不引入**任何 ASR 依赖（whisper / onnx / 音频解码）：完整 ASR 不进 Rust 核心。
 //! - **不接**动作通道（`action_tx` 自 rc.2 起休眠）；v0 **不订阅** host 事件。
 //!
@@ -265,7 +265,7 @@ impl ModRuntime for VoiceInputRuntime {
     }
 }
 
-/// 供集成 PR 装配 `AVAILABLE_MOD_FACTORIES` 的工厂单例（**本分支不注册**）。
+/// 装配进 `AVAILABLE_MOD_FACTORIES` 的工厂单例（`0.2.0-rc.2` 集成起已注册，缺省停用）。
 pub static FACTORY: VoiceInputFactory = VoiceInputFactory;
 
 #[cfg(test)]

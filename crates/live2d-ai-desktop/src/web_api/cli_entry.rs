@@ -627,5 +627,14 @@ mod tests {
             m["mods"].get("local-tts").is_none(),
             "TTS 是核心链路（live2d-ai.toml 的 [tts]），不该再以 Mod 形式出现"
         );
+        // 0.2.0-rc.2：Wave 1 的 voice-input / wallpaper 只注册、**缺省停用**。
+        assert!(
+            m["mods"].get("voice-input").is_none(),
+            "voice-input 缺省停用（ASR 后端未接线），不得进缺省 manifest"
+        );
+        assert!(
+            m["mods"].get("wallpaper").is_none(),
+            "wallpaper 缺省停用（mode 缺省 off），不得进缺省 manifest"
+        );
     }
 }

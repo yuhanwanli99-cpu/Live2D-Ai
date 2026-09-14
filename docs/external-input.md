@@ -237,4 +237,4 @@ print(send_to_live2d("收到新邮件提醒"))
 |---|---|
 | HTTP handler（安全 + 门禁 + 模板 + token） | `crates/live2d-ai-desktop/src/web_api/external_routes.rs` |
 | Mod（静态 settings_spec / 模板纯函数 / say） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
-| 缺口断言 | `mod_count_is_three`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀） |
+| 缺口断言 | `mod_count_is_five`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀） |

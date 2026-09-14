@@ -1,8 +1,10 @@
 # 壁纸 Mod 策略 v0（`live2d-ai-mod-wallpaper`）
 
-> **状态**：2026-09-14 Wave 1（分支 `mod/wallpaper` @ `2d492447`）起草。
-> **未注册**进 `AVAILABLE_MOD_FACTORIES`——注册与数量断言由集成 PR 按
-> [`../plans/parallel-mods/REGISTER-wallpaper.md`](../plans/parallel-mods/REGISTER-wallpaper.md) 统一做。
+> **状态**：2026-09-14 Wave 1（分支 `mod/wallpaper` @ `2d492447`）起草；
+> `0.2.0-rc.2` 集成时按
+> [`../plans/parallel-mods/REGISTER-wallpaper.md`](../plans/parallel-mods/REGISTER-wallpaper.md)
+> **已注册**进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，**缺省停用**）。
+> §5 的决策落点仍是**明文占位**——本轮未接线。
 > 上层协议：[`../plans/parallel-mods/PARALLEL-PROTOCOL-2026-09-14.md`](../plans/parallel-mods/PARALLEL-PROTOCOL-2026-09-14.md)；
 > Mod 通用契约：[`mod-product-chain.md`](mod-product-chain.md)。
 

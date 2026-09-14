@@ -56,17 +56,24 @@ mod platform;
 /// 2026-09-12（rc.2）：director Mod 已删除——它唯一的职责是**驱动序列**，
 /// 而动作在产品路径上不存在（见 `docs/architecture/core-chain-baseline.md` §3.3）。
 /// 归档点在分支 `archive/action-layer-p6`。**不要再挂回去**：
-/// 下方 `mod_count_is_three` 是防回归断言。
+/// 下方 `mod_count_is_five` 是防回归断言。
 ///
 /// 2026-09-14（0.2.0-rc.1）：**local-llm 已废除启动**（移出本表）——本地推理进程
 /// 管理/探活不再是产品路径；LLM 端点由 `live2d-ai.toml` 的 `[llm]` 人工配置。
 /// crate 暂留仓库（§deprecated），但 **不再注册、不再编译进 binary**。数字 4 → 3。
+///
+/// 2026-09-14（0.2.0-rc.2，Wave 1 合并）：追加 Wave 1 的 `voice-input` / `wallpaper`
+/// 两个工厂（均**缺省停用**，`cli_entry::default_mods_manifest` 未收录）。数字 3 → 5。
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
     // 0.2.0-rc.1 起**缺省启用**（直播弹幕/礼物经 sidecar 注入，见 docs/external-input.md）。
     &live2d_ai_mod_external_input::FACTORY,
     &live2d_ai_mod_pet_desktop::FACTORY,
     // rc.4 M5：角色卡标准 Mod（缺省停用；启用后把卡合成 system_prompt 写回主链）。
     &live2d_ai_mod_persona::FACTORY,
+    // Wave 1（0.2.0-rc.2）：语音转写 → 清洗 → say_tx；ASR 后端尚未接线，**缺省停用**。
+    &live2d_ai_mod_voice_input::FACTORY,
+    // Wave 1（0.2.0-rc.2）：壁纸策略 v0（mode 缺省 off），**缺省停用**。
+    &live2d_ai_mod_wallpaper::FACTORY,
 ];
 
 mod repl;
@@ -425,19 +432,20 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// 防回归：**恰好 4 个** Mod 工厂。
+    /// 防回归：**恰好 5 个** Mod 工厂。
     ///
     /// 2026-09-12（rc.2）director 已删除——它是动作序列的唯一驱动方，而动作在产品
     /// 路径上不存在。数字断言存在的意义就是「不要再挂回去」：若有人把 director（或
     /// 任何新的动作 Mod）加回静态注册，这条会立刻红。
     /// rc.4 M5：+1 个角色卡 Mod（`persona`），数字与之同步。
     /// 0.2.0-rc.1：**local-llm 移出** → 4 → 3。数字断言继续守住「别再挂回来」。
+    /// 0.2.0-rc.2（Wave 1）：+ `voice-input` / `wallpaper` → 3 → 5。
     #[test]
-    fn mod_count_is_three() {
+    fn mod_count_is_five() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            3,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 3 Mod factories (external-input, pet-desktop, persona)"
+            5,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 5 Mod factories (external-input, pet-desktop, persona, voice-input, wallpaper)"
         );
     }
 
@@ -450,7 +458,14 @@ mod tests {
         ids.sort();
 
         // local-llm 已废除（0.2.0-rc.1）：不在此表即不在启动注册表。
-        let mut expected = vec!["external-input", "pet-desktop", "persona"];
+        // 0.2.0-rc.2（Wave 1）：+ voice-input / wallpaper。
+        let mut expected = vec![
+            "external-input",
+            "pet-desktop",
+            "persona",
+            "voice-input",
+            "wallpaper",
+        ];
         expected.sort();
 
         assert_eq!(
