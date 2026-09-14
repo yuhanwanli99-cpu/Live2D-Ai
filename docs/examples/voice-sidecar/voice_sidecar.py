@@ -33,7 +33,8 @@
     2  参数或依赖错（缺 --audio / 文件读不到 / transcriber 写法非法 /
        `cmd:` 里的可执行文件不存在）
     3  转写失败（.txt 读失败 / 命令非 0 退出 / 超时 / 清洗后为空）
-    4  HTTP 非 2xx **或**请求发不出去（连接被拒 / 超时）
+    4  HTTP 非 2xx **或**请求发不出去——超时（timeout）与连接被拒（transport）
+       归同一退出码，但**分别**打印退避说明（见 RETRY_POLICY / README §5）
     5  服务端 `ok:false`（当前只有 `busy`：主链忙碌，本条已被丢弃，请退避）
 """
 
@@ -43,6 +44,7 @@ import argparse
 import json
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import unicodedata
@@ -88,6 +90,30 @@ ERROR_HINTS = {
     "method_not_allowed": "方法不对：本端点只接受 POST",
     "unsupported_media_type": "Content-Type 必须是 application/json",
     "supervisor_unavailable": "supervisor 未就绪（配置不完整 / 尚未保存）：先让主链跑起来",
+}
+
+#: sidecar 侧会遇到的 6 类失败（README §5 的代码侧真相；`--selftest` 逐条断言）。
+#: 前 4 类是**服务端回包**（401 / 403 / 400 empty / 200 busy），
+#: 后 2 类是**发送方本地**（timeout / transport）——它们没有 `error.code`。
+SIDECAR_FAILURES = (
+    "unauthorized",      # 401
+    "mod_disabled",      # 403
+    "busy",              # 200 + ok:false
+    "empty_transcript",  # 400
+    "timeout",           # 本机等待超时
+    "transport",         # 连接被拒 / 不可达
+)
+
+#: 失败码 → (退避策略, 一句可执行处置)。
+#: 策略取值：`fix`（先修配置/状态再试） / `backoff`（退避后重试） / `drop`（不要重试）。
+RETRY_POLICY = {
+    "unauthorized": ("fix", "对齐 --token / VOICE_INPUT_TOKEN 与服务端后再发；盲目重试只会继续 401"),
+    "mod_disabled": ("fix", "先启用 voice-input Mod 再发"),
+    "busy": ("backoff", "等 2–5s 再发（本条已被丢弃）；立即重试只会继续 busy"),
+    "empty_transcript": ("drop", "换一段音频 / 重说；重发同样为空"),
+    "text_too_long": ("drop", "切短再发（服务端按清洗后长度判定）"),
+    "timeout": ("backoff", "等 1–2s 再发；连续超时先看后端日志"),
+    "transport": ("backoff", "先确认服务已点火，再退避 1–2s 重试"),
 }
 
 
@@ -194,6 +220,30 @@ def hint_for_code(code: str | None) -> str:
     if code and code in ERROR_HINTS:
         return ERROR_HINTS[code]
     return "见 docs/voice-input.md §4 错误码表"
+
+
+def policy_for(code: str | None) -> tuple[str, str]:
+    """失败码 → (退避策略, 处置)。未知码 → 保守退避 + 指路。"""
+    if code and code in RETRY_POLICY:
+        return RETRY_POLICY[code]
+    return ("backoff", "未知码：退避 1–2s 重试，并查 docs/voice-input.md §4")
+
+
+def is_timeout(exc: object) -> bool:
+    """发送异常是否属于「超时」（区别于连接被拒 / 不可达）。"""
+    return isinstance(exc, (TimeoutError, socket.timeout))
+
+
+def report_send_failure(reason: object) -> int:
+    """发送失败（timeout / transport）→ 分类 + 退避说明，返回退出码 4。"""
+    code = "timeout" if is_timeout(reason) else "transport"
+    policy, advice = policy_for(code)
+    label = "请求超时" if code == "timeout" else "请求发不出去"
+    print(f"[voice-sidecar] {label}：{reason}", file=sys.stderr)
+    print(f"[voice-sidecar] 退避（{policy}）：{advice}", file=sys.stderr)
+    if code == "transport":
+        print("[voice-sidecar] 服务是否已点火？（./scripts/ignite.sh）", file=sys.stderr)
+    return EXIT_HTTP
 
 
 # ------------------------------------------------------------------ 转写后端
@@ -357,7 +407,22 @@ def run_selftest() -> int:
         except UsageError:
             checks += 1
 
-    # --- 6. fixtures ---
+    # --- 6. 失败分类 / 退避表（README §5 的代码侧真相） ---
+    for key in SIDECAR_FAILURES:
+        policy, advice = policy_for(key)
+        check(f"退避表 {key} 有策略", policy in ("fix", "backoff", "drop"), True)
+        check(f"退避表 {key} 有说明", bool(advice), True)
+    check("401 先修配置(fix)", policy_for("unauthorized")[0], "fix")
+    check("403 先修配置(fix)", policy_for("mod_disabled")[0], "fix")
+    check("busy 退避(backoff)", policy_for("busy")[0], "backoff")
+    check("empty 不重试(drop)", policy_for("empty_transcript")[0], "drop")
+    check("timeout 退避(backoff)", policy_for("timeout")[0], "backoff")
+    check("transport 退避(backoff)", policy_for("transport")[0], "backoff")
+    check("未知码有兜底", policy_for("nope")[0] in ("fix", "backoff", "drop"), True)
+    check("TimeoutError 算超时", is_timeout(TimeoutError()), True)
+    check("连接被拒不算超时", is_timeout(OSError("connection refused")), False)
+
+    # --- 7. fixtures ---
     here = os.path.dirname(os.path.abspath(__file__))
     wav = os.path.join(here, "fixtures", "fake_zh.wav")
     check("fixtures wav 存在", os.path.isfile(wav), True)
@@ -459,12 +524,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         status, body = post_transcript(url, payload, token, args.timeout)
     except urllib.error.URLError as exc:
-        print(f"[voice-sidecar] 请求发不出去：{exc.reason}", file=sys.stderr)
-        print("[voice-sidecar] 服务是否已点火？（./scripts/ignite.sh）", file=sys.stderr)
-        return EXIT_HTTP
+        # 连接超时会被包进 URLError.reason（socket.timeout）；区分 timeout / transport。
+        return report_send_failure(exc.reason)
+    except (TimeoutError, socket.timeout) as exc:
+        return report_send_failure(exc)
     except OSError as exc:
-        print(f"[voice-sidecar] 请求发不出去：{exc}", file=sys.stderr)
-        return EXIT_HTTP
+        return report_send_failure(exc)
 
     code = body_code(body)
     exit_code, summary = classify_http(status, body)
@@ -473,6 +538,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"[voice-sidecar] {summary}", file=sys.stderr)
         print(f"[voice-sidecar] 处置：{hint_for_code(code)}", file=sys.stderr)
+        policy, advice = policy_for(code)
+        print(f"[voice-sidecar] 退避（{policy}）：{advice}", file=sys.stderr)
         if code == "busy":
             print("[voice-sidecar] 服务端返回 200 + ok:false 是**刻意**的：本条已丢弃，退避即可", file=sys.stderr)
     return exit_code

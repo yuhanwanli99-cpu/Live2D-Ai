@@ -72,14 +72,18 @@ fn ctx_allow_no_origin() -> ServerContext {
     dummy_ctx(crate::web_api::security::SecurityContext::new(18099, true))
 }
 
-/// 用真实工厂表 + 指定 manifest 装配注册表（启停门禁测试用）。
-fn ctx_with_manifest(manifest: &serde_json::Value) -> ServerContext {
-    let sec = crate::web_api::security::SecurityContext::new(18099, true);
-    let mut ctx = dummy_ctx(sec);
+/// 给已有 ctx 装上「真实工厂表 + 指定 manifest」的注册表。
+fn with_manifest(mut ctx: ServerContext, manifest: &serde_json::Value) -> ServerContext {
     ctx.mod_registry = Arc::new(std::sync::Mutex::new(
         crate::mod_registry::ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, manifest),
     ));
     ctx
+}
+
+/// 用真实工厂表 + 指定 manifest 装配注册表（启停门禁测试用）。
+fn ctx_with_manifest(manifest: &serde_json::Value) -> ServerContext {
+    let sec = crate::web_api::security::SecurityContext::new(18099, true);
+    with_manifest(dummy_ctx(sec), manifest)
 }
 
 /// 不可达的 LLM 端点（连接被立即拒绝：回合很快失败，不影响断言）。
@@ -538,9 +542,11 @@ fn success_returns_200_with_cleaned_text() {
     assert_eq!(v["ok"], serde_json::json!(true), "got: {b}");
     assert_eq!(
         v["text"],
-        serde_json::json!("你好 世界"),
-        "响应必须回**清洗后**文本（证明复用 clean_transcript）: {b}"
+        serde_json::json!("你好世界"),
+        "响应必须回**清洗 + 缺省 zh-CN 归一化**后的文本（证明复用 Mod 纯函数）: {b}"
     );
+    assert_eq!(v["backend"], serde_json::json!("mock"), "缺省 backend: {b}");
+    assert_eq!(v["locale"], serde_json::json!("zh-CN"), "缺省 locale: {b}");
 
     handle.quit();
     let _ = std::fs::remove_file(&tmp);
@@ -705,4 +711,64 @@ fn bearer_token_extracts_only_prefixed_values() {
     assert_eq!(bearer_token(Some("abc")), None);
     assert_eq!(bearer_token(Some("Bearer ")), None);
     assert_eq!(bearer_token(None), None);
+}
+
+// ---------------------------------------------- backend / locale（Wave 3 A 轨）
+
+/// sidecar 是一条**明确分支**（响应回显 `sidecar`），且 locale 取自 Mod config。
+#[test]
+fn sidecar_backend_branch_uses_config_locale() {
+    let (ctx, handle, tmp) = ctx_with_supervisor("side-b", UNREACHABLE_LLM);
+    let ctx = with_manifest(
+        ctx,
+        &serde_json::json!({
+            "mods": {"voice-input": {"enabled": true,
+                "config": {"backend": "sidecar", "locale": "en-US"}}}
+        }),
+    );
+    let resp = call(
+        &ctx,
+        &Method::Post,
+        VOICE_TRANSCRIPT_PATH,
+        r#"{"text":"打开空调wifi"}"#,
+        None,
+        Some("application/json"),
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(200));
+    let v: serde_json::Value = serde_json::from_str(&body_of(resp)).unwrap();
+    assert_eq!(v["backend"], serde_json::json!("sidecar"));
+    assert_eq!(v["locale"], serde_json::json!("en-US"));
+    assert_eq!(
+        v["text"],
+        serde_json::json!("打开空调 wifi"),
+        "en-US 档补中英边界（locale 真的影响 handler 归一化）"
+    );
+    handle.quit();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// handler **不等任何网络应答**：黑洞 LLM 端点下分支仍立即 200。
+/// Rust 侧只往进程内 `say` channel 投递（`opens_network` 恒 `false`）。
+#[test]
+fn backend_branches_never_wait_on_network() {
+    let port = blackhole_endpoint();
+    let (ctx, handle, tmp) = ctx_with_supervisor("nonet", &format!("http://127.0.0.1:{port}/v1"));
+    let t0 = std::time::Instant::now();
+    let resp = call(
+        &ctx,
+        &Method::Post,
+        VOICE_TRANSCRIPT_PATH,
+        r#"{"text":"你好"}"#,
+        None,
+        Some("application/json"),
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(200));
+    assert!(
+        t0.elapsed() < std::time::Duration::from_secs(2),
+        "handler 不得等待任何网络应答"
+    );
+    handle.quit();
+    let _ = std::fs::remove_file(&tmp);
 }

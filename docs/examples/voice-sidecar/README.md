@@ -21,13 +21,13 @@
    │
    └─ POST /api/v1/voice/transcript  {"text": "...", "token"?: "..."}
           │
-          └─ Live2D-Ai: 清洗（再洗一次，服务端是权威）→ supervisor.say
+          └─ Live2D-Ai: 清洗 + locale 归一化（服务端是权威）→ supervisor.say
                  → LLM → TTS → 口型 → Live2D
 ```
 
 | 位置 | 做什么 | 交付物 |
 |---|---|---|
-| **Live2D-Ai 主仓（Rust）** | loopback 校验、token、启停门禁、`clean_transcript`、`supervisor.say` | `crates/live2d-ai-desktop/src/web_api/voice_routes.rs` + `live2d-ai-mod-voice-input` |
+| **Live2D-Ai 主仓（Rust）** | loopback 校验、token、启停门禁、`clean_transcript` + locale 归一化、`supervisor.say` | `crates/live2d-ai-desktop/src/web_api/voice_routes.rs` + `live2d-ai-mod-voice-input` |
 | **sidecar（本目录，Python）** | 拿音频 → 调 ASR → 清洗 → POST | `voice_sidecar.py` + `fixtures/` |
 | **主链路** | 与人设 / TTS / 口型共用一条链 | `supervisor` / `live2d-ai-runtime` |
 
@@ -39,29 +39,24 @@
 
 ## 2. 依赖
 
-- **Python 3.8+**，**只用标准库**（`argparse / json / os / shlex / subprocess /
-  sys / unicodedata / urllib`）——**不需要** `pip install`，没有 `requirements.txt`。
+- **Python 3.8+**，**只用标准库**（`argparse / json / os / shlex / socket /
+  subprocess / sys / unicodedata / urllib`）——**不需要** `pip install`，
+  没有 `requirements.txt`。
 - 想接真实 ASR：自己装好那个 CLI，用 `--transcriber cmd:"..."` 指过来即可
   （见 §8）。**不要**把 ASR 依赖加进 Rust workspace。
 
 ---
 
-## 3. 一条可复制命令
+## 3. 一条可复制命令（Wave 3 A 轨验收用的那条）
 
-先点火服务（另一个终端）：
-
-```bash
-./scripts/ignite.sh          # 默认 127.0.0.1:18080
-```
-
-再跑 sidecar（**干跑**，只打印要发的请求）：
+### 3.1 干跑（离线，不联网）
 
 ```bash
 python3 docs/examples/voice-sidecar/voice_sidecar.py \
   --audio docs/examples/voice-sidecar/fixtures/fake_zh.wav --dry-run
 ```
 
-输出：
+输出（本轮实跑）：
 
 ```
 [voice-sidecar] dry-run（未发请求）
@@ -69,22 +64,44 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
   body {"text": "把窗户关小一点"}
 ```
 
-去掉 `--dry-run` 就是真发送：
+### 3.2 端到端（真发送，三步）
 
 ```bash
+# ① 点火服务（另一个终端；默认 127.0.0.1:18080）
+./scripts/ignite.sh
+
+# ② 启用 voice-input Mod（缺省**停用**，不启用会回 403 mod_disabled）
+curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable
+
+# ③ 发这一段音频（去掉 --dry-run）
 python3 docs/examples/voice-sidecar/voice_sidecar.py \
   --audio docs/examples/voice-sidecar/fixtures/fake_zh.wav
 # [voice-sidecar] ok（HTTP 200）：已注入「把窗户关小一点」
 ```
+
+成功率取决于服务端 supervisor 是否就绪：未就绪 → `503 supervisor_unavailable`，
+主链忙 → `200 + ok:false busy`（**刻意不是 5xx**）。两者都打印退避说明（§5）。
+
+**想用麦克风**（真实录音，仍走同一条链）：先录一段 wav，再喂 `--audio`：
+
+```bash
+# 任选一种录音工具；下面这条录 3 秒
+arecord -f S16_LE -r 16000 -c 1 -d 3 /tmp/mic.wav   # 或: sox -d /tmp/mic.wav trim 0 3
+python3 docs/examples/voice-sidecar/voice_sidecar.py --audio /tmp/mic.wav \
+  --transcriber 'cmd:"whisper --model small --language zh --output_format txt --output_dir /dev/stdout"'
+```
+
+（麦克风只有配合真实 ASR CLI 才有意义——`fake` 后端不读音频内容，只找同名 `.txt`。）
 
 内置 fixture：`fixtures/fake_zh.wav`（16 kHz / 单声道 / 16-bit，0.25 s 静音，
 8044 字节）配同名 `fixtures/fake_zh.txt`（fake 后端的「转写结果」，首尾带空白，
 用来演示清洗）。**换任意音频文件**都能跑；没有同名 `.txt` 时用
 `--fake-text "..."` 或固定串。
 
-> ⚠️ `voice-input` Mod **缺省停用**。没启用时端点回 `403 mod_disabled`——
-> 在前端「Mod 管理」里打开，或：
-> `curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable`。
+> ⚠️ `backend` / `locale` 是**服务端** Mod config（前端「Mod 管理」或
+> `POST /api/v1/mods/voice-input/config`），**不是**本脚本的参数：sidecar 是推
+> 模式，只 POST 文本。`locale` 只影响**服务端**的 text 归一化（见
+> [`docs/voice-input.md`](../../voice-input.md) §6.1），不选 ASR 引擎。
 
 ---
 
@@ -98,7 +115,7 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 | `--fake-text <text>` | — | fake 后端在没有同名 `.txt` 时使用 |
 | `--url <url>` | `VOICE_INPUT_URL` | 缺省 `http://127.0.0.1:18080/api/v1/voice/transcript`；只给主机（如 `127.0.0.1:18080`）会自动补路径 |
 | `--token <token>` | `VOICE_INPUT_TOKEN` | 可选；以 `Authorization: Bearer` 头发送；**dry-run 里打码成 `***`** |
-| `--timeout <sec>` | — | 缺省 30 |
+| `--timeout <sec>` | — | 缺省 30。超时 → 退出码 4 + `timeout` 退避说明（§5.1） |
 | `--dry-run` | — | 只打印 URL + JSON，**不发请求** |
 | `--selftest` | — | 离线自检（见 §7），退出码 0 / 非 0 |
 
@@ -135,6 +152,24 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 **退避重试**即可，用 5xx 会诱导脚本/反向代理按「服务故障」重试到刷屏。
 脚本收到 `busy` 打印一行处置建议并以 `5` 退出，不会自动重发。
 
+### 5.1 逐条退避（`RETRY_POLICY`，`--selftest` 逐条断言）
+
+sidecar 侧的失败只有 6 类：前 4 类是**服务端回包**（带 `error.code`），
+后 2 类是**发送方本地**（没有 `error.code`）。
+
+| 失败（`code`） | 触发 | 退出码 | 策略 | 处置 |
+|---|---|---|---|---|
+| `unauthorized` | 401 | 4 | `fix` | 对齐 `--token` / `VOICE_INPUT_TOKEN` 与服务端后再发；盲目重试只会继续 401 |
+| `mod_disabled` | 403 | 4 | `fix` | 先启用 `voice-input` Mod 再发 |
+| `busy` | 200 + `ok:false` | 5 | `backoff` | 等 2–5 s 再发（本条已丢弃）；立即重试只会继续 busy |
+| `empty_transcript` | 400 | 4 | `drop` | 换一段音频 / 重说；重发同样为空 |
+| `timeout` | 本机等待 > `--timeout` | 4 | `backoff` | 等 1–2 s 再发；连续超时先看后端日志 |
+| `transport` | 连接被拒 / 不可达 | 4 | `backoff` | 先确认服务已点火（`./scripts/ignite.sh`），再退避 1–2 s 重试 |
+
+- `timeout` 与 `transport` 归**同一个退出码 4**，但打印不同的分类与退避说明
+  （`report_send_failure` 判定 `TimeoutError` / `socket.timeout`）；
+- 未知 `error.code` → 保守退避 + 指路 `docs/voice-input.md` §4。
+
 ---
 
 ## 6. `--dry-run`
@@ -158,12 +193,14 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 
 ```bash
 python3 docs/examples/voice-sidecar/voice_sidecar.py --selftest
-# [selftest] 全部通过（49 项检查；离线，未发起任何请求）
+# [selftest] 全部通过（70 项检查；离线，未发起任何请求）
 ```
 
 覆盖：**清洗语义**（折叠空白 / 全角空格 / 零宽与控制符 / 纯空白 → 空）、
 **payload 形状**（`text` 必带、`token` 非空才带、可 JSON 往返、打码）、
 **错误码映射**（HTTP + `ok:false` → 退出码，每个服务端错误码都有处置建议）、
+**失败退避表**（`SIDECAR_FAILURES` 六类逐条有策略与说明；
+`timeout` / `transport` 判定正确）、
 **URL 归一化**、**transcriber 解析**、**fixtures 存在**。
 退出码 `0` = 全过，非 `0` = 有失败项（逐条打印到 stderr）。**不发起任何网络请求**。
 
@@ -186,8 +223,8 @@ python3 voice_sidecar.py --audio mic.wav --transcriber 'cmd:"/opt/asr/bin/transc
 
 - 命令 stdout = 转写文本（多余日志请写到 stderr）；
 - 命令非 0 退出 / 超时 → 退出码 `3`；可执行文件不存在 → 退出码 `2`；
-- 脚本自己也会清洗一遍（与服务端同语义），服务端仍会**再洗一次**并做长度判定
-  （权威在服务端）。
+- 脚本自己也会清洗一遍（与服务端同语义），服务端仍会**再洗一次**并做 locale
+  归一化与长度判定（权威在服务端）。
 
 **红线**：不要为了「省一个进程」把 ASR SDK / 模型 / 推理运行时加进任何 Rust crate，
 也不要在 Mod 里开 socket 或读进程环境——那是 `PLAN-voice-input.md` §Forbidden 与
@@ -203,11 +240,11 @@ python3 voice_sidecar.py --audio mic.wav --transcriber 'cmd:"/opt/asr/bin/transc
 |---|---|---|
 | 语义 | 任意外部事件（弹幕 / 礼物 / webhook） | **语音转写**（一段音频 → 一句话） |
 | 上游 | `external-input` Mod | `voice-input` Mod |
-| 清洗 | 无（只有 Mod 的 `prefix` / `text_template` 渲染） | **`clean_transcript`**（零宽 / 控制符 / 空白折叠） |
+| 清洗 | 无（只有 Mod 的 `prefix` / `text_template` 渲染） | **`clean_transcript` + locale 归一化**（零宽 / 控制符 / 空白折叠 / CJK 词间空格 / 中英边界） |
 | 错误面 | `invalid_payload` / `text_too_long` | 多一个 **`empty_transcript`**（清洗后为空单独报） |
 | token env | `EXTERNAL_INPUT_TOKEN` | `VOICE_INPUT_TOKEN` |
 | Mod config | `token` / `prefix` / `text_template` | `token` / `locale` / `backend` |
-| 成功响应 | `{"ok":true,"endpoint":"external.chat"}` | `{"ok":true,"text":"<清洗后文本>"}` |
+| 成功响应 | `{"ok":true,"endpoint":"external.chat"}` | `{"ok":true,"text":"<归一化后文本>","backend":"mock|sidecar","locale":"zh-CN"}` |
 | 缺省启用 | **是** | **否**（ASR 后端在用户机器上，装了再开） |
 
 **为什么选专用端点（而不是复用 external）**——已钉死（Wave 2 计划 §3A 选项 B）：
@@ -228,7 +265,7 @@ python3 voice_sidecar.py --audio mic.wav --transcriber 'cmd:"/opt/asr/bin/transc
 
 | 内容 | 位置 |
 |---|---|
-| 端点契约全文（curl / 错误码 / 门禁 / 安全） | [`docs/voice-input.md`](../../voice-input.md) |
+| 端点契约全文（curl / 错误码 / 门禁 / 安全 / 职责边界） | [`docs/voice-input.md`](../../voice-input.md) |
 | HTTP handler + 回归 | `crates/live2d-ai-desktop/src/web_api/voice_routes.rs`（+ `voice_routes_tests.rs`） |
-| Mod（静态 schema / `clean_transcript` / `inject_transcript`） | `crates/live2d-ai-mod-voice-input/src/lib.rs` |
+| Mod（静态 schema / `clean_transcript` / `normalize_for_locale` / `inject_transcript`） | `crates/live2d-ai-mod-voice-input/src/lib.rs` |
 | 同类 sidecar（B 站弹幕） | [`docs/examples/bilibili-sidecar/`](../bilibili-sidecar/) |
