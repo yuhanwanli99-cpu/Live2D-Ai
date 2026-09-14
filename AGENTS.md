@@ -12,7 +12,17 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.1.0-rc.5`（壳全局背景 + 与舞台同步，2026-09-14）**：
+- **当前版本 `0.2.0-rc.1`（Mod 纪元第一基线：external-input 直播刚需 + 社区许可，2026-09-14）**：
+  主链皮肤（LLM→TTS→口型→Live2D、壳/舞台背景）**冻结未改**。本版把**外部事件注入**
+  做成刚需：`POST /api/v1/external/chat` 契约文档化（text/token/Origin/loopback/忙碌/
+  启停门禁/模板前缀 + curl），**B 站抓取不在主仓，在 Win sidecar**
+  （`docs/examples/bilibili-sidecar/`：blivedm → 清洗 → POST）；`external-input` Mod 加强
+  （静态 `settings_spec` v2：`listen_port`/`token`/`text_template`/`prefix`；启停唯一真源 =
+  manifest `enabled`，停用 → `403 mod_disabled`；**缺省启用**）；**`local-llm` 废除启动**
+  （移出 `AVAILABLE_MOD_FACTORIES`，4→3；crate 暂留仓库并标 DEPRECATED，**禁止挂回**）；
+  `docs/architecture/mod-community-license.md` 写明注册/分发/许可边界。
+  发布说明 `docs/releases/v0.2.0-rc.1.md`；契约 `docs/external-input.md`。
+- **上一版 `0.1.0-rc.5`（壳全局背景 + 与舞台同步，2026-09-14）**：
   主链 LLM→TTS→口型→Live2D **一行未改**。本版只动前端显示层：`DisplayPrefs` 增加
   `shellImage` 与 `syncShellStageBg`（默认 `true`＝壳与舞台**共用同一张图**，
   `effectiveShellImage` 是一份真相）；壳根铺一层**固定 0.15 透明度**的全局背景
@@ -41,13 +51,16 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  4 个 Mod（external-input / pet-desktop / local-llm / persona）为 workspace crate；
-  **缺省只启用 `local-llm`**（`externally_managed=true`，见
-  `cli_entry::default_mods_manifest`），另三个缺省停用。**Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
-  `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）。
+  3 个 Mod（external-input / pet-desktop / persona）为 workspace crate；
+  **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
+  `cli_entry::default_mods_manifest`），pet-desktop / persona 缺省停用。
+  **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
+  **Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
+  `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
+  **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
   **director Mod 已于 `0.1.0-rc.2` 删除**（它是动作序列的唯一驱动方，而动作在产品路径上
   不存在；归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由
-  `main.rs` 的 `mod_count_is_four` 断言守住，**不要再挂回去**。
+  `main.rs` 的 `mod_count_is_three` 断言守住，**不要再挂回去**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -177,7 +190,7 @@
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
-护栏是两条断言：`main.rs::mod_count_is_four`（工厂数不得因动作 Mod 增加）与
+护栏是两条断言：`main.rs::mod_count_is_three`（工厂数不得因动作 Mod 增加）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
@@ -302,6 +315,23 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-14（v0.2.0-rc.1，Mod 纪元第一基线：external-input 直播刚需 + 社区许可）**：
+  版本线 `0.1.0-rc.5` → **`0.2.0-rc.1`**（不是补丁增量：外部事件成为一等刚需）。
+  **主链皮肤冻结**——LLM/TTS/口型/Live2D、壳/舞台背景一行未改。① **外部事件半成品做实**：
+  `POST /api/v1/external/chat` 契约重写（端点表 / token 优先级 env→Mod config→不鉴权 /
+  Origin+loopback / 忙碌 `ok:false` / 启停门禁 / 模板前缀 / 6 条 curl / 错误表），
+  并**写明「B 站抓取不在主仓，在 Win sidecar」**。② **`external-input` Mod 加强**：
+  工厂静态 `settings_spec` v2（去掉与 manifest 重复的 `enabled`；新增 `text_template`/`prefix`），
+  纯函数 `render_injected_text`/`render_from_config`/`token_from_config`；handler 加
+  `403 mod_disabled` 门禁并复用 Mod 纯函数；**修掉 Authorization Bearer 头未读取的缺陷**；
+  补 6 条 handler 回归（门禁三态 / Bearer / config token / 模板膨胀）与 10 条 Mod 规格/纯函数测试。③ **Win py 示例**：
+  `docs/examples/bilibili-sidecar/`（blivedm，只处理 `DANMU_MSG`+`SEND_GIFT`，
+  其它 cmd 只 log；清洗后 POST；README 写房间号/SESSDATA/token 注意点，注明
+  `SEND_GIFT_V2` 灰度需后续兼容）。④ **废除 `local-llm` 启动**：移出 `AVAILABLE_MOD_FACTORIES`
+  （4→3）与 desktop 依赖、移出缺省 manifest，crate 暂留并标 DEPRECATED；缺省 manifest 改为
+  启用 `external-input`。persona **不回退**（仍只在 Mod 侧）。⑤ **`mod-community-license.md`**：
+  注册面开放 / 分发面 AGPL 兼容 / 闭源走私用或商业许可，**无「闭源可进默认包」承诺**。
+  发布说明：`docs/releases/v0.2.0-rc.1.md`。
 - **2026-09-14（v0.1.0-rc.5，壳全局背景 + 与舞台同步）**：主链一行未改，只动
   前端显示层。① **偏好字段**：`DisplayPrefs` 增加 `shellImage`（壳自己那张，
   只在同步关时用）与 `syncShellStageBg`（默认 `true`）；`effectiveShellImage`

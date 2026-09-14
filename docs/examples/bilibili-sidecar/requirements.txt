@@ -1,0 +1,5 @@
+# B 站弹幕 sidecar 最小依赖（Windows / Linux 通用，建议 Python 3.10+）
+# blivedm 负责 B 站协议（WebSocket 长连接 + 弹幕/礼物解析）；
+# aiohttp 是它的运行依赖，也是本示例建 ClientSession 用的库。
+blivedm>=2.3,<3
+aiohttp>=3.9

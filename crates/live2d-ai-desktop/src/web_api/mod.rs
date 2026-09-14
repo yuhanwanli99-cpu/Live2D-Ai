@@ -480,6 +480,11 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         // HTTP：抽 (origin, content_type) → dispatch_with_security。
         let headers = request.headers().to_vec();
         let (origin, content_type) = crate::web_api::security::extract_origin_and_ct(&headers);
+        // 外部注入端点的可选鉴权头（Bearer）：与 Origin/CT 一样只抽所需字段。
+        let auth_header = headers
+            .iter()
+            .find(|h| h.field.equiv("Authorization"))
+            .map(|h| h.value.as_str().to_string());
         let body_str = read_body_from_request(&mut request);
         // 节点 E5-T3：外部文本注入端点（POST /api/v1/external/chat → say →
         // 主链路）。前置于 dispatch_with_security，自身完成 loopback + json
@@ -491,6 +496,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             &body_str,
             origin.as_deref(),
             content_type.as_deref(),
+            auth_header.as_deref(),
         ) {
             let _ = request.respond(resp);
             continue;

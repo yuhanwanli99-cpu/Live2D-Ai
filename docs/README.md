@@ -10,10 +10,18 @@
 - [渲染纹理 / 离屏靶标档位 ADR（4096/8192/16384）](architecture/renderer-texture-tier-adr.md)
 - [PC 无预设半身联动实现](architecture/pc-presetfree-halfbody-control.md)
 - [目录约定](architecture/directory.md)
-- [外部文字接入接口契约](architecture/external-text-input.md)
+- [**外部事件注入契约：`POST /api/v1/external/chat`（0.2.0-rc.1）**](external-input.md)
+  ——直播弹幕 / 礼物 / 本机脚本经**唯一** loopback 端点进主链；**B 站抓取不在主仓，
+  在 Win sidecar**；含 text/token/Origin/loopback/忙碌/启停门禁/模板前缀与 curl 示例
+- [**B 站弹幕 → Live2D-Ai 注入 sidecar 示例（Windows，blivedm）**](examples/bilibili-sidecar/README.md)
+  ——抓 `DANMU_MSG`/`SEND_GIFT`、清洗、POST 本地端点；含房间号/SESSDATA/token 注意点与
+  `SEND_GIFT_V2` 灰度缺口。**抓取不在主仓**，主仓只收已清洗文本
+- [外部文字接入接口契约（历史：已归档 Python 实现，勿当现网）](architecture/external-text-input.md)
 - [可观测性 / 健康自检](architecture/observability.md)
 - [依赖与许可清单](architecture/dependencies.md)
-- [**Mod 产品链路（rc.4 唯一 Mod 契约）**](architecture/mod-product-chain.md)
+- [**Mod 产品链路**](architecture/mod-product-chain.md)
+- [**Mod 社区许可与注册边界（0.2.0-rc.1）**](architecture/mod-community-license.md)
+  ——注册面开放、分发面 AGPL 兼容；闭源走商业许可/私用；**无「闭源可进默认包」承诺**
 - [插件 / 扩展 SDK 最小骨架（历史；已被 Mod 产品链路取代）](architecture/plugin-sdk.md)
 - [Linux（WSL2）PC 主力环境](architecture/linux-dev.md)
 - [Phase-0 架构评估](architecture/Phase-0-architecture.md)
@@ -22,7 +30,12 @@
 
 ## 版本与发布
 
-- [**v0.1.0-rc.5 — 壳全局背景 + 与舞台同步（当前）**](releases/v0.1.0-rc.5.md)
+- [**v0.2.0-rc.1 — Mod 纪元第一基线：external-input 直播刚需 + 社区许可（当前）**](releases/v0.2.0-rc.1.md)
+  ——主链皮肤冻结不回归：外部事件（B 站弹幕/礼物）由 **Windows sidecar** 抓取清洗后
+  经 `POST /api/v1/external/chat` 注入；`external-input` Mod 加强（静态 `settings_spec`、
+  模板/前缀、启停门禁、token env→config 回落）；**`local-llm` 废除启动**（移出注册面）；
+  Mod 社区许可一页说清；版本 0.1.0-rc.5 → **0.2.0-rc.1**
+- [v0.1.0-rc.5 — 壳全局背景 + 与舞台同步](releases/v0.1.0-rc.5.md)
   ——壳（聊天 / 侧栏背后）铺一层固定 0.15 透明度的**全局背景**，默认与舞台背景图
   共用同一张图（`DisplayPrefs.shellImage` / `syncShellStageBg`）；只住 localStorage，
   不写 toml、不做分区背景；主链一行未改

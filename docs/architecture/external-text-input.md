@@ -1,5 +1,12 @@
-# 外部文字接入（External Text Input）— 接口契约
+# 外部文字接入（External Text Input）— 接口契约【历史 / 已归档 Python 实现】
 
+> ⚠️ **本文描述的是已归档的 Python 端（`Live2D-Ai-pc/open-llm-vtuber`），不是当前契约。**
+> 当前 Rust 实现只有**一个**外部注入端点 `POST /api/v1/external/chat`，
+> 契约以 **[docs/external-input.md](../external-input.md)** 为准
+> （差异很大：没有 `wait_reply` / `client_uid` / `interrupt` / `/api/external/status`，
+> 鉴权是 env/mod token 而非 `X-Live2DAI-Token`，端口与路由也不同）。
+> 本文保留仅为记录 Python 时代的设计与安全模型；**不要**按本文对接当前后端。
+>
 > 目标：让**本机/内网的其它程序**把一句话交给角色，走与聊天框输入**完全相同**的内部 LLM 链路。
 > 仅 PC 端（`Live2D-Ai-pc/open-llm-vtuber`）。实现：`src/open_llm_vtuber/external_input.py`
 > + `WebSocketHandler.inject_text_input()`；前端开关：`renderer/src/external-input.ts`。

@@ -53,14 +53,18 @@ mod platform;
 /// 已编译进本二进制的 Mod 工厂（静态注册；启用与否由 manifest `[mods.<id>]` 决定）。
 /// 由 `cli_entry::run_web_mode` 装配 `ModRegistry`（节点 E5，2026-08-30）。
 ///
-/// 2026-09-12（rc.2）：director Mod 已删除——它唯一的职责是**驱动动作序列**，
+/// 2026-09-12（rc.2）：director Mod 已删除——它唯一的职责是**驱动序列**，
 /// 而动作在产品路径上不存在（见 `docs/architecture/core-chain-baseline.md` §3.3）。
 /// 归档点在分支 `archive/action-layer-p6`。**不要再挂回去**：
-/// 下方 `mod_count_is_four` 是防回归断言（rc.4 M5 起 +1 个角色卡 Mod）。
+/// 下方 `mod_count_is_three` 是防回归断言。
+///
+/// 2026-09-14（0.2.0-rc.1）：**local-llm 已废除启动**（移出本表）——本地推理进程
+/// 管理/探活不再是产品路径；LLM 端点由 `live2d-ai.toml` 的 `[llm]` 人工配置。
+/// crate 暂留仓库（§deprecated），但 **不再注册、不再编译进 binary**。数字 4 → 3。
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
+    // 0.2.0-rc.1 起**缺省启用**（直播弹幕/礼物经 sidecar 注入，见 docs/external-input.md）。
     &live2d_ai_mod_external_input::FACTORY,
     &live2d_ai_mod_pet_desktop::FACTORY,
-    &live2d_ai_mod_local_llm::FACTORY,
     // rc.4 M5：角色卡标准 Mod（缺省停用；启用后把卡合成 system_prompt 写回主链）。
     &live2d_ai_mod_persona::FACTORY,
 ];
@@ -427,12 +431,13 @@ mod tests {
     /// 路径上不存在。数字断言存在的意义就是「不要再挂回去」：若有人把 director（或
     /// 任何新的动作 Mod）加回静态注册，这条会立刻红。
     /// rc.4 M5：+1 个角色卡 Mod（`persona`），数字与之同步。
+    /// 0.2.0-rc.1：**local-llm 移出** → 4 → 3。数字断言继续守住「别再挂回来」。
     #[test]
-    fn mod_count_is_four() {
+    fn mod_count_is_three() {
         assert_eq!(
             super::AVAILABLE_MOD_FACTORIES.len(),
-            4,
-            "AVAILABLE_MOD_FACTORIES must contain exactly 4 Mod factories (external-input, pet-desktop, local-llm, persona)"
+            3,
+            "AVAILABLE_MOD_FACTORIES must contain exactly 3 Mod factories (external-input, pet-desktop, persona)"
         );
     }
 
@@ -444,7 +449,8 @@ mod tests {
             .collect();
         ids.sort();
 
-        let mut expected = vec!["external-input", "pet-desktop", "local-llm", "persona"];
+        // local-llm 已废除（0.2.0-rc.1）：不在此表即不在启动注册表。
+        let mut expected = vec!["external-input", "pet-desktop", "persona"];
         expected.sort();
 
         assert_eq!(
