@@ -27,6 +27,25 @@ const int kStageImageMaxChars = 1500000;
 /// 所以这里只是给壳背景一个可读的别名，**不是第二套配额**。
 const int kShellImageMaxChars = kStageImageMaxChars;
 
+/// 壁纸轮播列表的**项数上限**。
+///
+/// 与 Rust 侧 `MAX_PLAYLIST_LEN`（`live2d-ai-mod-wallpaper/src/strategy.rs`）
+/// **同一个数**：两边各自钳一次，谁先写错都不会让列表无界膨胀。
+/// 16 张的理由见 [kStagePlaylistMaxChars]——真正的上限是**总字符预算**，
+/// 这一条只挡住「项数无界」。
+const int kStagePlaylistMaxItems = 16;
+
+/// 轮播列表的**总长上限**（所有项字符数之和）。
+///
+/// # 为什么必须单独有一条（2026-09-14，Wave 2 硬约束）
+///
+/// localStorage 是**一条记录**存整份 `DisplayPrefs`（`jsonEncode(prefs.toJson())`）。
+/// rc.5 的教训是：**一旦超配额，整份偏好都写不进去**——不只是列表，连主题、
+/// 音量、口型设置一起丢。所以列表既要有单张上限（每项按
+/// [kStageImageMaxChars] 校验），也要有**总长上限**：超出时保留前面的、
+/// 丢掉放不下的，并在界面上如实说明「已达上限」，而不是悄悄把整份设置写坏。
+const int kStagePlaylistMaxChars = kStageImageMaxChars;
+
 /// 舞台显示偏好。
 class DisplayPrefs {
   const DisplayPrefs({
@@ -34,6 +53,7 @@ class DisplayPrefs {
     this.stageImage,
     this.shellImage,
     this.syncShellStageBg = true,
+    this.stagePlaylist = const <String>[],
     this.scale = defaultScale,
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
@@ -85,6 +105,21 @@ class DisplayPrefs {
   /// 渲染层只读这个 getter，不自己去判 `syncShellStageBg`——
   /// 判据只有一处，才不会出现两处不一致。
   String? get effectiveShellImage => syncShellStageBg ? stageImage : shellImage;
+
+  /// 壁纸轮播列表（dataURL，缺省空）。
+  ///
+  /// # 这是**唯一**的播放列表来源（2026-09-14，Wave 2）
+  ///
+  /// 壁纸 Mod（`live2d-ai-mod-wallpaper`）只产决策（`stage_index`），
+  /// **不持有图片**；图列表住在这里——与 [stageImage] 同一条 localStorage
+  /// 记录、同一份长度预算（[kStageImageMaxChars] / [kStagePlaylistMaxChars]）。
+  /// Mod 决策经 `applyWallpaperPatch` 落成 `stageImage = stagePlaylist[k % len]`，
+  /// 再走既有 `Live2DStage.sendStageBg` 下发。
+  ///
+  /// 列表为空是**合法状态**（`interval` 模式会报 `playlist_empty` 并保持不动，
+  /// 不是「假装成功」）。三项预算：每项 ≤ [kStageImageMaxChars]、
+  /// 总长 ≤ [kStagePlaylistMaxChars]、项数 ≤ [kStagePlaylistMaxItems]。
+  final List<String> stagePlaylist;
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
   final double scale;
@@ -164,6 +199,7 @@ class DisplayPrefs {
     String? shellImage,
     bool clearShellImage = false,
     bool? syncShellStageBg,
+    List<String>? stagePlaylist,
     double? scale,
     double? mouthSensitivity,
     bool? lipSync,
@@ -178,6 +214,7 @@ class DisplayPrefs {
       stageImage: clearStageImage ? null : (stageImage ?? this.stageImage),
       shellImage: clearShellImage ? null : (shellImage ?? this.shellImage),
       syncShellStageBg: syncShellStageBg ?? this.syncShellStageBg,
+      stagePlaylist: stagePlaylist ?? this.stagePlaylist,
       scale: scale ?? this.scale,
       mouthSensitivity: mouthSensitivity ?? this.mouthSensitivity,
       lipSync: lipSync ?? this.lipSync,
@@ -195,6 +232,7 @@ class DisplayPrefs {
     'stageImage': stageImage,
     'shellImage': shellImage,
     'syncShellStageBg': syncShellStageBg,
+    'stagePlaylist': stagePlaylist,
     'scale': scale,
     'mouthSensitivity': mouthSensitivity,
     'lipSync': lipSync,
@@ -220,6 +258,9 @@ class DisplayPrefs {
       shellImage: _readImage(json['shellImage'], kShellImageMaxChars),
       // 旧存档没有这个字段 → 默认跟随舞台（不是「各画各的」）。
       syncShellStageBg: _readBool(json['syncShellStageBg'], true),
+      // 列表：坏值 / 超预算的项**逐项丢弃**，绝不因为一条坏数据把整份偏好判死
+      // （`browser_io` 那层已经保证「读不出来就回落默认」）。
+      stagePlaylist: readStagePlaylist(json['stagePlaylist']),
       scale: clampScale(_readDouble(json['scale'], defaultScale)),
       mouthSensitivity: clampMouthSensitivity(
         _readDouble(json['mouthSensitivity'], defaultMouthSensitivity),
@@ -270,6 +311,27 @@ class DisplayPrefs {
     return raw;
   }
 
+  /// 读轮播列表：**逐项宽容**，超出预算的部分保留前面的、丢掉放不下的。
+  ///
+  /// 规则（三条预算各自独立生效，坏值只丢自己那一项）：
+  /// 1. 非 `List` → 空列表；项非字符串 / 空串 / 单项超 [kStageImageMaxChars] → 丢该项；
+  /// 2. 项数达到 [kStagePlaylistMaxItems] → 停止（后面的丢掉）；
+  /// 3. 累计字符数会把总长推过 [kStagePlaylistMaxChars] → 停止（同上）。
+  static List<String> readStagePlaylist(Object? raw) {
+    if (raw is! List) return const <String>[];
+    final List<String> out = <String>[];
+    int total = 0;
+    for (final Object? item in raw) {
+      if (out.length >= kStagePlaylistMaxItems) break;
+      if (item is! String || item.isEmpty) continue;
+      if (item.length > kStageImageMaxChars) continue;
+      if (total + item.length > kStagePlaylistMaxChars) break;
+      out.add(item);
+      total += item.length;
+    }
+    return out;
+  }
+
   /// 读 int（非数字回落默认）。
   static int _readInt(Object? raw, int fallback) =>
       raw is num ? raw.toInt() : fallback;
@@ -281,6 +343,7 @@ class DisplayPrefs {
       other.stageImage == stageImage &&
       other.shellImage == shellImage &&
       other.syncShellStageBg == syncShellStageBg &&
+      _sameList(other.stagePlaylist, stagePlaylist) &&
       other.scale == scale &&
       other.mouthSensitivity == mouthSensitivity &&
       other.lipSync == lipSync &&
@@ -296,6 +359,7 @@ class DisplayPrefs {
     stageImage,
     shellImage,
     syncShellStageBg,
+    Object.hashAll(stagePlaylist),
     scale,
     mouthSensitivity,
     lipSync,
@@ -310,6 +374,7 @@ class DisplayPrefs {
   String toString() =>
       'DisplayPrefs(theme: ${theme.wire}, stageImage: ${stageImage?.length ?? 0} chars, '
       'shellImage: ${shellImage?.length ?? 0} chars, syncShell: $syncShellStageBg, '
+      'playlist: ${stagePlaylist.length} items, '
       'scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
       'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier)';
@@ -330,4 +395,169 @@ int clampTier(int value) {
     }
   }
   return best;
+}
+
+/// 两个列表是否逐项相等（不引 Flutter 的 foundation 库，
+/// 保持本文件「纯 Dart、VM 可测」的定位）。
+bool _sameList(List<String> a, List<String> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (int i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// 「加入轮播」的结果：**新列表 + 是否加进去了 + 没加的原因**。
+///
+/// 原因用稳定字符串（不是给人看的完整句子）：UI 只负责把原因翻译成一句
+/// 可读文案，纯逻辑测试直接断言原因——文案会改，原因不该跟着改。
+class StagePlaylistAppendResult {
+  const StagePlaylistAppendResult({
+    required this.playlist,
+    required this.added,
+    required this.reason,
+  });
+
+  /// 返回的列表（成功时是 `current + [dataUrl]`；失败时**原样返回** `current`——
+  /// 绝不「悄悄膨胀」）。
+  final List<String> playlist;
+
+  /// 是否真的加进去了。
+  final bool added;
+
+  /// `added` / `empty` / `item_too_large` / `limit_reached` / `budget_exceeded`。
+  final String reason;
+}
+
+/// 把一张图追加进轮播列表（纯函数；三条预算逐条把关）。
+///
+/// 超限时**不修改**列表并给出原因——调用方据此给用户一句可读反馈，
+/// 而不是让列表无界膨胀到把整份偏好写坏（见 [kStagePlaylistMaxChars]）。
+StagePlaylistAppendResult appendToStagePlaylist(
+  List<String> current,
+  String? dataUrl,
+) {
+  if (dataUrl == null || dataUrl.isEmpty) {
+    return StagePlaylistAppendResult(
+      playlist: current,
+      added: false,
+      reason: 'empty',
+    );
+  }
+  if (dataUrl.length > kStageImageMaxChars) {
+    return StagePlaylistAppendResult(
+      playlist: current,
+      added: false,
+      reason: 'item_too_large',
+    );
+  }
+  if (current.length >= kStagePlaylistMaxItems) {
+    return StagePlaylistAppendResult(
+      playlist: current,
+      added: false,
+      reason: 'limit_reached',
+    );
+  }
+  int total = 0;
+  for (final String item in current) {
+    total += item.length;
+  }
+  if (total + dataUrl.length > kStagePlaylistMaxChars) {
+    return StagePlaylistAppendResult(
+      playlist: current,
+      added: false,
+      reason: 'budget_exceeded',
+    );
+  }
+  return StagePlaylistAppendResult(
+    playlist: <String>[...current, dataUrl],
+    added: true,
+    reason: 'added',
+  );
+}
+
+/// `applyWallpaperPatch` 的结果。
+class WallpaperPatchResult {
+  const WallpaperPatchResult({
+    required this.prefs,
+    required this.applied,
+    this.reason,
+  });
+
+  /// 落点后的偏好（未应用时**原样返回**入参）。
+  final DisplayPrefs prefs;
+
+  /// 是否真的改了什么。
+  final bool applied;
+
+  /// 未应用的原因（稳定字符串）：`empty_patch` / `already_synced` /
+  /// `playlist_empty` / `invalid_index` / `unknown_patch`。
+  final String? reason;
+}
+
+/// **壁纸 Mod 决策 → `DisplayPrefs` 落点**（Wave 2 纯函数，VM 可测）。
+///
+/// 输入是 Mod 的 `prefs_patch`（`GET /api/v1/mods/wallpaper/state` 的
+/// `state.prefs_patch`），契约见 `docs/architecture/wallpaper-mod-v0.md` §5：
+///
+/// | patch | 落点 |
+/// |---|---|
+/// | `null` / 非对象 / 空对象 | 不动作（`empty_patch`） |
+/// | `{"sync_shell_stage_bg":true}` | `copyWith(syncShellStageBg: true)`（幂等：已经是 true 就 `already_synced`） |
+/// | `{"stage_index":k}` | `stageImage = stagePlaylist[k % len]`；**列表为空 → 跳过**（`playlist_empty`） |
+///
+/// 「跳过」是**如实的跳过**，不是「假装成功」：调用方读 `reason` 决定要不要
+/// 说点什么。`stage_index` 越界到负数才判非法（正数由 `% len` 取模回绕）。
+WallpaperPatchResult applyWallpaperPatch(DisplayPrefs prefs, Object? patch) {
+  if (patch is! Map || patch.isEmpty) {
+    return WallpaperPatchResult(
+      prefs: prefs,
+      applied: false,
+      reason: 'empty_patch',
+    );
+  }
+  if (patch['sync_shell_stage_bg'] == true) {
+    if (prefs.syncShellStageBg) {
+      return WallpaperPatchResult(
+        prefs: prefs,
+        applied: false,
+        reason: 'already_synced',
+      );
+    }
+    return WallpaperPatchResult(
+      prefs: prefs.copyWith(syncShellStageBg: true),
+      applied: true,
+    );
+  }
+  final Object? rawIndex = patch['stage_index'];
+  if (rawIndex is num) {
+    final int index = rawIndex.toInt();
+    if (index < 0) {
+      return WallpaperPatchResult(
+        prefs: prefs,
+        applied: false,
+        reason: 'invalid_index',
+      );
+    }
+    if (prefs.stagePlaylist.isEmpty) {
+      // 空列表：明确跳过（Mod 侧对应 reason = `playlist_empty`）。
+      return WallpaperPatchResult(
+        prefs: prefs,
+        applied: false,
+        reason: 'playlist_empty',
+      );
+    }
+    final String dataUrl =
+        prefs.stagePlaylist[index % prefs.stagePlaylist.length];
+    return WallpaperPatchResult(
+      prefs: prefs.copyWith(stageImage: dataUrl),
+      applied: true,
+    );
+  }
+  return WallpaperPatchResult(
+    prefs: prefs,
+    applied: false,
+    reason: 'unknown_patch',
+  );
 }

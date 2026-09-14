@@ -28,6 +28,11 @@ const String kDisplayPrefsKey = 'live2d-ai.display-prefs';
 const String kChatSessionsKey = 'live2d-ai.chat-sessions';
 
 /// 读取本地显示偏好：**任何异常都回落默认**（坏存储不该让舞台渲染不出来）。
+///
+/// 整份偏好是**一条** localStorage 记录（`jsonEncode(prefs.toJson())`），
+/// 所以 `stagePlaylist`（Wave 2 的壁纸轮播列表）也走这里，不单独开键——
+/// 它的三条预算（每张 / 总长 / 项数）在 `DisplayPrefs.readStagePlaylist`
+/// 里**逐项**把关：一条坏数据只丢自己，不会把主题 / 音量一起判死。
 DisplayPrefs loadDisplayPrefs() {
   try {
     final raw = web.window.localStorage.getItem(kDisplayPrefsKey);

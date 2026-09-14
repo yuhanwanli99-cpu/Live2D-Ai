@@ -53,12 +53,17 @@ extension _ShellAdminWiring on _ShellRootState {
       _envStatus = env;
       _adminLoading = false;
       _refresh();
+      // Mod 启停 / 配置（含 `mode`）可能刚变——壁纸轮询跟着启停
+      // （Wave 2：停用即停，不靠用户去别处点一次）。
+      _syncWallpaperPolling();
       // 日志只有 dev_mode 才可读——**分开取**，403 不该让整个面板失败。
       await _loadLogs();
     } on ApiException catch (e) {
       if (!mounted) return;
       _adminError = e.toString();
       _adminLoading = false;
+      // 管理面读不到 = 无法确认壁纸是否启用 → 保守停掉轮询（下次加载会重启）。
+      _syncWallpaperPolling();
       _refresh();
     }
   }

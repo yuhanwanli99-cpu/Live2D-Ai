@@ -4,41 +4,51 @@
 //! 真正的像素路径（stage-bg 命令 → wasm 预通道 → framebuffer）在 0.1.0-rc.5
 //! 已经定案，本 crate **一行不碰**（见 `docs/architecture/wallpaper-mod-v0.md` §2）。
 //!
-//! # 三档模式（`settings_spec` v1）
+//! # 三档模式（`settings_spec` v1 + Wave 2 的 `playlist_len`）
 //!
 //! | key | 语义 |
 //! |---|---|
 //! | `mode` | `off`（缺省）＝ 不接管；`follow_stage` ＝ 壳跟随舞台；`interval` ＝ 定时切换 |
 //! | `interval_secs` | `interval` 模式的切换间隔（秒；钳在 5..=86400，永不 0） |
+//! | `playlist_len` | 播放列表长度（有几张图可切；钳在 0..=16，缺省 0）——由 Flutter 经既有 config 端点写回 |
 //!
 //! schema 里**没有**第二个 `enabled`：启停唯一真源是 Mod manifest 的 `enabled`
 //!（与 external-input / voice-input 同口径，见 `docs/architecture/mod-product-chain.md` §4）。
 //!
-//! # 边界（Wave 1；半成品是刻意的）
+//! # 边界（Wave 2，2026-09-14）
 //!
-//! - **不注册**进 `AVAILABLE_MOD_FACTORIES`：注册由集成 PR 按
-//!   `docs/plans/parallel-mods/REGISTER-wallpaper.md` 统一做；本分支不得碰
-//!   FACTORIES / `mod_count_*` / 缺省 manifest / 全局版本（PARALLEL-PROTOCOL §3）。
+//! - **已注册**进 `AVAILABLE_MOD_FACTORIES`（`0.2.0-rc.2` 集成，**缺省停用**）；
+//!   本 crate **不**碰 FACTORIES / `mod_count_*` / 缺省 manifest / 全局版本
+//!   （PARALLEL-PROTOCOL §3）——注册状态由集成方维护。
 //! - **不做大轮播**：不持有图片、不引入图库 / 在线拉图 / 轮播 UI；`interval` 只按
-//!   **调用方给的列表长度**推进一个游标（纯逻辑在 [`strategy`]）。
-//! - **不接**动作通道（`action_tx` 自 rc.2 起休眠）；v0 **不订阅** host 事件
-//!   （Mod 事件主题里没有时钟，节拍由集成方驱动 [`WallpaperRuntime::tick`]）。
+//!   **config 里的 `playlist_len`** 推进一个游标（纯逻辑在 [`strategy`]），
+//!   列表本身住 Flutter 的 `DisplayPrefs.stagePlaylist`。
+//! - **不接**动作通道（`action_tx` 自 rc.2 起休眠）；**不订阅** host 事件
+//!   （Mod 事件主题里没有时钟，节拍由 [`ModRuntime::state_json`] 用 `Instant` 驱动）。
 //!
-//! # 换图落点（v0 占位，明文）
+//! # 换图落点（Wave 2：**已接线**）
 //!
 //! `DisplayPrefs`（`shellImage` / `stageImage` / `syncShellStageBg`）与 stage-bg
-//! 通道**都在 Flutter / wasm 侧**，Mod API 目前没有壁纸写入口。因此本 crate 产出
-//! [`WallpaperDecision`] 后，[`WallpaperRuntime::apply_decision`] **只记一条 warn
-//! 并返回 `false`**——这是**刻意的占位**，不是遗忘：集成方按 REGISTER 文件把决策接到
-//! 既有 `DisplayPrefs` / `sendStageBg` 通道即可（`follow_stage` → `syncShellStageBg = true`，
-//! `Advance { index }` → 播放列表第 `index` 张图）。**不得**为此新增 wasm / framebuffer 路径。
+//! 通道都在 Flutter / wasm 侧，Mod API 没有壁纸写入口——所以本 crate 不「执行」
+//! 换图，而是把决策**投影成一份纯数据 patch**（[`WallpaperDecision::to_prefs_patch`]），
+//! 由 `WallpaperRuntime::state_json` 经基座 `GET /api/v1/mods/wallpaper/state` 交给
+//! Flutter，Flutter 的纯函数 `applyWallpaperPatch` 落到 `DisplayPrefs`，再走**既有**
+//! `Live2DStage.sendStageBg`。契约与预算见
+//! `docs/architecture/wallpaper-mod-v0.md` §5。
+//!
+//! **不再有占位**：早期版本 `apply_decision` 对 `SyncStage` / `Advance` 只记一条
+//! warn 并返回 `false`（「落点未接线」）——那条假话已随本版删除，取而代之的是
+//! 可单测的真投影。
 
 pub mod strategy;
 
 pub use strategy::{
-    DEFAULT_INTERVAL_SECS, MAX_INTERVAL_SECS, MIN_INTERVAL_SECS, WallpaperConfig,
+    DEFAULT_INTERVAL_SECS, MAX_INTERVAL_SECS, MAX_PLAYLIST_LEN, MIN_INTERVAL_SECS, WallpaperConfig,
     WallpaperDecision, WallpaperMode, WallpaperStrategy, interval_secs_from_config,
+    playlist_len_from_config,
 };
+
+use std::time::Instant;
 
 use live2d_ai_mod_system::*;
 
@@ -84,6 +94,12 @@ pub fn wallpaper_settings_spec() -> ModSettingsSpec {
                 min: MIN_INTERVAL_SECS as f64,
                 max: MAX_INTERVAL_SECS as f64,
             },
+            ModSettingField::Number {
+                key: "playlist_len".to_string(),
+                label: "轮播列表长度（由前端写入；0 = 没有可切的图）".to_string(),
+                min: 0.0,
+                max: MAX_PLAYLIST_LEN as f64,
+            },
         ],
     }
 }
@@ -95,19 +111,29 @@ pub struct WallpaperRuntime {
     strategy: WallpaperStrategy,
     /// settings schema 是否已注册（`start` 成功标志）。
     registered: bool,
+    /// 上一次 `state_json` 的时刻（**唯一的时钟源**）。
+    ///
+    /// 策略时钟只在 `state_json` 里推进：不在 Mod 内起线程、不订阅事件
+    /// （Mod 事件主题里没有时钟）。第一次调用时为 `None` → 增量按 0 算，
+    /// 于是 `interval` 模式的第一帧立刻上屏（与纯策略的首帧语义一致）。
+    last_state_at: Option<Instant>,
 }
 
 impl WallpaperRuntime {
     /// 用注入的 host services + namespaced config 构造。
     ///
-    /// v0 的播放列表长度从 0 起（图库由集成方经 [`Self::set_playlist_len`] 告知）。
+    /// 播放列表长度从 config 的 `playlist_len` 读（钳位，缺省 0）——Flutter 在
+    /// 列表变化时用既有 `POST /api/v1/mods/wallpaper/config` 写回，服务端
+    /// reload + restart 后本构造读到新值。
     pub fn new(services: ModServices, config: serde_json::Value) -> Self {
-        let strategy = WallpaperStrategy::from_config_json(&config, 0);
+        let playlist_len = playlist_len_from_config(&config);
+        let strategy = WallpaperStrategy::from_config_json(&config, playlist_len);
         Self {
             services,
             config,
             strategy,
             registered: false,
+            last_state_at: None,
         }
     }
 
@@ -131,6 +157,11 @@ impl WallpaperRuntime {
         self.strategy.config().interval_secs
     }
 
+    /// 当前播放列表长度（来自 config，已钳）。
+    pub fn playlist_len(&self) -> usize {
+        self.strategy.playlist_len()
+    }
+
     /// 只读策略（集成方/单测观察游标）。
     pub fn strategy(&self) -> &WallpaperStrategy {
         &self.strategy
@@ -138,19 +169,24 @@ impl WallpaperRuntime {
 
     /// 图库变化时更新播放列表长度。
     pub fn set_playlist_len(&mut self, len: usize) {
-        self.strategy.set_playlist_len(len);
+        self.strategy.set_playlist_len(len.min(MAX_PLAYLIST_LEN));
     }
 
     /// 用新的 namespaced config 重配置（计时 / 同步标志复位）。
+    ///
+    /// `playlist_len` 也从新 config 重读（不是只在构造时读一次）。
     pub fn reconfigure(&mut self, config: serde_json::Value) {
         self.strategy
             .reconfigure(WallpaperConfig::from_json(&config));
+        self.strategy
+            .set_playlist_len(playlist_len_from_config(&config));
         self.config = config;
     }
 
     /// 推进节拍并返回决策；**非 `None` 的决策会留一条 info 日志**。
     ///
-    /// 节拍来源由集成方决定（主循环 timer / 下一次 turn 事件等）——v0 不在 Mod 内起线程。
+    /// 节拍来源：生产路径是 [`ModRuntime::state_json`]（用 `Instant` 算增量），
+    /// 纯逻辑单测直接喂增量毫秒。**不在 Mod 内起线程**。
     pub fn tick(&mut self, delta_ms: u64) -> WallpaperDecision {
         let decision = self.strategy.tick(delta_ms);
         match decision {
@@ -165,24 +201,6 @@ impl WallpaperRuntime {
             )),
         }
         decision
-    }
-
-    /// 把决策落到真实显示层——**v0 占位**。
-    ///
-    /// - `None` → `true`（无事可做即成功，幂等）；
-    /// - `SyncStage` / `Advance` → 记一条 warn 并返回 `false`：Mod API 没有壁纸写入口，
-    ///   集成方按 `docs/plans/parallel-mods/REGISTER-wallpaper.md` 接到既有
-    ///   `DisplayPrefs` / stage-bg 通道。
-    pub fn apply_decision(&self, decision: WallpaperDecision) -> bool {
-        match decision {
-            WallpaperDecision::None => true,
-            WallpaperDecision::SyncStage | WallpaperDecision::Advance { .. } => {
-                self.services.logger.warn(
-                    "壁纸策略 v0：换图落点未接线（应由集成方经 DisplayPrefs / stage-bg 执行）",
-                );
-                false
-            }
-        }
     }
 }
 
@@ -225,6 +243,45 @@ impl ModRuntime for WallpaperRuntime {
         self.registered = false;
         self.services.logger.info("wallpaper Mod 已关闭");
         Ok(())
+    }
+
+    /// **只读运行态快照**（基座 Wave 2 API）：决策 + 落点 patch + 原因。
+    ///
+    /// 契约（`ModRuntime::state_json` 头注）：只读、脱敏、不写盘、不阻塞。
+    /// 本实现的全部副作用只有一条：**推进策略时钟**——用内部 `Instant` 算
+    /// 距上次调用的增量毫秒喂既有纯策略 `tick(delta_ms)`。这正是契约允许的
+    /// 「为计算快照而推进内部游标」，也是本 Mod **唯一**的节拍来源
+    /// （不起线程、不订阅事件、不在 `state_json` 里写盘）。
+    ///
+    /// 返回形状（`docs/plans/parallel-mods/PARALLEL-WAVE2-2026-09-14.md` §3B）：
+    ///
+    /// ```json
+    /// {"mode":"interval","active":true,"playlist_len":3,
+    ///  "decision":{"kind":"advance","index":1},
+    ///  "prefs_patch":{"stage_index":1},
+    ///  "reason":"advance"}
+    /// ```
+    ///
+    /// `prefs_patch` 为 `null` 时前端**明确跳过**（`skipped`），不是「假装成功」。
+    fn state_json(&mut self) -> Option<serde_json::Value> {
+        // 首帧：没有上一次时刻 → 增量 0（interval 立即上屏第 0 张）。
+        let delta_ms = match self.last_state_at {
+            Some(previous) => previous.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            None => 0,
+        };
+        self.last_state_at = Some(Instant::now());
+
+        let decision = self.tick(delta_ms);
+        let mode = self.mode();
+        let playlist_len = self.strategy.playlist_len();
+        Some(serde_json::json!({
+            "mode": mode.as_str(),
+            "active": mode.is_active(),
+            "playlist_len": playlist_len,
+            "decision": decision.to_json(),
+            "prefs_patch": decision.to_prefs_patch(),
+            "reason": decision.reason(mode, playlist_len),
+        }))
     }
 }
 
@@ -301,12 +358,15 @@ mod tests {
     }
 
     /// 静态 schema 字段齐全；**不含 `enabled`**（唯一开关是 manifest）。
+    ///
+    /// `playlist_len` 是 Wave 2 新增的**前端写回位**（列表长度），
+    /// 与 `mode` / `interval_secs` 同处一份 spec —— `start` 注册的就是这一份。
     #[test]
     fn static_spec_fields_and_no_enabled() {
         let spec = FACTORY.settings_spec().expect("静态 schema");
         assert!(spec.validate().is_ok(), "字段 key 不得重复");
         let keys: Vec<&str> = spec.fields.iter().map(|f| f.key()).collect();
-        assert_eq!(keys, vec!["mode", "interval_secs"]);
+        assert_eq!(keys, vec!["mode", "interval_secs", "playlist_len"]);
         assert!(!keys.contains(&"enabled"), "启停只由 Mod manifest 表达");
         match &spec.fields[0] {
             ModSettingField::Select { options, .. } => {
@@ -321,6 +381,13 @@ mod tests {
                 assert_eq!(*max, MAX_INTERVAL_SECS as f64);
             }
             other => panic!("interval_secs 应为 Number，实际 {other:?}"),
+        }
+        match &spec.fields[2] {
+            ModSettingField::Number { min, max, .. } => {
+                assert_eq!(*min, 0.0);
+                assert_eq!(*max, MAX_PLAYLIST_LEN as f64);
+            }
+            other => panic!("playlist_len 应为 Number，实际 {other:?}"),
         }
     }
 
@@ -384,14 +451,161 @@ mod tests {
         assert_eq!(rt.config()["mode"], serde_json::json!("interval"));
     }
 
-    /// v0 明文占位：`None` 幂等成功，其余决策未接线（false + 一条 warn）。
+    // ---------------------------------------------------- state_json（Wave 2）
+
+    /// §3B 形状：六个键齐全，`decision` 是对象、`prefs_patch` 与它同源。
     #[test]
-    fn apply_decision_is_documented_placeholder() {
-        let (services, logs) = recording_services();
-        let rt = WallpaperRuntime::new(services, serde_json::json!({}));
-        assert!(rt.apply_decision(WallpaperDecision::None), "None 幂等成功");
-        assert!(!rt.apply_decision(WallpaperDecision::SyncStage));
-        assert!(!rt.apply_decision(WallpaperDecision::Advance { index: 2 }));
-        assert!(logs.lock().unwrap().iter().any(|m| m.contains("未接线")));
+    fn state_json_shape_matches_contract() {
+        let mut rt = WallpaperRuntime::new(
+            noop_services(),
+            serde_json::json!({"mode": "interval", "interval_secs": 300, "playlist_len": 3}),
+        );
+        let state = rt.state_json().expect("本 Mod 恒有可公开状态");
+        assert_eq!(state["mode"], serde_json::json!("interval"));
+        assert_eq!(state["active"], serde_json::json!(true));
+        assert_eq!(state["playlist_len"], serde_json::json!(3));
+        assert_eq!(
+            state["decision"],
+            serde_json::json!({"kind": "advance", "index": 0}),
+            "interval 首帧应上屏第 0 张"
+        );
+        assert_eq!(
+            state["prefs_patch"],
+            serde_json::json!({"stage_index": 0}),
+            "预投影必须与 decision 同源"
+        );
+        assert_eq!(state["reason"], serde_json::json!("advance"));
+        // 顶层恰好这六个键（多一个字段 = 前端契约漂移）。
+        // 顺序不比：serde_json 的 Map 按 key 排序，顺序不是契约。
+        let mut keys: Vec<&str> = state
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "active",
+                "decision",
+                "mode",
+                "playlist_len",
+                "prefs_patch",
+                "reason"
+            ]
+        );
+    }
+
+    /// 时钟只在 `state_json` 里推进：两次调用之间累计的增量喂给纯策略。
+    ///
+    /// 这里不 sleep：直接手工把上一次时刻**拨回**（等价于「5 秒前的快照」），
+    /// 断言第二次调用确实到下一点——若时钟没推进，第二次会仍是 `interval_not_due`。
+    #[test]
+    fn state_json_advances_the_clock_between_calls() {
+        let mut rt = WallpaperRuntime::new(
+            noop_services(),
+            serde_json::json!({"mode": "interval", "interval_secs": 5, "playlist_len": 2}),
+        );
+        let first = rt.state_json().unwrap();
+        assert_eq!(first["decision"]["index"], serde_json::json!(0));
+        // 未到点：紧接着再取一次仍是 none/interval_not_due（不是每次都换）。
+        let immediate = rt.state_json().unwrap();
+        assert_eq!(immediate["decision"]["kind"], serde_json::json!("none"));
+        assert_eq!(immediate["reason"], serde_json::json!("interval_not_due"));
+        // 把上次时刻拨回 6 秒（> interval）→ 下一次快照必定前进一格。
+        rt.last_state_at = Some(Instant::now() - std::time::Duration::from_secs(6));
+        let advanced = rt.state_json().unwrap();
+        assert_eq!(advanced["decision"]["kind"], serde_json::json!("advance"));
+        assert_eq!(advanced["decision"]["index"], serde_json::json!(1));
+        assert_eq!(advanced["reason"], serde_json::json!("advance"));
+    }
+
+    /// `off` 模式：不动作、无 patch（`prefs_patch` 明确是 `null`，
+    /// 前端据此跳过——**不是**假装成功）。
+    #[test]
+    fn state_json_off_mode_never_acts() {
+        let mut rt = WallpaperRuntime::new(noop_services(), serde_json::json!({"playlist_len": 3}));
+        for _ in 0..3 {
+            let state = rt.state_json().unwrap();
+            assert_eq!(state["mode"], serde_json::json!("off"));
+            assert_eq!(state["active"], serde_json::json!(false));
+            assert_eq!(state["decision"], serde_json::json!({"kind": "none"}));
+            assert!(state["prefs_patch"].is_null(), "off 不得产出 patch");
+            assert_eq!(state["reason"], serde_json::json!("mode_off"));
+        }
+    }
+
+    /// `follow_stage`：首次给同步 patch，之后恒 none（不重复同步）。
+    #[test]
+    fn state_json_follow_stage_syncs_once() {
+        let mut rt =
+            WallpaperRuntime::new(noop_services(), serde_json::json!({"mode": "follow_stage"}));
+        let first = rt.state_json().unwrap();
+        assert_eq!(first["decision"]["kind"], serde_json::json!("sync_stage"));
+        assert_eq!(
+            first["prefs_patch"],
+            serde_json::json!({"sync_shell_stage_bg": true})
+        );
+        assert_eq!(first["reason"], serde_json::json!("sync_stage"));
+        let second = rt.state_json().unwrap();
+        assert_eq!(second["decision"]["kind"], serde_json::json!("none"));
+        assert!(second["prefs_patch"].is_null());
+        assert_eq!(second["reason"], serde_json::json!("already_synced"));
+    }
+
+    /// 列表为空：`interval` 不动作，原因是 `playlist_empty`（可诊断，不是哑掉）。
+    #[test]
+    fn state_json_interval_with_empty_playlist_reports_reason() {
+        let mut rt = WallpaperRuntime::new(
+            noop_services(),
+            serde_json::json!({"mode": "interval", "interval_secs": 5}),
+        );
+        let state = rt.state_json().unwrap();
+        assert_eq!(state["playlist_len"], serde_json::json!(0));
+        assert_eq!(state["decision"], serde_json::json!({"kind": "none"}));
+        assert!(state["prefs_patch"].is_null());
+        assert_eq!(state["reason"], serde_json::json!("playlist_empty"));
+    }
+
+    /// `playlist_len` 从 config 读并**两端钳位**（负数 → 0，超上限 → 上限）。
+    #[test]
+    fn playlist_len_from_config_is_clamped_at_runtime() {
+        let rt = WallpaperRuntime::new(
+            noop_services(),
+            serde_json::json!({"mode": "interval", "playlist_len": 9999}),
+        );
+        assert_eq!(rt.playlist_len(), MAX_PLAYLIST_LEN);
+        let zero = WallpaperRuntime::new(
+            noop_services(),
+            serde_json::json!({"mode": "interval", "playlist_len": -3}),
+        );
+        assert_eq!(zero.playlist_len(), 0);
+        // 缺字段 = 0。
+        assert_eq!(
+            WallpaperRuntime::new(noop_services(), serde_json::json!({})).playlist_len(),
+            0
+        );
+    }
+
+    /// `reconfigure` 也重读 `playlist_len`（不只是构造时读一次）。
+    #[test]
+    fn reconfigure_rereads_playlist_len() {
+        let mut rt = WallpaperRuntime::new(noop_services(), serde_json::json!({}));
+        assert_eq!(rt.playlist_len(), 0);
+        rt.reconfigure(serde_json::json!({"mode": "interval", "playlist_len": 4}));
+        assert_eq!(rt.playlist_len(), 4);
+        // 新列表长度 0 时策略挂起（不会拿着旧长度空转）。
+        rt.reconfigure(serde_json::json!({"mode": "interval", "playlist_len": 0}));
+        assert_eq!(rt.playlist_len(), 0);
+        assert_eq!(rt.tick(999_999), WallpaperDecision::None);
+    }
+
+    /// `set_playlist_len` 走同一条上限（集成方多写一个 0 不会无界膨胀）。
+    #[test]
+    fn set_playlist_len_is_capped() {
+        let mut rt = WallpaperRuntime::new(noop_services(), serde_json::json!({}));
+        rt.set_playlist_len(999);
+        assert_eq!(rt.playlist_len(), MAX_PLAYLIST_LEN);
     }
 }
