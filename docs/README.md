@@ -74,6 +74,10 @@
 
 ## 规划
 
+- [**Wave 3 收束报告：七个已注册 Mod 的日常闭环（2026-09-14，未发布 / 无版本变更）**](plans/parallel-mods/WAVE3-CLOSEOUT-2026-09-14.md)
+  ——每轨 tip / 闭环证据 / 未决 / `v0.2.0-rc.3` §8 逐条处置 / 与将来 rc.4 的差距；
+  协议见 [`PARALLEL-WAVE3-2026-09-14.md`](plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md)
+  （基座 `ModEventTopic::TurnEnded`；`AVAILABLE_MOD_FACTORIES` 6 → 7，版本仍 `0.2.0-rc.3`）
 - [**交接说明（2026-09-13）：rc.2 第二基线 —— 动作层删到底 + 模型闭环 + `.env` 密钥真源 + 推理模型思考**](plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
   ——**接手先读本文**：一分钟上手、13 个提交的清单、门禁数字、交付态实测（含无头浏览器七项证据）、
   故意推到 rc.3 的事、下一轮建议顺序，以及**本轮新踩的七个坑**
