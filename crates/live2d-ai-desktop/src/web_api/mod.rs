@@ -28,6 +28,8 @@
 //! - `POST /api/v1/settings/test/tts` → `settings.test_tts`
 //! - `POST /api/v1/chat` → `chat.post`（W2：HTTP 对话入口）
 //! - `POST /api/v1/chat/stop` → `chat.stop`（W2：停止当前轮）
+//! - `POST /api/v1/voice/transcript` → 前置静态路由（语音转写 → 清洗 → say；
+//!   Wave 2 A 轨 2026-09-14，见 [`voice_routes`]）
 //! - `GET /api/v1/logs`（dev_mode=true） → `logs.get`
 //! - `GET /api/v1/logs/levels`（dev_mode=true） → `logs.levels`
 //! - `GET / POST / PATCH / DELETE /api/v1/models*` → `models`（D3 落地，2026-08-28）
@@ -100,6 +102,10 @@ mod tests_security;
 mod tests_security_e2e;
 #[cfg(test)]
 mod tests_ws;
+/// 语音转写注入端点（Wave 2 A 轨，2026-09-14）：`POST /api/v1/voice/transcript`
+/// → 清洗（复用 `live2d_ai_mod_voice_input::clean_transcript`）→ `say` → 主链路。
+/// 静态前置路由（与 [`external_routes`] 同款）。
+pub mod voice_routes;
 /// Web 静态资产：/models/* 模型资产 + /render* WASM 渲染页（节点 E E2）。
 pub mod wasm_assets;
 /// WebSocket 桥（W2 任务，2026-08-29）。
@@ -490,6 +496,22 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
         // 主链路）。前置于 dispatch_with_security，自身完成 loopback + json
         // 校验（详见 external_routes 头注）。
         if let Some(resp) = crate::web_api::external_routes::handle_external_chat(
+            &ctx,
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+            auth_header.as_deref(),
+        ) {
+            let _ = request.respond(resp);
+            continue;
+        }
+        // Wave 2 A 轨（2026-09-14）：语音转写注入端点
+        // （POST /api/v1/voice/transcript → 清洗 → say → 主链路）。
+        // 与 external_routes 同款前置路由：自身完成 loopback + json 校验
+        // （详见 voice_routes 头注）。
+        if let Some(resp) = crate::web_api::voice_routes::handle_voice_transcript(
             &ctx,
             &method,
             &path,
