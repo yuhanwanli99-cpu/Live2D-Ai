@@ -44,7 +44,14 @@ members = [
 # 聊天 / 侧栏保持可读。背景只住本机 DisplayPrefs / localStorage——不写
 # `live2d-ai.toml`、不做分区背景 / 轮播 / 在线拉图。
 # 发布说明见 `docs/releases/v0.1.0-rc.5.md`。
-version = "0.1.0-rc.5"
+#
+# 2026-09-14（0.2.0-rc.1「Mod 纪元第一基线」）：外部事件（直播弹幕/礼物）成为
+# 一等刚需——`POST /api/v1/external/chat` 契约 + `external-input` Mod 加强
+# （静态 settings_spec / 模板前缀 / 启停门禁）+ Windows sidecar 示例（B 站 blivedm，
+# 抓取**不在主仓**）；**local-llm 废除启动**（移出 FACTORIES，4→3）；Mod 社区许可
+# 与分发门槛明文。主链皮肤（LLM/TTS/口型/Live2D、壳/舞台背景）冻结未改。
+# 发布说明见 `docs/releases/v0.2.0-rc.1.md`；契约见 `docs/external-input.md`。
+version = "0.2.0-rc.1"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

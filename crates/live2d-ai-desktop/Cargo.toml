@@ -44,9 +44,12 @@ l2d = { path = "../l2d" }
 live2d-ai-core = { path = "../live2d-ai-core" }
 # 节点 E E4：Mod 系统（trait/factory/registry/services/status/topics）。
 live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
+# 0.2.0-rc.1：external-input 是缺省启用的 Mod（直播弹幕/礼物注入）——
+# handler 复用它的纯函数（render_from_config / token_from_config）。
 live2d-ai-mod-external-input = { path = "../live2d-ai-mod-external-input" }
 live2d-ai-mod-pet-desktop = { path = "../live2d-ai-mod-pet-desktop" }
-live2d-ai-mod-local-llm = { path = "../live2d-ai-mod-local-llm" }
+# 0.2.0-rc.1：live2d-ai-mod-local-llm **已废除启动**——依赖已移除（不再编译进 binary）。
+# crate 暂留 workspace（见其 lib.rs 头注），但**禁止**挂回 FACTORIES。
 # rc.4 M5：角色卡标准 Mod（主链只留 system_prompt，卡字段由它合成写回）。
 live2d-ai-mod-persona = { path = "../live2d-ai-mod-persona" }
 ringbuf = "0.5"

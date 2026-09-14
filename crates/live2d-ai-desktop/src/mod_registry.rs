@@ -49,11 +49,12 @@ use live2d_ai_mod_system::*;
 pub struct HostChannels {
     /// 文本 → supervisor.say（主链路）
     pub say: Arc<dyn Fn(String) -> bool + Send + Sync>,
-    /// **P0-4 真实闭环**：本地 Mod（local-llm）探测到服务就绪后，
-    /// 通过此通道把探测到的 `base_url` / `model` / `voice` 写回 runtime settings
-    ///（复用 settings PATCH 语义：`{"llm":{"base_url":...,"model":...}}`），
-    /// 写盘成功后 host 触发 `supervisor.reload()` —— 形成「spawn → 探活 → 写
-    /// 配置 → 热重载」的真实闭环，而非仅凭 TCP 探活。
+    /// **配置写回（一等 API，rc.4 M4）**：Mod 需要改动 runtime settings 时走这里
+    ///（现行使用者：`persona` 角色卡合成 `system_prompt` / 禁用时还原）。
+    /// 参数是 namespaced JSON patch；写盘成功后 host 触发 `supervisor.reload()`。
+    ///
+    /// 历史：0.2.0-rc.1 前由 `local-llm` 用于「探活 → 写 base_url → 热重载」，
+    /// 该 Mod 已废除启动（见其 lib.rs 头注），本通道本身仍是 Mod API 契约。
     ///
     /// 参数为 namespaced JSON patch 体（对应 `SettingsPatch` 的 JSON 形态）；
     /// host 复用 `settings_routes::handle_patch` 内核完成「apply_patch →

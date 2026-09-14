@@ -56,16 +56,20 @@ disable / config 是**运行时开关**，不是加载器：
   （schema，无则为 `null`）；`settings_spec.fields[].kind` ∈ `bool/string/number/select`。
   `secret=true` 的字段值**永不出现在 GET**；另有 `GET /api/v1/mods/{id}/config` 单读。
 
-## 5. 现行 Mod
+## 5. 现行 Mod（0.2.0-rc.1 起：3 个注册 + 1 个废除）
 
 | id | 缺省 | 语言 | 说明 |
 | --- | --- | --- | --- |
-| `local-llm` | **on**（`externally_managed=true`） | Rust | 本地推理进程探活 + 就绪后经 `apply_settings` 写回 `llm.base_url` |
-| `external-input` | off | Rust | 外部文本接入（`say`） |
+| `external-input` | **on** | Rust | 外部事件接入：`POST /api/v1/external/chat` → `say`；静态 `settings_spec`（`token` / `text_template` / `prefix`），契约见 [external-input.md](../external-input.md)，B 站弹幕示例见 [docs/examples/bilibili-sidecar](../examples/bilibili-sidecar/README.md) |
 | `pet-desktop` | off | Rust | 桌宠骨架 |
 | `persona` | off | Rust | 酒馆角色卡（rc.4 M5）：导入 V2 JSON/PNG → 合成 `system_prompt` |
+| ~~`local-llm`~~ | — | Rust | **已废除启动**（0.2.0-rc.1）：移出 `AVAILABLE_MOD_FACTORIES`，不再编译进 binary；crate 暂留仓库（见其 lib.rs 头注），**禁止挂回** |
 
-`live2d-ai-mod-template` 是**模板 crate**，不注册进 `AVAILABLE_MOD_FACTORIES`。
+数量由 `main.rs::mod_count_is_three` 守住。`live2d-ai-mod-template` 是**模板 crate**，
+不注册进 `AVAILABLE_MOD_FACTORIES`。
+
+许可与分发门槛（社区 Mod / 闭源 / 商业许可）见
+[Mod 社区许可与注册边界](mod-community-license.md)。
 
 ### 5.1 从 rc.3 升级：`[persona]` 迁移（**必须手改一次**）
 

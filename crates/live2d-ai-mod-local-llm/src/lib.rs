@@ -1,6 +1,19 @@
 //! live2d-ai-mod-local-llm（节点 E E5，P1 第一个 Mod）。
 //!
-//! # v1 范围声明
+//! # ⚠️ 已废除启动（0.2.0-rc.1，2026-09-14）— DEPRECATED，勿在新代码引用
+//!
+//! 本 crate **已移出 `AVAILABLE_MOD_FACTORIES`**，不再注册进 Mod 运行时、不再
+//! 编译进 `live2d-ai-desktop` binary。理由：默认 `external-input` 之后，「本地推理
+//! 进程管理 / 探活 / 自动写 base_url」不再是产品路径——LLM 端点由
+//! `live2d-ai.toml` 的 `[llm]` 显式配置，用户自己的 OpenAI 兼容服务直接填
+//! `base_url` 即可，不需要一个替用户 spawn 进程的中间层。
+//!
+//! 保留 crate 只是**避免一次性大爆炸**（计划原文 `PLAN-0.2.0-rc1`：crate 可暂留
+//! 仓库不删）。`cargo test --workspace` 仍会编译/测试本 crate；但**禁止**把它
+//! 挂回 `main.rs::AVAILABLE_MOD_FACTORIES`（`mod_count_is_three` 会红）。
+//! 下面的 v1 范围声明是**历史记录**，描述的是废除前的行为。
+//!
+//! # v1 范围声明（历史）
 //!
 //! 本 Mod 管理**本地 LLM 推理进程的生命周期**（spawn / 健康检查 / 就绪探测 / 回收），
 //! **不内置推理**。推理后端为 ollama 或 llama-server 等 OpenAI 兼容端点的子进程；

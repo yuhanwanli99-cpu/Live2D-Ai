@@ -547,10 +547,14 @@ pub fn mods_path_for_web() -> std::path::PathBuf {
 
 /// 内建缺省 Mod manifest（`mods.json` 缺失时使用；M1 修复）。
 ///
-/// 启用「OpenAI 兼容端点适配器」Mod，且 `externally_managed=true`：
-/// **只探活 + 写 `base_url`，绝不 spawn 子进程**。用户自带的 LLM
-/// （缺省 `127.0.0.1:11434`）一旦就绪，即自动写入 settings 并
-/// `supervisor.reload()`。探测不到只是「未就绪」日志（15s 超时），不影响主链路。
+/// 0.2.0-rc.1：**缺省启用 `external-input`**（直播弹幕 / 礼物经 Windows sidecar
+/// 清洗后 `POST /api/v1/external/chat` 注入主链路）。端点 loopback-only，
+/// token 可选（env `EXTERNAL_INPUT_TOKEN` 或 Mod config `token`）；无 token 时
+/// 任何**本机**进程都能注入——介意者可在 Mod 设置里填 token，或在「Mod 管理」停用。
+///
+/// 同版**废除 `local-llm` 启动**：本地推理进程管理/探活不再是产品路径，
+/// LLM 端点由 `live2d-ai.toml` 的 `[llm]` 显式配置（`base_url` 缺省
+/// 指向 OpenAI 兼容服务）。crate 暂留仓库但不再注册、不再编译进 binary。
 ///
 /// # 为什么缺省里**没有** TTS（2026-09-11 用户裁决）
 ///
@@ -562,10 +566,7 @@ pub fn mods_path_for_web() -> std::path::PathBuf {
 fn default_mods_manifest() -> serde_json::Value {
     serde_json::json!({
         "mods": {
-            "local-llm": {
-                "enabled": true,
-                "config": { "externally_managed": true, "port": 11434 }
-            }
+            "external-input": { "enabled": true, "config": {} }
         }
     })
 }
@@ -605,23 +606,23 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// M1（2026-09-10）：无 `mods.json` 时内建缺省启用端点适配器 Mod，
-    /// 且为 `externally_managed=true`（只探活、不 spawn）。
+    /// 0.2.0-rc.1：无 `mods.json` 时内建缺省**只启用 `external-input`**。
     ///
-    /// 2026-09-11：**TTS 已从 Mod 系统移出**（语音合成是核心链路，不是扩展），
-    /// 所以缺省里只剩 `local-llm`。这条断言同时守住「别再把它加回来」。
+    /// 三条断言各守一件事：
+    /// 1. 外部注入（直播弹幕刚需）开箱可用；
+    /// 2. `local-llm` 不再出现在缺省（废除启动，别再加回来）；
+    /// 3. TTS 仍是核心链路（`live2d-ai.toml` 的 `[tts]`），不以 Mod 形式出现。
     #[test]
-    fn default_mods_manifest_enables_local_llm_only() {
+    fn default_mods_manifest_enables_external_input_only() {
         let m = default_mods_manifest();
         assert_eq!(
-            m["mods"]["local-llm"]["enabled"], true,
-            "local-llm 应默认启用"
+            m["mods"]["external-input"]["enabled"], true,
+            "external-input 应默认启用（直播弹幕/礼物注入）"
         );
-        assert_eq!(
-            m["mods"]["local-llm"]["config"]["externally_managed"], true,
-            "local-llm 应默认外部管理（不 spawn）"
+        assert!(
+            m["mods"].get("local-llm").is_none(),
+            "local-llm 已废除启动（0.2.0-rc.1），不得再进缺省 manifest"
         );
-        assert_eq!(m["mods"]["local-llm"]["config"]["port"], 11434);
         assert!(
             m["mods"].get("local-tts").is_none(),
             "TTS 是核心链路（live2d-ai.toml 的 [tts]），不该再以 Mod 形式出现"
