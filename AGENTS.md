@@ -389,6 +389,32 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
 
 ## 变更历史
 
+- **2026-09-14（产品级加强波次，本地 `mod/product-grade`，未发布 / 无版本变更）：**
+  真源 `mod/stabilize` @ `71348c93`（版本仍 `0.2.0-rc.3`）。① **封存 wallpaper + pet-desktop**：
+  移出 `AVAILABLE_MOD_FACTORIES`（7 → 5），`mod_count_is_seven` → **`mod_count_is_five`**；
+  移出 desktop 依赖；crate 暂留 workspace 并标 **ARCHIVED**（禁止挂回）；新增
+  `docs/architecture/ARCHIVED-mods.md`（理由 / 没连坐删什么 / 恢复条件）；现行文档全同步。
+  **用户手动的舞台/壳背景能力（`DisplayPrefs`）保留**——只拆 wallpaper **Mod** 的接线
+  （Flutter `wallpaper_api.dart` / `shell_wallpaper.dart` / `applyWallpaperPatch`）。
+  ② **共享基座**：`ModRuntime::command` + `POST /api/v1/mods/{id}/command`（200/400/404/409/503）
+  + 每 Mod Flutter **产品面板扩展点**（`settings/mods/*_panel.dart`，并行五轨零冲突）。
+  ③ **五个 Mod 产品级**：external-input（计数可见 + `reset_counters` + `token_set` + sidecar 文档修正）、
+  voice-input（说人话面板 + `selftest` + 失败码/Windows 路径文档 + 与 external 职责表）、
+  persona（卡导入命令 + `state` 503→200 + 面板 + `persona-mod-v0.md`）、
+  memory（`records` + `clear` 原子清空 + 面板 + §12 可重复验收）、
+  director（**一等决策面板** + `latest`/`clear`；**零投递不变**，不做 apply-to-TTS）。
+  ④ **真点火抓到并修掉两个缺陷**：`local-llm` 与 `ModRuntime::command` 方法名撞名
+  （全量 `cargo test --workspace` 才暴露）；`config_path_for_web()` 返回裸文件名 →
+  memory 的 `resolve_store_path` 得 `None` → **「运行中却一条都记不住」** → 配置路径统一**绝对化**。
+  ⑤ **门禁**：cargo test **1132 passed / 0 failed**；doc 3；fmt clean；clippy 0 warning；
+  rust-ratio **96.4194% PASS**；wasm check ok；flutter analyze 无问题 + **902** 测试通过；
+  pytest 22 passed/1 skipped；两个 sidecar 自检 70 项 + 16 断言 OK；
+  **真点火**（本机 DeepSeek + CosyVoice，18099）两轮对话：memory 2 写 1 命中、director 2 决策、
+  persona 导入→还原→再启用、`command` 失败态（404/409/503/400/403）全部符合契约。
+  收束：[`docs/plans/PRODUCT-GRADE-CLOSEOUT.md`](docs/plans/PRODUCT-GRADE-CLOSEOUT.md)；
+  点火：[`docs/plans/IGNITION-CHECKLIST-product-grade.md`](docs/plans/IGNITION-CHECKLIST-product-grade.md)。
+  **未 bump / 未 push / 未打 tag**；主链皮肤与 `l2d-wasm-demo` 一行未改。
+
 - **2026-09-14（Wave 3 七轨闭环，本地 `mod/wave3`，**未发布 / 无版本变更**）：**真源 `mod/wave2` @ `1e789cb6`
   （本地 `0.2.0-rc.3` 候选）。**基座** `118bd435`：`ModEventTopic::TurnEnded`（payload = turn id；
   发点在 `run_one_turn` 返回之后，成功/失败都发）——Mod 终于有轮末钩子。七条轨各在自己 worktree
