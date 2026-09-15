@@ -270,7 +270,10 @@ impl LocalLlmRuntime {
     /// spawn 失败**不返回 Err**（仅记录 `last_error`），符合 v1 约定：
     /// 无命令时不能 crash。
     fn spawn_and_probe(&mut self) {
-        let command = self.command();
+        // 显式限定到**固有方法**：ModRuntime 也有一同名方法（产品级加强波次新增的
+        // 一次性命令通道，签名 `command(&mut self, &str, &Value)`）。本 crate 已封存
+        // 不再注册，但仍在 workspace 里编译；不限定就会在方法解析上撞名。
+        let command = LocalLlmRuntime::command(self);
         let args = self.args();
         let port = self.port();
         let timeout = self.health_timeout_ms();
