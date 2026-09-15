@@ -501,10 +501,19 @@ pub(crate) fn build_web_supervisor(
 ///
 /// 与 `--chat` 装配的逻辑同源——但 web 模式下**不**要求文件存在（缺则
 /// `AppSettings::default()`），仅打印提示。
+///
+/// # 为什么返回值必须是**绝对路径**（2026-09-14 点火实测抓到）
+///
+/// 这条路径不只是「打开哪个 toml」：它是所有**同目录派生物**的锚点——
+/// `mods.json`、memory 的 `memory.jsonl`、persona 的导入卡。
+/// 返回裸文件名（`live2d-ai.toml`）时 `Path::parent()` 是**空路径**，
+/// `live2d-ai-mod-memory::strategy::resolve_store_path` 会把空目录过滤掉 →
+/// 存储路径 `None` → **Mod 显示「运行中」却一条也记不住**
+///（`state.records=null`、`errors` 增长）。点火实测复现后统一绝对化。
 pub fn config_path_for_web() -> String {
     let cwd_candidate = std::path::Path::new("live2d-ai.toml");
     if cwd_candidate.is_file() {
-        return cwd_candidate.display().to_string();
+        return anchor_config_path(cwd_candidate);
     }
     if let Some(home) = std::env::var_os("HOME") {
         let mut p = std::path::PathBuf::from(home);
@@ -513,7 +522,22 @@ pub fn config_path_for_web() -> String {
         p.push("live2d-ai.toml");
         return p.display().to_string();
     }
-    "live2d-ai.toml".to_string()
+    anchor_config_path(cwd_candidate)
+}
+
+/// 把配置路径**绝对化**（canonicalize 失败就退回 `cwd + path`）。
+///
+/// 抽成独立函数是为了**可回归**：见 `config_path_anchor_is_absolute`。
+/// 不直接改 `resolve_store_path` 是因为根因在「锚点是相对路径」——
+/// 让每个消费者各自兜底，只会把这同一个坑复制到下一个派生物上。
+fn anchor_config_path(path: &std::path::Path) -> String {
+    if let Ok(abs) = std::fs::canonicalize(path) {
+        return abs.display().to_string();
+    }
+    match std::env::current_dir() {
+        Ok(dir) => dir.join(path).display().to_string(),
+        Err(_) => path.display().to_string(),
+    }
 }
 
 /// Mod manifest：`<config_dir>/mods.json`；**不存在时回落到内建缺省**。
@@ -597,6 +621,38 @@ mod tests {
     fn config_path_falls_back_when_no_file() {
         let p = config_path_for_web();
         assert!(!p.is_empty());
+        // **绝对路径**是契约（2026-09-14）：同目录派生物（mods.json /
+        // memory.jsonl / persona 导入卡）的锚点，相对路径会让它们解析到空目录。
+        assert!(
+            std::path::Path::new(&p).is_absolute(),
+            "配置路径必须绝对化（否则 memory 静默记不住）: {p}"
+        );
+    }
+
+    /// **回归（2026-09-14 点火实测）**：任意存在的配置文件都被锚成绝对路径。
+    ///
+    /// 起因：cwd 里有 `live2d-ai.toml` 时 `config_path_for_web()` 直接回裸文件名
+    /// → memory 的 `resolve_store_path` 因 `parent()` 为空而回 `None` →
+    /// 「Mod 运行中却一条都记不住」。这条钉住根因，而不是钉某个消费者。
+    #[test]
+    fn config_path_anchor_is_absolute() {
+        let dir = std::env::temp_dir().join(format!(
+            "l2d-cfg-anchor-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("live2d-ai.toml");
+        std::fs::write(&file, "[llm]\n").expect("write temp toml");
+        let anchored = anchor_config_path(&file);
+        assert!(
+            std::path::Path::new(&anchored).is_absolute(),
+            "锚点必须绝对：{anchored}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
