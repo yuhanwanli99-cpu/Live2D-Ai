@@ -215,7 +215,13 @@ cd /home/skystar/Live2D-Ai-product
 6. **director 无 apply-to-TTS**（无 per-request TTS 参数通道，见 §3.5）。
 7. **persona 导入卡优先级高于 config**：手改 `card_json` 后若曾导入过卡，需先「清除导入卡」。
 8. **external 计数是进程级**（不持久化，重启归零）；**voice-input 无 `state_json`**（面板读 config，刻意）。
-9. **共享 `CARGO_TARGET_DIR` 的 stale rlib 陷阱**：多 worktree 共用 target 时，
+9. **模型资产不入库 → 新 worktree 没模型**：`assets/models/*` 被 `.gitignore` 排除，
+   新 worktree 的 `assets/models/` 只有 `README`/`.gitkeep`，表现为舞台**「模型加载失败」**
+   （`/models/bai/runtime/bai.model3.json` 404、`GET /api/v1/models` 空）。
+   修法：`cp -r <有模型的 worktree>/assets/models/bai <本 worktree>/assets/models/`
+   （**符号链接不行**：静态服务 canonicalize 后拒绝落在模型根之外的路径，实测仍 404）。
+   已在点火清单 §1.1 写明。
+10. **共享 `CARGO_TARGET_DIR` 的 stale rlib 陷阱**：多 worktree 共用 target 时，
    聚焦测试可能链到别的 worktree 的旧 rlib（外/内两轨都碰到过）。收束时以
    `cargo clean -p <crate>` + 全量门禁为准；建议后续给并行轨各配独立 target。
 

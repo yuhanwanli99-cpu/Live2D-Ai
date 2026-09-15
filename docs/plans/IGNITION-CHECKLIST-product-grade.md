@@ -51,6 +51,18 @@ cd /home/skystar/Live2D-Ai-product
 > **`/render` 与 `/app/` 是两份 gitignore 的产物**，新 worktree 一开始不存在。
 > `ignite.sh` 会自动补：`/render` 缺 → `trunk build`；`/app/` 缺 → **只有 `--build` 才构建**。
 > **第一次点火请用 `--build`。**
+>
+> **模型资产同样不入库**（`.gitignore: assets/models/*`，见该目录 `README.md`）：
+> **新 worktree 的 `assets/models/` 是空的**，表现为舞台「模型加载失败」、
+> `GET /api/v1/models` 返回空、`GET /models/bai/runtime/bai.model3.json` **404**。
+> 点火前先把模型放进去（24 MB）：
+>
+> ```bash
+> cp -r /home/skystar/Live2D-Ai/assets/models/bai /home/skystar/Live2D-Ai-product/assets/models/
+> ```
+>
+> **不要用符号链接**：静态模型服务会 canonicalize 并拒绝落在模型根之外的路径
+>（2026-09-14 实测 symlink → 仍 404，拷贝 → 200）。放好后刷新浏览器即可，不必重启服务。
 
 ### 1.2 `.env` 与 `EXTERNAL_INPUT_TOKEN`
 
