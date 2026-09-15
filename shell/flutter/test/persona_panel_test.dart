@@ -39,6 +39,8 @@ ModPanelContext _ctx({
   bool stateLoading = false,
   String? stateError,
   Future<ModCommandResult> Function(String, [Map<String, Object?>])? onCommand,
+  String? activeSessionId,
+  ValueChanged<String>? onModChanged,
 }) => ModPanelContext(
   mod: mod ?? _personaMod(),
   state: state,
@@ -46,6 +48,8 @@ ModPanelContext _ctx({
   stateError: stateError,
   onRefreshState: () async {},
   onCommand: onCommand ?? _okCommand,
+  activeSessionId: activeSessionId,
+  onModChanged: onModChanged,
 );
 
 Widget _host(PersonaPanel panel, ModPanelContext ctx) => MaterialApp(
@@ -84,6 +88,10 @@ void main() {
         'include_discipline',
         'say_first_mes',
         'config_has_card',
+        'session_bound',
+        'sessions',
+        'active_session',
+        'scope',
       ]) {
         expect(
           labels[key],
@@ -128,12 +136,14 @@ void main() {
 
       expect(find.text('粘贴角色卡 JSON（主路径）'), findsOneWidget);
       expect(find.text('导入并生效'), findsOneWidget);
+      expect(find.text('导入为全局人设（所有会话）'), findsOneWidget);
       expect(find.text('选择 PNG 角色卡文件'), findsOneWidget);
-      expect(find.text('清除导入卡'), findsOneWidget);
+      expect(find.text('清除全局导入卡'), findsOneWidget);
       // 基线语义必须说清（「打开开关即生效 / 关闭就还原」）。
       expect(find.textContaining('关闭开关会还原成主链基线'), findsOneWidget);
       // 与 memory 的共存策略（last-writer-wins）必须上屏。
-      expect(find.textContaining('persona.system_prompt'), findsOneWidget);
+      // persona.system_prompt 在「全局行为说明」与「共存提示」两处都要出现。
+      expect(find.textContaining('persona.system_prompt'), findsWidgets);
       expect(find.textContaining('后写覆盖、不做仲裁'), findsOneWidget);
       expect(find.textContaining('别同时开'), findsOneWidget);
     });
@@ -212,7 +222,7 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('当前角色卡：NEKO'), findsOneWidget);
+      expect(find.textContaining('当前全局角色卡：NEKO'), findsOneWidget);
       expect(find.textContaining('V2 卡'), findsOneWidget);
       expect(find.textContaining('来源：界面导入'), findsOneWidget);
 
@@ -243,7 +253,7 @@ void main() {
   });
 
   group('导入路径', () {
-    testWidgets('粘贴 JSON → onCommand(import_card, card_json) 并显示卡名', (
+    testWidgets('粘贴 JSON → import_card(card_json, session_id) 并显示卡名', (
       WidgetTester tester,
     ) async {
       String? seenCommand;
@@ -252,12 +262,18 @@ void main() {
         _host(
           const PersonaPanel(),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               seenCommand = command;
               seenArgs = args;
               return const ModCommandResult(
                 ok: true,
-                result: <String, Object?>{'card_name': 'NEKO', 'card_format': 'v2'},
+                result: <String, Object?>{
+                  'scope': 'session',
+                  'session_id': 'A',
+                  'card_name': 'NEKO',
+                  'card_format': 'v2',
+                },
               );
             },
           ),
@@ -269,7 +285,13 @@ void main() {
 
       expect(seenCommand, 'import_card');
       expect(seenArgs!['card_json'], '{"name":"NEKO"}');
+      expect(
+        seenArgs!['session_id'],
+        'A',
+        reason: '「导入并生效」必须绑定当前会话，不许走全局',
+      );
       expect(find.textContaining('已导入「NEKO」'), findsOneWidget);
+      expect(find.textContaining('并绑定到会话 A'), findsOneWidget);
       expect(find.textContaining('V2 卡'), findsWidgets);
     });
 
@@ -279,6 +301,7 @@ void main() {
         _host(
           const PersonaPanel(),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               called = true;
               return const ModCommandResult(ok: true);
@@ -296,6 +319,7 @@ void main() {
         _host(
           const PersonaPanel(),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               throw const ApiException(
                 'command_failed',
@@ -319,6 +343,7 @@ void main() {
         _host(
           const PersonaPanel(),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               throw const ApiException('command_unavailable', '未启用或正忙', status: 503);
             },
@@ -332,25 +357,35 @@ void main() {
       expect(find.textContaining('command_unavailable'), findsOneWidget);
     });
 
-    testWidgets('清除导入卡 → clear_import，并如实报结果', (WidgetTester tester) async {
+    testWidgets('清除全局导入卡 → clear_import（不传 session_id），并如实报结果', (
+      WidgetTester tester,
+    ) async {
       String? seenCommand;
+      Map<String, Object?>? seenArgs;
       await tester.pumpWidget(
         _host(
           const PersonaPanel(),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               seenCommand = command;
+              seenArgs = args;
               return const ModCommandResult(
                 ok: true,
-                result: <String, Object?>{'cleared': true, 'card_source': 'none'},
+                result: <String, Object?>{
+                  'scope': 'global',
+                  'cleared': true,
+                  'card_source': 'none',
+                },
               );
             },
           ),
         ),
       );
-      await _tap(tester, '清除导入卡');
+      await _tap(tester, '清除全局导入卡');
       expect(seenCommand, 'clear_import');
-      expect(find.textContaining('已清除导入卡'), findsOneWidget);
+      expect(seenArgs!.containsKey('session_id'), isFalse, reason: '全局清除不该带会话');
+      expect(find.textContaining('已清除全局导入卡'), findsOneWidget);
     });
   });
 
@@ -363,6 +398,7 @@ void main() {
         _host(
           PersonaPanel(pickCardFile: _picker()),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               seenArgs = args;
               return const ModCommandResult(ok: true, result: <String, Object?>{});
@@ -383,6 +419,7 @@ void main() {
             pickCardFile: () async => (dataUrl: null, error: '读取图片失败（文件可能已被移动）'),
           ),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               called = true;
               return const ModCommandResult(ok: true);
@@ -401,6 +438,7 @@ void main() {
         _host(
           PersonaPanel(pickCardFile: () async => (dataUrl: null, error: null)),
           _ctx(
+            activeSessionId: 'A',
             onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
               called = true;
               return const ModCommandResult(ok: true);
@@ -411,6 +449,201 @@ void main() {
       await _tap(tester, '选择 PNG 角色卡文件');
       expect(called, isFalse);
       expect(find.textContaining('失败'), findsNothing, reason: '取消不是失败');
+    });
+  });
+
+  group('L1 会话绑定（2026-09-15）', () {
+    testWidgets('activeSessionId=null：降级语义上屏，「导入并生效」不可点，全局按钮可点', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_host(const PersonaPanel(), _ctx()));
+
+      expect(find.textContaining('还没有会话'), findsOneWidget);
+      expect(find.textContaining('先发一条消息'), findsOneWidget);
+      expect(find.textContaining('导入为全局人设'), findsWidgets);
+
+      final FilledButton sessionImport = tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('导入并生效'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+      expect(
+        sessionImport.onPressed,
+        isNull,
+        reason: '没有会话时不许偷偷走全局：按钮必须禁用',
+      );
+
+      final OutlinedButton globalImport = tester.widget<OutlinedButton>(
+        find.ancestor(
+          of: find.text('导入为全局人设（所有会话）'),
+          matching: find.byType(OutlinedButton),
+        ),
+      );
+      expect(globalImport.onPressed, isNotNull, reason: '全局按钮是显式的降级出口');
+    });
+
+    testWidgets('有 activeSessionId：会话说明 + 运行态「已绑定 N 个会话」上屏', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          const PersonaPanel(),
+          _ctx(
+            activeSessionId: 's-42',
+            state: const <String, Object?>{
+              'ready': false,
+              'sessions': <String>['s-42', 's-43'],
+              'session_bound': true,
+              'active_session': 's-42',
+              'scope': 'session',
+            },
+          ),
+        ),
+      );
+
+      expect(find.textContaining('当前会话 s-42'), findsOneWidget);
+      expect(find.textContaining('只对它生效'), findsOneWidget);
+      expect(find.textContaining('已绑定 2 个会话'), findsOneWidget);
+      expect(find.textContaining('会话绑定（只对当前会话生效）'), findsOneWidget);
+      // ready=false 但有会话绑定：不许说「当前没有生效的角色卡」骗人。
+      expect(find.textContaining('当前全局人设保持主链基线'), findsOneWidget);
+    });
+
+    testWidgets('点「导入并生效」→ args 里的 session_id 等于 activeSessionId', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? seenArgs;
+      await tester.pumpWidget(
+        _host(
+          const PersonaPanel(),
+          _ctx(
+            activeSessionId: 's-42',
+            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
+              seenArgs = args;
+              return const ModCommandResult(
+                ok: true,
+                result: <String, Object?>{
+                  'scope': 'session',
+                  'session_id': 's-42',
+                  'card_name': 'NEKO',
+                  'card_format': 'v2',
+                },
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
+      await _tap(tester, '导入并生效');
+      expect(seenArgs!['session_id'], 's-42');
+    });
+
+    testWidgets('全局按钮不传 session_id，且成功文案说明写的是全局主链', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? seenArgs;
+      await tester.pumpWidget(
+        _host(
+          const PersonaPanel(),
+          _ctx(
+            activeSessionId: 's-42',
+            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
+              seenArgs = args;
+              return const ModCommandResult(
+                ok: true,
+                result: <String, Object?>{
+                  'scope': 'global',
+                  'card_name': 'NEKO',
+                  'card_format': 'v2',
+                },
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
+      await _tap(tester, '导入为全局人设（所有会话）');
+      expect(seenArgs!.containsKey('session_id'), isFalse);
+      expect(find.textContaining('并写回全局主链'), findsOneWidget);
+    });
+
+    testWidgets('成功动作调 notifyChanged（带会话），失败不调', (WidgetTester tester) async {
+      final List<String> changes = <String>[];
+      await tester.pumpWidget(
+        _host(
+          const PersonaPanel(),
+          _ctx(
+            activeSessionId: 's-42',
+            onModChanged: changes.add,
+            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
+              return const ModCommandResult(
+                ok: true,
+                result: <String, Object?>{
+                  'scope': 'session',
+                  'session_id': 's-42',
+                  'card_name': 'NEKO',
+                  'card_format': 'v2',
+                },
+              );
+            },
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
+      await _tap(tester, '导入并生效');
+      expect(changes, <String>['已导入角色卡并绑定到会话 s-42']);
+
+      changes.clear();
+      await tester.pumpWidget(
+        _host(
+          const PersonaPanel(),
+          _ctx(
+            activeSessionId: 's-42',
+            onModChanged: changes.add,
+            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
+              throw const ApiException('command_failed', 'card_json 不是可识别的角色卡 JSON', status: 409);
+            },
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), '{bad');
+      await _tap(tester, '导入并生效');
+      expect(changes, isEmpty, reason: '失败不得弹「已变更」提示');
+      expect(find.textContaining('command_failed'), findsOneWidget);
+    });
+
+    testWidgets('清除当前会话的卡：只清这个会话，文案带会话 id', (
+      WidgetTester tester,
+    ) async {
+      String? seenCommand;
+      Map<String, Object?>? seenArgs;
+      await tester.pumpWidget(
+        _host(
+          const PersonaPanel(),
+          _ctx(
+            activeSessionId: 's-42',
+            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
+              seenCommand = command;
+              seenArgs = args;
+              return const ModCommandResult(
+                ok: true,
+                result: <String, Object?>{
+                  'scope': 'session',
+                  'session_id': 's-42',
+                  'cleared': true,
+                },
+              );
+            },
+          ),
+        ),
+      );
+      await _tap(tester, '清除当前会话的卡');
+      expect(seenCommand, 'clear_import');
+      expect(seenArgs!['session_id'], 's-42');
+      expect(find.textContaining('已清除会话 s-42 的角色卡'), findsOneWidget);
     });
   });
 }

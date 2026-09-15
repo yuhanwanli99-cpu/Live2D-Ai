@@ -29,6 +29,7 @@ pub mod error;
 pub mod factory;
 pub mod registry;
 pub mod services;
+pub mod session;
 pub mod settings;
 pub mod status;
 pub mod topics;
@@ -40,6 +41,11 @@ pub use registry::{ModRegistrar, SubscriptionId};
 pub use services::{
     ModActionSender, ModEventSender, ModLogger, ModServices, ModSettingsApplier, ModSettingsReader,
     SaySender,
+};
+pub use session::{
+    MAX_SESSION_ID_CHARS, ModSessionPrompts, NoSessionPrompts, SESSION_PROMPT_OWNER_DEFAULT,
+    SESSION_PROMPT_OWNER_MEMORY, SESSION_PROMPT_OWNER_PERSONA, SessionPromptSink,
+    compose_session_prompt, owner_merge_rank, sanitize_session_id,
 };
 pub use settings::{ModSettingField, ModSettingsSpec, SelectOption};
 pub use status::ModStatus;

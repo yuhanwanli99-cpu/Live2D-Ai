@@ -1,11 +1,12 @@
-/// `external-input` 产品面板回归（产品级加强波次）。
+/// external-input 产品面板回归（产品级加强波次 + L1 产品级波次）。
 ///
-/// 覆盖三条产品级诉求的**前端可读面**：
-/// 1. 计数摘要文案 + 「重置计数」按钮走 `onCommand('reset_counters')`（含二次确认）；
-/// 2. `token_set` 两态文案（已设置 / 未设：仅本机可用）；
-/// 3. 模板 / 前缀说明与**本地**渲染示例（不发请求）。
+/// 覆盖四条产品级诉求的**前端可读面**：
+/// 1. 计数摘要文案 + 「重置计数」按钮走 onCommand('reset_counters')（含二次确认）；
+/// 2. token_set 两态文案（已设置 / 未设：仅本机可用）；
+/// 3. 模板 / 前缀说明与**本地**渲染示例（不发请求）；
+/// 4. L1 的「测试注入」命令通道 + 停用 403 可读（Mod id 仍是 external-input）。
 ///
-/// 面板自己不做网络：所有动作都经 `ModPanelContext.onCommand` 注入的 fake，
+/// 面板自己不做网络：所有动作都经 ModPanelContext.onCommand 注入的 fake，
 /// 测试因此零网络、零真实后端。
 library;
 
@@ -18,7 +19,7 @@ import 'package:live2d_ai_shell/settings/mods/external_input_panel.dart';
 import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 一份运行态快照（键与 Rust `state_json` 一致）。
+/// 一份运行态快照（键与 Rust state_json 一致）。
 Map<String, Object?> _state({
   int accepts = 0,
   int rejects = 0,
@@ -45,6 +46,7 @@ ModPanelContext _ctx({
   String? stateError,
   Future<ModCommandResult> Function(String, [Map<String, Object?>])? onCommand,
   Future<void> Function()? onRefreshState,
+  ValueChanged<String>? onModChanged,
 }) {
   return ModPanelContext(
     mod: ModInfo(
@@ -64,10 +66,11 @@ ModPanelContext _ctx({
         (String command,
             [Map<String, Object?> args = const <String, Object?>{}]) async =>
             const ModCommandResult(ok: true),
+    onModChanged: onModChanged,
   );
 }
 
-/// 把面板挂进最小 widget 树（`build` 需要 BuildContext）。
+/// 把面板挂进最小 widget 树（build 需要 BuildContext）。
 Widget _panel(ModPanelContext ctx) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(
@@ -278,7 +281,7 @@ void main() {
       expect(find.textContaining('command_unavailable'), findsOneWidget);
     });
 
-    testWidgets('Mod 未启用：按钮禁用且文案说明', (WidgetTester tester) async {
+    testWidgets('Mod 未启用：重置按钮禁用且文案说明', (WidgetTester tester) async {
       await tester.pumpWidget(
         _panel(_ctx(enabled: false, state: _state())),
       );
@@ -287,6 +290,172 @@ void main() {
       );
       expect(button.onPressed, isNull);
       expect(find.textContaining('Mod 未启用'), findsOneWidget);
+    });
+  });
+
+  group('④ L1：测试注入 + 停用 403 可读', () {
+    test('失败码 command_unavailable → 点明 503 / 未启用 / 开关在哪', () {
+      final String msg = externalInputInjectErrorMessage(
+        const ApiException('command_unavailable', 'Mod external-input 未启用或正忙，可重试',
+            status: 503),
+      );
+      expect(msg, contains('command_unavailable'));
+      expect(msg, contains('未启用或正忙（503）'));
+      expect(msg, contains('先打开卡片标题行的开关'));
+    });
+
+    test('失败码 command_failed → 点明 2000 字符上限', () {
+      final String msg = externalInputInjectErrorMessage(
+        const ApiException('command_failed', 'Mod external-input 命令失败：注入文本过长',
+            status: 409),
+      );
+      expect(msg, contains('command_failed'));
+      expect(msg, contains('2000'));
+    });
+
+    test('injectReceiptText：成功说「已注入」，忙说「被丢弃」', () {
+      expect(
+        injectReceiptText(
+          injectedText: '[弹幕] 主播好',
+          accepted: true,
+          state: _state(accepts: 7, busy: 1),
+        ),
+        '已注入：[弹幕] 主播好（已接受 7 / 忙碌丢弃 1）',
+      );
+      expect(
+        injectReceiptText(
+          injectedText: 'hi',
+          accepted: false,
+          state: _state(accepts: 7, busy: 2),
+        ),
+        contains('被丢弃'),
+      );
+    });
+
+    testWidgets('面板主标题仍是外部事件接入 + 中性 Mod id 行（无品牌化改名）', (WidgetTester tester) async {
+      await tester.pumpWidget(_panel(_ctx(state: _state())));
+      expect(find.text('外部事件接入'), findsWidgets);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('external-input-mod-id')))
+            .data,
+        'Mod id：external-input（端点契约不变）',
+      );
+    });
+
+    testWidgets('测试注入 → onCommand(test_inject) 收到渲染后的文本 + 刷新计数（不发重启提示）', (
+      WidgetTester tester,
+    ) async {
+      final List<String> commands = <String>[];
+      final List<Map<String, Object?>> args = <Map<String, Object?>>[];
+      final List<String> changes = <String>[];
+      int refreshes = 0;
+      await tester.pumpWidget(
+        _panel(
+          _ctx(
+            state: _state(accepts: 7, busy: 1),
+            onRefreshState: () async => refreshes++,
+            onModChanged: (String what) => changes.add(what),
+            onCommand: (String command,
+                [Map<String, Object?> a = const <String, Object?>{}]) async {
+              commands.add(command);
+              args.add(a);
+              return const ModCommandResult(
+                ok: true,
+                result: <String, Object?>{
+                  'injected_text': '[弹幕] 主播好',
+                  'accepted': true,
+                },
+              );
+            },
+          ),
+        ),
+      );
+      // 初值 = 按当前 prefix/模板渲染出的示例。
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('external-input-inject-text')))
+            .controller
+            ?.text,
+        '[弹幕] 主播好',
+      );
+
+      await tester.tap(find.byKey(const Key('external-input-inject')));
+      await tester.pumpAndSettle();
+
+      expect(commands, <String>['test_inject']);
+      expect(args.single['text'], '[弹幕] 主播好');
+      expect(args.single['prefix'], false, reason: '文本框里已是最终文本，避免双重前缀');
+      expect(find.textContaining('已注入：[弹幕] 主播好'), findsOneWidget);
+      expect(find.textContaining('已接受 7 / 忙碌丢弃 1'), findsOneWidget);
+      expect(refreshes, 1, reason: '注入后必须刷新计数');
+      expect(
+        changes,
+        isEmpty,
+        reason: '注入是瞬时行为：不改配置，不得发「需重新点火」提示',
+      );
+    });
+
+    testWidgets('命令不可用 → 上屏 503 / 未启用 / 开关文案', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _panel(
+          _ctx(
+            state: _state(),
+            onCommand: (String command,
+                [Map<String, Object?> a = const <String, Object?>{}]) async {
+              throw const ApiException('command_unavailable', 'Mod external-input 未启用或正忙，可重试',
+                  status: 503);
+            },
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('external-input-inject')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('command_unavailable'), findsOneWidget);
+      expect(find.textContaining('未启用或正忙（503）'), findsOneWidget);
+      expect(find.textContaining('先打开卡片标题行的开关'), findsOneWidget);
+    });
+
+    testWidgets('停用时静态显示 403 mod_disabled / 503 说明，且注入按钮仍可点', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_panel(_ctx(enabled: false, state: _state())));
+      expect(
+        find.byKey(const Key('external-input-disabled-notice')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('403 mod_disabled'), findsOneWidget);
+      expect(find.textContaining('503 command_unavailable'), findsOneWidget);
+      // 停用后仍可点：点下去正是「读得到的失败」（见上一条）。
+      final FilledButton button = tester.widget<FilledButton>(
+        find.byKey(const Key('external-input-inject')),
+      );
+      expect(button.onPressed, isNotNull);
+    });
+
+    testWidgets('空文本 → 本地拦下，不发命令', (WidgetTester tester) async {
+      final List<String> commands = <String>[];
+      await tester.pumpWidget(
+        _panel(
+          _ctx(
+            state: _state(),
+            config: const <String, Object?>{},
+            onCommand: (String command,
+                [Map<String, Object?> a = const <String, Object?>{}]) async {
+              commands.add(command);
+              return const ModCommandResult(ok: true);
+            },
+          ),
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('external-input-inject-text')),
+        '   ',
+      );
+      await tester.tap(find.byKey(const Key('external-input-inject')));
+      await tester.pumpAndSettle();
+      expect(commands, isEmpty);
+      expect(find.textContaining('不能为空'), findsOneWidget);
     });
   });
 }

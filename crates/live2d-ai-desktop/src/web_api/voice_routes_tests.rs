@@ -86,6 +86,29 @@ fn ctx_with_manifest(manifest: &serde_json::Value) -> ServerContext {
     with_manifest(dummy_ctx(sec), manifest)
 }
 
+/// 已启用 voice-input 的 manifest：config 里放唤醒短语 / 手动闸 / backend / locale。
+fn voice_manifest(config: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"mods": {"voice-input": {"enabled": true, "config": config}}})
+}
+
+/// 宽松 ctx（允许无 Origin）+ 已启用 voice-input + 给定 config。
+fn ctx_voice(config: serde_json::Value) -> ServerContext {
+    ctx_with_manifest(&voice_manifest(config))
+}
+
+/// 本轨的基准唤醒短语（总闸开 = 配了它）。
+const WAKE: &str = "小爱";
+
+/// 打开总闸的最小 config。
+fn wake_only() -> serde_json::Value {
+    serde_json::json!({ "wake_phrase": WAKE })
+}
+
+/// 把一段正文包成「带唤醒短语的转写」（短语后一个空格，剥离时会一起去掉）。
+fn with_wake(body: &str) -> String {
+    format!("{WAKE} {body}")
+}
+
 /// 不可达的 LLM 端点（连接被立即拒绝：回合很快失败，不影响断言）。
 const UNREACHABLE_LLM: &str = "http://127.0.0.1:1/v1";
 
@@ -263,17 +286,20 @@ fn missing_origin_without_allow_no_origin_403() {
 
 #[test]
 fn same_loopback_origin_passes() {
-    let ctx = dummy_ctx(crate::web_api::security::SecurityContext::new(18099, false));
+    let ctx = with_manifest(
+        dummy_ctx(crate::web_api::security::SecurityContext::new(18099, false)),
+        &voice_manifest(wake_only()),
+    );
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"hi"}"#,
+        &serde_json::json!({"text": with_wake("你好")}).to_string(),
         Some("http://127.0.0.1:18099"),
         Some("application/json"),
     )
     .unwrap();
-    // 过 Origin 后止于 supervisor 未就绪（不是 403）。
+    // 过 Origin 与两把闸后止于 supervisor 未就绪（不是 403）。
     assert_eq!(resp.status_code(), StatusCode(503));
 }
 
@@ -307,7 +333,9 @@ fn invalid_payload_400() {
 
 #[test]
 fn empty_transcript_400_distinct_from_invalid_payload() {
-    let ctx = ctx_allow_no_origin();
+    // L1 行为变更：总闸开时，**空输入 = 没听见唤醒词**（wake_phrase_required），
+    // 而 empty_transcript 留给「整句就是唤醒短语」。
+    let ctx = ctx_voice(wake_only());
     for raw in ["", "   ", "\n\t\u{3000}", "\u{200B}\u{FEFF}"] {
         let body = serde_json::json!({"text": raw}).to_string();
         let resp = call(
@@ -322,17 +350,34 @@ fn empty_transcript_400_distinct_from_invalid_payload() {
         assert_eq!(resp.status_code(), StatusCode(400), "raw={raw:?}");
         let b = body_of(resp);
         assert!(
-            b.contains("empty_transcript") && !b.contains("invalid_payload"),
-            "空白转写必须是 empty_transcript（不是 invalid_payload）: {b}"
+            b.contains("wake_phrase_required") && !b.contains("invalid_payload"),
+            "空输入 = 缺唤醒词（不是 invalid_payload）: {b}"
         );
     }
+    // 整句只有唤醒短语（含标点）→ Allow 空正文 → empty_transcript。
+    let body = serde_json::json!({"text": format!("{WAKE}！")}).to_string();
+    let resp = call(
+        &ctx,
+        &Method::Post,
+        VOICE_TRANSCRIPT_PATH,
+        &body,
+        None,
+        Some("application/json"),
+    )
+    .unwrap();
+    assert_eq!(resp.status_code(), StatusCode(400));
+    let b = body_of(resp);
+    assert!(
+        b.contains("empty_transcript") && !b.contains("wake_phrase_required"),
+        "整句就是唤醒词 → empty_transcript: {b}"
+    );
 }
 
 #[test]
 fn text_too_long_400() {
-    let ctx = ctx_allow_no_origin();
-    // 2001 个字符（清洗后仍是 2001）→ 超长。
-    let body = serde_json::json!({"text": "a".repeat(MAX_TEXT_LEN + 1)}).to_string();
+    let ctx = ctx_voice(wake_only());
+    // 唤醒短语之后的正文 2001 个字符 → 超长（长度按**剥离后**正文判定）。
+    let body = serde_json::json!({"text": with_wake(&"a".repeat(MAX_TEXT_LEN + 1))}).to_string();
     let resp = call(
         &ctx,
         &Method::Post,
@@ -345,8 +390,8 @@ fn text_too_long_400() {
     assert_eq!(resp.status_code(), StatusCode(400));
     assert!(body_of(resp).contains("text_too_long"));
 
-    // 边界：恰好 2000 → 不因长度被拒（止于 503 = 已过长度门）。
-    let ok_body = serde_json::json!({"text": "a".repeat(MAX_TEXT_LEN)}).to_string();
+    // 边界：正文恰好 2000 → 不因长度被拒（止于 503 = 已过长度门）。
+    let ok_body = serde_json::json!({"text": with_wake(&"a".repeat(MAX_TEXT_LEN))}).to_string();
     let resp = call(
         &ctx,
         &Method::Post,
@@ -361,10 +406,10 @@ fn text_too_long_400() {
 
 #[test]
 fn cleaned_length_is_what_counts() {
-    let ctx = ctx_allow_no_origin();
-    // 清洗后恰好 2000 字符：**原始输入** > 2000（含空白），但折叠/去首尾后
-    // 落在门内 → 不是 text_too_long。
-    let messy = format!(" \u{3000}{}\t\n ", "a".repeat(MAX_TEXT_LEN));
+    let ctx = ctx_voice(wake_only());
+    // 清洗 + 剥离后恰好 2000 字符：**原始输入** > 2000（含空白与唤醒短语），
+    // 但折叠 / 去首尾 / 剥短语后落在门内 → 不是 text_too_long。
+    let messy = format!(" \u{3000}{}\t\n ", with_wake(&"a".repeat(MAX_TEXT_LEN)));
     let body = serde_json::json!({"text": messy}).to_string();
     let resp = call(
         &ctx,
@@ -378,7 +423,7 @@ fn cleaned_length_is_what_counts() {
     assert_eq!(
         resp.status_code(),
         StatusCode(503),
-        "长度按**清洗后**文本判定"
+        "长度按**清洗 + 剥离后**文本判定"
     );
 }
 
@@ -402,14 +447,13 @@ fn mod_registered_but_disabled_403() {
 
 #[test]
 fn mod_enabled_passes_gate_to_supervisor() {
-    let ctx = ctx_with_manifest(&serde_json::json!({
-        "mods": {"voice-input": {"enabled": true}}
-    }));
+    // 启用 + 总闸开（配了唤醒短语）→ 应过全部闸门，止于 supervisor 未就绪。
+    let ctx = ctx_voice(wake_only());
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"hi"}"#,
+        &serde_json::json!({"text": with_wake("你好")}).to_string(),
         None,
         Some("application/json"),
     )
@@ -417,24 +461,32 @@ fn mod_enabled_passes_gate_to_supervisor() {
     assert_eq!(
         resp.status_code(),
         StatusCode(503),
-        "启用后应过门禁，止于 supervisor 未就绪（而非 403）"
+        "启用 + 总闸开后应过门禁，止于 supervisor 未就绪（而非 403）"
     );
 }
 
 #[test]
 fn absent_mod_is_not_gated() {
-    // 空注册表（极简测试上下文）→ 不设门禁，止于 503。
+    // 空注册表（极简测试上下文）→ **没有** mod_disabled 门禁；但总闸仍按
+    // 「config 为空」看待 = 关（L1 契约：wake_phrase 空 = 拒绝一切转写），
+    // 因此止于 403 voice_gate_closed 而不是 503。
     let ctx = ctx_allow_no_origin();
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"hi"}"#,
+        &serde_json::json!({"text": with_wake("你好")}).to_string(),
         None,
         Some("application/json"),
     )
     .unwrap();
-    assert_eq!(resp.status_code(), StatusCode(503));
+    assert_eq!(resp.status_code(), StatusCode(403));
+    let b = body_of(resp);
+    assert!(b.contains("voice_gate_closed"), "got: {b}");
+    assert!(
+        !b.contains("mod_disabled"),
+        "不在册不该报 mod_disabled: {b}"
+    );
 }
 
 // ------------------------------------------------------------ token
@@ -515,140 +567,18 @@ fn no_token_configured_is_not_authenticated() {
     if std::env::var(TOKEN_ENV_VAR).is_ok() {
         return;
     }
-    // 注册表里没有 voice-input（无 config token）→ 不鉴权 → 止于 503。
+    // 注册表里没有 voice-input（无 config token）→ 不鉴权。
+    // L1 起空注册表的 config = 总闸关，故止于 403 voice_gate_closed（不是 401）。
     let ctx = ctx_allow_no_origin();
-    let resp = call_auth(&ctx, r#"{"text":"hi"}"#, None).unwrap();
+    let resp = call_auth(
+        &ctx,
+        &serde_json::json!({"text": with_wake("你好")}).to_string(),
+        None,
+    )
+    .unwrap();
     assert_ne!(resp.status_code(), StatusCode(401));
-    assert_eq!(resp.status_code(), StatusCode(503));
-}
-
-// ------------------------------------------------------------ 200 / busy
-
-#[test]
-fn success_returns_200_with_cleaned_text() {
-    let (ctx, handle, tmp) = ctx_with_supervisor("ok", UNREACHABLE_LLM);
-    let resp = call(
-        &ctx,
-        &Method::Post,
-        VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"  你好\u3000世界  "}"#,
-        None,
-        Some("application/json"),
-    )
-    .unwrap();
-    assert_eq!(resp.status_code(), StatusCode(200));
-    let b = body_of(resp);
-    let v: serde_json::Value = serde_json::from_str(&b).expect("响应是 JSON");
-    assert_eq!(v["ok"], serde_json::json!(true), "got: {b}");
-    assert_eq!(
-        v["text"],
-        serde_json::json!("你好世界"),
-        "响应必须回**清洗 + 缺省 zh-CN 归一化**后的文本（证明复用 Mod 纯函数）: {b}"
-    );
-    assert_eq!(v["backend"], serde_json::json!("mock"), "缺省 backend: {b}");
-    assert_eq!(v["locale"], serde_json::json!("zh-CN"), "缺省 locale: {b}");
-
-    handle.quit();
-    let _ = std::fs::remove_file(&tmp);
-}
-
-#[test]
-fn zero_width_chars_are_cleaned_before_say() {
-    let (ctx, handle, tmp) = ctx_with_supervisor("zw", UNREACHABLE_LLM);
-    let resp = call(
-        &ctx,
-        &Method::Post,
-        VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"\uFEFF你\u200B好\u0007"}"#,
-        None,
-        Some("application/json"),
-    )
-    .unwrap();
-    assert_eq!(resp.status_code(), StatusCode(200));
-    let v: serde_json::Value = serde_json::from_str(&body_of(resp)).unwrap();
-    assert_eq!(v["text"], serde_json::json!("你好"));
-    handle.quit();
-    let _ = std::fs::remove_file(&tmp);
-}
-
-#[test]
-fn busy_returns_200_ok_false() {
-    let port = blackhole_endpoint();
-    let (ctx, handle, tmp) = ctx_with_supervisor("busy", &format!("http://127.0.0.1:{port}/v1"));
-    // 先用一条占位 say 让 supervisor 进入 in-flight 回合（黑洞端点不回包，
-    // 回合悬停；turn 期间 say 缓冲不被消费）。
-    assert!(handle.say("占位回合"));
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    // 缓冲空着 → 本条被接受（填充容量 1 的缓冲）。
-    let first = call(
-        &ctx,
-        &Method::Post,
-        VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"第一条"}"#,
-        None,
-        Some("application/json"),
-    )
-    .unwrap();
-    assert_eq!(first.status_code(), StatusCode(200));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&body_of(first)).unwrap()["ok"],
-        serde_json::json!(true)
-    );
-    // 缓冲已满 → 200 + ok:false busy（**不是** 5xx）。
-    let second = call(
-        &ctx,
-        &Method::Post,
-        VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"第二条"}"#,
-        None,
-        Some("application/json"),
-    )
-    .unwrap();
-    assert_eq!(
-        second.status_code(),
-        StatusCode(200),
-        "忙碌刻意用 200（发送方自行退避），不要 5xx"
-    );
-    let b = body_of(second);
-    let v: serde_json::Value = serde_json::from_str(&b).unwrap();
-    assert_eq!(v["ok"], serde_json::json!(false), "got: {b}");
-    assert_eq!(v["error"]["code"], serde_json::json!("busy"), "got: {b}");
-
-    handle.quit();
-    let _ = std::fs::remove_file(&tmp);
-}
-
-#[test]
-fn empty_transcript_never_reaches_say() {
-    let (ctx, handle, tmp) = ctx_with_supervisor("nosay", UNREACHABLE_LLM);
-    let resp = call(
-        &ctx,
-        &Method::Post,
-        VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"\u200B"}"#,
-        None,
-        Some("application/json"),
-    )
-    .unwrap();
-    assert_eq!(resp.status_code(), StatusCode(400));
-    // 未消费任何 pending：紧接着一条正常转写仍能被接受（= 前一条没进 say）。
-    let next = call(
-        &ctx,
-        &Method::Post,
-        VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"正常一条"}"#,
-        None,
-        Some("application/json"),
-    )
-    .unwrap();
-    assert_eq!(next.status_code(), StatusCode(200));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&body_of(next)).unwrap()["ok"],
-        serde_json::json!(true),
-        "空转写不得占用 say 缓冲"
-    );
-    handle.quit();
-    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(resp.status_code(), StatusCode(403));
+    assert!(body_of(resp).contains("voice_gate_closed"));
 }
 
 // ---------------------------------------------------- token / 清洗 纯函数
@@ -721,16 +651,15 @@ fn sidecar_backend_branch_uses_config_locale() {
     let (ctx, handle, tmp) = ctx_with_supervisor("side-b", UNREACHABLE_LLM);
     let ctx = with_manifest(
         ctx,
-        &serde_json::json!({
-            "mods": {"voice-input": {"enabled": true,
-                "config": {"backend": "sidecar", "locale": "en-US"}}}
-        }),
+        &voice_manifest(serde_json::json!({
+            "backend": "sidecar", "locale": "en-US", "wake_phrase": WAKE
+        })),
     );
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"打开空调wifi"}"#,
+        &serde_json::json!({"text": with_wake("打开空调wifi")}).to_string(),
         None,
         Some("application/json"),
     )
@@ -754,12 +683,13 @@ fn sidecar_backend_branch_uses_config_locale() {
 fn backend_branches_never_wait_on_network() {
     let port = blackhole_endpoint();
     let (ctx, handle, tmp) = ctx_with_supervisor("nonet", &format!("http://127.0.0.1:{port}/v1"));
+    let ctx = with_manifest(ctx, &voice_manifest(wake_only()));
     let t0 = std::time::Instant::now();
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"你好"}"#,
+        &serde_json::json!({"text": with_wake("你好")}).to_string(),
         None,
         Some("application/json"),
     )
@@ -781,15 +711,13 @@ fn unknown_backend_falls_back_to_mock_in_response() {
     let (ctx, handle, tmp) = ctx_with_supervisor("bad-backend", UNREACHABLE_LLM);
     let ctx = with_manifest(
         ctx,
-        &serde_json::json!({
-            "mods": {"voice-input": {"enabled": true, "config": {"backend": "whisper"}}}
-        }),
+        &voice_manifest(serde_json::json!({"backend": "whisper", "wake_phrase": WAKE})),
     );
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"  你好　世界  "}"#,
+        &serde_json::json!({"text": with_wake("你好　世界")}).to_string(),
         None,
         Some("application/json"),
     )
@@ -819,16 +747,15 @@ fn malformed_locale_is_echoed_and_normalizes_as_latin() {
     let (ctx, handle, tmp) = ctx_with_supervisor("bad-locale", UNREACHABLE_LLM);
     let ctx = with_manifest(
         ctx,
-        &serde_json::json!({
-            "mods": {"voice-input": {"enabled": true,
-                "config": {"backend": "mock", "locale": "!!"}}}
-        }),
+        &voice_manifest(
+            serde_json::json!({"backend": "mock", "locale": "!!", "wake_phrase": WAKE}),
+        ),
     );
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"打开空调wifi"}"#,
+        &serde_json::json!({"text": with_wake("打开空调wifi")}).to_string(),
         None,
         Some("application/json"),
     )
@@ -848,3 +775,14 @@ fn malformed_locale_is_echoed_and_normalizes_as_latin() {
     handle.quit();
     let _ = std::fs::remove_file(&tmp);
 }
+
+// L1 起测试文件按主题拆开（主文件 ≤800 行纪律）：
+// - `voice_routes_tests_say.rs`：200 成功 / busy / 空转写不占 say；
+// - `voice_routes_tests_gate.rs`：L1 两把闸的 handler 级回归。
+#[cfg(test)]
+#[path = "voice_routes_tests_say.rs"]
+mod say_suite;
+
+#[cfg(test)]
+#[path = "voice_routes_tests_gate.rs"]
+mod gate_suite;

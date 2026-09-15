@@ -101,7 +101,13 @@ class ChatController extends ChangeNotifier {
     _errorCode = null;
     notifyListeners();
     try {
-      final accepted = await api.sendChat(text);
+      // **L1 会话绑定**：把当前会话 id 一起发出去。服务端据此决定本轮
+      // system_prompt（persona / memory 都按会话写）。`append` 上面已经
+      // `ensureActive` 过，所以这里读到的就是这条消息所属的会话。
+      final accepted = await api.sendChat(
+        text,
+        sessionId: sessions.activeId,
+      );
       assert(accepted.accepted);
       final bubble = ChatMessage(
         role: ChatRole.assistant,
@@ -426,6 +432,7 @@ class ChatController extends ChangeNotifier {
     sessions.pruneEmpty();
     sessions.create();
     _persist();
+    _syncActiveSession();
     notifyListeners();
   }
 
@@ -435,7 +442,19 @@ class ChatController extends ChangeNotifier {
     _abandonTurn();
     if (!sessions.select(id)) return;
     _persist();
+    _syncActiveSession();
     notifyListeners();
+  }
+
+  /// 把当前活动会话告诉服务端（L1 会话绑定）。
+  ///
+  /// 只影响**不带会话 id 的注入路径**（external-input 弹幕 / voice-input 转写）：
+  /// 它们接在当前这段对话上，所以必须知道用户正在看哪个会话。聊天消息本身
+  /// 每次都显式带 `session_id`（见 [send]），不依赖这里。
+  ///
+  /// 失败不抛（见 `ApiClient.setActiveSession` 的说明）。
+  void _syncActiveSession() {
+    unawaited(api.setActiveSession(sessions.activeId));
   }
 
   /// 重命名；传空串 = 恢复自动标题。

@@ -492,6 +492,20 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             .find(|h| h.field.equiv("Authorization"))
             .map(|h| h.value.as_str().to_string());
         let body_str = read_body_from_request(&mut request);
+        // L1 基座（2026-09-15）：会话 id 宿主能力
+        // （GET|POST /api/v1/chat/session）。前置于 dispatch，自身完成
+        // loopback + json 校验（详见 chat_routes 头注）。
+        if let Some(resp) = crate::web_api::chat_routes::handle_chat_session(
+            &ctx,
+            &method,
+            &path,
+            &body_str,
+            origin.as_deref(),
+            content_type.as_deref(),
+        ) {
+            let _ = request.respond(resp);
+            continue;
+        }
         // 节点 E5-T3：外部文本注入端点（POST /api/v1/external/chat → say →
         // 主链路）。前置于 dispatch_with_security，自身完成 loopback + json
         // 校验（详见 external_routes 头注）。

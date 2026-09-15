@@ -28,10 +28,12 @@ fn corpus_records(value: &serde_json::Value) -> Vec<MemoryRecord> {
         .as_array()
         .expect("records 必须是数组")
         .iter()
-        .map(|r| MemoryRecord {
-            text: r["text"].as_str().expect("record.text").to_string(),
-            ts: r["ts"].as_i64().expect("record.ts"),
-            turn: r["turn"].as_u64().expect("record.turn"),
+        .map(|r| {
+            MemoryRecord::new(
+                r["text"].as_str().expect("record.text"),
+                r["ts"].as_i64().expect("record.ts"),
+                r["turn"].as_u64().expect("record.turn"),
+            )
         })
         .collect()
 }

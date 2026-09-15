@@ -70,6 +70,12 @@ pub struct HostChannels {
     /// **脱敏设置读取**（rc.4 M5）：Mod 读当前生效设置（无密钥、无变量名）。
     /// 角色卡 Mod 用它记住主链原本的 `system_prompt`，禁用时还原。
     pub read_settings: Arc<dyn Fn() -> serde_json::Value + Send + Sync>,
+    /// **会话级 system_prompt 覆盖**（L1 基座，2026-09-15）。
+    ///
+    /// 由 host 从 supervisor 的 `SessionScopeStore` 包装而来（同一张表）。
+    /// persona / memory 用它做按会话分桶，而不再整段覆写全局
+    /// `persona.system_prompt`。未注入 = 不可用空实现。
+    pub session_prompts: live2d_ai_mod_system::ModSessionPrompts,
 }
 
 /// worker 线程可安全访问的 per-Mod runtime 快照（ModRuntime: Send）.
@@ -122,7 +128,8 @@ impl std::fmt::Display for ModCommandError {
 }
 
 /// 事件投递 channel 的消息。
-type EventMsg = (ModEventTopic, String);
+/// 事件投递 channel 的消息（L1：第三条是会话 id，`None` = 不带会话）。
+type EventMsg = (ModEventTopic, String, Option<String>);
 
 /// Host ModRegistry。
 pub struct ModRegistry {
@@ -373,6 +380,13 @@ impl ModRegistry {
         .with_apply_settings(applier)
         .with_settings_reader(reader)
         .with_config_path(config_path)
+        // L1 基座：会话能力。无 HostChannels（单测）→ 不可用空实现
+        // （Mod 侧必须能靠 `enabled() == false` 察觉并退回全局写回）。
+        .with_session_prompts(
+            host.as_ref()
+                .map(|h| h.session_prompts.clone())
+                .unwrap_or_else(live2d_ai_mod_system::ModSessionPrompts::disabled),
+        )
     }
 
     #[rustfmt::skip]
@@ -512,8 +526,18 @@ impl ModRegistry {
     }
 
     /// 投递事件到 worker（有界；满则丢弃计数，不阻塞）。
-    pub fn dispatch_event(&self, topic: ModEventTopic, payload: &str) -> bool {
-        self.event_tx.try_send((topic, payload.to_string())).is_ok()
+    ///
+    /// `session` 是 L1 基座加上的**会话 id**（`None` = 不带会话）；worker 会把它
+    /// 经 `ModRuntime::on_scoped_event` 交给 Mod。
+    pub fn dispatch_event(
+        &self,
+        topic: ModEventTopic,
+        payload: &str,
+        session: Option<&str>,
+    ) -> bool {
+        self.event_tx
+            .try_send((topic, payload.to_string(), session.map(str::to_string)))
+            .is_ok()
     }
 
     #[allow(dead_code)]
@@ -550,11 +574,15 @@ fn event_worker_loop(
     runtimes: BTreeMap<&'static str, SharedRuntime>,
     _dropped: Arc<AtomicU64>,
 ) {
-    while let Ok((topic, payload)) = event_rx.recv() {
+    while let Ok((topic, payload, session)) = event_rx.recv() {
         for (id, slot) in &runtimes {
             let mut guard = match slot.try_lock() { Ok(g) => g, Err(_) => continue }; // host 持锁（restart）→ 跳过。
             if guard.is_none() { continue } // 未启用 → 跳过。
-            if let Err(err) = guard.as_mut().expect("non-none").on_event(topic, payload.as_str()) {
+            // L1：走**带会话**入口；缺省实现原样转发给 on_event，
+            // 所以不关心会话的 Mod（director / voice-input）行为一字不变。
+            if let Err(err) = guard.as_mut().expect("non-none")
+                .on_scoped_event(topic, payload.as_str(), session.as_deref())
+            {
                 tracing::warn!(target: "mod", "Mod {id} on_event 失败: {err}");
                 *guard = None; // 失败 Mod 停止投递（E0 失败隔离）。
             }
@@ -724,9 +752,9 @@ mod tests {
     #[test]
     fn dispatch_event_bounded_no_block() {
         let reg = ModRegistry::new(FACTORIES, &serde_json::json!({}));
-        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}"));
+        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None));
         // Wave 2 新主题同样可投递（有界 channel，不阻塞）。
-        assert!(reg.dispatch_event(ModEventTopic::TurnPrompt, "你好"));
+        assert!(reg.dispatch_event(ModEventTopic::TurnPrompt, "你好", None));
     }
 
     // ------------------------------------------------- Wave 2：运行态快照面
@@ -911,7 +939,7 @@ mod tests {
         RECEIVED.lock().unwrap().clear();
         let mut reg = ModRegistry::new(FACTORIES, &serde_json::json!({"mods":{"test":{"enabled":true}}}));
         reg.start_all();
-        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}"));
+        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None));
         let slot = reg.runtimes.get("test").expect("runtime 槽位存在");
         let mut got = false;
         for _ in 0..10 {
@@ -959,7 +987,7 @@ mod tests {
     fn event_failure_isolates_mod() {
         let mut reg = ModRegistry::new(FAIL_FACTORIES, &serde_json::json!({"mods":{"failmod":{"enabled":true}}}));
         reg.start_all();
-        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}"));
+        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None));
         let slot = reg.runtimes.get("failmod").expect("runtime 槽位存在");
         let mut cleared = false;
         for _ in 0..10 {
@@ -967,7 +995,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(cleared, "on_event 失败后 runtime 槽位应被清空");
-        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}")); // 二次 dispatch 不 panic。
+        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None)); // 二次 dispatch 不 panic。
     }
 
     // ------------------------------------------------------- enable_with_config test
@@ -1041,6 +1069,7 @@ mod tests {
                 apply_settings: Arc::new(|_| true),
                 config_path: String::new(),
                 read_settings: Arc::new(|| serde_json::json!({})),
+                session_prompts: live2d_ai_mod_system::ModSessionPrompts::disabled(),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let req = ActionRequest {
@@ -1076,6 +1105,7 @@ mod tests {
                 apply_settings: Arc::new(|_| true),
                 config_path: String::new(),
                 read_settings: Arc::new(|| serde_json::json!({})),
+                session_prompts: live2d_ai_mod_system::ModSessionPrompts::disabled(),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let text = "hello from mod".to_string();
@@ -1109,6 +1139,7 @@ mod tests {
             }),
             config_path: String::new(),
             read_settings: Arc::new(|| serde_json::json!({})),
+            session_prompts: live2d_ai_mod_system::ModSessionPrompts::disabled(),
         });
         reg.start_all(); // 触发 factory.create → 捕获 services。
 

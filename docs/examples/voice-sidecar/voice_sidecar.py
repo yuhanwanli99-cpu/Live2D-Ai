@@ -86,7 +86,7 @@ ERROR_HINTS = {
     "text_too_long": f"转写超过 {MAX_TEXT_CHARS} 字符：切短一点再发（服务端按清洗后长度判定）",
     "invalid_payload": "请求体不合法：这通常意味着脚本与服务端版本不匹配",
     "origin_denied": "Origin 非 loopback 同源：本端点只服务本机进程",
-    "origin_required": "缺 Origin 且服务端未开 allow_no_origin：用 curl/脚本时给服务端加 --allow-no-origin",
+    "origin_required": "缺 Origin（本 sidecar 会自动带同源 Origin；出现这条说明 URL/端口不对，或你在用别的客户端）",
     "method_not_allowed": "方法不对：本端点只接受 POST",
     "unsupported_media_type": "Content-Type 必须是 application/json",
     "supervisor_unavailable": "supervisor 未就绪（配置不完整 / 尚未保存）：先让主链跑起来",
@@ -191,6 +191,28 @@ def normalize_url(raw: str) -> str:
     if "/" not in rest:
         url = f"{scheme}://{rest}{ENDPOINT_PATH}"
     return url
+
+
+def origin_from_url(url: str) -> str:
+    """从端点 URL 推出同源 `Origin`（`scheme://host[:port]`）。
+
+    为什么必须带：`/api/v1/voice/transcript` 是 **mutating** 端点，服务端只放行
+    「同源 loopback Origin」（防表单 CSRF）。浏览器会自动带这个头，**脚本不会**——
+    这正是本 sidecar 早期版本在标准 `./scripts/ignite.sh` 点火下拿到
+    `403 origin_required`（退出码 4）的原因。
+
+    为什么在这里推 Origin、而不是让用户去开 `LIVE2D_AI_ALLOW_NO_ORIGIN=1`：
+    后者是**放松服务端的安全姿态**（对所有 mutating 端点生效）。sidecar 自己知道
+    目标 URL，推出 Origin 是一行代码，安全面一行不动——与
+    `bilibili_sidecar.py` / `ignition-precheck.sh` 同一条口径。
+
+    推不出（没有 scheme）→ 返回空串，调用方**不要**发这个头（让服务端的
+    `origin_required` 如实报出来，而不是伪造一个假 Origin 去撞 `origin_denied`）。
+    """
+    scheme, _, rest = url.partition("://")
+    if not scheme or not rest:
+        return ""
+    return f"{scheme}://{rest.split('/', 1)[0]}"
 
 
 def classify_http(status: int, body: object) -> tuple[int, str]:
@@ -324,6 +346,10 @@ def post_transcript(url: str, payload: dict, token: str | None, timeout: float) 
     """
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
+    # 同源 loopback Origin（见 `origin_from_url`）：不带它会被 403 origin_required。
+    origin = origin_from_url(url)
+    if origin:
+        headers["Origin"] = origin
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -395,6 +421,14 @@ def run_selftest() -> int:
     check("url 去尾部斜杠", normalize_url("http://h:1" + ENDPOINT_PATH + "/"),
           "http://h:1" + ENDPOINT_PATH)
     check("url 自定义路径保留", normalize_url("http://h:1/custom"), "http://h:1/custom")
+
+    # --- 4b. 同源 Origin 推导（L1：sidecar 自己带 Origin，不放松服务端姿态） ---
+    check("origin 缺省端点", origin_from_url(DEFAULT_URL), "http://127.0.0.1:18080")
+    check("origin 自定义端口", origin_from_url("http://127.0.0.1:18099" + ENDPOINT_PATH),
+          "http://127.0.0.1:18099")
+    check("origin localhost", origin_from_url("http://localhost:18080/api/v1/voice/transcript"),
+          "http://localhost:18080")
+    check("origin 无 scheme -> 空（不发假头）", origin_from_url("127.0.0.1:18080"), "")
 
     # --- 5. transcriber 解析 ---
     check("transcriber fake", parse_transcriber("fake"), ("fake", ""))

@@ -73,6 +73,7 @@ import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
 import 'ui/error_actions.dart';
+import 'ui/restart_notice.dart';
 import 'ui/stage_corner_controls.dart';
 import 'ui/theme.dart';
 
@@ -202,6 +203,13 @@ class _ShellRootState extends State<ShellRoot> {
   /// 让人以为它属于已被删除的动作链路（实际服务的是 `_activateModel`
   /// 与 `_toggleMod`）。行为不变。
   String? _adminMessage;
+
+  /// **统一的 Mod 变更 → 重新点火/重启提示**（L1 基座，2026-09-15）。
+  ///
+  /// 由三类动作写入：Mod 启停（`_toggleMod`）、Mod 配置保存（`_saveModConfig`）、
+  /// 以及各 Mod 产品面板自己的动作（导入角色卡 / 导入或清空记忆 / 改语音闸）。
+  /// 文案与处置入口的唯一来源是 `ui/restart_notice.dart`——不要在调用点各写一份。
+  String? _modRestartNotice;
   String? _llmTest;   bool _llmTesting = false;
   String? _ttsTest;   bool _ttsTesting = false;
   /// 舞台背景图的提示（选图与其它通道的失败原因完全不同）。
@@ -387,6 +395,32 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_ensureSettingsLoaded());
   }
 
+  /// 记录一次 Mod 变更：挂常驻提示 + 弹一条带入口的 SnackBar。
+  ///
+  /// **为什么两处都要**：SnackBar 会消失（用户可能正好没看屏幕），常驻提示
+  /// （Mod 分区顶部 + 聊天区顶部）才是「我重启了没有」的备忘。两者文案同源
+  /// （`modRestartNoticeText` / `modRestartSnackText`），不会互相矛盾。
+  ///
+  /// 刻意**不**在 `_clearTransientResults` 里清掉它：切分区不是「已经重启」。
+  void _notifyModChanged(String what) {
+    setState(() => _modRestartNotice = modRestartNoticeText(what));
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(modRestartSnackText(what)),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+  }
+
+  /// 用户关掉常驻提示（只有他能判断「已经重启过了」）。
+  void _dismissModRestart() {
+    if (_modRestartNotice == null) return;
+    setState(() => _modRestartNotice = null);
+  }
+
   /// 一次性结果代际。切分区时自增 ⇒ 在途的异步结果作废。
   int _resultEpoch = 0;
 
@@ -476,6 +510,9 @@ class _ShellRootState extends State<ShellRoot> {
           audioUnlocked: _audio.unlocked,
           onEnableSound: _audio.unlock,
           onUserGesture: _audio.unlock,
+          // L1 基座：Mod 变更后的统一提示（聊天区顶部常驻，可关）。
+          modRestartNotice: _modRestartNotice,
+          onDismissModRestart: _dismissModRestart,
           error: _ui.errorMessage ?? _chat.error,
           errorActions: errorActionsFor(
             _ui.errorMessage ?? _chat.error,

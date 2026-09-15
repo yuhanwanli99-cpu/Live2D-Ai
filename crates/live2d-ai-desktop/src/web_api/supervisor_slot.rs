@@ -116,11 +116,13 @@ impl SupervisorSlot {
         // 直接捕获 `mod_registry`，emit `ModEventTopic` → `dispatch_event`。
         let mod_events: Option<ModEventSink> = {
             let reg = mod_registry.clone();
-            Some(Arc::new(move |t: ModEventTopic, p: &str| {
-                if let Ok(reg) = reg.lock() {
-                    let _ = reg.dispatch_event(t, p);
-                }
-            }))
+            Some(Arc::new(
+                move |t: ModEventTopic, p: &str, s: Option<&str>| {
+                    if let Ok(reg) = reg.lock() {
+                        let _ = reg.dispatch_event(t, p, s);
+                    }
+                },
+            ))
         };
         match crate::web_api::cli_entry::build_web_supervisor(config_path, broadcaster, mod_events)
         {

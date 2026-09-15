@@ -62,6 +62,28 @@ pub trait ModRuntime: Send {
         Ok(())
     }
 
+    /// **带会话事件**（L1 基座，2026-09-15）。
+    ///
+    /// 与 Self::on_event 完全同义，多一个「本轮属于哪个会话」的参数。
+    /// 缺省实现**原样转发**给 Self::on_event，因此：
+    /// - 不关心会话的 Mod（director / voice-input / external-input）一行都不用改；
+    /// - 只关心会话的 Mod（persona / memory）覆写本方法即可，不再需要
+    ///   「把 payload 改成 JSON」这种破坏性协议升级。
+    ///
+    /// 语义约定：
+    /// - session = Some(id)：该 id **已通过** sanitize_session_id（宿主归一化后再投递）；
+    /// - session = None：调用方没带会话（裸 HTTP / 终端壳）；Mod 必须按
+    ///   「全局桶」处理，**不得**假装它属于某个会话。
+    fn on_scoped_event(
+        &mut self,
+        topic: crate::topics::ModEventTopic,
+        payload: &str,
+        session: Option<&str>,
+    ) -> Result<(), ModError> {
+        let _ = session;
+        self.on_event(topic, payload)
+    }
+
     /// 收尾（release 资源）。
     fn shutdown(&mut self) -> Result<(), ModError> {
         Ok(())

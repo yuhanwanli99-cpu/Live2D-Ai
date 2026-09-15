@@ -144,7 +144,8 @@ fn supervisor_emits_turn_started_to_mod_events() {
             capabilities: live2d_ai_core::ModelCapabilities::all(),
             audio: None,
             config_path: None,
-            mod_events: Some(Arc::new(move |t, p| {
+            // L1：第三个参数是会话 id（本测试不带会话 → None）。
+            mod_events: Some(Arc::new(move |t, p, _s| {
                 mod_topics_clone
                     .lock()
                     .expect("poison")

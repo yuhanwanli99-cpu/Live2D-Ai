@@ -1,13 +1,23 @@
 # 本地记忆 Mod v0（`live2d-ai-mod-memory`）
 
-> **状态**：2026-09-14 **产品级加强波次**（memory 轨，worktree
+> **状态**：2026-09-15 **L1 产品级（C 轨：memory 被动 + 主动 + 会话分桶）**——
+> 每条记忆有稳定 **`id`**（JSONL 落盘；旧行按同一公式派生）；`ModRuntime::command`
+> 新增 **`list` / `import` / `update` / `delete`**（主动管理面，§13）；被动路径与
+> 注入**按会话分桶**（`sessions/<id>.memory.jsonl` + 会话级 `system_prompt` 覆盖，
+> §14）；`state_json` 新增 `session_scoped` / `active_session` / `bucket_path`；
+> 面板新增记忆列表（查看 / 编辑 / 删除）+ 导入一条 + 会话降级文案。
+> **版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`
+> §3（被动 + 主动）与 §4（验收句式）是本轮范围真源。
+>
+> **上一版**：2026-09-14 **产品级加强波次**（memory 轨，worktree
 > `Live2D-Ai-pg-memory` @ 基座 `72d1af17`）更新——`state_json` 新增
 > **`records`（库里当前实际条数）**、实现 **`command("clear")`**（原子重写 JSONL 为空）
 > + 产品面板（条数 / 命中 / 注入 / 淘汰 / 上轮命中 / 清空按钮 / 注入开关与 persona
 > 策略说明）+ §12 逐条可复制验收步骤。**版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。
 > 上一版：2026-09-14 **Wave 3 C 轨**（分支 `mod/w3-memory` @ 基座 `118bd435`）——
 > 补检索**质量基线 fixtures**、**条数上限物理淘汰**、`state_json` **四个计数键**，
-> 并把与 persona 的 **last-writer-wins** 用两向对称测试钉死。
+> 并把与 persona 的 **last-writer-wins**（**全局路径**）用两向对称测试钉死；
+> 会话路径改为**来源槽叠加**（L1，2026-09-15，见 §5 的提示框与 §14）。
 > 再上一版：Wave 2 C 轨（分支 `mod/memory-v0` @ `429609f2`）起草。
 > **注册已完成**（Wave 2 收束落盘）：memory 是 `AVAILABLE_MOD_FACTORIES` 的 6 个工厂之一，
 > **缺省停用**（`cli_entry` 缺省 manifest 不含 memory）；本轨**不改注册面**。
@@ -113,7 +123,16 @@ system_prompt 上路了，那是假承诺。**先检索、再注入下一轮**�
 命中与否由「词元交集是否为空」决定，可逐条复算。要动检索算法，先改 fixtures
 的期望，再改实现——不许只改一边。
 
-## 5. 注入形态与 `persona` 的边界（last-writer-wins）
+## 5. 注入形态与 `persona` 的边界
+
+> **2026-09-15（L1）两条路径，别混**：
+> - **全局路径**（调用方不带会话 id，写 `persona.system_prompt`）：**仍是
+>   last-writer-wins**，下面 §5.1 一字未改；
+> - **会话路径**（带会话 id，写宿主会话表的 **memory 来源槽**）：**不再互相覆盖**。
+>   宿主表按 owner 分槽（`persona` / `memory` / 匿名），读时按固定顺序
+>   `匿名 → persona → memory` 用空行连接 —— 所以「persona 的卡」与「memory 的块」
+>   是**叠加**关系，谁先写谁后写都一样；停用任一方只清**自己那一槽**。
+>   详见 [session-scope-l1.md](session-scope-l1.md) 与 §14。
 
 marker 是固定常量（`MEMORY_MARKER_BEGIN` / `MEMORY_MARKER_END`，HTML 注释形态）：
 
@@ -133,7 +152,10 @@ marker 是固定常量（`MEMORY_MARKER_BEGIN` / `MEMORY_MARKER_END`，HTML 注�
 - `memories` 全空/空白 → 返回**不带 marker** 的 base（不做空块）；
 - 重拼结果与当前提示词逐字相同 → `injection_patch` 返回 `None`：**不写盘**。
 
-### 5.1 边界：`persona` 与 memory 同时写 `system_prompt`
+### 5.1 边界（**仅全局路径**）：`persona` 与 memory 同时写 `persona.system_prompt`
+
+> 适用范围：调用方**不带** `session_id` 的全局路径（裸 `POST /api/v1/chat`、终端壳）。
+> 带会话 id 时走上面的「来源槽」组合，**没有**覆盖问题。
 
 两者都可能写 `persona.system_prompt`，规则是 **last-writer-wins，没有仲裁**：
 
@@ -243,9 +265,9 @@ persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增�
    （`max_history_pairs` 本轮**未用**，留给 v1）；
 4. 不做跨会话去重 / 冲突消解 / 摘要（同一句话说两次就是两条记录）；
 5. 不做 `persona` / memory 的仲裁优先级（§5.1）；
-6. 不做记忆**查看 / 编辑**面；唯一的删除动作是**清空整库**（面板按钮 →
-   `command("clear")`，§9.1）；API 面另有基座通用的
-   `GET /api/v1/mods/memory/state`（只读计数，见 §9）。**不做**逐条删 / 导出。
+6. ~~不做记忆查看 / 编辑面~~ **L1（2026-09-15）起改为做**：面板可查看 / 导入 /
+   编辑 / 逐条删除 / 清空整库（§13），不依赖聊天口令「记住 / 忘掉」。
+   **仍不做**：导出、备份、软删除、撤销——淘汰与删除都是物理删除（§6.1 / §13.4）。
 
 ## 9. 运行态快照（`state_json`）
 
@@ -254,7 +276,9 @@ persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增�
 （`state_json` 在 web_api 线程上被调用，「不阻塞」指不等待网络 / 锁）：
 
 ```json
-{"store_path":"…/memory.jsonl","records":12,"top_k":3,"max_records":200,
+{"store_path":"…/memory.jsonl","bucket_path":"…/sessions/s-1.memory.jsonl",
+ "session_scoped":true,"active_session":"s-1",
+ "records":12,"top_k":3,"max_records":200,
  "enabled_injection":true,"turns_seen":12,
  "writes":12,"hits":17,"injects":4,"errors":0,"evicted":2,"last_hits":2,
  "remembered":12,"injected":4}
@@ -273,11 +297,25 @@ persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增�
 `turns_seen`；`remembered` / `injected` 是 Wave 2 的**兼容别名**，由同一字段
 派生（与 `writes` / `injects` 恒同值，不会漂移）。
 
-**`records`（产品级加强波次新增）**：记忆库**当前实际条数**——逐行读 JSONL 数出来
-的有效记录数（坏行不计），**不是** `writes`（累计写入，清空也不重置）。文件不存在
-→ `0`；路径不可解析 / 读取失败 → `null`（面板显示「—」）并把失败计入 `errors`
-——「读不到」不能谎报成「0 条」。代价是一次**全量读**（与每轮两次全量读同一取舍，
-见 §11.2）；「不阻塞」指不等待网络 / 锁，本地顺序读不在其列。
+**`records`（产品级加强波次新增）**：**当前生效桶**里的实际条数——逐行读 JSONL
+数出来的有效记录数（坏行不计），**不是** `writes`（累计写入，清空也不重置）。
+文件不存在 → `0`；路径不可解析 / 读取失败 → `null`（面板显示「—」）并把失败计入
+`errors`——「读不到」不能谎报成「0 条」。代价是一次**全量读**（与每轮两次全量读
+同一取舍，见 §11.2）；「不阻塞」指不等待网络 / 锁，本地顺序读不在其列。
+
+**三个会话键（L1 新增，现有键一个不删）**：
+
+| 键 | 语义 |
+| --- | --- |
+| `session_scoped` | 当前生效桶是不是**会话桶**（= 最近一轮 `TurnPrompt` 有没有带会话） |
+| `active_session` | 最近一轮的会话 id；`null` = 裸 HTTP / 终端壳（无会话） |
+| `bucket_path` | 当前生效桶的路径（会话桶或老路径）；不可解析 → `null` |
+
+`store_path` **保持全局（老路径）含义不变**——排障时用它区分「配置指向哪」与
+「现在实际读写哪个桶」（`bucket_path`）。`records` 跟随 `bucket_path`，而
+`bucket_path` 跟的是**最近一轮 `TurnPrompt` 的会话**（`state_json` 不带参数）：
+用户刚切换会话但还没说话时，概览可能仍是上一个会话的条数——面板的**列表**用
+`ctx.activeSessionId` 显式带 `session_id`（§13.1），那一份才是权威。
 
 路由由基座提供：`GET /api/v1/mods/memory/state`（404 = 不在注册表；
 503 `state_unavailable` = 在册但未启用 / worker 正持锁）。
@@ -285,7 +323,13 @@ persona 是「接管主链人设」，坏配置 → `Failed`；memory 是**增�
 ### 9.1 清空记忆库（`command("clear")`，产品级加强波次）
 
 HTTP：`POST /api/v1/mods/memory/command`，body `{"command":"clear","args":{}}`
-（`args` 可省）。面板按钮「清空记忆库」走 `onCommand('clear')`（§12 第 6 步）。
+（`args` 可省）。面板按钮「清空记忆库」走 `onCommand('clear', args)`，`args` 带
+`session_id`（有会话时；见 §13.1）——**只清那个会话的桶**。
+
+```json
+// args（可省；缺 session_id → 老路径全局桶）
+{"session_id": "1757890123456789-3"}
+```
 
 - **只动 JSONL**：`JsonlStore::clear()` = 同目录 `<store>.jsonl.tmp` + `rename`
   **原子重写为空**，**不是** `remove_file`（理由见 `store.rs::clear` 头注）；
@@ -298,7 +342,8 @@ HTTP：`POST /api/v1/mods/memory/command`，body `{"command":"clear","args":{}}`
 | `cleared` | 恒 `true`（执行成功才有 200） |
 | `records` | **清空后**现存条数，恒 `0`（与 `state_json.records` 同口径） |
 | `removed` | 本次清掉的条数（清空前的有效记录数） |
-| `residue` | 提示词里当前是否仍有注入块（只读探测，供面板如实提示，§5.2） |
+| `residue` | **该桶对应提示词**里当前是否仍有注入块（有会话看该会话覆盖，无会话看全局；只读探测，供面板如实提示，§5.2） |
+| `session_id` / `bucket` | 回显本次操作的目标会话（`null` = 全局）与桶路径，供面板核对 |
 
 - **累计计数不重置**：`writes` / `hits` / `injects` / `evicted` 是生命周期计数，
   `records` 才是「现在库里有多少」；
@@ -308,12 +353,25 @@ HTTP：`POST /api/v1/mods/memory/command`，body `{"command":"clear","args":{}}`
 
 ## 10. 门禁与测试
 
-- `cargo test -p live2d-ai-mod-memory --all-targets` → **69 passed / 0 failed**
-  （Wave 2 起 44 → Wave 3 +17 → 产品级加强波次 +8）；
+- `CARGO_INCREMENTAL=0 cargo test -p live2d-ai-mod-memory` → **94 passed /
+  0 failed**（Wave 2 起 44 → Wave 3 +17 → 产品级加强波次 +8 → **L1 +25**）；
 - `cargo fmt -p live2d-ai-mod-memory -- --check` clean；
 - `cargo clippy -p live2d-ai-mod-memory --all-targets -- -D warnings` → 0 warning；
-- `cd shell/flutter && flutter analyze` 无问题 + `flutter test` 全绿（新增
-  `test/memory_panel_test.dart`：渲染 / 清空 / 带码文案 / 说明）。
+- `cd shell/flutter && flutter analyze` 无问题 + `flutter test
+  test/memory_panel_test.dart` → **24 passed**（渲染 / list 两行 / 导入 / 编辑 /
+  删除二次确认 / 会话降级文案 / 清空 / 带码文案 / 说明）。
+
+L1 新增/更新的测试（Rust，见 `commands_tests.rs` 与 `store.rs` / `strategy_tests.rs`）：
+
+- **id**：`fnv1a` 固定向量与稳定性、`make_id` 形状/敏感性、落盘带 id、
+  旧行两次载入 id 相同（`id_derivation_is_stable_across_loads` 同款断言）；
+- **list**：最新在前 + `total` + 两次载入 id 相同；limit 钳位与非法值回落缺省；
+- **import/update/delete**：round-trip（tempdir，含原子重写与无 `.tmp`）；
+  空 text / 缺 id / 不存在 id 的可读错误且无副作用；
+- **会话分桶**：`sessions/<id>.memory.jsonl` 真落地、无会话保持老路径、
+  A/B 桶不互见、清 A 不动 B、非法会话 id 可读错误、事件里非法 id 退回全局；
+- **按会话注入**：写会话覆盖而非全局、可叠在 persona 的会话卡上、宿主无能力时
+  绝不退化成全局、`state_json` 三个会话键、`shutdown` 清空会话覆盖。
 
 产品级加强波次新增/更新的 8 条（Rust）：
 
@@ -362,9 +420,11 @@ self-hit / 幂等 / 停用清残留）一条未删。
    先做「读尾部 N 行」或索引；
 3. **检索质量只覆盖 fixtures**：fixtures 是回归基线，不是「质量分数」；Jaccard 无 idf，
    长记录会被稀释。要改先加样例再改实现；
-4. **无逐条管理面**：唯一的删除动作是清空整库（§9.1）；编辑 / 导出 / 逐条删除仍只有
-   手工改 JSONL；
-5. **与 persona 的边界只有 last-writer-wins**（§5.1），无仲裁、无合并；
+4. ~~无逐条管理面~~ **L1（2026-09-15）起有**：查看 / 导入 / 编辑 / 逐条删除 /
+   清空（§13）；**仍无导出 / 备份 / 撤销**——淘汰与删除都是物理删除，删了就没了
+   （§6.1 / §13.4）；
+5. **与 persona 的边界**：全局路径 last-writer-wins（§5.1），会话路径按来源槽叠加
+   （§14）；两种都不做仲裁、不做合并；
 6. `max_records` 同时是上限与窗口：语义重叠是刻意的（上限生效后窗口必然不溢出），
    但**改默认值前要知道它现在会删数据**。
 
@@ -400,3 +460,130 @@ self-hit / 幂等 / 停用清残留）一条未删。
   `409 command_failed` 看服务端日志（路径 / 权限），`404 not_found` 说明 Mod 不在注册表。
 
 > 时序真源 = §2 的时序图。**不要**期望「同轮就提起」。
+
+## 13. 主动管理（面板命令契约，L1 2026-09-15）
+
+「主动线」= 用户在 **设置 → Mod → 本地记忆** 面板里管理记忆，**不依赖**聊天口令
+「记住 / 忘掉」。实现见 `crates/live2d-ai-mod-memory/src/commands.rs`；HTTP 一律
+`POST /api/v1/mods/memory/command`，body `{"command":"<名>","args":{…}}`。
+
+### 13.1 通用口径（每条命令都适用）
+
+- **候选桶**：`args.session_id` 给了就用它（先过 `sanitize_session_id` 路径穿越闸）；
+  **没给 → 老路径全局桶**。面板在 `activeSessionId == null` 时**不传** `session_id`
+  ——与面板上「还没有会话：记忆会落到全局桶」那句话**逐字同源**；
+- **失败码**（host 映射见 `web_api/mods_routes.rs`）：不认识命令 → `409
+  unsupported_command`；参数坏 / 找不到 id / IO 失败 → `409 command_failed`
+  （文案直接提示「先 list 拿 id」）；未启用或 worker 正持锁 → `503
+  command_unavailable`（**可重试**）；
+- **成功返回**统一 `200 {"ok":true,"result":{…}}`，下面写的是 `result` 的键；
+- 命令**不碰** `persona.system_prompt`（`clear` 只**只读探测** `residue`）——注入残留
+  仍按 §5.2 的 `strip_residue` 生命周期处理。
+
+### 13.2 记录 id
+
+每条记录有稳定 id **`<ts>-<turn>-<fnv1a(text) 8 位十六进制>`**
+（`MemoryRecord::make_id`；FNV-1a 32 位自实现，5 行、无依赖）：
+
+- **新写入**（被动 `remember` / 面板 `import`）按公式生成并**落盘** `id`；
+- **旧行没有 `id`** → 载入时按同一公式**派生**（`parse_record_line`）。公式只吃
+  `ts` / `turn` / `text` 三个已落盘字段，所以同一条老记录每次载入 id 相同
+  （回归 `store.rs::legacy_line_without_id_derives_the_same_id_every_load`）；
+- `import` 在同一秒导入同一句话时**递增 turn 直到 id 不冲突**——否则连点两次会得到
+  两条同 id 的记录，`update` / `delete` 会一次命中两条；
+- `update` **保持原 id**：编辑是「改这条记录」，不是「删了再建」。代价是改写后该行的
+  id 不再等于按新正文现算的公式值——`id` 从此是**持久化身份**。
+
+### 13.3 命令表
+
+| command | args | `result` |
+| --- | --- | --- |
+| `list` | `{"limit"?: number, "session_id"?: string}` | `{ok, records:[{id,text,ts,turn}], total, bad_lines, limit, bucket, session_id}` |
+| `import` | `{"text": string, "session_id"?: string}` | `{ok, id, records, total, evicted, bucket, session_id}` |
+| `update` | `{"id": string, "text": string, "session_id"?: string}` | `{ok, id, records, total, bucket, session_id}` |
+| `delete` | `{"id": string, "session_id"?: string}` | `{ok, id, removed, records, total, bucket, session_id}` |
+| `clear` | `{"session_id"?: string}` | `{ok, records, cleared, removed, residue, bucket, session_id}` |
+
+- **`list` 最新在前**（追加序的逆序）；`limit` 缺省 **50**、上限 **200**、非法值
+  （非数 / 0 / 负数 / NaN）**回落缺省**；`total` 是桶里全部条数（不受 limit 影响）；
+- **`import`** 走 `append_capped`：受 `max_records` 上限约束，超限与被动的写入一样
+  **物理淘汰最旧**（返回 `evicted`）；`text` 去首尾空白后为空 → 可读错误；
+- **`update` / `delete`** 用 `JsonlStore::write_all`（同目录 `.tmp` + `rename` 原子替换）。
+  id 不存在 → 可读错误且**文件一字不改**；
+- **`clear`** 语义同 §9.1，只是作用域变成「该桶」，并在返回里回显 `session_id` / `bucket`。
+
+### 13.4 取舍（写清，不许含糊）
+
+| 得 | 失 |
+| --- | --- |
+| 用户能看见、能改、能删——不再只能靠聊天口令或手改 JSONL | **没有撤销 / 备份**：`delete` / `clear` / 淘汰都是物理重写，删了就没了（§6.1） |
+| `id` 让面板「刚选中那条」在刷新后仍指得中 | `update` 后 id 与公式不再对应，只能靠持久化的 `id` 字段识别 |
+| 命令与被动路径共用同一个 JSONL 与同一条上限 | 每条命令一次全量 `load(0)`（+ 可能一次重写）——默认 200 条量级可忽略（§11.2） |
+
+### 13.5 面板（`shell/flutter/lib/settings/mods/memory_panel.dart`）
+
+- 进入面板 / 点「刷新」→
+  `onCommand('list', {'limit': 50, 'session_id': ctx.activeSessionId})`（无会话则不带）；
+- 每条：截断正文 + 「编辑」（对话框 `TextFormField` → `update`）+「删除」
+  （`AlertDialog` 二次确认 → `delete`）；
+- 「导入一条」：输入框 + 按钮 → `import`；空输入**不发命令**，直接给可读文案；
+- 「清空记忆库」保留（带当前会话说明）；
+- 每个成功动作后 `ctx.onRefreshState()` + `ctx.notifyChanged('已…记忆…')`；
+  失败显示**带 code** 的文案（`command_unavailable` / `unsupported_command` /
+  `command_failed` / `not_found` 各有分支）。
+
+## 14. 会话分桶（L1 2026-09-15）
+
+目标：**尽量与会话分桶对齐 persona**——A 会话记的东西不出现在 B 会话。
+
+### 14.1 桶路径
+
+| 情形 | 路径 |
+| --- | --- |
+| 有会话（`TurnPrompt` 带 session，或命令带 `session_id`） | `<老路径同目录>/sessions/<session>.memory.jsonl` |
+| 无会话（裸 HTTP / 终端壳；命令不带 `session_id`） | **老路径** `<老路径同目录>/memory.jsonl` |
+
+「老路径」= §3 的 `store_path` / `config_path` 解析结果（默认
+`<配置目录>/memory.jsonl`）。会话桶跟着**已解析出的老路径的父目录**走，所以自定义
+`store_path` 时桶也在那个库旁边。
+
+**兼容红线**：无会话路径与升级前**逐字相同**——老记忆必须还能读到；`sessions/`
+目录只会在真有会话写入时才被创建。
+
+session id 要进文件名，一律过 `sanitize_session_id`（只允许 ASCII 字母数字与
+`- _ . :`，≤128 字符）；非法 id 在**事件**里退回全局桶 + warn，在**命令**里回可读
+错误（绝不静默改道，也绝不路径穿越）。
+
+### 14.2 注入也按会话
+
+- **有会话**：命中写进
+  `services.session_prompts.set(session, compose_injection(base, memories))`；
+  base = `session_prompts.get(session)`（该会话当前覆盖，可能是 persona 的卡），
+  没有才回落全局 `persona.system_prompt`。**不写**全局 `persona.system_prompt`
+  ——否则 A 会话的记忆会串到 B；
+- **无会话**：保持**老路径** `apply_settings` 写全局 `persona.system_prompt`。
+  这是**降级**，UI 与本文都写明；
+- 宿主没注入会话能力（`session_prompts.enabled() == false`）时，有会话就**不注入**
+  （warn + `errors += 1`），**绝不**退回全局——那等于把 A 的记忆广播给所有人；
+- `shutdown`：`session_prompts.clear_all()` + 老的 `strip_residue()`。前者的已知取舍
+  （共享覆盖表会被一起清空）写在 `lib.rs::shutdown` 头注。
+
+### 14.3 时序没变：**只对下一轮生效**
+
+会话分桶只改「记去哪个桶、注入写到哪个覆盖」，**不改时序**（§2）。有会话时同样在
+`TurnPrompt`（本轮请求体构建之前）发生，因此：
+
+> 注入**仍然只对下一轮生效**。本轮回复里看不到刚记的东西是预期，不是失败。
+
+同样，面板导入 / 编辑 / 删除后，**也要等下一轮**请求体构建才会用到新内容——面板
+成功文案里逐字写了这一点。
+
+### 14.4 面板的降级语义
+
+`ctx.activeSessionId == null` 时面板显示：
+
+> 还没有会话：记忆会落到全局桶（与所有会话共享）。发一条消息后，面板会切到该会话自己的桶。
+
+此时面板**不传** `session_id`，list / import / update / delete / clear 全部落在全局桶
+——UI 说的就是命令实际做的。
+

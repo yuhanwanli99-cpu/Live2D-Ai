@@ -4,6 +4,7 @@
 //! （不暴露自定优先级，不破坏 core 仲裁边界）。
 
 use crate::descriptor::ModId;
+use crate::session::ModSessionPrompts;
 
 /// 主动作请求 sender（host 端映射为固定 Mod 优先级）。
 #[derive(Clone)]
@@ -171,6 +172,12 @@ pub struct ModServices {
     pub settings: ModSettingsReader,
     /// 真实 `live2d-ai.toml` 路径（host 注入；失败时用于精确报错，不再自行探测）。
     pub config_path: String,
+    /// **会话级 system_prompt 覆盖**（L1 基座，2026-09-15）。
+    ///
+    /// 宿主注入一张「会话 id → system_prompt」的表，Mod 据此做**按会话**的人设
+    /// / 记忆分桶，而不必整段覆写全局 `persona.system_prompt`（那会把 A 会话的
+    /// 卡泄漏到 B 会话）。未注入时为「不可用」空实现（[ModSessionPrompts::disabled]）。
+    pub session_prompts: ModSessionPrompts,
 }
 
 impl ModServices {
@@ -189,6 +196,8 @@ impl ModServices {
             apply_settings: ModSettingsApplier::new(|_| false),
             settings: ModSettingsReader::new(|| serde_json::json!({})),
             config_path: String::new(),
+            // 默认不可用：显式注入才开通（与 apply_settings 同一条纪律）。
+            session_prompts: ModSessionPrompts::disabled(),
         }
     }
 
@@ -207,6 +216,12 @@ impl ModServices {
     /// builder：注入配置文件路径。
     pub fn with_config_path(mut self, path: impl Into<String>) -> Self {
         self.config_path = path.into();
+        self
+    }
+
+    /// builder：注入会话级 system_prompt 覆盖能力（L1 基座）。
+    pub fn with_session_prompts(mut self, prompts: ModSessionPrompts) -> Self {
+        self.session_prompts = prompts;
         self
     }
 }

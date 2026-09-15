@@ -49,9 +49,29 @@
 //!（与 external-input 同口径，见 `docs/architecture/mod-product-chain.md` §4）。
 //! 与 external-input 都收敛到 `say_tx`，差别只在**输入侧**（弹幕 vs 语音转写）。
 
+//! # L1 产品级：唤醒闸 + 手动闸 + 一条硬主路径（2026-09-15）
+//!
+//! - **总闸 = 唤醒短语**（`wake_phrase`）：空 = 总闸关，**拒绝一切转写**
+//!   （`403 voice_gate_closed`）；非空 = 必须包含它，命中后从正文里**剥掉**。
+//!   判定在 [`gate::evaluate`]（纯函数，四态）。
+//! - **手动闸 `manual_enabled`**（缺省 `true`）：false → `403 voice_manual_off`。
+//! - **硬主路径 = 面板一键拉起官方 sidecar**：命令 `run_sidecar`
+//!   用 [`std::process::Command`] **逐参数** spawn
+//!   `docs/examples/voice-sidecar/voice_sidecar.py`（**绝不 `sh -c`**），
+//!   argv 由 [`sidecar::build_sidecar_argv`] 拼装；spawn 后立即返回，
+//!   后台线程 `wait()` 并把退出码 / stderr 尾巴写进 [`sidecar::SidecarStatus`]
+//!   （HTTP 服务器是单线程的：在这里等 sidecar 会死锁，因为 sidecar 要 POST 回来）。
+//! - **命令 `inject`**：走与端点**同一条** gate + prepare + say 路径，
+//!   总闸关时返回**被拒绝的可读结果**（不是抛错），面板据此做「验证闸门」。
+//! - [`ModRuntime::state_json`]：零 IO 的运行态快照（总闸 / 手动闸 / sidecar 状态）。
+
+pub mod commands;
+pub mod gate;
 pub mod normalize;
 pub mod selftest;
+pub mod sidecar;
 
+pub use gate::GateOutcome;
 pub use normalize::{DEFAULT_LOCALE, LocaleProfile, locale_profile, normalize_for_locale};
 pub use selftest::config_selftest;
 
@@ -122,11 +142,14 @@ impl VoiceBackend {
 }
 
 /// 语音输入设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
+///
+/// v2（L1 产品级，2026-09-15）：在 v1 的 `backend` / `locale` / `token` 之后
+/// 追加 `wake_phrase` / `manual_enabled` / `sidecar_*`，**一个都没删**。
 pub fn voice_input_settings_spec() -> ModSettingsSpec {
     ModSettingsSpec {
         mod_id: DESCRIPTOR.id.to_string(),
         title: DESCRIPTOR.name.to_string(),
-        version: 1,
+        version: 2,
         fields: vec![
             ModSettingField::Select {
                 key: "backend".to_string(),
@@ -152,6 +175,40 @@ pub fn voice_input_settings_spec() -> ModSettingsSpec {
                 key: "token".to_string(),
                 label: "访问令牌（可空；空 = 不鉴权，回读只显示是否已设置）".to_string(),
                 secret: true,
+            },
+            ModSettingField::String {
+                key: "wake_phrase".to_string(),
+                label: "唤醒短语（能力总闸：留空 = 总闸关，拒绝一切转写；命中后从正文里剥掉）"
+                    .to_string(),
+                secret: false,
+            },
+            ModSettingField::Bool {
+                key: "manual_enabled".to_string(),
+                label: "手动闸（关 = 拒绝一切转写）".to_string(),
+                default: true,
+            },
+            ModSettingField::String {
+                key: "sidecar_script".to_string(),
+                label: "官方 sidecar 脚本路径（留空 = <config 目录>/docs/examples/voice-sidecar/voice_sidecar.py）"
+                    .to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "sidecar_url".to_string(),
+                label: "sidecar 要 POST 的完整 URL（留空 = 拉起时必须由命令参数给）"
+                    .to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "sidecar_transcriber".to_string(),
+                label: "sidecar transcriber（fake = 读同名 .txt；或 cmd:\"<ASR 命令>\"）"
+                    .to_string(),
+                secret: false,
+            },
+            ModSettingField::String {
+                key: "sidecar_python".to_string(),
+                label: "Python 解释器（只作 argv[0]，绝不过 shell；缺省 python3）".to_string(),
+                secret: false,
             },
         ],
     }
@@ -223,10 +280,12 @@ pub fn prepare_transcript(raw: &str, locale: &str) -> Option<String> {
 
 /// 语音输入的运行时状态。
 pub struct VoiceInputRuntime {
-    services: ModServices,
-    config: serde_json::Value,
+    pub(crate) services: ModServices,
+    pub(crate) config: serde_json::Value,
     /// settings schema 是否已注册（`start` 成功标志）。
-    registered: bool,
+    pub(crate) registered: bool,
+    /// sidecar 运行态（spawn/wait 线程推进；`state_json` 只读它，零 IO）。
+    pub(crate) sidecar: std::sync::Arc<std::sync::Mutex<sidecar::SidecarStatus>>,
 }
 
 impl VoiceInputRuntime {
@@ -236,6 +295,7 @@ impl VoiceInputRuntime {
             services,
             config,
             registered: false,
+            sidecar: std::sync::Arc::new(std::sync::Mutex::new(sidecar::SidecarStatus::default())),
         }
     }
 
@@ -259,40 +319,14 @@ impl VoiceInputRuntime {
         locale_from_config(&self.config)
     }
 
-    /// 配置自检快照（脱敏）：[`selftest::config_selftest`] 的 runtime 便捷入口。
+    /// 配置自检快照（脱敏）：[`selftest::config_selftest_with_script`] 的
+    /// runtime 便捷入口（带上宿主注入的 `config_path`，从而能解析缺省脚本路径）。
     pub fn selftest(&self) -> serde_json::Value {
-        config_selftest(&self.config)
+        selftest::config_selftest_with_script(&self.config, &self.services.config_path)
     }
 
-    /// **语音 → 文本 → say** 的 Rust 侧落点：清洗 + locale 归一化后送进主链路。
-    ///
-    /// 返回 `false` 的两种情况：
-    /// 1. 清洗后为空（不发空回合，只记 warn）；
-    /// 2. 主链忙碌 / 通道满（[`SaySender`] 既有语义，不被本 Mod 改写）。
-    pub fn inject_transcript(&self, raw: &str) -> bool {
-        let Some(text) = prepare_transcript(raw, &self.locale()) else {
-            self.services
-                .logger
-                .warn("语音转写清洗后为空，已丢弃（不发空回合）");
-            return false;
-        };
-        let accepted = self.services.say_tx.say(text);
-        if !accepted {
-            self.services
-                .logger
-                .warn("语音转写未被主链路接受（忙碌或通道满）");
-        }
-        accepted
-    }
-
-    /// mock 后端便捷入口：与 [`Self::inject_transcript`] 同路径，多一行日志。
-    pub fn inject_mock_transcript(&self, raw: &str) -> bool {
-        self.services.logger.info(&format!(
-            "mock 后端收到转写（backend={}）",
-            self.backend().as_str()
-        ));
-        self.inject_transcript(raw)
-    }
+    // inject / run_sidecar / state_json 快照 / 命令分派都在 `commands.rs`
+    //（impl 块可在 crate 内其它模块；子模块可见根模块的私有字段）。
 }
 
 /// 语音输入工厂。
@@ -337,22 +371,23 @@ impl ModRuntime for VoiceInputRuntime {
         Ok(())
     }
 
-    /// 一次性命令（产品级加强波次）：当前只认 `selftest`。
+    /// 零 IO 运行态快照（L1 产品级）：总闸 / 手动闸 / sidecar 状态。
     ///
-    /// - `selftest` → [`config_selftest`] 的**脱敏**结论（不读环境、不做 IO、不阻塞）；
-    /// - 其它命令 → [`ModError::UnsupportedCommand`]（host 回 409
-    ///   `unsupported_command`，前端据此说「这个 Mod 没有这个动作」）。
+    /// 契约见 [`ModRuntime::state_json`]：**只读内存**（config + SidecarStatus），
+    /// 不读盘、不 spawn、不阻塞。真源是 [`crate::commands::VoiceInputRuntime::state_snapshot`]。
+    fn state_json(&mut self) -> Option<serde_json::Value> {
+        Some(self.state_snapshot())
+    }
+
+    /// 一次性命令（L1 产品级）：`selftest` / `inject` / `run_sidecar`。
+    ///
+    /// 分派实现见 [`crate::commands::VoiceInputRuntime::dispatch_command`]。
     fn command(
         &mut self,
         command: &str,
-        _args: &serde_json::Value,
+        args: &serde_json::Value,
     ) -> Result<serde_json::Value, ModError> {
-        match command.trim() {
-            "selftest" => Ok(self.selftest()),
-            other => Err(ModError::UnsupportedCommand {
-                command: other.to_string(),
-            }),
-        }
+        self.dispatch_command(command, args)
     }
 }
 

@@ -1,11 +1,9 @@
-/// `external-input` 的产品面板（产品级加强波次）。
+/// external-input（外部事件接入）的产品面板（L1 产品级波次）。
 ///
-/// 职责（对着本轨的产品级诉求逐条）：
-/// 1. 把 `state_json` 的 accepts/rejects/busy/v2_ignored 摊成**一行人话摘要**，
-///    并给一个可点动作「重置计数」（`command reset_counters`，二次确认）；
-/// 2. 把 `token_set` 说成人话（「已设置令牌」/「未设令牌：仅本机可用」），
-///    **不回显任何明文**；
-/// 3. 说明模板 / 前缀怎么写，并用**本地**配置渲染一条示例（纯前端，不发请求）。
+/// 面板给四件事：计数摘要 + 重置计数；**测试注入**（command test_inject，等价
+/// POST /api/v1/external/chat：同一条渲染口径、同一个 say_tx，但不需要 token）；
+/// token_set 两态人话（不回显明文）；模板 / 前缀的本地渲染示例。
+/// 副标题只给中性信息（Mod id：external-input），不做品牌化改名。
 ///
 /// 本文件由 external-input 轨道独占，其他轨道不要改。
 library;
@@ -20,23 +18,30 @@ import '../../ui/section_header.dart';
 import '../../ui/theme.dart';
 import 'mod_panel.dart';
 
+/// 停用态说明：L1「停用 403 可读」在 UI 上的**静态**落点（不点按钮也能看到）。
+const String kExternalInputDisabledNotice =
+    'Mod 已停用：HTTP 端点会回 403 mod_disabled，'
+    '命令通道回 503 command_unavailable；请先启用。';
+/// 与按钮等价的真 HTTP 调用（<随机文本> 是占位符，用户自己替换）。
+const String kExternalInputCurlEquivalent =
+    'curl -X POST http://127.0.0.1:18080/api/v1/external/chat '
+    '-H "Content-Type: application/json" '
+    "-d '{\"text\":\"<随机文本>\"}'";
 /// 示例用的「外部文本」（模板渲染示例里被替换进占位符的那一段）。
 const String kExternalInputSampleText = '主播好';
-
-/// 计数四项的稳定 key（与 Rust `counters::COUNTER_KEYS` 逐字一致）。
+/// 计数四项的稳定 key（与 Rust counters::COUNTER_KEYS 逐字一致）。
 const List<String> kExternalInputCounterKeys = <String>[
   'accepts',
   'rejects',
   'busy',
   'v2_ignored',
 ];
-
-/// 与 Rust `render_injected_text` **同语义**的本地渲染（纯函数，不发请求）。
+/// 与 Rust render_injected_text **同语义**的本地渲染（纯函数，不发请求）。
 ///
-/// - `template` 空 / 纯空白 → 等价只留占位符；
-/// - 含 `{text}` → 替换全部占位符；
+/// - template 空 / 纯空白 → 等价只留占位符；
+/// - 含 {text} → 替换全部占位符；
 /// - 非空但不含占位符 → 视为字面前缀，外部文本追加其后；
-/// - `prefix` 永远拼在最前。
+/// - prefix 永远拼在最前。
 String renderInjectedText({
   required String prefix,
   required String template,
@@ -48,8 +53,7 @@ String renderInjectedText({
       : '$tpl$text';
   return '$prefix$body';
 }
-
-/// 当前配置下模板渲染出的**示例**字符串；prefix/template 都空 → `null`
+/// 当前配置下模板渲染出的**示例**字符串；prefix/template 都空 → null
 /// （= 原样透传，没有模板效果可展示）。纯函数，不发请求。
 String? templateExample(
   Map<String, Object?> config, {
@@ -60,15 +64,13 @@ String? templateExample(
   if (prefix.trim().isEmpty && template.trim().isEmpty) return null;
   return renderInjectedText(prefix: prefix, template: template, text: sample);
 }
-
 /// 一行人话摘要（四项计数；**不靠颜色**）。纯函数，可单测。
 String counterSummary(Map<String, Object?> state) =>
     '已接受 ${_count(state, 'accepts')} 条弹幕/礼物'
     ' · 拒绝 ${_count(state, 'rejects')}'
     ' · 忙碌丢弃 ${_count(state, 'busy')}'
     ' · 礼物 v2 兜底 ${_count(state, 'v2_ignored')}';
-
-/// 令牌状态的人话（两态；`state == null` = 运行态还没读到）。纯函数，可单测。
+/// 令牌状态的人话（两态；state == null = 运行态还没读到）。纯函数，可单测。
 String tokenStatusText(Map<String, Object?>? state) {
   if (state == null) {
     return '运行态还没读到：令牌是否已设置暂时未知（可点上面的「刷新运行态」）';
@@ -76,6 +78,39 @@ String tokenStatusText(Map<String, Object?>? state) {
   return state['token_set'] == true
       ? '已设置令牌：外部请求必须带 token（env 或 Mod 配置；界面不回显明文）'
       : '未设令牌：仅本机可用（端点只监听 127.0.0.1，不鉴权）';
+}
+/// 注入回执一句：文本 + 当前两项计数（计数由 onRefreshState 刷新后回填）。
+/// 纯函数，可单测。
+String injectReceiptText({
+  required String injectedText,
+  required bool accepted,
+  Map<String, Object?>? state,
+}) {
+  final String counts =
+      '已接受 ${_count(state, 'accepts')} / 忙碌丢弃 ${_count(state, 'busy')}';
+  return accepted
+      ? '已注入：$injectedText（$counts）'
+      : '主链忙碌，本条被丢弃：$injectedText（$counts）；可稍后重试。';
+}
+/// command test_inject 的失败码 → **可处置**的一句话（必须带码）。纯函数，可单测。
+///
+/// command_unavailable 必须点明「Mod 未启用或正忙（503）」并给出**下一步动作**
+/// （先打开卡片标题行的开关）——L1 的「停用后再注入 → 可读失败」就落在这里。
+String externalInputInjectErrorMessage(ApiException e) {
+  switch (e.code) {
+    case 'command_unavailable':
+      return '${e.code}：${e.message}\n'
+          'Mod 未启用或正忙（503）：请先打开卡片标题行的开关；'
+          '若是刚启停 / 保存过，Mod worker 可能仍在忙——稍后可重试。';
+    case 'unsupported_command':
+      return '${e.code}：${e.message}\n'
+          '服务端这只 Mod 不认识 test_inject（409）：多为版本不匹配，请重启服务后重试。';
+    case 'command_failed':
+      return '${e.code}：${e.message}\n'
+          '命令执行失败（409）：常见原因是渲染后文本超过 2000 字符，改短后重试。';
+    default:
+      return '${e.code}：${e.message}';
+  }
 }
 
 int _count(Map<String, Object?>? state, String key) {
@@ -99,6 +134,7 @@ class ExternalInputPanel extends ModPanel {
     'v2_ignored': '礼物 v2 兜底',
     'ready': '已就绪',
     'token_set': '令牌已设置',
+    'inject_via_command': '命令注入可用',
   };
 
   @override
@@ -120,6 +156,27 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
   String? _message;
   bool _messageIsError = false;
 
+  late final TextEditingController _injectController;
+  bool _injecting = false;
+  String? _injectError;
+  String? _lastInjected;
+  bool _injectAccepted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 初值 = 按当前配置渲染好的示例（看到什么就注入什么；配置后续改了不追改）。
+    _injectController = TextEditingController(
+      text: templateExample(widget.ctx.mod.config) ?? kExternalInputSampleText,
+    );
+  }
+
+  @override
+  void dispose() {
+    _injectController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final ModPanelContext ctx = widget.ctx;
@@ -140,9 +197,98 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
           description: '直播弹幕 / 本机脚本经 POST /api/v1/external/chat 注入主链路；'
               'B 站协议抓取住在 Win sidecar，不在本进程。',
         ),
-        const SizedBox(height: Space.s2),
-
+        const SizedBox(height: Space.s1),
+        Text(
+          'Mod id：external-input（端点契约不变）',
+          key: const Key('external-input-mod-id'),
+          style: muted,
+        ),
+        // ---- 停用态静态说明（不点按钮也必须能看到）----
+        if (!ctx.enabled) ...<Widget>[
+          const SizedBox(height: Space.s2),
+          const InlineNotice(
+            key: Key('external-input-disabled-notice'),
+            message: kExternalInputDisabledNotice,
+            severity: NoticeSeverity.warning,
+            dense: true,
+          ),
+        ],
+        // ---- 测试注入（等价 HTTP 端点，但走命令通道、不需要 token）----
+        const SizedBox(height: Space.s3),
+        Text('测试注入', style: theme.textTheme.labelLarge),
+        const SizedBox(height: Space.s1),
+        Text(
+          '框里的初值就是按当前前缀 / 模板渲染好的样子；改它 = 改要注入的内容。'
+          '命令把这段文本逐字送进同一支 say_tx 主链（与 HTTP 端点同一条链、'
+          '同一套计数），区别是本命令走 Mod 命令通道、不需要 token。',
+          style: muted,
+        ),
+        const SizedBox(height: Space.s1),
+        TextField(
+          key: const Key('external-input-inject-text'),
+          controller: _injectController,
+          minLines: 1,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: '测试文本（逐字注入）',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: Space.s1),
+        // 停用时**不禁用**：点下去拿到的 503 command_unavailable 正是
+        // 「停用后注入 → 可读失败」的现场证据（上面的静态说明同时给处置办法）。
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            key: const Key('external-input-inject'),
+            onPressed: _injecting ? null : _inject,
+            icon: _injecting
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send, size: 16),
+            label: Text(_injecting ? '注入中…' : '测试注入'),
+          ),
+        ),
+        if (_injectError != null) ...<Widget>[
+          const SizedBox(height: Space.s1),
+          InlineNotice(
+            key: const Key('external-input-inject-error'),
+            message: _injectError!,
+            dense: true,
+          ),
+        ],
+        if (_lastInjected != null) ...<Widget>[
+          const SizedBox(height: Space.s1),
+          InlineNotice(
+            key: const Key('external-input-inject-receipt'),
+            message: injectReceiptText(
+              injectedText: _lastInjected!,
+              accepted: _injectAccepted,
+              state: state,
+            ),
+            severity: _injectAccepted
+                ? NoticeSeverity.info
+                : NoticeSeverity.warning,
+            dense: true,
+          ),
+        ],
+        const SizedBox(height: Space.s1),
+        Text(
+          '真 HTTP 等价（同一条渲染 + 主链路径；命令通道不需要 token，'
+          '下面的 curl 在服务端配了 token 时需要带 token）：',
+          style: muted,
+        ),
+        const SizedBox(height: Space.s1),
+        Text(
+          kExternalInputCurlEquivalent,
+          key: const Key('external-input-curl-equivalent'),
+          style: theme.textTheme.bodySmall,
+        ),
         // ---- 计数摘要 + 重置 ----
+        const SizedBox(height: Space.s3),
         Text('外部事件计数（本次进程运行以来）', style: theme.textTheme.labelLarge),
         const SizedBox(height: Space.s1),
         if (state == null)
@@ -193,7 +339,6 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
             dense: true,
           ),
         ],
-
         // ---- 令牌 ----
         const SizedBox(height: Space.s3),
         Text('访问令牌', style: theme.textTheme.labelLarge),
@@ -203,7 +348,6 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
           key: const Key('external-input-token-status'),
           style: theme.textTheme.bodySmall,
         ),
-
         // ---- 模板 / 前缀 ----
         const SizedBox(height: Space.s3),
         const SectionHeader(
@@ -221,6 +365,59 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
         ),
       ],
     );
+  }
+  /// 「测试注入」：command test_inject（prefix:false = 文本框里已是最终文本）。
+  Future<void> _inject() async {
+    final ModPanelContext ctx = widget.ctx;
+    final String text = _injectController.text.trim();
+    if (text.isEmpty) {
+      setState(() {
+        _lastInjected = null;
+        _injectError = '「测试文本」不能为空。';
+      });
+      return;
+    }
+    setState(() {
+      _injecting = true;
+      _injectError = null;
+      _lastInjected = null;
+    });
+    try {
+      final ModCommandResult result = await ctx.onCommand(
+        'test_inject',
+        <String, Object?>{'text': text, 'prefix': false},
+      );
+      if (!mounted) return;
+      if (!result.ok) {
+        setState(() {
+          _injecting = false;
+          _injectError = 'test_inject 失败：服务端返回 ok=false';
+        });
+        return;
+      }
+      final Object? injected = result.result['injected_text'];
+      setState(() {
+        _injecting = false;
+        _lastInjected = injected is String ? injected : text;
+        _injectAccepted = result.result['accepted'] == true;
+      });
+      // 计数要立刻反映这次注入（宿主拿到新快照后本面板会重建）。
+      // 不调 notifyChanged：注入是瞬时运行行为、不改任何配置，
+      // 说「需重新点火 / 重启后生效」是夸大。
+      await ctx.onRefreshState();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _injecting = false;
+        _injectError = externalInputInjectErrorMessage(e);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _injecting = false;
+        _injectError = 'test_inject 失败：$e';
+      });
+    }
   }
 
   Future<void> _confirmReset() async {
@@ -279,8 +476,7 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
       });
     }
   }
-
-  /// 命令结果里的 `before` 快照 → 「清零前：…」一句（形状不对时不硬编）。
+  /// 命令结果里的 before 快照 → 「清零前：…」一句（形状不对时不硬编）。
   String _beforeText(Map<String, Object?> result) {
     final Object? before = result['before'];
     if (before is! Map) return '计数已归零。';

@@ -32,6 +32,8 @@ class ModPanelContext {
     required this.stateError,
     required this.onRefreshState,
     required this.onCommand,
+    this.activeSessionId,
+    this.onModChanged,
   });
 
   /// 当前 Mod 的列表项（含 `enabled` / `config` / `settings_spec`）。
@@ -58,6 +60,24 @@ class ModPanelContext {
 
   /// 该 Mod 当前是否启用（面板据此决定按钮是否可点）。
   bool get enabled => mod.enabled;
+
+  /// **当前活动会话 id**（L1 会话绑定，2026-09-15）。
+  ///
+  /// 语义：这是用户**正看着**的那个会话（Flutter 的 ChatSessionStore.activeId）。
+  /// persona / memory 的会话绑定动作默认应落到它上面。
+  ///
+  /// null = 还没有任何会话（首次打开、一条消息都没发）。此时面板**必须**
+  /// 说清降级语义（「先发一条消息再绑定」/「将写入全局」），不能假装绑好了。
+  final String? activeSessionId;
+
+  /// **Mod 变更通知**：面板做了一次会改变运行行为的动作后调用
+  /// [notifyChanged]，宿主据此弹统一的「需重新点火 / 重启后生效」提示。
+  ///
+  /// null = 宿主没接（纯 widget 测试）。面板**不该**依赖它存在。
+  final ValueChanged<String>? onModChanged;
+
+  /// 见 [onModChanged]；[what] 是过去式短语（例如「已导入角色卡并绑定到当前会话」）。
+  void notifyChanged(String what) => onModChanged?.call(what);
 }
 
 /// 一个 Mod 的产品面板。

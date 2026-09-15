@@ -33,6 +33,15 @@ pub struct ConversationEngine {
     client: OpenAiClient,
     config: super::ConversationConfig,
     pub(super) history: VecDeque<(String, String)>,
+    /// **会话级 system_prompt 覆盖**（L1 基座，2026-09-15）。
+    ///
+    /// `Some` 时**完全取代** `config.system_prompt`，`None` 时用配置里那一份。
+    /// 为什么做成覆盖槽而不是直接改 `config.system_prompt`：
+    /// - 配置里那份是**全局基线**（面板 / toml 的真相），不能被会话值污染；
+    /// - 每轮开始时 supervisor 会显式 set 一次，所以「切换会话」是天然幂等的。
+    ///
+    /// 热重载会整体重建引擎 → 覆盖槽随之回到 `None`（下一轮再 set）。
+    pub(super) system_prompt_override: Option<String>,
 }
 
 impl ConversationEngine {
@@ -42,12 +51,31 @@ impl ConversationEngine {
             client,
             config,
             history: VecDeque::new(),
+            system_prompt_override: None,
         }
     }
 
     /// 配置只读视图。
     pub const fn config(&self) -> &super::ConversationConfig {
         &self.config
+    }
+
+    /// 设置 / 清除**会话级** system_prompt 覆盖（L1 基座）。
+    ///
+    /// `None` = 回到配置里的全局 `system_prompt`。每轮对话开始前由 supervisor
+    /// 按当前会话调用一次，因此「切会话」不需要重建引擎。
+    ///
+    /// 空串按 `None` 处理：空 system 与「没有 system」在 wire 层等价
+    /// （见 `build_messages` 的非空判断），把它当覆盖会把全局人设悄悄清掉。
+    pub fn set_system_prompt_override(&mut self, prompt: Option<String>) {
+        self.system_prompt_override = prompt.filter(|p| !p.trim().is_empty());
+    }
+
+    /// 本轮**实际生效**的 system_prompt（覆盖优先；两者皆空 → 空串）。
+    pub fn effective_system_prompt(&self) -> &str {
+        self.system_prompt_override
+            .as_deref()
+            .unwrap_or(self.config.system_prompt.as_str())
     }
 
     /// 当前保留的历史轮数。
@@ -63,8 +91,9 @@ impl ConversationEngine {
     /// 组装本轮消息：[system?] + 历史 + 当前输入。
     pub(super) fn build_messages(&self, user_text: &str) -> Vec<ChatMessage> {
         let mut out = Vec::with_capacity(2 * self.history.len() + 2);
-        if !self.config.system_prompt.is_empty() {
-            out.push(ChatMessage::system(self.config.system_prompt.clone()));
+        let system = self.effective_system_prompt();
+        if !system.is_empty() {
+            out.push(ChatMessage::system(system.to_string()));
         }
         for (user, assistant) in &self.history {
             out.push(ChatMessage::user(user.clone()));

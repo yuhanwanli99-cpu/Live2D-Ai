@@ -30,6 +30,16 @@ const String kDirectorZeroDeliveryNotice =
 /// 空态指引里必须出现的短语（未启用 / 还没聊过两种空态共用）。
 const String kDirectorEmptyHint = '先启用并聊一轮';
 
+/// **L1 范围声明**（2026-09-15）：director 本轮**不做 L1**。
+///
+/// 为什么要在面板里明说而不是只写在文档里：这个面板看起来「什么都有」
+/// （情绪 / 意图 / 建议语速 / 建议音高 / 结项），最容易被当成一个已完成的产品
+/// 能力去验收。用户裁决是「director 下轮」，所以面板顶部必须自己认领这件事——
+/// 把建议面板宣传成产品级完成，正是本轮明令禁止的夸大。
+const String kDirectorL1ScopeNotice =
+    '本轮不做 L1（用户裁决：director 下轮）。本面板只展示建议与登记状态，'
+    '未接任何下行通道；请不要把它当作本轮 L1 的完成证据。';
+
 /// 情绪稳定码 → 中文标签（未知码回落原始码，**不隐藏**）。
 const Map<String, String> kDirectorEmotionLabels = <String, String>{
   'neutral': '中性',
@@ -212,6 +222,11 @@ class _DirectorPanelBodyState extends State<_DirectorPanelBody> {
         const SizedBox(height: Space.s3),
         Text('导演决策（一等面板）', style: theme.textTheme.titleSmall),
         const SizedBox(height: Space.s1),
+        // L1 范围声明放在**最前**：先认领「本轮不做」，再说它有什么。
+        const InlineNotice(
+          message: kDirectorL1ScopeNotice,
+          severity: NoticeSeverity.warning,
+        ),
         // 零投递语义：**文字**说清，不靠颜色，也不藏在 tooltip 里。
         const InlineNotice(
           message: kDirectorZeroDeliveryNotice,

@@ -96,6 +96,8 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
 ];
 
 mod repl;
+// L1 基座（2026-09-15）：会话级作用域——「会话 id → system_prompt 覆盖」+ 活动会话游标。
+mod session_scope;
 mod supervisor;
 mod tray;
 mod user_event;

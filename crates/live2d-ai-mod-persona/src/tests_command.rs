@@ -115,9 +115,12 @@ fn state_json_is_a_stable_desensitized_shape() {
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
+    // L1 会话绑定加了四个键；既有九个必须**一个不少**（它们是全局主链的摘要，
+    // 会话绑定的回归在 `src/tests_e2e.rs`）。
     assert_eq!(
         keys,
         vec![
+            "active_session",
             "applied_chars",
             "card_format",
             "card_name",
@@ -127,8 +130,17 @@ fn state_json_is_a_stable_desensitized_shape() {
             "include_discipline",
             "ready",
             "say_first_mes",
+            "scope",
+            "session_bound",
+            "sessions",
         ]
     );
+    // 单测环境没有会话表 / 没有 config_path：如实报「没有会话能力」，
+    // 绝不假装绑好了。
+    assert_eq!(s["session_bound"], false);
+    assert_eq!(s["sessions"].as_array().map(Vec::len), Some(0));
+    assert!(s["active_session"].is_null());
+    assert_eq!(s["scope"], "global");
     assert_eq!(s["ready"], true);
     assert_eq!(s["card_source"], "config_json");
     assert_eq!(s["card_name"], "NEKO");

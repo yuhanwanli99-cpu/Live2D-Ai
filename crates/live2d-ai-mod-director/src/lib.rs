@@ -309,6 +309,11 @@ impl ModRuntime for DirectorRuntime {
                 "emotion_lexicon".to_string(),
                 serde_json::json!(self.config.emotion_lexicon.as_str()),
             );
+            // **L1 范围声明**（2026-09-15）：director 本轮不做 L1（用户裁决：下轮）。
+            // 两个键是给**机器**看的（面板据此出中文横幅），比只在文档里写一句更硬：
+            // 任何把 director 当成「已产品级」的说法，都能被这两个字段当场否掉。
+            object.insert("experimental".to_string(), serde_json::json!(true));
+            object.insert("l1_scope".to_string(), serde_json::json!("next-round"));
         }
         Some(value)
     }

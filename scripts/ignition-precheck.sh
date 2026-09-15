@@ -166,6 +166,29 @@ d=json.load(sys.stdin)
 print(next((str(m["enabled"]).lower() for m in d.get("mods",[]) if m["id"]=="external-input"), "missing"))' 2>/dev/null)
 check "external-input 缺省启用" "true" "$ext_enabled"
 
+# ---------------------------------------------------------------- B2. 会话 id 宿主能力（L1 基座）
+echo ""
+echo "-- B2. 会话 id 宿主能力（GET|POST /api/v1/chat/session）"
+sess_get=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/api/v1/chat/session" 2>/dev/null || echo 000)
+check "GET /api/v1/chat/session → 200" "200" "$sess_get"
+sess_post=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/chat/session" \
+  -H "$ORIGIN" -H "$JSON" -d '{"session_id":"precheck-session"}' 2>/dev/null || echo 000)
+check "POST /api/v1/chat/session → 200" "200" "$sess_post"
+# 非法 id 必须按「不带会话」处理（清掉游标），**不是** 400。
+sess_bad=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/chat/session" \
+  -H "$ORIGIN" -H "$JSON" -d '{"session_id":"../etc/passwd"}' 2>/dev/null || echo 000)
+check "非法 session_id → 200（按不带会话处理）" "200" "$sess_bad"
+sess_active=$(curl -s --max-time 5 "$BASE/api/v1/chat/session" 2>/dev/null | python3 -c '
+import sys,json
+try:
+    print(json.load(sys.stdin).get("active_session") or "null")
+except Exception:
+    print("unreadable")' 2>/dev/null)
+check "非法 id 后活动会话被清掉" "null" "$sess_active"
+# 复原成合法活动会话，供后面的注入路径跟随。
+curl -s -o /dev/null -X POST "$BASE/api/v1/chat/session" -H "$ORIGIN" -H "$JSON" \
+  -d '{"session_id":"precheck-session"}' 2>/dev/null || true
+
 # ---------------------------------------------------------------- C. external-input 门禁
 echo ""
 echo "-- C. external/chat 门禁（loopback + CT + token + 启停）"
@@ -260,19 +283,59 @@ if [ "$v0" = "403" ]; then record PASS "voice-input 缺省停用 → 403 mod_dis
 else record SKIP "voice-input 缺省停用 → 403 mod_disabled" "403" "$v0（已被启用？）"; fi
 ven=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/mods/voice-input/enable" -H "$ORIGIN" 2>/dev/null || echo 000)
 check "启用 voice-input" "200" "$ven"
-# 清洗 + locale 归一化：全角空格 U+3000 与零宽 U+200B 都应被吃掉。
-VOICE_TEXT=$'  把\u3000窗户\u200b关小一点  '
+
+# ---- L1：唤醒短语 = 能力总闸（空 = 关）；另有手动闸 ----
+# 读一个错误码（读不到一律回 unreadable，避免把「读不到」当成「对了」）。
+verr() {
+  python3 -c '
+import sys,json
+try:
+    d=json.load(sys.stdin)
+    e=d.get("error") or {}
+    print(e.get("code",""))
+except Exception:
+    print("unreadable")'
+}
+# 总闸未配（缺省）⇒ 拒绝 transcript 且**可读**（L1 硬验收句）。
+vg=$(curl -s --max-time 5 -X POST "$BASE/api/v1/voice/transcript" -H "$ORIGIN" -H "$JSON" \
+  -d '{"text":"语音预检"}' 2>/dev/null | verr 2>/dev/null)
+check "总闸未配 → 403 voice_gate_closed" "voice_gate_closed" "$vg"
+
+# 配总闸（唤醒短语「小梦」）+ 手动闸开。
+vcfg=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/mods/voice-input/config" \
+  -H "$ORIGIN" -H "$JSON" \
+  -d '{"config":{"backend":"mock","locale":"zh-CN","wake_phrase":"小梦","manual_enabled":true}}' 2>/dev/null || echo 000)
+check "写入唤醒短语（总闸开）" "200" "$vcfg"
+
+# 没听见唤醒词 ⇒ 400 wake_phrase_required。
+vw=$(curl -s --max-time 5 -X POST "$BASE/api/v1/voice/transcript" -H "$ORIGIN" -H "$JSON" \
+  -d '{"text":"天气不错"}' 2>/dev/null | verr 2>/dev/null)
+check "缺唤醒词 → 400 wake_phrase_required" "wake_phrase_required" "$vw"
+
+# 命中：短语被**剥掉**，再做清洗 + locale 归一化（全角空格 U+3000 与零宽 U+200B 都被吃掉）。
+VOICE_TEXT=$'  小梦\u3000把\u200b窗户关小一点  '
 rv=$(inject "$BASE/api/v1/voice/transcript" "$VOICE_TEXT")
 v1=${rv%%|*}; vf=$(printf '%s' "$rv" | cut -d'|' -f2); vt=$(printf '%s' "$rv" | cut -d'|' -f3)
 if [ "$v1" = "200" ] && [ "$vf" = "ok" ] && [ "$vt" = "把窗户关小一点" ]; then
-  record PASS "voice 注入 + 清洗/归一化" "200/text=把窗户关小一点" "$v1/$vt"
+  record PASS "命中唤醒词 → 200 + 剥短语 + 清洗/归一化" "200/text=把窗户关小一点" "$v1/$vt"
 elif [ "$vf" = "busy" ]; then
-  record SKIP "voice 注入 + 清洗/归一化" "200/text=把窗户关小一点" "主链持续 busy（合法，非缺陷）"
+  record SKIP "命中唤醒词 → 200 + 剥短语 + 清洗/归一化" "200/text=把窗户关小一点" "主链持续 busy（合法，非缺陷）"
 else
-  record FAIL "voice 注入 + 清洗/归一化" "200/text=把窗户关小一点" "$v1/$vf/$vt"
+  record FAIL "命中唤醒词 → 200 + 剥短语 + 清洗/归一化" "200/text=把窗户关小一点" "$v1/$vf/$vt"
 fi
+
+# 手动闸关 ⇒ 403 voice_manual_off（先写配置，再注入）。
+curl -s -o /dev/null --max-time 5 -X POST "$BASE/api/v1/mods/voice-input/config" -H "$ORIGIN" -H "$JSON" \
+  -d '{"config":{"backend":"mock","locale":"zh-CN","wake_phrase":"小梦","manual_enabled":false}}' 2>/dev/null || true
+vm=$(curl -s --max-time 5 -X POST "$BASE/api/v1/voice/transcript" -H "$ORIGIN" -H "$JSON" \
+  -d '{"text":"小梦 你好"}' 2>/dev/null | verr 2>/dev/null)
+check "手动闸关 → 403 voice_manual_off" "voice_manual_off" "$vm"
+
+# 复原：总闸关（wake_phrase 置空）+ 手动闸开，再停用 voice-input。
+curl -s -o /dev/null --max-time 5 -X POST "$BASE/api/v1/mods/voice-input/config" -H "$ORIGIN" -H "$JSON" \
+  -d '{"config":{"backend":"mock","locale":"zh-CN","wake_phrase":"","manual_enabled":true}}' 2>/dev/null || true
 vd=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$BASE/api/v1/mods/voice-input/disable" -H "$ORIGIN" 2>/dev/null || echo 000)
-check "复原 voice-input（disable）" "200" "$vd"
+check "复原 voice-input（config 归零 + disable）" "200" "$vd"
 
 # ---------------------------------------------------------------- F. sidecar 自检
 echo ""
@@ -314,6 +377,17 @@ if [ "$RUN_FSM" = "1" ]; then
   curl -s -o /dev/null -X POST "$BASE/api/v1/mods/external-input/enable" -H "$ORIGIN" 2>/dev/null || true
 fi
 
+# ------------------------------------------------- B2b. 带 session_id 的聊天请求（有副作用，放最后）
+echo ""
+echo "-- B2b. POST /api/v1/chat 带 session_id（L1 会话绑定入口）"
+chat_scoped=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$BASE/api/v1/chat" \
+  -H "$ORIGIN" -H "$JSON" -d '{"text":"会话预检","session_id":"precheck-session"}' 2>/dev/null || echo 000)
+if [ "$chat_scoped" = "200" ] || [ "$chat_scoped" = "429" ]; then
+  record PASS "POST /api/v1/chat 带 session_id" "200|429" "$chat_scoped"
+else
+  record FAIL "POST /api/v1/chat 带 session_id" "200|429" "$chat_scoped"
+fi
+
 # ---------------------------------------------------------------- 汇总
 echo ""
 echo "=========================================================="
@@ -322,7 +396,7 @@ if [ "$FAILS" != "0" ]; then
   echo "  ✗ 有 FAIL：见上面 [FAIL] 行。"
 else
   echo "  ✓ 无 FAIL。人机项（舞台肉眼 / 出声 / 口型 / Mod 管理点击）见"
-  echo "    docs/plans/IGNITION-CHECKLIST-product-grade.md"
+  echo "    docs/plans/IGNITION-CHECKLIST-l1.md"
 fi
 echo "=========================================================="
 [ "$FAILS" = "0" ] || exit 1

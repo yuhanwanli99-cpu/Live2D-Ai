@@ -71,6 +71,7 @@ import '../ui/connection_badge.dart';
 import '../chat/chat_session.dart';
 import '../ui/error_banner.dart';
 import '../ui/glass_rim.dart';
+import '../ui/inline_notice.dart';
 import '../ui/session_sheet.dart';
 import '../ui/settings_scaffold.dart';
 import '../ui/shell_backdrop.dart';
@@ -104,6 +105,8 @@ class AppShell extends StatefulWidget {
     this.settingsChanges = const NeverNotifies(),
     this.section = SettingsSection.appearance,
     this.onSectionChanged,
+    this.modRestartNotice,
+    this.onDismissModRestart,
     this.error,
     this.errorActions = const <ErrorAction>[],
     this.onDismissError,
@@ -167,6 +170,13 @@ class AppShell extends StatefulWidget {
 
   /// 任意用户手势（指针按下 / 任意按键）——用于解锁 WebAudio。
   final VoidCallback? onUserGesture;
+
+  /// L1 基座：Mod 变更后的统一「需重新点火 / 重启后生效」提示。
+  ///
+  /// 挂在聊天区顶部（常驻、可关）——用户改完 Mod 回聊天时，第一眼就该看到
+  /// 「这件事还没完全生效」，而不是盯着一个没变化的舞台猜。
+  final String? modRestartNotice;
+  final VoidCallback? onDismissModRestart;
 
   final String? error;
   final List<ErrorAction> errorActions;
@@ -659,7 +669,8 @@ class AppShellState extends State<AppShell> {
     ),
   );
 
-  Widget _chat({required bool compact}) => ChatPanel(
+  Widget _chat({required bool compact}) => _withModRestartNotice(
+    ChatPanel(
     messages: widget.messages,
     phase: widget.phase,
     input: widget.input,
@@ -680,7 +691,29 @@ class AppShellState extends State<AppShell> {
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
     backdropVisible: widget.shellImage != null,
+  ),
   );
+
+  /// 把 [AppShell.modRestartNotice] 叠在聊天区**顶部**（没有提示时原样返回，
+  /// 布局与改动前逐字一致）。
+  ///
+  /// 为什么要 `Expanded` 包一层：ChatPanel 自己是个撑满高度的列，直接塞进一个新
+  /// Column 会拿到无界高度而报错。多出来的这一层只在有提示时存在。
+  Widget _withModRestartNotice(Widget chat) {
+    final String? notice = widget.modRestartNotice;
+    if (notice == null) return chat;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        InlineNotice(
+          message: notice,
+          severity: NoticeSeverity.warning,
+          onDismiss: widget.onDismissModRestart,
+        ),
+        Expanded(child: chat),
+      ],
+    );
+  }
 }
 
 /// 一个**永不通知**的 [Listenable]。

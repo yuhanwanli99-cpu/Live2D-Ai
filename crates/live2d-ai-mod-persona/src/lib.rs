@@ -96,6 +96,15 @@
 //!（停用时 host 回 503 `command_unavailable`），所以面板上的顺序是
 //! 「先打开开关、再导入」。
 //!
+//! # 会话绑定（L1，2026-09-15）
+//!
+//! 带 `session_id` 的导入把卡写进宿主注入的**会话覆盖表**
+//!（`ModServices.session_prompts`），**不碰**全局 `persona.system_prompt`：
+//! 换会话不串卡，回原会话仍在（档案 `persona-mod-cards.json` 落盘，`start`
+//! 时灌回）；`shutdown` 清空全部会话绑定 + 还原全局基线；不带 `session_id`
+//!（或空串）仍是老全局语义；非空非法的 id → 可读错误，不写任何地方。
+//! 完整契约见 `src/sessions.rs` 头注与 `docs/architecture/persona-mod-v0.md` §8。
+//!
 //! # 文件大小
 //!
 //! 源码 > 500 行（< 1000）：卡解析与主链写回共用同一份不变量（V2 判定 +
@@ -109,12 +118,17 @@
 //! Wave 3 轨 E 新增的坏卡 E2E 与共存契约**另起** `src/tests_e2e.rs`（318 行），
 //! 不再往 `tests.rs` 里加——两个文件各自守一组契约，也守住单文件行数纪律。
 //!
-//! persona-polish 波次同理，拆了两个文件：`src/command.rs`（命令通道 + 运行态快照，
-//! 287 行）与 `src/tests_command.rs`（那两条面的回归，561 行）。**不拆的是主链接管
-//! 语义**：卡解析、基线快照、`apply_card` 全留在本文件——它们共用同一条不变量
+//! persona-polish 波次同理，拆了两个文件：`src/command.rs`（命令通道 + 运行态快照）
+//! 与 `src/tests_command.rs`（那两条面的回归）。**不拆的是主链接管语义**：卡解析、
+//! 基线快照、`apply_card` 全留在本文件——它们共用同一条不变量
 //!（「没真的接管，就不许留下痕迹」），拆开只会让读者来回跳。
+//!
+//! L1 会话绑定再拆一个 `src/sessions.rs`（档案读写 + 上限 + 灌回；本文件只留
+//! 「什么时候载入 / 什么时候清」），回归进 `src/tests_e2e.rs`（那条文件守的正是
+//! 「跨重启 / 跨组件」的端到端语义，且 `tests_command.rs` 已接近 800 行）。
 
 mod command;
+mod sessions;
 
 use std::path::{Path, PathBuf};
 
@@ -536,6 +550,10 @@ pub struct PersonaRuntime {
     base_prompt: Option<String>,
     /// 最近一次成功接管的摘要（`state_json` 的**零 IO** 数据源）。
     applied: Option<AppliedPersona>,
+    /// **会话级角色卡档案**（L1 会话绑定）。`None` = 还没载入 / 本环境没有
+    /// `config_path`（此时会话绑定不可用，带 `session_id` 的 `import_card` 会
+    /// 明确报错，**不静默**退回全局）。载入时机见 [`Self::load_sessions`]。
+    session_cards: Option<sessions::SessionArchive>,
 }
 
 impl PersonaRuntime {
@@ -546,7 +564,22 @@ impl PersonaRuntime {
             registered: false,
             base_prompt: None,
             applied: None,
+            session_cards: None,
         }
+    }
+
+    /// `start` 时载入会话档案（坏文件只 warn 忽略，不让整个 Mod Failed；
+    /// 见 `src/sessions.rs` 头注）。
+    fn load_sessions(&mut self) {
+        sessions::load_archive(&self.services, &mut self.session_cards);
+    }
+
+    /// 命令通道取档案：不可用 → **可读错误**（不静默降级成全局）；两条不可用
+    /// 路径与首次载入的语义见 [`sessions::require_archive`]。
+    pub(crate) fn require_session_archive(
+        &mut self,
+    ) -> Result<&mut sessions::SessionArchive, ModError> {
+        sessions::require_archive(&self.services, &mut self.session_cards)
     }
 
     /// 导入卡文件路径（与 `live2d-ai.toml` 同目录）。
@@ -794,6 +827,18 @@ impl ModRuntime for PersonaRuntime {
                 message: e,
             });
         }
+        // 会话档案：坏文件只 warn 忽略（见 `src/sessions.rs` 头注）——它不该让
+        // 整个 Mod Failed，更不该带走已经成功的全局接管。载入后把每个会话的卡
+        // **灌回宿主会话表**：宿主那张表是内存态，「重启后回到会话 A 人设还在」
+        // 靠的就是这一步。
+        self.load_sessions();
+        if let Some(archive) = &self.session_cards {
+            archive.restore(
+                &self.services.session_prompts,
+                self.config.include_discipline,
+                &self.services.logger,
+            );
+        }
         if let Err(e) = registrar.register_settings(persona_settings_spec()) {
             // 注册失败也要**回滚**：已经写回主链的提示词不能留在那儿，
             // 否则一个 Failed 的 Mod 却在主链上留了痕——半个副作用比不接管更坏。
@@ -828,6 +873,20 @@ impl ModRuntime for PersonaRuntime {
     }
 
     fn shutdown(&mut self) -> Result<(), ModError> {
+        // 「停用即还原」有两层：**会话覆盖**（persona 的来源槽一条不剩）与
+        // **全局主链**（写回基线快照）。前者不落盘（档案留着，下次启用会重新
+        // 灌回），后者是老的还原逻辑，一行不动。
+        //
+        // 只清自己的 owner：会话表是共享的（memory 也写它），clear_all() 会把
+        // 别人在同一会话里的贡献一起清掉——那正是 L1 修掉的跨 Mod 干扰。
+        if self.services.session_prompts.enabled() {
+            self.services
+                .session_prompts
+                .clear_owner(SESSION_PROMPT_OWNER_PERSONA);
+            self.services
+                .logger
+                .info("persona 已清除自己的会话角色卡槽（停用即还原；不动别的来源）");
+        }
         // 把基线写回主链——「禁用 Mod → 回到仅主链 system_prompt」。
         if let Some(base) = self.base_prompt.take() {
             let ok = self

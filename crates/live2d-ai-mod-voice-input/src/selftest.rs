@@ -22,7 +22,9 @@
 
 use serde_json::{Value, json};
 
+use crate::gate;
 use crate::normalize::{DEFAULT_LOCALE, LocaleProfile, locale_profile};
+use crate::sidecar;
 use crate::{RustRoute, VoiceBackend, locale_from_config, token_from_config};
 
 /// `backend` 字段是否**已知**（缺省 = 合法，未知 = 会被静默回落）。
@@ -101,10 +103,22 @@ pub fn route_str(backend: VoiceBackend) -> &'static str {
 /// | `backend` / `backend_valid` / `backend_defaulted` | 生效后端、是否已知、是否缺省 |
 /// | `locale` / `locale_valid` / `locale_defaulted` / `locale_profile` | 生效 locale、是否合法、是否缺省、归一化档（`cjk`/`latin`） |
 /// | `token_set` | 是否配了 token（**只回布尔**） |
+/// | `manual_enabled` / `wake_gate_open` / `wake_phrase_set` | 两把闸的状态（**只回布尔**，绝不回短语明文） |
+/// | `sidecar_script` / `sidecar_script_resolvable` | 解析出的官方脚本路径 / 是否能解析出路径（纯函数，不 stat） |
 /// | `route` / `opens_network` | 本地路由（`local_inject`/`accept_push`）；Rust 是否开 socket（恒 `false`） |
 /// | `problems` | 硬问题（会让用户名实不符） |
-/// | `notes` | 提醒（缺省值 / sidecar 未设 token），不是错误 |
+/// | `notes` | 提醒（缺省值 / 总闸关 / 手动闸关 / 脚本路径不可解析 / sidecar 未设 token），不是错误 |
+///
+/// 无 `config_path` 的便捷入口（单测 / 不关心脚本解析的调用方）；
+/// 运行时用 [`config_selftest_with_script`] 带上宿主的 `config_path`。
 pub fn config_selftest(config: &Value) -> Value {
+    config_selftest_with_script(config, "")
+}
+
+/// 与 [`config_selftest`] 同体，多一个 `config_path`（用于解析缺省 sidecar 脚本路径）。
+///
+/// **仍然是纯函数**：只做字符串拼接，不 stat、不读盘。
+pub fn config_selftest_with_script(config: &Value, config_path: &str) -> Value {
     let backend = VoiceBackend::from_config(config);
     let backend_known = backend_is_known(config);
     let backend_defaulted = backend_is_defaulted(config);
@@ -112,6 +126,10 @@ pub fn config_selftest(config: &Value) -> Value {
     let locale_defaulted = locale_is_defaulted(config);
     let locale_valid = locale_is_wellformed(&locale);
     let token_set = token_from_config(config).is_some();
+    let manual_enabled = gate::manual_enabled_from_config(config);
+    let wake_gate_open = gate::wake_gate_open(config);
+    let sidecar_script = sidecar::resolve_sidecar_script(config, config_path);
+    let sidecar_script_resolvable = !sidecar_script.trim().is_empty();
 
     let mut problems: Vec<String> = Vec::new();
     if !backend_known {
@@ -127,6 +145,24 @@ pub fn config_selftest(config: &Value) -> Value {
     }
 
     let mut notes: Vec<String> = Vec::new();
+    if !wake_gate_open {
+        notes.push(
+            "能力总闸未开：wake_phrase 为空 = 总闸关，一切转写都会被拒绝（403 voice_gate_closed）；先在 Mod 配置里填一个唤醒短语"
+                .to_string(),
+        );
+    }
+    if !manual_enabled {
+        notes.push(
+            "手动闸已关闭（manual_enabled=false）：一切转写都会被拒绝（403 voice_manual_off）；要恢复请在 Mod 配置里打开手动开关"
+                .to_string(),
+        );
+    }
+    if !sidecar_script_resolvable {
+        notes.push(
+            "sidecar 脚本路径不可解析（未配 sidecar_script，且宿主没给出 live2d-ai.toml 路径）：面板「用官方 sidecar 识别音频文件」会报可读错误"
+                .to_string(),
+        );
+    }
     if backend_defaulted {
         notes.push(
             "backend 未显式设置：当前生效 mock（没有 ASR，由集成方 / 测试直接喂转写文本）"
@@ -155,6 +191,11 @@ pub fn config_selftest(config: &Value) -> Value {
         "locale_defaulted": locale_defaulted,
         "locale_profile": locale_profile_str(&locale),
         "token_set": token_set,
+        "manual_enabled": manual_enabled,
+        "wake_gate_open": wake_gate_open,
+        "wake_phrase_set": wake_gate_open,
+        "sidecar_script": sidecar_script,
+        "sidecar_script_resolvable": sidecar_script_resolvable,
         "route": route_str(backend),
         "opens_network": VoiceBackend::opens_network(backend),
         "problems": problems,

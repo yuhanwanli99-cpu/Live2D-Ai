@@ -64,8 +64,20 @@ const STOPWORDS_CJK: &[char] = &[
 ];
 
 /// 一条本地记忆（JSONL 的一行）。
+///
+/// # 记录 id（L1 波次新增）
+///
+/// 每条记录有稳定 id `<ts>-<turn>-<fnv1a(text) 8 位十六进制>`（[Self::make_id]）：
+/// 新写入时按公式生成并**落盘**；旧行没有 `id` 字段，[crate::store::parse_record_line]
+/// 按同一公式**派生**——同一条记录每次载入得到同一个 id（测试
+/// `id_derivation_is_stable_across_loads` 钉死）。面板的 update / delete 靠它定位。
+///
+/// 为什么自带一份 id 而不是只靠行号：JSONL 是追加写 + 超限物理重写，
+/// 行号会随淘汰整体左移；而「用户刚在面板上选中的那条」必须在刷新后仍然指得中。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryRecord {
+    /// 稳定记录 id（见类型头注；落盘或按公式派生，二者同形）。
+    pub id: String,
     /// 原始正文（去首尾空白后的整段；注入时再压平/截断）。
     pub text: String,
     /// Unix 秒（写入时刻）。
@@ -73,6 +85,36 @@ pub struct MemoryRecord {
     /// 本 Mod 观察到的第几次 `TurnPrompt`（**不是** supervisor 的 turn id；
     /// `TurnPrompt` 的 payload 只有正文，见 `topics.rs`）。
     pub turn: u64,
+}
+
+impl MemoryRecord {
+    /// 按 id 公式构造（新写入路径统一走它，避免公式散落多处）。
+    pub fn new(text: impl Into<String>, ts: i64, turn: u64) -> Self {
+        let text = text.into();
+        let id = Self::make_id(ts, turn, &text);
+        Self { id, text, ts, turn }
+    }
+
+    /// id 公式：`<ts>-<turn>-<fnv1a(text) 8 位十六进制>`。
+    ///
+    /// 刻意**不引依赖**（5 行 FNV-1a 足够，见 [fnv1a_hex8]）；`turn` 参与公式
+    /// 是为了让「同一秒内同一句话的两次不同轮次」拿到不同 id。
+    pub fn make_id(ts: i64, turn: u64, text: &str) -> String {
+        format!("{ts}-{turn}-{}", fnv1a_hex8(text))
+    }
+}
+
+/// FNV-1a 32 位哈希 → 8 位小写十六进制（记录 id 的尾段）。
+///
+/// 选它的理由：实现 5 行、无依赖、对短文本分布够用；这里**不是**安全哈希，
+/// 只是「同一句话稳定映射到同一串」的定位键。
+pub fn fnv1a_hex8(text: &str) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in text.as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("{hash:08x}")
 }
 
 /// 一次检索命中（`index` 指向传入切片，`score` ∈ `(0, 1]`）。
@@ -303,6 +345,28 @@ pub fn resolve_store_path(config_path: &str, store_path: &str) -> Option<PathBuf
         });
     }
     config_dir.map(|dir| dir.join(DEFAULT_STORE_FILE))
+}
+
+/// 会话桶目录名（与老路径同一个父目录）。
+pub const SESSIONS_DIR: &str = "sessions";
+
+/// 会话桶文件路径：`<base 同目录>/sessions/<session>.memory.jsonl`。
+///
+/// # 为什么不是 `<config 目录>/sessions`
+///
+/// 用户可以把 `store_path` 指到别处；会话桶应当**跟着那个库走**，所以这里从
+/// **已解析出的老路径** `base` 取父目录（默认 store_path 空时父目录就是配置
+/// 目录，与产品口径逐字一致）。
+///
+/// # 为什么返回 `Option`
+///
+/// 会话 id 要进**文件名**，必须过 [live2d_ai_mod_system::sanitize_session_id]
+/// 这道路径穿越闸（`a/b` / `..` / 控制字符一律拒）。非法 id → `None`：
+/// 调用方必须报可读错误或按「无会话」处理，**绝不**拿用户输入直接拼路径。
+pub fn resolve_session_store_path(base: &Path, session: &str) -> Option<PathBuf> {
+    let id = live2d_ai_mod_system::sanitize_session_id(session)?;
+    let dir = base.parent().unwrap_or_else(|| Path::new(""));
+    Some(dir.join(SESSIONS_DIR).join(format!("{id}.memory.jsonl")))
 }
 
 /// 当前 Unix 秒（时钟不可用/回退 → `0`，永不 panic）。

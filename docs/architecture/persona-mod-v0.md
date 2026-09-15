@@ -1,6 +1,10 @@
 # 角色卡 Mod v0（`live2d-ai-mod-persona`）
 
-> **状态**：2026-09-14 **产品级加强波次 · persona 轨**更新——新增两条一次性命令
+> **状态**：2026-09-15 **L1 产品级 · persona 轨**更新——**会话绑定**：
+> `import_card` / `clear_import` 接受可选 `session_id`，卡按会话绑定
+>（`persona-mod-cards.json`），换会话不串、回原会话仍在、停用清空宿主会话表；
+> 不带 `session_id` 时仍是本文档前半部分的**全局**语义。见 §8。
+> 上一版：2026-09-14 **产品级加强波次 · persona 轨**更新——新增两条一次性命令
 >（`import_card` / `clear_import`）与 `state_json`（`GET /mods/persona/state`
 > **从恒 503 升为 200**），面板补齐导入 UI、失败提示，以及与 memory 共存的说明。
 > 上一版：rc.4 M5（`docs/releases/v0.1.0-rc.4.md`）把酒馆角色卡从主链抽成这条 Mod。
@@ -10,7 +14,8 @@
 
 ## 1. 它做什么（一句话）
 
-**把一张酒馆角色卡变成主链的 `persona.system_prompt`，并在停用时还原成启用前的基线。**
+**把一张酒馆角色卡变成对话的人设**——默认绑定**当前会话**（L1），也可以
+写入全局 `persona.system_prompt`；停用时**会话表清空 + 主链还原基线**。
 卡只认两种载体：SillyTavern V1/V2 JSON，或内嵌 `chara` 文本块（base64 JSON）的 PNG。
 **零网络**：解析、落盘、写回全在本机。
 
@@ -34,6 +39,9 @@
 
 导入时会**规范化**成一张 V2 JSON（PNG 卡也落成 JSON）：于是「从 PNG 导入」与
 「从 JSON 导入」之后的行为完全一致，落盘文件本身也可读、可再导入。
+
+上面的优先级是**全局作用域**的；L1 起还有**会话作用域**——导入到某个会话的卡
+住 `persona-mod-cards.json`，**不进这张表、不参与全局主链的接管**，见 §8。
 
 ## 3. 导入 → 启用 → 人设变 → 停用还原（逐步可复制）
 
@@ -96,6 +104,18 @@ curl -s -X POST "$BASE/api/v1/mods/persona/command" -H "$ORIGIN" -H "$JSON" \
 `data_base64` 也接受浏览器 `readAsDataURL` 的原样字符串
 （`data:image/png;base64,…`，前缀由 Mod 剥掉）。两者都给时 `card_json` 优先。
 
+**按会话导入**（面板默认那条）只是多传一个 `session_id`——它**不写主链**，
+落的是 `persona-mod-cards.json` + 宿主会话表（见 §8）：
+
+~~~bash
+curl -s -X POST "$BASE/api/v1/mods/persona/command" -H "$ORIGIN" -H "$JSON" \
+  -d '{"command":"import_card","args":{"card_json":"{\"spec\":\"chara_card_v2\",\"data\":{\"name\":\"NEKO\"}}","session_id":"1757890123456789-3"}}'
+~~~
+
+期望返回里 `scope:"session"`、`session_id` 原样回显；`GET /api/v1/settings` 的
+`persona.system_prompt` **不变**，而那个会话的下一轮对话已经用上这张卡。
+清除它：`{"command":"clear_import","args":{"session_id":"1757890123456789-3"}}`。
+
 ### 3.4 看运行态（本轨升级为 200）
 
 ~~~bash
@@ -153,11 +173,16 @@ config 里还有卡 → 立即改成它；config 也没卡 → 主链**还原基
 「设置 → Mod → 角色卡」展开卡片：
 
 1. 打开开关（停用时「导入并生效」是禁用的，页面就地说明原因——命令通道要 Mod 在跑）；
-2. 把卡 JSON 粘进「粘贴角色卡 JSON（主路径）」→「导入并生效」；
-   （宿主接好文件读取器时，还会多一个「选择 PNG 角色卡文件」按钮。）
-3. 卡片顶部的「运行态（只读）」块会多出 `卡来源` / `角色卡名称` 等字段，
-   面板自己那一行同时显示「当前角色卡：NEKO · V2 卡 · 来源：界面导入」；
-4. 关闭开关 → 人设还原；再打开 → 还是这张卡（导入卡已落盘）。
+2. 顶部「会话绑定」块先告诉你**卡会落到哪**：有活动会话时显示「当前会话 <id>：
+   导入的卡只对它生效」；一条消息都没发过时显示降级语义，并且「导入并生效」
+   是禁用的（想对所有会话生效就走「导入为全局人设（所有会话）」）；
+3. 把卡 JSON 粘进「粘贴角色卡 JSON（主路径）」→「导入并生效」；
+   （宿主接好文件读取器时，还会多一个「选择 PNG 角色卡文件」按钮，同样绑定当前会话。）
+4. 卡片顶部的「运行态（只读）」块会多出 `卡来源` / `角色卡名称`，
+   以及 L1 的 `会话绑定可用` / `已绑定会话` / `当前活动会话` / `当前作用域`；
+   面板自己那一行显示「当前全局角色卡：…」或（只绑了会话时）「会话绑定见上方」；
+5. 停用 → **会话表清空 + 主链还原**；再打开 → 会话的卡还在（档案落盘）。
+   想删掉某个会话的卡用「清除当前会话的卡」，删全局导入卡用「清除全局导入卡」。
 
 ## 4. 坏卡路径（**一律显式失败，不静默**）
 
@@ -191,7 +216,9 @@ config 里还有卡 → 立即改成它；config 也没卡 → 主链**还原基
 | memory 停用 | `shutdown` 检查 marker，有就剥掉写回——**不留残留** |
 
 这是**已知取舍**，不是 bug：主链只有一个 system 入口，加一套优先级表就是在核心里
-埋第二个产品（memor 文档 §8 与本文件 §8 同一条）。
+埋第二个产品（memory 文档 §8 与本文件 §9 同一条）。
+**L1 起这条规则只对全局模式相关**：会话绑定的卡进的是宿主会话表，不进主链
+（见 §8.6）。
 
 **可执行建议**（面板里也写着同样的话）：
 
@@ -209,9 +236,11 @@ persona 的停用会把**启用那一刻的整段** `system_prompt` 还回去：
 
 | 命令 | 入参 | 成功 | 失败 |
 | --- | --- | --- | --- |
-| `import_card` | `{"card_json":"…"}` 或 `{"data_base64":"…"}`（都给时前者优先） | 规范化 JSON 落盘 + 立刻写回主链 + 脱敏摘要 | 409 `command_failed`（其它 `ModError`）/ 400 坏 body / 404 不在注册表 / 503 未启用或正忙 |
-| `clear_import` | 无（幂等） | 删导入卡 → 按 config 重生效；config 没卡 → 还原基线 | 同上 |
+| `import_card` | `{"card_json":"…"}` 或 `{"data_base64":"…"}`（都给时前者优先）+ 可选 `session_id` | 规范化 JSON 落盘 + 立刻生效 + 脱敏摘要；`session_id` 合法时 `scope:"session"`（只写会话表），否则 `scope:"global"`（写回主链） | 409 `command_failed`（其它 `ModError`）/ 400 坏 body / 404 不在注册表 / 503 未启用或正忙 |
+| `clear_import` | 可选 `session_id`（幂等） | 有：清该会话 + 从档案删；无：删导入卡 → 按 config 重生效；config 没卡 → 还原基线 | 同上 |
 | （其它字符串） | — | — | 409 `unsupported_command` |
+
+会话作用域的文件、上限、坏文件策略与降级语义见 §8。
 
 **顺序**：解析 → 落盘（tmp + rename）→ 写主链；写主链失败就**回滚**导入卡。
 反过来会留下「人设换了、重启就丢了」的哑巴状态。
@@ -225,11 +254,109 @@ persona 的停用会把**启用那一刻的整段** `system_prompt` 还回去：
 | 文件 | 守什么 |
 | --- | --- |
 | `crates/live2d-ai-mod-persona/src/tests.rs` | 卡解析、启停三条入口、坏输入的单点 `Err`、基线快照语义 |
-| `crates/live2d-ai-mod-persona/src/tests_e2e.rs` | 坏卡 enable→Failed→修好→接管→还原；与 memory 的 §5.1 三行 |
-| `crates/live2d-ai-mod-persona/src/tests_command.rs` | `state_json` 形状/脱敏、`import_card` 成功与各类坏输入、导入卡优先级与重启、`clear_import`、回滚、未知命令 |
-| `shell/flutter/test/persona_panel_test.dart` | 面板注册与中文标签、粘贴/选文件两条导入路径、失败码上屏、失败态提示、与 memory 的文案 |
+| `crates/live2d-ai-mod-persona/src/tests_e2e.rs` | 坏卡 enable→Failed→修好→接管→还原；与 memory 的 §5.1 三行；**§8 会话绑定全套**（A/B 不串、清 A 不动 B、档案 round-trip 重启仍在、shutdown 全清、非法 id 不写任何地方、无宿主/无 config_path 可读失败、坏档案只 warn、50 上限） |
+| `crates/live2d-ai-mod-persona/src/tests_command.rs` | `state_json` 形状/脱敏（含 L1 四个新键）、`import_card` 成功与各类坏输入、导入卡优先级与重启、`clear_import`、回滚、未知命令 |
+| `shell/flutter/test/persona_panel_test.dart` | 面板注册与中文标签、粘贴/选文件两条导入路径、失败码上屏、失败态提示、与 memory 的文案；**§8 面板侧**（null 降级禁用、args 带 session_id、全局按钮不带、notifyChanged、会话清除） |
 
-## 8. 非目标（刻意不做）
+## 8. 会话绑定（L1，2026-09-15）
+
+### 8.1 一句话
+
+**带 `session_id` 的导入把卡写进「当前会话」这个桶，不碰全局
+`persona.system_prompt`。** 换会话不串卡；回到原会话人设仍在（档案落盘 +
+`start` 时灌回宿主会话表）；停用 Mod 清空全部会话绑定。
+
+两条作用域是**两条不同的路**，界面上也是两个按钮：
+
+| 动作 | 入参 | 落点 | 影响面 |
+| --- | --- | --- | --- |
+| 导入并生效（默认） | `session_id` = 当前会话 | `persona-mod-cards.json` + 宿主 `SessionPromptSink` | **只**这个会话 |
+| 导入为全局人设（所有会话） | 不带 `session_id` | 全局导入卡 + `apply_settings` 写主链 | 所有会话（旧行为） |
+
+宿主侧能力由 `live2d-ai-mod-system::session` 提供：一张「会话 id →
+`system_prompt`」的**内存表**（进程级、不写 `live2d-ai.toml`、不触发
+`reload()`）。表只存字符串，合法性由本 Mod 负责——所以**跨重启**那半条必须
+本 Mod 自己落盘（见 8.2）。
+
+### 8.2 档案文件 `persona-mod-cards.json`
+
+与 `live2d-ai.toml` 同目录，**原子写**（tmp + rename）：
+
+~~~json
+{"version":1,"sessions":{"1757890123456789-3":{"spec":"chara_card_v2","data":{…}}}}
+~~~
+
+- 值是**规范化后的 V2 卡**（`PersonaCard::to_json()`），可读、可再解析；
+- 会话 id 先过 `sanitize_session_id`（ASCII 字母数字与 `-` `_` `.` `:`，
+  ≤128 字符）——它将来会被用作文件名/存储键，规则现在钉死；
+- 上限 **50 个会话**；单文件大小沿用 `MAX_CARD_FILE_BYTES`（16 MiB）。
+  超限 → 导入回**可读错误**（不静默丢最旧的一条）；
+- **坏文件 = warn + 忽略整份**（版本不认 / 不是 JSON / 会话数超限），
+  单个会话的卡坏则只跳过那一条。这与「config 里的卡坏了 → Mod Failed」是
+  **两种输入、两种结局**：档案是**派生缓存**，用户显式配的才是真相；
+- **优先级**：档案只服务会话作用域；全局作用域仍按 §2 的
+  导入卡 > `card_json` > `card_path`。两者互不覆盖（一个在会话表，一个在主链）。
+
+`start` 时载入档案并把每个会话的卡**灌回宿主会话表**——宿主的表是内存态，
+这就是「进程重启后回到会话 A 人设还在」的落点。
+
+### 8.3 命令契约（增量）
+
+| 命令 | 新增入参 | 结果 |
+| --- | --- | --- |
+| `import_card` | 可选 `session_id` | 合法 id → `scope:"session"` + `session_id`，写档案 + 会话表，**不写全局**；缺省/空串 → 老全局语义（`scope:"global"`）；非空非法 → 可读错误，**不写任何地方** |
+| `clear_import` | 可选 `session_id` | 有 → 从档案删 + 清该会话（其余会话与主链不受影响，幂等）；无 → 老语义（删全局导入卡 → 按 config 重生效 / 还原基线） |
+
+失败码不变：`command_failed`（可读中文原因）/ `unsupported_command` /
+`command_unavailable`（未启用或正忙）。本环境没有会话能力（host 未注入
+`session_prompts`）或没有 `config_path`（档案无处落）→ `command_failed`，
+**明确失败，不静默降级成全局写回**。
+
+`state_json` 新增四个键（既有九个语义不变）：
+
+| 键 | 含义 |
+| --- | --- |
+| `session_bound` | 本进程是否有会话绑定能力（`session_prompts.enabled()`） |
+| `sessions` | 已绑定的会话 id（已排序；宿主表可用时以它为准） |
+| `active_session` | 宿主记录的当前活动会话（没有 = `null`） |
+| `scope` | 当前人设作用域：活动会话有绑定 → `"session"`，否则 `"global"` |
+
+### 8.4 降级语义（必须写在界面上）
+
+- 有活动会话：面板显示「当前会话 <id>：导入的卡只对它生效」；
+- **没有活动会话**（首次打开、一条消息都没发）：面板显示「先发一条消息（会自动
+  建会话），或用『导入为全局人设』对所有会话生效」，且「导入并生效」**禁用**
+  ——**绝不**偷偷改成全局导入（那正是这会话绑定要根除的串人设）；
+- 想对所有会话生效：走显式的「导入为全局人设（所有会话）」按钮（旧行为）。
+
+### 8.5 停用还原
+
+`shutdown` 做两件事，缺一不可：
+
+1. `session_prompts.clear_owner("persona")`——**只清 persona 自己的来源槽**；
+
+   > 为什么不是 `clear_all()`：宿主会话表是**共享的**（memory 也往里写自己的槽）。
+   > `clear_all()` 会把 memory 的贡献一起清掉，而 memory 不会自动重写——表现为
+   > 「关掉角色卡，记忆注入也一起消失」。L1 收束时改成了按来源槽清理
+   > （`session_prompts` 的组合顺序与 owner 常量见
+   > [session-scope-l1.md](session-scope-l1.md)）。
+2. 老的全局基线还原（§3.6）——主链 `system_prompt` 回到启用前的快照。
+
+档案**不删**：停用只是让覆盖不生效，下次启用 `start` 会重新灌回；
+真正的删除只有 `clear_import`。
+
+### 8.6 与 memory 的 last-writer-wins：现在只在**全局**模式下相关
+
+§5 的三行规则描述的是「两个 Mod 都写主链 `persona.system_prompt`」。会话绑定
+**不进主链**（写的是宿主会话表），因此：
+
+- **会话绑定 + memory 同时开**：**不冲突也不覆盖**。宿主会话表按来源槽存：
+  persona 写 `persona` 槽（整段卡），memory 写 `memory` 槽（只有记忆块），
+  读时按固定顺序 `匿名 → persona → memory` 用空行连接。因此两者是**叠加**关系，
+  与谁先写无关；停用任一方只清自己那一槽。
+- **全局导入 + memory**：仍是 §5 的 last-writer-wins（后写覆盖、无仲裁）。
+
+## 9. 非目标（刻意不做）
 
 1. **不做仲裁**：persona 与 memory 的优先级表不存在，将来要加必须先论证（§5）；
 2. **不回写 config**：导入卡住 Mod 自己的状态文件，不去改 `mods.json`（§2）；

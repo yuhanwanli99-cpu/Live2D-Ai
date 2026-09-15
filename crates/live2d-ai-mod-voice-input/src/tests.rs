@@ -80,12 +80,30 @@ fn start_registers_settings_only() {
 }
 
 /// 静态 schema 字段齐全；**不含 `enabled`**（唯一开关是 manifest）。
+///
+/// L1（2026-09-15）起为 **v2**：v1 的 backend / locale / token **一个不删**，
+/// 后面追加总闸 / 手动闸 / sidecar 四项。
 #[test]
 fn static_spec_fields_and_no_enabled() {
     let spec = FACTORY.settings_spec().expect("静态 schema");
     assert!(spec.validate().is_ok(), "字段 key 不得重复");
+    assert_eq!(spec.version, 2, "L1 起 schema 为 v2");
     let keys: Vec<&str> = spec.fields.iter().map(|f| f.key()).collect();
-    assert_eq!(keys, vec!["backend", "locale", "token"]);
+    assert_eq!(
+        keys,
+        vec![
+            "backend",
+            "locale",
+            "token",
+            "wake_phrase",
+            "manual_enabled",
+            "sidecar_script",
+            "sidecar_url",
+            "sidecar_transcriber",
+            "sidecar_python",
+        ],
+        "v1 三字段一个不删，新字段追加在后"
+    );
     assert!(!keys.contains(&"enabled"), "启停只由 Mod manifest 表达");
     assert!(matches!(
         spec.fields[2],
@@ -263,20 +281,23 @@ fn token_from_config_trims_and_ignores_blank() {
 #[test]
 fn inject_transcript_cleans_and_normalizes_before_sending() {
     let (services, said, _logs, _actions) = recording_services();
-    let rt = VoiceInputRuntime::new(services, serde_json::json!({}));
-    assert!(rt.inject_transcript("  打开\u{3000}空调  "));
+    let rt = VoiceInputRuntime::new(services, serde_json::json!({"wake_phrase": "小爱"}));
+    assert!(rt.inject_transcript("  小爱 打开\u{3000}空调  "));
     assert_eq!(
         said.lock().unwrap().as_slice(),
         ["打开空调"],
-        "缺省 zh-CN 归一化：CJK 词间空格被删"
+        "唤醒短语被剥掉；缺省 zh-CN 归一化：CJK 词间空格被删"
     );
 }
 
 #[test]
 fn inject_transcript_applies_config_locale() {
     let (services, said, _l, _a) = recording_services();
-    let rt = VoiceInputRuntime::new(services, serde_json::json!({"locale": "en-US"}));
-    assert!(rt.inject_transcript("打开空调wifi"));
+    let rt = VoiceInputRuntime::new(
+        services,
+        serde_json::json!({"locale": "en-US", "wake_phrase": "小爱"}),
+    );
+    assert!(rt.inject_transcript("小爱打开空调wifi"));
     assert_eq!(
         said.lock().unwrap().as_slice(),
         ["打开空调 wifi"],
@@ -284,16 +305,21 @@ fn inject_transcript_applies_config_locale() {
     );
 }
 
+/// 空输入 = 没听见唤醒词（`wake_phrase_required`）；整句只有唤醒词 =
+/// `empty_transcript`。两者都**不碰 say**、都留可读 warn。
 #[test]
 fn inject_transcript_drops_blank_without_touching_say() {
     let (services, said, logs, _a) = recording_services();
-    let rt = VoiceInputRuntime::new(services, serde_json::json!({}));
+    let rt = VoiceInputRuntime::new(services, serde_json::json!({"wake_phrase": "小爱"}));
     assert!(!rt.inject_transcript("   "));
     assert!(!rt.inject_transcript("\u{200B}"));
+    assert!(!rt.inject_transcript(" 小爱 "));
     assert!(said.lock().unwrap().is_empty(), "空文本不得进 say_tx");
+    let logs = logs.lock().unwrap();
+    assert!(logs.iter().any(|m| m.contains("唤醒短语")), "{logs:?}");
     assert!(
-        logs.lock().unwrap().iter().any(|m| m.contains("为空")),
-        "应留下一条 warn 日志"
+        logs.iter().any(|m| m.contains("empty_transcript")),
+        "{logs:?}"
     );
 }
 
@@ -306,14 +332,17 @@ fn inject_reports_busy_and_mock_entry_shares_path() {
             ModEventSender::new(|_t, _p| true),
             ModLogger::new(|_l, _m| {}),
         ),
-        serde_json::json!({}),
+        serde_json::json!({"wake_phrase": "小爱"}),
     );
-    assert!(!busy.inject_transcript("你好"), "忙碌时返回 false");
+    assert!(!busy.inject_transcript("小爱你好"), "忙碌时返回 false");
 
     let (services, said, logs, _a) = recording_services();
-    let rt = VoiceInputRuntime::new(services, serde_json::json!({"backend": "mock"}));
+    let rt = VoiceInputRuntime::new(
+        services,
+        serde_json::json!({"backend": "mock", "wake_phrase": "小爱"}),
+    );
     assert_eq!(rt.backend(), VoiceBackend::Mock);
-    assert!(rt.inject_mock_transcript("  你好  "));
+    assert!(rt.inject_mock_transcript("  小爱 你好  "));
     assert_eq!(said.lock().unwrap().as_slice(), ["你好"]);
     assert!(logs.lock().unwrap().iter().any(|m| m.contains("mock 后端")));
 }
@@ -322,8 +351,11 @@ fn inject_reports_busy_and_mock_entry_shares_path() {
 #[test]
 fn action_tx_stays_dormant_on_inject() {
     let (services, said, _logs, actions) = recording_services();
-    let rt = VoiceInputRuntime::new(services, serde_json::json!({"backend": "sidecar"}));
-    assert!(rt.inject_transcript("你好"));
+    let rt = VoiceInputRuntime::new(
+        services,
+        serde_json::json!({"backend": "sidecar", "wake_phrase": "小爱"}),
+    );
+    assert!(rt.inject_transcript("小爱你好"));
     assert_eq!(said.lock().unwrap().len(), 1);
     assert!(actions.lock().unwrap().is_empty(), "action_tx 必须保持休眠");
 }
@@ -359,9 +391,51 @@ fn selftest_default_config_is_self_consistent() {
         "自检也必须证明 Rust 不开 socket"
     );
     assert_eq!(v["problems"], serde_json::json!([]));
+    // L1：总闸 / 手动闸 / sidecar 脚本一并在自检里可见（缺省总闸关）。
+    assert_eq!(v["manual_enabled"], serde_json::json!(true));
+    assert_eq!(
+        v["wake_gate_open"],
+        serde_json::json!(false),
+        "缺省没配唤醒短语 = 总闸关: {v}"
+    );
+    assert_eq!(v["wake_phrase_set"], serde_json::json!(false));
+    assert_eq!(
+        v["sidecar_script_resolvable"],
+        serde_json::json!(false),
+        "config_path 为空时解析不出缺省脚本路径: {v}"
+    );
     let notes = v["notes"].as_array().expect("notes 是数组");
     assert!(notes.iter().any(|n| n.as_str().unwrap().contains("mock")));
     assert!(notes.iter().any(|n| n.as_str().unwrap().contains("zh-CN")));
+    assert!(
+        notes.iter().any(|n| n.as_str().unwrap().contains("总闸")),
+        "总闸关必须被点名: {v}"
+    );
+}
+
+/// L1：配了唤醒短语 / 关闭手动闸 / 给了 config_path 时，自检如实反映。
+#[test]
+fn selftest_reports_lock_state_and_resolved_script() {
+    let v = selftest::config_selftest_with_script(
+        &serde_json::json!({"wake_phrase": "小爱", "manual_enabled": false}),
+        "/repo/live2d-ai.toml",
+    );
+    assert_eq!(v["wake_gate_open"], serde_json::json!(true));
+    assert_eq!(v["wake_phrase_set"], serde_json::json!(true));
+    assert_eq!(v["manual_enabled"], serde_json::json!(false));
+    assert_eq!(
+        v["sidecar_script"],
+        serde_json::json!("/repo/docs/examples/voice-sidecar/voice_sidecar.py"),
+        "缺省脚本路径 = <config 目录>/docs/examples/voice-sidecar/voice_sidecar.py"
+    );
+    assert_eq!(v["sidecar_script_resolvable"], serde_json::json!(true));
+    let notes = v["notes"].as_array().unwrap();
+    assert!(
+        notes.iter().any(|n| n.as_str().unwrap().contains("手动闸")),
+        "手动闸关必须被点名: {v}"
+    );
+    // 明文绝不出现。
+    assert!(!v.to_string().contains("小爱"), "自检不得回显唤醒短语: {v}");
 }
 
 /// backend 写错（未知字符串 / 非字符串）：链路宽容回落 mock，但自检必须点名。
@@ -520,4 +594,124 @@ fn runtime_selftest_matches_pure_function() {
     let config = serde_json::json!({"backend": "mock", "locale": "en-US"});
     let rt = VoiceInputRuntime::new(noop_services(), config.clone());
     assert_eq!(rt.selftest(), config_selftest(&config));
+}
+
+// ---------------------------------------------------- state / 命令（L1）
+
+/// `state_json` 契约：零 IO、字段齐全、**不回唤醒短语 / token 明文**。
+#[test]
+fn state_snapshot_is_redacted_and_zero_io() {
+    let rt = VoiceInputRuntime::new(
+        noop_services(),
+        serde_json::json!({
+            "wake_phrase": "小爱", "manual_enabled": true, "token": "s3cret",
+            "sidecar_transcriber": "fake"
+        }),
+    );
+    let v = rt.state_snapshot();
+    assert_eq!(v["wake_gate_open"], serde_json::json!(true));
+    assert_eq!(v["wake_phrase_set"], serde_json::json!(true));
+    assert_eq!(v["manual_enabled"], serde_json::json!(true));
+    assert_eq!(v["token_set"], serde_json::json!(true));
+    assert_eq!(v["sidecar_status"]["state"], serde_json::json!("idle"));
+    assert!(
+        !v.to_string().contains("小爱"),
+        "state 不得回显唤醒短语: {v}"
+    );
+    assert!(
+        !v.to_string().contains("s3cret"),
+        "state 不得回显 token: {v}"
+    );
+}
+
+#[test]
+fn state_json_trait_method_returns_snapshot() {
+    let mut rt = VoiceInputRuntime::new(noop_services(), serde_json::json!({}));
+    let v = rt.state_json().expect("voice-input 必须提供 state_json");
+    assert_eq!(v["wake_gate_open"], serde_json::json!(false));
+}
+
+/// 命令 `inject`：总闸关时返回**可读拒绝**（不是抛错），且不碰 say。
+#[test]
+fn command_inject_rejects_readably_when_gate_closed() {
+    let (services, said, _l, _a) = recording_services();
+    let mut rt = VoiceInputRuntime::new(services, serde_json::json!({}));
+    let out = rt
+        .command("inject", &serde_json::json!({"text": "你好"}))
+        .expect("被闸门拒绝不是错误");
+    assert_eq!(out["accepted"], serde_json::json!(false));
+    assert_eq!(out["ok"], serde_json::json!(false));
+    assert_eq!(out["rejected_code"], serde_json::json!("voice_gate_closed"));
+    assert!(out["message"].as_str().unwrap().contains("唤醒短语"));
+    assert!(said.lock().unwrap().is_empty(), "被拒的注入不得进 say");
+}
+
+#[test]
+fn command_inject_accepts_with_wake_phrase_and_strips_it() {
+    let (services, said, _l, _a) = recording_services();
+    let mut rt = VoiceInputRuntime::new(services, serde_json::json!({"wake_phrase": "小爱"}));
+    let out = rt
+        .command("inject", &serde_json::json!({"text": "小爱 关灯"}))
+        .expect("命中唤醒短语");
+    assert_eq!(out["accepted"], serde_json::json!(true));
+    assert_eq!(out["text"], serde_json::json!("关灯"));
+    assert_eq!(out["rejected_code"], serde_json::json!(null));
+    assert_eq!(said.lock().unwrap().as_slice(), ["关灯"]);
+}
+
+#[test]
+fn command_inject_manual_off_is_readable() {
+    let (services, said, _l, _a) = recording_services();
+    let mut rt = VoiceInputRuntime::new(
+        services,
+        serde_json::json!({"wake_phrase": "小爱", "manual_enabled": false}),
+    );
+    let out = rt
+        .command("inject", &serde_json::json!({"text": "小爱关灯"}))
+        .unwrap();
+    assert_eq!(out["rejected_code"], serde_json::json!("voice_manual_off"));
+    assert!(said.lock().unwrap().is_empty());
+}
+
+/// `run_sidecar` 的**参数校验**（在 spawn 之前就失败，故不会真起进程）。
+#[test]
+fn command_run_sidecar_reports_missing_audio_readably() {
+    let mut rt =
+        VoiceInputRuntime::new(noop_services(), serde_json::json!({"wake_phrase": "小爱"}));
+    let err = rt
+        .command(
+            "run_sidecar",
+            &serde_json::json!({"audio_path": "/no/such/file.wav"}),
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("/no/such/file.wav"), "{err}");
+}
+
+#[test]
+fn command_run_sidecar_requires_url_and_existing_script() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/examples/voice-sidecar/fixtures/fake_zh.wav");
+    let audio = fixture.to_string_lossy().into_owned();
+    // 有 config_path → 缺省脚本可解析；但缺 URL → 可读错误。
+    let services = noop_services().with_config_path("/repo/live2d-ai.toml");
+    let mut rt = VoiceInputRuntime::new(services, serde_json::json!({"wake_phrase": "小爱"}));
+    let err = rt
+        .command("run_sidecar", &serde_json::json!({"audio_path": audio}))
+        .unwrap_err();
+    assert!(err.to_string().contains("URL"), "{err}");
+    // 给了 URL 但脚本路径不存在 → 可读错误带脚本路径。
+    let mut rt2 = VoiceInputRuntime::new(
+        noop_services(),
+        serde_json::json!({"wake_phrase": "小爱", "sidecar_script": "/no/such/sidecar.py"}),
+    );
+    let err2 = rt2
+        .command(
+            "run_sidecar",
+            &serde_json::json!({
+                "audio_path": audio,
+                "url": "http://127.0.0.1:18080/api/v1/voice/transcript"
+            }),
+        )
+        .unwrap_err();
+    assert!(err2.to_string().contains("/no/such/sidecar.py"), "{err2}");
 }

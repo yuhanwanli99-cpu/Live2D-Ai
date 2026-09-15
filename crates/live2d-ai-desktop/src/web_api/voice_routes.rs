@@ -48,6 +48,21 @@
 //! 不鉴权。请求侧用 body `token` 或 `Authorization: Bearer <token>`（二选一）。
 //! 不匹配 → `401 unauthorized`。**任何路径都不回显 token 明文**，也不写日志。
 //!
+//! # 唤醒闸 + 手动闸（L1 产品级，2026-09-15）
+//!
+//! 两把闸决定「一段转写能不能进主链」，判定顺序**钉死在 handler 里**：
+//!
+//! 1. `manual_enabled == false` → `403 voice_manual_off`；
+//! 2. `wake_phrase` 空白 → `403 voice_gate_closed`（**总闸 = 唤醒短语**：空 = 关，
+//!    拒绝一切转写）；
+//! 3. 清洗后的文本不包含唤醒短语（大小写不敏感、忽略空白差异）→
+//!    `400 wake_phrase_required`（空输入也算没听见唤醒词）；
+//! 4. 命中 → **剥掉唤醒短语**后的正文继续走归一化 → 空文本判定 → 长度 → `say`。
+//!
+//! 真源是 Mod crate 的纯函数 [`live2d_ai_mod_voice_input::gate::evaluate`]（四态），
+//! handler **不得**内联一份等价判定。成功响应补 `wake_phrase_matched: true` 与
+//! 剥离后的 `text`；错误响应沿用 `json_error`，message 给可执行处置。
+//!
 //! # backend（`mock` | `sidecar`，Wave 3 A 轨）
 //!
 //! handler 从 Mod config 读 `backend` 并走**明确分支**，成功响应回显
@@ -71,16 +86,18 @@
 //!
 //! # 清洗（复用，不重写）
 //!
-//! 清洗 + 归一化**必须**走 [`live2d_ai_mod_voice_input::prepare_transcript`]
-//! （内部即 [`live2d_ai_mod_voice_input::clean_transcript`] +
-//! [`live2d_ai_mod_voice_input::normalize_for_locale`]）。本 handler **不得**
-//! 内联一份等价实现——那会让「专用端点证明 Mod 真的在主链路上」这个理由失效。
-//! 清洗后为空 → `400 empty_transcript`（空转写不得进 `say`，与「空句不进 TTS」
-//! 同一条纪律）。
+//! 清洗与归一化**必须**走 Mod crate 的纯函数
+//! （[`live2d_ai_mod_voice_input::clean_transcript`] →
+//! [`live2d_ai_mod_voice_input::gate::evaluate`] 剥离 →
+//! [`live2d_ai_mod_voice_input::normalize_for_locale`]；三者正是
+//! [`live2d_ai_mod_voice_input::prepare_transcript`] 的组成，中间多了闸门）。
+//! 本 handler **不得**内联一份等价实现——那会让「专用端点证明 Mod 真的在主链路上」
+//! 这个理由失效。剥离后为空 → `400 empty_transcript`（空转写不得进 `say`，
+//! 与「空句不进 TTS」同一条纪律）。
 //!
 //! # 其它限制
 //!
-//! - 清洗后长度 > 2000 字符 → `400 text_too_long`；
+//! - 剥离 + 归一化后长度 > 2000 字符 → `400 text_too_long`；
 //! - supervisor 未就绪 → `503 supervisor_unavailable`；
 //! - 主链忙碌（`say` 缓冲已满）→ **HTTP 200** + `{"ok":false,"error":
 //!   {"code":"busy"}}`——刻意不用 5xx：发送方自行退避，不要重试到刷屏。
@@ -88,6 +105,8 @@
 use std::io::Cursor;
 
 use tiny_http::{Header, Method, Response, StatusCode};
+
+use live2d_ai_mod_voice_input::GateOutcome;
 
 use crate::web_api::ServerContext;
 
@@ -206,21 +225,62 @@ pub fn handle_voice_transcript(
     // 两个 backend 在 Rust 侧都只是**本地**动作（推模式），不产生任何网络请求。
     let backend = live2d_ai_mod_voice_input::VoiceBackend::from_config(&gate.config);
     let locale = live2d_ai_mod_voice_input::locale_from_config(&gate.config);
-    // 清洗 + locale 归一化：**复用 Mod crate 的唯一入口**（头注「清洗 / locale」）。
-    let Some(text) = live2d_ai_mod_voice_input::prepare_transcript(&parsed.text, &locale) else {
+    // 清洗：**复用 Mod crate 的纯函数**（头注「清洗 / 复用，不重写」）。
+    // 清洗后为空 → 空串；闸门会把它判成「没听见唤醒词」（缺唤醒短语优先于空文本，
+    // 与 §4.3 的判定顺序一致）。
+    let cleaned = live2d_ai_mod_voice_input::clean_transcript(&parsed.text).unwrap_or_default();
+    // 两把闸（manual → 总闸 → 唤醒词 → 剥离）：真源是 Mod crate 的纯函数。
+    let body_text = match live2d_ai_mod_voice_input::gate::evaluate(&gate.config, &cleaned) {
+        GateOutcome::ManualOff => {
+            return Some(json_error(
+                StatusCode(403),
+                "voice_manual_off",
+                "手动闸已关闭（manual_enabled=false）：先在 Mod 配置里打开手动开关",
+            ));
+        }
+        GateOutcome::GateClosed => {
+            return Some(json_error(
+                StatusCode(403),
+                "voice_gate_closed",
+                "能力总闸未开：先在 Mod 配置里填写「唤醒短语」（wake_phrase）。空 = 总闸关，拒绝一切转写",
+            ));
+        }
+        GateOutcome::WakeRequired => {
+            return Some(json_error(
+                StatusCode(400),
+                "wake_phrase_required",
+                &format!(
+                    "转写里没有唤醒短语「{}」：请先说唤醒词再说话（大小写不敏感、忽略空白差异）",
+                    live2d_ai_mod_voice_input::gate::wake_phrase_from_config(&gate.config)
+                ),
+            ));
+        }
+        GateOutcome::Allow { text } => text,
+    };
+    // 剥完唤醒短语后没有正文 → 空转写（不发空回合）。
+    if body_text.trim().is_empty() {
         return Some(json_error(
             StatusCode(400),
             "empty_transcript",
-            "转写清洗后为空（空白 / 零宽字符 / 控制字符）：不发空回合",
+            "转写剥掉唤醒短语后为空：不发空回合（换一段音频 / 重说）",
         ));
-    };
-    // 长度：对**清洗 + 归一化后**文本判定。
+    }
+    // locale 归一化：**复用 Mod crate 的纯函数**（头注「清洗 / locale」）。
+    let text = live2d_ai_mod_voice_input::normalize_for_locale(&body_text, &locale);
+    if text.is_empty() {
+        return Some(json_error(
+            StatusCode(400),
+            "empty_transcript",
+            "转写归一化后为空：不发空回合",
+        ));
+    }
+    // 长度：对**剥离 + 清洗 + 归一化后**文本判定。
     if text.chars().count() > MAX_TEXT_LEN {
         return Some(json_error(
             StatusCode(400),
             "text_too_long",
             &format!(
-                "转写最多 {} 字符（清洗后收到 {}）",
+                "转写最多 {} 字符（处理后收到 {}）",
                 MAX_TEXT_LEN,
                 text.chars().count()
             ),
@@ -244,6 +304,8 @@ pub fn handle_voice_transcript(
         serde_json::json!({
             "ok": true,
             "text": text,
+            // L1：唤醒短语命中的可观察证据（text 已剥掉短语）。
+            "wake_phrase_matched": true,
             "backend": backend.as_str(),
             "locale": locale
         })

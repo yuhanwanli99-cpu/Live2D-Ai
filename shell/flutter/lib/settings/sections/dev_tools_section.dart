@@ -423,12 +423,32 @@ class ModsSection extends StatelessWidget {
     this.onLoadState,
     this.onReload,
     this.busyId,
+    this.restartNotice,
+    this.onDismissRestart,
+    this.activeSessionId,
+    this.onModChanged,
     super.key,
   });
 
   final List<ModInfo> mods;
   final bool loading;
   final String? error;
+
+  /// 统一的「需重新点火 / 重启后生效」提示（L1 基座）。
+  ///
+  /// 只要本次会话里发生过 Mod 变更（启停 / 保存配置 / 导入卡 / 导入或清空记忆）
+  /// 就一直挂在 Mod 分区顶部，直到用户关掉它——**不随一次 SnackBar 消失**，
+  /// 因为「我到底重启了没有」这件事只有用户自己能回答。
+  final String? restartNotice;
+
+  /// 关掉上面那条提示。
+  final VoidCallback? onDismissRestart;
+
+  /// 当前活动会话 id（L1 会话绑定）：透传给各 Mod 产品面板。
+  final String? activeSessionId;
+
+  /// 面板动作成功后的统一通知（宿主据此弹重启提示）。
+  final ValueChanged<String>? onModChanged;
   final Future<void> Function(String id, bool enabled)? onToggle;
 
   /// 保存某个 Mod 的配置（`POST /api/v1/mods/{id}/config`）。
@@ -457,6 +477,17 @@ class ModsSection extends StatelessWidget {
           description: '扩展能力走 Mod 边界隔离，默认全部停用。'
               '核心只提供接口，不把功能堆进来。',
         ),
+        // L1 基座：统一的「需重新点火 / 重启后生效」提示。常驻在本分区顶部，
+        // 直到用户主动关掉——它回答的是「我重启了没有」，只有用户知道答案。
+        if (restartNotice != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Space.s2),
+            child: InlineNotice(
+              message: restartNotice!,
+              severity: NoticeSeverity.warning,
+              onDismiss: onDismissRestart,
+            ),
+          ),
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s2),
@@ -498,6 +529,8 @@ class ModsSection extends StatelessWidget {
                 onToggle: onToggle,
                 onSaveConfig: onSaveConfig,
                 onLoadState: onLoadState,
+                activeSessionId: activeSessionId,
+                onModChanged: onModChanged,
               ),
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
@@ -529,6 +562,8 @@ class _ModConfigTile extends StatefulWidget {
     required this.onToggle,
     required this.onSaveConfig,
     required this.onLoadState,
+    this.activeSessionId,
+    this.onModChanged,
   });
 
   final ModInfo mod;
@@ -537,6 +572,8 @@ class _ModConfigTile extends StatefulWidget {
   final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
       onSaveConfig;
   final ModStateLoader? onLoadState;
+  final String? activeSessionId;
+  final ValueChanged<String>? onModChanged;
 
   @override
   State<_ModConfigTile> createState() => _ModConfigTileState();
@@ -876,6 +913,9 @@ class _ModConfigTileState extends State<_ModConfigTile> {
         stateError: _stateError,
         onRefreshState: _loadState,
         onCommand: _command,
+        // L1 会话绑定 + 统一重启提示：面板拿到活动会话与变更通知回调。
+        activeSessionId: widget.activeSessionId,
+        onModChanged: widget.onModChanged,
       ),
     );
     return built ?? const SizedBox.shrink();

@@ -88,6 +88,7 @@ use live2d_ai_mod_system::ModEventTopic;
 use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, OpenAiClient};
 
 use crate::app_event::{AppEvent, ConversationUiEvent};
+use crate::session_scope::SessionScopeStore;
 
 mod handlers;
 mod turn;
@@ -101,6 +102,20 @@ mod turn;
 pub struct ActionFinishedFact {
     pub epoch: u64,
     pub action: SemanticAction,
+}
+
+/// 一条待处理的用户输入（L1 基座：带**会话 id**）。
+///
+/// 为什么把 session 放进消息体而不是在 supervisor 里读「当前活动会话」：
+/// 入队与出队之间用户可能切了会话（容量 1 的通道 + 在飞一轮足够产生这个窗口）。
+/// 在**入队那一刻**解析会话，语义才是「这句话属于哪个会话」而不是「轮到它时
+/// 界面上是哪个会话」。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SayRequest {
+    /// 用户输入正文。
+    pub text: String,
+    /// 该输入所属的会话（已归一化）；`None` = 不带会话（全局桶）。
+    pub session: Option<String>,
 }
 
 /// REPL/控制命令（无界通道：控制命令不允许被 Say 积压饿死，D14）。
@@ -150,7 +165,7 @@ pub struct SupervisorConfig {
 
 /// supervisor 对外句柄：两条命令入口 + 动作完成事实 + 关机回收。
 pub struct SupervisorHandle {
-    say_tx: mpsc::Sender<String>,
+    say_tx: mpsc::Sender<SayRequest>,
     control_tx: mpsc::UnboundedSender<ControlCommand>,
     finish_tx: mpsc::UnboundedSender<ActionFinishedFact>,
     join: Option<std::thread::JoinHandle<()>>,
@@ -166,13 +181,55 @@ pub struct SupervisorHandle {
     /// 与 `/api/v1/app/status` 经此读出**真实**当前代次——避免把 root
     /// 状态在多线程间共享。
     current_epoch: Arc<std::sync::atomic::AtomicU64>,
+    /// 会话级 system_prompt 覆盖 + 活动会话游标（L1 基座）。
+    ///
+    /// 与 supervisor 线程**共享同一张表**：HTTP/mod 侧写入，supervisor 每轮读。
+    session_scopes: SessionScopeStore,
 }
 
 impl SupervisorHandle {
     /// 提交聊天输入（容量 1：至多一条 pending Say）。满则返回 `false`，
     /// 由调用方提示「忙碌」，绝不阻塞 stdin。
+    ///
+    /// **会话归属**：用宿主记录的**当前活动会话**（由 `say_scoped` 或
+    /// `set_active_session` 设置）。裸 HTTP / external-input / voice-input
+    /// 走这条——它们的语义是「接在当前这段对话上」，正是活动会话。
     pub fn say(&self, text: impl Into<String>) -> bool {
-        self.say_tx.try_send(text.into()).is_ok()
+        let session = self.session_scopes.active();
+        self.say_tx
+            .try_send(SayRequest {
+                text: text.into(),
+                session,
+            })
+            .is_ok()
+    }
+
+    /// 提交聊天输入并**显式指定会话**（`POST /api/v1/chat` 的 `session_id`）。
+    ///
+    /// 同时把宿主的活动会话游标推到该 id（`None` 也显式推——「这次没带会话」
+    /// 是一个事实，不该悄悄沿用上一个）。
+    pub fn say_scoped(&self, text: impl Into<String>, session: Option<String>) -> bool {
+        let normalized = session.and_then(|s| live2d_ai_mod_system::sanitize_session_id(&s));
+        self.session_scopes.set_active(normalized.as_deref());
+        self.say_tx
+            .try_send(SayRequest {
+                text: text.into(),
+                session: normalized,
+            })
+            .is_ok()
+    }
+
+    /// 只更新活动会话游标（不提交输入）。
+    ///
+    /// 前端切会话时调用：让随后由 Mod 发起的注入（external-input 弹幕、
+    /// voice-input 转写）落到**用户正在看的**那个会话上。
+    pub fn set_active_session(&self, session: Option<&str>) {
+        self.session_scopes.set_active(session);
+    }
+
+    /// 会话作用域表的句柄（面板状态 / Mod 注入 / 测试断言用）。
+    pub fn session_scopes(&self) -> &SessionScopeStore {
+        &self.session_scopes
     }
 
     /// 请求停止当前轮（非阻塞；幂等）。
@@ -243,7 +300,9 @@ type Emit = Arc<dyn Fn(AppEvent) + Send + Sync>;
 /// 由 supervisor 在 turn 生命周期点调用（`dispatch_event` 非阻塞，满则丢弃），
 /// 不携带密钥；payload 为 turn/action/voice 等非敏感字符串。引入 Type alias
 /// 以消解 clippy「very complex type」告警。
-pub type ModEventSink = Arc<dyn Fn(ModEventTopic, &str) + Send + Sync>;
+/// 第三个参数是**会话 id**（L1 基座）：`Some(id)` = 该事件属于某会话；
+/// `None` = 调用方没带会话。Mod 侧经 `ModRuntime::on_scoped_event` 收到它。
+pub type ModEventSink = Arc<dyn Fn(ModEventTopic, &str, Option<&str>) + Send + Sync>;
 
 /// 音频帧广播回调的线程局部载体。
 ///
@@ -368,6 +427,10 @@ fn spawn_supervisor_impl(
     let (control_tx, control_rx) = mpsc::unbounded_channel();
     let (finish_tx, finish_rx) = mpsc::unbounded_channel();
     let reload_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // L1 基座：会话作用域表。**supervisor 线程与 handle 共享同一个 Arc**——
+    // HTTP/mod 侧写、supervisor 每轮读，因此「切会话立刻生效（下一轮）」。
+    let session_scopes = SessionScopeStore::new();
+    let session_scopes_for_thread = session_scopes.clone();
     // P1WS-1：当前 epoch 镜像（外部 HTTP/Status 端读这里）；启动时 = 0
     // （与 `RootState::default().epoch.get()` 一致）。
     let current_epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -383,7 +446,10 @@ fn spawn_supervisor_impl(
         if let Some(f) = &mod_events_for_emit
             && let Some((topic, payload)) = project_conversation_to_mod(&ev)
         {
-            f(topic, &payload);
+            // 会话无关的投影（TextDelta / VoiceStarted / VoiceEnded）不带会话：
+            // 它们描述的是「这一轮正在发生什么」，而轮次与会话的绑定在
+            // TurnStarted/TurnPrompt/TurnEnded 三条上已经给全了。
+            f(topic, &payload, None);
         }
     });
     let mod_events_for_thread = config.mod_events.clone();
@@ -408,6 +474,7 @@ fn spawn_supervisor_impl(
                 current_epoch_for_thread,
                 emit,
                 mod_events_for_thread,
+                session_scopes_for_thread,
             ));
         })
         .expect("启动 supervisor 线程");
@@ -419,6 +486,7 @@ fn spawn_supervisor_impl(
         join: Some(join),
         reload_pending,
         current_epoch,
+        session_scopes,
     }
 }
 
@@ -450,13 +518,14 @@ fn project_conversation_to_mod(ev: &AppEvent) -> Option<(ModEventTopic, String)>
 #[allow(clippy::too_many_arguments)]
 async fn run_forever(
     config: SupervisorConfig,
-    mut say_rx: mpsc::Receiver<String>,
+    mut say_rx: mpsc::Receiver<SayRequest>,
     mut control_rx: mpsc::UnboundedReceiver<ControlCommand>,
     mut finish_rx: mpsc::UnboundedReceiver<ActionFinishedFact>,
     reload_pending: Arc<std::sync::atomic::AtomicBool>,
     current_epoch: Arc<std::sync::atomic::AtomicU64>,
     emit: Emit,
     mod_events: Option<ModEventSink>,
+    session_scopes: SessionScopeStore,
 ) {
     let SupervisorConfig {
         client,
@@ -500,7 +569,9 @@ async fn run_forever(
                     // 2026-09-12：树内已无消费者（director Mod 已删除）——话题保留，
                     // 因为它是 Mod API 的一部分；**不代表**有任何东西在驱动动作。
                     if let Some(f) = &mod_events {
-                        f(ModEventTopic::ActionFinished, fact.action.action.name());
+                        // 动作事实与「哪一轮」绑定，而轮次已随事件流带过会话；
+                        // 这里不需要重复携带（动作在产品路径上本就休眠）。
+                        f(ModEventTopic::ActionFinished, fact.action.action.name(), None);
                     }
                     // B-P0-5（关键）：使用**事实自带的原始 epoch**原样上报；
                     // 重盖当前值会让跨代复用的迟到完成误伤新代次的同名动作。
@@ -516,22 +587,41 @@ async fn run_forever(
             // 而动作在产品路径上不存在（`docs/architecture/core-chain-baseline.md` §3.3）。
             // core 的 action/performance 子系统仍保留但**无驱动方**——待机生命体征
             // （`IdleState` 呼吸/眨眼）与动作是两套机制，不受此影响。
-            text = say_rx.recv() => match text {
-                Some(text) => {
+            request = say_rx.recv() => match request {
+                Some(request) => {
+                    let SayRequest { text, session } = request;
                     next_turn_id += 1;
                     let cur_epoch = root.epoch;
                     let epoch = cur_epoch.get();
+                    // **L1 会话绑定**：本轮 system_prompt 的**唯一**决议点。
+                    //
+                    // 每轮都重新决议（而不是在切会话时改一次）：
+                    // - 热重载会整体重建引擎，覆盖槽随之清空——每轮 set 天然自愈；
+                    // - 会话表是「谁后写谁覆盖」，每轮重读保证看到最新值。
+                    //
+                    // 表里没有该会话 → None → 引擎回落配置里的全局
+                    // `persona.system_prompt`（降级语义，见 session_scope 头注）。
+                    engine.set_system_prompt_override(
+                        session_scopes.prompt_for(session.as_deref()),
+                    );
                     // **Mod 事件桥（d2）**：新 turn 提交 → `TurnStarted`。
                     // payload = 当前 turn id（话题保留给 Mod；树内无消费者）。
                     if let Some(f) = &mod_events {
-                        f(ModEventTopic::TurnStarted, &next_turn_id.to_string());
+                        f(
+                            ModEventTopic::TurnStarted,
+                            &next_turn_id.to_string(),
+                            session.as_deref(),
+                        );
                         // **Wave 2**：紧随其后把**本轮输入正文**交给 Mod。
                         // `TurnStarted` 的 payload 只是序号，记忆 / 导演类 Mod 需要
                         // 正文才能检索 / 判情绪（见 `topics.rs::TurnPrompt` 头注）。
                         // 这一行的时序含义：请求体马上就会构建，所以 Mod 在此做的
                         // `apply_settings` 写回**只对下一轮生效**——这正是
                         // 「检索 top-k → 注入下一轮」的预期语义，不是缺陷。
-                        f(ModEventTopic::TurnPrompt, &text);
+                        //
+                        // **L1**：第三条参数是本轮会话 id；memory 用它分桶，
+                        // persona 用它决定「这张卡属于哪个会话」。
+                        f(ModEventTopic::TurnPrompt, &text, session.as_deref());
                     }
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
                     // 同步写；UserSubmitted 不动 epoch（root 现状保持），但
@@ -555,7 +645,11 @@ async fn run_forever(
                     // 与 `TurnPrompt` 同款时序：下一轮请求体尚未构建，因此 Mod 在
                     // 此的 `apply_settings` 对下一轮生效（见 topics.rs 头注）。
                     if let Some(f) = &mod_events {
-                        f(ModEventTopic::TurnEnded, &next_turn_id.to_string());
+                        f(
+                            ModEventTopic::TurnEnded,
+                            &next_turn_id.to_string(),
+                            session.as_deref(),
+                        );
                     }
                     // 兜底：「在飞 turn 中到达的 Reload」走原子标志
                     // [`SupervisorHandle::reload_pending`]，turn.rs no-op
@@ -649,6 +743,9 @@ mod tests_loop;
 mod tests_pcm;
 #[cfg(test)]
 mod tests_reload;
+// L1 会话绑定（2026-09-15）：从 tests_loop.rs 拆出，守住「测试文件 ≤800 行」。
+#[cfg(test)]
+mod tests_session;
 #[cfg(test)]
 mod tests_stall;
 // P1WS-1：真实 LLM 流式文本透传（text_delta emit）+ epoch 镜像单元测试。

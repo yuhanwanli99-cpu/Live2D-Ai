@@ -3,6 +3,7 @@
 > 让**主 UI 之外**的事件（直播弹幕 / 礼物、本机脚本、消息回调）说给角色听，
 > 走与聊天框**完全相同**的主链路：`say → LLM → TTS → 口型 → Live2D`。
 > 这是**唯一**对外暴露的文本注入端点；B 站协议抓取**不在主仓**（见 §0）。
+> 壳内的「测试注入」（不经过 HTTP、不需要 token）见 §5.3。
 
 ---
 
@@ -21,6 +22,11 @@ B 站协议、blivedm、WSS 长连接、鉴权 cookie、开放平台 SDK **全�
 > 为什么不把协议编进 Rust：B 站接口/风控变化快，且 blivedm 是 Python 生态；
 > 把一个易变的外部协议编译进本地优先的桌面核心，会让「主链路可编译」依赖于
 > 一个随时会坏的第三方接口。sidecar 挂了只影响弹幕注入，**不影响主链路**。
+
+**定位：sidecar 是增强，不是唯一主路径。** 不装 sidecar 时这个能力照样可用——
+本机脚本、消息回调、产品面板的「测试注入」（§5.3）都能把文本送进同一条主链；
+sidecar 只负责把 B 站弹幕/礼物翻译成一行纯文本。两边互不依赖：sidecar 挂了，
+其它入口与主链一行都不受影响。
 
 ---
 
@@ -146,6 +152,10 @@ curl -s http://127.0.0.1:18080/api/v1/mods/external-input/state
 | `v2_ignored` | sidecar 上报的 `SEND_GIFT_V2` 忽略累计值（覆盖写） | body 可选字段，见 §3 |
 | `ready` | 该 Mod 运行时是否已 `start`（启用即 `true`） | — |
 | `token_set` | 是否已配置令牌（env `EXTERNAL_INPUT_TOKEN` **或** Mod config `token`）；**只报存在性，绝不回显明文** | — |
+| `inject_via_command` | 命令通道 `test_inject` 是否可用（恒 `true`，见 §5.3） | — |
+
+> L1 产品级波次只**追加**了上面这一个展示性键：既有键（四个计数 + `ready` +
+> `token_set`）一个都没删，老读者不受影响。
 
 三条边界（**与实现逐条一致**，见 `counters.rs` 头注）：
 
@@ -180,6 +190,59 @@ curl -s -X POST http://127.0.0.1:18080/api/v1/mods/external-input/command \
   按钮（前端「Mod 管理」→ external-input 面板的「重置计数」，二次确认后才发）。
 - 与 §7 同类：mutating 请求需 `Content-Type: application/json` + loopback Origin；
   无 Origin 的 curl 仍需服务端 `allow_no_origin`。
+
+---
+
+## 5.3 壳内测试注入（`command test_inject`）
+
+Mod 面板（外部事件接入）上的「测试注入」按钮走的是 **Mod 命令通道**，不是 HTTP 端点：
+
+```bash
+curl -s -X POST http://127.0.0.1:18080/api/v1/mods/external-input/command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"test_inject","args":{"text":"主播好"}}'
+# {"ok":true,"result":{
+#    "ok":true,"injected_text":"[弹幕] 主播好","accepted":true,
+#    "endpoint":"mod.command.test_inject",
+#    "note":"与 POST /api/v1/external/chat 共用同一渲染口径与同一 say_tx；区别是本命令走 Mod 命令通道、不需要 token"}}
+```
+
+`args` 契约：
+
+| 字段 | 必填 | 语义 |
+|---|---|---|
+| `text` | 是 | 待注入文本；`trim()` 后非空，否则命令失败（文案「text 必填且非空」） |
+| `prefix` | 否（默认 `true`） | `true` = 按 Mod 配置的 `prefix` + `text_template` 渲染（与 HTTP 端点**逐字一致**）；`false` = 文本已是最终形态，**逐字注入**（不再套用配置前缀/模板） |
+
+> `prefix:false` 的用途**单一**：产品面板把「按当前配置本地渲染好的示例」填在输入框里
+> （用户看到什么就注入什么），发送时用 `false` 告诉服务端「这段就是最终文本」，
+> 避免 `[弹幕] [弹幕] 主播好` 这种双重前缀。它不是第二条渲染逻辑：默认路径仍然
+> 逐字走 `render_from_config`（与 HTTP 端点同函数），只有显式 `false` 时才跳过套用。
+
+返回字段：`ok` / `injected_text`（真正进主链的那串字）/ `accepted`（主链是否接受；
+忙时为 `false`，本条已被丢弃，可重试）/ `endpoint` / `note`。命令本身只在取参失败
+或渲染后超长时失败（`409 command_failed`，文案含**实际长度与上限**）。
+
+**与 HTTP 端点的关系**（这是本命令存在的意义：不复制第二套逻辑）：
+
+- **同一条渲染口径**：两者都走 `render_injected_text` / `render_from_config`，
+  长度上限同为**渲染后 2000 字符**；
+- **同一个 `say_tx`**：人设、TTS、口型、以及可观察计数（`accepts` / `busy`）
+  两条入口记的是**同一本账**；
+- **区别**：命令通道只在本机同源 UI 内可达，因此**不需要 token**，也没有 HTTP 的
+  Origin / Content-Type 校验；未启用时由 host 直接回 `503 command_unavailable`。
+
+## 5.4 `403 mod_disabled` 与 `503 command_unavailable` 对照
+
+同一次「Mod 被停用」，两条入口给两个码——这不是不一致，而是两层协议的固有差异：
+
+| | HTTP 端点 `POST /api/v1/external/chat` | 命令通道 `POST /api/v1/mods/external-input/command` |
+|---|---|---|
+| 停用时的码 | `403 mod_disabled` | `503 command_unavailable`（「未启用或正忙」，**可重试**） |
+| 谁判的 | handler 自己的启停门禁（读 Mod manifest 的 `enabled`） | 通用命令路由（Mod 没在跑就不派发命令） |
+| `rejects` 计数 | **计入**（策略拒绝，见 §5.1） | **不计入**（`rejects` 只统计 HTTP 策略拒绝） |
+| 语义 | 策略拒绝：目标关闭 / 无权限 | 能力暂不可用：稍后重试 |
+| 面板落点 | 「测试注入」失败文案 + 停用态静态说明 | 同一处（面板同时点明两个码，避免用户只认一个） |
 
 ---
 
@@ -313,8 +376,9 @@ print(send_to_live2d("收到新邮件提醒"))
 |---|---|
 | HTTP handler（安全 + 门禁 + 模板 + token + 计数） | `crates/live2d-ai-desktop/src/web_api/external_routes.rs` |
 | Mod（静态 settings_spec / 模板纯函数 / say / state_json / `command`） | `crates/live2d-ai-mod-external-input/src/lib.rs` |
-| 命令通道（`reset_counters` → 409/503 分类） | `crates/live2d-ai-desktop/src/web_api/mods_routes.rs` |
-| 产品面板（计数摘要 / 令牌两态 / 模板示例 / 重置按钮） | `shell/flutter/lib/settings/mods/external_input_panel.dart` |
+| `test_inject`（取参 / 长度口径 / 与端点同渲染） | `crates/live2d-ai-mod-external-input/src/inject.rs` |
+| 命令通道（`reset_counters` / `test_inject` → 409/503 分类） | `crates/live2d-ai-desktop/src/web_api/mods_routes.rs` |
+| 产品面板（测试注入 / 计数摘要 / 令牌两态 / 模板示例 / 重置） | `shell/flutter/lib/settings/mods/external_input_panel.dart` |
 | 可观察计数（AtomicU64 + 语义表） | `crates/live2d-ai-mod-external-input/src/counters.rs` |
 | sidecar（清洗 / 节流 / 自检 / v2 上报） | `docs/examples/bilibili-sidecar/bilibili_sidecar.py` |
 | 缺口断言 | `mod_count_is_five`（工厂表）、`external_routes::tests`（门禁 / token / Bearer / 模板膨胀 / **计数 3+1+1** / v2_ignored）、`counters::tests`（计数契约） |

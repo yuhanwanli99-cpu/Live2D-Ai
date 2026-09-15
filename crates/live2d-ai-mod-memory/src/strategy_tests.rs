@@ -5,11 +5,7 @@ use std::path::PathBuf;
 use crate::strategy::*;
 
 fn rec(text: &str, ts: i64, turn: u64) -> MemoryRecord {
-    MemoryRecord {
-        text: text.to_string(),
-        ts,
-        turn,
-    }
+    MemoryRecord::new(text, ts, turn)
 }
 
 // ---------------------------------------------------------------- 分词
@@ -253,4 +249,68 @@ fn resolve_store_path_without_config_path_is_none_only_for_default() {
         Some(PathBuf::from("mem.jsonl")),
         "显式相对路径在无 config_path 时相对 cwd"
     );
+}
+
+// ------------------------------------------------------------ 记录 id / 会话桶
+
+#[test]
+fn fnv1a_hex8_is_stable_and_distinguishes_text() {
+    // 固定向量：FNV-1a 32 位（"a" = 0xe40c292c）。
+    assert_eq!(fnv1a_hex8("a"), "e40c292c");
+    assert_eq!(fnv1a_hex8("a"), fnv1a_hex8("a"), "同一输入恒等");
+    assert_ne!(fnv1a_hex8("a"), fnv1a_hex8("b"));
+    assert_eq!(fnv1a_hex8("任意文本").len(), 8, "恒为 8 位十六进制");
+}
+
+#[test]
+fn make_id_shape_and_sensitivity() {
+    let id = MemoryRecord::make_id(100, 3, "记住：我喜欢薄荷");
+    assert!(id.starts_with("100-3-"), "{id}");
+    assert_eq!(
+        id,
+        MemoryRecord::make_id(100, 3, "记住：我喜欢薄荷"),
+        "公式确定"
+    );
+    assert_ne!(
+        id,
+        MemoryRecord::make_id(100, 4, "记住：我喜欢薄荷"),
+        "turn 进公式"
+    );
+    assert_ne!(
+        id,
+        MemoryRecord::make_id(101, 3, "记住：我喜欢薄荷"),
+        "ts 进公式"
+    );
+    assert_ne!(id, MemoryRecord::make_id(100, 3, "换一句"), "正文进公式");
+    // 派生与显式构造同形（老行载入时的判据）。
+    assert_eq!(rec("记住：我喜欢薄荷", 100, 3).id, id);
+}
+
+#[test]
+fn resolve_session_store_path_lands_under_sessions_dir() {
+    let base = PathBuf::from("/etc/live2d-ai/memory.jsonl");
+    let p = resolve_session_store_path(&base, "1757890123456789-3").unwrap();
+    assert_eq!(
+        p,
+        PathBuf::from("/etc/live2d-ai/sessions/1757890123456789-3.memory.jsonl")
+    );
+    // 自定义 store_path：会话桶跟着那个库的父目录走。
+    let custom = PathBuf::from("/data/ai/custom.jsonl");
+    assert_eq!(
+        resolve_session_store_path(&custom, "s1").unwrap(),
+        PathBuf::from("/data/ai/sessions/s1.memory.jsonl")
+    );
+}
+
+#[test]
+fn resolve_session_store_path_rejects_path_like_ids() {
+    let base = PathBuf::from("/etc/memory.jsonl");
+    for bad in ["../x", "a/b", "a b", "", "会话"] {
+        assert_eq!(
+            resolve_session_store_path(&base, bad),
+            None,
+            "{bad:?} 必须被路径穿越闸拒掉"
+        );
+    }
+    assert!(resolve_session_store_path(&base, "ok-id.1:x").is_some());
 }

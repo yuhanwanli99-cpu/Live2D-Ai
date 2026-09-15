@@ -1,5 +1,12 @@
 //! 本地 JSONL 存储（**唯一**持久化面）：追加一行 = 记住一条，逐行读 = 载入。
 //!
+//! # 文件长度（>500 行，理由）
+//!
+//! 读写 + 原子重写 + 单条 update/delete + 文件级单测都在一个文件里：这些行为共享
+//! 同一套「临时文件 + rename」纪律与同一份行格式（`encode_record` /
+//! `parse_record_line`），拆开会把「格式在哪定义」变成跨文件追索。按 ≤1000 行
+//! 口径保留，理由在此。
+//!
 //! # 为什么是 JSONL
 //!
 //! 追加写、逐行读、坏行局部化——没有索引、没有事务、没有依赖。记忆以**追加**
@@ -68,13 +75,7 @@ impl JsonlStore {
         {
             fs::create_dir_all(parent)?;
         }
-        let value = serde_json::json!({
-            "text": record.text,
-            "ts": record.ts,
-            "turn": record.turn,
-        });
-        let line = serde_json::to_string(&value)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let line = encode_record(record)?;
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -129,18 +130,48 @@ impl JsonlStore {
         {
             let mut file = File::create(&tmp)?;
             for record in records {
-                let value = serde_json::json!({
-                    "text": record.text,
-                    "ts": record.ts,
-                    "turn": record.turn,
-                });
-                let line = serde_json::to_string(&value)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                let line = encode_record(record)?;
                 writeln!(file, "{line}")?;
             }
             file.sync_all()?;
         }
         fs::rename(&tmp, &self.path)
+    }
+
+    /// 用给定记录**原子替换**整个文件（update / delete 的唯一落盘路径）。
+    ///
+    /// 与 [`Self::rewrite`] 同一实现——公开它只是为了让「逐条编辑」不必在
+    /// 命令层复制一遍「临时文件 + rename」的原子纪律。
+    pub fn write_all(&self, records: &[MemoryRecord]) -> std::io::Result<()> {
+        self.rewrite(records)
+    }
+
+    /// 按 id 改一条记录的正文；返回是否真的找到了那条。
+    ///
+    /// **id 不随正文改变**：编辑是「改这条记录」，不是「删了再建一条」。否则
+    /// 用户刚在面板里选中的 id 会在保存后立刻失效（下一次删除就找不到它）。
+    /// 代价：改写后该行的 id 不再等于「按新正文现算的公式值」——id 从此是
+    /// **持久化身份**（旧行无 id 时才按公式派生，见 [`parse_record_line`]）。
+    pub fn update_text(&self, id: &str, text: &str) -> std::io::Result<bool> {
+        let mut outcome = self.load(0)?;
+        let Some(record) = outcome.records.iter_mut().find(|r| r.id == id) else {
+            return Ok(false);
+        };
+        record.text = text.to_string();
+        self.rewrite(&outcome.records)?;
+        Ok(true)
+    }
+
+    /// 按 id 删一条；返回是否真的删掉了。
+    pub fn delete_by_id(&self, id: &str) -> std::io::Result<bool> {
+        let mut outcome = self.load(0)?;
+        let before = outcome.records.len();
+        outcome.records.retain(|r| r.id != id);
+        if outcome.records.len() == before {
+            return Ok(false);
+        }
+        self.rewrite(&outcome.records)?;
+        Ok(true)
     }
 
     /// **原子清空**记忆库：把文件重写成**空**（同目录 `.tmp` + `rename`）。
@@ -199,9 +230,28 @@ impl JsonlStore {
     }
 }
 
+/// 序列化一条记录为单行 JSON（`id` 落盘；update 保留原 id，见 [`JsonlStore::update_text`]）。
+fn encode_record(record: &MemoryRecord) -> std::io::Result<String> {
+    let value = serde_json::json!({
+        "id": record.id,
+        "text": record.text,
+        "ts": record.ts,
+        "turn": record.turn,
+    });
+    serde_json::to_string(&value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 /// 解析一行 JSONL。任何形状不对的行都返回 `None`（由 [`JsonlStore::load`] 计数）。
 ///
 /// `ts` / `turn` 缺失按 `0` 处理（旧文件向前兼容）；`text` 缺失或空白 → `None`。
+///
+/// # id 的两种来源（L1 波次）
+///
+/// - 行里有非空 `id` → 原样采用（新写入与编辑过的行都是这种）；
+/// - 行里没有 `id`（2026-09-15 之前的老文件）→ 按 [`MemoryRecord::make_id`]
+///   **派生**。公式只吃 `(ts, turn, text)` 三个已落盘的字段，因此同一条老记录
+///   每次载入得到同一个 id——面板的编辑/删除在升级前后指得中同一行。
 pub fn parse_record_line(line: &str) -> Option<MemoryRecord> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let text = value.get("text")?.as_str()?.to_string();
@@ -216,7 +266,14 @@ pub fn parse_record_line(line: &str) -> Option<MemoryRecord> {
         .get("turn")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
-    Some(MemoryRecord { text, ts, turn })
+    let id = value
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| MemoryRecord::make_id(ts, turn, &text));
+    Some(MemoryRecord { id, text, ts, turn })
 }
 
 #[cfg(test)]
@@ -244,11 +301,7 @@ mod tests {
     }
 
     fn rec(text: &str, ts: i64, turn: u64) -> MemoryRecord {
-        MemoryRecord {
-            text: text.to_string(),
-            ts,
-            turn,
-        }
+        MemoryRecord::new(text, ts, turn)
     }
 
     #[test]
@@ -455,5 +508,82 @@ mod tests {
             parse_record_line("{\"text\":\"x\"}").unwrap(),
             rec("x", 0, 0)
         );
+    }
+
+    #[test]
+    fn append_persists_id_and_round_trips() {
+        let (dir, store) = temp_store("id-roundtrip");
+        let record = rec("记住我", 100, 1);
+        assert_eq!(record.id, MemoryRecord::make_id(100, 1, "记住我"));
+        assert_eq!(
+            record.id.split('-').count(),
+            3,
+            "id 形状 ts-turn-hash: {}",
+            record.id
+        );
+        store.append(&record).unwrap();
+        let raw = fs::read_to_string(store.path()).unwrap();
+        assert!(raw.contains("\"id\""), "新写入必须把 id 落盘: {raw}");
+        assert_eq!(store.load(0).unwrap().records[0], record);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn legacy_line_without_id_derives_the_same_id_every_load() {
+        let (dir, store) = temp_store("legacy-id");
+        // 手工写一行「升级前」格式（没有 id 字段）。
+        {
+            let mut f = File::create(store.path()).unwrap();
+            writeln!(f, "{{\"text\":\"老记忆\",\"ts\":42,\"turn\":7}}").unwrap();
+        }
+        let first = store.load(0).unwrap().records[0].clone();
+        let second = store.load(0).unwrap().records[0].clone();
+        assert_eq!(first.id, second.id, "同一条老记录两次载入 id 必须相同");
+        assert_eq!(first.id, MemoryRecord::make_id(42, 7, "老记忆"));
+        assert!(!first.id.is_empty());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn update_text_keeps_original_id_and_rewrites_atomically() {
+        let (dir, store) = temp_store("update-id");
+        let record = rec("旧正文", 5, 1);
+        store.append(&record).unwrap();
+        store.append(&rec("另一条", 6, 2)).unwrap();
+        let id = record.id.clone();
+
+        assert!(store.update_text(&id, "新正文").unwrap());
+        let loaded = store.load(0).unwrap();
+        assert_eq!(loaded.records.len(), 2, "编辑不增删条数");
+        let edited = loaded.records.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(edited.text, "新正文");
+        assert_eq!(edited.id, id, "编辑保持原 id（身份不变）");
+        assert!(!dir.join("memory.jsonl.tmp").exists(), "不留临时文件");
+
+        // 不存在 → false，且文件一字不改。
+        let before = fs::read_to_string(store.path()).unwrap();
+        assert!(!store.update_text("nope", "x").unwrap());
+        assert_eq!(fs::read_to_string(store.path()).unwrap(), before);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn delete_by_id_removes_exactly_one_and_is_false_when_absent() {
+        let (dir, store) = temp_store("delete-id");
+        let keep = rec("留下的", 1, 1);
+        let drop_me = rec("删掉的", 2, 2);
+        store.append(&keep).unwrap();
+        store.append(&drop_me).unwrap();
+
+        assert!(store.delete_by_id(&drop_me.id).unwrap());
+        let loaded = store.load(0).unwrap();
+        assert_eq!(loaded.records, vec![keep]);
+        assert!(
+            !store.delete_by_id(&drop_me.id).unwrap(),
+            "重复删除返回 false"
+        );
+        assert_eq!(store.load(0).unwrap().records.len(), 1);
+        assert!(!dir.join("memory.jsonl.tmp").exists());
+        let _ = fs::remove_dir_all(dir);
     }
 }

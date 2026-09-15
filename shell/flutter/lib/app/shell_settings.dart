@@ -178,6 +178,11 @@ extension _ShellSettingsWiring on _ShellRootState {
           // M2：有 settings_spec 的 Mod 展开后按 spec 渲表单，保存走这里。
           onSaveConfig: _saveModConfig,
           onReload: _loadAdmin,
+          // L1 基座：统一重启提示 + 会话绑定上下文 + 面板变更回调。
+          restartNotice: _modRestartNotice,
+          onDismissRestart: _dismissModRestart,
+          activeSessionId: _chat.sessions.activeId,
+          onModChanged: _notifyModChanged,
         );
       case SettingsSection.diagnostics:
         return DiagnosticsSection(

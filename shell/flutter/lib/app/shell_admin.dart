@@ -182,6 +182,8 @@ extension _ShellAdminWiring on _ShellRootState {
       _busyId = null;
       _adminMessage = '${enabled ? '已启用' : '已停用'} $id';
       _refresh();
+      // L1 基座：Mod 启停是**运行行为变更**，必须给统一的重新点火/重启提示。
+      _notifyModChanged(_adminMessage!);
       await _loadAdmin();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -204,6 +206,9 @@ extension _ShellAdminWiring on _ShellRootState {
     if (!mounted) return result;
     _adminMessage = result.ok ? '$id 配置已保存' : '$id 配置保存失败';
     _refresh();
+    // L1 基座：关键配置变更同样走统一提示（服务端 `restarted` 只是它的自述，
+    // 界面统一口径是「需重新点火/重启后生效」）。
+    if (result.ok) _notifyModChanged(_adminMessage!);
     // 重新取一次列表：让界面回填服务端归一化后的 config（卡片据此刷新草稿）。
     await _loadAdmin();
     return result;

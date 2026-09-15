@@ -4,6 +4,12 @@
 //! 消息回调等），通过 `ModServices.say_tx` 注入同一 LLM/TTS 主链路
 //! （人设 / TTS / 口型与聊天框完全一致）。
 //!
+//! # 壳内测试注入（L1 产品级波次）
+//!
+//! 壳内可直接「测试注入」：`ModRuntime::command("test_inject", {"text": …})`
+//! （见 [`inject`]）。它与 HTTP 端点**共用**同一条渲染口径与同一个 `say_tx`，
+//! 区别只是走命令通道、不需要 token。Mod id / name / 端点契约都不因此改变。
+//!
 //! # 外部 HTTP 端点
 //!
 //! 本 Mod **不内置 HTTP server**——外部请求由主仓库 web_api 提供
@@ -44,10 +50,12 @@
 use live2d_ai_mod_system::*;
 
 pub mod counters;
+pub mod inject;
 pub use counters::{
     ExternalInputCounters, counters_snapshot, record_accept, record_busy, record_reject,
     record_v2_ignored,
 };
+pub use inject::{COMMAND_TEST_INJECT, prepare_injection};
 
 /// Mod 描述符（静态身份）。
 const DESCRIPTOR: ModDescriptor = ModDescriptor {
@@ -225,17 +233,19 @@ impl ModRuntime for ExternalInputRuntime {
         Ok(())
     }
 
-    /// 一次性命令（产品级加强波次）。
+    /// 一次性命令（产品级加强波次 / L1 产品级波次）。
     ///
-    /// 目前只有 [`COMMAND_RESET_COUNTERS`]：清零 [`counters`] 的四个可观察计数，
-    /// 返回**清零前**的快照（面板据此说「清了哪些」）。其余命令一律
-    /// `UnsupportedCommand`（host 回 409 `unsupported_command`）。
+    /// - [`COMMAND_RESET_COUNTERS`]：清零 [`counters`] 的四个可观察计数，
+    ///   返回**清零前**的快照（面板据此说「清了哪些」）；
+    /// - [`COMMAND_TEST_INJECT`]（= `test_inject`）：壳内测试注入，
+    ///   见 `command_test_inject`；
+    /// - 其余命令一律 `UnsupportedCommand`（host 回 409 `unsupported_command`）。
     ///
-    /// 不做网络请求；只改进程内计数，立即返回。
+    /// 不做网络请求；只改进程内计数 / 把文本交给主链，立即返回。
     fn command(
         &mut self,
         command: &str,
-        _args: &serde_json::Value,
+        args: &serde_json::Value,
     ) -> Result<serde_json::Value, ModError> {
         match command {
             COMMAND_RESET_COUNTERS => {
@@ -243,13 +253,15 @@ impl ModRuntime for ExternalInputRuntime {
                 self.services.logger.info("external-input 计数已清零");
                 Ok(serde_json::json!({"reset": true, "before": before}))
             }
+            COMMAND_TEST_INJECT => self.command_test_inject(args),
             other => Err(ModError::UnsupportedCommand {
                 command: other.to_string(),
             }),
         }
     }
 
-    /// 只读运行态：接受 / 拒绝 / 忙 / v2_ignored 计数 + ready + token_set。
+    /// 只读运行态：接受 / 拒绝 / 忙 / v2_ignored 计数 + ready + token_set
+    /// （L1 起追加「命令注入可用」一项；**既有键一个不删**）。
     ///
     /// `GET /api/v1/mods/external-input/state` 的 `state` 字段即本返回值；
     /// 契约与分支对应表见 [`counters`]。`token_set` 只报「有没有令牌」，
@@ -265,6 +277,11 @@ impl ModRuntime for ExternalInputRuntime {
             obj.insert(
                 "token_set".to_string(),
                 serde_json::Value::Bool(token_is_set(&self.config)),
+            );
+            // 命令通道的 `test_inject` 恒可用：本 Mod 不认识它才是不正常的。
+            obj.insert(
+                "inject_via_command".to_string(),
+                serde_json::Value::Bool(true),
             );
         }
         Some(snap)
@@ -299,6 +316,41 @@ impl ExternalInputRuntime {
     pub fn say_external_with_config(&self, text: &str) -> bool {
         let rendered = render_from_config(&self.config, text);
         self.say_external(&rendered)
+    }
+
+    /// `test_inject`：把一条（按 args 渲染的）文本经 `say_tx` 送进主链，
+    /// 并把结果如实报回命令通道。
+    ///
+    /// - 取参与校验全在 [`inject::prepare_injection`]（纯函数，含长度口径）；
+    /// - 主链接受 → [`counters::record_accept`]；忙碌丢弃 → [`counters::record_busy`]：
+    ///   与 HTTP 端点**记同一本账**，面板看到的「已接受 N」两条入口都算；
+    /// - 无论接受还是忙，命令本身都算**执行成功**（`ok:true` + `accepted:bool`）：
+    ///   忙是主链的运行态，不是命令通道的失败，发送方据此决定要不要重试。
+    fn command_test_inject(&self, args: &serde_json::Value) -> Result<serde_json::Value, ModError> {
+        let rendered = inject::prepare_injection(&self.config, args)?;
+        let accepted = self.services.say_tx.say(rendered.clone());
+        if accepted {
+            counters::record_accept();
+        } else {
+            counters::record_busy();
+        }
+        // 只记长度与结果，不把用户文本写进日志（与 handler「不记请求体」同一条纪律）。
+        self.services.logger.info(&format!(
+            "external-input test_inject：渲染后 {} 字符，主链{}",
+            rendered.chars().count(),
+            if accepted {
+                "已接受"
+            } else {
+                "忙碌丢弃"
+            }
+        ));
+        Ok(serde_json::json!({
+            "ok": true,
+            "injected_text": rendered,
+            "accepted": accepted,
+            "endpoint": "mod.command.test_inject",
+            "note": inject::INJECT_NOTE,
+        }))
     }
 }
 
@@ -618,6 +670,139 @@ mod tests {
             err,
             ModError::UnsupportedCommand { ref command } if command == "no_such_command"
         ));
+    }
+
+    // ---------------------------------------------------- command test_inject（L1）
+
+    /// `test_inject` 缺省渲染与端点同口径：say_tx 收到的是**渲染后**文本，
+    /// 且成功计入 `accepts`（与 HTTP 端点同一本账）。
+    #[test]
+    fn command_test_inject_sends_rendered_text_and_records_accept() {
+        use std::sync::Mutex;
+        let _guard = counters::test_lock();
+        let got: std::sync::Arc<Mutex<Vec<String>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let got_c = got.clone();
+        let services = ModServices::new(
+            ModActionSender::new(|_| true),
+            SaySender::new(move |t| {
+                got_c.lock().unwrap().push(t);
+                true
+            }),
+            ModEventSender::new(|_t, _p| true),
+            ModLogger::new(|_l, _m| {}),
+        );
+        let config = serde_json::json!({"prefix": "[弹幕] ", "text_template": "{text}"});
+        let mut rt = ExternalInputRuntime {
+            services,
+            config: config.clone(),
+            registered: true,
+        };
+        let before = counters::counters_snapshot();
+        let result = rt
+            .command(
+                COMMAND_TEST_INJECT,
+                &serde_json::json!({"text": " 主播好 "}),
+            )
+            .expect("test_inject 必须被支持");
+        assert_eq!(
+            got.lock().unwrap().as_slice(),
+            [render_from_config(&config, "主播好")],
+            "say_tx 收到的是 render_from_config 的结果（同口径，不是另一份逻辑）"
+        );
+        assert_eq!(result["ok"], serde_json::json!(true));
+        assert_eq!(result["accepted"], serde_json::json!(true));
+        assert_eq!(result["injected_text"], serde_json::json!("[弹幕] 主播好"));
+        assert_eq!(
+            result["endpoint"],
+            serde_json::json!("mod.command.test_inject")
+        );
+        assert!(
+            result["note"]
+                .as_str()
+                .unwrap_or("")
+                .contains("不需要 token"),
+            "note 必须点明走命令通道不需要 token"
+        );
+        assert_eq!(
+            counters::counters_snapshot()["accepts"],
+            before["accepts"].as_u64().unwrap() + 1
+        );
+    }
+
+    /// say_tx 返回 false（主链忙）→ 命令仍 `ok:true`，但 `accepted:false` 且记 `busy`。
+    #[test]
+    fn command_test_inject_busy_records_busy_not_accept() {
+        let _guard = counters::test_lock();
+        let services = ModServices::new(
+            ModActionSender::new(|_| true),
+            SaySender::new(|_| false),
+            ModEventSender::new(|_t, _p| true),
+            ModLogger::new(|_l, _m| {}),
+        );
+        let mut rt = ExternalInputRuntime {
+            services,
+            config: serde_json::json!({}),
+            registered: true,
+        };
+        let before = counters::counters_snapshot();
+        let result = rt
+            .command(COMMAND_TEST_INJECT, &serde_json::json!({"text": "hi"}))
+            .unwrap();
+        assert_eq!(
+            result["ok"],
+            serde_json::json!(true),
+            "忙是主链状态，不是命令失败"
+        );
+        assert_eq!(result["accepted"], serde_json::json!(false));
+        let after = counters::counters_snapshot();
+        assert_eq!(after["busy"], before["busy"].as_u64().unwrap() + 1);
+        assert_eq!(after["accepts"], before["accepts"], "忙不得冒充 accept");
+    }
+
+    /// 空 / 超长文本 → 可读中文错误，且**计数一个都不动**（没进主链就不该记账）。
+    #[test]
+    fn command_test_inject_invalid_text_leaves_counters_untouched() {
+        let _guard = counters::test_lock();
+        let mut rt = ExternalInputRuntime {
+            services: noop_services(),
+            config: serde_json::json!({"text_template": "x{text}"}),
+            registered: true,
+        };
+        let before = counters::counters_snapshot();
+        for args in [
+            serde_json::json!({}),
+            serde_json::json!({"text": "   "}),
+            serde_json::json!({"text": "a".repeat(inject::MAX_INJECT_TEXT_LEN)}),
+        ] {
+            let err = rt.command(COMMAND_TEST_INJECT, &args).unwrap_err();
+            match err {
+                ModError::Other(msg) => assert!(!msg.is_empty(), "错误必须有中文可读文案"),
+                other => panic!("应为 Other，实为 {other:?}"),
+            }
+        }
+        assert_eq!(counters::counters_snapshot(), before, "非法输入不改计数");
+    }
+
+    /// `state_json` 是既有键的**超集**：L1 追加 inject_via_command。
+    #[test]
+    fn state_json_is_superset_with_command_flag() {
+        let mut rt = ExternalInputFactory
+            .create(noop_services(), serde_json::json!({}))
+            .unwrap();
+        let state = rt.state_json().expect("state_json");
+        for k in counters::COUNTER_KEYS {
+            assert!(state.get(k).is_some(), "既有计数键 {k} 不得删");
+        }
+        assert!(state.get("ready").is_some());
+        assert!(state.get("token_set").is_some());
+        assert_eq!(state["inject_via_command"], serde_json::json!(true));
+    }
+
+    /// Mod 身份是稳定契约：新命令（test_inject）不得改变 id / name。
+    #[test]
+    fn mod_identity_is_stable_external_input() {
+        assert_eq!(FACTORY.descriptor().id, "external-input");
+        assert_eq!(FACTORY.descriptor().name, "外部事件接入");
     }
 
     /// 测试用 ModRegistrar mock。

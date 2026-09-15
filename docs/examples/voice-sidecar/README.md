@@ -20,7 +20,7 @@
    ├─ clean_transcript()          去零宽/控制符、折叠空白、去首尾（与 Rust 同语义）
    │
    └─ POST /api/v1/voice/transcript  {"text": "...", "token"?: "..."}
-          │
+          │   （**自动带同源 Origin**：`origin_from_url(URL)`，见 §5 的 403 行）
           └─ Live2D-Ai: 清洗 + locale 归一化（服务端是权威）→ supervisor.say
                  → LLM → TTS → 口型 → Live2D
 ```
@@ -71,8 +71,7 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 ./scripts/ignite.sh
 
 # ② 启用 voice-input Mod（缺省**停用**，不启用会回 403 mod_disabled）
-#    必须带 loopback Origin；不带 Origin 的纯 curl 需服务端开
-#    LIVE2D_AI_ALLOW_NO_ORIGIN=1（见 docs/external-input.md §1）
+#    必须带 loopback Origin（本 sidecar 会自动带；纯 curl 需手写这一行）
 curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable \
   -H 'Origin: http://127.0.0.1:18080'
 
@@ -210,7 +209,7 @@ curl.exe -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable -H "Origi
 | 400 | `text_too_long` | 4 | 清洗后 > 2000 字符：切短再发 |
 | 401 | `unauthorized` | 4 | token 缺失/不匹配：查 `--token` / `VOICE_INPUT_TOKEN` |
 | 403 | `mod_disabled` | 4 | `voice-input` Mod 停用：先启用 |
-| 403 | `origin_denied` / `origin_required` | 4 | Origin 非 loopback 同源 / 缺 Origin 且服务端未开 `allow_no_origin` |
+| 403 | `origin_denied` / `origin_required` | 4 | Origin 非 loopback 同源 / 请求没带 Origin。**本 sidecar 会自动带同源 Origin**（`origin_from_url`），所以出现这条通常意味着 URL/端口不对，或你换了不带 Origin 的客户端 |
 | 405 | `method_not_allowed` | 4 | 只接受 POST（脚本不会犯） |
 | 415 | `unsupported_media_type` | 4 | `Content-Type` 必须是 `application/json`（脚本已带） |
 | 503 | `supervisor_unavailable` | 4 | supervisor 未就绪（配置不完整）：先让主链跑起来 |

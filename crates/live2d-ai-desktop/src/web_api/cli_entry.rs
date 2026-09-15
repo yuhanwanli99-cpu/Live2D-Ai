@@ -108,11 +108,13 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         Arc::new(std::sync::Mutex::new(None));
     let mod_events_for_supervisor: Option<ModEventSink> = {
         let bridge = mod_bridge.clone();
-        Some(Arc::new(move |t: ModEventTopic, p: &str| {
-            if let Some(f) = bridge.lock().ok().and_then(|g| g.clone()) {
-                f(t, p);
-            }
-        }))
+        Some(Arc::new(
+            move |t: ModEventTopic, p: &str, s: Option<&str>| {
+                if let Some(f) = bridge.lock().ok().and_then(|g| g.clone()) {
+                    f(t, p, s);
+                }
+            },
+        ))
     };
     let supervisor_opt = if std::path::Path::new(&config_path).is_file() {
         // 把 ctx.broadcaster 借给 supervisor emit 闭包（避免双 Broadcaster）。
@@ -159,6 +161,9 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
         Some(supervisor) => {
             let sup_for_say = Arc::clone(supervisor);
             let sup_for_reload = Arc::clone(supervisor);
+            // L1 基座：把 supervisor 的会话作用域表（**同一个 Arc**）交给 ModRegistry，
+            // 于是 persona / memory 写进去的会话人设与 supervisor 每轮读的是同一张表。
+            let session_prompts_for_mods = supervisor.session_scopes().as_mod_prompts();
             let cfg_path_for_settings = config_path.clone();
             ModRegistry::new(crate::AVAILABLE_MOD_FACTORIES, &mods_manifest_for_web())
                 .with_host_channels(crate::mod_registry::HostChannels {
@@ -231,6 +236,7 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                         true
                     }),
                     config_path: config_path.clone(),
+                    session_prompts: session_prompts_for_mods,
                     // rc.4 M5：脱敏设置读取——Mod 可读当前生效设置（无密钥、无变量名），
                     // 角色卡 Mod 用它记住主链原本的 system_prompt 以便禁用时还原。
                     read_settings: {
@@ -272,11 +278,13 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     if supervisor_opt.is_some() {
         let reg = ctx.mod_registry.clone();
         if let Ok(mut guard) = mod_bridge.lock() {
-            *guard = Some(Arc::new(move |t: ModEventTopic, p: &str| {
-                if let Ok(reg) = reg.lock() {
-                    let _ = reg.dispatch_event(t, p);
-                }
-            }));
+            *guard = Some(Arc::new(
+                move |t: ModEventTopic, p: &str, s: Option<&str>| {
+                    if let Ok(reg) = reg.lock() {
+                        let _ = reg.dispatch_event(t, p, s);
+                    }
+                },
+            ));
         }
     }
 

@@ -17,6 +17,15 @@
 把三个字段说成人话并显示**当前生效值**（§1.3）；新增 Mod 一次性命令 `selftest`
 （面板「检查配置」按钮，§5.1）；sidecar 退出码做成「码 → 一句话人话 → 处置」表（§4.5）。
 
+**L1 产品级的变更**（同样 `0.2.0-rc.3` 内，**不 bump 版本**）：把「唤醒提示词 / 短语」
+做成**能力总闸**（§1.4），另加**手动闸**；门禁顺序固定为
+405 → 415 → Origin → `mod_disabled` → token → `voice_manual_off` → `voice_gate_closed` →
+`wake_phrase_required` → `empty_transcript` → 长度 → `say`（§2）；
+**总闸关时拒绝 transcript 且错误可读**（§4.3）；面板新增「验证闸门」与
+**一条硬主路径：一键拉起官方 sidecar**（命令 `run_sidecar`，逐参数 spawn，绝不过 shell，
+§7.8）。Rust 侧仍**不开 socket**——`run_sidecar` 起的是用户机器上的本地进程，
+Rust 自己不发起任何网络请求（`VoiceBackend::opens_network()` 恒 `false`）。
+
 ---
 
 ## 0. 边界：ASR 不在主仓，在 sidecar
@@ -47,7 +56,7 @@
 | Content-Type | `application/json`（必填，前缀匹配；否则 `415`） |
 | 监听 | 仅 `127.0.0.1`（loopback-only，**不对外暴露**） |
 | 端口 | `live2d-ai.toml` 的 `[web].port`；`./scripts/ignite.sh` 默认 **18080**（`--port N` 可改） |
-| Origin | 同源 loopback（`http://127.0.0.1:<port>` / `http://localhost:<port>`）；无 Origin 的 curl / 脚本走 `allow_no_origin`（`LIVE2D_AI_ALLOW_NO_ORIGIN=1` 或 `--allow-no-origin`） |
+| Origin | 同源 loopback（`http://127.0.0.1:<port>` / `http://localhost:<port>`）；官方 sidecar **自动带**（`origin_from_url`）；其它脚本客户端要么自己带、要么服务端开 `allow_no_origin`（`LIVE2D_AI_ALLOW_NO_ORIGIN=1`） |
 | 请求体 | `{"text":"...", "token"?: "..."}`（token 可选，见 §3） |
 | 成功响应 | `{"ok":true,"text":"<清洗+归一化后文本>","backend":"mock|sidecar","locale":"<生效 locale>"}` |
 | 落点 | `supervisor.say(<清洗+归一化后文本>)`（与 `/api/v1/external/chat` 同一个 `say` 入口） |
@@ -101,6 +110,28 @@ handler 从 Mod config 读 `locale`（缺省 `zh-CN`）并传给
 写错时的行为是**宽容**的（不会让链路死掉），但自检会点名（§5.1）：
 未知 `backend` 值 → 按 `mock` 处理；非法 `locale`（空值除外）→ 归一化落到「拉丁」档。
 
+### 1.4 能力总闸 / 手动闸 / sidecar 配置（L1 产品级，2026-09-15）
+
+settings_spec 升到 **v2**：v1 的 `backend` / `locale` / `token` **一个不删**，
+后面追加下面这些字段。
+
+| key | kind | 缺省 | 语义 |
+|---|---|---|---|
+| `wake_phrase` | String | `""` | **能力总闸**：空 = 总闸关，拒绝一切转写（`403 voice_gate_closed`）；非空 = 总闸开，且文本必须包含它 |
+| `manual_enabled` | Bool | `true` | **手动闸**：false = 拒绝一切转写（`403 voice_manual_off`） |
+| `sidecar_script` | String | `""` | 官方脚本路径；空 → `<config 目录>/docs/examples/voice-sidecar/voice_sidecar.py` |
+| `sidecar_url` | String | `""` | sidecar 要 POST 的完整 URL；空 → 拉起时必须由命令参数给 |
+| `sidecar_transcriber` | String | `"fake"` | `fake`（读同名 `.txt`，开箱即跑 fixtures）或 `cmd:"<ASR 命令>"` |
+| `sidecar_python` | String | `"python3"` | Python 解释器；**只作为 argv[0]**，绝不过 shell |
+
+**总闸就是唤醒短语**：没有配 `wake_phrase` = 一切转写被拒。这是有意的「默认关闭」——
+语音输入必须先被用户显式打开。它与 Mod 启停是**两层**开关：Mod 启用但没配唤醒短语，
+仍然全部 403 `voice_gate_closed`。
+
+**唤醒短语会被从正文里剥掉**：命中的短语（大小写不敏感、忽略空白差异）从文本中移除；
+短语在**开头**时，紧随其后的标点 / 空白一起去掉。例：`"小爱，把窗户关小一点"` →
+`"把窗户关小一点"`。剥完为空（整句就是唤醒词，如 `"小爱！"`）→ `400 empty_transcript`。
+
 ---
 
 ## 2. 请求体
@@ -117,11 +148,18 @@ handler 从 Mod config 读 `locale`（缺省 `zh-CN`）并传给
 1. `text` 缺失 / 非字符串 → `400 invalid_payload`；
 2. `token` 存在但非字符串 → `400 invalid_payload`；
 3. token 已配置但请求缺失/不匹配 → `401 unauthorized`；
-4. **清洗后为空** → `400 empty_transcript`（空白 / 零宽字符 / 控制字符）；
-5. **清洗 + 归一化后** > 2000 字符 → `400 text_too_long`。
+4. `manual_enabled = false` → `403 voice_manual_off`；
+5. `wake_phrase` 空白 → `403 voice_gate_closed`（**总闸 = 唤醒短语**，空 = 关）；
+6. 清洗后的文本**不包含**唤醒短语（空输入也算「没听见唤醒词」）→ `400 wake_phrase_required`；
+7. 剥掉唤醒短语后为空 → `400 empty_transcript`；
+8. **剥离 + 归一化后** > 2000 字符 → `400 text_too_long`。
 
 > `invalid_payload` 与 `empty_transcript` 是**两件事**：前者是请求结构错（改脚本），
 > 后者是「有音频但没听清 / 全是静音」（重说）。分开报，发送方才知道下一步做什么。
+>
+> **L1 起空输入先撞唤醒词**：总闸开时，`"   "` 这类空转写报
+> `400 wake_phrase_required`（没听见唤醒词），`empty_transcript` 留给
+> 「整句就是唤醒短语」。这是判定顺序（缺唤醒词在空文本之前）的直接结果。
 
 ---
 
@@ -151,12 +189,14 @@ sidecar 的 `--dry-run` 同样把 token 打码成 `***`。
 ### 4.1 成功
 
 ```json
-{ "ok": true, "text": "你好世界", "backend": "mock", "locale": "zh-CN" }
+{ "ok": true, "text": "你好世界", "wake_phrase_matched": true,
+  "backend": "mock", "locale": "zh-CN" }
 ```
 
-HTTP `200`。`text` 是**清洗 + locale 归一化后**的文本——发送方据此确认服务端
-真的处理过（规则见 §6）。`backend` / `locale` 是 Wave 3 新增的**可观察字段**，
-用来确认「分支真的走了 / 哪一档归一化生效」。
+HTTP `200`。`text` 是**剥掉唤醒短语 + 清洗 + locale 归一化后**的文本——发送方据此
+确认服务端真的处理过（规则见 §1.4 / §6）。`wake_phrase_matched` 是 L1 新增的
+**命中证据**（恒 `true`；被拒时不会走到这里）。`backend` / `locale` 是 Wave 3 新增的
+**可观察字段**，用来确认「分支真的走了 / 哪一档归一化生效」。
 
 ### 4.2 主链忙碌
 
@@ -174,10 +214,13 @@ HTTP **`200`**（刻意，**不用** 5xx）：请求格式没问题，是主链�
 | 状态 | `error.code` | 条件 |
 |---|---|---|
 | 400 | `invalid_payload` | JSON 解析失败 / `text` 缺失、非字符串 / `token` 非字符串 |
-| 400 | `empty_transcript` | **清洗后**为空（纯空白 / 零宽字符 / 控制字符） |
-| 400 | `text_too_long` | **清洗 + 归一化后** > 2000 字符 |
+| 400 | `wake_phrase_required` | 总闸开但文本里**没有唤醒短语**（含空输入，见 §1.4） |
+| 400 | `empty_transcript` | **剥掉唤醒短语后**为空（整句就是唤醒词）；`"   "` 在总闸开时走 `wake_phrase_required` |
+| 400 | `text_too_long` | **剥离 + 清洗 + 归一化后** > 2000 字符 |
 | 401 | `unauthorized` | token 已配置但请求缺失 / 不匹配 |
 | 403 | `mod_disabled` | `voice-input` Mod 已注册但**停用**（见 §5） |
+| 403 | `voice_manual_off` | 手动闸关闭（`manual_enabled=false`）→ 先在 Mod 配置里打开手动开关 |
+| 403 | `voice_gate_closed` | **能力总闸未开**（`wake_phrase` 为空）→ 先在 Mod 配置里填写唤醒短语 |
 | 403 | `origin_denied` / `origin_required` | Origin 非 loopback 同源，或缺 Origin 且 `allow_no_origin=false` |
 | 405 | `method_not_allowed` | 非 POST |
 | 415 | `unsupported_media_type` | Content-Type 非 `application/json` |
@@ -232,9 +275,10 @@ sidecar README §5 是同一张表。
 - **停用**（**缺省**）：此后本端点返回 `403 mod_disabled`——**明确告知发送方**，
   不静默吞掉转写。
 - settings 表单里**没有**第二个 `enabled` 字段（启停唯一真源 = manifest）。
-- 注册表里**没有**该 Mod（自定义装配 / 单测上下文）→ **不设门禁**：
+- 注册表里**没有**该 Mod（自定义装配 / 单测上下文）→ **不设 `mod_disabled` 启停门禁**：
   端点是 web_api 的核心 `say` 能力，不因一个可选 Mod 缺失而失效
-  （与 `external_routes` 同口径）。
+  （与 `external_routes` 同口径）。注意 L1 起**总闸仍按「config 为空」看待 = 关**——
+  此时端点是 `403 voice_gate_closed`，不是 `mod_disabled`。
 
 > 为什么缺省停用（而 `external-input` 缺省启用）：直播弹幕是「装好就能用」，
 > 语音还需要用户自己装 ASR —— 没装之前启用它只会让每一次注入都 403。
@@ -260,9 +304,11 @@ Mod 未启用 / worker 正忙 `503 command_unavailable`（**可重试**）。`re
 | `backend` / `backend_valid` / `backend_defaulted` | 生效后端 / 是否已知 / 是否走了缺省 |
 | `locale` / `locale_valid` / `locale_defaulted` / `locale_profile` | 生效 locale / 是否合法 BCP-47 / 是否缺省 / 归一化档（`cjk` / `latin`） |
 | `token_set` | 是否配了 token（**只回布尔**，绝不回明文 / 长度） |
+| `manual_enabled` / `wake_gate_open` / `wake_phrase_set` | 两把闸的状态（**只回布尔**，绝不回唤醒短语明文；后两个同义） |
+| `sidecar_script` / `sidecar_script_resolvable` | 解析出的官方脚本路径 / 是否解析得出（纯字符串拼接，**不 stat**） |
 | `route` / `opens_network` | 本地路由（`local_inject` / `accept_push`）/ Rust 是否开 socket（恒 `false`） |
 | `problems` | 硬问题：`backend` 配错、`locale` 非法 |
-| `notes` | 提醒：字段走了缺省、`backend=sidecar` 未设 token |
+| `notes` | 提醒：字段走了缺省、**总闸未开**、**手动闸已关**、**sidecar 脚本路径不可解析**、`backend=sidecar` 未设 token |
 
 它把「宽容回落」造成的**名实不符**（界面写着 `sidecar`、实际按 `mock` 跑）变成一次
 可点的自检；回归见 Mod crate 的 `selftest_*` / `command_*`。
@@ -311,53 +357,107 @@ handler：`success_returns_200_with_cleaned_text`（缺省 zh-CN）、
 
 ## 7. curl 示例
 
-端口以 `ignite.sh` 默认 **18080** 为例；无 Origin 的 curl 需服务端开了
-`allow_no_origin`（开发 / 工具客户端场景）。执行前先启用 Mod：
+端口以 `ignite.sh` 默认 **18080** 为例；下面的 curl 自带同源 Origin（不依赖
+`allow_no_origin`）。执行前先启用 Mod **并打开总闸**
+（`wake_phrase` 非空，§1.4）——否则下面每条都会得到 `403 voice_gate_closed`：
 
 ```bash
-# 必须带 loopback Origin；不带 Origin 的纯 curl 需服务端开
-# LIVE2D_AI_ALLOW_NO_ORIGIN=1（见 docs/external-input.md §1）
+# ① 必须带 loopback Origin（官方 sidecar 会自己带；纯 curl 需手写这一行）
 curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/enable \
   -H 'Origin: http://127.0.0.1:18080'
+
+# ② 填唤醒短语 = 打开总闸（下面示例都用「小爱」）
+curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/config \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: http://127.0.0.1:18080' \
+  -d '{"config":{"wake_phrase":"小爱","manual_enabled":true}}'
 ```
+
+> 下面的 `text` 都假设**已包含唤醒短语** `小爱`（服务端会把它从正文里剥掉）。
 
 ```bash
 # 7.1 无 token（服务端未配 token）
 curl -X POST http://127.0.0.1:18080/api/v1/voice/transcript \
   -H "Content-Type: application/json" \
-  -d '{"text":"把窗户关小一点"}'
+  -d '{"text":"小爱 把窗户关小一点"}'
 
 # 7.2 清洗 + 归一化有效（响应的 text 是处理后的结果）
 curl -X POST http://127.0.0.1:18080/api/v1/voice/transcript \
   -H "Content-Type: application/json" \
-  -d '{"text":"  把\u3000窗户\u200b关小一点  "}'
+  -d '{"text":"  小爱 把\u3000窗户\u200b关小一点  "}'
 
 # 7.3 token 放 body（服务端配了 token）
 curl -X POST http://127.0.0.1:18080/api/v1/voice/transcript \
   -H "Content-Type: application/json" \
-  -d '{"text":"帮我记一下","token":"your-secret-token"}'
+  -d '{"text":"小爱 帮我记一下","token":"your-secret-token"}'
 
 # 7.4 token 放 Authorization 头（推荐，body 更干净）
 curl -X POST http://127.0.0.1:18080/api/v1/voice/transcript \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret-token" \
-  -d '{"text":"帮我记一下"}'
+  -d '{"text":"小爱 帮我记一下"}'
 
-# 7.5 空转写 → 400 empty_transcript（不是 invalid_payload）
+# 7.5 空转写：总闸开 → 400 wake_phrase_required（没听见唤醒词）；
+#     总闸关 → 403 voice_gate_closed。empty_transcript 留给「整句就是唤醒短语」。
 curl -i -X POST http://127.0.0.1:18080/api/v1/voice/transcript \
   -H "Content-Type: application/json" \
   -d '{"text":"   "}'
 
-# 7.6 Mod 停用 → 403 mod_disabled；supervisor 未就绪 → 503 supervisor_unavailable
+# 7.6 Mod 停用 → 403 mod_disabled；总闸关 → 403 voice_gate_closed；
+#     supervisor 未就绪 → 503 supervisor_unavailable
 curl -i -X POST http://127.0.0.1:18080/api/v1/voice/transcript \
   -H "Content-Type: application/json" \
-  -d '{"text":"hi"}'
+  -d '{"text":"小爱 hi"}'
 
 # 7.7 切 backend / locale（Mod config；启用中会立即 restart 生效）
 curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/config \
   -H "Content-Type: application/json" \
   -d '{"config":{"backend":"sidecar","locale":"en-US"}}'
 ```
+
+### 7.8 一条硬主路径：面板一键拉起官方 sidecar（L1，用 fixtures 跑通）
+
+面板入口：**设置 → Mod → voice-input 面板** →「用官方 sidecar 识别音频文件」一块：
+
+1. 音频文件路径填 `docs/examples/voice-sidecar/fixtures/fake_zh.wav`（宿主本机路径）；
+2. transcriber 留 `fake`（读同名 `.txt`，不需要真 ASR）；
+3. URL 由面板按浏览器 origin 自动填 `http://<host>:<port>/api/v1/voice/transcript`
+   （取不到 origin 时回退 `http://127.0.0.1:18080/api/v1/voice/transcript`）；
+4. 点「拉起 sidecar」→ 宿主进程 **spawn** 官方脚本（**逐参数，绝不过 shell**），
+   脚本把文本推回本端点 → 清洗 + 两把闸 → `say` → LLM/TTS/口型；
+5. 点「刷新状态」看 `sidecar_status`（`running` → `exited` + 退出码）。
+
+**前置：不需要任何额外开关**。官方 sidecar 会**按目标 URL 自动带上同源 loopback
+`Origin` 头**（`voice_sidecar.py::origin_from_url`，与 `ignition-precheck.sh` /
+`bilibili_sidecar.py` 同一条口径）。这是刻意的选择：让脚本自己带 Origin，
+**而不是**让服务端开 `LIVE2D_AI_ALLOW_NO_ORIGIN=1` ——后者是放松**所有** mutating
+端点的安全姿态，为一条示例路径付这个代价不值。
+
+（若你换成自己的客户端且它不带 Origin，才会看到 `403 origin_required`：那说明
+发送方需要在 URL 之外自己补这个头，而不是去改服务端。）
+
+等价命令行（③ 段缺 ①② 都会非 0 退出）：
+
+```bash
+# ① 点火（另一个终端；默认 127.0.0.1:18080）。不需要 allow_no_origin。
+./scripts/ignite.sh
+
+# ② 启用 voice-input + 打开总闸。fixture 的转写是「把窗户关小一点」，
+#    所以这里把唤醒短语设成其中的「把窗户」——这样 ③ 才能端到端跑通。
+curl -X POST http://127.0.0.1:18080/api/v1/mods/voice-input/config \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: http://127.0.0.1:18080' \
+  -d '{"config":{"wake_phrase":"把窗户","manual_enabled":true}}'
+
+# ③ 官方 sidecar 识别 fixtures（fake 后端读同名 fake_zh.txt），推回主链
+python3 docs/examples/voice-sidecar/voice_sidecar.py \
+  --audio docs/examples/voice-sidecar/fixtures/fake_zh.wav
+# 主链收到的是剥掉唤醒短语后的「关小一点」。
+```
+
+真实使用请把唤醒短语换成真正的唤醒词，并让 ASR 转写里**包含**它
+（否则会得到 `400 wake_phrase_required`）。装了真 ASR 后用
+`--transcriber 'cmd:"<你的 ASR 命令>"'`。
 
 完整 sidecar（音频 → 转写 → 本端点）见
 [`docs/examples/voice-sidecar/`](examples/voice-sidecar/README.md)：
@@ -393,8 +493,8 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 | 典型场景 | 直播间弹幕 / 礼物上屏（缺省启用，装好就能用） | 语音对讲 / 录音转写（缺省停用，等用户装好 ASR） |
 | 失败码 | `invalid_payload` / `text_too_long` / `unauthorized` / `mod_disabled` / `origin_denied` / `origin_required` / `405` / `415` / `503` / `busy`（200 `ok:false`） | 同左 + **`empty_transcript`**；sidecar 进程退出码另见 §4.5 |
 | 上游 Mod / 启停 | `external-input`，**缺省启用**（直播刚需） | `voice-input`，**缺省停用**（用户没装 ASR 前启用只会 403） |
-| Mod config | `token` / `prefix` / `text_template` / `listen_port` | `token` / `locale` / `backend` |
-| 成功响应 | `{"ok":true,"endpoint":"external.chat",…}` | `{"ok":true,"text":"…","backend":"…","locale":"…"}` |
+| Mod config | `token` / `prefix` / `text_template` / `listen_port` | `token` / `locale` / `backend` + **`wake_phrase` / `manual_enabled` / `sidecar_*`**（§1.4） |
+| 成功响应 | `{"ok":true,"endpoint":"external.chat",…}` | `{"ok":true,"text":"…","wake_phrase_matched":true,"backend":"…","locale":"…"}` |
 
 **为什么选专用端点（已钉死，Wave 2 计划 §3A 选项 B）**：
 
@@ -437,13 +537,16 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 
 | 层 | 位置 |
 |---|---|
-| HTTP handler（安全 + 门禁 + token + backend/locale + 清洗归一化 + say） | `crates/live2d-ai-desktop/src/web_api/voice_routes.rs` |
-| handler 回归（**29 条**） | `crates/live2d-ai-desktop/src/web_api/voice_routes_tests.rs` |
-| Mod（静态 `settings_spec` / `clean_transcript` / `normalize_for_locale` / `prepare_transcript` / `inject_transcript` / `RustRoute`） | `crates/live2d-ai-mod-voice-input/src/lib.rs` + `src/normalize.rs` |
+| HTTP handler（安全 + 门禁 + token + **两把闸** + backend/locale + 清洗归一化 + say） | `crates/live2d-ai-desktop/src/web_api/voice_routes.rs` |
+| handler 回归（**39 条**，按主题拆文件） | `.../voice_routes_tests.rs`（路由 / 门禁 / token / backend / locale）+ `.../voice_routes_tests_say.rs`（200 / busy）+ `.../voice_routes_tests_gate.rs`（L1 两把闸） |
+| Mod（静态 `settings_spec` v2 / `clean_transcript` / `normalize_for_locale` / `prepare_transcript` / `inject_gated` / `RustRoute`） | `crates/live2d-ai-mod-voice-input/src/lib.rs` + `src/normalize.rs` |
+| **唤醒闸 / 手动闸**（四态判定 + 剥离，纯函数） | `crates/live2d-ai-mod-voice-input/src/gate.rs` |
+| **sidecar argv / 音频校验 / 运行态**（纯函数；spawn 在 command 层） | `crates/live2d-ai-mod-voice-input/src/sidecar.rs` |
+| **命令分派**（`inject` / `run_sidecar` / `state_snapshot`） | `crates/live2d-ai-mod-voice-input/src/commands.rs` |
 | Mod 配置自检（纯函数，`command("selftest")` 的真源） | `crates/live2d-ai-mod-voice-input/src/selftest.rs` |
-| Mod 回归（**29 条**） | `crates/live2d-ai-mod-voice-input/src/tests.rs` |
-| 产品面板（人话解释 / 当前生效值 / 检查配置 / 出错怎么办） | `shell/flutter/lib/settings/mods/voice_input_panel.dart` |
-| 面板回归（**7 条**） | `shell/flutter/test/voice_input_panel_test.dart` |
+| Mod 回归（**46 条**，按主题拆文件） | `crates/live2d-ai-mod-voice-input/src/tests.rs` + `src/gate_tests.rs` + `src/sidecar_tests.rs` |
+| 产品面板（总闸 / 人话解释 / 生效值 / 检查配置 / 验证闸门 / 一键 sidecar） | `shell/flutter/lib/settings/mods/voice_input_panel.dart` |
+| 面板回归（**17 条**） | `shell/flutter/test/voice_input_panel_test.dart` |
 | sidecar 示例 + `--selftest`（70 项）+ 退避表 | `docs/examples/voice-sidecar/` |
 | 接线清单 | `docs/plans/parallel-mods/REGISTER-voice-sidecar-v1.md` |
 
@@ -458,8 +561,22 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 200 busy（`ok:false`，确定性构造 in-flight 回合）、空转写不占 `say` 缓冲、
 **`backend` 配错回落 mock 在响应里可观察**、**非法 `locale` 回显并按拉丁档归一化**。
 
-Mod crate（`tests.rs`，29 条）另外覆盖：`backend` / `locale` 配置解析与回落、
+Mod crate（`tests.rs`，46 条）另外覆盖：`backend` / `locale` 配置解析与回落、
 清洗与两档归一化的纯函数、注入只碰 `say_tx`（`action_tx` 休眠）、
 **配置自检 `selftest`**（缺省自洽 / backend 配错点名 / locale 非法点名 /
 token 明文绝不出现在结果里 / sidecar 未设 token 只提醒）与命令通道
 （`selftest` 被认识、未知命令回 `UnsupportedCommand`）。
+
+**L1（2026-09-15）新增覆盖面**：
+
+- 闸门四态与优先级（manual 压过总闸、总闸压过唤醒词）；
+- 剥离细节（短语在开头 + 标点 / 空白、短语在中间折叠空白、忽略空白差异、大小写不敏感、
+  整句只有唤醒词 → 空正文）；
+- `sidecar` argv 组装（参数顺序、token 仅非空才传、transcriber 整体是一个 argv 元素、
+  **断言没有 `sh -c`**）、音频路径校验（空 / 不存在 / 非普通文件 / fixture 通过）、
+  脚本路径解析（配置优先 / config 目录回落 / 不可解析）、stderr 尾巴截断、
+  `SidecarStatus` 四态与 JSON 契约；
+- `state_json` 零 IO 快照且**不回唤醒短语 / token 明文**；
+- handler 级：`403 voice_gate_closed`、`403 voice_manual_off`（优先）、
+  `400 wake_phrase_required`、命中后 text 已剥离 + `wake_phrase_matched`、
+  token（401）先于总闸（403）。

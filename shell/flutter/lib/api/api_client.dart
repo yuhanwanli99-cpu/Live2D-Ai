@@ -71,14 +71,25 @@ class ApiClient {
   Uri _uri(String path) => Uri.parse('$base$path');
 
   /// 发送一条文本消息。200 返回受理结果；400/429/503 抛 [ApiException]。
-  Future<ChatAccepted> sendChat(String text) async {
+  ///
+  /// [sessionId] 是 **L1 会话绑定**的入口：带上它之后，本轮 LLM 请求的
+  /// system_prompt 取该会话的覆盖（persona 的人设 / memory 的记忆块按会话写），
+  /// 没有覆盖则回落全局 `persona.system_prompt`。
+  ///
+  /// 服务端对 id 做归一化（`sanitize_session_id`）：非法值按「不带会话」处理，
+  /// **不会**因此报错——前端不该因为一个本地生成的 id 形状异常就发不出消息。
+  Future<ChatAccepted> sendChat(String text, {String? sessionId}) async {
+    final Map<String, String> payload = <String, String>{'text': text};
+    if (sessionId != null && sessionId.isNotEmpty) {
+      payload['session_id'] = sessionId;
+    }
     final response = await _guard(
       () => _client.post(
         _uri('/api/v1/chat'),
         headers: const <String, String>{
           'Content-Type': 'application/json',
         },
-        body: jsonEncode(<String, String>{'text': text}),
+        body: jsonEncode(payload),
       ),
     );
     if (response.statusCode == 200) {
@@ -90,6 +101,28 @@ class ApiClient {
       );
     }
     throw _errorFrom(response);
+  }
+
+  /// `POST /api/v1/chat/session`（L1 会话绑定）：把**当前活动会话**告诉服务端。
+  ///
+  /// 为什么要告诉服务端：external-input（弹幕）/ voice-input（转写）这两条注入
+  /// 路径不带会话 id——它们的语义是「接在当前这段对话上」。宿主记下活动会话后，
+  /// 注入才会落到**用户正在看的**那个会话，而不是上一次发消息的那个。
+  ///
+  /// [sessionId] 传 null / 空 = 清掉活动会话（服务端按全局桶处理）。
+  /// 失败**不抛**：会话切换是纯辅助信息，不该因为后端不可达就挡住用户切会话。
+  Future<void> setActiveSession(String? sessionId) async {
+    try {
+      await _client.post(
+        _uri('/api/v1/chat/session'),
+        headers: const <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, Object?>{
+          if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
+        }),
+      );
+    } catch (_) {
+      // 刻意吞掉：见上。真正的失败由下一次发送的 4xx/5xx 暴露。
+    }
   }
 
   /// `POST /api/v1/chat/stop`（幂等）。

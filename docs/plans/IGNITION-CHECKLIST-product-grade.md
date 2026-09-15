@@ -10,7 +10,9 @@
 >   framebuffer 一行未改；**注册面 5 个 Mod**（external-input / persona / voice-input /
 >   memory / director），**wallpaper 与 pet-desktop 已封存**（见
 >   [`../architecture/ARCHIVED-mods.md`](../architecture/ARCHIVED-mods.md)）。
-> - 上一版清单（Wave 3 / stabilize）：[`IGNITION-CHECKLIST-stabilize.md`](IGNITION-CHECKLIST-stabilize.md)
+> - **已被取代（2026-09-15）**：L1 产品化波次的验收入口是
+  [`IGNITION-CHECKLIST-l1.md`](IGNITION-CHECKLIST-l1.md)；本文件只留作历史。
+- 上一版清单（Wave 3 / stabilize）：[`IGNITION-CHECKLIST-stabilize.md`](IGNITION-CHECKLIST-stabilize.md)
 >   ——**已被本文件取代**，只留作历史。
 
 ---

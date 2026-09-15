@@ -60,7 +60,7 @@ pub(crate) async fn run_one_turn(
     root: &mut RootState,
     engine: &mut ConversationEngine,
     audio: &mut Option<Box<dyn crate::audio::PcmProducer>>,
-    say_rx: &mut mpsc::Receiver<String>,
+    say_rx: &mut mpsc::Receiver<super::SayRequest>,
     control_rx: &mut mpsc::UnboundedReceiver<ControlCommand>,
     finish_rx: &mut mpsc::UnboundedReceiver<ActionFinishedFact>,
     current_epoch: &std::sync::atomic::AtomicU64,

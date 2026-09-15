@@ -153,3 +153,7 @@ nohup.out
 /mods.json
 # persona Mod 的主链提示词基线快照（本机运行态，勿入库）
 /persona-mod-base.txt
+# persona Mod 的**会话卡档案**（L1 2026-09-15：角色卡按会话存，本机运行态，勿入库）
+/persona-mod-cards.json
+# memory Mod 的**会话记忆桶**（L1 2026-09-15：一个会话一个 JSONL，本机运行态，勿入库）
+/sessions/
