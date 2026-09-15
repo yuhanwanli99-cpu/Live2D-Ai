@@ -8,6 +8,10 @@
 >（`wallpaper` / `pet-desktop` 封存，见
 > [`../architecture/ARCHIVED-mods.md`](../architecture/ARCHIVED-mods.md)），
 > 并加强了五个 Mod 的人眼验收项。下面所有「七个 Mod」的表述**都是这段历史的**。
+>
+> **另有一处行为变更**：`persona` 在本波新增了 `state_json`，`GET /api/v1/mods/persona/state`
+> 由 **503 升为 200**（见 [`../architecture/persona-mod-v0.md`](../architecture/persona-mod-v0.md)）；
+> 下文 §2.2 第 15 行与 `STABILIZE-PRECHECK-RESULT.md` 里的 503 记录都是**当时的**。
 
 > **这是什么**：把「用户本人在这台机器的 Windows 浏览器里真实点火」做成**逐步可勾选**的清单。
 > 每一项都写清 **操作 / 期望可见结果 / 失败时先看哪**，并明确标注

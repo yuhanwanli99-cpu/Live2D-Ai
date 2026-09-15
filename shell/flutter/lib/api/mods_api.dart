@@ -248,10 +248,14 @@ class ModInfo {
   bool get isRunning => status == 'running';
 
   /// 状态的中文标签（**每个状态都要有文字**，不靠颜色）。
+  /// 注意 @@failed@@：服务端序列化的是 @@ModStatus::as_str()@@，失败态写的是
+  /// @@failed@@（不是 @@error@@）。两个都认——只认一个的话，坏 Mod 会在卡片上
+  /// 露出裸英文 @@failed@@，「出错」提示永远不出现（persona 轨实测抓到）。
   String get statusLabel => switch (status) {
     'running' => '运行中',
     'disabled' => '已停用',
     'error' => '出错',
+    'failed' => '出错',
     'starting' => '启动中',
     _ => status.isEmpty ? '未知' : status,
   };

@@ -25,8 +25,10 @@
   可编译可测，**禁止挂回**；含恢复条件与理由
 - [**语音转写契约：`POST /api/v1/voice/transcript`（0.2.0-rc.3）**](voice-input.md)
   ——语音 → 文本 → `clean_transcript` → `say`；**ASR 本体在 sidecar**（`docs/examples/voice-sidecar/`，Win/本机进程），Rust 侧只收已转写文本
-- [**会话记忆 Mod v0（0.2.0-rc.3，缺省停用）**](architecture/memory-mod-v0.md)
-  ——本地 JSONL + 词元重叠检索 top-k → `apply_settings` 写 `persona.system_prompt`；**只对下一轮生效**，与 persona 是 last-writer-wins
+- [**会话记忆 Mod v0（0.2.0-rc.3，缺省停用；产品级加强波次补 `records`/`clear`）**](architecture/memory-mod-v0.md)
+  ——本地 JSONL + 词元重叠检索 top-k → `apply_settings` 写 `persona.system_prompt`；**只对下一轮生效**，与 persona 是 last-writer-wins；面板可见条数/命中/清空
+- [**角色卡 Mod（persona）：导入 / 生效 / 还原（产品级加强波次）**](architecture/persona-mod-v0.md)
+  ——导入卡（粘贴 JSON 或选 `.json`/带 `chara` 的 `.png`）→ 写回主链 `system_prompt` → 停用还原基线；`GET /mods/persona/state` 由 503 升为 **200**；与 memory 仍是 last-writer-wins
 - [壁纸 Mod 策略 v0（**已封存 ARCHIVED**，本波不做）](architecture/wallpaper-mod-v0.md)
   ——**不再注册、不再编译进 binary**；用户手动的舞台/壳背景（`DisplayPrefs` / `stage-bg`）
   **保留**，与被封存的 wallpaper **Mod** 是两回事；理由见 [已封存 Mod 台账](architecture/ARCHIVED-mods.md)
@@ -79,7 +81,12 @@
 
 ## 规划
 
-- [**点火验收清单（stabilize）：给用户在 Windows 上照单勾选**](plans/IGNITION-CHECKLIST-stabilize.md)
+- [**点火验收清单（产品级加强波次 / `mod/product-grade`）：给用户在 Windows 上照单勾选**](plans/IGNITION-CHECKLIST-product-grade.md)
+  ——注册面 **5 个 Mod**（wallpaper / pet-desktop 已封存）/ 机器预检 / 人机验收（含五个 Mod 的产品级可见项）/ 通过标准 / 签名栏；
+  配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表；`--fsm` 五 Mod 矩阵）
+- [**产品级加强波次收束报告**](plans/PRODUCT-GRADE-CLOSEOUT.md)
+  ——封存结果（FACTORIES 7 → 5）/ 五个 Mod 的产品级达成 / 门禁数字 / 最短体验路径（版本仍 `0.2.0-rc.3`，未 bump）
+- [点火验收清单（stabilize，**已被取代**）](plans/IGNITION-CHECKLIST-stabilize.md)
   ——前置（含 **TTS 未起时的预期**）/ 机器预检 / 十步人机验收（操作·期望·失败先看哪）/ 通过标准 / 签名栏；
   配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表）
   与实跑记录 [`STABILIZE-PRECHECK-RESULT.md`](plans/STABILIZE-PRECHECK-RESULT.md)

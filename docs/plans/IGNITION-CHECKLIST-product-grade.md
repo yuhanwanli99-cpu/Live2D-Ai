@@ -200,10 +200,11 @@ python3 docs/examples/bilibili-sidecar/bilibili_sidecar.py --selftest
 - [ ] **失败先看**：日志 `mod: persona` 行；`state` 读不到 → 服务端是否已合入本波
 
 ### 3.7 ★ `memory`（记忆）〔本波加强〕
-- [ ] **操作**：启用 memory；按 `docs/architecture/memory-mod-v0.md` 的**可重复步骤**：
+- [ ] **操作**：启用 memory；按 `docs/architecture/memory-mod-v0.md` §12 的**可重复步骤**：
       说「记住：我叫星梦，喜欢薄荷」→ 等这一轮结束 → 再问「我叫什么？喜欢什么？」
-- [ ] **期望**：相关提问时记忆被提起（回复里出现 星梦/薄荷）；
-      `GET …/mods/memory/state` 的 **条数 / 命中 / 注入** 计数增长
+- [ ] **期望（注入只对下一轮生效，别把正常时序当失败）**：提问那一轮
+      `GET …/mods/memory/state` 的 **命中 / 注入** 计数增长；**回复里出现 星梦/薄荷
+      通常要再下一句**（检索在提问轮、patch 从下一轮起生效）
 - [ ] **操作**：设置 → Mod → 展开 `memory`
 - [ ] **期望（可见条数/hits/清空）**：运行态显示 **条数 / 命中次数 / 注入轮数 / 已淘汰 / 上轮命中**；
       面板有 **「清空记忆库」** 按钮

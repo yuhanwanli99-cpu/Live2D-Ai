@@ -722,8 +722,8 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   /// host 的两种失败码 → **可处置**的一句话（不谎报成「不存在」）。
   String _stateErrorMessage(ApiException e) {
     if (e.code == 'state_unavailable') {
-      return '运行态暂时读不到（未启用 / 未实现 state_json / worker 正忙，'
-          '503 state_unavailable）';
+      return '运行态暂时读不到（这个 Mod 没启用 / 该 Mod 未实现 state_json / '
+          'worker 正忙，503 state_unavailable）';
     }
     if (e.code == 'not_found') {
       return '这个 Mod 不在服务端注册表（404 not_found）';

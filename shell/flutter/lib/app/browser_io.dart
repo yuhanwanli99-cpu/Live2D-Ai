@@ -105,11 +105,27 @@ void saveChatSessions(ChatSessionStore store) {
 /// 返回 **取消 / 成功 / 读失败** 三态：取消（`dataUrl==null && error==null`）
 /// 不该弹东西；读失败（`error!=null`）必须说实话——以前读失败与取消不可区分，
 /// 用户看到的就是「点了选图没反应」。
-Future<({String? dataUrl, String? error})> pickImageDataUrl() async {
+Future<({String? dataUrl, String? error})> pickImageDataUrl() =>
+    pickFileDataUrl(
+      accept: 'image/*',
+      unreadableMessage: '这张图读不出内容（可能不是浏览器能识别的图片格式）',
+      failedMessage: '读取图片失败（文件可能已被移动、删除或没有读取权限）',
+    );
+
+/// 通用版：挑**一个**文件读成 dataURL（`accept` 用 input 的 accept 语法）。
+///
+/// 产品级加强波次从 [pickImageDataUrl] 抽出，供**角色卡导入**复用（`.json` /
+/// 带 `chara` 的 `.png` 都要能选）。行为与原来逐字一致，只是 `accept` 与
+/// 两条失败文案可配（图片那条保持原文案，避免改用户可见的话）。
+Future<({String? dataUrl, String? error})> pickFileDataUrl({
+  required String accept,
+  required String unreadableMessage,
+  required String failedMessage,
+}) async {
   final web.HTMLInputElement input =
       web.document.createElement('input') as web.HTMLInputElement;
   input.type = 'file';
-  input.accept = 'image/*';
+  input.accept = accept;
   final Completer<({String? dataUrl, String? error})> done =
       Completer<({String? dataUrl, String? error})>();
   void finish(String? dataUrl, String? error) {
@@ -128,11 +144,11 @@ Future<({String? dataUrl, String? error})> pickImageDataUrl() async {
       if (result is String && result.isNotEmpty) {
         finish(result, null);
       } else {
-        finish(null, '这张图读不出内容（可能不是浏览器能识别的图片格式）');
+        finish(null, unreadableMessage);
       }
     }).toJS;
     reader.onerror = ((web.Event _) {
-      finish(null, '读取图片失败（文件可能已被移动、删除或没有读取权限）');
+      finish(null, failedMessage);
     }).toJS;
     reader.readAsDataURL(files.item(0)!);
   }).toJS;

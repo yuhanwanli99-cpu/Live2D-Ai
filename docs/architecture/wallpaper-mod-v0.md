@@ -12,7 +12,7 @@
 > **状态（历史）**：2026-09-14 Wave 1（分支 `mod/wallpaper` @ `2d492447`）起草；
 > `0.2.0-rc.2` 集成时按
 > [`../plans/parallel-mods/REGISTER-wallpaper.md`](../plans/parallel-mods/REGISTER-wallpaper.md)
-> **已注册**进 `AVAILABLE_MOD_FACTORIES`（封存前工厂数由 `mod_count_is_seven` 守住，**缺省停用**）。
+> **曾注册**进 `AVAILABLE_MOD_FACTORIES`（封存前工厂数由 `mod_count_is_seven` 守住，**缺省停用**；已于产品级加强波次**封存**，见顶部横幅）。
 > **2026-09-14 Wave 2（分支 `mod/wallpaper-wire` @ 基座 `429609f2`）§5 落点已接线**：
 > Mod 决策 → `state_json` 的 `prefs_patch` → Flutter 纯函数 `applyWallpaperPatch`
 > → 既有 `DisplayPrefs` / `Live2DStage.sendStageBg`；播放列表来源 = Flutter 自己的偏好
