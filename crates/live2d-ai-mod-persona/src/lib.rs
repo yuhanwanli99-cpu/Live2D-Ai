@@ -37,6 +37,7 @@
 //! | 卡文件 > [`MAX_CARD_FILE_BYTES`] | 同上；**读盘之前**就拒（`metadata` 先量），不做「读到 OOM 再报错」 |
 //! | `card_json` > [`MAX_CARD_JSON_BYTES`] | 同上 |
 //! | PNG 截断 / chunk 长度越界 / 无 `chara` / 压缩 iTXt | 同上（`tEXt`/未压缩 `iTXt` 之外一律明确报错） |
+//! | 导入卡损坏 / 超大（`persona-mod-card.json`） | 同上；错误里带**路径**与「清除导入卡」的指引（面板上那个按钮） |
 //! | `apply_settings` 写盘被拒 | 同上；基线快照**不落盘**（没接管就不记基线） |
 //! | 卡没配（`card_path` / `card_json` 全空、也无覆盖） | **合法 no-op**：`Running`，主链提示词保持不变 |
 //!
@@ -82,6 +83,19 @@
 //! 回归在 `src/tests_e2e.rs`，用 memory crate 的**真实**
 //! `strategy::compose_injection` / `strip_memory_block`（不是本地复刻）。
 //!
+//! # 产品级命令通道与运行态（persona-polish）
+//!
+//! 除了「改配置 → 重启」，本 Mod 还接了一条**一次性命令**通道
+//!（`import_card` / `clear_import`，由 Mod 管理面板的「导入角色卡」驱动），
+//! 并实现了 `ModRuntime::state_json`——`GET /api/v1/mods/persona/state`
+//! 因此从**恒 503** 变成 200。两者的完整契约（为什么导入卡落成 Mod 自己的
+//! 文件、为什么它优先于 config、失败怎么回滚）见 `src/command.rs` 头注。
+//!
+//! 一句话版本：**导入卡住 `persona-mod-card.json`，优先级高于 config 的
+//! `card_json` / `card_path`；导入即写回主链；命令通道要 Mod 正在运行**
+//!（停用时 host 回 503 `command_unavailable`），所以面板上的顺序是
+//! 「先打开开关、再导入」。
+//!
 //! # 文件大小
 //!
 //! 源码 > 500 行（< 1000）：卡解析与主链写回共用同一份不变量（V2 判定 +
@@ -94,6 +108,13 @@
 //!
 //! Wave 3 轨 E 新增的坏卡 E2E 与共存契约**另起** `src/tests_e2e.rs`（318 行），
 //! 不再往 `tests.rs` 里加——两个文件各自守一组契约，也守住单文件行数纪律。
+//!
+//! persona-polish 波次同理，拆了两个文件：`src/command.rs`（命令通道 + 运行态快照，
+//! 287 行）与 `src/tests_command.rs`（那两条面的回归，561 行）。**不拆的是主链接管
+//! 语义**：卡解析、基线快照、`apply_card` 全留在本文件——它们共用同一条不变量
+//!（「没真的接管，就不许留下痕迹」），拆开只会让读者来回跳。
+
+mod command;
 
 use std::path::{Path, PathBuf};
 
@@ -113,6 +134,12 @@ pub const DESCRIPTOR: ModDescriptor = ModDescriptor {
 
 /// 基线快照文件名（与 `live2d-ai.toml` 同目录）。
 const BASE_STATE_FILE: &str = "persona-mod-base.txt";
+
+/// 界面导入的角色卡（与 `live2d-ai.toml` 同目录；见 `src/command.rs` 头注）。
+///
+/// **优先级高于** config 的 `card_json` / `card_path`：界面上的「导入」是一次
+/// 显式动作，它必须能压过配置文件里写的卡；要回到配置里的卡就 `clear_import`。
+pub const IMPORTED_CARD_FILE: &str = "persona-mod-card.json";
 
 /// 角色卡**文件**大小上限（字节）。
 ///
@@ -209,6 +236,27 @@ impl PersonaCard {
             "不是可识别的角色卡 JSON（需要 V1 扁平对象，或 V2 带 `data` 的对象）".to_string()
         })
     }
+
+    /// **规范化**成一张 V2 JSON（导入卡落盘用；见 `src/command.rs` 头注）。
+    ///
+    /// 六个字段固定出现（哪怕为空）：一个键都没有的 JSON 会被
+    /// [`Self::parse_json`] 判成「不是角色卡」，规范化产物必须能原样再解析。
+    /// 刻意**丢掉**卡里其余字段（头像 / 扩展键 / `creator_notes`…）：
+    /// 本 Mod 只用这六项，落盘的文件越接近「它到底用了什么」越好审计。
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "spec": "chara_card_v2",
+            "spec_version": "2.0",
+            "data": {
+                "name": self.name,
+                "description": self.description,
+                "personality": self.personality,
+                "scenario": self.scenario,
+                "first_mes": self.first,
+                "system_prompt": self.system_prompt,
+            },
+        })
+    }
 }
 
 fn str_field(fields: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
@@ -241,6 +289,47 @@ pub fn compose_system_prompt(card: &PersonaCard, include_discipline: bool) -> St
         parts.push(DISCIPLINE_TEMPLATE.to_string());
     }
     parts.join("\n\n")
+}
+
+/// 一张卡的**来源**（`state_json.card_source` 的稳定字符串；前端按它出中文）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CardSource {
+    /// 界面导入（`persona-mod-card.json`），优先级最高。
+    Imported,
+    /// config 的 `card_json`。
+    ConfigJson,
+    /// config 的 `card_path`。
+    ConfigPath,
+    /// 只有手工覆盖项（`name` / `description` / …）。
+    Overrides,
+    /// 什么都没配（合法 no-op）。
+    None,
+}
+
+impl CardSource {
+    /// 稳定 ASCII 值——**不要**改成中文：中文是前端 `stateLabels` 的职责，
+    /// 这里换文案会让「按值反查」的界面悄悄失配。
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Imported => "imported",
+            Self::ConfigJson => "config_json",
+            Self::ConfigPath => "config_path",
+            Self::Overrides => "overrides",
+            Self::None => "none",
+        }
+    }
+}
+
+/// 最近一次**成功接管**主链的摘要（`state_json` 的数据源）。
+///
+/// 刻意缓存而不是每次读盘：`state_json` 跑在 web_api 线程上，
+/// 契约是「只读快照、不阻塞」（见 `ModRuntime::state_json` 头注）。
+#[derive(Debug, Clone)]
+struct AppliedPersona {
+    source: &'static str,
+    name: String,
+    format: &'static str,
+    chars: usize,
 }
 
 // ------------------------------------------------------------------ 输入上限
@@ -445,6 +534,8 @@ pub struct PersonaRuntime {
     registered: bool,
     /// 主链原本的 `system_prompt`（停用时写回；见模块头注）。
     base_prompt: Option<String>,
+    /// 最近一次成功接管的摘要（`state_json` 的**零 IO** 数据源）。
+    applied: Option<AppliedPersona>,
 }
 
 impl PersonaRuntime {
@@ -454,26 +545,69 @@ impl PersonaRuntime {
             config,
             registered: false,
             base_prompt: None,
+            applied: None,
         }
     }
 
-    /// 载入卡：`card_json` 优先于 `card_path`；两者皆空 → `Ok(None)`（只有手工覆盖）。
+    /// 导入卡文件路径（与 `live2d-ai.toml` 同目录）。
     ///
-    /// `Err` = **用户配了东西但它是坏的**（读不到 / 不是卡 / 超大）；
+    /// host 没注入 `config_path`（单测 / 无 supervisor 环境）→ `None`：
+    /// 此时**没有**导入卡这条来源，一切按 config 的老路径走。
+    fn imported_card_path(&self) -> Option<PathBuf> {
+        let config_path = self.services.config_path.trim();
+        if config_path.is_empty() {
+            return None;
+        }
+        Path::new(config_path)
+            .parent()
+            .map(|parent| parent.join(IMPORTED_CARD_FILE))
+    }
+
+    /// 载入卡：**导入卡优先** > `card_json` > `card_path`；都空 → `Ok(None)`。
+    ///
+    /// 第二项是来源（进 `state_json.card_source` 与日志）。
+    /// `Err` = **用户配了东西但它是坏的**（导入卡损坏 / 读不到 / 不是卡 / 超大）；
     /// `Ok(None)` = 用户根本没配 —— 两者结局不同，绝不能混成一个「空卡」。
-    fn load_card(&self) -> Result<Option<PersonaCard>, String> {
+    fn load_card(&self) -> Result<Option<(PersonaCard, CardSource)>, String> {
+        if let Some(path) = self.imported_card_path() {
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    if bytes.len() as u64 > MAX_CARD_FILE_BYTES {
+                        return Err(format!(
+                            "导入卡文件过大（{}）：{} 字节，上限 {} 字节；请清除导入卡后重新导入",
+                            path.display(),
+                            bytes.len(),
+                            MAX_CARD_FILE_BYTES
+                        ));
+                    }
+                    let card = PersonaCard::parse_bytes(&bytes).map_err(|e| {
+                        format!(
+                            "导入卡文件已损坏（{}）：{e}；请重新导入或点「清除导入卡」",
+                            path.display()
+                        )
+                    })?;
+                    return Ok(Some((card, CardSource::Imported)));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(format!("读取导入卡文件失败（{}）: {e}", path.display()));
+                }
+            }
+        }
         let json = self.config.card_json.trim();
         if !json.is_empty() {
             check_card_json_size(json)?;
-            return PersonaCard::parse_json(json).map(Some).ok_or_else(|| {
+            let card = PersonaCard::parse_json(json).ok_or_else(|| {
                 "card_json 不是可识别的角色卡 JSON（需要 V1 扁平对象，或 V2 带 `data` 的对象）"
                     .to_string()
-            });
+            })?;
+            return Ok(Some((card, CardSource::ConfigJson)));
         }
         let path = self.config.card_path.trim();
         if !path.is_empty() {
             let bytes = read_card_file(path)?;
-            return PersonaCard::parse_bytes(&bytes).map(Some);
+            let card = PersonaCard::parse_bytes(&bytes)?;
+            return Ok(Some((card, CardSource::ConfigPath)));
         }
         Ok(None)
     }
@@ -569,24 +703,16 @@ impl PersonaRuntime {
         }
     }
 
-    /// 把卡合成 `system_prompt` 并写回主链。
+    /// 把一张卡合成 `system_prompt` 并写回主链，记录接管摘要。
     ///
-    /// - `Ok(())`：已写入，或**本来就没配卡**（合法 no-op：先启用、后填卡）；
-    /// - `Err(e)`：**配置坏了**（读不到 / 不是卡 / 超大 / 合成结果为空 / 写盘被拒）。
-    ///   调用方（[`ModRuntime::start`]）把它变成 `ModStatus::Failed`：界面立刻
-    ///   看得到失败，而主链 `system_prompt` **一个字都不动**（写盘在所有校验之后）。
-    fn apply_from_config(&mut self) -> Result<(), String> {
-        let card = match self.load_card()? {
-            Some(card) => self.with_overrides(card),
-            None if self.config.has_overrides() => self.with_overrides(PersonaCard::default()),
-            None => {
-                self.services.logger.info(
-                    "persona 未配置角色卡（card_path / card_json 均空、也无覆盖项），保持主链现有提示词",
-                );
-                return Ok(());
-            }
-        };
-        let composed = compose_system_prompt(&card, self.config.include_discipline);
+    /// - `Ok(())`：已写入；
+    /// - `Err(e)`：合成结果为空 / 写盘被拒。调用方（[`ModRuntime::start`]）把它
+    ///   变成 `ModStatus::Failed`，导入路径（`src/command.rs`）则**回滚导入卡**：
+    ///   两条路都不许出现「界面说好了、主链其实没动」。
+    ///
+    /// 写盘在**所有校验之后**：失败时主链 `system_prompt` 一个字都不动。
+    fn apply_card(&mut self, card: &PersonaCard, source: CardSource) -> Result<(), String> {
+        let composed = compose_system_prompt(card, self.config.include_discipline);
         if composed.trim().is_empty() {
             return Err(
                 "角色卡没有产生任何可写入的人设文本（字段全空，且未启用对话纪律模板）".to_string(),
@@ -604,15 +730,48 @@ impl PersonaRuntime {
             ));
         }
         self.persist_base_prompt();
+        let chars = composed.chars().count();
+        self.applied = Some(AppliedPersona {
+            source: source.as_str(),
+            name: card.name.clone(),
+            // 只有覆盖项、没有卡时 `format` 是空串 —— 报 `manual` 而不是空值，
+            // 「（空）」在界面上读起来像坏了。
+            format: if card.format.is_empty() {
+                "manual"
+            } else {
+                card.format
+            },
+            chars,
+        });
         self.services.logger.info(&format!(
             "persona 已写入主链 system_prompt（来源 {}，{} 字）",
-            card.format,
-            composed.chars().count()
+            source.as_str(),
+            chars
         ));
         if self.config.say_first_mes && !card.first.is_empty() {
             self.services.say_tx.say(card.first.clone());
         }
         Ok(())
+    }
+
+    /// 按 config（含导入卡）决定要接管哪张卡，并写回主链。
+    ///
+    /// - `Ok(())`：已写入，或**本来就没配卡**（合法 no-op：先启用、后填卡）；
+    /// - `Err(e)`：**配置坏了**（读不到 / 不是卡 / 超大 / 合成结果为空 / 写盘被拒）。
+    fn apply_from_config(&mut self) -> Result<(), String> {
+        let (card, source) = match self.load_card()? {
+            Some(pair) => pair,
+            None if self.config.has_overrides() => (PersonaCard::default(), CardSource::Overrides),
+            None => {
+                self.services.logger.info(
+                    "persona 未配置角色卡（card_path / card_json / 导入卡均空、也无覆盖项），保持主链现有提示词",
+                );
+                self.applied = None;
+                return Ok(());
+            }
+        };
+        let card = self.with_overrides(card);
+        self.apply_card(&card, source)
     }
 }
 
@@ -650,6 +809,22 @@ impl ModRuntime for PersonaRuntime {
             .logger
             .info(&format!("persona 收到 {}: {payload}", topic.as_str()));
         Ok(())
+    }
+
+    /// **一次性命令**（产品级加强波次）：转发给 `src/command.rs` 的
+    /// [`command::dispatch`]（两条命令与失败语义见那里的头注）。
+    fn command(
+        &mut self,
+        command: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, ModError> {
+        command::dispatch(self, command, args)
+    }
+
+    /// **只读运行态**（persona-polish 有意升级：`GET /mods/persona/state`
+    /// 从恒 503 变 200）。快照零 IO，字段语义见 [`command::snapshot`]。
+    fn state_json(&mut self) -> Option<serde_json::Value> {
+        Some(command::snapshot(self))
     }
 
     fn shutdown(&mut self) -> Result<(), ModError> {
@@ -758,5 +933,7 @@ pub const FACTORY: PersonaFactory = PersonaFactory;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_command;
 #[cfg(test)]
 mod tests_e2e;
