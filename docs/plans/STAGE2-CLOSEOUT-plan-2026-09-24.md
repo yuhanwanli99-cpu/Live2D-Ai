@@ -183,3 +183,30 @@ Gate 0（`a7952412`）仍是有效基线，不受影响。
 
 **Gate 1 已落**：`c33db72f`（D1 测试端确定性同步）、`530e58e1`（D2 W7b 面板 pin 同步）；工作树回归 `porcelain=0`。
 
+### 7.7 阶段2 收口（D8 交付核验 + 验收清单，2026-09-24）
+
+**D8 核验（维护者亲核）**
+- 四处 diff 亲读：全部落在 `#[cfg(test)]` 模块（`supervisor.rs:932-945`、`web_api/mod.rs:93-96`），产品代码零改动。
+- `tests_performance` 等的同步点是 **`RootFact::TurnCompleted{outcome_completed:true}`**（不是把断言变同义反复）；`tests_loop` 把否定命题显式化为「等被禁止事件 ≤2s 再断言未发生」并同步到 `NewEpoch`；`tests_p0c/tests_reload` 抽出有界轮询替代固定 100ms。
+- **维护者独立重负载 30× = 30/30 全绿**（3× 并发 `flutter test`；`FAILED_LOGS: NONE`；三个目标用例各 30/30 ok）。日志 `/tmp/vfy-d2b-{1..30}.log`。
+- 反向证明未达成（该竞态过稀有，D2b 与编排者均如实上报）；旧写法复现证据仍是 `/tmp/flaky-A-r2-4.log`。**不视为缺陷，如实记录。**
+
+**阶段2 验收清单（对照 §3）**
+| # | 判据 | 状态 |
+| --- | --- | --- |
+| 1 | W7 四条必做 + 欠账 A①–D④ 闭环 diff | ✅ |
+| 2 | `flutter analyze` 无问题 + `flutter test` +1053 + 产物三证据 | ✅ |
+| 3 | Rust 全量门禁绿（26 组 ok / 1396 passed；doc 3；fmt clean；clippy 0 warning；rust-ratio **97.1932% PASS**） | ✅ |
+| 4 | 浏览器实测：临时覆盖换主题仍在 + 恢复产品设置写下去（面板 163% ↔ HUD `scale h1.63`） | ✅ |
+| 5 | flaky 定名/修复 30× 全绿（D1 + D8） | ✅ |
+| 6 | TTS 端到端（18 跳；真实 PCM；`turn_state=completed`；error 帧 0） | ✅ |
+| 7 | 报告四件套（文件 / 测试名 / 门禁原始数字 / 未决） | ✅ |
+
+**Gate 1 全部提交**：`c33db72f`（D1）、`530e58e1`（D2）、`7c05e18a`（D8）；工作树 `porcelain=0`。**阶段2 代码收口完成。**
+
+**残留（不影响收口，进 backlog）**
+1. 产品二进制仍是 2026-09-21 prebuilt；本轮改动全为测试/Dart，产品源码未变 ⇒ 无需重建；若要「源码级一致」点火再重建。
+2. `tests_p0c` 第二次 PATCH 的 `reload_pending` 归零不能证明该标志曾被置位（既有测试设计局限）。
+3. 首屏 `main.dart.js` 偶发 `pending`（托管层 / keep-alive 时序），未单独立项。
+4. `AGENTS.md` 变更历史与 docs 索引尚未按阶段2 更新（可选，随 Gate 2 一并做）。
+
