@@ -119,6 +119,74 @@ class TextFallbackEvent extends WsEvent {
   final String? text;
 }
 
+/// 一条导演动作 cue（action_cue.payload.cues[] 的元素）。
+class ActionCue {
+  const ActionCue({
+    required this.sentenceSeq,
+    required this.presetId,
+    required this.intensity,
+    required this.ttlMs,
+    required this.priority,
+  });
+
+  /// 目标句序号（与 AudioEvent.sentenceSeq 同源）。
+  final int sentenceSeq;
+  final String presetId;
+  final int intensity;
+  final int ttlMs;
+  final int priority;
+
+  factory ActionCue.fromJson(Map<String, Object?> j) => ActionCue(
+    sentenceSeq: _int(j['sentence_seq']),
+    presetId: _str(j['preset_id']) ?? '',
+    intensity: _int(j['intensity']),
+    ttlMs: _int(j['ttl_ms']),
+    priority: _int(j['priority']),
+  );
+}
+
+/// action_cue：导演的按句动作计划（P1-3，2026-09-16）。
+///
+/// **缺省忽略 = 兼容**：旧客户端不认识该 type，会落到 UnknownWsEvent 而不报错。
+/// 前端按 sentence_seq 持有 cue，在该句音频**开始播放**时 applyPreset
+/// （锚点选音频 first_chunk，见 PLAN 第 3.6 节）。
+class ActionCueEvent extends WsEvent {
+  const ActionCueEvent({
+    required this.epoch,
+    required this.coversUptoSeq,
+    required this.cues,
+    super.seq,
+    super.ts,
+  });
+
+  final int epoch;
+  final int coversUptoSeq;
+  final List<ActionCue> cues;
+
+  factory ActionCueEvent.fromData(
+    Map<String, Object?> data, {
+    int? seq,
+    String? ts,
+  }) {
+    final List<ActionCue> cues = <ActionCue>[];
+    final Object? raw = data['cues'];
+    if (raw is List) {
+      for (final Object? item in raw) {
+        if (item is Map) {
+          cues.add(ActionCue.fromJson(Map<String, Object?>.from(item)));
+        }
+      }
+    }
+    return ActionCueEvent(
+      epoch: _int(data['epoch']),
+      coversUptoSeq: _int(data['covers_upto_seq']),
+      cues: cues,
+      seq: seq,
+      ts: ts,
+    );
+  }
+}
+
 /// `audio`：base64 s16le 单声道 PCM 片（默认 20ms）。
 class AudioEvent extends WsEvent {
   const AudioEvent({
@@ -332,6 +400,9 @@ WsEvent? parseWsFrame(String raw) {
         seq: seq,
         ts: ts,
       );
+
+    case 'action_cue':
+      return ActionCueEvent.fromData(data, seq: seq, ts: ts);
 
     case 'text_fallback':
       // 未知 type 在旧客户端被忽略，所以这是向后兼容的新增帧。

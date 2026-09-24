@@ -157,3 +157,6 @@ nohup.out
 /persona-mod-cards.json
 # memory Mod 的**会话记忆桶**（L1 2026-09-15：一个会话一个 JSONL，本机运行态，勿入库）
 /sessions/
+
+# memory Mod 根目录遗留的运行时产物（本机运行态，勿入库；正式桶在 /sessions/）
+/memory.jsonl

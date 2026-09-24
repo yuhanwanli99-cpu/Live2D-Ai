@@ -112,25 +112,80 @@ handler 从 Mod config 读 `locale`（缺省 `zh-CN`）并传给
 
 ### 1.4 能力总闸 / 手动闸 / sidecar 配置（L1 产品级，2026-09-15）
 
-settings_spec 升到 **v2**：v1 的 `backend` / `locale` / `token` **一个不删**，
-后面追加下面这些字段。
+settings_spec 升到 **v3**（2026-09-15 用户裁决：设置项过多要收；v1 的
+`backend` / `locale` / `token` **一个不删**）：
+
+- **主区只留两个字段**：`wake_phrase` + `manual_enabled`；
+- `backend` / `locale` / `token` / `sidecar_*` 仍在协议里，前端把它们收进
+  「高级」折叠（`VoiceInputPanel.advancedKeys`）。
 
 | key | kind | 缺省 | 语义 |
 |---|---|---|---|
-| `wake_phrase` | String | `""` | **能力总闸**：空 = 总闸关，拒绝一切转写（`403 voice_gate_closed`）；非空 = 总闸开，且文本必须包含它 |
+| `wake_phrase` | String | **`"小可爱"`** | **能力总闸**。**键缺失** → 用缺省词（总闸默认**开**）；**键存在但为空** → 总闸关，拒绝一切转写（`403 voice_gate_closed`）；非空自定义**不覆盖**，且文本必须**以它开头**（句首锚定；PTT 请求除外，见 §1.6） |
 | `manual_enabled` | Bool | `true` | **手动闸**：false = 拒绝一切转写（`403 voice_manual_off`） |
+| `backend` | Select | `"mock"` | `mock`（外部喂文本）/ `sidecar`（外部 ASR 推文本） |
+| `locale` | String | `"zh-CN"` | 只影响文本归一化档 |
+| `token` | String | `""` | 可选访问令牌（secret；空 = 不鉴权） |
 | `sidecar_script` | String | `""` | 官方脚本路径；空 → `<config 目录>/docs/examples/voice-sidecar/voice_sidecar.py` |
 | `sidecar_url` | String | `""` | sidecar 要 POST 的完整 URL；空 → 拉起时必须由命令参数给 |
 | `sidecar_transcriber` | String | `"fake"` | `fake`（读同名 `.txt`，开箱即跑 fixtures）或 `cmd:"<ASR 命令>"` |
 | `sidecar_python` | String | `"python3"` | Python 解释器；**只作为 argv[0]**，绝不过 shell |
 
-**总闸就是唤醒短语**：没有配 `wake_phrase` = 一切转写被拒。这是有意的「默认关闭」——
-语音输入必须先被用户显式打开。它与 Mod 启停是**两层**开关：Mod 启用但没配唤醒短语，
-仍然全部 403 `voice_gate_closed`。
+**总闸就是唤醒短语（2026-09-15 起产品默认开着）**：
 
-**唤醒短语会被从正文里剥掉**：命中的短语（大小写不敏感、忽略空白差异）从文本中移除；
-短语在**开头**时，紧随其后的标点 / 空白一起去掉。例：`"小爱，把窗户关小一点"` →
-`"把窗户关小一点"`。剥完为空（整句就是唤醒词，如 `"小爱！"`）→ `400 empty_transcript`。
+- **键缺失** → 走产品缺省 **`DEFAULT_WAKE_PHRASE = "小可爱"`** → 总闸默认**开**；
+  新装即可用唤醒词，不必先手填一个词。
+- **键存在但为空 / 纯空白** → 总闸关，一切转写被拒（`403 voice_gate_closed`）——
+  「空 = 关」这条语义保留，用户在配置里清空即可关掉语音输入。
+- **已有非空自定义** → 原样生效，**不覆盖**。
+
+它与 Mod 启停是**两层**开关：Mod 没启用 → `403 mod_disabled`；启用但总闸关 →
+`403 voice_gate_closed`。判定真源是纯函数 `gate::evaluate_mode`（四态；
+`ptt` 分支见 §1.6），handler 与 Mod 命令 `inject` 共用。
+
+**唤醒短语必须在句首**（2026-09-15 P0-4 加固）：跳过前导空白后从第一个字符开始匹配
+（大小写不敏感、忽略空白差异）。短语出现在**中间不命中**——否则「我昨天说小可爱好看」
+会被误触发成一次对话。命中后短语从正文里剥掉，紧随其后的标点 / 空白一起去掉。
+例：`"小可爱，把窗户关小一点"` → `"把窗户关小一点"`。剥完为空（整句就是唤醒词，
+如 `"小可爱！"`）→ `400 empty_transcript`。
+
+### 1.5 主路径：聊天界面的「听」按钮（L1 产品化，2026-09-15；P0-4 三态）
+
+聊天输入框左侧常驻一颗按钮，**一个按钮三种用法**——这是语音输入的**产品主路径**，
+设置里的 `inject` / sidecar 命令是排障与兜底，不是日常入口。
+
+| 操作 | 行为 |
+|---|---|
+| **点按**（< 150ms 松手） | 常驻唤醒开 / 关 |
+| **按住**（≥ 150ms） | 按住说话（PTT）：按下开始听，松手提交；**不要求唤醒词**（§1.6） |
+| 角色播报期间 | 自动**暂停听**（自己的声音 / 环境人声会误触发），播完自动恢复常驻 |
+
+常驻链路：**说「小可爱 今天天气怎么样」→ 句首命中唤醒词 → 原文 POST
+`/api/v1/voice/transcript` → 服务端剥词 + 归一化 → `say` → LLM → TTS → 口型**。
+PTT 链路：**按住说「今天天气怎么样」→ 松手 → 正文 + `ptt: true` POST → 服务端跳过
+唤醒匹配 → `say` → …**。
+
+- 识别用浏览器 **Web Speech API**（桌面版 Chrome / Edge）；不支持的浏览器按钮**禁用并说明**。
+- **UI 必须如实说明**：Web Speech 是**云端**识别——**需联网**、**音频会出本机**，
+  识别结果再回本机后端。离线 / 本地 ASR 是 P1/P2，不在本轮。
+- **常态监听**：识别会话被浏览器静音结束（`onEnd`）后自动重启；用户按「停」才停。
+  播报暂停期间不重启。
+- 前端**只送原文**：剥词 / 归一化的真源仍在服务端（一份真相，唤醒词匹配规则只有 Rust 一份）。
+  前端本地匹配仅用于判断「这句是不是在叫角色、后面有没有正文」。
+- 唤醒词与正文分两条定稿（说「小可爱」停一下再说）时，进入「已唤醒」窗口
+  （`wakeWindow`，缺省 8 秒）；超时自动放弃，避免把无关的话当成正文发出去。
+- 失败（权限被拒 / 没有麦克风 / 服务不可达 / 主链 `busy`）在按钮旁**可读**显示。
+  **主链忙不排队**：识别到的正文落回输入框，让用户改字重发（排队只会让语音越来越滞后）。
+
+### 1.6 按住说话（PTT，P0-4）
+
+`ptt` 是**用户显式按键**的声明：闸门对该请求**跳过唤醒匹配**（不要求文本以唤醒词开头）。
+
+- **不变**：手动闸、总闸（`wake_phrase` 显式空 = 语音输入整体关闭，PTT 也进不来）、
+  token 校验、清洗 / 归一化 / 长度限制。
+- 若按住时仍说了唤醒词，顺手剥掉（正文里不留）。
+- 空正文仍然 `400 empty_transcript`（`ptt` 不豁免这一条）。
+- 成功响应回显 `"ptt"`，便于观察走了哪条分支。
 
 ---
 
@@ -139,18 +194,21 @@ settings_spec 升到 **v2**：v1 的 `backend` / `locale` / `token` **一个不�
 ```jsonc
 {
   "text": "转写文本（必填，字符串；清洗 + 归一化后不得为空，最多 2000 字符）",
-  "token": "可选；与生效 token 匹配时放行（服务端配了 token 才需要）"
+  "token": "可选；与生效 token 匹配时放行（服务端配了 token 才需要）",
+  "ptt": "可选布尔；true = 按住说话，服务端跳过唤醒匹配（缺省 false）"
 }
 ```
 
 **校验顺序**（决定你看到哪个码）：
 
 1. `text` 缺失 / 非字符串 → `400 invalid_payload`；
-2. `token` 存在但非字符串 → `400 invalid_payload`；
+2. `token` 存在但非字符串，或 `ptt` 存在但非布尔 → `400 invalid_payload`；
 3. token 已配置但请求缺失/不匹配 → `401 unauthorized`；
 4. `manual_enabled = false` → `403 voice_manual_off`；
-5. `wake_phrase` 空白 → `403 voice_gate_closed`（**总闸 = 唤醒短语**，空 = 关）；
-6. 清洗后的文本**不包含**唤醒短语（空输入也算「没听见唤醒词」）→ `400 wake_phrase_required`；
+5. `wake_phrase` **显式**空白 → `403 voice_gate_closed`（**总闸 = 唤醒短语**，
+   空 = 关；**键缺失**走缺省「小可爱」，不在此列）；
+6. 清洗后的文本**不以**唤醒短语**开头**（空输入也算「没听见唤醒词」）→ `400 wake_phrase_required`；
+   **`ptt: true` 跳过本步**（§1.6）；
 7. 剥掉唤醒短语后为空 → `400 empty_transcript`；
 8. **剥离 + 归一化后** > 2000 字符 → `400 text_too_long`。
 
@@ -220,7 +278,7 @@ HTTP **`200`**（刻意，**不用** 5xx）：请求格式没问题，是主链�
 | 401 | `unauthorized` | token 已配置但请求缺失 / 不匹配 |
 | 403 | `mod_disabled` | `voice-input` Mod 已注册但**停用**（见 §5） |
 | 403 | `voice_manual_off` | 手动闸关闭（`manual_enabled=false`）→ 先在 Mod 配置里打开手动开关 |
-| 403 | `voice_gate_closed` | **能力总闸未开**（`wake_phrase` 为空）→ 先在 Mod 配置里填写唤醒短语 |
+| 403 | `voice_gate_closed` | **总闸被显式关**（`wake_phrase` 键存在且为空）→ 在 Mod 配置里填一个唤醒词再保存（缺省 小可爱） |
 | 403 | `origin_denied` / `origin_required` | Origin 非 loopback 同源，或缺 Origin 且 `allow_no_origin=false` |
 | 405 | `method_not_allowed` | 非 POST |
 | 415 | `unsupported_media_type` | Content-Type 非 `application/json` |
@@ -304,7 +362,7 @@ Mod 未启用 / worker 正忙 `503 command_unavailable`（**可重试**）。`re
 | `backend` / `backend_valid` / `backend_defaulted` | 生效后端 / 是否已知 / 是否走了缺省 |
 | `locale` / `locale_valid` / `locale_defaulted` / `locale_profile` | 生效 locale / 是否合法 BCP-47 / 是否缺省 / 归一化档（`cjk` / `latin`） |
 | `token_set` | 是否配了 token（**只回布尔**，绝不回明文 / 长度） |
-| `manual_enabled` / `wake_gate_open` / `wake_phrase_set` | 两把闸的状态（**只回布尔**，绝不回唤醒短语明文；后两个同义） |
+| `manual_enabled` / `wake_gate_open` / `wake_phrase_set` | 两把闸的状态（**只回布尔**，绝不回唤醒短语明文）。`wake_gate_open` = 生效总闸（缺省词也算开）；`wake_phrase_set` = 用户**显式**配过（缺键走缺省词时为 false） |
 | `sidecar_script` / `sidecar_script_resolvable` | 解析出的官方脚本路径 / 是否解析得出（纯字符串拼接，**不 stat**） |
 | `route` / `opens_network` | 本地路由（`local_inject` / `accept_push`）/ Rust 是否开 socket（恒 `false`） |
 | `problems` | 硬问题：`backend` 配错、`locale` 非法 |
@@ -455,7 +513,7 @@ python3 docs/examples/voice-sidecar/voice_sidecar.py \
 # 主链收到的是剥掉唤醒短语后的「关小一点」。
 ```
 
-真实使用请把唤醒短语换成真正的唤醒词，并让 ASR 转写里**包含**它
+真实使用请把唤醒短语换成真正的唤醒词，并让 ASR 转写**以它开头**
 （否则会得到 `400 wake_phrase_required`）。装了真 ASR 后用
 `--transcriber 'cmd:"<你的 ASR 命令>"'`。
 

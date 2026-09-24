@@ -27,6 +27,9 @@ toml = "0.9"
 toml_edit = "0.25"
 thiserror = "2"
 url = "2"
+# 表演层的可观测性日志（成功 JSON 摘要 / 回退原因码）。与 desktop 同一个
+# tracing 生态，日志走同一套 sink；runtime 其余部分不打日志（保持克制）。
+tracing = "0.1"
 # 对话引擎（`conversation` 模块）的异步设施：
 # - `sync`：有界 mpsc 队列（LLM→TTS worker 的背压边界）；
 # - `rt`：`tokio::spawn` 单个 TTS worker 任务；

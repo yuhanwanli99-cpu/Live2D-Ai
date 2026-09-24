@@ -6,6 +6,10 @@
 
 - [架构总览](architecture/ARCHITECTURE.md)
 - [核心契约与架构边界](architecture/core-contracts.md)
+- [**表演层 v0（`[performance]` 段）：每轮一份合法化 JSON，speak 是 TTS/上屏真源**](architecture/performance-layer-v0.md)
+  ——**主模型不负责表演**（无工具、无表演类预设）；表演层每轮独立端点交回 `{"speak":…,"cues":[…]}`；
+  默认关；关/超时/非 2xx/校验失败 → `speak=clean_for_tts(原文)` + 规则 cue（仅失败回退）；
+  director Mod 的 `staging_*` 降为遗留并行实现（同轮只有一个 cue 产者）
 - [**CosyVoice 3 TTS 接入（2026-09-10，能力就绪/未部署）**](architecture/cosyvoice3-tts-integration.md)
 - [渲染纹理 / 离屏靶标档位 ADR（4096/8192/16384）](architecture/renderer-texture-tier-adr.md)
 - [PC 无预设半身联动实现](architecture/pc-presetfree-halfbody-control.md)
@@ -38,8 +42,16 @@
 - [**Mod 社区许可与注册边界（0.2.0-rc.1）**](architecture/mod-community-license.md)
   ——注册面开放、分发面 AGPL 兼容；闭源走商业许可/私用；**无「闭源可进默认包」承诺**
 - [**导演（director）最小骨架（Wave 3：已注册、缺省停用、零投递）**](architecture/director-mod-v0.md)
-  ——只读 `TurnPrompt`/`TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策，只写日志 + `state_json`；
-  **不投递**任何动作 / TTS 参数。设计契约仍见 [director-rfc.md](architecture/director-rfc.md)
+  ——只读 `TurnPrompt`/`TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策，只写日志 + `state_json`。
+  **现状更正（2026-09-21）**：Wave 3 时写的「**不投递**任何动作 / TTS 参数」**已变更**——编译期
+  `default_mods_manifest` 仍不收录它（**缺省停用**成立）；本工作树运行配置 `mods.json` 里启用后，
+  它产 `latest.preset_id`（只读状态面）与按句 `action_cue`（WS，**驱动舞台**），只是不经 core reducer。
+  现状见 `AGENTS.md` §「动作与表演的现行状态（2026-09 实测）」。设计契约仍见
+  [director-rfc.md](architecture/director-rfc.md)
+- [**动作包 v0：包 = 五官 + 小幅头身；intensity 是一等公民（2026-09-23）**](architecture/action-packs-v0.md)
+  ——v3 合并（sad+angry → `unhappy` 按 intensity morph；happy 并 bounce；surprised 并 recoil；
+  nod/shake 各并强弱档）；主 allowlist 19 → 10；旧 id deprecated 映射**一版**；
+  表情槽 + 手势槽**可同轮**（微笑/unhappy + 点头）；含 N.E.K.O 五情对照与三档验法
 - [插件 / 扩展 SDK 最小骨架（历史；已被 Mod 产品链路取代）](architecture/plugin-sdk.md)
 - [Linux（WSL2）PC 主力环境](architecture/linux-dev.md)
 - [Phase-0 架构评估](architecture/Phase-0-architecture.md)
@@ -81,6 +93,18 @@
 
 ## 规划
 
+- [**动作 / 表情 / 导演链路调研（4 项症状 → 根因 → 下一轮任务，2026-09-21）**](plans/RESEARCH-actions-director-audit-2026-09-21.md)
+  ——**本轮 W1–W11 的调研真源**：4 项症状的 `file:line` 根因、幅度死区量化表、与 `director-rfc.md`
+  的 RFC 冲突表（§3.2）与脱轨清单（§3.4）；口径裁决在 §3.6–§3.8；**§8 目标链路 / §9 时间轴对齐 / §10 输出契约与字段分解是维护者已确认的规格**。⚠ **§3.4 的 D1 与由 R2 推出的
+  「导演属场景 Mod / 主链不该有第二 LLM」均已撤回——引用必须连撤回标记一起引，见 §3.6/§3.7**
+- [**调度提示词：动作 / 表情 / 导演链路修复（W1–W11 十一块）**](plans/ORCHESTRATOR-PROMPT-actions-performance-round.md)
+  ——**§8 首次启动 / §9 Wave 1 续作 / §10 Wave 2 续作**，可直接整块粘贴给编排者
+  ——文件归属 / 波次与「文件零重叠」约束 / 验收底线 / 给执行者的红线（**本轮调度真源**；
+  产品形态口径见其 ★ 段，与 RESEARCH §3.7 同）
+- [**可复制实现提示词（W1–W11）：动作 / 表情 / 导演链路修复**](plans/IMPL-PROMPTS-actions-performance-round.md)
+  ——每块自带公共前置（门禁 / 硬约束 / 回报格式），供 worker 整块粘贴（**本轮任务真源**）
+- [**交接说明（2026-09-21）：动作 / 表情 / 导演链路 —— 已冻结裁决 + Wave 0/1 验收 + 未完成工作**](plans/HANDOFF-2026-09-21-actions-performance-round.md)
+  ——**接手先读这份**：一分钟上手 / 不得翻案的裁决清单 / 门禁基线 / W7–W11 与 flaky、TTS 缺口 / 现状快照
 - [**点火验收清单（产品级加强波次 / `mod/product-grade`）：给用户在 Windows 上照单勾选**](plans/IGNITION-CHECKLIST-product-grade.md)
   ——注册面 **5 个 Mod**（wallpaper / pet-desktop 已封存）/ 机器预检 / 人机验收（含五个 Mod 的产品级可见项）/ 通过标准 / 签名栏；
   配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表；`--fsm` 五 Mod 矩阵）

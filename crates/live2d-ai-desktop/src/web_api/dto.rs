@@ -12,8 +12,6 @@
 
 use serde::Serialize;
 
-use live2d_ai_runtime::settings::view::SettingsView;
-
 /// `GET /api/v1/app/capabilities` 响应。
 ///
 /// 能力快照——前端用它决定按钮/页签是否显示，**不**依赖写盘/网络。
@@ -66,6 +64,45 @@ pub struct AppStatus {
     pub dev_mode: bool,
     /// 当前 epoch（v1 = 0，未接入 supervisor；D2 接入）。
     pub current_epoch: u64,
+    /// 表演层摘要（2026-09-22）：`[performance]` 段配置 + 运行计数。
+    ///
+    /// 这是「表演层到底有没有在工作」的**可观察面**：`enabled`（配了没有）、
+    /// `wired`（配齐了没有）、`plans`（成功几轮）、`fallbacks`（回退几轮）、
+    /// `last_fallback`（回退原因码）。**不含正文、不含密钥**。
+    pub performance: PerformanceStatus,
+}
+
+/// 表演层摘要（`[performance]` 段 + 运行计数）。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PerformanceStatus {
+    /// `[performance] enabled`（配置层总闸）。
+    pub enabled: bool,
+    /// 开了闸且端点/模型都配齐——**这一位才是「会发 HTTP」**。
+    pub wired: bool,
+    /// 端点 base_url（空 = 未配）。
+    pub base_url: String,
+    /// 模型名（空 = 未配）。
+    pub model: String,
+    /// 是否配了密钥变量名（只回布尔，永不回变量名与值）。
+    pub has_api_key: bool,
+    /// structured 策略（`auto` / `json_schema` / `prompt`）。
+    pub mode: String,
+    /// 生效超时（毫秒，已钳位）。
+    pub timeout_ms: u64,
+    /// 成功 plan 数。
+    pub plans: u64,
+    /// 回退轮数（含关闸）。
+    pub fallbacks: u64,
+    /// noop 轮数。
+    pub noops: u64,
+    /// 说出台词的轮数。
+    pub speak_turns: u64,
+    /// 带 cue 的轮数。
+    pub cue_turns: u64,
+    /// 最近一次回退原因码（`performance_ok` = 没回退过）。
+    pub last_fallback: String,
+    /// 最近一次成功走的 structured 路（`null` = 还没成功过）。
+    pub last_structured: Option<String>,
 }
 
 /// 音频后端状态（v1 占位：未启动 supervisor 时 `available=false`）。
@@ -246,17 +283,6 @@ pub fn tts_status_from(
     }
 }
 
-/// 把 [`SettingsView`] 复用为 DTO 字段（`GET /api/v1/settings` 响应）。
-///
-/// D1 契约：响应中**仅**含 LLM/TTS/Persona 三段，全部已脱敏（`has_api_key`
-/// 派生，不含 `api_key_env` 字段名）。`SettingsView` 已是该形态——直接
-/// 转发。本函数存在是为了**集中**「response 包装」层，便于 D2 引入
-/// `stage` 段时单点扩展。
-#[allow(dead_code)] // D2 引入 stage 段时单点扩展会启用。
-pub fn settings_view_as_dto(view: SettingsView) -> SettingsView {
-    view
-}
-
 pub fn capabilities_info() -> AppInfo {
     AppInfo {
         app: "live2d-ai-desktop",
@@ -277,11 +303,16 @@ mod tests {
 
     fn sample() -> AppSettings {
         AppSettings {
+            // 2026-09-16：action 段默认（幅度倍率）。
+            action: Default::default(),
+            // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
+            performance: Default::default(),
             llm: LlmSettings {
                 base_url: "http://127.0.0.1:11434/v1".into(),
                 model: "qwen2.5:7b".into(),
                 api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),
                 max_tokens: None,
+                show_reasoning: None,
             },
             tts: TtsSettings {
                 base_url: "http://127.0.0.1:8000/v1".into(),
@@ -336,8 +367,7 @@ mod tests {
     fn settings_view_dto_never_leaks_key_name() {
         let s = sample();
         let view = settings_to_view(&s);
-        let dto = settings_view_as_dto(view);
-        let json = serde_json::to_string(&dto).unwrap();
+        let json = serde_json::to_string(&view).unwrap();
         // P0-1：响应里既无 api_key_env 字段名，也无任何密钥明文。
         assert!(!json.contains("api_key_env"), "暴露 env 字段名：{json}");
         assert!(
@@ -350,11 +380,10 @@ mod tests {
         );
         // has_api_key 字段存在（值为 true 因为 api_key_env 非空）。
         assert!(json.contains("\"has_api_key\":true"));
-        // 验证 settings_view_as_dto 是恒等函数（透传 view）。
+        // 默认 settings（api_key_env=None）→ has_api_key=false。
         let s2 = AppSettings::default();
         let v2 = settings_to_view(&s2);
-        let j_default = serde_json::to_string(&settings_view_as_dto(v2)).unwrap();
-        // 默认 settings（api_key_env=None）→ has_api_key=false。
+        let j_default = serde_json::to_string(&v2).unwrap();
         assert!(j_default.contains("\"has_api_key\":false"));
     }
 

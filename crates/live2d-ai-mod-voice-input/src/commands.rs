@@ -125,7 +125,7 @@ impl VoiceInputRuntime {
                 locale,
                 cleaned,
                 "voice_gate_closed",
-                "能力总闸未开：先在 Mod 配置里填写「唤醒短语」（wake_phrase）。空 = 总闸关，拒绝一切转写",
+                "语音总闸被显式关闭（wake_phrase 为空）：在 Mod 配置里填一个唤醒词再保存（缺省 小可爱）",
             ),
             GateOutcome::WakeRequired => {
                 let message = format!(
@@ -191,9 +191,10 @@ impl VoiceInputRuntime {
             "backend": self.backend().as_str(),
             "locale": self.locale(),
             "manual_enabled": self.manual_enabled(),
+            // 总闸生效态（缺键走缺省词时也为 true）。
             "wake_gate_open": wake_open,
-            // 只回布尔，**绝不回唤醒短语明文**。
-            "wake_phrase_set": wake_open,
+            // 只回布尔，**绝不回唤醒短语明文**；这里答的是「用户显式设过没有」。
+            "wake_phrase_set": gate::wake_phrase_explicitly_set(&self.config),
             "token_set": token_from_config(&self.config).is_some(),
             // 只回解析出的路径（字符串），不 stat（零 IO 契约）。
             "sidecar_script": self.sidecar_script(),

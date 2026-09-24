@@ -81,40 +81,59 @@ fn start_registers_settings_only() {
 
 /// 静态 schema 字段齐全；**不含 `enabled`**（唯一开关是 manifest）。
 ///
-/// L1（2026-09-15）起为 **v2**：v1 的 backend / locale / token **一个不删**，
-/// 后面追加总闸 / 手动闸 / sidecar 四项。
+/// v3（2026-09-15 用户裁决：设置项过多要收）：`wake_phrase` + `manual_enabled`
+/// 放主区（字段顺序最前），其余字段仍在协议里、由前端收进「高级」折叠。
 #[test]
 fn static_spec_fields_and_no_enabled() {
     let spec = FACTORY.settings_spec().expect("静态 schema");
     assert!(spec.validate().is_ok(), "字段 key 不得重复");
-    assert_eq!(spec.version, 2, "L1 起 schema 为 v2");
+    assert_eq!(spec.version, 3, "瘦身版 schema 为 v3");
     let keys: Vec<&str> = spec.fields.iter().map(|f| f.key()).collect();
     assert_eq!(
         keys,
         vec![
+            "wake_phrase",
+            "manual_enabled",
             "backend",
             "locale",
             "token",
-            "wake_phrase",
-            "manual_enabled",
             "sidecar_script",
             "sidecar_url",
             "sidecar_transcriber",
             "sidecar_python",
         ],
-        "v1 三字段一个不删，新字段追加在后"
+        "主区两项在最前；v1 字段一个不删，只是收进高级"
     );
     assert!(!keys.contains(&"enabled"), "启停只由 Mod manifest 表达");
-    assert!(matches!(
-        spec.fields[2],
-        ModSettingField::String { secret: true, .. }
-    ));
+    // 唤醒词带**产品缺省**（新装默认开着唤醒词；键缺失走它）。
     match &spec.fields[0] {
-        ModSettingField::Select { options, .. } => {
+        ModSettingField::String {
+            default: Some(default),
+            secret: false,
+            ..
+        } => assert_eq!(
+            default, "小可爱",
+            "缺省唤醒词必须与 gate::DEFAULT_WAKE_PHRASE 同源"
+        ),
+        other => panic!("wake_phrase 应为带缺省的非密钥 String，实际 {other:?}"),
+    }
+    // token 仍是 secret（回读只显示是否已设置）。
+    match &spec.fields[4] {
+        ModSettingField::String { secret: true, .. } => {}
+        other => panic!("token 应为 secret String，实际 {other:?}"),
+    }
+    // backend 是 Select，选项不变。
+    match &spec.fields[2] {
+        ModSettingField::Select {
+            options,
+            default: Some(default),
+            ..
+        } => {
             let values: Vec<&str> = options.iter().map(|o| o.value.as_str()).collect();
             assert_eq!(values, vec!["mock", "sidecar"]);
+            assert_eq!(default, "mock");
         }
-        other => panic!("backend 应为 Select，实际 {other:?}"),
+        other => panic!("backend 应为带缺省的 Select，实际 {other:?}"),
     }
 }
 
@@ -391,14 +410,18 @@ fn selftest_default_config_is_self_consistent() {
         "自检也必须证明 Rust 不开 socket"
     );
     assert_eq!(v["problems"], serde_json::json!([]));
-    // L1：总闸 / 手动闸 / sidecar 脚本一并在自检里可见（缺省总闸关）。
+    // L1：总闸 / 手动闸 / sidecar 脚本一并在自检里可见。
     assert_eq!(v["manual_enabled"], serde_json::json!(true));
     assert_eq!(
         v["wake_gate_open"],
-        serde_json::json!(false),
-        "缺省没配唤醒短语 = 总闸关: {v}"
+        serde_json::json!(true),
+        "缺键走产品缺省唤醒词（小可爱）= 总闸默认开: {v}"
     );
-    assert_eq!(v["wake_phrase_set"], serde_json::json!(false));
+    assert_eq!(
+        v["wake_phrase_set"],
+        serde_json::json!(false),
+        "缺键 ≠ 用户设过：wake_phrase_set 只答「显式配了没有」"
+    );
     assert_eq!(
         v["sidecar_script_resolvable"],
         serde_json::json!(false),
@@ -408,8 +431,23 @@ fn selftest_default_config_is_self_consistent() {
     assert!(notes.iter().any(|n| n.as_str().unwrap().contains("mock")));
     assert!(notes.iter().any(|n| n.as_str().unwrap().contains("zh-CN")));
     assert!(
+        !notes
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("总闸未开")),
+        "缺键时总闸默认开——不得再报「总闸关」: {v}"
+    );
+}
+
+/// 显式清空 wake_phrase（键存在且为空）= 用户主动关总闸：自检必须点名。
+#[test]
+fn selftest_flags_explicitly_closed_gate() {
+    let v = config_selftest(&serde_json::json!({"wake_phrase": "  "}));
+    assert_eq!(v["wake_gate_open"], serde_json::json!(false));
+    assert_eq!(v["wake_phrase_set"], serde_json::json!(false));
+    let notes = v["notes"].as_array().unwrap();
+    assert!(
         notes.iter().any(|n| n.as_str().unwrap().contains("总闸")),
-        "总闸关必须被点名: {v}"
+        "显式关闸必须被点名: {v}"
     );
 }
 
@@ -628,21 +666,25 @@ fn state_snapshot_is_redacted_and_zero_io() {
 fn state_json_trait_method_returns_snapshot() {
     let mut rt = VoiceInputRuntime::new(noop_services(), serde_json::json!({}));
     let v = rt.state_json().expect("voice-input 必须提供 state_json");
-    assert_eq!(v["wake_gate_open"], serde_json::json!(false));
+    // 缺键 → 缺省唤醒词生效（总闸开），但用户并没设过。
+    assert_eq!(v["wake_gate_open"], serde_json::json!(true));
+    assert_eq!(v["wake_phrase_set"], serde_json::json!(false));
 }
 
 /// 命令 `inject`：总闸关时返回**可读拒绝**（不是抛错），且不碰 say。
+///
+/// 关闸的形态是**显式清空** wake_phrase（键存在且为空）——键缺失走缺省词，是开的。
 #[test]
 fn command_inject_rejects_readably_when_gate_closed() {
     let (services, said, _l, _a) = recording_services();
-    let mut rt = VoiceInputRuntime::new(services, serde_json::json!({}));
+    let mut rt = VoiceInputRuntime::new(services, serde_json::json!({"wake_phrase": ""}));
     let out = rt
         .command("inject", &serde_json::json!({"text": "你好"}))
         .expect("被闸门拒绝不是错误");
     assert_eq!(out["accepted"], serde_json::json!(false));
     assert_eq!(out["ok"], serde_json::json!(false));
     assert_eq!(out["rejected_code"], serde_json::json!("voice_gate_closed"));
-    assert!(out["message"].as_str().unwrap().contains("唤醒短语"));
+    assert!(out["message"].as_str().unwrap().contains("唤醒词"));
     assert!(said.lock().unwrap().is_empty(), "被拒的注入不得进 say");
 }
 

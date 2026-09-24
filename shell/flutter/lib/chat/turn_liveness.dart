@@ -156,3 +156,43 @@ const String kTurnPreemptedCode = 'turn_preempted';
 
 /// 上面对应的给人看的一行。
 const String kTurnPreemptedMessage = '本轮已被中断（新的代次开始）';
+
+/// `error` 帧到达时，是否要**立刻**收口这一轮（而不是等 `turn_state`）。
+///
+/// 只有 **fatal** 错误才这样：非致命 LLM 失败之后，已生成的语音还要播完，收口由
+/// 紧随其后的 `turn_state` 负责（提前收口会把还在播的那一轮说成结束）。
+/// 致命错误（TTS / 解码 / 背压）后端会立即丢弃剩余排队句子并结束本轮——若那帧
+/// `turn_state` 因任何原因丢了（旧服务端 / 帧被截断），界面就会**永久转圈**
+/// （用户报的「无反应」最坏形态），所以这里兜底收口。
+bool mustSettleTurnOnError({required bool turnInFlight, required bool fatal}) =>
+    turnInFlight && fatal;
+
+/// 一帧收口信号（`turn_state` / `text_delta{completed}` / `error`）是否属于
+/// **当前**这一轮。
+///
+/// 任一侧为 null（旧服务端帧、或气泡还没拿到受理代次）按「属于当前轮」处理：
+/// 宁可多收一次口，也不要让当前轮永远挂着。两侧都有值且不等 → 是**迟到的旧轮
+/// 帧**，必须丢弃——否则上一轮的失败会收掉刚开始的新一轮。
+bool frameBelongsToCurrentTurn({
+  required int? frameEpoch,
+  required int? currentEpoch,
+}) {
+  if (frameEpoch == null || currentEpoch == null) return true;
+  return frameEpoch == currentEpoch;
+}
+
+/// `turn_state{failed}` 到了、但**一条 error 帧都没收到**时的兜底错误码。
+///
+/// 禁止「无字无错」：界面上既没有正文、也没有任何原因时，必须给一个能拿去
+/// 搜索的码，并指向诊断日志（而不是假装知道原因）。
+const String kTurnFailedWithoutDetailCode = 'turn_failed_no_detail';
+
+/// 上面的兜底码对应的一行文案。
+const String kTurnFailedWithoutDetailMessage =
+    '本轮失败，但服务端未给出错误详情（可打开「设置 → 开发模式 → 诊断日志」查看后端日志）';
+
+/// 失败轮是否**缺错误详情**（从而需要兜底码）。
+///
+/// 已有的 error 帧信息更全，绝不覆盖；只有 failed 而没有收到过 error 帧时才补兜底。
+bool needsFailureFallbackCode({required bool failed, required bool hasError}) =>
+    failed && !hasError;

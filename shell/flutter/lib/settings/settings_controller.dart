@@ -23,6 +23,12 @@ import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
 import '../api/settings_models.dart';
 
+/// 浮点草稿与远端原值是否等价（容差 1e-6）。
+bool _almostEqual(double? a, double b) {
+  if (a == null) return false;
+  return (a - b).abs() < 1e-6;
+}
+
 /// 一段字段的编辑状态（改动集里的一项）。
 ///
 /// 用泛型参数而不是 `Object?`：取值要进 JSON，`Object?` 会让
@@ -39,22 +45,26 @@ class SettingsDraft {
   // ── LLM ──
   String? llmBaseUrl;
   String? llmModel;
-  String? llmApiKeyEnv;
-  bool clearLlmApiKey = false;
   DraftField<int>? llmMaxTokens;
+
+  /// 展示思考总闸（三态）。`null` = 没动；服务端缺省 false。
+  DraftField<bool>? llmShowReasoning;
 
   // ── TTS ──
   String? ttsBaseUrl;
   String? ttsModel;
   String? ttsVoice;
-  String? ttsApiKeyEnv;
-  bool clearTtsApiKey = false;
   int? ttsSampleRate;
   int? ttsChannels;
 
   // ── persona（M5.1：只剩系统提示词与历史轮数；卡字段已迁出主链） ──
   String? personaSystemPrompt;
   int? personaMaxHistoryPairs;
+
+  // ── action（动作幅度倍率，2026-09-16；产品设置，保存后生效） ──
+  double? actionHeadScale;
+  double? actionBodyScale;
+  double? actionExpressionScale;
 
   // ── 顶层 ──
   bool? devMode;
@@ -74,32 +84,24 @@ class SettingsDraft {
     final LlmSettingsPatch? llm = _llmPatch();
     final TtsSettingsPatch? tts = _ttsPatch();
     final PersonaSettingsPatch? persona = _personaPatch();
+    final ActionSettingsPatch? action = _actionPatch();
     return SettingsPatch(
       llm: llm,
       tts: tts,
       persona: persona,
+      action: action,
       devMode: devMode == null ? null : Tri.set(devMode!),
     );
   }
 
   LlmSettingsPatch? _llmPatch() {
+    // P6：不再有 `apiKeyEnv` 实参——变量名编辑入口已从界面移除，前端类型上也
+    // 编不出这个键（服务端仍接受它，走 curl / 手改 live2d-ai.toml）。
     final LlmSettingsPatch patch = LlmSettingsPatch(
       baseUrl: _tri(llmBaseUrl),
       model: _tri(llmModel),
-      // 段级 `clear_api_key`：显式清除必须带这个标志，否则服务端按 P0-2
-      // 把「api_key_env: null」当成「不动」（这就是那条协议保护的形状）。
-      // **只发段级 `clear_api_key: true`**，不额外塞一个 `api_key_env: null`。
-      //
-      // 理由：服务端的 `inject_clear_key_flag` 规则 1 已经负责「段在场 +
-      // `clear_api_key: true` + 没给 `api_key_env` → 注入字段级清除」。
-      // 前端再发一次 null 是两套机制表达同一件事——将来两边语义漂移时
-      // 没人知道该信哪个。JSON 越小越难写错。
-      //
-      // 注意：这条以前**根本发不出去**——`LlmSettingsPatch` 一直没有
-      // `clearApiKey` 字段，所以「清除密钥绑定」这个能力在前端是不可达的。
-      apiKeyEnv: _tri(llmApiKeyEnv),
-      clearApiKey: clearLlmApiKey,
       maxTokens: llmMaxTokens,
+      showReasoning: llmShowReasoning,
     );
     return patch.isEmpty ? null : patch;
   }
@@ -109,8 +111,6 @@ class SettingsDraft {
       baseUrl: _tri(ttsBaseUrl),
       model: _tri(ttsModel),
       voice: _tri(ttsVoice),
-      apiKeyEnv: _tri(ttsApiKeyEnv),
-      clearApiKey: clearTtsApiKey,
       sampleRate: ttsSampleRate == null ? null : Tri.set(ttsSampleRate!),
       channels: ttsChannels == null ? null : Tri.set(ttsChannels!),
     );
@@ -127,6 +127,17 @@ class SettingsDraft {
     return patch.isEmpty ? null : patch;
   }
 
+  ActionSettingsPatch? _actionPatch() {
+    final ActionSettingsPatch patch = ActionSettingsPatch(
+      headScale: actionHeadScale == null ? null : Tri.set(actionHeadScale!),
+      bodyScale: actionBodyScale == null ? null : Tri.set(actionBodyScale!),
+      expressionScale: actionExpressionScale == null
+          ? null
+          : Tri.set(actionExpressionScale!),
+    );
+    return patch.isEmpty ? null : patch;
+  }
+
   /// `null` → 没动；否则 `Tri.set`（清空由调用方显式传空串走正常路径）。
   static Tri<String>? _tri(String? value) =>
       value == null ? null : Tri.set(value);
@@ -134,18 +145,18 @@ class SettingsDraft {
   void clear() {
     llmBaseUrl = null;
     llmModel = null;
-    llmApiKeyEnv = null;
-    clearLlmApiKey = false;
     llmMaxTokens = null;
+    llmShowReasoning = null;
     ttsBaseUrl = null;
     ttsModel = null;
     ttsVoice = null;
-    ttsApiKeyEnv = null;
-    clearTtsApiKey = false;
     ttsSampleRate = null;
     ttsChannels = null;
     personaSystemPrompt = null;
     personaMaxHistoryPairs = null;
+    actionHeadScale = null;
+    actionBodyScale = null;
+    actionExpressionScale = null;
     devMode = null;
   }
 }
@@ -361,6 +372,10 @@ class SettingsController extends ChangeNotifier {
         when value == remote.llm.maxTokens) {
       _draft.llmMaxTokens = null;
     }
+    if (_draft.llmShowReasoning case TriSet<bool>(:final bool value)
+        when value == remote.llm.showReasoning) {
+      _draft.llmShowReasoning = null;
+    }
     if (_draft.ttsBaseUrl == remote.tts.baseUrl) _draft.ttsBaseUrl = null;
     if (_draft.ttsModel == remote.tts.model) _draft.ttsModel = null;
     if (_draft.ttsVoice == remote.tts.voice) _draft.ttsVoice = null;
@@ -373,6 +388,20 @@ class SettingsController extends ChangeNotifier {
     }
     if (_draft.personaMaxHistoryPairs == remote.persona.maxHistoryPairs) {
       _draft.personaMaxHistoryPairs = null;
+    }
+    // 幅度倍率是浮点：滑条整格移动时用极小容差判断「改回原值」，
+    // 避免 0.75 与 0.7500000001 之间永远显示「未保存」。
+    if (_almostEqual(_draft.actionHeadScale, remote.action.headScale)) {
+      _draft.actionHeadScale = null;
+    }
+    if (_almostEqual(_draft.actionBodyScale, remote.action.bodyScale)) {
+      _draft.actionBodyScale = null;
+    }
+    if (_almostEqual(
+      _draft.actionExpressionScale,
+      remote.action.expressionScale,
+    )) {
+      _draft.actionExpressionScale = null;
     }
     if (_draft.devMode == remote.devMode) _draft.devMode = null;
     if (notify) notifyListeners();

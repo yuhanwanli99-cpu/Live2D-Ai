@@ -463,6 +463,40 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         } else {
             0.0
         };
+        // 动作预设状态（2026-09-15 / P0-1 / P0-2）：HUD 直接显示「当前在演哪条、
+        // 谁触发的、还剩多少毫秒」——这是「动作到底有没有驱动到模型」最直接的
+        // 肉眼证据（也用于对照开发工具「动作调试」的本地状态）。
+        // 用户可调幅度（2026-09-16）：HUD 直接给出当前生效倍率——这是
+        // 「滑条到底有没有走到渲染面」最直接的证据（无头截不出差时靠它）。
+        let scale_diag = {
+            let s = st.bridge.preset.scales();
+            format!("scale h{:.2}/b{:.2}/e{:.2}", s.head, s.body, s.expression)
+        };
+        // 双槽（v3）：HUD 同时显示表情槽与手势槽——「微笑 + 点头」同轮时两栏都要有。
+        let preset_diag = if st.bridge.preset.active().is_none() {
+            // 形状稳定：没有活动预设时三个槽位字段也在（值为 -），否则「滑条有没有
+            // 生效」在 HUD 上会变成「字段忽有忽无」，读不出来。
+            format!("preset: face=- gesture=- face_intensity=- | {scale_diag}")
+        } else {
+            let face = st.bridge.preset.active_face().map_or("-", |a| a.spec.id);
+            let gesture = st.bridge.preset.active_gesture().map_or("-", |a| a.spec.id);
+            // 基础表情强度（HUD 契约：face= / gesture= / face_intensity=）：
+            // 调试面板「基础表情强度」滑条到底有没有走到渲染面，看这一个数。
+            let face_intensity = st.bridge.preset.active_face().map_or(0.0, |a| a.intensity);
+            let src = st
+                .bridge
+                .preset
+                .active()
+                .map_or("unknown", |a| a.source.as_str());
+            format!(
+                "preset: face={face} gesture={gesture} face_intensity={face_intensity:.2} src={src} {}ms | {scale_diag}",
+                st.bridge
+                    .preset
+                    .remaining_ms(now_hud)
+                    .unwrap_or(0.0)
+                    .round() as i64
+            )
+        };
         let stage_diag = format!(
             "stage: scale={:.2} off=({:+.2},{:+.2}) msg={}/{} [{}]",
             st.bridge.scale,
@@ -484,7 +518,7 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {stage_diag} | {idle_diag}",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {stage_diag} | {idle_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,

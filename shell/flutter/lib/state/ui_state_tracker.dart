@@ -185,6 +185,8 @@ class UiStateTracker extends ChangeNotifier {
       case SubscribeAckEvent():
       case HeartbeatEvent():
       case AudioEvent():
+      // 导演 cue 只驱动舞台动作，不改相位。
+      case ActionCueEvent():
       case UnknownWsEvent():
         return false;
     }

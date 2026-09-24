@@ -626,6 +626,85 @@ fn merge_rejects_broken_existing_toml() {
     assert!(s.merge_into_toml("[llm\nbase_url = ").is_err());
 }
 
+// ------------------------------------------------- 展示思考总闸（2026-09-15）
+
+/// **默认 false**：省略 `llm.show_reasoning` 时思考**不上屏**。
+///
+/// 这是产品口径（要不要把模型的内心独白摆给用户看），不是性能开关——
+/// 与 `max_tokens` 无关，思考该生成多少还是多少。
+#[test]
+fn show_reasoning_defaults_to_false() {
+    let s = AppSettings::default();
+    assert_eq!(s.llm.show_reasoning, None, "缺省是「没写」而不是显式 false");
+    assert!(!s.llm.effective_show_reasoning(), "生效值必须 false");
+    assert!(!settings_to_view(&s).llm.show_reasoning, "视图报生效值");
+    // 老 toml（没有这个键）解析出来同样是 false——升级不改变行为。
+    let parsed = AppSettings::from_toml_str(FULL).expect("老配置应可解析");
+    assert!(!parsed.llm.effective_show_reasoning());
+}
+
+/// 三态补丁：显式开 / 显式关 / `null` 清除（回落缺省 false）。
+#[test]
+fn show_reasoning_patch_is_three_state() {
+    let s = AppSettings::default();
+
+    // 缺省（字段不出现）= 不动。
+    let untouched = SettingsPatch {
+        llm: Some(Some(LlmPatch {
+            show_reasoning: None,
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&s, &untouched).expect("apply");
+    assert_eq!(outcome, PatchOutcome::NoChange);
+    assert_eq!(next.llm.show_reasoning, None);
+
+    // 显式开。
+    let on = SettingsPatch {
+        llm: Some(Some(LlmPatch {
+            show_reasoning: Some(Some(true)),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&s, &on).expect("apply on");
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert_eq!(next.llm.show_reasoning, Some(true));
+    assert!(next.llm.effective_show_reasoning());
+    assert!(settings_to_view(&next).llm.show_reasoning);
+
+    // 显式 null = 清除 → 回落缺省 false。
+    let clear = SettingsPatch {
+        llm: Some(Some(LlmPatch {
+            show_reasoning: Some(None),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&next, &clear).expect("apply clear");
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert_eq!(next.llm.show_reasoning, None);
+    assert!(!next.llm.effective_show_reasoning());
+}
+
+/// 落盘 round-trip：`show_reasoning = true` 写进 toml 再读回来仍是 true
+///（缺省时该键**不出现**——老配置不受污染）。
+#[test]
+fn show_reasoning_survives_toml_round_trip() {
+    let mut s = AppSettings::default();
+    let omitted = s.to_toml_string();
+    assert!(
+        !omitted.contains("show_reasoning"),
+        "缺省不写该键: {omitted}"
+    );
+    s.llm.show_reasoning = Some(true);
+    let text = s.to_toml_string();
+    assert!(text.contains("show_reasoning = true"), "{text}");
+    let back = AppSettings::from_toml_str(&text).expect("round-trip");
+    assert!(back.llm.effective_show_reasoning());
+}
+
 /// 合并结果必须**仍能被解析回等价的值**（否则「保住了注释、写坏了配置」）。
 #[test]
 fn merged_text_round_trips_to_the_same_settings() {
@@ -640,4 +719,54 @@ fn merged_text_round_trips_to_the_same_settings() {
     assert_eq!(back.llm.model, s.llm.model);
     assert_eq!(back.tts.voice, s.tts.voice);
     assert_eq!(back.persona.system_prompt, s.persona.system_prompt);
+}
+
+// ------------------------- `GET/PUT /api/v1/env` 的键名真源（P1）
+
+/// 顺序固定 `llm → tts → performance`（声明顺序 = 接口展示顺序）。
+#[test]
+fn declared_key_envs_lists_llm_tts_performance_in_order() {
+    let mut s = AppSettings::default();
+    s.llm.api_key_env = Some("L2D_LLM_KEY".into());
+    s.tts.api_key_env = Some("L2D_TTS_KEY".into());
+    s.performance.api_key_env = Some("L2D_PERF_KEY".into());
+    let got: Vec<(&str, String)> = s
+        .declared_key_envs()
+        .into_iter()
+        .map(|d| (d.section, d.name))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("llm", "L2D_LLM_KEY".to_string()),
+            ("tts", "L2D_TTS_KEY".to_string()),
+            ("performance", "L2D_PERF_KEY".to_string()),
+        ]
+    );
+}
+
+/// 空串 = 「没声明」：跳过，而不是产出一个空键名
+///（空键名会让 `PUT` 白名单形同虚设，也会在错误提示里长出一对空引号）。
+#[test]
+fn declared_key_envs_skips_empty_names() {
+    let mut s = AppSettings::default();
+    s.llm.api_key_env = Some(String::new());
+    s.tts.api_key_env = Some("L2D_TTS_ONLY".into());
+    s.performance.api_key_env = Some(String::new());
+    let got = s.declared_key_envs();
+    assert_eq!(got.len(), 1, "空串不该出现: {got:?}");
+    assert_eq!(got[0].section, "tts");
+    assert_eq!(got[0].name, "L2D_TTS_ONLY");
+}
+
+/// 全空（全 `None` 或全空串）= 空列表 → `GET /api/v1/env` 回 `keys:[]`，
+/// `PUT` 对任何键名都回 `400`。
+#[test]
+fn declared_key_envs_is_empty_when_nothing_declared() {
+    assert!(AppSettings::default().declared_key_envs().is_empty());
+    let mut s = AppSettings::default();
+    s.llm.api_key_env = Some(String::new());
+    s.tts.api_key_env = Some(String::new());
+    s.performance.api_key_env = Some(String::new());
+    assert!(s.declared_key_envs().is_empty());
 }

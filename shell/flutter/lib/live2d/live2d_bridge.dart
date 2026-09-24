@@ -181,6 +181,7 @@ class Live2DBridge extends ChangeNotifier {
     bool? lipSync,
     bool? idleEnabled,
     double? mouthSensitivity,
+    Map<String, double>? actionScales,
   }) {
     final payload = <String, Object?>{};
     if (model != null) payload['model'] = model;
@@ -200,6 +201,14 @@ class Live2DBridge extends ChangeNotifier {
     if (idleEnabled != null) payload['idleEnabled'] = idleEnabled;
     if (mouthSensitivity != null && mouthSensitivity.isFinite) {
       payload['mouthSensitivity'] = mouthSensitivity;
+    }
+    // 动作幅度倍率（2026-09-16）：`{head, body, expression}`，渲染面钳 [0.2, 2.2]。
+    // 缺省不下发（渲染面用自己的出厂默认）；只发三个键都有限的完整对象。
+    if (actionScales != null && actionScales.length == 3) {
+      final bool allFinite = actionScales.values.every(
+        (double v) => v.isFinite,
+      );
+      if (allFinite) payload['actionScales'] = actionScales;
     }
     return _enqueueOrSend('sync', payload);
   }
@@ -227,7 +236,29 @@ class Live2DBridge extends ChangeNotifier {
     <String, Object?>{'dataUrl': dataUrl ?? ''},
   );
 
-  /// 协议 v1 `mouth`（level 0..1，实时，节流 ≤30Hz）。
+  /// 协议 v1 preset（2026-09-15 / P0-1）。
+  ///
+  /// `id` 是稳定契约（`smile` / `unhappy` / `nod` …；旧 `expr_*` 仍按别名解析一版）；
+  /// `"none"` = **立即撤销**当前预设（两个槽一起清）。
+  /// 可选 `source`（`debug` / `director`，仅显示用）、`ttl_ms`、`intensity` ——
+  /// 缺省时渲染面用自己的表（与旧 `{id}` 逐值等价）。
+  ///
+  /// 渲染面按自己的预设表把它翻成模型参数（表情保持 / 短动作包络，写到
+  /// `final_override` 层）；**不认识的 id 静默忽略**，模型能力不足不会报错。
+  Future<void> sendPreset(
+    String id, {
+    String? source,
+    double? ttlMs,
+    double? intensity,
+  }) {
+    final payload = <String, Object?>{'id': id};
+    if (source != null && source.isNotEmpty) payload['source'] = source;
+    if (ttlMs != null && ttlMs > 0) payload['ttl_ms'] = ttlMs;
+    if (intensity != null) payload['intensity'] = intensity;
+    return _enqueueOrSend('preset', payload);
+  }
+
+  /// 协议 v1 mouth（level 0..1，实时，节流 ≤30Hz）。
   Future<void> sendMouth(double level) {
     final value = level.isFinite ? _clamp01(level) : 0.0;
     final last = _lastMouthAt;

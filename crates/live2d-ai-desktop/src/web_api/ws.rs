@@ -60,7 +60,7 @@ pub use connection::WsWriter;
 
 /// 把 [`crate::app_event::AppEvent`] 投影为 D1 §4.3 WS 帧 JSON（`None` = P1 暂不实现）。
 #[allow(unused_imports)]
-pub use events::app_event_to_ws_frame;
+pub use events::{action_cue_frame, app_event_to_ws_frame, should_broadcast};
 
 /// 1970-01-01 起累计秒 → (年, 月, 日, 时, 分, 秒)。`pub(crate)` 供测试用。
 #[allow(unused_imports)]

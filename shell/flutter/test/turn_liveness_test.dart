@@ -199,4 +199,62 @@ void _reasoningOnlyTests() {
       expect(kReasoningOnlyCaption, contains('输出 token 上限'));
     });
   });
+
+  _llmFaultVisibilityTests();
+}
+
+/// **LLM 故障可见**（2026-09-23，用户报「LLM 故障时对话无反应」）。
+///
+/// 这两条判据都住在纯模块里，所以 VM 直接跑得到——它们是「界面不能一直转圈 /
+/// 迟到的旧错不能收掉新一轮」的唯一回归。
+void _llmFaultVisibilityTests() {
+  group('mustSettleTurnOnError：致命错误兜底收口', () {
+    test('致命错误 + 本轮在飞 → 立刻收口', () {
+      expect(mustSettleTurnOnError(turnInFlight: true, fatal: true), isTrue);
+    });
+
+    test('非致命 LLM 失败不收口（已生成的语音还要播完）', () {
+      expect(mustSettleTurnOnError(turnInFlight: true, fatal: false), isFalse);
+    });
+
+    test('没有在飞的一轮时收到错误 → 无事可收', () {
+      expect(mustSettleTurnOnError(turnInFlight: false, fatal: true), isFalse);
+    });
+  });
+
+  group('frameBelongsToCurrentTurn：迟到的旧轮帧必须丢弃', () {
+    test('代次一致 → 属于当前轮', () {
+      expect(frameBelongsToCurrentTurn(frameEpoch: 7, currentEpoch: 7), isTrue);
+    });
+
+    test('代次不同 → 迟到帧，丢弃', () {
+      expect(frameBelongsToCurrentTurn(frameEpoch: 7, currentEpoch: 8), isFalse);
+      expect(frameBelongsToCurrentTurn(frameEpoch: 8, currentEpoch: 7), isFalse);
+    });
+
+    test('任一侧缺省（旧服务端 / 代次还没回填）→ 按当前轮处理', () {
+      expect(frameBelongsToCurrentTurn(frameEpoch: null, currentEpoch: 7), isTrue);
+      expect(frameBelongsToCurrentTurn(frameEpoch: 7, currentEpoch: null), isTrue);
+      expect(frameBelongsToCurrentTurn(frameEpoch: null, currentEpoch: null), isTrue);
+    });
+  });
+
+  group('失败兜底：禁止「无字无错」', () {
+    test('失败但没有 error 帧 → 需要兜底码', () {
+      expect(needsFailureFallbackCode(failed: true, hasError: false), isTrue);
+    });
+
+    test('已经有 error 帧 → 不覆盖更全的信息', () {
+      expect(needsFailureFallbackCode(failed: true, hasError: true), isFalse);
+    });
+
+    test('成功轮不需要任何兜底码', () {
+      expect(needsFailureFallbackCode(failed: false, hasError: false), isFalse);
+    });
+
+    test('兜底码与文案是稳定契约', () {
+      expect(kTurnFailedWithoutDetailCode, 'turn_failed_no_detail');
+      expect(kTurnFailedWithoutDetailMessage, contains('诊断日志'));
+    });
+  });
 }

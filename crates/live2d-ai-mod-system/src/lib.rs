@@ -39,8 +39,8 @@ pub use error::ModError;
 pub use factory::{ModAction, ModFactory, ModRuntime};
 pub use registry::{ModRegistrar, SubscriptionId};
 pub use services::{
-    ModActionSender, ModEventSender, ModLogger, ModServices, ModSettingsApplier, ModSettingsReader,
-    SaySender,
+    ModActionSender, ModCueSender, ModEventSender, ModLogger, ModServices, ModSettingsApplier,
+    ModSettingsReader, SaySender,
 };
 pub use session::{
     MAX_SESSION_ID_CHARS, ModSessionPrompts, NoSessionPrompts, SESSION_PROMPT_OWNER_DEFAULT,

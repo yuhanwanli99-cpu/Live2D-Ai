@@ -102,6 +102,15 @@ class AudioPlayer {
   bool _muted = false;
   double _volume = 1.0;
 
+  final StreamController<int?> _sentenceStarts =
+      StreamController<int?>.broadcast();
+
+  /// 一句**开始播放**（媒体元素 play 之前 / 降级时钟启动之前）。
+  ///
+  /// 导演 cue 按 sentence_seq 在这里 apply（PLAN 第 3.6 节：锚点选音频
+  /// first_chunk，而不是句子提交时刻——否则慢 TTS 会让动作先于声音几秒）。
+  Stream<int?> get sentenceStarts => _sentenceStarts.stream;
+
   Stream<double> get levels => _levels.stream;
   double get level => _level;
 
@@ -214,6 +223,7 @@ class AudioPlayer {
     interrupt();
     _disposed = true;
     _levels.close();
+    unawaited(_sentenceStarts.close());
     unlockState.dispose();
   }
 
@@ -281,6 +291,10 @@ class AudioPlayer {
   }
 
   void _play(_Playback item) {
+    // P1-3：这一句**开始播放**了——导演 cue 的锚点（先于声音，避免先演后响）。
+    if (!_sentenceStarts.isClosed) {
+      _sentenceStarts.add(item.sentence.sentenceSeq);
+    }
     final web.HTMLAudioElement? element = item.element;
     if (element == null) {
       // 降级：没有媒体后端 → 用本地时钟当播放时间轴，口型照常按包络走。

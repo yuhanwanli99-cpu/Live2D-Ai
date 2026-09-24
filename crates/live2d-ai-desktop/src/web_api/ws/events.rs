@@ -36,6 +36,26 @@ use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
 ///（含 Conversation(TextDelta) 真实 text payload；保留
 /// GenerationFinished 作为「完成锚点」兼容旧前端）。
 /// 2026-09-11 新增：`error`（AppEvent::Error 投影；见下）。
+/// **思考上屏闸门**（2026-09-15 产品开关 `llm.show_reasoning`，缺省 `false`）。
+///
+/// `false` → [`ConversationUiEvent::ReasoningDelta`] **不投影成 WS 帧**，
+/// 前端因此看不到思考区；其余事件（正文 / 音频 / 状态 / **错误**）一律照常。
+///
+/// 为什么闸门放在这里（投影层）而不是引擎里：
+/// - 引擎的契约是「思考单列一类事件、绝不进句子装配器、绝不进 TTS」
+///   （见 `live2d_ai_runtime` 的 `reasoning_never_reaches_the_sentence_assembler`），
+///   那条纪律与「要不要展示」是两件事——本开关只决定**上不上屏**；
+/// - 放在投影层，`AppEvent` 生产者与 core reducer 一行不动，
+///   也不会让「关掉展示」变成「关掉解析」（思考与正文共用 `max_tokens`，
+///   上游该发的一个 token 不少——这不是性能开关）。
+pub fn should_broadcast(event: &AppEvent, show_reasoning: bool) -> bool {
+    show_reasoning
+        || !matches!(
+            event,
+            AppEvent::Conversation(ConversationUiEvent::ReasoningDelta { .. })
+        )
+}
+
 pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
     let mut frame = WsFrame::new();
     match event {
@@ -110,6 +130,24 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
                 "text": text,
             }));
         }
+        AppEvent::Conversation(ConversationUiEvent::ActionCue {
+            epoch,
+            ts_ms,
+            covers_upto_seq,
+            cues,
+        }) => {
+            // **复用既有 `action_cue` 帧类型**（2026-09-22）：表演层的 cues 与
+            // director Mod 的 cues 是同一个 wire 契约，前端 `ActionCueEvent` 一行不用改。
+            // 单条 cue 的 JSON 形态由 runtime 的 `PerformanceCue::to_json` 给出
+            //（含固定 priority），这里不重抄一遍字段名。
+            frame.set_type("action_cue");
+            frame.set_data(serde_json::json!({
+                "epoch": epoch,
+                "ts_ms": ts_ms,
+                "covers_upto_seq": covers_upto_seq,
+                "cues": cues.iter().map(|c| c.to_json()).collect::<Vec<_>>(),
+            }));
+        }
         AppEvent::Conversation(ConversationUiEvent::VoiceStarted { epoch }) => {
             frame.set_type("runtime_status");
             frame.set_data(serde_json::json!({
@@ -173,6 +211,15 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
 ///
 /// **P1WS-2 变更**：原 v1 全局 `static SEQ: AtomicU64` 删除——seq 由
 /// `ConnectionState::alloc_seq()` 维护。
+/// P1-3（2026-09-16）：把导演 cue 的 payload 封成 WS action_cue 帧。
+///
+/// 与其余 WS 帧**同形**：只有 type + data（seq/ts 由 per-connection actor 在
+/// wrap_preserialized_with_seq 里加）。**必须是 data 而不是 payload**——前端
+/// parseWsFrame 只读 data；写错字段会让 cue 静默丢失（本函数有回归）。
+pub fn action_cue_frame(cue: &Value) -> String {
+    serde_json::json!({ "type": "action_cue", "data": cue }).to_string()
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct WsFrame<'a> {
     r#type: &'a str,
@@ -226,4 +273,57 @@ pub(crate) fn epoch_secs_to_ymdhms(secs: u64) -> (u32, u32, u32, u32, u32, u32) 
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if month <= 2 { y + 1 } else { y };
     (year as u32, month as u32, d as u32, h, m, s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// action_cue 帧必须是 type + data（前端 parseWsFrame 只读 data）。
+    #[test]
+    fn action_cue_frame_uses_type_and_data() {
+        let cue = serde_json::json!({
+            "epoch": 7,
+            "covers_upto_seq": 2,
+            "cues": [{"sentence_seq": 1, "preset_id": "nod", "intensity": 2, "ttl_ms": 1800, "priority": 40}],
+        });
+        let raw = action_cue_frame(&cue);
+        let value: Value = serde_json::from_str(&raw).expect("必须是合法 JSON");
+        assert_eq!(value["type"], "action_cue");
+        assert_eq!(value["data"]["epoch"], 7);
+        assert_eq!(value["data"]["cues"][0]["preset_id"], "nod");
+        assert!(
+            value.get("payload").is_none(),
+            "字段名必须是 data（不是 payload），否则前端读不到"
+        );
+    }
+
+    /// **表演层 ActionCue → 既有 action_cue 帧**（2026-09-22）：帧型与字段与
+    /// director Mod 那条**逐字同形**——前端 `ActionCueEvent` 一行不用改。
+    #[test]
+    fn performance_action_cue_projects_to_the_same_action_cue_frame() {
+        let ev = AppEvent::Conversation(ConversationUiEvent::ActionCue {
+            epoch: 9,
+            ts_ms: 321,
+            covers_upto_seq: 2,
+            cues: vec![live2d_ai_runtime::performance::PerformanceCue {
+                sentence_seq: 2,
+                preset_id: "smile".to_string(),
+                intensity: 2,
+                ttl_ms: 1_500,
+            }],
+        });
+        let frame = app_event_to_ws_frame(&ev).expect("必须投影成帧");
+        assert_eq!(frame["type"], "action_cue");
+        assert_eq!(frame["data"]["epoch"], 9);
+        assert_eq!(frame["data"]["covers_upto_seq"], 2);
+        assert_eq!(frame["data"]["cues"][0]["sentence_seq"], 2);
+        assert_eq!(frame["data"]["cues"][0]["preset_id"], "smile");
+        assert_eq!(frame["data"]["cues"][0]["intensity"], 2);
+        assert_eq!(frame["data"]["cues"][0]["ttl_ms"], 1_500);
+        assert_eq!(
+            frame["data"]["cues"][0]["priority"],
+            live2d_ai_runtime::performance::PRIORITY_PERFORMANCE
+        );
+    }
 }

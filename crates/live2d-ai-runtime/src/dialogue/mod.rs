@@ -38,9 +38,11 @@
 //! );
 //! ```
 
+pub mod clean;
 pub mod orchestrator;
 pub mod sentence;
 
+pub use clean::clean_for_tts;
 pub use orchestrator::{DialogueAssembler, DialogueEvent};
 pub use sentence::SentenceAssembler;
 

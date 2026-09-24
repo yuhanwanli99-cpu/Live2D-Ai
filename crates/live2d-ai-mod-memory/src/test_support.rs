@@ -313,11 +313,6 @@ impl FakeHost {
             );
     }
 
-    /// 让 `apply_settings` 开始拒绝写入（模拟配置不可写 / busy）。
-    pub(crate) fn set_accept(&self, value: bool) {
-        self.accept.store(value, Ordering::SeqCst);
-    }
-
     pub(crate) fn patches(&self) -> Vec<serde_json::Value> {
         self.patches.lock().expect("patches lock").clone()
     }

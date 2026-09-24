@@ -91,6 +91,35 @@ pub(super) fn spawn_llm_mock(bodies: Arc<Mutex<Vec<serde_json::Value>>>, sse: St
     format!("http://{addr}/v1")
 }
 
+/// LLM mock：固定**非 2xx 状态**（401 / 503 …）+ JSON 兜底体。
+///
+/// 用途（2026-09-23）：回归「上游失败 → WS error 帧（带码）+ 本轮以 failed 收口」。
+/// 与 [spawn_llm_mock] 的区别只在状态行——链路把它当 `Error::Status` 处理。
+pub(super) fn spawn_llm_mock_status(status: u16, body: &str) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind llm");
+    let addr = listener.local_addr().expect("addr");
+    let body = body.to_string();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut sock) = conn else { continue };
+            let body = body.clone();
+            std::thread::spawn(move || {
+                if let Some(req) = read_mock_request(&mut sock) {
+                    eprintln!("[llm-mock] 收到请求 body={}B，回 {status}", req.body.len());
+                    let head = format!(
+                        "HTTP/1.1 {status} Upstream Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = sock.write_all(head.as_bytes());
+                    let _ = sock.write_all(body.as_bytes());
+                    let _ = sock.flush();
+                }
+            });
+        }
+    });
+    format!("http://{addr}/v1")
+}
+
 /// 慢速 LLM mock：响应前先睡 delay，制造稳定的「进行中」窗口供 stop 命中。
 pub(super) fn spawn_llm_mock_slow(
     bodies: Arc<Mutex<Vec<serde_json::Value>>>,
@@ -153,6 +182,68 @@ pub(super) fn spawn_tts_mock_slow(delay: Duration) -> String {
             std::thread::spawn(move || {
                 if read_mock_request(&mut sock).is_some() {
                     std::thread::sleep(delay);
+                    mock_respond(
+                        &mut sock,
+                        "audio/pcm",
+                        &[
+                            0, 0, 255, 255, 0, 0, 128, 128, 10, 0, 240, 255, 5, 0, 250, 255,
+                        ],
+                    );
+                }
+            });
+        }
+    });
+    format!("http://{addr}/v1")
+}
+
+/// **表演层 mock**（2026-09-22）：固定回一份 plan JSON + 请求体收集。
+///
+/// 与 llm/tts mock 同款极简 HTTP：读一条请求 → 记下 body → 回 `chat.completion`。
+/// 用来在**不依赖任何真端点**的前提下验证「配置段 → 装配 → 引擎 → ActionCue」整条链。
+pub(super) fn spawn_performance_mock(
+    bodies: Arc<Mutex<Vec<serde_json::Value>>>,
+    plan: String,
+) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind performance");
+    let addr = listener.local_addr().expect("addr");
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut sock) = conn else { continue };
+            let bodies = bodies.clone();
+            let plan = plan.clone();
+            std::thread::spawn(move || {
+                if let Some(req) = read_mock_request(&mut sock) {
+                    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                        bodies.lock().expect("poison").push(v);
+                    }
+                    let body = serde_json::json!({
+                        "choices": [{"message": {"role": "assistant", "content": plan}}],
+                    })
+                    .to_string();
+                    mock_respond(&mut sock, "application/json", body.as_bytes());
+                }
+            });
+        }
+    });
+    format!("http://{addr}/v1")
+}
+
+/// 记录到达的 TTS `input` 顺序（表演层冒烟要断言「送 TTS 的是 speak」）。
+pub(super) fn spawn_tts_mock_recording(inputs: Arc<Mutex<Vec<String>>>) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind tts");
+    let addr = listener.local_addr().expect("addr");
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut sock) = conn else { continue };
+            let inputs = inputs.clone();
+            std::thread::spawn(move || {
+                if let Some(req) = read_mock_request(&mut sock) {
+                    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                        inputs
+                            .lock()
+                            .expect("poison")
+                            .push(v["input"].as_str().unwrap_or("").to_string());
+                    }
                     mock_respond(
                         &mut sock,
                         "audio/pcm",

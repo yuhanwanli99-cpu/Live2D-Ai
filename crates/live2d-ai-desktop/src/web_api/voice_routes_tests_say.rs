@@ -46,12 +46,12 @@ fn success_returns_200_with_cleaned_text() {
 fn zero_width_chars_are_cleaned_before_say() {
     let (ctx, handle, tmp) = ctx_with_supervisor("zw", UNREACHABLE_LLM);
     let ctx = with_manifest(ctx, &voice_manifest(wake_only()));
-    // 零宽 / 控制符被清洗后，唤醒短语在中间也被找到并剥离。
+    // 零宽 / 控制符被清洗后，**句首**的唤醒短语被剥离（P0-4 句首锚定）。
     let resp = call(
         &ctx,
         &Method::Post,
         VOICE_TRANSCRIPT_PATH,
-        r#"{"text":"你\uFEFF好\u200B\u0007小爱"}"#,
+        r#"{"text":"\uFEFF小\u200B爱\u0007你好"}"#,
         None,
         Some("application/json"),
     )

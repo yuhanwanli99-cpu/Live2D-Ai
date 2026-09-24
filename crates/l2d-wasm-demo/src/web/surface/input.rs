@@ -8,8 +8,22 @@ use glam::f32::{Affine2, Vec2};
 use l2d::renderer::RenderTier;
 
 use super::idle::apply_idle_life;
-use super::render::SharedState;
+use super::render::{FrameState, SharedState};
 use crate::mouth::{DEFAULT_MOUTH_SENSITIVITY, mouth_open_from_level};
+
+/// P0-2：把 [`crate::preset::PresetSink`] 接到渲染核心的 **final_override** 层。
+///
+/// 动作预设因此永远压过同帧**更晚**写的 idle 微表情（input 层），到点整批撤销；
+/// 口型 `ParamMouthOpenY` 仍走 `set_parameter`（input），两者互不干扰。
+impl crate::preset::PresetSink for l2d::renderer::ModelRendererCore {
+    fn override_param(&mut self, id: &str, value: f32) -> bool {
+        self.override_parameter(id, value)
+    }
+
+    fn clear_override_param(&mut self, id: &str) -> bool {
+        self.clear_override_parameter(id)
+    }
+}
 
 /// 口型音量显示衰减时间常数（ms）。
 /// `volume_display *= exp(-dt_ms / TAU_MS)` —— 衰减到 37% 需时 TAU_MS。
@@ -86,6 +100,13 @@ pub(crate) struct BridgeState {
     /// stage-bg.dataUrl（自定义背景图 dataURL；None = 无背景图）。
     /// 应用为 canvas CSS background-image（cover 缩放），与 background-color 共存。
     pub bg_data_url: Option<String>,
+    /// 动作预设定态（`preset` 消息写入；P0-1 / P0-2）。
+    ///
+    /// 2026-09-15：导演 Mod / 开发工具「动作调试」选出的 preset 经 Flutter
+    /// 转发到此，由 [`apply_bridge_effects`] 经 **`final_override`** 层写成
+    /// 模型参数（表情保持 / 短动作包络），到点整批撤销。未知 id 在 main.rs
+    /// 就被丢掉（静默降级）；`id:"none"` = 立即撤销。
+    pub preset: crate::preset::PresetRuntime,
     /// 最近 audio-volume（0..1；每 20ms 音频帧更新）
     pub volume: f32,
     /// 衰减后的口型显示值（rAF 每帧 volume_display = volume.max(volume_display*0.85)）
@@ -110,6 +131,7 @@ impl Default for BridgeState {
             click_enabled: true,
             tier: RenderTier::DEFAULT,
             bg_data_url: None,
+            preset: crate::preset::PresetRuntime::default(),
             volume: 0.0,
             volume_display: 0.0,
             msg_recv: 0,
@@ -166,9 +188,19 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     });
     let _ = st.core.set_parameter("ParamMouthOpenY", mouth);
 
-    // 2026-09-12（rc.2）：动作参数 override 层已整体删除（见 `core-chain-baseline.md`
-    // §3.3）。`final_override` 层因此没有任何写入方——待机生命体征走 input 层
-    // （见下方 `apply_idle_life`），口型也走 input 层，两者都不依赖它。
+    // **动作预设**（P0-1 / P0-2）：Director Mod / 开发工具 → Flutter → 这里。
+    //
+    // 写入目标 = **`final_override` 层**（[`crate::preset::PresetSink`] 的
+    // `ModelRendererCore` 实现在本文件顶部），不是 input 层——否则同帧更晚写的
+    // idle 微表情（见下方 `apply_idle_life`）会把表情的嘴/眉盖掉（P0-2 修的缺陷）。
+    //
+    // 表情：静态保持 ttl，到点整批撤销；短动作：正弦包络一次（首末为 0）。
+    // `id:"none"` 在消息入口已立即撤销；未知 id 静默忽略。写不进的参数
+    // （皮套缺该通道）由 `override_parameter` 返回 false 静默降级——不报错。
+    {
+        let FrameState { bridge, core, .. } = &mut *st;
+        bridge.preset.apply_frame(now_ms, core);
+    }
 
     // 缩放 + 平移（模型级逻辑变换，背景不受影响）。
     //
@@ -204,9 +236,11 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
 
     // RM6 待机生命体征层（呼吸/眨眼/微表情）——写入 input 层。
     //
-    // 2026-09-12（rc.2）：动作 override 层已删除，idle 层之上不再有 `final_override`
-    // 写入方；**这一层本身不受影响，必须保留**（`core-chain-baseline.md` §3.4：
-    // 待机生命体征与动作是两套机制）。`idle_enabled` 开关来自前端
+    // 2026-09-12（rc.2）删掉的是**动作系统**那条驱动链（`action-state` 接收器 +
+    // `surface.rs` 编舞表），**不是** `final_override` 层本身：本函数上方的
+    // `bridge.preset.apply_frame` 每帧都在往这一层写动作预设（preset 预设）。
+    // idle 层写在 input 层，与它互不覆盖，**必须保留**（`core-chain-baseline.md`
+    // §3.4：待机生命体征与动作是两套机制）。`idle_enabled` 开关来自前端
     //「外观与互动 → 待机小动作」。
     //
     // - breath/blink 参数（ParamBreath / EyeL/R）只在这里写，不与口型争参数。

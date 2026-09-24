@@ -66,7 +66,7 @@ mod platform;
 /// 两个工厂（均**缺省停用**，`cli_entry::default_mods_manifest` 未收录）。数字 3 → 5。
 ///
 /// 2026-09-14（0.2.0-rc.3，Wave 2 合并）：追加 `memory`（会话记忆：本地 JSONL +
-/// 词元重叠检索 → `apply_settings` 注入下一轮 `system_prompt`），同样**只注册、
+/// 词元重叠检索 → 注入会话注入槽，**本轮请求体即带上**），同样**只注册、
 /// 缺省停用**。数字 5 → 6。director 当时仍**不注册**（Wave 2 只交 RFC）。
 ///
 /// 2026-09-14（Wave 3 合并，未 bump 版本）：追加 `director` **最小骨架**——只读

@@ -365,6 +365,56 @@ mod tests {
         assert_eq!(stack.get_parameter("ParamPlain"), Some(3.0));
     }
 
+    /// **P0-2 回归（同帧先后写）**：动作预设写 `final_override`，待机微表情写
+    /// input —— 即使 idle 在同一帧**更晚**写，也不能盖掉表情的嘴/眉。
+    ///
+    /// 复刻 `l2d-wasm-demo/src/web/surface/input.rs` 的真实顺序：
+    /// 先 `override_parameter`（预设）…… 后 `set_parameter`（`apply_idle_life`）。
+    /// 旧实现把预设也写 input 层，于是后写的 idle 会赢（表情闪一下又变平）。
+    #[test]
+    fn idle_micro_expression_written_after_preset_cannot_override_it() {
+        let mut map = pose::PoseMap::new();
+        for (i, id) in ["ParamMouthForm", "ParamBrowLY", "ParamBrowRY"]
+            .into_iter()
+            .enumerate()
+        {
+            map.add(Descriptor {
+                key: pose::Key::from_param(id.to_owned()),
+                uid: i as u64 + 1,
+                name: None,
+                min: -10.0,
+                max: 10.0,
+                default: 0.0,
+            });
+        }
+        let mut stack = PoseStack::from_pose_map(Arc::new(map));
+        stack.update(FIXED_DT_60HZ).unwrap();
+
+        // 同帧顺序：预设（final_override）在前，idle 微表情（input）在后。
+        stack.override_parameter("ParamMouthForm", 1.0);
+        stack.override_parameter("ParamBrowLY", 0.6);
+        stack.set_parameter("ParamMouthForm", 0.5);
+        stack.set_parameter("ParamBrowLY", -0.05);
+
+        assert_eq!(
+            stack.get_parameter("ParamMouthForm"),
+            Some(1.0),
+            "idle 后写不得盖掉表情嘴形"
+        );
+        assert_eq!(
+            stack.get_parameter("ParamBrowLY"),
+            Some(0.6),
+            "idle 后写不得盖掉表情眉"
+        );
+
+        // 到点整批撤销 → 回到 idle/input 层的值（预设不再持有 override）。
+        assert!(stack.clear_override_parameter("ParamMouthForm"));
+        assert!(stack.clear_override_parameter("ParamBrowLY"));
+        assert_eq!(stack.get_parameter("ParamMouthForm"), Some(0.5));
+        assert_eq!(stack.get_parameter("ParamBrowLY"), Some(-0.05));
+        assert!(!stack.has_override_value("ParamMouthForm"));
+    }
+
     #[test]
     fn idle_recomputes_each_frame_so_values_advance() {
         let mut stack = PoseStack::from_pose_map(synthetic_map(true, true));

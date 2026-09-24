@@ -54,7 +54,13 @@ class ChatMessage {
 
   final ChatRole role;
   String text;
-  final int? epoch;
+
+  /// 本轮业务代次（服务端受理时给出）。
+  ///
+  /// **可变**（2026-09-23）：气泡现在在 POST **之前**就建好，拿到受理响应后
+  /// 才回填代次——这样「服务端在 HTTP 应答之前就跑完本轮并广播 error /
+  /// turn_state」的快失败不会因为气泡还不存在而丢掉收口（见 ChatController.send）。
+  int? epoch;
   bool streaming;
   bool failed;
 

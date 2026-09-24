@@ -1,16 +1,19 @@
 /// 「LLM」分区（规格 §4.1.3）。
 ///
-/// # 密钥（rc.2 2026-09-12 改了这里的说法）
+/// # 密钥（rc.2 2026-09-12；P2 收敛 hasApiKey 语义；P6 收掉变量名编辑）
 ///
-/// - **变量名**（`api_key_env`）属于 **dev** 层，改它容易把自己弄成未配置；
-/// - **变量值**现在有地方填了：[`EnvKeyField`] 经 `PUT /api/v1/env` 写进 `.env`，
+/// - **变量名**（`api_key_env`）**界面上不再提供编辑入口**（P6）：改它容易把自己
+///   弄成未配置，而收益为零。要改绑定就改 `live2d-ai.toml` 的 `api_key_env`
+///   （`curl PATCH /api/v1/settings` 也仍然接受这个字段——服务端那条路没删）。
+/// - **变量值**仍有地方填：[`EnvKeyField`] 经 `PUT /api/v1/env` 写进 `.env`，
 ///   写完热重载、立即生效。以前只能在启动脚本/进程环境里设，界面上改不了——
 ///   于是「保存了还是 401」且无处可改。
+/// - 「密钥绑定」一行显示的是 `GET /api/v1/env` 回的**变量名**（绑了哪个）；
+///   值本身仍然只往上走、永不下发。
 ///
 /// 红线没变：值**只往上走**，`GET /api/v1/env` 只回键名与「是否已设置」。
-/// 所以 [LlmSettingsView.hasApiKey]（来自 `GET /settings`）表达的仍然是
-/// **「配置里声明了键名」**，不是「值已经拿到」——两者文案必须分开说，
-/// 否则用户看到「已配置」却还在 401。
+/// P2 起 [LlmSettingsView.hasApiKey]（`GET`/`PATCH /settings` 同口径）收敛为
+/// **单一语义**——「配置里声明了键名」**且**「服务端真读得到非空值」。
 library;
 
 import 'package:flutter/material.dart';
@@ -22,6 +25,22 @@ import '../../ui/section_header.dart';
 import '../settings_controller.dart';
 import 'env_key_field.dart';
 import 'pane_helpers.dart';
+
+/// 表演层契约的**界面原文**（2026-09-22 用户敲定）。
+///
+/// 抽成顶层常量不是为了复用，而是为了让回归能直接断言这几句——
+/// 「主模型不负责表演」与三态（只说 / 只动 / noop）是用户理解分工的锚点，
+/// 改含糊了就会有人以为两套大脑在抢 cue。
+const String kLlmPerformanceText = '主模型不负责表演；表演层每轮 JSON';
+
+/// 表演层一行说明：三态 + 配置位置（都在 [performance] 段）。
+const String kLlmPerformanceDescription =
+    '主模型只写剧情正文（人设与记忆注入，不暴露工具）。'
+    '本轮说什么、做什么由表演层每轮交回一份 JSON 决定，三种输出都合法：'
+    '**只说**（speak 有值、cues 空）、**只动**（speak 空、cues 有值）、'
+    '**noop**（speak 与 cues 都是空字段 = 本轮不说也不动）。'
+    '配置只在 live2d-ai.toml 的 [performance] 段'
+    '（enabled + 独立 base_url/model）；表演层默认关。';
 
 class LlmSection extends StatelessWidget {
   const LlmSection({
@@ -39,6 +58,10 @@ class LlmSection extends StatelessWidget {
 
   final SettingsController controller;
   final SettingsView view;
+
+  /// 开发模式开关。**LLM 段目前没有 dev-only 字段**：P6 删掉最后一行
+  /// 「密钥的环境变量名」后，`if (devMode)` 块只剩一个空标题，所以整块撤掉。
+  /// 参数保留是为了与 `shell_settings.dart` 的调用签名一致（不在本次改动范围内）。
   final bool devMode;
 
   /// 本段声明的密钥键状态（`GET /api/v1/env`；`null` = 没绑定变量名）。
@@ -108,14 +131,33 @@ class LlmSection extends StatelessWidget {
             draft.llmMaxTokens = Tri.set(v);
           }),
         ),
+        ToggleField(
+          label: '展示思考（reasoning）',
+          icon: Icons.psychology_outlined,
+          value: effTriBool(d.llmShowReasoning, llm.showReasoning) ?? false,
+          description: '开启后，推理模型的思考会显示在气泡的「思考」折叠区（不会念出来）。'
+              '关掉只是不显示——思考照样生成、照样不占正文，也不是为了提速。',
+          onChanged: (bool v) => controller.edit((SettingsDraft draft) {
+            draft.llmShowReasoning = Tri.set(v);
+          }),
+        ),
+        ReadonlyField(
+          label: '表演层（默认关）',
+          icon: Icons.theater_comedy_outlined,
+          // 2026-09-22 用户敲定的分工：主模型只管剧情；说辞整理与动作归表演层。
+          // 这一行是**界面上的契约说明**——不让用户以为主模型还会“演”。
+          text: kLlmPerformanceText,
+          description: kLlmPerformanceDescription,
+        ),
         ReadonlyField(
           label: '密钥绑定',
           icon: Icons.link,
-          // 这里说的是**变量名有没有声明**（`GET /settings` 只知道这个）。
-          // 值有没有拿到看下面那一行的「已设置/未设置」——两句分开说，
-          // 否则「已配置」会与 401 同时出现。
-          text: llm.hasApiKey ? '已声明密钥的环境变量名' : '未绑定密钥（无鉴权）',
-          description: '密钥本体永不下发；值请在下面填写（写进 .env）',
+          // P6：绑定名来自 `GET /api/v1/env`（`EnvKey.key`）——界面只显示
+          // **绑到哪个变量名**，不显示值、也不再提供修改变量名的入口。
+          // 值本身只往上走（在下面那行填）。
+          text: envKey == null ? '未绑定密钥（无鉴权）' : '绑定到 ${envKey!.key}',
+          description: '密钥本体永不下发；值请在下面填写（写进 .env）；'
+              '改绑定 = 改 live2d-ai.toml 的 api_key_env',
         ),
         if (envKey != null)
           EnvKeyField(
@@ -124,32 +166,6 @@ class LlmSection extends StatelessWidget {
             onSave: onSaveKey,
             debugHint: envFile,
           ),
-        if (devMode) ...<Widget>[
-          const Divider(),
-          const SectionHeader(
-            title: '开发者选项',
-            description: '这些字段普通使用不需要碰。',
-          ),
-          TextFieldRow(
-            label: '密钥的环境变量名',
-            icon: Icons.badge_outlined,
-            value: effString(d.llmApiKeyEnv, ''),
-            hint: 'LIVE2D_AI_LLM_API_KEY',
-            description: '填**变量名**，不是密钥本身。留空并保存 = 不绑定密钥',
-            onChanged: (String v) => controller.edit((SettingsDraft draft) {
-              draft.llmApiKeyEnv = v;
-            }),
-          ),
-          ToggleField(
-            label: '清除密钥绑定',
-            icon: Icons.link_off,
-            value: d.clearLlmApiKey,
-            description: '保存后服务端不再从环境变量读密钥（下次启动生效）',
-            onChanged: (bool v) => controller.edit((SettingsDraft draft) {
-              draft.clearLlmApiKey = v;
-            }),
-          ),
-        ],
         if (onTest != null) ...<Widget>[
           const Divider(),
           FieldActionRow(

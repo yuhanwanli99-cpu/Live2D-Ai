@@ -90,6 +90,20 @@ abstract class ModPanel {
   /// 该 Mod 运行态字段的中文标签（合并进统一的运行态渲染）。
   Map<String, String> get stateLabels => const <String, String>{};
 
+  /// 这些配置 key 在**通用表单**里收进「高级」折叠（缺省空 = 全部平铺）。
+  ///
+  /// 为什么由面板声明而不是 schema 加字段：折叠是**呈现**决策，不是协议；
+  /// 各 Mod 面板本来就是这个 Mod 的呈现所有者（见本文件头注的文件边界）。
+  /// 没有它，语音输入那一屏会把 sidecar 路径 / ASR 命令 / 令牌全摊在主区。
+  Set<String> get advancedKeys => const <String>{};
+
+  /// 是否在配置表单下面显示**通用运行态块**（「运行态（只读）」那一节）。
+  ///
+  /// 缺省 true（所有旧 Mod 观感不变）。面板自己有更合适的呈现时置 false——
+  /// 导演就是这样：通用块会把十几个键（含 presets: 8 项 之类）全铺出来，
+  /// 而用户要的只是「本轮选中了哪条预设」。
+  bool get showRuntimeState => true;
+
   /// 产品面板本体；返回 null = 不需要额外面板。
   Widget? build(BuildContext context, ModPanelContext ctx);
 }

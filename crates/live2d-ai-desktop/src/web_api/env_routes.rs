@@ -4,7 +4,7 @@
 //!
 //! | 端点 | 作用 | 回显 |
 //! |---|---|---|
-//! | `GET /api/v1/env` | 列出**配置里声明的**键名（`llm.api_key_env` / `tts.api_key_env`）与「是否已设置」 | **只回键名 + 布尔，永不回值** |
+//! | `GET /api/v1/env` | 列出**配置里声明的**键名（`llm` / `tts` / `performance` 的 `api_key_env`）与「是否已设置」 | **只回键名 + 布尔，永不回值** |
 //! | `PUT /api/v1/env` | 写 `.env` 的单个键（`{"key":"…","value":"…"}`），写完热重载 | 只回 `{key, set}` |
 //!
 //! # 为什么单开一个端点而不是塞进 `PATCH /api/v1/settings`
@@ -24,6 +24,11 @@
 //!
 //! 键名**不是**前端随便填的：`GET` 返回的就是配置里 `api_key_env` 指向的那个名字。
 //! 前端照着填/写，因此不存在「前端写了一个后端不读的变量名」这种静默失效。
+//!
+//! 键名清单的**唯一真源**是 [`AppSettings::declared_key_envs`]——本模块的
+//! `GET` 与 `PUT`（白名单）都从那一份结果推导，**不得**再各自抄一遍段清单。
+//! 以前两边各抄 `llm` + `tts`，于是 `[performance].api_key_env` 既列不出、
+//! 也写不进（PUT 回 `400 unknown_key`）。
 
 use std::io::Cursor;
 
@@ -41,7 +46,7 @@ type Resp = Response<Cursor<Vec<u8>>>;
 /// `GET /api/v1/env` 的单条。
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 pub struct EnvKeyEntry {
-    /// 归属段（`"llm"` / `"tts"`）。
+    /// 归属段（`"llm"` / `"tts"` / `"performance"`）。
     pub section: &'static str,
     /// 环境变量名（来自配置的 `api_key_env`）。
     pub key: String,
@@ -78,31 +83,17 @@ pub struct EnvWriteResponse {
 
 /// `GET /api/v1/env`：配置声明的键名 + 是否已设置。
 pub fn handle_get(settings: &AppSettings) -> Resp {
-    let mut keys = Vec::new();
-    if let Some(name) = settings
-        .llm
-        .api_key_env
-        .as_deref()
-        .filter(|n| !n.is_empty())
-    {
-        keys.push(EnvKeyEntry {
-            section: "llm",
-            key: name.to_string(),
-            set: live2d_ai_runtime::secrets::is_set(name),
-        });
-    }
-    if let Some(name) = settings
-        .tts
-        .api_key_env
-        .as_deref()
-        .filter(|n| !n.is_empty())
-    {
-        keys.push(EnvKeyEntry {
-            section: "tts",
-            key: name.to_string(),
-            set: live2d_ai_runtime::secrets::is_set(name),
-        });
-    }
+    // 唯一真源：`AppSettings::declared_key_envs()`（顺序 llm → tts → performance）。
+    // 这里**不**枚举段清单——多抄一遍就多一处「新增段忘了同步」的缺口。
+    let keys: Vec<EnvKeyEntry> = settings
+        .declared_key_envs()
+        .into_iter()
+        .map(|d| EnvKeyEntry {
+            section: d.section,
+            set: live2d_ai_runtime::secrets::is_set(&d.name),
+            key: d.name,
+        })
+        .collect();
     json_response(
         StatusCode(200),
         &EnvListResponse {
@@ -130,25 +121,23 @@ pub fn handle_put(settings: &AppSettings, method: &Method, body_str: &str) -> Re
             ));
         }
     };
-    // 键名白名单 = 配置里声明的那些。不校验的话，前端可以往 `.env` 里写任意
+    // 键名白名单 = 配置里声明的那些（**与 `GET` 同一份真源**：
+    // `AppSettings::declared_key_envs`）。不校验的话，前端可以往 `.env` 里写任意
     // 变量名（无害但会让「写了却没生效」变成常态，且 .env 会慢慢长满垃圾）。
-    let declared: Vec<&str> = [
-        settings.llm.api_key_env.as_deref(),
-        settings.tts.api_key_env.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|n| !n.is_empty())
-    .collect();
-    if !declared.contains(&req.key.as_str()) {
+    let declared = settings.declared_key_envs();
+    if !declared.iter().any(|d| d.name == req.key) {
         return Err(bad_request(
             "unknown_key",
             &format!(
-                "配置里没有声明这个键名（可选：{}）；键名来自 [llm]/[tts] 的 api_key_env",
+                "配置里没有声明这个键名（可选：{}）；键名来自 [llm]/[tts]/[performance] 的 api_key_env",
                 if declared.is_empty() {
                     "无".to_string()
                 } else {
-                    declared.join(", ")
+                    declared
+                        .iter()
+                        .map(|d| d.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 }
             ),
         ));
@@ -198,11 +187,16 @@ mod tests {
 
     fn settings_with(keys: (Option<&str>, Option<&str>)) -> AppSettings {
         let mut s = AppSettings {
+            // 2026-09-16：action 段默认（幅度倍率）。
+            action: Default::default(),
+            // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
+            performance: Default::default(),
             llm: LlmSettings {
                 base_url: "http://127.0.0.1:1/v1".into(),
                 model: "m".into(),
                 api_key_env: keys.0.map(str::to_string),
                 max_tokens: None,
+                show_reasoning: None,
             },
             tts: TtsSettings {
                 base_url: String::new(),
@@ -268,6 +262,65 @@ mod tests {
         assert!(text.contains("unknown_key"), "{text}");
         // 提示里带上可选键名，用户不用猜。
         assert!(text.contains("L2D_DECLARED"), "{text}");
+    }
+
+    /// P1 回归：`[performance].api_key_env` 必须进 GET 列表
+    ///（旧实现只枚举 `llm` + `tts`，performance 的键永远列不出来）。
+    #[test]
+    fn get_lists_performance_section() {
+        let mut s = settings_with((None, None));
+        s.performance.api_key_env = Some("L2D_TEST_PERF_KEY".into());
+        let text = body(handle_get(&s));
+        assert!(text.contains("\"section\":\"performance\""), "{text}");
+        assert!(text.contains("L2D_TEST_PERF_KEY"), "{text}");
+        assert!(!text.contains("\"value\""), "不得回显值：{text}");
+    }
+
+    /// P1 回归：`[performance]` 声明的键必须过 PUT 白名单
+    ///（旧实现把 `llm`/`tts` 各抄一遍，写 performance 的键一律回
+    /// `400 unknown_key`）。
+    ///
+    /// 用**含换行的值**驱动接受路径：它会过白名单，然后在写盘层因
+    ///「值不允许换行」失败（500），**不碰仓库里的 `.env`**（测试进程的 cwd
+    /// 就长在源码树里；指向临时 `.env` 要 `set_var`，而本项目 `unsafe_code`
+    /// 是 deny 且明令禁止用进程环境做密钥真源）。断言的是「不再被白名单
+    /// 拒绝」，即本任务验收点；真正的 200 落盘路径由点火端到端验收覆盖。
+    #[test]
+    fn put_no_longer_rejects_performance_declared_key() {
+        let mut s = settings_with((None, None));
+        s.performance.api_key_env = Some("L2D_TEST_PERF_KEY".into());
+        let resp = match handle_put(
+            &s,
+            &Method::Put,
+            r#"{"key":"L2D_TEST_PERF_KEY","value":"a\nb"}"#,
+        ) {
+            Ok(r) => r,
+            Err(r) => r,
+        };
+        assert_ne!(
+            resp.status_code().0,
+            400,
+            "performance 键名不该被白名单拒绝"
+        );
+        assert!(!body(resp).contains("unknown_key"), "不得回 unknown_key");
+    }
+
+    /// 白名单收紧不变：即使 performance 已声明，未声明的键仍是 400
+    /// `unknown_key`，且错误文案要列出**全部**候选键名（llm + performance）。
+    #[test]
+    fn put_still_rejects_undeclared_with_performance_declared() {
+        let mut s = settings_with((Some("L2D_LLM_DECLARED"), None));
+        s.performance.api_key_env = Some("L2D_TEST_PERF_KEY".into());
+        let err = expect_err(
+            handle_put(&s, &Method::Put, r#"{"key":"OTHER","value":"x"}"#),
+            "未声明的键必须被拒",
+        );
+        assert_eq!(err.status_code().0, 400);
+        let text = body(err);
+        assert!(text.contains("unknown_key"), "{text}");
+        assert!(text.contains("L2D_LLM_DECLARED"), "{text}");
+        assert!(text.contains("L2D_TEST_PERF_KEY"), "{text}");
+        assert!(text.contains("performance"), "候选来源要写明: {text}");
     }
 
     #[test]

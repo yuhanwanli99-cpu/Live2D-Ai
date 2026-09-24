@@ -23,7 +23,14 @@ fn start_registers_schema_and_subscribes_turn_prompt() {
     assert_eq!(reg.specs.len(), 1);
     assert_eq!(reg.specs[0].mod_id, "memory");
     assert!(reg.specs[0].validate().is_ok(), "字段 key 必须唯一");
-    assert_eq!(reg.topics, vec![ModEventTopic::TurnPrompt]);
+    assert_eq!(
+        reg.topics,
+        vec![
+            ModEventTopic::TurnPrompt,
+            // Wave 3（2026-09-21）：助手侧正文。
+            ModEventTopic::AssistantReplied,
+        ]
+    );
     rt.shutdown().unwrap();
     assert!(!rt.is_registered());
     let _ = std::fs::remove_dir_all(dir);
@@ -37,13 +44,32 @@ fn descriptor_and_settings_spec_declare_no_second_enabled() {
     let keys: Vec<&str> = spec.fields.iter().map(ModSettingField::key).collect();
     assert_eq!(
         keys,
-        vec!["store_path", "top_k", "max_records", "enabled_injection"]
+        vec![
+            "store_path",
+            "top_k",
+            "max_records",
+            "enabled_injection",
+            // P1-5 真摘要：独立于主链 [llm] 的一组配置。
+            "summary_enabled",
+            "summary_base_url",
+            "summary_model",
+            "summary_api_key_env",
+            "summary_timeout_ms",
+            "summary_ratio",
+            "summary_cooldown_turns",
+            "summary_keep_recent_turns",
+        ]
     );
     assert!(
         !keys.contains(&"enabled"),
         "启停唯一真源是 manifest，schema 不许有第二个 enabled"
     );
+    assert!(
+        !keys.contains(&"summary_api_key"),
+        "密钥只存变量名（summary_api_key_env），值不进配置"
+    );
     assert_eq!(spec.mod_id, "memory");
+    assert_eq!(spec.version, 2, "P1-5 追加摘要字段：schema 版本 +1");
 }
 
 #[test]
@@ -93,26 +119,33 @@ fn first_turn_is_remembered_but_not_injected() {
 }
 
 #[test]
-fn related_second_turn_injects_previous_memory_into_next_round() {
+fn related_second_turn_injects_previous_memory_into_the_session_slot() {
     let dir = temp_dir("inject");
     let host = FakeHost::new("基础人设");
     let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+    rt.on_scoped_event(ModEventTopic::TurnPrompt, "今天天气很好", Some("s1"))
         .unwrap();
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
-        .unwrap();
+    rt.on_scoped_event(
+        ModEventTopic::TurnPrompt,
+        "今天天气不错，出门走走",
+        Some("s1"),
+    )
+    .unwrap();
 
-    let patches = host.patches();
-    assert_eq!(patches.len(), 1, "只应有一次注入");
-    let prompt = patches[0]["persona"]["system_prompt"]
-        .as_str()
-        .expect("patch 形状必须是 persona.system_prompt");
-    assert!(prompt.starts_with("基础人设\n\n"), "{prompt}");
-    assert!(prompt.contains(MEMORY_MARKER_BEGIN));
-    assert!(prompt.contains("- 今天天气很好"));
-    assert!(prompt.ends_with(MEMORY_MARKER_END));
-    // 主链快照已被 change（下一轮请求体才会带上它）。
-    assert_eq!(host.main_prompt(), prompt);
+    let block = host
+        .sessions()
+        .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+        .expect("会话槽必须有记忆块");
+    assert!(block.contains(MEMORY_MARKER_BEGIN), "{block}");
+    assert!(block.contains("- [用户] 今天天气很好"), "{block}");
+    assert!(block.ends_with(MEMORY_MARKER_END), "{block}");
+    // P1-5：有 conversation 时**绝不**写全局 persona.system_prompt。
+    assert!(
+        host.patches().is_empty(),
+        "会话注入不得写 persona.system_prompt"
+    );
+    assert_eq!(host.main_prompt(), "基础人设");
+    assert_eq!(rt.state_json().unwrap()["injects"], 1);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -152,22 +185,25 @@ fn injection_disabled_still_remembers_but_never_writes_config() {
 }
 
 #[test]
-fn identical_repeat_turn_is_idempotent_no_second_write() {
+fn identical_repeat_turn_is_idempotent_no_second_inject() {
     let dir = temp_dir("idem");
     let host = FakeHost::new("基础人设");
     let mut rt = runtime(&dir, &host, serde_json::json!({}));
     for _ in 0..3 {
-        rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+        rt.on_scoped_event(ModEventTopic::TurnPrompt, "今天天气很好", Some("s1"))
             .unwrap();
     }
-    let patches = host.patches();
-    assert_eq!(patches.len(), 1, "重拼结果与当前一致 → 第二次起不再写盘");
-    let prompt = host.main_prompt();
+    let block = host
+        .sessions()
+        .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+        .unwrap_or_default();
     assert_eq!(
-        prompt.matches("- 今天天气很好").count(),
+        block.matches("- [用户] 今天天气很好").count(),
         1,
-        "同一句话不重复注入: {prompt}"
+        "同一句话不重复注入: {block}"
     );
+    // 第 2 / 3 轮重拼结果与槽内一致 -> 不再计注入（幂等）。
+    assert_eq!(rt.state_json().unwrap()["injects"], 1);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -228,27 +264,30 @@ fn missing_store_path_is_warned_noop_not_panic() {
 }
 
 #[test]
-fn rejected_apply_settings_is_warned_not_fatal() {
+fn missing_session_capability_is_warned_not_fatal() {
     let dir = temp_dir("reject");
     let host = FakeHost::new("基础人设");
-    host.set_accept(false);
+    host.sessions().set_enabled(false);
     let mut rt = runtime(&dir, &host, serde_json::json!({}));
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+    rt.on_scoped_event(ModEventTopic::TurnPrompt, "今天天气很好", Some("s1"))
         .unwrap();
-    // 第二次相关输入会尝试注入，但 host 拒绝。
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
-        .unwrap();
+    rt.on_scoped_event(
+        ModEventTopic::TurnPrompt,
+        "今天天气不错，出门走走",
+        Some("s1"),
+    )
+    .unwrap();
     assert!(host.patches().is_empty());
-    assert_eq!(host.main_prompt(), "基础人设", "被拒后主链快照不变");
+    assert_eq!(host.main_prompt(), "基础人设");
     assert!(
         host.logs()
             .iter()
-            .any(|l| l.contains("apply_settings 拒绝")),
-        "拒绝必须可见: {:?}",
+            .any(|l| l.contains("宿主未注入会话提示词能力")),
+        "能力缺失必须可见: {:?}",
         host.logs()
     );
     let snap = rt.state_json().unwrap();
-    assert_eq!(snap["injected"], 0, "被拒不计数");
+    assert_eq!(snap["injected"], 0, "能力缺失不计数");
     assert_eq!(snap["remembered"], 2, "记忆仍然照记");
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -256,17 +295,23 @@ fn rejected_apply_settings_is_warned_not_fatal() {
 // ------------------------------------------------------------ 停用 / 状态
 
 #[test]
-fn shutdown_strips_injected_block() {
+fn shutdown_strips_legacy_global_block_and_own_session_slot() {
     let dir = temp_dir("shutdown");
     let host = FakeHost::new("基础人设");
+    // 模拟**旧版本**留下的全局注入块（P1-5 起本 Mod 不再写它，但停用仍要清理）。
+    let legacy = crate::strategy::compose_injection("基础人设", &["旧块".to_string()]);
+    host.set_main_prompt(&legacy);
+    host.sessions()
+        .set_slot(SESSION_PROMPT_OWNER_MEMORY, "s1", "记忆块");
     let mut rt = runtime(&dir, &host, serde_json::json!({}));
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
-        .unwrap();
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
-        .unwrap();
-    assert!(host.main_prompt().contains(MEMORY_MARKER_BEGIN));
     rt.shutdown().unwrap();
-    assert_eq!(host.main_prompt(), "基础人设", "停用必须清掉注入块");
+    assert_eq!(host.main_prompt(), "基础人设", "停用必须清掉旧注入块");
+    assert!(
+        host.sessions()
+            .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+            .is_none(),
+        "停用必须清掉本 Mod 的会话槽"
+    );
     assert!(!rt.is_registered());
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -383,7 +428,7 @@ fn state_json_exposes_the_four_required_counters() {
     let host = FakeHost::new("基础人设");
     let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
     // 轮 1：写入、无命中、不注入。
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+    rt.on_scoped_event(ModEventTopic::TurnPrompt, "今天天气很好", Some("s1"))
         .unwrap();
     let first = rt.state_json().unwrap();
     assert_eq!(first["writes"], 1);
@@ -391,9 +436,13 @@ fn state_json_exposes_the_four_required_counters() {
     assert_eq!(first["injects"], 0);
     assert_eq!(first["errors"], 0);
     assert_eq!(first["last_hits"], 0);
-    // 轮 2：命中上一条并注入。
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
-        .unwrap();
+    // 轮 2：命中上一条并注入到会话槽。
+    rt.on_scoped_event(
+        ModEventTopic::TurnPrompt,
+        "今天天气不错，出门走走",
+        Some("s1"),
+    )
+    .unwrap();
     let second = rt.state_json().unwrap();
     assert_eq!(second["writes"], 2);
     assert!(second["hits"].as_u64().unwrap() >= 1, "{second}");
@@ -405,11 +454,16 @@ fn state_json_exposes_the_four_required_counters() {
     }
     assert_eq!(second["remembered"], second["writes"]);
     assert_eq!(second["injected"], second["injects"]);
+    // P1-5：预算 / conversation 键必须在快照里可观察。
+    assert!(second["injection_budget_chars"].is_u64(), "{second}");
+    assert!(second["budget_used"].is_u64(), "{second}");
+    assert!(second["budget_ratio"].is_number(), "{second}");
+    assert_eq!(second["conversation_id"], "s1", "{second}");
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
-fn errors_counter_counts_unresolved_path_and_rejected_inject() {
+fn errors_counter_counts_unresolved_path_and_missing_session_capability() {
     // 路径不可解析 → errors 1、writes 0。
     let host = FakeHost::new("基础人设");
     let mut broken = MemoryRuntime::new(
@@ -423,15 +477,19 @@ fn errors_counter_counts_unresolved_path_and_rejected_inject() {
     assert_eq!(snap["errors"], 1);
     assert_eq!(snap["writes"], 0);
 
-    // apply_settings 被拒 → errors 1（记忆照记，不 fatal）。
+    // 会话能力缺失 → errors 1（记忆照记，不 fatal）。
     let dir = temp_dir("errors");
     let host = FakeHost::new("基础人设");
-    host.set_accept(false);
+    host.sessions().set_enabled(false);
     let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+    rt.on_scoped_event(ModEventTopic::TurnPrompt, "今天天气很好", Some("s1"))
         .unwrap();
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
-        .unwrap();
+    rt.on_scoped_event(
+        ModEventTopic::TurnPrompt,
+        "今天天气不错，出门走走",
+        Some("s1"),
+    )
+    .unwrap();
     let snap = rt.state_json().unwrap();
     assert_eq!(snap["errors"], 1);
     assert_eq!(snap["injects"], 0);
@@ -519,27 +577,38 @@ fn clear_command_empties_store_atomically_and_reports_counts() {
 }
 
 #[test]
-fn clear_command_does_not_touch_persona_prompt() {
+fn clear_command_does_not_touch_session_prompt_or_persona() {
     let dir = temp_dir("clear-residue");
     let host = FakeHost::new("基础人设");
     let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气很好")
+    rt.on_scoped_event(ModEventTopic::TurnPrompt, "今天天气很好", Some("s1"))
         .unwrap();
-    rt.on_event(ModEventTopic::TurnPrompt, "今天天气不错，出门走走")
-        .unwrap();
-    let injected = host.main_prompt();
-    assert!(injected.contains(MEMORY_MARKER_BEGIN));
+    rt.on_scoped_event(
+        ModEventTopic::TurnPrompt,
+        "今天天气不错，出门走走",
+        Some("s1"),
+    )
+    .unwrap();
+    let injected = host
+        .sessions()
+        .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+        .expect("会话槽应有块");
     let patches_before = host.patches().len();
 
-    let result = rt.command("clear", &serde_json::json!({})).unwrap();
+    let result = rt
+        .command("clear", &serde_json::json!({"session_id": "s1"}))
+        .unwrap();
     // 清空只动 JSONL：提示词一字不改（残留按既有 strip_residue 生命周期处理）。
     assert_eq!(
-        host.main_prompt(),
-        injected,
-        "clear 不得顺手清 persona 提示词"
+        host.sessions()
+            .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+            .as_deref(),
+        Some(injected.as_str()),
+        "clear 不得顺手清会话提示词"
     );
     assert_eq!(host.patches().len(), patches_before, "clear 不得写配置");
     assert_eq!(result["residue"], true, "如实报告提示词里仍有注入块");
+    assert_eq!(host.main_prompt(), "基础人设");
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -582,53 +651,116 @@ fn clear_without_store_path_fails_as_command_failed() {
 // ------------------------------------------- 与 persona 共存：last-writer-wins
 
 #[test]
-fn last_writer_wins_persona_base_survives_memory_injection() {
-    // persona 先写 base（模拟其合成结果），memory 下一轮在其上重拼记忆块。
-    let dir = temp_dir("lww-persona-first");
+fn no_conversation_never_touches_global_persona_prompt() {
+    let dir = temp_dir("no-conv");
     let host = FakeHost::new("基础人设");
-    host.set_main_prompt("人格卡合成：你是猫娘小灰");
     let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
     rt.on_event(ModEventTopic::TurnPrompt, "这个月预算要省着花")
         .unwrap();
     rt.on_event(ModEventTopic::TurnPrompt, "这个月预算还剩多少")
         .unwrap();
-    let prompt = host.main_prompt();
-    assert!(prompt.starts_with("人格卡合成：你是猫娘小灰"), "{prompt}");
+    // 无 conversation：**绝不**写全局 persona.system_prompt（旧「降级」已删除）。
+    assert!(host.patches().is_empty(), "无会话不得 apply_settings");
+    assert_eq!(host.main_prompt(), "基础人设");
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["no_conversation_turns"], 2);
+    assert_eq!(snap["injects"], 0);
+    assert_eq!(snap["writes"], 2, "记忆仍写入老桶");
     assert!(
-        prompt.contains(MEMORY_MARKER_BEGIN),
-        "memory 后写 → 块必须在: {prompt}"
-    );
-    assert!(prompt.contains("- 这个月预算要省着花"), "{prompt}");
-    assert_eq!(
-        prompt.matches(MEMORY_MARKER_BEGIN).count(),
-        1,
-        "只有一个记忆块"
+        host.logs().iter().any(|l| l.contains("本轮不注入")),
+        "必须如实说明无 conversation: {:?}",
+        host.logs()
     );
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
-fn last_writer_wins_persona_overwrite_then_memory_reinjects_on_new_base() {
-    let dir = temp_dir("lww-persona-last");
+fn budget_over_trim_ratio_really_drops_memories() {
+    let dir = temp_dir("budget");
     let host = FakeHost::new("基础人设");
-    let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
-    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算要省着花")
-        .unwrap();
-    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算还剩多少")
-        .unwrap();
-    assert!(host.main_prompt().contains(MEMORY_MARKER_BEGIN));
-    // persona 后写：整份覆盖（不含 memory marker）——last-writer-wins 的直接后果。
-    host.set_main_prompt("人格卡合成：你是猫娘小灰");
-    assert!(
-        !host.main_prompt().contains(MEMORY_MARKER_BEGIN),
-        "后写者覆盖整个 system_prompt → 记忆块被冲掉"
+    let mut rt = runtime(
+        &dir,
+        &host,
+        serde_json::json!({"top_k": 5, "injection_budget_chars": 200, "trim_ratio": 0.6}),
     );
-    // memory 下一轮再写：它读到新的 base，重新拼上块（base 一字不改）。
-    rt.on_event(ModEventTopic::TurnPrompt, "这个月预算还剩多少")
+    let long = "预算主题甲甲乙乙丙丙丁丁戊戊己己庚庚辛辛壬壬癸癸子子丑丑寅寅卯卯辰辰巳巳午午";
+    for suffix in ["壹", "贰", "叁"] {
+        rt.on_scoped_event(
+            ModEventTopic::TurnPrompt,
+            &format!("{long}{suffix}"),
+            Some("s1"),
+        )
         .unwrap();
-    let prompt = host.main_prompt();
-    assert!(prompt.starts_with("人格卡合成：你是猫娘小灰"), "{prompt}");
-    assert!(prompt.contains(MEMORY_MARKER_BEGIN), "{prompt}");
-    assert!(prompt.contains("- 这个月预算要省着花"), "{prompt}");
+    }
+    rt.on_scoped_event(
+        ModEventTopic::TurnPrompt,
+        &format!("{long}查询"),
+        Some("s1"),
+    )
+    .unwrap();
+    let snap = rt.state_json().unwrap();
+    assert!(
+        snap["budget_dropped"].as_u64().unwrap() >= 1,
+        "超预算必须真裁条数: {snap}"
+    );
+    assert!(
+        snap["budget_used"].as_u64().unwrap() <= 200,
+        "裁剪后不得超预算: {snap}"
+    );
+    let block = host
+        .sessions()
+        .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+        .expect("应有注入块");
+    assert!(block.lines().count() <= 5, "{block}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn crossing_summary_ratio_without_a_client_stays_on_the_rule_path() {
+    // P1-5 之前这条只验「标记待摘要」；现在摘要真的跑了，所以**缺省（无客户端）**
+    // 的行为必须被钉死：越阈值也不排队、不写旁车，只有原文 top-k 照常注入。
+    // 真摘要的完整触发 / 落地 / 注入在 summary_tests.rs 里验。
+    let dir = temp_dir("summary-off");
+    let host = FakeHost::new("基础人设");
+    let mut rt = runtime(
+        &dir,
+        &host,
+        serde_json::json!({
+            "top_k": 3,
+            "injection_budget_chars": 200,
+            "trim_ratio": 0.6,
+            "summary_ratio": 0.75,
+            "summary_cooldown_turns": 5,
+        }),
+    );
+    let very_long: String = "摘要素材".to_string() + &"甲".repeat(150);
+    for suffix in ["壹", "贰", "叁"] {
+        rt.on_scoped_event(
+            ModEventTopic::TurnPrompt,
+            &format!("{very_long}{suffix}"),
+            Some("s1"),
+        )
+        .unwrap();
+    }
+    let snap = rt.state_json().unwrap();
+    assert_eq!(snap["summary"]["enabled"], false, "{snap}");
+    assert_eq!(snap["summary"]["client"], "disabled");
+    assert_eq!(
+        snap["summary_pending"], false,
+        "没有客户端就不该排队：{snap}"
+    );
+    assert_eq!(snap["summary_marks"], 0, "{snap}");
+    assert!(
+        snap["summary"]["bucket_ratio"].as_f64().unwrap() > 0.75,
+        "{snap}"
+    );
+    assert_eq!(snap["summary_keep_recent_turns"], 4);
+    // 规则裁 top-k 仍生效（预算 200、注入块按分数裁）。
+    assert!(snap["budget_dropped"].as_u64().unwrap() >= 1, "{snap}");
+    // 旁车文件从未被创建（未启用不得留半截状态）。
+    assert!(
+        !dir.join("sessions/s1.memory.summary.json").exists(),
+        "无客户端时不得创建摘要旁车"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }

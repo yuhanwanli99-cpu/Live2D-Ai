@@ -112,7 +112,10 @@ pub fn dispatch_with_security(
         }
         RouteId::SettingsGet => {
             let s = ctx.status_ctx.settings_snapshot();
-            handle_get(&s)
+            // P2：has_api_key = 「声明了键名且值真的读得到」。lookup 由
+            // dispatch 注入（唯一真源 = secrets::lookup：.env 快照 > 进程环境），
+            // 路由层自己不碰 env。
+            handle_get(&s, &live2d_ai_runtime::secrets::lookup)
         }
         RouteId::SettingsPatch => {
             let s = ctx.status_ctx.settings_snapshot();
@@ -123,7 +126,13 @@ pub fn dispatch_with_security(
             let config_path = ctx.status_ctx.config_path.clone();
             let hook: Box<dyn Fn() -> ApplyStatus> =
                 Box::new(|| ctx.ensure_supervisor_after_patch());
-            let resp = handle_patch(&s, body_str, &config_path, Some(&*hook));
+            let resp = handle_patch(
+                &s,
+                body_str,
+                &config_path,
+                Some(&*hook),
+                &live2d_ai_runtime::secrets::lookup,
+            );
             // 仅在 PATCH 真正写盘成功（HTTP 200）后才触发 supervisor 重载。
             // 校验失败（400）或磁盘错误（500）→ 不通知 supervisor（保留旧
             // engine，避免「用户改一半」也被吞掉）。仅 200 时刷新

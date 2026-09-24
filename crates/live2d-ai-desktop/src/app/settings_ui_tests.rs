@@ -164,11 +164,16 @@ fn save_draft_empty_key_env_normalizes_to_none_on_reload() {
 fn write_initial_config_with_hidden_tts(path: &std::path::Path) {
     use live2d_ai_runtime::settings::{AppSettings, LlmSettings, PersonaSettings, TtsSettings};
     let s = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
+        // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
+        performance: Default::default(),
         llm: LlmSettings {
             base_url: "https://api.example-llm.com/v1".into(),
             model: "init-llm".into(),
             api_key_env: Some("INIT_LLM_KEY".into()),
             max_tokens: None,
+            show_reasoning: None,
         },
         tts: TtsSettings {
             base_url: "https://api.example-tts.com/v1".into(),

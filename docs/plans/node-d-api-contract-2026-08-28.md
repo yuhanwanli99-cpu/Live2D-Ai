@@ -1,5 +1,7 @@
 # 节点 D1 — 后端 API 契约冻结（2026-08-28）
 
+> **已被本次变更取代（2026-09 P5）**：本文 §1.2 的 `clear_api_key` 与 §2 P0-2「无 clear 标志的 `api_key_env: null` = 保持原值」不再成立——清除就是发 `api_key_env: null`；现行契约见 `docs/design/web-ui-spec-v3.md` 与 `crates/live2d-ai-desktop/src/web_api/settings_routes/mod.rs`。
+
 > **地位**：节点 D（原生应用 + Web 前端产品化闭环）裁决要求**先冻结协议
 > 再写页面**。本文是 D2（HTTP/WS 服务接线）、D3（Live2D 展示 schema）、
 > D4（命令注册协议）、D5（Web 前端）的地基。实现方按本表执行；与现行

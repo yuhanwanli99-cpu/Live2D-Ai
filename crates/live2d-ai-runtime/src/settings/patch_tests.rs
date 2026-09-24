@@ -12,16 +12,21 @@ use std::process;
 use crate::settings::patch::{
     LlmPatch, PatchOutcome, PersonaPatch, SettingsPatch, TtsPatch, apply_patch, plan_atomic_write,
 };
-use crate::settings::view::settings_to_view;
+use crate::settings::view::{settings_to_view, settings_to_view_with_keys};
 use crate::settings::{AppSettings, LlmSettings, PersonaSettings, TtsSettings};
 
 fn sample() -> AppSettings {
     AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
+        // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
+        performance: Default::default(),
         llm: LlmSettings {
             base_url: "http://127.0.0.1:11434/v1".into(),
             model: "qwen2.5:7b".into(),
             api_key_env: Some("LLM_KEY".into()),
             max_tokens: None,
+            show_reasoning: None,
         },
         tts: TtsSettings {
             base_url: "http://127.0.0.1:8000/v1".into(),
@@ -41,10 +46,13 @@ fn sample() -> AppSettings {
 }
 
 #[test]
-fn settings_to_view_drops_key_env_name_and_emits_has_api_key() {
+fn settings_to_view_with_keys_drops_key_env_name_and_derives_from_lookup() {
     let s = sample();
-    let v = settings_to_view(&s);
-    // 序列化后必须不含「环境变量名」也必须不含任何明文密钥。
+
+    // (a) lookup 拿不到任何值 → 三段 has_api_key 全 false；序列化里既没有
+    //     环境变量名，也没有任何明文密钥。
+    let no_value = |_: &str| None;
+    let v = settings_to_view_with_keys(&s, &no_value);
     let json = serde_json::to_string(&v).unwrap();
     assert!(!json.contains("LLM_KEY"), "view 仍含 env 名：{json}");
     assert!(!json.contains("TTS_KEY"), "view 仍含 env 名：{json}");
@@ -52,8 +60,65 @@ fn settings_to_view_drops_key_env_name_and_emits_has_api_key() {
         !json.contains("api_key_env"),
         "view 暴露 api_key_env 字段：{json}"
     );
-    assert!(json.contains("\"has_api_key\":true"), "{json}");
-    // 空字符串的 api_key_env → has_api_key=false。
+    assert_eq!(json.matches("\"has_api_key\":false").count(), 3, "{json}");
+
+    // (b) 有非空值 → llm / tts / performance 三段走**同一**私有派生函数，
+    //     一起翻 true；值本身永不出现在视图里。
+    let mut s2 = s.clone();
+    s2.performance.api_key_env = Some("PERF_KEY".into());
+    let lookup = |name: &str| match name {
+        "LLM_KEY" => Some("sk-llm".to_string()),
+        "TTS_KEY" => Some("sk-tts".to_string()),
+        "PERF_KEY" => Some("sk-perf".to_string()),
+        _ => None,
+    };
+    let v2 = settings_to_view_with_keys(&s2, &lookup);
+    assert!(
+        v2.llm.has_api_key && v2.tts.has_api_key && v2.performance.has_api_key,
+        "有值 → 三段都应 true"
+    );
+    let json2 = serde_json::to_string(&v2).unwrap();
+    for leaked in [
+        "sk-llm", "sk-tts", "sk-perf", "LLM_KEY", "TTS_KEY", "PERF_KEY",
+    ] {
+        assert!(!json2.contains(leaked), "view 泄露 {leaked}：{json2}");
+    }
+
+    // (c) 空串值 = 未设置（与 secrets::lookup 的「空串一律视为未设置」同口径）。
+    let empty = |_: &str| Some(String::new());
+    assert!(!settings_to_view_with_keys(&s, &empty).llm.has_api_key);
+
+    // (d) 名字未声明（api_key_env = None）→ false，且**不以空名调用** lookup
+    //     （空名不是合法变量名，不该被当成一个可能的键去查）。
+    let mut s3 = s.clone();
+    s3.llm.api_key_env = None;
+    let seen = std::cell::RefCell::new(Vec::<String>::new());
+    let record = |name: &str| {
+        seen.borrow_mut().push(name.to_string());
+        None
+    };
+    assert!(!settings_to_view_with_keys(&s3, &record).llm.has_api_key);
+    assert!(
+        !seen.borrow().iter().any(|n| n.is_empty()),
+        "不得以空名调用 lookup：{:?}",
+        seen.borrow()
+    );
+}
+
+/// `settings_to_view` 的语义**冻结**：`has_api_key` = 「声明了变量名」，
+/// 不读环境、不接受 lookup。egui / 纯展示口径；Web API 不得用它。
+#[test]
+fn settings_to_view_still_reports_declared_key_name_only() {
+    let s = sample();
+    let v = settings_to_view(&s);
+    assert!(
+        v.llm.has_api_key && v.tts.has_api_key,
+        "声明了键名即为 true"
+    );
+    let json = serde_json::to_string(&v).unwrap();
+    assert!(!json.contains("LLM_KEY") && !json.contains("TTS_KEY"));
+
+    // 空串 / None = 未声明。
     let mut s2 = s.clone();
     s2.llm.api_key_env = Some(String::new());
     s2.tts.api_key_env = None;
@@ -82,6 +147,7 @@ fn patch_none_keeps_old_base_url() {
             model: Some(Some("gpt-4o-mini".into())),
             api_key_env: None,
             max_tokens: None,
+            show_reasoning: None,
         })),
         ..Default::default()
     };
@@ -115,10 +181,17 @@ fn patch_some_empty_string_clears_api_key_env() {
     assert_eq!(outcome, PatchOutcome::Updated);
     assert!(next.llm.api_key_env.is_none());
     assert!(next.tts.api_key_env.is_none());
-    // 视图层确认 has_api_key 翻成 false。
-    let v = settings_to_view(&next);
+    // 视图层确认 has_api_key 翻成 false（llm / tts；performance 段也带一个
+    // has_api_key，那份在下面单独断言——不把它混进「两段都翻 false」的口径里）。
+    // 注入的 lookup 故意「任何键都有值」：若派生还只看键名而不是
+    // 「键名 + 值」，清空之后这里会红。
+    let always_value = |_: &str| Some("sk-any".to_string());
+    let v = settings_to_view_with_keys(&next, &always_value);
+    assert!(!v.llm.has_api_key);
+    assert!(!v.tts.has_api_key);
     let json = serde_json::to_string(&v).unwrap();
-    assert!(json.matches("\"has_api_key\":false").count() == 2, "{json}");
+    assert_eq!(json.matches("\"has_api_key\":false").count(), 3, "{json}");
+    assert!(!json.contains("_KEY\""), "视图不得回环境变量名：{json}");
 }
 
 #[test]
@@ -440,6 +513,7 @@ fn json_three_state_serialize_round_trip_preserves_three_states() {
             model: Some(Some("gpt".into())), // 显式设值
             api_key_env: None,               // 缺省 → skip，不出现
             max_tokens: None,                // 同上
+            show_reasoning: None,            // 同上
         })),
         ..Default::default()
     };
@@ -499,6 +573,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
             model: None,
             api_key_env: None,
             max_tokens: None,
+            show_reasoning: None,
         })),
         ..Default::default()
     };
@@ -514,6 +589,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
                 model: None,
                 api_key_env: None,
                 max_tokens: Some(Some(value)),
+                show_reasoning: None,
             })),
             ..Default::default()
         };
@@ -529,6 +605,7 @@ fn max_tokens_patch_tri_state_does_not_collapse_zero_and_absent() {
             model: None,
             api_key_env: None,
             max_tokens: Some(None),
+            show_reasoning: None,
         })),
         ..Default::default()
     };
@@ -590,4 +667,86 @@ fn max_tokens_patch_json_keeps_zero_and_null_distinct() {
             .unwrap()
             .contains("max_tokens")
     );
+}
+
+// ===== [action] 幅度倍率（2026-09-16） =====
+
+/// 段缺省 → 用出厂默认（0.75 / 0.80 / 1.0），不是 0；序列化也带上该段。
+#[test]
+fn action_section_defaults_are_product_scales() {
+    let s = AppSettings::from_toml_str("").unwrap();
+    assert_eq!(s.action.head_scale, 0.75);
+    assert_eq!(s.action.body_scale, 0.80);
+    assert_eq!(s.action.expression_scale, 1.0);
+    let toml = s.to_toml_string();
+    assert!(toml.contains("[action]"), "{toml}");
+}
+
+/// 显式值覆盖默认；视图回**归一化后**的生效值（越界钳进 [0.2, 2.2]）。
+#[test]
+fn action_section_overrides_and_view_normalizes() {
+    let s = AppSettings::from_toml_str(
+        "[action]\nhead_scale = 1.25\nbody_scale = 9.0\nexpression_scale = 0.0\n",
+    )
+    .unwrap();
+    let v = settings_to_view(&s);
+    assert_eq!(v.action.head_scale, 1.25);
+    // 9.0 -> 钳 2.2；0.0 -> 钳 0.2。
+    assert_eq!(v.action.body_scale, 2.2);
+    assert_eq!(v.action.expression_scale, 0.2);
+}
+
+/// 未知键仍拒绝解析（deny_unknown_fields 对 [action] 一样生效）。
+#[test]
+fn action_section_rejects_unknown_keys() {
+    assert!(AppSettings::from_toml_str("[action]\nhead = 1.0\n").is_err());
+}
+
+/// PATCH：三态（不改 / 设为值并钳 / null 回落默认）。
+#[test]
+fn action_patch_sets_clamps_and_resets() {
+    use crate::settings::patch::ActionPatch;
+    let base = AppSettings::from_toml_str("").unwrap();
+
+    let patch = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            head_scale: Some(Some(9.0)),
+            body_scale: Some(Some(0.0)),
+            expression_scale: None,
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&base, &patch).unwrap();
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert_eq!(next.action.head_scale, 2.2);
+    assert_eq!(next.action.body_scale, 0.2);
+    assert_eq!(next.action.expression_scale, 1.0, "不修改的字段保持原值");
+
+    let patch2 = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            head_scale: Some(None),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next2, _) = apply_patch(&next, &patch2).unwrap();
+    assert_eq!(next2.action.head_scale, 0.75, "null -> 回落出厂默认");
+    assert_eq!(next2.action.body_scale, 0.2, "其余字段不动");
+}
+
+/// 三项都等于默认时是 NoChange（浮点噪声不该点亮界面 dirty）。
+#[test]
+fn action_patch_identical_is_no_change() {
+    use crate::settings::patch::ActionPatch;
+    let base = AppSettings::from_toml_str("").unwrap();
+    let patch = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            head_scale: Some(Some(0.75)),
+            body_scale: Some(Some(0.80)),
+            expression_scale: Some(Some(1.0)),
+        })),
+        ..Default::default()
+    };
+    let (_, outcome) = apply_patch(&base, &patch).unwrap();
+    assert_eq!(outcome, PatchOutcome::NoChange);
 }

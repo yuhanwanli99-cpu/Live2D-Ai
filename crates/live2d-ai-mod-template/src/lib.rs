@@ -72,6 +72,7 @@ impl ModRuntime for TemplateRuntime {
                     key: "note".to_string(),
                     label: "备注".to_string(),
                     secret: false,
+                    default: None,
                 },
             ],
         };

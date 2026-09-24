@@ -220,21 +220,33 @@ fn fixture_relevant_turn_injects_expected_memory() {
 
     let dir = temp_dir("quality-hit");
     let host = FakeHost::new("基础人设");
-    seed_store(&dir, &records);
+    // P1-5：有 conversation 时检索/注入的都是**会话桶**。
+    std::fs::create_dir_all(dir.join("sessions")).unwrap();
+    let session_store = JsonlStore::new(dir.join("sessions").join("s1.memory.jsonl"));
+    for record in &records {
+        session_store
+            .append(record)
+            .expect("fixture 语料必须能落盘");
+    }
     let mut rt = runtime(&dir, &host, serde_json::json!({"top_k": 3}));
-    rt.on_event(ModEventTopic::TurnPrompt, &query).unwrap();
+    rt.on_scoped_event(ModEventTopic::TurnPrompt, &query, Some("s1"))
+        .unwrap();
 
-    let patches = host.patches();
-    assert_eq!(patches.len(), 1, "有相关记忆 → 注入一次");
-    let prompt = patches[0]["persona"]["system_prompt"].as_str().unwrap();
+    let block = host
+        .sessions()
+        .slot(SESSION_PROMPT_OWNER_MEMORY, "s1")
+        .expect("应注入会话槽");
     for hit in &expected {
         assert!(
-            prompt.contains(&format!("- {hit}")),
-            "缺少期望记忆 {hit}: {prompt}"
+            block.contains(&format!("- [用户] {hit}")),
+            "缺少期望记忆 {hit}: {block}"
         );
     }
-    assert_eq!(prompt.matches(MEMORY_MARKER_BEGIN).count(), 1);
-    assert_eq!(prompt.matches(MEMORY_MARKER_END).count(), 1);
+    assert_eq!(block.matches(MEMORY_MARKER_BEGIN).count(), 1);
+    assert_eq!(block.matches(MEMORY_MARKER_END).count(), 1);
+    // 绝不写全局 persona.system_prompt。
+    assert!(host.patches().is_empty());
+    assert_eq!(host.main_prompt(), "基础人设");
     let snap = rt.state_json().unwrap();
     assert_eq!(snap["writes"], 1, "只写了本轮查询这一条");
     assert_eq!(snap["injects"], 1);

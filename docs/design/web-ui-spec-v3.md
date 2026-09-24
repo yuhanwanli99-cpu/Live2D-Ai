@@ -596,7 +596,8 @@ ChatVRM 完全无加载/错误态、Amica 的进度回调是 TODO、Nexus 用 `<
 | `llm.base_url` | T | `GET`/`PATCH /api/v1/settings` 的 `llm` 段 | 普通 |
 | `llm.model` | T | 同上 | 普通 |
 | `llm.has_api_key` | RO 徽标（「已配置」/「未配置」） | 同上（**只回布尔**） | 普通 |
-| `llm.api_key_env` | T（**环境变量名**，不是密钥）+「设为空以清除」 | 同上；清除用段级 `clear_api_key: true` | **dev** |
+| `llm.api_key_env` | **不做**（界面不再提供；P6） | 服务端仍接受（`curl` / 手改 toml）；**清除 = 发 `api_key_env: null`**（P5 单一规则，无 `clear_api_key`） | **不做** |
+| 密钥绑定名 | RO → 「绑定到 `DEEPSEEK_API_KEY`」/「未绑定密钥（无鉴权）」 | `GET /api/v1/env` 的 `key`（**只回键名 + 是否已设置，永不回值**） | 普通 |
 | 连通性自检 | BTN → 结果行（`ok` / `latency_ms` / `model_echo` / `error`） | `POST /api/v1/settings/test/llm` | 普通 |
 
 **密钥红线的严格结论（实现者最容易写错的一处）**：
@@ -604,7 +605,11 @@ ChatVRM 完全无加载/错误态、Amica 的进度回调是 TODO、Nexus 用 `<
 「不修改 / 清除 env 绑定 / **设置新的 env 变量名**」【已验证·本仓库 `patch.rs:120-126`】；
 视图侧**永远不返回变量名**，只回 `has_api_key: bool`【已验证·本仓库 `view.rs:15-19`】。
 因此前端**根本没有「输入 API key 明文」这条路**：密文本体不在 `AppSettings` 里，只在进程环境变量里。
-UI 文案必须是「**密钥通过环境变量提供**：填入存放密钥的变量名（默认 `LIVE2D_AI_LLM_API_KEY`）」。
+**2026-09 P6 定**：界面**不再提供**变量名（`api_key_env`）编辑——改它容易把自己弄成
+未配置，收益为零；服务端字段照旧保留（`curl PATCH` / 手改 toml 仍可用）。
+**改密钥绑定 = 改 `live2d-ai.toml` 的 `api_key_env`**。「密钥绑定」那一行只**只读**显示
+`GET /api/v1/env` 回的键名；密钥**值**仍可在界面上写（`PUT /api/v1/env` → `.env`），
+值只往上走、永不回显。
 **绝不**回显、缓存到 localStorage、写进日志或 `debugPrint`（`AGENTS.md` §密钥安全）。
 
 #### 4.1.4 语音合成（TTS）
@@ -618,7 +623,7 @@ UI 文案必须是「**密钥通过环境变量提供**：填入存放密钥的�
 | 连通性自检 | BTN → `ok` / `latency_ms` / `error` | `POST /api/v1/settings/test/tts` | 普通 |
 | 服务端静音状态 | RO 徽标（**不是开关**） | WS `audio.muted` | 普通（也常驻于音频条） |
 | `tts.sample_rate` / `channels` | RO（只显示当前值） | `GET /api/v1/settings` | 普通 |
-| `tts.api_key_env` | T + 清除 | PATCH `tts.api_key_env` / `clear_api_key` | **dev** |
+| `tts.api_key_env` | **不做**（界面不再提供；P6） | 服务端仍接受（`curl` / 手改 toml；`null` = 清除绑定） | **不做** |
 | 改 `tts.sample_rate` / `channels` | N | PATCH 支持，但**后果严重**（改错 = 全是噪声） | **dev** |
 | `response_format` | — | **不可改**：`TtsPatch` 没有这个字段【已验证·本仓库】 | **不做** |
 
@@ -786,7 +791,7 @@ class SettingsController extends ChangeNotifier {
 | 这个字段要清空 | `null`（`Option::Some(None)`） |
 | 这个字段要设成 X | `X`（`Option::Some(Some(X))`） |
 | 整段清空 | `{"persona": null}` |
-| 清除密钥绑定 | `{"llm": {"clear_api_key": true}}` |
+| 清除密钥绑定（**服务端语法**） | `{"llm": {"api_key_env": null}}`——P6 起界面不再提供该入口，此行只为 `curl` / 手改 toml 保留 |
 
 ### 4.4 保存反馈（`apply_status` 必须消费）
 
@@ -1540,7 +1545,7 @@ P3 依赖 P0（断点）与 P1（`ws_frame`）；P4/P5 可并行；P6 收口。
 | `api/ws_frame.dart` | **9 类帧各一条** + 2 条真实抓包夹具（整帧级）+ 坏 JSON / 非 Map / 缺 `type` / 未知 `type→UnknownWsEvent` / 坏 base64 丢弃 / `shutdown_ready` 语义 |
 | `api/action_source.dart`（已有 12 条，保留） | 真实帧夹具、宽容解析、来源映射 |
 | `actions/action_event.dart` + `action_history.dart` | `perform/cease` 投影；历史条目上限；来源中文名映射 |
-| `api/settings_models.dart`（**已落地**，其测试 `test/settings_api_test.dart` 已覆盖） | **PATCH 三态构造**：未动→`Tri.keep()` 序列化为**省略键** / 清空→`Tri.clear()` 序列化为 `null` / 设值→`Tri.set(v)`；段级清空 `{"persona":null}`；`clear_api_key`；**以及「只改一个字段不得清空同段其它字段」这条最危险的回归**（已落地测试里应有；P4 需补 `SettingsController.dirty` 的等价性：键序无关、`Tri.keep()` 不计入 dirty） |
+| `api/settings_models.dart`（**已落地**，其测试 `test/settings_api_test.dart` 已覆盖） | **PATCH 三态构造**：未动→`Tri.keep()` 序列化为**省略键** / 清空→`Tri.clear()` 序列化为 `null` / 设值→`Tri.set(v)`；段级清空 `{"persona":null}`；清除密钥绑定 = `api_key_env: null`（P5 起无 `clear_api_key`；**P6 起前端不再构造它**，见 §4.1.3）；**以及「只改一个字段不得清空同段其它字段」这条最危险的回归**（已落地测试里应有；P4 需补 `SettingsController.dirty` 的等价性：键序无关、`Tri.keep()` 不计入 dirty） |
 | `settings/display_prefs.dart`（已有 17 条，保留） | 含新增 `allowDragZoom` 的默认与旧存档回落 |
 | `audio/gain.dart` / `audio/schedule.dart`（已有 18 条，保留） | 时间轴单调、排空锚定、`v²` 曲线、NaN 兜底、静音恒 0 |
 | **导入守卫** | 扫 `lib/` 断言：`settings/display_prefs.dart`、`audio/gain.dart`、`audio/schedule.dart`、`design/breakpoints.dart` **不含任何 `import 'package:`**；`design/**` 与 `state/**`、`actions/**` **不含 `package:web`** |
@@ -1871,6 +1876,11 @@ GET  → "has_api_key": false，且配置文件里的 api_key_env 行消失
 **只发 `clear_api_key: true`，不额外塞 `api_key_env: null`**：服务端的
 `inject_clear_key_flag` 规则 1 已经负责「段在场 + clear + 没给值 → 注入字段级清除」。
 两套机制表达同一件事，将来语义漂移时没人知道该信哪个。
+
+> **2026-09 P5 起已被取代（现行契约见 §4.3 / 附录 B）**：上文的 `clear_api_key`
+> 标志与 `inject_clear_key_flag` 注入层**已删除**。清除密钥绑定只有一种语法：
+> 直接发 `{"llm":{"api_key_env":null}}`——字段级三态的 `null` 就是清除，
+> 服务端删掉磁盘上那一行。本节是 P4 当时的历史记录，**不要**照它实现。
 
 #### ② `FieldRow` 要拆成一组小 widget，**不要**写成泛型大 widget
 
@@ -2470,7 +2480,7 @@ localStorage（常见配额 5 MB / 源）。所以：
 | 方法 + 路径 | 响应要点 | 备注 |
 |---|---|---|
 | `GET /api/v1/settings` | `{llm:{base_url,model,has_api_key}, tts:{base_url,model,voice,has_api_key,sample_rate,channels}, persona:{system_prompt,max_history_pairs,name,description,personality,scenario,first}, dev_mode}` | **密钥只回布尔，永不回变量名** |
-| `PATCH /api/v1/settings` | `{persisted, settings:<同上>, apply_status}` | 字段级三态：**省略=不改 / `null`=清空 / 值=设置**；段级 `null`=整段清空；段内 `clear_api_key:true`=清除密钥绑定 |
+| `PATCH /api/v1/settings` | `{persisted, settings:<同上>, apply_status}` | 字段级三态：**省略=不改 / `null`=清空 / 值=设置**；段级 `null`=整段清空；段内 `api_key_env:null`=清除密钥绑定（P5 单一规则） |
 | `POST /api/v1/settings/test/llm` | `{ok, latency_ms?, model_echo?, error?}` | `ok=true` 时 `latency_ms`+`model_echo` 必有 |
 | `POST /api/v1/settings/test/tts` | 同上（`voice` 回显） | |
 | `POST /api/v1/chat` | `{accepted, epoch, pending_cleared}` | 400 `invalid_payload` / 429 `busy` / 503 `no_supervisor` |

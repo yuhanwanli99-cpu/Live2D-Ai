@@ -11,7 +11,7 @@ use live2d_ai_core::{ActionId, ActionSource, Strength};
 
 use super::support::{
     Collector, count_fact, facts, has_dropped, make_fault_producer, spawn_llm_mock,
-    spawn_llm_mock_slow, spawn_tts_mock, wait_for,
+    spawn_llm_mock_slow, spawn_llm_mock_status, spawn_tts_mock, wait_for,
 };
 use super::*;
 use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
@@ -292,6 +292,129 @@ fn action_finished_fact_travels_real_finish_channel() {
     assert!(
         wait_for(Duration::from_secs(2), || has_dropped(&collector)),
         "事实必须经真实 finish_rx 通道到达 root 并被投影为 Dropped"
+    );
+
+    handle.quit();
+    assert!(wait_for(Duration::from_secs(2), || collector
+        .lock()
+        .expect("poison")
+        .iter()
+        .any(|e| matches!(e, AppEvent::ShutdownReady))));
+    handle.join();
+}
+
+// ============================================================================
+// LLM 故障可见（P0，2026-09-23）
+//
+// 用户报「LLM 故障时对话无反应」。三条断言把「无反应」钉死：
+//   ① 失败必须造出 AppEvent::Error（带 code）——它投影出的就是 WS error 帧；
+//   ② 本轮必须收口（RootFact::TurnCompleted{outcome_completed:false} →
+//      前端 turn_state{failed}），发送态结束、可以再发；
+//   ③ 失败轮不得凭空上屏正文。
+// ============================================================================
+
+fn spawn_llm_fault_supervisor(
+    llm_base: String,
+    tts_base: String,
+) -> (crate::supervisor::SupervisorHandle, Collector) {
+    let collector: Collector = Arc::new(Mutex::new(Vec::new()));
+    let ec = collector.clone();
+    let client = live2d_ai_runtime::OpenAiClient::new(
+        live2d_ai_runtime::LlmConfig::new(llm_base, "test-model"),
+        live2d_ai_runtime::TtsConfig::new(tts_base, "alloy"),
+    )
+    .expect("client");
+    let handle = spawn_supervisor(
+        SupervisorConfig {
+            client,
+            conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
+            capabilities: live2d_ai_core::ModelCapabilities::all(),
+            audio: None,
+            config_path: None,
+            mod_events: None,
+        },
+        move |ev| {
+            ec.lock().expect("poison").push(ev);
+        },
+    );
+    (handle, collector)
+}
+
+fn llm_supervisor_has_code_and_failed_turn(collector: &Collector, code: &str) -> bool {
+    let c = collector.lock().expect("poison");
+    c.iter()
+        .any(|e| matches!(e, AppEvent::Error(err) if err.code == code))
+        && c.iter().any(|e| {
+            matches!(
+                e,
+                AppEvent::RootAudit(RootFact::TurnCompleted {
+                    outcome_completed: false,
+                    ..
+                })
+            )
+        })
+}
+
+/// 上游 401：error 帧带码（llm_upstream_401）+ 本轮 failed 收口 + 无伪造正文。
+#[test]
+fn llm_upstream_401_is_visible_and_closes_the_turn() {
+    let llm_base = spawn_llm_mock_status(401, r#"{"error":{"message":"Authentication Fails"}}"#);
+    let (handle, collector) = spawn_llm_fault_supervisor(llm_base, spawn_tts_mock());
+    assert!(handle.say("A"));
+
+    assert!(
+        wait_for(Duration::from_secs(5), || {
+            llm_supervisor_has_code_and_failed_turn(&collector, "llm_upstream_401")
+        }),
+        "401 必须给出 error（带码）并让本轮 failed 收口"
+    );
+
+    // WS 契约：同一份 AppEvent::Error 投影出的就是带 code 的 error 帧。
+    let frame = collector
+        .lock()
+        .expect("poison")
+        .iter()
+        .find_map(|e| match e {
+            AppEvent::Error(_) => crate::web_api::ws::app_event_to_ws_frame(e),
+            _ => None,
+        })
+        .expect("失败必须能投影出 error 帧");
+    assert_eq!(frame["type"], "error");
+    assert_eq!(frame["data"]["code"], "llm_upstream_401");
+    assert_eq!(frame["data"]["stage"], "llm");
+    assert_eq!(frame["data"]["fatal"], false);
+
+    // 没有正文可显示时，不得凭空上屏（「无字」必须配「有错」）。
+    assert!(
+        !collector.lock().expect("poison").iter().any(|e| matches!(
+            e,
+            AppEvent::Conversation(ConversationUiEvent::TextDelta { text, .. }) if !text.is_empty()
+        )),
+        "401 没有正文，不能伪造一行"
+    );
+
+    handle.quit();
+    assert!(wait_for(Duration::from_secs(2), || collector
+        .lock()
+        .expect("poison")
+        .iter()
+        .any(|e| matches!(e, AppEvent::ShutdownReady))));
+    handle.join();
+}
+
+/// 上游连不上（传输层失败）：码是 llm_transport，同样收口。
+#[test]
+fn llm_transport_failure_is_visible_and_closes_the_turn() {
+    // 127.0.0.1:1 稳定拒绝连接（既有测试同款做法）。
+    let (handle, collector) =
+        spawn_llm_fault_supervisor("http://127.0.0.1:1".to_string(), spawn_tts_mock());
+    assert!(handle.say("A"));
+
+    assert!(
+        wait_for(Duration::from_secs(5), || {
+            llm_supervisor_has_code_and_failed_turn(&collector, "llm_transport")
+        }),
+        "连不上上游必须给出 llm_transport 并让本轮 failed 收口"
     );
 
     handle.quit();

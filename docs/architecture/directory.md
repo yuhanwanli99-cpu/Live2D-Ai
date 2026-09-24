@@ -60,10 +60,17 @@ crates/live2d-ai-mod-external-input/  外部事件接入 Mod（`POST /api/v1/ext
 crates/live2d-ai-mod-pet-desktop/    ⛔ 已封存（ARCHIVED，2026-09-14）：桌宠窗口 Mod v1 骨架，不再注册进 binary，禁止挂回
 crates/live2d-ai-mod-local-llm/      本地推理探测 Mod（探测就绪后经 apply_settings 写回 base_url/model）
 ```
-`crates/live2d-ai-mod-director/`（**动作编排** Mod）已于 `0.1.0-rc.2` **删除**——它是动作序列的
-唯一驱动方，而动作在产品路径上不存在；归档在分支 `archive/action-layer-p6`。
+`crates/live2d-ai-mod-director/`（**动作编排** Mod）已于 `0.1.0-rc.2` **删除**——它是**当时（0.1.0-rc.2）**
+动作序列的唯一驱动方，**当时代码里动作不在产品路径上**；归档在分支 `archive/action-layer-p6`。
+**2026-09-21 现状更正**：动作包经渲染面 `preset` 协议在产品路径上**存在**（只是不经 core reducer）；
+详见 `AGENTS.md`「动作与表演的现行状态（2026-09 实测）」。
 Wave 3（2026-09-14）新增了一个**同名但不同职责**的 `live2d-ai-mod-director` **最小骨架**：
-只读 `TurnPrompt`/`TurnEnded`、只产决策日志与 `state_json`、**零投递**（不驱动动作）。
+当时只读 `TurnPrompt`/`TurnEnded`、只产决策日志与 `state_json`、**零投递**（不驱动动作）——
+**这是 2026-09-14 骨架期历史事实，不是现状**。**2026-09-21 现状**：它另产 `latest.preset_id`
+（只读状态面，供面板展示）与按句 `action_cue`（`ModServices.cues` → WS `action_cue`，驱动舞台），
+只是不经 core reducer（`action_tx` 仍休眠）。详见 [director-mod-v0.md](director-mod-v0.md) 与
+`AGENTS.md` 的「动作与表演的现行状态（2026-09 实测）」；口径：**导演是一个 AI、属产品本体、
+不做架构搬迁**，输入 = **用户输入**（R1），谁的 `speak` 能力保留**未定、不裁决**。
 静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_five` 守住
 （产品级加强波次起恰为 **5**；`wallpaper` / `pet-desktop` 已封存，见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
 各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。

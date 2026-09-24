@@ -441,9 +441,20 @@ fn field_json(field: &ModSettingField) -> serde_json::Value {
             label,
             default,
         } => serde_json::json!({"kind":"bool","key":key,"label":label,"default":default}),
-        ModSettingField::String { key, label, secret } => {
-            serde_json::json!({"kind":"string","key":key,"label":label,"secret":secret})
-        }
+        // default 可选：前端把它用作 config 缺该键时的表单初值
+        // （ModSettingField.fromJson 一律读 default，四种 kind 同款）。
+        ModSettingField::String {
+            key,
+            label,
+            secret,
+            default,
+        } => serde_json::json!({
+            "kind": "string",
+            "key": key,
+            "label": label,
+            "secret": secret,
+            "default": default,
+        }),
         ModSettingField::Number {
             key,
             label,
@@ -454,6 +465,7 @@ fn field_json(field: &ModSettingField) -> serde_json::Value {
             key,
             label,
             options,
+            default,
         } => serde_json::json!({
             "kind": "select",
             "key": key,
@@ -462,6 +474,7 @@ fn field_json(field: &ModSettingField) -> serde_json::Value {
                 .iter()
                 .map(|o| serde_json::json!({"value": o.value, "label": o.label}))
                 .collect::<Vec<_>>(),
+            "default": default,
         }),
     }
 }
@@ -557,11 +570,13 @@ mod tests {
                         key: "token".to_string(),
                         label: "密钥".to_string(),
                         secret: true,
+                        default: None,
                     },
                     ModSettingField::String {
                         key: "path".to_string(),
                         label: "路径".to_string(),
                         secret: false,
+                        default: None,
                     },
                 ],
             })

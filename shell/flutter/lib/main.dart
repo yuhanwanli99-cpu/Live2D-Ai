@@ -52,6 +52,7 @@ import 'api/env_api.dart';
 import 'api/models_api.dart';
 import 'api/mods_api.dart';
 import 'api/settings_models.dart';
+import 'api/voice_api.dart';
 import 'api/ws_client.dart';
 import 'app/app_shell.dart';
 import 'app/app_shortcuts.dart';
@@ -60,9 +61,11 @@ import 'app/shortcut_help_dialog.dart';
 import 'audio/audio_player.dart';
 import 'chat/chat_controller.dart';
 import 'design/tokens.dart';
+import 'live2d/action_scales_sync.dart';
 import 'live2d/live2d_bridge.dart';
 import 'live2d/live2d_stage.dart';
 import 'settings/display_prefs.dart';
+import 'settings/preset_labels.dart';
 import 'settings/sections/appearance_section.dart';
 import 'settings/sections/dev_tools_section.dart';
 import 'settings/sections/llm_section.dart';
@@ -72,6 +75,9 @@ import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
 import 'state/ui_state_tracker.dart';
+import 'voice/speech_recognizer.dart';
+import 'voice/voice_listen_controller.dart';
+import 'ui/confirm_discard_dialog.dart';
 import 'ui/error_actions.dart';
 import 'ui/restart_notice.dart';
 import 'ui/stage_corner_controls.dart';
@@ -81,6 +87,18 @@ part 'app/shell_admin.dart';
 part 'app/shell_chat.dart';
 part 'app/shell_prefs.dart';
 part 'app/shell_settings.dart';
+
+/// Mod 列表里某个 id 的启停；**不在册**（极简装配 / 自定义注册表）→ `true`。
+///
+/// 与 web_api 端点的口径一致：端点是核心 say 能力，不该因为一个可选 Mod
+/// 缺失而失效（见 `voice_routes.rs` 头注「启停门禁」第三点）。所以这里
+/// 「查不到」绝不能当成「未启用」——那会误报红字。
+bool _enabledOf(List<ModInfo> mods, String id) {
+  for (final ModInfo m in mods) {
+    if (m.id == id) return m.enabled;
+  }
+  return true;
+}
 
 void main() {
   runApp(const Live2DShellApp());
@@ -162,9 +180,31 @@ class _ShellRootState extends State<ShellRoot> {
   /// 界面相位派生（WS 信号 + 渲染面状态 → `UiPhase`）。**纯逻辑，可单测。**
   final UiStateTracker _ui = UiStateTracker();
 
+  /// 导演状态面的 seq 去重 / 「本轮没有预设」判据（**纯逻辑，VM 可测**）。
+  ///
+  /// `decide()` 内部**先** seq 去重、**再**判 none——顺序是契约，见
+  /// `live2d_stage.dart` 的 `DirectorPresetGate`。放在那边而不是本文件，
+  /// 是因为本文件经 `app/browser_io.dart` 依赖 `package:web`，VM 测试加载不了。
+  final DirectorPresetGate _directorPresetGate = DirectorPresetGate();
+  /// 正在拉导演状态（避免同一轮并发打多次本地 HTTP）。
+  bool _directorFetching = false;
+  /// 本轮是否已经拉过一次导演状态。
+  ///
+  /// 导演的决策在 TurnPrompt（同步投递）里就写好了，所以本轮**第一次**
+  /// 正文上屏时拉一次就够——否则一段回复里的每个 text_delta 都会打一次
+  /// 本地 GET。轮末 turn_state 复位，下一轮重新拉。
+  bool _directorTurnHandled = false;
   StreamSubscription<double>? _levelSubscription;
   StreamSubscription<WsStatus>? _statusSubscription;
   StreamSubscription<WsEvent>? _eventSubscription;
+  StreamSubscription<int?>? _sentenceCueSubscription;
+
+  /// 导演按句 cue（P1-3，2026-09-16）：sentence_seq -> cue。
+  ///
+  /// 新 plan 到达即**整体替换**（一份 plan 覆盖上一份）；音频开始播放时按
+  /// 当前句的 sentence_seq 取用一次并移除。产品设置里的幅度倍率由渲染面乘，
+  /// 这里只透传 cue 的 intensity。
+  Map<int, ActionCue> _directorCues = <int, ActionCue>{};
 
   /// 当前设置分区（受控；外壳只上报意图）。
   SettingsSection _section = SettingsSection.appearance;
@@ -179,6 +219,13 @@ class _ShellRootState extends State<ShellRoot> {
   late final ModsApi _modsApi;
   late final DiagnosticsApi _diagApi;
 
+  /// 语音转写客户端 + **常态语音检测**控制器（唤醒词缺省「小可爱」）。
+  ///
+  /// 见 `voice/voice_listen_controller.dart`：识别平台能力由
+  /// `createSpeechRecognizer()` 条件导入（VM/不支持 → null，按钮禁用并说明）。
+  late final VoiceApi _voiceApi;
+  late final VoiceListenController _voiceListen;
+
   List<ModelInfo> _models = const <ModelInfo>[];
   /// 密钥真源状态（`GET /api/v1/env`）：键名 + 是否已设置（**没有值**）。
   EnvStatus _envStatus = const EnvStatus();
@@ -190,6 +237,12 @@ class _ShellRootState extends State<ShellRoot> {
   /// 会退回默认模型——「激活了但没换皮」的另一种形态。
   String? _activeModelUrl;
   List<ModInfo> _mods = const <ModInfo>[];
+
+  /// voice-input Mod 是否启用（`null` = 还没读到，**不误报**红字）。
+  ///
+  /// 判据真源 = `GET /api/v1/mods` 的 `enabled`；读失败保持 `null`，
+  /// 端点自己的 403 `mod_disabled` 仍是兜底。
+  bool? _voiceInputEnabled;
   List<LogLine> _logs = const <LogLine>[];
   String? _logsError;
   Map<String, Object?> _status = const <String, Object?>{};
@@ -220,6 +273,26 @@ class _ShellRootState extends State<ShellRoot> {
   String? _shellImageMessage; bool _shellImageFailed = false;
   bool _copied = false;
   bool _settingsLoadedOnce = false;
+
+  /// 未保存改动确认框是否**已经开着**（防重入）。
+  ///
+  /// Esc 连按 / 「换分区」与「关设置」同时进来时，只弹一个；
+  /// 第二个入口直接按「不许离开」处理（最保守）。
+  bool _confirmingLeave = false;
+
+  /// 预设 id → 展示名（读 `/actions/preset_labels.json`，**唯一真源**）。
+  ///
+  /// 取不到就是空表：调试面板回落显示稳定 id（不硬编码第二套中文标签）。
+  PresetLabelTable _presetLabels = PresetLabelTable.empty;
+
+  /// 动作幅度即时预览的防抖下发器（2026-09-16）。
+  ///
+  /// 为什么是 State 的字段而不是扩展里的字段：Dart 的扩展不能声明实例字段。
+  /// 行为与回归见 `live2d/action_scales_sync.dart`。
+  late final ActionScalesSyncer _actionScalesSyncer = ActionScalesSyncer(
+    (Map<String, double> scales) =>
+        _stageKey.currentState?.applyActionScales(scales),
+  );
 
   // ── 动作子系统已于 2026-09-11 移除（用户裁决：LLM 无工具、只做对话）──
   //
@@ -262,7 +335,40 @@ class _ShellRootState extends State<ShellRoot> {
     _envApi = EnvApi();
     _modsApi = ModsApi();
     _diagApi = DiagnosticsApi();
+    // 常态语音检测：读 voice-input Mod 的 wake_phrase（缺省「小可爱」），
+    // 命中后把原文交给 /api/v1/voice/transcript（服务端剥词，一份真相）。
+    _voiceApi = VoiceApi();
+    _voiceListen = VoiceListenController(
+      recognizer: createSpeechRecognizer(),
+      // B1（L1，2026-09-16）：服务端受理后**立刻**把用户句上屏并开一轮。
+      // 以前这里直接透传 `_voiceApi.sendTranscript`：链路（turn_prompt / 回答）
+      // 起来了，聊天区却没有用户那句话——用户以为「识别了但没发出去」。
+      send: (String text, {bool ptt = false}) async {
+        final VoiceTranscriptResult result = await _voiceApi.sendTranscript(
+          text,
+          ptt: ptt,
+        );
+        if (result.ok) {
+          // 上屏用服务端剥词 / 归一化后的正文（与真正喂给 LLM 的**同一份**）。
+          _chat.acceptInjectedUserTurn(
+            result.text.isNotEmpty ? result.text : text,
+          );
+        }
+        return result;
+      },
+      loadWakePhrase: _loadWakePhrase,
+      // Mod 未启用 → 先给红字（不要等 403 回来）。
+      loadModEnabled: _voiceInputModEnabled,
+      // busy 不排队：把识别到的正文落回输入框，让用户改字重发（P0-4）。
+      onBusyResult: _onVoiceBusyResult,
+    );
     _settings = SettingsController(api: _api);
+    // 动作幅度的**即时预览**（2026-09-16 修）：三滑条改的是设置草稿，
+    // 草稿一变就防抖下发渲染面——不必先点「保存」。
+    // 监听放在这里（而不是 ListenableBuilder 的 builder 里）的理由：
+    // builder 只在「有东西重建」时跑，而拖动滑条恰好**只改草稿**；
+    // 监听器与「保存 / 放弃 / 重新加载」共用同一条路（那三条都会 notify）。
+    _settings.addListener(_scheduleActionScalesSync);
     _ws = WsClient();
     _audio = AudioPlayer();
     // 静音与音量是纯本机输出设置（不经渲染面）：**默认出声**。
@@ -285,6 +391,11 @@ class _ShellRootState extends State<ShellRoot> {
       _stageKey.currentState?.setMouth(level);
     });
 
+    // 导演 cue（P1-3）：一句音频**开始播放**时按 seq apply（动作与声音同拍）。
+    _sentenceCueSubscription = _audio.sentenceStarts.listen(
+      _applyDirectorCueForSeq,
+    );
+
     // 相位跟踪器自己订阅 WS（只读消费，与 ChatController 互不干扰）。
     _statusSubscription = _ws.statuses.listen(_ui.onWsStatus);
     _eventSubscription = _ws.events.listen((WsEvent event) {
@@ -293,10 +404,161 @@ class _ShellRootState extends State<ShellRoot> {
       if (event is AudioEvent && event.muted != wasMuted) {
         setState(() => _serverMuted = event.muted);
       }
+      // P0-4：角色播报期间**暂停听**（自己的声音 / 环境人声会误触发），
+      // 播报结束自动恢复常驻；PTT 进行中不抢。
+      if (event is RuntimeStatusEvent) {
+        if (event.event == 'voice_started') {
+          unawaited(_voiceListen.suspendForPlayback());
+        } else if (event.event == 'voice_ended') {
+          unawaited(_voiceListen.resumeAfterPlayback());
+        }
+      }
+      // **导演动作预设**（2026-09-15）：正文开始上屏时拉一次导演状态面，
+      // 有新的 preset_id 就交给舞台。用 text_delta 而不是轮末：反应要跟
+      // 回复同时出现，等 turn_state 就晚了半拍。
+      // 正文兜底帧也要触发：TTS 上游故障时一轮里没有 text_delta，只有
+      // text_fallback——那种情况下「角色有反应」恰恰是用户最需要看到的。
+      if (event is TextDeltaEvent || event is TextFallbackEvent) {
+        unawaited(_applyDirectorPreset());
+      }
+      // 导演按句 cue（P1-3，2026-09-16）：整体替换当前计划；缺省忽略 = 兼容。
+      // 空 cues = 清空计划 = **本轮不动**（不归零；归零只走 preset_id='none'）。
+      if (event is ActionCueEvent) {
+        _directorCues = <int, ActionCue>{
+          for (final ActionCue cue in event.cues) cue.sentenceSeq: cue,
+        };
+      }
+      // 轮末复位：下一轮重新允许拉一次（见 _directorTurnHandled）。
+      if (event is TurnStateEvent) {
+        _directorTurnHandled = false;
+      }
     });
 
     _ws.connect();
     unawaited(_loadAppStatus());
+    // 启动就取一次 voice-input 的启停：主界面「听」按钮旁要能**先**给红字
+    // （而不是等用户说完才由 403 回来说）。
+    unawaited(_refreshVoiceModState());
+  }
+
+  /// 音频开始播放时按 sentence_seq 应用导演 cue（一次性；没 cue 什么都不做）。
+  ///
+  /// 锚点选**音频开始**（不是句子提交时刻）：慢 TTS 下前者才与声音同拍；
+  /// 迟到 / 缺 cue 一律安静丢弃（导演是附加表演能力，不往聊天链路抛错误）。
+  ///
+  /// **空 cue 列表 = 本轮不动，本方法不承担归零职责（W4，2026-09-23）**：
+  /// cue 是**按句**锚定的，用整份计划去归零会把**别的句**正在演的表演也清掉。
+  /// 撤销的唯一哨兵是状态面的 `preset_id = 'none'`（见 [`_applyDirectorPreset`]）。
+  void _applyDirectorCueForSeq(int? seq) {
+    if (seq == null || _directorCues.isEmpty) return;
+    final ActionCue? cue = _directorCues.remove(seq);
+    if (cue == null || cue.presetId.isEmpty) return;
+    unawaited(
+      _stageKey.currentState?.applyPreset(
+            cue.presetId,
+            source: 'director',
+            intensity: cue.intensity.toDouble(),
+            ttlMs: cue.ttlMs.toDouble(),
+          ) ??
+          Future<void>.value(),
+    );
+  }
+
+  /// 把 **导演 Mod** 选出的动作预设交给舞台（2026-09-15）。
+  ///
+  /// 通道：**已有的只读状态面** GET /api/v1/mods/director/state
+  /// （不是新协议、不是新的 Mod 下行通道）。Mod 只写 latest.preset_id，
+  /// 前端拉一次并转给渲染面——这是本项目「Mod 不持下行通道」纪律下的最短路径。
+  ///
+  /// **撤销语义（W4，2026-09-23）**：`preset_id` 为 `null` / 空串 / `'none'`
+  /// 都表示「本轮没有预设」——此时**显式归零两个槽**（`applyPreset('none')`
+  /// → 渲染面 `Revoke`），而不是像以前那样直接 return、干等上一轮的 ttl
+  /// （表情 2.6s）自然到点。
+  ///
+  /// 顺序是契约：**先**在 `_directorPresetGate.decide()` 里完成 seq 去重，
+  /// **再**看有没有预设去归零。一轮里每个 `text_delta` 都会触发一次本方法，
+  /// 顺序写反 = 每一帧都重复归零，舞台会抖。
+  ///
+  /// 失败一律静默：director 未启用 / 不在注册表 / 暂时读不到，都只是「没有
+  /// 预设」——导演是附加表演能力，不该往聊天链路上抛错误横幅。
+  Future<void> _applyDirectorPreset() async {
+    // 一轮只拉一次（决策在 TurnPrompt 里就写好了；轮末复位）。
+    if (_directorFetching || _directorTurnHandled) return;
+    _directorFetching = true;
+    try {
+      final ModStateResult result = await _modsApi.state('director');
+      final Object? latest = result.state['latest'];
+      if (latest is! Map) return;
+      final Map<String, Object?> row = Map<String, Object?>.from(latest);
+      final Object? rawSeq = row['seq'];
+      final int seq = rawSeq is num ? rawSeq.toInt() : 0;
+      // ① seq 去重在前（同 seq 重复帧在这里变成 ignore，不会重复归零）。
+      final DirectorPresetDecision decision =
+          _directorPresetGate.decide(seq, row['preset_id']);
+      if (decision.action == DirectorPresetAction.ignore) return;
+      // ② 本轮有新决策、但「没有预设」→ 显式归零两槽。
+      if (decision.action == DirectorPresetAction.revoke) {
+        await _stageKey.currentState?.applyPreset('none', source: 'director');
+        return;
+      }
+      await _stageKey.currentState?.applyPreset(
+        decision.presetId!,
+        source: 'director',
+      );
+    } catch (_) {
+      // 见上：静默降级。
+    } finally {
+      _directorFetching = false;
+      // 无论成功 / 失败，这一轮都不再重复打本地 GET（下一轮 turn_state 复位）。
+      _directorTurnHandled = true;
+    }
+  }
+
+  /// 主链忙时，把识别到的正文**落回输入框**（不排队、不静默丢弃）。
+  ///
+  /// 不 `setState`：`TextEditingController` 自己会通知输入框重建，这里只改值。
+  void _onVoiceBusyResult(String text) {
+    if (!mounted || text.trim().isEmpty) return;
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  /// voice-input Mod 是否启用（「听」按钮预检；读失败 → `true` 不误拦）。
+  ///
+  /// 缓存命中直接返回；首次（或用户在设置里改过启停后清缓存）走一次
+  /// `GET /api/v1/mods`。**读不到不拦**——真发出去时服务端仍会如实回 403。
+  Future<bool> _voiceInputModEnabled() async {
+    final bool? cached = _voiceInputEnabled;
+    if (cached != null) return cached;
+    try {
+      final List<ModInfo> mods = await _modsApi.list();
+      if (mounted) {
+        _mods = mods;
+        _voiceInputEnabled = _enabledOf(mods, 'voice-input');
+        _refresh();
+      }
+      return _enabledOf(mods, 'voice-input');
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// 读当前生效的唤醒词：voice-input Mod 的 `config.wake_phrase`。
+  ///
+  /// 键缺失 / Mod 不在册 / 读失败 → 产品缺省「小可爱」（与 Rust 侧
+  /// `gate::DEFAULT_WAKE_PHRASE` 逐字一致）。**显式空**（键存在且为空）
+  /// 也回落缺省：服务端此时会拒一切转写，按钮仍能把这条错误如实显示出来；
+  /// 本地不需要复刻「空 = 总闸关」的第二套判定。
+  Future<String> _loadWakePhrase() async {
+    final List<ModInfo> mods = await _modsApi.list();
+    for (final ModInfo m in mods) {
+      if (m.id != 'voice-input') continue;
+      final Object? raw = m.config['wake_phrase'];
+      if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+    }
+    return kDefaultWakePhrase;
   }
 
   @override
@@ -304,6 +566,9 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_levelSubscription?.cancel());
     unawaited(_statusSubscription?.cancel());
     unawaited(_eventSubscription?.cancel());
+    unawaited(_sentenceCueSubscription?.cancel());
+    _actionScalesSyncer.dispose();
+    _settings.removeListener(_scheduleActionScalesSync);
     _ui.dispose();
     _live.dispose();
     _settings.dispose();
@@ -311,6 +576,8 @@ class _ShellRootState extends State<ShellRoot> {
     _envApi.dispose();
     _modsApi.dispose();
     _diagApi.dispose();
+    _voiceListen.dispose();
+    _voiceApi.dispose();
     _chat.dispose();
     _ws.dispose();
     _audio.dispose();
@@ -457,6 +724,7 @@ class _ShellRootState extends State<ShellRoot> {
         _ui,
         _audio.unlockState,
         _settings,
+        _voiceListen,
       ]),
       builder: (BuildContext context, Widget? _) {
         return AppShell(
@@ -471,6 +739,14 @@ class _ShellRootState extends State<ShellRoot> {
             // 背景图也是**舞台状态**：传进来后，一旦 iframe 重建（首帧 / retry）
             // 舞台自己就能补发，不再依赖「恰好有另一次偏好变更」。
             stageImage: widget.prefs.stageImage,
+            // 动作幅度（W7，2026-09-23 收口）：**唯一取值口** = syncer 的
+            // `active()`（临时覆盖 > 草稿 > 磁盘值）。传它不是「先保存才生效」
+            // 那一版——它由防抖监听器实时重算，传进来只为 iframe 重建 / 重挂后
+            // 舞台能自愈（RESEARCH §2.3：这条通路过去永远拿到 null）。
+            actionScales: _stageActionScales,
+            // 预设标签表（显示用）：舞台的倒计时 ttl 与 director 面板的通道标签
+            // 优先查它的 `channel`，取不到表才回落 kExpressionPresetIds。
+            presetLabels: _presetLabels,
             // 就绪后补发显示偏好：首次挂载时桥还在 loading，
             // 以及在 retry 重建 iframe 之后（旧队列已随旧桥销毁）。
             onReady: _applyPrefs,
@@ -510,6 +786,22 @@ class _ShellRootState extends State<ShellRoot> {
           audioUnlocked: _audio.unlocked,
           onEnableSound: _audio.unlock,
           onUserGesture: _audio.unlock,
+          // 常态语音检测：聊天主界面常驻的「听」按钮（唤醒词缺省「小可爱」）。
+          listenSupported: _voiceListen.supported,
+          listening: _voiceListen.listening,
+          listenStatus: _voiceListen.statusLine,
+          listenError: _voiceListen.error,
+          onToggleListen: () => unawaited(_voiceListen.toggle()),
+          // P0-4：一个按钮三态——点按 = 常驻开/关，按住 = PTT（松手提交）。
+          pttActive: _voiceListen.pttActive,
+          onPressStart: () => unawaited(_voiceListen.pressStart()),
+          onPressRelease: () => unawaited(_voiceListen.pressRelease()),
+          // 诚实性：Web Speech 是云端识别、需联网、音频会出本机。
+          listenNote: _voiceListen.supported ? kVoiceWebSpeechNote : null,
+          // B1（L1）：Mod 未启用时**常驻红字**，不要等用户说完才由 403 回来说。
+          listenBlockedReason: _voiceInputEnabled == false
+              ? kVoiceModDisabledMessage
+              : null,
           // L1 基座：Mod 变更后的统一提示（聊天区顶部常驻，可关）。
           modRestartNotice: _modRestartNotice,
           onDismissModRestart: _dismissModRestart,
@@ -576,7 +868,7 @@ class _ShellRootState extends State<ShellRoot> {
             onDismissOverlay: () {
               final AppShellState? shell = _shellKey.currentState;
               if (shell == null || !shell.settingsOpen) return false;
-              shell.closeSettings();
+              unawaited(shell.closeSettings());
               return true;
             },
             onOpenSettings: () {

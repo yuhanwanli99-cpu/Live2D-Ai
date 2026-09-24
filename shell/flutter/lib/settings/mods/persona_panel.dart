@@ -555,9 +555,7 @@ class _PersonaCardPanelState extends State<PersonaCardPanel> {
           child: InlineNotice(
             severity: NoticeSeverity.info,
             dense: true,
-            message: '「导入并生效」把卡绑定到当前会话（只影响它）；'
-                '「导入为全局人设（所有会话）」是旧的全局行为，会写主链 '
-                'persona.system_prompt，对所有会话生效。',
+            message: '「导入并生效」只绑定当前会话；「导入为全局人设」写主链、对所有会话生效。',
           ),
         ),
         if (widget.pickCardFile == null)
@@ -592,10 +590,10 @@ class _PersonaCardPanelState extends State<PersonaCardPanel> {
     padding: EdgeInsets.only(top: Space.s3),
     child: InlineNotice(
       severity: NoticeSeverity.info,
-      message: '与「记忆」Mod 的关系：只有「导入为全局人设」会写主链的 '
-          'persona.system_prompt，规则是后写覆盖、不做仲裁——角色卡后写会把记忆块冲掉，'
-          '记忆下一轮会在人设之上重新拼回去。会话绑定的卡不进主链，不受这条影响。'
-          '想稳定用全局人设：先开角色卡，别同时开「记忆」的注入开关。',
+      dense: true,
+      message: '只有「导入为全局人设」会写主链 persona.system_prompt：'
+          '后写覆盖、不做仲裁——想稳定用全局人设就别同时开「记忆」的注入开关。'
+          '会话绑定的卡不进主链，不受这条影响。',
     ),
   );
 }

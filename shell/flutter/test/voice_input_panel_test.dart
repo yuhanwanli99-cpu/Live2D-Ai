@@ -1,10 +1,11 @@
-/// voice-input 产品面板的组件契约（产品级加强波次）。
+/// voice-input 产品面板的组件契约（2026-09-15 瘦身版）。
 ///
-/// 断言三件产品级诉求：
-/// 1. 人话解释真的在面板上（mock 没有 ASR / sidecar 推模式、Rust 不开 socket /
-///    locale 只管归一化，不是识别语言开关）；
-/// 2. 当前生效值来自 Mod config（缺省 mock / zh-CN；配错时不假装有效）；
-/// 3. 失败码与处置在面板上，「检查配置」走 onCommand 且失败带错误码。
+/// 断言：
+/// 1. **主区只有四件事**（一行总闸状态 / 一句链路白话 / 检查配置 / 关闭提示）——
+///    旧的 backend/locale 长篇解释、失败码长文、退出码表都不在主区；
+/// 2. 「高级」折叠里有验证闸门（inject）与 sidecar 拉起，且退出码长文在其中；
+/// 3. 失败码与错误码如实呈现，「检查配置」走 onCommand；
+/// 4. 未启用时命令按钮禁用并给 503 说明。
 library;
 
 import 'package:flutter/material.dart';
@@ -16,17 +17,14 @@ import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
 import 'package:live2d_ai_shell/settings/mods/voice_input_panel.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 总闸开的 config（总闸 = 唤醒短语非空）。
-const Map<String, Object?> _wakeConfig = <String, Object?>{
-  'wake_phrase': '小爱',
-};
+/// 自定义唤醒词的 config。
+const Map<String, Object?> _wakeConfig = <String, Object?>{'wake_phrase': '小爱'};
 
 /// 运行态快照（GET /state 的形状，只取面板读的字段）。
 const Map<String, Object?> _stateWithGate = <String, Object?>{
   'wake_gate_open': true,
   'wake_phrase_set': true,
   'manual_enabled': true,
-  'sidecar_script': '/repo/docs/examples/voice-sidecar/voice_sidecar.py',
   'sidecar_status': <String, Object?>{
     'state': 'idle',
     'exit_code': null,
@@ -83,82 +81,80 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+/// 展开「高级」折叠（验证闸门 / sidecar / 退出码都在里面）。
+Future<void> _openAdvanced(WidgetTester tester) =>
+    _tapVisible(tester, find.text('高级'));
+
 void main() {
-  testWidgets('人话解释：mock / sidecar 推模式 / Rust 不开 socket / locale 只管归一化', (
+  testWidgets('主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(_panel(_ctx()));
-    expect(find.textContaining('没有 ASR'), findsWidgets);
+    // 键缺失 → 缺省词。
+    expect(find.textContaining('唤醒词「小可爱」'), findsOneWidget);
+    expect(find.textContaining('缺省'), findsWidgets);
     expect(
-      find.textContaining('从不开 socket'),
+      find.textContaining('后面那句会进聊天'),
       findsOneWidget,
-      reason: '必须说清 Rust 不主动请求 sidecar',
+      reason: '必须一句话说清「说唤醒词 → 进聊天 → LLM → TTS」',
     );
-    expect(
-      find.textContaining('识别语言开关'),
-      findsWidgets,
-      reason: 'locale 不是识别语言开关，必须写出来',
-    );
-    expect(find.textContaining('归一化'), findsWidgets);
+    // 旧的逐条解释不在主区。
+    expect(find.textContaining('从不开 socket'), findsNothing);
+    expect(find.textContaining('识别语言开关'), findsNothing);
+    expect(find.textContaining('backend：'), findsNothing);
   });
 
-  testWidgets('当前生效值：缺省是 mock / zh-CN 且标出「缺省」', (WidgetTester tester) async {
-    await tester.pumpWidget(_panel(_ctx()));
-    expect(find.textContaining('backend：mock（缺省，未显式设置）'), findsOneWidget);
-    expect(find.textContaining('locale：zh-CN（缺省，未显式设置）'), findsOneWidget);
+  testWidgets('自定义唤醒词按 config 显示', (WidgetTester tester) async {
+    await tester.pumpWidget(_panel(_ctx(config: _wakeConfig, state: _stateWithGate)));
+    expect(find.textContaining('唤醒词「小爱」'), findsOneWidget);
+    expect(find.textContaining('自定义'), findsOneWidget);
   });
 
-  testWidgets('当前生效值：显式设置按 config 显示', (WidgetTester tester) async {
+  testWidgets('总闸显式关：醒目文案点名 403 voice_gate_closed', (WidgetTester tester) async {
     await tester.pumpWidget(
       _panel(
         _ctx(
-          config: const <String, Object?>{
-            'backend': 'sidecar',
-            'locale': 'en-US',
+          state: const <String, Object?>{
+            'wake_gate_open': false,
+            'manual_enabled': true,
           },
         ),
       ),
     );
-    expect(find.textContaining('backend：sidecar（已设置）'), findsOneWidget);
-    expect(find.textContaining('locale：en-US（已设置）'), findsOneWidget);
+    expect(find.textContaining('总闸'), findsWidgets);
+    expect(find.textContaining('403 voice_gate_closed'), findsOneWidget);
   });
 
-  testWidgets('配错不假装有效：未知 backend 回落 mock、非法 locale 有告警', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('手动闸关：点名 voice_manual_off', (WidgetTester tester) async {
     await tester.pumpWidget(
       _panel(
         _ctx(
-          config: const <String, Object?>{
-            'backend': 'whisper',
-            'locale': '!!',
+          config: const <String, Object?>{'wake_phrase': '小爱', 'manual_enabled': false},
+          state: const <String, Object?>{
+            'wake_gate_open': true,
+            'manual_enabled': false,
           },
         ),
       ),
     );
-    expect(
-      find.textContaining('backend：mock（配置值 whisper 不认识，已回落 mock）'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('locale：!!（已设置）'), findsOneWidget);
-    expect(find.textContaining('不是合法 BCP-47'), findsOneWidget);
+    expect(find.textContaining('手动闸已关'), findsOneWidget);
+    expect(find.textContaining('403 voice_manual_off'), findsOneWidget);
   });
 
-  testWidgets('出错怎么办：覆盖 mod_disabled / busy / sidecar 没起 / backend 配错', (
+  testWidgets('高级折叠：验证闸门（inject）与 sidecar 都在里面，不在主区', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(_panel(_ctx()));
-    expect(find.textContaining('mod_disabled'), findsWidgets);
-    expect(find.textContaining('busy'), findsWidgets);
-    expect(find.textContaining('连接被拒'), findsWidgets);
-    expect(find.textContaining('backend 配错'), findsOneWidget);
-    // sidecar 退出码表在面板上（码 -> 人话）。
+    await tester.pumpWidget(_panel(_ctx(config: _wakeConfig, state: _stateWithGate)));
+    // 收起时主区看不到它们。
+    expect(find.text('验证闸门'), findsNothing);
+    expect(find.text('拉起 sidecar'), findsNothing);
+
+    await _openAdvanced(tester);
+    expect(find.text('验证闸门'), findsOneWidget);
+    expect(find.text('拉起 sidecar'), findsOneWidget);
+    // sidecar 退出码长文也在高级里。
     for (final String code in <String>['0', '2', '3', '4', '5']) {
-      expect(
-        find.textContaining('退出码 $code：'),
-        findsOneWidget,
-        reason: '退出码 $code 的一行必须在面板上',
-      );
+      expect(find.textContaining('退出码 $code：'), findsOneWidget);
     }
   });
 
@@ -196,11 +192,7 @@ void main() {
     expect(calls, <String>['selftest']);
     expect(find.textContaining('配置自洽'), findsOneWidget);
     expect(find.textContaining('token=已设置'), findsOneWidget);
-    expect(
-      find.textContaining('Rust 开网络=否'),
-      findsOneWidget,
-      reason: '自检结论要能证明 Rust 不开 socket',
-    );
+    expect(find.textContaining('Rust 开网络=否'), findsOneWidget);
   });
 
   testWidgets('检查配置失败：错误带码呈现（command_unavailable）', (WidgetTester tester) async {
@@ -226,62 +218,7 @@ void main() {
     );
   });
 
-  // ------------------------------------------------ L1：能力总闸 / 验证闸门 / sidecar
-
-  testWidgets('总闸未开：醒目文案说清「总闸就是唤醒短语」且一切转写被拒', (
-    WidgetTester tester,
-  ) async {
-    // config 没有 wake_phrase（缺省 = 总闸关），运行态也如实报 false。
-    await tester.pumpWidget(
-      _panel(
-        _ctx(
-          state: const <String, Object?>{'wake_gate_open': false, 'manual_enabled': true},
-        ),
-      ),
-    );
-    expect(find.textContaining('总闸就是「唤醒短语」'), findsOneWidget);
-    expect(
-      find.textContaining('总闸未开：所有转写都会被拒绝'),
-      findsOneWidget,
-      reason: '总闸关时必须有醒目文案',
-    );
-    expect(
-      find.textContaining('403 voice_gate_closed'),
-      findsWidgets,
-      reason: '必须点名失败的稳定码',
-    );
-  });
-
-  testWidgets('总闸开（config + state 一致）：不出现「总闸未开」告警', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      _panel(_ctx(config: _wakeConfig, state: _stateWithGate)),
-    );
-    expect(
-      find.textContaining('总闸未开：所有转写都会被拒绝'),
-      findsNothing,
-    );
-    expect(find.textContaining('已开（wake_phrase 已设置）'), findsOneWidget);
-  });
-
-  testWidgets('手动闸关：醒目文案点名 voice_manual_off', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _panel(
-        _ctx(
-          config: const <String, Object?>{'wake_phrase': '小爱', 'manual_enabled': false},
-          state: const <String, Object?>{
-            'wake_gate_open': true,
-            'manual_enabled': false,
-          },
-        ),
-      ),
-    );
-    expect(find.textContaining('手动闸已关'), findsOneWidget);
-    expect(find.textContaining('403 voice_manual_off'), findsWidgets);
-  });
-
-  testWidgets('验证闸门：onCommand 收到 inject + text，并把 accepted/code 摊开', (
+  testWidgets('验证闸门：onCommand 收到 inject + text，并把 accepted 摊开', (
     WidgetTester tester,
   ) async {
     final List<(String, Map<String, Object?>)> calls =
@@ -313,6 +250,7 @@ void main() {
         ),
       ),
     );
+    await _openAdvanced(tester);
     await tester.enterText(find.byType(TextField).first, '小爱 开灯');
     await _tapVisible(tester, find.text('验证闸门'));
     expect(calls.length, 1);
@@ -338,28 +276,36 @@ void main() {
                   'accepted': false,
                   'text': '你好',
                   'rejected_code': 'voice_gate_closed',
-                  'message': '能力总闸未开：先在 Mod 配置里填写「唤醒短语」',
+                  'message': '语音总闸被显式关闭',
                 },
               ),
         ),
       ),
     );
+    await _openAdvanced(tester);
     await tester.enterText(find.byType(TextField).first, '你好');
     await _tapVisible(tester, find.text('验证闸门'));
     expect(find.textContaining('被拒绝（voice_gate_closed）'), findsOneWidget);
-    expect(find.textContaining('唤醒短语'), findsWidgets);
   });
 
   testWidgets('未启用：命令按钮禁用并给 503 说明', (WidgetTester tester) async {
     await tester.pumpWidget(_panel(_ctx(enabled: false)));
-    // 「验证闸门」「拉起 sidecar」「检查配置」三个按钮都禁用。
-    for (final String label in <String>['检查配置', '验证闸门', '拉起 sidecar']) {
+    final FilledButton check = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '检查配置'),
+    );
+    expect(check.onPressed, isNull);
+    expect(find.textContaining('503 command_unavailable'), findsWidgets);
+
+    await _openAdvanced(tester);
+    for (final String label in <String>['验证闸门', '拉起 sidecar']) {
       final Finder button = find.widgetWithText(FilledButton, label);
       expect(button, findsOneWidget, reason: '按钮 $label 必须在');
-      final FilledButton widget = tester.widget<FilledButton>(button);
-      expect(widget.onPressed, isNull, reason: '$label 未启用时必须禁用');
+      expect(
+        tester.widget<FilledButton>(button).onPressed,
+        isNull,
+        reason: '$label 未启用时必须禁用',
+      );
     }
-    expect(find.textContaining('503 command_unavailable'), findsWidgets);
   });
 
   testWidgets('拉起 sidecar：onCommand 收到 run_sidecar + 路径/transcriber/url', (
@@ -394,6 +340,7 @@ void main() {
         ),
       ),
     );
+    await _openAdvanced(tester);
     // TextField 顺序：0 = 验证闸门注入文本，1 = 音频路径，2 = transcriber，3 = url。
     await tester.enterText(
       find.byType(TextField).at(1),
@@ -410,8 +357,6 @@ void main() {
     expect(find.textContaining('已拉起 sidecar（pid 4321）'), findsOneWidget);
     expect(refreshed, 1, reason: '拉起后要刷一次运行态');
   });
-
-  // ---------------------------------------------------- voiceTranscriptUrl 纯函数
 
   group('voiceTranscriptUrl：浏览器 origin → transcript 端点', () {
     test('http origin 带端口：拼上固定路径', () {

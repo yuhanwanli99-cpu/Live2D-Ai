@@ -50,6 +50,13 @@ mod mouth;
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 mod stage_bg;
 
+/// 动作预设的纯逻辑（**平台无关**：原生与 wasm 都编译）。
+///
+/// 同 `mouth.rs` / `stage_bg.rs` 的教训：映射表与包络必须原生可测，
+/// 否则「预设表改了没人知道」——见 `preset/` 目录头注（`preset/mod.rs`）。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod preset;
+
 fn main() {
     // wasm32：真实入口。
     #[cfg(target_arch = "wasm32")]
@@ -93,6 +100,11 @@ mod web {
     /// 缺省模型清单 URL：约定宿主在 `/models/<...>` 暴露用户合法持有的皮套
     /// （挂载方式见本 crate README）；本仓库不内置、不分发任何模型资产。
     pub(crate) const DEFAULT_MODEL_URL: &str = "/models/bai/runtime/bai.model3.json";
+
+    /// 外置动作预设表 URL（2026-09-16，P1-1）。由桌面端静态路由 `/actions/*`
+    /// 映射到 `<cwd>/assets/actions/presets.json`；改了它重开页面即可生效，
+    /// 不需要重编 Rust。
+    pub(crate) const PRESETS_URL: &str = "/actions/presets.json";
 
     /// 页面状态栏 `<pre id="status">`：所有错误与阶段状态的唯一出口。
     pub(crate) fn status(msg: &str) {
@@ -158,6 +170,38 @@ mod web {
         LoadedModel::resolve(package).map_err(|e| format!("moc3 解析失败：{e}"))
     }
 
+    /// 加载并校验外置动作预设表（2026-09-16，P1-1）。
+    ///
+    /// 返回一句可读结果（写进状态栏）：成功说明条数 + 告警；失败说明回退内建表。
+    /// 校验规则见 [`crate::preset::PresetTable::from_json`]。
+    async fn load_preset_table(state: &SharedState, window: &web_sys::Window) -> String {
+        let bytes = match net::fetch_bytes(window, PRESETS_URL).await {
+            Ok(b) => b,
+            Err(e) => return format!("动作预设表读取失败（{e}），回退内建表"),
+        };
+        let text = match String::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(e) => return format!("动作预设表不是 UTF-8（{e}），回退内建表"),
+        };
+        match crate::preset::PresetTable::from_json(&text) {
+            Ok(table) => {
+                let n = table.all().len();
+                let warnings = table.warnings().to_vec();
+                state.borrow_mut().bridge.preset.set_table(table);
+                if warnings.is_empty() {
+                    format!("动作预设表：{n} 条（外置 {PRESETS_URL}）")
+                } else {
+                    format!(
+                        "动作预设表：{n} 条（外置；{} 条告警：{}）",
+                        warnings.len(),
+                        warnings.join("；")
+                    )
+                }
+            }
+            Err(e) => format!("动作预设表校验失败（{e}），回退内建表"),
+        }
+    }
+
     /// 一次性启动流程：fetch 清单 → fetch 资源 → 内存组包 → GPU 初始化 →
     /// 安装 resize 监听 → 进入 rAF 固定 dt 渲染循环。
     async fn run() -> Result<(), String> {
@@ -216,6 +260,10 @@ mod web {
         }));
         install_resize_handler(&state);
 
+        // 外置动作预设表（2026-09-16，P1-1）：优先 /actions/presets.json。
+        // 用户可改幅值 / 周期 / 时长而**不需要重编 Rust**；缺失或校验失败回退内建表。
+        let preset_note = load_preset_table(&state, &window).await;
+
         // 一次性快照 adapter 信息到 HUD（供 500ms 周期内反复渲染）。
         let (backend, adp_name, is_webgpu) = adapter_info(&adapter);
         state
@@ -227,7 +275,7 @@ mod web {
         // 诊断：同时打印「缓冲」与「CSS」两组尺寸——两者宽高比不一致即为模型被压扁的根因。
         let (css_w, css_h, dpr) = canvas_css_metrics(&canvas, &window);
         status(&format!(
-            "{summary}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
+            "{summary}\n{preset_note}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
         ));
 
         install_stage_bridge(&state);
@@ -339,6 +387,18 @@ mod web {
                             st.bridge.mouth_sensitivity =
                                 (s as f32).clamp(0.0, crate::mouth::MAX_MOUTH_SENSITIVITY);
                         }
+                        // 动作幅度倍率（2026-09-16 用户可调）：`{head, body, expression}`
+                        // 三条独立乘数，缺省/非法 → 1.0，钳 [0.2, 2.2]（`MAX_SCALE`）。
+                        // 单独一段、**不拒绝整条消息**——坏值只回落默认。
+                        if let Some(obj) = payload.get("actionScales") {
+                            st.bridge
+                                .preset
+                                .set_scales(crate::preset::PresetScales::from_parts(
+                                    obj.get("head").and_then(|x| x.as_f64()),
+                                    obj.get("body").and_then(|x| x.as_f64()),
+                                    obj.get("expression").and_then(|x| x.as_f64()),
+                                ));
+                        }
                         if let Some(id) = payload.get("idleEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.idle_enabled = id;
                         }
@@ -377,6 +437,28 @@ mod web {
                             st.bridge.volume = (vol as f32).clamp(0.0, 1.0);
                         }
                         applied = true;
+                    }
+                    // **动作预设**（P0-1 / P0-2）：Director Mod / 开发工具「动作调试」
+                    // 经 Flutter 转发到这里。
+                    //   - `id:"none"` → 立即撤销（`PresetCommand::Revoke`）；
+                    //   - 未知 id → 静默忽略（不回执、不动参数）；
+                    //   - 可选 `intensity` / `ttl_ms` / `source`；缺省兼容旧 `{id}`。
+                    // 写入走 final_override 层（见 input.rs），到点整批撤销。
+                    // v1 协议新增消息：旧渲染面忽略未知 type，故向后兼容。
+                    "preset" => {
+                        let cmd = st.bridge.preset.resolve(
+                            payload.get("id").and_then(|x| x.as_str()),
+                            payload.get("intensity").and_then(|x| x.as_f64()),
+                            payload.get("ttl_ms").and_then(|x| x.as_f64()),
+                            payload.get("source").and_then(|x| x.as_str()),
+                        );
+                        // 起始时刻用 performance.now()（与 tick 的 dt 同源）。
+                        let now_ms = web_sys::window()
+                            .and_then(|w| w.performance())
+                            .map(|p| p.now())
+                            .unwrap_or(0.0);
+                        let surface::FrameState { bridge, core, .. } = &mut *st;
+                        applied = bridge.preset.handle(cmd, now_ms, core);
                     }
                     // C2：自定义背景图（dataURL；null/empty = 清除）。
                     "stage-bg" => {

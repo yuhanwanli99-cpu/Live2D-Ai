@@ -56,6 +56,8 @@ fn tmp_ctx_with_settings(name: &str, settings: AppSettings) -> (ServerContext, s
 #[test]
 fn status_context_init_uses_settings_when_no_override() {
     let s = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
         dev_mode: true,
         ..Default::default()
     };
@@ -72,6 +74,8 @@ fn status_context_init_cli_override_wins_over_settings() {
 
     // settings = true, CLI = false → 最终 = false（CLI Some(false) 强制覆盖）。
     let s = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
         dev_mode: true,
         ..Default::default()
     };
@@ -183,11 +187,14 @@ fn patch_no_op_does_not_change_dev_mode() {
     // 起点：dev_mode=true，PATCH 一个无关字段（llm.model），
     // StatusContext.dev_mode 仍为 true（PATCH 写盘后未变则不调 set_dev_mode）。
     let s = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
             base_url: "http://x/v1".into(),
             model: "m".into(),
             api_key_env: None,
             max_tokens: None,
+            show_reasoning: None,
         },
         dev_mode: true,
         ..Default::default()
@@ -271,6 +278,8 @@ fn end_to_end_logs_endpoint_flips_403_to_200_after_patch() {
 fn patch_dev_mode_null_is_explicit_false() {
     // `{"dev_mode":null}` = Some(None) = 显式关闭（与缺省 None 不同）。
     let s = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
         dev_mode: true,
         ..Default::default()
     };
@@ -292,6 +301,8 @@ fn patch_dev_mode_null_is_explicit_false() {
 fn patch_dev_mode_absent_does_not_touch_dev_mode() {
     // `{"llm":{"model":"x"}}` 不动 dev_mode 字段。
     let s = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
             base_url: "http://x/v1".into(),
             ..Default::default()

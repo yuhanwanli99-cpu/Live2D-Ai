@@ -78,6 +78,8 @@ pub mod conversation;
 pub mod dialogue;
 pub mod error;
 pub mod llm;
+/// 表演层（导演 / 大脑）：每轮一份合法化 JSON → speak（TTS/上屏真源）+ cues。
+pub mod performance;
 pub mod secret;
 /// `.env` = 唯一密钥真源（rc.2 2026-09-12）：快照读取 + 就地写回 + 热重载。
 /// 生产代码读密钥**只能**走 [`secrets::lookup`]，不要直接 `std::env::var`。
@@ -93,9 +95,13 @@ pub use config::{LlmConfig, TtsConfig};
 pub use conversation::{
     ConversationConfig, ConversationEngine, EngineEvent, ErrorKind, TurnReport, TurnStatus,
 };
-pub use dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler};
+pub use dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler, clean_for_tts};
 pub use error::{Error, Result};
 pub use llm::{ChatMessage, LlmEvent, Role};
+pub use performance::{
+    DisabledPerformance, FallbackReason, PerformanceClient, PerformanceCue, PerformancePlan,
+    PerformanceRuntime, PerformanceSetup, PlanError, Resolution, StructuredMode, assemble,
+};
 pub use secret::ApiSecret;
 pub use settings::patch::{PatchOutcome, SettingsPatch, apply_patch, plan_atomic_write};
 pub use settings::view::SettingsView;
@@ -145,12 +151,19 @@ impl OpenAiClient {
     }
 }
 
-/// 显式拼接 `base_url + path`。
+/// 显式拼接 `base_url + path`（归一化尾部 `/` 后字符串拼接，再校验 http/https）。
 ///
 /// 不用 `Url::join`：它对「base 无尾斜杠」做相对段替换
 /// （`…/v1` join `/chat/completions` 会丢掉 `v1`），这里改为归一化尾部 `/`
 /// 后字符串拼接再解析，语义可预期。
-pub(crate) fn join_endpoint(base: &str, path: &str) -> Result<Url> {
+///
+/// 由 LLM/TTS/表演层客户端与桌面层设置自检端点（`settings/test/{llm,tts}`）共用。
+///
+/// **Mod 边界例外**：`live2d-ai-mod-director/src/staging_http.rs` 与
+/// `live2d-ai-mod-memory/src/summary_http.rs` 各自保留一份同语义最小副本——
+/// 两个 Mod 不依赖 runtime 的网络层，且错误口径是 `Result<_, String>` +
+/// 各自配置前缀。改动本函数时必须同步对照那两处。
+pub fn join_endpoint(base: &str, path: &str) -> Result<Url> {
     let trimmed = base.trim_end_matches('/');
     let parsed = Url::parse(&format!("{trimmed}{path}")).map_err(|_| Error::InvalidBaseUrl {
         url: base.to_string(),

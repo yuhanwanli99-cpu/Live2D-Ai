@@ -2,19 +2,25 @@
 //!
 //! 入口：`settings_routes::mod tests;`（仅 `#[cfg(test)]` 下生效）。
 //!
-//! D-P0A 复审新增：段级 `clear_api_key` 互不误伤；无 clear 的 `api_key_env:
-//! null` 改写为字段缺省（保持原值）；写盘路径安全（父目录创建 + rename
-//! 失败 tmp 清理）。
+//! P5（2026-09）新增：**单一三态规则**——`{"llm":{"api_key_env":null}}`
+//! 直接就是清除（磁盘上该键整行被移除），`{"llm":{"api_key_env":"NEW"}}`
+//! 设为新值；不再有 `clear_api_key` 标志与 inject 改写层。另含写盘路径
+//! 安全（父目录创建 + rename 失败 tmp 清理）。
 
 use super::*;
 
 fn sample() -> AppSettings {
     AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
+        // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
+        performance: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
             base_url: "http://127.0.0.1:11434/v1".into(),
             model: "qwen2.5:7b".into(),
             api_key_env: Some("LIVE2D_AI_LLM_API_KEY".into()),
             max_tokens: None,
+            show_reasoning: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
             base_url: "http://127.0.0.1:8000/v1".into(),
@@ -31,6 +37,30 @@ fn sample() -> AppSettings {
         },
         dev_mode: false,
     }
+}
+
+/// 注入 lookup：**任何键都读不到值**（= 未配置密钥）。
+///
+/// 测试一律用注入的 fake lookup，绝不 `std::env::set_var`——那会污染
+/// 同进程其它测试，也绕过了「读密钥只走 secrets::lookup」的纪律。
+fn no_keys(_name: &str) -> Option<String> {
+    None
+}
+
+/// 注入 lookup：`sample()` 声明的两个键都读得到**非空**值。
+fn keys_present(name: &str) -> Option<String> {
+    match name {
+        "LIVE2D_AI_LLM_API_KEY" | "LIVE2D_AI_TTS_API_KEY" => Some("sk-test".to_string()),
+        _ => None,
+    }
+}
+
+/// 读响应体（tiny_http Cursor 后端）。
+fn body(resp: Response<std::io::Cursor<Vec<u8>>>) -> String {
+    use std::io::Read;
+    let mut s = String::new();
+    let _ = resp.into_reader().read_to_string(&mut s);
+    s
 }
 
 fn tempdir_path(name: &str) -> std::path::PathBuf {
@@ -57,276 +87,204 @@ fn init_cfg_with(path: &std::path::Path, settings: &AppSettings) {
     std::fs::write(path, settings.to_toml_string()).unwrap();
 }
 
-fn llm_patch_with_api_key(api_key_env: Option<Option<String>>) -> SettingsPatch {
-    SettingsPatch {
-        llm: Some(Some(live2d_ai_runtime::settings::patch::LlmPatch {
-            api_key_env,
-            ..Default::default()
-        })),
-        ..Default::default()
-    }
-}
-
 #[test]
 fn get_response_never_leaks_key() {
-    let resp = handle_get(&sample());
+    let resp = handle_get(&sample(), &no_keys);
     assert_eq!(resp.status_code().0, 200);
 }
 
-// ===== 段级 clear_api_key 解析 + inject 规则 =====
-
-fn inner_api_key_env(p: &SettingsPatch, section: &str) -> Option<Option<String>> {
-    match section {
-        "llm" => p
-            .llm
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .api_key_env
-            .clone(),
-        "tts" => p
-            .tts
-            .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .api_key_env
-            .clone(),
-        _ => unreachable!(),
-    }
+/// P2：`GET /api/v1/settings` 的 `has_api_key` = 「值真的读得到」。
+///
+/// 同一份配置在两种注入 lookup 下必须给出相反结果——这就是 P2 要守的
+/// 单一语义；响应里仍**不得**出现环境变量名。
+#[test]
+fn get_response_has_api_key_reflects_injected_lookup() {
+    let s = sample();
+    let with = body(handle_get(&s, &keys_present));
+    let without = body(handle_get(&s, &no_keys));
+    assert!(with.contains("\"has_api_key\":true"), "{with}");
+    assert!(without.contains("\"has_api_key\":false"), "{without}");
+    assert!(
+        !with.contains("LIVE2D_AI_LLM_API_KEY") && !with.contains("LIVE2D_AI_TTS_API_KEY"),
+        "GET 不得回环境变量名：{with}"
+    );
+    assert!(!with.contains("sk-test"), "GET 不得回密钥值：{with}");
 }
+
+/// P2：PATCH 响应与 GET **同口径**（都走 `settings_to_view_with_keys`）。
+#[test]
+fn patch_response_has_api_key_reflects_injected_lookup() {
+    let tmp = tempdir_path("p2_patch_has_key");
+    let current = sample();
+    init_cfg_with(&tmp, &current);
+    // 与现值相同的补丁 → NoChange 分支；视图仍必须反映注入 lookup。
+    let resp = handle_patch(
+        &current,
+        r#"{"llm":{"model":"qwen2.5:7b"}}"#,
+        &tmp.to_string_lossy(),
+        None,
+        &keys_present,
+    );
+    assert_eq!(resp.status_code().0, 200);
+    let text = body(resp);
+    assert!(text.contains("\"has_api_key\":true"), "{text}");
+    assert!(
+        !text.contains("LIVE2D_AI_LLM_API_KEY"),
+        "PATCH 不得回环境变量名：{text}"
+    );
+    let _ = std::fs::remove_file(&tmp);
+}
+
+// ===== 段级三态解析：PatchBody 直接持有 runtime patch =====
 
 #[test]
 fn patch_body_section_parsing() {
-    // 段级 clear + 字段扁平化
-    let body =
-        PatchBody::parse(r#"{"llm":{"clear_api_key":true,"base_url":"http://x/"}}"#).unwrap();
+    // 段内字段**直接**落进 runtime LlmPatch（P5 删掉了 flatten 包装层）。
+    let body = PatchBody::parse(r#"{"llm":{"base_url":"http://x/"}}"#).unwrap();
     let llm = body.llm.unwrap().unwrap();
-    assert_eq!(llm.clear_api_key, Some(true));
-    assert_eq!(llm.patch.base_url, Some(Some("http://x/".into())));
+    assert_eq!(llm.base_url, Some(Some("http://x/".into())));
     // tts 段独立
     let body = PatchBody::parse(r#"{"tts":{"voice":"nova"}}"#).unwrap();
     let tts = body.tts.unwrap().unwrap();
-    assert_eq!(tts.clear_api_key, None);
-    assert_eq!(tts.patch.voice, Some(Some("nova".into())));
-    // 段级 null = Some(None)
+    assert_eq!(tts.voice, Some(Some("nova".into())));
+    // 段级 null = Some(None)（整段清空）
     let body = PatchBody::parse(r#"{"llm":null}"#).unwrap();
     assert!(body.llm.unwrap().is_none());
 }
 
+/// 「段在场但没写 `api_key_env`」**不是**清除——字段缺省 = 不修改。
+///
+/// 这正是 P0-2 当年用 `clear_api_key` 想守的东西；P5 后由字段级三态本身
+/// 保证（`None` ≠ `Some(None)`），不再需要任何改写层。
 #[test]
-fn inject_rules_table() {
-    // 矩阵覆盖：(clear flag, body api_key_env 字面) → inject 后状态。
-    // - clear=true, body=Some(None)   → 注入 Some(None)
-    // - clear=true, body=Some(Some(v))→ 保留新值（不覆盖）
-    // - clear=true, body=None         → 注入 Some(None)
-    // - clear=None,  body=Some(None)  → 改写为 None（保持原值）
-    // - clear=Some(false), body=Some(None) → 同 None
-    #[allow(clippy::type_complexity)]
-    let cases: &[(
-        Option<bool>,
-        Option<Option<String>>,
-        Option<Option<String>>,
-        &str,
-    )] = &[
-        (Some(true), None, Some(None), "clear=true 注入"),
-        (
-            Some(true),
-            Some(None),
-            Some(None),
-            "clear=true + body null → 注入",
-        ),
-        (
-            Some(true),
-            Some(Some("V".into())),
-            Some(Some("V".into())),
-            "显式值优先",
-        ),
-        (None, Some(None), None, "无 clear + null → 改写缺省"),
-        (Some(false), Some(None), None, "false + null → 改写缺省"),
-    ];
-    for (clear, body_val, want, desc) in cases {
-        let mut patch = llm_patch_with_api_key(body_val.clone());
-        let body = PatchBody {
-            llm: Some(Some(PatchLlmBody {
-                clear_api_key: *clear,
-                patch: live2d_ai_runtime::settings::patch::LlmPatch {
-                    api_key_env: body_val.clone(),
-                    ..Default::default()
-                },
-            })),
-            ..Default::default()
-        };
-        inject_clear_key_flag(&mut patch, &body);
-        assert_eq!(
-            inner_api_key_env(&patch, "llm"),
-            *want,
-            "{desc}: clear={clear:?} body={body_val:?}"
-        );
-    }
+fn absent_api_key_env_field_is_not_a_clear() {
+    let body = PatchBody::parse(r#"{"llm":{"model":"m"}}"#).unwrap();
+    let llm = body.llm.unwrap().unwrap();
+    assert_eq!(llm.model, Some(Some("m".into())));
+    assert_eq!(llm.api_key_env, None, "没写的字段不得变成「清除」");
+    assert_eq!(llm.base_url, None);
 }
 
+/// 旧契约的 `clear_api_key` 现在是**未知键**：serde 缺省忽略——
+/// 既不触发清除也不让请求失败。清除只能靠 `api_key_env: null`。
 #[test]
-fn inject_section_clear_only_targets_requested_provider() {
-    // LLM clear=true + TTS clear=缺省 + TTS 改 voice：TTS key 不被误清。
-    let mut patch = SettingsPatch {
-        llm: Some(Some(live2d_ai_runtime::settings::patch::LlmPatch::default())),
-        tts: Some(Some(live2d_ai_runtime::settings::patch::TtsPatch {
-            voice: Some(Some("nova".into())),
-            api_key_env: Some(None),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
-    let body = PatchBody {
-        llm: Some(Some(PatchLlmBody {
-            clear_api_key: Some(true),
-            ..Default::default()
-        })),
-        tts: Some(Some(PatchTtsBody {
-            clear_api_key: None,
-            patch: live2d_ai_runtime::settings::patch::TtsPatch {
-                voice: Some(Some("nova".into())),
-                api_key_env: Some(None),
-                ..Default::default()
-            },
-        })),
-        ..Default::default()
-    };
-    inject_clear_key_flag(&mut patch, &body);
-    assert_eq!(inner_api_key_env(&patch, "llm"), Some(None), "LLM 清");
-    assert_eq!(inner_api_key_env(&patch, "tts"), None, "TTS 不被误伤");
-    assert_eq!(
-        patch.tts.as_ref().unwrap().as_ref().unwrap().voice,
-        Some(Some("nova".into())),
-        "TTS voice 不受影响"
-    );
+fn legacy_clear_api_key_key_no_longer_clears() {
+    let body = PatchBody::parse(r#"{"llm":{"clear_api_key":true}}"#).unwrap();
+    let llm = body.llm.unwrap().unwrap();
+    assert_eq!(llm.api_key_env, None, "旧标志不得再表达清除");
 }
 
-#[test]
-fn inject_independent_clear_matrix() {
-    // 矩阵 (a) LLM 清 + TTS 清 / (b) LLM 清 + TTS 留 / (c) LLM 留 + TTS 清。
-    let cases = [
-        (Some(true), Some(true), Some(None), Some(None)),
-        (Some(true), None, Some(None), None),
-        (None, Some(true), None, Some(None)),
-    ];
-    for (llm_clear, tts_clear, want_llm, want_tts) in cases {
-        let mut patch = SettingsPatch {
-            llm: Some(Some(live2d_ai_runtime::settings::patch::LlmPatch {
-                api_key_env: Some(None),
-                ..Default::default()
-            })),
-            tts: Some(Some(live2d_ai_runtime::settings::patch::TtsPatch {
-                api_key_env: Some(None),
-                ..Default::default()
-            })),
-            ..Default::default()
-        };
-        let body = PatchBody {
-            llm: Some(Some(PatchLlmBody {
-                clear_api_key: llm_clear,
-                ..Default::default()
-            })),
-            tts: Some(Some(PatchTtsBody {
-                clear_api_key: tts_clear,
-                ..Default::default()
-            })),
-            ..Default::default()
-        };
-        inject_clear_key_flag(&mut patch, &body);
-        assert_eq!(
-            inner_api_key_env(&patch, "llm"),
-            want_llm,
-            "llm_clear={llm_clear:?}"
-        );
-        assert_eq!(
-            inner_api_key_env(&patch, "tts"),
-            want_tts,
-            "tts_clear={tts_clear:?}"
-        );
-    }
-}
-
-// ===== 端到端：clear 语义 + 段级独立 =====
+// ===== 端到端：单一三态规则（P5）+ 段级独立 =====
 
 /// 跑一条 PATCH + 校验磁盘状态。
 fn patch_and_check(current: &AppSettings, name: &str, body: &str, assert: impl Fn(&AppSettings)) {
     let tmp = tempdir_path(name);
     init_cfg_with(&tmp, current);
-    let resp = handle_patch(current, body, &tmp.to_string_lossy(), None);
+    let resp = handle_patch(current, body, &tmp.to_string_lossy(), None, &no_keys);
     assert_eq!(resp.status_code().0, 200);
     let after = AppSettings::load_from_path(&tmp).expect("reload");
     assert(&after);
     let _ = std::fs::remove_file(&tmp);
 }
 
+/// **单一规则**：`{"llm":{"api_key_env":null}}` → 磁盘上该键整行被移除。
 #[test]
-fn e2e_clear_semantics() {
+fn e2e_api_key_env_null_clears_binding_on_disk() {
     let current = sample();
-    // (1) api_key_env=null 无 clear → 保持原值（P0-2 保护）。
-    patch_and_check(
-        &current,
-        "p0a_keep_key",
-        r#"{"llm":{"api_key_env":null}}"#,
-        |after| assert_eq!(after.llm.api_key_env, current.llm.api_key_env),
+    let tmp = tempdir_path("p5_clear_llm_key");
+    init_cfg_with(&tmp, &current);
+    let before = std::fs::read_to_string(&tmp).expect("read before");
+    assert!(
+        before.contains("LIVE2D_AI_LLM_API_KEY"),
+        "起点应有绑定：\n{before}"
     );
-    // (2) 只清 LLM + 改 TTS voice → TTS key 保留。
+
+    let resp = handle_patch(
+        &current,
+        r#"{"llm":{"api_key_env":null}}"#,
+        &tmp.to_string_lossy(),
+        None,
+        &no_keys,
+    );
+    assert_eq!(resp.status_code().0, 200);
+
+    let after = AppSettings::load_from_path(&tmp).expect("reload");
+    assert_eq!(after.llm.api_key_env, None, "内存值应被清除");
+    let raw = std::fs::read_to_string(&tmp).expect("read after");
+    assert!(
+        !raw.contains("LIVE2D_AI_LLM_API_KEY"),
+        "llm 的 api_key_env 整行应被移除：\n{raw}"
+    );
+    assert!(
+        raw.contains("LIVE2D_AI_TTS_API_KEY"),
+        "tts 绑定不得被误清：\n{raw}"
+    );
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// `{"llm":{"api_key_env":"NEW"}}` → 设为新值（llm / tts 两段同规则）。
+#[test]
+fn e2e_api_key_env_set_new_value_persists() {
+    let current = sample();
     patch_and_check(
         &current,
-        "p0a_clear_llm",
-        r#"{"llm":{"clear_api_key":true},"tts":{"voice":"nova"}}"#,
+        "p5_set_llm_key",
+        r#"{"llm":{"api_key_env":"NEW_LLM_KEY"}}"#,
+        |after| assert_eq!(after.llm.api_key_env, Some("NEW_LLM_KEY".into())),
+    );
+    patch_and_check(
+        &current,
+        "p5_set_tts_key",
+        r#"{"tts":{"api_key_env":"NEW_TTS_KEY"}}"#,
+        |after| {
+            assert_eq!(after.tts.api_key_env, Some("NEW_TTS_KEY".into()));
+            assert_eq!(after.llm.api_key_env, current.llm.api_key_env);
+        },
+    );
+}
+
+/// 段级独立：只清 LLM + 改 TTS voice → TTS 绑定保留（无需任何标志）。
+#[test]
+fn e2e_clear_one_provider_does_not_touch_the_other() {
+    let current = sample();
+    patch_and_check(
+        &current,
+        "p5_clear_llm_only",
+        r#"{"llm":{"api_key_env":null},"tts":{"voice":"nova"}}"#,
         |after| {
             assert_eq!(after.llm.api_key_env, None);
             assert_eq!(after.tts.api_key_env, current.tts.api_key_env);
             assert_eq!(after.tts.voice, "nova");
         },
     );
-    // (3) 只清 TTS + 改 LLM model → LLM key 保留。
     patch_and_check(
         &current,
-        "p0a_clear_tts",
-        r#"{"llm":{"model":"qwen2.5:14b"},"tts":{"clear_api_key":true}}"#,
+        "p5_clear_tts_only",
+        r#"{"llm":{"model":"qwen2.5:14b"},"tts":{"api_key_env":null}}"#,
         |after| {
             assert_eq!(after.tts.api_key_env, None);
             assert_eq!(after.llm.api_key_env, current.llm.api_key_env);
             assert_eq!(after.llm.model, "qwen2.5:14b");
         },
     );
-    // (4) clear=true + 显式新 api_key_env → 显式值生效。
+}
+
+/// 只改同段其它字段（llm 段在场但没给 `api_key_env`）→ 绑定保持原值。
+///
+/// 这是「只改一个字段不得清空同段其它字段」那条最危险的回归；P5 后由
+/// 字段级三态本身保证，不再依赖 inject 改写。
+#[test]
+fn e2e_partial_section_patch_keeps_untouched_api_key_env() {
+    let current = sample();
     patch_and_check(
         &current,
-        "p0a_clear_with_new",
-        r#"{"llm":{"clear_api_key":true,"api_key_env":"NEW_LLM_KEY"}}"#,
-        |after| assert_eq!(after.llm.api_key_env, Some("NEW_LLM_KEY".into())),
+        "p5_partial_llm",
+        r#"{"llm":{"model":"qwen2.5:14b"}}"#,
+        |after| {
+            assert_eq!(after.llm.api_key_env, current.llm.api_key_env);
+            assert_eq!(after.llm.model, "qwen2.5:14b");
+        },
     );
-    // (5) 矩阵：llm 清 + tts 清 / llm 清 + tts 留 / llm 留 + tts 清。
-    for (name, body, want_llm, want_tts) in [
-        (
-            "p0a_m_ab",
-            r#"{"llm":{"clear_api_key":true},"tts":{"clear_api_key":true}}"#,
-            None,
-            None,
-        ),
-        (
-            "p0a_m_a",
-            r#"{"llm":{"clear_api_key":true},"tts":{"voice":"nova"}}"#,
-            None,
-            current.tts.api_key_env.clone(),
-        ),
-        (
-            "p0a_m_b",
-            r#"{"llm":{"model":"qwen2.5:14b"},"tts":{"clear_api_key":true}}"#,
-            current.llm.api_key_env.clone(),
-            None,
-        ),
-    ] {
-        patch_and_check(&current, name, body, |after| {
-            assert_eq!(after.llm.api_key_env, want_llm, "{name}");
-            assert_eq!(after.tts.api_key_env, want_tts, "{name}");
-        });
-    }
 }
 
 // ===== 写盘路径安全：父目录创建 + tmp 清理 =====
@@ -347,7 +305,7 @@ fn apply_and_write_creates_parent_dir_when_missing() {
         })),
         ..Default::default()
     };
-    let resp = apply_and_write(&current, &patch, &target.to_string_lossy(), None)
+    let resp = apply_and_write(&current, &patch, &target.to_string_lossy(), None, &no_keys)
         .expect("apply+write should succeed with parent dir creation");
     assert!(resp.persisted);
     let after = AppSettings::load_from_path(&target).expect("reload");
@@ -373,7 +331,7 @@ fn apply_and_write_cleans_tmp_on_rename_failure() {
         })),
         ..Default::default()
     };
-    let result = apply_and_write(&current, &patch, &target.to_string_lossy(), None);
+    let result = apply_and_write(&current, &patch, &target.to_string_lossy(), None, &no_keys);
     // 父路径是文件 → create_dir_all(base) 失败 → apply_and_write 返回 Err。
     assert!(
         result.is_err(),
@@ -408,8 +366,8 @@ fn apply_patch_then_persists_round_trip() {
         })),
         ..Default::default()
     };
-    let resp =
-        apply_and_write(&current, &patch, &tmp.to_string_lossy(), None).expect("apply+write");
+    let resp = apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys)
+        .expect("apply+write");
     assert!(resp.persisted);
     assert_eq!(resp.settings.llm.model, "new-model");
     let after = AppSettings::load_from_path(&tmp).expect("reload");
@@ -432,10 +390,12 @@ fn no_change_patch_does_not_touch_disk() {
         &first,
         &tmp.to_string_lossy(),
         None,
+        &no_keys,
     )
     .expect("first");
     let disk = AppSettings::load_from_path(&tmp).expect("load");
-    let resp = apply_and_write(&disk, &first, &tmp.to_string_lossy(), None).expect("second");
+    let resp =
+        apply_and_write(&disk, &first, &tmp.to_string_lossy(), None, &no_keys).expect("second");
     assert!(!resp.persisted, "NoChange 时不应写盘");
     let _ = std::fs::remove_file(&tmp);
 }
@@ -452,7 +412,8 @@ fn url_invalid_patch_returns_400() {
     };
     let tmp = tempdir_path("url_invalid");
     let _ = std::fs::remove_file(&tmp);
-    let err = apply_and_write(&current, &patch, &tmp.to_string_lossy(), None).unwrap_err();
+    let err =
+        apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys).unwrap_err();
     assert_eq!(err.error.code, "url_invalid");
 }
 #[test]
@@ -494,18 +455,16 @@ fn handle_patch_invalid_json_returns_400() {
     let tmp = tempdir_path("bad_json");
     init_cfg_with(&tmp, &AppSettings::default());
     let current = AppSettings::load_from_path(&tmp).expect("load");
-    let resp = handle_patch(&current, "not json", &tmp.to_string_lossy(), None);
+    let resp = handle_patch(&current, "not json", &tmp.to_string_lossy(), None, &no_keys);
     assert_eq!(resp.status_code().0, 400);
     let _ = std::fs::remove_file(&tmp);
 }
 
 /// `llm.max_tokens` 走完整 HTTP PATCH → 写盘 → 重载 链路。
 ///
-/// 这里是**唯一**能证明「三态 + flatten + 落盘」三者真的一起工作的地方：
-/// `PatchLlmBody` 用 `#[serde(flatten)]` 展开 `LlmPatch`，而 flatten 走的是
-/// serde 的 buffered-content 反序列化路径——与直接 `from_str::<LlmPatch>`
-/// 不同，`double_option` 在那条路径上是否仍然区分 `0` / `null` / 缺省，
-/// 只有端到端跑一遍才算数。
+/// 这里是**唯一**能证明「字段级三态 + 落盘」两者真的一起工作的地方：
+/// `PatchBody` 现在直接持有 `LlmPatch`（P5 删掉了 `#[serde(flatten)]` 包装），
+/// `double_option` 是否仍然区分 `0` / `null` / 缺省，只有端到端跑一遍才算数。
 #[test]
 fn e2e_max_tokens_tri_state_through_http_patch() {
     let current = sample();
@@ -529,6 +488,8 @@ fn e2e_max_tokens_tri_state_through_http_patch() {
 
     // 3) 缺省字段 = 不动（已有值保持）。
     let capped = AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
         llm: live2d_ai_runtime::settings::LlmSettings {
             max_tokens: Some(333),
             ..current.llm.clone()
@@ -559,6 +520,33 @@ fn e2e_max_tokens_tri_state_through_http_patch() {
                     .max_tokens,
                 live2d_ai_runtime::settings::DEFAULT_MAX_TOKENS
             );
+        },
+    );
+}
+
+/// 2026-09-16（用户可调幅度）：action 三段倍率经 HTTP PATCH 落地并钳位。
+#[test]
+fn e2e_action_scales_patch_clamps_via_http() {
+    let current = sample();
+    patch_and_check(
+        &current,
+        "action_scales",
+        r#"{"action":{"head_scale":1.25,"body_scale":9.0,"expression_scale":0.0}}"#,
+        |after| {
+            assert_eq!(after.action.head_scale, 1.25);
+            assert_eq!(after.action.body_scale, 2.2, "9.0 应钳到上限");
+            assert_eq!(after.action.expression_scale, 0.2, "0.0 应钳到下限");
+        },
+    );
+    // 不写 action 段的补丁 → 出厂默认保持不动。
+    patch_and_check(
+        &current,
+        "action_defaults",
+        r#"{"llm":{"model":"m2"}}"#,
+        |after| {
+            assert_eq!(after.action.head_scale, 0.75);
+            assert_eq!(after.action.body_scale, 0.80);
+            assert_eq!(after.action.expression_scale, 1.0);
         },
     );
 }

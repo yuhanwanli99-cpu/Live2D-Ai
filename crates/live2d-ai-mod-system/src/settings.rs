@@ -22,6 +22,14 @@ pub enum ModSettingField {
         label: String,
         /// 是否密钥类（前端渲染为 password 输入；内容不落日志）。
         secret: bool,
+        /// **缺省值**（可空）：config 里没有这个键时，前端表单回填它、
+        /// 保存时按它写入——避免「面板显示空 / 服务端却按另一个默认跑」
+        /// 以及「点一次保存就把缺省语义写成显式空值」。
+        ///
+        /// 为什么是可选：绝大多数 String 字段的缺省语义是「空 = 未设置」
+        /// （locale 回落 zh-CN、sidecar 路径由 host 推导），不需要显式值；
+        /// 只有少数（语音唤醒词「小可爱」）必须让用户看见缺省。
+        default: Option<String>,
     },
     Number {
         key: String,
@@ -33,6 +41,10 @@ pub enum ModSettingField {
         key: String,
         label: String,
         options: Vec<SelectOption>,
+        /// **缺省值**（可空）：config 里没有这个键时表单回填它，
+        /// 保存时按它写入。用于「服务端缺省不是第一个选项」的字段——
+        /// 导演的动作预设正是这种（缺省是 smile，不是 none）。
+        default: Option<String>,
     },
 }
 
@@ -89,6 +101,7 @@ mod tests {
                     key: "port".into(),
                     label: "端口".into(),
                     secret: false,
+                    default: None,
                 },
                 ModSettingField::Number {
                     key: "timeout".into(),
@@ -103,6 +116,7 @@ mod tests {
                         value: "chat".into(),
                         label: "对话".into(),
                     }],
+                    default: None,
                 },
             ],
         }
@@ -125,6 +139,7 @@ mod tests {
                     key: "a".into(),
                     label: "b".into(),
                     secret: false,
+                    default: None,
                 },
             ],
         };

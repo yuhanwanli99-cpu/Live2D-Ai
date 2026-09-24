@@ -106,8 +106,11 @@ class TtsSection extends StatelessWidget {
         ReadonlyField(
           label: '密钥绑定',
           icon: Icons.link,
-          // 同 LLM：这里说的是「变量名有没有声明」，值在下面那一行填。
-          text: tts.hasApiKey ? '已声明密钥的环境变量名' : '未绑定密钥（本地 TTS 通常不需要）',
+          // P6：绑定名来自 `GET /api/v1/env`（`EnvKey.key`）；界面只显示绑到
+          // 哪个变量名，值只往上走（在下面那行填），变量名本身不再可改。
+          text: envKey == null ? '未绑定密钥（无鉴权）' : '绑定到 ${envKey!.key}',
+          description: '密钥本体永不下发；值请在下面填写（写进 .env）；'
+              '改绑定 = 改 live2d-ai.toml 的 api_key_env',
         ),
         if (envKey != null)
           EnvKeyField(
@@ -129,24 +132,7 @@ class TtsSection extends StatelessWidget {
           const Divider(),
           const SectionHeader(
             title: '开发者选项',
-            description: 'PCM 规格与密钥绑定。改错会导致全是噪声或没有声音。',
-          ),
-          TextFieldRow(
-            label: '密钥的环境变量名',
-            icon: Icons.badge_outlined,
-            value: effString(d.ttsApiKeyEnv, ''),
-            description: '填**变量名**，不是密钥本身',
-            onChanged: (String v) => controller.edit((SettingsDraft draft) {
-              draft.ttsApiKeyEnv = v;
-            }),
-          ),
-          ToggleField(
-            label: '清除密钥绑定',
-            icon: Icons.link_off,
-            value: d.clearTtsApiKey,
-            onChanged: (bool v) => controller.edit((SettingsDraft draft) {
-              draft.clearTtsApiKey = v;
-            }),
+            description: 'PCM 规格。改错会导致全是噪声或没有声音。',
           ),
           NumberField(
             label: '采样率（Hz）',

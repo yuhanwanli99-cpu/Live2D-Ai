@@ -137,6 +137,16 @@ class AppShell extends StatefulWidget {
     this.stageProgress,
     this.stageError,
     this.onRetryStage,
+    this.listenSupported = false,
+    this.listening = false,
+    this.listenStatus,
+    this.listenError,
+    this.onToggleListen,
+    this.onPressStart,
+    this.onPressRelease,
+    this.pttActive = false,
+    this.listenNote,
+    this.listenBlockedReason,
     super.key,
   });
 
@@ -170,6 +180,29 @@ class AppShell extends StatefulWidget {
 
   /// 任意用户手势（指针按下 / 任意按键）——用于解锁 WebAudio。
   final VoidCallback? onUserGesture;
+
+  // ── 常态语音检测（唤醒词缺省「小可爱」） ──
+  //
+  // 外壳只**呈现**：能力布尔 + 一行状态/错误 + 一个切换回调。
+  // 识别与注入的真身在 `VoiceListenController`（宿主持有）。
+  final bool listenSupported;
+  final bool listening;
+  final String? listenStatus;
+  final String? listenError;
+
+  /// 点按「听」：常驻唤醒开 / 关。
+  final VoidCallback? onToggleListen;
+
+  /// 按住说话（PTT）开始 / 结束（P0-4）。
+  final VoidCallback? onPressStart;
+  final VoidCallback? onPressRelease;
+  final bool pttActive;
+
+  /// 一行诚实说明（Web Speech 需联网、音频出本机）。
+  final String? listenNote;
+
+  /// 「听」根本不可用的**常驻**原因（如 voice-input Mod 未启用）。
+  final String? listenBlockedReason;
 
   /// L1 基座：Mod 变更后的统一「需重新点火 / 重启后生效」提示。
   ///
@@ -338,8 +371,21 @@ class AppShellState extends State<AppShell> {
     return false; // 不吞：事件继续正常派发。
   }
 
-  void closeSettings() {
+  /// 关掉内联 / 整页设置。
+  ///
+  /// **脏草稿要走同一套 `confirmDiscard`**（P0，2026-09-20）：过去这里直接
+  /// `setState`，关设置完全不问——「换分区问、关设置不问」两套语义。
+  /// `confirmDiscard` 为空（测试 / 未注入宿主）时保持原来的同步行为。
+  Future<void> closeSettings() async {
     if (!settingsOpen) return;
+    if (widget.settingsDirty) {
+      final Future<bool> Function()? ask = widget.confirmDiscard;
+      if (ask != null) {
+        final bool leave = await ask();
+        if (!leave || !mounted) return;
+      }
+    }
+    if (!mounted) return;
     setState(() => settingsOpen = false);
   }
 
@@ -405,12 +451,35 @@ class AppShellState extends State<AppShell> {
       //
       // 浮层压在舞台上（medium 下几乎整块）⇒ 必须垫指针垫层，
       // 否则整块设置面板「看得见、点不着、也滑不动」。
-      builder: (BuildContext sheetContext) => StagePointerInterceptor(
-        child: _settingsSurface(
-          onClose: () => Navigator.of(sheetContext).pop(),
+      builder: (BuildContext sheetContext) => ListenableBuilder(
+        // `PopScope.canPop` 必须**跟着草稿变**：浮层 builder 只跑一次，
+        // 不订阅的话 canPop 冻结在打开那一刻（打开时通常还不脏）。
+        listenable: widget.settingsChanges,
+        builder: (BuildContext context, Widget? _) => PopScope(
+          // 脏草稿时不放行 Esc / 点遮罩，先过确认框——与换分区、✕ 同一个入口。
+          canPop: !widget.settingsDirty,
+          onPopInvokedWithResult: (bool didPop, Object? _) {
+            if (didPop) return;
+            unawaited(_closeSheetGuarded(sheetContext));
+          },
+          child: StagePointerInterceptor(
+            child: _settingsSurface(
+              onClose: () => unawaited(_closeSheetGuarded(sheetContext)),
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  /// 关设置浮层前先过草稿拦截（Esc / 遮罩 / ✕ 三条路都到这里）。
+  Future<void> _closeSheetGuarded(BuildContext sheetContext) async {
+    if (widget.settingsDirty) {
+      final Future<bool> Function()? ask = widget.confirmDiscard;
+      if (ask != null && !await ask()) return;
+    }
+    if (!sheetContext.mounted) return;
+    Navigator.of(sheetContext).pop();
   }
 
   /// 设置内容（三种宿主共用**同一个** widget）。
@@ -528,8 +597,10 @@ class AppShellState extends State<AppShell> {
                       Positioned.fill(
                         child: InlineSettingsDock(
                           expanded: settingsOpen,
-                          onDismiss: closeSettings,
-                          child: _settingsSurface(onClose: closeSettings),
+                          onDismiss: () => unawaited(closeSettings()),
+                          child: _settingsSurface(
+                            onClose: () => unawaited(closeSettings()),
+                          ),
                         ),
                       ),
                     // 舞台浮标：**压在舞台之上**，不占布局、不挤舞台宽度。
@@ -663,7 +734,10 @@ class AppShellState extends State<AppShell> {
         // 整页设置也带一圈边缘高光（P3-1）——它同样压在舞台上。
         child: GlassRim(
           borderRadius: BorderRadius.circular(AppRadius.lg),
-          child: _settingsSurface(onClose: closeSettings, narrow: true),
+          child: _settingsSurface(
+            onClose: () => unawaited(closeSettings()),
+            narrow: true,
+          ),
         ),
       ),
     ),
@@ -691,6 +765,16 @@ class AppShellState extends State<AppShell> {
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
     backdropVisible: widget.shellImage != null,
+    listenSupported: widget.listenSupported,
+    listening: widget.listening,
+    listenStatus: widget.listenStatus,
+    listenError: widget.listenError,
+    onToggleListen: widget.onToggleListen,
+    onPressStart: widget.onPressStart,
+    onPressRelease: widget.onPressRelease,
+    pttActive: widget.pttActive,
+    listenNote: widget.listenNote,
+    listenBlockedReason: widget.listenBlockedReason,
   ),
   );
 

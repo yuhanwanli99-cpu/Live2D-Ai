@@ -102,6 +102,10 @@ mod tests_security;
 mod tests_security_e2e;
 #[cfg(test)]
 mod tests_ws;
+/// WS 测试端握手/帧读取辅助（缓冲客户端）+ 「101 与首帧同批」确定性回归。
+/// 单独承载：`tests_ws.rs` 已贴测试文件行数上限，修复不再让它增长。
+#[cfg(test)]
+mod tests_ws_client;
 /// 语音转写注入端点（Wave 2 A 轨，2026-09-14）：`POST /api/v1/voice/transcript`
 /// → 清洗（复用 `live2d_ai_mod_voice_input::clean_transcript`）→ `say` → 主链路。
 /// 静态前置路由（与 [`external_routes`] 同款）。
@@ -384,7 +388,7 @@ impl ServerContext {
         self.supervisor_slot.ensure_after_patch(
             &self.status_ctx.config_path,
             self.broadcaster.clone(),
-            &self.status_ctx,
+            Arc::clone(&self.status_ctx),
             self.mod_registry.clone(),
         )
     }

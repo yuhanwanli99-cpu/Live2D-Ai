@@ -137,7 +137,10 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
     let path: &str = crate::web_api::strip_query(path);
     if *method != Method::Get {
         // 非 GET：若是我们的路径前缀回 405，否则交给 dispatch（可能 404）。
-        if path.starts_with("/models/") || path.starts_with("/render") {
+        if path.starts_with("/models/")
+            || path.starts_with("/actions/")
+            || path.starts_with("/render")
+        {
             return Some(method_not_allowed(path));
         }
         return None;
@@ -184,6 +187,25 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
             Err(e) => Some(json_error(StatusCode(404), "not_found", &e.to_string())),
         };
     }
+    // `/actions/*` -> <cwd>/assets/actions/*（2026-09-16 P1-1：外置动作预设表）。
+    // 与 `/models` 同一条读盘纪律：normalize_rel + canonicalize 防越界。
+    if let Some(rel) = path.strip_prefix("/actions/") {
+        let rel = match normalize_rel(rel) {
+            Ok(r) => r,
+            Err(_) => {
+                return Some(json_error(
+                    StatusCode(400),
+                    "invalid_path",
+                    "非法动作资产路径",
+                ));
+            }
+        };
+        let root = assets_actions_dir();
+        return match read_file_safe(&root, &rel) {
+            Ok(bytes) => Some(bytes_response(StatusCode(200), bytes, asset_mime(&rel))),
+            Err(e) => Some(json_error(StatusCode(404), "not_found", &e.to_string())),
+        };
+    }
     None
 }
 
@@ -193,6 +215,14 @@ pub fn handle_assets(method: &Method, path: &str) -> Option<Response<std::io::Cu
 /// 而 registry 另写 XDG——那正是「激活了但没换皮」的成因。现在只有一处定义。
 fn assets_models_dir() -> PathBuf {
     crate::web_api::model_root::model_root()
+}
+
+/// `<cwd>/assets/actions`（动作预设等**用户可改**的表；与 `/models` 同属 assets 树）。
+fn assets_actions_dir() -> PathBuf {
+    crate::web_api::model_root::model_root()
+        .parent()
+        .map(|assets| assets.join("actions"))
+        .unwrap_or_else(|| PathBuf::from("assets/actions"))
 }
 
 /// `crates/l2d-wasm-demo/dist`（workspace 相对路径）。
@@ -233,6 +263,17 @@ fn wasm_mime(rel: &str) -> &'static str {
         "application/wasm"
     } else if rel.ends_with(".js") {
         "application/javascript; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+/// `/actions/*` 的 MIME（目前只有 JSON，保留图片分支以便将来放图标）。
+fn asset_mime(rel: &str) -> &'static str {
+    if rel.ends_with(".json") {
+        "application/json; charset=utf-8"
+    } else if rel.ends_with(".png") {
+        "image/png"
     } else {
         "application/octet-stream"
     }
@@ -368,5 +409,26 @@ mod tests {
         );
         assert_eq!(model_mime("bai/runtime/texture_00.png"), "image/png");
         assert!(model_mime("bai/runtime/bai.16384").starts_with("application/"));
+    }
+
+    /// `/actions/*`（2026-09-16 P1-1）：外置动作预设表必须可静态取到。
+    #[test]
+    fn actions_route_serves_presets_json() {
+        let resp = handle_assets(&Method::Get, "/actions/presets.json")
+            .expect("应处理 /actions/presets.json");
+        assert_eq!(
+            resp.status_code().0,
+            200,
+            "出厂 assets/actions/presets.json 必须存在"
+        );
+        // 非 GET / 路径穿越都有明确处置，不会被当成别的路由。
+        assert!(handle_assets(&Method::Post, "/actions/presets.json").is_some());
+        assert_eq!(
+            handle_assets(&Method::Get, "/actions/../secret")
+                .expect("仍归本模块管")
+                .status_code()
+                .0,
+            400
+        );
     }
 }

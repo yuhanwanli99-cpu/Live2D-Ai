@@ -24,7 +24,9 @@
   `external-input`（计数进 Mod 管理 UI + sidecar 节流可配）、`voice-input`（backend/locale
   说人话 + 失败码可读 + sidecar 最小成功路径）、`persona`（导入卡→enable→人设变→disable
   还原，UI 内完成）、`memory`（可见条数/hits/清空 + 注入可关 + 与 persona 策略钉死）、
-  `director`（决策一等面板；**零投递不变**、不复活 Action）。**未 bump 版本、未 push**；
+  `director`（决策一等面板；当时的「**零投递不变**」结论**已变更**——director 现产 `latest.preset_id`
+  与按句 `action_cue`，现状见 §「动作与表演的现行状态（2026-09 实测）」；仍不复活 **core** 动作通道）。
+  **未 bump 版本、未 push**；
   主链皮肤（LLM/TTS/口型/Live2D）与 `l2d-wasm-demo` 一行未改。
   收束见 `docs/plans/PRODUCT-GRADE-CLOSEOUT.md`。
 - **上一版本地集成 `mod/wave3`（Wave 3 七轨闭环，2026-09-14，未发布、不打 tag、版本仍 `0.2.0-rc.3`）**：
@@ -109,8 +111,11 @@
   `docs/releases/v0.1.0-rc.4.md`。上一版 rc.3 是结构质量（正文兜底 / 拆大文件 /
   双壳休眠 / CI 对齐）：`docs/releases/v0.1.0-rc.3.md`；rc.2（第二基线：动作层删到底 +
   模型库闭环 + `.env` 密钥真源）：`docs/releases/v0.1.0-rc.2.md`。
-  **LLM 工具层与动作系统已整体拆除**——**不要**再以「LLM 调用工具」「动作系统」为前提
-  写代码或文档。
+  **历史结论（rc.1 发布说明原文，已部分失效）**：「LLM 工具层与动作系统已整体拆除」
+  指的是当时的 **LLM 工具调用 + core 动作仲裁通道**，**不含**渲染面动作预设。
+  「LLM 调用工具」至今仍不存在，**不要**以它为前提取代码设计；但「动作系统」已随
+  动作包 v0 + 渲染面 `preset` 协议部分回归——**现状见下文 §「动作与表演的现行状态
+  （2026-09 实测）」**，写动作 / 表演相关代码或文档前先读那一节。
 - `Live2D-Ai-pc/`（Python）已归档（tag `py-legacy`）；`Live2D-Ai-Android/` 已归档
   （`android-archive` 分支，见 `ANDROID_ARCHIVE_POINTER.md`）。
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
@@ -120,7 +125,7 @@
   为 workspace crate；
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
   `cli_entry::default_mods_manifest`），其余四个缺省停用（`memory` 会写
-  `persona.system_prompt`，必须由用户明确打开；`director` 是**零投递**骨架）。
+  `persona.system_prompt`，必须由用户明确打开；`director` 是**决策 + 按句 cue**骨架，异步第二路 LLM 默认关）。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
   **`wallpaper` / `pet-desktop` 已于产品级加强波次封存（ARCHIVED）**
   （移出注册表；crate 暂留 workspace 可编译可测，**禁止挂回**；
@@ -131,10 +136,16 @@
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
   **rc.2 那个「动作序列唯一驱动方」的 director 已于 `0.1.0-rc.2` 删除**
   （归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由 `main.rs` 的
-  `mod_count_is_five` 断言守住（产品级加强波次起恰为 **5**），**动作驱动方不要再挂回去**。
+  `mod_count_is_five` 断言守住（产品级加强波次起恰为 **5**），**core 的 `action_tx` /
+  `RootEvent::Action` 驱动通道不要再挂回去**（渲染面 `preset` 协议 + director 的 `action_cue`
+  是现行路径，不在此禁令内，见 §「动作与表演的现行状态（2026-09 实测）」）。
   Wave 3（2026-09-14）新增的 `live2d-ai-mod-director` 是**同名不同职责**的
-  **最小骨架**：只产决策日志与 `state_json`、**零投递**、不驱动动作
-  （`docs/architecture/director-mod-v0.md`），已注册但缺省停用。
+  决策骨架（`docs/architecture/director-mod-v0.md`），已注册但缺省停用。
+  **2026-09-16（P1-3）更新**：它订阅新的 `ModEventTopic::SentenceReady`，规则推导
+  常开兜底（priority 10），可按配置启用**异步第二路 LLM**（priority 40，**默认关**；
+  真实 HTTP 客户端尚未接线）产出按句 plan，经新 host 能力 `ModServices.cues`
+  广播 WS `action_cue`（缺省忽略 = 兼容）；`action_tx` / `apply_settings` 的
+  **零调用红线未放松**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
   （LLM → TTS → 口型），端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段。
   见 `docs/architecture/tts-is-core.md`。
@@ -251,14 +262,17 @@
 
 ### 动作与表演的归属（休眠台账，2026-09-12 rc.2 定）
 
-**动作在产品路径上不存在**。这不是「暂时没接」，是裁决（`docs/architecture/core-chain-baseline.md`
-§3.1）——所以每一处残留都要能回答「谁休眠、为什么、谁能唤醒」：
+**（历史结论，2026-09-12 rc.2）**：当时写的「**动作在产品路径上不存在**」是那一版的裁决
+（`docs/architecture/core-chain-baseline.md` §3.1），**已被后续动作包 v0 + 渲染面 `preset`
+协议部分推翻**——不要再把它当成无条件事实，现状见下文 §「动作与表演的现行状态（2026-09 实测）」。
+下表仍然有效，它回答的是**休眠对象**的「谁休眠、为什么、谁能唤醒」：
 
 | 对象 | 状态 | 谁能唤醒 |
 | --- | --- | --- |
 | `live2d-ai-core` 的 `action/` + `performance/` | **休眠保留**（类型 / reducer / capability gate 原样） | 只有先重新论证 `core-chain-baseline.md` §3.2 的三条理由 + `lib.rs` 第 4/6 条不变量之后 |
 | `ModServices.action_tx`（仍属 Mod API 契约） | **休眠**：host 注入固定 sender，请求只留一行 debug 日志并返回 `false` | 同上；**不得**在 `mod_registry.rs` 里私自接回真通道 |
 | `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档在 `archive/action-layer-p6` |
+| `live2d-ai-mod-director`（2026-09-14 重加的**决策/按句 cue**版） | **已接线**（不再休眠）：规则层产 `latest.preset_id` + WS `action_cue`，经前端转发到渲染面 `preset` 协议**会驱动动作**；只是**不经 core reducer**（`action_tx` 仍休眠） | 见下文 §「动作与表演的现行状态（2026-09 实测）」③ |
 | 渲染面（`l2d-wasm-demo`）的编舞残件 | **已删除**（`action-state` 接收器 + `surface.rs` 编舞） | 归档在 `archive/action-layer-p6`；恢复必须 wasm 重建 + 肉眼验收 |
 | **待机生命体征**（`IdleState` 呼吸/眨眼/微表情） | **必须保留**——与动作系统是两套机制，只共用 override 层 | 无（它一直在产品里，删动作时**绝不要**连带删它） |
 
@@ -266,6 +280,37 @@
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
 护栏是两条断言：`main.rs::mod_count_is_five`（工厂数不得因动作 Mod 增加）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
+
+### 动作与表演的**现行状态**（2026-09 实测）
+
+> 本节是 2026-09-21 调研（`docs/plans/RESEARCH-actions-director-audit-2026-09-21.md`）在分支
+> `mod/l1-product` 上的实测结论。**上节「休眠台账」只回答「谁休眠、为什么」，不要再把它
+> 读成「动作 / 表演不存在」。** 逐条如下，每条给出真源文件：
+
+| # | 现行事实 | 真源（树上可查） |
+| --- | --- | --- |
+| ① | **动作包（表情 / 手势）经 `preset` 帧直接驱动渲染面参数，不经 core reducer**：共 9 条包 `smile` / `unhappy` / `surprised` / `nod` / `shake` / `look_left` / `look_right` / `tilt_left` / `tilt_right`（另有 `none` 撤销哨兵）；渲染面 `PresetRuntime` 收 v1 协议 `preset` 消息 → `PresetCommand::Apply / Revoke / Ignore`，按 `PresetSlot::Face` / `Gesture` 两槽写参数，到点按槽撤销 | `assets/actions/presets.json`、`assets/actions/preset_labels.json`、`crates/l2d-wasm-demo/src/preset/mod.rs`（`handle` / `apply_frame`）、`crates/l2d-wasm-demo/src/preset/table.rs`（解析期红线）、`crates/l2d-wasm-demo/src/main.rs`（`"preset" =>` 分支）、`shell/flutter/lib/live2d/live2d_stage.dart`（`applyPreset`） |
+| ② | **`[action]` 幅度倍率存在**：`head_scale=0.75` / `body_scale=1.4` / `expression_scale=1.0`，运行期参与 `最终值 = 表值 × 包络 × 通道倍率` 并按通道钳位（`ParamAngle*` ≤30 / `ParamBodyAngle*` ≤10 / 五官 ≤4）；Flutter「外观与互动」有滑条 | `live2d-ai.toml` 的 `[action]` 段、`live2d-ai.toml.example` 的 `[action]` 段、`crates/live2d-ai-runtime/src/settings.rs`（`ActionSettings`）、`crates/l2d-wasm-demo/src/preset/scales.rs`（`PresetScales::from_parts`）、`crates/l2d-wasm-demo/src/main.rs`（`set_scales`） |
+| ③ | **director Mod 已接线，产出 `latest.preset_id` 与 `action_cue`**：规则层按用户输入判 emotion / intent → 选包；`preset_id` 经只读状态面 `GET /api/v1/mods/director/state` 交前端转发给渲染面，`cues` 经 host `ModServices.cues` 广播 WS `action_cue`。**本工作树**运行配置 `mods.json` 里 `director.enabled = true`（该文件未入库、属本机配置，见 `.gitignore`）；**编译期** `cli_entry::default_mods_manifest` 仍只收录 `external-input`——「缺省启用」指前者，两者是不同的真源，不要混写 | `crates/live2d-ai-mod-director/src/lib.rs`（`latest.preset_id`、`emit_cues`）、`crates/live2d-ai-mod-director/src/presets.rs`（`PRESET_IDS` 单一真源）、`mods.json`、`crates/live2d-ai-desktop/src/web_api/cli_entry.rs`（`default_mods_manifest`）、`crates/live2d-ai-desktop/src/web_api/mods_routes.rs`（`{id}/state`）、`shell/flutter/lib/main.dart`（`_applyDirectorPreset`） |
+| ④ | **`[performance]` 段存在但缺省关**：`enabled = false`；打开后是主链（引擎内）的**第二个 LLM 端点**，每轮交回 `{"speak":…,"cues":[…]}`。它与 Mod `staging_*` 是**两个可选提供者、都默认关、职责重叠**；**谁的 `speak` 能力该保留**未定（RESEARCH §3.7 Q1，**不裁决**，此处仅登记待定） | `live2d-ai.toml` 的 `[performance]` 段、`live2d-ai.toml.example` 的 `[performance]` 段、`crates/live2d-ai-runtime/src/performance/`（`client.rs` / `mod.rs` / `plan.rs` / `prompt.rs`）、`crates/live2d-ai-runtime/src/conversation/engine.rs`（`perf.resolve(...)`）、`docs/architecture/performance-layer-v0.md` |
+| ⑤ | **core 的 action / performance 子系统仍无驱动方**：动作包走的是渲染面参数层（①②），**不经 core reducer**；`ModServices.action_tx` 仍是休眠 sender，`supervisor` 侧注入 `RootEvent::Action` 的分支已在 rc.2 删除 | `crates/live2d-ai-core/src/action/`、`crates/live2d-ai-core/src/performance/`、`crates/live2d-ai-core/src/lib.rs`（不变量 4/6）、`crates/live2d-ai-desktop/src/mod_registry.rs`（`action_tx` 休眠 + `action_request_is_dormant_not_delivered`）、`crates/live2d-ai-desktop/src/supervisor.rs`（rc.2 删除注入分支的注释） |
+
+**读法**：①②③ 是**现行产品路径**（动作包 → 倍率 → director），④ 是**存在但未开**，⑤ 是**仍休眠**。
+把 ⑤ 的「core 无驱动方」误读成「动作系统整体不存在」，正是本节要修掉的误导（漂移记录见
+`docs/plans/RESEARCH-actions-director-audit-2026-09-21.md` §4.1）。
+
+**产品口径（维护者 2026-09-21，含同日 §3.8 追加澄清；本段是裁决文本，改动前必须先拿到维护者新裁决）**：
+
+> 产品 =「**酒馆（类酒馆角色扮演内核）+ Live2D 皮套壳子**」：人设由类酒馆内核稳定，**各功能由现有 mod 矩阵承担**
+>   （记忆 / 外部输入 / 语音 / 人设 / 导演都在矩阵里），Live2D 皮套负责**情绪表达**；**导演是一个 AI**、
+>   属**产品本体**（不是「辅助用户操控皮套」的工具），**不做架构搬迁**。
+>   情绪/表演决策的**输入是用户输入**（用户说了什么 → 皮套怎么反应），**不是角色回复**。
+>   后者属于『角色有自己心理』的产品形态，不是本项目底座要表达的东西——**不要**照别的项目（如 N.E.K.O 分析角色回复）改回去。
+>
+> ⚠ 同日 §3.6 曾把「导演/表演属场景能力、不属底座能力（主链不该有第二 LLM）」写成**推论**，该推论
+>   **已被维护者明确否定**（见 `docs/plans/RESEARCH-actions-director-audit-2026-09-21.md` §3.7 / §3.8 与
+>   `docs/plans/ORCHESTRATOR-PROMPT-actions-performance-round.md` §8）——**不得再作为口径或架构建议引用**。
+>   本段改写由编排者在 W0 收口时执行，理由见本轮交付报告「未做 / 需维护者过目」一节。
 
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
 
@@ -402,7 +447,9 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   voice-input（说人话面板 + `selftest` + 失败码/Windows 路径文档 + 与 external 职责表）、
   persona（卡导入命令 + `state` 503→200 + 面板 + `persona-mod-v0.md`）、
   memory（`records` + `clear` 原子清空 + 面板 + §12 可重复验收）、
-  director（**一等决策面板** + `latest`/`clear`；**零投递不变**，不做 apply-to-TTS）。
+  director（**一等决策面板** + `latest`/`clear`；当时的「**零投递不变**」结论**已变更**——现产
+  `latest.preset_id` 与按句 `action_cue` 驱动舞台，现状见 §「动作与表演的现行状态（2026-09 实测）」；
+  仍不做 apply-to-TTS）。
   ④ **真点火抓到并修掉两个缺陷**：`local-llm` 与 `ModRuntime::command` 方法名撞名
   （全量 `cargo test --workspace` 才暴露）；`config_path_for_web()` 返回裸文件名 →
   memory 的 `resolve_store_path` 得 `None` → **「运行中却一条都记不住」** → 配置路径统一**绝对化**。

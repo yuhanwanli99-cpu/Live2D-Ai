@@ -27,5 +27,14 @@ int? effTriInt(Tri<int>? drafted, int remote) => switch (drafted) {
   _ => remote,
 };
 
+/// 取三态**布尔**的现值（`TriKeep`/`null` 都算「没有草稿」）。
+///
+/// 与 [effTriInt] 同款：`Tri.clear()` = 清除 → 回落服务端默认值
+/// （展示思考的默认是 `false`）。
+bool? effTriBool(Tri<bool>? drafted, bool remote) => switch (drafted) {
+  TriSet<bool>(:final bool value) => value,
+  _ => remote,
+};
+
 /// 该字段是否被用户改过（用于给标题打一个小圆点）。
 bool isDrafted(Object? drafted) => drafted != null;

@@ -10,6 +10,8 @@
 //! | `update` | `{id, text, session_id?}` | `{ok, id, records, total, bucket, session_id}` |
 //! | `delete` | `{id, session_id?}` | `{ok, removed, records, total, bucket, session_id}` |
 //! | `clear` | `{session_id?}` | `{ok, records, cleared, removed, residue, bucket, session_id}` |
+//! | `summary` | `{session_id?}` | `{ok, summary, bucket, session_id}`，**只读状态快照**（键同 `state_json.summary`） |
+//! | `summary_rollback` | `{session_id?}` | `{ok, rolled_back:{version,covers_upto,text}, version, covers_upto, text, bucket, session_id}` |
 //!
 //! # 失败纪律（可读、可处置）
 //!
@@ -52,6 +54,8 @@ impl MemoryRuntime {
             "update" => self.cmd_update(args),
             "delete" => self.cmd_delete(args),
             "clear" => self.cmd_clear(args),
+            "summary" => self.cmd_summary(args),
+            "summary_rollback" => self.cmd_summary_rollback(args),
             other => Err(ModError::UnsupportedCommand {
                 command: other.to_string(),
             }),
@@ -94,6 +98,8 @@ impl MemoryRuntime {
             text: text.to_string(),
             ts,
             turn,
+            // 面板手动导入 = 用户侧（与 TurnPrompt 写入同角色）。
+            role: strategy::MemoryRole::User,
         };
         let outcome = match store.append_capped(&record, self.config.max_records) {
             Ok(outcome) => outcome,
@@ -108,7 +114,7 @@ impl MemoryRuntime {
         self.writes += 1;
         self.note_eviction(outcome.evicted, outcome.kept);
         self.services.logger.info(&format!(
-            "memory 面板导入 1 条（现存 {} 条，bucket {}；注入只对下一轮生效）",
+            "memory 面板导入 1 条（现存 {} 条，bucket {}；下一条命中它的用户话本轮即可用上）",
             outcome.kept,
             store.path().display()
         ));
@@ -145,7 +151,7 @@ impl MemoryRuntime {
         }
         let total = outcome.records.len();
         self.services.logger.info(&format!(
-            "memory 面板更新 1 条（id {id}，现存 {total} 条；注入只对下一轮生效）"
+            "memory 面板更新 1 条（id {id}，现存 {total} 条；下一条命中它的用户话本轮即可用上）"
         ));
         Ok(json!({
             "ok": true,
@@ -208,9 +214,29 @@ impl MemoryRuntime {
             )));
         }
         let residue = self.prompt_has_residue(session.as_deref());
+        // P1-5：桶被清空后摘要**必须一起删**——留着它会描述一段不存在的历史，
+        // 而且 `covers_upto` 会立刻指向错误位点（原文没了，位点还在）。
+        // 回滚不删文件，但「清空」是另一回事：这是**删除语义**。
+        let summary_removed =
+            match crate::summary_store::SummaryStore::for_memory_store(&store).remove() {
+                Ok(()) => true,
+                Err(e) => {
+                    self.services.logger.warn(&format!(
+                        "memory 清空时删除摘要旁车失败（{}）: {e}",
+                        store.path().display()
+                    ));
+                    false
+                }
+            };
+        self.refresh_summary_for(session.as_deref());
         self.services.logger.info(&format!(
-            "memory 已清空记忆库（清掉 {removed} 条，bucket {}；提示词注入块{}）",
+            "memory 已清空记忆库（清掉 {removed} 条，bucket {}；摘要旁车{}；提示词注入块{}）",
             store.path().display(),
+            if summary_removed {
+                "已一并删除"
+            } else {
+                "删除失败 / 本就不存在"
+            },
             if residue {
                 "仍在（按既有 strip_residue 语义处理）"
             } else {
@@ -222,8 +248,54 @@ impl MemoryRuntime {
             "records": 0,
             "cleared": true,
             "removed": removed,
+            "summary_removed": summary_removed,
             "residue": residue,
             "bucket": store.path().display().to_string(),
+            "session_id": session,
+        }))
+    }
+
+    /// `summary`：只读的摘要状态快照（**不触发**摘要、不写盘）。
+    ///
+    /// 与 `state_json.summary` 同源（[MemoryRuntime::summary_state]），所以面板
+    /// 与运行态快照永远不会说两套话。切会话后按 `args.session_id` 重读该桶旁车
+    /// ——不能拿「最近一轮」的缓存冒充。
+    fn cmd_summary(&mut self, args: &Value) -> Result<Value, ModError> {
+        let session = self.command_session(args)?;
+        self.refresh_summary_for(session.as_deref());
+        let state = self.summary_state();
+        Ok(json!({
+            "ok": true,
+            "summary": state,
+            "bucket": self.bucket_path_string(session.as_deref()),
+            "session_id": session,
+        }))
+    }
+
+    /// `summary_rollback`：**回滚上一版摘要**（丢 `versions[0]`）。
+    ///
+    /// 语义（口径见 `summary_store.rs`）：原文一条不动，被那版覆盖的原文重新
+    /// 可被 top-k 检索；没有可回滚的版本 → 可读错误（**不谎报成功**）。
+    /// 回滚后**清掉该会话的记忆注入槽**——下一轮按新版本重拼，否则用户会看到
+    /// 「回滚了但提示词里还是旧摘要」。
+    fn cmd_summary_rollback(&mut self, args: &Value) -> Result<Value, ModError> {
+        let session = self.command_session(args)?;
+        self.refresh_summary_for(session.as_deref());
+        let dropped = self.rollback_summary().map_err(ModError::Other)?;
+        if let Some(id) = session.as_deref() {
+            self.clear_session_injection(id);
+        }
+        Ok(json!({
+            "ok": true,
+            "rolled_back": {
+                "version": dropped.version,
+                "covers_upto": dropped.covers_upto,
+                "text": dropped.text,
+            },
+            "version": self.summary_version_value(),
+            "covers_upto": self.summary_covers_value(),
+            "text": self.summary_text_value(),
+            "bucket": self.bucket_path_string(session.as_deref()),
             "session_id": session,
         }))
     }
@@ -291,13 +363,14 @@ impl MemoryRuntime {
     }
 }
 
-/// 一条记录的对外 JSON（面板只用这四个键定位/展示）。
+/// 一条记录的对外 JSON（面板用它定位/展示；Wave 3 起多一个 role）。
 fn record_json(record: &MemoryRecord) -> Value {
     json!({
         "id": record.id,
         "text": record.text,
         "ts": record.ts,
         "turn": record.turn,
+        "role": record.role.as_str(),
     })
 }
 

@@ -11,6 +11,11 @@ authors.workspace = true
 live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 serde_json = "1"
 log = "0.4"
+# W6：env 侧的访问令牌（`EXTERNAL_INPUT_TOKEN`）必须经 `.env` 快照查找
+# （`live2d_ai_runtime::secrets::lookup`：**`.env` > 进程环境**）——直接读进程
+# 环境会绕过 `.env`，于是「界面上刚写了 key、链路还说没配置」。
+# 与 mod-memory / mod-director 同一条口径（runtime 只提供 secrets 纯读取）。
+live2d-ai-runtime = { path = "../live2d-ai-runtime" }
 
 [lints]
 workspace = true

@@ -7,6 +7,7 @@
 //! - [`super::worker::tts_worker`]：TTS 串行合成。
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::time::Instant;
 
 use futures_util::StreamExt;
@@ -21,8 +22,9 @@ use super::events::{send_event, send_terminal};
 use super::queue::{PushOutcome, push_job};
 use super::worker::{TtsJob, TtsWorkerCtx, WorkerExit, tts_worker};
 use crate::OpenAiClient;
-use crate::dialogue::{DialogueAssembler, DialogueEvent};
+use crate::dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler};
 use crate::llm::{ChatMessage, LlmEvent};
+use crate::performance::PerformanceRuntime;
 
 /// 最小异步对话引擎：持有客户端、配置与历史记忆。
 ///
@@ -42,6 +44,15 @@ pub struct ConversationEngine {
     ///
     /// 热重载会整体重建引擎 → 覆盖槽随之回到 `None`（下一轮再 set）。
     pub(super) system_prompt_override: Option<String>,
+    /// **表演层运行时**（2026-09-22）。
+    ///
+    /// - `None`（缺省）= 关闸：主链走既有的「边流边切句边送 TTS」路径，行为与
+    ///   本字段加入前**逐字一致**；
+    /// - `Some`：本轮先收齐助手原文，调表演层拿一份 JSON；`speak` 是本轮
+    ///   TTS / 上屏的**唯一真源**，`cues` 经 `EngineEvent::ActionCue` 出去。
+    ///   端点缺失时运行时仍存在但 `enabled()==false`——每轮走确定性回退
+    ///   （`speak=clean_for_tts(原文)` + 规则 cue），degraded 在状态面可见。
+    pub(super) performance: Option<Arc<PerformanceRuntime>>,
 }
 
 impl ConversationEngine {
@@ -52,7 +63,26 @@ impl ConversationEngine {
             config,
             history: VecDeque::new(),
             system_prompt_override: None,
+            performance: None,
         }
+    }
+
+    /// 注入表演层运行时（host 装配点；`None` = 关闸）。
+    pub fn set_performance(&mut self, performance: Option<Arc<PerformanceRuntime>>) {
+        self.performance = performance;
+    }
+
+    /// 表演层是否**可能**接管本轮（`Some` 即接管：含 enabled=false 的降级运行时）。
+    ///
+    /// supervisor 用它决定「要不要把 `SentenceReady` 转给 director Mod」——
+    /// 表演层开着时规则导演不再并行投递按句 cue（避免两套 cue 打擂台）。
+    pub fn performance_enabled(&self) -> bool {
+        self.performance.is_some()
+    }
+
+    /// 表演层计数句柄（状态面 / 测试）。
+    pub fn performance_stats(&self) -> Option<Arc<crate::performance::PerformanceStats>> {
+        self.performance.as_ref().map(|p| p.stats())
     }
 
     /// 配置只读视图。
@@ -161,6 +191,8 @@ impl ConversationEngine {
         ));
 
         let messages = self.build_messages(user_text);
+        // 表演层运行时快照：`Some` = 本轮由表演层决定 speak/cues（收齐原文后再切句）。
+        let performance = self.performance.clone();
         let mut assembler = DialogueAssembler::new(self.config.sentence_max_chars);
         let mut assistant_text = String::new();
         let mut sentence_seq: u64 = 0;
@@ -273,15 +305,58 @@ impl ConversationEngine {
                     }
                 }
 
-                for dialogue in assembler.push(&event) {
+                // **表演层开着时不切句、不入队**：先收齐本轮原文，阶段 1.5 再
+                // 拿表演层的 speak 切句（主链等它一份 JSON，用户已接受这份延迟）。
+                let dialogues = if performance.is_some() {
+                    Vec::new()
+                } else {
+                    assembler.push(&event)
+                };
+                for dialogue in dialogues {
                     match dialogue {
                         DialogueEvent::SentenceReady { text } => {
+                            // **确定性清洗**（主链，2026-09-21）：切句之后、送 TTS 之前
+                            // 唯一一次清洗（纯函数 dialogue::clean_for_tts）。
+                            //
+                            // 策略**写死**（见 conversation/mod.rs 的 SentenceReady 契约）：
+                            // 送 TTS 的文本 = 上屏的文本 = 这一份清洗产物
+                            //（SentenceReady == TtsJob.text == SentenceVoiced.text）。
+                            // 回灌 LLM 的历史（commit_completed_turn）仍用**原文**，
+                            // 模型上下文不受清洗影响。
+                            let cleaned = crate::dialogue::clean_for_tts(&text);
+                            // 清洗后为空 = 整句都是动作描写 / Markdown 标记：没有可说的
+                            // 内容。**空串不得发给 TTS**——那会被上游回 400 input 为空，
+                            // 而 TTS 错误是 fatal，会把整轮判失败。它照常走既有的
+                            // **静音句**路径（worker 见 trim 为空即不发 HTTP，
+                            // 见 worker.rs；回归 whitespace_only_sentence_...），
+                            // 因此「空串」永远不会到达上游。
                             sentence_seq += 1;
+                            // P1-2（2026-09-16）：**送 TTS 之前**的锚点——异步导演按
+                            // sentence_seq 对齐；它只能读这份清洗产物，不能改
+                            //（送 TTS 的是同一个字符串）。
+                            let delivered = send_event(
+                                &event_tx,
+                                &cancel,
+                                EngineEvent::SentenceReady {
+                                    epoch,
+                                    ts_ms: now_ms(),
+                                    sentence_seq,
+                                    text: cleaned.clone(),
+                                },
+                            )
+                            .await;
+                            if !delivered {
+                                tx_closed = true;
+                                break 'llm;
+                            }
                             match push_job(
                                 &job_tx,
                                 &cancel,
                                 self.config.queue_push_timeout,
-                                TtsJob { sentence_seq, text },
+                                TtsJob {
+                                    sentence_seq,
+                                    text: cleaned,
+                                },
                             )
                             .await
                             {
@@ -320,6 +395,118 @@ impl ConversationEngine {
             }
         }
 
+        // ---- 阶段 1.5：表演层（2026-09-22）----
+        // 主链在这里**收齐本轮助手原文**，交给表演层拿一份合法化 JSON：
+        //   speak → 切句 → 送 TTS + 上屏（唯一真源）；
+        //   cues  → EngineEvent::ActionCue（supervisor 投影为 WS action_cue）。
+        // 只有「表演层开着 + 正常流完 + 未取消 + 无致命」才走这里；失败轮的正文
+        // 兜底仍由阶段 4 的 TextFallback 负责（那一轮不发 TTS）。
+        if let Some(perf) = performance.as_ref()
+            && !cancelled
+            && !tx_closed
+            && !llm_failed
+            && !enqueue_failed
+            && !queue_dead
+        {
+            let resolution = tokio::select! {
+                _ = cancel.cancelled() => {
+                    cancelled = true;
+                    None
+                }
+                r = perf.resolve(user_text, &assistant_text) => Some(r),
+            };
+            if let Some(resolution) = resolution {
+                // 切句走**既有** SentenceAssembler：与流式路径同一套边界规则
+                //（一句一单元：只按真实句读切，绝不按字符位置硬切）。
+                let mut sentences = Vec::new();
+                if let Some(speak) = resolution.speak.as_deref() {
+                    let mut sentences_assembler =
+                        SentenceAssembler::new(self.config.sentence_max_chars);
+                    sentences.extend(sentences_assembler.push(speak));
+                    sentences.extend(sentences_assembler.flush());
+                }
+                // **只动**（speak 空 + 有 cue）：给一条**无声锚句**。前端的 cue 锚点
+                // 是「该句音频开始」（first_chunk），没有句子就没有锚点，动作永不发生。
+                // 空文本句走 worker 既有的**静音句**路径（不发 TTS HTTP），只产出
+                // 一个 start/end 边界帧——正是 cue 需要的锚。
+                if sentences.is_empty() && !resolution.cues.is_empty() {
+                    sentences.push(String::new());
+                }
+                let covers_upto_seq = sentences.len() as u64;
+                // cue **先于**音频发出：前端按 sentence_seq 存好整份计划，
+                // 等该句 first_chunk 时应用（与既有 action_cue 契约一致）。
+                let delivered = send_event(
+                    &event_tx,
+                    &cancel,
+                    EngineEvent::ActionCue {
+                        epoch,
+                        ts_ms: now_ms(),
+                        covers_upto_seq,
+                        cues: resolution.cues.clone(),
+                    },
+                )
+                .await;
+                if !delivered {
+                    tx_closed = true;
+                }
+                'perform: for sentence in sentences {
+                    // 与流式路径同一条确定性清洗（幂等；只拆标记、不改句界）。
+                    let cleaned = crate::dialogue::clean_for_tts(&sentence);
+                    sentence_seq += 1;
+                    let delivered = send_event(
+                        &event_tx,
+                        &cancel,
+                        EngineEvent::SentenceReady {
+                            epoch,
+                            ts_ms: now_ms(),
+                            sentence_seq,
+                            text: cleaned.clone(),
+                        },
+                    )
+                    .await;
+                    if !delivered {
+                        tx_closed = true;
+                        break 'perform;
+                    }
+                    match push_job(
+                        &job_tx,
+                        &cancel,
+                        self.config.queue_push_timeout,
+                        TtsJob {
+                            sentence_seq,
+                            text: cleaned,
+                        },
+                    )
+                    .await
+                    {
+                        PushOutcome::Accepted => {}
+                        PushOutcome::QueueDead => {
+                            queue_dead = true;
+                            break 'perform;
+                        }
+                        PushOutcome::Stopped => {
+                            tx_closed = true;
+                            break 'perform;
+                        }
+                        PushOutcome::TimedOut(message) => {
+                            let _ = send_event(
+                                &event_tx,
+                                &cancel,
+                                EngineEvent::Error {
+                                    epoch,
+                                    ts_ms: now_ms(),
+                                    kind: ErrorKind::Backpressure { message },
+                                },
+                            )
+                            .await;
+                            enqueue_failed = true;
+                            break 'perform;
+                        }
+                    }
+                }
+            }
+        }
+
         // ---- 阶段 2：关队列 → 等 worker 排空（无条件 join，杜绝泄漏）。
         // 注意（D8 / 步骤 7）：`llm_failed` **不**在此列——已完整切句并入队的
         // 句子必须由 worker 正常排空播放；未封口残余也不再封口送 TTS。
@@ -351,14 +538,17 @@ impl ConversationEngine {
         // 用户会以为「模型没回」。这里在终态**之前**补一次 `TextFallback`，
         // 携带**整轮正文**（不是残余）——消费端按覆盖式设置，天然幂等。
         // 只在 `Failed` 发：`Cancelled`（用户按了停止）不该再补一段文字。
-        if status == TurnStatus::Failed && !assistant_text.is_empty() {
+        // 兜底正文同样走确定性清洗（策略：上屏与送 TTS 同清洗）——否则失败轮
+        // 会把 (动作) / *舞台指示* / ** 原样显示出来，与健康轮不一致。
+        let fallback_text = crate::dialogue::clean_for_tts(&assistant_text);
+        if status == TurnStatus::Failed && !fallback_text.is_empty() {
             let _ = send_event(
                 &event_tx,
                 &cancel,
                 EngineEvent::TextFallback {
                     epoch,
                     ts_ms: now_ms(),
-                    text: assistant_text.clone(),
+                    text: fallback_text,
                 },
             )
             .await;

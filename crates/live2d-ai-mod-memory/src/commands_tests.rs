@@ -421,7 +421,7 @@ fn session_turn_injects_only_its_own_slot_not_the_global_prompt() {
         .slot(SESSION_PROMPT_OWNER_MEMORY, "session-a")
         .expect("会话 A 必须拿到注入");
     assert!(slot.starts_with(MEMORY_MARKER_BEGIN), "{slot}");
-    assert!(slot.contains("- 我喜欢薄荷"));
+    assert!(slot.contains("- [用户] 我喜欢薄荷"));
     assert!(slot.ends_with(MEMORY_MARKER_END));
     assert!(
         !slot.contains("基础人设"),
@@ -477,7 +477,7 @@ fn session_injection_coexists_with_the_persona_slot() {
     // 组合结果里 persona 那部分仍在，且按固定顺序排在 memory 之前。
     let prompt = host.sessions().prompt_for("session-a").unwrap();
     assert!(prompt.starts_with("人格卡：你是猫娘小灰"), "{prompt}");
-    assert!(prompt.contains("- 这个月预算要省着花"), "{prompt}");
+    assert!(prompt.contains("- [用户] 这个月预算要省着花"), "{prompt}");
     assert_eq!(host.main_prompt(), "基础人设", "全局仍是原来的 base");
     let _ = std::fs::remove_dir_all(dir);
 }

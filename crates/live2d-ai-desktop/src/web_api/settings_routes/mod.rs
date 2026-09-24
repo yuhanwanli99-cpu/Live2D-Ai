@@ -2,20 +2,31 @@
 //!
 //! 责任：
 //! - `GET /api/v1/settings`：返回脱敏 [`SettingsView`]（**不**含密钥——
-//!   P0-1）。直接走 [`live2d_ai_runtime::settings::view::settings_to_view`]，
-//!   本路由不读 env、不显式派生 `has_api_key`（视图层已包办）。
+//!   P0-1）。走 [`live2d_ai_runtime::settings::view::settings_to_view_with_keys`]，
+//!   `has_api_key` 由**调用方注入的 `lookup`** 决定（= 「值真的读得到」）；
+//!   本路由自己不读 env（不放行 `std::env::var`，见 AGENTS「密钥真源 = .env」）。
 //! - `PATCH /api/v1/settings`：body 解析为 [`PatchBody`] → 内部归并为
 //!   [`SettingsPatch`] → [`apply_patch`] → 若 [`PatchOutcome::Updated`] 再经
-//!   [`plan_atomic_write`] 写盘 + rename。`clear_api_key` 显式标志（§2 P0-2
-//!   防误删，复审 D-P0A：改为 **段级** 字段）由本模块在 `apply_patch` **前**
-//!   从 body 抽离：provider（llm/tts）独立，互不误伤。
+//!   [`plan_atomic_write`] 写盘 + rename。
 //! - `POST /api/v1/settings/test/llm` / `test/tts`：用「暂存配置」发一次
 //!   最小请求，**不**落盘——失败分类按 D1 错误码。
 //!
 //! 安全：
 //! - P0-1：响应中**永不出密钥**——脱敏视图保证。
-//! - P0-2：每 provider 独立 `clear_api_key: true` 显式删除；缺省视为"保持原值"。
-//!   「无 clear 标志的 `api_key_env: null`」在 inject 阶段改写为字段缺省。
+//!
+//! # 密钥绑定：单一三态规则（2026-09 P5 起）
+//!
+//! `{"llm":{"api_key_env":null}}`（`tts` 段同款）**就是**清除绑定：字段级
+//! `Option<Option<String>>` 的显式 `null` 直接落进
+//! [`live2d_ai_runtime::settings::patch::LlmPatch::api_key_env`]，由
+//! [`apply_patch`] 清空并触发写盘。
+//!
+//! 这里**没有** `clear_api_key` 标志，也**没有**「无 clear 标志的
+//! `api_key_env: null` 视为保持原值」的改写层：曾经的双层包装（桌面层
+//! `PatchLlmBody`/`PatchTtsBody` + `inject_clear_key_flag`）已删除——
+//! 一个字段有两种「清除」语法时前端与服务端各发一套，语义漂移时没人知道
+//! 该信哪个；前端 `Tri.clear()`（序列化为 `null`）本来就能可靠表达「清空」。
+//! 注：body 里再出现 `clear_api_key` 现在是**未知键**，按 serde 缺省被忽略。
 //!
 //! D-P0C（2026-08-29）补充：PATCH 写盘成功（200）后调 caller 注入的
 //! `patch_after_hook` 闭包，**让 dispatch 层**（拥有 supervisor 槽位）做
@@ -29,52 +40,60 @@ use live2d_ai_runtime::AppSettings;
 use live2d_ai_runtime::settings::patch::{
     PatchOutcome, SettingsPatch, apply_patch, plan_atomic_write,
 };
-use live2d_ai_runtime::settings::view::settings_to_view;
+use live2d_ai_runtime::settings::view::settings_to_view_with_keys;
 
 use crate::web_api::app_routes::json_response;
 use crate::web_api::dto::{ApplyStatus, ErrorDetail, ErrorResponse};
 
 /// `GET /api/v1/settings` 处理器。
-pub fn handle_get(current: &AppSettings) -> Response<std::io::Cursor<Vec<u8>>> {
-    let view = settings_to_view(current);
+///
+/// `lookup` 由 dispatch 层注入（生产路径 = `live2d_ai_runtime::secrets::lookup`），
+/// 让响应里的 `has_api_key` 与 DTO 状态口径一致：**声明了键名且值真的读得到**。
+pub fn handle_get(
+    current: &AppSettings,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    let view = settings_to_view_with_keys(current, lookup);
     json_response(StatusCode(200), &view)
 }
 
-/// PATCH body 包装：在 [`SettingsPatch`] 之上加 **段级** `clear_api_key`
-/// （D1 P0-2；D-P0A 复审：段级避免误伤另一 provider）。
+/// PATCH body：与 runtime [`SettingsPatch`] **逐段同形**（P5 收敛）。
 ///
-/// 与 v0 顶层 `clear_api_key: bool` 的差异：
-/// - v0 全局 true 会同时清 llm + tts 的 `api_key_env` —— 用户「只清 LLM + 改
-///   TTS voice」会被误清 TTS key；
-/// - v1 `clear_api_key` 段级独立；llm / tts 互不影响。
-///
-/// 段级 serde 三态（`PatchLlmBody` / `PatchTtsBody`）：
+/// 各段都是段级三态 `Option<Option<…>>`：
 /// - 段缺省 → `None`（不参与）；
-/// - 段是 `null` → `Some(None)`（整段清空，仍走 runtime 段级三态语义）；
-/// - 段是对象 → `Some(Some(body))`（含 LlmPatch + 段级 clear_api_key）。
+/// - 段是 `null` → `Some(None)`（整段清空，走 runtime 段级清空语义）；
+/// - 段是对象 → `Some(Some(patch))`（字段级三态逐字段合并）。
+///
+/// 段内**直接**持有 runtime 的 `LlmPatch` / `TtsPatch` / …：字段级三态
+/// （缺省 / `null` / 值）由 runtime 类型自己的 `double_option` serde 属性
+/// 负责。P5 前那层 `PatchLlmBody` / `PatchTtsBody` 包装（`#[serde(flatten)]`
+/// + 段级 `clear_api_key`）已删除——见模块头「单一三态规则」。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PatchBody {
-    /// 见 [`SettingsPatch::llm`] + 段级 `clear_api_key`。
-    /// 段级三态：缺省 = `None`（不参与）/ `null` = `Some(None)`（整段清空）/
-    /// 对象 = `Some(Some(body))`（字段级三态合并）。
+    /// 见 [`SettingsPatch::llm`]。字段级 `api_key_env: null` = 清除绑定。
     #[serde(
         default,
         deserialize_with = "::serde_with::rust::double_option::deserialize"
     )]
-    pub llm: Option<Option<PatchLlmBody>>,
-    /// 见 [`SettingsPatch::tts`] + 段级 `clear_api_key`。
-    /// 段级三态（同 `llm`）。
+    pub llm: Option<Option<live2d_ai_runtime::settings::patch::LlmPatch>>,
+    /// 见 [`SettingsPatch::tts`]（同 `llm`）。
     #[serde(
         default,
         deserialize_with = "::serde_with::rust::double_option::deserialize"
     )]
-    pub tts: Option<Option<PatchTtsBody>>,
+    pub tts: Option<Option<live2d_ai_runtime::settings::patch::TtsPatch>>,
     /// 见 [`SettingsPatch::persona`]。
     #[serde(
         default,
         deserialize_with = "::serde_with::rust::double_option::deserialize"
     )]
     pub persona: Option<Option<live2d_ai_runtime::settings::patch::PersonaPatch>>,
+    /// 见 [`SettingsPatch::action`]（2026-09-16，动作幅度倍率）。
+    #[serde(
+        default,
+        deserialize_with = "::serde_with::rust::double_option::deserialize"
+    )]
+    pub action: Option<Option<live2d_ai_runtime::settings::patch::ActionPatch>>,
     /// W7 任务：顶层 dev_mode 三态补丁。语义同 SettingsPatch.dev_mode：
     /// - 缺省 = `None`（不修改）
     /// - `null` = `Some(None)`（显式关闭）
@@ -86,132 +105,10 @@ pub struct PatchBody {
     pub dev_mode: Option<Option<bool>>,
 }
 
-/// LLM 段 PATCH body：runtime patch 字段 + 段级 `clear_api_key`。
-///
-/// serde 形态（HTTP body）：段级字段**扁平化**（用 `#[serde(flatten)]` 把
-/// `LlmPatch` 的 `base_url` / `model` / `api_key_env` 直接展开在 `llm` 对象
-/// 顶层，与 runtime 字段一一对应；`clear_api_key` 是额外顶层字段）。
-///
-/// 例如 `{"llm": {"base_url": "http://x/", "clear_api_key": true}}` 解析为
-/// `PatchLlmBody { clear_api_key: Some(true), patch: LlmPatch { base_url:
-/// Some(Some("http://x/")), .. } }`。
-///
-/// `clear_api_key: true` + 段在场但 body **未**给 `api_key_env` → 注入清除
-/// 语义；与「body 给新 `api_key_env`」共存时新值优先。
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct PatchLlmBody {
-    /// 段级 P0-2 显式清除标志。
-    /// - 缺省 = `None`（无显式意图，按 body 里的 `api_key_env` 字面解析）
-    /// - `Some(true)` = 显式清除（apply 前 inject 阶段改写 `api_key_env`）
-    /// - `Some(false)` = 显式否定（保留原值；用于「显式说 no」的可观测性）
-    #[serde(default)]
-    pub clear_api_key: Option<bool>,
-    /// LLM 段字段级三态补丁（扁平化到段对象顶层）。
-    #[serde(default, flatten)]
-    pub patch: live2d_ai_runtime::settings::patch::LlmPatch,
-}
-
-/// TTS 段 PATCH body：runtime patch 字段 + 段级 `clear_api_key`。
-///
-/// 同 [`PatchLlmBody`]：用 `#[serde(flatten)]` 把 `TtsPatch` 字段展开到
-/// `tts` 段顶层。
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct PatchTtsBody {
-    /// 段级 P0-2 显式清除标志（语义同 [`PatchLlmBody::clear_api_key`]）。
-    #[serde(default)]
-    pub clear_api_key: Option<bool>,
-    /// TTS 段字段级三态补丁（扁平化到段对象顶层）。
-    #[serde(default, flatten)]
-    pub patch: live2d_ai_runtime::settings::patch::TtsPatch,
-}
-
 impl PatchBody {
     /// 解析 JSON body 字符串为 [`PatchBody`]。
     pub fn parse(body: &str) -> Result<Self, String> {
         serde_json::from_str(body).map_err(|e| format!("JSON 解析失败: {e}"))
-    }
-}
-
-/// 把 PATCH body 的「段级 clear_api_key」与「无 clear 的 `api_key_env: null`」
-/// 翻译进最终 `SettingsPatch`（D-P0A 复审修复点 1 + 2）。
-///
-/// 规则（对 llm / tts 段分别独立，互不误伤）：
-/// 1. **clear=true 且段在场** 且 `patch.api_key_env == None`
-///    （即 body 里 llm 段显式出现但**没**给 `api_key_env` 字段）→
-///    注入 `Some(None)`，让 [`apply_patch`] 清空；
-/// 2. **clear=true 且段在场** 且 `patch.api_key_env == Some(...)`（body 已
-///    显式给出新值）→ **不**覆盖（用户意图优先：显式值生效）；
-/// 3. **clear 缺省 / false** 且 `patch.api_key_env == Some(None)`（body 给
-///    了 `api_key_env: null` 但**没**声明 clear）→ 改写为 `None`（字段缺省，
-///    不表达清除，保持原值 —— P0-2 保护）；
-/// 4. **clear=true** 但 `patch.api_key_env == Some(Some(v))`（body 给了新
-///    `api_key_env` 值）→ 视情况 2：不覆盖。
-/// 5. **clear=false** 显式否定 → 即使 body 给了 `api_key_env: null` 也走 3
-///    改写为 `None`（用户明确表达「不清除」）。
-///
-/// 段级外层 `Option<Option<...>>`：
-/// - `None` → 不参与；不动；
-/// - `Some(None)` → 整段显式清空（透传给 runtime `apply_patch` 走段级清空路径）。
-fn inject_clear_key_flag(patch: &mut SettingsPatch, body: &PatchBody) {
-    // LLM 段
-    if let Some(Some(llm_body)) = body.llm.as_ref() {
-        // 段级 Some(None) 整段清空路径：unwrap 成 SettingsPatch.llm = Some(None)。
-        if let Some(llm_outer) = patch.llm.as_mut() {
-            // 走到这里 llm 段一定 Some(Some(_))（Some(None) 路径已由
-            // `take` 处理），inject 字段级语义。
-            if let Some(inner) = llm_outer.as_mut() {
-                apply_inject_rules(inner, llm_body.clear_api_key);
-            }
-        }
-    }
-    // TTS 段
-    if let Some(Some(tts_body)) = body.tts.as_ref()
-        && let Some(tts_outer) = patch.tts.as_mut()
-        && let Some(inner) = tts_outer.as_mut()
-    {
-        apply_inject_rules_tts(inner, tts_body.clear_api_key);
-    }
-}
-
-/// 注入规则（LLM）：合并段级 `clear_api_key` 与 `api_key_env` 字面。
-fn apply_inject_rules(
-    inner: &mut live2d_ai_runtime::settings::patch::LlmPatch,
-    clear: Option<bool>,
-) {
-    match clear {
-        Some(true) => {
-            // 显式清除：仅当 body 没显式给新值（inner.api_key_env 仍为 None）时
-            // 注入 Some(None)。Some(Some(v)) 视为新值优先。
-            if inner.api_key_env.is_none() {
-                inner.api_key_env = Some(None);
-            }
-        }
-        Some(false) | None => {
-            // 无清除意图：若 body 给了 `api_key_env: null`（Some(None)）则
-            // 改写为字段缺省（None = 保持原值）。Some(Some(v)) 保留新值。
-            if matches!(inner.api_key_env, Some(None)) {
-                inner.api_key_env = None;
-            }
-        }
-    }
-}
-
-/// 注入规则（TTS）：同 [`apply_inject_rules`]，对 TtsPatch 字段。
-fn apply_inject_rules_tts(
-    inner: &mut live2d_ai_runtime::settings::patch::TtsPatch,
-    clear: Option<bool>,
-) {
-    match clear {
-        Some(true) => {
-            if inner.api_key_env.is_none() {
-                inner.api_key_env = Some(None);
-            }
-        }
-        Some(false) | None => {
-            if matches!(inner.api_key_env, Some(None)) {
-                inner.api_key_env = None;
-            }
-        }
     }
 }
 
@@ -275,6 +172,7 @@ pub fn apply_and_write(
     patch: &SettingsPatch,
     config_path: &str,
     after_hook: Option<&dyn Fn() -> ApplyStatus>,
+    lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<PatchResponse, ErrorResponse> {
     let (next, outcome) = apply_patch(current, patch).map_err(|msg| {
         // apply_patch 返回的 String 形态错误码语义不细；按消息前缀判。
@@ -326,7 +224,9 @@ pub fn apply_and_write(
         let apply_status = after_hook.map(|h| h()).unwrap_or(ApplyStatus::NoSupervisor);
         return Ok(PatchResponse {
             persisted,
-            settings: settings_to_view(&next),
+            // PATCH 响应与 GET 同口径（都走 with_keys），否则「保存后
+            // 界面显示已配置、但 GET 又说没有」这类两义会在同一面板里打架。
+            settings: settings_to_view_with_keys(&next, lookup),
             apply_status,
         });
     }
@@ -336,7 +236,7 @@ pub fn apply_and_write(
     // 无意义），所以这里选什么都安全。
     Ok(PatchResponse {
         persisted,
-        settings: settings_to_view(&next),
+        settings: settings_to_view_with_keys(&next, lookup),
         apply_status: ApplyStatus::NoSupervisor,
     })
 }
@@ -352,6 +252,7 @@ pub fn handle_patch(
     body_str: &str,
     config_path: &str,
     after_hook: Option<&dyn Fn() -> ApplyStatus>,
+    lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let body = match PatchBody::parse(body_str) {
         Ok(b) => b,
@@ -361,25 +262,19 @@ pub fn handle_patch(
             return error_response(StatusCode(400), "invalid_payload", e);
         }
     };
-    // 段级三态归一：HTTP body 用 `Option<Option<PatchLlmBody>>`（段级
-    // `Some(None)` = 整段清空 / `Some(Some(body))` = 字段级三态合并）；
-    // runtime `SettingsPatch.llm` 同样为 `Option<Option<LlmPatch>>` —— 直接
-    // 拆包 PatchLlmBody.patch 即可。段级 clear_api_key 在 inject 阶段合并。
-    let mut patch = SettingsPatch {
-        llm: body
-            .llm
-            .as_ref()
-            .map(|outer| outer.as_ref().map(|b| b.patch.clone())),
-        tts: body
-            .tts
-            .as_ref()
-            .map(|outer| outer.as_ref().map(|b| b.patch.clone())),
-        persona: body.persona.clone(),
+    // 段级三态**直接透传**：PatchBody 的 llm/tts 已经是
+    // `Option<Option<LlmPatch>>` / `Option<Option<TtsPatch>>`，与
+    // SettingsPatch 逐段同形（P5 起不再有 PatchLlmBody/PatchTtsBody 包装，
+    // 也没有 clear_api_key 注入阶段）。
+    let patch = SettingsPatch {
+        llm: body.llm,
+        tts: body.tts,
+        persona: body.persona,
+        action: body.action,
         // W7 任务：dev_mode 三态由 HTTP body 顶层字段提供（不走段级）。
         dev_mode: body.dev_mode,
     };
-    inject_clear_key_flag(&mut patch, &body);
-    match apply_and_write(current, &patch, config_path, after_hook) {
+    match apply_and_write(current, &patch, config_path, after_hook, lookup) {
         Ok(resp) => {
             // 审计轨迹：「我改过设置」这件事本身要留痕（persisted=false 表示
             // 服务端认为是 no-op）。写盘失败的分支在下面打 warn。

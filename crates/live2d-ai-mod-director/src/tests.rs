@@ -20,8 +20,10 @@ use crate::{DESCRIPTOR, DirectorConfig, DirectorFactory, DirectorRuntime, direct
 // ---- 测试替身 ----
 
 /// 记录 register_settings / subscribe 调用的测试注册器。
+///
+/// `pub(crate)`：`tests_staging.rs` 也用（不复制第二份）。
 #[derive(Default)]
-struct RecordingRegistrar {
+pub(crate) struct RecordingRegistrar {
     specs: Vec<ModSettingsSpec>,
     topics: Vec<ModEventTopic>,
 }
@@ -43,12 +45,14 @@ impl ModRegistrar for RecordingRegistrar {
 }
 
 /// 间谍：记录下行通道（动作 / 配置写回）被调用的次数——骨架必须恒为 0。
-struct Spies {
-    action_calls: Arc<AtomicUsize>,
-    apply_calls: Arc<AtomicUsize>,
+///
+/// `pub(crate)`：`tests_staging.rs` 也读这两个计数（不复制第二份）。
+pub(crate) struct Spies {
+    pub(crate) action_calls: Arc<AtomicUsize>,
+    pub(crate) apply_calls: Arc<AtomicUsize>,
 }
 
-fn spy_services() -> (ModServices, Spies) {
+pub(crate) fn spy_services() -> (ModServices, Spies) {
     let action_calls = Arc::new(AtomicUsize::new(0));
     let apply_calls = Arc::new(AtomicUsize::new(0));
     let action_counter = Arc::clone(&action_calls);
@@ -270,26 +274,133 @@ fn descriptor_declares_current_api_version_and_id() {
 }
 
 #[test]
-fn start_subscribes_prompt_and_ended_only() {
+fn start_subscribes_prompt_ended_and_sentence_ready() {
     let (_runtime, registrar, _spies) = started(serde_json::json!({}));
+    // P1-3：TurnPrompt（规则决策）+ TurnEnded（结项）+ SentenceReady（按句 cue）。
     assert_eq!(
         registrar.topics,
-        vec![ModEventTopic::TurnPrompt, ModEventTopic::TurnEnded]
+        vec![
+            ModEventTopic::TurnPrompt,
+            ModEventTopic::TurnEnded,
+            ModEventTopic::SentenceReady,
+        ]
     );
     assert_eq!(registrar.specs.len(), 1);
     assert_eq!(registrar.specs[0].mod_id, "director");
     assert!(registrar.specs[0].validate().is_ok());
 }
 
+/// **标签唯一真源**（2026-09-20 调研产出）：导演 Select 的每个预设选项的中文名
+/// 必须来自 `assets/actions/preset_labels.json`，不得在 Rust 里另写一套。
+#[test]
+fn preset_select_labels_come_from_the_shared_table() {
+    let spec = director_settings_spec();
+    let table = crate::preset_label_map();
+    let mut checked = 0usize;
+    for field in &spec.fields {
+        let ModSettingField::Select { options, .. } = field else {
+            continue;
+        };
+        for opt in options {
+            if opt.value == crate::PRESET_NONE {
+                continue;
+            }
+            let row = table
+                .get(&opt.value)
+                .unwrap_or_else(|| panic!("Select 选项 {} 不在标签表里", opt.value));
+            assert!(
+                opt.label.contains(row.zh.as_str()),
+                "{} 的展示名没读表：{:?} vs {:?}",
+                opt.value,
+                opt.label,
+                row.zh
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= crate::PRESET_IDS.len(), "至少要覆盖全部预设 id");
+}
+
 #[test]
 fn settings_spec_has_no_enabled_and_matches_static_spec() {
     let spec = director_settings_spec();
     let keys: Vec<&str> = spec.fields.iter().map(|field| field.key()).collect();
-    assert_eq!(keys, vec!["log_capacity", "emotion_lexicon"]);
+    // 2026-09-15 用户裁决：8 个预设 Select 收成 3 个常用档，
+    // log_capacity / emotion_lexicon 退出表单（缺省仍然生效）。
+    // 2026-09-19（P1-4）：追加 5 个二路键——**要哪些键才能真开二路**必须能从
+    // 表单本身读出来（staging_enabled + base_url + model；密钥变量名/超时可省）。
+    assert_eq!(
+        keys,
+        vec![
+            "preset_happy",
+            "preset_sad",
+            "preset_greeting",
+            "staging_enabled",
+            "staging_base_url",
+            "staging_model",
+            "staging_api_key_env",
+            "staging_timeout_ms",
+        ],
+        "3 个常用档 + 5 个二路键"
+    );
     assert!(
         !keys.contains(&"enabled"),
         "启停唯一真源是 manifest，schema 里不得有第二个 enabled"
     );
+    // 2026-09-22：`staging_*` 是**遗留回退旁路**（表演主路由是 `[performance]`）。
+    // 每个 staging 字段的 label 必须带「【遗留】」，免得表单文案回潮成产品主路径。
+    for field in &spec.fields {
+        if !field.key().starts_with("staging_") {
+            continue;
+        }
+        let label = match field {
+            ModSettingField::Bool { label, .. }
+            | ModSettingField::String { label, .. }
+            | ModSettingField::Number { label, .. }
+            | ModSettingField::Select { label, .. } => label,
+        };
+        assert!(
+            label.contains("【遗留】"),
+            "staging 字段 {field:?} 的 label 缺「【遗留】」标记"
+        );
+    }
+    // 每个预设字段都要带**真缺省**（不是第一个选项 none），否则表单会用
+    // none 覆盖掉内置映射表（「点一次保存就没动作了」）。
+    let expected = crate::presets::PresetTable::default();
+    let defaults: Vec<&str> = spec
+        .fields
+        .iter()
+        .filter_map(|f| match f {
+            ModSettingField::Select {
+                default: Some(d), ..
+            } => Some(d.as_str()),
+            ModSettingField::Select { default: None, .. } => {
+                panic!("预设字段必须是带缺省的 Select: {f:?}")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        defaults,
+        vec![
+            expected.happy.as_str(),
+            expected.sad.as_str(),
+            expected.greeting.as_str()
+        ],
+        "表单缺省必须等于内置映射表的缺省"
+    );
+    // 二路总闸的 Bool 字段缺省必须是 false（出厂即「仅规则」）。
+    let staging_bool = spec
+        .fields
+        .iter()
+        .find_map(|f| match f {
+            ModSettingField::Bool { key, default, .. } if key == "staging_enabled" => {
+                Some(*default)
+            }
+            _ => None,
+        })
+        .expect("必须有 staging_enabled");
+    assert!(!staging_bool, "二路必须缺省关");
     // 静态 schema 与 start 注册的必须是同一份（否则前端表单与运行时分叉）。
     let factory_spec = DirectorFactory
         .settings_spec()
@@ -334,7 +445,7 @@ fn shutdown_resets_registered() {
 // ---- ③ state_json 形状与容量 ----
 
 #[test]
-fn state_json_shape_and_delivered_false() {
+fn state_json_shape_and_preset_delivery() {
     let (mut runtime, _registrar, _spies) = started(serde_json::json!({}));
     runtime
         .on_event(ModEventTopic::TurnPrompt, "你好！今天太开心了！")
@@ -342,8 +453,14 @@ fn state_json_shape_and_delivered_false() {
     runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
 
     let state = runtime.state_json().expect("骨架必须有状态面");
-    assert_eq!(state["delivered"], serde_json::json!(false));
-    assert_eq!(state["channel"], serde_json::json!("none"));
+    // **2026-09-15 起**：「零投递」的定义变了——本 Mod 仍然不调用任何 host
+    // 下行通道（action_tx / apply_settings 零调用），但它**产出**一条动作预设，
+    // 经只读状态面的 latest.preset_id 交给前端投给渲染面。
+    // 「你好！今天太开心了！」= Greeting + Happy → greeting 优先 = nod。
+    assert_eq!(state["channel"], serde_json::json!("preset"));
+    assert_eq!(state["delivered"], serde_json::json!(true));
+    assert_eq!(state["presets_chosen"].as_u64(), Some(1));
+    assert_eq!(state["latest"]["preset_id"], serde_json::json!("nod"));
     assert_eq!(state["turns_seen"].as_u64(), Some(1));
     assert_eq!(state["turns_ended"].as_u64(), Some(1));
     assert_eq!(state["decisions"].as_u64(), Some(1));
@@ -360,13 +477,18 @@ fn state_json_shape_and_delivered_false() {
     assert_eq!(recent[0]["suggested_tts"]["speed"].as_f64(), Some(1.08));
     assert_eq!(recent[0]["suggested_tts"]["pitch"].as_f64(), Some(1.2));
     assert_eq!(recent[0]["closed"], serde_json::json!(true));
-    assert_eq!(recent[0]["delivered"], serde_json::json!(false));
+    assert_eq!(recent[0]["delivered"], serde_json::json!(true));
+    assert_eq!(recent[0]["preset_id"], serde_json::json!("nod"));
+    // 映射表随状态面下发，面板据此显示「现在会映射到哪条」。
+    assert_eq!(state["presets"]["greeting"], serde_json::json!("nod"));
+    assert_eq!(state["presets"]["anxious"], serde_json::json!("none"));
 }
 
 #[test]
 fn suggested_tts_exposes_only_speed_and_pitch() {
     let decision = derive("气死我了！", Lexicon::Builtin);
     let entry = LedgerEntry {
+        preset_id: None,
         seq: 1,
         turn: None,
         emotion: decision.emotion,
@@ -472,11 +594,12 @@ fn recent_decisions_shape_is_unchanged_with_latest_added() {
             "delivered".to_string(),
             "emotion".to_string(),
             "intent".to_string(),
+            "preset_id".to_string(),
             "seq".to_string(),
             "suggested_tts".to_string(),
             "turn".to_string(),
         ],
-        "latest 是新增字段，单条形状一行未改"
+        "2026-09-15 只新增 preset_id 一个键（其余形状一行未改）"
     );
 }
 
@@ -511,8 +634,10 @@ fn clear_command_empties_ledger_and_returns_before_counts() {
     assert_eq!(state["errors"].as_u64(), Some(0));
     assert!(state["recent_decisions"].as_array().unwrap().is_empty());
     assert!(state["latest"].is_null(), "清空后 latest 回到 null");
+    assert_eq!(state["channel"], serde_json::json!("preset"));
+    // 空账本 = 没有「最近一轮」→ delivered=false（而不是「历史投递过」）。
     assert_eq!(state["delivered"], serde_json::json!(false));
-    assert_eq!(state["channel"], serde_json::json!("none"));
+    assert_eq!(state["presets_chosen"].as_u64(), Some(0));
 
     // 清空**不是**把 Mod 关掉：还能继续记账。
     runtime.on_event(ModEventTopic::TurnPrompt, "你好").unwrap();
@@ -569,6 +694,23 @@ fn log_capacity_is_clamped_and_bad_values_fall_back() {
         config(serde_json::json!({"emotion_lexicon": "bogus"})).emotion_lexicon,
         Lexicon::Builtin
     );
+    // P1-4：二路端点的四个字符串 / 数值键——trim、坏类型回落空串（绝不失败）。
+    let staging = config(serde_json::json!({
+        "staging_enabled": true,
+        "staging_base_url": "  http://127.0.0.1:11434/v1  ",
+        "staging_model": " qwen ",
+        "staging_api_key_env": " DEEPSEEK_API_KEY ",
+        "staging_timeout_ms": 999_999,
+    }));
+    assert!(staging.staging_enabled);
+    assert_eq!(staging.staging_base_url, "http://127.0.0.1:11434/v1");
+    assert_eq!(staging.staging_model, "qwen");
+    assert_eq!(staging.staging_api_key_env, "DEEPSEEK_API_KEY");
+    assert_eq!(staging.staging_timeout_ms, 5_000, "超时必须钳到上限");
+    let bad = config(serde_json::json!({"staging_base_url": 5, "staging_model": []}));
+    assert_eq!(bad.staging_base_url, "");
+    assert_eq!(bad.staging_model, "");
+    assert!(!bad.staging_enabled, "缺 staging_enabled 必须回落 false");
 }
 
 // ---- ④ 轮末结项 + 不投递 ----
@@ -641,8 +783,10 @@ fn action_tx_and_apply_settings_are_never_called() {
         "骨架不得写任何配置（含 TTS 建议参数）"
     );
     let state = runtime.state_json().unwrap();
+    // host 下行通道仍然**零调用**（上面两条断言）；预设走的是状态面 + 前端。
+    assert_eq!(state["channel"], serde_json::json!("preset"));
+    // 本测试最后调过 clear：账本已空 → 没有「最近一轮」→ delivered=false。
     assert_eq!(state["delivered"], serde_json::json!(false));
-    assert_eq!(state["channel"], serde_json::json!("none"));
 }
 
 // 零投递加强（产品级加强波次）：命令路径单独再钉一遍。

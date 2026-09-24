@@ -11,6 +11,49 @@ part of 'package:live2d_ai_shell/main.dart';
 String _kb(int chars) => '约 ${(chars / 1024).round()} KB';
 
 extension _ShellPrefsWiring on _ShellRootState {
+  /// 舞台当前该用的动作幅度（**草稿优先** = 即时预览的真源，2026-09-16 修）。
+  ///
+  /// 三滑条的即时预览就是这条路：草稿里正在拖的值优先于磁盘值；保存后草稿清空，
+  /// 两者合一（`SettingsController` 用服务端回填的 view 覆盖 remote）。
+  ActionSettingsView? get _effectiveActionScales {
+    final SettingsDraft draft = _settings.draft;
+    return effectiveActionScales(
+      remote: _settings.remote?.action,
+      draftHead: draft.actionHeadScale,
+      draftBody: draft.actionBodyScale,
+      draftExpression: draft.actionExpressionScale,
+    );
+  }
+
+  /// 服务端动作幅度 → 渲染面 `sync.actionScales`（**即时预览**）。
+  ///
+  /// 未加载（`remote == null` 且草稿为空）→ `null`：渲染面用自己的出厂默认
+  /// （0.75 / 0.80 / 1.0），**不谎报成 1.0**。
+  Map<String, double>? get _actionScalesPayload {
+    final ActionSettingsView? action = _effectiveActionScales;
+    return action == null ? null : toActionScalesPayload(action);
+  }
+
+  /// **给舞台的唯一取值口**：临时覆盖 > 草稿 > 磁盘值（W7，2026-09-23）。
+  ///
+  /// `main.dart` 把它交给 `Live2DStage(actionScales: …)`——iframe 重建 / 重挂后
+  /// 舞台自己用这份快照补发，不再退回渲染面出厂默认（RESEARCH §2.3 的死参数接上）。
+  Map<String, double>? get _stageActionScales =>
+      _actionScalesSyncer.active(_actionScalesPayload);
+
+  /// 动作幅度即时预览的防抖下发（实现见 [ActionScalesSyncer]）。
+  void _scheduleActionScalesSync() {
+    _actionScalesSyncer.schedule(_actionScalesPayload);
+  }
+
+  /// 立刻下发当前幅度（onReady / iframe 重建后补发）。
+  ///
+  /// **临时覆盖生效时不发产品值**——由 [ActionScalesSyncer] 保证（它发的永远是
+  /// `active()`）。所以这里的 `force: true` 只表达「新桥要收到当前值」。
+  void _syncActionScalesNow({bool force = false}) {
+    _actionScalesSyncer.syncNow(_actionScalesPayload, force: force);
+  }
+
   /// 舞台角标三键 → 渲染面（渲染面自己算缩放，真值从 `stage-ack` 取）。
   Future<void> _zoom(String dir) async {
     await _stageKey.currentState?.sendStageZoom(dir);
@@ -54,6 +97,13 @@ extension _ShellPrefsWiring on _ShellRootState {
       _stageKey.currentState?.sendStageBg(prefs.stageImage) ??
           Future<void>.value(),
     );
+    // 首帧 / 重建 iframe 后补发幅度（`actionScales` 是 `sync` 的一个字段，
+    // 但它的真源是**设置控制器**而不是 `DisplayPrefs`，所以不能在 `sync` 里带）。
+    //
+    // `force: true` **不会**冲掉临时覆盖：syncer 发的是它的 `active()`
+    // （临时覆盖 > 产品值）。改主题 / 调音量等任意偏好变更走到这里，
+    // 临时值照样在（W7 的确定性缺陷 1，见 action_scales_sync.dart）。
+    _syncActionScalesNow(force: true);
   }
 
   /// 偏好变更：更新内存 + 落盘 + 立即下发。

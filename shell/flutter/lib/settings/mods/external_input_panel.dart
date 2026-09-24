@@ -218,9 +218,7 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
         Text('测试注入', style: theme.textTheme.labelLarge),
         const SizedBox(height: Space.s1),
         Text(
-          '框里的初值就是按当前前缀 / 模板渲染好的样子；改它 = 改要注入的内容。'
-          '命令把这段文本逐字送进同一支 say_tx 主链（与 HTTP 端点同一条链、'
-          '同一套计数），区别是本命令走 Mod 命令通道、不需要 token。',
+          '把这段文本逐字送进主链（与 HTTP 端点同一条链、同一套计数；不需要 token）。',
           style: muted,
         ),
         const SizedBox(height: Space.s1),
@@ -276,11 +274,7 @@ class _ExternalInputBodyState extends State<_ExternalInputBody> {
           ),
         ],
         const SizedBox(height: Space.s1),
-        Text(
-          '真 HTTP 等价（同一条渲染 + 主链路径；命令通道不需要 token，'
-          '下面的 curl 在服务端配了 token 时需要带 token）：',
-          style: muted,
-        ),
+        Text('真 HTTP 等价：', style: muted),
         const SizedBox(height: Space.s1),
         Text(
           kExternalInputCurlEquivalent,

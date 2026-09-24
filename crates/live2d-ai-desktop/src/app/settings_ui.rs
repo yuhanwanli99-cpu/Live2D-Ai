@@ -258,6 +258,10 @@ pub(crate) fn handle_window_event(
 /// [`apply_draft`]（只合并 UI 暴露字段，保留隐藏字段）。
 pub(crate) fn draft_to_settings(d: &Draft) -> AppSettings {
     AppSettings {
+        // 2026-09-16：action 段默认（幅度倍率）。
+        action: Default::default(),
+        // 2026-09-22：表演层默认关（[performance] 段，客户端在 host 侧构造）。
+        performance: Default::default(),
         llm: LlmSettings {
             base_url: d.llm_base_url.clone(),
             model: d.llm_model.clone(),
@@ -265,6 +269,7 @@ pub(crate) fn draft_to_settings(d: &Draft) -> AppSettings {
             // max_tokens 不在 v1 草稿里（egui 面板不暴露输出上限），
             // 走省略 = DEFAULT_MAX_TOKENS；已有配置由 apply_draft 原样保留。
             max_tokens: None,
+            show_reasoning: None,
         },
         tts: TtsSettings {
             base_url: d.tts_base_url.clone(),

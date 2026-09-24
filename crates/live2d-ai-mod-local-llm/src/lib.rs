@@ -120,11 +120,13 @@ fn local_llm_settings_spec() -> ModSettingsSpec {
                 key: "command".to_string(),
                 label: "推理进程命令".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "args".to_string(),
                 label: "启动参数（JSON 数组字符串）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::Number {
                 key: "port".to_string(),
@@ -136,6 +138,7 @@ fn local_llm_settings_spec() -> ModSettingsSpec {
                 key: "model".to_string(),
                 label: "模型名称".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::Bool {
                 key: "auto_start".to_string(),

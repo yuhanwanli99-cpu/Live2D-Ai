@@ -1,14 +1,119 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
+import '../settings/preset_labels.dart';
 import '../ui/soft_motion.dart';
 import '../ui/theme.dart';
 import 'live2d_bridge.dart';
 import 'live2d_host_stub.dart'
     if (dart.library.js_interop) 'live2d_host_web.dart' as host;
 import 'live2d_transport.dart';
+
+/// 动作预设的**出厂强度**（L1 产品级，2026-09-16）。
+///
+/// 1.2 让头 / 身的摆幅肉眼明显（1.0 偏「微抖」，用户实测反馈看不出来），
+/// 仍在渲染面 `MAX_INTENSITY = 3.0` 的钳位内。调试面板可在 0.5~3.0 之间调。
+const double kDefaultPresetIntensity = 1.2;
+
+/// **基础表情强度**的出厂值（2026-09-23，表情调试 / 动作调试共用）。
+///
+/// 与手势的 [kDefaultPresetIntensity]（1.2）刻意不同：表情调试的目的是
+/// 「确认基础表情强度」，1.0 就是表值本身——看得清、不放大。手势需要 1.2 才
+/// 肉眼明显（用户实测 1.0 像微抖），所以两个滑条各有各的缺省，不合并。
+const double kDefaultExpressionIntensity = 1.0;
+
+/// 开发工具「动作调试」的本地状态（P0-3）。
+///
+/// **不是**权威状态：渲染面 HUD 的 `preset:` 行才是（含真实剩余毫秒）。
+/// 这里只记「谁在什么时候被点了」，用于调试面板的即时反馈。
+class PresetStatus {
+  const PresetStatus({
+    required this.id,
+    required this.source,
+    required this.startedAt,
+    required this.ttl,
+  });
+
+  final String id;
+
+  /// `debug` / `director` / …
+  final String source;
+  final DateTime startedAt;
+  final Duration ttl;
+
+  /// 还剩多久（钳到 ≥ 0）。
+  Duration remaining(DateTime now) {
+    final Duration elapsed = now.difference(startedAt);
+    final Duration left = ttl - elapsed;
+    return left.isNegative ? Duration.zero : left;
+  }
+}
+
+/// 导演状态面 `latest.preset_id` 的**应用决策**（W4，2026-09-23）。
+enum DirectorPresetAction {
+  /// 同一轮已经处理过（或本条 seq 更旧）——**什么都不做**，尤其**不归零**。
+  ignore,
+
+  /// 本轮判定为中性 / 无预设（`null` / 空串 / `'none'`）→ 显式归零两个槽。
+  revoke,
+
+  /// 本轮有明确预设 → 下发给渲染面。
+  apply,
+}
+
+/// [`DirectorPresetGate.decide`] 的结果。
+class DirectorPresetDecision {
+  const DirectorPresetDecision(this.action, this.presetId);
+
+  final DirectorPresetAction action;
+
+  /// `apply` 时的预设 id；`revoke` 时是撤销哨兵 `'none'`；`ignore` 时 `null`。
+  final String? presetId;
+}
+
+/// 「本轮有没有新预设」的判据（**先** seq 去重，**再** none 归零）。
+///
+/// # 为什么抽在这里（而不是留在 `main.dart`）
+///
+/// `main.dart` 经 `app/browser_io.dart` 依赖 `package:web`，在 `flutter test`
+/// （Dart VM）里**加载不了**；而「先去重、再判 none」这条顺序恰恰是最容易写反、
+/// 也最该被回归钉住的行为——写反 = 一轮里每个 `text_delta` 都重复下发 `none`，
+/// 舞台会被一帧一次地抖散。与 `ActionScalesSyncer` 抽出来的理由相同
+/// （见 `live2d/action_scales_sync.dart` 头注）。
+///
+/// # 顺序即契约
+///
+/// [`decide`] 的第一件事是去重，第二件才是看 `preset_id`：同一条 `seq` 的
+/// 重复帧一律 [`DirectorPresetAction.ignore`]，只有**新的** `seq` 才可能得到
+/// [`DirectorPresetAction.revoke`]。
+class DirectorPresetGate {
+  int _lastSeq = 0;
+
+  /// 已接受的最大 `seq`（测试与排障用）。
+  int get lastSeq => _lastSeq;
+
+  /// 把状态面的 `(seq, preset_id)` 翻译成一条动作。
+  ///
+  /// `seq` 比记录更小 = **账本重启**（Mod 停用再启用 / 保存配置重启后计数从 1
+  /// 重新开始）——先复位为 0，否则新决策会被当成旧的丢掉（用户看到「启用后
+  /// 没反应」，见 2026-09-15 的实测记录）。
+  DirectorPresetDecision decide(int seq, Object? presetId) {
+    // ① 先去重（顺序即契约，见类头注）。
+    if (seq < _lastSeq) _lastSeq = 0;
+    if (seq <= _lastSeq) {
+      return const DirectorPresetDecision(DirectorPresetAction.ignore, null);
+    }
+    _lastSeq = seq;
+    // ② 再看本轮有没有预设：null / 空串 / 'none' 都 = 「本轮没有预设」→ 归零。
+    if (presetId is! String || presetId.isEmpty || presetId == 'none') {
+      return const DirectorPresetDecision(DirectorPresetAction.revoke, 'none');
+    }
+    return DirectorPresetDecision(DirectorPresetAction.apply, presetId);
+  }
+}
 
 /// Live2D 舞台：持有 [Live2DBridge]，对外暴露口型与外观同步入口。
 class Live2DStage extends StatefulWidget {
@@ -19,6 +124,8 @@ class Live2DStage extends StatefulWidget {
     this.dark = true,
     this.stageColor,
     this.stageImage,
+    this.actionScales,
+    this.presetLabels = PresetLabelTable.empty,
     this.tier,
     this.onError,
     this.onReady,
@@ -44,6 +151,23 @@ class Live2DStage extends StatefulWidget {
   /// 两种情况下把图丢掉——那正是 Win 侧换背景图失败的现场。
   /// 现在 `_attach` 每次挂桥都重发一次，与 `stageColor` 同一条纪律。
   final String? stageImage;
+
+  /// 动作幅度倍率（`{head, body, expression}`，2026-09-16）。
+  ///
+  /// `null` = 不下发，渲染面用自己的出厂默认（0.75 / 0.80 / 1.0）。
+  ///
+  /// 值来自宿主算出的**当前有效值**（`ActionScalesSyncer.active()`：
+  /// 临时覆盖 > 草稿 > 磁盘值）。它是 iframe 重建 / 重挂后的**自愈快照**——
+  /// 舞台在 [_attach]（首帧 / retry 重挂）与 [didUpdateWidget]（值变化）时
+  /// 用 [Live2DStageState] 的 `sendSync(actionScales: …)` 补发。
+  /// 那是**唯一**的直发点；宿主侧的临时覆盖只经 syncer 这一个出口。
+  final Map<String, double>? actionScales;
+
+  /// 预设 id → 展示信息（**显示用**：倒计时 ttl 的通道判据）。
+  ///
+  /// 缺省空表 = 回落 [kExpressionPresetIds]（**不删那份常量**——它是取不到
+  /// 标签表时的兜底，见 `settings/preset_labels.dart`）。
+  final PresetLabelTable presetLabels;
 
   final int? tier;
 
@@ -86,6 +210,11 @@ class Live2DStageState extends State<Live2DStage>
   Live2DBridgePhase? _lastReportedPhase;
   int _generation = 0;
   bool _readyNotified = false;
+
+  /// 「动作调试」本地状态（P0-3）；权威在渲染面 HUD。
+  final ValueNotifier<PresetStatus?> presetStatus =
+      ValueNotifier<PresetStatus?>(null);
+  Timer? _presetTimer;
 
   /// ── 舞台底的**插值**（2026-09-11，P1-3） ──
   ///
@@ -146,6 +275,10 @@ class Live2DStageState extends State<Live2DStage>
         _bridge?.sendStageBg(widget.stageImage) ?? Future<void>.value(),
       );
     }
+    // 动作幅度是独立字段：也要在变化时补发（不能因为底色没变被 return 跳过）。
+    if (!mapEquals(widget.actionScales, oldWidget.actionScales)) {
+      _bridge?.sendSync(actionScales: widget.actionScales);
+    }
     if (widget.stageColor == oldWidget.stageColor) return;
     final Color? next = parseStageColorCss(widget.stageColor);
     // 从**当前显示值**续接，而不是从旧终值——连续切两次主题时不会跳回去。
@@ -170,6 +303,8 @@ class Live2DStageState extends State<Live2DStage>
 
   @override
   void dispose() {
+    _presetTimer?.cancel();
+    presetStatus.dispose();
     _stageColorMotion.dispose();
     final bridge = _bridge;
     if (bridge != null) {
@@ -228,6 +363,7 @@ class Live2DStageState extends State<Live2DStage>
       scale: widget.scale,
       dark: widget.dark,
       stageColor: widget.stageColor,
+      actionScales: widget.actionScales,
       tier: widget.tier,
     );
     // 首帧 / 重建 iframe 后**补发背景图**（sync 不带 stage-bg 通道）。
@@ -253,7 +389,72 @@ class Live2DStageState extends State<Live2DStage>
   /// 实时口型（0..1），由音频 RMS 包络驱动。
   void setMouth(double level) => _bridge?.sendMouth(level);
 
-  /// 协议 v1 `stage-zoom`（`in` / `out` / `reset`）。
+  /// 协议 v1 preset：把动作预设交给渲染面（导演 / 开发工具「动作调试」共用）。
+  ///
+  /// 渲染面无预设表 / 参数不足时静默降级；这里不做任何本地判断——
+  /// 「这条预设长什么样」只由渲染面一份实现决定。`source` 只用于显示
+  /// （`debug` / `director`）；`id = "none"` = 立即撤销。
+  ///
+  /// `intensity` 缺省 [kDefaultPresetIntensity]（1.2，肉眼明显）；渲染面钳位
+  /// `[0, 3]`，非法值等同缺省。调试面板的滑条直接把它透传过去。
+  Future<void> applyPreset(
+    String id, {
+    String source = 'ui',
+    double intensity = kDefaultPresetIntensity,
+    double? ttlMs,
+  }) async {
+    if (id.isEmpty) return;
+    if (id == 'none') {
+      _presetTimer?.cancel();
+      _presetTimer = null;
+      if (presetStatus.value != null) presetStatus.value = null;
+      await _bridge?.sendPreset('none', source: source);
+      return;
+    }
+    await _bridge?.sendPreset(
+      id,
+      source: source,
+      intensity: intensity,
+      ttlMs: ttlMs,
+    );
+    presetStatus.value = PresetStatus(
+      id: id,
+      source: source,
+      startedAt: DateTime.now(),
+      ttl: _presetTtlForDisplay(id, labels: widget.presetLabels),
+    );
+    _presetTimer?.cancel();
+    _presetTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) {
+      final PresetStatus? s = presetStatus.value;
+      if (s == null || s.remaining(DateTime.now()) <= Duration.zero) {
+        t.cancel();
+        _presetTimer = null;
+        presetStatus.value = null;
+      } else {
+        // 赋一个等价新对象：ValueNotifier 只在 `==` 变化时通知。
+        presetStatus.value = PresetStatus(
+          id: s.id,
+          source: s.source,
+          startedAt: s.startedAt,
+          ttl: s.ttl,
+        );
+      }
+    });
+  }
+
+  /// 调试面板倒计时**显示用**的时长（权威在渲染面 `preset/`：表情 2600ms /
+  /// 短动作 900ms）。漂移只影响这个倒计时数字，不影响真正演多久。
+  ///
+  /// 通道判据优先查标签表（[isExpressionChannel]）；`widget.presetLabels` 为空
+  /// 时回落 kExpressionPresetIds——与 `directorPresetText` 同一口径（W7 B②）。
+  static Duration _presetTtlForDisplay(
+    String id, {
+    PresetLabelTable labels = PresetLabelTable.empty,
+  }) => isExpressionChannel(id, labels: labels)
+      ? const Duration(milliseconds: 2600)
+      : const Duration(milliseconds: 900);
+
+  /// 协议 v1 stage-zoom（in / out / reset）。
   ///
   /// 渲染面自己算缩放（±10%，clamp 0.5..2.0），所以**不发数值**；
   /// 应用后的真值从 [lastAck] 取（`scale`/`offsetX`/`offsetY`）。
@@ -284,6 +485,17 @@ class Live2DStageState extends State<Live2DStage>
     return bridge.swapModel(url, timeout: timeout);
   }
 
+  /// 下发动作幅度倍率（`sync.actionScales`，三项都必须有限）。
+  ///
+  /// 与 [sync] 分开是为了让「当前该用哪组倍率」只由宿主一份逻辑决定
+  /// （草稿优先的即时预览，见 `app/shell_prefs.dart`），渲染面只收结果。
+  /// 非有限值 / 不是三项 → 静默不发（宁可不发，也不下发一个污染舞台的快照）。
+  void applyActionScales(Map<String, double> scales) {
+    if (scales.length != 3) return;
+    if (!scales.values.every((double v) => v.isFinite)) return;
+    _bridge?.sendSync(actionScales: scales);
+  }
+
   /// 同步舞台外观（协议 v1 `sync`）。
   void sync({
     String? model,
@@ -296,6 +508,7 @@ class Live2DStageState extends State<Live2DStage>
     bool? lipSync,
     bool? idleEnabled,
     double? mouthSensitivity,
+    Map<String, double>? actionScales,
   }) {
     _bridge?.sendSync(
       model: model,
@@ -308,6 +521,7 @@ class Live2DStageState extends State<Live2DStage>
       lipSync: lipSync,
       idleEnabled: idleEnabled,
       mouthSensitivity: mouthSensitivity,
+      actionScales: actionScales,
     );
   }
 
@@ -373,6 +587,20 @@ class Live2DStageState extends State<Live2DStage>
       ],
     );
   }
+}
+
+/// 该预设是否走**表情**通道（**显示用**，W7 B②）。
+///
+/// 唯一真源是标签表的 `channel` 字段（`assets/actions/preset_labels.json`，
+/// 与渲染面 `presets.json` 对齐）；**取不到表 / 该 id 没有 channel 时才回落**
+/// [kExpressionPresetIds]——那份常量是兜底，不删。
+///
+/// 与 `settings/mods/director_panel.dart` 的 `directorPresetText` 同口径：
+/// 两处都优先查表，保证「表情 / 短动作」标签只有一份事实。
+bool isExpressionChannel(String id, {PresetLabelTable? labels}) {
+  final String? channel = labels?[id]?.channel;
+  if (channel != null) return channel == 'expression';
+  return isExpressionPreset(id);
 }
 
 /// 解析渲染面认的舞台底色串（`#rgb` / `#rrggbb`）。

@@ -1307,6 +1307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -2313,6 +2314,8 @@ name = "live2d-ai-mod-director"
 version = "0.2.0-rc.3"
 dependencies = [
  "live2d-ai-mod-system",
+ "live2d-ai-runtime",
+ "reqwest",
  "serde_json",
 ]
 
@@ -2321,6 +2324,7 @@ name = "live2d-ai-mod-external-input"
 version = "0.2.0-rc.3"
 dependencies = [
  "live2d-ai-mod-system",
+ "live2d-ai-runtime",
  "log",
  "serde_json",
 ]
@@ -2339,6 +2343,9 @@ name = "live2d-ai-mod-memory"
 version = "0.2.0-rc.3"
 dependencies = [
  "live2d-ai-mod-system",
+ "live2d-ai-runtime",
+ "reqwest",
+ "serde",
  "serde_json",
 ]
 
@@ -2411,6 +2418,7 @@ dependencies = [
  "tokio-util",
  "toml",
  "toml_edit",
+ "tracing",
  "url",
 ]
 
@@ -3568,6 +3576,7 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",

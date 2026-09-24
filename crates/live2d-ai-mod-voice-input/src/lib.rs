@@ -143,72 +143,78 @@ impl VoiceBackend {
 
 /// 语音输入设置 schema（**静态**：未启用也拿得到，前端可先填再启用）。
 ///
-/// v2（L1 产品级，2026-09-15）：在 v1 的 `backend` / `locale` / `token` 之后
-/// 追加 `wake_phrase` / `manual_enabled` / `sidecar_*`，**一个都没删**。
+/// v3（2026-09-15 用户裁决：设置项过多要收）：
+/// - 主区只有两个：`wake_phrase`（缺省 **小可爱**，空 = 总闸关）+ `manual_enabled`；
+/// - `backend` / `locale` / `token` / `sidecar_*` **仍在协议里**（不是删功能），
+///   但前端把它们收进「高级」折叠——见 `VoiceInputPanel.advancedKeys`。
+/// - 标签一律短句，长解释搬到面板 / 文档（面板也不再复述契约全文）。
 pub fn voice_input_settings_spec() -> ModSettingsSpec {
     ModSettingsSpec {
         mod_id: DESCRIPTOR.id.to_string(),
         title: DESCRIPTOR.name.to_string(),
-        version: 2,
+        version: 3,
         fields: vec![
+            ModSettingField::String {
+                key: "wake_phrase".to_string(),
+                label: "唤醒词（听到它才开始听；留空 = 关闭语音总闸）".to_string(),
+                secret: false,
+                default: Some(gate::DEFAULT_WAKE_PHRASE.to_string()),
+            },
+            ModSettingField::Bool {
+                key: "manual_enabled".to_string(),
+                label: "手动闸（关 = 不收任何转写）".to_string(),
+                default: true,
+            },
             ModSettingField::Select {
                 key: "backend".to_string(),
-                label: "识别后端（Rust 不开 socket；mock = 外部喂文本，sidecar = 推模式）"
-                    .to_string(),
+                label: "识别后端".to_string(),
                 options: vec![
                     SelectOption {
                         value: (VoiceBackend::Mock).as_str().to_string(),
-                        label: "mock（缺省，集成方/测试喂文本）".to_string(),
+                        label: "mock（缺省；由外部直接喂文本）".to_string(),
                     },
                     SelectOption {
                         value: (VoiceBackend::Sidecar).as_str().to_string(),
                         label: "sidecar（外部 ASR 推文本到端点）".to_string(),
                     },
                 ],
+                default: Some((VoiceBackend::Mock).as_str().to_string()),
             },
             ModSettingField::String {
                 key: "locale".to_string(),
-                label: "识别语言（BCP-47，如 zh-CN；只影响 text 归一化）".to_string(),
+                label: "文本归一化语言（BCP-47）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "token".to_string(),
-                label: "访问令牌（可空；空 = 不鉴权，回读只显示是否已设置）".to_string(),
+                label: "访问令牌（空 = 不鉴权）".to_string(),
                 secret: true,
-            },
-            ModSettingField::String {
-                key: "wake_phrase".to_string(),
-                label: "唤醒短语（能力总闸：留空 = 总闸关，拒绝一切转写；命中后从正文里剥掉）"
-                    .to_string(),
-                secret: false,
-            },
-            ModSettingField::Bool {
-                key: "manual_enabled".to_string(),
-                label: "手动闸（关 = 拒绝一切转写）".to_string(),
-                default: true,
+                default: None,
             },
             ModSettingField::String {
                 key: "sidecar_script".to_string(),
-                label: "官方 sidecar 脚本路径（留空 = <config 目录>/docs/examples/voice-sidecar/voice_sidecar.py）"
-                    .to_string(),
+                label: "sidecar 脚本路径（空 = 仓库默认）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "sidecar_url".to_string(),
-                label: "sidecar 要 POST 的完整 URL（留空 = 拉起时必须由命令参数给）"
-                    .to_string(),
+                label: "sidecar POST 的 URL（空 = 命令参数给）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "sidecar_transcriber".to_string(),
-                label: "sidecar transcriber（fake = 读同名 .txt；或 cmd:\"<ASR 命令>\"）"
-                    .to_string(),
+                label: "ASR 命令（fake = 读同名 .txt）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "sidecar_python".to_string(),
-                label: "Python 解释器（只作 argv[0]，绝不过 shell；缺省 python3）".to_string(),
+                label: "Python 解释器（缺省 python3）".to_string(),
                 secret: false,
+                default: None,
             },
         ],
     }

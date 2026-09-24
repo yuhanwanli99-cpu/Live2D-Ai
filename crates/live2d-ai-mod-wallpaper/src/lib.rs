@@ -107,6 +107,7 @@ pub fn wallpaper_settings_spec() -> ModSettingsSpec {
                         label: "定时切换".to_string(),
                     },
                 ],
+                default: Some(WallpaperMode::Off.as_str().to_string()),
             },
             ModSettingField::Number {
                 key: "interval_secs".to_string(),

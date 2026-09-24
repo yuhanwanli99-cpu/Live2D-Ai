@@ -34,6 +34,10 @@ const Set<String> kNamedTimingFiles = <String>{
   // 读屏播报的最小间隔：`text_delta` 是毫秒级的，不节流会把读屏淹没。
   // 这是**无障碍节奏**，是听觉可读性的下限，与视觉过渡无关。
   'lib/state/live_region.dart',
+  // 语音识别会话结束后的重启防抖（Web Speech 静音会 onend，常驻监听要重启）。
+  // 这是**识别会话的时序策略**，不是 UI 过渡时长——AppDurations 那 4 档是给
+  // hover / 内容切换这类交互过渡定的，套在这里没有语义。
+  'lib/voice/voice_listen_controller.dart',
 };
 
 /// 一条扫描规则。

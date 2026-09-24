@@ -12,7 +12,7 @@
 /// - 「注入开关」= 既有 `settings_spec` 的 `enabled_injection` 字段（在卡片
 ///   配置区），本面板**不**复制一个开关，只解释它 != Mod 启停；
 /// - 「清空记忆库」走 `command("clear")`。成功/失败都写**带错误码**的文案；
-/// - **只对下一轮生效**：面板只提示，不改时序（Timing 在 Rust 侧，见 §2）。
+/// - **同轮生效**：面板只提示，不改时序（Timing 在 Rust 侧，见 §2）。
 library;
 
 import 'dart:async';
@@ -122,6 +122,62 @@ String memoryCommandErrorMessage(ApiException e, String action) {
 String memoryClearErrorMessage(ApiException e) =>
     memoryCommandErrorMessage(e, '清空');
 
+/// 把任意值当 JSON 对象读（非对象 -> null）。纯函数，可单测。
+Map<String, Object?>? memoryParseObject(Object? raw) {
+  if (raw is! Map) return null;
+  final Map<String, Object?> out = <String, Object?>{};
+  raw.forEach((Object? k, Object? v) {
+    if (k is String) out[k] = v;
+  });
+  return out;
+}
+
+/// `state_json.summary`（P1-5）：非对象 -> null（面板整块不渲染）。纯函数，可单测。
+Map<String, Object?>? memorySummaryState(Map<String, Object?>? state) =>
+    memoryParseObject(state == null ? null : state['summary']);
+
+/// 当前生效摘要版本号（0 = 无摘要）。纯函数，可单测。
+int memorySummaryVersion(Map<String, Object?> summary) =>
+    (summary['version'] as num?)?.toInt() ?? 0;
+
+/// 摘要正文（空 / 缺失 -> null：空摘要按「没有」处理）。纯函数，可单测。
+String? memorySummaryText(Map<String, Object?> summary) {
+  final Object? raw = summary['text'];
+  if (raw is! String) return null;
+  final String trimmed = raw.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+/// 摘要状态一行：版本 / 覆盖位点 / 桶占比 / 冷却。纯函数，可单测。
+String memorySummaryStatusLine(Map<String, Object?> summary) {
+  if (summary['enabled'] != true) {
+    return '未启用（缺省关闭；需要 summary_base_url 与 summary_model）';
+  }
+  final int version = memorySummaryVersion(summary);
+  final String pending = summary['pending'] == true ? '正在后台生成…' : '空闲';
+  final Object? ratio = summary['bucket_ratio'];
+  final String pct = ratio is num ? '${(ratio * 100).round()}%' : '—';
+  final String error = summary['last_error'] is String
+      ? ' · 上次失败：${summary['last_error']}'
+      : '';
+  if (version == 0) {
+    return '还没有摘要（$pending；桶内原文占注入预算 $pct）$error';
+  }
+  return '当前 v$version · 压缩了前 ${memoryCountText(summary['covers_upto'])} 条原文'
+      ' · 桶内原文占注入预算 $pct · $pending$error';
+}
+
+/// 一句话口径：摘要从哪来、怎么回滚。纯函数，可单测。
+String memorySummaryHint(Map<String, Object?> summary) {
+  final String note = summary['note'] is String &&
+          (summary['note']! as String).trim().isNotEmpty
+      ? '（${summary['note']}）'
+      : '';
+  final String kept = memoryCountText(summary['kept_recent']);
+  return '桶内原文超过注入预算的阈值后，会在后台把更早的历史压成一段摘要，'
+      '最近 $kept 轮保持原文$note。回滚只丢当前这版摘要——原文一条没删，'
+      '被它覆盖的原文会重新参与检索。';
+}
 class MemoryPanel extends ModPanel {
   const MemoryPanel();
 
@@ -282,7 +338,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         sessionId: widget.ctx.activeSessionId,
         extra: <String, Object?>{'text': text},
       ),
-      (ModCommandResult _) => '已导入一条记忆（下一轮起可被检索；当前轮不生效）',
+      (ModCommandResult _) => '已导入一条记忆（下一条命中它的用户话，本轮就会带上）',
     );
     if (mounted) _importController.clear();
   }
@@ -382,6 +438,77 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     );
   }
 
+  Widget _summarySection(BuildContext context, ModPanelContext ctx) {
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final TextStyle? muted = theme.textTheme.bodySmall?.copyWith(
+      color: colors.contentMuted,
+    );
+    final Map<String, Object?>? summary = memorySummaryState(ctx.state);
+    if (summary == null) return const SizedBox.shrink();
+    final int version = memorySummaryVersion(summary);
+    final bool canAct = ctx.enabled && !_busy;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text('记忆摘要', style: theme.textTheme.titleSmall),
+        const SizedBox(height: Space.s1),
+        Text(memorySummaryStatusLine(summary), style: theme.textTheme.bodySmall),
+        const SizedBox(height: Space.s1),
+        Text(memorySummaryHint(summary), style: muted),
+        if (memorySummaryText(summary) != null) ...<Widget>[
+          const SizedBox(height: Space.s1),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(Space.s1),
+            decoration: BoxDecoration(
+              border: Border.all(color: colors.hairline),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Text(
+              memorySummaryText(summary)!,
+              style: theme.textTheme.bodySmall,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+        const SizedBox(height: Space.s1),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const Key('memory-summary-rollback-button'),
+            onPressed: canAct && version > 0
+                ? () => unawaited(_rollbackSummary())
+                : null,
+            icon: const Icon(Icons.undo, size: 16),
+            label: const Text('回滚上一版摘要'),
+          ),
+        ),
+        const SizedBox(height: Space.s3),
+      ],
+    );
+  }
+
+  /// summary_rollback：失败走统一的带码文案（不谎报成功）。
+  Future<void> _rollbackSummary() async {
+    await _send(
+      '回滚摘要',
+      'summary_rollback',
+      memoryCommandArgs(sessionId: widget.ctx.activeSessionId),
+      (ModCommandResult result) {
+        final Map<String, Object?>? info = memoryParseObject(
+          result.result['rolled_back'],
+        );
+        final int droppedVersion = (info?['version'] as num?)?.toInt() ?? 0;
+        final int now = (result.result['version'] as num?)?.toInt() ?? 0;
+        return now == 0
+            ? '已回滚，丢弃 v$droppedVersion：现在没有摘要，注入回到原文命中'
+                '（原文一条没删）'
+            : '已回滚，丢弃 v$droppedVersion：当前生效 v$now';
+      },
+    );
+  }
   Widget _recordRow(
     BuildContext context,
     ModPanelContext ctx,
@@ -454,28 +581,12 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
           dense: true,
         ),
         const SizedBox(height: Space.s2),
-        const InlineNotice(
-          message: '配置区的「注入开关」（enabled_injection）只决定要不要把命中内容'
-              '拼进下一轮提示词；关掉后记忆照记。它不是 Mod 启停——启停在卡片标题行的开关。',
-          severity: NoticeSeverity.info,
-          dense: true,
-        ),
-        const SizedBox(height: Space.s2),
-        const InlineNotice(
-          // L1 2026-09-15：会话路径改成「按来源槽叠加」之后，旧文案
-          //（「同一会话里谁后写谁覆盖」）不再成立——面板不能说一句与实现相反的话。
-          message: '记忆与人设（persona）的边界：会话绑定下，两者写的是同一个会话的'
-              '不同来源槽（人设 / 记忆），读时按「人设 → 记忆」叠加，互不覆盖；'
-              '只有「导入为全局人设」且本轮不带会话时，才是写同一份 '
-              'persona.system_prompt 的后写覆盖。',
-          severity: NoticeSeverity.warning,
-          dense: true,
-        ),
-        const SizedBox(height: Space.s2),
+        // 一句话说清边界（用户裁决：不要把契约全文塞进面板）。
+        // 「注入开关」只决定拼不拼；它不是 Mod 启停。会话绑定下记忆与人设
+        // 按来源槽叠加、互不覆盖；只有全局人设是后写覆盖。
         Text(
-          '要让相关内容下一轮被提起：先发一句要记住的话，等这一轮结束，'
-          '再问相关的问题（本 Mod 只对下一轮生效）。也可以直接在下面导入/编辑。'
-          '逐条可复制的验收步骤见 $kMemoryDocPath 第 12 / 13 节。',
+          '注入开关只决定要不要把命中的记忆拼进本轮提示词（关掉后记忆照记）；'
+          '它与 Mod 启停是两件事。会话绑定下记忆与人设按来源槽叠加、互不覆盖。',
           style: muted,
         ),
         const SizedBox(height: Space.s3),
@@ -541,6 +652,9 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
             (Map<String, Object?> record) => _recordRow(context, ctx, record),
           ),
         const SizedBox(height: Space.s2),
+
+        // ---- 真摘要（P1-5）：状态 + 回滚上一版 ----
+        _summarySection(context, ctx),
 
         // ---- 清空 ----
         Align(

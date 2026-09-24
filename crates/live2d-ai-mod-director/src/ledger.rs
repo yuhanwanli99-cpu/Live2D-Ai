@@ -34,6 +34,11 @@ pub struct LedgerEntry {
     pub intent: IntentHint,
     pub speed: f64,
     pub pitch: f64,
+    /// 本轮选出的**动作预设 id**；`None` = 本轮不投递任何预设。
+    ///
+    /// 取值见 [`crate::presets::PRESET_IDS`]；消费者是 Flutter 舞台
+    /// （拉 `state_json.latest.preset_id` 后经 bridge 交给渲染面）。
+    pub preset_id: Option<String>,
     /// 对应的 `TurnEnded` 是否已到达。
     pub closed: bool,
 }
@@ -47,23 +52,25 @@ impl LedgerEntry {
             "emotion": self.emotion.as_str(),
             "intent": self.intent.as_str(),
             "suggested_tts": { "speed": self.speed, "pitch": self.pitch },
+            "preset_id": self.preset_id,
             "closed": self.closed,
-            "delivered": false,
+            "delivered": self.preset_id.is_some(),
         })
     }
 }
 
 /// [`DecisionLedger::record_prompt`] 的结果（供 runtime 决定日志措辞）。
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PromptOutcome {
     /// 清洗后正文为空：**无决策**、零副作用。
     Silent,
-    /// 记录了一条决策（仅日志 / 快照，未投递）。
+    /// 记录了一条决策（含本轮选出的预设，可能为 `None` = 不投递）。
     Decided {
         emotion: EmotionHint,
         intent: IntentHint,
         speed: f64,
         pitch: f64,
+        preset_id: Option<String>,
     },
 }
 
@@ -103,6 +110,11 @@ pub struct DecisionLedger {
     decisions: u64,
     silent: u64,
     errors: u64,
+    /// 累计「真的选出了一条预设」的决策数（`preset_id` 非空）。
+    ///
+    /// 它**不是**「投递成功数」——投递由前端拉取后交给渲染面完成，
+    /// 这里只记「本轮选了哪条」。
+    presets_chosen: u64,
     /// 是否有「已收到 TurnPrompt、尚未收到 TurnEnded」的在飞轮。
     open: bool,
 }
@@ -118,12 +130,20 @@ impl DecisionLedger {
             decisions: 0,
             silent: 0,
             errors: 0,
+            presets_chosen: 0,
             open: false,
         }
     }
 
-    /// `TurnPrompt`：观察一轮输入，必要时记录一条决策。
-    pub fn record_prompt(&mut self, text: &str, lexicon: Lexicon) -> PromptOutcome {
+    /// `TurnPrompt`：观察一轮输入，必要时记录一条决策 + 选一条动作预设。
+    ///
+    /// `presets` 是生效的映射表（缺省见 [`crate::presets::PresetTable::default`]）。
+    pub fn record_prompt(
+        &mut self,
+        text: &str,
+        lexicon: Lexicon,
+        presets: &crate::presets::PresetTable,
+    ) -> PromptOutcome {
         self.turns_seen += 1;
         self.open = true;
         let decision: Decision = derive(text, lexicon);
@@ -132,6 +152,12 @@ impl DecisionLedger {
             return PromptOutcome::Silent;
         }
         self.decisions += 1;
+        let preset_id = presets
+            .resolve(decision.emotion, decision.intent)
+            .map(str::to_string);
+        if preset_id.is_some() {
+            self.presets_chosen += 1;
+        }
         let entry = LedgerEntry {
             seq: self.decisions,
             turn: None,
@@ -139,6 +165,7 @@ impl DecisionLedger {
             intent: decision.intent,
             speed: decision.suggested_tts.speed,
             pitch: decision.suggested_tts.pitch,
+            preset_id: preset_id.clone(),
             closed: false,
         };
         while self.entries.len() >= self.capacity {
@@ -150,6 +177,7 @@ impl DecisionLedger {
             intent: decision.intent,
             speed: decision.suggested_tts.speed,
             pitch: decision.suggested_tts.pitch,
+            preset_id,
         }
     }
 
@@ -174,8 +202,17 @@ impl DecisionLedger {
     /// `state_json` 契约（见 crate 头注「状态面」）。
     pub fn state_json(&self) -> serde_json::Value {
         json!({
-            "delivered": false,
-            "channel": "none",
+            // **投递语义（2026-09-15 起）**：本 Mod 仍不调用任何 host 下行通道
+            // （`action_tx` / `apply_settings` 零调用），但它现在**产出**一条
+            // 可执行的动作预设，经这条只读状态面的 `latest.preset_id` 交给前端，
+            // 由前端投给渲染面（参数/表情层）。所以：
+            // - `channel` = "preset"：下行通道是「状态面 + 前端拉取」；
+            // - `delivered` = 最近一轮**是否选出了一条预设**（空账本 → false）。
+            "delivered": self
+                .latest()
+                .is_some_and(|e| e.preset_id.is_some()),
+            "channel": "preset",
+            "presets_chosen": self.presets_chosen,
             "turns_seen": self.turns_seen,
             "turns_ended": self.turns_ended,
             "decisions": self.decisions,
@@ -224,6 +261,11 @@ impl DecisionLedger {
         self.errors
     }
 
+    /// 累计「选出了一条预设」的决策数（见字段注：不是投递成功数）。
+    pub fn presets_chosen(&self) -> u64 {
+        self.presets_chosen
+    }
+
     /// 最近 `capacity` 条决策（旧 → 新）。
     pub fn recent(&self) -> &VecDeque<LedgerEntry> {
         &self.entries
@@ -268,6 +310,7 @@ impl DecisionLedger {
         self.decisions = 0;
         self.silent = 0;
         self.errors = 0;
+        self.presets_chosen = 0;
         self.open = false;
         (removed, before)
     }

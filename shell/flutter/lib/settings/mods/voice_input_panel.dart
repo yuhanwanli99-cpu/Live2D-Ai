@@ -1,19 +1,24 @@
-/// voice-input 的产品面板（L1 产品级，2026-09-15）。
+/// voice-input 的产品面板（2026-09-15 用户裁决：**大幅瘦身**）。
 ///
-/// 职责：
-/// 1. 把 backend / locale 的语义说成人话，显示**当前生效值**（读 Mod config）；
-/// 2. **能力总闸**一块：总闸 = 唤醒短语（`wake_phrase`，空 = 关），
-///    关着时用醒目文案说清「所有转写都会被拒绝（403 voice_gate_closed）」；
-/// 3. `selftest` 自检（「检查配置」按钮）；
-/// 4. **「验证闸门」**：手动注入一条转写（命令 `inject`），把
-///    `accepted` / `rejected_code` 如实摊开——这就是「总闸关时拒绝且可读」的壳内证据；
-/// 5. **硬主路径**：「用官方 sidecar 识别音频文件」——命令 `run_sidecar`，
-///    宿主 spawn 官方脚本，脚本把转写推回主链。
+/// # 主区只留四件事
+///
+/// 1. 唤醒词与两把闸的**一行状态**（缺省唤醒词「小可爱」）；
+/// 2. 一句白话链路：说「小可爱 ……」→ 后半句进聊天 → LLM → TTS；
+/// 3. 「检查配置」自检按钮（结论自带错误码）；
+/// 4. 关闭时的**可处置**提示。
+///
+/// # 「高级」折叠里放什么
+///
+/// 手动注入一条转写（验证闸门）、官方 sidecar 拉起、失败码 / 退出码长文——
+/// 这些是排障与集成用的，不是日常路径。配置字段本身由通用表单渲染，
+/// 面板用 [advancedKeys] 把 sidecar / backend / locale / token 也收进「高级」。
 ///
 /// 面板自己**不做网络 / 不起进程**：有副作用动作一律经
-/// [ModPanelContext.onCommand] 转给宿主，失败以 [ApiException.code] 呈现
-/// （项目错误契约：错误必须带码）。本文件由 voice-input 轨道独占。
+/// [ModPanelContext.onCommand] 转给宿主，失败以 [ApiException.code] 呈现。
+/// 本文件由 voice-input 轨道独占。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -25,24 +30,19 @@ import '../../ui/section_header.dart';
 import '../../ui/theme.dart';
 import 'mod_panel.dart';
 
-/// sidecar 脚本的退出码契约（与 docs/voice-input.md §4.5 /
-/// docs/examples/voice-sidecar/README.md §5 同源）。
-///
-/// 放在组件文件里而不是从后端取：这五条是**脚本的退出码**，面板要能在
-/// 没起 sidecar、没起服务时就讲清楚，不能依赖任何请求。
+/// 浏览器识别的**缺省唤醒词**（与 Rust 侧 gate::DEFAULT_WAKE_PHRASE 逐字一致）。
+const String kVoiceDefaultWakePhrase = '小可爱';
+
+/// sidecar 脚本的退出码契约（与 docs/voice-input.md §4.5 同源）。
 const List<(String, String)> kVoiceSidecarExitCodes = <(String, String)>[
   ('0', '成功：HTTP 2xx 且 ok:true，转写已注入主链。'),
-  ('2', '参数或依赖错：缺 --audio、音频文件读不到、--transcriber 写法非法、ASR 命令不存在。先修命令再重跑。'),
-  ('3', '转写失败：同名 .txt 读不到、ASR 命令非 0 退出或超时、清洗后为空。换一段音频或检查 ASR。'),
-  ('4', '推送失败：HTTP 非 2xx（400 / 401 / 403 / 405 / 415 / 503）或连接被拒 / 超时。按下方错误码处置后退避重试。'),
-  ('5', '服务端 ok:false：目前只有 busy（主链忙，本条已丢弃）。等 2 到 5 秒再发。'),
+  ('2', '参数或依赖错：缺 --audio、音频读不到、--transcriber 写法非法、ASR 命令不存在。'),
+  ('3', '转写失败：同名 .txt 读不到、ASR 命令非 0 退出或超时、清洗后为空。'),
+  ('4', '推送失败：HTTP 非 2xx 或连接被拒 / 超时。按错误码处置后退避重试。'),
+  ('5', '服务端 ok:false（目前只有 busy）：主链忙，本条已丢弃。等 2 到 5 秒再发。'),
 ];
 
 /// 把浏览器 origin 拼成我们的 transcript 端点 URL（**纯函数**，便于单测）。
-///
-/// - `base` 为空 / 非 http(s) / 没有 host（例如 Flutter VM 下的 `file:`）→
-///   回退到 `http://127.0.0.1:18080/api/v1/voice/transcript`（ignite.sh 默认端口）；
-/// - 否则 `<scheme>://<host>[:port]/api/v1/voice/transcript`。
 String voiceTranscriptUrl(Uri? base) {
   const String fallback = 'http://127.0.0.1:18080/api/v1/voice/transcript';
   if (base == null) return fallback;
@@ -59,13 +59,23 @@ class VoiceInputPanel extends ModPanel {
   @override
   String get modId => 'voice-input';
 
-  /// 运行态字段的中文标签（合并进统一的运行态渲染；未知 key 不隐藏）。
+  /// 主区之外的字段收进「高级」：sidecar 路径 / ASR 命令 / 令牌 / 后端 / locale。
+  @override
+  Set<String> get advancedKeys => const <String>{
+    'backend',
+    'locale',
+    'token',
+    'sidecar_script',
+    'sidecar_url',
+    'sidecar_transcriber',
+    'sidecar_python',
+  };
+
   @override
   Map<String, String> get stateLabels => const <String, String>{
-    'wake_gate_open': '能力总闸（唤醒短语）',
-    'wake_phrase_set': '唤醒短语已设置',
+    'wake_gate_open': '语音总闸',
+    'wake_phrase_set': '唤醒词已自定义',
     'manual_enabled': '手动闸',
-    'sidecar_script': 'sidecar 脚本路径',
     'sidecar_status': 'sidecar 运行态',
   };
 
@@ -124,55 +134,38 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
       color: appColorsOf(context).contentMuted,
     );
     final Map<String, Object?> config = widget.ctx.mod.config;
-
-    final Object? rawBackend = config['backend'];
-    final bool backendKnown =
-        rawBackend == null || rawBackend == 'mock' || rawBackend == 'sidecar';
-    final String backend = rawBackend == 'sidecar' ? 'sidecar' : 'mock';
-    final Object? rawLocale = config['locale'];
-    final String trimmedLocale = rawLocale is String ? rawLocale.trim() : '';
-    final bool localeDefaulted = trimmedLocale.isEmpty;
-    final String locale = localeDefaulted ? 'zh-CN' : trimmedLocale;
-    final bool localeValid = _localeLooksValid(locale);
-
-    final bool configuredWake = _configuredWakeOpen(config);
-    final bool gateOpen = _boolState('wake_gate_open') ?? configuredWake;
+    final String phrase = _effectiveWakePhrase(config);
+    final bool gateOpen =
+        _boolState('wake_gate_open') ?? _configuredWakeOpen(config);
+    final bool phraseCustom = _boolState('wake_phrase_set') ?? false;
     final bool manualEnabled =
         _boolState('manual_enabled') ??
             (config['manual_enabled'] is bool
                 ? config['manual_enabled']! as bool
                 : true);
-    final Map<String, Object?> sidecarStatus = _statusMap();
-    final String gateText =
-        gateOpen ? '已开（wake_phrase 已设置）' : '未开（wake_phrase 为空）';
-    final String manualText = manualEnabled ? '已开' : '已关（manual_enabled=false）';
+    final String gateText = gateOpen
+        ? '已开（唤醒词「$phrase」${phraseCustom ? '，自定义' : '，缺省'}）'
+        : '已关（wake_phrase 显式留空）';
 
     return Padding(
       padding: const EdgeInsets.only(top: Space.s3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const SectionHeader(
-            title: '能力总闸',
-            description: '总闸就是「唤醒短语」（wake_phrase）：留空 = 总闸关，'
-                '所有转写都会被拒绝（403 voice_gate_closed）。',
-          ),
-          const SizedBox(height: Space.s2),
+          Text('总闸：$gateText；手动闸：${manualEnabled ? '已开' : '已关'}',
+              style: theme.textTheme.bodySmall),
+          const SizedBox(height: Space.s1),
           Text(
-            '总闸：$gateText；手动闸：$manualText。',
-            style: theme.textTheme.bodySmall,
-          ),
-          Text(
-            '总闸与手动闸缺任一，转写都进不了主链；总闸开时文本还必须包含唤醒短语，'
-            '命中后短语会从正文里被剥掉。',
+            '对着麦克风说「$phrase 今天天气怎么样」——命中唤醒词后，'
+            '后面那句会进聊天 → LLM → 语音合成。',
             style: muted,
           ),
           if (!gateOpen) ...<Widget>[
             const SizedBox(height: Space.s2),
             const InlineNotice(
               severity: NoticeSeverity.warning,
-              message: '总闸未开：所有转写都会被拒绝（403 voice_gate_closed）。'
-                  '去上面的配置区填「唤醒短语」再保存。',
+              message: '语音总闸被显式关闭（wake_phrase 留空）：所有转写都会被拒绝（403 voice_gate_closed）。'
+                  '在上面配置区填一个唤醒词再保存即可。',
             ),
           ],
           if (!manualEnabled) ...<Widget>[
@@ -180,75 +173,39 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
             const InlineNotice(
               severity: NoticeSeverity.warning,
               message: '手动闸已关：所有转写都会被拒绝（403 voice_manual_off）。'
-                  '去上面的配置区打开 manual_enabled 再保存。',
+                  '在上面配置区打开 manual_enabled 再保存。',
             ),
           ],
           const SizedBox(height: Space.s3),
-          const SectionHeader(
-            title: '这个开关管什么（白话）',
-            description: 'backend 决定「谁把转写文本交给角色」；locale 只决定文本怎么归一化，不是识别语言开关。',
-          ),
-          const SizedBox(height: Space.s2),
-          Text(
-            'mock：没有 ASR。由集成方或测试直接把转写文本喂进来，不需要任何识别进程。',
-            style: muted,
-          ),
-          Text(
-            'sidecar：外部 ASR 进程自己识别，再把文本推到 POST /api/v1/voice/transcript。Rust 侧从不开 socket、也不会主动请求 sidecar。',
-            style: muted,
-          ),
-          Text(
-            'locale 只影响转写文本的归一化（CJK 词间空格、中英边界），不是「识别语言开关」；识别语言由 sidecar 的 --transcriber 决定。',
-            style: muted,
-          ),
-          const SizedBox(height: Space.s3),
-          const SectionHeader(
-            title: '当前生效值',
-            description: '读的是这个 Mod 已保存的配置；缺省 mock / zh-CN。',
-          ),
-          const SizedBox(height: Space.s2),
-          Text(_backendLine(backend, backendKnown, rawBackend),
-              style: theme.textTheme.bodySmall),
-          Text(_localeLine(locale, localeDefaulted),
-              style: theme.textTheme.bodySmall),
-          if (rawBackend != null && !backendKnown)
-            const Padding(
-              padding: EdgeInsets.only(top: Space.s1),
-              child: InlineNotice(
-                severity: NoticeSeverity.warning,
-                dense: true,
-                message: 'backend 写了 mock / sidecar 之外的值，服务端已按 mock 处理（没有 ASR）。'
-                    '要等外部 ASR 推文本，请把它改成 sidecar。',
-              ),
-            ),
-          if (!localeValid)
-            const Padding(
-              padding: EdgeInsets.only(top: Space.s1),
-              child: InlineNotice(
-                severity: NoticeSeverity.warning,
-                dense: true,
-                message: 'locale 不是合法 BCP-47（如 zh-CN）：归一化会落到「拉丁」档，'
-                    '中文词间空格不会被删。',
-              ),
-            ),
-          const SizedBox(height: Space.s3),
           _buildCheckSection(),
-          const SizedBox(height: Space.s3),
-          _buildInjectSection(),
-          const SizedBox(height: Space.s3),
-          _buildSidecarSection(sidecarStatus, muted),
-          const SizedBox(height: Space.s3),
-          const SectionHeader(
-            title: '出错怎么办',
-            description: '前几条是面板 / 服务端能直接告诉你的；最后五条是 sidecar 脚本的退出码。',
-          ),
           const SizedBox(height: Space.s2),
-          ..._failureLines(muted),
-          const SizedBox(height: Space.s2),
-          for (final (String code, String human) in kVoiceSidecarExitCodes)
-            Text(_exitCodeLine(code, human), style: muted),
+          _buildAdvanced(theme, muted),
         ],
       ),
+    );
+  }
+
+  // ------------------------------------------------------------ 高级（折叠）
+
+  Widget _buildAdvanced(ThemeData theme, TextStyle? muted) {
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(left: Space.s2),
+      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+      title: Text('高级', style: theme.textTheme.titleSmall),
+      children: <Widget>[
+        const SizedBox(height: Space.s2),
+        _buildInjectSection(),
+        const SizedBox(height: Space.s3),
+        _buildSidecarSection(_statusMap(), muted),
+        const SizedBox(height: Space.s3),
+        Text('常见失败码与 sidecar 退出码（排障用）', style: theme.textTheme.labelLarge),
+        const SizedBox(height: Space.s1),
+        ..._failureLines(muted),
+        const SizedBox(height: Space.s1),
+        for (final (String code, String human) in kVoiceSidecarExitCodes)
+          Text('退出码 $code：$human', style: muted),
+      ],
     );
   }
 
@@ -310,9 +267,9 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
         TextField(
           controller: _injectController,
           enabled: widget.ctx.enabled,
-          decoration: const InputDecoration(
-            labelText: '转写文本（总闸开时必须包含唤醒短语）',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: '转写文本（总闸开时必须包含「$kVoiceDefaultWakePhrase」或缺省词）',
+            border: const OutlineInputBorder(),
             isDense: true,
           ),
         ),
@@ -320,20 +277,10 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
         Align(
           alignment: Alignment.centerLeft,
           child: FilledButton.tonal(
-            onPressed:
-                widget.ctx.enabled && !_injecting ? _runInject : null,
+            onPressed: widget.ctx.enabled && !_injecting ? _runInject : null,
             child: Text(_injecting ? '注入中…' : '验证闸门'),
           ),
         ),
-        if (!widget.ctx.enabled)
-          const Padding(
-            padding: EdgeInsets.only(top: Space.s1),
-            child: InlineNotice(
-              severity: NoticeSeverity.info,
-              dense: true,
-              message: 'voice-input Mod 未启用：按钮禁用（命令会回 503 command_unavailable）。',
-            ),
-          ),
         if (_injectError != null) ...<Widget>[
           const SizedBox(height: Space.s2),
           InlineNotice(message: _injectError!),
@@ -351,7 +298,7 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
     );
   }
 
-  // ------------------------------------------------------------ 硬主路径：sidecar
+  // ------------------------------------------------------------ sidecar
 
   Widget _buildSidecarSection(
     Map<String, Object?> status,
@@ -362,8 +309,7 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
       children: <Widget>[
         const SectionHeader(
           title: '用官方 sidecar 识别音频文件',
-          description: '硬主路径：宿主 spawn 官方脚本（逐参数，不过 shell），'
-              '脚本把转写推回主链，回聊天区看角色开口。',
+          description: '宿主 spawn 官方脚本（逐参数，不过 shell），脚本把转写推回主链。',
         ),
         const SizedBox(height: Space.s2),
         TextField(
@@ -371,7 +317,6 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
           enabled: widget.ctx.enabled,
           decoration: const InputDecoration(
             labelText: '音频文件路径（宿主本机）',
-            hintText: '例如 docs/examples/voice-sidecar/fixtures/fake_zh.wav',
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -382,7 +327,6 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
           enabled: widget.ctx.enabled,
           decoration: const InputDecoration(
             labelText: 'transcriber（缺省 fake，读同名 .txt）',
-            hintText: 'fake 或 cmd:"whisper --model small --language zh"',
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -401,8 +345,7 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
         Row(
           children: <Widget>[
             FilledButton.tonal(
-              onPressed:
-                  widget.ctx.enabled && !_spawning ? _runSidecar : null,
+              onPressed: widget.ctx.enabled && !_spawning ? _runSidecar : null,
               child: Text(_spawning ? '拉起中…' : '拉起 sidecar'),
             ),
             const SizedBox(width: Space.s2),
@@ -414,25 +357,10 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
             ),
           ],
         ),
-        if (!widget.ctx.enabled)
-          const Padding(
-            padding: EdgeInsets.only(top: Space.s1),
-            child: InlineNotice(
-              severity: NoticeSeverity.info,
-              dense: true,
-              message: 'voice-input Mod 未启用：按钮禁用（命令会回 503 command_unavailable）。',
-            ),
-          ),
         if (widget.ctx.stateError != null) ...<Widget>[
           const SizedBox(height: Space.s2),
           InlineNotice(message: widget.ctx.stateError!),
         ],
-        const SizedBox(height: Space.s2),
-        Text(
-          '官方 sidecar 会按目标 URL 自动带上同源 loopback Origin 头，'
-          '所以标准 ./scripts/ignite.sh 点火即可，不需要放松服务端的 Origin 校验。',
-          style: muted,
-        ),
         const SizedBox(height: Space.s2),
         Text(_sidecarStatusLine(status), style: muted),
         if (_sidecarError != null) ...<Widget>[
@@ -469,15 +397,19 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
     return const <String, Object?>{};
   }
 
-  /// config 里「唤醒短语是否非空」（state 还没取到时的回退判据）。
-  bool _configuredWakeOpen(Map<String, Object?> config) {
+  /// config 里**生效**的唤醒词：键缺失 → 缺省「小可爱」；显式空 → 空串。
+  String _effectiveWakePhrase(Map<String, Object?> config) {
     final Object? raw = config['wake_phrase'];
-    return raw is String && raw.trim().isNotEmpty;
+    if (raw is String) return raw.trim();
+    return kVoiceDefaultWakePhrase;
   }
+
+  bool _configuredWakeOpen(Map<String, Object?> config) =>
+      _effectiveWakePhrase(config).isNotEmpty;
 
   String _sidecarStatusLine(Map<String, Object?> status) {
     if (status.isEmpty) {
-      return 'sidecar 状态：还没拉起过（点上面的「拉起 sidecar」，或「刷新状态」）。';
+      return 'sidecar 状态：还没拉起过。';
     }
     final String state = _value(status['state']);
     final Object? exitCode = status['exit_code'];
@@ -487,7 +419,7 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
     if (exitCode != null) buffer.write('，退出码 $exitCode');
     if (audio != null) buffer.write('，最近音频 $audio');
     if (tail != null && tail.toString().trim().isNotEmpty) {
-      buffer.write('\nstderr 尾巴：$tail');
+      buffer.write('（stderr 尾巴见下）\n$tail');
     }
     return buffer.toString();
   }
@@ -579,7 +511,6 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
       if (result.result['spawned'] == true) {
         widget.ctx.notifyChanged('已拉起官方 sidecar');
       }
-      // 顺带刷一次运行态，让 sidecar_status 立刻可见（失败不影响上面的结论）。
       try {
         await widget.ctx.onRefreshState();
       } catch (_) {
@@ -617,80 +548,34 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
   String _formatSidecar(Map<String, Object?> result) {
     if (result['spawned'] == true) {
       return '已拉起 sidecar（pid ${_value(result['pid'])}）；'
-          '它会把转写推到主链，回聊天区看角色开口。'
-          '目标 URL：${_value(result['url'])}';
+          '它会把转写推到主链，回聊天区看角色开口。';
     }
     return '没拉起 sidecar：${_value(result['error'])}';
   }
 
-  /// backend 生效值那一行（把「缺省」与「配错回落」分开说）。
-  String _backendLine(String backend, bool known, Object? raw) {
-    if (!known) {
-      return 'backend：$backend（配置值 $raw 不认识，已回落 mock）';
-    }
-    final String suffix = raw == null ? '（缺省，未显式设置）' : '（已设置）';
-    return 'backend：$backend$suffix';
-  }
-
-  /// locale 生效值那一行。
-  String _localeLine(String locale, bool defaulted) {
-    final String suffix = defaulted ? '（缺省，未显式设置）' : '（已设置）';
-    return 'locale：$locale$suffix';
-  }
-
-  /// sidecar 退出码那一行（码 -> 一句话人话）。
-  String _exitCodeLine(String code, String human) => '退出码 $code：$human';
-
   /// 常见失败 -> 一句人话 + 处置（文字表意，不靠颜色）。
   List<Widget> _failureLines(TextStyle? style) => <Widget>[
         Text(
-          '403 voice_gate_closed：能力总闸未开（没配唤醒短语）。到上面配置区填 wake_phrase 再保存。',
+          '403 voice_gate_closed：总闸被显式留空。在上面配置区填一个唤醒词（缺省 小可爱）再保存。',
           style: style,
         ),
         Text(
-          '403 voice_manual_off：手动闸关了。到上面配置区打开 manual_enabled 再保存。',
+          '403 voice_manual_off / 400 wake_phrase_required：手动闸关了，或这句话里没有唤醒词。',
           style: style,
         ),
         Text(
-          '400 wake_phrase_required：转写里没有唤醒短语。先说唤醒词再说正文；短语会被从正文里剥掉。',
+          '403 mod_disabled：voice-input Mod 没启用。到「Mod 管理」打开它。',
           style: style,
         ),
         Text(
-          '403 mod_disabled：voice-input Mod 没启用。到「Mod 管理」打开它，或 POST /api/v1/mods/voice-input/enable。',
+          '200 但 ok:false（code=busy）：主链忙，这条已丢弃。等 2 到 5 秒再发。',
           style: style,
         ),
         Text(
-          '200 但 ok:false（code=busy）：主链忙，这条转写已被丢弃。等 2 到 5 秒再发，不要立即重试。',
-          style: style,
-        ),
-        Text(
-          '连接被拒 / 超时（sidecar 没起，或服务没点火）：先跑 ./scripts/ignite.sh，再退避 1 到 2 秒重试。',
-          style: style,
-        ),
-        Text(
-          '403 origin_required：发送方没带同源 Origin。官方 sidecar 会自动带；'
-          '出现这条通常是 URL/端口填错（或你在用别的客户端）——核对上面的目标 URL。',
-          style: style,
-        ),
-        Text(
-          'backend 配错：写了 mock / sidecar 之外的值时服务端按 mock 处理（没有 ASR）；用上面的「检查配置」确认生效值。',
-          style: style,
-        ),
-        Text(
-          '401 unauthorized：服务端设了 token 而发送方没带对。对齐 sidecar 的 --token / VOICE_INPUT_TOKEN 与服务端配置。',
+          '401 unauthorized / 403 origin_required：对齐 token，或核对发送方 URL/端口。',
           style: style,
         ),
       ];
-
-  /// BCP-47-lite 合法性（与 Mod 侧 selftest 的 locale_is_wellformed 同口径）。
-  bool _localeLooksValid(String locale) {
-    final List<String> parts = locale.split(RegExp('[-_]'));
-    if (!RegExp(r'^[A-Za-z]{2,3}$').hasMatch(parts.first)) return false;
-    for (final String part in parts.skip(1)) {
-      if (!RegExp(r'^[A-Za-z0-9]{1,8}$').hasMatch(part)) return false;
-    }
-    return true;
-  }
 
   /// 自检结果 -> 一段可读摘要（问题 / 提醒逐条列出）。
   String _formatCheck(Map<String, Object?> result) {
@@ -701,7 +586,7 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
     final Object? route = result['route'];
     final String token = result['token_set'] == true ? '已设置' : '未设置';
     final String network = result['opens_network'] == true ? '是' : '否';
-    final String gate = result['wake_gate_open'] == true ? '已开' : '未开';
+    final String gate = result['wake_gate_open'] == true ? '已开' : '已关';
     final String manual = result['manual_enabled'] == true ? '已开' : '已关';
     final StringBuffer buffer = StringBuffer(ok ? '配置自洽。' : '发现配置问题。');
     buffer.write('生效 backend=$backend，locale=$locale');
@@ -710,12 +595,10 @@ class _VoiceInputPanelBodyState extends State<_VoiceInputPanelBody> {
     if (route != null) buffer.write('，本地路由 $route');
     buffer.write('，Rust 开网络=$network。');
     for (final Object? problem in _stringList(result['problems'])) {
-      final String text = _value(problem);
-      buffer.write('\n问题：$text');
+      buffer.write('\n问题：${_value(problem)}');
     }
     for (final Object? note in _stringList(result['notes'])) {
-      final String text = _value(note);
-      buffer.write('\n提醒：$text');
+      buffer.write('\n提醒：${_value(note)}');
     }
     return buffer.toString();
   }

@@ -27,7 +27,7 @@ library;
 /// 用法：
 /// ```dart
 /// LlmSettingsPatch(model: Tri.set('deepseek-chat'));   // 只改 model
-/// LlmSettingsPatch(apiKeyEnv: Tri.clear());            // 显式清空 env 绑定
+/// TtsSettingsPatch(model: Tri.clear());                // 显式清空某字段
 /// LlmSettingsPatch();                                  // 什么都不改
 /// ```
 sealed class Tri<T> {
@@ -85,20 +85,24 @@ void putTri<T>(Map<String, Object?> out, String key, Tri<T>? field) {
 /// `GET /api/v1/settings` 的 LLM 段。
 ///
 /// 注意 `api_key_env` **不在响应里**（`view.rs::LlmView` 只有三个字段）——
-/// 即界面**无法回显**当前绑定的是哪个环境变量，只能显示 [hasApiKey]。
-/// 这是服务端契约的一个缺口，已记录待裁决；前端不要假装知道那个名字。
+/// 绑定名不从这里下发。[hasApiKey] 只回一个布尔（「声明了键名且值真读得到」，
+/// P2 单一语义）。界面要在「密钥绑定」一行显示名字时，走**另一条已验证的路**：
+/// `GET /api/v1/env` 的 `EnvKey.key`（见 `api/env_api.dart`）。P6 起变量名
+/// 不再可在界面上编辑——改绑定只能改 `live2d-ai.toml` 的 `api_key_env`。
 class LlmSettingsView {
   const LlmSettingsView({
     required this.baseUrl,
     required this.model,
     required this.hasApiKey,
     required this.maxTokens,
+    required this.showReasoning,
   });
 
   final String baseUrl;
   final String model;
 
-  /// 服务端是否已能解析到密钥。**密钥本身永远不下发**。
+  /// P2 收敛后的单一语义：键名已声明**且**服务端真能解析到非空值。
+  /// `GET` 与 `PATCH /api/v1/settings` 同口径；**密钥本身与变量名都永不下发**。
   final bool hasApiKey;
 
   /// **最终生效**的输出 token 上限；`0` = 不限制。
@@ -109,9 +113,20 @@ class LlmSettingsView {
 
   /// 服务端在配置省略 `max_tokens` 时使用的默认上限。
   ///
-  /// 只用于界面文案（「默认 512」）；真正生效的值以 [maxTokens] 为准——
+  /// **必须与 `live2d_ai_runtime::settings::DEFAULT_MAX_TOKENS` 一致**
+  /// （`crates/live2d-ai-runtime/src/settings.rs`，当前 = 4096）。这里曾错写成
+  /// 512（P3 修复）：推理模型下思考与正文共用 `max_tokens`，上限过小时正文会被
+  /// 挤成半句 → 切不出完整句 → 一个字都不上屏。
+  ///
+  /// 只用于界面文案（「默认 4096」）；真正生效的值以 [maxTokens] 为准——
   /// 不拿它做本地计算，否则前后端两个默认值会各自漂移。
-  static const int defaultMaxTokens = 512;
+  static const int defaultMaxTokens = 4096;
+
+  /// **展示思考总闸的生效值**（`llm.show_reasoning`，服务端缺省 = false）。
+  ///
+  /// 这是产品开关（要不要看模型的内心独白），不是性能开关：关掉它
+  /// 不省 token，也不改变「思考不进 TTS」这条既有纪律。
+  final bool showReasoning;
 
   /// `maxTokens == 0` = 不限制（协议里请求体省略该字段）。
   bool get isMaxTokensUnlimited => maxTokens == 0;
@@ -126,6 +141,9 @@ class LlmSettingsView {
       maxTokens: j.containsKey('max_tokens')
           ? _int(j['max_tokens'])
           : defaultMaxTokens,
+      // 旧服务端缺该字段 → false（与「缺省不展示思考」同口径，
+      // 不会因为前端连了旧后端就突然把思考摆上屏）。
+      showReasoning: j['show_reasoning'] == true,
     );
   }
 }
@@ -146,6 +164,8 @@ class TtsSettingsView {
   /// 可为 null（协议里是 `Option<String>`）。
   final String? model;
   final String voice;
+
+  /// 同 `LlmSettingsView.hasApiKey`：键名已声明且值真读得到（P2 单一语义）。
   final bool hasApiKey;
   final int sampleRate;
   final int channels;
@@ -192,18 +212,111 @@ class PersonaSettingsView {
   }
 }
 
+/// `GET /api/v1/settings` 的 `action` 段（2026-09-16，用户可调动作幅度）。
+///
+/// 三项独立倍率，作用于渲染面预设表内的幅值：
+/// **实际写入 = 表值 × 峰值系数 × intensity × 倍率**，再按通道红线钳位
+///（头 ParamAngle* ≤30、身 ParamBodyAngle* ≤10、五官 ≤4）。
+///
+/// 基准写清（2026-09-24 重标定）：head 出厂 0.75、body 0.80、expression 1.0；
+/// 范围 [0.2, 2.2]（越界由服务端钳位）。**每个旋钮单独走满都不触上限**，
+/// 但 intensity(3.0) 与倍率(2.2) 同时拉满会钳位——组合表见
+/// `crates/l2d-wasm-demo/src/preset/scales.rs`。
+/// 服务端缺 `action` 段（旧服务端）时回落这组出厂默认——不回落成 1.0，
+/// 否则「升级到旧后端」会静默改变舞台观感。
+class ActionSettingsView {
+  const ActionSettingsView({
+    required this.headScale,
+    required this.bodyScale,
+    required this.expressionScale,
+  });
+
+  final double headScale;
+  final double bodyScale;
+  final double expressionScale;
+
+  /// 倍率下限（与服务端 clamp_action_scale 同口径）。
+  static const double minScale = 0.2;
+
+  /// 倍率上限（与服务端 MAX_ACTION_SCALE 同口径；2026-09-24：2.5 → 2.2）。
+  static const double maxScale = 2.2;
+
+  /// 出厂默认（与服务端 DEFAULT_*_SCALE 同口径）。
+  static const double defaultHeadScale = 0.75;
+  static const double defaultBodyScale = 0.80;
+  static const double defaultExpressionScale = 1.0;
+
+  factory ActionSettingsView.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return ActionSettingsView(
+      headScale: _dbl(j['head_scale'], defaultHeadScale),
+      bodyScale: _dbl(j['body_scale'], defaultBodyScale),
+      expressionScale: _dbl(j['expression_scale'], defaultExpressionScale),
+    );
+  }
+}
+
+/// 渲染面 `sync.actionScales` 载荷（三项都必须是有限数）。
+Map<String, double> toActionScalesPayload(ActionSettingsView v) =>
+    <String, double>{
+      'head': v.headScale,
+      'body': v.bodyScale,
+      'expression': v.expressionScale,
+    };
+
+/// 舞台当前该用哪一组幅度倍率（**即时预览的真源**，2026-09-16 修）。
+///
+/// # 为什么需要它（真实来历）
+///
+/// 产品滑条过去只改设置草稿，点「保存」才经 `GET /settings` 回填、再下发给
+/// 渲染面——拖的时候舞台**毫无反应**，用户的原话是「滑条要先保存才生效」。
+/// 这个函数把「草稿 / 磁盘」合成**一份**有效值：
+///
+/// - 草稿里有的字段（用户正在拖、还没保存）**优先**——即时预览；
+/// - 没有的字段回落远端（= 磁盘上的 `[action]`）；
+/// - 两者都没有（设置还没加载）→ `null`：**不下发**，渲染面用自己的出厂默认
+///   （不谎报成 1.0，否则「升级到旧后端」会静默改观感）。
+///
+/// 传入的 `draftHead` 等是**改动集**语义（`null` = 没动），与
+/// `SettingsDraft.actionHeadScale` 完全一致。
+ActionSettingsView? effectiveActionScales({
+  required ActionSettingsView? remote,
+  double? draftHead,
+  double? draftBody,
+  double? draftExpression,
+}) {
+  if (remote == null && draftHead == null && draftBody == null && draftExpression == null) {
+    return null;
+  }
+  final ActionSettingsView base = remote ??
+      const ActionSettingsView(
+        headScale: ActionSettingsView.defaultHeadScale,
+        bodyScale: ActionSettingsView.defaultBodyScale,
+        expressionScale: ActionSettingsView.defaultExpressionScale,
+      );
+  return ActionSettingsView(
+    headScale: draftHead ?? base.headScale,
+    bodyScale: draftBody ?? base.bodyScale,
+    expressionScale: draftExpression ?? base.expressionScale,
+  );
+}
+
 /// `GET /api/v1/settings` 的完整响应。
 class SettingsView {
   const SettingsView({
     required this.llm,
     required this.tts,
     required this.persona,
+    required this.action,
     required this.devMode,
   });
 
   final LlmSettingsView llm;
   final TtsSettingsView tts;
   final PersonaSettingsView persona;
+
+  /// 动作幅度段（`[action]`，2026-09-16）。
+  final ActionSettingsView action;
 
   /// 开发模式：开启后界面才显示高级/诊断分区（渐进披露的第二层）。
   final bool devMode;
@@ -214,6 +327,7 @@ class SettingsView {
       llm: LlmSettingsView.fromJson(_obj(j['llm'])),
       tts: TtsSettingsView.fromJson(_obj(j['tts'])),
       persona: PersonaSettingsView.fromJson(_obj(j['persona'])),
+      action: ActionSettingsView.fromJson(_obj(j['action'])),
       devMode: j['dev_mode'] == true,
     );
   }
@@ -224,19 +338,12 @@ class LlmSettingsPatch {
   const LlmSettingsPatch({
     this.baseUrl,
     this.model,
-    this.apiKeyEnv,
     this.maxTokens,
-    this.clearApiKey = false,
+    this.showReasoning,
   });
 
   final Tri<String>? baseUrl;
   final Tri<String>? model;
-
-  /// 绑定的**环境变量名**（不是密钥本身）。
-  ///
-  /// 治理红线：前端**不得持有密钥**（AGENTS.md）。所以设置界面只能让用户填
-  /// 「环境变量名」，密钥由服务端从进程环境读取。
-  final Tri<String>? apiKeyEnv;
 
   /// 输出 token 上限（三态）。
   ///
@@ -246,24 +353,16 @@ class LlmSettingsPatch {
   /// - 字段留 `null` → JSON 里**不出现**该键 → 保持原值。
   final Tri<int>? maxTokens;
 
-  /// 段级「清除密钥绑定」标志（`clear_api_key: true`）。
-  ///
-  /// **为什么光发 `api_key_env: null` 不够**：服务端的 P0-2 保护把
-  /// 「不带 `clear_api_key` 的 `api_key_env: null`」当成**保持原值**
-  /// （防止「只改一个字段却把别的字段清了」那类事故）。要真的清除，
-  /// 必须同时给出这个显式意图。
-  ///
-  /// 与 [apiKeyEnv] 同时给出时**新值优先**（服务端 `apply_inject_rules` 规则 2）。
-  final bool clearApiKey;
+  /// **展示思考总闸**（三态）：`Tri.set(true|false)` 显式设值；
+  /// `Tri.clear()` → `show_reasoning: null` → 回落服务端缺省（false）。
+  final Tri<bool>? showReasoning;
 
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'model', model);
-    putTri<String>(out, 'api_key_env', apiKeyEnv);
     putTri<int>(out, 'max_tokens', maxTokens);
-    // 段级清除意图：**不是**三态字段，是布尔标志。
-    if (clearApiKey) out['clear_api_key'] = true;
+    putTri<bool>(out, 'show_reasoning', showReasoning);
     return out;
   }
 
@@ -276,31 +375,23 @@ class TtsSettingsPatch {
     this.baseUrl,
     this.model,
     this.voice,
-    this.apiKeyEnv,
     this.sampleRate,
     this.channels,
-    this.clearApiKey = false,
   });
 
   final Tri<String>? baseUrl;
   final Tri<String>? model;
   final Tri<String>? voice;
-  final Tri<String>? apiKeyEnv;
   final Tri<int>? sampleRate;
   final Tri<int>? channels;
-
-  /// 段级「清除密钥绑定」标志（语义见 `LlmSettingsPatch.clearApiKey`）。
-  final bool clearApiKey;
 
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
     putTri<String>(out, 'base_url', baseUrl);
     putTri<String>(out, 'model', model);
     putTri<String>(out, 'voice', voice);
-    putTri<String>(out, 'api_key_env', apiKeyEnv);
     putTri<int>(out, 'sample_rate', sampleRate);
     putTri<int>(out, 'channels', channels);
-    if (clearApiKey) out['clear_api_key'] = true;
     return out;
   }
 
@@ -330,6 +421,33 @@ class PersonaSettingsPatch {
   bool get isEmpty => toJson().isEmpty;
 }
 
+/// action 段补丁（字段级三态）。
+///
+/// 三项都是 double 三态：`Tri.set(0.9)` = 设为该值；`Tri.clear()` = 显式
+/// `null`，服务端把它解释为「回落出厂默认」（不是 0）。范围由服务端钳到
+/// `[0.2, 2.2]`；前端滑条也只在这个区间里取值。
+class ActionSettingsPatch {
+  const ActionSettingsPatch({
+    this.headScale,
+    this.bodyScale,
+    this.expressionScale,
+  });
+
+  final Tri<double>? headScale;
+  final Tri<double>? bodyScale;
+  final Tri<double>? expressionScale;
+
+  Map<String, Object?> toJson() {
+    final Map<String, Object?> out = <String, Object?>{};
+    putTri<double>(out, 'head_scale', headScale);
+    putTri<double>(out, 'body_scale', bodyScale);
+    putTri<double>(out, 'expression_scale', expressionScale);
+    return out;
+  }
+
+  bool get isEmpty => toJson().isEmpty;
+}
+
 /// `PATCH /api/v1/settings` 的请求体。
 ///
 /// # 段级语义（刻意只暴露安全子集）
@@ -339,11 +457,20 @@ class PersonaSettingsPatch {
 /// 不该作为「改设置」的副作用被顺手发出去。要清空请用字段级 `Tri.clear()`。
 /// 段为 `null` 一律表示「不动这一段」。
 class SettingsPatch {
-  const SettingsPatch({this.llm, this.tts, this.persona, this.devMode});
+  const SettingsPatch({
+    this.llm,
+    this.tts,
+    this.persona,
+    this.action,
+    this.devMode,
+  });
 
   final LlmSettingsPatch? llm;
   final TtsSettingsPatch? tts;
   final PersonaSettingsPatch? persona;
+
+  /// 动作幅度段（`[action]`）。
+  final ActionSettingsPatch? action;
 
   /// 顶层 `dev_mode` 三态。
   final Tri<bool>? devMode;
@@ -360,6 +487,9 @@ class SettingsPatch {
     if (tts != null && !tts!.isEmpty) out['tts'] = tts!.toJson();
     if (persona != null && !persona!.isEmpty) {
       out['persona'] = persona!.toJson();
+    }
+    if (action != null && !action!.isEmpty) {
+      out['action'] = action!.toJson();
     }
     putTri<bool>(out, 'dev_mode', devMode);
     return out;
@@ -507,6 +637,12 @@ int _int(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return 0;
+}
+
+/// 宽容取 double：JSON 里 `0.75` 与 `1` 都合法；非数 → 给定缺省。
+double _dbl(Object? value, double fallback) {
+  if (value is num && value.isFinite) return value.toDouble();
+  return fallback;
 }
 
 /// 宽容取对象：不是对象就返回 null（交给各自的 `fromJson` 走默认值）。

@@ -1,5 +1,13 @@
 //! 应用级配置加载 [`AppSettings`]：把 `live2d-ai.toml`（+ 环境变量密钥）解析成可直接使用的 [`LlmConfig`] / [`TtsConfig`] / [`ConversationConfig`]。
 //!
+//! # 行数（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）
+//!
+//! 本文件 >500 行。理由：它是**唯一**一份「TOML 形状 + 解析 + 校验 + 保注释写回」
+//! 的整体——每加一个配置段（[tts] / [persona] / [action] / [performance]）都要在
+//! 「结构体 + resolve + 视图 + 序列化」四处同步，拆文件会让「改一半忘了另一半」
+//! 变成默认风险（那正是 rc.5 注释被清空、快照与磁盘分叉那类缺陷的成因）。
+//! 仍在 1000 行豁免上限内；测试已外提到 `settings_tests` / `patch_tests`。
+//!
 //! # 配置来源与边界
 //!
 //! - **文件**只放非敏感项：`base_url`、模型名、音色、persona 提示词；
@@ -84,7 +92,9 @@ pub enum SettingsError {
 ///
 /// 构造 [`Self`] 只做「形状」解析；URL / 环境变量名校验与密钥读取发生在
 /// [`AppSettings::resolve`]，让「语法错误」和「运行环境问题」分开报告。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+// 注意：`AppSettings` 含 f32（`[action]` 的幅度倍率），因此**不能** derive
+// `Eq`——只有 `PartialEq`。需要 Eq 的旧断言都是对不含 action 的子段。
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 // 容器级 default：任一段整体缺省时回退到该段类型的 `Default`（deny_unknown_fields
 // 与它独立——只拦「写了但拼错」的键，不拦「没写」的段）。
 #[serde(default, deny_unknown_fields)]
@@ -95,11 +105,30 @@ pub struct AppSettings {
     pub tts: TtsSettings,
     /// persona 段（`[persona]`），可整体省略。
     pub persona: PersonaSettings,
+    /// 动作幅度段（`[action]`，2026-09-16 用户可调）：头 / 身 / 表情三条独立倍率。
+    pub action: ActionSettings,
+    /// 表演层段（`[performance]`，2026-09-22）：主模型之外的「导演/大脑」。
+    /// **缺省关**（`enabled=false`）——关掉时主链行为与没有本段时逐字一致。
+    pub performance: PerformanceSettings,
     /// 开发者模式开关（默认 false）：打开后 `/api/v1/logs*` 端点放行
     /// （见 W3 任务约定）。可在 `live2d-ai.toml` 顶层显式写 `dev_mode = true`，
     /// 或由 CLI `--dev-mode` 覆盖，或在设置面板（egui）勾选后 PATCH 落盘。
     /// 来源优先级：CLI flag > settings 文件 > 默认 false。
     pub dev_mode: bool,
+}
+
+/// 配置里声明的一个密钥环境变量（`GET /api/v1/env` 的一条）。
+///
+/// 由 [`AppSettings::declared_key_envs`] 产出——**那份函数才是
+/// `GET/PUT /api/v1/env` 的唯一真源**；路由层不得再各自抄一份
+/// `llm` / `tts` / `performance` 段清单（抄两遍正是「`[performance]`
+/// 的键既列不出也写不进」这个缺陷的成因）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredKeyEnv {
+    /// 归属段：`"llm"` / `"tts"` / `"performance"`。
+    pub section: &'static str,
+    /// 环境变量名（**非空**，只持有变量名；值只住 `.env`）。
+    pub name: String,
 }
 
 /// `[llm]` 段：OpenAI-compatible `/chat/completions` 上游。
@@ -129,6 +158,19 @@ pub struct LlmSettings {
     /// 用户看到的就是「模型没有返回」。所以默认值按「正文 + 思考」一起放宽。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    /// **思考展示总闸**（2026-09-15 产品开关）：推理模型除正文外的
+    /// `reasoning_content` 要不要上屏（WS `reasoning_delta` 帧）。
+    ///
+    /// - 省略 / `false`（**缺省**）= 不展示：引擎照常解析（解析层单列
+    ///   `LlmEvent::ReasoningDelta` 的契约不变，思考**永远不进**句子装配器与
+    ///   TTS），但 host **不把它投影成 WS 帧**——用户看不见思考；
+    /// - `true` = 展示：前端在气泡的「思考」折叠区照常渲染。
+    ///
+    /// 这是**产品开关**（要不要看思考），不是性能开关：无论开关如何，思考与
+    /// 正文都共用 `max_tokens`，上游该发的 token 一个不少。不要把它写成
+    /// 「省流量 / 加速」——那是对它的误读。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_reasoning: Option<bool>,
 }
 
 /// [`LlmSettings::max_tokens`] 省略时的默认上限。
@@ -148,6 +190,14 @@ impl LlmSettings {
     #[must_use]
     pub fn effective_max_tokens(&self) -> u32 {
         self.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS)
+    }
+
+    /// 最终生效的「展示思考」开关；省略 = **不展示**（见字段注）。
+    ///
+    /// 缺省必须是 `false`：思考是模型的内心独白，产品默认不把它摆到用户面前。
+    #[must_use]
+    pub fn effective_show_reasoning(&self) -> bool {
+        self.show_reasoning.unwrap_or(false)
     }
 }
 
@@ -228,7 +278,181 @@ pub struct PersonaSettings {
     pub max_history_pairs: usize,
 }
 
-/// 解析产物：三份可直接交给引擎/客户端使用的配置视图。
+/// 动作幅度倍率的钳位下限（2026-09-16）。
+pub const MIN_ACTION_SCALE: f32 = 0.2;
+/// 动作幅度倍率的钳位上限（2026-09-16；**2026-09-24 重标定 2.5 → 2.2**）。
+///
+/// 旧上限下 body 滑条对 `nod` / `shake` / `look_*` 在 1.43 以上完全无效
+///（出厂 1.4 已吃掉 96–98% 行程，见 RESEARCH §2.1）。收到 2.2 后，
+/// 渲染面表值（手势主轴头 12 / 身 3.9）使**每个旋钮单独走满都不触上限**
+///（头 12 × 0.9285 × 2.2 ≤ 30 × 0.95；身 3.9 × 2.2 ≤ 10 × 0.95）。
+/// 数值账与「两个旋钮同时拉满会钳位的组合」见 `l2d-wasm-demo/src/preset/scales.rs`。
+pub const MAX_ACTION_SCALE: f32 = 2.2;
+
+/// 出厂默认头摆倍率（相对渲染面预设表内的幅值）。
+pub const DEFAULT_HEAD_SCALE: f32 = 0.75;
+/// 出厂默认身摆倍率（相对表内幅值）。
+///
+/// **2026-09-24 重标定 1.4 → 0.80**：旧值把身摆幅顶到 ±9.8（上限 10），
+/// 出厂身/头比从表内 0.325 被放大到 0.65（躯干比头还显眼）；0.80 后
+/// 出厂身/头比 ≈ 0.347，回到设计口径 [0.30, 0.50]。
+pub const DEFAULT_BODY_SCALE: f32 = 0.80;
+/// 出厂默认表情倍率。
+pub const DEFAULT_EXPRESSION_SCALE: f32 = 1.0;
+
+/// 把任意 f32 归一化进 `[MIN_ACTION_SCALE, MAX_ACTION_SCALE]`。
+///
+/// NaN / 无穷 → 回落 1.0 再钳（配置出错不该把动作整体关掉）。
+#[must_use]
+pub fn clamp_action_scale(value: f32) -> f32 {
+    if !value.is_finite() {
+        return 1.0;
+    }
+    value.clamp(MIN_ACTION_SCALE, MAX_ACTION_SCALE)
+}
+
+fn default_head_scale() -> f32 {
+    DEFAULT_HEAD_SCALE
+}
+fn default_body_scale() -> f32 {
+    DEFAULT_BODY_SCALE
+}
+fn default_expression_scale() -> f32 {
+    DEFAULT_EXPRESSION_SCALE
+}
+
+/// `[action]` 段：用户可调的三项动作幅度倍率（2026-09-16）。
+///
+/// **真源在本文件（`live2d-ai.toml`）**，经 `GET/PATCH /api/v1/settings` 暴露，
+/// 由 Flutter 设置面板的滑条编辑；渲染面在写 preset 帧时按参数归属乘对应倍率。
+/// 前端/调试面板的临时覆盖**不落盘**，只影响当前会话。
+///
+/// 基准（文档写清，避免「改完不知道为什么变成这样」）：
+/// - 渲染面预设表内的幅值是**基准**（头 `ParamAngle*` ≤30、身 `ParamBodyAngle*` ≤10）；
+/// - 实际写入 = 表值 × 峰值系数 × intensity × 对应倍率，再按通道红线钳位
+///   （头 ≤30、身 ≤10、五官 ≤4）。**两个乘法旋钮**各自走满都不触上限，
+///   但**同时**拉满会钳位——会钳位的组合表见
+///   `crates/l2d-wasm-demo/src/preset/scales.rs` 顶部注释。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionSettings {
+    /// 头角度（`ParamAngle*`）倍率。
+    #[serde(default = "default_head_scale")]
+    pub head_scale: f32,
+    /// 身角度（`ParamBodyAngle*`）倍率。
+    #[serde(default = "default_body_scale")]
+    pub body_scale: f32,
+    /// 表情（口 / 眉 / 眼）倍率。
+    #[serde(default = "default_expression_scale")]
+    pub expression_scale: f32,
+}
+
+impl Default for ActionSettings {
+    fn default() -> Self {
+        Self {
+            head_scale: DEFAULT_HEAD_SCALE,
+            body_scale: DEFAULT_BODY_SCALE,
+            expression_scale: DEFAULT_EXPRESSION_SCALE,
+        }
+    }
+}
+
+impl ActionSettings {
+    /// 归一化后的三项倍率（逐个钳进 `[0.2, 2.2]`，与 MAX_ACTION_SCALE 同口径）。
+    #[must_use]
+    pub fn normalized(&self) -> Self {
+        Self {
+            head_scale: clamp_action_scale(self.head_scale),
+            body_scale: clamp_action_scale(self.body_scale),
+            expression_scale: clamp_action_scale(self.expression_scale),
+        }
+    }
+}
+
+/// 表演层超时缺省值（毫秒）：给「非流式 JSON」留够预算，又不至于拖死一轮。
+pub const DEFAULT_PERFORMANCE_TIMEOUT_MS: u64 = 4_000;
+/// 表演层超时下限（与 runtime performance::MIN_TIMEOUT_MS 同口径）。
+pub const MIN_PERFORMANCE_TIMEOUT_MS: u64 = 100;
+/// 表演层超时上限（与 runtime performance::MAX_TIMEOUT_MS 同口径）。
+pub const MAX_PERFORMANCE_TIMEOUT_MS: u64 = 30_000;
+
+/// `[performance]` 段：表演层（导演 / 大脑）的独立端点。
+///
+/// **主模型不负责表演**：主模型只做酒馆式角色扮演（人设 + 剧情/记忆注入，
+/// 无工具、无表演类预设）；表演层每轮收「用户输入 + 主模型原文」，交回**一份
+/// 合法化 JSON**（`{"speak":…,"cues":[…]}`），其中 `speak` 是本轮 TTS / 上屏的
+/// 唯一真源，`cues` 进既有 WS `action_cue` 帧。契约终稿与配置键见
+/// `docs/architecture/performance-layer-v0.md`。
+///
+/// 与主模型 / TTS **完全独立**：自己的 `base_url` / `model` / `timeout_ms` /
+/// `api_key_env`；表演层断了只影响表演，不影响主链与语音。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerformanceSettings {
+    /// 总闸。**缺省 `false`**——关掉时主链走既有的「边流边切句边送 TTS」，
+    /// 规则导演（director Mod）照旧；打开后 `speak` 成为本轮 TTS / 上屏真源。
+    #[serde(default)]
+    pub enabled: bool,
+    /// 表演层端点的 base_url（OpenAI 兼容；独立于 `[llm]`）。空 = 未配。
+    #[serde(default)]
+    pub base_url: String,
+    /// 表演层模型名（空 = 未配）。
+    #[serde(default)]
+    pub model: String,
+    /// 密钥的**环境变量名**（值只住 `.env`；省略 = 不鉴权）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_env: Option<String>,
+    /// 单次调用超时（毫秒；钳 `100..=30000`，缺省 4000）。
+    ///
+    /// 比主模型宽：表演层是**非流式**一次往返，且本轮开声要等它返回
+    ///（用户已接受这份延迟）。
+    #[serde(default = "default_performance_timeout_ms")]
+    pub timeout_ms: u64,
+    /// structured output 策略：`auto`（缺省，先 json_schema，4xx 降级 prompt）/
+    /// `json_schema`（强制）/ `prompt`（只发「只输出 JSON」提示）。
+    #[serde(default = "default_performance_structured")]
+    pub structured: String,
+}
+
+fn default_performance_timeout_ms() -> u64 {
+    DEFAULT_PERFORMANCE_TIMEOUT_MS
+}
+
+fn default_performance_structured() -> String {
+    "auto".to_string()
+}
+
+impl Default for PerformanceSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            model: String::new(),
+            api_key_env: None,
+            timeout_ms: DEFAULT_PERFORMANCE_TIMEOUT_MS,
+            structured: default_performance_structured(),
+        }
+    }
+}
+
+impl PerformanceSettings {
+    /// 最终生效的超时（钳进 `[MIN, MAX]`）。
+    #[must_use]
+    pub fn effective_timeout_ms(&self) -> u64 {
+        self.timeout_ms
+            .clamp(MIN_PERFORMANCE_TIMEOUT_MS, MAX_PERFORMANCE_TIMEOUT_MS)
+    }
+
+    /// 表演层是否**真的会发 HTTP**（开了闸 + 端点与模型都配了）。
+    ///
+    /// 开了闸但缺端点 → 不算「真开」：每轮回退到确定性规则层（degraded）。
+    #[must_use]
+    pub fn is_wired(&self) -> bool {
+        self.enabled && !self.base_url.trim().is_empty() && !self.model.trim().is_empty()
+    }
+}
+
+/// 解析产物：可直接交给引擎/客户端使用的配置视图。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedSettings {
     /// LLM 客户端配置（key 已从环境读出并包装）。
@@ -237,6 +461,8 @@ pub struct ResolvedSettings {
     pub tts: TtsConfig,
     /// 对话引擎配置（system 提示 / 历史 / 队列等沿用 crate 默认）。
     pub conversation: ConversationConfig,
+    /// 表演层配置（**原样**交给 desktop 装配；客户端在 host 侧构造）。
+    pub performance: PerformanceSettings,
 }
 
 impl AppSettings {
@@ -268,7 +494,8 @@ impl AppSettings {
 
     /// 注入式解析：`lookup` 返回 `None` 表示该环境变量不存在。
     ///
-    /// 生产路径 [`AppSettings::resolve`] 即 `lookup = |n| env::var(n).ok()`；
+    /// 生产路径 [`AppSettings::resolve`] 传的是 [`crate::secrets::lookup`]
+    /// （密钥真源 = `.env` 快照 > 进程环境），**不是** `env::var`；
     /// 测试用它避免污染进程环境。
     pub fn resolve_with(
         &self,
@@ -302,6 +529,17 @@ impl AppSettings {
         //（serde 默认值非零，只有显式写 0 才会走到这里）。
         let spec = AudioSpec::new(self.tts.sample_rate, self.tts.channels)?;
 
+        // 表演层：**关闸时不校验**（配了半截也不该让进程起不来）；开闸才校验端点
+        // 与非空密钥变量名。空 base_url 由 host 转成 degraded（每轮回退规则层）。
+        if self.performance.enabled && !self.performance.base_url.trim().is_empty() {
+            validate_base_url("performance", &self.performance.base_url)?;
+        }
+        if let Some(name) = &self.performance.api_key_env
+            && !name.trim().is_empty()
+        {
+            validate_env_name("performance", name)?;
+        }
+
         Ok(ResolvedSettings {
             llm: LlmConfig {
                 base_url: self.llm.base_url.clone(),
@@ -323,6 +561,7 @@ impl AppSettings {
                 max_history_pairs: self.persona.max_history_pairs,
                 ..ConversationConfig::default()
             },
+            performance: self.performance.clone(),
         })
     }
 
@@ -331,11 +570,43 @@ impl AppSettings {
         include_str!("../../../live2d-ai.toml.example")
     }
 
+    /// **`GET/PUT /api/v1/env` 的唯一真源**：配置里声明的密钥环境变量名。
+    ///
+    /// 顺序固定 `llm` → `tts` → `performance`（声明顺序即接口展示顺序，
+    /// 前端不用排序）；只收**非空**的 `api_key_env`——空串与「没写」等价
+    /// （与 [`Self::resolve_with`] 的判据一致）。
+    ///
+    /// # 边界（不要为了「列全」越界）
+    ///
+    /// 这里**只有** `AppSettings` 持有的核心链路密钥。**Mod 级密钥不住在
+    /// `AppSettings` 里**：memory Mod 的 `summary_api_key_env`、director Mod 的
+    /// `staging_api_key_env` 都写在 `mods.json` 的 Mod config 中，由 Mod 自己的
+    /// `settings_spec` 暴露。把 Mod 级密钥塞进 `AppSettings` 会让核心配置依赖
+    /// Mod 的存在性——那是错的，本函数**不包含**它们。
+    #[must_use]
+    pub fn declared_key_envs(&self) -> Vec<DeclaredKeyEnv> {
+        [
+            ("llm", self.llm.api_key_env.as_deref()),
+            ("tts", self.tts.api_key_env.as_deref()),
+            ("performance", self.performance.api_key_env.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(section, name)| {
+            let name = name.filter(|n| !n.is_empty())?;
+            Some(DeclaredKeyEnv {
+                section,
+                name: name.to_string(),
+            })
+        })
+        .collect()
+    }
+
     /// 序列化为 TOML 文本（与 [`Self::from_toml_str`] 对称；供设置面板写回）。
     ///
     /// **密钥安全语义**：`api_key_env` 字段本身**只持有环境变量名**（与解析
-    /// 对称），真实密钥永不出现在此序列化结果中；写回 `live2d-ai.toml` 后
-    /// 下次启动仍由 `resolve_with(|n| env::var(n).ok())` 从环境读出。Serialize
+    /// 对称），真实密钥永不出现在此序列化结果中。密钥真源是 `.env`（快照优先，
+    /// 回退进程环境），读取一律走 `crate::secrets::lookup`——`resolve_with` 只是
+    /// 参数化的协议钩子，**不是**产品路径上的密钥读取入口。Serialize
     /// 走纯内存、无 IO / 无失败路径——返回 `String` 而非 `Result`。
     pub fn to_toml_string(&self) -> String {
         toml::to_string(self).expect("AppSettings 序列化 infallible（仅内存操作）")

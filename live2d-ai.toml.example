@@ -73,3 +73,48 @@ system_prompt = """
 """
 # 保留的历史轮数上限（一轮 = 一条 user + 一条 assistant）；0 = 每轮独立
 max_history_pairs = 0
+
+[action]
+# 动作幅度倍率（2026-09-16，用户可调；2026-09-24 重标定）——作用于渲染面动作预设表内的**幅值**：
+# 实际写入 = 表值 × 峰值系数 × intensity × 倍率，再按通道红线钳位
+#（头 ParamAngle* ≤30、身 ParamBodyAngle* ≤10、五官 ≤4）。
+# 三项独立：头摆偏大就调小 head、身摆偏大就调小 body；表情口/眉/眼用 expression。
+# 出厂默认：head=0.75、body=0.80、expression=1.0（旧 body=1.4 把躯干顶到上限、滑条失效）。
+# 取值范围 [0.2, 2.2]（超出会被钳位，不会报错）。Flutter「外观与互动」里有滑条。
+# 标定口径：**每个旋钮单独走满都不触上限**；intensity(3.0) 与倍率(2.2) **同时**拉满会钳位，
+# 会钳位的组合表见 crates/l2d-wasm-demo/src/preset/scales.rs 顶部注释。
+head_scale = 0.75
+body_scale = 0.80
+expression_scale = 1.0
+
+[performance]
+# 表演层（导演 / 大脑，2026-09-22）——**默认关**。
+#
+# 分工（用户 2026-09-22 敲定）：
+#   主模型 = 酒馆式角色扮演 + 上下文/记忆注入；**不暴露任何工具**；
+#            主模型**不负责表演**（人设与记忆只写身份与剧情）。
+#   表演层 = 每轮异步调用一次**独立端点**，收「用户输入 + 主模型原文」，
+#            交回**一份合法化 JSON**：{"speak": string|null, "cues":[...]}。
+#            speak = 本轮 TTS / 上屏的唯一真源；cues 进既有 WS action_cue 帧。
+# 默认关时主链行为与没有本段时**逐字一致**（边流边切句边送 TTS；规则导演照旧）。
+#
+# 契约终稿（schema / 校验 / 回退原因码 / 与 director Mod staging 的并存关系）：
+# docs/architecture/performance-layer-v0.md
+#
+# **推荐**：只开本段（enabled=true）；director Mod 的 staging_enabled 保持 false。
+# 两者同开不会双投递（表演层开着时 host 不把 SentenceReady 转给 Mod），
+# 但 staging 空转没有收益；规则 cue 兜底由 host 注入，不依赖 staging。
+enabled = false
+# 独立端点（与 [llm] / [tts] 无关）：OpenAI 兼容，请求路径 <base_url>/chat/completions。
+# 留空 = 开了闸也没接上：每轮走确定性回退（speak=清洗(原文) + 规则 cue），
+# 状态面 performance.wired=false，日志有 performance_disabled 原因码。
+# base_url = "http://127.0.0.1:11434/v1"
+# model = "qwen2.5:7b"
+# 密钥**只写变量名**，值住 .env（同 [llm] / [tts] 的纪律）。
+# api_key_env = "LIVE2D_AI_PERFORMANCE_API_KEY"
+# 单次调用超时（毫秒；钳 100..=30000）。比主模型宽：非流式一次往返，
+# 且本轮**开声要等它返回**（用户已接受这份延迟）。
+# timeout_ms = 4000
+# structured output 策略：auto（缺省；先 json_schema strict，上游 4xx 时降级
+# 「只输出 JSON」提示）/ json_schema（强制）/ prompt（只发提示）。
+# structured = "auto"

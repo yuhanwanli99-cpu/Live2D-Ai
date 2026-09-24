@@ -55,6 +55,22 @@ use super::{ActionFinishedFact, ControlCommand, Emit, root_apply};
 ///（每 tick 主体是一次原子读）。
 const SUPERVISOR_TICK: Duration = Duration::from_millis(20);
 
+/// 一轮收口的可观察结果（Wave 3，2026-09-21）。
+///
+/// 存在理由：Mod 事件 TurnEnded 的 payload 只是 turn id——记忆 / 摘要类 Mod
+/// 拿不到「这一轮助手说了什么」。supervisor 在 TurnEnded 之前额外投递
+/// AssistantReplied，正文就从这里出去（发点见 supervisor.rs 空闲态）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct TurnClose {
+    /// 引擎返回的**整轮正文原文**（未清洗；空 = 本轮没有正文）。
+    ///
+    /// 清洗（live2d_ai_runtime::clean_for_tts）在 supervisor 投递前做一次：
+    /// 交给 Mod 的是**上屏口径**的正文，与送 TTS 同源。
+    pub assistant_text: String,
+    /// 本轮是否被 stop / quit 中断（取消轮的正文可能只说了一半）。
+    pub interrupted: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_one_turn(
     root: &mut RootState,
@@ -69,7 +85,7 @@ pub(crate) async fn run_one_turn(
     user_text: String,
     quitting: &mut bool,
     emit: &Emit,
-) -> bool {
+) -> TurnClose {
     let mut pending_pcm: Option<PreparedPcm> = None;
     let mut playback_started = false;
     let mut voice_started_emitted = false;
@@ -176,6 +192,10 @@ pub(crate) async fn run_one_turn(
 
     let (event_tx, mut event_rx) =
         mpsc::channel::<EngineEvent>(engine.config().tts_queue_capacity.max(4) + 8);
+    // 表演层开着时，`SentenceReady` 不再转给 director Mod（那一轮的 cue 归表演层
+    // JSON；两套 cue 同时到前端会互相整份覆盖）。在这里先算好：下面 `gen_fut`
+    // 会独占借用 engine，循环里读不到它的配置。
+    let forward_sentence_ready_to_mods = !engine.performance_enabled();
 
     // ================= 阶段 A：生成 + 即时 PCM 泵（engine 独占借用作用域） ======
     struct GenOut {
@@ -272,7 +292,8 @@ pub(crate) async fn run_one_turn(
                                     &ev, root, audio, turn_id,
                                     &mut pending_pcm,
                                     &mut playback_started, &mut voice_started_emitted,
-                                    &mut saw_fatal_kind, &mut saw_llm_error, emit,
+                                    &mut saw_fatal_kind, &mut saw_llm_error,
+                                    forward_sentence_ready_to_mods, emit,
                                 );
                             }
                         }
@@ -316,6 +337,7 @@ pub(crate) async fn run_one_turn(
                     &mut voice_started_emitted,
                     &mut saw_fatal_kind,
                     &mut saw_llm_error,
+                    forward_sentence_ready_to_mods,
                     emit,
                 );
             }
@@ -330,7 +352,10 @@ pub(crate) async fn run_one_turn(
 
     if turn_phase.stopped {
         drain_residual_events(&mut event_rx);
-        return false;
+        return TurnClose {
+            assistant_text: turn_phase.report.assistant_text.clone(),
+            interrupted: true,
+        };
     }
 
     // ================= 阶段 B：pending PCM 收尾泵（B2-P0-3 可取消） ============
@@ -404,7 +429,10 @@ pub(crate) async fn run_one_turn(
     }
     if stopped {
         drain_residual_events(&mut event_rx);
-        return false;
+        return TurnClose {
+            assistant_text: turn_phase.report.assistant_text.clone(),
+            interrupted: true,
+        };
     }
 
     // ================= 阶段 C：生成侧终态落地（恰一次；放最晚＝根因修复） ======
@@ -575,7 +603,10 @@ pub(crate) async fn run_one_turn(
     // 生成侧副作用（stop 后 root 已推进到新 epoch，旧 turn 的 fallback 若
     // 继续执行会被盖上新代次，形成「stop 又复活动作」的竞态）。
     if stopped {
-        return false;
+        return TurnClose {
+            assistant_text: turn_phase.report.assistant_text.clone(),
+            interrupted: true,
+        };
     }
 
     if turn_phase.saw_llm_error && !turn_phase.saw_fatal_kind && !turn_phase.stopped {
@@ -644,5 +675,8 @@ pub(crate) async fn run_one_turn(
     // `turn_state{completed}` 收口当前 assistant bubble；
     // 再发 new_epoch 会让前端误开一个空 bubble。
     // NewEpoch 只由 stop 路径（`do_stop!`）在真正推进 epoch 时发送。
-    !stopped
+    TurnClose {
+        assistant_text: turn_phase.report.assistant_text.clone(),
+        interrupted: false,
+    }
 }

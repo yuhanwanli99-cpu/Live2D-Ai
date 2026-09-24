@@ -79,6 +79,24 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 `web_api::tests_ws::ws_unit_tests::conversation_text_fallback_maps_to_its_own_frame`、
 `test/ws_frame_test.dart`、`test/message_bubble_test.dart`。
 
+### 2.2 送 TTS / 上屏的文本是**确定性清洗产物**（2026-09-21）
+
+策略**写死**：**送 TTS 的文本 = 上屏的文本 = 记忆侧拿到的助手正文**——同一份
+清洗产物，不存在「屏幕上有（挥手）、声音里没有」的两套真相。
+
+| 环节 | 事实 |
+| --- | --- |
+| 清洗函数 | `live2d-ai-runtime/src/dialogue/clean.rs` 的 `clean_for_tts`（**纯函数**，无 IO / 无随机 / 幂等） |
+| 调用点 | `conversation/engine.rs`：**切句之后、入队之前**，对每句洗一次；失败轮兜底正文（`TextFallback`）整段洗一次 |
+| 剥什么 | 成对全 / 半角括号动作描写、成对 `*…*` 舞台指示、多余 Markdown（粗体标记 / 反引号 / 标题 / 引用 / 链接）；**只拆标记、不缩写、不润色、不改说写** |
+| 不重排句边界 | 函数**不增不减** `。！？….!?` / 换行——所以它必须跑在切句之后 |
+| 空串 | 清洗后为空的句子照常占一个 `SentenceReady` / `SentenceVoiced` 序号，但走既有**静音句**路径（worker 见 `trim()` 为空即**不发 TTS HTTP**）——空 input 会被上游判 400，而 TTS 错误是 fatal |
+| 历史回灌 | `commit_completed_turn` 用**原文**（模型上下文不受清洗影响） |
+| 导演 | 仍然**零写 TTS**：`SentenceReady` 只是它的只读锚点，清洗与它无关（`Disabled` 时清洗照常生效） |
+
+回归：`dialogue::clean::tests`（表驱动）+ `conversation_engine_tts_flow::tts_and_screen_share_the_deterministically_cleaned_sentence`
++ `supervisor::tests_assistant_event`（交给 Mod 的助手正文同为清洗产物）。
+
 ## 3. 已经移出链路的东西（**不要**再当成产品功能）
 
 ### 3.1 LLM 工具 + 动作系统（2026-09-11 用户裁决，已拆）
@@ -107,18 +125,30 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 
 | 层级 | 状态 | 位置 |
 |---|---|---|
-| `live2d-ai-mod-director`（**动作序列**的唯一驱动方，rc.2 版） | **已删除** | 归档在分支 `archive/action-layer-p6`；Wave 3 的 `director` 是**同名不同职责的最小骨架**——零投递、不驱动动作（`director-mod-v0.md`） |
+| `live2d-ai-mod-director`（**动作序列**的唯一驱动方，rc.2 版） | **已删除** | 归档在分支 `archive/action-layer-p6`；Wave 3 的 `director` 是**同名不同职责的最小骨架**——**当时（2026-09-14）零投递、不驱动动作**（骨架期历史事实；现状见下方「现状更正」） |
 | `SupervisorHandle::trigger_action` + supervisor 的 `action_rx` select 分支 | **已删除** | 那是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现 |
 | `HostChannels.trigger_action`（`ActionRequest → core` 的 host 映射） | **已删除** | `mod_registry.rs`；`ModServices.action_tx` 仍在（Mod API 契约），但注入的是**固定休眠 sender**：请求只留一行 debug 日志、返回 `false` |
 | core 动作子系统（类型 + reducer + capability gate） | **保留、休眠** | `crates/live2d-ai-core/src/action/`、`/performance/` |
 
-**谁休眠、为什么、谁能唤醒**：core 的动作/表演子系统休眠，因为产品路径上不存在动作
-（§3.1 的裁决）；唤醒 = 先重新论证本节的三条理由 + `lib.rs` 的两条不变量，
+> **现状更正（2026-09-21）**：上表末列里 Wave 3 `director` 的「零投递 / 不驱动动作」是
+> **2026-09-14 骨架期**的历史事实，**不是现状**。**现行状态**：director 产 `latest.preset_id`
+> （**只读状态面**，供面板展示）与**按句 `action_cue`**（`ModServices.cues` → WS `action_cue`，
+> **驱动舞台**）；只是**不经 core reducer**（`action_tx` 仍休眠）。真源与逐条证据见
+> [`director-mod-v0.md`](director-mod-v0.md) 与 `AGENTS.md` 的
+> 「动作与表演的现行状态（2026-09 实测）」。
+> **产品口径（与 W8 已收口文档一致）**：**导演是一个 AI、属产品本体、不做架构搬迁**；
+> 表演决策的**输入 = 用户输入**（R1）；谁的 `speak` 能力保留 **Q1 未定、不裁决**；
+> **不得**再引用已被维护者否定的作废推论「导演属场景 Mod / 主链不该有第二 LLM」。
+
+**谁休眠、为什么、谁能唤醒**：core 的动作/表演子系统休眠，因为**当时（2026-09-11）产品路径上没有动作**
+（§3.1 的裁决）；**2026-09-21 现状**：动作包走渲染面 `preset` 协议（**不经 core reducer**，
+故 core 子系统仍无驱动方）。唤醒 = 先重新论证本节的三条理由 + `lib.rs` 的两条不变量，
 再**显式**恢复一条 host 通道（`RootEvent::Action` 的注入分支）——而不是顺手接回去。
 
 回归钉子两条：
 `mod_registry::tests::action_request_is_dormant_not_delivered`（`ActionRequest` 必须
-**不被接受**）与 `main.rs::mod_count_is_five`（工厂数恒为 5；Wave 3 的 director 骨架零投递，
+**不被接受**）与 `main.rs::mod_count_is_five`（工厂数恒为 5；Wave 3 的 director 骨架**当时（2026-09-14）零投递**——
+该断言守的是**注册表工厂数**，不是投递行为，现状见上「现状更正」，
 不得因**任何动作驱动方**而增加；`wallpaper` / `pet-desktop` 已于 2026-09-14 封存，
 见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
 

@@ -20,6 +20,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # 防抖 / 节流这类"时间行为"要在 VM 上确定性验证（假时钟），不能靠 sleep 赌
+  # 调度。它随 flutter_test 一起进 lock（本来就是它的传递依赖），这里只是显式化。
+  fake_async: ^1.3.3
 
 flutter:
   uses-material-design: true

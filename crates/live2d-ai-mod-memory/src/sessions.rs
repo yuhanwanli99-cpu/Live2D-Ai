@@ -15,8 +15,10 @@
 //!    （owner = `SESSION_PROMPT_OWNER_MEMORY`），**不** apply_settings 写全局
 //!    `persona.system_prompt`——否则 A 会话的记忆会串到 B。**不**再把 base
 //!    拼进来：persona 的卡在自己的槽里，宿主读时按固定顺序组合。
-//! 3. **无会话 → 老路径**：裸 HTTP / 终端壳没有会话，退回全局
-//!    `apply_settings`。这是**降级**，不是等价能力——面板与文档都写明。
+//! 3. **无会话 → 老路径（只记不注入）**：裸 HTTP / 终端壳没有会话，记忆仍落
+//!    老桶 `memory.jsonl`，但**不注入**——P1-5 起**删掉全局降级**，
+//!    绝不写全局 `persona.system_prompt`（那会污染所有会话）。
+//!    面板与日志如实说「无 conversation，本轮不注入」。
 //!
 //! # 会话 id 进文件名
 //!

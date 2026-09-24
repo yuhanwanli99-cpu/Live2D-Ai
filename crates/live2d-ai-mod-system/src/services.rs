@@ -82,6 +82,48 @@ impl ModEventSender {
     }
 }
 
+/// **Mod → host 动作 cue**（2026-09-16，P1-3）。
+///
+/// 导演把「某句该演哪条预设」交给 host，由 host 广播 WS `action_cue` 帧。
+/// 方向与 `event_tx`（host → Mod）相反；未注入时为 no-op（`enabled() == false`）。
+///
+/// **边界**：payload 只允许
+/// `{epoch, covers_upto_seq, cues:[{sentence_seq,preset_id,intensity,ttl_ms,priority,source}]}`；
+/// host 侧按白名单重建帧，不直接透传任意 JSON。
+#[derive(Clone)]
+pub struct ModCueSender {
+    inner: std::sync::Arc<dyn Fn(serde_json::Value) -> bool + Send + Sync>,
+    enabled: bool,
+}
+
+impl ModCueSender {
+    /// 由 host 注入实现。
+    pub fn new(f: impl Fn(serde_json::Value) -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            inner: std::sync::Arc::new(f),
+            enabled: true,
+        }
+    }
+
+    /// 空实现（未注入 host 通道；`send` 恒 false）。
+    pub fn disabled() -> Self {
+        Self {
+            inner: std::sync::Arc::new(|_| false),
+            enabled: false,
+        }
+    }
+
+    /// 该实现是否可用（Mod 据此在 state_json 里如实报告）。
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// 投递一份动作 cue；返回是否被 host 接受。
+    pub fn send(&self, cue: serde_json::Value) -> bool {
+        (self.inner)(cue)
+    }
+}
+
 /// Mod logger（带 mod_id 前缀，脱敏）。
 #[derive(Clone)]
 pub struct ModLogger {
@@ -178,6 +220,9 @@ pub struct ModServices {
     /// / 记忆分桶，而不必整段覆写全局 `persona.system_prompt`（那会把 A 会话的
     /// 卡泄漏到 B 会话）。未注入时为「不可用」空实现（[ModSessionPrompts::disabled]）。
     pub session_prompts: ModSessionPrompts,
+    /// **Mod → host 动作 cue**（2026-09-16，P1-3）：导演产出的按句 cue。
+    /// 未注入时为 no-op（`enabled() == false`），Mod 侧必须能察觉。
+    pub cues: ModCueSender,
 }
 
 impl ModServices {
@@ -198,6 +243,7 @@ impl ModServices {
             config_path: String::new(),
             // 默认不可用：显式注入才开通（与 apply_settings 同一条纪律）。
             session_prompts: ModSessionPrompts::disabled(),
+            cues: ModCueSender::disabled(),
         }
     }
 
@@ -222,6 +268,12 @@ impl ModServices {
     /// builder：注入会话级 system_prompt 覆盖能力（L1 基座）。
     pub fn with_session_prompts(mut self, prompts: ModSessionPrompts) -> Self {
         self.session_prompts = prompts;
+        self
+    }
+
+    /// builder：注入 Mod → host 动作 cue 通道（P1-3）。
+    pub fn with_cues(mut self, cues: ModCueSender) -> Self {
+        self.cues = cues;
         self
     }
 }

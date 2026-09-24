@@ -1,5 +1,12 @@
 //! 应用信息路由（`/api/v1/app/capabilities` + `/api/v1/app/status`，D1 §1.1）。
 //!
+//! # 行数（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）
+//!
+//! 本文件 >500 行（含 `#[cfg(test)]` 的内联测试模块）。生产部分是一个
+//! **不变量密集**的整体：`StatusContext` 的晚绑定读源（epoch / 表演层计数）
+//! + `build_status` 的 DTO 对齐；拆开会让「加一个 status 字段要改两处」。
+//! 仍在 1000 行豁免上限内。
+//!
 //! 设计：
 //! - `capabilities` **不**依赖写盘/网络（§1.1）；「常驻无配置」模式下也必须可用；
 //! - `status` 只读 [`AppStatus`] 镜像（不持可变状态——D1 阶段 v1）。
@@ -66,6 +73,19 @@ pub struct StatusContext {
     /// 兼容 fallback：旧路径读这个（`build_status` 优先用 `epoch_source`，
     /// 否则回退到这里）。**P1WS-1 后**推荐改用 `epoch_source`。
     pub current_epoch: AtomicU64,
+    /// **表演层计数读源**（2026-09-22）：`Fn() -> Option<Arc<PerformanceStats>>`。
+    ///
+    /// 装配 supervisor 时由 [`StatusContext::set_performance_source`] 注入
+    /// （读 supervisor 当前那份运行时计数）；无 supervisor 时恒 `None`，
+    /// status 里计数全 0 而配置段照常显示。**只读计数，不含正文与密钥。**
+    #[allow(clippy::type_complexity)]
+    performance_source: std::sync::Mutex<
+        Box<
+            dyn Fn() -> Option<std::sync::Arc<live2d_ai_runtime::performance::PerformanceStats>>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
 impl StatusContext {
@@ -89,6 +109,8 @@ impl StatusContext {
             // P1WS-1：默认 epoch 读源 = 常 0；装配 supervisor 后由
             // `set_epoch_source` 覆盖。
             epoch_source: std::sync::Mutex::new(Box::new(|| 0)),
+            // 表演层计数读源：默认恒 None（无 supervisor 装配时）。
+            performance_source: std::sync::Mutex::new(Box::new(|| None)),
             current_epoch: AtomicU64::new(0),
         }
     }
@@ -100,6 +122,23 @@ impl StatusContext {
     /// 锁短暂持锁（仅 `Box<dyn Fn>` 替换，**不**捕获 StatusContext 本身）。
     pub fn set_epoch_source(&self, f: Box<dyn Fn() -> u64 + Send + Sync>) {
         if let Ok(mut g) = self.epoch_source.lock() {
+            *g = f;
+        }
+    }
+
+    /// 注入**表演层计数读源**（一般 = `move || handle.performance_stats()`）。
+    ///
+    /// 装配 supervisor 后由 `cli_entry::run_web_mode` 调用；与 `epoch_source`
+    /// 同一套晚绑定思路（`StatusContext` 先构造、supervisor 后装配）。
+    pub fn set_performance_source(
+        &self,
+        f: Box<
+            dyn Fn() -> Option<std::sync::Arc<live2d_ai_runtime::performance::PerformanceStats>>
+                + Send
+                + Sync,
+        >,
+    ) {
+        if let Ok(mut g) = self.performance_source.lock() {
             *g = f;
         }
     }
@@ -235,6 +274,42 @@ pub fn build_status(
         tts: dto::tts_status_from(settings, env_lookup),
         dev_mode: ctx.dev_mode(),
         current_epoch,
+        performance: performance_status(settings, ctx),
+    }
+}
+
+/// 表演层摘要：**配置来自 `[performance]` 段，计数来自当前运行时**。
+///
+/// 锁毒化 / 未装配 → 计数全 0（status 端点必须始终可用，§1.1 红线）。
+fn performance_status(settings: &AppSettings, ctx: &StatusContext) -> dto::PerformanceStatus {
+    let stats = ctx.performance_source.lock().ok().and_then(|g| g());
+    let p = &settings.performance;
+    dto::PerformanceStatus {
+        enabled: p.enabled,
+        wired: p.is_wired(),
+        base_url: p.base_url.clone(),
+        model: p.model.clone(),
+        has_api_key: p
+            .api_key_env
+            .as_deref()
+            .is_some_and(|n| !n.trim().is_empty()),
+        mode: live2d_ai_runtime::performance::StructuredMode::parse(&p.structured)
+            .as_str()
+            .to_string(),
+        timeout_ms: p.effective_timeout_ms(),
+        plans: stats.as_ref().map_or(0, |s| s.plans()),
+        fallbacks: stats.as_ref().map_or(0, |s| s.fallbacks()),
+        noops: stats.as_ref().map_or(0, |s| s.noops()),
+        speak_turns: stats.as_ref().map_or(0, |s| s.speak_turns()),
+        cue_turns: stats.as_ref().map_or(0, |s| s.cue_turns()),
+        last_fallback: stats.as_ref().map_or_else(
+            || "performance_ok".to_string(),
+            |s| s.last_fallback().to_string(),
+        ),
+        last_structured: stats
+            .as_ref()
+            .and_then(|s| s.last_structured())
+            .map(str::to_string),
     }
 }
 

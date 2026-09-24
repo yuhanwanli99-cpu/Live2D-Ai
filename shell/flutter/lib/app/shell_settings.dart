@@ -17,13 +17,18 @@ extension _ShellSettingsWiring on _ShellRootState {
     await Future.wait<void>(<Future<void>>[
       _settings.load(),
       _loadAdmin(),
+      // 展示名真源（失败静默 → 面板显示稳定 id）。
+      _loadPresetLabels(),
     ]);
   }
 
   /// 「保存」：走 `SettingsController`，文案由 `apply_status` 决定。
-  Future<void> _saveSettings() async {
+  ///
+  /// 返回 [SaveOutcome]：确认框的「保存并离开」据此决定**是否真的离开**
+  /// （失败留在弹窗里，见 `showConfirmDiscardDialog`）。
+  Future<SaveOutcome> _saveSettings() async {
     final SaveOutcome outcome = await _settings.save();
-    if (!mounted) return;
+    if (!mounted) return outcome;
     _refresh();
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
@@ -37,40 +42,36 @@ extension _ShellSettingsWiring on _ShellRootState {
             : null,
       ),
     );
-    // 保存的是 dev_mode 时，重新取一次状态（诊断面板要跟着变）。
-    if (outcome.isSuccess) unawaited(_loadLogs());
+    if (outcome.isSuccess) {
+      // **保存成功就刷新生效态**：dev_mode 的开关（草稿 vs 已保存 vs --dev-mode）、
+      // 诊断面板里的 dev_mode 与日志都读服务端状态，不刷新就会停在上一次。
+      unawaited(_loadAppStatus());
+      unawaited(_loadLogs());
+    }
+    return outcome;
   }
 
-  /// 未保存改动的确认框。**三处拦截共用**（换分区 / 关浮层 / 刷新页面）。
+  /// 未保存改动的确认框。**三处拦截共用**（换分区 / 关设置 / 关浮层）。
+  ///
+  /// 统一走 `SettingsController.confirmLeave`：它负责「放弃 → 立刻清草稿」，
+  /// 于是三处拦截与弹窗三按钮只有一套语义（过去「放弃改动」只关窗不清草稿，
+  /// 用户会看到「未保存」一直挂着）。
   Future<bool> _confirmDiscard() async {
     if (!_settings.dirty) return true;
-    final bool? leave = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext dialogContext) => AlertDialog(
-        title: const Text('有未保存的改动'),
-        content: const Text('离开会丢掉这些改动。要先保存吗？'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('留下'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await _saveSettings();
-              if (dialogContext.mounted) {
-                Navigator.of(dialogContext).pop(true);
-              }
-            },
-            child: const Text('保存并离开'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('放弃改动'),
-          ),
-        ],
-      ),
-    );
-    return leave ?? false;
+    // 防重入：Esc 连按 / 同时从两个入口进来时，不叠第二个弹窗。
+    if (_confirmingLeave) return false;
+    _confirmingLeave = true;
+    try {
+      return await _settings.confirmLeave(
+        () => showConfirmDiscardDialog(
+          context,
+          onSave: _saveSettings,
+          errorOf: () => _settings.error,
+        ),
+      );
+    } finally {
+      _confirmingLeave = false;
+    }
   }
 
   /// 分区内容构建器：8 个分区各自的 pane。
@@ -167,6 +168,18 @@ extension _ShellSettingsWiring on _ShellRootState {
           onClearShellImage: _clearShellImage,
           shellImageMessage: _shellImageMessage,
           shellImageFailed: _shellImageFailed,
+          // 动作幅度（2026-09-16）：服务端产品设置，改的是设置草稿，
+          // 点「保存」才写盘；渲染面在草稿保存 / 设置加载后由 main.dart 下发。
+          action: view.action,
+          onHeadScaleChanged: (double v) => _settings.edit(
+            (SettingsDraft d) => d.actionHeadScale = v,
+          ),
+          onBodyScaleChanged: (double v) => _settings.edit(
+            (SettingsDraft d) => d.actionBodyScale = v,
+          ),
+          onExpressionScaleChanged: (double v) => _settings.edit(
+            (SettingsDraft d) => d.actionExpressionScale = v,
+          ),
         );
       case SettingsSection.mods:
         return ModsSection(
@@ -197,8 +210,18 @@ extension _ShellSettingsWiring on _ShellRootState {
           onCopy: _copyDiagnostics,
         );
       case SettingsSection.developer:
+        // 开关值 = **三态显示**：启动参数强制 > 草稿 > 已保存。
+        //
+        // 过去直接显示 `_devMode`（服务端生效值），于是「关掉开关」在界面上
+        // **没有任何可见变化**——开关弹回 on、只多一个「未保存」徽标，
+        // 用户以为点了没反应。现在草稿优先，关掉立刻看得见；保存成功后
+        // `_loadAppStatus` 把生效态刷新，草稿清空，两者合一。
+        final bool forcedByLaunch = _devMode && !view.devMode;
+        final bool shownDevMode = forcedByLaunch
+            ? true
+            : (_settings.draft.devMode ?? view.devMode);
         return DeveloperSection(
-          devMode: _devMode,
+          devMode: shownDevMode,
           // dev_mode 走设置草稿（顶层三态），保存后才写盘。
           onDevModeChanged: (bool v) => _settings.edit(
             (SettingsDraft d) => d.devMode = v,
@@ -211,7 +234,42 @@ extension _ShellSettingsWiring on _ShellRootState {
           //
           // 旧实现写死 `false`：开关看起来能关，关完服务端还是 on
           // （「看起来关了、其实没关」）。两者都由既有字段推出，**没有新增协议字段**。
-          forcedByLaunchFlag: _devMode && !view.devMode,
+          forcedByLaunchFlag: forcedByLaunch,
+          // 展示名读共享表（不在 Dart 手写中文）。
+          presetLabels: _presetLabels,
+          // P0-3：动作调试——前端直发 preset 帧到渲染面（不经后端 / LLM）。
+          // L1（2026-09-16）：把调试面板滑条的强度一起透传（渲染面钳 [0,3]）。
+          onApplyPreset: (String id, double intensity) => unawaited(
+            _stageKey.currentState?.applyPreset(
+                  id,
+                  source: 'debug',
+                  intensity: intensity,
+                ) ??
+                Future<void>.value(),
+          ),
+          presetStatus: _stageKey.currentState?.presetStatus,
+          // 2026-09-16：调试面板可显示 + **临时**覆盖三项幅度倍率
+          // （产品设置是真源；这里不落盘，只发渲染面）。
+          //
+          // W7（2026-09-23）：临时覆盖是 **syncer 的显式状态**，不再直发
+          // `stage.sync(actionScales: …)`——那一版不更新 `_sent`，与产品值
+          // 互相冲掉（RESEARCH §2.4）。下发只有一个出口：`ActionScalesSyncer`。
+          productScales: view.action,
+          onApplyScales: (double head, double body, double expression) {
+            _actionScalesSyncer.pin(<String, double>{
+              'head': head,
+              'body': body,
+              'expression': expression,
+            });
+            // 让 `Live2DStage.actionScales`（重挂后的自愈值）跟着变成临时值。
+            _refresh();
+          },
+          // 「恢复产品设置」：清掉临时覆盖并**强制**写回产品值
+          // （临时值可能恰好等于产品值，去重会挡住普通下发——见 syncer.clearPin）。
+          onClearScales: () {
+            _actionScalesSyncer.clearPin(_actionScalesPayload);
+            _refresh();
+          },
         );
     }
   }

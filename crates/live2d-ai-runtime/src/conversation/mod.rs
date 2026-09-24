@@ -69,10 +69,14 @@
 //!         // 思考（推理模型）：只给 UI 看，不进 TTS、不成句。
 //!         EngineEvent::ReasoningDelta { text, .. } => print!("[想] {text}"),
 //!         EngineEvent::AudioChunk { samples, .. } => { /* 送声卡 */ }
+//!         // 该句正文已切出、即将送 TTS（异步导演的锚点；只读不改）。
+//!         EngineEvent::SentenceReady { .. } => {}
 //!         // 该句语音已完整合成 → 此时才把整句文字推给 UI。
 //!         EngineEvent::SentenceVoiced { text, .. } => println!("[屏] {text}"),
 //!         // 失败轮的**整段**正文兜底（覆盖式设置；健康轮不会出现）。
 //!         EngineEvent::TextFallback { text, .. } => println!("[兜底] {text}"),
+//!         // 表演层按句 cue（表演层开着才有；消费端投影为 WS action_cue）。
+//!         EngineEvent::ActionCue { cues, .. } => println!("[演] {} 条", cues.len()),
 //!         EngineEvent::Terminal { .. } => break,
 //!         EngineEvent::Error { kind, .. } => eprintln!("turn error: {kind}"),
 //!     }
@@ -219,7 +223,33 @@ pub enum EngineEvent {
         /// 是否为本句最后一块。
         final_chunk: bool,
     },
-    /// 一句的语音**已完整合成**（紧随该句的 `final_chunk = true` 之后发出）。
+    /// **一句正文已切出、即将交给 TTS**（2026-09-16，P1-2）。
+    ///
+    /// 发点在 `push_job` **之前**：该句 TTS 合成的 0.5–2s 就是异步导演的天然预算
+    /// 窗口；等 `SentenceVoiced` 再发就晚了半拍（那时音频已可播）。
+    ///
+    /// **送 TTS 的文本永远是确定性清洗产物**——导演只能读它、不能改它
+    ///（「导演是备注，不是誊写员」）。
+    ///
+    /// **策略写死（2026-09-21）**：清洗在引擎里**切句之后、入队之前**做一次
+    /// （`crate::dialogue::clean_for_tts` 纯函数），产物**同时**用于送 TTS 与
+    /// 上屏——即「两者同清洗」：
+    /// - SentenceReady.text == TtsJob.text == SentenceVoiced.text；
+    /// - 回灌 LLM 的历史（commit_completed_turn）保持**原文**，模型上下文不受
+    ///   清洗影响；
+    /// - 清洗后为空串的句子照常占一个序号并走**静音句**路径（worker 见 trim
+    ///   为空即不发 TTS HTTP）——空串送 TTS 会被上游判 400 而把整轮打挂。
+    SentenceReady {
+        /// 本轮轮次号。
+        epoch: u64,
+        /// 相对本轮起点的毫秒数。
+        ts_ms: u64,
+        /// 句子序号（与随后 `AudioChunk.sentence_seq` 同源）。
+        sentence_seq: u64,
+        /// 该句**清洗后**的正文（与 TtsJob.text 同源、同一份字符串）。
+        text: String,
+    },
+    /// 一句的语音**已完整合成**（紧随该句的 final_chunk = true 之后发出）。
     ///
     /// **为什么需要这个事件（2026-09-10 用户裁决）**：文字此前在 LLM 流式生成时
     /// 就实时上屏，而语音要等合成本句才响 —— 文字跑在声音前面好几秒。
@@ -254,10 +284,12 @@ pub enum EngineEvent {
     ///
     /// # 语义（消费端必须按此实现）
     ///
-    /// - `text` 是**整轮正文**（`TurnReport::assistant_text`），**不是**未上屏的
-    ///   残余。消费端要**整段设置**（覆盖该轮气泡的正文），不能追加——这样它
-    ///   天然幂等，也不必去算「已上屏的前缀到哪结束」（前缀边界受切句器 trim
-    ///   影响，用字符串前缀推导会算错）；
+    /// - `text` 是**整轮正文的确定性清洗产物**（`clean_for_tts(TurnReport::assistant_text)`，
+    ///   2026-09-21；与健康轮的上屏口径一致），**不是**未上屏的残余。消费端要
+    ///   **整段设置**（覆盖该轮气泡的正文），不能追加——这样它天然幂等，也不必
+    ///   去算「已上屏的前缀到哪结束」（前缀边界受切句器 trim 影响，用字符串
+    ///   前缀推导会算错）；
+    /// - 清洗后为空则不发了（没有可兜底的东西）——见下一条；
     /// - 只在 `Failed` 时发：用户主动停止（`Cancelled`）不该再补一段文字；
     /// - 正文为空时不发（没有可兜底的东西）；
     /// - 只发一次，且在 [`Self::Terminal`] **之前**（终态仍是最后一个事件）；
@@ -270,6 +302,25 @@ pub enum EngineEvent {
         ts_ms: u64,
         /// 整轮正文（覆盖式设置，非增量）。
         text: String,
+    },
+    /// **表演层按句 cue**（2026-09-22）：本轮该演哪几条预设，锚点是目标句音频的
+    /// `first_chunk`。
+    ///
+    /// 产出方唯一：表演层（`crate::performance`）。**只有表演层开着时才会发**；
+    /// 关闸时这条路径不存在（主链走既有流式，规则导演的 cue 走 Mod 通道）。
+    ///
+    /// `cues` 为空也照发：消费端按「整份计划覆盖」语义处理——空表 = 本轮不动，
+    /// 同时清掉上一轮的残留计划。payload 形状与 WS `action_cue` 逐字段同形
+    ///（`crate::performance::action_cue_payload`）。
+    ActionCue {
+        /// 本轮轮次号。
+        epoch: u64,
+        /// 相对本轮起点的毫秒数。
+        ts_ms: u64,
+        /// 这份计划覆盖到的最大句序号（== 本轮切出的句数）。
+        covers_upto_seq: u64,
+        /// 按句 cue（已过校验与钳位）。
+        cues: Vec<crate::performance::PerformanceCue>,
     },
     /// 轮内错误。语义见 [`ErrorKind`]：可见，但未必终止本轮。
     Error {

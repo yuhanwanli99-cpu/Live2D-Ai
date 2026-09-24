@@ -76,6 +76,8 @@ impl ShellApp {
             ConversationUiEvent::ReasoningDelta { .. } => {}
             // 正文兜底同样只走 WS：winit 路径不显示文本（同一套理由）。
             ConversationUiEvent::TextFallback { .. } => {}
+            // 表演层 cue 同样只走 WS（前端交给舞台）；winit 路径的动作面休眠。
+            ConversationUiEvent::ActionCue { .. } => {}
         }
     }
 }

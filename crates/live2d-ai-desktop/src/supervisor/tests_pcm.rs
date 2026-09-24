@@ -85,6 +85,7 @@ fn partial_write_reports_playback_started_immediately() {
         &mut voice_started_emitted,
         &mut saw_fatal_kind,
         &mut saw_llm_error,
+        true,
         &emit,
     );
 

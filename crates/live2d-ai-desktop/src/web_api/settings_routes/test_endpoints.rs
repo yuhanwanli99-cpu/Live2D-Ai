@@ -128,18 +128,6 @@ pub fn timeout_to_duration(ms: Option<u32>) -> Duration {
     Duration::from_millis(u64::from(ms))
 }
 
-/// 显式拼接 `base_url + path`（与 `live2d_ai_runtime` 私有实现同语义；
-/// 仅用于 test 端点直发 reqwest——[`OpenAiClient::new`] 默认无 timeout，
-/// 故绕开）。
-fn join_endpoint(base: &str, path: &str) -> Result<url::Url, ()> {
-    let trimmed = base.trim_end_matches('/');
-    let parsed = url::Url::parse(&format!("{trimmed}{path}")).map_err(|_| ())?;
-    match parsed.scheme() {
-        "http" | "https" => Ok(parsed),
-        _ => Err(()),
-    }
-}
-
 /// 构造一个带 timeout 的 reqwest::Client。
 #[allow(clippy::result_large_err)] // TestOutcome 是端点统一响应体，不可 Box。
 fn build_http(timeout: Duration) -> Result<reqwest::Client, TestOutcome> {
@@ -183,10 +171,9 @@ pub fn run_llm_test(current: &AppSettings, timeout_ms: Option<u32>) -> TestOutco
             .enable_all()
             .build()
             .map_err(HttpTestError::Runtime)?;
-        let url = match join_endpoint(&current.llm.base_url, "/chat/completions") {
-            Ok(u) => u,
-            Err(_) => return Err(HttpTestError::BadUrl),
-        };
+        // base_url 拼接的唯一实现走 runtime（本文件原先自带一份私有拷贝）。
+        let url = live2d_ai_runtime::join_endpoint(&current.llm.base_url, "/chat/completions")
+            .map_err(|_| HttpTestError::BadUrl)?;
         let body = serde_json::json!({
             "model": current.llm.model,
             "stream": true,
@@ -238,10 +225,8 @@ fn run_tts_test(current: &AppSettings, timeout_ms: Option<u32>) -> TestOutcome {
                 .enable_all()
                 .build()
                 .map_err(HttpTestError::Runtime)?;
-            let url = match join_endpoint(&current.tts.base_url, "/models") {
-                Ok(u) => u,
-                Err(_) => return Err(HttpTestError::BadUrl),
-            };
+            let url = live2d_ai_runtime::join_endpoint(&current.tts.base_url, "/models")
+                .map_err(|_| HttpTestError::BadUrl)?;
             let mut req = http.get(url);
             if let Some(k) = resolve_api_key(current.tts.api_key_env.as_deref()) {
                 req = req.bearer_auth(&k);

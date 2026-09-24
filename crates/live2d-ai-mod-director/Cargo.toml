@@ -10,6 +10,15 @@ authors.workspace = true
 [dependencies]
 live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 serde_json = "1"
+# P1-4（2026-09-19）：异步第二路 LLM 的**真实** OpenAI 兼容 HTTP 客户端
+# （staging_http.rs，非流式 /chat/completions）。
+# - blocking：StagingClient::complete 是**同步**契约（Mod worker 是独立 OS
+#   线程，不在 tokio runtime 内），blocking 客户端自己起内部 runtime；
+# - rustls-tls：与 runtime / desktop 同一条 TLS 口径（不启用 native-tls）。
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+# 密钥查找**唯一**口径：.env 快照 > 进程环境（AGENTS「密钥真源 = .env」）。
+# 直接 std::env::var 会绕过 .env，于是「界面上刚写了 key、链路还说没配置」。
+live2d-ai-runtime = { path = "../live2d-ai-runtime" }
 
 [lints]
 workspace = true

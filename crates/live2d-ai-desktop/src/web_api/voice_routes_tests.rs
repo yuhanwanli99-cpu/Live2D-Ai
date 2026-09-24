@@ -467,9 +467,9 @@ fn mod_enabled_passes_gate_to_supervisor() {
 
 #[test]
 fn absent_mod_is_not_gated() {
-    // 空注册表（极简测试上下文）→ **没有** mod_disabled 门禁；但总闸仍按
-    // 「config 为空」看待 = 关（L1 契约：wake_phrase 空 = 拒绝一切转写），
-    // 因此止于 403 voice_gate_closed 而不是 503。
+    // 空注册表（极简测试上下文）→ **没有** mod_disabled 门禁；总闸按「键缺失」
+    // 走产品缺省唤醒词（小可爱），所以「小爱 你好」止于 400 wake_phrase_required
+    // 而不是 403。这条证明的是「缺 Mod 时不报 mod_disabled」。
     let ctx = ctx_allow_no_origin();
     let resp = call(
         &ctx,
@@ -480,9 +480,9 @@ fn absent_mod_is_not_gated() {
         Some("application/json"),
     )
     .unwrap();
-    assert_eq!(resp.status_code(), StatusCode(403));
+    assert_eq!(resp.status_code(), StatusCode(400));
     let b = body_of(resp);
-    assert!(b.contains("voice_gate_closed"), "got: {b}");
+    assert!(b.contains("wake_phrase_required"), "got: {b}");
     assert!(
         !b.contains("mod_disabled"),
         "不在册不该报 mod_disabled: {b}"
@@ -568,7 +568,7 @@ fn no_token_configured_is_not_authenticated() {
         return;
     }
     // 注册表里没有 voice-input（无 config token）→ 不鉴权。
-    // L1 起空注册表的 config = 总闸关，故止于 403 voice_gate_closed（不是 401）。
+    // 键缺失走产品缺省唤醒词，故止于 400 wake_phrase_required（不是 401，也不是 403）。
     let ctx = ctx_allow_no_origin();
     let resp = call_auth(
         &ctx,
@@ -577,8 +577,8 @@ fn no_token_configured_is_not_authenticated() {
     )
     .unwrap();
     assert_ne!(resp.status_code(), StatusCode(401));
-    assert_eq!(resp.status_code(), StatusCode(403));
-    assert!(body_of(resp).contains("voice_gate_closed"));
+    assert_eq!(resp.status_code(), StatusCode(400));
+    assert!(body_of(resp).contains("wake_phrase_required"));
 }
 
 // ---------------------------------------------------- token / 清洗 纯函数
@@ -778,7 +778,8 @@ fn malformed_locale_is_echoed_and_normalizes_as_latin() {
 
 // L1 起测试文件按主题拆开（主文件 ≤800 行纪律）：
 // - `voice_routes_tests_say.rs`：200 成功 / busy / 空转写不占 say；
-// - `voice_routes_tests_gate.rs`：L1 两把闸的 handler 级回归。
+// - `voice_routes_tests_gate.rs`：L1 两把闸的 handler 级回归；
+// - `voice_routes_tests_token.rs`：W6 令牌来源（`.env` 快照 > 进程环境）。
 #[cfg(test)]
 #[path = "voice_routes_tests_say.rs"]
 mod say_suite;
@@ -786,3 +787,7 @@ mod say_suite;
 #[cfg(test)]
 #[path = "voice_routes_tests_gate.rs"]
 mod gate_suite;
+
+#[cfg(test)]
+#[path = "voice_routes_tests_token.rs"]
+mod token_suite;

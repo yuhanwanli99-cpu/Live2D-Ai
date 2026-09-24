@@ -400,29 +400,25 @@ void main() {
   });
 
   group('三态构造：草稿 → 线上 JSON（草稿层最容易出错的地方）', () {
-    test('clear_api_key 走段级标志，而不是裸 null（服务端 P0-2 保护）', () async {
-      final ({SettingsController controller, List<Map<String, Object?>> patched}) t =
-          build();
-      await t.controller.load();
-      t.controller.edit((SettingsDraft d) => d.clearLlmApiKey = true);
-
-      final Map<String, Object?> json = t.controller.draft.toPatch().toJson();
-      final Map<String, Object?> llm = json['llm']! as Map<String, Object?>;
-      expect(llm['clear_api_key'], isTrue);
-      expect(llm.containsKey('api_key_env'), isFalse);
-    });
-
-    test('显式给了新变量名时，clear 标志不生效（显式值优先）', () async {
+    test('P6：草稿再也编不出 api_key_env（绑定只住 live2d-ai.toml）', () async {
       final ({SettingsController controller, List<Map<String, Object?>> patched}) t =
           build();
       await t.controller.load();
       t.controller.edit((SettingsDraft d) {
-        d.clearLlmApiKey = true;
-        d.llmApiKeyEnv = 'MY_KEY';
+        d.llmModel = 'gpt';
+        d.ttsVoice = 'nova';
       });
-      final Map<String, Object?> llm =
-          t.controller.draft.toPatch().toJson()['llm']! as Map<String, Object?>;
-      expect(llm['api_key_env'], 'MY_KEY');
+
+      final Map<String, Object?> json = t.controller.draft.toPatch().toJson();
+      for (final String section in <String>['llm', 'tts']) {
+        final Map<String, Object?> seg = json[section]! as Map<String, Object?>;
+        expect(
+          seg.containsKey('api_key_env'),
+          isFalse,
+          reason: '界面已无变量名编辑入口，补丁里不得再出现绑定 / 清除绑定',
+        );
+        expect(seg.containsKey('clear_api_key'), isFalse);
+      }
     });
 
     test('max_tokens = 0（不限制）与清除是两种 JSON', () async {
@@ -510,8 +506,10 @@ void main() {
     });
   });
 
-  group('PATCH 的 400 分流：url_invalid 与 invalid_env_name 要能分辨', () {
-    test('invalid_env_name → error 里带得出这个 code（界面据此提示对应字段）', () async {
+  group('PATCH 的 400 分流：服务端的 error code 要原样带到界面', () {
+    // P6 起界面发不出 invalid_env_name（变量名编辑入口已删）；这里改用仍可改的
+    // 字段触发同一条错误路径，钉住的是「400 的 code 进 error + 草稿留着」。
+    test('400 的 code 进 error（失败后草稿留着，用户只要改一处）', () async {
       final MockClient client = MockClient((http.Request request) async {
         if (request.method == 'GET') return jsonResponse(kGetJson, 200);
         return jsonResponse(
@@ -524,7 +522,7 @@ void main() {
         api: ApiClient(base: 'http://x', client: client),
       );
       await c.load();
-      c.edit((SettingsDraft d) => d.llmApiKeyEnv = '1-BAD NAME');
+      c.edit((SettingsDraft d) => d.llmBaseUrl = '不是URL');
       expect(await c.save(), SaveOutcome.failed);
       expect(c.error, contains('invalid_env_name'));
       expect(c.dirty, isTrue, reason: '失败后草稿要留着，用户只要改一处');

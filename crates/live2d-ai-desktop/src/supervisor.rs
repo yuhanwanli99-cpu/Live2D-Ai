@@ -85,7 +85,15 @@ pub(crate) fn root_apply(root: &mut RootState, event: RootEvent) -> Vec<RootEffe
     live2d_ai_core::apply(root, event)
 }
 use live2d_ai_mod_system::ModEventTopic;
+use live2d_ai_runtime::performance::{PerformanceRuntime, PerformanceStats, RuleFallback};
 use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, OpenAiClient};
+
+/// 表演层计数槽：**当前**运行时的 `Arc<PerformanceStats>`（换运行时即换表）。
+///
+/// 为什么用槽而不是把计数直接挂在 handle 上：热重载会整体重建引擎与表演层
+/// 运行时，计数表随之更换；status 端点每次读**当下**那份即可，不必让 runtime
+/// 认识宿主。
+pub type PerformanceStatsSlot = Arc<std::sync::Mutex<Option<Arc<PerformanceStats>>>>;
 
 use crate::app_event::{AppEvent, ConversationUiEvent};
 use crate::session_scope::SessionScopeStore;
@@ -185,6 +193,9 @@ pub struct SupervisorHandle {
     ///
     /// 与 supervisor 线程**共享同一张表**：HTTP/mod 侧写入，supervisor 每轮读。
     session_scopes: SessionScopeStore,
+    /// 表演层计数槽（2026-09-22）：`GET /api/v1/app/status` 的
+    /// `performance` 块从这里读「成功几轮 / 回退几轮 / 最近原因码」。
+    performance_stats: PerformanceStatsSlot,
 }
 
 impl SupervisorHandle {
@@ -282,6 +293,13 @@ impl SupervisorHandle {
         }
     }
 
+    /// **表演层当前计数**（`None` = 本次运行没有装配表演层）。
+    ///
+    /// 只读快照：锁毒化时回 `None`（status 端点必须始终可用）。
+    pub fn performance_stats(&self) -> Option<Arc<PerformanceStats>> {
+        self.performance_stats.lock().ok().and_then(|g| g.clone())
+    }
+
     /// 测试专用：访问 `reload_pending` 原子标志的只读视图。
     ///
     /// 用于 `web_api` / `tests_reload` 断言「PATCH 写盘成功后 Reload 抵
@@ -319,6 +337,42 @@ pub(crate) type AudioCb =
     dyn Fn(u64, &[f32], live2d_ai_runtime::AudioSpec, u64, bool, bool) + Send + Sync;
 thread_local! {
     static AUDIO_CB: std::cell::RefCell<Option<Arc<AudioCb>>> = const { std::cell::RefCell::new(None) };
+    /// P1-2（2026-09-16）：Mod 事件桥的线程局部载体。
+    ///
+    /// `handlers::handle_engine_event` 在 `EngineEvent::SentenceReady` 分支读它，
+    /// 把「该句即将送 TTS」投给 Mod（导演按句投 cue）。**非阻塞**（dispatch_event
+    /// 是 try_send）：主链绝不等待导演。与 AUDIO_CB 同款：签名由 turn.rs/test
+    /// 共享，不能改，所以走线程局部而不是加参数。
+    static MOD_EVENT_CB: std::cell::RefCell<Option<ModEventSink>> = const { std::cell::RefCell::new(None) };
+}
+
+/// 从 `[performance]` 段装配表演层运行时（**唯一装配点**；启动与热重载共用）。
+///
+/// - `enabled=false` → `None`（引擎走既有流式路径，行为逐字一致）；
+/// - 开了但缺端点 → 仍返回运行时（`enabled()==false`）：每轮走确定性回退
+///   （`speak=clean_for_tts(原文)` + 规则 cue），degraded 进日志与状态面；
+/// - **能力集 = director 的 `accepted_preset_ids()`**（= 主 allowlist；旧 id 已删除，
+///   不在能力集里）、**规则回退 = director 的 `rule_cues_for_text`**（同一张映射表的
+///   单一真源，不在这里再抄一份）。
+pub fn build_performance_runtime(
+    settings: &live2d_ai_runtime::settings::PerformanceSettings,
+) -> Option<Arc<PerformanceRuntime>> {
+    let allow: Vec<String> = live2d_ai_mod_director::presets::accepted_preset_ids();
+    let rule: RuleFallback =
+        Arc::new(|text: &str| live2d_ai_mod_director::presets::rule_cues_for_text(text));
+    let setup = live2d_ai_runtime::performance::assemble(settings, allow, Some(rule));
+    if let Some(note) = setup.note.as_deref() {
+        tracing::warn!(note, "表演层开了但没接上：每轮回退到确定性规则层");
+    }
+    if let Some(rt) = setup.runtime.as_ref() {
+        tracing::info!(
+            client = rt.client_kind(),
+            mode = rt.mode().as_str(),
+            allow_len = rt.allow().len(),
+            "表演层已装配（主模型不负责表演；表演层每轮 JSON）"
+        );
+    }
+    setup.runtime
 }
 
 /// 从磁盘最新配置构造新的 [`OpenAiClient`] + [`ConversationConfig`]（热重载核心）。
@@ -329,10 +383,18 @@ thread_local! {
 ///
 /// 失败路径（文件 IO / TOML 解析 / `base_url` 非法 / env 解析 / reqwest 构造）
 /// 全部以 [`String`] 形式回传，**不**修改调用方的旧 engine（保留旧配置继续运行）。
+#[allow(clippy::type_complexity)]
 fn rebuild_engine_from_config(
     config_path: &str,
     _emit: &Emit,
-) -> Result<(OpenAiClient, ConversationConfig), String> {
+) -> Result<
+    (
+        OpenAiClient,
+        ConversationConfig,
+        Option<Arc<PerformanceRuntime>>,
+    ),
+    String,
+> {
     // 1) 读盘 + 解析。
     let settings =
         AppSettings::load_from_path(config_path).map_err(|e| format!("读取/解析配置失败: {e}"))?;
@@ -343,7 +405,9 @@ fn rebuild_engine_from_config(
     // 3) 构造新 client。
     let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())
         .map_err(|e| format!("构建 LLM/TTS 客户端失败: {e}"))?;
-    Ok((client, resolved.conversation))
+    // 表演层与本文件其余部分同一份配置解析（[performance] 段）。
+    let performance = build_performance_runtime(&resolved.performance);
+    Ok((client, resolved.conversation, performance))
 }
 
 /// 应用 Reload：从最新配置重建 engine；失败保留旧 engine。
@@ -360,6 +424,7 @@ fn apply_reload(
     engine: &mut ConversationEngine,
     config_path: Option<&str>,
     reload_pending: Option<&std::sync::atomic::AtomicBool>,
+    performance_stats: &PerformanceStatsSlot,
     emit: &Emit,
 ) {
     // 消费标志：仅在需要应用时才清。失败路径不重置——保留以便下次再试。
@@ -374,9 +439,15 @@ fn apply_reload(
         return;
     };
     match rebuild_engine_from_config(path, emit) {
-        Ok((new_client, new_conversation)) => {
-            *engine = ConversationEngine::new(new_client, new_conversation);
-            tracing::info!(path, "热重载成功：已重建 LLM/TTS client");
+        Ok((new_client, new_conversation, performance)) => {
+            // 表演层与引擎同一份配置解析：热重载后说话人 / cue 源一起换。
+            let mut new_engine = ConversationEngine::new(new_client, new_conversation);
+            new_engine.set_performance(performance.clone());
+            *engine = new_engine;
+            if let Ok(mut slot) = performance_stats.lock() {
+                *slot = performance.map(|rt| rt.stats());
+            }
+            tracing::info!(path, "热重载成功：已重建 LLM/TTS client（含表演层）");
         }
         Err(e) => {
             // 失败回退：旧 engine 不动；前端可由日志/事件
@@ -434,6 +505,10 @@ fn spawn_supervisor_impl(
     // P1WS-1：当前 epoch 镜像（外部 HTTP/Status 端读这里）；启动时 = 0
     // （与 `RootState::default().epoch.get()` 一致）。
     let current_epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    // 表演层计数槽（2026-09-22）：supervisor 线程写（装配 / 热重载），
+    // handle 读（`GET /api/v1/app/status`）。
+    let performance_stats: PerformanceStatsSlot = Arc::new(std::sync::Mutex::new(None));
+    let performance_stats_for_thread = Arc::clone(&performance_stats);
 
     let emit: Emit = Arc::new(emit);
     // **Mod 事件桥（d2）**：包裹 AppEvent 发射——转发给 AppEvent 消费端的
@@ -453,6 +528,7 @@ fn spawn_supervisor_impl(
         }
     });
     let mod_events_for_thread = config.mod_events.clone();
+    let mod_events_for_tls = config.mod_events.clone();
     let reload_pending_for_thread = Arc::clone(&reload_pending);
     let current_epoch_for_thread = Arc::clone(&current_epoch);
     let join = std::thread::Builder::new()
@@ -461,6 +537,8 @@ fn spawn_supervisor_impl(
             // F6-T2：在子线程入口安装线程局部音频回调，供 handlers::handle_engine_event
             // 在 AudioChunk 分支读取。线程退出时该线程局部随线程灭亡，无需显式清理。
             AUDIO_CB.with(|cell| *cell.borrow_mut() = emit_audio);
+            // P1-2：安装 Mod 事件桥线程局部（SentenceReady 用）。
+            MOD_EVENT_CB.with(|cell| *cell.borrow_mut() = mod_events_for_tls);
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -475,6 +553,7 @@ fn spawn_supervisor_impl(
                 emit,
                 mod_events_for_thread,
                 session_scopes_for_thread,
+                performance_stats_for_thread,
             ));
         })
         .expect("启动 supervisor 线程");
@@ -487,6 +566,7 @@ fn spawn_supervisor_impl(
         reload_pending,
         current_epoch,
         session_scopes,
+        performance_stats,
     }
 }
 
@@ -526,6 +606,7 @@ async fn run_forever(
     emit: Emit,
     mod_events: Option<ModEventSink>,
     session_scopes: SessionScopeStore,
+    performance_stats: PerformanceStatsSlot,
 ) {
     let SupervisorConfig {
         client,
@@ -541,6 +622,19 @@ async fn run_forever(
     // 一切 Play 被 capability gate 拒绝——那必须是装配错误而不是静默行为。
     root.action.capabilities = capabilities;
     let mut engine = ConversationEngine::new(client, conversation);
+    // ---- 表演层装配（2026-09-22）----
+    // 从 [performance] 段（磁盘）装配；**默认关**。config_path 为 None
+    // （测试 / 无配置装配）时不装配——与「从来没有本段」逐字一致。
+    // 主模型只写剧情正文；表演层每轮收齐原文后交回一份 JSON（speak + cues）。
+    if let Some(path) = config_path.as_deref()
+        && let Ok(settings) = AppSettings::load_from_path(path)
+    {
+        let performance = build_performance_runtime(&settings.performance);
+        engine.set_performance(performance.clone());
+        if let Ok(mut slot) = performance_stats.lock() {
+            *slot = performance.map(|rt| rt.stats());
+        }
+    }
     let mut next_turn_id: u64 = 0;
     let mut quitting = false;
 
@@ -558,6 +652,7 @@ async fn run_forever(
                         &mut engine,
                         config_path.as_deref(),
                         Some(reload_pending.as_ref()),
+                        &performance_stats,
                         &emit,
                     );
                 }
@@ -593,17 +688,6 @@ async fn run_forever(
                     next_turn_id += 1;
                     let cur_epoch = root.epoch;
                     let epoch = cur_epoch.get();
-                    // **L1 会话绑定**：本轮 system_prompt 的**唯一**决议点。
-                    //
-                    // 每轮都重新决议（而不是在切会话时改一次）：
-                    // - 热重载会整体重建引擎，覆盖槽随之清空——每轮 set 天然自愈；
-                    // - 会话表是「谁后写谁覆盖」，每轮重读保证看到最新值。
-                    //
-                    // 表里没有该会话 → None → 引擎回落配置里的全局
-                    // `persona.system_prompt`（降级语义，见 session_scope 头注）。
-                    engine.set_system_prompt_override(
-                        session_scopes.prompt_for(session.as_deref()),
-                    );
                     // **Mod 事件桥（d2）**：新 turn 提交 → `TurnStarted`。
                     // payload = 当前 turn id（话题保留给 Mod；树内无消费者）。
                     if let Some(f) = &mod_events {
@@ -615,14 +699,35 @@ async fn run_forever(
                         // **Wave 2**：紧随其后把**本轮输入正文**交给 Mod。
                         // `TurnStarted` 的 payload 只是序号，记忆 / 导演类 Mod 需要
                         // 正文才能检索 / 判情绪（见 `topics.rs::TurnPrompt` 头注）。
-                        // 这一行的时序含义：请求体马上就会构建，所以 Mod 在此做的
-                        // `apply_settings` 写回**只对下一轮生效**——这正是
-                        // 「检索 top-k → 注入下一轮」的预期语义，不是缺陷。
                         //
                         // **L1**：第三条参数是本轮会话 id；memory 用它分桶，
                         // persona 用它决定「这张卡属于哪个会话」。
+                        //
+                        // **同轮生效（2026-09-15）**：这一行必须在下面那行
+                        // `set_system_prompt_override` **之前**。sink 对
+                        // `TurnPrompt` 走同步投递（`mod_event_sink` →
+                        // `dispatch_event_and_flush`），所以走到下一行时 Mod 写的
+                        // 会话注入槽（memory 的 MEMORY 块 / persona 的卡）一定已经
+                        // 落表——本轮请求体就带得上它。
+                        // 旧实现把这一行放在 `set_system_prompt_override` 之后，
+                        // 于是注入只能等下一轮（`dispatch_event` 是 try_send，
+                        // 哪个线程先跑到读表点是竞态）。
                         f(ModEventTopic::TurnPrompt, &text, session.as_deref());
                     }
+
+                    // **L1 会话绑定**：本轮 system_prompt 的**唯一**决议点。
+                    //
+                    // 每轮都重新决议（而不是在切会话时改一次）：
+                    // - 热重载会整体重建引擎，覆盖槽随之清空——每轮 set 天然自愈；
+                    // - 会话表按 owner 分槽（set_owned），每轮重读保证看到最新值；
+                    // - 上面刚投递过 `TurnPrompt`（同步），所以本行读到的是
+                    //   **本轮的** memory / persona 写入，不是上一轮的残留。
+                    //
+                    // 表里没有该会话 → None → 引擎回落配置里的全局
+                    // `persona.system_prompt`（降级语义，见 session_scope 头注）。
+                    engine.set_system_prompt_override(
+                        session_scopes.prompt_for(session.as_deref()),
+                    );
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
                     // 同步写；UserSubmitted 不动 epoch（root 现状保持），但
                     // 仍把当前值同步给镜像以覆盖 boot 时 0。
@@ -633,17 +738,46 @@ async fn run_forever(
                         sentence_id: 1.into(),
                         text: String::new(), // 载荷不参与规则；正文走引擎请求体
                     });
-                    turn::run_one_turn(
+                    let close = turn::run_one_turn(
                         &mut root, &mut engine, &mut audio, &mut say_rx, &mut control_rx,
                         &mut finish_rx, current_epoch.as_ref(), next_turn_id, epoch, text,
                         &mut quitting, &emit,
                     )
                     .await;
+                    // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
+                    //
+                    // 这是「记忆摘要含助手侧」的唯一入口（见 topics.rs 该主题头注）：
+                    // TurnPrompt 只有用户话、SentenceReady 是按句锚点，记忆类 Mod
+                    // 需要一个「一轮的助手侧正文」。**投递非阻塞**（mod_event_sink
+                    // 只对 TurnPrompt 走 dispatch_event_and_flush），慢 / 失败的
+                    // Mod 绝不阻塞主链；正文先做**确定性清洗**，交给 Mod 的是上屏
+                    // 口径（与送 TTS 同源）。
+                    if let Some(f) = &mod_events
+                        && !close.assistant_text.trim().is_empty()
+                    {
+                        let display =
+                            live2d_ai_runtime::clean_for_tts(&close.assistant_text);
+                        if !display.is_empty() {
+                            let payload = serde_json::json!({
+                                "turn": next_turn_id,
+                                "role": "assistant",
+                                "text": display,
+                                "interrupted": close.interrupted,
+                            })
+                            .to_string();
+                            f(
+                                ModEventTopic::AssistantReplied,
+                                &payload,
+                                session.as_deref(),
+                            );
+                        }
+                    }
                     // **Wave 3**：本轮收口 → `TurnEnded`（payload = turn id）。
                     // 发点在 `run_one_turn` 返回之后，**无论**该轮是正常收口还是
                     // `TurnStatus::Failed`——语义是「这一轮结束了」，不是「成功」。
-                    // 与 `TurnPrompt` 同款时序：下一轮请求体尚未构建，因此 Mod 在
-                    // 此的 `apply_settings` 对下一轮生效（见 topics.rs 头注）。
+                    // 与 `TurnPrompt` **不同**：TurnEnded 是轮末，它的语义本来就是
+                    // 「为下一轮准备」——这里做的 `apply_settings` 对下一轮生效。
+                    // （TurnPrompt 的会话注入是**同轮**生效，见上面的注释。）
                     if let Some(f) = &mod_events {
                         f(
                             ModEventTopic::TurnEnded,
@@ -663,6 +797,7 @@ async fn run_forever(
                         &mut engine,
                         config_path.as_deref(),
                         Some(reload_pending.as_ref()),
+                        &performance_stats,
                         &emit,
                     );
                 }
@@ -733,8 +868,65 @@ mod tests_mod_projections {
     }
 }
 
+/// 表演层装配（2026-09-22）：关闸 / 缺端点 / 配齐三态 + 能力集单一真源。
+#[cfg(test)]
+mod tests_performance_assembly {
+    use super::*;
+    use live2d_ai_runtime::settings::PerformanceSettings;
+
+    #[test]
+    fn disabled_is_none_and_partial_config_is_degraded_and_wired_is_openai() {
+        // 默认关 → 不装配（引擎走既有流式路径，行为逐字一致）。
+        assert!(build_performance_runtime(&PerformanceSettings::default()).is_none());
+
+        // 开了但缺端点 → 仍装配（每轮确定性回退），degraded 可见。
+        let partial = PerformanceSettings {
+            enabled: true,
+            ..PerformanceSettings::default()
+        };
+        let rt = build_performance_runtime(&partial).expect("开了闸就要有运行时");
+        assert!(!rt.enabled(), "缺端点不得真发 HTTP");
+        assert_eq!(rt.client_kind(), "disabled");
+
+        // 配齐 → 真客户端；能力集就是 director 的可接受集合（单一真源）。
+        let wired = PerformanceSettings {
+            enabled: true,
+            base_url: "http://127.0.0.1:11434/v1".to_string(),
+            model: "qwen2.5:7b".to_string(),
+            ..PerformanceSettings::default()
+        };
+        let rt = build_performance_runtime(&wired).expect("配齐必须装配");
+        assert!(rt.enabled());
+        assert_eq!(rt.client_kind(), "openai");
+        assert_eq!(
+            rt.allow(),
+            live2d_ai_mod_director::presets::accepted_preset_ids(),
+            "能力集必须来自 accepted_preset_ids（= 主 allowlist），不得在别处再抄一份"
+        );
+        // 旧 id 已删除：能力集里不得有任何主 allowlist 之外的 id。
+        let allow_def = live2d_ai_mod_director::presets::PRESET_IDS;
+        assert!(
+            !rt.allow()
+                .iter()
+                .any(|id| !allow_def.contains(&id.as_str())),
+            "旧 id 不得再进能力集：{:?}",
+            rt.allow()
+        );
+        // 主 allowlist 项必须在。
+        for id in ["none", "smile", "unhappy", "surprised", "nod", "shake"] {
+            assert!(
+                rt.allow().iter().any(|x| x == id),
+                "主 allowlist 的 {id} 必须在能力集里"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod support;
+// Wave 3（2026-09-21）：助手侧正文事件，单列守住「测试文件 ≤800 行」。
+#[cfg(test)]
+mod tests_assistant_event;
 #[cfg(test)]
 mod tests_fault;
 #[cfg(test)]
@@ -748,6 +940,9 @@ mod tests_reload;
 mod tests_session;
 #[cfg(test)]
 mod tests_stall;
+// 2026-09-22：表演层端到端冒烟（真实 [performance] 配置 → mock 表演层）。
+#[cfg(test)]
+mod tests_performance;
 // P1WS-1：真实 LLM 流式文本透传（text_delta emit）+ epoch 镜像单元测试。
 #[cfg(test)]
 mod tests_stream;

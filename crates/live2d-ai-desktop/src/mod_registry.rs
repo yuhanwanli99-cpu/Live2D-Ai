@@ -76,6 +76,9 @@ pub struct HostChannels {
     /// persona / memory 用它做按会话分桶，而不再整段覆写全局
     /// `persona.system_prompt`。未注入 = 不可用空实现。
     pub session_prompts: live2d_ai_mod_system::ModSessionPrompts,
+    /// **Mod → host 动作 cue**（2026-09-16，P1-3）：导演产出的按句 cue → WS action_cue。
+    /// 无 HostChannels（单测 / 无 supervisor）时由 ModCueSender::disabled() 顶替。
+    pub cues: Arc<dyn Fn(serde_json::Value) -> bool + Send + Sync>,
 }
 
 /// worker 线程可安全访问的 per-Mod runtime 快照（ModRuntime: Send）.
@@ -128,8 +131,29 @@ impl std::fmt::Display for ModCommandError {
 }
 
 /// 事件投递 channel 的消息。
-/// 事件投递 channel 的消息（L1：第三条是会话 id，`None` = 不带会话）。
-type EventMsg = (ModEventTopic, String, Option<String>);
+///
+/// - 前三条：话题 / payload / 会话 id（L1：`None` = 不带会话）；
+/// - 第四条：**可选回执**。`Some` 时 worker 处理完这条事件后回一个信号，
+///   发送方（[`ModRegistry::dispatch_event_and_flush`]）据此**等到**「这条
+///   事件已被所有 Running Mod 处理完」。`None` = 非阻塞投递（默认）。
+///
+/// 为什么需要回执：memory / persona 在 `TurnPrompt` 里写会话注入槽，而
+/// supervisor 紧接着就要读那张表去决议**本轮** system_prompt。没有回执时
+/// 「Mod 写没写完」是竞态，注入就只能等下一轮（见 `dispatch_event_and_flush`）。
+type EventMsg = (
+    ModEventTopic,
+    String,
+    Option<String>,
+    Option<std::sync::mpsc::SyncSender<()>>,
+);
+
+/// [`ModRegistry::dispatch_event_and_flush`] 等待 worker 回执的上限。
+///
+/// 取值理由：正常路径是「worker 处理一条事件」，量级在毫秒（memory 要读写一次
+/// JSONL）。上限只用来兜住 **worker 已经不在了** 的情形（关机 / `on_event`
+/// panic 把 worker 线程带走）——那种情况下宁可让本轮按「没有注入」继续，
+/// 也不能把 supervisor 卡死。
+const EVENT_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
 
 /// Host ModRegistry。
 pub struct ModRegistry {
@@ -387,6 +411,11 @@ impl ModRegistry {
                 .map(|h| h.session_prompts.clone())
                 .unwrap_or_else(live2d_ai_mod_system::ModSessionPrompts::disabled),
         )
+        // P1-3：Mod → host 动作 cue（导演按句投递；无 host 时为 disabled）。
+        .with_cues(match host.as_ref().map(|h| h.cues.clone()) {
+            Some(f) => live2d_ai_mod_system::ModCueSender::new(move |cue| f(cue)),
+            None => live2d_ai_mod_system::ModCueSender::disabled(),
+        })
     }
 
     #[rustfmt::skip]
@@ -535,8 +564,45 @@ impl ModRegistry {
         payload: &str,
         session: Option<&str>,
     ) -> bool {
+        self.send_event(topic, payload, session, None)
+    }
+
+    /// **同步投递**：入队后等 worker 处理完这条事件再返回。
+    ///
+    /// 只给 turn 提交点的 `TurnPrompt` 用（[`crate::mod_registry::mod_event_sink`]
+    /// 是唯一调用方）：它是唯一「Mod 刚写完、本轮请求体马上就要读到」的话题。
+    ///
+    /// 为什么不能靠「先发事件、再读表」的调序：`dispatch_event` 是 `try_send`，
+    /// worker 是另一个线程，supervisor 完全可能先跑到读表那一步——于是注入又变成
+    /// 「只对下一轮生效」（这正是 2026-09-15 之前的缺陷）。这里的回执把时序钉死：
+    /// 同一话题的写入在**本轮** system_prompt 决议之前一定已经落地。
+    ///
+    /// 返回 `false` = 队列满/已关（事件根本没入队，回执不等待）。
+    pub fn dispatch_event_and_flush(
+        &self,
+        topic: ModEventTopic,
+        payload: &str,
+        session: Option<&str>,
+    ) -> bool {
+        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(0);
+        let queued = self.send_event(topic, payload, session, Some(ack_tx));
+        if queued {
+            // 有界等待：worker 已退出（关机 / panic）时不把 supervisor 卡死。
+            let _ = ack_rx.recv_timeout(EVENT_FLUSH_TIMEOUT);
+        }
+        queued
+    }
+
+    /// 入队（`try_send`，满则丢弃计数、不阻塞）。
+    fn send_event(
+        &self,
+        topic: ModEventTopic,
+        payload: &str,
+        session: Option<&str>,
+        ack: Option<std::sync::mpsc::SyncSender<()>>,
+    ) -> bool {
         self.event_tx
-            .try_send((topic, payload.to_string(), session.map(str::to_string)))
+            .try_send((topic, payload.to_string(), session.map(str::to_string), ack))
             .is_ok()
     }
 
@@ -561,6 +627,28 @@ impl ModRegistry {
     }
 }
 
+/// 装配用：把 [`ModRegistry`] 包成 supervisor 的 Mod 事件 sink
+///（`SupervisorConfig::mod_events`）。
+///
+/// **`TurnPrompt` 走同步投递**（入队后等 worker 回执），其余话题保持非阻塞
+/// `try_send`。理由：`TurnPrompt` 是唯一「Mod 刚写完、supervisor 马上就要读」
+/// 的话题（memory 的会话注入槽 / persona 的会话卡），而 `TextDelta` 之类的高频
+/// 话题不该被 Mod worker 拖住。
+///
+/// 启动路径（`cli_entry`）与动态装配路径（`supervisor_slot`）共用这一个函数，
+/// 免得两处各写一份「什么时候要 flush」的判断（它们分叉过一次，代价是
+/// 注入时序在两条路径上不一致）。
+pub fn mod_event_sink(registry: Arc<Mutex<ModRegistry>>) -> crate::supervisor::ModEventSink {
+    Arc::new(move |t: ModEventTopic, p: &str, s: Option<&str>| {
+        let Ok(reg) = registry.lock() else { return };
+        if t == ModEventTopic::TurnPrompt {
+            let _ = reg.dispatch_event_and_flush(t, p, s);
+        } else {
+            let _ = reg.dispatch_event(t, p, s);
+        }
+    })
+}
+
 /// 事件 worker 循环：从有界 channel 收事件，对每个 Running Mod 调
 /// `runtime.on_event`（独立线程，不阻塞 supervisor；worker 持 per-Mod
 /// runtime 的 `Arc<Mutex<...>>` clone，**不持 registry 锁**）。
@@ -574,7 +662,7 @@ fn event_worker_loop(
     runtimes: BTreeMap<&'static str, SharedRuntime>,
     _dropped: Arc<AtomicU64>,
 ) {
-    while let Ok((topic, payload, session)) = event_rx.recv() {
+    while let Ok((topic, payload, session, ack)) = event_rx.recv() {
         for (id, slot) in &runtimes {
             let mut guard = match slot.try_lock() { Ok(g) => g, Err(_) => continue }; // host 持锁（restart）→ 跳过。
             if guard.is_none() { continue } // 未启用 → 跳过。
@@ -586,6 +674,11 @@ fn event_worker_loop(
                 tracing::warn!(target: "mod", "Mod {id} on_event 失败: {err}");
                 *guard = None; // 失败 Mod 停止投递（E0 失败隔离）。
             }
+        }
+        // 回执放在**所有 Mod 都处理完之后**：`dispatch_event_and_flush` 的语义是
+        // 「这条事件已经被处理完」，而不是「worker 收到了」。
+        if let Some(ack) = ack {
+            let _ = ack.send(());
         }
     }
 }
@@ -931,6 +1024,62 @@ mod tests {
     }
     static ACTION_FACTORIES: &[&dyn ModFactory] = &[&TestActionMod];
 
+    /// **同轮生效的时序保证**（2026-09-15）：`dispatch_event_and_flush` 返回时，
+    /// worker **已经**把这条事件交给 Running Mod——不需要轮询、不需要 sleep。
+    ///
+    /// 反向断言（去掉回执等待即红）：`dispatch_event` 是 `try_send`，返回只代表
+    /// 「入队成功」，此刻 Mod 的记录**大概率还是空的**——supervisor 若在此之后
+    /// 立刻读 session_prompts，读到的就是旧值（旧的「只对下一轮生效」缺陷）。
+    ///
+    /// 用**本测试专属**的工厂与计数（不碰 `RECEIVED`）：并行跑测试时，别的用例
+    /// 共享那个 static，会把条数断言染红——时序断言必须只看自己的事件流。
+    #[rustfmt::skip]
+    #[test]
+    fn dispatch_event_and_flush_means_processed_not_queued() {
+        struct FlushMod;
+        impl ModFactory for FlushMod {
+            fn descriptor(&self) -> &'static ModDescriptor {
+                static D: ModDescriptor = ModDescriptor {
+                    id: "flushmod",
+                    name: "Flush",
+                    version: "0.1.0",
+                    api_version: 1,
+                };
+                &D
+            }
+            fn create(&self, _: ModServices, _: serde_json::Value) -> Result<Box<dyn ModRuntime>, ModError> {
+                Ok(Box::new(FlushRuntime))
+            }
+        }
+        struct FlushRuntime;
+        impl ModRuntime for FlushRuntime {
+            fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> { Ok(()) }
+            fn on_event(&mut self, topic: ModEventTopic, _: &str) -> Result<(), ModError> {
+                FLUSH_RECEIVED.lock().unwrap().push(topic.as_str().to_string());
+                Ok(())
+            }
+        }
+        static FLUSH_RECEIVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        static FLUSH_FACTORIES: &[&dyn ModFactory] = &[&FlushMod];
+
+        FLUSH_RECEIVED.lock().unwrap().clear();
+        let mut reg = ModRegistry::new(FLUSH_FACTORIES, &serde_json::json!({"mods":{"flushmod":{"enabled":true}}}));
+        reg.start_all();
+        // 先制造积压：worker 必须先把这些处理完，回执才有意义。
+        for i in 0..50 {
+            assert!(reg.dispatch_event(ModEventTopic::TextDelta, &format!("d{i}"), None));
+        }
+        assert!(reg.dispatch_event_and_flush(ModEventTopic::TurnPrompt, "本轮正文", Some("sess-1")));
+        let seen = FLUSH_RECEIVED.lock().unwrap().clone();
+        assert_eq!(
+            seen.last().map(String::as_str),
+            Some("turn_prompt"),
+            "flush 返回时 TurnPrompt 必须已被处理（且排在积压之后）: {} 条",
+            seen.len()
+        );
+        assert_eq!(seen.len(), 51, "积压的 50 条也要处理完才回执");
+    }
+
     /// 事件送达测试：enable TestMod，start_all 后 dispatch_event，
     /// 轮询（最多 ~500ms）直到记录非空。
     #[rustfmt::skip]
@@ -1070,6 +1219,7 @@ mod tests {
                 config_path: String::new(),
                 read_settings: Arc::new(|| serde_json::json!({})),
                 session_prompts: live2d_ai_mod_system::ModSessionPrompts::disabled(),
+                cues: Arc::new(|_| false),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let req = ActionRequest {
@@ -1106,6 +1256,7 @@ mod tests {
                 config_path: String::new(),
                 read_settings: Arc::new(|| serde_json::json!({})),
                 session_prompts: live2d_ai_mod_system::ModSessionPrompts::disabled(),
+                cues: Arc::new(|_| false),
             });
         reg.start_all(); // 触发 factory.create → 捕获 services。
         let text = "hello from mod".to_string();
@@ -1140,6 +1291,7 @@ mod tests {
             config_path: String::new(),
             read_settings: Arc::new(|| serde_json::json!({})),
             session_prompts: live2d_ai_mod_system::ModSessionPrompts::disabled(),
+            cues: Arc::new(|_| false),
         });
         reg.start_all(); // 触发 factory.create → 捕获 services。
 

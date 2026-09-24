@@ -33,7 +33,7 @@
 //! | key | 语义 |
 //! |---|---|
 //! | `listen_port` | **提示值**（前端展示）；真实监听端口来自 `live2d-ai.toml` 的 `[web].port`（默认 18080），本 Mod 不开 socket |
-//! | `token` | 可选访问令牌（secret）；与 env `EXTERNAL_INPUT_TOKEN` 二选一，env 优先 |
+//! | `token` | 可选访问令牌（secret）；与 env `EXTERNAL_INPUT_TOKEN` 二选一——env 侧经 `secrets::lookup` 读（**`.env` 快照 > 进程环境**），env 优先 |
 //! | `text_template` | 可选文本模板，`{text}` = 清洗后的外部文本；空 = 原样 |
 //! | `prefix` | 可选前缀，拼在模板结果之前（如 `[弹幕] `） |
 //!
@@ -91,16 +91,19 @@ pub fn external_input_settings_spec() -> ModSettingsSpec {
                 label: "访问令牌（空 = 回落到 env EXTERNAL_INPUT_TOKEN；都空 = 仅本机不鉴权）"
                     .to_string(),
                 secret: true,
+                default: None,
             },
             ModSettingField::String {
                 key: "text_template".to_string(),
                 label: "文本模板（{text} = 外部文本；空 = 原样）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "prefix".to_string(),
                 label: "前缀（拼在模板结果之前，如「[弹幕] 」）".to_string(),
                 secret: false,
+                default: None,
             },
         ],
     }
@@ -147,19 +150,32 @@ pub fn token_from_config(config: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 访问令牌的环境变量名（`.env` / 进程环境共用同一个键）。
+const TOKEN_ENV_VAR: &str = "EXTERNAL_INPUT_TOKEN";
+
 /// env `EXTERNAL_INPUT_TOKEN` 是否非空（**只看存在性，绝不读取/回显明文**）。
-fn env_token_is_set() -> bool {
-    std::env::var("EXTERNAL_INPUT_TOKEN")
+///
+/// W6：值经 `live2d_ai_runtime::secrets::lookup` 查——**`.env` 快照 > 进程环境**。
+/// 直接读进程环境会绕过 `.env`，于是「界面上刚写了 key、链路还说没配置」。
+/// `lookup` 抽成参数只为**可注入**（回归不碰进程环境、不用 `set_var`）。
+fn env_token_is_set_with(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
+    lookup(TOKEN_ENV_VAR)
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
 }
 
 /// 「是否已配置令牌」：Mod config 的 `token` **或** env `EXTERNAL_INPUT_TOKEN`。
 ///
-/// 与 handler 的优先级同源（env 优先、其次 config、都空 = 不鉴权），但这里只回
-/// `bool`：`state_json` 会被前端渲染、被日志记录，**绝不回显明文**。
+/// 优先级链**不变**：**`.env`/env > Mod config > 不鉴权**（`token_from_config`
+/// 命中即为真，env 侧由 `lookup` 决定）。这里只回 `bool`：`state_json` 会被
+/// 前端渲染、被日志记录，**绝不回显明文**。
 pub fn token_is_set(config: &serde_json::Value) -> bool {
-    token_from_config(config).is_some() || env_token_is_set()
+    token_is_set_with(config, &live2d_ai_runtime::secrets::lookup)
+}
+
+/// [`token_is_set`] 的可注入实现（生产路径传 `secrets::lookup`）。
+fn token_is_set_with(config: &serde_json::Value, lookup: &dyn Fn(&str) -> Option<String>) -> bool {
+    token_from_config(config).is_some() || env_token_is_set_with(lookup)
 }
 
 /// External Input 的运行时状态。
@@ -611,21 +627,24 @@ mod tests {
         );
     }
 
-    /// config 空 + env 未设 → `token_set=false`（env 已设时本分支不成立，跳过）。
+    /// `token_set` 只看 **lookup 口径**，不看进程环境（W6 回归）：
+    /// 「值只写在 `.env`、进程环境没有」时读得到令牌；两边都没有 → false。
+    /// 用注入的 lookup 构造，**不**用 `std::env::set_var`（并发下不可靠）。
     #[test]
-    fn state_json_reports_token_unset_when_nothing_configured() {
-        if std::env::var("EXTERNAL_INPUT_TOKEN")
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
-        {
-            return;
-        }
-        let mut rt = ExternalInputFactory
-            .create(noop_services(), serde_json::json!({}))
-            .unwrap();
-        assert_eq!(
-            rt.state_json().unwrap()["token_set"],
-            serde_json::json!(false)
+    fn token_set_follows_injected_lookup_not_process_env() {
+        let none = |_name: &str| Option::<String>::None;
+        assert!(
+            !token_is_set_with(&serde_json::json!({}), &none),
+            "config 空 + lookup 无值 → 未配置（不鉴权）"
+        );
+        let dotenv = |name: &str| (name == TOKEN_ENV_VAR).then(|| "dotenv-secret".to_string());
+        assert!(
+            token_is_set_with(&serde_json::json!({}), &dotenv),
+            "值只在 `.env`（注入 lookup 有值、进程环境没有）也必须报已配置"
+        );
+        assert!(
+            token_is_set_with(&serde_json::json!({"token": "cfg-secret"}), &none),
+            "Mod config 命中同样报已配置（优先级链的 config 档不变）"
         );
     }
 

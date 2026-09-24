@@ -36,7 +36,6 @@
 //! **行数豁免（≤1000）**：WS 端到端测试合集（944 行），含并发/生命周期/seq/投影多套件；继续拆分会把 e2e 场景撕裂，故保留单文件并头注豁免。
 //!
 
-use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -44,6 +43,7 @@ use std::thread;
 use tiny_http::ReadWrite;
 use tungstenite::Message;
 
+use super::tests_ws_client::{do_client_handshake, read_one_text_frame};
 use super::ws::Broadcaster;
 
 /// 把 std TcpStream 包装为 tiny_http 的 ReadWrite trait object（满足 Send）。
@@ -61,24 +61,6 @@ impl std::io::Write for TcpWrap {
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
     }
-}
-
-/// 客户端手工从已升级的 stream 读 1 条文本 WS 帧（server→client 无 mask）。
-///
-/// **仅支持短帧（len < 126）**——本测试 broadcast 文本都很短。
-#[allow(dead_code)] // 仅在 e2e_basic_ws_round_trip 使用
-fn read_one_text_frame(client: &mut std::net::TcpStream) -> String {
-    let mut head = [0u8; 2];
-    client.read_exact(&mut head).expect("read frame head");
-    let opcode = head[0] & 0x0F;
-    assert_eq!(opcode, 1, "expected text opcode, got {opcode}");
-    let masked = (head[1] & 0x80) != 0;
-    assert!(!masked, "server→client frame must not be masked");
-    let len = (head[1] & 0x7F) as usize;
-    assert!(len < 126, "this test only supports short frames (len<126)");
-    let mut payload = vec![0u8; len];
-    client.read_exact(&mut payload).expect("read payload");
-    String::from_utf8(payload).expect("utf-8 payload")
 }
 
 /// 客户端手工写 1 条文本 WS 帧（client→server 必 mask；mask key 4 字节）。
@@ -105,47 +87,6 @@ fn write_client_text_frame(client: &mut std::net::TcpStream, text: &str) {
     buf.extend_from_slice(&masked);
     client.write_all(&buf).expect("client write frame");
     client.flush().expect("client flush");
-}
-
-/// 客户端走完 WS 握手，返回 TcpStream（持有供 caller 关闭）。
-///
-/// **D-P0B 2026-08-29**：WS 升级前 server 端会做 Origin 校验（同源白名单
-/// = `http://127.0.0.1:<port>` / `http://localhost:<port>`），所以客户端
-/// 必须在握手请求里带 `Origin: http://127.0.0.1:<port>` 头，否则 server
-/// 回 403 而非 101。`addr` 是 `server_addr()` 返回的 `SocketAddr`，port
-/// 字段取自真实监听端口（与 `run_request_loop` 内的 `ctx.security.port`
-/// 一致——`start_server` 把 `port` 注入到 `ctx.security`）。
-#[allow(dead_code)]
-fn do_client_handshake(addr: std::net::SocketAddr) -> std::net::TcpStream {
-    let mut client = std::net::TcpStream::connect(addr).expect("client connect");
-    let key = tungstenite::handshake::client::generate_key();
-    let port = addr.port();
-    // **D-P0B**：带 Origin 头（与 run_request_loop 内的 server 端
-    // `check_request_origin` 校验一致）。浏览器 fetch / 标准 WebSocket
-    // 客户端都会自动发 Origin；这里手工模拟。
-    let req = format!(
-        "GET /ws/runtime HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nOrigin: http://127.0.0.1:{port}\r\n\r\n"
-    );
-    client.write_all(req.as_bytes()).expect("client write req");
-    client.flush().expect("client flush");
-    let mut head = Vec::new();
-    let mut tmp = [0u8; 1024];
-    loop {
-        let n = client.read(&mut tmp).expect("client read");
-        if n == 0 {
-            break;
-        }
-        head.extend_from_slice(&tmp[..n]);
-        if head.windows(4).any(|w| w == b"\r\n\r\n") {
-            break;
-        }
-    }
-    let head_str = String::from_utf8_lossy(&head);
-    assert!(
-        head_str.starts_with("HTTP/1.1 101"),
-        "expected 101, got: {head_str}"
-    );
-    client
 }
 
 // ============================================================================
@@ -444,6 +385,7 @@ mod ws_unit_tests {
     use crate::app_event::{AppEvent, ConversationUiEvent, RootFact};
     use crate::web_api::ws::{
         Broadcaster, WS_CONN_LIMIT, app_event_to_ws_frame, epoch_secs_to_ymdhms, iso8601_now_ms,
+        should_broadcast,
     };
 
     #[test]
@@ -549,6 +491,50 @@ mod ws_unit_tests {
         assert_eq!(v["data"]["epoch"], 3);
         assert_eq!(v["data"]["ts_ms"], 42);
         assert_eq!(v["data"]["text"], "先看题目…");
+    }
+
+    /// **展示思考总闸**（2026-09-15，`llm.show_reasoning`，缺省 false）：
+    /// 关 = 思考**不上屏**；开 = 照常出帧。
+    ///
+    /// 「上屏」的唯一通路就是这条投影，所以闸门断言就落在这里。
+    /// 注意别把断言写成「关掉思考 = 引擎不解析」——解析层与展示层是两件事：
+    /// 思考与正文共用 `max_tokens`，关掉展示**不省 token**。
+    #[test]
+    fn reasoning_frame_is_gated_by_show_reasoning() {
+        let reasoning = AppEvent::Conversation(ConversationUiEvent::ReasoningDelta {
+            epoch: 1,
+            ts_ms: 1,
+            text: "内心独白".to_string(),
+        });
+        let text = AppEvent::Conversation(ConversationUiEvent::TextDelta {
+            epoch: 1,
+            ts_ms: 2,
+            text: "正文".to_string(),
+        });
+        let err = AppEvent::Error(crate::app_event::AppErrorEvent {
+            code: "llm_upstream_401".to_string(),
+            stage: "llm".to_string(),
+            message: "unauthorized".to_string(),
+            hint: None,
+            epoch: 1,
+            fatal: true,
+        });
+
+        // 默认（false）：思考不上屏。
+        assert!(!should_broadcast(&reasoning, false), "关：思考帧不得下发");
+        // 开：思考照常。
+        assert!(should_broadcast(&reasoning, true), "开：思考帧应下发");
+        // 其余事件不受开关影响——尤其**错误**帧，任何情况下都要能看见。
+        for on in [false, true] {
+            assert!(should_broadcast(&text, on), "正文不受思考开关影响");
+            assert!(should_broadcast(&err, on), "错误帧不受思考开关影响");
+        }
+        // 投影本身**照旧**能产出 reasoning_delta 帧（闸门在调用方）；
+        // 这条断言把两件事钉开：关掉展示 ≠ 关掉解析/投影。
+        assert_eq!(
+            app_event_to_ws_frame(&reasoning).expect("投影仍在")["type"],
+            "reasoning_delta"
+        );
     }
 
     /// **rc.3 N0（2026-09-13）**：失败轮的正文兜底投影成**独立**帧类型
@@ -868,9 +854,9 @@ mod lifecycle_e2e {
     use live2d_ai_runtime::AppSettings;
     use tiny_http::Server;
 
-    use super::do_client_handshake;
     use crate::web_api::ServerContext;
     use crate::web_api::run_request_loop;
+    use crate::web_api::tests_ws_client::{WsClient, do_client_handshake};
 
     /// **P1WS-2 端到端验收**：40 次连接/断开 + HTTP 仍 200。
     ///
@@ -979,25 +965,7 @@ mod lifecycle_e2e {
             .unwrap_or(0)
     }
 
-    fn read_short_text(client: &mut TcpStream) -> String {
-        let mut head = [0u8; 2];
-        if client.read_exact(&mut head).is_err() {
-            return String::new();
-        }
-        let opcode = head[0] & 0x0F;
-        if opcode != 1 {
-            return String::new();
-        }
-        let masked = (head[1] & 0x80) != 0;
-        if masked {
-            return String::new();
-        }
-        let len = (head[1] & 0x7F) as usize;
-        if len >= 126 {
-            return String::new();
-        }
-        let mut payload = vec![0u8; len];
-        let _ = client.read_exact(&mut payload);
-        String::from_utf8(payload).unwrap_or_default()
+    fn read_short_text(client: &mut WsClient) -> String {
+        client.read_text_frame_lenient()
     }
 }

@@ -81,6 +81,7 @@ fn sentence_voiced_emits_text_delta_but_raw_deltas_do_not() {
             &mut voice_started_emitted,
             &mut saw_fatal_kind,
             &mut saw_llm_error,
+            true,
             &emit,
         );
     };
@@ -161,6 +162,7 @@ fn sentence_voiced_zero_ts_ms_is_preserved() {
         &mut voice_started_emitted,
         &mut saw_fatal_kind,
         &mut saw_llm_error,
+        true,
         &emit,
     );
 
@@ -319,6 +321,7 @@ fn text_fallback_emits_its_own_ui_event() {
         &mut voice_started_emitted,
         &mut saw_fatal_kind,
         &mut saw_llm_error,
+        true,
         &emit,
     );
 

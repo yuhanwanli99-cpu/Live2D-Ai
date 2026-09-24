@@ -42,26 +42,40 @@
 //!   `external_routes` 同口径）：端点是 web_api 的核心 say 能力，
 //!   不因一个可选 Mod 缺失而失效。
 //!
-//! # token（env 优先）
+//! # token（env 优先；W6 起 env 走 `secrets::lookup`）
 //!
-//! 优先级：env `VOICE_INPUT_TOKEN` → voice-input Mod config 的 `token` →
-//! 不鉴权。请求侧用 body `token` 或 `Authorization: Bearer <token>`（二选一）。
-//! 不匹配 → `401 unauthorized`。**任何路径都不回显 token 明文**，也不写日志。
+//! 优先级**钉死不变**：env `VOICE_INPUT_TOKEN` → voice-input Mod config 的
+//! `token` → 不鉴权。env 档值经 [`live2d_ai_runtime::secrets::lookup`] 读
+//! （**`.env` > 进程环境**）——直接读进程环境会绕过 `.env`，于是「界面上刚
+//! 写了 key、链路还说没配置」。请求侧用 body `token` 或 Bearer 头（二选一）；
+//! 不匹配 → `401 unauthorized`；**任何路径都不回显 token 明文**，也不写日志。
 //!
 //! # 唤醒闸 + 手动闸（L1 产品级，2026-09-15）
 //!
 //! 两把闸决定「一段转写能不能进主链」，判定顺序**钉死在 handler 里**：
 //!
 //! 1. `manual_enabled == false` → `403 voice_manual_off`；
-//! 2. `wake_phrase` 空白 → `403 voice_gate_closed`（**总闸 = 唤醒短语**：空 = 关，
-//!    拒绝一切转写）；
-//! 3. 清洗后的文本不包含唤醒短语（大小写不敏感、忽略空白差异）→
+//! 2. `wake_phrase` **显式为空** → `403 voice_gate_closed`（**总闸 = 唤醒短语**：
+//!    空 = 关，拒绝一切转写）。**键缺失**不在此列——走产品缺省「小可爱」，
+//!    总闸默认开（2026-09-15 用户裁决）；
+//! 3. 清洗后的文本**不以**唤醒短语**开头**（大小写不敏感、忽略空白差异）→
 //!    `400 wake_phrase_required`（空输入也算没听见唤醒词）；
 //! 4. 命中 → **剥掉唤醒短语**后的正文继续走归一化 → 空文本判定 → 长度 → `say`。
 //!
-//! 真源是 Mod crate 的纯函数 [`live2d_ai_mod_voice_input::gate::evaluate`]（四态），
-//! handler **不得**内联一份等价判定。成功响应补 `wake_phrase_matched: true` 与
+//! 真源是 Mod crate 的纯函数 [`live2d_ai_mod_voice_input::gate::evaluate_mode`]（四态），
+//! handler **不得**内联一份等价判定。成功响应补 `wake_phrase_matched` 与
 //! 剥离后的 `text`；错误响应沿用 `json_error`，message 给可执行处置。
+//!
+//! `wake_phrase_matched` 是**如实**的命中标志（L1，2026-09-16）：常驻路径命中
+//! 才为 true；**PTT 裸正文不含唤醒词时为 false**——旧实现恒 `true`，等于对
+//! 「按住说话」谎报「听见了唤醒词」。
+//!
+//! # PTT（按住说话，P0-4）
+//!
+//! body 可带 `"ptt": true`：这是**用户显式按键**，表示「我现在就要说」，
+//! 因此闸门对该请求**跳过唤醒匹配**（[`evaluate_mode`] 的 `ptt` 分支）。
+//! **手动闸 / 总闸（`wake_phrase` 显式空）/ 清洗 / 归一化 / 长度 / token 全不变**；
+//! 若按住时仍说了唤醒词，顺手剥掉。成功响应回显 `"ptt"` 便于观察走了哪条分支。
 //!
 //! # backend（`mock` | `sidecar`，Wave 3 A 轨）
 //!
@@ -119,6 +133,9 @@ const VOICE_TRANSCRIPT_PATH: &str = "/api/v1/voice/transcript";
 /// 提供启停门禁 / token 的 Mod id。
 const MOD_ID: &str = "voice-input";
 
+/// 密钥查找口径（W6）：生产路径传 `secrets::lookup`，测试注入等价闭包。
+type LookupFn<'a> = dyn Fn(&str) -> Option<String> + 'a;
+
 /// 最大允许长度（字符，作用于**清洗 + 归一化后**文本）。
 const MAX_TEXT_LEN: usize = 2000;
 
@@ -161,6 +178,31 @@ pub fn handle_voice_transcript(
     origin: Option<&str>,
     content_type: Option<&str>,
     auth_header: Option<&str>,
+) -> Option<Response<Cursor<Vec<u8>>>> {
+    handle_voice_transcript_with(
+        ctx,
+        method,
+        path,
+        body,
+        origin,
+        content_type,
+        auth_header,
+        &live2d_ai_runtime::secrets::lookup,
+    )
+}
+
+/// [`handle_voice_transcript`] 的实现：令牌查找经 [`LookupFn`] 注入。
+/// 第 8 个形参触发 `clippy::too_many_arguments`，私有函数显式放行。
+#[allow(clippy::too_many_arguments)]
+fn handle_voice_transcript_with(
+    ctx: &ServerContext,
+    method: &Method,
+    path: &str,
+    body: &str,
+    origin: Option<&str>,
+    content_type: Option<&str>,
+    auth_header: Option<&str>,
+    lookup: &LookupFn<'_>,
 ) -> Option<Response<Cursor<Vec<u8>>>> {
     // 路径不匹配：交还给 dispatch。
     if path != VOICE_TRANSCRIPT_PATH {
@@ -211,7 +253,9 @@ pub fn handle_voice_transcript(
         }
     };
     // token：env 优先，其次 Mod config（secret）；都空 = 不鉴权。
-    let env_token = std::env::var(TOKEN_ENV_VAR).ok();
+    // 优先级链**不变**：env（`.env` 快照 > 进程环境，经 `secrets::lookup`）
+    // → Mod config → 不鉴权。
+    let env_token = lookup(TOKEN_ENV_VAR);
     let config_token = live2d_ai_mod_voice_input::token_from_config(&gate.config);
     let effective = effective_token(env_token.as_deref(), config_token.as_deref());
     if !check_token(parsed.token.as_deref(), auth_header, effective.as_deref()) {
@@ -229,8 +273,16 @@ pub fn handle_voice_transcript(
     // 清洗后为空 → 空串；闸门会把它判成「没听见唤醒词」（缺唤醒短语优先于空文本，
     // 与 §4.3 的判定顺序一致）。
     let cleaned = live2d_ai_mod_voice_input::clean_transcript(&parsed.text).unwrap_or_default();
+    // 生效的唤醒短语 + **如实**的命中标志（PTT 裸正文 → false，不谎报）。
+    let wake_phrase = live2d_ai_mod_voice_input::gate::wake_phrase_from_config(&gate.config);
+    let wake_phrase_matched =
+        live2d_ai_mod_voice_input::gate::contains_wake_phrase(&cleaned, &wake_phrase);
     // 两把闸（manual → 总闸 → 唤醒词 → 剥离）：真源是 Mod crate 的纯函数。
-    let body_text = match live2d_ai_mod_voice_input::gate::evaluate(&gate.config, &cleaned) {
+    let body_text = match live2d_ai_mod_voice_input::gate::evaluate_mode(
+        &gate.config,
+        &cleaned,
+        parsed.ptt,
+    ) {
         GateOutcome::ManualOff => {
             return Some(json_error(
                 StatusCode(403),
@@ -242,7 +294,7 @@ pub fn handle_voice_transcript(
             return Some(json_error(
                 StatusCode(403),
                 "voice_gate_closed",
-                "能力总闸未开：先在 Mod 配置里填写「唤醒短语」（wake_phrase）。空 = 总闸关，拒绝一切转写",
+                "语音总闸被显式关闭（wake_phrase 为空）：在 Mod 配置里填一个唤醒词再保存（缺省 小可爱）；清空 = 关闭语音输入",
             ));
         }
         GateOutcome::WakeRequired => {
@@ -251,7 +303,7 @@ pub fn handle_voice_transcript(
                 "wake_phrase_required",
                 &format!(
                     "转写里没有唤醒短语「{}」：请先说唤醒词再说话（大小写不敏感、忽略空白差异）",
-                    live2d_ai_mod_voice_input::gate::wake_phrase_from_config(&gate.config)
+                    wake_phrase
                 ),
             ));
         }
@@ -305,7 +357,10 @@ pub fn handle_voice_transcript(
             "ok": true,
             "text": text,
             // L1：唤醒短语命中的可观察证据（text 已剥掉短语）。
-            "wake_phrase_matched": true,
+            // **如实**：PTT 裸正文为 false（旧实现恒 true = 谎报）。
+            "wake_phrase_matched": wake_phrase_matched,
+            // P0-4：回显是否走了 PTT 分支（跳过唤醒匹配）。
+            "ptt": parsed.ptt,
             "backend": backend.as_str(),
             "locale": locale
         })
@@ -321,11 +376,12 @@ pub fn handle_voice_transcript(
     Some(ok_response(StatusCode(200), &body_json.to_string()))
 }
 
-/// 从 JSON body `{"text": "...", "token": "..."}` 抽取 text 与可选 token。
+/// 从 JSON body `{"text": ..., "token"?: ..., "ptt"?: ...}` 抽取字段。
 ///
 /// 只判**结构**：`text` 必须是字符串（可以是空白——「清洗后为空」由
 /// [`live2d_ai_mod_voice_input::clean_transcript`] 判定并映射
-/// `400 empty_transcript`，与 `400 invalid_payload` 刻意分开）。
+/// `400 empty_transcript`，与 `400 invalid_payload` 刻意分开）；`ptt` 缺省 false，
+/// 写了但类型不对 → `invalid_payload`（**不静默当 false**，免得「按了没反应」）。
 fn parse_payload(body: &str) -> Result<Payload, String> {
     let v: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("JSON 解析失败: {e}"))?;
@@ -341,17 +397,26 @@ fn parse_payload(body: &str) -> Result<Payload, String> {
         Some(_) => return Err("`token` 必须为字符串".to_string()),
         None => None,
     };
+    // 可选 ptt 字段（bool，缺省 false）。
+    let ptt = match v.get("ptt") {
+        Some(b) => b
+            .as_bool()
+            .ok_or_else(|| "`ptt` 必须为布尔值".to_string())?,
+        None => false,
+    };
     Ok(Payload {
         text: s.to_string(),
         token,
+        ptt,
     })
 }
 
-/// 解析出的请求体（text + 可选 token）。
+/// 解析出的请求体（text + 可选 token + PTT 标志）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Payload {
     text: String,
     token: Option<String>,
+    ptt: bool,
 }
 
 /// 可选 token 鉴权的纯函数。

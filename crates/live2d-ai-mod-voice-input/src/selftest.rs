@@ -128,6 +128,8 @@ pub fn config_selftest_with_script(config: &Value, config_path: &str) -> Value {
     let token_set = token_from_config(config).is_some();
     let manual_enabled = gate::manual_enabled_from_config(config);
     let wake_gate_open = gate::wake_gate_open(config);
+    // 「开着」与「用户设过」是两件事：缺键走缺省词时总闸开，但 wake_phrase_set=false。
+    let wake_phrase_set = gate::wake_phrase_explicitly_set(config);
     let sidecar_script = sidecar::resolve_sidecar_script(config, config_path);
     let sidecar_script_resolvable = !sidecar_script.trim().is_empty();
 
@@ -193,7 +195,7 @@ pub fn config_selftest_with_script(config: &Value, config_path: &str) -> Value {
         "token_set": token_set,
         "manual_enabled": manual_enabled,
         "wake_gate_open": wake_gate_open,
-        "wake_phrase_set": wake_gate_open,
+        "wake_phrase_set": wake_phrase_set,
         "sidecar_script": sidecar_script,
         "sidecar_script_resolvable": sidecar_script_resolvable,
         "route": route_str(backend),

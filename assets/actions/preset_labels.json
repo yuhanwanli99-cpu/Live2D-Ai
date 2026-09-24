@@ -1,0 +1,103 @@
+{
+  "_doc": "动作预设 id → 展示名（中/英）的**唯一真源**。稳定 id 是契约（assets/actions/presets.json + 渲染面 preset 帧），label 只影响显示：Flutter 调试面板 / 导演面板 / 文档都读这里，**不要在 Dart/Rust 再手写一套中文标签**。字段：zh=中文名；en=英文规范短名；channel=expression|motion；canonical=对齐到的 N.E.K.O 外显五情（null = 本项目扩展）；source=命名/语义来源；aligned=能否对齐同类项目；note=一句说明。 canonical 字段只用于展示归并，不表示输入语义与 N.E.K.O 相同：本项目判定用户输入，N.E.K.O 判定角色回复。",
+  "version": 2,
+  "sources": {
+    "neko": "N.E.K.O config/prompts/prompts_emotion.py（OUTWARD_EMOTION_ANALYSIS_PROMPT：happy/sad/angry/surprised/neutral）— https://github.com/Project-N-E-K-O/N.E.K.O canonical 字段只用于展示归并，不表示输入语义与 N.E.K.O 相同：本项目判定用户输入，N.E.K.O 判定角色回复。",
+    "neko_runtime": "N.E.K.O static/live2d/live2d-emotion.js（setEmotion：expression + motion 双通道）",
+    "cubism": "Live2D Cubism 标准参数列表 — https://docs.live2d.com/en/cubism-editor-manual/standard-parameter-list/",
+    "vts": "VTube Studio Expressions wiki（.exp3.json / hotkey / overwrite-add-multiply）— https://github.com/DenchiSoft/VTubeStudio/wiki/Expressions-(a.k.a.-Stickers-or-Emotes)",
+    "soullink": "nanlingyin/soullink-emotion-sdk（VAD + FACS/AU + 分层表演）— https://github.com/nanlingyin/soullink-emotion-sdk"
+  },
+  "labels": {
+    "none": {
+      "zh": "中性",
+      "en": "Neutral",
+      "channel": "expression",
+      "canonical": "neutral",
+      "source": "neko:neutral",
+      "aligned": true,
+      "note": "渲染面的撤销哨兵（id=none，立即清空预设通道）；显示为中性。"
+    },
+    "smile": {
+      "zh": "微笑",
+      "en": "Smile",
+      "channel": "expression",
+      "canonical": "happy",
+      "source": "neko:happy · vts:exp3 Smile · 合并了旧版动作包",
+      "aligned": true,
+      "note": "五官（嘴角上扬/眯眼笑/眉抬）+ 小幅抬头。合并了旧版动作包的头身位移；intensity 放大整个包。"
+    },
+    "unhappy": {
+      "zh": "不悦",
+      "en": "Unhappy",
+      "channel": "expression",
+      "canonical": "sad+angry",
+      "source": "neko:sad · neko:angry（合并）",
+      "aligned": true,
+      "note": "intensity morph：1=难过相（眉上挑/垂眼/低头），3=生气相（眉下压/瞪眼/略抬），2=过渡。覆盖 N.E.K.O 的 sad 与 angry 两情。"
+    },
+    "surprised": {
+      "zh": "惊讶",
+      "en": "Surprised",
+      "channel": "expression",
+      "canonical": "surprised",
+      "source": "neko:surprised · 合并了旧版动作包",
+      "aligned": true,
+      "note": "瞪眼 + 挑眉 + 微张嘴 + 小幅后仰。合并了旧版动作包的后仰位移。"
+    },
+    "nod": {
+      "zh": "点头",
+      "en": "Nod",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展（cubism Nod）· 合并了旧版动作包",
+      "aligned": false,
+      "note": "头 + 半身同向一次起落；intensity 放大。合并了「点头同意」「微鞠躬」。"
+    },
+    "shake": {
+      "zh": "摇头",
+      "en": "Head Shake",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展（cubism Shake）· 合并了旧版动作包",
+      "aligned": false,
+      "note": "左右多周期摆动，头与身同相。合并了「摇头否认」加强版。"
+    },
+    "look_left": {
+      "zh": "左看",
+      "en": "Look Left",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展",
+      "aligned": false,
+      "note": "头 + 身向左看。方向与 intensity 正交，故左右各自保留一条（不合并）。"
+    },
+    "look_right": {
+      "zh": "右看",
+      "en": "Look Right",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展",
+      "aligned": false,
+      "note": "头 + 身向右看。"
+    },
+    "tilt_left": {
+      "zh": "左歪头",
+      "en": "Tilt Left",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展 · 合并了旧版动作包",
+      "aligned": false,
+      "note": "头向左倾 + 半身小随动。"
+    },
+    "tilt_right": {
+      "zh": "右歪头",
+      "en": "Tilt Right",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展",
+      "aligned": false,
+      "note": "头向右倾 + 半身小随动。"
+    }
+  }
+}

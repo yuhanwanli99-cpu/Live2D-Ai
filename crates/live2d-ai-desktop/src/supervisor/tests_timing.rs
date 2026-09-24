@@ -262,8 +262,10 @@ fn engine_event_variants_accept_ts_ms_field() {
             EngineEvent::TextDelta { ts_ms, .. }
             | EngineEvent::ReasoningDelta { ts_ms, .. }
             | EngineEvent::AudioChunk { ts_ms, .. }
+            | EngineEvent::SentenceReady { ts_ms, .. }
             | EngineEvent::SentenceVoiced { ts_ms, .. }
             | EngineEvent::TextFallback { ts_ms, .. }
+            | EngineEvent::ActionCue { ts_ms, .. }
             | EngineEvent::Error { ts_ms, .. }
             | EngineEvent::Terminal { ts_ms, .. } => *ts_ms,
         };

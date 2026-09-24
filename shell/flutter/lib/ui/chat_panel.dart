@@ -4,11 +4,14 @@
 /// **不** import `package:web` 那条链——于是整个面板可 VM/widget 测试。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../chat/chat_message.dart';
 import '../design/tokens.dart';
 import '../state/ui_phase.dart';
+import '../voice/voice_listen_controller.dart' show kVoiceTapThreshold;
 import 'audio_bar.dart';
 import 'error_banner.dart';
 import 'message_bubble.dart';
@@ -51,6 +54,16 @@ class ChatPanel extends StatelessWidget {
     this.onRetryLast,
     this.announcement,
     this.backdropVisible = false,
+    this.listenSupported = false,
+    this.listening = false,
+    this.listenStatus,
+    this.listenError,
+    this.onToggleListen,
+    this.onPressStart,
+    this.onPressRelease,
+    this.pttActive = false,
+    this.listenNote,
+    this.listenBlockedReason,
     super.key,
   });
 
@@ -93,6 +106,37 @@ class ChatPanel extends StatelessWidget {
   /// 所以不开壳背景时这里的观感与改动前**逐像素一致**。
   final bool backdropVisible;
 
+  /// 这个构建有没有语音识别能力（没有 → 「听」按钮禁用并说明原因）。
+  final bool listenSupported;
+
+  /// 正在「听」（常驻唤醒词检测）。
+  final bool listening;
+
+  /// 「听」按钮旁的一行状态（未在听时 null，不占位）。
+  final String? listenStatus;
+
+  /// 「听」失败时的一句话（权限 / 设备 / 服务不可达 / 主链忙）。
+  final String? listenError;
+
+  /// 点按「听」：常驻唤醒开 / 关。
+  final VoidCallback? onToggleListen;
+
+  /// 按住说话（PTT）开始 / 结束（P0-4）。为空时按钮只有「点按」一种用法。
+  final VoidCallback? onPressStart;
+  final VoidCallback? onPressRelease;
+
+  /// 当前是否在按住说话（按钮显示「松」）。
+  final bool pttActive;
+
+  /// 一行**诚实说明**（Web Speech 需联网、音频出本机）。为空不渲染。
+  final String? listenNote;
+
+  /// 「听」根本不可用的**常驻**原因（如 voice-input Mod 未启用）。
+  ///
+  /// 与 [listenError] 的区别：那是一次识别失败的结果，这是「按钮还没点就已经
+  /// 知道不行」的状态——必须**先**红字说清，而不是让用户说完才发现端点 403。
+  final String? listenBlockedReason;
+
   @override
   Widget build(BuildContext context) {
     // 只渲染最后 [kChatHistoryLimit] 条（**不**在数据层裁剪：
@@ -107,6 +151,7 @@ class ChatPanel extends StatelessWidget {
     // 2026-09-14（rc.5）：壳背后有全局背景图时，这个面留一点透
     // （[kShellSurfaceAlpha]）让背景透出来；没有背景图时仍是不透明面。
     final AppPalette palette = appPaletteOf(context);
+    final ThemeData theme = Theme.of(context);
     return ColoredBox(
       color: backdropVisible
           ? palette.surface.withValues(alpha: kShellSurfaceAlpha)
@@ -214,9 +259,62 @@ class ChatPanel extends StatelessWidget {
                 Space.s3,
                 Space.s3,
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  // 常态语音检测：一行状态 + 一行可读错误（贴在「听」按钮上方，
+                  // 不弹 toast——一闪而过的提示读不完）。
+                  if (listenStatus != null ||
+                      listenError != null ||
+                      listenNote != null ||
+                      listenBlockedReason != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: Space.s1),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          // 常驻红字（Mod 未启用）**优先**：它是「点了也没用」的
+                          // 前置原因，比任何一次识别结果都更该先被看到。
+                          if (listenBlockedReason != null)
+                            Text(
+                              listenBlockedReason!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                          if (listenStatus != null || listenError != null)
+                            Text(
+                              listenError ?? listenStatus!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: listenError != null
+                                    ? theme.colorScheme.error
+                                    : appColorsOf(context).contentMuted,
+                              ),
+                            ),
+                          // P0-4 诚实性：Web Speech 是**云端**识别、必须联网、
+                          // 音频会出本机——不能让人以为本地可用。
+                          if (listenNote != null)
+                            Text(
+                              listenNote!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: appColorsOf(context).contentMuted,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
+                  _ListenButton(
+                    supported: listenSupported,
+                    listening: listening,
+                    pttActive: pttActive,
+                    onToggle: onToggleListen,
+                    onPressStart: onPressStart,
+                    onPressRelease: onPressRelease,
+                  ),
+                  const SizedBox(width: Space.s1),
                   Expanded(
                     child: TextField(
                       controller: input,
@@ -245,9 +343,126 @@ class ChatPanel extends StatelessWidget {
                   ),
                 ],
               ),
+                ],
+              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 「听」按钮：**一个按钮三种用法**（P0-4）。
+///
+/// - **点按**（< [kVoiceTapThreshold] 松手）→ 常驻唤醒开 / 关；
+/// - **按住**（≥ 阈值）→ 按住说话（PTT）：按下开始，松手提交（不要求唤醒词）；
+/// - 不支持 / 未接线 → **禁用并说明**，不摆一个按不动的入口。
+///
+/// 实现用 [GestureDetector] 的 down/up/cancel + 计时器判定「点按还是按住」，
+/// 而不是 Material 的 `onLongPress`（它 500ms 才触发，200ms 的按会什么都不做）。
+/// 视觉仍是 Material 按钮（文字按钮，项目口径），但指针由外层 GestureDetector
+/// 独占（[AbsorbPointer]）——所以按钮的 `onPressed` 只是「看起来可点」。
+class _ListenButton extends StatefulWidget {
+  const _ListenButton({
+    required this.supported,
+    required this.listening,
+    required this.pttActive,
+    required this.onToggle,
+    required this.onPressStart,
+    required this.onPressRelease,
+  });
+
+  final bool supported;
+  final bool listening;
+  final bool pttActive;
+  final VoidCallback? onToggle;
+  final VoidCallback? onPressStart;
+  final VoidCallback? onPressRelease;
+
+  @override
+  State<_ListenButton> createState() => _ListenButtonState();
+}
+
+class _ListenButtonState extends State<_ListenButton> {
+  Timer? _holdTimer;
+  bool _holding = false;
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get _enabled => widget.supported && widget.onToggle != null;
+
+  void _onDown(TapDownDetails _) {
+    if (!_enabled) return;
+    _holding = false;
+    _holdTimer?.cancel();
+    _holdTimer = Timer(kVoiceTapThreshold, () {
+      if (!mounted) return;
+      _holding = true;
+      widget.onPressStart?.call();
+    });
+  }
+
+  void _onUp(TapUpDetails _) {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    if (_holding) {
+      _holding = false;
+      widget.onPressRelease?.call();
+    } else {
+      widget.onToggle?.call();
+    }
+  }
+
+  void _onCancel() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    if (_holding) {
+      _holding = false;
+      widget.onPressRelease?.call();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool active = widget.listening || widget.pttActive;
+    final String tooltip = !widget.supported
+        ? '这个浏览器没有语音识别（需要桌面版 Chrome / Edge）'
+        : widget.pttActive
+        ? '松手发送（按住说话）'
+        : widget.listening
+        ? '点按停止听；按住说话'
+        : '点按开始听：说「小可爱 ……」；按住说话（不要求唤醒词）';
+    final Widget visual = active
+        ? FilledButton(
+            onPressed: _enabled ? () {} : null,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(52, 40),
+              padding: const EdgeInsets.symmetric(horizontal: Space.s2),
+            ),
+            child: Text(widget.pttActive ? '松' : '停'),
+          )
+        : OutlinedButton(
+            onPressed: _enabled ? () {} : null,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(52, 40),
+              padding: const EdgeInsets.symmetric(horizontal: Space.s2),
+            ),
+            child: const Text('听'),
+          );
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: _enabled ? _onDown : null,
+        onTapUp: _enabled ? _onUp : null,
+        onTapCancel: _enabled ? _onCancel : null,
+        // 按钮自己不吃指针：点按 / 按住都由上面的 GestureDetector 判定。
+        child: AbsorbPointer(child: visual),
       ),
     );
   }

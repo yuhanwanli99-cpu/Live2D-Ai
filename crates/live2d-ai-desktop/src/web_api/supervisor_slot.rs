@@ -44,8 +44,6 @@
 
 use std::sync::{Arc, RwLock};
 
-use live2d_ai_mod_system::ModEventTopic;
-
 use crate::supervisor::{ModEventSink, SupervisorHandle};
 use crate::web_api::app_routes::StatusContext;
 use crate::web_api::dto::ApplyStatus;
@@ -104,7 +102,7 @@ impl SupervisorSlot {
         &self,
         config_path: &str,
         broadcaster: ws::Broadcaster,
-        status_ctx: &StatusContext,
+        status_ctx: Arc<StatusContext>,
         mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
     ) -> ApplyStatus {
         if let Some(existing) = self.try_get() {
@@ -113,25 +111,34 @@ impl SupervisorSlot {
             return ApplyStatus::Applied;
         }
         // 槽位空：动态装配。**Mod 事件桥（d2）**：动态装配路径的 supervisor
-        // 直接捕获 `mod_registry`，emit `ModEventTopic` → `dispatch_event`。
-        let mod_events: Option<ModEventSink> = {
-            let reg = mod_registry.clone();
-            Some(Arc::new(
-                move |t: ModEventTopic, p: &str, s: Option<&str>| {
-                    if let Ok(reg) = reg.lock() {
-                        let _ = reg.dispatch_event(t, p, s);
-                    }
-                },
-            ))
-        };
-        match crate::web_api::cli_entry::build_web_supervisor(config_path, broadcaster, mod_events)
-        {
+        // 直接捕获 `mod_registry`。sink 与启动路径**共用同一个工厂**
+        //（`TurnPrompt` 同步投递 → 记忆/人设同轮生效），避免两条路径时序分叉。
+        let mod_events: Option<ModEventSink> =
+            Some(crate::mod_registry::mod_event_sink(mod_registry.clone()));
+        // 思考闸门同样从设置快照实时读（动态装配路径与启动路径同源）。
+        let status_for_reasoning = status_ctx.clone();
+        let reasoning_gate: crate::web_api::cli_entry::ReasoningGate = Arc::new(move || {
+            status_for_reasoning
+                .settings_snapshot()
+                .llm
+                .effective_show_reasoning()
+        });
+        match crate::web_api::cli_entry::build_web_supervisor(
+            config_path,
+            broadcaster,
+            mod_events,
+            reasoning_gate,
+        ) {
             Ok(handle) => {
                 // P1WS-1 同步：注入 epoch 读源到 StatusContext（首次装配
                 // 路径与 `cli_entry` 启动路径同源；保证 `/api/v1/app/status`
                 // 读到的 `current_epoch` 真实而非默认 0）。
                 let handle_for_epoch = Arc::clone(&handle);
                 status_ctx.set_epoch_source(Box::new(move || handle_for_epoch.current_epoch()));
+                // 2026-09-22：表演层计数读源（与 cli_entry 启动路径同源）。
+                let handle_for_perf = Arc::clone(&handle);
+                status_ctx
+                    .set_performance_source(Box::new(move || handle_for_perf.performance_stats()));
                 self.set(handle);
                 ApplyStatus::Applied
             }

@@ -142,7 +142,13 @@ class AssembledSentence {
     required this.sampleRate,
     required this.envelope,
     required this.durationSec,
+    this.sentenceSeq,
   });
+
+  /// 服务端给的句子序号（data.sentence_seq，可选）。
+  ///
+  /// 导演 cue 按它对齐（P1-3）：音频开始播放时用同一个序号查 cue。
+  final int? sentenceSeq;
 
   /// 交给 `<audio>` 的完整文件字节（RIFF/WAVE 容器，见 [wavFromPcm16]）。
   final Uint8List bytes;
@@ -201,6 +207,7 @@ class SentenceAssembler {
       _reset();
       final int rate = _rateOf(frame.sampleRate);
       return AssembledSentence(
+        sentenceSeq: frame.sentenceSeq,
         bytes: whole,
         sampleRate: rate,
         envelope: <LevelPoint>[
@@ -260,11 +267,14 @@ class SentenceAssembler {
     final Uint8List pcm = _pcm.takeBytes();
     final List<LevelPoint> envelope = List<LevelPoint>.of(_envelope);
     final int rate = _rate;
+    // _seq 要在 _reset() 之前取：_reset 会把它清成 null。
+    final int? seq = _seq;
     _reset();
     // 空句（end 但没有任何 PCM）：不产空 WAV——浏览器对 0 字节 data 块会报
     // 「无法播放」，白白污染一次 error 事件。
     if (pcm.isEmpty) return null;
     return AssembledSentence(
+      sentenceSeq: seq,
       bytes: wavFromPcm16(pcm, sampleRate: rate),
       sampleRate: rate,
       envelope: envelope,

@@ -2,7 +2,7 @@
 ///
 /// 覆盖：概览渲染、「记忆列表」两条上屏、导入/编辑/删除的 onCommand args、
 /// 删除二次确认、`activeSessionId == null` 的全局桶降级文案、清空、
-/// 带码失败文案、会话说明与「只对下一轮生效」提示。
+/// 带码失败文案、会话说明与「同轮生效」提示。
 ///
 /// 契约真源：`crates/live2d-ai-mod-memory/src/commands.rs`（命令 args/返回）
 /// + `src/lib.rs` 的 `state_json` + `docs/architecture/memory-mod-v0.md`。
@@ -46,7 +46,7 @@ ModSettingsSpec memorySpec() => ModSettingsSpec(
     const ModSettingField(
       kind: ModFieldKind.bool,
       key: 'enabled_injection',
-      label: '把检索结果注入下一轮提示词',
+      label: '把检索结果注入本轮提示词',
       defaultValue: true,
     ),
   ],
@@ -190,6 +190,71 @@ void main() {
       expect(fallback, isNot(contains('当前会话桶')));
     });
 
+
+    test('memorySummaryState / version / text：非对象与空正文都按「没有」处理', () {
+      expect(memorySummaryState(null), isNull);
+      expect(
+        memorySummaryState(const <String, Object?>{'summary': 'x'}),
+        isNull,
+        reason: '不是对象就不是摘要状态，面板整块不渲染',
+      );
+      final Map<String, Object?>? s = memorySummaryState(
+        const <String, Object?>{
+          'summary': <String, Object?>{'version': 2, 'text': '  用户喜欢薄荷。  '},
+        },
+      );
+      expect(s, isNotNull);
+      expect(memorySummaryVersion(s!), 2);
+      expect(memorySummaryText(s), '用户喜欢薄荷。');
+      expect(
+        memorySummaryText(const <String, Object?>{'text': '   '}),
+        isNull,
+        reason: '空摘要按「没有」处理（失败 = 无摘要）',
+      );
+      expect(memorySummaryVersion(const <String, Object?>{}), 0, reason: '缺键 = 0 版');
+    });
+
+    test('memorySummaryStatusLine：未启用 / 无摘要 / 有摘要 / 失败原因四种口径', () {
+      final String off = memorySummaryStatusLine(
+        const <String, Object?>{'enabled': false},
+      );
+      expect(off, contains('未启用'));
+      expect(off, contains('summary_base_url'));
+      final String none = memorySummaryStatusLine(
+        const <String, Object?>{
+          'enabled': true,
+          'version': 0,
+          'bucket_ratio': 0.82,
+          'pending': true,
+        },
+      );
+      expect(none, contains('还没有摘要'));
+      expect(none, contains('82%'));
+      expect(none, contains('正在后台生成'));
+      final String some = memorySummaryStatusLine(
+        const <String, Object?>{
+          'enabled': true,
+          'version': 3,
+          'covers_upto': 12,
+          'bucket_ratio': 0.9,
+          'last_error': '摘要请求失败（client=openai）',
+        },
+      );
+      expect(some, contains('v3'));
+      expect(some, contains('12'));
+      expect(some, contains('90%'));
+      expect(some, contains('上次失败'), reason: '失败必须可见，不能静默');
+    });
+
+    test('memorySummaryHint：说清保留最近几轮 + 回滚不删原文', () {
+      final String hint = memorySummaryHint(
+        const <String, Object?>{'kept_recent': 4, 'note': '未配 key'},
+      );
+      expect(hint, contains('最近 4 轮'));
+      expect(hint, contains('回滚'));
+      expect(hint, contains('原文一条没删'));
+      expect(hint, contains('未配 key'));
+    });
     test('memoryCommandArgs：没有会话就不带 session_id，有就 trim 后带上', () {
       expect(memoryCommandArgs().containsKey('session_id'), isFalse);
       expect(
@@ -660,40 +725,128 @@ void main() {
     });
   });
 
-  group('说明文案：注入开关 / persona 策略 / 只对下一轮生效 / 文档指向', () {
-    testWidgets('注入开关说明它 != Mod 启停', (WidgetTester tester) async {
+
+  group('真摘要：状态 + 回滚按钮（P1-5）', () {
+    testWidgets('有摘要时显示版本/正文，回滚按钮可点并走 summary_rollback', (
+      WidgetTester tester,
+    ) async {
+      final List<RecordedCall> calls = <RecordedCall>[];
+      final Map<String, Object?> state = <String, Object?>{
+        ...memoryState(),
+        'summary': <String, Object?>{
+          'enabled': true,
+          'client': 'openai',
+          'version': 2,
+          'covers_upto': 9,
+          'bucket_ratio': 0.78,
+          'pending': false,
+          'last_error': null,
+          'kept_recent': 4,
+          'text': '用户喜欢薄荷，且自称星梦。',
+        },
+      };
       await tester.pumpWidget(
-        _wrap(panelWidget(panelContext(state: memoryState()))),
+        _wrap(
+          panelWidget(
+            panelContext(
+              state: state,
+              activeSessionId: 'session-a',
+              onCommand: recordingHandler(
+                calls,
+                reply: const ModCommandResult(
+                  ok: true,
+                  result: <String, Object?>{
+                    'version': 1,
+                    'rolled_back': <String, Object?>{
+                      'version': 2,
+                      'covers_upto': 9,
+                      'text': '用户喜欢薄荷，且自称星梦。',
+                    },
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('enabled_injection'), findsOneWidget);
-      expect(find.textContaining('它不是 Mod 启停'), findsOneWidget);
+      expect(find.textContaining('v2'), findsWidgets);
+      expect(find.textContaining('用户喜欢薄荷'), findsWidgets);
+      final TextButton rollback = tester.widget<TextButton>(
+        find.byKey(const Key('memory-summary-rollback-button')),
+      );
+      expect(rollback.onPressed, isNotNull, reason: '有版本才能回滚');
+      await tester.tap(find.byKey(const Key('memory-summary-rollback-button')));
+      await tester.pumpAndSettle();
+      expect(
+        calls.where((RecordedCall c) => c.command == 'summary_rollback').length,
+        1,
+      );
+      expect(calls[1].args['session_id'], 'session-a');
+      expect(find.textContaining('已回滚'), findsWidgets);
     });
 
-    testWidgets('persona 策略：会话下按来源槽叠加；全局下才是后写覆盖', (
+    testWidgets('没有摘要时回滚按钮禁用；未启用整块仍可见（如实说）', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          panelWidget(
+            panelContext(
+              state: <String, Object?>{
+                ...memoryState(),
+                'summary': <String, Object?>{
+                  'enabled': false,
+                  'version': 0,
+                  'pending': false,
+                },
+              },
+              onCommand: recordingHandler(<RecordedCall>[]),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('未启用'), findsWidgets);
+      final TextButton rollback = tester.widget<TextButton>(
+        find.byKey(const Key('memory-summary-rollback-button')),
+      );
+      expect(rollback.onPressed, isNull, reason: '没有版本就不该假装能回滚');
+    });
+
+    testWidgets('state 里没有 summary 键：整块不渲染（旧服务端兼容）', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         _wrap(panelWidget(panelContext(state: memoryState()))),
       );
       await tester.pumpAndSettle();
-      // L1 2026-09-15 的语义修正：会话路径**不再**是 last-writer-wins，
-      // 面板不许再说「同一会话里谁后写谁覆盖」。
-      expect(find.textContaining('不同来源槽'), findsOneWidget);
-      expect(find.textContaining('叠加'), findsOneWidget);
-      expect(find.textContaining('后写覆盖'), findsOneWidget);
+      expect(find.text('记忆摘要'), findsNothing);
+      expect(find.byKey(const Key('memory-summary-rollback-button')), findsNothing);
+    });
+  });
+  group('说明文案（瘦身版）：一句话说清边界，不塞契约全文', () {
+    testWidgets('注入开关说明它与 Mod 启停是两件事', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _wrap(panelWidget(panelContext(state: memoryState()))),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('注入开关'), findsOneWidget);
+      expect(find.textContaining('Mod 启停是两件事'), findsOneWidget);
     });
 
-    testWidgets('固定步骤的短提示 + 指向文档第 12 / 13 节（只对下一轮生效）', (
+    testWidgets('会话下按来源槽叠加，且不再复述文档 / 长契约', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         _wrap(panelWidget(panelContext(state: memoryState()))),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('只对下一轮生效'), findsOneWidget);
-      expect(find.textContaining(kMemoryDocPath), findsOneWidget);
-      expect(find.textContaining('第 12 / 13 节'), findsOneWidget);
+      expect(find.textContaining('来源槽叠加'), findsOneWidget);
+      // 长文已移出面板：文档路径与逐条验收步骤不再上屏。
+      expect(find.textContaining(kMemoryDocPath), findsNothing);
+      expect(find.textContaining('第 12 / 13 节'), findsNothing);
+      expect(find.textContaining('只对下一轮生效'), findsNothing);
     });
   });
 }

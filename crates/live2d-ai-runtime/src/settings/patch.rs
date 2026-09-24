@@ -31,25 +31,28 @@
 //! `Some(None)` → 段清空 / `Some(Some(p))` → 字段级合并的两条路径处理，详见
 //! 单元测试 `patch_tests::json_three_state_*`。
 //!
-//! # D1 §1.2 P0-2 取舍说明
+//! # `api_key_env`：显式 `null` 就是清除（P5 单一规则）
 //!
-//! D1 契约规定 `{"llm":{"api_key_env":null}}`（不带 `clear_api_key: true`）应
-//! 视为「保持原值」。本模块的 `SettingsPatch` **未**实现该 `clear_api_key`
-//! 显式字段：HTTP 层若要严格遵守 P0-2，应在 `from_patch` / DTO → patch 转换时
-//! 把无 `clear_api_key` 的 `api_key_env: null` 改写成字段缺省（不再表达清除）。
-//! 当前 `apply_patch` 把「显式 null」一律解释为「清除」——更贴近「最小统一
-//! 客户端」职责、与设置面板（egui）交互语义一致；HTTP PATCH 适配 D1 P0-2
-//! 由调用方负责。
+//! 2026-09 起契约收敛为**单一规则**：`{"llm":{"api_key_env":null}}`（`tts` 段
+//! 同款）**就是**清除绑定——即字段级三态的 `Some(None)`，与 `tts.model` /
+//! `max_tokens` 等字段同一形状，不再是特例。
+//!
+//! 历史（已废除，勿复活）：D1 §1.2 P0-2 曾要求「不带 `clear_api_key` 的
+//! `api_key_env: null` 视为保持原值」，由桌面层 `inject_clear_key_flag` 在
+//! `apply_patch` **前**改写实现。那让一个字段有了两种「清除」语法（段级标志
+//! vs 字段级 null），前端与服务端各发一套，语义漂移时没人知道该信哪个；而
+//! 字段级三态本身已经能区分「缺省（不改）」与 `null`（清除），改写层是多余的。
+//! **不要**再加回任何形式的 `clear_api_key`。
 //!
 //! # 行数豁免（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）
 //!
-//! 本文件 **630 行**，超过 500 行默认上限。理由：
+//! 本文件 **648 行**，超过 500 行默认上限。理由：
 //!
 //! 1. 测试**已经**按约定外提到 `patch_tests.rs`（约 600 行），这里的行数
 //!    全部是生产代码，不是靠「把测试留在文件里」堆出来的。
 //! 2. 余下内容是一个**不变量密集**的整体：`Option<Option<T>>` 三态在 JSON /
 //!    TOML / HTTP / egui 四个入口的语义必须逐条对齐（`double_option` 的
-//!    deserialize/serialize、段级 vs 字段级两条路径、`clear_api_key` 注入、
+//!    deserialize/serialize、段级 vs 字段级两条路径、密钥绑定的清除语义、
 //!    原子写回）。拆成两个文件会让「改一半忘了另一半」变成默认风险——
 //!    而这正是 W6-A 那类缺陷的成因。
 //! 3. 仍在 1000 行豁免上限内；再增长时优先拆 `plan_atomic_write`（它与三态
@@ -62,7 +65,7 @@ use std::process;
 
 use serde::{Deserialize, Serialize};
 
-use super::AppSettings;
+use super::{ActionSettings, AppSettings, clamp_action_scale};
 
 // `serde_with::rust::double_option` 的 deserialize/serialize 函数；
 // 作用在 `Option<Option<T>>` 字段上，让 JSON 端 `缺省 / null / 显式值`
@@ -73,7 +76,8 @@ use super::AppSettings;
 /// - 段缺省 → `None`（不修改整段）；
 /// - 段显式 `null` → `Some(None)`（整段显式清空）；
 /// - 段是对象（含 `{}`）→ `Some(Some(p))`（字段级三态逐字段合并；空对象 = no-op）。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+// 含 f32（action 倍率）→ 只能 PartialEq。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SettingsPatch {
     /// LLM 段补丁。
     #[serde(
@@ -99,6 +103,14 @@ pub struct SettingsPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub persona: Option<Option<PersonaPatch>>,
+    /// action 段补丁（2026-09-16：三项动作幅度倍率）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub action: Option<Option<ActionPatch>>,
     /// 顶层 `dev_mode` 三态（W7 任务：可配置运行时开关）。
     /// - 缺省 = `None`（不修改；与已有段级三态同构）。
     /// - `Some(None)` = 显式关闭（写回 `dev_mode = false`）。
@@ -130,7 +142,9 @@ pub struct LlmPatch {
     )]
     pub model: Option<Option<String>>,
     /// 特别注意：这里用 `Option<Option<String>>` 是**故意**的——
-    /// 前端可以表达「不修改 / 清除 env 绑定 / 设置新的 env 变量名」。
+    /// 前端可以表达「不修改 / 清除 env 绑定 / 设置新的 env 变量名」；
+    /// 显式 `null`（`Some(None)`）**就是**清除——P5 单一规则，没有
+    /// `clear_api_key` 标志（见模块头「`api_key_env`：显式 `null` 就是清除」）。
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -148,6 +162,15 @@ pub struct LlmPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub max_tokens: Option<Option<u32>>,
+    /// 展示思考总闸（三态）：缺省=不改 / `null`=清除（回落缺省 false） /
+    /// `true|false`=显式设定。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub show_reasoning: Option<Option<bool>>,
 }
 
 /// TTS 段字段级三态补丁。
@@ -216,6 +239,35 @@ pub struct PersonaPatch {
     pub max_history_pairs: Option<Option<usize>>,
 }
 
+/// action 段字段级三态补丁（2026-09-16）。
+///
+/// 三项倍率都是 f32：`Some(None)`（显式 `null`）= **回落出厂默认**，
+/// `Some(Some(v))` = 设为 v（写入前钳进 `[0.2, 2.2]`）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ActionPatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub head_scale: Option<Option<f32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub body_scale: Option<Option<f32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub expression_scale: Option<Option<f32>>,
+}
+
 /// `apply_patch` 的结果——上层据此决定要不要触发磁盘写回。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatchOutcome {
@@ -281,6 +333,10 @@ pub fn apply_patch(
                     next.llm.max_tokens = None; // 回落默认
                     changed = true;
                 }
+                if next.llm.show_reasoning.is_some() {
+                    next.llm.show_reasoning = None; // 回落默认（不展示）
+                    changed = true;
+                }
             }
             Some(fields) => {
                 // base_url：None=Keep / Some(None)=清成 "" / Some(Some(v))=赋值。
@@ -312,6 +368,13 @@ pub fn apply_patch(
                     let new = *v;
                     if next.llm.max_tokens != new {
                         next.llm.max_tokens = new;
+                        changed = true;
+                    }
+                }
+                if let Some(v) = &fields.show_reasoning {
+                    let new = *v;
+                    if next.llm.show_reasoning != new {
+                        next.llm.show_reasoning = new;
                         changed = true;
                     }
                 }
@@ -430,6 +493,56 @@ pub fn apply_patch(
                         next.persona.max_history_pairs = new;
                         changed = true;
                     }
+                }
+            }
+        }
+    }
+
+    // action 段（2026-09-16）：三项倍率，缺省=不改 / null=回落出厂默认 /
+    // 数值=设为该值（钳进 [0.2, 2.2]）。NaN / 无穷按「非法」处理→回落默认，
+    // 与渲染面 clamp_action_scale 同一条口径。
+    if let Some(action_outer) = &patch.action {
+        let defaults = ActionSettings::default();
+        match action_outer {
+            None => {
+                if next.action != defaults {
+                    next.action = defaults;
+                    changed = true;
+                }
+            }
+            Some(fields) => {
+                let set_scale = |slot: &mut f32, fallback: f32, v: &Option<f32>| -> bool {
+                    let raw = v.unwrap_or(fallback);
+                    let new = if raw.is_finite() {
+                        clamp_action_scale(raw)
+                    } else {
+                        fallback
+                    };
+                    if (*slot - new).abs() > f32::EPSILON {
+                        *slot = new;
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if let Some(v) = &fields.head_scale
+                    && set_scale(&mut next.action.head_scale, defaults.head_scale, v)
+                {
+                    changed = true;
+                }
+                if let Some(v) = &fields.body_scale
+                    && set_scale(&mut next.action.body_scale, defaults.body_scale, v)
+                {
+                    changed = true;
+                }
+                if let Some(v) = &fields.expression_scale
+                    && set_scale(
+                        &mut next.action.expression_scale,
+                        defaults.expression_scale,
+                        v,
+                    )
+                {
+                    changed = true;
                 }
             }
         }

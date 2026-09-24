@@ -922,11 +922,13 @@ fn persona_settings_spec() -> ModSettingsSpec {
                 key: "card_path".to_string(),
                 label: "角色卡文件路径（.json / 内嵌 chara 的 .png）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "card_json".to_string(),
                 label: "角色卡 JSON 文本（与路径二选一，优先）".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::Bool {
                 key: "include_discipline".to_string(),
@@ -942,21 +944,25 @@ fn persona_settings_spec() -> ModSettingsSpec {
                 key: "name".to_string(),
                 label: "覆盖：名称".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "description".to_string(),
                 label: "覆盖：描述".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "personality".to_string(),
                 label: "覆盖：性格".to_string(),
                 secret: false,
+                default: None,
             },
             ModSettingField::String {
                 key: "scenario".to_string(),
                 label: "覆盖：场景".to_string(),
                 secret: false,
+                default: None,
             },
         ],
     }

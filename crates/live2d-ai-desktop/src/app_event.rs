@@ -224,6 +224,23 @@ pub enum ConversationUiEvent {
         /// 整轮正文（覆盖式设置，非增量）。
         text: String,
     },
+    /// **表演层按句 cue**（2026-09-22）：投影自 `EngineEvent::ActionCue`，
+    /// web 路径为 **既有** `action_cue` 帧（前端 `ActionCueEvent` 不需要改）。
+    ///
+    /// 与 director Mod 的 cue 帧**同一个 wire 契约**：`cues[]` 单条
+    /// `{sentence_seq, preset_id, intensity, ttl_ms, priority}`，前端在该句音频
+    /// `first_chunk` 时应用。产出口现在有两个（表演层 / 规则导演 Mod），
+    /// 但**同轮只会有一个**：表演层开着时 host 不再把 `SentenceReady` 转给 Mod。
+    ActionCue {
+        /// 所属业务代次。
+        epoch: u64,
+        /// 引擎记录的产生时刻（相对本轮起点的毫秒数）。
+        ts_ms: u64,
+        /// 这份计划覆盖到的最大句序号。
+        covers_upto_seq: u64,
+        /// 按句 cue（已校验 / 钳位）。
+        cues: Vec<live2d_ai_runtime::performance::PerformanceCue>,
+    },
 }
 
 /// 发布 helper：经代理发送 [`AppEvent`]（发送失败仅见于调试日志：

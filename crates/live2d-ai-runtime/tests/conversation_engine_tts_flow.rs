@@ -446,3 +446,63 @@ async fn tts_transport_failure_also_falls_back_to_the_generated_text() {
     );
     assert!(matches!(find_error_kind(&events), Some(ErrorKind::Tts(_))));
 }
+
+/// **确定性清洗（主链，2026-09-21）**：送 TTS 的文本与上屏文本是**同一份清洗
+/// 产物**——括号动作描写 / 成对星号舞台指示 / 多余 Markdown 被剥掉，句读与
+/// 句边界不动；回灌 LLM 的历史仍是原文。
+///
+/// 为什么必须在这里钉：清洗一旦只作用于 TTS 或只作用于上屏，用户就会看到
+/// 「屏幕上写着（挥手）、声音里没有」这种两套真相。
+///
+/// **导演 Disabled（本测试里根本没有导演）时清洗照常生效**：清洗在
+/// `live2d-ai-runtime` 引擎里，与任何 Mod / 第二路无关。
+#[tokio::test]
+async fn tts_and_screen_share_the_deterministically_cleaned_sentence() {
+    let raw = "你好呀（挥手）。*歪头* 再见。";
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content(raw), sse_done()],
+    ))
+    .await;
+    let (tts_base, tts_inputs) = spawn_tts_mock().await;
+
+    let mut eng = engine(&llm_base, &tts_base, ConversationConfig::default());
+    let (event_tx, event_rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(51, "hi", event_tx, CancellationToken::new())
+        .await;
+    assert_eq!(report.status, TurnStatus::Completed);
+
+    // ① 历史回灌保持**原文**（清洗不碰模型上下文）。
+    assert_eq!(
+        report.assistant_text, raw,
+        "assistant_text 必须是未清洗的原文"
+    );
+
+    // ② 送 TTS 的每句都是清洗产物。
+    let inputs = tts_inputs.lock().unwrap().clone();
+    assert_eq!(inputs, ["你好呀。", "再见。"], "TTS 输入必须已清洗");
+
+    // ③ 上屏文本与送 TTS 文本**逐字相同**（同一份字符串）。
+    let events = drain_events(event_rx).await;
+    assert_epoch(&events, 51);
+    assert_single_terminal_last(&events, TurnStatus::Completed);
+    let ready: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceReady { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    let voiced: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ready, ["你好呀。", "再见。"], "按句锚点必须已清洗");
+    assert_eq!(voiced, ready, "上屏（SentenceVoiced）与送 TTS 必须同源");
+}

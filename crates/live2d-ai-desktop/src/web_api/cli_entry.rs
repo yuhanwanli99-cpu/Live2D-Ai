@@ -118,10 +118,19 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     };
     let supervisor_opt = if std::path::Path::new(&config_path).is_file() {
         // 把 ctx.broadcaster 借给 supervisor emit 闭包（避免双 Broadcaster）。
+        // 思考闸门从设置快照实时读（PATCH / file_watcher 都会刷新它）。
+        let status_for_reasoning = ctx.status_ctx.clone();
+        let reasoning_gate: ReasoningGate = Arc::new(move || {
+            status_for_reasoning
+                .settings_snapshot()
+                .llm
+                .effective_show_reasoning()
+        });
         match build_web_supervisor(
             &config_path,
             ctx.broadcaster.clone(),
             mod_events_for_supervisor,
+            reasoning_gate,
         ) {
             Ok(handle) => {
                 println!("web: supervisor 已启动（详见日志）");
@@ -133,6 +142,11 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                 let handle_for_epoch = std::sync::Arc::clone(&handle);
                 ctx.status_ctx
                     .set_epoch_source(Box::new(move || handle_for_epoch.current_epoch()));
+                // 2026-09-22：表演层计数读源——`GET /api/v1/app/status` 的
+                // `performance` 块从这里拿「成功几轮 / 回退几轮 / 最近原因码」。
+                let handle_for_perf = std::sync::Arc::clone(&handle);
+                ctx.status_ctx
+                    .set_performance_source(Box::new(move || handle_for_perf.performance_stats()));
                 ctx = ctx.with_supervisor(handle);
                 Some(Arc::clone(
                     ctx.try_get_supervisor().as_ref().expect("just set"),
@@ -237,8 +251,25 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                     }),
                     config_path: config_path.clone(),
                     session_prompts: session_prompts_for_mods,
+                    // P1-3：导演 Mod 的按句 cue → 与 WS 客户端订阅的同一个 broadcaster。
+                    cues: {
+                        let bc = ctx.broadcaster.clone();
+                        Arc::new(move |cue: serde_json::Value| {
+                            // 与其余 WS 帧同形（type + data）；封装在 ws::action_cue_frame。
+                            bc.broadcast(&ws::action_cue_frame(&cue));
+                            true
+                        })
+                    },
                     // rc.4 M5：脱敏设置读取——Mod 可读当前生效设置（无密钥、无变量名），
                     // 角色卡 Mod 用它记住主链原本的 system_prompt 以便禁用时还原。
+                    //
+                    // W6（症状④ E6，选 (a) 统一口径）：改用**强口径**
+                    // `settings_to_view_with_keys` + `secrets::lookup`，与
+                    // GET/PUT /api/v1/env、GET/PATCH /api/v1/settings 一致——
+                    // `has_api_key` = 「声明了变量名**且**值真的读得到」。
+                    // Mod 面没有「必须弱口径」的实际理由：它读的是同一份
+                    // AppSettings，注入 lookup 不额外暴露任何密钥（视图本就不含
+                    // 变量名与明文）。两种语义的说明见 runtime `settings/view.rs`。
                     read_settings: {
                         let path_for_read = config_path.clone();
                         Arc::new(move || {
@@ -246,7 +277,10 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                                 return serde_json::json!({});
                             };
                             serde_json::to_value(
-                                live2d_ai_runtime::settings::view::settings_to_view(&s),
+                                live2d_ai_runtime::settings::view::settings_to_view_with_keys(
+                                    &s,
+                                    &live2d_ai_runtime::secrets::lookup,
+                                ),
                             )
                             .unwrap_or_else(|_| serde_json::json!({}))
                         })
@@ -276,14 +310,12 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     // `ModEventTopic` 都会经 `dispatch_event`（有界 channel，失败隔离）投递到
     // Mod worker。只安装一次（startup 装配）；无 supervisor 时 skip。
     if supervisor_opt.is_some() {
-        let reg = ctx.mod_registry.clone();
+        // sink 由 `mod_registry::mod_event_sink` 统一提供：`TurnPrompt` 同步
+        // 投递（等 worker 回执），其余话题非阻塞。这样「记忆/人设同轮生效」的
+        // 时序只写在**一处**，启动路径与 `supervisor_slot` 动态装配路径不会再分叉。
         if let Ok(mut guard) = mod_bridge.lock() {
-            *guard = Some(Arc::new(
-                move |t: ModEventTopic, p: &str, s: Option<&str>| {
-                    if let Ok(reg) = reg.lock() {
-                        let _ = reg.dispatch_event(t, p, s);
-                    }
-                },
+            *guard = Some(crate::mod_registry::mod_event_sink(
+                ctx.mod_registry.clone(),
             ));
         }
     }
@@ -367,10 +399,19 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
 /// `mod_events`：host→Mod 事件桥回调（`SupervisorConfig.mod_events`）。调用方
 /// 需传入能在 ModRegistry 装配后路由到 `dispatch_event` 的闭包；启动路径用
 /// 晚绑定 holder（registry 后建），动态路径直接捕获 `ctx.mod_registry`。
+/// 「要不要把思考投影成 WS 帧」的**实时**读源（`llm.show_reasoning`）。
+///
+/// 传闭包而不是 bool：这个开关必须**热生效**——用户在设置面板勾一下就该
+/// 立刻有/没有思考帧，而不是等到重启。读源是 `StatusContext` 的配置快照，
+/// 它已经被「PATCH 写盘」与「file_watcher 外部手改」两条路径刷新（见
+/// `StatusContext::refresh_from_disk`）。
+pub(crate) type ReasoningGate = Arc<dyn Fn() -> bool + Send + Sync>;
+
 pub(crate) fn build_web_supervisor(
     config_path: &str,
     broadcaster: ws::Broadcaster,
     mod_events: Option<ModEventSink>,
+    show_reasoning: ReasoningGate,
 ) -> Result<Arc<SupervisorHandle>, String> {
     let path = PathBuf::from(config_path);
     let settings =
@@ -432,6 +473,9 @@ pub(crate) fn build_web_supervisor(
              跑测试/静默运行请设 LIVE2D_AI_MUTE_AUDIO=1"
         );
     }
+    // 两个 emit 闭包（有/无 cpal 声卡）各持一份 clone。
+    let show_reasoning_for_emit = show_reasoning.clone();
+    let show_reasoning_for_emit2 = show_reasoning;
     let handle = Arc::new({
         // WS 音频广播（F6-T2）：browser 模式下它是出声的**唯一路径**，默认开；
         // server 模式下需显式 `LIVE2D_AI_WS_AUDIO=1` 才额外广播（旧行为，二者都响）。
@@ -475,6 +519,11 @@ pub(crate) fn build_web_supervisor(
                     mod_events: mod_events.clone(),
                 },
                 move |ev| {
+                    // **思考闸门**：`llm.show_reasoning=false`（缺省）时思考帧
+                    // 不下发（正文/音频/状态/错误不受影响）。
+                    if !ws::should_broadcast(&ev, show_reasoning_for_emit()) {
+                        return;
+                    }
                     // 投影 + 广播；P1 事件 None → 静默。
                     if let Some(frame) = ws::app_event_to_ws_frame(&ev) {
                         emit_bc.broadcast(&frame.to_string());
@@ -493,6 +542,10 @@ pub(crate) fn build_web_supervisor(
                     mod_events: mod_events.clone(),
                 },
                 move |ev| {
+                    // 同上：思考帧受 `llm.show_reasoning` 门控。
+                    if !ws::should_broadcast(&ev, show_reasoning_for_emit2()) {
+                        return;
+                    }
                     // 投影 + 广播；P1 事件 None → 静默。
                     if let Some(frame) = ws::app_event_to_ws_frame(&ev) {
                         emit_bc.broadcast(&frame.to_string());

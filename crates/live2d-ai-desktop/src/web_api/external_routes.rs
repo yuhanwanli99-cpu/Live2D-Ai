@@ -46,11 +46,15 @@
 //! 渲染，纯逻辑在同名 Mod crate（`render_from_config`），handler 不重写一份。
 //! 长度上限对**渲染后**文本生效（模板膨胀同样会 400 `text_too_long`）。
 //!
-//! # token 来源（env 优先，0.2.0-rc.1）
+//! # token 来源（env 优先，0.2.0-rc.1；W6 起 env 走 `secrets::lookup`）
 //!
-//! - env `EXTERNAL_INPUT_TOKEN` 非空 → 以它为准（部署期密钥，不落配置文件）；
+//! - env `EXTERNAL_INPUT_TOKEN` 非空 → 以它为准（部署期密钥，不落配置文件）。
+//!   **值经 [`live2d_ai_runtime::secrets::lookup`] 读**（`.env` 快照 > 进程环境）——
+//!   直接读进程环境会绕过 `.env`，于是「界面上刚写了 key、链路还说没配置」；
 //! - env 未设/为空 → 回落到 Mod config 的 `token`（前端可填，secret 存储）；
 //! - 两者都空 → 不鉴权（仅 loopback，向后兼容）。
+//!
+//! 优先级链**钉死不变**：env（`.env` > 进程环境）> Mod config > 不鉴权。
 //!
 //! 请求侧可用 body `token` 或 `Authorization: Bearer <token>`（二选一）。
 //!
@@ -134,6 +138,10 @@ fn external_input_gate(ctx: &ServerContext) -> ModGate {
 /// （worker 是否已 recv），而计数回归要断言「3 成功 / 1 忙」。
 type InjectFn<'a> = dyn Fn(&ServerContext, String) -> Option<bool> + 'a;
 
+/// 密钥查找口径（W6）：生产路径传 [`live2d_ai_runtime::secrets::lookup`]，
+/// 测试注入等价闭包——本文件不直接读进程环境。
+type LookupFn<'a> = dyn Fn(&str) -> Option<String> + 'a;
+
 /// 生产注入路径：借出 supervisor 并 `say`。
 fn supervisor_inject(ctx: &ServerContext, text: String) -> Option<bool> {
     ctx.try_get_supervisor().map(|s| s.say(text))
@@ -176,6 +184,7 @@ pub fn handle_external_chat(
             auth_header,
         },
         &supervisor_inject,
+        &live2d_ai_runtime::secrets::lookup,
     )
 }
 
@@ -184,6 +193,7 @@ fn handle_external_chat_with(
     ctx: &ServerContext,
     req: ExternalRequest<'_>,
     inject: &InjectFn<'_>,
+    lookup: &LookupFn<'_>,
 ) -> Option<Response<Cursor<Vec<u8>>>> {
     let ExternalRequest {
         method,
@@ -245,8 +255,9 @@ fn handle_external_chat_with(
         }
     };
     // token：env 优先，其次 Mod config（secret）；都空 = 不鉴权。
-    let env_token = std::env::var(TOKEN_ENV_VAR)
-        .ok()
+    // 优先级链**不变**：env（`.env` 快照 > 进程环境，经 `secrets::lookup`）
+    // → Mod config → 不鉴权。
+    let env_token = lookup(TOKEN_ENV_VAR)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let config_token = live2d_ai_mod_external_input::token_from_config(&gate.config);
@@ -433,6 +444,17 @@ mod tests {
         handle_external_chat(ctx, method, path, body, origin, ct, None)
     }
 
+    /// 测试用密钥查找口径：模拟「进程环境 / `.env` 都没有该令牌」。
+    /// 生产路径的 lookup 是 `secrets::lookup`（见 `handle_external_chat`）。
+    fn no_env_lookup(_name: &str) -> Option<String> {
+        None
+    }
+
+    /// 恒接受的注入点（只走 token / 门禁分支的回归用）。
+    fn accept_inject(_ctx: &ServerContext, _text: String) -> Option<bool> {
+        Some(true)
+    }
+
     #[test]
     fn mismatched_path_returns_none() {
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
@@ -612,11 +634,11 @@ mod tests {
     // --- token：env 优先 / config 回落 / Bearer 头 ---
 
     /// `Authorization: Bearer` 必须真的被 handler 读取（旧版传 None，是缺陷）。
+    ///
+    /// W6：改用注入的 lookup（`no_env_lookup` = 进程环境/`.env` 都没有令牌），
+    /// 不再直接探测进程环境——测试因此**确定性**。
     #[test]
     fn config_token_accepts_bearer_header() {
-        if std::env::var(TOKEN_ENV_VAR).is_ok() {
-            return; // 环境已设 env token 时该路径不适用。
-        }
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
         let ctx = ctx_with_manifest(
             sec,
@@ -625,14 +647,18 @@ mod tests {
                 "config": {"token": "cfg-secret"}
             }}}),
         );
-        let resp = handle_external_chat(
+        let resp = handle_external_chat_with(
             &ctx,
-            &method_post(),
-            EXTERNAL_CHAT_PATH,
-            r#"{"text":"hi"}"#,
-            None,
-            Some("application/json"),
-            Some("Bearer cfg-secret"),
+            ExternalRequest {
+                method: &method_post(),
+                path: EXTERNAL_CHAT_PATH,
+                body: r#"{"text":"hi"}"#,
+                origin: None,
+                content_type: Some("application/json"),
+                auth_header: Some("Bearer cfg-secret"),
+            },
+            &accept_inject,
+            &no_env_lookup,
         )
         .unwrap();
         assert_ne!(
@@ -642,12 +668,9 @@ mod tests {
         );
     }
 
-    /// config token 已设但请求不带 token → 401。
+    /// config token 已设但请求不带 token → 401（注入 lookup = 无 env 令牌）。
     #[test]
     fn config_token_missing_401() {
-        if std::env::var(TOKEN_ENV_VAR).is_ok() {
-            return;
-        }
         let _guard = counter_lock(); // 401 会计 reject → 与计数回归串行。
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
         let ctx = ctx_with_manifest(
@@ -657,25 +680,64 @@ mod tests {
                 "config": {"token": "cfg-secret"}
             }}}),
         );
-        let resp = call(
+        let resp = handle_external_chat_with(
             &ctx,
-            &method_post(),
-            EXTERNAL_CHAT_PATH,
-            r#"{"text":"hi"}"#,
-            None,
-            Some("application/json"),
+            req(&method_post(), r#"{"text":"hi"}"#),
+            &accept_inject,
+            &no_env_lookup,
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(401));
+    }
+
+    /// W6 回归（症状④ E5）：令牌**只写在 `.env`**（注入 lookup 有值、进程环境
+    /// 没有）时也读得到；且既有优先级链不变：`.env`/env > Mod config > 不鉴权。
+    #[test]
+    fn dotenv_token_is_read_and_still_wins_over_config() {
+        let _guard = counter_lock(); // 被压过的 config token → 401，计 reject。
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = ctx_with_manifest(
+            sec,
+            &serde_json::json!({"mods":{"external-input":{
+                "enabled": true,
+                "config": {"token": "cfg-secret"}
+            }}}),
+        );
+        // 注入「值只在 .env」的 lookup：进程环境没有这个变量。
+        let dotenv = |name: &str| (name == TOKEN_ENV_VAR).then(|| "dotenv-secret".to_string());
+
+        let ok = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi","token":"dotenv-secret"}"#),
+            &accept_inject,
+            &dotenv,
+        )
+        .unwrap();
+        assert_eq!(
+            ok.status_code(),
+            StatusCode(200),
+            "`.env` 里的令牌必须被读到（过鉴权后经注入点接受）"
+        );
+
+        // 优先级链不变：`.env`（env 档）压过 Mod config。
+        let shadowed = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi","token":"cfg-secret"}"#),
+            &accept_inject,
+            &dotenv,
+        )
+        .unwrap();
+        assert_eq!(
+            shadowed.status_code(),
+            StatusCode(401),
+            "env 档优先时，Mod config 的令牌不再作为有效令牌"
+        );
     }
 
     // --- 模板膨胀后的长度门禁 ---
 
     #[test]
     fn template_inflated_text_too_long_400() {
-        if std::env::var(TOKEN_ENV_VAR).is_ok() {
-            return;
-        }
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
         let ctx = ctx_with_manifest(
             sec,
@@ -684,13 +746,11 @@ mod tests {
                 "config": {"prefix": "x".repeat(MAX_TEXT_LEN + 5)}
             }}}),
         );
-        let resp = call(
+        let resp = handle_external_chat_with(
             &ctx,
-            &method_post(),
-            EXTERNAL_CHAT_PATH,
-            r#"{"text":"hi"}"#,
-            None,
-            Some("application/json"),
+            req(&method_post(), r#"{"text":"hi"}"#),
+            &accept_inject,
+            &no_env_lookup,
         )
         .unwrap();
         assert_eq!(
@@ -778,9 +838,7 @@ mod tests {
     /// （与 `GET /api/v1/mods/external-input/state` 同一条路径）。
     #[test]
     fn handler_counts_accepts_rejects_busy_into_state() {
-        if std::env::var(TOKEN_ENV_VAR).is_ok() {
-            return; // env token 会覆盖 config token，坏 token 分支不成立。
-        }
+        // W6：注入 lookup（无 env 令牌）→ 不再依赖进程环境探测。
         let _guard = counter_lock();
         let before = live2d_ai_mod_external_input::counters_snapshot();
         let base = |k: &str| before[k].as_u64().expect("计数为整数");
@@ -807,6 +865,7 @@ mod tests {
                 &ctx,
                 req(&method_post(), r#"{"text":"hi","token":"cfg-secret"}"#),
                 &inject,
+                &no_env_lookup,
             )
             .unwrap();
             assert_eq!(resp.status_code(), StatusCode(200));
@@ -816,6 +875,7 @@ mod tests {
             &ctx,
             req(&method_post(), r#"{"text":"hi","token":"wrong"}"#),
             &inject,
+            &no_env_lookup,
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(401));
@@ -853,6 +913,7 @@ mod tests {
             &ctx,
             req(&method_post(), r#"{"text":"hi","v2_ignored":7}"#),
             &inject,
+            &no_env_lookup,
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(200));
@@ -915,9 +976,6 @@ mod tests {
     /// `POST /api/v1/mods/external-input/command` 同一条路。
     #[test]
     fn reset_counters_command_clears_handler_counts() {
-        if std::env::var(TOKEN_ENV_VAR).is_ok() {
-            return; // env token 会让不带 token 的注入 401，计数分支不按预期。
-        }
         let _guard = counter_lock();
         let sec = crate::web_api::security::SecurityContext::new(18099, true);
         let ctx = ctx_with_manifest(
@@ -930,6 +988,7 @@ mod tests {
             &ctx,
             req(&method_post(), r#"{"text":"hi","v2_ignored":5}"#),
             &inject,
+            &no_env_lookup,
         )
         .unwrap();
         assert_eq!(resp.status_code(), StatusCode(200));

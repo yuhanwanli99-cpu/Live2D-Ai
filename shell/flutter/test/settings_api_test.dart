@@ -62,11 +62,27 @@ void main() {
 
     test('显式清空 → 键出现且值为 null', () {
       final Map<String, Object?> body = const SettingsPatch(
-        tts: TtsSettingsPatch(apiKeyEnv: TriClear<String>()),
+        tts: TtsSettingsPatch(model: TriClear<String>()),
       ).toJson();
       final Map<String, Object?> tts = body['tts']! as Map<String, Object?>;
-      expect(tts.containsKey('api_key_env'), isTrue);
-      expect(tts['api_key_env'], isNull);
+      expect(tts.containsKey('model'), isTrue);
+      expect(tts['model'], isNull);
+    });
+
+    test('P6：前端补丁不再携带 api_key_env（改绑定只能改 live2d-ai.toml）', () {
+      // 变量名编辑入口已从界面移除（P6）：Llm/Tts patch 类型上就没有
+      // api_key_env 这个字段，所以界面**不可能**再发出绑定 / 清除绑定。
+      // 服务端仍接受它（curl / 手改 toml 用），但那条路不经过前端。
+      final Map<String, Object?> body = const SettingsPatch(
+        llm: LlmSettingsPatch(model: TriSet<String>('deepseek-chat')),
+        tts: TtsSettingsPatch(voice: TriSet<String>('nova')),
+      ).toJson();
+      final Map<String, Object?> llm = body['llm']! as Map<String, Object?>;
+      final Map<String, Object?> tts = body['tts']! as Map<String, Object?>;
+      expect(llm.containsKey('api_key_env'), isFalse);
+      expect(tts.containsKey('api_key_env'), isFalse);
+      expect(llm.containsKey('clear_api_key'), isFalse);
+      expect(tts.containsKey('clear_api_key'), isFalse);
     });
 
     test('TriKeep 与「字段为 null」都是不修改', () {
@@ -170,6 +186,22 @@ void main() {
     Map<String, Object?> llmJson(LlmSettingsPatch patch) =>
         jsonDecode(jsonEncode(patch.toJson())) as Map<String, Object?>;
 
+    test('defaultMaxTokens 与服务端 DEFAULT_MAX_TOKENS 一致（= 4096）', () {
+      // P3：这里曾错写成 512，而服务端
+      // `live2d_ai_runtime::settings::DEFAULT_MAX_TOKENS = 4096`
+      // （crates/live2d-ai-runtime/src/settings.rs）。前端这个常量只在服务端漏字段
+      // 时兜底，写错就是前后端默认值漂移。推理模型下思考与正文共用 max_tokens，
+      // 上限过小会把正文挤成半句 → 一个字都不上屏，所以这条必须有回归。
+      expect(LlmSettingsView.defaultMaxTokens, 4096);
+    });
+
+    test('LlmSettingsView.fromJson({}) 缺 max_tokens → 回落 4096（不是 0 / 512）', () {
+      final LlmSettingsView v = LlmSettingsView.fromJson(<String, Object?>{});
+      expect(v.maxTokens, 4096);
+      expect(v.maxTokens, LlmSettingsView.defaultMaxTokens);
+      expect(v.isMaxTokensUnlimited, isFalse, reason: '回落默认不等于「不限制」');
+    });
+
     test('TriSet(0) 发出的是 0，不是缺键、也不是 null', () {
       final Map<String, Object?> j = llmJson(
         const LlmSettingsPatch(maxTokens: TriSet<int>(0)),
@@ -178,7 +210,7 @@ void main() {
       expect(j['max_tokens'], 0, reason: '0 = 不限制，是合法显式值');
     });
 
-    test('TriClear() 发出的是 null（清除 → 服务端回落默认 512）', () {
+    test('TriClear() 发出的是 null（清除 → 服务端回落默认 4096）', () {
       final Map<String, Object?> j = llmJson(
         const LlmSettingsPatch(maxTokens: TriClear<int>()),
       );
@@ -205,7 +237,7 @@ void main() {
       expect(j, isEmpty);
     });
 
-    test('响应回的是生效值：0 原样透传，缺字段回落 512', () {
+    test('响应回的是生效值：0 原样透传，缺字段回落 4096', () {
       final SettingsView unlimited = SettingsView.fromJson(<String, Object?>{
         'llm': <String, Object?>{'max_tokens': 0},
       });
@@ -224,6 +256,48 @@ void main() {
       });
       expect(capped.llm.maxTokens, 2048);
       expect(capped.llm.isMaxTokensUnlimited, isFalse);
+    });
+  });
+
+  group('llm.show_reasoning：展示思考总闸（缺省不展示）', () {
+    test('解析：缺字段 / 显式 false → false；true → true', () {
+      // 「旧服务端没有这个键」必须落到 false——升级前后行为一致：
+      // 思考是模型的内心独白，产品默认不摆到用户面前。
+      expect(
+        LlmSettingsView.fromJson(<String, Object?>{}).showReasoning,
+        isFalse,
+      );
+      expect(
+        LlmSettingsView.fromJson(<String, Object?>{
+          'show_reasoning': false,
+        }).showReasoning,
+        isFalse,
+      );
+      expect(
+        LlmSettingsView.fromJson(<String, Object?>{
+          'show_reasoning': true,
+        }).showReasoning,
+        isTrue,
+      );
+    });
+
+    test('补丁三态：set(true) / clear(null) / 缺省不出现', () {
+      expect(
+        const LlmSettingsPatch(showReasoning: TriSet<bool>(true)).toJson()['show_reasoning'],
+        isTrue,
+      );
+      final Map<String, Object?> cleared = const LlmSettingsPatch(
+        showReasoning: TriClear<bool>(),
+      ).toJson();
+      // 显式 null = 清除 → 回落服务端缺省（false），与「不出现」是两件事。
+      expect(cleared.containsKey('show_reasoning'), isTrue);
+      expect(cleared['show_reasoning'], isNull);
+      // 缺省 = 不动：键不出现，patch 也仍然算空。
+      expect(
+        const LlmSettingsPatch().toJson().containsKey('show_reasoning'),
+        isFalse,
+      );
+      expect(const LlmSettingsPatch().isEmpty, isTrue);
     });
   });
 
@@ -379,6 +453,62 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('action 幅度倍率（2026-09-16）', () {
+    test('缺 action 段回落出厂默认，而不是 1.0', () {
+      final SettingsView legacy = SettingsView.fromJson(<String, Object?>{});
+      expect(legacy.action.headScale, 0.75);
+      expect(legacy.action.bodyScale, 0.80);
+      expect(legacy.action.expressionScale, 1.0);
+    });
+
+    test('倍率范围常量与服务端同口径（2026-09-24：max 2.5 → 2.2）', () {
+      expect(ActionSettingsView.minScale, 0.2);
+      expect(ActionSettingsView.maxScale, 2.2);
+    });
+
+    test('action 段解析 + 渲染面载荷三键齐全', () {
+      final SettingsView v = SettingsView.fromJson(<String, Object?>{
+        'action': <String, Object?>{
+          'head_scale': 0.9,
+          'body_scale': 1.1,
+          'expression_scale': 1.2,
+        },
+      });
+      expect(v.action.headScale, 0.9);
+      expect(v.action.bodyScale, 1.1);
+      expect(v.action.expressionScale, 1.2);
+      final Map<String, double> payload = toActionScalesPayload(v.action);
+      expect(payload.keys.toSet(), <String>{'head', 'body', 'expression'});
+      expect(payload['head'], 0.9);
+    });
+
+    test('坏值回落默认，不抛', () {
+      final SettingsView v = SettingsView.fromJson(<String, Object?>{
+        'action': <String, Object?>{'head_scale': 'x', 'body_scale': null},
+      });
+      expect(v.action.headScale, 0.75);
+      expect(v.action.bodyScale, 0.80);
+    });
+
+    test('补丁只写真要改的键；Tri.clear 发 null', () {
+      expect(
+        const SettingsPatch(
+          action: ActionSettingsPatch(headScale: TriSet<double>(0.9)),
+        ).toJson()['action'],
+        <String, Object?>{'head_scale': 0.9},
+      );
+      final Map<String, Object?> cleared =
+          const SettingsPatch(
+                action: ActionSettingsPatch(bodyScale: TriClear<double>()),
+              ).toJson()['action']!
+              as Map<String, Object?>;
+      expect(cleared.containsKey('body_scale'), isTrue);
+      expect(cleared['body_scale'], isNull);
+      expect(const ActionSettingsPatch().isEmpty, isTrue);
+      expect(const SettingsPatch().toJson().containsKey('action'), isFalse);
     });
   });
 }

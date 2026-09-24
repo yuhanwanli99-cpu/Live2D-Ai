@@ -18,6 +18,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../api/settings_models.dart';
 import '../../design/theme_id.dart';
 import '../../design/tokens.dart';
 import '../../settings/display_prefs.dart';
@@ -42,6 +43,10 @@ class AppearanceSection extends StatelessWidget {
     this.onClearShellImage,
     this.shellImageMessage,
     this.shellImageFailed = false,
+    this.action,
+    this.onHeadScaleChanged,
+    this.onBodyScaleChanged,
+    this.onExpressionScaleChanged,
     super.key,
   });
 
@@ -72,6 +77,16 @@ class AppearanceSection extends StatelessWidget {
   final VoidCallback? onClearShellImage;
   final String? shellImageMessage;
   final bool shellImageFailed;
+
+  // ── 动作幅度（2026-09-16，服务端产品设置） ──
+  //
+  // 与上面那些**纯本地 DisplayPrefs** 不同：这三项存在 `live2d-ai.toml` 的
+  // `[action]` 段，走设置草稿 + 保存按钮（PATCH /api/v1/settings）。
+  // 为 null 时整块不渲染（宿主还没拿到服务端设置）。
+  final ActionSettingsView? action;
+  final ValueChanged<double>? onHeadScaleChanged;
+  final ValueChanged<double>? onBodyScaleChanged;
+  final ValueChanged<double>? onExpressionScaleChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -169,6 +184,50 @@ class AppearanceSection extends StatelessWidget {
             onChanged: (int v) => onPrefsChanged(prefs.copyWith(tier: v)),
             description: '性能与画质的权衡；需要档位知识，所以进开发者层',
           ),
+        if (action != null) ...[
+          const Divider(),
+          const SectionHeader(
+            title: '动作幅度',
+            description: '拖动**立刻在舞台上生效**（无需先保存）；'
+                '「保存」才把值写进服务端（live2d-ai.toml 的 [action] 段），'
+                '重开也还在。放弃改动 / 重新加载会立刻回到磁盘上的值。'
+                '出厂 head 75% / body 80% / expression 100%。'
+                '头摆太大就调小 head，身摆太小就调大 body。',
+          ),
+          SliderField(
+            label: '头部摆幅',
+            icon: Icons.face_retouching_natural,
+            value: action!.headScale,
+            min: ActionSettingsView.minScale,
+            max: ActionSettingsView.maxScale,
+            divisions: 46,
+            enabled: onHeadScaleChanged != null,
+            onChanged: onHeadScaleChanged ?? (double _) {},
+            description: 'ParamAngle* 的倍率；出厂 75%',
+          ),
+          SliderField(
+            label: '身体摆幅',
+            icon: Icons.accessibility_new,
+            value: action!.bodyScale,
+            min: ActionSettingsView.minScale,
+            max: ActionSettingsView.maxScale,
+            divisions: 46,
+            enabled: onBodyScaleChanged != null,
+            onChanged: onBodyScaleChanged ?? (double _) {},
+            description: 'ParamBodyAngle* 的倍率；出厂 80%，身/头比约 0.35',
+          ),
+          SliderField(
+            label: '表情幅度',
+            icon: Icons.mood,
+            value: action!.expressionScale,
+            min: ActionSettingsView.minScale,
+            max: ActionSettingsView.maxScale,
+            divisions: 46,
+            enabled: onExpressionScaleChanged != null,
+            onChanged: onExpressionScaleChanged ?? (double _) {},
+            description: '口 / 眉 / 眼 的倍率；出厂 100%',
+          ),
+        ],
         const Divider(),
         const SectionHeader(
           title: '互动',

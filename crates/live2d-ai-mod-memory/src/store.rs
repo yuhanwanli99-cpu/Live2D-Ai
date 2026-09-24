@@ -237,6 +237,8 @@ fn encode_record(record: &MemoryRecord) -> std::io::Result<String> {
         "text": record.text,
         "ts": record.ts,
         "turn": record.turn,
+        // Wave 3（2026-09-21）：谁说的。老行没有这个字段 → 解析回 User。
+        "role": record.role.as_str(),
     });
     serde_json::to_string(&value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
@@ -266,14 +268,24 @@ pub fn parse_record_line(line: &str) -> Option<MemoryRecord> {
         .get("turn")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
+    let role =
+        crate::strategy::MemoryRole::parse(value.get("role").and_then(serde_json::Value::as_str));
     let id = value
         .get("id")
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| MemoryRecord::make_id(ts, turn, &text));
-    Some(MemoryRecord { id, text, ts, turn })
+        // 老行（没有 id）按**用户口径**公式派生——升级前它们全是用户输入，
+        // 这条保证「老记录升级前后 id 相同、面板还能指中同一行」。
+        .unwrap_or_else(|| MemoryRecord::make_id_for(role, ts, turn, &text));
+    Some(MemoryRecord {
+        id,
+        text,
+        ts,
+        turn,
+        role,
+    })
 }
 
 #[cfg(test)]

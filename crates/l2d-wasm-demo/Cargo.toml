@@ -14,11 +14,14 @@ publish = false
 # Ayagami 底座经由 crates/l2d 的既有 pin 引入，本 crate 不直接依赖、不复制其源码。
 
 [dependencies]
+# 2026-09-16（P1-1）：外置动作预设表 JSON 的解析要在**原生测试**里也能跑
+# （「纯逻辑藏在 wasm 门控后面 = 没有回归」是同一条教训），所以 serde_json
+# 从 wasm32 目标区移到无条件依赖。
+serde_json = "1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 l2d = { path = "../l2d" }
 glam = "0.33"
 live2d-ai-core = { path = "../live2d-ai-core", default-features = false }
-serde_json = "1"
 # wgpu 29 与 l2d/ayagami 同大版本；webgl 特性启用 WebGL2 回退后端
 # （WebGPU 特性由 wgpu 默认特性携带）。native 构建不拉取任何 web 栈。
 wgpu = { version = "29", features = ["webgl"] }

@@ -4,6 +4,13 @@
 //! 也不依赖任何向量 / embedding / 网络设施。IO 在 [`crate::store`]，
 //! Mod 生命周期与注入在 [`crate`]。
 //!
+//! # 文件长度（>500 行，理由）
+//!
+//! 「一条记录的**形状**」（[`MemoryRecord`] / [`MemoryRole`] / 稳定 id）与
+//! 「记录怎么被选出来」（分词 / 打分 / top-k / 摘要按轮保留窗口）是同一件事的两面：
+//! 拆开会让「id 为什么长这样、角色前缀从哪来」跨文件追索。Wave 3（2026-09-21）
+//! 加入 role 与 [recent_turn_window_start] 后超过 500 行，按 ≤1000 口径豁免，理由在此。
+//!
 //! # 检索口径（v0，明文钉死）
 //!
 //! - **中文按字 bigram**：一段连续汉字 `c0 c1 … cn` 产出 `c0c1, c1c2, …`；
@@ -84,23 +91,104 @@ pub struct MemoryRecord {
     pub ts: i64,
     /// 本 Mod 观察到的第几次 `TurnPrompt`（**不是** supervisor 的 turn id；
     /// `TurnPrompt` 的 payload 只有正文，见 `topics.rs`）。
+    ///
+    /// **一轮之内用户记录与助手记录共用同一个 turn**（Wave 3，2026-09-21）：
+    /// 助手记录在轮末（`AssistantReplied`）追加，此时 `turn_seq` 还没
+    /// 递增，因此摘要的「保留最近 K 轮」可以按 turn 分组一并保留 user+assistant。
     pub turn: u64,
+    /// 谁说的（Wave 3，2026-09-21）：user = 用户输入，assistant = 助手已上屏正文。
+    pub role: MemoryRole,
+}
+
+/// 记忆记录的角色（Wave 3，2026-09-21）。
+///
+/// 落盘为 JSONL 的 "role" 字段；**缺省 = User**——升级前的老行没有该字段，
+/// 它们全是用户输入。这条兼容决定了「老记忆注入形态不变」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MemoryRole {
+    /// 用户侧（`TurnPrompt` 写入）。
+    #[default]
+    User,
+    /// 助手侧（`AssistantReplied` 轮末写入）。
+    Assistant,
+}
+
+impl MemoryRole {
+    /// 落盘 / 事件里的稳定字符串。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+
+    /// 解析落盘 / 事件里的 role 字符串；未知 / 缺失 → User（宽容，不失败）。
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(str::trim) {
+            Some("assistant") | Some("Assistant") => Self::Assistant,
+            _ => Self::User,
+        }
+    }
+
+    /// 注入 / 摘要行里的角色前缀（**必须区分角色**：模型要知道哪句是自己说的）。
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            Self::User => "[用户] ",
+            Self::Assistant => "[助手] ",
+        }
+    }
 }
 
 impl MemoryRecord {
-    /// 按 id 公式构造（新写入路径统一走它，避免公式散落多处）。
+    /// 按 id 公式构造（用户口径；新写入路径统一走它，避免公式散落多处）。
     pub fn new(text: impl Into<String>, ts: i64, turn: u64) -> Self {
-        let text = text.into();
-        let id = Self::make_id(ts, turn, &text);
-        Self { id, text, ts, turn }
+        Self::with_role(text, ts, turn, MemoryRole::User)
     }
 
-    /// id 公式：`<ts>-<turn>-<fnv1a(text) 8 位十六进制>`。
+    /// 助手侧记录（Wave 3）：正文是**已清洗的上屏口径**，turn 与同轮用户记录相同。
+    pub fn assistant(text: impl Into<String>, ts: i64, turn: u64) -> Self {
+        Self::with_role(text, ts, turn, MemoryRole::Assistant)
+    }
+
+    /// 带角色构造（所有路径的唯一入口）。
+    pub fn with_role(text: impl Into<String>, ts: i64, turn: u64, role: MemoryRole) -> Self {
+        let text = text.into();
+        let id = Self::make_id_for(role, ts, turn, &text);
+        Self {
+            id,
+            text,
+            ts,
+            turn,
+            role,
+        }
+    }
+
+    /// id 公式：`<ts>-<turn>-<fnv1a(text) 8 位十六进制>`（用户口径）。
     ///
     /// 刻意**不引依赖**（5 行 FNV-1a 足够，见 [fnv1a_hex8]）；`turn` 参与公式
     /// 是为了让「同一秒内同一句话的两次不同轮次」拿到不同 id。
+    ///
+    /// **老行派生公式不变**：升级前没有 id 的行走这条，得到与旧版相同的 id。
     pub fn make_id(ts: i64, turn: u64, text: &str) -> String {
         format!("{ts}-{turn}-{}", fnv1a_hex8(text))
+    }
+
+    /// 角色化 id：user 沿用 [Self::make_id]（老行派生不变），assistant 在尾段
+    /// 加一个 a 前缀——否则「同一秒、同一轮、用户与助手说了同一句话」会撞 id，
+    /// 面板的 delete 会把两条一起删掉。
+    pub fn make_id_for(role: MemoryRole, ts: i64, turn: u64, text: &str) -> String {
+        match role {
+            MemoryRole::User => Self::make_id(ts, turn, text),
+            MemoryRole::Assistant => format!("{ts}-{turn}-a{}", fnv1a_hex8(text)),
+        }
+    }
+
+    /// 注入 / 摘要共用的单行形态：**角色前缀** + 压平 + 截断。
+    ///
+    /// 角色前缀是「注入格式区分角色」的落点：用户行 `[用户] …`、
+    /// 助手行 `[助手] …`，与摘要行 `[摘要] …` 同一套括号风格。
+    pub fn line(&self) -> String {
+        sanitize_memory_line(&format!("{}{}", self.role.prefix(), self.text))
     }
 }
 
@@ -241,6 +329,31 @@ pub fn rank_top_k(query: &str, records: &[MemoryRecord], k: usize) -> Vec<Hit> {
     hits
 }
 
+/// 「保留最近 `keep_turns` 轮」的窗口左界（Wave 3，2026-09-21）。
+///
+/// 「轮」= 记录的 `turn` 字段（同轮的 user + assistant 共用一个值）。从最新
+/// 记录往前数，遇到第 `keep_turns + 1` 个**不同 turn** 时，窗口从它**之后**
+/// 开始；返回值即「可被摘要的区间右界」。`keep_turns == 0` → `len`（全部可压）。
+///
+/// 为什么不能再用「最后 K 条」：助手记录入桶后，4 条记录 = 2 轮——那样
+/// 「保留最近 4 轮原文」会缩水成 2 轮，最近说过的话被提前压成二手转述。
+pub fn recent_turn_window_start(records: &[MemoryRecord], keep_turns: usize) -> usize {
+    if keep_turns == 0 {
+        return records.len();
+    }
+    let mut seen: Vec<u64> = Vec::new();
+    for (index, record) in records.iter().enumerate().rev() {
+        if seen.contains(&record.turn) {
+            continue;
+        }
+        if seen.len() == keep_turns {
+            return index + 1;
+        }
+        seen.push(record.turn);
+    }
+    0
+}
+
 /// 提示词里是否已有本 Mod 的注入块（禁用时据此决定要不要清残留）。
 pub fn contains_memory_block(prompt: &str) -> bool {
     prompt.contains(MEMORY_MARKER_BEGIN)
@@ -290,26 +403,117 @@ pub fn sanitize_memory_line(text: &str) -> String {
 /// 幂等判据永远为假——每轮都写盘 + reload。
 pub fn compose_injection(base: &str, memories: &[String]) -> String {
     let base = strip_memory_block(base);
+    let block = block_from_lines(&memory_lines(memories));
+    if block.is_empty() {
+        return base;
+    }
+    if base.is_empty() {
+        block
+    } else {
+        format!("{base}\n\n{block}")
+    }
+}
+/// 注入预算（字符数）缺省与钳位。
+pub const DEFAULT_INJECTION_BUDGET_CHARS: usize = 1600;
+pub const MIN_INJECTION_BUDGET_CHARS: usize = 200;
+pub const MAX_INJECTION_BUDGET_CHARS: usize = 20_000;
+
+/// 注入块占用预算 **>该比例 → 按分数裁 top-k**（缺省 0.60）。
+pub const DEFAULT_TRIM_RATIO: f64 = 0.60;
+
+/// 注入块占用预算 **>该比例 → 标记待摘要**（缺省 0.75）。
+pub const DEFAULT_SUMMARY_RATIO: f64 = 0.75;
+
+/// 摘要时**保留最近几轮原文**的缺省值（Wave 3 起按 `turn` 分组计数，
+/// 见 [recent_turn_window_start]）。
+pub const SUMMARY_KEEP_RECENT_TURNS: usize = 4;
+
+/// 一次预算裁剪的结果（纯数据，便于单测与 state_json）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct BudgetedInjection {
+    /// 保留的记忆行（已 sanitize / 去重；顺序 = 输入顺序 = 分数降序）。
+    pub lines: Vec<String>,
+    /// 被预算裁掉的条数（不含 sanitize 丢空 / 去重）。
+    pub dropped: usize,
+    /// 注入块字符数（含 marker；0 = 无块）。
+    pub used_chars: usize,
+    /// 预算字符数（回显，便于 state_json）。
+    pub budget_chars: usize,
+    /// used_chars / budget_chars（budget=0 -> 1.0）。
+    pub ratio: f64,
+    /// 是否发生了 top-k 裁剪。
+    pub topk_trimmed: bool,
+    /// 是否越过摘要阈值（调用方据此标记待摘要 + 冷却）。
+    pub needs_summary: bool,
+}
+
+impl BudgetedInjection {
+    /// 拼成最终注入块（无内容 -> 空串）。
+    pub fn block(&self) -> String {
+        block_from_lines(&self.lines)
+    }
+}
+
+/// sanitize + 去重 + 丢空后的记忆行（[`compose_injection`] 与预算裁剪共用）。
+fn memory_lines(memories: &[String]) -> Vec<String> {
     let mut seen = BTreeSet::new();
-    let lines: Vec<String> = memories
+    memories
         .iter()
         .map(|m| sanitize_memory_line(m))
         .filter(|l| !l.is_empty())
         .filter(|l| seen.insert(l.clone()))
-        .collect();
+        .collect()
+}
+
+/// 由记忆行拼出注入块（**不含 base**；空 -> 空串）。
+fn block_from_lines(lines: &[String]) -> String {
     if lines.is_empty() {
-        return base;
+        return String::new();
     }
     let body = lines
         .iter()
         .map(|l| format!("- {l}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let block = format!("{MEMORY_MARKER_BEGIN}\n{body}\n{MEMORY_MARKER_END}");
-    if base.is_empty() {
-        block
+    format!("{MEMORY_MARKER_BEGIN}\n{body}\n{MEMORY_MARKER_END}")
+}
+
+/// 按**注入预算**裁剪记忆块：平时全量；> `trim_ratio` 起从**最低分**（列表尾）逐条裁。
+///
+/// 口径（PLAN §0 点 3）：
+/// - 条数不是预算，**字符数**才是；单条上限由 [`sanitize_memory_line`] 兜底；
+/// - 裁到只剩 1 条仍超预算 -> 不再裁（至少留一条）；`ratio` 会 >1、`needs_summary` 为真；
+/// - `needs_summary` 在 `ratio > summary_ratio` 时为真（调用方标记 + 冷却）。
+///
+/// 纯函数：不 IO、不依赖 runtime。
+pub fn budget_injection(
+    memories: &[String],
+    budget_chars: usize,
+    trim_ratio: f64,
+    summary_ratio: f64,
+) -> BudgetedInjection {
+    let mut lines = memory_lines(memories);
+    let before = lines.len();
+    let limit = (budget_chars as f64) * trim_ratio.clamp(0.0, 1.0);
+    while lines.len() > 1 && (block_from_lines(&lines).chars().count() as f64) > limit {
+        lines.pop();
+    }
+    let block = block_from_lines(&lines);
+    let used_chars = block.chars().count();
+    let ratio = if budget_chars == 0 {
+        1.0
     } else {
-        format!("{base}\n\n{block}")
+        used_chars as f64 / budget_chars as f64
+    };
+    let dropped = before - lines.len();
+    BudgetedInjection {
+        lines,
+        dropped,
+        used_chars,
+        budget_chars,
+        ratio,
+        topk_trimmed: dropped > 0,
+        needs_summary: ratio > summary_ratio,
     }
 }
 
