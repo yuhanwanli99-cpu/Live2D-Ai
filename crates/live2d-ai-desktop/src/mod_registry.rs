@@ -757,13 +757,35 @@ mod tests {
 
     /// worker 通过 shared slot 调用 on_event，TestRuntime 把收到的 topic 写到此处。
     static RECEIVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    /// **事件送达信号**（D1 flaky 修复）：`TestRuntime::on_event` 每处理一条事件就把
+    /// topic 广播给所有已注册的测试端 `Sender`。等待方用 `recv_timeout` **阻塞**等信号，
+    /// 判据是「on_event 真的被 worker 调用过」——不再是「50ms×10 的墙钟窗口内有没有轮询到」。
+    /// 那个窗口在并发负载下会假红：worker 线程被抢占就可能超过任何固定时长。
+    static DELIVERY_TX: Mutex<Vec<std::sync::mpsc::Sender<String>>> = Mutex::new(Vec::new());
+
+    /// 注册一个**本用例专属**的送达信号接收端。同 crate 里只有 enable 了 TestMod 且
+    /// 投递事件的用例会收到广播；当前只有 `event_delivers_to_running_mod`。
+    fn watch_delivery() -> std::sync::mpsc::Receiver<String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        DELIVERY_TX.lock().unwrap().push(tx);
+        rx
+    }
+
     struct TestRuntime;
     impl ModRuntime for TestRuntime {
         fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
             Ok(())
         }
         fn on_event(&mut self, topic: ModEventTopic, _: &str) -> Result<(), ModError> {
-            RECEIVED.lock().unwrap().push(topic.as_str().to_string());
+            let topic_str = topic.as_str().to_string();
+            RECEIVED.lock().unwrap().push(topic_str.clone());
+            // 先记 RECEIVED 再广播：等待方一收到信号，RECEIVED 必定已可见。
+            // `retain`：接收端已被 drop 的 sender 顺手清掉，不随用例累积。
+            DELIVERY_TX
+                .lock()
+                .unwrap()
+                .retain(|tx| tx.send(topic_str.clone()).is_ok());
             Ok(())
         }
         fn state_json(&mut self) -> Option<serde_json::Value> {
@@ -1081,23 +1103,34 @@ mod tests {
     }
 
     /// 事件送达测试：enable TestMod，start_all 后 dispatch_event，
-    /// 轮询（最多 ~500ms）直到记录非空。
+    /// **阻塞等 on_event 发来的送达信号**（确定性同步，无墙钟轮询）。
+    ///
+    /// 10s 只是**防挂死兜底**（worker 线程死了才会触发），不参与通过/失败判定：
+    /// 断言读的是 `RECEIVED` 里真的出现了本条事件，而信号保证了「已被 worker 处理」。
     #[rustfmt::skip]
     #[test]
     fn event_delivers_to_running_mod() {
+        use std::sync::mpsc::RecvTimeoutError;
+        const HANG_GUARD: std::time::Duration = std::time::Duration::from_secs(10);
         RECEIVED.lock().unwrap().clear();
+        let delivered = watch_delivery();
         let mut reg = ModRegistry::new(FACTORIES, &serde_json::json!({"mods":{"test":{"enabled":true}}}));
         reg.start_all();
-        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None));
         let slot = reg.runtimes.get("test").expect("runtime 槽位存在");
-        let mut got = false;
-        for _ in 0..10 {
-            if slot.try_lock().map(|g| g.is_some() && !RECEIVED.lock().unwrap().is_empty()).unwrap_or(false) {
-                got = true; break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        assert!(got, "worker 应将 event 投递到 running Mod 的 on_event");
+        assert!(slot.lock().unwrap().is_some(), "启用后 runtime 应已装配");
+        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None));
+        let topic = match delivered.recv_timeout(HANG_GUARD) {
+            Ok(topic) => topic,
+            Err(RecvTimeoutError::Timeout) => panic!(
+                "10s 内没有收到 on_event 的送达信号：worker 疑似挂死（这是防挂死兜底，不是准时性判据）"
+            ),
+            Err(RecvTimeoutError::Disconnected) => panic!("送达信号通道断开（测试自身错误）"),
+        };
+        assert_eq!(topic, "turn_started", "送达信号应携带本次投递的话题");
+        assert!(
+            RECEIVED.lock().unwrap().iter().any(|t| t == "turn_started"),
+            "worker 应将 event 投递到 running Mod 的 on_event"
+        );
     }
 
     #[rustfmt::skip]
@@ -1131,19 +1164,20 @@ mod tests {
     }
     static FAIL_FACTORIES: &[&dyn ModFactory] = &[&FailMod];
 
+    /// `on_event` 失败 → worker 清空该 Mod 的 runtime 槽位（失败隔离）。
+    ///
+    /// **确定性同步**（D1 同族修复）：不再「50ms×10 轮询槽位变空」，改用
+    /// `dispatch_event_and_flush`——worker 在**所有 Mod 都处理完之后**才回执，
+    /// 回执返回时失败隔离必然已落地（且 worker 已放下 runtime 锁）。
+    /// 断言内容不变：槽位空 + 二次 dispatch 不 panic。
     #[rustfmt::skip]
     #[test]
     fn event_failure_isolates_mod() {
         let mut reg = ModRegistry::new(FAIL_FACTORIES, &serde_json::json!({"mods":{"failmod":{"enabled":true}}}));
         reg.start_all();
-        assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None));
+        assert!(reg.dispatch_event_and_flush(ModEventTopic::TurnStarted, "{}", None));
         let slot = reg.runtimes.get("failmod").expect("runtime 槽位存在");
-        let mut cleared = false;
-        for _ in 0..10 {
-            if slot.try_lock().map(|g| g.is_none()).unwrap_or(false) { cleared = true; break; }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        assert!(cleared, "on_event 失败后 runtime 槽位应被清空");
+        assert!(slot.lock().unwrap().is_none(), "on_event 失败后 runtime 槽位应被清空");
         assert!(reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None)); // 二次 dispatch 不 panic。
     }
 
