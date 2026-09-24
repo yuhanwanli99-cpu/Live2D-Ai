@@ -165,3 +165,21 @@ worker 与编排者**一律禁止** git 写操作；交付物 = 「可被维护�
 `docs/plans/STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md`，维护者只交编排者一个入口。
 Gate 0（`a7952412`）仍是有效基线，不受影响。
 
+### 7.6 第二轮交付核验与裁决（维护者亲核）
+
+**亲核证据**
+- `porcelain=4`，恰为 A/B 授权文件；`mod_registry.rs` 的 `#[cfg(test)]` 在 **:730**，全部 hunk 起始行 **≥760** ⇒ **产品代码零改动**；D1 用例已改为 `DELIVERY_TX` + `recv_timeout` 信号同步，断言文本逐字未变。
+- 失败日志亲读：`/tmp/flaky-A-5.log`、`/tmp/flaky-A-r2-3/4.log` 确为
+  `tests_performance.rs:120`（`left:["你好呀。"] / right:["你好呀。","再见。"]`）与
+  `tests_loop.rs:572` —— 均属**测试端竞态**，A/B 从未触碰这两个文件。
+- S4 亲核：26 组 `ok` / 0 `FAILED`；rust-ratio **97.1896% PASS**。
+
+**裁决**
+| # | 事项 | 裁决 |
+| --- | --- | --- |
+| **D7** | A 同族改动 `event_failure_isolates_mod` | **接受**：授权文件内、改用既有原语 `dispatch_event_and_flush`、断言未放宽 |
+| **D8** | 授权外既有 flaky（`tests_performance.rs:120`、`tests_loop.rs:572`） | **授权 D2b**：改确定性同步（**不许只调大窗口**）；审计并（同类则）修 `tests_p0c.rs:247,264`、`tests_reload.rs:82`；文件限这四个测试文件；证明须用重负载（3× 并发 `flutter test`）跑满 **30×**。**阶段2 终判据 = 30× 全绿** |
+| **D9** | 提示词 HEAD 漂移（`a7952412` vs `d0257084`） | A 指出属实，非缺陷；以当前 HEAD 为准 |
+
+**Gate 1 已落**：`c33db72f`（D1 测试端确定性同步）、`530e58e1`（D2 W7b 面板 pin 同步）；工作树回归 `porcelain=0`。
+
