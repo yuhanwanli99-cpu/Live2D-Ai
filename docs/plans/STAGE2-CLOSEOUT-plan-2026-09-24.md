@@ -141,7 +141,7 @@ worker 与编排者**一律禁止** git 写操作；交付物 = 「可被维护�
 | --- | --- | --- |
 | **D1** | T5 `mod_registry::tests::event_delivers_to_running_mod` 复现 | **授权改 `mod_registry.rs` 测试段**：改成**确定性同步**（channel / Condvar / 信号），**不许只调大超时**；断言文本不变；顺手审计 desktop 测试同类「轮询等待」写法；≥30× 并发压测证明不再复现。若确定性修复被迫改产品代码 → 停下问维护者。 |
 | **D2** | T4：重进 Developer 分区后面板 0.75 / HUD 1.50 | **授权 W7b（Dart）**：有 pin 时面板以 pin 为初值 + 显示「临时覆盖生效中」；文件限 `dev_tools_section.dart` + `shell_settings.dart`，扩展/新建测试；重建 web 三证据。 |
-| **D3** | T6 TTS 端到端 | **环境缺口（8080=000）**：维持「未取证」，端点上线后重跑；不伪造。 |
+| **D3** | T6 TTS 端到端 | ✅ **已取证（2026-09-24 第二轮）**：8080=200；`verify_core_chain.py` **18/18 跳**；WS 探针 **277 audio 帧 / 264960 B 真实 PCM / 24000 Hz / `turn_state=completed` / error 帧 0**；`settings/test/llm` body `ok:true`。日志 `/tmp/stage2-close-s5-*.log`。合并收口时复核一次即可。 |
 | **D4** | 首屏 `main.dart.js` pending | 记 backlog（托管层/keep-alive 时序），不在阶段2 收口内。 |
 | **D5** | 未跟踪运行时产物 `memory.jsonl` | Gate 0 写入 `.gitignore`；**永不提交**。 |
 | **D6** | 阶段2 收口状态 | **被 D1 挡住**：D1 修好 + T5 复跑 20/20 + D2 构建三证据齐，才做 Gate 1。 |
@@ -156,4 +156,12 @@ worker 与编排者**一律禁止** git 写操作；交付物 = 「可被维护�
 
 - 当前 193 条 = 4 个程序 + 未跟踪 `memory.jsonl` + `docs/plans/*` + 维护者新计划。
 - **建议方案 A（单条 checkpoint）**：目的只是让 D1/D2 的 diff 可独立审阅；§7.1.3 已允许「主题太混则降级为合并提交」。若坚持方案 B（按程序拆 4–5 条），需先做逐文件归属，成本高且仍有交叉。
+
+### 7.5 流程缺口（2026-09-24 第二轮暴露）
+
+第一轮只把「收口续作」提示词交给了编排者，而 D1/D2 是两个**独立执行 worker**——从未被派发
+（`porcelain=0`、D1/D2 零改动；编排者全域搜索后按 S1 正确停下，未用基线绿灯冒充合并通过）。
+**根因是粘贴目标错位，不是 worker 失败。** 修法：把「派 A/B」与「收口 S1–S6」合并为单一真源
+`docs/plans/STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md`，维护者只交编排者一个入口。
+Gate 0（`a7952412`）仍是有效基线，不受影响。
 
