@@ -553,14 +553,50 @@ fn stop_clears_pending_say() {
     );
 
     assert!(handle.say("A"));
-    std::thread::sleep(Duration::from_millis(30));
+    // 先同步到「A 的 LLM 请求真的已经发出并被 mock 记账」——保证 stop 落在
+    // A 的在飞窗口内。旧写法用 sleep(30ms) 赌这一点：重负载下 30ms 内 A 的
+    // 请求可能还没到达 mock，stop 就先把 A 取消了，于是最终 bodies 为 0
+    //（/tmp/flaky-A-r2-4.log 实测 left:0 / right:1 正是这条）。
+    assert!(
+        wait_for(Duration::from_secs(5), || !llm_bodies
+            .lock()
+            .expect("poison")
+            .is_empty()),
+        "A 的 LLM 请求必须先发出（否则 stop 会落在 idle，测试前提不成立）"
+    );
     assert!(handle.say("B"), "pending Say 应入队（容量1的空闲槽位）");
     handle.stop();
 
-    // 足够长的观察窗：若 stop 后自动启动 B，必现第二次 LLM 请求。
-    //（B 的 LLM 响应本身有 500ms slow-mock 延迟；全 workspace 并行负载下
-    //  800ms 曾偶发不足——放宽到 2.5s，让「假启动」有充分时间显形。）
-    std::thread::sleep(Duration::from_millis(2500));
+    // ---- 同步到「stop 已被处理」：do_stop! 是 stop 的唯一事务入口，它推进
+    // root epoch 并发出 NewEpoch（正常收口路径从不发 NewEpoch）。看到
+    // NewEpoch 即意味着 do_stop! 已经跑过；而 do_stop! 在发 NewEpoch 之后
+    // 同步执行 while say_rx.try_recv().is_ok() {} 清掉 pending B——
+    // 从这一刻起才开始观察「stop 之后有没有人被误启动」。
+    let stop_seen = wait_for(Duration::from_secs(5), || {
+        collector.lock().expect("poison").iter().any(|e| {
+            matches!(
+                e,
+                AppEvent::Conversation(ConversationUiEvent::NewEpoch { .. })
+            )
+        })
+    });
+    assert!(
+        stop_seen,
+        "stop 必须被处理（do_stop! 推进 epoch → NewEpoch）"
+    );
+
+    // ---- 显式「证明否定命题」：最多观察 T，断言被禁止事件没有发生。
+    // 被禁止事件 = B 被误启动 ⇒ mock 收到第二次 LLM 请求（请求到达即记账，
+    // 早于 slow-mock 自身的 500ms 响应延迟）。
+    // T 依据：slow LLM mock 延迟 500ms（若 B 真启动，最迟不会晚于 A 的
+    // 500ms 响应窗口退出后 + 排程延迟）+ 3× flutter 并发满负载下的排程余量
+    // 1500ms ⇒ 2000ms。T 是**观察上限**：wait_for 一旦看到禁止事件立即返回
+    // true；正确路径下负向断言会等满 T 才通过（这是显式证明否定命题的固有成本）。
+    const FORBIDDEN_WINDOW: Duration = Duration::from_millis(2000);
+    let restarted_b = wait_for(FORBIDDEN_WINDOW, || {
+        llm_bodies.lock().expect("poison").len() >= 2
+    });
+
     handle.quit();
     assert!(wait_for(Duration::from_secs(2), || collector
         .lock()
@@ -568,6 +604,10 @@ fn stop_clears_pending_say() {
         .iter()
         .any(|e| matches!(e, AppEvent::ShutdownReady))));
 
+    assert!(
+        !restarted_b,
+        "stop 后不得自动启动 pending Say：{FORBIDDEN_WINDOW:?} 观察窗内出现了第二次 LLM 请求"
+    );
     let bodies = llm_bodies.lock().expect("poison");
     assert_eq!(
         bodies.len(),

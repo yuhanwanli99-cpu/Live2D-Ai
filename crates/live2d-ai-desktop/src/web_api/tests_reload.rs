@@ -17,6 +17,30 @@ fn body_to_string(resp: Response<std::io::Cursor<Vec<u8>>>) -> String {
     s
 }
 
+/// 轮询等待 `reload_pending` 被 supervisor 消费（`apply_reload` swap 清零）。
+///
+/// 替代「固定 sleep(100ms) 后断言已消费」：重负载（3× flutter 并发）下
+/// 100ms 不保证 supervisor 已经跑过 `apply_reload`；这里以 10ms 步长轮询
+/// 到期限为止，命中即返回 true。
+fn wait_until_reload_consumed(
+    supervisor: &Arc<crate::supervisor::SupervisorHandle>,
+    timeout: std::time::Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let pending = supervisor
+            .reload_pending_for_test()
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if !pending {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 /// 起一个最小 supervisor 指向 tmp 配置（URL 不要求端点可达，只要求
 /// reload 路径走通）。返回 `SupervisorHandle + tmp path`。
 fn spawn_test_supervisor(
@@ -78,9 +102,6 @@ fn dispatch_settings_patch_triggers_supervisor_reload() {
         body_to_string(resp)
     );
 
-    // 给 supervisor 一点时间消费 Reload（idle select 立即处理；100ms 余量足够）。
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
     // 验证：settings 文件已被写盘（PATCH 写盘成功）。
     let after = std::fs::read_to_string(&tmp).expect("read after");
     assert!(
@@ -89,14 +110,14 @@ fn dispatch_settings_patch_triggers_supervisor_reload() {
     );
 
     // 验证：supervisor 的 reload_pending 已被消费（说明 Reload 抵达）。
-    // 这是「handle 收到 Reload」的可观察代理：原子标志 swap 后归零。
-    // 标志由 handle.reload() 置位、apply_reload swap 清零；这里清零
-    // 即证明「Reload 已经被处理过」。
-    let still_pending = supervisor
-        .reload_pending_for_test()
-        .load(std::sync::atomic::Ordering::SeqCst);
+    // 这是「handle 收到 Reload」的可观察代理：标志由 handle.reload() 置位、
+    // apply_reload swap 清零；清零即证明「Reload 已经被处理过」。
+    //
+    // 同步：轮询等待清零（上限 5s），而不是固定 sleep(100ms)——重负载下
+    // 100ms 不保证 supervisor 已完成 apply_reload（/tmp/flaky-A-r2-4.log
+    // 那一批假红里就有这一类固定窗口假设）。
     assert!(
-        !still_pending,
+        wait_until_reload_consumed(&supervisor, std::time::Duration::from_secs(5)),
         "PATCH 后 reload_pending 必须被消费（idle 或 turn 收口）"
     );
 

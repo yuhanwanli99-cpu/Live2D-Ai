@@ -96,7 +96,8 @@ fn performance_layer_end_to_end_drives_speak_and_cues() {
     );
     assert!(handle.say("你好"));
 
-    let ok = wait_for(Duration::from_secs(15), || {
+    // ① 先等表演层的 ActionCue（证明「配置段 → 装配 → 引擎 → cue」这条链真的走了）。
+    let cued = wait_for(Duration::from_secs(15), || {
         collector.lock().expect("poison").iter().any(|e| {
             matches!(
                 e,
@@ -104,7 +105,39 @@ fn performance_layer_end_to_end_drives_speak_and_cues() {
             )
         })
     });
-    assert!(ok, "必须收到表演层的 ActionCue 事件");
+    assert!(cued, "必须收到表演层的 ActionCue 事件");
+
+    // ② 再同步到**本轮真正收尾**的确定性信号，然后才 quit/join 与断言。
+    //
+    // 为什么必须是 TurnCompleted：ActionCue 在引擎里先于 TTS 发出
+    //（conversation/engine.rs 阶段 1.5：先 send_event(ActionCue)，
+    // 再逐句 push_job(TtsJob)），所以 ActionCue 到达时第二条（甚至第一条）
+    // 句子的 TTS 请求可能还没到 mock——旧写法在这里立刻 quit/join 会把
+    // 还没送出的句子连同 worker 一起取消，产出空 / 半份 tts_inputs。
+    //
+    // RootFact::TurnCompleted{outcome_completed:true} 由 supervisor Stage C
+    // 发出，而 Stage C 只在 gen_fut 返回之后执行；engine.run_turn 返回前
+    // **无条件 await TTS worker 排空**（engine.rs 阶段 2 worker.await，阶段 3
+    // 才产出 TurnReport）。即：TurnCompleted 可见 ⇒ 两句 speak 的合成请求
+    // 都已完成并被 mock 记账。
+    //
+    // 不把 wait 条件写成 tts_inputs.len() == 2——那会让下面的严格断言退化成
+    // 同义反复；这里等的是**收尾事实**，不是断言本身。
+    let turn_closed = wait_for(Duration::from_secs(15), || {
+        collector.lock().expect("poison").iter().any(|e| {
+            matches!(
+                e,
+                AppEvent::RootAudit(RootFact::TurnCompleted {
+                    outcome_completed: true,
+                    ..
+                })
+            )
+        })
+    });
+    assert!(
+        turn_closed,
+        "本轮必须以 Completed 收口（TurnCompleted）；收尾之后 TTS 记账才完整"
+    );
     handle.quit();
     handle.join();
 

@@ -88,6 +88,29 @@ fn reclaim(handle: std::sync::Arc<crate::supervisor::SupervisorHandle>) {
     }
 }
 
+/// 轮询等待 `reload_pending` 被 supervisor 消费（`apply_reload` swap 清零）。
+///
+/// 替代「固定 sleep(100ms) 后断言已消费」：重负载下 100ms 不保证
+/// supervisor 已完成 `apply_reload`。10ms 步长轮询到期限为止。
+fn wait_until_reload_consumed(
+    supervisor: &std::sync::Arc<crate::supervisor::SupervisorHandle>,
+    timeout: std::time::Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let pending = supervisor
+            .reload_pending_for_test()
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if !pending {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 // ============================================================================
 // 1) ApplyStatus 序列化（**前端字符串锚点**——app.js 硬编码）
 // ============================================================================
@@ -242,9 +265,15 @@ fn patch_with_existing_supervisor_triggers_reload() {
     assert!(ctx.try_get_supervisor().is_some());
 
     let handle = ctx.try_get_supervisor().expect("slot filled");
-    // 给 supervisor 一点时间消费 Reload（首次的 ensure 路径不调 reload，
-    // 但有 race；sleep 让后续断言稳定）。
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // 同步（不是固定 sleep）：首次 PATCH 的 ensure 路径（槽位空 →
+    // build_web_supervisor）本身不调 `reload()`，所以 reload_pending 此刻
+    // 必然为 false；这里用有界轮询把「第二次 PATCH 之前标志必为 false」写成
+    // 显式同步——若将来装配路径改成会置位 reload，后面的断言也不会被
+    // 「第一次消费的残影」冒充。
+    assert!(
+        wait_until_reload_consumed(&handle, std::time::Duration::from_secs(5)),
+        "第二次 PATCH 前 reload_pending 必须已归零"
+    );
 
     // 第二次 PATCH：槽位已非空 → 走 reload 路径。
     let (status, body_str) = split_response(dispatch(
@@ -260,13 +289,12 @@ fn patch_with_existing_supervisor_triggers_reload() {
         "第二次 PATCH 走 reload → applied：{body_str}"
     );
 
-    // 给 supervisor 一点时间消费 Reload。
-    std::thread::sleep(std::time::Duration::from_millis(100));
     // 关键断言：reload_pending 被消费（说明 Reload 抵达）。
-    let still_pending = handle
-        .reload_pending_for_test()
-        .load(std::sync::atomic::Ordering::SeqCst);
-    assert!(!still_pending, "第二次 PATCH 后 reload_pending 必须被消费");
+    // 同步：轮询等待清零（上限 5s），而不是固定 sleep(100ms)。
+    assert!(
+        wait_until_reload_consumed(&handle, std::time::Duration::from_secs(5)),
+        "第二次 PATCH 后 reload_pending 必须被消费"
+    );
 
     // 清理。
     if let Some(h) = ctx.take_supervisor_for_reclaim() {
