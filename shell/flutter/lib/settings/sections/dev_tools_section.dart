@@ -1188,6 +1188,7 @@ class DeveloperSection extends StatelessWidget {
     this.onApplyPreset,
     this.presetStatus,
     this.productScales,
+    this.pinnedScales,
     this.onApplyScales,
     this.onClearScales,
     this.presetLabels = PresetLabelTable.empty,
@@ -1209,6 +1210,13 @@ class DeveloperSection extends StatelessWidget {
 
   /// 服务端**产品设置**里的动作幅度（显示 + 作为「恢复」目标）。
   final ActionSettingsView? productScales;
+
+  /// 当前**临时幅度覆盖**（ActionScalesSyncer.pinned；null = 没有）。
+  ///
+  /// 只读传入、**不落盘**。面板滑条按 `pinnedScales ?? productScales` 播种：
+  /// 临时覆盖生效期间离开 Developer 分区再回来，滑条必须还是渲染面正在用的
+  /// 那组临时值，而不是产品值——否则面板与舞台 / HUD 各说各话（T4 实测）。
+  final Map<String, double>? pinnedScales;
 
   /// 临时幅度覆盖（**不落盘**，只发渲染面）；产品设置才是真源。
   final PresetScaleApply? onApplyScales;
@@ -1262,6 +1270,7 @@ class DeveloperSection extends StatelessWidget {
             onApplyPreset: onApplyPreset,
             status: presetStatus,
             productScales: productScales,
+            pinnedScales: pinnedScales,
             onApplyScales: onApplyScales,
             onClearScales: onClearScales,
             labels: presetLabels,
@@ -1313,6 +1322,7 @@ class DebugPanels extends StatefulWidget {
     this.onApplyPreset,
     this.status,
     this.productScales,
+    this.pinnedScales,
     this.onApplyScales,
     this.onClearScales,
     this.labels = PresetLabelTable.empty,
@@ -1328,6 +1338,12 @@ class DebugPanels extends StatefulWidget {
 
   /// 产品设置里的动作幅度（显示 + 「恢复」目标）；null = 未加载。
   final ActionSettingsView? productScales;
+
+  /// 当前临时覆盖（ActionScalesSyncer.pinned）；null = 没有。
+  ///
+  /// 滑条初值 = `pinnedScales ?? productScales`，所以临时覆盖期间离开分区
+  /// 再回来，面板显示的仍是渲染面正在用的那组值（T4 实测症状的根因）。
+  final Map<String, double>? pinnedScales;
 
   /// 临时覆盖（不落盘）；null 时滑条禁用。
   final PresetScaleApply? onApplyScales;
@@ -1413,18 +1429,24 @@ class _DebugPanelsState extends State<DebugPanels> {
   bool get _scalesEnabled => widget.onApplyScales != null;
   bool get _clearEnabled => widget.onClearScales != null;
 
+  /// 是否有临时覆盖：真源 = 宿主只读传进来的 [DebugPanels.pinnedScales]。
+  bool get _hasPin => widget.pinnedScales != null;
+
   @override
   void initState() {
     super.initState();
-    _syncScalesFromProduct();
+    _syncScalesFromEffective();
     widget.status?.addListener(_onStatusChanged);
   }
 
   @override
   void didUpdateWidget(DebugPanels oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.productScales != oldWidget.productScales) {
-      _syncScalesFromProduct();
+    // pinnedScales 变化也要重新播种：宿主清了临时覆盖（或换了一组临时值）时，
+    // 滑条必须跟着回到渲染面的有效值，而不是停在上一组。
+    if (widget.productScales != oldWidget.productScales ||
+        widget.pinnedScales != oldWidget.pinnedScales) {
+      _syncScalesFromEffective();
     }
     // 舞台重建会换一个 presetStatus 通知器：跟着换监听，别听死那个旧的。
     if (widget.status != oldWidget.status) {
@@ -1433,19 +1455,34 @@ class _DebugPanelsState extends State<DebugPanels> {
     }
   }
 
-  void _syncScalesFromProduct() {
+  /// 滑条初值 = **渲染面当前有效值**：临时覆盖优先，否则产品值。
+  ///
+  /// 不能只看产品值：临时覆盖生效期间离开分区再回来，滑条会掉回产品值，
+  /// 与舞台 / HUD 上真正生效的临时值分叉（T4 实测症状）。
+  void _syncScalesFromEffective() => _seedScales(widget.pinnedScales);
+
+  /// 播下三项滑条值：`pinned` 非空就用它，否则用产品值 / 出厂默认。
+  void _seedScales(Map<String, double>? pinned) {
     final ActionSettingsView? p = widget.productScales;
-    _head = p?.headScale ?? ActionSettingsView.defaultHeadScale;
-    _body = p?.bodyScale ?? ActionSettingsView.defaultBodyScale;
-    _expression = p?.expressionScale ?? ActionSettingsView.defaultExpressionScale;
+    _head =
+        pinned?['head'] ?? p?.headScale ?? ActionSettingsView.defaultHeadScale;
+    _body =
+        pinned?['body'] ?? p?.bodyScale ?? ActionSettingsView.defaultBodyScale;
+    _expression = pinned?['expression'] ??
+        p?.expressionScale ??
+        ActionSettingsView.defaultExpressionScale;
   }
 
   void _applyScales() => widget.onApplyScales?.call(_head, _body, _expression);
 
   /// 「恢复产品设置」：滑条回到产品值，并让宿主**清掉临时覆盖**
   /// （不能走 [_applyScales]——那会把当前临时值再钉一次）。
+  ///
+  /// 这里**只**按产品值播种（`_seedScales(null)`）：宿主清 pin 与随后的重建
+  /// 排在这一帧之后，浮层宿主（medium 底部浮层）甚至不会因这次点击重建——
+  /// 若仍读旧 pin，滑条会停在刚被清掉的那组临时值上。
   void _resetScales() {
-    setState(_syncScalesFromProduct);
+    setState(() => _seedScales(null));
     widget.onClearScales?.call();
   }
 
@@ -1748,6 +1785,16 @@ class _DebugPanelsState extends State<DebugPanels> {
           const Divider(),
           Text('临时幅度覆盖', style: theme.textTheme.labelLarge),
           const SizedBox(height: Space.s1),
+          // 两态明示：有临时覆盖时把「面板滑条 = 渲染面有效值」说清，
+          // 免得用户看到滑条与「外观与互动」里的产品值不同却不知道为什么。
+          if (_hasPin) ...[
+            EmphasizedText(
+              '**临时覆盖生效中**（不落盘，点「恢复产品设置」清除）：'
+              '下面三个滑条显示的就是渲染面当前生效的值，不是产品设置值。',
+              style: muted,
+            ),
+            const SizedBox(height: Space.s1),
+          ],
           EmphasizedText(
             '优先级（W7，2026-09-23 起）：**临时覆盖 > 草稿 > 磁盘值**。'
             '「应用到渲染面（临时）」后这份临时值一直生效（**不落盘**，'

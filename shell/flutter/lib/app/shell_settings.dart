@@ -255,6 +255,10 @@ extension _ShellSettingsWiring on _ShellRootState {
           // `stage.sync(actionScales: …)`——那一版不更新 `_sent`，与产品值
           // 互相冲掉（RESEARCH §2.4）。下发只有一个出口：`ActionScalesSyncer`。
           productScales: view.action,
+          // D2：把 syncer 里的**显式 pin** 只读传进面板（没有就是 null）——
+          // 面板滑条按 `pin ?? 产品值` 播种，离开 Developer 分区再回来时
+          // 显示的仍是渲染面正在用的那组临时值，而不是产品值（T4 实测）。
+          pinnedScales: _actionScalesSyncer.pinned,
           onApplyScales: (double head, double body, double expression) {
             _actionScalesSyncer.pin(<String, double>{
               'head': head,

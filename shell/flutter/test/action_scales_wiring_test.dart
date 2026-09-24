@@ -33,6 +33,7 @@ import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
 import 'package:live2d_ai_shell/settings/preset_labels.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
+import 'package:live2d_ai_shell/ui/field_row.dart' show SliderField;
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// 与 `assets/actions/preset_labels.json` 同形的**假表**：故意与
@@ -324,6 +325,132 @@ void main() {
         readLib('lib/settings/mods/director_panel.dart').contains('遗留回退旁路'),
         isFalse,
         reason: '旧口径「遗留回退旁路 / 不是产品主路径」必须改掉',
+      );
+    });
+  });
+
+  group('W7b/D2：Developer 面板与「临时幅度覆盖」状态同步', () {
+    // 三个值都与产品值不同：能同时钉住「head 也不回产品值」与三项整体播种。
+    const Map<String, double> pinned = <String, double>{
+      'head': 2.0,
+      'body': 1.5,
+      'expression': 0.6,
+    };
+    const ActionSettingsView product = ActionSettingsView(
+      headScale: 0.75,
+      bodyScale: 0.80,
+      expressionScale: 1.0,
+    );
+
+    DebugPanels panel({
+      Map<String, double>? pin,
+      Key? key,
+      VoidCallback? onClear,
+    }) => DebugPanels(
+      key: key,
+      onApplyPreset: (String _, double _) {},
+      productScales: product,
+      pinnedScales: pin,
+      onApplyScales: (double _, double _, double _) {},
+      onClearScales: onClear ?? () {},
+      labels: _table,
+    );
+
+    double sliderValue(WidgetTester tester, String label) => tester
+        .widget<SliderField>(find.widgetWithText(SliderField, label))
+        .value;
+
+    testWidgets('有 pin 时面板初值 = pin（不是产品值），并明示「生效中」', (
+      WidgetTester tester,
+    ) async {
+      // 场景：先在面板里「应用到渲染面（临时）」，宿主把 syncer 的 pin 落进
+      // `pinnedScales`；离开 Developer 分区再回来就是一个**新 State**。
+      await tester.pumpWidget(_wrap(panel(pin: pinned)));
+      expect(
+        sliderValue(tester, '临时 head'),
+        2.0,
+        reason: '有 pin 时滑条初值必须是 pin，不是产品值 0.75',
+      );
+      expect(sliderValue(tester, '临时 body'), 1.5);
+      expect(sliderValue(tester, '临时 expression'), 0.6);
+      // 滑条右侧读数区也必须与渲染面有效值一致（不是只有 value 对）。
+      expect(find.text('200%'), findsOneWidget);
+      expect(find.text('60%'), findsOneWidget);
+      expect(
+        find.textContaining('临时覆盖生效中'),
+        findsOneWidget,
+        reason: '有 pin 时 UI 必须明示「临时覆盖生效中（不落盘）」',
+      );
+
+      // 「离开后重新进入」= 同一个 DebugPanels 类型换 key 重挂（新 State）。
+      await tester.pumpWidget(
+        _wrap(panel(pin: pinned, key: const ValueKey<String>('re-enter'))),
+      );
+      expect(
+        sliderValue(tester, '临时 head'),
+        2.0,
+        reason: '重新进入 Developer 分区后滑条仍是渲染面正在用的 pin（T4 症状）',
+      );
+      expect(find.textContaining('临时覆盖生效中'), findsOneWidget);
+    });
+
+    testWidgets('清 pin 后面板回产品值（didUpdateWidget 重新播种）', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(_wrap(panel(pin: pinned)));
+      expect(sliderValue(tester, '临时 head'), 2.0);
+      expect(find.textContaining('临时覆盖生效中'), findsOneWidget);
+
+      // 「恢复产品设置」→ 宿主 clearPin → pinnedScales 变 null → 同一 State
+      // 走 didUpdateWidget 重新播种。
+      await tester.pumpWidget(_wrap(panel(pin: null)));
+      expect(
+        sliderValue(tester, '临时 head'),
+        0.75,
+        reason: '清 pin 后滑条必须回产品值（不能停在上一组临时值）',
+      );
+      expect(sliderValue(tester, '临时 body'), 0.80);
+      expect(sliderValue(tester, '临时 expression'), 1.0);
+      expect(
+        find.textContaining('临时覆盖生效中'),
+        findsNothing,
+        reason: '没有 pin 就不能再声称生效中（无 pin 维持现状）',
+      );
+    });
+
+    testWidgets('点「恢复产品设置」：宿主这一帧没重建，滑条也必须回产品值', (
+      WidgetTester tester,
+    ) async {
+      // 浮层宿主（medium 底部浮层）不会因外壳 setState 重跑 builder：
+      // 面板必须**立刻**自己把滑条播回产品值，不能等宿主下一次重建。
+      bool cleared = false;
+      await tester.pumpWidget(
+        _wrap(panel(pin: pinned, onClear: () => cleared = true)),
+      );
+      expect(sliderValue(tester, '临时 head'), 2.0);
+      final Finder reset = find.text('恢复产品设置');
+      await tester.ensureVisible(reset);
+      await tester.pumpAndSettle();
+      await tester.tap(reset);
+      await tester.pumpAndSettle();
+      expect(cleared, isTrue, reason: '「恢复产品设置」必须让宿主清掉 pin');
+      expect(sliderValue(tester, '临时 head'), 0.75);
+      expect(sliderValue(tester, '临时 body'), 0.80);
+      expect(sliderValue(tester, '临时 expression'), 1.0);
+    });
+
+    test('接线：宿主把 syncer 的显式 pin 只读传进面板（源码扫描）', () {
+      final String settings = readLib('lib/app/shell_settings.dart');
+      expect(
+        settings.contains('pinnedScales: _actionScalesSyncer.pinned'),
+        isTrue,
+        reason: '面板的初值真源必须是 syncer 的显式 pin；另存一份会分叉',
+      );
+      final String sync = readLib('lib/live2d/action_scales_sync.dart');
+      expect(
+        sync.contains('Map<String, double>? get pinned'),
+        isTrue,
+        reason: 'syncer 已暴露只读 pinned；不得为面板另加写口',
       );
     });
   });
