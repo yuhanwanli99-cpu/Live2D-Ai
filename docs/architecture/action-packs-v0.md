@@ -1,5 +1,21 @@
 # 动作包 v0（包 = 五官 + 小幅头身；intensity 是一等公民）
 
+> ## ⚠ v1 已冻结：现有 preset 包 = `expression` 字段的**首版**；`body` / `head` 由字段化通道承担
+>
+> **v1 唯一真源 = [performance-protocol-v1.md](performance-protocol-v1.md)**（2026-09-26 契约冻结）。
+> 对本文的三条定位（**不删现有包、不改现有 JSON**）：
+>
+> 1. **现有 `kind=expression` 包（`smile` / `unhappy` / `surprised`）= v1 `expression` 字段的首版映射**
+>    （§1 的五官通道子集）；v1 的 `expression.id` 指向的就是它们。
+> 2. **v1 的 `expression` 字段只写五官（V3）**——现有表情包自带的**小幅头身分量**
+>    在 v1 字段化通道下**不由 `expression` 下发**；头身姿态改由 `body` / `head` 字段承担。
+> 3. **`body` / `head` 由字段化通道承担**（V2）：本文 §1 的「小幅 Angle/Body 位移」
+>    与 §5 的双槽规则，是字段化通道落地前的**现有实现**；v1 三字段 ↔ 通道对照见
+>    [performance-protocol-v1.md](performance-protocol-v1.md) §5.5。
+>
+> **本文其余内容（intensity 语义、幅度标定、单一真源、旧 id 删除）继续有效**；
+> 与 v1 冲突处**以 v1 为准**。
+
 > 状态：2026-09-23，分支 `mod/l1-product`。本文是**动作包**（旧称「预设」）的范围与语义
 > 真源对齐页；参数真源是 `assets/actions/presets.json`，展示名真源是
 > `assets/actions/preset_labels.json`，运行时校验在 `crates/l2d-wasm-demo/src/preset/`。
@@ -82,6 +98,12 @@ N.E.K.O 的 `OUTWARD_EMOTION_ANALYSIS_PROMPT` 只分 5 情
 源出处见 `preset_labels.json` 的 `sources`（N.E.K.O / Cubism / VTube Studio / soullink）。
 
 ## 5. 双槽：表情与手势可同轮
+
+> **v1 对照（2026-09-26）**：双槽是 `preset_id` 时代的实现。v1 的三字段里，
+> `expression` 对应**五官**（≈ Face 槽的五官部分），`body` / `head` 对应**头身**
+> （≈ Gesture 槽）。v1 的 `expression` **不再携带头身**，因此「手势赢共享通道」这条
+> 规则在 v1 下只对 `body` 与 `head` 的互斥通道有意义——细则见
+> [performance-protocol-v1.md](performance-protocol-v1.md) §4 / §5.5。**现有双槽实现不删**。
 
 运行时（`PresetRuntime`）有**两个槽**：
 

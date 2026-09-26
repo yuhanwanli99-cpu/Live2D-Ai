@@ -1,4 +1,20 @@
-# 表演层 v0（[performance] 段）：每轮一份合法化 JSON，speak 是 TTS/上屏真源
+# 表演层 v0（`[performance]` 段）：`speak` 改写语义**已作废**，v1 走 `segments` 切分
+
+> ## ⚠ v1 已冻结，本文降级为「v0 历史 + 现行实现面」
+>
+> **v1 唯一真源 = [performance-protocol-v1.md](performance-protocol-v1.md)**（2026-09-26 契约冻结）。
+> 两处必须知道的变更：
+>
+> 1. **`speak` 的「可改写说辞」语义 <ins>已作废</ins>（V1）**。v1 的文本输出是
+>    `segments`：**只能切分主模型原文，逐字不变，`segments.concat() == 原文`**；
+>    不改写、不缩写、不增删语义。TTS / 上屏文本来源仍是**主模型原文**，只是被切分。
+>    v0 的 `speak` 字段**保留可解析**（V11：字段一律不删、缺省即旧语义），但**新计划不得再用**。
+> 2. **表演字段从单一 `preset_id` 扩成三族 `body` / `head` / `expression`**
+>    （V2/V3），同类可重复出现、按 add 合成、立即生效不排队。
+>
+> **本文以下内容 = v0 的现行实现事实与历史口径**，用于理解现有代码与回退矩阵；
+> 与 v1 冲突处，**以 v1 为准**。本文 §2 的 `speak` schema、§4 的「上屏 = speak」、
+> §7 的「`speak` 为 TTS/上屏真源」三处均按 v1 作废，仅作现有实现的描述。
 
 > **状态**：2026-09-22 用户敲定架构后落地。工作树 `/home/skystar/Live2D-Ai-l1`。
 > **不 bump / 不 push / 不打 tag**。
@@ -7,13 +23,16 @@
 > 与 `crates/live2d-ai-runtime/src/conversation/engine.rs`（接线）。
 > 本文与代码冲突时**以代码 + 回归为准**，并回改本文。
 
-## 0. 一句话
+## 0. 一句话（v0 口径；`speak` 改写在 v1 已退役）
 
 **主模型不负责表演。** 主模型（酒馆式角色扮演）只写剧情正文；**表演层**（导演 / 大脑）
 每轮异步收一次「用户输入 + 主模型原文」，交回**一份合法化 JSON**：
-`{"speak": string|null, "cues":[...]}`。其中 **speak 是本轮 TTS / 上屏的唯一真源**，
-**cues** 进既有 WS `action_cue` 帧（锚该句音频的 `first_chunk`）。
+`{"speak": string|null, "cues":[...]}`。**v0 口径下 `speak` 是本轮 TTS / 上屏的唯一真源
+（允许改写；该语义已被 v1 作废）**；**cues** 进既有 WS `action_cue` 帧（锚该句音频的 `first_chunk`）。
 表演层**默认关**；关掉时主链行为与没有本段时**逐字一致**（边流边切句边送 TTS，规则导演照旧）。
+
+> **v1 口径（取代上一段）**：`segments`（只切分原文，逐字不变）+ 三族表演字段
+> `body`/`head`/`expression`。见 [performance-protocol-v1.md](performance-protocol-v1.md)。
 
 ## 1. 分工（不可互换）
 
@@ -46,7 +65,11 @@ persona Mod 合成（角色卡字段 + 纪律模板）、memory Mod 注入块、
 - **界面侧**：Flutter「LLM」分区写明「**主模型不负责表演；表演层每轮 JSON**」
   （`shell/flutter/lib/settings/sections/llm_section.dart`）。
 
-## 2. 唯一输出 schema（终稿）
+## 2. 唯一输出 schema（v0 终稿）
+
+> ⚠ **v1 已取代本节的文本字段**：新计划写 `segments`（只切分原文、逐字不变，V1），
+> 表演字段为 `body` / `head` / `expression` 三族（V2/V3）。本节只描述现有实现，
+> **不得**作为新实现的契约。见 [performance-protocol-v1.md](performance-protocol-v1.md) §2 / §11。
 
 ```json
 {\"speak\": string|null,
@@ -146,7 +169,10 @@ run_turn:
   终态：Completed（noop 轮也是 Completed，只是没有音频与上屏）
 ```
 
-- **上屏 = speak**：前端气泡文字来自 `SentenceVoiced`，其文本与送 TTS 的字符串**逐字相同**（沿用 2026-09-10 的「一句一单元」契约）。
+- > ⚠ v1 作废「上屏 = speak（可改写）」：v1 的上屏 / TTS 文本 = **主模型原文的切分**
+> （`segments`，逐字不变）。下面的描述只适用于 v0 旧路径。
+
+**上屏 = speak**（v0 口径）：前端气泡文字来自 `SentenceVoiced`，其文本与送 TTS 的字符串**逐字相同**（沿用 2026-09-10 的「一句一单元」契约）。
   主模型的原始流**不上屏**（`EngineEvent::TextDelta` 在 supervisor 只做控制台回显）。
 - **cues 锚 first_chunk**：前端在音频开始播放时按 `sentence_seq` 应用预设（既有 `ActionCueEvent` 消费路径，一行未改）。
 - **历史回灌仍是主模型原文**（`TurnReport.assistant_text`）：表演层的整理不进模型上下文。
@@ -178,6 +204,12 @@ run_turn:
 
 ## 7. 与 director Mod staging 的并存关系（**当前实现事实**）
 
+> **V12（2026-09-26）**：本节记的「两个可选提供者」事实**继续有效**；
+> 其中「**当前事实 = 表演层产 `segments` + `cues`，director staging 只产 `cues`**」
+> 已写成 v1 的文档事实。**「说话权归属」（Q1）仍未定、不在 v1 波次裁决**：
+> v1 把 v0 的 `speak` 退役为 `segments`（只切分、不改写），但**谁该拥有文本产出权**
+> 这一问维持开放（V12 / RESEARCH §3.7 Q1）。
+
 **一句话**：产品 = 「**酒馆（类酒馆角色扮演内核）+ Live2D 皮套壳子**」，各功能由现有 mod
 矩阵承担；**导演是一个 AI**（不是给用户操控皮套的辅助）。主链 `[performance]` 与 Mod
 `staging_*` 是**两个可选提供者，都默认关、职责重叠**；**谁的 `speak` 能力该保留未定**
@@ -187,7 +219,7 @@ run_turn:
 
 | 提供者 | 当前产出 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| **主链 `[performance]`**（runtime 主链） | `speak`（本轮 TTS / 上屏真源）+ `cues` → `action_cue` | `enabled=false` | 开着时 `speak` 是 TTS/上屏真源 |
+| **主链 `[performance]`**（runtime 主链） | v0：`speak`（可改写；**已作废**）+ `cues`；**v1：`segments`（只切分）+ `cues`** → `action_cue` | `enabled=false` | v1 起文本来源 = 主模型原文的切分，**不是**表演层改写 |
 | **director `staging_*`**（P1-3/P1-4，Mod） | 只有按句 `cues` → `action_cue`（不改送 TTS 的文本） | `staging_enabled=false` | 规则层常驻；二路默认关 |
 | **规则导演 `presets::rule_cues_for_text`** | 本地纯函数，给一条规则 cue | 常驻 | 表演层关/失败时的回退来源 |
 
@@ -201,7 +233,7 @@ run_turn:
 | 能力 | 表演层（`[performance]`，本波） | director Mod `staging_*`（P1-3/P1-4） |
 | --- | --- | --- |
 | 位置 | runtime（主链内，TTS 同层） | Mod（worker 线程，经 `ModServices.cues`） |
-| 输出去向 | **speak = TTS/上屏真源** + cues → action_cue | 只有 cues → action_cue |
+| 输出去向 | v0 `speak`（可改写，**已作废**）；v1 `segments`（只切分原文）+ cues → action_cue | 只有 cues → action_cue |
 | 默认 | 关 | 关 |
 | 结构化 | json_schema strict 优先 + prompt 兜底 | 提示词 + 宽解析 |
 | 状态 | 可选提供者（默认关；开着时 `speak` 为 TTS/上屏真源） | 可选提供者（默认关）；只出 `cues`，不改写送 TTS 的文本 |

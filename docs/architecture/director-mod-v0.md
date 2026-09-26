@@ -1,5 +1,20 @@
 # 导演 Mod v0（已注册第 5 个）：按情绪/意图选动作包 → 按句 `action_cue`（唯一驱动）；`latest.preset_id`（面板只读）
 
+> ## ⚠ v1 已冻结：director **只产 `cues`**；三族表演字段是 v1 的产出面
+>
+> **v1 唯一真源 = [performance-protocol-v1.md](performance-protocol-v1.md)**（2026-09-26 契约冻结）。
+> 对本文的两条定位（**本 Mod 不改、不删**）：
+>
+> 1. **V12 文档事实（不裁决，只记事实）**：当前实现里
+>    **表演层（`[performance]`）产 `segments` + `cues`；director `staging_*` 只产 `cues`（不产送 TTS 的文本）**。
+>    「说话权归属」（RESEARCH §3.7 Q1）**不在 v1 波次裁决**，本文档与 v0 文档同步维持「未定」。
+> 2. **v1 的表演字段扩成三族 `body` / `head` / `expression`（V2/V3）**：本 Mod 二路 LLM 现产的
+>    `{sentence_seq, preset_id, intensity, ttl_ms}` 是**字段化之前的契约**。v1 落地时，
+>    director 侧的产出面要能表达 `body` / `head` / `expression`——**实现波次见阶段4 计划**，
+>    本文只标注方向，**本波零代码**。`action_cue` 帧与 `preset_id` 字段**一律不删**（V11）。
+>
+> **本文其余内容（规则层纯函数、账本、面板、零调用红线）继续有效**；与 v1 冲突处以 v1 为准。
+
 > **状态**：2026-09-14 **产品级加强波次**（director 轨道）。
 > 本 crate 已在 `AVAILABLE_MOD_FACTORIES` 中**注册**（产品级加强波次后注册面共 **5 个**：
 > `external-input` / `persona` / `voice-input` / `memory` / `director`），**缺省停用**
@@ -64,6 +79,12 @@ Dart `_applyDirectorPreset` / W4 `DirectorPresetGate` 已删）。
 并提供 `command("clear")` 清空账本。
 
 ## 0.1 P1-3（2026-09-16）：SentenceReady + 异步第二路 LLM（**默认关**）
+
+> **v1 对照（2026-09-26）**：本节二路 LLM 的输出契约
+> `{epoch, covers_upto_seq, cues:[{sentence_seq, preset_id, intensity, ttl_ms}]}`
+> 是 **v0 字段面**。v1 下该产出面要能表达三族字段 `body` / `head` / `expression`
+> 与 `at` / `hold`（V2–V6），且**只产 `cues`、不产文本**（V12）。改动属阶段4 实施波次，
+> **本波零代码**；`action_cue` / `preset_id` **一律不删**（V11）。
 
 > 这是对本文档旧口径的**又一次明确反转**，必须与代码同步。
 
@@ -478,6 +499,11 @@ DEEPSEEK_API_KEY=sk-...
 | 自己的决策账本（内存） | **可写**（`command("clear")`） | 唯一允许的「写」——只动内存，不落盘、不投递 |
 
 ## 11. 非目标（明文，防止当成 backlog）
+
+> **v1 边界澄清（2026-09-26）**：本节是**本 Mod 的**非目标，不是产品波次的非目标。
+> v1 计划在**渲染面 ↔ 前端**之间新增事件级 ack 与音频时钟消息
+> （[performance-protocol-v1.md](performance-protocol-v1.md) §6 / §7）——那是渲染面协议，
+> **不是**本 Mod 的产出，也**不新增 / 不修改** WS `action_cue` 帧结构（V11 / D13 保持有效）。
 
 - **不投递任何 TTS 参数**（`suggested_tts` 只进日志 / 状态面）；
   **动作预设**（`preset_id`）是 2026-09-15 起允许的唯一可执行产出，范围严格限定
