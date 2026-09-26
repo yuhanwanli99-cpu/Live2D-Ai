@@ -106,6 +106,20 @@ mod web {
     /// 不需要重编 Rust。
     pub(crate) const PRESETS_URL: &str = "/actions/presets.json";
 
+    /// **可选**的字段映射覆盖表（O9）：按 model id 分节；文件不存在 / 校验失败
+    /// 一律回退渲染面**内建默认表**（本轮不要求每皮套一份）。
+    pub(crate) const FIELD_MAP_URL: &str = "/actions/field_map.json";
+
+    /// 墙钟 `performance.now()`（wasm 单线程；不存在时回 0）。
+    ///
+    /// 段 A（首个音频之前）没有 stage-clock，字段状态机回落它当 `now_ms`（§6.2）。
+    fn wall_now() -> f64 {
+        web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(0.0)
+    }
+
     /// 页面状态栏 `<pre id="status">`：所有错误与阶段状态的唯一出口。
     pub(crate) fn status(msg: &str) {
         web_sys::console::error_1(&JsValue::from_str(msg));
@@ -202,6 +216,42 @@ mod web {
         }
     }
 
+    /// 加载**可选**的字段映射覆盖表（O9，阶段4c）。
+    ///
+    /// 文件缺失 / 校验失败不是错误：内建默认表就是本轮「每皮套」的完整映射
+    /// （O9 明写「本轮不要求每皮套一份」）。成功时返回一句可读结果写进状态栏。
+    async fn load_field_map(
+        state: &SharedState,
+        window: &web_sys::Window,
+        model_id: &str,
+    ) -> String {
+        let bytes = match net::fetch_bytes(window, FIELD_MAP_URL).await {
+            Ok(b) => b,
+            Err(e) => return format!("字段映射覆盖表未加载（{e}），用内建默认表"),
+        };
+        let text = match String::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(e) => return format!("字段映射覆盖表不是 UTF-8（{e}），用内建默认表"),
+        };
+        match crate::preset::FieldMap::with_override_json(model_id, &text) {
+            Ok(map) => {
+                let model = map.model().to_string();
+                let warnings = map.warnings().to_vec();
+                state.borrow_mut().bridge.fields.set_map(map);
+                if warnings.is_empty() {
+                    format!("字段映射覆盖表：model={model}（外置 {FIELD_MAP_URL}）")
+                } else {
+                    format!(
+                        "字段映射覆盖表：model={model}（外置；{} 条告警：{}）",
+                        warnings.len(),
+                        warnings.join("；")
+                    )
+                }
+            }
+            Err(e) => format!("字段映射覆盖表校验失败（{e}），用内建默认表"),
+        }
+    }
+
     /// 一次性启动流程：fetch 清单 → fetch 资源 → 内存组包 → GPU 初始化 →
     /// 安装 resize 监听 → 进入 rAF 固定 dt 渲染循环。
     async fn run() -> Result<(), String> {
@@ -263,6 +313,13 @@ mod web {
         // 外置动作预设表（2026-09-16，P1-1）：优先 /actions/presets.json。
         // 用户可改幅值 / 周期 / 时长而**不需要重编 Rust**；缺失或校验失败回退内建表。
         let preset_note = load_preset_table(&state, &window).await;
+        // 阶段4c（O9）：可选的每皮套字段映射覆盖；缺文件 → 内建默认表。
+        let field_map_note = load_field_map(
+            &state,
+            &window,
+            &crate::preset::model_id_from_url(&model_url),
+        )
+        .await;
 
         // 一次性快照 adapter 信息到 HUD（供 500ms 周期内反复渲染）。
         let (backend, adp_name, is_webgpu) = adapter_info(&adapter);
@@ -275,7 +332,7 @@ mod web {
         // 诊断：同时打印「缓冲」与「CSS」两组尺寸——两者宽高比不一致即为模型被压扁的根因。
         let (css_w, css_h, dpr) = canvas_css_metrics(&canvas, &window);
         status(&format!(
-            "{summary}\n{preset_note}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
+            "{summary}\n{preset_note}\n{field_map_note}\nGPU: {backend}/{api} ({adp_name})；画布 缓冲 {width}x{height} / CSS {css_w}x{css_h} @dpr {dpr}\n开始渲染循环（固定 dt {FIXED_DT_60HZ}s / 60Hz 步进）。",
         ));
 
         install_stage_bridge(&state);
@@ -358,6 +415,8 @@ mod web {
             };
             // 应用消息 → 记录待 ACK 的类型（borrow 结束后回执）。
             let mut applied = false;
+            // 阶段4c：字段状态机产生的事件级 ack（borrow 结束后 emit）。
+            let mut field_acks: Vec<crate::preset::AckEvent> = Vec::new();
             {
                 let mut st = handler_state.borrow_mut();
                 st.bridge.msg_recv += 1;
@@ -391,13 +450,15 @@ mod web {
                         // 三条独立乘数，缺省/非法 → 1.0，钳 [0.2, 2.2]（`MAX_SCALE`）。
                         // 单独一段、**不拒绝整条消息**——坏值只回落默认。
                         if let Some(obj) = payload.get("actionScales") {
-                            st.bridge
-                                .preset
-                                .set_scales(crate::preset::PresetScales::from_parts(
-                                    obj.get("head").and_then(|x| x.as_f64()),
-                                    obj.get("body").and_then(|x| x.as_f64()),
-                                    obj.get("expression").and_then(|x| x.as_f64()),
-                                ));
+                            // O10：`[action]` 三倍率保持**全局**用户旋钮，
+                            // 旧 preset 双槽与 v1 三字段共用同一份。
+                            let scales = crate::preset::PresetScales::from_parts(
+                                obj.get("head").and_then(|x| x.as_f64()),
+                                obj.get("body").and_then(|x| x.as_f64()),
+                                obj.get("expression").and_then(|x| x.as_f64()),
+                            );
+                            st.bridge.preset.set_scales(scales);
+                            st.bridge.fields.set_scales(scales);
                         }
                         if let Some(id) = payload.get("idleEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.idle_enabled = id;
@@ -446,19 +507,78 @@ mod web {
                     // 写入走 final_override 层（见 input.rs），到点整批撤销。
                     // v1 协议新增消息：旧渲染面忽略未知 type，故向后兼容。
                     "preset" => {
-                        let cmd = st.bridge.preset.resolve(
-                            payload.get("id").and_then(|x| x.as_str()),
-                            payload.get("intensity").and_then(|x| x.as_f64()),
-                            payload.get("ttl_ms").and_then(|x| x.as_f64()),
-                            payload.get("source").and_then(|x| x.as_str()),
-                        );
-                        // 起始时刻用 performance.now()（与 tick 的 dt 同源）。
-                        let now_ms = web_sys::window()
-                            .and_then(|w| w.performance())
-                            .map(|p| p.now())
+                        // **阶段4c（编排者冻结的接口）**：`preset` 消息在旧键上只增
+                        // `field / x / y / z / hold / at / seq / epoch / sentence_seq`。
+                        // 带 `field` 的 v1 cue 走字段化通道；缺 `field` 时语义与今天
+                        // **逐字相同**（旧 `preset_id` 路径，V11）。
+                        if payload.get("field").is_some() {
+                            let epoch = payload
+                                .get("epoch")
+                                .and_then(|x| x.as_i64())
+                                .unwrap_or_else(|| st.bridge.fields.epoch());
+                            match crate::preset::FieldCue::from_json(&payload) {
+                                Ok(cue) => {
+                                    let surface::FrameState { bridge, .. } = &mut *st;
+                                    field_acks = bridge.fields.accept_cue(cue, wall_now());
+                                }
+                                Err(reason) => {
+                                    // 非法 cue **不得静默**：回一条可读的 preset-dropped。
+                                    field_acks.push(crate::preset::dropped_for_bad_cue(
+                                        epoch,
+                                        wall_now(),
+                                        &payload,
+                                        &reason,
+                                    ));
+                                }
+                            }
+                            applied = true;
+                        } else {
+                            // `none` 撤销哨兵：v1 下还要清**三字段**累加器
+                            // （§2.6：撤销两个槽 = expression + 头身，回基准）。
+                            let is_none = payload.get("id").and_then(|x| x.as_str()).map(str::trim)
+                                == Some(crate::preset::REVOKE_ID);
+                            let cmd = st.bridge.preset.resolve(
+                                payload.get("id").and_then(|x| x.as_str()),
+                                payload.get("intensity").and_then(|x| x.as_f64()),
+                                payload.get("ttl_ms").and_then(|x| x.as_f64()),
+                                payload.get("source").and_then(|x| x.as_str()),
+                            );
+                            // 起始时刻用 performance.now()（与 tick 的 dt 同源）。
+                            let now_ms = wall_now();
+                            let surface::FrameState { bridge, core, .. } = &mut *st;
+                            if is_none {
+                                bridge.fields.revoke_all(core);
+                            }
+                            applied = bridge.preset.handle(cmd, now_ms, core);
+                        }
+                    }
+                    // **stage-clock（O13 冻结）**：前端 → 渲染面
+                    // `{version:1,type:"stage-clock",payload:{seg,pos_ms,playing}}`。
+                    // 字段状态机用它当 now_ms（段 B）；无此消息时回落墙钟（段 A）。
+                    // 段切换 / playing=false → segment-ended（每段恰好一次）。
+                    // 高频遥测**不回** stage-ack（只有 segment-ended 会发回）。
+                    "stage-clock" => {
+                        // O13 的 payload 里 `seg` 是段号（1 起）；没给 seg 时**不**猜
+                        // 一个假段号（会白发一条 segment-ended）：停播照常收尾，
+                        // 播放中缺段号则忽略这一帧采样。
+                        let seg = payload
+                            .get("seg")
+                            .and_then(|x| x.as_u64())
+                            .map(|n| n as u32);
+                        let pos_ms = payload
+                            .get("pos_ms")
+                            .and_then(|x| x.as_f64())
                             .unwrap_or(0.0);
-                        let surface::FrameState { bridge, core, .. } = &mut *st;
-                        applied = bridge.preset.handle(cmd, now_ms, core);
+                        let playing = payload
+                            .get("playing")
+                            .and_then(|x| x.as_bool())
+                            .unwrap_or(false);
+                        let surface::FrameState { bridge, .. } = &mut *st;
+                        if let Some(seg) = seg {
+                            field_acks = bridge.fields.on_clock(seg, pos_ms, playing, wall_now());
+                        } else if !playing {
+                            field_acks = bridge.fields.on_clock(0, pos_ms, false, wall_now());
+                        }
                     }
                     // C2：自定义背景图（dataURL；null/empty = 清除）。
                     "stage-bg" => {
@@ -521,11 +641,20 @@ mod web {
                         st.bridge.offset_y = 0.0;
                         st.bridge.volume = 0.0;
                         st.bridge.volume_display = 0.0;
+                        // 阶段4c：停止 / 销毁 → 清三字段贡献 + 清 override（不补帧，§9.3）。
+                        let surface::FrameState { bridge, core, .. } = &mut *st;
+                        bridge.fields.revoke_all(core);
                         applied = true;
                     }
                     _ => {} // 未知类型忽略
                 }
             } // borrow 作用域结束
+            // **阶段4c 事件级 ack**：wire 名由 O13 冻结（preset-applied /
+            // preset-replaced / preset-expired / preset-dropped / segment-ended）。
+            // 只在这一帧真有事件时发；**不是**每帧状态流（V8）。
+            for event in field_acks {
+                emit_event(event.kind.wire_type(), event.to_json());
+            }
             // v1 `sync.payload.model`：异步换模型（与 `load-model` 同路径）。
             if let Some(url) = sync_model_url {
                 let reload_state = handler_state.clone();

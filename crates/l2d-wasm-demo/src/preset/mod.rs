@@ -1,5 +1,11 @@
 //! 舞台**动作包**表 + 运行状态机（2026-09-15，原生可测；2026-09-23 v3 包重构）。
 //!
+//! **行数豁免（≤1000 头注）**：本文件当前 902 行，超过 AGENTS「源码 ≤500」的常规线。
+//! 豁免理由是**单一真源**：内建包表 / 协议解析 / 包络 / 强度 morph / 双槽撤销状态机
+//! 与阶段4c 三字段模块的 re-export 必须能被并排读到——拆文件会把「一个数写 3 遍」的
+//! 老毛病重新引入；已按行为边界把表（table）、标定（scales）、字段（field_*）拆出，
+//! 本文件只留旧 `preset_id` 主线且保持在 1000 行以内（AGENTS 豁免上限）。
+//!
 //! # 为什么要一个原生可测的模块
 //!
 //! 本仓库踩过两次同款坑（`mouth.rs`、`stage_bg.rs`）：纯逻辑写在 `wasm32` 才编译的
@@ -646,6 +652,21 @@ pub use scales::{
     BODY_LIMIT, EXPRESSION_BODY_LIMIT, EXPRESSION_HEAD_LIMIT, EXPRESSION_LIMIT, HEAD_LIMIT,
     MAX_SCALE, MIN_SCALE, PresetScales, ScaleClass, clamp_scale, clamp_to_channel,
     frame_params_scaled_by, scale_class,
+};
+
+// 阶段4c：三字段（body / head / expression）的映射表 + 运行状态机 + 音频时钟 + ack。
+// 与旧的 `preset_id` 双槽（`PresetRuntime`）**并存**：旧路径一字不删（V11）。
+mod field_clock;
+mod field_map;
+mod field_runtime;
+#[allow(unused_imports)]
+pub use field_clock::{ClockDomain, ClockState, StageClock};
+#[allow(unused_imports)]
+pub use field_map::{FACIAL_PARAMS, Field, FieldMap, field_allows, model_id_from_url};
+#[allow(unused_imports)]
+pub use field_runtime::{
+    AckEvent, AckKind, Anchor, DEFAULT_TTL_EXPRESSION_MS, FieldCue, FieldRuntime, FrameOutcome,
+    FrameWrite, default_ttl_ms, dropped_for_bad_cue,
 };
 
 /// 一条预设用到的**全部通道**（低 / 高两极并集；去重、稳定顺序）。

@@ -107,6 +107,12 @@ pub(crate) struct BridgeState {
     /// 模型参数（表情保持 / 短动作包络），到点整批撤销。未知 id 在 main.rs
     /// 就被丢掉（静默降级）；`id:"none"` = 立即撤销。
     pub preset: crate::preset::PresetRuntime,
+    /// v1 三字段（`body` / `head` / `expression`）运行状态机（阶段4c）。
+    ///
+    /// 与旧 `preset` 双槽**并存**：缺 `field` 的旧消息走 `preset`，带 `field` 的
+    /// v1 cue 走这里。两者写同一 `final_override` 层，同帧顺序 = preset → fields
+    /// （同一通道同时被写时 fields 赢）。时钟取 stage-clock（无则回落墙钟）。
+    pub fields: crate::preset::FieldRuntime,
     /// 最近 audio-volume（0..1；每 20ms 音频帧更新）
     pub volume: f32,
     /// 衰减后的口型显示值（rAF 每帧 volume_display = volume.max(volume_display*0.85)）
@@ -132,6 +138,7 @@ impl Default for BridgeState {
             tier: RenderTier::DEFAULT,
             bg_data_url: None,
             preset: crate::preset::PresetRuntime::default(),
+            fields: crate::preset::FieldRuntime::default(),
             volume: 0.0,
             volume_display: 0.0,
             msg_recv: 0,
@@ -197,10 +204,13 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     // 表情：静态保持 ttl，到点整批撤销；短动作：正弦包络一次（首末为 0）。
     // `id:"none"` 在消息入口已立即撤销；未知 id 静默忽略。写不进的参数
     // （皮套缺该通道）由 `override_parameter` 返回 false 静默降级——不报错。
-    {
+    let field_acks = {
         let FrameState { bridge, core, .. } = &mut *st;
         bridge.preset.apply_frame(now_ms, core);
-    }
+        // **阶段4c**：v1 三字段写在旧 preset 之后——同一通道并存时字段赢。
+        // 时钟换算在 FieldRuntime 内部：有 stage-clock → 音频时间轴；无 → 墙钟（段 A）。
+        bridge.fields.frame(now_ms, core).events
+    };
 
     // 缩放 + 平移（模型级逻辑变换，背景不受影响）。
     //
@@ -252,6 +262,14 @@ pub(crate) fn apply_bridge_effects(state: &SharedState, dt_millis: f64) {
     // B1：idleEnabled=false 时跳过 idle 生命体征层（模型静止，仅保留 lip_sync）。
     if st.bridge.idle_enabled {
         apply_idle_life(&mut st, now_ms, dt_millis);
+    }
+    drop(st);
+
+    // **事件级 ack（O13 冻结 wire 名）**：preset-applied / preset-replaced /
+    // preset-expired / preset-dropped 由字段状态机产生，这里统一发给父页。
+    // 不是每帧状态流：frame 只在事件发生的那一帧返回事件。
+    for event in field_acks {
+        crate::web::emit_event(event.kind.wire_type(), event.to_json());
     }
 }
 

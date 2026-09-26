@@ -497,6 +497,17 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
                     .round() as i64
             )
         };
+        // **阶段4c**：v1 三字段当前状态（贡献条数 / hold 数 / expression id）+
+        // 时钟域（段 A 墙钟 / 段 B 音频时钟）——这是「字段 cue 到底有没有落」
+        // 与「用的是哪个时钟」最直接的 HUD 证据。
+        let fields_diag = format!(
+            "fields: {} | clock: {}",
+            st.bridge.fields.diag(),
+            match st.bridge.fields.domain() {
+                crate::preset::ClockDomain::Audio => "audio",
+                crate::preset::ClockDomain::Wall => "wall",
+            }
+        );
         let stage_diag = format!(
             "stage: scale={:.2} off=({:+.2},{:+.2}) msg={}/{} [{}]",
             st.bridge.scale,
@@ -518,7 +529,7 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {stage_diag} | {idle_diag}",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {fields_diag} | {stage_diag} | {idle_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,

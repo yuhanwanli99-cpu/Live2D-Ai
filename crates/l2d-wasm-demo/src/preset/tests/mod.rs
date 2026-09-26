@@ -449,4 +449,7 @@ fn nod_and_look_carry_body_follow() {
 }
 
 mod assets;
+mod fields;
+mod fields_common;
+mod fields_map_tests;
 mod packs;
