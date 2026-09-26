@@ -19,6 +19,13 @@ class ChatAccepted {
   final bool pendingCleared;
 }
 
+/// host 交付会话 baseline 的旁路回调（V10 §9.3 / O8 / D28）。
+///
+/// [baseline] 是响应体里的**原文**（单个 cue 对象 / cue 对象数组 / `null`）；
+/// [reason] 是这次交付的原因（`new-message` / `stop`）。**键缺席不会回调**：
+/// 缺席 = host 没有交付（例如 busy 的 429 路径），此时不得动舞台。
+typedef SessionBaselineSink = void Function(Object? baseline, String reason);
+
 /// 后端统一错误体 `{"error":{"code","message","details"}}`。
 class ApiException implements Exception {
   const ApiException(this.code, this.message, {this.status});
@@ -37,11 +44,19 @@ class ApiException implements Exception {
 /// base 缺省 = 同源（页面 origin）；可用
 /// `--dart-define=API_BASE=http://127.0.0.1:18080` 覆盖。
 class ApiClient {
-  ApiClient({String? base, http.Client? client})
+  ApiClient({String? base, http.Client? client, this.onSessionBaseline})
     : base = _normalize(base ?? const String.fromEnvironment('API_BASE')),
       _client = client ?? http.Client();
 
   final String base;
+
+  /// 会话 baseline 的交付旁路（D28；缺省 `null` = 不接线）。
+  ///
+  /// 为什么在 transport 层转发而不是经 `ChatController`：baseline 是 **host 的
+  /// 取消信号**（V10 §9.3 的第四步），与聊天气泡 / 回合状态无关——把它塞进
+  /// `ChatController` 会让「对话状态」多背一份舞台编排。**值不落任何字段**：
+  /// 转发即丢，前端不建镜像（V8）。
+  final SessionBaselineSink? onSessionBaseline;
 
   /// HTTP 客户端。**可注入**：`flutter test` 里用 `package:http/testing.dart`
   /// 的 `MockClient` 就能在 VM 上覆盖全部请求/响应契约（零新依赖，
@@ -94,6 +109,11 @@ class ApiClient {
     );
     if (response.statusCode == 200) {
       final data = _decodeObject(response.body);
+      // V10 §9.3 / D28：host 把该会话 baseline 随**同一个**受理响应回给前端。
+      // 键缺席 = 没交付（不动舞台）；键在场（含显式 null = 待机）→ 立即应用。
+      if (data.containsKey('baseline')) {
+        onSessionBaseline?.call(data['baseline'], 'new-message');
+      }
       return ChatAccepted(
         accepted: data['accepted'] == true,
         epoch: (data['epoch'] as num?)?.toInt() ?? 0,
@@ -126,12 +146,19 @@ class ApiClient {
   }
 
   /// `POST /api/v1/chat/stop`（幂等）。
+  ///
+  /// 响应体带该会话 baseline（V10 §9.3 / D28）：与 [sendChat] 同一条旁路转发，
+  /// 键缺席同样不回调（不动舞台）。
   Future<void> stopChat() async {
     final response = await _guard(
       () => _client.post(_uri('/api/v1/chat/stop')),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _errorFrom(response);
+    }
+    final data = _decodeObject(response.body);
+    if (data.containsKey('baseline')) {
+      onSessionBaseline?.call(data['baseline'], 'stop');
     }
   }
 

@@ -66,6 +66,7 @@ import 'live2d/action_scales_sync.dart';
 import 'live2d/live2d_bridge.dart';
 import 'live2d/live2d_stage.dart';
 import 'live2d/render_events.dart';
+import 'live2d/session_baseline.dart';
 import 'live2d/stage_cancel.dart';
 import 'settings/display_prefs.dart';
 import 'settings/preset_labels.dart';
@@ -333,7 +334,9 @@ class _ShellRootState extends State<ShellRoot> {
   @override
   void initState() {
     super.initState();
-    _api = ApiClient();
+    // 会话 baseline 的第 ① 路交付（D28）：host 随 chat/stop 响应体回。
+    // 值不进任何字段——回调里解析成一次性下发清单，立即应用后即丢。
+    _api = ApiClient(onSessionBaseline: _onSessionBaselineDelivered);
     _modelsApi = ModelsApi();
     _envApi = EnvApi();
     _modsApi = ModsApi();
@@ -445,6 +448,14 @@ class _ShellRootState extends State<ShellRoot> {
       // **唯一驱动通道**——阶段3 起不再有 text_delta / text_fallback 触发的
       // 「拉状态面 latest.preset_id」分支（通道 B 退役，见 D10–D13）。
       if (event is ActionCueEvent) {
+        // **D31（阶段4f）**：host 的取消信号 = 既有 action_cue 帧 +
+        // `baseline:true`（`cues` 是该会话 baseline，不是按句计划）。
+        // 第 ② 路交付必须**立即应用**到舞台——不进 [_directorCues]（那是按句
+        // 计划，会等到音频开始才生效），也不缓存（不建前端镜像，V8）。
+        if (event.baseline) {
+          _applyBaselineCues(event.cues, event.reason ?? 'baseline');
+          return;
+        }
         _directorEpoch = event.epoch;
         _directorCues.replace(event.cues);
       }
@@ -516,14 +527,59 @@ class _ShellRootState extends State<ShellRoot> {
     _stageCancellation.cancel(reason);
   }
 
-  /// 回该会话 baseline（V10 §9.3）。
+  /// 回该会话 baseline（V10 §9.3 / O8 / D28）——[StageCancellation] 的第 ④ 步。
   ///
-  /// **host 侧接口未冻结**：4e 在 `session_scope` 上按会话回落 baseline，并随
-  /// stop / new-message 的**同一个**请求生效；前端不另发请求、也不新造第二套
-  /// 会话表。这里保留调用点（[StageCancellation.returnToBaseline] 的第 ④ 步），
-  /// 端点冻结后在此接线。见报告未决。
+  /// # 为什么这里先按「缺省 = 待机」下发
+  ///
+  /// host 的 baseline 随**同一个**请求两路交付（响应体的 `baseline` 字段；
+  /// `action_cue{baseline:true}` 帧），但两路都要等 POST 之后才回到前端——
+  /// **本地取消这一瞬间还没有可应用的内容**。按 O8「缺省为空 = 待机」，第 ④ 步
+  /// 立即下发**缺省 baseline**（= `applyPreset('none')` 回待机），
+  /// **不退化成「什么都不做」**；随后到达的交付内容若非空，由
+  /// [_applyBaselineCues] 立即覆盖（同一个取消事务的异步后半段）。
+  ///
+  /// 前端**不缓存 baseline**：没有镜像字段，也没有第二套会话表。
   void _requestSessionBaseline(String reason) {
-    return;
+    _applyBaselineCues(const <ActionCue>[], reason);
+  }
+
+  /// 会话 baseline 的**第 ① 路**交付：HTTP 响应体（`api/api_client.dart` 转发）。
+  ///
+  /// 键缺席不会进来（[ApiClient.onSessionBaseline] 的契约）；显式 `null` /
+  /// 空数组 = 待机 → 撤销。**立即应用**，不做任何缓存。
+  void _onSessionBaselineDelivered(Object? baseline, String reason) {
+    if (!mounted) return;
+    _applyBaselineCues(parseBaselineCues(baseline), reason);
+  }
+
+  /// baseline 的一次性下发：**立即**逐条 `applyPreset`（不进按句计划）。
+  ///
+  /// 顺序保证：两路交付都发生在本地取消事务（清 cue 计划 → 撤销两槽 →
+  /// 丢待播音频 → 第 ④ 步）**之后**——host 只有在收到 POST 时才广播 / 回包，
+  /// 而本地取消在 POST **之前**。空 baseline ⇒ [baselineApplicationFromCues]
+  /// 给**恰好一条** `none` 撤销（等价 `applyPreset('none')`）；
+  /// 非空 ⇒ 每条 cue 各一次（`source` 用交付原因，便于渲染面 ack 归因）。
+  void _applyBaselineCues(List<ActionCue> cues, String reason) {
+    final Live2DStageState? stage = _stageKey.currentState;
+    for (final BaselinePresetCall call in baselineApplicationFromCues(cues)) {
+      unawaited(
+        stage?.applyPreset(
+              call.id,
+              source: reason,
+              intensity: call.intensity?.toDouble() ?? kDefaultPresetIntensity,
+              ttlMs: call.ttlMs?.toDouble(),
+              field: call.field,
+              x: call.x,
+              y: call.y,
+              z: call.z,
+              hold: call.hold,
+              at: call.at,
+              seq: call.seq,
+              sentenceSeq: call.sentenceSeq,
+            ) ??
+            Future<void>.value(),
+      );
+    }
   }
 
   /// 主链忙时，把识别到的正文**落回输入框**（不排队、不静默丢弃）。

@@ -207,6 +207,8 @@ class ActionCueEvent extends WsEvent {
     required this.epoch,
     required this.coversUptoSeq,
     required this.cues,
+    this.baseline = false,
+    this.reason,
     super.seq,
     super.ts,
   });
@@ -214,6 +216,17 @@ class ActionCueEvent extends WsEvent {
   final int epoch;
   final int coversUptoSeq;
   final List<ActionCue> cues;
+
+  /// **会话 baseline 的取消信号**（Gate 4 **D31**，阶段4f）：
+  /// host 在新消息 / 停止时把该会话 baseline 封成**既有 `action_cue` 帧**，
+  /// 附加 `baseline:true`。为 `true` 时 [cues] 是 **baseline**（不是按句计划），
+  /// 消费方必须**立即应用**、**不得**装进按句计划。
+  ///
+  /// 缺省 `false` = 普通导演计划：语义与帧结构逐字不变（V11：只增不改）。
+  final bool baseline;
+
+  /// baseline 信号的原因（`new-message` / `stop` …；普通帧为 `null`）。
+  final String? reason;
 
   factory ActionCueEvent.fromData(
     Map<String, Object?> data, {
@@ -233,6 +246,9 @@ class ActionCueEvent extends WsEvent {
       epoch: _int(data['epoch']),
       coversUptoSeq: _int(data['covers_upto_seq']),
       cues: cues,
+      // D31 可选附加键：缺省即旧语义（V11），未知键照旧被丢弃。
+      baseline: data['baseline'] == true,
+      reason: _str(data['reason']),
       seq: seq,
       ts: ts,
     );
