@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -31,8 +32,10 @@ class _FakeTransport implements Live2DTransport {
 
 /// P1-3 / P1-4（2026-09-16）：导演按句 cue 的协议 + 句号对齐。
 ///
-/// 2026-09-23（W4）追加：导演状态面「本轮没有预设」的**归零语义**——
-/// `DirectorPresetGate` 的 seq 去重（同 seq 重复帧只归零一次）+ 撤销帧协议。
+/// 2026-09-23（W4）曾在这里测「导演状态面 `latest.preset_id`」的归零判据；
+/// **2026-09-24（阶段3 D10–D13）该通道整体退役**——撤销语义并入 `action_cue`
+/// 的 `preset_id == 'none'`，gate 相关的 4 条用例随类一并删除，改由下面
+/// 「唯一驱动通道」组用**生产类 + 真实协议出口**钉住。
 void main() {
   test('action_cue 帧解析成 ActionCueEvent（缺省忽略 = 兼容）', () {
     final String raw = jsonEncode(<String, Object?>{
@@ -113,55 +116,186 @@ void main() {
     expect(e, isA<UnknownWsEvent>());
   });
 
-  // ── W4（2026-09-23）：撤销语义 ──────────────────────────────────────────
+  // ── 阶段3（2026-09-24，D10–D13）：唯一驱动通道 = action_cue ─────────────
   //
-  // 判据在 `DirectorPresetGate`（live2d_stage.dart，纯逻辑、VM 可测）：
-  // **先** seq 去重，**再** `preset_id` 为 null / 空 / 'none' → revoke。
-  // 这条顺序写反 = 一轮里每个 text_delta 都重复下发 none，舞台会被抖散。
-  group('W4：seq 去重与「本轮没有预设」的归零判据', () {
-    test('同一条 seq 的重复帧只有第一次是新决策（只会归零一次）', () {
-      final DirectorPresetGate gate = DirectorPresetGate();
-      // 第一次：新 seq、无 preset → 归零。
-      expect(gate.decide(7, null).action, DirectorPresetAction.revoke);
-      // 随后同一 seq 的每一帧（text_delta 很多条）都必须被丢掉。
-      for (int i = 0; i < 5; i++) {
-        expect(
-          gate.decide(7, null).action,
-          DirectorPresetAction.ignore,
-          reason: '同 seq 重复帧必须 ignore —— 否则每一帧都会重复归零',
+  // 通道 B（正文上屏时拉只读状态面 latest.preset_id → applyPreset）已整体
+  // 退役；撤销语义并入 cue 层：preset_id == 'none' 在该句音频开始时下发一次，
+  // 空串仍是「本轮不动」。判据在 `DirectorCuePlan`（live2d_stage.dart，纯逻辑、
+  // VM 可测；main.dart 经 package:web 在 VM 里加载不了，与 W4 抽出时同因）。
+  group('阶段3 D10/D13：action_cue 承载撤销（唯一驱动通道）', () {
+    /// 一条真实 `action_cue` 帧 → `ActionCueEvent`（不手搓 ActionCue）。
+    ActionCueEvent cueFrame(int seq, Object? presetId) {
+      final String raw = jsonEncode(<String, Object?>{
+        'type': 'action_cue',
+        'seq': 1,
+        'ts': '2026-09-24T00:00:00Z',
+        'data': <String, Object?>{
+          'epoch': 3,
+          'covers_upto_seq': seq,
+          'cues': <Object?>[
+            <String, Object?>{
+              'sentence_seq': seq,
+              'preset_id': presetId,
+              'intensity': 1,
+              'ttl_ms': 2600,
+              'priority': 0,
+            },
+          ],
+        },
+      });
+      return parseWsFrame(raw)! as ActionCueEvent;
+    }
+
+    test('preset_id:"none" → 该句音频开始时恰好一次下发撤销', () async {
+      final ActionCueEvent ev = cueFrame(5, 'none');
+
+      // 真实协议出口：断言最终真的发了一帧 `{type:preset,id:none}`。
+      final _FakeTransport transport = _FakeTransport();
+      final Live2DBridge bridge = Live2DBridge(transport);
+      transport.emit('{"version":1,"type":"ready","payload":{}}');
+      await Future<void>.delayed(Duration.zero);
+
+      final DirectorCuePlan plan = DirectorCuePlan();
+      plan.replace(ev.cues); // = main.dart 收到 ActionCueEvent 做的事
+      int calls = 0;
+      Future<void> apply(ActionCue cue) async {
+        calls += 1;
+        await bridge.sendPreset(
+          cue.presetId,
+          source: 'director',
+          intensity: cue.intensity.toDouble(),
+          ttlMs: cue.ttlMs.toDouble(),
         );
       }
-      expect(gate.lastSeq, 7);
+
+      // 该句音频开始播放（= main.dart 的 _applyDirectorCueForSeq）。
+      await plan.applyForSeq(5, apply);
+      expect(calls, 1, reason: 'preset_id=none 在该句音频开始时恰好一次');
+      expect(transport.sent, hasLength(1), reason: '恰好一帧 preset 下发');
+      final Map<String, Object?> frame =
+          jsonDecode(transport.sent.single) as Map<String, Object?>;
+      expect(frame['type'], 'preset');
+      final Map<String, Object?> payload =
+          frame['payload'] as Map<String, Object?>;
+      expect(payload['id'], 'none', reason: '撤销哨兵原样透传（渲染面翻成两槽 Revoke）');
+      expect(payload['source'], 'director');
+
+      // 同一句不会开始两次；即便被重复调用，也不得再应用（取用即移除）。
+      await plan.applyForSeq(5, apply);
+      expect(calls, 1, reason: '取用即移除 → 同一句绝不重复下发');
+      expect(transport.sent, hasLength(1));
+
+      await bridge.destroy();
     });
 
-    test('新 seq 且无 preset（null / 空串 / none）一定归零两槽', () {
-      final DirectorPresetGate gate = DirectorPresetGate();
-      int seq = 0;
-      for (final Object? none in <Object?>[null, '', 'none']) {
-        seq += 1;
-        final DirectorPresetDecision d = gate.decide(seq, none);
-        expect(
-          d.action,
-          DirectorPresetAction.revoke,
-          reason: 'preset_id=$none 表示「本轮没有预设」，必须显式归零',
-        );
-        expect(d.presetId, 'none', reason: '归零下发的就是撤销哨兵 none');
+    test('同 seq 重复帧只应用一次（整表替换 + 取用即移除，阶段3 §6.2）', () async {
+      const ActionCue none = ActionCue(
+        sentenceSeq: 7,
+        presetId: 'none',
+        intensity: 1,
+        ttlMs: 2600,
+        priority: 0,
+      );
+      final DirectorCuePlan plan = DirectorCuePlan();
+      plan.replace(<ActionCue>[none]); // 第一帧
+      plan.replace(<ActionCue>[none]); // 同 seq 重复帧
+      plan.replace(<ActionCue>[none, none]); // 一份 plan 里同 seq 多条
+      expect(plan.length, 1, reason: '同 seq 的重复帧被 map 语义吃掉，不会累积');
+
+      final List<String> applied = <String>[];
+      Future<void> apply(ActionCue cue) async {
+        applied.add(cue.presetId);
       }
+
+      await plan.applyForSeq(7, apply);
+      expect(applied, <String>['none'], reason: '该句音频开始时只应用一次');
+      await plan.applyForSeq(7, apply);
+      expect(applied, <String>['none'], reason: '重复调用不得再应用');
+      expect(plan.length, 0, reason: '取用即移除');
     });
 
-    test('新 seq 且有 preset → apply（不改 id）', () {
-      final DirectorPresetGate gate = DirectorPresetGate();
-      final DirectorPresetDecision d = gate.decide(3, 'smile');
-      expect(d.action, DirectorPresetAction.apply);
-      expect(d.presetId, 'smile');
+    test('preset_id 空串 = 本轮不动；cues:[] = 清空也不动；普通预设照常', () async {
+      final DirectorCuePlan plan = DirectorCuePlan();
+      int calls = 0;
+      Future<void> apply(ActionCue cue) async {
+        calls += 1;
+      }
+
+      plan.replace(cueFrame(2, '').cues);
+      await plan.applyForSeq(2, apply);
+      expect(calls, 0, reason: '空串仍是「本轮不动」——既不撤销也不下发');
+
+      plan.replace(<ActionCue>[]);
+      expect(plan.length, 0, reason: '空 cues = 清空计划 = 本轮不动');
+      await plan.applyForSeq(2, apply);
+      expect(calls, 0);
+
+      plan.replace(cueFrame(3, 'nod').cues);
+      await plan.applyForSeq(3, apply);
+      expect(calls, 1, reason: '普通预设照常下发');
+      await plan.applyForSeq(null, apply);
+      expect(calls, 1, reason: 'seq 为 null 一律安静丢弃');
     });
 
-    test('seq 回退 = 账本重启：先复位再接受，不把新决策当旧的丢', () {
-      final DirectorPresetGate gate = DirectorPresetGate();
-      expect(gate.decide(9, 'nod').action, DirectorPresetAction.apply);
-      // Mod 停用再启用 / 保存配置重启后计数从 1 重新开始。
-      expect(gate.decide(1, 'smile').action, DirectorPresetAction.apply);
-      expect(gate.lastSeq, 1);
+    test('源码级断言：lib/ 不存在「读 director 状态面 + applyPreset」通道 B', () {
+      final List<File> libs = Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((File f) => f.path.endsWith('.dart'))
+          .toList();
+      expect(libs.length, greaterThan(50), reason: '扫描根路径不对，扫不到 lib/**');
+
+      final List<String> stateReaders = <String>[];
+      final List<String> combined = <String>[];
+      for (final File f in libs) {
+        final String src = f.readAsStringSync();
+        final bool readsDirectorState = src.contains("state('director')") ||
+            src.contains('state("director")') ||
+            src.contains('mods/director/state');
+        if (!readsDirectorState) continue;
+        stateReaders.add(f.path);
+        if (src.contains('applyPreset')) combined.add(f.path);
+      }
+      expect(
+        combined,
+        isEmpty,
+        reason: '同一文件里「读 director 状态面」+「applyPreset」= 通道 B 复活；'
+            '唯一驱动者必须是 action_cue',
+      );
+      expect(
+        stateReaders,
+        isEmpty,
+        reason: '通道 B 已退役：lib/ 里不应再有任何拉 director 状态面的读点',
+      );
+
+      // 通道 A 的接线在 main.dart（VM 加载不了 → 源码扫描，先例见
+      // test/action_scales_wiring_test.dart）。
+      final String main = File('lib/main.dart').readAsStringSync();
+      expect(main.contains('ActionCueEvent'), isTrue);
+      expect(
+        main.contains('_directorCues.replace(event.cues)'),
+        isTrue,
+        reason: 'action_cue 到达必须整表替换当前计划',
+      );
+      expect(main.contains('sentenceStarts'), isTrue,
+          reason: '锚点必须是「该句音频开始播放」（与声音同拍）');
+      expect(main.contains('_applyDirectorCueForSeq'), isTrue);
+      for (final String gone in <String>[
+        '_applyDirectorPreset',
+        'DirectorPresetGate',
+        '_directorTurnHandled',
+        '_directorFetching',
+        '_directorPresetGate',
+      ]) {
+        expect(main.contains(gone), isFalse, reason: '$gone 属于已退役的通道 B');
+      }
+      expect(
+        File('lib/live2d/live2d_stage.dart')
+            .readAsStringSync()
+            .contains('DirectorPresetGate'),
+        isFalse,
+        reason: 'W4 的 gate 三件套已从 live2d_stage.dart 删除',
+      );
     });
   });
 

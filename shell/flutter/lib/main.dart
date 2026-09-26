@@ -180,31 +180,18 @@ class _ShellRootState extends State<ShellRoot> {
   /// 界面相位派生（WS 信号 + 渲染面状态 → `UiPhase`）。**纯逻辑，可单测。**
   final UiStateTracker _ui = UiStateTracker();
 
-  /// 导演状态面的 seq 去重 / 「本轮没有预设」判据（**纯逻辑，VM 可测**）。
-  ///
-  /// `decide()` 内部**先** seq 去重、**再**判 none——顺序是契约，见
-  /// `live2d_stage.dart` 的 `DirectorPresetGate`。放在那边而不是本文件，
-  /// 是因为本文件经 `app/browser_io.dart` 依赖 `package:web`，VM 测试加载不了。
-  final DirectorPresetGate _directorPresetGate = DirectorPresetGate();
-  /// 正在拉导演状态（避免同一轮并发打多次本地 HTTP）。
-  bool _directorFetching = false;
-  /// 本轮是否已经拉过一次导演状态。
-  ///
-  /// 导演的决策在 TurnPrompt（同步投递）里就写好了，所以本轮**第一次**
-  /// 正文上屏时拉一次就够——否则一段回复里的每个 text_delta 都会打一次
-  /// 本地 GET。轮末 turn_state 复位，下一轮重新拉。
-  bool _directorTurnHandled = false;
   StreamSubscription<double>? _levelSubscription;
   StreamSubscription<WsStatus>? _statusSubscription;
   StreamSubscription<WsEvent>? _eventSubscription;
   StreamSubscription<int?>? _sentenceCueSubscription;
 
-  /// 导演按句 cue（P1-3，2026-09-16）：sentence_seq -> cue。
+  /// 导演按句 cue（P1-3，2026-09-16）：**唯一**的舞台驱动通道（阶段3 D10–D13）。
   ///
   /// 新 plan 到达即**整体替换**（一份 plan 覆盖上一份）；音频开始播放时按
   /// 当前句的 sentence_seq 取用一次并移除。产品设置里的幅度倍率由渲染面乘，
-  /// 这里只透传 cue 的 intensity。
-  Map<int, ActionCue> _directorCues = <int, ActionCue>{};
+  /// 这里只透传 cue 的 intensity。`state_json.latest` 仅供 director 面板
+  /// **只读展示**，不再驱动舞台（通道 B 已于阶段3 退役）。
+  final DirectorCuePlan _directorCues = DirectorCuePlan();
 
   /// 当前设置分区（受控；外壳只上报意图）。
   SettingsSection _section = SettingsSection.appearance;
@@ -413,24 +400,12 @@ class _ShellRootState extends State<ShellRoot> {
           unawaited(_voiceListen.resumeAfterPlayback());
         }
       }
-      // **导演动作预设**（2026-09-15）：正文开始上屏时拉一次导演状态面，
-      // 有新的 preset_id 就交给舞台。用 text_delta 而不是轮末：反应要跟
-      // 回复同时出现，等 turn_state 就晚了半拍。
-      // 正文兜底帧也要触发：TTS 上游故障时一轮里没有 text_delta，只有
-      // text_fallback——那种情况下「角色有反应」恰恰是用户最需要看到的。
-      if (event is TextDeltaEvent || event is TextFallbackEvent) {
-        unawaited(_applyDirectorPreset());
-      }
       // 导演按句 cue（P1-3，2026-09-16）：整体替换当前计划；缺省忽略 = 兼容。
       // 空 cues = 清空计划 = **本轮不动**（不归零；归零只走 preset_id='none'）。
+      // **唯一驱动通道**——阶段3 起不再有 text_delta / text_fallback 触发的
+      // 「拉状态面 latest.preset_id」分支（通道 B 退役，见 D10–D13）。
       if (event is ActionCueEvent) {
-        _directorCues = <int, ActionCue>{
-          for (final ActionCue cue in event.cues) cue.sentenceSeq: cue,
-        };
-      }
-      // 轮末复位：下一轮重新允许拉一次（见 _directorTurnHandled）。
-      if (event is TurnStateEvent) {
-        _directorTurnHandled = false;
+        _directorCues.replace(event.cues);
       }
     });
 
@@ -446,72 +421,24 @@ class _ShellRootState extends State<ShellRoot> {
   /// 锚点选**音频开始**（不是句子提交时刻）：慢 TTS 下前者才与声音同拍；
   /// 迟到 / 缺 cue 一律安静丢弃（导演是附加表演能力，不往聊天链路抛错误）。
   ///
-  /// **空 cue 列表 = 本轮不动，本方法不承担归零职责（W4，2026-09-23）**：
-  /// cue 是**按句**锚定的，用整份计划去归零会把**别的句**正在演的表演也清掉。
-  /// 撤销的唯一哨兵是状态面的 `preset_id = 'none'`（见 [`_applyDirectorPreset`]）。
+  /// **唯一驱动通道 = WS `action_cue`（阶段3 D10–D13）**：不再拉
+  /// director 的只读运行态（通道 B 已退役），`state_json.latest`
+  /// 仅供 director 面板只读展示。撤销语义已并入 cue 层——`preset_id == 'none'`
+  /// 照常下发（渲染面把 `none` 翻成两槽 `Revoke`）；`preset_id` 为空串仍是
+  /// 「本轮不动」。整表替换 + 取用即移除由 [`DirectorCuePlan`] 负责，同 seq
+  /// 重复帧只会应用一次。
   void _applyDirectorCueForSeq(int? seq) {
-    if (seq == null || _directorCues.isEmpty) return;
-    final ActionCue? cue = _directorCues.remove(seq);
-    if (cue == null || cue.presetId.isEmpty) return;
     unawaited(
-      _stageKey.currentState?.applyPreset(
-            cue.presetId,
-            source: 'director',
-            intensity: cue.intensity.toDouble(),
-            ttlMs: cue.ttlMs.toDouble(),
-          ) ??
-          Future<void>.value(),
+      _directorCues.applyForSeq(seq, (ActionCue cue) {
+        return _stageKey.currentState?.applyPreset(
+              cue.presetId,
+              source: 'director',
+              intensity: cue.intensity.toDouble(),
+              ttlMs: cue.ttlMs.toDouble(),
+            ) ??
+            Future<void>.value();
+      }),
     );
-  }
-
-  /// 把 **导演 Mod** 选出的动作预设交给舞台（2026-09-15）。
-  ///
-  /// 通道：**已有的只读状态面** GET /api/v1/mods/director/state
-  /// （不是新协议、不是新的 Mod 下行通道）。Mod 只写 latest.preset_id，
-  /// 前端拉一次并转给渲染面——这是本项目「Mod 不持下行通道」纪律下的最短路径。
-  ///
-  /// **撤销语义（W4，2026-09-23）**：`preset_id` 为 `null` / 空串 / `'none'`
-  /// 都表示「本轮没有预设」——此时**显式归零两个槽**（`applyPreset('none')`
-  /// → 渲染面 `Revoke`），而不是像以前那样直接 return、干等上一轮的 ttl
-  /// （表情 2.6s）自然到点。
-  ///
-  /// 顺序是契约：**先**在 `_directorPresetGate.decide()` 里完成 seq 去重，
-  /// **再**看有没有预设去归零。一轮里每个 `text_delta` 都会触发一次本方法，
-  /// 顺序写反 = 每一帧都重复归零，舞台会抖。
-  ///
-  /// 失败一律静默：director 未启用 / 不在注册表 / 暂时读不到，都只是「没有
-  /// 预设」——导演是附加表演能力，不该往聊天链路上抛错误横幅。
-  Future<void> _applyDirectorPreset() async {
-    // 一轮只拉一次（决策在 TurnPrompt 里就写好了；轮末复位）。
-    if (_directorFetching || _directorTurnHandled) return;
-    _directorFetching = true;
-    try {
-      final ModStateResult result = await _modsApi.state('director');
-      final Object? latest = result.state['latest'];
-      if (latest is! Map) return;
-      final Map<String, Object?> row = Map<String, Object?>.from(latest);
-      final Object? rawSeq = row['seq'];
-      final int seq = rawSeq is num ? rawSeq.toInt() : 0;
-      // ① seq 去重在前（同 seq 重复帧在这里变成 ignore，不会重复归零）。
-      final DirectorPresetDecision decision =
-          _directorPresetGate.decide(seq, row['preset_id']);
-      if (decision.action == DirectorPresetAction.ignore) return;
-      // ② 本轮有新决策、但「没有预设」→ 显式归零两槽。
-      if (decision.action == DirectorPresetAction.revoke) {
-        await _stageKey.currentState?.applyPreset('none', source: 'director');
-        return;
-      }
-      await _stageKey.currentState?.applyPreset(
-        decision.presetId!,
-        source: 'director',
-      );
-    } catch (_) {
-      // 见上：静默降级。
-    } finally {
-      _directorFetching = false;
-      // 无论成功 / 失败，这一轮都不再重复打本地 GET（下一轮 turn_state 复位）。
-      _directorTurnHandled = true;
-    }
   }
 
   /// 主链忙时，把识别到的正文**落回输入框**（不排队、不静默丢弃）。

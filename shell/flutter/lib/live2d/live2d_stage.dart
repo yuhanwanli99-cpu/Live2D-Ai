@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 
+import '../api/ws_frame.dart';
 import '../design/tokens.dart';
 import '../settings/preset_labels.dart';
 import '../ui/soft_motion.dart';
@@ -52,66 +53,55 @@ class PresetStatus {
   }
 }
 
-/// 导演状态面 `latest.preset_id` 的**应用决策**（W4，2026-09-23）。
-enum DirectorPresetAction {
-  /// 同一轮已经处理过（或本条 seq 更旧）——**什么都不做**，尤其**不归零**。
-  ignore,
-
-  /// 本轮判定为中性 / 无预设（`null` / 空串 / `'none'`）→ 显式归零两个槽。
-  revoke,
-
-  /// 本轮有明确预设 → 下发给渲染面。
-  apply,
-}
-
-/// [`DirectorPresetGate.decide`] 的结果。
-class DirectorPresetDecision {
-  const DirectorPresetDecision(this.action, this.presetId);
-
-  final DirectorPresetAction action;
-
-  /// `apply` 时的预设 id；`revoke` 时是撤销哨兵 `'none'`；`ignore` 时 `null`。
-  final String? presetId;
-}
-
-/// 「本轮有没有新预设」的判据（**先** seq 去重，**再** none 归零）。
+/// 导演按句 cue 的**持有与应用策略**（纯逻辑，VM 可测；阶段3 起取代 W4 那条
+/// 基于只读状态面的预设判据）。
 ///
 /// # 为什么抽在这里（而不是留在 `main.dart`）
 ///
-/// `main.dart` 经 `app/browser_io.dart` 依赖 `package:web`，在 `flutter test`
-/// （Dart VM）里**加载不了**；而「先去重、再判 none」这条顺序恰恰是最容易写反、
-/// 也最该被回归钉住的行为——写反 = 一轮里每个 `text_delta` 都重复下发 `none`，
-/// 舞台会被一帧一次地抖散。与 `ActionScalesSyncer` 抽出来的理由相同
-/// （见 `live2d/action_scales_sync.dart` 头注）。
+/// 与 [`PresetStatus`] 同因：`main.dart` 经 `app/browser_io.dart` 依赖
+/// `package:web`，在 `flutter test`（Dart VM）里**加载不了**；而「一份 plan
+/// 整体替换、按句**取用一次即移除**、空 id 不动、`none` = 撤销」这条顺序
+/// 恰恰是最容易写错、也最该被回归钉住的行为——阶段3 §6.2 明确：「同 seq
+/// 重复帧只应用一次」这条保护由整表替换 + 取用即移除承担。
 ///
-/// # 顺序即契约
+/// # 契约（阶段3 D10 / D13）
 ///
-/// [`decide`] 的第一件事是去重，第二件才是看 `preset_id`：同一条 `seq` 的
-/// 重复帧一律 [`DirectorPresetAction.ignore`]，只有**新的** `seq` 才可能得到
-/// [`DirectorPresetAction.revoke`]。
-class DirectorPresetGate {
-  int _lastSeq = 0;
+/// - [`replace`]：新 `action_cue` 到达即**整体替换**（一份 plan 覆盖上一份；
+///   同 seq 多条只留最后一条 = map 语义）。
+/// - [`take`]：该句音频**开始播放**时按 `sentence_seq` 取用一次，**取用即移除**
+///   ⇒ 同一句（含同 seq 重复帧）只会被应用一次。
+/// - [`applyForSeq`]：取到 cue 才下发；`preset_id` 为空串 = 「本轮不动」（不
+///   调用下发）；`preset_id == 'none'` = 显式撤销，**照常下发一次**（渲染面把
+///   `none` 翻成两槽 `Revoke`，与旧状态面通道的撤销同义；那条通道已退役）。
+class DirectorCuePlan {
+  final Map<int, ActionCue> _bySeq = <int, ActionCue>{};
 
-  /// 已接受的最大 `seq`（测试与排障用）。
-  int get lastSeq => _lastSeq;
+  /// 当前计划里还剩多少条 cue（排障 / 测试用）。
+  int get length => _bySeq.length;
 
-  /// 把状态面的 `(seq, preset_id)` 翻译成一条动作。
-  ///
-  /// `seq` 比记录更小 = **账本重启**（Mod 停用再启用 / 保存配置重启后计数从 1
-  /// 重新开始）——先复位为 0，否则新决策会被当成旧的丢掉（用户看到「启用后
-  /// 没反应」，见 2026-09-15 的实测记录）。
-  DirectorPresetDecision decide(int seq, Object? presetId) {
-    // ① 先去重（顺序即契约，见类头注）。
-    if (seq < _lastSeq) _lastSeq = 0;
-    if (seq <= _lastSeq) {
-      return const DirectorPresetDecision(DirectorPresetAction.ignore, null);
-    }
-    _lastSeq = seq;
-    // ② 再看本轮有没有预设：null / 空串 / 'none' 都 = 「本轮没有预设」→ 归零。
-    if (presetId is! String || presetId.isEmpty || presetId == 'none') {
-      return const DirectorPresetDecision(DirectorPresetAction.revoke, 'none');
-    }
-    return DirectorPresetDecision(DirectorPresetAction.apply, presetId);
+  /// 新 plan 到达：**整体替换**。同 seq 的重复帧在这里被 map 语义吃掉。
+  void replace(List<ActionCue> cues) {
+    _bySeq
+      ..clear()
+      ..addEntries(
+        cues.map((ActionCue c) => MapEntry<int, ActionCue>(c.sentenceSeq, c)),
+      );
+  }
+
+  /// 按句子序号取用一次并移除；`seq == null` / 已取过 → `null`。
+  ActionCue? take(int? seq) {
+    if (seq == null) return null;
+    return _bySeq.remove(seq);
+  }
+
+  /// 取用 + 下发：空 `presetId` = 本轮不动；其余（含 `'none'`）**恰好一次**。
+  Future<void> applyForSeq(
+    int? seq,
+    Future<void> Function(ActionCue cue) apply,
+  ) async {
+    final ActionCue? cue = take(seq);
+    if (cue == null || cue.presetId.isEmpty) return;
+    await apply(cue);
   }
 }
 
