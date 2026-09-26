@@ -323,4 +323,113 @@ void main() {
       await bridge.destroy();
     });
   });
+
+  // ── 阶段4d：v1 三族字段 → 既有 preset 消息（只增不改）──────────────
+  //
+  // 编排者冻结的集成细节（O13 未覆盖的 Flutter→渲染面字段 cue 消息）：消息类型
+  // 仍是既有 `preset`，旧键 {id,intensity,ttl_ms,source} 一个不动，**只增**
+  // field/x/y/z/hold/at/seq/epoch/sentence_seq；缺 field 时语义与今天逐字相同。
+  group('阶段4d：v1 cue 字段经既有 preset 消息下发', () {
+    test('body cue 的 field/x/y/hold/at 原样进 preset payload', () async {
+      final String raw = jsonEncode(<String, Object?>{
+        'type': 'action_cue',
+        'data': <String, Object?>{
+          'epoch': 7,
+          'cues': <Object?>[
+            <String, Object?>{
+              'sentence_seq': 2,
+              'preset_id': '',
+              'field': 'body',
+              'x': 0.0,
+              'y': 0.3,
+              'intensity': 1,
+              'ttl_ms': 900,
+              'hold': true,
+              'at': 'seg:2',
+              'seq': 1,
+            },
+          ],
+        },
+      });
+      final ActionCueEvent ev = parseWsFrame(raw)! as ActionCueEvent;
+      final ActionCue cue = ev.cues.single;
+      expect(cue.field, 'body');
+      expect(cue.y, closeTo(0.3, 1e-9));
+      expect(cue.hold, isTrue);
+      expect(cue.at, 'seg:2');
+      expect(cue.seq, 1);
+
+      final _FakeTransport transport = _FakeTransport();
+      final Live2DBridge bridge = Live2DBridge(transport);
+      transport.emit('{"version":1,"type":"ready","payload":{}}');
+      await Future<void>.delayed(Duration.zero);
+
+      // main.dart 的 _applyDirectorCueForSeq 原样透传这些键。
+      await bridge.sendPreset(
+        cue.presetId,
+        source: 'director',
+        intensity: cue.intensity.toDouble(),
+        ttlMs: cue.ttlMs.toDouble(),
+        field: cue.field,
+        x: cue.x,
+        y: cue.y,
+        z: cue.z,
+        hold: cue.hold,
+        at: cue.at,
+        seq: cue.seq,
+        epoch: ev.epoch,
+        sentenceSeq: cue.sentenceSeq,
+      );
+
+      final Map<String, Object?> frame =
+          jsonDecode(transport.sent.single) as Map<String, Object?>;
+      expect(frame['type'], 'preset', reason: '仍是既有 preset 消息类型');
+      final Map<String, Object?> payload =
+          frame['payload']! as Map<String, Object?>;
+      expect(payload['id'], '');
+      expect(payload['field'], 'body');
+      expect(payload['x'], 0.0);
+      expect(payload['y'], 0.3);
+      expect(payload['intensity'], 1.0);
+      expect(payload['ttl_ms'], 900.0);
+      expect(payload['hold'], isTrue);
+      expect(payload['at'], 'seg:2');
+      expect(payload['seq'], 1);
+      expect(payload['epoch'], 7);
+      expect(payload['sentence_seq'], 2);
+      await bridge.destroy();
+    });
+
+    test('expression cue 用 id 装面板 id；缺 field 时旧语义逐字不变', () {
+      final ActionCue old = ActionCue.fromJson(<String, Object?>{
+        'sentence_seq': 1,
+        'preset_id': 'nod',
+        'intensity': 2,
+        'ttl_ms': 1800,
+        'priority': 40,
+      });
+      expect(old.field, isNull);
+      expect(old.x, isNull);
+      expect(old.hold, isNull);
+      expect(old.at, isNull);
+      expect(old.id, isNull);
+      expect(old.seq, isNull);
+      expect(old.presetId, 'nod');
+      expect(old.ttlMs, 1800);
+
+      final ActionCue expr = ActionCue.fromJson(<String, Object?>{
+        'sentence_seq': 1,
+        'preset_id': '',
+        'field': 'expression',
+        'id': 'smile',
+        'intensity': 1,
+        'ttl_ms': 2600,
+        'hold': false,
+        'at': 'now',
+      });
+      expect(expr.field, 'expression');
+      expect(expr.id, 'smile');
+      expect(expr.hold, isFalse);
+    });
+  });
 }

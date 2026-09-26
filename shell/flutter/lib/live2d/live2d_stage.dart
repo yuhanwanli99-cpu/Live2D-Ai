@@ -12,6 +12,13 @@ import 'live2d_bridge.dart';
 import 'live2d_host_stub.dart'
     if (dart.library.js_interop) 'live2d_host_web.dart' as host;
 import 'live2d_transport.dart';
+import 'preset_status.dart';
+import 'render_events.dart';
+
+/// [PresetStatus] 的**唯一真源**已搬到 `preset_status.dart`（阶段4d）：
+/// 它现在是「渲染面 ack 的显示快照」，不是本地计时器。这里 re-export，
+/// 既有调用方（`settings/sections/dev_tools_section.dart` 等）一行都不用改。
+export 'preset_status.dart' show PresetStatus;
 
 /// 动作预设的**出厂强度**（L1 产品级，2026-09-16）。
 ///
@@ -26,39 +33,12 @@ const double kDefaultPresetIntensity = 1.2;
 /// 肉眼明显（用户实测 1.0 像微抖），所以两个滑条各有各的缺省，不合并。
 const double kDefaultExpressionIntensity = 1.0;
 
-/// 开发工具「动作调试」的本地状态（P0-3）。
-///
-/// **不是**权威状态：渲染面 HUD 的 `preset:` 行才是（含真实剩余毫秒）。
-/// 这里只记「谁在什么时候被点了」，用于调试面板的即时反馈。
-class PresetStatus {
-  const PresetStatus({
-    required this.id,
-    required this.source,
-    required this.startedAt,
-    required this.ttl,
-  });
-
-  final String id;
-
-  /// `debug` / `director` / …
-  final String source;
-  final DateTime startedAt;
-  final Duration ttl;
-
-  /// 还剩多久（钳到 ≥ 0）。
-  Duration remaining(DateTime now) {
-    final Duration elapsed = now.difference(startedAt);
-    final Duration left = ttl - elapsed;
-    return left.isNegative ? Duration.zero : left;
-  }
-}
-
 /// 导演按句 cue 的**持有与应用策略**（纯逻辑，VM 可测；阶段3 起取代 W4 那条
 /// 基于只读状态面的预设判据）。
 ///
 /// # 为什么抽在这里（而不是留在 `main.dart`）
 ///
-/// 与 [`PresetStatus`] 同因：`main.dart` 经 `app/browser_io.dart` 依赖
+/// 与 PresetStatus（已搬到 `preset_status.dart`）同因：`main.dart` 经 `app/browser_io.dart` 依赖
 /// `package:web`，在 `flutter test`（Dart VM）里**加载不了**；而「一份 plan
 /// 整体替换、按句**取用一次即移除**、空 id 不动、`none` = 撤销」这条顺序
 /// 恰恰是最容易写错、也最该被回归钉住的行为——阶段3 §6.2 明确：「同 seq
@@ -121,6 +101,7 @@ class Live2DStage extends StatefulWidget {
     this.onReady,
     this.onPhaseChanged,
     this.onAck,
+    this.onRenderEvent,
   });
 
   /// 可选：渲染面模型路径（缺省由渲染端决定）。
@@ -177,6 +158,13 @@ class Live2DStage extends StatefulWidget {
   /// 看起来像坏了（2026-09-11 在真浏览器里就是这么显示的）。
   final ValueChanged<StageAckEvent>? onAck;
 
+  /// 渲染面**事件级 ack**（协议 §7：四条 ack + `segment-ended`，O13 冻结名）。
+  ///
+  /// 宿主用它把事件**汇入日志文本喂导演**（§7.3）。前端**不**据此维护镜像
+  /// 状态、也不做每帧状态流（V8）——[Live2DStageState.presetStatus] 那份显示
+  /// 快照是唯一例外，且它同样只由 ack 驱动。
+  final ValueChanged<RenderEvent>? onRenderEvent;
+
   /// 渲染面就绪回调（**每次**进入 ready 都触发，含错误后 [Live2DStageState.retry]
   /// 重建 iframe）。
   ///
@@ -201,10 +189,16 @@ class Live2DStageState extends State<Live2DStage>
   int _generation = 0;
   bool _readyNotified = false;
 
-  /// 「动作调试」本地状态（P0-3）；权威在渲染面 HUD。
+  /// 「动作调试」的显示快照（阶段4d 起**只由渲染面 ack 驱动**）。
+  ///
+  /// **没有本地计时器、没有本地推演**：快照在收到 `preset-applied` 时生成、
+  /// 收到 `preset-replaced` / `preset-expired` / `preset-dropped` 时清空
+  /// （见 [presetStatusUpdateFor]）。权威在渲染面，前端只是把回执显示出来。
   final ValueNotifier<PresetStatus?> presetStatus =
       ValueNotifier<PresetStatus?>(null);
-  Timer? _presetTimer;
+
+  /// 渲染面事件订阅（每次 [_attach] 重新挂；随旧桥一起取消）。
+  StreamSubscription<RenderEvent>? _renderSubscription;
 
   /// ── 舞台底的**插值**（2026-09-11，P1-3） ──
   ///
@@ -293,7 +287,7 @@ class Live2DStageState extends State<Live2DStage>
 
   @override
   void dispose() {
-    _presetTimer?.cancel();
+    unawaited(_renderSubscription?.cancel());
     presetStatus.dispose();
     _stageColorMotion.dispose();
     final bridge = _bridge;
@@ -343,7 +337,9 @@ class Live2DStageState extends State<Live2DStage>
       previous.removeListener(_onBridgeChanged);
       previous.dispose();
     }
+    unawaited(_renderSubscription?.cancel());
     final bridge = Live2DBridge(transport)..addListener(_onBridgeChanged);
+    _renderSubscription = bridge.renderEvents.listen(_onRenderEvent);
     _bridge = bridge;
     setState(() {});
     bridge.start();
@@ -358,6 +354,27 @@ class Live2DStageState extends State<Live2DStage>
     );
     // 首帧 / 重建 iframe 后**补发背景图**（sync 不带 stage-bg 通道）。
     unawaited(bridge.sendStageBg(widget.stageImage));
+  }
+
+  /// 渲染面事件级 ack → ①宿主（导演日志）②调试面板的显示快照。
+  ///
+  /// **这里没有任何本地计时器 / 本地推演**：快照的生成与清空都由 ack 事件
+  /// 触发（阶段4d 删掉了 v0 那条 200ms 猜剩余时长的 Timer.periodic）。
+  void _onRenderEvent(RenderEvent event) {
+    if (!mounted) return;
+    widget.onRenderEvent?.call(event);
+    final PresetStatusUpdate update = presetStatusUpdateFor(
+      event,
+      DateTime.now(),
+    );
+    switch (update.action) {
+      case PresetStatusAction.set:
+        presetStatus.value = update.status;
+      case PresetStatusAction.clear:
+        presetStatus.value = null;
+      case PresetStatusAction.ignore:
+        break;
+    }
   }
 
   void _handleHostError(String message) {
@@ -379,70 +396,68 @@ class Live2DStageState extends State<Live2DStage>
   /// 实时口型（0..1），由音频 RMS 包络驱动。
   void setMouth(double level) => _bridge?.sendMouth(level);
 
-  /// 协议 v1 preset：把动作预设交给渲染面（导演 / 开发工具「动作调试」共用）。
+  /// 协议 v1 `preset`：把表演指令交给渲染面（导演 / 开发工具「动作调试」共用）。
   ///
-  /// 渲染面无预设表 / 参数不足时静默降级；这里不做任何本地判断——
-  /// 「这条预设长什么样」只由渲染面一份实现决定。`source` 只用于显示
-  /// （`debug` / `director`）；`id = "none"` = 立即撤销。
+  /// # 旧路径（缺 [field]）语义**逐字不变**
+  ///
+  /// - `id` 为空串 = 本轮不动（不发）；
+  /// - `id == 'none'` = 立即撤销（渲染面把两槽翻成 `Revoke`）。
+  ///
+  /// # v1 路径（带 [field]）
+  ///
+  /// `field` ∈ `body` / `head` / `expression` 时走字段化通道：`x` / `y` /
+  /// `z`、`hold`、`at` 与 `seq` 原样透传（渲染面按协议 §4 合成）。此时 `id`
+  /// 只对 `expression` 有意义（表情面板 id），`body` / `head` 允许为空。
   ///
   /// `intensity` 缺省 [kDefaultPresetIntensity]（1.2，肉眼明显）；渲染面钳位
   /// `[0, 3]`，非法值等同缺省。调试面板的滑条直接把它透传过去。
+  ///
+  /// **本地不再记录「还剩多久」**（阶段4d）：没有计时器、没有 ttl 推演——
+  /// 显示快照 [presetStatus] 只由渲染面 ack 生成（[presetStatusUpdateFor]），
+  /// 这里只把 `ttlMs` 透传给渲染面。
   Future<void> applyPreset(
     String id, {
     String source = 'ui',
     double intensity = kDefaultPresetIntensity,
     double? ttlMs,
+    String? field,
+    double? x,
+    double? y,
+    double? z,
+    bool? hold,
+    String? at,
+    int? seq,
+    int? epoch,
+    int? sentenceSeq,
   }) async {
-    if (id.isEmpty) return;
-    if (id == 'none') {
-      _presetTimer?.cancel();
-      _presetTimer = null;
-      if (presetStatus.value != null) presetStatus.value = null;
-      await _bridge?.sendPreset('none', source: source);
-      return;
-    }
+    final bool hasField = field != null && field.isNotEmpty;
+    if (!hasField && id.isEmpty) return; // 旧语义：空串 = 本轮不动
     await _bridge?.sendPreset(
       id,
       source: source,
       intensity: intensity,
       ttlMs: ttlMs,
+      field: field,
+      x: x,
+      y: y,
+      z: z,
+      hold: hold,
+      at: at,
+      seq: seq,
+      epoch: epoch,
+      sentenceSeq: sentenceSeq,
     );
-    presetStatus.value = PresetStatus(
-      id: id,
-      source: source,
-      startedAt: DateTime.now(),
-      ttl: _presetTtlForDisplay(id, labels: widget.presetLabels),
-    );
-    _presetTimer?.cancel();
-    _presetTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) {
-      final PresetStatus? s = presetStatus.value;
-      if (s == null || s.remaining(DateTime.now()) <= Duration.zero) {
-        t.cancel();
-        _presetTimer = null;
-        presetStatus.value = null;
-      } else {
-        // 赋一个等价新对象：ValueNotifier 只在 `==` 变化时通知。
-        presetStatus.value = PresetStatus(
-          id: s.id,
-          source: s.source,
-          startedAt: s.startedAt,
-          ttl: s.ttl,
-        );
-      }
-    });
   }
 
-  /// 调试面板倒计时**显示用**的时长（权威在渲染面 `preset/`：表情 2600ms /
-  /// 短动作 900ms）。漂移只影响这个倒计时数字，不影响真正演多久。
+  /// 协议 v1 `stage-clock`：把音频播放时钟下发渲染面（协议 §6.5 / O13）。
   ///
-  /// 通道判据优先查标签表（[isExpressionChannel]）；`widget.presetLabels` 为空
-  /// 时回落 kExpressionPresetIds——与 `directorPresetText` 同一口径（W7 B②）。
-  static Duration _presetTtlForDisplay(
-    String id, {
-    PresetLabelTable labels = PresetLabelTable.empty,
-  }) => isExpressionChannel(id, labels: labels)
-      ? const Duration(milliseconds: 2600)
-      : const Duration(milliseconds: 900);
+  /// 节拍由 [AudioPlayer] 的 30ms ticker 提供（`audio.stageClock` 流），这里只
+  /// 转发；窗口未就绪时桥会入队（与其它下行消息同一条路径）。
+  void sendStageClock({int? seg, required int posMs, required bool playing}) {
+    unawaited(
+      _bridge?.sendStageClock(seg: seg, posMs: posMs, playing: playing),
+    );
+  }
 
   /// 协议 v1 stage-zoom（in / out / reset）。
   ///
@@ -523,6 +538,7 @@ class Live2DStageState extends State<Live2DStage>
   void retry() {
     final previous = _bridge;
     _bridge = null;
+    unawaited(_renderSubscription?.cancel());
     if (previous != null) {
       previous.removeListener(_onBridgeChanged);
       unawaited(previous.destroy());

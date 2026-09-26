@@ -6,6 +6,7 @@ import 'package:web/web.dart' as web;
 
 import 'gain.dart';
 import 'sentence_assembler.dart';
+import 'stage_clock.dart';
 import 'wav.dart';
 
 /// [PcmFrame] 的家搬到了纯逻辑模块 `sentence_assembler.dart`（它同时是装配器的
@@ -104,6 +105,19 @@ class AudioPlayer {
 
   final StreamController<int?> _sentenceStarts =
       StreamController<int?>.broadcast();
+
+  /// 30ms 节拍的**段内播放位置**（协议 §6.5 的 stage-clock 采样）。
+  ///
+  /// 唯一时间基准 = 音频播放时钟（V7 §6.1）：宿主把它转成 `stage-clock` 下发
+  /// 渲染面，渲染面据此替代 `performance.now()`。节奏由本类既有的 30ms ticker
+  /// 保证（[_levelTick]），停止 / 打断时只发一次 `playing:false`，**不补帧**。
+  final StreamController<StageClockSample> _stageClock =
+      StreamController<StageClockSample>.broadcast();
+  final StageClockCadence _clockCadence = StageClockCadence();
+  final Stopwatch _clockWatch = Stopwatch()..start();
+
+  /// 段内播放位置采样流（消费端见 [AudioPlayer.stageClock] 注释）。
+  Stream<StageClockSample> get stageClock => _stageClock.stream;
 
   /// 一句**开始播放**（媒体元素 play 之前 / 降级时钟启动之前）。
   ///
@@ -210,6 +224,17 @@ class AudioPlayer {
   /// 打断当前播放（epoch 切换 / 抢占 / stop）并清零口型。
   void interrupt() {
     _assembler.clear();
+    final _Playback? current = _queue.current;
+    if (current != null) {
+      // 时钟消失：只发一次「停」，绝不在下一次音频开始时补播旧帧（V7 §6.6）。
+      _emitStageClock(
+        StageClockSample(
+          seg: current.sentence.sentenceSeq,
+          posMs: 0,
+          playing: false,
+        ),
+      );
+    }
     for (final _Playback item in _queue.all) {
       _release(item);
     }
@@ -224,6 +249,7 @@ class AudioPlayer {
     _disposed = true;
     _levels.close();
     unawaited(_sentenceStarts.close());
+    unawaited(_stageClock.close());
     unlockState.dispose();
   }
 
@@ -335,6 +361,15 @@ class AudioPlayer {
   /// 收尾一句：出队、释放 blob URL、让位给下一句。
   void _finish(_Playback item) {
     if (identical(_queue.current, item)) {
+      // 段结束 = 时钟翻转为停（渲染面据此收尾，不补帧）。**只对当前句发**：
+      // 迟到的 ended/error（interrupt 已经摘掉它）不是「当前段结束」。
+      _emitStageClock(
+        StageClockSample(
+          seg: item.sentence.sentenceSeq,
+          posMs: 0,
+          playing: false,
+        ),
+      );
       _queue.finishCurrent();
       _release(item);
       _emitLevel(0);
@@ -419,6 +454,13 @@ class AudioPlayer {
       _finish(item);
       return;
     }
+    _emitStageClock(
+      StageClockSample(
+        seg: item.sentence.sentenceSeq,
+        posMs: (progress * 1000).round(),
+        playing: audible,
+      ),
+    );
     _emitLevel(audible ? item.sentence.levelAt(progress) : 0);
   }
 
@@ -444,6 +486,19 @@ class AudioPlayer {
   void _emitLevel(double level) {
     _level = level;
     if (!_levels.isClosed) _levels.add(level);
+  }
+
+  /// 采样 → [stageClock]：经 [StageClockCadence] 压成该下发的样本。
+  ///
+  /// 生产端只有这一条出口，所以「30ms 节奏 / 停止即静默」两条契约是同一条
+  /// 代码路径（回归 stage_clock_is_sent_at_thirty_ms_cadence_while_playing）。
+  void _emitStageClock(StageClockSample sample) {
+    if (_disposed || _stageClock.isClosed) return;
+    final StageClockSample? accepted = _clockCadence.accept(
+      sample,
+      _clockWatch.elapsed,
+    );
+    if (accepted != null) _stageClock.add(accepted);
   }
 
   // ───────────────────────────── 输出设置 ─────────────────────────────

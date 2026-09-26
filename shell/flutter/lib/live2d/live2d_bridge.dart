@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'live2d_transport.dart';
+import 'render_events.dart';
 
 /// 渲染面生命周期阶段（协议 v1 状态机）。
 enum Live2DBridgePhase { loading, ready, error, destroyed }
@@ -91,8 +92,19 @@ class Live2DBridge extends ChangeNotifier {
   final StreamController<String> _modelLoads =
       StreamController<String>.broadcast();
 
+  /// 渲染面**事件级回执**流（协议 §7：四条 ack + segment-ended，O13 冻结名）。
+  ///
+  /// 与 [acks]（历史形状的 `stage-ack`）是两条通道：后者是「下行消息应用回声」，
+  /// 前者是「表演事件」，去向是汇入日志文本喂导演（§7.3）。**不做每帧状态流、
+  /// 不建前端镜像**（V8）。
+  final StreamController<RenderEvent> _renderEvents =
+      StreamController<RenderEvent>.broadcast();
+
   /// 渲染面回执流（`stage-ack`）。
   Stream<StageAckEvent> get acks => _acks.stream;
+
+  /// 渲染面事件流（见 [_renderEvents]）。
+  Stream<RenderEvent> get renderEvents => _renderEvents.stream;
 
   /// 渲染面**成功装载模型**的流（`loaded` 帧携带的 model / url）。
   ///
@@ -250,12 +262,53 @@ class Live2DBridge extends ChangeNotifier {
     String? source,
     double? ttlMs,
     double? intensity,
+    String? field,
+    double? x,
+    double? y,
+    double? z,
+    bool? hold,
+    String? at,
+    int? seq,
+    int? epoch,
+    int? sentenceSeq,
   }) {
     final payload = <String, Object?>{'id': id};
     if (source != null && source.isNotEmpty) payload['source'] = source;
     if (ttlMs != null && ttlMs > 0) payload['ttl_ms'] = ttlMs;
     if (intensity != null) payload['intensity'] = intensity;
+    // ── v1 表演字段（编排者冻结的集成细节，C2 记入报告）──
+    //
+    // 消息类型仍是既有 `preset`（**不新造消息类型**）；旧键 {id,intensity,
+    // ttl_ms,source} 一个不动，**只增**下列可选键。**缺 field 时语义与今天
+    // 逐字相同**（preset_id 旧路径，不删不换不改）。
+    if (field != null && field.isNotEmpty) payload['field'] = field;
+    if (x != null && x.isFinite) payload['x'] = x;
+    if (y != null && y.isFinite) payload['y'] = y;
+    if (z != null && z.isFinite) payload['z'] = z;
+    if (hold != null) payload['hold'] = hold;
+    if (at != null && at.isNotEmpty) payload['at'] = at;
+    if (seq != null) payload['seq'] = seq;
+    if (epoch != null) payload['epoch'] = epoch;
+    if (sentenceSeq != null) payload['sentence_seq'] = sentenceSeq;
     return _enqueueOrSend('preset', payload);
+  }
+
+  /// 协议 v1 `stage-clock`（协议 §6.5 / O13 冻结 wire 名）：
+  /// `{version:1,type:"stage-clock",payload:{seg,pos_ms,playing}}`。
+  ///
+  /// 渲染面用它**替代 performance.now()** 当 `now_ms`——编排的时间基准是音频
+  /// 播放时钟（V7 §6.1）。[seg] 为 `null` 时照发（渲染面可据此判断「还没有
+  /// 段」）；`pos_ms` 钳到 ≥ 0。
+  Future<void> sendStageClock({
+    int? seg,
+    required int posMs,
+    required bool playing,
+  }) {
+    return _enqueueOrSend('stage-clock', <String, Object?>{
+      'seg': seg,
+      'pos_ms': posMs < 0 ? 0 : posMs,
+      'playing': playing,
+    });
   }
 
   /// 协议 v1 mouth（level 0..1，实时，节流 ≤30Hz）。
@@ -407,6 +460,18 @@ class Live2DBridge extends ChangeNotifier {
         _lastAck = ack;
         if (!_acks.isClosed) _acks.add(ack);
         notifyListeners();
+      case 'preset-applied':
+      case 'preset-replaced':
+      case 'preset-expired':
+      case 'preset-dropped':
+      case 'segment-ended':
+        // 渲染面事件级 ack（协议 §7）。字段在 `payload` 里；**表外字段忽略**
+        // （V11）——解析器只取 §7.2 声明的键。
+        final RenderEvent? event = parseRenderEvent(type, payload);
+        if (event != null && !_renderEvents.isClosed) {
+          _renderEvents.add(event);
+          notifyListeners();
+        }
       default:
         break; // 未知 type → 忽略（绝不抛）
     }
@@ -429,6 +494,7 @@ class Live2DBridge extends ChangeNotifier {
     _mouthTimer?.cancel();
     unawaited(_acks.close());
     unawaited(_modelLoads.close());
+    unawaited(_renderEvents.close());
     unawaited(_sub?.cancel());
     unawaited(_transport.dispose());
     super.dispose();

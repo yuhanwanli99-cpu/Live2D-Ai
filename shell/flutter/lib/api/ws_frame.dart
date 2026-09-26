@@ -120,6 +120,19 @@ class TextFallbackEvent extends WsEvent {
 }
 
 /// 一条导演动作 cue（action_cue.payload.cues[] 的元素）。
+///
+/// # v1 表演字段：**只增不改**（协议 §11 / V11）
+///
+/// v1 给 cue 增加了三族表演字段（`field` / `x` / `y` / `z` / `id` / `at` /
+/// `hold`，协议 §2.2）。它们在这里是**可选**字段：
+/// [field] 缺席（null）= 旧 `preset_id` 路径，**既有 5 个字段的名字、类型与
+/// 语义一字未改**；[x]/[y]/[z] 与 [hold] 缺失同样回落到旧行为。
+///
+/// 为什么必须在这里解析：`ActionCue` 是**封闭**类，`fromJson` 不认识的键会被
+/// 直接丢掉——不接住它们，`body` / `head` cue 就到不了舞台（整条链断）。
+///
+/// `id` 与 [presetId] 的关系（协议 §11 / O13）：`expression` 的表情面板 id 由
+/// 这条通道承载；旧路径仍用 [presetId]。
 class ActionCue {
   const ActionCue({
     required this.sentenceSeq,
@@ -127,6 +140,14 @@ class ActionCue {
     required this.intensity,
     required this.ttlMs,
     required this.priority,
+    this.field,
+    this.x,
+    this.y,
+    this.z,
+    this.id,
+    this.at,
+    this.hold,
+    this.seq,
   });
 
   /// 目标句序号（与 AudioEvent.sentenceSeq 同源）。
@@ -136,12 +157,43 @@ class ActionCue {
   final int ttlMs;
   final int priority;
 
+  /// v1 三族字段之一：body / head / expression；null = 旧 preset_id 路径。
+  final String? field;
+
+  /// 归一化轴值（[-1, 1]，渲染面乘基础强度后再钳位）。
+  final double? x;
+  final double? y;
+
+  /// 仅 head 允许的歪头轴；body / expression 给 z 渲染面会丢键 + warn。
+  final double? z;
+
+  /// expression 的表情面板 id（旧路径用 [presetId]）。
+  final String? id;
+
+  /// 锚点：now / seg:N / after_prev。
+  final String? at;
+
+  /// true 保持到下次指令（ttl 被忽略）；false/缺省按 ttl 到点回。
+  final bool? hold;
+
+  /// plan 内 cue 序号（从 1 起）；缺省 null（旧帧没有这个键）。
+  final int? seq;
+
   factory ActionCue.fromJson(Map<String, Object?> j) => ActionCue(
     sentenceSeq: _int(j['sentence_seq']),
     presetId: _str(j['preset_id']) ?? '',
     intensity: _int(j['intensity']),
     ttlMs: _int(j['ttl_ms']),
     priority: _int(j['priority']),
+    // v1 可选键：缺省即旧语义（V11），未知键照旧被丢弃。
+    field: _str(j['field']),
+    x: _doubleOrNull(j['x']),
+    y: _doubleOrNull(j['y']),
+    z: _doubleOrNull(j['z']),
+    id: _str(j['id']),
+    at: _str(j['at']),
+    hold: j['hold'] is bool ? j['hold'] as bool : null,
+    seq: _intOrNull(j['seq']),
   );
 }
 

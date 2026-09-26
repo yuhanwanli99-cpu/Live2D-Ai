@@ -59,11 +59,14 @@ import 'app/app_shortcuts.dart';
 import 'app/browser_io.dart';
 import 'app/shortcut_help_dialog.dart';
 import 'audio/audio_player.dart';
+import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
 import 'design/tokens.dart';
 import 'live2d/action_scales_sync.dart';
 import 'live2d/live2d_bridge.dart';
 import 'live2d/live2d_stage.dart';
+import 'live2d/render_events.dart';
+import 'live2d/stage_cancel.dart';
 import 'settings/display_prefs.dart';
 import 'settings/preset_labels.dart';
 import 'settings/sections/appearance_section.dart';
@@ -184,6 +187,19 @@ class _ShellRootState extends State<ShellRoot> {
   StreamSubscription<WsStatus>? _statusSubscription;
   StreamSubscription<WsEvent>? _eventSubscription;
   StreamSubscription<int?>? _sentenceCueSubscription;
+  StreamSubscription<StageClockSample>? _stageClockSubscription;
+
+  /// 渲染面事件 → **喂导演的日志文本**（协议 §7.3）。
+  ///
+  /// 四条 ack + `segment-ended` 由 `Live2DStage.onRenderEvent` 汇进来；前端
+  /// **不据此维护镜像状态**（唯一例外是调试面板的显示快照，同样只由 ack 驱动）。
+  final DirectorEventLog _directorLog = DirectorEventLog();
+
+  /// 当前 action_cue 的轮次代号（v1 可选键透传给渲染面用，缺省 null）。
+  int? _directorEpoch;
+
+  /// 停止 / 新消息的取消纪律（V7 §6.6 / V10 §9.3）——四步顺序的唯一出口。
+  late final StageCancellation _stageCancellation;
 
   /// 导演按句 cue（P1-3，2026-09-16）：**唯一**的舞台驱动通道（阶段3 D10–D13）。
   ///
@@ -336,6 +352,8 @@ class _ShellRootState extends State<ShellRoot> {
           ptt: ptt,
         );
         if (result.ok) {
+          // 语音注入也是「新消息」：先同步取消上一轮编排（V10 §9.3），再上屏。
+          _cancelStageForTurnBoundary('voice');
           // 上屏用服务端剥词 / 归一化后的正文（与真正喂给 LLM 的**同一份**）。
           _chat.acceptInjectedUserTurn(
             result.text.isNotEmpty ? result.text : text,
@@ -361,6 +379,17 @@ class _ShellRootState extends State<ShellRoot> {
     // 静音与音量是纯本机输出设置（不经渲染面）：**默认出声**。
     _audio.muted = widget.prefs.muted;
     _audio.volume = widget.prefs.volume;
+    // 停止 / 新消息的取消纪律（V7 §6.6 / V10 §9.3）：四个出口都在本 State 上。
+    // 顺序由 [StageCancellation] 钉住（纯逻辑、VM 可测），这里只提供实体。
+    _stageCancellation = StageCancellation(
+      clearCuePlan: (String reason) =>
+          _directorCues.replace(const <ActionCue>[]),
+      revokeStage: (String reason) => unawaited(
+        _stageKey.currentState?.applyPreset('none', source: reason),
+      ),
+      dropPendingAudio: (String reason) => _audio.interrupt(),
+      returnToBaseline: _requestSessionBaseline,
+    );
     // 会话存档：启动时读一次，之后每次变动写回。
     //
     // **落盘时机由 `ChatController` 决定**（一轮结束 / 会话操作），
@@ -382,6 +411,17 @@ class _ShellRootState extends State<ShellRoot> {
     _sentenceCueSubscription = _audio.sentenceStarts.listen(
       _applyDirectorCueForSeq,
     );
+
+    // stage-clock（协议 §6.5 / O13）：**段内播放位置 30ms** 下发渲染面，让编排
+    // 锚在音频时钟（V7 §6.1）而不是 performance.now()。节奏由 AudioPlayer 的
+    // 30ms ticker 保证；停止后它只发一次 playing:false，不补帧。
+    _stageClockSubscription = _audio.stageClock.listen((StageClockSample s) {
+      _stageKey.currentState?.sendStageClock(
+        seg: s.seg,
+        posMs: s.posMs,
+        playing: s.playing,
+      );
+    });
 
     // 相位跟踪器自己订阅 WS（只读消费，与 ChatController 互不干扰）。
     _statusSubscription = _ws.statuses.listen(_ui.onWsStatus);
@@ -405,6 +445,7 @@ class _ShellRootState extends State<ShellRoot> {
       // **唯一驱动通道**——阶段3 起不再有 text_delta / text_fallback 触发的
       // 「拉状态面 latest.preset_id」分支（通道 B 退役，见 D10–D13）。
       if (event is ActionCueEvent) {
+        _directorEpoch = event.epoch;
         _directorCues.replace(event.cues);
       }
     });
@@ -430,15 +471,59 @@ class _ShellRootState extends State<ShellRoot> {
   void _applyDirectorCueForSeq(int? seq) {
     unawaited(
       _directorCues.applyForSeq(seq, (ActionCue cue) {
+        // v1 三族字段原样透传（编排者冻结的集成细节）：消息仍是既有 `preset`，
+        // 旧键一个不动、只增可选键；缺 field 时语义与今天逐字相同。
         return _stageKey.currentState?.applyPreset(
               cue.presetId,
               source: 'director',
               intensity: cue.intensity.toDouble(),
               ttlMs: cue.ttlMs.toDouble(),
+              field: cue.field,
+              x: cue.x,
+              y: cue.y,
+              z: cue.z,
+              hold: cue.hold,
+              at: cue.at,
+              seq: cue.seq,
+              epoch: _directorEpoch,
+              sentenceSeq: cue.sentenceSeq,
             ) ??
             Future<void>.value();
       }),
     );
+  }
+
+  /// 停止键：**先**同步取消编排，再走既有 stop（V7 §6.6 / V10 §9.3）。
+  ///
+  /// 顺序不能反：等到 stop 的服务端回执（new_epoch）才清动作，就会在没有声音时
+  /// 继续把旧 cue 演完——那正是「追着播 / 补帧」。
+  Future<void> _stopWithCancellation() async {
+    _cancelStageForTurnBoundary('stop');
+    await _stop();
+  }
+
+  /// 发送（含重试 / 语音注入）：新消息同样先取消上一轮编排。
+  Future<void> _sendWithCancellation() async {
+    _cancelStageForTurnBoundary('new-message');
+    await _send();
+  }
+
+  /// 停止 / 新消息的统一取消入口：清动作 + 表情 + TTS 待播 + 回 baseline。
+  ///
+  /// **同步取消、不补帧**：调用 [StageCancellation.cancel] 即刻生效；计划的
+  /// 整表替换 + 音频队列清空保证之后不会重放任何旧 cue（V7 §6.6 / V10）。
+  void _cancelStageForTurnBoundary(String reason) {
+    _stageCancellation.cancel(reason);
+  }
+
+  /// 回该会话 baseline（V10 §9.3）。
+  ///
+  /// **host 侧接口未冻结**：4e 在 `session_scope` 上按会话回落 baseline，并随
+  /// stop / new-message 的**同一个**请求生效；前端不另发请求、也不新造第二套
+  /// 会话表。这里保留调用点（[StageCancellation.returnToBaseline] 的第 ④ 步），
+  /// 端点冻结后在此接线。见报告未决。
+  void _requestSessionBaseline(String reason) {
+    return;
   }
 
   /// 主链忙时，把识别到的正文**落回输入框**（不排队、不静默丢弃）。
@@ -494,6 +579,7 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_statusSubscription?.cancel());
     unawaited(_eventSubscription?.cancel());
     unawaited(_sentenceCueSubscription?.cancel());
+    unawaited(_stageClockSubscription?.cancel());
     _actionScalesSyncer.dispose();
     _settings.removeListener(_scheduleActionScalesSync);
     _ui.dispose();
@@ -684,6 +770,8 @@ class _ShellRootState extends State<ShellRoot> {
             },
             // 渲染面回执 → 缩放百分比。**首屏也要有值**：过去只在上一次
             // 放大/缩小时才读，于是初始状态一直显示「—」。
+            // 渲染面事件级 ack（协议 §7）→ **喂导演的日志文本**（§7.3）。
+            onRenderEvent: _directorLog.add,
             onAck: (StageAckEvent ack) {
               if (mounted && ack.scale != _stageScaleFromAck) {
                 setState(() => _stageScaleFromAck = ack.scale);
@@ -696,8 +784,8 @@ class _ShellRootState extends State<ShellRoot> {
           shellImage: widget.prefs.effectiveShellImage,
           messages: _chat.messages,
           input: _input,
-          onSend: () => unawaited(_send()),
-          onStop: () => unawaited(_stop()),
+          onSend: () => unawaited(_sendWithCancellation()),
+          onStop: () => unawaited(_stopWithCancellation()),
           onRetryConnection: _ws.ensureConnected,
           volume: widget.prefs.volume,
           muted: widget.prefs.muted,
@@ -738,14 +826,14 @@ class _ShellRootState extends State<ShellRoot> {
             // 顶部横幅（`_ui`）优先，所以它也优先提供码——两处都存了同一份。
             code: _ui.errorCode ?? _chat.errorCode,
             onGoto: _gotoSection,
-            onStop: () => unawaited(_stop()),
-            onSend: () => unawaited(_send()),
+            onStop: () => unawaited(_stopWithCancellation()),
+            onSend: () => unawaited(_sendWithCancellation()),
           ),
           onDismissError: () {
             _ui.clearError();
             _chat.clearError();
           },
-          onRetryLast: () => unawaited(_send()),
+          onRetryLast: () => unawaited(_sendWithCancellation()),
           sections: visibleSections(),
           // 打开设置**就要**加载（不能只靠「换分区」顺带触发，
           // 否则 expanded/medium 直接点「设置」是个空壳）。
@@ -789,8 +877,8 @@ class _ShellRootState extends State<ShellRoot> {
           announcement: _live.hasAnnouncement ? _live.announcement : null,
           shortcuts: AppShortcutCallbacks(
             isMacOS: defaultTargetPlatform == TargetPlatform.macOS,
-            onSend: () => unawaited(_send()),
-            onStop: () => unawaited(_stop()),
+            onSend: () => unawaited(_sendWithCancellation()),
+            onStop: () => unawaited(_stopWithCancellation()),
             // 覆盖层优先：它关掉了就不再停止本轮。
             onDismissOverlay: () {
               final AppShellState? shell = _shellKey.currentState;

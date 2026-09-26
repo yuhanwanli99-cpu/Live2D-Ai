@@ -30,6 +30,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/api/settings_models.dart';
 import 'package:live2d_ai_shell/live2d/action_scales_sync.dart';
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
+import 'package:live2d_ai_shell/live2d/preset_status.dart';
+import 'package:live2d_ai_shell/live2d/render_events.dart';
 import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
 import 'package:live2d_ai_shell/settings/preset_labels.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
@@ -269,28 +271,65 @@ void main() {
 
     });
 
-    testWidgets('B②：舞台 ttl 也用标签表（表情 2.6s / 短动作 0.9s）', (
-      WidgetTester tester,
-    ) async {
-      final GlobalKey<Live2DStageState> key = GlobalKey<Live2DStageState>();
-      await tester.pumpWidget(
-        _wrapStage(Live2DStage(key: key, presetLabels: _table)),
-      );
-      await key.currentState!.applyPreset('wink');
+    test('B②：面板到点时长来自渲染面 ack（O3 默认），前端不再跑本地计时器', () {
+      // 阶段4d：v0 的「按标签表猜固定 ms + Timer.periodic 推演剩余」已删。
+      // 现在快照只由 ack 生成：preset-applied → set（时长取渲染面给的
+      // ttl_ms，缺省用 O3 默认）；expired / replaced / dropped → clear。
+      final DateTime now = DateTime(2026, 9, 26, 12);
+
+      PresetStatusUpdate applied(String field, {String? id, int? ttlMs}) {
+        final RenderEvent e = parseRenderEvent(
+          'preset-applied',
+          <String, Object?>{
+            'field': field,
+            'id': ?id,
+            'ttl_ms': ?ttlMs,
+          },
+        )!;
+        return presetStatusUpdateFor(e, now);
+      }
+
+      expect(applied('expression', id: 'wink').action, PresetStatusAction.set);
       expect(
-        key.currentState!.presetStatus.value!.ttl,
+        applied('expression', id: 'wink').status!.ttl,
         const Duration(milliseconds: 2600),
-        reason: '标签表说 wink 是 expression → 倒计时按表情 2.6s',
+        reason: 'expression 缺 ttl_ms → O3 默认 2600ms',
       );
-      await key.currentState!.applyPreset('unhappy');
       expect(
-        key.currentState!.presetStatus.value!.ttl,
-        const Duration(milliseconds: 900),
-        reason: '标签表说 unhappy 是 motion → 倒计时按短动作 0.9s（表赢过常量）',
+        applied('body', ttlMs: 1200).status!.ttl,
+        const Duration(milliseconds: 1200),
+        reason: '渲染面给了 ttl_ms 就用它（真源在渲染面）',
       );
-      // 卸载舞台 -> dispose 取消 `_presetTimer`（不留 pending timer）。
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
+      expect(
+        applied('head').status!.ttl,
+        const Duration(milliseconds: 900),
+        reason: 'head 缺 ttl_ms → O3 默认 900ms',
+      );
+      // 到点 / 被顶掉 / 缺参数 → 清空（不再有「本地到点」）。
+      for (final String type in <String>[
+        'preset-expired',
+        'preset-replaced',
+        'preset-dropped',
+      ]) {
+        final RenderEvent e = parseRenderEvent(type, <String, Object?>{})!;
+        expect(
+          presetStatusUpdateFor(e, now).action,
+          PresetStatusAction.clear,
+          reason: '$type 必须结束这条显示快照',
+        );
+      }
+      // 段结束是音频事件，不动预设显示。
+      final RenderEvent ended = parseRenderEvent(
+        'segment-ended',
+        <String, Object?>{'seg': 2},
+      )!;
+      expect(
+        presetStatusUpdateFor(ended, now).action,
+        PresetStatusAction.ignore,
+      );
+
+      // 舞台不再有「本地计时器」：源码级扫描（同一文件同时含定时器推演 +
+      // applyPreset 即红）由 no_client_side_preset_ttl_prediction_test.dart 守。
     });
 
     testWidgets('A①：叠加基础表情开关写明会「重新起算（2.6s 重新计时）」', (
