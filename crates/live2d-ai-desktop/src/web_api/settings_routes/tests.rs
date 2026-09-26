@@ -89,7 +89,7 @@ fn init_cfg_with(path: &std::path::Path, settings: &AppSettings) {
 
 #[test]
 fn get_response_never_leaks_key() {
-    let resp = handle_get(&sample(), &no_keys);
+    let resp = handle_get(&sample(), &no_keys, "");
     assert_eq!(resp.status_code().0, 200);
 }
 
@@ -100,8 +100,8 @@ fn get_response_never_leaks_key() {
 #[test]
 fn get_response_has_api_key_reflects_injected_lookup() {
     let s = sample();
-    let with = body(handle_get(&s, &keys_present));
-    let without = body(handle_get(&s, &no_keys));
+    let with = body(handle_get(&s, &keys_present, ""));
+    let without = body(handle_get(&s, &no_keys, ""));
     assert!(with.contains("\"has_api_key\":true"), "{with}");
     assert!(without.contains("\"has_api_key\":false"), "{without}");
     assert!(
@@ -124,6 +124,7 @@ fn patch_response_has_api_key_reflects_injected_lookup() {
         &tmp.to_string_lossy(),
         None,
         &keys_present,
+        "",
     );
     assert_eq!(resp.status_code().0, 200);
     let text = body(resp);
@@ -180,7 +181,7 @@ fn legacy_clear_api_key_key_no_longer_clears() {
 fn patch_and_check(current: &AppSettings, name: &str, body: &str, assert: impl Fn(&AppSettings)) {
     let tmp = tempdir_path(name);
     init_cfg_with(&tmp, current);
-    let resp = handle_patch(current, body, &tmp.to_string_lossy(), None, &no_keys);
+    let resp = handle_patch(current, body, &tmp.to_string_lossy(), None, &no_keys, "");
     assert_eq!(resp.status_code().0, 200);
     let after = AppSettings::load_from_path(&tmp).expect("reload");
     assert(&after);
@@ -205,6 +206,7 @@ fn e2e_api_key_env_null_clears_binding_on_disk() {
         &tmp.to_string_lossy(),
         None,
         &no_keys,
+        "",
     );
     assert_eq!(resp.status_code().0, 200);
 
@@ -305,8 +307,15 @@ fn apply_and_write_creates_parent_dir_when_missing() {
         })),
         ..Default::default()
     };
-    let resp = apply_and_write(&current, &patch, &target.to_string_lossy(), None, &no_keys)
-        .expect("apply+write should succeed with parent dir creation");
+    let resp = apply_and_write(
+        &current,
+        &patch,
+        &target.to_string_lossy(),
+        None,
+        &no_keys,
+        "",
+    )
+    .expect("apply+write should succeed with parent dir creation");
     assert!(resp.persisted);
     let after = AppSettings::load_from_path(&target).expect("reload");
     assert_eq!(after.llm.model, "first-write");
@@ -331,7 +340,14 @@ fn apply_and_write_cleans_tmp_on_rename_failure() {
         })),
         ..Default::default()
     };
-    let result = apply_and_write(&current, &patch, &target.to_string_lossy(), None, &no_keys);
+    let result = apply_and_write(
+        &current,
+        &patch,
+        &target.to_string_lossy(),
+        None,
+        &no_keys,
+        "",
+    );
     // 父路径是文件 → create_dir_all(base) 失败 → apply_and_write 返回 Err。
     assert!(
         result.is_err(),
@@ -366,7 +382,7 @@ fn apply_patch_then_persists_round_trip() {
         })),
         ..Default::default()
     };
-    let resp = apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys)
+    let resp = apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys, "")
         .expect("apply+write");
     assert!(resp.persisted);
     assert_eq!(resp.settings.llm.model, "new-model");
@@ -391,11 +407,12 @@ fn no_change_patch_does_not_touch_disk() {
         &tmp.to_string_lossy(),
         None,
         &no_keys,
+        "",
     )
     .expect("first");
     let disk = AppSettings::load_from_path(&tmp).expect("load");
     let resp =
-        apply_and_write(&disk, &first, &tmp.to_string_lossy(), None, &no_keys).expect("second");
+        apply_and_write(&disk, &first, &tmp.to_string_lossy(), None, &no_keys, "").expect("second");
     assert!(!resp.persisted, "NoChange 时不应写盘");
     let _ = std::fs::remove_file(&tmp);
 }
@@ -413,7 +430,7 @@ fn url_invalid_patch_returns_400() {
     let tmp = tempdir_path("url_invalid");
     let _ = std::fs::remove_file(&tmp);
     let err =
-        apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys).unwrap_err();
+        apply_and_write(&current, &patch, &tmp.to_string_lossy(), None, &no_keys, "").unwrap_err();
     assert_eq!(err.error.code, "url_invalid");
 }
 #[test]
@@ -455,7 +472,14 @@ fn handle_patch_invalid_json_returns_400() {
     let tmp = tempdir_path("bad_json");
     init_cfg_with(&tmp, &AppSettings::default());
     let current = AppSettings::load_from_path(&tmp).expect("load");
-    let resp = handle_patch(&current, "not json", &tmp.to_string_lossy(), None, &no_keys);
+    let resp = handle_patch(
+        &current,
+        "not json",
+        &tmp.to_string_lossy(),
+        None,
+        &no_keys,
+        "",
+    );
     assert_eq!(resp.status_code().0, 400);
     let _ = std::fs::remove_file(&tmp);
 }
@@ -549,4 +573,113 @@ fn e2e_action_scales_patch_clamps_via_http() {
             assert_eq!(after.action.expression_scale, 1.0);
         },
     );
+}
+// ===== 阶段5 D40：active_model_id 透传 + [action.models] 就地写回 =====
+
+/// GET / PATCH 响应都带当前模型 id（保存后前端不丢模型名）。
+#[test]
+fn settings_responses_carry_active_model_id() {
+    let tmp = tempdir_path("d40_active_model_id");
+    let current = sample();
+    init_cfg_with(&tmp, &current);
+
+    let get = body(handle_get(&current, &no_keys, "bai"));
+    assert!(get.contains(r#""active_model_id":"bai""#), "{get}");
+
+    let resp = handle_patch(
+        &current,
+        r#"{"llm":{"model":"qwen2.5:7b"}}"#,
+        &tmp.to_string_lossy(),
+        None,
+        &no_keys,
+        "bai",
+    );
+    let status = resp.status_code().0;
+    let text = body(resp);
+    assert_eq!(status, 200, "{text}");
+    assert!(text.contains(r#""active_model_id":"bai""#), "{text}");
+    // 缺省（旧调用方）一律空串。
+    assert!(body(handle_get(&current, &no_keys, "")).contains(r#""active_model_id":"""#));
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// 判据③：PATCH 新增 / 修改 / 删除 `[action.models.<id>]` 后，
+/// 注释逐字还在、无 `.tmp.<pid>` 残留、被删条目真的消失、toml 仍可解析。
+#[test]
+fn e2e_action_model_overrides_keep_comments_and_prune_tables() {
+    let tmp = tempdir_path("d40_models_comments");
+    let base = r#"# 顶部注释：必须逐字留住
+[action]
+# 全局幅度注释
+head_scale = 0.75
+body_scale = 0.80
+expression_scale = 1.0
+
+# bai 覆盖注释（改值时要留住）
+[action.models.bai]
+head_scale = 1.0
+
+[action.models.follow]
+body_scale = 1.1
+"#;
+    std::fs::write(&tmp, base).unwrap();
+    let current = AppSettings::load_from_path(&tmp).expect("load");
+
+    let resp = handle_patch(
+        &current,
+        r#"{"action":{"models":{"bai":{"head_scale":1.5},"hiyori":{"body_scale":0.9},"follow":null}}}"#,
+        &tmp.to_string_lossy(),
+        None,
+        &no_keys,
+        "bai",
+    );
+    let status = resp.status_code().0;
+    let text = body(resp);
+    assert_eq!(status, 200, "{text}");
+
+    let raw = std::fs::read_to_string(&tmp).expect("read after");
+    // ① 注释逐字还在。
+    for needle in [
+        "# 顶部注释：必须逐字留住",
+        "# 全局幅度注释",
+        "# bai 覆盖注释（改值时要留住）",
+    ] {
+        assert!(raw.contains(needle), "注释丢了：{needle}\n---\n{raw}");
+    }
+    // ② 修改生效 + 新增子表 + 被删模型整块消失。
+    assert!(raw.contains("[action.models.bai]"), "{raw}");
+    assert!(raw.contains("head_scale = 1.5"), "{raw}");
+    assert!(raw.contains("[action.models.hiyori]"), "{raw}");
+    assert!(
+        !raw.contains("[action.models.follow]"),
+        "被删模型必须消失：\n{raw}"
+    );
+    assert!(
+        !raw.contains("body_scale = 1.1"),
+        "被删模型的值必须消失：\n{raw}"
+    );
+    // ③ 仍可解析且值正确（bai head=1.5，body/expression 逐键回落全局）。
+    let after = AppSettings::load_from_path(&tmp).expect("reload");
+    let bai = after.action.models.get("bai").expect("bai");
+    assert_eq!(bai.head_scale, Some(1.5));
+    assert_eq!(bai.body_scale, None);
+    let e = after.action.effective_for("bai");
+    assert_eq!(
+        (e.head_scale, e.body_scale, e.expression_scale),
+        (1.5, 0.80, 1.0)
+    );
+    assert_eq!(after.action.models.get("follow"), None);
+    // ④ 无 .tmp.<pid> 残留。
+    let pid = std::process::id();
+    let parent = tmp.parent().unwrap();
+    let leftover = std::fs::read_dir(parent)
+        .expect("readdir")
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            let n = e.file_name().to_string_lossy().to_string();
+            n.starts_with("live2d_ai_test_d40_models_comments")
+                && n.contains(&format!(".tmp.{pid}"))
+        });
+    assert!(!leftover, "写盘后不得留 .tmp.<pid> 残留");
+    let _ = std::fs::remove_file(&tmp);
 }

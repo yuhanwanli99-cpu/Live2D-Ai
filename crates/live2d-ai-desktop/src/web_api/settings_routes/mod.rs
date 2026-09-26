@@ -2,8 +2,10 @@
 //!
 //! 责任：
 //! - `GET /api/v1/settings`：返回脱敏 [`SettingsView`]（**不**含密钥——
-//!   P0-1）。走 [`live2d_ai_runtime::settings::view::settings_to_view_with_keys`]，
+//!   P0-1）。走
+//!   [`live2d_ai_runtime::settings::view::settings_to_view_with_keys_and_model`]，
 //!   `has_api_key` 由**调用方注入的 `lookup`** 决定（= 「值真的读得到」）；
+//!   `active_model_id` 由 dispatch 层从真实 registry 透传（阶段5 D40）。
 //!   本路由自己不读 env（不放行 `std::env::var`，见 AGENTS「密钥真源 = .env」）。
 //! - `PATCH /api/v1/settings`：body 解析为 [`PatchBody`] → 内部归并为
 //!   [`SettingsPatch`] → [`apply_patch`] → 若 [`PatchOutcome::Updated`] 再经
@@ -40,7 +42,7 @@ use live2d_ai_runtime::AppSettings;
 use live2d_ai_runtime::settings::patch::{
     PatchOutcome, SettingsPatch, apply_patch, plan_atomic_write,
 };
-use live2d_ai_runtime::settings::view::settings_to_view_with_keys;
+use live2d_ai_runtime::settings::view::settings_to_view_with_keys_and_model;
 
 use crate::web_api::app_routes::json_response;
 use crate::web_api::dto::{ApplyStatus, ErrorDetail, ErrorResponse};
@@ -49,11 +51,15 @@ use crate::web_api::dto::{ApplyStatus, ErrorDetail, ErrorResponse};
 ///
 /// `lookup` 由 dispatch 层注入（生产路径 = `live2d_ai_runtime::secrets::lookup`），
 /// 让响应里的 `has_api_key` 与 DTO 状态口径一致：**声明了键名且值真的读得到**。
+///
+/// `active_model_id` 同样由 dispatch 层从**真实模型 registry** 读出并透传
+/// （阶段5 D40）：前端靠它把 `action.models` 里本模型的覆盖与全局逐键合并。
 pub fn handle_get(
     current: &AppSettings,
     lookup: &dyn Fn(&str) -> Option<String>,
+    active_model_id: &str,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
-    let view = settings_to_view_with_keys(current, lookup);
+    let view = settings_to_view_with_keys_and_model(current, lookup, active_model_id);
     json_response(StatusCode(200), &view)
 }
 
@@ -173,6 +179,7 @@ pub fn apply_and_write(
     config_path: &str,
     after_hook: Option<&dyn Fn() -> ApplyStatus>,
     lookup: &dyn Fn(&str) -> Option<String>,
+    active_model_id: &str,
 ) -> Result<PatchResponse, ErrorResponse> {
     let (next, outcome) = apply_patch(current, patch).map_err(|msg| {
         // apply_patch 返回的 String 形态错误码语义不细；按消息前缀判。
@@ -226,7 +233,7 @@ pub fn apply_and_write(
             persisted,
             // PATCH 响应与 GET 同口径（都走 with_keys），否则「保存后
             // 界面显示已配置、但 GET 又说没有」这类两义会在同一面板里打架。
-            settings: settings_to_view_with_keys(&next, lookup),
+            settings: settings_to_view_with_keys_and_model(&next, lookup, active_model_id),
             apply_status,
         });
     }
@@ -236,7 +243,7 @@ pub fn apply_and_write(
     // 无意义），所以这里选什么都安全。
     Ok(PatchResponse {
         persisted,
-        settings: settings_to_view_with_keys(&next, lookup),
+        settings: settings_to_view_with_keys_and_model(&next, lookup, active_model_id),
         apply_status: ApplyStatus::NoSupervisor,
     })
 }
@@ -253,6 +260,7 @@ pub fn handle_patch(
     config_path: &str,
     after_hook: Option<&dyn Fn() -> ApplyStatus>,
     lookup: &dyn Fn(&str) -> Option<String>,
+    active_model_id: &str,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let body = match PatchBody::parse(body_str) {
         Ok(b) => b,
@@ -274,7 +282,14 @@ pub fn handle_patch(
         // W7 任务：dev_mode 三态由 HTTP body 顶层字段提供（不走段级）。
         dev_mode: body.dev_mode,
     };
-    match apply_and_write(current, &patch, config_path, after_hook, lookup) {
+    match apply_and_write(
+        current,
+        &patch,
+        config_path,
+        after_hook,
+        lookup,
+        active_model_id,
+    ) {
         Ok(resp) => {
             // 审计轨迹：「我改过设置」这件事本身要留痕（persisted=false 表示
             // 服务端认为是 no-op）。写盘失败的分支在下面打 warn。

@@ -115,7 +115,9 @@ pub fn dispatch_with_security(
             // P2：has_api_key = 「声明了键名且值真的读得到」。lookup 由
             // dispatch 注入（唯一真源 = secrets::lookup：.env 快照 > 进程环境），
             // 路由层自己不碰 env。
-            handle_get(&s, &live2d_ai_runtime::secrets::lookup)
+            // 阶段5 D40：另把当前模型 id 透传（前端据此算 action.models 逐键覆盖）。
+            let active_model_id = crate::web_api::models_routes::active_model_id(&ctx.models);
+            handle_get(&s, &live2d_ai_runtime::secrets::lookup, &active_model_id)
         }
         RouteId::SettingsPatch => {
             let s = ctx.status_ctx.settings_snapshot();
@@ -126,12 +128,15 @@ pub fn dispatch_with_security(
             let config_path = ctx.status_ctx.config_path.clone();
             let hook: Box<dyn Fn() -> ApplyStatus> =
                 Box::new(|| ctx.ensure_supervisor_after_patch());
+            // 阶段5 D40：PATCH 响应也带当前模型 id（保存后前端不丢模型名）。
+            let active_model_id = crate::web_api::models_routes::active_model_id(&ctx.models);
             let resp = handle_patch(
                 &s,
                 body_str,
                 &config_path,
                 Some(&*hook),
                 &live2d_ai_runtime::secrets::lookup,
+                &active_model_id,
             );
             // 仅在 PATCH 真正写盘成功（HTTP 200）后才触发 supervisor 重载。
             // 校验失败（400）或磁盘错误（500）→ 不通知 supervisor（保留旧

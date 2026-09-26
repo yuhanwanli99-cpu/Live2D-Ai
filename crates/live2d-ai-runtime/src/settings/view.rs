@@ -2,7 +2,7 @@
 //! 的、**不含任何密钥明文**的扁平结构供 Web API / egui 设置面板共用。
 //!
 //! 字段命名与 D1 契约一致：LLM/TTS 的 `api_key_env` 字段在这里换成
-//! `has_api_key: bool`。`SettingsView` 有**两个构造口径**，用途不同：
+//! `has_api_key: bool`。`SettingsView` 有**三个构造口径**，用途不同：
 //!
 //! - [`settings_to_view`]：`has_api_key` = **「配置里声明了变量名」**。
 //!   纯展示 / egui 设置面用它；不读环境、不看 `.env`，因此「已配置」可以
@@ -11,6 +11,11 @@
 //!   `lookup(name)` 拿得到非空值」**。Web API（GET/PATCH `/api/v1/settings`）
 //!   用它，保证「已配置」与 401/503 不会同屏；`lookup` 由调用方注入
 //!   （生产路径传 [`crate::secrets::lookup`]），本模块不直接读 env。
+//! - [`settings_to_view_with_keys_and_model`]：在上一者基础上再透传
+//!   `active_model_id`（阶段5 D40）。Web API 用它，前端才能算「本模型覆盖 >
+//!   全局」；前两者语义冻结，`active_model_id` 恒为空串。
+
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 
@@ -44,6 +49,12 @@ pub struct SettingsView {
     /// 开发者模式开关（W7 任务：可配置运行时开关；与 `AppStatus.dev_mode`
     /// 共享唯一来源 `AppSettings.dev_mode`）。
     pub dev_mode: bool,
+    /// **当前生效的模型 id**（阶段5 D40）：前端据此从 `action.models` 里
+    /// 取本模型的覆盖值。由调用方（dispatch 层）从真实模型 registry 读出并
+    /// 透传；纯展示 / egui 口径（[`settings_to_view`] /
+    /// [`settings_to_view_with_keys`]）没有 registry 可查，一律回**空串**
+    /// （= 「无当前模型」，前端按全局值算）。
+    pub active_model_id: String,
 }
 
 /// 视图中的 LLM 段。
@@ -85,15 +96,30 @@ pub struct PersonaView {
     pub max_history_pairs: usize,
 }
 
-/// 视图中的 `[action]` 段（三项动作幅度倍率，2026-09-16）。
+/// 视图中的 `[action]` 段（三项动作幅度倍率，2026-09-16；每模型覆盖，阶段5 D40）。
 ///
 /// 回的是**归一化后**的生效值（逐个钳进 `[0.2, 2.2]`）——界面滑条要显示
 /// 「现在到底是多少」，显示越界原值会让用户以为钳位没生效。
+/// `models` 里的覆盖值同一口径（同样归一化）；空表 = 没配任何覆盖。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ActionView {
     pub head_scale: f32,
     pub body_scale: f32,
     pub expression_scale: f32,
+    /// 每模型覆盖（键 = 模型 id）；未配覆盖时为空表。
+    pub models: BTreeMap<String, ActionModelView>,
+}
+
+/// 视图中的单模型覆盖（`[action.models.<id>]`）。
+///
+/// **契约（与前端定死，别改）**：三键**始终出现**，未覆盖的键 = `null`。
+/// 刻意不用 `skip_serializing_if` 省略——前端按「逐键 null → 回落全局」
+/// 渲染；键时有时无会迫它用 containsKey 分支，徒增两义。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ActionModelView {
+    pub head_scale: Option<f32>,
+    pub body_scale: Option<f32>,
+    pub expression_scale: Option<f32>,
 }
 
 impl From<&ActionSettings> for ActionView {
@@ -103,6 +129,20 @@ impl From<&ActionSettings> for ActionView {
             head_scale: n.head_scale,
             body_scale: n.body_scale,
             expression_scale: n.expression_scale,
+            models: n
+                .models
+                .iter()
+                .map(|(id, ov)| {
+                    (
+                        id.clone(),
+                        ActionModelView {
+                            head_scale: ov.head_scale,
+                            body_scale: ov.body_scale,
+                            expression_scale: ov.expression_scale,
+                        },
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -193,6 +233,8 @@ pub fn settings_to_view(s: &AppSettings) -> SettingsView {
         action: (&s.action).into(),
         performance: (&s.performance).into(),
         dev_mode: s.dev_mode,
+        // 纯展示口径没有 registry：没有「当前模型」可言 → 空串。
+        active_model_id: String::new(),
     }
 }
 
@@ -229,5 +271,24 @@ pub fn settings_to_view_with_keys(
     view.llm.has_api_key = key_is_ready(s.llm.api_key_env.as_deref(), lookup);
     view.tts.has_api_key = key_is_ready(s.tts.api_key_env.as_deref(), lookup);
     view.performance.has_api_key = key_is_ready(s.performance.api_key_env.as_deref(), lookup);
+    view
+}
+
+/// 与 [`settings_to_view_with_keys`] 同构，另带**当前模型 id**（阶段5 D40）。
+///
+/// `active_model_id` 由调用方（dispatch 层，持有模型 registry）读出并透传；
+/// 本函数仍是纯函数（不读文件 / 环境 / registry），只是把它原样放进视图，
+/// 让前端拿到「此刻舞台上是哪个模型」并与 `action.models` 一起算逐键生效值。
+/// GET 与 PATCH 两条路径都用它——保存后前端不丢当前模型名。
+///
+/// 既有两个函数（[`settings_to_view`] / [`settings_to_view_with_keys`]）的
+/// 签名与语义**冻结不变**，它们的 `active_model_id` 恒为空串。
+pub fn settings_to_view_with_keys_and_model(
+    s: &AppSettings,
+    lookup: &dyn Fn(&str) -> Option<String>,
+    active_model_id: &str,
+) -> SettingsView {
+    let mut view = settings_to_view_with_keys(s, lookup);
+    view.active_model_id = active_model_id.to_string();
     view
 }

@@ -6,13 +6,20 @@
 //! 模块「子模块拆分」约定把 tests 单独提到本文件；断言与原文件**一字不改**。
 //! 入口在 `patch.rs::mod patch_tests;`（仅 `#[cfg(test)]` 下生效）——本文件
 //! 作为 `patch` 的子模块，可直接 `use super::*;` 访问 `patch` 的私有项。
+//!
+//! **2026-09-26（阶段5 D40）**：追加 `[action.models.<id>]` 每模型覆盖的回归
+//! （覆盖>全局逐键回落 / 无覆盖跟随全局 / 量程钳位 / 非法 id 拒绝 / 删除与空表
+//! 清理 / TOML round-trip）后本文件超过 800 行测试上限——同 `patch.rs` 的理由：
+//! 三态语义在这一份文件里成体系，拆开会让「改一半忘了另一半」成为默认风险。
 
 use std::process;
 
 use crate::settings::patch::{
     LlmPatch, PatchOutcome, PersonaPatch, SettingsPatch, TtsPatch, apply_patch, plan_atomic_write,
 };
-use crate::settings::view::{settings_to_view, settings_to_view_with_keys};
+use crate::settings::view::{
+    settings_to_view, settings_to_view_with_keys, settings_to_view_with_keys_and_model,
+};
 use crate::settings::{AppSettings, LlmSettings, PersonaSettings, TtsSettings};
 
 fn sample() -> AppSettings {
@@ -713,6 +720,7 @@ fn action_patch_sets_clamps_and_resets() {
             head_scale: Some(Some(9.0)),
             body_scale: Some(Some(0.0)),
             expression_scale: None,
+            models: None,
         })),
         ..Default::default()
     };
@@ -744,9 +752,241 @@ fn action_patch_identical_is_no_change() {
             head_scale: Some(Some(0.75)),
             body_scale: Some(Some(0.80)),
             expression_scale: Some(Some(1.0)),
+            models: None,
         })),
         ..Default::default()
     };
     let (_, outcome) = apply_patch(&base, &patch).unwrap();
     assert_eq!(outcome, PatchOutcome::NoChange);
+}
+// ============================================================================
+// `[action.models.<id>]` 每模型覆盖（阶段5 D40，2026-09-26）
+//
+// 判据①覆盖>全局且逐键回落 / ②无覆盖跟随全局 / ④超量程钳 / ⑤非法 id 不落表。
+// 判据③（PATCH 写回保注释、无 .tmp 残留）在 settings_routes 的 e2e 测试里
+// （它需要真实写盘 + handle_patch 全链路）。
+// ============================================================================
+
+/// 判据①：覆盖 > 全局，且**逐键**回落（bai 只覆盖 head_scale）。
+#[test]
+fn action_models_override_beats_global_per_key() {
+    let s = AppSettings::from_toml_str(
+        "[action]\nhead_scale = 0.75\nbody_scale = 0.80\nexpression_scale = 1.0\n\n[action.models.bai]\nhead_scale = 1.5\n",
+    )
+    .expect("parse");
+    let e = s.action.effective_for("bai");
+    assert_eq!(e.head_scale, 1.5, "head 用覆盖值");
+    assert_eq!(e.body_scale, 0.80, "body 逐键回落全局");
+    assert_eq!(e.expression_scale, 1.0, "expression 逐键回落全局");
+    // 全局三键仍在（覆盖表不污染全局）。
+    let g = s.action.effective_for("no-such-model");
+    assert_eq!(
+        (g.head_scale, g.body_scale, g.expression_scale),
+        (0.75, 0.80, 1.0)
+    );
+    // 视图口径同源（归一化后）。
+    let v = settings_to_view(&s);
+    assert_eq!(v.action.models["bai"].head_scale, Some(1.5));
+    assert_eq!(v.action.models["bai"].body_scale, None);
+}
+
+/// 判据②：没有覆盖的模型（含空表、含空串 id）完整跟随全局。
+#[test]
+fn action_models_absent_model_follows_global() {
+    let s = AppSettings::from_toml_str("[action]\nhead_scale = 1.1\n").expect("parse");
+    assert!(s.action.models.is_empty(), "没写 models 就是空表");
+    for id in ["bai", "hiyori", ""] {
+        let e = s.action.effective_for(id);
+        assert_eq!(
+            (e.head_scale, e.body_scale, e.expression_scale),
+            (1.1, 0.80, 1.0),
+            "id={id:?}"
+        );
+    }
+}
+
+/// 判据④：越界钳 [0.2, 2.2]；NaN / 无穷按既有 `set_scale` 口径回落默认。
+#[test]
+fn action_models_clamp_out_of_range_and_nan_falls_back() {
+    use crate::settings::patch::{ActionModelOverridePatch, ActionPatch};
+    let base = AppSettings::from_toml_str("").expect("parse");
+    let patch = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            models: Some(std::collections::BTreeMap::from([(
+                "bai".to_string(),
+                Some(ActionModelOverridePatch {
+                    head_scale: Some(Some(9.0)),
+                    body_scale: Some(Some(-1.0)),
+                    expression_scale: Some(Some(f32::NAN)),
+                }),
+            )])),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&base, &patch).unwrap();
+    assert_eq!(outcome, PatchOutcome::Updated);
+    let ov = next.action.models.get("bai").expect("bai 落表");
+    assert_eq!(ov.head_scale, Some(2.2), "9.0 钳到上限");
+    assert_eq!(ov.body_scale, Some(0.2), "-1.0 钳到下限");
+    assert_eq!(ov.expression_scale, Some(1.0), "NaN 回落出厂默认 1.0");
+    // 全局三键不受覆盖影响；全局自己的 NaN/无穷也沿用同一口径。
+    assert_eq!(next.action.head_scale, 0.75);
+    let gpatch = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            head_scale: Some(Some(f32::INFINITY)),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (gnext, _) = apply_patch(&base, &gpatch).unwrap();
+    assert_eq!(gnext.action.head_scale, crate::settings::DEFAULT_HEAD_SCALE);
+}
+
+/// 判据⑤：非法模型 id（空串 / 空格 / 斜杠 / 中文 / 超 64 / `..`）**不落表**，
+/// `apply_patch` 返回 Err（上层映射 400 invalid_payload）；合法 id 正常写入。
+#[test]
+fn action_models_invalid_id_is_rejected_not_written() {
+    use crate::settings::patch::{ActionModelOverridePatch, ActionPatch};
+    let base = AppSettings::from_toml_str("").expect("parse");
+    let long = "a".repeat(crate::settings::MAX_MODEL_ID_LEN + 1);
+    let over = "a".repeat(crate::settings::MAX_MODEL_ID_LEN);
+    let bad = [
+        "",
+        " ",
+        "with space",
+        "a/b",
+        "中文",
+        "a\tb",
+        long.as_str(),
+        "..",
+        "a..b",
+    ];
+    for id in bad {
+        let patch = SettingsPatch {
+            action: Some(Some(ActionPatch {
+                models: Some(std::collections::BTreeMap::from([(
+                    id.to_string(),
+                    Some(ActionModelOverridePatch {
+                        head_scale: Some(Some(1.0)),
+                        ..Default::default()
+                    }),
+                )])),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let err = apply_patch(&base, &patch).expect_err("非法 id 必须 Err");
+        assert!(err.contains("非法模型 id"), "id={id:?} 错误={err}");
+    }
+    // 边界：恰好 64 的合法 id 正常落表。
+    let patch = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            models: Some(std::collections::BTreeMap::from([(
+                over.clone(),
+                Some(ActionModelOverridePatch {
+                    head_scale: Some(Some(1.0)),
+                    ..Default::default()
+                }),
+            )])),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&base, &patch).expect("合法 id 应通过");
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert_eq!(next.action.models[&over].head_scale, Some(1.0));
+}
+
+/// 删除语义：`null` 值删条目；对象里逐键 `null` 删到全 `None` 也删条目（不留空表）。
+#[test]
+fn action_models_delete_and_empty_entry_pruned() {
+    use crate::settings::patch::{ActionModelOverridePatch, ActionPatch};
+    let base = AppSettings::from_toml_str(
+        "[action.models.bai]\nhead_scale = 1.5\n\n[action.models.follow]\nbody_scale = 1.1\n",
+    )
+    .expect("parse");
+    assert_eq!(base.action.models.len(), 2);
+    let patch = SettingsPatch {
+        action: Some(Some(ActionPatch {
+            models: Some(std::collections::BTreeMap::from([
+                ("bai".to_string(), None),
+                (
+                    "follow".to_string(),
+                    Some(ActionModelOverridePatch {
+                        body_scale: Some(None),
+                        ..Default::default()
+                    }),
+                ),
+            ])),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let (next, outcome) = apply_patch(&base, &patch).unwrap();
+    assert_eq!(outcome, PatchOutcome::Updated);
+    assert!(
+        next.action.models.is_empty(),
+        "两条都该消失：{:?}",
+        next.action.models
+    );
+    // 再打同一补丁 → NoChange（条目已不存在，删除是 no-op）。
+    let (_, outcome2) = apply_patch(&next, &patch).unwrap();
+    assert_eq!(outcome2, PatchOutcome::NoChange);
+}
+
+/// 序列化：`[action.models.<id>]` 真写成 TOML 子表并可 round-trip；空表不写出。
+#[test]
+fn action_models_round_trip_through_toml() {
+    let s = AppSettings::from_toml_str(
+        "[action]\nhead_scale = 1.1\n\n[action.models.bai]\nhead_scale = 1.5\n\n[action.models.follow]\nbody_scale = 1.1\n",
+    )
+    .expect("parse");
+    let toml = s.to_toml_string();
+    assert!(toml.contains("[action.models.bai]"), "{toml}");
+    assert!(toml.contains("[action.models.follow]"), "{toml}");
+    let back = AppSettings::from_toml_str(&toml).expect("re-parse");
+    assert_eq!(back.action, s.action, "round-trip 不丢覆盖");
+    // 空 models 整体省略（skip_serializing_if）。
+    let empty = AppSettings::from_toml_str("").unwrap().to_toml_string();
+    assert!(!empty.contains("models"), "{empty}");
+    // deny_unknown_fields 对覆盖表内部一样生效。
+    assert!(AppSettings::from_toml_str("[action.models.bai]\nhead = 1.0\n").is_err());
+}
+
+/// 视图：`models` 的值归一化（9.0 → 2.2）；未覆盖键为 `null`（三键始终出现）。
+#[test]
+fn action_view_models_normalized_and_null_keys() {
+    let s = AppSettings::from_toml_str(
+        "[action.models.bai]\nhead_scale = 9.0\n\n[action.models.follow]\nbody_scale = 1.1\n",
+    )
+    .expect("parse");
+    let v = settings_to_view(&s);
+    let bai = v.action.models.get("bai").expect("bai");
+    assert_eq!(bai.head_scale, Some(2.2), "视图值必须归一化");
+    assert_eq!(bai.body_scale, None);
+    assert_eq!(bai.expression_scale, None);
+    assert_eq!(v.action.models["follow"].body_scale, Some(1.1));
+    let json = serde_json::to_string(&v.action).unwrap();
+    assert!(
+        json.contains("\"bai\":{\"head_scale\":2.2,\"body_scale\":null,\"expression_scale\":null}"),
+        "未覆盖键必须序列化为 null 且三键都在：{json}"
+    );
+}
+
+/// `SettingsView.active_model_id`：新函数透传；两个旧口径冻结为空串。
+#[test]
+fn settings_view_active_model_id_transport_and_freeze() {
+    let s = sample();
+    let no_value = |_: &str| None;
+    assert_eq!(settings_to_view(&s).active_model_id, "", "旧口径冻结为空串");
+    assert_eq!(
+        settings_to_view_with_keys(&s, &no_value).active_model_id,
+        "",
+        "旧口径冻结为空串"
+    );
+    let v = settings_to_view_with_keys_and_model(&s, &no_value, "bai");
+    assert_eq!(v.active_model_id, "bai");
+    let json = serde_json::to_string(&v).unwrap();
+    assert!(json.contains("\"active_model_id\":\"bai\""), "{json}");
 }

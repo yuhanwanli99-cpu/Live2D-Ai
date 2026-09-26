@@ -46,9 +46,10 @@
 //!
 //! # 行数豁免（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）
 //!
-//! 本文件 **648 行**，超过 500 行默认上限。理由：
+//! 本文件 **780 行**（2026-09-26 追加 `[action.models]` 覆盖后），超过 500 行
+//! 默认上限。理由：
 //!
-//! 1. 测试**已经**按约定外提到 `patch_tests.rs`（约 600 行），这里的行数
+//! 1. 测试**已经**按约定外提到 `patch_tests.rs`（约 990 行），这里的行数
 //!    全部是生产代码，不是靠「把测试留在文件里」堆出来的。
 //! 2. 余下内容是一个**不变量密集**的整体：`Option<Option<T>>` 三态在 JSON /
 //!    TOML / HTTP / egui 四个入口的语义必须逐条对齐（`double_option` 的
@@ -63,9 +64,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use super::{ActionSettings, AppSettings, clamp_action_scale};
+use super::{
+    ActionModelOverride, ActionSettings, AppSettings, clamp_action_scale, is_valid_model_id,
+};
 
 // `serde_with::rust::double_option` 的 deserialize/serialize 函数；
 // 作用在 `Option<Option<T>>` 字段上，让 JSON 端 `缺省 / null / 显式值`
@@ -266,6 +271,45 @@ pub struct ActionPatch {
         serialize_with = "::serde_with::rust::double_option::serialize"
     )]
     pub expression_scale: Option<Option<f32>>,
+    /// **每模型覆盖**（阶段5 D40）：`None` = 不动整张表；`Some(map)` 逐模型处理。
+    ///
+    /// map 的值本身是三态：`null` = **删除该模型覆盖**；对象 = 逐键三态合并
+    /// （键 `null` = 删除该键；值 = 钳后写入）。合并后三键全 `None` 的条目
+    /// **从表里删掉**（不留空表）。键（模型 id）非法 → `apply_patch` 直接 `Err`，
+    /// **不静默落表**。注意：map 自身序列化时用 `Option::is_none` skip——
+    /// `"models": null` 与「不写 models」都是「不动」；要清空整表得逐个置 `null`
+    /// 或段级 `action: null`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<BTreeMap<String, Option<ActionModelOverridePatch>>>,
+}
+
+/// 单个模型覆盖的字段级三态补丁（`[action.models.<id>]` 的一行）。
+///
+/// 与 [`ActionPatch`] 的三键同款 `Option<Option<f32>>` + `double_option`：
+/// 缺省 = 不改该键 / `null` = 删除该键（回落全局）/ 值 = 设为钳后的值。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ActionModelOverridePatch {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub head_scale: Option<Option<f32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub body_scale: Option<Option<f32>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "::serde_with::rust::double_option::deserialize",
+        serialize_with = "::serde_with::rust::double_option::serialize"
+    )]
+    pub expression_scale: Option<Option<f32>>,
 }
 
 /// `apply_patch` 的结果——上层据此决定要不要触发磁盘写回。
@@ -289,6 +333,60 @@ fn validate_env_name_strict(name: &str) -> Result<(), String> {
         Err(format!(
             "api_key_env 非法: {name:?}（仅允许 ASCII 字母/数字/下划线，且不以数字开头）"
         ))
+    }
+}
+
+// ===== [action.models] 每模型覆盖（阶段5 D40）=====
+
+/// 把一个模型覆盖的**单键**三态补丁写进 `slot`。
+///
+/// - `None` = 不改；
+/// - `Some(None)` = 删除该键（回落全局）；
+/// - `Some(Some(v))` = `clamp_action_scale(v)`；`v` 非有限（NaN / 无穷）按
+///   既有 `set_scale` 口径回落 `fallback`（出厂默认）。
+fn apply_model_key(slot: &mut Option<f32>, fallback: f32, v: &Option<Option<f32>>) {
+    match v {
+        None => {}
+        Some(None) => *slot = None,
+        Some(Some(raw)) => {
+            *slot = Some(if raw.is_finite() {
+                clamp_action_scale(*raw)
+            } else {
+                fallback
+            });
+        }
+    }
+}
+
+/// 合并出某模型覆盖的**最终形态**；三键全 `None` → `None`（条目该被删掉）。
+fn merge_model_override(
+    current: Option<&ActionModelOverride>,
+    patch: &ActionModelOverridePatch,
+) -> Option<ActionModelOverride> {
+    let defaults = ActionSettings::default();
+    let mut merged = current.cloned().unwrap_or_default();
+    apply_model_key(
+        &mut merged.head_scale,
+        defaults.head_scale,
+        &patch.head_scale,
+    );
+    apply_model_key(
+        &mut merged.body_scale,
+        defaults.body_scale,
+        &patch.body_scale,
+    );
+    apply_model_key(
+        &mut merged.expression_scale,
+        defaults.expression_scale,
+        &patch.expression_scale,
+    );
+    if merged.head_scale.is_none()
+        && merged.body_scale.is_none()
+        && merged.expression_scale.is_none()
+    {
+        None
+    } else {
+        Some(merged)
     }
 }
 
@@ -543,6 +641,40 @@ pub fn apply_patch(
                     )
                 {
                     changed = true;
+                }
+                // 每模型覆盖（阶段5 D40）：map 缺省 = 不动；null 值 = 删除该模型；
+                // 对象 = 逐键三态合并。非法 id **直接 Err**（上层映射 400
+                // invalid_payload），绝不静默落表——否则错 id 会永久留在 toml 里。
+                if let Some(models) = &fields.models {
+                    for (id, entry) in models {
+                        if !is_valid_model_id(id) {
+                            return Err(format!(
+                                "action.models 非法模型 id: {id:?}（非空、长度≤64、仅 ASCII 字母/数字与 . _ -，且不含 ..）"
+                            ));
+                        }
+                        match entry {
+                            None => {
+                                if next.action.models.remove(id).is_some() {
+                                    changed = true;
+                                }
+                            }
+                            Some(ov_patch) => {
+                                match merge_model_override(next.action.models.get(id), ov_patch) {
+                                    Some(merged) => {
+                                        if next.action.models.get(id) != Some(&merged) {
+                                            next.action.models.insert(id.clone(), merged);
+                                            changed = true;
+                                        }
+                                    }
+                                    None => {
+                                        if next.action.models.remove(id).is_some() {
+                                            changed = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

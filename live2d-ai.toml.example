@@ -86,6 +86,16 @@ max_history_pairs = 0
 head_scale = 0.75
 body_scale = 0.80
 expression_scale = 1.0
+#
+# 每皮套覆盖（2026-09-26，阶段5 D40）：不写下面这段 = 所有模型都跟随上面的全局值。
+# 要单独调某个模型时用 [action.models.<model_id>]（<model_id> = 模型库里的 id，
+# 即 GET /api/v1/settings 的 active_model_id 字段）。
+# **三键各自可选、各自回落全局**：只写 head_scale 时，body / expression 仍用全局值。
+# 取值同 [0.2, 2.2]；保存走就地改值（注释保留），删掉整个子表 = 恢复跟随全局。
+# [action.models.bai]
+# head_scale = 1.2
+# body_scale = 0.9
+# expression_scale = 1.0
 
 [performance]
 # 表演层（导演 / 大脑，2026-09-22）——**默认关**。
