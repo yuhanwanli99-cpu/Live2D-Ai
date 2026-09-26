@@ -12,6 +12,16 @@
 //!
 //! 输入纪律：**绝不含 reasoning_content**（思考不进句子装配器 / TTS）。
 //! 输出只能读、不能改送 TTS 的文本——导演是备注，不是誊写员。
+//!
+//! # v1 三字段（V12 事实：director 只产 cues）
+//!
+//! [STAGING_SYSTEM] 同时给出两条合法形态（V11：只增不改）：
+//! - legacy：`{sentence_seq, preset_id, intensity, ttl_ms}`；
+//! - v1：`{sentence_seq, field, x/y/z, id, intensity, at, hold}`
+//!   （协议 §2.2；`docs/architecture/performance-protocol-v1.md`）。
+//!
+//! 两条形态**都只产 cues**——这里没有任何 `segments` / `speak`：
+//! 切分原文是表演层（runtime）的职责。
 
 use crate::DirectorConfig;
 
@@ -77,7 +87,7 @@ impl StagingSetup {
 }
 
 /// 异步 LLM 的 system 提示（钉死输出契约，降低解析失败率）。
-pub const STAGING_SYSTEM: &str = "你是 Live2D 皮套的动作导演。只输出 JSON，不要解释。格式：{\"epoch\":<整数>,\"covers_upto_seq\":<整数>,\"cues\":[{\"sentence_seq\":<整数>,\"preset_id\":\"<id>\",\"intensity\":1,\"ttl_ms\":2000}]}。plan.epoch 必须原样回填用户消息里给出的「本轮 epoch」——回错/不回的值会让整份 plan 被丢弃。只允许使用给定能力集里的 preset_id；不要输出 priority。";
+pub const STAGING_SYSTEM: &str = "你是 Live2D 皮套的动作导演。只输出 JSON，不要解释，也不要输出任何台词文本——导演只产动作 cue，不产文本。格式：{\"epoch\":<整数>,\"covers_upto_seq\":<整数>,\"cues\":[{\"sentence_seq\":<整数>,\"preset_id\":\"<id>\",\"intensity\":1,\"ttl_ms\":2000},{\"sentence_seq\":<整数>,\"field\":\"body|head|expression\",\"x\":0.0,\"y\":0.3,\"id\":\"<表情id>\",\"intensity\":1,\"at\":\"now|seg:<n>|after_prev\",\"hold\":true}]}。plan.epoch 必须原样回填用户消息里给出的「本轮 epoch」——回错/不回的值会让整份 plan 被丢弃。preset_id 与 expression 的 id 只允许使用给定能力集里的值；不要输出 priority。field 形态里 hold 必填（true=保持到下次指令）；body 不接受 z。";
 
 /// 组装异步 LLM 的用户输入：**本轮 epoch** + 用户正文 + 助手正文（已清洗的
 /// TTS 文本）+ 能力集。

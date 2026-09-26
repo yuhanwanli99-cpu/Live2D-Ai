@@ -34,6 +34,26 @@
 //! **每条贡献** [MAX_SESSION_PROMPT_CHARS] 字符。写入超限时**拒绝并返回**，
 //! 绝不静默淘汰——「我明明导入过」而实际被别人的会话挤掉，是最难查的一类缺陷。
 //! 空串写入 = **撤销该槽的贡献**（不留一个「空会话」条目，sessions() 才干净）。
+//!
+//! # baseline：prompt 的**兄弟字段**（V10 / O8）
+//!
+//! 「角色 baseline」= 该会话多角色扮演本身的**基础状态值**（开心 / 难过 /
+//! 思考这类）。停止键 / 新用户消息 → 清动作 + 表情 + TTS 待播后**回该会话
+//! 的 baseline**（协议 §9.3）。
+//!
+//! 存储口径（O8 冻结）：baseline 住在**同一张会话表**（同一个 [SessionScopeStore]、
+//! 同一个 [Inner]、同一个会话键空间），与 [SessionScopeStore::prompt_for] 逐字
+//! 共用同一道 [sanitize_session_id] 归一化闸。**不是**第二套会话表、**不加**新机制。
+//!
+//! - **缺省为空 = 待机**：没有写入过（或写了空串撤销）= 回待机，不伪造一个基准；
+//! - **写入方 = 宿主 API**：POST /api/v1/chat/session 随会话设置一起写
+//!   （见 web_api::chat_routes），本轮**不做** per-character profile 文件；
+//! - baseline 是**不透明字符串**（与 prompts 同口径）：宿主只存 / 只回，
+//!   「它是不是一个合法的表演 cue」由写入方负责。
+//!
+//! 为什么是兄弟**字段**而不是第二张表：会话 id 的归一化闸只有一道（路径穿越
+//! 风险只在落盘方，而闸在 id 上），两张表就有两条 id 归一化路径、两条容量路径、
+//! 两个「表里到底有没有这个会话」的答案。放在同一个 [Inner] 里，这些答案天然只有一个。
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -56,6 +76,14 @@ pub const MAX_SESSION_SCOPES: usize = 200;
 /// 判定是**按来源槽逐条**做的：persona 的卡与 memory 的块各有各的额度。
 pub const MAX_SESSION_PROMPT_CHARS: usize = 64 * 1024;
 
+/// 单会话 baseline 的长度上限（**字符**；序列化后的 JSON 文本）。
+///
+/// 取值理由：baseline 是「基础状态值」——几条三字段 cue 的 JSON 在几十到几百
+/// 字符量级；4000 与协议 O2 的 MAX_SEGMENT_CHARS 同量级，足以表达一个完整
+/// 基准姿态，又能挡住「误把整份表演计划塞进 baseline」。超限**拒绝**（不静默
+/// 截断——与 prompts 每条贡献超限的处理逐字一致）。
+pub const MAX_SESSION_BASELINE_CHARS: usize = 4_000;
+
 /// 某会话的槽表：owner → 文本。
 type Slots = BTreeMap<String, String>;
 
@@ -63,6 +91,12 @@ type Slots = BTreeMap<String, String>;
 struct Inner {
     /// 会话 id → (来源槽 id → 文本)（**已归一化**的 id 才可能在表里）。
     prompts: BTreeMap<String, Slots>,
+    /// 会话 id → baseline（V10/O8 的**兄弟字段**：同一个键空间、同一道归一化闸）。
+    ///
+    /// 独立于 prompts 的**存在性**：一个会话可以只有人设没有 baseline，也可以
+    /// 只有 baseline 没有人设；两者都用同一个 [sanitize_session_id] 归一化后的 id
+    /// 当键。空串 = 撤销（缺省为空 = 待机），不留「空 baseline」条目。
+    baselines: BTreeMap<String, String>,
     /// 当前活动会话（最近一次对话用的那个）。
     active: Option<String>,
 }
@@ -115,7 +149,11 @@ impl SessionScopeStore {
         ModSessionPrompts::new(self.clone())
     }
 
-    /// 当前会话数（**有任一槽**的会话数；测试 / 状态展示用）。
+    /// 当前会话数（**有任一 prompt 槽**的会话数；测试 / 状态展示用）。
+    ///
+    /// 注意：只数 **prompt 槽**——baseline 是兄弟字段，它的条数由
+    /// [Self::baseline_count] 单独报（两半各自有界，合并计数会让「人设会话数」
+    /// 这个面板数字随 baseline 写入而漂移）。
     pub fn len(&self) -> usize {
         self.guard().prompts.len()
     }
@@ -125,6 +163,65 @@ impl SessionScopeStore {
         let id = session.and_then(sanitize_session_id)?;
         let inner = self.guard();
         compose_slots(inner.prompts.get(&id)?)
+    }
+
+    // ---------------------------------------------------------- baseline（V10/O8）
+    //
+    // 下面是 [prompt_for] 的**兄弟入口**：同一张表、同一个会话键、同一道
+    // [sanitize_session_id] 闸、同一条「空串 = 撤销」纪律。不要在这里另起一套
+    // 归一化或容量判定——那正是「第二套会话表」的开端。
+
+    /// 写入 / 撤销某会话的 baseline（宿主 API 的唯一写入口，O8）。
+    ///
+    /// 返回是否被接受：
+    /// - 非法会话 id → `false`（**与 prompts 同一道闸**，不特事特办）；
+    /// - 超长（> [MAX_SESSION_BASELINE_CHARS]）→ `false`（**不静默截断**）；
+    /// - 空串 → 撤销该会话的 baseline（缺省为空 = 待机），返回 `true`；
+    /// - 新会话且 baseline 表已达 [MAX_SESSION_SCOPES] → `false`（不挤掉别人）。
+    pub fn set_baseline(&self, session: &str, baseline: &str) -> bool {
+        let Some(id) = sanitize_session_id(session) else {
+            return false;
+        };
+        if baseline.chars().count() > MAX_SESSION_BASELINE_CHARS {
+            return false;
+        }
+        let mut inner = self.guard();
+        if baseline.is_empty() {
+            // 空串 = 撤销（缺省为空 = 待机）；不留空条目，baseline_sessions() 才干净。
+            inner.baselines.remove(&id);
+            return true;
+        }
+        // 已有条目 = 覆盖（不受容量限制）；新条目才判容量（与 set_owned 同口径）。
+        if !inner.baselines.contains_key(&id) && inner.baselines.len() >= MAX_SESSION_SCOPES {
+            return false;
+        }
+        inner.baselines.insert(id, baseline.to_string());
+        true
+    }
+
+    /// 取某会话的 baseline；**非法 id / 没有 → None**——与 [Self::prompt_for]
+    /// 逐字同构（同一道归一化闸、同一个键空间）。
+    pub fn baseline_for(&self, session: Option<&str>) -> Option<String> {
+        let id = session.and_then(sanitize_session_id)?;
+        self.guard().baselines.get(&id).cloned()
+    }
+
+    /// 撤销某会话的 baseline；返回是否真的删掉了（幂等）。
+    pub fn clear_baseline(&self, session: &str) -> bool {
+        let Some(id) = sanitize_session_id(session) else {
+            return false;
+        };
+        self.guard().baselines.remove(&id).is_some()
+    }
+
+    /// 有 baseline 的会话数（状态面 / 测试；prompts 的计数另有 [Self::len]）。
+    pub fn baseline_count(&self) -> usize {
+        self.guard().baselines.len()
+    }
+
+    /// 有 baseline 的会话 id（BTreeMap 迭代顺序天然稳定）。
+    pub fn baseline_sessions(&self) -> Vec<String> {
+        self.guard().baselines.keys().cloned().collect()
     }
 
     // ---- 下面两个是 [SessionPromptSink] 的**固有方法**转发 ----
@@ -225,7 +322,11 @@ impl SessionPromptSink for SessionScopeStore {
     }
 
     fn clear_all(&self) {
-        self.guard().prompts.clear();
+        // 「清空全部会话作用域」= prompts 与 baseline 一起清（两半都是会话作用域，
+        // 只清一半会留下「表看着空了、停止仍回旧基准」的鬼状态）。
+        let mut inner = self.guard();
+        inner.prompts.clear();
+        inner.baselines.clear();
     }
 
     fn sessions(&self) -> Vec<String> {
@@ -247,6 +348,7 @@ impl std::fmt::Debug for SessionScopeStore {
         let inner = self.guard();
         f.debug_struct("SessionScopeStore")
             .field("sessions", &inner.prompts.len())
+            .field("baselines", &inner.baselines.len())
             .field("active", &inner.active)
             .finish()
     }
@@ -454,5 +556,120 @@ mod tests {
         assert_eq!(s.get("overflow"), None);
         // 非法 id 的 clear_owned 也不得删到东西。
         assert!(!s.clear_owned(SESSION_PROMPT_OWNER_PERSONA, "a b"));
+    }
+
+    // ------------------------------------------------ baseline（V10/O8 兄弟字段）
+
+    /// **E1（阶段4e 判据）**：baseline 绑**会话**，不是全局。
+    ///
+    /// 语义（协议 §9.1 / O8）：会话 A / B 各持自己的 baseline；没写入过的会话
+    /// 回 None（= 待机）；写 A 不动 B；清 B 不动 A。同一道 sanitize 闸拒绝非法 id。
+    #[test]
+    fn baseline_is_bound_per_session_and_not_global() {
+        let s = SessionScopeStore::new();
+        // 缺省 = 待机（不是某个隐式全局 baseline）。
+        assert_eq!(s.baseline_for(Some("A")), None);
+        assert_eq!(s.baseline_for(None), None);
+
+        let a = r#"{"field":"expression","id":"smile","intensity":1,"at":"now","hold":true}"#;
+        let b = r#"{"field":"body","x":-0.2,"y":0.1,"intensity":2,"at":"now","hold":true}"#;
+        assert!(s.set_baseline("A", a));
+        assert!(s.set_baseline("B", b));
+
+        // 各回各的：**不是**全局（写 B 不许改 A 的值）。
+        assert_eq!(s.baseline_for(Some("A")).as_deref(), Some(a));
+        assert_eq!(s.baseline_for(Some("B")).as_deref(), Some(b));
+        assert_ne!(s.baseline_for(Some("A")), s.baseline_for(Some("B")));
+        // 没写入过的会话仍是待机，绝不回落到「别人的 baseline」。
+        assert_eq!(s.baseline_for(Some("C")), None);
+        // None 桶（裸 HTTP / 不带会话）与任何具名会话都不共享。
+        assert_eq!(s.baseline_for(None), None);
+
+        // 清 B 不动 A。
+        assert!(s.clear_baseline("B"));
+        assert_eq!(s.baseline_for(Some("B")), None);
+        assert_eq!(s.baseline_for(Some("A")).as_deref(), Some(a));
+
+        // 同一道归一化闸：非法 id 写入被拒、读取不得到东西。
+        assert!(!s.set_baseline("../etc/passwd", a));
+        assert_eq!(s.baseline_for(Some("../etc/passwd")), None);
+        assert!(!s.set_baseline("a b", a));
+        // 归一化后合法（前后空白被 trim）——与 prompt_for 同一条闸。
+        assert!(s.set_baseline("  spaced-id  ", a));
+        assert_eq!(s.baseline_for(Some("spaced-id")).as_deref(), Some(a));
+
+        // baseline 是**兄弟字段**：会话数（prompt 槽计数）不因 baseline 漂移。
+        assert_eq!(s.len(), 0, "只写 baseline 不得伪造出 prompt 会话");
+        assert_eq!(s.baseline_count(), 2, "A + spaced-id");
+        assert_eq!(
+            s.baseline_sessions(),
+            vec!["A".to_string(), "spaced-id".to_string()],
+            "稳定排序"
+        );
+    }
+
+    /// baseline 的容量 / 超长 / 空串撤销三条边界（与 prompts 同纪律）。
+    #[test]
+    fn baseline_write_gate_rejects_overlong_and_empty_revokes() {
+        let s = SessionScopeStore::new();
+        // 超长 = 拒绝（不静默截断）。
+        assert!(!s.set_baseline("A", &"x".repeat(MAX_SESSION_BASELINE_CHARS + 1)));
+        assert_eq!(s.baseline_for(Some("A")), None);
+        // 正好到上限要能进。
+        assert!(s.set_baseline("A", &"x".repeat(MAX_SESSION_BASELINE_CHARS)));
+        assert!(s.baseline_for(Some("A")).is_some());
+        // 空串 = 撤销（缺省为空 = 待机），不留空条目。
+        assert!(s.set_baseline("A", ""));
+        assert_eq!(s.baseline_for(Some("A")), None);
+        assert_eq!(s.baseline_count(), 0);
+        // 重复撤销是幂等 no-op（仍返回 true：写请求被接受）。
+        assert!(s.set_baseline("A", ""));
+        // 容量有界、不挤掉别人。
+        for i in 0..MAX_SESSION_SCOPES {
+            assert!(s.set_baseline(&format!("s{i}"), "b"));
+        }
+        assert_eq!(s.baseline_count(), MAX_SESSION_SCOPES);
+        assert!(!s.set_baseline("overflow", "b"));
+        assert_eq!(s.baseline_count(), MAX_SESSION_SCOPES);
+        // 已有条目仍可覆盖。
+        assert!(s.set_baseline("s0", "更新后"));
+        assert_eq!(s.baseline_for(Some("s0")).as_deref(), Some("更新后"));
+    }
+
+    /// clear_all 把两半（prompts + baseline）一起清；active 游标不跟着清。
+    #[test]
+    fn clear_all_also_clears_baselines() {
+        let s = SessionScopeStore::new();
+        s.set("A", "人设");
+        s.set_baseline("A", "基准");
+        s.set_active(Some("A"));
+        s.clear_all();
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.baseline_count(), 0);
+        assert_eq!(s.baseline_for(Some("A")), None, "清空后不许再回旧基准");
+        assert_eq!(s.active().as_deref(), Some("A"), "游标是位置，不是内容");
+    }
+
+    /// baseline 与 prompt 同表但互不污染：清人设不动 baseline，反之亦然。
+    #[test]
+    fn baseline_and_prompt_do_not_overwrite_each_other() {
+        let s = SessionScopeStore::new();
+        s.set("A", "人设");
+        s.set_baseline("A", "基准");
+        assert!(s.clear("A"), "清 prompt 槽");
+        assert_eq!(s.get("A"), None);
+        assert_eq!(s.baseline_for(Some("A")).as_deref(), Some("基准"));
+        s.set("A", "又写回来");
+        assert_eq!(
+            s.baseline_for(Some("A")).as_deref(),
+            Some("基准"),
+            "写人设不动基准"
+        );
+        assert!(s.clear_baseline("A"));
+        assert_eq!(s.get("A").as_deref(), Some("又写回来"), "清基准不动人设");
+        // 只有 baseline 的会话同样计入 baseline_sessions（同一个键空间）。
+        s.set("B", "人设B");
+        s.set_baseline("B", "基准B");
+        assert_eq!(s.sessions(), vec!["A".to_string(), "B".to_string()]);
     }
 }

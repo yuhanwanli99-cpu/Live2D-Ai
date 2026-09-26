@@ -11,8 +11,22 @@
 //!   （不报错——那会让前端多一条只在特定字符下才出现的失败路径）。
 //! - `POST /api/v1/chat/stop` → 调 `SupervisorHandle::stop`（幂等）。
 //! - `GET|POST /api/v1/chat/session` → **会话 id 宿主能力**（L1 基座）：
-//!   GET 读「当前活动会话 + 已绑定的会话数/列表」，POST 设当前活动会话
-//!   （`{"session_id": "..."}`；缺省/空 = 清掉）。
+//!   GET 读「当前活动会话 + 已绑定的会话数/列表 + 该会话的 baseline」，POST 设
+//!   当前活动会话（`{"session_id": "..."}`；缺省/空 = 清掉）并**随会话设置**
+//!   写 baseline（O8：`{"session_id":"s1","baseline": <json|null>}`；
+//!   `baseline` 键**缺席 = 不动**，`null` = 撤销回待机）。
+//!
+//! # 会话 baseline 的 host 侧接线（V10 / O8，阶段4e）
+//!
+//! - **存储**：`session_scope.rs` 里 `prompt_for(...)` 的**兄弟字段**（同一张表、
+//!   同一个会话键、同一道 `sanitize_session_id` 闸）——**不是**第二套会话表；
+//! - **写入方 = 宿主 API**：只有上面那条 session 路由会写它（本轮不做 per-character
+//!   profile 文件）；
+//! - **缺省为空 = 待机**：没写过 = 回待机；`null` 显式撤销；
+//! - **停止 / 新消息** → `cancel_and_return_to_session_baseline` /
+//!   `return_to_session_baseline`：清动作 + 表情 + TTS 待播（supervisor 的
+//!   stop 事务）后，把该会话 baseline 作为一条**既有 `action_cue` 帧**广播出去，
+//!   并在**同一个 HTTP 响应**里回给调用方（前端不另发请求）；**不补帧**。
 //!
 //!   为什么切会话要**告诉服务端**：external-input（弹幕）/ voice-input（转写）
 //!   这两条注入路径不带会话——它们的语义是「接在当前这段对话上」。宿主记下
@@ -75,6 +89,11 @@ pub struct ChatAccepted {
     /// 通道容量 1；满时 429，否则 200。
     /// 保留字段，便于前端对账（不会暴露内部状态）。
     pub pending_cleared: bool,
+    /// 本条新消息所属的会话（宿主活动会话；null = 不带会话 / 待机桶）。
+    pub session_id: Option<String>,
+    /// 该会话的 baseline（null = 缺省为空 = 待机）。**同一个请求**里回给前端，
+    /// 前端不另发请求（V10 / O8）；形状 = 写入时的 JSON（对象或数组）。
+    pub baseline: serde_json::Value,
 }
 
 /// `POST /api/v1/chat/stop` 响应。
@@ -82,6 +101,28 @@ pub struct ChatAccepted {
 pub struct StopAccepted {
     /// stop 命令已发出（不阻塞；supervisor 在 turn 边界处理）。
     pub accepted: bool,
+    /// 被收口的会话（宿主活动会话；null = 不带会话 / 待机桶）。
+    pub session_id: Option<String>,
+    /// 该会话的 baseline（null = 缺省为空 = 待机）。
+    pub baseline: serde_json::Value,
+}
+
+/// 停止 / 新消息的统一收口结果（V10 §9.3）。
+///
+/// 可测形态：`frame` 就是**发到 WS 的原文**（既有 `action_cue` 帧型，V11：
+/// 不新增帧、不改既有键），`backfilled` 恒 `false`（V7 §6.6：时钟消失即同步
+/// 取消，**不补帧**——host 侧没有任何队列可回放，这里把「没有补帧」写成结论字段
+/// 而不是一句注释）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaselineRevocation {
+    /// 被收口的会话（宿主活动会话；`None` = 不带会话）。
+    pub session: Option<String>,
+    /// 该会话的 baseline（`None` = 缺省为空 = 待机）。
+    pub baseline: Option<String>,
+    /// 实际广播的 WS 帧原文（`None` = 调用方没给 broadcaster）。
+    pub frame: Option<String>,
+    /// 是否发生补帧；**恒 false**。
+    pub backfilled: bool,
 }
 
 /// Chat handler（带 supervisor 句柄；dispatch 调用本版本）。
@@ -92,6 +133,7 @@ pub struct StopAccepted {
 /// 503 路径不读 epoch（不返回 body）。
 pub fn handle_chat_with_supervisor(
     handle: Option<&std::sync::Arc<SupervisorHandle>>,
+    broadcaster: Option<&crate::web_api::ws::Broadcaster>,
     method: &Method,
     path: &str,
     body: &str,
@@ -111,10 +153,26 @@ pub fn handle_chat_with_supervisor(
     let Some(handle) = handle else {
         return no_supervisor();
     };
-    // L1：会话 id 归一化在 `say_scoped` 内做（同一道闸，不在这里重复实现）。
-    // 非法 id 的结局是「这句话按全局桶处理」，而不是 400——前端的会话 id 是
+    // V10 §9.3（阶段4e）：**新用户消息** = 取消上一轮编排 + 回该会话 baseline。
+    //
+    // 这里**不**注入 server 侧 Stop：`supervisor/turn.rs` 的 `do_stop!` 在收到
+    // Stop 时会 `while say_rx.try_recv().is_ok() {}`（清 pending says）——那样这条
+    // 新消息会被自己的 Stop 吞掉。新消息这条路径上的「清三样」由上一轮的取消事务
+    // 与前端的 `StageCancellation` 承担；host 的职责是**回该会话 baseline**并
+    // 保证**不补帧**（见报告未决）。
+    //
+    // 先把**本条消息**的会话落成活动会话（同一道 `sanitize_session_id` 闸；
+    // `say_scoped` 内部也会再做一次，幂等），否则「回 baseline」读到的是上一条
+    // 消息的会话——那正是「会话串台」。
+    let session = parsed
+        .session_id
+        .as_deref()
+        .and_then(live2d_ai_mod_system::sanitize_session_id);
+    handle.set_active_session(session.as_deref());
+    let revocation = return_to_session_baseline(handle, broadcaster, "new-message");
+    // L1：非法 id 的结局是「这句话按全局桶处理」，而不是 400——前端的会话 id 是
     // 本地生成的，出现非法值属于「客户端版本不匹配」，不该让用户发不出消息。
-    if handle.say_scoped(text, parsed.session_id) {
+    if handle.say_scoped(text, session) {
         // P1WS-1：从 supervisor 读取**真实**当前 epoch（root.epoch 镜像）。
         // `Acquire` 与 supervisor 写入的 `Release` 配对；这是无锁快速路径。
         let epoch = handle.current_epoch();
@@ -123,6 +181,8 @@ pub fn handle_chat_with_supervisor(
             accepted: true,
             epoch,
             pending_cleared: false,
+            session_id: revocation.session,
+            baseline: baseline_value(revocation.baseline.as_deref()),
         })
         .unwrap_or_default();
         json_response(StatusCode(200), body)
@@ -134,18 +194,120 @@ pub fn handle_chat_with_supervisor(
 /// Stop handler（`POST /api/v1/chat/stop`）。
 pub fn handle_stop_with_supervisor(
     handle: Option<&std::sync::Arc<SupervisorHandle>>,
+    broadcaster: Option<&crate::web_api::ws::Broadcaster>,
     method: &Method,
     path: &str,
 ) -> Response<Cursor<Vec<u8>>> {
     if *method != Method::Post {
         return method_not_allowed(path, "POST");
     }
-    if let Some(handle) = handle {
-        handle.stop();
-    }
+    // V10 §9.3：停止键 = 清动作 + 表情 + TTS 待播 + 回该会话 baseline。
+    // 前三样是 supervisor 的 stop 事务（epoch 推进 / 取消在飞轮 / 清 pending PCM /
+    // StopPlayback，见 supervisor.rs）；这里只做第四样：把该会话 baseline 广播出去
+    // 并在同一个响应里回给调用方。**不补帧**。
+    let revocation = handle.map(|h| cancel_and_return_to_session_baseline(h, broadcaster, "stop"));
     // 无 supervisor 时按"幂等 stop"语义：返回 200（v1 不阻塞前端控制按钮）。
-    let body = serde_json::to_vec(&StopAccepted { accepted: true }).unwrap_or_default();
+    let body = serde_json::to_vec(&StopAccepted {
+        accepted: true,
+        session_id: revocation.as_ref().and_then(|r| r.session.clone()),
+        baseline: baseline_value(revocation.as_ref().and_then(|r| r.baseline.as_deref())),
+    })
+    .unwrap_or_default();
     json_response(StatusCode(200), body)
+}
+
+// ------------------------------------------------- 会话 baseline（V10 / O8）
+
+/// 停止 / 新消息的**第四步**：回该会话 baseline（V10 §9.3）。
+///
+/// 这里**只**做第四步——清动作 / 表情 / TTS 待播由调用方先走 supervisor 的 stop
+/// 事务（[cancel_and_return_to_session_baseline] 是它的打包）。本函数：
+///
+/// 1. 读宿主**活动会话**（`session_scopes.active()`）；
+/// 2. 取该会话的 baseline（同一道 `sanitize_session_id` 闸；`None` = 待机）；
+/// 3. 把它封成一条**既有 `action_cue` 帧**（V11：不新增帧型）——
+///    `cues` 为 baseline 的 cue 列表；待机时 `cues: []`（= 本轮不动，停在
+///    三样清空后的状态）；
+/// 4. 有 broadcaster 就广播；**不排队、不重放**（`backfilled` 恒 false）。
+///
+/// 为什么复用 `action_cue`：前端 `ActionCueEvent` 已经在消费它（按句替换 cue
+/// 计划），这是「取消旧计划」与「给回基准」共用的**唯一**既有下行通道；
+/// 新增帧型需要前端同批改动，越出本轨授权。
+pub fn return_to_session_baseline(
+    handle: &SupervisorHandle,
+    broadcaster: Option<&crate::web_api::ws::Broadcaster>,
+    reason: &str,
+) -> BaselineRevocation {
+    let store = handle.session_scopes();
+    let session = store.active();
+    let baseline = store.baseline_for(session.as_deref());
+    let cues = baseline_cues(baseline.as_deref());
+    let frame = serde_json::to_string(&serde_json::json!({
+        "type": "action_cue",
+        "data": {
+            "epoch": handle.current_epoch(),
+            "covers_upto_seq": 0,
+            "cues": cues,
+            // 附加标记（帧结构**只增不改**，V11）：让消费方能与导演 cue 区分。
+            "baseline": true,
+            "reason": reason,
+        }
+    }))
+    .ok();
+    if let (Some(bc), Some(raw)) = (broadcaster, frame.as_deref()) {
+        bc.broadcast(raw);
+    }
+    BaselineRevocation {
+        session,
+        baseline,
+        frame,
+        // host 侧没有任何「待补帧」队列：取消就是取消。
+        backfilled: false,
+    }
+}
+
+/// 停止路径的打包：清三样（supervisor 的 stop 事务）+ 回该会话 baseline（V10 §9.3）。
+///
+/// `handle.stop()` 非阻塞、幂等；supervisor 在轮边界推进 epoch、取消在飞轮、
+/// 清 pending PCM 并 StopPlayback（不在本 crate 的授权内重复实现）。
+pub fn cancel_and_return_to_session_baseline(
+    handle: &SupervisorHandle,
+    broadcaster: Option<&crate::web_api::ws::Broadcaster>,
+    reason: &str,
+) -> BaselineRevocation {
+    handle.stop();
+    return_to_session_baseline(handle, broadcaster, reason)
+}
+
+/// baseline 原文 → `action_cue.data.cues` 列表。
+///
+/// 合法形状（写入方 = 宿主 API，见 session 路由）：
+/// - 一个 cue 对象 → `[obj]`；
+/// - 一个 cue 对象数组 → 原样（数组里的非对象元素丢弃）；
+/// - 非法 JSON / 其它形状 → `[]`（= 待机，**绝不**把坏串塞上 wire）。
+///
+/// 注意：host **不解释** cue 内容（与 prompts「宿主只存字符串」同一条纪律）——
+/// 「field 是不是 body/head/expression」由写入方与渲染面负责。
+fn baseline_cues(raw: Option<&str>) -> Vec<serde_json::Value> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(serde_json::Value::Array(items)) => items
+            .into_iter()
+            .filter(serde_json::Value::is_object)
+            .collect(),
+        Ok(value @ serde_json::Value::Object(_)) => vec![value],
+        _ => Vec::new(),
+    }
+}
+
+/// 存储里 baseline 的字符串 → HTTP 响应里的 JSON（`null` = 待机）。
+fn baseline_value(raw: Option<&str>) -> serde_json::Value {
+    let Some(raw) = raw else {
+        return serde_json::Value::Null;
+    };
+    serde_json::from_str::<serde_json::Value>(raw).unwrap_or(serde_json::Value::Null)
 }
 
 /// 会话路由路径（L1 基座）。
@@ -203,15 +365,42 @@ pub fn handle_chat_session(
                 .as_deref()
                 .and_then(live2d_ai_mod_system::sanitize_session_id);
             handle.set_active_session(normalized.as_deref());
+            // O8：baseline **随会话设置写**——必须与一个合法 session_id 同发。
+            // 键缺席 = 本次不动 baseline；null = 撤销（缺省为空 = 待机）。
+            if let Some(baseline) = parsed.baseline {
+                let Some(id) = normalized.as_deref() else {
+                    // 没有会话可绑：显式 400（写入方错误，不静默丢弃）。那条
+                    // 「非法会话 id 不报错」的纪律属于**用户消息**路径；这是宿主 API。
+                    return Some(invalid_payload(
+                        "baseline 必须与合法的 session_id 同发（baseline 绑会话，没有全局 baseline）",
+                    ));
+                };
+                match baseline {
+                    // null = 显式撤销回待机（缺省为空 = 待机）。
+                    serde_json::Value::Null => {
+                        store.clear_baseline(id);
+                    }
+                    other => {
+                        let text = serde_json::to_string(&other).unwrap_or_default();
+                        if !store.set_baseline(id, &text) {
+                            return Some(invalid_payload("baseline 被拒绝（单会话超长）"));
+                        }
+                    }
+                }
+            }
         }
         _ => {
             return Some(method_not_allowed(path, "GET/POST"));
         }
     }
+    let active = store.active();
     let payload = ChatSessionState {
         ok: true,
-        active_session: store.active(),
+        active_baseline: baseline_value(store.baseline_for(active.as_deref()).as_deref()),
+        active_session: active,
         bound_sessions: store.len(),
+        baselines: store.baseline_count(),
+        baseline_sessions: store.baseline_sessions(),
         sessions: store.sessions(),
     };
     Some(json_response(
@@ -226,6 +415,23 @@ struct SessionBody {
     /// 目标会话 id；缺省 / 空 / 非法 = 清掉活动会话。
     #[serde(default)]
     session_id: Option<String>,
+    /// 会话 baseline（V10 / O8）。**「键缺席」与「键为 null」必须可区分**：
+    /// 缺席 = `None`（本次不动）；`null` = `Some(Value::Null)`（撤销回待机）。
+    ///
+    /// 为什么不能直接写 `Option<Value>`：serde 对 `Option` 的默认语义把
+    /// `null` 也读成 `None`——那样「撤销」会被误解成「不动」，缺省为空的待机
+    /// 就永远清不掉（这正是本测试抓到的那条）。
+    #[serde(default, deserialize_with = "deserialize_present_value")]
+    baseline: Option<serde_json::Value>,
+}
+
+/// 把**键存在**的任意 JSON（含 `null`）读成 `Some(..)`；键缺席由
+/// `#[serde(default)]` 给出 `None`。见 [SessionBody::baseline]。
+fn deserialize_present_value<'de, D>(de: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde_json::Value::deserialize(de).map(Some)
 }
 
 /// `GET|POST /api/v1/chat/session` 响应。
@@ -234,10 +440,16 @@ struct ChatSessionState {
     ok: bool,
     /// 宿主记录的当前活动会话（None = 没设过）。
     active_session: Option<String>,
-    /// 已绑定人设/记忆的会话条数（会话表的长度）。
+    /// 已绑定人设/记忆的会话条数（**prompt 槽**的会话数）。
     bound_sessions: usize,
     /// 已绑定的会话 id 列表（稳定排序）。
     sessions: Vec<String>,
+    /// 活动会话的 baseline（null = 缺省为空 = 待机）。
+    active_baseline: serde_json::Value,
+    /// 有 baseline 的会话数（兄弟字段的独立计数）。
+    baselines: usize,
+    /// 有 baseline 的会话 id 列表（稳定排序）——面板可显示「哪些会话有基准」。
+    baseline_sessions: Vec<String>,
 }
 
 // ---------------------------------------------------------------- 内部响应
@@ -324,8 +536,14 @@ mod tests {
     /// 无 supervisor 时 chat 返回 503。
     #[test]
     fn chat_without_supervisor_returns_503() {
-        let resp =
-            handle_chat_with_supervisor(None, &Method::Post, "/api/v1/chat", r#"{"text":"hi"}"#, 0);
+        let resp = handle_chat_with_supervisor(
+            None,
+            None,
+            &Method::Post,
+            "/api/v1/chat",
+            r#"{"text":"hi"}"#,
+            0,
+        );
         assert_eq!(resp.status_code().0, 503);
         let b = body(resp);
         assert!(b.contains("no_supervisor"), "got: {b}");
@@ -334,37 +552,51 @@ mod tests {
     /// 无 supervisor 时 stop 仍 200（幂等）。
     #[test]
     fn stop_without_supervisor_returns_200_idempotent() {
-        let resp = handle_stop_with_supervisor(None, &Method::Post, "/api/v1/chat/stop");
+        let resp = handle_stop_with_supervisor(None, None, &Method::Post, "/api/v1/chat/stop");
         assert_eq!(resp.status_code().0, 200);
     }
 
     /// 错 method → 405。
     #[test]
     fn chat_wrong_method_returns_405() {
-        let resp =
-            handle_chat_with_supervisor(None, &Method::Get, "/api/v1/chat", r#"{"text":"hi"}"#, 0);
+        let resp = handle_chat_with_supervisor(
+            None,
+            None,
+            &Method::Get,
+            "/api/v1/chat",
+            r#"{"text":"hi"}"#,
+            0,
+        );
         assert_eq!(resp.status_code().0, 405);
     }
 
     /// body 非 JSON → 400。
     #[test]
     fn chat_invalid_body_returns_400() {
-        let resp = handle_chat_with_supervisor(None, &Method::Post, "/api/v1/chat", "not json", 0);
+        let resp =
+            handle_chat_with_supervisor(None, None, &Method::Post, "/api/v1/chat", "not json", 0);
         assert_eq!(resp.status_code().0, 400);
     }
 
     /// 缺 text 字段 → 400。
     #[test]
     fn chat_missing_text_returns_400() {
-        let resp = handle_chat_with_supervisor(None, &Method::Post, "/api/v1/chat", r#"{}"#, 0);
+        let resp =
+            handle_chat_with_supervisor(None, None, &Method::Post, "/api/v1/chat", r#"{}"#, 0);
         assert_eq!(resp.status_code().0, 400);
     }
 
     /// text 空串 → 400。
     #[test]
     fn chat_empty_text_returns_400() {
-        let resp =
-            handle_chat_with_supervisor(None, &Method::Post, "/api/v1/chat", r#"{"text":""}"#, 0);
+        let resp = handle_chat_with_supervisor(
+            None,
+            None,
+            &Method::Post,
+            "/api/v1/chat",
+            r#"{"text":""}"#,
+            0,
+        );
         assert_eq!(resp.status_code().0, 400);
     }
 
@@ -407,6 +639,7 @@ mod tests {
 
         let resp = handle_chat_with_supervisor(
             Some(&supervisor),
+            None,
             &Method::Post,
             "/api/v1/chat",
             r#"{"text":"hi"}"#,
@@ -423,6 +656,7 @@ mod tests {
         // 第二次 say → 通道满（容量 1）→ 429。
         let resp2 = handle_chat_with_supervisor(
             Some(&supervisor),
+            None,
             &Method::Post,
             "/api/v1/chat",
             r#"{"text":"hi again"}"#,
@@ -437,8 +671,12 @@ mod tests {
         assert!(b2.contains("busy"), "got: {b2}");
 
         // stop → 200。
-        let resp3 =
-            handle_stop_with_supervisor(Some(&supervisor), &Method::Post, "/api/v1/chat/stop");
+        let resp3 = handle_stop_with_supervisor(
+            Some(&supervisor),
+            None,
+            &Method::Post,
+            "/api/v1/chat/stop",
+        );
         assert_eq!(resp3.status_code().0, 200);
 
         // 收尾。
@@ -576,6 +814,273 @@ mod tests {
         assert_eq!(bad.status_code().0, 200);
         assert!(body(bad).contains("\"active_session\":null"));
 
+        handle.quit();
+    }
+
+    // ------------------------------------------------ 会话 baseline（阶段4e / V10）
+
+    /// 建一个 broadcaster + 订阅端，用来读**实际广播的帧原文**。
+    fn broadcaster_with_rx() -> (
+        crate::web_api::ws::Broadcaster,
+        std::sync::mpsc::Receiver<String>,
+    ) {
+        let bc = crate::web_api::ws::Broadcaster::new();
+        let (tx, rx) = std::sync::mpsc::sync_channel(256);
+        bc.try_subscribe(tx).expect("订阅 broadcaster");
+        (bc, rx)
+    }
+
+    /// 会话 A 的 baseline（三字段表达面之一）。
+    const BASELINE_A: &str =
+        r#"{"field":"expression","id":"smile","intensity":1,"at":"now","hold":true}"#;
+    /// 会话 B 的 baseline（另一条，保证 A/B 可区分）。
+    const BASELINE_B: &str = r#"{"field":"head","y":-0.4,"intensity":2,"at":"now","hold":true}"#;
+
+    /// **E2（阶段4e 判据）**：停止 → 回**该会话** baseline，不是全局、不是别人会话。
+    ///
+    /// 三件事一起断言：
+    /// 1. HTTP 响应（**同一个 stop 请求**）带该会话 baseline；
+    /// 2. WS 上广播了**一条**既有 `action_cue` 帧，内容就是该会话 baseline；
+    /// 3. **不补帧**（一帧之后没有第二帧）。
+    #[test]
+    fn stop_returns_to_the_session_baseline() {
+        let (_ctx, handle) = ctx_with_supervisor();
+        let (bc, rx) = broadcaster_with_rx();
+        handle.session_scopes().set_baseline("A", BASELINE_A);
+        handle.session_scopes().set_baseline("B", BASELINE_B);
+
+        // 活动会话 = A → 回 A 的 baseline。
+        handle.set_active_session(Some("A"));
+        let resp = handle_stop_with_supervisor(
+            Some(&handle),
+            Some(&bc),
+            &Method::Post,
+            "/api/v1/chat/stop",
+        );
+        assert_eq!(resp.status_code().0, 200);
+        let b = body(resp);
+        assert!(b.contains("\"session_id\":\"A\""), "got: {b}");
+        assert!(b.contains("smile"), "响应必须带会话 A 的 baseline: {b}");
+        assert!(
+            !b.contains("\"field\":\"head\""),
+            "不得回 B 的 baseline: {b}"
+        );
+
+        let frame = rx.try_recv().expect("停止必须广播一帧基线");
+        let v: serde_json::Value = serde_json::from_str(&frame).expect("帧必须合法 JSON");
+        assert_eq!(v["type"], "action_cue", "复用既有帧型，V11");
+        assert_eq!(v["data"]["baseline"], serde_json::json!(true));
+        assert_eq!(v["data"]["reason"], serde_json::json!("stop"));
+        assert_eq!(v["data"]["cues"][0]["id"], serde_json::json!("smile"));
+        assert!(rx.try_recv().is_err(), "不得补帧");
+
+        // 切到 B → 回 B 的 baseline（绑会话，不是全局）。
+        handle.set_active_session(Some("B"));
+        let _ = handle_stop_with_supervisor(
+            Some(&handle),
+            Some(&bc),
+            &Method::Post,
+            "/api/v1/chat/stop",
+        );
+        let frame = rx.try_recv().expect("第二次停止的基线帧");
+        let v: serde_json::Value = serde_json::from_str(&frame).expect("合法 JSON");
+        assert_eq!(v["data"]["cues"][0]["field"], serde_json::json!("head"));
+        assert!(
+            v["data"]["cues"][0].get("id").is_none(),
+            "B 的基准是 head，不得混进 A 的表情 id"
+        );
+        assert!(rx.try_recv().is_err(), "不得补帧");
+
+        // 缺省为空 = 待机：没写过 baseline 的会话回 null + cues: []。
+        handle.set_active_session(Some("C"));
+        let resp = handle_stop_with_supervisor(
+            Some(&handle),
+            Some(&bc),
+            &Method::Post,
+            "/api/v1/chat/stop",
+        );
+        let b = body(resp);
+        assert!(b.contains("\"baseline\":null"), "待机 = null: {b}");
+        let frame = rx.try_recv().expect("待机同样广播一帧（清计划）");
+        let v: serde_json::Value = serde_json::from_str(&frame).expect("合法 JSON");
+        assert_eq!(v["data"]["cues"], serde_json::json!([]));
+        assert!(rx.try_recv().is_err(), "不得补帧");
+
+        // 无 broadcaster 时仍要能拿到结论（幂等 stop 的控制面路径）。
+        let bare = return_to_session_baseline(&handle, None, "stop");
+        assert_eq!(bare.session.as_deref(), Some("C"));
+        assert_eq!(bare.baseline, None);
+        assert!(bare.frame.is_some(), "帧照样构造，只是没广播");
+        assert!(!bare.backfilled, "host 侧没有待补帧队列");
+
+        handle.quit();
+    }
+
+    /// **E3（阶段4e 判据）**：新消息 → 取消旧编排（清计划 + 回基准），**不补帧**。
+    ///
+    /// 这里的「取消」= 用一条 `action_cue`（baseline / 空表）**整表替换**旧 cue
+    /// 计划（4d 的 `DirectorCuePlan.replace` 语义），并且这一条之后**不再有任何
+    /// 帧**——旧 cue 不会在下一段音频里被补播。
+    #[test]
+    fn new_message_cancels_orchestration_without_backfill() {
+        let (_ctx, handle) = ctx_with_supervisor();
+        let (bc, rx) = broadcaster_with_rx();
+        handle.session_scopes().set_baseline("A", BASELINE_A);
+
+        let resp = handle_chat_with_supervisor(
+            Some(&handle),
+            Some(&bc),
+            &Method::Post,
+            "/api/v1/chat",
+            r#"{"text":"新的一条消息","session_id":"A"}"#,
+            0,
+        );
+        assert_eq!(resp.status_code().0, 200, "新消息应被受理");
+        let b = body(resp);
+        assert!(b.contains("\"accepted\":true"), "got: {b}");
+        assert!(b.contains("\"session_id\":\"A\""), "got: {b}");
+        assert!(b.contains("smile"), "同一个请求里回该会话 baseline: {b}");
+
+        // 取消 = 唯一一条回基准帧（整表替换），且不补帧。
+        let frame = rx.try_recv().expect("新消息必须广播一次回基准");
+        let v: serde_json::Value = serde_json::from_str(&frame).expect("合法 JSON");
+        assert_eq!(v["type"], "action_cue");
+        assert_eq!(v["data"]["reason"], serde_json::json!("new-message"));
+        assert_eq!(v["data"]["cues"][0]["id"], serde_json::json!("smile"));
+        assert!(rx.try_recv().is_err(), "取消后不得补帧（旧 cue 不许重放）");
+
+        // 缺省为空 = 待机：新消息同样清计划。
+        let _ = handle_chat_with_supervisor(
+            Some(&handle),
+            Some(&bc),
+            &Method::Post,
+            "/api/v1/chat",
+            r#"{"text":"不带 baseline 的会话","session_id":"Z"}"#,
+            0,
+        );
+        // 第二次 say 可能撞「忙碌」（容量 1）——帧**无论 say 收不收**都要发：
+        // 回基准是取消语义，不是「发送成功才回」。
+        let frame = rx.try_recv().expect("待机会话也要发一帧");
+        let v: serde_json::Value = serde_json::from_str(&frame).expect("合法 JSON");
+        assert_eq!(v["data"]["cues"], serde_json::json!([]));
+        assert!(rx.try_recv().is_err(), "不得补帧");
+
+        handle.quit();
+    }
+
+    /// session 路由：baseline **随会话设置写**、按会话读回；键缺席 = 不动。
+    #[test]
+    fn session_route_writes_and_reads_the_baseline_per_session() {
+        let (ctx, handle) = ctx_with_supervisor();
+        // 写 A 的 baseline（与 session_id 同发 = 「随会话设置写」，O8）。
+        let resp = handle_chat_session(
+            &ctx,
+            &Method::Post,
+            CHAT_SESSION_PATH,
+            &format!(r#"{{"session_id":"A","baseline":{BASELINE_A}}}"#),
+            Some("http://127.0.0.1:18080"),
+            Some("application/json"),
+        )
+        .expect("path matches");
+        assert_eq!(resp.status_code().0, 200);
+        let b = body(resp);
+        assert!(b.contains("\"active_session\":\"A\""), "got: {b}");
+        assert!(b.contains("\"active_baseline\""), "got: {b}");
+        assert!(b.contains("smile"), "响应必须带回写入的 baseline: {b}");
+        assert!(b.contains("\"baselines\":1"), "got: {b}");
+        assert!(
+            b.contains("\"baseline_sessions\":[\"A\"]"),
+            "状态面必须列出有基准的会话: {b}"
+        );
+        // 存储是**紧凑 JSON**（键序由 serde_json 规范化），因此按 JSON 值比较，
+        // 不按原文字节比较。
+        let stored: serde_json::Value = serde_json::from_str(
+            handle
+                .session_scopes()
+                .baseline_for(Some("A"))
+                .as_deref()
+                .expect("A 的 baseline 必须已写入"),
+        )
+        .expect("存量必须是合法 JSON");
+        let written: serde_json::Value =
+            serde_json::from_str(BASELINE_A).expect("样例必须合法 JSON");
+        assert_eq!(
+            stored, written,
+            "存进去的就是写回来的（同一张表、同一个会话键）"
+        );
+
+        // GET 读回（同一张表、同一个会话键）。
+        let read = handle_chat_session(&ctx, &Method::Get, CHAT_SESSION_PATH, "", None, None)
+            .expect("path matches");
+        assert!(body(read).contains("smile"));
+
+        // baseline 键**缺席** = 本次不动：切到 B 不会清掉 A 的 baseline。
+        let _ = handle_chat_session(
+            &ctx,
+            &Method::Post,
+            CHAT_SESSION_PATH,
+            r#"{"session_id":"B"}"#,
+            Some("http://127.0.0.1:18080"),
+            Some("application/json"),
+        );
+        assert!(
+            handle.session_scopes().baseline_for(Some("A")).is_some(),
+            "只切会话不得动别人的 baseline"
+        );
+        assert_eq!(handle.session_scopes().baseline_for(Some("B")), None);
+
+        // null = 显式撤销（缺省为空 = 待机）。
+        let cleared = handle_chat_session(
+            &ctx,
+            &Method::Post,
+            CHAT_SESSION_PATH,
+            r#"{"session_id":"A","baseline":null}"#,
+            Some("http://127.0.0.1:18080"),
+            Some("application/json"),
+        )
+        .expect("path matches");
+        assert_eq!(cleared.status_code().0, 200);
+        assert!(body(cleared).contains("\"active_baseline\":null"));
+        assert_eq!(handle.session_scopes().baseline_for(Some("A")), None);
+
+        // 有 baseline 但缺合法 session_id → 400（宿主 API 的写入方错误，不静默丢）。
+        let bad = handle_chat_session(
+            &ctx,
+            &Method::Post,
+            CHAT_SESSION_PATH,
+            r#"{"baseline":{"field":"body","y":0.1}}"#,
+            Some("http://127.0.0.1:18080"),
+            Some("application/json"),
+        )
+        .expect("path matches");
+        assert_eq!(bad.status_code().0, 400);
+        assert!(body(bad).contains("baseline"));
+
+        handle.quit();
+    }
+
+    /// baseline 非法 id 与超长都不得进表（与 prompt 槽同一道闸 / 同一纪律）。
+    #[test]
+    fn baseline_write_rejects_bad_session_and_overlong_payload() {
+        let (_ctx, handle) = ctx_with_supervisor();
+        let store = handle.session_scopes();
+        assert!(!store.set_baseline("../etc/passwd", "b"));
+        assert!(!store.set_baseline(
+            "A",
+            &"x".repeat(crate::session_scope::MAX_SESSION_BASELINE_CHARS + 1)
+        ));
+        assert_eq!(store.baseline_count(), 0);
+        assert_eq!(store.baseline_for(Some("A")), None);
+        // 坏 JSON 的存量值广播时退化为空表（不把坏串塞上 wire）。
+        assert!(store.set_baseline("A", "not json"));
+        let rev = return_to_session_baseline(&handle, None, "stop");
+        let frame = rev.frame.expect("帧");
+        let v: serde_json::Value = serde_json::from_str(&frame).expect("帧必须合法 JSON");
+        assert_eq!(
+            v["data"]["cues"],
+            serde_json::json!([]),
+            "坏 baseline 退化成待机"
+        );
         handle.quit();
     }
 }

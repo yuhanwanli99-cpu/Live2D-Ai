@@ -125,13 +125,7 @@ fn arbiter_priority_and_epoch_mismatch_zero_side_effect() {
     let async_plan = DirectorPlan {
         epoch: 42,
         covers_upto_seq: 2,
-        cues: vec![crate::Cue {
-            sentence_seq: 1,
-            preset_id: "shake".to_string(),
-            intensity: 2,
-            ttl_ms: 1_500,
-            priority: PRIORITY_ASYNC,
-        }],
+        cues: vec![crate::Cue::legacy(1, "shake", 2, 1_500, PRIORITY_ASYNC)],
     };
     assert!(arb.apply(&async_plan));
     assert_eq!(arb.cue_for(1).map(|c| c.preset_id.as_str()), Some("shake"));
@@ -141,13 +135,7 @@ fn arbiter_priority_and_epoch_mismatch_zero_side_effect() {
     let stale = DirectorPlan {
         epoch: 41,
         covers_upto_seq: 99,
-        cues: vec![crate::Cue {
-            sentence_seq: 2,
-            preset_id: "smile".to_string(),
-            intensity: 3,
-            ttl_ms: 5_000,
-            priority: PRIORITY_ASYNC,
-        }],
+        cues: vec![crate::Cue::legacy(2, "smile", 3, 5_000, PRIORITY_ASYNC)],
     };
     let before_len = arb.len();
     let before_covers = arb.covers_upto_seq();
@@ -218,13 +206,7 @@ fn rule_with_preset_is_field_for_field_unchanged() {
     assert_eq!(plan.covers_upto_seq, 1);
     assert_eq!(
         plan.cues,
-        vec![crate::Cue {
-            sentence_seq: 1,
-            preset_id: "nod".to_string(),
-            intensity: 2,
-            ttl_ms: 1_500,
-            priority: PRIORITY_RULE,
-        }],
+        vec![crate::Cue::legacy(1, "nod", 2, 1_500, PRIORITY_RULE)],
         "有预设时逐字段与改动前相同"
     );
 
@@ -234,6 +216,83 @@ fn rule_with_preset_is_field_for_field_unchanged() {
     assert_eq!(clamped.cues[0].ttl_ms, crate::MAX_TTL_MS);
     assert_eq!(clamped.cues[0].priority, PRIORITY_RULE);
     assert_eq!(clamped.cues[0].sentence_seq, 1);
+}
+
+/// **阶段4e（V12 事实）**：director 的二路产出面能表达 v1 三字段，且**只产 cues**。
+///
+/// 断言方式（D14：语义断言，不是字面 grep）：
+/// 1. v1 形态的 plan 能解析成 [crate::Cue]（field / x / y / z / id / at / hold / seq）；
+/// 2. 投影成 WS `action_cue` 的 cues 元素时，**legacy 键逐字保留 + v1 新键摊平**（V11）；
+/// 3. 产出物**同一份结构里不存在**任何文本键（`segments` / `speak` / `text`）——
+///    导演是备注不是誊写员（V12）。
+#[test]
+fn staging_surface_can_express_the_three_v1_fields_without_text() {
+    let raw = r#"{"epoch":5,"covers_upto_seq":2,"cues":[
+        {"sentence_seq":1,"field":"head","x":0.2,"y":-0.4,"z":0.1,"intensity":2,"at":"seg:1","hold":false},
+        {"sentence_seq":2,"field":"expression","id":"smile","intensity":1,"hold":true},
+        {"sentence_seq":3,"field":"body","x":-0.3,"y":0.1,"z":0.9,"intensity":3,"hold":true},
+        {"sentence_seq":4,"field":"expression","id":"arm_wave","intensity":1,"hold":true},
+        {"sentence_seq":5,"field":"head","y":0.1,"intensity":1}
+    ]}"#;
+    let (plan, warnings) = parse_plan(raw, crate::PRESET_IDS).expect("JSON 合法");
+    assert_eq!(plan.cues.len(), 3, "未知 id / 缺 hold 必须丢该条（不失败）");
+    assert_eq!(warnings.len(), 3, "三条丢弃各留一条 warning: {warnings:?}");
+    assert!(warnings.iter().any(|w| w.contains("arm_wave")));
+    assert!(warnings.iter().any(|w| w.contains('z')));
+    assert!(warnings.iter().any(|w| w.contains("hold")));
+
+    // head：三轴 + 显式 at/hold/seq 全部上 wire；legacy 键逐字保留（V11）。
+    let head = plan.cues[0].to_json();
+    assert_eq!(head["field"], "head");
+    assert_eq!(head["x"], 0.2);
+    assert_eq!(head["y"], -0.4);
+    assert_eq!(head["z"], 0.1);
+    assert_eq!(head["at"], "seg:1");
+    assert_eq!(head["hold"], false);
+    assert_eq!(head["seq"], 1);
+    assert_eq!(head["sentence_seq"], 1);
+    assert_eq!(head["preset_id"], "head");
+    assert_eq!(head["intensity"], 2);
+    assert_eq!(head["priority"], PRIORITY_ASYNC);
+
+    // expression：id 与 preset_id 同源；缺省 at 由 sentence_seq 推成 seg:N。
+    let face = plan.cues[1].to_json();
+    assert_eq!(face["field"], "expression");
+    assert_eq!(face["id"], "smile");
+    assert_eq!(face["preset_id"], "smile");
+    assert_eq!(face["at"], "seg:2");
+    assert_eq!(face["hold"], true);
+
+    // body 给 z → 丢该键（不是丢整条）。
+    let body = plan.cues[2].to_json();
+    assert_eq!(body["field"], "body");
+    assert!(body.get("z").is_none(), "body 不接受 z");
+    assert_eq!(body["y"], 0.1);
+
+    // **V12：只产 cues，不产文本**——同一份产出里没有任何文本键。
+    for cue in &plan.cues {
+        let v = cue.to_json();
+        for text_key in ["segments", "speak", "text"] {
+            assert!(v.get(text_key).is_none(), "导演不得产出文本键 {text_key}");
+        }
+    }
+    let plan_json = plan.to_json();
+    assert!(plan_json.get("segments").is_none());
+    assert!(plan_json.get("speak").is_none());
+    assert!(plan_json.get("text").is_none());
+    // 反过来：v1 三字段在 cues 里**确实存在**（不是「恰好空」）。
+    let fields: Vec<String> = plan
+        .cues
+        .iter()
+        .map(|c| {
+            c.to_json()
+                .get("field")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(fields, vec!["head", "expression", "body"]);
 }
 
 /// **活服务实测抓到的缺陷（2026-09-19）**：core 只在 stop 时推进 epoch，

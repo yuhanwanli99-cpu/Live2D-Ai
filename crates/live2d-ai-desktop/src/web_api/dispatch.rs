@@ -165,8 +165,12 @@ pub fn dispatch_with_security(
         // （`handle.current_epoch()`）；此处仅传占位 0 维持旧签名兼容。
         // D-P0C：从 `supervisor_slot` 借出 Arc（读锁短暂持锁即释放）；
         // 槽位空时 = 503（chat 路由自身的 no_supervisor 文案）。
+        // 阶段4e（V10）：这两条路径要**回该会话 baseline**，所以把 broadcaster
+        // 传进 handler——它在同一个请求里既写 HTTP 响应、也广播一条既有
+        // action_cue 帧（前端不另发请求）。host 侧不排队、不补帧。
         RouteId::ChatPost => crate::web_api::chat_routes::handle_chat_with_supervisor(
             ctx.try_get_supervisor().as_ref(),
+            Some(&ctx.broadcaster),
             method,
             path,
             body_str,
@@ -174,6 +178,7 @@ pub fn dispatch_with_security(
         ),
         RouteId::ChatStop => crate::web_api::chat_routes::handle_stop_with_supervisor(
             ctx.try_get_supervisor().as_ref(),
+            Some(&ctx.broadcaster),
             method,
             path,
         ),
