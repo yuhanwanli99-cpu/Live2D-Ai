@@ -79,3 +79,32 @@ clippy **exit 0** · rust-ratio **97.3413% PASS**；`flutter analyze` No issues 
 | **D38** | 首轮全量出现既有 flaky `web_api::chat_routes::tests::chat_with_supervisor_returns_200`（`chat_routes.rs:665`） | **记 backlog P1**。与本轮无关（该用例 `mod_events: None`、performance 关闸，不构造 cue），维护者复跑 26 组全绿未复现。下轮按 **D1/D8 口径**做确定性同步（**不许只调大超时**），并审计同族「先失败再计数」的断言。 |
 | **D39** | D36 陈旧服务 | `scripts/ignite.sh` 第 199 行自带 `pkill -f "live2d-ai-desktop --web"`，已顺手结束 PID 59888；**当前 18080/18081 均无监听**。肉眼验收前重新点火即可。 |
 
+## 7. 维护者无头浏览器验收（2026-09-26，Gate 4f 后）
+
+**环境**：重编 `target/debug/live2d-ai-desktop` → `./scripts/ignite.sh --port 18080`；`ignite --check` 四项 ok。
+无头浏览器 = Playwright Chromium 153 + **SwiftShader Vulkan ICD**（`VK_ICD_FILENAMES=<chrome-linux64>/vk_swiftshader_icd.json` + `--enable-unsafe-webgpu --enable-features=Vulkan,DefaultANGLEVulkan --use-angle=vulkan --in-process-gpu`）。
+> 首次不带 ICD 启动 → 渲染面报「无可适配器（WebGPU 与 WebGL 均不可用）」。**这条配方不是可选项。**
+
+| # | 判据 | 原始读数 |
+| --- | --- | --- |
+| 1 | 舞台起来（WebGPU） | HUD `GPU: webgpu/WebGPU`，FPS 59~60，`bg: solid`，模型 bai 加载 ok |
+| 2 | 新 v1 HUD 行在场 | `fields: body: - head: - expression: -`（无 v1 cue 时为空） |
+| 3 | 真链路一轮（LLM+TTS） | `POST /chat` 200 → WS `audio` 帧 → 前端 WAV blob → 出声 |
+| 4 | **无 TTS 重复** | blob 字节 = 线上 PCM + 44（**240044 / 240000**、**147884 / 147840**）；每句 `play()` 恰好一次；10 句回复 = 10 blob / 10 次不同 src 的 play；`loop:false` |
+| 5 | D30 下行新键 | legacy cue 走 `preset{id,source,ttl_ms,intensity,epoch,sentence_seq}`；baseline 走 `preset{id,source,intensity,field,hold,at}` |
+| 6 | V7 音频时钟 | `stage-clock{seg,pos_ms,playing}` 连续下发（pos_ms 0→700）；HUD `clock: wall → audio` |
+| 7 | D31/D28 取消信号 | 每条新消息 → WS `action_cue{baseline:true,reason:new-message}` → 前端 `preset{id:none,source:new-message}` |
+| 8 | **V10 会话 baseline 端到端** | 设 `{session_id:eye2, baseline:{expression,smile,intensity:2,hold:true}}` → `POST /chat{session_id:eye2}` 回包带 baseline → WS cue 带该字段 → 渲染面 `preset{field:expression,hold:true}` → **HUD `fields: expr:smile[1]`**（保持中） |
+| 9 | 空句不产生假播放 | `✅` 段 → 1 帧 0 字节边界帧 → 无 blob、无 play |
+| 10 | 控制台 | 无音频错误；唯一 404 = `field_map.json` 覆盖表缺（O9 允许，回落内建表） |
+
+**两条观察（记录，未定性为缺陷）**
+
+1. **用户报的「TTS 重复播放」根因 = 两个客户端**：维护者无头 Chromium 与用户本人的 Chrome 同时连同一服务，广播音频在两个浏览器各播一次。产品侧无重复（见 #4）。=> 多客户端 = 多路独立输出，属既有广播语义；**验收时只开一个客户端**。
+2. **baseline 交付需要请求带 `session_id`**：裸 `POST /chat`（不带 session_id）回包 `session_id:null, baseline:null`，WS cue 的 `cues` 也为空；带 `session_id` 才正常（#8）。前端 `ChatController` 每轮都带当前会话，产品路径 OK；但「宿主活动会话游标作为缺省」在裸请求里没有兑现——**记观察**。
+
+**仍未由维护者取证**：「提线木偶」（`segments` 多段 + `at:seg:N` 锚点）需要 `[performance]` 真/mock 端点（D19）；上面 #3–#9 全走 **degraded/规则路径**。
+
+**收工状态**：无头 Chromium 已 kill；测试 baseline 已清（`baselines:0`）；**服务保留在 18080**（供用户单客户端验收）。
+
+
