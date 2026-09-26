@@ -20,6 +20,7 @@ import '../../design/tokens.dart';
 import '../../live2d/live2d_stage.dart'
     show PresetStatus, kDefaultExpressionIntensity, kDefaultPresetIntensity;
 import '../mods/mod_panel.dart';
+import 'director_observer_section.dart';
 import '../mods/mod_panels.dart';
 import '../preset_labels.dart';
 import '../../ui/emphasized_text.dart';
@@ -1276,6 +1277,11 @@ class DeveloperSection extends StatelessWidget {
             labels: presetLabels,
             clock: clock,
           ),
+          // ── 导演可观测（阶段5 W5a，D40–D43）────────────────────────────
+          // 四栏只读观测（A 决策参数 / B 事件流 / C 传参对照 / D 送 TTS 文本）。
+          // **只在 devMode 下渲染**——off 时整块不在语义树（本 if 块一起消失）。
+          // 数据经单例 DirectorObserverFeed 注入（不改 shell_settings.dart）。
+          const DirectorObserverSection(),
         ],
       ],
     );

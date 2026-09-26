@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:live2d_ai_shell/api/ws_frame.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
 import 'package:live2d_ai_shell/live2d/render_events.dart';
@@ -179,5 +180,144 @@ void main() {
     expect(events.last.field, isNull, reason: 'field 类型不对 → null，不抛');
     expect(bridge.errorMessage, isNull);
     bridge.dispose();
+  });
+
+  group('阶段5 W5a：导演可观测的纯逻辑', () {
+    test('环形缓冲 cap=200：第 201 条挤掉最旧', () {
+      final ObserverBuffer buffer = ObserverBuffer();
+      expect(buffer.capacity, 200);
+      for (int i = 1; i <= 201; i++) {
+        buffer.add(ObserverRecord(
+          at: DateTime(2026, 9, 26),
+          type: 't',
+          source: 'ws',
+          text: '第 $i 条',
+        ));
+      }
+      expect(buffer.length, 200);
+      expect(buffer.records.first.text, '第 2 条', reason: '第 1 条必须被挤掉');
+      expect(buffer.records.last.text, '第 201 条');
+    });
+
+    test('按类型过滤：空集 = 全部；命中集合才留下', () {
+      final ObserverBuffer buffer = ObserverBuffer(capacity: 4);
+      buffer.add(ObserverRecord(
+        at: DateTime(2026, 9, 26), type: 'action_cue', source: 'ws', text: 'a',
+      ));
+      buffer.add(ObserverRecord(
+        at: DateTime(2026, 9, 26), type: 'stage-clock', source: 'audio', text: 'b',
+      ));
+      buffer.add(ObserverRecord(
+        at: DateTime(2026, 9, 26), type: 'preset-applied', source: 'render', text: 'c',
+      ));
+      expect(buffer.filterByTypes(null), hasLength(3));
+      expect(buffer.filterByTypes(const <String>[]), hasLength(3));
+      expect(
+        buffer.filterByTypes(<String>{'stage-clock'}).single.type,
+        'stage-clock',
+      );
+      expect(buffer.filterByTypes(<String>{'nope'}), isEmpty);
+    });
+
+    test('sentence_ready：语义解析 + (epoch,seq,text) 去重 + 失败行忽略', () {
+      const String line =
+          '2026-09-26T14:33:18.582037Z  INFO mod: external-input '
+          '收到事件 sentence_ready: '
+          '{"epoch":0,"sentence_seq":1,"text":"你好呀","ts_ms":893}';
+      final List<SentenceReadyLog> parsed = parseSentenceReadyLogs(<String>[
+        line,
+        line.replaceFirst('external-input', 'persona'),
+        line.replaceFirst('external-input', 'memory'),
+        '2026-09-26T14:33:19.1Z  INFO mod: external-input '
+            '收到事件 sentence_ready: '
+            '{"epoch":0,"sentence_seq":2,"text":"今天天气不错","ts_ms":1600}',
+        '2026-09-26T14:33:20Z  INFO mod: external-input 收到事件 turn_ended: {"epoch":0}',
+        'not json at all',
+        '收到事件 sentence_ready: 没有 JSON payload',
+        '收到事件 sentence_ready: {"epoch":0,"sentence_seq":3,"text":"半截"',
+      ]);
+      expect(
+        parsed.map((SentenceReadyLog e) => e.text).toList(),
+        <String>['你好呀', '今天天气不错'],
+        reason: '同句被三个 Mod 各记一行 → 去重成一条；坏行忽略',
+      );
+      expect(parsed.first.epoch, 0);
+      expect(parsed.first.sentenceSeq, 1);
+      expect(parsed.first.tsMs, 893);
+      expect(parsed.first.chars, 3);
+      expect(parsed.last.chars, 6);
+
+      // 去重键是三元组：同句不同 epoch 不算重复。
+      expect(
+        parseSentenceReadyLogs(<String>[
+          'sentence_ready: {"epoch":0,"sentence_seq":1,"text":"甲"}',
+          'sentence_ready: {"epoch":1,"sentence_seq":1,"text":"甲"}',
+        ]),
+        hasLength(2),
+      );
+    });
+
+    test('未知类型照记（type 用 wire 名），心跳不进缓冲', () {
+      final ObserverRecord? unknown = observeWsEvent(
+        UnknownWsEvent(type: 'brand_new', data: <String, Object?>{'x': 1}),
+        DateTime(2026, 9, 26),
+      );
+      expect(unknown, isNotNull);
+      expect(unknown!.type, 'brand_new');
+      expect(unknown.text, contains('keys=1'));
+      expect(observeWsEvent(HeartbeatEvent(), DateTime(2026, 9, 26)), isNull);
+    });
+
+    test('请求 → 生效配对：seq 优先、同 field 最近一条、找不到写「尚无 ack」', () {
+      final RenderEvent applied = parseRenderEvent(
+        'preset-applied',
+        <String, Object?>{
+          'seq': 1,
+          'field': 'head',
+          'y': 0.240,
+          'clamped': false,
+          'degraded': true,
+          'reason': 'ParamBodyAngleY',
+        },
+      )!;
+      final RenderEvent later = parseRenderEvent(
+        'preset-applied',
+        <String, Object?>{'seq': 9, 'field': 'head', 'y': 0.5},
+      )!;
+      final PresetRequest req = PresetRequest(
+        id: '',
+        source: 'director',
+        ts: DateTime(2026, 9, 26),
+        intensity: 1,
+        field: 'head',
+        y: 0.30,
+        seq: 1,
+      );
+      final PresetOverridePair pair = presetOverridePair(
+        req,
+        <RenderEvent>[later, applied],
+      );
+      expect(pair.request, contains('请求 field=head intensity=1 y=0.30'));
+      expect(
+        pair.applied,
+        contains(
+          '生效 y=0.240 clamped=false degraded=true reason=ParamBodyAngleY',
+        ),
+      );
+      expect(pair.ack?.seq, 1, reason: '有 seq 时优先 seq 相同的那条 ack');
+      expect(pair.hasAck, isTrue);
+
+      final PresetRequest orphan = PresetRequest(
+        id: '',
+        source: 'director',
+        ts: DateTime(2026, 9, 26),
+        field: 'body',
+        y: 0.1,
+      );
+      expect(
+        presetOverridePair(orphan, <RenderEvent>[later, applied]).applied,
+        '生效 尚无 ack',
+      );
+    });
   });
 }

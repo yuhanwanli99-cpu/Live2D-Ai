@@ -7,6 +7,8 @@
 ///   的 `match_route`；实测 `PUT→404` / `PATCH→200`）
 library;
 
+import 'dart:async';
+
 /// 字段级**三态**值：区分「不修改」/「显式清空」/「设为目标值」。
 ///
 /// # 为什么必须专门造一个类型
@@ -212,6 +214,61 @@ class PersonaSettingsView {
   }
 }
 
+/// `GET /api/v1/settings` → `action.models.<model_id>` 的**单模型覆盖视图**。
+///
+/// # 契约（阶段5 D40，W5r 冻结，2026-09-26）
+///
+/// 三键**始终出现**；未覆盖的键 = `null`（**不是缺键**）。界面按
+/// 「逐键 `override[key] ?? global[key]`」算本模型有效值，所以这里用
+/// 可空的三个 `double?` 保留「没覆盖」这一态——回落成全局值会把
+/// 「覆盖 = 全局」与「没覆盖」混成一种，用户点「恢复跟随全局」时看不出来。
+class ActionModelOverrideView {
+  const ActionModelOverrideView({
+    required this.headScale,
+    required this.bodyScale,
+    required this.expressionScale,
+  });
+
+  final double? headScale;
+  final double? bodyScale;
+  final double? expressionScale;
+
+  factory ActionModelOverrideView.fromJson(Map<String, Object?>? json) {
+    final Map<String, Object?> j = json ?? const <String, Object?>{};
+    return ActionModelOverrideView(
+      headScale: _dblOrNull(j['head_scale']),
+      bodyScale: _dblOrNull(j['body_scale']),
+      expressionScale: _dblOrNull(j['expression_scale']),
+    );
+  }
+}
+
+/// 覆盖视图 → 渲染面载荷键（**只含非 null 的键**）。
+///
+/// 键名与 [toActionScalesPayload] 一致（`head` / `body` / `expression`）：
+/// syncer 要在**同一份载荷**上做逐键替换，两套键名会立刻分叉。
+Map<String, double> toOverridePayload(ActionModelOverrideView v) =>
+    <String, double>{
+      if (v.headScale != null) 'head': v.headScale!,
+      if (v.bodyScale != null) 'body': v.bodyScale!,
+      if (v.expressionScale != null) 'expression': v.expressionScale!,
+    };
+
+/// 覆盖表 → 逐模型载荷表（只留至少一键非 null 的模型）。
+///
+/// 空覆盖（三键全 `null`）**不进表**：它与「没有这个模型」在下游等价，
+/// 留在表里只会让 syncer 多走一次不会改值的分支。
+Map<String, Map<String, double>> toModelOverrideMap(
+  Map<String, ActionModelOverrideView> models,
+) {
+  final Map<String, Map<String, double>> out = <String, Map<String, double>>{};
+  models.forEach((String id, ActionModelOverrideView v) {
+    final Map<String, double> payload = toOverridePayload(v);
+    if (payload.isNotEmpty) out[id] = payload;
+  });
+  return out;
+}
+
 /// `GET /api/v1/settings` 的 `action` 段（2026-09-16，用户可调动作幅度）。
 ///
 /// 三项独立倍率，作用于渲染面预设表内的幅值：
@@ -229,11 +286,22 @@ class ActionSettingsView {
     required this.headScale,
     required this.bodyScale,
     required this.expressionScale,
+    this.activeModelId = '',
+    this.models = const <String, ActionModelOverrideView>{},
   });
 
   final double headScale;
   final double bodyScale;
   final double expressionScale;
+
+  /// **当前生效的模型 id**（顶层 `active_model_id`，阶段5 D40）。
+  ///
+  /// 空串 = 服务端没给 / 未识别（egui 口径与旧服务端都会是空串）。
+  /// 界面据此从 [models] 里取本模型覆盖，并显示「未识别当前模型」。
+  final String activeModelId;
+
+  /// 每模型覆盖（键 = 模型 id）。没有配置时是空表。
+  final Map<String, ActionModelOverrideView> models;
 
   /// 倍率下限（与服务端 clamp_action_scale 同口径）。
   static const double minScale = 0.2;
@@ -246,12 +314,41 @@ class ActionSettingsView {
   static const double defaultBodyScale = 0.80;
   static const double defaultExpressionScale = 1.0;
 
-  factory ActionSettingsView.fromJson(Map<String, Object?>? json) {
+  /// `activeModelId` 来自**顶层** `active_model_id`（不在 action 段里）：
+  /// 由 [SettingsView.fromJson] 透传；单独解析 action 段时缺省空串 =
+  /// 按全局值算（与「服务端没给」同口径，不猜）。
+  factory ActionSettingsView.fromJson(
+    Map<String, Object?>? json, {
+    String activeModelId = '',
+  }) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
     return ActionSettingsView(
       headScale: _dbl(j['head_scale'], defaultHeadScale),
       bodyScale: _dbl(j['body_scale'], defaultBodyScale),
       expressionScale: _dbl(j['expression_scale'], defaultExpressionScale),
+      activeModelId: activeModelId,
+      models: _modelViews(j['models']),
+    );
+  }
+
+  /// 本模型覆盖（`models[activeModelId]`；空 id / 无覆盖 → `null`）。
+  ActionModelOverrideView? get activeModelOverride =>
+      activeModelId.isEmpty ? null : models[activeModelId];
+
+  /// 本模型**有效**三键：`override[key] ?? global[key]`（**逐键**回落，D40）。
+  ///
+  /// 没有覆盖 → 返回自身（与今天逐字一致）；有覆盖 → 只替换非 null 的键。
+  /// 这是 UI 三条滑条与 HUD 读数的同一份真源（syncer 侧再做一次同口径替换，
+  /// 因为下发的是载荷 map 而不是这个 view）。
+  ActionSettingsView get effectiveForActiveModel {
+    final ActionModelOverrideView? ov = activeModelOverride;
+    if (ov == null) return this;
+    return ActionSettingsView(
+      headScale: ov.headScale ?? headScale,
+      bodyScale: ov.bodyScale ?? bodyScale,
+      expressionScale: ov.expressionScale ?? expressionScale,
+      activeModelId: activeModelId,
+      models: models,
     );
   }
 }
@@ -327,7 +424,11 @@ class SettingsView {
       llm: LlmSettingsView.fromJson(_obj(j['llm'])),
       tts: TtsSettingsView.fromJson(_obj(j['tts'])),
       persona: PersonaSettingsView.fromJson(_obj(j['persona'])),
-      action: ActionSettingsView.fromJson(_obj(j['action'])),
+      // D40：本模型覆盖在 action 段里，但当前模型 id 在**顶层**。
+      action: ActionSettingsView.fromJson(
+        _obj(j['action']),
+        activeModelId: _str(j['active_model_id']),
+      ),
       devMode: j['dev_mode'] == true,
     );
   }
@@ -426,8 +527,62 @@ class PersonaSettingsPatch {
 /// 三项都是 double 三态：`Tri.set(0.9)` = 设为该值；`Tri.clear()` = 显式
 /// `null`，服务端把它解释为「回落出厂默认」（不是 0）。范围由服务端钳到
 /// `[0.2, 2.2]`；前端滑条也只在这个区间里取值。
+///
+/// 另带**每模型覆盖** [models]（阶段5 D40）：值 `null` = 删该模型覆盖，
+/// 对象 = 逐键三态合并。三者可以同时出现在同一个补丁里（互不干扰）。
 class ActionSettingsPatch {
   const ActionSettingsPatch({
+    this.headScale,
+    this.bodyScale,
+    this.expressionScale,
+    this.models,
+  });
+
+  final Tri<double>? headScale;
+  final Tri<double>? bodyScale;
+  final Tri<double>? expressionScale;
+
+  /// **每模型覆盖**（阶段5 D40）：键 = 模型 id。
+  ///
+  /// - 值为 `null` → JSON `"<id>": null` = **删除该模型覆盖**（回落全局）；
+  /// - 值为对象 → 逐键三态合并（键 `null` = 删该键；数值 = 钳后写入）；
+  /// - 整个字段为 `null` → **不写 models 键** = 不动整张表。
+  ///
+  /// 注意：`models: {}`（空表）与不写等价，[toJson] 不发空对象——
+  /// 发了只会让服务端白跑一趟、还会让 [isEmpty] 误报「有改动」。
+  final Map<String, ActionModelOverridePatch?>? models;
+
+  Map<String, Object?> toJson() {
+    final Map<String, Object?> out = <String, Object?>{};
+    putTri<double>(out, 'head_scale', headScale);
+    putTri<double>(out, 'body_scale', bodyScale);
+    putTri<double>(out, 'expression_scale', expressionScale);
+    if (models != null && models!.isNotEmpty) {
+      final Map<String, Object?> byId = <String, Object?>{};
+      models!.forEach((String id, ActionModelOverridePatch? ov) {
+        // **`null` 必须写成 JSON null**（= 删除该模型覆盖），不能跳过——
+        // 跳过在服务端是「不动」，用户点「恢复跟随全局」就永远删不掉。
+        byId[id] = ov?.toJson();
+      });
+      out['models'] = byId;
+    }
+    return out;
+  }
+
+  bool get isEmpty => toJson().isEmpty;
+}
+
+/// 单个模型覆盖的字段级三态补丁（`[action.models.<id>]` 的一行）。
+///
+/// 与 [ActionSettingsPatch] 的三键同款 `Tri` 语义：不给键 = 不改该键 /
+/// `Tri.clear()` = `null` = 删除该键（逐键回落全局）/
+/// `Tri.set(v)` = 设为 v（服务端钳进 `[0.2, 2.2]`）。
+///
+/// **只写给出字段**是硬要求：新建一个「只覆盖 head」的模型时，
+/// body / expression 必须保持「没覆盖」（否则它们会被钉死成当时的全局值，
+/// 之后改全局不再跟随）。
+class ActionModelOverridePatch {
+  const ActionModelOverridePatch({
     this.headScale,
     this.bodyScale,
     this.expressionScale,
@@ -446,6 +601,108 @@ class ActionSettingsPatch {
   }
 
   bool get isEmpty => toJson().isEmpty;
+}
+
+/// 本模型覆盖编辑的**合并防抖窗口**（阶段5 D40，2026-09-27）。
+///
+/// 250ms 与 `kActionScalesDebounce` 同量级：滑条一次拖动（divisions=46）
+/// 会连发几十次 `onChanged`，每 250ms 收成一帧——用户松手前就能看到写回，
+/// 又不会把「每次回调一次 PATCH（toml 原子写 + GET 回读 + supervisor 热重载）」
+/// 打成几十次。
+const Duration kModelOverrideDebounce = Duration(milliseconds: 250);
+
+/// 把本模型覆盖的连续编辑合并成**一帧**三态补丁（纯逻辑，可在 VM 上单测）。
+///
+/// # 两条硬要求（阶段5 D40）
+///
+/// 1. **只记被改过的键**：未动的键保持「未覆盖」而继续逐键回落全局。
+///    三条一起发会把 body / expression 钉死成当时的全局值，之后改全局不再跟随。
+/// 2. **同一模型一次拖动只落一帧 PATCH**：窗口内反复 [record] 只重置定时器；
+///    换模型 / [flush] 时才把待发键交给 [onFlush]。
+///
+/// 它**不碰**任何网络或设置控制器：宿主把 [onFlush] 接到自己的 PATCH 上。
+class ModelOverrideCoalescer {
+  ModelOverrideCoalescer({
+    required this.onFlush,
+    this.window = kModelOverrideDebounce,
+  });
+
+  /// 到点 / 主动刷新时交付「模型 id + 只含被改键的三态补丁」。
+  final void Function(String modelId, ActionModelOverridePatch patch) onFlush;
+
+  /// 防抖窗口。
+  final Duration window;
+
+  String? _modelId;
+  final Map<String, double> _keys = <String, double>{};
+  Timer? _timer;
+
+  /// 是否有未到点的待发键（测试 / 排障用）。
+  bool get hasPending => _modelId != null && _keys.isNotEmpty;
+
+  /// 当前待发模型 id（没有则 `null`）。
+  String? get pendingModelId => _modelId;
+
+  /// 记一次编辑：只记**非 null** 的键。
+  ///
+  /// 换模型时先把上一个模型的待发键 [flush] 掉——否则它们会被并进
+  /// 新模型的补丁里（串模型，比丢一次拖动更坏）。
+  void record(
+    String modelId, {
+    double? headScale,
+    double? bodyScale,
+    double? expressionScale,
+  }) {
+    if (modelId.isEmpty) return;
+    if (_modelId != null && _modelId != modelId) flush();
+    _modelId = modelId;
+    if (headScale != null) _keys['head_scale'] = headScale;
+    if (bodyScale != null) _keys['body_scale'] = bodyScale;
+    if (expressionScale != null) _keys['expression_scale'] = expressionScale;
+    _timer?.cancel();
+    _timer = Timer(window, flush);
+  }
+
+  /// 立刻交付待发键（定时器到点 / 离开分区 / 关闭前）。
+  void flush() {
+    _timer?.cancel();
+    _timer = null;
+    final String? modelId = _modelId;
+    final Map<String, double> keys = Map<String, double>.of(_keys);
+    _modelId = null;
+    _keys.clear();
+    if (modelId == null || keys.isEmpty) return;
+    onFlush(
+      modelId,
+      ActionModelOverridePatch(
+        headScale: keys['head_scale'] == null
+            ? null
+            : TriSet<double>(keys['head_scale']!),
+        bodyScale: keys['body_scale'] == null
+            ? null
+            : TriSet<double>(keys['body_scale']!),
+        expressionScale: keys['expression_scale'] == null
+            ? null
+            : TriSet<double>(keys['expression_scale']!),
+      ),
+    );
+  }
+
+  /// 丢掉未到点的待发键。
+  ///
+  /// [modelId] 不为 null 时只在该模型正是待发模型时才丢——
+  /// 「恢复跟随全局 / 开启覆盖」必须先取消，否则迟到的 PATCH 会把
+  /// 刚删掉的覆盖又写回来。
+  void cancel([String? modelId]) {
+    if (modelId != null && _modelId != modelId) return;
+    _timer?.cancel();
+    _timer = null;
+    _modelId = null;
+    _keys.clear();
+  }
+
+  /// 释放（宿主 dispose）。等价 [cancel]。
+  void dispose() => cancel();
 }
 
 /// `PATCH /api/v1/settings` 的请求体。
@@ -643,6 +900,27 @@ int _int(Object? value) {
 double _dbl(Object? value, double fallback) {
   if (value is num && value.isFinite) return value.toDouble();
   return fallback;
+}
+
+/// 宽容取**可空** double：非数字 / 非有限数 / 缺键 → `null`（= 未覆盖）。
+///
+/// 与 [_dbl] 的区别就是这层语义：覆盖里 `null` 是**有意义的**「回落全局」，
+/// 不能像全局值那样回落到 0.75/0.80/1.0（那会把「没覆盖」写成一个覆盖）。
+double? _dblOrNull(Object? value) {
+  if (value is num && value.isFinite) return value.toDouble();
+  return null;
+}
+
+/// 宽容解析 `action.models`：非对象 / 非法条目一律忽略（不抛）。
+Map<String, ActionModelOverrideView> _modelViews(Object? raw) {
+  if (raw is! Map) return const <String, ActionModelOverrideView>{};
+  final Map<String, ActionModelOverrideView> out =
+      <String, ActionModelOverrideView>{};
+  raw.forEach((Object? k, Object? v) {
+    if (k is! String || v is! Map) return;
+    out[k] = ActionModelOverrideView.fromJson(_obj(v));
+  });
+  return out;
 }
 
 /// 宽容取对象：不是对象就返回 null（交给各自的 `fromJson` 走默认值）。

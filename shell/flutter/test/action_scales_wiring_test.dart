@@ -21,6 +21,7 @@
 /// `wiring_test.dart` 的先例**扫源码**钉住，发帧那条路由真机验收。
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
@@ -490,6 +491,246 @@ void main() {
         sync.contains('Map<String, double>? get pinned'),
         isTrue,
         reason: 'syncer 已暴露只读 pinned；不得为面板另加写口',
+      );
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════
+  // W5e（阶段5 D40，2026-09-26）：每皮套动作幅度 = 全局 [action] + 可选
+  // [action.models.<id>]；三键各自可选、各自回落全局（**逐键**）。
+  // 有效值在 ActionScalesSyncer 内部按 activeModelId 替换后下发——
+  // 渲染面零改动。判据①②③④见任务书。
+  // ══════════════════════════════════════════════════════════════════
+  group('W5e/D40：本模型动作幅度覆盖', () {
+    const Map<String, double> global = <String, double>{
+      'head': 0.75,
+      'body': 0.80,
+      'expression': 1.0,
+    };
+
+    test('① 本模型 head 覆盖生效：逐键替换，其余回落全局', () {
+      final List<Map<String, double>> sent = <Map<String, double>>[];
+      final ActionScalesSyncer syncer = ActionScalesSyncer(sent.add);
+      syncer.setModelContext(
+        activeModelId: 'bai',
+        overrides: <String, Map<String, double>>{
+          'bai': <String, double>{'head': 1.2},
+        },
+      );
+      syncer.syncNow(global, force: true);
+      expect(
+        sent.single,
+        <String, double>{'head': 1.2, 'body': 0.80, 'expression': 1.0},
+        reason: '只有 head 被覆盖，body/expression 必须逐键回落全局',
+      );
+      expect(syncer.active(global)!['head'], 1.2, reason: 'active() 同口径');
+
+      // 构造点接线（main.dart 在 VM 里加载不了 → 源码扫描，同类先例见上）。
+      expect(
+        readLib('lib/main.dart').contains('setModelContext'),
+        isTrue,
+        reason: 'main.dart 必须把「当前模型 + 覆盖表」推给 syncer',
+      );
+
+      // HUD 数值断言：GET 响应（含 active_model_id + models）→ 有效值 → 载荷。
+      final SettingsView v = SettingsView.fromJson(<String, Object?>{
+        'active_model_id': 'bai',
+        'action': <String, Object?>{
+          'head_scale': 0.75,
+          'body_scale': 0.80,
+          'expression_scale': 1.0,
+          'models': <String, Object?>{
+            'bai': <String, Object?>{
+              'head_scale': 1.2,
+              'body_scale': null,
+              'expression_scale': null,
+            },
+          },
+        },
+      });
+      final Map<String, double> payload = toActionScalesPayload(
+        v.action.effectiveForActiveModel,
+      );
+      expect(payload['head'], 1.20, reason: 'HUD 会显示 scale h1.20');
+      expect(payload['body'], 0.80);
+      expect(payload['expression'], 1.0);
+      syncer.dispose();
+    });
+
+    test('② 切模型：bai 有覆盖 → hiyori 无覆盖，下发回全局 head 0.75', () {
+      final List<Map<String, double>> sent = <Map<String, double>>[];
+      final ActionScalesSyncer syncer = ActionScalesSyncer(sent.add);
+      const Map<String, Map<String, double>> overrides =
+          <String, Map<String, double>>{
+            'bai': <String, double>{'head': 1.2},
+          };
+      syncer.setModelContext(activeModelId: 'bai', overrides: overrides);
+      syncer.syncNow(global, force: true);
+      expect(sent.last['head'], 1.2);
+
+      // 换到**没有覆盖**的模型：必须按 activeModelId 重新选表，回全局。
+      syncer.setModelContext(activeModelId: 'hiyori', overrides: overrides);
+      syncer.syncNow(global, force: true);
+      expect(
+        sent.last['head'],
+        0.75,
+        reason: 'hiyori 没覆盖 → 回全局；用「map 里任一覆盖」就会错发 1.2',
+      );
+      syncer.dispose();
+    });
+
+    test('③ 重启后仍在：PATCH 形状 == 服务端 D40 契约；GET 往返能算有效值', () {
+      final SettingsPatch patch = SettingsPatch(
+        action: ActionSettingsPatch(
+          models: <String, ActionModelOverridePatch?>{
+            'bai': ActionModelOverridePatch(
+              headScale: TriSet<double>(1.2),
+            ),
+          },
+        ),
+      );
+      expect(
+        jsonDecode(jsonEncode(patch.toJson())),
+        <String, Object?>{
+          'action': <String, Object?>{
+            'models': <String, Object?>{
+              'bai': <String, Object?>{'head_scale': 1.2},
+            },
+          },
+        },
+        reason: '只写给出的键：body/expression 不给 = 不覆盖（逐键回落）',
+      );
+
+      // 往返：服务端 GET 回 active_model_id + models（三键恒出现，null = 未覆盖）。
+      final SettingsView v = SettingsView.fromJson(<String, Object?>{
+        'active_model_id': 'bai',
+        'action': <String, Object?>{
+          'head_scale': 0.75,
+          'body_scale': 0.80,
+          'expression_scale': 1.0,
+          'models': <String, Object?>{
+            'bai': <String, Object?>{
+              'head_scale': 1.2,
+              'body_scale': null,
+              'expression_scale': null,
+            },
+          },
+        },
+      });
+      expect(v.action.activeModelId, 'bai');
+      expect(v.action.activeModelOverride!.headScale, 1.2);
+      expect(v.action.activeModelOverride!.bodyScale, isNull);
+      expect(v.action.effectiveForActiveModel.headScale, 1.2);
+      expect(v.action.effectiveForActiveModel.bodyScale, 0.80);
+    });
+
+    test('④ 恢复跟随全局：body == {"action":{"models":{"bai":null}}}，下发回全局', () {
+      final SettingsPatch patch = SettingsPatch(
+        action: ActionSettingsPatch(
+          models: <String, ActionModelOverridePatch?>{'bai': null},
+        ),
+      );
+      expect(
+        jsonDecode(jsonEncode(patch.toJson())),
+        <String, Object?>{
+          'action': <String, Object?>{
+            'models': <String, Object?>{'bai': null},
+          },
+        },
+        reason: '必须是显式 null（删除该模型覆盖），不是省略、也不是空对象',
+      );
+
+      // 删掉覆盖后 syncer 回全局。
+      final List<Map<String, double>> sent = <Map<String, double>>[];
+      final ActionScalesSyncer syncer = ActionScalesSyncer(sent.add);
+      syncer.setModelContext(
+        activeModelId: 'bai',
+        overrides: <String, Map<String, double>>{
+          'bai': <String, double>{'head': 1.2},
+        },
+      );
+      syncer.syncNow(global, force: true);
+      expect(sent.last['head'], 1.2);
+      syncer.setModelContext(
+        activeModelId: 'bai',
+        overrides: const <String, Map<String, double>>{},
+      );
+      syncer.syncNow(global, force: true);
+      expect(sent.last['head'], 0.75, reason: '覆盖删掉 → 回全局');
+      syncer.dispose();
+
+      // UI 上「恢复跟随全局」按钮触发该回调（widget 级在
+      // test/appearance_section_test.dart；这里钉住宿主接线）。
+      expect(
+        readLib('lib/app/shell_settings.dart').contains('_clearModelOverride'),
+        isTrue,
+        reason: '宿主必须把按钮接到「删除该模型覆盖」的 PATCH 上',
+      );
+    });
+
+    test('⑤ 合并防抖：连续 onChanged 只落 1 次 PATCH，且只发被改过的键', () {
+      fakeAsync((FakeAsync async) {
+        final List<({String id, ActionModelOverridePatch patch})> flushed =
+            <({String id, ActionModelOverridePatch patch})>[];
+        final ModelOverrideCoalescer coalescer = ModelOverrideCoalescer(
+          onFlush: (String id, ActionModelOverridePatch patch) =>
+              flushed.add((id: id, patch: patch)),
+        );
+
+        // 一次拖动：20 次 head onChanged + 末尾一次 body，都在同一窗口内。
+        for (int i = 1; i <= 20; i++) {
+          coalescer.record('bai', headScale: 0.7 + i / 100);
+          async.elapse(const Duration(milliseconds: 5));
+        }
+        coalescer.record('bai', bodyScale: 1.1);
+        async.elapse(kModelOverrideDebounce - const Duration(milliseconds: 1));
+        expect(flushed, isEmpty, reason: '窗口没到点不该发（否则一次拖动几十次 PATCH）');
+        async.elapse(const Duration(milliseconds: 1));
+        expect(flushed, hasLength(1), reason: '一次拖动只落一次 PATCH');
+        expect(flushed.single.id, 'bai');
+        final Map<String, Object?> body = flushed.single.patch.toJson();
+        expect(
+          body.keys.toSet(),
+          <String>{'head_scale', 'body_scale'},
+          reason: '只发被改过的键；expression 必须保持「未覆盖」而逐键回落全局',
+        );
+        expect(body.containsKey('expression_scale'), isFalse);
+        expect(body['head_scale'], closeTo(0.90, 1e-9), reason: '发最后一帧的值');
+
+        // 换模型：先把上一个模型的待发键落下，绝不串模型。
+        coalescer.record('bai', headScale: 0.95);
+        coalescer.record('hiyori', headScale: 0.5);
+        expect(flushed, hasLength(2));
+        expect(flushed.last.id, 'bai', reason: '换模型必须先 flush 上一个模型的键');
+        async.elapse(kModelOverrideDebounce);
+        expect(flushed, hasLength(3));
+        expect(flushed.last.id, 'hiyori');
+
+        // cancel：恢复跟随全局 / 开启覆盖前必须丢掉待发键（防迟到 PATCH 写回）。
+        coalescer.record('hiyori', headScale: 0.6);
+        coalescer.cancel('hiyori');
+        async.elapse(kModelOverrideDebounce * 3);
+        expect(flushed, hasLength(3), reason: 'cancel 后不得再发');
+        coalescer.dispose();
+      });
+
+      // 接线（源码扫描）：滑条回调必须走合并防抖器，而不是每次回调直接 PATCH。
+      final String settings = readLib('lib/app/shell_settings.dart');
+      expect(
+        settings.contains('_modelOverrideCoalescer.record('),
+        isTrue,
+        reason: 'onChanged → coalescer.record；直接 PATCH 会把拖动打成几十次写盘',
+      );
+      final String main = readLib('lib/main.dart');
+      expect(
+        main.contains('ModelOverrideCoalescer('),
+        isTrue,
+        reason: '合并防抖器的实体必须建在宿主 State 上（扩展不能声明字段）',
+      );
+      expect(
+        main.contains('_modelOverrideCoalescer.flush()'),
+        isTrue,
+        reason: '离开分区前必须 flush，别把用户最后一次拖动留在窗口里丢掉',
       );
     });
   });

@@ -51,6 +51,129 @@ extension _ShellSettingsWiring on _ShellRootState {
     return outcome;
   }
 
+  // ── 本模型动作幅度覆盖：直接 PATCH（阶段5 D40，2026-09-26） ──
+  //
+  // **为什么不经设置草稿**：`[action.models.<id>]` 是逐模型三态表，
+  // `SettingsDraft` 里没有对应字段（`settings_controller.dart` 不在本波
+  // 授权面内）。这里走 PATCH → `_settings.load()` → `_refresh()`：
+  // 与「保存」同一个服务端口径（写盘 + 热重载），并把服务端钳位后的
+  // 权威值回填——绝不在本地猜结果。
+
+  /// 覆盖 PATCH 的**串行**入口。
+  ///
+  /// # 为什么必须串行（2026-09-27 修）
+  ///
+  /// 防抖保证「一次拖动只发一帧」，但保证不了**两帧之间**的到达顺序：
+  /// 先拖 head（PATCH A）再点「恢复跟随全局」（PATCH B），若 B 先到、A 后到，
+  /// 服务端最终留下 head 覆盖——用户看到「删了又回来」。这里把请求串成一条
+  /// 链，服务端看到的顺序 = 用户操作顺序。
+  ///
+  /// 失败**不打断**链条（[now] 内部已把原因上屏）。
+  Future<void> _patchActionModels(
+    Map<String, ActionModelOverridePatch?> models, {
+    required String okMessage,
+  }) {
+    final Future<void> next = _modelOverrideChain.then(
+      (void _) => _patchActionModelsNow(models, okMessage: okMessage),
+    );
+    _modelOverrideChain = next.then<void>(
+      (void _) {},
+      onError: (Object _) {},
+    );
+    return next;
+  }
+
+  /// [models] 真正落盘：PATCH → 回读权威设置 → 刷新。
+  ///
+  /// 不走设置草稿：`SettingsDraft` 里没有 `[action.models.<id>]` 字段
+  /// （`settings_controller.dart` 不在本波授权面内）。PATCH 与「保存」
+  /// 同一个服务端口径（写盘 + 热重载），回读把服务端钳位后的权威值回填，
+  /// 绝不在本地猜结果。
+  Future<void> _patchActionModelsNow(
+    Map<String, ActionModelOverridePatch?> models, {
+    required String okMessage,
+  }) async {
+    try {
+      await _api.patchSettings(
+        SettingsPatch(action: ActionSettingsPatch(models: models)),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      _modelOverrideMessage = '本模型覆盖保存失败：${e.message}';
+      _modelOverrideFailed = true;
+      _refresh();
+      return;
+    }
+    if (!mounted) return;
+    await _settings.load();
+    if (!mounted) return;
+    _modelOverrideMessage = okMessage;
+    _modelOverrideFailed = false;
+    _refresh();
+  }
+
+  /// 合并防抖器的到点回调：把「模型 id + 只含被改键的补丁」交给串行 PATCH。
+  void _flushModelOverride(String modelId, ActionModelOverridePatch patch) {
+    unawaited(
+      _patchActionModels(
+        <String, ActionModelOverridePatch?>{modelId: patch},
+        okMessage: '已保存本模型覆盖（$modelId）',
+      ),
+    );
+  }
+
+  /// 单键覆盖：**只记这一键**，由 [ModelOverrideCoalescer] 收成一帧再发。
+  ///
+  /// 三条一起发会把 body / expression 钉死成当时的全局值，之后改全局不再跟随，
+  /// 那正是「三键各自可选」要避免的事。
+  void _patchModelOverride(
+    String modelId, {
+    double? headScale,
+    double? bodyScale,
+    double? expressionScale,
+  }) {
+    _modelOverrideCoalescer.record(
+      modelId,
+      headScale: headScale,
+      bodyScale: bodyScale,
+      expressionScale: expressionScale,
+    );
+  }
+
+  /// 开启「本模型覆盖」：**先取消防抖**，再用当前**有效**三键建初始覆盖。
+  ///
+  /// 取消是必需的：待发的单键只会写一个键，先到会把刚建的初始覆盖改掉一半。
+  Future<void> _seedModelOverride(
+    String modelId,
+    ActionSettingsView effective,
+  ) {
+    if (modelId.isEmpty) return Future<void>.value();
+    _modelOverrideCoalescer.cancel(modelId);
+    return _patchActionModels(
+      <String, ActionModelOverridePatch?>{
+        modelId: ActionModelOverridePatch(
+          headScale: TriSet<double>(effective.headScale),
+          bodyScale: TriSet<double>(effective.bodyScale),
+          expressionScale: TriSet<double>(effective.expressionScale),
+        ),
+      },
+      okMessage: '已开启本模型覆盖（$modelId）',
+    );
+  }
+
+  /// 关闭覆盖 / 「恢复跟随全局」：`models.<id> = null`（服务端删掉整份覆盖）。
+  ///
+  /// **必须先取消防抖**：否则一个迟到的单键 PATCH 会在删除之后又把覆盖写回来。
+  /// **必须是显式 null**：省略该 id = 「不动」，用户点了删除却删不掉。
+  Future<void> _clearModelOverride(String modelId) {
+    if (modelId.isEmpty) return Future<void>.value();
+    _modelOverrideCoalescer.cancel(modelId);
+    return _patchActionModels(
+      <String, ActionModelOverridePatch?>{modelId: null},
+      okMessage: '已恢复跟随全局（$modelId 的覆盖已删除）',
+    );
+  }
+
   /// 未保存改动的确认框。**三处拦截共用**（换分区 / 关设置 / 关浮层）。
   ///
   /// 统一走 `SettingsController.confirmLeave`：它负责「放弃 → 立刻清草稿」，
@@ -152,6 +275,14 @@ extension _ShellSettingsWiring on _ShellRootState {
           testing: _ttsTesting,
         );
       case SettingsSection.appearance:
+        // 本模型覆盖（阶段5 D40）：模型 id 取服务端权威字段
+        // （顶层 active_model_id → action.activeModelId）；覆盖表来自
+        // action.models。「有没有覆盖」= 这个模型是否在表里。
+        final ActionSettingsView actionView = view.action;
+        final String activeModelId = actionView.activeModelId;
+        final bool hasModelOverride =
+            activeModelId.isNotEmpty &&
+            actionView.models[activeModelId] != null;
         return AppearanceSection(
           prefs: widget.prefs,
           onPrefsChanged: _updatePrefs,
@@ -170,7 +301,7 @@ extension _ShellSettingsWiring on _ShellRootState {
           shellImageFailed: _shellImageFailed,
           // 动作幅度（2026-09-16）：服务端产品设置，改的是设置草稿，
           // 点「保存」才写盘；渲染面在草稿保存 / 设置加载后由 main.dart 下发。
-          action: view.action,
+          action: actionView,
           onHeadScaleChanged: (double v) => _settings.edit(
             (SettingsDraft d) => d.actionHeadScale = v,
           ),
@@ -180,6 +311,28 @@ extension _ShellSettingsWiring on _ShellRootState {
           onExpressionScaleChanged: (double v) => _settings.edit(
             (SettingsDraft d) => d.actionExpressionScale = v,
           ),
+          // 本模型覆盖：开关值 = 是否有覆盖；开 = 用当前有效值建初始覆盖，
+          // 关 = 删除 = 「恢复跟随全局」。三条滑条只在覆盖开启时接管。
+          modelOverrideEnabled: hasModelOverride,
+          onModelOverrideEnabledChanged: (bool on) => unawaited(
+            on
+                ? _seedModelOverride(
+                    activeModelId,
+                    actionView.effectiveForActiveModel,
+                  )
+                : _clearModelOverride(activeModelId),
+          ),
+          onModelHeadScaleChanged: (double v) =>
+              _patchModelOverride(activeModelId, headScale: v),
+          onModelBodyScaleChanged: (double v) =>
+              _patchModelOverride(activeModelId, bodyScale: v),
+          onModelExpressionScaleChanged: (double v) =>
+              _patchModelOverride(activeModelId, expressionScale: v),
+          onResetModelOverride: hasModelOverride
+              ? () => unawaited(_clearModelOverride(activeModelId))
+              : null,
+          modelOverrideMessage: _modelOverrideMessage,
+          modelOverrideFailed: _modelOverrideFailed,
         );
       case SettingsSection.mods:
         return ModsSection(

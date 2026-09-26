@@ -20,6 +20,15 @@
 ///   过去两个写者各自去重（产品值走本类、临时值直发且不更新 `_sent`），
 ///   同一操作序列的结果依赖历史（RESEARCH §2.4 的确定性缺陷 2）。
 ///
+/// # 第四层：本模型覆盖（阶段5 D40，2026-09-26）
+///
+/// 「全局 [action] + 可选 [action.models.<id>]」的生效值是**逐键**
+/// `override[key] ?? global[key]`。syncer 是**唯一下发口**，所以这层替换
+/// 放在这里（[setModelContext] + [_withModelOverride]）：宿主（`main.dart`）
+/// 把「当前模型 id + 覆盖表」推给它，下发前替换全局载荷。
+/// 没有 context / 该模型没有覆盖 → 与今天**逐字一致**。
+/// 这**不是**第五层优先级：临时覆盖仍然最高，替换只作用于产品/草稿载荷。
+///
 /// **关键不变式**：临时覆盖生效期间，任何产品/草稿值都不会被写下去——
 /// [syncNow] 发的是 [active] 而不是入参，所以 `_applyPrefs` 的
 /// `force: true` 补发（改主题 / 调音量等任意 `DisplayPrefs` 变更都会走）
@@ -60,6 +69,14 @@ class ActionScalesSyncer {
   Timer? _timer;
   bool _disposed = false;
 
+  /// 当前生效的模型 id（空/未识别 = 不做任何模型覆盖）。**不是**第 4 层
+  /// 优先级，只是「拿哪张覆盖表」的索引。
+  String? _activeModelId;
+
+  /// 每模型覆盖：`{model_id: {head|body|expression: value}}`（只含非 null 键）。
+  Map<String, Map<String, double>> _overrides =
+      const <String, Map<String, double>>{};
+
   /// 上次已下发的快照（测试与排障用；`null` = 还没发过）。
   String? get sentSnapshot => _sent;
 
@@ -69,8 +86,48 @@ class ActionScalesSyncer {
   /// 临时覆盖的三项倍率（没有时 `null`）。
   Map<String, double>? get pinned => _pinned;
 
-  /// **给舞台的唯一取值口**：临时覆盖 > [product]（草稿优先的有效产品值）。
-  Map<String, double>? active(Map<String, double>? product) => _pinned ?? product;
+  /// 推入「当前模型 + 本模型覆盖」上下文（阶段5 D40）。
+  ///
+  /// 由 `main.dart` 在 settings 变化 / `_refresh()`（换模型、保存、重载）时
+  /// 调用。只记状态，**不发帧**——真正的下发由 [schedule] / [syncNow] 走
+  /// 同一条防抖路（避免换模型时绕过去重多发一帧）。
+  ///
+  /// [overrides] 的键名与载荷一致（`head` / `body` / `expression`），
+  /// 值表只含**非 null** 的键（`api/settings_models.dart::toModelOverrideMap`）。
+  void setModelContext({
+    required String? activeModelId,
+    required Map<String, Map<String, double>> overrides,
+  }) {
+    final String id = activeModelId ?? '';
+    _activeModelId = id.isEmpty ? null : id;
+    _overrides = overrides;
+  }
+
+  /// 当前模型 id（排障 / 测试用；`null` = 未识别）。
+  String? get activeModelId => _activeModelId;
+
+  /// 把「全局载荷」按当前模型覆盖**逐键**替换：`override[key] ?? global[key]`。
+  ///
+  /// - 没有 context / 该模型不在覆盖表里 / 覆盖表为空 → **原样返回**
+  ///   （与今天逐字一致，连 Map 身份都不换）；
+  /// - 有覆盖 → 复制一份再替换，**不改调用方的 map**；
+  /// - 只替换载荷里已有的键（渲染面只认三键，多写键只会污染快照）。
+  Map<String, double>? _withModelOverride(Map<String, double>? global) {
+    if (global == null) return null;
+    final String? id = _activeModelId;
+    if (id == null) return global;
+    final Map<String, double>? ov = _overrides[id];
+    if (ov == null || ov.isEmpty) return global;
+    final Map<String, double> out = Map<String, double>.of(global);
+    ov.forEach((String key, double value) {
+      if (out.containsKey(key)) out[key] = value;
+    });
+    return out;
+  }
+
+  /// **给舞台的唯一取值口**：临时覆盖 > 产品/草稿值（**已按本模型覆盖逐键替换**）。
+  Map<String, double>? active(Map<String, double>? product) =>
+      _pinned ?? _withModelOverride(product);
 
   /// 排一次下发（防抖）。草稿一变就调它——**不必先保存**。
   void schedule(Map<String, double>? payload) {
@@ -94,7 +151,8 @@ class ActionScalesSyncer {
     _timer?.cancel();
     _timer = null;
     if (_disposed) return;
-    final Map<String, double>? effective = _pinned ?? payload;
+    final Map<String, double>? effective =
+        _pinned ?? _withModelOverride(payload);
     if (effective == null) {
       _sent = null;
       return;

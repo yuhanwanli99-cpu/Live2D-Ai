@@ -72,6 +72,7 @@ import 'settings/display_prefs.dart';
 import 'settings/preset_labels.dart';
 import 'settings/sections/appearance_section.dart';
 import 'settings/sections/dev_tools_section.dart';
+import 'settings/sections/director_observer_section.dart';
 import 'settings/sections/llm_section.dart';
 import 'settings/sections/persona_section.dart';
 import 'settings/sections/tts_section.dart';
@@ -194,7 +195,9 @@ class _ShellRootState extends State<ShellRoot> {
   ///
   /// 四条 ack + `segment-ended` 由 `Live2DStage.onRenderEvent` 汇进来；前端
   /// **不据此维护镜像状态**（唯一例外是调试面板的显示快照，同样只由 ack 驱动）。
-  final DirectorEventLog _directorLog = DirectorEventLog();
+  final DirectorEventLog _directorLog = DirectorEventLog(
+    onEvent: DirectorObserverFeed.instance.pushRenderEvent,
+  );
 
   /// 当前 action_cue 的轮次代号（v1 可选键透传给渲染面用，缺省 null）。
   int? _directorEpoch;
@@ -275,6 +278,11 @@ class _ShellRootState extends State<ShellRoot> {
   /// 壳背景图的提示（2026-09-14，rc.5）：与舞台那条**分开**，
   /// 否则在壳那行选完图会在舞台那行冒出一句话。
   String? _shellImageMessage; bool _shellImageFailed = false;
+
+  /// 「本模型覆盖」直接 PATCH 的结果（阶段5 D40）：与全局草稿那套无关，
+  /// 因为覆盖不经设置草稿（见 shell_settings.dart 的接线）。
+  String? _modelOverrideMessage; bool _modelOverrideFailed = false;
+
   bool _copied = false;
   bool _settingsLoadedOnce = false;
 
@@ -297,6 +305,21 @@ class _ShellRootState extends State<ShellRoot> {
     (Map<String, double> scales) =>
         _stageKey.currentState?.applyActionScales(scales),
   );
+
+  /// 本模型覆盖编辑的**合并防抖**（阶段5 D40 修，2026-09-27）。
+  ///
+  /// 滑条一次拖动会连发几十次 `onChanged`，而每次 PATCH 都要 toml 原子写 +
+  /// GET 回读 + supervisor 热重载；这里把同一模型的连续编辑收成一帧，
+  /// 且只发用户真动过的键（未动的键保持「未覆盖」）。
+  late final ModelOverrideCoalescer _modelOverrideCoalescer =
+      ModelOverrideCoalescer(onFlush: _flushModelOverride);
+
+  /// 覆盖 PATCH 的**串行**队列。
+  ///
+  /// 防抖只解决「合并」，不解决乱序：先拖 head、再点「恢复跟随全局」时
+  /// 两次 PATCH 仍可能乱序到达服务端（HTTP 不保证完成顺序），结果就
+  /// 变成「点了删除，覆盖又回来了」。串行化后服务端看到的顺序 = 用户操作顺序。
+  Future<void> _modelOverrideChain = Future<void>.value();
 
   // ── 动作子系统已于 2026-09-11 移除（用户裁决：LLM 无工具、只做对话）──
   //
@@ -329,7 +352,47 @@ class _ShellRootState extends State<ShellRoot> {
   /// State 子类的**实例成员**能调；本文件拆到 `part` 文件里的接线是**扩展方法**，
   /// 直接写 `setState` 会被 `invalid_use_of_protected_member` 拦下。接线片段统一
   /// 改调这里——先改字段、再置脏，与原来的 `setState(() { … })` 逐字等价。
-  void _refresh() => setState(() {});
+  void _refresh() {
+    // 本模型覆盖上下文（阶段5 D40）随时可能变：换模型（`_activateModel` →
+    // `_loadAdmin` → 这里）、保存设置、重新加载都会走到 `_refresh()`。
+    // 两个真源（`/app/status` 的 active_model_id、`GET /settings` 的
+    // action.active_model_id + models）也都在本方法前后写入，所以统一在这里
+    // 推一次 + 排一次防抖下发——挂在别处就会出现「界面变了、舞台没变」。
+    _pushActionScalesModelContext();
+    _scheduleActionScalesSync();
+    setState(() {});
+  }
+
+  /// 把「当前模型 + 本模型覆盖」推给 syncer（阶段5 D40）。
+  ///
+  /// 主真源 = `GET /settings` 的顶层 `active_model_id`（W5r 契约，由
+  /// `ActionSettingsView` 携带）与 `action.models`。但换模型后 settings
+  /// **不会自动重取**，而 `/app/status` 每次 `_loadAdmin`（`_activateModel`
+  /// → `_loadAdmin`）都会刷新——两者同源，取非空的那份最新值，
+  /// 这样「换模型后有效值自动重算」才成立。
+  void _pushActionScalesModelContext() {
+    final ActionSettingsView? action = _settings.remote?.action;
+    final Object? live = _status['active_model_id'];
+    final String fromStatus = live is String ? live : '';
+    final String id = fromStatus.isNotEmpty
+        ? fromStatus
+        : (action?.activeModelId ?? '');
+    _actionScalesSyncer.setModelContext(
+      activeModelId: id.isEmpty ? null : id,
+      overrides: action == null
+          ? const <String, Map<String, double>>{}
+          : toModelOverrideMap(action.models),
+    );
+  }
+
+  /// settings 一变：**先**刷新模型上下文，**再**排一次防抖下发。
+  ///
+  /// 顺序不能反：先 schedule 会把「上一份 active_model_id」算出的载荷发出去，
+  /// 换模型时就会有一帧旧模型的覆盖值（用户看到的是「换皮后幅度闪回旧值」）。
+  void _onActionScalesModelContextChanged() {
+    _pushActionScalesModelContext();
+    _scheduleActionScalesSync();
+  }
 
   @override
   void initState() {
@@ -376,7 +439,7 @@ class _ShellRootState extends State<ShellRoot> {
     // 监听放在这里（而不是 ListenableBuilder 的 builder 里）的理由：
     // builder 只在「有东西重建」时跑，而拖动滑条恰好**只改草稿**；
     // 监听器与「保存 / 放弃 / 重新加载」共用同一条路（那三条都会 notify）。
-    _settings.addListener(_scheduleActionScalesSync);
+    _settings.addListener(_onActionScalesModelContextChanged);
     _ws = WsClient();
     _audio = AudioPlayer();
     // 静音与音量是纯本机输出设置（不经渲染面）：**默认出声**。
@@ -387,9 +450,13 @@ class _ShellRootState extends State<ShellRoot> {
     _stageCancellation = StageCancellation(
       clearCuePlan: (String reason) =>
           _directorCues.replace(const <ActionCue>[]),
-      revokeStage: (String reason) => unawaited(
-        _stageKey.currentState?.applyPreset('none', source: reason),
-      ),
+      revokeStage: (String reason) {
+        final Live2DStageState? stage = _stageKey.currentState;
+        if (stage != null) {
+          _recordPresetRequest(id: 'none', source: reason);
+        }
+        unawaited(stage?.applyPreset('none', source: reason));
+      },
       dropPendingAudio: (String reason) => _audio.interrupt(),
       returnToBaseline: _requestSessionBaseline,
     );
@@ -419,6 +486,11 @@ class _ShellRootState extends State<ShellRoot> {
     // 锚在音频时钟（V7 §6.1）而不是 performance.now()。节奏由 AudioPlayer 的
     // 30ms ticker 保证；停止后它只发一次 playing:false，不补帧。
     _stageClockSubscription = _audio.stageClock.listen((StageClockSample s) {
+      DirectorObserverFeed.instance.pushStageClock(
+        seg: s.seg,
+        posMs: s.posMs,
+        playing: s.playing,
+      );
       _stageKey.currentState?.sendStageClock(
         seg: s.seg,
         posMs: s.posMs,
@@ -429,6 +501,8 @@ class _ShellRootState extends State<ShellRoot> {
     // 相位跟踪器自己订阅 WS（只读消费，与 ChatController 互不干扰）。
     _statusSubscription = _ws.statuses.listen(_ui.onWsStatus);
     _eventSubscription = _ws.events.listen((WsEvent event) {
+      // 阶段5 W5a：B 栏事件流（text_delta / text_fallback 同时进 D 栏左列）。
+      DirectorObserverFeed.instance.pushWsEvent(event);
       final bool wasMuted = _serverMuted;
       _ui.consume(event);
       if (event is AudioEvent && event.muted != wasMuted) {
@@ -468,6 +542,41 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_refreshVoiceModState());
   }
 
+  /// 记录一条**真的下发出去**的前端 preset 请求（C 栏左列）。纯记账：不发帧、
+  /// 不落盘——观测缓冲只在内存里（阶段5 W5a）。
+  void _recordPresetRequest({
+    required String id,
+    required String source,
+    double? intensity,
+    String? field,
+    double? x,
+    double? y,
+    double? z,
+    bool? hold,
+    String? at,
+    int? seq,
+    int? sentenceSeq,
+    int? epoch,
+  }) {
+    DirectorObserverFeed.instance.pushPresetRequest(
+      PresetRequest(
+        id: id,
+        source: source,
+        ts: DateTime.now(),
+        intensity: intensity,
+        field: field,
+        x: x,
+        y: y,
+        z: z,
+        hold: hold,
+        at: at,
+        seq: seq,
+        sentenceSeq: sentenceSeq,
+        epoch: epoch,
+      ),
+    );
+  }
+
   /// 音频开始播放时按 sentence_seq 应用导演 cue（一次性；没 cue 什么都不做）。
   ///
   /// 锚点选**音频开始**（不是句子提交时刻）：慢 TTS 下前者才与声音同拍；
@@ -482,10 +591,26 @@ class _ShellRootState extends State<ShellRoot> {
   void _applyDirectorCueForSeq(int? seq) {
     unawaited(
       _directorCues.applyForSeq(seq, (ActionCue cue) {
+        final Live2DStageState? stage = _stageKey.currentState;
+        if (stage == null) return Future<void>.value();
+        _recordPresetRequest(
+          id: cue.presetId,
+          source: 'director',
+          intensity: cue.intensity.toDouble(),
+          field: cue.field,
+          x: cue.x,
+          y: cue.y,
+          z: cue.z,
+          hold: cue.hold,
+          at: cue.at,
+          seq: cue.seq,
+          sentenceSeq: cue.sentenceSeq,
+          epoch: _directorEpoch,
+        );
         // v1 三族字段原样透传（编排者冻结的集成细节）：消息仍是既有 `preset`，
         // 旧键一个不动、只增可选键；缺 field 时语义与今天逐字相同。
-        return _stageKey.currentState?.applyPreset(
-              cue.presetId,
+        return stage.applyPreset(
+          cue.presetId,
               source: 'director',
               intensity: cue.intensity.toDouble(),
               ttlMs: cue.ttlMs.toDouble(),
@@ -497,9 +622,8 @@ class _ShellRootState extends State<ShellRoot> {
               at: cue.at,
               seq: cue.seq,
               epoch: _directorEpoch,
-              sentenceSeq: cue.sentenceSeq,
-            ) ??
-            Future<void>.value();
+          sentenceSeq: cue.sentenceSeq,
+        );
       }),
     );
   }
@@ -562,6 +686,21 @@ class _ShellRootState extends State<ShellRoot> {
   void _applyBaselineCues(List<ActionCue> cues, String reason) {
     final Live2DStageState? stage = _stageKey.currentState;
     for (final BaselinePresetCall call in baselineApplicationFromCues(cues)) {
+      if (stage != null) {
+        _recordPresetRequest(
+          id: call.id,
+          source: reason,
+          intensity: call.intensity?.toDouble() ?? kDefaultPresetIntensity,
+          field: call.field,
+          x: call.x,
+          y: call.y,
+          z: call.z,
+          hold: call.hold,
+          at: call.at,
+          seq: call.seq,
+          sentenceSeq: call.sentenceSeq,
+        );
+      }
       unawaited(
         stage?.applyPreset(
               call.id,
@@ -637,7 +776,10 @@ class _ShellRootState extends State<ShellRoot> {
     unawaited(_sentenceCueSubscription?.cancel());
     unawaited(_stageClockSubscription?.cancel());
     _actionScalesSyncer.dispose();
-    _settings.removeListener(_scheduleActionScalesSync);
+    // 待发的覆盖编辑直接丢弃（dispose 后 API 客户端也会关，flush 反而会
+    // 在请求发出后立刻被关掉连接）。窗口只有 250ms，代价可忽略。
+    _modelOverrideCoalescer.dispose();
+    _settings.removeListener(_onActionScalesModelContextChanged);
     _ui.dispose();
     _live.dispose();
     _settings.dispose();
@@ -724,6 +866,9 @@ class _ShellRootState extends State<ShellRoot> {
   /// 离开的分区上，看起来像是刚测的）。
   void _gotoSection(SettingsSection next) {
     if (next == _section) return;
+    // 离开「外观与互动」前把待发的本模型覆盖落下：用户拖完立刻切分区，
+    // 不能把那一次改动留在防抖窗口里丢掉。
+    _modelOverrideCoalescer.flush();
     setState(() {
       _section = next;
       _clearTransientResults();
@@ -776,6 +921,8 @@ class _ShellRootState extends State<ShellRoot> {
     _stageImageFailed = false;
     _shellImageMessage = null;
     _shellImageFailed = false;
+    _modelOverrideMessage = null;
+    _modelOverrideFailed = false;
     _copied = false;
     _adminError = null;
   }

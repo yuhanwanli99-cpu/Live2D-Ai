@@ -245,15 +245,18 @@ void main() {
           .toList();
       expect(libs.length, greaterThan(50), reason: '扫描根路径不对，扫不到 lib/**');
 
-      final List<String> stateReaders = <String>[];
+      // 阶段5 维护者补丁（D44）：本判据改为**语义断言**。「读 director 状态面」
+      // 不再只认字面量——观测面经常量 `kDirectorObserverModId` 读同一个只读端点，
+      // 常量化不得成为规避本回归的手段。旧写法还断言 stateReaders 为空，那在
+      // 「只读观测」出现后已不成立（退役的是**驱动**通道，不是读取本身）。
       final List<String> combined = <String>[];
       for (final File f in libs) {
         final String src = f.readAsStringSync();
         final bool readsDirectorState = src.contains("state('director')") ||
             src.contains('state("director")') ||
-            src.contains('mods/director/state');
+            src.contains('mods/director/state') ||
+            src.contains('kDirectorObserverModId');
         if (!readsDirectorState) continue;
-        stateReaders.add(f.path);
         if (src.contains('applyPreset')) combined.add(f.path);
       }
       expect(
@@ -262,11 +265,16 @@ void main() {
         reason: '同一文件里「读 director 状态面」+「applyPreset」= 通道 B 复活；'
             '唯一驱动者必须是 action_cue',
       );
-      expect(
-        stateReaders,
-        isEmpty,
-        reason: '通道 B 已退役：lib/ 里不应再有任何拉 director 状态面的读点',
-      );
+      // 只读面自己再钉一条：观测面不得驱动舞台。
+      final File observer =
+          File('lib/settings/sections/director_observer_section.dart');
+      if (observer.existsSync()) {
+        expect(
+          observer.readAsStringSync().contains('applyPreset'),
+          isFalse,
+          reason: '导演可观测是只读展示面：不得出现 applyPreset',
+        );
+      }
 
       // 通道 A 的接线在 main.dart（VM 加载不了 → 源码扫描，先例见
       // test/action_scales_wiring_test.dart）。

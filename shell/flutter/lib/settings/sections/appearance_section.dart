@@ -47,6 +47,14 @@ class AppearanceSection extends StatelessWidget {
     this.onHeadScaleChanged,
     this.onBodyScaleChanged,
     this.onExpressionScaleChanged,
+    this.modelOverrideEnabled = false,
+    this.onModelOverrideEnabledChanged,
+    this.onModelHeadScaleChanged,
+    this.onModelBodyScaleChanged,
+    this.onModelExpressionScaleChanged,
+    this.onResetModelOverride,
+    this.modelOverrideMessage,
+    this.modelOverrideFailed = false,
     super.key,
   });
 
@@ -88,11 +96,42 @@ class AppearanceSection extends StatelessWidget {
   final ValueChanged<double>? onBodyScaleChanged;
   final ValueChanged<double>? onExpressionScaleChanged;
 
+  // ── 本模型覆盖（阶段5 D40，2026-09-26） ──
+  //
+  // 与上面三条**全局**滑条的区别：全局值走设置草稿 + 「保存」；
+  // 本模型覆盖走**直接 PATCH**（`[action.models.<id>]`），改完即写盘、
+  // 不需要保存，所以这里只上报，不持有草稿。
+  //
+  // 没有覆盖 / 未识别模型时，三条滑条仍是全局值、仍走原来的草稿回调
+  // （旧语义一字不改，见 build 里的 `modelOverrideOn`）。
+  final bool modelOverrideEnabled;
+  final ValueChanged<bool>? onModelOverrideEnabledChanged;
+  final ValueChanged<double>? onModelHeadScaleChanged;
+  final ValueChanged<double>? onModelBodyScaleChanged;
+  final ValueChanged<double>? onModelExpressionScaleChanged;
+
+  /// 「恢复跟随全局」：删掉本模型覆盖（`models.<id> = null`）。
+  final VoidCallback? onResetModelOverride;
+
+  /// 覆盖 PATCH 的结果（失败时带服务端给的 code：message）。
+  final String? modelOverrideMessage;
+  final bool modelOverrideFailed;
+
   @override
   Widget build(BuildContext context) {
     // 这些参数实时下发给渲染面：**没有「保存」按钮**。
     // 理由：拖滑杆时就想看到舞台反应，多一步保存会毁掉这个手感。
     // 主题同理——点一下立刻整套换掉，正是它该有的手感。
+    //
+    // 本模型覆盖（阶段5 D40）：覆盖**开启**（本模型有覆盖）时，三条滑条
+    // 编辑的是「逐键 override[key] ?? global[key]」的有效值，回调直接 PATCH；
+    // 关闭时三条滑条就是原来的全局值 + 草稿回调（旧语义不动）。
+    final ActionSettingsView? actionView = action;
+    final bool modelOverrideOn =
+        actionView != null &&
+        modelOverrideEnabled &&
+        actionView.activeModelId.isNotEmpty;
+    final ActionSettingsView? effective = actionView?.effectiveForActiveModel;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -184,7 +223,7 @@ class AppearanceSection extends StatelessWidget {
             onChanged: (int v) => onPrefsChanged(prefs.copyWith(tier: v)),
             description: '性能与画质的权衡；需要档位知识，所以进开发者层',
           ),
-        if (action != null) ...[
+        if (actionView != null) ...[
           const Divider(),
           const SectionHeader(
             title: '动作幅度',
@@ -194,38 +233,81 @@ class AppearanceSection extends StatelessWidget {
                 '出厂 head 75% / body 80% / expression 100%。'
                 '头摆太大就调小 head，身摆太小就调大 body。',
           ),
+          // 本模型覆盖块（阶段5 D40）：模型名 + 开关 + 覆盖 PATCH 的结果。
+          _ModelOverrideHeader(
+            activeModelId: actionView.activeModelId,
+            enabled: modelOverrideEnabled,
+            onEnabledChanged: onModelOverrideEnabledChanged,
+            message: modelOverrideMessage,
+            failed: modelOverrideFailed,
+          ),
+          // 三条滑条：覆盖开启时编辑本模型覆盖值（直接 PATCH），
+          // 关闭时就是原来的全局值 + 草稿回调。**不是两套滑条**——
+          // 关闭态的语义与改动前逐字一致（保留草稿 / 保存）。
           SliderField(
             label: '头部摆幅',
             icon: Icons.face_retouching_natural,
-            value: action!.headScale,
+            value: modelOverrideOn
+                ? effective!.headScale
+                : actionView.headScale,
             min: ActionSettingsView.minScale,
             max: ActionSettingsView.maxScale,
             divisions: 46,
-            enabled: onHeadScaleChanged != null,
-            onChanged: onHeadScaleChanged ?? (double _) {},
-            description: 'ParamAngle* 的倍率；出厂 75%',
+            enabled: modelOverrideOn
+                ? onModelHeadScaleChanged != null
+                : onHeadScaleChanged != null,
+            onChanged: modelOverrideOn
+                ? (onModelHeadScaleChanged ?? (double _) {})
+                : (onHeadScaleChanged ?? (double _) {}),
+            description: modelOverrideOn
+                ? '本模型覆盖：直接写 [action.models.${actionView.activeModelId}]，不需要点保存'
+                : 'ParamAngle* 的倍率；出厂 75%',
           ),
           SliderField(
             label: '身体摆幅',
             icon: Icons.accessibility_new,
-            value: action!.bodyScale,
+            value: modelOverrideOn
+                ? effective!.bodyScale
+                : actionView.bodyScale,
             min: ActionSettingsView.minScale,
             max: ActionSettingsView.maxScale,
             divisions: 46,
-            enabled: onBodyScaleChanged != null,
-            onChanged: onBodyScaleChanged ?? (double _) {},
-            description: 'ParamBodyAngle* 的倍率；出厂 80%，身/头比约 0.35',
+            enabled: modelOverrideOn
+                ? onModelBodyScaleChanged != null
+                : onBodyScaleChanged != null,
+            onChanged: modelOverrideOn
+                ? (onModelBodyScaleChanged ?? (double _) {})
+                : (onBodyScaleChanged ?? (double _) {}),
+            description: modelOverrideOn
+                ? '本模型覆盖：未覆盖的键逐键回落全局'
+                : 'ParamBodyAngle* 的倍率；出厂 80%，身/头比约 0.35',
           ),
           SliderField(
             label: '表情幅度',
             icon: Icons.mood,
-            value: action!.expressionScale,
+            value: modelOverrideOn
+                ? effective!.expressionScale
+                : actionView.expressionScale,
             min: ActionSettingsView.minScale,
             max: ActionSettingsView.maxScale,
             divisions: 46,
-            enabled: onExpressionScaleChanged != null,
-            onChanged: onExpressionScaleChanged ?? (double _) {},
-            description: '口 / 眉 / 眼 的倍率；出厂 100%',
+            enabled: modelOverrideOn
+                ? onModelExpressionScaleChanged != null
+                : onExpressionScaleChanged != null,
+            onChanged: modelOverrideOn
+                ? (onModelExpressionScaleChanged ?? (double _) {})
+                : (onExpressionScaleChanged ?? (double _) {}),
+            description: modelOverrideOn
+                ? '本模型覆盖：口 / 眉 / 眼的倍率'
+                : '口 / 眉 / 眼 的倍率；出厂 100%',
+          ),
+          // 「恢复跟随全局」只在覆盖开启时可点（没有覆盖时禁用，不是点了没反应）。
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: modelOverrideOn ? onResetModelOverride : null,
+              child: const Text('恢复跟随全局'),
+            ),
           ),
         ],
         const Divider(),
@@ -243,6 +325,79 @@ class AppearanceSection extends StatelessWidget {
           description: '关掉后模型不因拖动/滚轮移动；缩放仍可用舞台右下角的按钮',
         ),
         const SizedBox(height: Space.s3),
+      ],
+    );
+  }
+}
+
+/// 「本模型覆盖」子块（阶段5 D40，2026-09-26）：模型名 + 开关 + 结果。
+///
+/// 三条理由写在这里，避免下一个人再按「第二个全局滑条」改错：
+/// 1. 开关的**值**由宿主给（= 本模型是否已有覆盖）；这里不持有状态，
+///    所以「开 / 关」不会与磁盘分叉；
+/// 2. `active_model_id` 为空时**如实说「未识别当前模型」并禁用开关**——
+///    假装能开会在写回时被服务端拒（模型 id 非法）；
+/// 3. 覆盖改走**直接 PATCH**（不需要「保存」），所以这里只上报，不碰草稿。
+class _ModelOverrideHeader extends StatelessWidget {
+  const _ModelOverrideHeader({
+    required this.activeModelId,
+    required this.enabled,
+    required this.onEnabledChanged,
+    required this.message,
+    required this.failed,
+  });
+
+  final String activeModelId;
+  final bool enabled;
+  final ValueChanged<bool>? onEnabledChanged;
+  final String? message;
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final AppColors colors = appColorsOf(context);
+    final AppPalette palette = appPaletteOf(context);
+    final bool known = activeModelId.isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          known ? '当前模型：$activeModelId' : '未识别当前模型',
+          style: theme.textTheme.labelLarge,
+        ),
+        const SizedBox(height: Space.s1),
+        EmphasizedText(
+          known
+              ? '「本模型覆盖」开启后，下面三条滑条编辑的就是**这个模型**的幅度'
+                    '（`[action.models.$activeModelId]`）。未覆盖的键**逐键回落全局**；'
+                    '「恢复跟随全局」删掉本模型的整份覆盖。'
+              : '服务端还没给出当前模型 id（`active_model_id`）——'
+                    '先激活一个模型，再回来设本模型覆盖。',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: colors.contentMuted,
+          ),
+        ),
+        ToggleField(
+          label: '本模型覆盖',
+          icon: Icons.tune,
+          value: enabled,
+          enabled: known && onEnabledChanged != null,
+          onChanged: onEnabledChanged ?? (bool _) {},
+          description: known
+              ? (enabled ? '正在用本模型的覆盖值' : '关闭 = 跟随全局')
+              : '未识别当前模型，无法开启',
+        ),
+        if (message != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Space.s1),
+            child: EmphasizedText(
+              message!,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: failed ? palette.warning : colors.contentMuted,
+              ),
+            ),
+          ),
       ],
     );
   }
