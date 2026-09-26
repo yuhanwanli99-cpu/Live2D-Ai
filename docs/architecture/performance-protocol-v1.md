@@ -593,6 +593,15 @@ D22–D26 不在原 O 表内，是维护者复核契约时发现的**跨层接�
 | **D25** | （已并入 O14）dropped 段的唤醒退化 | §8 / §10 #9 | 同 C4 / C6 |
 | **D26** | **批内 add / 跨批次 replace**：同 plan 同 field 按 `at` 生效并相加；新一批 cue 到达同 field → 结束旧动画段（`preset_replaced`）并以新值为当前值；非 hold 到点移除自己贡献（`preset_expired`）；`none` 清空累加器 | §4.3 | `new_batch_replaces_the_field_animation_value_adds` |
 
+### 12.3 阶段4 实施期新增冻结（2026-09-26，Gate 4 后）
+
+| # | 冻结 | 说明 |
+| --- | --- | --- |
+| **D30** | **前端→渲染面的字段 cue 复用既有 `preset` 消息**（payload 只增 `field/x/y/z/hold/at/seq/epoch/sentence_seq`；缺 `field` = 旧语义逐字不变） | O13 只冻结了 stage-clock 与 ack；本条补齐下行方向。**只增不改**，与 V11 同口径 |
+| **D31** | **host 取消信号 = 既有 `action_cue` 帧加 `baseline:true` + `reason`**（停止 / 新消息时随 chat 响应一并交付） | 见 §9.3；**只增不改** |
+| **D33** | `performance_id_not_allowed`（能力集外表情 id → 丢该条 + warn）为**正式 warn 码** | 补 §2.4 #16 的码名 |
+| **D34** | stage-clock **不外推**（两条 30ms 间同值）**暂接受** | 是否改外推由 Windows 肉眼观感定夺；若抖动另立一轮 |
+
 ---
 
 ## 13. 相关文件（单一真源索引）
