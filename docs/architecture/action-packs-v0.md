@@ -333,5 +333,26 @@ AngleX（19.8）、BodyAngleX（6.6）；**`unhappy` 全部通道**（最大 6.6
 这与 §11.3「普通包会钳位」并存，不是矛盾：普通包与 morph 包走的是两条 intensity 语义
 （详见 §3）；回归对 `unhappy` 在 T3 里单独断言「不该钳位」。
 
+### 11.7 每皮套覆盖的落点（阶段5 D40，2026-09-26）
+
+**用户旋钮住 `live2d-ai.toml`，不住映射表**：
+
+```toml
+[action]                 # 全局默认（三键）
+head_scale = 0.75
+body_scale = 0.80
+expression_scale = 1.0
+
+[action.models.bai]      # 可选：某皮套的覆盖；三键各自可选
+head_scale = 1.2         # 只有这一键被覆盖
+                         # body / expression 缺省 → 逐键回落全局
+```
+
+- **生效值 = 本模型覆盖 > 全局（逐键）**：`<model_id>` 用当前 `active_model_id`（`GET /api/v1/settings` 的 `active_model_id` 字段）；
+- **量程与钳位**沿用 §11.1 的 `[0.2, 2.2]`（服务端 `clamp_action_scale` 逐键钳）；
+- **写回**走 `merge_into_toml` 的**就地改值**（保留注释）+ 热重载；删除某模型覆盖 = 把该键置 `null` / 从表里移除；
+- **渲染面零改动**：前端按 `active_model_id` 算好三项有效值，仍经既有 `ActionScalesSyncer` → `sync.actionScales` 下发；
+- **映射表分工不变**：`crates/l2d-wasm-demo/src/preset/scales.rs`（数值真源）与可选 `assets/actions/field_map.json` 只管**每通道峰值 / 方向**——它们**不是**用户旋钮，不得往里写用户设置。
+
 
 

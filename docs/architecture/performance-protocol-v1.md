@@ -573,7 +573,7 @@ v1 **只新增**（`segments`、`field`/`x`/`y`/`z`/`id`/`at`/`hold`、ack 事�
 | **O7** | 停止 / 新消息 → **立即回基准（无过渡动画）** | ⚠ **产品口味**：过渡动画进 backlog，用户验收后可回改 |
 | **O8** | baseline 存 `session_scope` **兄弟字段**；**写入方 = 宿主 API**（随会话设置写）；**缺省为空 = 待机**；本轮**不做** per-character profile 文件 | 不新造第二套会话表 |
 | **O9** | 映射表 = **渲染面内建默认表 + 可选单文件覆盖 `assets/actions/field_map.json`**（按 model id 分节）；本轮**不要求**每皮套一份 | 表是数据、不进提示词 |
-| **O10** | `[action]` **保持全局**用户旋钮；「按皮套的基础强度」住映射表 | 不按皮套分组 |
+| **O10** | `[action]` **保持全局**用户旋钮；「按皮套的基础强度」住映射表 | 不按皮套分组。⚠ **已由阶段5 D40 修订**：用户旋钮住 toml（`[action.models.<id>]`），映射表只管每通道峰值/方向——见 §12.3 **D40** |
 | **O11** | 肩 `X3/X6` / 胯 `X4` / 迈腿 `X5` / 眼珠 `EyeBallX·Y` **本波不纳入** | ⚠ **产品口味**，可回改 |
 | **O12** | `expression` 面板保持现有 **3 条** | 可扩，不进本波 |
 | **O13** | **wire 名冻结**：stage-clock = `{version:1,type:"stage-clock",payload:{seg,pos_ms,playing}}`（前端→渲染面）；ack 四条独立 type = `preset-applied` / `preset-replaced` / `preset-expired` / `preset-dropped`；段结束 = `segment-ended`（渲染面→前端），payload 按 §7.2 | 三轨共用，不得各自起名 |
@@ -601,6 +601,15 @@ D22–D26 不在原 O 表内，是维护者复核契约时发现的**跨层接�
 | **D31** | **host 取消信号 = 既有 `action_cue` 帧加 `baseline:true` + `reason`**（停止 / 新消息时随 chat 响应一并交付） | 见 §9.3；**只增不改** |
 | **D33** | `performance_id_not_allowed`（能力集外表情 id → 丢该条 + warn）为**正式 warn 码** | 补 §2.4 #16 的码名 |
 | **D34** | stage-clock **不外推**（两条 30ms 间同值）**暂接受** | 是否改外推由 Windows 肉眼观感定夺；若抖动另立一轮 |
+
+**阶段5 实施期新增冻结（2026-09-26，与上表同节；D40 起）**
+
+| # | 冻结 | 说明 |
+| --- | --- | --- |
+| **D40** | **每皮套动作幅度住 toml**：`[action]`（全局）之外可选 `[action.models.<model_id>]`，`head_scale` / `body_scale` / `expression_scale` **三键各自可选、各自回落全局**；生效值 = 本模型覆盖 > 全局（**逐键**）。**修订 O10** 的「按皮套那份住映射表」 | 用户旋钮 = toml（热重载 + PATCH + 持久化，就地改值保留注释）；`assets/actions/field_map.json` 只管**每通道峰值/方向**，**不承担用户旋钮**；量程沿用 `[0.2, 2.2]`；渲染面零改动。落点见 [action-packs-v0.md](action-packs-v0.md) §11.7 |
+| **D41** | **撤销 S6 / 不新增 `dev_tts_clean` 帧**：`supervisor.rs` / `conversation/**` / `ws/events.rs` 一律不碰 | D 栏降级为零后端（D42） |
+| **D42** | **D 栏零后端**：左 = 前端已收 `text_delta`（真正送 TTS 的净化文本）；右 = `/api/v1/logs` 最近的 `sentence_ready` 行（**来源=日志端点，不承诺逐句精确匹配**），按出现顺序并排 + 字符数 | **不新增任何 WS 帧**；正文仍不进日志、前端不落盘 |
+| **D43** | 阶段5 收口后由维护者：代码审查 → **Gate 5 = 并 `main` + 发布**；worker 与编排者全程**禁 git 写操作** | 版本口径待用户最终确认（`0.2.0-rc.4` vs `0.2.0`） |
 
 ---
 

@@ -314,6 +314,19 @@
 >   `docs/plans/ORCHESTRATOR-PROMPT-actions-performance-round.md` §8）——**不得再作为口径或架构建议引用**。
 >   本段改写由编排者在 W0 收口时执行，理由见本轮交付报告「未做 / 需维护者过目」一节。
 
+### 导演可观测（2026-09-26 阶段5 定）
+
+设置 → 开发工具（`dev_mode=true` 才渲染）里的「**导演可观测**」四栏是**零后端**的只读开发面：
+A 决策参数读 `GET /api/v1/mods/director/state`；B 事件流 = 前端已收 WS 帧 + 渲染面 ack（复用 `live2d/render_events.dart`，环形缓冲上限 200 + 按类型过滤）；
+C 传参对照并排「请求（前端 `preset` 帧）」与「生效（渲染面 ack 最终值 + `clamped`/`degraded`/`reason`）」；
+D 送 TTS 文本左列 = 前端已收 `text_delta`（净化文本）+ 每句字符数，右列 = `/api/v1/logs` 的 `sentence_ready` 行（**来源=日志端点，不承诺逐句精确匹配**），`dev_mode=false` 时整块不在语义树。
+**红线**：不新增任何 WS 帧（`dev_tts_clean` 已由 D41 撤销）、观测缓冲**不落盘**（不写 `localStorage` / `SharedPreferences`），D 栏不得为取正文而新增后端日志。
+
+### 每皮套动作幅度（2026-09-26 阶段5 定，D40）
+
+动作幅度倍率的**用户旋钮住 `live2d-ai.toml`**：全局 `[action]`（`head_scale`/`body_scale`/`expression_scale`）之外，可选 `[action.models.<model_id>]`，三键**各自可选、各自回落全局**，生效值 = 本模型覆盖 > 全局（逐键）；
+量程沿用 `[0.2, 2.2]`，写回走 `merge_into_toml` 的**就地改值**（保留注释）+ 热重载；`assets/actions/field_map.json` / `crates/l2d-wasm-demo/src/preset/scales.rs` 仍只管**每通道峰值与方向**，不承担用户旋钮。**渲染面零改动**（前端按 `active_model_id` 算好有效值后经既有 `ActionScalesSyncer` 下发）。
+
 ### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
 
 **主路径是 `--web`**：Rust 服务 + Flutter Web `/app/`（`./scripts/ignite.sh` 点火）。
