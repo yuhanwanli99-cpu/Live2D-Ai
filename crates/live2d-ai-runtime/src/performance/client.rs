@@ -613,6 +613,7 @@ mod assembly_tests {
                 preset_id: "nod".to_string(),
                 intensity: 1,
                 ttl_ms: 2_000,
+                ..Default::default()
             }]
         })
     }

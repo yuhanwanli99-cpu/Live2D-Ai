@@ -61,6 +61,7 @@ fn rule_cue() -> RuleFallback {
             preset_id: "smile".to_string(),
             intensity: 1,
             ttl_ms: 2_000,
+            ..Default::default()
         }]
     })
 }

@@ -41,6 +41,8 @@ pub mod prompt;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_golden;
 
 use std::fmt;
 use std::sync::Arc;
@@ -56,8 +58,7 @@ pub use plan::{
     AXIS_MAX, AXIS_MIN, CueAnchor, CueField, DEFAULT_TTL_MS_BODY, DEFAULT_TTL_MS_EXPRESSION,
     DEFAULT_TTL_MS_HEAD, FieldCue, MAX_CUES, MAX_INTENSITY, MAX_SEGMENT_CHARS, MAX_SEGMENTS,
     MAX_SPEAK_CHARS, MAX_TTL_MS, MIN_INTENSITY, MIN_TTL_MS, PRIORITY_PERFORMANCE, PerformanceCue,
-    PerformancePlan, PlanError, PlanWarning, action_cue_payload, decode_v1_envelope,
-    json_schema_strict, parse_plan,
+    PerformancePlan, PlanError, PlanWarning, action_cue_payload, json_schema_strict, parse_plan,
 };
 pub use prompt::{build_user_prompt, strip_code_fence};
 

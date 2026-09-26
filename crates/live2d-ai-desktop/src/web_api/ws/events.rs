@@ -315,6 +315,7 @@ mod tests {
                 preset_id: "smile".to_string(),
                 intensity: 2,
                 ttl_ms: 1_500,
+                ..Default::default()
             }],
         });
         let frame = app_event_to_ws_frame(&ev).expect("必须投影成帧");

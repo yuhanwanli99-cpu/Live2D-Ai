@@ -43,13 +43,17 @@
 //! 兼容面同住一处（schema 与校验器**必须同源**）。按「豁免 ≤ 1000 需头注理由」保留
 //! 单文件——4b 授权文件不含新路径，拆文件会被 C1 判为越权。
 //!
-//! # v1 cue 的 wire 投影（B9 / V11）
+//! # v1 cue 的 wire 投影（B9 / V11 / D27）
 //!
-//! PerformanceCue 的**字段集合是冻结的**（presets.rs 以四字段字面量构造它，
-//! 而 mod-director 归 4e 波次）。因此 v1 的新键（field/x/y/z/id/at/hold/seq）
-//! 以**内部信封**形式随 preset_id 传递，由 [PerformanceCue::to_json] 摊平成
-//! **既有 action_cue 帧**上的可选键；既有键 sentence_seq/preset_id/intensity/
-//! ttl_ms/priority 逐字保留。信封前缀含控制字符，真实 preset id 不可能命中。
+//! v1 的新键（`field` / `x` / `y` / `z` / `id` / `at` / `hold` /
+//! `seq`）是 [PerformanceCue] 上的**显式可选字段**（`Option`，缺省 `None`）——
+//! `preset_id` **只承载预设 id 本身**，绝不承载 JSON（Gate 4 D27：控制字符
+//! 信封退场）。[PerformanceCue::to_json] 把它们摊平成**既有 action_cue 帧**上的
+//! 可选键；既有键 sentence_seq/preset_id/intensity/ttl_ms/priority 逐字保留；
+//! `field == None` = 旧 preset_id 路径，语义逐字不变（V11）。
+//!
+//! `epoch` **不在 cue 上**：它是 `action_cue` 帧的 payload 级字段
+//!（[action_cue_payload]），前端→渲染面的 `preset` 消息按 D30 单独透传。
 
 use serde_json::{Map, Value, json};
 
@@ -86,9 +90,6 @@ pub const DEFAULT_TTL_MS_EXPRESSION: u64 = 2_600;
 /// 「表演层覆盖规则层」的既有抬升口径；数字写在这里而不是从 Mod 引，避免
 /// runtime 反向依赖 Mod crate。
 pub const PRIORITY_PERFORMANCE: u8 = 40;
-
-/// v1 信封前缀（控制字符，真实 preset id 不可能命中）。
-const V1_ENVELOPE_PREFIX: &str = "\u{1}v1\u{1}";
 
 /// 三族表演字段（V2 / V3）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,80 +163,100 @@ pub struct FieldCue {
 }
 
 impl FieldCue {
-    /// 投影为**冻结的** wire 单元：v1 新键进内部信封，由
-    /// [PerformanceCue::to_json] 摊平。
+    /// 投影为 wire 单元：v1 新键落在 [PerformanceCue] 的**显式可选字段**上
+    /// （D27：不再编进 preset_id）；[PerformanceCue::to_json] 负责摊平。
     pub fn to_wire_cue(&self) -> PerformanceCue {
         let semantic_preset_id = match self.field {
             CueField::Expression => self.id.clone().unwrap_or_else(|| "none".to_string()),
             CueField::Body => "body".to_string(),
             CueField::Head => "head".to_string(),
         };
-        let mut envelope = Map::new();
-        envelope.insert("preset_id".to_string(), json!(semantic_preset_id));
-        envelope.insert("field".to_string(), json!(self.field.as_str()));
-        envelope.insert("seq".to_string(), json!(self.seq));
-        envelope.insert("at".to_string(), json!(self.at_resolved));
-        envelope.insert("hold".to_string(), json!(self.hold));
-        if let Some(v) = self.x {
-            envelope.insert("x".to_string(), json!(v));
-        }
-        if let Some(v) = self.y {
-            envelope.insert("y".to_string(), json!(v));
-        }
-        if let Some(v) = self.z {
-            envelope.insert("z".to_string(), json!(v));
-        }
-        if let Some(id) = &self.id {
-            envelope.insert("id".to_string(), json!(id));
-        }
         PerformanceCue {
             sentence_seq: self.sentence_seq,
-            preset_id: encode_v1_envelope(&Value::Object(envelope)),
+            preset_id: semantic_preset_id,
             intensity: self.intensity,
             ttl_ms: self.ttl_ms,
+            field: Some(self.field),
+            x: self.x.and_then(serde_json::Number::from_f64),
+            y: self.y.and_then(serde_json::Number::from_f64),
+            z: self.z.and_then(serde_json::Number::from_f64),
+            id: self.id.clone(),
+            at: Some(self.at_resolved.clone()),
+            hold: Some(self.hold),
+            seq: Some(self.seq),
         }
     }
 }
 
 /// 一条按句 cue（与 WS action_cue.payload.cues[] 的**既有键**逐字段同形）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// # v1 新键 = 显式可选字段（D27）
+///
+/// `field` / `x` / `y` / `z` / `id` / `at` / `hold` / `seq` 都是
+/// `Option`（缺省 `None`）。`field == None` = **legacy preset_id 路径**，
+/// [Self::to_json] 只出既有 5 键，语义逐字不变（V11）。轴值用
+/// [serde_json::Number] 承载：既有 `derive(Eq)`（desktop 侧的
+/// `ConversationUiEvent` 依赖它）不得因为多一个 `f64` 字段而被迫摘掉。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PerformanceCue {
     /// 目标句序号（与 AudioChunk.sentence_seq 同源；锚点是该句音频的 first_chunk）。
     pub sentence_seq: u64,
-    /// 预设 id（legacy）或 v1 信封（见模块头注）。
+    /// 预设 id（**只**是 id 本身；legacy 路径直接用，v1 路径是语义占位：
+    /// body/head 用字段名、expression 用表情 id）。绝不承载 JSON（D27）。
     pub preset_id: String,
     /// 强度 1..=3（已钳位）。
     pub intensity: u8,
     /// 生效时长（毫秒）1..=5000（已钳位）。
     pub ttl_ms: u64,
+    /// v1：三族字段之一；`None` = 旧 preset_id 路径。
+    pub field: Option<CueField>,
+    /// v1：归一化 X 轴（[-1, 1]，已钳位；不适用则 `None`）。
+    pub x: Option<serde_json::Number>,
+    /// v1：归一化 Y 轴。
+    pub y: Option<serde_json::Number>,
+    /// v1：歪头倾斜（仅 head）。
+    pub z: Option<serde_json::Number>,
+    /// v1：expression 的面板 id（含撤销哨兵 none）。
+    pub id: Option<String>,
+    /// v1：解析后的锚点 wire 名（now / seg:N / after_prev）。
+    pub at: Option<String>,
+    /// v1：true = 保持到下次指令。
+    pub hold: Option<bool>,
+    /// v1：plan 内 cue 序号（从 1 起；丢条不重排）。
+    pub seq: Option<u64>,
 }
 
 impl PerformanceCue {
     /// WS action_cue 单条形态。
     ///
-    /// v1 信封被**摊平**为可选键（V11：只增不改；既有键逐字保留）。
+    /// v1 新键（`field == Some(..)` 才出）**摊平**为可选键
+    /// （V11：只增不改；既有键逐字保留）。legacy（`field == None`）只出
+    /// 既有 5 键——与信封年代**逐字相同**（golden 回归钉住）。
     pub fn to_json(&self) -> Value {
-        let Some(v1) = decode_v1_envelope(&self.preset_id) else {
-            return json!({
-                "sentence_seq": self.sentence_seq,
-                "preset_id": self.preset_id,
-                "intensity": self.intensity,
-                "ttl_ms": self.ttl_ms,
-                "priority": PRIORITY_PERFORMANCE,
-            });
-        };
         let mut object = Map::new();
         object.insert("sentence_seq".to_string(), json!(self.sentence_seq));
-        object.insert(
-            "preset_id".to_string(),
-            v1.get("preset_id").cloned().unwrap_or(Value::Null),
-        );
+        object.insert("preset_id".to_string(), json!(self.preset_id));
         object.insert("intensity".to_string(), json!(self.intensity));
         object.insert("ttl_ms".to_string(), json!(self.ttl_ms));
         object.insert("priority".to_string(), json!(PRIORITY_PERFORMANCE));
-        for key in ["field", "seq", "x", "y", "z", "id", "at", "hold"] {
-            if let Some(value) = v1.get(key) {
-                object.insert(key.to_string(), value.clone());
+        if let Some(field) = self.field {
+            object.insert("field".to_string(), json!(field.as_str()));
+            if let Some(seq) = self.seq {
+                object.insert("seq".to_string(), json!(seq));
+            }
+            for (key, value) in [("x", &self.x), ("y", &self.y), ("z", &self.z)] {
+                if let Some(number) = value {
+                    object.insert(key.to_string(), Value::Number(number.clone()));
+                }
+            }
+            if let Some(id) = &self.id {
+                object.insert("id".to_string(), json!(id));
+            }
+            if let Some(at) = &self.at {
+                object.insert("at".to_string(), json!(at));
+            }
+            if let Some(hold) = self.hold {
+                object.insert("hold".to_string(), json!(hold));
             }
         }
         Value::Object(object)
@@ -243,29 +264,14 @@ impl PerformanceCue {
 
     /// 日志 / 断言的短标签（**不含全文**）。
     pub fn label(&self) -> String {
-        match decode_v1_envelope(&self.preset_id) {
-            Some(v1) => {
-                let field = v1.get("field").and_then(Value::as_str).unwrap_or("?");
-                match v1.get("id").and_then(Value::as_str) {
-                    Some(id) => format!("{field}:{id}"),
-                    None => field.to_string(),
-                }
-            }
+        match self.field {
+            Some(field) => match &self.id {
+                Some(id) => format!("{}:{id}", field.as_str()),
+                None => field.as_str().to_string(),
+            },
             None => self.preset_id.clone(),
         }
     }
-}
-
-/// 把 v1 新键编进内部信封（仅 preset_id 一个载体可用，见模块头注）。
-fn encode_v1_envelope(payload: &Value) -> String {
-    format!("{V1_ENVELOPE_PREFIX}{payload}")
-}
-
-/// 解出 v1 信封；legacy 的普通 preset id 返回 None。
-pub fn decode_v1_envelope(preset_id: &str) -> Option<Value> {
-    preset_id
-        .strip_prefix(V1_ENVELOPE_PREFIX)
-        .and_then(|raw| serde_json::from_str(raw).ok())
 }
 
 /// 宽容警告（丢键 / 丢条；**不整份失败**）。
@@ -330,7 +336,7 @@ pub struct PerformancePlan {
     pub speak: Option<String>,
     /// v1：原文的切分方案；None = 走 legacy speak 路径。
     pub segments: Option<Vec<String>>,
-    /// wire cue（legacy 或 v1 信封投影）。
+    /// wire cue（legacy 路径或 v1 显式字段投影，见 [PerformanceCue]）。
     pub cues: Vec<PerformanceCue>,
     /// 宽容警告（丢键 / 丢条）。
     pub warnings: Vec<PlanWarning>,
@@ -553,11 +559,13 @@ fn parse_legacy(
                 index,
                 field: "ttl_ms",
             })?;
+        // legacy 路径：v1 可选字段全部缺省 None（= 只出既有 5 键）。
         cues.push(PerformanceCue {
             sentence_seq,
             preset_id: preset_id.to_string(),
             intensity: (intensity_raw as u8).clamp(MIN_INTENSITY, MAX_INTENSITY),
             ttl_ms: ttl_raw.clamp(MIN_TTL_MS, MAX_TTL_MS),
+            ..Default::default()
         });
     }
     Ok(PerformancePlan {

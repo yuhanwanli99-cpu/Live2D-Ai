@@ -243,6 +243,7 @@ pub fn rule_cues_for_text(text: &str) -> Vec<live2d_ai_runtime::performance::Per
             preset_id: id.to_string(),
             intensity: 1,
             ttl_ms: 2_000,
+            ..Default::default()
         })
         .collect()
 }

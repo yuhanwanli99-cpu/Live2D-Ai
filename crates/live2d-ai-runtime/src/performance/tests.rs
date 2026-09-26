@@ -531,6 +531,7 @@ fn action_cue_payload_matches_existing_frame_shape() {
         preset_id: "smile".to_string(),
         intensity: 2,
         ttl_ms: 1500,
+        ..Default::default()
     }];
     let payload = action_cue_payload(7, 2, &cues);
     assert_eq!(payload["epoch"], 7);
@@ -617,6 +618,7 @@ fn rule_one_cue() -> RuleFallback {
             preset_id: "nod".to_string(),
             intensity: 1,
             ttl_ms: 2_000,
+            ..Default::default()
         }]
     })
 }
