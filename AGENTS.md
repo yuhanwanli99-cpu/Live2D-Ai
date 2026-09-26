@@ -12,7 +12,17 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前本地集成 `mod/product-grade`（产品级加强波次，2026-09-14，未发布、不打 tag、
+- **当前版本 `0.2.0-rc.4`（0.2.0 线最后一个 RC，2026-09-26）**：把「动作/表演」从**两条驱动通道打架**收成一条，并补齐三块——
+  ① **阶段3 单一驱动者**：退役「前端拉 `latest.preset_id`」驱动舞台的通道，动作只由 WS `action_cue` 驱动
+  （`preset_id=="none"` = 撤销哨兵，`cues:[]` = 本轮不动，D10–D13）；
+  ② **阶段4 表演协议 v1**：`speak` 退役为 `segments`（**只切分原文、逐字不变**；上屏 == 送 TTS ==
+  `clean_for_tts(段)`），三表演字段 `body`/`head`/`expression`（同类 add、立即生效、`hold`），
+  **唯一时间基准 = 音频播放时钟**（`stage-clock`），渲染面**事件级 ack 四条 + 段结束**，
+  **会话 baseline** 绑会话（停止/新消息清三样并回 baseline、不补帧）；
+  ③ **阶段5**：dev_mode 下「**导演可观测**」四栏（决策参数 / 事件流 / 传参对照 / 送 TTS 文本）+
+  **单模型动作强度** `[action.models.<id>]`（三键各自回落全局）。契约真源
+  `docs/architecture/performance-protocol-v1.md`；发布说明 `docs/releases/v0.2.0-rc.4.md`。
+- **上一版本地集成 `mod/product-grade`（产品级加强波次，2026-09-14，未发布、不打 tag、
   版本仍 `0.2.0-rc.3`）**：**封存 `wallpaper` + `pet-desktop` 两个 Mod**（用户裁决：
   wallpaper 删除封存、本波不做；pet-desktop 封存、暂不推、不做真窗/应用级桌宠）——
   两者移出 `AVAILABLE_MOD_FACTORIES`，7 → **5**，`mod_count_is_seven` →
@@ -448,6 +458,20 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   路径即可（2026-09-11 修）。
 
 ## 变更历史
+
+- **2026-09-26（v0.2.0-rc.4，0.2.0 线最后一个 RC：表演协议 v1 全链 + 导演可观测 + 单模型动作强度）**：
+  ① **阶段3 单一驱动者（D10–D13）**：退役「前端拉 `latest.preset_id` 驱动舞台」，动作只由 WS
+  `action_cue` 驱动；`preset_id=="none"` = 撤销哨兵、`cues:[]` = 本轮不动。
+  ② **阶段4 表演协议 v1（D22–D39）**：`speak` 退役为 `segments`（只切分、逐字不变、拼接 == 原文），
+  上屏 == 送 TTS == `clean_for_tts(段)`；三字段 `body`/`head`/`expression`（同类 add / 立即生效 / `hold` /
+  `expression` 只写五官）；段↔句 1:1、空白段不跳号；**唯一时间基准 = 音频播放时钟**（`stage-clock` 30ms）；
+  渲染面**事件级 ack 四条 + `segment-ended`**（含 clamped/degraded/reason）；**会话 baseline** 绑会话、
+  停止/新消息清三样并回 baseline、不补帧；`action_cue`/`preset_id`/`speak` 一律不删（V11）。
+  ③ **阶段5（D40–D48）**：dev_mode「**导演可观测**」四栏（决策参数 / 事件流 / 传参对照 / 送 TTS 文本，
+  **零新 WS 帧**）+ **单模型动作强度** `[action.models.<id>]`（三键各自回落全局）；维护者补修两处
+  （通道 B 判据语义化、观测环折叠 stage-clock）。契约 `docs/architecture/performance-protocol-v1.md`；
+  门禁 cargo **1457/0** · clippy 0 · rust-ratio **97.3595%** · flutter **1091** · ignite 4/4 ·
+  `verify_core_chain` **17/17**；发布说明 `docs/releases/v0.2.0-rc.4.md`。
 
 - **2026-09-14（产品级加强波次，本地 `mod/product-grade`，未发布 / 无版本变更）：**
   真源 `mod/stabilize` @ `71348c93`（版本仍 `0.2.0-rc.3`）。① **封存 wallpaper + pet-desktop**：

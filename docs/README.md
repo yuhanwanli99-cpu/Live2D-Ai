@@ -60,7 +60,10 @@
 
 ## 版本与发布
 
-- [**v0.2.0-rc.3 — Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠**（当前）**](releases/v0.2.0-rc.3.md)
+- [**v0.2.0-rc.4 — 0.2.0 线最后一个 RC：表演协议 v1 全链 + 导演可观测 + 单模型动作强度**（当前）**](releases/v0.2.0-rc.4.md)
+  ——动作从「两条驱动通道打架」收成 WS `action_cue` 一条；`speak` 退役为 `segments`（只切分、逐字不变）；
+  三表演字段 + 音频时钟 + 事件级 ack + 会话 baseline；dev_mode「导演可观测」四栏；`[action.models.<id>]`
+- [v0.2.0-rc.3 — Wave 2 五轨合成：语音 sidecar / 壁纸接线 / 记忆 / 导演 RFC / 桌宠](releases/v0.2.0-rc.3.md)
   ——两条能力从「能编译」变「能演示」：`POST /api/v1/voice/transcript` + 可跑 sidecar（`--dry-run` / `--selftest`）；壁纸决策真落 `DisplayPrefs`（不再 warn+false）；新增 `memory` crate（本地 JSONL + 检索注入下一轮）；导演 RFC 契约先行（**不注册**）；桌宠配置/事件态进 API 可测面。`AVAILABLE_MOD_FACTORIES` 5 → **6**，主链皮肤一行未改
 - [v0.2.0-rc.2 — Wave 1 三轨合成：voice-input + wallpaper + persona-polish](releases/v0.2.0-rc.2.md)
   ——把三条并行 Mod 轨道合成一条集成分支：`AVAILABLE_MOD_FACTORIES` 3 → **5**

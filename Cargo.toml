@@ -75,7 +75,16 @@ members = [
 # `GET /api/v1/mods/{id}/state`。FACTORIES 5→6（+ memory，缺省停用），
 # `mod_count_is_six` 守住数字。主链皮肤与 `l2d-wasm-demo` / framebuffer **未改**。
 # 发布说明见 `docs/releases/v0.2.0-rc.3.md`。
-version = "0.2.0-rc.3"
+#
+# 2026-09-26（0.2.0-rc.4「表演协议 v1 全链 + 导演可观测 + 单模型动作强度」）：0.2.0 线**最后一个 RC**。
+# ① 阶段3 单一驱动者：退役「前端拉 `latest.preset_id` 驱动舞台」，动作只由 WS `action_cue` 驱动，
+# `preset_id=="none"` = 撤销哨兵、`cues:[]` = 本轮不动（D10–D13）。
+# ② 阶段4 表演协议 v1：`speak` 退役为 `segments`（只切分原文、逐字不变）、三表演字段
+# `body`/`head`/`expression`、唯一时间基准 = 音频播放时钟（`stage-clock`）、渲染面事件级 ack 四条 +
+# `segment-ended`、会话 baseline（D22–D39）。
+# ③ 阶段5：dev_mode「导演可观测」四栏 + 单模型动作强度 `[action.models.<id>]`（D40–D48）。
+# 既有帧/字段一律不删（V11）。发布说明见 `docs/releases/v0.2.0-rc.4.md`。
+version = "0.2.0-rc.4"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
