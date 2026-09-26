@@ -61,3 +61,21 @@
    - `clock: audio` 期间动作到点才 `preset-expired`（音频时钟生效）；
    - 缺通道时 HUD/ack 有 `degraded`，不静默。
 3. 版本 = **`0.2.0-rc.x`**（用户 2026-09-26 定），bump/tag/并 main 均由用户点头后执行。
+
+## 6. Gate 4f 已落 + D37（W4f 收尾轮）
+
+| 提交 | 主题 |
+| --- | --- |
+| `refactor(performance): 退役 preset_id 信封，v1 键改显式字段（阶段4f-1）` | 8 文件（含新增 `tests_golden.rs`） |
+| `feat(flutter): 会话 baseline 应用接线（阶段4f-2）` | 5 文件 |
+
+**维护者独立复核**：`cargo test --workspace --all-targets` = **1447 passed / 0 failed**（26 组）· doc 3 · fmt clean ·
+clippy **exit 0** · rust-ratio **97.3413% PASS**；`flutter analyze` No issues + **1069 passed**；
+`grep -rn "V1_ENVELOPE_PREFIX|encode_v1_envelope|decode_v1_envelope" crates/ shell/` = **NONE**（信封真的没了）。
+
+| # | 事项 | 裁决 |
+| --- | --- | --- |
+| **D37** | W4f-1 实际改动含 **4 条表外路径**：`performance/mod.rs`（删 re-export）、`performance/client.rs` + `tests/conversation_engine_performance.rs`（各 1 行 `..Default::default()`）、新增 `performance/tests_golden.rs` | **追认授权**。D27 的定义（给结构体加字段）**必然**触及这三处字面量构造与那一处 re-export；`tests_golden.rs` 属 `STAGE4-plan §6.7` 的拆分授权（守测试 ≤800 行，`tests.rs` 798）。与 **D32 同类**：是计划文件表不完整，不是 worker 越权。编排者按 C1 明列为 RED 而非自行扩权，**处置正确**。 |
+| **D38** | 首轮全量出现既有 flaky `web_api::chat_routes::tests::chat_with_supervisor_returns_200`（`chat_routes.rs:665`） | **记 backlog P1**。与本轮无关（该用例 `mod_events: None`、performance 关闸，不构造 cue），维护者复跑 26 组全绿未复现。下轮按 **D1/D8 口径**做确定性同步（**不许只调大超时**），并审计同族「先失败再计数」的断言。 |
+| **D39** | D36 陈旧服务 | `scripts/ignite.sh` 第 199 行自带 `pkill -f "live2d-ai-desktop --web"`，已顺手结束 PID 59888；**当前 18080/18081 均无监听**。肉眼验收前重新点火即可。 |
+
