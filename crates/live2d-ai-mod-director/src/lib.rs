@@ -2,10 +2,14 @@
 //!
 //! 一句话：把每一轮的输入正文经**纯函数**推导成
 //! `{emotion, intent, suggested_tts:{speed,pitch}, preset_id}`，写日志 + state_json，
-//! 其中 **preset_id 就是本轮要演的动作预设**（表情 / 短动作），经**只读状态面**
-//! `latest.preset_id` 交给前端，由前端转发给渲染面（协议 v1 `preset` 消息）。
+//! 其中 **preset_id 就是本轮要演的动作预设**（表情 / 短动作）。
+//! **驱动舞台的唯一通道是 `ModServices.cues` → host 广播 WS `action_cue`**：
+//! 规则层 / 二路按 `SentenceReady` 锚出按句 cue（中性轮也产一条
+//! `preset_id == "none"` 的**撤销哨兵**，D10），前端在该句音频开始时 `applyPreset`
+//! （协议 v1 `preset` 消息）。**只读状态面 `latest.preset_id` 仅供 director 面板展示**
+//! ——前端拉取它驱动舞台的那条通道**已退役**（阶段3 / D12）。
 //! 动作通道 `ModServices::action_tx` **仍然休眠**（本 crate 从不调用它），
-//! 也**不**经 `apply_settings` 投递任何 TTS 参数——下行只有「状态面 + 前端拉取」这一条。
+//! 也**不**经 `apply_settings` 投递任何 TTS 参数。
 //!
 //! # 与 Wave 2 RFC 的关系
 //!
@@ -34,10 +38,10 @@
 //!
 //! # 不做（红线，逐条可测）
 //!
-//! - **不自己投递**：不调 `action_tx`、不调 `apply_settings`、不写 `live2d-ai.toml`
-//!   （回归 `tests::action_tx_and_apply_settings_are_never_called`）。
-//!   「投递」只发生在**前端**：它读 `latest.preset_id` 再经协议 v1 `preset` 消息
-//!   交给渲染面——host 下行通道零调用这条不变；
+//! - **不调 `action_tx` / `apply_settings`**：也不写 `live2d-ai.toml`（回归
+//!   `tests::action_tx_and_apply_settings_are_never_called`）。下行**只**走
+//!   `ModServices.cues` → WS `action_cue`（host 广播，前端按句应用）；渲染面
+//!   `preset` 协议由前端收到 `action_cue` 后转发，**不是**前端拉状态面；
 //! - **不复活动作**：不 `use` core 动作类型、不产出任何 `channel != "none"`；
 //! - **异步第二路 LLM 默认关，规则常开兜底**（P1-3，2026-09-16；真实客户端
 //!   P1-4，2026-09-19）：规则推导仍是本地纯函数（无网络 / 无时钟 / 无随机）；
@@ -106,7 +110,9 @@
 //! （仍走规则层，`note` 给原因）；`async_failures` = 失败/超时/坏 JSON 次数。
 //! 密钥**只回布尔** `api_key_set`，永不回值。
 //!
-//! `channel` 恒 `"preset"`：下行通道是「状态面 + 前端拉取」；
+//! `channel` 恒 `"preset"`：这是**账本侧**的既有字段名，语义是「本轮选出了哪条
+//! 预设」，**不表示**有状态面拉取通道——驱动舞台唯一走 `ModServices.cues` →
+//! `action_cue`；`latest` 仅供面板展示（D12）。
 //! `delivered` = 最近一轮**是否选出了一条预设**（空账本 → `false`）。
 //! `recent_decisions` 只留最近 `log_capacity` 条（缺省 20，钳在 1..=200），
 //! 计数（`turns_seen` / `decisions` / `errors`）不受容量影响。
@@ -412,7 +418,7 @@ fn preset_label(id: &str) -> String {
     format!("{}{} ({id})", row.zh, channel)
 }
 
-/// 导演 Mod 运行时（观察 → 纯函数推导 → 写账本 → 产出动作预设经状态面交付）。
+/// 导演 Mod 运行时（观察 → 纯函数推导 → 写账本 → 产出动作预设经 `ModServices.cues` → `action_cue` 交付；`latest` 仅供面板）。
 pub struct DirectorRuntime {
     services: ModServices,
     config: DirectorConfig,
@@ -536,11 +542,13 @@ impl DirectorRuntime {
         }
         self.sentences_seen += 1;
 
-        // 规则兜底（常开）：本轮规则决策的 preset 绑到第一句。
+        // 规则兜底（常开）：本轮规则决策的 preset 绑到第一句。中性轮也产一条
+        // `preset_id == "none"` 的**撤销哨兵**（D10），所以 `rule.cues` 恒非空；
+        // `rule_cues` 因此按「首句规则 cue 生效次数」计（**含 none 轮**）。
         if sentence_seq == 1 {
             let preset = self.ledger.latest().and_then(|e| e.preset_id.clone());
             let rule = DirectorPlan::rule(epoch, preset.as_deref(), 1, 2_000);
-            if !rule.cues.is_empty() && self.arbiter.apply(&rule) {
+            if self.arbiter.apply(&rule) {
                 self.rule_cues += 1;
             }
         }
@@ -649,10 +657,11 @@ impl ModRuntime for DirectorRuntime {
         // P1-3：句子交给 TTS 之前的锚点（异步导演按句对齐）。
         registrar.subscribe(ModEventTopic::SentenceReady)?;
         self.registered = true;
-        // 日志必须反映**现状**：动作预设经只读状态面 latest.preset_id 交给前端，
-        // 再由前端转发给渲染面（表情 / 短动作）。不要再写「只记决策、不投递」。
+        // 日志必须反映**现状**：驱动舞台的唯一通道是 ModServices.cues → WS
+        // action_cue（前端在该句音频开始时 applyPreset）；只读状态面 latest 仅供
+        // 面板展示。不要再写「经状态面 latest.preset_id 交给前端驱动」——已退役。
         self.services.logger.info(&format!(
-            "director Mod 已启动（按情绪/意图选动作预设：expression|motion 经状态面 latest.preset_id 交给渲染面；lexicon={}, log_capacity={}）",
+            "director Mod 已启动（按情绪/意图选动作预设：expression|motion 经 ModServices.cues → WS action_cue 驱动舞台；state_json.latest 仅供面板展示；lexicon={}, log_capacity={}）",
             self.config.emotion_lexicon.as_str(),
             self.ledger.capacity()
         ));
@@ -718,8 +727,9 @@ impl ModRuntime for DirectorRuntime {
                         pitch,
                         preset_id,
                     } => {
-                        // 预设是**本轮**的结论；面板/前端从 state_json 读它并投给
-                        // 渲染面。日志里写清「选了哪条」——排障要看的就是这一句。
+                        // 预设是**本轮**的结论：第一句经 cues → action_cue 驱动舞台；
+                        // state_json.latest 只供面板展示。日志里写清「选了哪条」——
+                        // 排障要看的就是这一句。
                         self.services.logger.info(&format!(
                             "director 本轮决策（len={len}）: emotion={}, intent={}, suggested_tts={{speed:{speed}, pitch:{pitch}}}, preset={}",
                             emotion.as_str(),

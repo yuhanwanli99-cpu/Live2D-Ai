@@ -24,8 +24,10 @@
   `external-input`（计数进 Mod 管理 UI + sidecar 节流可配）、`voice-input`（backend/locale
   说人话 + 失败码可读 + sidecar 最小成功路径）、`persona`（导入卡→enable→人设变→disable
   还原，UI 内完成）、`memory`（可见条数/hits/清空 + 注入可关 + 与 persona 策略钉死）、
-  `director`（决策一等面板；当时的「**零投递不变**」结论**已变更**——director 现产 `latest.preset_id`
-  与按句 `action_cue`，现状见 §「动作与表演的现行状态（2026-09 实测）」；仍不复活 **core** 动作通道）。
+  `director`（决策一等面板；当时的「**零投递不变**」结论**已变更**——director 现产按句
+  `action_cue`（唯一驱动舞台；中性轮给 `preset_id=="none"` 撤销哨兵，D10），`latest.preset_id`
+  **仅面板只读**、前端拉取驱动通道已退役（D12），现状见 §「动作与表演的现行状态（2026-09 实测）」；
+  仍不复活 **core** 动作通道）。
   **未 bump 版本、未 push**；
   主链皮肤（LLM/TTS/口型/Live2D）与 `l2d-wasm-demo` 一行未改。
   收束见 `docs/plans/PRODUCT-GRADE-CLOSEOUT.md`。
@@ -272,7 +274,7 @@
 | `live2d-ai-core` 的 `action/` + `performance/` | **休眠保留**（类型 / reducer / capability gate 原样） | 只有先重新论证 `core-chain-baseline.md` §3.2 的三条理由 + `lib.rs` 第 4/6 条不变量之后 |
 | `ModServices.action_tx`（仍属 Mod API 契约） | **休眠**：host 注入固定 sender，请求只留一行 debug 日志并返回 `false` | 同上；**不得**在 `mod_registry.rs` 里私自接回真通道 |
 | `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档在 `archive/action-layer-p6` |
-| `live2d-ai-mod-director`（2026-09-14 重加的**决策/按句 cue**版） | **已接线**（不再休眠）：规则层产 `latest.preset_id` + WS `action_cue`，经前端转发到渲染面 `preset` 协议**会驱动动作**；只是**不经 core reducer**（`action_tx` 仍休眠） | 见下文 §「动作与表演的现行状态（2026-09 实测）」③ |
+| `live2d-ai-mod-director`（2026-09-14 重加的**决策/按句 cue**版） | **已接线**（不再休眠）：规则层产 WS `action_cue`（**唯一驱动舞台**，中性轮给 `preset_id=="none"` 撤销哨兵），经前端转发到渲染面 `preset` 协议**会驱动动作**；`latest.preset_id` **仅面板只读**（前端拉取驱动已退役，D12）；只是**不经 core reducer**（`action_tx` 仍休眠） | 见下文 §「动作与表演的现行状态（2026-09 实测）」③ |
 | 渲染面（`l2d-wasm-demo`）的编舞残件 | **已删除**（`action-state` 接收器 + `surface.rs` 编舞） | 归档在 `archive/action-layer-p6`；恢复必须 wasm 重建 + 肉眼验收 |
 | **待机生命体征**（`IdleState` 呼吸/眨眼/微表情） | **必须保留**——与动作系统是两套机制，只共用 override 层 | 无（它一直在产品里，删动作时**绝不要**连带删它） |
 
@@ -291,7 +293,7 @@
 | --- | --- | --- |
 | ① | **动作包（表情 / 手势）经 `preset` 帧直接驱动渲染面参数，不经 core reducer**：共 9 条包 `smile` / `unhappy` / `surprised` / `nod` / `shake` / `look_left` / `look_right` / `tilt_left` / `tilt_right`（另有 `none` 撤销哨兵）；渲染面 `PresetRuntime` 收 v1 协议 `preset` 消息 → `PresetCommand::Apply / Revoke / Ignore`，按 `PresetSlot::Face` / `Gesture` 两槽写参数，到点按槽撤销 | `assets/actions/presets.json`、`assets/actions/preset_labels.json`、`crates/l2d-wasm-demo/src/preset/mod.rs`（`handle` / `apply_frame`）、`crates/l2d-wasm-demo/src/preset/table.rs`（解析期红线）、`crates/l2d-wasm-demo/src/main.rs`（`"preset" =>` 分支）、`shell/flutter/lib/live2d/live2d_stage.dart`（`applyPreset`） |
 | ② | **`[action]` 幅度倍率存在**：`head_scale=0.75` / `body_scale=1.4` / `expression_scale=1.0`，运行期参与 `最终值 = 表值 × 包络 × 通道倍率` 并按通道钳位（`ParamAngle*` ≤30 / `ParamBodyAngle*` ≤10 / 五官 ≤4）；Flutter「外观与互动」有滑条 | `live2d-ai.toml` 的 `[action]` 段、`live2d-ai.toml.example` 的 `[action]` 段、`crates/live2d-ai-runtime/src/settings.rs`（`ActionSettings`）、`crates/l2d-wasm-demo/src/preset/scales.rs`（`PresetScales::from_parts`）、`crates/l2d-wasm-demo/src/main.rs`（`set_scales`） |
-| ③ | **director Mod 已接线，产出 `latest.preset_id` 与 `action_cue`**：规则层按用户输入判 emotion / intent → 选包；`preset_id` 经只读状态面 `GET /api/v1/mods/director/state` 交前端转发给渲染面，`cues` 经 host `ModServices.cues` 广播 WS `action_cue`。**本工作树**运行配置 `mods.json` 里 `director.enabled = true`（该文件未入库、属本机配置，见 `.gitignore`）；**编译期** `cli_entry::default_mods_manifest` 仍只收录 `external-input`——「缺省启用」指前者，两者是不同的真源，不要混写 | `crates/live2d-ai-mod-director/src/lib.rs`（`latest.preset_id`、`emit_cues`）、`crates/live2d-ai-mod-director/src/presets.rs`（`PRESET_IDS` 单一真源）、`mods.json`、`crates/live2d-ai-desktop/src/web_api/cli_entry.rs`（`default_mods_manifest`）、`crates/live2d-ai-desktop/src/web_api/mods_routes.rs`（`{id}/state`）、`shell/flutter/lib/main.dart`（`_applyDirectorPreset`） |
+| ③ | **director Mod 已接线，唯一驱动是 `action_cue`**：规则层按用户输入判 emotion / intent → 选包；`cues` 经 host `ModServices.cues` 广播 WS `action_cue`（`cues[].preset_id=="none"` = 该句音频开始时撤销两槽；中性轮也给这条撤销哨兵，D10）。`latest.preset_id` 经 `GET /api/v1/mods/director/state` **仅供面板只读**——前端拉取它驱动舞台的通道**已退役**（D12；Dart `_applyDirectorPreset` / `DirectorPresetGate` 已删，驱动走 `_applyDirectorCueForSeq`）。**本工作树**运行配置 `mods.json` 里 `director.enabled = true`（该文件未入库、属本机配置，见 `.gitignore`）；**编译期** `cli_entry::default_mods_manifest` 仍只收录 `external-input`——「缺省启用」指前者，两者是不同的真源，不要混写 | `crates/live2d-ai-mod-director/src/lib.rs`（`latest.preset_id`、`emit_cues`）、`crates/live2d-ai-mod-director/src/presets.rs`（`PRESET_IDS` 单一真源）、`mods.json`、`crates/live2d-ai-desktop/src/web_api/cli_entry.rs`（`default_mods_manifest`）、`crates/live2d-ai-desktop/src/web_api/mods_routes.rs`（`{id}/state`）、`shell/flutter/lib/main.dart`（`_applyDirectorCueForSeq`） |
 | ④ | **`[performance]` 段存在但缺省关**：`enabled = false`；打开后是主链（引擎内）的**第二个 LLM 端点**，每轮交回 `{"speak":…,"cues":[…]}`。它与 Mod `staging_*` 是**两个可选提供者、都默认关、职责重叠**；**谁的 `speak` 能力该保留**未定（RESEARCH §3.7 Q1，**不裁决**，此处仅登记待定） | `live2d-ai.toml` 的 `[performance]` 段、`live2d-ai.toml.example` 的 `[performance]` 段、`crates/live2d-ai-runtime/src/performance/`（`client.rs` / `mod.rs` / `plan.rs` / `prompt.rs`）、`crates/live2d-ai-runtime/src/conversation/engine.rs`（`perf.resolve(...)`）、`docs/architecture/performance-layer-v0.md` |
 | ⑤ | **core 的 action / performance 子系统仍无驱动方**：动作包走的是渲染面参数层（①②），**不经 core reducer**；`ModServices.action_tx` 仍是休眠 sender，`supervisor` 侧注入 `RootEvent::Action` 的分支已在 rc.2 删除 | `crates/live2d-ai-core/src/action/`、`crates/live2d-ai-core/src/performance/`、`crates/live2d-ai-core/src/lib.rs`（不变量 4/6）、`crates/live2d-ai-desktop/src/mod_registry.rs`（`action_tx` 休眠 + `action_request_is_dormant_not_delivered`）、`crates/live2d-ai-desktop/src/supervisor.rs`（rc.2 删除注入分支的注释） |
 
@@ -448,7 +450,7 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   persona（卡导入命令 + `state` 503→200 + 面板 + `persona-mod-v0.md`）、
   memory（`records` + `clear` 原子清空 + 面板 + §12 可重复验收）、
   director（**一等决策面板** + `latest`/`clear`；当时的「**零投递不变**」结论**已变更**——现产
-  `latest.preset_id` 与按句 `action_cue` 驱动舞台，现状见 §「动作与表演的现行状态（2026-09 实测）」；
+  按句 `action_cue` 驱动舞台（`latest.preset_id` 仅面板只读；前端拉取驱动已退役），现状见 §「动作与表演的现行状态（2026-09 实测）」；
   仍不做 apply-to-TTS）。
   ④ **真点火抓到并修掉两个缺陷**：`local-llm` 与 `ModRuntime::command` 方法名撞名
   （全量 `cargo test --workspace` 才暴露）；`config_path_for_web()` 返回裸文件名 →

@@ -78,6 +78,15 @@ structured = "auto"      # auto | json_schema | prompt
 `SentenceReady` 转给 Mod（`forward_sentence_ready_to_mods = !engine.performance_enabled()`）——
 否则两份 `action_cue` 会在前端互相**整份覆盖**。规则回退仍走 director 的纯函数（host 注入闭包）。
 
+**2026-09-24 阶段3 收口（D10–D12）**：驱动舞台的**唯一**通道是 WS `action_cue`；
+`cues[].preset_id == "none"` = 该句音频开始时**撤销两槽**，`cues: []` = **本轮不动**。
+前端拉取 director `latest.preset_id` 驱动舞台的通道**已退役**（`latest` 仅面板只读，D12）。
+**D11 不对称（明文）**：performance 开的中性轮 = **noop**（靠上一轮 preset 的 `ttl`
+到点收敛）；performance 关的 director 规则路径 = 中性轮产 `preset_id=="none"` cue
+**立即撤销**（`DirectorPlan::rule` 已从「空 plan」改为「none cue」）。
+回归：`live2d-ai-mod-director` 的 `rule_none_cue_is_the_revoke_sentinel` /
+`rule_with_preset_is_field_for_field_unchanged` / `neutral_turn_emits_exactly_one_none_cue`。
+
 ## 7. 门禁（本机实测）
 
 | 检查 | 结果 |

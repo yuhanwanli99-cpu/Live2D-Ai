@@ -453,9 +453,10 @@ fn state_json_shape_and_preset_delivery() {
     runtime.on_event(ModEventTopic::TurnEnded, "1").unwrap();
 
     let state = runtime.state_json().expect("骨架必须有状态面");
-    // **2026-09-15 起**：「零投递」的定义变了——本 Mod 仍然不调用任何 host
-    // 下行通道（action_tx / apply_settings 零调用），但它**产出**一条动作预设，
-    // 经只读状态面的 latest.preset_id 交给前端投给渲染面。
+    // **2026-09-15 起**：「零投递」的定义变了——本 Mod 仍然不调用 action_tx /
+    // apply_settings（零调用），但它**产出**一条动作预设：驱动舞台走按句
+    // action_cue（ModServices.cues → WS）；只读状态面的 latest.preset_id
+    // **仅供面板展示**（前端拉取驱动已退役，D12）。
     // 「你好！今天太开心了！」= Greeting + Happy → greeting 优先 = nod。
     assert_eq!(state["channel"], serde_json::json!("preset"));
     assert_eq!(state["delivered"], serde_json::json!(true));

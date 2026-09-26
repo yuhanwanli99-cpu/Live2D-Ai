@@ -1,4 +1,4 @@
-# 导演 Mod v0（已注册第 5 个）：按情绪/意图选动作包 → `latest.preset_id`（状态面）+ 按句 `action_cue`（驱动舞台）
+# 导演 Mod v0（已注册第 5 个）：按情绪/意图选动作包 → 按句 `action_cue`（唯一驱动）；`latest.preset_id`（面板只读）
 
 > **状态**：2026-09-14 **产品级加强波次**（director 轨道）。
 > 本 crate 已在 `AVAILABLE_MOD_FACTORIES` 中**注册**（产品级加强波次后注册面共 **5 个**：
@@ -14,8 +14,9 @@
 >
 > **产品口径（2026-09-21）**：产品 = 「**酒馆（类酒馆角色扮演内核）+ Live2D 皮套壳子**」，
 > 各功能由现有 mod 矩阵承担（导演也在矩阵里）；**导演是一个 AI**，不是给用户操控皮套的辅助。
-> 本 Mod 的**实际职责**：按情绪 / 意图选动作包 → 产出
-> **`latest.preset_id`**（状态面，供面板展示）与**按句 `action_cue`**（驱动舞台）。
+> 本 Mod 的**实际职责**：按情绪 / 意图选动作包 → 产出**按句 `action_cue`**
+> （**唯一驱动舞台的通道**）与 **`latest.preset_id`**（**面板只读展示**；
+> 前端拉取它驱动舞台的通道**已退役**，D12）。
 >
 > **2026-09-22 并存关系**：主链 `[performance]`（见 [performance-layer-v0.md](performance-layer-v0.md)）
 > 与本 Mod `staging_*` 是**两个可选提供者，都默认关、职责有重叠**——
@@ -31,22 +32,24 @@
 > | 提供者 | 当前产出 | 默认 |
 > | --- | --- | --- |
 > | **主链 `[performance]`**（runtime 主链） | `speak`（本轮 TTS / 上屏真源）+ `cues` → `action_cue` | `enabled=false` |
-> | **本 Mod 规则层 + `staging_*`**（Mod） | `latest.preset_id`（状态面，供面板展示）+ 按句 `action_cue` → 驱动舞台 | 规则层常驻；`staging_enabled=false` |
+> | **本 Mod 规则层 + `staging_*`**（Mod） | 按句 `action_cue` → **唯一驱动舞台**（中性轮给 `preset_id=="none"` 撤销哨兵，D10）；`latest.preset_id` **仅面板只读** | 规则层常驻；`staging_enabled=false` |
 >
 > 界面侧一致：LLM 分区写「主模型不负责表演；表演层每轮 JSON」+ 三态说明（只说 / 只动 / noop）；
 > 本 Mod 面板对两者关系另有一句兼容说明。
 
-## 0. 一句话：按情绪/意图选动作包 → 状态面 `latest.preset_id` + 按句 `action_cue`
+## 0. 一句话：按情绪/意图选动作包 → 按句 `action_cue` 驱动；`latest.preset_id` 面板只读
 
 每轮输入正文经**纯函数**推导成 `{emotion, intent, suggested_tts:{speed,pitch}}`，
 再经一张**映射表**选出一条**动作预设** `preset_id`（表情 / 短动作），写进日志与
-`state_json.latest.preset_id`（**状态面，供面板展示**）。`action_tx` **零调用**、
+`state_json.latest.preset_id`（**面板只读展示**）。`action_tx` **零调用**、
 `apply_settings` **零调用**、`live2d-ai.toml` **零写入**——这三点成立；
-**但下行确实存在**：规则层 / 二路按 `SentenceReady` 锚出的 cue 经
+**下行只有一条**：规则层 / 二路按 `SentenceReady` 锚出的 cue 经
 `ModServices.cues`（ModCueSender）→ host 广播 WS **`action_cue`** 帧 →
-前端在该句音频开始播放时 `applyPreset` **驱动舞台**。另一条通道是**只读状态面**
-（`GET /api/v1/mods/director/state`）+ 前端拉取 `latest.preset_id`，供面板展示
-（单一驱动者收口见 W9）。
+前端在该句音频开始播放时 `applyPreset` **驱动舞台**（**唯一驱动通道**）。
+`cues[].preset_id == "none"` = 该句音频开始时**撤销两槽**（D10）；`cues: []` = 本轮不动。
+**只读状态面**（`GET /api/v1/mods/director/state`）**仅供 director 面板展示**：
+前端拉取 `latest.preset_id` 驱动舞台的通道**已退役**（D12，阶段3 W9；
+Dart `_applyDirectorPreset` / W4 `DirectorPresetGate` 已删）。
 
 > **产品口径（2026-09-21）**：产品 = 「酒馆（类酒馆角色扮演内核）+ Live2D 皮套壳子」，
 > 各功能由现有 mod 矩阵承担（导演也在矩阵里）；**导演是一个 AI**，不是给用户操控皮套的辅助。
@@ -68,7 +71,9 @@
   → ModEventTopic::SentenceReady（payload = JSON {epoch, ts_ms, sentence_seq, text}）。
   本 Mod 多订阅这一个主题；投递是**非阻塞**的（主链绝不等待导演）。
 - **规则层常开兜底**（priority 10）：每轮 TurnPrompt 的规则决策选出的 preset_id
-  在第一句锚成一条 cue。规则仍是本地纯函数（无网络 / 无时钟 / 无随机）。
+  在第一句锚成一条 cue；**选不出时（中性 / 焦虑 / 告别缺省 none）锚一条
+  `preset_id == "none"` 的撤销哨兵**（D10，2026-09-24），不再是空 plan。
+  规则仍是本地纯函数（无网络 / 无时钟 / 无随机）。
 - **异步第二路 LLM**（priority 40，**默认关**）：节流 = 首句触发 + 间隔 >= 1200ms +
   每轮 <= 3；失败 / 超时 / JSON 坏一律静默回退规则。输出契约是 plan
   {epoch, covers_upto_seq, cues:[{sentence_seq, preset_id, intensity, ttl_ms}]}；
@@ -121,7 +126,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| **闭环定义** | 启停可用（唯一真源 = manifest `enabled`）→ 订阅两个主题 → `state_json` 可观察 `latest` + 最近 N 条 → **一等面板可读** → `clear` 可清空 → **产出一条动作预设**（`latest.preset_id`，状态面供面板展示）+ **按句 `action_cue`（`ModServices.cues` → WS `action_cue`，驱动舞台）**；`action_tx` / `apply_settings` 仍零调用 |
+| **闭环定义** | 启停可用（唯一真源 = manifest `enabled`）→ 订阅两个主题 → `state_json` 可观察 `latest` + 最近 N 条 → **一等面板可读** → `clear` 可清空 → **产出一条动作预设**（**按句 `action_cue`（`ModServices.cues` → WS `action_cue`）驱动舞台**；`latest.preset_id` 仅供面板只读）；`action_tx` / `apply_settings` 仍零调用 |
 | **输入** | `TurnPrompt`（本轮正文）+ `TurnEnded`（turn id），**正好两个主题** |
 | **输出** | tracing 日志（**不含正文原文**）+ `GET /api/v1/mods/director/state`（新增 `latest`）+ `POST /api/v1/mods/director/command`（`clear`） |
 | **前端** | `shell/flutter/lib/settings/mods/director_panel.dart`（**只改这一个面板文件**） |
@@ -143,8 +148,9 @@
    两者由 host 在**同一个 Mod worker 上顺序投递**，且 supervisor 一轮内不并发
    （提交 → 跑完 → 发 `TurnEnded`），所以「最近一条未结项决策」就是本轮。
 2. 本 Mod **不**在 `TurnPrompt` 里做任何配置写回，所以 RFC §1 那条
-   「只对下一轮生效」的时序代价在这里**不成立**（本 Mod 不写配置；预设走状态面，
-   前端在**本轮**回复开始时拉取——见 §0 的 2026-09-15 变更）。
+   「只对下一轮生效」的时序代价在这里**不成立**（本 Mod 不写配置；预设经
+   `SentenceReady` 锚成按句 `action_cue`，前端在**该句音频开始**时应用——
+   见 §0 与 §0.1；前端拉状态面的通道已退役）。
 
 ## 2. 输入（订阅面）
 
@@ -221,8 +227,10 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision
 
 > **该建议参数不投递给任何人**：不进 `[tts]`、不进请求体、不进 WS 帧。
 > 它只出现在日志与 `state_json` 里（为什么不做 apply-to-TTS 见 §8）。
-> **2026-09-15 例外**：`preset_id`（动作预设）走 `state_json.latest.preset_id` +
-> 前端拉取交给渲染面；`suggested_tts` 仍然**不投递**。
+> **2026-09-15 例外（2026-09-24 收口）**：`preset_id`（动作预设）**经按句
+> `action_cue` 驱动舞台**（`ModServices.cues` → WS `action_cue`），并在
+> `state_json.latest.preset_id` 里**只读展示**给面板；前端拉取状态面驱动的那条
+> 通道**已退役**（D12）。`suggested_tts` 仍然**不投递**。
 
 ## 4. 状态面（`ModRuntime::state_json`）
 
@@ -260,8 +268,8 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision
 
 | 字段 | 语义 |
 | --- | --- |
-| `delivered` | 最近一轮**是否选出了一条预设**（`latest.preset_id != null`）；空账本 → `false`。**不是** host 通道的投递回执 |
-| `channel` | 恒 `"preset"`：状态面这条通道是「只读状态面 + 前端拉取」；另有 host 广播 WS `action_cue` 的按句 cue 通道（`ModServices.cues`，不是 host 回调 `action_tx`） |
+| `delivered` | 最近一轮**是否选出了一条预设**（`latest.preset_id != null`）；空账本 → `false`。**不是** host 通道的投递回执；**也不表示**有状态面拉取通道 |
+| `channel` | 恒 `"preset"`：这是**账本侧**的既有字段名，语义 =「本轮选出了哪条预设」，**不表示**前端拉取通道。驱动舞台唯一走 host 广播 WS `action_cue` 的按句 cue 通道（`ModServices.cues`，不是 host 回调 `action_tx`）；`latest` 仅面板只读（D12） |
 | `turns_seen` | 见过的 `TurnPrompt` 数（含静默轮） |
 | `turns_ended` | 正常结项的 `TurnEnded` 数 |
 | `decisions` | 产生的决策数（不含静默轮、**不受容量影响**） |
@@ -274,7 +282,7 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision
 | **`latest`** | **最近一条决策**（= `recent_decisions` 的最后一条，**同一个 `LedgerEntry::to_json` 形状**）；空账本 → `null`。**产品级加强波次新增**，前端不必再从数组尾部自己取 |
 | `recent_decisions` | 最近 `log_capacity` 条（旧 → 新）；单条键：`seq/turn/emotion/intent/suggested_tts/preset_id/closed/delivered`（2026-09-15 只新增 `preset_id`，其余一行未改） |
 | **`staging`** | P1-4 新增：异步二路的可观察面——`enabled/client/degraded/note/base_url/model/api_key_env/api_key_set/timeout_ms/min_interval_ms/max_per_turn/fires_this_turn/async_plans/async_failures`；`degraded=true` = 开了闸但没配端点（仅规则）。密钥**只回 `api_key_set` 布尔**。详见 §9.1 |
-| **`plan`** | P1-3 新增：当前仲裁表——`epoch/covers_upto_seq/cues/cues_emitted/rule_cues/sentences_seen/cue_sink_enabled` |
+| **`plan`** | P1-3 新增：当前仲裁表——`epoch/covers_upto_seq/cues/cues_emitted/rule_cues/sentences_seen/cue_sink_enabled`；`rule_cues` = 首句规则 cue 生效次数（**含中性轮的 `none` 撤销哨兵**，D10） |
 
 - **只读、不写盘、不阻塞**：只读内存字段，无 IO、无锁等待、无网络
   （契约见 `ModRuntime::state_json` 头注）。经 host 暴露为
@@ -458,7 +466,7 @@ DEEPSEEK_API_KEY=sk-...
 | 字段 / 落点 | director | 说明 |
 | --- | --- | --- |
 | `persona.system_prompt` | **禁止** | 归 persona / memory（last-writer-wins）；director 不当第三个写者 |
-| 动作预设（`preset_id`） | **允许**（2026-09-15）：写入自己的 `state_json.latest.preset_id`，由前端拉取后投给渲染面 |
+| 动作预设（`preset_id`） | **允许**（2026-09-15）：产出按句 `action_cue`（`ModServices.cues` → WS）驱动舞台，并在自己的 `state_json.latest.preset_id` 里**只读展示**给面板（前端拉取驱动已退役） |
 | `persona.max_history_pairs` | **禁止** | — |
 | `[tts].base_url` / `api_key_env` | **禁止**（红线） | 端点唯一权威（`tts-is-core.md`） |
 | `[tts].voice` / `[tts].model` / speed / pitch | **禁止** | §8：没有 per-request 通道；`apply_settings` 零调用 |
@@ -473,8 +481,9 @@ DEEPSEEK_API_KEY=sk-...
 
 - **不投递任何 TTS 参数**（`suggested_tts` 只进日志 / 状态面）；
   **动作预设**（`preset_id`）是 2026-09-15 起允许的唯一可执行产出，范围严格限定
-  在表情 / 短动作；除「只读状态面 + 前端拉取」外，**按句 `action_cue` 经
-  `ModServices.cues` → WS `action_cue` 下行驱动舞台**（不是 `action_tx`）；
+  在表情 / 短动作；**唯一驱动通道是按句 `action_cue` 经
+  `ModServices.cues` → WS `action_cue` 下行**（不是 `action_tx`），中性轮给
+  `preset_id=="none"` 撤销哨兵；只读状态面仅供面板；
 - **不做「应用到当前 TTS」**（§8：无 per-request 参数通道，且本波主链冻结）；
 - 不实现动作库 / 编舞 / 表情编排；不复活 `RootEvent::Action`；
 - 不起第二个 LLM 调用、不做 embedding / 向量库 / 云端情绪分类；
@@ -487,7 +496,7 @@ DEEPSEEK_API_KEY=sk-...
 | # | RFC §5.1 条件 | 当前状态 |
 | --- | --- | --- |
 | 0 | `[tts].voice` 持久化写入**被授权** | ✗ **未授权**——本 Mod 因此选择零写入 |
-| 1 | ≥3 条用户可见演示（开 / 关有差异） | ✓（2026-09-15 起）：启用后按情绪触发表情 / 短动作（`preset_id` 经前端投给渲染面），停用即无动作；面板与 `state` 同时可见（`latest.preset_id`） |
+| 1 | ≥3 条用户可见演示（开 / 关有差异） | ✓（2026-09-15 起）：启用后按情绪触发表情 / 短动作（`preset_id` 经按句 `action_cue` 交给渲染面），停用即无动作；面板与 `state` 同时可见（`latest.preset_id` 只读） |
 | 2 | 推导纯函数单测 ≥20 条 | ✓ 共 **33 条**回归（纯函数 14 + 账本/状态/命令/零调用） |
 | 3 | 失败隔离可证明 | ✓ 坏 `TurnEnded` → `errors` 不 panic；未知命令 → `UnsupportedCommand` 且状态不变；`state_json` / `command` 不阻塞、无网络 |
 | 4 | 端点红线可测（patch 键 ⊆ `{tts.voice, tts.model}`） | ✓ **更强**：`apply_calls == 0`（没有 patch，含命令通道） |

@@ -34,10 +34,11 @@ pub struct LedgerEntry {
     pub intent: IntentHint,
     pub speed: f64,
     pub pitch: f64,
-    /// 本轮选出的**动作预设 id**；`None` = 本轮不投递任何预设。
+    /// 本轮选出的**动作预设 id**；`None` = 本轮没选出预设。
     ///
-    /// 取值见 [`crate::presets::PRESET_IDS`]；消费者是 Flutter 舞台
-    /// （拉 `state_json.latest.preset_id` 后经 bridge 交给渲染面）。
+    /// 取值见 [`crate::presets::PRESET_IDS`]；驱动舞台的**唯一**通道是
+    /// `ModServices.cues` → WS `action_cue`（前端在该句音频开始时 `applyPreset`）。
+    /// **本字段仅供 director 面板只读展示**（阶段3 / D12）。
     pub preset_id: Option<String>,
     /// 对应的 `TurnEnded` 是否已到达。
     pub closed: bool,
@@ -112,8 +113,8 @@ pub struct DecisionLedger {
     errors: u64,
     /// 累计「真的选出了一条预设」的决策数（`preset_id` 非空）。
     ///
-    /// 它**不是**「投递成功数」——投递由前端拉取后交给渲染面完成，
-    /// 这里只记「本轮选了哪条」。
+    /// 它**不是**「投递成功数」——投递由 `ModServices.cues` → WS `action_cue`
+    /// 完成，这里只记「本轮选了哪条」。
     presets_chosen: u64,
     /// 是否有「已收到 TurnPrompt、尚未收到 TurnEnded」的在飞轮。
     open: bool,
@@ -202,12 +203,14 @@ impl DecisionLedger {
     /// `state_json` 契约（见 crate 头注「状态面」）。
     pub fn state_json(&self) -> serde_json::Value {
         json!({
-            // **投递语义（2026-09-15 起）**：本 Mod 仍不调用任何 host 下行通道
-            // （`action_tx` / `apply_settings` 零调用），但它现在**产出**一条
-            // 可执行的动作预设，经这条只读状态面的 `latest.preset_id` 交给前端，
-            // 由前端投给渲染面（参数/表情层）。所以：
-            // - `channel` = "preset"：下行通道是「状态面 + 前端拉取」；
-            // - `delivered` = 最近一轮**是否选出了一条预设**（空账本 → false）。
+            // **投递语义（2026-09-24 阶段3 / D10–D12 起）**：本 Mod 仍不调用任何
+            // host 下行通道（`action_tx` / `apply_settings` 零调用）；驱动舞台的
+            // **唯一**通道是 `ModServices.cues` → host 广播 WS `action_cue`
+            // （前端在该句音频开始时 `applyPreset`）。所以：
+            // - `channel` = "preset"：这是**账本侧**的既有字段名，表示「本轮选出了
+            //   哪条预设」，**不表示**存在状态面拉取通道（前端拉取已退役，D12）；
+            // - `delivered` = 最近一轮**是否选出了一条预设**（空账本 → false）；
+            // - `latest` 仅供 director 面板只读展示。
             "delivered": self
                 .latest()
                 .is_some_and(|e| e.preset_id.is_some()),

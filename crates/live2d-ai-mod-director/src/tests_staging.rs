@@ -157,6 +157,85 @@ fn arbiter_priority_and_epoch_mismatch_zero_side_effect() {
     assert!(arb.cue_for(2).is_none(), "不得产生任何 cue");
 }
 
+/// **D10（2026-09-24）**：`DirectorPlan::rule` 在空 / `none` preset 时产一条
+/// `preset_id == "none"` 的**撤销哨兵**（不再是空 plan）。
+///
+/// 同时钉住「`none` 可直接承载」的两个**结构事实**（任务书要求：
+/// `arbiter.apply` 不校验 preset id；director 规则路径不经 `parse_plan` 的能力集校验）。
+#[test]
+fn rule_none_cue_is_the_revoke_sentinel() {
+    for preset in [None, Some(""), Some("none")] {
+        let plan = DirectorPlan::rule(7, preset, 1, 2_000);
+        assert_eq!(plan.epoch, 7);
+        assert_eq!(plan.covers_upto_seq, 1);
+        assert_eq!(
+            plan.cues.len(),
+            1,
+            "中性轮必须产出一条**显式撤销** cue，不是空 cues（preset={preset:?}）"
+        );
+        let cue = &plan.cues[0];
+        assert_eq!(cue.sentence_seq, 1);
+        assert_eq!(cue.preset_id, crate::PRESET_NONE);
+        assert_eq!(cue.intensity, 1);
+        assert_eq!(cue.ttl_ms, 2_000);
+        assert_eq!(cue.priority, PRIORITY_RULE);
+    }
+
+    // 钳位口径与有预设时相同：intensity 0→1 / 9→3；ttl 0→1 / 99999→5000。
+    let clamped = DirectorPlan::rule(7, None, 9, 99_999);
+    assert_eq!(clamped.cues[0].intensity, crate::MAX_INTENSITY);
+    assert_eq!(clamped.cues[0].ttl_ms, crate::MAX_TTL_MS);
+    let floored = DirectorPlan::rule(7, Some("none"), 0, 0);
+    assert_eq!(floored.cues[0].intensity, 1);
+    assert_eq!(floored.cues[0].ttl_ms, 1);
+
+    // ① arbiter **不校验 preset id**：none cue 进表、按句可查（只做 epoch 硬闸 + upsert）。
+    let mut arb = Arbiter::new(7);
+    assert!(arb.apply(&clamped));
+    assert_eq!(
+        arb.cue_for(1).map(|c| c.preset_id.as_str()),
+        Some(crate::PRESET_NONE),
+        "arbiter.apply 不得把 none 当未知 preset 丢掉"
+    );
+    assert_eq!(arb.cue_for(1).map(|c| c.priority), Some(PRIORITY_RULE));
+
+    // ② 规则路径**不经** parse_plan 的能力集校验：allowlist 不含 none 时解析反而会丢它，
+    //    反证 director 规则路径是另一条（不受该闸约束）的承载方式。
+    let raw = r#"{"epoch":7,"covers_upto_seq":1,"cues":[{"sentence_seq":1,"preset_id":"none"}]}"#;
+    let (parsed, warnings) = parse_plan(raw, &["nod", "smile"]).expect("JSON 合法");
+    assert!(
+        parsed.cues.is_empty(),
+        "parse_plan 的能力集校验会把 none 丢掉——它是异步二路 LLM 的第二道闸"
+    );
+    assert_eq!(warnings.len(), 1, "丢条要留 warning: {warnings:?}");
+}
+
+/// D10 护栏：有非 none 预设时 `DirectorPlan::rule` 行为**逐字段不变**。
+#[test]
+fn rule_with_preset_is_field_for_field_unchanged() {
+    let plan = DirectorPlan::rule(42, Some("nod"), 2, 1_500);
+    assert_eq!(plan.epoch, 42);
+    assert_eq!(plan.covers_upto_seq, 1);
+    assert_eq!(
+        plan.cues,
+        vec![crate::Cue {
+            sentence_seq: 1,
+            preset_id: "nod".to_string(),
+            intensity: 2,
+            ttl_ms: 1_500,
+            priority: PRIORITY_RULE,
+        }],
+        "有预设时逐字段与改动前相同"
+    );
+
+    // 钳位口径不变（intensity 250→3；ttl 99999→5000）。
+    let clamped = DirectorPlan::rule(0, Some("smile"), 250, 99_999);
+    assert_eq!(clamped.cues[0].intensity, crate::MAX_INTENSITY);
+    assert_eq!(clamped.cues[0].ttl_ms, crate::MAX_TTL_MS);
+    assert_eq!(clamped.cues[0].priority, PRIORITY_RULE);
+    assert_eq!(clamped.cues[0].sentence_seq, 1);
+}
+
 /// **活服务实测抓到的缺陷（2026-09-19）**：core 只在 stop 时推进 epoch，
 /// 普通轮次的 SentenceReady **epoch 恒为 0**（真实链路日志实测）。
 /// 旧守卫「epoch == 0 就丢」会让规则层与二路在**所有普通轮次**都不工作。
@@ -217,6 +296,54 @@ fn sentence_ready_emits_rule_cue_on_first_sentence() {
     assert_eq!(cue["preset_id"], decided);
     assert_eq!(cue["priority"], PRIORITY_RULE);
     assert_eq!(rt.state_json().unwrap()["plan"]["rule_cues"], 1);
+}
+
+/// **D10 端到端**：中性轮（决策选不出预设）经规则路径 emit 一条
+/// `preset_id == "none"` 的 cue（不是空 cues），并计入 `rule_cues` / `cues_emitted`。
+///
+/// 与 `epoch_zero_is_accepted_and_turn_prompt_resets_the_arbiter` 互补：那一条两轮
+/// 都选得出预设，钉不出「none 轮也计数」这条新语义。
+#[test]
+fn neutral_turn_emits_exactly_one_none_cue() {
+    let (services, cues) = services_with_cues();
+    let mut rt = runtime_with_staging(
+        services,
+        serde_json::json!({}),
+        Box::new(crate::DisabledStaging),
+    );
+    // 「嗯」= Neutral + Chat：缺省映射表两侧都是 none → 本轮选不出预设。
+    rt.on_event(ModEventTopic::TurnPrompt, "嗯").unwrap();
+    assert!(
+        rt.ledger()
+            .latest()
+            .expect("应记一条决策")
+            .preset_id
+            .is_none(),
+        "前提：中性轮确实选不出预设"
+    );
+    sentence(&mut rt, 0, 1, 0);
+
+    let got = cues.lock().expect("cue lock").clone();
+    assert_eq!(
+        got.len(),
+        1,
+        "中性轮也必须 emit（空 cues 不是撤销，见 D10）: {got:?}"
+    );
+    let arr = got[0]["cues"].as_array().expect("cues 必须是数组");
+    assert_eq!(arr.len(), 1, "恰好一条撤销 cue: {arr:?}");
+    assert_eq!(arr[0]["preset_id"], "none");
+    assert_eq!(arr[0]["sentence_seq"], 1);
+    assert_eq!(arr[0]["priority"], PRIORITY_RULE);
+
+    let state = rt.state_json().unwrap();
+    assert_eq!(
+        state["plan"]["rule_cues"], 1,
+        "none 轮同样计入 rule_cues（语义 = 首句规则 cue 生效次数，含 none）"
+    );
+    assert_eq!(
+        state["plan"]["cues_emitted"], 1,
+        "none 轮同样真的经 cues 通道 emit"
+    );
 }
 
 #[test]

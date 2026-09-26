@@ -231,6 +231,9 @@ pub enum ConversationUiEvent {
     /// `{sentence_seq, preset_id, intensity, ttl_ms, priority}`，前端在该句音频
     /// `first_chunk` 时应用。产出口现在有两个（表演层 / 规则导演 Mod），
     /// 但**同轮只会有一个**：表演层开着时 host 不再把 `SentenceReady` 转给 Mod。
+    /// 驱动舞台的**唯一**通道就是本帧（前端拉取 director `latest.preset_id` 的通道
+    /// **已退役**，`latest` 仅面板展示，D12）；`cues[].preset_id=="none"` = 撤销两槽，
+    /// `cues: []` = 本轮不动（D10）。
     ActionCue {
         /// 所属业务代次。
         epoch: u64,

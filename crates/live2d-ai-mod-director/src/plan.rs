@@ -8,6 +8,11 @@
 //! - intensity 钳 1..=3；ttl_ms 钳 1..=5000；cues 上限 16 条；
 //! - epoch 不匹配由 arbiter 处理（整份丢弃、零副作用）。
 //!
+//! **撤销哨兵（D10，2026-09-24）**：`cues[].preset_id == "none"` = 该句音频开始时
+//! **撤销两个槽**（与渲染面 `preset{id:"none"}` 同义）。它与「`cues: []` = 本轮不动」
+//! 是两个不同的语义：空表是不动，`none` cue 是显式归零。撤销只走 action_cue 这一条
+//! 通道（前端拉取 `latest.preset_id` 的驱动通道已退役；`latest` 仅面板展示）。
+//!
 //! 「导演是备注，不是誊写员」：本模块只产出 cue，**绝不改**送 TTS 的文本。
 
 /// 规则层优先级（最低，常开兜底）。
@@ -66,18 +71,33 @@ pub struct DirectorPlan {
 impl DirectorPlan {
     /// 规则层 plan：给第一句一条 cue（来源 = 本轮规则决策的 preset）。
     ///
-    /// preset 为空 / none -> 空 plan（不产 cue）。
+    /// **`none` cue = 撤销哨兵（D10，2026-09-24）**：preset 为空 / `"none"` 时**不再
+    /// 返回空 plan**，而是产出一条 `preset_id == "none"` 的 cue——该句音频开始时前端
+    /// 撤销两个槽（与渲染面 `preset{id:"none"}` 同义）。中性轮因此也有**显式撤销锚点**
+    /// （performance 关时的 director 规则路径）；不能拿「空 cues」代替撤销，
+    /// 那在语义上是「本轮不动」（见模块头注 D10/D11）。
+    ///
+    /// 为什么 `"none"` 可直接承载：
+    /// - [`crate::arbiter::Arbiter::apply`] **不校验 preset id**（只做 epoch 硬闸 +
+    ///   按句 upsert）；
+    /// - 规则路径**不经** [`parse_plan`] 的能力集校验（那是异步二路 LLM 的第二道闸，
+    ///   用 [`crate::presets::PRESET_IDS`] 当 allowlist 丢掉未知 id）。
+    ///
+    /// 两点都有回归钉住（`tests_staging.rs::rule_none_cue_is_the_revoke_sentinel`）。
+    ///
+    /// 有非 none 预设时行为**逐字段不变**：`sentence_seq=1` / `preset_id` 原样 /
+    /// `intensity` 钳 1..=3 / `ttl_ms` 钳 1..=5000 / `priority=PRIORITY_RULE`。
     pub fn rule(epoch: u64, preset_id: Option<&str>, intensity: u8, ttl_ms: u64) -> Self {
-        let cues = match preset_id {
-            Some(id) if !id.is_empty() && id != "none" => vec![Cue {
-                sentence_seq: 1,
-                preset_id: id.to_string(),
-                intensity: intensity.clamp(1, MAX_INTENSITY),
-                ttl_ms: ttl_ms.clamp(1, MAX_TTL_MS),
-                priority: PRIORITY_RULE,
-            }],
-            _ => Vec::new(),
-        };
+        let preset_id = preset_id
+            .filter(|id| !id.is_empty())
+            .unwrap_or(crate::presets::PRESET_NONE);
+        let cues = vec![Cue {
+            sentence_seq: 1,
+            preset_id: preset_id.to_string(),
+            intensity: intensity.clamp(1, MAX_INTENSITY),
+            ttl_ms: ttl_ms.clamp(1, MAX_TTL_MS),
+            priority: PRIORITY_RULE,
+        }];
         Self {
             epoch,
             covers_upto_seq: 1,

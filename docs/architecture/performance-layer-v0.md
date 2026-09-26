@@ -85,22 +85,25 @@ persona Mod 合成（角色卡字段 + 纪律模板）、memory Mod 注入块、
 | **只说** | `speak 非空 且 cues=[]` | speak 切句 → 逐句送 TTS + 上屏 |
 | **只动** | `speak 空 且 cues 非空` | 引擎给一条**无声锚句**（空文本，不发 TTS HTTP）——cue 的锚点是该句音频的 `first_chunk`，没有句子就没有锚点 |
 
-**撤销的唯一哨兵是 `preset_id='none'`（2026-09-23，W4 按实现改正）**：
+**撤销的唯一哨兵是 `action_cue.cues[].preset_id == "none"`（D10，2026-09-24 收口）**：
 
-- 上表 noop 行的「空 action_cue」**不等于撤销**。`cues` 是**按句**锚定的（每条 cue 绑
-  `sentence_seq`，在该句音频开始时应用），所以前端把**空 cue 列表 = 本轮不动**
-  （`main.dart::_applyDirectorCueForSeq` 直接返回）——用整份计划去归零会把**别的句**
-  正在演的表演一起清掉。
-- 「本轮判定为中性 / 没有预设」的显式归零走**另一条**通道：状态面
-  `GET /api/v1/mods/director/state` 的 `latest.preset_id`。前端 `_applyDirectorPreset`
-  在**完成 seq 去重之后**，把 `preset_id` 为 `null` / 空串 / `'none'` 的一律视为
-  「本轮没有预设」→ 下发 `applyPreset('none', source:'director')`（= 渲染面 `Revoke`，
-  两个槽同清）。顺序是契约：去重在前，归零在后，否则每个 `text_delta` 帧都会重复归零。
-- **noop 轮不清上一轮残留**：上一轮的 preset 由它**自己的 `ttl`**（表情 2600ms /
-  短动作 900ms）收敛；本轮若要立刻收掉它，唯一手段是状态面给出 `preset_id='none'`。
-- 本文件此前写的「发一份空 action_cue（清上一轮残留）」与代码不符，**已按实现改正**。
-  本轮**不**实现「空计划也归零」：它缺一个锚点定义（该清哪一句、在哪个事件上清），
-  会让跨句表演互相打断。
+- **`cues[].preset_id == "none"` = 该句音频开始时撤销两个槽**（与渲染面
+  `preset{id:"none"}` 同义）。cue 是**按句**锚定的（每条 cue 绑 `sentence_seq`，
+  在该句音频开始时应用），所以撤销同样发生在**这一句的锚点**上。
+- **`cues: []` = 本轮不动**（不是撤销）。用整份空计划去归零会把**别的句**正在演的
+  表演一起清掉——空表与 `none` cue 因此是**两个不同语义**，不得互相替代。
+- 本文件（2026-09-23 及之前）写的「显式归零走状态面 `latest.preset_id`」**已作废**：
+  前端拉取通道**已退役**（D12，见 §7.2）；`latest` 仅供 director 面板展示。
+- **D11 不对称（两个提供者的契约差异，不是 bug；明文保留）**：
+  - **performance 开**：中性轮是 **noop**（`speak` 空 + `cues=[]`，见上表），
+    **不产 `none` cue、不立即撤销**；上一轮的 preset 靠它**自己的 `ttl`**
+    （表情 2600ms / 短动作 900ms）到点自然收敛。
+  - **performance 关**（director 规则路径）：中性轮产一条
+    `{sentence_seq:1, preset_id:"none", intensity, ttl_ms}` 的 cue
+    （`DirectorPlan::rule`，D10）→ 该句音频开始时**立即撤销两槽**。
+  - 统一两端要改 performance 层，属阶段4；本阶段**不裁决**、不改 performance 的
+    `speak` 语义。
+- 本文件更早写的「发一份空 action_cue（清上一轮残留）」与代码不符，**早已按实现改正**。
 
 ## 3. 配置键（`[performance]` 段，`live2d-ai.toml`）
 
@@ -206,6 +209,25 @@ run_turn:
 **同轮只有一个 cue 产者**：表演层开着时 supervisor 不把 `SentenceReady` 转给 Mod
 （`handle_engine_event` 的 `forward_sentence_ready_to_mods` = `!engine.performance_enabled()`）。
 否则两份 `action_cue` 会在前端互相**整份覆盖**（前端按帧整表替换）。
+
+### 7.2 驱动通道与 D11 不对称（2026-09-24 阶段3，D10–D12）
+
+- **驱动舞台的通道只有一条 = `action_cue`**（表演层 `cues` / director 规则 + 二路 cue，
+  经 `ModServices.cues` → host 广播 WS `action_cue`）。语义：
+  `cues[].preset_id == "none"` = 该句音频开始时**撤销两槽**（D10）；
+  `cues: []` = **本轮不动**。
+- **前端拉取通道已退役**：前端读 `GET /api/v1/mods/director/state` 的
+  `latest.preset_id` 再 `applyPreset` 驱动舞台的路径（Flutter
+  `main.dart::_applyDirectorPreset` 与 W4 `DirectorPresetGate`）**已删除**；
+  `latest` **降级为 director 面板只读展示**（D12）。`GET …/state` 的形状与可用性不变。
+  回归：`crates/live2d-ai-mod-director/src/tests_staging.rs::neutral_turn_emits_exactly_one_none_cue`
+  / `rule_none_cue_is_the_revoke_sentinel`。
+- **D11 不对称（明文保留，不是 bug）**：
+  - performance **开**：中性轮 = **noop**（`speak` 空 + `cues=[]`），**不立即撤销**，
+    靠上一轮 preset 的 `ttl`（表情 2600ms / 短动作 900ms）到点收敛；
+  - performance **关**（director 规则路径）：中性轮给一条 `preset_id == "none"` 的 cue，
+    **立即撤销两槽**。
+  - 统一要改 performance 层（阶段4）；本阶段只把差异写清，不改 `speak` 语义。
 
 ## 8. 收工证据（每态一条回归）
 
