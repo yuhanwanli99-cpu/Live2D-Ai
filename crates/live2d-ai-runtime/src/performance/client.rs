@@ -21,6 +21,12 @@
 //!   （典型是「不认识 response_format」）才原地降级成 Prompt 再发一次。
 //!   传输失败 / 5xx / 超时**不重试**（那些不是「模型不支持 structured」）。
 //!
+//! # 行数说明（AGENTS.md 豁免）
+//!
+//! 本文件 > 500 行：HTTP wire 回归（scripted loopback / json_schema / auto 降级 /
+//! 5xx 不重试）与客户端实现同住一处（原在 performance/tests.rs，为守 800 行测试
+//! 红线迁入）。按「豁免 ≤ 1000 需头注理由」保留单文件——4b 授权文件不含新路径。
+//!
 //! # 失败 = `None`（静默回退）
 //!
 //! 连接失败 / 超时 / 非 2xx / 响应不是 JSON / `content` 缺失或空白 →
@@ -346,4 +352,300 @@ fn client_error_4xx(body: &str) -> bool {
         || lower.contains("unsupported")
         || lower.contains("unknown");
     has_error && looks_like_param_problem
+}
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+    use crate::performance::plan::parse_plan;
+
+    fn allow() -> Vec<String> {
+        vec!["nod".to_string(), "smile".to_string()]
+    }
+
+    /// 脚本化 loopback：按顺序回应 N 个请求，回传每个请求的原始文本。
+    async fn scripted_server(
+        responses: Vec<(u16, String)>,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let handle = tokio::spawn(async move {
+            let mut raws = Vec::new();
+            for (status, body) in responses {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buf: Vec<u8> = Vec::new();
+                let mut tmp = [0u8; 1024];
+                loop {
+                    let n = stream.read(&mut tmp).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&tmp[..n]);
+                    if let Some(head_end) = find_subslice(&buf, b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
+                        let cl = content_length(&head);
+                        if buf.len() >= head_end + 4 + cl {
+                            break;
+                        }
+                    }
+                }
+                raws.push(String::from_utf8_lossy(&buf).to_string());
+                let reason = if status == 200 { "OK" } else { "Bad Request" };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+                let _ = stream.flush().await;
+            }
+            raws
+        });
+        (format!("http://{addr}/v1"), handle)
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
+    fn content_length(head: &str) -> usize {
+        head.lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn parse_completion_ignores_reasoning_and_rejects_blank() {
+        let ok = r#"{"choices":[{"message":{"role":"assistant","content":"{\"segments\":[],\"cues\":[]}","reasoning_content":"SECRET"}}]}"#;
+        assert_eq!(
+            parse_completion(ok).as_deref(),
+            Some("{\"segments\":[],\"cues\":[]}")
+        );
+        assert_eq!(parse_completion(r#"{"choices":[]}"#), None);
+        assert_eq!(parse_completion("not json"), None);
+        assert_eq!(
+            parse_completion(r#"{"choices":[{"message":{"content":"   "}}]}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn structured_mode_parse_never_fails() {
+        assert_eq!(
+            StructuredMode::parse("json_schema"),
+            StructuredMode::JsonSchema
+        );
+        assert_eq!(StructuredMode::parse("PROMPT"), StructuredMode::Prompt);
+        assert_eq!(StructuredMode::parse("随便"), StructuredMode::Auto);
+        assert_eq!(StructuredMode::default(), StructuredMode::Auto);
+        assert_eq!(StructuredMode::Auto.as_str(), "auto");
+    }
+
+    #[test]
+    fn endpoint_join_rejects_missing_and_bad_scheme() {
+        assert!(crate::join_endpoint("", "/x").is_err());
+        assert!(crate::join_endpoint("ftp://h/v1", "/x").is_err());
+        assert_eq!(
+            crate::join_endpoint("http://h/v1/", "/chat/completions")
+                .expect("合法")
+                .as_str(),
+            "http://h/v1/chat/completions"
+        );
+    }
+
+    /// structured 路：请求体带 v1 json_schema（枚举就是能力集），只有 system+user。
+    #[tokio::test]
+    async fn openai_client_posts_json_schema_and_parses_content() {
+        let plan = r#"{"segments":["你好。"],"cues":[{"field":"expression","id":"nod","intensity":2,"at":"now","hold":false}]}"#;
+        let response = serde_json::json!({
+            "choices": [{"message": {"role": "assistant", "content": plan}, "finish_reason": "stop"}],
+            "reasoning_content": "SECRET_THOUGHT"
+        })
+        .to_string();
+        let (base, handle) = scripted_server(vec![(200, response)]).await;
+        let client = OpenAiPerformanceClient::with_api_key(
+            &base,
+            "director-model",
+            Some(crate::secret::ApiSecret::new("sk-test-123")),
+            3_000,
+            StructuredMode::JsonSchema,
+            &allow(),
+        )
+        .expect("构造应成功");
+        assert!(client.enabled());
+        assert_eq!(client.kind(), "openai");
+        assert!(client.has_api_key());
+        let reply = client
+            .request("SYS", "USER", 3_000)
+            .await
+            .expect("应解析出正文");
+        assert!(reply.structured);
+        assert_eq!(reply.raw, plan);
+        assert!(parse_plan(&reply.raw, &allow(), "你好。").is_ok());
+
+        let raws = handle.await.expect("mock server");
+        let raw = &raws[0];
+        assert!(raw.starts_with("POST /v1/chat/completions"), "{raw}");
+        assert!(
+            raw.to_ascii_lowercase()
+                .contains("authorization: bearer sk-test-123"),
+            "{raw}"
+        );
+        assert!(raw.contains("\"stream\":false"), "{raw}");
+        assert!(raw.contains("\"model\":\"director-model\""), "{raw}");
+        assert!(raw.contains("\"json_schema\""), "{raw}");
+        assert!(raw.contains("\"strict\":true"), "{raw}");
+        assert!(raw.contains("\"segments\""), "{raw}");
+        assert!(
+            !raw.contains("Param"),
+            "schema 常量不得带任何 Param 参数名：{raw}"
+        );
+        assert!(
+            !raw.contains("reasoning") && !raw.contains("SECRET_THOUGHT"),
+            "请求体不得携带思考：{raw}"
+        );
+        assert_eq!(
+            raw.matches("\"role\"").count(),
+            2,
+            "只有 system+user：{raw}"
+        );
+    }
+
+    /// auto：上游 4xx（不认识 response_format）→ 原地降级 prompt 再发一次。
+    #[tokio::test]
+    async fn auto_mode_degrades_to_prompt_on_4xx() {
+        let plan = r#"{"segments":[],"cues":[]}"#;
+        let ok = serde_json::json!({"choices":[{"message":{"content":plan}}]}).to_string();
+        let err = r#"{"error":{"message":"response_format is not supported","type":"invalid_request_error"}}"#.to_string();
+        let (base, handle) = scripted_server(vec![(400, err), (200, ok)]).await;
+        let client = OpenAiPerformanceClient::with_api_key(
+            &base,
+            "m",
+            None,
+            3_000,
+            StructuredMode::Auto,
+            &allow(),
+        )
+        .expect("构造应成功");
+        let reply = client
+            .request("SYS", "USER", 3_000)
+            .await
+            .expect("降级后成功");
+        assert!(!reply.structured, "第二次必须不带 response_format");
+        let raws = handle.await.expect("mock server");
+        assert_eq!(raws.len(), 2, "auto 必须先 json_schema 再 prompt");
+        assert!(raws[0].contains("\"response_format\""));
+        assert!(!raws[1].contains("\"response_format\""));
+        assert!(
+            raws[1].contains("只输出 JSON"),
+            "降级请求要带 JSON-only system"
+        );
+    }
+
+    /// 5xx 不重试；只有思考没有正文也算失败。
+    #[tokio::test]
+    async fn server_errors_and_blank_content_fall_back_to_none() {
+        let (base, handle) = scripted_server(vec![(500, r#"{"error":"boom"}"#.to_string())]).await;
+        let client = OpenAiPerformanceClient::with_api_key(
+            &base,
+            "m",
+            None,
+            2_000,
+            StructuredMode::Auto,
+            &allow(),
+        )
+        .expect("构造");
+        assert_eq!(client.request("s", "u", 2_000).await, None);
+        assert_eq!(handle.await.expect("mock").len(), 1, "5xx 不得重试");
+
+        let (base, handle) = scripted_server(vec![(
+            200,
+            r#"{"choices":[{"message":{"content":"","reasoning_content":"想一想"}}]}"#.to_string(),
+        )])
+        .await;
+        let client = OpenAiPerformanceClient::with_api_key(
+            &base,
+            "m",
+            None,
+            2_000,
+            StructuredMode::Prompt,
+            &allow(),
+        )
+        .expect("构造");
+        assert_eq!(client.request("s", "u", 2_000).await, None);
+        let raws = handle.await.expect("mock");
+        assert!(
+            !raws[0].contains("\"response_format\""),
+            "prompt 路不带 schema"
+        );
+    }
+}
+
+#[cfg(test)]
+mod assembly_tests {
+    use std::sync::Arc;
+
+    use crate::performance::{PerformanceCue, RuleFallback, assemble};
+
+    fn allow() -> Vec<String> {
+        vec!["nod".to_string(), "smile".to_string()]
+    }
+
+    fn rule_one_cue() -> RuleFallback {
+        Arc::new(|text: &str| {
+            if text.trim().is_empty() {
+                return Vec::new();
+            }
+            vec![PerformanceCue {
+                sentence_seq: 1,
+                preset_id: "nod".to_string(),
+                intensity: 1,
+                ttl_ms: 2_000,
+            }]
+        })
+    }
+
+    /// 关闸装配：与「从来没有表演层」逐字一致（runtime=None、无 note）。
+    #[test]
+    fn assemble_off_is_none_and_missing_endpoint_is_degraded() {
+        let wiring = |enabled: bool, base: &str| crate::settings::PerformanceSettings {
+            enabled,
+            base_url: base.to_string(),
+            model: "m".to_string(),
+            ..Default::default()
+        };
+        let off = assemble(
+            &wiring(false, "http://127.0.0.1:11434/v1"),
+            allow(),
+            Some(rule_one_cue()),
+        );
+        assert!(off.runtime.is_none());
+        assert!(off.note.is_none());
+
+        let no_base = assemble(&wiring(true, ""), allow(), Some(rule_one_cue()));
+        assert!(no_base.note.is_some(), "缺端点必须可观察 degraded");
+        assert!(!no_base.runtime.expect("仍装配").enabled());
+
+        let configured = assemble(
+            &wiring(true, "http://127.0.0.1:11434/v1"),
+            allow(),
+            Some(rule_one_cue()),
+        );
+        let rt = configured.runtime.expect("装配");
+        assert!(rt.enabled());
+        assert_eq!(rt.client_kind(), "openai");
+        assert!(configured.note.is_none());
+    }
 }

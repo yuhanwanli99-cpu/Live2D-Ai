@@ -330,3 +330,187 @@ async fn performance_never_leaks_into_the_main_model_request() {
         "只有 system + user（无历史）：{body}"
     );
 }
+
+// ---------------------------------------------------------------- v1 segments（D22/D23/D24）
+
+/// 按 seq 收集上屏文本（SentenceVoiced）。
+fn voiced_by_seq(events: &[EngineEvent]) -> Vec<(u64, String)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceVoiced {
+                sentence_seq, text, ..
+            } => Some((*sentence_seq, text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 按 seq 收集送 TTS 前的句子事件文本（SentenceReady == 送 TTS）。
+fn ready_by_seq(events: &[EngineEvent]) -> Vec<(u64, String)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            EngineEvent::SentenceReady {
+                sentence_seq, text, ..
+            } => Some((*sentence_seq, text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// **D22**：表演层给的 segments **一对一**成为 TTS 单元 / 音频元素
+///（seg:N ≡ sentence_seq==N），**不再过分句器二次切分**。
+#[tokio::test]
+async fn segments_are_one_to_one_with_sentences_and_never_resplit() {
+    // 原文有三个句读，但表演层只切两段：若引擎二次切句，就会变成 3 段。
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content("第一句。第二句。第三句。"), sse_done()],
+    ))
+    .await;
+    let (tts_base, tts_inputs) = spawn_tts_mock().await;
+    let mut eng = performance_engine(
+        &llm_base,
+        &tts_base,
+        Some(
+            r#"{"segments":["第一句。第二句。","第三句。"],"cues":[{"field":"head","y":0.2,"intensity":1,"at":"seg:2","hold":false}]}"#,
+        ),
+    );
+    let (tx, rx) = mpsc::channel(64);
+    let report = eng.run_turn(201, "说", tx, CancellationToken::new()).await;
+    assert_eq!(report.status, TurnStatus::Completed);
+    assert_eq!(
+        *tts_inputs.lock().unwrap(),
+        ["第一句。第二句。", "第三句。"],
+        "segments 必须一对一送 TTS，不得二次切分"
+    );
+    let events = drain_events(rx).await;
+    assert_eq!(
+        ready_by_seq(&events),
+        vec![
+            (1, "第一句。第二句。".to_string()),
+            (2, "第三句。".to_string())
+        ],
+        "seg:N ≡ sentence_seq==N：{events:?}"
+    );
+    assert_eq!(
+        voiced_by_seq(&events),
+        vec![
+            (1, "第一句。第二句。".to_string()),
+            (2, "第三句。".to_string())
+        ]
+    );
+    let covers = events
+        .iter()
+        .find_map(|e| match e {
+            EngineEvent::ActionCue {
+                covers_upto_seq, ..
+            } => Some(*covers_upto_seq),
+            _ => None,
+        })
+        .expect("必须有 ActionCue");
+    assert_eq!(covers, 2, "covers_upto_seq == 段数");
+    let cue = events
+        .iter()
+        .find_map(|e| match e {
+            EngineEvent::ActionCue { cues, .. } => cues.first().cloned(),
+            _ => None,
+        })
+        .expect("必须有 cue");
+    let json = cue.to_json();
+    assert_eq!(json["field"], "head");
+    assert_eq!(json["sentence_seq"], 2, "cue 锚段边界（seg:2）");
+}
+
+/// **D23**：每段上屏文本 == 送 TTS 文本 == clean_for_tts(段)——不得把原文
+/// 的 Markdown / 舞台指示直接上屏。
+#[tokio::test]
+async fn displayed_text_equals_tts_text_per_segment() {
+    let raw = "（挥手）你好呀。*歪头*再见。";
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content(raw), sse_done()],
+    ))
+    .await;
+    let (tts_base, tts_inputs) = spawn_tts_mock().await;
+    let mut eng = performance_engine(
+        &llm_base,
+        &tts_base,
+        Some(r#"{"segments":["（挥手）你好呀。","*歪头*再见。"],"cues":[]}"#),
+    );
+    let (tx, rx) = mpsc::channel(64);
+    let report = eng
+        .run_turn(202, "你好", tx, CancellationToken::new())
+        .await;
+    assert_eq!(report.status, TurnStatus::Completed);
+    assert_eq!(
+        *tts_inputs.lock().unwrap(),
+        ["你好呀。", "再见。"],
+        "送 TTS 的必须是 clean_for_tts(段)"
+    );
+    let events = drain_events(rx).await;
+    let expected = vec![(1, "你好呀。".to_string()), (2, "再见。".to_string())];
+    assert_eq!(ready_by_seq(&events), expected, "SentenceReady == 送 TTS");
+    assert_eq!(voiced_by_seq(&events), expected, "上屏 == 送 TTS");
+    for (_, text) in voiced_by_seq(&events) {
+        assert!(
+            !text.contains('（') && !text.contains('*'),
+            "不得上屏原始标记：{text}"
+        );
+    }
+}
+
+/// **D24**：纯空白段**仍产静音元素与 start/end 边界帧**，seg 编号**不跳**。
+#[tokio::test]
+async fn blank_segment_keeps_its_seg_index() {
+    let raw = "第一句。  第三句。";
+    let llm_base = spawn_multi_server(respond_pieces(
+        200,
+        "OK",
+        "text/event-stream",
+        vec![sse_content(raw), sse_done()],
+    ))
+    .await;
+    let (tts_base, tts_inputs) = spawn_tts_mock().await;
+    let mut eng = performance_engine(
+        &llm_base,
+        &tts_base,
+        Some(r#"{"segments":["第一句。","  ","第三句。"],"cues":[]}"#),
+    );
+    let (tx, rx) = mpsc::channel(64);
+    let report = eng.run_turn(203, "说", tx, CancellationToken::new()).await;
+    assert_eq!(report.status, TurnStatus::Completed);
+    assert_eq!(
+        *tts_inputs.lock().unwrap(),
+        ["第一句。", "第三句。"],
+        "空白段不发 TTS HTTP（上游会对空 input 回 400）"
+    );
+    let events = drain_events(rx).await;
+    let expected = vec![
+        (1, "第一句。".to_string()),
+        (2, String::new()),
+        (3, "第三句。".to_string()),
+    ];
+    assert_eq!(ready_by_seq(&events), expected, "空白段仍占号：{events:?}");
+    assert_eq!(voiced_by_seq(&events), expected, "空白段仍上屏（空文本）");
+    let blank = events.iter().find(|e| {
+        matches!(
+            e,
+            EngineEvent::AudioChunk {
+                sentence_seq: 2,
+                first_chunk: true,
+                final_chunk: true,
+                ..
+            }
+        )
+    });
+    assert!(
+        blank.is_some(),
+        "空白段必须产出 start/end 边界帧（seg 编号不跳）：{events:?}"
+    );
+}

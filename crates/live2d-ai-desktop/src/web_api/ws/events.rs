@@ -136,10 +136,14 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
             covers_upto_seq,
             cues,
         }) => {
-            // **复用既有 `action_cue` 帧类型**（2026-09-22）：表演层的 cues 与
-            // director Mod 的 cues 是同一个 wire 契约，前端 `ActionCueEvent` 一行不用改。
-            // 单条 cue 的 JSON 形态由 runtime 的 `PerformanceCue::to_json` 给出
-            //（含固定 priority），这里不重抄一遍字段名。
+            // **复用既有 `action_cue` 帧类型**（2026-09-22；v1 沿用，V11）：
+            // 表演层的 cues 与 director Mod 的 cues 是同一个 wire 契约。
+            // 单条 cue 的 JSON 形态由 runtime 的 `PerformanceCue::to_json` 给出：
+            // **既有键** sentence_seq/preset_id/intensity/ttl_ms/priority 逐字保留，
+            // v1 的**新键**（field/seq/x/y/z/id/at/hold）以可选键摊平（只增不改）。
+            // 这里不重抄一遍字段名。
+            //
+            // 回归：`performance_cues_project_to_the_existing_action_cue_frame`。
             frame.set_type("action_cue");
             frame.set_data(serde_json::json!({
                 "epoch": epoch,
@@ -324,6 +328,61 @@ mod tests {
         assert_eq!(
             frame["data"]["cues"][0]["priority"],
             live2d_ai_runtime::performance::PRIORITY_PERFORMANCE
+        );
+    }
+
+    /// **B9（v1）**：v1 cue → **既有** `action_cue` 帧——不新增帧型、不改既有键，
+    /// 只把 v1 新键（field/seq/x/y/z/id/at/hold）以**可选键**摊平进每条 cue JSON。
+    #[test]
+    fn performance_cues_project_to_the_existing_action_cue_frame() {
+        let source = "嗯……我想到了。";
+        let plan = live2d_ai_runtime::performance::parse_plan(
+            r#"{"segments":["嗯……","我想到了。"],"cues":[
+                {"field":"head","x":0.2,"y":-0.4,"z":0.1,"intensity":2,"at":"seg:2","hold":false,"ttl_ms":800},
+                {"field":"expression","id":"smile","intensity":1,"at":"now","hold":true}
+            ]}"#,
+            &["smile".to_string()],
+            source,
+        )
+        .expect("v1 plan 必须合法");
+        let ev = AppEvent::Conversation(ConversationUiEvent::ActionCue {
+            epoch: 12,
+            ts_ms: 99,
+            covers_upto_seq: 2,
+            cues: plan.cues.clone(),
+        });
+        let frame = app_event_to_ws_frame(&ev).expect("必须投影成帧");
+        assert_eq!(frame["type"], "action_cue");
+        assert_eq!(frame["data"]["epoch"], 12);
+        assert_eq!(frame["data"]["covers_upto_seq"], 2);
+        // 第 1 条 head cue：既有键逐字保留 + v1 新键。
+        let first = &frame["data"]["cues"][0];
+        assert_eq!(first["sentence_seq"], 2);
+        assert_eq!(first["preset_id"], "head");
+        assert_eq!(first["intensity"], 2);
+        assert_eq!(first["ttl_ms"], 800);
+        assert_eq!(
+            first["priority"],
+            live2d_ai_runtime::performance::PRIORITY_PERFORMANCE
+        );
+        assert_eq!(first["field"], "head");
+        assert_eq!(first["seq"], 1);
+        assert_eq!(first["x"], 0.2);
+        assert_eq!(first["y"], -0.4);
+        assert_eq!(first["z"], 0.1);
+        assert_eq!(first["at"], "seg:2");
+        assert_eq!(first["hold"], false);
+        // 第 2 条 expression cue：id 就是 preset_id（V11 兼容面），默认 ttl 生效。
+        let second = &frame["data"]["cues"][1];
+        assert_eq!(second["field"], "expression");
+        assert_eq!(second["id"], "smile");
+        assert_eq!(second["preset_id"], "smile");
+        assert_eq!(second["sentence_seq"], 1);
+        assert_eq!(second["at"], "now");
+        assert_eq!(second["hold"], true);
+        assert_eq!(
+            second["ttl_ms"],
+            live2d_ai_runtime::performance::DEFAULT_TTL_MS_EXPRESSION
         );
     }
 }

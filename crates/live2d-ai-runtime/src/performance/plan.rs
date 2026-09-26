@@ -1,38 +1,66 @@
 //! **表演层唯一输出 schema** + 严格校验（本文件是单一真源）。
 //!
-//! # 契约（2026-09-22 用户敲定；文档终稿见 docs/architecture/performance-layer-v0.md）
+//! # 契约（v1，2026-09-26 契约冻结；文档见 docs/architecture/performance-protocol-v1.md）
 //!
 //! 每一轮表演层必须交回**恰好一份** JSON：
 //!
-//! ```json
-//! {"speak": string|null,
-//!  "cues": [{"sentence_seq": u64, "preset_id": string, "intensity": number, "ttl_ms": number}]}
+//! ```text
+//! {
+//!   "segments": ["嗯……", "我想到了。"],     // 只能切分主模型原文，逐字不变（V1）
+//!   "cues": [
+//!     { "field": "body", "x": 0.0, "y": 0.3, "intensity": 1, "at": "now",   "hold": true },
+//!     { "field": "expression", "id": "thinking", "intensity": 1, "at": "seg:2", "hold": false }
+//!   ]
+//! }
 //! ```
 //!
-//! - **speak**：本轮要说的话（= 送 TTS / 上屏的唯一真源）。`null` 或 `""` = 本轮不说；
-//! - **cues**：按句动作 cue。`[]` = 本轮不动；`preset_id` 必须在本模型能力集内；
-//! - **noop 合法**：`speak=null/"" 且 cues=[]` = 本轮不说也不动（不是失败）；
-//! - **只说** = `cues=[]`；**只动** = `speak` 空（引擎给一条无声锚句）。
+//! - **segments**：原文的**切分方案**（不是上屏字符串）。核心不变量：
+//!   segments.concat() == 主模型原文（逐码点）——不等 = **整份失败**
+//!   （performance_plan_segments_not_partition）。空原文 → segments: []。
+//! - **cues**：三族表演字段 body / head / expression；同类按 add 合成、
+//!   立即生效不排队。[] = 本轮不动（不是撤销）。
+//! - **speak**：v0 旧字段，**保留可解析（弃用，V11）**；只有 segments 缺席时走
+//!   旧路径。与 segments 同现 → **segments 优先、speak 忽略 + warn**（O1）。
+//! - **未知顶层键一律丢弃**（宽容）。
 //!
 //! # 校验纪律（整份失败，不做局部抢救）
 //!
-//! - 坏 JSON / 顶层不是对象 / 缺字段 / 类型不对 / `preset_id` 不在能力集 /
-//!   字段数超限 → **整份失败** → 引擎回退（`speak=clean_for_tts(原文)` + 规则 cue）；
-//! - `intensity` / `ttl_ms` 越界 → **钳位**（不是失败）；
-//! - **未知字段一律丢弃**（宽容：模型多写一个 `reason` 不该让整轮没有语音）；
-//! - 为什么不做「丢一条坏 cue、留其余」：局部抢救会让「模型到底演了什么」变成
-//!   不可解释的混合体。宁可整份回退到确定性规则层（可解释、可单测）。
+//! - 坏 JSON / 顶层不是对象 / 缺 segments（且无 speak）/ 类型不对 / 词表外 field /
+//!   at 非法 / 越界锚点 / 超条数 / 超长 / **拼接不等于原文** → **整份失败** → 引擎回退；
+//! - 轴值越界 / intensity 越界 / ttl_ms 越界 → **钳位**（不是失败）；
+//! - body/expression 给 z、id 给非 expression → **丢该键 + warn**；
+//! - 未知表情 id → **丢该条 cue + warn**（§2.4 #16；整份失败会连带丢语音）。
 //!
 //! # 为什么 schema 写在代码里
 //!
 //! [json_schema_strict] **由本文件的常量拼出**，同一个文件里的 [parse_plan]
-//! 逐条实现同样的边界；回归 `schema_and_validator_share_the_same_bounds` 钉住
+//! 逐条实现同样的边界；回归 schema_and_validator_share_the_same_bounds 钉住
 //! 「文档里的 schema == 发出去的 schema == 校验器认的东西」。不要在别处再抄一份。
+//!
+//! # 行数说明（AGENTS.md 豁免）
+//!
+//! 本文件 > 500 行：v1 schema / 严格校验 / 三字段 cue / wire 投影与 v0 legacy
+//! 兼容面同住一处（schema 与校验器**必须同源**）。按「豁免 ≤ 1000 需头注理由」保留
+//! 单文件——4b 授权文件不含新路径，拆文件会被 C1 判为越权。
+//!
+//! # v1 cue 的 wire 投影（B9 / V11）
+//!
+//! PerformanceCue 的**字段集合是冻结的**（presets.rs 以四字段字面量构造它，
+//! 而 mod-director 归 4e 波次）。因此 v1 的新键（field/x/y/z/id/at/hold/seq）
+//! 以**内部信封**形式随 preset_id 传递，由 [PerformanceCue::to_json] 摊平成
+//! **既有 action_cue 帧**上的可选键；既有键 sentence_seq/preset_id/intensity/
+//! ttl_ms/priority 逐字保留。信封前缀含控制字符，真实 preset id 不可能命中。
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// 一份 plan 里 cue 的条数上限（防模型灌爆）。
 pub const MAX_CUES: usize = 16;
+/// segments 的段数上限（O2）。
+pub const MAX_SEGMENTS: usize = 64;
+/// segments 的**总字符**上限（O2；超限整份失败，不截断——截断会破坏 V1 不变量）。
+pub const MAX_SEGMENT_CHARS: usize = 4_000;
+/// v0 遗留 speak 的字符数上限（超出按字符截断）。
+pub const MAX_SPEAK_CHARS: usize = 4_000;
 /// 强度下限（与渲染面 preset 的 intensity 钳位同口径）。
 pub const MIN_INTENSITY: u8 = 1;
 /// 强度上限。
@@ -41,22 +69,140 @@ pub const MAX_INTENSITY: u8 = 3;
 pub const MIN_TTL_MS: u64 = 1;
 /// ttl 上限（毫秒；与渲染面 MAX_TTL_MS 同口径）。
 pub const MAX_TTL_MS: u64 = 5_000;
-/// `speak` 的字符数上限（超出按字符截断；防无标点长文一次灌爆 TTS 队列）。
-pub const MAX_SPEAK_CHARS: usize = 4_000;
+/// 归一化轴值下限。
+pub const AXIS_MIN: f64 = -1.0;
+/// 归一化轴值上限。
+pub const AXIS_MAX: f64 = 1.0;
+/// body 的默认 ttl_ms（O3）。
+pub const DEFAULT_TTL_MS_BODY: u64 = 900;
+/// head 的默认 ttl_ms（O3）。
+pub const DEFAULT_TTL_MS_HEAD: u64 = 900;
+/// expression 的默认 ttl_ms（O3）。
+pub const DEFAULT_TTL_MS_EXPRESSION: u64 = 2_600;
 
 /// 表演层 cue 的固定优先级（**应用层写死，模型不得自报**）。
 ///
-/// 与 `live2d-ai-mod-director::plan::PRIORITY_ASYNC` 同值（40）——它是
+/// 与 live2d-ai-mod-director::plan::PRIORITY_ASYNC 同值（40）——它是
 /// 「表演层覆盖规则层」的既有抬升口径；数字写在这里而不是从 Mod 引，避免
 /// runtime 反向依赖 Mod crate。
 pub const PRIORITY_PERFORMANCE: u8 = 40;
 
-/// 一条按句 cue（与 WS `action_cue.payload.cues[]` 逐字段同形）。
+/// v1 信封前缀（控制字符，真实 preset id 不可能命中）。
+const V1_ENVELOPE_PREFIX: &str = "\u{1}v1\u{1}";
+
+/// 三族表演字段（V2 / V3）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CueField {
+    /// 半身摆动 / 倾斜。
+    Body,
+    /// 头部点头 / 摇头 / 歪头。
+    Head,
+    /// 只写五官（V3）。
+    Expression,
+}
+
+impl CueField {
+    /// wire 名。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Body => "body",
+            Self::Head => "head",
+            Self::Expression => "expression",
+        }
+    }
+
+    /// 省略 ttl_ms 时的默认时长（O3）。
+    pub fn default_ttl_ms(&self) -> u64 {
+        match self {
+            Self::Body => DEFAULT_TTL_MS_BODY,
+            Self::Head => DEFAULT_TTL_MS_HEAD,
+            Self::Expression => DEFAULT_TTL_MS_EXPRESSION,
+        }
+    }
+}
+
+/// at 锚点（V6）；AfterPrev 的 O4 退化在解析期落成 now。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CueAnchor {
+    /// 立即生效（段 A = 墙钟；段 B = 音频时钟当前位置）。
+    Now,
+    /// 第 N 段音频开始播放（1-based）。
+    Seg(u64),
+    /// 上一条 cue 的动作做完（事件式）。
+    AfterPrev,
+}
+
+/// 一条 v1 表演 cue（解析产物；sentence_seq / at_resolved 已解析）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldCue {
+    /// 三族字段。
+    pub field: CueField,
+    /// 归一化轴值（已钳位；不适用则为 None）。
+    pub x: Option<f64>,
+    /// 归一化轴值。
+    pub y: Option<f64>,
+    /// 歪头倾斜（仅 head）。
+    pub z: Option<f64>,
+    /// expression 的面板 id（含撤销哨兵 none）。
+    pub id: Option<String>,
+    /// 强度 1..=3（已钳位）。
+    pub intensity: u8,
+    /// 原始锚点。
+    pub at: CueAnchor,
+    /// 解析后的锚点 wire 名（now / seg:N / after_prev；O4 退化后为 now）。
+    pub at_resolved: String,
+    /// true = 保持到下次指令（ttl_ms 被忽略）。
+    pub hold: bool,
+    /// 生效时长（毫秒，已钳位 / 已套默认）。
+    pub ttl_ms: u64,
+    /// cue 序号（与 plan 内顺序一致，从 1 起；丢条后不重排）。
+    pub seq: u64,
+    /// 解析后的锚段序号（1-based；seg:N ≡ sentence_seq == N）。
+    pub sentence_seq: u64,
+}
+
+impl FieldCue {
+    /// 投影为**冻结的** wire 单元：v1 新键进内部信封，由
+    /// [PerformanceCue::to_json] 摊平。
+    pub fn to_wire_cue(&self) -> PerformanceCue {
+        let semantic_preset_id = match self.field {
+            CueField::Expression => self.id.clone().unwrap_or_else(|| "none".to_string()),
+            CueField::Body => "body".to_string(),
+            CueField::Head => "head".to_string(),
+        };
+        let mut envelope = Map::new();
+        envelope.insert("preset_id".to_string(), json!(semantic_preset_id));
+        envelope.insert("field".to_string(), json!(self.field.as_str()));
+        envelope.insert("seq".to_string(), json!(self.seq));
+        envelope.insert("at".to_string(), json!(self.at_resolved));
+        envelope.insert("hold".to_string(), json!(self.hold));
+        if let Some(v) = self.x {
+            envelope.insert("x".to_string(), json!(v));
+        }
+        if let Some(v) = self.y {
+            envelope.insert("y".to_string(), json!(v));
+        }
+        if let Some(v) = self.z {
+            envelope.insert("z".to_string(), json!(v));
+        }
+        if let Some(id) = &self.id {
+            envelope.insert("id".to_string(), json!(id));
+        }
+        PerformanceCue {
+            sentence_seq: self.sentence_seq,
+            preset_id: encode_v1_envelope(&Value::Object(envelope)),
+            intensity: self.intensity,
+            ttl_ms: self.ttl_ms,
+        }
+    }
+}
+
+/// 一条按句 cue（与 WS action_cue.payload.cues[] 的**既有键**逐字段同形）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PerformanceCue {
-    /// 目标句序号（与 `AudioChunk.sentence_seq` 同源；锚点是该句音频的 first_chunk）。
+    /// 目标句序号（与 AudioChunk.sentence_seq 同源；锚点是该句音频的 first_chunk）。
     pub sentence_seq: u64,
-    /// 预设 id（必须在本模型能力集内）。
+    /// 预设 id（legacy）或 v1 信封（见模块头注）。
     pub preset_id: String,
     /// 强度 1..=3（已钳位）。
     pub intensity: u8,
@@ -65,41 +211,156 @@ pub struct PerformanceCue {
 }
 
 impl PerformanceCue {
-    /// WS `action_cue` 单条形态。
+    /// WS action_cue 单条形态。
+    ///
+    /// v1 信封被**摊平**为可选键（V11：只增不改；既有键逐字保留）。
     pub fn to_json(&self) -> Value {
-        json!({
-            "sentence_seq": self.sentence_seq,
-            "preset_id": self.preset_id,
-            "intensity": self.intensity,
-            "ttl_ms": self.ttl_ms,
-            "priority": PRIORITY_PERFORMANCE,
-        })
+        let Some(v1) = decode_v1_envelope(&self.preset_id) else {
+            return json!({
+                "sentence_seq": self.sentence_seq,
+                "preset_id": self.preset_id,
+                "intensity": self.intensity,
+                "ttl_ms": self.ttl_ms,
+                "priority": PRIORITY_PERFORMANCE,
+            });
+        };
+        let mut object = Map::new();
+        object.insert("sentence_seq".to_string(), json!(self.sentence_seq));
+        object.insert(
+            "preset_id".to_string(),
+            v1.get("preset_id").cloned().unwrap_or(Value::Null),
+        );
+        object.insert("intensity".to_string(), json!(self.intensity));
+        object.insert("ttl_ms".to_string(), json!(self.ttl_ms));
+        object.insert("priority".to_string(), json!(PRIORITY_PERFORMANCE));
+        for key in ["field", "seq", "x", "y", "z", "id", "at", "hold"] {
+            if let Some(value) = v1.get(key) {
+                object.insert(key.to_string(), value.clone());
+            }
+        }
+        Value::Object(object)
+    }
+
+    /// 日志 / 断言的短标签（**不含全文**）。
+    pub fn label(&self) -> String {
+        match decode_v1_envelope(&self.preset_id) {
+            Some(v1) => {
+                let field = v1.get("field").and_then(Value::as_str).unwrap_or("?");
+                match v1.get("id").and_then(Value::as_str) {
+                    Some(id) => format!("{field}:{id}"),
+                    None => field.to_string(),
+                }
+            }
+            None => self.preset_id.clone(),
+        }
+    }
+}
+
+/// 把 v1 新键编进内部信封（仅 preset_id 一个载体可用，见模块头注）。
+fn encode_v1_envelope(payload: &Value) -> String {
+    format!("{V1_ENVELOPE_PREFIX}{payload}")
+}
+
+/// 解出 v1 信封；legacy 的普通 preset id 返回 None。
+pub fn decode_v1_envelope(preset_id: &str) -> Option<Value> {
+    preset_id
+        .strip_prefix(V1_ENVELOPE_PREFIX)
+        .and_then(|raw| serde_json::from_str(raw).ok())
+}
+
+/// 宽容警告（丢键 / 丢条；**不整份失败**）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlanWarning {
+    /// segments 与 speak 同现 → speak 被忽略（O1）。
+    SpeakIgnored,
+    /// 该字段不允许的轴键被丢弃（§2.4 #11）。
+    AxisNotAllowed {
+        /// 第几条 cue（0 基）。
+        index: usize,
+        /// 被丢弃的键名。
+        key: &'static str,
+    },
+    /// 非 expression 给了 id → 丢键。
+    IdNotAllowed {
+        /// 第几条 cue（0 基）。
+        index: usize,
+    },
+    /// 未知表情 id → 丢该条 cue（§2.4 #16）。
+    ExpressionUnknownId {
+        /// 第几条 cue（0 基）。
+        index: usize,
+        /// 原始 id。
+        id: String,
+    },
+}
+
+impl PlanWarning {
+    /// 稳定警告码（进日志；**不含正文**）。
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::SpeakIgnored => "performance_plan_speak_ignored",
+            Self::AxisNotAllowed { .. } | Self::IdNotAllowed { .. } => {
+                "performance_axis_not_allowed"
+            }
+            Self::ExpressionUnknownId { .. } => "performance_expression_unknown_id",
+        }
+    }
+
+    /// 给人看的一句话（**不含正文**；id 可以带）。
+    pub fn message(&self) -> String {
+        match self {
+            Self::SpeakIgnored => "segments 与 speak 同现：按 O1 忽略 speak".to_string(),
+            Self::AxisNotAllowed { index, key } => {
+                format!("第 {index} 条 cue 的 {key} 对该字段不适用：已丢弃该键")
+            }
+            Self::IdNotAllowed { index } => {
+                format!("第 {index} 条 cue 的 id 只对 expression 有效：已丢弃该键")
+            }
+            Self::ExpressionUnknownId { index, id } => {
+                format!("第 {index} 条 cue 的 expression id={id} 不在能力集内：已丢弃该条")
+            }
+        }
     }
 }
 
 /// 一份表演层 plan。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PerformancePlan {
-    /// 本轮要说的话；`None` / 空白 = 不说（noop 的一半）。
+    /// v0 遗留：本轮要说的话；None = 不说。
     pub speak: Option<String>,
-    /// 按句 cue；空 = 不动。
+    /// v1：原文的切分方案；None = 走 legacy speak 路径。
+    pub segments: Option<Vec<String>>,
+    /// wire cue（legacy 或 v1 信封投影）。
     pub cues: Vec<PerformanceCue>,
+    /// 宽容警告（丢键 / 丢条）。
+    pub warnings: Vec<PlanWarning>,
 }
 
 impl PerformancePlan {
     /// 本轮确实什么都不做（不说也不动）。
     pub fn is_noop(&self) -> bool {
-        self.speak.is_none() && self.cues.is_empty()
+        let no_text = match &self.segments {
+            Some(segments) => segments.is_empty(),
+            None => self.speak.is_none(),
+        };
+        no_text && self.cues.is_empty()
     }
 
-    /// 日志用摘要：**不含正文全文**（只给长度与 preset id 列表）。
+    /// 日志用摘要：**不含正文全文**（只给长度与 cue 标签列表）。
     pub fn summary(&self) -> String {
-        let ids: Vec<&str> = self.cues.iter().map(|c| c.preset_id.as_str()).collect();
-        format!(
-            "speak_chars={}, cues={:?}",
-            self.speak.as_ref().map_or(0, |s| s.chars().count()),
-            ids
-        )
+        let text = match &self.segments {
+            Some(segments) => format!(
+                "segments={}, seg_chars={}",
+                segments.len(),
+                segments.iter().map(|s| s.chars().count()).sum::<usize>()
+            ),
+            None => format!(
+                "speak_chars={}",
+                self.speak.as_ref().map_or(0, |s| s.chars().count())
+            ),
+        };
+        let labels: Vec<String> = self.cues.iter().map(PerformanceCue::label).collect();
+        format!("{text}, cues={labels:?}")
     }
 }
 
@@ -110,30 +371,52 @@ pub enum PlanError {
     NotJson(String),
     /// 顶层不是对象。
     NotObject,
-    /// 缺 `speak` 字段。
-    MissingSpeak,
-    /// `speak` 不是 string / null。
+    /// 既无 segments 也无 speak（§2.4 #3）。
+    MissingSegments,
+    /// segments 不是数组。
+    SegmentsType,
+    /// segments 里有非字符串元素（第几条，0 基）。
+    SegmentNotString(usize),
+    /// segments 段数 / 总字符超限（O2；不截断）。
+    SegmentsTooLong(String),
+    /// segments.concat() != 原文（V1 核心不变量）。
+    SegmentsNotPartition,
+    /// speak 存在但不是 string / null。
     SpeakType,
-    /// 缺 `cues` 字段。
+    /// 缺 cues 字段。
     MissingCues,
-    /// `cues` 不是数组。
+    /// cues 不是数组。
     CuesType,
     /// cue 条数超过 [MAX_CUES]。
     TooManyCues(usize),
     /// cue 不是对象。
     CueNotObject(usize),
-    /// cue 缺字段 / 字段类型不对（`field` 是字段名，`index` 是第几条）。
+    /// cue 缺字段 / 字段类型不对（field 是字段名，index 是第几条）。
     CueField {
         /// 第几条 cue（0 基）。
         index: usize,
         /// 字段名。
         field: &'static str,
     },
-    /// `preset_id` 不在能力集内。
+    /// field 词表外（§2.4 #10）。
+    UnknownField {
+        /// 第几条 cue（0 基）。
+        index: usize,
+        /// 原始值。
+        field: String,
+    },
+    /// at 非法 / 越界锚点（§2.4 #14/#15）。
+    BadAnchor {
+        /// 第几条 cue（0 基）。
+        index: usize,
+        /// 原始值。
+        at: String,
+    },
+    /// legacy 路径：preset_id 不在能力集内。
     UnknownPreset {
         /// 第几条 cue（0 基）。
         index: usize,
-        /// 原始 id（可能是任意字符串；日志里会带出来）。
+        /// 原始 id。
         preset_id: String,
     },
 }
@@ -144,23 +427,35 @@ impl PlanError {
         match self {
             Self::NotJson(_) => "performance_plan_not_json",
             Self::NotObject => "performance_plan_not_object",
-            Self::MissingSpeak => "performance_plan_missing_speak",
+            Self::MissingSegments => "performance_plan_missing_segments",
+            Self::SegmentsType => "performance_plan_segments_type",
+            Self::SegmentNotString(_) => "performance_plan_segment_not_string",
+            Self::SegmentsTooLong(_) => "performance_plan_segments_too_long",
+            Self::SegmentsNotPartition => "performance_plan_segments_not_partition",
             Self::SpeakType => "performance_plan_speak_type",
             Self::MissingCues => "performance_plan_missing_cues",
             Self::CuesType => "performance_plan_cues_type",
             Self::TooManyCues(_) => "performance_plan_too_many_cues",
             Self::CueNotObject(_) => "performance_plan_cue_not_object",
             Self::CueField { .. } => "performance_plan_cue_field",
+            Self::UnknownField { .. } => "performance_plan_unknown_field",
+            Self::BadAnchor { .. } => "performance_plan_bad_anchor",
             Self::UnknownPreset { .. } => "performance_plan_unknown_preset",
         }
     }
 
-    /// 给人看的一句话（**不含 speak 全文**；preset id 可以带）。
+    /// 给人看的一句话（**不含 speak / segments 全文**；id 可以带）。
     pub fn message(&self) -> String {
         match self {
             Self::NotJson(e) => format!("不是合法 JSON：{e}"),
             Self::NotObject => "顶层不是 JSON 对象".to_string(),
-            Self::MissingSpeak => "缺 speak 字段".to_string(),
+            Self::MissingSegments => "既缺 segments 也缺 speak".to_string(),
+            Self::SegmentsType => "segments 不是数组".to_string(),
+            Self::SegmentNotString(i) => format!("segments 第 {i} 个元素不是字符串"),
+            Self::SegmentsTooLong(detail) => format!("segments 超限（不截断）：{detail}"),
+            Self::SegmentsNotPartition => {
+                "segments 拼接不等于主模型原文（V1：只能切分，不能改写）".to_string()
+            }
             Self::SpeakType => "speak 既不是 string 也不是 null".to_string(),
             Self::MissingCues => "缺 cues 字段".to_string(),
             Self::CuesType => "cues 不是数组".to_string(),
@@ -169,6 +464,12 @@ impl PlanError {
             Self::CueField { index, field } => {
                 format!("第 {index} 条 cue 的 {field} 缺失或类型不对")
             }
+            Self::UnknownField { index, field } => {
+                format!("第 {index} 条 cue 的 field={field} 不在词表内")
+            }
+            Self::BadAnchor { index, at } => {
+                format!("第 {index} 条 cue 的 at={at} 非法或越界")
+            }
             Self::UnknownPreset { index, preset_id } => {
                 format!("第 {index} 条 cue 的 preset_id={preset_id} 不在能力集内")
             }
@@ -176,17 +477,30 @@ impl PlanError {
     }
 }
 
-/// **严格校验**一份表演层响应；返回 plan 或整份失败原因。
+/// **严格校验**一份表演层响应；source = 主模型本轮原文（V1 拼接基准）。
 ///
 /// 边界与 [json_schema_strict] 逐条一致（回归钉住）。
-pub fn parse_plan(raw: &str, allow: &[String]) -> Result<PerformancePlan, PlanError> {
+pub fn parse_plan(raw: &str, allow: &[String], source: &str) -> Result<PerformancePlan, PlanError> {
     let value: Value = serde_json::from_str(raw).map_err(|e| PlanError::NotJson(e.to_string()))?;
     let object = value.as_object().ok_or(PlanError::NotObject)?;
-    // speak：**必须存在**；null / string 二者之一。
-    let speak_value = object.get("speak").ok_or(PlanError::MissingSpeak)?;
-    let speak = match speak_value {
-        Value::Null => None,
-        Value::String(s) => {
+    if object.get("segments").is_none() {
+        // v0 旧路径（V11：字段一律不删、缺省即旧语义）。
+        if object.get("speak").is_none() {
+            return Err(PlanError::MissingSegments);
+        }
+        return parse_legacy(object, allow);
+    }
+    parse_v1(object, allow, source)
+}
+
+/// v0 legacy 路径：speak + 按句 preset cue。
+fn parse_legacy(
+    object: &Map<String, Value>,
+    allow: &[String],
+) -> Result<PerformancePlan, PlanError> {
+    let speak = match object.get("speak") {
+        Some(Value::Null) => None,
+        Some(Value::String(s)) => {
             let trimmed = s.trim();
             if trimmed.is_empty() {
                 None
@@ -196,7 +510,6 @@ pub fn parse_plan(raw: &str, allow: &[String]) -> Result<PerformancePlan, PlanEr
         }
         _ => return Err(PlanError::SpeakType),
     };
-    // cues：**必须存在**且是数组。
     let cues_value = object.get("cues").ok_or(PlanError::MissingCues)?;
     let cue_list = cues_value.as_array().ok_or(PlanError::CuesType)?;
     if cue_list.len() > MAX_CUES {
@@ -205,7 +518,6 @@ pub fn parse_plan(raw: &str, allow: &[String]) -> Result<PerformancePlan, PlanEr
     let mut cues = Vec::with_capacity(cue_list.len());
     for (index, cue) in cue_list.iter().enumerate() {
         let cue = cue.as_object().ok_or(PlanError::CueNotObject(index))?;
-        // sentence_seq：必须是 >=1 的整数（0 / 缺失 / 类型不对都算坏字段）。
         let sentence_seq = cue
             .get("sentence_seq")
             .and_then(Value::as_u64)
@@ -227,7 +539,6 @@ pub fn parse_plan(raw: &str, allow: &[String]) -> Result<PerformancePlan, PlanEr
                 preset_id: preset_id.to_string(),
             });
         }
-        // intensity / ttl_ms：必须是数字；越界**钳位**（不是失败）。
         let intensity_raw =
             cue.get("intensity")
                 .and_then(Value::as_u64)
@@ -249,46 +560,273 @@ pub fn parse_plan(raw: &str, allow: &[String]) -> Result<PerformancePlan, PlanEr
             ttl_ms: ttl_raw.clamp(MIN_TTL_MS, MAX_TTL_MS),
         });
     }
-    Ok(PerformancePlan { speak, cues })
+    Ok(PerformancePlan {
+        speak,
+        segments: None,
+        cues,
+        warnings: Vec::new(),
+    })
+}
+
+/// v1 路径：segments（原文切分）+ 三字段 cues。
+fn parse_v1(
+    object: &Map<String, Value>,
+    allow: &[String],
+    source: &str,
+) -> Result<PerformancePlan, PlanError> {
+    let mut warnings = Vec::new();
+    if object.get("speak").is_some() {
+        // O1：segments 优先，speak 忽略 + warn（不整份失败）。
+        warnings.push(PlanWarning::SpeakIgnored);
+    }
+    let segments_value = object.get("segments").ok_or(PlanError::MissingSegments)?;
+    let segment_list = segments_value.as_array().ok_or(PlanError::SegmentsType)?;
+    if segment_list.len() > MAX_SEGMENTS {
+        return Err(PlanError::SegmentsTooLong(format!(
+            "段数 {} 超过上限 {MAX_SEGMENTS}",
+            segment_list.len()
+        )));
+    }
+    let mut segments = Vec::with_capacity(segment_list.len());
+    let mut total_chars = 0usize;
+    for (index, segment) in segment_list.iter().enumerate() {
+        let segment = segment.as_str().ok_or(PlanError::SegmentNotString(index))?;
+        total_chars += segment.chars().count();
+        segments.push(segment.to_string());
+    }
+    if total_chars > MAX_SEGMENT_CHARS {
+        return Err(PlanError::SegmentsTooLong(format!(
+            "总字符 {total_chars} 超过上限 {MAX_SEGMENT_CHARS}"
+        )));
+    }
+    // V1 核心不变量：逐码点拼接恒等；空原文必须是空切分方案。
+    if segments.concat() != source || (source.is_empty() && !segments.is_empty()) {
+        return Err(PlanError::SegmentsNotPartition);
+    }
+    let cues_value = object.get("cues").ok_or(PlanError::MissingCues)?;
+    let cue_list = cues_value.as_array().ok_or(PlanError::CuesType)?;
+    if cue_list.len() > MAX_CUES {
+        return Err(PlanError::TooManyCues(cue_list.len()));
+    }
+    let seg_count = segments.len() as u64;
+    let mut parsed: Vec<FieldCue> = Vec::with_capacity(cue_list.len());
+    for (index, cue) in cue_list.iter().enumerate() {
+        let cue = cue.as_object().ok_or(PlanError::CueNotObject(index))?;
+        let field = match cue.get("field").and_then(Value::as_str) {
+            Some("body") => CueField::Body,
+            Some("head") => CueField::Head,
+            Some("expression") => CueField::Expression,
+            Some(other) => {
+                return Err(PlanError::UnknownField {
+                    index,
+                    field: other.to_string(),
+                });
+            }
+            None => {
+                return Err(PlanError::CueField {
+                    index,
+                    field: "field",
+                });
+            }
+        };
+        let intensity_raw =
+            cue.get("intensity")
+                .and_then(Value::as_u64)
+                .ok_or(PlanError::CueField {
+                    index,
+                    field: "intensity",
+                })?;
+        let hold = cue
+            .get("hold")
+            .and_then(Value::as_bool)
+            .ok_or(PlanError::CueField {
+                index,
+                field: "hold",
+            })?;
+        let at_raw = cue
+            .get("at")
+            .and_then(Value::as_str)
+            .ok_or(PlanError::CueField { index, field: "at" })?;
+        let at = parse_anchor(at_raw, seg_count).ok_or_else(|| PlanError::BadAnchor {
+            index,
+            at: at_raw.to_string(),
+        })?;
+        // 轴键：按字段裁剪不允许的键（丢键 + warn，不整份失败）。
+        let allow_x = matches!(field, CueField::Body | CueField::Head);
+        let allow_z = matches!(field, CueField::Head);
+        let mut axes = [
+            ("x", axis_value(cue, "x", index)?),
+            ("y", axis_value(cue, "y", index)?),
+            ("z", axis_value(cue, "z", index)?),
+        ];
+        for (key, value) in axes.iter_mut() {
+            let permitted = match *key {
+                "x" | "y" => allow_x,
+                _ => allow_z,
+            };
+            if value.is_some() && !permitted {
+                warnings.push(PlanWarning::AxisNotAllowed { index, key });
+                *value = None;
+            }
+        }
+        let [x, y, z] = axes.map(|(_, value)| value);
+        // id：expression 必填且必须在能力集（none 恒合法）；其余字段给 id 丢键。
+        let id = match cue.get("id") {
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(_) => {
+                return Err(PlanError::CueField { index, field: "id" });
+            }
+            None => None,
+        };
+        let id = if field == CueField::Expression {
+            let id = id.ok_or(PlanError::CueField { index, field: "id" })?;
+            if id != "none" && !allow.iter().any(|a| a == &id) {
+                warnings.push(PlanWarning::ExpressionUnknownId { index, id });
+                continue;
+            }
+            Some(id)
+        } else {
+            if id.is_some() {
+                warnings.push(PlanWarning::IdNotAllowed { index });
+            }
+            None
+        };
+        let ttl_ms = match cue.get("ttl_ms") {
+            Some(value) => value
+                .as_u64()
+                .ok_or(PlanError::CueField {
+                    index,
+                    field: "ttl_ms",
+                })?
+                .clamp(MIN_TTL_MS, MAX_TTL_MS),
+            None => field.default_ttl_ms(),
+        };
+        parsed.push(FieldCue {
+            field,
+            x,
+            y,
+            z,
+            id,
+            intensity: (intensity_raw as u8).clamp(MIN_INTENSITY, MAX_INTENSITY),
+            at,
+            at_resolved: String::new(),
+            hold,
+            ttl_ms,
+            seq: index as u64 + 1,
+            sentence_seq: 0,
+        });
+    }
+    // 锚点解析：now → 第 1 段；seg:N → 第 N 段；after_prev → 上一条锚段，
+    // 若上一条 hold=true（没有「做完」点，O4）或没有上一条 → 退化为 now，
+    // 但仍留在上一 cue 的锚段（不得跳回、更不得「永不生效」）。
+    let mut previous: Option<(u64, bool)> = None;
+    for cue in parsed.iter_mut() {
+        let (sentence_seq, at_resolved) = match cue.at {
+            CueAnchor::Now => (1, "now".to_string()),
+            CueAnchor::Seg(n) => (n, format!("seg:{n}")),
+            CueAnchor::AfterPrev => match previous {
+                Some((prev_seq, false)) => (prev_seq, "after_prev".to_string()),
+                Some((prev_seq, true)) => (prev_seq, "now".to_string()),
+                None => (1, "now".to_string()),
+            },
+        };
+        cue.sentence_seq = sentence_seq;
+        cue.at_resolved = at_resolved;
+        previous = Some((sentence_seq, cue.hold));
+    }
+    let cues = parsed.iter().map(FieldCue::to_wire_cue).collect();
+    Ok(PerformancePlan {
+        speak: None,
+        segments: Some(segments),
+        cues,
+        warnings,
+    })
+}
+
+/// 读一个轴键：缺席 None，数字**钳位**到 [AXIS_MIN, AXIS_MAX]，类型不对整份失败。
+fn axis_value(
+    cue: &Map<String, Value>,
+    key: &'static str,
+    index: usize,
+) -> Result<Option<f64>, PlanError> {
+    match cue.get(key) {
+        None => Ok(None),
+        Some(Value::Number(n)) => {
+            let value = n
+                .as_f64()
+                .ok_or(PlanError::CueField { index, field: key })?;
+            Ok(Some(value.clamp(AXIS_MIN, AXIS_MAX)))
+        }
+        Some(_) => Err(PlanError::CueField { index, field: key }),
+    }
+}
+
+/// 解析 at 锚点（seg:N 1-based 且 N <= seg_count）。
+fn parse_anchor(raw: &str, seg_count: u64) -> Option<CueAnchor> {
+    match raw {
+        "now" => Some(CueAnchor::Now),
+        "after_prev" => Some(CueAnchor::AfterPrev),
+        other => {
+            let n = other.strip_prefix("seg:")?.parse::<u64>().ok()?;
+            (n >= 1 && n <= seg_count).then_some(CueAnchor::Seg(n))
+        }
+    }
 }
 
 /// 发给支持 structured output 的 provider 的 **json_schema strict** 定义。
 ///
-/// 由本文件的常量拼出——能力集就是 host 注入的那一份（单一真源）。
+/// 由本文件的常量拼出——边界就是校验器认的那一份（单一真源）。
 pub fn json_schema_strict(allow: &[String]) -> Value {
+    let mut expression_ids: Vec<Value> = allow.iter().map(|id| json!(id)).collect();
+    expression_ids.push(json!("none"));
     json!({
         "type": "object",
         "additionalProperties": false,
-        "required": ["speak", "cues"],
+        "required": ["segments", "cues"],
         "properties": {
+            "segments": {
+                "type": "array",
+                "maxItems": MAX_SEGMENTS,
+                "description": format!(
+                    "把【主模型原文】切成若干段：只能切分，逐字不变，拼接必须与原文完全相同；总字符不超过 {MAX_SEGMENT_CHARS}。空原文给空数组。"
+                ),
+                "items": { "type": "string" }
+            },
             "speak": {
                 "type": ["string", "null"],
-                "description": "本轮要说的话（送 TTS / 上屏的唯一真源）；null 或空串 = 本轮不说。"
+                "description": "已弃用（V11 保留）：与 segments 同现时被忽略。"
             },
             "cues": {
                 "type": "array",
                 "maxItems": MAX_CUES,
-                "description": "按句动作 cue；空数组 = 本轮不动。",
+                "description": "表演 cue；空数组 = 本轮不动（不是撤销）。",
                 "items": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["sentence_seq", "preset_id", "intensity", "ttl_ms"],
+                    "required": ["field", "intensity", "at", "hold"],
                     "properties": {
-                        "sentence_seq": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "目标句序号（从 1 开始，对应 speak 切出的句子）。"
-                        },
-                        "preset_id": {
+                        "field": {
                             "type": "string",
-                            "enum": allow,
-                            "description": "动作预设 id，只能取能力集里的值。"
+                            "enum": ["body", "head", "expression"]
+                        },
+                        "x": { "type": "number", "minimum": AXIS_MIN, "maximum": AXIS_MAX },
+                        "y": { "type": "number", "minimum": AXIS_MIN, "maximum": AXIS_MAX },
+                        "z": { "type": "number", "minimum": AXIS_MIN, "maximum": AXIS_MAX },
+                        "id": {
+                            "type": "string",
+                            "enum": expression_ids,
+                            "description": "expression 专用；none = 撤销哨兵。"
                         },
                         "intensity": {
                             "type": "integer",
                             "minimum": MIN_INTENSITY,
                             "maximum": MAX_INTENSITY
                         },
+                        "at": {
+                            "type": "string",
+                            "description": "now / seg:N（1-based，N <= segments 段数）/ after_prev"
+                        },
+                        "hold": { "type": "boolean" },
                         "ttl_ms": {
                             "type": "integer",
                             "minimum": MIN_TTL_MS,
@@ -301,7 +839,7 @@ pub fn json_schema_strict(allow: &[String]) -> Value {
     })
 }
 
-/// 把 plan 的 cue 列表封成 WS `action_cue` 的 payload 形态。
+/// 把 plan 的 cue 列表封成 WS action_cue 的 payload 形态。
 pub fn action_cue_payload(epoch: u64, covers_upto_seq: u64, cues: &[PerformanceCue]) -> Value {
     json!({
         "epoch": epoch,

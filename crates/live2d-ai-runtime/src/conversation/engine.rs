@@ -48,10 +48,11 @@ pub struct ConversationEngine {
     ///
     /// - `None`（缺省）= 关闸：主链走既有的「边流边切句边送 TTS」路径，行为与
     ///   本字段加入前**逐字一致**；
-    /// - `Some`：本轮先收齐助手原文，调表演层拿一份 JSON；`speak` 是本轮
-    ///   TTS / 上屏的**唯一真源**，`cues` 经 `EngineEvent::ActionCue` 出去。
-    ///   端点缺失时运行时仍存在但 `enabled()==false`——每轮走确定性回退
-    ///   （`speak=clean_for_tts(原文)` + 规则 cue），degraded 在状态面可见。
+    /// - `Some`：本轮先收齐助手原文，调表演层拿一份 JSON；v1 的 `segments` 是
+    ///   本轮 TTS / 上屏的**切分方案**（一对一，D22），`cues` 经
+    ///   `EngineEvent::ActionCue` 出去。端点缺失时运行时仍存在但
+    ///   `enabled()==false`——每轮走确定性回退（`clean_for_tts(原文)` + 规则 cue），
+    ///   degraded 在状态面可见。
     pub(super) performance: Option<Arc<PerformanceRuntime>>,
 }
 
@@ -395,10 +396,11 @@ impl ConversationEngine {
             }
         }
 
-        // ---- 阶段 1.5：表演层（2026-09-22）----
+        // ---- 阶段 1.5：表演层（v1，2026-09-26）----
         // 主链在这里**收齐本轮助手原文**，交给表演层拿一份合法化 JSON：
-        //   speak → 切句 → 送 TTS + 上屏（唯一真源）；
-        //   cues  → EngineEvent::ActionCue（supervisor 投影为 WS action_cue）。
+        //   segments → 逐段送 TTS + 上屏（D22：一对一，不再二次切句；D23：上屏==送 TTS）；
+        //   cues     → EngineEvent::ActionCue（supervisor 投影为 WS action_cue）。
+        // v0 的 speak 路径（segments 缺席 / 回退）仍走 SentenceAssembler。
         // 只有「表演层开着 + 正常流完 + 未取消 + 无致命」才走这里；失败轮的正文
         // 兜底仍由阶段 4 的 TextFallback 负责（那一轮不发 TTS）。
         if let Some(perf) = performance.as_ref()
@@ -416,16 +418,24 @@ impl ConversationEngine {
                 r = perf.resolve(user_text, &assistant_text) => Some(r),
             };
             if let Some(resolution) = resolution {
-                // 切句走**既有** SentenceAssembler：与流式路径同一套边界规则
-                //（一句一单元：只按真实句读切，绝不按字符位置硬切）。
-                let mut sentences = Vec::new();
-                if let Some(speak) = resolution.speak.as_deref() {
-                    let mut sentences_assembler =
-                        SentenceAssembler::new(self.config.sentence_max_chars);
-                    sentences.extend(sentences_assembler.push(speak));
-                    sentences.extend(sentences_assembler.flush());
-                }
-                // **只动**（speak 空 + 有 cue）：给一条**无声锚句**。前端的 cue 锚点
+                // **D22（段 ↔ 句 1:1）**：表演层给的 segments **一对一**成为 TTS 单元
+                // 与音频元素（`seg:N` ≡ `sentence_seq == N`）——**不再过分句器二次切分**。
+                // 回退 / v0 旧路径（`segments == None`）仍走既有 SentenceAssembler，
+                // 对 `clean_for_tts(原文)` 切多段（v0 行为不变）。
+                let mut sentences: Vec<String> = match &resolution.segments {
+                    Some(segments) => segments.clone(),
+                    None => {
+                        let mut out = Vec::new();
+                        if let Some(speak) = resolution.speak.as_deref() {
+                            let mut sentences_assembler =
+                                SentenceAssembler::new(self.config.sentence_max_chars);
+                            out.extend(sentences_assembler.push(speak));
+                            out.extend(sentences_assembler.flush());
+                        }
+                        out
+                    }
+                };
+                // **只动**（segments=[] + 有 cue）：给一条**无声锚句**。前端的 cue 锚点
                 // 是「该句音频开始」（first_chunk），没有句子就没有锚点，动作永不发生。
                 // 空文本句走 worker 既有的**静音句**路径（不发 TTS HTTP），只产出
                 // 一个 start/end 边界帧——正是 cue 需要的锚。
@@ -450,7 +460,10 @@ impl ConversationEngine {
                     tx_closed = true;
                 }
                 'perform: for sentence in sentences {
+                    // **D23（上屏 == 送 TTS）**：每段文本都是 `clean_for_tts(段)`，
                     // 与流式路径同一条确定性清洗（幂等；只拆标记、不改句界）。
+                    // **D24（空白段不跳号）**：清洗后为空的段照常占一个 `sentence_seq`，
+                    // 并走 worker 的静音句路径（仍产出 start/end 边界帧）。
                     let cleaned = crate::dialogue::clean_for_tts(&sentence);
                     sentence_seq += 1;
                     let delivered = send_event(

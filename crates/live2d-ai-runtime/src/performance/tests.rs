@@ -1,8 +1,9 @@
-//! 表演层回归：**表驱动**合法/非法样例、三态（noop / 只说 / 只动）、
-//! schema 与校验器同界、客户端 wire 形态、回退路径与原因码。
+//! 表演层回归：**表驱动**合法/非法样例、v1 segments 不变量、三态、schema 与
+//! 校验器同界、客户端 wire 形态、回退路径与原因码。
 
 use std::sync::Mutex;
 
+use super::plan::PlanWarning;
 use super::*;
 
 // ---------------------------------------------------------------- 表驱动校验
@@ -11,27 +12,28 @@ fn allow() -> Vec<String> {
     vec!["nod".to_string(), "smile".to_string()]
 }
 
-/// 合法样例：形状、钳位、未知字段丢弃、三态。
+/// v0 legacy 样例：形状、钳位、未知字段丢弃。
 #[test]
 fn legal_samples_parse_with_clamping_and_unknown_fields_dropped() {
     // 只说：cues 为空。
-    let plan = parse_plan(r#"{"speak":"你好呀。","cues":[]}"#, &allow()).expect("合法");
+    let plan = parse_plan(r#"{"speak":"你好呀。","cues":[]}"#, &allow(), "").expect("合法");
     assert_eq!(plan.speak.as_deref(), Some("你好呀。"));
     assert!(plan.cues.is_empty());
     assert!(!plan.is_noop());
 
     // noop：null + 空数组。
-    let plan = parse_plan(r#"{"speak":null,"cues":[]}"#, &allow()).expect("合法");
+    let plan = parse_plan(r#"{"speak":null,"cues":[]}"#, &allow(), "").expect("合法");
     assert!(plan.is_noop());
 
     // noop 的第二种写法：空串。
-    let plan = parse_plan(r#"{"speak":"   ","cues":[]}"#, &allow()).expect("合法");
+    let plan = parse_plan(r#"{"speak":"   ","cues":[]}"#, &allow(), "").expect("合法");
     assert!(plan.is_noop());
 
     // 只动：speak 空 + 一条 cue。
     let plan = parse_plan(
         r#"{"speak":"","cues":[{"sentence_seq":1,"preset_id":"nod","intensity":2,"ttl_ms":1800}]}"#,
         &allow(),
+        "",
     )
     .expect("合法");
     assert!(plan.speak.is_none());
@@ -43,6 +45,7 @@ fn legal_samples_parse_with_clamping_and_unknown_fields_dropped() {
     let plan = parse_plan(
         r#"{"speak":"a","cues":[{"sentence_seq":3,"preset_id":"nod","intensity":9,"ttl_ms":999999}]}"#,
         &allow(),
+        "",
     )
     .expect("合法");
     assert_eq!(plan.cues[0].intensity, MAX_INTENSITY);
@@ -50,6 +53,7 @@ fn legal_samples_parse_with_clamping_and_unknown_fields_dropped() {
     let plan = parse_plan(
         r#"{"speak":"a","cues":[{"sentence_seq":1,"preset_id":"nod","intensity":0,"ttl_ms":0}]}"#,
         &allow(),
+        "",
     )
     .expect("合法");
     assert_eq!(plan.cues[0].intensity, MIN_INTENSITY);
@@ -59,6 +63,7 @@ fn legal_samples_parse_with_clamping_and_unknown_fields_dropped() {
     let plan = parse_plan(
         r#"{"speak":"a","cues":[],"reason":"我想多了","mood":"happy"}"#,
         &allow(),
+        "",
     )
     .expect("未知字段应被丢弃而不是失败");
     assert_eq!(plan.speak.as_deref(), Some("a"));
@@ -70,12 +75,22 @@ fn illegal_samples_fail_as_a_whole() {
     let cases: Vec<(&str, &str)> = vec![
         ("not json at all", "performance_plan_not_json"),
         ("[1,2,3]", "performance_plan_not_object"),
-        (r#"{"cues":[]}"#, "performance_plan_missing_speak"),
+        (r#"{"cues":[]}"#, "performance_plan_missing_segments"),
+        (r#"{"segments":[],"cues":[]}"#, ""),
         (r#"{"speak":42,"cues":[]}"#, "performance_plan_speak_type"),
         (r#"{"speak":"a"}"#, "performance_plan_missing_cues"),
+        (r#"{"segments":["嗯"]}"#, "performance_plan_missing_cues"),
         (r#"{"speak":"a","cues":{}}"#, "performance_plan_cues_type"),
         (
+            r#"{"segments":["嗯"],"cues":{}}"#,
+            "performance_plan_cues_type",
+        ),
+        (
             r#"{"speak":"a","cues":[1,2]}"#,
+            "performance_plan_cue_not_object",
+        ),
+        (
+            r#"{"segments":["嗯"],"cues":[1,2]}"#,
             "performance_plan_cue_not_object",
         ),
         (
@@ -98,14 +113,44 @@ fn illegal_samples_fail_as_a_whole() {
             r#"{"speak":"a","cues":[{"sentence_seq":1,"preset_id":"nod","intensity":"强","ttl_ms":10}]}"#,
             "performance_plan_cue_field",
         ),
+        // v1 形状错误。
+        (
+            r#"{"segments":"嗯","cues":[]}"#,
+            "performance_plan_segments_type",
+        ),
+        (
+            r#"{"segments":["嗯",7],"cues":[]}"#,
+            "performance_plan_segment_not_string",
+        ),
+        (
+            r#"{"segments":["嗯"],"cues":[{"field":"tail","intensity":1,"at":"now","hold":true}]}"#,
+            "performance_plan_unknown_field",
+        ),
+        (
+            r#"{"segments":["嗯"],"cues":[{"field":"body","intensity":1,"at":"now"}]}"#,
+            "performance_plan_cue_field",
+        ),
+        (
+            r#"{"segments":["嗯"],"cues":[{"field":"expression","intensity":1,"at":"now","hold":true}]}"#,
+            "performance_plan_cue_field",
+        ),
+        (
+            r#"{"segments":["嗯"],"cues":[{"field":"body","intensity":1,"at":"now","hold":true,"x":"大"}]}"#,
+            "performance_plan_cue_field",
+        ),
     ];
     for (raw, code) in cases {
-        let err = parse_plan(raw, &allow()).expect_err("必须整份失败");
+        if code.is_empty() {
+            // 空切分 + 空 cues 是合法 noop（空原文）。
+            assert!(parse_plan(raw, &allow(), "").is_ok(), "输入 {raw}");
+            continue;
+        }
+        let err = parse_plan(raw, &allow(), "嗯").expect_err("必须整份失败");
         assert_eq!(err.code(), code, "输入 {raw}");
         assert!(!err.message().is_empty());
     }
 
-    // 超量：MAX_CUES + 1 条 → 整份失败。
+    // 超量：MAX_CUES + 1 条 → 整份失败（legacy + v1 各一次）。
     let many = (0..=MAX_CUES)
         .map(|i| {
             format!(
@@ -117,9 +162,285 @@ fn illegal_samples_fail_as_a_whole() {
         .join(",");
     let raw = format!(r#"{{"speak":"a","cues":[{many}]}}"#);
     assert_eq!(
-        parse_plan(&raw, &allow()).expect_err("超量").code(),
+        parse_plan(&raw, &allow(), "").expect_err("超量").code(),
         "performance_plan_too_many_cues"
     );
+    let many_v1 = (0..=MAX_CUES)
+        .map(|_| r#"{"field":"body","intensity":1,"at":"now","hold":true}"#)
+        .collect::<Vec<_>>()
+        .join(",");
+    let raw_v1 = format!(r#"{{"segments":["a"],"cues":[{many_v1}]}}"#);
+    assert_eq!(
+        parse_plan(&raw_v1, &allow(), "a").expect_err("超量").code(),
+        "performance_plan_too_many_cues"
+    );
+}
+
+// ---------------------------------------------------------------- v1 不变量
+
+/// **V1 核心**：segments 只能是原文的逐字切分；改写 / 缩写 / 漏字 / 换序 / 拼接不等
+/// 全部整份失败（performance_plan_segments_not_partition）。
+#[test]
+fn segments_must_be_a_verbatim_partition_of_the_source() {
+    let source = "嗯……我想到了。";
+    // 正例：任意切点都合法。
+    let plan = parse_plan(
+        r#"{"segments":["嗯……","我想到了。"],"cues":[]}"#,
+        &allow(),
+        source,
+    )
+    .expect("合法切分");
+    assert_eq!(
+        plan.segments.as_deref(),
+        Some(&["嗯……".to_string(), "我想到了。".to_string()][..])
+    );
+    assert_eq!(plan.segments.clone().unwrap().concat(), source);
+
+    // 反例：每一条都必须整份失败。
+    let bad = [
+        r#"{"segments":["嗯……","我想到了"],"cues":[]}"#, // 漏字
+        r#"{"segments":["嗯……","想到了。"],"cues":[]}"#, // 漏字
+        r#"{"segments":["嗯……","我想到了。。"],"cues":[]}"#, // 增字
+        r#"{"segments":["我想到了。","嗯……"],"cues":[]}"#, // 换序
+        r#"{"segments":["嗯……","我想到了？"],"cues":[]}"#, // 改写（。→？）
+        r#"{"segments":["嗯……","想到了。"],"cues":[]}"#, // 缩写
+    ];
+    for raw in bad {
+        let err = parse_plan(raw, &allow(), source).expect_err("必须整份失败");
+        assert_eq!(
+            err.code(),
+            "performance_plan_segments_not_partition",
+            "输入 {raw}"
+        );
+    }
+    // 空原文：segments 必须是 []（非空切分即使拼接为空也不接受）。
+    assert!(parse_plan(r#"{"segments":[],"cues":[]}"#, &allow(), "").is_ok());
+    assert_eq!(
+        parse_plan(r#"{"segments":[""],"cues":[]}"#, &allow(), "")
+            .expect_err("空原文不接受非空切分")
+            .code(),
+        "performance_plan_segments_not_partition"
+    );
+}
+
+/// 切分前后原文逐字相同：只改切点、不改字符。
+#[test]
+fn segments_are_split_but_never_rewritten() {
+    let source = "下午好，今天天气不错。";
+    let plan = parse_plan(
+        r#"{"segments":["下午好，","今天天气","不错。"],"cues":[]}"#,
+        &allow(),
+        source,
+    )
+    .expect("合法切分");
+    let segments = plan.segments.clone().unwrap();
+    assert_eq!(segments.concat(), source, "拼接必须逐字等于原文");
+    assert_eq!(segments.join(""), source);
+    assert_eq!(segments.len(), 3, "只决定切点，不合并/拆分字符");
+}
+
+/// V11：只给 speak 时仍走 v0 旧语义（缺省即旧语义）。
+#[test]
+fn legacy_speak_still_parses_when_segments_absent() {
+    let plan = parse_plan(
+        r#"{"speak":"你好。","cues":[{"sentence_seq":1,"preset_id":"nod","intensity":1,"ttl_ms":900}]}"#,
+        &allow(),
+        "",
+    )
+    .expect("v0 旧路径必须可解析");
+    assert_eq!(plan.speak.as_deref(), Some("你好。"));
+    assert!(plan.segments.is_none(), "旧路径没有 segments");
+    assert_eq!(plan.cues.len(), 1);
+    assert_eq!(plan.cues[0].preset_id, "nod");
+}
+
+/// O1：segments 与 speak 同现 → segments 优先、speak 忽略 + warn（**不整份失败**）。
+#[test]
+fn both_segments_and_speak_prefers_segments_and_warns() {
+    let plan = parse_plan(
+        r#"{"segments":["好。"],"speak":"被改写的话","cues":[]}"#,
+        &allow(),
+        "好。",
+    )
+    .expect("O1 不得整份失败");
+    assert!(plan.speak.is_none(), "speak 必须被忽略");
+    assert_eq!(plan.segments.as_deref(), Some(&["好。".to_string()][..]));
+    assert!(
+        plan.warnings.contains(&PlanWarning::SpeakIgnored),
+        "必须 warn：{:?}",
+        plan.warnings
+    );
+}
+
+/// at 词表外 / 越界锚点（seg:0 或 seg:N > 段数）→ 整份失败。
+#[test]
+fn anchor_beyond_segment_count_fails_the_whole_plan() {
+    let source = "一二";
+    let ok = parse_plan(
+        r#"{"segments":["一","二"],"cues":[{"field":"head","intensity":1,"at":"seg:2","hold":false}]}"#,
+        &allow(),
+        source,
+    )
+    .expect("seg:2 在段数内");
+    assert_eq!(ok.cues[0].to_json()["sentence_seq"], 2);
+
+    for at in ["seg:0", "seg:3", "seg:x", "in:800", "later", ""] {
+        let raw = format!(
+            r#"{{"segments":["一","二"],"cues":[{{"field":"head","intensity":1,"at":"{at}","hold":false}}]}}"#
+        );
+        let err = parse_plan(&raw, &allow(), source).expect_err("必须整份失败");
+        assert_eq!(err.code(), "performance_plan_bad_anchor", "at={at}");
+    }
+}
+
+/// O2：段数上限 / 总字符上限 → 整份失败（不截断）。
+#[test]
+fn segments_count_and_chars_limits_fail_as_a_whole() {
+    // 65 段（每段 1 字）→ 超段数。
+    let source: String = "啊".repeat(MAX_SEGMENTS + 1);
+    let segments: Vec<String> = (0..=MAX_SEGMENTS).map(|_| "\"啊\"".to_string()).collect();
+    let raw = format!(r#"{{"segments":[{}],"cues":[]}}"#, segments.join(","));
+    assert_eq!(
+        parse_plan(&raw, &allow(), &source)
+            .expect_err("超段数")
+            .code(),
+        "performance_plan_segments_too_long"
+    );
+    // 单段总字符 > 上限 → 超长。
+    let long_source = "啊".repeat(MAX_SEGMENT_CHARS + 1);
+    let long_raw = format!(r#"{{"segments":["{long_source}"],"cues":[]}}"#);
+    assert_eq!(
+        parse_plan(&long_raw, &allow(), &long_source)
+            .expect_err("超长")
+            .code(),
+        "performance_plan_segments_too_long"
+    );
+}
+
+/// §2.4 #11/#12/#13：body 给 z 丢键 + warn；轴越界钳位；intensity 越界钳位。
+#[test]
+fn body_z_is_dropped_and_axis_out_of_range_clamps() {
+    let plan = parse_plan(
+        r#"{"segments":["好。"],"cues":[
+            {"field":"body","x":1.7,"y":-9.0,"z":0.5,"intensity":9,"at":"now","hold":false},
+            {"field":"head","z":0.5,"intensity":2,"at":"now","hold":true}
+        ]}"#,
+        &allow(),
+        "好。",
+    )
+    .expect("合法（丢键 + 钳位，不整份失败）");
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|w| matches!(w, PlanWarning::AxisNotAllowed { key: "z", .. })),
+        "body.z 必须 warn：{:?}",
+        plan.warnings
+    );
+    let body = plan.cues[0].to_json();
+    assert_eq!(body["x"], AXIS_MAX, "越界轴值钳位到上界");
+    assert_eq!(body["y"], AXIS_MIN, "越界轴值钳位到下界");
+    assert!(body.get("z").is_none(), "body 的 z 必须被丢弃");
+    assert_eq!(body["intensity"], MAX_INTENSITY, "intensity 钳位");
+    let head = plan.cues[1].to_json();
+    assert_eq!(head["z"], 0.5, "head 的 z 保留");
+    assert_eq!(head["preset_id"], "head", "非 expression 用字段名占位");
+}
+
+/// §2.4 #16：未知表情 id 只丢该条 cue + warn（其余照演）。
+#[test]
+fn expression_unknown_id_is_dropped_with_warning() {
+    let plan = parse_plan(
+        r#"{"segments":["好。"],"cues":[
+            {"field":"expression","id":"nope","intensity":1,"at":"now","hold":true},
+            {"field":"expression","id":"none","intensity":1,"at":"now","hold":true}
+        ]}"#,
+        &allow(),
+        "好。",
+    )
+    .expect("未知 id 不整份失败");
+    assert_eq!(plan.cues.len(), 1, "只丢该条");
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|w| w.code() == "performance_expression_unknown_id")
+    );
+    let kept = plan.cues[0].to_json();
+    assert_eq!(kept["preset_id"], "none");
+    assert_eq!(kept["seq"], 2, "序号按 plan 内位置，丢条不重排");
+}
+
+/// O4：after_prev 遇 hold=true（没有「做完」点）→ 退化为 now，**不得永不生效**。
+#[test]
+fn after_prev_degrades_to_now_when_prev_holds() {
+    let source = "一二三";
+    // 上一条 hold=true → 退化。
+    let plan = parse_plan(
+        r#"{"segments":["一","二","三"],"cues":[
+            {"field":"body","x":0.1,"intensity":1,"at":"now","hold":true},
+            {"field":"head","y":0.2,"intensity":1,"at":"after_prev","hold":false}
+        ]}"#,
+        &allow(),
+        source,
+    )
+    .expect("合法");
+    let degraded = plan.cues[1].to_json();
+    assert_eq!(degraded["at"], "now", "hold 的 after_prev 必须退化为 now");
+    assert_eq!(degraded["sentence_seq"], 1, "退化后停在上一条的锚段");
+    // 上一条 hold=false → 保留 after_prev。
+    let plan = parse_plan(
+        r#"{"segments":["一","二","三"],"cues":[
+            {"field":"body","x":0.1,"intensity":1,"at":"seg:2","hold":false},
+            {"field":"head","y":0.2,"intensity":1,"at":"after_prev","hold":false}
+        ]}"#,
+        &allow(),
+        source,
+    )
+    .expect("合法");
+    let chained = plan.cues[1].to_json();
+    assert_eq!(chained["at"], "after_prev");
+    assert_eq!(chained["sentence_seq"], 2, "after_prev 锚在上一条的段");
+}
+
+/// v1 cue → wire：既有键逐字保留 + v1 新键以可选键摊平（B9 / V11）。
+#[test]
+fn v1_cue_projects_with_existing_and_new_keys() {
+    let plan = parse_plan(
+        r#"{"segments":["一","二"],"cues":[
+            {"field":"head","x":0.25,"y":-0.5,"z":-0.75,"intensity":3,"at":"seg:2","hold":false,"ttl_ms":1200}
+        ]}"#,
+        &allow(),
+        "一二",
+    )
+    .expect("合法");
+    let json = plan.cues[0].to_json();
+    for key in [
+        "sentence_seq",
+        "preset_id",
+        "intensity",
+        "ttl_ms",
+        "priority",
+    ] {
+        assert!(json.get(key).is_some(), "既有键 {key} 必须保留：{json}");
+    }
+    assert_eq!(json["sentence_seq"], 2);
+    assert_eq!(json["intensity"], 3);
+    assert_eq!(json["ttl_ms"], 1200);
+    assert_eq!(json["priority"], PRIORITY_PERFORMANCE);
+    assert_eq!(json["field"], "head");
+    assert_eq!(json["seq"], 1);
+    assert_eq!(json["x"], 0.25);
+    assert_eq!(json["y"], -0.5);
+    assert_eq!(json["z"], -0.75);
+    assert_eq!(json["at"], "seg:2");
+    assert_eq!(json["hold"], false);
+    // 默认 ttl（O3）。
+    let plan = parse_plan(
+        r#"{"segments":["一"],"cues":[{"field":"expression","id":"smile","intensity":1,"at":"now","hold":false}]}"#,
+        &allow(),
+        "一",
+    )
+    .expect("合法");
+    assert_eq!(plan.cues[0].to_json()["ttl_ms"], DEFAULT_TTL_MS_EXPRESSION);
 }
 
 /// schema 与校验器**同一组边界**（发出去的 schema == 校验器认的东西）。
@@ -128,30 +449,81 @@ fn schema_and_validator_share_the_same_bounds() {
     let schema = json_schema_strict(&allow());
     assert_eq!(schema["type"], "object");
     assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(schema["required"], serde_json::json!(["speak", "cues"]));
+    assert_eq!(schema["required"], serde_json::json!(["segments", "cues"]));
+    assert_eq!(schema["properties"]["segments"]["maxItems"], MAX_SEGMENTS);
+    assert_eq!(schema["properties"]["segments"]["items"]["type"], "string");
+    assert_eq!(schema["properties"]["cues"]["maxItems"], MAX_CUES);
     let cue = &schema["properties"]["cues"]["items"];
     assert_eq!(cue["additionalProperties"], false);
     assert_eq!(
         cue["required"],
-        serde_json::json!(["sentence_seq", "preset_id", "intensity", "ttl_ms"])
+        serde_json::json!(["field", "intensity", "at", "hold"])
     );
-    assert_eq!(schema["properties"]["cues"]["maxItems"], MAX_CUES);
     assert_eq!(
-        cue["properties"]["preset_id"]["enum"],
-        serde_json::json!(allow())
+        cue["properties"]["field"]["enum"],
+        serde_json::json!(["body", "head", "expression"])
     );
     assert_eq!(cue["properties"]["intensity"]["minimum"], MIN_INTENSITY);
     assert_eq!(cue["properties"]["intensity"]["maximum"], MAX_INTENSITY);
     assert_eq!(cue["properties"]["ttl_ms"]["minimum"], MIN_TTL_MS);
     assert_eq!(cue["properties"]["ttl_ms"]["maximum"], MAX_TTL_MS);
-    // speak 两态。
+    for axis in ["x", "y", "z"] {
+        assert_eq!(cue["properties"][axis]["minimum"], AXIS_MIN);
+        assert_eq!(cue["properties"][axis]["maximum"], AXIS_MAX);
+    }
     assert_eq!(
         schema["properties"]["speak"]["type"],
         serde_json::json!(["string", "null"])
     );
+    let ids = cue["properties"]["id"]["enum"].as_array().expect("id enum");
+    assert!(ids.contains(&serde_json::json!("none")));
+    for id in allow() {
+        assert!(ids.contains(&serde_json::json!(id)), "id enum 必须含 {id}");
+    }
+    // 校验器用的是**同一组常量**：每一条越界都落在常量边界上。
+    let plan = parse_plan(
+        r#"{"segments":["一"],"cues":[{"field":"body","x":9.0,"intensity":99,"at":"now","hold":false,"ttl_ms":999999}]}"#,
+        &allow(),
+        "一",
+    )
+    .expect("合法");
+    let json = plan.cues[0].to_json();
+    assert_eq!(json["x"], AXIS_MAX);
+    assert_eq!(json["intensity"], MAX_INTENSITY);
+    assert_eq!(json["ttl_ms"], MAX_TTL_MS);
+    assert_eq!(
+        parse_plan(r#"{"segments":["一",7],"cues":[]}"#, &allow(), "一")
+            .expect_err("段元素类型")
+            .code(),
+        "performance_plan_segment_not_string"
+    );
 }
 
-/// WS action_cue payload 与既有帧逐字段同形（前端 ActionCue.fromJson 直接吃）。
+/// §5.1：表演层提示词 / schema / user 消息里**不得出现任何 Param 参数名**。
+#[test]
+fn performance_prompt_never_contains_param_names() {
+    let schema = json_schema_strict(&allow()).to_string();
+    let user = build_user_prompt("你好", "（挥手）嗯……我想到了。", &allow());
+    for (name, text) in [
+        ("SYSTEM_STRUCTURED", prompt::SYSTEM_STRUCTURED),
+        ("SYSTEM_JSON_ONLY", prompt::SYSTEM_JSON_ONLY),
+        ("json_schema_strict", schema.as_str()),
+        ("build_user_prompt", user.as_str()),
+    ] {
+        assert!(
+            !text.contains("Param"),
+            "{name} 不得出现任何 Param 参数名（协议 §5.1）"
+        );
+        assert!(
+            !text.to_ascii_lowercase().contains("param"),
+            "{name} 小写也不得出现"
+        );
+    }
+    assert!(prompt::SYSTEM_JSON_ONLY.contains("segments"));
+    assert!(prompt::SYSTEM_STRUCTURED.contains("segments"));
+}
+
+/// WS action_cue payload 与既有帧逐字段同形（legacy cue 路径不变）。
 #[test]
 fn action_cue_payload_matches_existing_frame_shape() {
     let cues = vec![PerformanceCue {
@@ -168,61 +540,9 @@ fn action_cue_payload_matches_existing_frame_shape() {
     assert_eq!(payload["cues"][0]["intensity"], 2);
     assert_eq!(payload["cues"][0]["ttl_ms"], 1500);
     assert_eq!(payload["cues"][0]["priority"], PRIORITY_PERFORMANCE);
-}
-
-// ---------------------------------------------------------------- 宽容解析
-
-#[test]
-fn strip_code_fence_takes_the_json_body() {
-    assert_eq!(
-        strip_code_fence("```json\n{\"speak\":null,\"cues\":[]}\n```"),
-        r#"{"speak":null,"cues":[]}"#
-    );
-    assert_eq!(
-        strip_code_fence("好的，这是结果：{\"speak\":\"嗯。\",\"cues\":[]} 以上"),
-        r#"{"speak":"嗯。","cues":[]}"#
-    );
-    // 没有花括号 → 原样（交给校验器判失败，不在这里假装成功）。
-    assert_eq!(strip_code_fence("  nope  "), "nope");
-}
-
-#[test]
-fn parse_completion_ignores_reasoning_and_rejects_blank() {
-    let ok = r#"{"choices":[{"message":{"role":"assistant","content":"{\"speak\":null,\"cues\":[]}","reasoning_content":"SECRET"}}]}"#;
-    assert_eq!(
-        parse_completion(ok).as_deref(),
-        Some("{\"speak\":null,\"cues\":[]}")
-    );
-    assert_eq!(parse_completion(r#"{"choices":[]}"#), None);
-    assert_eq!(parse_completion("not json"), None);
-    assert_eq!(
-        parse_completion(r#"{"choices":[{"message":{"content":"   "}}]}"#),
-        None
-    );
-}
-
-#[test]
-fn structured_mode_parse_never_fails() {
-    assert_eq!(
-        StructuredMode::parse("json_schema"),
-        StructuredMode::JsonSchema
-    );
-    assert_eq!(StructuredMode::parse("PROMPT"), StructuredMode::Prompt);
-    assert_eq!(StructuredMode::parse("随便"), StructuredMode::Auto);
-    assert_eq!(StructuredMode::default(), StructuredMode::Auto);
-    assert_eq!(StructuredMode::Auto.as_str(), "auto");
-}
-
-#[test]
-fn endpoint_join_rejects_missing_and_bad_scheme() {
-    // 收敛后只有一个实现：`live2d_ai_runtime::join_endpoint`。
-    assert!(crate::join_endpoint("", "/x").is_err());
-    assert!(crate::join_endpoint("ftp://h/v1", "/x").is_err());
-    assert_eq!(
-        crate::join_endpoint("http://h/v1/", "/chat/completions")
-            .expect("合法")
-            .as_str(),
-        "http://h/v1/chat/completions"
+    assert!(
+        payload["cues"][0].get("field").is_none(),
+        "legacy cue 不新增键"
     );
 }
 
@@ -301,7 +621,7 @@ fn rule_one_cue() -> RuleFallback {
     })
 }
 
-/// 成功：speak 与 cues 都来自表演层 JSON（**不**走规则）。
+/// 成功（v0 speak 路径）：speak 与 cues 都来自表演层 JSON（**不**走规则）。
 #[tokio::test]
 async fn resolve_success_uses_the_plan_not_the_rule() {
     let client = MockClient::ok(
@@ -317,6 +637,7 @@ async fn resolve_success_uses_the_plan_not_the_rule() {
     let out = rt.resolve("你好", "（挥手）你好呀。*歪头*再见。").await;
     assert_eq!(out.reason, FallbackReason::None);
     assert_eq!(out.speak.as_deref(), Some("你好呀。再见。"));
+    assert!(out.segments.is_none(), "v0 路径没有 segments");
     assert_eq!(out.cues.len(), 1);
     assert_eq!(out.cues[0].preset_id, "smile");
     assert_eq!(out.cues[0].sentence_seq, 2);
@@ -326,7 +647,51 @@ async fn resolve_success_uses_the_plan_not_the_rule() {
     assert_eq!(rt.stats().last_fallback(), "performance_ok");
 }
 
-/// 三态（成功路）：noop / 只说 / 只动。
+/// v1 成功：segments 原样交回（引擎一对一），speak 恒 None。
+#[tokio::test]
+async fn resolve_v1_segments_plan_is_one_to_one_and_speak_is_none() {
+    let client = MockClient::ok(
+        r#"{"segments":["你好。","再见。"],"cues":[{"field":"expression","id":"smile","intensity":2,"at":"seg:2","hold":false}]}"#,
+    );
+    let rt = PerformanceRuntime::new(
+        Box::new(client),
+        allow(),
+        1_500,
+        StructuredMode::Auto,
+        Some(rule_one_cue()),
+    );
+    let out = rt.resolve("你好", "你好。再见。").await;
+    assert_eq!(out.reason, FallbackReason::None);
+    assert!(out.speak.is_none(), "v1 的文本来源是 segments，不是 speak");
+    assert_eq!(
+        out.segments.as_deref(),
+        Some(&["你好。".to_string(), "再见。".to_string()][..])
+    );
+    assert_eq!(out.cues.len(), 1);
+    assert_eq!(out.cues[0].to_json()["sentence_seq"], 2);
+    assert_eq!(rt.stats().plans(), 1);
+}
+
+/// v1 拼接不成立 → 整份失败 → 回退（clean + 规则 cue）。
+#[tokio::test]
+async fn resolve_v1_partition_failure_falls_back_to_clean_and_rule() {
+    let raw = "（挥手）你好呀。*歪头*再见。";
+    let rt = PerformanceRuntime::new(
+        Box::new(MockClient::ok(r#"{"segments":["被改写"],"cues":[]}"#)),
+        allow(),
+        1_500,
+        StructuredMode::Auto,
+        Some(rule_one_cue()),
+    );
+    let out = rt.resolve("你好", raw).await;
+    assert_eq!(out.reason, FallbackReason::InvalidPlan);
+    assert_eq!(rt.stats().last_fallback(), "performance_plan_invalid");
+    assert!(out.segments.is_none(), "回退不走 v1 segments");
+    assert_eq!(out.speak.as_deref(), Some("你好呀。再见。"));
+    assert_eq!(out.cues.len(), 1, "回退的 cue 来自规则层");
+}
+
+/// 三态（v0 成功路）：noop / 只说 / 只动。
 #[tokio::test]
 async fn resolve_three_states_noop_speak_only_cue_only() {
     // noop
@@ -378,11 +743,10 @@ async fn resolve_three_states_noop_speak_only_cue_only() {
     );
 }
 
-/// 失败回退：坏 JSON / 请求失败 / 关闸 / 空原文 → speak=清洗(原文) + 规则 cue。
+/// 失败回退：坏 JSON / 请求失败 / 关闸 / 空原文 → clean(原文) + 规则 cue。
 #[tokio::test]
 async fn resolve_fallback_paths_use_clean_text_and_rule_cues() {
     let raw = "你好呀（挥手）. *歪头* 再见。";
-    // 坏 JSON（过不了同一个校验器）→ InvalidPlan。
     let rt = PerformanceRuntime::new(
         Box::new(MockClient::ok(r#"{"speak":"hi"}"#)),
         allow(),
@@ -396,7 +760,6 @@ async fn resolve_fallback_paths_use_clean_text_and_rule_cues() {
     assert_eq!(out.speak.as_deref(), Some("你好呀. 再见。"));
     assert_eq!(out.cues.len(), 1, "回退的 cue 来自规则层");
 
-    // 请求失败（超时 / 非 2xx / 无正文）→ RequestFailed。
     let rt = PerformanceRuntime::new(
         Box::new(MockClient::failing()),
         allow(),
@@ -408,7 +771,6 @@ async fn resolve_fallback_paths_use_clean_text_and_rule_cues() {
     assert_eq!(out.reason, FallbackReason::RequestFailed);
     assert_eq!(out.speak.as_deref(), Some("你好呀。"));
 
-    // 关闸（客户端不可用）→ Disabled；行为与「从来没有表演层」同义。
     let rt = PerformanceRuntime::new(
         Box::new(MockClient::disabled()),
         allow(),
@@ -421,7 +783,6 @@ async fn resolve_fallback_paths_use_clean_text_and_rule_cues() {
     assert_eq!(out.speak.as_deref(), Some("你好呀。"));
     assert!(!rt.enabled());
 
-    // 空原文 → 没有可表演的内容：不说、规则层也没 cue。
     let rt = PerformanceRuntime::new(
         Box::new(MockClient::ok(r#"{"speak":"不该被用","cues":[]}"#)),
         allow(),
@@ -432,224 +793,4 @@ async fn resolve_fallback_paths_use_clean_text_and_rule_cues() {
     let out = rt.resolve("你好", "   ").await;
     assert_eq!(out.reason, FallbackReason::EmptyAssistant);
     assert!(out.is_noop());
-}
-
-/// 关闸装配：与「从来没有表演层」逐字一致（runtime=None、无 note）。
-#[test]
-fn assemble_off_is_none_and_missing_endpoint_is_degraded() {
-    let wiring = |enabled: bool, base: &str| crate::settings::PerformanceSettings {
-        enabled,
-        base_url: base.to_string(),
-        model: "m".to_string(),
-        ..Default::default()
-    };
-    let off = assemble(
-        &wiring(false, "http://127.0.0.1:11434/v1"),
-        allow(),
-        Some(rule_one_cue()),
-    );
-    assert!(off.runtime.is_none());
-    assert!(off.note.is_none());
-
-    let no_base = assemble(&wiring(true, ""), allow(), Some(rule_one_cue()));
-    assert!(no_base.note.is_some(), "缺端点必须可观察 degraded");
-    assert!(!no_base.runtime.expect("仍装配").enabled());
-
-    let configured = assemble(
-        &wiring(true, "http://127.0.0.1:11434/v1"),
-        allow(),
-        Some(rule_one_cue()),
-    );
-    let rt = configured.runtime.expect("装配");
-    assert!(rt.enabled());
-    assert_eq!(rt.client_kind(), "openai");
-    assert!(configured.note.is_none());
-}
-
-// ---------------------------------------------------------------- HTTP wire
-
-/// 脚本化 loopback：按顺序回应 N 个请求，回传每个请求的原始文本。
-async fn scripted_server(
-    responses: Vec<(u16, String)>,
-) -> (String, tokio::task::JoinHandle<Vec<String>>) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind loopback");
-    let addr = listener.local_addr().expect("addr");
-    let handle = tokio::spawn(async move {
-        let mut raws = Vec::new();
-        for (status, body) in responses {
-            let Ok((mut stream, _)) = listener.accept().await else {
-                break;
-            };
-            let mut buf: Vec<u8> = Vec::new();
-            let mut tmp = [0u8; 1024];
-            loop {
-                let n = stream.read(&mut tmp).await.unwrap_or(0);
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-                if let Some(head_end) = find_subslice(&buf, b"\r\n\r\n") {
-                    let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
-                    let cl = content_length(&head);
-                    if buf.len() >= head_end + 4 + cl {
-                        break;
-                    }
-                }
-            }
-            raws.push(String::from_utf8_lossy(&buf).to_string());
-            let reason = if status == 200 { "OK" } else { "Bad Request" };
-            let response = format!(
-                "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-            let _ = stream.flush().await;
-        }
-        raws
-    });
-    (format!("http://{addr}/v1"), handle)
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
-}
-
-fn content_length(head: &str) -> usize {
-    head.lines()
-        .find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("content-length")
-                .then(|| value.trim().parse::<usize>().ok())
-                .flatten()
-        })
-        .unwrap_or(0)
-}
-
-/// structured 路：请求体带 json_schema（枚举就是能力集），只有 system+user。
-#[tokio::test]
-async fn openai_client_posts_json_schema_and_parses_content() {
-    let plan = r#"{"speak":"你好。","cues":[{"sentence_seq":1,"preset_id":"nod","intensity":2,"ttl_ms":1500}]}"#;
-    let response = serde_json::json!({
-        "choices": [{"message": {"role": "assistant", "content": plan}, "finish_reason": "stop"}],
-        "reasoning_content": "SECRET_THOUGHT"
-    })
-    .to_string();
-    let (base, handle) = scripted_server(vec![(200, response)]).await;
-    let client = OpenAiPerformanceClient::with_api_key(
-        &base,
-        "director-model",
-        Some(crate::secret::ApiSecret::new("sk-test-123")),
-        3_000,
-        StructuredMode::JsonSchema,
-        &allow(),
-    )
-    .expect("构造应成功");
-    assert!(client.enabled());
-    assert_eq!(client.kind(), "openai");
-    assert!(client.has_api_key());
-    let reply = client
-        .request("SYS", "USER", 3_000)
-        .await
-        .expect("应解析出正文");
-    assert!(reply.structured);
-    assert_eq!(reply.raw, plan);
-    assert!(parse_plan(&reply.raw, &allow()).is_ok());
-
-    let raws = handle.await.expect("mock server");
-    let raw = &raws[0];
-    assert!(raw.starts_with("POST /v1/chat/completions"), "{raw}");
-    assert!(
-        raw.to_ascii_lowercase()
-            .contains("authorization: bearer sk-test-123"),
-        "{raw}"
-    );
-    assert!(raw.contains("\"stream\":false"), "{raw}");
-    assert!(raw.contains("\"model\":\"director-model\""), "{raw}");
-    assert!(raw.contains("\"json_schema\""), "{raw}");
-    assert!(raw.contains("\"strict\":true"), "{raw}");
-    assert!(raw.contains("\"nod\""), "{raw}");
-    assert!(
-        !raw.contains("reasoning") && !raw.contains("SECRET_THOUGHT"),
-        "请求体不得携带思考：{raw}"
-    );
-    assert_eq!(
-        raw.matches("\"role\"").count(),
-        2,
-        "只有 system+user：{raw}"
-    );
-}
-
-/// auto：上游 4xx（不认识 response_format）→ 原地降级 prompt 再发一次。
-#[tokio::test]
-async fn auto_mode_degrades_to_prompt_on_4xx() {
-    let plan = r#"{"speak":null,"cues":[]}"#;
-    let ok = serde_json::json!({"choices":[{"message":{"content":plan}}]}).to_string();
-    let err = r#"{"error":{"message":"response_format is not supported","type":"invalid_request_error"}}"#.to_string();
-    let (base, handle) = scripted_server(vec![(400, err), (200, ok)]).await;
-    let client = OpenAiPerformanceClient::with_api_key(
-        &base,
-        "m",
-        None,
-        3_000,
-        StructuredMode::Auto,
-        &allow(),
-    )
-    .expect("构造应成功");
-    let reply = client
-        .request("SYS", "USER", 3_000)
-        .await
-        .expect("降级后成功");
-    assert!(!reply.structured, "第二次必须不带 response_format");
-    let raws = handle.await.expect("mock server");
-    assert_eq!(raws.len(), 2, "auto 必须先 json_schema 再 prompt");
-    assert!(raws[0].contains("\"response_format\""));
-    assert!(!raws[1].contains("\"response_format\""));
-    assert!(
-        raws[1].contains("只输出 JSON"),
-        "降级请求要带 JSON-only system"
-    );
-}
-
-/// 5xx 不重试；只有思考没有正文也算失败。
-#[tokio::test]
-async fn server_errors_and_blank_content_fall_back_to_none() {
-    let (base, handle) = scripted_server(vec![(500, r#"{"error":"boom"}"#.to_string())]).await;
-    let client = OpenAiPerformanceClient::with_api_key(
-        &base,
-        "m",
-        None,
-        2_000,
-        StructuredMode::Auto,
-        &allow(),
-    )
-    .expect("构造");
-    assert_eq!(client.request("s", "u", 2_000).await, None);
-    assert_eq!(handle.await.expect("mock").len(), 1, "5xx 不得重试");
-
-    let (base, handle) = scripted_server(vec![(
-        200,
-        r#"{"choices":[{"message":{"content":"","reasoning_content":"想一想"}}]}"#.to_string(),
-    )])
-    .await;
-    let client = OpenAiPerformanceClient::with_api_key(
-        &base,
-        "m",
-        None,
-        2_000,
-        StructuredMode::Prompt,
-        &allow(),
-    )
-    .expect("构造");
-    assert_eq!(client.request("s", "u", 2_000).await, None);
-    let raws = handle.await.expect("mock");
-    assert!(
-        !raws[0].contains("\"response_format\""),
-        "prompt 路不带 schema"
-    );
 }

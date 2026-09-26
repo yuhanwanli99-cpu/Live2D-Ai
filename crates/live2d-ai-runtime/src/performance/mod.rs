@@ -1,5 +1,6 @@
-//! **表演层**（导演 / 大脑）——每轮一份**合法化 JSON**，决定「这一轮说什么（speak）
-//! 与做什么（cues）」。
+//! **表演层**（导演 / 大脑）——每轮一份**合法化 JSON**，v1 口径是
+//! 「**只断句 + 出 cues**」：`segments` 切分主模型原文（逐字不变，V1）+ 三族
+//! 表演 cue（body / head / expression）。
 //!
 //! # 它在链路里的位置（与主模型的分工）
 //!
@@ -7,19 +8,23 @@
 //! 主模型（酒馆式角色扮演；无工具、无表演类预设）
 //!    └─ 本轮助手原文（流式，只累积）
 //!          └─► 表演层：POST {performance.base_url}/chat/completions（非流式）
-//!                 └─ 一份 JSON：{"speak": string|null, "cues": [...]}
-//!                       ├─ speak → 切句 → 送 TTS + 上屏（唯一真源）
-//!                       └─ cues  → WS action_cue（锚该句音频 first_chunk）
+//!                 └─ 一份 JSON：{"segments": [...], "cues": [...]}
+//!                       ├─ segments → **一对一**送 TTS + 上屏（D22/D23，不再二次切句）
+//!                       └─ cues     → WS action_cue（锚段边界，v1 新键摊平）
 //! ```
 //!
-//! **主模型不负责表演**：它只写剧情正文；动作 / 说辞整理归表演层。表演层默认关
+//! v0 的 `speak` 字段**保留可解析（V11：缺省即旧语义）**：只有 `segments` 缺席时
+//! 走旧路径；两者同现 → segments 优先、speak 忽略 + warn（O1）。
+//!
+//! **主模型不负责表演**：它只写剧情正文；选段 / 切分 / cue 归表演层。表演层默认关
 //! （`[performance] enabled=false`）——关掉时主链保持既有的「边流边切句边送 TTS」
 //! 行为，规则导演（director Mod）照旧。
 //!
 //! # 失败回退（**只有失败才回退**）
 //!
-//! 关 / 超时 / 非 2xx / 坏 JSON / 校验失败 → `speak=clean_for_tts(原文)` +
-//! 规则 cue（由 host 注入的 [RuleFallback]，单一真源是 director 的规则层）。
+//! 关 / 超时 / 非 2xx / 坏 JSON / 校验失败 → `segments=[clean_for_tts(原文)]`（v1 口径；
+//! 引擎回退路径仍用 SentenceAssembler 对 clean_for_tts(原文) 切多段，D22）+ 规则 cue
+//!（由 host 注入的 [RuleFallback]，单一真源是 director 的规则层）。
 //! 回退原因码见 [FallbackReason::code]，计数与最近原因见 [PerformanceStats]。
 //!
 //! # 为什么在 runtime 而不是 Mod
@@ -48,8 +53,10 @@ pub use client::{
     PerformanceClient, PerformanceFuture, PerformanceReply, StructuredMode, parse_completion,
 };
 pub use plan::{
-    MAX_CUES, MAX_INTENSITY, MAX_SPEAK_CHARS, MAX_TTL_MS, MIN_INTENSITY, MIN_TTL_MS,
-    PRIORITY_PERFORMANCE, PerformanceCue, PerformancePlan, PlanError, action_cue_payload,
+    AXIS_MAX, AXIS_MIN, CueAnchor, CueField, DEFAULT_TTL_MS_BODY, DEFAULT_TTL_MS_EXPRESSION,
+    DEFAULT_TTL_MS_HEAD, FieldCue, MAX_CUES, MAX_INTENSITY, MAX_SEGMENT_CHARS, MAX_SEGMENTS,
+    MAX_SPEAK_CHARS, MAX_TTL_MS, MIN_INTENSITY, MIN_TTL_MS, PRIORITY_PERFORMANCE, PerformanceCue,
+    PerformancePlan, PlanError, PlanWarning, action_cue_payload, decode_v1_envelope,
     json_schema_strict, parse_plan,
 };
 pub use prompt::{build_user_prompt, strip_code_fence};
@@ -177,11 +184,13 @@ impl PerformanceStats {
 }
 
 /// 一次 `resolve` 的结果（引擎据此决定送不送 TTS、发不发 cue）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Resolution {
-    /// 本轮要说的话；`None` = 不说（noop 的一半）。
+    /// v0 旧路径 / 回退：本轮要说的话；`None` = 不说。
     pub speak: Option<String>,
-    /// 按句 cue；空 = 不动。
+    /// v1：表演层给的**原文切分方案**（`Some` = D22 一对一送 TTS，不再二次切句）。
+    pub segments: Option<Vec<String>>,
+    /// 按句 cue（legacy 或 v1 信封投影；空 = 不动）。
     pub cues: Vec<PerformanceCue>,
     /// 回退原因（`None` = 表演层成功）。
     pub reason: FallbackReason,
@@ -192,7 +201,11 @@ pub struct Resolution {
 impl Resolution {
     /// 本轮什么都不做。
     pub fn is_noop(&self) -> bool {
-        self.speak.is_none() && self.cues.is_empty()
+        let no_text = match &self.segments {
+            Some(segments) => segments.is_empty(),
+            None => self.speak.is_none(),
+        };
+        no_text && self.cues.is_empty()
     }
 }
 
@@ -284,7 +297,8 @@ impl PerformanceRuntime {
         };
         // 剥围栏是**宽容解析**，契约不变：仍然必须过同一个校验器。
         let raw = prompt::strip_code_fence(&reply.raw);
-        match plan::parse_plan(&raw, &self.allow) {
+        // V1 拼接基准 = 送进提示词的**同一份** trimmed 原文。
+        match plan::parse_plan(&raw, &self.allow, assistant) {
             Ok(plan) => {
                 self.stats.plans.fetch_add(1, Ordering::Relaxed);
                 self.stats.last_reason.store(0, Ordering::Relaxed);
@@ -294,11 +308,24 @@ impl PerformanceRuntime {
                 if plan.is_noop() {
                     self.stats.noops.fetch_add(1, Ordering::Relaxed);
                 }
-                if plan.speak.is_some() {
+                let has_text = match &plan.segments {
+                    Some(segments) => !segments.is_empty(),
+                    None => plan.speak.is_some(),
+                };
+                if has_text {
                     self.stats.speak_turns.fetch_add(1, Ordering::Relaxed);
                 }
                 if !plan.cues.is_empty() {
                     self.stats.cue_turns.fetch_add(1, Ordering::Relaxed);
+                }
+                // 宽容警告（丢键 / 丢条）逐条进日志：**不含正文**，id 可以带。
+                for warning in &plan.warnings {
+                    tracing::warn!(
+                        target: "performance",
+                        code = warning.code(),
+                        "{}",
+                        warning.message()
+                    );
                 }
                 // 成功一份 JSON 摘要（**不打全文**、绝无密钥）。
                 tracing::info!(
@@ -307,11 +334,15 @@ impl PerformanceRuntime {
                     "performance plan ok：{}",
                     plan.summary()
                 );
-                // speak 同走确定性清洗（只拆标记、不改句界）——任何路径都不把
-                // Markdown / 舞台指示念出来。
-                let speak = clean_speak(plan.speak.as_deref());
+                // v1：segments 原样交给引擎**逐段**走 clean_for_tts（D22/D23）；
+                // v0：speak 在这里同走确定性清洗（只拆标记、不改句界）。
+                let (speak, segments) = match &plan.segments {
+                    Some(segments) => (None, Some(segments.clone())),
+                    None => (clean_speak(plan.speak.as_deref()), None),
+                };
                 Resolution {
                     speak,
+                    segments,
                     cues: plan.cues,
                     reason: FallbackReason::None,
                     structured: Some(reply.structured),
@@ -343,13 +374,14 @@ impl PerformanceRuntime {
             tracing::warn!(
                 target: "performance",
                 code = reason.code(),
-                "表演层回退：speak=确定性清洗(原文)，cues=规则"
+                "表演层回退：segments=[clean_for_tts(原文)] + 规则 cue（v0 回退口径）"
             );
         }
         let speak = clean_speak(Some(assistant));
         let cues = self.rule.as_ref().map(|f| f(assistant)).unwrap_or_default();
         Resolution {
             speak,
+            segments: None,
             cues,
             reason,
             structured: None,
