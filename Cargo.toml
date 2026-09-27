@@ -84,7 +84,7 @@ members = [
 # `segment-ended`、会话 baseline（D22–D39）。
 # ③ 阶段5：dev_mode「导演可观测」四栏 + 单模型动作强度 `[action.models.<id>]`（D40–D48）。
 # 既有帧/字段一律不删（V11）。发布说明见 `docs/releases/v0.2.0-rc.4.md`。
-version = "0.2.0-rc.4"
+version = "0.2.0-rc.5"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。
