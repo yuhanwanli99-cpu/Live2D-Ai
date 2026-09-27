@@ -178,6 +178,10 @@ class SliderField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColors colors = appColorsOf(context);
+    // 滑块位置与右侧读数读**同一个夹持后的值**：宿主传进来的值可能越界
+    // （存量偏好 / 调用方忘了夹），只夹一个就会出现「滑块贴在最右、
+    // 读数却写着越界的原值」——控件说一套、读数说另一套。
+    final double clamped = value.clamp(min, max);
     return _FieldShell(
       icon: icon,
       label: label,
@@ -191,7 +195,7 @@ class SliderField extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Slider(
-                  value: value.clamp(min, max),
+                  value: clamped,
                   min: min,
                   max: max,
                   divisions: divisions,
@@ -205,7 +209,7 @@ class SliderField extends StatelessWidget {
               SizedBox(
                 width: 56,
                 child: Text(
-                  _format(value),
+                  _format(clamped),
                   textAlign: TextAlign.end,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),

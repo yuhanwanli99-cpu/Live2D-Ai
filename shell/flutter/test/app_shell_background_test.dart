@@ -1,4 +1,4 @@
-/// 壳根背景的**接线方向**（2026-09-27 补）。
+/// 壳根背景的**接线方向**（2026-09-27 补；2026-09-27 晚改成行为断言）。
 ///
 /// # 为什么单独一个文件
 ///
@@ -19,53 +19,99 @@
 ///
 /// 只靠肉眼抓不到（本轮就是靠 A/B 截图的两态只差一个亮度档才发现）。
 /// 所以这里把两个分支的方向**逐条钉死**。
+///
+/// # 为什么 pump 真 widget，而不是扫源码字符串
+///
+/// 初版断言 `src.contains('backgroundColor: _hasBackground ? Colors.transparent : null')`：
+/// 它只证明**那行字还在**——实现被改坏、格式化一动、变量改名都会让断言与
+/// 行为脱钩（而且两条测试查的是**同一个**字符串）。现在改成 pump [AppShell]
+/// 之后读 `Scaffold.backgroundColor` 的**实际取值**：实现写反就当场红。
 library;
-
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/api/ws_status.dart';
+import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/design/background_item.dart';
 import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/design/tokens.dart';
+import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
+import 'package:live2d_ai_shell/settings/settings_sections.dart';
+import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+/// 1×1 透明 PNG 的 dataURL（**真图**，别用假 base64——这里会真的过 Image.memory）。
+const String _onePixelPng =
+    'data:image/png;base64,'
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+/// 画得出来的一项（`hasBackgroundAt` 只要求 dataUrl 非空）。
+const BackgroundItem _item = BackgroundImage(id: 'a', dataUrl: _onePixelPng);
+
+DisplayPrefs _prefs({required bool withBackground}) => withBackground
+    ? const DisplayPrefs().copyWith(backgrounds: <BackgroundItem>[_item])
+    : const DisplayPrefs();
+
+Future<void> _pumpShell(
+  WidgetTester tester, {
+  required bool withBackground,
+}) async {
+  await tester.binding.setSurfaceSize(const Size(1400, 800));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: AppShell(
+        prefs: _prefs(withBackground: withBackground),
+        stage: const ColoredBox(color: Color(0xFF000000)),
+        phase: UiPhase.idle,
+        wsStatus: WsStatus.connected,
+        messages: const <Never>[],
+        input: TextEditingController(),
+        onSend: () {},
+        onStop: () {},
+        onRetryConnection: () {},
+        volume: 0.8,
+        muted: false,
+        onVolumeChanged: (_) {},
+        onMutedChanged: (_) {},
+        sections: visibleSections(),
+        sectionBuilder: (BuildContext context, SettingsSection s) =>
+            Text('PANE:${s.label}'),
+        stagePhase: Live2DBridgePhase.ready,
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+/// 外壳自己那个 `Scaffold` 的**实际**底色（`null` = 退回主题底）。
+Color? _scaffoldBackground(WidgetTester tester) =>
+    tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor;
+
 void main() {
-  /// `Scaffold.backgroundColor` 在这两种偏好下**应该**是什么。
-  ///
-  /// 直接从 `app_shell.dart` 的字面量上读，而不是把那段逻辑复制一份到测试里
-  /// ——复制的话，改错了实现、测试还在绿，等于没钉。
-  final String src = File('lib/app/app_shell.dart').readAsStringSync();
-
-  test('有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）', () {
-    expect(
-      src.contains(
-        'backgroundColor: _hasBackground ? Colors.transparent : null',
-      ),
-      isTrue,
-    );
+  testWidgets('有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）',
+      (WidgetTester tester) async {
+    await _pumpShell(tester, withBackground: true);
+    expect(_scaffoldBackground(tester), Colors.transparent);
   });
 
-  test('没有背景 → `null`（退回不透明的面，与「只有底色」一致）', () {
-    expect(
-      src.contains(
-        'backgroundColor: _hasBackground ? Colors.transparent : null',
-      ),
-      isTrue,
-    );
+  testWidgets('没有背景 → `null`（退回不透明的面，与「只有底色」一致）',
+      (WidgetTester tester) async {
+    await _pumpShell(tester, withBackground: false);
+    expect(_scaffoldBackground(tester), isNull);
   });
 
-  test('**绝不能**写成反过来的方向（那会把背景整块盖死）', () {
+  testWidgets('**绝不能**写成反过来的方向（没有背景却给 transparent）',
+      (WidgetTester tester) async {
+    await _pumpShell(tester, withBackground: false);
     expect(
-      src.contains(
-        'backgroundColor: _hasBackground ? null : Colors.transparent',
-      ),
-      isFalse,
-      reason:
-          '`null` = ThemeData.scaffoldBackgroundColor（不透明），'
-          '它会把 [ShellBackdrop] 整块盖掉 —— 这正是 2026-09-27 的那个 bug',
+      _scaffoldBackground(tester),
+      isNot(Colors.transparent),
+      reason: '这一态必须是 `null`（→ 不透明的 ThemeData.scaffoldBackgroundColor）；'
+          '给了 transparent 说明两个分支写反了，有图时反而会盖死背景',
     );
   });
 

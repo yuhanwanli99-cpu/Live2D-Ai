@@ -119,16 +119,89 @@ void main() {
       expect(await store.keys(), isEmpty);
     });
 
-    test('存储整个挂掉时**不抛**，且偏好退回「没有图」', () async {
+  });
+
+  group('P0-1/P0-2：存储故障时**绝不破坏数据**', () {
+    test('瞬时读失败：项原样保留、migrated=false、一次剪枝都不做', () async {
+      final String ia = backgroundIdOf(_a);
+      final String ib = backgroundIdOf(_b);
+      final _FailingReadsStore store = _FailingReadsStore(
+        seed: <String, String>{ia: _a, ib: _b},
+      );
+      const DisplayPrefs prefs = DisplayPrefs(
+        backgrounds: <BackgroundItem>[
+          BackgroundImage(id: 'x'),
+          BackgroundImage(id: 'y'),
+        ],
+      );
+      final BackgroundHydration r = await hydrateBackgrounds(prefs, store);
+      expect(
+        r.prefs.backgrounds,
+        prefs.backgrounds,
+        reason: '读失败 ≠ 没有 → 一项都不许摘',
+      );
+      expect(
+        r.migrated,
+        isFalse,
+        reason: 'migrated=true 会让 main.dart 把被剪过的清单写回盘',
+      );
+      expect(
+        store.pruned,
+        isFalse,
+        reason: '健康探测没过 → retainOnly 一次都不许调用',
+      );
+      expect(store.seed.length, 2, reason: '字节一个都没少');
+    });
+
+    test('第二次启动（清单已空）也不删字节', () async {
+      final _FailingReadsStore store = _FailingReadsStore(
+        seed: <String, String>{'bg00000001': _a},
+      );
+      await hydrateBackgrounds(const DisplayPrefs(), store);
+      expect(
+        store.pruned,
+        isFalse,
+        reason: '空清单不是「用户清空了库」的充分条件',
+      );
+      expect(store.seed, <String, String>{'bg00000001': _a});
+    });
+
+    test('旧档搬家 put 失败：保留旧 dataUrl，不标记写回', () async {
+      final _ReadButNoWriteStore store = _ReadButNoWriteStore();
+      final String id = backgroundIdOf(_a);
+      final DisplayPrefs legacy = DisplayPrefs.fromJson(<String, Object?>{
+        'backgrounds': <Object?>[
+          <String, Object?>{'kind': 'image', 'dataUrl': _a},
+        ],
+      });
+      final BackgroundHydration r = await hydrateBackgrounds(legacy, store);
+      expect(
+        r.migrated,
+        isFalse,
+        reason: '没搬成就不能写回：toJson 只写 id，那份 base64 会被覆盖掉',
+      );
+      expect(
+        (r.prefs.backgrounds.single as BackgroundImage).dataUrl,
+        _a,
+        reason: '旧 dataUrl 必须原样保留（P0-2）',
+      );
+      expect(await store.read(id), isNull, reason: '库里确实没写进去（这是前提）');
+    });
+
+    test('存储整个挂掉时**不抛**，且偏好**原样保留**（不做破坏性写回）', () async {
+      const DisplayPrefs prefs = DisplayPrefs(
+        backgrounds: <BackgroundItem>[BackgroundImage(id: 'x')],
+      );
       final BackgroundHydration r = await hydrateBackgrounds(
-        const DisplayPrefs(
-          backgrounds: <BackgroundItem>[BackgroundImage(id: 'x')],
-        ),
+        prefs,
         _ExplodingStore(),
       );
-      // 没有字节 ⇒ 那一项被摘掉；整个过程不抛。
-      expect(r.prefs.backgrounds, isEmpty);
-      expect(r.migrated, isTrue);
+      expect(
+        r.prefs.backgrounds,
+        prefs.backgrounds,
+        reason: '读失败 ≠ 没有 → 不许摘项',
+      );
+      expect(r.migrated, isFalse, reason: '存储故障时绝不能写回盘');
     });
   });
 
@@ -156,6 +229,15 @@ class _ExplodingStore implements BackgroundStore {
   @override
   Future<String?> read(String id) async => throw StateError('disabled');
 
+  /// `implements` 连具体方法也要实现：这里照旧**抛**，
+  /// 由对接层的 `_safe` 收敛成「读失败」。
+  @override
+  Future<BackgroundRead> readChecked(String id) async =>
+      throw StateError('disabled');
+
+  @override
+  Future<bool> probe() async => throw StateError('disabled');
+
   @override
   Future<bool> put(String id, String dataUrl) async => throw StateError('no quota');
 
@@ -167,4 +249,71 @@ class _ExplodingStore implements BackgroundStore {
 
   @override
   Future<void> retainOnly(Set<String> ids) async => throw StateError('disabled');
+}
+
+/// 读**失败**的字节库：与 IndexedDB「打不开 / 超时 / 被禁」同形（P0-1）。
+///
+/// 老契约的 [read] 只能回 `null`；[readChecked] 才把「这次读不到」说清楚。
+class _FailingReadsStore implements BackgroundStore {
+  _FailingReadsStore({Map<String, String>? seed})
+    : seed = <String, String>{...?seed};
+
+  final Map<String, String> seed;
+
+  /// [retainOnly] 被调用过没有——**本轮一次都不该被调用**。
+  bool pruned = false;
+
+  @override
+  Future<String?> read(String id) async => null;
+
+  @override
+  Future<BackgroundRead> readChecked(String id) async =>
+      const BackgroundRead.failed();
+
+  @override
+  Future<bool> probe() async => false;
+
+  @override
+  Future<bool> put(String id, String dataUrl) async => false;
+
+  @override
+  Future<void> delete(String id) async => seed.remove(id);
+
+  @override
+  Future<Set<String>> keys() async => seed.keys.toSet();
+
+  @override
+  Future<void> retainOnly(Set<String> ids) async {
+    pruned = true;
+    seed.removeWhere((String k, _) => !ids.contains(k));
+  }
+}
+
+/// 读得到（明确回答「没有」）但**写不进去**的库：模拟配额满（P0-2）。
+class _ReadButNoWriteStore implements BackgroundStore {
+  final Map<String, String> _items = <String, String>{};
+
+  @override
+  Future<String?> read(String id) async => _items[id];
+
+  @override
+  Future<BackgroundRead> readChecked(String id) async => _items[id] == null
+      ? const BackgroundRead.missing()
+      : BackgroundRead.found(_items[id]!);
+
+  @override
+  Future<bool> probe() async => true;
+
+  @override
+  Future<bool> put(String id, String dataUrl) async => false;
+
+  @override
+  Future<void> delete(String id) async => _items.remove(id);
+
+  @override
+  Future<Set<String>> keys() async => _items.keys.toSet();
+
+  @override
+  Future<void> retainOnly(Set<String> ids) async =>
+      _items.removeWhere((String k, _) => !ids.contains(k));
 }

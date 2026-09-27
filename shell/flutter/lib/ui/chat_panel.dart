@@ -15,7 +15,6 @@ import '../voice/voice_listen_controller.dart' show kVoiceTapThreshold;
 import 'audio_bar.dart';
 import 'error_banner.dart';
 import 'message_bubble.dart';
-import 'shell_backdrop.dart';
 import 'streaming_indicator.dart';
 import 'theme.dart';
 
@@ -102,7 +101,8 @@ class ChatPanel extends StatelessWidget {
 
   /// 壳背后是否有全局背景图。
   ///
-  /// 有才让面板留一点透（[kShellSurfaceAlpha]），没有就保持原来的不透明面——
+  /// 有才让面板留一点透（读 [AppColors.panelAlpha]，其下界是
+  /// [AppColors.kMinPanelAlpha]），没有就保持原来的不透明面——
   /// 所以不开壳背景时这里的观感与改动前**逐像素一致**。
   final bool backdropVisible;
 

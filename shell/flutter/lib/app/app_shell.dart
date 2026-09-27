@@ -533,12 +533,10 @@ class AppShellState extends State<AppShell> {
         ),
   );
 
-  /// 现在要画的背景项：`syncShellStageBg` 开着时是**舞台那张**（一份真相），
-  /// 关掉才是背景库当前项。
-  ///
-  /// 为什么判据只在这里一处：渲染层（`ShellBackdrop`）不自己判
-  /// `syncShellStageBg` ——判据散到两处就会出现「设置说同步、画的不是舞台那张」。
   /// 当前要画的那一项。
+  ///
+  /// 判据只在这里一处：渲染层（[ShellBackdrop]）不自己判来源——散到两处
+  /// 就会出现「设置说用背景库、画的却是舞台那张」（或反过来）。
   ///
   /// ⚠️ **判据顺序不能反**（2026-09-27 修）：先看 [DisplayPrefs.effectiveBackground]
   /// （它已经处理了「来源 = 舞台那张」），只有当来源确实是背景库时才用

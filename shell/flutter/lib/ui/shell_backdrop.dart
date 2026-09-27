@@ -4,12 +4,13 @@
 ///
 /// 舞台背景走渲染面协议 `stage-bg`（iframe 里的 canvas 自己画）；
 /// 壳背景是 **Flutter 自己画的**（聊天 / 侧栏背后那片区域）。
-/// 两者可以共用同一张图（`syncShellStageBg`），但**管道完全不同**——
-/// 不要因为「看起来是同一张图」就把它们合成一条路。
+/// 两者画的是同一张还是两张**由 [DisplayPrefs.backgroundSource] 决定**，
+/// 但**管道完全不同**——不要因为「看起来是同一张图」就把它们合成一条路。
 ///
 /// # 这一版多了什么
 ///
-/// 背景库（多图 + 内置图案 + 轮播）、铺法（cover/contain/stretch/tile）、
+/// 背景库（多图 + 内置图案 + 轮播）、铺法（cover/contain 两档，
+/// `DisplayPrefs.maxImageFit = 1`）、
 /// 九宫格位置、模糊、可读性遮罩、换图过渡。
 /// 全部只读 `DisplayPrefs`，**一个字节都不落盘**（除了偏好里的那几个数）。
 ///
@@ -31,16 +32,6 @@ import '../settings/display_prefs.dart';
 import 'background_logic.dart';
 import 'background_patterns.dart';
 import 'theme.dart';
-
-/// 有壳背景时聊天面板的面透明度。
-///
-/// 背景压在下面，面板留一点透（0.86 而不是 1.0）才看得到背景；
-/// 但它仍然**接近不透明**，所以文字对比度与不透明面上的标定值几乎无差
-/// （「聊天/侧栏保持可读」这条不是靠感觉，是靠这个下界守住的）。
-///
-/// **背景不透明度拉到 1.0 时这条自动失效**——那时候面板退回不透明面，
-/// 否则纯色面板压在纯色背景上会看不见边界。
-const double kShellSurfaceAlpha = 0.86;
 
 /// 遮罩层的 key（测试按它断言「有没有画遮罩」）。
 ///

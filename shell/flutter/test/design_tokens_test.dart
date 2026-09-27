@@ -453,6 +453,31 @@ void main() {
       }
     });
   });
+
+  group('AppMaterial 的排障输出（toString 必须带上每一个字段）', () {
+    test('只差 uiTransparency 的两个实例，toString **不同**', () {
+      const AppMaterial a = AppMaterial(uiTransparency: 0.0);
+      const AppMaterial b = AppMaterial(uiTransparency: 0.8);
+      expect(a, isNot(b), reason: '两者本来就不相等（== 含 uiTransparency）');
+      expect(
+        a.toString(),
+        isNot(b.toString()),
+        reason: 'toString 漏了 uiTransparency → 两个不同的材质在日志里长得一模一样',
+      );
+      expect(b.toString(), contains('0.8'));
+    });
+
+    test('三个字段都出现在 toString 里', () {
+      const AppMaterial m = AppMaterial(
+        radiusScale: 1.2,
+        edgeStrength: 0.7,
+        uiTransparency: 0.4,
+      );
+      expect(m.toString(), contains('1.2'));
+      expect(m.toString(), contains('0.7'));
+      expect(m.toString(), contains('0.4'));
+    });
+  });
 }
 
 final ColorScheme _scheme = ColorScheme.fromSeed(

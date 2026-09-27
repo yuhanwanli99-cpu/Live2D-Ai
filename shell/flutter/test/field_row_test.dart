@@ -88,6 +88,49 @@ void main() {
       expect(slider.onChanged, isNull);
       expect(find.text('100%'), findsOneWidget);
     });
+
+    testWidgets('越界时**控件与读数一致**（读数不能是未夹持的原值）',
+        (WidgetTester tester) async {
+      // 存量偏好 / 宿主传大了：滑块会夹到 max，读数必须跟着夹——
+      // 否则「滑块贴在最右、右边却写着 3600」= 控件说一套、读数说另一套。
+      await tester.pumpWidget(
+        wrap(
+          SliderField(
+            label: '轮播间隔',
+            icon: Icons.timer_outlined,
+            value: 3600,
+            min: 5,
+            max: 300,
+            percentage: false,
+            suffix: ' 秒',
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      final Slider slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.value, 300, reason: '滑块必须夹到区间内（否则 Slider 自己会断言）');
+      expect(find.text('300.0 秒'), findsOneWidget);
+      expect(find.text('3600.0 秒'), findsNothing);
+    });
+
+    testWidgets('越界（百分比模式）读数同样是夹持值', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          SliderField(
+            label: '模型缩放',
+            icon: Icons.zoom_out_map,
+            value: 3.0,
+            min: 0.5,
+            max: 2.0,
+            onChanged: (_) {},
+          ),
+        ),
+      );
+      final Slider slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.value, 2.0);
+      expect(find.text('200%'), findsOneWidget);
+      expect(find.text('300%'), findsNothing);
+    });
   });
 
   group('开关字段', () {

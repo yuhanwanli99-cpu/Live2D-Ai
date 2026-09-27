@@ -707,7 +707,9 @@ class AppMaterial {
   int get hashCode => Object.hash(radiusScale, edgeStrength, uiTransparency);
 
   @override
-  String toString() => 'AppMaterial(radius: $radiusScale, edge: $edgeStrength)';
+  String toString() =>
+      'AppMaterial(radius: $radiusScale, edge: $edgeStrength, '
+      'uiTransparency: $uiTransparency)';
 }
 
 /// **浮起面的阴影**（2026-09-27）。

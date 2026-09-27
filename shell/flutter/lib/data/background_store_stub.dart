@@ -19,6 +19,19 @@ class MemoryBackgroundStore implements BackgroundStore {
   @override
   Future<String?> read(String id) async => _items[id];
 
+  /// 内存读**不会失败**，所以「null」在这里就等于「确实没有」。
+  @override
+  Future<BackgroundRead> readChecked(String id) async {
+    final String? value = _items[id];
+    return value == null
+        ? const BackgroundRead.missing()
+        : BackgroundRead.found(value);
+  }
+
+  /// 内存库永远可用（这正是它作为「IndexedDB 打不开时的退路」的意义）。
+  @override
+  Future<bool> probe() async => true;
+
   @override
   Future<bool> put(String id, String dataUrl) async {
     _items[id] = dataUrl;

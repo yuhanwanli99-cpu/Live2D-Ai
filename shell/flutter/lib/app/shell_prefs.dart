@@ -380,21 +380,20 @@ extension _ShellPrefsWiring on _ShellRootState {
 
   /// 拖动排序背景库（旧下标 → 新下标）。
   ///
-  /// 语义细节：拖动是**按身份**（那一项）而不是按「下标」。
-  /// 所以这里先取出那一项、删掉、再插到新位置——
-  /// 直接对列表做 `removeAt/insert` 在 `old < new` 时会差一位
-  /// （`ReorderableListView` 传的是「移除之后」的下标）。
+  /// 算术在 [reorderBackgroundItems]（纯函数，见 `data/background_reorder.dart`）。
+  /// 语义细节：`ReorderableListView.onReorderItem` 交来的 `newIndex`
+  /// **已经**是「把被拖那一项移走之后」的目标下标（SDK 明文），
+  /// 所以这里**绝不能再减 1**——老实现多减一次的表现是
+  /// 「向下拖早一格、**向下拖一格完全没反应**」（P0-3）。
   void _reorderBackground(int oldIndex, int newIndex) {
     final DisplayPrefs prefs = widget.prefs;
-    final List<BackgroundItem> items = prefs.backgrounds;
-    if (oldIndex < 0 || oldIndex >= items.length) return;
-    int target = newIndex;
-    if (target > oldIndex) target -= 1;
-    target = target.clamp(0, items.length - 1);
-    if (target == oldIndex) return;
-    final List<BackgroundItem> next = List<BackgroundItem>.of(items);
-    final BackgroundItem moved = next.removeAt(oldIndex);
-    next.insert(target, moved);
+    final List<BackgroundItem> next = reorderBackgroundItems(
+      prefs.backgrounds,
+      oldIndex,
+      newIndex,
+    );
+    // 纯函数在「什么都不用做」时返回同一个实例，据此跳过写盘。
+    if (identical(next, prefs.backgrounds)) return;
     _updatePrefs(prefs.copyWith(backgrounds: next));
   }
 

@@ -327,13 +327,17 @@ class DisplayPrefs {
 
   /// 轮播间隔（秒；**0 = 不轮播**）。
   static const int defaultSlideInterval = 0;
-  static const int maxSlideInterval = 3600;
 
   /// 轮播开启时，间隔滑杆的两端（秒）。
   ///
-  /// 为什么要**单独的**两个常量（而不是 `0` 与 [maxSlideInterval]）：
-  /// 3600 秒（1 小时）一换在实践中等于没开，而 0 秒会让定时器疯狂重入。
-  /// 滑杆真正能选的是 5–300 秒。
+  /// `0` 与它们不是一回事：`0` = **关掉轮播**（定时器不启动），
+  /// 而 5 秒是「开着轮播」时能选的最小间隔——再小会让定时器疯狂重入。
+  ///
+  /// **上界同时是存储 clamp 的上界**（`fromJson` 用它夹 `slideInterval`）。
+  /// 2026-09-27 之前这里另有一个 `maxSlideInterval = 3600`：滑杆最多只到
+  /// 300，而存储允许 3600 ⇒ 一份 3600 的存量偏好会让滑块贴在最右、读数
+  /// 却写 3600，**控件与读数说两套**。统一成一个上界之后
+  /// 「能存的」= 「能选的」。
   static const int minSlideIntervalSeconds = 5;
   static const int maxSlideIntervalSeconds = 300;
 
@@ -530,7 +534,7 @@ class DisplayPrefs {
       slideInterval: _clampInt(
         _readInt(json['slideInterval'], defaultSlideInterval),
         0,
-        maxSlideInterval,
+        maxSlideIntervalSeconds,
         defaultSlideInterval,
       ),
       slideRandom: _readBool(json['slideRandom'], false),

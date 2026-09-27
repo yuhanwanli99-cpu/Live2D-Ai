@@ -96,9 +96,10 @@ sealed class BackgroundItem {
 /// | [dataUrl] | 渲染层（`Image.memory`）/ 缩略图 | **不落** |
 ///
 /// [dataUrl] 为 `null` 的项 = 「知道有这么一张图，但字节还没读回来」。
-/// **只有** [hydrateBackgrounds] 允许这种项存在，而且它启动时就把它们
-/// 补齐或摘掉——渲染层拿到的永远是 `dataUrl != null` 的项
-/// （判据用 [isRenderable]）。
+/// **只有** [hydrateBackgrounds] 允许这种项存在：能补的补齐、存储
+/// **明确回答「没有」**的摘掉；而**读失败**时它原样保留（宁可这一次画不出来，
+/// 也绝不因为一次瞬时故障就把可能还在库里的图删掉）。渲染层用
+/// [isRenderable] 判据跳过画不出的项。
 ///
 /// # 为什么 [toJson] **只**写 id
 ///

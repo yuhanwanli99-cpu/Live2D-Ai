@@ -624,7 +624,7 @@ class _BackgroundBlock extends StatelessWidget {
             description: '**面板**有多透：设置面板、组卡片、聊天面板、顶栏'
                 '一起变，当前不透明度 **${(AppColors.panelAlphaFor(prefs.uiTransparency) * 100).round()}%**。'
                 '${prefs.hasBackground ? '背后有图，所以能看出差别' : '背后没图时聊天面板与顶栏保持不透明（底下是纯色底，半透只会让界面发灰）'}。'
-                '遮罩会自动加强以保证文字可读',
+                '界面越透，下面的遮罩越强，聊天文字仍然读得出来',
             minLabel: '不透明',
             maxLabel: '最透',
           ),
@@ -644,7 +644,7 @@ class _BackgroundBlock extends StatelessWidget {
             description:
                 '压在背景上的一层主题色，让聊天文字在任何图上都读得出来。'
                 '当前强度 **${(scrimAlphaFor(imageOpacity: prefs.backgroundOpacity, level: prefs.backgroundScrim, uiTransparency: prefs.uiTransparency) * 100).round()}%**'
-                '（${prefs.hasBackground ? '随图变亮自动加强' : '没有背景时不画'}）',
+                '（${prefs.hasBackground ? '强度随图的不透明度与界面透明度算出' : '没有背景时不画'}）',
           ),
           _MoreOptions(
             title: '更多外观',

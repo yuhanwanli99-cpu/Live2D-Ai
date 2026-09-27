@@ -166,13 +166,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
-
-  group('聊天面板的可读性下界', () {
-    test('有背景时面板留一点透（0.86，不是 1.0）', () {
-      expect(kShellSurfaceAlpha, lessThan(1.0));
-      expect(kShellSurfaceAlpha, greaterThan(0.8));
-    });
-  });
 }
 
 Widget _host(

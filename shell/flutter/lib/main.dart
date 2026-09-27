@@ -62,6 +62,7 @@ import 'audio/audio_player.dart';
 import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
 import 'data/background_hydration.dart';
+import 'data/background_reorder.dart';
 import 'data/background_store.dart';
 import 'design/background_item.dart';
 import 'design/tokens.dart';
