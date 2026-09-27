@@ -107,6 +107,16 @@ void main() {
         expect(contrast(p.ink, p.surfaceAlt), greaterThanOrEqualTo(4.5));
       });
 
+      // 补上第三级面：[raised] 是卡片 / 弹窗 / 浮层的底，正文同样会压在上面。
+      // 之前只算了 surface / stage / surfaceAlt，`raised` 是漏网的那一档。
+      test('$id · 正文 vs 浮起面 ≥ 4.5（卡片 / 弹窗上的正文）', () {
+        expect(
+          contrast(p.ink, p.raised),
+          greaterThanOrEqualTo(4.5),
+          reason: '$id 的卡片 / 浮层上正文读不清',
+        );
+      });
+
       test('$id · 次要文本（74% 墨色压在面板上）≥ 4.5', () {
         // `AppColors.contentMuted` 是「承载文字信息」的次要文本，
         // 它是一条透明度而不是实色 —— 所以必须**合成之后**再算对比度。
@@ -118,8 +128,24 @@ void main() {
         expect(contrast(p.accent, p.surface), greaterThanOrEqualTo(3.0));
       });
 
-      test('$id · 强调色上的文字 ≥ 4.5（按钮文字）', () {
-        expect(contrast(p.onAccent, p.accent), greaterThanOrEqualTo(4.5));
+      // 为什么不再只断言「≥ 4.5」：onAccent 是**白 / 黑二选一**，而
+      // max(contrast(白, x), contrast(黑, x)) ≥ √21 ≈ 4.58 对**任何** x 恒成立
+      // ——那条断言对 accent 的取值零检验力（把 accent 设成任何颜色都过）。
+      // 真正要守的是「取的是对比度更高的那一个」：写死白色会让近白强调色
+      // （黑套 accent = #E8E8EC，黑白比 ≈ 1.22 : 17.19）当场瞎掉。
+      test('$id · onAccent 是「白 / 黑二选一里对比度更高的那个」', () {
+        final Color chosen = p.onAccent;
+        final Color other = chosen == Colors.white
+            ? const Color(0xFF000000)
+            : Colors.white;
+        expect(
+          contrast(chosen, p.accent),
+          greaterThanOrEqualTo(contrast(other, p.accent)),
+          reason:
+              '$id 的 onAccent 不是更优的那个（写死白色会在近白 accent 上瞎掉）',
+        );
+        // 保底：更优的那个仍然满足 AA 正文。
+        expect(contrast(chosen, p.accent), greaterThanOrEqualTo(4.5));
       });
 
       test('$id · 危险色 vs 它所在的面 ≥ 4.5（错误文案）', () {
@@ -132,6 +158,45 @@ void main() {
     }
   });
 
+  // onAccent / onDanger 是**运行时算出来的**（白/黑二选一）。这里对它做性质断言：
+  // 不是「某个具体值 ≥ 4.5」，而是「对任意 accent 都取到更优的那一个」。
+  group('onAccent：对任意强调色都做二选一（不是零检验力的 ≥4.5）', () {
+    /// 白 / 黑里对比度更高的那个（与 tokens.dart `onAccent` 同一条二选一）。
+    Color best(Color accent) =>
+        contrast(Colors.white, accent) >=
+                contrast(const Color(0xFF000000), accent)
+            ? Colors.white
+            : const Color(0xFF000000);
+
+    test('四套配色的 accent 都取到更优的那个', () {
+      for (final AppThemeId id in AppThemeId.values) {
+        final AppPalette p = AppPalette.of(id);
+        expect(p.onAccent, best(p.accent), reason: '$id 的 onAccent 取错了');
+      }
+    });
+
+    test('构造出来的 accent（全黑 / 全白 / 中灰 / 高饱和）也取到更优的那个', () {
+      const List<Color> accents = <Color>[
+        Color(0xFF000000),
+        Color(0xFFFFFFFF),
+        Color(0xFF808080),
+        Color(0xFF767676),
+        Color(0xFF4D8DFF),
+        Color(0xFFFFF200),
+        Color(0xFF00FF00),
+      ];
+      for (final Color accent in accents) {
+        final AppPalette p = AppPalette.black.copyWith(accent: accent);
+        expect(p.onAccent, best(accent), reason: 'accent=$accent 时取错了');
+      }
+    });
+
+    test('两种选择都真的会出现（否则「二选一」是空话）', () {
+      // 黑套 accent 近白 → 白字会瞎，必须选黑；白套 accent 近黑 → 必须选白。
+      expect(AppPalette.black.onAccent, const Color(0xFF000000));
+      expect(AppPalette.white.onAccent, const Color(0xFFFFFFFF));
+    });
+  });
   group('舞台底：纯色平面（用户裁决「中央不要放贴图」）', () {
     test('每套的舞台底都是**完全不透明**的纯色', () {
       for (final AppThemeId id in AppThemeId.values) {
@@ -216,28 +281,82 @@ void main() {
         }
       });
 
-      test('$id · 三级面是**同一个色相家族**、且都带色相（不是中性灰）', () {
+      test('$id · 三级面都带色相（不是中性灰）', () {
         // 病根：改动前四套配色的中性色全落在中性轴上（`#0E0E11`/`#17171B`/
         // `#F1F1F4`），实测 91.5% 的像素色度 ≤6/255，界面读作「没有材质」。
-        final List<Color> neutrals = <Color>[p.surface, p.surfaceAlt, p.raised];
-        for (final Color c in neutrals) {
+        final List<Color> surfaces = <Color>[p.surface, p.surfaceAlt, p.raised];
+        for (final Color c in surfaces) {
           expect(
             chroma(c),
             greaterThanOrEqualTo(3),
             reason: '$id 的中性面 $c 落在中性轴上（色度 ${chroma(c)}/255）',
           );
         }
-        // 方向一致：同一个色相锚点推出来的三档，蓝红差必须同号。
+      });
+
+      test('$id · 四级中性色（三级面 + 墨色）是**同一个色相家族**', () {
+        // 家族里第四个成员是**墨色**：它与三级面同属「往锚点推」的那一组，
+        // 之前只比了三级面，漏掉它。方向一致靠 `sign(b-r)`。
+        final List<Color> neutrals = <Color>[
+          p.surface,
+          p.surfaceAlt,
+          p.raised,
+          p.ink,
+        ];
         final List<int> directions = <int>[
           for (final Color c in neutrals) (c.b - c.r).sign.toInt(),
         ];
         expect(
           directions.toSet().length,
           1,
-          reason: '$id 的三级面色相方向不一致：$neutrals',
+          reason: '$id 的中性色相方向不一致：$neutrals',
+        );
+      });
+
+      test('$id · 强调色带得出色相时必须与中性面同向（近中性带内不判方向）', () {
+        // 「同一色相家族」这一条之前**只比三级面**，没把 accent 算进来，
+        // 这里补上。但 accent 是**品牌色**：tokens.dart 明说「刻意不给强调色
+        // 上色」。实测色度：黑 4 / 白 3 / 灰 6 / 蓝 178 —— 前三个落在
+        // 「读作中性」的 ≤6/255 带里，`sign(b-r)` 只是取整噪声，判方向无意义。
+        // 规则：带得出色相（> 6/255）就必须与中性面同向；否则视为近中性。
+        // 注意白/灰套的 accent 实测在**反向**一侧（暖中性面 + 冷 accent，
+        // 色度 3 / 6，恰在带内）—— 若将来要求它们也进同一色相家族，
+        // 要改的是颜色（四套 accent 取值），不是放宽这条断言。
+        const int nearNeutralMaxChroma = 6;
+        final int accentChroma = chroma(p.accent);
+        if (accentChroma <= nearNeutralMaxChroma) return;
+        expect(
+          (p.accent.b - p.accent.r).sign.toInt(),
+          (p.surface.b - p.surface.r).sign.toInt(),
+          reason: '$id 的强调色（色度 $accentChroma）带得出色相，却与中性面反向',
         );
       });
     }
+
+    test('至少有一套的 accent 是色相载体（否则上面那条『同向』是空转）', () {
+      final int carriers = AppThemeId.values
+          .where((AppThemeId id) => chroma(AppPalette.of(id).accent) > 6)
+          .length;
+      expect(
+        carriers,
+        greaterThanOrEqualTo(1),
+        reason: '四套 accent 全退化成近中性 = 色相锚点没了',
+      );
+    });
+
+    test('白套：三级面推暖，但**墨色刻意近中性**（色度 1/255）', () {
+      // 与 tokens.dart 的注释对账：色相偏移表里白套那行原来写「墨色 9%」，
+      // 而实测墨色 #242423 的色度只有 1/255（9% 的推法会得到 ≈3/255）。
+      // A3c 选择**改注释**（真上色相要改四套中性色，不在「只动测试」的范围内）。
+      expect(chroma(AppPalette.white.ink), lessThanOrEqualTo(2));
+      for (final Color c in <Color>[
+        AppPalette.white.surface,
+        AppPalette.white.surfaceAlt,
+        AppPalette.white.raised,
+      ]) {
+        expect(chroma(c), greaterThanOrEqualTo(3), reason: '白套三级面必须推暖');
+      }
+    });
   });
 
   group('ThemeExtension 结构枚举（防「加了字段忘了 copyWith / lerp」）', () {
