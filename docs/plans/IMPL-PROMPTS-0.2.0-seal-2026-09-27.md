@@ -198,83 +198,110 @@ live2d/live2d_stage.dart（applyPreset）、settings/sections/tts_section.dart �
 
 ---
 
-# Stage B · 0.2.0-rc.6：背景透传追平参考
+# Stage B · 0.2.0-rc.6：背景透传追平参考（**基于 rc.5 实测重写**）
 
-> 参考 shalldie/vscode-background @ eef5ddb（v3.1.0）。**参考机制，不抄实现**。
-> 允许并发的判据：文件零重叠。B1 与 B2 都碰 display_prefs.dart ⇒ **串行**。
+> 基线：/home/skystar/Live2D-Ai-fe @ 01ea2af1（feat/frontend-redesign，**rc.5 已收口、工作树 clean**）。
+> 参考：shalldie/vscode-background @ eef5ddb（v3.1.0）。**参考机制，不抄实现**。
+> **B4 偏离说明已在 rc.5 完成**（docs/architecture/background-parity-vscode-background.md）——本阶段不再重复。
+> 并发铁律：**B-a 与 B-b 都碰 display_prefs/background_item ⇒ 必须串行**；B-c（docs-only）可并行。
 
-## B1（先行，串行）· imageFit 扩档 + tileSize
-
-~~~~
-[工作区] /home/skystar/Live2D-Ai-fe（或编排者指定的 rc.6 分支）。
-[开工前读] 规划 §5.1（参考特性模型）+ §5.2（差距表）+ §5.3 第 1 条。
-
-【任务 B1：size 追平参考】
-背景：参考用 CSS background-size/position；我们只有 cover/contain（display_prefs.dart:285 maxImageFit=1），
-而 shell_backdrop.dart:12 的文档**已经宣称**支持 stretch/tile——文档与实现不符（P2），现在把它做实。
-必做：
-1. display_prefs.dart：imageFit 扩到 cover / contain / stretch / tile 四档；新增 tileSize（仅 tile 有效，
-   给区间与默认值）；**删除或写明 maxImageFit=1 这个假上限**的理由。
-2. lib/ui/shell_backdrop.dart：实现四档（BoxFit + CustomPainter 平铺）；坏图/无图退回底色不抛。
-   注意：这里画的是**壳自己那层**，舞台背景走渲染面协议，**不要动 wasm**。
-3. 旧档兼容：存量 imageFit 值映射不许错位（写上迁移规则 + 回归）。
-4. appearance_section.dart：铺法选项补齐四档；位置九宫格保持。
-[文件归属] lib/settings/display_prefs.dart、lib/ui/shell_backdrop.dart、lib/ui/background_patterns.dart（若需）、
-  lib/settings/sections/appearance_section.dart（仅铺法那一段）、对应测试。
-[回报] 四档各自的截图或像素断言 / 存量档位迁移回归结果。
-~~~~
-
-## B2（B1 后）· 轮播索引语义 + 管理/预览分离
+## B.0 先读
 
 ~~~~
-[开工前读] 规划 §5.3 第 4/5 条 + zz_audit 复现的 C3/D1/D2/D3/D4。
-
-【任务 B2：把「控件说一套、画面做一套」收口】
-必做：
-1. effectiveBackground 恒返回 backgrounds[0]、effectiveBackgroundIndex 恒 0，而轮播索引在
-   ShellSlideshow 的运行时状态里。让偏好/UI 与**实际在画的那一张**一致（或明确把索引提出成单一真源）。
-   验收：轮播跑到第 2 张时，设置页的「当前」标记与铺法区显示的是第 2 张的属性。
-2. currentItemIsImage 永远看第 0 项 ⇒ 来源=舞台那张时铺法/位置被藏但 imageAlign 仍生效。修正为看**当前项**。
-3. _managing => _selected.isNotEmpty || _items >= 2 ⇒ ≥2 项时预览永远点不到。
-   拆成显式「管理模式」开关（或长按进入管理），让「先看这一张」在任意库大小下可达。
-4. 轮播控件在库 <2 项 / 来源=舞台那张时**不该装作能生效**：要么禁用+说明，要么隐藏（P4 禁止静默失效）。
-[文件归属] lib/settings/display_prefs.dart、lib/ui/shell_slideshow.dart、lib/app/app_shell.dart、
-  lib/settings/sections/appearance_section.dart、对应测试。
-[回报] 每条的前后行为对比 / 新增测试名。
+规划 Stage B 全文（含 DEC-1…DEC-7 七条前置裁决）+ background-parity-vscode-background.md §3/§6/§7。
+rc.5 §9（docs/releases/v0.2.0-rc.5.md）列出本阶段要收的 7 条未决项（C1–C4 / D1 / D3 / D4）。
+**遇到 DEC 未定的项：按规划的建议默认执行；若你认为建议不成立，停下写清理由，不要自行改产品语义。**
 ~~~~
 
-## B3（等 B1/B2 收口）· 逐图样式覆盖 + 全局开关
+## B-a（先行，独占）· 模型与渲染
 
 ~~~~
-[开工前读] 规划 §5.2（style/styles 那一行）+ §5.3 第 2 条。
+[工作区] /home/skystar/Live2D-Ai-fe（feat/frontend-redesign @ 01ea2af1，clean）。
+[开工前读] 规划 Stage B（DEC-1…DEC-7）+ parity §3/§6。
 
-【任务 B3：per-item style】
-必做：
-1. 每张背景图可单独覆盖 opacity / fit / align（缺省回落全局）；字段进 DisplayPrefs 的
-   copyWith / lerp / toValuesMap / 相等性（P4：漏字段会静默失效，有结构枚举测试就补上）。
-2. UI 放在背景库的单项编辑里（参考的 styles[] 语义）；**任意 CSS 字符串不做**。
-3. 迁移：无该字段的旧档 = 全部回落全局。
-[文件归属] lib/design/background_item.dart、lib/settings/display_prefs.dart、lib/ui/shell_backdrop.dart、
-  lib/settings/sections/appearance_section.dart、对应测试。
-  **注意与 B1/B2 的 display_prefs 冲突** ⇒ 必须等 B1/B2 收口。
-[回报] 结构枚举测试结果 / 旧档迁移回归。
+【任务 B-a】
+1. **fit 扩四档 + tileSize**
+   - display_prefs.dart:322 maxImageFit = 1 → 3；**同时重写 :316-321 那段理由注释**（它写「渲染层只实现了两档」，
+     本轮之后失效）。fitName（:388-396）已经有 stretch/tile 的名字，保留。
+   - fromJson 对 imageFit 的 clamp（:522-525）随上界放开；**旧档里出现的 2/3 从「坏值回落 0」变成合法档**——
+     写清这条迁移语义并加回归。
+   - shell_backdrop.dart:67-70 boxFitFor 补 stretch/tile；:188 的 Image(fit:) 只吃 BoxFit：
+     * stretch：BoxFit.fill 与 stretch 同名，需 FittedBox(fit: BoxFit.fill) 包一层（文件 :63-65 的注释已有此说明，照它做）；
+     * tile：用 ImageRepeat.repeat（或 paintImage），配新增 tileSize（仅 tile 有效，给区间与默认值）。
+   - 坏图/无图退回底色且**不抛**（沿用 decodeDataUrlBytes 的既有约定）。
+2. **逐图样式覆盖**（parity §6 已列为短期目标）
+   - design/background_item.dart 的 BackgroundImage 增可选 opacity/fit/align（null = 回落全局）；
+     toJson/fromJson、copyWith、相等性/哈希同步；**结构枚举测试必须覆盖新字段**（P4：漏字段＝静默失效）。
+   - shell_backdrop.dart 解析时用「逐图 ?? 全局」。
+3. **全局 background.enabled**（DEC-4）：新字段 + 迁移默认 true + 关闭时不画图（保留底色）。
+4. **DEC-1**：新增 _clampIntToRange(value,min,max)（端点夹持）用于 slideInterval；
+   **不要改 _clampInt**（:724-727 的「越界回落默认」是 scrim 的语义，改了会把背景变不可读）。
+   同步改 A3c 钉住「越界→0」现状的那条测试。
+5. **DEC-5**：isRenderable（background_item.dart）从「非空串」收紧到真 dataURL 形态；
+   坏图要能被 UI 告知——与 B-b 约定好「坏图」如何暴露（字段或回调），写进注释。
+[文件归属] lib/settings/display_prefs.dart、lib/ui/shell_backdrop.dart、lib/design/background_item.dart、对应测试。
+  **不要碰** lib/settings/sections/appearance_section.dart（归 B-b）。
+[门禁] flutter analyze && flutter test；有 .dart 改动必须重建：
+  flutter build web --release --base-href /app/ --no-web-resources-cdn
+[回报] 四档各自的行为/像素断言名 / 新字段的结构枚举测试名 / clamp 前后对比 / 旧档 2-3 档迁移回归。
 ~~~~
 
-## B4（任意时刻，docs-only，可并行）· 偏离说明
+## B-b（等 B-a 收口，独占）· 外观区 UI
 
 ~~~~
-【任务 B4：把「不采纳」写成明文】
-参考支持而我们**不做**的：在线 https 图 / 本地文件夹 / ~ 与环境变量展开 / 任意 CSS style /
-editor 的 useFront / 跨渲染面的多区域。
-必做：写 docs/architecture/background-parity-vscode-background.md：
-  逐条「参考怎么做 → 我们为什么不做 → 红线依据」。离线优先（ignite.sh --check 扫 gstatic.com）是硬依据。
-  多区域要写清：壳内子区域可做（纯 Flutter），舞台分区=改渲染面=后端口径。
-[文件归属] 新增 docs/**（不碰代码）。
-[回报] 文件路径 + 每条偏离的一行理由。
+[工作区] /home/skystar/Live2D-Ai-fe。**必须等 B-a 收口**（否则 display_prefs/background_item 会打架）。
+[开工前读] 规划 Stage B 的 DEC-2/DEC-6/DEC-7 + rc.5 §9.6。
+
+【任务 B-b】
+1. **铺法 UI 补四档**（appearance_section.dart:580 附近的「铺法（图）」）+ tileSize 滑杆（仅 tile 时出现）。
+2. **DEC-6（C3）**：currentItemIsImage（display_prefs.dart:615）现在只看 effectiveBackground（恒第 0 项）。
+   AppShell 已有运行时 _backgroundIndex（app_shell.dart:181，由 ShellSlideshow.onAdvance 驱动）：
+   把**当前索引/当前项**传进 AppearanceSection 用于显示与显隐判定。**不要把运行时索引持久化进 DisplayPrefs。**
+   验收：轮播到第 2 张时，设置页的「当前」标记与铺法/位置区显示的是**第 2 张**的属性。
+3. **DEC-7a（D3）**：appearance_section.dart:578 的 `if (prefs.currentItemIsImage)` 显隐条件与 :593 注释相反——对齐。
+4. **DEC-7b（D4）**：backgroundSource=舞台那张时轮播控件空转且文案误导 ⇒ 禁用+说明 或 隐藏（P4 禁止静默失效）。
+5. **D1**：_LibraryManagerState._managing（:838 `_selected.isNotEmpty || _items >= 2`）⇒ ≥2 项时预览永久不可达。
+   拆出**显式管理模式开关**（或长按进入管理），让 onPreview（:942）在任意库大小下可达。
+6. **逐图样式编辑器**：编辑 B-a 新增的 per-item opacity/fit/align。
+7. **DEC-2**：两个轮播块（:215「舞台背景轮播」/ :673「轮播」）按 backgroundSource **互斥显示**，
+   并改名分清「舞台单图轮播」vs「壳背景轮播」。**若保留 stagePlaylist，先补它的守护测试**（rc.5 §9.2：零覆盖）。
+8. **顺手拆文件**：appearance_section.dart 已 1489 行（rc.5 §9.4）。把背景块抽到新文件
+   lib/settings/sections/appearance_background.dart（**只搬不改**），为 Stage C3 减负；抽完行为断言必须原样通过。
+[文件归属] lib/settings/sections/appearance_section.dart（+ 新增 appearance_background.dart）、
+  lib/app/app_shell.dart（仅传索引）、对应测试。
+[门禁] flutter analyze && flutter test + flutter build web …（必须重建）
+[回报] 每条 DEC 的前后行为对比 / 拆分前后行数 / 「预览任意库大小可达」的测试名。
+~~~~
+
+## B-c（docs-only，可与 B-a/B-b 并行）· parity 文档回填
+
+~~~~
+【任务 B-c】
+1. docs/architecture/background-parity-vscode-background.md：
+   - §5.2 补 DEC-3 结论（壳内子区域**不做**＋理由）；
+   - §6 短期目标表更新：fit 四档 / 逐图样式 / global enabled 变为「已成现状」
+     （**必须有测试佐证才写「已支持」**，否则照旧写「短期目标」）；
+   - §7 未决项逐条标注裁决结果（DEC-1…DEC-7）。
+2. docs/README.md 索引补上 parity 文档（parity §7.3 说归 C1，可提前做）。
+[文件归属] docs/**（不碰代码）。
+[回报] 文件路径 + 每条更新的一行摘要。
+~~~~
+
+## B-d（收口，串行）· rc.6 门禁 + 肉眼 + 发布说明
+
+~~~~
+【任务 B-d】
+1. 门禁全套并贴**原始数字**（cargo 不得低于 1457；flutter 不得低于 1272 + 本轮新增）：
+   cargo test --workspace --all-targets / --doc / fmt --check / clippy -D warnings / xtask rust-ratio
+   cd shell/flutter && flutter analyze && flutter test && flutter build web --release --base-href /app/ --no-web-resources-cdn
+   cd /home/skystar/Live2D-Ai-fe && ./scripts/ignite.sh --check
+2. **Win 肉眼**：铺法四档逐档看（cover/contain/stretch/tile，含 tileSize）；逐图样式覆盖生效；
+   轮播到第 2 张时设置页显示第 2 张；预览可达；拖动排序；两个轮播块不再同时出现。
+3. 写 docs/releases/v0.2.0-rc.6.md；版本三处同步（Cargo.toml / pubspec.yaml / README 首屏）。
+[回报] 数字 / 逐条肉眼结论 / 未做项与理由。
 ~~~~
 
 ---
-
 # Stage C · 0.2.0-rc.7：技术债 + 项目管理
 
 ## C1（docs-only，可与 C2 并行）· 文档单一化

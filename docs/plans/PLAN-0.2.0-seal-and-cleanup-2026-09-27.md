@@ -203,11 +203,43 @@
 **收口判据**：`flutter analyze` 0 + `flutter test` 全绿且**不含 `zz_`**；资产守护断言全绿；
 `cargo test/fmt/clippy/rust-ratio` 全绿；`ignite.sh --check` 四项 ok。
 
-### Stage B · `0.2.0-rc.6` —— 背景透传追平参考（§5.3）
+### Stage B · `0.2.0-rc.6` —— 背景透传追平参考（§5.3）· **基于 rc.5 实测重写**
 
-**收口判据**：`imageFit` 四档可用且有测试；逐图样式可用；轮播索引一致；背景库管理/预览分离；
-偏离说明落盘；Win 肉眼逐档验收。
+> rc.5 已交付：A1 守护网（19 条）、重放（112 文件 / 29 冲突）、P0-1…P0-5、P1/P2、复现转正（flutter test 1272）。
+> **B4「偏离说明」已提前完成**（`docs/architecture/background-parity-vscode-background.md`，412 行）。
+> 因此 Stage B 只剩三件事：**扩档（fit/tile）**、**逐图样式**、**把 rc.5 §9 的 7 条未决项落地**。
 
+#### B.0 前置裁决（rc.5 §9 + parity §7 提出；编排者未擅自改）
+
+| # | 问题 | 建议（默认按此执行，除非维护者否决） | 依据 |
+|---|---|---|---|
+| **DEC-1** | `slideInterval` 越界（301–3600）回落 **0＝关轮播** 而非 300；存量 1–4 秒同理 | **改成端点夹持**（>300→300，<5→5；`0` 仍＝关）。新增专用 `_clampIntToRange`，**不改** `_clampInt`（scrim 依赖「越界回落默认」） | 回落 0＝静默关掉用户已开的功能；夹持落在合法区间 |
+| **DEC-2** | **两套轮播并存**：`stagePlaylist`（舞台单图，走 stage-bg 帧，**零测试覆盖**）vs 背景库轮播（走 Flutter 层） | **不合并**（合并要改后端）；改为**分工 + 改名 + 按来源互斥显示**：来源＝舞台那张时只显示舞台块，＝背景库时只显示壳块。**保留即先补 `stagePlaylist` 守护测试** | parity §7.1；两者通道不同 |
+| **DEC-3** | 壳内子区域（parity §5.2） | **本轮不做，写明理由**（无用户诉求 + 避免堆砌 + 「舞台是主角」），记 Stage C backlog | 规划 §5.3 第 3 条要求「写明不做」 |
+| **DEC-4** | 全局 `background.enabled` | **做**（低成本，参考有） | parity §6 |
+| **DEC-5** | C4：坏 dataURL 仍 `isRenderable=true` | **收紧**到真 dataURL 形态（`data:image/…` + 逗号 + 非空 payload），坏图要能被 UI 告知 | rc.5 §9.6 |
+| **DEC-6** | C3：`currentItemIsImage` 只看第 0 项 | **修**：AppShell 已有运行时 `_backgroundIndex`（`app_shell.dart:181`，由 `ShellSlideshow.onAdvance` 驱动），把它传进外观区判「当前项」；**不持久化**运行时索引 | rc.5 §9.6 |
+| **DEC-7** | D3 位置显隐条件与注释相反；D4 来源＝舞台时轮播控件空转且文案误导 | **都修**（显隐对齐；空转改「禁用＋说明」或隐藏） | rc.5 §9.6 |
+
+#### B.1 任务波次（按文件所有权切分）
+
+| 波次 | 任务 | 独占文件 | 并发性 |
+|---|---|---|---|
+| **B-a** | 模型/渲染：fit 四档＋`tileSize`、逐图样式字段、全局开关、DEC-1/DEC-5 的 clamp 与 dataURL | `settings/display_prefs.dart`、`ui/shell_backdrop.dart`、`design/background_item.dart` | 先做 |
+| **B-b** | UI：铺法四档、逐图样式编辑器、DEC-2/DEC-6/DEC-7 的显隐与预览、顺手抽出背景块 | `settings/sections/appearance_section.dart`（＋新增 `appearance_background.dart`） | **等 B-a** |
+| **B-c** | docs：parity 补 DEC-3 结论与「已成现状」、`docs/README.md` 索引 | `docs/**` | 可与 B-a/B-b 并行 |
+| **B-d** | 收口：门禁＋肉眼（四档逐档 / tile / 预览 / 拖动 / 两轮播分工）＋ rc.6 说明 | 无 | 最后 |
+
+#### B.2 收口判据
+
+- `imageFit` 四档＋`tileSize` 有测试且 **Win 逐档可见**；逐图样式可覆盖且缺省回落全局；
+- 轮播「控件说的 ＝ 画面做的」；预览在**任意库大小**可达；拖动排序正确（rc.5 已修，回归保留）；
+- **DEC-1…DEC-7 逐条落地或写明否决**；`stagePlaylist` 若保留则已有守护测试；
+- 门禁数字**不低于 rc.5**（cargo 1457 / flutter 1272）；`ignite.sh --check` 四项 ok。
+
+---
+
+### Stage C · `0.2.0-rc.7` —— 技术债 + 项目管理
 ### Stage C · `0.2.0-rc.7` —— 技术债 + 项目管理
 
 **收口判据**：§4 的 P1/P2/P3 逐条关闭或**写明不做 + 理由**；`AGENTS.md` 单一化；worktree/stash/未跟踪文档清零；

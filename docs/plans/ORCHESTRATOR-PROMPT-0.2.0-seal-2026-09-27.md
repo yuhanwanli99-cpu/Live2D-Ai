@@ -85,10 +85,10 @@ settings/display_prefs.dart、settings/sections/**、app/app_shell.dart、app/sh
 
 | 波次 | 任务 | 并发性 |
 |---|---|---|
-| B0 | B4 偏离说明（docs-only） | 任意时刻可并行 |
-| B1 | imageFit 四档 + tileSize | 先行 |
-| B2 | 轮播索引 + 管理/预览分离 | **等 B1**（都碰 display_prefs.dart） |
-| B3 | 逐图样式覆盖 | **等 B2** |
+| B-a | 模型/渲染：fit 四档＋tileSize、逐图样式字段、全局开关、DEC-1/DEC-5 | 先行，独占 |
+| B-c | parity 文档回填（DEC-3 结论 / 「已成现状」） | 可与 B-a、B-b 并行（docs-only） |
+| B-b | UI：铺法四档、逐图样式编辑器、DEC-2/DEC-6/DEC-7、顺手拆背景块 | **等 B-a 收口** |
+| B-d | 收口：门禁＋肉眼＋rc.6 说明 | 最后 |
 
 ### Stage C · 0.2.0-rc.7
 
