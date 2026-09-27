@@ -65,7 +65,10 @@ void main() {
     test('有边按钮（Outlined）平时是 hairline、焦点时换成 focusRing', () {
       final ThemeData t = buildAppTheme();
       final ButtonStyle? style = t.outlinedButtonTheme.style;
-      expect(style?.side?.resolve(<WidgetState>{})?.color, colorsOf(t).hairline);
+      expect(
+        style?.side?.resolve(<WidgetState>{})?.color,
+        colorsOf(t).hairline,
+      );
       expect(
         style?.side?.resolve(<WidgetState>{WidgetState.focused})?.color,
         colorsOf(t).focusRing,
@@ -75,16 +78,14 @@ void main() {
     test('图标按钮也有焦点环（它没有文字标签，键盘用户只能靠环找位置）', () {
       final ThemeData t = buildAppTheme();
       expect(
-        t.iconButtonTheme.style?.side
-            ?.resolve(<WidgetState>{WidgetState.focused})
-            ?.color,
+        t.iconButtonTheme.style?.side?.resolve(<WidgetState>{
+          WidgetState.focused,
+        })?.color,
         colorsOf(t).focusRing,
       );
     });
 
-    testWidgets('按钮真的拿到焦点时，解析出来的边就是 focusRing', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('按钮真的拿到焦点时，解析出来的边就是 focusRing', (WidgetTester tester) async {
       final ThemeData theme = buildAppTheme();
       await tester.pumpWidget(
         MaterialApp(

@@ -77,17 +77,14 @@ class ChatSession {
   bool get isEmpty => messages.isEmpty;
 
   /// 最后一条消息的时间（列表副标题用）。
-  DateTime? get lastMessageAt =>
-      messages.isEmpty ? null : updatedAt;
+  DateTime? get lastMessageAt => messages.isEmpty ? null : updatedAt;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'title': title,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
-    'messages': <Object?>[
-      for (final ChatMessage m in messages) m.toJson(),
-    ],
+    'messages': <Object?>[for (final ChatMessage m in messages) m.toJson()],
   };
 
   /// 反序列化。**坏数据返回 `null`（丢弃这一条），绝不抛**。
@@ -171,7 +168,9 @@ class ChatSessionStore {
   /// 按最近使用倒序的会话视图。
   List<ChatSession> get byRecency {
     final List<ChatSession> out = List<ChatSession>.of(sessions)
-      ..sort((ChatSession a, ChatSession b) => b.updatedAt.compareTo(a.updatedAt));
+      ..sort(
+        (ChatSession a, ChatSession b) => b.updatedAt.compareTo(a.updatedAt),
+      );
     return out;
   }
 
@@ -250,9 +249,7 @@ class ChatSessionStore {
   /// 删除所有**空会话**（除了当前这个，免得用户正看着它被删掉）。
   int pruneEmpty() {
     final int before = sessions.length;
-    sessions.removeWhere(
-      (ChatSession s) => s.isEmpty && s.id != activeId,
-    );
+    sessions.removeWhere((ChatSession s) => s.isEmpty && s.id != activeId);
     return before - sessions.length;
   }
 
@@ -301,9 +298,7 @@ class ChatSessionStore {
   Map<String, Object?> toJson() => <String, Object?>{
     'version': kChatStoreVersion,
     'activeId': activeId,
-    'sessions': <Object?>[
-      for (final ChatSession s in sessions) s.toJson(),
-    ],
+    'sessions': <Object?>[for (final ChatSession s in sessions) s.toJson()],
   };
 
   /// 反序列化：**永不抛**。坏条目丢弃，版本不符整体丢弃。

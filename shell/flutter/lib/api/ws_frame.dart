@@ -90,12 +90,7 @@ class TextDeltaEvent extends WsEvent {
 ///
 /// 它只进气泡的「思考」折叠区，**不落盘**（见 `ChatMessage.reasoning`）。
 class ReasoningDeltaEvent extends WsEvent {
-  const ReasoningDeltaEvent({
-    this.epoch,
-    this.text,
-    super.seq,
-    super.ts,
-  });
+  const ReasoningDeltaEvent({this.epoch, this.text, super.seq, super.ts});
 
   final int? epoch;
   final String? text;
@@ -453,9 +448,7 @@ WsEvent? parseWsFrame(String raw) {
       return TextDeltaEvent(
         epoch: _intOrNull(data['epoch']),
         text: _str(data['text']),
-        completed: data['completed'] is bool
-            ? data['completed'] as bool
-            : null,
+        completed: data['completed'] is bool ? data['completed'] as bool : null,
         seq: seq,
         ts: ts,
       );

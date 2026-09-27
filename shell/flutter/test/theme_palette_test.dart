@@ -145,6 +145,15 @@ void main() {
       expect(AppPalette.white.stage, const Color(0xFFFFFFFF));
     });
 
+    test('舞台底**不参与色相偏移**（它是下推进渲染面的清屏色）', () {
+      // 2026-09-27：中性色整体往色相锚点推，但舞台底是**逐字钉死**的。
+      // 这条守的是「改中性色时不要顺手把舞台底也一起推」。
+      expect(AppPalette.black.stage, const Color(0xFF000000));
+      expect(AppPalette.white.stage, const Color(0xFFFFFFFF));
+      expect(AppPalette.blue.stage, const Color(0xFF061223));
+      expect(AppPalette.gray.stage, const Color(0xFF1C1C1F));
+    });
+
     test('四套舞台底两两不同（否则「切换主题」看起来没反应）', () {
       final Set<Color> stages = AppThemeId.values
           .map((AppThemeId id) => AppPalette.of(id).stage)
@@ -168,19 +177,83 @@ void main() {
     });
   });
 
+  group('表面阶梯与色相（2026-09-27 第二轮观感）', () {
+    /// **感知亮度**（未做 sRGB 线性化，0..1）。
+    ///
+    /// 为什么不用 [Color.computeLuminance]：那是线性亮度，本项目暗色表面全在
+    /// 0.006–0.032 之间，级差 0.007 —— 拿它当阈值等于没有阈值。
+    /// 人眼看到的是上面那层（gamma 域），阶梯也必须用同一把尺子量。
+    double perceived(Color c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+    /// 绝对色度（**0..255**）：HSV 饱和度在近黑像素上会爆表
+    /// （`#0E0E11` 的 (max−min)/max 是 0.176，但绝对色差只有 3/255），
+    /// 所以一律用绝对值。Flutter 的 `Color.r/g/b` 是 **0..1**，故要乘回 255。
+    int chroma(Color c) {
+      final List<double> v = <double>[c.r, c.g, c.b];
+      final double hi = v.reduce((a, b) => a > b ? a : b);
+      final double lo = v.reduce((a, b) => a < b ? a : b);
+      return ((hi - lo) * 255).round();
+    }
+
+    for (final AppThemeId id in AppThemeId.values) {
+      final AppPalette p = AppPalette.of(id);
+
+      test('$id · 三级面的感知亮度级差 ≥ 0.03（不描边也读得出层级）', () {
+        final List<(String, double)> ladder = <(String, double)>[
+          ('surface', perceived(p.surface)),
+          ('surfaceAlt', perceived(p.surfaceAlt)),
+          ('raised', perceived(p.raised)),
+        ];
+        for (int i = 0; i + 1 < ladder.length; i++) {
+          final double step = (ladder[i + 1].$2 - ladder[i].$2).abs();
+          expect(
+            step,
+            greaterThanOrEqualTo(0.03),
+            reason:
+                '$id 的 ${ladder[i].$1} → ${ladder[i + 1].$1} 只差 ${step.toStringAsFixed(3)}，'
+                '层级还是得靠发丝线（实测发丝线色度约 2/255，近黑画面上等于没有）',
+          );
+        }
+      });
+
+      test('$id · 三级面是**同一个色相家族**、且都带色相（不是中性灰）', () {
+        // 病根：改动前四套配色的中性色全落在中性轴上（`#0E0E11`/`#17171B`/
+        // `#F1F1F4`），实测 91.5% 的像素色度 ≤6/255，界面读作「没有材质」。
+        final List<Color> neutrals = <Color>[p.surface, p.surfaceAlt, p.raised];
+        for (final Color c in neutrals) {
+          expect(
+            chroma(c),
+            greaterThanOrEqualTo(3),
+            reason: '$id 的中性面 $c 落在中性轴上（色度 ${chroma(c)}/255）',
+          );
+        }
+        // 方向一致：同一个色相锚点推出来的三档，蓝红差必须同号。
+        final List<int> directions = <int>[
+          for (final Color c in neutrals) (c.b - c.r).sign.toInt(),
+        ];
+        expect(
+          directions.toSet().length,
+          1,
+          reason: '$id 的三级面色相方向不一致：$neutrals',
+        );
+      });
+    }
+  });
+
   group('ThemeExtension 结构枚举（防「加了字段忘了 copyWith / lerp」）', () {
     final AppPalette base = AppPalette.black;
     final AppPalette other = base.copyWith(
       stage: const Color(0xFF010203),
       surface: const Color(0xFF040506),
       surfaceAlt: const Color(0xFF070809),
-      ink: const Color(0xFF0A0B0C),
-      accent: const Color(0xFF0D0E0F),
-      success: const Color(0xFF101112),
-      warning: const Color(0xFF131415),
-      danger: const Color(0xFF161718),
-      dangerSurface: const Color(0xFF191A1B),
-      dangerBorder: const Color(0xFF1C1D1E),
+      raised: const Color(0xFF0A0B0C),
+      ink: const Color(0xFF0D0E0F),
+      accent: const Color(0xFF101112),
+      success: const Color(0xFF131415),
+      warning: const Color(0xFF161718),
+      danger: const Color(0xFF191A1B),
+      dangerSurface: const Color(0xFF1C1D1E),
+      dangerBorder: const Color(0xFF1F2021),
     );
 
     test('每个颜色字段都被 copyWith 处理（只改一个也必须与原对象不等）', () {
@@ -188,6 +261,7 @@ void main() {
         base.copyWith(stage: const Color(0xFF010203)),
         base.copyWith(surface: const Color(0xFF010203)),
         base.copyWith(surfaceAlt: const Color(0xFF010203)),
+        base.copyWith(raised: const Color(0xFF010203)),
         base.copyWith(ink: const Color(0xFF010203)),
         base.copyWith(accent: const Color(0xFF010203)),
         base.copyWith(success: const Color(0xFF010203)),
@@ -253,10 +327,7 @@ void main() {
     });
 
     test('buildAppTheme() 不带参数 = 默认黑（调用方不需要知道默认是哪个）', () {
-      expect(
-        buildAppTheme().extension<AppPalette>()?.id,
-        AppThemeId.fallback,
-      );
+      expect(buildAppTheme().extension<AppPalette>()?.id, AppThemeId.fallback);
     });
   });
 }

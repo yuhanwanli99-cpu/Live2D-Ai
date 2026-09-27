@@ -148,13 +148,21 @@ class ChatPanel extends StatelessWidget {
     // 聊天面用**独立底色**与舞台分隔：舞台是纯黑（`stageBackdrop`），
     // 聊天面板盖在它上面时必须自己撑出一个面，否则气泡看起来是浮在黑底上。
     //
-    // 2026-09-14（rc.5）：壳背后有全局背景图时，这个面留一点透
-    // （[kShellSurfaceAlpha]）让背景透出来；没有背景图时仍是不透明面。
+    // 2026-09-14（rc.5）：壳背后有背景时，这个面留一点透让背景透出来；
+    // 没有背景时**仍然不透明**（「透」的选项在没有背景时不该有可见效果）。
+    //
+    // 2026-09-27：透明度不再是那个写死的 0.86，而是读 [AppColors.panelAlpha]
+    // ——「界面透明程度」偏好的**唯一落点**。设置面板与组卡片无条件读它；
+    // 聊天面板多一道 [backdropVisible] 闸门，**这是有意的**：
+    // 背后没有图时把聊天面板做成半透，只会让整块界面变灰（底下是
+    // 不透明的纯色底，半透等于「少画一层」），而不是「透出背景」。
+    // 设置里的说明文案已经把这条差异写清楚。
     final AppPalette palette = appPaletteOf(context);
     final ThemeData theme = Theme.of(context);
+    final AppColors appColors = appColorsOf(context);
     return ColoredBox(
       color: backdropVisible
-          ? palette.surface.withValues(alpha: kShellSurfaceAlpha)
+          ? palette.surface.withValues(alpha: appColors.panelAlpha)
           : palette.surface,
       // 聊天面板是一个面板 → 一个焦点组（规格 §9.2-1）。
       child: FocusTraversalGroup(
@@ -168,33 +176,48 @@ class ChatPanel extends StatelessWidget {
             // 规格 §6.3 硬规则 1 明确禁止（同类项目的原病就是 6 个状态共用 1 种
             // 视觉，以及反过来一个状态散成多处）。测试里有一条断言
             // 「AppBar 只有 1 个状态胶囊」把这个重复钉死。
+            // ── 头部：会话 / 设置 ──
+            //
+            // 2026-09-27：头部**不再是一行裸 widget**，而是「面板自己的标题区」——
+            // 一条 hairline 把标题区与内容区分开，两侧的面是**同一张**
+            // （`panelAlpha` 那个透明度），所以「统一透明」是结构上的事实，
+            // 不是靠把两个颜色调成一样。
+            //
+            // 为什么之前看不出来是头部：它和内容共用一个 `ColoredBox`，
+            // 中间什么都没有，于是一眼看过去是「聊天面板顶部有一排按钮」，
+            // 而不是「这个面板有标题区」。
             if (onOpenSettings != null || onOpenSessions != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Space.s2,
-                  Space.s1,
-                  Space.s2,
-                  0,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: appColors.hairline)),
                 ),
-                child: Row(
-                  children: <Widget>[
-                    const Spacer(),
-                    // 文字按钮（与 AppBar 里那两个同源同文案）——用户裁决
-                    // 「尽量少用图片用文字做按钮」。
-                    //
-                    // compact 下 AppBar 不放这两个按钮（那一屏本来就窄，
-                    // 再挤会跟状态胶囊、连接徽标打架），入口全部收在这里。
-                    if (onOpenSessions != null)
-                      TextButton(
-                        onPressed: onOpenSessions,
-                        child: const Text('会话'),
-                      ),
-                    if (onOpenSettings != null)
-                      TextButton(
-                        onPressed: onOpenSettings,
-                        child: const Text('设置'),
-                      ),
-                  ],
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.s2,
+                    Space.s1,
+                    Space.s2,
+                    Space.s1,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      const Spacer(),
+                      // 文字按钮（与 AppBar 里那两个同源同文案）——用户裁决
+                      // 「尽量少用图片，用文字做按钮」。
+                      //
+                      // compact 下 AppBar 不放这两个按钮（那一屏本来就窄，
+                      // 再挤会跟状态胶囊、连接徽标打架），入口全部收在这里。
+                      if (onOpenSessions != null)
+                        TextButton(
+                          onPressed: onOpenSessions,
+                          child: const Text('会话'),
+                        ),
+                      if (onOpenSettings != null)
+                        TextButton(
+                          onPressed: onOpenSettings,
+                          child: const Text('设置'),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             if (error != null)
@@ -220,8 +243,9 @@ class ChatPanel extends StatelessWidget {
                           onRetry: m.isPlaceholder ? onRetryLast : null,
                           // 只给**最后一条**（正在流式的那个）挂播报；
                           // 历史消息传 null，否则读屏会把整段历史重念一遍。
-                          announcement:
-                              index == 0 && m.streaming ? announcement : null,
+                          announcement: index == 0 && m.streaming
+                              ? announcement
+                              : null,
                         );
                       },
                     ),
@@ -322,18 +346,18 @@ class ChatPanel extends StatelessWidget {
                       maxLines: 4,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => onSend(),
-                      decoration: const InputDecoration(
-                        hintText: '说点什么…',
-                      ),
+                      decoration: const InputDecoration(hintText: '说点什么…'),
                     ),
                   ),
                   const SizedBox(width: Space.s2),
                   // 一轮进行中时，同一个位置变「停止」——避免用户以为发了没反应。
                   _RoundActionButton(
-                    icon: (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                    icon:
+                        (phase == UiPhase.thinking || phase == UiPhase.speaking)
                         ? Icons.stop_rounded
                         : Icons.arrow_upward_rounded,
-                    tooltip: (phase == UiPhase.thinking || phase == UiPhase.speaking)
+                    tooltip:
+                        (phase == UiPhase.thinking || phase == UiPhase.speaking)
                         ? '停止本轮'
                         : '发送（Enter）',
                     onPressed:

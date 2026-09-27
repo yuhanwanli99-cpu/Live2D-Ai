@@ -58,7 +58,11 @@ class MdSpan {
 
   @override
   String toString() =>
-      'MdSpan(${code ? 'code' : bold ? 'bold' : 'text'}: ${text.replaceAll('\n', r'\n')})';
+      'MdSpan(${code
+          ? 'code'
+          : bold
+          ? 'bold'
+          : 'text'}: ${text.replaceAll('\n', r'\n')})';
 }
 
 /// 一块内容：普通段落，或一条列表项。

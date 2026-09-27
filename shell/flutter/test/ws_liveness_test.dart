@@ -44,12 +44,10 @@ void main() {
     });
 
     test('取值与 W3C 常量一致（写错数字会静默失效）', () {
-      expect(<int>[
-        kSocketConnecting,
-        kSocketOpen,
-        kSocketClosing,
-        kSocketClosed,
-      ], <int>[0, 1, 2, 3]);
+      expect(
+        <int>[kSocketConnecting, kSocketOpen, kSocketClosing, kSocketClosed],
+        <int>[0, 1, 2, 3],
+      );
     });
   });
 }

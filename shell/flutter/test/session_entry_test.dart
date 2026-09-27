@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/chat/chat_session.dart';
@@ -35,6 +36,7 @@ Widget shell({
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: AppShell(
+    prefs: const DisplayPrefs(),
     stage: const ColoredBox(color: Color(0xFF101010)),
     phase: UiPhase.idle,
     wsStatus: WsStatus.connected,
@@ -113,7 +115,9 @@ void main() {
       expect(find.text('乙会话'), findsOneWidget);
     });
 
-    testWidgets('在建浮层里点一行 → onSelectSession 收到那个 id', (WidgetTester tester) async {
+    testWidgets('在建浮层里点一行 → onSelectSession 收到那个 id', (
+      WidgetTester tester,
+    ) async {
       final List<String> picked = <String>[];
       await pumpAt(
         tester,
@@ -141,10 +145,7 @@ void main() {
       await pumpAt(
         tester,
         1400,
-        shell(
-          sessions: const <ChatSession>[],
-          onNewSession: () => created++,
-        ),
+        shell(sessions: const <ChatSession>[], onNewSession: () => created++),
       );
 
       await tester.tap(find.text('会话'));

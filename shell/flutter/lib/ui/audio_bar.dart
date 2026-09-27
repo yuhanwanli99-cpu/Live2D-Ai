@@ -143,7 +143,10 @@ class AudioBar extends StatelessWidget {
               ),
             if (serverMuted) _ServerMutedBadge() else const SizedBox.shrink(),
             if (!audioUnlocked) ...<Widget>[
-              _Hint(text: '点击任意位置或按任意键以启用声音', tone: appPaletteOf(context).warning),
+              _Hint(
+                text: '点击任意位置或按任意键以启用声音',
+                tone: appPaletteOf(context).warning,
+              ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -197,7 +200,9 @@ class _ServerMutedBadge extends StatelessWidget {
                     // 逐字照抄 §7.2；把环境变量名写出来，用户才知道去哪关。
                     '服务端静音中（LIVE2D_AI_MUTE_AUDIO=1）——服务端没有发出声音'
                     '（任何客户端都听不到，需在启动参数里关闭）',
-                    style: text.labelSmall?.copyWith(color: appPaletteOf(context).warning),
+                    style: text.labelSmall?.copyWith(
+                      color: appPaletteOf(context).warning,
+                    ),
                   ),
                 ),
               ],

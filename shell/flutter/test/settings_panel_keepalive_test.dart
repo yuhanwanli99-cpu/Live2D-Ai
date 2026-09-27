@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/app/collapsible_panel.dart';
@@ -65,10 +66,7 @@ class _CountingPaneState extends State<_CountingPane> {
     return Column(
       children: <Widget>[
         for (int i = 0; i < 60; i++)
-          SizedBox(
-            height: 40,
-            child: Text('${widget.section.label} 第 $i 行'),
-          ),
+          SizedBox(height: 40, child: Text('${widget.section.label} 第 $i 行')),
       ],
     );
   }
@@ -88,6 +86,7 @@ class _HostState extends State<_Host> {
 
   @override
   Widget build(BuildContext context) => AppShell(
+    prefs: const DisplayPrefs(),
     stage: const ColoredBox(color: Color(0xFF101010)),
     phase: UiPhase.idle,
     wsStatus: WsStatus.connected,
@@ -167,11 +166,7 @@ void main() {
           expect(dockWidth(t), greaterThanOrEqualTo(NavMetrics.paneWidth));
         },
       );
-      expect(
-        inits,
-        1,
-        reason: '面板被重建了 —— 用户的滚动位置与字段状态会一起丢',
-      );
+      expect(inits, 1, reason: '面板被重建了 —— 用户的滚动位置与字段状态会一起丢');
     });
 
     testWidgets('**滚动位置**真的留住了（这才是保活的用户可见收益）', (WidgetTester tester) async {
@@ -210,49 +205,47 @@ void main() {
       );
     });
 
-    testWidgets('折起来的面板**不进 Tab 序、不被读屏念到、展开后恢复**', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('折起来的面板**不进 Tab 序、不被读屏念到、展开后恢复**', (WidgetTester tester) async {
       final SemanticsHandle handle = tester.ensureSemantics();
       await runScenario(
         tester,
         actions: (WidgetTester t) async {
           try {
-          // 折起来时（初始态）：
-          expect(
-            find.byType(_CountingPane),
-            findsOneWidget,
-            reason: '折叠不等于卸载 —— 这正是滚动位置能留住的原因',
-          );
-          final Finder firstChip = find.byType(ChoiceChip).first;
-          expect(
-            Focus.of(t.element(firstChip)).canRequestFocus,
-            isFalse,
-            reason: '收起的面板还在 Tab 序里 —— 键盘用户会掉进看不见的控件',
-          );
-          // 读屏：`ExcludeSemantics` 会把整棵子树从语义树里摘掉，
-          // 所以正确的判据是「**找不到**它的标签」，不是「它被标成 hidden」。
-          expect(
-            find.bySemanticsLabel(RegExp('外观与互动')),
-            findsNothing,
-            reason: '收起的面板仍会被读屏念到（ExcludeSemantics 没生效）',
-          );
+            // 折起来时（初始态）：
+            expect(
+              find.byType(_CountingPane),
+              findsOneWidget,
+              reason: '折叠不等于卸载 —— 这正是滚动位置能留住的原因',
+            );
+            final Finder firstChip = find.byType(ChoiceChip).first;
+            expect(
+              Focus.of(t.element(firstChip)).canRequestFocus,
+              isFalse,
+              reason: '收起的面板还在 Tab 序里 —— 键盘用户会掉进看不见的控件',
+            );
+            // 读屏：`ExcludeSemantics` 会把整棵子树从语义树里摘掉，
+            // 所以正确的判据是「**找不到**它的标签」，不是「它被标成 hidden」。
+            expect(
+              find.bySemanticsLabel(RegExp('外观与互动')),
+              findsNothing,
+              reason: '收起的面板仍会被读屏念到（ExcludeSemantics 没生效）',
+            );
 
-          // 展开后必须全部恢复 —— 别把「关掉」做成了「永久禁用」。
-          // 判据用**真的点一下**而不是再读一次 `canRequestFocus`：
-          // 那边返回的是「这个 Focus 节点自己能不能要焦点」，
-          // 在 `ExcludeFocus` 的层叠下语义不直观，点得着才是用户要的。
-          await t.tap(find.text('设置'));
-          await t.pumpAndSettle();
-          expect(find.bySemanticsLabel(RegExp('外观与互动')), findsWidgets);
+            // 展开后必须全部恢复 —— 别把「关掉」做成了「永久禁用」。
+            // 判据用**真的点一下**而不是再读一次 `canRequestFocus`：
+            // 那边返回的是「这个 Focus 节点自己能不能要焦点」，
+            // 在 `ExcludeFocus` 的层叠下语义不直观，点得着才是用户要的。
+            await t.tap(find.text('设置'));
+            await t.pumpAndSettle();
+            expect(find.bySemanticsLabel(RegExp('外观与互动')), findsWidgets);
 
-          await t.tap(find.widgetWithText(ChoiceChip, '语音合成'));
-          await t.pumpAndSettle();
-          expect(
-            find.text('语音合成 第 0 行'),
-            findsOneWidget,
-            reason: '展开后分区 chip 点不动 —— 保活做成了永久禁用',
-          );
+            await t.tap(find.widgetWithText(ChoiceChip, '语音合成'));
+            await t.pumpAndSettle();
+            expect(
+              find.text('语音合成 第 0 行'),
+              findsOneWidget,
+              reason: '展开后分区 chip 点不动 —— 保活做成了永久禁用',
+            );
           } finally {
             // `SemanticsHandle` 必须在**测试体结束前**释放
             // （`addTearDown` 太晚：框架的检查跑在 tearDown 之前）。

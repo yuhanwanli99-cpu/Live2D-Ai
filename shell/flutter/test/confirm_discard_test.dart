@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/live2d/stage_pointer_interceptor.dart';
 import 'package:live2d_ai_shell/settings/settings_controller.dart';
 import 'package:live2d_ai_shell/settings/settings_sections.dart';
@@ -84,6 +85,7 @@ class _ShellHostState extends State<_ShellHost> {
   Widget build(BuildContext context) => MaterialApp(
     theme: buildAppTheme(),
     home: AppShell(
+      prefs: const DisplayPrefs(),
       stage: const ColoredBox(color: Color(0xFF000000)),
       phase: UiPhase.idle,
       wsStatus: WsStatus.connected,

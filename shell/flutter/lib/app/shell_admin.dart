@@ -165,8 +165,7 @@ extension _ShellAdminWiring on _ShellRootState {
       } else if (r.requiresRestart) {
         _adminMessage = '已切换到 ${r.activeId}，但渲染面未确认；服务端称需重启生效';
       } else {
-        _adminMessage =
-            '已登记 ${r.activeId}，但渲染面未回执：舞台可能仍是上一个模型（可重试或看舞台错误层）';
+        _adminMessage = '已登记 ${r.activeId}，但渲染面未回执：舞台可能仍是上一个模型（可重试或看舞台错误层）';
       }
       _refresh();
       await _loadAdmin();

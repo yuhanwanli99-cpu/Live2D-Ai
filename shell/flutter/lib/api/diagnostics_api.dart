@@ -43,19 +43,24 @@ class AppCapabilities {
   final String stateWs;
   final int wsProtocolVersion;
 
-  factory AppCapabilities.fromJson(Map<String, Object?> json) => AppCapabilities(
-    app: _str(json['app']),
-    version: _str(json['version']),
-    schemaVersion: _int(json['schema_version']),
-    runtimeWs: _str(json['runtime_ws']),
-    stateWs: _str(json['state_ws']),
-    wsProtocolVersion: _int(json['ws_protocol_version']),
-  );
+  factory AppCapabilities.fromJson(Map<String, Object?> json) =>
+      AppCapabilities(
+        app: _str(json['app']),
+        version: _str(json['version']),
+        schemaVersion: _int(json['schema_version']),
+        runtimeWs: _str(json['runtime_ws']),
+        stateWs: _str(json['state_ws']),
+        wsProtocolVersion: _int(json['ws_protocol_version']),
+      );
 }
 
 /// 一条日志。
 class LogLine {
-  const LogLine({required this.level, required this.target, required this.message});
+  const LogLine({
+    required this.level,
+    required this.target,
+    required this.message,
+  });
 
   final String level;
   final String target;
@@ -106,7 +111,8 @@ class DiagnosticsApi {
       () => _client.get(_uri('/api/v1/logs')),
     );
     if (response.statusCode != 200) throw _error(response);
-    final Object? raw = _decode(response.body)['lines'] ?? _decode(response.body)['logs'];
+    final Object? raw =
+        _decode(response.body)['lines'] ?? _decode(response.body)['logs'];
     if (raw is! List) return const <LogLine>[];
     return raw
         .whereType<Map<Object?, Object?>>()

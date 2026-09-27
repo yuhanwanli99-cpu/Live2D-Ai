@@ -18,6 +18,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/app/nav_host.dart';
@@ -39,6 +40,7 @@ Widget _shell({
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: AppShell(
+    prefs: const DisplayPrefs(),
     stage: const ColoredBox(color: Color(0xFF000000)),
     phase: UiPhase.idle,
     wsStatus: ws,

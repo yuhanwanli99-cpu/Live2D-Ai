@@ -118,7 +118,8 @@ class _PageCrossFadeState extends State<PageCrossFade>
         final bool secondVisible = _motion.value >= 0.5;
         // 前一半淡出 A、后一半淡入 B —— 两条曲线各占一半时间轴。
         final double firstOpacity =
-            1 - Curves.easeInCubic.transform((_motion.value * 2).clamp(0.0, 1.0));
+            1 -
+            Curves.easeInCubic.transform((_motion.value * 2).clamp(0.0, 1.0));
         final double secondOpacity = Curves.easeOutCubic.transform(
           ((_motion.value * 2) - 1).clamp(0.0, 1.0),
         );

@@ -72,9 +72,7 @@ void main() {
       );
     });
 
-    testWidgets('服务端静音未发生时徽标不出现（它是观测值，不是常驻说明）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('服务端静音未发生时徽标不出现（它是观测值，不是常驻说明）', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(buildBar().widget));
       expect(find.textContaining('服务端静音中'), findsNothing);
     });
@@ -101,9 +99,8 @@ void main() {
     });
 
     testWidgets('点静音开关上报新的布尔（不改音量）', (WidgetTester tester) async {
-      final ({Widget widget, List<double> volumes, List<bool> mutes}) bar = buildBar(
-        muted: false,
-      );
+      final ({Widget widget, List<double> volumes, List<bool> mutes}) bar =
+          buildBar(muted: false);
       await tester.pumpWidget(wrap(bar.widget));
       await tester.tap(find.widgetWithText(TextButton, '静音'));
       expect(bar.mutes, <bool>[true]);
@@ -111,9 +108,8 @@ void main() {
     });
 
     testWidgets('已静音时点开关上报 false（能取消）', (WidgetTester tester) async {
-      final ({Widget widget, List<double> volumes, List<bool> mutes}) bar = buildBar(
-        muted: true,
-      );
+      final ({Widget widget, List<double> volumes, List<bool> mutes}) bar =
+          buildBar(muted: true);
       await tester.pumpWidget(wrap(bar.widget));
       // 按钮文案随状态变（「已静音」），所以按 TextButton 而不是按文字定位。
       await tester.tap(find.widgetWithText(TextButton, '已静音'));
@@ -121,9 +117,8 @@ void main() {
     });
 
     testWidgets('拖滑杆上报新音量', (WidgetTester tester) async {
-      final ({Widget widget, List<double> volumes, List<bool> mutes}) bar = buildBar(
-        volume: 0.5,
-      );
+      final ({Widget widget, List<double> volumes, List<bool> mutes}) bar =
+          buildBar(volume: 0.5);
       await tester.pumpWidget(wrap(bar.widget));
       await tester.drag(find.byType(Slider), const Offset(60, 0));
       expect(bar.volumes, isNotEmpty);
@@ -150,7 +145,9 @@ void main() {
     testWidgets('点「启用声音」真的回调（不是只显示提示）', (WidgetTester tester) async {
       int called = 0;
       await tester.pumpWidget(
-        wrap(buildBar(audioUnlocked: false, onEnableSound: () => called++).widget),
+        wrap(
+          buildBar(audioUnlocked: false, onEnableSound: () => called++).widget,
+        ),
       );
       await tester.tap(find.text('启用声音'));
       expect(called, 1);
@@ -193,12 +190,12 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('音频条**不**被合并成单个语义节点（否则按钮读不到）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('音频条**不**被合并成单个语义节点（否则按钮读不到）', (WidgetTester tester) async {
       final SemanticsHandle handle = tester.ensureSemantics();
       await tester.pumpWidget(
-        wrap(buildBar(muted: true, serverMuted: true, audioUnlocked: false).widget),
+        wrap(
+          buildBar(muted: true, serverMuted: true, audioUnlocked: false).widget,
+        ),
       );
       // 三个可交互/可读的**独立**节点都要在。如果整条被合并成一个节点，
       // 这两个标签不可能同时各自命中（合并后只剩一个"音频 …"节点）。
@@ -218,9 +215,7 @@ void main() {
       final SemanticsHandle handle = tester.ensureSemantics();
       await tester.pumpWidget(wrap(buildBar(serverMuted: true).widget));
       expect(
-        find.bySemanticsLabel(
-          '服务端静音中，服务端没有发出声音，任何客户端都听不到',
-        ),
+        find.bySemanticsLabel('服务端静音中，服务端没有发出声音，任何客户端都听不到'),
         findsOneWidget,
       );
       handle.dispose();
@@ -233,7 +228,13 @@ void main() {
         await tester.binding.setSurfaceSize(Size(width, 400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
         await tester.pumpWidget(
-          wrap(buildBar(muted: true, serverMuted: true, audioUnlocked: false).widget),
+          wrap(
+            buildBar(
+              muted: true,
+              serverMuted: true,
+              audioUnlocked: false,
+            ).widget,
+          ),
         );
         await tester.pump();
         // 溢出会在测试里抛异常（`RenderFlex overflowed`）——所以这条断言

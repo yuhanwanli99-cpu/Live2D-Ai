@@ -86,9 +86,8 @@ void main() {
       // 本应用显示 LLM 的**任意**输出，子集必须覆盖整个 CJK 统一表意区；
       // 若有人改成「只保留界面文案里出现过的字」，体积会骤降到几百 KB，
       // 用户一看到人名/生僻词就变豆腐块。这条是那个反例的守卫。
-      final int size = File(
-        'assets/fonts/NotoSansSC-AiSubset-Regular.woff2',
-      ).lengthSync();
+      final int size = File('assets/fonts/NotoSansSC-AiSubset-Regular.woff2')
+          .lengthSync();
       expect(
         size,
         greaterThan(2000000),

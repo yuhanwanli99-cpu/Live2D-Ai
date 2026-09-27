@@ -93,10 +93,9 @@ class ModSettingField {
         final String value = _str(o['value']);
         if (value.isEmpty) continue;
         final String label = _str(o['label']);
-        options.add(ModSelectOption(
-          value: value,
-          label: label.isEmpty ? value : label,
-        ));
+        options.add(
+          ModSelectOption(value: value, label: label.isEmpty ? value : label),
+        );
       }
     }
     // 没有可选项的 select 渲染不出来（Dropdown 会断言失败）——跳过。
@@ -301,7 +300,9 @@ class ModsApi {
   Future<void> setEnabled(String id, bool enabled) async {
     final http.Response response = await _guard(
       () => _client.post(
-        _uri('/api/v1/mods/${Uri.encodeComponent(id)}/${enabled ? 'enable' : 'disable'}'),
+        _uri(
+          '/api/v1/mods/${Uri.encodeComponent(id)}/${enabled ? 'enable' : 'disable'}',
+        ),
       ),
     );
     if (response.statusCode != 200) throw _error(response);

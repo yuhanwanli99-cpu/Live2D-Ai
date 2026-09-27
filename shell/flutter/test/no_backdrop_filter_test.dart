@@ -14,11 +14,12 @@ import 'design_tokens_test.dart' show stripCommentsAndStrings;
 /// 不属于任何单个模块的令牌门禁。
 void main() {
   /// 扫到的 `lib/**` 源文件（去掉注释与字符串字面量后再匹配）。
-  List<File> libSources() => Directory('lib')
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((File f) => f.path.endsWith('.dart'))
-      .toList();
+  List<File> libSources() =>
+      Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((File f) => f.path.endsWith('.dart'))
+          .toList();
 
   /// 逐行扫描并返回 `路径:行号: 内容` 形式的命中列表。
   List<String> scan(RegExp pattern, {bool Function(String path)? skip}) {
@@ -55,15 +56,58 @@ void main() {
       expect(
         hits,
         isEmpty,
-        reason: 'BackdropFilter 模糊不到 iframe 平台视图（上游 issue #184996），'
+        reason:
+            'BackdropFilter 模糊不到 iframe 平台视图（上游 issue #184996），'
             '却照付每帧离屏渲染的代价。GlassPanel 用半透明纯色 + 1px 描边。\n'
             '${hits.join('\n')}',
       );
     });
 
-    test('也不许用 ImageFilter.blur 绕过（同一笔代价）', () {
-      final List<String> hits = scan(RegExp(r'ImageFilter\.blur'));
-      expect(hits, isEmpty, reason: hits.join('\n'));
+    // 2026-09-27：**一处刻意、且被限定死的例外**。
+    //
+    // 原规则禁的是「用 ImageFilter.blur 绕过 BackdropFilter」——
+    // 那个批评对 `BackdropFilter` 完全成立：它模糊的是**整块合成结果**，
+    // 每帧离屏渲染，而结果里还混着一个根本模糊不到的 iframe 平台视图。
+    //
+    // 背景模糊是**另一回事**：`ImageFiltered` 只作用于**一张静态图自己的图层**，
+    // 外面还套了 `RepaintBoundary` —— 栅格化一次之后就不再重算，
+    // 静止时每帧代价为 0。它模糊的是「那张图」，不是「整个壳」。
+    //
+    // 为什么值得开这个口子：模糊是背景系统里最被需要的一档
+    // （一张高清照片直接当背景会抢模型的注意力），而没有它的话
+    // 「模糊」滑杆就是一个**没有接线**的控件 —— 那正是本项目 P4 要治的病。
+    //
+    // 例外被限定在三件事上：① 只允许出现在这一个文件；
+    // ② sigma 由偏好上界（8 px）压着；③ 必须有 `RepaintBoundary`。
+    // 任何一条被破坏，下面两条测试都会红。
+    const String blurExceptionFile = 'lib/ui/shell_backdrop.dart';
+
+    test('ImageFilter.blur 只许出现在背景层那一个文件里', () {
+      final List<String> hits = scan(
+        RegExp(r'ImageFilter\.blur'),
+        skip: (String path) => path == blurExceptionFile,
+      );
+      expect(
+        hits,
+        isEmpty,
+        reason:
+            '模糊的例外只给 $blurExceptionFile（静态图层 + RepaintBoundary）；'
+            '别处出现就说明有人开始拿它做逐帧的活。\n${hits.join('\n')}',
+      );
+    });
+
+    test('那个文件里必须真的套了 RepaintBoundary（否则例外不成立）', () {
+      final String source = File(blurExceptionFile).readAsStringSync();
+      expect(
+        source.contains('RepaintBoundary'),
+        isTrue,
+        reason: '没有 RepaintBoundary 就没有「只算一次」这回事，例外立刻失效',
+      );
+      expect(
+        source.contains('ImageFiltered'),
+        isTrue,
+        reason: '例外存在的前提是这一处真的在用 ImageFiltered',
+      );
     });
   });
 
@@ -77,7 +121,8 @@ void main() {
       expect(
         hits,
         isEmpty,
-        reason: 'contentFaint（@0.60）只允许给图标/装饰用；文字请用 contentMuted。\n'
+        reason:
+            'contentFaint（@0.60）只允许给图标/装饰用；文字请用 contentMuted。\n'
             '${hits.join('\n')}',
       );
     });
@@ -108,15 +153,18 @@ void main() {
     /// `import 'package:flutter/material.dart'` 会当场挂。
     const Set<String> zeroDependencyLocals = <String>{
       "import '../design/theme_id.dart';",
+      // 2026-09-27：背景库的数据类型。它自己零 import（下面那条递归断言会验），
+      // 所以放行不放宽「纯逻辑」这个前提。
+      "import '../design/background_item.dart';",
     };
 
     test('这三个文件只 import dart:*（或零依赖的本地文件）', () {
       for (final String path in pureDartOnly) {
         final String source = File(path).readAsStringSync();
-        final List<String> imports = RegExp(r"^import .*$", multiLine: true)
-            .allMatches(source)
-            .map((RegExpMatch m) => m.group(0)!)
-            .toList();
+        final List<String> imports = RegExp(
+          r"^import .*$",
+          multiLine: true,
+        ).allMatches(source).map((RegExpMatch m) => m.group(0)!).toList();
         for (final String line in imports) {
           expect(
             line.contains("'dart:") ||
@@ -187,7 +235,8 @@ void main() {
       expect(
         hits,
         isEmpty,
-        reason: '${hits.join('\n')}\n'
+        reason:
+            '${hits.join('\n')}\n'
             '（`package:web` 让整个文件在 flutter test 里加载不了；'
             '如果能抽出纯逻辑，就该抽出来）',
       );

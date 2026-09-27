@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/chat/chat_message.dart';
@@ -27,8 +28,10 @@ import 'package:live2d_ai_shell/ui/theme.dart';
 /// 可回归的**形状约定。这个文件守的就是那几条——不然下一次「顺手改回去」
 /// （比如有人觉得齿轮更省地方）不会有任何东西拦住。
 void main() {
-  Widget wrap(Widget child) =>
-      MaterialApp(theme: buildAppTheme(), home: Scaffold(body: child));
+  Widget wrap(Widget child) => MaterialApp(
+    theme: buildAppTheme(),
+    home: Scaffold(body: child),
+  );
 
   group('组件外观：elevation 一律 0（层级靠描边与面差，不靠投影）', () {
     for (final AppThemeId id in AppThemeId.values) {
@@ -75,40 +78,38 @@ void main() {
   });
 
   group('发送键：圆形 + 上箭头（**不是**写着「发送」的按钮）', () {
-    Widget panel({required UiPhase phase, VoidCallback? onSend, VoidCallback? onStop}) =>
-        ChatPanel(
-          messages: const <ChatMessage>[],
-          phase: phase,
-          input: TextEditingController(),
-          onSend: onSend ?? () {},
-          onStop: onStop ?? () {},
-          onDismissError: () {},
-          volume: 1,
-          muted: false,
-          onVolumeChanged: (_) {},
-          onMutedChanged: (_) {},
-        );
+    Widget panel({
+      required UiPhase phase,
+      VoidCallback? onSend,
+      VoidCallback? onStop,
+    }) => ChatPanel(
+      messages: const <ChatMessage>[],
+      phase: phase,
+      input: TextEditingController(),
+      onSend: onSend ?? () {},
+      onStop: onStop ?? () {},
+      onDismissError: () {},
+      volume: 1,
+      muted: false,
+      onVolumeChanged: (_) {},
+      onMutedChanged: (_) {},
+    );
 
-    testWidgets('空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(panel(phase: UiPhase.idle)));
       expect(find.byIcon(Icons.arrow_upward_rounded), findsOneWidget);
-      expect(
-        find.text('发送'),
-        findsNothing,
-        reason: '用户明确要求「用上键加圆圈而不是发送」',
-      );
+      expect(find.text('发送'), findsNothing, reason: '用户明确要求「用上键加圆圈而不是发送」');
       // 形状必须是圆：方角/胶囊都不算。
       final IconButton button = tester.widget<IconButton>(
         find.widgetWithIcon(IconButton, Icons.arrow_upward_rounded),
       );
-      expect(button.style?.shape?.resolve(<WidgetState>{}), const CircleBorder());
+      expect(
+        button.style?.shape?.resolve(<WidgetState>{}),
+        const CircleBorder(),
+      );
     });
 
-    testWidgets('思考中：同一个位置变成圆形停止键（不跳位、不换形状）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('思考中：同一个位置变成圆形停止键（不跳位、不换形状）', (WidgetTester tester) async {
       int stops = 0;
       await tester.pumpWidget(
         wrap(panel(phase: UiPhase.thinking, onStop: () => stops++)),
@@ -118,7 +119,10 @@ void main() {
       final IconButton button = tester.widget<IconButton>(
         find.widgetWithIcon(IconButton, Icons.stop_rounded),
       );
-      expect(button.style?.shape?.resolve(<WidgetState>{}), const CircleBorder());
+      expect(
+        button.style?.shape?.resolve(<WidgetState>{}),
+        const CircleBorder(),
+      );
       await tester.tap(find.byIcon(Icons.stop_rounded));
       expect(stops, 1);
     });
@@ -131,6 +135,7 @@ void main() {
       await tester.pumpWidget(
         wrap(
           AppShell(
+            prefs: const DisplayPrefs(),
             stage: const SizedBox.shrink(),
             phase: UiPhase.idle,
             wsStatus: WsStatus.connected,
@@ -242,9 +247,7 @@ void main() {
       final Iterable<Text> texts = tester.widgetList<Text>(find.byType(Text));
       for (final Text t in texts) {
         final InlineSpan? span = t.textSpan;
-        final String plain = span == null
-            ? (t.data ?? '')
-            : span.toPlainText();
+        final String plain = span == null ? (t.data ?? '') : span.toPlainText();
         expect(
           plain.contains('**'),
           isFalse,
@@ -362,19 +365,19 @@ void main() {
 
     test('lib/ 里没有违规', () {
       final List<String> hits = <String>[];
-      for (final FileSystemEntity e
-          in Directory('lib').listSync(recursive: true)) {
+      for (final FileSystemEntity e in Directory(
+        'lib',
+      ).listSync(recursive: true)) {
         if (e is! File || !e.path.endsWith('.dart')) continue;
         // 渲染器自己当然有 `**`。
         if (e.path.endsWith('ui/emphasized_text.dart')) continue;
-        hits.addAll(
-          findBareBold(e.readAsStringSync(), label: '${e.path}:'),
-        );
+        hits.addAll(findBareBold(e.readAsStringSync(), label: '${e.path}:'));
       }
       expect(
         hits,
         isEmpty,
-        reason: '这些地方会用裸 Text 把 `**` 画给用户看——'
+        reason:
+            '这些地方会用裸 Text 把 `**` 画给用户看——'
             '改用 EmphasizedText：\n${hits.join('\n')}',
       );
     });

@@ -28,8 +28,14 @@ class ConnectionBadge extends StatelessWidget {
     final TextTheme text = Theme.of(context).textTheme;
 
     final (IconData icon, Color tone) = switch (status) {
-      WsStatus.connected => (Icons.cloud_done_outlined, appPaletteOf(context).success),
-      WsStatus.connecting => (Icons.cloud_sync_outlined, appPaletteOf(context).warning),
+      WsStatus.connected => (
+        Icons.cloud_done_outlined,
+        appPaletteOf(context).success,
+      ),
+      WsStatus.connecting => (
+        Icons.cloud_sync_outlined,
+        appPaletteOf(context).warning,
+      ),
       WsStatus.disconnected => (Icons.cloud_off, appPaletteOf(context).danger),
       WsStatus.closed => (Icons.cloud_off, appPaletteOf(context).danger),
       WsStatus.idle => (Icons.cloud_queue, colors.contentMuted),
@@ -44,19 +50,13 @@ class ConnectionBadge extends StatelessWidget {
         children: <Widget>[
           Icon(icon, size: 16, color: tone),
           const SizedBox(width: Space.s1),
-          Text(
-            status.label,
-            style: text.labelLarge?.copyWith(color: tone),
-          ),
+          Text(status.label, style: text.labelLarge?.copyWith(color: tone)),
         ],
       ),
     );
 
     if (status.isProblem && onRetry != null) {
-      return TextButton(
-        onPressed: onRetry,
-        child: content,
-      );
+      return TextButton(onPressed: onRetry, child: content);
     }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Space.s2),
@@ -101,7 +101,11 @@ class OfflineBanner extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
-              Icon(Icons.cloud_off, size: 16, color: appPaletteOf(context).danger),
+              Icon(
+                Icons.cloud_off,
+                size: 16,
+                color: appPaletteOf(context).danger,
+              ),
               const SizedBox(width: Space.s2),
               Expanded(
                 child: Text(
@@ -109,7 +113,9 @@ class OfflineBanner extends StatelessWidget {
                   onRetry == null
                       ? '后端未连接（${status.label}）'
                       : '后端未连接（${status.label}）· 点此重试',
-                  style: text.bodySmall?.copyWith(color: appPaletteOf(context).danger),
+                  style: text.bodySmall?.copyWith(
+                    color: appPaletteOf(context).danger,
+                  ),
                 ),
               ),
             ],

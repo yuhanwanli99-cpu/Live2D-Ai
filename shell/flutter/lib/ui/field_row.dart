@@ -19,6 +19,14 @@
 /// 1. **每个控件都有语义值**：读屏念「模型缩放 120%」，而不是一个裸数字。
 /// 2. **错误内联在字段下方**，不用 toast（规格 §6.6：toast 一闪而过，
 ///    用户来不及看是哪个字段错了）。
+///
+/// # 行数豁免（≤1000）
+///
+/// 「8 个分区里所有字段都走这里」是本文件存在的**唯一理由**，所以它必须
+/// **一处**容纳全部字段形态（slider / toggle / text / number / choice /
+/// readonly）与其共享外壳。拆成 `field_row/` 目录并不会减少代码，只会把
+/// 「字段行长什么样」这条约定从一个文件摊到六个文件——而 P4 说的
+/// 「静默失效」正是从这种摊开开始的。
 library;
 
 import 'package:flutter/material.dart';
@@ -67,7 +75,9 @@ class _FieldShell extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 16,
-                  color: hasError ? appPaletteOf(context).danger : colors.contentMuted,
+                  color: hasError
+                      ? appPaletteOf(context).danger
+                      : colors.contentMuted,
                 ),
               ),
               const SizedBox(width: Space.s2),
@@ -98,7 +108,10 @@ class _FieldShell extends StatelessWidget {
           SoftSwap(
             child: hasError
                 ? Padding(
-                    padding: const EdgeInsets.only(left: Space.s6, top: OpticalNudge.thin),
+                    padding: const EdgeInsets.only(
+                      left: Space.s6,
+                      top: OpticalNudge.thin,
+                    ),
                     // 用统一的 `InlineNotice`（紧凑档）而不是红色小字 +
                     // 一个 `⚠` 字符：字符冒充图标在不同平台字形/基线都不一样，
                     // 也躲过了「图标要能对齐」这件事（2026-09-11，P1-5）。
@@ -127,6 +140,8 @@ class SliderField extends StatelessWidget {
     this.description,
     this.error,
     this.enabled = true,
+    this.minLabel,
+    this.maxLabel,
     super.key,
   });
 
@@ -145,39 +160,81 @@ class SliderField extends StatelessWidget {
   final String? error;
   final bool enabled;
 
-  String _format(double v) => percentage
-      ? '${(v * 100).round()}%'
-      : '${v.toStringAsFixed(1)}$suffix';
+  /// 滑杆**两端**的语义标签（2026-09-27）。
+  ///
+  /// 为什么加：只标数值的话用户得自己猜「拖到最左是什么」——
+  /// 0.5 的模型缩放到底是「模型变一半大」还是「镜头拉远」？两端的词把轴的
+  /// 含义说出来，滑杆才从「一个数字」变成「一条可读的轴」。
+  /// 形态参考 Morrow 的「20% · 轻盈 ┊ 100% · 纯粹」。
+  ///
+  /// **纯装饰、纯读数**：`null` 时不占任何高度（布局与改动前逐像素相同），
+  /// 且不进 `semanticFormatterCallback`（读屏有 [semanticFormatterCallback] 就够了）。
+  final String? minLabel;
+  final String? maxLabel;
+
+  String _format(double v) =>
+      percentage ? '${(v * 100).round()}%' : '${v.toStringAsFixed(1)}$suffix';
 
   @override
   Widget build(BuildContext context) {
+    final AppColors colors = appColorsOf(context);
     return _FieldShell(
       icon: icon,
       label: label,
       description: description,
       error: error,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Expanded(
-            child: Slider(
-              value: value.clamp(min, max),
-              min: min,
-              max: max,
-              divisions: divisions,
-              label: label,
-              onChanged: enabled ? onChanged : null,
-              // 读屏念「标签 + 值」，不是裸数字。
-              semanticFormatterCallback: (double next) => '$label ${_format(next)}',
-            ),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Slider(
+                  value: value.clamp(min, max),
+                  min: min,
+                  max: max,
+                  divisions: divisions,
+                  label: label,
+                  onChanged: enabled ? onChanged : null,
+                  // 读屏念「标签 + 值」，不是裸数字。
+                  semanticFormatterCallback: (double next) =>
+                      '$label ${_format(next)}',
+                ),
+              ),
+              SizedBox(
+                width: 56,
+                child: Text(
+                  _format(value),
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
           ),
-          SizedBox(
-            width: 56,
-            child: Text(
-              _format(value),
-              textAlign: TextAlign.end,
-              style: Theme.of(context).textTheme.bodySmall,
+          if (minLabel != null || maxLabel != null)
+            Padding(
+              padding: const EdgeInsets.only(top: OpticalNudge.hair),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      minLabel ?? '',
+                      style: Theme.of(context).textTheme.labelSmall
+                          ?.copyWith(color: colors.contentFaint),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      maxLabel ?? '',
+                      textAlign: TextAlign.end,
+                      style: Theme.of(context).textTheme.labelSmall
+                          ?.copyWith(color: colors.contentFaint),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -207,7 +264,10 @@ class ToggleField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget toggle = Switch(value: value, onChanged: enabled ? onChanged : null);
+    final Widget toggle = Switch(
+      value: value,
+      onChanged: enabled ? onChanged : null,
+    );
     return _FieldShell(
       icon: icon,
       label: label,
@@ -382,7 +442,11 @@ class _NumberFieldState extends State<NumberField> {
 
 /// 一个可选项。
 class FieldOption<T> {
-  const FieldOption({required this.value, required this.label, this.description});
+  const FieldOption({
+    required this.value,
+    required this.label,
+    this.description,
+  });
 
   final T value;
   final String label;
@@ -510,9 +574,8 @@ class ReadonlyField extends StatelessWidget {
       description: description,
       child: Text(
         text,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: colors.contentMuted,
-        ),
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: colors.contentMuted),
       ),
     );
   }
@@ -545,23 +608,23 @@ class FieldActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _FieldShell(
-      icon: icon,
-      label: label,
-      description: description,
-      error: resultIsError ? result : null,
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: OutlinedButton.icon(
-          onPressed: busy ? null : onPressed,
-          icon: busy
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(icon, size: 16),
-          label: Text(busy ? '测试中…' : actionLabel),
-        ),
+    icon: icon,
+    label: label,
+    description: description,
+    error: resultIsError ? result : null,
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed: busy ? null : onPressed,
+        icon: busy
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(icon, size: 16),
+        label: Text(busy ? '测试中…' : actionLabel),
       ),
-    );
+    ),
+  );
 }

@@ -20,38 +20,62 @@ UiSignals sig({
 void main() {
   group('判定顺序：顺序本身就是契约（表驱动）', () {
     // 每一行都是「这条优先级真的生效了吗」的证据。
-    final List<(String, UiSignals, UiPhase)> cases = <(String, UiSignals, UiPhase)>[
-      // 注意「全空」**不是** idle：没有连接就是 offline。
-      // 这一条曾经被我写反过——它正是「表驱动测试」的价值。
-      ('全空（未连上）→ offline', sig(), UiPhase.offline),
-      ('连上了、空闲 → idle', sig(ws: true), UiPhase.idle),
+    final List<(String, UiSignals, UiPhase)> cases =
+        <(String, UiSignals, UiPhase)>[
+          // 注意「全空」**不是** idle：没有连接就是 offline。
+          // 这一条曾经被我写反过——它正是「表驱动测试」的价值。
+          ('全空（未连上）→ offline', sig(), UiPhase.offline),
+          ('连上了、空闲 → idle', sig(ws: true), UiPhase.idle),
 
-      // error 必须盖住一切。
-      ('error 盖住 thinking', sig(ws: true, turn: true, error: true), UiPhase.error),
-      ('error 盖住 speaking', sig(ws: true, voice: true, error: true), UiPhase.error),
-      ('error 盖住 interrupted', sig(ws: true, interrupted: true, error: true), UiPhase.error),
-      ('error 优先于 offline', sig(error: true), UiPhase.error),
+          // error 必须盖住一切。
+          (
+            'error 盖住 thinking',
+            sig(ws: true, turn: true, error: true),
+            UiPhase.error,
+          ),
+          (
+            'error 盖住 speaking',
+            sig(ws: true, voice: true, error: true),
+            UiPhase.error,
+          ),
+          (
+            'error 盖住 interrupted',
+            sig(ws: true, interrupted: true, error: true),
+            UiPhase.error,
+          ),
+          ('error 优先于 offline', sig(error: true), UiPhase.error),
 
-      // **offline 的唯一判据是「WS 不可用」**（2026-09-11 修）。
-      // 渲染面的失败不再参与相位派生：它有自己的舞台覆盖层，
-      // 而且旧信号只置位不清除，会永久钉住胶囊（详见 ui_phase.dart 头注）。
-      ('未连上 → offline', sig(turn: true), UiPhase.offline),
-      ('未连上、还在说话 → 仍是 offline（连不上优先）', sig(voice: true),
-          UiPhase.offline),
-      ('连上了 → 即使本轮还开着也是 thinking（不是 offline）',
-          sig(ws: true, turn: true), UiPhase.thinking),
+          // **offline 的唯一判据是「WS 不可用」**（2026-09-11 修）。
+          // 渲染面的失败不再参与相位派生：它有自己的舞台覆盖层，
+          // 而且旧信号只置位不清除，会永久钉住胶囊（详见 ui_phase.dart 头注）。
+          ('未连上 → offline', sig(turn: true), UiPhase.offline),
+          ('未连上、还在说话 → 仍是 offline（连不上优先）', sig(voice: true), UiPhase.offline),
+          (
+            '连上了 → 即使本轮还开着也是 thinking（不是 offline）',
+            sig(ws: true, turn: true),
+            UiPhase.thinking,
+          ),
 
-      // interrupted 必须先于 speaking（最容易写反的一处）。
-      ('打断中、voiceActive 还残留 → interrupted（不是 speaking）',
-          sig(ws: true, interrupted: true, voice: true), UiPhase.interrupted),
-      ('打断中、本轮还开着 → interrupted', sig(ws: true, interrupted: true, turn: true),
-          UiPhase.interrupted),
+          // interrupted 必须先于 speaking（最容易写反的一处）。
+          (
+            '打断中、voiceActive 还残留 → interrupted（不是 speaking）',
+            sig(ws: true, interrupted: true, voice: true),
+            UiPhase.interrupted,
+          ),
+          (
+            '打断中、本轮还开着 → interrupted',
+            sig(ws: true, interrupted: true, turn: true),
+            UiPhase.interrupted,
+          ),
 
-      // voice 先于 turn。
-      ('说话中且本轮未收口 → speaking', sig(ws: true, voice: true, turn: true),
-          UiPhase.speaking),
-      ('只受理、未出声 → thinking', sig(ws: true, turn: true), UiPhase.thinking),
-    ];
+          // voice 先于 turn。
+          (
+            '说话中且本轮未收口 → speaking',
+            sig(ws: true, voice: true, turn: true),
+            UiPhase.speaking,
+          ),
+          ('只受理、未出声 → thinking', sig(ws: true, turn: true), UiPhase.thinking),
+        ];
 
     for (final (String name, UiSignals signals, UiPhase expected) in cases) {
       test(name, () => expect(deriveUiPhase(signals), expected));
@@ -81,8 +105,9 @@ void main() {
 
   group('视觉通道：每个相位至少占「色/形/字」里的两个', () {
     test('标签两两不同（字通道必须可区分）', () {
-      final Set<String> labels =
-          UiPhase.values.map((UiPhase p) => p.label).toSet();
+      final Set<String> labels = UiPhase.values
+          .map((UiPhase p) => p.label)
+          .toSet();
       expect(labels, hasLength(UiPhase.values.length));
     });
 

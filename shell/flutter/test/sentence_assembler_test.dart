@@ -91,16 +91,18 @@ void main() {
     test('多句：第二句在第一句封口之后才开始攒', () {
       final SentenceAssembler a = SentenceAssembler();
       expect(a.push(frame(start: true, seq: 1, volume: 0.5)), isNull);
-      final AssembledSentence? first =
-          a.push(frame(end: true, seq: 1, volume: 0.5));
+      final AssembledSentence? first = a.push(
+        frame(end: true, seq: 1, volume: 0.5),
+      );
       expect(first, isNotNull);
       expect(first!.bytes.length, 44 + 2 * kSliceSamples * 2);
 
       // 第二句：累积中不产出，带 end 才产出。
       expect(a.push(frame(start: true, seq: 2, volume: 0.1)), isNull);
       expect(a.push(frame(seq: 2, volume: 0.1)), isNull);
-      final AssembledSentence? second =
-          a.push(frame(end: true, seq: 2, volume: 0.1));
+      final AssembledSentence? second = a.push(
+        frame(end: true, seq: 2, volume: 0.1),
+      );
       expect(second, isNotNull);
       expect(second!.bytes.length, 44 + 3 * kSliceSamples * 2);
     });
@@ -125,7 +127,9 @@ void main() {
       a.push(frame(seq: 1, samples: 100));
       expect(a.sentenceSeq, 1, reason: '当前累积句的 seq 要可观测（诊断用）');
       a.push(frame(seq: 2, samples: 300)); // seq 变了
-      final AssembledSentence? s = a.push(frame(seq: 2, end: true, samples: 400));
+      final AssembledSentence? s = a.push(
+        frame(seq: 2, end: true, samples: 400),
+      );
       expect(s, isNotNull);
       expect(s!.bytes.length, 44 + 300 * 2 + 400 * 2);
     });
@@ -174,8 +178,9 @@ void main() {
     test('采样率非法时回落到 24000，句内以首片为准', () {
       final SentenceAssembler a = SentenceAssembler();
       a.push(frame(sampleRate: 0, samples: 240));
-      final AssembledSentence? s =
-          a.push(frame(sampleRate: 0, end: true, samples: 240));
+      final AssembledSentence? s = a.push(
+        frame(sampleRate: 0, end: true, samples: 240),
+      );
       expect(s!.sampleRate, kFallbackSampleRate);
       expect(s.durationSec, closeTo(480 / 24000, 1e-9));
     });
@@ -195,10 +200,11 @@ void main() {
       expect(s.envelope[0].offsetSec, closeTo(0.0, 1e-9));
       expect(s.envelope[1].offsetSec, closeTo(0.02, 1e-9));
       expect(s.envelope[2].offsetSec, closeTo(0.04, 1e-9));
-      expect(
-        s.envelope.map((LevelPoint p) => p.level).toList(),
-        <double>[0.1, 0.5, 0.9],
-      );
+      expect(s.envelope.map((LevelPoint p) => p.level).toList(), <double>[
+        0.1,
+        0.5,
+        0.9,
+      ]);
     });
 
     test('levelAt 是保持（hold）语义，不是线性插值', () {
@@ -220,8 +226,9 @@ void main() {
       final SentenceAssembler a = SentenceAssembler();
       final Uint8List silent = pcmOf(kSliceSamples);
       a.push(frame(pcm: silent, volume: 0.7));
-      final AssembledSentence? s =
-          a.push(frame(pcm: silent, volume: 0.7, end: true));
+      final AssembledSentence? s = a.push(
+        frame(pcm: silent, volume: 0.7, end: true),
+      );
       expect(
         s!.envelope.first.level,
         0.7,
@@ -236,10 +243,12 @@ void main() {
       for (int i = 0; i < 19; i++) {
         a.push(frame(pcm: pcmOf(kSliceSamples)));
       }
-      final AssembledSentence? s =
-          a.push(frame(pcm: pcmOf(kSliceSamples), end: true));
-      final List<double> levels =
-          s!.envelope.map((LevelPoint p) => p.level).toList();
+      final AssembledSentence? s = a.push(
+        frame(pcm: pcmOf(kSliceSamples), end: true),
+      );
+      final List<double> levels = s!.envelope
+          .map((LevelPoint p) => p.level)
+          .toList();
       expect(levels.length, 21);
       expect(levels.first, greaterThan(0.05), reason: '有声音就该有电平');
       expect(levels.last, lessThan(0.01), reason: '持续静音必须衰减掉（闭嘴）');
@@ -251,8 +260,9 @@ void main() {
     test('非有限 volume 不灌进口型（回退本地 RMS）', () {
       final SentenceAssembler a = SentenceAssembler();
       a.push(frame(pcm: sineOf(kSliceSamples), volume: double.nan));
-      final AssembledSentence? s =
-          a.push(frame(pcm: pcmOf(kSliceSamples), end: true, volume: 0));
+      final AssembledSentence? s = a.push(
+        frame(pcm: pcmOf(kSliceSamples), end: true, volume: 0),
+      );
       for (final LevelPoint p in s!.envelope) {
         expect(p.level.isFinite, isTrue);
         expect(p.level, inInclusiveRange(0.0, 1.0));
@@ -275,9 +285,24 @@ void main() {
     test('wav 非空 → 直接产出该字节，并丢弃正在攒的半截', () {
       final SentenceAssembler a = SentenceAssembler();
       a.push(frame(start: true, samples: 100)); // 半截
-      final Uint8List whole = Uint8List.fromList(
-        <int>[82, 73, 70, 70, 0, 0, 0, 0, 87, 65, 86, 69, 1, 2, 3, 4],
-      );
+      final Uint8List whole = Uint8List.fromList(<int>[
+        82,
+        73,
+        70,
+        70,
+        0,
+        0,
+        0,
+        0,
+        87,
+        65,
+        86,
+        69,
+        1,
+        2,
+        3,
+        4,
+      ]);
       final AssembledSentence? s = a.push(
         frame(wav: whole, samples: 0, sampleRate: 16000, volume: 0.4),
       );
@@ -369,15 +394,17 @@ void main() {
   group('攒句 → 队列 的顺序契约', () {
     test('两句依次封口、依次放行，第二句要等第一句结束', () {
       final SentenceAssembler a = SentenceAssembler();
-      final SerialQueue<AssembledSentence> q =
-          SerialQueue<AssembledSentence>();
+      final SerialQueue<AssembledSentence> q = SerialQueue<AssembledSentence>();
 
       a.push(frame(start: true, seq: 1, volume: 0.5));
-      final AssembledSentence? one = a.push(frame(end: true, seq: 1, volume: 0.5));
+      final AssembledSentence? one = a.push(
+        frame(end: true, seq: 1, volume: 0.5),
+      );
       q.add(one!);
       a.push(frame(start: true, seq: 2, volume: 0.2));
-      final AssembledSentence? two =
-          a.push(frame(end: true, seq: 2, samples: 960, volume: 0.2));
+      final AssembledSentence? two = a.push(
+        frame(end: true, seq: 2, samples: 960, volume: 0.2),
+      );
       q.add(two!);
 
       expect(q.takeNext(), same(one));

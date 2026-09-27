@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/chat/chat_message.dart';
@@ -61,6 +62,7 @@ class _HostState extends State<_Host> {
 
   @override
   Widget build(BuildContext context) => AppShell(
+    prefs: const DisplayPrefs(),
     stage: _CountingStage(onInit: widget.onStageInit),
     phase: UiPhase.idle,
     wsStatus: WsStatus.connected,
@@ -217,6 +219,7 @@ void main() {
       Widget build(WsStatus status) => MaterialApp(
         theme: buildAppTheme(),
         home: AppShell(
+          prefs: const DisplayPrefs(),
           stage: _CountingStage(onInit: () => inits++),
           phase: UiPhase.idle,
           // 同上：`loading` 会让 `pumpAndSettle` 卡在无限动画上。

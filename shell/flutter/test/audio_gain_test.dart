@@ -20,11 +20,7 @@ void main() {
       // 如果谁把曲线换成恒等映射（return v），这条立刻变红。它守的是**手感**：
       // 线性振幅下滑杆前半段几乎听不出变化，后半段突然变响。
       for (final v in <double>[0.1, 0.25, 0.5, 0.75, 0.9, 0.99]) {
-        expect(
-          gainForVolume(v),
-          lessThan(v),
-          reason: 'v=$v 处的增益必须小于 v（感知压缩）',
-        );
+        expect(gainForVolume(v), lessThan(v), reason: 'v=$v 处的增益必须小于 v（感知压缩）');
       }
     });
 
@@ -39,11 +35,7 @@ void main() {
       var previous = gainForVolume(0.0);
       for (var i = 1; i <= 100; i++) {
         final gain = gainForVolume(i / 100);
-        expect(
-          gain,
-          greaterThanOrEqualTo(previous),
-          reason: 'i=$i 处增益回落了',
-        );
+        expect(gain, greaterThanOrEqualTo(previous), reason: 'i=$i 处增益回落了');
         previous = gain;
       }
     });

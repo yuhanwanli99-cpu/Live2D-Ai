@@ -54,45 +54,44 @@ UiPhaseView uiPhaseView(
   ColorScheme scheme,
   AppColors colors,
   AppPalette palette,
-) =>
-    switch (phase) {
-      UiPhase.offline => UiPhaseView(
-        label: '后端未连接',
-        icon: Icons.cloud_off,
-        tone: palette.danger,
-        filledDot: true,
-      ),
-      UiPhase.idle => UiPhaseView(
-        label: '空闲',
-        icon: Icons.circle_outlined,
-        tone: colors.contentFaint,
-        filledDot: false,
-      ),
-      UiPhase.thinking => UiPhaseView(
-        label: '思考中',
-        icon: Icons.psychology_outlined,
-        tone: palette.warning,
-        filledDot: false,
-      ),
-      UiPhase.speaking => UiPhaseView(
-        label: '说话中',
-        icon: Icons.graphic_eq,
-        tone: scheme.primary,
-        filledDot: true,
-      ),
-      UiPhase.interrupted => UiPhaseView(
-        label: '已打断',
-        icon: Icons.stop_circle_outlined,
-        tone: colors.contentMuted,
-        filledDot: false,
-      ),
-      UiPhase.error => UiPhaseView(
-        label: '出错',
-        icon: Icons.error_outline,
-        tone: palette.danger,
-        filledDot: false,
-      ),
-    };
+) => switch (phase) {
+  UiPhase.offline => UiPhaseView(
+    label: '后端未连接',
+    icon: Icons.cloud_off,
+    tone: palette.danger,
+    filledDot: true,
+  ),
+  UiPhase.idle => UiPhaseView(
+    label: '空闲',
+    icon: Icons.circle_outlined,
+    tone: colors.contentFaint,
+    filledDot: false,
+  ),
+  UiPhase.thinking => UiPhaseView(
+    label: '思考中',
+    icon: Icons.psychology_outlined,
+    tone: palette.warning,
+    filledDot: false,
+  ),
+  UiPhase.speaking => UiPhaseView(
+    label: '说话中',
+    icon: Icons.graphic_eq,
+    tone: scheme.primary,
+    filledDot: true,
+  ),
+  UiPhase.interrupted => UiPhaseView(
+    label: '已打断',
+    icon: Icons.stop_circle_outlined,
+    tone: colors.contentMuted,
+    filledDot: false,
+  ),
+  UiPhase.error => UiPhaseView(
+    label: '出错',
+    icon: Icons.error_outline,
+    tone: palette.danger,
+    filledDot: false,
+  ),
+};
 
 /// 状态胶囊。
 class StatePill extends StatefulWidget {
@@ -182,7 +181,11 @@ class _StatePillState extends State<StatePill>
                 final double t = 0.35 + 0.65 * _controller!.value;
                 return Opacity(opacity: t, child: child);
               },
-              child: Icon(view.icon, size: widget.compact ? 13 : 15, color: view.tone),
+              child: Icon(
+                view.icon,
+                size: widget.compact ? 13 : 15,
+                color: view.tone,
+              ),
             )
           else
             Icon(view.icon, size: widget.compact ? 13 : 15, color: view.tone),
@@ -203,10 +206,11 @@ class _StatePillState extends State<StatePill>
           const SizedBox(width: Space.s1),
           Text(
             view.label,
-            style: (widget.compact
-                    ? theme.textTheme.labelSmall
-                    : theme.textTheme.labelLarge)
-                ?.copyWith(color: view.tone),
+            style:
+                (widget.compact
+                        ? theme.textTheme.labelSmall
+                        : theme.textTheme.labelLarge)
+                    ?.copyWith(color: view.tone),
           ),
         ],
       ),
@@ -219,14 +223,16 @@ class _StatePillState extends State<StatePill>
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: view.tone.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(AppRadius.pill),
+          borderRadius: BorderRadius.circular(colors.radius(AppRadius.pill)),
           border: Border.all(color: view.tone.withValues(alpha: 0.40)),
         ),
         child: widget.onTap == null
             ? body
             : InkWell(
                 onTap: widget.onTap,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
+                borderRadius: BorderRadius.circular(
+                  colors.radius(AppRadius.pill),
+                ),
                 child: body,
               ),
       ),

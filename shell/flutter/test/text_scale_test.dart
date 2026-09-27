@@ -146,7 +146,8 @@ void main() {
                   // 是可变字段：流式拼接要就地追加）。
                   message: ChatMessage(
                     role: ChatRole.assistant,
-                    text: '上游拒绝了鉴权（HTTP 401）。\n'
+                    text:
+                        '上游拒绝了鉴权（HTTP 401）。\n'
                         '- 确认 `[llm] api_key_env` 指向的环境变量已设置\n'
                         '- 提示词内容与鉴权无关',
                   ),
@@ -195,14 +196,10 @@ void main() {
       // 「有人为了修文本溢出而把字号塞进断点判定」这种改法——那会让
       // 同一个窗口在不同系统设置下变成不同的布局。
       for (final double w in <double>[320, 899, 900, 1279, 1280, 1920]) {
-        expect(
-          Breakpoints.sizeClassOf(w),
-          Breakpoints.sizeClassOf(w),
-        );
+        expect(Breakpoints.sizeClassOf(w), Breakpoints.sizeClassOf(w));
       }
       expect(Breakpoints.sizeClassOf(420), SizeClass.compact);
       expect(Breakpoints.sizeClassOf(1280), SizeClass.expanded);
     });
   });
 }
-

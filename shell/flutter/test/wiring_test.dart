@@ -53,7 +53,8 @@ void main() {
       expect(
         referencedOutside('StageHost(', 'lib/ui/stage_host.dart'),
         isTrue,
-        reason: '没有调用点 = P6 的「Live2D 舞台」语义标签、'
+        reason:
+            '没有调用点 = P6 的「Live2D 舞台」语义标签、'
             '「模型加载中/加载失败 + 重试」覆盖层都不在成品里',
       );
     });
@@ -92,7 +93,8 @@ void main() {
     );
 
     /// 最小可渲染的设置控制器（只要 `loaded` 为真、`draft` 可用即可）。
-    SettingsView emptyView() => SettingsView.fromJson(const <String, Object?>{});
+    SettingsView emptyView() =>
+        SettingsView.fromJson(const <String, Object?>{});
 
     testWidgets('只画系统提示词；卡字段与导入按钮都不在了', (WidgetTester tester) async {
       await tester.pumpWidget(
@@ -112,9 +114,7 @@ void main() {
       expect(find.textContaining('选择角色卡文件'), findsNothing);
     });
 
-    testWidgets('历史轮数只在 devMode 出现（会话基建，不是主可见项）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('历史轮数只在 devMode 出现（会话基建，不是主可见项）', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           PersonaSection(

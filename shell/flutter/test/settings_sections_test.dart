@@ -21,8 +21,9 @@ void main() {
     });
 
     test('label 与 description 都**无重号**（防复制粘贴漏改）', () {
-      final List<String> labels =
-          SettingsSection.values.map((SettingsSection s) => s.label).toList();
+      final List<String> labels = SettingsSection.values
+          .map((SettingsSection s) => s.label)
+          .toList();
       expect(labels.toSet(), hasLength(labels.length), reason: 'label 有重复');
       final List<String> descriptions = SettingsSection.values
           .map((SettingsSection s) => s.description)
@@ -45,24 +46,28 @@ void main() {
     });
 
     test('图标两两不同（导航里靠形状区分 8 项）', () {
-      final Set<IconData> icons =
-          SettingsSection.values.map((SettingsSection s) => s.icon).toSet();
+      final Set<IconData> icons = SettingsSection.values
+          .map((SettingsSection s) => s.icon)
+          .toSet();
       expect(icons, hasLength(8));
     });
 
     test('顺序 = 声明顺序：角色 → 能力 → 外观与互动 → 扩展/诊断/开发', () {
-      expect(SettingsSection.values.map((SettingsSection s) => s.name), <String>[
-        'persona',
-        'models',
-        'llm',
-        'tts',
-        // 2026-09-11：动作子系统移除时这里由 `actions` 改名为 `appearance`
-        // （label「外观与互动」不变）。索引位置保持不变，改的是名字。
-        'appearance',
-        'mods',
-        'diagnostics',
-        'developer',
-      ]);
+      expect(
+        SettingsSection.values.map((SettingsSection s) => s.name),
+        <String>[
+          'persona',
+          'models',
+          'llm',
+          'tts',
+          // 2026-09-11：动作子系统移除时这里由 `actions` 改名为 `appearance`
+          // （label「外观与互动」不变）。索引位置保持不变，改的是名字。
+          'appearance',
+          'mods',
+          'diagnostics',
+          'developer',
+        ],
+      );
     });
 
     test('index 与声明顺序一致（NavigationRail 的 selectedIndex 直接吃它）', () {
@@ -111,7 +116,9 @@ void main() {
       // 保留这条断言是为了说明：要藏的是**分区内的字段**，不是分区。
       // 哪天有人想加回来，先读 `visibleSections` 的头注。
       expect(
-        SettingsSection.values.where((SettingsSection s) => s.name == 'developer'),
+        SettingsSection.values.where(
+          (SettingsSection s) => s.name == 'developer',
+        ),
         hasLength(1),
       );
     });

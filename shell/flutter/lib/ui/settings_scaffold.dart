@@ -82,169 +82,196 @@ class SettingsScaffold extends StatelessWidget {
     // 固定 Tab 顺序：不写的话顺序跟随 Widget 树，重构时会静默改变。
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          // ── 标题栏：分区标题 + 分区说明（**唯一**写字号字重的地方之一） ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Space.s3,
-              Space.s3,
-              Space.s2,
-              Space.s2,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                if (leading != null) ...<Widget>[
-                  leading!,
-                  const SizedBox(width: Space.s1),
-                ],
-                Expanded(
-                  child: SectionHeader(
-                    title: selected.label,
-                    description: selected.description,
-                  ),
-                ),
-                // **未保存必须有可见提示**（规格 §4.3 的硬要求）：
-                // 现状完全缺失，用户改完就切走、改动无声消失。
-                if (dirty)
-                  Padding(
-                    padding: const EdgeInsets.only(right: Space.s1),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: appPaletteOf(context).warning.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                        border: Border.all(
-                          color: appPaletteOf(context).warning.withValues(alpha: 0.5),
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Space.s2,
-                          vertical: 2,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Icon(
-                              Icons.circle,
-                              size: 7,
-                              color: appPaletteOf(context).warning,
-                            ),
-                            const SizedBox(width: Space.s1),
-                            Text(
-                              '未保存',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: appPaletteOf(context).warning,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ?trailing,
-                if (onClose != null)
-                  IconButton(
-                    onPressed: onClose,
-                    tooltip: '关闭设置',
-                    icon: const Icon(Icons.close),
-                  ),
-              ],
-            ),
-          ),
-          // ── 分区导航：文字 chip；宽屏换行铺开，窄屏单行横向滚动 ──
-          //
-          // **没有 `avatar: Icon(...)`**（2026-09-11 用户裁决「尽量少用图片用
-          // 文字做按钮」）：8 个中文标签本身就能分辨，前面再加一个小图标只是
-          // 噪声——而且那些图标（徽章/立方体/终端…）没有一个能一眼看懂。
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              Space.s3,
-              0,
-              Space.s3,
-              narrow ? Space.s1 : Space.s2,
-            ),
-            child: narrow
-                ? SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: <Widget>[
-                        for (int i = 0; i < sections.length; i++) ...<Widget>[
-                          if (i > 0) const SizedBox(width: Space.s1),
-                          _chip(sections[i]),
-                        ],
-                      ],
-                    ),
-                  )
-                : Wrap(
-                    spacing: Space.s1,
-                    runSpacing: Space.s1,
-                    children: <Widget>[
-                      for (final SettingsSection section in sections)
-                        _chip(section),
-                    ],
-                  ),
-          ),
-          Divider(height: 1, color: colors.hairline),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                Space.s3,
-                Space.s3,
-                Space.s3,
-                Space.s5,
-              ),
-              child: child,
-            ),
-          ),
-          // ── 保存 / 放弃操作条（**只在有改动或刚有结果时出现**，
-          //    常驻一条空操作条是纯噪声） ──
-          if (dirty || statusMessage != null)
-            DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: colors.hairline)),
-              ),
-              child: Padding(
+      // 2026-09-27：设置面板是**我们自己构建**的浮层（不是 Material 的 sheet），
+      // 所以可以用 [appRaisedShadow]——Material 那些控件拿的是 `elevation`，
+      // 而 `Material` 把 elevation 直接交给引擎的 `Canvas::drawShadow`
+      // （`painting.dart:8408`），形状算死、主题层改不了。
+      //
+      // 只给这一层；分区内容里的卡片靠 `raised` 面差，不叠阴影。
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          // 「界面透明程度」同样作用在设置面板上：所有面板读
+          // `AppColors.panelAlpha` 这**一个**数，不会出现「聊天透了、设置没透」。
+          color: appPaletteOf(context).raised
+              .withValues(alpha: appColorsOf(context).panelAlpha),
+          borderRadius: BorderRadius.circular(colors.radius(AppRadius.lg)),
+          boxShadow: appRaisedShadow(appPaletteOf(context)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(colors.radius(AppRadius.lg)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              // ── 标题栏：分区标题 + 分区说明（**唯一**写字号字重的地方之一） ──
+              Padding(
                 padding: const EdgeInsets.fromLTRB(
                   Space.s3,
-                  Space.s2,
                   Space.s3,
+                  Space.s2,
                   Space.s2,
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    if (statusMessage != null)
-                      Expanded(
-                        child: Text(
-                          statusMessage!,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: statusIsError
-                                ? appPaletteOf(context).danger
-                                : colors.contentMuted,
+                    if (leading != null) ...<Widget>[
+                      leading!,
+                      const SizedBox(width: Space.s1),
+                    ],
+                    Expanded(
+                      child: SectionHeader(
+                        title: selected.label,
+                        description: selected.description,
+                      ),
+                    ),
+                    // **未保存必须有可见提示**（规格 §4.3 的硬要求）：
+                    // 现状完全缺失，用户改完就切走、改动无声消失。
+                    if (dirty)
+                      Padding(
+                        padding: const EdgeInsets.only(right: Space.s1),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: appPaletteOf(context).warning
+                                .withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(
+                              colors.radius(AppRadius.pill),
+                            ),
+                            border: Border.all(
+                              color: appPaletteOf(context).warning
+                                  .withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: Space.s2,
+                              vertical: 2,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Icon(
+                                  Icons.circle,
+                                  size: 7,
+                                  color: appPaletteOf(context).warning,
+                                ),
+                                const SizedBox(width: Space.s1),
+                                Text(
+                                  '未保存',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: appPaletteOf(context).warning,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      )
-                    else
-                      const Spacer(),
-                    if (dirty && onDiscard != null)
-                      TextButton(
-                        onPressed: saving ? null : onDiscard,
-                        child: const Text('放弃'),
                       ),
-                    if (dirty && onSave != null) ...<Widget>[
-                      const SizedBox(width: Space.s2),
-                      FilledButton(
-                        onPressed: saving ? null : onSave,
-                        child: Text(saving ? '保存中…' : '保存'),
+                    ?trailing,
+                    if (onClose != null)
+                      IconButton(
+                        onPressed: onClose,
+                        tooltip: '关闭设置',
+                        icon: const Icon(Icons.close),
                       ),
-                    ],
                   ],
                 ),
               ),
-            ),
-        ],
+              // ── 分区导航：文字 chip；宽屏换行铺开，窄屏单行横向滚动 ──
+              //
+              // **没有 `avatar: Icon(...)`**（2026-09-11 用户裁决「尽量少用图片用
+              // 文字做按钮」）：8 个中文标签本身就能分辨，前面再加一个小图标只是
+              // 噪声——而且那些图标（徽章/立方体/终端…）没有一个能一眼看懂。
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  Space.s3,
+                  0,
+                  Space.s3,
+                  narrow ? Space.s1 : Space.s2,
+                ),
+                child: narrow
+                    ? SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: <Widget>[
+                            for (
+                              int i = 0;
+                              i < sections.length;
+                              i++
+                            ) ...<Widget>[
+                              if (i > 0) const SizedBox(width: Space.s1),
+                              _chip(sections[i]),
+                            ],
+                          ],
+                        ),
+                      )
+                    : Wrap(
+                        spacing: Space.s1,
+                        runSpacing: Space.s1,
+                        children: <Widget>[
+                          for (final SettingsSection section in sections)
+                            _chip(section),
+                        ],
+                      ),
+              ),
+              Divider(height: 1, color: colors.hairline),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    Space.s3,
+                    Space.s3,
+                    Space.s3,
+                    Space.s5,
+                  ),
+                  child: child,
+                ),
+              ),
+              // ── 保存 / 放弃操作条（**只在有改动或刚有结果时出现**，
+              //    常驻一条空操作条是纯噪声） ──
+              if (dirty || statusMessage != null)
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: colors.hairline)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.s3,
+                      Space.s2,
+                      Space.s3,
+                      Space.s2,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        if (statusMessage != null)
+                          Expanded(
+                            child: Text(
+                              statusMessage!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: statusIsError
+                                    ? appPaletteOf(context).danger
+                                    : colors.contentMuted,
+                              ),
+                            ),
+                          )
+                        else
+                          const Spacer(),
+                        if (dirty && onDiscard != null)
+                          TextButton(
+                            onPressed: saving ? null : onDiscard,
+                            child: const Text('放弃'),
+                          ),
+                        if (dirty && onSave != null) ...<Widget>[
+                          const SizedBox(width: Space.s2),
+                          FilledButton(
+                            onPressed: saving ? null : onSave,
+                            child: Text(saving ? '保存中…' : '保存'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

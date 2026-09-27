@@ -104,7 +104,12 @@ class AdminRow extends StatelessWidget {
 
 /// 空态（**空白面板会被读成「坏了」**）。
 class AdminEmpty extends StatelessWidget {
-  const AdminEmpty({required this.icon, required this.title, required this.hint, super.key});
+  const AdminEmpty({
+    required this.icon,
+    required this.title,
+    required this.hint,
+    super.key,
+  });
 
   final IconData icon;
   final String title;
@@ -201,14 +206,16 @@ class ModelsSection extends StatelessWidget {
           const AdminEmpty(
             icon: Icons.view_in_ar_outlined,
             title: '还没有导入模型',
-            hint: '把模型放到 assets/models/<id>/ 下，然后在下面填目录名导入。'
+            hint:
+                '把模型放到 assets/models/<id>/ 下，然后在下面填目录名导入。'
                 '列表为空是正常的——项目刻意不捆绑模型。',
           )
         else
           for (final ModelInfo m in models)
             AdminRow(
               title: m.displayName.isEmpty ? m.id : m.displayName,
-              subtitle: '${m.id} · v${m.version} · ${m.humanSize} · '
+              subtitle:
+                  '${m.id} · v${m.version} · ${m.humanSize} · '
                   '${m.textureCount} 张贴图',
               badges: <String>[
                 if (m.active) '当前激活',
@@ -460,8 +467,11 @@ class ModsSection extends StatelessWidget {
   /// 保存某个 Mod 的配置（`POST /api/v1/mods/{id}/config`）。
   ///
   /// 为 null 时展开的表单只读展现、保存按钮禁用——**不假装能保存**。
-  final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
-      onSaveConfig;
+  final Future<ModConfigResult> Function(
+    String id,
+    Map<String, Object?> config,
+  )?
+  onSaveConfig;
 
   /// 展开卡片时读该 Mod 的运行态（`GET /api/v1/mods/{id}/state`）。
   ///
@@ -480,7 +490,8 @@ class ModsSection extends StatelessWidget {
       children: <Widget>[
         const SectionHeader(
           title: 'Mod',
-          description: '扩展能力走 Mod 边界隔离，默认全部停用。'
+          description:
+              '扩展能力走 Mod 边界隔离，默认全部停用。'
               '核心只提供接口，不把功能堆进来。',
         ),
         // L1 基座：统一的「需重新点火 / 重启后生效」提示。常驻在本分区顶部，
@@ -661,9 +672,8 @@ class _ModConfigTileState extends State<_ModConfigTile> {
     }
   }
 
-  bool _boolValue(ModSettingField f) => _values[f.key] is bool
-      ? _values[f.key]! as bool
-      : f.defaultValue == true;
+  bool _boolValue(ModSettingField f) =>
+      _values[f.key] is bool ? _values[f.key]! as bool : f.defaultValue == true;
 
   int _intValue(ModSettingField f) {
     final Object? raw = _values[f.key];
@@ -688,7 +698,9 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   /// 从服务端已有 config 出发、只覆盖本 Mod 在 spec 里声明的字段：
   /// spec 之外的既有键（未来扩展）不该被一次「保存」顺手抹掉。
   Map<String, Object?> _buildConfig() {
-    final Map<String, Object?> next = Map<String, Object?>.of(widget.mod.config);
+    final Map<String, Object?> next = Map<String, Object?>.of(
+      widget.mod.config,
+    );
     for (final ModSettingField f in _spec.fields) {
       // secret 留空 = 「不修改」：服务端不回值，发空串会把已存的密钥清掉。
       if (f.kind == ModFieldKind.string &&
@@ -1070,11 +1082,7 @@ class DiagnosticsSection extends StatelessWidget {
           title: '诊断',
           description: '当前连接、代次与能力快照。**只读**——这里没有会改状态的按钮。',
         ),
-        ReadonlyField(
-          label: '实时通道',
-          icon: Icons.cable,
-          text: wsStatusLabel,
-        ),
+        ReadonlyField(label: '实时通道', icon: Icons.cable, text: wsStatusLabel),
         ReadonlyField(
           label: '激活模型',
           icon: Icons.view_in_ar_outlined,
@@ -1089,20 +1097,23 @@ class DiagnosticsSection extends StatelessWidget {
         ReadonlyField(
           label: '服务端版本',
           icon: Icons.info_outline,
-          text: '${capabilities.app} ${capabilities.version}'
+          text:
+              '${capabilities.app} ${capabilities.version}'
               '（schema v${capabilities.schemaVersion}，WS 协议 v${capabilities.wsProtocolVersion}）',
         ),
         ReadonlyField(
           label: '服务端音频后端',
           icon: Icons.speaker_outlined,
-          text: '${(status['audio'] as Map<String, Object?>?)?['backend'] ?? '未知'}'
+          text:
+              '${(status['audio'] as Map<String, Object?>?)?['backend'] ?? '未知'}'
               '（sample_rate=${(status['audio'] as Map<String, Object?>?)?['sample_rate'] ?? '?'}）',
           description: 'Web 模式下音频单源是**浏览器**，服务端没有声卡是预期的',
         ),
         ReadonlyField(
           label: 'LLM / TTS 配置',
           icon: Icons.hub_outlined,
-          text: 'LLM: ${(llm as Map<String, Object?>?)?['model'] ?? '未配置'}'
+          text:
+              'LLM: ${(llm as Map<String, Object?>?)?['model'] ?? '未配置'}'
               '；TTS: ${(tts as Map<String, Object?>?)?['base_url'] ?? '未配置'}',
         ),
         const SizedBox(height: Space.s3),
@@ -1131,12 +1142,16 @@ class DiagnosticsSection extends StatelessWidget {
         if (logsError != null)
           Text(
             logsError!,
-            style: theme.textTheme.bodySmall?.copyWith(color: colors.contentMuted),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.contentMuted,
+            ),
           )
         else if (logs.isEmpty)
           Text(
             '（暂无日志）',
-            style: theme.textTheme.bodySmall?.copyWith(color: colors.contentMuted),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.contentMuted,
+            ),
           )
         else
           // 必须虚拟化：日志是长期运行会累积的东西。

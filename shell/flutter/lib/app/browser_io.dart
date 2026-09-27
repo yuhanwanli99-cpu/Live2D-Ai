@@ -92,7 +92,6 @@ void saveChatSessions(ChatSessionStore store) {
   }
 }
 
-
 /// 让用户挑一张本地图片，读成 **dataURL**（组合根专有：需要 `package:web`）。
 ///
 /// 用 `FileReader.readAsDataURL` 而不是自己拼 base64：它按文件的真实 MIME

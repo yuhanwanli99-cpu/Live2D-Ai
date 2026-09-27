@@ -34,10 +34,14 @@ void main() {
   group('① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子）', () {
     testWidgets('系统提示的文案真的画出来了', (WidgetTester tester) async {
       await tester.pumpWidget(
-        wrap(MessageBubble(message: ChatMessage(
-          role: ChatRole.system,
-          text: kWordlessTurnNotice,
-        ))),
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.system,
+              text: kWordlessTurnNotice,
+            ),
+          ),
+        ),
       );
       await tester.pump();
 
@@ -50,14 +54,16 @@ void main() {
   });
 
   group('② 但**不像角色的回复**（不许重犯「伪造台词」那个错）', () {
-    testWidgets('没有复制 / 重试按钮（它不是内容，是状态说明）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('没有复制 / 重试按钮（它不是内容，是状态说明）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        wrap(MessageBubble(message: ChatMessage(
-          role: ChatRole.system,
-          text: kWordlessTurnNotice,
-        ))),
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.system,
+              text: kWordlessTurnNotice,
+            ),
+          ),
+        ),
       );
       await tester.pump();
 
@@ -65,14 +71,16 @@ void main() {
       expect(find.text('重试'), findsNothing);
     });
 
-    testWidgets('不画角色标签文字（与用户裁决一致：气泡上没有「助手」）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('不画角色标签文字（与用户裁决一致：气泡上没有「助手」）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        wrap(MessageBubble(message: ChatMessage(
-          role: ChatRole.system,
-          text: kWordlessTurnNotice,
-        ))),
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.system,
+              text: kWordlessTurnNotice,
+            ),
+          ),
+        ),
       );
       await tester.pump();
 
@@ -80,14 +88,16 @@ void main() {
       expect(find.text('助手'), findsNothing);
     });
 
-    testWidgets('三个通道同时与对话气泡区分：居中 + 弱色 + 小一号字级', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('三个通道同时与对话气泡区分：居中 + 弱色 + 小一号字级', (WidgetTester tester) async {
       await tester.pumpWidget(
-        wrap(MessageBubble(message: ChatMessage(
-          role: ChatRole.system,
-          text: kWordlessTurnNotice,
-        ))),
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.system,
+              text: kWordlessTurnNotice,
+            ),
+          ),
+        ),
       );
       await tester.pump();
 
@@ -110,23 +120,22 @@ void main() {
       expect(style?.fontSize, Theme.of(context).textTheme.bodySmall?.fontSize);
     });
 
-    testWidgets('读屏听到的是「系统提示：…」而不是「助手说：…」', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('读屏听到的是「系统提示：…」而不是「助手说：…」', (WidgetTester tester) async {
       final SemanticsHandle handle = tester.ensureSemantics();
       try {
         await tester.pumpWidget(
-          wrap(MessageBubble(message: ChatMessage(
-            role: ChatRole.system,
-            text: kWordlessTurnNotice,
-          ))),
+          wrap(
+            MessageBubble(
+              message: ChatMessage(
+                role: ChatRole.system,
+                text: kWordlessTurnNotice,
+              ),
+            ),
+          ),
         );
         await tester.pump();
 
-        expect(
-          find.bySemanticsLabel(RegExp('系统提示：')),
-          findsOneWidget,
-        );
+        expect(find.bySemanticsLabel(RegExp('系统提示：')), findsOneWidget);
         expect(find.bySemanticsLabel(RegExp('助手说：')), findsNothing);
       } finally {
         handle.dispose();
@@ -135,9 +144,8 @@ void main() {
   });
 
   group('③ 接线守卫：判据与文案必须真的被控制器用上', () {
-    final String controller = File(
-      'lib/chat/chat_controller.dart',
-    ).readAsStringSync();
+    final String controller = File('lib/chat/chat_controller.dart')
+        .readAsStringSync();
     final String bubble = File('lib/ui/message_bubble.dart').readAsStringSync();
 
     test('`_finishTurn` 走 `settleTurn`（而不是自己写 if 分支）', () {

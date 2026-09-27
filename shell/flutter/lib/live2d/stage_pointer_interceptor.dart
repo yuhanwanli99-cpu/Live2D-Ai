@@ -61,7 +61,8 @@ library;
 import 'package:flutter/widgets.dart';
 
 import 'stage_pointer_interceptor_stub.dart'
-    if (dart.library.js_interop) 'stage_pointer_interceptor_web.dart' as impl;
+    if (dart.library.js_interop) 'stage_pointer_interceptor_web.dart'
+    as impl;
 
 /// 包在**压在舞台之上、且需要接收指针的控件**外面。
 ///

@@ -15,7 +15,14 @@ void main() {
   group('wavFromPcm16：44 字节头逐字段', () {
     // 4 个样本（s16le）= 8 字节载荷，便于手算。
     final Uint8List pcm = Uint8List.fromList(<int>[
-      0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0xF0, 0xFF,
+      0x00,
+      0x00,
+      0x10,
+      0x00,
+      0x00,
+      0x00,
+      0xF0,
+      0xFF,
     ]);
     final Uint8List wav = wavFromPcm16(pcm, sampleRate: 24000, channels: 1);
     final ByteData view = ByteData.view(wav.buffer);
@@ -39,8 +46,16 @@ void main() {
     });
 
     test('fmt 子块：PCM(1) / 单声道 / 24 kHz / 16 bit', () {
-      expect(view.getUint32(16, Endian.little), 16, reason: 'PCM fmt 块长度必须是 16');
-      expect(view.getUint16(20, Endian.little), 1, reason: 'audioFormat=1 才是 PCM');
+      expect(
+        view.getUint32(16, Endian.little),
+        16,
+        reason: 'PCM fmt 块长度必须是 16',
+      );
+      expect(
+        view.getUint16(20, Endian.little),
+        1,
+        reason: 'audioFormat=1 才是 PCM',
+      );
       expect(view.getUint16(22, Endian.little), 1);
       expect(view.getUint32(24, Endian.little), 24000);
       expect(view.getUint16(34, Endian.little), 16);

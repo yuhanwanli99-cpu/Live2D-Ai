@@ -61,6 +61,9 @@ import 'app/shortcut_help_dialog.dart';
 import 'audio/audio_player.dart';
 import 'audio/stage_clock.dart';
 import 'chat/chat_controller.dart';
+import 'data/background_hydration.dart';
+import 'data/background_store.dart';
+import 'design/background_item.dart';
 import 'design/tokens.dart';
 import 'live2d/action_scales_sync.dart';
 import 'live2d/live2d_bridge.dart';
@@ -85,6 +88,7 @@ import 'voice/voice_listen_controller.dart';
 import 'ui/confirm_discard_dialog.dart';
 import 'ui/error_actions.dart';
 import 'ui/restart_notice.dart';
+import 'ui/shell_slideshow.dart';
 import 'ui/stage_corner_controls.dart';
 import 'ui/theme.dart';
 
@@ -128,12 +132,67 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
   /// 本地显示偏好（主题 / 缩放 / 口型 / 音量 / 静音），持久化在 localStorage。
   DisplayPrefs _prefs = const DisplayPrefs();
 
+  /// 背景图的字节库（IndexedDB）。
+  ///
+  /// 先用内存实现占位：[_hydrateBackgrounds] 拿到真正的那个再换。
+  /// 之所以允许「先空着」——那时偏好里一个图都没有，
+  /// 而「没有图」是这个实现的正确行为。
+  BackgroundStore _store = MemoryBackgroundStore();
+
+  /// 字节库打不开/卡住时的兜底时限。
+  ///
+  /// IndexedDB 在某些隐私配置下会**既不 resolve 也不 reject**（见
+  /// `background_store_web.dart` 的头注）。一个「背景图功能」不该有
+  /// 权力让整个应用起不来，所以这里给它一个上限，超时就用内存库继续跑。
+  static const Duration _hydrateTimeout = Duration(seconds: 3);
+
   @override
   void initState() {
     super.initState();
     // 读盘只在启动时一次：之后的每一次写都是 `_update` 的副作用。
     _prefs = loadDisplayPrefs();
+    unawaited(_hydrateBackgrounds());
   }
+
+  /// 把偏好里的背景清单换成**画得出来的**图（2026-09-27）。
+  ///
+  /// 为什么是异步而不塞进 `main()`：`runApp` 之前 await 存储，
+  /// 等于让「IndexedDB 慢」变成「应用起不来」。这里改成
+  /// 「先起应用，字节回来后补一次 setState」——
+  /// 代价是背景可能晚几十毫秒出现（肉眼几乎看不出），
+  /// 换来的是**存储故障永远拖不垮启动**。
+  Future<void> _hydrateBackgrounds() async {
+    final BackgroundStore store = await _openStore();
+    final BackgroundHydration hydrated = await _hydrateSafely(store, _prefs);
+    if (!mounted) return;
+    setState(() {
+      _store = store;
+      _prefs = hydrated.prefs;
+    });
+    // 搬了旧档（把大 base64 从 localStorage 挪进 IndexedDB）就写回去，
+    // 否则那份 base64 会永远留在偏好里，下次启动再搬一次。
+    if (hydrated.migrated) saveDisplayPrefs(hydrated.prefs);
+  }
+
+  Future<BackgroundStore> _openStore() async {
+    try {
+      return await Future<BackgroundStore>.value(
+        createBackgroundStore(),
+      ).timeout(_hydrateTimeout);
+    } catch (_) {
+      // 打不开就退到内存实现：本次会话仍然能加图能看图（刷新后要重来），
+      // 而**写入失败会如实告诉用户**（`put` 返回 false）。
+      return MemoryBackgroundStore();
+    }
+  }
+
+  Future<BackgroundHydration> _hydrateSafely(
+    BackgroundStore store,
+    DisplayPrefs prefs,
+  ) => hydrateBackgrounds(prefs, store).timeout(
+    _hydrateTimeout,
+    onTimeout: () => BackgroundHydration(prefs, migrated: false),
+  );
 
   /// 更新并**立即持久化**；返回**是否真的写进了本机存储**。
   ///
@@ -149,8 +208,19 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Live2D Ai',
     debugShowCheckedModeBanner: false,
-    theme: buildAppTheme(_prefs.theme),
-    home: ShellRoot(prefs: _prefs, onPrefsChanged: _update),
+    // 外观两轴：配色（AppThemeId）+ 材质（描边强度 / 界面透明）。
+    // 圆角幅度是**固定值**，不是偏好。
+    // 都只走本地偏好、不需要保存按钮（用户是为了「看着舒服」才调的）。
+    theme: buildAppTheme(
+      _prefs.theme,
+      AppMaterial(
+        // 圆角幅度是固定值（2026-09-27 减法：从偏好里去掉了滑杆），
+        // 所以这里不传 —— 默认就是 `AppMaterial.kFixedRadiusScale`。
+        edgeStrength: _prefs.edgeStrength,
+        uiTransparency: _prefs.uiTransparency,
+      ),
+    ),
+    home: ShellRoot(prefs: _prefs, store: _store, onPrefsChanged: _update),
   );
 }
 
@@ -158,12 +228,16 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
 class ShellRoot extends StatefulWidget {
   const ShellRoot({
     required this.prefs,
+    required this.store,
     required this.onPrefsChanged,
     super.key,
   });
 
   /// 本地显示偏好（**由根持有**；见 `Live2DShellApp` 的说明）。
   final DisplayPrefs prefs;
+
+  /// 背景图字节库（见 `data/background_store.dart`）。
+  final BackgroundStore store;
 
   /// 上报偏好变更；返回**是否成功落盘**（失败时调用方给一句可执行文案）。
   final bool Function(DisplayPrefs) onPrefsChanged;
@@ -234,6 +308,7 @@ class _ShellRootState extends State<ShellRoot> {
   late final VoiceListenController _voiceListen;
 
   List<ModelInfo> _models = const <ModelInfo>[];
+
   /// 密钥真源状态（`GET /api/v1/env`）：键名 + 是否已设置（**没有值**）。
   EnvStatus _envStatus = const EnvStatus();
 
@@ -273,7 +348,8 @@ class _ShellRootState extends State<ShellRoot> {
   String? _llmTest;   bool _llmTesting = false;
   String? _ttsTest;   bool _ttsTesting = false;
   /// 舞台背景图的提示（选图与其它通道的失败原因完全不同）。
-  String? _stageImageMessage; bool _stageImageFailed = false;
+  String? _stageImageMessage;
+  bool _stageImageFailed = false;
 
   /// 壳背景图的提示（2026-09-14，rc.5）：与舞台那条**分开**，
   /// 否则在壳那行选完图会在舞台那行冒出一句话。
@@ -330,6 +406,50 @@ class _ShellRootState extends State<ShellRoot> {
 
   /// 渲染面回报的实际缩放（`stage-ack`；未收到时为 null，**不猜**）。
   double? _stageScaleFromAck;
+
+  // ── 背景轮播（2026-09-27）──
+  //
+  // 状态住在**宿主**（这里）而不是 `AppShell`：它是「跨整个壳」的一段时间轴，
+  // 而 `AppShell` 会被 WS 事件频繁重建（`ListenableBuilder` 的 builder 里
+  // 直接 new 一个），定时器住进去会跟着不停重启。
+  final ShellSlideshow _slideshow = ShellSlideshow();
+
+  /// 当前播到背景库第几项（**不落盘**：刷新后从头开始符合直觉）。
+  int _backgroundIndex = 0;
+
+  /// 偏好变了 → 背景库长度 / 随机 / 间隔可能都变了，**重新对表**。
+  void syncSlideshow(DisplayPrefs prefs) {
+    _slideshow
+      ..setLibrary(
+        // 同步开着时壳画的是舞台那张，背景库不参与 → 长度按 0 处理，
+        // 轮播自然不会启动（`setLibrary` + `start` 的双重保险）。
+        length: prefs.backgroundSource == DisplayPrefs.backgroundSourceLibrary
+            ? prefs.backgrounds.length
+            : 0,
+        randomOrder: prefs.slideRandom,
+      )
+      ..start(prefs.slideInterval, onAdvance: _onBackgroundAdvance);
+  }
+
+  /// 切到背景库第 N 项（点缩略图 / 拖完排序后回到第一项时用）。
+  ///
+  /// **只改运行时索引，不落盘**——「读到第几张」不是用户偏好，
+  /// 刷新后从头开始才符合直觉。
+  void _jumpBackground(int index) {
+    if (!mounted) return;
+    setState(() => _backgroundIndex = index);
+  }
+
+  /// 轮播前进一步。
+  ///
+  /// **只换壳的图，一个字节都不往渲染面发**——「舞台跟着换」这个开关在
+  /// 2026-09-27 的减法里被删掉了：它每换一张就要让 wasm 重新解码一次，
+  /// 而舞台背景与壳背景本来就是**两个独立的东西**（一个走渲染面 framebuffer，
+  /// 一个由 Flutter 自己画），让它们联动只是省一次手动操作，代价是持续的开销。
+  void _onBackgroundAdvance(int index) {
+    if (!mounted) return;
+    setState(() => _backgroundIndex = index);
+  }
 
   // ── P6：无障碍 ──
   /// 流式回复的**节流播报**（读屏用；`text_delta` 是毫秒级的，不节流会淹没读屏）。
@@ -460,6 +580,8 @@ class _ShellRootState extends State<ShellRoot> {
       dropPendingAudio: (String reason) => _audio.interrupt(),
       returnToBaseline: _requestSessionBaseline,
     );
+    // 背景轮播：首次对表（`_applyPrefs` 也会在桥就绪后再对一次）。
+    syncSlideshow(widget.prefs);
     // 会话存档：启动时读一次，之后每次变动写回。
     //
     // **落盘时机由 `ChatController` 决定**（一轮结束 / 会话操作），
@@ -769,6 +891,19 @@ class _ShellRootState extends State<ShellRoot> {
   }
 
   @override
+  void didUpdateWidget(ShellRoot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 启动时字节回来，可能摘掉「字节已经不在」的孤儿项 ⇒ 库长度变了。
+    // 轮播的对表只在偏好**提交**时做，而那次提交发生在 `ShellRoot` 之外
+    // （应用根的 `setState`），所以这里必须补一次，否则定时器会拿着
+    // 旧长度数到不存在的第 N 项。
+    if (oldWidget.prefs.backgrounds.length !=
+        widget.prefs.backgrounds.length) {
+      syncSlideshow(widget.prefs);
+    }
+  }
+
+  @override
   void dispose() {
     unawaited(_levelSubscription?.cancel());
     unawaited(_statusSubscription?.cancel());
@@ -781,6 +916,7 @@ class _ShellRootState extends State<ShellRoot> {
     _modelOverrideCoalescer.dispose();
     _settings.removeListener(_onActionScalesModelContextChanged);
     _ui.dispose();
+    _slideshow.dispose();
     _live.dispose();
     _settings.dispose();
     _modelsApi.dispose();
@@ -811,7 +947,7 @@ class _ShellRootState extends State<ShellRoot> {
         _llmTesting = false;
         _llmTest = o.ok
             ? 'ok · ${o.latencyMs ?? '?'} ms'
-                '${o.modelEcho == null || o.modelEcho!.isEmpty ? '' : ' · 模型：${o.modelEcho}'}'
+                  '${o.modelEcho == null || o.modelEcho!.isEmpty ? '' : ' · 模型：${o.modelEcho}'}'
             : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
       });
     } on ApiException catch (e) {
@@ -983,8 +1119,10 @@ class _ShellRootState extends State<ShellRoot> {
           ),
           phase: _ui.phase,
           wsStatus: _ui.wsStatus,
-          // 壳全局背景：同步开时就是舞台那张图（一份真相），关时用壳自己的。
-          shellImage: widget.prefs.effectiveShellImage,
+          // 背景：库 + 索引 + 渲染参数全走偏好。判据（同步开 = 画舞台那张）
+          // 收在 `AppShell._currentBackground` 一处，渲染层不自己判。
+          prefs: widget.prefs,
+          backgroundIndex: _backgroundIndex,
           messages: _chat.messages,
           input: _input,
           onSend: () => unawaited(_sendWithCancellation()),
@@ -992,12 +1130,9 @@ class _ShellRootState extends State<ShellRoot> {
           onRetryConnection: _ws.ensureConnected,
           volume: widget.prefs.volume,
           muted: widget.prefs.muted,
-          onVolumeChanged: (double v) =>
-              _updatePrefs(
-                widget.prefs.copyWith(
-                  volume: DisplayPrefs.clampVolume(v),
-                ),
-              ),
+          onVolumeChanged: (double v) => _updatePrefs(
+            widget.prefs.copyWith(volume: DisplayPrefs.clampVolume(v)),
+          ),
           onMutedChanged: (bool m) =>
               _updatePrefs(widget.prefs.copyWith(muted: m)),
           serverMuted: _serverMuted,

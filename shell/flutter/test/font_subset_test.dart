@@ -85,7 +85,8 @@ SubsetRanges parseRanges(String text) {
     if (line.startsWith('#')) {
       final Match? mBytes = RegExp(r'^#\s*bytes:\s*(\d+)').firstMatch(line);
       if (mBytes != null) bytes = int.parse(mBytes.group(1)!);
-      final Match? mHash = RegExp(r'^#\s*fnv1a32:\s*([0-9a-f]+)').firstMatch(line);
+      final Match? mHash = RegExp(r'^#\s*fnv1a32:\s*([0-9a-f]+)')
+          .firstMatch(line);
       if (mHash != null) hash = int.parse(mHash.group(1)!, radix: 16);
       final Match? mCp = RegExp(r'^#\s*codepoints:\s*(\d+)').firstMatch(line);
       if (mCp != null) codepoints = int.parse(mCp.group(1)!);
@@ -144,9 +145,8 @@ List<String> stringLiterals(String src) {
       continue;
     }
 
-    final bool raw = src[i] == 'r' &&
-        i + 1 < n &&
-        (src[i + 1] == "'" || src[i + 1] == '"');
+    final bool raw =
+        src[i] == 'r' && i + 1 < n && (src[i + 1] == "'" || src[i + 1] == '"');
     final int quoteAt = raw ? i + 1 : i;
     if (src[quoteAt] == "'" || src[quoteAt] == '"') {
       final String q = src[quoteAt];
@@ -255,7 +255,8 @@ final c = '甲' '乙';
         expect(
           rangesFile.existsSync(),
           isTrue,
-          reason: '覆盖表缺失：${rangesFile.path}\n'
+          reason:
+              '覆盖表缺失：${rangesFile.path}\n'
               '生成：python3 scripts/font_subset_ranges.py',
         );
 
@@ -265,13 +266,15 @@ final c = '甲' '乙';
         expect(
           ranges.bytes,
           bytes.length,
-          reason: '字体换了但覆盖表没重新生成 —— 拿旧表放行比没有门禁更危险。\n'
+          reason:
+              '字体换了但覆盖表没重新生成 —— 拿旧表放行比没有门禁更危险。\n'
               '重新生成：python3 scripts/font_subset_ranges.py',
         );
         expect(
           ranges.hash,
           fnv1a32(bytes),
-          reason: '字体内容变了（哈希不符），覆盖表必须重新生成：\n'
+          reason:
+              '字体内容变了（哈希不符），覆盖表必须重新生成：\n'
               'python3 scripts/font_subset_ranges.py',
         );
         expect(ranges.codepoints, greaterThan(1000), reason: '覆盖表看起来被改坏了');
@@ -316,7 +319,8 @@ final c = '甲' '乙';
       expect(
         offenders,
         isEmpty,
-        reason: '这些字符不在自托管字体子集里。CanvasKit 会去 fonts.gstatic.com\n'
+        reason:
+            '这些字符不在自托管字体子集里。CanvasKit 会去 fonts.gstatic.com\n'
             '拉回退字体 —— **有网时看不出来，断网就是豆腐块**。\n'
             '两种修法：① 改成不依赖字形的实现（如流式光标画竖条）；\n'
             '② 把它加进子集（重新子集化后跑 python3 scripts/font_subset_ranges.py）。\n'
@@ -325,8 +329,9 @@ final c = '甲' '乙';
     });
 
     test('已知的两个历史违规字符确实不在子集里（门禁的校准位）', () {
-      final SubsetRanges regular =
-          parseRanges(File('${_fontStems.first}.ranges.txt').readAsStringSync());
+      final SubsetRanges regular = parseRanges(
+        File('${_fontStems.first}.ranges.txt').readAsStringSync(),
+      );
       // 它们曾导致真实的外部字体请求；若哪天它们进了子集，本断言会提醒我们
       // 可以简化实现（流式光标 / Cmd 前缀不再需要绕开字形）。
       expect(regular.covers(0x258D), isFalse, reason: '▍ 已进子集 → 可考虑恢复字形实现');

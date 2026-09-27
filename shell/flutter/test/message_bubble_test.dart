@@ -18,7 +18,9 @@ import 'package:live2d_ai_shell/ui/theme.dart';
 Widget wrap(Widget child, {double width = 340}) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(
-    body: Center(child: SizedBox(width: width, child: child)),
+    body: Center(
+      child: SizedBox(width: width, child: child),
+    ),
   ),
 );
 
@@ -30,6 +32,15 @@ ChatMessage msg(String text, {bool streaming = false, bool failed = false}) =>
       // 失败态 = 占位消息（`isPlaceholder`）。
       failed: failed,
     );
+
+/// 气泡自身容器的 maxWidth（**只认带 key 的那一层**）。
+///
+/// 为什么要 key：气泡里有好几层 `Container`（思考区、操作条），
+/// 靠类型取「第一个」取到的可能是别的东西 —— 那种测试会**假绿**。
+double _bubbleMaxWidth(WidgetTester tester) => tester
+    .widget<Container>(find.byKey(kMessageBubbleSurfaceKey))
+    .constraints!
+    .maxWidth;
 
 /// 取气泡里那段可选中的富文本。
 List<TextSpan> spansOf(WidgetTester tester) {
@@ -64,9 +75,8 @@ void main() {
       await tester.pumpWidget(
         wrap(MessageBubble(message: msg('跑 `flutter test` 即可'))),
       );
-      final TextSpan code = spansOf(
-        tester,
-      ).firstWhere((TextSpan s) => s.text == 'flutter test');
+      final TextSpan code = spansOf(tester)
+          .firstWhere((TextSpan s) => s.text == 'flutter test');
       expect(code.style?.fontFamily, 'monospace');
       expect(code.style?.backgroundColor, isNotNull);
     });
@@ -191,31 +201,33 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('把窗口缩到手机宽度也不溢出（约束跟着视口走）', (WidgetTester tester) async {
-      // 用 `tester.view` 而不是 `setSurfaceSize`：后者改的是渲染视图尺寸，
-      // 而这里要断言的是 **MediaQuery 读到的宽度**，两者不是同一个入口。
-      tester.view.physicalSize = const Size(400, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
+    // 2026-09-27：约束改成「父级真实宽度 + 阅读上限」。
+    // 旧写法是 `MediaQuery.width * 0.92`，它在三个断点下**一次都没生效**
+    // （面板 340 / 屏宽 ≥1280），所以这条断言过去是「看着在测、其实测不到」。
+    testWidgets('窄容器：气泡取容器宽，且不溢出', (WidgetTester tester) async {
+      await tester.pumpWidget(wrap(MessageBubble(message: msg('一段' * 200))));
+      expect(tester.takeException(), isNull);
+      expect(
+        _bubbleMaxWidth(tester),
+        lessThanOrEqualTo(340.0),
+        reason: '父容器 340 宽，气泡不许越过它',
+      );
+    });
+
+    testWidgets('宽容器：气泡被阅读上限压住（不横铺满屏）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: buildAppTheme(),
-          home: Scaffold(body: MessageBubble(message: msg('一段' * 200))),
-        ),
+        wrap(MessageBubble(message: msg('一段' * 200)), width: 1200),
       );
       expect(tester.takeException(), isNull);
-      // 约束真的读了视口：400 * 0.92 = 368。
-      final BoxConstraints c = tester
-          .widget<Container>(
-            find
-                .descendant(
-                  of: find.byType(MessageBubble),
-                  matching: find.byType(Container),
-                )
-                .first,
-          )
-          .constraints!;
-      expect(c.maxWidth, closeTo(400 * 0.92, 0.5));
+      expect(
+        _bubbleMaxWidth(tester),
+        kBubbleReadingWidth,
+        reason: '面板再宽，一段话也不该铺满 1200 px',
+      );
+    });
+
+    testWidgets('阅读上限是 480（中文一行 ~45 字以内）', (WidgetTester tester) async {
+      expect(kBubbleReadingWidth, 480.0);
     });
   });
 
@@ -264,11 +276,7 @@ void _reasoningSectionTests() {
   group('思考折叠区', () {
     testWidgets('默认折叠：只显示「已思考 N 字」，正文完整可见', (WidgetTester tester) async {
       await tester.pumpWidget(
-        wrap(
-          MessageBubble(
-            message: withReasoning('你好。', '我先想一想该怎么打招呼。'),
-          ),
-        ),
+        wrap(MessageBubble(message: withReasoning('你好。', '我先想一想该怎么打招呼。'))),
       );
       expect(find.textContaining('已思考'), findsOneWidget);
       // 折叠状态下思考正文不上屏。
@@ -279,9 +287,7 @@ void _reasoningSectionTests() {
 
     testWidgets('点标题展开/收起', (WidgetTester tester) async {
       await tester.pumpWidget(
-        wrap(
-          MessageBubble(message: withReasoning('你好。', '我先想一想。')),
-        ),
+        wrap(MessageBubble(message: withReasoning('你好。', '我先想一想。'))),
       );
       await tester.tap(find.textContaining('已思考'));
       await tester.pumpAndSettle();
@@ -295,9 +301,7 @@ void _reasoningSectionTests() {
     testWidgets('流式中：标题是「思考中…」，条数实时长', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
-          MessageBubble(
-            message: withReasoning('', '正在推理', streaming: true),
-          ),
+          MessageBubble(message: withReasoning('', '正在推理', streaming: true)),
         ),
       );
       expect(find.textContaining('思考中'), findsOneWidget);
@@ -307,11 +311,7 @@ void _reasoningSectionTests() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        wrap(
-          MessageBubble(
-            message: withReasoning('', '我算一下：7²+11²+13²=339。'),
-          ),
-        ),
+        wrap(MessageBubble(message: withReasoning('', '我算一下：7²+11²+13²=339。'))),
       );
       // 默认展开：思考就是本轮唯一内容，折叠起来等于什么都没显示。
       expect(find.textContaining('我算一下'), findsOneWidget);
@@ -323,9 +323,7 @@ void _reasoningSectionTests() {
     });
 
     testWidgets('没有思考时：不出现任何思考区（普通回复保持原样）', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        wrap(MessageBubble(message: msg('你好。'))),
-      );
+      await tester.pumpWidget(wrap(MessageBubble(message: msg('你好。'))));
       expect(find.textContaining('已思考'), findsNothing);
       expect(find.textContaining('思考'), findsNothing);
     });
@@ -337,11 +335,8 @@ void _reasoningSectionTests() {
 /// 说明行同时是可达性通道：气泡整条被 `excludeSemantics` 折成**一个**节点，
 /// 说明行不进 label 就等于读屏用户看不到（本项目为此踩过坑，见 HANDOFF 7.1）。
 void _unfinishedCaptionTests() {
-  ChatMessage unfinished() => ChatMessage(
-    role: ChatRole.assistant,
-    text: '第一句。第二',
-    unfinished: true,
-  );
+  ChatMessage unfinished() =>
+      ChatMessage(role: ChatRole.assistant, text: '第一句。第二', unfinished: true);
 
   testWidgets('unfinished：说明行画出来，正文原样保留', (WidgetTester tester) async {
     await tester.pumpWidget(wrap(MessageBubble(message: unfinished())));

@@ -24,7 +24,11 @@ String render(List<MdBlock> blocks) => blocks
     .map(
       (MdBlock b) =>
           '${b.bullet ? '· ' : ''}'
-          '${b.spans.map((MdSpan s) => s.code ? '[c]${s.text}' : s.bold ? '[b]${s.text}' : s.text).join()}',
+          '${b.spans.map((MdSpan s) => s.code
+              ? '[c]${s.text}'
+              : s.bold
+              ? '[b]${s.text}'
+              : s.text).join()}',
     )
     .join('\n');
 
@@ -116,7 +120,10 @@ void main() {
 
   group('P2-3：等价性（结构相等是 == 的语义）', () {
     test('两次解析同样输入得到相等的结构', () {
-      expect(parseChatMarkdown('**a** 与 `b`'), parseChatMarkdown('**a** 与 `b`'));
+      expect(
+        parseChatMarkdown('**a** 与 `b`'),
+        parseChatMarkdown('**a** 与 `b`'),
+      );
     });
   });
 }

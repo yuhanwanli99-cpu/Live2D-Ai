@@ -37,24 +37,15 @@ List<ErrorAction> errorActionsFor(
       return <ErrorAction>[goto(SettingsSection.tts, '去语音合成设置')];
     }
     if (code == 'busy') {
-      return <ErrorAction>[
-        ErrorAction(label: '打断并重发', onPressed: onStop),
-      ];
+      return <ErrorAction>[ErrorAction(label: '打断并重发', onPressed: onStop)];
     }
   }
   if (message == null) return const <ErrorAction>[];
   if (message.contains('busy') || message.contains('上一轮')) {
-    return <ErrorAction>[
-      ErrorAction(
-        label: '打断并重发',
-        onPressed: onStop,
-      ),
-    ];
+    return <ErrorAction>[ErrorAction(label: '打断并重发', onPressed: onStop)];
   }
   if (message.contains('no_supervisor') || message.contains('未就绪')) {
     return <ErrorAction>[goto(SettingsSection.llm, '去 LLM 设置')];
   }
-  return <ErrorAction>[
-    ErrorAction(label: '重试', onPressed: onSend),
-  ];
+  return <ErrorAction>[ErrorAction(label: '重试', onPressed: onSend)];
 }

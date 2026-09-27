@@ -10,7 +10,9 @@ void main() {
     test('new_epoch → 要求立刻打断', () {
       expect(
         mustInterruptAudio(
-          frame('{"type":"runtime_status","data":{"event":"new_epoch","epoch":1}}'),
+          frame(
+            '{"type":"runtime_status","data":{"event":"new_epoch","epoch":1}}',
+          ),
         ),
         isTrue,
       );

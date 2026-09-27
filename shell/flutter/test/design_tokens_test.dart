@@ -93,9 +93,9 @@ Map<String, int> countTokenReferences(String root, List<String> families) {
   final RegExp aliasDecl = RegExp(r'\bAppColors\s+([a-z_][A-Za-z0-9_]*)\b');
   final Map<String, int> counts = <String, int>{};
   void bump(String key) => counts[key] = (counts[key] ?? 0) + 1;
-  for (final FileSystemEntity entity in Directory(root).listSync(
-    recursive: true,
-  )) {
+  for (final FileSystemEntity entity in Directory(
+    root,
+  ).listSync(recursive: true)) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
     final String src = stripCommentsAndStrings(entity.readAsStringSync());
     for (final RegExpMatch m in direct.allMatches(src)) {
@@ -140,7 +140,12 @@ Map<String, Set<String>> tokenNamesByFamily() => <String, Set<String>>{
   'AppRhythms': AppRhythms.registry.keys.toSet(),
   'Motion': Motion.names.toSet(),
   'Breakpoints': Breakpoints.registry.keys.toSet(),
-  'AppColors': AppColors.of(_scheme, AppPalette.black).toValuesMap().keys.toSet(),
+  // 注意：**不含** `AppColors` 的两个标量成员（`panelAlpha` / `radiusScale`）——
+  // 它们是结构成员而不是令牌，混进来会让「死令牌」检查一直报警。
+  'AppColors': AppColors.of(
+    _scheme,
+    AppPalette.black,
+  ).toValuesMap().keys.toSet(),
 };
 
 /// 家族的**结构成员**（是 API，但不是令牌）：登记表、派生视图、构造入口等。
@@ -155,6 +160,11 @@ const Set<String> kStructuralMembers = <String>{
   'fieldCount',
   'sizeClassOf',
   'toValuesMap',
+  // 2026-09-27：`radius` 是 `AppColors` 上**唯一的方法型成员**——
+  // 「圆角缩放」的自建盒子一律走 `appColorsOf(ctx).radius(AppRadius.x)`，
+  // 而不是直接读 `radiusScale` 字段（那个字段只负责被 `radius()` 乘）。
+  // 登记成结构成员，「声明↔引用」双向对账才不会把 `AppColors.radius` 判成野名字。
+  'radius',
 };
 
 /// **未接线令牌台账**（诚实记录，逐阶段清空）。
@@ -167,6 +177,11 @@ const Set<String> kStructuralMembers = <String>{
 /// 规格 §2.8.2 原本要求「声明即被引用」，与它自己的分阶段路线（P0 立令牌、
 /// P3 才用）冲突；本台账是两者的调和。
 const Set<String> kNotYetWired = <String>{
+  // 2026-09-27：`AppColors.radiusScale` **是接线的**，但接线点是一个**方法**
+  // （`colors.radius(AppRadius.x)`），不是直接读字段——自建盒子全部走它。
+  // 登记在这里是为了让「声明↔引用」双向对账不把它判成死字段；
+  // 真要确认它活着，看 `test/setting_wiring_test.dart`（那里断言
+  // `AppRadius` 不得以裸值出现在自建盒子里）。
   // ── 叠色 ──
   //
   // **2026-09-11 修正**：这里原本列了 9 个 `AppColors.*`，但其中 7 个
@@ -217,7 +232,7 @@ void main() {
       // 所以它退出了 kTokenFamilies —— 它的结构由下面「配色族」那组测试守。
       expect(AppPalette.registry.length, AppThemeId.values.length);
       // 2026-09-11（P3-1）：+`rimHighlight`（玻璃边缘高光的基色）。
-      expect(AppColors.fieldCount, 10);
+      expect(AppColors.fieldCount, 12);
     });
 
     test('尺寸/时长类家族的取值两两互异（防「四档同值」这种没有信息量的令牌）', () {
@@ -287,11 +302,7 @@ void main() {
       final List<String> stale = kNotYetWired
           .where((String n) => (refs[n] ?? 0) > 0)
           .toList();
-      expect(
-        stale,
-        isEmpty,
-        reason: '以下令牌已经接线了，请从 kNotYetWired 里删掉：$stale',
-      );
+      expect(stale, isEmpty, reason: '以下令牌已经接线了，请从 kNotYetWired 里删掉：$stale');
     });
 
     test('台账里的名字都真的存在（防改名 / 删档后台账变成陈旧清单）', () {
@@ -315,11 +326,7 @@ void main() {
       final List<String> unknown = refs.keys
           .where((String k) => !known.contains(k))
           .toList();
-      expect(
-        unknown,
-        isEmpty,
-        reason: '引用了既不是令牌、也不是结构成员的名字：$unknown',
-      );
+      expect(unknown, isEmpty, reason: '引用了既不是令牌、也不是结构成员的名字：$unknown');
     });
   });
 
@@ -336,6 +343,8 @@ void main() {
       rimHighlight: const Color(0xFF1A1B1C),
       serverMutedBadgeSurface: const Color(0xFF161718),
       serverMutedBadgeBorder: const Color(0xFF191A1B),
+      panelAlpha: 0.7,
+      radiusScale: 1.4,
     );
 
     test('每个字段都被 copyWith 处理（只改一个字段也必须与原对象不等）', () {
@@ -350,6 +359,8 @@ void main() {
         base.copyWith(rimHighlight: const Color(0xFF010203)),
         base.copyWith(serverMutedBadgeSurface: const Color(0xFF010203)),
         base.copyWith(serverMutedBadgeBorder: const Color(0xFF010203)),
+        base.copyWith(panelAlpha: 0.2),
+        base.copyWith(radiusScale: 0.6),
       ];
       expect(singles.length, AppColors.fieldCount);
       for (final AppColors c in singles) {
@@ -358,7 +369,18 @@ void main() {
     });
 
     test('toValuesMap 的字段数与 fieldCount 一致', () {
-      expect(base.toValuesMap().length, AppColors.fieldCount);
+      // 令牌面 + 标量清单 = 字段总数，一个都不能少、也不能多。
+      final Set<String> scalars = AppColors.kStructuralScalarNames.toSet();
+      expect(
+        base.toValuesMap().keys.toSet().intersection(scalars),
+        isEmpty,
+        reason: '标量成员不要混进令牌面（否则「死令牌」检查会一直报警）',
+      );
+      expect(
+        base.toValuesMap().length + scalars.length,
+        AppColors.fieldCount,
+        reason: '令牌面漏了字段，或标量清单漏了字段',
+      );
     });
 
     test('lerp 端点正确，且中点不等于端点（防 lerp 直接 return this）', () {
@@ -376,11 +398,15 @@ void main() {
       final Map<String, Object?> m = mid.toValuesMap();
       expect(m.keys, a.keys);
       for (final String k in a.keys) {
-        expect(
-          m[k],
-          Color.lerp(a[k]! as Color, b[k]! as Color, 0.5),
-          reason: '$k 的 lerp 没生效',
-        );
+        final Object? from = a[k];
+        // `AppColors` 现在有两种字段：**颜色**与**一个标量**
+        //（`panelAlpha`，面板不透明度）。两种都要验，否则加了标量字段
+        // 就会因为 `as Color` 强转而「假通过」。
+        final Object? want = from is Color
+            ? Color.lerp(from, b[k]! as Color, 0.5)
+            : ((from! as double) +
+                  ((b[k]! as double) - (from as double)) * 0.5);
+        expect(m[k], want, reason: '$k 的 lerp 没生效');
       }
     });
   });

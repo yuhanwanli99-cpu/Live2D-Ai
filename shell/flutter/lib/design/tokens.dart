@@ -12,6 +12,13 @@
 /// | **整套配色**（舞台底 / 面板 / 文字 / 强调 / 语义色） | [AppPalette]（`ThemeExtension`） | 4 套主题，必须随主题切换；`lerp` 让切换可插值 |
 /// | 依赖 `onSurface` 的叠色 | [AppColors]（`ThemeExtension`） | 由当前配色派生，比写死更耐换肤 |
 /// | 尺寸 / 时长 / 曲线 / 断点 | `const` 常量类 | 与主题无关 ⇒ 无插值需求，`lerp` 价值≈0 |
+///
+/// # 行数豁免
+///
+/// 本文件超过 500 行，属**显式豁免（≤1000）**：它是四套配色的**唯一真源**，
+/// 每套 11 个颜色字段都要带「为什么是这个值」的取值理由；
+/// 拆成四个文件会让「四套必须同步改」这件事从一次编辑变成四处编辑——
+/// 而漏改一处正是本项目 P4「静默失效」要治的病。
 library;
 
 import 'package:flutter/material.dart';
@@ -36,11 +43,45 @@ import 'theme_id.dart';
 ///
 /// 1. **舞台底是纯色平面**（用户裁决「舞台背影全黑/全白即可，中央不要放贴图」）：
 ///    黑主题 `#000000`、白主题 `#FFFFFF`，蓝/灰是各自色相的纯色。
+///    **舞台底不参与下面的「色相偏移」**——它是渲染面 framebuffer 的清屏色，
+///    带上一点色相会在模型边缘出现一圈色边（由
+///    `theme_palette_test` 的「舞台底必须中性」断言守着）。
 /// 2. **文字与它所在的面**的对比度 ≥ 4.5:1（中文小字号的可读下限）；
 ///    由 `test/theme_test.dart` 逐主题断言，不是靠眼睛。
 /// 3. **语义色按亮/暗各一套**：`#FF6B6B` 那种亮红在白底上只有 2.5:1，
 ///    在浅色主题里必须换成深红。这是「只换 accent 不换语义色」最容易翻车的地方。
 /// 4. **强调色上的文字颜色是算出来的**，不是写死的（[onAccent]）。
+///
+/// # 色相偏移（2026-09-27，第二轮观感）
+///
+/// 实测（1440×900 同尺寸截图，`docs/design/assets/visual-substance-2026-09-27/`）：
+/// 本项目改动前的界面**几乎没有颜色**——暗色主题下 91.5% 的像素绝对色度 ≤6/255，
+/// 层级只能靠 1px 发丝线；表面也只有 1.5 级（`#0E0E11` → `#17171B`，
+/// 感知亮度只差 0.035，落在同一个 4 级桶里）。
+///
+/// 病根是**四套配色的中性色全落在中性轴上**（`#0E0E11`/`#17171B`/`#F1F1F4`/`#E8E8EC`）。
+/// 修法是给每套配色一个**固定的色相锚点**，把中性色整体往那个方向推一点：
+///
+/// | 配色 | 色相锚点 | 中性色里的偏移量 |
+/// | --- | --- | --- |
+/// | 黑 | 冷靛 | 20%（墨色 9%） |
+/// | 白 | 暖白 | 13%（墨色 9%） |
+/// | 蓝 | 蓝紫 | 20%（墨色 9%） |
+/// | 灰 | 中性偏暖 | 20%（墨色 9%） |
+///
+/// 刻意**不给强调色上色**：强调色是 P2 定的「一个品牌色」，
+/// 往里混色相会变成「第二种强调色」。三个语义色同理，它们本来就带色相。
+///
+/// 偏移量为什么是 9%–20%：再高就不是「有色彩倾向」而是「彩色界面」了
+/// （实测 Morrow 的深色 chrome 平均色度 13/255，本项目改动后落在 9–30，
+/// 比它更克制、且在纯黑舞台旁边更干净）。
+///
+/// # 表面阶梯：三档，级差 ≥ 0.03 感知亮度
+///
+/// `stage`（不动）→ [surface]（面板底）→ [surfaceAlt]（气泡 / 输入框）→ [raised]
+/// （卡片 / 浮层 / 弹窗）。改动前只有前三级且级差 0.035 落在同一个桶里；
+/// 现在每两档之间 ≥0.03，**不描边也读得出层级**。
+/// 由 `test/theme_palette_test.dart` 的阶梯断言钉死。
 @immutable
 class AppPalette extends ThemeExtension<AppPalette> {
   const AppPalette({
@@ -49,6 +90,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.stage,
     required this.surface,
     required this.surfaceAlt,
+    required this.raised,
     required this.ink,
     required this.accent,
     required this.success,
@@ -73,6 +115,13 @@ class AppPalette extends ThemeExtension<AppPalette> {
 
   /// 次级面（助手气泡、悬停的卡片）。
   final Color surfaceAlt;
+
+  /// **浮起面**（卡片 / 弹窗 / 底部浮层 / snackbar）。
+  ///
+  /// 2026-09-27 新增：[surface] 与 [surfaceAlt] 之间只有 0.035 的感知亮度差，
+  /// 两者压在纯黑舞台旁边读作同一块。补这一档之后三级各差 ≥0.03，
+  /// 「哪一层浮在谁上面」不靠描边也读得出来。
+  final Color raised;
 
   /// 主文本色。
   final Color ink;
@@ -104,7 +153,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// 强调色上的文字色：**算出来的**（对比度高的那个）。
   ///
   /// 写死白色会在「黑」主题上直接瞎掉——那套的强调色本身是近白色。
-  Color get onAccent => _contrast(accent, Colors.white) >= _contrast(accent, _black)
+  Color get onAccent =>
+      _contrast(accent, Colors.white) >= _contrast(accent, _black)
       ? Colors.white
       : _black;
 
@@ -112,7 +162,8 @@ class AppPalette extends ThemeExtension<AppPalette> {
   ///
   /// 与 [onAccent] 同一条算法、**不写死**：暗色主题的危险色是亮红（配黑字），
   /// 亮色主题的危险色是深红（配白字）。写死任一边都会在其中一半主题上瞎掉。
-  Color get onDanger => _contrast(danger, Colors.white) >= _contrast(danger, _black)
+  Color get onDanger =>
+      _contrast(danger, Colors.white) >= _contrast(danger, _black)
       ? Colors.white
       : _black;
 
@@ -143,13 +194,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
   }
 
   /// 四套配色的**唯一真源**。
-  static const Map<AppThemeId, AppPalette> registry =
-      <AppThemeId, AppPalette>{
-        AppThemeId.black: black,
-        AppThemeId.white: white,
-        AppThemeId.blue: blue,
-        AppThemeId.gray: gray,
-      };
+  static const Map<AppThemeId, AppPalette> registry = <AppThemeId, AppPalette>{
+    AppThemeId.black: black,
+    AppThemeId.white: white,
+    AppThemeId.blue: blue,
+    AppThemeId.gray: gray,
+  };
 
   /// 按 id 取；未知回落 [AppThemeId.fallback]（**不抛**）。
   static AppPalette of(AppThemeId id) => registry[id] ?? black;
@@ -162,9 +212,11 @@ class AppPalette extends ThemeExtension<AppPalette> {
     brightness: Brightness.dark,
     // **纯黑**，不是「接近黑」：用户明确说「舞台背影全黑即可」。
     stage: Color(0xFF000000),
-    surface: Color(0xFF0E0E11),
-    surfaceAlt: Color(0xFF17171B),
-    ink: Color(0xFFF1F1F4),
+    // 以下四色是同一族**冷靛**：往 #8A94FF 推 20%（墨色 9%）。
+    surface: Color(0xFF11121B),
+    surfaceAlt: Color(0xFF1D1E2A),
+    raised: Color(0xFF252634),
+    ink: Color(0xFFECEDF7),
     accent: Color(0xFFE8E8EC),
     success: Color(0xFF3DD68C),
     warning: Color(0xFFF5A524),
@@ -178,9 +230,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
     id: AppThemeId.white,
     brightness: Brightness.light,
     stage: Color(0xFFFFFFFF),
-    surface: Color(0xFFF4F4F6),
-    surfaceAlt: Color(0xFFEAEAEE),
-    ink: Color(0xFF17171A),
+    // **暖白**（往 #FFF2E0 推 13%）：纯中性白在屏幕上永远偏冷，
+    // 与纸感更接近的做法就是给它一点点暖。
+    surface: Color(0xFFF7F5F3),
+    surfaceAlt: Color(0xFFEDECE9),
+    raised: Color(0xFFE2E0DE),
+    ink: Color(0xFF242423),
     accent: Color(0xFF17171A),
     success: Color(0xFF146B3E),
     warning: Color(0xFF8A5A00),
@@ -194,9 +249,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
     id: AppThemeId.blue,
     brightness: Brightness.dark,
     stage: Color(0xFF061223),
-    surface: Color(0xFF0D1C33),
-    surfaceAlt: Color(0xFF16294A),
-    ink: Color(0xFFE7EFFC),
+    // 蓝紫家族（往 #386FF0 推 20%）：比旧值更亮一档，让三级阶梯都落进
+    // 同一个蓝色相里，而不是「深蓝 + 深蓝 + 稍浅的深蓝」。
+    surface: Color(0xFF161E30),
+    surfaceAlt: Color(0xFF212A3F),
+    raised: Color(0xFF28324B),
+    ink: Color(0xFFE5EBF8),
     accent: Color(0xFF4D8DFF),
     success: Color(0xFF3DD68C),
     warning: Color(0xFFF5C24C),
@@ -210,9 +268,12 @@ class AppPalette extends ThemeExtension<AppPalette> {
     id: AppThemeId.gray,
     brightness: Brightness.dark,
     stage: Color(0xFF1C1C1F),
-    surface: Color(0xFF26262A),
-    surfaceAlt: Color(0xFF323238),
-    ink: Color(0xFFECECEF),
+    // 刻意做成四套里**最中性**的一套（色度只有 4–6/255）：它是「不要颜色」
+    // 的那一档。但仍带一点暖（往 #FFEDD1 推 20%），免得和纯灰糊在一起。
+    surface: Color(0xFF282623),
+    surfaceAlt: Color(0xFF353330),
+    raised: Color(0xFF3E3C38),
+    ink: Color(0xFFECEAE8),
     accent: Color(0xFFD8D8DE),
     success: Color(0xFF4FD79A),
     warning: Color(0xFFF0AE3C),
@@ -226,6 +287,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     'stage': stage,
     'surface': surface,
     'surfaceAlt': surfaceAlt,
+    'raised': raised,
     'ink': ink,
     'accent': accent,
     'success': success,
@@ -236,7 +298,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
   };
 
   /// 配色字段个数（不含 `id` / `brightness`：它们不是颜色，不参与 lerp 对账）。
-  static const int colorFieldCount = 10;
+  static const int colorFieldCount = 11;
 
   @override
   AppPalette copyWith({
@@ -245,6 +307,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? stage,
     Color? surface,
     Color? surfaceAlt,
+    Color? raised,
     Color? ink,
     Color? accent,
     Color? success,
@@ -259,6 +322,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       stage: stage ?? this.stage,
       surface: surface ?? this.surface,
       surfaceAlt: surfaceAlt ?? this.surfaceAlt,
+      raised: raised ?? this.raised,
       ink: ink ?? this.ink,
       accent: accent ?? this.accent,
       success: success ?? this.success,
@@ -280,6 +344,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       stage: Color.lerp(stage, other.stage, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceAlt: Color.lerp(surfaceAlt, other.surfaceAlt, t)!,
+      raised: Color.lerp(raised, other.raised, t)!,
       ink: Color.lerp(ink, other.ink, t)!,
       accent: Color.lerp(accent, other.accent, t)!,
       success: Color.lerp(success, other.success, t)!,
@@ -298,6 +363,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       other.stage == stage &&
       other.surface == surface &&
       other.surfaceAlt == surfaceAlt &&
+      other.raised == raised &&
       other.ink == ink &&
       other.accent == accent &&
       other.success == success &&
@@ -313,6 +379,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     stage,
     surface,
     surfaceAlt,
+    raised,
     ink,
     accent,
     success,
@@ -322,7 +389,6 @@ class AppPalette extends ThemeExtension<AppPalette> {
     dangerBorder,
   );
 }
-
 
 /// 依赖 `onSurface` / `primary` 的**叠色与描边**，走 `ThemeExtension`。
 ///
@@ -341,6 +407,8 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.rimHighlight,
     required this.serverMutedBadgeSurface,
     required this.serverMutedBadgeBorder,
+    required this.panelAlpha,
+    required this.radiusScale,
   });
 
   /// 由 `ColorScheme` + 当前配色派生一套。**唯一的构造入口**——
@@ -349,14 +417,23 @@ class AppColors extends ThemeExtension<AppColors> {
   /// 叠色的透明度要按亮暗分档：暗色主题上「白字加 12% 透明」是一道可见的
   /// 描边，在白色主题上同样 12% 的黑几乎看不见，反之亦然。所以
   /// [glassScrim] 这类**遮罩**也跟着 [palette] 的亮暗走。
-  factory AppColors.of(ColorScheme scheme, AppPalette palette) {
+  ///
+  /// [edgeStrength]（2026-09-27）：用户的「描边强度」偏好，**只乘 [hairline]**。
+  /// 不乘 [hoverWash]（那是填充不是描边）、不乘 [focusRing] / 语义色
+  /// ——后两者是可用性下限，审美旋钮不该动它们。
+  factory AppColors.of(
+    ColorScheme scheme,
+    AppPalette palette, {
+    double edgeStrength = 1.0,
+    AppMaterial material = AppMaterial.neutral,
+  }) {
     final Color on = scheme.onSurface;
     final bool dark = palette.dark;
     // 遮罩必须与背景**反向**：暗主题用黑幕，亮主题用白幕。
     final Color veil = dark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
     return AppColors(
       // dark 下用 1 px 描边表达层级，而不是投影。
-      hairline: on.withValues(alpha: dark ? 0.12 : 0.10),
+      hairline: on.withValues(alpha: (dark ? 0.12 : 0.10) * edgeStrength),
       hoverWash: on.withValues(alpha: dark ? 0.06 : 0.04),
       glassScrim: veil.withValues(alpha: dark ? 0.60 : 0.72),
       glassBarrier: veil.withValues(alpha: dark ? 0.32 : 0.40),
@@ -373,6 +450,8 @@ class AppColors extends ThemeExtension<AppColors> {
       rimHighlight: palette.ink,
       serverMutedBadgeSurface: palette.warning.withValues(alpha: 0.18),
       serverMutedBadgeBorder: palette.warning,
+      panelAlpha: panelAlphaFor(material.uiTransparency),
+      radiusScale: material.radiusScale,
     );
   }
 
@@ -409,12 +488,50 @@ class AppColors extends ThemeExtension<AppColors> {
   /// 服务端静音只读徽标的描边。
   final Color serverMutedBadgeBorder;
 
+  /// **面板面的不透明度**（1.0 = 不透明，0.55 = 最透）。
+  ///
+  /// 2026-09-27：用户的「界面透明程度」落到这里，而不是散在各个 widget 的
+  /// `withValues(alpha: …)` 上——**一处判据**，所有面板读同一个数。
+  ///
+  /// 换算：`1 - 0.45 * t`，下界 [kMinPanelAlpha] 是可读性底线：
+  /// 再透面板就不是「浮在上面」，而是文字直接落在图上。
+  final double panelAlpha;
+
+  /// 面板不透明度的下界（`uiTransparency = 1` 时正好取到它）。
+  static const double kMinPanelAlpha = 0.55;
+
+  /// 由「界面透明程度」推出面板 alpha。**纯函数，可 VM 单测**。
+  static double panelAlphaFor(double uiTransparency) =>
+      (1.0 - (1.0 - kMinPanelAlpha) * uiTransparency.clamp(0.0, 1.0)).clamp(
+        kMinPanelAlpha,
+        1.0,
+      );
+
+  /// **圆角缩放系数**（用户的「圆角幅度」）。
+  ///
+  /// 它**刻意不在** [toValuesMap] 的令牌面里：自建盒子一律通过 [radius] 取值，
+  /// 没有人直接读这个字段——把它登记成「令牌」只会让「死令牌」检查一直报警。
+  /// 它仍然参与相等性、hashCode 与 [kStructuralScalarCount] 的结构枚举。
+  final double radiusScale;
+
+  /// 圆角令牌 × 缩放系数。**自建盒子一律走这里**，不许写裸 `AppRadius`。
+  double radius(double token) => token * radiusScale;
+
+  /// **不放在令牌面、但必须被结构枚举覆盖**的成员。
+  ///
+  /// 为什么它不能进 [toValuesMap]：那里面的东西会被「声明↔引用」双向对账
+  /// 当成令牌，而 `radiusScale` 的**唯一**访问入口是 [radius] 方法，
+  /// 没人直接读这个字段——进令牌面就等于「天天报死令牌」。
+  static const List<String> kStructuralScalarNames = <String>['radiusScale'];
+
   /// 字段个数（供测试做「新增字段忘了 copyWith/lerp」的结构枚举）。
-  static const int fieldCount = 10;
+  static const int fieldCount = 12;
 
   @override
   AppColors copyWith({
     Color? hairline,
+    double? panelAlpha,
+    double? radiusScale,
     Color? hoverWash,
     Color? glassScrim,
     Color? glassBarrier,
@@ -427,6 +544,8 @@ class AppColors extends ThemeExtension<AppColors> {
   }) {
     return AppColors(
       hairline: hairline ?? this.hairline,
+      panelAlpha: panelAlpha ?? this.panelAlpha,
+      radiusScale: radiusScale ?? this.radiusScale,
       hoverWash: hoverWash ?? this.hoverWash,
       glassScrim: glassScrim ?? this.glassScrim,
       glassBarrier: glassBarrier ?? this.glassBarrier,
@@ -446,6 +565,8 @@ class AppColors extends ThemeExtension<AppColors> {
     if (other == null) return this;
     return AppColors(
       hairline: Color.lerp(hairline, other.hairline, t)!,
+      panelAlpha: panelAlpha + (other.panelAlpha - panelAlpha) * t,
+      radiusScale: radiusScale + (other.radiusScale - radiusScale) * t,
       hoverWash: Color.lerp(hoverWash, other.hoverWash, t)!,
       glassScrim: Color.lerp(glassScrim, other.glassScrim, t)!,
       glassBarrier: Color.lerp(glassBarrier, other.glassBarrier, t)!,
@@ -478,6 +599,7 @@ class AppColors extends ThemeExtension<AppColors> {
     'rimHighlight': rimHighlight,
     'serverMutedBadgeSurface': serverMutedBadgeSurface,
     'serverMutedBadgeBorder': serverMutedBadgeBorder,
+    'panelAlpha': panelAlpha,
   };
 
   @override
@@ -492,7 +614,9 @@ class AppColors extends ThemeExtension<AppColors> {
       other.focusRing == focusRing &&
       other.rimHighlight == rimHighlight &&
       other.serverMutedBadgeSurface == serverMutedBadgeSurface &&
-      other.serverMutedBadgeBorder == serverMutedBadgeBorder;
+      other.serverMutedBadgeBorder == serverMutedBadgeBorder &&
+      other.panelAlpha == panelAlpha &&
+      other.radiusScale == radiusScale;
 
   @override
   int get hashCode => Object.hash(
@@ -506,8 +630,108 @@ class AppColors extends ThemeExtension<AppColors> {
     rimHighlight,
     serverMutedBadgeSurface,
     serverMutedBadgeBorder,
+    panelAlpha,
+    radiusScale,
   );
 }
+
+/// **材质旋钮**（2026-09-27）：与配色**正交**的一小组缩放系数。
+///
+/// # 为什么单独一个类，而不是两个 `double` 参数
+///
+/// Dart 的可选参数列表**不能混用**（`[a]` 与 `{b}` 不能共存），
+/// 而 `buildAppTheme()` / `buildAppTheme(id)` 两种旧调用形式必须继续有效。
+/// 打包成一个对象既保住了旧调用，又让「配色轴」与「材质轴」在签名上就分开——
+/// 将来再加旋钮不会退化成第三、第四个散参数。
+///
+/// # 抄的是什么
+///
+/// Morrow 的 `VisualStyle.radiusScale`（`lib/appearance.dart:26`）证明了
+/// 「一个旋钮缩放整套圆角」比逐控件调整便宜得多，而本项目此前**对外观没有任何
+/// 表达**（除了 4 套配色）。抄的是这个**机制**，不是它的 7 种风格——
+/// 4 套配色 × 7 种风格 = 28 种组合的回归面，与「刻意不做功能堆砌」的裁决冲突。
+@immutable
+class AppMaterial {
+  const AppMaterial({
+    this.radiusScale = kFixedRadiusScale,
+    this.edgeStrength = 1.0,
+    this.uiTransparency = 0.0,
+  });
+
+  /// **圆角缩放系数 —— 固定值，不再是用户可调项**（2026-09-27 减法）。
+  ///
+  /// 用户口径：「本身 web 端无需繁杂设置」。所以滑杆与偏好字段都删了，
+  /// 只留**这一个数**作为全仓库圆角的唯一入口。
+  ///
+  /// 机制**没有删**：`AppColors.radius(token)` 仍然是所有表面的取圆角方式。
+  /// 保留它是因为它把「圆角从哪来」收在一个地方——将来若真要调，
+  /// 改这一个常数即可，而**不用**再去翻十几个 `BorderRadius.circular`。
+  final double radiusScale;
+
+  /// **界面**的透明程度（0 = 面板不透明，1 = 尽量透）。
+  ///
+  /// 与「背景图不透明度」是**两个轴**：那个调的是图，这个调的是面板。
+  /// 落地在 [AppColors.panelAlpha]（面板面的 alpha）。
+  final double uiTransparency;
+
+  /// **圆角缩放系数 —— 全仓库固定值**（2026-09-27 减法）。
+  ///
+  /// 用户口径：「本身 web 端无需繁杂设置」。所以「圆角幅度」滑杆与它的
+  /// 偏好字段都删了，只留这一个数作为**所有**圆角的唯一入口。
+  ///
+  /// 机制**没有删**：[AppColors.radius] 仍然是每一处表面的取圆角方式。
+  /// 留它的理由是把「圆角从哪来」收在一处——将来若真要调，改这一个常数，
+  /// 而不用去翻十几处 `BorderRadius.circular`。
+  static const double kFixedRadiusScale = 1.0;
+
+  /// `AppColors.hairline` 透明度的缩放系数。
+  ///
+  /// **不缩放**焦点环 / 危险描边：它们是可用性下限，不是审美旋钮。
+  final double edgeStrength;
+
+  /// 中性取值（两个旋钮都不动）＝**改动前的观感**。
+  static const AppMaterial neutral = AppMaterial();
+
+  // ⚠️ 这三个字段**每一个**都要出现在这里与 [hashCode] 里。
+  // 2026-09-27 漏了 `uiTransparency`：两个只有透明度不同的 AppMaterial 判为相等，
+  // 于是「只改界面透明」的那一次主题切换**不会被认成变化**。
+  // 漏字段不会报错、不会崩，只是那一次改动静默不生效——本项目 P4 的头号病。
+  @override
+  bool operator ==(Object other) =>
+      other is AppMaterial &&
+      other.radiusScale == radiusScale &&
+      other.edgeStrength == edgeStrength &&
+      other.uiTransparency == uiTransparency;
+
+  @override
+  int get hashCode => Object.hash(radiusScale, edgeStrength, uiTransparency);
+
+  @override
+  String toString() => 'AppMaterial(radius: $radiusScale, edge: $edgeStrength)';
+}
+
+/// **浮起面的阴影**（2026-09-27）。
+///
+/// # 为什么是函数而不是 `const` 列表
+///
+/// 阴影颜色跟亮暗走（暗色用舞台底压暗、亮色用淡墨），所以它不是常数。
+/// 两条纪律：
+///
+/// 1. **只有我们自己构建的盒子能用它**（设置面板、会话抽屉…）。
+///    Material 的 `Card` / `Dialog` / `SnackBar` 拿的是 `elevation`，
+///    而 `Material` 把 elevation 直接交给引擎的 `Canvas::drawShadow`
+///    （`painting.dart:8408`）——形状算死、主题层改不了。
+///    那些控件**继续 elevation 0**，层级由 [AppPalette.raised] 那一档面差承担。
+/// 2. **只给一条、向下的软阴影**。有了三级面差，再叠多层阴影只会把画面做糊。
+List<BoxShadow> appRaisedShadow(AppPalette palette) => <BoxShadow>[
+  BoxShadow(
+    color: palette.dark
+        ? palette.stage.withValues(alpha: 0.55)
+        : palette.ink.withValues(alpha: 0.16),
+    offset: const Offset(0, 8),
+    blurRadius: 24,
+  ),
+];
 
 /// 间距：4 px 基准网格，9 档。
 abstract final class Space {

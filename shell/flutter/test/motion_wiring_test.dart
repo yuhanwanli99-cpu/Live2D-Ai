@@ -100,11 +100,7 @@ void main() {
   group('P1：4 档时长 + 入场曲线都真的有人用', () {
     test('每个动效令牌都至少被引用一次（死令牌从台账里清掉了）', () {
       for (final String name in AppDurations.registry.keys) {
-        expect(
-          AppDurations.registry[name],
-          isNotNull,
-          reason: '$name 不在登记表里',
-        );
+        expect(AppDurations.registry[name], isNotNull, reason: '$name 不在登记表里');
       }
       // 引用由 `design_tokens_test.dart` 的双向对账守（那边扫 lib/**）。
       // 这里只钉「4 档本身没被削掉」。

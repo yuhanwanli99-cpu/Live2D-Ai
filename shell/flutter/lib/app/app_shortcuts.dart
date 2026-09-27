@@ -40,7 +40,8 @@ class ShortcutHelpEntry {
 /// 自托管的中文子集里，一旦上屏就会让 CanvasKit 去 `fonts.gstatic.com` 拉
 /// 回退字体——踩中「断网即豆腐块」的硬约束（同批修掉的还有流式光标 `▍`）。
 /// `Cmd` 在任何字体里都有，代价只是不够「原生」。
-String shortcutModifierLabel({required bool isMacOS}) => isMacOS ? 'Cmd' : 'Ctrl';
+String shortcutModifierLabel({required bool isMacOS}) =>
+    isMacOS ? 'Cmd' : 'Ctrl';
 
 /// 快捷键清单。
 List<ShortcutHelpEntry> shortcutHelp({required bool isMacOS}) {

@@ -60,6 +60,7 @@ import 'package:flutter/services.dart';
 
 import '../api/ws_status.dart';
 import '../chat/chat_message.dart';
+import '../design/background_item.dart';
 import '../design/breakpoints.dart';
 import '../design/tokens.dart';
 import '../settings/settings_sections.dart';
@@ -74,6 +75,8 @@ import '../ui/glass_rim.dart';
 import '../ui/inline_notice.dart';
 import '../ui/session_sheet.dart';
 import '../ui/settings_scaffold.dart';
+import '../settings/display_prefs.dart';
+import '../ui/background_logic.dart';
 import '../ui/shell_backdrop.dart';
 import '../ui/soft_motion.dart';
 import '../ui/stage_host.dart';
@@ -96,7 +99,10 @@ class AppShell extends StatefulWidget {
     required this.onRetryConnection,
     required this.volume,
     required this.muted,
-    this.shellImage,
+    required this.prefs,
+    this.backgroundIndex = 0,
+    this.onBackgroundIndex,
+    this.onBackgroundJump,
     required this.onVolumeChanged,
     required this.onMutedChanged,
     required this.sections,
@@ -165,12 +171,21 @@ class AppShell extends StatefulWidget {
   final double volume;
   final bool muted;
 
-  /// 壳全局背景图 dataURL（`DisplayPrefs.effectiveShellImage`）。
+  /// 壳背景库（`DisplayPrefs.backgrounds`）与它的渲染参数。
   ///
-  /// 2026-09-14（rc.5）：由**壳根**（本 widget）铺一层固定低透明度的背景，
-  /// 聊天 / 侧栏背后的整片区域共用它。`null` = 没有背景图，此时这一层
-  /// 退化成「只有主题底色」，观感与改动前一致。
-  final String? shellImage;
+  /// 2026-09-27：由「单张图 + 固定 0.15」升级成「有序背景库 + 轮播 + 铺法 +
+  /// 位置 + 模糊 + 遮罩」。这一层只**铺**，不持有任何状态（索引与定时器
+  /// 住在 [ShellBackgroundHost]）。
+  final DisplayPrefs prefs;
+
+  /// 轮播到了第几项（`backgrounds` 的下标；库里为空时恒为 0）。
+  final int backgroundIndex;
+
+  /// 背景库变化 / 轮播前进 / 手动点选时回调（带新的索引）。
+  final ValueChanged<int>? onBackgroundIndex;
+
+  /// 用户点缩略图跳转（走偏好，UI 层自己改 `backgrounds` 的顺序不归这里管）。
+  final VoidCallback? onBackgroundJump;
 
   final ValueChanged<double> onVolumeChanged;
   final ValueChanged<bool> onMutedChanged;
@@ -500,23 +515,52 @@ class AppShellState extends State<AppShell> {
           valueListenable: sectionNotifier,
           builder: (BuildContext context, SettingsSection section, Widget? _) =>
               SettingsScaffold(
-              sections: widget.sections,
-              selected: section,
-              // 窄屏（compact 整页）把分区导航压成单行横向滚动。
-              narrow: narrow,
-              // 换分区也要过拦截（「离开分区」是规格 §4.3 的三处拦截之一）。
-              onSelect: _selectGuarded,
-              onClose: onClose,
-              dirty: widget.settingsDirty,
-              saving: widget.settingsSaving,
-              onSave: widget.onSaveSettings,
-              onDiscard: widget.onDiscardSettings,
-              statusMessage: widget.settingsStatus,
-              statusIsError: widget.settingsStatusIsError,
+                sections: widget.sections,
+                selected: section,
+                // 窄屏（compact 整页）把分区导航压成单行横向滚动。
+                narrow: narrow,
+                // 换分区也要过拦截（「离开分区」是规格 §4.3 的三处拦截之一）。
+                onSelect: _selectGuarded,
+                onClose: onClose,
+                dirty: widget.settingsDirty,
+                saving: widget.settingsSaving,
+                onSave: widget.onSaveSettings,
+                onDiscard: widget.onDiscardSettings,
+                statusMessage: widget.settingsStatus,
+                statusIsError: widget.settingsStatusIsError,
                 child: widget.sectionBuilder(context, section),
               ),
         ),
-      );
+  );
+
+  /// 现在要画的背景项：`syncShellStageBg` 开着时是**舞台那张**（一份真相），
+  /// 关掉才是背景库当前项。
+  ///
+  /// 为什么判据只在这里一处：渲染层（`ShellBackdrop`）不自己判
+  /// `syncShellStageBg` ——判据散到两处就会出现「设置说同步、画的不是舞台那张」。
+  /// 当前要画的那一项。
+  ///
+  /// ⚠️ **判据顺序不能反**（2026-09-27 修）：先看 [DisplayPrefs.effectiveBackground]
+  /// （它已经处理了「来源 = 舞台那张」），只有当来源确实是背景库时才用
+  /// 运行时的轮播索引。之前写成「库非空就一律用库」，于是把来源切到
+  /// 「舞台那张」时，界面写着「背景库里的不参与渲染」而实际仍在画库 ——
+  /// **控件说一套、画面做一套**。
+  BackgroundItem? get _currentBackground {
+    if (widget.prefs.backgroundSource != DisplayPrefs.backgroundSourceLibrary) {
+      return widget.prefs.effectiveBackground;
+    }
+    final List<BackgroundItem> items = widget.prefs.backgrounds;
+    if (items.isEmpty) return null;
+    return items[widget.backgroundIndex.clamp(0, items.length - 1)];
+  }
+
+  /// 有没有东西要画（决定脚手架底要不要让出来）。
+  ///
+  /// 判据**只有** [DisplayPrefs.hasBackgroundAt] 一处。2026-09-27 之前这里
+  /// 另写了一份，而且多了一条 `opacity < 1`：滑杆推到 100% 的那一刻，
+  /// 设置页的说明还写着「聊天面板会跟着透」，实际面板已经退回不透明——
+  /// **界面在骗人**。那份条件连同它造成的断层一起删掉了。
+  bool get _hasBackground => widget.prefs.hasBackgroundAt(_currentBackground);
 
   /// 换分区前先过草稿拦截。
   void _selectGuarded(SettingsSection next) {
@@ -637,12 +681,31 @@ class AppShellState extends State<AppShell> {
           );
 
           final Widget scaffold = Scaffold(
-            // 有壳背景时把脚手架底让给 [ShellBackdrop]（它自己铺主题底色），
-            // 否则脚手架会用它自己的不透明底把背景整块盖掉。没有背景时保持原样。
-            backgroundColor: widget.shellImage == null
-                ? null
-                : Colors.transparent,
+            // **有背景 → 脚手架底必须完全透明**（`Colors.transparent`），
+            // 让 [ShellBackdrop] 的图透上来。
+            //
+            // ⚠️ `null` 不是「不变」而是「退回
+            // `ThemeData.scaffoldBackgroundColor`」——那是 `palette.stage`，
+            // **不透明**，会整块盖住背景。这两个分支在 2026-09-27 被写反过一次
+            // （`_hasBackground ? null : Colors.transparent`），症状是
+            // 「导入图也看不见」；A/B 截图（两态只差一个亮度档）把它抓了出来。
+            // `app_shell_background_test.dart` 现在逐分支钉住方向。
+            backgroundColor: _hasBackground ? Colors.transparent : null,
             appBar: AppBar(
+              // 2026-09-27：顶栏**只在有背景时**补上一层与面板同色的面。
+              //
+              // 为什么要补：顶栏是**完全透明**的，而下面的聊天面板是
+              // `surface @ panelAlpha`。同一张背景图在两处的叠法不同 →
+              // 顶栏是「原图」、面板是「图透过 0.55 的面」，中间那道
+              // **不连续的接缝**正是用户说的「上侧标题和下面不统一」。
+              //
+              // 只在 `backdropVisible` 时加：没有背景时补了等于凭空加一层
+              // 半透明色，整条顶栏会发灰。
+              backgroundColor: _hasBackground
+                  ? appPaletteOf(context).surface
+                        .withValues(alpha: appColorsOf(context).panelAlpha)
+                  : Colors.transparent,
+              scrolledUnderElevation: 0,
               title: const Text('Live2D Ai'),
               actions: <Widget>[
                 StatePill(
@@ -703,7 +766,19 @@ class AppShellState extends State<AppShell> {
           // `scaffoldBackgroundColor` 同色，观感不变。
           return ShellBackdrop(
             baseColor: appPaletteOf(context).stage,
-            image: widget.shellImage,
+            item: _currentBackground,
+            opacity: widget.prefs.backgroundOpacity,
+            fit: widget.prefs.imageFit,
+            align: widget.prefs.imageAlign,
+            blur: widget.prefs.backgroundBlur,
+            scrim: widget.prefs.backgroundScrim,
+            uiTransparency: widget.prefs.uiTransparency,
+            patternColors: _currentBackground is BackgroundPattern
+                ? patternColorsFor(
+                    (_currentBackground! as BackgroundPattern).id,
+                    appPaletteOf(context),
+                  )
+                : null,
             child: StartupReveal(
               child: CallbackShortcuts(
                 bindings: widget.shortcuts.bindings(),
@@ -733,7 +808,9 @@ class AppShellState extends State<AppShell> {
         padding: const EdgeInsets.all(Space.s2),
         // 整页设置也带一圈边缘高光（P3-1）——它同样压在舞台上。
         child: GlassRim(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
+          borderRadius: BorderRadius.circular(
+            appColorsOf(context).radius(AppRadius.lg),
+          ),
           child: _settingsSurface(
             onClose: () => unawaited(closeSettings()),
             narrow: true,
@@ -764,7 +841,8 @@ class AppShellState extends State<AppShell> {
     onOpenSessions: compact ? () => unawaited(openSessions()) : null,
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
-    backdropVisible: widget.shellImage != null,
+    // 「有背景时才让面板留一点透」——判据与壳根是同一个派生，避免两处不一致。
+    backdropVisible: _hasBackground,
     listenSupported: widget.listenSupported,
     listening: widget.listening,
     listenStatus: widget.listenStatus,

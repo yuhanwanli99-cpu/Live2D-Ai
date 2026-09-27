@@ -14,9 +14,8 @@ void main() {
   group('emphasisSpans：把 **…** 拆成粗体段', () {
     List<String?> texts(String raw) =>
         emphasisSpans(raw).map((TextSpan s) => s.text).toList();
-    List<FontWeight?> weights(String raw) => emphasisSpans(raw)
-        .map((TextSpan s) => s.style?.fontWeight)
-        .toList();
+    List<FontWeight?> weights(String raw) =>
+        emphasisSpans(raw).map((TextSpan s) => s.style?.fontWeight).toList();
 
     test('一段强调 → 三个 span，中间是粗体', () {
       expect(texts('四套配色任选。**只影响本机显示**，选完立刻生效。'), <String>[
@@ -24,11 +23,7 @@ void main() {
         '只影响本机显示',
         '，选完立刻生效。',
       ]);
-      expect(weights('a**b**c'), <FontWeight?>[
-        null,
-        FontWeight.w600,
-        null,
-      ]);
+      expect(weights('a**b**c'), <FontWeight?>[null, FontWeight.w600, null]);
     });
 
     test('多处强调都认', () {
@@ -75,15 +70,12 @@ void main() {
     testWidgets('渲染结果里没有字面的 `**`', (WidgetTester tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: EmphasizedText('四套配色任选。**只影响本机显示**，立刻生效。'),
-          ),
+          home: Scaffold(body: EmphasizedText('四套配色任选。**只影响本机显示**，立刻生效。')),
         ),
       );
       final Text text = tester.widget<Text>(find.byType(Text));
       final TextSpan span = text.textSpan! as TextSpan;
-      final String plain = span
-          .children!
+      final String plain = span.children!
           .map((InlineSpan s) => (s as TextSpan).text ?? '')
           .join();
       expect(plain.contains('**'), isFalse, reason: '星号漏到界面上了');
@@ -96,7 +88,10 @@ void main() {
       );
       final TextSpan span =
           tester.widget<Text>(find.byType(Text)).textSpan! as TextSpan;
-      expect((span.children![1] as TextSpan).style?.fontWeight, FontWeight.w600);
+      expect(
+        (span.children![1] as TextSpan).style?.fontWeight,
+        FontWeight.w600,
+      );
     });
   });
 }

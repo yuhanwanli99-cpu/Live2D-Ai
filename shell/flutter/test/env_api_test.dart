@@ -72,9 +72,7 @@ void main() {
     test('空值写入 = 清除（返回 set=false）', () async {
       final EnvApi api = EnvApi(
         base: 'http://x',
-        client: MockClient(
-          (_) async => _json('{"key":"K","set":false}', 200),
-        ),
+        client: MockClient((_) async => _json('{"key":"K","set":false}', 200)),
       );
       expect(await api.write('K', ''), isFalse);
     });

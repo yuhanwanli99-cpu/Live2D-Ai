@@ -281,8 +281,11 @@ class AudioPlayer {
       url = web.URL.createObjectURL(blob);
       element.src = url;
       element.preload = 'auto';
-      final _Playback item =
-          _Playback(sentence: sentence, element: element, url: url);
+      final _Playback item = _Playback(
+        sentence: sentence,
+        element: element,
+        url: url,
+      );
       element.addEventListener('ended', ((web.Event _) => _onEnded(item)).toJS);
       element.addEventListener('error', ((web.Event _) => _onError(item)).toJS);
       _applyOutputTo(item);
@@ -332,16 +335,20 @@ class AudioPlayer {
     }
     _applyOutputTo(item);
     try {
-      element.play().toDart.then((_) {
-        if (_disposed || item.released) return;
-        _setUnlocked(true);
-      }).catchError((Object _) {
-        // autoplay 被拒 / 元素不可播：**不崩、不吞队列**——界面重新显示
-        // 「点击任意位置或按任意键以启用声音」，用户下一次手势时 [unlock] 会
-        // 重试这一句（它还在队首，blob URL 也还在，没有泄漏）。
-        if (_disposed || item.released) return;
-        _setUnlocked(false);
-      });
+      element
+          .play()
+          .toDart
+          .then((_) {
+            if (_disposed || item.released) return;
+            _setUnlocked(true);
+          })
+          .catchError((Object _) {
+            // autoplay 被拒 / 元素不可播：**不崩、不吞队列**——界面重新显示
+            // 「点击任意位置或按任意键以启用声音」，用户下一次手势时 [unlock] 会
+            // 重试这一句（它还在队首，blob URL 也还在，没有泄漏）。
+            if (_disposed || item.released) return;
+            _setUnlocked(false);
+          });
     } catch (_) {
       // 同步抛（媒体后端整个不可用）：跳过这一句，别卡住后面的。
       _mediaSupported = false;

@@ -28,8 +28,7 @@ import 'theme.dart';
 ///    所谓「记忆」不由这里提供。
 ///
 /// 与 `chat/chat_session.dart` 的模型说明同源，放在 UI 侧只因为它是**给人看的文案**。
-const String kSessionsAreLocalNote =
-    '这些会话只是本机记录，不是模型记忆（每轮只把当前这句发给模型）。';
+const String kSessionsAreLocalNote = '这些会话只是本机记录，不是模型记忆（每轮只把当前这句发给模型）。';
 
 /// 打开会话浮层。
 Future<void> showSessionSheet({
@@ -144,12 +143,15 @@ class _SessionSheetState extends State<SessionSheet> {
       children: <Widget>[
         // ── 标题行：说明 + 「新建」 ──
         Padding(
-          padding: const EdgeInsets.fromLTRB(Space.s4, Space.s1, Space.s2, Space.s2),
+          padding: const EdgeInsets.fromLTRB(
+            Space.s4,
+            Space.s1,
+            Space.s2,
+            Space.s2,
+          ),
           child: Row(
             children: <Widget>[
-              Expanded(
-                child: Text('会话', style: theme.textTheme.titleSmall),
-              ),
+              Expanded(child: Text('会话', style: theme.textTheme.titleSmall)),
               // 文字按钮（用户裁决「尽量少用图片用文字做按钮」）。
               TextButton(
                 onPressed: () {
@@ -168,7 +170,11 @@ class _SessionSheetState extends State<SessionSheet> {
         // （`POST /api/v1/chat` 的 body 是 `{text}`）。不写清楚，用户会以为
         // 「切了会话 = 模型换了记忆」——那是两件事。
         Padding(
-          padding: const EdgeInsets.only(left: Space.s4, top: Space.s2, right: Space.s4),
+          padding: const EdgeInsets.only(
+            left: Space.s4,
+            top: Space.s2,
+            right: Space.s4,
+          ),
           child: Text(
             kSessionsAreLocalNote,
             style: theme.textTheme.bodySmall?.copyWith(
@@ -208,7 +214,12 @@ class _SessionSheetState extends State<SessionSheet> {
     // ── 重命名中：整行变成输入框 ──
     if (_editingId == session.id) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(Space.s3, Space.s2, Space.s3, Space.s2),
+        padding: const EdgeInsets.fromLTRB(
+          Space.s3,
+          Space.s2,
+          Space.s3,
+          Space.s2,
+        ),
         child: Row(
           children: <Widget>[
             Expanded(
@@ -243,7 +254,9 @@ class _SessionSheetState extends State<SessionSheet> {
         title: Text('删除「${session.displayTitle}」？'),
         subtitle: Text(
           '${session.messages.length} 条消息，删除后无法恢复',
-          style: theme.textTheme.bodySmall?.copyWith(color: colors.contentMuted),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.contentMuted,
+          ),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,

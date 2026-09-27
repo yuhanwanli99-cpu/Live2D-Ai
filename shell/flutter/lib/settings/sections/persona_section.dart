@@ -41,7 +41,8 @@ class PersonaSection extends StatelessWidget {
       children: <Widget>[
         const SectionHeader(
           title: '系统提示词',
-          description: '主链人设只有系统提示词与历史轮数。'
+          description:
+              '主链人设只有系统提示词与历史轮数。'
               '酒馆角色卡现在是 Mod（去「Mod」分区配置），不再内嵌主链。',
         ),
         TextFieldRow(

@@ -32,7 +32,10 @@ void main() {
     final transport = _FakeTransport();
     final bridge = Live2DBridge(transport);
 
-    await bridge.sendSync(model: '/models/bai/runtime/bai.model3.json', dark: true);
+    await bridge.sendSync(
+      model: '/models/bai/runtime/bai.model3.json',
+      dark: true,
+    );
     expect(transport.sent, isEmpty, reason: 'ready 前不应发送');
     expect(bridge.queuedCount, 1);
 
@@ -79,7 +82,8 @@ void main() {
       final Map<String, Object?> last =
           jsonDecode(transport.sent.last) as Map<String, Object?>;
       expect(last['type'], 'stage-zoom');
-      final Map<String, Object?> payload = last['payload']! as Map<String, Object?>;
+      final Map<String, Object?> payload =
+          last['payload']! as Map<String, Object?>;
       expect(payload['dir'], 'reset');
       expect(
         payload.containsKey('scale'),
@@ -161,7 +165,9 @@ void main() {
     final transport = _FakeTransport();
     final bridge = Live2DBridge(transport);
 
-    transport.emit('{"version":1,"type":"error","payload":{"message":"模型加载失败"}}');
+    transport.emit(
+      '{"version":1,"type":"error","payload":{"message":"模型加载失败"}}',
+    );
     await Future<void>.delayed(Duration.zero);
 
     expect(bridge.phase, Live2DBridgePhase.error);
@@ -183,7 +189,9 @@ void _mainSwapModelTests() {
     transport.emit('{"version":1,"type":"ready","payload":{}}');
     await Future<void>.delayed(Duration.zero);
 
-    final Future<bool> pending = bridge.swapModel('/models/neko/neko.model3.json');
+    final Future<bool> pending = bridge.swapModel(
+      '/models/neko/neko.model3.json',
+    );
     await Future<void>.delayed(Duration.zero);
     // 发出去的必须是 sync + model（渲染面只认这个字段）。
     expect(transport.sent.last, contains('"type":"sync"'));

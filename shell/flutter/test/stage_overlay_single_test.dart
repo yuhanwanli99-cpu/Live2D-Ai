@@ -69,12 +69,11 @@ void main() {
       expect(retried, 1);
     });
 
-    testWidgets('error 态下只有一句失败标题（不出现「渲染面错误」这套措辞）', (WidgetTester tester) async {
+    testWidgets('error 态下只有一句失败标题（不出现「渲染面错误」这套措辞）', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
-        realStageHost(
-          phase: Live2DBridgePhase.error,
-          errorMessage: '渲染面初始化失败',
-        ),
+        realStageHost(phase: Live2DBridgePhase.error, errorMessage: '渲染面初始化失败'),
       );
       await tester.pump();
 
@@ -119,9 +118,8 @@ void main() {
       // 这条防的是「写完 `Positioned(right: 12, top: 12)` 却渲染在左上角」：
       // 内层 `Align` 会撑满 Positioned 给的松弛约束，于是调用方的定位失效。
       // 徽标现在只画药丸本身，定位交给调用方。
-      final String src = File(
-        'lib/live2d/live2d_stage.dart',
-      ).readAsStringSync();
+      final String src = File('lib/live2d/live2d_stage.dart')
+          .readAsStringSync();
       final int badge = src.indexOf('class _StageBadge');
       expect(badge, greaterThan(0), reason: '找不到 _StageBadge，测试需要跟着改');
       final String body = src.substring(badge);

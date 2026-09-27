@@ -45,6 +45,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shortcuts.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
@@ -83,6 +84,7 @@ final List<ChatMessage> _messages = <ChatMessage>[
 Widget _shellFor(AppThemeId theme, TextEditingController input) => MaterialApp(
   theme: buildAppTheme(theme),
   home: AppShell(
+    prefs: const DisplayPrefs(),
     stage: const _StubStage(),
     phase: UiPhase.thinking,
     wsStatus: WsStatus.connected,
@@ -146,9 +148,9 @@ Future<void> _loadFonts() async {
       final File f = File(path);
       if (!f.existsSync()) continue;
       loader.addFont(
-        f.readAsBytes().then((List<int> b) => ByteData.sublistView(
-              Uint8List.fromList(b),
-            )),
+        f.readAsBytes().then(
+          (List<int> b) => ByteData.sublistView(Uint8List.fromList(b)),
+        ),
       );
     }
     await loader.load();
@@ -157,9 +159,7 @@ Future<void> _loadFonts() async {
 }
 
 void main() {
-  testWidgets('渲染三档断点 × 四套主题，出 12 张 PNG 供人眼复核', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('渲染三档断点 × 四套主题，出 12 张 PNG 供人眼复核', (WidgetTester tester) async {
     final Directory out = Directory('build/visual-review');
     if (out.existsSync()) out.deleteSync(recursive: true);
     out.createSync(recursive: true);
@@ -176,6 +176,7 @@ void main() {
     }
 
     final List<String> written = <String>[];
+
     /// 断点 → 主题 → 平均亮度。用来做下面那条「主题真的生效了吗」的断言。
     final Map<String, Map<AppThemeId, double>> luminance =
         <String, Map<AppThemeId, double>>{};
@@ -196,10 +197,7 @@ void main() {
         addTearDown(tester.view.reset);
 
         await tester.pumpWidget(
-          RepaintBoundary(
-            key: boundary,
-            child: _shellFor(theme, input),
-          ),
+          RepaintBoundary(key: boundary, child: _shellFor(theme, input)),
         );
         await settle();
 

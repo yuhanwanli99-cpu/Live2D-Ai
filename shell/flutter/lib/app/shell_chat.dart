@@ -14,7 +14,9 @@ extension _ShellChatWiring on _ShellRootState {
   /// **按「整句到达」优先**：末尾出现句末标点就立刻播报；否则按 1.5 s 限速。
   /// 两级放行的判据在 `LiveRegionThrottle.feed` 里，可单测。
   void _syncLiveRegion() {
-    final ChatMessage? last = _chat.messages.isEmpty ? null : _chat.messages.last;
+    final ChatMessage? last = _chat.messages.isEmpty
+        ? null
+        : _chat.messages.last;
     if (last == null) return;
     if (last.role != ChatRole.assistant) return;
     if (!last.streaming) {

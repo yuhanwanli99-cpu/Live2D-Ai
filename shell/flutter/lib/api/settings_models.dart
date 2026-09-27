@@ -791,10 +791,7 @@ class SettingsTestOutcome {
     Map<String, Object?>? err;
     if (j['error'] is Map) {
       final Map<String, Object?> e = <String, Object?>{};
-      (j['error']! as Map<Object?, Object?>).forEach((
-        Object? k,
-        Object? v,
-      ) {
+      (j['error']! as Map<Object?, Object?>).forEach((Object? k, Object? v) {
         if (k is String) e[k] = v;
       });
       err = e;

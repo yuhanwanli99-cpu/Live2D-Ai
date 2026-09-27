@@ -80,7 +80,9 @@ TurnSettlement settleTurn({
   if (failed) return TurnSettlement.failed;
   if (stopped) return TurnSettlement.stopped;
   // 「只有思考」优先于「什么都没有」：气泡里有真内容，不能当空气泡丢掉。
-  return hasReasoning ? TurnSettlement.keepReasoningOnly : TurnSettlement.wordless;
+  return hasReasoning
+      ? TurnSettlement.keepReasoningOnly
+      : TurnSettlement.wordless;
 }
 
 /// 实时通道掉了、而**有一轮正在进行** → 必须就地收口。

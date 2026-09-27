@@ -102,16 +102,10 @@ void main() {
     expect(find.textContaining('保存失败'), findsOneWidget);
   });
 
-  testWidgets('配置里没声明键名 → 说明「未绑定」而不是给一个假输入框', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('配置里没声明键名 → 说明「未绑定」而不是给一个假输入框', (WidgetTester tester) async {
     await tester.pumpWidget(
       _wrap(
-        const EnvKeyField(
-          sectionLabel: '对话模型',
-          status: null,
-          onSave: null,
-        ),
+        const EnvKeyField(sectionLabel: '对话模型', status: null, onSave: null),
       ),
     );
     expect(find.text('未绑定环境变量'), findsOneWidget);

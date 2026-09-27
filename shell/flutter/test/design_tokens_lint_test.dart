@@ -15,11 +15,16 @@ const Set<String> kTokenDeclarationFiles = <String>{
 
 /// 协议常量豁免：`lib/api/`、`lib/audio/`、`lib/live2d/` 里的
 /// `Duration(milliseconds:)` 是**协议参数**（WS 分片 20 ms、重连退避、
-/// 渲染面桥的 ≤30 Hz 节流），不是 UI 动效时长。
+/// 渲染面桥的 ≤30 Hz 节流、IndexedDB 挂死兜底 3 s），不是 UI 动效时长。
+///
+/// `lib/data/` 是 2026-09-27 加进来的（背景字节库）：那里的时长是
+/// 「等存储多久算挂死」，归到 `AppDurations` 会让「4 档动效」这个令牌
+/// 背上它完全无关的语义。
 bool isProtocolDurationPath(String path) =>
     path.startsWith('lib/api/') ||
     path.startsWith('lib/audio/') ||
-    path.startsWith('lib/live2d/');
+    path.startsWith('lib/live2d/') ||
+    path.startsWith('lib/data/');
 
 /// **逐个点名**的时长豁免文件（不是整个目录）。
 ///
@@ -72,7 +77,8 @@ final List<Rule> kRules = <Rule>[
     // 「别叠 Material 的色调层」，换成别的主题也不会变。把它也当成
     // 「颜色决策」会逼着实现去写一个语义上不存在的令牌。
     pattern: RegExp(r'\bColor\(0x|\bColors\.(?!transparent\b)[a-z]'),
-    why: '颜色只能来自 ColorScheme 槽位或 AppPalette/AppColors'
+    why:
+        '颜色只能来自 ColorScheme 槽位或 AppPalette/AppColors'
         '（`Colors.transparent` 例外：它表示「不画」，不是配色）',
     exempt: kTokenDeclarationFiles.contains,
   ),
@@ -111,7 +117,8 @@ final List<Rule> kRules = <Rule>[
     pattern: RegExp(
       r'EdgeInsets\.\w+\([^)]*(?<![\w.])(?!(?:Space|OpticalNudge)\.)\d',
     ),
-    why: '间距只能取 Space 的 9 档（4 px 网格）；1–2 px 的基线微调取 '
+    why:
+        '间距只能取 Space 的 9 档（4 px 网格）；1–2 px 的基线微调取 '
         'OpticalNudge——两者是不同的概念，别混',
     exempt: kTokenDeclarationFiles.contains,
   ),
@@ -139,9 +146,9 @@ void main() {
       // 这是最危险的假通过：路径写错 → 一个文件都没扫 → 全部规则空转通过。
       expect(sources, isNotEmpty, reason: 'lib/ 下没扫到任何 .dart');
       expect(
-        sources.map((File f) => f.path).where(
-          (String p) => p.endsWith('main.dart'),
-        ),
+        sources
+            .map((File f) => f.path)
+            .where((String p) => p.endsWith('main.dart')),
         isNotEmpty,
         reason: '连 main.dart 都没扫到，说明扫描根路径不对',
       );
@@ -184,10 +191,7 @@ void main() {
       // 同一条红线的两处实现迟早会漂移（一处改了另一处没改），所以只留一处。
       // 毛玻璃 + ImageFilter.blur + contentFaint + 导入守卫都在
       // `no_backdrop_filter_test.dart` 里，那个文件名就说明了它的职责。
-      expect(
-        kRules.any((Rule r) => r.name.contains('毛玻璃')),
-        isFalse,
-      );
+      expect(kRules.any((Rule r) => r.name.contains('毛玻璃')), isFalse);
     });
 
     test('协议时长豁免只覆盖 api/ 与 audio/ 两个目录', () {

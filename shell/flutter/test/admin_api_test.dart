@@ -145,7 +145,13 @@ void main() {
       );
       expect(
         () => api.list(),
-        throwsA(isA<ApiException>().having((ApiException e) => e.code, 'code', 'network_error')),
+        throwsA(
+          isA<ApiException>().having(
+            (ApiException e) => e.code,
+            'code',
+            'network_error',
+          ),
+        ),
       );
     });
   });
@@ -184,7 +190,9 @@ void main() {
     test('status 为空 → 「未知」', () async {
       final ModsApi api = ModsApi(
         base: 'http://x',
-        client: MockClient((_) async => jsonResponse('{"mods":[{"id":"x"}]}', 200)),
+        client: MockClient(
+          (_) async => jsonResponse('{"mods":[{"id":"x"}]}', 200),
+        ),
       );
       expect((await api.list()).single.statusLabel, '未知');
     });
@@ -211,7 +219,9 @@ void main() {
     test('capabilities：解析版本与稳定字段', () async {
       final DiagnosticsApi api = DiagnosticsApi(
         base: 'http://x',
-        client: MockClient((_) async => jsonResponse(kRealCapabilitiesJson, 200)),
+        client: MockClient(
+          (_) async => jsonResponse(kRealCapabilitiesJson, 200),
+        ),
       );
       final AppCapabilities c = await api.capabilities();
       expect(c.app, 'live2d-ai-desktop');
@@ -257,7 +267,9 @@ void main() {
     test('logs 非 dev → 403 dev_mode_required 抛结构化错误（不是空列表）', () async {
       final DiagnosticsApi api = DiagnosticsApi(
         base: 'http://x',
-        client: MockClient((_) async => jsonResponse(kDevModeRequiredJson, 403)),
+        client: MockClient(
+          (_) async => jsonResponse(kDevModeRequiredJson, 403),
+        ),
       );
       expect(
         () => api.logs(),
@@ -283,7 +295,8 @@ void main() {
       expect(
         seen.hasQuery,
         isFalse,
-        reason: '服务端 handle_logs() 不解析查询参数；带上 ?limit= 只会'
+        reason:
+            '服务端 handle_logs() 不解析查询参数；带上 ?limit= 只会'
             '让请求在精确路径匹配下掉进 501（2026-09-11 修的老 bug）',
       );
     });
@@ -329,9 +342,7 @@ void _p6LogsRenderingTests() {
       home: Scaffold(body: SingleChildScrollView(child: child)),
     );
 
-    testWidgets('403 文案显示为普通的灰色说明，**不是**红色错误横幅', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('403 文案显示为普通的灰色说明，**不是**红色错误横幅', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           DiagnosticsSection(

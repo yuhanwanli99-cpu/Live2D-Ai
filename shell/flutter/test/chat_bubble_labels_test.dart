@@ -28,7 +28,11 @@ void main() {
     testWidgets('气泡里没有「你」/「助手」这行文字', (WidgetTester tester) async {
       for (final ChatRole role in ChatRole.values) {
         await tester.pumpWidget(
-          wrap(MessageBubble(message: ChatMessage(role: role, text: '一条消息'))),
+          wrap(
+            MessageBubble(
+              message: ChatMessage(role: role, text: '一条消息'),
+            ),
+          ),
         );
         await tester.pump();
 

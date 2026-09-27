@@ -84,8 +84,7 @@ void main() {
       final List<String> lines = mainSource().split('\n');
       final List<String> writers = <String>[
         for (int i = 0; i < lines.length; i++)
-          if (assignment.hasMatch(lines[i]))
-            '${i + 1}: ${lines[i].trim()}',
+          if (assignment.hasMatch(lines[i])) '${i + 1}: ${lines[i].trim()}',
       ];
       expect(
         writers.length,
@@ -107,8 +106,11 @@ void main() {
         isTrue,
         reason: '_gotoSection 没有清一次性结果',
       );
-      expect(body.contains('if (next == _section) return;'), isTrue,
-          reason: '同一个分区之间来回点不该白清一次结果');
+      expect(
+        body.contains('if (next == _section) return;'),
+        isTrue,
+        reason: '同一个分区之间来回点不该白清一次结果',
+      );
     });
   });
 
@@ -155,7 +157,8 @@ void main() {
         expect(
           body.contains('epoch != _resultEpoch'),
           isTrue,
-          reason: '$fn 没有在落地结果前对代际 —— 切走之后回来的响应会显示在'
+          reason:
+              '$fn 没有在落地结果前对代际 —— 切走之后回来的响应会显示在'
               '用户已经离开的分区上',
         );
       }
@@ -176,7 +179,8 @@ void main() {
       expect(
         src.contains('SoftSwap('),
         isTrue,
-        reason: '结果行直接条件插入 —— 出现时会把它下面的字段整体推下去，'
+        reason:
+            '结果行直接条件插入 —— 出现时会把它下面的字段整体推下去，'
             '用户正在看的字段会跳',
       );
     });

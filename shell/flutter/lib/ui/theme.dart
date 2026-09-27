@@ -52,27 +52,42 @@ const String kAppFontFamily = 'NotoSansSC';
 ///
 /// 覆写清单是「组件真的会读到、且读错会看得见」的那些——
 /// 不是把 30 个槽位全部重写（那样 `fromSeed` 就白跑了）。
-ThemeData buildAppTheme([AppThemeId theme = AppThemeId.fallback]) {
+/// [material] 是**材质旋钮**（圆角幅度 / 描边强度），与配色**正交**：
+/// 换配色不改变圆角，调圆角也不改颜色。2026-09-27 新增。
+///
+/// 用一个对象而不是再加两个位置参数：Dart 的可选参数列表**不能混用**
+/// （`[a]` 与 `{b}` 不能共存），而 `buildAppTheme()` / `buildAppTheme(id)`
+/// 这两种旧调用形式必须继续有效。
+ThemeData buildAppTheme([
+  AppThemeId theme = AppThemeId.fallback,
+  AppMaterial material = AppMaterial.neutral,
+]) {
   final AppPalette palette = AppPalette.of(theme);
-  final ColorScheme scheme = ColorScheme.fromSeed(
-    seedColor: palette.accent,
-    brightness: palette.brightness,
-  ).copyWith(
-    primary: palette.accent,
-    onPrimary: palette.onAccent,
-    primaryContainer: palette.surfaceAlt,
-    onPrimaryContainer: palette.ink,
-    surface: palette.surface,
-    onSurface: palette.ink,
-    surfaceContainerHighest: palette.surfaceAlt,
-    onSurfaceVariant: palette.ink.withValues(alpha: 0.74),
-    outline: palette.line,
-    outlineVariant: palette.line,
-    error: palette.danger,
-    onError: palette.onDanger,
-    errorContainer: palette.dangerSurface,
-    onErrorContainer: palette.danger,
-  );
+  final ColorScheme scheme =
+      ColorScheme.fromSeed(
+        seedColor: palette.accent,
+        brightness: palette.brightness,
+      ).copyWith(
+        primary: palette.accent,
+        onPrimary: palette.onAccent,
+        primaryContainer: palette.surfaceAlt,
+        onPrimaryContainer: palette.ink,
+        surface: palette.surface,
+        onSurface: palette.ink,
+        surfaceContainerHighest: palette.surfaceAlt,
+        // **第三级面**（卡片 / 浮层 / 弹窗）也进 ColorScheme：Material 自己会读
+        // `surfaceContainerHigh`（ListTile 选中面、Card 的默认底…），
+        // 不覆写的话它们会落到 fromSeed 生成的**近似灰**上——
+        // 那正是「某处颜色说不清来历」的来源。
+        surfaceContainerHigh: palette.raised,
+        onSurfaceVariant: palette.ink.withValues(alpha: 0.74),
+        outline: palette.line,
+        outlineVariant: palette.line,
+        error: palette.danger,
+        onError: palette.onDanger,
+        errorContainer: palette.dangerSurface,
+        onErrorContainer: palette.danger,
+      );
   final ThemeData base = ThemeData(
     useMaterial3: true,
     brightness: palette.brightness,
@@ -86,12 +101,18 @@ ThemeData buildAppTheme([AppThemeId theme = AppThemeId.fallback]) {
     fontFamily: kAppFontFamily,
     extensions: <ThemeExtension<dynamic>>[
       palette,
-      AppColors.of(scheme, palette),
+      AppColors.of(
+        scheme,
+        palette,
+        edgeStrength: material.edgeStrength,
+        material: material,
+      ),
     ],
   );
   return buildAppComponents(
     base.copyWith(textTheme: buildAppTextTheme(base.textTheme)),
     palette,
+    material: material,
   );
 }
 
@@ -114,12 +135,33 @@ ThemeData buildAppTheme([AppThemeId theme = AppThemeId.fallback]) {
 /// 刻意**不做**的事：不改控件的交互语义（禁用态、水波纹、`highlightMode`
 /// 都保留），不引入自绘控件。这一层只改「长什么样」——**焦点环的形状**也算
 /// 「长什么样」（见 [focusSide]）。
-ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
+ThemeData buildAppComponents(
+  ThemeData base,
+  AppPalette palette, {
+  AppMaterial material = AppMaterial.neutral,
+}) {
   final ColorScheme scheme = base.colorScheme;
-  final AppColors colors = AppColors.of(scheme, palette);
+  final AppColors colors = AppColors.of(
+    scheme,
+    palette,
+    edgeStrength: material.edgeStrength,
+    material: material,
+  );
   final TextTheme text = base.textTheme;
+
+  /// 圆角令牌 × 用户的「圆角幅度」（2026-09-27）。
+  ///
+  /// 为什么是**乘**而不是「换成另一套令牌」：[AppRadius] 是全仓库唯一的圆角
+  /// 真源，`radiusScale` 只是把它整体放大/缩小——于是「全套一起变」的承诺
+  /// 由构造保证，而不是靠每个调用点自觉。
+  ///
+  /// 刻意**不缩放** [AppRadius.none]（0 乘任何数还是 0，直角就是直角）与
+  /// [AppRadius.pill]（胶囊语义靠 999 远大于任何控件半径成立，
+  /// 缩到 0.5× 仍然是 499.5——一样是胶囊）。
+  double r(double token) => token * material.radiusScale;
+
   final OutlinedBorder buttonShape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(AppRadius.md),
+    borderRadius: BorderRadius.circular(r(AppRadius.md)),
   );
 
   /// 焦点可见性：**1 px 不透明 `focusRing` 边框**（规格 §9.2）。
@@ -141,6 +183,18 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
         return resting;
       });
 
+  /// **「抬起」只由面差表达，这里刻意不给 Material elevation**（2026-09-27）。
+  ///
+  /// # 为什么
+  ///
+  /// 有了第三级面 [AppPalette.raised] 之后，日常层级已经不靠阴影了。
+  /// 而 Material 的阴影**不是可调的**：`Material` 把 `elevation` 直接交给引擎的
+  /// `Canvas::drawShadow`（`painting.dart:8408`），模糊与偏移由引擎按 Material
+  /// 规范算死，主题层只能改颜色、改不了形状——那正是「一眼 Material 出厂」
+  /// 的另一半。容器仍一律 `elevation: 0`。
+  ///
+  /// 真需要「浮起来」的地方（设置面板、会话抽屉这类**我们自己构建**的盒子）
+  /// 走 `appRaisedShadow(AppPalette)`：那是我们自己的 `BoxShadow`，形状可控。
   final ButtonStyle flatButton = ButtonStyle(
     elevation: const WidgetStatePropertyAll<double>(0),
     // 按钮文字统一用 13/w500 的 `labelLarge`，不用 Material 的 14/w500——
@@ -204,7 +258,7 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
         visualDensity: VisualDensity.compact,
         shape: WidgetStatePropertyAll<OutlinedBorder>(
           RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.sm),
+            borderRadius: BorderRadius.circular(r(AppRadius.sm)),
           ),
         ),
         // 图标按钮没有文字标签，键盘用户尤其需要看得见焦点在哪。
@@ -225,23 +279,23 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
         vertical: Space.s3,
       ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
         borderSide: BorderSide(color: colors.hairline),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
         borderSide: BorderSide(color: scheme.primary, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
         borderSide: BorderSide(color: palette.danger),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
         borderSide: BorderSide(color: palette.danger, width: 1.5),
       ),
       hintStyle: text.bodyMedium?.copyWith(color: colors.contentFaint),
@@ -253,7 +307,7 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
       selectedColor: palette.surfaceAlt,
       side: BorderSide(color: colors.hairline),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
       ),
       labelStyle: text.labelLarge?.copyWith(color: palette.ink),
       secondaryLabelStyle: text.labelLarge?.copyWith(color: palette.ink),
@@ -273,51 +327,68 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
       ),
     ),
 
-    // ── 容器类：**elevation 一律 0**，层级靠 1 px 描边与面差 ──
+    // ── 浮层类：**elevation 一律 0**，层级靠三级面差（surface / surfaceAlt / raised）──
+    // 卡片是「浮起」的那一档，所以吃 [AppPalette.raised] 与那一层阴影；
+    // 弹窗 / 浮层 / snackbar / tooltip 同理。
+    //
+    // ⚠️ **弹层（bottomSheet / dialog）读 `panelAlpha`，卡片与提示类不读**，
+    // 这条分界是 2026-09-27 定的，理由有两条：
+    //
+    // 1. 设置浮层 = 一张「面板」。它的底色曾经写死 `palette.raised`（不透明），
+    //    **正好盖在**同样想半透明的 `SettingsScaffold` 外面 ——
+    //    与 `InlineSettingsDock` 是同一个病的两处发作点。
+    //    两处都修，否则「界面透明程度」在三种宿主里只有内联侧板有效。
+    // 2. snackbar / tooltip / card 是**小而短命**的东西，底下透出来的
+    //    内容不可控（可能正是一段深色文字），把提示做成半透是在
+    //    **牺牲可读性换一致**。面板有 `panelAlpha` 的可读性下界兜着，
+    //    它们没有。
     cardTheme: CardThemeData(
       elevation: 0,
-      color: palette.surface,
+      color: palette.raised,
       surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        borderRadius: BorderRadius.circular(r(AppRadius.lg)),
         side: BorderSide(color: colors.hairline),
       ),
     ),
     dialogTheme: DialogThemeData(
       elevation: 0,
-      backgroundColor: palette.surface,
+      backgroundColor: palette.raised.withValues(alpha: colors.panelAlpha),
       surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.xl),
+        borderRadius: BorderRadius.circular(r(AppRadius.xl)),
         side: BorderSide(color: colors.hairline),
       ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       elevation: 0,
-      backgroundColor: palette.surface,
+      backgroundColor: palette.raised.withValues(alpha: colors.panelAlpha),
       surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
       showDragHandle: true,
       dragHandleColor: colors.contentFaint,
-      shape: const RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadius.xl),
+          top: Radius.circular(r(AppRadius.xl)),
         ),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: palette.surfaceAlt,
+      backgroundColor: palette.raised,
       contentTextStyle: text.bodyMedium?.copyWith(color: palette.ink),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
       ),
     ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
-        color: palette.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
+        color: palette.raised,
+        borderRadius: BorderRadius.circular(r(AppRadius.sm)),
         border: Border.all(color: colors.hairline),
       ),
       textStyle: text.labelSmall?.copyWith(color: palette.ink),
@@ -363,7 +434,7 @@ ThemeData buildAppComponents(ThemeData base, AppPalette palette) {
       titleTextStyle: text.bodyMedium?.copyWith(color: palette.ink),
       subtitleTextStyle: text.bodySmall?.copyWith(color: colors.contentMuted),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(r(AppRadius.md)),
       ),
     ),
   );

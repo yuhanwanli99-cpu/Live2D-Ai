@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/app/collapsible_panel.dart';
 import 'package:live2d_ai_shell/app/nav_host.dart';
@@ -77,6 +78,7 @@ class _ShellHostState extends State<_ShellHost> {
 
   @override
   Widget build(BuildContext context) => AppShell(
+    prefs: const DisplayPrefs(),
     stage: const ColoredBox(color: Color(0xFF000000)),
     phase: widget.phase,
     wsStatus: widget.ws,
@@ -205,29 +207,30 @@ void main() {
 
   group('五档宽度都渲染出正确的导航形态', () {
     for (final MapEntry<String, double> entry in kWidths.entries) {
-      testWidgets('${entry.key} → ${Breakpoints.sizeClassOf(entry.value).name}', (
-        WidgetTester tester,
-      ) async {
-        await pumpShell(tester, width: entry.value);
+      testWidgets(
+        '${entry.key} → ${Breakpoints.sizeClassOf(entry.value).name}',
+        (WidgetTester tester) async {
+          await pumpShell(tester, width: entry.value);
 
-        final SizeClass sc = Breakpoints.sizeClassOf(entry.value);
+          final SizeClass sc = Breakpoints.sizeClassOf(entry.value);
 
-        // 非 compact：body 只有「舞台 | 聊天」两列 ⇒ **恰好一条竖分隔线**。
-        // 左侧 rail 若偷偷长回来，这里会变成两条。
-        expect(
-          find.byType(VerticalDivider),
-          sc.isCompact ? findsNothing : findsOneWidget,
-          reason: '左侧不该再有第二列（rail 已删，宽度留给舞台）',
-        );
+          // 非 compact：body 只有「舞台 | 聊天」两列 ⇒ **恰好一条竖分隔线**。
+          // 左侧 rail 若偷偷长回来，这里会变成两条。
+          expect(
+            find.byType(VerticalDivider),
+            sc.isCompact ? findsNothing : findsOneWidget,
+            reason: '左侧不该再有第二列（rail 已删，宽度留给舞台）',
+          );
 
-        // 设置入口只有一个，且是**文字**按钮（不是齿轮图标）。
-        // compact 时它在聊天面板头，非 compact 时在 AppBar。
-        expect(
-          find.text('设置'),
-          findsOneWidget,
-          reason: '设置入口必须恰好一个，且用文字（用户裁决：少用图片）',
-        );
-      });
+          // 设置入口只有一个，且是**文字**按钮（不是齿轮图标）。
+          // compact 时它在聊天面板头，非 compact 时在 AppBar。
+          expect(
+            find.text('设置'),
+            findsOneWidget,
+            reason: '设置入口必须恰好一个，且用文字（用户裁决：少用图片）',
+          );
+        },
+      );
     }
 
     testWidgets('rail 让出来的宽度**真的**给了舞台（非 compact）', (
@@ -276,12 +279,14 @@ void main() {
       expect(find.textContaining('点此重试'), findsNothing);
     });
 
-    testWidgets('音频条常驻（三种断点都在），且静音时不改音量数值', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('音频条常驻（三种断点都在），且静音时不改音量数值', (WidgetTester tester) async {
       for (final double width in <double>[1400, 1000, 500]) {
         await pumpShell(tester, width: width, muted: true, volume: 0.8);
-        expect(find.textContaining('本机静音中'), findsOneWidget, reason: 'width=$width');
+        expect(
+          find.textContaining('本机静音中'),
+          findsOneWidget,
+          reason: 'width=$width',
+        );
         // 滑杆保留用户原值 80%（静音不是「音量 0」）。
         expect(find.text('80%'), findsOneWidget, reason: 'width=$width');
       }
@@ -299,7 +304,8 @@ void main() {
       expect(
         tester.getSize(dockPanel()).width,
         lessThan(1),
-        reason: '没打开时侧板应当折到 0 宽（注意 dock 本身是 Positioned.fill，'
+        reason:
+            '没打开时侧板应当折到 0 宽（注意 dock 本身是 Positioned.fill，'
             '它的宽度是整列，要用里面那个折叠容器量）',
       );
 
@@ -309,16 +315,20 @@ void main() {
       expect(find.byType(InlineSettingsDock), findsOneWidget);
       expect(find.text('PANE:外观与互动'), findsOneWidget);
       // 内联侧板宽度是唯一定义点。
-      expect(tester.getSize(find.byType(InlineSettingsDock)).width,
-          greaterThanOrEqualTo(NavMetrics.paneWidth));
+      expect(
+        tester.getSize(find.byType(InlineSettingsDock)).width,
+        greaterThanOrEqualTo(NavMetrics.paneWidth),
+      );
     });
 
     testWidgets('expanded 侧板上的 ✕ 关闭（折回 0 宽，但不卸载）', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(tester.getSize(dockPanel()).width,
-          greaterThanOrEqualTo(NavMetrics.paneWidth));
+      expect(
+        tester.getSize(dockPanel()).width,
+        greaterThanOrEqualTo(NavMetrics.paneWidth),
+      );
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
@@ -362,9 +372,7 @@ void main() {
     //
     // 下面这几条是等价的行为断言——换成新形态之后，**原来承诺的东西
     // 一样都不能少**：8 个分区都在、能切、能关、能保住工作台状态。
-    testWidgets('compact 点「设置」→ 整页过渡（不是抽屉、也不是浮层）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('compact 点「设置」→ 整页过渡（不是抽屉、也不是浮层）', (WidgetTester tester) async {
       await pumpShell(tester, width: 500);
 
       await tester.tap(find.text('设置'));
@@ -377,9 +385,7 @@ void main() {
       expect(find.text('PANE:外观与互动'), findsOneWidget);
     });
 
-    testWidgets('compact 列出**全部**可见分区（一个都不少）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('compact 列出**全部**可见分区（一个都不少）', (WidgetTester tester) async {
       await pumpShell(tester, width: 500);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
@@ -437,10 +443,7 @@ void main() {
       expect(find.byType(PageCrossFade), findsOneWidget);
       // 注意 `skipOffstage: false`：这一页现在**就是** offstage 的，
       // 默认的 finder 会跳过它（那正是「找得到 / 找不到」在这里不可用的原因）。
-      final Finder hiddenPane = find.text(
-        'PANE:外观与互动',
-        skipOffstage: false,
-      );
+      final Finder hiddenPane = find.text('PANE:外观与互动', skipOffstage: false);
       expect(hiddenPane, findsOneWidget, reason: '关掉设置把设置页卸载了 —— 保活没了');
       expect(
         tester
@@ -471,7 +474,9 @@ void main() {
       expect(find.text('PANE:外观与互动'), findsOneWidget);
     });
 
-    testWidgets('点内联侧板里的分区 chip 上报 onSectionChanged', (WidgetTester tester) async {
+    testWidgets('点内联侧板里的分区 chip 上报 onSectionChanged', (
+      WidgetTester tester,
+    ) async {
       final List<SettingsSection> picked = <SettingsSection>[];
       await pumpShell(tester, width: 1400, onSectionChanged: picked.add);
       await tester.tap(find.text('设置'));
@@ -493,7 +498,9 @@ void main() {
   });
 
   group('接线：外壳**真的**把舞台包进了 StageHost', () {
-    testWidgets('舞台是 StageHost（不是裸 RepaintBoundary）', (WidgetTester tester) async {
+    testWidgets('舞台是 StageHost（不是裸 RepaintBoundary）', (
+      WidgetTester tester,
+    ) async {
       // 这条是有来历的：第一版 `StageHost` 写好了却没人用，
       // 于是「模型加载中 / 加载失败 + 重试」的覆盖层与**舞台语义标签**
       // 都不在成品里——是靠「构建产物里搜不到『Live2D 舞台』这句话」发现的。
@@ -600,11 +607,7 @@ void main() {
           await tester.tap(find.text(SettingsSection.appearance.label).last);
           await tester.pumpAndSettle();
         }
-        expect(
-          h.loads,
-          isNotEmpty,
-          reason: '打开设置却没让宿主加载 → 用户看到的就是「读不到服务端设置」',
-        );
+        expect(h.loads, isNotEmpty, reason: '打开设置却没让宿主加载 → 用户看到的就是「读不到服务端设置」');
       });
     }
 
@@ -627,11 +630,13 @@ void main() {
       expect(sectionChanges, 0, reason: '没有换分区');
     });
 
-    testWidgets('收起内联侧板**不**再加载一次（省掉无意义请求）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('收起内联侧板**不**再加载一次（省掉无意义请求）', (WidgetTester tester) async {
       int ensure = 0;
-      await pumpShell(tester, width: 1400, onEnsureSectionLoaded: () => ensure++);
+      await pumpShell(
+        tester,
+        width: 1400,
+        onEnsureSectionLoaded: () => ensure++,
+      );
 
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
@@ -674,9 +679,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 模拟「加载完成」：设置控制器通知一次。
-      final int before = tester
-          .widgetList(find.textContaining('PANE:'))
-          .length;
+      final int before = tester.widgetList(find.textContaining('PANE:')).length;
       changes.value++;
       await tester.pumpAndSettle();
       // 桩内容是常量文本，数量不会变——这里断言的是**没有崩、且重建路径成立**：
@@ -687,9 +690,7 @@ void main() {
       expect(builds, 1);
     });
 
-    testWidgets('浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）', (WidgetTester tester) async {
       final ValueNotifier<int> changes = ValueNotifier<int>(0);
       addTearDown(changes.dispose);
       // 用一个会先转圈、再出内容的构建器，模拟 `_settings.load()` 的真实时序。
@@ -701,6 +702,7 @@ void main() {
         MaterialApp(
           theme: buildAppTheme(),
           home: AppShell(
+            prefs: const DisplayPrefs(),
             stage: const ColoredBox(color: Color(0xFF000000)),
             phase: UiPhase.idle,
             wsStatus: WsStatus.connected,

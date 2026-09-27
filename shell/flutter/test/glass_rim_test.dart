@@ -98,9 +98,8 @@ void main() {
         'lib',
       ).listSync(recursive: true)) {
         if (e is! File || !e.path.endsWith('.dart')) continue;
-        if (stripCommentsAndStrings(
-          e.readAsStringSync(),
-        ).contains('BackdropFilter')) {
+        if (stripCommentsAndStrings(e.readAsStringSync())
+            .contains('BackdropFilter')) {
           hits.add(e.path);
         }
       }
@@ -145,7 +144,10 @@ void main() {
           ),
         ),
       );
-      expect(tester.getSize(find.byKey(const Key('inner'))), const Size(180, 60));
+      expect(
+        tester.getSize(find.byKey(const Key('inner'))),
+        const Size(180, 60),
+      );
       expect(tester.getSize(find.byType(GlassRim)), const Size(180, 60));
     });
 
@@ -192,9 +194,7 @@ void main() {
       );
     });
 
-    testWidgets('白主题下强度自动降到 0.45（深边在浅底上要更克制）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('白主题下强度自动降到 0.45（深边在浅底上要更克制）', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           const SizedBox(
@@ -206,12 +206,14 @@ void main() {
         ),
       );
       final LiquidRimPainter painter =
-          tester.widget<CustomPaint>(
-                find.descendant(
-                  of: find.byType(GlassRim),
-                  matching: find.byType(CustomPaint),
-                ),
-              ).painter!
+          tester
+                  .widget<CustomPaint>(
+                    find.descendant(
+                      of: find.byType(GlassRim),
+                      matching: find.byType(CustomPaint),
+                    ),
+                  )
+                  .painter!
               as LiquidRimPainter;
       expect(painter.intensity, lessThan(1));
     });
@@ -227,12 +229,14 @@ void main() {
         ),
       );
       final LiquidRimPainter painter =
-          tester.widget<CustomPaint>(
-                find.descendant(
-                  of: find.byType(GlassRim),
-                  matching: find.byType(CustomPaint),
-                ),
-              ).painter!
+          tester
+                  .widget<CustomPaint>(
+                    find.descendant(
+                      of: find.byType(GlassRim),
+                      matching: find.byType(CustomPaint),
+                    ),
+                  )
+                  .painter!
               as LiquidRimPainter;
       expect(painter.intensity, 1);
     });
@@ -256,12 +260,14 @@ void main() {
 
       Offset lightOf() {
         final LiquidRimPainter p =
-            tester.widget<CustomPaint>(
-                  find.descendant(
-                    of: find.byType(GlassRim),
-                    matching: find.byType(CustomPaint),
-                  ),
-                ).painter!
+            tester
+                    .widget<CustomPaint>(
+                      find.descendant(
+                        of: find.byType(GlassRim),
+                        matching: find.byType(CustomPaint),
+                      ),
+                    )
+                    .painter!
                 as LiquidRimPainter;
         return p.light;
       }
@@ -306,21 +312,21 @@ void main() {
       await tester.pumpAndSettle();
 
       final LiquidRimPainter p =
-          tester.widget<CustomPaint>(
-                find.descendant(
-                  of: find.byType(GlassRim),
-                  matching: find.byType(CustomPaint),
-                ),
-              ).painter!
+          tester
+                  .widget<CustomPaint>(
+                    find.descendant(
+                      of: find.byType(GlassRim),
+                      matching: find.byType(CustomPaint),
+                    ),
+                  )
+                  .painter!
               as LiquidRimPainter;
       // 默认光向是左上（{-0.65, -0.8}）。
       expect(p.light.dx, lessThan(0));
       expect(p.light.dy, lessThan(0));
     });
 
-    testWidgets('减少动画时**不做指针跟随**（那是持续的鼠标驱动重绘）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('减少动画时**不做指针跟随**（那是持续的鼠标驱动重绘）', (WidgetTester tester) async {
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(disableAnimations: true),
@@ -358,9 +364,8 @@ void main() {
     });
 
     test('`AppColors` 已经没有未接线的令牌了（台账已清空）', () {
-      final String ledger = File(
-        'test/design_tokens_test.dart',
-      ).readAsStringSync();
+      final String ledger = File('test/design_tokens_test.dart')
+          .readAsStringSync();
       // 台账里不该再有任何 `AppColors.*` 条目。
       expect(
         RegExp(r"'AppColors\.[a-zA-Z]+',").hasMatch(ledger),

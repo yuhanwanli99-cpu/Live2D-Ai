@@ -8,7 +8,11 @@
 ///
 part of 'package:live2d_ai_shell/main.dart';
 
-String _kb(int chars) => '约 ${(chars / 1024).round()} KB';
+/// 字节 → 人话（背景现在是**按字节**说的；过去那套「字符数」口径已作废）。
+String _mb(int bytes) {
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
 
 extension _ShellPrefsWiring on _ShellRootState {
   /// 舞台当前该用的动作幅度（**草稿优先** = 即时预览的真源，2026-09-16 修）。
@@ -104,6 +108,12 @@ extension _ShellPrefsWiring on _ShellRootState {
     // （临时覆盖 > 产品值）。改主题 / 调音量等任意偏好变更走到这里，
     // 临时值照样在（W7 的确定性缺陷 1，见 action_scales_sync.dart）。
     _syncActionScalesNow(force: true);
+    // 偏好「已生效」的最后一道：背景轮播在这里重新对表。
+    //
+    // 为什么不放在 `_updatePrefs` 里：那里是**提交**的那一刻，
+    // 而轮播要读的是生效后的值；`_applyPrefs` 正是这条「已生效」的唯一漏斗
+    // （首次靠 `onReady`、之后每次变更都过它）。
+    syncSlideshow(prefs);
   }
 
   /// 偏好变更：更新内存 + 落盘 + 立即下发。
@@ -116,8 +126,7 @@ extension _ShellPrefsWiring on _ShellRootState {
     // 用户看到「已应用」却在刷新后丢失（rc.3 §9.1 候选原因 1）。
     final bool saved = widget.onPrefsChanged(next);
     if (!saved) {
-      _stageImageMessage =
-          '偏好没能写入本机存储（无痕模式 / 存储被禁 / 配额满）——本次会话有效，刷新会丢。';
+      _stageImageMessage = '偏好没能写入本机存储（无痕模式 / 存储被禁 / 配额满）——本次会话有效，刷新会丢。';
       _stageImageFailed = true;
     }
     // 静音与音量是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
@@ -129,17 +138,21 @@ extension _ShellPrefsWiring on _ShellRootState {
 
   /// 选一张背景图。`forShell` = 从「壳背景」那一行进来的。
   ///
-  /// # 为什么两条路共用一个实现（2026-09-14，rc.5）
+  /// # 两条通道，两套上限（2026-09-27 修）
   ///
-  /// 「与舞台同步」开着时，壳背景**就是**舞台那张图（`effectiveShellImage`），
-  /// 所以壳那行的选图落到的仍是 `stageImage`——两份 UI、一份真相。
-  /// 只有同步关掉时，图片才写进 `shellImage`（壳自己那张）。
+  /// | 通道 | 字节住哪 | 上限从哪来 |
+  /// | --- | --- | --- |
+  /// | **背景库** | IndexedDB | [kBackgroundImageMaxBytes]（24 MB，手抖保护）|
+  /// | **舞台那张** | localStorage + WS `stage-bg` | [kStageImageMaxChars]（**协议**限制）|
+  ///
+  /// 舞台那张的上限**不是**存储限制而是**协议限制**：它要塞进一帧
+  /// WebSocket 消息交给 wasm 解码，所以不能因为「浏览器还有地方存」就放开。
+  /// 这就是为什么超大图请走背景库——那条路不经过渲染面。
   ///
   /// # 两条结果，都要如实说
   ///
-  /// - 在 [kStageImageMaxChars] 以内 → 写进偏好（重开页面还在）。
-  /// - 超限 → 舞台可以**只在本次会话生效**（直接下发渲染面，不写盘）；
-  ///   壳没有这条通道（背景是 Flutter 自己画的），只能如实说「没应用」。
+  /// - 存进去了 → 「已加进背景库（第 N 项，x MB，会记住）」；
+  /// - 存不进去 → 说清楚是**哪一关**拦的、已有的一张有没有动。
   Future<void> _pickImage({required bool forShell}) async {
     final ({String? dataUrl, String? error}) picked = await pickImageDataUrl();
     if (!mounted) return;
@@ -151,47 +164,121 @@ extension _ShellPrefsWiring on _ShellRootState {
       }
       return;
     }
-    if (dataUrl.length > kStageImageMaxChars) {
-      if (forShell) {
+    // 偏好**在 await 之前重新读**：选图对话框可能开了几秒，期间主题 / 音量
+    // 可能已变，用进对话框之前那份会把那次改动吞掉。
+    final DisplayPrefs prefs = widget.prefs;
+    // 「来源」是判据：来源=舞台那张 时，换图改的是 [stageImage]；
+    // 来源=背景库 时，图片进 [backgrounds]。
+    final bool shared =
+        !forShell ||
+        prefs.backgroundSource == DisplayPrefs.backgroundSourceStageImage;
+    if (shared) {
+      if (dataUrl.length > kStageImageMaxChars) {
+        if (forShell) {
+          _setImageMessage(
+            forShell: true,
+            text:
+                '这张图 ${_mb(dataUrlBytes(dataUrl))}，走**舞台背景**这条通道只能到 '
+                '${_mb(dataUrlBytes('x' * kStageImageMaxChars))}'
+                '（要整帧塞进渲染面）。'
+                '把「背景来源」切成**背景库**就能放进去了——那条路不走渲染面。',
+            failed: true,
+          );
+          return;
+        }
+        // 超限：不经偏好，直接下发到渲染面（本次会话有效）。
+        unawaited(
+          _stageKey.currentState?.sendStageBg(dataUrl) ?? Future<void>.value(),
+        );
         _setImageMessage(
-          forShell: true,
+          forShell: false,
           text:
-              '图太大了（${_kb(dataUrl.length)}，上限 ${_kb(kStageImageMaxChars)}）——'
-              '壳背景没有应用。换一张小一点的图。',
+              '这张图 ${_mb(dataUrlBytes(dataUrl))} 超过舞台背景上限 '
+              '${_mb(dataUrlBytes('x' * kStageImageMaxChars))}——'
+              '**本次有效，重新打开页面会丢失**。'
+              '想永久用它，请把「背景来源」切成**背景库**（上限 24 MB）。',
           failed: true,
         );
         return;
       }
-      // 超限：不经偏好，直接下发到渲染面（本次会话有效）。
-      unawaited(
-        _stageKey.currentState?.sendStageBg(dataUrl) ?? Future<void>.value(),
-      );
+      _updatePrefs(prefs.copyWith(stageImage: dataUrl));
       _setImageMessage(
-        forShell: false,
-        text:
-            '图太大了（${_kb(dataUrl.length)}，上限 ${_kb(kStageImageMaxChars)}）——'
-            '本次有效，**重新打开页面会丢失**。换一张小一点的图就能记住。',
+        forShell: forShell,
+        text: '已应用（与舞台共用同一张图，${_mb(dataUrlBytes(dataUrl))}，会记住）',
+        failed: false,
+      );
+      return;
+    }
+
+    // ── 背景库：字节进 IndexedDB，偏好里只留一个 id ──
+    final int bytes = dataUrlBytes(dataUrl);
+    if (bytes > kBackgroundImageMaxBytes) {
+      _setImageMessage(
+        forShell: true,
+        text: '单张 ${_mb(bytes)} 超过上限 ${_mb(kBackgroundImageMaxBytes)}'
+            '——已有的一张都没动。',
         failed: true,
       );
       return;
     }
-    // 同步开着时壳与舞台共用 stageImage（一份真相）。
-    // 偏好**在 await 之后重新读**：选图对话框可能开了几秒，期间主题 / 音量可能已变，
-    // 用进对话框之前那份会把那次改动吞掉。
-    final DisplayPrefs prefs = widget.prefs;
-    final bool shared = !forShell || prefs.syncShellStageBg;
+    final String id = backgroundIdOf(dataUrl);
+    if (prefs.backgrounds.any(
+      (BackgroundItem b) => b is BackgroundImage && b.id == id,
+    )) {
+      _setImageMessage(
+        forShell: true,
+        text: '背景库里已经有这张图了（${prefs.backgrounds.length} 项）',
+        failed: false,
+      );
+      return;
+    }
+    final BackgroundItem item = BackgroundImage(id: id, dataUrl: dataUrl);
+    if (!DisplayPrefs.canAddBackground(prefs.backgrounds, item)) {
+      _setImageMessage(
+        forShell: true,
+        text: '加不进背景库（${_rejectReason(prefs.backgrounds, item)}）——'
+            '已有的一张都没动。',
+        failed: true,
+      );
+      return;
+    }
+    // **先存字节，成功了才改偏好**。反过来会出现「界面上有了、刷新后消失」，
+    // 而提示写着「已加进背景库」——P4 的头号形态。
+    final bool stored = await storeBackground(widget.store, id, dataUrl);
+    if (!mounted) return;
+    if (!stored) {
+      _setImageMessage(
+        forShell: true,
+        text: '浏览器存不下这张图（磁盘配额满 / 无痕模式 / 站点数据被禁）——'
+            '已有的一张都没动。换张小一点的图，或先删掉几张。',
+        failed: true,
+      );
+      return;
+    }
+    final DisplayPrefs after = widget.prefs;
     _updatePrefs(
-      shared
-          ? prefs.copyWith(stageImage: dataUrl)
-          : prefs.copyWith(shellImage: dataUrl),
+      after.copyWith(
+        backgrounds: <BackgroundItem>[...after.backgrounds, item],
+      ),
     );
     _setImageMessage(
-      forShell: forShell,
-      text: shared
-          ? '已应用（与舞台共用同一张图，${_kb(dataUrl.length)}，会记住）'
-          : '已应用壳背景（${_kb(dataUrl.length)}，会记住）',
+      forShell: true,
+      text: '已加进背景库（${_mb(bytes)}，共 ${after.backgrounds.length + 1} 项，'
+          '会记住）',
       failed: false,
     );
+  }
+
+  /// 为什么不加进去 —— **一句人话**，不说「false」。
+  String _rejectReason(List<BackgroundItem> current, BackgroundItem item) {
+    if (current.length >= kBackgroundMaxCount) {
+      return '最多 $kBackgroundMaxCount 项，先删一张';
+    }
+    if (item is BackgroundImage &&
+        backgroundBytesOf(item) > kBackgroundImageMaxBytes) {
+      return '单张超过 ${_mb(kBackgroundImageMaxBytes)}，换张小一点的';
+    }
+    return '这一项当前画不出来（字节没读回来）';
   }
 
   Future<void> _pickStageImage() => _pickImage(forShell: false);
@@ -201,15 +288,26 @@ extension _ShellPrefsWiring on _ShellRootState {
   /// 清掉背景图。同步开着时清的是**共用那张**（舞台与壳一起回到各自底色）。
   void _clearImage({required bool forShell}) {
     final DisplayPrefs prefs = widget.prefs;
-    final bool shared = !forShell || prefs.syncShellStageBg;
-    _updatePrefs(
-      shared
-          ? prefs.copyWith(clearStageImage: true)
-          : prefs.copyWith(clearShellImage: true),
-    );
+    // 「来源」是判据：来源=舞台那张 时，换图改的是 [stageImage]；
+    // 来源=背景库 时，图片进 [backgrounds]。
+    final bool shared =
+        !forShell ||
+        prefs.backgroundSource == DisplayPrefs.backgroundSourceStageImage;
+    if (shared) {
+      _updatePrefs(prefs.copyWith(clearStageImage: true));
+    } else {
+      // **字节也要删**：删清单不删字节，磁盘上的图会永远留着
+      // （IndexedDB 不会自动回收没人引用的记录）。
+      for (final BackgroundItem item in prefs.backgrounds) {
+        if (item is BackgroundImage) {
+          unawaited(forgetBackground(widget.store, item.id));
+        }
+      }
+      _updatePrefs(prefs.copyWith(backgrounds: const <BackgroundItem>[]));
+    }
     _setImageMessage(
       forShell: forShell,
-      text: shared ? '已清除背景图，舞台与壳回到各自底色' : '已清除壳背景，壳回到主题底色',
+      text: shared ? '已清除背景图，舞台与壳回到各自底色' : '已清空背景库，壳回到主题底色',
       failed: false,
     );
   }
@@ -253,12 +351,114 @@ extension _ShellPrefsWiring on _ShellRootState {
     );
   }
 
+  /// 从背景库移除第 N 项。
+  ///
+  /// 越界**静默忽略**而不是抛：那是从 UI 事件来的下标，
+  /// 而库长度可能在一次重建里变过。
+  void _removeBackground(int index) {
+    final DisplayPrefs prefs = widget.prefs;
+    final List<BackgroundItem> items = prefs.backgrounds;
+    if (index < 0 || index >= items.length) return;
+    final BackgroundItem dropped = items[index];
+    final List<BackgroundItem> next = List<BackgroundItem>.of(items)
+      ..removeAt(index);
+    _forget(dropped);
+    _updatePrefs(prefs.copyWith(backgrounds: next));
+    _setImageMessage(
+      forShell: true,
+      text: '已移除，剩 ${next.length} 项',
+      failed: false,
+    );
+  }
+
+  /// 删一项的**字节**（清单与字节必须同进同退，否则磁盘上留孤儿）。
+  void _forget(BackgroundItem item) {
+    if (item is BackgroundImage) {
+      unawaited(forgetBackground(widget.store, item.id));
+    }
+  }
+
+  /// 拖动排序背景库（旧下标 → 新下标）。
+  ///
+  /// 语义细节：拖动是**按身份**（那一项）而不是按「下标」。
+  /// 所以这里先取出那一项、删掉、再插到新位置——
+  /// 直接对列表做 `removeAt/insert` 在 `old < new` 时会差一位
+  /// （`ReorderableListView` 传的是「移除之后」的下标）。
+  void _reorderBackground(int oldIndex, int newIndex) {
+    final DisplayPrefs prefs = widget.prefs;
+    final List<BackgroundItem> items = prefs.backgrounds;
+    if (oldIndex < 0 || oldIndex >= items.length) return;
+    int target = newIndex;
+    if (target > oldIndex) target -= 1;
+    target = target.clamp(0, items.length - 1);
+    if (target == oldIndex) return;
+    final List<BackgroundItem> next = List<BackgroundItem>.of(items);
+    final BackgroundItem moved = next.removeAt(oldIndex);
+    next.insert(target, moved);
+    _updatePrefs(prefs.copyWith(backgrounds: next));
+  }
+
+  /// 批量移除（**升序**的下标集合）。
+  ///
+  /// 先收集项再统一删：边删边按下标取会跳过元素
+  /// （删掉 index 2 之后，原来的 index 3 变成了 2）。
+  void _removeBackgrounds(List<int> indices) {
+    final DisplayPrefs prefs = widget.prefs;
+    final List<BackgroundItem> items = prefs.backgrounds;
+    final Set<int> drop = <int>{
+      for (final int i in indices)
+        if (i >= 0 && i < items.length) i,
+    };
+    if (drop.isEmpty) return;
+    final List<BackgroundItem> next = <BackgroundItem>[
+      for (int i = 0; i < items.length; i++)
+        if (!drop.contains(i)) items[i],
+    ];
+    for (final int i in drop) {
+      _forget(items[i]);
+    }
+    _updatePrefs(prefs.copyWith(backgrounds: next));
+    _setImageMessage(
+      forShell: true,
+      text: '已删除 ${drop.length} 项，剩 ${next.length} 项',
+      failed: false,
+    );
+  }
+
   /// 「清空轮播」：清空列表（`stageImage` 不动——当前这张仍留在舞台上）。
   void _clearStagePlaylist() {
     final DisplayPrefs prefs = widget.prefs;
     if (prefs.stagePlaylist.isEmpty) return;
     _updatePrefs(prefs.copyWith(stagePlaylist: const <String>[]));
     _setImageMessage(forShell: false, text: '已清空轮播列表', failed: false);
+  }
+
+  /// 点缩略图 = 切到这一张看效果（**不落盘**：索引是运行时状态）。
+  void _previewBackground(int index) {
+    _jumpBackground(index);
+  }
+
+  /// 往背景库加一个内置图案。
+  ///
+  /// **图案不占配额**（它没有 dataURL），所以这里唯一要拦的是「项数上限」。
+  void _addPattern(int id) {
+    final DisplayPrefs prefs = widget.prefs;
+    final BackgroundPattern item = BackgroundPattern(id);
+    if (!DisplayPrefs.canAddBackground(prefs.backgrounds, item)) {
+      _setImageMessage(
+        forShell: true,
+        text: '背景库最多 $kBackgroundMaxCount 项，先删一张',
+        failed: true,
+      );
+      return;
+    }    if (prefs.backgrounds.any((BackgroundItem b) => b.sameAs(item))) {
+      _setImageMessage(forShell: true, text: '已经有这个图案了', failed: false);
+      return;
+    }
+    _updatePrefs(
+      prefs.copyWith(backgrounds: <BackgroundItem>[...prefs.backgrounds, item]),
+    );
+    _setImageMessage(forShell: true, text: '已加进背景库（内置图案，不占存储）', failed: false);
   }
 
   /// 落一条选图 / 清图结果——舞台与壳**各有各的那条**，不互相冒充。

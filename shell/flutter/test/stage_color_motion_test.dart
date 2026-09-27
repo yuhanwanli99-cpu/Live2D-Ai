@@ -98,17 +98,13 @@ void main() {
       expect(backdropColor(tester), const Color(0xFFFFFFFF));
     });
 
-    testWidgets('**首帧不播**底色动画（页面第一次出现不该有一段渐变）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('**首帧不播**底色动画（页面第一次出现不该有一段渐变）', (WidgetTester tester) async {
       await mountStage(tester);
       // 首帧就该是终色本身，不是某个中间值。
       expect(backdropColor(tester), const Color(0xFF000000));
     });
 
-    testWidgets('连续切两次主题时从**当前显示值**续接（不跳回起点）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('连续切两次主题时从**当前显示值**续接（不跳回起点）', (WidgetTester tester) async {
       final void Function(String) setColor = await mountStage(tester);
       setColor('#ffffff');
       await tester.pump();

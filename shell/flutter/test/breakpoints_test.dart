@@ -7,7 +7,11 @@ void main() {
     test('两级阈值都在「含」的一侧', () {
       // 边界是断点逻辑最容易写错的地方：>= 与 > 差一个像素，
       // 表现是「窗口拖到这个宽度时布局闪一下」。
-      expect(Breakpoints.sizeClassOf(900), SizeClass.medium, reason: '900 属于中屏');
+      expect(
+        Breakpoints.sizeClassOf(900),
+        SizeClass.medium,
+        reason: '900 属于中屏',
+      );
       expect(
         Breakpoints.sizeClassOf(1280),
         SizeClass.expanded,
@@ -40,7 +44,10 @@ void main() {
       expect(Breakpoints.sizeClassOf(-100), SizeClass.compact);
       expect(Breakpoints.sizeClassOf(double.nan), SizeClass.compact);
       expect(Breakpoints.sizeClassOf(double.infinity), SizeClass.compact);
-      expect(Breakpoints.sizeClassOf(double.negativeInfinity), SizeClass.compact);
+      expect(
+        Breakpoints.sizeClassOf(double.negativeInfinity),
+        SizeClass.compact,
+      );
     });
   });
 
@@ -56,7 +63,8 @@ void main() {
 
     test('三档都被扫到（防某档永远不可达）', () {
       final Set<SizeClass> seen = <SizeClass>{
-        for (int w = 0; w <= 3000; w += 7) Breakpoints.sizeClassOf(w.toDouble()),
+        for (int w = 0; w <= 3000; w += 7)
+          Breakpoints.sizeClassOf(w.toDouble()),
       };
       expect(seen, SizeClass.values.toSet());
     });
@@ -95,9 +103,7 @@ void main() {
       for (final double threshold in Breakpoints.registry.values) {
         expect(
           Breakpoints.sizeClassOf(threshold).index,
-          greaterThan(
-            Breakpoints.sizeClassOf(threshold - 1).index,
-          ),
+          greaterThan(Breakpoints.sizeClassOf(threshold - 1).index),
           reason: '阈值 $threshold 处档位没有跃迁——registry 与实现脱节了',
         );
       }

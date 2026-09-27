@@ -94,7 +94,10 @@ class StageHost extends StatelessWidget {
               ),
             if (phase == Live2DBridgePhase.error)
               StagePointerInterceptor(
-                child: _StageErrorOverlay(message: errorMessage, onRetry: onRetry),
+                child: _StageErrorOverlay(
+                  message: errorMessage,
+                  onRetry: onRetry,
+                ),
               ),
             if (overlayTop != null)
               Align(alignment: Alignment.topCenter, child: overlayTop),
@@ -163,7 +166,11 @@ class _StageErrorOverlay extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(Icons.error_outline, size: 28, color: appPaletteOf(context).danger),
+              Icon(
+                Icons.error_outline,
+                size: 28,
+                color: appPaletteOf(context).danger,
+              ),
               const SizedBox(height: Space.s2),
               Text('模型加载失败', style: theme.textTheme.titleSmall),
               if (message != null) ...<Widget>[

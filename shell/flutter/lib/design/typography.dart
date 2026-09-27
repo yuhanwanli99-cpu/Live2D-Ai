@@ -37,22 +37,28 @@ abstract final class AppFontSizes {
   /// - `titleMedium` 16：分区标题、面板标题。**全阶梯唯一使用 16 px 的槽位。**
   /// - `titleLarge` 20：应用名 / 大屏空态标题
   /// - `headlineSmall` 24：首次引导页标题（唯一可选级）
-  static const Map<String, ({double size, FontWeight weight, double lineHeight})>
-  registry =
-      <String, ({double size, FontWeight weight, double lineHeight})>{
-        'labelSmall': (size: 11, weight: FontWeight.w500, lineHeight: 16),
-        'bodySmall': (size: 12, weight: FontWeight.w400, lineHeight: 18),
-        'labelLarge': (size: 13, weight: FontWeight.w500, lineHeight: 18),
-        'bodyMedium': (size: 14, weight: FontWeight.w400, lineHeight: 22),
-        'titleSmall': (size: 14, weight: FontWeight.w600, lineHeight: 20),
-        'titleMedium': (size: 16, weight: FontWeight.w600, lineHeight: 24),
-        'titleLarge': (size: 20, weight: FontWeight.w600, lineHeight: 28),
-        'headlineSmall': (size: 24, weight: FontWeight.w600, lineHeight: 32),
-      };
+  static const Map<
+    String,
+    ({double size, FontWeight weight, double lineHeight})
+  >
+  registry = <String, ({double size, FontWeight weight, double lineHeight})>{
+    'labelSmall': (size: 11, weight: FontWeight.w500, lineHeight: 16),
+    'bodySmall': (size: 12, weight: FontWeight.w400, lineHeight: 18),
+    'labelLarge': (size: 13, weight: FontWeight.w500, lineHeight: 18),
+    'bodyMedium': (size: 14, weight: FontWeight.w400, lineHeight: 22),
+    'titleSmall': (size: 14, weight: FontWeight.w600, lineHeight: 20),
+    'titleMedium': (size: 16, weight: FontWeight.w600, lineHeight: 24),
+    'titleLarge': (size: 20, weight: FontWeight.w600, lineHeight: 28),
+    'headlineSmall': (size: 24, weight: FontWeight.w600, lineHeight: 32),
+  };
 
   /// 派生视图：槽位 → 字号。
   static Map<String, double> get sizesOf => <String, double>{
-    for (final MapEntry<String, ({double size, FontWeight weight, double lineHeight})> e
+    for (final MapEntry<
+          String,
+          ({double size, FontWeight weight, double lineHeight})
+        >
+        e
         in registry.entries)
       e.key: e.value.size,
   };

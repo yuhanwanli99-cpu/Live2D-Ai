@@ -130,7 +130,9 @@ class ModelsApi {
   /// `POST /api/v1/models/{id}/activate`。
   Future<ActivateResult> activate(String id) async {
     final http.Response response = await _guard(
-      () => _client.post(_uri('/api/v1/models/${Uri.encodeComponent(id)}/activate')),
+      () => _client.post(
+        _uri('/api/v1/models/${Uri.encodeComponent(id)}/activate'),
+      ),
     );
     if (response.statusCode != 200) throw _error(response);
     return ActivateResult.fromJson(_decode(response.body));

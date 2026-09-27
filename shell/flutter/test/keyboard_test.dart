@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/chat/chat_message.dart';
@@ -23,6 +24,7 @@ void main() {
         MaterialApp(
           theme: buildAppTheme(),
           home: AppShell(
+            prefs: const DisplayPrefs(),
             stage: const SizedBox.shrink(),
             phase: UiPhase.idle,
             wsStatus: WsStatus.connected,
@@ -51,7 +53,8 @@ void main() {
       expect(
         gestures,
         greaterThan(0),
-        reason: '纯键盘用户按了键就必须解锁——否则他永远没有声音，'
+        reason:
+            '纯键盘用户按了键就必须解锁——否则他永远没有声音，'
             '而界面不会给他任何解释',
       );
     });
@@ -62,6 +65,7 @@ void main() {
         MaterialApp(
           theme: buildAppTheme(),
           home: AppShell(
+            prefs: const DisplayPrefs(),
             stage: const SizedBox.shrink(),
             phase: UiPhase.idle,
             wsStatus: WsStatus.connected,
@@ -93,6 +97,7 @@ void main() {
         MaterialApp(
           theme: buildAppTheme(),
           home: AppShell(
+            prefs: const DisplayPrefs(),
             stage: const SizedBox.shrink(),
             phase: UiPhase.idle,
             wsStatus: WsStatus.connected,
@@ -118,11 +123,7 @@ void main() {
       await tester.pump();
       await tester.enterText(find.byType(TextField), 'hello');
       await tester.pump();
-      expect(
-        input.text,
-        'hello',
-        reason: '键盘解锁处理器返回 false（不吞键），输入必须正常进到输入框',
-      );
+      expect(input.text, 'hello', reason: '键盘解锁处理器返回 false（不吞键），输入必须正常进到输入框');
     });
   });
 
@@ -166,6 +167,7 @@ void main() {
           MaterialApp(
             theme: buildAppTheme(),
             home: AppShell(
+              prefs: const DisplayPrefs(),
               stage: const SizedBox.shrink(),
               phase: UiPhase.idle,
               wsStatus: status,

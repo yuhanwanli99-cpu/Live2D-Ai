@@ -67,7 +67,6 @@ class UiSignals {
   /// `WsStatus == connected`。
   final bool wsConnected;
 
-
   /// `POST /api/v1/chat` 已受理且本轮尚未收口。
   final bool turnActive;
 

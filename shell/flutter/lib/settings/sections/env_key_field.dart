@@ -98,7 +98,8 @@ class _EnvKeyFieldState extends State<EnvKeyField> {
         label: '${widget.sectionLabel}密钥',
         icon: Icons.key_off_outlined,
         text: '未绑定环境变量',
-        description: '配置里没声明 api_key_env；本地端点通常不需要密钥。'
+        description:
+            '配置里没声明 api_key_env；本地端点通常不需要密钥。'
             '要绑定就在「开发者选项」里填变量名。',
       );
     }
@@ -123,7 +124,9 @@ class _EnvKeyFieldState extends State<EnvKeyField> {
               Text(
                 status.set ? '已设置' : '未设置',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: status.set ? colors.contentMuted : theme.colorScheme.error,
+                  color: status.set
+                      ? colors.contentMuted
+                      : theme.colorScheme.error,
                 ),
               ),
             ],
@@ -159,7 +162,9 @@ class _EnvKeyFieldState extends State<EnvKeyField> {
           Text(
             '写进 .env（密钥永不回显/永不下发）；这就是 [${status.key}] 的值。'
             '${widget.debugHint == null ? '' : '文件：${widget.debugHint}'}',
-            style: theme.textTheme.bodySmall?.copyWith(color: colors.contentMuted),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.contentMuted,
+            ),
           ),
           if (_message != null)
             Padding(

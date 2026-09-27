@@ -113,7 +113,6 @@ class UiStateTracker extends ChangeNotifier {
     notifyListeners();
   }
 
-
   /// `POST /api/v1/chat` 已受理 → 本轮开始。
   void markTurnAccepted() {
     if (_turnActive) return;
@@ -164,7 +163,8 @@ class UiStateTracker extends ChangeNotifier {
           _errorActive = true;
           // 已经收到过带码的 `error` 帧就不要覆盖它——那帧信息更全。
           // 没有的话老实说「没有详情」，并给出去处（诊断日志）。
-          _errorMessage ??= '本轮生成失败：服务端未给出错误详情'
+          _errorMessage ??=
+              '本轮生成失败：服务端未给出错误详情'
               '（可看「设置 → 开发模式 → 诊断日志」）';
           _errorCode ??= 'turn_failed_no_detail';
         }

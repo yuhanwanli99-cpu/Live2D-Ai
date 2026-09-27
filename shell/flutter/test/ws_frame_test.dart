@@ -116,7 +116,8 @@ void main() {
   group('audio 帧：口型的数据来源（静音与否都要能驱动）', () {
     test('静音帧：PCM 全零但 volume 是真的', () {
       final AudioEvent e =
-          parseWsFrame(realAudioFrame(muted: true, volume: 0.001))! as AudioEvent;
+          parseWsFrame(realAudioFrame(muted: true, volume: 0.001))!
+              as AudioEvent;
       expect(e.muted, isTrue);
       expect(e.sampleRate, 24000);
       expect(e.pcm.length, 960, reason: '20ms @ 24kHz 单声道 s16le');
@@ -131,9 +132,9 @@ void main() {
     });
 
     test('非静音帧：muted=false 且 volume 有值', () {
-      final AudioEvent e = parseWsFrame(
-        realAudioFrame(muted: false, volume: 0.4123),
-      )! as AudioEvent;
+      final AudioEvent e =
+          parseWsFrame(realAudioFrame(muted: false, volume: 0.4123))!
+              as AudioEvent;
       expect(e.muted, isFalse);
       expect(e.volume, closeTo(0.4123, 1e-9));
     });
@@ -143,10 +144,7 @@ void main() {
           '{"type":"audio","data":{"audio":"AAAA","sample_rate":24000,'
           '"volume":$volumeJson}}';
 
-      expect(
-        (parseWsFrame(frame('null'))! as AudioEvent).volume,
-        isNull,
-      );
+      expect((parseWsFrame(frame('null'))! as AudioEvent).volume, isNull);
       expect(
         (parseWsFrame(frame('"loud"'))! as AudioEvent).volume,
         isNull,
@@ -155,9 +153,9 @@ void main() {
     });
 
     test('sample_rate 缺失 → 24000（与 TtsSettings 默认一致）', () {
-      final AudioEvent e = parseWsFrame(
-        '{"type":"audio","data":{"audio":"AAAA"}}',
-      )! as AudioEvent;
+      final AudioEvent e =
+          parseWsFrame('{"type":"audio","data":{"audio":"AAAA"}}')!
+              as AudioEvent;
       expect(e.sampleRate, 24000);
       expect(e.pcm.length, 3);
     });
@@ -172,47 +170,53 @@ void main() {
 
     // ── 2026-09-11 新契约的可选字段：前后兼容是硬要求（旧服务端不发） ──
     test('sentence_seq 缺失 → null（攒句退化为「上次封口后继续」，不报错）', () {
-      final AudioEvent e = parseWsFrame(
-        '{"type":"audio","data":{"audio":"AAAA"}}',
-      )! as AudioEvent;
+      final AudioEvent e =
+          parseWsFrame('{"type":"audio","data":{"audio":"AAAA"}}')!
+              as AudioEvent;
       expect(e.sentenceSeq, isNull);
     });
 
     test('sentence_seq / start / end 按新契约解析', () {
-      final AudioEvent e = parseWsFrame(
-        '{"type":"audio","data":{"audio":"AAAA","start":true,"end":true,'
-        '"sentence_seq":3}}',
-      )! as AudioEvent;
+      final AudioEvent e =
+          parseWsFrame(
+                '{"type":"audio","data":{"audio":"AAAA","start":true,"end":true,'
+                '"sentence_seq":3}}',
+              )!
+              as AudioEvent;
       expect(e.sentenceSeq, 3);
       expect(e.start, isTrue);
       expect(e.end, isTrue);
     });
 
     test('整句 wav 直通钩子：带了就用、缺省为 null、坏了不毁整帧', () {
-      final AudioEvent e = parseWsFrame(
-        '{"type":"audio","data":{"audio":"AAAA","wav":"QUJD"}}',
-      )! as AudioEvent;
+      final AudioEvent e =
+          parseWsFrame('{"type":"audio","data":{"audio":"AAAA","wav":"QUJD"}}')!
+              as AudioEvent;
       expect(e.wav, isNotNull);
       expect(e.wav!.length, 3, reason: '"QUJD" = ABC');
 
-      final AudioEvent missing = parseWsFrame(
-        '{"type":"audio","data":{"audio":"AAAA"}}',
-      )! as AudioEvent;
+      final AudioEvent missing =
+          parseWsFrame('{"type":"audio","data":{"audio":"AAAA"}}')!
+              as AudioEvent;
       expect(missing.wav, isNull);
 
       // 坏 wav：当作没有，仍按分片处理（与「坏一帧就丢整帧」相反——这里还能留
       // 有用的 audio 分片）。
-      final AudioEvent bad = parseWsFrame(
-        '{"type":"audio","data":{"audio":"AAAA","wav":"!!!bad!!!"}}',
-      )! as AudioEvent;
+      final AudioEvent bad =
+          parseWsFrame(
+                '{"type":"audio","data":{"audio":"AAAA","wav":"!!!bad!!!"}}',
+              )!
+              as AudioEvent;
       expect(bad.wav, isNull);
       expect(bad.pcm.length, 3);
     });
 
     test('只有 wav 没有 audio 分片时仍是可用的一帧（前向兼容）', () {
-      final AudioEvent e = parseWsFrame(
-        '{"type":"audio","data":{"wav":"QUJD","sample_rate":16000}}',
-      )! as AudioEvent;
+      final AudioEvent e =
+          parseWsFrame(
+                '{"type":"audio","data":{"wav":"QUJD","sample_rate":16000}}',
+              )!
+              as AudioEvent;
       expect(e.wav!.length, 3);
       expect(e.pcm, isEmpty);
       expect(e.sampleRate, 16000);
@@ -234,7 +238,8 @@ void main() {
 
     test('data 不是对象 → 当空对象，帧本身仍然可用', () {
       final TurnStateEvent e =
-          parseWsFrame('{"type":"turn_state","data":"oops"}')! as TurnStateEvent;
+          parseWsFrame('{"type":"turn_state","data":"oops"}')!
+              as TurnStateEvent;
       expect(e.epoch, 0);
       expect(e.status, 'unknown', reason: '缺 status 也要给出可显示的值');
     });
@@ -292,7 +297,9 @@ void main() {
 
     test('`error` 帧：服务端当前还不发（events.rs 里标 P1 partial），解析侧先备好', () {
       final WsErrorEvent e =
-          parseWsFrame('{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}')!
+          parseWsFrame(
+                '{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}',
+              )!
               as WsErrorEvent;
       expect(e.code, 'llm_upstream');
       expect(e.message, '上游 401');
@@ -318,7 +325,9 @@ void main() {
 
     test('旧服务端的 `error` 帧（无 stage/hint/fatal）不报错，缺省补 null/false', () {
       final WsErrorEvent e =
-          parseWsFrame('{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}')!
+          parseWsFrame(
+                '{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}',
+              )!
               as WsErrorEvent;
       expect(e.stage, isNull);
       expect(e.hint, isNull);
@@ -329,11 +338,7 @@ void main() {
       final String raw = '{"type":"error","data":{"code":"x"}}';
       final WsErrorEvent e = parseWsFrame(raw)! as WsErrorEvent;
       expect(e.code, 'x');
-      expect(
-        e.message,
-        isEmpty,
-        reason: 'message 是直接上屏的字段——绝不能是整帧 JSON',
-      );
+      expect(e.message, isEmpty, reason: 'message 是直接上屏的字段——绝不能是整帧 JSON');
       expect(e.raw, raw, reason: '整帧原文仍要留给诊断');
     });
   });
@@ -374,7 +379,11 @@ void main() {
       expect(backoffForAttempt(2).inMilliseconds, 4000);
       expect(backoffForAttempt(3).inMilliseconds, 8000);
       expect(backoffForAttempt(4).inMilliseconds, 16000);
-      expect(backoffForAttempt(5).inMilliseconds, 30000, reason: '16s×2=32s → 夹到 30s');
+      expect(
+        backoffForAttempt(5).inMilliseconds,
+        30000,
+        reason: '16s×2=32s → 夹到 30s',
+      );
       expect(backoffForAttempt(6).inMilliseconds, 30000);
       expect(backoffForAttempt(50).inMilliseconds, 30000);
     });

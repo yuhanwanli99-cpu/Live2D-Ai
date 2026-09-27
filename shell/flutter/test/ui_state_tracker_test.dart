@@ -62,7 +62,9 @@ void main() {
     test('断开时清掉进行中的信号（否则重连后停在「说话中」）', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"voice_started"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"voice_started"}}'),
+      );
       expect(tracker.phase, UiPhase.speaking);
 
       tracker.onWsStatus(WsStatus.disconnected);
@@ -123,7 +125,9 @@ void main() {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"voice_started"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"voice_started"}}'),
+      );
       expect(tracker.phase, UiPhase.speaking);
     });
 
@@ -131,8 +135,12 @@ void main() {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"voice_started"}}'));
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"voice_ended"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"voice_started"}}'),
+      );
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"voice_ended"}}'),
+      );
       expect(tracker.voiceActive, isFalse);
       expect(tracker.phase, UiPhase.thinking);
     });
@@ -141,7 +149,9 @@ void main() {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"turn_state","data":{"epoch":0,"status":"completed"}}'));
+      tracker.consume(
+        frame('{"type":"turn_state","data":{"epoch":0,"status":"completed"}}'),
+      );
       expect(tracker.phase, UiPhase.idle);
       expect(tracker.errorActive, isFalse);
     });
@@ -150,7 +160,9 @@ void main() {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"turn_state","data":{"epoch":0,"status":"failed"}}'));
+      tracker.consume(
+        frame('{"type":"turn_state","data":{"epoch":0,"status":"failed"}}'),
+      );
       expect(tracker.phase, UiPhase.error);
       expect(tracker.errorMessage, isNotNull);
     });
@@ -159,7 +171,9 @@ void main() {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"text_delta","data":{"epoch":0,"completed":true}}'));
+      tracker.consume(
+        frame('{"type":"text_delta","data":{"epoch":0,"completed":true}}'),
+      );
       expect(tracker.phase, UiPhase.idle);
     });
 
@@ -177,7 +191,9 @@ void main() {
     test('新一轮受理会把上一轮的错误收掉', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"turn_state","data":{"epoch":0,"status":"failed"}}'));
+      tracker.consume(
+        frame('{"type":"turn_state","data":{"epoch":0,"status":"failed"}}'),
+      );
       expect(tracker.phase, UiPhase.error);
       tracker.markTurnAccepted();
       expect(tracker.phase, UiPhase.thinking);
@@ -191,9 +207,15 @@ void main() {
       final UiStateTracker tracker = UiStateTracker(timerFactory: timer.call);
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"voice_started"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"voice_started"}}'),
+      );
 
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"new_epoch","epoch":1}}'));
+      tracker.consume(
+        frame(
+          '{"type":"runtime_status","data":{"event":"new_epoch","epoch":1}}',
+        ),
+      );
       expect(tracker.phase, UiPhase.interrupted);
       expect(tracker.voiceActive, isFalse);
       expect(timer.pending, hasLength(1));
@@ -204,7 +226,9 @@ void main() {
       final _ManualTimer timer = _ManualTimer();
       final UiStateTracker tracker = UiStateTracker(timerFactory: timer.call);
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'),
+      );
       expect(tracker.phase, UiPhase.interrupted);
 
       timer.fireAll();
@@ -216,8 +240,12 @@ void main() {
       final _ManualTimer timer = _ManualTimer();
       final UiStateTracker tracker = UiStateTracker(timerFactory: timer.call);
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'));
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'),
+      );
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'),
+      );
       expect(timer.cancelled, 1, reason: '旧定时器必须被取消');
       expect(timer.pending, hasLength(2));
     });
@@ -226,7 +254,9 @@ void main() {
       final _ManualTimer timer = _ManualTimer();
       final UiStateTracker tracker = UiStateTracker(timerFactory: timer.call);
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'),
+      );
       tracker.onWsStatus(WsStatus.disconnected);
       expect(tracker.interrupted, isFalse);
       expect(timer.cancelled, greaterThanOrEqualTo(1));
@@ -236,7 +266,9 @@ void main() {
       final _ManualTimer timer = _ManualTimer();
       final UiStateTracker tracker = UiStateTracker(timerFactory: timer.call);
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"new_epoch"}}'),
+      );
       tracker.dispose();
       // 手动触发已经排队的到期回调：不该抛。
       // `Timer.cancel()` 挡不住**已排队**的回调，而在已 dispose 的
@@ -250,7 +282,9 @@ void main() {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
       tracker.consume(
-        frame('{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}'),
+        frame(
+          '{"type":"error","data":{"code":"llm_upstream","message":"上游 401"}}',
+        ),
       );
       expect(tracker.phase, UiPhase.error);
       // 2026-09-11：文案必须带码（`code：message`），因为**这条**路径才是
@@ -278,14 +312,19 @@ void main() {
           '"message":"上游非成功状态 401","hint":"确认 api_key_env 已设置"}}',
         ),
       );
-      expect(tracker.errorMessage, 'llm_upstream_401：上游非成功状态 401（确认 api_key_env 已设置）');
+      expect(
+        tracker.errorMessage,
+        'llm_upstream_401：上游非成功状态 401（确认 api_key_env 已设置）',
+      );
       expect(tracker.errorCode, 'llm_upstream_401');
     });
 
     test('turn_state failed 且无 error 帧 → 明说没有详情并给出去处', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"turn_state","data":{"status":"failed"}}'));
+      tracker.consume(
+        frame('{"type":"turn_state","data":{"status":"failed"}}'),
+      );
       expect(tracker.errorMessage, contains('未给出错误详情'));
       expect(tracker.errorMessage, contains('诊断日志'));
       expect(tracker.errorCode, 'turn_failed_no_detail');
@@ -294,7 +333,9 @@ void main() {
     test('用户关掉错误 → 回落', () {
       final UiStateTracker tracker = UiStateTracker();
       tracker.onWsStatus(WsStatus.connected);
-      tracker.consume(frame('{"type":"turn_state","data":{"status":"failed"}}'));
+      tracker.consume(
+        frame('{"type":"turn_state","data":{"status":"failed"}}'),
+      );
       tracker.clearError();
       expect(tracker.phase, UiPhase.idle);
       expect(tracker.errorMessage, isNull);
@@ -364,8 +405,10 @@ void main() {
       expect(tracker.phase, UiPhase.thinking, reason: '只有正文时仍是思考中');
 
       tracker.consume(
-        frame('{"data":{"epoch":0,"status":"completed"},"seq":564,'
-            '"ts":"2026-09-10T12:14:53.166Z","type":"turn_state"}'),
+        frame(
+          '{"data":{"epoch":0,"status":"completed"},"seq":564,'
+          '"ts":"2026-09-10T12:14:53.166Z","type":"turn_state"}',
+        ),
       );
       expect(tracker.phase, UiPhase.idle);
     });
@@ -375,8 +418,10 @@ void main() {
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
       tracker.consume(
-        frame('{"data":{"epoch":0,"status":"failed"},"seq":2,'
-            '"ts":"2026-09-10T12:13:43.310Z","type":"turn_state"}'),
+        frame(
+          '{"data":{"epoch":0,"status":"failed"},"seq":2,'
+          '"ts":"2026-09-10T12:13:43.310Z","type":"turn_state"}',
+        ),
       );
       expect(tracker.phase, UiPhase.error);
     });
@@ -392,7 +437,9 @@ void _markStoppedTests() {
       final UiStateTracker tracker = UiStateTracker(timerFactory: timer.call);
       tracker.onWsStatus(WsStatus.connected);
       tracker.markTurnAccepted();
-      tracker.consume(frame('{"type":"runtime_status","data":{"event":"voice_started"}}'));
+      tracker.consume(
+        frame('{"type":"runtime_status","data":{"event":"voice_started"}}'),
+      );
       expect(tracker.phase, UiPhase.speaking);
 
       tracker.markStopped();

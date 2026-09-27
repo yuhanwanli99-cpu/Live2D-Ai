@@ -24,6 +24,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/api/ws_status.dart';
 import 'package:live2d_ai_shell/app/app_shell.dart';
 import 'package:live2d_ai_shell/app/collapsible_panel.dart';
@@ -50,6 +51,7 @@ Widget shell({
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: AppShell(
+    prefs: const DisplayPrefs(),
     stage: const ColoredBox(color: Color(0xFF101010)),
     phase: UiPhase.idle,
     wsStatus: WsStatus.connected,
@@ -106,7 +108,9 @@ Future<void> openSettings(WidgetTester tester) async {
 
 void main() {
   group('P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳）', () {
-    testWidgets('compact 走的是 PageCrossFade，不是抽屉/浮层', (WidgetTester tester) async {
+    testWidgets('compact 走的是 PageCrossFade，不是抽屉/浮层', (
+      WidgetTester tester,
+    ) async {
       await pumpCompact(tester);
       expect(find.byType(PageCrossFade), findsOneWidget);
 
@@ -145,9 +149,7 @@ void main() {
   });
 
   group('P2-1 ①：两页**永不同时可见**', () {
-    testWidgets('过渡中每一帧都不透明度配对为 (1,0)（中点两页不同时可见）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('过渡中每一帧都不透明度配对为 (1,0)（中点两页不同时可见）', (WidgetTester tester) async {
       await pumpCompact(tester);
       await tester.tap(find.text('设置'));
       // 手动推进：不要 `pumpAndSettle`（那会跳过整个动画）。
@@ -235,9 +237,7 @@ void main() {
   });
 
   group('P2-1 ③：反向打断干净收敛', () {
-    testWidgets('过渡中「关掉」→ 干净地回到工作台（不卡在中间）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('过渡中「关掉」→ 干净地回到工作台（不卡在中间）', (WidgetTester tester) async {
       // # 为什么这里不是「点 ✕」
       //
       // `PageCrossFade` 在**动画进行中**给两页都套了
@@ -327,9 +327,7 @@ void main() {
   });
 
   group('P2-1 ⑤：设置页收起后，舞台那一块要还给 iframe', () {
-    testWidgets('垫层跟着开关一起收起（否则 compact 永远拖不动模型）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('垫层跟着开关一起收起（否则 compact 永远拖不动模型）', (WidgetTester tester) async {
       await pumpCompact(tester);
 
       StagePointerInterceptor interceptorOfPage() => tester.widget(

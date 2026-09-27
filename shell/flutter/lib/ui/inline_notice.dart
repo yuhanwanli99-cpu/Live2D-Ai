@@ -93,7 +93,11 @@ class InlineNotice extends StatelessWidget {
         palette.warning.withValues(alpha: 0.45),
         palette.warning,
       ),
-      NoticeSeverity.info => (colors.hoverWash, colors.hairline, colors.contentMuted),
+      NoticeSeverity.info => (
+        colors.hoverWash,
+        colors.hairline,
+        colors.contentMuted,
+      ),
     };
 
     return Semantics(
@@ -103,7 +107,7 @@ class InlineNotice extends StatelessWidget {
         margin: dense ? EdgeInsets.zero : const EdgeInsets.all(Space.s2),
         decoration: BoxDecoration(
           color: surface,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
+          borderRadius: BorderRadius.circular(colors.radius(AppRadius.sm)),
           border: Border.all(color: border),
         ),
         padding: EdgeInsets.fromLTRB(

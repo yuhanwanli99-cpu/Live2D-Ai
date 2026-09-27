@@ -23,11 +23,9 @@ const String kSentenceEnders = '。！？…；\n';
 
 /// 播报节流器。
 class LiveRegionThrottle extends ChangeNotifier {
-  LiveRegionThrottle({
-    Duration? minInterval,
-    DateTime Function()? now,
-  }) : minInterval = minInterval ?? kDefaultInterval,
-       _now = now ?? DateTime.now;
+  LiveRegionThrottle({Duration? minInterval, DateTime Function()? now})
+    : minInterval = minInterval ?? kDefaultInterval,
+      _now = now ?? DateTime.now;
 
   /// 默认播报间隔。
   ///
@@ -58,7 +56,8 @@ class LiveRegionThrottle extends ChangeNotifier {
   bool feed(String fullText) {
     if (fullText == _text) return false;
     final bool sentenceDone =
-        fullText.isNotEmpty && kSentenceEnders.contains(fullText[fullText.length - 1]);
+        fullText.isNotEmpty &&
+        kSentenceEnders.contains(fullText[fullText.length - 1]);
     final DateTime now = _now();
     final bool intervalElapsed =
         _lastAnnounce == null || now.difference(_lastAnnounce!) >= minInterval;

@@ -1,8 +1,9 @@
 /// 玻璃边缘高光：**一圈跟着指针走的描边**，不含任何模糊。
 ///
-/// 2026-09-11（前端加强计划 P3-1）新增。形状与参数来自 Morrow 的
-/// `LiquidRimPainter`（`lib/liquid_glass.dart:248-313`，Apache-2.0，
-/// 见 `CREDITS.md` §6.5），但**刻意只搬了它的一半**。
+/// 2026-09-11（前端加强计划 P3-1）新增。形状与参数来自 Morrow（明隙）的
+/// `LiquidRimPainter`（`lib/liquid_glass.dart:348`，**AGPL-3.0-only**，
+/// © 2026 StarrySky7D4 and contributors，取证 commit `c04ae14` / v0.1.9-test.55），
+/// 见 `CREDITS.md` §6.5 的 AGPL §5「被修改的内容」记录。**刻意只搬了它的一半**。
 ///
 /// # 为什么只搬「边缘高光」，不搬它的玻璃本体
 ///
@@ -99,8 +100,7 @@ class _GlassRimState extends State<GlassRim> {
     return MouseRegion(
       onHover: trackPointer
           ? (PointerHoverEvent event) {
-              final RenderBox? box =
-                  context.findRenderObject() as RenderBox?;
+              final RenderBox? box = context.findRenderObject() as RenderBox?;
               if (box == null || box.size.isEmpty) return;
               final Offset p = box.globalToLocal(event.position);
               setState(
@@ -179,10 +179,7 @@ class LiquidRimPainter extends CustomPainter {
     if (size.isEmpty || intensity <= 0) return;
 
     final Rect rect = (Offset.zero & size).deflate(0.8);
-    final RRect rrect = RRect.fromRectAndRadius(
-      rect,
-      Radius.circular(radius),
-    );
+    final RRect rrect = RRect.fromRectAndRadius(rect, Radius.circular(radius));
 
     // 外圈：四段渐变，方向由指针决定——这是「光在动」的全部来源。
     canvas.drawRRect(

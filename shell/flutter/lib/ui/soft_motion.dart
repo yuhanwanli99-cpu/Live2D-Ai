@@ -180,8 +180,6 @@ class _StartupRevealState extends State<StartupReveal>
   }
 
   @override
-  Widget build(BuildContext context) => FadeTransition(
-    opacity: _controller,
-    child: widget.child,
-  );
+  Widget build(BuildContext context) =>
+      FadeTransition(opacity: _controller, child: widget.child);
 }

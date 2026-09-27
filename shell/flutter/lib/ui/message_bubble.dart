@@ -131,102 +131,123 @@ class MessageBubble extends StatelessWidget {
               if (message.unfinished) '（未收尾）',
             ].join(),
             excludeSemantics: true,
-            child: Container(
-              // **相对宽度**，不是写死的 460（见文件头注 ②）。
-              // 0.92 留一点边距，让长句子不贴着面板边缘。
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width * 0.92,
-              ),
-              decoration: BoxDecoration(
-                color: background,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                border: failed
-                    ? Border.all(color: palette.dangerBorder)
-                    : null,
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: Space.s3,
-                vertical: Space.s2,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  // ── 思考（推理模型；2026-09-13）──
-                  //
-                  // 位置在正文**之上**：思考先于答案发生，顺序与模型一致。
-                  // 正文为空时它默认展开并带一句说明——那种情况（思考吃掉了
-                  // 输出预算）正是用户最需要看到它的时刻。
-                  if (message.reasoning.trim().isNotEmpty)
-                    _ReasoningSection(
-                      text: message.reasoning,
-                      streaming: message.streaming,
-                      onlyReasoning: message.text.trim().isEmpty,
-                      mutedColor: colors.contentMuted,
-                      borderColor: colors.hairline,
-                    ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: <Widget>[
-                      // 只有思考、没有正文时**不**摆一个「…」占位：那会让人以为
-                      // 还在等回复，而实际上这一轮已经收口了（说明行会讲清楚）。
-                      if (message.text.isNotEmpty || !onlyReasoning)
-                        Flexible(
-                          child: _MessageBody(
-                            text: placeholderOnly ? '…' : message.text,
-                            color: foreground,
-                          ),
-                        ),
-                      // 流式光标：只在**正文已经来了**的时候显示，
-                      // 否则会与上面的「…」重复。
-                      //
-                      // **为什么是画出来的竖条，而不是 `Text('▍')`**
-                      // （2026-09-11，无头浏览器真机点火时抓到）：`▍`（U+258D）
-                      // **不在自托管的中文子集里**（子集 22 036 码点，实测不含它），
-                      // 而它**每次流式回复都会上屏** → CanvasKit 找不到字形就去
-                      // `fonts.gstatic.com` 拉回退字体（实测到该请求，HTTP 200）。
-                      // 这正踩中本项目的硬约束「中文字体必须自托管，否则**断网即
-                      // 豆腐块**」——有网时完全看不出来。竖条是纯绘制，零字体依赖，
-                      // 宽度/高度也都取令牌。
-                      if (message.streaming && message.text.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(left: OpticalNudge.thin),
-                          child: SizedBox(
-                            width: OpticalNudge.thin,
-                            height: Space.s4,
-                            child: ColoredBox(color: foreground),
-                          ),
-                        ),
-                    ],
-                  ),
-                  // ── 兜底正文的说明行（rc.3 N0，2026-09-13）──
-                  //
-                  // 位置在正文**之下**：它是对这段文字的注脚（「没有语音收尾」），
-                  // 不是内容本身。只在 `unfinished` 且确有正文时出现——
-                  // 空气泡另有失败/系统行那条路。
-                  if (message.unfinished && message.text.trim().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: Space.s1),
-                      child: Text(
-                        kUnfinishedTurnCaption,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.contentMuted,
-                        ),
+            child: LayoutBuilder(
+              // **按父级的真实可用宽度**约束，而不是屏幕宽（2026-09-27）。
+              //
+              // 为什么改：聊天面板在 expanded 下只有 340 px、medium 下 320 px，
+              // 而屏幕宽 ≥1280 —— 原来那条 `MediaQuery.width * 0.92`
+              // 在三个断点下**一次都没真正生效**（值永远远大于面板宽），
+              // 于是「气泡不会横跨整块面板」这件事其实从来靠的是面板自己，
+              // 不是这条约束。留着它等于留一句「我限制了」的假话。
+              //
+              // 现在用 [LayoutBuilder] 拿容器宽，并**再压一道阅读上限**
+              // （[kBubbleReadingWidth]）：面板再宽，一段话也不该横着铺满
+              // 1000 px —— 中文一行超过 ~45 字就该换行了，眼睛要往回找行首。
+              builder: (BuildContext context, BoxConstraints parent) =>
+                  Container(
+                    key: kMessageBubbleSurfaceKey,
+                    constraints: BoxConstraints(
+                      maxWidth: kBubbleReadingWidth.clamp(
+                        Space.s2,
+                        parent.maxWidth,
                       ),
                     ),
-                  // ── 底部动作条：复制（+ 失败时的重试） ──
-                  //
-                  // 只在**非流式**时出现：流式期间文本还在变，复制到的会是
-                  // 半句话（按「一句一单元」的口径，半句话本身也不该被当成
-                  // 一轮的产出）。
-                  if (!message.streaming && (message.text.isNotEmpty || failed))
-                    _BubbleActions(
-                      text: message.text,
-                      onRetry: failed ? onRetry : null,
-                      muted: colors.contentMuted,
+                    decoration: BoxDecoration(
+                      color: background,
+                      borderRadius: BorderRadius.circular(
+                        colors.radius(AppRadius.lg),
+                      ),
+                      border: failed
+                          ? Border.all(color: palette.dangerBorder)
+                          : null,
                     ),
-                ],
-              ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Space.s3,
+                      vertical: Space.s2,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        // ── 思考（推理模型；2026-09-13）──
+                        //
+                        // 位置在正文**之上**：思考先于答案发生，顺序与模型一致。
+                        // 正文为空时它默认展开并带一句说明——那种情况（思考吃掉了
+                        // 输出预算）正是用户最需要看到它的时刻。
+                        if (message.reasoning.trim().isNotEmpty)
+                          _ReasoningSection(
+                            text: message.reasoning,
+                            streaming: message.streaming,
+                            onlyReasoning: message.text.trim().isEmpty,
+                            mutedColor: colors.contentMuted,
+                            borderColor: colors.hairline,
+                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: <Widget>[
+                            // 只有思考、没有正文时**不**摆一个「…」占位：那会让人以为
+                            // 还在等回复，而实际上这一轮已经收口了（说明行会讲清楚）。
+                            if (message.text.isNotEmpty || !onlyReasoning)
+                              Flexible(
+                                child: _MessageBody(
+                                  text: placeholderOnly ? '…' : message.text,
+                                  color: foreground,
+                                ),
+                              ),
+                            // 流式光标：只在**正文已经来了**的时候显示，
+                            // 否则会与上面的「…」重复。
+                            //
+                            // **为什么是画出来的竖条，而不是 `Text('▍')`**
+                            // （2026-09-11，无头浏览器真机点火时抓到）：`▍`（U+258D）
+                            // **不在自托管的中文子集里**（子集 22 036 码点，实测不含它），
+                            // 而它**每次流式回复都会上屏** → CanvasKit 找不到字形就去
+                            // `fonts.gstatic.com` 拉回退字体（实测到该请求，HTTP 200）。
+                            // 这正踩中本项目的硬约束「中文字体必须自托管，否则**断网即
+                            // 豆腐块**」——有网时完全看不出来。竖条是纯绘制，零字体依赖，
+                            // 宽度/高度也都取令牌。
+                            if (message.streaming && message.text.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  left: OpticalNudge.thin,
+                                ),
+                                child: SizedBox(
+                                  width: OpticalNudge.thin,
+                                  height: Space.s4,
+                                  child: ColoredBox(color: foreground),
+                                ),
+                              ),
+                          ],
+                        ),
+                        // ── 兜底正文的说明行（rc.3 N0，2026-09-13）──
+                        //
+                        // 位置在正文**之下**：它是对这段文字的注脚（「没有语音收尾」），
+                        // 不是内容本身。只在 `unfinished` 且确有正文时出现——
+                        // 空气泡另有失败/系统行那条路。
+                        if (message.unfinished &&
+                            message.text.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: Space.s1),
+                            child: Text(
+                              kUnfinishedTurnCaption,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: colors.contentMuted),
+                            ),
+                          ),
+                        // ── 底部动作条：复制（+ 失败时的重试） ──
+                        //
+                        // 只在**非流式**时出现：流式期间文本还在变，复制到的会是
+                        // 半句话（按「一句一单元」的口径，半句话本身也不该被当成
+                        // 一轮的产出）。
+                        if (!message.streaming &&
+                            (message.text.isNotEmpty || failed))
+                          _BubbleActions(
+                            text: message.text,
+                            onRetry: failed ? onRetry : null,
+                            muted: colors.contentMuted,
+                          ),
+                      ],
+                    ),
+                  ),
             ),
           ),
         ],
@@ -234,6 +255,16 @@ class MessageBubble extends StatelessWidget {
     );
   }
 }
+
+/// 气泡表面那一层的 key（测试按它读约束，不靠 widget 类型猜）。
+const Key kMessageBubbleSurfaceKey = ValueKey<String>('message-bubble-surface');
+
+/// 一段话的**阅读宽度上限**。
+///
+/// 480 而不是更大：中文一行超过 ~45 字之后，眼睛回找行首就开始费劲
+/// （每行 22 字左右是舒适区）。面板 340 px 时这条约束不生效
+/// （`clamp` 会取面板宽），面板被拉宽时它才开始起作用。
+const double kBubbleReadingWidth = 480;
 
 /// 「思考」折叠区（推理模型的 `reasoning_content`；2026-09-13）。
 ///

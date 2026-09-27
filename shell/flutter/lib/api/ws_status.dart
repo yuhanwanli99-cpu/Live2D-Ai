@@ -52,5 +52,6 @@ enum WsStatus {
   bool get isUsable => this == WsStatus.connected;
 
   /// 是否处于「用户应该看到问题」的状态（供 `ConnectionBadge` 上 danger 色）。
-  bool get isProblem => this == WsStatus.disconnected || this == WsStatus.closed;
+  bool get isProblem =>
+      this == WsStatus.disconnected || this == WsStatus.closed;
 }

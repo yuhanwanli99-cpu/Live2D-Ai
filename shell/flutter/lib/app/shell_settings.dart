@@ -297,6 +297,11 @@ extension _ShellSettingsWiring on _ShellRootState {
           // 2026-09-14（rc.5）：壳全局背景（同步开时与舞台共用同一张图）。
           onPickShellImage: () => unawaited(_pickShellImage()),
           onClearShellImage: _clearShellImage,
+          onRemoveBackground: _removeBackground,
+          onRemoveBackgrounds: _removeBackgrounds,
+          onReorderBackground: _reorderBackground,
+          onPreviewBackground: _previewBackground,
+          onAddPattern: _addPattern,
           shellImageMessage: _shellImageMessage,
           shellImageFailed: _shellImageFailed,
           // 动作幅度（2026-09-16）：服务端产品设置，改的是设置草稿，
@@ -376,9 +381,8 @@ extension _ShellSettingsWiring on _ShellRootState {
         return DeveloperSection(
           devMode: shownDevMode,
           // dev_mode 走设置草稿（顶层三态），保存后才写盘。
-          onDevModeChanged: (bool v) => _settings.edit(
-            (SettingsDraft d) => d.devMode = v,
-          ),
+          onDevModeChanged: (bool v) =>
+              _settings.edit((SettingsDraft d) => d.devMode = v),
           // 启动参数强制开启时**不谎报可关**（rc.3 N3，2026-09-13 接线）。
           //
           // 判据：**有效** dev_mode（`GET /api/v1/app/status` 的 `dev_mode`，

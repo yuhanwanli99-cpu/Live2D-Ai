@@ -20,19 +20,24 @@ Widget wrap(Widget child) => MaterialApp(
   home: Scaffold(body: child),
 );
 
-ChatMessage msg(String text, {bool streaming = false, ChatRole role = ChatRole.assistant}) =>
-    ChatMessage(role: role, text: text, streaming: streaming);
+ChatMessage msg(
+  String text, {
+  bool streaming = false,
+  ChatRole role = ChatRole.assistant,
+}) => ChatMessage(role: role, text: text, streaming: streaming);
 
 void main() {
   group('规格 §9.1 之一：舞台 iframe 必须有语义标签（平台视图对读屏是黑盒）', () {
-    Widget stageHost({Live2DBridgePhase phase = Live2DBridgePhase.ready, String? model}) =>
-        wrap(
-          StageHost(
-            stage: const ColoredBox(color: Color(0xFF000000)),
-            phase: phase,
-            modelName: model,
-          ),
-        );
+    Widget stageHost({
+      Live2DBridgePhase phase = Live2DBridgePhase.ready,
+      String? model,
+    }) => wrap(
+      StageHost(
+        stage: const ColoredBox(color: Color(0xFF000000)),
+        phase: phase,
+        modelName: model,
+      ),
+    );
 
     testWidgets('有模型名时念「Live2D 舞台，正在显示 X」', (WidgetTester tester) async {
       final SemanticsHandle handle = tester.ensureSemantics();
@@ -92,10 +97,7 @@ void main() {
       final Finder bubble = find.bySemanticsLabel(RegExp('好呀，那我就说两句。'));
       expect(bubble, findsOneWidget);
       final SemanticsNode node = tester.getSemantics(bubble);
-      expect(
-        node.getSemanticsData().flagsCollection.isLiveRegion,
-        isTrue,
-      );
+      expect(node.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
       expect(
         node.label,
         isNot(contains('后面还在生成')),
@@ -104,7 +106,9 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('历史消息（不传 announcement）**不是** liveRegion', (WidgetTester tester) async {
+    testWidgets('历史消息（不传 announcement）**不是** liveRegion', (
+      WidgetTester tester,
+    ) async {
       final SemanticsHandle handle = tester.ensureSemantics();
       await tester.pumpWidget(
         wrap(MessageBubble(message: msg('旧消息', streaming: false))),
@@ -123,8 +127,7 @@ void main() {
 
   group('播报节流器（纯逻辑）', () {
     late DateTime now;
-    LiveRegionThrottle build() =>
-        LiveRegionThrottle(now: () => now);
+    LiveRegionThrottle build() => LiveRegionThrottle(now: () => now);
 
     setUp(() => now = DateTime(2026, 9, 10, 21, 0, 0));
 
@@ -183,7 +186,10 @@ void main() {
     });
 
     test('默认间隔是具体值（1.5 s：约够念 4–6 个中文字）', () {
-      expect(LiveRegionThrottle.kDefaultInterval, const Duration(milliseconds: 1500));
+      expect(
+        LiveRegionThrottle.kDefaultInterval,
+        const Duration(milliseconds: 1500),
+      );
     });
   });
 
@@ -230,14 +236,20 @@ void main() {
     });
 
     test('绑定表：macOS 用 meta、其余用 control（**不同时绑**）', () {
-      final Map<ShortcutActivator, VoidCallback> mac =
-          AppShortcutCallbacks(isMacOS: true, onSend: () {}).bindings();
-      final Map<ShortcutActivator, VoidCallback> pc =
-          AppShortcutCallbacks(isMacOS: false, onSend: () {}).bindings();
-      final List<SingleActivator> macKeys =
-          mac.keys.whereType<SingleActivator>().toList();
-      final List<SingleActivator> pcKeys =
-          pc.keys.whereType<SingleActivator>().toList();
+      final Map<ShortcutActivator, VoidCallback> mac = AppShortcutCallbacks(
+        isMacOS: true,
+        onSend: () {},
+      ).bindings();
+      final Map<ShortcutActivator, VoidCallback> pc = AppShortcutCallbacks(
+        isMacOS: false,
+        onSend: () {},
+      ).bindings();
+      final List<SingleActivator> macKeys = mac.keys
+          .whereType<SingleActivator>()
+          .toList();
+      final List<SingleActivator> pcKeys = pc.keys
+          .whereType<SingleActivator>()
+          .toList();
       expect(macKeys.every((SingleActivator a) => a.meta), isTrue);
       expect(macKeys.any((SingleActivator a) => a.control), isFalse);
       expect(pcKeys.every((SingleActivator a) => a.control), isTrue);
@@ -257,17 +269,17 @@ void main() {
     test('Esc：覆盖层关掉了就**不再**停止本轮（一次 Esc 只做一件事）', () {
       int stops = 0;
       bool overlayOpen = true;
-      final Map<ShortcutActivator, VoidCallback> map =
-          AppShortcutCallbacks(
-            isMacOS: false,
-            onStop: () => stops++,
-            onDismissOverlay: () {
-              if (!overlayOpen) return false;
-              overlayOpen = false;
-              return true;
-            },
-          ).bindings();
-      final VoidCallback esc = map[const SingleActivator(LogicalKeyboardKey.escape)]!;
+      final Map<ShortcutActivator, VoidCallback> map = AppShortcutCallbacks(
+        isMacOS: false,
+        onStop: () => stops++,
+        onDismissOverlay: () {
+          if (!overlayOpen) return false;
+          overlayOpen = false;
+          return true;
+        },
+      ).bindings();
+      final VoidCallback esc =
+          map[const SingleActivator(LogicalKeyboardKey.escape)]!;
 
       esc(); // 覆盖层开着 → 关它
       expect(stops, 0, reason: '关侧板时不该顺手把对话停了');
@@ -289,7 +301,10 @@ void main() {
           child: wrap(const SizedBox()),
         ),
       );
-      expect(MediaQuery.disableAnimationsOf(tester.element(find.byType(SizedBox))), isTrue);
+      expect(
+        MediaQuery.disableAnimationsOf(tester.element(find.byType(SizedBox))),
+        isTrue,
+      );
     });
 
     test('`RepaintBoundary`：舞台被包住（30 Hz 口型不拖累聊天列表）', () {

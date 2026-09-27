@@ -81,7 +81,9 @@ class EnvApi {
       keys: raw is List
           ? raw
                 .whereType<Map<Object?, Object?>>()
-                .map((Map<Object?, Object?> m) => EnvKey.fromJson(_stringKeys(m)))
+                .map(
+                  (Map<Object?, Object?> m) => EnvKey.fromJson(_stringKeys(m)),
+                )
                 .where((EnvKey k) => k.key.isNotEmpty)
                 .toList()
           : const <EnvKey>[],

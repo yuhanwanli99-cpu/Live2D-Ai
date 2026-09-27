@@ -235,10 +235,7 @@ class SentenceAssembler {
     // 包络点：偏移 = 本片在这一句内的起点。空片（引擎允许 final 块 0 样本）
     // 只要带了 volume 也记一个点——它让嘴巴在句尾准确闭上。
     if (frame.pcm.isNotEmpty || frame.volume != null) {
-      _envelope.add((
-        offsetSec: _elapsedSec,
-        level: _levelFor(frame),
-      ));
+      _envelope.add((offsetSec: _elapsedSec, level: _levelFor(frame)));
     }
     if (frame.pcm.isNotEmpty) {
       _pcm.add(frame.pcm);
@@ -292,8 +289,7 @@ class SentenceAssembler {
     _rate = kFallbackSampleRate;
   }
 
-  int _rateOf(int raw) =>
-      raw > 0 && raw <= 384000 ? raw : kFallbackSampleRate;
+  int _rateOf(int raw) => raw > 0 && raw <= 384000 ? raw : kFallbackSampleRate;
 
   /// 本片的电平：服务端 `volume` 优先，缺字段才在本地算 RMS（见 [PcmFrame.volume]）。
   double _levelFor(PcmFrame frame) {

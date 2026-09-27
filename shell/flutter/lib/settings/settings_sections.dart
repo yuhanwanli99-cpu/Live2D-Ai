@@ -49,7 +49,6 @@ enum SettingsSection {
       (index >= 0 && index < SettingsSection.values.length)
       ? SettingsSection.values[index]
       : SettingsSection.values.first;
-
 }
 
 /// **全部**分区（顺序 = 枚举声明顺序）。

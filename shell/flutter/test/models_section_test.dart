@@ -23,10 +23,7 @@ ModelInfo _model(String id, {bool active = false}) => ModelInfo(
   moc3File: '$id.moc3',
 );
 
-Future<void> _pump(
-  WidgetTester tester,
-  ModelsSection section,
-) async {
+Future<void> _pump(WidgetTester tester, ModelsSection section) async {
   await tester.pumpWidget(
     MaterialApp(
       // 必须用真主题：SectionHeader 等组件从 AppColors 扩展取色。
@@ -96,10 +93,7 @@ void main() {
     await _pump(
       tester,
       ModelsSection(
-        models: <ModelInfo>[
-          _model('bai', active: true),
-          _model('neko'),
-        ],
+        models: <ModelInfo>[_model('bai', active: true), _model('neko')],
         loading: false,
         onActivate: (String id) async => activated.add(id),
         onImport: (String id) async {},

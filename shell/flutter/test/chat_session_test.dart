@@ -68,11 +68,7 @@ void main() {
       store.delete(b.id);
       expect(store.activeId, a.id);
       store.delete(a.id);
-      expect(
-        store.activeId,
-        isNull,
-        reason: '删光了就是空的 —— 不该自动新建一个（用户删光就是想要干净）',
-      );
+      expect(store.activeId, isNull, reason: '删光了就是空的 —— 不该自动新建一个（用户删光就是想要干净）');
       expect(store.sessions, isEmpty);
     });
 
@@ -101,11 +97,7 @@ void main() {
       expect(s.displayTitle, kUntitledSessionLabel);
       store.append(bot('你好！'), now: at(0));
       store.append(user('帮我看看这个报错'), now: at(1));
-      expect(
-        s.displayTitle,
-        '帮我看看这个报错',
-        reason: '取用户消息而不是助手消息：用户打的字是他找会话时的线索',
-      );
+      expect(s.displayTitle, '帮我看看这个报错', reason: '取用户消息而不是助手消息：用户打的字是他找会话时的线索');
     });
 
     test('自动标题超过上限就截断并加省略号（**按字符截，不切坏中文**）', () {
@@ -143,7 +135,11 @@ void main() {
       final ChatSession a = store.create(now: at(0));
       final ChatSession b = store.create(now: at(1));
       final ChatSession c = store.create(now: at(2));
-      expect(store.byRecency.map((ChatSession s) => s.id), <String>[c.id, b.id, a.id]);
+      expect(store.byRecency.map((ChatSession s) => s.id), <String>[
+        c.id,
+        b.id,
+        a.id,
+      ]);
 
       // 给最老的追加一条消息 → 它应当浮到最上面。
       store.select(a.id);
@@ -163,11 +159,7 @@ void main() {
       store.create(now: at(59));
 
       expect(store.sessions.length, ChatSessionStore.maxSessions);
-      expect(
-        store.sessions.contains(oldest),
-        isFalse,
-        reason: '最久没用过的那个应当被丢掉',
-      );
+      expect(store.sessions.contains(oldest), isFalse, reason: '最久没用过的那个应当被丢掉');
     });
 
     test('裁剪**绝不删掉当前选中的会话**（存档被塞爆时也要成立）', () {
@@ -194,16 +186,8 @@ void main() {
       );
 
       expect(store.sessions.length, ChatSessionStore.maxSessions);
-      expect(
-        store.activeId,
-        's0',
-        reason: 'activeId 不该在裁剪里被清空',
-      );
-      expect(
-        store.active,
-        isNotNull,
-        reason: '**当前选中的会话被裁掉了** —— 用户一打开页面就没得看',
-      );
+      expect(store.activeId, 's0', reason: 'activeId 不该在裁剪里被清空');
+      expect(store.active, isNotNull, reason: '**当前选中的会话被裁掉了** —— 用户一打开页面就没得看');
     });
 
     test('单个会话的消息超过上限时丢**最旧**的', () {
@@ -306,11 +290,7 @@ void main() {
       // 与正常回复一模一样，等于把「未收尾」这个事实抹掉了。
       final ChatSessionStore store = ChatSessionStore.empty();
       store.append(
-        ChatMessage(
-          role: ChatRole.assistant,
-          text: '第一句。第二',
-          unfinished: true,
-        ),
+        ChatMessage(role: ChatRole.assistant, text: '第一句。第二', unfinished: true),
         now: at(0),
       );
       final ChatSessionStore back = ChatSessionStore.fromJson(store.toJson());
@@ -386,7 +366,8 @@ void main() {
           <String, Object?>{
             'id': 's$i',
             'createdAt': '2026-09-11T12:00:00.000',
-            'updatedAt': '2026-09-11T12:${(i % 60).toString().padLeft(2, '0')}:00.000',
+            'updatedAt':
+                '2026-09-11T12:${(i % 60).toString().padLeft(2, '0')}:00.000',
             'messages': <Object?>[
               for (int j = 0; j < 600; j++)
                 <String, Object?>{'role': 'user', 'text': 'x$j'},
@@ -394,10 +375,7 @@ void main() {
           },
       ];
       final ChatSessionStore store = ChatSessionStore.fromJson(
-        <String, Object?>{
-          'version': kChatStoreVersion,
-          'sessions': many,
-        },
+        <String, Object?>{'version': kChatStoreVersion, 'sessions': many},
       );
       expect(store.sessions.length, ChatSessionStore.maxSessions);
       for (final ChatSession s in store.sessions) {
@@ -411,11 +389,26 @@ void main() {
 
     test('分档正确', () {
       expect(relativeTime(now, now: now), '刚刚');
-      expect(relativeTime(now.subtract(const Duration(seconds: 30)), now: now), '刚刚');
-      expect(relativeTime(now.subtract(const Duration(minutes: 5)), now: now), '5 分钟前');
-      expect(relativeTime(now.subtract(const Duration(hours: 3)), now: now), '3 小时前');
-      expect(relativeTime(now.subtract(const Duration(days: 1)), now: now), '昨天');
-      expect(relativeTime(now.subtract(const Duration(days: 3)), now: now), '3 天前');
+      expect(
+        relativeTime(now.subtract(const Duration(seconds: 30)), now: now),
+        '刚刚',
+      );
+      expect(
+        relativeTime(now.subtract(const Duration(minutes: 5)), now: now),
+        '5 分钟前',
+      );
+      expect(
+        relativeTime(now.subtract(const Duration(hours: 3)), now: now),
+        '3 小时前',
+      );
+      expect(
+        relativeTime(now.subtract(const Duration(days: 1)), now: now),
+        '昨天',
+      );
+      expect(
+        relativeTime(now.subtract(const Duration(days: 3)), now: now),
+        '3 天前',
+      );
       expect(relativeTime(DateTime(2026, 9, 1, 8), now: now), '2026-09-01');
     });
 
@@ -456,11 +449,7 @@ void main() {
       expect(store.messages.length, 3);
       expect(store.messages[1].role, ChatRole.system);
       expect(store.messages[1].text, kWordlessTurnNotice);
-      expect(
-        store.messages[2].text,
-        '第二句',
-        reason: '替换不许把后面的消息挤走或打乱顺序',
-      );
+      expect(store.messages[2].text, '第二句', reason: '替换不许把后面的消息挤走或打乱顺序');
     });
 
     test('目标不在活动会话里 → false（不抛、不改动任何东西）', () {

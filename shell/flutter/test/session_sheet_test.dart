@@ -17,7 +17,12 @@ import 'package:live2d_ai_shell/ui/theme.dart';
 
 ChatMessage user(String t) => ChatMessage(role: ChatRole.user, text: t);
 
-ChatSession session(String id, String title, {int messages = 0, int minute = 0}) {
+ChatSession session(
+  String id,
+  String title, {
+  int messages = 0,
+  int minute = 0,
+}) {
   final ChatSession s = ChatSession(
     id: id,
     title: title,
@@ -73,18 +78,12 @@ void main() {
       expect(find.text('第二个'), findsOneWidget);
 
       final ListTile active = tester.widget<ListTile>(
-        find.ancestor(
-          of: find.text('第二个'),
-          matching: find.byType(ListTile),
-        ),
+        find.ancestor(of: find.text('第二个'), matching: find.byType(ListTile)),
       );
       expect(active.selected, isTrue);
 
       final ListTile other = tester.widget<ListTile>(
-        find.ancestor(
-          of: find.text('第一个'),
-          matching: find.byType(ListTile),
-        ),
+        find.ancestor(of: find.text('第一个'), matching: find.byType(ListTile)),
       );
       expect(other.selected, isFalse);
     });
@@ -102,18 +101,13 @@ void main() {
 
     testWidgets('空会话显示「空会话」（不是「0 条 · —」）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        harness(
-          sessions: <ChatSession>[session('a', '甲')],
-          activeId: 'a',
-        ),
+        harness(sessions: <ChatSession>[session('a', '甲')], activeId: 'a'),
       );
       await tester.pump();
       expect(find.text('空会话'), findsOneWidget);
     });
 
-    testWidgets('一个会话都没有时给说明 + 指向「新建」（不是一片空白）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('一个会话都没有时给说明 + 指向「新建」（不是一片空白）', (WidgetTester tester) async {
       await tester.pumpWidget(harness(sessions: const <ChatSession>[]));
       await tester.pump();
       expect(find.textContaining('还没有会话'), findsOneWidget);
@@ -176,10 +170,7 @@ void main() {
   group('重命名：**行内输入框**，不新开 overlay', () {
     testWidgets('点「改名」→ 该行变成输入框（预填现有名字）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        harness(
-          sessions: <ChatSession>[session('a', '旧名字')],
-          activeId: 'a',
-        ),
+        harness(sessions: <ChatSession>[session('a', '旧名字')], activeId: 'a'),
       );
       await tester.pump();
       expect(find.byType(TextField), findsNothing);
@@ -261,14 +252,9 @@ void main() {
       expect(find.byType(TextField), findsNothing);
     });
 
-    testWidgets('空标题的会话：输入框**也是空的**（留空 = 恢复自动标题）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('空标题的会话：输入框**也是空的**（留空 = 恢复自动标题）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        harness(
-          sessions: <ChatSession>[session('a', '')],
-          activeId: 'a',
-        ),
+        harness(sessions: <ChatSession>[session('a', '')], activeId: 'a'),
       );
       await tester.pump();
       await tester.tap(find.text('改名'));
@@ -345,10 +331,7 @@ void main() {
 
     testWidgets('删除确认态与重命名态**互斥**（不会同时开着）', (WidgetTester tester) async {
       await tester.pumpWidget(
-        harness(
-          sessions: <ChatSession>[session('a', '甲')],
-          activeId: 'a',
-        ),
+        harness(sessions: <ChatSession>[session('a', '甲')], activeId: 'a'),
       );
       await tester.pump();
 
@@ -405,8 +388,10 @@ void main() {
       await tester.tap(find.text('开'));
       await tester.pumpAndSettle();
 
-      sawInterceptor =
-          find.byType(StagePointerInterceptor).evaluate().isNotEmpty;
+      sawInterceptor = find
+          .byType(StagePointerInterceptor)
+          .evaluate()
+          .isNotEmpty;
       expect(
         sawInterceptor,
         isTrue,

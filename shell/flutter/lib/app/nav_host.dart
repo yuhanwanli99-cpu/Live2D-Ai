@@ -186,9 +186,20 @@ class InlineSettingsDock extends StatelessWidget {
                 child: GlassRim(
                   borderRadius: BorderRadius.circular(AppRadius.xl),
                   child: DecoratedBox(
+                    // ⚠️ **这一层不铺底色**（2026-09-27 修一个真缺陷）。
+                    //
+                    // 它原来是 `color: colorScheme.surface`——**完全不透明**，
+                    // 而且正好**套在** [SettingsScaffold] 那张半透明面的外面。
+                    // 于是「界面透明程度」滑杆改的是里面那张被彻底遮住的面：
+                    // 用户拖滑杆，设置面板**一个像素都不变**。
+                    // 这就是 P4 说的「看得见、调得动、没有效果」。
+                    //
+                    // 现在底色交给 [SettingsScaffold] 独占（它读
+                    // `AppColors.panelAlpha`），这里只留描边与高光。
+                    // 顺带修掉一处颜色不一致：这里原本用 `surface`，
+                    // 里面那张用 `raised`——两层不同色的面叠在一起。
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(AppRadius.xl),
+                      color: Colors.transparent,
                       border: Border.all(color: appColorsOf(context).hairline),
                     ),
                     child: ClipRRect(

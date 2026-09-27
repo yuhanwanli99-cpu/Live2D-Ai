@@ -142,9 +142,7 @@ void main() {
       expect(seen, <String>['http://b/v1']);
     });
 
-    testWidgets('外部值变化时同步进输入框（保存后回填 / 放弃改动）', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('外部值变化时同步进输入框（保存后回填 / 放弃改动）', (WidgetTester tester) async {
       await tester.pumpWidget(
         wrap(
           TextFieldRow(

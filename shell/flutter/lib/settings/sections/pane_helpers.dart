@@ -11,8 +11,7 @@ import '../../api/settings_models.dart';
 String effString(String? drafted, String remote) => drafted ?? remote;
 
 /// 草稿优先取可空字符串（`tts.model` 协议上可为 null）。
-String? effNullableString(String? drafted, String? remote) =>
-    drafted ?? remote;
+String? effNullableString(String? drafted, String? remote) => drafted ?? remote;
 
 /// 草稿优先取整数。
 int effInt(int? drafted, int remote) => drafted ?? remote;

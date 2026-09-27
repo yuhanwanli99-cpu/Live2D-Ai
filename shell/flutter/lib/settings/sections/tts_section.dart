@@ -66,7 +66,8 @@ class TtsSection extends StatelessWidget {
       children: <Widget>[
         const SectionHeader(
           title: '语音合成',
-          description: 'TTS 上游与音色。合成按**整句**进行，不做句中切分。'
+          description:
+              'TTS 上游与音色。合成按**整句**进行，不做句中切分。'
               '这里是语音链路的**唯一权威配置**——TTS 是核心链路，不是 Mod。',
         ),
         TextFieldRow(
@@ -100,7 +101,8 @@ class TtsSection extends StatelessWidget {
         ReadonlyField(
           label: '音频规格',
           icon: Icons.settings_voice,
-          text: '${tts.sampleRate} Hz · ${tts.channels == 1 ? '单声道' : '${tts.channels} 声道'}',
+          text:
+              '${tts.sampleRate} Hz · ${tts.channels == 1 ? '单声道' : '${tts.channels} 声道'}',
           description: '当前值；改它后果严重（改错 = 全是噪声），所以只在开发者模式里可改',
         ),
         ReadonlyField(
@@ -123,9 +125,7 @@ class TtsSection extends StatelessWidget {
         ReadonlyField(
           label: '服务端静音',
           icon: Icons.campaign_outlined,
-          text: serverMuted
-              ? '静音中（LIVE2D_AI_MUTE_AUDIO=1）——任何客户端都听不到'
-              : '未静音',
+          text: serverMuted ? '静音中（LIVE2D_AI_MUTE_AUDIO=1）——任何客户端都听不到' : '未静音',
           description: '这是**观测值**，不是开关：它由服务端启动参数决定',
         ),
         if (devMode) ...<Widget>[
@@ -166,7 +166,8 @@ class TtsSection extends StatelessWidget {
             // 自检**不再合成**（只探 `GET /models`，毫秒级）——原实现会真合成一次，
             // 既慢（本机 2.4s）又与真实链路抢上游，还因此在链路繁忙时报假失败
             //（用户原话：「自检没通，但可以正常播放声音」）。
-            description: '只检查端点**可达与鉴权**，不合成、不播放音频。'
+            description:
+                '只检查端点**可达与鉴权**，不合成、不播放音频。'
                 '要确认「真的能出声」，发一条消息即可听见',
             busy: testing,
             onPressed: () => onTest!(),
