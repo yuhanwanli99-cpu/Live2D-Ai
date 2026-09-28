@@ -68,6 +68,24 @@ class MessageBubble extends StatelessWidget {
     final bool isUser = message.role == ChatRole.user;
     final bool failed = message.isPlaceholder;
 
+    // ── 完全空的一条：**整个不画**（2026-09-28，F-0005-3）──
+    //
+    // 从前没有这层保护：`text == ''` 的消息仍然会走完整条气泡路径，画出
+    // 一个带底色、圆角、描边的 **16 px 空泡**（气泡面的上下内边距是
+    // 2 × `Space.s2`），在视觉上与「模型回了一句空白」同形。守卫它的那条
+    // 测试断言的是 `height > 0` —— 被这 16 px 内边距骗成了恒真。
+    //
+    // 三个**例外**都照旧显示（各有 UI 语义，别跟着一起删）：
+    // ① 流式中（要有「…」占位，表示还在等）；
+    // ② 失败轮（危险色 + 「重试」，用户唯一的恢复入口）；
+    // ③ 只有思考、没有正文（思考就是本轮唯一内容，见 `onlyReasoning`）。
+    if (message.text.trim().isEmpty &&
+        !message.streaming &&
+        !failed &&
+        !onlyReasoning) {
+      return const SizedBox.shrink();
+    }
+
     // 谁说的**有独立的面色**，不是只靠左右对齐：`bubbleUser` 是强调色淡淡
     // 压在面板上，助手用的是中性面。两者同色的话，灰度截图与低视力用户
     // 就只剩「靠哪边」这一个通道了。
@@ -77,7 +95,13 @@ class MessageBubble extends StatelessWidget {
         : (isUser ? palette.bubbleUser : palette.bubbleAssistant);
     final Color foreground = failed ? palette.danger : palette.ink;
 
-    final bool placeholderOnly = message.text.isEmpty && message.streaming;
+    // 「…」占位只在「流式刚开始、正文还没来、也没有思考可看」时才有意义：
+    // 只有思考时，上方已有「思考中…（N 字）」标题，再摆一个「…」会让人
+    // 以为这一轮还卡着（正文空但有思考的那条路默认展开并带说明行）。
+    final bool placeholderOnly =
+        message.text.isEmpty &&
+        message.streaming &&
+        message.reasoning.trim().isEmpty;
 
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -187,7 +211,11 @@ class MessageBubble extends StatelessWidget {
                           children: <Widget>[
                             // 只有思考、没有正文时**不**摆一个「…」占位：那会让人以为
                             // 还在等回复，而实际上这一轮已经收口了（说明行会讲清楚）。
-                            if (message.text.isNotEmpty || !onlyReasoning)
+                            // 判据是「**有正文要画**，或要画流式占位」——
+                            // 不是「只要不是『只有思考』就画」：后者会给
+                            // 空文本也造一个 `_MessageBody`（那条路已被上面的
+                            // `SizedBox.shrink()` 与 `placeholderOnly` 收口）。
+                            if (message.text.isNotEmpty || placeholderOnly)
                               Flexible(
                                 child: _MessageBody(
                                   text: placeholderOnly ? '…' : message.text,

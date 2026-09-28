@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +11,7 @@ import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/chat_panel.dart';
 import 'package:live2d_ai_shell/ui/message_bubble.dart';
 import 'package:live2d_ai_shell/ui/stage_host.dart';
+import 'package:live2d_ai_shell/ui/state_pill.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 Widget wrap(Widget child) => MaterialApp(
@@ -289,27 +288,61 @@ void main() {
   });
 
   group('规格 §9.4：reduced motion 下不跑持续动画', () {
-    testWidgets('thinking 呼吸光在 disableAnimations 时用静态图标', (
-      WidgetTester tester,
-    ) async {
-      // `StatePill` 在 `MediaQuery.disableAnimationsOf == true` 时不启动动画。
-      // 这里断言的是「渲染不崩且状态标签还在」——动画是否在跑由
-      // 实现里的 `if (!reduced)` 分支保证，且那条分支是可读的。
+    /// 把 **真正的 `StatePill`** 泵进指定 `disableAnimations` 的 MediaQuery。
+    ///
+    /// MediaQuery 必须放在 `MaterialApp` **之内**：`WidgetsApp` 会自己插一层
+    /// 从 View 派生的 MediaQuery，套在外面会被它盖掉。
+    Future<void> pumpPill(WidgetTester tester, {required bool reduced}) async {
       await tester.pumpWidget(
-        MediaQuery(
-          data: const MediaQueryData(disableAnimations: true),
-          child: wrap(const SizedBox()),
+        wrap(
+          MediaQuery(
+            data: MediaQueryData(disableAnimations: reduced),
+            child: const Center(child: StatePill(phase: UiPhase.thinking)),
+          ),
         ),
       );
+    }
+
+    testWidgets('disableAnimations: true → thinking 用静态图标，渲染里没有 AnimatedBuilder', (
+      WidgetTester tester,
+    ) async {
+      // 2026-09-28（F-0005-7）：这条用例从前泵的是 `wrap(const SizedBox())`
+      // ——树里**根本没有 StatePill**，断言的却是框架的
+      // `MediaQuery.disableAnimationsOf(...)` ⇒ 零检验力（断言的是框架，
+      // 不是本项目的行为）。真正要守的是 `state_pill.dart` 里
+      // `if (widget.phase == UiPhase.thinking && !reduced)` 那条分支。
+      await pumpPill(tester, reduced: true);
+
+      expect(find.byType(StatePill), findsOneWidget, reason: '状态胶囊本身要还在');
       expect(
-        MediaQuery.disableAnimationsOf(tester.element(find.byType(SizedBox))),
-        isTrue,
+        find.text('思考中'),
+        findsOneWidget,
+        reason: '静态图标 ≠ 把状态藏起来：色 / 形 / 字三个通道都还得在',
+      );
+      expect(
+        find.descendant(
+          of: find.byType(StatePill),
+          matching: find.byType(AnimatedBuilder),
+        ),
+        findsNothing,
+        reason: 'reduced motion 下 thinking 仍把持续动画（呼吸光）挂进了渲染树',
       );
     });
 
-    test('`RepaintBoundary`：舞台被包住（30 Hz 口型不拖累聊天列表）', () {
-      final String source = File('lib/app/app_shell.dart').readAsStringSync();
-      expect(source.contains('RepaintBoundary'), isTrue);
+    testWidgets('disableAnimations: false → 呼吸光在（对照组：没有它上一条恒真）', (
+      WidgetTester tester,
+    ) async {
+      await pumpPill(tester, reduced: false);
+
+      expect(find.byType(StatePill), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(StatePill),
+          matching: find.byType(AnimatedBuilder),
+        ),
+        findsOneWidget,
+        reason: '对照组：把动画整个删掉也能让上一条通过，所以这里必须要求它在',
+      );
     });
   });
 }

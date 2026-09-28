@@ -51,6 +51,11 @@
 /// 遮挡，代价是「设置开着时还能拖模型」（渲染面 `sync.clickEnabled` 的真实交互）
 /// 一起没了。两害相权，先不铺。因此收起路径是**✕ / Esc**；
 /// `showModalBottomSheet` 自带的模态障碍层同理，在舞台区域不生效。
+///
+/// # 行数（豁免带）
+///
+/// 本文件 >500 行（豁免上限 1000）：外壳要同时装三种断点的布局、三种设置宿主、
+/// 舞台保活 / 指针垫层 / 键盘解锁，拆分登记在 Stage C3（与本轮审计无关）。
 library;
 
 import 'dart:async';
@@ -110,6 +115,7 @@ class AppShell extends StatefulWidget {
     required this.sectionBuilder,
     this.onEnsureSectionLoaded,
     this.settingsChanges = const NeverNotifies(),
+    this.settingsRevision = 0,
     this.section = SettingsSection.appearance,
     this.onSectionChanged,
     this.modRestartNotice,
@@ -268,6 +274,17 @@ class AppShell extends StatefulWidget {
   /// 传进来的应该是 `SettingsController`（它本来就是 `ChangeNotifier`）。
   final Listenable settingsChanges;
 
+  /// 设置面板内容所依赖的**宿主状态代际**（F-0005-2，审计 45 条 · rc.7 A 组）。
+  ///
+  /// 宿主每变一次「外壳看不见、只有 [sectionBuilder] 闭包读得到」的状态
+  /// （模型库 / Mod / 诊断 / 自检结果 / 本模型覆盖 …）就 +1。
+  ///
+  /// 为什么需要：`AppShell.build()` 会被聊天增量（`text_delta` 毫秒级）高频
+  /// 带动重建，而设置面板是常驻树里的子树（折叠**不卸载**）——过去每个 delta
+  /// 都会把当前分区整棵重建 + 布局一次，**即使面板关着**。现在分区内容按代际
+  /// 放行（[AppShellState._pane]），所以这个值**绝不能**跟着聊天增量前进。
+  final int settingsRevision;
+
   /// **打开设置前**让宿主把当前分区的内容加载出来。
   ///
   /// 外壳不持有设置数据（那是 `SettingsController` 的事），所以它只能上报
@@ -366,6 +383,26 @@ class AppShellState extends State<AppShell> {
   late final ValueNotifier<SettingsSection> sectionNotifier =
       ValueNotifier<SettingsSection>(widget.section);
 
+  /// 设置**数据**的代际：`settingsChanges` 每通知一次 +1（草稿 / 远端视图 /
+  /// 保存结果都在里面，而它们都会被 [AppShell.sectionBuilder] 读走）。
+  ///
+  /// 与 [AppShell.settingsRevision] 分工：那个管宿主状态，这个管设置数据——外壳
+  /// 看不见后者（浮层那条路连外壳的 `setState` 都进不去）。用**独立的
+  /// `ValueNotifier`** 而不是「监听器里顺手改个字段」：它自己订阅、自己驱动
+  /// 重建，于是与监听器注册顺序无关（靠「谁先跑」决定代际会静默冻住面板）。
+  final ValueNotifier<int> _settingsTick = ValueNotifier<int>(0);
+
+  Listenable? _settingsChangesSeen;
+
+  void _subscribeSettingsChanges() {
+    if (identical(_settingsChangesSeen, widget.settingsChanges)) return;
+    _settingsChangesSeen?.removeListener(_onSettingsChanges);
+    _settingsChangesSeen = widget.settingsChanges;
+    widget.settingsChanges.addListener(_onSettingsChanges);
+  }
+
+  void _onSettingsChanges() => _settingsTick.value++;
+
   @override
   void initState() {
     super.initState();
@@ -373,6 +410,7 @@ class AppShellState extends State<AppShell> {
     // 或任何快捷键。用全局处理器而不是 `Focus.onKeyEvent` 是因为后者依赖焦点
     // 冒泡——纯键盘用户在焦点还没落到我们节点上时按键不会到达。
     HardwareKeyboard.instance.addHandler(_onKey);
+    _subscribeSettingsChanges();
   }
 
   @override
@@ -382,11 +420,15 @@ class AppShellState extends State<AppShell> {
     if (widget.section != sectionNotifier.value) {
       sectionNotifier.value = widget.section;
     }
+    // 宿主换了另一个 `settingsChanges`（测试里常见）→ 换订阅对象。
+    _subscribeSettingsChanges();
   }
 
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKey);
+    _settingsChangesSeen?.removeListener(_onSettingsChanges);
+    _settingsTick.dispose();
     sectionNotifier.dispose();
     super.dispose();
   }
@@ -546,7 +588,13 @@ class AppShellState extends State<AppShell> {
                   index: widget.backgroundIndex,
                   current: _currentBackground,
                   hydrating: widget.backgroundHydrating,
-                  child: widget.sectionBuilder(context, section),
+                  // 设置数据的代际：自己订阅、自己驱动重建（浮层那条路
+                  // 根本没有外壳重建）。
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _settingsTick,
+                    builder: (BuildContext _, int tick, Widget? _) =>
+                        _pane(context, section, tick),
+                  ),
                 ),
               ),
         ),
@@ -569,6 +617,38 @@ class AppShellState extends State<AppShell> {
     final List<BackgroundItem> items = widget.prefs.backgrounds;
     if (items.isEmpty) return null;
     return items[widget.backgroundIndex.clamp(0, items.length - 1)];
+  }
+
+  // ── 分区内容的缓存（F-0005-2）──
+  // 任一条代际变了才重算；没变就复用同一个 widget 实例（父级重建被短路）。
+
+  Widget? _paneCache;
+
+  /// 缓存对应的那条代际（记录的结构相等性就是判据）。
+  (int revision, int tick, SettingsSection section)? _paneKey;
+
+  /// 当前分区的**内容**（[AppShell.sectionBuilder] 的产物），按代际缓存。
+  ///
+  /// 为什么不每帧重算（F-0005-2）：外壳会被聊天增量（毫秒级）高频重建，而设置
+  /// 面板常驻树里（折叠**不卸载**，见 `CollapsiblePanel` /
+  /// `settings_panel_keepalive_test.dart`）。失效条件只有三条，都真的与内容
+  /// 有关：宿主代际、设置数据代际、换分区。三种宿主（内联 / 浮层 / 整页）
+  /// 共用同一实例是安全的——同一时刻只有一个在树上。
+  ///
+  /// ⚠️ `context` 必须是 `BackgroundRuntimeScope` **之上**那一层
+  /// （`SettingsScaffold.child` 的实参位置）：外观区靠一个 `Builder` 去读 scope，
+  /// 约定与回归见 `test/app_shell_background_test.dart`；别改成 tick 那一层的。
+  Widget _pane(BuildContext context, SettingsSection section, int tick) {
+    final (int, int, SettingsSection) key = (
+      widget.settingsRevision,
+      tick,
+      section,
+    );
+    if (_paneCache == null || _paneKey != key) {
+      _paneKey = key;
+      _paneCache = widget.sectionBuilder(context, section);
+    }
+    return _paneCache!;
   }
 
   /// 有没有东西要画（决定脚手架底要不要让出来）。

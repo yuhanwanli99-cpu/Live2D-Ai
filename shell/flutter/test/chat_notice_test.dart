@@ -146,7 +146,6 @@ void main() {
   group('③ 接线守卫：判据与文案必须真的被控制器用上', () {
     final String controller = File('lib/chat/chat_controller.dart')
         .readAsStringSync();
-    final String bubble = File('lib/ui/message_bubble.dart').readAsStringSync();
 
     test('`_finishTurn` 走 `settleTurn`（而不是自己写 if 分支）', () {
       expect(
@@ -168,12 +167,37 @@ void main() {
       expect(controller.contains('mustReleaseTurnOnWsLoss('), isTrue);
     });
 
-    test('气泡层把 `ChatRole.system` 单独分流', () {
+    testWidgets('气泡层把 `ChatRole.system` 单独分流（**行为**断言，不是扫源码字面量）', (
+      WidgetTester tester,
+    ) async {
+      // 2026-09-28（F-0005-6）：这条从前断言的是
+      // `message_bubble.dart` 源码里 `contains('ChatRole.system')`——而该词在
+      // 那个文件里出现**两次**：真正分流的
+      // `if (message.role == ChatRole.system)` 与语义文案
+      // `'${ChatRole.system.label}提示：$text'`。把分流分支删掉，这句断言
+      // 照样为真 ⇒ 守门人指错了地方（同组另外三条源码扫描各只有一处命中，
+      // 是有效的）。这里改成行为断言：系统消息**不进气泡那条路**。
+      Future<void> pumpRole(WidgetTester tester, ChatRole role) =>
+          tester.pumpWidget(
+            wrap(
+              MessageBubble(
+                message: ChatMessage(role: role, text: kWordlessTurnNotice),
+              ),
+            ),
+          );
+
+      // 对照组：助手消息**必须**有气泡面——否则下一条的 findsNothing 是恒真的。
+      await pumpRole(tester, ChatRole.assistant);
+      expect(find.byKey(kMessageBubbleSurfaceKey), findsOneWidget);
+
+      // 系统消息：没有气泡面（没有底色 / 圆角 / 描边那一层），走的是系统行。
+      await pumpRole(tester, ChatRole.system);
       expect(
-        bubble.contains('ChatRole.system'),
-        isTrue,
-        reason: '没有这条分流，系统行会被画成 assistant 气泡（=伪造台词）',
+        find.byKey(kMessageBubbleSurfaceKey),
+        findsNothing,
+        reason: '系统行被画成了气泡面 = 把状态说明伪装成角色台词（伪造台词）',
       );
+      expect(find.text(kWordlessTurnNotice), findsOneWidget);
     });
   });
 }

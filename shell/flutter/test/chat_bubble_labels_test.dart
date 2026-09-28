@@ -99,9 +99,15 @@ void main() {
       expect(src.contains('（生成失败）'), isTrue);
     });
 
-    testWidgets('内容为空且非流式的气泡不该出现在界面上', (WidgetTester tester) async {
-      // 即使有人没走 `_finishTurn` 的清理路径，空消息也不该渲染出一个空气泡：
-      // 它有底色、有圆角，看起来就是「模型回了一句空白」。
+    testWidgets('内容为空且非流式的气泡**整个不画**（不是「高度大于 0 就算过」）', (
+      WidgetTester tester,
+    ) async {
+      // 2026-09-28（F-0005-3）：这条从前断言的是
+      // `tester.getSize(find.byType(Container).first).height > 0`——而气泡面
+      // 自身的上下内边距是 2 × `Space.s2` = 16 px，**恒 > 0** ⇒ 结构上恒真；
+      // 注释说「只断言没有文字」，代码里却没有任何一处真的查过文字。
+      // 它声称防止的现象是真的：`text == ''` 时实现仍然构造 `_MessageBody`，
+      // 界面上出现一个带底色 / 圆角 / 描边的 16 px 空泡。
       await tester.pumpWidget(
         wrap(
           MessageBubble(
@@ -110,11 +116,99 @@ void main() {
         ),
       );
       await tester.pump();
-      // 空文本 → 正文区是空字符串，容器宽度塌成内边距。
-      final Finder container = find.byType(Container);
-      final Size size = tester.getSize(container.first);
-      // 只要没有可见字符就算达标（这里不断言具体宽度，只断言没有文字）。
-      expect(size.height, greaterThan(0));
+
+      // ① 没有气泡面（底色 / 圆角 / 描边那一层 Container）。
+      expect(
+        find.byKey(kMessageBubbleSurfaceKey),
+        findsNothing,
+        reason: '空消息仍然画出了一个气泡面 —— 看起来就是「模型回了一句空白」',
+      );
+      // ② 没有正文节点（空字符串也不该造一个 SelectableText 出来）。
+      expect(
+        find.byType(SelectableText),
+        findsNothing,
+        reason: '空文本仍然构造了正文区',
+      );
+      // ③ 量化：整条气泡高度为 0（旧的 `> 0` 正是被那 16 px 内边距骗过的）。
+      //
+      // `skipOffstage: false`：高度为 0 的列表项在 sliver 眼里是「不可见」，
+      // 默认 finder 会把它跳过 —— 那正好是「已经修好」的样子，不是找不到。
+      expect(
+        tester
+            .getSize(find.byType(MessageBubble, skipOffstage: false))
+            .height,
+        0,
+        reason: '空消息仍占着高度（16 px 空白气泡面）',
+      );
+    });
+
+    testWidgets('边界①：**失败轮**的空文本照旧有气泡面（要能重试）', (WidgetTester tester) async {
+      // 「空泡不画」这条不许把失败轮一起删掉：失败轮有真实 UI 语义
+      // （危险色 + 「重试」）。
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.assistant,
+              text: '',
+              failed: true,
+            ),
+            onRetry: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(kMessageBubbleSurfaceKey),
+        findsOneWidget,
+        reason: '失败轮被当成「空消息」删掉了 —— 用户失去唯一的恢复入口',
+      );
+      expect(find.text('重试'), findsOneWidget);
+    });
+
+    testWidgets('边界②：**流式中**的空文本照旧有气泡面（要能看到在等）', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.assistant,
+              text: '',
+              streaming: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(kMessageBubbleSurfaceKey),
+        findsOneWidget,
+        reason: '流式空文本要有「…」占位，删掉它就变成「界面什么都没有」',
+      );
+      expect(find.text('…'), findsOneWidget);
+    });
+
+    testWidgets('边界③：只有思考、没有正文**不是空消息**（思考就是本轮内容）', (
+      WidgetTester tester,
+    ) async {
+      // 这条钉住「空泡不画」的**例外**：正文空但有思考时，思考区就是本轮
+      // 唯一的内容，必须照旧显示（否则又回到用户报过的「无模型返回」）。
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              role: ChatRole.assistant,
+              text: '',
+              reasoning: '我先算一下：7²+11²+13²=339。',
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(kMessageBubbleSurfaceKey), findsOneWidget);
+      expect(find.textContaining('我先算一下'), findsOneWidget);
     });
   });
 

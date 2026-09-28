@@ -42,11 +42,11 @@
 
 /// # 行数（**超出豁免带**，拆分归 Stage C3）
 ///
-/// 本文件在本轮（2026-09-28 · R6-a2）之后 **1284 行**（`wc -l`），**超过「源码 ≤500 行、
-/// 豁免 ≤1000 行」那条线**。这不是本轮才超的：rc.5 之后已是 1239 行
-/// （`settings/display_prefs.dart` 头注记了同一笔账，那批拆分登记在 Stage C3），
-/// 本轮只加不减（F-0002-2/F-0002-3 的水合接线）。写在这里是**如实**，
-/// 不是豁免申请。
+/// 本文件在 rc.7（2026-09-28 · R7-a，F-0005-2 的宿主接线）之后 **1344 行**
+/// （`wc -l`），**超过「源码 ≤500 行、豁免 ≤1000 行」那条线**。这不是本轮才超的：
+/// rc.6 之后已是 1329 行（`settings/display_prefs.dart` 头注记了同一笔账，那批拆分
+/// 登记在 Stage C3），本轮只加不减（+15：设置面板内容的宿主状态代际）。写在这里是
+/// **如实**，不是豁免申请。
 ///
 library;
 
@@ -335,6 +335,16 @@ class _ShellRootState extends State<ShellRoot> {
 
   /// 当前设置分区（受控；外壳只上报意图）。
   SettingsSection _section = SettingsSection.appearance;
+
+  /// 设置面板内容的**宿主状态代际**（F-0005-2，审计 45 条 · rc.7 A 组）。
+  ///
+  /// 只在 `_ShellRootState` **自己重建**时前进（见 [build]）——也就是宿主状态
+  /// 真的变了的时候。**聊天增量不会让它前进**：`text_delta` 只重建下面那个
+  /// `ListenableBuilder` 的子树，不会回头调用 `ShellRoot.build()`。
+  ///
+  /// 设置面板是常驻树里的子树（折叠不卸载），所以这个代际就是「要不要重建设置
+  /// 分区内容」的唯一判据——它不前进，外壳那些高频重建就不会带上那棵子树。
+  int _settingsRevision = 0;
 
   /// 服务端静音观测值（WS `audio.muted`，**只读**）。
   bool _serverMuted = false;
@@ -1154,6 +1164,10 @@ class _ShellRootState extends State<ShellRoot> {
 
   @override
   Widget build(BuildContext context) {
+    // F-0005-2：宿主这一次重建 = 「外壳看不见的那批状态」（模型库 / Mod /
+    // 诊断 / 自检结果 / 本模型覆盖…）可能变了。代际 +1，让设置面板的分区内容
+    // 跟着刷新一次；**聊天增量不会走到这里**，所以那棵子树不会跟着它重跑。
+    _settingsRevision++;
     // 正文一变就同步播报（节流在 `_live` 里做）。
     _syncLiveRegion();
 
@@ -1270,6 +1284,7 @@ class _ShellRootState extends State<ShellRoot> {
           // 浮层内容必须订阅设置数据：`showModalBottomSheet` 的 builder
           // 只跑一次，不订阅的话「加载中」的转圈会一直转下去。
           settingsChanges: _settings,
+          settingsRevision: _settingsRevision,
           section: _section,
           onSectionChanged: _onSectionChanged,
           sectionBuilder: _buildSection,

@@ -244,10 +244,29 @@ void main() {
   });
 
   group('性能：舞台必须被 RepaintBoundary 包住', () {
-    test('`AppShell` 里舞台外层有 RepaintBoundary', () {
-      // 30 Hz 的口型如果让整棵聊天列表跟着重绘，长会话下会明显掉帧。
-      final String source = File('lib/app/app_shell.dart').readAsStringSync();
-      expect(source.contains('RepaintBoundary'), isTrue);
+    test('`StageHost.build` 的返回值就是 RepaintBoundary（30 Hz 口型不拖累聊天列表）', () {
+      // 2026-09-28（F-0005-1）：这条守卫从前的断言对象是
+      // `lib/app/app_shell.dart`，判据是全文 `contains('RepaintBoundary')`——
+      // 而那个文件里**唯一**的命中是一句说「不要直接铺 RepaintBoundary」的
+      // 注释 ⇒ 断言恒真，删掉真正的保护也照样绿（同一个文件里：
+      // `test/semantics_test.dart` 还抄了一份一模一样的空转断言）。
+      //
+      // 真正的包裹在 `lib/ui/stage_host.dart` 的 `build` 返回值上。这里改成：
+      // ① 扫那个文件；② **先剥注释与字符串**（复用 `design_tokens_test.dart`
+      // 的词法器，本文件其它红线也用它）；③ 锚定在 `build` 的 return 上，
+      // 而不是「全文出现过这个词」——后者在任何别处出现都会假绿。
+      final String source = stripCommentsAndStrings(
+        File('lib/ui/stage_host.dart').readAsStringSync(),
+      );
+      expect(
+        RegExp(
+          r'Widget build\(BuildContext context\)\s*\{\s*return RepaintBoundary\(',
+        ).hasMatch(source),
+        isTrue,
+        reason:
+            '舞台宿主的 build 不再直接返回 RepaintBoundary：30 Hz 的口型重绘'
+            '会拖累整棵聊天列表（判据锚定 build 的 return，不是全文 contains）。',
+      );
     });
   });
 }
