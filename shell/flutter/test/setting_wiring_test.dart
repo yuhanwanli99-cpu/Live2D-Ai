@@ -30,49 +30,91 @@ import 'package:live2d_ai_shell/ui/background_logic.dart';
 import 'package:live2d_ai_shell/ui/shell_backdrop.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+/// 外观分区的源码 = 主文件 + 它的 part（背景域，2026-09-28 抽出去的那个）。
+///
+/// 抽取是「只搬不改」：这些源码扫描断言关心的是「外观分区里有没有这个东西」，
+/// 所以扫描面取并集——抽取前后断言强度不变。
+String appearanceSectionSource() =>
+    File('lib/settings/sections/appearance_section.dart').readAsStringSync() +
+    File('lib/settings/sections/appearance_background.dart').readAsStringSync();
+
 void main() {
   group('铺法：UI 暴露的每一档，渲染结果必须不同', () {
     // 只截「铺法」那一个 `SegmentedField` 的 options 块。
     //
     // 直接读 UI 源码（复写一份到测试里就会漂），但**不能扫全文**——
     // 扫全文会把「遮罩四档」「渲染档位 4K/8K/16K」一起吃进来。
-    List<int> exposedFits() {
-      final String ui = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+    //
+    // 2026-09-28（Stage B §5.3 第 1 条）：铺法从两档扩到**四档**，选项值改读
+    // `DisplayPrefs.fit*` 常量（**唯一真源**，不再写死 0/1）——所以这里比对的是
+    // 常量名。「每一档渲染结果真的不同」由
+    // `display_prefs_background_fit_test.dart` 的四条 boxFitFor 断言守着。
+    String exposedFitOptions() {
+      final String ui = appearanceSectionSource();
       final int start = ui.indexOf("label: '铺法（图）'");
       expect(start, greaterThan(-1), reason: 'UI 里找不到「铺法」这个控件');
       final int end = ui.indexOf('onChanged:', start);
       expect(end, greaterThan(start), reason: '「铺法」控件没有 onChanged');
-      return <int>[
-        for (final RegExpMatch m in RegExp(
-          r"FieldOption<int>\(value: (\d+), label: '[^']*'\)",
-        ).allMatches(ui.substring(start, end)))
-          int.parse(m.group(1)!),
-      ];
+      return ui.substring(start, end);
     }
 
-    test('UI 只暴露 0 / 1 两档铺法', () {
-      final List<int> fits = exposedFits();
-      expect(fits, containsAll(<int>[0, 1]), reason: '铺满 / 完整 必须在');
+    test('UI 暴露 cover / contain / stretch / tile **四档**铺法', () {
+      final String options = exposedFitOptions();
+      for (final String name in <String>[
+        'DisplayPrefs.fitCover',
+        'DisplayPrefs.fitContain',
+        'DisplayPrefs.fitStretch',
+        'DisplayPrefs.fitTile',
+      ]) {
+        expect(
+          options.contains(name),
+          isTrue,
+          reason: '$name 没有在「铺法」控件里暴露——四档缺一档就是「按了没区别」',
+        );
+      }
+    });
+
+    test('平铺贴片滑杆只在 tile 档出现，区间读常量（不写死 16 / 256）', () {
+      final String ui = appearanceSectionSource();
       expect(
-        fits.where((int v) => v > 1).toList(),
-        isEmpty,
-        reason: '渲染层只实现了两档；多出来的档位是「按了没区别」的选项',
+        ui.contains('effectiveFit == DisplayPrefs.fitTile'),
+        isTrue,
+        reason: '贴片滑杆必须被 tile 档 gate 住（否则 cover 下它是个假控件）',
       );
+      expect(ui.contains('DisplayPrefs.minTileSize'), isTrue);
+      expect(ui.contains('DisplayPrefs.maxTileSize'), isTrue);
     });
 
-    test('存储里出现越界档位 → 回落默认（不再默默当成「铺满」）', () {
-      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
-        'imageFit': 2,
-      });
-      expect(p.imageFit, DisplayPrefs.defaultImageFit);
-      expect(DisplayPrefs.maxImageFit, 1);
+    test('存储里出现越界档位（4 / 42 / -1）→ 回落默认 0；上界是 3', () {
+      // 2026-09-28（Stage B · B-a）：上界由 1 放到 3（stretch / tile 落地），
+      // 所以 2 / 3 **不再是坏值**——那条迁移回归在
+      // `display_prefs_background_fit_test.dart`（「旧档里的 2 / 3 由『坏值』
+      // 变成合法档」）。区间外的值仍走 `_clampInt` 的「越界回落默认」。
+      for (final Object? raw in <Object?>[4, 42, -1]) {
+        expect(
+          DisplayPrefs.fromJson(<String, Object?>{'imageFit': raw}).imageFit,
+          DisplayPrefs.defaultImageFit,
+          reason: '$raw 在 [0, 3] 之外，必须回落默认',
+        );
+      }
+      expect(DisplayPrefs.maxImageFit, 3);
     });
 
-    test('boxFitFor 的两档给出**不同**的结果', () {
+    test('boxFitFor 的四档给出**不同**的结果', () {
       expect(boxFitFor(0), BoxFit.cover);
       expect(boxFitFor(1), BoxFit.contain);
-      expect(boxFitFor(0), isNot(boxFitFor(1)));
+      expect(boxFitFor(2), BoxFit.fill);
+      expect(boxFitFor(3), BoxFit.none);
+      expect(
+        <BoxFit>{
+          boxFitFor(0),
+          boxFitFor(1),
+          boxFitFor(2),
+          boxFitFor(3),
+        }.length,
+        4,
+        reason: '有档位落到同一条渲染路径上就是「按了没区别」',
+      );
     });
   });
 
@@ -104,8 +146,7 @@ void main() {
     });
 
     test('UI 暴露的遮罩档位与 `ScrimLevel` 一一对应', () {
-      final String ui = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+      final String ui = appearanceSectionSource();
       for (final int level in <int>[
         ScrimLevel.auto,
         ScrimLevel.none,
@@ -121,14 +162,20 @@ void main() {
     });
   });
 
-  group('九宫格位置：只在「完整」铺法下暴露', () {
-    test('铺满时不该摆位置垫（摆在那儿只会让人以为按错了）', () {
-      final String ui = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+  group('九宫格位置：只在「完整」铺法下暴露（DEC-7a）', () {
+    test('位置垫只被 contain 这一档 gate 住（条件与注释原来正好相反）', () {
+      final String ui = appearanceSectionSource();
+      expect(
+        ui.contains('if (effectiveFit == DisplayPrefs.fitContain)'),
+        isTrue,
+        reason: '位置垫必须**只在** effectiveFit == contain 时出现：'
+            'cover / stretch / tile 三档都把整块铺满，对齐没有可见效果',
+      );
       expect(
         ui.contains('if (prefs.imageFit != 1)'),
-        isTrue,
-        reason: '位置垫必须被「完整」铺法 gate 住',
+        isFalse,
+        reason: '旧条件（!= 1）与它上面那句注释正好相反——DEC-7a 的裁决是'
+            '**对齐注释**，不是改注释；这条断言防止它长回来',
       );
     });
 
@@ -305,7 +352,10 @@ void main() {
       );
       // 判据本身：只有 0 才算「没有背景」。
       const DisplayPrefs withImage = DisplayPrefs(
-        backgrounds: <BackgroundItem>[BackgroundImage(id: 'a', dataUrl: 'x')],
+        backgrounds: <BackgroundItem>[BackgroundImage(
+          id: 'a',
+          dataUrl: 'data:image/png;base64,AAA',
+        )],
       );
       expect(withImage.hasBackground, isTrue);
       expect(withImage.copyWith(backgroundOpacity: 1).hasBackground, isTrue,

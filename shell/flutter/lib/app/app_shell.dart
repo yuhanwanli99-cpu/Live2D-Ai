@@ -58,11 +58,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+
 import '../api/ws_status.dart';
 import '../chat/chat_message.dart';
 import '../design/background_item.dart';
 import '../design/breakpoints.dart';
 import '../design/tokens.dart';
+import '../settings/sections/appearance_section.dart';
 import '../settings/settings_sections.dart';
 import '../live2d/live2d_bridge.dart';
 import '../live2d/stage_pointer_interceptor.dart';
@@ -101,8 +103,7 @@ class AppShell extends StatefulWidget {
     required this.muted,
     required this.prefs,
     this.backgroundIndex = 0,
-    this.onBackgroundIndex,
-    this.onBackgroundJump,
+    this.backgroundHydrating = false,
     required this.onVolumeChanged,
     required this.onMutedChanged,
     required this.sections,
@@ -174,18 +175,27 @@ class AppShell extends StatefulWidget {
   /// 壳背景库（`DisplayPrefs.backgrounds`）与它的渲染参数。
   ///
   /// 2026-09-27：由「单张图 + 固定 0.15」升级成「有序背景库 + 轮播 + 铺法 +
-  /// 位置 + 模糊 + 遮罩」。这一层只**铺**，不持有任何状态（索引与定时器
-  /// 住在 [ShellBackgroundHost]）。
+  /// 位置 + 模糊 + 遮罩」。这一层只**铺**，不持有任何状态：索引与定时器住在
+  /// 宿主（`main.dart` 的 `_slideshow` / `_backgroundIndex`）。
   final DisplayPrefs prefs;
 
   /// 轮播到了第几项（`backgrounds` 的下标；库里为空时恒为 0）。
+  ///
+  /// **运行时状态，不落盘**：外壳把它连同「此刻画的那一项」一起注入
+  /// BackgroundRuntimeScope，设置面板据此标「当前」并按它决定铺法 / 位置区
+  /// 的显隐（DEC-6）。
+  ///
+  /// 2026-09-28（F-0001-5）：这里曾经挂着两个**全仓零调用**的背景索引回调
+  /// 参数，以及一条指向并不存在的宿主类的头注——它们让下一位改背景域的人
+  /// 以为存在第四条索引通路。两个参数与那条注释都已删除。
   final int backgroundIndex;
 
-  /// 背景库变化 / 轮播前进 / 手动点选时回调（带新的索引）。
-  final ValueChanged<int>? onBackgroundIndex;
-
-  /// 用户点缩略图跳转（走偏好，UI 层自己改 `backgrounds` 的顺序不归这里管）。
-  final VoidCallback? onBackgroundJump;
+  /// 背景库字节是否还在水合（交接项 9b）。
+  ///
+  /// 宿主在 `initState` 之后读一次 IndexedDB；读完（或 3 s 超时）置 `false`。
+  /// 设置面板据此显示「正在读回背景库…」并禁用背景库的写操作——**不做**
+  /// 一个按了没反应、或与读回打架的按钮。
+  final bool backgroundHydrating;
 
   final ValueChanged<double> onVolumeChanged;
   final ValueChanged<bool> onMutedChanged;
@@ -528,7 +538,16 @@ class AppShellState extends State<AppShell> {
                 onDiscard: widget.onDiscardSettings,
                 statusMessage: widget.settingsStatus,
                 statusIsError: widget.settingsStatusIsError,
-                child: widget.sectionBuilder(context, section),
+                // 背景域的**运行时**上下文（DEC-6 / 9b）：设置面板里的
+                // 「外观与互动」要显示「此刻画的是哪一项」、并按它决定铺法 /
+                // 位置区的显隐。判据（_currentBackground）只在本文件一处，
+                // 这里只负责注入，不另算一份。
+                child: BackgroundRuntimeScope(
+                  index: widget.backgroundIndex,
+                  current: _currentBackground,
+                  hydrating: widget.backgroundHydrating,
+                  child: widget.sectionBuilder(context, section),
+                ),
               ),
         ),
   );
@@ -765,7 +784,14 @@ class AppShellState extends State<AppShell> {
           return ShellBackdrop(
             baseColor: appPaletteOf(context).stage,
             item: _currentBackground,
+            // DEC-4 全局开关（2026-09-28 · R6-a 加的两行传参之一）：
+            // 关掉 = 不画图、只留底色。与下面那行各自独立，
+            // 都不依赖 R6-b 之后对本文件的改动（DEC-6 传运行时索引等）。
+            enabled: widget.prefs.backgroundEnabled,
             opacity: widget.prefs.backgroundOpacity,
+            // 平铺贴片边长（R6-a 加的两行传参之二）：只对 fit = tile 生效，
+            // 其余三档不读它。
+            tileSize: widget.prefs.tileSize,
             fit: widget.prefs.imageFit,
             align: widget.prefs.imageAlign,
             blur: widget.prefs.backgroundBlur,

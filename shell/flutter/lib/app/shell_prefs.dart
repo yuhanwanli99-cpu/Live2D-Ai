@@ -86,21 +86,43 @@ extension _ShellPrefsWiring on _ShellRootState {
     // 仍然保留的是「首帧 / 重建 iframe 后的补发」：那条路在
     // `Live2DStage._attach()` 里（它用的是 `widget.stageColor`），
     // 所以这里不需要也不该再发一次。
-    _stageKey.currentState?.sync(
-      scale: prefs.scale,
-      dark: palette.dark,
-      lipSync: prefs.lipSync,
-      idleEnabled: prefs.idleEnabled,
-      mouthSensitivity: prefs.mouthSensitivity,
+    //
+    // # 同值不重发（F-0002-1，2026-09-28）
+    // 这条漏斗**每次偏好变更都要过**（音量滑杆过去每帧一次），原来无条件重发一整个
+    // `sync` + 一整串 `stage-bg`（后者是 ≤1.5 M 字符的整张图）。`sync` 按**桥身份 +
+    // 字段指纹**去重（`lipSync`/`idleEnabled`/`mouthSensitivity`/`clickEnabled`
+    // 只有这里发，iframe 重建会换桥）；`stage-bg` **只按值**（重建补发归 `_attach`）。
+    final Live2DBridge? bridge = _stageKey.currentState?.bridge;
+    final List<Object?> syncKey = <Object?>[
+      prefs.scale,
+      palette.dark,
+      prefs.lipSync,
+      prefs.idleEnabled,
+      prefs.mouthSensitivity,
       // 「允许拖动与缩放」下发到渲染面的 `sync.clickEnabled`。
-      clickEnabled: prefs.allowDragZoom,
-      tier: prefs.tier,
-    );
+      prefs.allowDragZoom,
+      prefs.tier,
+    ];
+    if (!identical(bridge, _lastSyncBridge) ||
+        !listEquals(syncKey, _lastSyncKey)) {
+      _lastSyncBridge = bridge;
+      _lastSyncKey = syncKey;
+      _stageKey.currentState?.sync(
+        scale: prefs.scale,
+        dark: palette.dark,
+        lipSync: prefs.lipSync,
+        idleEnabled: prefs.idleEnabled,
+        mouthSensitivity: prefs.mouthSensitivity,
+        clickEnabled: prefs.allowDragZoom,
+        tier: prefs.tier,
+      );
+    }
     // 背景图与纯色底是**叠放**关系（有图盖住底色），所以单独走 `stage-bg`。
-    unawaited(
-      _stageKey.currentState?.sendStageBg(prefs.stageImage) ??
-          Future<void>.value(),
-    );
+    final Live2DStageState? stage = _stageKey.currentState;
+    if (stage != null && _lastSentStageBg != prefs.stageImage) {
+      _lastSentStageBg = prefs.stageImage;
+      unawaited(stage.sendStageBg(prefs.stageImage));
+    }
     // 首帧 / 重建 iframe 后补发幅度（`actionScales` 是 `sync` 的一个字段，
     // 但它的真源是**设置控制器**而不是 `DisplayPrefs`，所以不能在 `sync` 里带）。
     //

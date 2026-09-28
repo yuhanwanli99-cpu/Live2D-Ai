@@ -7,11 +7,16 @@
 /// 两者画的是同一张还是两张**由 [DisplayPrefs.backgroundSource] 决定**，
 /// 但**管道完全不同**——不要因为「看起来是同一张图」就把它们合成一条路。
 ///
-/// # 这一版多了什么
+/// # 这一版多了什么（2026-09-28 · Stage B · B-a）
 ///
-/// 背景库（多图 + 内置图案 + 轮播）、铺法（cover/contain 两档，
-/// `DisplayPrefs.maxImageFit = 1`）、
-/// 九宫格位置、模糊、可读性遮罩、换图过渡。
+/// - **铺法四档**：`cover` / `contain` / `stretch`（`FittedBox(fit: BoxFit.fill)`）/
+///   `tile`（[ImageRepeat.repeat] 平铺，贴片边长 = [ShellBackdrop.tileSize]）；
+/// - **逐图样式覆盖**：[BackgroundImage] 上的 `opacity/fit/align` 三项
+///   （`null` = 没设过 ⇒ 回落全局）。解析**只在本文件的 [_imageLayer] 里做一次**，
+///   遮罩与图层读同一个「解析后」的值；
+/// - **全局开关** [ShellBackdrop.enabled]（DEC-4）：关掉 = 不画图、只留底色；
+/// - 背景库（多图 + 内置图案 + 轮播）、九宫格位置、模糊、可读性遮罩、换图过渡。
+///
 /// 全部只读 `DisplayPrefs`，**一个字节都不落盘**（除了偏好里的那几个数）。
 ///
 /// # 仍然不做
@@ -19,14 +24,16 @@
 /// - **模糊舞台**：舞台是 `<iframe>` 平台视图，模糊不到它（F1）。
 ///   本文件的模糊只作用在壳自己画的这一层。
 /// - **分区背景**：那要改渲染面 = 改后端。
+/// - **任意 CSS**：逐图样式是**有类型**的三个字段，不是 CSS 字符串（parity §4 D4）。
 library;
 
-import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
-import 'dart:ui' show ImageFilter;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../data/background_decode_cache.dart';
 import '../design/background_item.dart';
 import '../settings/display_prefs.dart';
 import 'background_logic.dart';
@@ -44,28 +51,52 @@ const Key kShellScrimKey = ValueKey<String>('shell-scrim');
 /// **永不抛异常**：不是 dataURL（没有逗号）/ 不是 base64 / 解码失败一律回 `null`，
 /// 由调用方退回「只有底色」。理由与 `DisplayPrefs.fromJson` 同一条：
 /// 一份被外部塞坏的存储不该让整个壳渲染不出来。
-Uint8List? decodeDataUrlBytes(String? dataUrl) {
-  if (dataUrl == null) return null;
-  final int comma = dataUrl.indexOf(',');
-  if (comma <= 0) return null;
-  final String meta = dataUrl.substring(0, comma);
-  if (!meta.contains('base64')) return null;
-  try {
-    final Uint8List bytes = base64Decode(dataUrl.substring(comma + 1));
-    return bytes.isEmpty ? null : bytes;
-  } catch (_) {
-    return null;
-  }
+///
+/// **同一个串返回同一个 `Uint8List` 实例**（2026-09-28 · F-0006-1 / F-0003-1）：
+/// 实现搬去 [decodeDataUrlBytesCached]（`data/background_decode_cache.dart`），
+/// 这里只留委托。为什么非这样不可：`MemoryImage.==` 比的是 bytes 的**对象身份**，
+/// 每次新建实例 = `ImageCache` 恒 miss = 每个流式 delta 重解码整张壁纸。
+/// 语义**一字未改**：判据、`null` 约定、不抛约定都与搬家前逐字相同。
+Uint8List? decodeDataUrlBytes(String? dataUrl) =>
+    decodeDataUrlBytesCached(dataUrl);
+
+/// 平铺层的 key（测试按它断言「这一档真的走了平铺那条路」）。
+const Key kShellTileKey = ValueKey<String>('shell-tile');
+
+/// 平铺贴片的 `paintImage` scale：让**一块贴片的宽度**正好是 [tileSize] 逻辑像素。
+///
+/// `paintImage` 的贴片尺寸 = `图片固有尺寸 ÷ scale`，所以
+/// `scale = 固有宽 ÷ 想要的贴片宽`；高度按同一 scale 走 ⇒ 贴片保持原图比例
+/// （等价于 CSS `background-size: <tileSize>px auto`）。
+///
+/// 固有宽 ≤ 0（还没解码 / 空图）或 `tileSize` 非法 → 回 1.0（不缩放、不抛）。
+double tileScaleFor(int imageWidth, double tileSize) {
+  if (imageWidth <= 0 || !tileSize.isFinite || tileSize <= 0) return 1.0;
+  return imageWidth / tileSize;
 }
 
 /// 铺法 int → `BoxFit`（`DisplayPrefs.fitName` 的翻译层）。
 ///
-/// **没有 `BoxFit.fill` 那一档的实现**：`fill` 与 `stretch` 在 Flutter 里是同一个
-/// 枚举值，所以「拉伸」这一档**画的时候按 cover 处理**——真要拉伸得自己画
-/// `FittedBox(fit: BoxFit.fill)` 包一层（会引入一次额外布局）。
-/// 保留这一档是为了存储里能表达用户的意图，未来接上时不用改数据形状。
+/// | fit | 名字 | `BoxFit` | 这一层怎么画 |
+/// | --- | --- | --- | --- |
+/// | 0 | cover | `cover` | 铺满、裁掉溢出 |
+/// | 1 | contain | `contain` | 完整放进来、留边 |
+/// | 2 | stretch | `fill` | `FittedBox` 包一层（见下） |
+/// | 3 | tile | `none` | 按原尺寸平铺（贴片由 [tileScaleFor] 定） |
+///
+/// # 为什么 `stretch` 要 `FittedBox` 包一层
+///
+/// `Image` 的 `fit: BoxFit.fill` 已经会「不管比例铺满」，但它的布局仍受父约束
+/// 影响：图比框**小**时不会被放大到失真铺满。`FittedBox(fit: BoxFit.fill)`
+/// 先让子节点按**固有尺寸**布局、再整体拉伸到框上，语义与 CSS
+/// `background-size: 100% 100%` 一致，且对「图比框小」同样成立。
+/// 代价是一次额外布局（只在选「拉伸」时付）。
+///
+/// 区间外的值一律回 `cover`（与 `DisplayPrefs.fitName` 的兜底一致）。
 BoxFit boxFitFor(int fit) => switch (fit) {
-  1 => BoxFit.contain,
+  DisplayPrefs.fitContain => BoxFit.contain,
+  DisplayPrefs.fitStretch => BoxFit.fill,
+  DisplayPrefs.fitTile => BoxFit.none,
   _ => BoxFit.cover,
 };
 
@@ -95,9 +126,11 @@ class ShellBackdrop extends StatelessWidget {
     required this.baseColor,
     required this.item,
     required this.child,
+    this.enabled = DisplayPrefs.defaultBackgroundEnabled,
     this.opacity = DisplayPrefs.defaultBackgroundOpacity,
     this.fit = DisplayPrefs.defaultImageFit,
     this.align = DisplayPrefs.defaultImageAlign,
+    this.tileSize = DisplayPrefs.defaultTileSize,
     this.blur = DisplayPrefs.defaultBackgroundBlur,
     this.scrim = DisplayPrefs.defaultBackgroundScrim,
     this.uiTransparency = 0.0,
@@ -111,9 +144,21 @@ class ShellBackdrop extends StatelessWidget {
   /// 当前要画的那一项（`null` = 没有背景，只有底色）。
   final BackgroundItem? item;
 
+  /// **全局背景开关**（DEC-4）：`false` = 不画图，只留底色。
+  ///
+  /// ⚠️ 调用点必须传 `prefs.backgroundEnabled`（`app/app_shell.dart`）。
+  /// 默认 `true` 只是让旧调用点/测试少改一行，**不是**「这个开关可以没接线」。
+  final bool enabled;
+
   final double opacity;
   final int fit;
   final int align;
+
+  /// 平铺（[fit] = `DisplayPrefs.fitTile`）的**贴片边长**（逻辑像素）；
+  /// 其余三档不读它。
+  ///
+  /// ⚠️ 调用点必须传 `prefs.tileSize`（`app/app_shell.dart`）。
+  final double tileSize;
 
   /// 模糊半径（px）。**不做补间**——动高斯半径是实测出来的性能回归
   /// （见计划书 §9.4）。
@@ -133,21 +178,40 @@ class ShellBackdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final BackgroundItem? current = item;
-    if (current == null || !current.isRenderable || opacity <= 0) {
+    // DEC-4：全局开关关掉 = 不画图（底色 + 子树），与「没有背景」同一条路。
+    // 它**不动**用户的透明度设置：重新打开还是他原来看到的样子。
+    if (!enabled || current == null || !current.isRenderable) {
       return ColoredBox(color: baseColor, child: child);
     }
 
+    // 逐图 ?? 全局：三项覆盖**只解析一次**。解析点住在 `DisplayPrefs`
+    // （`effectiveImage*`），与 `hasBackgroundAt` 共用同一个函数——
+    // 判据与画面不许各自解析一套。
+    final double effectiveOpacity = DisplayPrefs.effectiveImageOpacity(
+      current,
+      opacity,
+    );
+    final int effectiveFit = DisplayPrefs.effectiveImageFit(current, fit);
+    final int effectiveAlign = DisplayPrefs.effectiveImageAlign(current, align);
+
     final Widget? layer = switch (current) {
-      BackgroundImage(:final String? dataUrl) => dataUrl == null
+      final BackgroundImage img => img.dataUrl == null
           ? null
-          : _imageLayer(dataUrl),
-      BackgroundPattern(:final int id) =>
-        patternColors == null ? null : _patternLayer(id, patternColors!),
+          : _imageLayer(
+              img.dataUrl!,
+              effectiveOpacity,
+              effectiveFit,
+              effectiveAlign,
+            ),
+      final BackgroundPattern p =>
+        patternColors == null ? null : _patternLayer(p.id, patternColors!),
     };
-    if (layer == null) return ColoredBox(color: baseColor, child: child);
+    if (layer == null || effectiveOpacity <= 0) {
+      return ColoredBox(color: baseColor, child: child);
+    }
 
     final double scrimAlpha = scrimAlphaFor(
-      imageOpacity: opacity,
+      imageOpacity: effectiveOpacity,
       level: scrim,
       uiTransparency: uiTransparency,
     );
@@ -178,28 +242,56 @@ class ShellBackdrop extends StatelessWidget {
     );
   }
 
-  Widget _imageLayer(String dataUrl) {
+  /// 图片层（`opacity / fit / align` 已是**解析后**的值）。
+  ///
+  /// 四个档位在这里分道：
+  ///
+  /// - `cover` / `contain`：`Image.memory(fit: …)`；
+  /// - `stretch`：`FittedBox(fit: BoxFit.fill)` 包一层（先按固有尺寸布局，
+  ///   再整体拉满——`Image` 自己的 `fill` 在「图比框小」时不会放大铺满）；
+  /// - `tile`：[_TiledImage]（`ImageRepeat.repeat`，贴片 = [tileSize] 逻辑像素）。
+  ///
+  /// **坏图 / 坏 base64 一律退回底色**（返回空层，下面的底色照常露出）——
+  /// 沿用 [decodeDataUrlBytes] 的既有约定：不抛、不红屏。
+  Widget _imageLayer(String dataUrl, double opacity, int fit, int align) {
     final Uint8List? bytes = decodeDataUrlBytes(dataUrl);
     if (bytes == null) return const SizedBox.shrink();
-    Widget image = Opacity(
-      opacity: opacity,
-      child: Image.memory(
+    final Widget content;
+    if (fit == DisplayPrefs.fitTile) {
+      content = _TiledImage(
+        bytes: bytes,
+        tileSize: tileSize,
+        fit: fit,
+        alignment: alignmentFor(align),
+      );
+    } else if (fit == DisplayPrefs.fitStretch) {
+      content = FittedBox(
+        fit: boxFitFor(fit),
+        child: Image.memory(
+          bytes,
+          gaplessPlayback: true,
+          // 字节合法但**不是图片**时退回底色，而不是红屏 + 异常。
+          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+        ),
+      );
+    } else {
+      content = Image.memory(
         bytes,
         fit: boxFitFor(fit),
         alignment: alignmentFor(align),
         gaplessPlayback: true,
-        // 字节合法但**不是图片**时退回底色，而不是红屏 + 异常。
         errorBuilder: (_, _, _) => const SizedBox.shrink(),
-      ),
-    );
-    if (blur > 0) {
-      // sigma 用半径换算（σ ≈ r/2），再乘 0.5 让滑杆的手感更线性。
-      image = ImageFiltered(
-        imageFilter: ImageFilter.blur(sigmaX: blur / 2, sigmaY: blur / 2),
-        child: image,
       );
     }
-    return image;
+    Widget layer = Opacity(opacity: opacity.clamp(0.0, 1.0), child: content);
+    if (blur > 0) {
+      // sigma 用半径换算（σ ≈ r/2），再乘 0.5 让滑杆的手感更线性。
+      layer = ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: blur / 2, sigmaY: blur / 2),
+        child: layer,
+      );
+    }
+    return layer;
   }
 
   /// 图案层。
@@ -215,10 +307,152 @@ class ShellBackdrop extends StatelessWidget {
     );
     if (blur > 0) {
       layer = ImageFiltered(
-        imageFilter: ImageFilter.blur(sigmaX: blur / 2, sigmaY: blur / 2),
+        imageFilter: ui.ImageFilter.blur(sigmaX: blur / 2, sigmaY: blur / 2),
         child: layer,
       );
     }
     return Opacity(opacity: opacity.clamp(0.0, 1.0), child: layer);
   }
+}
+/// 平铺一层图（`ImageRepeat.repeat`，贴片边长 = [ShellBackdrop.tileSize]）。
+///
+/// # 为什么不用 `Image(repeat: ImageRepeat.repeat)`
+///
+/// 那个 API 的**贴片尺寸**是「图片固有像素 ÷ `scale`」，而固有尺寸要等解码
+/// 才知道。用 `Image(width: tileSize)` 只改**布局框**，贴片本身仍是固有尺寸
+/// ——于是 1×1 的图会平铺成一片噪声，而 4000 px 的图一块就占满屏幕。
+/// 用户要的是「一块 24 px 的小贴片」，所以这里拿解码后的 `ui.Image` 自己调
+/// `paintImage`：`scale` 由 [tileScaleFor] 算出，贴片边长是**绝对**的。
+///
+/// **坏图不抛**：还没解码完、或解码失败（`onError`），这一层就只是不画
+/// （`CustomPaint.painter` 为 null），底色照旧——与 [decodeDataUrlBytes]
+/// 的既有约定一致。
+class _TiledImage extends StatefulWidget {
+  const _TiledImage({
+    required this.bytes,
+    required this.tileSize,
+    required this.fit,
+    required this.alignment,
+  });
+
+  final Uint8List bytes;
+  final double tileSize;
+  final int fit;
+  final Alignment alignment;
+
+  @override
+  State<_TiledImage> createState() => _TiledImageState();
+}
+
+class _TiledImageState extends State<_TiledImage> {
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+  ui.Image? _image;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TiledImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.bytes, widget.bytes)) {
+      _detach();
+      _resolve();
+    }
+  }
+
+  @override
+  void dispose() {
+    _detach();
+    super.dispose();
+  }
+
+  void _resolve() {
+    final ImageStream stream = MemoryImage(
+      widget.bytes,
+    ).resolve(ImageConfiguration.empty);
+    final ImageStreamListener listener = ImageStreamListener(
+      (ImageInfo info, bool synchronousCall) {
+        if (!mounted || identical(_image, info.image)) return;
+        // 同步回调可能发生在 build 期间 ⇒ 不能直接 setState。
+        if (synchronousCall) {
+          scheduleMicrotask(() {
+            if (mounted && !identical(_image, info.image)) {
+              setState(() => _image = info.image);
+            }
+          });
+        } else {
+          setState(() => _image = info.image);
+        }
+      },
+      // 解码失败 = 这一层画不出来（底色照旧），**不抛**。
+      onError: (Object _, StackTrace? _) {},
+    );
+    _listener = listener;
+    _stream = stream..addListener(listener);
+  }
+
+  void _detach() {
+    final ImageStreamListener? listener = _listener;
+    if (listener != null) _stream?.removeListener(listener);
+    _stream = null;
+    _listener = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ui.Image? image = _image;
+    return SizedBox.expand(
+      key: kShellTileKey,
+      child: CustomPaint(
+        painter: image == null
+            ? null
+            : _TilePainter(
+                image: image,
+                scale: tileScaleFor(image.width, widget.tileSize),
+                fit: boxFitFor(widget.fit),
+                alignment: widget.alignment,
+              ),
+      ),
+    );
+  }
+}
+
+/// 真正平铺的那支笔（把 `paintImage` 的 `repeat` 铺满整块）。
+class _TilePainter extends CustomPainter {
+  const _TilePainter({
+    required this.image,
+    required this.scale,
+    required this.fit,
+    required this.alignment,
+  });
+
+  final ui.Image image;
+  final double scale;
+  final BoxFit fit;
+  final Alignment alignment;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    paintImage(
+      canvas: canvas,
+      rect: Offset.zero & size,
+      image: image,
+      scale: scale,
+      fit: fit,
+      repeat: ImageRepeat.repeat,
+      alignment: alignment,
+      filterQuality: FilterQuality.low,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _TilePainter oldDelegate) =>
+      !identical(oldDelegate.image, image) ||
+      oldDelegate.scale != scale ||
+      oldDelegate.fit != fit ||
+      oldDelegate.alignment != alignment;
 }

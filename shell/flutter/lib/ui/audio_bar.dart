@@ -16,6 +16,25 @@
 /// **本机静音时滑杆不置灰、不归零**——保留用户原值。静音是一个正交的布尔，
 /// 不是「音量 0」；把它做成「音量 0」会让用户取消静音后发现音量被改掉了
 /// （同类项目里就有用 `volume = 0.0000001` 做静音的 hack）。
+///
+/// # 落盘时机：拖动只动草稿，**松手才提交**（2026-09-28 · F-0002-1）
+///
+/// 主音量滑杆过去把每一帧的 `onChanged` 直接交给宿主，而宿主那条路是
+/// 「改偏好 → 整份 `jsonEncode` + `setItem` + 下发渲染面」。用户设了舞台壁纸时
+/// （偏好里那张 base64 有协议预算 1.5 M 字符），**拖一次滑杆 = 每帧一次 MB 级
+/// 同步序列化**。现在：
+///
+/// | 事件 | 做什么 |
+/// | --- | --- |
+/// | `onChanged`（拖动中，每帧） | 只更新**草稿**：读数跟着手指走 |
+/// | `onChangeEnd`（松手 / 点击 / 方向键） | 把草稿**提交**给宿主，落盘一次 |
+///
+/// 为什么不是「在宿主里防抖」：`main.dart` 的 `_update` 返回值就是
+/// 「有没有真的写进本机存储」的诚实性契约（无痕 / 配额满要如实说），防抖之后
+/// 它同步返回不了真话；而且 `main.dart` 在 VM 测试里加载不了（依赖 `package:web`），
+/// 写在那种地方的时序**没有任何回归能钉住**。
+///
+/// 代价（如实记录）：拖动过程中不再逐帧改播出的音量，**松手才生效**。
 library;
 
 import 'package:flutter/material.dart';
@@ -23,7 +42,7 @@ import 'package:flutter/material.dart';
 import '../design/tokens.dart';
 import 'theme.dart';
 
-class AudioBar extends StatelessWidget {
+class AudioBar extends StatefulWidget {
   const AudioBar({
     required this.volume,
     required this.muted,
@@ -54,9 +73,53 @@ class AudioBar extends StatelessWidget {
   final VoidCallback? onEnableSound;
 
   @override
+  State<AudioBar> createState() => _AudioBarState();
+}
+
+class _AudioBarState extends State<AudioBar> {
+  /// 拖动中的**草稿**（`null` = 跟随 [AudioBar.volume]）。
+  ///
+  /// 两条理由：①「拖动只动草稿、松手才提交」是本条的修法；
+  /// ②拖动过程中宿主会因为**别的原因**重建（每个流式 delta 都在重建整棵壳），
+  /// 草稿留在 State 里，滑块就不会被旧值弹回去。
+  double? _dragVolume;
+
+  /// 屏幕上该显示的音量（草稿优先）。
+  double get _shownVolume => _dragVolume ?? widget.volume;
+
+  @override
+  void didUpdateWidget(AudioBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 宿主把值回灌了（提交成功 / 别处改了音量）⇒ 草稿使命结束。
+    // 判据用「值变了」而不是「值等于草稿」：宿主若把值夹持成别的数，
+    // 界面必须显示宿主那份，不许拿草稿硬撑。
+    if (widget.volume != oldWidget.volume) _dragVolume = null;
+  }
+
+  /// 拖动中的每一帧：只更新显示，**不提交**。
+  void _onDrag(double value) => setState(() => _dragVolume = value);
+
+  /// 松手 / 点击滑轨 / 方向键调整：**这一步才提交**。
+  ///
+  /// `Slider` 的三条输入路径都会走 `onChangeEnd`（SDK `material/slider.dart`：
+  /// `_handleDragEnd`、`_endInteraction`，以及 `increaseAction` / `decreaseAction`
+  /// 里的 `onChangeEnd!(…)`）——所以键盘调音量不会被漏掉。
+  void _commit(double value) {
+    setState(() => _dragVolume = value);
+    widget.onVolumeChanged(value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
+    // 下面整段沿用**逐字不动**的排版与语义，只是取值改走草稿 / widget。
+    final double volume = _shownVolume;
+    final bool muted = widget.muted;
+    final bool serverMuted = widget.serverMuted;
+    final bool audioUnlocked = widget.audioUnlocked;
+    final ValueChanged<bool> onMutedChanged = widget.onMutedChanged;
+    final VoidCallback? onEnableSound = widget.onEnableSound;
     final int percent = (volume * 100).round();
 
     // **不要**在外面套一层 `Semantics(container: true, label: '音频')`。
@@ -101,7 +164,9 @@ class AudioBar extends StatelessWidget {
                       value: volume,
                       label: '主音量',
                       // **不在静音时禁用滑杆**：静音与音量正交。
-                      onChanged: onVolumeChanged,
+                      // 拖动中只动草稿；**松手才提交**（见文件头注）。
+                      onChanged: _onDrag,
+                      onChangeEnd: _commit,
                       semanticFormatterCallback: (double v) =>
                           '${(v * 100).round()}%',
                     ),

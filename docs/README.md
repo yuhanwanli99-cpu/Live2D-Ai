@@ -39,6 +39,11 @@
 - [桌宠窗口 Mod v0（**已封存 ARCHIVED**，本波不做）](architecture/pet-desktop-mod-v0.md)
   ——**不再注册、不再编译进 binary**；crate 暂留 workspace，**禁止挂回**；理由见
   [已封存 Mod 台账](architecture/ARCHIVED-mods.md)
+- [**背景透传：相对 `shalldie/vscode-background` v3.1.0 的偏离说明**](architecture/background-parity-vscode-background.md)
+  ——**机制采纳**（分区 × 有序图列表 × 渲染参数），**实现不采纳**（不改宿主 `workbench.html`、
+  不 sudo 提权、不屏蔽 integrity 提示）；逐条写明在线图 / 本地文件夹 / `~` 与环境变量 /
+  任意 CSS / `useFront` / 舞台分区**为什么不做**；§6 短期目标表带**实施状态**（写「已支持」必附实测名），
+  §7 是 **DEC-1…DEC-7 裁决结果**与实施波次（DEC-3 壳内子区域＝不做）
 - [**Mod 社区许可与注册边界（0.2.0-rc.1）**](architecture/mod-community-license.md)
   ——注册面开放、分发面 AGPL 兼容；闭源走商业许可/私用；**无「闭源可进默认包」承诺**
 - [**导演（director）最小骨架（Wave 3：已注册、缺省停用、零投递）**](architecture/director-mod-v0.md)
@@ -182,6 +187,8 @@
 
 ## 代码审计
 
+- [**前端夜间审计账本（2026-09-28 入库，封口只读）**](audit/2026-09-28-frontend-nightly/README.md)
+  ——**长跑 21 批 45 条为准**（P0 0 / P1 12 / P2 19 / P3 14）＋ `short-run/` 快照；复算命令见其 §3；**目录只读**，实施记录写到 `docs/audit/<date>-<wave>/`
 - [2026-08-20 可读性 / 高效性审计](audit/2026-08-20-readability-efficiency-audit.md)
 - [2026-08-19 代码审计与管理收尾](audit/2026-08-19-code-audit-round.md)
 - 分项：`audit/CONFIG_SCHEMA_AUDIT.md`、`audit/SETTINGS_SYSTEM_AUDIT.md`、`audit/tts_config_audit_report.md`

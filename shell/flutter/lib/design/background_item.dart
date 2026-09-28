@@ -83,6 +83,81 @@ sealed class BackgroundItem {
   bool get isRenderable;
 }
 
+/// 一段串**是不是图片形态的 dataURL**（DEC-5 的**唯一判据**）。
+///
+/// # 为什么要有它（2026-09-28 收紧 isRenderable）
+///
+/// 旧判据是「非空串」，于是 `'x'`、被截断的记录、手改过的存储都算
+/// 「画得出来」：界面说「有背景」，屏幕上**一张都没有**（P4 静默失效）。
+/// 现在的形态要求是三条：
+///
+/// 1. 以 `data:image/` 开头（`data:text/plain` 之类的**不是**图片）；
+/// 2. 有逗号（dataURL 元数据与 payload 的分界）；
+/// 3. 逗号之后**非空**（空 payload 解出来是 0 字节，画不出来）。
+///
+/// 只判形态、**不判 base64 能不能解**：真正的解码在浏览器里
+/// （`ui/shell_backdrop.dart` 的 `decodeDataUrlBytes`），而「形态合理但解不开」
+/// 不该反向改写用户的数据（见 [BackgroundImageState]）。
+bool isDataImageUrl(String url) {
+  if (!url.startsWith('data:image/')) return false;
+  final int comma = url.indexOf(',');
+  if (comma < 0) return false;
+  return comma + 1 < url.length;
+}
+
+/// 逐图样式覆盖的**合法区间**（唯一真源）。
+///
+/// # 为什么住在这里而不是 `settings/display_prefs.dart`
+///
+/// 依赖是单向的：`display_prefs.dart` import 本文件，本文件**不许**反向
+/// import（会成环）。所以区间常量只能住这边，由 `DisplayPrefs` 引用
+/// （`maxImageFit = BackgroundStyleRange.maxFit` 等），两边不会各长一套。
+abstract final class BackgroundStyleRange {
+  /// 铺法：`0=cover / 1=contain / 2=stretch / 3=tile`。
+  static const int minFit = 0;
+  static const int maxFit = 3;
+
+  /// 九宫格位置：`0` 左上 … `4` 居中 … `8` 右下。
+  static const int minAlign = 0;
+  static const int maxAlign = 8;
+
+  /// 不透明度。
+  static const double minOpacity = 0.0;
+  static const double maxOpacity = 1.0;
+}
+
+/// 一项图片的**三态**（UI 与渲染层共用的判据）。
+///
+/// | 态 | 含义 | 界面该说什么 |
+/// | --- | --- | --- |
+/// | [ready] | 字节在手里、形态是 dataURL 图片 | 正常（画） |
+/// | [pending] | 字节还没从字节库读回来 | **不是错误**：瞬时态，别说成坏图 |
+/// | [corrupt] | 字节在、但形态不是 dataURL 图片 | **要如实标出来**（重新导入） |
+enum BackgroundImageState {
+  /// 画得出来。
+  ready,
+
+  /// 等字节（水合之前 / 存储读失败时）。
+  pending,
+
+  /// 字节在、形态坏。
+  corrupt,
+}
+
+/// # 逐图样式（2026-09-28 · Stage B）
+///
+/// [BackgroundImage.opacity] / [BackgroundImage.fit] / [BackgroundImage.align]
+/// 是**可选覆盖**：`null` = 没设过 = 回落全局
+/// （`DisplayPrefs.backgroundOpacity` / `imageFit` / `imageAlign`）。
+/// 它们住在项上而不是另开一张表，是因为与「哪一项」同生命周期——
+/// 删除、排序、轮播都只动一个列表。
+///
+/// **三项都会落盘**（`toJson` 只写非 null 的那几个）。所以从字节库补回字节时
+/// 必须**原样保留**（`copyWith(dataUrl: …)`）：直接 new 一个
+/// `BackgroundImage(id: …)` 会把用户调过的逐图样式静默清空。
+///
+/// 合法区间见 [BackgroundStyleRange]；越界的读入值一律当「没设过」（回落全局），
+/// 而不是回落「默认档」——后者会凭空改变观感（全局 contain + 坏值 ≠ cover）。
 /// 一张导入的图片：**身份 + 字节**。
 ///
 /// # 为什么是「一个 id + 可选的字节」，而不是「一段 dataURL」
@@ -113,7 +188,13 @@ sealed class BackgroundItem {
 /// 读它时**两个字段都用**（id 由内容算出来，见 `design/background_id.dart`），
 /// 写回时只写 id —— 一次启动就完成搬家。
 final class BackgroundImage extends BackgroundItem {
-  const BackgroundImage({required this.id, this.dataUrl});
+  const BackgroundImage({
+    required this.id,
+    this.dataUrl,
+    this.opacity,
+    this.fit,
+    this.align,
+  });
 
   /// 身份（由内容算出，见 `backgroundIdOf`）；也是字节库里的键。
   final String id;
@@ -121,14 +202,90 @@ final class BackgroundImage extends BackgroundItem {
   /// 渲染用字节。**不落盘**（见类头注的表）。
   final String? dataUrl;
 
+  /// 不透明度覆盖（`null` = 回落 `DisplayPrefs.backgroundOpacity`）。
+  final double? opacity;
+
+  /// 铺法覆盖（`null` = 回落 `DisplayPrefs.imageFit`）。
+  final int? fit;
+
+  /// 位置覆盖（`null` = 回落 `DisplayPrefs.imageAlign`）。
+  final int? align;
+
+  /// 这一项处在哪一态（见 [BackgroundImageState]）。
+  BackgroundImageState get state {
+    final String? url = dataUrl;
+    if (url == null) return BackgroundImageState.pending;
+    return isDataImageUrl(url)
+        ? BackgroundImageState.ready
+        : BackgroundImageState.corrupt;
+  }
+
   /// 现在能不能画。
   ///
   /// 为什么要有这个判据而不是到处 `dataUrl != null`：
   /// 「这一项存在」与「这一项画得出来」是**两件事**——
   /// 字节库打不开时，库里可以有图而一张都画不出来。
   /// 「背景库：3 项」但屏幕上一张都没有，比报错更糟。
+  ///
+  /// # 2026-09-28 收紧（DEC-5）
+  ///
+  /// 旧判据是「非空串」，于是一段不是 dataURL 的串也算画得出来（界面在骗人）。
+  /// 现在走 [isDataImageUrl]（形态三条）。
+  ///
+  /// **坏图怎么让 UI 知道**（外观区只读字段，不需要回调）：
+  ///
+  /// - [state] == [BackgroundImageState.corrupt] → 字节在但形态坏 ⇒
+  ///   背景库那一项如实标出来（「这项字节有问题，重新导入」）；
+  /// - [state] == [BackgroundImageState.pending] → 等字节，**不是**错误；
+  /// - **形态合法但浏览器解不开**（编码不支持 / base64 坏了）只有渲染层知道：
+  ///   `ShellBackdrop` 在那里静默回落底色，**不抛、不删项、不改数据**——
+  ///   一次解码失败不构成「这张图坏了」，所以这一态**不进** [state]。
   @override
-  bool get isRenderable => dataUrl != null && dataUrl!.isNotEmpty;
+  bool get isRenderable => state == BackgroundImageState.ready;
+
+  /// 字节在、但不是 dataURL 图片形态（要如实告诉用户的那一态）。
+  bool get isCorrupt => state == BackgroundImageState.corrupt;
+
+  /// 字节还没读回来（水合之前 / 存储读失败）。
+  bool get bytesPending => state == BackgroundImageState.pending;
+
+  /// 字段总数（供测试做「加了字段忘了 copyWith / toJson」的结构枚举）。
+  ///
+  /// 加字段时**必须**同时改这里、[toValuesMap] 与 `toJson`；测试对着它逐一
+  /// 验证，漏一个就红（P4：漏字段 = 静默失效）。
+  static const int kStructuralFieldCount = 5;
+
+  /// 供结构枚举读的**字段名 → 值**（少一个字段，测试就该红）。
+  Map<String, Object?> toValuesMap() => <String, Object?>{
+    'id': id,
+    'dataUrl': dataUrl,
+    'opacity': opacity,
+    'fit': fit,
+    'align': align,
+  };
+
+  /// 复制并替换若干字段。
+  ///
+  /// [clearStyle] 是「把三项覆盖一起清掉」的显式开关——与
+  /// `DisplayPrefs.copyWith(clearStageImage: …)` 同一个理由：参数缺省为 null
+  /// 分不清「设成 null（= 回落全局）」与「不改」。
+  ///
+  /// **水合补字节必须走它**：`copyWith(dataUrl: read.dataUrl)`。直接 new 一个
+  /// `BackgroundImage(id: …)` 会把逐图样式丢掉（`data/background_hydration.dart`）。
+  BackgroundImage copyWith({
+    String? id,
+    String? dataUrl,
+    double? opacity,
+    int? fit,
+    int? align,
+    bool clearStyle = false,
+  }) => BackgroundImage(
+    id: id ?? this.id,
+    dataUrl: dataUrl ?? this.dataUrl,
+    opacity: clearStyle ? null : (opacity ?? this.opacity),
+    fit: clearStyle ? null : (fit ?? this.fit),
+    align: clearStyle ? null : (align ?? this.align),
+  );
 
   @override
   String get kind => 'image';
@@ -137,17 +294,47 @@ final class BackgroundImage extends BackgroundItem {
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'image',
     'id': id,
+    // 只写**设过**的那几项：null 写进去是噪音，读回来还是 null。
+    if (opacity != null) 'opacity': opacity,
+    if (fit != null) 'fit': fit,
+    if (align != null) 'align': align,
   };
 
   static BackgroundImage? fromJson(Map<Object?, Object?> raw) {
+    // 逐图样式：**坏值 = 没设过**（回落全局），而不是回落「默认档」。
+    // 理由：全局值才是这一项没覆盖时用户看到的样子；把坏值塞回默认档会让
+    // 「全局 contain + 这一项坏值」变成 cover，凭空改变观感。
+    final double? styleOpacity = _readStyleOpacity(raw['opacity']);
+    final int? styleFit = _readStyleInt(
+      raw['fit'],
+      BackgroundStyleRange.minFit,
+      BackgroundStyleRange.maxFit,
+    );
+    final int? styleAlign = _readStyleInt(
+      raw['align'],
+      BackgroundStyleRange.minAlign,
+      BackgroundStyleRange.maxAlign,
+    );
     final Object? rawId = raw['id'];
     if (rawId is String && rawId.isNotEmpty) {
-      return BackgroundImage(id: rawId, dataUrl: _legacyBytes(raw));
+      return BackgroundImage(
+        id: rawId,
+        dataUrl: _legacyBytes(raw),
+        opacity: styleOpacity,
+        fit: styleFit,
+        align: styleAlign,
+      );
     }
     // 旧档：只有 dataUrl。id 由内容算 ⇒ 同一张图前后一致。
     final String? url = _legacyBytes(raw);
     if (url == null) return null;
-    return BackgroundImage(id: backgroundIdOf(url), dataUrl: url);
+    return BackgroundImage(
+      id: backgroundIdOf(url),
+      dataUrl: url,
+      opacity: styleOpacity,
+      fit: styleFit,
+      align: styleAlign,
+    );
   }
 
   /// 旧档里那一段（可能不存在 / 不合法）。
@@ -156,25 +343,59 @@ final class BackgroundImage extends BackgroundItem {
     return url is String && url.isNotEmpty ? url : null;
   }
 
+  /// 读逐图不透明度：非数字 / 非有限 / 越界一律当「没设过」。
+  static double? _readStyleOpacity(Object? raw) {
+    if (raw is! num) return null;
+    final double value = raw.toDouble();
+    if (!value.isFinite) return null;
+    if (value < BackgroundStyleRange.minOpacity ||
+        value > BackgroundStyleRange.maxOpacity) {
+      return null;
+    }
+    return value;
+  }
+
+  /// 读逐图枚举覆盖：非 int / 越界一律当「没设过」。
+  static int? _readStyleInt(Object? raw, int min, int max) {
+    if (raw is! int) return null;
+    return (raw < min || raw > max) ? null : raw;
+  }
+
   @override
   bool sameAs(BackgroundItem other) =>
       other is BackgroundImage && other.id == id;
 
-  /// 按 [id] 判等，**不看 [dataUrl]**。
+  /// 按 [id]（+ 逐图样式）判等，**不看 [dataUrl]**。
   ///
-  /// 为什么：同一张图在「字节读回来之前」与「之后」必须判为**同一项**，
-  /// 否则「刚导入」这一次 [DisplayPrefs] 比较会判成「变了」，
+  /// 为什么不看 [dataUrl]：同一张图在「字节读回来之前」与「之后」必须判为
+  /// **同一项**，否则「刚导入」这一次 [DisplayPrefs] 比较会判成「变了」，
   /// 连带把整个偏好重写一遍，而重写又要重新序列化所有图。
+  ///
+  /// 为什么**要**看样式：样式是用户改出来的「这一项怎么画」。漏掉它会让
+  /// 「改了逐图铺法」被判成「什么都没变」⇒ 不落盘（静默失效）。
   @override
   bool operator ==(Object other) =>
-      other is BackgroundImage && other.id == id;
+      other is BackgroundImage &&
+      other.id == id &&
+      other.opacity == opacity &&
+      other.fit == fit &&
+      other.align == align;
 
   @override
-  int get hashCode => Object.hash('image', id);
+  int get hashCode => Object.hash('image', id, opacity, fit, align);
 
   @override
-  String toString() =>
-      'BackgroundImage($id, ${isRenderable ? '${dataUrl!.length} chars' : 'bytes pending'})';
+  String toString() {
+    final String bytes = switch (state) {
+      BackgroundImageState.ready => '${dataUrl!.length} chars',
+      BackgroundImageState.pending => 'bytes pending',
+      BackgroundImageState.corrupt => 'corrupt dataUrl',
+    };
+    final String style = (opacity == null && fit == null && align == null)
+        ? 'global style'
+        : 'opacity: $opacity, fit: $fit, align: $align';
+    return 'BackgroundImage($id, $bytes, $style)';
+  }
 }
 
 /// 一个内置图案（`BackgroundPatternId` 里的枚举值）。

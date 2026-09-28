@@ -39,6 +39,15 @@
 ///
 /// （2026-09-11：本表原先还有一行「动作来源 / 历史 → `actions/*`」。用户裁定
 /// LLM 无工具、只做对话，动作子系统整条移除，该行的文件与测试一并删除。）
+
+/// # 行数（**超出豁免带**，拆分归 Stage C3）
+///
+/// 本文件在本轮（2026-09-28 · R6-a2）之后 **1284 行**（`wc -l`），**超过「源码 ≤500 行、
+/// 豁免 ≤1000 行」那条线**。这不是本轮才超的：rc.5 之后已是 1239 行
+/// （`settings/display_prefs.dart` 头注记了同一笔账，那批拆分登记在 Stage C3），
+/// 本轮只加不减（F-0002-2/F-0002-3 的水合接线）。写在这里是**如实**，
+/// 不是豁免申请。
+///
 library;
 
 import 'dart:async';
@@ -135,17 +144,35 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
 
   /// 背景图的字节库（IndexedDB）。
   ///
-  /// 先用内存实现占位：[_hydrateBackgrounds] 拿到真正的那个再换。
-  /// 之所以允许「先空着」——那时偏好里一个图都没有，
-  /// 而「没有图」是这个实现的正确行为。
-  BackgroundStore _store = MemoryBackgroundStore();
+  /// **2026-09-28（F-0002-2）：一开始就是真库，没有内存占位。**
+  /// `createBackgroundStore()` 是**同步**构造（web 那份的 `open` 是惰性的，
+  /// 在实现内部），所以这里根本不必等水合。老实现是「先 MemoryBackgroundStore
+  /// 占位 → 水合完成才换真库」，于是窗口里用户导入的字节进的是**即将被丢弃的
+  /// 内存库**，界面却说「已加进背景库」——下次启动那张图被判孤儿摘除。
+  /// 故障面没有变：`put` 写不进去会返回 `false`，调用方照样如实转述。
+  ///（`final`：**一次构造、一个实例**——水合不再换库，见上。）
+  final BackgroundStore _store = createBackgroundStore();
 
-  /// 字节库打不开/卡住时的兜底时限。
+  /// **水合这一次读**的兜底时限。
   ///
   /// IndexedDB 在某些隐私配置下会**既不 resolve 也不 reject**（见
   /// `background_store_web.dart` 的头注）。一个「背景图功能」不该有
-  /// 权力让整个应用起不来，所以这里给它一个上限，超时就用内存库继续跑。
+  /// 权力让整个应用起不来，所以给这次读一个上限，超时就不动偏好继续跑。
+  ///
+  /// ⚠️ 它**只**管这次读（F-0002-3）。过去这里还顶着一个「超时就退回内存库」
+  /// 的假兜底（`Future.value(createBackgroundStore()).timeout(…)`）：那层
+  /// timeout 永远不触发（构造是同步的、也不会抛），注释承诺的退路在线上**不存在**。
+  /// 真实的兜底在 `_IdbBackgroundStore` 内部——open 失败会被记下来，之后每个
+  /// 操作都**诚实地失败**（`put` 返回 false），而不是偷偷换一个库。
   static const Duration _hydrateTimeout = Duration(seconds: 3);
+
+  /// 背景库字节是否还在水合（交接项 9b）。
+  ///
+  /// `true` → 外观区显示「正在读回背景库…」并禁用背景库的写操作；
+  /// 这一次读结束（成功读回、或 3 s 超时兜底）就翻成 `false`。
+  /// 为什么要暴露它：读回窗口里的写操作与读回结果**会打架**，而界面当时
+  /// 一句话都不说——用户以为「加进去了」，清单却按读回结果被覆盖。
+  bool _backgroundHydrating = true;
 
   @override
   void initState() {
@@ -163,37 +190,45 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
   /// 代价是背景可能晚几十毫秒出现（肉眼几乎看不出），
   /// 换来的是**存储故障永远拖不垮启动**。
   Future<void> _hydrateBackgrounds() async {
-    final BackgroundStore store = await _openStore();
+    final BackgroundStore store = _store;
     final BackgroundHydration hydrated = await _hydrateSafely(store, _prefs);
     if (!mounted) return;
+    // **只回填背景域**（F-0013-1 / F-0001-3）：水合窗口里用户改的主题 / 音量 /
+    // 透明度、以及背景库的增 / 删 / 重排，全部保留**当前最新值**。
+    //
+    // 旧实现是 `_prefs = hydrated.prefs`——把水合**开始时刻的快照**整体盖回去，
+    // 窗口期的改动全部回滚；`migrated` 时还会把这份旧对象写回盘。
     setState(() {
-      _store = store;
-      _prefs = hydrated.prefs;
+      _prefs = applyBackgroundHydration(_prefs, hydrated);
+      // 水合这一次读结束了（读回成功 / 超时兜底都算结束）。
+      _backgroundHydrating = false;
     });
-    // 搬了旧档（把大 base64 从 localStorage 挪进 IndexedDB）就写回去，
-    // 否则那份 base64 会永远留在偏好里，下次启动再搬一次。
-    if (hydrated.migrated) saveDisplayPrefs(hydrated.prefs);
-  }
-
-  Future<BackgroundStore> _openStore() async {
-    try {
-      return await Future<BackgroundStore>.value(
-        createBackgroundStore(),
-      ).timeout(_hydrateTimeout);
-    } catch (_) {
-      // 打不开就退到内存实现：本次会话仍然能加图能看图（刷新后要重来），
-      // 而**写入失败会如实告诉用户**（`put` 返回 false）。
-      return MemoryBackgroundStore();
-    }
+    // 搬了旧档（把大 base64 从 localStorage 挪进 IndexedDB）/ 摘掉了确认没有的
+    // 孤儿就写回**合并后**的偏好（不是那份旧快照），否则那份 base64 会永远留在
+    // 偏好里，下次启动再搬一次。
+    if (hydrated.migrated) saveDisplayPrefs(_prefs);
   }
 
   Future<BackgroundHydration> _hydrateSafely(
     BackgroundStore store,
     DisplayPrefs prefs,
-  ) => hydrateBackgrounds(prefs, store).timeout(
+  ) => hydrateBackgrounds(
+    prefs,
+    store,
+    // 剪枝的保留集要读**此刻**的偏好：窗口里刚导入的那一项的字节
+    // 绝不能被当成孤儿真删掉（F-0013-1 的另一半）。
+    liveKeptIds: () => _imageIdsIn(_prefs),
+  ).timeout(
     _hydrateTimeout,
-    onTimeout: () => BackgroundHydration(prefs, migrated: false),
+    // 超时 = 这次水合**什么都没算出来**：不动背景域，更不覆盖任何字段。
+    onTimeout: () => const BackgroundHydration(),
   );
+
+  /// 偏好里所有**图片**项的 id（水合剪枝的保留集用它）。
+  Set<String> _imageIdsIn(DisplayPrefs prefs) => <String>{
+    for (final BackgroundItem item in prefs.backgrounds)
+      if (item is BackgroundImage) item.id,
+  };
 
   /// 更新并**立即持久化**；返回**是否真的写进了本机存储**。
   ///
@@ -221,7 +256,12 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
         uiTransparency: _prefs.uiTransparency,
       ),
     ),
-    home: ShellRoot(prefs: _prefs, store: _store, onPrefsChanged: _update),
+    home: ShellRoot(
+      prefs: _prefs,
+      store: _store,
+      backgroundHydrating: _backgroundHydrating,
+      onPrefsChanged: _update,
+    ),
   );
 }
 
@@ -230,6 +270,7 @@ class ShellRoot extends StatefulWidget {
   const ShellRoot({
     required this.prefs,
     required this.store,
+    required this.backgroundHydrating,
     required this.onPrefsChanged,
     super.key,
   });
@@ -239,6 +280,10 @@ class ShellRoot extends StatefulWidget {
 
   /// 背景图字节库（见 `data/background_store.dart`）。
   final BackgroundStore store;
+
+  /// 背景库字节是否还在水合（交接项 9b）：由根持有、只往下传，外观区据此
+  /// 显示「正在读回背景库…」并禁用背景库的写操作。
+  final bool backgroundHydrating;
 
   /// 上报偏好变更；返回**是否成功落盘**（失败时调用方给一句可执行文案）。
   final bool Function(DisplayPrefs) onPrefsChanged;
@@ -416,7 +461,33 @@ class _ShellRootState extends State<ShellRoot> {
   final ShellSlideshow _slideshow = ShellSlideshow();
 
   /// 当前播到背景库第几项（**不落盘**：刷新后从头开始符合直觉）。
+  ///
+  /// 它是**唯一**的运行时索引真源（F-0001-2）：`_jumpBackground` 与
+  /// `_onBackgroundAdvance` 都只改它，并同步推给 `_slideshow`。
   int _backgroundIndex = 0;
+
+
+  // ── 下发给渲染面的**同值去重**（F-0002-1，2026-09-28）──
+  //
+  // 为什么记忆住在宿主而不是渲染面客户端：这条漏斗（`_applyPrefs`）是
+  // 「任意偏好变更」唯一要过的地方，而音量滑杆过去每帧都过它一次。
+  // 记忆放在这里，就能在**构造帧之前**把重复挡掉（连字符串都不必再过一遍）。
+
+  /// 最近一次真的下发给渲染面的舞台背景串（`null` = 没有背景）。
+  ///
+  /// **只按值去重，不带桥身份**：iframe 重建后的补发是 `Live2DStage._attach`
+  /// 的职责（每次挂桥都无条件重发 `widget.stageImage`），所以这里按值去重
+  /// 不会吞掉补发；反过来若带上桥身份，重挂之后会白推一帧 MB 级大串。
+  String? _lastSentStageBg;
+
+  /// 最近一次 `sync` 的**字段指纹**与**桥身份**（同桥 + 同值 ⇒ 不重发）。
+  ///
+  /// 为什么要带桥身份：`lipSync` / `idleEnabled` / `mouthSensitivity` /
+  /// `clickEnabled` 四个字段**只有** `_applyPrefs` 会发（`_attach` 的 sync
+  /// 不带它们）。iframe 重建（retry）会换一个新桥，指纹必须跟着作废——
+  /// 否则重挂之后用户的口型 / 待机 / 灵敏度设置会静默失效。
+  Live2DBridge? _lastSyncBridge;
+  List<Object?>? _lastSyncKey;
 
   /// 偏好变了 → 背景库长度 / 随机 / 间隔可能都变了，**重新对表**。
   void syncSlideshow(DisplayPrefs prefs) {
@@ -430,6 +501,18 @@ class _ShellRootState extends State<ShellRoot> {
         randomOrder: prefs.slideRandom,
       )
       ..start(prefs.slideInterval, onAdvance: _onBackgroundAdvance);
+    // 库清空 / 减项 / 换来源之后，**运行时索引跟着同一夹持**（F-0001-2 第二形态）。
+    //
+    // 旧实现只让渲染层在取值时 clamp 一下：库从 5 项清成 1 项之后
+    // `_backgroundIndex` 还是 4。DEC-6 之后设置页的「当前」标记与
+    // 铺法 / 位置区读的正是这个索引，于是它会指到夹持后的那一项，而索引本身
+    // 没被改回来 —— 下一轮 advance 又从 4 起算，与「从头开始」的直觉不符。
+    // 现在索引的合法范围由 `_slideshow` 说了算（setLibrary 里已经夹过），
+    // 宿主这一份**只跟随**。
+    final int clamped = _slideshow.index;
+    if (_backgroundIndex != clamped) {
+      setState(() => _backgroundIndex = clamped);
+    }
   }
 
   /// 切到背景库第 N 项（点缩略图 / 拖完排序后回到第一项时用）。
@@ -438,6 +521,11 @@ class _ShellRootState extends State<ShellRoot> {
   /// 刷新后从头开始才符合直觉。
   void _jumpBackground(int index) {
     if (!mounted) return;
+    // 必须**同时**推给轮播控制器（F-0001-2）：它自己有一份 `_index`，
+    // 只改宿主那一个的话，下一次 onAdvance 会从**旧的** `_index` 往前走，
+    // 把用户刚预览的那张无端切走。`jumpTo` 自带区间夹持、库为空时是
+    // 空操作；它**不碰**偏好、不发任何帧（预览是纯运行时动作）。
+    _slideshow.jumpTo(index);
     setState(() => _backgroundIndex = index);
   }
 
@@ -1124,6 +1212,8 @@ class _ShellRootState extends State<ShellRoot> {
           // 收在 `AppShell._currentBackground` 一处，渲染层不自己判。
           prefs: widget.prefs,
           backgroundIndex: _backgroundIndex,
+          // 9b：水合中把背景库的写操作禁掉——读回窗口里的写会与读回结果打架。
+          backgroundHydrating: widget.backgroundHydrating,
           messages: _chat.messages,
           input: _input,
           onSend: () => unawaited(_sendWithCancellation()),

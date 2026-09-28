@@ -76,11 +76,15 @@ void main() {
     );
     await tester.tap(find.textContaining('图片 1'));
     await tester.pump();
-    expect(previewed, <int>[0], reason: '单项时预览是可达的（这是预览唯一的入口）');
-    expect(find.byType(Checkbox), findsNothing, reason: '单项不进管理模式');
+    expect(previewed, <int>[0], reason: '1 项时预览也是可达的（D1：任意库大小）');
+    expect(
+      find.byType(Checkbox),
+      findsNothing,
+      reason: '默认是**预览**模式；管理要显式点「管理」才进（D1）',
+    );
   });
 
-  testWidgets('≥2 项：点一行 = 勾选；「删除所选」上报**升序**下标', (
+  testWidgets('管理模式（显式进）：点一行 = 勾选；「删除所选」上报**升序**下标', (
     WidgetTester tester,
   ) async {
     final List<int> previewed = <int>[];
@@ -98,7 +102,16 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byType(Checkbox), findsNWidgets(2), reason: '≥2 项＝管理模式');
+    // D1（2026-09-28 R6-b）：管理不再是「≥2 项自动进」——那条判据让预览在
+    // 库里满 2 项之后**永远不可达**。现在点「管理」才算进管理模式。
+    expect(
+      find.byType(Checkbox),
+      findsNothing,
+      reason: '默认是预览模式：≥2 项也不再自动进管理',
+    );
+    await tester.tap(find.byKey(kBackgroundManageToggleKey));
+    await tester.pump();
+    expect(find.byType(Checkbox), findsNWidgets(2), reason: '进了管理模式才有复选框');
 
     await tester.tap(find.textContaining('图片 2'));
     await tester.pump();
@@ -106,6 +119,9 @@ void main() {
     await tester.pump();
     expect(find.text('已选 2 项'), findsOneWidget);
 
+    // 库面板比 800x600 的测试面高：先把按钮滚进视口再点（真实用户也要滚）。
+    await tester.ensureVisible(find.text('删除所选'));
+    await tester.pump();
     await tester.tap(find.text('删除所选'));
     await tester.pump();
     expect(removed, <int>[0, 1], reason: '批量删除必须上报升序下标（宿主按序删）');

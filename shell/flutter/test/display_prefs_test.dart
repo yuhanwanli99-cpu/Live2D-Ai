@@ -7,6 +7,16 @@ import 'package:live2d_ai_shell/design/background_item.dart';
 import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
 
+/// 外观分区的源码 = 主文件 + 它的 part。
+///
+/// 2026-09-28（Stage B · R6-b 第 0 步）：背景域被**原样抽取**到
+/// `appearance_background.dart`（那是 `appearance_section.dart` 的 `part`）。
+/// 这两条源码扫描断言关心的是「外观分区里有没有读这个字段」，不是「它在哪个
+/// 文件里」——所以扫描面取**并集**，抽取前后断言强度不变。
+String appearanceSectionSource() =>
+    File('lib/settings/sections/appearance_section.dart').readAsStringSync() +
+    File('lib/settings/sections/appearance_background.dart').readAsStringSync();
+
 void main() {
   group('DisplayPrefs 默认值', () {
     test('默认即实测标定值', () {
@@ -448,8 +458,7 @@ void _p4NewFieldsTests() {
     });
 
     test('外观分区读的是同一组常量（不写死区间）', () {
-      final String src = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+      final String src = appearanceSectionSource();
       for (final String name in <String>[
         'DisplayPrefs.minEdgeStrength',
         'DisplayPrefs.maxEdgeStrength',
@@ -645,15 +654,15 @@ void _p4NewFieldsTests() {
 
     test('枚举字段越界**回落默认**而不是夹到端点', () {
       // 端点有语义（0=auto / 1=无），把坏值夹到 1 会让背景不可读。
+      // **不含 slideInterval**：DEC-1（2026-09-28）把它改成了端点夹持，
+      // 回归在 `display_prefs_background_fit_test.dart` 的 DEC-1 组。
       final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
         'backgroundScrim': 99,
         'imageAlign': -3,
-        'slideInterval': -1,
         'imageFit': 42,
       });
       expect(p.backgroundScrim, DisplayPrefs.defaultBackgroundScrim);
       expect(p.imageAlign, DisplayPrefs.defaultImageAlign);
-      expect(p.slideInterval, 0);
       expect(p.imageFit, DisplayPrefs.defaultImageFit);
     });
 
@@ -699,8 +708,7 @@ void _p4NewFieldsTests() {
     });
 
     test('外观分区真的接上了新的旋钮（不写死区间）', () {
-      final String src = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+      final String src = appearanceSectionSource();
       for (final String name in <String>[
         // 可见控件
         'prefs.backgroundScrim',
@@ -753,8 +761,7 @@ void _p4NewFieldsTests() {
     });
 
     test('外观分区读的是同一组常量（不写死区间）', () {
-      final String src = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+      final String src = appearanceSectionSource();
       for (final String name in <String>[
         'DisplayPrefs.maxUiTransparency',
         'prefs.uiTransparency',
@@ -790,7 +797,10 @@ void _p4NewFieldsTests() {
 
     test('只有真把不透明度调到 0 才「没有背景」', () {
       final DisplayPrefs p = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[const BackgroundImage(id: 'x', dataUrl: 'x')],
+        backgrounds: <BackgroundItem>[const BackgroundImage(
+          id: 'x',
+          dataUrl: 'data:image/png;base64,AAA',
+        )],
       );
       expect(p.hasBackground, isTrue);
       expect(

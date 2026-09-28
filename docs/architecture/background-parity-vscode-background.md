@@ -1,6 +1,8 @@
 # 背景透传：相对 `shalldie/vscode-background` v3.1.0 的偏离说明
 
-> **任务**：0.2.0 封口路线 **Stage B 的 B4**（把「不采纳」写成明文，docs-only）。
+> **任务**：0.2.0 封口路线 **Stage B 的 B4**（把「不采纳」写成明文，docs-only）
+> ＋ **R6-c 回填**（2026-09-28，docs-only：§5.2 补 DEC-3 结论、§6 加「实施状态」列、
+> §7 逐条落裁决、同步 `docs/README.md` 索引）。
 > **参考真源**：[shalldie/vscode-background @ `eef5ddb651501ef5f7d386e06e684f75cfc1a8aa`（v3.1.0, MIT）](https://github.com/shalldie/vscode-background/tree/eef5ddb651501ef5f7d386e06e684f75cfc1a8aa)，
 > 本地浅克隆在 `/tmp/vscode-bg`（HEAD 已核对 = 上述 commit；**只读**）。
 > **我方真源**：工作树 `/home/skystar/Live2D-Ai-fe` @ `feat/frontend-redesign`，
@@ -8,11 +10,17 @@
 > `shell/flutter/lib/design/background_item.dart`、`shell/flutter/lib/app/shell_prefs.dart`。
 > **范围真源**：`docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md` §5（§5.1 参考模型 / §5.2 差距表 / §5.3 短期目标）、
 > `docs/plans/IMPL-PROMPTS-0.2.0-seal-2026-09-27.md` §B1–B4。
-> **本文件只新增文档**：不改任何代码、不改任何既有文件（含 `docs/README.md` 索引，见 §7）。
+> **改动史**：B4 时**只新增文档**（不改代码、不改任何既有文件，`docs/README.md` 索引原留给 Stage C · C1）；
+> **2026-09-28 R6-c** 按任务回填 §0 / §5.2 / §5.3 / §6 / §7 并同步 `docs/README.md` 索引（§7.2 第 3 条关闭）。
+> **两波都未改任何代码。**
 >
 > 行号说明：参考侧行号对应 `eef5ddb` 的原文，可复核；我方行号是**写作时的工作树快照**——
-> 同一工作树上 B1/B2/B3 正在改 `display_prefs.dart` / `shell_backdrop.dart`（`git status` 可见未提交改动），
-> 落盘后行号会漂移，文件与符号名不会。
+> 同一工作树上 **R6-a / R6-b** 正在改 `display_prefs.dart` / `shell_backdrop.dart` /
+> `background_item.dart` / `appearance_section.dart`，落盘后行号会漂移，文件与符号名不会。
+>
+> **R6-c 的实跑基线**：HEAD `31d06cb4`（`feat/frontend-redesign`）；测量前后
+> `git hash-object` 三个被测文件（`display_prefs.dart` / `shell_backdrop.dart` / `display_prefs_test.dart`）
+> 逐一致 ⇒ 测量时工作树未漂移。证据口径见 §6 末。
 
 ---
 
@@ -23,7 +31,8 @@
   我们不是编辑器扩展，不碰宿主安装目录（§4 D0）。
 - **能力层明确不采纳 6 条**：在线 https 图 / 本地文件夹 / `~` 与环境变量展开 / 任意 CSS `style` /
   `editor` 的 `useFront` / 跨渲染面的多区域（舞台分区）。每条在 §4 给出「参考怎么做 → 为什么不做 → 红线依据」。
-- **多区域分两层**：**壳内子区域可做**（纯 Flutter，技术边界清楚，未排期）；
+- **多区域分两层**：**壳内子区域技术可做，但已裁决本轮【不做】**（DEC-3：无用户诉求 +
+  避免堆砌 +「舞台是主角」；记 Stage C backlog，§5.2）；
   **舞台分区 = 改渲染面 = 后端口径**（wasm + 版本化协议），不在前端做（§5）。
 - **离线优先是硬依据**：`AGENTS.md`「前端层（Flutter）」的两条离线约束 + `scripts/ignite.sh --check`
   对产物里 `gstatic.com/flutter-canvaskit` 的探测。**注意其字面覆盖范围**（只扫 CanvasKit，不扫任意 URL），
@@ -316,15 +325,30 @@ UI 放在背景库的单项编辑里——这正是 `styles[]` 的**语义**，�
 3. 跨面交互已有既有教训（`StagePointerInterceptor`，`AGENTS.md:392-397`），
    说明「看起来是一个界面」的两套渲染面，任何跨越都是显式工程，不是配置。
 
-### 5.2 壳内子区域（可做，未排期）
+### 5.2 壳内子区域（**裁决：本轮不做** · DEC-3）
 
-壳是**一个** Flutter widget 树，所以「聊天 / 侧栏 / 设置面板各自一张背景」在原理上成本可控：
-把 `ShellBackdrop` 从「壳根一层」推广成「按子区域各铺一层」即可
-（现结构：`shell_backdrop.dart:79-107` 单层 + `Stack`）。
-**但本轮没有排期**，理由写在规划里：§5.3 第 3 条的要求是
-「至少壳的『聊天/侧栏』与『设置面板』可分辨（**若判定为堆砌，写明不做**）」
-（`PLAN-0.2.0-seal-and-cleanup-2026-09-27.md:181`）。
-产品裁决尚未做 ⇒ 本文件**只给出技术边界**，不替产品决定（§7）。
+**裁决（2026-09-28，按 `PLAN-0.2.0-seal-and-cleanup-2026-09-27.md` §6 Stage B · B.0 的建议默认）：不做。**
+不再写「可做，未排期」——那个悬空状态已终结（§7.2 第 2 条问的就是它）。
+
+**技术边界仍然成立**（备查）：壳是**一个** Flutter widget 树，所以
+「聊天 / 侧栏 / 设置面板各自一张背景」在原理上成本可控：把 `ShellBackdrop` 从「壳根一层」
+推广成「按子区域各铺一层」即可（现结构：`shell_backdrop.dart:79-107` 单层 + `Stack`）。
+**能做 ≠ 该做。**
+
+**不做的理由（三条，逐条独立）**：
+
+1. **无用户诉求**：现有反馈里没有任何一条要求「聊天区一张、侧栏另一张」；用户能感知的一直是
+   「我的背景图有没有显示、好不好看」。
+2. **避免堆砌**：规划 §5.3 第 3 条的要求是「至少壳的『聊天/侧栏』与『设置面板』可分辨
+   （**若判定为堆砌，写明不做**）」（`PLAN-0.2.0-seal-and-cleanup-2026-09-27.md:181`）。
+   为一个没有诉求的能力增加分区配置项，正是「堆砌」的定义——本轮**判定为堆砌**，因此写明不做。
+3. **「舞台是主角」**：产品主面是 Live2D 舞台，壳背景只是衬托；把注意力预算花在「壳里再切三块」上，
+   与「舞台是主角」的产品口径相反。
+
+**记 Stage C backlog**：若将来有明确诉求，恢复路径是「`ShellBackdrop` 推广成按子区域各铺一层」；
+评估时**必须**先回答「谁来维护多出来的分区配置项」，并同步 §5.3 的对照表。
+
+**本文件的口径**：技术边界保留在此备查；**产品裁决已完成（不做）**，全文不再出现「未排期」这种悬空表述。
 
 ### 5.3 与参考的对照
 
@@ -332,29 +356,66 @@ UI 放在背景库的单项编辑里——这正是 `styles[]` 的**语义**，�
 |---|---|---|
 | `background.fullscreen`（`body::after`，整窗） | 壳根 `ShellBackdrop`（已有） | 已有 |
 | `background.editor` | **无对应**（我们没有代码编辑器） | 不做 |
-| `background.sidebar` | 壳的侧栏子区域 | 纯 Flutter，可做，未排期 |
-| `background.panel` / `.auxiliarybar` | 壳的设置面板 / 聊天面板 | 纯 Flutter，可做，未排期 |
+| `background.sidebar` | 壳的侧栏子区域 | 纯 Flutter，可做；**裁决不做**（DEC-3，§5.2） |
+| `background.panel` / `.auxiliarybar` | 壳的设置面板 / 聊天面板 | 纯 Flutter，可做；**裁决不做**（DEC-3，§5.2） |
 | 舞台内部再分区 | wasm 渲染面 | **不做（后端口径）** |
 
 ---
 
-## 6. 部分采纳 / 短期目标（**这些不是现状，别写成「已经支持」**）
+## 6. 部分采纳 / 短期目标（**短期目标 ≠ 现状；没跑过测试就不得写「已经支持」**）
 
-| 参考能力 | 现状（写作时的工作树） | 短期目标（Stage B） |
-|---|---|---|
-| `size`（CSS `background-size`） | 仅 **cover / contain**：`maxImageFit = 1`（`display_prefs.dart:322`）、`boxFitFor` 只有两条分支（`shell_backdrop.dart:67-70`）。`fitName` 与 int 注释里**已存在** `stretch/tile` 两个名字（`:390-395`、`:181`）但 clamp / UI / 实现都到不了 | **扩到 `cover/contain/stretch/tile`（+ `tileSize`）**，删掉或写明 `maxImageFit=1` 这个假上限的理由（B1） |
-| `styles[]` 逐图样式 | 无 | **逐图 `opacity/fit/align` 覆盖**，回落全局（B3） |
-| `background.enabled` 全局开关 | 无 | B3 排期 |
-| `interval` / `random` | 有，但区间收窄：`0`（关）或 `5–300` 秒（`display_prefs.dart:341-342`） | 规划 §5.2 只要求「区间/clamp 一致」 |
-| `opacity` | 0–1，默认 **1.0**（`display_prefs.dart:303-305`） | 保留（我们允许不透明；参考 fullscreen 锁在 0–0.6） |
-| `position` | 9 宫格 `imageAlign`（`display_prefs.dart:184,324-326,373-384`） | 保留（比任意 CSS 更可点选） |
+> **状态口径（2026-09-28 R6-c）**：「短期目标」列是**目标**，不是现状；
+> 「实施状态」列才是判断。**凡是写「已支持 / 已成现状」的，必须附 R6-c 亲自跑过的测试名**——
+> 拿不到测试佐证的一律写「**裁决：做（实施中，待 R6-d 以测试佐证回填）**」。
 
-**B1/B2/B3 正在改同一批文件**，所以上表「现状」是快照。B4 的职责是**把不做写清楚**，
-不代 B1/B2/B3 宣布结果。
+| 参考能力 | 现状（写作时快照） | 短期目标（Stage B） | 实施状态（2026-09-28 R6-c） |
+|---|---|---|---|
+| `size`（CSS `background-size`） | 仅 **cover / contain**：`maxImageFit = 1`（`display_prefs.dart:322`）、`boxFitFor` 只有两条分支（`shell_backdrop.dart:67-70`）。`fitName` 与 int 注释里**已存在** `stretch/tile` 两个名字（`:390-395`、`:181`）但 clamp / UI / 实现都到不了 | **扩到 `cover/contain/stretch/tile`（+ `tileSize`）**，删掉或写明 `maxImageFit=1` 这个假上限的理由（旧 B1 → 现 **R6-a**） | **裁决：做（实施中，待 R6-d 以测试佐证回填）**——R6-a 改 `display_prefs.dart` / `shell_backdrop.dart` |
+| `styles[]` 逐图样式 | 无 | **逐图 `opacity/fit/align` 覆盖**，回落全局（旧 B3 → 现 **R6-a** 加字段 / **R6-b** 做编辑器） | **裁决：做（实施中，待 R6-d 以测试佐证回填）** |
+| `background.enabled` 全局开关 | 无 | 做（**DEC-4**，参考有；迁移默认 `true`） | **裁决：做（实施中，待 R6-d 以测试佐证回填）**——R6-a |
+| `interval` / `random` | 有，但区间收窄：`0`（关）或 `5–300` 秒（`display_prefs.dart:341-342`） | 规划 §5.2 只要求「区间/clamp 一致」；**DEC-1** 进一步裁决为**端点夹持**（>300→300、<5→5） | **裁决：做（实施中，待 R6-d 以测试佐证回填）**——R6-a；改动**前**的实测见下注 ① |
+| `opacity` | 0–1，默认 **1.0**（`display_prefs.dart:303-305`） | 保留（我们允许不透明；参考 fullscreen 锁在 0–0.6） | **已支持（保留）**——R6-c 实跑：`shell_backdrop_test.dart` ›「缺省值：加了图就该看得见 › 不透明度 1.0，模糊 0，遮罩 auto」；`display_prefs_test.dart` ›「背景库（2026-09-27：有序图库 + 内置图案 + 轮播参数）› 缺省就是「没有背景」——与本轮之前「没选图」的观感一致」（断言 `backgroundOpacity == 1.0`）；另 `… › 越界 / 非有限数一律 clamp 到区间（模糊不许变负）` |
+| `position` | 9 宫格 `imageAlign`（`display_prefs.dart:184,324-326,373-384`） | 保留（比任意 CSS 更可点选） | **已支持（保留）**——R6-c 实跑：`display_prefs_test.dart` ›「背景库… › 缺省就是「没有背景」…」（断言 `imageAlign == defaultImageAlign`）、`… › 枚举字段越界**回落默认**而不是夹到端点`（`imageAlign:-3` → 默认）。**边界**：9 个取值的枚举完整性本轮无人断言；DEC-7a 只改「位置控件的显隐条件」，不动取值 |
+
+**证据口径与未佐证清单（R6-c）**：
+
+- 上表「现状」是**写作时快照**；「实施状态」列是 **2026-09-28 R6-c** 的判断。**B1/B2/B3 是旧波次名**
+  （Stage B 现行波次 = **R6-a / R6-a2 / R6-b**，见 `docs/plans/ORCHESTRATOR-PROMPT-0.2.0-closeout-2026-09-28.md` §4）。
+- R6-c 的实跑（唯一证据来源）：HEAD `31d06cb4` 上
+  `cd shell/flutter && flutter test test/display_prefs_test.dart test/shell_backdrop_test.dart test/background_logic_test.dart test/display_prefs_slide_index_test.dart`
+  ⇒ **`+112: All tests passed!`（exit 0）**；测量前后 `git hash-object` 一致（工作树未漂移）。
+- **拿不到测试佐证的项一律写「裁决：做（实施中，待 R6-d 以测试佐证回填）」**：R6-a / R6-b 正在同一批
+  文件上实施，R6-c **不代替它们宣布结果**，也**没有**为它们跑过任何测试。
+- 注 ①（`interval`/`random` 改动**前**的实测，**仅供对照，不是 DEC-1 判决后的语义**）：
+  R6-c 实跑 `display_prefs_slide_index_test.dart` ›「轮播间隔：存储 clamp 与滑杆共用同一上界（P1-6 回归）
+  › 存储上界 = 滑杆上界（300）：不再有第二套上界 3600」**通过** ⇒ 当时现状为
+  「`slideInterval: 3600` 读回 `0`（静默关掉轮播）」；DEC-1 裁决改成端点夹持后，**该测试由 R6-a 同步改写**。
 
 ---
 
-## 7. 未决 / 留给维护者（只记录，不裁决）
+## 7. 未决项与裁决结果（2026-09-28 R6-c 回填；原标题：未决 / 留给维护者（只记录，不裁决））
+
+> **状态变化**：本节原先「只记录，不裁决」。编排者已按
+> `docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md` §6 Stage B · B.0 的**建议默认**逐条裁决，
+> R6-c 把结果回填在此。**七条裁决全部落在实施侧（R6-a / R6-b）或「不做」；
+> R6-c 不代替实施波次宣布「已完成」**——凡未拿到测试佐证的，一律记「待 R6-d 以测试佐证回填」。
+
+### 7.1 DEC-1…DEC-7 裁决表
+
+| # | 问题（出处） | 裁决结果 | 实施波次 |
+|---|---|---|---|
+| **DEC-1** | `slideInterval` 越界（301–3600）与存量 1–4 秒回落 `0`＝**静默关掉轮播**（rc.5 §9.1；§6「区间/clamp 一致」） | **做：端点夹持**（>300→300，<5→5；`0` 仍＝关）。新增专用 `_clampIntToRange`；**不改** `_clampInt`（`scrim` 依赖「越界回落默认」） | **R6-a** |
+| **DEC-2** | **两套轮播并存**：`stagePlaylist`（舞台单图，走 `stage-bg` 帧，rc.5 §9.2 记**零测试覆盖**）vs 背景库轮播（Flutter 层）；本文件原 §7 第 1 条 | **不合并**（合并要改后端）；改为**分工 + 改名 + 按 `backgroundSource` 互斥显示**（「舞台单图轮播」/「壳背景轮播」）；**保留 `stagePlaylist` 则先补它的守护测试** | **R6-b** |
+| **DEC-3** | 壳内子区域是否堆砌（§5.2；规划 §5.3 第 3 条） | **不做**，并写明理由：无用户诉求 + 避免堆砌 +「舞台是主角」（已写入 §5.2） | **不做**（记 Stage C backlog） |
+| **DEC-4** | 全局 `background.enabled`（§6 当时无此开关） | **做**（低成本，参考有；迁移默认 `true`） | **R6-a** |
+| **DEC-5** | C4：坏 dataURL 仍 `isRenderable=true`（rc.5 §9.6） | **收紧**到真 dataURL 形态（`data:image/…` + 逗号 + 非空 payload）；坏图要能被 UI 告知 | **R6-a** |
+| **DEC-6** | C3：`currentItemIsImage` 只看第 0 项（rc.5 §9.6） | **修**：把 AppShell 已有的运行时 `_backgroundIndex`（`app_shell.dart:181`，由 `ShellSlideshow.onAdvance` 驱动）传进外观区判「当前项」；**不持久化**运行时索引 | **R6-b** |
+| **DEC-7** | D3 位置显隐条件与注释相反；D4 来源＝舞台那张时轮播控件空转且文案误导（rc.5 §9.6） | **都修**（显隐对齐；空转改「禁用＋说明」或隐藏，P4 禁止静默失效） | **R6-b** |
+
+**落地状态（写此文档时）**：**只有 DEC-3 已由本文件 §5.2 写明「不做」并闭环**；其余六条均在实施波次中，
+**R6-c 未为它们跑过任何测试 ⇒ 一律记「待 R6-d 以测试佐证回填」**，本节不预告结果。
+
+### 7.2 原记录（三条，逐条已裁决）
 
 1. **`stagePlaylist` 与背景库轮播语义重叠**：一边是舞台单图轮播列表
    （`DisplayPrefs.stagePlaylist`，`display_prefs.dart:219-229` + `appendToStagePlaylist` / `removeStagePlaylistAt` /
@@ -363,12 +424,20 @@ UI 放在背景库的单项编辑里——这正是 `styles[]` 的**语义**，�
    （`backgrounds[]` + `slideInterval`/`slideRandom`；预算 `kBackgroundMaxCount`/`kBackgroundImageMaxBytes`；
    通道 = Flutter 层）。**两套列表、两套预算、两条下发通道**，用户可见的语义却是同一句
    「背景轮播」。谁是真源、是否合并（或明确分工：舞台单图 vs 壳背景库），**需产品裁决**——
-   本文件只记录这个重叠，**不裁决**。
+   本文件当时只记录这个重叠，**不裁决**。
+   ⇒ **已裁决 = DEC-2**（§7.1）：**不合并**；改为「分工 + 改名 + 按 `backgroundSource` 互斥显示」，
+   且**保留 `stagePlaylist` 的前提是先补它的守护测试**（该列表零覆盖）。**实施波次 R6-b。**
 2. **壳内子区域是否堆砌**（§5.2）：技术可做，产品未定。规划 §5.3 第 3 条要求
-   「若判定为堆砌，**写明不做**」——那句「不做」目前还没人写。
+   「若判定为堆砌，**写明不做**」——那句「不做」当时还没人写。
+   ⇒ **已裁决 = DEC-3**（§7.1）：**判定为堆砌，不做**，理由与恢复路径已写进 §5.2。
+   **实施波次：不做**（记 Stage C backlog）。**本条已闭环。**
 3. **`docs/README.md` 索引未更新**：B4 的文件归属是「新增 `docs/**`（不碰代码）」，
-   且本任务明令不碰既有文件；索引维护归 Stage C · C1（`IMPL-PROMPTS-0.2.0-seal-2026-09-27.md` §C1 第 2/4 条）。
-   本文件因此**暂时**只能靠路径被发现。
+   且当时任务明令不碰既有文件；索引维护原归 Stage C · C1（`IMPL-PROMPTS-0.2.0-seal-2026-09-27.md` §C1 第 2/4 条）。
+   本文件当时**只能靠路径被发现**。
+   ⇒ **已关闭（2026-09-28 R6-c）**：`docs/README.md`「架构与契约（当前）」已补本文件条目；
+   并顺带在该索引「代码审计」下补了审计账本
+   [`docs/audit/2026-09-28-frontend-nightly/`](../audit/2026-09-28-frontend-nightly/README.md)
+   （长跑 21 批 45 条为准 + short-run 快照）。**R6-c 全程未改任何代码。**
 
 ---
 
@@ -380,9 +449,10 @@ UI 放在背景库的单项编辑里——这正是 `styles[]` 的**语义**，�
 | 2 | `README.zh-CN.md:91`（「只允许 `https` 协议」）与 `PatchGenerator.base.ts:62`（`startsWith('http')`，`http://` 也放行）**文案与实现不一致** | 不一致**已核实**（读代码）；运行时到底谁生效**未核实** |
 | 3 | `ignite.sh --check` 探针的**字面覆盖范围** | 已核实：`scripts/ignite.sh:88-101` 只扫 `/app/index.html` 与 `/app/main.dart.js` 中的 `gstatic.com/flutter-canvaskit`，**不会**扫任意 https 图片 URL。「在线图违反离线红线」是该原则的**推论**，已在 D1 写明 |
 | 4 | Flutter Web 的 `showDirectoryPicker`（目录选择）可用性与代价 | **未核实**——D2 的理由不需要它（我们不需要这条能力），若将来有人想论证「文件夹可做」，必须先核实这一条 |
-| 5 | 我方行号 | 快照：工作树有 B1/B2/B3 未提交改动（`display_prefs.dart` / `shell_backdrop.dart` 等）；文件与符号名为准，行号会漂移 |
+| 5 | 我方行号 | 快照：工作树有 **R6-a / R6-b** 未提交改动（`display_prefs.dart` / `shell_backdrop.dart` / `background_item.dart` / `appearance_section.dart`）；文件与符号名为准，行号会漂移 |
 | 6 | 参考的 `images` 是否支持 `http://`（非 https）**并且**被 VS Code 的 CSP 放行 | **未核实**（见 #1/#2） |
 | 7 | 参考在 Web/code-server 模式下的 `vscode-file://` 归一化（`base.ts:86-102`）是否仍必需 | **未核实**——只记录它存在的理由（v1.51.1 后的 file 协议限制） |
+| 8 | **R6-c 的「已支持」判定（本表新增）** | 已在 HEAD `31d06cb4` 实跑 §6 列的 4 个测试文件（`+112 All tests passed!`，exit 0）；**该基线早于 R6-a / R6-b 的落盘** ⇒ 结论只对「当时那份树」有效，实施波次落地后必须由 **R6-d** 重跑并回填 |
 
 ---
 

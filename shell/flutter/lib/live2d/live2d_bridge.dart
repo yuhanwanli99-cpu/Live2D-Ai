@@ -1,3 +1,13 @@
+/// 协议 v1 渲染面客户端（**桥**）：下行帧编码、上行帧解析、ready 前的排队与
+/// flush、`stage-ack` / 事件级回执两条上行通道。
+///
+/// # 行数（**豁免带内**：500 < N ≤ 1000，拆分归 Stage C3）
+///
+/// 本文件在本轮（2026-09-28 · R6-a2）之后约 550 行。理由：帧表 + 状态机 +
+/// 队列 + 回执解析本来就是一个整体，硬拆只会多出一层纯转发的中间层；
+/// 本轮只加不减（F-0002-1 的同值去重）。写在这里是**如实**，不是豁免申请。
+library;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -122,6 +132,14 @@ class Live2DBridge extends ChangeNotifier {
   DateTime? _lastMouthAt;
   double? _pendingMouth;
 
+  /// 最近一次**真的交给传输面**的 `stage-bg` 值（`''` = 清除）。
+  ///
+  /// 只记「ready 之后当场发出去」的那一次：ready 前的发送是**入队**，
+  /// 而队列会被 [maxQueue] 截断（`_queue.removeAt(0)`）——把「排过队」
+  /// 当成「已送达」就会出现「用户看着有壁纸，重挂 iframe 之后永远是黑底」。
+  /// 见 [sendStageBg] 与 `data/background_decode_cache.dart` 同族的 F-0002-1。
+  String? _lastSentStageBg;
+
   Live2DBridgePhase _phase = Live2DBridgePhase.loading;
   String? _errorMessage;
   String? _model;
@@ -243,10 +261,31 @@ class Live2DBridge extends ChangeNotifier {
       _enqueueOrSend('stage-zoom', <String, Object?>{'dir': dir});
 
   /// 协议 v1 `stage-bg`：自定义背景图（dataURL）；`null`/空串 = 清除。
-  Future<void> sendStageBg(String? dataUrl) => _enqueueOrSend(
-    'stage-bg',
-    <String, Object?>{'dataUrl': dataUrl ?? ''},
-  );
+  ///
+  /// # 同值不重发（F-0002-1，2026-09-28）
+  ///
+  /// 这一帧背的是**整张图的 base64**（协议预算 ≤1.5 M 字符），而渲染面收到它
+  /// 要重跑 `base64 → Blob → createImageBitmap → write_texture`。过去这里无条件
+  /// 入队/发送，于是「拖一次音量滑杆」= 每帧整串重发一次。
+  ///
+  /// 去重**只去同值**：
+  ///
+  /// - 值不同（换图 / 清图）照发——这是资产契约 A6 的舞台背景透传；
+  /// - **桥是新的时候一定照发**：记忆是实例字段，而 `Live2DStage._attach`
+  ///   每次挂桥（首帧 / retry 重建 iframe）都新建一个 `Live2DBridge`
+  ///   并重发 `stageImage`，所以「重挂后不补发」这种事故不会由去重引入；
+  /// - **ready 前排队的那一次不算「发出去过」**（队列可能被截断）：
+  ///   宁可 ready 之后多补一帧，也不让渲染面少一张图。
+  Future<void> sendStageBg(String? dataUrl) {
+    final String value = dataUrl ?? '';
+    if (_phase == Live2DBridgePhase.ready) {
+      if (_lastSentStageBg == value) return Future<void>.value();
+      // 记在**真正交给传输面之前**：下面这条路径是同步 `_send`（await 后失败会
+      // 走 `_fail` 把阶段打到 error，那时整条下行都已经不可信）。
+      _lastSentStageBg = value;
+    }
+    return _enqueueOrSend('stage-bg', <String, Object?>{'dataUrl': value});
+  }
 
   /// 协议 v1 preset（2026-09-15 / P0-1）。
   ///

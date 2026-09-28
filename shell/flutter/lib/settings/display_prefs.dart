@@ -3,6 +3,13 @@
 /// 单独成文件的理由：这些值会被持久化（localStorage）并在启动时反序列化，
 /// 「非法/缺失/越界输入回落到什么」是必须能回归的算术，不该埋在 UI 里。
 /// 持久化本身在 `app/browser_io.dart` 做（那里才允许 `package:web`）。
+///
+/// # 行数（**超出豁免带**，拆分归 Stage C3）
+///
+/// 本文件在本轮（Stage B · B-a）之后约 1160 行，**超过「源码 ≤500 行、
+/// 豁免 ≤1000 行」那条线**。这不是本轮才超的：rc.5 时已是 1002 行
+/// （`docs/releases/v0.2.0-rc.5.md` §9.4 已把拆分登记为 Stage C3），
+/// 本轮只加不减。写在这里是**如实**，不是豁免申请。
 library;
 
 import '../design/background_item.dart';
@@ -94,8 +101,10 @@ class DisplayPrefs {
     this.backgroundOpacity = defaultBackgroundOpacity,
     this.backgroundBlur = defaultBackgroundBlur,
     this.backgroundScrim = defaultBackgroundScrim,
+    this.backgroundEnabled = defaultBackgroundEnabled,
     this.imageFit = defaultImageFit,
     this.imageAlign = defaultImageAlign,
+    this.tileSize = defaultTileSize,
     this.slideInterval = defaultSlideInterval,
     this.slideRandom = false,
     this.uiTransparency = defaultUiTransparency,
@@ -166,7 +175,9 @@ class DisplayPrefs {
   /// 现在的默认是「你选的图，就是你看到的图」；**需要压暗时拉「遮罩」**，
   /// 那才是管可读性的那个旋钮。
   ///
-  /// 区间到 `1.0`：0 = 完全不画背景（回到纯色面）。
+  /// 区间到 `1.0`：0 = 完全不画背景（回到纯色面）——**除非**某一项自己
+  /// 覆盖过不透明度（`BackgroundImage.opacity`）：那是对「这一项」的明确
+  /// 指令，优先于全局（见 [effectiveImageOpacity]）。
   final double backgroundOpacity;
 
   /// 背景模糊半径（px）。
@@ -178,11 +189,23 @@ class DisplayPrefs {
   /// 可读性遮罩档位（`0=auto` / `1=无` / `2=轻` / `3=重`）。
   final int backgroundScrim;
 
+  /// **全局背景开关**（DEC-4）：`false` = 不画图，只留底色。
+  ///
+  /// 与 [backgroundOpacity] = 0 的区别是**可逆**：关掉开关不动用户的透明度
+  /// 设置，重新打开就是他原来看到的样子。
+  final bool backgroundEnabled;
+
   /// 图片铺法（`0=cover` / `1=contain` / `2=stretch` / `3=tile`）。
   final int imageFit;
 
   /// 图片位置（3×3 九宫格索引，`0=左上` … `4=居中` … `8=右下`）。
   final int imageAlign;
+
+  /// 平铺的贴片边长（逻辑像素；**只对 [imageFit] = 3 有效**）。
+  ///
+  /// 为什么放在全局而不是逐图：逐图覆盖只做 opacity / fit / align 三项
+  /// （parity §6 的短期目标），贴片大小是「铺法参数」，跟着 [imageFit] 走。
+  final double tileSize;
 
   /// 轮播间隔（秒；`0` = 不轮播）。
   final int slideInterval;
@@ -300,9 +323,29 @@ class DisplayPrefs {
   // ── 背景系统（2026-09-27）──
 
   /// 背景不透明度：默认值与区间。
-  static const double defaultBackgroundOpacity = 1.0;
-  static const double minBackgroundOpacity = 0.0;
-  static const double maxBackgroundOpacity = 1.0;
+  ///
+  /// 区间真源是 [BackgroundStyleRange]（全局与逐图覆盖共用一套）。
+  static const double defaultBackgroundOpacity =
+      BackgroundStyleRange.maxOpacity;
+  static const double minBackgroundOpacity = BackgroundStyleRange.minOpacity;
+  static const double maxBackgroundOpacity = BackgroundStyleRange.maxOpacity;
+
+  /// 全局背景开关（DEC-4；默认**开**）。
+  ///
+  /// 关掉 = **不画图**（底色照旧），而不是「把不透明度调成 0」：
+  /// 前者是「这一阵子先不显示背景」，后者会把用户调好的透明度抹掉。
+  /// 旧档没有这个键 → 迁移成 `true`（老用户界面一个像素都不变）。
+  static const bool defaultBackgroundEnabled = true;
+
+  /// 平铺（`imageFit = 3`）的**贴片边长**（逻辑像素）。
+  ///
+  /// 只对 `tile` 有效：cover / contain / stretch 下它不参与渲染。
+  ///
+  /// 区间 16–256 的理由：小于 16 照片变成噪点（认不出是那张图）；
+  /// 大于 256 一屏只剩几块，那已经是 `cover` 的观感，不再是「平铺」。
+  static const double defaultTileSize = 64.0;
+  static const double minTileSize = 16.0;
+  static const double maxTileSize = 256.0;
 
   /// 背景模糊：默认值与区间（px）。
   static const double defaultBackgroundBlur = 0.0;
@@ -315,15 +358,36 @@ class DisplayPrefs {
 
   /// 铺法（**0 必须是 cover**）。
   ///
-  /// 上界是 1 不是 3：渲染层只实现了两档。第三档（拉伸）在 `boxFitFor` 里
-  /// 与 0 是同一条分支，是个「按了没区别」的选项，已从 UI 删掉；
-  /// 这里同步收窄，让「存储里出现 2/3」也能被识别为坏值而不是默默当成铺满。
-  static const int defaultImageFit = 0;
-  static const int maxImageFit = 1;
+  /// # 上界为什么从 1 放到 3（2026-09-28 · Stage B · B-a）
+  ///
+  /// 旧注释写的「渲染层只实现了两档」在 `shell_backdrop.dart` 补齐
+  /// `stretch` / `tile` 之后**已失效**，那个假上限连同它的理由一起删掉：
+  ///
+  /// | 值 | 名字 | 渲染 |
+  /// | --- | --- | --- |
+  /// | 0 | `cover` | `Image(fit: BoxFit.cover)` |
+  /// | 1 | `contain` | `Image(fit: BoxFit.contain)` |
+  /// | 2 | `stretch` | `FittedBox(fit: BoxFit.fill)` 包一层（拉伸铺满） |
+  /// | 3 | `tile` | `ImageRepeat.repeat`，贴片边长见 [tileSize] |
+  ///
+  /// **迁移语义**：旧档里出现的 `2` / `3` 由「坏值回落 0」变成**合法档**——
+  /// 以前会被静默改成「铺满」的两档，现在按用户当初的意图生效；
+  /// 区间外的值（`4` / `42` / 负数 / 非 int）仍走 [_clampInt] 回落默认 0。
+  ///
+  /// 区间常量住在 [BackgroundStyleRange]：全局与逐图覆盖共用一套，不会各自
+  /// 长一个上界。
+  static const int defaultImageFit = fitCover;
+  static const int maxImageFit = BackgroundStyleRange.maxFit;
+
+  /// 铺法取值（**唯一真源**：UI 的选项、渲染层的分支、存储的 clamp 都读它）。
+  static const int fitCover = 0;
+  static const int fitContain = 1;
+  static const int fitStretch = 2;
+  static const int fitTile = 3;
 
   /// 九宫格位置（**4 必须是居中**——默认就该是什么都不改的样子）。
   static const int defaultImageAlign = 4;
-  static const int maxImageAlign = 8;
+  static const int maxImageAlign = BackgroundStyleRange.maxAlign;
 
   /// 轮播间隔（秒；**0 = 不轮播**）。
   static const int defaultSlideInterval = 0;
@@ -388,9 +452,9 @@ class DisplayPrefs {
   /// 为什么要转一手：`display_prefs.dart` 刻意**不 import Flutter**，
   /// 这样它能在纯 Dart 的 VM 测试里跑（见文件头注）。渲染层按名字翻译回去。
   static String fitName(int fit) => switch (fit) {
-    1 => 'contain',
-    2 => 'stretch',
-    3 => 'tile',
+    fitContain => 'contain',
+    fitStretch => 'stretch',
+    fitTile => 'tile',
     _ => 'cover',
   };
 
@@ -423,8 +487,10 @@ class DisplayPrefs {
     double? backgroundOpacity,
     double? backgroundBlur,
     int? backgroundScrim,
+    bool? backgroundEnabled,
     int? imageFit,
     int? imageAlign,
+    double? tileSize,
     int? slideInterval,
     bool? slideRandom,
     double? uiTransparency,
@@ -447,8 +513,10 @@ class DisplayPrefs {
       backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
       backgroundBlur: backgroundBlur ?? this.backgroundBlur,
       backgroundScrim: backgroundScrim ?? this.backgroundScrim,
+      backgroundEnabled: backgroundEnabled ?? this.backgroundEnabled,
       imageFit: imageFit ?? this.imageFit,
       imageAlign: imageAlign ?? this.imageAlign,
+      tileSize: tileSize ?? this.tileSize,
       slideInterval: slideInterval ?? this.slideInterval,
       slideRandom: slideRandom ?? this.slideRandom,
       uiTransparency: uiTransparency ?? this.uiTransparency,
@@ -476,8 +544,10 @@ class DisplayPrefs {
     'backgroundOpacity': backgroundOpacity,
     'backgroundBlur': backgroundBlur,
     'backgroundScrim': backgroundScrim,
+    'backgroundEnabled': backgroundEnabled,
     'imageFit': imageFit,
     'imageAlign': imageAlign,
+    'tileSize': tileSize,
     'slideInterval': slideInterval,
     'slideRandom': slideRandom,
     'uiTransparency': uiTransparency,
@@ -519,6 +589,9 @@ class DisplayPrefs {
         maxBackgroundScrim,
         defaultBackgroundScrim,
       ),
+      // 旧档没有这个键 → `true`（迁移默认：老用户界面不变）。
+      backgroundEnabled: _readBool(json['backgroundEnabled'], true),
+      // 上界 3（Stage B 扩档）：旧档里的 2/3 现在是**合法档**，不再是坏值。
       imageFit: _clampInt(
         _readInt(json['imageFit'], defaultImageFit),
         0,
@@ -531,11 +604,11 @@ class DisplayPrefs {
         maxImageAlign,
         defaultImageAlign,
       ),
-      slideInterval: _clampInt(
+      tileSize: clampTileSize(_readDouble(json['tileSize'], defaultTileSize)),
+      // DEC-1：**端点夹持**（0 仍＝关），不是「越界回落默认」——
+      // 回落 0 会把用户开着的轮播静默关掉（详见 [clampSlideInterval]）。
+      slideInterval: clampSlideInterval(
         _readInt(json['slideInterval'], defaultSlideInterval),
-        0,
-        maxSlideIntervalSeconds,
-        defaultSlideInterval,
       ),
       slideRandom: _readBool(json['slideRandom'], false),
       uiTransparency: clampUiTransparency(
@@ -627,8 +700,33 @@ class DisplayPrefs {
   /// - 任何新写的代码都得先回答「我该信哪一个」。
   ///
   /// 现在只剩这一个函数，渲染层传自己的当前项进来（它知道轮播索引）。
+  /// 加上 [backgroundEnabled]：DEC-4 的全局开关在这里收口——
+  /// 关掉开关后，所有「有没有背景」的判断（脚手架底让不让、聊天面板透不透）
+  /// 都跟着回到「没有背景」那一态，不必每个调用点各写一遍。
+  ///
+  /// 不透明度读的是 [effectiveImageOpacity]（逐图 ?? 全局）：某一项显式覆盖过
+  /// 不透明度时，判据必须与渲染层**看同一个值**，否则又会出现「设置说有背景、
+  /// 画面按没有」。全局 0 而这一项覆盖成 > 0 ⇒ 照画（用户的明确指令优先）。
   bool hasBackgroundAt(BackgroundItem? item) =>
-      item != null && item.isRenderable && backgroundOpacity > 0;
+      backgroundEnabled &&
+      item != null &&
+      item.isRenderable &&
+      effectiveImageOpacity(item, backgroundOpacity) > 0;
+
+  /// 逐图覆盖 ?? 全局：**不透明度**（唯一解析点）。
+  ///
+  /// 渲染层（`ShellBackdrop`）与 [hasBackgroundAt] 都读它——判据与画面共用
+  /// 一个解析，才不会出现两套。图案没有逐图样式 ⇒ 一律回落全局。
+  static double effectiveImageOpacity(BackgroundItem? item, double global) =>
+      (item is BackgroundImage ? item.opacity : null) ?? global;
+
+  /// 逐图覆盖 ?? 全局：**铺法**（唯一解析点）。
+  static int effectiveImageFit(BackgroundItem? item, int global) =>
+      (item is BackgroundImage ? item.fit : null) ?? global;
+
+  /// 逐图覆盖 ?? 全局：**位置**（唯一解析点）。
+  static int effectiveImageAlign(BackgroundItem? item, int global) =>
+      (item is BackgroundImage ? item.align : null) ?? global;
 
   /// 本偏好自己那一项有没有背景（[effectiveBackground] 版本）。
   bool get hasBackground => hasBackgroundAt(effectiveBackground);
@@ -717,13 +815,60 @@ class DisplayPrefs {
     return value.clamp(0.0, maxBackgroundBlur);
   }
 
+  /// 平铺贴片边长夹到 `[minTileSize, maxTileSize]`；非有限数回落默认。
+  ///
+  /// 这里用**端点夹持**（与 scale / volume 同一条纪律）：它是数值区间，
+  /// 端点没有枚举语义，夹到端点永远比「静默换一个值」更接近用户意图。
+  static double clampTileSize(double value) {
+    if (!value.isFinite) return defaultTileSize;
+    return value.clamp(minTileSize, maxTileSize);
+  }
+
   /// 整数夹到区间；越界回落**默认值**（而不是区间端点）。
   ///
   /// 为什么不是端点：`scrim` 的 0 是 `auto`、1 是「无」，把一个坏值夹到 1
   /// 会把用户的背景变得不可读；回落默认才是「不知道就按默认来」。
+  ///
+  /// **本轮不动它**（DEC-1 明确）：要端点夹持的字段用 [_clampIntToRange]。
   static int _clampInt(int value, int min, int max, int fallback) {
     if (value < min || value > max) return fallback;
     return value;
+  }
+
+  /// 整数**端点夹持**（DEC-1 新增；与 [_clampInt] 并列、语义不同）。
+  ///
+  /// 为什么另开一个而不是改 [_clampInt]：那个函数的「越界回落默认」是
+  /// `scrim` 的语义，改掉会把用户的背景变得不可读。
+  static int _clampIntToRange(int value, int min, int max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
+  /// 轮播间隔的**端点夹持**（DEC-1；rc.5 §9.1 那条未决项的落地）。
+  ///
+  /// 规则：`0` 仍＝**关**（定时器不启动）；其余一律夹进 `[5, 300]`。
+  ///
+  /// | 存 | 0 | 1 | 2 | 4 | 5 | 30 | 300 | 301 | 3600 | 99999 | 负数 |
+  /// | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  /// | 读 | 0 | 5 | 5 | 5 | 5 | 30 | 300 | 300 | 300 | 300 | 5 |
+  ///
+  /// # 为什么不沿用「越界回落默认」
+  ///
+  /// `slideInterval` 是**数值区间**（像 scale / volume），而它的默认值恰好是
+  /// `0 = 关`：越界回落默认 = **把用户开着的轮播静默关掉**（rc.5 §9.1）。
+  /// 夹到端点则是「继续开着，只是间隔落回合法区间」，符合用户意图。
+  ///
+  /// 负数也夹到 5（而不是 0）：存储里出现负数只可能是坏值，把它解释成
+  /// 「关掉用户开着的东西」比「用一个合法间隔继续开着」更武断。这一条是
+  /// DEC-1「<5 → 5」的**字面执行**，不是自行裁决。
+  static int clampSlideInterval(int value) {
+    if (value == 0) return 0;
+    return _clampIntToRange(
+      value,
+      minSlideIntervalSeconds,
+      maxSlideIntervalSeconds,
+    );
   }
 
   /// 缩放夹到 `[minScale, maxScale]`；非有限值回落默认。
@@ -799,11 +944,13 @@ class DisplayPrefs {
     if (other.theme != theme ||
         other.stageImage != stageImage ||
         other.backgroundSource != backgroundSource ||
+        other.backgroundEnabled != backgroundEnabled ||
         other.backgroundOpacity != backgroundOpacity ||
         other.backgroundBlur != backgroundBlur ||
         other.backgroundScrim != backgroundScrim ||
         other.imageFit != imageFit ||
         other.imageAlign != imageAlign ||
+        other.tileSize != tileSize ||
         other.slideInterval != slideInterval ||
         other.slideRandom != slideRandom ||
         other.uiTransparency != uiTransparency ||
@@ -841,6 +988,8 @@ class DisplayPrefs {
     Object.hashAll(<Object?>[
       slideInterval,
       slideRandom,
+      tileSize,
+      backgroundEnabled,
       uiTransparency,
       scale,
       mouthSensitivity,
@@ -860,8 +1009,10 @@ class DisplayPrefs {
       'DisplayPrefs(theme: ${theme.wire}, stageImage: ${stageImage?.length ?? 0} chars, '
       'playlist: ${stagePlaylist.length} items, '
       'backgrounds: ${backgrounds.length} 项 / ${backgroundsBytes(backgrounds)} bytes, '
-      'source: $backgroundSource, opacity: $backgroundOpacity, blur: $backgroundBlur, '
+      'source: $backgroundSource, enabled: $backgroundEnabled, '
+      'opacity: $backgroundOpacity, blur: $backgroundBlur, '
       'scrim: $backgroundScrim, fit: $imageFit, align: $imageAlign, '
+      'tileSize: $tileSize, '
       'slide: ${slideInterval}s/${slideRandom ? 'random' : 'order'}, '
       'scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '

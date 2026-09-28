@@ -14,8 +14,18 @@
 /// 那一组随之删除；文件名改为 `appearance_section.dart` 以名实相符。
 /// 留这段是因为**下一个人很可能再按旧名误判一次**：`actions_section.dart`
 /// 一出现就让人以为删掉它不影响外观设置，实际会整套删掉主题与口型。
+///
+/// # 行数（≤1000 豁免，理由写在这里）
+///
+/// 2026-09-28（Stage B · R6-b 第 0 步）：背景域那 1011 行抽到了
+/// `appearance_background.dart`，本文件 1489 → 约 700 行。**仍超 ≤500**：
+/// 剩下的是这四块的字段编排（外观 / 舞台单图轮播 / 舞台与口型 / 互动，
+/// 外加服务端的动作幅度），而抽取的任务口径是「只搬不改」——任务书明写
+/// 「不必强行压到 ≤500，那是 Stage C3 的事」。C3 继续按「舞台与口型」
+/// 与「互动」两域拆即可，字段清单与顺序在那之前不动。
 library;
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -35,6 +45,8 @@ import '../../ui/shell_backdrop.dart';
 import '../../ui/emphasized_text.dart';
 import '../../ui/theme.dart';
 import '../../ui/theme_picker.dart';
+
+part 'appearance_background.dart';
 
 class AppearanceSection extends StatelessWidget {
   const AppearanceSection({
@@ -156,6 +168,11 @@ class AppearanceSection extends StatelessWidget {
     // 本模型覆盖（阶段5 D40）：覆盖**开启**（本模型有覆盖）时，三条滑条
     // 编辑的是「逐键 override[key] ?? global[key]」的有效值，回调直接 PATCH；
     // 关闭时三条滑条就是原来的全局值 + 草稿回调（旧语义不动）。
+    //
+    // 两个轮播块**按来源互斥**（DEC-2）：这一位同时决定下面那张
+    // 「舞台单图轮播」卡出不出来。
+    final bool librarySource =
+        prefs.backgroundSource == DisplayPrefs.backgroundSourceLibrary;
     final ActionSettingsView? actionView = action;
     final bool modelOverrideOn =
         actionView != null &&
@@ -179,13 +196,13 @@ class AppearanceSection extends StatelessWidget {
               // 「圆角幅度」在 2026-09-27 被删掉了（用户口径：「本身 web 端
               // 无需繁杂设置」）——圆角改为全仓库**固定一个值**，
               // 取值入口是 `AppMaterial.kFixedRadiusScale`。
-              SliderField(
+              _CommitSliderField(
                 label: '描边强度',
                 icon: Icons.line_weight,
                 value: prefs.edgeStrength,
                 min: DisplayPrefs.minEdgeStrength,
                 max: DisplayPrefs.maxEdgeStrength,
-                onChanged: (double v) =>
+                onCommit: (double v) =>
                     onPrefsChanged(prefs.copyWith(edgeStrength: v)),
                 description: '分隔线与卡片的边线粗细；调低更轻盈，层级改由面的深浅承担',
                 minLabel: '轻盈',
@@ -211,34 +228,45 @@ class AppearanceSection extends StatelessWidget {
             ],
           ),
         ),
-        GroupCard(
-          title: '舞台背景轮播',
-          description:
-              '「加入轮播」把**当前**舞台背景图追加进列表（Wave 2/3）。'
-              '这份列表只住本机偏好，与上面的**壳背景库**是两套东西——'
-              '它管的是「舞台那张图」的历史列表。',
-          child: _StageImageView(
-            hasImage: prefs.stageImage != null,
-            playlist: prefs.stagePlaylist,
-            currentImage: prefs.stageImage,
-            message: stageImageMessage,
-            failed: stageImageFailed,
-            onPick: onPickStageImage,
-            onClear: onClearStageImage,
-            onAddToPlaylist: onAddToPlaylist,
-            onClearPlaylist: onClearPlaylist,
-            // 删除 / 上移下移只改**本地列表**：宿主 `_updatePrefs` 是唯一落点。
-            onPlaylistChanged: (List<String> next) =>
-                onPrefsChanged(prefs.copyWith(stagePlaylist: next)),
+        // ── 舞台单图轮播（DEC-2 的分工那一半）──
+        //
+        // 它与上面那块「壳背景轮播」**按来源互斥**：来源 = 舞台那张时只有这块
+        // （走渲染面 stage-bg 帧），来源 = 背景库时只有那块（Flutter 层换图）。
+        // 两套列表、两套预算、两条下发通道，同时摆出来用户只会以为它们是同一个
+        // 开关——rc.5 §9.2 记的就是这个重叠。
+        //
+        // 名字分清「舞台单图轮播」vs「壳背景轮播」：这一块管的是**舞台那一张图**
+        // 的历史列表，不是背景库（背景库那套预算与它无关）。
+        if (!librarySource)
+          GroupCard(
+            title: '舞台单图轮播',
+            description:
+                '把**当前**舞台那张图追加进列表（Wave 2/3）。'
+                '这份列表只住本机偏好，经渲染面 stage-bg 帧下发；'
+                '与上面「壳背景轮播」（背景库、壳自己画的）是**两套通道**，'
+                '所以两者按「背景来源」互斥显示。',
+            child: _StageImageView(
+              hasImage: prefs.stageImage != null,
+              playlist: prefs.stagePlaylist,
+              currentImage: prefs.stageImage,
+              message: stageImageMessage,
+              failed: stageImageFailed,
+              onPick: onPickStageImage,
+              onClear: onClearStageImage,
+              onAddToPlaylist: onAddToPlaylist,
+              onClearPlaylist: onClearPlaylist,
+              // 删除 / 上移下移只改**本地列表**：宿主 `_updatePrefs` 是唯一落点。
+              onPlaylistChanged: (List<String> next) =>
+                  onPrefsChanged(prefs.copyWith(stagePlaylist: next)),
+            ),
           ),
-        ),
         GroupCard(
           title: '舞台与口型',
           description: '这些参数立刻下发到渲染面，**不需要保存**。',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              SliderField(
+              _CommitSliderField(
                 label: '模型缩放',
                 icon: Icons.zoom_out_map,
                 value: prefs.scale,
@@ -247,18 +275,18 @@ class AppearanceSection extends StatelessWidget {
                 // 在 UI 里再写一遍就是第二个真源。回归见 `display_prefs_test.dart`。
                 min: DisplayPrefs.minScale,
                 max: DisplayPrefs.maxScale,
-                onChanged: (double v) =>
+                onCommit: (double v) =>
                     onPrefsChanged(prefs.copyWith(scale: v)),
                 minLabel: '更远',
                 maxLabel: '更近',
               ),
-              SliderField(
+              _CommitSliderField(
                 label: '口型灵敏度',
                 icon: Icons.graphic_eq,
                 value: prefs.mouthSensitivity,
                 min: DisplayPrefs.minMouthSensitivity,
                 max: DisplayPrefs.maxMouthSensitivity,
-                onChanged: (double v) =>
+                onCommit: (double v) =>
                     onPrefsChanged(prefs.copyWith(mouthSensitivity: v)),
                 description: '1.00 为标定值；觉得嘴动得太小就调大',
                 minLabel: '克制',
@@ -402,813 +430,6 @@ class AppearanceSection extends StatelessWidget {
   }
 }
 
-/// 背景库那一整块（2026-09-27）。
-///
-/// # 它取代了原来那两段（「舞台背景图」+「壳背景」）
-///
-/// 旧形态的问题不是文案长，是**结构**：两个字段、两个真相、两种清空方式，
-/// 而用户心里只有一件事——「给这个壳换张背景」。现在合成一块：
-///
-/// 1. **背景库**（图 + 内置图案，有序，可增可删）—— 用户能表达「不止一张」；
-/// 2. **铺法 / 位置 / 透明度 / 模糊 / 遮罩**—— 只作用在壳，不碰舞台；
-/// 3. **轮播**（间隔 + 随机 + 过渡）；
-/// 4. **与舞台同步**（默认开）—— 开时壳画舞台那张，背景库留着不渲染。
-///
-/// 三条文案纪律与旧的一样：不是二选一、失败要说实话、按钮用文字。
-class _BackgroundBlock extends StatelessWidget {
-  const _BackgroundBlock({
-    required this.prefs,
-    required this.message,
-    required this.failed,
-    required this.onAddImage,
-    required this.onClearLibrary,
-    required this.onPickStageImage,
-    required this.onClearStageImage,
-    required this.onRemoveItem,
-    required this.onAddPattern,
-    required this.onChanged,
-    this.onReorderItem,
-    this.onRemoveMany,
-    this.onPreviewItem,
-  });
-
-  final DisplayPrefs prefs;
-  final String? message;
-  final bool failed;
-  final VoidCallback? onAddImage;
-  final VoidCallback? onClearLibrary;
-
-  /// 「来源 = 舞台那张」时的那两个按钮（换 / 清）。
-  final VoidCallback? onPickStageImage;
-  final VoidCallback? onClearStageImage;
-  final ValueChanged<int>? onRemoveItem;
-  final ValueChanged<int>? onAddPattern;
-  final ValueChanged<DisplayPrefs> onChanged;
-
-  /// 拖动排序（旧下标 → 新下标）。
-  final void Function(int oldIndex, int newIndex)? onReorderItem;
-
-  /// 批量删除（**升序**的下标集合）。
-  final ValueChanged<List<int>>? onRemoveMany;
-
-  /// 点缩略图 = 先看这一张。
-  final ValueChanged<int>? onPreviewItem;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    final AppPalette palette = appPaletteOf(context);
-    final List<BackgroundItem> items = prefs.backgrounds;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Space.s3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text('背景', style: theme.textTheme.labelLarge),
-          const SizedBox(height: Space.s1),
-          EmphasizedText(
-            '背景铺在**聊天与侧栏背后**（舞台由渲染面自己画，不归这里）。'
-            '下面每个滑杆都标了它管的是**哪一层**，并且把算出来的数字写出来。',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: colors.contentMuted,
-            ),
-          ),
-          const SizedBox(height: Space.s2),
-          SegmentedField<int>(
-            label: '背景来源',
-            icon: Icons.layers_outlined,
-            value: prefs.backgroundSource,
-            options: const <FieldOption<int>>[
-              FieldOption<int>(
-                value: DisplayPrefs.backgroundSourceLibrary,
-                label: '背景库',
-              ),
-              FieldOption<int>(
-                value: DisplayPrefs.backgroundSourceStageImage,
-                label: '舞台那张',
-              ),
-            ],
-            onChanged: (int v) =>
-                onChanged(prefs.copyWith(backgroundSource: v)),
-            description:
-                prefs.backgroundSource == DisplayPrefs.backgroundSourceLibrary
-                ? prefs.backgrounds.isEmpty
-                      ? '正在画**背景库**，但库里还是空的（下面加一项，或挑一个内置图案）'
-                      : '正在画**背景库**里的 ${prefs.backgrounds.length} 项之一'
-                : prefs.stageImage == null
-                ? '来源是**舞台背景图**，但还没选过图（背景库里的不参与渲染）'
-                : '正在画**舞台背景图**那一张（背景库里的不参与渲染）',
-          ),
-          const SizedBox(height: Space.s2),
-          if (prefs.backgroundSource ==
-              DisplayPrefs.backgroundSourceLibrary) ...<Widget>[
-            _LibraryManager(
-              items: items,
-              palette: palette,
-              onReorder: onReorderItem ?? _noopReorder,
-              onRemove: onRemoveItem,
-              onRemoveMany: onRemoveMany,
-              onPreview: onPreviewItem,
-            ),
-            const SizedBox(height: Space.s2),
-            Wrap(
-              spacing: Space.s1,
-              runSpacing: Space.s1,
-              children: <Widget>[
-                for (final int id in BackgroundPatternId.values)
-                  ActionChip(
-                    label: Text(backgroundPatternLabel(id)),
-                    onPressed: () => onAddPattern?.call(id),
-                  ),
-              ],
-            ),
-            const SizedBox(height: Space.s2),
-          ],
-          // 按钮**跟着来源走**：来源是背景库时，「添加图片」加进的就是
-          // 正在被渲染的那个列表。不存在「点了没反应」的按钮。
-          if (prefs.backgroundSource ==
-              DisplayPrefs.backgroundSourceLibrary) ...<Widget>[
-            Wrap(
-              spacing: Space.s2,
-              runSpacing: Space.s2,
-              children: <Widget>[
-                FilledButton.tonal(
-                  onPressed: onAddImage,
-                  child: const Text('添加图片'),
-                ),
-                if (items.isNotEmpty)
-                  TextButton(
-                    onPressed: onClearLibrary,
-                    child: const Text('清空背景库'),
-                  ),
-              ],
-            ),
-          ] else
-            Wrap(
-              spacing: Space.s2,
-              runSpacing: Space.s2,
-              children: <Widget>[
-                FilledButton.tonal(
-                  onPressed: onPickStageImage,
-                  child: Text(prefs.stageImage == null ? '选择舞台背景图' : '换一张'),
-                ),
-                if (prefs.stageImage != null)
-                  TextButton(
-                    onPressed: onClearStageImage,
-                    child: const Text('清除舞台背景图'),
-                  ),
-              ],
-            ),
-          if (message != null)
-            Padding(
-              padding: const EdgeInsets.only(top: Space.s1),
-              child: EmphasizedText(
-                message!,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: failed ? palette.warning : colors.contentMuted,
-                ),
-              ),
-            ),
-          // ── 渲染参数（两种同步模式下都生效）──
-          const SizedBox(height: Space.s2),
-          // 铺法与位置只对**图片**有意义（图案是 `CustomPainter` 画满整块，
-          // 没有「原图尺寸」可裁可留边）。当前项是图案时把它们收起来，
-          // 而不是留两个按了没区别的控件。
-          if (prefs.currentItemIsImage) ...<Widget>[
-            SegmentedField<int>(
-              label: '铺法（图）',
-              icon: Icons.photo_size_select_large_outlined,
-              value: prefs.imageFit,
-              options: const <FieldOption<int>>[
-                FieldOption<int>(value: 0, label: '铺满'),
-                FieldOption<int>(value: 1, label: '完整'),
-              ],
-              onChanged: (int v) => onChanged(prefs.copyWith(imageFit: v)),
-              description:
-                  '「铺满」裁掉边、「完整」留边。'
-                  '（2026-09-27 删掉了「拉伸」：它在渲染层与「铺满」是同一条分支，'
-                  '是个按了没区别的选项。）',
-            ),
-            // 位置**只在「完整」下出现**：「铺满」时图已经铺满整个区域，
-            // 对齐没有可见效果——摆在那儿只会让人以为是自己按错了。
-            if (prefs.imageFit != 1)
-              _AlignPad(
-                value: prefs.imageAlign,
-                onChanged: (int v) => onChanged(prefs.copyWith(imageAlign: v)),
-              ),
-          ],
-          SliderField(
-            label: '不透明度（图）',
-            icon: Icons.opacity,
-            value: prefs.backgroundOpacity,
-            min: DisplayPrefs.minBackgroundOpacity,
-            max: DisplayPrefs.maxBackgroundOpacity,
-            onChanged: (double v) =>
-                onChanged(prefs.copyWith(backgroundOpacity: v)),
-            description: '**图**本身有多实。0 = 完全不画背景（回到纯色面）；'
-                '拉高时下面的遮罩会跟着加强，聊天文字仍然读得出来',
-            minLabel: '看不见',
-            maxLabel: '压满',
-          ),
-          SliderField(
-            label: '透明程度（界面）',
-            icon: Icons.layers_outlined,
-            value: prefs.uiTransparency,
-            min: DisplayPrefs.minUiTransparency,
-            max: DisplayPrefs.maxUiTransparency,
-            onChanged: (double v) =>
-                onChanged(prefs.copyWith(uiTransparency: v)),
-            // 面板不透明度**直接写出来**：这一项没有别的可见表现，
-            // 数字是唯一能让用户确认「它真的动了」的东西。
-            description: '**面板**有多透：设置面板、组卡片、聊天面板、顶栏'
-                '一起变，当前不透明度 **${(AppColors.panelAlphaFor(prefs.uiTransparency) * 100).round()}%**。'
-                '${prefs.hasBackground ? '背后有图，所以能看出差别' : '背后没图时聊天面板与顶栏保持不透明（底下是纯色底，半透只会让界面发灰）'}。'
-                '界面越透，下面的遮罩越强，聊天文字仍然读得出来',
-            minLabel: '不透明',
-            maxLabel: '最透',
-          ),
-          SegmentedField<int>(
-            label: '遮罩（图上方）',
-            icon: Icons.contrast,
-            value: prefs.backgroundScrim,
-            options: const <FieldOption<int>>[
-              FieldOption<int>(value: 0, label: '自动'),
-              FieldOption<int>(value: 1, label: '无'),
-              FieldOption<int>(value: 2, label: '轻'),
-              FieldOption<int>(value: 3, label: '重'),
-            ],
-            onChanged: (int v) => onChanged(prefs.copyWith(backgroundScrim: v)),
-            // **把算出来的强度写出来**：这一项的效果本来就是「更暗一点」，
-            // 不给数字的话用户改完看不出区别，只能当成又一个无效控件。
-            description:
-                '压在背景上的一层主题色，让聊天文字在任何图上都读得出来。'
-                '当前强度 **${(scrimAlphaFor(imageOpacity: prefs.backgroundOpacity, level: prefs.backgroundScrim, uiTransparency: prefs.uiTransparency) * 100).round()}%**'
-                '（${prefs.hasBackground ? '强度随图的不透明度与界面透明度算出' : '没有背景时不画'}）',
-          ),
-          _MoreOptions(
-            title: '更多外观',
-            // 一句话说明它为什么被折起来：默认用不到，但它与「不透明度」
-            // 是一对（一张太花的图通常要「更实」或「更糊」才压得住）。
-            summary: '模糊等低频选项',
-            children: <Widget>[
-              SliderField(
-                label: '模糊（图）',
-                icon: Icons.blur_on,
-                value: prefs.backgroundBlur,
-                min: 0,
-                max: DisplayPrefs.maxBackgroundBlur,
-                percentage: false,
-                suffix: ' px',
-                onChanged: (double v) =>
-                    onChanged(prefs.copyWith(backgroundBlur: v)),
-                description: '只作用在壳的背景上，**模糊不到舞台**',
-                minLabel: '清晰',
-                maxLabel: '弥散',
-              ),
-            ],
-          ),
-          const Divider(),
-          ToggleField(
-            label: '轮播',
-            icon: Icons.slideshow,
-            value: prefs.slideInterval > 0,
-            onChanged: (bool on) =>
-                onChanged(prefs.copyWith(slideInterval: on ? 30 : 0)),
-            description: prefs.backgrounds.length < 2
-                ? '背景库至少要 2 项才会转'
-                : '按间隔换下一张',
-          ),
-          if (prefs.slideInterval > 0) ...<Widget>[
-            SliderField(
-              label: '轮播间隔',
-              icon: Icons.timer_outlined,
-              value: prefs.slideInterval.toDouble(),
-              min: DisplayPrefs.minSlideIntervalSeconds.toDouble(),
-              max: DisplayPrefs.maxSlideIntervalSeconds.toDouble(),
-              percentage: false,
-              suffix: ' 秒',
-              onChanged: (double v) =>
-                  onChanged(prefs.copyWith(slideInterval: v.round())),
-              minLabel: '快',
-              maxLabel: '慢',
-            ),
-            ToggleField(
-              label: '随机顺序',
-              icon: Icons.shuffle,
-              value: prefs.slideRandom,
-              onChanged: (bool v) => onChanged(prefs.copyWith(slideRandom: v)),
-              description: '不会连着两次同一张',
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// 背景库**管理面板**（2026-09-27）。
-///
-/// # 它管的四件事
-///
-/// | 能力 | 为什么需要 |
-/// | --- | --- |
-/// **拖动排序** | 轮播按**顺序**走，顺序就是用户对「先放谁」的表达 |
-/// **点一下预览** | 加完图先看一眼，而不是改完设置再退回主界面找 |
-/// **多选 + 批量删** | 一次清掉试了几张的图，比一张张点 × 快得多 |
-/// **占用显示** | 配额是**真的会满**的；不说清楚，用户只会看到「加不进去」 |
-///
-/// # 为什么不内置「重命名」
-///
-/// 一张背景图没有天然的标题（dataURL 里没有名字），起名要用户自己想，
-/// 于是就变成一个「不知道该起什么」的空输入框。图案有固定名（渐变 / 光晕…），
-/// 图没有——所以**不给这个能力**，而不是给一个必然被留空的输入框。
-///
-/// # 状态住在哪
-///
-/// **本地 state**（`_LibraryManager`）：选中集合、是否处于管理模式，
-/// 都不是用户偏好，刷新后不该留。真正的数据（顺序、增减）在 `DisplayPrefs`。
-/// 「更多」的折叠区。
-///
-/// 2026-09-27 引入：**少露一个控件**比**少一个能力**好——所以低频但有用的
-/// 选项（模糊、将来的九宫格微调）折到这里，而不是被删掉。
-///
-/// 默认收起、标题上带一行摘要（所以用户知道里面还有东西）。
-class _MoreOptions extends StatefulWidget {
-  const _MoreOptions({
-    required this.title,
-    required this.children,
-    this.summary,
-  });
-
-  final String title;
-  final String? summary;
-  final List<Widget> children;
-
-  @override
-  State<_MoreOptions> createState() => _MoreOptionsState();
-}
-
-class _MoreOptionsState extends State<_MoreOptions> {
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        InkWell(
-          onTap: () => setState(() => _open = !_open),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Space.s1,
-              vertical: Space.s1,
-            ),
-            child: Row(
-              children: <Widget>[
-                Icon(
-                  _open ? Icons.expand_less : Icons.expand_more,
-                  size: 16,
-                  color: colors.contentMuted,
-                ),
-                const SizedBox(width: Space.s1),
-                Text(widget.title, style: theme.textTheme.labelLarge),
-                const SizedBox(width: Space.s2),
-                if (!_open && widget.summary != null)
-                  Expanded(
-                    child: Text(
-                      widget.summary!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colors.contentFaint,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        if (_open)
-          Padding(
-            padding: const EdgeInsets.only(top: Space.s2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: widget.children,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// 未接上排序回调时的占位（空实现，不抛）。
-void _noopReorder(int oldIndex, int newIndex) {}
-
-class _LibraryManager extends StatefulWidget {
-  const _LibraryManager({
-    required this.items,
-    required this.palette,
-    required this.onReorder,
-    required this.onRemove,
-    required this.onRemoveMany,
-    required this.onPreview,
-  });
-
-  final List<BackgroundItem> items;
-  final AppPalette palette;
-  final void Function(int oldIndex, int newIndex) onReorder;
-  final ValueChanged<int>? onRemove;
-  final ValueChanged<List<int>>? onRemoveMany;
-  final ValueChanged<int>? onPreview;
-
-  @override
-  State<_LibraryManager> createState() => _LibraryManagerState();
-}
-
-class _LibraryManagerState extends State<_LibraryManager> {
-  /// 选中的下标集合。**存下标不存项**：重排之后下标会变，
-  /// 存项才能在重排后仍然指对东西——所以每次操作前按当前顺序重新解释。
-  final Set<int> _selected = <int>{};
-
-  /// 管理模式：开着才出现复选框与批量按钮。
-  bool get _managing => _selected.isNotEmpty || _items >= 2;
-
-  int get _items => widget.items.length;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-
-    if (widget.items.isEmpty) {
-      return Text(
-        '背景库是空的 —— 下面挑一个内置图案，或添加一张自己的图。',
-        style: theme.textTheme.labelSmall?.copyWith(color: colors.contentMuted),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        // 占用：一行说清楚「占了多少」，而不是等用户撞到上限。
-        _UsageBar(items: widget.items),
-        const SizedBox(height: Space.s2),
-        // `ReorderableListView` 而不是 `Wrap`：拖动排序是内建能力
-        // （自带拖动手柄、键盘可达、`onReorder` 回调），自己用
-        // `LongPressDraggable` 拼一个既不完整又没有无障碍。
-        ReorderableListView.builder(
-          shrinkWrap: true,
-          primary: false,
-          buildDefaultDragHandles: false,
-          padding: EdgeInsets.zero,
-          itemCount: widget.items.length,
-          onReorderItem: (int oldIndex, int newIndex) =>
-              widget.onReorder(oldIndex, newIndex),
-          proxyDecorator: _dragProxy,
-          itemBuilder: (BuildContext context, int index) {
-            final BackgroundItem item = widget.items[index];
-            return _LibraryRow(
-              key: ValueKey<String>(
-                'lib-${item.kind}-${item.sameAs(widget.items.first) ? 'a' : ''}'
-                '$index',
-              ),
-              index: index,
-              item: item,
-              palette: widget.palette,
-              selected: _selected.contains(index),
-              managing: _managing,
-              onTap: () => _tap(index),
-              onToggle: () => setState(() {
-                if (!_selected.remove(index)) _selected.add(index);
-              }),
-              onRemove: widget.onRemove == null
-                  ? null
-                  : () => widget.onRemove!(index),
-              dragHandle: _items > 1
-                  ? ReorderableDragStartListener(
-                      index: index,
-                      child: Icon(
-                        Icons.drag_indicator,
-                        size: 16,
-                        color: colors.contentFaint,
-                      ),
-                    )
-                  : null,
-            );
-          },
-        ),
-        if (_selected.isNotEmpty) ...<Widget>[
-          const SizedBox(height: Space.s2),
-          Row(
-            children: <Widget>[
-              Text(
-                '已选 ${_selected.length} 项',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: colors.contentMuted,
-                ),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => setState(_selected.clear),
-                child: const Text('取消选择'),
-              ),
-              TextButton(
-                onPressed: () {
-                  widget.onRemoveMany?.call(_selected.toList()..sort());
-                  setState(_selected.clear);
-                },
-                child: const Text('删除所选'),
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  void _tap(int index) {
-    if (_managing) {
-      setState(() {
-        if (!_selected.remove(index)) _selected.add(index);
-      });
-      return;
-    }
-    // 非管理模式：点一下就是「先看这张」。
-    widget.onPreview?.call(index);
-  }
-
-  /// 拖动时的浮起外观（不缩放：缩放会让旁边的行跟着抖）。
-  static Widget _dragProxy(
-    Widget child,
-    int index,
-    Animation<double> animation,
-  ) => Material(
-    elevation: 0,
-    color: Colors.transparent,
-    child: Opacity(opacity: 0.9, child: child),
-  );
-}
-
-/// 占用条：**明说**「占了多少」。
-///
-/// # 为什么它不再是一根进度条（2026-09-27）
-///
-/// 它原来对着一个 1.5 M 字符的「总预算」画进度——那个预算来自
-/// localStorage 的 5 MB 配额。字节搬去 IndexedDB 之后**没有本地总预算了**
-/// （配额由浏览器按磁盘剩余空间判），画一根进度条就得编一个分母，
-/// 而那个分母是假的：明明只用了 2%，进度条也只到 2%，
-/// 用户只会以为「我快用满了」而随手删图。
-///
-/// 所以现在只报**实际占用**（`N 项 · 12.4 MB`），
-/// 真满了由 [BackgroundStore.put] 返回 `false`、界面如实说。
-class _UsageBar extends StatelessWidget {
-  const _UsageBar({required this.items});
-
-  final List<BackgroundItem> items;
-
-  static String _size(int bytes) {
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    final int bytes = DisplayPrefs.backgroundsBytes(items);
-    final int images = items.whereType<BackgroundImage>().length;
-    // 离 8 项上限只差一两项时提一句：那是**真的会拦住用户**的那一关。
-    final bool nearCount = items.length >= kBackgroundMaxCount - 1;
-    return Row(
-      children: <Widget>[
-        Text(
-          images == 0
-              ? '${items.length} 个内置图案（不占空间）'
-              : '${items.length} 项 · 图片占用 ${_size(bytes)}',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: nearCount
-                ? appPaletteOf(context).warning
-                : colors.contentMuted,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          '上限 $kBackgroundMaxCount 项 / 单张 ${_size(kBackgroundImageMaxBytes)}',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: colors.contentFaint,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 库里的一行（缩略图 + 名字 + 勾选 + 拖动手柄 + 移除）。
-class _LibraryRow extends StatelessWidget {
-  const _LibraryRow({
-    required super.key,
-    required this.index,
-    required this.item,
-    required this.palette,
-    required this.selected,
-    required this.managing,
-    required this.onTap,
-    required this.onToggle,
-    required this.onRemove,
-    required this.dragHandle,
-  });
-
-  final int index;
-  final BackgroundItem item;
-  final AppPalette palette;
-  final bool selected;
-  final bool managing;
-  final VoidCallback onTap;
-  final VoidCallback onToggle;
-  final VoidCallback? onRemove;
-  final Widget? dragHandle;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Space.s1),
-      child: Material(
-        color: selected
-            ? palette.accent.withValues(alpha: 0.12)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          child: Padding(
-            padding: const EdgeInsets.all(Space.s1),
-            child: Row(
-              children: <Widget>[
-                if (managing)
-                  Checkbox(
-                    value: selected,
-                    onChanged: (_) => onToggle(),
-                    visualDensity: VisualDensity.compact,
-                  )
-                else
-                  const SizedBox(width: Space.s2),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
-                  child: SizedBox(
-                    width: Space.s6,
-                    height: Space.s6,
-                    child: switch (item) {
-                      BackgroundPattern(:final int id) => PatternPreview(
-                        id: id,
-                        colors: patternColorsFor(id, palette),
-                        size: Space.s6,
-                      ),
-                      // 字节还没读回来时画占位块，而不是给 `Image.memory` 传 null
-                      // （那会走 errorBuilder，静悄悄的）。
-                      BackgroundImage(:final String? dataUrl) => dataUrl == null
-                          ? ColoredBox(color: palette.surfaceAlt)
-                          : _ImageTile(dataUrl: dataUrl, palette: palette),
-                    },
-                  ),
-                ),
-                const SizedBox(width: Space.s2),
-                Expanded(
-                  child: Text(
-                    _label(item, index),
-                    style: theme.textTheme.labelLarge,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (onRemove != null)
-                  IconButton(
-                    onPressed: onRemove,
-                    tooltip: '移除这一项',
-                    iconSize: 14,
-                    visualDensity: VisualDensity.compact,
-                    style: IconButton.styleFrom(
-                      backgroundColor: palette.stage.withValues(alpha: 0.55),
-                      foregroundColor: palette.ink,
-                    ),
-                    icon: const Icon(Icons.close),
-                  ),
-                if (dragHandle != null) ...<Widget>[
-                  const SizedBox(width: Space.s1),
-                  dragHandle!,
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 一行的名字：图案用固定名，图片给「第 N 张 + 大小」。
-  ///
-  /// 为什么不显示文件名：它在导入时就被 `FileReader` 丢掉了，
-  /// 界面上编一个「图 3」不算撒谎，但也不会更有用。
-  static String _label(BackgroundItem item, int index) => switch (item) {
-    BackgroundPattern(:final int id) => backgroundPatternLabel(id),
-    BackgroundImage(:final String? dataUrl) => '图片 ${index + 1} · ${_size(dataUrl)}',
-  };
-
-  static String _size(String? dataUrl) {
-    if (dataUrl == null) return '读取中';
-    if (dataUrl.length < 1024 * 1024) {
-      return '${(dataUrl.length / 1024).round()} KB';
-    }
-    return '${(dataUrl.length / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-}
-
-/// 缩略图：走 [decodeDataUrlBytes]，坏图退回纯色面而不是红屏。
-class _ImageTile extends StatelessWidget {
-  const _ImageTile({required this.dataUrl, required this.palette});
-
-  final String dataUrl;
-  final AppPalette palette;
-
-  @override
-  Widget build(BuildContext context) {
-    final Uint8List? bytes = decodeDataUrlBytes(dataUrl);
-    if (bytes == null) return ColoredBox(color: palette.surfaceAlt);
-    return Image.memory(
-      bytes,
-      fit: BoxFit.cover,
-      // 缩略图只按 96 px 解码：不缩放的话一张 400 KB 的图会以原尺寸进缓存，
-      // 8 张就是几十 MB。
-      cacheWidth: kPatternPreviewSize.toInt(),
-      gaplessPlayback: true,
-      errorBuilder: (_, _, _) => ColoredBox(color: palette.surfaceAlt),
-    );
-  }
-}
-
-/// 3×3 位置选择垫：中心那格是当前值。
-///
-/// 为什么不是下拉：九个位置**看一眼就知道**，下拉要开一次再关一次。
-class _AlignPad extends StatelessWidget {
-  const _AlignPad({required this.value, required this.onChanged});
-
-  final int value;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColors colors = appColorsOf(context);
-    final AppPalette palette = appPaletteOf(context);
-    Widget cell(int index) {
-      final bool selected = index == value;
-      return Semantics(
-        button: true,
-        selected: selected,
-        label: '位置 ${index + 1}',
-        excludeSemantics: true,
-        child: InkWell(
-          onTap: () => onChanged(index),
-          child: Container(
-            width: Space.s5,
-            height: Space.s5,
-            decoration: BoxDecoration(
-              color: selected
-                  ? palette.accent.withValues(alpha: 0.55)
-                  : colors.hoverWash,
-              borderRadius: BorderRadius.circular(AppRadius.xs),
-              border: Border.all(
-                color: selected ? palette.accent : colors.hairline,
-                width: selected ? 2 : 1,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Space.s2),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.crop_free, size: 16, color: colors.contentMuted),
-          const SizedBox(width: Space.s2),
-          for (int row = 0; row < 3; row++) ...<Widget>[
-            for (int col = 0; col < 3; col++) ...<Widget>[
-              cell(row * 3 + col),
-              if (col < 2) const SizedBox(width: Space.s1),
-            ],
-            if (row < 2) const SizedBox(height: Space.s1),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 /// 「本模型覆盖」子块（阶段5 D40，2026-09-26）：模型名 + 开关 + 结果。
 ///

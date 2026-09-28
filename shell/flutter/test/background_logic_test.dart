@@ -211,6 +211,28 @@ void main() {
       expect(s.index, 0);
     });
 
+    testWidgets('预览跳转之后，下一次推进从**预览的那一张**继续（F-0001-2）', (
+      WidgetTester tester,
+    ) async {
+      // 宿主那条链（main.dart 的 _jumpBackground）在 2026-09-28 之前只改自己的
+      // 索引，**没**把跳转推给控制器 —— 于是下一次 onAdvance 从旧的 _index 往前走，
+      // 把用户刚预览的那张无端切走。这条断言钉的就是「推了」这件事：
+      // 从第 2 项（下标 1）继续 ⇒ 下一个是下标 0；没推的话会是 1。
+      final ShellSlideshow s = ShellSlideshow()
+        ..setLibrary(length: 2, randomOrder: false);
+      final List<int> seen = <int>[];
+      s.start(1, onAdvance: seen.add);
+      s.jumpTo(1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        seen,
+        <int>[0],
+        reason: '从第 2 张继续往前 ⇒ 下一张是第 1 张；若还是 [1]，'
+            '说明跳转没驱动定时器（用户预览的那张会被切走）',
+      );
+      s.dispose();
+    });
+
     // 定时器在 `testWidgets` 里是**可推进的**（测试运行器自带假时钟），
     // 所以不需要为了测「它真的会走」而引入 `fake_async` 依赖。
     testWidgets('定时器真的会推进一步，而且顺序正确', (WidgetTester tester) async {
