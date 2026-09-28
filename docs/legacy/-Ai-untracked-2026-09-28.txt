@@ -1,0 +1,26 @@
+# /home/skystar/Live2D-Ai (mod/persona-polish @ 4e421993) 未跟踪清单（2026-09-28 归档）
+# 用途：移除该 worktree 前的可追溯记录。内容本身多数已在 -fe 重放（见 rc.5 A2）。
+# 格式：sha256  字节  路径
+6f93c2b28b1593b7  35808  docs/audit/2026-09-15-five-mod-review.md
+(目录)  6658112  docs/design/assets/visual-substance-2026-09-27/
+8ca5a08c95c39973  23041  docs/plans/IMPL-PROMPTS-0.2.0-seal-2026-09-27.md
+9f6af16c11d3bb88  9776  docs/plans/ORCHESTRATOR-PROMPT-0.2.0-seal-2026-09-27.md
+31b90bd216e7aca1  21124  docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md
+d8a197c10ae77c7b  39190  docs/plans/PLAN-actions-voice-memory-2026-09-15.md
+a93b543b84556dee  30094  docs/plans/PLAN-frontend-eval-and-improvements-2026-09-27.md
+85595fbeaf11a3a3  40215  docs/plans/PLAN-frontend-redesign-2026-09-27.md
+36057f66456de52a  20210  docs/plans/PLAN-visual-substance-2026-09-27.md
+cca841cc711a2d82  43292  docs/research/2026-09-15-mod-chains-perf-and-single-session-memory.md
+(目录)  15795  shell/flutter/lib/data/
+755fdbc6c43c8636  10780  shell/flutter/lib/design/background_item.dart
+1507a4819b59ea07  8494  shell/flutter/lib/ui/background_logic.dart
+ffae4f1dcbf85aa4  4791  shell/flutter/lib/ui/background_patterns.dart
+31ed1c9a28818c5d  4803  shell/flutter/lib/ui/group_card.dart
+a3eb46d70d75acd2  3670  shell/flutter/lib/ui/shell_slideshow.dart
+3a299a12e44d4f39  4686  shell/flutter/test/app_shell_background_test.dart
+9cc6a8dca6c9d999  3727  shell/flutter/test/background_id_test.dart
+f51223b8c1eccd72  12604  shell/flutter/test/background_logic_test.dart
+ed408e16a1fc11a4  6870  shell/flutter/test/background_store_test.dart
+085dfece4860f551  5773  shell/flutter/test/group_card_test.dart
+94d7826680f877b6  15769  shell/flutter/test/setting_wiring_test.dart
+3816f9f9ee500199  13682  shell/flutter/test/zz_audit_tmp_test.dart

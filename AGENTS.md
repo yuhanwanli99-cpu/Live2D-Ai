@@ -12,14 +12,24 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.2.0-rc.6`（背景透传追平参考 + 背景域审计收口，2026-09-28）**：
-  在 rc.5 的「动作/表演单一驱动 + 表演协议 v1」之上，本版把**背景域**做完：`imageFit` 四档
-  （cover/contain/stretch/tile）+ `tileSize`、**逐图样式覆盖**（opacity/fit/align，缺省回落全局）、
-  **全局 `background.enabled`**、`slideInterval` 端点夹持（DEC-1）、坏 `dataURL` 收紧（DEC-5）、
-  两套轮播分工（DEC-2）、轮播「当前项」用运行时索引（DEC-6）、预览在任意库大小可达（D1）；
-  并收掉**背景域审计 10 条**（解码备忘化 ⇒ 流式期间不再每 delta 整图重解码；偏好变更不再全量重发
-  `stage-bg`；启动水合不再整体覆盖偏好）。**发布说明**：`docs/releases/v0.2.0-rc.6.md`。
-  上一版（rc.5，2026-09-27，前端重设计并入 0.2.0 线）：把「动作/表演」从**两条驱动通道打架**收成一条，并补齐三块——
+- **当前版本 `0.2.0-rc.7`（正确性与诚实性：审计主发现 + 4 条假绿灯 + 仓库卫生，2026-09-28）**：
+  ① **审计主发现 `F-0005-2`（重建放大链，本轮最有价值的单点）**：`AppShell` 新增宿主状态代际
+  `settingsRevision`、`AppShellState` 新增 `_settingsTick`（设置数据通知计数），两者与 `section`
+  组成设置面板 `_pane()` 的**缓存键** —— 键不变就返回**同一个 widget 实例**，父级重建被
+  `Element.updateChild` 短路，于是**设置分区不再随每个 `text_delta` 重建与布局**（10 次增量的
+  重建次数由 **+10 降到 0**，有计数断言）。**如实标注**：只挡住「当前分区」这棵子树；外壳、
+  设置头部与 `ChatPanel` 仍随 delta 重建（更彻底的「外壳不再整体订阅 `_chat`」未做），**幅度未真机 profile**。
+  ② **4 条假绿灯改成可失败断言**（`F-0005-1` / `F-0005-3` / `F-0005-6` / `F-0005-7`）：守卫对象从
+  `app_shell.dart`（那里唯一命中是一句「不要这么做」的注释）改到 `ui/stage_host.dart` 且**剥注释**；
+  空泡改真判据并**顺带修实现**（空消息不再画 16 px 空泡；失败轮 / 流式中 / 只有思考三种例外保留）；
+  `ChatRole.system` 改**行为**断言；真泵 `StatePill` + `disableAnimations:false` 对照组。
+  **每条都有「破坏实现 → 断言变红」的红-绿双向原始输出**（见 `docs/releases/v0.2.0-rc.7.md` §4.1）。
+  ③ **Stage C2 仓库卫生**：worktree **25 → 3**、本地分支 **31 → 12**、stash **1 → 0**（先导出补丁再 drop）、
+  未跟踪 **0**、rc 线 tag **补齐到 7 个**（含新补的 `v0.2.0-rc.2` / `v0.2.0-rc.3`）。
+  ④ 版本三处（+ zh README）同步 rc.7；发布说明 `docs/releases/v0.2.0-rc.7.md`
+  （上一版 `docs/releases/v0.2.0-rc.6.md` = 背景透传追平参考 + 背景域审计 10 条）。
+- **更早（rc.4，2026-09-26，表演协议 v1 全链 + 导演可观测 + 单模型动作强度）**：
+  把「动作/表演」从**两条驱动通道打架**收成一条，并补齐三块——
   ① **阶段3 单一驱动者**：退役「前端拉 `latest.preset_id`」驱动舞台的通道，动作只由 WS `action_cue` 驱动
   （`preset_id=="none"` = 撤销哨兵，`cues:[]` = 本轮不动，D10–D13）；
   ② **阶段4 表演协议 v1**：`speak` 退役为 `segments`（**只切分原文、逐字不变**；上屏 == 送 TTS ==
@@ -465,6 +475,41 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   路径即可（2026-09-11 修）。
 
 ## 变更历史
+
+- **2026-09-28（v0.2.0-rc.7，正确性与诚实性：审计主发现 + 4 条假绿灯 + 仓库卫生）**：
+  ① **`F-0005-2` 重建放大链**：`AppShell.settingsRevision` + `AppShellState._settingsTick` + `section`
+  组成 `_pane()` 缓存键，设置分区不再随每个 `text_delta` 重建（**+10 → 0**，计数断言在
+  `test/rebuild_scope_test.dart`）；**只挡住当前分区子树**，外壳 / 设置头部 / `ChatPanel` 仍重建（未做改法 B），幅度未真机 profile。
+  ② **4 条假绿灯改可失败断言**：`F-0005-1`（守卫对象改 `ui/stage_host.dart` 并剥注释）、
+  `F-0005-3`（空泡真判据 + 修实现 + 3 条例外对照）、`F-0005-6`（行为断言）、`F-0005-7`（真泵 `StatePill` + 对照组）；
+  每条都由编排者**亲手破坏实现复现变红**（`docs/releases/v0.2.0-rc.7.md` §4.1）。
+  ③ **仓库卫生**：worktree 25 → 3、分支 31 → 12、stash 1 → 0（补丁存 `docs/legacy/`）、未跟踪 0、tag 补 rc.2 / rc.3。
+  ④ 门禁：cargo **1457/0** · doc 3 · fmt clean · clippy 0 · rust-ratio **97.3263%** · flutter **1378** · canvaskit gstatic **0/0** · ignite **4/4**。
+  发布说明 `docs/releases/v0.2.0-rc.7.md`；分派对账 `docs/plans/TRIAGE-0.2.0-audit-45-2026-09-28.md`。
+
+- **2026-09-28（v0.2.0-rc.6，背景透传追平 shalldie/vscode-background v3.1.0 的机制子集 + 背景域审计收口）**：
+  ① **Stage B**：`imageFit` **四档**（cover/contain/stretch/tile）+ `tileSize`（默认 64 / [16,256]，仅 tile 档）；
+  **逐图样式覆盖**（`BackgroundImage.opacity/fit/align`，缺省回落全局）；**全局 `background.enabled`**（迁移默认 true）；
+  DEC-1 `slideInterval` 端点夹持（新函数，未动 `_clampInt` 的 scrim 语义）；DEC-5 坏 `dataURL` 收紧到真形态；
+  DEC-2 两套轮播分工 + 改名 + 按来源互斥（并补 `stagePlaylist` 守护测试，此前零覆盖）；
+  DEC-6 轮播「当前项」改用运行时索引（不持久化）；DEC-7a/b 显隐对齐与空转控件禁用；D1 预览在**任意库大小**可达；
+  DEC-3 壳内子区域**裁决不做**（理由落盘 parity §5.2）。
+  ② **背景域审计 10 条**：解码**备忘化**（同 dataUrl 串 → 同一 `Uint8List` 实例 ⇒ `MemoryImage` 命中 ImageCache，
+  流式期不再每 delta 整图重解码，同时消掉缩略图那条）；偏好变更**不再全量重发 `stage-bg`**（同值不重发）；
+  启动**水合不再整体覆盖偏好**（只回填背景域，窗口内改动与导入不再回滚）；删掉占位内存库与假超时兜底；
+  批量删除改存**项身份**（不再删错图）；预览跳转真的驱动轮播；删 `onBackgroundIndex` / `onBackgroundJump` 死参数。
+  ③ 结构：`appearance_section.dart` **1489 → 709**（背景域抽到 `appearance_background.dart`）。
+  门禁：cargo **1457/0** · clippy 0 · rust-ratio **97.3263%** · flutter **1370** · canvaskit gstatic **0/0** · ignite **4/4**。
+  发布说明 `docs/releases/v0.2.0-rc.6.md`。
+
+- **2026-09-27（v0.2.0-rc.5，Stage A：资产守护网 + 09-27 前端重设计并入 + 背景 P0）**：
+  ① **A1 资产守护网**：`docs/architecture/frontend-asset-inventory.md` + **19 条守护断言**
+  （含「`main.dart` 仍存在 `_applyDirectorCueForSeq` 的**调用点**」——旧断言只查名字，删掉调用点照样绿，rc.5 已实证）；
+  ② **A2 重放**：09-27 前端重设计 **112 个 Flutter 文件**并入 0.2.0 线，解 **29 处冲突**（15 响应 / 14 哑）；
+  ③ **背景 P0-1…P0-5** 全修（背景图永久丢失三段链 / 迁移不检查 `put` / 拖动排序双重减 1 / 缺陷被测试背书 / 遮罩文案与实现相反）；
+  ④ 15 条审计复现转正、删 `zz_audit_tmp_test.dart`；`docs/architecture/background-parity-vscode-background.md` 偏离说明落盘。
+  门禁：cargo **1457/0** · doc 3 · fmt clean · clippy 0 · rust-ratio **97.3595%** · flutter **1272** · ignite **4/4**。
+  发布说明 `docs/releases/v0.2.0-rc.5.md`。
 
 - **2026-09-26（v0.2.0-rc.4，0.2.0 线最后一个 RC：表演协议 v1 全链 + 导演可观测 + 单模型动作强度）**：
   ① **阶段3 单一驱动者（D10–D13）**：退役「前端拉 `latest.preset_id` 驱动舞台」，动作只由 WS

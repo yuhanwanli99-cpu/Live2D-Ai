@@ -38,7 +38,7 @@ rc.4 之后 Mod 数、`mods.json` 写回、token 真源都动过 ⇒ **S1/S3/M6/
 | §1 | **动作系统选型**（标准皮套 / N.E.K.O 参考）：层级与仲裁、数据模型**外置**（不硬编码进 Rust）、用「语义通道」而非裸参数 ID | **实施前先改 `AGENTS.md` 的 director 台账与回归措辞**（本会话已在 rc.6/rc.7 把 AGENTS 版本线对齐，但**台账措辞未改**） |
 | §2 | 按钮调试清单（放哪儿 / P0 按钮 / 最小改动 / 前端接线草图） | 同上 |
 | §3 | **导演异步 LLM 链路**（TTS 输入 ↔ 动作同步）：异步旁路 + 规则兜底、输出契约是 **plan 而不是逐句 cue**、「导演是备注不是誊写员」 | 同上 |
-| §4 | **主页语音 UI**（开关 + 按住说话 + 唤醒词三态按钮；ASR×唤醒×PTT 选型） | 现状 WIP 在 `mod/l1-product` 的**未提交**文件里；**该 worktree 已于 2026-09-28 按「已并入 main + 干净」移除**，分支 `mod/l1-product` 也已删除 —— 但**已提交内容在 main 历史里**，只有**未提交 WIP 从未入库**（属于「本地≠可以丢」的灰区，**本会话未取得那份 WIP**，如需请从 `/home/skystar/Live2D-Ai` 或维护者手里找） |
+| §4 | **主页语音 UI**（开关 + 按住说话 + 唤醒词三态按钮；ASR×唤醒×PTT 选型） | **已入库，不是损失**（2026-09-28 **复核更正**）：`git ls-files` 实得 `shell/flutter/lib/api/voice_api.dart`、`lib/voice/{voice_listen_controller,speech_recognizer,speech_recognizer_web,speech_recognizer_stub}.dart`、`lib/settings/mods/voice_input_panel.dart` 与 3 个测试（含与 Rust `DEFAULT_WAKE_PHRASE` 对账的 `voice_wake_default_consistency_test.dart`）。移除 `mod/l1-product` 时它是 **0 脏项** ⇒ 该 WIP 早已提交。**本条原写的「未提交 / 从未入库」是错的**，已更正 |
 | §5 | 任务清单（建议顺序） | — |
 
 ## 3. 后端 R1–R8（**只记录，本会话不做**）
