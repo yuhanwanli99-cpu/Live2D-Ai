@@ -52,16 +52,21 @@
 
 | 项 | 值 |
 |---|---|
-| 当前 worktree | `/home/skystar/Live2D-Ai` @ `mod/persona-polish` @ `4e421993`，**提交日期 2026-09-14 21:10** |
-| 与 main 关系 | **main 的祖先**（`merge-base --is-ancestor` = true）⇒ 落后 **84** 提交、不领先任何提交 |
-| 0.2.0 线 HEAD | `main` = `e4f139a8` **`v0.2.0-rc.4`**（2026-09-26，「0.2.0 线最后一个 RC」，但按新口径**继续开 rc.x**） |
-| `origin/main` | `2d492447` `v0.2.0-rc.1`（09-14）——本地 main 领先远端 **85** 个未推提交 |
-| 代码差距 | `crates/` = **150 文件 / +39908 / -991**；`shell/flutter` = **82 文件**；`AGENTS.md` 差 **263 行** |
-| 未提交工作区 | **133** 项（113 已跟踪 + 20 未跟踪）；113 files **+5349 / -2055**；**`crates/**` 零改动** ✅ |
-| 重叠文件 | **29** 个（重设计 × main）⇒ 重放必冲突 |
-| 门禁（实测） | `flutter analyze` **0 issue**；`flutter test` **970 通过**（含 15 临时 ⇒ 真实 955） |
-| 复现验证 | `flutter test test/zz_audit_tmp_test.dart` = **15/15 通过** ⇒ 缺陷稳定复现 |
-| 仓库卫生 | **24** 个 worktree、**1** 个 stash、`docs/releases/v0.3.0.md` 与 rc.4 版本线矛盾 |
+> **2026-09-28 更新（本节曾过时）**：原表是 **09-27 快照**，当时唯一开发线还写在旧 worktree `-Ai`。
+> Stage A 已把 09-27 重设计并入 0.2.0 线并收口 rc.5，**唯一开发线现在是 `/home/skystar/Live2D-Ai-fe`**。
+> 原快照的「落后 84 提交 / 29 文件重叠 / 970 测试（含 15 临时）」等结论**已被 Stage A 吸收**，
+> 保留价值仅为「当时为什么必须重放」——**不要再据此分派任何工作**。
+
+| 项 | 值（2026-09-28 实测） |
+|---|---|
+| 当前 worktree（**唯一开发线**） | `/home/skystar/Live2D-Ai-fe` @ `feat/frontend-redesign` @ `5ef879f4`（= `v0.2.0-rc.5` + 4 个 docs 提交） |
+| 旧 worktree（**禁止开发**） | `/home/skystar/Live2D-Ai` @ `mod/persona-polish` @ `4e421993`——**main 的祖先**（落后 84 提交）；136 项脏 + 23 项未跟踪，其中 **6 项是唯一副本**，已于 2026-09-28 判定并入或归档（见 `docs/audit/2026-09-28-frontend-nightly/README.md`） |
+| 0.2.0 已提交基线（main） | `e4f139a8` **`v0.2.0-rc.4`**（2026-09-26） |
+| 相对关系 | `feat/frontend-redesign` **领先 main 9 个提交**（Stage A rc.5 + 4 个 docs） |
+| `origin/main` | `2d492447` **`v0.2.0-rc.1`**（09-14），落后本地 85 提交——**按 2026-09-28 口径不管远端**，以**本地 tag** 为还原点 |
+| 门禁（rc.5 实测，2026-09-28 在干净 HEAD 复跑，数字一致） | `flutter analyze` **0 issue**；`flutter test` **1272**；`cargo test` **1457/0**、doc **3**、fmt clean、clippy **0 warning**、rust-ratio **97.3595% PASS**；`ignite.sh --check` **四项全 ok** |
+| 审计账本 | `docs/audit/2026-09-28-frontend-nightly/`（长跑 21 批 **45 条**，**为准**）+ `short-run/`（4 批短跑快照）——2026-09-28 已入库，冻结计数见其 `README.md` |
+| 仓库卫生 | **24** 个 worktree、**1** 个 stash（`mod/persona-polish`）；`docs/releases/v0.3.0.md` 已标「历史草案，未发布」；`v0.2.0-rc.2/rc.3/rc.5` 三个 tag 曾缺失（rc.5 已于 2026-09-28 补齐） |
 
 ---
 
@@ -240,14 +245,14 @@
 ---
 
 ### Stage C · `0.2.0-rc.7` —— 技术债 + 项目管理
-### Stage C · `0.2.0-rc.7` —— 技术债 + 项目管理
 
 **收口判据**：§4 的 P1/P2/P3 逐条关闭或**写明不做 + 理由**；`AGENTS.md` 单一化；worktree/stash/未跟踪文档清零；
 `v0.3.0.md` 版本线矛盾消除；W4 五项有裁决。
 
 ### Stage D · `0.2.0` 末版发布
 
-版本号三处同步（`Cargo.toml` / `pubspec.yaml` / `README`）；release note；tag；推 `origin/main`；
+版本号三处同步（`Cargo.toml` / `pubspec.yaml` / `README`）；release note；
+**打本地 tag（`v0.2.0`）作为还原点**——按 2026-09-28 口径**不推远端**（个人小项目，产物存本地即可）；
 跑一遍完整门禁 + 肉眼 checklist 并落盘。
 
 ---
@@ -278,20 +283,23 @@
 
 ## 9. 执行清单（Stage → 勾选）
 
-**Stage A（rc.5）**
-- [ ] 从 main 切 `feat/frontend-redesign` 新 worktree
-- [ ] `frontend-asset-inventory.md` + 资产守护断言
-- [ ] 重放 112 文件、解 29 冲突、逐个复核 §3.1
-- [ ] P0-1 / P0-2 / P0-3 / P0-5 修复；P0-4 测试期望改正
-- [ ] 15 条复现转正式；删 `zz_audit_tmp_test.dart`
-- [ ] 门禁 + Win 肉眼
+**Stage A（rc.5）—— ✅ 已收口（2026-09-27，`01ea2af1`）**
+- [x] 从 main 切 `feat/frontend-redesign` 新 worktree（= `/home/skystar/Live2D-Ai-fe`）
+- [x] `frontend-asset-inventory.md` + 资产守护断言（19 条）
+- [x] 重放 112 文件、解 29 冲突、逐个复核 §3.1
+- [x] P0-1 / P0-2 / P0-3 / P0-5 修复；P0-4 测试期望改正
+- [x] 15 条复现转正式；删 `zz_audit_tmp_test.dart`
+- [x] 门禁（analyze 0 / test 1272 / build FRESH / ignite 四项 ok）；
+      Win **交互式** checklist 仍待人工复走（rc.5 §9，未伪造绿灯）
 
-**Stage B（rc.6）**
+**Stage B（rc.6）—— 进行中（2026-09-28 起）**
 - [ ] `imageFit` 四档 + `tileSize`
 - [ ] 逐图样式覆盖
-- [ ] 轮播索引语义一致
-- [ ] 背景库管理/预览分离
-- [ ] 偏离说明落盘
+- [ ] 全局 `background.enabled`（DEC-4）
+- [ ] 轮播索引语义一致（DEC-6 / F-0001-2）
+- [ ] 背景库管理/预览分离（D1：任意库大小下预览可达）
+- [x] 偏离说明落盘（**提前于 rc.5 完成**：`docs/architecture/background-parity-vscode-background.md`，412 行）
+- [ ] **背景域审计 10 条**（`ORCHESTRATOR-PROMPT-…-2026-09-28` §3.1）逐条关闭或写明不做 + 理由
 
 **Stage C（rc.7）**
 - [ ] P1/P2/P3 关闭或写明不做
@@ -302,7 +310,7 @@
 
 **Stage D（0.2.0 末版）**
 - [ ] 版本号三处同步
-- [ ] release note + tag + 推 origin/main
+- [ ] release note + **本地** tag（不推远端）
 - [ ] 全套门禁 + 肉眼 checklist 落盘
 
 ---
