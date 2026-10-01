@@ -67,6 +67,21 @@ class ChatController extends ChangeNotifier {
   bool _streaming = false;
   String? _error;
 
+  /// 最近一次 [send] 是否**本地失败**（网络/解析/非 2xx，或 200 但未受理）。
+  ///
+  /// 为什么不能只看 [error] 是否为 null：`_onWsEvent` 收到**服务端**的
+  /// `error` 帧也会写 [_error]，而那种错误发生时本轮**仍在飞**（非致命失败
+  /// 之后已生成的语音还要播完，收口由紧随的 `turn_state` 负责）。把「有错误
+  /// 文案」当成「本地发送失败」会把一条正在正常进行的轮次**提前说成结束**。
+  ///
+  /// 所以这里专门记一个**只由本地失败路径**置位的标志：组合根（`shell_chat._send`）
+  /// 在 `await send()` 之后据此通知 `UiStateTracker` 回落相位（审计 F-0007-1：
+  /// 这三条本地失败路径后端**不广播任何 WS 帧**，前端没有任何帧可以等）。
+  bool _sendFailedLocally = false;
+
+  /// 见 [_sendFailedLocally]。
+  bool get sendFailedLocally => _sendFailedLocally;
+
   /// 最近一次错误的**机器码**（`llm_upstream_401` / `tts_transport` …）。
   ///
   /// 与 [error] 的关系：`error` 是给人看的一行（码 + 说明 + 提示），本字段是
@@ -99,6 +114,9 @@ class ChatController extends ChangeNotifier {
     _streaming = true;
     _error = null;
     _errorCode = null;
+    // 每一轮**重新**计数：上一轮本地失败的标志不能漏进这一轮（组合根在
+    // `await send()` 之后读它决定要不要回落相位）。见 [_sendFailedLocally]。
+    _sendFailedLocally = false;
     // **先建气泡、再发请求**（2026-09-23，用户报「LLM 故障时对话无反应」）：
     // 服务端可能在 HTTP 应答**之前**就跑完本轮并广播 `error` / `turn_state`
     //（快失败：401、连接被拒、上游秒回 5xx）。旧顺序把气泡建在 await 之后——
@@ -144,6 +162,10 @@ class ChatController extends ChangeNotifier {
   void _failLocalTurn(ChatMessage bubble, String message, String? code) {
     _error = message;
     if (code != null) _errorCode = code;
+    // **只由本地失败路径置位**（见 [_sendFailedLocally]）：组合根据此让
+    // `UiStateTracker` 回落相位——这一轮不会有收口帧，不回落就永久停在
+    // 「思考中 / 停止本轮」（审计 F-0007-1）。
+    _sendFailedLocally = true;
     if (identical(_assistant, bubble)) {
       bubble.streaming = false;
       if (bubble.text.trim().isEmpty) {

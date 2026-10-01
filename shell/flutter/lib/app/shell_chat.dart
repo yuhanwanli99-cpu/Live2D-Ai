@@ -42,6 +42,15 @@ extension _ShellChatWiring on _ShellRootState {
     _input.clear();
     _ui.markTurnAccepted();
     await _chat.send(text);
+    // **本地失败必须回落相位**（2026-10-01，审计 F-0007-1）。网络异常 / 非 2xx
+    // （`no_supervisor`=503）/ 200 但未受理（`busy`=429）这三条本地失败路径后端
+    // **不广播任何 WS 帧**，所以不会有任何收口帧来清「思考中」：不补偿的话状态
+    // 胶囊**永久**停在「思考中」、发送键永久变「停止本轮」（幽灵态）。
+    //
+    // 判据用 `_chat.sendFailedLocally` 而**不是** `_chat.error != null`：
+    // 服务端推来一条非致命 `error` 帧（本轮仍在飞、语音还要播完）时后者**也为真**，
+    // 那样会把一条正常进行的轮次提前说成结束。
+    if (_chat.sendFailedLocally) _ui.markTurnFailed();
     _syncLiveRegion();
   }
 

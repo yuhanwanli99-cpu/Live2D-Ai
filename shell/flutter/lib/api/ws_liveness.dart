@@ -36,3 +36,95 @@ bool isLiveSocket(int readyState) =>
 /// 僵尸 socket：对象还在，但连接已经废了，`onclose` 尚未（或不会）回调。
 bool isZombieSocket(int readyState) =>
     readyState == kSocketClosing || readyState == kSocketClosed;
+
+// ─────────────────────────────────────────────────────────────────────────
+// 心跳看门狗（2026-10-01，审计 F-0008-1）
+//
+// # 上一版判据为什么不够
+//
+// 上面那两个判据（`isLiveSocket` / `isZombieSocket`）都是**读 `readyState`**。
+// 它们能挡住 2026-09-11 那个缺陷（close() 之后 onclose 尚未回调），但挡不住
+// **半开连接**：笔记本休眠/唤醒、NAT 或代理静默丢包、服务端被 SIGKILL 而没有
+// FIN/RST 送达。这时浏览器的 `readyState` **仍然是 OPEN**（规范只在「尝试收发
+// 并失败」时才改状态，而本客户端**从不发送**任何帧——协议是单向事件流）。
+// 于是 `ensureConnected()` 一直走「健康」分支不重连，`_status` 一直是
+// `connected`，而 `turn_liveness.mustReleaseTurnOnWsLoss` 的前提
+//（`status.isProblem`）永远不成立 ⇒ 「`POST /api/v1/chat` 成功但收不到回复」
+// 的幽灵态可以永久挂着。
+//
+// 服务端每 10 s 主动发一条心跳（`web_api/ws/connection.rs`）——那是**已经送到
+// 前端**的存活证据，前端解析了却从来没用过。下面把「静默多久算可疑 / 算死链」
+// 抽成纯函数：`ws_client.dart` 的看门狗与 `ui_state_tracker.dart` 的相位判据
+// 都读它，于是三个状态各有一个真实消费者（不是只算不用）。
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 服务端主动心跳的间隔。**真源在 Rust**：
+/// `crates/live2d-ai-desktop/src/web_api/ws/connection.rs`（10 s）。
+/// 这里只作为「多久没动静算异常」的推导基准，前端**不**据此发 ping
+/// （协议是单向的，客户端帧会被 tungstenite 静默丢弃）。
+const Duration kWsHeartbeatInterval = Duration(seconds: 10);
+
+/// 静默 ≥ 这个时长 ⇒ **可疑**（[HeartbeatLiveness.suspect]）。
+///
+/// 取值理由：≈3 个心跳周期。错过 1 次可能是调度抖动/GC 停顿（10 s 量级），
+/// 连续 3 次收不到就不再是抖动。**必须**远小于「浏览器自己因 TCP 超时触发
+/// close」——后者**没有上界**，正是幽灵窗口的来源。
+const Duration kWsHeartbeatSuspectAfter = Duration(seconds: 30);
+
+/// 静默 ≥ 这个时长 ⇒ **死链**（[HeartbeatLiveness.offline]）。
+///
+/// 取值理由：≈9 个心跳周期。到这一档时**连 `readyState == OPEN` 也不信**：
+/// 这是「半开」最硬的判据——服务端就算还活着，它的话也已经 90 s 到不了我这里。
+const Duration kWsHeartbeatOfflineAfter = Duration(seconds: 90);
+
+/// 心跳看门狗的三态。
+enum HeartbeatLiveness {
+  /// 心跳按时到达：通道可信。
+  online,
+
+  /// 静默 ≥ [kWsHeartbeatSuspectAfter]（≈3 个周期）：**半开嫌疑**。
+  ///
+  /// 消费动作（`WsClient`）：主动摘掉这个「看着还 OPEN」的 socket 并立刻重开——
+  /// 不等浏览器自己的 TCP 超时（那没有上界）。
+  suspect,
+
+  /// 静默 ≥ [kWsHeartbeatOfflineAfter]（≈9 个周期）：**已判定死链**。
+  ///
+  /// 消费动作（`UiStateTracker`）：相位不再认「已连接」，退回 `offline`，
+  /// 免得界面继续显示「思考中」而实际一个字都收不到。
+  offline,
+}
+
+/// 由「最后心跳时刻 + now」判三态。**纯函数、零依赖**（可 VM 单测）。
+///
+/// 边界（**含**，写进契约，测试逐点断言 ±1 ms）：
+/// - `silent < suspectAfter` → [HeartbeatLiveness.online]
+/// - `suspectAfter <= silent < offlineAfter` → [HeartbeatLiveness.suspect]
+/// - `offlineAfter <= silent` → [HeartbeatLiveness.offline]
+///
+/// [lastHeartbeatAt] 为 null（还没收到过任何帧，例如刚建连、`subscribe_ack`
+/// 尚未到达）按 **online** 处理：**「未知」不等于「已死」**——把未知判死会让
+/// 每次刷新页面都先闪一下「后端未连接」。半开连接的前提是「曾经收到过」，
+/// 所以这个取向不会削弱判据。
+///
+/// `now` 早于 [lastHeartbeatAt]（时钟回拨）按 online：`Duration` 为负，
+/// 落进第一个分支。
+HeartbeatLiveness heartbeatLiveness({
+  required DateTime? lastHeartbeatAt,
+  required DateTime now,
+  Duration suspectAfter = kWsHeartbeatSuspectAfter,
+  Duration offlineAfter = kWsHeartbeatOfflineAfter,
+}) {
+  if (lastHeartbeatAt == null) return HeartbeatLiveness.online;
+  final Duration silent = now.difference(lastHeartbeatAt);
+  if (silent < suspectAfter) return HeartbeatLiveness.online;
+  if (silent < offlineAfter) return HeartbeatLiveness.suspect;
+  return HeartbeatLiveness.offline;
+}
+
+/// 这个通道**还值不值得信**（`readyState` 之外的第二重判据）。
+///
+/// 与 [isLiveSocket] 的关系：那个判 socket 对象的状态机，这个判「话还到不到」。
+/// 两者都成立才算可用——半开连接是前者成立、后者不成立的那种坏法。
+bool isChannelTrustworthy({required int readyState, required HeartbeatLiveness liveness}) =>
+    isLiveSocket(readyState) && liveness != HeartbeatLiveness.offline;

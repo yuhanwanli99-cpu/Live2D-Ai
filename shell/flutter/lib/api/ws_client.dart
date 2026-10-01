@@ -40,11 +40,28 @@ class WsClient {
 
   web.WebSocket? _socket;
   Timer? _reconnectTimer;
+  Timer? _watchdog;
+
+  /// 最近一次**收到任何一帧**的时刻（= 服务端还活着的证据）。
+  ///
+  /// 名字按「心跳」取（服务端每 10 s 一条 `heartbeat`，那是周期性存活信号），
+  /// 但更新面覆盖**每一帧**：流式聊天中 `text_delta` 本身就是「链路活着」的
+  /// 证明，只认 heartbeat 会把活跃连接误判成静默。
+  ///
+  /// 半开连接（休眠唤醒 / NAT 静默丢包 / 服务端被 SIGKILL）下
+  /// `readyState` 仍是 OPEN，**只有这个时刻能证明通道已经废了**。
+  DateTime? _lastHeartbeatAt;
 
   /// 已连续失败的连接次数（成功连上即清零）。重连延迟由它推导。
   int _attempt = 0;
   bool _disposed = false;
   WsStatus _status = WsStatus.idle;
+
+  /// 看门狗巡检周期。
+  ///
+  /// 取值理由：必须**远小于** [kWsHeartbeatSuspectAfter]（30 s），否则「发现
+  /// 半开」的延迟会被巡检周期主导；也不能太密（每 5 s 一次读时钟，可忽略）。
+  static const Duration _watchdogTick = Duration(seconds: 5);
 
   Stream<WsEvent> get events => _events.stream;
   Stream<WsStatus> get statuses => _statuses.stream;
@@ -78,7 +95,11 @@ class WsClient {
     _socket = socket;
     socket.onopen = ((web.Event _) {
       _attempt = 0;
+      // 新连接从**此刻**开始重新计静默：不清掉旧时刻的话，看门狗会在重开后
+      // 立刻用 90 s 前的旧值判死，于是变成「重开→立刻重开」的死循环。
+      _lastHeartbeatAt = DateTime.now();
       _setStatus(WsStatus.connected);
+      _startWatchdog();
     }).toJS;
     socket.onmessage = ((web.MessageEvent event) {
       final JSAny? data = event.data;
@@ -89,6 +110,7 @@ class WsClient {
       _setStatus(WsStatus.disconnected);
     }).toJS;
     socket.onclose = ((web.Event _) {
+      _watchdog?.cancel();
       _socket = null;
       _scheduleReconnect();
     }).toJS;
@@ -109,7 +131,21 @@ class WsClient {
   void ensureConnected() {
     if (_disposed) return;
     final web.WebSocket? socket = _socket;
-    if (socket != null && isLiveSocket(socket.readyState)) return;
+    // **第二重判据（2026-10-01，F-0008-1）**：`readyState == OPEN` 不等于
+    // 「话还能到我这里」——半开连接下它一直是 OPEN。所以除了问 socket 的
+    // 状态机，还问「最近听到过动静吗」（判据 = `ws_liveness.dart` 的纯函数）。
+    // 已经静默到死链档（≈90 s）时，这个 socket 一律不信：摘掉重开，
+    // 反正 POST 走的是另一条 HTTP 连接，「发出去没回应」正是这么来的。
+    final bool trustworthy =
+        socket != null &&
+        isChannelTrustworthy(
+          readyState: socket.readyState,
+          liveness: heartbeatLiveness(
+            lastHeartbeatAt: _lastHeartbeatAt,
+            now: DateTime.now(),
+          ),
+        );
+    if (trustworthy) return;
     if (socket != null) {
       // 僵尸对象：摘掉它并立刻重开（不等 `onclose` / 退避计时器——
       // 用户正在等回复，退避的 30s 上限在这里是不可接受的）。
@@ -134,6 +170,62 @@ class WsClient {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // 心跳看门狗（2026-10-01，审计 F-0008-1）
+  //
+  // 半开连接（笔记本休眠/唤醒、NAT/代理静默丢包、服务端被 SIGKILL 而没有
+  // FIN/RST 送达）下，浏览器的 `readyState` **仍然是 OPEN**——规范只在
+  // 「尝试收发并失败」时才改状态，而本客户端从不发送帧。于是 `onclose` 与
+  // `onerror` 都不会来，`_status` 一直写「已连接」，界面的恢复出口
+  //（`mustReleaseTurnOnWsLoss` 的前提是 `status.isProblem`）永远不成立 ⇒
+  // 「`POST /api/v1/chat` 成功但收不到回复」可以永久挂着。
+  //
+  // 服务端每 10 s 发一条心跳，那是**已经送到前端**的存活信号；下面这个周期
+  // 任务就是它的消费者：静默超过阈值即摘掉重开。判据是纯函数
+  //（`ws_liveness.dart`），本文件只做「巡检 + 处置」。
+  // ─────────────────────────────────────────────────────────────────────
+
+  void _startWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(_watchdogTick, (_) => _checkHeartbeatLiveness());
+  }
+
+  /// 巡检一次：静默到期就把「看着还 OPEN」的 socket 当作半开连接处置。
+  void _checkHeartbeatLiveness() {
+    if (_disposed) return;
+    final web.WebSocket? socket = _socket;
+    // 没有 socket：退避重连正在管，不插手。
+    if (socket == null) return;
+    // 状态机**已经**是僵尸（CLOSING/CLOSED）：`onclose` 或退避计时器会管，
+    // 这里再动一次只会把同一条连接处置两遍。
+    if (!isLiveSocket(socket.readyState)) return;
+    final HeartbeatLiveness liveness = heartbeatLiveness(
+      lastHeartbeatAt: _lastHeartbeatAt,
+      now: DateTime.now(),
+    );
+    if (liveness == HeartbeatLiveness.online) return;
+    _recoverFromHalfOpen(socket);
+  }
+
+  /// 半开恢复：**先宣布通道有问题**，再摘掉僵尸并立刻重开。
+  ///
+  /// 顺序有讲究（与 `ChatController.stop()` 里「先本地收口再发请求」同一条教训）：
+  /// ① `disconnected` 是 `WsStatus.isProblem` ⇒ `ChatController` 的
+  ///    `mustReleaseTurnOnWsLoss` 会就地收口在飞的一轮（那条收口帧**永远不会
+  ///    来**）；若跳过这一步直接重开（只经过 `connecting`，它不是 problem），
+  ///    输入框会锁死在「停止本轮」而 `send()` 静默 return——正是用户报的
+  ///    「发出去没回应」的最坏形态；
+  /// ② 再摘掉重开，且**不走退避**（退避上限 30 s，而用户可能正等着回复）。
+  void _recoverFromHalfOpen(web.WebSocket socket) {
+    _setStatus(WsStatus.disconnected);
+    _reconnectTimer?.cancel();
+    _watchdog?.cancel();
+    if (identical(_socket, socket)) _socket = null;
+    _detach(socket);
+    _attempt = 0;
+    _open();
+  }
+
   void _scheduleReconnect() {
     if (_disposed) return;
     _setStatus(WsStatus.disconnected);
@@ -153,6 +245,9 @@ class WsClient {
   /// `shutdown_ready` 的**连接处置**留在这里（解析层刻意无副作用）；事件本身
   /// 照旧继续下发，让 UI 知道发生过什么。
   void _handleText(String text) {
+    // **任何一个到达的帧都是存活证据**（心跳是周期性那一种）：看门狗据此判
+    // 「半开」。放在解析**之前**——解析不懂的帧同样证明链路能把字节送到。
+    _lastHeartbeatAt = DateTime.now();
     final WsEvent? event = parseWsFrame(text);
     if (event == null) return;
     if (event is RuntimeStatusEvent && event.event == 'shutdown_ready') {
@@ -166,6 +261,8 @@ class WsClient {
     if (_disposed) return;
     _disposed = true;
     _reconnectTimer?.cancel();
+    _watchdog?.cancel();
+    _watchdog = null;
     final web.WebSocket? socket = _socket;
     _socket = null;
     if (socket != null) {

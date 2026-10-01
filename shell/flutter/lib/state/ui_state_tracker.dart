@@ -28,6 +28,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../api/ws_frame.dart';
+import '../api/ws_liveness.dart';
 import '../api/ws_status.dart';
 import 'ui_phase.dart';
 
@@ -41,14 +42,18 @@ class UiStateTracker extends ChangeNotifier {
   UiStateTracker({
     Duration hold = kInterruptedHold,
     TimerFactory? timerFactory,
+    /// 读时钟（可注入：半开判据是**时间**判据，测试必须能不依赖真实时钟推进它）。
+    DateTime Function()? clock,
     // 具名参数不写成 `this._hold`：那会把私有字段名暴露进公开签名
     // （调用方要写 `UiStateTracker(_hold: …)`）。这里保持 `hold:` → `_hold`。
     // ignore: prefer_initializing_formals
   }) : _hold = hold,
-       _newTimer = timerFactory ?? _defaultTimerFactory;
+       _newTimer = timerFactory ?? _defaultTimerFactory,
+       _now = clock ?? DateTime.now;
 
   final Duration _hold;
   final TimerFactory _newTimer;
+  final DateTime Function() _now;
 
   WsStatus _wsStatus = WsStatus.idle;
   bool _turnActive = false;
@@ -58,6 +63,15 @@ class UiStateTracker extends ChangeNotifier {
   String? _errorMessage;
   String? _errorCode;
   Timer? _interruptTimer;
+
+  /// 最近一次**收到帧**的时刻（任何一帧都算，见 [consume]）。
+  ///
+  /// 2026-10-01（审计 F-0008-1）之前，本类对 `heartbeat` 帧直接
+  /// `return false`——心跳被解析、被下发、然后被丢掉，于是**状态层没有任何
+  /// 时间判据**：半开连接（`WsStatus` 一直是 `connected`、实际一帧都收不到）
+  /// 不可检测，界面可以永久停在「思考中」。现在这个时刻由 [channelLiveness]
+  /// 消费，进而进入 [signals]。
+  DateTime? _lastHeartbeatAt;
 
   /// 已释放。
   ///
@@ -69,11 +83,28 @@ class UiStateTracker extends ChangeNotifier {
 
   /// 当前信号快照。
   UiSignals get signals => UiSignals(
-    wsConnected: _wsStatus.isUsable,
+    // 「通道能用」= 状态机说连上了 **且** 最近确实还听得到动静。
+    //
+    // 后半条是 2026-10-01（审计 F-0008-1）补的第二重判据：半开连接下
+    // `WsStatus` 会一直停在 `connected`（浏览器只在「尝试收发并失败」时才改
+    // 状态，而本客户端从不发帧），只看它就会把界面钉在「思考中」；而
+    // `turn_liveness.mustReleaseTurnOnWsLoss` 的前提是 `status.isProblem`，
+    // 也永远不会成立。只有「静默时长」能把这种坏法区分出来。
+    wsConnected:
+        _wsStatus.isUsable && channelLiveness != HeartbeatLiveness.offline,
     turnActive: _turnActive,
     voiceActive: _voiceActive,
     interrupted: _interrupted,
     errorActive: _errorActive,
+  );
+
+  /// 通道存活三态（判据 = `ws_liveness.dart` 的纯函数 [heartbeatLiveness]）。
+  ///
+  /// 这是心跳在**状态层**的消费者：静默到死链档（≈90 s）就不再认「已连接」，
+  /// 相位退回 `offline`——而不是继续显示「思考中」而实际一个字都收不到。
+  HeartbeatLiveness get channelLiveness => heartbeatLiveness(
+    lastHeartbeatAt: _lastHeartbeatAt,
+    now: _now(),
   );
 
   /// 派生出的界面相位（**唯一**真源，UI 各处都读它）。
@@ -103,7 +134,13 @@ class UiStateTracker extends ChangeNotifier {
   void onWsStatus(WsStatus status) {
     if (_wsStatus == status) return;
     _wsStatus = status;
-    if (!status.isUsable) {
+    if (status.isUsable) {
+      // **连上的那一刻链路是活的**（`connected` 的语义就是首帧 `subscribe_ack`
+      // 已到达）⇒ 静默从此刻开始计。不播这个种子的话，「连上之后再也没收到
+      // 任何一帧」那种半开（`_lastHeartbeatAt` 恒为 null）会被判成「未知」而
+      // 永远不算异常——那正是幽灵态最纯粹的形态。
+      _lastHeartbeatAt = _now();
+    } else {
       // 断开就把「进行中」的信号一并清掉：否则重连后界面会停在
       // 「说话中/思考中」而实际什么都没发生。
       _turnActive = false;
@@ -123,8 +160,35 @@ class UiStateTracker extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// `POST /api/v1/chat` **本地失败** → 相位就地回落（审计 F-0007-1）。
+  ///
+  /// 覆盖的失败面（三条都**不广播任何 WS 帧**，所以不会有收口帧来救）：
+  /// 网络/解析异常、非 2xx（`no_supervisor`=503 等）、200 但未受理（`busy`=429）。
+  /// 没有本方法时：`markTurnAccepted()` 已经把 `_turnActive` 置真，而清相位的
+  /// 四个入口（`onWsStatus` 断开 / `consume(TextDelta)` / `consume(TurnState)` /
+  /// `markStopped`）**一个都不会被调用** ⇒ 状态胶囊**永久**停在「思考中」、
+  /// 发送键永久变「停止本轮」（= 用户报的幽灵态）。
+  ///
+  /// 与 [markStopped] 的区别（处方见审计 FINDINGS 的「改法方向 ①」）：
+  /// - **不**复用 `markStopped`：那条路径显示「已打断」，会把「服务端忙碌 /
+  ///   网络失败」说成用户的意志；
+  /// - **不**在这里置 `_errorActive`：错误文案与机器码由 `ChatController` 给
+  ///   （顶部横幅读 `_ui.errorMessage ?? _chat.error`），两处都写就是同一条
+  ///   错误长两个通道——规格 §6.3 明令禁止。本方法只负责**相位**。
+  void markTurnFailed() {
+    if (!_turnActive && !_voiceActive) return;
+    _turnActive = false;
+    _voiceActive = false;
+    notifyListeners();
+  }
+
   /// 消费一帧（`ChatController` 之外的第二条订阅；只读，无副作用外溢）。
   bool consume(WsEvent event) {
+    // **任何一帧都是「链路还活着」的证据**（服务端每 10 s 一条 `heartbeat`
+    // 是周期性那一种）。2026-10-01 之前这里对 `HeartbeatEvent` 直接 `return
+    // false`——心跳被解析、被下发、然后被丢掉，于是状态层没有任何时间判据。
+    // 记在解析分支**之前**：判据要的是「字节到得了」，与帧认不认识无关。
+    _lastHeartbeatAt = _now();
     switch (event) {
       case RuntimeStatusEvent(:final event):
         switch (event) {
@@ -184,6 +248,9 @@ class UiStateTracker extends ChangeNotifier {
         return false;
       case SubscribeAckEvent():
       case HeartbeatEvent():
+      // ↑ `heartbeat` **不是**「什么也不做」了：它已经在方法开头的
+      //   `_lastHeartbeatAt = _now()` 里被消费（它不改**这一帧的**相位，
+      //   但改「通道还活着吗」这条判据 → [channelLiveness]）。
       case AudioEvent():
       // 导演 cue 只驱动舞台动作，不改相位。
       case ActionCueEvent():
