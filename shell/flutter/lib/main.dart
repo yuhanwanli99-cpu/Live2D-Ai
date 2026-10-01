@@ -567,6 +567,17 @@ class _ShellRootState extends State<ShellRoot> {
   /// 渲染面阶段（`StageHost` 的覆盖层与舞台语义要用）。
   Live2DBridgePhase _stagePhase = Live2DBridgePhase.loading;
 
+  /// 渲染面**加载进度**（0..1，`null` = 还不知道）。
+  ///
+  /// 为什么要有这个字段（2026-10-01，F-0001-4 / W1-e2）：进度画在 `StageHost`
+  /// 的加载幕布里，而它吃的是一份**快照**。从前这里直接现读
+  /// `_stageKey.currentState?.bridge?.progress`——那只有外壳自己重建时才刷新，
+  /// 而桥的 progress 通知**不会**让外壳重建 ⇒ 幕布上的百分比会冻在加载开始时
+  /// 那一帧。现在由 `Live2DStage.onProgress` 回流：只在值真的变了时 `setState`
+  /// 这一个字段（加载期的进度帧可能很密，同值不重建）。
+  /// 与 [_stagePhase] 那条 `onPhaseChanged` 是同一接法。
+  double? _stageProgress;
+
   /// 开发者模式（来自 `GET /api/v1/app/status`，与 `--dev-mode` 启动参数一致）。
   ///
   /// 取不到就是 `false`：dev 分区多显示一项的风险，远小于「开发模式下少东西」。
@@ -1225,6 +1236,14 @@ class _ShellRootState extends State<ShellRoot> {
                 setState(() => _stagePhase = phase);
               }
             },
+            // 加载进度 → 宿主持有一个 double? 快照（最小重建面：整棵壳不因为
+            // 加载期的进度帧反复重建，只有这个字段变的那一次 setState）。
+            // `onProgress` 自己已经做过「同值不回调」，这里不再防抖。
+            onProgress: (double? v) {
+              if (mounted && v != _stageProgress) {
+                setState(() => _stageProgress = v);
+              }
+            },
             // 渲染面回执 → 缩放百分比。**首屏也要有值**：过去只在上一次
             // 放大/缩小时才读，于是初始状态一直显示「—」。
             // 渲染面事件级 ack（协议 §7）→ **喂导演的日志文本**（§7.3）。
@@ -1330,7 +1349,7 @@ class _ShellRootState extends State<ShellRoot> {
           // ── P6：无障碍 ──
           modelName: _modelName,
           stagePhase: _stagePhase,
-          stageProgress: _stageKey.currentState?.bridge?.progress,
+          stageProgress: _stageProgress,
           stageError: _stageKey.currentState?.errorMessage,
           onRetryStage: () => _stageKey.currentState?.retry(),
           announcement: _live.hasAnnouncement ? _live.announcement : null,
