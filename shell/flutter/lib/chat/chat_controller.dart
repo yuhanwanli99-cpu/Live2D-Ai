@@ -103,6 +103,14 @@ class ChatController extends ChangeNotifier {
 
   /// 发送用户文本；成功则建流式 assistant 气泡，失败写入可见错误。
   Future<void> send(String raw) async {
+    // **清零必须在两个早退之前**（复核 F-V1-2，2026-10-01）：组合根
+    //（`shell_chat._send`）在 `await send()` 之后**无条件**读
+    // [sendFailedLocally]，所以早退路径（空文本 / 已有一轮在飞）读到的必须是
+    // **这一次调用**的结局（= 没发起 = 非失败），而不是上一轮留下的 `true`。
+    // 否则可达：第 N 轮本地失败置 true → 外部/注入轮次开始（`_streaming = true`，
+    // 不清该标志）→ 用户再发送 ⇒ 早退 ⇒ shell 读到**陈旧 true** ⇒
+    // `markTurnFailed()` 误清那个正在飞的外部轮次相位。
+    _sendFailedLocally = false;
     final text = raw.trim();
     if (text.isEmpty || _streaming) return;
     audio.unlock();
@@ -114,9 +122,6 @@ class ChatController extends ChangeNotifier {
     _streaming = true;
     _error = null;
     _errorCode = null;
-    // 每一轮**重新**计数：上一轮本地失败的标志不能漏进这一轮（组合根在
-    // `await send()` 之后读它决定要不要回落相位）。见 [_sendFailedLocally]。
-    _sendFailedLocally = false;
     // **先建气泡、再发请求**（2026-09-23，用户报「LLM 故障时对话无反应」）：
     // 服务端可能在 HTTP 应答**之前**就跑完本轮并广播 `error` / `turn_state`
     //（快失败：401、连接被拒、上游秒回 5xx）。旧顺序把气泡建在 await 之后——

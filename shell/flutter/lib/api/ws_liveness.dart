@@ -126,5 +126,28 @@ HeartbeatLiveness heartbeatLiveness({
 ///
 /// 与 [isLiveSocket] 的关系：那个判 socket 对象的状态机，这个判「话还到不到」。
 /// 两者都成立才算可用——半开连接是前者成立、后者不成立的那种坏法。
-bool isChannelTrustworthy({required int readyState, required HeartbeatLiveness liveness}) =>
-    isLiveSocket(readyState) && liveness != HeartbeatLiveness.offline;
+///
+/// # 「还到不到」只对已经连上的 socket 才问（复核 F-V1-1，2026-10-01）
+///
+/// `CONNECTING` 的静默**不是**「哑了」而是「还没开口」：它本来就在建连，
+/// 而「最后听到动静」的时刻属于**上一条**连接。把时间判据扩到它身上，
+/// `ensureConnected()`（用户每次发送前都会调）就会把一条**正在进行**的建连
+/// 摘掉，并把指数退避 `_attempt` 重置回起点——后端持续不可达时表现为
+/// 「每次发送都打断一次建连、退避永远涨不上去」。
+/// 所以：
+///
+/// | readyState | 判据 |
+/// | --- | --- |
+/// | `CONNECTING` | **一律留着**（与 [isLiveSocket] 同取向；HEAD 旧判据也是这么早退的） |
+/// | `OPEN` | 留着，除非静默到 [HeartbeatLiveness.offline]（≈90 s，半开正是这种坏法） |
+/// | `CLOSING` / `CLOSED` | 僵尸，摘掉重开 |
+///
+/// 看门狗（`ws_client.dart`）读同一条边界：它同样**只对 `OPEN`** 判半开。
+bool isChannelTrustworthy({
+  required int readyState,
+  required HeartbeatLiveness liveness,
+}) {
+  if (!isLiveSocket(readyState)) return false; // CLOSING/CLOSED：僵尸
+  if (readyState != kSocketOpen) return true; // CONNECTING：留着，别打断建连
+  return liveness != HeartbeatLiveness.offline;
+}

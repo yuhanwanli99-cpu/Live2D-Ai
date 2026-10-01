@@ -196,9 +196,13 @@ class WsClient {
     final web.WebSocket? socket = _socket;
     // 没有 socket：退避重连正在管，不插手。
     if (socket == null) return;
-    // 状态机**已经**是僵尸（CLOSING/CLOSED）：`onclose` 或退避计时器会管，
-    // 这里再动一次只会把同一条连接处置两遍。
-    if (!isLiveSocket(socket.readyState)) return;
+    // **只对已经连上的 socket 判半开**（复核 F-V1-1，2026-10-01）：
+    // - `CONNECTING`：静默是「还没开口」而不是「哑了」——`_lastHeartbeatAt`
+    //   属于**上一条**连接。判死它会打断一次正在进行的建连（`ensureConnected`
+    //   摘掉旧 socket 后会立刻 `_open()` 一条新的，而看门狗是**不随摘除取消**的，
+    //   所以这条路径真实可达）。
+    // - CLOSING/CLOSED：`onclose` 或退避计时器会管，这里再动一次只会处置两遍。
+    if (socket.readyState != kSocketOpen) return;
     final HeartbeatLiveness liveness = heartbeatLiveness(
       lastHeartbeatAt: _lastHeartbeatAt,
       now: DateTime.now(),

@@ -170,5 +170,78 @@ void main() {
         isTrue,
       );
     });
+
+    // ── 复核 F-V1-1 的回归（2026-10-01，W1-a2）──────────────────────────
+    //
+    // 上一版判据是 `isLiveSocket(readyState) && liveness != offline`：它对
+    // **CONNECTING + offline** 返回 false，于是 `ensureConnected()`（用户每次
+    // 发送前都调）会把一条**正在建连**的 socket 摘掉并把 `_attempt` 归零
+    //（重置指数退避）。而 HEAD 的旧判据 `isLiveSocket(...)` 对 CONNECTING
+    // **一律早退**——这是 W1-a 新引入的行为改变。
+    // 静默判据只能问「已经连上的那条还响不响」，不能问「还在建连的这条」。
+
+    test('**CONNECTING + offline 那一格**：仍然可信（F-V1-1 的回归）', () {
+      expect(
+        isChannelTrustworthy(
+          readyState: kSocketConnecting,
+          liveness: HeartbeatLiveness.offline,
+        ),
+        isTrue,
+        reason: 'CONNECTING 的静默是「还没开口」而不是「哑了」；'
+            '判死它会打断建连并把退避重置回起点',
+      );
+    });
+
+    test('CONNECTING：**三种 liveness 一律可信**（时间判据不许扩到建连中的 socket）', () {
+      for (final HeartbeatLiveness liveness in HeartbeatLiveness.values) {
+        expect(
+          isChannelTrustworthy(
+            readyState: kSocketConnecting,
+            liveness: liveness,
+          ),
+          isTrue,
+          reason: 'readyState=CONNECTING liveness=$liveness',
+        );
+      }
+    });
+
+    test('全矩阵：只有 **OPEN + offline** 这一格判死（4 个 readyState × 3 态）', () {
+      // 期望表逐格写死——这张表就是「哪一格能判死」的契约；任何一格漂移都会红。
+      // 显式写 (readyState, liveness) 而不是靠 `values` 的下标顺序：判据矩阵
+      // 是契约，不该依赖枚举的声明次序。
+      const Map<int, Map<HeartbeatLiveness, bool>> expected =
+          <int, Map<HeartbeatLiveness, bool>>{
+            kSocketConnecting: <HeartbeatLiveness, bool>{
+              HeartbeatLiveness.online: true,
+              HeartbeatLiveness.suspect: true,
+              HeartbeatLiveness.offline: true, // ← F-V1-1 那一格
+            },
+            kSocketOpen: <HeartbeatLiveness, bool>{
+              HeartbeatLiveness.online: true,
+              HeartbeatLiveness.suspect: true,
+              HeartbeatLiveness.offline: false, // ← 只有这里能判死
+            },
+            kSocketClosing: <HeartbeatLiveness, bool>{
+              HeartbeatLiveness.online: false,
+              HeartbeatLiveness.suspect: false,
+              HeartbeatLiveness.offline: false,
+            },
+            kSocketClosed: <HeartbeatLiveness, bool>{
+              HeartbeatLiveness.online: false,
+              HeartbeatLiveness.suspect: false,
+              HeartbeatLiveness.offline: false,
+            },
+          };
+      for (final MapEntry<int, Map<HeartbeatLiveness, bool>> row
+          in expected.entries) {
+        for (final MapEntry<HeartbeatLiveness, bool> cell in row.value.entries) {
+          expect(
+            isChannelTrustworthy(readyState: row.key, liveness: cell.key),
+            cell.value,
+            reason: 'readyState=${row.key} liveness=${cell.key}',
+          );
+        }
+      }
+    });
   });
 }
