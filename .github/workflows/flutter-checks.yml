@@ -1,11 +1,21 @@
 # =============================================================================
-# Flutter Checks — 前端门禁（shell/flutter/**）
+# Flutter Checks — 前端门禁（shell/flutter/** + crates/*/src/**）
 #
 # 前端/接口层豁免 rust-ratio（见 AGENTS.md「前端层豁免的理由」），质量门槛由
 # Flutter 自己的工具链承担：flutter analyze（静态检查）+ flutter test（含帧解析、
 # 音频调度、气泡渲染等纯逻辑与 widget 回归）。
 #
-# 只在 shell/flutter/** 变更时触发：纯 Rust/文档 PR 不必等 Flutter 工具链。
+# 触发范围 = `shell/flutter/**` **或** `crates/*/src/**`：
+# 后者是 2026-10-01（W1-d，审计 F-0005-5）补上的一半缺口——
+# `test/font_runtime_subset_test.dart` 的字体**运行态**子集门禁会真扫
+# `../../crates/*/src` 的后端文案字面量（WS error 帧 / settings / web_api /
+# Mod `settings_spec`），只改后端文案的 PR 必须在 CI 里就被拦住，而不是等下一次
+# 前端改动才暴露。粒度收在 `src/`：Rust 侧的 `tests/**`、`examples/**`、
+# `README.md`、`Cargo.toml` 变更**不触发**本工作流（门禁本身也跳过 Rust 测试
+# 源码，口径一致）；`*` 通配所有 crate，这样新增 `live2d-ai-mod-*` crate 时
+# 该文件里「每个 Mod crate 都要在覆盖面内」的对账也真的会跑。
+#
+# 纯 Rust/文档 PR 仍然不必等 Flutter 工具链（这是本工作流与 pr-checks.yml 的分工）。
 # 与本地门禁逐条一致（AGENTS.md「本地必跑 vs CI 必跑」表）。
 # =============================================================================
 name: Flutter Checks
@@ -15,6 +25,7 @@ on:
     branches: [main]
     paths:
       - "shell/flutter/**"
+      - "crates/*/src/**"
       - ".github/workflows/flutter-checks.yml"
   workflow_dispatch:
 
