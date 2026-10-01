@@ -2330,15 +2330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "live2d-ai-mod-local-llm"
-version = "0.2.0-rc.7"
-dependencies = [
- "live2d-ai-mod-system",
- "log",
- "serde_json",
-]
-
-[[package]]
 name = "live2d-ai-mod-memory"
 version = "0.2.0-rc.7"
 dependencies = [
@@ -2355,15 +2346,6 @@ version = "0.2.0-rc.7"
 dependencies = [
  "base64",
  "live2d-ai-mod-memory",
- "live2d-ai-mod-system",
- "log",
- "serde_json",
-]
-
-[[package]]
-name = "live2d-ai-mod-pet-desktop"
-version = "0.2.0-rc.7"
-dependencies = [
  "live2d-ai-mod-system",
  "log",
  "serde_json",
@@ -2388,15 +2370,6 @@ dependencies = [
 
 [[package]]
 name = "live2d-ai-mod-voice-input"
-version = "0.2.0-rc.7"
-dependencies = [
- "live2d-ai-mod-system",
- "log",
- "serde_json",
-]
-
-[[package]]
-name = "live2d-ai-mod-wallpaper"
 version = "0.2.0-rc.7"
 dependencies = [
  "live2d-ai-mod-system",

@@ -161,11 +161,12 @@
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
   `cli_entry::default_mods_manifest`），其余四个缺省停用（`memory` 会写
   `persona.system_prompt`，必须由用户明确打开；`director` 是**决策 + 按句 cue**骨架，异步第二路 LLM 默认关）。
-  **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 暂留仓库，**禁止挂回**）。
-  **`wallpaper` / `pet-desktop` 已于产品级加强波次封存（ARCHIVED）**
-  （移出注册表；crate 暂留 workspace 可编译可测，**禁止挂回**；
-  见 `docs/architecture/ARCHIVED-mods.md`）。用户手动的舞台/壳背景能力
-  （`DisplayPrefs`）**保留**，与被封存的 wallpaper Mod 是两回事。
+  **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 已于
+  **2026-10-01 W2-A/D1 删除**，只存在于 tag `checkpoint/pre-d1-dormant`，**禁止挂回**）。
+  **`wallpaper` / `pet-desktop` 已于产品级加强波次封存（ARCHIVED），并于
+  2026-10-01 W2-A/D1 一并删除**（crate 已不在 workspace，只存在于同一 tag，**禁止挂回**；
+  见 `docs/architecture/ARCHIVED-mods.md`——内含 64 条退出测试全名与恢复步骤）。
+  用户手动的舞台/壳背景能力（`DisplayPrefs`）**保留**，与被删的 wallpaper Mod 是两回事。
   **Mod 契约 / 加新 Mod 勾选表 / 正式版 Rust-C 规则**见
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。

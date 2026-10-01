@@ -12,16 +12,12 @@ members = [
     "crates/l2d-wasm-demo",
     "crates/live2d-ai-mod-system",
     "crates/live2d-ai-mod-external-input",
-    "crates/live2d-ai-mod-pet-desktop",
-    "crates/live2d-ai-mod-local-llm",
     # rc.4 M5：角色卡标准 Mod（酒馆 V1/V2 JSON + PNG chara → 合成 system_prompt）。
     "crates/live2d-ai-mod-persona",
     # rc.4 M3：新 Mod 模板（不注册进 AVAILABLE_MOD_FACTORIES，只作为复制起点 + 活文档）。
     "crates/live2d-ai-mod-template",
     # Wave 1（2026-09-14）：语音输入 Mod 骨架（语音转写 → 清洗 → say_tx）。
     "crates/live2d-ai-mod-voice-input",
-    # Wave 1（2026-09-14）：壁纸策略 Mod（何时换 / 是否与舞台同步）。
-    "crates/live2d-ai-mod-wallpaper",
     # Wave 2 C 轨（2026-09-14）：本地记忆 v0（JSONL + 词元重叠检索 → 注入 persona.system_prompt）。
     "crates/live2d-ai-mod-memory",
     # Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 + state_json，

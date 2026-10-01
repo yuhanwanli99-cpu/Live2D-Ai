@@ -153,7 +153,7 @@ fi
 
 # ---------------------------------------------------------------- B. Mod 注册表
 echo ""
-echo "-- B. Mod 注册表（五个已注册；wallpaper / pet-desktop 已封存；缺省只启用 external-input）"
+echo "-- B. Mod 注册表（五个已注册；wallpaper / pet-desktop / local-llm 的 crate 已删除；缺省只启用 external-input）"
 mods_json=$(curl -s --max-time 5 "$BASE/api/v1/mods" 2>/dev/null || echo '{}')
 ids=$(printf '%s' "$mods_json" | python3 -c '
 import sys,json
