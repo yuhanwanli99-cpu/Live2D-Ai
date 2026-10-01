@@ -76,8 +76,12 @@ class LlmSection extends StatelessWidget {
   /// 连通性自检（`POST /api/v1/settings/test/llm`）。
   final Future<void> Function()? onTest;
 
-  /// 上次自检的结果行（`ok` / `latency_ms` / `error`）。
-  final String? testResult;
+  /// 上次自检的结果（**服务端 `ok` + 文案**，见 `FieldTestResult`）。
+  ///
+  /// 类型从 `String?` 换成结构体是 F-0012-1 的修法本体（2026-10-01）：成败不再
+  /// 由这一行文案推出来——本文件里**没有**任何 `contains('ok'|'ms'|'毫秒')`
+  /// 的余地可写。
+  final FieldTestResult? testResult;
   final bool testing;
 
   @override
@@ -176,11 +180,6 @@ class LlmSection extends StatelessWidget {
             busy: testing,
             onPressed: () => onTest!(),
             result: testResult,
-            resultIsError:
-                testResult != null &&
-                !testResult!.toLowerCase().contains('ok') &&
-                !testResult!.contains('毫秒') &&
-                !testResult!.contains('ms'),
           ),
         ],
       ],

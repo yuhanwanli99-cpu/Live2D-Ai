@@ -468,8 +468,11 @@ void main() {
             icon: Icons.wifi_tethering,
             actionLabel: '测试',
             onPressed: null,
-            result: '连不上 http://x',
-            resultIsError: true,
+            // 2026-10-01（W1-b / F-0012-1）：`result` 从 `String?` +
+            // 调用方自己算的 `resultIsError` 收成 `FieldTestResult`——
+            // 成败只认服务端的 `ok`，调用方**没有**猜的余地。本用例语义不变：
+            // 失败结果仍走错误槽。
+            result: FieldTestResult(ok: false, message: '连不上 http://x'),
           ),
         ),
       );

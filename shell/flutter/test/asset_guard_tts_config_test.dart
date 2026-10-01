@@ -59,7 +59,9 @@ Future<void> _pump(
   bool devMode = false,
   bool serverMuted = false,
   Future<void> Function()? onTest,
-  String? testResult,
+  // 2026-10-01（W1-b / F-0012-1）：`TtsSection.testResult` 收成
+  // `FieldTestResult`（服务端 `ok` + 文案），这里只是转发参数，语义不变。
+  FieldTestResult? testResult,
 }) async {
   await tester.pumpWidget(
     MaterialApp(

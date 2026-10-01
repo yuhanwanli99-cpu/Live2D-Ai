@@ -97,6 +97,7 @@ import 'voice/speech_recognizer.dart';
 import 'voice/voice_listen_controller.dart';
 import 'ui/confirm_discard_dialog.dart';
 import 'ui/error_actions.dart';
+import 'ui/field_row.dart';
 import 'ui/restart_notice.dart';
 import 'ui/shell_slideshow.dart';
 import 'ui/stage_corner_controls.dart';
@@ -401,8 +402,14 @@ class _ShellRootState extends State<ShellRoot> {
   /// 以及各 Mod 产品面板自己的动作（导入角色卡 / 导入或清空记忆 / 改语音闸）。
   /// 文案与处置入口的唯一来源是 `ui/restart_notice.dart`——不要在调用点各写一份。
   String? _modRestartNotice;
-  String? _llmTest;   bool _llmTesting = false;
-  String? _ttsTest;   bool _ttsTesting = false;
+  /// 连通性自检的结果：**服务端 `ok` + 文案**（`FieldTestResult`）。
+  ///
+  /// 2026-10-01（审计 F-0012-1）：这里过去只存一行 `String`，成败由
+  /// `llm_section` / `tts_section` 从那行文案里猜（`contains('ok'|'ms'|'毫秒')`）。
+  /// 现在 `o.ok` 与文案一起落进结构体——**成败只有一个真源**，而且成功那条
+  /// 终于有渲染槽（F-0003-2：过去成功时界面毫无反应）。
+  FieldTestResult? _llmTest;   bool _llmTesting = false;
+  FieldTestResult? _ttsTest;   bool _ttsTesting = false;
   /// 舞台背景图的提示（选图与其它通道的失败原因完全不同）。
   String? _stageImageMessage;
   bool _stageImageFailed = false;
@@ -1044,16 +1051,21 @@ class _ShellRootState extends State<ShellRoot> {
       if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _llmTesting = false;
-        _llmTest = o.ok
-            ? 'ok · ${o.latencyMs ?? '?'} ms'
-                  '${o.modelEcho == null || o.modelEcho!.isEmpty ? '' : ' · 模型：${o.modelEcho}'}'
-            : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
+        // 文案**逐字未变**；变的只是「成败」不再由这段文字推出来——它直接
+        // 来自服务端的 `o.ok`（`TestOutcome.ok`）。
+        _llmTest = FieldTestResult(
+          ok: o.ok,
+          message: o.ok
+              ? 'ok · ${o.latencyMs ?? '?'} ms'
+                    '${o.modelEcho == null || o.modelEcho!.isEmpty ? '' : ' · 模型：${o.modelEcho}'}'
+              : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}',
+        );
       });
     } on ApiException catch (e) {
       if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _llmTesting = false;
-        _llmTest = '失败：${e.message}';
+        _llmTest = FieldTestResult(ok: false, message: '失败：${e.message}');
       });
     }
   }
@@ -1066,18 +1078,21 @@ class _ShellRootState extends State<ShellRoot> {
       if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _ttsTesting = false;
-        _ttsTest = o.ok
-            // 成功时把服务端的 note 也带上（例如「上游可达但未提供 /models」）
-            // ——否则用户会以为「自检通过 = 合成没问题」，而下一次合成失败时
-            // 又回到「明明通过了却不行」的困惑。
-            ? 'ok · ${o.latencyMs ?? '?'} ms${o.note == null ? '' : ' · ${o.note}'}'
-            : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}';
+        _ttsTest = FieldTestResult(
+          ok: o.ok,
+          message: o.ok
+              // 成功时把服务端的 note 也带上（例如「上游可达但未提供 /models」）
+              // ——否则用户会以为「自检通过 = 合成没问题」，而下一次合成失败时
+              // 又回到「明明通过了却不行」的困惑。
+              ? 'ok · ${o.latencyMs ?? '?'} ms${o.note == null ? '' : ' · ${o.note}'}'
+              : '失败：${o.errorMessage ?? o.errorCode ?? '未知原因'}',
+        );
       });
     } on ApiException catch (e) {
       if (!mounted || epoch != _resultEpoch) return;
       setState(() {
         _ttsTesting = false;
-        _ttsTest = '失败：${e.message}';
+        _ttsTest = FieldTestResult(ok: false, message: '失败：${e.message}');
       });
     }
   }

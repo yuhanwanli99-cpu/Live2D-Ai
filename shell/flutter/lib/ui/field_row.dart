@@ -40,6 +40,45 @@ import 'theme.dart';
 /// 字段行的形态（**声明出来是为了可枚举与可测试**，而不是靠 widget 类型猜）。
 enum FieldRowKind { slider, toggle, text, number, choice, readonly }
 
+/// 结果槽的键：**成功 / 失败各一个**。
+///
+/// 测试据此断言「哪个槽被渲染」，而不是去扫展示文案——扫文案正是
+/// F-0012-1 犯过的错（见 [FieldTestResult]）。
+const Key kFieldSuccessNoticeKey = Key('field-success-notice');
+const Key kFieldErrorNoticeKey = Key('field-error-notice');
+
+/// 一次动作/自检的结果：**服务端给的成败 + 文案**，两者同源同走。
+///
+/// # 为什么必须是一个类型（审计 F-0012-1 / F-0003-2，2026-10-01）
+///
+/// 旧接口把它拆成 `String? result` 加一个由**调用方自己算**的
+/// `bool resultIsError`，而调用方手里只有那行展示文案，于是只好猜：
+///
+/// ```dart
+/// resultIsError: testResult != null &&
+///     !testResult!.toLowerCase().contains('ok') &&
+///     !testResult!.contains('毫秒') &&
+///     !testResult!.contains('ms'),
+/// ```
+///
+/// 这直接违反红线「前端不得从显示文案猜错误类型」，代价是双向的：
+/// - **上游错误文案里带 `ms`/`ok` 时失败被当成成功**（判据是散文的子串）；
+/// - **成功那条根本没有渲染槽**——外壳只在 `error` 非空时渲染，于是
+///   点「测试连接」成功时界面**毫无反应**（用户以为按钮坏了）。
+///
+/// 现在成败只有一个真源：服务端已序列化的 `TestOutcome.ok`
+/// （`SettingsTestOutcome.ok`，后端 `test_outcome_serializes_with_ok_tag`
+/// 已断言 `j["ok"] == true`）。文案只负责**显示**，不参与任何判定。
+class FieldTestResult {
+  const FieldTestResult({required this.message, required this.ok});
+
+  /// 给人看的一行（**原样上屏**，前端不改写、也不从中反推任何东西）。
+  final String message;
+
+  /// 服务端的成败判定（`TestOutcome.ok`）。
+  final bool ok;
+}
+
 /// 所有字段行共用的外壳：图标 + 标签 + 说明 + 控件 + 错误槽。
 class _FieldShell extends StatelessWidget {
   const _FieldShell({
@@ -48,6 +87,7 @@ class _FieldShell extends StatelessWidget {
     required this.child,
     this.description,
     this.error,
+    this.success,
   });
 
   final IconData icon;
@@ -56,11 +96,19 @@ class _FieldShell extends StatelessWidget {
   final String? description;
   final String? error;
 
+  /// 成功态结果行（F-0003-2）。与 [error] 互斥、**优先级低于它**。
+  ///
+  /// 过去这里**只有** `error`：成功时 `SoftSwap` 收到的是 `SizedBox.shrink()`，
+  /// 也就是「测试连接成功」在界面上没有任何痕迹——用户会以为按钮没反应。
+  final String? success;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
     final bool hasError = error != null && error!.isNotEmpty;
+    final bool hasSuccess =
+        !hasError && success != null && success!.isNotEmpty;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Space.s2),
@@ -115,7 +163,27 @@ class _FieldShell extends StatelessWidget {
                     // 用统一的 `InlineNotice`（紧凑档）而不是红色小字 +
                     // 一个 `⚠` 字符：字符冒充图标在不同平台字形/基线都不一样，
                     // 也躲过了「图标要能对齐」这件事（2026-09-11，P1-5）。
-                    child: InlineNotice(message: error!, dense: true),
+                    child: InlineNotice(
+                      key: kFieldErrorNoticeKey,
+                      message: error!,
+                      dense: true,
+                    ),
+                  )
+                : hasSuccess
+                ? Padding(
+                    padding: const EdgeInsets.only(
+                      left: Space.s6,
+                      top: OpticalNudge.thin,
+                    ),
+                    // **成功也复用同一个行内提示组件**（severity = info，它自己
+                    // 的文档就把「已保存」列为该档），不新造一套「成功样式」——
+                    // 同一条信息长出两套视觉正是规格 §6.3 禁止的。
+                    child: InlineNotice(
+                      key: kFieldSuccessNoticeKey,
+                      message: success!,
+                      severity: NoticeSeverity.info,
+                      dense: true,
+                    ),
                   )
                 : const SizedBox.shrink(),
           ),
@@ -225,7 +293,12 @@ class SliderField extends StatelessWidget {
                     child: Text(
                       minLabel ?? '',
                       style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(color: colors.contentFaint),
+                          // `contentMuted`（不是 `contentFaint`）：这两个刻度是
+                          // **承载信息的文字**（「拖到最左是什么」），而
+                          // `contentFaint` 的令牌自注写明「仅装饰/图标，不得承载
+                          // 文字信息」。W1-d 已把该令牌提到可读档，但语义迁移要
+                          // 各文件自己做（审计 F-0006-2，2026-10-01）。
+                          ?.copyWith(color: colors.contentMuted),
                     ),
                   ),
                   Expanded(
@@ -233,7 +306,8 @@ class SliderField extends StatelessWidget {
                       maxLabel ?? '',
                       textAlign: TextAlign.end,
                       style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(color: colors.contentFaint),
+                          // 同上：右端刻度同样是文字信息，不是装饰。
+                          ?.copyWith(color: colors.contentMuted),
                     ),
                   ),
                 ],
@@ -595,7 +669,6 @@ class FieldActionRow extends StatelessWidget {
     this.description,
     this.busy = false,
     this.result,
-    this.resultIsError = false,
     super.key,
   });
 
@@ -606,16 +679,23 @@ class FieldActionRow extends StatelessWidget {
   final String? description;
   final bool busy;
 
-  /// 内联结果行（连通性自检的 `ok`/`latency_ms`/`error`）。
-  final String? result;
-  final bool resultIsError;
+  /// 内联结果行（连通性自检的 `ok` / `latency_ms` / `error`）。
+  ///
+  /// **刻意不再收 `bool resultIsError`**：那个布尔过去由调用方从展示文案里
+  /// 推出来（`!contains('ok') && !contains('毫秒')…`），既有判断力缺陷
+  ///（上游错误带 "ms" 就判成成功），又因为成功时没有渲染槽而让成功**不可见**。
+  /// 见 [FieldTestResult]。
+  final FieldTestResult? result;
 
   @override
   Widget build(BuildContext context) => _FieldShell(
     icon: icon,
     label: label,
     description: description,
-    error: resultIsError ? result : null,
+    // 成败**只能**来自 `result.ok`（服务端 `TestOutcome.ok`）：这里没有
+    // 任何从 `result.message` 反推的余地。
+    error: result != null && !result!.ok ? result!.message : null,
+    success: result != null && result!.ok ? result!.message : null,
     child: Align(
       alignment: Alignment.centerLeft,
       child: OutlinedButton.icon(

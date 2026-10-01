@@ -53,7 +53,12 @@ class TtsSection extends StatelessWidget {
   /// 服务端静音观测值（WS `audio.muted`，**只读**）。
   final bool serverMuted;
   final Future<void> Function()? onTest;
-  final String? testResult;
+
+  /// 上次自检的结果（**服务端 `ok` + 文案**，见 `FieldTestResult`）。
+  ///
+  /// 与 `LlmSection` 同款（F-0012-1）：成败只认服务端的 `TestOutcome.ok`，
+  /// 不从文案猜。
+  final FieldTestResult? testResult;
   final bool testing;
 
   @override
@@ -172,11 +177,6 @@ class TtsSection extends StatelessWidget {
             busy: testing,
             onPressed: () => onTest!(),
             result: testResult,
-            resultIsError:
-                testResult != null &&
-                !testResult!.toLowerCase().contains('ok') &&
-                !testResult!.contains('毫秒') &&
-                !testResult!.contains('ms'),
           ),
         ],
       ],
