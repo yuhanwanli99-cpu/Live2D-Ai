@@ -228,11 +228,52 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
   String? _bucket;
   final TextEditingController _importController = TextEditingController();
 
+  /// **当前列表里的记录属于哪个会话桶**（F-0004-1）。
+  ///
+  /// 它不是「当前会话」的同义词：切会话时宿主立刻用新 `ctx` 重建本面板
+  /// （文案那行现读 `ctx.activeSessionId`，一帧就改口），而列表是异步来的。
+  /// 两者一旦分叉，行内编辑/删除就会拿着**桶 A 的 id** 去 `ctx` 说的**桶 B**
+  /// 里操作——改错桶的数据。所以：
+  ///   · 所有行为的 `session_id` 一律取这份**快照**（记录的家）；
+  ///   · 快照与 `ctx.activeSessionId` 不一致期间（切桶的取数窗口），
+  ///     列表先清空、按钮先失效（见 [_bucketStale]）——旧桶的行**点不到**。
+  late String? _recordsSessionId = widget.ctx.activeSessionId;
+
+  /// 列表取数的**代**：迟到的旧桶响应必须丢掉，否则它会把刚切过去的
+  /// 面板重新填回旧桶的内容。
+  int _listEpoch = 0;
+
+  /// 展示中的数据与「当前会话」是否已经分叉（切桶取数窗口 / 取数失败）。
+  bool get _bucketStale => _recordsSessionId != widget.ctx.activeSessionId;
+
   @override
   void initState() {
     super.initState();
     // 进入面板就拉一次列表；不在 initState 里 setState（首帧还没建）。
     unawaited(_refreshList(initial: true));
+  }
+
+  @override
+  void didUpdateWidget(_MemoryPanelBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // **会话桶换了 → 列表必须跟着换**（F-0004-1）。
+    //
+    // 从前这里没有 didUpdateWidget：State 被复用、`_records` 停在旧桶，
+    // 而 build 里的桶说明行现读 `ctx.activeSessionId` ⇒ 界面自相矛盾
+    // （文案说 B、列表是 A），接着「删除」就会拿 A 的行 id 去 B 里删。
+    //
+    // 现在：先把旧桶的内容清掉（避免分叉窗口里任何 id 还能被点到），
+    // 再为新桶取数。取数期间 `_recordsSessionId` 仍是旧桶 ⇒ [_bucketStale]
+    // 为真 ⇒ 按钮失效；新桶的响应落地后一切复原。
+    if (oldWidget.ctx.activeSessionId != widget.ctx.activeSessionId) {
+      _records = const <Map<String, Object?>>[];
+      _total = null;
+      _bucket = null;
+      _listError = null;
+      _listLoading = true;
+      _message = null;
+      unawaited(_refreshList());
+    }
   }
 
   @override
@@ -242,6 +283,9 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
   }
 
   Future<void> _refreshList({bool initial = false}) async {
+    final int epoch = ++_listEpoch;
+    // 这一次取数**为哪个桶**取。响应落地时也只有它才算数。
+    final String? requested = widget.ctx.activeSessionId;
     if (!initial && mounted) {
       setState(() {
         _listLoading = true;
@@ -252,11 +296,12 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       final ModCommandResult result = await widget.ctx.onCommand(
         'list',
         memoryCommandArgs(
-          sessionId: widget.ctx.activeSessionId,
+          sessionId: requested,
           extra: <String, Object?>{'limit': kMemoryListLimit},
         ),
       );
-      if (!mounted) return;
+      // 迟到的旧桶响应：丢掉（否则刚切过去的桶会被旧桶内容重新填满）。
+      if (!mounted || epoch != _listEpoch) return;
       setState(() {
         _listLoading = false;
         _listError = null;
@@ -264,15 +309,17 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         _total = result.result['total'];
         final Object? bucket = result.result['bucket'];
         _bucket = bucket is String ? bucket : null;
+        // 列表现已属于这个桶 —— 快照在这里才更新。
+        _recordsSessionId = requested;
       });
     } on ApiException catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _listEpoch) return;
       setState(() {
         _listLoading = false;
         _listError = memoryCommandErrorMessage(e, '读取记忆列表');
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _listEpoch) return;
       setState(() {
         _listLoading = false;
         _listError = '读取记忆列表失败：$e';
@@ -335,7 +382,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       '导入',
       'import',
       memoryCommandArgs(
-        sessionId: widget.ctx.activeSessionId,
+        sessionId: _recordsSessionId,
         extra: <String, Object?>{'text': text},
       ),
       (ModCommandResult _) => '已导入一条记忆（下一条命中它的用户话，本轮就会带上）',
@@ -386,7 +433,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       '更新',
       'update',
       memoryCommandArgs(
-        sessionId: widget.ctx.activeSessionId,
+        sessionId: _recordsSessionId,
         extra: <String, Object?>{'id': id, 'text': text},
       ),
       (ModCommandResult _) => '已更新这条记忆（id 不变）',
@@ -417,7 +464,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
       '删除',
       'delete',
       memoryCommandArgs(
-        sessionId: widget.ctx.activeSessionId,
+        sessionId: _recordsSessionId,
         extra: <String, Object?>{'id': id},
       ),
       (ModCommandResult _) => '已删除这条记忆',
@@ -428,7 +475,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     await _send(
       '清空',
       'clear',
-      memoryCommandArgs(sessionId: widget.ctx.activeSessionId),
+      memoryCommandArgs(sessionId: _recordsSessionId),
       (ModCommandResult result) {
         final bool residue = result.result['residue'] == true;
         return '已清空记忆库：清掉 ${memoryCountText(result.result['removed'])} 条，'
@@ -447,7 +494,9 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     final Map<String, Object?>? summary = memorySummaryState(ctx.state);
     if (summary == null) return const SizedBox.shrink();
     final int version = memorySummaryVersion(summary);
-    final bool canAct = ctx.enabled && !_busy;
+    // 切桶取数窗口里一律不准动（F-0004-1）：下面那几行可能还是旧桶的
+    // 记录 id，而 `ctx` 已经改成新会话了 —— 放行就是跨桶写。
+    final bool canAct = ctx.enabled && !_busy && !_bucketStale;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -495,7 +544,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     await _send(
       '回滚摘要',
       'summary_rollback',
-      memoryCommandArgs(sessionId: widget.ctx.activeSessionId),
+      memoryCommandArgs(sessionId: _recordsSessionId),
       (ModCommandResult result) {
         final Map<String, Object?>? info = memoryParseObject(
           result.result['rolled_back'],
@@ -516,7 +565,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
   ) {
     final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
-    final bool locked = !ctx.enabled || _busy;
+    final bool locked = !ctx.enabled || _busy || _bucketStale;
     return Padding(
       padding: const EdgeInsets.only(bottom: Space.s1),
       child: Row(
@@ -559,7 +608,9 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     final TextStyle? muted = theme.textTheme.bodySmall?.copyWith(
       color: colors.contentMuted,
     );
-    final bool canAct = ctx.enabled && !_busy;
+    // 切桶取数窗口里一律不准动（F-0004-1）：下面那几行可能还是旧桶的
+    // 记录 id，而 `ctx` 已经改成新会话了 —— 放行就是跨桶写。
+    final bool canAct = ctx.enabled && !_busy && !_bucketStale;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[

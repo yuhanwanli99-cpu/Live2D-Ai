@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show mapEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 
 import '../api/ws_frame.dart';
@@ -100,6 +100,7 @@ class Live2DStage extends StatefulWidget {
     this.onError,
     this.onReady,
     this.onPhaseChanged,
+    this.onProgress,
     this.onAck,
     this.onRenderEvent,
   });
@@ -148,6 +149,22 @@ class Live2DStage extends StatefulWidget {
   /// 父级不会跟着重建，于是 `StageHost` 的加载覆盖层会**永远停在 loading**。
   final void Function(Live2DBridgePhase phase)? onPhaseChanged;
 
+  /// 渲染面**加载进度**变化（0..1，`null` = 还不知道）。
+  ///
+  /// 为什么需要这条通路（2026-10-01，F-0001-4 / F-0010-2）：进度显示在
+  /// `StageHost` 的加载幕布里，而那份 `progress` 是**宿主 build 时的快照**
+  /// （`main.dart` 现读 `stageKey.currentState?.bridge?.progress`）。
+  /// 桥每发一帧 progress 都会 `notifyListeners()`，但宿主不是订阅者——
+  /// 它只在**自己**重建时才重新读一次。于是「模型加载中… 40%」会在整段
+  /// 加载过程里冻住不动（FPS 徽标也曾同理）。
+  ///
+  /// 有了这条回调，宿主用**最小重建面**接上即可：值真的变了才 `setState`
+  /// 一个 `double?` 字段（见 [onPhaseChanged] 的同款接法），整棵壳不参与。
+  ///
+  /// **只在值变化时触发**：加载期间进度帧可能很密，同值重复回调会把宿主
+  /// 拖进无谓重建。`null → 0.0` 算变化（进度刚开始也是新事实）。
+  final ValueChanged<double?>? onProgress;
+
   /// 错误回调（宿主可用于日志或全局提示）。
   final ValueChanged<String>? onError;
 
@@ -186,8 +203,14 @@ class Live2DStageState extends State<Live2DStage>
   /// 收条之前不得提示「已生效」（R2 的规矩）。
   StageAckEvent? _lastAck;
   Live2DBridgePhase? _lastReportedPhase;
+  double? _lastReportedProgress;
   int _generation = 0;
   bool _readyNotified = false;
+
+  /// 上一次 build 时读到的「就绪态」。**build 真的读了它**（角标显隐），
+  /// 所以它变了才 setState；progress / fps / ack 这些数值类派生值不再
+  /// 让整棵舞台重建（2026-10-01，F-0010-2）。
+  bool _lastBuiltReady = false;
 
   /// 「动作调试」的显示快照（阶段4d 起**只由渲染面 ack 驱动**）。
   ///
@@ -300,11 +323,28 @@ class Live2DStageState extends State<Live2DStage>
 
   void _onBridgeChanged() {
     if (!mounted) return;
+    // ── 重建面收窄（2026-10-01，F-0010-2）──
+    //
+    // 从前这个方法末尾无条件 `setState(() {})`：桥上**任何**一条通知
+    // （每秒一帧 fps、加载期每一帧 progress、每一条 ack）都把整棵舞台
+    // 重建一遍，连平台视图那一层一起。现在：
+    //   · 阶段 / 就绪态变了 → setState（build 读它们决定角标显隐）；
+    //   · progress    → 经 [Live2DStage.onProgress] 交给宿主（宿主只
+    //                   setState 一个 double? 字段）；
+    //   · fps         → 角标自己订阅 `bridge.fpsListenable`（见 `_FpsBadge`）。
+    bool needsBuild = false;
     // 阶段变化先报给宿主（覆盖层/语义都靠它）。
     final phase = _bridge?.phase;
     if (phase != null && phase != _lastReportedPhase) {
       _lastReportedPhase = phase;
       widget.onPhaseChanged?.call(phase);
+      needsBuild = true;
+    }
+    final progress = _bridge?.progress;
+    if (progress != _lastReportedProgress) {
+      _lastReportedProgress = progress;
+      // 同值不回调：加载期的进度帧可能很密，重复回调 = 宿主拆房重建。
+      widget.onProgress?.call(progress);
     }
     final error = _bridge?.errorMessage;
     if (error != null && _bridge?.phase == Live2DBridgePhase.error) {
@@ -324,8 +364,23 @@ class Live2DStageState extends State<Live2DStage>
     } else if (!ready) {
       _readyNotified = false;
     }
-    setState(() {});
+    if (ready != _lastBuiltReady) {
+      _lastBuiltReady = ready;
+      needsBuild = true;
+    }
+    if (needsBuild) setState(() {});
   }
+
+  /// **仅测试**：VM 下 `buildLive2DHost` 解析到 `live2d_host_stub.dart`，它的
+  /// 占位实现**从不回调** `onTransport`（见该文件与
+  /// `test/asset_guard_preset_dispatch_test.dart` 的取证）⇒ 挂上去的舞台
+  /// `_bridge` 恒为 null，「progress/fps 通知 → 重建 / 回调」这条链在
+  /// `flutter test` 里一行都驱动不了。
+  ///
+  /// 这条口子只做一件事：让 widget 测试能挂一个 fake transport。生产路径
+  /// （`buildLive2DHost(onTransport: _attach)`）一个字都不用改。
+  @visibleForTesting
+  void debugAttachTransport(Live2DTransport transport) => _attach(transport);
 
   void _attach(Live2DTransport transport) {
     if (!mounted) {
@@ -584,12 +639,13 @@ class Live2DStageState extends State<Live2DStage>
         // `retry()` —— 三条通路都在，一套 UI 就够。
         //
         // 回归：`test/stage_overlay_single_test.dart`。
-        if (bridge != null && bridge.isReady && bridge.fps != null)
-          Positioned(
-            right: 12,
-            top: 12,
-            child: _StageBadge(label: '${bridge.fps} FPS'),
-          ),
+        //
+        // FPS 角标**自己**订阅 `bridge.fpsListenable`（2026-10-01，F-0010-2）：
+        // 渲染面每秒一帧 fps，靠整棵舞台 `setState` 刷新等于每秒重建一次
+        // 平台视图那一层；订阅之后重建面只剩这个几十像素的药丸
+        // （值还没到 → 角标自己占零尺寸，不需要舞台重建）。
+        if (bridge != null && bridge.isReady)
+          Positioned(right: 12, top: 12, child: _FpsBadge(bridge: bridge)),
       ],
     );
   }
@@ -633,6 +689,25 @@ Color? parseStageColorCss(String? css) {
     (value >> 16) & 0xFF,
     (value >> 8) & 0xFF,
     value & 0xFF,
+  );
+}
+
+/// FPS 角标的**订阅实体**：只监听 `bridge.fpsListenable`。
+///
+/// 它存在的唯一理由就是「最小重建面」（F-0010-2）：渲染面每秒一帧 `fps`，
+/// 而舞台的 build 还背着平台视图那一层——把订阅收在这个小 widget 里，
+/// 每秒只有它重建。值还没到（`fps == null`）时占零尺寸，不改变观感。
+class _FpsBadge extends StatelessWidget {
+  const _FpsBadge({required this.bridge});
+
+  final Live2DBridge bridge;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int?>(
+    valueListenable: bridge.fpsListenable,
+    builder: (BuildContext context, int? fps, Widget? _) => fps == null
+        ? const SizedBox.shrink()
+        : _StageBadge(label: '$fps FPS'),
   );
 }
 

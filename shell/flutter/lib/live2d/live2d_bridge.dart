@@ -148,11 +148,25 @@ class Live2DBridge extends ChangeNotifier {
   bool _modelLoaded = false;
   bool _disposed = false;
 
+  /// FPS 的**可订阅**形态（2026-10-01，F-0010-2）。
+  ///
+  /// `notifyListeners()` 只告诉订阅者「桥上有事」，订阅方拿不到「是哪一件事」，
+  /// 于是要么每来一条通知就重建整棵舞台（含平台视图那一层），要么干脆不重建、
+  /// 让角标停在旧值。1 Hz 的 fps 正是前者的浪费、后者的现场。
+  ///
+  /// 这里把 fps 单列一条 `ValueListenable`：谁显示它谁订阅它，重建面只有
+  /// 那个角标（见 `live2d_stage.dart` 的 `_FpsBadge`）。
+  /// `notifyListeners()` 照旧发（既有订阅方与协议一个字都不变）。
+  final ValueNotifier<int?> _fpsNotifier = ValueNotifier<int?>(null);
+
   Live2DBridgePhase get phase => _phase;
   String? get errorMessage => _errorMessage;
   String? get model => _model;
   double? get progress => _progress;
   int? get fps => _fps;
+
+  /// FPS 的订阅口（渲染面每秒一帧 → 只重建订阅它的那个角标）。
+  ValueListenable<int?> get fpsListenable => _fpsNotifier;
   bool get isReady => _phase == Live2DBridgePhase.ready;
   bool get modelLoaded => _modelLoaded;
   int get queuedCount => _queue.length;
@@ -479,6 +493,8 @@ class Live2DBridge extends ChangeNotifier {
         final value = payload['fps'];
         if (value is num) {
           _fps = value.round();
+          // 订阅口先更新（角标只重建自己），再发通用通知（协议/既有订阅方不变）。
+          _fpsNotifier.value = _fps;
           notifyListeners();
         }
       case 'stage-ack':
@@ -531,6 +547,7 @@ class Live2DBridge extends ChangeNotifier {
     _disposed = true;
     _readyTimer?.cancel();
     _mouthTimer?.cancel();
+    _fpsNotifier.dispose();
     unawaited(_acks.close());
     unawaited(_modelLoads.close());
     unawaited(_renderEvents.close());
