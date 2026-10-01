@@ -132,29 +132,36 @@ class MessageBubble extends StatelessWidget {
             // `liveRegion`：**只在流式中的助手气泡**上开。读屏会优先播报
             // 这里的 `label`（已节流），历史消息保持普通节点。
             liveRegion: announcement != null && message.streaming,
-            // 2026-09-13：label 里补一句「含思考 N 字」。
+            // **`container` + `explicitChildNodes`，不再 `excludeSemantics`**
+            // （2026-09-28，F-0005-4）。
             //
-            // 两个理由，都很具体：
-            // 1. **可达性**：`excludeSemantics: true` 会把整条气泡折成一个节点，
-            //    而思考折叠区就在这条气泡里——不写进 label，读屏用户**完全不知道
-            //    有思考**（连「有个可展开的开关」都听不到）。
-            // 2. 把「思考是否真的到了渲染层」变成可观测事实：不写进 label，
-            //    只能靠截图肉眼看，任何基于 DOM 的自动检查都看不到它（本条
-            //    feature 自己的验证就踩过这个坑）。
+            // 从前这里写的是 `excludeSemantics: true`，语义上等于「整条气泡
+            // 折成一个节点」——于是**气泡内部的按钮全都不存在**：失败轮的
+            // 「重试」（用户唯一的恢复入口）与「复制」对读屏完全不可达。
+            // 与 `stage_host.dart` 已经修过的那个同类缺陷同型（在包住
+            // 覆盖层的 Stack 上写 excludeSemantics，把「重试」一起吃掉了）。
             //
-            // **不播报思考正文**：它通常比回复长 5–20 倍（实测 1200+ 字），
-            // 读屏会淹掉真正的回复。只报「有多少字」。
-            // 已知缺口：折叠开关本身对读屏不可达（`excludeSemantics` 会连它一起
-            // 折掉），要修得把思考区从这条气泡的语义子树里拆出来，留 rc.3。
+            // 现在的分工：
+            // ① **身份与整段正文**住在这个节点上（`label` 见下）——正文那段
+            //    `SelectableText` 由 `ExcludeSemantics` 包住，避免同一段字
+            //    被念两遍；
+            // ② **动作条 / 思考开关各自成节点**（`explicitChildNodes: true`
+            //    把子树从「合并进本节点」改成「各报各的」）——按钮重新可聚焦、
+            //    可激活；
+            // ③ 「含思考 N 字」仍写在 `label` 里：**不播报思考正文**（它通常
+            //    比回复长 5–20 倍，实测 1200+ 字，会淹掉真正的回复），但读屏
+            //    用户必须知道「这条有思考、有个可展开的开关」。
+            //
+            // 「未收尾」不再写进 label：那条说明行现在**自己是一个节点**
+            //（见下），把它原样念出来比 label 里那句「（未收尾）」更完整；
+            // 两处都留会让 `RegExp('未收尾')` 同时命中两个节点（重复播报）。
+            container: true,
+            explicitChildNodes: true,
             label: <String>[
               '${message.role.label}说：${announcement ?? message.text}',
               if (message.reasoning.trim().isNotEmpty)
                 '（含思考 ${message.reasoning.characters.length} 字）',
-              // rc.3 N0：把「这段正文没有语音收尾」也变成可被读屏与自动检查
-              // 看见的事实（与「含思考 N 字」同一条纪律）。
-              if (message.unfinished) '（未收尾）',
             ].join(),
-            excludeSemantics: true,
             child: LayoutBuilder(
               // **按父级的真实可用宽度**约束，而不是屏幕宽（2026-09-27）。
               //
@@ -217,9 +224,18 @@ class MessageBubble extends StatelessWidget {
                             // `SizedBox.shrink()` 与 `placeholderOnly` 收口）。
                             if (message.text.isNotEmpty || placeholderOnly)
                               Flexible(
-                                child: _MessageBody(
-                                  text: placeholderOnly ? '…' : message.text,
-                                  color: foreground,
+                                // 语义上是 `ExcludeSemantics`：这段正文本就已经
+                                // 整段写进了外层节点的 `label`（节流后的播报
+                                // 文本优先）。不排除的话，读屏会把同一段话
+                                // 念两遍（外层 label 一遍、`SelectableText`
+                                // 自己的节点一遍），而且流式期间会把**尚未
+                                // 节流的原文**也念出来——那正是 `announcement`
+                                // 机制要避免的事。
+                                child: ExcludeSemantics(
+                                  child: _MessageBody(
+                                    text: placeholderOnly ? '…' : message.text,
+                                    color: foreground,
+                                  ),
                                 ),
                               ),
                             // 流式光标：只在**正文已经来了**的时候显示，
@@ -333,6 +349,8 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
 
   bool get _expanded => _expandedOverride ?? widget.onlyReasoning;
 
+  void _toggle() => setState(() => _expandedOverride = !_expanded);
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -344,29 +362,42 @@ class _ReasoningSectionState extends State<_ReasoningSection> {
         children: <Widget>[
           // 标题行：整行可点（`InkWell` 之外用 `GestureDetector`——这里在
           // 气泡内部，父层已有自己的手势处理，水波纹反而会串味）。
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _expandedOverride = !_expanded),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(
-                  _expanded ? Icons.expand_less : Icons.expand_more,
-                  size: 16,
-                  color: widget.mutedColor,
-                ),
-                const SizedBox(width: Space.s1),
-                Text(
-                  widget.streaming
-                      ? '思考中…（$chars 字）'
-                      : _expanded
-                      ? '思考（$chars 字）'
-                      : '已思考 $chars 字（点开看）',
-                  style: theme.textTheme.bodySmall?.copyWith(
+          //
+          // **读出「这是个开关」**（2026-09-28，F-0005-4）：`GestureDetector`
+          // 对读屏只是一个没有动作的普通文本节点——「有思考」听得见，
+          // 「点得开」听不见也做不到。这里显式补上 `button` / `onTap` /
+          // 动作化的 label（展开或收起），并 `excludeSemantics` 掉行内那串
+          // 可见文字，免得同一件事被念两遍（外层节点还写着「含思考 N 字」）。
+          // 触屏与键盘走的仍是下面那个 `GestureDetector`，行为不变。
+          Semantics(
+            button: true,
+            label: _expanded ? '收起思考（$chars 字）' : '展开思考（$chars 字）',
+            onTap: _toggle,
+            excludeSemantics: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _toggle,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
                     color: widget.mutedColor,
                   ),
-                ),
-              ],
+                  const SizedBox(width: Space.s1),
+                  Text(
+                    widget.streaming
+                        ? '思考中…（$chars 字）'
+                        : _expanded
+                        ? '思考（$chars 字）'
+                        : '已思考 $chars 字（点开看）',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: widget.mutedColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (_expanded)

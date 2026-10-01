@@ -541,6 +541,9 @@ class ModsSection extends StatelessWidget {
               )
             else
               _ModConfigTile(
+                // **按 id 认身份**：列表顺序变了（他处启停 / 重载后服务端换了
+                // 顺序）时，Element 复用会把 A 的草稿画到 B 身上。
+                key: ValueKey<String>(m.id),
                 mod: m,
                 busy: busyId != null,
                 onToggle: onToggle,
@@ -565,6 +568,43 @@ class ModsSection extends StatelessWidget {
   }
 }
 
+/// 两个 config 的**内容**是否相同（键集 + 值递归比较）。
+///
+/// 用内容而不是 `identical` 是 F-0003-6 的核心：宿主保存后会 `_loadAdmin()`
+/// 重取列表，服务端每次回的都是**新的 Map 实例**、内容却可能一字不差——
+/// 按对象身份判断就等于「每次后台刷新都把用户正在填的草稿重灌一遍」。
+///
+/// 值可能嵌套（`settings_spec` 允许对象/数组形态的默认值），所以浅比较不够：
+/// 同一个嵌套对象重新解析出来也是新实例。
+bool _sameConfig(Map<String, Object?> a, Map<String, Object?> b) {
+  if (a.length != b.length) return false;
+  for (final MapEntry<String, Object?> e in a.entries) {
+    if (!b.containsKey(e.key)) return false;
+    if (!_sameValue(e.value, b[e.key])) return false;
+  }
+  return true;
+}
+
+bool _sameValue(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final Object? k in a.keys) {
+      if (!b.containsKey(k)) return false;
+      if (!_sameValue(a[k], b[k])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (!_sameValue(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
+}
+
 /// 一个有 `settings_spec` 的 Mod：展开后按 spec 渲染配置表单。
 ///
 /// # 为什么表单状态住在这里而不是宿主
@@ -581,6 +621,7 @@ class _ModConfigTile extends StatefulWidget {
     required this.onLoadState,
     this.activeSessionId,
     this.onModChanged,
+    super.key,
   });
 
   final ModInfo mod;
@@ -599,6 +640,20 @@ class _ModConfigTile extends StatefulWidget {
 class _ModConfigTileState extends State<_ModConfigTile> {
   /// 每个字段的当前值：服务端 config 优先，缺该键回落 spec 默认值。
   late Map<String, Object?> _values = _initialValues();
+
+  /// **用户改过、但还没有成功保存**的字段键（F-0003-6）。
+  ///
+  /// 它是「草稿」与「服务端值」的分界线：外部 `config` 变化时这些键
+  /// 一律不动——用户正在输入的东西不能被一次后台重取抹掉。
+  final Set<String> _edited = <String>{};
+
+  /// 上一次对齐过的服务端 config 的**内容快照**（不是对象身份，见
+  /// [didUpdateWidget]）。宿主每保存一次都会重取列表，服务端回的是新
+  /// `Map` 实例；按身份比较 = 每次刷新都把草稿重灌。
+  Map<String, Object?> _baseline = const <String, Object?>{};
+
+  /// PageStorage 里的草稿只恢复一次（在 `didChangeDependencies`，首帧之前）。
+  bool _draftRestored = false;
 
   bool _saving = false;
   String? _message;
@@ -652,24 +707,160 @@ class _ModConfigTileState extends State<_ModConfigTile> {
     ],
   );
 
+  /// 服务端 config 里该字段的值（缺该键 → spec 默认值）。
+  Object? _remoteValue(ModSettingField f) => widget.mod.config.containsKey(f.key)
+      ? widget.mod.config[f.key]
+      : f.defaultValue;
+
   Map<String, Object?> _initialValues() {
     final Map<String, Object?> out = <String, Object?>{};
     for (final ModSettingField f in _spec.fields) {
-      out[f.key] = widget.mod.config.containsKey(f.key)
-          ? widget.mod.config[f.key]
-          : f.defaultValue;
+      out[f.key] = _remoteValue(f);
     }
     return out;
+  }
+
+  // ── 草稿的跨「离开分区」存活（F-0003-6 后半） ─────────────────────
+  //
+  // 分区切换会把整个 pane 子树卸掉（`shell_settings.dart` 的 `switch` 每次
+  // 建新的 pane 类型）⇒ 卡片 State 连同草稿、连同带错误码的保存结果一起
+  // 消失。而 `PageStorage` 是**路由级**的存储桶（每个 `ModalRoute` 自带一个，
+  // 见 `routes.dart`），子树死了它还在——正是「切走再切回来」要的东西。
+  //
+  // 为什么不用一个模块级全局缓存：那会把测试之间、甚至同一进程里多个
+  // 宿主之间的草稿串起来（现有测试里同一个 mod id 被反复泵），而路由桶
+  // 天然是「一条界面的生命周期」，天然隔离。
+  static String _draftId(String modId) => 'mod-config-draft/$modId';
+
+  /// host 保存失败时留在屏幕上的那些错误码文案，也要跟着草稿一起活下来
+  /// （用户拿码去日志里搜——码不能因为切了个分区就没了）。
+  void _persistDraft() {
+    final PageStorageBucket? bucket = PageStorage.maybeOf(context);
+    if (bucket == null) return;
+    // **密钥字段不进存储桶**：草稿只住这条路由的内存里，但「secret 值不写
+    // 任何持久化面」是本项目的一贯口径（`.env` 是唯一真源），不为一次分区
+    // 切换破例——密钥草稿在离开分区后按「未填」处理（仍可不修改地保存）。
+    final Set<String> secret = <String>{
+      for (final ModSettingField f in _spec.fields)
+        if (f.kind == ModFieldKind.string && f.secret) f.key,
+    };
+    bucket.writeState(
+      context,
+      <String, Object?>{
+        'values': <String, Object?>{
+          for (final MapEntry<String, Object?> e in _values.entries)
+            if (!secret.contains(e.key)) e.key: e.value,
+        },
+        'edited': _edited
+            .where((String k) => !secret.contains(k))
+            .toList(growable: false),
+        'message': _message,
+        'messageIsError': _messageIsError,
+      },
+      identifier: _draftId(widget.mod.id),
+    );
+  }
+
+  void _restoreDraft() {
+    final PageStorageBucket? bucket = PageStorage.maybeOf(context);
+    if (bucket == null) return;
+    final Object? raw = bucket.readState(
+      context,
+      identifier: _draftId(widget.mod.id),
+    );
+    if (raw is! Map) return;
+    final Object? rawValues = raw['values'];
+    final Object? rawEdited = raw['edited'];
+    if (rawValues is! Map || rawEdited is! List) return;
+
+    final Set<String> specKeys = <String>{
+      for (final ModSettingField f in _spec.fields) f.key,
+    };
+    // 从**当前** spec 出发：spec 变过之后，已经删掉的字段不许从旧草稿里
+    // 复活（`_buildConfig` 只发 spec 里的字段，留着只会让人误以为它还在）。
+    final Map<String, Object?> restored = _initialValues();
+    for (final ModSettingField f in _spec.fields) {
+      if (rawValues.containsKey(f.key)) restored[f.key] = rawValues[f.key];
+    }
+    _values = restored;
+    _edited
+      ..clear()
+      ..addAll(<String>[
+        for (final Object? k in rawEdited)
+          if (k is String && specKeys.contains(k)) k,
+      ]);
+    final Object? message = raw['message'];
+    if (message is String) {
+      _message = message;
+      _messageIsError = raw['messageIsError'] == true;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _baseline = Map<String, Object?>.of(widget.mod.config);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_draftRestored) return;
+    _draftRestored = true;
+    _restoreDraft();
   }
 
   @override
   void didUpdateWidget(_ModConfigTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 宿主保存后重取列表 → 服务端的 config 是新的，用它回填草稿。
-    // （保存成功那一刻，服务端归一化后的值才是真相。）
-    if (!identical(oldWidget.mod.config, widget.mod.config)) {
+    // 列表重排 / 换数据源时 Element 可能被复用给**另一个** Mod（草稿会跟着
+    // 串到别人身上）。`ModsSection` 现在按 id 挂了 ValueKey，正常不会走到
+    // 这里；留下这段是兜底：换 id = 整份重建，不迁移草稿。
+    if (oldWidget.mod.id != widget.mod.id) {
+      _edited.clear();
+      _message = null;
+      _messageIsError = false;
+      _baseline = Map<String, Object?>.of(widget.mod.config);
       _values = _initialValues();
+      _restoreDraft();
+      return;
     }
+    final Map<String, Object?> remote = widget.mod.config;
+    if (_sameConfig(_baseline, remote)) {
+      // **新对象、同内容** = 只是一次后台重取（宿主保存后 `_loadAdmin()`、
+      // 他处刷新）。一律不动草稿——旧的 `identical` 判断正是在这里把用户
+      // 正在输入的东西整份重灌回服务端值（F-0003-6 的主症状）。
+      _baseline = Map<String, Object?>.of(remote);
+      return;
+    }
+    _reconcile(remote);
+  }
+
+  /// 服务端 config **内容真的变了** 时的对齐（F-0003-6）。
+  ///
+  /// - 没有未提交草稿 → 服务端是唯一真相，整份重灌（与改动前一致）；
+  /// - 有未提交草稿 → **只采用用户没碰过的字段**，草稿字段原样保留。
+  ///   「保存失败后宿主又重取了一次列表」不该把用户刚填的内容吃掉。
+  void _reconcile(Map<String, Object?> remote) {
+    if (_edited.isEmpty) {
+      _values = _initialValues();
+    } else {
+      for (final ModSettingField f in _spec.fields) {
+        if (_edited.contains(f.key)) continue;
+        _values[f.key] = _remoteValue(f);
+      }
+    }
+    _baseline = Map<String, Object?>.of(remote);
+    _persistDraft();
+  }
+
+  /// 改一个字段 = 记一笔「未提交草稿」，并落进路由桶（切分区也还在）。
+  void _edit(String key, Object? value) {
+    setState(() {
+      _values[key] = value;
+      _edited.add(key);
+    });
+    _persistDraft();
   }
 
   bool _boolValue(ModSettingField f) =>
@@ -727,13 +918,31 @@ class _ModConfigTileState extends State<_ModConfigTile> {
       _message = null;
     });
     try {
+      final Map<String, Object?> before = _baseline;
       final ModConfigResult result = await save(widget.mod.id, _buildConfig());
       if (!mounted) return;
+      if (result.ok) {
+        // 保存成功 = 草稿已经落到服务端：清掉「未提交」标记，此后的外部
+        // config 变化按服务端真相回填。
+        //
+        // 但**不能无条件**用当前 remote 重灌：宿主可能根本没重取列表
+        // （保存回调只回了个 ok），那样会把用户刚刚保存的值从表单里抹掉
+        // ——「保存结果离开分区即丢」有一半是这么来的。判据是「保存期间
+        // 服务端 config 的内容真的变了」：变了（= 宿主 `_loadAdmin()` 拿回
+        // 归一化后的值）就采用它，没变就保留刚提交的那些值。
+        final bool remoteChanged = !_sameConfig(before, widget.mod.config);
+        _edited.clear();
+        if (remoteChanged) _values = _initialValues();
+        _baseline = Map<String, Object?>.of(widget.mod.config);
+      }
       setState(() {
         _saving = false;
         _messageIsError = !result.ok;
         _message = result.ok ? _okMessage(result) : '保存失败：服务端返回 ok=false';
       });
+      // 草稿与保存结果都进路由桶：切走分区再进来，值和文案都还在
+      // （F-0003-6 后半）。
+      _persistDraft();
       // 热更新（Wave 3）：配置改了 → 立刻重取运行态，让「字段跟着变」可见。
       if (result.ok) unawaited(_loadState());
     } on ApiException catch (e) {
@@ -744,6 +953,10 @@ class _ModConfigTileState extends State<_ModConfigTile> {
         // 带上错误码：用户要拿界面上的码去日志里搜（项目错误契约）。
         _message = '保存失败：$e';
       });
+      // 失败时**草稿不丢**（`_edited` 原样留着）：宿主紧接着重取列表也会
+      // 被 `_reconcile` 挡在草稿之外；带码的文案同样进桶，切走再回来还能
+      // 拿这个码去日志里搜。
+      _persistDraft();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -751,6 +964,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
         _messageIsError = true;
         _message = '保存失败：$e';
       });
+      _persistDraft();
     }
   }
 
@@ -997,7 +1211,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           label: f.label,
           icon: Icons.toggle_on,
           value: _boolValue(f),
-          onChanged: (bool v) => setState(() => _values[f.key] = v),
+          onChanged: (bool v) => _edit(f.key, v),
         );
       case ModFieldKind.string:
         return TextFieldRow(
@@ -1006,7 +1220,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           value: _stringValue(f),
           obscure: f.secret,
           description: f.secret ? '留空表示不修改（服务端不回传密钥）' : null,
-          onChanged: (String v) => setState(() => _values[f.key] = v),
+          onChanged: (String v) => _edit(f.key, v),
         );
       case ModFieldKind.number:
         return NumberField(
@@ -1016,7 +1230,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           // 尊重 spec 的 min/max：`NumberField` 对越界输入**不回调**。
           min: f.min?.toInt(),
           max: f.max?.toInt(),
-          onChanged: (int v) => setState(() => _values[f.key] = v),
+          onChanged: (int v) => _edit(f.key, v),
         );
       case ModFieldKind.select:
         return DropdownField<String>(
@@ -1027,7 +1241,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
             for (final ModSelectOption o in f.options)
               FieldOption<String>(value: o.value, label: o.label),
           ],
-          onChanged: (String v) => setState(() => _values[f.key] = v),
+          onChanged: (String v) => _edit(f.key, v),
         );
     }
   }
