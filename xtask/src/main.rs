@@ -1,9 +1,13 @@
-//! `xtask` — Live2D-Ai 工程工具（第一批）。
+//! `xtask` — Live2D-Ai 工程工具。
 //!
-//! 目前仅实现 [`Command::RustRatio`]：
-//! 统计仓库**第一方可执行源码**的 Rust 占比（RFC `docs/plans/RUST-REWRITE-RFC.md` D3）。
+//! 子命令：
+//! - [`Command::RustRatio`]：统计仓库**第一方可执行源码**的 Rust 占比
+//!   （RFC `docs/plans/RUST-REWRITE-RFC.md` D3）；
+//! - [`code_stats`]（`code-stats`）：D0 体量度量与硬门禁
+//!   （`docs/plans/PLAN-debloat-and-closeout-2026-10-01.md` §2 / §5）。
 //!
-//! 口径（清晰可审计的物理行数）：
+//! # rust-ratio 口径（清晰可审计的物理行数）
+//!
 //! - 统计扩展名：`rs / wgsl / py / ts / js / c / cc / cpp / h / hpp`；
 //! - **豁免扩展名**：`dart` —— 前端/接口层（`shell/flutter/`）由 Flutter 工具链
 //!   自行门禁（`flutter analyze` + `flutter test`），**不计入** Rust 占比分母；
@@ -18,12 +22,21 @@
 //! 低于门槛时退出码非 0（门槛默认 95，可用 `--threshold` 覆盖）。
 //!
 //! 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准。
+//!
+//! # 行数（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）
+//!
+//! 本文件 >500 行。理由：它是「占比口径 + 遍历 + 报告 + 该口径的回归」的**单一整体**
+//! ——口径（哪些扩展名计入/豁免、排除目录）与实现分离过一次就会重演「豁免 ≠ 不可见」
+//! 那类缺陷；`code-stats` 的实现已按职责拆到 `src/code_stats/` 六个文件（每个 ≤500 行），
+//! 本文件只留子命令分发与 `rust-ratio`。仍在 1000 行豁免上限内。
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
+
+mod code_stats;
 
 /// 参与占比统计的第一方源码扩展名（RFC D3 口径）。
 const COUNTED_EXTENSIONS: [&str; 10] =
@@ -59,9 +72,9 @@ const EXCLUDED_DIR_NAMES: [&str; 7] = [
 /// 未显式传参时的占比门槛（百分比）。
 const DEFAULT_THRESHOLD: f64 = 95.0;
 
-/// 退出码：通过 / 未达门槛 / 用法或运行错误。
-const EXIT_PASS: u8 = 0;
-const EXIT_BELOW_THRESHOLD: u8 = 1;
+/// 退出码：通过 / 未达门槛（含 `code-stats` 门禁超限）/ 用法或运行错误。
+pub(crate) const EXIT_PASS: u8 = 0;
+pub(crate) const EXIT_BELOW_THRESHOLD: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 
 fn main() -> ExitCode {
@@ -70,7 +83,11 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(err) => {
             eprintln!("xtask: 错误：{err}");
-            eprintln!("用法：cargo run -p xtask -- rust-ratio [--threshold <0..100 的数值>]");
+            eprintln!(
+                "用法：cargo run -p xtask -- <子命令> [参数]\n  \
+                 rust-ratio [--threshold <0..100 的数值>]\n  {}",
+                code_stats::USAGE
+            );
             ExitCode::from(EXIT_USAGE)
         }
     }
@@ -84,18 +101,22 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     let Some(first) = args.first() else {
         return Err("缺少子命令".to_string());
     };
-    if first == "help" || first == "--help" || first == "-h" {
-        print_help();
-        return Ok(ExitCode::from(EXIT_PASS));
+    match first.as_str() {
+        "help" | "--help" | "-h" => {
+            print_help();
+            Ok(ExitCode::from(EXIT_PASS))
+        }
+        "rust-ratio" => run_rust_ratio(&args[1..]),
+        "code-stats" => code_stats::run(&args[1..]),
+        other => Err(format!(
+            "未知子命令 `{other}`（可用子命令：rust-ratio、code-stats、help）"
+        )),
     }
-    if first != "rust-ratio" {
-        return Err(format!(
-            "未知子命令 `{first}`（可用子命令：rust-ratio、help）"
-        ));
-    }
+}
 
+fn run_rust_ratio(args: &[String]) -> Result<ExitCode, String> {
     let mut threshold: Option<f64> = None;
-    let mut rest = &args[1..];
+    let mut rest = args;
     while let Some(flag) = rest.first() {
         match flag.as_str() {
             "--threshold" => {
@@ -136,9 +157,11 @@ fn print_help() {
          \n\
          子命令：\n  \
          rust-ratio [--threshold <f64>]  第一方源码 Rust 占比统计（RFC D3，默认门槛 95）\n  \
+         code-stats [--check] [--only <lines|over-1000|deps>]... [--strict-plan] [--quiet] [--verbose]\n  \
+         \x20                               体量与硬门禁（PLAN-debloat §2/§5 D0；输出 markdown）\n  \
          help                            显示本帮助\n\
          \n\
-         退出码：0 达标；1 未达门槛；2 用法/运行错误。"
+         退出码：0 达标；1 未达门槛 / 门禁超限；2 用法/运行错误。"
     );
 }
 
@@ -154,7 +177,7 @@ fn parse_threshold(value: &str) -> Result<f64, String> {
 /// 自当前工作目录向上查找含 `[workspace]` 的 `Cargo.toml`；
 /// 找不到时回退到 xtask 自身所在 workspace 根（`CARGO_MANIFEST_DIR` 的父目录），
 /// 保证无论从哪里调用都能得到同一仓库根。
-fn locate_repo_root() -> Option<PathBuf> {
+pub(crate) fn locate_repo_root() -> Option<PathBuf> {
     let mut candidate = std::env::current_dir().ok()?;
     loop {
         if is_workspace_root(&candidate) {

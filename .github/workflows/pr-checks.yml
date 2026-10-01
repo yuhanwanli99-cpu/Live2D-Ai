@@ -3,6 +3,7 @@
 # 触发器: pull_request → main
 # Jobs:
 #   - rust-build-test : Rust workspace build/test(--all-targets)/doc/fmt/clippy + rust-ratio
+#                       + code-stats 三条体量/依赖硬门禁（PLAN-debloat §5 D0）
 #   - msrv-check      : Rust 1.92 (MSRV) 仅 cargo check
 #   - root-py-tests   : 仓库根 tests/ 的历史资产测试（shared/ 协议文件存在性/合法性）
 # 前端门禁在单独的 flutter-checks.yml（paths: shell/flutter/**）——纯 Rust/文档 PR
@@ -66,6 +67,19 @@ jobs:
       # 不低于 95%（xtask 会单独打印 Dart 行数，保证豁免可见而不是隐形）。
       - name: Rust ratio (>= 95%)
         run: cargo run -p xtask -- rust-ratio
+
+      # ── D0 体量与硬门禁（PLAN-debloat-and-closeout-2026-10-01.md §2 / §5 D0）──
+      # 三条 run 是**同一条命令的三个门禁分组**，阈值取**棘轮**＝立档现状
+      # （§2.4 的 58 / 4、§2.5 的 desktop 34、Dart >800 的 7）：只拦「新增超限」，
+      # 不因存量把 CI 判红。PLAN §5 的目标（>1000=0 / >500≤15 / Dart≤2 / desktop≤22）
+      # 用 `cargo run -p xtask -- code-stats --check --strict-plan` 复核——现在仍是红的，
+      # D2/D4 拆完后收紧 xtask/src/code_stats/gates.rs 里的棘轮常量。
+      - name: Code size gate (crates/*/src .rs > 500 / Dart lib > 800)
+        run: cargo run -p xtask -- code-stats --check --only lines
+      - name: Code size gate (crates/*/src .rs > 1000；PLAN 目标 0、棘轮 4)
+        run: cargo run -p xtask -- code-stats --check --only over-1000
+      - name: Cargo dependency budget (live2d-ai-desktop ≤ 34；PLAN 目标 22)
+        run: cargo run -p xtask -- code-stats --check --only deps
 
   # ────────────────────────────────────────────────────────────────────────────
   # Job A2: MSRV check（workspace 声明 rust-version=1.92——egui 0.35 下限；
