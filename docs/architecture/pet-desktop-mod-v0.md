@@ -5,7 +5,7 @@
 > 本 Mod **已移出 `AVAILABLE_MOD_FACTORIES`**（7 → 5），不再注册、不再编译进 binary。
 > 用户裁决：**pet-desktop 是最重的一块，封存、暂时不推；本波不做真窗 / 应用级桌宠**。
 > 它从未硬闭环（`window.opened` 恒 `false` 是既定裁决），窗口不做则状态面也没有产品出口。
-> crate 暂留 workspace 可编译可测，**禁止挂回**；原因与恢复条件见
+> crate 已于 **2026-10-01（W2-A / D1 第一段）物理删除**（只存在于 tag `checkpoint/pre-d1-dormant`），**禁止挂回**；原因与恢复条件见
 > [ARCHIVED-mods.md](ARCHIVED-mods.md)。**下面正文是封存前的历史记录。**
 >
 > 范围真源：[`PARALLEL-WAVE3-2026-09-14.md`](../plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md) §3 轨 D

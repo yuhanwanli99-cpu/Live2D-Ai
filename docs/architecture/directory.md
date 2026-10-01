@@ -57,8 +57,8 @@ Live2D-Ai/
 3 个 Mod 作为主仓库 workspace 成员（默认 enable 由 manifest 控制）：
 ```
 crates/live2d-ai-mod-external-input/  外部事件接入 Mod（`POST /api/v1/external/chat`）
-crates/live2d-ai-mod-pet-desktop/    ⛔ 已封存（ARCHIVED，2026-09-14）：桌宠窗口 Mod v1 骨架，不再注册进 binary，禁止挂回
-crates/live2d-ai-mod-local-llm/      本地推理探测 Mod（探测就绪后经 apply_settings 写回 base_url/model）
+crates/live2d-ai-mod-pet-desktop/    ⛔ 已删除（2026-10-01 W2-A/D1）：桌宠窗口 Mod v1 骨架，crate 已物理删除（tag checkpoint/pre-d1-dormant）
+crates/live2d-ai-mod-local-llm/      ⛔ 已删除（2026-10-01 W2-A/D1）：本地推理探测 Mod（0.2.0-rc.1 废除启动后删除，tag checkpoint/pre-d1-dormant）
 ```
 `crates/live2d-ai-mod-director/`（**动作编排** Mod）已于 `0.1.0-rc.2` **删除**——它是**当时（0.1.0-rc.2）**
 动作序列的唯一驱动方，**当时代码里动作不在产品路径上**；归档在分支 `archive/action-layer-p6`。
@@ -72,7 +72,7 @@ Wave 3（2026-09-14）新增了一个**同名但不同职责**的 `live2d-ai-mod
 `AGENTS.md` 的「动作与表演的现行状态（2026-09 实测）」；口径：**导演是一个 AI、属产品本体、
 不做架构搬迁**，输入 = **用户输入**（R1），谁的 `speak` 能力保留**未定、不裁决**。
 静态注册的工厂数由 `crates/live2d-ai-desktop/src/main.rs::mod_count_is_five` 守住
-（产品级加强波次起恰为 **5**；`wallpaper` / `pet-desktop` 已封存，见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
+（产品级加强波次起恰为 **5**；`wallpaper` / `pet-desktop` / `local-llm` 三个 crate 已于 2026-10-01 物理删除，见 [ARCHIVED-mods.md](ARCHIVED-mods.md)）。
 各 Mod crate 内含 `src/lib.rs`（ModFactory 实现）+ `README.md`（职责/依赖/配置）。
 
 ## 清理规则

@@ -199,8 +199,7 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
         }
         // P1 pending（需要 supervisor 信号源）：
         AppEvent::RootAudit(RootFact::TurnStages { .. })
-        | AppEvent::RootAudit(RootFact::Dropped)
-        | AppEvent::Tray(_) => {
+        | AppEvent::RootAudit(RootFact::Dropped) => {
             return None;
         }
     }

@@ -1,15 +1,19 @@
-//! 统一应用事件 [`AppEvent`]：winit 事件循环的**唯一**跨线程入口（D4 裁决）。
+//! 统一应用事件 [`AppEvent`]：Web 主路径的**唯一** UI 事件投影源。
 //!
-//! 三类生产者全部只经 [`winit::event_loop::EventLoopProxy`] 发送本枚举：
-//! - **supervisor 线程**（Tokio 后台线程）：下发对话侧状态、审计事实与错误；
-//! - **REPL stdin 线程**：转发显式退出请求；
-//! - **托盘线程**：沿用既有轻量 [`PetUserEvent`] 包装（不变）。
+//! 生产者只剩 **supervisor 线程**（Tokio 后台线程）：下发对话侧状态、审计事实与错误；
+//! 消费端是 WS 投影（[`crate::web_api::ws::events::app_event_to_ws_frame`]）与
+//! `live2d-ai.toml` 之外的表层镜像（`conversation` 事件 → Mod 投影）。
+//!
+//! 2026-10-01（W2-B / D1 第二段）：原生壳（winit 事件循环 + `EventLoopProxy`）、
+//! `--chat` 的 REPL stdin 线程、托盘线程随壳移出构建 ⇒ `AppEvent::Tray(PetUserEvent)`
+//! 变体与 `send_app_event()` helper 一并删除（该变体在 WS 投影里本来就不发帧，
+//! 零帧变化）。恢复条件见 `docs/architecture/ARCHIVED-native-shell.md`。
 //!
 //! 类型边界（D4/D14 裁决原文）：
 //! - **PCM 绝不进入 AppEvent**——音频块由 supervisor 直接写入声卡 facade；
 //! - **Say 文本绝不进入 AppEvent**——聊天输入走有界命令通道进 supervisor；
-//! - 每个 [`ConversationUiEvent`] 都携带产生它的业务 **epoch**；ShellApp 维护
-//!   镜像（只能被下发的最新值更新，绝不自增），与事件上的 epoch 不符即丢弃——
+//! - 每个 [`ConversationUiEvent`] 都携带产生它的业务 **epoch**；表层镜像
+//!   （只能被下发的最新值更新，绝不自增），与事件上的 epoch 不符即丢弃——
 //!   这是副作用执行端的**防御性闸门**（权威闸门仍在 core reducer，见 D9）。
 //!
 //! 2026-09-11 用户裁决：LLM 不暴露任何工具、只做对话——动作系统（含
@@ -18,13 +22,9 @@
 
 use live2d_ai_runtime::ErrorKind;
 
-use crate::user_event::PetUserEvent;
-
 /// 发往事件循环的统一用户事件。
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppEvent {
-    /// 托盘菜单命令（既有路径原样包装）。
-    Tray(PetUserEvent),
     /// 对话侧状态通知（口型门控与 epoch 镜像维护用）。
     Conversation(ConversationUiEvent),
     /// root 侧关键事实的审计投影（节点 B 复审要求：UI 事件之外，
@@ -244,14 +244,6 @@ pub enum ConversationUiEvent {
         /// 按句 cue（已校验 / 钳位）。
         cues: Vec<live2d_ai_runtime::performance::PerformanceCue>,
     },
-}
-
-/// 发布 helper：经代理发送 [`AppEvent`]（发送失败仅见于调试日志：
-/// 事件循环已退出属于正常关机竞态）。
-pub fn send_app_event(proxy: &winit::event_loop::EventLoopProxy<AppEvent>, event: AppEvent) {
-    if let Err(e) = proxy.send_event(event) {
-        tracing::debug!(error = %e, "AppEvent 投递失败（事件循环可能已退出）");
-    }
 }
 
 #[cfg(test)]

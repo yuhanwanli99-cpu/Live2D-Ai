@@ -362,29 +362,32 @@ D 送 TTS 文本左列 = 前端已收 `text_delta`（净化文本）+ 每句字�
 动作幅度倍率的**用户旋钮住 `live2d-ai.toml`**：全局 `[action]`（`head_scale`/`body_scale`/`expression_scale`）之外，可选 `[action.models.<model_id>]`，三键**各自可选、各自回落全局**，生效值 = 本模型覆盖 > 全局（逐键）；
 量程沿用 `[0.2, 2.2]`，写回走 `merge_into_toml` 的**就地改值**（保留注释）+ 热重载；`assets/actions/field_map.json` / `crates/l2d-wasm-demo/src/preset/scales.rs` 仍只管**每通道峰值与方向**，不承担用户旋钮。**渲染面零改动**（前端按 `active_model_id` 算好有效值后经既有 `ActionScalesSyncer` 下发）。
 
-### 原生第二壳的归属（休眠台账，2026-09-13 rc.3 定）
+### 原生第二壳的归属（休眠台账 → **已移出构建**，2026-10-01 W2-B/D1 定）
 
 **主路径是 `--web`**：Rust 服务 + Flutter Web `/app/`（`./scripts/ignite.sh` 点火）。
-桌面侧那份 **egui 原生壳**（`src/app/` + 窗口/托盘/桌宠模式）与 **`--chat` 终端壳**
-能编译、能跑，但**不在产品主路径上，也不承担验收**。
 
-rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由：本项目口径是
-「可读性优先」；gate 会把 Cargo feature 矩阵与 `cli` 的用法/测试断言一起搅动，
-而收益（编译时间/二进制体积）抵不上理解成本。等价措施是把界线**钉死**——
-本节 + `README.md` + `docs/architecture/core-chain-baseline.md` §3.6，
-**不允许第三种含糊表述**。
+rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-01 维护者改判**：
+去臃肿（D1）走「**物理移出**」——原生壳岛整体删除（crate 只存在于 tag
+`checkpoint/pre-d1-dormant`），理由：`code_stats` / `rust-ratio` 按**文件系统**统计，
+`[workspace] exclude` 不会让任何体量度量下降；feature-gate 又降不了
+`live2d-ai-desktop` 的依赖计数（`optional = true` 也计入 `[dependencies]`）。
 
-| 对象 | 状态 | 位置 | 谁能唤醒 |
+| 对象 | 状态（2026-10-01 起） | 移出前位置 | 谁能唤醒 |
 |---|---|---|---|
 | **Web 主链**（`--web` + Flutter `/app/`） | **主线** | `web_api/` + `shell/flutter/` | 不适用（它就是主线） |
-| egui 原生壳（窗口 / 设置面 / 托盘 / 桌宠穿透） | **休眠保留**：非主线、不验收 | `src/app/`、`src/tray.rs`、`src/backend.rs`、`src/platform.rs` | 单独立项 + 先论证「谁来维护第二个 UI 壳」 |
-| `--chat` 终端壳 | **休眠保留**：非主线、不验收 | `src/repl.rs` + `cli` 的 chat 分支 | 同上 |
-| `--window-smoke` / `--model-smoke` / `--benchmark` | **工具**（冒烟/基准），**不是产品入口** | `src/model_smoke.rs`、`src/benchmark.rs` | 无（工具用途不变；`--benchmark` 明令禁止成为生产默认） |
+| egui 原生壳（窗口 / 设置面 / 托盘 / 桌宠穿透） | **已删除**（物理移出构建） | `src/app/`、`src/tray/`、`src/backend/`、`src/adapter/`、`src/platform/window.rs`、`src/user_event.rs` | 单独立项 + 先论证「谁来维护第二个 UI 壳」+ 按 `ARCHIVED-native-shell.md` §6 恢复 |
+| `--chat` 终端壳 | **已删除** | `src/repl.rs` + `cli` 的 chat 分支 | 同上 |
+| `--window-smoke` / `--model-smoke` / `--benchmark` | **已删除**（工具随之移出） | `src/model_smoke/`、`src/benchmark/` | 同上；恢复后 `--benchmark` 仍**明令禁止**成为生产默认 |
 
-两条红线：
+**移出台账（逐条证据）**：`docs/architecture/ARCHIVED-native-shell.md`
+——31 文件 / 8,954 行、退出测试 **111** 条全名（100 条在被删文件里 + 11 条在保留文件里）、
+新增 3 条（净 −108）、五处主链触点（`app_event.rs` ×3 · `ws/events.rs` ×1 · `supervisor.rs` 测试样本 ×1）、
+连带对象处置与恢复步骤都在那份文件里。**对外 WS 帧字段名零改动**（`AppEvent::Tray` 本就不投影）。
+
+两条红线（**不变**）：
 1. **默认文档入口只推销 `--web` / `scripts/ignite.sh`**；
-2. **不得**再往 egui 设置面板加与 Flutter 重复的产品字段——那是「第二个产品」，
-   属于步骤 2，**停**，记到 `PLAN-rc3-structure-quality-2026-09-13.md` §10 backlog。
+2. **不得**再引入第二个 UI 壳/重复的设置面板——那是「第二个产品」，属独立立项；
+   本次恢复条件见 `ARCHIVED-native-shell.md` §6。
 
 ### 前端层（Flutter）
 

@@ -67,7 +67,7 @@
 | 项 | 值 |
 | --- | --- |
 | 还原点 tag | `checkpoint/pre-d1-dormant` = `d140604f66ba0f2c47e0d159058ad5deeb92fbc1` |
-| 删除方式 | `git rm -r crates/live2d-ai-mod-wallpaper`（8 文件 / 1,400 行） |
+| 删除方式 | `git rm -r crates/live2d-ai-mod-wallpaper`（3 文件 / 1,400 行） |
 | 主链触点 | **零**：`cargo metadata --no-deps` 反查「无任何 workspace 成员依赖它」；`live2d-ai-desktop` 的 `[dependencies]` 里只有注释提到它 |
 | 退出构建的测试 | **37 条**（全名见下） |
 | 性质 | 休眠资产测试**显式冻结**（红线 8 修订版 §4 的 1–6 条），不是覆盖损失 |

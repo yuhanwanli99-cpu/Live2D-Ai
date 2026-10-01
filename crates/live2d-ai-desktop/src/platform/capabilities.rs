@@ -6,8 +6,12 @@
 //! 关键类型四层语义（参见父模块文档）：
 //! 1. [`LinuxSessionHint`] —— 环境变量**线索**；
 //! 2. [`DeclaredCapabilities`] —— 由 hint 推导的**期望**表；
-//! 3. [`super::window::WindowBackendKind`] —— 由 RawWindowHandle 实测分类的后端；
-//! 4. [`RuntimeCapabilities`] —— 真实初始化结果簿记。
+//! 3. [`RuntimeCapabilities`] —— 真实初始化结果簿记。
+//!
+//! 2026-10-01（W2-B / D1 第二段）：原生壳（窗口/托盘/RawWindowHandle 实测）已移出构建，
+//! 本模块**不再有生产侧填充者**——`RuntimeCapabilities` 只剩 [`RuntimeCapabilities::not_probed`]
+//! 这一条构造路径（默认模式 Info 输出）；随壳删除的 `ObservedAlphaMode` /
+//! `choose_alpha_mode` / `WindowBackendKind` 一并移除。
 //!
 //! 头注豁免：本文件 ~535 行（≤1000 头注豁免阈），原因是 7 个能力相关数据
 //! 类型同源（hint/状态/枚举/表）、测试就近保留，强行再拆会引入跨文件
@@ -97,6 +101,11 @@ impl LinuxSessionHint {
 }
 
 /// 单项能力的三态记录：比 bool 更诚实——区分"没测过"和"测过不行"。
+// 2026-10-01（W2-B / D1 第二段）：`Available` / `Unavailable` 的构造方
+// （窗口/托盘/穿透实测）随原生壳移出 ⇒ 非测试构建下这两个变体无构造点。
+// 保留枚举与 `Display`（默认模式 Info 表仍打印三态词汇），恢复条件见
+// `docs/architecture/ARCHIVED-native-shell.md`。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CapabilityState {
     /// 尚未初始化/未探测：不能断言支持也不能断言不支持。
@@ -116,59 +125,6 @@ impl std::fmt::Display for CapabilityState {
             CapabilityState::Unknown => "unknown",
         })
     }
-}
-
-/// 实际探测到的 surface alpha 合成模式（自有枚举，隔离 wgpu 类型）。
-///
-/// 透明性结论只认 PreMultiplied / PostMultiplied / Inherit 这类尊重 alpha 的模式；
-/// 仅 Opaque 时透明 alpha 视为不可用。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ObservedAlphaMode {
-    /// 合成器尊重 alpha，期望应用输出预乘值。
-    PreMultiplied,
-    /// 合成器尊重 alpha，直通（非预乘）值即可。
-    PostMultiplied,
-    /// 平台默认合成行为（inherit/auto）：大概率可用但未经逐平台确认。
-    Inherit,
-    /// 合成器忽略 alpha：透明不可用。
-    Opaque,
-}
-
-impl std::fmt::Display for ObservedAlphaMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            ObservedAlphaMode::PreMultiplied => "premultiplied",
-            ObservedAlphaMode::PostMultiplied => "postmultiplied",
-            ObservedAlphaMode::Inherit => "inherit",
-            ObservedAlphaMode::Opaque => "opaque",
-        })
-    }
-}
-
-impl ObservedAlphaMode {
-    /// 该模式是否让合成器尊重帧缓冲 alpha（Inherit 按保守口径不算确认可用）。
-    pub const fn respects_alpha(self) -> bool {
-        matches!(self, Self::PreMultiplied | Self::PostMultiplied)
-    }
-}
-
-/// 从候选列表中选择优先级最高的 alpha 模式（纯函数）。
-///
-/// 偏好顺序（与未来 l2d 直通 alpha 渲染输出对齐）：
-/// [`PostMultiplied`](ObservedAlphaMode::PostMultiplied) >
-/// [`PreMultiplied`](ObservedAlphaMode::PreMultiplied) >
-/// [`Inherit`](ObservedAlphaMode::Inherit) >
-/// [`Opaque`](ObservedAlphaMode::Opaque)。
-///
-/// 返回 `None` 表示候选列表为空（surface 与 adapter 不兼容等异常场景）。
-pub fn choose_alpha_mode(supported: &[ObservedAlphaMode]) -> Option<ObservedAlphaMode> {
-    const PREFERENCE: [ObservedAlphaMode; 4] = [
-        ObservedAlphaMode::PostMultiplied,
-        ObservedAlphaMode::PreMultiplied,
-        ObservedAlphaMode::Inherit,
-        ObservedAlphaMode::Opaque,
-    ];
-    PREFERENCE.into_iter().find(|mode| supported.contains(mode))
 }
 
 /// 会话类型 → **声明性期望**能力表。
@@ -251,30 +207,25 @@ impl DeclaredCapabilities {
 
 /// **实际**运行时能力簿记：来自真实窗口/surface 初始化与桌宠 API 调用结果。
 ///
-/// 构造约束（需求 2 口径）：
+/// 构造约束（历史口径，W2-B 后只剩 `not_probed`）：
 /// - 只能在对应初始化/API **真实调用成功**后把相应字段置为
 ///   [`CapabilityState::Available`]；
-/// - `always_on_top` / `global_position` 仅在实测后端为 X11 时可 Available；
-///   Wayland 上 winit 对应实现为无操作/合成器管理 → 显式 `Unavailable`
-///   （判定依据是 RawWindowHandle 实测分类，不是环境 hint）；
-/// - `click_through` / `drag_move` 两种后端都支持：状态只由**该 API 的实际调用结果**
-///   决定（成功 → Available；未调用过保持 Unknown）；
-/// - `tray` 由 ksni spawn 的真实确认结果决定；
 /// - 绝不允许从 [`LinuxSessionHint`] 推导本结构的字段值。
+///
+/// 2026-10-01（W2-B）：填充者（winit 窗口 / wgpu surface / ksni 托盘 / 穿透与拖动）
+/// 随原生壳移出，本结构与 `as_table` 保留给默认模式 Info 输出；
+/// `alpha_mode` / `backend` 两个只由壳填写的字段随 `ObservedAlphaMode` /
+/// `WindowBackendKind` 一起删除。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RuntimeCapabilities {
-    /// winit 窗口对象是否创建成功。
+    /// 窗口对象是否创建成功。
     pub window_created: bool,
-    /// wgpu surface 是否创建并完成首次 configure。
+    /// 渲染 surface 是否创建并完成首次 configure。
     pub surface_initialized: bool,
-    /// 是否向 winit 请求了透明窗口（请求 ≠ 生效，生效看 alpha_mode/transparent_alpha）。
+    /// 是否向窗口系统请求了透明窗口（请求 ≠ 生效）。
     pub transparent_window_requested: bool,
-    /// 实际协商出的 alpha 合成模式（None = 未完成 surface 初始化）。
-    pub alpha_mode: Option<ObservedAlphaMode>,
     /// 透明 alpha 是否确认可用（Opaque → Unavailable；Premultiplied/Post → Available；其余 Unknown）。
     pub transparent_alpha: CapabilityState,
-    /// 实测窗口系统后端（RawWindowHandle 分类；None = 未探测/无法识别）。
-    pub backend: Option<super::window::WindowBackendKind>,
     /// 窗口置顶：仅 X11 且 `set_window_level` 实调后记录。
     pub always_on_top: CapabilityState,
     /// 置顶当前是否生效（运行态镜像，供报告与托盘簿记对账）。
@@ -306,19 +257,7 @@ impl RuntimeCapabilities {
                 "transparent_window_requested",
                 self.transparent_window_requested.to_string(),
             ),
-            (
-                "alpha_mode",
-                self.alpha_mode
-                    .as_ref()
-                    .map_or_else(|| "n/a".to_string(), ToString::to_string),
-            ),
             ("transparent_alpha", self.transparent_alpha.to_string()),
-            (
-                "backend",
-                self.backend
-                    .as_ref()
-                    .map_or_else(|| "n/a".to_string(), ToString::to_string),
-            ),
         ];
         for (name, state) in [
             ("always_on_top", self.always_on_top),
@@ -339,35 +278,11 @@ impl RuntimeCapabilities {
         ));
         table
     }
-
-    /// 一行摘要（供 smoke 结束后的 RunReport 使用）。
-    pub fn summarize(&self) -> String {
-        format!(
-            "window={} surface={} transparent_requested={} alpha_mode={} \
-             transparent_alpha={} backend={} aot={} ct={}",
-            self.window_created,
-            self.surface_initialized,
-            self.transparent_window_requested,
-            self.alpha_mode
-                .as_ref()
-                .map_or_else(|| "n/a".to_string(), ToString::to_string),
-            self.transparent_alpha,
-            self.backend
-                .as_ref()
-                .map_or_else(|| "n/a".to_string(), ToString::to_string),
-            self.always_on_top,
-            self.click_through
-        )
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CapabilityState, DeclaredCapabilities, LinuxSessionHint, ObservedAlphaMode,
-        RuntimeCapabilities, choose_alpha_mode,
-    };
-    use crate::platform::window::WindowBackendKind;
+    use super::{CapabilityState, DeclaredCapabilities, LinuxSessionHint, RuntimeCapabilities};
 
     #[test]
     fn detect_from_prefers_xdg_session_type() {
@@ -438,8 +353,6 @@ mod tests {
         assert!(!caps.window_created);
         assert!(!caps.surface_initialized);
         assert!(!caps.transparent_window_requested);
-        assert_eq!(caps.alpha_mode, None);
-        assert_eq!(caps.backend, None);
         assert!(!caps.always_on_top_active);
         assert!(!caps.click_through_active);
         // 能力字段：未探测即 Unknown，绝不因 X11 线索变 true/available。
@@ -456,14 +369,12 @@ mod tests {
     }
 
     #[test]
-    fn runtime_capabilities_table_and_summary_cover_all_fields() {
+    fn runtime_capabilities_table_covers_all_fields() {
         let caps = RuntimeCapabilities {
             window_created: true,
             surface_initialized: true,
             transparent_window_requested: true,
-            alpha_mode: Some(ObservedAlphaMode::PostMultiplied),
             transparent_alpha: CapabilityState::Available,
-            backend: Some(WindowBackendKind::X11),
             always_on_top: CapabilityState::Available,
             always_on_top_active: true,
             global_position: CapabilityState::Available,
@@ -473,9 +384,8 @@ mod tests {
             tray: CapabilityState::Unavailable,
         };
         let table = caps.as_table();
-        // 6 个事实字段 + 5 个能力字段 + 2 个运行态镜像。
-        assert_eq!(table.len(), 13);
-        assert!(table.iter().any(|(k, v)| *k == "backend" && v == "x11"));
+        // 4 个事实字段 + 5 个能力字段 + 2 个运行态镜像。
+        assert_eq!(table.len(), 11);
         assert!(
             table
                 .iter()
@@ -491,42 +401,6 @@ mod tests {
                 .iter()
                 .any(|(k, v)| *k == "click_through_active" && v == "false")
         );
-        let summary = caps.summarize();
-        assert!(summary.contains("postmultiplied"));
-        assert!(summary.contains("transparent_alpha=available"));
-        assert!(summary.contains("backend=x11"));
-        assert!(summary.contains("aot=available"));
-        assert!(summary.contains("ct=available"));
-    }
-
-    #[test]
-    fn choose_alpha_mode_prefers_post_multiplied_for_straight_alpha_output() {
-        let all = [
-            ObservedAlphaMode::Opaque,
-            ObservedAlphaMode::Inherit,
-            ObservedAlphaMode::PreMultiplied,
-            ObservedAlphaMode::PostMultiplied,
-        ];
-        assert_eq!(
-            choose_alpha_mode(&all),
-            Some(ObservedAlphaMode::PostMultiplied)
-        );
-        // 只有预乘时也接受（清屏全透明阶段两者等价）。
-        assert_eq!(
-            choose_alpha_mode(&[ObservedAlphaMode::Opaque, ObservedAlphaMode::PreMultiplied]),
-            Some(ObservedAlphaMode::PreMultiplied)
-        );
-        // 只有不透明 → Opaque 且不算透明可用。
-        assert_eq!(
-            choose_alpha_mode(&[ObservedAlphaMode::Opaque]),
-            Some(ObservedAlphaMode::Opaque)
-        );
-        assert!(!ObservedAlphaMode::Opaque.respects_alpha());
-        // 空列表 = surface/adapter 不兼容。
-        assert_eq!(choose_alpha_mode(&[]), None);
-        assert!(ObservedAlphaMode::PostMultiplied.respects_alpha());
-        assert!(ObservedAlphaMode::PreMultiplied.respects_alpha());
-        assert!(!ObservedAlphaMode::Inherit.respects_alpha());
     }
 
     #[test]
@@ -534,6 +408,5 @@ mod tests {
         assert_eq!(CapabilityState::Available.to_string(), "available");
         assert_eq!(CapabilityState::Unavailable.to_string(), "unavailable");
         assert_eq!(CapabilityState::Unknown.to_string(), "unknown");
-        assert_eq!(ObservedAlphaMode::Inherit.to_string(), "inherit");
     }
 }

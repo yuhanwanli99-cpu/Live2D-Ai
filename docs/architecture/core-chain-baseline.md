@@ -228,26 +228,24 @@ cd shell/flutter && flutter test test/font_subset_test.dart
 **换了字体没重新生成 → 红**）；② 扫 `lib/**/*.dart` 字符串字面量，出现子集外字符 → 红；
 ③ 自带小词法器（跳过注释）并有自测。已实测：把 `▍` 放回去即变红。
 
-### 3.6 原生第二壳（egui / `--chat`）：**非主线**（rc.3 裁决，2026-09-13）
+### 3.6 原生第二壳（egui / `--chat`）：**已移出构建**（2026-10-01 W2-B/D1）
 
-**唯一的产品链路是 `--web` + Flutter Web `/app/`**（§1）。桌面 crate 里还有
-一份 **egui 原生壳**（`src/app/`：窗口、设置面、托盘、桌宠穿透）与 **`--chat`
-终端壳**——它们能编译、能跑，但**不在产品链路上，也不承担验收**。
+**唯一的产品链路是 `--web` + Flutter Web `/app/`**（§1）。桌面 crate 里曾有一份
+**egui 原生壳**（`src/app/`：窗口、设置面、托盘、桌宠穿透）、**`--chat` 终端壳**、
+窗口/模型冒烟与 benchmark；rc.3（2026-09-13）裁「选项 B：不 feature-gate，休眠保留」，
+**2026-10-01 改判为物理移出**（理由：`code_stats`/`rust-ratio` 按文件系统统计，
+`exclude` 不降度量；feature-gate 也不降 `[dependencies]` 计数）。
 
-rc.3 的裁决是**选项 B：不 feature-gate，把界线钉死**（计划 §5）。理由：本项目的口径是
-「可读性优先、宁删勿加」；feature-gate 会把 Cargo feature 矩阵与 `cli` 的用法/
-测试断言一起搅动，而收益（编译时间、二进制体积）抵不上理解成本。
-
-| 对象 | 状态 | 位置 |
+| 对象 | 状态（2026-10-01 起） | 移出前位置 |
 |---|---|---|
 | **Web 主链** | **主线** | `web_api/` + `shell/flutter/` |
-| egui 原生壳 | **休眠保留**（非主线、不验收） | `src/app/`、`src/tray.rs`、`src/backend.rs`、`src/platform.rs` |
-| `--chat` 终端壳 | **休眠保留**（非主线、不验收） | `src/repl.rs` + `cli` 的 chat 分支 |
-| `--window-smoke` / `--model-smoke` / `--benchmark` | **工具**，不是产品入口 | `src/model_smoke.rs`、`src/benchmark.rs` |
+| egui 原生壳（含 `backend/` `adapter/` `tray/` `platform/window.rs` `user_event.rs`） | **已删除** | `src/app/` 等（见台账 §1 的 31 文件清单） |
+| `--chat` 终端壳 | **已删除** | `src/repl.rs` + `cli` 的 chat 分支 |
+| `--window-smoke` / `--model-smoke` / `--benchmark` | **已删除** | `src/model_smoke/`、`src/benchmark/` |
 
-「谁休眠、为什么、谁能唤醒」的完整台账在 `AGENTS.md`「原生第二壳的归属」一节；
-**不允许第三种含糊表述**。默认文档入口只推销 `--web` / `scripts/ignite.sh`
-（`README.md` 已经如此）。
+逐条证据（31 文件 / 8,954 行、退出测试 111 条全名、五处主链触点、恢复步骤）：
+`docs/architecture/ARCHIVED-native-shell.md`；休眠台账在 `AGENTS.md`「原生第二壳的归属」。
+**对外 WS 帧字段名零改动**。默认文档入口只推销 `--web` / `scripts/ignite.sh`。
 
 ## 4. 音频路径改造（已完成）
 

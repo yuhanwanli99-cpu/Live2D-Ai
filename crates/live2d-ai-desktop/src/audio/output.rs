@@ -171,6 +171,10 @@ impl AudioOutputFacade {
     }
 
     /// 只读窗口侧快照（D5）。
+    // 2026-10-01（W2-B / D1 第二段）：原唯一消费方是 egui 壳的 ShellApp
+    // （口型电平驱动），随壳移出 ⇒ 保留 API（回归测试与后续 Web 口型出口可用），
+    // 恢复条件见 `docs/architecture/ARCHIVED-native-shell.md`。
+    #[allow(dead_code)]
     pub fn mouth_snapshot(&self) -> MouthSnapshot {
         self.handle.mouth_snapshot()
     }

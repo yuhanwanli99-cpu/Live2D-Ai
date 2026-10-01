@@ -80,18 +80,17 @@ The main entry (what `scripts/ignite.sh` serves, and what acceptance targets):
 --web [--http-port P]   # Web UI — the main entry
 ```
 
-Second shells and tools — they compile and run, but they are **not** on the product
-path and are **not** acceptance targets. Who sleeps, why, and who may wake it:
-see the dormancy ledger in [AGENTS.md](./AGENTS.md).
+The native second shell is **gone** (removed from the build on 2026-10-01, D1/W2-B):
+`--chat` / `--window-smoke` / `--model-smoke` / `--pet-mode` / `--benchmark*` no longer
+exist. What remains besides `--web` is the audio smoke:
 
 ```bash
---chat                  # Terminal dialogue shell (second shell, dormant)
---window-smoke          # Transparent-window smoke (native shell)
---model-smoke [P]       # Render smoke (native shell)
---pet-mode              # Desktop-pet window (native shell, dormant)
---audio-smoke           # Audio smoke (tool)
---benchmark [P]         # Render benchmark (tool; never a production default)
+--audio-smoke [--audio-smoke-secs S] [--audio-smoke-silence]   # Audio smoke (tool)
 ```
+
+Recovery (files + the 111 exiting tests, by name) and the full ledger live in
+[docs/architecture/ARCHIVED-native-shell.md](./docs/architecture/ARCHIVED-native-shell.md);
+the dormancy ledger is in [AGENTS.md](./AGENTS.md).
 
 ### Ignition (WSL2 → Windows browser)
 

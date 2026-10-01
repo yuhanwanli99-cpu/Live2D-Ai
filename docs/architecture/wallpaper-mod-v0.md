@@ -6,7 +6,7 @@
 > 用户裁决：本波**删除并封存 wallpaper Mod，不做本地下载库 / 自由切换**。
 > **用户手动的舞台/壳背景能力继续保留**（`DisplayPrefs.stageImage` / `stagePlaylist` /
 > `syncShellStageBg` 与「外观与互动」里的选图/清图 UI）——被封存的只是**自动换壁纸策略**。
-> crate 暂留 workspace 可编译可测，**禁止挂回**；原因与恢复条件见
+> crate 已于 **2026-10-01（W2-A / D1 第一段）物理删除**（只存在于 tag `checkpoint/pre-d1-dormant`），**禁止挂回**；原因与恢复条件见
 > [ARCHIVED-mods.md](ARCHIVED-mods.md)。**下面正文是封存前的历史记录。**
 >
 > **状态（历史）**：2026-09-14 Wave 1（分支 `mod/wallpaper` @ `2d492447`）起草；

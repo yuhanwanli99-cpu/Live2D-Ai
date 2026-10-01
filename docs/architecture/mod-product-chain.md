@@ -48,7 +48,7 @@ disable / config 是**运行时开关**，不是加载器：
 
 - 路径：与 `live2d-ai.toml` 同目录（web 模式 cwd 优先，否则 `~/.config/live2d-ai/`）。
 - 格式：`{"mods":{"<id>":{"enabled":bool,"config":{...}}}}`。
-- `mods.json` 缺失 → 用内建缺省（`cli_entry::default_mods_manifest`，缺省只 enable `local-llm`）。
+- `mods.json` 缺失 → 用内建缺省（`cli_entry::default_mods_manifest`，缺省只 enable `external-input`）。
 - **写回（rc.4 M1）**：`enable` / `disable` / `config` 都**原子写**该文件（tmp + rename），
   重启状态不丢；磁盘不可写时保留内存状态并记 `error` 日志。
 - `config` 只属于 **Mod 自己**（namespaced），**不回流**主 `live2d-ai.toml` 的 `[persona]` 等段。
@@ -65,9 +65,9 @@ disable / config 是**运行时开关**，不是加载器：
 | `voice-input` | off | Rust | 语音输入（Wave 2 A 轨 / 0.2.0-rc.3）：`POST /api/v1/voice/transcript` → `clean_transcript` → `say` **已接线**；ASR 本体在 sidecar（Rust 侧不开 socket、不做 IPC），契约见 [voice-input.md](../voice-input.md)，示例见 [docs/examples/voice-sidecar](../examples/voice-sidecar/README.md)，接线清单见 [REGISTER-voice-sidecar-v1](../plans/parallel-mods/REGISTER-voice-sidecar-v1.md) |
 | `memory` | off | Rust | 会话记忆 v0（Wave 2 C 轨 / 0.2.0-rc.3）：本地 JSONL + 词元重叠检索 top-k → 写会话注入槽（有会话）或 `apply_settings` 写全局 `persona.system_prompt`（无会话降级）；**同轮生效**（2026-09-15 起，见 memory-mod-v0.md §2）。全局路径与 persona 仍是 last-writer-wins，见 [memory-mod-v0.md](memory-mod-v0.md) |
 | `director` | off | Rust | 导演（Wave 3 G 轨 2026-09-14 建**最小骨架**，2026-09-21 已接线）：订阅 `TurnPrompt` + `TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策（纯函数、词表驱动），只写日志与 `state_json`；**`action_tx` 休眠、不写 `live2d-ai.toml` 仍成立**；**现状**另产 `latest.preset_id`（只读状态面，供面板展示）+ 按句 `action_cue`（`ModServices.cues` → WS `action_cue`，驱动舞台）。口径：**导演是一个 AI、属产品本体、不做架构搬迁**，输入 = **用户输入**（R1），谁的 `speak` 能力保留**未定、不裁决**；见 [director-mod-v0.md](director-mod-v0.md) |
-| ~~`wallpaper`~~ | — | Rust | **已封存（ARCHIVED，2026-09-14）**：移出 `AVAILABLE_MOD_FACTORIES`，不再编译进 binary；crate 暂留仓库（可编译可测），**禁止挂回**。用户手动的舞台/壳背景能力（`DisplayPrefs`）**不受影响**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
-| ~~`pet-desktop`~~ | — | Rust | **已封存（ARCHIVED，2026-09-14）**：移出 `AVAILABLE_MOD_FACTORIES`；本波**不做真窗/应用级桌宠**。crate 暂留仓库，**禁止挂回**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
-| ~~`local-llm`~~ | — | Rust | **已废除启动**（0.2.0-rc.1）：移出 `AVAILABLE_MOD_FACTORIES`，不再编译进 binary；crate 暂留仓库（见其 lib.rs 头注），**禁止挂回** |
+| ~~`wallpaper`~~ | — | Rust | **已删除（2026-10-01 W2-A/D1）**：移出 `AVAILABLE_MOD_FACTORIES`（2026-09-14 封存）后，crate 已于 2026-10-01 **物理删除**（tag `checkpoint/pre-d1-dormant`），**禁止挂回**。用户手动的舞台/壳背景能力（`DisplayPrefs`）**不受影响**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
+| ~~`pet-desktop`~~ | — | Rust | **已删除（2026-10-01 W2-A/D1）**：移出 `AVAILABLE_MOD_FACTORIES`（2026-09-14 封存）；本波**不做真窗/应用级桌宠**，crate 已于 2026-10-01 物理删除，**禁止挂回**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
+| ~~`local-llm`~~ | — | Rust | **已删除**（0.2.0-rc.1 废除启动 → 2026-10-01 W2-A/D1 物理删除）：移出 `AVAILABLE_MOD_FACTORIES`，**禁止挂回** |
 
 数量由 `main.rs::mod_count_is_five` 守住（Wave 3 的 7 → 产品级加强波次的 **5**）。
 `live2d-ai-mod-template` 是**模板 crate**，不注册进 `AVAILABLE_MOD_FACTORIES`。

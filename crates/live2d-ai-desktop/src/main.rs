@@ -1,53 +1,35 @@
 //! `live2d-ai-desktop` — PC 桌面应用（Rust 重建）。
 //!
-//! 本批为 **Linux 桌宠窗口能力 + Bai 实时渲染**：
-//! - winit 0.30 透明、无边框、可调整大小窗口 + wgpu 29 surface 连续重绘
-//!   （[`app`]，经 [`backend`] 接口暴露）；事件循环为 **UserEvent** 型
-//!   （[`user_event::PetUserEvent`] + EventLoopProxy）；
-//! - **桌宠窗口能力**（[`app`] + [`platform`]）：RawWindowHandle 实测后端分类
-//!   （Xlib/Xcb→X11、Wayland→Wayland，非环境线索）；底部右侧初始定位 +
-//!   回读验证；置顶（仅 X11 生效）；左键交互态 `drag_window`；
-//!   `set_cursor_hittest` 动态切换点击穿透；`RuntimeCapabilities` 只在 API
-//!   真实调用成功时记录；
-//! - **ksni 托盘**（[`tray`]）：纯 Rust SNI（0.3.6 blocking），菜单至少含
-//!   点击穿透/置顶/显隐/退出；回调只经 proxy 发 UserEvent，Window 调用全部
-//!   留在事件循环线程；无 D-Bus/host/扩展时可见降级且不阻塞启动；
-//!   pet-mode 自动穿透以托盘确认为前提（失败即禁用，防不可恢复）；
-//! - **Bai 实时渲染冒烟**（[`model_smoke`] + [`adapter`]）：`--model-smoke`
-//!   在窗口 bootstrap 的同一 device/queue 上经 `l2d::GpuContext::from_parts`
-//!   接入，`LoadedModel::resolve(ModelPackage::load)` 统一加载（兼容报告逐条
-//!   记录），`ModelRendererCore::new/load_model` 上屏；每帧真实 dt（60Hz 固定步
-//!   累加器）推进，resize 同步 set_viewport，渲染到 surface view 后 present；
-//!   六动作按固定顺序自动播放（每动作 Medium），同时用低频合成口型电平验证
-//!   `ParamMouthOpenY` 通道——不访问 LLM/TTS/声卡；默认保持交互可关闭
-//!   （不置顶不穿透），`--pet-mode` 才进入桌宠模式；
-//! - Linux 会话线索与能力簿记（[`platform`]：`LinuxSessionHint` /
-//!   `DeclaredCapabilities` / `WindowBackendKind` / `RuntimeCapabilities`——
-//!   后者只记录真实初始化/API 调用结果，绝不凭 X11 线索推断）；
-//! - 实际声卡输出链路（[`audio`]）：cpal 默认输出设备 + ringbuf 无锁 SPSC，
+//! **产品主路径 = `--web`**：Rust 服务 + Flutter Web `/app/`（`./scripts/ignite.sh` 点火）。
+//!
+//! 2026-10-01（W2-B / D1 第二段）：**原生壳岛已移出构建** —— egui 原生壳
+//! （`src/app/`）、`--chat` 终端壳（`src/repl.rs`）、托盘（`src/tray/`）、
+//! 窗口/模型冒烟（`src/model_smoke/`、`src/adapter/`）、benchmark（`src/benchmark/`）
+//! 及其枢纽 `src/backend/` 与 `src/user_event.rs` 一并删除。理由、逐条退出测试
+//! 清单与恢复条件见 `docs/architecture/ARCHIVED-native-shell.md`
+//! （还原点 tag `checkpoint/pre-d1-dormant`）。**不要挂回去。**
+//!
+//! 现存能力：
+//! - **Web API**（[`web_api`]）：`--web [--http-port P] [--dev-mode]`——supervisor +
+//!   WebSocket 事件流，同源托管 Flutter `/app/`；
+//! - **实际声卡输出链路**（[`audio`]）：cpal 默认输出设备 + ringbuf 无锁 SPSC，
 //!   TTS 域 PCM 经确定性重采样/声道映射入环，回调内欠载补 0 并对**实际写给
 //!   声卡的 f32** 计算 RMS，经原子 f32-bits 快照暴露 mouth level；
 //!   epoch 打断保证 stop 后旧音频不再继续；
+//! - **音频冒烟**：`--audio-smoke [--audio-smoke-secs S] [--audio-smoke-silence]`
+//!   （无音频设备退出码 3）；
+//! - Linux 会话线索与能力簿记（[`platform`]：`LinuxSessionHint` /
+//!   `DeclaredCapabilities` / `RuntimeCapabilities`——后者只记录真实初始化/API
+//!   调用结果，绝不凭 X11 线索推断）；
 //! - CLI（[`cli`]）：默认无参数打印架构与能力后退出（无显示 CI 安全，
-//!   **不访问声卡**）；`--window-smoke` 纯透明窗口壳；`--model-smoke [model3]`
-//!   Bai 实时渲染冒烟（模型/资产错误退出码 1、GPU 环境退出码 3）；
-//!   `--pet-mode` 桌宠模式（默认置顶+穿透+托盘恢复入口）；`--smoke-frames N`
-//!   帧数后自动退出；`--audio-smoke` 音频输出冒烟（无音频设备退出码 3）。
-//!
-//! - 网络（LLM/TTS HTTP）经 OpenAI 兼容协议接入：`--chat` 终端对话 /
-//!   `--web` Web 面板（supervisor + WebSocket 事件流，见 [`web_api`]）。
+//!   **不访问声卡**）。
 //! - 许可：**AGPL-3.0-only**，以仓库根 `LICENSE` 为准（见本 crate `README.md`）。
 
-mod adapter;
-mod app;
 mod app_event;
 mod audio;
-mod backend;
-mod benchmark;
 mod cli;
 mod logging;
 mod mod_registry;
-mod model_smoke;
 mod platform;
 
 /// 已编译进本二进制的 Mod 工厂（静态注册；启用与否由 manifest `[mods.<id>]` 决定）。
@@ -60,7 +42,8 @@ mod platform;
 ///
 /// 2026-09-14（0.2.0-rc.1）：**local-llm 已废除启动**（移出本表）——本地推理进程
 /// 管理/探活不再是产品路径；LLM 端点由 `live2d-ai.toml` 的 `[llm]` 人工配置。
-/// crate 暂留仓库（§deprecated），但 **不再注册、不再编译进 binary**。数字 4 → 3。
+/// 数字 4 → 3。（2026-10-01 W2-A：该 crate 已**物理删除**，见 tag
+/// `checkpoint/pre-d1-dormant`。）
 ///
 /// 2026-09-14（0.2.0-rc.2，Wave 1 合并）：追加 Wave 1 的 `voice-input` / `wallpaper`
 /// 两个工厂（均**缺省停用**，`cli_entry::default_mods_manifest` 未收录）。数字 3 → 5。
@@ -76,10 +59,10 @@ mod platform;
 /// 与 rc.2 删除的那个 director 不同：它**不驱动动作序列**，见
 /// `docs/architecture/director-mod-v0.md` 与 `docs/architecture/director-rfc.md` §8。
 /// 2026-09-14（产品级加强波次，未 bump 版本）：**封存 `wallpaper` + `pet-desktop`**
-/// ——两者移出本表，数字 7 → **5**。crate 仍留在 workspace（可编译、可跑自身测试）
-/// 并标 ARCHIVED，**禁止挂回**；理由与恢复条件见
+/// ——两者移出本表，数字 7 → **5**，并标 ARCHIVED，**禁止挂回**；理由与恢复条件见
 /// `docs/architecture/ARCHIVED-mods.md`。用户手动的舞台/壳背景能力（`DisplayPrefs`）
 /// **不受影响**——被拆掉的只是 wallpaper **Mod** 的接线。
+/// （2026-10-01 W2-A：两个 crate 已**物理删除**，见同一 tag。）
 pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &[
     // 0.2.0-rc.1 起**缺省启用**（直播弹幕/礼物经 sidecar 注入，见 docs/external-input.md）。
     &live2d_ai_mod_external_input::FACTORY,
@@ -95,17 +78,12 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     &live2d_ai_mod_director::FACTORY,
 ];
 
-mod repl;
-// L1 基座（2026-09-15）：会话级作用域——「会话 id → system_prompt 覆盖」+ 活动会话游标。
 mod session_scope;
 mod supervisor;
-mod tray;
-mod user_event;
 mod web_api;
 
 use std::process::ExitCode;
 
-use backend::{BackendError, RunOptions};
 use platform::{DeclaredCapabilities, LinuxSessionHint, RuntimeCapabilities};
 
 /// 退出码约定：
@@ -147,127 +125,14 @@ fn main() -> ExitCode {
     match command {
         cli::Command::Info => {
             println!(
-                "(未启动窗口/声卡：默认模式仅打印信息；--window-smoke / --model-smoke / \
-                 --audio-smoke 进入冒烟)"
+                "(未启动服务/声卡：默认模式仅打印信息；--web 起 Web API；\
+                 --audio-smoke 进入音频冒烟)"
             );
             ExitCode::from(EXIT_OK)
-        }
-        cli::Command::WindowSmoke {
-            frame_target,
-            timeout,
-            pet_mode,
-        } => run_backend_smoke(
-            RunOptions {
-                initial_logical_size: (480.0, 640.0),
-                frame_target,
-                timeout,
-                model_smoke: None,
-                pet_mode,
-            },
-            "window-smoke 报告",
-        ),
-        cli::Command::ModelSmoke {
-            model3,
-            frame_target,
-            timeout,
-            pet_mode,
-        } => {
-            let model3_path = match cli::resolve_model3_path(model3.as_deref()) {
-                Ok(path) => path,
-                Err(msg) => {
-                    // 缺省路径找不到/显式路径不存在：资产问题 → 退出码 1。
-                    eprintln!("[error] {msg}");
-                    return ExitCode::from(EXIT_ERROR);
-                }
-            };
-            println!(
-                "model-smoke: 皮套 {}（六动作固定顺序 Medium + 低频合成口型；\
-                 不访问 LLM/TTS/声卡）",
-                model3_path.display()
-            );
-            run_backend_smoke(
-                RunOptions {
-                    initial_logical_size: (480.0, 640.0),
-                    // 无显式帧数时与窗口壳同语义：直到窗口关闭或超时兜底。
-                    frame_target,
-                    timeout,
-                    model_smoke: Some(backend::ModelSmokeOptions { model3_path }),
-                    pet_mode,
-                },
-                "model-smoke 报告",
-            )
         }
         cli::Command::AudioSmoke { duration, silence } => run_audio_smoke(duration, silence),
         cli::Command::Web { port, dev_mode } => {
             ExitCode::from(web_api::cli_entry::run_web_mode(port, dev_mode))
-        }
-        cli::Command::Chat {
-            config_path,
-            pet_mode,
-            smoke_timeout,
-        } => match backend::run_chat_session(backend::ChatOptions {
-            config_path,
-            pet_mode,
-            smoke_timeout,
-        }) {
-            Ok(report) => {
-                for line in report.summarize_lines() {
-                    println!("{line}");
-                }
-                ExitCode::from(EXIT_OK)
-            }
-            Err(e) => {
-                eprintln!("[error] chat: {e}");
-                // 环境类失败（无显示服务/无 adapter 等）→ 3；其余 → 1。
-                ExitCode::from(match e {
-                    backend::BackendError::Environment(_) => EXIT_ENVIRONMENT,
-                    backend::BackendError::Failed(_) => EXIT_ERROR,
-                })
-            }
-        },
-        cli::Command::Benchmark {
-            model3,
-            mode,
-            warmup,
-            frames,
-            headless,
-            output_json,
-        } => {
-            let model3_path = match cli::resolve_model3_path(model3.as_deref()) {
-                Ok(path) => path,
-                Err(msg) => {
-                    eprintln!("[error] {msg}");
-                    return ExitCode::from(EXIT_ERROR);
-                }
-            };
-            let opts = benchmark::BenchmarkOptions {
-                model3_path,
-                window_logical: (480.0, 640.0),
-                warmup_frames: warmup,
-                formal_frames: frames,
-                mode: match mode {
-                    cli::BenchmarkCliMode::Blocking => benchmark::BenchmarkMode::Blocking,
-                    cli::BenchmarkCliMode::Submit => benchmark::BenchmarkMode::Submit,
-                },
-                backend: if headless {
-                    benchmark::BenchmarkBackend::Headless
-                } else {
-                    benchmark::BenchmarkBackend::Surface
-                },
-                output_json,
-            };
-            match benchmark::run_benchmark(opts) {
-                Ok(report) => {
-                    for line in report.summarize_lines() {
-                        println!("{line}");
-                    }
-                    ExitCode::from(EXIT_OK)
-                }
-                Err(msg) => {
-                    eprintln!("[error] benchmark: {msg}");
-                    ExitCode::from(EXIT_ENVIRONMENT)
-                }
-            }
         }
     }
 }
@@ -279,21 +144,12 @@ fn print_info() {
     let family = std::env::consts::FAMILY;
     println!("live2d-ai-desktop {}", env!("CARGO_PKG_VERSION"));
     println!(
-        "  phase  : desktop-pet window — winit+wgpu 透明无边框窗口壳、置顶/底部右侧定位/\
-         点击穿透/交互态拖动（RawWindowHandle 实测 X11 vs Wayland）、ksni 托盘、\
-         同一 device 上的 l2d ModelRendererCore 实时渲染与实际声卡输出链路已接入；\
-         网络（LLM/TTS HTTP）经 OpenAI 兼容协议接入（--chat / --web）"
+        "  phase  : web service — Web API（supervisor + WebSocket 事件流）与 Flutter Web \
+         /app/ 同源托管；实际声卡输出链路（cpal + ringbuf）与音频冒烟 --audio-smoke 可用。\
+         原生窗口壳/托盘/终端 chat/benchmark 已于 2026-10-01（W2-B/D1）移出构建"
     );
     println!("  target : {arch}-{os} (family: {family})");
     println!("  rust   : MSRV {}", env!("CARGO_PKG_RUST_VERSION"));
-    println!(
-        "  backends: {}",
-        backend::available_backends()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
 
     // 会话线索：platform 模块保持纯函数，环境读取集中在边界层。
     let xdg_session_type = std::env::var("XDG_SESSION_TYPE").ok();
@@ -313,9 +169,9 @@ fn print_info() {
         println!("    {name:<18} = {expected}");
     }
 
-    // 第二层：真实运行时能力 —— 此刻尚未创建窗口/surface，全部未探测。
-    // tray/click_through/global_position/always_on_top 只有后续批次真正
-    // 初始化后才可能变为 available（不允许凭 X11 全 true）。
+    // 第二层：真实运行时能力 —— W2-B 后本 crate 没有窗口/surface/托盘的初始化路径，
+    // 因此恒为「未探测」；保留该表是为了让默认模式的输出与历史契约同形
+    // （不允许凭 X11 线索把任何字段变成 available）。
     let runtime: RuntimeCapabilities = RuntimeCapabilities::not_probed();
     println!("  runtime caps（真实初始化结果）:");
     for (name, value) in runtime.as_table() {
@@ -329,67 +185,6 @@ fn print_info() {
     } else {
         for reason in reasons {
             println!("    - {reason}");
-        }
-    }
-}
-
-/// 启动真实窗口（纯透明壳或模型实时渲染）并打印运行报告；按错误类别映射退出码。
-fn run_backend_smoke(options: RunOptions, report_title: &'static str) -> ExitCode {
-    let backend = match backend::create_backend(backend::BackendKind::WinitWgpu) {
-        Ok(backend) => backend,
-        // 当前工厂对唯一内置后端不会失败；防御式处理保持退出码契约。
-        Err(e) => {
-            eprintln!("[error] {e}");
-            return ExitCode::from(EXIT_ERROR);
-        }
-    };
-
-    // 运行前逐项声明后端能力代码路径（静态口径）；**实际能力**以运行结束后的
-    // runtime caps 为准（RawWindowHandle 实测 + API 调用结果，
-    // 见 RFC §4 批次 6 与 crate README「能力语义」）。
-    let description = backend.describe();
-    println!("backend: {} — {}", description.kind, description.title);
-    for feature in [
-        backend::FeatureRequest::AlwaysOnTop,
-        backend::FeatureRequest::GlobalPosition,
-        backend::FeatureRequest::ClickThrough,
-        backend::FeatureRequest::DragMove,
-        backend::FeatureRequest::Tray,
-    ] {
-        match backend.request_feature(feature) {
-            Ok(()) => {
-                println!("  feature {feature:<16}: 代码路径已实现（生效与否以 runtime 实测为准）")
-            }
-            Err(rejected) => {
-                println!(
-                    "  feature {:<16}: 无代码路径 —— {}",
-                    rejected.feature, rejected.reason
-                )
-            }
-        }
-    }
-
-    match backend.run(&options) {
-        Ok(report) => {
-            println!("{report_title}:");
-            for line in report.summarize_lines() {
-                println!("  {line}");
-            }
-            ExitCode::from(EXIT_OK)
-        }
-        Err(BackendError::Environment(msg)) => {
-            // 环境不满足 ≠ 代码缺陷：独立退出码，便于 CI 区分
-            // （无显示服务/无可用 GPU/模型渲染的 GPU 管线失败均在此类）。
-            eprintln!("[environment] {msg}");
-            eprintln!(
-                "[environment] 提示：本机可能没有可用的显示服务/GPU；\
-                       无显示 CI 请使用默认模式（不带 --window-smoke/--model-smoke）。"
-            );
-            ExitCode::from(EXIT_ENVIRONMENT)
-        }
-        Err(e @ BackendError::Failed(_)) => {
-            eprintln!("[error] {e}");
-            ExitCode::from(EXIT_ERROR)
         }
     }
 }

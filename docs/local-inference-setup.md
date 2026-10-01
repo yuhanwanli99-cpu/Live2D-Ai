@@ -1,5 +1,14 @@
 # 本地 TTS/LLM 接入实操指南
 
+
+> # ⛔ 本页描述的 `local-llm` Mod 已失效
+>
+> `local-llm` 于 **0.2.0-rc.1 废除启动**（移出 `AVAILABLE_MOD_FACTORIES`），
+> 其 crate 于 **2026-10-01（W2-A / D1 第一段）物理删除**（tag `checkpoint/pre-d1-dormant`）。
+> 因此本文里 `POST /api/v1/mods/local-llm/enable` 之类的示例**不再可用**——
+> 它们只描述「端点仍在但该 Mod 不在册」时期的行为。**LLM 配置一律走 `live2d-ai.toml`
+> 的 `[llm]` 段**（或用 `PUT /api/v1/env` 写密钥）。下方正文只作历史记录保留。
+
 > ## ⚠️ 部分作废（2026-09-11）
 >
 > **TTS 已从 Mod 系统移出**，改成核心链路。本文中一切

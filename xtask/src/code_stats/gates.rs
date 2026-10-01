@@ -55,7 +55,11 @@ pub struct Limits {
 }
 
 impl Limits {
-    /// CI 默认：立档现状（棘轮）。
+    /// CI 默认：立档现状（**棘轮，只降不升**）。
+    ///
+    /// 常量本体在 `code_stats/mod.rs`（`RATCHET_*`，含**棘轮纪律**：任何让计数下降的
+    /// commit 必须在同一 commit 把对应常量收紧到实测值；不得为让门禁变绿而放宽）；
+    /// 本文件只消费。PLAN §5 的目标口径走 [`Limits::plan`] / `--strict-plan`。
     pub fn ratchet() -> Self {
         Self {
             src_rs_over_500: RATCHET_SRC_RS_500,

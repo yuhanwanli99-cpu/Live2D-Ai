@@ -1,6 +1,6 @@
 [package]
 name = "live2d-ai-desktop"
-description = "Live2D-Ai PC 桌面应用（Linux 原生窗口/GPU：winit 0.30 + wgpu 29 透明无边框窗口；Bai 实时渲染已接入——同一 device 上的 l2d ModelRendererCore，动作序列+合成口型冒烟）"
+description = "Live2D-Ai PC 桌面服务（Web API + supervisor + WebSocket 事件流 + 声卡输出链路；同源托管 Flutter Web /app/。2026-10-01 W2-B：原生窗口壳/托盘/终端 chat/benchmark 已移出构建，见 docs/architecture/ARCHIVED-native-shell.md）"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,11 +8,9 @@ license = "AGPL-3.0-only"
 authors.workspace = true
 
 [dependencies]
-# 与 crates/l2d / ayagami-render 的 wgpu 29 大版本一致（bakeoff 已验证组合，
-# 见 docs/verification/rust-bakeoff-ayagami.md；Cargo.lock 已含 wgpu 29.0.4）。
-wgpu = "29"
-winit = "0.30"
-pollster = "0.3"
+# 2026-10-01（W2-B / D1 第二段）：`wgpu` / `winit` / `pollster` / `egui*` /
+# `raw-window-handle` / `ksni` / `url` 九条依赖随原生壳岛移出而删除
+# （恢复条件与依据见 docs/architecture/ARCHIVED-native-shell.md）。
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # 日志落盘（W3 任务：CLI 启动附带；任何模式都落盘）：
@@ -22,8 +20,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # - 引入位置见 `crates/live2d-ai-desktop/src/logging.rs`。
 # 许可证登记见 SOURCES.md。
 tracing-appender = "0.2"
-# benchmark-only JSON 报告（C7/C8 P1-2）：BenchmarkReport 派生 Serialize；
-# main.rs 在 --benchmark-output 路径下用 serde_json 序列化。
+# Web API DTO / mods.json / 错误响应序列化。
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # D-P0A 复审修复：settings_routes::PatchBody 用 serde_with::double_option
@@ -36,10 +33,8 @@ serde_with = "3"
 # MSRV 与许可证见 SOURCES.md 登记。
 cpal = "0.18"
 live2d-ai-runtime = { path = "../live2d-ai-runtime" }
-# Live2D 实时渲染（RFC §4 批次 5 推进）：l2d 提供皮套包加载/兼容报告/
-# GpuContext（支持已有 device/queue 接入）/ModelRendererCore（render_to_view）；
-# core 提供六动作表演曲线（ParameterFrame/PerformancePlayer），经本 crate 的
-# adapter 模块映射到 Bai 标准参数 ID。三者共用 workspace 内 path 依赖。
+# l2d：模型库路由用它解析/加载皮套包（`l2d::asset::ModelPackage`，见
+# web_api/models_routes）；core：主链状态机（epoch/双闩锁/root reducer）。
 l2d = { path = "../l2d" }
 live2d-ai-core = { path = "../live2d-ai-core" }
 # 节点 E E4：Mod 系统（trait/factory/registry/services/status/topics）。
@@ -47,19 +42,20 @@ live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 # 0.2.0-rc.1：external-input 是缺省启用的 Mod（直播弹幕/礼物注入）——
 # handler 复用它的纯函数（render_from_config / token_from_config）。
 live2d-ai-mod-external-input = { path = "../live2d-ai-mod-external-input" }
-# 2026-09-14（产品级加强波次）：live2d-ai-mod-pet-desktop **已封存**（ARCHIVED）
-# ——依赖已移除（不再编译进 binary）；crate 暂留 workspace 可编译/可测，
-# 但**禁止**挂回 FACTORIES。理由与恢复条件见 docs/architecture/ARCHIVED-mods.md。
-# 0.2.0-rc.1：live2d-ai-mod-local-llm **已废除启动**——依赖已移除（不再编译进 binary）。
-# crate 暂留 workspace（见其 lib.rs 头注），但**禁止**挂回 FACTORIES。
+# live2d-ai-mod-pet-desktop：依赖已移除（不再编译进 binary）；crate 本身已于
+# 2026-10-01（W2-A / D1 第一段）**物理删除**，只存在于 tag
+# `checkpoint/pre-d1-dormant` ⇒ **不要回来找它**，也**禁止**挂回 FACTORIES。
+# live2d-ai-mod-local-llm：同上（0.2.0-rc.1 废除启动 → 2026-10-01 删除）。
+# 理由与恢复条件见 docs/architecture/ARCHIVED-mods.md。
 # rc.4 M5：角色卡标准 Mod（主链只留 system_prompt，卡字段由它合成写回）。
 live2d-ai-mod-persona = { path = "../live2d-ai-mod-persona" }
 # Wave 1（2026-09-14）：voice-input 骨架（语音转写 → 清洗 → say_tx）。
 live2d-ai-mod-voice-input = { path = "../live2d-ai-mod-voice-input" }
-# 2026-09-14（产品级加强波次）：live2d-ai-mod-wallpaper **已封存**（ARCHIVED）
-# ——依赖已移除（不再编译进 binary）；crate 暂留 workspace，**禁止**挂回
-# FACTORIES。用户手动的舞台/壳背景能力（DisplayPrefs）不经本 crate，
-# 因此不受封存影响。见 docs/architecture/ARCHIVED-mods.md。
+# live2d-ai-mod-wallpaper：依赖已移除（不再编译进 binary）；crate 本身已于
+# 2026-10-01（W2-A / D1 第一段）**物理删除**，只存在于 tag
+# `checkpoint/pre-d1-dormant` ⇒ **不要回来找它**，也**禁止**挂回 FACTORIES。
+# 用户手动的舞台/壳背景能力（DisplayPrefs）不经本 crate，因此不受影响。
+# 见 docs/architecture/ARCHIVED-mods.md。
 # Wave 2 C 轨（2026-09-14）：memory v0（本地 JSONL 记忆 + 词元重叠检索）。
 # **本分支不注册**进 AVAILABLE_MOD_FACTORIES——注册由集成 PR 按
 # docs/plans/parallel-mods/REGISTER-memory-v0.md 一次改到位；缺省停用。
@@ -68,27 +64,13 @@ live2d-ai-mod-memory = { path = "../live2d-ai-mod-memory" }
 # state_json，**零投递**）。**缺省停用**；注册由集成 PR（本波主 agent）一次改到位。
 live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
 ringbuf = "0.5"
-# 桌宠窗口能力（RFC §4 批次 6 推进，2026-08-26）：
-# - raw-window-handle 0.6：真实后端检测（winit 0.30 默认 rwh_06 feature，
-#   Window 实现 HasWindowHandle/HasDisplayHandle；Xlib/Xcb → X11、Wayland → Wayland）。
-# - ksni 0.3.6（纯 Rust SNI 托盘，Unlicense，MSRV 1.80）：blocking API 在独立线程
-#   连接 session bus 并注册 StatusNotifierItem；菜单回调只经 EventLoopProxy 发
-#   UserEvent，所有 Window 调用留在事件循环线程。tokio 仅由 ksni 内部使用
-#   （current_thread runtime，blocking feature 提供 block_on），本 crate 不写 async。
-# 许可证登记口径见 SOURCES.md / crate README。
-raw-window-handle = "0.6"
-ksni = { version = "0.3.6", features = ["blocking"] }
-# 最终接线（节点 A 步骤 8，2026-08-26）：supervisor 的异步设施。
-# - current_thread runtime 跑在独立 OS 线程（D1：winit 主线程零 async）；
+# supervisor 的异步设施。
+# - current_thread runtime 跑在独立 OS 线程；
 # - `macros` 提供 select!（引擎事件/控制/排空观察的扇入）；
 # - `sync` 提供有界 Say 通道与引擎事件通道；
 # - tokio-util 复用 runtime crate 同款 CancellationToken 语义。
 tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros"] }
 tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
-egui = "0.35"
-egui-winit = "0.35"
-egui-wgpu = "0.35"
-# 本批不引 egui / x11rb（winit 原生 set_cursor_hittest 已满足全窗穿透）。
 # D2 HTTP 接线（节点 D 后端层，2026-08-28）：
 # - tiny_http 0.12（纯 Rust，无 TLS、零 async 运行时、循环回环绑定即用）：
 #   比 axum 省 5+ 传递依赖（hyper/tower-http/matchit 等），本场景仅 21 个端点
@@ -108,9 +90,7 @@ once_cell = { version = "1", default-features = false }
 # - reqwest 0.12 仅用于 settings/test/{llm,tts} 端点直接发测试请求——
 #   runtime 的 `OpenAiClient::new` 不暴露 `from_parts`（私有字段），
 #   且默认构造的 reqwest::Client 无 timeout，故 test 端点走独立 client。
-# - url 2.x 与 runtime 同款（base_url 拼接）。
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
-url = "2"
 # futures_util 仅 test 端点读 SSE chunked stream 用。
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # WebSocket 桥（W2 任务，2026-08-29）：

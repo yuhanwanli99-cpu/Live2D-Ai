@@ -175,6 +175,12 @@ pub struct SupervisorConfig {
 pub struct SupervisorHandle {
     say_tx: mpsc::Sender<SayRequest>,
     control_tx: mpsc::UnboundedSender<ControlCommand>,
+    // 2026-10-01（W2-B / D1 第二段）：动作完成回报的**壳半边**——原调用方是
+    // winit 壳的事件循环（`app/handler.rs`）。AGENTS「动作与表演的休眠台账」把
+    // `action_tx`/完成回报列为**休眠契约**（不得私自接回真通道，也不随手删），
+    // 故此处保留字段并在非测试构建下放行 dead_code；恢复条件见
+    // `docs/architecture/ARCHIVED-native-shell.md`。
+    #[allow(dead_code)]
     finish_tx: mpsc::UnboundedSender<ActionFinishedFact>,
     join: Option<std::thread::JoinHandle<()>>,
     /// 「reload 待处理」标志：handle.reload() 置位，supervisor 在 idle
@@ -272,6 +278,8 @@ impl SupervisorHandle {
 
     /// winit 侧回报「某动作自然播放完毕」（P0-6 身份事实；非阻塞；
     /// B-P0-5：epoch 必须是**该动作开始时**的业务代次，由调用方保存并原样回传）。
+    // 同上：壳移出后无生产调用方（休眠契约的壳半边，A1–A8 相关语义不动）。
+    #[allow(dead_code)]
     pub fn report_action_finished(&self, epoch: u64, action: SemanticAction) {
         let _ = self.finish_tx.send(ActionFinishedFact { epoch, action });
     }
@@ -852,13 +860,13 @@ mod tests_mod_projections {
 
     #[test]
     fn non_conversation_events_yield_none() {
-        use crate::user_event::PetUserEvent;
-        // 2026-09-11：`AppEvent::Render` 已随动作系统删除，这里改用剩下的
-        // 非 Conversation 变体覆盖「不应投影」的语义。
+        // 2026-09-11：`AppEvent::Render` 已随动作系统删除。
+        // 2026-10-01（W2-B）：`AppEvent::Tray(PetUserEvent)` 随原生壳移出而删除，
+        // 这里改用剩下的两个非 Conversation 变体覆盖同一「不应投影」语义。
         let audit = AppEvent::RootAudit(crate::app_event::RootFact::Dropped);
-        let tray = AppEvent::Tray(PetUserEvent::TrayExit);
+        let cleared = AppEvent::RootAudit(crate::app_event::RootFact::PlaybackCleared { epoch: 1 });
         let shutdown = AppEvent::ShutdownReady;
-        for ev in [audit, tray, shutdown] {
+        for ev in [audit, cleared, shutdown] {
             assert_eq!(
                 project_conversation_to_mod(&ev),
                 None,

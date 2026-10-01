@@ -57,11 +57,40 @@ const SKIPPED_DIR_NAMES: [&str; 5] = ["target", "build", "dist", "node_modules",
 ///
 /// 理由（用户 2026-10-01 口径 + D0 任务书）：门禁先按现状设上限，
 /// **既不放宽，也不设成当前必红**——它拦的是「新增超限」，不是存量。
-/// PLAN §5 的目标值另存 [`Limits::plan`]，用 `--strict-plan` 复核（现在仍是红的）。
-const RATCHET_SRC_RS_500: u64 = 58;
+/// PLAN §5 的目标值另存 [`super::gates::Limits::plan`]，用 `--strict-plan` 复核（现在仍是红的）。
+///
+/// # 棘轮纪律（2026-10-01 维护者口径，F-V0-9；**改这些常量前先读这一段**）
+///
+/// 1. 这些常量是**只降不升**的棘轮：**任何让对应计数下降的 commit，必须在同一个
+///    commit 里把这里的常量收紧到实测值**。降了不收紧 = 门禁失去牙齿（CI 会允许退回
+///    旧数字而不红，`F-V0-9` 记的就是这次：58 已降到 55，常量却仍是 58）。
+/// 2. **不得为了让门禁变绿而放宽**这些常量；PLAN §5 的目标口径只在 `--strict-plan`
+///    下次性复核（那是合规检查，不是 CI 阈值）。
+/// 3. 改这里的值必须同时给出复算证据：`cargo run -p xtask -- code-stats --check`。
+/// 4. 若某次减量由**其它 worker** 持有（同树并发），该 commit 的交接栏必须写明
+///    「待收紧的实测值」——见下面 `RATCHET_SRC_RS_500` 的交接栏。
+///
+/// `crates/*/src` `.rs` > 500 行的文件数。
+///
+/// 立档 **58**（PLAN §2.4）→ **55**（2026-10-01 W2-A / D1 第一段实测：随三个已归档
+/// Mod crate 退出 3 个 >500 文件 —— `mod-local-llm/src/lib.rs` 830、
+/// `mod-wallpaper/src/lib.rs` 729、`mod-wallpaper/src/strategy.rs` 655）。
+///
+/// **已收紧到 48**（2026-10-01 W2-B / D1 第二段**同 commit**）：原生壳岛移出后实测
+/// 48 —— 随岛退出 10 个超限文件（`benchmark/runners_surface.rs` 878、
+/// `app/settings_ui.rs` 661 …），另有两个留在树上但被拆小
+/// （`platform/capabilities.rs` 539→409、`src/main.rs` 519→315）。
+/// 中间态曾记为 55（W2-A 收口值）；本段按 F-V0-9 把交接栏要求的收紧做完。
+/// 复算证据：`cargo run -p xtask -- code-stats --check --only lines`（48 ≤ 48 = PASS）。
+const RATCHET_SRC_RS_500: u64 = 48;
 const RATCHET_SRC_RS_1000: u64 = 4;
 const RATCHET_DART_800: u64 = 7;
-const RATCHET_DESKTOP_DEPS: u64 = 34;
+/// 2026-10-01（W2-B / D1 第二段）：原生壳岛移出后实测 **25**（34 → 25，真删
+/// `wgpu` `winit` `pollster` `egui` `egui-winit` `egui-wgpu` `raw-window-handle`
+/// `ksni` `url` 九条）。按 F-V0-9 纪律**同一 commit 收紧**——降了不收紧，回头
+/// 涨回去就拦不住。同 commit 一并把超限文件棘轮 `RATCHET_SRC_RS_500`
+/// 从 55 收紧到实测 48（两份复算证据见上一条注释）。
+const RATCHET_DESKTOP_DEPS: u64 = 25;
 
 /// PLAN §5 量化目标（`--strict-plan`）。
 const PLAN_SRC_RS_500: u64 = 15;
