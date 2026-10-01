@@ -1,6 +1,6 @@
 # 节点 C 引用位置重新核查摘要（2026-08-27）
 
-> 范围：仅核查 `docs/plans/node-c-render-platform-audit-brief.md`「现状事实」
+> 范围：仅核查 `../legacy/plans/node-c-render-platform-audit-brief.md`「现状事实」
 > 一节中列出的 file:line 引用，在 `crates/live2d-ai-desktop/src/app.rs` 拆分为
 > `src/app/` 目录后是否仍准确。**不**修改 C1–C11 任何裁决问题措辞。
 >

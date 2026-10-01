@@ -121,7 +121,7 @@ md5 `1fc4e555cfaea059bf47b9f30513fda4`）、`/tmp/verify_w2.py`、`/tmp/verify_t
 
 | 块 | 已改文件（本轮） | 关键结论 / 测试 |
 |---|---|---|
-| **W1** | `AGENTS.md`、`docs/README.md`、`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`(§10) | 新增「动作与表演的**现行状态**（2026-09 实测）」五条事实+真源；`:112` / `:27` / `:137` / `:450` 的假断言改成带现状更正；GOALS `:6` / `:43` 加指针。**我另修了 R2 泄漏**（见 §7.2） |
+| **W1** | `AGENTS.md`、`docs/README.md`、`../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`(§10) | 新增「动作与表演的**现行状态**（2026-09 实测）」五条事实+真源；`:112` / `:27` / `:137` / `:450` 的假断言改成带现状更正；GOALS `:6` / `:43` 加指针。**我另修了 R2 泄漏**（见 §7.2） |
 | **W2** | `preset/{mod,scales}.rs`、`preset/tests/{packs,assets,mod}.rs`、`assets/actions/presets.json`、`runtime/src/settings.rs`、`settings/{view,patch,patch_tests}.rs`、`live2d-ai.toml(.example)`、`web_api/settings_routes/tests.rs`、Dart `api/settings_models.dart`、`settings/sections/appearance_section.dart`、`test/{action_scales_preview,settings_api}_test.dart` | 见 §5。新增 9 条 Rust 回归 + 1 条 Dart |
 | **W3** | `settings/sections/dev_tools_section.dart`、`settings/preset_labels.dart`、`test/{developer_section,preset_labels}_test.dart` | `_overlayFace` 默认 **false**；`_liveExpressionId` 到点即 none；删掉两处硬编码 id 列表（`kDebug*`）；ttl 从**舞台回执 PresetStatus.ttl** 派生（`design_tokens_lint` 禁止 `lib/settings/**` 写死 `Duration(milliseconds:)`）。+4 测试 |
 | **W6** | `mod-external-input/{Cargo.toml,src/lib.rs}`、`web_api/{external_routes,voice_routes,cli_entry}.rs`、`voice_routes_tests{,_token}.rs` | 三处令牌改走 `secrets::lookup`（`.env` 快照 > 进程环境）；优先级链**顺序未变**；`mod-external-input -> runtime` 依赖（与 mod-memory/director 同款，**无环**）；E6 选 **(a)** 统一强口径。+3 注入式测试 |
@@ -335,7 +335,7 @@ W7 验收（ORCHESTRATOR §5.4）：临时覆盖 -> 改主题 -> 值仍在；「
     docs/architecture/directory.md                                (W8b)
     docs/architecture/mod-product-chain.md                        (W8b)
     docs/architecture/performance-layer-v0.md                    (W8 / W4)
-    docs/plans/PRODUCT-L1-GOALS-2026-09-15.md                     (W1)
+    ../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md                     (W1)
     live2d-ai.toml                                                (W2，运行时配置，gitignored)
     live2d-ai.toml.example                                        (W2)
     shell/flutter/lib/api/settings_models.dart                    (W2)

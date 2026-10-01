@@ -110,4 +110,4 @@ GENERATING（turn）
   OpenAI 兼容 LLM/TTS、model3 资产结构、settings 分区思想。
 - 明确废弃：SLOP 规则（Py TTS 链路）、soullink 表演引擎、8 情绪协议完整消费路径、
   背景导入 / 模型 ZIP 上传（D3.2 后置）、动作时间线（v1 无编排）。
-- 待裁决：`shared/persona.yaml` 的权威地位（见 `docs/plans/branch-review-boundary-2026-08-31.md`）。
+- 待裁决：`shared/persona.yaml` 的权威地位（见 `../legacy/plans/branch-review-boundary-2026-08-31.md`）。

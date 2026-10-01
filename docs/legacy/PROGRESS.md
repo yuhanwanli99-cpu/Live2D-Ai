@@ -6,7 +6,7 @@
 
 > **2026-08-25 交接**：当前轮次修改已落盘并暂停，详细交接见 [docs/development/HANDOFF-2026-08-25-runtime-fixes.md](docs/development/HANDOFF-2026-08-25-runtime-fixes.md)。
 
-见 [docs/plans/post-launch-quality-roadmap.md](docs/plans/post-launch-quality-roadmap.md)。
+见 [plans/post-launch-quality-roadmap.md](plans/post-launch-quality-roadmap.md)。
 
 ## 当前状态（2026-08-24）
 

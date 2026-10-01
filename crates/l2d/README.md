@@ -1,6 +1,6 @@
 # l2d — Live2D 皮套格式、兼容报告与离屏渲染封装
 
-`l2d` 是 Live2D-Ai Rust 重建（RFC：`docs/plans/RUST-REWRITE-RFC.md`）的皮套层 crate。
+`l2d` 是 Live2D-Ai Rust 重建（RFC：`docs/legacy/plans/RUST-REWRITE-RFC.md`）的皮套层 crate。
 
 ## 模块
 

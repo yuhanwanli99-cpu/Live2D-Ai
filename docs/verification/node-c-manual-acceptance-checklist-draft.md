@@ -2,7 +2,7 @@
 
 > **草稿：待高级 AI 确认后转正式验收清单。**
 >
-> 适用范围：`docs/plans/node-c-render-platform-audit-brief.md` 中需列入手动验收清单的 C10（拖动人工复验项）与 C11（托盘恢复链路）。本文件只起草操作步骤与判据，不做最终裁决。
+> 适用范围：`../legacy/plans/node-c-render-platform-audit-brief.md` 中需列入手动验收清单的 C10（拖动人工复验项）与 C11（托盘恢复链路）。本文件只起草操作步骤与判据，不做最终裁决。
 >
 > 自动化复测条件（须先满足）：
 >

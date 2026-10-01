@@ -109,7 +109,7 @@
   ⇒ **任何"能被自动化打开"的状态，必须配一个用户可触达的关闭入口。**
 
 **本仓库自身的历史先例（py-legacy）**【已验证·本仓库】
-`docs/plans/node-d-py-asset-migration.md` 的迁移表：
+`../legacy/plans/node-d-py-asset-migration.md` 的迁移表：
 
 - R11：`renderer/src/dev-console/dev-console.ts`「开发者控制台：动作目录可视化 + 手动触发」，
   「**保留**：动作列表渲染、强度 1/2/3 滑块、**release 按钮**、**accepted/rejected 计数**。**改**：去掉「原始动作触发接口」直连（Rust core 走 audit log）」。
@@ -273,7 +273,7 @@ core 的动作子系统已经是一个「单 active + 来源优先级」仲裁�
 | 场景 | core 结果 | 建议 UI |
 |---|---|---|
 | 空闲 + 用户点动作 | `Start{user}` | 动作卡高亮 + 来源徽标「你」 |
-| 空闲 + LLM 调动作 | `Start{llm}` | 徽标「AI」+ 可选一句 `reason`（工具参数里有 `reason`：R3 保留 3 参数 `action/strength/reason`）【已验证·本仓库】`docs/plans/node-d-py-asset-migration.md` R3 |
+| 空闲 + LLM 调动作 | `Start{llm}` | 徽标「AI」+ 可选一句 `reason`（工具参数里有 `reason`：R3 保留 3 参数 `action/strength/reason`）【已验证·本仓库】`../legacy/plans/node-d-py-asset-migration.md` R3 |
 | AI 动作在演 + 用户点另一个 | `Transition{llm→user}`（用户抢占） | 徽标从「AI」切到「你」，并**短暂闪一次"已接管"** |
 | AI 动作在演 + 用户点**同一个** | `Dropped(AlreadyActive)` | 按钮显示「正在演」，不要静默 |
 | 用户动作在演 + 规则想插 | `Dropped(LowerPriority)` | 若在开发者面板，显示被压住的入参；普通用户不打扰 |
@@ -1081,4 +1081,4 @@ Flutter 现状：`_WsBadge` 用 5 态 + 颜色圆点 + 文字；舞台只显示 
 `crates/l2d-wasm-demo/src/main.rs`（+ `index.html`）、
 旧前端 `crates/live2d-ai-desktop/src/web_api/{app.js,index.html}`。
 前端：`shell/flutter/lib/{main.dart,ui/display_panel.dart,settings/display_prefs.dart,audio/audio_player.dart,api/ws_client.dart,live2d/live2d_bridge.dart,live2d/live2d_stage.dart}`。
-文档：`AGENTS.md`、`docs/plans/node-d-py-asset-migration.md`、`docs/research/idle-motion-tracking-and-director-2026-09.md`（相邻调研，仅引用不重复）。
+文档：`AGENTS.md`、`../legacy/plans/node-d-py-asset-migration.md`、`docs/research/idle-motion-tracking-and-director-2026-09.md`（相邻调研，仅引用不重复）。

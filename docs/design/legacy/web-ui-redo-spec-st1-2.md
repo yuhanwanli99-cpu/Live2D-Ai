@@ -1,6 +1,6 @@
 # Web UI 重做 — 阶段1+2 实现规格（主 Agent 定，子代理严格照做）
 
-> 依据：`docs/plans/web-ui-redo-plan.md`（用户已审核，路线 A / 前端豁免 / 品牌蓝确认）。
+> 依据：`../../legacy/plans/web-ui-redo-plan.md`（用户已审核，路线 A / 前端豁免 / 品牌蓝确认）。
 > 哲学：deepseekharness（触发行+居中模态+左导航 rail）+ NEKO（胶囊化品牌蓝）+ Rust>95%（路线 A vanilla，前端豁免）。
 > 子代理**不得自由发挥设计**：结构/类名/id/样式按本规格字面。
 

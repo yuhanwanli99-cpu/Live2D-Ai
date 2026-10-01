@@ -46,7 +46,7 @@
 ### Wave 0 —— 6 路并行（文件零重叠）
 | 任务 | 独占文件（摘要，详见各块【文件归属】） |
 |---|---|
-| **W1** 文档对齐 | `AGENTS.md`、`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`、`docs/README.md`（**director-rfc.md 归 W8**） |
+| **W1** 文档对齐 | `AGENTS.md`、`../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`、`docs/README.md`（**director-rfc.md 归 W8**） |
 | **W2** 幅值重标定 | `assets/actions/presets.json`、`preset/{mod,scales,table}.rs`、`preset/tests/*`、`runtime/src/settings.rs`（DEFAULT_*/MIN/MAX）、`live2d-ai.toml(.example)`、`settings_models.dart`、`appearance_section.dart`、两个 Dart 测试 |
 | **W3** 调试面板 | `dev_tools_section.dart`、`preset_labels.dart`、`test/developer_section_test.dart`、`test/preset_labels_test.dart` |
 | **W5** Rust 卫生 | `runtime/src/lib.rs`、`runtime/src/performance/{client,mod}.rs`、`web/surface/input.rs`、`l2d-wasm-demo/src/main.rs`、`preset/table.rs`、`runtime/src/settings.rs`（**仅 :594 文档段**） |

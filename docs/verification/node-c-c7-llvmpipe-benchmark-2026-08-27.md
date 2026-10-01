@@ -1,6 +1,6 @@
 # 节点 C 裁决问题 C7/C8：llvmpipe A/B benchmark（P1-2 落地）
 
-> **任务范围**：实施 `docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
+> **任务范围**：实施 `../legacy/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
 > C7 节第 114-128 行「benchmark 协议」+ C8 节第 129-141 行「性能验收线」
 > 1-3 三条；复审 P1-2 要求「同 binary 双模式 A/B」+「production 路径
 > 一行不改」。

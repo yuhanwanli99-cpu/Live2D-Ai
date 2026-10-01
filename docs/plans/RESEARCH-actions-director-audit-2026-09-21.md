@@ -297,7 +297,7 @@ Wave 0 的其它块（W1/W2/W3/W5/W6）与 Wave 1/2（W4/W7）不受影响。
 | --- | --- | --- |
 | `AGENTS.md`（`-l1`，`:112`） | 「LLM 工具层与**动作系统已整体拆除**——不要再以『动作系统』为前提写代码」 | 分支里有 `[action]` 段、9 条动作包、`preset` 协议、调试面板「表情/动作调试」 |
 | `AGENTS.md`（`:256-268`） | 「动作在产品路径上**不存在**」；core action/performance **休眠无驱动方** | 动作包经 `preset` 直接驱动渲染面参数 |
-| `docs/plans/PRODUCT-L1-GOALS-2026-09-15.md:39` | 非目标：「**不复活 Action**」；director「**本轮不做**」 | director 在 `mods.json` 里 `enabled: true` |
+| `../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md:39` | 非目标：「**不复活 Action**」；director「**本轮不做**」 | director 在 `mods.json` 里 `enabled: true` |
 | `director-rfc.md:417` | 骨架「**不投递**任何动作 / TTS 参数」 | 已投递 `latest.preset_id` + `action_cue` |
 | `AGENTS.md`（`:119/134`） | 「现行 5 个注册 Mod … `mod_count_is_five`」 | `main.rs:471` 仍是 `mod_count_is_five` ✔（这条一致） |
 

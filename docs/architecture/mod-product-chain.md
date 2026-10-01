@@ -2,7 +2,7 @@
 
 > **状态**：2026-09-13 rc.4 起草，rc.4 唯一 Mod 契约。与旧「插件 SDK」文
 > （[`plugin-sdk.md`](plugin-sdk.md)，Python 时代、含动态加载与动作通道）**冲突时以本文为准**。
-> 真源计划：[`../plans/PLAN-rc4-mod-product-chain-2026-09-13.md`](../plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
+> 真源计划：[`../legacy/plans/PLAN-rc4-mod-product-chain-2026-09-13.md`](../legacy/plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
 
 ## 1. 定位
 

@@ -5,7 +5,7 @@ Linux 原生窗口/GPU 壳（**桌宠能力批**）：winit **0.30** + wgpu **29
 透明无边框可调整大小窗口 + Bai 实时渲染（`--model-smoke`）、实际声卡输出链路
 （`src/audio.rs`，cpal + 无锁 SPSC 环）、ksni 托盘、置顶/底部右侧定位/点击穿透/
 交互态拖动；网络（LLM/TTS HTTP）尚未接入应用编排
-（RFC `docs/plans/RUST-REWRITE-RFC.md` §4 批次 5/6；D10：应用本体原生渲染）。
+（RFC `docs/legacy/plans/RUST-REWRITE-RFC.md` §4 批次 5/6；D10：应用本体原生渲染）。
 
 ## 运行
 

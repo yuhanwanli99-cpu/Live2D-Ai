@@ -5,7 +5,7 @@
 > 相关分项报告：`docs/audit/CONFIG_SCHEMA_AUDIT.md`、`docs/audit/SETTINGS_SYSTEM_AUDIT.md`、
 > `docs/audit/tts_config_audit_report.md`。
 
-> **平台轨迹（2026-08-19 用户定调，见 `docs/plans/wsl2-migration-plan.md`）：**
+> **平台轨迹（2026-08-19 用户定调，见 `../legacy/plans/wsl2-migration-plan.md`）：**
 > **PC 端主力迁移到 WSL2，放弃 Windows 作为主力（Windows 降为遗留降级）。**
 > 本报告遗留项的**平台优先级**按此重排：Linux/WSL2 相关项（原子写的权限/目录 fsync、`.env`/`persona.yaml`
 > 原子化）**升高**；Windows 专属项（`start.ps1`、`pyttsx3`(SAPI)、`_start_server.py` 分叉启动器）**降为遗留**，

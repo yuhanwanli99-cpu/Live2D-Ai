@@ -19,8 +19,8 @@
 | `docs/architecture/core-contracts.md` | 核心契约与架构边界 |
 | `docs/architecture/directory.md` | 目录约定（Rust 结构） |
 | `docs/architecture/ARCHITECTURE.md` | 技术栈详表 |
-| `docs/plans/node-e-execution-plan.md` | Mod 系统（节点 E）执行计划 |
-| `docs/plans/node-f-execution-plan.md` | 核心链路收口 → 5 Mod 开箱即用（节点 F）|
+| `plans/node-e-execution-plan.md` | Mod 系统（节点 E）执行计划 |
+| `plans/node-f-execution-plan.md` | 核心链路收口 → 5 Mod 开箱即用（节点 F）|
 | `CHANGELOG.md` | 版本变更记录 |
 | `HANDOVER.md` | 历史交接文档 |
 

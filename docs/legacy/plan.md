@@ -3,7 +3,7 @@
 ## 用户目标
 
 接续上一轮已收尾的会话（`piagent/run/20260908-201956-lp8l` 已并入 `main`，base `b80605ef`），
-把 `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md` §4.1 的两件未闭环待办做完：
+把 `plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md` §4.1 的两件未闭环待办做完：
 
 1. **为 app.js 建立行为级测试基线**：现 `tests_html.rs` / `index_html.rs` 只做字符串锚点锁（DOM 模板/id），
    不验证 JS 行为。本轮用 Rust 集成测试驱动 node（stub DOM/window/fetch/localStorage）运行真实 app.js，
@@ -24,7 +24,7 @@
 
 - `crates/live2d-ai-desktop/tests/webapp_behavior.rs`（新增行为测试）
 - `crates/live2d-ai-desktop/src/web_api/**`（app.js / tests_html.rs / index_html.rs / index.html 的字面量锚点按需同步）
-- `docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md`（交接与行数记录）
+- `plans/HANDOFF-2026-09-09-appjs-behavior-trim.md`（交接与行数记录）
 禁止：crates/l2d/**、crates/live2d-ai-runtime/**、crates/live2d-ai-core/**、xtask/**、.github/**、其余 crate。
 
 ## 外部验收项（不 fake）
@@ -108,7 +108,7 @@ scope:
       size: small
       allowed_paths:
         - crates/live2d-ai-desktop/src/web_api/tests_html.rs
-        - docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
+        - plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
       forbidden_paths:
         - crates/l2d/**
         - crates/live2d-ai-runtime/**
@@ -120,7 +120,7 @@ scope:
         - 门禁值与实测一致（≤760 优先；否则如实记录缺口，不改 spec）
       acceptance:
         - 门禁测试在 tests_html.rs 且与实测一致
-        - 交接文档路径 docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
+        - 交接文档路径 plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
       allowed_verify_roots:
         - .
 master_nodes:

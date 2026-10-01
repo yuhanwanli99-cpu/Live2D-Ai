@@ -6,7 +6,7 @@
 >
 > **当前项目的正确入口**：
 > - `AGENTS.md`（分层、门禁、语音契约）
-> - `docs/plans/HANDOFF-2026-09-11.md`（**当前交接**：v0.4.13 → v0.5.1 前端重做 +
+> - `plans/HANDOFF-2026-09-11.md`（**当前交接**：v0.4.13 → v0.5.1 前端重做 +
 >   真机验收 + 错误可观测性；§12 是未提交改动的清单与提交切分）
 > - `docs/design/web-ui-spec-v3.md`（前端设计规格，实现者照此写代码）
 > - `CHANGELOG.md`（v0.4.0 起的逐版变更）
@@ -21,7 +21,7 @@
 
 ## 〇、当前执行计划（2026-08-21 接手，PC 端）
 
-- **当前唯一执行口径**：`docs/plans/PLAN-V2-PC-LOCAL-TTS.md`（仅 PC，附带本地 Melo TTS 需求；取代 PLAN-V1）。
+- **当前唯一执行口径**：`plans/PLAN-V2-PC-LOCAL-TTS.md`（仅 PC，附带本地 Melo TTS 需求；取代 PLAN-V1）。
 - **目标**：把 Melo TTS 接成 PC 设置中心「本地/免费」分组的一等公民 Provider，并新增稳定本地 TTS HTTP 接口（`POST /api/tts/local/synthesize`），全程无需云端 TTS Key。
 - **范围边界**：不碰 Android；Melo 定位为本地多语种音色合成，参考音频克隆仍走 `voice_library.py` + CosyVoice/GPT-SoVITS。
 - **执行状态（2026-08-21）**：阶段 1–5 的代码、设置 UI、REST 接口、测试与绿门已完成；**外部 Melo 环境已对接**（`melo_worker.py` + `melo_external.py` 常驻子进程，`MELO_PYTHON` 可覆盖解释器路径），默认 `device=cpu`，并限制单次 `MELO_MAX_TEXT_LEN=200` 字 / `MELO_MAX_SENTENCES=4` 句。已用真实 ZH 模型跑通 worker 与 `MeloTTSEngine.generate_audio` 端到端合成。绿门：`verify_all.py --pc` 5/5、PC pytest 325 passed、前端 vitest 375 passed、tsc+build 通过。**剩余**：EN/ES/FR/JP/KR 首次下载合成与 cuda 并发冒烟。

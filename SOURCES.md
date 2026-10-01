@@ -1,7 +1,7 @@
 # SOURCES.md — 来源纪律与许可边界
 
 > 用途：任何第三方代码进入本仓库源码树**之前**，必须先在本文件登记
-> （来源、许可证、版本/commit、目的），经确认后再引入（RFC `docs/plans/RUST-REWRITE-RFC.md` §5 / D4）。
+> （来源、许可证、版本/commit、目的），经确认后再引入（RFC `docs/legacy/plans/RUST-REWRITE-RFC.md` §5 / D4）。
 > 引入动作发生时，在「已引入」一节补记 fork/pin 的固定 commit 与引入位置；
 > 未登记即引入视为违规。
 
@@ -40,7 +40,7 @@ Mocari 保持「仅登记、未引入」，作为未引入参考与动画补充�
 
 | 名称 | 上游 | 许可证 | 语言 | 状态 | 登记目的 |
 | --- | --- | --- | --- | --- | --- |
-| **egui** | <https://github.com/emilk/egui>（crates.io `egui` 0.35） | **MIT OR Apache-2.0**（双许可；上游 `LICENSE-MIT` / `LICENSE-APACHE`） | 纯 Rust 即时模式 GUI | **已引入**（见下节「已引入」）；版本 0.35（2026-08-28 查询 crates.io） | 桌面端设置面板 UI 框架：调研报告 `docs/plans/ui-selection-report-2026-08-28.md` 选型 A 路线，与 wgpu 29 / winit 0.30 大版本完全对齐 |
+| **egui** | <https://github.com/emilk/egui>（crates.io `egui` 0.35） | **MIT OR Apache-2.0**（双许可；上游 `LICENSE-MIT` / `LICENSE-APACHE`） | 纯 Rust 即时模式 GUI | **已引入**（见下节「已引入」）；版本 0.35（2026-08-28 查询 crates.io） | 桌面端设置面板 UI 框架：调研报告 `docs/legacy/plans/ui-selection-report-2026-08-28.md` 选型 A 路线，与 wgpu 29 / winit 0.30 大版本完全对齐 |
 | **egui-winit** | <https://github.com/emilk/egui>（crates.io `egui-winit` 0.35） | **MIT OR Apache-2.0**（同 crate 仓库） | 纯 Rust winit 0.30 桥 | **已引入**（与 egui 同版本） | 面板 winit 事件桥（`State::new` / `on_window_event` / `take_egui_input`） |
 | **egui-wgpu** | <https://github.com/emilk/egui>（crates.io `egui-wgpu` 0.35） | **MIT OR Apache-2.0**（同 crate 仓库） | 纯 Rust wgpu 29 渲染后端 | **已引入**（与 egui 同版本） | 面板 GPU 渲染（`Renderer::new` / `update_buffers` / `render`） |
 
@@ -55,7 +55,7 @@ Mocari 保持「仅登记、未引入」，作为未引入参考与动画补充�
 | 名称 | 引入方式与位置 | 固定 rev | 许可证 | 引入日期 | 决策依据 |
 | --- | --- | --- | --- | --- | --- |
 | **Ayagami**（`ayagami` + `ayagami-render`） | `crates/l2d/Cargo.toml` git 依赖（未复制/vendored 源码；crate 对外仅暴露自有封装 API，第三方类型不越过 crate 边界） | [`640ae4b10bad8def1adcacdada4f8241b484c169`](https://github.com/AyagamiDev/ayagami)（**禁止浮动分支**；升级 rev 须重新验证并同步本文件） | MIT OR Apache-2.0（上游根 `COPYRIGHT`/`LICENSE-MIT`/`LICENSE-APACHE`） | 2026-08-26 | RFC D4 Bakeoff：`docs/verification/rust-bakeoff-decision.md`；验证报告 `docs/verification/rust-bakeoff-ayagami.md` |
-| **egui** + **egui-winit** + **egui-wgpu**（0.35 全家） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`egui = "0.35"` / `egui-winit = "0.35"` / `egui-wgpu = "0.35"`；通过 `Cargo.lock` 锁版本，未复制源码） | crates.io `0.35.x` 系列（升级须重跑 `cargo check -p live2d-ai-desktop --all-targets` 并同步本文件） | MIT OR Apache-2.0（上游 `LICENSE-MIT` / `LICENSE-APACHE`，与 crates/l2d 双许可一致） | 2026-08-28 | 选型报告 `docs/plans/ui-selection-report-2026-08-28.md` §二 A 路线：与 wgpu 29 / winit 0.30 大版本完全对齐；同栈共享 device/queue，零第二 GPU 上下文 |
+| **egui** + **egui-winit** + **egui-wgpu**（0.35 全家） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`egui = "0.35"` / `egui-winit = "0.35"` / `egui-wgpu = "0.35"`；通过 `Cargo.lock` 锁版本，未复制源码） | crates.io `0.35.x` 系列（升级须重跑 `cargo check -p live2d-ai-desktop --all-targets` 并同步本文件） | MIT OR Apache-2.0（上游 `LICENSE-MIT` / `LICENSE-APACHE`，与 crates/l2d 双许可一致） | 2026-08-28 | 选型报告 `docs/legacy/plans/ui-selection-report-2026-08-28.md` §二 A 路线：与 wgpu 29 / winit 0.30 大版本完全对齐；同栈共享 device/queue，零第二 GPU 上下文 |
 | **tiny_http**（D2 HTTP 接线，2026-08-28） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`tiny_http = "0.12"`；通过 `Cargo.lock` 锁版本） | crates.io `0.12.x` 系列（升级须重跑门禁并同步本文件） | **MIT OR Apache-2.0**（上游 `LICENSE-MIT` / `LICENSE-APACHE` 双许可；与 crates/l2d / egui 同款许可边界） | 2026-08-28 | 节点 D2 选型：loopback 控制平面 HTTP 服务的最小依赖面（无 TLS / 零 async 运行时 / 阻塞 handler 适合 supervisor 之外的控制命令路径）；选型理由记录在 `crates/live2d-ai-desktop/Cargo.toml` 的 `tiny_http` 注释块 |
 | **reqwest** + **url** + **futures-util**（D2 settings/test/{llm,tts} 端点） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（reqwest 0.12 已带 rustls-tls / json / stream features；`url = "2"`；`futures-util = "0.3"` 仅 std feature） | crates.io 现行（与 `live2d-ai-runtime` 同步锁定） | **MIT OR Apache-2.0**（reqwest 0.12 / url 2 / futures-util 0.3 上游双许可） | 2026-08-28 | 节点 D2 test 端点直发最小 LLM/TTS 请求：runtime 的 `OpenAiClient::new` 不暴露 from_parts（私有字段），且默认构造的 `reqwest::Client` 无 timeout——test 端点必须自构带 timeout 的 client；D2 与 runtime crate 共享同一 reqwest / url 版本，避免传递冲突 |
 | **tracing-appender**（W3 日志落盘） | `crates/live2d-ai-desktop/Cargo.toml` crates.io 依赖（`tracing-appender = "0.2"`） | crates.io `0.2.x` 系列（升级须重跑门禁并同步本文件） | **MIT**（上游 `LICENSE` 单许可；tokio-rs 官方配套 crate） | 2026-08-29 | W3 任务：CLI 启动附带（任何模式 `--chat`/`--web`/`--pet-mode` 都落盘）——`tracing_appender::rolling::daily` 自动按天滚动（`live2d-ai.log.YYYY-MM-DD` 后缀）；非阻塞 `non_blocking` 包装 + `SanitizingWriter`（`crates/live2d-ai-desktop/src/logging.rs`）兜底脱敏 P0-1 密钥明文。许可证与本 crate AGPL-3.0-only 边界无冲突 |

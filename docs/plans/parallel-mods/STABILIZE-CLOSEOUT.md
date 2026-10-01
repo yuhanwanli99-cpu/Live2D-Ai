@@ -77,7 +77,7 @@ fetch('/api/v1/mods/memory/enable', {method:'POST', headers:{'Content-Type':'app
 
 **唯一 SKIP**：token 鉴权项（本机未配 `EXTERNAL_INPUT_TOKEN`）。
 
-完整逐项表：[`../STABILIZE-PRECHECK-RESULT.md`](../STABILIZE-PRECHECK-RESULT.md)。
+完整逐项表：[`../../legacy/plans/STABILIZE-PRECHECK-RESULT.md`](../../legacy/plans/STABILIZE-PRECHECK-RESULT.md)。
 
 ---
 
@@ -104,8 +104,8 @@ Windows Chrome/Edge 的 WebGPU 差异。**不声称「真实点火已完成」**
 
 | 给谁 | 文件 |
 | --- | --- |
-| **给用户勾选** | [`../IGNITION-CHECKLIST-stabilize.md`](../IGNITION-CHECKLIST-stabilize.md) |
-| 给审查 | [`../STABILIZE-PRECHECK-RESULT.md`](../STABILIZE-PRECHECK-RESULT.md) |
+| **给用户勾选** | [`../../legacy/plans/IGNITION-CHECKLIST-stabilize.md`](../../legacy/plans/IGNITION-CHECKLIST-stabilize.md) |
+| 给审查 | [`../../legacy/plans/STABILIZE-PRECHECK-RESULT.md`](../../legacy/plans/STABILIZE-PRECHECK-RESULT.md) |
 | 机器预检脚本 | `scripts/ignition-precheck.sh`（`--fsm` 可选） |
 
 ### 5.1 留给用户的肉眼 / Win 项（清单 §3）

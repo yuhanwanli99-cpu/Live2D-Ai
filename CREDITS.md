@@ -169,7 +169,7 @@ Under the [Live2D Free Material License Agreement](https://www.live2d.com/eula/l
 - **Source:** https://github.com/StarrySky7D4/morrow
 - **取证 commit:** `a3c1766`（Release v0.1.9-test.1）
 - **Usage:** **设计参考与源码结构分析**。本项目
-  [`docs/plans/PLAN-frontend-strengthening-2026-09-11.md`](docs/plans/PLAN-frontend-strengthening-2026-09-11.md)
+  [`docs/legacy/plans/PLAN-frontend-strengthening-2026-09-11.md`](docs/legacy/plans/PLAN-frontend-strengthening-2026-09-11.md)
   逐文件评估了其前端观感资产（指针跟随边缘光、可插值材质模型、折叠面板保活、
   双页交叉过渡、视觉审查工具），用于填补本项目「设计令牌齐全但动效接线为零」的缺口。
   **截至 2026-09-11，本仓库未复制其任何源代码**；一旦按该计划落地，需在此补记

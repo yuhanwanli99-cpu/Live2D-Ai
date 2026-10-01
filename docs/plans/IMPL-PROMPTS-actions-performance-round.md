@@ -49,7 +49,7 @@ worker 开工前应读相关章节）。调度真源：`docs/plans/ORCHESTRATOR-
 
 【任务 W1：文档对齐——把「动作/表演现行状态」写进文档（只改文档，不写代码）】
 问题：AGENTS.md（-l1）仍写「LLM 工具层与动作系统已整体拆除」（:112）、「动作在产品路径上不存在」（:256-268），
-docs/plans/PRODUCT-L1-GOALS-2026-09-15.md:39 的非目标写「不复活 Action」、director「本轮不做」，
+../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md:39 的非目标写「不复活 Action」、director「本轮不做」，
 而分支现实是：[action] 段存在、9 条动作包（assets/actions/presets.json）、渲染面 preset 协议存在、
 director 在 mods.json 里缺省启用、[performance] 段存在但缺省关。文档与代码不一致会直接误导下一个执行者。
 必做：
@@ -59,7 +59,7 @@ director 在 mods.json 里缺省启用、[performance] 段存在但缺省关。�
    ⑤ core 的 action/performance 子系统仍无驱动方（动作包走的是渲染面参数层，不经 core reducer）。
    每条都要写「真源文件」，不要只写结论。
 2. 把 :112 与 :256-268 里**已不成立**的断言改成带现状更正的说法（保留历史沿革，但不能再留下无条件断言）。
-3. PRODUCT-L1-GOALS-2026-09-15.md：在 §5「非目标」的「不复活 Action」与 §2 表格 director 行后各加一句现状更正
+3. ../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md：在 §5「非目标」的「不复活 Action」与 §2 表格 director 行后各加一句现状更正
    （该文件是 2026-09-15 的历史任务书，**不要重写历史结论**，只加「已变更 / 现状见 …」的指引）。
 4. docs/architecture/action-packs-v0.md：加一节「与实现的偏差（2026-09 实测）」，把 RESEARCH 报告 §3.2 的 RFC 冲突表
    与 §3.4 的清单**原样引用**。⚠ §3.4 的 D1 那行**已被维护者裁决撤回**（RUN 报告 §3.6），引用时必须**连撤回标记一起引**，
@@ -74,7 +74,7 @@ director 在 mods.json 里缺省启用、[performance] 段存在但缺省关。�
 禁止：改任何 .rs / .dart；在文档里下架构裁决（裁决是维护者的事）；重写历史发布说明。
 验收：grep -rn '动作系统已整体拆除' AGENTS.md 命中的行后面必须紧跟现状更正或指向新小节；
      新增小节里的每个「真源」路径都能在树上找到（自己 ls 一遍并把输出贴进回报）。
-【文件归属】AGENTS.md、docs/plans/PRODUCT-L1-GOALS-2026-09-15.md、docs/architecture/action-packs-v0.md、
+【文件归属】AGENTS.md、../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md、docs/architecture/action-packs-v0.md、
            docs/README.md（**只这些**；director-rfc.md 归 W8）
 
 ================================================================

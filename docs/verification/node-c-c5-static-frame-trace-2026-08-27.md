@@ -1,6 +1,6 @@
 # 节点 C / C5 静止帧上传 trace 实测报告（2026-08-27）
 
-> **任务**：P1-1，验证 `docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
+> **任务**：P1-1，验证 `../legacy/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
 > C5 节 93-98 行可核查门禁（仅取证，不裁决）。
 > **工具**：`crates/l2d/examples/static_frame_trace.rs`（新增 example）。
 > **运行主机**：Linux x86_64，wgpu 29.0.4 后端 Vulkan → Mesa llvmpipe 21.1.8。
@@ -206,7 +206,7 @@ cargo run -p l2d --example static_frame_trace
 工具源码：`crates/l2d/examples/static_frame_trace.rs`（≤500 行）。
 原始输出：`docs/verification/logs/static_frame_trace_raw.txt`（38 行）。
 参考：上游方法学 `docs/verification/node-c-c5-prepare-upload-audit.md` ④ 节 4.3。
-裁决源：`docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md` C5 节 87-98 行。
+裁决源：`../legacy/plans/node-c-c1-c11-formal-audit-2026-08-27.md` C5 节 87-98 行。
 
 ---
 
