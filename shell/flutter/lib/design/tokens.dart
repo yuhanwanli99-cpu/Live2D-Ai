@@ -447,8 +447,8 @@ class AppColors extends ThemeExtension<AppColors> {
       glassBarrier: veil.withValues(alpha: dark ? 0.32 : 0.40),
       // 承载文字信息的次要文本（≥ 12 px）。
       contentMuted: on.withValues(alpha: 0.74),
-      // **仅装饰/图标**，不得承载文字信息。
-      contentFaint: on.withValues(alpha: 0.60),
+      // **装饰/图标**优先；0.68 不是审美值，而是**对比度下限**（见 contentFaint）。
+      contentFaint: on.withValues(alpha: 0.68),
       // 键盘焦点环**必须不透明**（对比度要可测）。
       focusRing: scheme.primary,
       // 玻璃边缘高光的**基色**（见 `GlassRim`）。用 `ink` 而不是写死白：
@@ -478,7 +478,29 @@ class AppColors extends ThemeExtension<AppColors> {
   /// 次要文本（承载信息）。
   final Color contentMuted;
 
-  /// 更弱的色（**仅装饰/图标**）。
+  /// 更弱的色（**装饰/图标**优先）。
+  ///
+  /// # 为什么是 0.68 而不是「更淡」（2026-09-28，F-0006-2）
+  ///
+  /// 这个令牌的自注原本是「**仅装饰/图标**，不得承载文字信息」——语义没错，
+  /// 但审计实读发现它**真的**被当文字色用了（输入框占位文字、滑杆两端刻度、
+  /// 空闲相位标签、外观分区的摘要行…；跨行的 `style:` 写法能绕过同行正则守卫）。
+  /// 白色主题实测 **3.96–4.07 < WCAG AA 4.5**，低视力用户读不清。
+  ///
+  /// 「别拿它写文字」只能靠评审守（守卫挡不住跨行写法），**数值下限却可以被
+  /// 算术守住**——所以这里把下限抬到「就算被误用为文字也读得清」：
+  ///
+  /// | 面（白主题） | 旧 0.60 | 现 0.68 |
+  /// | --- | --- | --- |
+  /// | `surface` #F7F5F3 | 4.08 | **5.21** |
+  /// | `surfaceAlt` #EDECE9 | 3.96 | **5.01** |
+  /// | `raised` #E2E0DE | 3.80 | **4.76** |
+  ///
+  /// 暗色三套只升不降（对 `surfaceAlt`：黑 5.93→7.22 / 蓝 5.31→6.38 /
+  /// 灰 4.88→5.79），所以「黑主题不得因此降到 4.5 以下」自动成立。
+  /// 0.66 是白主题 `raised` 上的临界值（4.497，差 0.003 不达标），故取 0.68 留余量。
+  /// **纯函数算术回归**（含「旧值 0.60 必须红」的判别力自证）见
+  /// `test/content_contrast_test.dart`。
   final Color contentFaint;
 
   /// 键盘焦点环。

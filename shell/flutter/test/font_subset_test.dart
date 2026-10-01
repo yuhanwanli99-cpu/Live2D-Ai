@@ -28,6 +28,16 @@
 /// 覆盖表从字体文件派生（`scripts/font_subset_ranges.py`）。若有人换了字体却没
 /// 重新生成覆盖表，测试就会拿旧表放行——**比没有门禁更危险**。所以文件头记录了
 /// 字体字节数与 FNV-1a(32) 哈希，这里重新计算比对，不一致就要求重新生成。
+///
+/// # 覆盖面（2026-09-28，F-0005-5 之后分成两支文件）
+///
+/// - **本文件**：`lib/**/*.dart` 的**源码字符串字面量**（构建期已知的界面文案）。
+/// - `font_runtime_subset_test.dart`：**运行态文本来源**（模型输出 / 后端文案 /
+///   Mod 运行态值）——那里有清单 + 可失败的后端文案真扫。两支共用本文件的
+///   覆盖表解析、判据（[collectOffenders]）与 Dart 词法器，避免口径漂移。
+///
+/// 换句话说：**「字体门禁全绿」只等于「源码文案没有缺字」**，不等于运行时不会
+/// 拉外部字体——后者见 `font_runtime_subset_test.dart` 头注的「已知缺口」。
 library;
 
 import 'dart:io';
@@ -215,6 +225,41 @@ int _decodeEscape(String s, int at) {
   return 0;
 }
 
+/// 载入两份覆盖表（`lib/**` 扫描与运行态扫描共用，避免口径漂移）。
+List<SubsetRanges> loadSubsets() => <SubsetRanges>[
+  for (final String stem in _fontStems)
+    parseRanges(File('$stem.ranges.txt').readAsStringSync()),
+];
+
+/// 一段文本里**不在子集内**的码点（去重、升序）。纯函数。
+List<int> subsetMisses(String text, List<SubsetRanges> subsets) {
+  final Set<int> out = <int>{};
+  for (final int cp in text.runes) {
+    if (cp < 0x80) continue; // ASCII 必然覆盖
+    if (subsets.every((SubsetRanges r) => r.covers(cp))) continue;
+    out.add(cp);
+  }
+  final List<int> sorted = out.toList()..sort();
+  return sorted;
+}
+
+/// 一批运行态样本 → 违规码点：`码点 → 出现它的来源 id 集合`。
+///
+/// **字体门禁的唯一判据**：`lib/**/*.dart` 那条扫描与运行态扫描都走这里
+/// （两处各写一份的话，迟早一处改了另一处没改）。
+Map<int, Set<String>> collectOffenders(
+  Iterable<(String, String)> samples,
+  List<SubsetRanges> subsets,
+) {
+  final Map<int, Set<String>> offenders = <int, Set<String>>{};
+  for (final (String where, String text) in samples) {
+    for (final int cp in subsetMisses(text, subsets)) {
+      offenders.putIfAbsent(cp, () => <String>{}).add(where);
+    }
+  }
+  return offenders;
+}
+
 void main() {
   group('① 抽取字符串字面量的小词法器（门禁自身的钉子）', () {
     test('注释里的字符**不算**（否则注释解释缺字反而把门禁判红）', () {
@@ -285,28 +330,26 @@ final c = '甲' '乙';
 
   group('③ 界面文案里不得出现子集外的字符', () {
     test('lib/**/*.dart 的字符串字面量全部被自托管子集覆盖', () {
-      final List<SubsetRanges> subsets = <SubsetRanges>[
-        for (final String stem in _fontStems)
-          parseRanges(File('$stem.ranges.txt').readAsStringSync()),
-      ];
+      final List<SubsetRanges> subsets = loadSubsets();
 
-      // 违规字符 → 出现在哪些文件
-      final Map<int, Set<String>> offenders = <int, Set<String>>{};
       final List<File> sources = Directory('lib')
           .listSync(recursive: true)
           .whereType<File>()
           .where((File f) => f.path.endsWith('.dart'))
           .toList();
 
-      for (final File file in sources) {
-        for (final String literal in stringLiterals(file.readAsStringSync())) {
-          for (final int cp in literal.runes) {
-            if (cp < 0x80) continue; // ASCII 必然覆盖
-            if (subsets.every((SubsetRanges r) => r.covers(cp))) continue;
-            offenders.putIfAbsent(cp, () => <String>{}).add(file.path);
-          }
-        }
-      }
+      // 判据与运行态扫描**共用**（`collectOffenders`）：两处各写一份的话，
+      // 迟早一处改了另一处没改。
+      final Map<int, Set<String>> offenders = collectOffenders(
+        <(String, String)>[
+          for (final File file in sources)
+            for (final String literal in stringLiterals(
+              file.readAsStringSync(),
+            ))
+              (file.path, literal),
+        ],
+        subsets,
+      );
 
       final String detail = offenders.entries
           .map(

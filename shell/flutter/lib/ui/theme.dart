@@ -298,7 +298,11 @@ ThemeData buildAppComponents(
         borderRadius: BorderRadius.circular(r(AppRadius.md)),
         borderSide: BorderSide(color: palette.danger, width: 1.5),
       ),
-      hintStyle: text.bodyMedium?.copyWith(color: colors.contentFaint),
+      // 占位文字是**承载信息**的（提示格式），不是装饰：`contentMuted` 是
+      // 「次要文本」那一档（2026-09-28，F-0006-2：`contentFaint` 在白主题上
+      // 只有 3.96–4.07，低于 WCAG AA 4.5）。这一处是**全应用**输入框的
+      // 提示色，所以它不是「顺手改配色」而是门槛修复。
+      hintStyle: text.bodyMedium?.copyWith(color: colors.contentMuted),
     ),
 
     // ── 分区导航：文字 chip，无头像图标 ──
