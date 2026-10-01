@@ -1,0 +1,39 @@
+### verifier 并排复现：旧同行正则 vs 新结构判定（/tmp 副本，778 已回退）
+# 回退内容: appearance_background.dart:778 color: colors.contentMuted -> contentFaint
+$ flutter test test/zz_judge_compare_test.dart
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /tmp/w1b_probe_judge/shell/flutter/test/zz_judge_compare_test.dart
+00:00 +0: 并排对照：同一份源码下 OLD_REGEX_HITS vs NEW_JUDGE_HITS
+OLD_REGEX_HITS=0 []
+NEW_JUDGE_HITS=[778:宿主 Text]
+ALL_FAINT_USES=[778:copyWith, 974:Icon]
+00:00 +1: 对照：迁移后的源码（HEAD 版）两个判据都为 0
+（副本内 778 已回退）ALL_USES=2
+00:00 +2: All tests passed!
+JUDGE_EXIT=0
+
+### 追加：迁移前源码（1d0c6e66 版）上的同两判据 —— 解释实施者引用的 774
+$ flutter test test/zz_judge_pre_migration_test.dart
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /tmp/w1b_probe_judge/shell/flutter/test/zz_judge_pre_migration_test.dart
+00:00 +0: 迁移前源码（1d0c6e66）上的旧/新判据
+PRE_MIGRATION OLD_REGEX_HITS=0 []
+PRE_MIGRATION NEW_JUDGE_HITS=[774:宿主 Text, 1143:宿主 Text]
+00:00 +1: All tests passed!
+PRE_EXIT=0

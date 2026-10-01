@@ -1,0 +1,9 @@
+### CMD: bash docs/audit/2026-10-01-debloat/W0/raw/check_archive_refs.sh docs/legacy/plans-archive-candidates-2026-10-01.txt   （cwd = b9eff54e 的树）
+/home/skystar/Live2D-Ai-fe/docs/audit/2026-10-01-debloat/W0/raw/check_archive_refs.sh: line 29: docs/legacy/plans-archive-candidates-2026-10-01.txt: No such file or directory
+---
+checked_names=0
+A_names_with_docsplans_ref=0   <- 验收判据（须 0）
+B_names_with_bare_ref_live=0   <- 信息性
+C_names_with_bare_ref_legacy=0 <- 信息性（历史层互引）
+PASS_A=yes
+ARCHREFS_EXIT=0

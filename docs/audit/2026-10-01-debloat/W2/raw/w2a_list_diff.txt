@@ -1,0 +1,89 @@
+== 总体 ==
+before 用例数 = 1474   after 用例数 = 1410   （二进制目标：before 26 / after 22）
+removed=64  added=0  kept=1410
+
+== 退出集合按 binary/crate 归类 ==
+  live2d_ai_mod_local_llm            crate=live2d-ai-mod-local-llm        退出= 10  (unittests src/lib.rs)
+  live2d_ai_mod_wallpaper            crate=live2d-ai-mod-wallpaper        退出= 37  (unittests src/lib.rs)
+  pet_desktop_state                  crate=live2d-ai-mod-pet-desktop      退出= 17  (integration tests/pet_desktop_state.rs)
+  合计退出 = 64
+
+== 退出集合逐条（crate :: binary :: name）==
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::auto_start_false_no_spawn
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::config_defaults
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::descriptor_is_static
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::externally_managed_defaults_true
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::externally_managed_true_does_not_spawn
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::http_get_fails_on_unreachable_port
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::invalid_config_falls_back_without_panic
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::probe_and_configure_on_failure_does_not_send_patch
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::probe_and_configure_sends_correct_patch_on_ready
+  live2d-ai-mod-local-llm      live2d_ai_mod_local_llm            tests::start_registers_spec_and_subscription
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  bad_types_fall_back_per_field
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  build_state_json_matches_runtime_shape
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  descriptor_is_static_and_api_version_matches_host
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  factory_create_carries_config_into_state
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  opacity_is_clamped_and_bad_numbers_fall_back
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  reconfigure_is_reflected_immediately
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  shutdown_resets_readiness_and_voice
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  start_subscribes_voice_topics_only
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  state_falls_back_to_documented_defaults
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  state_json_is_a_read_only_snapshot
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  state_json_key_set_is_pinned
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  state_reflects_config_values
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  state_tracks_voice_events_and_ignores_others
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  static_settings_spec_equals_start_registered_spec
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  static_settings_spec_shape_is_pinned
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  window_is_always_dormant
+  live2d-ai-mod-pet-desktop    pet_desktop_state                  window_reason_string_is_stable_and_ascii
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::decision_json_kinds_match_contract
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::follow_stage_emits_sync_exactly_once
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::follow_stage_resyncs_after_reconfigure
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_advances_only_when_full_interval_elapsed
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_does_not_catch_up_after_long_suspend
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_first_tick_shows_first_image
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_holds_when_playlist_empty
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_overflow_is_saturating_not_wrapping
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_secs_defaults_and_clamps
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::interval_wraps_around_playlist
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::mode_from_config_maps_known_values_and_defaults_off
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::mode_switch_between_off_and_follow_stage
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::off_never_acts
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::playlist_len_from_config_defaults_zero_and_clamps
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::reason_distinguishes_off_from_not_due_and_empty
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::reconfigure_resets_timing_and_cursor
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::set_playlist_len_clamps_and_resets
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::strategy_from_config_json_reads_playlist_len
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            strategy::tests::to_prefs_patch_projects_three_states
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::descriptor_and_factory_identity
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::playlist_len_from_config_is_clamped_at_runtime
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::playlist_len_is_run_value_read_from_config_and_state
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::reconfigure_applies_new_config
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::reconfigure_rereads_playlist_len
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::runtime_follow_stage_logs_and_respects_off
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::runtime_reads_mode_and_interval_from_config
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::runtime_tick_logs_decisions_and_advances
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::set_playlist_len_is_capped
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::start_registers_settings_only
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_json_advances_the_clock_between_calls
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_json_follow_stage_syncs_once
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_json_interval_with_empty_playlist_reports_reason
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_json_off_mode_never_acts
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_json_shape_matches_contract
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_trajectory_follow_stage_syncs_then_resyncs_after_reconfigure
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::state_trajectory_interval_advances_index_over_time
+  live2d-ai-mod-wallpaper      live2d_ai_mod_wallpaper            tests::static_spec_fields_and_no_enabled
+
+== 新增集合（应为空）==
+  （无）
+
+== 主链集合差（不属于被删 crate 的 binary）==
+  主链 removed = 0   ✅ 0
+
+== 退出用例按 crate 计数 ==
+  live2d-ai-mod-local-llm        10
+  live2d-ai-mod-pet-desktop      17
+  live2d-ai-mod-wallpaper        37
+
+== 守卫测试（after 树）==
+  'web_api::cli_entry::tests::default_mods_manifest_enables_external_input_only' → [('live2d_ai_desktop', 'web_api::cli_entry::tests::default_mods_manifest_enables_external_input_only')]

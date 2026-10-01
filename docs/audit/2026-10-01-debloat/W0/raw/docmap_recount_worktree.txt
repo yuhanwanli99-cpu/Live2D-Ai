@@ -1,0 +1,20 @@
+### 复核 DOC-MAP §3 表（工作树实测，2026-10-01）
+docs/architecture            32     9532
+docs/audit                   49     5116
+docs/design                   8     3302
+docs/development              2      124
+docs/examples                 2      465
+docs/legacy                 104    25191
+docs/legal                    3       45
+docs/plans                   41     8916
+docs/releases                14     2375
+docs/research                23     8937
+docs/screenshots              0        0
+docs/verification            18     4420
+docs/ 顶层 *.md             7     2316
+docs 合计(含 verifier)    303    70739
+其中 verifier 自己的目录: 1 files / 333 lines
+docs 合计(不含 verifier)    302    70406
+
+DOC-MAP §3 自述：docs 合计 303 / 70,444；docs/ 顶层 7 / 2,270；docs/audit 49 / 4,867
+实测（本脚本）：见上（顶层 7 / 2316，audit 见上表）

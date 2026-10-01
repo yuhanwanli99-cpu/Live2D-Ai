@@ -1,0 +1,94 @@
+### 三个树的断链对照（同一脚本 check_links.py，全仓 *.md）
+# 基线 = dde6b855（git archive HEAD 解到 /tmp/prew0）
+# b9eff54e = W0a 归档 commit；4285af8b = W0a 收尾 commit（分支 tip）
+
+--- [1] HEAD 基线（10 条，含 1 条脚本假阳性）---
+../NOTICE                                                             
+../architecture/director-mod-v0.md                                    
+../architecture/director-mod-v0.md                                    
+./PLAN-frontend-redesign-2026-09-27.md                                
+2026-09-15-five-mod-review.md                                         
+TOTAL_MISSING=10
+[^\（）(                                                                
+app/src/main/assets/live2d/niziiro_mao/ReadMe.txt                     
+architecture/pet-desktop-mod-v0.md                                    
+docs/development/HANDOFF-2026-08-25-runtime-fixes.md                  
+docs/plans/post-launch-quality-roadmap.md                             
+
+--- [2] b9eff54e（32 条）---
+../NOTICE                                                             
+../architecture/director-mod-v0.md                                    
+../architecture/director-mod-v0.md                                    
+./PLAN-frontend-redesign-2026-09-27.md                                
+2026-09-15-five-mod-review.md                                         
+[^\（）(                                                                
+app/src/main/assets/live2d/niziiro_mao/ReadMe.txt                     
+architecture/pet-desktop-mod-v0.md                                    
+docs/development/HANDOFF-2026-08-25-runtime-fixes.md                  
+docs/plans/IGNITION-CHECKLIST-product-grade.md                        
+docs/plans/PLAN-rc2-second-baseline-2026-09-12.md                     
+docs/plans/PLAN-rc3-structure-quality-2026-09-13.md                   
+docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md                   
+docs/plans/PRODUCT-GRADE-CLOSEOUT.md                                  
+plans/HANDOFF-2026-09-10.md                                           
+plans/HANDOFF-2026-09-11-core-chain-baseline.md                       
+plans/HANDOFF-2026-09-11.md                                           
+plans/HANDOFF-2026-09-13-rc2-second-baseline.md                       
+plans/IGNITION-CHECKLIST-product-grade.md                             
+plans/IGNITION-CHECKLIST-stabilize.md                                 
+plans/PLAN-V1.md                                                      
+plans/PLAN-V2-PC-LOCAL-TTS.md                                         
+plans/PLAN-V3-SOULLINK-PERFORMANCE.md                                 
+plans/PLAN-audio-wav-path-2026-09-11.md                               
+plans/PLAN-frontend-strengthening-2026-09-11.md                       
+plans/PLAN-ignition-core-loop-2026-09-10.md                           
+plans/PRODUCT-GRADE-CLOSEOUT.md                                       
+plans/Phase-0-notes.md                                                
+plans/RUST-REWRITE-RFC.md                                             
+plans/STABILIZE-PRECHECK-RESULT.md                                    
+plans/integrity-takeover-fix-plan-2026-09-07.md                       
+plans/node-a-wiring-audit-brief.md                                    
+
+--- [3] 4285af8b（9 条）---
+../NOTICE                                                             
+../architecture/director-mod-v0.md                                    
+../architecture/director-mod-v0.md                                    
+./PLAN-frontend-redesign-2026-09-27.md                                
+2026-09-15-five-mod-review.md                                         
+[^\（）(                                                                
+app/src/main/assets/live2d/niziiro_mao/ReadMe.txt                     
+architecture/pet-desktop-mod-v0.md                                    
+docs/development/HANDOFF-2026-08-25-runtime-fixes.md                  
+
+--- NEW：b9eff54e 相对基线新增的断链 ---
+docs/plans/IGNITION-CHECKLIST-product-grade.md                        
+docs/plans/PLAN-rc2-second-baseline-2026-09-12.md                     
+docs/plans/PLAN-rc3-structure-quality-2026-09-13.md                   
+docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md                   
+docs/plans/PRODUCT-GRADE-CLOSEOUT.md                                  
+plans/HANDOFF-2026-09-10.md                                           
+plans/HANDOFF-2026-09-11-core-chain-baseline.md                       
+plans/HANDOFF-2026-09-11.md                                           
+plans/HANDOFF-2026-09-13-rc2-second-baseline.md                       
+plans/IGNITION-CHECKLIST-product-grade.md                             
+plans/IGNITION-CHECKLIST-stabilize.md                                 
+plans/PLAN-V1.md                                                      
+plans/PLAN-V2-PC-LOCAL-TTS.md                                         
+plans/PLAN-V3-SOULLINK-PERFORMANCE.md                                 
+plans/PLAN-audio-wav-path-2026-09-11.md                               
+plans/PLAN-frontend-strengthening-2026-09-11.md                       
+plans/PLAN-ignition-core-loop-2026-09-10.md                           
+plans/PRODUCT-GRADE-CLOSEOUT.md                                       
+plans/Phase-0-notes.md                                                
+plans/RUST-REWRITE-RFC.md                                             
+plans/STABILIZE-PRECHECK-RESULT.md                                    
+plans/integrity-takeover-fix-plan-2026-09-07.md                       
+plans/node-a-wiring-audit-brief.md                                    
+
+--- NEW：4285af8b 相对基线新增的断链 ---
+（无输出 = 0）
+
+--- docs/README.md 三个树 ---
+/tmp/prew0       TOTAL_MISSING=0
+/tmp/w0a_arch    TOTAL_MISSING=18
+/tmp/w0a_chore   TOTAL_MISSING=0

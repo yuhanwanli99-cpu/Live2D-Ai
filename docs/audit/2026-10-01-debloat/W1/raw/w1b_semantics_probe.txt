@@ -1,0 +1,48 @@
+### W1-c 语义树对抗性探针（/tmp 副本，d140604f）
+$ flutter test test/zz_semantics_probe_test.dart
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /tmp/w1b_probe_c/shell/flutter/test/zz_semantics_probe_test.dart
+00:00 +0: ① 正文只被播报一次（不重复）
+① labels=[助手说：独角兽专属正文ZZZ, 复制]
+00:00 +1: ② 思考正文不被全文播报，但有「含思考 N 字」告知
+② 泄漏=[] 提到思考=[助手说：正文A（含思考 160 字）, 展开思考（160 字）]
+00:00 +2: ③ 失败轮：重试/复制在语义树里且可激活
+00:00 +3: ④ 「未收尾」说明行只出现一次（独立节点）
+④ 「未收尾」=[未收尾：本轮语音未合成完，以上是已生成的正文] 全部labels=[助手说：半截话, 未收尾：本轮语音未合成完，以上是已生成的正文, 复制]
+00:00 +4: ⑤ 流式中的助手气泡正文仍只一次
+⑤ 流式 labels=[助手说：流式正文YYY]
+00:00 +5: All tests passed!
+
+### 全仓 contentFaint 账（d140604f，独立复算）
+$ flutter test test/zz_faint_account_test.dart
+TOTAL=21  text=2  decoration=19
+  TEXT  lib/ui/field_row.dart:228  host=copyWith  reason=宿主 Text
+  TEXT  lib/ui/field_row.dart:236  host=copyWith  reason=宿主 Text
+  DECO  lib/design/tokens.dart:413  host=(顶层)  reason=null
+  DECO  lib/design/tokens.dart:451  host=AppColors  reason=null
+  DECO  lib/design/tokens.dart:504  host=(顶层)  reason=null
+  DECO  lib/design/tokens.dart:569  host=(顶层)  reason=null
+  DECO  lib/design/tokens.dart:583  host=AppColors  reason=null
+  DECO  lib/design/tokens.dart:583  host=AppColors  reason=null
+  DECO  lib/design/tokens.dart:583  host=AppColors  reason=null
+  DECO  lib/design/tokens.dart:604  host=AppColors  reason=null
+  DECO  lib/design/tokens.dart:604  host=lerp  reason=null
+  DECO  lib/design/tokens.dart:604  host=lerp  reason=null
+  DECO  lib/design/tokens.dart:627  host=(顶层)  reason=null
+  DECO  lib/design/tokens.dart:643  host=(顶层)  reason=null
+  DECO  lib/design/tokens.dart:643  host=(顶层)  reason=null
+  DECO  lib/design/tokens.dart:658  host=hash  reason=null
+  DECO  lib/ui/theme.dart:376  host=BottomSheetThemeData  reason=null
+  DECO  lib/ui/theme.dart:419  host=resolveWith<Color?>  reason=null
+  DECO  lib/ui/chat_panel.dart:513  host=Icon  reason=null
+  DECO  lib/settings/sections/appearance_background.dart:974  host=Icon  reason=null
+  DECO  lib/settings/sections/dev_tools_section.dart:125  host=Icon  reason=null
+00:00 +1: All tests passed!

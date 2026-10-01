@@ -1,0 +1,23 @@
+# 红线锚点文件 pre-W0 哈希（verifier 自建，用于证明 W0 未触碰）
+# git rev-parse HEAD = dde6b85509aa61cd4ff16baafb19dfad18dd290b
+97a9a50107964cff1716d2a268c5a0f282eb3d56  crates/live2d-ai-runtime/src/dialogue/clean.rs
+024b42915e93b1358a35e2d303696b13b89b2dc9  crates/live2d-ai-runtime/src/conversation/error_code.rs
+0ec7759594642bd92fa5b9980d0c11848598ed89  crates/live2d-ai-desktop/src/main.rs
+a0368f00bbdfef326301b95a73f7f155a2acb582  crates/live2d-ai-desktop/src/web_api/ws/events.rs
+7d75b2e2afe07836c9ad88d3b97d3873f78b58f2  crates/live2d-ai-desktop/src/web_api/ws.rs
+d260c293007e37726aa5bb57773019a9f9f81121  crates/live2d-ai-desktop/src/app_event.rs
+3871d891f15aea813f0f83c30540204e52dc04a7  crates/live2d-ai-desktop/src/web_api/ws/audio.rs
+559312070b38a72b26e22ccace36f492b6900d49  crates/l2d-wasm-demo/src/web/surface/idle.rs
+368e3d30abf2e89bf2e1350757cac1b232f30f54  crates/live2d-ai-runtime/src/performance/mod.rs
+9a6c060e837de0ba6ce9e65d81faca62c6c08004  crates/live2d-ai-runtime/src/secrets.rs
+MISSING            crates/live2d-ai-runtime/src/secrets/mod.rs
+a6c3ebced7af84e245454c6b2efca11e130e2bbc  crates/live2d-ai-desktop/src/web_api/env_routes.rs
+3db76c773956845c732f83a8580c9816f5730cfa  crates/live2d-ai-desktop/src/web_api/dispatch.rs
+9d18e62d17aec1a244fde63f78ef753ac01a0736  xtask/src/main.rs
+7ea8dbbcc25ce08543ca8612f1df7ad55af5499f  Cargo.toml
+3d045ef8335b36422b470291f5ec5a5f9b9c895c  shell/flutter/lib/api/ws_client.dart
+257dabb2ab4e3b9ab2b49cef370b9df4a9ef925d  shell/flutter/lib/live2d/live2d_bridge.dart
+332d5f7f81fef11bd70e83df79523edfef11d022  scripts/ignite.sh
+dcf6557ba08815d0beeee27cfa575fe89c7989c8  .github/workflows/pr-checks.yml
+df64e3ba7c11b390c06117d4e0d8d0bce6de4e77  .github/workflows/nightly.yml
+12e148830d3692542be6d5a9c8f90169682f1cc0  .github/workflows/flutter-checks.yml

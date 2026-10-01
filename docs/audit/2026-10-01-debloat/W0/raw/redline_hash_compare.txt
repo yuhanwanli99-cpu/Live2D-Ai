@@ -1,0 +1,66 @@
+### 红线锚点哈希：pre-W0 vs 最终 HEAD（3a3b17d0）
+# pre-W0 来源: raw/preW0_redline_hashes.txt（在 dde6b855 工作树上算的）
+# 命令: git hash-object <file>
+
+FILE                                           PRE_W0                                     FINAL_HEAD                                 SAME
+crates/live2d-ai-runtime/src/dialogue/clean.rs 97a9a50107964cff1716d2a268c5a0f282eb3d56   97a9a50107964cff1716d2a268c5a0f282eb3d56   YES
+crates/live2d-ai-runtime/src/conversation/error_code.rs 024b42915e93b1358a35e2d303696b13b89b2dc9   024b42915e93b1358a35e2d303696b13b89b2dc9   YES
+crates/live2d-ai-desktop/src/main.rs           0ec7759594642bd92fa5b9980d0c11848598ed89   0ec7759594642bd92fa5b9980d0c11848598ed89   YES
+crates/live2d-ai-desktop/src/web_api/ws/events.rs a0368f00bbdfef326301b95a73f7f155a2acb582   a0368f00bbdfef326301b95a73f7f155a2acb582   YES
+crates/live2d-ai-desktop/src/web_api/ws.rs     7d75b2e2afe07836c9ad88d3b97d3873f78b58f2   7d75b2e2afe07836c9ad88d3b97d3873f78b58f2   YES
+crates/live2d-ai-desktop/src/app_event.rs      d260c293007e37726aa5bb57773019a9f9f81121   d260c293007e37726aa5bb57773019a9f9f81121   YES
+crates/live2d-ai-desktop/src/web_api/ws/audio.rs 3871d891f15aea813f0f83c30540204e52dc04a7   3871d891f15aea813f0f83c30540204e52dc04a7   YES
+crates/l2d-wasm-demo/src/web/surface/idle.rs   559312070b38a72b26e22ccace36f492b6900d49   559312070b38a72b26e22ccace36f492b6900d49   YES
+crates/live2d-ai-runtime/src/performance/mod.rs 368e3d30abf2e89bf2e1350757cac1b232f30f54   368e3d30abf2e89bf2e1350757cac1b232f30f54   YES
+crates/live2d-ai-runtime/src/secrets.rs        9a6c060e837de0ba6ce9e65d81faca62c6c08004   9a6c060e837de0ba6ce9e65d81faca62c6c08004   YES
+crates/live2d-ai-runtime/src/secrets/mod.rs    MISSING                                    MISSING                                    NO
+crates/live2d-ai-desktop/src/web_api/env_routes.rs a6c3ebced7af84e245454c6b2efca11e130e2bbc   a6c3ebced7af84e245454c6b2efca11e130e2bbc   YES
+crates/live2d-ai-desktop/src/web_api/dispatch.rs 3db76c773956845c732f83a8580c9816f5730cfa   3db76c773956845c732f83a8580c9816f5730cfa   YES
+xtask/src/main.rs                              9d18e62d17aec1a244fde63f78ef753ac01a0736   4c64db51b95c2ba6c3d81b9a08d54bced8dedf50   NO
+Cargo.toml                                     7ea8dbbcc25ce08543ca8612f1df7ad55af5499f   7ea8dbbcc25ce08543ca8612f1df7ad55af5499f   YES
+shell/flutter/lib/api/ws_client.dart           3d045ef8335b36422b470291f5ec5a5f9b9c895c   31598eee0fb15313fca3f069c2ecaf6a1f63e322   NO
+shell/flutter/lib/live2d/live2d_bridge.dart    257dabb2ab4e3b9ab2b49cef370b9df4a9ef925d   257dabb2ab4e3b9ab2b49cef370b9df4a9ef925d   YES
+scripts/ignite.sh                              332d5f7f81fef11bd70e83df79523edfef11d022   332d5f7f81fef11bd70e83df79523edfef11d022   YES
+.github/workflows/pr-checks.yml                dcf6557ba08815d0beeee27cfa575fe89c7989c8   b0db3979f03732f42639d935e205290add74971b   NO
+.github/workflows/nightly.yml                  df64e3ba7c11b390c06117d4e0d8d0bce6de4e77   df64e3ba7c11b390c06117d4e0d8d0bce6de4e77   YES
+.github/workflows/flutter-checks.yml           12e148830d3692542be6d5a9c8f90169682f1cc0   12e148830d3692542be6d5a9c8f90169682f1cc0   YES
+
+### 结构性证据 A：W0 全部 4 个 commit 碰过的『代码类』文件（扩展名 rs/dart/toml/lock/yml/yaml/sh）
+$ git diff --name-only dde6b855..3a3b17d0 | grep -E "\.(rs|dart|toml|lock|yml|yaml|sh)$"
+.github/workflows/pr-checks.yml
+xtask/src/code_stats/cli.rs
+xtask/src/code_stats/collect.rs
+xtask/src/code_stats/gates.rs
+xtask/src/code_stats/measure.rs
+xtask/src/code_stats/mod.rs
+xtask/src/code_stats/report.rs
+xtask/src/code_stats/tests.rs
+xtask/src/main.rs
+=> 只有 xtask/src/code_stats/*.rs + xtask/src/main.rs + .github/workflows/pr-checks.yml（即 W0b）
+
+### 结构性证据 B：crates/** 与 shell/flutter/** 里被 W0 碰过的全部文件（含文档）
+$ git diff --name-only dde6b855..3a3b17d0 -- crates shell/flutter
+crates/l2d/README.md
+crates/live2d-ai-desktop/README.md
+=> 只有 2 个 crate README.md（越界改链，已在 C.0 认领）；无任何 .rs/.dart/.toml
+
+### 结构性证据 C：W0 改动总数按顶层路径分组
+共 147 条：
+     99 docs/legacy
+     11 docs/plans
+      8 xtask/src
+      7 docs/architecture
+      6 docs/releases
+      4 docs/verification
+      1 docs/research
+      1 docs/design
+      1 docs/audit
+      1 docs/README.md
+      1 docs/DOC-MAP.md
+      1 crates/live2d-ai-desktop
+      1 crates/l2d
+      1 SOURCES.md/
+      1 CREDITS.md/
+      1 CHANGELOG.md/
+      1 AGENTS.md/
+      1 .github/workflows

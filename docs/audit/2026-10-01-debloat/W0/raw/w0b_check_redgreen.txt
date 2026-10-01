@@ -1,0 +1,129 @@
+########## code-stats --check 红-绿双向（合成 fixture + 真二进制）##########
+# 二进制: /home/skystar/Live2D-Ai-fe/target/debug/xtask
+-rwxr-xr-x 2 skystar skystar 7200904 Oct  1 21:42 /home/skystar/Live2D-Ai-fe/target/debug/xtask
+# 时间: 2026-10-01T21:46:46+08:00
+
+# fixture 结构:
+./Cargo.toml
+./crates/demo/Cargo.toml
+./crates/demo/src/huge.rs
+./crates/demo/src/lib.rs
+./docs/a.md
+./shell/flutter/lib/a.dart
+./shell/flutter/test/a_test.dart
+# huge.rs 行数: 1101
+
+########## [红] 存在 1100 行文件 → --check 必须非零 ##########
+
+### 5. 硬门禁（`--check`）
+
+| 门禁 | 当前值 | 上限（棘轮） | PLAN 目标 | 判定 |
+|---|---:|---:|---:|---|
+| `crates/*/src` `.rs` > 500 行的文件数（上限 58） | 1 | ≤ 58 | 15 | PASS |
+| Dart `lib` > 800 行的文件数（上限 7） | 0 | ≤ 7 | 2 | PASS |
+| `crates/*/src` `.rs` > 1000 行的文件数（上限 4） | 1 | ≤ 4 | 0 | PASS |
+| `live2d-ai-desktop` 顶层 `[dependencies]` 条数（上限 34） | 0 | ≤ 34 | 22 | PASS |
+
+- 判定范围（影响退出码）：全部（lines / over-1000 / deps）
+- 结论：PASS —— 判定范围内无超限；退出码 0
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `0` 个 / 0 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+RED_EXIT=0
+
+########## [绿] 删掉该死文件 → --check 必须为 0 ##########
+
+### 5. 硬门禁（`--check`）
+
+| 门禁 | 当前值 | 上限（棘轮） | PLAN 目标 | 判定 |
+|---|---:|---:|---:|---|
+| `crates/*/src` `.rs` > 500 行的文件数（上限 58） | 0 | ≤ 58 | 15 | PASS |
+| Dart `lib` > 800 行的文件数（上限 7） | 0 | ≤ 7 | 2 | PASS |
+| `crates/*/src` `.rs` > 1000 行的文件数（上限 4） | 0 | ≤ 4 | 0 | PASS |
+| `live2d-ai-desktop` 顶层 `[dependencies]` 条数（上限 34） | 0 | ≤ 34 | 22 | PASS |
+
+- 判定范围（影响退出码）：全部（lines / over-1000 / deps）
+- 结论：PASS —— 判定范围内无超限；退出码 0
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `0` 个 / 0 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+GREEN_EXIT=0
+
+########## [附加-红] 用 --max-* 把阈值压到 0（在真仓库上，不写任何文件）##########
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+EXTRA_RED_EXIT=1
+
+########## [附加-绿] --max-src-rs-1000 4（等于现状）##########
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+EXTRA_GREEN_EXIT=0
+
+########## [附加] --strict-plan（PLAN §5 目标；按设计现在应为红）##########
+  - `dart-800`：当前 7 ＞ 上限 2（PLAN 目标 2）
+  - `src-rs-1000`：当前 4 ＞ 上限 0（PLAN 目标 0）
+    - `crates/live2d-ai-desktop/src/mod_registry.rs`：1362 行
+    - `crates/live2d-ai-desktop/src/web_api/chat_routes.rs`：1086 行
+    - `crates/live2d-ai-desktop/src/web_api/external_routes.rs`：1062 行
+    - `crates/live2d-ai-mod-persona/src/lib.rs`：1004 行
+  - `deps-desktop`：当前 34 ＞ 上限 22（PLAN 目标 22）
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+STRICT_PLAN_EXIT=1
+
+########## 收尾：确认仓库未被本脚本改动 ##########
+ M docs/DOC-MAP.md
+?? AUDIT-REPO/
+?? docs/audit/2026-10-01-debloat/
+?? shell/flutter/test/zz_probe_tmp_test.dart

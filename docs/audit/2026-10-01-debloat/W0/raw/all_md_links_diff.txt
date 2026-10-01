@@ -1,0 +1,44 @@
+### 全仓 tracked .md 断链对照（verifier 自写 check_links.py；基线 = git archive HEAD 解到 /tmp/prew0）
+$ git archive HEAD | tar -x -C /tmp/prew0        # 基线树（只读，不动 worktree）
+$ cd /tmp/prew0 && python3 …/check_links.py $(find . -name "*.md") | grep MISSING | sed "s/^  MISSING //" | sed "s/ -> .*//" | sort > /tmp/base_v2.txt
+$ cd /home/skystar/Live2D-Ai-fe && python3 …/check_links.py $(find . -name "*.md" -not -path "./target/*" -not -path "./docs/audit/2026-10-01-debloat/*" -not -path "./AUDIT-REPO/*") | grep MISSING | sed "s/^  MISSING //" | sed "s/ -> .*//" | sort > /tmp/now_viol.txt
+$ comm -13 /tmp/base_v2.txt /tmp/now_viol.txt   # NEW
+$ comm -23 /tmp/base_v2.txt /tmp/now_viol.txt   # FIXED
+
+### baseline 断链（HEAD，共 10 条；其中 1 条是脚本假阳性 '[^\（）('）
+../NOTICE                                                             
+../architecture/director-mod-v0.md                                    
+../architecture/director-mod-v0.md                                    
+./PLAN-frontend-redesign-2026-09-27.md                                
+2026-09-15-five-mod-review.md                                         
+TOTAL_MISSING=10
+[^\（）(                                                                
+app/src/main/assets/live2d/niziiro_mao/ReadMe.txt                     
+architecture/pet-desktop-mod-v0.md                                    
+docs/development/HANDOFF-2026-08-25-runtime-fixes.md                  
+docs/plans/post-launch-quality-roadmap.md                             
+
+### now 断链（共 9 条）
+../NOTICE                                                             
+../architecture/director-mod-v0.md                                    
+../architecture/director-mod-v0.md                                    
+./PLAN-frontend-redesign-2026-09-27.md                                
+2026-09-15-five-mod-review.md                                         
+TOTAL_MISSING=9
+[^\（）(                                                                
+app/src/main/assets/live2d/niziiro_mao/ReadMe.txt                     
+architecture/pet-desktop-mod-v0.md                                    
+docs/development/HANDOFF-2026-08-25-runtime-fixes.md                  
+
+### NEW（now 有、baseline 无）
+（无）
+
+### FIXED（baseline 有、now 无）
+docs/plans/post-launch-quality-roadmap.md                             
+
+### FIXED 的那条是否合法
+$ grep -n post-launch-quality-roadmap docs/legacy/plans-archive-candidates-2026-10-01.txt
+86:post-launch-quality-roadmap.md
+$ grep -n post-launch-quality-roadmap /tmp/prew0/docs/legacy/PROGRESS.md docs/legacy/PROGRESS.md
+/tmp/prew0/docs/legacy/PROGRESS.md:9:见 [docs/plans/post-launch-quality-roadmap.md](docs/plans/post-launch-quality-roadmap.md)。
+docs/legacy/PROGRESS.md:9:见 [plans/post-launch-quality-roadmap.md](plans/post-launch-quality-roadmap.md)。

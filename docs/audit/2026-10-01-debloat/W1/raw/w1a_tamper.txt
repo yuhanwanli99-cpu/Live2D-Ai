@@ -1,0 +1,65 @@
+### 判别力自证（verifier 在 /tmp 副本上篡改，不改仓库）
+# T1 = 把 heartbeatLiveness 的边界写错（< → <=）
+# T2 = 拿掉 ui_state_tracker.consume 里的存活时刻刷新
+
+===== T1: flutter test test/ws_heartbeat_liveness_test.dart =====
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/ws_heartbeat_liveness_test.dart 101:7          main.<fn>.<fn>
+  
+00:00 +8 -2: 阈值常量与「服务端心跳间隔」的关系 可疑阈值 = 3 个心跳周期（错过 1 次可能是抖动，连续 3 次不是）
+00:00 +9 -2: 阈值常量与「服务端心跳间隔」的关系 死链阈值 = 9 个心跳周期
+00:00 +10 -2: 阈值常量与「服务端心跳间隔」的关系 死链阈值严格晚于可疑阈值（否则 suspect 永远显示不出来）
+00:00 +11 -2: isChannelTrustworthy：readyState 之外的第二重判据 OPEN + online → 可信
+00:00 +12 -2: isChannelTrustworthy：readyState 之外的第二重判据 OPEN + suspect → **仍然可信**：重连由看门狗负责，不在这里越权
+00:00 +13 -2: isChannelTrustworthy：readyState 之外的第二重判据 OPEN + offline → **不可信**：正是半开连接那种坏法
+00:00 +14 -2: isChannelTrustworthy：readyState 之外的第二重判据 CLOSING / CLOSED → 无论 liveness 都不可信（两道判据都要成立）
+00:00 +15 -2: isChannelTrustworthy：readyState 之外的第二重判据 CONNECTING + online → 可信（正在建连，重开只会多一条废连接）
+00:00 +16 -2: Some tests failed.
+
+Failing tests:
+  /tmp/w1a_t1/shell/flutter/test/ws_heartbeat_liveness_test.dart: heartbeatLiveness：三态由「静默时长」判定（含边界 ±1ms） **可疑阈值恰好** → suspect（边界含在嫌疑侧，写进契约）
+  /tmp/w1a_t1/shell/flutter/test/ws_heartbeat_liveness_test.dart: heartbeatLiveness：三态由「静默时长」判定（含边界 ±1ms） 阈值可注入：判据不绑死在这两个常量上
+T1_EXIT=1
+
+===== T2: flutter test test/ui_state_tracker_half_open_test.dart =====
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /tmp/w1a_t2/shell/flutter/test/ui_state_tracker_half_open_test.dart
+00:00 +0: 半开连接：心跳被消费 ⇒ 相位真的退回 offline **幽灵态端到端**：受理一轮后通道彻底静默 → 不再永久停在「思考中」
+00:00 +1: 半开连接：心跳被消费 ⇒ 相位真的退回 offline 收到心跳 → 三态随时间依次 online / suspect / offline
+00:00 +2: 半开连接：心跳被消费 ⇒ 相位真的退回 offline 只到**嫌疑档**（≈30s）时相位仍是 idle：不把「可疑」说成「后端未连接」
+00:00 +3: 半开连接：心跳被消费 ⇒ 相位真的退回 offline **任何一帧**都刷新存活时刻（不只是 heartbeat）
+00:00 +3 -1: 半开连接：心跳被消费 ⇒ 相位真的退回 offline **任何一帧**都刷新存活时刻（不只是 heartbeat） [E]
+  Expected: HeartbeatLiveness:<HeartbeatLiveness.online>
+    Actual: HeartbeatLiveness:<HeartbeatLiveness.suspect>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/ui_state_tracker_half_open_test.dart 103:7     main.<fn>.<fn>
+  
+00:00 +3 -1: 半开连接：心跳被消费 ⇒ 相位真的退回 offline 心跳帧本身不改相位（consume 返回 false），但确实改了存活判据
+00:00 +4 -1: 半开连接：心跳被消费 ⇒ 相位真的退回 offline 半开恢复：看门狗重连成功后相位回到 idle
+00:00 +5 -1: Some tests failed.
+
+Failing tests:
+  /tmp/w1a_t2/shell/flutter/test/ui_state_tracker_half_open_test.dart: 半开连接：心跳被消费 ⇒ 相位真的退回 offline **任何一帧**都刷新存活时刻（不只是 heartbeat）
+T2_EXIT=1
+
+===== T3: 让 markTurnFailed 冒充 markStopped（置 _interrupted）
+$ flutter test test/ui_state_tracker_local_failure_test.dart
+00:00 +1 -3: 本地发送失败 ⇒ 相位回落（真 tracker + 真泵） 回落之后重发仍能进入「思考中」（不是把标记一次性用坏）
+00:00 +1 -4: 本地发送失败 ⇒ 相位回落（真 tracker + 真泵） 回落之后重发仍能进入「思考中」（不是把标记一次性用坏） [E]
+  Expected: UiPhase:<UiPhase.idle>
+    Actual: UiPhase:<UiPhase.interrupted>
+  
+  package:matcher                                      expect
+  package:flutter_test/src/widget_tester.dart 473:18   expect
+  test/ui_state_tracker_local_failure_test.dart 163:7  main.<fn>.<fn>
+  
+00:00 +1 -4: Some tests failed.
+
+Failing tests:
+  /tmp/w1a_t3/shell/flutter/test/ui_state_tracker_local_failure_test.dart: 本地发送失败 ⇒ 相位回落（真 tracker + 真泵） **不**伪造成「已打断」：那是 markStopped 的语义
+  /tmp/w1a_t3/shell/flutter/test/ui_state_tracker_local_failure_test.dart: 本地发送失败 ⇒ 相位回落（真 tracker + 真泵） 回落之后重发仍能进入「思考中」（不是把标记一次性用坏）
+  /tmp/w1a_t3/shell/flutter/test/ui_state_tracker_local_failure_test.dart: 本地发送失败 ⇒ 相位回落（真 tracker + 真泵） 状态胶囊离开「思考中」、发送键离开「停止本轮」
+  /tmp/w1a_t3/shell/flutter/test/ui_state_tracker_local_failure_test.dart: 本地发送失败 ⇒ 相位回落（真 tracker + 真泵） 说话中（`voice_started`）的本地失败同样回落：不留「说话中」
+T3_EXIT=1

@@ -1,0 +1,31 @@
+########## gstatic 断网红线检查（/home/skystar/Live2D-Ai-fe）##########
+# 时间: 2026-10-01T21:46:46+08:00
+$ grep -rc "gstatic.com/flutter-canvaskit" shell/flutter/build/web/ 2>/dev/null | grep -v ":0"
+shell/flutter/build/web/flutter_bootstrap.js:1
+shell/flutter/build/web/flutter.js:1
+
+$ grep -c "gstatic.com/flutter-canvaskit" shell/flutter/build/web/index.html shell/flutter/build/web/main.dart.js
+shell/flutter/build/web/index.html:0
+shell/flutter/build/web/main.dart.js:0
+
+$ grep -rl "gstatic.com/flutter-canvaskit" shell/flutter/build/web/ | wc -l
+2
+
+# 命中的两个文件里的上下文（证明是库内死分支）
+--- shell/flutter/build/web/flutter.js ---
+0,e)}function _(n,e){return n.canvasKitBaseUrl?n.canvasKitBaseUrl:e.engineRevision&&!e.useLocalCanvasKit?W("https://www.gstatic.com/flutter-canvaskit",e.engineRevision):"canvaskit"}var g=class{constructor(){th
+--- shell/flutter/build/web/flutter_bootstrap.js ---
+0,e)}function _(n,e){return n.canvasKitBaseUrl?n.canvasKitBaseUrl:e.engineRevision&&!e.useLocalCanvasKit?W("https://www.gstatic.com/flutter-canvaskit",e.engineRevision):"canvaskit"}var g=class{constructor(){th
+
+# buildConfig 里的 useLocalCanvasKit
+"useLocalCanvasKit":true
+"renderer":"canvaskit"
+
+# 本地 canvaskit 副本确实存在
+86987 shell/flutter/build/web/canvaskit/canvaskit.js
+7284602 shell/flutter/build/web/canvaskit/canvaskit.wasm
+
+# 产物新鲜度：index.html / main.dart.js 的 mtime vs 最新 .dart
+2026-09-28 22:30:31.402031476 +0800  shell/flutter/build/web/index.html
+2026-09-28 22:30:54.978027107 +0800  shell/flutter/build/web/main.dart.js
+(上面若无输出 = 没有比产物更新的 .dart)

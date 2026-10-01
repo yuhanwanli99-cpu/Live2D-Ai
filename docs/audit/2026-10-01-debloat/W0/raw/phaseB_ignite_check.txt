@@ -1,0 +1,18 @@
+########## ./scripts/ignite.sh --check（前提检查 + 原始输出）##########
+# 时间: 2026-10-01T21:46:53+08:00
+# 前提：--check 只对**已启动**的服务做体检，不自启（scripts/ignite.sh:64 注释）
+$ ss -ltn | grep 18080
+(18080 无监听)
+$ curl -s -m 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:18080/
+http_code=000
+(连接失败)
+
+$ ./scripts/ignite.sh --check
+==> 已导出 .env 到进程环境（Rust 侧也直接读 .env）：OPENCODE_API_KEY DASHSCOPE_API_KEY ALIYUN_API_KEY DEEPSEEK_API_KEY 
+==> 点火体检：http://127.0.0.1:18080（--check 不自启服务；请先在另一终端跑 ./scripts/ignite.sh）
+    [FAIL] GET / 期望 302 → /app/，实得 无响应 Location=无
+    [FAIL] GET /app/ 期望 200，实得 000000
+    [FAIL] GET /app/index.html 期望 200，实得 000000
+    [FAIL] GET /app/main.dart.js 期望 200，实得 000000
+==> 体检失败：见上面的 [FAIL]
+IGNITE_CHECK_EXIT=1

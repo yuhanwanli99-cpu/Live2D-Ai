@@ -1,0 +1,28 @@
+== 独立重实现（code-stats 口径） ==
+rust_prod=71552  rust_inline_test=13619  rust_integ=13527
+dart_lib=33362 lines / 115 files   dart_test=28895 lines / 102 files
+docs=70497 lines / 303 files   （其中 verifier 自己的 audit 目录 1 files / 84 lines）
+docs_excluding_verifier_audit=70413 lines / 302 files
+src .rs >500 = 58   >1000 = 4
+-- >1000 --
+     1362  crates/live2d-ai-desktop/src/mod_registry.rs
+     1086  crates/live2d-ai-desktop/src/web_api/chat_routes.rs
+     1062  crates/live2d-ai-desktop/src/web_api/external_routes.rs
+     1004  crates/live2d-ai-mod-persona/src/lib.rs
+-- per-crate (prod/inline/integ) --
+   l2d                                2081   1072    641
+   l2d-wasm-demo                      5907    268   2258
+   live2d-ai-core                     2236    121    846
+   live2d-ai-desktop                 31465   6701   2221
+   live2d-ai-mod-director             3412    411    840
+   live2d-ai-mod-external-input        606    679      0
+   live2d-ai-mod-local-llm             551    279      0
+   live2d-ai-mod-memory               6293    686    766
+   live2d-ai-mod-persona              3267      6    849
+   live2d-ai-mod-pet-desktop           362      0    415
+   live2d-ai-mod-system               1165    287      0
+   live2d-ai-mod-template              120     63      0
+   live2d-ai-mod-voice-input          1871      9    759
+   live2d-ai-mod-wallpaper             644    740      0
+   live2d-ai-runtime                  9821   2073   3504
+   xtask                              1751    224    428

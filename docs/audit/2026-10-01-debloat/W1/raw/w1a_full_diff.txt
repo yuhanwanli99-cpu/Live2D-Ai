@@ -1,0 +1,1020 @@
+commit 93416f0c82e5cf41e3407062258acf08ca94366e
+Author: yuhanwanli99-cpu <yuhanwanli99-cpu@users.noreply.github.com>
+Date:   Thu Oct 1 22:13:45 2026 +0800
+
+    fix(frontend): W1-a/R8a-1 幽灵态两半 —— 心跳看门狗 + 本地失败回落相位
+    
+    波次：W1-a（rc.8-a 正确性与诚实性，**独占波次**）。文件范围：shell/flutter/lib/{api/ws_client.dart,
+    api/ws_liveness.dart, app/shell_chat.dart, chat/chat_controller.dart, state/ui_state_tracker.dart}
+    + 3 个新测试文件。
+    
+    F-0008-1（P1）心跳被丢弃 ⇒ 半开连接不可检测：
+    - 纯函数判据 `ws_liveness.dart:112 heartbeatLiveness()`（三态 online/suspect/offline），
+      阈值 3×/9× 心跳周期（`kWsHeartbeatSuspectAfter=30s` / `kWsHeartbeatOfflineAfter=90s`，
+      真源 Rust `web_api/ws/connection.rs` 的 10s）；null（从未收到帧）判 **online**——
+      「未知」不等于「已死」。
+    - 消费者三处：`ws_client.dart` 看门狗 Timer（5s tick，`_checkHeartbeatLiveness` →
+      `_recoverFromHalfOpen` 先置 disconnected 再摘 socket 立刻重开，不走退避）、
+      `ui_state_tracker.dart:105 channelLiveness`（相位据它判 offline）、
+      `mustReleaseTurnOnWsLoss` 收口在飞轮次。
+    
+    F-0007-1（P1）本地失败不回落相位：
+    - `ui_state_tracker.dart:178 markTurnFailed()`（清 turn/voice active，**不**复用 markStopped、
+      **不**置 errorActive：本地失败不是「已打断/已出错」）；
+    - `chat_controller.dart:80/83 sendFailedLocally`（只由**本地**失败路径置位，区别于服务端
+      error 帧）+ `:168 _failLocalTurn`；
+    - `app/shell_chat.dart:53` 1 行接线 `if (_chat.sendFailedLocally) _ui.markTurnFailed();`
+      （**该文件是孤儿文件、不在任何任务的 write scope 内，经 leader 明确授权只加这 1 行**；
+      用 `sendFailedLocally` 而非 `_chat.error != null`：后者在「服务端非致命 error 帧 + 本轮
+      仍在飞（语音要播完）」时也为真，会把正常轮次提前说成结束）。
+    
+    门禁原始数字（leader 亲自重跑，非实施者复核）：
+    - `flutter analyze`：No issues found（0 issue）
+    - `flutter test` 全量：**1407 passed / 0 failed**（基线 1378 → **+29**，条数只增不减）
+    - 实施者定向：受影响面既有 125 条全绿；新增 29 条
+    
+    判别力证据（三段 + 篡改）：
+    - RED-A（拿掉两个消费者）：9 条红（`Expected offline / Actual online`、`Expected idle / Actual thinking`）
+    - RED-B（判据退回 HEAD 版）：编译红（`Undefined name 'HeartbeatLiveness'`）
+    - GREEN：29 passed
+    - TAMPER（断言故意改错）：2 条红（`Expected idle / Actual offline`；finder 命中 1 个）
+      三段后文件 md5 与备份一致（`diff -q` 为空）
+    
+    红线自检：未动 `ws_frame.dart`/`ws_status.dart`（WS 帧字段名与枚举值**零改动**，红线 1）；
+    未动 `crates/**`；无新错误码、无「从文案猜语义」；未碰 `clean_for_tts`/密钥/`IdleState`/表演资产/
+    `mod_count`。测试条数只增。
+    
+    未做 / 未核实（诚实栏，详见回报）：
+    1) `ws_client.dart` 看门狗**本体无自动化测试**（`import 'package:web'`，VM 跑不了）——
+       纯函数判据与状态层消费者有回归；Timer 巡检/摘 socket 重开的**顺序**只有阅读级保证，
+       真机半开复现（SIGSTOP/netem + CDP）本环境不可做。
+    2) 浏览器平台（真 `ChatController`）测试**未成**：Windows Chrome 经 WSL 驱动三次失败
+       （`Failed to launch browser after 3 tries` / `bind() 只允许使用一次` / devtools http 挂死 EXIT=124）；
+       未往树里留 `@TestOn('browser')` 的跑不起来文件。前提：需 Linux 侧 Chrome/Chromium 或 CI 的 chrome 平台。
+    3) `shell_chat.dart:53` 那 1 行与 `sendFailedLocally` 置位路径**无自动化覆盖**（`package:web` 链，VM 够不到）；
+    4) 产物未重建（`build/web` 仍是旧产物），`/app/` 暂看不到本轮效果；
+    5) 残余窄竞态（如实记录，未加轮次令牌以免扩到 `shell_chat` 之外）：本地 POST 失败与外部轮次
+       （弹幕/语音）在 await 期间重叠时，`markTurnFailed()` 会顺带清掉该外部轮次的 active 标志，
+       其自身的 `voice_started/text_delta` 会立刻重新置起；与既有 `markStopped()` 同型。
+
+diff --git a/shell/flutter/lib/api/ws_client.dart b/shell/flutter/lib/api/ws_client.dart
+index 3d045ef8..6230f3ab 100644
+--- a/shell/flutter/lib/api/ws_client.dart
++++ b/shell/flutter/lib/api/ws_client.dart
+@@ -40,12 +40,29 @@ class WsClient {
+ 
+   web.WebSocket? _socket;
+   Timer? _reconnectTimer;
++  Timer? _watchdog;
++
++  /// 最近一次**收到任何一帧**的时刻（= 服务端还活着的证据）。
++  ///
++  /// 名字按「心跳」取（服务端每 10 s 一条 `heartbeat`，那是周期性存活信号），
++  /// 但更新面覆盖**每一帧**：流式聊天中 `text_delta` 本身就是「链路活着」的
++  /// 证明，只认 heartbeat 会把活跃连接误判成静默。
++  ///
++  /// 半开连接（休眠唤醒 / NAT 静默丢包 / 服务端被 SIGKILL）下
++  /// `readyState` 仍是 OPEN，**只有这个时刻能证明通道已经废了**。
++  DateTime? _lastHeartbeatAt;
+ 
+   /// 已连续失败的连接次数（成功连上即清零）。重连延迟由它推导。
+   int _attempt = 0;
+   bool _disposed = false;
+   WsStatus _status = WsStatus.idle;
+ 
++  /// 看门狗巡检周期。
++  ///
++  /// 取值理由：必须**远小于** [kWsHeartbeatSuspectAfter]（30 s），否则「发现
++  /// 半开」的延迟会被巡检周期主导；也不能太密（每 5 s 一次读时钟，可忽略）。
++  static const Duration _watchdogTick = Duration(seconds: 5);
++
+   Stream<WsEvent> get events => _events.stream;
+   Stream<WsStatus> get statuses => _statuses.stream;
+   WsStatus get status => _status;
+@@ -78,7 +95,11 @@ class WsClient {
+     _socket = socket;
+     socket.onopen = ((web.Event _) {
+       _attempt = 0;
++      // 新连接从**此刻**开始重新计静默：不清掉旧时刻的话，看门狗会在重开后
++      // 立刻用 90 s 前的旧值判死，于是变成「重开→立刻重开」的死循环。
++      _lastHeartbeatAt = DateTime.now();
+       _setStatus(WsStatus.connected);
++      _startWatchdog();
+     }).toJS;
+     socket.onmessage = ((web.MessageEvent event) {
+       final JSAny? data = event.data;
+@@ -89,6 +110,7 @@ class WsClient {
+       _setStatus(WsStatus.disconnected);
+     }).toJS;
+     socket.onclose = ((web.Event _) {
++      _watchdog?.cancel();
+       _socket = null;
+       _scheduleReconnect();
+     }).toJS;
+@@ -109,7 +131,21 @@ class WsClient {
+   void ensureConnected() {
+     if (_disposed) return;
+     final web.WebSocket? socket = _socket;
+-    if (socket != null && isLiveSocket(socket.readyState)) return;
++    // **第二重判据（2026-10-01，F-0008-1）**：`readyState == OPEN` 不等于
++    // 「话还能到我这里」——半开连接下它一直是 OPEN。所以除了问 socket 的
++    // 状态机，还问「最近听到过动静吗」（判据 = `ws_liveness.dart` 的纯函数）。
++    // 已经静默到死链档（≈90 s）时，这个 socket 一律不信：摘掉重开，
++    // 反正 POST 走的是另一条 HTTP 连接，「发出去没回应」正是这么来的。
++    final bool trustworthy =
++        socket != null &&
++        isChannelTrustworthy(
++          readyState: socket.readyState,
++          liveness: heartbeatLiveness(
++            lastHeartbeatAt: _lastHeartbeatAt,
++            now: DateTime.now(),
++          ),
++        );
++    if (trustworthy) return;
+     if (socket != null) {
+       // 僵尸对象：摘掉它并立刻重开（不等 `onclose` / 退避计时器——
+       // 用户正在等回复，退避的 30s 上限在这里是不可接受的）。
+@@ -134,6 +170,62 @@ class WsClient {
+     }
+   }
+ 
++  // ─────────────────────────────────────────────────────────────────────
++  // 心跳看门狗（2026-10-01，审计 F-0008-1）
++  //
++  // 半开连接（笔记本休眠/唤醒、NAT/代理静默丢包、服务端被 SIGKILL 而没有
++  // FIN/RST 送达）下，浏览器的 `readyState` **仍然是 OPEN**——规范只在
++  // 「尝试收发并失败」时才改状态，而本客户端从不发送帧。于是 `onclose` 与
++  // `onerror` 都不会来，`_status` 一直写「已连接」，界面的恢复出口
++  //（`mustReleaseTurnOnWsLoss` 的前提是 `status.isProblem`）永远不成立 ⇒
++  // 「`POST /api/v1/chat` 成功但收不到回复」可以永久挂着。
++  //
++  // 服务端每 10 s 发一条心跳，那是**已经送到前端**的存活信号；下面这个周期
++  // 任务就是它的消费者：静默超过阈值即摘掉重开。判据是纯函数
++  //（`ws_liveness.dart`），本文件只做「巡检 + 处置」。
++  // ─────────────────────────────────────────────────────────────────────
++
++  void _startWatchdog() {
++    _watchdog?.cancel();
++    _watchdog = Timer.periodic(_watchdogTick, (_) => _checkHeartbeatLiveness());
++  }
++
++  /// 巡检一次：静默到期就把「看着还 OPEN」的 socket 当作半开连接处置。
++  void _checkHeartbeatLiveness() {
++    if (_disposed) return;
++    final web.WebSocket? socket = _socket;
++    // 没有 socket：退避重连正在管，不插手。
++    if (socket == null) return;
++    // 状态机**已经**是僵尸（CLOSING/CLOSED）：`onclose` 或退避计时器会管，
++    // 这里再动一次只会把同一条连接处置两遍。
++    if (!isLiveSocket(socket.readyState)) return;
++    final HeartbeatLiveness liveness = heartbeatLiveness(
++      lastHeartbeatAt: _lastHeartbeatAt,
++      now: DateTime.now(),
++    );
++    if (liveness == HeartbeatLiveness.online) return;
++    _recoverFromHalfOpen(socket);
++  }
++
++  /// 半开恢复：**先宣布通道有问题**，再摘掉僵尸并立刻重开。
++  ///
++  /// 顺序有讲究（与 `ChatController.stop()` 里「先本地收口再发请求」同一条教训）：
++  /// ① `disconnected` 是 `WsStatus.isProblem` ⇒ `ChatController` 的
++  ///    `mustReleaseTurnOnWsLoss` 会就地收口在飞的一轮（那条收口帧**永远不会
++  ///    来**）；若跳过这一步直接重开（只经过 `connecting`，它不是 problem），
++  ///    输入框会锁死在「停止本轮」而 `send()` 静默 return——正是用户报的
++  ///    「发出去没回应」的最坏形态；
++  /// ② 再摘掉重开，且**不走退避**（退避上限 30 s，而用户可能正等着回复）。
++  void _recoverFromHalfOpen(web.WebSocket socket) {
++    _setStatus(WsStatus.disconnected);
++    _reconnectTimer?.cancel();
++    _watchdog?.cancel();
++    if (identical(_socket, socket)) _socket = null;
++    _detach(socket);
++    _attempt = 0;
++    _open();
++  }
++
+   void _scheduleReconnect() {
+     if (_disposed) return;
+     _setStatus(WsStatus.disconnected);
+@@ -153,6 +245,9 @@ class WsClient {
+   /// `shutdown_ready` 的**连接处置**留在这里（解析层刻意无副作用）；事件本身
+   /// 照旧继续下发，让 UI 知道发生过什么。
+   void _handleText(String text) {
++    // **任何一个到达的帧都是存活证据**（心跳是周期性那一种）：看门狗据此判
++    // 「半开」。放在解析**之前**——解析不懂的帧同样证明链路能把字节送到。
++    _lastHeartbeatAt = DateTime.now();
+     final WsEvent? event = parseWsFrame(text);
+     if (event == null) return;
+     if (event is RuntimeStatusEvent && event.event == 'shutdown_ready') {
+@@ -166,6 +261,8 @@ class WsClient {
+     if (_disposed) return;
+     _disposed = true;
+     _reconnectTimer?.cancel();
++    _watchdog?.cancel();
++    _watchdog = null;
+     final web.WebSocket? socket = _socket;
+     _socket = null;
+     if (socket != null) {
+diff --git a/shell/flutter/lib/api/ws_liveness.dart b/shell/flutter/lib/api/ws_liveness.dart
+index 36b1bcd1..cf5f8062 100644
+--- a/shell/flutter/lib/api/ws_liveness.dart
++++ b/shell/flutter/lib/api/ws_liveness.dart
+@@ -36,3 +36,95 @@ bool isLiveSocket(int readyState) =>
+ /// 僵尸 socket：对象还在，但连接已经废了，`onclose` 尚未（或不会）回调。
+ bool isZombieSocket(int readyState) =>
+     readyState == kSocketClosing || readyState == kSocketClosed;
++
++// ─────────────────────────────────────────────────────────────────────────
++// 心跳看门狗（2026-10-01，审计 F-0008-1）
++//
++// # 上一版判据为什么不够
++//
++// 上面那两个判据（`isLiveSocket` / `isZombieSocket`）都是**读 `readyState`**。
++// 它们能挡住 2026-09-11 那个缺陷（close() 之后 onclose 尚未回调），但挡不住
++// **半开连接**：笔记本休眠/唤醒、NAT 或代理静默丢包、服务端被 SIGKILL 而没有
++// FIN/RST 送达。这时浏览器的 `readyState` **仍然是 OPEN**（规范只在「尝试收发
++// 并失败」时才改状态，而本客户端**从不发送**任何帧——协议是单向事件流）。
++// 于是 `ensureConnected()` 一直走「健康」分支不重连，`_status` 一直是
++// `connected`，而 `turn_liveness.mustReleaseTurnOnWsLoss` 的前提
++//（`status.isProblem`）永远不成立 ⇒ 「`POST /api/v1/chat` 成功但收不到回复」
++// 的幽灵态可以永久挂着。
++//
++// 服务端每 10 s 主动发一条心跳（`web_api/ws/connection.rs`）——那是**已经送到
++// 前端**的存活证据，前端解析了却从来没用过。下面把「静默多久算可疑 / 算死链」
++// 抽成纯函数：`ws_client.dart` 的看门狗与 `ui_state_tracker.dart` 的相位判据
++// 都读它，于是三个状态各有一个真实消费者（不是只算不用）。
++// ─────────────────────────────────────────────────────────────────────────
++
++/// 服务端主动心跳的间隔。**真源在 Rust**：
++/// `crates/live2d-ai-desktop/src/web_api/ws/connection.rs`（10 s）。
++/// 这里只作为「多久没动静算异常」的推导基准，前端**不**据此发 ping
++/// （协议是单向的，客户端帧会被 tungstenite 静默丢弃）。
++const Duration kWsHeartbeatInterval = Duration(seconds: 10);
++
++/// 静默 ≥ 这个时长 ⇒ **可疑**（[HeartbeatLiveness.suspect]）。
++///
++/// 取值理由：≈3 个心跳周期。错过 1 次可能是调度抖动/GC 停顿（10 s 量级），
++/// 连续 3 次收不到就不再是抖动。**必须**远小于「浏览器自己因 TCP 超时触发
++/// close」——后者**没有上界**，正是幽灵窗口的来源。
++const Duration kWsHeartbeatSuspectAfter = Duration(seconds: 30);
++
++/// 静默 ≥ 这个时长 ⇒ **死链**（[HeartbeatLiveness.offline]）。
++///
++/// 取值理由：≈9 个心跳周期。到这一档时**连 `readyState == OPEN` 也不信**：
++/// 这是「半开」最硬的判据——服务端就算还活着，它的话也已经 90 s 到不了我这里。
++const Duration kWsHeartbeatOfflineAfter = Duration(seconds: 90);
++
++/// 心跳看门狗的三态。
++enum HeartbeatLiveness {
++  /// 心跳按时到达：通道可信。
++  online,
++
++  /// 静默 ≥ [kWsHeartbeatSuspectAfter]（≈3 个周期）：**半开嫌疑**。
++  ///
++  /// 消费动作（`WsClient`）：主动摘掉这个「看着还 OPEN」的 socket 并立刻重开——
++  /// 不等浏览器自己的 TCP 超时（那没有上界）。
++  suspect,
++
++  /// 静默 ≥ [kWsHeartbeatOfflineAfter]（≈9 个周期）：**已判定死链**。
++  ///
++  /// 消费动作（`UiStateTracker`）：相位不再认「已连接」，退回 `offline`，
++  /// 免得界面继续显示「思考中」而实际一个字都收不到。
++  offline,
++}
++
++/// 由「最后心跳时刻 + now」判三态。**纯函数、零依赖**（可 VM 单测）。
++///
++/// 边界（**含**，写进契约，测试逐点断言 ±1 ms）：
++/// - `silent < suspectAfter` → [HeartbeatLiveness.online]
++/// - `suspectAfter <= silent < offlineAfter` → [HeartbeatLiveness.suspect]
++/// - `offlineAfter <= silent` → [HeartbeatLiveness.offline]
++///
++/// [lastHeartbeatAt] 为 null（还没收到过任何帧，例如刚建连、`subscribe_ack`
++/// 尚未到达）按 **online** 处理：**「未知」不等于「已死」**——把未知判死会让
++/// 每次刷新页面都先闪一下「后端未连接」。半开连接的前提是「曾经收到过」，
++/// 所以这个取向不会削弱判据。
++///
++/// `now` 早于 [lastHeartbeatAt]（时钟回拨）按 online：`Duration` 为负，
++/// 落进第一个分支。
++HeartbeatLiveness heartbeatLiveness({
++  required DateTime? lastHeartbeatAt,
++  required DateTime now,
++  Duration suspectAfter = kWsHeartbeatSuspectAfter,
++  Duration offlineAfter = kWsHeartbeatOfflineAfter,
++}) {
++  if (lastHeartbeatAt == null) return HeartbeatLiveness.online;
++  final Duration silent = now.difference(lastHeartbeatAt);
++  if (silent < suspectAfter) return HeartbeatLiveness.online;
++  if (silent < offlineAfter) return HeartbeatLiveness.suspect;
++  return HeartbeatLiveness.offline;
++}
++
++/// 这个通道**还值不值得信**（`readyState` 之外的第二重判据）。
++///
++/// 与 [isLiveSocket] 的关系：那个判 socket 对象的状态机，这个判「话还到不到」。
++/// 两者都成立才算可用——半开连接是前者成立、后者不成立的那种坏法。
++bool isChannelTrustworthy({required int readyState, required HeartbeatLiveness liveness}) =>
++    isLiveSocket(readyState) && liveness != HeartbeatLiveness.offline;
+diff --git a/shell/flutter/lib/app/shell_chat.dart b/shell/flutter/lib/app/shell_chat.dart
+index 9dc6e368..2fce9290 100644
+--- a/shell/flutter/lib/app/shell_chat.dart
++++ b/shell/flutter/lib/app/shell_chat.dart
+@@ -42,6 +42,15 @@ extension _ShellChatWiring on _ShellRootState {
+     _input.clear();
+     _ui.markTurnAccepted();
+     await _chat.send(text);
++    // **本地失败必须回落相位**（2026-10-01，审计 F-0007-1）。网络异常 / 非 2xx
++    // （`no_supervisor`=503）/ 200 但未受理（`busy`=429）这三条本地失败路径后端
++    // **不广播任何 WS 帧**，所以不会有任何收口帧来清「思考中」：不补偿的话状态
++    // 胶囊**永久**停在「思考中」、发送键永久变「停止本轮」（幽灵态）。
++    //
++    // 判据用 `_chat.sendFailedLocally` 而**不是** `_chat.error != null`：
++    // 服务端推来一条非致命 `error` 帧（本轮仍在飞、语音还要播完）时后者**也为真**，
++    // 那样会把一条正常进行的轮次提前说成结束。
++    if (_chat.sendFailedLocally) _ui.markTurnFailed();
+     _syncLiveRegion();
+   }
+ 
+diff --git a/shell/flutter/lib/chat/chat_controller.dart b/shell/flutter/lib/chat/chat_controller.dart
+index ad644e38..90cf65d2 100644
+--- a/shell/flutter/lib/chat/chat_controller.dart
++++ b/shell/flutter/lib/chat/chat_controller.dart
+@@ -67,6 +67,21 @@ class ChatController extends ChangeNotifier {
+   bool _streaming = false;
+   String? _error;
+ 
++  /// 最近一次 [send] 是否**本地失败**（网络/解析/非 2xx，或 200 但未受理）。
++  ///
++  /// 为什么不能只看 [error] 是否为 null：`_onWsEvent` 收到**服务端**的
++  /// `error` 帧也会写 [_error]，而那种错误发生时本轮**仍在飞**（非致命失败
++  /// 之后已生成的语音还要播完，收口由紧随的 `turn_state` 负责）。把「有错误
++  /// 文案」当成「本地发送失败」会把一条正在正常进行的轮次**提前说成结束**。
++  ///
++  /// 所以这里专门记一个**只由本地失败路径**置位的标志：组合根（`shell_chat._send`）
++  /// 在 `await send()` 之后据此通知 `UiStateTracker` 回落相位（审计 F-0007-1：
++  /// 这三条本地失败路径后端**不广播任何 WS 帧**，前端没有任何帧可以等）。
++  bool _sendFailedLocally = false;
++
++  /// 见 [_sendFailedLocally]。
++  bool get sendFailedLocally => _sendFailedLocally;
++
+   /// 最近一次错误的**机器码**（`llm_upstream_401` / `tts_transport` …）。
+   ///
+   /// 与 [error] 的关系：`error` 是给人看的一行（码 + 说明 + 提示），本字段是
+@@ -99,6 +114,9 @@ class ChatController extends ChangeNotifier {
+     _streaming = true;
+     _error = null;
+     _errorCode = null;
++    // 每一轮**重新**计数：上一轮本地失败的标志不能漏进这一轮（组合根在
++    // `await send()` 之后读它决定要不要回落相位）。见 [_sendFailedLocally]。
++    _sendFailedLocally = false;
+     // **先建气泡、再发请求**（2026-09-23，用户报「LLM 故障时对话无反应」）：
+     // 服务端可能在 HTTP 应答**之前**就跑完本轮并广播 `error` / `turn_state`
+     //（快失败：401、连接被拒、上游秒回 5xx）。旧顺序把气泡建在 await 之后——
+@@ -144,6 +162,10 @@ class ChatController extends ChangeNotifier {
+   void _failLocalTurn(ChatMessage bubble, String message, String? code) {
+     _error = message;
+     if (code != null) _errorCode = code;
++    // **只由本地失败路径置位**（见 [_sendFailedLocally]）：组合根据此让
++    // `UiStateTracker` 回落相位——这一轮不会有收口帧，不回落就永久停在
++    // 「思考中 / 停止本轮」（审计 F-0007-1）。
++    _sendFailedLocally = true;
+     if (identical(_assistant, bubble)) {
+       bubble.streaming = false;
+       if (bubble.text.trim().isEmpty) {
+diff --git a/shell/flutter/lib/state/ui_state_tracker.dart b/shell/flutter/lib/state/ui_state_tracker.dart
+index 936cff85..a7ae3e2d 100644
+--- a/shell/flutter/lib/state/ui_state_tracker.dart
++++ b/shell/flutter/lib/state/ui_state_tracker.dart
+@@ -28,6 +28,7 @@ import 'dart:async';
+ import 'package:flutter/foundation.dart';
+ 
+ import '../api/ws_frame.dart';
++import '../api/ws_liveness.dart';
+ import '../api/ws_status.dart';
+ import 'ui_phase.dart';
+ 
+@@ -41,14 +42,18 @@ class UiStateTracker extends ChangeNotifier {
+   UiStateTracker({
+     Duration hold = kInterruptedHold,
+     TimerFactory? timerFactory,
++    /// 读时钟（可注入：半开判据是**时间**判据，测试必须能不依赖真实时钟推进它）。
++    DateTime Function()? clock,
+     // 具名参数不写成 `this._hold`：那会把私有字段名暴露进公开签名
+     // （调用方要写 `UiStateTracker(_hold: …)`）。这里保持 `hold:` → `_hold`。
+     // ignore: prefer_initializing_formals
+   }) : _hold = hold,
+-       _newTimer = timerFactory ?? _defaultTimerFactory;
++       _newTimer = timerFactory ?? _defaultTimerFactory,
++       _now = clock ?? DateTime.now;
+ 
+   final Duration _hold;
+   final TimerFactory _newTimer;
++  final DateTime Function() _now;
+ 
+   WsStatus _wsStatus = WsStatus.idle;
+   bool _turnActive = false;
+@@ -59,6 +64,15 @@ class UiStateTracker extends ChangeNotifier {
+   String? _errorCode;
+   Timer? _interruptTimer;
+ 
++  /// 最近一次**收到帧**的时刻（任何一帧都算，见 [consume]）。
++  ///
++  /// 2026-10-01（审计 F-0008-1）之前，本类对 `heartbeat` 帧直接
++  /// `return false`——心跳被解析、被下发、然后被丢掉，于是**状态层没有任何
++  /// 时间判据**：半开连接（`WsStatus` 一直是 `connected`、实际一帧都收不到）
++  /// 不可检测，界面可以永久停在「思考中」。现在这个时刻由 [channelLiveness]
++  /// 消费，进而进入 [signals]。
++  DateTime? _lastHeartbeatAt;
++
+   /// 已释放。
+   ///
+   /// 定时器回调里必须查它：`Timer.cancel()` 能阻止**尚未触发**的回调，但
+@@ -69,13 +83,30 @@ class UiStateTracker extends ChangeNotifier {
+ 
+   /// 当前信号快照。
+   UiSignals get signals => UiSignals(
+-    wsConnected: _wsStatus.isUsable,
++    // 「通道能用」= 状态机说连上了 **且** 最近确实还听得到动静。
++    //
++    // 后半条是 2026-10-01（审计 F-0008-1）补的第二重判据：半开连接下
++    // `WsStatus` 会一直停在 `connected`（浏览器只在「尝试收发并失败」时才改
++    // 状态，而本客户端从不发帧），只看它就会把界面钉在「思考中」；而
++    // `turn_liveness.mustReleaseTurnOnWsLoss` 的前提是 `status.isProblem`，
++    // 也永远不会成立。只有「静默时长」能把这种坏法区分出来。
++    wsConnected:
++        _wsStatus.isUsable && channelLiveness != HeartbeatLiveness.offline,
+     turnActive: _turnActive,
+     voiceActive: _voiceActive,
+     interrupted: _interrupted,
+     errorActive: _errorActive,
+   );
+ 
++  /// 通道存活三态（判据 = `ws_liveness.dart` 的纯函数 [heartbeatLiveness]）。
++  ///
++  /// 这是心跳在**状态层**的消费者：静默到死链档（≈90 s）就不再认「已连接」，
++  /// 相位退回 `offline`——而不是继续显示「思考中」而实际一个字都收不到。
++  HeartbeatLiveness get channelLiveness => heartbeatLiveness(
++    lastHeartbeatAt: _lastHeartbeatAt,
++    now: _now(),
++  );
++
+   /// 派生出的界面相位（**唯一**真源，UI 各处都读它）。
+   UiPhase get phase => deriveUiPhase(signals);
+ 
+@@ -103,7 +134,13 @@ class UiStateTracker extends ChangeNotifier {
+   void onWsStatus(WsStatus status) {
+     if (_wsStatus == status) return;
+     _wsStatus = status;
+-    if (!status.isUsable) {
++    if (status.isUsable) {
++      // **连上的那一刻链路是活的**（`connected` 的语义就是首帧 `subscribe_ack`
++      // 已到达）⇒ 静默从此刻开始计。不播这个种子的话，「连上之后再也没收到
++      // 任何一帧」那种半开（`_lastHeartbeatAt` 恒为 null）会被判成「未知」而
++      // 永远不算异常——那正是幽灵态最纯粹的形态。
++      _lastHeartbeatAt = _now();
++    } else {
+       // 断开就把「进行中」的信号一并清掉：否则重连后界面会停在
+       // 「说话中/思考中」而实际什么都没发生。
+       _turnActive = false;
+@@ -123,8 +160,35 @@ class UiStateTracker extends ChangeNotifier {
+     notifyListeners();
+   }
+ 
++  /// `POST /api/v1/chat` **本地失败** → 相位就地回落（审计 F-0007-1）。
++  ///
++  /// 覆盖的失败面（三条都**不广播任何 WS 帧**，所以不会有收口帧来救）：
++  /// 网络/解析异常、非 2xx（`no_supervisor`=503 等）、200 但未受理（`busy`=429）。
++  /// 没有本方法时：`markTurnAccepted()` 已经把 `_turnActive` 置真，而清相位的
++  /// 四个入口（`onWsStatus` 断开 / `consume(TextDelta)` / `consume(TurnState)` /
++  /// `markStopped`）**一个都不会被调用** ⇒ 状态胶囊**永久**停在「思考中」、
++  /// 发送键永久变「停止本轮」（= 用户报的幽灵态）。
++  ///
++  /// 与 [markStopped] 的区别（处方见审计 FINDINGS 的「改法方向 ①」）：
++  /// - **不**复用 `markStopped`：那条路径显示「已打断」，会把「服务端忙碌 /
++  ///   网络失败」说成用户的意志；
++  /// - **不**在这里置 `_errorActive`：错误文案与机器码由 `ChatController` 给
++  ///   （顶部横幅读 `_ui.errorMessage ?? _chat.error`），两处都写就是同一条
++  ///   错误长两个通道——规格 §6.3 明令禁止。本方法只负责**相位**。
++  void markTurnFailed() {
++    if (!_turnActive && !_voiceActive) return;
++    _turnActive = false;
++    _voiceActive = false;
++    notifyListeners();
++  }
++
+   /// 消费一帧（`ChatController` 之外的第二条订阅；只读，无副作用外溢）。
+   bool consume(WsEvent event) {
++    // **任何一帧都是「链路还活着」的证据**（服务端每 10 s 一条 `heartbeat`
++    // 是周期性那一种）。2026-10-01 之前这里对 `HeartbeatEvent` 直接 `return
++    // false`——心跳被解析、被下发、然后被丢掉，于是状态层没有任何时间判据。
++    // 记在解析分支**之前**：判据要的是「字节到得了」，与帧认不认识无关。
++    _lastHeartbeatAt = _now();
+     switch (event) {
+       case RuntimeStatusEvent(:final event):
+         switch (event) {
+@@ -184,6 +248,9 @@ class UiStateTracker extends ChangeNotifier {
+         return false;
+       case SubscribeAckEvent():
+       case HeartbeatEvent():
++      // ↑ `heartbeat` **不是**「什么也不做」了：它已经在方法开头的
++      //   `_lastHeartbeatAt = _now()` 里被消费（它不改**这一帧的**相位，
++      //   但改「通道还活着吗」这条判据 → [channelLiveness]）。
+       case AudioEvent():
+       // 导演 cue 只驱动舞台动作，不改相位。
+       case ActionCueEvent():
+diff --git a/shell/flutter/test/ui_state_tracker_half_open_test.dart b/shell/flutter/test/ui_state_tracker_half_open_test.dart
+new file mode 100644
+index 00000000..498d7d22
+--- /dev/null
++++ b/shell/flutter/test/ui_state_tracker_half_open_test.dart
+@@ -0,0 +1,133 @@
++/// 心跳在**状态层**的消费者回归（真 `UiStateTracker`，VM 直接跑）。
++///
++/// 缺陷本身（2026-10-01，审计 F-0008-1）：服务端每 10 s 发一条心跳，前端解析了、
++/// 下发了，然后被丢掉——`ui_state_tracker.dart` 对 `HeartbeatEvent` 曾直接
++/// `return false`。于是**没有任何时间判据**能区分这两种情况：
++///
++/// - 「通道好、这一轮正在思考」→ 应该显示「思考中」；
++/// - 「半开连接：`WsStatus` 仍是 `connected`、实际一帧都收不到」→ 应该退回
++///   「后端未连接」，绝不能让界面**永久**停在「思考中」。
++///
++/// 本文件的断言都必须能在修复前**红**（那时心跳被丢、`channelLiveness` 不存在），
++/// 修复后**绿**——见回报里的三段原始输出。
++library;
++
++import 'package:flutter_test/flutter_test.dart';
++
++import 'package:live2d_ai_shell/api/ws_frame.dart';
++import 'package:live2d_ai_shell/api/ws_liveness.dart';
++import 'package:live2d_ai_shell/api/ws_status.dart';
++import 'package:live2d_ai_shell/state/ui_phase.dart';
++import 'package:live2d_ai_shell/state/ui_state_tracker.dart';
++
++/// 服务端心跳帧的**真形状**（与 `ws_frame_test.dart`、后端
++/// `web_api/ws/connection.rs` 的样例一致）——不自己编帧，避免测出一条
++/// 现实中不存在的输入。
++const String kHeartbeatFrame =
++    '{"type":"heartbeat","seq":9,"ts":"2026-09-10T12:15:00.000Z"}';
++
++void main() {
++  late DateTime now;
++  late UiStateTracker tracker;
++
++  setUp(() {
++    // 固定基准时钟：半开判据是**时间**判据，不注入时钟就只能靠真实时间，
++    // 那条测试要么睡 90 秒、要么根本没断言力。
++    now = DateTime.utc(2026, 10, 1, 20, 0, 0);
++    tracker = UiStateTracker(clock: () => now);
++  });
++
++  tearDown(() => tracker.dispose());
++
++  group('半开连接：心跳被消费 ⇒ 相位真的退回 offline', () {
++    test('**幽灵态端到端**：受理一轮后通道彻底静默 → 不再永久停在「思考中」', () {
++      tracker.onWsStatus(WsStatus.connected);
++      tracker.markTurnAccepted();
++      expect(tracker.phase, UiPhase.thinking, reason: '前提：受理后相位进入思考中');
++
++      // 半开连接：一帧都没有，而 `WsStatus` **仍然是 connected**
++      //（浏览器只在「尝试收发并失败」时才改 readyState，本客户端从不发帧）。
++      now = now.add(kWsHeartbeatOfflineAfter);
++
++      expect(
++        tracker.wsStatus,
++        WsStatus.connected,
++        reason: '前提：状态机自己以为一切正常——这正是半开连接的坏法',
++      );
++      expect(tracker.channelLiveness, HeartbeatLiveness.offline);
++      expect(tracker.signals.wsConnected, isFalse);
++      expect(
++        tracker.phase,
++        UiPhase.offline,
++        reason: '修复前这里恒为 thinking：没有任何判据能看出通道已经死了',
++      );
++    });
++
++    test('收到心跳 → 三态随时间依次 online / suspect / offline', () {
++      tracker.onWsStatus(WsStatus.connected);
++      final WsEvent? frame = parseWsFrame(kHeartbeatFrame);
++      expect(frame, isA<HeartbeatEvent>(), reason: '前提：这帧确实被解析成心跳');
++      tracker.consume(frame!);
++      expect(tracker.channelLiveness, HeartbeatLiveness.online);
++
++      now = now.add(kWsHeartbeatSuspectAfter);
++      expect(tracker.channelLiveness, HeartbeatLiveness.suspect);
++
++      now = now.add(kWsHeartbeatOfflineAfter - kWsHeartbeatSuspectAfter);
++      expect(tracker.channelLiveness, HeartbeatLiveness.offline);
++    });
++
++    test('只到**嫌疑档**（≈30s）时相位仍是 idle：不把「可疑」说成「后端未连接」', () {
++      tracker.onWsStatus(WsStatus.connected);
++      expect(tracker.channelLiveness, HeartbeatLiveness.online);
++
++      now = now.add(kWsHeartbeatSuspectAfter);
++
++      expect(tracker.channelLiveness, HeartbeatLiveness.suspect);
++      expect(
++        tracker.phase,
++        UiPhase.idle,
++        reason: '可疑期由 WsClient 主动重连处置；状态层不越权判死（否则'
++            '连接徽标还写「已连接」、胶囊已经说「后端未连接」，两个元件自相矛盾）',
++      );
++    });
++
++    test('**任何一帧**都刷新存活时刻（不只是 heartbeat）', () {
++      tracker.onWsStatus(WsStatus.connected);
++      now = now.add(kWsHeartbeatSuspectAfter);
++      expect(tracker.channelLiveness, HeartbeatLiveness.suspect);
++
++      // 正文帧到达：它同样证明「链路能把字节送到我这里」。
++      tracker.consume(const TextDeltaEvent(epoch: 1, text: '好'));
++
++      expect(tracker.channelLiveness, HeartbeatLiveness.online);
++    });
++
++    test('心跳帧本身不改相位（consume 返回 false），但确实改了存活判据', () {
++      tracker.onWsStatus(WsStatus.connected);
++      final WsEvent frame = parseWsFrame(kHeartbeatFrame)!;
++      expect(tracker.consume(frame), isFalse);
++      expect(tracker.phase, UiPhase.idle);
++
++      now = now.add(kWsHeartbeatOfflineAfter);
++      expect(tracker.phase, UiPhase.offline);
++    });
++
++    test('半开恢复：看门狗重连成功后相位回到 idle', () {
++      tracker.onWsStatus(WsStatus.connected);
++      now = now.add(kWsHeartbeatOfflineAfter);
++      expect(tracker.phase, UiPhase.offline);
++
++      // 看门狗的真实顺序（`WsClient._recoverFromHalfOpen`）：
++      // 先 disconnected（在飞的轮次因此被收口，用户看到提示）→ 再重开。
++      tracker.onWsStatus(WsStatus.disconnected);
++      expect(tracker.phase, UiPhase.offline);
++      tracker.onWsStatus(WsStatus.connecting);
++      expect(tracker.phase, UiPhase.offline);
++      tracker.onWsStatus(WsStatus.connected);
++
++      expect(tracker.channelLiveness, HeartbeatLiveness.online);
++      expect(tracker.phase, UiPhase.idle);
++    });
++  });
++}
+diff --git a/shell/flutter/test/ui_state_tracker_local_failure_test.dart b/shell/flutter/test/ui_state_tracker_local_failure_test.dart
+new file mode 100644
+index 00000000..65c93e4a
+--- /dev/null
++++ b/shell/flutter/test/ui_state_tracker_local_failure_test.dart
+@@ -0,0 +1,169 @@
++/// 本地发送失败的**相位回落**回归（真 `UiStateTracker` + 真泵状态胶囊/聊天面板）。
++///
++/// 缺陷本身（2026-10-01，审计 F-0007-1）：`POST /api/v1/chat` **本地失败**
++/// （网络异常 / 非 2xx（`no_supervisor`=503）/ 200 但未受理（`busy`=429））
++/// 时，`ChatController._failLocalTurn` 只改自己的 `_error/_streaming`，
++/// 而 `shell_chat._send` 在此之前已经调过 `_ui.markTurnAccepted()`——
++/// 清相位的四个入口（`onWsStatus` 断开 / `consume(TextDelta)` /
++/// `consume(TurnState)` / `markStopped`）**一个都不会被调用**，因为这三条本地
++/// 失败路径后端**不广播任何 WS 帧**（已实读 `chat_routes.rs`）。结果是：
++/// - 状态胶囊**永久**停在「思考中」；
++/// - 发送键**永久**变「停止本轮」。
++///
++/// 断言刻意落在**真对象**上（真 tracker 派生相位 + 真泵 `StatePill` 与真
++/// `ChatPanel`），并且断言**具体状态**（「思考中」不再出现、「空闲」出现、
++/// 按钮 tooltip 从「停止本轮」变回「发送（Enter）」）——不做源码字符串扫描。
++///
++/// 与「真 `ChatController`」的关系（诚实说明）：`ChatController` 经
++/// `audio_player.dart` 传递依赖 `dart:js_interop`/`package:web`，**VM 的
++/// `flutter test` 加载不了它**（原始报错见回报），所以这里走的是它失败时
++/// **必然调用**的那一个接缝（`markTurnFailed`）。生产接线只有一行，在
++/// `lib/app/shell_chat.dart`。
++library;
++
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++
++import 'package:live2d_ai_shell/api/ws_frame.dart';
++import 'package:live2d_ai_shell/api/ws_status.dart';
++import 'package:live2d_ai_shell/chat/chat_message.dart';
++import 'package:live2d_ai_shell/state/ui_phase.dart';
++import 'package:live2d_ai_shell/state/ui_state_tracker.dart';
++import 'package:live2d_ai_shell/ui/chat_panel.dart';
++import 'package:live2d_ai_shell/ui/state_pill.dart';
++import 'package:live2d_ai_shell/ui/theme.dart';
++
++Widget _wrap(Widget child) =>
++    MaterialApp(theme: buildAppTheme(), home: Scaffold(body: child));
++
++/// 真泵：状态胶囊（读 `tracker.phase`）+ 聊天面板（发送键按相位换语义）。
++Future<void> _pumpShell(
++  WidgetTester tester,
++  UiStateTracker tracker,
++  TextEditingController input,
++) async {
++  await tester.pumpWidget(
++    _wrap(
++      ListenableBuilder(
++        listenable: tracker,
++        builder: (BuildContext context, Widget? _) => Column(
++          children: <Widget>[
++            StatePill(phase: tracker.phase),
++            Expanded(
++              child: ChatPanel(
++                messages: const <ChatMessage>[],
++                phase: tracker.phase,
++                input: input,
++                onSend: () {},
++                onStop: () {},
++                onDismissError: () {},
++                volume: 1,
++                muted: false,
++                onVolumeChanged: (_) {},
++                onMutedChanged: (_) {},
++              ),
++            ),
++          ],
++        ),
++      ),
++    ),
++  );
++}
++
++void main() {
++  group('本地发送失败 ⇒ 相位回落（真 tracker + 真泵）', () {
++    testWidgets('状态胶囊离开「思考中」、发送键离开「停止本轮」', (WidgetTester tester) async {
++      final UiStateTracker tracker = UiStateTracker();
++      addTearDown(tracker.dispose);
++      final TextEditingController input = TextEditingController();
++      addTearDown(input.dispose);
++      // 相位「思考中」的前提是通道可用（否则 `deriveUiPhase` 先返回 offline）。
++      tracker.onWsStatus(WsStatus.connected);
++      await _pumpShell(tester, tracker, input);
++
++      // ① 受理（`shell_chat._send` 的第一句）：不该停在 idle。
++      tracker.markTurnAccepted();
++      await tester.pump();
++      expect(tracker.phase, UiPhase.thinking);
++      expect(find.text('思考中'), findsOneWidget);
++      expect(find.byTooltip('停止本轮'), findsOneWidget);
++      expect(find.byTooltip('发送（Enter）'), findsNothing);
++
++      // ② 本地失败（`shell_chat._send` 在 await 之后按 `sendFailedLocally` 调）。
++      tracker.markTurnFailed();
++      await tester.pump();
++
++      expect(
++        tracker.phase,
++        UiPhase.idle,
++        reason: '修复前恒为 thinking：没有任何帧会到达，相位就永久卡在「思考中」',
++      );
++      expect(find.text('思考中'), findsNothing);
++      expect(find.text('空闲'), findsOneWidget);
++      expect(
++        find.byTooltip('停止本轮'),
++        findsNothing,
++        reason: '修复前发送键永久变「停止本轮」，用户按了也只能打断一个没开始的轮次',
++      );
++      expect(find.byTooltip('发送（Enter）'), findsOneWidget);
++    });
++
++    testWidgets('**不**伪造成「已打断」：那是 markStopped 的语义', (WidgetTester tester) async {
++      final UiStateTracker tracker = UiStateTracker();
++      addTearDown(tracker.dispose);
++      final TextEditingController input = TextEditingController();
++      addTearDown(input.dispose);
++      await _pumpShell(tester, tracker, input);
++
++      tracker.markTurnAccepted();
++      await tester.pump();
++      tracker.markTurnFailed();
++      await tester.pump();
++
++      expect(tracker.interrupted, isFalse);
++      expect(find.text('已打断'), findsNothing);
++      expect(tracker.errorActive, isFalse);
++      expect(find.text('出错'), findsNothing);
++    });
++
++    test('说话中（`voice_started`）的本地失败同样回落：不留「说话中」', () {
++      final UiStateTracker tracker = UiStateTracker();
++      addTearDown(tracker.dispose);
++      tracker.onWsStatus(WsStatus.connected);
++
++      tracker.consume(const RuntimeStatusEvent(event: 'voice_started'));
++      expect(tracker.phase, UiPhase.speaking);
++
++      tracker.markTurnFailed();
++      expect(tracker.phase, UiPhase.idle);
++      expect(tracker.voiceActive, isFalse);
++      expect(tracker.turnActive, isFalse);
++    });
++
++    test('空闲时调用是无操作（不炸、不发多余的相位变化）', () {
++      final UiStateTracker tracker = UiStateTracker();
++      addTearDown(tracker.dispose);
++      expect(tracker.phase, UiPhase.offline, reason: '前提：还没连上后端');
++
++      int notifications = 0;
++      tracker.addListener(() => notifications++);
++      tracker.markTurnFailed();
++
++      expect(tracker.phase, UiPhase.offline);
++      expect(notifications, 0);
++    });
++
++    test('回落之后重发仍能进入「思考中」（不是把标记一次性用坏）', () {
++      final UiStateTracker tracker = UiStateTracker();
++      addTearDown(tracker.dispose);
++      tracker.onWsStatus(WsStatus.connected);
++
++      tracker.markTurnAccepted();
++      tracker.markTurnFailed();
++      expect(tracker.phase, UiPhase.idle);
++
++      tracker.markTurnAccepted();
++      expect(tracker.phase, UiPhase.thinking);
++    });
++  });
++}
+diff --git a/shell/flutter/test/ws_heartbeat_liveness_test.dart b/shell/flutter/test/ws_heartbeat_liveness_test.dart
+new file mode 100644
+index 00000000..f3b2a407
+--- /dev/null
++++ b/shell/flutter/test/ws_heartbeat_liveness_test.dart
+@@ -0,0 +1,174 @@
++/// 心跳看门狗**判据**的回归（纯逻辑，VM 直接跑）。
++///
++/// 缺陷本身（2026-10-01，审计 F-0008-1）：服务端每 10 s 发一条心跳，前端把帧
++/// 解析了、下发了，然后**被两个消费者丢弃**——`chat_controller.dart` 的
++/// `case HeartbeatEvent(): break` 与 `ui_state_tracker.dart` 的 `return false`。
++/// 于是前端**没有任何时间判据**：半开连接（休眠唤醒 / NAT 静默丢包 / 服务端被
++/// SIGKILL；此时浏览器 `readyState` **仍是 OPEN**，因为它只在「尝试收发并失败」
++/// 时才改状态，而本客户端从不发帧）不可检测，`ensureConnected()` 一直走健康
++/// 分支不重连，`_status` 一直是「已连接」，`mustReleaseTurnOnWsLoss` 的前提
++/// （`status.isProblem`）永远不成立 ⇒「`POST /api/v1/chat` 成功但收不到回复」
++/// 的幽灵态可以永久挂着。
++///
++/// 本文件只测**判据**（纯函数、零依赖）。消费者侧（看门狗把相位/连接态真的
++/// 改掉）在 `ui_state_tracker_half_open_test.dart` 里用真 tracker 断言。
++library;
++
++import 'package:flutter_test/flutter_test.dart';
++
++import 'package:live2d_ai_shell/api/ws_liveness.dart';
++
++void main() {
++  // 基准时刻固定成 UTC：判据只做差，但固定基准让失败信息可复算
++  // （不受本地时区 / 夏令时影响）。
++  final DateTime last = DateTime.utc(2026, 10, 1, 20, 0, 0);
++  HeartbeatLiveness atSilence(Duration silent) =>
++      heartbeatLiveness(lastHeartbeatAt: last, now: last.add(silent));
++
++  const Duration oneMs = Duration(milliseconds: 1);
++
++  group('heartbeatLiveness：三态由「静默时长」判定（含边界 ±1ms）', () {
++    test('刚收到心跳（静默 0）→ online', () {
++      expect(atSilence(Duration.zero), HeartbeatLiveness.online);
++    });
++
++    test('可疑阈值 **-1ms** → 仍是 online（边界之外）', () {
++      expect(
++        atSilence(kWsHeartbeatSuspectAfter - oneMs),
++        HeartbeatLiveness.online,
++      );
++    });
++
++    test('**可疑阈值恰好** → suspect（边界含在嫌疑侧，写进契约）', () {
++      expect(atSilence(kWsHeartbeatSuspectAfter), HeartbeatLiveness.suspect);
++    });
++
++    test('可疑阈值 **+1ms** → suspect（边界之内）', () {
++      expect(
++        atSilence(kWsHeartbeatSuspectAfter + oneMs),
++        HeartbeatLiveness.suspect,
++      );
++    });
++
++    test('死链阈值 **-1ms** → 仍是 suspect（还没到死链档）', () {
++      expect(
++        atSilence(kWsHeartbeatOfflineAfter - oneMs),
++        HeartbeatLiveness.suspect,
++      );
++    });
++
++    test('**死链阈值恰好** → offline（边界含在死链侧）', () {
++      expect(atSilence(kWsHeartbeatOfflineAfter), HeartbeatLiveness.offline);
++    });
++
++    test('死链阈值 **+1ms** → offline', () {
++      expect(
++        atSilence(kWsHeartbeatOfflineAfter + oneMs),
++        HeartbeatLiveness.offline,
++      );
++    });
++
++    test('从未收到过任何帧（null）→ online：**「未知」不等于「已死」**', () {
++      // 刚建连、`subscribe_ack` 还没到时不能判死——否则每次刷新页面都会先闪
++      // 一下「后端未连接」。半开连接的前提是「曾经收到过」。
++      expect(
++        heartbeatLiveness(lastHeartbeatAt: null, now: last),
++        HeartbeatLiveness.online,
++      );
++    });
++
++    test('时钟回拨（now 早于最后心跳）→ online，不判死', () {
++      expect(
++        heartbeatLiveness(
++          lastHeartbeatAt: last,
++          now: last.subtract(const Duration(seconds: 5)),
++        ),
++        HeartbeatLiveness.online,
++      );
++    });
++
++    test('阈值可注入：判据不绑死在这两个常量上', () {
++      const Duration suspect = Duration(seconds: 1);
++      const Duration offline = Duration(seconds: 3);
++      HeartbeatLiveness withThresholds(Duration silent) => heartbeatLiveness(
++        lastHeartbeatAt: last,
++        now: last.add(silent),
++        suspectAfter: suspect,
++        offlineAfter: offline,
++      );
++      expect(withThresholds(const Duration(milliseconds: 999)),
++          HeartbeatLiveness.online);
++      expect(withThresholds(suspect), HeartbeatLiveness.suspect);
++      expect(withThresholds(offline - oneMs), HeartbeatLiveness.suspect);
++      expect(withThresholds(offline), HeartbeatLiveness.offline);
++    });
++  });
++
++  group('阈值常量与「服务端心跳间隔」的关系', () {
++    test('可疑阈值 = 3 个心跳周期（错过 1 次可能是抖动，连续 3 次不是）', () {
++      expect(kWsHeartbeatSuspectAfter, kWsHeartbeatInterval * 3);
++    });
++
++    test('死链阈值 = 9 个心跳周期', () {
++      expect(kWsHeartbeatOfflineAfter, kWsHeartbeatInterval * 9);
++    });
++
++    test('死链阈值严格晚于可疑阈值（否则 suspect 永远显示不出来）', () {
++      expect(kWsHeartbeatOfflineAfter > kWsHeartbeatSuspectAfter, isTrue);
++    });
++  });
++
++  group('isChannelTrustworthy：readyState 之外的第二重判据', () {
++    test('OPEN + online → 可信', () {
++      expect(
++        isChannelTrustworthy(
++          readyState: kSocketOpen,
++          liveness: HeartbeatLiveness.online,
++        ),
++        isTrue,
++      );
++    });
++
++    test('OPEN + suspect → **仍然可信**：重连由看门狗负责，不在这里越权', () {
++      expect(
++        isChannelTrustworthy(
++          readyState: kSocketOpen,
++          liveness: HeartbeatLiveness.suspect,
++        ),
++        isTrue,
++      );
++    });
++
++    test('OPEN + offline → **不可信**：正是半开连接那种坏法', () {
++      expect(
++        isChannelTrustworthy(
++          readyState: kSocketOpen,
++          liveness: HeartbeatLiveness.offline,
++        ),
++        isFalse,
++      );
++    });
++
++    test('CLOSING / CLOSED → 无论 liveness 都不可信（两道判据都要成立）', () {
++      for (final int state in <int>[kSocketClosing, kSocketClosed]) {
++        for (final HeartbeatLiveness liveness in HeartbeatLiveness.values) {
++          expect(
++            isChannelTrustworthy(readyState: state, liveness: liveness),
++            isFalse,
++            reason: 'readyState=$state liveness=$liveness',
++          );
++        }
++      }
++    });
++
++    test('CONNECTING + online → 可信（正在建连，重开只会多一条废连接）', () {
++      expect(
++        isChannelTrustworthy(
++          readyState: kSocketConnecting,
++          liveness: HeartbeatLiveness.online,
++        ),
++        isTrue,
++      );
++    });
++  });
++}

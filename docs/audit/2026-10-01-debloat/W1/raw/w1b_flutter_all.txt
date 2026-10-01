@@ -1,0 +1,133 @@
+==================================================================
+### commit cbbedef0 (cbbedef0c415c8989d07a315848a17ca2dff3291)
+# fix(frontend): W1-c/R8a-3 读屏可达（气泡按钮）+ Mod 配置不吞草稿
+# 归档副本: /tmp/w1b_cbbedef0
+# 副本完整性（改动文件 md5 vs commit）:
+#   shell/flutter/lib/settings/sections/dev_tools_section.dart       SAME
+#   shell/flutter/lib/ui/message_bubble.dart                         SAME
+#   shell/flutter/test/message_bubble_semantics_reachability_test.dart SAME
+#   shell/flutter/test/mod_config_draft_test.dart                    SAME
+
+$ flutter pub get
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+PUBGET_EXIT=0
+
+$ flutter analyze
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing flutter...                                            
+No issues found! (ran in 3.5s)
+ANALYZE_EXIT=0
+
+$ flutter test
+00:32 +1419: /tmp/w1b_cbbedef0/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） state 里没有 summary 键：整块不渲染（旧服务端兼容）
+00:32 +1420: /tmp/w1b_cbbedef0/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 注入开关说明它与 Mod 启停是两件事
+00:32 +1421: /tmp/w1b_cbbedef0/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 会话下按来源槽叠加，且不再复述文档 / 长契约
+00:32 +1422: All tests passed!
+TEST_EXIT=0
+
+==================================================================
+### commit 1d0c6e66 (1d0c6e6656462c23466eae84ac0801683317fd23)
+# fix(frontend): W1-d/R8a-4 令牌对比度 + 断点 lint 旁路 + 字体运行态门禁
+# 归档副本: /tmp/w1b_1d0c6e66
+# 副本完整性（改动文件 md5 vs commit）:
+#   shell/flutter/lib/design/tokens.dart                             SAME
+#   shell/flutter/lib/ui/theme.dart                                  SAME
+#   shell/flutter/test/content_contrast_test.dart                    SAME
+#   shell/flutter/test/design_tokens_lint_test.dart                  SAME
+#   shell/flutter/test/font_runtime_subset_test.dart                 SAME
+#   shell/flutter/test/font_subset_test.dart                         SAME
+
+$ flutter pub get
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+PUBGET_EXIT=0
+
+$ flutter analyze
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing flutter...                                            
+No issues found! (ran in 3.4s)
+ANALYZE_EXIT=0
+
+$ flutter test
+00:32 +1465: /tmp/w1b_1d0c6e66/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） state 里没有 summary 键：整块不渲染（旧服务端兼容）
+00:32 +1466: /tmp/w1b_1d0c6e66/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 注入开关说明它与 Mod 启停是两件事
+00:32 +1467: /tmp/w1b_1d0c6e66/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 会话下按来源槽叠加，且不再复述文档 / 长契约
+00:32 +1468: All tests passed!
+TEST_EXIT=0
+
+==================================================================
+### commit 77da64e5 (77da64e5b6fb78979bc2ae91f6d45429454a212b)
+# fix(frontend): W1-d2 · contentFaint 文字色语义迁移收尾 + 跨行判定取代同行正则
+# 归档副本: /tmp/w1b_77da64e5
+# 副本完整性（改动文件 md5 vs commit）:
+#   shell/flutter/lib/settings/sections/appearance_background.dart   SAME
+#   shell/flutter/lib/ui/state_pill.dart                             SAME
+#   shell/flutter/test/content_contrast_test.dart                    SAME
+#   shell/flutter/test/font_runtime_subset_test.dart                 SAME
+#   shell/flutter/test/no_backdrop_filter_test.dart                  SAME
+
+$ flutter pub get
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+PUBGET_EXIT=0
+
+$ flutter analyze
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing flutter...                                            
+No issues found! (ran in 3.4s)
+ANALYZE_EXIT=0
+
+$ flutter test
+00:32 +1471: /tmp/w1b_77da64e5/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） state 里没有 summary 键：整块不渲染（旧服务端兼容）
+00:32 +1472: /tmp/w1b_77da64e5/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 注入开关说明它与 Mod 启停是两件事
+00:32 +1473: /tmp/w1b_77da64e5/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 会话下按来源槽叠加，且不再复述文档 / 长契约
+00:32 +1474: All tests passed!
+TEST_EXIT=0
+
+==================================================================
+### commit d140604f (d140604f66ba0f2c47e0d159058ad5deeb92fbc1)
+# fix(frontend): W1-e/R8a-5 派生值出口（progress 回调 + fps 订阅口）+ 记忆面板跨桶
+# 归档副本: /tmp/w1b_d140604f
+# 副本完整性（改动文件 md5 vs commit）:
+#   shell/flutter/lib/live2d/live2d_bridge.dart                      SAME
+#   shell/flutter/lib/live2d/live2d_stage.dart                       SAME
+#   shell/flutter/lib/settings/mods/memory_panel.dart                SAME
+#   shell/flutter/test/memory_panel_bucket_switch_test.dart          SAME
+#   shell/flutter/test/stage_progress_fps_rebuild_test.dart          SAME
+
+$ flutter pub get
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+PUBGET_EXIT=0
+
+$ flutter analyze
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing flutter...                                            
+No issues found! (ran in 3.5s)
+ANALYZE_EXIT=0
+
+$ flutter test
+00:34 +1481: /tmp/w1b_d140604f/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） state 里没有 summary 键：整块不渲染（旧服务端兼容）
+00:34 +1482: /tmp/w1b_d140604f/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 注入开关说明它与 Mod 启停是两件事
+00:34 +1483: /tmp/w1b_d140604f/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 会话下按来源槽叠加，且不再复述文档 / 长契约
+00:34 +1484: All tests passed!
+TEST_EXIT=0
+
+DONE

@@ -1,0 +1,9 @@
+### 环境与命令
+$ mkdir -p /tmp/cs_check && cp docs/audit/2026-10-01-debloat/W0/raw/repro_inline_mask.rs /tmp/cs_check/main.rs
+$ cd /tmp/cs_check && rustc --edition 2021 -O main.rs -o cs_check && ./cs_check
+
+### 原始输出
+[复现案例] physical_lines = 5
+[复现案例] inline_test_lines 实得 = 3   （measure.rs 文档口径：无花括号条目应吃到文件末尾 = 4）
+[真实文件] settings.rs physical=826 inline实得=9 （34-37 行两条无花括号 cfg(test) mod；文档口径 = 793）
+[真实文件] performance/mod.rs physical=478 inline实得=8

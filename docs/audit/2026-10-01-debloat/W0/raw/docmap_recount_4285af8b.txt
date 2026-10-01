@@ -1,0 +1,19 @@
+### 复算 DOC-MAP §3 的表（用 DOC-MAP 自己写的命令）
+docs/architecture            32     9532
+docs/audit                   48     4783
+docs/design                   8     3302
+docs/development              2      124
+docs/examples                 2      465
+docs/legacy                 104    25191
+docs/legal                    3       45
+docs/plans                   41     8916
+docs/releases                14     2375
+docs/research                23     8937
+docs/screenshots              0        0
+docs/verification            18     4420
+docs/ 顶层 *.md             7     2316
+docs 合计                 302    70406
+fatal: not a git repository (or any of the parent directories): .git
+tracked docs md: 0
+plans 顶层: 24
+legacy/plans: 94

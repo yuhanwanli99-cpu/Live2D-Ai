@@ -1,0 +1,9 @@
+### 归档副本校验（确认 /tmp/w1a_verify 与 commit 一致）
+shell/flutter/lib/api/ws_client.dart                           SAME
+shell/flutter/lib/api/ws_liveness.dart                         SAME
+shell/flutter/lib/app/shell_chat.dart                          SAME
+shell/flutter/lib/chat/chat_controller.dart                    SAME
+shell/flutter/lib/state/ui_state_tracker.dart                  SAME
+shell/flutter/test/ui_state_tracker_half_open_test.dart        SAME
+shell/flutter/test/ui_state_tracker_local_failure_test.dart    SAME
+shell/flutter/test/ws_heartbeat_liveness_test.dart             SAME

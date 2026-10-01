@@ -1,0 +1,20 @@
+### 对抗性探针（verifier 自写，只在 /tmp 副本跑；不进入仓库）
+# 时间: 2026-10-01T22:17:34+08:00
+# 命令: flutter test test/zz_verifier_probe_test.dart
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /tmp/w1a_probe/shell/flutter/test/zz_verifier_probe_test.dart
+00:00 +0: 探针 A · isChannelTrustworthy 的空白格：CONNECTING + offline CONNECTING + offline → 判为「不可信」（=> ensureConnected 会摘掉还在建连的 socket）
+00:00 +1: 探针 A · isChannelTrustworthy 的空白格：CONNECTING + offline 对照：OPEN + suspect 仍判可信（重连交给看门狗）
+00:00 +2: 探针 B · 半开时「显示层退回」不等于「在飞轮次被释放」 liveness=offline 只改 wsConnected；turnActive 仍为真，且收口判据读的是 WsStatus
+00:00 +3: 探针 C · markTurnFailed 会一并清掉外部（语音/弹幕）轮次的标志 turnActive + voiceActive 同时被清（实施者自报残余竞态，实测成立）
+00:00 +4: 探针 D · markTurnAccepted 之后立刻 markTurnFailed 的净效果 相位回到 idle（用户消息已清空输入框，但 send() 早退时什么都没发）
+00:00 +5: All tests passed!
+PROBE_EXIT=0

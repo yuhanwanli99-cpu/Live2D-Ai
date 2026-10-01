@@ -1,0 +1,347 @@
+########## Phase B · W0 后端全量门禁（落在已提交的 W0b 树上）##########
+# 时间: 2026-10-01T21:44:44+08:00
+# $ git rev-parse HEAD
+d1e29ba32afc68a484de06cd9b94e9f1ed6ae453
+# $ git status --short
+?? AUDIT-REPO/
+?? docs/audit/2026-10-01-debloat/
+# $ df -h . | tail -1
+/dev/sdd        147G  104G   36G  75% /
+# 核查：无其它 cargo/rustc 进程
+(none besides this script)
+
+########## B1. cargo test --workspace --all-targets ##########
+test odd_total_pcm_bytes_yield_decode_failed_terminal ... ok
+test llm_status_error_is_observable_then_failed_terminal ... ok
+test completed_turn_never_emits_text_fallback ... ok
+test tts_failure_falls_back_to_the_generated_text ... ok
+test tts_and_screen_share_the_deterministically_cleaned_sentence ... ok
+test tts_error_stops_turn_with_failed_terminal ... ok
+test whitespace_only_sentence_never_reaches_tts_and_turn_completes ... ok
+test queue_push_timeout_yields_backpressure_error ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/unified_client.rs (target/debug/deps/unified_client-2c4ee706f036a1ab)
+
+running 10 tests
+test llm_error_status_is_observable_with_code_and_body ... ok
+test llm_stream_emits_done_when_peer_closes_without_done_marker ... ok
+test llm_stream_surfaces_malformed_sse_data_as_error ... ok
+test tts_error_status_is_observable_too ... ok
+test tts_default_request_sends_response_format_pcm_on_the_wire ... ok
+test missing_key_omits_authorization_header_entirely ... ok
+test tts_forwards_chunked_bytes_and_sends_expected_shape ... ok
+test llm_max_tokens_reaches_the_wire_and_zero_omits_the_field ... ok
+test tts_pcm_stream_decodes_across_arbitrary_chunk_splits ... ok
+test llm_stream_survives_half_line_cuts_and_multibyte_payloads ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-90c6b36da96a5502)
+
+running 27 tests
+test code_stats::tests::dependencies_count_ignores_target_and_dev_sections ... ok
+test code_stats::tests::inline_cfg_test_block_is_not_counted_as_production ... ok
+test code_stats::tests::inline_cfg_test_counts_multiple_blocks ... ok
+test code_stats::tests::inline_cfg_test_without_braces_runs_to_end_of_file ... ok
+test code_stats::tests::dir_size_returns_none_for_missing_directory ... ok
+test code_stats::tests::physical_lines_matches_wc_l_semantics ... ok
+test code_stats::tests::inline_cfg_test_without_braces_use_form_runs_to_end_of_file ... ok
+test code_stats::tests::parse_args_accepts_check_scopes_and_limits ... ok
+test code_stats::tests::thousands_and_human_size_read_well ... ok
+test code_stats::tests::rust_kind_splits_src_tests_and_examples ... ok
+test code_stats::tests::utc_formatting_matches_known_epochs ... ok
+test tests::counted_extension_matches_case_insensitively ... ok
+test tests::exempt_extension_matches_case_insensitively ... ok
+test tests::physical_line_counts_match_wc_l_semantics ... ok
+test tests::ratio_guard_against_zero_total ... ok
+test tests::record_aggregates_by_extension ... ok
+test tests::run_help_succeeds ... ok
+test tests::run_reports_usage_errors ... ok
+test tests::threshold_parsing_validates_range ... ok
+test code_stats::tests::collect_over_limit_lists_match_fixture ... ok
+test tests::dart_is_visible_but_excluded_from_the_ratio ... ok
+test code_stats::tests::collect_dart_and_docs_and_missing_artifacts_per_fixture ... ok
+test code_stats::tests::collect_classifies_src_tests_and_examples_per_fixture ... ok
+test code_stats::tests::report_renders_markdown_with_gate_verdict ... ok
+test code_stats::tests::gate_evaluation_is_red_when_fixture_exceeds_a_zero_limit ... ok
+test tests::walk_skips_excluded_hidden_dirs_and_symlinks ... ok
+test code_stats::tests::gate_evaluation_covers_lines_and_deps ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+B1_PIPE_STATUS=0
+
+########## B2. cargo test --doc --workspace ##########
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests live2d_ai_mod_template
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests live2d_ai_mod_voice_input
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests live2d_ai_mod_wallpaper
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests live2d_ai_runtime
+
+running 3 tests
+test crates/live2d-ai-runtime/src/conversation/mod.rs - conversation (line 46) - compile ... ok
+test crates/live2d-ai-runtime/src/lib.rs - (line 23) - compile ... ok
+test crates/live2d-ai-runtime/src/dialogue/mod.rs - dialogue (line 21) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.44s; merged doctests compilation took 0.44s
+B2_PIPE_STATUS=0
+
+########## B3. cargo fmt --all -- --check ##########
+B3_EXIT=0
+
+########## B4. cargo clippy --workspace --all-targets -- -D warnings ##########
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+B4_PIPE_STATUS=0
+
+########## B5. cargo run -p xtask -- rust-ratio ##########
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/xtask rust-ratio`
+rust-ratio — 第一方可执行源码 Rust 占比（RFC docs/plans/RUST-REWRITE-RFC.md D3）
+仓库根    : /home/skystar/Live2D-Ai-fe
+统计口径  : 物理行数（每文件 \n 计数，末尾残行补 1；可用 wc -l 复核）
+统计扩展名: rs wgsl py ts js c cc cpp h hpp
+排除目录  : Live2D-Ai-pc Live2D-Ai-Android dist target build node_modules .venv （按目录名，任意层级）
+另跳过    : 隐藏目录（`.` 开头，任意层级）；目录符号链接不入栈
+
+扩展名             文件数           行数
+rs              275        98750
+py               16         2965
+----------------------------------
+合计              291       101715
+
+Rust(rs) 占比: 97.0850%（98750 / 101715 物理行）
+门槛        : 95.0000%
+结论        : PASS — 达到或高于门槛
+
+豁免（不计入占比，前端/接口层）: dart
+扩展名             文件数           行数
+dart            218        62546
+----------------------------------
+豁免合计            218        62546
+说明        : 62546 行由 Flutter 工具链门禁（flutter analyze / test），不计入 rust-ratio
+B5_PIPE_STATUS=0
+
+########## B6. cargo run -p xtask -- code-stats ##########
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running `target/debug/xtask code-stats`
+<!-- code-stats：`cargo run -p xtask -- code-stats` 生成；口径见文末 §5 -->
+## 代码体量与门禁快照（D0）
+
+- 仓库根：`/home/skystar/Live2D-Ai-fe`
+- 生成时间（UTC）：2026-10-01 13:44 UTC
+- 口径真源：`docs/plans/PLAN-debloat-and-closeout-2026-10-01.md` §2 / §5 D0
+- 行数口径：物理行数（`wc -l` 语义，末尾残行计 1）；超限门禁按文件总行数（含内联测试）
+
+### 1. 总量
+
+| 类别 | 文件数 | 行数 |
+|---|---:|---:|
+| Rust 生产（不含内联 `#[cfg(test)]`） | 243 | 68,867 |
+| Rust 内联测试（`#[cfg(test)]` 条目） | 113（含该块的文件） | 16,326 |
+| Rust 集成测试 / 示例 | 31 | 13,542 |
+| Rust 合计 | — | 98,735 |
+| Dart `lib` | 115 | 33,362 |
+| Dart `test` | 102 | 28,895 |
+| docs `*.md`（含 `docs/legacy/`） | 303 | 70,801 |
+
+### 2. 逐 crate（Rust + Cargo 依赖数）
+
+| crate | 生产 | 内联测试 | 集成/示例 | 合计 | `[dependencies]` |
+|---|---:|---:|---:|---:|---:|
+| `l2d` | 2,081 | 1,072 | 641 | 3,794 | 8 |
+| `l2d-wasm-demo` | 5,907 | 268 | 2,258 | 8,433 | 1 |
+| `live2d-ai-core` | 2,228 | 129 | 846 | 3,203 | 0 |
+| `live2d-ai-desktop` | 30,073 | 8,093 | 2,221 | 40,387 | 34 |
+| `live2d-ai-mod-director` | 3,412 | 411 | 840 | 4,663 | 4 |
+| `live2d-ai-mod-external-input` | 606 | 679 | 0 | 1,285 | 4 |
+| `live2d-ai-mod-local-llm` | 551 | 279 | 0 | 830 | 3 |
+| `live2d-ai-mod-memory` | 6,293 | 686 | 766 | 7,745 | 5 |
+| `live2d-ai-mod-persona` | 3,267 | 6 | 849 | 4,122 | 4 |
+| `live2d-ai-mod-pet-desktop` | 362 | 0 | 415 | 777 | 3 |
+| `live2d-ai-mod-system` | 1,165 | 287 | 0 | 1,452 | 2 |
+| `live2d-ai-mod-template` | 120 | 63 | 0 | 183 | 3 |
+| `live2d-ai-mod-voice-input` | 1,871 | 9 | 759 | 2,639 | 3 |
+| `live2d-ai-mod-wallpaper` | 644 | 740 | 0 | 1,384 | 3 |
+| `live2d-ai-runtime` | 8,608 | 3,286 | 3,504 | 15,398 | 12 |
+| `xtask` | 1,679 | 318 | 443 | 2,440 | 0 |
+| **合计** | **68,867** | **16,326** | **13,542** | **98,735** | — |
+
+### 3. 超限清单
+
+#### 3.1 `crates/*/src` 生产 `.rs` > 1000 行（4 个，PLAN 目标 0）
+
+| 文件 | 总行数 | 其中内联测试 | 生产 |
+|---|---:|---:|---:|
+| `crates/live2d-ai-desktop/src/mod_registry.rs` | 1362 | 633 | 729 |
+| `crates/live2d-ai-desktop/src/web_api/chat_routes.rs` | 1086 | 562 | 524 |
+| `crates/live2d-ai-desktop/src/web_api/external_routes.rs` | 1062 | 636 | 426 |
+| `crates/live2d-ai-mod-persona/src/lib.rs` | 1004 | 6 | 998 |
+
+#### 3.2 `crates/*/src` 生产 `.rs` > 500 行（58 个，PLAN 目标 ≤15）
+
+| 文件 | 总行数 | 其中内联测试 | 生产 |
+|---|---:|---:|---:|
+| `crates/live2d-ai-desktop/src/mod_registry.rs` | 1362 | 633 | 729 |
+| `crates/live2d-ai-desktop/src/web_api/chat_routes.rs` | 1086 | 562 | 524 |
+| `crates/live2d-ai-desktop/src/web_api/external_routes.rs` | 1062 | 636 | 426 |
+| `crates/live2d-ai-mod-persona/src/lib.rs` | 1004 | 6 | 998 |
+| `crates/live2d-ai-runtime/src/settings/patch_tests.rs` | 992 | 0 | 992 |
+| `crates/live2d-ai-desktop/src/web_api/tests_ws.rs` | 971 | 560 | 411 |
+| `crates/l2d-wasm-demo/src/main.rs` | 962 | 0 | 962 |
+| `crates/live2d-ai-desktop/src/web_api/mods_routes.rs` | 957 | 457 | 500 |
+| `crates/l2d-wasm-demo/src/preset/field_runtime.rs` | 953 | 0 | 953 |
+| `crates/live2d-ai-desktop/src/supervisor.rs` | 950 | 134 | 816 |
+| `crates/live2d-ai-mod-persona/src/tests_e2e.rs` | 930 | 0 | 930 |
+| `crates/l2d-wasm-demo/src/preset/mod.rs` | 908 | 2 | 906 |
+| `crates/live2d-ai-mod-director/src/lib.rs` | 902 | 5 | 897 |
+| `crates/live2d-ai-mod-memory/src/lib.rs` | 895 | 20 | 875 |
+| `crates/live2d-ai-desktop/src/benchmark/runners_surface.rs` | 878 | 0 | 878 |
+| `crates/live2d-ai-runtime/src/performance/plan.rs` | 857 | 0 | 857 |
+| `crates/live2d-ai-mod-persona/src/tests.rs` | 849 | 849 | 0 |
+| `crates/live2d-ai-mod-external-input/src/lib.rs` | 847 | 472 | 375 |
+| `crates/live2d-ai-desktop/src/supervisor/tests_loop.rs` | 844 | 0 | 844 |
+| `crates/live2d-ai-mod-director/src/tests.rs` | 840 | 840 | 0 |
+| `crates/live2d-ai-mod-local-llm/src/lib.rs` | 830 | 279 | 551 |
+| `crates/live2d-ai-runtime/src/settings.rs` | 826 | 793 | 33 |
+| `crates/live2d-ai-runtime/src/performance/tests.rs` | 798 | 798 | 0 |
+| `crates/live2d-ai-desktop/src/web_api/voice_routes_tests.rs` | 793 | 11 | 782 |
+| `crates/live2d-ai-runtime/src/settings/patch.rs` | 780 | 0 | 780 |
+| `crates/live2d-ai-runtime/src/settings/settings_tests.rs` | 772 | 0 | 772 |
+| `crates/live2d-ai-desktop/src/web_api/cli_entry.rs` | 769 | 93 | 676 |
+| `crates/live2d-ai-mod-memory/src/tests.rs` | 766 | 766 | 0 |
+| `crates/live2d-ai-mod-memory/src/summary_tests.rs` | 762 | 0 | 762 |
+| `crates/live2d-ai-mod-voice-input/src/tests.rs` | 759 | 759 | 0 |
+| `crates/live2d-ai-mod-wallpaper/src/lib.rs` | 729 | 424 | 305 |
+| `crates/l2d-wasm-demo/src/preset/tests/packs.rs` | 707 | 707 | 0 |
+| `crates/live2d-ai-desktop/src/web_api/settings_routes/tests.rs` | 685 | 685 | 0 |
+| `crates/live2d-ai-mod-director/src/tests_staging.rs` | 683 | 0 | 683 |
+| `crates/live2d-ai-desktop/src/supervisor/turn.rs` | 682 | 0 | 682 |
+| `crates/live2d-ai-desktop/src/session_scope.rs` | 675 | 319 | 356 |
+| `crates/live2d-ai-desktop/src/app/settings_ui.rs` | 661 | 85 | 576 |
+| `crates/live2d-ai-mod-wallpaper/src/strategy.rs` | 655 | 316 | 339 |
+| `crates/live2d-ai-runtime/src/performance/client.rs` | 652 | 295 | 357 |
+| `crates/live2d-ai-mod-memory/src/commands_tests.rs` | 643 | 0 | 643 |
+| `crates/live2d-ai-mod-memory/src/store.rs` | 601 | 311 | 290 |
+| `crates/live2d-ai-desktop/src/web_api/mod.rs` | 592 | 505 | 87 |
+| `crates/live2d-ai-runtime/src/conversation/engine.rs` | 586 | 0 | 586 |
+| `crates/live2d-ai-mod-memory/src/strategy.rs` | 582 | 0 | 582 |
+| `crates/live2d-ai-mod-persona/src/tests_command.rs` | 573 | 0 | 573 |
+| `crates/l2d/src/asset/mod.rs` | 571 | 249 | 322 |
+| `crates/l2d-wasm-demo/src/web/surface/render.rs` | 551 | 0 | 551 |
+| `crates/live2d-ai-runtime/src/conversation/mod.rs` | 548 | 146 | 402 |
+| `crates/live2d-ai-desktop/src/app/frame.rs` | 545 | 0 | 545 |
+| `crates/live2d-ai-desktop/src/web_api/app_routes.rs` | 544 | 153 | 391 |
+| `crates/live2d-ai-desktop/src/platform/capabilities.rs` | 539 | 176 | 363 |
+| `crates/live2d-ai-desktop/src/app/tests.rs` | 538 | 538 | 0 |
+| `crates/live2d-ai-desktop/src/web_api/models_routes/tests_models_p1.rs` | 534 | 0 | 534 |
+| `crates/live2d-ai-runtime/src/llm.rs` | 530 | 204 | 326 |
+| `crates/live2d-ai-desktop/src/main.rs` | 519 | 76 | 443 |
+| `crates/live2d-ai-desktop/src/benchmark/mod.rs` | 517 | 233 | 284 |
+| `crates/live2d-ai-desktop/src/supervisor/tests_stall.rs` | 507 | 0 | 507 |
+| `crates/l2d/src/pose_stack.rs` | 503 | 243 | 260 |
+
+#### 3.3 Dart `lib` > 800 行（7 个，PLAN 目标 ≤2）
+
+| 文件 | 行数 |
+|---|---:|
+| `shell/flutter/lib/settings/sections/dev_tools_section.dart` | 1874 |
+| `shell/flutter/lib/settings/sections/appearance_background.dart` | 1551 |
+| `shell/flutter/lib/main.dart` | 1344 |
+| `shell/flutter/lib/settings/display_prefs.dart` | 1157 |
+| `shell/flutter/lib/app/app_shell.dart` | 998 |
+| `shell/flutter/lib/api/settings_models.dart` | 931 |
+| `shell/flutter/lib/design/tokens.dart` | 928 |
+
+#### 3.4 Dart `test` > 800 行（2 个，仅披露；D6 治理对象）
+
+| 文件 | 行数 |
+|---|---:|
+| `shell/flutter/test/display_prefs_test.dart` | 892 |
+| `shell/flutter/test/memory_panel_test.dart` | 852 |
+
+### 4. 产物体积（PLAN §2.5 / §D4 预算）
+
+| 产物 | 大小 | PLAN 预算 | 状态 |
+|---|---:|---:|---|
+| `shell/flutter/build/web` | 46.8 MiB（49107246 B） | ≤ 35 MiB | 超预算 |
+| `crates/l2d-wasm-demo/dist` | 5.3 MiB（5606642 B） | ≤ 4 MiB | 超预算 |
+
+### 5. 硬门禁（`--check`）
+
+| 门禁 | 当前值 | 上限（棘轮） | PLAN 目标 | 判定 |
+|---|---:|---:|---:|---|
+| `crates/*/src` `.rs` > 500 行的文件数（上限 58） | 58 | ≤ 58 | 15 | PASS |
+| Dart `lib` > 800 行的文件数（上限 7） | 7 | ≤ 7 | 2 | PASS |
+| `crates/*/src` `.rs` > 1000 行的文件数（上限 4） | 4 | ≤ 4 | 0 | PASS |
+| `live2d-ai-desktop` 顶层 `[dependencies]` 条数（上限 34） | 34 | ≤ 34 | 22 | PASS |
+
+- 判定范围（影响退出码）：全部（lines / over-1000 / deps）
+- 结论：PASS（未加 `--check`：门禁只作展示，不影响退出码）
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+B6_PIPE_STATUS=0
+
+########## B7. code-stats --check（绿向，默认棘轮）##########
+
+| 产物 | 大小 | PLAN 预算 | 状态 |
+|---|---:|---:|---|
+| `shell/flutter/build/web` | 46.8 MiB（49107246 B） | ≤ 35 MiB | 超预算 |
+| `crates/l2d-wasm-demo/dist` | 5.3 MiB（5606642 B） | ≤ 4 MiB | 超预算 |
+
+### 5. 硬门禁（`--check`）
+
+| 门禁 | 当前值 | 上限（棘轮） | PLAN 目标 | 判定 |
+|---|---:|---:|---:|---|
+| `crates/*/src` `.rs` > 500 行的文件数（上限 58） | 58 | ≤ 58 | 15 | PASS |
+| Dart `lib` > 800 行的文件数（上限 7） | 7 | ≤ 7 | 2 | PASS |
+| `crates/*/src` `.rs` > 1000 行的文件数（上限 4） | 4 | ≤ 4 | 0 | PASS |
+| `live2d-ai-desktop` 顶层 `[dependencies]` 条数（上限 34） | 34 | ≤ 34 | 22 | PASS |
+
+- 判定范围（影响退出码）：全部（lines / over-1000 / deps）
+- 结论：PASS —— 判定范围内无超限；退出码 0
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+B7_PIPE_STATUS=0
+

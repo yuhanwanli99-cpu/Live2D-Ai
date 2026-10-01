@@ -1,0 +1,1865 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling cfg-if v1.0.4
+   Compiling log v0.4.34
+   Compiling libc v0.2.189
+   Compiling bitflags v2.13.1
+   Compiling once_cell v1.21.4
+   Compiling smallvec v1.15.2
+   Compiling memchr v2.8.3
+   Compiling shlex v2.0.1
+   Compiling serde_core v1.0.229
+   Compiling find-msvc-tools v0.1.11
+   Compiling pin-project-lite v0.2.17
+   Compiling equivalent v1.0.2
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling pkg-config v0.3.34
+   Compiling cc v1.4.4
+   Compiling slab v0.4.12
+   Compiling itoa v1.0.18
+   Compiling foldhash v0.2.0
+   Compiling libloading v0.8.9
+   Compiling tracing-core v0.1.36
+   Compiling hashbrown v0.17.1
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling rustix v1.1.4
+   Compiling linux-raw-sys v0.12.1
+   Compiling percent-encoding v2.3.2
+   Compiling stable_deref_trait v1.2.1
+   Compiling dlib v0.5.3
+   Compiling wayland-sys v0.31.11
+   Compiling zmij v1.0.23
+   Compiling futures-core v0.3.34
+   Compiling serde_json v1.0.151
+   Compiling winnow v1.0.4
+   Compiling bytes v1.12.1
+   Compiling indexmap v2.14.0
+   Compiling autocfg v1.5.1
+   Compiling libm v0.2.16
+   Compiling num-traits v0.2.19
+   Compiling zerocopy v0.8.56
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling mio v1.2.2
+   Compiling errno v0.3.14
+   Compiling signal-hook-registry v1.4.8
+   Compiling socket2 v0.6.5
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling cfg_aliases v0.2.2
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling wayland-backend v0.3.17
+   Compiling getrandom v0.2.17
+   Compiling futures-io v0.3.34
+   Compiling arrayvec v0.7.8
+   Compiling icu_properties_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling futures-sink v0.3.34
+   Compiling scoped-tls v1.0.1
+   Compiling downcast-rs v1.2.1
+   Compiling http v1.5.0
+   Compiling ring v0.17.14
+   Compiling quick-xml v0.41.0
+   Compiling wayland-client v0.31.15
+   Compiling futures-task v0.3.34
+   Compiling version_check v0.9.5
+   Compiling zeroize v1.9.0
+   Compiling synstructure v0.13.2
+   Compiling httparse v1.10.1
+   Compiling wayland-scanner v0.31.11
+   Compiling http-body v1.1.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling form_urlencoded v1.2.2
+   Compiling untrusted v0.9.0
+   Compiling try-lock v0.2.5
+   Compiling tower-service v0.3.3
+   Compiling ident_case v1.0.1
+   Compiling rustls v0.23.43
+   Compiling strsim v0.11.1
+   Compiling want v0.3.1
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling bytemuck_derive v1.12.0
+   Compiling zerovec-derive v0.11.6
+   Compiling tracing-attributes v0.1.31
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling bytemuck v1.25.2
+   Compiling displaydoc v0.2.7
+   Compiling zerocopy-derive v0.8.56
+   Compiling tracing v0.1.44
+   Compiling tokio-macros v2.7.2
+   Compiling futures-macro v0.3.34
+   Compiling tokio v1.53.1
+   Compiling darling_core v0.23.0
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling futures-util v0.3.34
+   Compiling rustls-webpki v0.103.15
+   Compiling icu_provider v2.3.1
+   Compiling futures-channel v0.3.34
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling atomic-waker v1.1.2
+   Compiling subtle v2.6.1
+   Compiling parking_lot_core v0.9.12
+   Compiling base64 v0.22.1
+   Compiling darling_macro v0.23.0
+   Compiling sync_wrapper v1.0.2
+   Compiling scopeguard v1.2.0
+   Compiling ipnet v2.12.1
+   Compiling tower-layer v0.3.3
+   Compiling darling v0.23.0
+   Compiling lock_api v0.4.14
+   Compiling idna_adapter v1.2.2
+   Compiling wayland-protocols v0.32.13
+   Compiling idna v1.1.0
+   Compiling polling v3.11.0
+   Compiling webpki-roots v1.0.9
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling ryu v1.0.23
+   Compiling url v2.5.8
+   Compiling serde_urlencoded v0.7.1
+   Compiling parking_lot v0.12.5
+   Compiling serde_with_macros v3.22.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper v1.11.0
+   Compiling tower v0.5.3
+   Compiling tokio-util v0.7.19
+   Compiling tower-http v0.6.11
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling aho-corasick v1.1.5
+   Compiling hyper-util v0.1.20
+   Compiling crossbeam-utils v0.8.22
+   Compiling regex-syntax v0.8.11
+   Compiling raw-window-handle v0.6.2
+   Compiling winnow v0.7.15
+   Compiling thiserror v1.0.69
+   Compiling allocator-api2 v0.2.21
+   Compiling tokio-rustls v0.26.4
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling regex-automata v0.4.18
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling hashbrown v0.16.1
+   Compiling serde_with v3.22.0
+   Compiling toml_edit v0.25.13+spec-1.1.0
+   Compiling thiserror-impl v1.0.69
+   Compiling naga v29.0.4
+   Compiling ash v0.38.0+1.3.281
+   Compiling rustix v0.38.44
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling getrandom v0.3.4
+   Compiling unicode-width v0.2.2
+   Compiling unicode-segmentation v1.13.3
+   Compiling codespan-reporting v0.13.1
+   Compiling bit-set v0.9.1
+   Compiling half v2.7.1
+   Compiling ahash v0.8.12
+   Compiling spirv v0.4.0+sdk-1.4.341.0
+   Compiling crc32fast v1.5.1
+   Compiling linux-raw-sys v0.4.15
+   Compiling simd-adler32 v0.3.10
+   Compiling rustc-hash v1.1.0
+   Compiling xcursor v0.3.11
+   Compiling xkeysym v0.2.1
+   Compiling khronos-egl v6.0.0
+   Compiling hexf-parse v0.2.1
+   Compiling cursor-icon v1.2.0
+   Compiling foldhash v0.1.5
+   Compiling wayland-csd-frame v0.3.0
+   Compiling hashbrown v0.15.5
+   Compiling wayland-cursor v0.31.14
+   Compiling live2d-ai-runtime v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-runtime)
+   Compiling wayland-protocols-wlr v0.3.12
+   Compiling wgpu-types v29.0.4
+   Compiling wgpu-hal v29.0.4
+   Compiling memmap2 v0.9.11
+   Compiling gpu-descriptor-types v0.2.0
+   Compiling adler2 v2.0.1
+   Compiling presser v0.3.1
+   Compiling miniz_oxide v0.8.9
+   Compiling gpu-descriptor v0.3.2
+   Compiling calloop v0.13.0
+   Compiling ordered-float v5.5.0
+   Compiling live2d-ai-mod-system v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-system)
+   Compiling glow v0.17.0
+   Compiling ttf-parser v0.25.1
+   Compiling smithay-client-toolkit v0.19.2
+   Compiling strict-num v0.1.1
+   Compiling crossbeam-epoch v0.9.20
+   Compiling arrayref v0.3.9
+   Compiling renderdoc-sys v1.1.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling calloop-wayland-source v0.3.0
+   Compiling flate2 v1.1.9
+   Compiling fdeflate v0.3.7
+   Compiling regex v1.13.1
+   Compiling gethostname v1.1.0
+   Compiling wgpu-core v29.0.4
+   Compiling x11-dl v2.21.0
+   Compiling crossbeam-deque v0.8.7
+   Compiling as-raw-xcb-connection v1.0.1
+   Compiling either v1.18.0
+   Compiling utf8parse v0.2.2
+   Compiling owned_ttf_parser v0.25.1
+   Compiling pxfm v0.1.30
+   Compiling x11rb-protocol v0.13.2
+   Compiling litrs v1.0.0
+   Compiling ab_glyph_rasterizer v0.1.10
+   Compiling zune-core v0.5.3
+   Compiling document-features v0.2.12
+   Compiling zune-jpeg v0.5.15
+   Compiling ab_glyph v0.2.32
+   Compiling anstyle-parse v1.0.0
+   Compiling png v0.18.1
+   Compiling tiny-skia v0.11.4
+   Compiling moxcms v0.8.1
+   Compiling convert_case v0.10.0
+   Compiling enumflags2_derive v0.7.12
+   Compiling wgpu v29.0.4
+   Compiling winit v0.30.13
+   Compiling heck v0.5.0
+   Compiling jiff-core v0.1.0
+   Compiling static_assertions v1.1.0
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling rayon-core v1.13.0
+   Compiling unicode-xid v0.2.6
+   Compiling byteorder-lite v0.1.0
+   Compiling paste v1.0.15
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstream v1.0.0
+   Compiling derive_more-impl v2.1.1
+   Compiling strum_macros v0.28.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling jiff v0.2.35
+   Compiling sctk-adwaita v0.10.1
+   Compiling image v0.25.10
+   Compiling proc-macro-crate v3.5.0
+   Compiling env_filter v2.0.0
+   Compiling zvariant_utils v4.2.0
+   Compiling xkbcommon-dl v0.4.2
+   Compiling gpu-allocator v0.28.0
+   Compiling wayland-protocols-plasma v0.3.12
+   Compiling polycool v0.4.0
+   Compiling smol_str v0.2.2
+   Compiling dpi v0.1.2
+   Compiling byteorder v1.5.0
+   Compiling anyhow v1.0.104
+   Compiling kurbo v0.13.1
+   Compiling zvariant_derive v5.15.0
+   Compiling env_logger v0.11.11
+   Compiling strum v0.28.0
+   Compiling derive_more v2.1.1
+   Compiling x11rb v0.13.2
+   Compiling glam v0.33.5
+   Compiling font-types v0.11.3
+   Compiling color v0.3.3
+   Compiling generic-array v0.14.7
+   Compiling euclid v0.22.14
+   Compiling is-terminal v0.4.17
+   Compiling linebender_resource_handle v0.1.1
+   Compiling humantime v2.4.0
+   Compiling termcolor v1.4.1
+   Compiling endi v1.1.1
+   Compiling peniko v0.6.1
+   Compiling env_logger v0.10.2
+   Compiling guillotiere v0.7.0
+   Compiling read-fonts v0.39.2
+   Compiling rayon v1.12.0
+   Compiling wgpu-core-deps-windows-linux-android v29.0.4
+   Compiling parking v2.2.1
+   Compiling pollster v0.3.0
+   Compiling fearless_simd v0.4.1
+   Compiling unicode-general-category v1.1.0
+   Compiling typenum v1.20.1
+   Compiling json v0.12.4
+   Compiling vello_common v0.0.9
+   Compiling enumflags2 v0.7.12
+   Compiling zcheapstr v1.1.0
+   Compiling emath v0.35.0
+   Compiling uuid v1.25.0
+   Compiling ecolor v0.35.0
+   Compiling vello_cpu v0.0.9
+   Compiling zvariant v5.15.0
+   Compiling ayagami v0.1.0 (https://github.com/AyagamiDev/ayagami?rev=640ae4b10bad8def1adcacdada4f8241b484c169#640ae4b1)
+   Compiling skrifa v0.42.1
+   Compiling harfrust v0.7.0
+   Compiling event-listener v5.4.2
+   Compiling calloop v0.14.4
+   Compiling alsa-sys v0.4.0
+   Compiling nohash-hasher v0.2.0
+   Compiling self_cell v1.3.0
+   Compiling smithay-client-toolkit v0.20.0
+   Compiling epaint_default_fonts v0.35.0
+   Compiling event-listener-strategy v0.5.4
+   Compiling zbus_names v4.3.4
+   Compiling epaint v0.35.0
+   Compiling calloop-wayland-source v0.4.1
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling wayland-protocols-misc v0.3.12
+   Compiling wayland-protocols-experimental v20250721.0.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_core v0.6.4
+   Compiling fastrand v2.5.0
+   Compiling lazy_static v1.5.0
+   Compiling sharded-slab v0.1.7
+   Compiling futures-lite v2.6.1
+   Compiling rand_chacha v0.3.1
+   Compiling digest v0.10.7
+   Compiling zbus_macros v5.19.0
+   Compiling async-broadcast v0.7.2
+   Compiling accesskit v0.24.1
+   Compiling itertools v0.14.0
+   Compiling matchers v0.2.0
+   Compiling async-recursion v1.1.1
+   Compiling ayagami-render v0.1.0 (https://github.com/AyagamiDev/ayagami?rev=640ae4b10bad8def1adcacdada4f8241b484c169#640ae4b1)
+   Compiling async-trait v0.1.92
+   Compiling serde_repr v0.1.21
+   Compiling ordered-stream v0.2.0
+   Compiling inotify-sys v0.1.5
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.10
+   Compiling powerfmt v0.2.0
+   Compiling time-core v0.1.9
+   Compiling hex v0.4.3
+   Compiling rustc-hash v2.1.3
+   Compiling web-time v1.1.0
+   Compiling cpal v0.18.2
+   Compiling cpufeatures v0.2.17
+   Compiling num-conv v0.2.2
+   Compiling nu-ansi-term v0.50.3
+   Compiling same-file v1.0.6
+   Compiling deranged v0.5.8
+   Compiling walkdir v2.5.0
+   Compiling sha1 v0.10.7
+   Compiling tracing-subscriber v0.3.23
+   Compiling type-map v0.5.1
+   Compiling egui v0.35.0
+   Compiling l2d v0.2.0-rc.7 (/tmp/w2a_after/crates/l2d)
+   Compiling inotify v0.11.0
+   Compiling smithay-clipboard v0.7.3
+   Compiling alsa v0.11.0
+   Compiling zbus v5.19.0
+   Compiling time v0.3.55
+   Compiling rand v0.8.8
+   Compiling arboard v3.6.1
+   Compiling live2d-ai-mod-memory v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-memory)
+   Compiling crossbeam-channel v0.5.16
+   Compiling webbrowser v1.2.4
+   Compiling filetime v0.2.25
+   Compiling dasp_sample v0.11.0
+   Compiling httpdate v1.0.3
+   Compiling utf-8 v0.7.6
+   Compiling data-encoding v2.11.1
+   Compiling chunked_transfer v1.5.0
+   Compiling notify-types v2.0.0
+   Compiling symlink v0.1.0
+   Compiling live2d-ai-core v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-core)
+   Compiling ascii v1.1.0
+   Compiling pastey v0.2.3
+   Compiling tiny_http v0.12.0
+   Compiling notify v8.0.0
+   Compiling tungstenite v0.24.0
+   Compiling tracing-appender v0.2.5
+   Compiling egui-winit v0.35.0
+   Compiling egui-wgpu v0.35.0
+   Compiling live2d-ai-mod-voice-input v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-voice-input)
+   Compiling live2d-ai-mod-external-input v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-external-input)
+   Compiling live2d-ai-mod-director v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-director)
+   Compiling live2d-ai-mod-persona v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-persona)
+   Compiling ringbuf v0.5.1
+   Compiling ksni v0.3.6
+   Compiling live2d-ai-desktop v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-desktop)
+   Compiling live2d-ai-mod-template v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-template)
+   Compiling l2d-wasm-demo v0.2.0-rc.7 (/tmp/w2a_after/crates/l2d-wasm-demo)
+   Compiling xtask v0.2.0-rc.7 (/tmp/w2a_after/xtask)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 00s
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/l2d-b52978fe82805489)
+asset::report::tests::compatibility_report_anchors_bai_raw_v4: test
+asset::report::tests::compatibility_report_rejects_unanchored_versions: test
+asset::tests::disk_load_shares_path_hardening: test
+asset::tests::from_memory_builds_package_strictly_including_cdi: test
+asset::tests::from_memory_missing_resource_error_carries_name: test
+asset::tests::from_memory_rejects_parent_escape_and_absolute_paths: test
+asset::tests::loads_manifest_layout_and_bytes: test
+asset::tests::missing_referenced_file_is_io_error: test
+asset::tests::normalize_resource_ref_rules: test
+format::tests::bai_actual_header_is_recognized_v4_2: test
+format::tests::display_renders_cubism_triple: test
+format::tests::illegal_endian_flag_is_unknown: test
+format::tests::known_version_table_matches_public_sources: test
+format::tests::other_known_versions_are_not_v0_guaranteed: test
+format::tests::truncated_or_garbage_input_is_unknown: test
+format::tests::unrecognized_version_is_unsupported_not_unknown: test
+model::tests::empty_moc3_is_rejected: test
+model::tests::format_is_single_version_source: test
+model::tests::garbage_body_fails_parse_with_typed_error: test
+model::tests::loaded_model_debug_does_not_leak_third_party_types: test
+model::tests::version_mapping_table_covers_all_known_discriminants: test
+pose_stack::tests::base_defaults_then_input_overrides: test
+pose_stack::tests::dt_must_be_finite_and_positive_and_rejection_keeps_state: test
+pose_stack::tests::idle_drives_breath_and_is_not_stuck_after_clear: test
+pose_stack::tests::idle_micro_expression_written_after_preset_cannot_override_it: test
+pose_stack::tests::idle_recomputes_each_frame_so_values_advance: test
+pose_stack::tests::missing_parameter_is_reported_not_written: test
+pose_stack::tests::override_layer_beats_everything_and_clear_restores: test
+pose_stack::tests::physics_layer_beats_input_but_final_override_beats_physics: test
+renderer::tests::aspect_fit_degenerate_size_is_identity: test
+renderer::tests::aspect_fit_is_identity_for_square: test
+renderer::tests::aspect_fit_letterboxes_wide_and_tall: test
+renderer::tests::invalid_dt_maps_into_render_error: test
+renderer::tests::invalid_size_is_rejected: test
+renderer::tests::layout_transform_is_uniform_for_non_square_canvas: test
+renderer::tests::render_api_signatures_are_stable: test
+renderer::tests::rgba_frame_helpers_handle_empty_and_content: test
+renderer::tier::tests::default_is_4096: test
+renderer::tier::tests::from_side_parses_known_and_rejects_unknown: test
+renderer::tier::tests::required_max_dimension_equals_side: test
+renderer::tier::tests::side_maps_each_tier: test
+report::tests::bai_profile_is_playable_v0_without_issues_and_version_is_single_sourced: test
+report::tests::pushed_issue_vetoes_support_but_notes_do_not: test
+report::tests::recognized_but_unanchored_version_is_typed_issue: test
+report::tests::runtime_mismatch_issue_displays_both_sides: test
+report::tests::unknown_format_issues_and_is_not_playable: test
+report::tests::unrecorded_version_byte_carries_raw_byte: test
+tests::end_to_end_report_flow: test
+tests::v0_supports_bai_profile_only: test
+
+49 tests, 0 benchmarks
+     Running tests/bai_asset.rs (/tmp/w2_verify_target/debug/deps/bai_asset-caff20014721c389)
+bai_package_loads_with_header_runtime_version_consistency: test
+bai_renders_256px_with_deterministic_hash_and_toleranced_geometry: test
+
+2 tests, 0 benchmarks
+     Running unittests examples/render_model.rs (/tmp/w2_verify_target/debug/examples/render_model-67d1ea363f03a8af)
+0 tests, 0 benchmarks
+     Running unittests examples/static_frame_trace.rs (/tmp/w2_verify_target/debug/examples/static_frame_trace-520b88fb2f83c9c4)
+0 tests, 0 benchmarks
+     Running unittests src/main.rs (/tmp/w2_verify_target/debug/deps/l2d_wasm_demo-08ffc637aed77b5f)
+mouth::tests::defensive_against_non_finite_input: test
+mouth::tests::mapping_is_monotonic_and_bounded: test
+mouth::tests::quiet_input_is_closed: test
+mouth::tests::real_speech_rms_maps_to_visible_mouth_open: test
+mouth::tests::sensitivity_scales_and_clamps: test
+preset::tests::assets::json_drops_unknown_channels_and_clamps_amplitudes: test
+preset::tests::assets::json_expression_amplitude_is_clamped_to_the_small_limits: test
+preset::tests::assets::json_invalid_falls_back_via_err: test
+preset::tests::assets::preset_labels_json_covers_every_shipped_preset_id: test
+preset::tests::assets::runtime_resolve_uses_the_loaded_table: test
+preset::tests::assets::shipped_presets_json_carries_the_calibrated_amplitudes: test
+preset::tests::assets::shipped_presets_json_has_no_deprecated_and_removed_ids_do_not_resolve: test
+preset::tests::assets::shipped_presets_json_parses_clean_and_matches_builtin_ids: test
+preset::tests::builtin_ids_match_the_main_allowlist: test
+preset::tests::builtin_table_lookup_is_direct: test
+preset::tests::defaults_match_the_legacy_id_only_shape: test
+preset::tests::envelope_is_smooth_and_zero_at_both_ends: test
+preset::tests::expression_holds_while_motion_follows_the_envelope: test
+preset::tests::expression_packs_carry_face_and_small_head_body: test
+preset::tests::fields::ack_wire_names_and_payload_match_the_frozen_contract: test
+preset::tests::fields::body_head_expression_map_to_the_documented_channels: test
+preset::tests::fields::clock_message_replaces_wall_clock_in_frame_advance: test
+preset::tests::fields::expressions_only_write_facial_channels: test
+preset::tests::fields::hold_cue_never_auto_returns_and_never_expires: test
+preset::tests::fields::missing_param_emits_preset_dropped_instead_of_silent_noop: test
+preset::tests::fields::new_batch_replaces_the_field_animation_value_adds: test
+preset::tests::fields::non_hold_cue_expires_at_ttl_and_emits_preset_expired: test
+preset::tests::fields::same_field_cues_add_before_clamping: test
+preset::tests::fields::segment_ended_is_emitted_once_per_segment: test
+preset::tests::fields::whitelist_stays_the_documented_thirteen: test
+preset::tests::fields_map_tests::after_prev_waits_for_the_previous_cue_and_degrades_to_now_on_hold: test
+preset::tests::fields_map_tests::field_cue_parses_the_frozen_payload_shape: test
+preset::tests::fields_map_tests::field_map_override_json_is_per_model_and_validated: test
+preset::tests::fields_map_tests::hud_fields_diag_is_readable: test
+preset::tests::fields_map_tests::model_id_is_taken_from_the_manifest_url: test
+preset::tests::fields_map_tests::revoke_all_clears_accumulators_and_overrides: test
+preset::tests::fields_map_tests::segment_anchored_cue_fires_when_that_segment_starts: test
+preset::tests::fields_map_tests::unknown_expression_id_and_none_revoke_are_explicit: test
+preset::tests::motion_gain_falls_back_and_stays_bounded: test
+preset::tests::nod_and_look_carry_body_follow: test
+preset::tests::none_revokes_and_unknown_ids_stay_silent: test
+preset::tests::optional_fields_are_clamped_and_source_is_whitelisted: test
+preset::tests::packs::both_knobs_at_max_clamp_only_the_documented_combinations: test
+preset::tests::packs::dead_zone_starts_are_printed_for_every_channel: test
+preset::tests::packs::face_and_gesture_coexist_in_one_turn: test
+preset::tests::packs::factory_scales_stay_below_sixty_percent_of_every_channel_limit: test
+preset::tests::packs::fresh_runtime_uses_product_default_scales: test
+preset::tests::packs::gesture_main_axis_body_head_ratio_returns_to_the_design_window: test
+preset::tests::packs::gesture_wins_the_shared_head_channel: test
+preset::tests::packs::idle_written_after_preset_never_wins_then_revoke_restores: test
+preset::tests::packs::intensity_knob_alone_never_reaches_the_limit: test
+preset::tests::packs::intensity_scales_face_and_head_body_monotonically: test
+preset::tests::packs::max_scale_knob_alone_never_reaches_the_limit: test
+preset::tests::packs::motion_ramps_then_clears_at_ttl: test
+preset::tests::packs::none_revokes_immediately_and_switching_clears_stale_params: test
+preset::tests::packs::remaining_ms_is_observable: test
+preset::tests::packs::runtime_applies_scales_to_frames: test
+preset::tests::packs::same_slot_switch_only_clears_that_slot: test
+preset::tests::packs::scale_calibration_constants_match_the_2026_09_24_decision: test
+preset::tests::packs::scale_class_classifies_head_body_and_expression: test
+preset::tests::packs::scaled_values_are_clamped_to_channel_redline: test
+preset::tests::packs::scales_are_clamped_and_nan_safe: test
+preset::tests::packs::scales_multiply_their_own_channel_only: test
+preset::tests::packs::shake_oscillate_peak_is_computed_not_assumed: test
+preset::tests::packs::shipped_unhappy_morph_poles_cover_the_same_channels: test
+preset::tests::packs::unhappy_below_the_low_anchor_scales_from_neutral: test
+preset::tests::packs::unhappy_morphs_sad_low_to_angry_high: test
+preset::tests::presets_stay_inside_the_allowed_channel: test
+preset::tests::progress_is_clamped_to_one: test
+preset::tests::removed_v2_ids_are_now_unknown_and_ignored: test
+preset::tests::shake_oscillates_both_ways_with_body_in_phase: test
+stage_bg::tests::base64_decode_round_trips_a_known_png_header: test
+stage_bg::tests::clear_color_falls_back_by_dark_flag_not_to_undefined: test
+stage_bg::tests::clear_color_parses_hex_and_normalizes_to_unit_range: test
+stage_bg::tests::cover_uv_crops_the_longer_axis_and_keeps_the_other_full: test
+stage_bg::tests::cover_uv_is_identity_when_aspects_match_or_inputs_are_bogus: test
+stage_bg::tests::data_url_extracts_and_decodes_the_base64_payload: test
+stage_bg::tests::data_url_rejects_non_base64_and_malformed_input: test
+stage_bg::tests::fit_within_caps_the_long_side_and_keeps_the_aspect_ratio: test
+
+79 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_core-e0cf89141d51976e)
+action::rules::tests::contractions_normalize_without_apostrophes: test
+action::rules::tests::rule_fallback_respects_capabilities: test
+action::rules::tests::rule_table_is_deterministic: test
+action::tests::action_id_names_match_rfc_without_release: test
+action::tests::capability_missing_drops_play_even_for_user: test
+action::tests::capability_set_is_fail_closed_by_default: test
+action::tests::equal_priority_latest_wins_but_identical_is_idempotent: test
+action::tests::lower_priority_cannot_preempt: test
+action::tests::release_and_interrupt_both_end_with_single_effect: test
+action::tests::source_priorities_are_fixed_and_ordered: test
+action::tests::strength_maps_to_levels_1_to_3: test
+action::tests::user_preempts_tool_with_single_transition: test
+core_tests::actions::action_playback_finished_is_identity_checked: test
+core_tests::event_epoch_accessor: test
+core_tests::latches::completed_generation_before_drain_keeps_turn_alive: test
+core_tests::latches::duplicate_or_out_of_order_facts_are_rejected: test
+core_tests::latches::failed_generation_with_cleared_playback_finishes_turn_as_failed: test
+core_tests::latches::phase_transitions_and_turn_finish_cleanup: test
+core_tests::latches::sentence_added_extends_active_turn_plan: test
+core_tests::latches::single_main_turn: test
+core_tests::latches::unknown_references_are_dropped: test
+core_tests::reused_ids_across_epochs_are_isolated_by_epoch_gate: test
+core_tests::stale_events_of_every_kind_are_dropped_after_stop: test
+core_tests::stop_clears_everything_and_advances_epoch_once: test
+performance::tests::every_sampled_frame_is_within_safe_bounds: test
+performance::tests::interrupt_snaps_to_neutral_immediately: test
+performance::tests::look_around_scans_both_sides_then_recenters: test
+performance::tests::nan_negative_and_huge_dt_are_safe: test
+performance::tests::preempt_resets_timeline_without_blending: test
+performance::tests::sampling_is_deterministic: test
+performance::tests::stateless_sample_at_and_metadata: test
+performance::tests::strength_scales_every_channel_monotonically: test
+performance::tests::t0_and_end_are_exactly_neutral: test
+
+33 tests, 0 benchmarks
+     Running tests/root_flow.rs (/tmp/w2_verify_target/debug/deps/root_flow-3bbdc3c38e4da081)
+happy_path_double_latch_then_next_turn: test
+priority_arbitration_flows_through_root_events: test
+release_and_interrupt_end_actions_without_epoch_bump: test
+stop_does_not_drift_epoch_and_gates_every_subsystem: test
+
+4 tests, 0 benchmarks
+     Running unittests src/main.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_desktop-5c08fd2b36a0d33d)
+adapter::tests::apply_frame_writes_input_layer_and_reports_counts: test
+adapter::tests::eye_open_scale_maps_to_both_eyes_around_bai_default_one: test
+adapter::tests::frame_entries_covers_every_field_with_bai_standard_ids: test
+adapter::tests::missing_parameters_degrade_silently_but_are_recorded_once: test
+adapter::tests::mouth_channel_is_highest_priority_and_never_covered_by_surprise_curve: test
+adapter::tests::release_all_clears_everything_tracked: test
+adapter::tests::sparse_write_only_owned_channels_and_release_on_finish: test
+app::capability::tests::click_through_to_hittest_inverts_click_through_intent: test
+app::capability::tests::click_through_to_hittest_is_idempotent_under_double_negation: test
+app::capability::tests::click_through_to_hittest_keeps_interactive_intent: test
+app::settings_ui::tests::draft_to_settings_preserves_all_fields: test
+app::settings_ui::tests::route_f10_toggle_is_decoupled_from_consumed: test
+app::settings_ui::tests::route_hidden_always_false_even_if_egui_consumed: test
+app::settings_ui::tests::route_visible_only_when_egui_actually_consumed: test
+app::settings_ui::tests::settings_to_draft_round_trip_back_to_equal_draft: test
+app::settings_ui_tests::api_key_env_never_carries_a_real_secret: test
+app::settings_ui_tests::dev_mode_round_trips_through_draft: test
+app::settings_ui_tests::invalid_api_key_env_does_not_modify_disk: test
+app::settings_ui_tests::invalid_llm_url_does_not_modify_disk: test
+app::settings_ui_tests::invalid_tts_url_does_not_modify_disk: test
+app::settings_ui_tests::save_draft_empty_key_env_normalizes_to_none_on_reload: test
+app::settings_ui_tests::save_draft_writes_draft_to_disk_and_reload_round_trips: test
+app::settings_ui_tests::saving_visible_fields_preserves_hidden_tts_fields: test
+app::tests::acquire_outcome_from_current_maps_plain_variants: test
+app::tests::advance_validation_streak_first_validation_is_skip_first: test
+app::tests::advance_validation_streak_non_validation_clears_streak: test
+app::tests::advance_validation_streak_resets_after_non_validation: test
+app::tests::advance_validation_streak_second_validation_is_fatal_code: test
+app::tests::advance_validation_streak_success_breaks_streak: test
+app::tests::advance_validation_streak_three_in_a_row_fatal_at_second: test
+app::tests::alpha_mode_conversion_round_trip_is_lossless_for_explicit_modes: test
+app::tests::classify_poll_failure_returns_gpu_environment: test
+app::tests::gpu_fault_kind_as_str_is_stable: test
+app::tests::lost_action_triggers_recreate_branch: test
+app::tests::outdated_action_skips_present_and_only_reconfigures: test
+app::tests::panic_payload_message_extraction: test
+app::tests::raw_display_handle_classification_matches_window_side: test
+app::tests::raw_window_handle_classification_marks_x11_and_wayland: test
+app::tests::resize_burst_then_drain_pipeline_keeps_latest_size: test
+app::tests::resize_multiple_events_collapse_to_last_nonzero_size: test
+app::tests::resize_zero_size_does_not_overwrite_existing_pending: test
+app::tests::route_gpu_fault_three_tier_mapping_matches_c2: test
+app::tests::suboptimal_action_marks_present_then_reconfigure_in_order: test
+app::tests::success_outcome_is_plain_present: test
+app::tests::surface_format_prefers_non_srgb_with_alpha: test
+app::tests::transient_outcomes_are_silent_skip: test
+app_event::tests::fatal_kinds_are_flagged: test
+app_event::tests::from_kind_carries_code_stage_and_fatality: test
+app_event::tests::log_line_starts_with_code_and_includes_hint: test
+audio::tests::error_display_is_observable_vocabulary: test
+audio::tests::format_converters_map_extremes_deterministically: test
+audio::tests::mouth_level_snapshot_rises_with_tone_and_snaps_to_zero_in_silence: test
+audio::tests::non_finite_input_is_sanitized_before_entering_ring: test
+audio::tests::overflow_rejects_exact_count_without_blocking_or_corruption: test
+audio::tests::passthrough_enqueue_render_matches_and_reports_drained: test
+audio::tests::render_into_adapters_convert_device_formats: test
+audio::tests::resample_and_channel_mapping_flow_through_ring: test
+audio::tests::ring_capacity_never_breaks_frame_alignment: test
+audio::tests::smoke_report_lines_cover_device_skip_honestly: test
+audio::tests::stop_and_clear_silences_old_audio_then_admits_new_epoch_audio: test
+audio::tests::stop_before_any_playback_leaves_nothing_for_callback: test
+audio::tests::underruns_are_counted_only_after_active_starvation: test
+audio::tests::zero_ring_capacity_is_invalid_input: test
+backend::tests::chat_config_path_resolves_explicit_and_cwd_fallback: test
+backend::tests::description_declares_pet_capabilities_and_runtime_gate: test
+backend::tests::only_winit_wgpu_backend_is_registered: test
+backend::tests::request_feature_declares_implemented_code_paths_only: test
+backend::tests::run_options_validation_and_default_timeout: test
+backend::tests::run_report_includes_model_smoke_section_when_present: test
+backend::tests::run_report_summary_mentions_real_capabilities_only: test
+backend::tests::stop_reason_display_is_stable: test
+benchmark::stats::tests::action_counts_default_is_all_zero: test
+benchmark::stats::tests::mode_caliber_distinguishes_blocking_vs_submit: test
+benchmark::stats::tests::skip_buckets_default_is_all_zero: test
+benchmark::stats::tests::skip_buckets_separates_suboptimal_from_skipped_and_recovery: test
+benchmark::stats::tests::skip_buckets_total_sums_all_kinds: test
+benchmark::stats::tests::timing_stats_does_not_panic_on_nan_inputs: test
+benchmark::stats::tests::timing_stats_handles_empty_and_single_sample: test
+benchmark::stats::tests::timing_stats_percentiles_use_floor_index_and_match_avg_max: test
+benchmark::tests::benchmark_backend_distinguishes_surface_vs_headless: test
+benchmark::tests::benchmark_mode_roundtrips_cli_strings: test
+benchmark::tests::benchmark_report_summary_contains_key_channels: test
+benchmark::tests::phase_advance_done_always_returns_finish: test
+benchmark::tests::phase_advance_enter_formal_triggers_caller_side_reset: test
+benchmark::tests::phase_advance_formal_target_ten_finishes_on_tenth_attempt: test
+benchmark::tests::phase_advance_formal_target_zero_finishes_on_first_formal_attempt: test
+benchmark::tests::phase_advance_panics_on_invalid_incremented: test
+benchmark::tests::phase_advance_signature_pure_and_unit_granular: test
+benchmark::tests::phase_advance_warmup_target_three_enters_formal_on_third_attempt: test
+benchmark::tests::phase_advance_warmup_target_zero_enters_formal_on_first_attempt: test
+cli::tests::audio_smoke_defaults_to_short_quiet_tone: test
+cli::tests::audio_smoke_flags_imply_audio_mode_and_are_order_free: test
+cli::tests::audio_smoke_rejects_bad_durations: test
+cli::tests::dev_mode_can_be_repeated_and_stays_true: test
+cli::tests::dev_mode_flag_alone_is_ignored_outside_web_mode: test
+cli::tests::flags_are_order_independent_and_combinable: test
+cli::tests::help_and_errors: test
+cli::tests::http_port_bounds_are_enforced: test
+cli::tests::http_port_implies_web_and_overrides_default: test
+cli::tests::http_port_with_dev_mode_sets_both: test
+cli::tests::model_smoke_defaults_and_explicit_paths: test
+cli::tests::model_smoke_path_resolution_prefers_explicit_then_cwd_then_manifest: test
+cli::tests::no_args_means_info_only: test
+cli::tests::pet_mode_alone_implies_resident_window_shell: test
+cli::tests::pet_mode_combines_with_window_and_model_smoke: test
+cli::tests::pet_mode_rejects_audio_smoke: test
+cli::tests::smoke_frames_implies_window_smoke_without_forced_timeout: test
+cli::tests::web_alone_implies_web_mode_with_default_port: test
+cli::tests::web_alone_with_dev_mode_sets_dev_mode_true: test
+cli::tests::web_is_mutually_exclusive_with_other_modes: test
+cli::tests::window_and_audio_smoke_modes_conflict_and_orphan_flags_rejected: test
+cli::tests::window_smoke_plain: test
+logging::tests::default_log_dir_ends_with_live2d_ai_logs: test
+logging::tests::end_to_end_file_layer_redacts_and_persists: test
+logging::tests::redact_does_not_match_generic_substrings: test
+logging::tests::redact_handles_empty_plain_and_utf8: test
+logging::tests::redact_handles_json_style_key_value: test
+logging::tests::redact_leaves_non_sensitive_alone: test
+logging::tests::redact_replaces_known_sensitive_fields: test
+logging::tests::sanitizing_writer_strips_keys_before_disk: test
+mod_registry::tests::action_request_is_dormant_not_delivered: test
+mod_registry::tests::apply_settings_applier_reaches_host: test
+mod_registry::tests::apply_settings_defaults_to_rejected: test
+mod_registry::tests::default_disabled_until_enabled: test
+mod_registry::tests::disable_shuts_down: test
+mod_registry::tests::dispatch_event_and_flush_means_processed_not_queued: test
+mod_registry::tests::dispatch_event_bounded_no_block: test
+mod_registry::tests::enable_disable_persist_manifest_and_round_trip: test
+mod_registry::tests::enable_runs_mod: test
+mod_registry::tests::enable_with_config_passes_config_to_runtime: test
+mod_registry::tests::event_delivers_to_running_mod: test
+mod_registry::tests::event_failure_isolates_mod: test
+mod_registry::tests::incompatible_api_version_fails_without_crashing: test
+mod_registry::tests::parse_config_from_manifest: test
+mod_registry::tests::reload_config_persists_manifest: test
+mod_registry::tests::runtime_state_is_none_unless_running: test
+mod_registry::tests::say_reaches_host_channel: test
+mod_registry::tests::static_settings_spec_available_when_disabled: test
+model_smoke::driver::tests::action_sequence_plays_fixed_order_then_wraps: test
+model_smoke::driver::tests::frame_clock_accumulates_fixed_steps_with_caps: test
+model_smoke::driver::tests::smoke_driver_finishes_each_action_before_the_next: test
+model_smoke::report::tests::stats_summary_covers_key_channels: test
+model_smoke::tests::error_categories_map_to_exit_code_contract: test
+model_smoke::tests::render_error_classification_matches_stage_semantics: test
+model_smoke::tests::scripted_actions_are_always_medium_rule_fallback: test
+model_smoke::tests::synthesized_mouth_level_is_bounded_gated_and_deterministic: test
+platform::capabilities::tests::capability_state_display_is_stable_cli_vocabulary: test
+platform::capabilities::tests::choose_alpha_mode_prefers_post_multiplied_for_straight_alpha_output: test
+platform::capabilities::tests::declared_capabilities_map_per_session_hint_only: test
+platform::capabilities::tests::detect_from_falls_back_to_display_vars: test
+platform::capabilities::tests::detect_from_prefers_xdg_session_type: test
+platform::capabilities::tests::runtime_capabilities_default_is_honest_not_probed: test
+platform::capabilities::tests::runtime_capabilities_table_and_summary_cover_all_fields: test
+platform::window::tests::bottom_right_target_places_window_inside_monitor_with_margin: test
+platform::window::tests::window_backend_kind_support_matrix_matches_protocol_reality: test
+repl::tests::blank_and_comment_lines_yield_none: test
+repl::tests::chat_text_is_trimmed_with_inner_spaces_kept: test
+repl::tests::chinese_chat_text_passes_through_verbatim: test
+repl::tests::command_words_tolerate_extra_whitespace: test
+repl::tests::known_commands_match_case_insensitively: test
+repl::tests::slash_inside_text_stays_chat: test
+repl::tests::unrecognized_slash_word_yields_unknown: test
+session_scope::tests::baseline_and_prompt_do_not_overwrite_each_other: test
+session_scope::tests::baseline_is_bound_per_session_and_not_global: test
+session_scope::tests::baseline_write_gate_rejects_overlong_and_empty_revokes: test
+session_scope::tests::capacity_is_bounded_and_never_evicts_silently: test
+session_scope::tests::clear_all_also_clears_baselines: test
+session_scope::tests::clear_all_removes_every_scope_but_keeps_active_cursor: test
+session_scope::tests::clear_owner_prunes_sessions_that_become_empty: test
+session_scope::tests::clearing_one_owner_leaves_the_other_owners_contribution: test
+session_scope::tests::composition_order_is_anonymous_then_persona_then_memory: test
+session_scope::tests::contributions_snapshot_is_ordered_and_skips_empty: test
+session_scope::tests::empty_prompt_revokes_the_slot_and_overlong_is_rejected: test
+session_scope::tests::invalid_ids_are_ignored_not_stored: test
+session_scope::tests::mod_prompts_handle_shares_the_same_table: test
+session_scope::tests::owned_writes_still_enforce_the_session_cap: test
+session_scope::tests::sessions_do_not_leak_into_each_other: test
+session_scope::tests::set_get_clear_round_trip: test
+supervisor::tests_assistant_event::turn_close_emits_cleaned_assistant_text_to_mod_events: test
+supervisor::tests_fault::action_finished_fact_travels_real_finish_channel: test
+supervisor::tests_fault::dropping_handle_during_generation_cancels_and_reaps_supervisor: test
+supervisor::tests_fault::fatal_after_started_reports_cleared: test
+supervisor::tests_fault::internal_audio_fault_yields_turn_completed_failed: test
+supervisor::tests_fault::llm_transport_failure_is_visible_and_closes_the_turn: test
+supervisor::tests_fault::llm_upstream_401_is_visible_and_closes_the_turn: test
+supervisor::tests_loop::bl2_real_double_latch_with_detached_producer: test
+supervisor::tests_loop::closed_loop_two_turns_commit_history_via_drain_path: test
+supervisor::tests_loop::failed_turn_delivers_generated_text_via_text_fallback: test
+supervisor::tests_loop::gen_finished_exactly_once_per_turn: test
+supervisor::tests_loop::late_finish_cross_epoch_is_neutralized_via_supervisor: test
+supervisor::tests_loop::memory_written_on_turn_prompt_lands_in_the_same_turn_request: test
+supervisor::tests_loop::stop_clears_pending_say: test
+supervisor::tests_loop::supervisor_emits_turn_started_to_mod_events: test
+supervisor::tests_mod_projections::non_conversation_events_yield_none: test
+supervisor::tests_mod_projections::text_delta_projects_to_text_delta_with_payload: test
+supervisor::tests_mod_projections::voice_ended_projects_with_epoch_payload: test
+supervisor::tests_mod_projections::voice_started_projects_with_epoch_payload: test
+supervisor::tests_pcm::partial_write_reports_playback_started_immediately: test
+supervisor::tests_pcm::pending_prepared_survives_multiple_would_blocks_lossless: test
+supervisor::tests_performance::performance_layer_end_to_end_drives_speak_and_cues: test
+supervisor::tests_performance::performance_layer_is_skipped_when_the_main_model_fails: test
+supervisor::tests_performance_assembly::disabled_is_none_and_partial_config_is_degraded_and_wired_is_openai: test
+supervisor::tests_reload::handle_reload_is_idempotent_and_does_not_panic: test
+supervisor::tests_reload::reload_during_inflight_turn_applies_to_next_turn: test
+supervisor::tests_reload::reload_falls_back_on_invalid_url: test
+supervisor::tests_reload::reload_rebuilds_client_after_config_save: test
+supervisor::tests_reload::reload_without_config_path_is_noop: test
+supervisor::tests_session::scoped_session_prompt_overrides_global_and_never_leaks_across_sessions: test
+supervisor::tests_stall::stall_timeout_fatal_terminates_after_5s_zero_progress: test
+supervisor::tests_stall::stop_during_drain_produces_no_commit_and_clean_next_round: test
+supervisor::tests_stall::stop_during_pending_pcm_pump_advances_epoch_without_completion: test
+supervisor::tests_stall::stop_during_tts_in_flight_yields_no_completion_and_reopens: test
+supervisor::tests_stream::epoch_mirror_updates_on_stop_requested: test
+supervisor::tests_stream::sentence_voiced_emits_text_delta_but_raw_deltas_do_not: test
+supervisor::tests_stream::sentence_voiced_zero_ts_ms_is_preserved: test
+supervisor::tests_stream::supervisor_handle_current_epoch_starts_at_zero: test
+supervisor::tests_stream::text_fallback_emits_its_own_ui_event: test
+supervisor::tests_timing::engine_event_variants_accept_ts_ms_field: test
+supervisor::tests_timing::engine_events_carry_ts_ms_and_turn_stages_emitted: test
+supervisor::tests_timing::turn_stage_timings_are_monotonic_with_audio: test
+tests::exit_codes_are_distinct_and_stable_contract: test
+tests::mod_count_is_five: test
+tests::mod_factory_ids_are_unique: test
+tests::mod_factory_ids_match_expected: test
+tray::menu::tests::menu_model_has_required_entries_in_order: test
+tray::tests::icon_renderer_shape_and_size: test
+tray::tests::ksni_error_classification_is_user_visible_chinese_reasons: test
+tray::tests::menu_model_reflects_state_changes: test
+tray::tests::shared_state_snapshot_round_trip: test
+user_event::tests::event_target_resolves_toggle_against_current_state: test
+user_event::tests::flip_is_boolean_negation: test
+user_event::tests::launch_plan_forbids_click_through_without_tray: test
+user_event::tests::launch_plan_full_when_tray_confirmed: test
+user_event::tests::launch_plan_non_pet_mode_stays_interactive: test
+web_api::app_routes::tests::capabilities_handler_always_returns_200: test
+web_api::app_routes::tests::iso8601_known_instant: test
+web_api::app_routes::tests::iso8601_zero_is_1970_01_01: test
+web_api::app_routes::tests::json_response_content_type_header: test
+web_api::app_routes::tests::status_current_epoch_defaults_to_zero_and_overridable: test
+web_api::app_routes::tests::status_current_epoch_source_is_called_each_time: test
+web_api::app_routes::tests::status_reports_has_api_key_from_env_lookup: test
+web_api::app_routes::tests::status_unconfigured_shows_zero_or_empty: test
+web_api::app_routes::tests::swap_settings_replaces_arc: test
+web_api::app_routes::tests::uptime_is_monotonic_after_creation: test
+web_api::chat_routes::tests::baseline_write_rejects_bad_session_and_overlong_payload: test
+web_api::chat_routes::tests::chat_empty_text_returns_400: test
+web_api::chat_routes::tests::chat_invalid_body_returns_400: test
+web_api::chat_routes::tests::chat_missing_text_returns_400: test
+web_api::chat_routes::tests::chat_session_post_enforces_mutating_contract: test
+web_api::chat_routes::tests::chat_session_round_trip_reports_active_and_bound_sessions: test
+web_api::chat_routes::tests::chat_session_route_is_opt_in_and_needs_supervisor: test
+web_api::chat_routes::tests::chat_with_supervisor_returns_200: test
+web_api::chat_routes::tests::chat_without_supervisor_returns_503: test
+web_api::chat_routes::tests::chat_wrong_method_returns_405: test
+web_api::chat_routes::tests::new_message_cancels_orchestration_without_backfill: test
+web_api::chat_routes::tests::session_route_writes_and_reads_the_baseline_per_session: test
+web_api::chat_routes::tests::stop_returns_to_the_session_baseline: test
+web_api::chat_routes::tests::stop_without_supervisor_returns_200_idempotent: test
+web_api::cli_entry::tests::config_path_anchor_is_absolute: test
+web_api::cli_entry::tests::config_path_falls_back_when_no_file: test
+web_api::cli_entry::tests::default_mods_manifest_enables_external_input_only: test
+web_api::cli_entry::tests::exit_codes_match_main_contract: test
+web_api::dto::tests::app_info_carries_version_and_stable_fields: test
+web_api::dto::tests::error_response_serializes_to_contract_shape: test
+web_api::dto::tests::error_response_with_details_includes_field: test
+web_api::dto::tests::llm_status_derives_has_api_key_from_env: test
+web_api::dto::tests::llm_status_unconfigured_when_base_url_empty: test
+web_api::dto::tests::settings_view_dto_never_leaks_key_name: test
+web_api::env_routes::route_tests::env_put_is_mutating_get_is_not: test
+web_api::env_routes::route_tests::env_route_matches_get_and_put_only_by_path: test
+web_api::env_routes::tests::error_messages_never_contain_the_value: test
+web_api::env_routes::tests::get_lists_performance_section: test
+web_api::env_routes::tests::get_never_returns_values: test
+web_api::env_routes::tests::get_omits_sections_without_a_key_name: test
+web_api::env_routes::tests::put_no_longer_rejects_performance_declared_key: test
+web_api::env_routes::tests::put_rejects_bad_json_and_wrong_method: test
+web_api::env_routes::tests::put_rejects_undeclared_key: test
+web_api::env_routes::tests::put_still_rejects_undeclared_with_performance_declared: test
+web_api::external_routes::tests::absent_mod_is_not_gated: test
+web_api::external_routes::tests::bad_origin_403: test
+web_api::external_routes::tests::bearer_token_extracts_correctly: test
+web_api::external_routes::tests::check_token_bearer_match_passes: test
+web_api::external_routes::tests::check_token_bearer_mismatch_fails: test
+web_api::external_routes::tests::check_token_body_match_passes: test
+web_api::external_routes::tests::check_token_body_mismatch_fails: test
+web_api::external_routes::tests::check_token_body_takes_priority_over_mismatched_bearer: test
+web_api::external_routes::tests::check_token_missing_fails: test
+web_api::external_routes::tests::check_token_no_env_always_ok: test
+web_api::external_routes::tests::config_token_accepts_bearer_header: test
+web_api::external_routes::tests::config_token_missing_401: test
+web_api::external_routes::tests::dotenv_token_is_read_and_still_wins_over_config: test
+web_api::external_routes::tests::handler_counts_accepts_rejects_busy_into_state: test
+web_api::external_routes::tests::invalid_payload_400: test
+web_api::external_routes::tests::mismatched_path_returns_none: test
+web_api::external_routes::tests::mod_disabled_returns_403: test
+web_api::external_routes::tests::mod_enabled_passes_gate_to_supervisor: test
+web_api::external_routes::tests::non_json_ct_415: test
+web_api::external_routes::tests::reset_counters_command_clears_handler_counts: test
+web_api::external_routes::tests::state_json_reports_token_set_without_echoing_plaintext: test
+web_api::external_routes::tests::template_inflated_text_too_long_400: test
+web_api::external_routes::tests::text_empty_400: test
+web_api::external_routes::tests::text_too_long_400: test
+web_api::external_routes::tests::v2_ignored_non_integer_400: test
+web_api::external_routes::tests::v2_ignored_reported_by_sidecar_surfaces_in_state: test
+web_api::external_routes::tests::wrong_method_405: test
+web_api::flutter_app::tests::app_path_prefix_is_exact: test
+web_api::flutter_app::tests::candidates_always_include_the_cwd_relative_default: test
+web_api::flutter_app::tests::mime_covers_flutter_artifacts: test
+web_api::flutter_app::tests::missing_build_hint_lists_every_tried_path: test
+web_api::flutter_app::tests::non_get_is_method_not_allowed: test
+web_api::flutter_app::tests::repo_root_is_none_outside_a_repo: test
+web_api::flutter_app::tests::repo_root_skips_the_crate_manifest: test
+web_api::flutter_app::tests::root_path_non_get_is_left_to_dispatch: test
+web_api::flutter_app::tests::root_paths_redirect_to_the_flutter_app: test
+web_api::flutter_app::tests::unrelated_path_is_not_handled: test
+web_api::log_routes::tests::handle_logs_levels_returns_known_levels: test
+web_api::log_routes::tests::handle_logs_returns_empty_when_no_log_dir: test
+web_api::log_routes::tests::pick_latest_log_prefers_dated_suffix: test
+web_api::log_routes::tests::read_tail_lines_short_file_not_truncated: test
+web_api::log_routes::tests::read_tail_lines_strips_carriage_return: test
+web_api::log_routes::tests::read_tail_lines_takes_last_n: test
+web_api::model_root::tests::builtin_id_matches_the_url: test
+web_api::model_root::tests::model_root_is_the_single_root: test
+web_api::model_root::tests::model_root_walks_up_to_the_repo_root: test
+web_api::models_routes::active_model_id_tests::empty_registered_value_is_treated_as_absent: test
+web_api::models_routes::active_model_id_tests::falls_back_to_the_builtin_that_actually_exists: test
+web_api::models_routes::active_model_id_tests::missing_builtin_reports_nothing: test
+web_api::models_routes::active_model_id_tests::registered_wins: test
+web_api::models_routes::tests_models_core::dto_background_type_parsing: test
+web_api::models_routes::tests_models_core::dto_fit_mode_parsing: test
+web_api::models_routes::tests_models_core::dto_rejects_unknown_fields_at_root: test
+web_api::models_routes::tests_models_core::dto_segment_apply_preserves_unset_fields: test
+web_api::models_routes::tests_models_core::dto_segment_stage_apply_preserves_unset_fields: test
+web_api::models_routes::tests_models_core::match_model_route_activate_and_display: test
+web_api::models_routes::tests_models_core::match_model_route_get_and_delete: test
+web_api::models_routes::tests_models_core::match_model_route_import_only_post: test
+web_api::models_routes::tests_models_core::match_model_route_list_only_get: test
+web_api::models_routes::tests_models_core::match_model_route_rejects_traversal_id: test
+web_api::models_routes::tests_models_core::normalize_relative_id_accepts_snake_case: test
+web_api::models_routes::tests_models_core::normalize_relative_id_rejects_empty_and_dot: test
+web_api::models_routes::tests_models_core::normalize_relative_id_rejects_parent_escape: test
+web_api::models_routes::tests_models_core::normalize_relative_id_rejects_path_separators: test
+web_api::models_routes::tests_models_core::normalize_relative_id_rejects_special_chars: test
+web_api::models_routes::tests_models_core::registry_atomic_write_round_trip: test
+web_api::models_routes::tests_models_core::registry_load_corrupted_returns_error: test
+web_api::models_routes::tests_models_core::registry_load_missing_file_returns_default: test
+web_api::models_routes::tests_models_core::registry_path_is_inside_the_single_model_root: test
+web_api::models_routes::tests_models_core::registry_persist_writes_via_store: test
+web_api::models_routes::tests_models_core::resolve_safe_path_accepts_legitimate_id: test
+web_api::models_routes::tests_models_core::resolve_safe_path_rejects_traversal: test
+web_api::models_routes::tests_models_core::stored_manifest_constructed_from_package_manifest: test
+web_api::models_routes::tests_models_handlers::handle_activate_then_delete_active_rejected: test
+web_api::models_routes::tests_models_handlers::handle_delete_non_active_succeeds_204: test
+web_api::models_routes::tests_models_handlers::handle_display_partial_only_stage_preserves_model: test
+web_api::models_routes::tests_models_handlers::handle_display_persists_model_and_stage: test
+web_api::models_routes::tests_models_handlers::handle_display_rejects_unknown_field: test
+web_api::models_routes::tests_models_handlers::handle_display_unknown_id_returns_404: test
+web_api::models_routes::tests_models_handlers::handle_get_unknown_id_returns_404: test
+web_api::models_routes::tests_models_handlers::handle_import_id_conflict_returns_409: test
+web_api::models_routes::tests_models_handlers::handle_import_legit_package_succeeds: test
+web_api::models_routes::tests_models_handlers::handle_import_rejects_dir_without_model3_json: test
+web_api::models_routes::tests_models_handlers::handle_import_rejects_nonexistent_dir: test
+web_api::models_routes::tests_models_handlers::handle_import_rejects_traversal_id: test
+web_api::models_routes::tests_models_handlers::handle_list_empty_returns_200: test
+web_api::models_routes::tests_models_p1::a1_activate_reports_hot_swap_not_restart: test
+web_api::models_routes::tests_models_p1::a1_active_model_id_follows_the_registry: test
+web_api::models_routes::tests_models_p1::a1_nested_layout_imports_and_activates_with_a_getable_url: test
+web_api::models_routes::tests_models_p1::p1_3_dispatch_accepts_valid_hex_colors: test
+web_api::models_routes::tests_models_p1::p1_3_dispatch_rejects_invalid_params: test
+web_api::models_routes::tests_models_p1::p1_3_validate_unit_rejects_bad_values: test
+web_api::models_routes::tests_models_p1::p1_4_absolute_path_derived_per_call_assets_root_churn: test
+web_api::models_routes::tests_models_p1::p1_4_handle_import_stores_relative_paths: test
+web_api::models_routes::tests_models_p1::p1_4_registry_round_trip_uses_relative_paths: test
+web_api::models_routes::tests_models_p1::p1_5_backup_filename_has_unix_secs_suffix: test
+web_api::models_routes::tests_models_p1::p1_5_from_disk_backs_up_corrupt_registry: test
+web_api::models_routes::tests_models_p1::p1_5_from_disk_missing_file_does_not_backup: test
+web_api::mods_routes::tests::body_with_non_json_content_type_is_415: test
+web_api::mods_routes::tests::bodyless_enable_disable_skip_content_type_check: test
+web_api::mods_routes::tests::bodyless_without_origin_is_403_not_415: test
+web_api::mods_routes::tests::config_route_bad_json_returns_400: test
+web_api::mods_routes::tests::config_route_match_unknown_id_returns_404: test
+web_api::mods_routes::tests::config_route_missing_config_returns_400: test
+web_api::mods_routes::tests::enable_unknown_id_returns_404: test
+web_api::mods_routes::tests::get_mods_list_empty: test
+web_api::mods_routes::tests::mod_config_get_returns_redacted_config: test
+web_api::mods_routes::tests::mods_list_includes_spec_and_redacts_secret: test
+web_api::mods_routes::tests::non_mods_path_returns_none: test
+web_api::mods_routes::tests::state_route_distinguishes_unknown_from_unavailable: test
+web_api::mods_routes::tests::state_route_returns_runtime_snapshot: test
+web_api::mods_routes::tests::state_route_without_state_json_is_503: test
+web_api::settings_routes::test_endpoints::probe_tests::probe_2xx_is_success: test
+web_api::settings_routes::test_endpoints::probe_tests::probe_401_403_is_auth_failed: test
+web_api::settings_routes::test_endpoints::probe_tests::probe_404_is_reachable_not_a_failure: test
+web_api::settings_routes::test_endpoints::probe_tests::probe_body_snippet_is_truncated: test
+web_api::settings_routes::test_endpoints::probe_tests::probe_other_errors_carry_detail: test
+web_api::settings_routes::tests::absent_api_key_env_field_is_not_a_clear: test
+web_api::settings_routes::tests::apply_and_write_cleans_tmp_on_rename_failure: test
+web_api::settings_routes::tests::apply_and_write_creates_parent_dir_when_missing: test
+web_api::settings_routes::tests::apply_patch_then_persists_round_trip: test
+web_api::settings_routes::tests::e2e_action_model_overrides_keep_comments_and_prune_tables: test
+web_api::settings_routes::tests::e2e_action_scales_patch_clamps_via_http: test
+web_api::settings_routes::tests::e2e_api_key_env_null_clears_binding_on_disk: test
+web_api::settings_routes::tests::e2e_api_key_env_set_new_value_persists: test
+web_api::settings_routes::tests::e2e_clear_one_provider_does_not_touch_the_other: test
+web_api::settings_routes::tests::e2e_max_tokens_tri_state_through_http_patch: test
+web_api::settings_routes::tests::e2e_partial_section_patch_keeps_untouched_api_key_env: test
+web_api::settings_routes::tests::get_response_has_api_key_reflects_injected_lookup: test
+web_api::settings_routes::tests::get_response_never_leaks_key: test
+web_api::settings_routes::tests::handle_patch_invalid_json_returns_400: test
+web_api::settings_routes::tests::legacy_clear_api_key_key_no_longer_clears: test
+web_api::settings_routes::tests::no_change_patch_does_not_touch_disk: test
+web_api::settings_routes::tests::patch_body_section_parsing: test
+web_api::settings_routes::tests::patch_response_has_api_key_reflects_injected_lookup: test
+web_api::settings_routes::tests::run_llm_test_fails_on_unconfigured_url: test
+web_api::settings_routes::tests::settings_responses_carry_active_model_id: test
+web_api::settings_routes::tests::test_outcome_failure_serializes_with_ok_false: test
+web_api::settings_routes::tests::test_outcome_serializes_with_ok_tag: test
+web_api::settings_routes::tests::timeout_to_duration_clamps_to_bounds: test
+web_api::settings_routes::tests::url_invalid_patch_returns_400: test
+web_api::supervisor_slot::tests::slot_lifecycle_set_get_take: test
+web_api::supervisor_slot::tests::slot_poisoned_does_not_panic: test
+web_api::tests_dev_mode::end_to_end_logs_endpoint_flips_403_to_200_after_patch: test
+web_api::tests_dev_mode::patch_dev_mode_absent_does_not_touch_dev_mode: test
+web_api::tests_dev_mode::patch_dev_mode_false_flips_logs_back_to_403: test
+web_api::tests_dev_mode::patch_dev_mode_null_is_explicit_false: test
+web_api::tests_dev_mode::patch_dev_mode_true_updates_status_context: test
+web_api::tests_dev_mode::patch_no_op_does_not_change_dev_mode: test
+web_api::tests_dev_mode::status_context_default_is_off: test
+web_api::tests_dev_mode::status_context_init_cli_override_wins_over_settings: test
+web_api::tests_dev_mode::status_context_init_uses_settings_when_no_override: test
+web_api::tests_mod::dispatch_capabilities_returns_200: test
+web_api::tests_mod::dispatch_chat_invalid_body_returns_400: test
+web_api::tests_mod::dispatch_chat_stop_without_supervisor_returns_200: test
+web_api::tests_mod::dispatch_chat_without_supervisor_returns_503: test
+web_api::tests_mod::dispatch_chat_wrong_method_returns_405: test
+web_api::tests_mod::dispatch_logs_levels_returns_403_when_dev_mode_off: test
+web_api::tests_mod::dispatch_logs_returns_403_when_dev_mode_off: test
+web_api::tests_mod::dispatch_models_list_returns_200: test
+web_api::tests_mod::dispatch_settings_get_returns_200: test
+web_api::tests_mod::dispatch_status_returns_200_unconfigured: test
+web_api::tests_mod::dispatch_unknown_path_returns_404: test
+web_api::tests_mod::query_strings_do_not_break_route_matching: test
+web_api::tests_mod::route_dispatch_table_is_stable: test
+web_api::tests_mod::route_id_as_str_is_stable: test
+web_api::tests_mod::strip_query_removes_search_only: test
+web_api::tests_p0c::apply_status_serializes_to_snake_case: test
+web_api::tests_p0c::e2e_first_time_no_config_patch_completes_loop: test
+web_api::tests_p0c::first_time_full_config_patch_dynamic_assembles_supervisor: test
+web_api::tests_p0c::patch_response_serializes_with_apply_status_field: test
+web_api::tests_p0c::patch_with_existing_supervisor_triggers_reload: test
+web_api::tests_p0c::restart_required_when_config_cannot_assemble: test
+web_api::tests_p0c::server_context_supervisor_slot_default_is_empty: test
+web_api::tests_p0c::server_context_take_after_dynamic_assemble_returns_handle: test
+web_api::tests_p0c::supervisor_slot_set_get_take_basic: test
+web_api::tests_reload::dispatch_settings_patch_failure_does_not_reload: test
+web_api::tests_reload::dispatch_settings_patch_triggers_supervisor_reload: test
+web_api::tests_reload::refresh_from_disk_keeps_snapshot_on_broken_toml: test
+web_api::tests_reload::refresh_from_disk_syncs_snapshot_and_dev_mode: test
+web_api::tests_security::env_value_truthy_recognizes_valid_forms: test
+web_api::tests_security::env_value_truthy_rejects_others: test
+web_api::tests_security::extract_origin_and_ct_case_insensitive: test
+web_api::tests_security::extract_origin_and_ct_finds_both: test
+web_api::tests_security::extract_origin_and_ct_handles_missing: test
+web_api::tests_security::mutating_error_code_is_stable: test
+web_api::tests_security::mutating_error_response_carries_code_and_status: test
+web_api::tests_security::mutating_error_status_is_403: test
+web_api::tests_security::mutating_request_application_json_passes: test
+web_api::tests_security::mutating_request_application_json_with_charset_passes: test
+web_api::tests_security::mutating_request_case_insensitive_json: test
+web_api::tests_security::mutating_request_external_origin_rejected: test
+web_api::tests_security::mutating_request_form_urlencoded_rejected: test
+web_api::tests_security::mutating_request_loopback_origin_passes: test
+web_api::tests_security::mutating_request_multipart_rejected: test
+web_api::tests_security::mutating_request_no_content_type_no_body_lenient: test
+web_api::tests_security::mutating_request_no_content_type_with_body_rejected: test
+web_api::tests_security::mutating_request_no_origin_allowed_when_dev_flag_on: test
+web_api::tests_security::mutating_request_no_origin_rejected_by_default: test
+web_api::tests_security::mutating_request_text_plain_no_body_lenient: test
+web_api::tests_security::mutating_request_text_plain_rejected: test
+web_api::tests_security::mutating_request_wrong_port_origin_rejected: test
+web_api::tests_security::mutating_route_classification: test
+web_api::tests_security::mutating_route_models_by_method: test
+web_api::tests_security::ws_origin_case_insensitive_scheme: test
+web_api::tests_security::ws_origin_different_port_rejected: test
+web_api::tests_security::ws_origin_external_domain_rejected: test
+web_api::tests_security::ws_origin_garbage_string_rejected: test
+web_api::tests_security::ws_origin_https_rejected: test
+web_api::tests_security::ws_origin_loopback_ipv4_same_port_passes: test
+web_api::tests_security::ws_origin_loopback_localhost_same_port_passes: test
+web_api::tests_security::ws_origin_no_origin_rejected_regardless_of_dev_flag: test
+web_api::tests_security::ws_origin_with_path_or_query_rejected: test
+web_api::tests_security_e2e::dispatch_chat_post_dev_flag_allows_no_origin: test
+web_api::tests_security_e2e::dispatch_chat_post_no_origin_strict_rejects: test
+web_api::tests_security_e2e::dispatch_chat_stop_no_body_lenient: test
+web_api::tests_security_e2e::dispatch_get_capabilities_unaffected_by_security: test
+web_api::tests_security_e2e::dispatch_get_status_unaffected: test
+web_api::tests_security_e2e::dispatch_patch_dev_flag_allows_no_origin_and_non_json: test
+web_api::tests_security_e2e::dispatch_patch_localhost_with_json_returns_200: test
+web_api::tests_security_e2e::dispatch_patch_malicious_origin_returns_403: test
+web_api::tests_security_e2e::dispatch_patch_no_origin_and_text_plain_returns_403: test
+web_api::tests_security_e2e::dispatch_patch_same_origin_with_json_returns_200: test
+web_api::tests_security_e2e::dispatch_patch_same_origin_with_text_plain_returns_403: test
+web_api::tests_security_e2e::dispatch_patch_same_origin_without_ct_returns_403: test
+web_api::tests_security_e2e::mutating_routes_classification_sanity: test
+web_api::tests_ws::broadcaster_drops_dead_subscriber: test
+web_api::tests_ws::broadcaster_mpsc_round_trip_multi: test
+web_api::tests_ws::broadcaster_mpsc_round_trip_single: test
+web_api::tests_ws::lifecycle_e2e::real_ws_40_iterations_with_http_concurrent: test
+web_api::tests_ws::lifecycle_tests::broadcast_does_not_artificially_drop_active_subscribers: test
+web_api::tests_ws::lifecycle_tests::broadcaster_state_independent_of_http_dispatch: test
+web_api::tests_ws::lifecycle_tests::fill_to_limit_unsubscribe_refill: test
+web_api::tests_ws::lifecycle_tests::repeated_subscribe_unsubscribe_does_not_leak: test
+web_api::tests_ws::real_ws_mpsc_to_socket_works: test
+web_api::tests_ws::ws_and_http_concurrent: test
+web_api::tests_ws::ws_unit_tests::app_error_maps_to_error_frame_with_code: test
+web_api::tests_ws::ws_unit_tests::broadcaster_basic_subscribe_and_broadcast: test
+web_api::tests_ws::ws_unit_tests::broadcaster_try_subscribe_respects_limit: test
+web_api::tests_ws::ws_unit_tests::broadcaster_unsubscribe_by_id: test
+web_api::tests_ws::ws_unit_tests::conversation_reasoning_delta_maps_to_its_own_frame: test
+web_api::tests_ws::ws_unit_tests::conversation_text_delta_empty_text_still_emits_frame: test
+web_api::tests_ws::ws_unit_tests::conversation_text_delta_maps_to_text_delta_with_text: test
+web_api::tests_ws::ws_unit_tests::conversation_text_fallback_maps_to_its_own_frame: test
+web_api::tests_ws::ws_unit_tests::conversation_voice_events_map_to_runtime_status: test
+web_api::tests_ws::ws_unit_tests::epoch_to_ymdhms_matches_known_anchors: test
+web_api::tests_ws::ws_unit_tests::fatal_error_frame_flags_fatal: test
+web_api::tests_ws::ws_unit_tests::generation_finished_maps_to_text_delta: test
+web_api::tests_ws::ws_unit_tests::iso8601_now_ms_shape: test
+web_api::tests_ws::ws_unit_tests::new_epoch_and_shutdown_map_to_runtime_status: test
+web_api::tests_ws::ws_unit_tests::p1_events_return_none: test
+web_api::tests_ws::ws_unit_tests::reasoning_frame_is_gated_by_show_reasoning: test
+web_api::tests_ws::ws_unit_tests::turn_completed_failed_maps_to_failed_status: test
+web_api::tests_ws::ws_unit_tests::turn_completed_maps_to_turn_state_completed: test
+web_api::tests_ws_client::regression_tests::first_ws_frame_coalesced_with_101_is_not_lost: test
+web_api::tests_ws_client::regression_tests::handshake_residual_bytes_are_retained: test
+web_api::voice_routes::tests::absent_mod_is_not_gated: test
+web_api::voice_routes::tests::backend_branches_never_wait_on_network: test
+web_api::voice_routes::tests::bad_origin_403: test
+web_api::voice_routes::tests::bearer_token_extracts_only_prefixed_values: test
+web_api::voice_routes::tests::check_token_semantics: test
+web_api::voice_routes::tests::cleaned_length_is_what_counts: test
+web_api::voice_routes::tests::config_token_accepts_bearer_header: test
+web_api::voice_routes::tests::config_token_accepts_body_token: test
+web_api::voice_routes::tests::config_token_missing_401: test
+web_api::voice_routes::tests::effective_token_prefers_env_then_config_then_none: test
+web_api::voice_routes::tests::empty_transcript_400_distinct_from_invalid_payload: test
+web_api::voice_routes::tests::gate_suite::gate_closed_403_when_wake_phrase_explicitly_empty: test
+web_api::voice_routes::tests::gate_suite::manual_off_403_takes_priority: test
+web_api::voice_routes::tests::gate_suite::matched_wake_phrase_with_punctuation_is_stripped: test
+web_api::voice_routes::tests::gate_suite::missing_wake_phrase_falls_back_to_product_default: test
+web_api::voice_routes::tests::gate_suite::ptt_true_bypasses_wake_match_and_echoes_flag: test
+web_api::voice_routes::tests::gate_suite::ptt_wrong_type_is_invalid_payload: test
+web_api::voice_routes::tests::gate_suite::token_check_precedes_gate: test
+web_api::voice_routes::tests::gate_suite::wake_phrase_required_400_when_not_present: test
+web_api::voice_routes::tests::gate_suite::without_ptt_bare_body_still_requires_wake_phrase: test
+web_api::voice_routes::tests::invalid_payload_400: test
+web_api::voice_routes::tests::malformed_locale_is_echoed_and_normalizes_as_latin: test
+web_api::voice_routes::tests::mismatched_path_returns_none: test
+web_api::voice_routes::tests::missing_ct_415: test
+web_api::voice_routes::tests::missing_origin_without_allow_no_origin_403: test
+web_api::voice_routes::tests::mod_enabled_passes_gate_to_supervisor: test
+web_api::voice_routes::tests::mod_registered_but_disabled_403: test
+web_api::voice_routes::tests::no_token_configured_is_not_authenticated: test
+web_api::voice_routes::tests::non_json_ct_415: test
+web_api::voice_routes::tests::same_loopback_origin_passes: test
+web_api::voice_routes::tests::say_suite::busy_returns_200_ok_false: test
+web_api::voice_routes::tests::say_suite::empty_transcript_never_reaches_say: test
+web_api::voice_routes::tests::say_suite::success_returns_200_with_cleaned_text: test
+web_api::voice_routes::tests::say_suite::zero_width_chars_are_cleaned_before_say: test
+web_api::voice_routes::tests::sidecar_backend_branch_uses_config_locale: test
+web_api::voice_routes::tests::text_too_long_400: test
+web_api::voice_routes::tests::token_suite::dotenv_token_is_read_and_still_wins_over_config: test
+web_api::voice_routes::tests::unknown_backend_falls_back_to_mock_in_response: test
+web_api::voice_routes::tests::wrong_method_405: test
+web_api::wasm_assets::tests::actions_route_serves_presets_json: test
+web_api::wasm_assets::tests::mime_map: test
+web_api::wasm_assets::tests::normalize_rel_rejects_traversal: test
+web_api::wasm_assets::tests::render_html_contains_wasm_loader: test
+web_api::wasm_assets::tests::render_html_hides_hud_unless_explicitly_requested: test
+web_api::wasm_assets::tests::render_route_matches_with_query_string: test
+web_api::ws::audio_tests::base64_round_trips_original_bytes: test
+web_api::ws::audio_tests::broadcast_audio_frames_delivers_to_subscriber: test
+web_api::ws::audio_tests::broadcast_audio_frames_no_subscribers_is_safe: test
+web_api::ws::audio_tests::broadcaster_is_unmuted_by_default: test
+web_api::ws::audio_tests::empty_pcm_single_chunk_sentence_marks_both_boundaries: test
+web_api::ws::audio_tests::empty_pcm_with_final_chunk_emits_boundary_only_frame: test
+web_api::ws::audio_tests::empty_pcm_without_final_chunk_yields_nothing: test
+web_api::ws::audio_tests::frame_schema_shape: test
+web_api::ws::audio_tests::frames_carry_sentence_seq: test
+web_api::ws::audio_tests::mid_sentence_chunk_marks_neither_boundary: test
+web_api::ws::audio_tests::muted_frames_carry_silence_but_real_volume: test
+web_api::ws::audio_tests::one_second_24khz_yields_50_frames: test
+web_api::ws::audio_tests::resolve_muted_defaults_to_audible: test
+web_api::ws::audio_tests::sentence_boundaries_are_exactly_one_start_and_one_end: test
+web_api::ws::audio_tests::silent_pcm_zero_volume: test
+web_api::ws::audio_tests::start_and_end_flags_on_boundary_frames: test
+web_api::ws::audio_tests::volume_in_unit_range: test
+web_api::ws::audio_tests::zero_sample_rate_yields_empty: test
+web_api::ws::connection::tests::connection_state_seq_monotonic_from_one: test
+web_api::ws::connection::tests::heartbeat_frame_shape: test
+web_api::ws::connection::tests::next_connection_id_monotonic: test
+web_api::ws::connection::tests::subscribe_ack_seq_uses_connection_state: test
+web_api::ws::connection::tests::wrap_preserialized_with_seq_adds_seq_ts: test
+web_api::ws::connection::tests::wrap_preserialized_with_seq_falls_back_on_non_json: test
+web_api::ws::events::tests::action_cue_frame_uses_type_and_data: test
+web_api::ws::events::tests::performance_action_cue_projects_to_the_same_action_cue_frame: test
+web_api::ws::events::tests::performance_cues_project_to_the_existing_action_cue_frame: test
+
+606 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_director-d163bb9d17bd8a27)
+presets::tests::bad_ids_fall_back_to_defaults: test
+presets::tests::default_table_maps_six_triggers: test
+presets::tests::intent_wins_over_emotion_when_mapped: test
+presets::tests::old_ids_are_no_longer_accepted: test
+presets::tests::resolve_slots_pairs_a_gesture_with_a_face: test
+presets::tests::rule_cues_for_text_is_deterministic_and_uses_the_default_table: test
+staging_http::tests::assemble_gate_off_is_disabled_and_missing_endpoint_is_degraded: test
+staging_http::tests::join_endpoint_and_missing_config_are_classified: test
+staging_http::tests::openai_client_posts_and_parses_content: test
+staging_http::tests::upstream_error_and_bad_json_fall_back_to_none: test
+tests::action_tx_and_apply_settings_are_never_called: test
+tests::ascii_keywords_need_word_boundary: test
+tests::blank_prompt_is_silent_not_a_decision: test
+tests::clear_command_empties_ledger_and_returns_before_counts: test
+tests::command_paths_never_touch_action_or_settings: test
+tests::derive_is_deterministic: test
+tests::descriptor_declares_current_api_version_and_id: test
+tests::emotion_keyword_hits_happy: test
+tests::emotion_tie_broken_by_priority: test
+tests::emphasis_raises_pitch_and_caps: test
+tests::empty_and_whitespace_are_silent_neutral: test
+tests::factory_creates_runtime_with_config: test
+tests::greeting_intent_hits: test
+tests::log_capacity_is_clamped_and_bad_values_fall_back: test
+tests::long_text_is_truncated_at_char_boundary: test
+tests::negation_suppresses_keyword: test
+tests::orphan_turn_ended_counts_error_and_does_not_panic: test
+tests::preset_select_labels_come_from_the_shared_table: test
+tests::pure_punctuation_is_neutral_chat_not_silence: test
+tests::question_outranks_greeting: test
+tests::recent_decisions_shape_is_unchanged_with_latest_added: test
+tests::settings_spec_has_no_enabled_and_matches_static_spec: test
+tests::shutdown_resets_registered: test
+tests::start_subscribes_prompt_ended_and_sentence_ready: test
+tests::state_json_capacity_keeps_last_n: test
+tests::state_json_latest_tracks_the_newest_decision: test
+tests::state_json_shape_and_preset_delivery: test
+tests::strict_lexicon_drops_weak_keywords: test
+tests::suggested_tts_exposes_only_speed_and_pitch: test
+tests::suggestion_is_clamped_and_emphasis_moves_pitch_only: test
+tests::turn_ended_closes_the_decision_and_writes_turn_id: test
+tests::unknown_command_is_unsupported_and_leaves_state_untouched: test
+tests::unsubscribed_events_are_ignored_without_side_effects: test
+tests::whitespace_is_trimmed_before_derivation: test
+tests_staging::arbiter_priority_and_epoch_mismatch_zero_side_effect: test
+tests_staging::director_never_writes_config_or_actions: test
+tests_staging::disabled_staging_is_identical_to_no_injection: test
+tests_staging::epoch_zero_is_accepted_and_turn_prompt_resets_the_arbiter: test
+tests_staging::factory_create_assembles_staging_client_from_config: test
+tests_staging::neutral_turn_emits_exactly_one_none_cue: test
+tests_staging::plan_parse_clamps_and_drops_unknown_presets: test
+tests_staging::rule_none_cue_is_the_revoke_sentinel: test
+tests_staging::rule_with_preset_is_field_for_field_unchanged: test
+tests_staging::sentence_ready_emits_rule_cue_on_first_sentence: test
+tests_staging::staging_async_plan_reaches_cue_sink_with_async_priority: test
+tests_staging::staging_epoch_mismatch_is_rule_only_and_leaves_arbiter_clean: test
+tests_staging::staging_failure_is_identical_to_no_staging: test
+tests_staging::staging_prompt_carries_epoch_and_verbatim_text: test
+tests_staging::staging_surface_can_express_the_three_v1_fields_without_text: test
+tests_staging::staging_throttle_first_sentence_interval_and_cap: test
+
+60 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_external_input-1c13b14e61f091f7)
+counters::tests::fresh_instance_is_zeroed: test
+counters::tests::global_reset_zeroes_process_counters: test
+counters::tests::record_and_snapshot_are_consistent: test
+counters::tests::reset_returns_pre_reset_snapshot_and_zeroes: test
+counters::tests::snapshot_has_exactly_the_contract_keys: test
+counters::tests::v2_ignored_report_is_idempotent: test
+inject::tests::blank_or_missing_text_is_readable_error: test
+inject::tests::command_name_and_note_are_stable: test
+inject::tests::default_render_matches_endpoint_render_from_config: test
+inject::tests::length_checked_after_render_with_actual_and_limit: test
+inject::tests::limit_matches_http_endpoint_contract: test
+inject::tests::non_bool_prefix_falls_back_to_true: test
+inject::tests::prefix_false_injects_verbatim: test
+inject::tests::template_without_placeholder_matches_endpoint: test
+tests::command_reset_counters_returns_before_and_zeroes: test
+tests::command_test_inject_busy_records_busy_not_accept: test
+tests::command_test_inject_invalid_text_leaves_counters_untouched: test
+tests::command_test_inject_sends_rendered_text_and_records_accept: test
+tests::command_unknown_is_unsupported: test
+tests::create_start_registers_settings: test
+tests::descriptor_is_static: test
+tests::mod_identity_is_stable_external_input: test
+tests::render_empty_template_passes_text_through: test
+tests::render_from_config_uses_fields: test
+tests::render_prefix_and_placeholder: test
+tests::render_replaces_every_placeholder: test
+tests::render_template_without_placeholder_appends_text: test
+tests::say_external_forwards_to_say_tx: test
+tests::say_external_with_config_renders_before_sending: test
+tests::shutdown_clears_ready: test
+tests::start_registers_same_spec_as_static: test
+tests::state_json_exposes_counters_and_ready: test
+tests::state_json_is_superset_with_command_flag: test
+tests::state_json_reports_token_set_without_echoing_token: test
+tests::static_spec_has_template_fields_and_no_enabled: test
+tests::token_from_config_trims_and_ignores_blank: test
+tests::token_set_follows_injected_lookup_not_process_env: test
+
+37 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_memory-3e809165b6588ae7)
+assistant_tests::assistant_fact_is_retrievable_and_lines_carry_role_prefixes: test
+assistant_tests::assistant_reply_lands_in_the_same_session_bucket_with_role_assistant: test
+assistant_tests::assistant_reply_without_conversation_records_but_never_injects: test
+assistant_tests::bad_assistant_payloads_are_warn_only: test
+assistant_tests::illegal_session_id_falls_back_to_the_legacy_bucket: test
+assistant_tests::user_and_assistant_records_never_share_an_id: test
+commands_tests::clear_with_session_only_empties_that_bucket: test
+commands_tests::import_rejects_empty_text_with_readable_error: test
+commands_tests::import_update_delete_round_trip: test
+commands_tests::invalid_session_id_in_command_is_a_readable_error: test
+commands_tests::invalid_session_in_scoped_event_falls_back_to_global_bucket: test
+commands_tests::list_limit_is_clamped_and_invalid_falls_back_to_default: test
+commands_tests::list_returns_newest_first_and_reports_total: test
+commands_tests::no_session_keeps_the_legacy_global_path: test
+commands_tests::session_injection_coexists_with_the_persona_slot: test
+commands_tests::session_turn_injects_only_its_own_slot_not_the_global_prompt: test
+commands_tests::session_turn_lands_in_sessions_bucket_not_legacy_path: test
+commands_tests::session_without_host_capability_never_falls_back_to_global: test
+commands_tests::sessions_do_not_leak_between_buckets: test
+commands_tests::shutdown_clears_only_its_own_slot_and_global_residue: test
+commands_tests::shutdown_keeps_another_owners_contribution_in_the_same_session: test
+commands_tests::state_json_exposes_session_bucket_keys_without_dropping_old_ones: test
+commands_tests::unknown_command_is_still_unsupported: test
+commands_tests::unknown_id_and_missing_id_are_readable_errors: test
+quality_tests::fixture_ascii_query_is_case_insensitive: test
+quality_tests::fixture_chinese_disjoint_turn_is_not_injected: test
+quality_tests::fixture_hit_cases_rank_expected_records_in_order: test
+quality_tests::fixture_no_hit_cases_rank_nothing: test
+quality_tests::fixture_paraphrase_is_a_documented_lexical_gap: test
+quality_tests::fixture_relevant_turn_injects_expected_memory: test
+quality_tests::fixture_shape_and_referential_integrity: test
+store::tests::append_and_load_round_trip: test
+store::tests::append_capped_cap_one_keeps_only_the_last_write: test
+store::tests::append_capped_rewrite_purges_bad_lines: test
+store::tests::append_capped_truncates_file_to_cap_keeping_newest: test
+store::tests::append_capped_under_cap_does_not_evict: test
+store::tests::append_capped_zero_cap_means_no_eviction: test
+store::tests::append_creates_missing_parent_directory: test
+store::tests::append_persists_id_and_round_trips: test
+store::tests::clear_creates_empty_file_when_store_absent: test
+store::tests::clear_rewrites_file_to_empty_atomically: test
+store::tests::delete_by_id_removes_exactly_one_and_is_false_when_absent: test
+store::tests::legacy_line_without_id_derives_the_same_id_every_load: test
+store::tests::load_keeps_only_newest_max_records_window: test
+store::tests::load_missing_file_is_empty_not_error: test
+store::tests::load_tolerates_bad_lines_and_counts_them: test
+store::tests::parse_record_line_shapes: test
+store::tests::update_text_keeps_original_id_and_rewrites_atomically: test
+strategy_tests::compose_injection_dedupes_identical_lines: test
+strategy_tests::compose_injection_is_idempotent_and_replaces_old_block: test
+strategy_tests::compose_injection_shape_and_marker: test
+strategy_tests::compose_injection_with_empty_memories_has_no_marker: test
+strategy_tests::fnv1a_hex8_is_stable_and_distinguishes_text: test
+strategy_tests::make_id_shape_and_sensitivity: test
+strategy_tests::overlap_score_ignores_duplicates_and_empty_sides: test
+strategy_tests::overlap_score_is_normalized_jaccard: test
+strategy_tests::rank_top_k_clamps_k_and_handles_empty_query: test
+strategy_tests::rank_top_k_excludes_zero_score_records: test
+strategy_tests::rank_top_k_orders_by_score_desc: test
+strategy_tests::rank_top_k_tie_break_falls_back_to_turn_then_index: test
+strategy_tests::rank_top_k_tie_break_prefers_newer: test
+strategy_tests::resolve_session_store_path_lands_under_sessions_dir: test
+strategy_tests::resolve_session_store_path_rejects_path_like_ids: test
+strategy_tests::resolve_store_path_defaults_to_config_dir: test
+strategy_tests::resolve_store_path_relative_explicit_is_anchored_to_config_dir: test
+strategy_tests::resolve_store_path_without_config_path_is_none_only_for_default: test
+strategy_tests::sanitize_memory_line_flattens_and_truncates: test
+strategy_tests::strip_memory_block_is_idempotent_and_tolerates_half_block: test
+strategy_tests::tokenize_drops_stopwords_both_scripts: test
+strategy_tests::tokenize_empty_and_punctuation_only_is_empty: test
+strategy_tests::tokenize_mixes_cjk_bigrams_and_ascii_words: test
+strategy_tests::tokenize_single_cjk_char_survives_unless_stopword: test
+summary_http::tests::assemble_gate_off_is_disabled_and_missing_endpoint_is_degraded: test
+summary_http::tests::client_posts_only_two_messages_and_parses_the_summary: test
+summary_http::tests::join_endpoint_and_missing_config_are_classified: test
+summary_http::tests::upstream_error_bad_json_and_reasoning_only_fall_back_to_none: test
+summary_store::tests::missing_sidecar_is_empty_and_bad_json_is_an_error: test
+summary_store::tests::rollback_drops_the_newest_version_and_restores_the_older_one: test
+summary_store::tests::rollback_round_trips_through_disk: test
+summary_store::tests::save_load_round_trip_and_versions_are_newest_first: test
+summary_store::tests::sidecar_path_is_derived_next_to_the_bucket: test
+summary_store::tests::versions_are_capped_and_failures_never_touch_them: test
+summary_tests::build_request_interleaves_both_roles_and_keeps_recent_turns: test
+summary_tests::build_request_keeps_recent_turns_and_needs_at_least_two_records: test
+summary_tests::clearing_the_bucket_also_removes_its_summary_sidecar: test
+summary_tests::conversations_do_not_leak_summaries_into_each_other: test
+summary_tests::cooldown_blocks_a_second_trigger_and_the_ratio_is_always_visible: test
+summary_tests::failure_is_identical_to_no_summary_and_keeps_the_rule_trim: test
+summary_tests::no_conversation_never_writes_a_summary_or_pollutes_global_persona: test
+summary_tests::normalize_summary_strips_wrappers_and_empty_is_a_failure: test
+summary_tests::recent_turn_window_counts_turns_not_records: test
+summary_tests::rollback_removes_the_summary_from_injection_and_restores_originals: test
+summary_tests::summary_config_default_is_disabled_until_endpoint_and_model_are_set: test
+summary_tests::summary_covers_include_assistant_records: test
+summary_tests::true_summary_is_generated_and_injected_into_the_same_conversation: test
+summary_tests::uncovered_start_accounts_for_physical_eviction: test
+tests::budget_over_trim_ratio_really_drops_memories: test
+tests::clear_command_does_not_touch_session_prompt_or_persona: test
+tests::clear_command_empties_store_atomically_and_reports_counts: test
+tests::clear_without_store_path_fails_as_command_failed: test
+tests::config_defaults_and_clamping: test
+tests::config_store_path_resolution_matches_strategy: test
+tests::crossing_summary_ratio_without_a_client_stays_on_the_rule_path: test
+tests::descriptor_and_settings_spec_declare_no_second_enabled: test
+tests::empty_prompt_is_noop: test
+tests::errors_counter_counts_unresolved_path_and_missing_session_capability: test
+tests::factory_creates_runtime_with_static_spec: test
+tests::first_turn_is_remembered_but_not_injected: test
+tests::identical_repeat_turn_is_idempotent_no_second_inject: test
+tests::injection_disabled_still_remembers_but_never_writes_config: test
+tests::max_records_is_a_physical_count_cap_not_just_a_window: test
+tests::missing_session_capability_is_warned_not_fatal: test
+tests::missing_store_path_is_warned_noop_not_panic: test
+tests::no_conversation_never_touches_global_persona_prompt: test
+tests::no_related_memory_reports_zero_hits_and_never_injects: test
+tests::non_turn_prompt_topics_are_ignored: test
+tests::records_is_null_when_store_path_unresolvable: test
+tests::records_reports_current_store_count_read_only: test
+tests::related_second_turn_injects_previous_memory_into_the_session_slot: test
+tests::shutdown_strips_legacy_global_block_and_own_session_slot: test
+tests::shutdown_without_block_does_not_write: test
+tests::start_registers_schema_and_subscribes_turn_prompt: test
+tests::state_json_exposes_the_four_required_counters: test
+tests::state_json_snapshot_shape_is_read_only: test
+tests::unknown_command_is_unsupported_and_side_effect_free: test
+tests::unrelated_turn_does_not_inject: test
+
+126 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_persona-8ee4d1da11e33b9d)
+tests::bad_card_json_fails_explicitly: test
+tests::card_composing_to_nothing_is_an_error: test
+tests::card_json_cycle_applies_then_restores_base: test
+tests::card_json_exactly_at_the_limit_is_not_rejected_for_size: test
+tests::card_json_wins_over_card_path: test
+tests::card_path_json_cycle_applies_then_restores_base: test
+tests::card_path_png_cycle_applies_then_restores_base: test
+tests::card_path_pointing_to_a_directory_is_rejected: test
+tests::compose_skips_empty_and_includes_discipline: test
+tests::compressed_itxt_reports_unsupported: test
+tests::descriptor_is_static_and_api_compatible: test
+tests::enabled_key_in_config_is_inert: test
+tests::missing_card_file_fails_with_path_in_message: test
+tests::no_card_configured_is_a_noop_not_an_error: test
+tests::non_card_json_fails_explicitly: test
+tests::non_utf8_non_png_reports_honestly: test
+tests::overrides_compose_alone_and_win_over_card_fields: test
+tests::oversized_card_file_is_rejected_before_read: test
+tests::oversized_card_json_is_rejected: test
+tests::parse_png_with_base64_chara: test
+tests::parse_v1_flat_json: test
+tests::parse_v2_nested_json: test
+tests::png_without_chara_reports_honestly: test
+tests::register_failure_rolls_back_the_applied_prompt: test
+tests::reject_non_card_json: test
+tests::rejected_apply_fails_explicitly_and_leaves_no_baseline: test
+tests::say_first_mes_fires_only_after_a_successful_apply: test
+tests::second_cycle_restores_the_saved_baseline_not_the_current_value: test
+tests::settings_schema_has_no_enabled_switch: test
+tests::shutdown_is_idempotent: test
+tests::start_registers_same_spec_as_static: test
+tests::truncated_png_errors_without_panic: test
+tests_command::clear_import_falls_back_to_the_config_card: test
+tests_command::clear_import_is_idempotent_when_nothing_was_imported: test
+tests_command::clear_import_without_any_config_card_restores_the_baseline: test
+tests_command::import_card_accepts_a_browser_data_url_prefix: test
+tests_command::import_card_bad_json_is_rejected_and_leaves_no_card_file: test
+tests_command::import_card_bad_png_is_rejected_with_a_readable_reason: test
+tests_command::import_card_from_json_applies_immediately_and_persists_a_normalized_v2_card: test
+tests_command::import_card_from_png_bytes_stores_json_not_the_png: test
+tests_command::import_card_rejects_invalid_base64: test
+tests_command::import_card_rejects_json_that_is_not_a_card: test
+tests_command::import_card_respects_the_manual_overrides: test
+tests_command::import_card_rolls_back_the_card_file_when_the_chain_write_fails: test
+tests_command::import_card_rolls_back_to_no_card_file_at_all: test
+tests_command::import_card_without_arguments_fails_explicitly: test
+tests_command::import_card_without_config_path_fails_explicitly: test
+tests_command::imported_card_wins_over_the_config_card_and_survives_a_restart: test
+tests_command::state_json_is_a_stable_desensitized_shape: test
+tests_command::state_json_without_any_card_reports_none_not_a_fake_ready: test
+tests_command::unknown_command_is_unsupported_not_a_failure: test
+tests_e2e::a_corrupt_or_oversized_session_archive_is_ignored_not_fatal: test
+tests_e2e::an_invalid_session_id_is_rejected_without_writing_anywhere: test
+tests_e2e::bad_json_then_fixed_card_takes_over_then_disable_restores: test
+tests_e2e::card_json_array_then_fixed_card_takes_over_then_disable_restores: test
+tests_e2e::clearing_a_persona_session_leaves_another_owners_contribution: test
+tests_e2e::clearing_one_session_leaves_the_other_session_bound: test
+tests_e2e::failed_persona_start_leaves_an_existing_memory_block_untouched: test
+tests_e2e::illegal_bytes_card_then_fixed_card_takes_over_then_disable_restores: test
+tests_e2e::persona_disable_restores_the_snapshot_even_if_it_contained_a_memory_block: test
+tests_e2e::persona_write_wipes_memory_block_then_memory_reinjects_on_top: test
+tests_e2e::png_without_chara_then_replaced_with_a_real_card_png: test
+tests_e2e::session_cards_survive_a_restart_through_the_archive_file: test
+tests_e2e::session_import_binds_only_the_target_session_and_leaves_the_global_chain_alone: test
+tests_e2e::session_import_without_a_host_sink_or_a_config_path_fails_readably: test
+tests_e2e::shutdown_clears_every_session_binding_and_still_restores_the_global_baseline: test
+tests_e2e::state_scope_follows_the_hosts_active_session: test
+tests_e2e::state_sessions_lists_only_personas_own_slots: test
+tests_e2e::the_session_cap_is_enforced_on_import_with_a_readable_error: test
+
+69 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_system-9566dfe779fe0e0c)
+descriptor::tests::descriptor_fields: test
+session::tests::compose_skips_empty_slots_and_returns_none_when_all_empty: test
+session::tests::disabled_sink_is_inert: test
+session::tests::legacy_sink_defaults_keep_working: test
+session::tests::merge_order_is_anonymous_then_persona_then_memory: test
+session::tests::sanitize_accepts_the_frontend_id_shape: test
+session::tests::sanitize_rejects_empty_overlong_and_path_like_ids: test
+settings::tests::field_keys: test
+settings::tests::settings_spec_validates: test
+status::tests::status_round_trip: test
+topics::tests::all_topics_have_stable_ids: test
+topics::tests::assistant_replied_is_listed_and_stable: test
+topics::tests::turn_ended_is_listed_and_stable: test
+topics::tests::turn_prompt_is_listed_and_stable: test
+
+14 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_template-099b14a914bbf92d)
+tests::descriptor_declares_current_api_version: test
+tests::factory_creates_runtime: test
+tests::start_registers_settings_and_topic: test
+
+3 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_mod_voice_input-3156c184202baa46)
+gate::gate_tests::gate_config_readers_are_lenient_and_trimmed: test
+gate::gate_tests::gate_four_states_and_priority: test
+gate::gate_tests::gate_strips_phrase_ignoring_whitespace_and_case: test
+gate::gate_tests::ptt_skips_wake_match_but_manual_and_total_gate_still_apply: test
+sidecar::sidecar_tests::build_sidecar_argv_orders_args_and_never_shells_out: test
+sidecar::sidecar_tests::build_sidecar_argv_skips_blank_token_and_keeps_transcriber_as_one_arg: test
+sidecar::sidecar_tests::resolve_sidecar_script_prefers_config_then_config_dir: test
+sidecar::sidecar_tests::sidecar_status_transitions_match_state_json_contract: test
+sidecar::sidecar_tests::stderr_tail_keeps_only_the_end: test
+sidecar::sidecar_tests::validate_audio_path_rejects_missing_and_non_file: test
+tests::action_tx_stays_dormant_on_inject: test
+tests::backend_from_config_defaults_to_mock: test
+tests::clean_collapses_whitespace_and_trims: test
+tests::clean_drops_zero_width_and_control_chars: test
+tests::clean_returns_none_for_blank_only: test
+tests::command_inject_accepts_with_wake_phrase_and_strips_it: test
+tests::command_inject_manual_off_is_readable: test
+tests::command_inject_rejects_readably_when_gate_closed: test
+tests::command_run_sidecar_reports_missing_audio_readably: test
+tests::command_run_sidecar_requires_url_and_existing_script: test
+tests::command_selftest_returns_result_unknown_is_unsupported: test
+tests::descriptor_and_factory_identity: test
+tests::inject_reports_busy_and_mock_entry_shares_path: test
+tests::inject_transcript_applies_config_locale: test
+tests::inject_transcript_cleans_and_normalizes_before_sending: test
+tests::inject_transcript_drops_blank_without_touching_say: test
+tests::locale_cjk_removes_inter_cjk_spaces: test
+tests::locale_from_config_falls_back_to_default: test
+tests::locale_latin_keeps_spaces_and_spaces_mixed_boundaries: test
+tests::locale_normalization_is_idempotent: test
+tests::locale_profile_classifies_language_families: test
+tests::locale_wellformed_accepts_bcp47_lite_and_rejects_garbage: test
+tests::no_backend_opens_network: test
+tests::prepare_transcript_cleans_then_normalizes: test
+tests::runtime_reads_backend_and_locale_from_config: test
+tests::runtime_selftest_matches_pure_function: test
+tests::selftest_default_config_is_self_consistent: test
+tests::selftest_flags_explicitly_closed_gate: test
+tests::selftest_flags_malformed_locale_and_reports_latin_profile: test
+tests::selftest_flags_unknown_backend_without_killing_the_link: test
+tests::selftest_never_leaks_token: test
+tests::selftest_reminds_when_sidecar_has_no_token: test
+tests::selftest_reports_lock_state_and_resolved_script: test
+tests::start_registers_settings_only: test
+tests::state_json_trait_method_returns_snapshot: test
+tests::state_snapshot_is_redacted_and_zero_io: test
+tests::static_spec_fields_and_no_enabled: test
+tests::token_from_config_trims_and_ignores_blank: test
+
+48 tests, 0 benchmarks
+     Running unittests src/lib.rs (/tmp/w2_verify_target/debug/deps/live2d_ai_runtime-11bd405da25d4319)
+audio::decoder::tests::arbitrary_odd_cuts_produce_identical_output: test
+audio::decoder::tests::empty_chunks_and_empty_stream_are_noops: test
+audio::decoder::tests::extremes_map_into_closed_unit_interval: test
+audio::decoder::tests::finish_rejects_hanging_trailing_byte: test
+audio::decoder::tests::hanging_low_byte_is_carried_to_next_chunk: test
+audio::decoder::tests::stereo_interleaved_order_is_preserved: test
+audio::queue::tests::fifo_order_is_preserved_across_wraparound: test
+audio::queue::tests::overflow_accepts_prefix_and_reports_count: test
+audio::queue::tests::partial_reads_and_underrun_behave: test
+audio::queue::tests::queue_is_a_passthrough_transport_for_any_finite_or_not_values: test
+audio::queue::tests::zero_capacity_is_rejected: test
+audio::resample::tests::dc_signal_survives_any_rate_conversion_exactly: test
+audio::resample::tests::downsampling_takes_every_other_frame_for_exact_ratio: test
+audio::resample::tests::mono_24k_to_device_48k_stereo_end_to_end: test
+audio::resample::tests::mono_24k_to_odd_device_rate_keeps_length_contract: test
+audio::resample::tests::mono_to_stereo_duplicates_and_stereo_to_mono_averages: test
+audio::resample::tests::output_length_formula_holds_for_non_integer_ratios: test
+audio::resample::tests::resampling_is_deterministic_bitwise_across_runs: test
+audio::resample::tests::same_spec_is_bit_identical_passthrough: test
+audio::resample::tests::single_sample_input_holds_value_across_all_outputs: test
+audio::resample::tests::stereo_frames_are_resampled_with_aligned_components: test
+audio::resample::tests::stereo_source_to_mono_device_downmixes_after_no_rate_change: test
+audio::resample::tests::upsampling_interpolates_exactly_on_half_steps: test
+audio::rms::tests::constant_amplitude_rms_matches_expected_with_instant_smoothing: test
+audio::rms::tests::empty_push_is_a_state_noop: test
+audio::rms::tests::invalid_parameters_are_rejected: test
+audio::rms::tests::non_finite_samples_are_sanitized_without_nan: test
+audio::rms::tests::out_of_range_input_is_clamped_into_unit_interval: test
+audio::rms::tests::silence_returns_exactly_zero_and_stays_zero: test
+audio::rms::tests::step_input_rises_with_attack_then_releases_toward_zero: test
+audio::spec::tests::default_is_24khz_mono: test
+audio::spec::tests::explicit_values_round_trip: test
+audio::spec::tests::zero_sample_rate_or_channels_is_rejected: test
+audio::tests::format_gate_accepts_pcm_and_wav_case_insensitively: test
+audio::tests::format_gate_rejects_other_formats_and_unspecified: test
+audio::wav::tests::accepts_extensible_pcm_subformat: test
+audio::wav::tests::parses_mono_24k_pcm16: test
+audio::wav::tests::rejects_non_pcm16: test
+audio::wav::tests::rejects_non_riff: test
+audio::wav::tests::skips_unknown_chunks_with_padding: test
+audio::wav::tests::stereo_order_is_preserved: test
+config::tests::builders_fill_expected_fields: test
+config::tests::debug_redacts_keys_in_both_configs: test
+conversation::error_code::tests::backpressure_has_stable_code: test
+conversation::error_code::tests::code_always_starts_with_stage: test
+conversation::error_code::tests::hint_does_not_claim_auth_for_other_statuses: test
+conversation::error_code::tests::llm_401_gets_specific_code_and_env_hint: test
+conversation::error_code::tests::llm_transport_and_base_url_codes: test
+conversation::error_code::tests::tts_and_decode_are_fatal_with_own_codes: test
+conversation::tests::build_messages_includes_system_history_and_current_input: test
+conversation::tests::default_config_matches_documented_values: test
+conversation::tests::empty_system_prompt_is_omitted_from_wire_messages: test
+conversation::tests::engine_is_cloneable_and_exposes_read_only_views: test
+conversation::tests::leading_chunk_take_respects_limit_and_remainder: test
+conversation::tests::zero_max_history_pairs_never_stores_and_trim_keeps_latest: test
+dialogue::clean::tests::cleaning_is_idempotent: test
+dialogue::clean::tests::dangling_markers_survive: test
+dialogue::clean::tests::sentence_terminators_are_never_added_or_removed: test
+dialogue::clean::tests::table_driven_cleaning: test
+dialogue::tests::arbitrary_delta_splitting_is_consistent: test
+dialogue::tests::chinese_sentences_keep_punctuation: test
+dialogue::tests::decimals_are_conservatively_not_split: test
+dialogue::tests::default_max_chars_leaves_room_for_a_whole_spoken_sentence: test
+dialogue::tests::dialogue_done_is_idempotent_and_matches_flush_shape: test
+dialogue::tests::dialogue_flush_is_fallback_done_and_terminal: test
+dialogue::tests::dialogue_overflow_sentence_still_emits_without_punctuation: test
+dialogue::tests::dialogue_text_deltas_become_sentences_then_exactly_one_done: test
+dialogue::tests::ellipsis_and_consecutive_punctuation_never_make_empty_sentences: test
+dialogue::tests::english_sentences_split_on_punctuation: test
+dialogue::tests::flush_resolves_hanging_terminators_and_tail: test
+dialogue::tests::long_sentence_is_never_split_at_the_old_48_char_bound: test
+dialogue::tests::lowercase_following_period_is_conservatively_not_split: test
+dialogue::tests::max_buffer_bounds_pending_and_cuts_deterministically: test
+dialogue::tests::newline_is_a_boundary: test
+dialogue::tests::safety_valve_prefers_soft_punctuation_over_positional_cut: test
+dialogue::tests::safety_valve_still_bounds_when_no_soft_punctuation_exists: test
+dialogue::tests::soft_break_cutting_keeps_the_delta_splitting_invariant: test
+error::tests::code_suffix_is_stable_per_variant: test
+error::tests::short_body_is_kept_verbatim: test
+error::tests::status_body_is_truncated_by_chars: test
+error::tests::upstream_status_reads_status_variant_only: test
+llm::reasoning_tests::empty_reasoning_yields_nothing: test
+llm::reasoning_tests::reasoning_alias_is_accepted: test
+llm::reasoning_tests::reasoning_and_content_in_one_chunk_stay_separate: test
+llm::reasoning_tests::reasoning_content_becomes_its_own_event: test
+llm::reasoning_tests::reasoning_never_reaches_the_sentence_assembler: test
+llm::tests::api_key_only_flows_through_expose: test
+llm::tests::empty_content_and_tool_call_only_chunks_are_skipped: test
+llm::tests::malformed_json_yields_observable_error: test
+llm::tests::text_and_done_map_to_events: test
+llm::tests::wire_request_has_no_tools_key: test
+llm::tests::wire_request_omits_max_tokens_only_when_unlimited: test
+llm::tests::wire_request_shape_is_openai_compatible: test
+performance::client::assembly_tests::assemble_off_is_none_and_missing_endpoint_is_degraded: test
+performance::client::wire_tests::auto_mode_degrades_to_prompt_on_4xx: test
+performance::client::wire_tests::endpoint_join_rejects_missing_and_bad_scheme: test
+performance::client::wire_tests::openai_client_posts_json_schema_and_parses_content: test
+performance::client::wire_tests::parse_completion_ignores_reasoning_and_rejects_blank: test
+performance::client::wire_tests::server_errors_and_blank_content_fall_back_to_none: test
+performance::client::wire_tests::structured_mode_parse_never_fails: test
+performance::prompt::tests::strip_code_fence_takes_the_json_body: test
+performance::tests::action_cue_payload_matches_existing_frame_shape: test
+performance::tests::after_prev_degrades_to_now_when_prev_holds: test
+performance::tests::anchor_beyond_segment_count_fails_the_whole_plan: test
+performance::tests::body_z_is_dropped_and_axis_out_of_range_clamps: test
+performance::tests::both_segments_and_speak_prefers_segments_and_warns: test
+performance::tests::expression_unknown_id_is_dropped_with_warning: test
+performance::tests::illegal_samples_fail_as_a_whole: test
+performance::tests::legacy_speak_still_parses_when_segments_absent: test
+performance::tests::legal_samples_parse_with_clamping_and_unknown_fields_dropped: test
+performance::tests::performance_prompt_never_contains_param_names: test
+performance::tests::resolve_fallback_paths_use_clean_text_and_rule_cues: test
+performance::tests::resolve_success_uses_the_plan_not_the_rule: test
+performance::tests::resolve_three_states_noop_speak_only_cue_only: test
+performance::tests::resolve_v1_partition_failure_falls_back_to_clean_and_rule: test
+performance::tests::resolve_v1_segments_plan_is_one_to_one_and_speak_is_none: test
+performance::tests::schema_and_validator_share_the_same_bounds: test
+performance::tests::segments_are_split_but_never_rewritten: test
+performance::tests::segments_count_and_chars_limits_fail_as_a_whole: test
+performance::tests::segments_must_be_a_verbatim_partition_of_the_source: test
+performance::tests::v1_cue_projects_with_existing_and_new_keys: test
+performance::tests_golden::golden_action_cue_frames_are_unchanged_after_envelope_removal: test
+performance::tests_golden::v1_cue_preset_id_never_carries_control_chars_or_json: test
+performance::tests_golden::v1_keys_are_structural_fields_not_derived_from_preset_id: test
+secret::tests::config_debug_does_not_leak_nested_secret: test
+secret::tests::debug_and_display_never_leak_secret: test
+secret::tests::expose_and_convert_roundtrip: test
+secrets::tests::merge_appends_when_missing: test
+secrets::tests::merge_preserves_export_prefix_and_indent: test
+secrets::tests::merge_quotes_values_with_spaces_or_hash: test
+secrets::tests::merge_replaces_in_place_and_keeps_comments: test
+secrets::tests::merge_with_empty_value_deletes_the_key_only: test
+secrets::tests::parse_handles_comments_quotes_and_export: test
+secrets::tests::parse_last_wins: test
+secrets::tests::valid_key_shape: test
+secrets::tests::write_key_rejects_bad_names_and_multiline_values: test
+secrets::tests::write_key_to_disk_is_atomic_and_owner_only: test
+settings::patch_tests::action_models_absent_model_follows_global: test
+settings::patch_tests::action_models_clamp_out_of_range_and_nan_falls_back: test
+settings::patch_tests::action_models_delete_and_empty_entry_pruned: test
+settings::patch_tests::action_models_invalid_id_is_rejected_not_written: test
+settings::patch_tests::action_models_override_beats_global_per_key: test
+settings::patch_tests::action_models_round_trip_through_toml: test
+settings::patch_tests::action_patch_identical_is_no_change: test
+settings::patch_tests::action_patch_sets_clamps_and_resets: test
+settings::patch_tests::action_section_defaults_are_product_scales: test
+settings::patch_tests::action_section_overrides_and_view_normalizes: test
+settings::patch_tests::action_section_rejects_unknown_keys: test
+settings::patch_tests::action_view_models_normalized_and_null_keys: test
+settings::patch_tests::invalid_patch_returns_err: test
+settings::patch_tests::json_three_state_absent_field_is_no_change: test
+settings::patch_tests::json_three_state_empty_object_is_field_level_no_op: test
+settings::patch_tests::json_three_state_explicit_null_clears_field: test
+settings::patch_tests::json_three_state_explicit_value_overrides: test
+settings::patch_tests::json_three_state_field_null_after_value_clears_only_that_field: test
+settings::patch_tests::json_three_state_invalid_payload_is_rejected: test
+settings::patch_tests::json_three_state_segment_null_clears_whole_section: test
+settings::patch_tests::json_three_state_serialize_round_trip_preserves_three_states: test
+settings::patch_tests::max_tokens_patch_json_keeps_zero_and_null_distinct: test
+settings::patch_tests::max_tokens_patch_tri_state_does_not_collapse_zero_and_absent: test
+settings::patch_tests::patch_clear_section_empties_all_fields: test
+settings::patch_tests::patch_none_keeps_old_base_url: test
+settings::patch_tests::patch_some_empty_string_clears_api_key_env: test
+settings::patch_tests::patch_with_new_value_overrides: test
+settings::patch_tests::plan_atomic_write_cleans_tmp_on_io_failure: test
+settings::patch_tests::plan_atomic_write_rejects_empty_content: test
+settings::patch_tests::plan_atomic_write_writes_tmp_and_returns_path: test
+settings::patch_tests::settings_to_view_still_reports_declared_key_name_only: test
+settings::patch_tests::settings_to_view_with_keys_drops_key_env_name_and_derives_from_lookup: test
+settings::patch_tests::settings_view_active_model_id_transport_and_freeze: test
+settings::settings_tests::declared_key_envs_is_empty_when_nothing_declared: test
+settings::settings_tests::declared_key_envs_lists_llm_tts_performance_in_order: test
+settings::settings_tests::declared_key_envs_skips_empty_names: test
+settings::settings_tests::dev_mode_defaults_to_false_when_field_absent: test
+settings::settings_tests::dev_mode_round_trips_through_to_toml_string: test
+settings::settings_tests::dev_mode_three_state_patch_round_trip: test
+settings::settings_tests::dev_mode_top_level_field_parses_to_bool: test
+settings::settings_tests::example_template_parses_and_resolves_without_env: test
+settings::settings_tests::full_file_parses_and_resolves_keys_from_lookup: test
+settings::settings_tests::invalid_env_names_are_rejected_before_lookup: test
+settings::settings_tests::max_tokens_omitted_falls_back_to_default: test
+settings::settings_tests::max_tokens_round_trips_through_toml_and_view_echoes_effective: test
+settings::settings_tests::max_tokens_zero_is_unlimited_and_distinct_from_omitted: test
+settings::settings_tests::merge_changes_only_the_value: test
+settings::settings_tests::merge_keeps_every_comment_and_blank_line: test
+settings::settings_tests::merge_rejects_broken_existing_toml: test
+settings::settings_tests::merge_removes_none_keys_but_keeps_the_rest: test
+settings::settings_tests::merge_seeds_missing_keys_and_keeps_unknown_ones: test
+settings::settings_tests::merge_treats_omitted_keys_as_deletion: test
+settings::settings_tests::merge_with_empty_existing_falls_back_to_plain_serialization: test
+settings::settings_tests::merged_text_round_trips_to_the_same_settings: test
+settings::settings_tests::minimal_file_falls_back_to_defaults: test
+settings::settings_tests::missing_tts_section_is_allowed_but_bad_url_still_errors: test
+settings::settings_tests::persona_card_fields_are_rejected_by_main_chain: test
+settings::settings_tests::persona_prompt_patch_tri_state: test
+settings::settings_tests::resolve_passes_system_prompt_verbatim: test
+settings::settings_tests::show_reasoning_defaults_to_false: test
+settings::settings_tests::show_reasoning_patch_is_three_state: test
+settings::settings_tests::show_reasoning_survives_toml_round_trip: test
+settings::settings_tests::to_toml_string_round_trips_via_from_toml_str: test
+settings::settings_tests::to_toml_string_writes_only_env_var_names_and_skips_none: test
+settings::settings_tests::unknown_field_is_rejected_not_silently_ignored: test
+settings::settings_tests::zero_sample_rate_is_a_settings_error: test
+sse::tests::arbitrary_chunk_cuts_produce_identical_results: test
+sse::tests::basic_lf_events_and_comments: test
+sse::tests::bom_at_stream_start_is_stripped_even_when_split: test
+sse::tests::crlf_and_cr_terminators_mix_freely: test
+sse::tests::crlf_split_across_pushes_is_not_two_lines: test
+sse::tests::empty_events_are_skipped_without_reseting_pending_state: test
+sse::tests::event_field_is_captured_and_reset_between_events: test
+sse::tests::field_value_strips_single_leading_space_only: test
+sse::tests::finish_flushes_hanging_cr_as_line_end: test
+sse::tests::finish_flushes_unterminated_final_data: test
+sse::tests::multiline_data_joins_with_newline: test
+sse::tests::utf8_multibyte_split_across_chunks_survives: test
+tests::endpoint_join_handles_trailing_slash_and_path_prefix: test
+tests::endpoint_join_rejects_bad_schemes_and_relative_urls: test
+tts::tests::default_config_requests_pcm_on_the_wire: test
+tts::tests::explicit_none_still_omits_response_format: test
+tts::tests::request_body_omits_optional_fields: test
+
+220 tests, 0 benchmarks
+     Running tests/conversation_engine_history.rs (/tmp/w2_verify_target/debug/deps/conversation_engine_history-79644a1df4924bf6)
+completed_turn_does_not_commit_history_automatically: test
+successful_turn_commits_history_into_next_request: test
+
+2 tests, 0 benchmarks
+     Running tests/conversation_engine_lifecycle.rs (/tmp/w2_verify_target/debug/deps/conversation_engine_lifecycle-f71f225fb6da13af)
+cancel_mid_turn_emits_single_cancelled_terminal: test
+consumer_drop_is_treated_as_cancellation: test
+pipeline_overlaps_llm_streaming_with_first_tts_request: test
+pre_cancelled_token_skips_network_entirely: test
+
+4 tests, 0 benchmarks
+     Running tests/conversation_engine_performance.rs (/tmp/w2_verify_target/debug/deps/conversation_engine_performance-da1581559761bbd3)
+blank_segment_keeps_its_seg_index: test
+cue_only_plan_emits_a_silent_anchor_sentence: test
+displayed_text_equals_tts_text_per_segment: test
+invalid_plan_falls_back_to_cleaned_raw_and_rule_cue: test
+noop_plan_sends_no_tts_and_no_text: test
+performance_never_leaks_into_the_main_model_request: test
+segments_are_one_to_one_with_sentences_and_never_resplit: test
+speak_is_the_tts_source_and_cues_reach_action_cue: test
+
+8 tests, 0 benchmarks
+     Running tests/conversation_engine_tts_flow.rs (/tmp/w2_verify_target/debug/deps/conversation_engine_tts_flow-684d88009497fb89)
+completed_turn_never_emits_text_fallback: test
+llm_status_error_is_observable_then_failed_terminal: test
+odd_total_pcm_bytes_yield_decode_failed_terminal: test
+queue_push_timeout_yields_backpressure_error: test
+tts_and_screen_share_the_deterministically_cleaned_sentence: test
+tts_error_stops_turn_with_failed_terminal: test
+tts_failure_falls_back_to_the_generated_text: test
+tts_transport_failure_also_falls_back_to_the_generated_text: test
+whitespace_only_sentence_never_reaches_tts_and_turn_completes: test
+
+9 tests, 0 benchmarks
+     Running tests/unified_client.rs (/tmp/w2_verify_target/debug/deps/unified_client-2c4ee706f036a1ab)
+llm_error_status_is_observable_with_code_and_body: test
+llm_max_tokens_reaches_the_wire_and_zero_omits_the_field: test
+llm_stream_emits_done_when_peer_closes_without_done_marker: test
+llm_stream_surfaces_malformed_sse_data_as_error: test
+llm_stream_survives_half_line_cuts_and_multibyte_payloads: test
+missing_key_omits_authorization_header_entirely: test
+tts_default_request_sends_response_format_pcm_on_the_wire: test
+tts_error_status_is_observable_too: test
+tts_forwards_chunked_bytes_and_sends_expected_shape: test
+tts_pcm_stream_decodes_across_arbitrary_chunk_splits: test
+
+10 tests, 0 benchmarks
+     Running unittests src/main.rs (/tmp/w2_verify_target/debug/deps/xtask-90c6b36da96a5502)
+code_stats::tests::collect_classifies_src_tests_and_examples_per_fixture: test
+code_stats::tests::collect_dart_and_docs_and_missing_artifacts_per_fixture: test
+code_stats::tests::collect_over_limit_lists_match_fixture: test
+code_stats::tests::dependencies_count_ignores_target_and_dev_sections: test
+code_stats::tests::dir_size_returns_none_for_missing_directory: test
+code_stats::tests::gate_evaluation_covers_lines_and_deps: test
+code_stats::tests::gate_evaluation_is_red_when_fixture_exceeds_a_zero_limit: test
+code_stats::tests::inline_cfg_test_block_is_not_counted_as_production: test
+code_stats::tests::inline_cfg_test_counts_multiple_blocks: test
+code_stats::tests::inline_cfg_test_without_braces_runs_to_end_of_file: test
+code_stats::tests::inline_cfg_test_without_braces_use_form_runs_to_end_of_file: test
+code_stats::tests::parse_args_accepts_check_scopes_and_limits: test
+code_stats::tests::physical_lines_matches_wc_l_semantics: test
+code_stats::tests::report_renders_markdown_with_gate_verdict: test
+code_stats::tests::rust_kind_splits_src_tests_and_examples: test
+code_stats::tests::thousands_and_human_size_read_well: test
+code_stats::tests::utc_formatting_matches_known_epochs: test
+tests::counted_extension_matches_case_insensitively: test
+tests::dart_is_visible_but_excluded_from_the_ratio: test
+tests::exempt_extension_matches_case_insensitively: test
+tests::physical_line_counts_match_wc_l_semantics: test
+tests::ratio_guard_against_zero_total: test
+tests::record_aggregates_by_extension: test
+tests::run_help_succeeds: test
+tests::run_reports_usage_errors: test
+tests::threshold_parsing_validates_range: test
+tests::walk_skips_excluded_hidden_dirs_and_symlinks: test
+
+27 tests, 0 benchmarks

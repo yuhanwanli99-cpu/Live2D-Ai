@@ -1,0 +1,51 @@
+########## [红-修正版] fixture 里放 5 个 >1000 行文件 → 超过棘轮 4 → 必须红 ##########
+# 说明：原判据「造 1 个 >1000 行文件」在『棘轮=现状』设计下**不会红**（1 ≤ 4）——见 raw/w0b_check_redgreen.txt 的 RED_EXIT=0。
+# 棘轮语义 = 绝对上限（冻结现状数），所以「新增超限」只有在**总数超过棘轮**时才拦。这里用 5 个文件复现。
+$ ls /tmp/cs_fixture2/crates/demo/src/
+huge1.rs
+huge2.rs
+huge3.rs
+huge4.rs
+huge5.rs
+lib.rs
+$ cd /tmp/cs_fixture2 && /home/skystar/Live2D-Ai-fe/target/debug/xtask code-stats --check
+
+- 判定范围（影响退出码）：全部（lines / over-1000 / deps）
+- 结论：FAIL —— 判定范围有超限；退出码 1
+  - `src-rs-1000`：当前 5 ＞ 上限 4（PLAN 目标 0）
+    - `crates/demo/src/huge1.rs`：1101 行
+    - `crates/demo/src/huge2.rs`：1101 行
+    - `crates/demo/src/huge3.rs`：1101 行
+    - `crates/demo/src/huge4.rs`：1101 行
+    - `crates/demo/src/huge5.rs`：1101 行
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `0` 个 / 0 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+RED5_EXIT=1
+
+########## [绿-修正版] 删掉 5 个文件 → 必须绿 ##########
+- 结论：PASS —— 判定范围内无超限；退出码 0
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `0` 个 / 0 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+GREEN5_EXIT=0

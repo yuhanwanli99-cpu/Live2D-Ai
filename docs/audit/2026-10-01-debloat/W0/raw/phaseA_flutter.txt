@@ -1,0 +1,1427 @@
+### CMD: flutter analyze
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing flutter...                                            
+No issues found! (ran in 3.0s)
+ANALYZE_EXIT=0
+
+### CMD: flutter test
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  vector_math 2.4.0 (2.4.3 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart
+00:00 +0: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 铺法：UI 暴露的每一档，渲染结果必须不同 UI 暴露 cover / contain / stretch / tile **四档**铺法
+00:00 +1: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 铺法：UI 暴露的每一档，渲染结果必须不同 平铺贴片滑杆只在 tile 档出现，区间读常量（不写死 16 / 256）
+00:00 +2: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 铺法：UI 暴露的每一档，渲染结果必须不同 存储里出现越界档位（4 / 42 / -1）→ 回落默认 0；上界是 3
+00:00 +3: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 铺法：UI 暴露的每一档，渲染结果必须不同 boxFitFor 的四档给出**不同**的结果
+00:00 +4: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 遮罩：4 档必须两两不同（否则有「按了没区别」的档） 自动 / 无 / 轻 / 重 给出四个不同的强度
+00:00 +5: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 遮罩：4 档必须两两不同（否则有「按了没区别」的档） 自动档随图变实、随界面变透而加强（两个真实自变量）
+00:00 +6: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 遮罩：4 档必须两两不同（否则有「按了没区别」的档） UI 暴露的遮罩档位与 `ScrimLevel` 一一对应
+00:00 +7: /home/skystar/Live2D-Ai-fe/shell/flutter/test/turn_liveness_test.dart: 只有思考的收口 没有正文但有思考 → keepReasoningOnly（保留气泡）
+00:00 +8: /home/skystar/Live2D-Ai-fe/shell/flutter/test/turn_liveness_test.dart: 只有思考的收口 没有正文但有思考 → keepReasoningOnly（保留气泡）
+00:00 +9: /home/skystar/Live2D-Ai-fe/shell/flutter/test/turn_liveness_test.dart: 只有思考的收口 没有正文但有思考 → keepReasoningOnly（保留气泡）
+00:00 +10: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +11: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +12: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +13: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +14: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +15: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +16: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +17: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 每个背景字段都必须有渲染路径读它 （源码扫描）字段名在 lib/ 里除定义与 UI 之外还有读者
+00:00 +18: /home/skystar/Live2D-Ai-fe/shell/flutter/test/turn_liveness_test.dart: mustSettleTurnOnError：致命错误兜底收口 没有在飞的一轮时收到错误 → 无事可收
+00:00 +19: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 `radiusScale` 不再出现在偏好里
+00:00 +20: /home/skystar/Live2D-Ai-fe/shell/flutter/test/turn_liveness_test.dart: frameBelongsToCurrentTurn：迟到的旧轮帧必须丢弃 代次一致 → 属于当前轮
+00:00 +21: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 `stageFollowsSlide` 不再出现在偏好里
+00:00 +22: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 `stageFollowsSlide` 不再出现在偏好里
+00:00 +23: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 `slideTransition` 不再出现在偏好里
+00:00 +24: /home/skystar/Live2D-Ai-fe/shell/flutter/test/turn_liveness_test.dart: frameBelongsToCurrentTurn：迟到的旧轮帧必须丢弃 任一侧缺省（旧服务端 / 代次还没回填）→ 按当前轮处理
+00:00 +25: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +26: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +27: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +28: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +29: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +30: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +31: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +32: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +33: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +34: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +35: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +36: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +37: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +38: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +39: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +40: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +41: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +42: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +43: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +44: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +45: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +46: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 2026-09-27 减法：删掉的字段不许复活 圆角现在固定在一个数上，且所有表面都走那个入口
+00:00 +47: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 界面透明程度：面板真的有变透明（2026-09-27 修完的真缺陷） panelAlpha 从 1.0 走到 0.55，且中途单调
+00:00 +48: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 界面透明程度：面板真的有变透明（2026-09-27 修完的真缺陷） **没有不透明的面把半透明的面盖住**（那等于滑杆没接）
+00:00 +49: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 界面透明程度：面板真的有变透明（2026-09-27 修完的真缺陷） 默认档就**不是**全不透明（否则背景加了等于没加）
+00:00 +50: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 背景不透明度：默认就该看得见 默认 1.0（0.15 那个值让「用户选的图」变成一层淡影）
+00:00 +51: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 背景不透明度：默认就该看得见 **「有没有背景」全仓库只有一个判据**
+00:00 +52: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 背景字节：偏好里不许再存 dataUrl（2026-09-27 搬去 IndexedDB） 清单序列化里不出现 dataUrl / base64
+00:00 +53: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 背景字节：偏好里不许再存 dataUrl（2026-09-27 搬去 IndexedDB） 那份**假的**字符预算不许复活
+00:00 +54: /home/skystar/Live2D-Ai-fe/shell/flutter/test/setting_wiring_test.dart: 背景字节：偏好里不许再存 dataUrl（2026-09-27 搬去 IndexedDB） 单张上限按**字节**算，且远大于一张真实壁纸
+00:00 +55: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +56: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +57: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +58: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +59: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +60: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +61: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +62: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +63: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +64: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +65: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +66: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +67: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +68: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +69: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_notice_test.dart: ① 无文字的一轮在界面上**看得见**（这是那个 bug 的钉子） 系统提示的文案真的画出来了
+00:00 +70: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +71: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +72: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +73: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +74: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +75: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +76: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +77: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +78: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +79: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +80: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +81: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +82: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +83: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +84: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +85: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +86: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +87: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +88: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +89: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +90: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +91: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +92: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +93: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +94: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +95: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +96: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +97: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +98: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +99: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +100: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +101: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +102: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +103: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +104: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +105: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +106: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +107: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +108: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 已设置/未设置都是**文字**表意（不靠颜色）
+00:00 +109: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_preset_dispatch_test.dart: 取证：VM 测试里舞台走 host stub ⇒ _bridge 恒 null（结构守卫的理由）
+00:00 +110: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_preset_dispatch_test.dart: 取证：VM 测试里舞台走 host stub ⇒ _bridge 恒 null（结构守卫的理由）
+00:00 +111: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存：回调收到 (key, 输入值)，并随即清空明文
+00:00 +112: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存：回调收到 (key, 输入值)，并随即清空明文
+00:01 +113: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存：回调收到 (key, 输入值)，并随即清空明文
+00:01 +114: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存：回调收到 (key, 输入值)，并随即清空明文
+00:01 +115: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存：回调收到 (key, 输入值)，并随即清空明文
+00:01 +116: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存：回调收到 (key, 输入值)，并随即清空明文
+00:01 +117: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 留空保存 = 清除该键（不是「什么都没做」）
+00:01 +118: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 保存失败：界面上说出来，且不谎报成功
+00:01 +119: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 配置里没声明键名 → 说明「未绑定」而不是给一个假输入框
+00:01 +120: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 配置里没声明键名 → 说明「未绑定」而不是给一个假输入框
+00:01 +121: /home/skystar/Live2D-Ai-fe/shell/flutter/test/env_key_field_test.dart: 配置里没声明键名 → 说明「未绑定」而不是给一个假输入框
+00:01 +122: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 命中唤醒词 + 有正文 → 发**含唤醒词的原文**（剥词由服务端做）
+00:01 +123: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 只叫唤醒词（没有正文）不发；纯闲聊（没有唤醒词）也不发
+00:01 +124: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 唤醒后一直没等到正文：超过窗口自动放弃，无关的话不会被发出去
+00:01 +125: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +126: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +127: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +128: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +129: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +130: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +131: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +132: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_section =` 在 main.dart 里只出现在 `_gotoSection` 一处
+00:01 +133: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 按住说话（PTT，P0-4） 没听清（空正文）不发，并给可读提示
+00:01 +134: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_gotoSection` 真的清了结果（不是只改分区）
+00:01 +135: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：切分区只有一条路 `_gotoSection` 真的清了结果（不是只改分区）
+00:01 +136: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 按住说话（PTT，P0-4） 主链忙：不排队，把识别到的正文交回宿主（落输入框）
+00:01 +137: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：四个一次性结果全在清理范围内 清的就是这四个（不是只清了一两个）
+00:01 +138: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：四个一次性结果全在清理范围内 清的就是这四个（不是只清了一两个）
+00:01 +139: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 播报期间暂停听（P0-4） 暂停期间迟到的定稿不会被当成正文发出去
+00:01 +140: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：四个一次性结果全在清理范围内 **在途的**异步结果也会作废（`_resultEpoch` 对账）
+00:01 +141: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：四个一次性结果全在清理范围内 **在途的**异步结果也会作废（`_resultEpoch` 对账）
+00:01 +142: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: voice-input Mod 未启用（L1，2026-09-16） Mod 已启用：预检放行，照常 listening
+00:01 +143: /home/skystar/Live2D-Ai-fe/shell/flutter/test/transient_results_test.dart: P2-2：结果行渐入渐出（不是「啪」地多出一行） 字段行的结果槽包了 `SoftSwap`
+00:01 +144: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: voice-input Mod 未启用（L1，2026-09-16） 预检读失败（网络 / 服务未起）：不拦，交给端点 403 兜底
+00:01 +145: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 剥词纯函数（只用于「要不要发」；服务端仍是真源） 忽略空白 / 大小写
+00:01 +146: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 剥词纯函数（只用于「要不要发」；服务端仍是真源） wakeBody：剥词 + 去开头分隔符
+00:01 +147: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 剥词纯函数（只用于「要不要发」；服务端仍是真源） 空唤醒词永远不命中（不会把一切都发出去）
+00:01 +148: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_listen_controller_test.dart: 剥词纯函数（只用于「要不要发」；服务端仍是真源） 句首锚定：中间出现唤醒词不命中（P0-4）
+00:01 +149: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +150: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +151: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +152: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +153: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +154: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +155: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +156: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +157: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +158: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +159: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +160: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +161: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 四套主题下都渲染得出，且不溢出
+00:01 +162: /home/skystar/Live2D-Ai-fe/shell/flutter/test/design_tokens_lint_test.dart: 裸值扫描（引用侧兜底） 规则「裸圆角」：圆角只能取 AppRadius 的 6 档
+00:01 +163: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +164: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +165: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +166: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +167: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +168: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +169: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +170: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +171: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +172: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +173: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +174: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +175: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +176: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +177: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +178: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +179: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +180: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +181: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +182: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +183: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +184: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +185: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +186: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +187: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +188: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +189: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +190: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +191: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +192: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +193: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +194: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +195: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +196: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +197: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +198: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +199: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +200: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +201: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +202: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +203: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +204: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +205: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +206: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 三档字号缩放都不溢出（1.0 / 1.5 / 2.0）
+00:01 +207: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_reorder_test.dart: P0-3 回归点：二次调整必须从 `shell_prefs` 里消失 不再出现 `if (target > oldIndex) target -= 1;`，且改为调纯函数
+00:01 +208: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 卡片面 = 第三级面 raised（层级终于有承重）
+00:01 +209: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 有 / 无 description 的卡片高度不同（有说明才占那行）
+00:02 +210: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: trailing 挂得上（整组开关）
+00:02 +211: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 分组说明里的 `**加粗**` 不露出星号（rc.3 同款回归）
+00:02 +212: /home/skystar/Live2D-Ai-fe/shell/flutter/test/group_card_test.dart: 标题是可读文本（读屏能念出来，不是纯装饰）
+00:02 +213: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +214: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +215: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +216: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +217: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +218: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +219: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +220: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +221: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +222: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +223: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +224: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +225: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +226: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +227: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +228: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +229: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +230: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 常驻：默认（未在听）显示「听」且可点
+00:02 +231: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ② 面板渲染：摘要 / 令牌 / 模板示例 计数摘要 + 已设置令牌 + 渲染示例同时上屏
+00:02 +232: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：TTS 配置面四件套都在（base_url / voice / model / 音频规格）
+00:02 +233: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：TTS 配置面四件套都在（base_url / voice / model / 音频规格）
+00:02 +234: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：TTS 配置面四件套都在（base_url / voice / model / 音频规格）
+00:02 +235: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：TTS 配置面四件套都在（base_url / voice / model / 音频规格）
+00:02 +236: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_listen_button_test.dart: 不支持（非 Web / 旧浏览器）：按钮禁用，不假装能点
+00:02 +237: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ② 面板渲染：摘要 / 令牌 / 模板示例 token_set=false → 「未设令牌：仅本机可用」
+00:02 +238: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:02 +239: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:02 +240: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +241: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +242: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +243: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +244: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +245: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +246: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +247: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +248: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +249: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +250: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +251: /home/skystar/Live2D-Ai-fe/shell/flutter/test/restart_notice_test.dart: ModsSection 有提示时把它渲染在 Mod 分区顶部，且可关闭
+00:03 +252: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：编辑 base_url / voice / model 只落进 tts 草稿，不碰别的段
+00:03 +253: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：编辑 base_url / voice / model 只落进 tts 草稿，不碰别的段
+00:03 +254: /home/skystar/Live2D-Ai-fe/shell/flutter/test/asset_guard_tts_config_test.dart: A5：编辑 base_url / voice / model 只落进 tts 草稿，不碰别的段
+00:03 +255: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ③ 重置计数：二次确认 + 命令通道 Mod 未启用：重置按钮禁用且文案说明
+00:03 +256: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ④ L1：测试注入 + 停用 403 可读 失败码 command_unavailable → 点明 503 / 未启用 / 开关在哪
+00:03 +257: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ④ L1：测试注入 + 停用 403 可读 失败码 command_failed → 点明 2000 字符上限
+00:03 +258: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ④ L1：测试注入 + 停用 403 可读 injectReceiptText：成功说「已注入」，忙说「被丢弃」
+00:03 +259: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ④ L1：测试注入 + 停用 403 可读 面板主标题仍是外部事件接入 + 中性 Mod id 行（无品牌化改名）
+00:03 +260: /home/skystar/Live2D-Ai-fe/shell/flutter/test/external_input_panel_test.dart: ④ L1：测试注入 + 停用 403 可读 测试注入 → onCommand(test_inject) 收到渲染后的文本 + 刷新计数（不发重启提示）
+00:03 +261: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +262: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +263: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +264: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +265: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +266: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +267: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +268: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +269: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +270: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +271: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +272: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +273: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +274: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +275: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +276: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:03 +277: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +278: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +279: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +280: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +281: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +282: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +283: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +284: /home/skystar/Live2D-Ai-fe/shell/flutter/test/models_section_test.dart: 空态：说明「在这里导入」，且导入入口真的在界面上
+00:04 +285: /home/skystar/Live2D-Ai-fe/shell/flutter/test/pet_desktop_state_test.dart: Mod 管理：展开运行态 + 配置热更新 展开 pet-desktop → 五个字段 + 仅状态文案
+00:04 +286: /home/skystar/Live2D-Ai-fe/shell/flutter/test/pet_desktop_state_test.dart: Mod 管理：展开运行态 + 配置热更新 展开 pet-desktop → 五个字段 + 仅状态文案
+00:04 +287: /home/skystar/Live2D-Ai-fe/shell/flutter/test/pet_desktop_state_test.dart: Mod 管理：展开运行态 + 配置热更新 展开 pet-desktop → 五个字段 + 仅状态文案
+00:04 +288: /home/skystar/Live2D-Ai-fe/shell/flutter/test/pet_desktop_state_test.dart: Mod 管理：展开运行态 + 配置热更新 展开 pet-desktop → 五个字段 + 仅状态文案
+00:04 +289: /home/skystar/Live2D-Ai-fe/shell/flutter/test/pet_desktop_state_test.dart: Mod 管理：展开运行态 + 配置热更新 展开 pet-desktop → 五个字段 + 仅状态文案
+00:04 +290: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +291: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +292: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +293: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +294: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +295: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +296: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +297: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +298: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +299: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +300: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +301: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +302: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:04 +303: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） compact 走的是 PageCrossFade，不是抽屉/浮层
+00:05 +304: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +305: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +306: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +307: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +308: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +309: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +310: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 轮播走到第 2 张：设置页「当前」标记与铺法 / 位置区显示的是第 2 张的属性
+00:05 +311: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） 分区导航窄屏是**单行**（不是换 3 行的 Wrap）
+00:05 +312: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：一次过渡到位（不再是抽屉 + 浮层两步跳） 分区导航窄屏是**单行**（不是换 3 行的 Wrap）
+00:05 +313: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 运行时索引变了，显隐跟着变（同一个库、只换索引）
+00:05 +314: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 运行时索引变了，显隐跟着变（同一个库、只换索引）
+00:05 +315: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 运行时索引变了，显隐跟着变（同一个库、只换索引）
+00:05 +316: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 运行时索引变了，显隐跟着变（同一个库、只换索引）
+00:05 +317: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 运行时索引变了，显隐跟着变（同一个库、只换索引）
+00:05 +318: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-6：当前项取**运行时索引**，不是「永远第 0 项」 运行时索引变了，显隐跟着变（同一个库、只换索引）
+00:05 +319: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1 ①：两页**永不同时可见** 过渡中每一帧都不透明度配对为 (1,0)（中点两页不同时可见）
+00:05 +320: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:05 +321: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:05 +322: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +323: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +324: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +325: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +326: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +327: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +328: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +329: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +330: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +331: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +332: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +333: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +334: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +335: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +336: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +337: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 开 → 关 → 再开，面板实例始终是同一个
+00:06 +338: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-2 / DEC-7b：两个轮播块按来源互斥 stagePlaylist 守护网：编辑器的「当前」标记与三种编辑都上报新列表
+00:06 +339: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-2 / DEC-7b：两个轮播块按来源互斥 stagePlaylist 守护网：编辑器的「当前」标记与三种编辑都上报新列表
+00:06 +340: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1 ⑤：设置页收起后，舞台那一块要还给 iframe 垫层跟着开关一起收起（否则 compact 永远拖不动模型）
+00:06 +341: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +342: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +343: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +344: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +345: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +346: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +347: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 **滚动位置**真的留住了（这才是保活的用户可见收益）
+00:06 +348: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: D1：预览在任意库大小下都可达 库 2 项：默认点一行 = 预览（不是勾选）
+00:06 +349: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: D1：预览在任意库大小下都可达 库 2 项：默认点一行 = 预览（不是勾选）
+00:06 +350: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：medium / expanded 不受影响（只动 compact） expanded 仍然是内联侧板，且**没有** PageCrossFade
+00:06 +351: /home/skystar/Live2D-Ai-fe/shell/flutter/test/compact_settings_page_test.dart: P2-1：medium / expanded 不受影响（只动 compact） expanded 仍然是内联侧板，且**没有** PageCrossFade
+00:07 +352: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 折起来的面板**不进 Tab 序、不被读屏念到、展开后恢复**
+00:07 +353: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 折起来的面板**不进 Tab 序、不被读屏念到、展开后恢复**
+00:07 +354: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 折起来的面板**不进 Tab 序、不被读屏念到、展开后恢复**
+00:07 +355: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_panel_keepalive_test.dart: P1-1 设置侧板保活：关掉再打开不重建 折起来的面板**不进 Tab 序、不被读屏念到、展开后恢复**
+00:07 +356: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-5 的 UI 侧：坏图与未读回的字节都要说话 字节形态坏：界面上明说画不出来
+00:07 +357: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-5 的 UI 侧：坏图与未读回的字节都要说话 字节形态坏：界面上明说画不出来
+00:07 +358: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-5 的 UI 侧：坏图与未读回的字节都要说话 字节形态坏：界面上明说画不出来
+00:07 +359: /home/skystar/Live2D-Ai-fe/shell/flutter/test/field_row_test.dart: 动作行 busy 时禁用并改文案
+00:07 +360: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-5 的 UI 侧：坏图与未读回的字节都要说话 字节还没读回来：说「还在读回」，不是「坏了」
+00:07 +361: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: DEC-5 的 UI 侧：坏图与未读回的字节都要说话 字节还没读回来：说「还在读回」，不是「坏了」
+00:07 +362: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_cancel_test.dart: stop_and_new_message_clear_action_expression_and_pending_tts
+00:07 +363: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: 交接项 9b：水合中 说明 + 背景库写操作禁用（不做一个按了没反应的按钮）
+00:07 +364: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: 交接项 9b：水合中 说明 + 背景库写操作禁用（不做一个按了没反应的按钮）
+00:07 +365: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_runtime_test.dart: 交接项 9b：水合中 水合结束（hydrating = false）→ 说明消失、按钮可用
+00:07 +366: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +367: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +368: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +369: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +370: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +371: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +372: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +373: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +374: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +375: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +376: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +377: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +378: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +379: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +380: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:07 +381: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_bubble_labels_test.dart: ① 角色标签不再显示（用户裁决） 气泡里没有「你」/「助手」这行文字
+00:08 +382: /home/skystar/Live2D-Ai-fe/shell/flutter/test/persona_panel_test.dart: 渲染：导入区、基线说明、与 memory 的共存提示 粘贴框 / 三个动作 / 基线说明 / 共存提示都在
+00:08 +383: /home/skystar/Live2D-Ai-fe/shell/flutter/test/persona_panel_test.dart: 渲染：导入区、基线说明、与 memory 的共存提示 粘贴框 / 三个动作 / 基线说明 / 共存提示都在
+00:08 +384: /home/skystar/Live2D-Ai-fe/shell/flutter/test/persona_panel_test.dart: 渲染：导入区、基线说明、与 memory 的共存提示 粘贴框 / 三个动作 / 基线说明 / 共存提示都在
+00:08 +385: /home/skystar/Live2D-Ai-fe/shell/flutter/test/persona_panel_test.dart: 渲染：导入区、基线说明、与 memory 的共存提示 粘贴框 / 三个动作 / 基线说明 / 共存提示都在
+00:08 +386: /home/skystar/Live2D-Ai-fe/shell/flutter/test/persona_panel_test.dart: 渲染：导入区、基线说明、与 memory 的共存提示 粘贴框 / 三个动作 / 基线说明 / 共存提示都在
+00:08 +387: /home/skystar/Live2D-Ai-fe/shell/flutter/test/persona_panel_test.dart: 渲染：导入区、基线说明、与 memory 的共存提示 粘贴框 / 三个动作 / 基线说明 / 共存提示都在
+00:08 +388: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +389: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +390: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +391: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +392: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +393: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +394: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +395: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +396: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +397: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +398: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +399: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +400: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +401: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +402: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +403: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +404: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +405: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +406: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +407: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +408: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +409: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +410: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +411: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:08 +412: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:09 +413: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:09 +414: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:09 +415: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:09 +416: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:09 +417: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_thumbnail_decode_cache_test.dart: 10 次宿主重建：缩略图 bytes 实例始终同一，ImageCache 条目数不增长
+00:09 +418: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_decode_cache_test.dart: 行为级：连续重建，Image 取到的 bytes 实例不变（F-0006-1） 重建 20 次（模拟 20 个流式 delta）后仍是同一实例
+00:09 +419: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_decode_cache_test.dart: 行为级：连续重建，Image 取到的 bytes 实例不变（F-0006-1） 重建 20 次（模拟 20 个流式 delta）后仍是同一实例
+00:09 +420: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_decode_cache_test.dart: 行为级：连续重建，Image 取到的 bytes 实例不变（F-0006-1） 重建 20 次（模拟 20 个流式 delta）后仍是同一实例
+00:09 +421: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +422: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +423: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +424: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +425: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +426: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +427: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +428: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口位置：非 compact 在 AppBar，compact 在聊天头 expanded：AppBar 有「会话」
+00:09 +429: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +430: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +431: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +432: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +433: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +434: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +435: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +436: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +437: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +438: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +439: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +440: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +441: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +442: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +443: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +444: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +445: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +446: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +447: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +448: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:09 +449: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:10 +450: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：只描边不挡事 描边层 `IgnorePointer`（面板上的按钮必须还能点）
+00:10 +451: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +452: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +453: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +454: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +455: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +456: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +457: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +458: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +459: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +460: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +461: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +462: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +463: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +464: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +465: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +466: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +467: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +468: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +469: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +470: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +471: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +472: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +473: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +474: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +475: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +476: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_entry_test.dart: 入口真的接上了回调（不是画了个死按钮） 点「会话」→ 浮层打开，列出外壳传进来的会话
+00:10 +477: /home/skystar/Live2D-Ai-fe/shell/flutter/test/glass_rim_test.dart: P3-1：光跟着指针走（这是「玻璃」和「描边」的区别） 鼠标移到面板左下角，光向随之改变
+00:10 +478: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +479: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +480: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +481: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +482: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +483: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +484: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +485: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +486: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +487: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +488: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +489: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +490: /home/skystar/Live2D-Ai-fe/shell/flutter/test/admin_api_test.dart: 钉子 14：logs 403 是**用户态**，不是异常 403 文案显示为普通的灰色说明，**不是**红色错误横幅
+00:10 +491: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +492: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +493: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +494: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +495: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +496: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +497: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +498: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +499: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +500: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +501: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 发送键：圆形 + 上箭头（**不是**写着「发送」的按钮） 空闲态：一个圆形按钮 + 上箭头，且**没有**「发送」二字
+00:10 +502: /home/skystar/Live2D-Ai-fe/shell/flutter/test/focus_ring_test.dart: P1-4：键盘焦点环 = 1 px 不透明 focusRing 按钮真的拿到焦点时，解析出来的边就是 focusRing
+00:11 +503: /home/skystar/Live2D-Ai-fe/shell/flutter/test/focus_ring_test.dart: P1-4：键盘焦点环 = 1 px 不透明 focusRing 按钮真的拿到焦点时，解析出来的边就是 focusRing
+00:11 +504: /home/skystar/Live2D-Ai-fe/shell/flutter/test/focus_ring_test.dart: P1-4：键盘焦点环 = 1 px 不透明 focusRing 按钮真的拿到焦点时，解析出来的边就是 focusRing
+00:11 +505: /home/skystar/Live2D-Ai-fe/shell/flutter/test/visual_language_test.dart: 文字优先：能写字的按钮不画图标 设置入口是「设置」两个字，不是齿轮
+00:11 +506: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +507: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +508: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +509: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +510: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +511: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +512: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +513: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +514: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +515: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +516: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +517: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +518: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +519: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +520: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +521: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +522: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +523: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +524: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +525: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +526: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +527: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +528: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +529: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +530: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +531: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +532: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +533: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +534: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +535: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +536: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +537: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +538: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +539: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +540: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +541: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +542: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +543: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +544: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +545: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +546: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +547: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +548: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +549: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +550: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +551: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +552: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +553: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +554: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +555: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +556: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +557: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 确认框组件：三按钮语义 「留下」→ 不离开
+00:11 +558: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +559: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +560: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +561: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +562: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +563: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +564: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +565: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +566: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +567: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +568: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +569: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +570: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +571: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +572: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +573: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +574: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +575: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +576: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +577: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +578: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +579: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +580: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +581: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +582: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +583: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +584: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +585: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +586: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +587: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +588: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +589: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +590: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +591: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:11 +592: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:12 +593: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:12 +594: /home/skystar/Live2D-Ai-fe/shell/flutter/test/settings_scaffold_test.dart: 未保存提示（规格 §4.3 的硬要求：改动必须有可见提示） 不 dirty 时既没有「未保存」也没有操作条
+00:12 +595: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +596: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +597: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +598: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +599: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +600: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +601: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +602: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +603: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +604: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +605: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize
+00:12 +606: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 外壳集成：关设置 / 换分区走同一个 confirmDiscard 脏草稿 + 关设置：问过用户才关（返回 false → 不关）
+00:12 +607: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 外壳集成：关设置 / 换分区走同一个 confirmDiscard 脏草稿 + 关设置：问过用户才关（返回 false → 不关）
+00:12 +608: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 外壳集成：关设置 / 换分区走同一个 confirmDiscard 脏草稿 + 关设置：问过用户才关（返回 false → 不关）
+00:12 +609: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 五档宽度都渲染出正确的导航形态 1280（expanded 下限） → expanded
+00:12 +610: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 五档宽度都渲染出正确的导航形态 1280（expanded 下限） → expanded
+00:12 +611: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 五档宽度都渲染出正确的导航形态 1280（expanded 下限） → expanded
+00:12 +612: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 五档宽度都渲染出正确的导航形态 1280（expanded 下限） → expanded
+00:12 +613: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 其余三档都不出现贴片滑杆
+00:12 +614: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 外壳集成：关设置 / 换分区走同一个 confirmDiscard 不脏 → 不问，直接关
+00:13 +615: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 外壳集成：关设置 / 换分区走同一个 confirmDiscard 不脏 → 不问，直接关
+00:13 +616: /home/skystar/Live2D-Ai-fe/shell/flutter/test/confirm_discard_test.dart: 外壳集成：关设置 / 换分区走同一个 confirmDiscard 不脏 → 不问，直接关
+00:13 +617: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +618: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +619: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +620: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +621: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +622: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +623: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +624: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +625: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +626: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +627: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +628: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +629: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +630: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +631: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +632: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 1 条：四档铺法 + tileSize 逐档点一遍：每档都真的能切过去（四档全可达）
+00:13 +633: /home/skystar/Live2D-Ai-fe/shell/flutter/test/display_prefs_background_fit_test.dart: 四档铺法：每档一条**不同**的渲染路径 cover：Image 走 BoxFit.cover，不套 FittedBox
+00:13 +634: /home/skystar/Live2D-Ai-fe/shell/flutter/test/display_prefs_background_fit_test.dart: 四档铺法：每档一条**不同**的渲染路径 cover：Image 走 BoxFit.cover，不套 FittedBox
+00:13 +635: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +636: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +637: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +638: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +639: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +640: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +641: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +642: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +643: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +644: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +645: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +646: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +647: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +648: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +649: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +650: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +651: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +652: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +653: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +654: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +655: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +656: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +657: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +658: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +659: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +660: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +661: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: §5.3 第 2 条 / DEC-5：逐图样式覆盖 「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局
+00:13 +662: /home/skystar/Live2D-Ai-fe/shell/flutter/test/semantics_test.dart: 规格 §9.1 之一：舞台 iframe 必须有语义标签（平台视图对读屏是黑盒） 有模型名时念「Live2D 舞台，正在显示 X」
+00:13 +663: /home/skystar/Live2D-Ai-fe/shell/flutter/test/semantics_test.dart: 规格 §9.1 之一：舞台 iframe 必须有语义标签（平台视图对读屏是黑盒） 有模型名时念「Live2D 舞台，正在显示 X」
+00:14 +664: /home/skystar/Live2D-Ai-fe/shell/flutter/test/semantics_test.dart: 规格 §9.1 之一：舞台 iframe 必须有语义标签（平台视图对读屏是黑盒） 有模型名时念「Live2D 舞台，正在显示 X」
+00:14 +665: /home/skystar/Live2D-Ai-fe/shell/flutter/test/semantics_test.dart: 规格 §9.1 之一：舞台 iframe 必须有语义标签（平台视图对读屏是黑盒） 有模型名时念「Live2D 舞台，正在显示 X」
+00:14 +666: /home/skystar/Live2D-Ai-fe/shell/flutter/test/display_prefs_background_fit_test.dart: 全局 background.enabled（DEC-4） app_shell 真的把开关传下去：关 → 不画图 + 脚手架底回不透明；开 → 透
+00:14 +667: /home/skystar/Live2D-Ai-fe/shell/flutter/test/display_prefs_background_fit_test.dart: 全局 background.enabled（DEC-4） app_shell 真的把开关传下去：关 → 不画图 + 脚手架底回不透明；开 → 透
+00:14 +668: /home/skystar/Live2D-Ai-fe/shell/flutter/test/display_prefs_background_fit_test.dart: 全局 background.enabled（DEC-4） app_shell 真的把开关传下去：关 → 不画图 + 脚手架底回不透明；开 → 透
+00:14 +669: /home/skystar/Live2D-Ai-fe/shell/flutter/test/display_prefs_background_fit_test.dart: 全局 background.enabled（DEC-4） app_shell 真的把开关传下去：关 → 不画图 + 脚手架底回不透明；开 → 透
+00:14 +670: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 一次拖动**只提交一次**；拖动中读数跟手；提交值 == 界面读数
+00:14 +671: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 一次拖动**只提交一次**；拖动中读数跟手；提交值 == 界面读数
+00:14 +672: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 一次拖动**只提交一次**；拖动中读数跟手；提交值 == 界面读数
+00:14 +673: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 一次拖动**只提交一次**；拖动中读数跟手；提交值 == 界面读数
+00:14 +674: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 expanded 侧板上的 ✕ 关闭（折回 0 宽，但不卸载）
+00:14 +675: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 expanded 侧板上的 ✕ 关闭（折回 0 宽，但不卸载）
+00:14 +676: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 expanded 侧板上的 ✕ 关闭（折回 0 宽，但不卸载）
+00:14 +677: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +678: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +679: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +680: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +681: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +682: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +683: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +684: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +685: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +686: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +687: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +688: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: 交接项 9a：滑杆「拖动只动草稿、停手才落盘」 本地偏好型滑杆都走同一条约定（不许漏一个）
+00:14 +689: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 medium 点「设置」→ 底部浮层（不开内联侧板）
+00:14 +690: /home/skystar/Live2D-Ai-fe/shell/flutter/test/semantics_test.dart: 规格 §9.2：焦点组与固定 Tab 顺序 音频条是 FocusTraversalGroup，且音量排在静音前面
+00:14 +691: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +692: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +693: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +694: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +695: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +696: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +697: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +698: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +699: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +700: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +701: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +702: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +703: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_style_test.dart: F-0003-3：批量删除按**身份**，重排之后不删错 勾第 1 张 → 原第 3 张拖到第 1 位 → 「删除所选」删的仍是当初那张
+00:14 +704: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 列出**全部**可见分区（一个都不少）
+00:14 +705: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +706: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +707: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +708: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +709: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +710: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +711: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +712: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +713: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +714: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +715: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +716: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +717: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +718: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +719: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +720: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +721: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 设置宿主分流 compact 换分区：就地换内容，页面不关（也就没有第 2 层可卡住）
+00:15 +722: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +723: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +724: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +725: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +726: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +727: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +728: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +729: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +730: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +731: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +732: /home/skystar/Live2D-Ai-fe/shell/flutter/test/audio_bar_volume_commit_test.dart: 一次拖动只提交一次（现状：每帧一次 ⇒ 每帧重写整份偏好）
+00:15 +733: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 列表渲染 全部会话都在，当前那个是选中态
+00:15 +734: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 列表渲染 全部会话都在，当前那个是选中态
+00:15 +735: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 列表渲染 全部会话都在，当前那个是选中态
+00:15 +736: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 列表渲染 全部会话都在，当前那个是选中态
+00:15 +737: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 列表渲染 全部会话都在，当前那个是选中态
+00:15 +738: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:15 +739: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:15 +740: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:15 +741: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +742: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +743: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +744: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +745: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +746: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +747: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +748: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 未识别当前模型：如实写 + 开关禁用（不假装能开）
+00:16 +749: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 切换与新建 点一行 → onSelect + 自动关闭
+00:16 +750: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 打开设置先加载当前分区（否则是「读不到服务端设置」空壳） 900（medium 下限）（900）打开设置 → 一定会加载
+00:16 +751: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 打开设置先加载当前分区（否则是「读不到服务端设置」空壳） 900（medium 下限）（900）打开设置 → 一定会加载
+00:16 +752: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 覆盖关闭：滑条是全局值，改的是草稿回调（旧语义不动）
+00:16 +753: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 重命名：**行内输入框**，不新开 overlay 点「改名」→ 该行变成输入框（预填现有名字）
+00:16 +754: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 重命名：**行内输入框**，不新开 overlay 点「改名」→ 该行变成输入框（预填现有名字）
+00:16 +755: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 重命名：**行内输入框**，不新开 overlay 点「改名」→ 该行变成输入框（预填现有名字）
+00:16 +756: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 覆盖开启：逐键有效值（head 覆盖、body/expr 回落全局）
+00:16 +757: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 覆盖开启：逐键有效值（head 覆盖、body/expr 回落全局）
+00:16 +757: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 打开设置先加载当前分区（否则是「读不到服务端设置」空壳） 390（手机）（390）打开设置 → 一定会加载
+
+Warning: A call to tap() with finder "Found 1 widget with text "外观与互动" (ignoring all but last): [
+  Text("外观与互动", dependencies: [DefaultSelectionStyle, DefaultTextStyle, MediaQuery]),
+]" derived an Offset (Offset(377.5, 150.0)) that would not hit test on the specified widget.
+Maybe the widget is actually off-screen, or another widget is obscuring it, or the widget cannot receive pointer events.
+The finder corresponds to this RenderBox: RenderParagraph#b4c16 relayoutBoundary=up24
+The hit test result at that offset is: HitTestResult(RenderDecoratedBox#74d27@Offset(369.5, 90.0), RenderStack#014d9@Offset(369.5, 90.0), RenderMouseRegion#90013@Offset(369.5, 90.0), RenderPadding#53f1b@Offset(377.5, 98.0), RenderPadding#88245@Offset(377.5, 98.0), _RenderColoredBox#11a12@Offset(377.5, 98.0), RenderOpacity#6ac71@Offset(377.5, 98.0), RenderIgnorePointer#c1a8a@Offset(377.5, 98.0), RenderOffstage#13f61@Offset(377.5, 98.0), RenderStack#b5164@Offset(377.5, 98.0), RenderCustomMultiChildLayoutBox#8e13d@Offset(377.5, 150.0), _RenderInkFeatures#cef4a@Offset(377.5, 150.0), RenderPhysicalModel#16005@Offset(377.5, 150.0), RenderSemanticsAnnotations#5f6b7@Offset(377.5, 150.0), RenderAnimatedOpacity#a58f8@Offset(377.5, 150.0), _RenderColoredBox#caa74@Offset(377.5, 150.0), _RenderLayoutBuilder#f15d5@Offset(377.5, 150.0), RenderPointerListener#6b546@Offset(377.5, 150.0), RenderSemanticsAnnotations#36e25@Offset(377.5, 150.0), RenderRepaintBoundary#3978f@Offset(377.5, 150.0), RenderIgnorePointer#64113@Offset(377.5, 150.0), RenderAnimatedOpacity#a2b6f@Offset(377.5, 150.0), RenderAnimatedOpacity#b01cc@Offset(377.5, 150.0), _RenderColoredBox#b4f5a@Offset(377.5, 150.0), RenderAnimatedOpacity#1b2ea@Offset(377.5, 150.0), RenderIgnorePointer#f8b0b@Offset(377.5, 150.0), RenderAnimatedOpacity#e3ab4@Offset(377.5, 150.0), RenderRepaintBoundary#a4936@Offset(377.5, 150.0), RenderSemanticsAnnotations#85a92@Offset(377.5, 150.0), RenderOffstage#e990a@Offset(377.5, 150.0), RenderSemanticsAnnotations#d0182@Offset(377.5, 150.0), _RenderTheater#110f4@Offset(377.5, 150.0), RenderAbsorbPointer#639c5@Offset(377.5, 150.0), RenderPointerListener#9113e@Offset(377.5, 150.0), RenderSemanticsAnnotations#3487f@Offset(377.5, 150.0), RenderCustomPaint#c9622@Offset(377.5, 150.0), RenderSemanticsAnnotations#ce972@Offset(377.5, 150.0), RenderSemanticsAnnotations#ef41e@Offset(377.5, 150.0), RenderSemanticsAnnotations#16f9d@Offset(377.5, 150.0), RenderTapRegionSurface#bb1f5@Offset(377.5, 150.0), RenderSemanticsAnnotations#768f7@Offset(377.5, 150.0), RenderSemanticsAnnotations#a012e@Offset(377.5, 150.0), HitTestEntry<HitTestTarget>#a8b12(_ReusableRenderView#36f5e), HitTestEntry<HitTestTarget>#a945b(<AutomatedTestWidgetsFlutterBinding>))
+#0      WidgetController._getElementPoint (package:flutter_test/src/controller.dart:2165:25)
+#1      WidgetController.getCenter (package:flutter_test/src/controller.dart:1947:12)
+#2      WidgetController.tap (package:flutter_test/src/controller.dart:1080:7)
+#3      main.<anonymous closure>.<anonymous closure> (file:///home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart:607:24)
+<asynchronous suspension>
+#4      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#5      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+#6      StackZoneSpecification._registerCallback.<anonymous closure> (package:stack_trace/src/stack_zone_specification.dart:114:42)
+<asynchronous suspension>
+To silence this warning, pass "warnIfMissed: false" to "tap()".
+To make this warning fatal, set WidgetController.hitTestWarningShouldBeFatal to true.
+
+00:16 +758: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 覆盖开启：逐键有效值（head 覆盖、body/expr 回落全局）
+00:16 +759: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 覆盖开启：逐键有效值（head 覆盖、body/expr 回落全局）
+00:16 +760: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 覆盖开启：逐键有效值（head 覆盖、body/expr 回落全局）
+00:16 +761: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 重命名：**行内输入框**，不新开 overlay 输入新名字 + 确定 → 回调收到 trim 后的值
+00:16 +762: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 打开设置先加载当前分区（否则是「读不到服务端设置」空壳） **expanded 靠的是 onEnsureSectionLoaded**（不是靠换分区）
+00:16 +763: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 「恢复跟随全局」：覆盖开启时可点并触发回调；关闭时禁用
+00:16 +764: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 「恢复跟随全局」：覆盖开启时可点并触发回调；关闭时禁用
+00:16 +765: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 「恢复跟随全局」：覆盖开启时可点并触发回调；关闭时禁用
+00:16 +766: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 「恢复跟随全局」：覆盖开启时可点并触发回调；关闭时禁用
+00:16 +767: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 「恢复跟随全局」：覆盖开启时可点并触发回调；关闭时禁用
+00:16 +768: /home/skystar/Live2D-Ai-fe/shell/flutter/test/session_sheet_test.dart: 重命名：**行内输入框**，不新开 overlay 空标题的会话：输入框**也是空的**（留空 = 恢复自动标题）
+00:16 +769: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +770: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +771: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +772: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +773: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +774: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +775: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_layout_test.dart: 浮层内容跟着设置数据重建（否则永远停在「加载中」） 浮层里的「加载中」会被数据回来后替换掉（真实分区构建器）
+00:16 +776: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 本模型覆盖开关：值来自宿主，关掉触发一次回调
+00:16 +777: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_section_test.dart: 本模型覆盖开关：值来自宿主，关掉触发一次回调
+00:16 +778: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:16 +779: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +780: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +781: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +782: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +783: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +784: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +785: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +786: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +787: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +788: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +789: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +790: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +791: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +792: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +793: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +794: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +795: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +796: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +797: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +798: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +799: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +800: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +801: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +802: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +803: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +804: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +805: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +806: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +807: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +808: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +809: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +810: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +811: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +812: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +813: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +814: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +815: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +816: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +817: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +818: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +819: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +820: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +821: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +822: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +823: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +824: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +825: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +826: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +827: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +828: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +829: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +830: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +831: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +832: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +833: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +834: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +835: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +836: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +837: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +838: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +839: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +840: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +841: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +842: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +843: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +844: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +845: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +846: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +847: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +848: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +849: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +850: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +851: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +852: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +853: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +854: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +855: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +856: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +857: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +858: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 四种控件都画出来，保存把当前值发出去
+00:17 +859: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_copy_test.dart: 遮罩说明不再承诺已删除的「按图变亮自动加强」
+00:17 +860: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_copy_test.dart: 遮罩说明不再承诺已删除的「按图变亮自动加强」
+00:17 +861: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_copy_test.dart: 遮罩说明不再承诺已删除的「按图变亮自动加强」
+00:17 +862: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +863: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +864: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +865: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +866: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +867: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +868: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 中途一定有「既不是起点也不是终点」的颜色
+00:18 +869: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 保存失败带错误码（不谎报成功）
+00:18 +870: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 保存失败带错误码（不谎报成功）
+00:18 +871: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 保存失败带错误码（不谎报成功）
+00:18 +872: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 保存失败带错误码（不谎报成功）
+00:18 +873: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 保存失败带错误码（不谎报成功）
+00:18 +874: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：正文真的渲染 Markdown `**粗体**` 走粗体 span，且**星号不在文本里**
+00:18 +875: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：正文真的渲染 Markdown `**粗体**` 走粗体 span，且**星号不在文本里**
+00:18 +876: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：正文真的渲染 Markdown `**粗体**` 走粗体 span，且**星号不在文本里**
+00:18 +877: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 **首帧不播**底色动画（页面第一次出现不该有一段渐变）
+00:18 +878: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 **首帧不播**底色动画（页面第一次出现不该有一段渐变）
+00:18 +879: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_color_motion_test.dart: P1-3：舞台底跟着主题**插值**，不是一步跳过去 **首帧不播**底色动画（页面第一次出现不该有一段渐变）
+00:18 +880: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +881: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +882: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +883: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +884: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +885: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +886: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +887: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +888: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +889: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +890: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +891: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +892: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +893: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +894: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 没有 onSaveConfig 时保存按钮禁用（不假装能保存）
+00:18 +895: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：正文真的渲染 Markdown **纯文本消息不进 `Text.rich`**（选择/复制行为保持原样）
+00:18 +896: /home/skystar/Live2D-Ai-fe/shell/flutter/test/mods_section_test.dart: Mod 面板：按 spec 渲染 + 保存 无 spec 的旧 Mod：保持只有开关、没有保存按钮
+00:18 +897: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：正文真的渲染 Markdown 流式中的半句话不会被当成 Markdown 解析（记号只在完整时才认）
+00:18 +898: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：复制按钮 非流式且非空的消息有「复制」
+00:18 +899: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：复制按钮 流式中**没有**复制（复制到的是半句话）
+00:18 +900: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：复制按钮 点一下把**原文**（含记号）放进剪贴板
+00:18 +901: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：复制按钮 复制后就地提示「已复制」，并且**不阻塞**别的东西
+00:18 +902: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: 必须被接线的构造（点名，每个都写清后果） `StageHost` 被外壳用上（否则舞台语义与加载/错误覆盖层全部失效）
+00:18 +903: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：宽度约束是「相对可用宽度」而不是写死的 460 气泡在 320 px 的聊天列里不会溢出
+00:18 +904: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：宽度约束是「相对可用宽度」而不是写死的 460 气泡在 320 px 的聊天列里不会溢出
+00:18 +905: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：宽度约束是「相对可用宽度」而不是写死的 460 气泡在 320 px 的聊天列里不会溢出
+00:18 +906: /home/skystar/Live2D-Ai-fe/shell/flutter/test/message_bubble_test.dart: P2-3：宽度约束是「相对可用宽度」而不是写死的 460 气泡在 320 px 的聊天列里不会溢出
+00:18 +907: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +908: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +909: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +910: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +911: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +912: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +913: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +914: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +915: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +916: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +917: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +918: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +919: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +920: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +921: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +922: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +923: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +924: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +925: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +926: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +927: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:18 +928: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:19 +929: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:19 +930: /home/skystar/Live2D-Ai-fe/shell/flutter/test/wiring_test.dart: PersonaSection：主链只剩系统提示词（M5.1） 只画系统提示词；卡字段与导入按钮都不在了
+00:19 +931: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_observer_test.dart: ① A 栏逐键对上 state_json（latest 七键 + 五个计数）
+00:19 +932: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_observer_test.dart: ① A 栏逐键对上 state_json（latest 七键 + 五个计数）
+00:19 +933: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_observer_test.dart: ① A 栏逐键对上 state_json（latest 七键 + 五个计数）
+00:19 +934: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_observer_test.dart: ① A 栏逐键对上 state_json（latest 七键 + 五个计数）
+00:19 +935: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_observer_test.dart: ① A 栏逐键对上 state_json（latest 七键 + 五个计数）
+00:19 +936: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_observer_test.dart: ① A 栏逐键对上 state_json（latest 七键 + 五个计数）
+00:19 +937: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_panel_test.dart: 瘦身主区：本轮预设 + 一行说明 预设结论上屏；旧的「最近决策 / 建议语速」不再出现
+00:19 +938: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_panel_test.dart: 瘦身主区：本轮预设 + 一行说明 预设结论上屏；旧的「最近决策 / 建议语速」不再出现
+00:19 +939: /home/skystar/Live2D-Ai-fe/shell/flutter/test/director_panel_test.dart: 瘦身主区：本轮预设 + 一行说明 预设结论上屏；旧的「最近决策 / 建议语速」不再出现
+00:19 +940: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:19 +941: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:19 +942: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:19 +943: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:19 +944: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +945: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +946: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +947: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +948: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +949: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +950: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +951: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +952: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +953: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +954: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +955: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +956: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +957: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +958: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 打开/关闭设置侧板 → 仍是同一个舞台实例
+00:20 +959: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_pointer_interceptor_test.dart: 设置面板（三种宿主都在舞台之上） expanded 内联侧板有垫层
+00:20 +960: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_pointer_interceptor_test.dart: 设置面板（三种宿主都在舞台之上） expanded 内联侧板有垫层
+00:20 +961: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **切换 8 个分区** → 仍是同一个舞台实例
+00:20 +962: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **切换 8 个分区** → 仍是同一个舞台实例
+00:21 +963: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **切换 8 个分区** → 仍是同一个舞台实例
+00:21 +964: /home/skystar/Live2D-Ai-fe/shell/flutter/test/action_scales_wiring_test.dart: W7：三层优先级（临时覆盖 > 草稿 > 磁盘值） 点「恢复产品设置」→ 产品值一定写下去（不受 _sent 去重挡住）
+00:21 +965: /home/skystar/Live2D-Ai-fe/shell/flutter/test/action_scales_wiring_test.dart: W7：三层优先级（临时覆盖 > 草稿 > 磁盘值） 点「恢复产品设置」→ 产品值一定写下去（不受 _sent 去重挡住）
+00:21 +966: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +967: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +968: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +969: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +970: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +971: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +972: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +973: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +974: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +975: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +976: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +977: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +978: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +979: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +980: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +981: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +982: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +983: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +984: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +985: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +986: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +987: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +988: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +989: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +990: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +991: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +992: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +993: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +994: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +995: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +996: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +997: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +998: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 **跨断点改宽度**（expanded → medium → compact → 回来）→ 仍是同一个实例
+00:21 +999: /home/skystar/Live2D-Ai-fe/shell/flutter/test/action_scales_wiring_test.dart: W7：点名的文案 / 通道口径守卫（B②/C③/A①） A①：叠加基础表情开关写明会「重新起算（2.6s 重新计时）」
+00:21 +1000: /home/skystar/Live2D-Ai-fe/shell/flutter/test/text_scale_test.dart: P4-3：消息气泡在放大字号下不溢出 含列表与行内码的长消息 @ 1.0x
+00:21 +1001: /home/skystar/Live2D-Ai-fe/shell/flutter/test/text_scale_test.dart: P4-3：消息气泡在放大字号下不溢出 含列表与行内码的长消息 @ 1.0x
+00:21 +1002: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1003: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1004: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1005: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1006: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1007: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1008: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1009: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1010: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1011: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:21 +1012: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1013: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1014: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1015: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1016: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1017: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1018: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1019: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1020: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1021: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1022: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1023: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1024: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1025: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1026: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1027: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1028: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1029: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1030: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1031: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1032: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1033: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1034: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1035: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1036: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1037: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1038: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1039: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1040: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1041: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1042: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1043: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1044: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1045: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1046: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1047: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1048: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1049: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1050: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1051: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1052: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1053: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1054: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1055: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1056: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1057: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1058: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1059: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1060: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1061: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1062: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台保活：iframe 绝不能被重建 外壳自己 setState（消息追加 / 流式下来）→ 舞台不受影响
+00:22 +1063: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）
+00:22 +1064: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）
+00:22 +1065: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）
+00:22 +1066: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）
+00:22 +1067: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）
+00:22 +1068: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 有背景 → 脚手架底是 `Colors.transparent`（让背景透上来）
+00:22 +1069: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:22 +1070: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:22 +1071: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1072: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1073: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1074: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1075: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1076: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1077: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1078: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1079: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1080: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1081: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1082: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1083: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 舞台覆盖层不卸载下层 离线横幅叠在舞台上，不替换它
+00:23 +1084: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 没有背景 → `null`（退回不透明的面，与「只有底色」一致）
+00:23 +1085: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 没有背景 → `null`（退回不透明的面，与「只有底色」一致）
+00:23 +1086: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: 没有背景 → `null`（退回不透明的面，与「只有底色」一致）
+00:23 +1087: /home/skystar/Live2D-Ai-fe/shell/flutter/test/stage_keepalive_test.dart: 断点在保活语义上的一致性 三档都声称「舞台常驻」——断点只决定聊天面板的位置
+00:23 +1088: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: **绝不能**写成反过来的方向（没有背景却给 transparent）
+00:23 +1089: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: `null` 确实是不透明的主题底（说明上面那条为什么致命）
+00:23 +1090: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: DEC-6 / 9b：运行时上下文由外壳**注入**（不是设置页自己猜） AppShell 把 index 与 hydrating 原样注入设置面板
+00:23 +1091: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：新建 / 切换 / 删除 空 store 里没有任何会话（**不在打开页面时就建一个**）
+00:23 +1092: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1093: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1094: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1095: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1096: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1097: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1098: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1099: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1100: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1101: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1102: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-5：两条死通路与悬空头注都不许复活 （源码扫描）那两个回调参数与那个不存在的主机类名：全仓零命中
+00:23 +1103: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 会话数超过上限时丢**最久没用过**的那个
+00:23 +1104: /home/skystar/Live2D-Ai-fe/shell/flutter/test/app_shell_background_test.dart: F-0001-2：预览跳转与运行时索引同步（接线面） （源码扫描）_jumpBackground 真的推给轮播控制器，且不新增任何帧
+00:23 +1105: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 裁剪**绝不删掉当前选中的会话**（存档被塞爆时也要成立）
+00:23 +1106: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 裁剪**绝不删掉当前选中的会话**（存档被塞爆时也要成立）
+00:23 +1107: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 裁剪**绝不删掉当前选中的会话**（存档被塞爆时也要成立）
+00:23 +1108: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 裁剪**绝不删掉当前选中的会话**（存档被塞爆时也要成立）
+00:23 +1109: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 单个会话的消息超过上限时丢**最旧**的
+00:23 +1110: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 消息上限与视图层一致（两处不一致会出现「看得见但重开就没了」）
+00:23 +1111: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话模型：排序与上限 pruneEmpty 清理空会话，但**保留当前那个**（哪怕它是空的）
+00:23 +1112: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：往返一致 完整往返（会话、消息、标题、时间、选中）
+00:23 +1113: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：往返一致 `streaming` **不落盘**（否则重开页面会得到永远转圈的气泡）
+00:23 +1114: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：往返一致 失败态要落盘（重开页面仍能看到「生成失败」）
+00:23 +1115: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：往返一致 未收尾兜底标记要落盘（重开页面仍要标「未收尾」）
+00:23 +1116: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） null / 空 / 非 Map → 空 store
+00:23 +1117: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 版本不符 → 整体丢弃（半懂不懂地读未来格式更危险）
+00:23 +1118: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 坏会话条目被丢弃，**好的仍然保留**
+00:23 +1119: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） activeId 指向不存在的会话 → 当作没选（而不是崩）
+00:23 +1120: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1121: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1122: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1123: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1124: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1125: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1126: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1127: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 序列化：坏数据**永不抛**（丢一条，不丢整段历史） 反序列化之后**仍然**受上限约束（存档被外部塞爆也要夹住）
+00:23 +1128: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 遮罩强度：三条设计线都要成立 遮罩色是主题的 stage（亮主题用白幕，不是黑幕）
+00:23 +1129: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 遮罩强度：三条设计线都要成立 遮罩色是主题的 stage（亮主题用白幕，不是黑幕）
+00:23 +1130: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 时间格式化（纯函数，显式传 now） 未来时间不显示负数（时钟回拨也要说人话）
+00:23 +1131: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 不足 2 项 → 永远不动
+00:23 +1132: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话 id：同一毫秒内建两个也不撞 连建 50 个（同一个 now）id 两两不同
+00:23 +1133: /home/skystar/Live2D-Ai-fe/shell/flutter/test/chat_session_test.dart: 会话 id：同一毫秒内建两个也不撞 连建 50 个（同一个 now）id 两两不同
+00:23 +1134: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 随机：**绝不返回当前这张**（200 次全部检查）
+00:23 +1135: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 随机：**绝不返回当前这张**（200 次全部检查）
+00:23 +1136: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 随机：**绝不返回当前这张**（200 次全部检查）
+00:23 +1137: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 随机：**绝不返回当前这张**（200 次全部检查）
+00:23 +1138: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 随机：**绝不返回当前这张**（200 次全部检查）
+00:23 +1139: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: 轮播索引：三种情形 越界的 current 先夹回范围（不抛、也不越界）
+00:23 +1140: /home/skystar/Live2D-Ai-fe/shell/flutter/test/background_logic_test.dart: ShellSlideshow：幂等与边界 项数不足 2 / 间隔为 0 → 不进定时器
+00:23 +1141: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1142: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1143: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1144: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1145: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1146: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1147: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1148: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1149: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1150: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1151: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1152: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1153: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1154: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1155: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1156: /home/skystar/Live2D-Ai-fe/shell/flutter/test/voice_input_panel_test.dart: 主区只有一行总闸状态 + 一句链路白话（缺省唤醒词 小可爱）
+00:23 +1157: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1158: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1159: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1160: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1161: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1162: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1163: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:23 +1164: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1165: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1166: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1167: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1168: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1169: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1170: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1171: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1172: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1173: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1174: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1175: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1176: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1177: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1178: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1179: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1180: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1181: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1182: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1183: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1184: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1185: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1186: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 10 次聊天增量最多只让当前设置分区重建 1 次（F-0005-2）
+00:24 +1187: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:24 +1188: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:25 +1189: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:25 +1190: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:25 +1191: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:25 +1192: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:25 +1193: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 只有 1 项时点缩略图 = 预览（onPreviewBackground 收到下标）
+00:25 +1194: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 钉子 9：**键盘路径也要解锁音频** 按任意键都会触发 onUserGesture（不只指针）
+00:25 +1195: /home/skystar/Live2D-Ai-fe/shell/flutter/test/rebuild_scope_test.dart: 设置面板打开时仍显示当前分区，切分区仍然生效
+00:25 +1196: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 管理模式（显式进）：点一行 = 勾选；「删除所选」上报**升序**下标
+00:25 +1197: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 管理模式（显式进）：点一行 = 勾选；「删除所选」上报**升序**下标
+00:25 +1198: /home/skystar/Live2D-Ai-fe/shell/flutter/test/appearance_background_library_test.dart: 管理模式（显式进）：点一行 = 勾选；「删除所选」上报**升序**下标
+00:25 +1199: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 钉子 9：**键盘路径也要解锁音频** 键盘处理器**不吞键**（否则输入框会被劫持）
+00:25 +1200: /home/skystar/Live2D-Ai-fe/shell/flutter/test/theme_picker_test.dart: 四个主题各渲染一个色块，且用的是**各自**的舞台底
+00:25 +1201: /home/skystar/Live2D-Ai-fe/shell/flutter/test/theme_picker_test.dart: 四个主题各渲染一个色块，且用的是**各自**的舞台底
+00:25 +1202: /home/skystar/Live2D-Ai-fe/shell/flutter/test/theme_picker_test.dart: 四个主题各渲染一个色块，且用的是**各自**的舞台底
+00:25 +1203: /home/skystar/Live2D-Ai-fe/shell/flutter/test/theme_picker_test.dart: 四个主题各渲染一个色块，且用的是**各自**的舞台底
+00:25 +1204: /home/skystar/Live2D-Ai-fe/shell/flutter/test/theme_picker_test.dart: 四个主题各渲染一个色块，且用的是**各自**的舞台底
+00:25 +1205: /home/skystar/Live2D-Ai-fe/shell/flutter/test/theme_picker_test.dart: 四个主题各渲染一个色块，且用的是**各自**的舞台底
+00:25 +1206: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 状态胶囊 + 连接徽标：文字本身就表意（不靠颜色） 5 个 WsStatus 各自有不同文字
+00:26 +1207: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 状态胶囊 + 连接徽标：文字本身就表意（不靠颜色） 5 个 WsStatus 各自有不同文字
+00:26 +1208: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 状态胶囊 + 连接徽标：文字本身就表意（不靠颜色） 5 个 WsStatus 各自有不同文字
+00:26 +1209: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 状态胶囊 + 连接徽标：文字本身就表意（不靠颜色） 5 个 WsStatus 各自有不同文字
+00:26 +1210: /home/skystar/Live2D-Ai-fe/shell/flutter/test/keyboard_test.dart: 状态胶囊 + 连接徽标：文字本身就表意（不靠颜色） 5 个 WsStatus 各自有不同文字
+00:26 +1211: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1212: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1213: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1214: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1215: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1216: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1217: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1218: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1219: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1220: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1221: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1222: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1223: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1224: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1225: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1226: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1227: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1228: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: forcedByLaunchFlag=true：开关是 on 且不可点，并说明原因
+00:26 +1229: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1230: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1231: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1232: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1233: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1234: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1235: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1236: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1237: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1238: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1239: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1240: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1241: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1242: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1243: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1244: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1245: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1246: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1247: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1248: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1249: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1250: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1251: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1252: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1253: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1254: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1255: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1256: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1257: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1258: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1259: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1260: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1261: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1262: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1263: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1264: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1265: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1266: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1267: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1268: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1269: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1270: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:26 +1271: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:27 +1272: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中 五项计数都上屏（文字，不靠颜色）
+00:27 +1273: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：默认动作强度 >= 1.2，点手势时一起下发
+00:27 +1274: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1275: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1276: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1277: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1278: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1279: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1280: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1281: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1282: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1283: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1284: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1285: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1286: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1287: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1288: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1289: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1290: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1291: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1292: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1293: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1294: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1295: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1296: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1297: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1298: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1299: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1300: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1301: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1302: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1303: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1304: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1305: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1306: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1307: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1308: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1309: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1310: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1311: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1312: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1313: /home/skystar/Live2D-Ai-fe/shell/flutter/test/shell_backdrop_test.dart: 缺省值：加了图就该看得见 「字节还没读回来」的项**画不出来**（画底色，不画半个空位）
+00:27 +1314: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1315: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1316: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1317: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1318: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1319: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1320: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1321: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1322: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1323: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 记忆列表：进入面板即 list + 两行渲染 + 无会话降级 list 返回两条 → 两行都渲染，args 带 session_id 与 limit
+00:27 +1324: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1325: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1326: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1327: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1328: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1329: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1330: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1331: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1332: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1333: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1334: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1335: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1336: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1337: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1338: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1339: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1340: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1341: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1342: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1343: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1344: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1345: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1346: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1347: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1348: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1349: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1350: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1351: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1352: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1353: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1354: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1355: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1356: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1357: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1358: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1359: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1360: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1361: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1362: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 动作调试：叠加基础表情开着时，先发 Face 再发 Gesture
+00:27 +1363: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 导入一条：onCommand(import) + args + 成功提示 输入文本 → 点导入 → import args 正确 + 通知已变更
+00:27 +1364: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 表情到点后：UI 显示「无（已到点）」，点手势不再重发它
+00:27 +1365: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 表情到点后：UI 显示「无（已到点）」，点手势不再重发它
+00:27 +1366: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 编辑 / 删除：按 id 定位 + 二次确认 编辑：对话框保存 → update args 带 id / text / session_id
+00:27 +1367: /home/skystar/Live2D-Ai-fe/shell/flutter/test/developer_section_test.dart: 按钮组来自标签表的 channel；取不到表时如实说明
+00:27 +1368: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 编辑 / 删除：按 id 定位 + 二次确认 删除：先确认；取消不发命令，确认才发 delete
+00:28 +1369: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 清空记忆库：触发 onCommand(clear) + 带码文案 点击清空 → onCommand(clear)，成功文案含清掉/现存条数
+00:28 +1370: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 清空记忆库：触发 onCommand(clear) + 带码文案 有注入残留时如实提示（strip_residue 语义）
+00:28 +1371: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 清空记忆库：触发 onCommand(clear) + 带码文案 失败：文案带错误码（不谎报成功）
+00:28 +1372: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 清空记忆库：触发 onCommand(clear) + 带码文案 Mod 未启用：清空按钮禁用 + 说明
+00:28 +1373: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） 有摘要时显示版本/正文，回滚按钮可点并走 summary_rollback
+00:28 +1374: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） 没有摘要时回滚按钮禁用；未启用整块仍可见（如实说）
+00:28 +1375: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 真摘要：状态 + 回滚按钮（P1-5） state 里没有 summary 键：整块不渲染（旧服务端兼容）
+00:28 +1376: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 注入开关说明它与 Mod 启停是两件事
+00:28 +1377: /home/skystar/Live2D-Ai-fe/shell/flutter/test/memory_panel_test.dart: 说明文案（瘦身版）：一句话说清边界，不塞契约全文 会话下按来源槽叠加，且不再复述文档 / 长契约
+00:28 +1378: All tests passed!
+TEST_EXIT=0

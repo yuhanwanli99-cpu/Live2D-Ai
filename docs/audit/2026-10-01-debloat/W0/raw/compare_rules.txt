@@ -1,0 +1,17 @@
+### CMD: python3 docs/audit/2026-10-01-debloat/W0/raw/compare_rules.py
+== Rust src（不含 xtask）==
+规则A 现实现   : prod=69801 inline=13395
+规则B 文档口径 : prod=67188 inline=16008
+PLAN §2        : prod=67381 inline=16006
+→ 规则A vs PLAN: prod +2420 (+3.59%)
+→ 规则B vs PLAN: prod -193 (-0.29%)
+
+== 差异文件（文档口径多掩掉的行数 > 100）==
+   + 784  total=  826 规则A掩码=    9 规则B掩码=  793  crates/live2d-ai-runtime/src/settings.rs
+   + 435  total=  592 规则A掩码=   70 规则B掩码=  505  crates/live2d-ai-desktop/src/web_api/mod.rs
+   + 429  total=  478 规则A掩码=    8 规则B掩码=  437  crates/live2d-ai-runtime/src/performance/mod.rs
+   + 360  total=  500 规则A掩码=  107 规则B掩码=  467  crates/live2d-ai-desktop/src/cli/mod.rs
+   + 260  total=  344 规则A掩码=   40 规则B掩码=  300  crates/live2d-ai-desktop/src/web_api/models_routes/mod.rs
+   + 208  total=  226 规则A掩码=    4 规则B掩码=  212  crates/live2d-ai-desktop/src/backend/mod.rs
+   + 129  total=  194 规则A掩码=    7 规则B掩码=  136  crates/live2d-ai-desktop/src/audio/mod.rs
+受影响文件数=7  合计低估内联=2605 行

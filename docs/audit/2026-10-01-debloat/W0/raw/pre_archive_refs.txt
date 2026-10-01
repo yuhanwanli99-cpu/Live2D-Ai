@@ -1,0 +1,484 @@
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:187:| 上轮交接 | `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md` |
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:97:| 本会话交接 | `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md`（本文件）|
+     docs/legacy/plan.md:6:把 `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md` §4.1 的两件未闭环待办做完：
+== [B·裸名命中（活层）] HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:3:> 本轮为上一会话 `HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md`（flaky 修复 +
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:187:| 上轮交接 | `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md` |
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:97:| 本会话交接 | `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md`（本文件）|
+== [C·裸名命中（docs/legacy 历史层，信息性）] HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md
+     docs/legacy/plan.md:6:把 `docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md` §4.1 的两件未闭环待办做完：
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-08-render-tiers-doc-consistency.md
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:188:| 渲染档位落地 | `docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md` |
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:41:- `docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md`：把 §3.4 flaky 改为「已修复」、
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:98:| 上一会话交接 | `docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md` |
+== [B·裸名命中（活层）] HANDOFF-2026-09-08-render-tiers-doc-consistency.md
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:188:| 渲染档位落地 | `docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md` |
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:3:> 本轮为上一会话（`HANDOFF-2026-09-08-render-tiers-doc-consistency.md`，渲染档位落地）的**续作**。
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:41:- `docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md`：把 §3.4 flaky 改为「已修复」、
+     docs/plans/HANDOFF-2026-09-08-flaky-fix-and-appjs-trim.md:98:| 上一会话交接 | `docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md` |
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-09-appjs-behavior-trim.md
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:186:| 本轮交接 | `docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md`（本文件） |
+     docs/legacy/plan.md:27:- `docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md`（交接与行数记录）
+     docs/legacy/plan.md:111:        - docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
+     docs/legacy/plan.md:123:        - 交接文档路径 docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
+== [B·裸名命中（活层）] HANDOFF-2026-09-09-appjs-behavior-trim.md
+     docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md:186:| 本轮交接 | `docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md`（本文件） |
+== [C·裸名命中（docs/legacy 历史层，信息性）] HANDOFF-2026-09-09-appjs-behavior-trim.md
+     docs/legacy/plan.md:27:- `docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md`（交接与行数记录）
+     docs/legacy/plan.md:111:        - docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
+     docs/legacy/plan.md:123:        - 交接文档路径 docs/plans/HANDOFF-2026-09-09-appjs-behavior-trim.md
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-10-four-questions.md
+     docs/plans/PLAN-four-topics-2026-09-10.md:3:> 依据：`docs/plans/HANDOFF-2026-09-10-four-questions.md`（同轮审计，含全部实测数据）。
+== [B·裸名命中（活层）] HANDOFF-2026-09-10-four-questions.md
+     docs/plans/PLAN-four-topics-2026-09-10.md:3:> 依据：`docs/plans/HANDOFF-2026-09-10-four-questions.md`（同轮审计，含全部实测数据）。
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-10.md
+     docs/plans/HANDOFF-2026-09-10-four-questions.md:48:- 本轮的 `docs/plans/HANDOFF-2026-09-10.md` 里写「37 个文件未提交」，实际是 39 项（26 M + 13 ??）→ 以 `git status` 为准。
+== [B·裸名命中（活层）] HANDOFF-2026-09-10.md
+     docs/plans/HANDOFF-2026-09-10-four-questions.md:48:- 本轮的 `docs/plans/HANDOFF-2026-09-10.md` 里写「37 个文件未提交」，实际是 39 项（26 M + 13 ??）→ 以 `git status` 为准。
+     docs/README.md:170:- [**交接说明（2026-09-10）：核心链路闭环 + 音频「很吵」修复**](plans/HANDOFF-2026-09-10.md)
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-11-core-chain-baseline.md
+     docs/releases/v0.1.0-rc.1.md:7:> 交接：[`docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md`](../plans/HANDOFF-2026-09-11-core-chain-baseline.md)。
+     AGENTS.md:788:  交接：`docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md`。
+== [B·裸名命中（活层）] HANDOFF-2026-09-11-core-chain-baseline.md
+     docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md:6:> 上一轮交接：`HANDOFF-2026-09-11-core-chain-baseline.md`（rc.1）。
+     docs/releases/v0.1.0-rc.1.md:7:> 交接：[`docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md`](../plans/HANDOFF-2026-09-11-core-chain-baseline.md)。
+     docs/README.md:163:- [交接说明（2026-09-11 晚）：核心链路基线 —— 工具/动作拆除 + 音频走媒体元素 + 三个真缺陷](plans/HANDOFF-2026-09-11-core-chain-baseline.md)
+     AGENTS.md:788:  交接：`docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md`。
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-11.md
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:279:| 上一版交接（已完成） | `docs/plans/HANDOFF-2026-09-11.md` |
+     docs/plans/HANDOFF-2026-09-11.md:384:- `docs/plans/HANDOFF-2026-09-11.md`
+     docs/legacy/HANDOVER.md:9:> - `docs/plans/HANDOFF-2026-09-11.md`（**当前交接**：v0.4.13 → v0.5.1 前端重做 +
+== [B·裸名命中（活层）] HANDOFF-2026-09-11.md
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:3:> **这是当前交接。** 上一版 `HANDOFF-2026-09-11.md`（v0.4.13 → v0.5.1 前端重做）
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:279:| 上一版交接（已完成） | `docs/plans/HANDOFF-2026-09-11.md` |
+     docs/plans/HANDOFF-2026-09-11.md:384:- `docs/plans/HANDOFF-2026-09-11.md`
+     docs/design/web-ui-spec-v3.md:2402:> 见 `HANDOFF-2026-09-11.md` §10.1①、`CHANGELOG.md` v0.5.1 §13，
+     docs/README.md:168:- [**交接说明（2026-09-11）：前端重做 + 真机验收 + 错误可观测性（v0.4.13 → v0.5.1）**](plans/HANDOFF-2026-09-11.md)
+== [C·裸名命中（docs/legacy 历史层，信息性）] HANDOFF-2026-09-11.md
+     docs/legacy/HANDOVER.md:9:> - `docs/plans/HANDOFF-2026-09-11.md`（**当前交接**：v0.4.13 → v0.5.1 前端重做 +
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-13-rc2-second-baseline.md
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:254:- rc.2 交接：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`
+     docs/releases/v0.1.0-rc.2.md:5:> **接手入口**：[`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`](../plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
+     docs/releases/v0.1.0-rc.3.md:272:- 上一轮：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`；
+     AGENTS.md:771:  **接手入口**：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`
+== [B·裸名命中（活层）] HANDOFF-2026-09-13-rc2-second-baseline.md
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:5:> ① 已发布 [`v0.1.0-rc.2`](../releases/v0.1.0-rc.2.md) + [`HANDOFF-2026-09-13-rc2-second-baseline.md`](HANDOFF-2026-09-13-rc2-second-baseline.md)；
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:234:[ ] 读完本文件 §0–§3 + HANDOFF-2026-09-13-rc2-second-baseline.md §5–§7
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:254:- rc.2 交接：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`
+     docs/releases/v0.1.0-rc.2.md:5:> **接手入口**：[`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`](../plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
+     docs/releases/v0.1.0-rc.3.md:272:- 上一轮：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`；
+     docs/README.md:158:- [**交接说明（2026-09-13）：rc.2 第二基线 —— 动作层删到底 + 模型闭环 + `.env` 密钥真源 + 推理模型思考**](plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
+     AGENTS.md:771:  **接手入口**：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-19-director-staging-wire.md
+     docs/plans/HANDOFF-2026-09-19-director-staging-wire.md:198:- `docs/plans/HANDOFF-2026-09-19-director-staging-wire.md`（本文）
+== [B·裸名命中（活层）] HANDOFF-2026-09-19-director-staging-wire.md
+     docs/plans/HANDOFF-2026-09-19-director-staging-wire.md:198:- `docs/plans/HANDOFF-2026-09-19-director-staging-wire.md`（本文）
+== [A·docs/plans/ 形态命中] HANDOFF-2026-09-20-memory-summary-and-amplitude-preview.md
+     docs/plans/HANDOFF-2026-09-20-memory-summary-and-amplitude-preview.md:235:- `docs/plans/HANDOFF-2026-09-20-memory-summary-and-amplitude-preview.md`（本文）
+== [B·裸名命中（活层）] HANDOFF-2026-09-20-memory-summary-and-amplitude-preview.md
+     docs/plans/HANDOFF-2026-09-20-memory-summary-and-amplitude-preview.md:235:- `docs/plans/HANDOFF-2026-09-20-memory-summary-and-amplitude-preview.md`（本文）
+== [B·裸名命中（活层）] IGNITION-CHECKLIST-l1.md
+     docs/plans/L1-CLOSEOUT.md:338:然后按 [IGNITION-CHECKLIST-l1.md](IGNITION-CHECKLIST-l1.md) §3 勾选。四轨各自的最短路径：
+     docs/plans/L1-CLOSEOUT.md:351:- 验收入口：[IGNITION-CHECKLIST-l1.md](IGNITION-CHECKLIST-l1.md)
+     docs/plans/IGNITION-CHECKLIST-product-grade.md:14:  [`IGNITION-CHECKLIST-l1.md`](IGNITION-CHECKLIST-l1.md)；本文件只留作历史。
+== [A·docs/plans/ 形态命中] IGNITION-CHECKLIST-product-grade.md
+     AGENTS.md:553:  点火：[`docs/plans/IGNITION-CHECKLIST-product-grade.md`](docs/plans/IGNITION-CHECKLIST-product-grade.md)。
+== [B·裸名命中（活层）] IGNITION-CHECKLIST-product-grade.md
+     docs/plans/IGNITION-CHECKLIST-stabilize.md:6:> **请改用** [`IGNITION-CHECKLIST-product-grade.md`](IGNITION-CHECKLIST-product-grade.md)：
+     docs/plans/IGNITION-CHECKLIST-l1.md:17:> - 上一版清单（产品级加强波次）：[IGNITION-CHECKLIST-product-grade.md](IGNITION-CHECKLIST-product-grade.md)
+     docs/plans/PRODUCT-GRADE-CLOSEOUT.md:202:[`IGNITION-CHECKLIST-product-grade.md`](IGNITION-CHECKLIST-product-grade.md)。
+     docs/plans/PRODUCT-GRADE-CLOSEOUT.md:241:- 点火清单：[`IGNITION-CHECKLIST-product-grade.md`](IGNITION-CHECKLIST-product-grade.md)
+     docs/README.md:143:- [**点火验收清单（产品级加强波次 / `mod/product-grade`）：给用户在 Windows 上照单勾选**](plans/IGNITION-CHECKLIST-product-grade.md)
+     AGENTS.md:553:  点火：[`docs/plans/IGNITION-CHECKLIST-product-grade.md`](docs/plans/IGNITION-CHECKLIST-product-grade.md)。
+== [B·裸名命中（活层）] IGNITION-CHECKLIST-stabilize.md
+     docs/plans/parallel-mods/STABILIZE-CLOSEOUT.md:107:| **给用户勾选** | [`../IGNITION-CHECKLIST-stabilize.md`](../IGNITION-CHECKLIST-stabilize.md) |
+     docs/plans/STABILIZE-PRECHECK-RESULT.md:5:> 对应清单：[`IGNITION-CHECKLIST-stabilize.md`](IGNITION-CHECKLIST-stabilize.md)。
+     docs/plans/IGNITION-CHECKLIST-product-grade.md:15:- 上一版清单（Wave 3 / stabilize）：[`IGNITION-CHECKLIST-stabilize.md`](IGNITION-CHECKLIST-stabilize.md)
+     docs/plans/IGNITION-CHECKLIST-product-grade.md:306:- 上一版清单（历史）：[`IGNITION-CHECKLIST-stabilize.md`](IGNITION-CHECKLIST-stabilize.md)
+     docs/audit/2026-09-15-five-mod-review.md:71:`IGNITION-CHECKLIST-stabilize.md` §1.2 明确写「设在哪：`.env`」）。
+     docs/README.md:148:- [点火验收清单（stabilize，**已被取代**）](plans/IGNITION-CHECKLIST-stabilize.md)
+== [A·docs/plans/ 形态命中] IMPL-PROMPTS-key-single-source-and-settings-trim.md
+     docs/plans/ORCHESTRATOR-PROMPT-settings-and-key.md:14:**任务真源**：`/home/skystar/Live2D-Ai-l1/docs/plans/IMPL-PROMPTS-key-single-source-and-settings-trim.md`。
+== [B·裸名命中（活层）] IMPL-PROMPTS-key-single-source-and-settings-trim.md
+     docs/plans/ORCHESTRATOR-PROMPT-settings-and-key.md:14:**任务真源**：`/home/skystar/Live2D-Ai-l1/docs/plans/IMPL-PROMPTS-key-single-source-and-settings-trim.md`。
+== [B·裸名命中（活层）] L1-CLOSEOUT.md
+     docs/plans/IGNITION-CHECKLIST-l1.md:264:- 收束报告：[L1-CLOSEOUT.md](L1-CLOSEOUT.md)
+== [A·docs/plans/ 形态命中] PLAN-0.2.0-rc1-mod-era-baseline-2026-09-14.md
+     docs/releases/v0.2.0-rc.1.md:6:> 范围真源：本轮任务书逐条列出的「必做 / 禁止」+ `docs/plans/PLAN-0.2.0-rc1-mod-era-baseline-2026-09-14.md`。
+== [B·裸名命中（活层）] PLAN-0.2.0-rc1-mod-era-baseline-2026-09-14.md
+     docs/releases/v0.2.0-rc.1.md:6:> 范围真源：本轮任务书逐条列出的「必做 / 禁止」+ `docs/plans/PLAN-0.2.0-rc1-mod-era-baseline-2026-09-14.md`。
+== [B·裸名命中（活层）] PLAN-PC-V1.md
+     docs/plans/PLAN-PC-V2.md:4:> 版本：v2（在 PLAN-PC-V1.md 基础上重构，重点解决“人设/Live2D/TTS 链路不自然”与“插件化/开源发布”）。
+== [B·裸名命中（活层）] PLAN-PC-V2.md
+     docs/plans/PLAN-PC-V3.md:4:> 版本：v3，替代 PLAN-PC-V2.md 的 3-LLM 方案。
+== [B·裸名命中（活层）] PLAN-PC-V3.md
+     docs/plans/PLAN-PC-V4.md:4:> 版本：v4，取代 PLAN-PC-V3.md。
+== [A·docs/plans/ 形态命中] PLAN-PHASE1.md
+     docs/plans/PLAN-PHASE1-VERIFICATION.md:4:> 验证对象: docs/plans/PLAN-PHASE1.md（架构师 Phase 1 规划，2026-08-08 产出）
+== [B·裸名命中（活层）] PLAN-PHASE1.md
+     docs/plans/PLAN-PHASE1-VERIFICATION.md:4:> 验证对象: docs/plans/PLAN-PHASE1.md（架构师 Phase 1 规划，2026-08-08 产出）
+== [B·裸名命中（活层）] PLAN-V1-draft-2026-08-21.md
+     docs/plans/PLAN-V1.md:5:> 本文件取代 `PLAN-PC-V1~V4` 与 `PLAN-V1-draft-2026-08-21.md`，是 v1 达成前的唯一执行口径。
+     docs/README.md:186:- 历史计划：`plans/plan-*.md`、`plans/plan-task-*.md`、`plans/PLAN-PHASE1*.md`、`plans/PLAN-PC-V1~V4`、`plans/PLAN-V1-draft-2026-08-21.md`
+== [A·docs/plans/ 形态命中] PLAN-V1.md
+     docs/plans/PLAN-V2-PC-LOCAL-TTS.md:7:> 本计划取代 docs/plans/PLAN-V1.md，是当前 PC 端唯一执行口径；计划完成后由项目作者裁决是否打 v1.0.0。
+== [B·裸名命中（活层）] PLAN-V1.md
+     docs/plans/PLAN-V2-PC-LOCAL-TTS.md:7:> 本计划取代 docs/plans/PLAN-V1.md，是当前 PC 端唯一执行口径；计划完成后由项目作者裁决是否打 v1.0.0。
+     docs/README.md:184:- [PLAN-V1.md（上一版 PC 计划，已被 V2 取代）](plans/PLAN-V1.md)
+== [A·docs/plans/ 形态命中] PLAN-V2-PC-LOCAL-TTS.md
+     docs/legacy/HANDOVER.md:24:- **当前唯一执行口径**：`docs/plans/PLAN-V2-PC-LOCAL-TTS.md`（仅 PC，附带本地 Melo TTS 需求；取代 PLAN-V1）。
+== [B·裸名命中（活层）] PLAN-V2-PC-LOCAL-TTS.md
+     docs/README.md:182:- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，含本地 Melo TTS）**](plans/PLAN-V2-PC-LOCAL-TTS.md)
+== [C·裸名命中（docs/legacy 历史层，信息性）] PLAN-V2-PC-LOCAL-TTS.md
+     docs/legacy/HANDOVER.md:24:- **当前唯一执行口径**：`docs/plans/PLAN-V2-PC-LOCAL-TTS.md`（仅 PC，附带本地 Melo TTS 需求；取代 PLAN-V1）。
+== [B·裸名命中（活层）] PLAN-V3-SOULLINK-PERFORMANCE.md
+     docs/README.md:183:- [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](plans/PLAN-V3-SOULLINK-PERFORMANCE.md)
+== [A·docs/plans/ 形态命中] PLAN-audio-wav-path-2026-09-11.md
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:134:- `docs/plans/PLAN-audio-wav-path-2026-09-11.md` —— 音频路径改造方案（为何 WAV 不用 mp3）。
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:281:| 音频路径方案 | `docs/plans/PLAN-audio-wav-path-2026-09-11.md` |
+== [B·裸名命中（活层）] PLAN-audio-wav-path-2026-09-11.md
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:134:- `docs/plans/PLAN-audio-wav-path-2026-09-11.md` —— 音频路径改造方案（为何 WAV 不用 mp3）。
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:281:| 音频路径方案 | `docs/plans/PLAN-audio-wav-path-2026-09-11.md` |
+     docs/README.md:175:- [**音频路径方案：后端出 WAV、前端 `<audio>` 播放（2026-09-11，已实施）**](plans/PLAN-audio-wav-path-2026-09-11.md)
+== [A·docs/plans/ 形态命中] PLAN-frontend-strengthening-2026-09-11.md
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:282:| 前端加强计划（P0–P4，已完成） | `docs/plans/PLAN-frontend-strengthening-2026-09-11.md` |
+== [B·裸名命中（活层）] PLAN-frontend-strengthening-2026-09-11.md
+     docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md:282:| 前端加强计划（P0–P4，已完成） | `docs/plans/PLAN-frontend-strengthening-2026-09-11.md` |
+     docs/plans/PLAN-visual-substance-2026-09-27.md:16:上一轮（`PLAN-frontend-strengthening-2026-09-11.md`）已经把 **机制** 搬完了
+     docs/README.md:172:- [**前端加强计划：参考 Morrow 前端（2026-09-11，已完成）**](plans/PLAN-frontend-strengthening-2026-09-11.md)
+== [A·docs/plans/ 形态命中] PLAN-ignition-core-loop-2026-09-10.md
+     docs/plans/HANDOFF-2026-09-11.md:334:- `docs/plans/PLAN-ignition-core-loop-2026-09-10.md`
+== [B·裸名命中（活层）] PLAN-ignition-core-loop-2026-09-10.md
+     docs/plans/HANDOFF-2026-09-11.md:334:- `docs/plans/PLAN-ignition-core-loop-2026-09-10.md`
+     docs/README.md:177:- [**点火计划：核心链路闭环 + 本地 Mod（2026-09-10，当前执行口径）**](plans/PLAN-ignition-core-loop-2026-09-10.md)
+== [A·docs/plans/ 形态命中] PLAN-rc2-second-baseline-2026-09-12.md
+     docs/releases/v0.1.0-rc.2.md:4:> **范围真源**：[`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md`](../plans/PLAN-rc2-second-baseline-2026-09-12.md) §0。
+     AGENTS.md:231:详细分工与验收：`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §3。
+== [B·裸名命中（活层）] PLAN-rc2-second-baseline-2026-09-12.md
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:7:> ③ [`PLAN-rc2-second-baseline-2026-09-12.md`](PLAN-rc2-second-baseline-2026-09-12.md) 中明确推到 rc.3 的条目。
+     docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md:4:> [`PLAN-rc2-second-baseline-2026-09-12.md`](PLAN-rc2-second-baseline-2026-09-12.md)（§0 冻结范围），
+     docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md:120:1. 读本文件 + `PLAN-rc2-second-baseline-2026-09-12.md` §0（冻结范围）+ `releases/v0.1.0-rc.2.md`；
+     docs/releases/v0.1.0-rc.2.md:4:> **范围真源**：[`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md`](../plans/PLAN-rc2-second-baseline-2026-09-12.md) §0。
+     AGENTS.md:231:详细分工与验收：`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §3。
+== [A·docs/plans/ 形态命中] PLAN-rc3-structure-quality-2026-09-13.md
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:253:- 计划真源（本文件）：`docs/plans/PLAN-rc3-structure-quality-2026-09-13.md`
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:268:真源：docs/plans/PLAN-rc3-structure-quality-2026-09-13.md
+     docs/releases/v0.1.0-rc.3.md:270:- 本轮范围真源：`docs/plans/PLAN-rc3-structure-quality-2026-09-13.md`（DoD 已全部满足）；
+== [B·裸名命中（活层）] PLAN-rc3-structure-quality-2026-09-13.md
+     docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md:4:> **上游**：`v0.1.0-rc.3` @ `0220fd03`；[`PLAN-rc3-…`](PLAN-rc3-structure-quality-2026-09-13.md)；rc.3 发布说明 §9 挂账；用户裁决（上层走 Mod、主链慎加、角色卡出主链、只留 `system_prompt`）。
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:253:- 计划真源（本文件）：`docs/plans/PLAN-rc3-structure-quality-2026-09-13.md`
+     docs/plans/PLAN-rc3-structure-quality-2026-09-13.md:268:真源：docs/plans/PLAN-rc3-structure-quality-2026-09-13.md
+     docs/releases/v0.1.0-rc.3.md:4:> [`PLAN-rc3-structure-quality-2026-09-13.md`](../plans/PLAN-rc3-structure-quality-2026-09-13.md)。
+     docs/releases/v0.1.0-rc.3.md:270:- 本轮范围真源：`docs/plans/PLAN-rc3-structure-quality-2026-09-13.md`（DoD 已全部满足）；
+     AGENTS.md:379:   属于步骤 2，**停**，记到 `PLAN-rc3-structure-quality-2026-09-13.md` §10 backlog。
+== [A·docs/plans/ 形态命中] PLAN-rc4-mod-product-chain-2026-09-13.md
+     docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md:221:真源：docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md
+== [B·裸名命中（活层）] PLAN-rc4-mod-product-chain-2026-09-13.md
+     docs/architecture/mod-product-chain.md:5:> 真源计划：[`../plans/PLAN-rc4-mod-product-chain-2026-09-13.md`](../plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
+     docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md:221:真源：docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md
+     docs/releases/v0.1.0-rc.4.md:4:> [`PLAN-rc4-mod-product-chain-2026-09-13.md`](../plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
+== [A·docs/plans/ 形态命中] PRODUCT-GRADE-CLOSEOUT.md
+     AGENTS.md:60:  收束见 `docs/plans/PRODUCT-GRADE-CLOSEOUT.md`。
+     AGENTS.md:552:  收束：[`docs/plans/PRODUCT-GRADE-CLOSEOUT.md`](docs/plans/PRODUCT-GRADE-CLOSEOUT.md)；
+== [B·裸名命中（活层）] PRODUCT-GRADE-CLOSEOUT.md
+     docs/plans/IGNITION-CHECKLIST-product-grade.md:301:- 收束报告：[`PRODUCT-GRADE-CLOSEOUT.md`](PRODUCT-GRADE-CLOSEOUT.md)
+     docs/README.md:146:- [**产品级加强波次收束报告**](plans/PRODUCT-GRADE-CLOSEOUT.md)
+     AGENTS.md:60:  收束见 `docs/plans/PRODUCT-GRADE-CLOSEOUT.md`。
+     AGENTS.md:552:  收束：[`docs/plans/PRODUCT-GRADE-CLOSEOUT.md`](docs/plans/PRODUCT-GRADE-CLOSEOUT.md)；
+== [A·docs/plans/ 形态命中] PRODUCT-L1-GOALS-2026-09-15.md
+     docs/architecture/memory-mod-v0.md:9:> **版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`
+     docs/plans/ORCHESTRATOR-PROMPT-actions-performance-round.md:49:| **W1** 文档对齐 | `AGENTS.md`、`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`、`docs/README.md`（**director-rfc.md 归 W8**） |
+     docs/plans/HANDOFF-2026-09-21-actions-performance-wave0-1.md:124:| **W1** | `AGENTS.md`、`docs/README.md`、`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`(§10) | 新增「动作与表演的**现行状态**（2026-09 实测）」五条事实+真源；`:112` / `:27` / `:137` / `:450` 的假断言改成带现状更正；GOALS `:6` / `:43` 加指针。**我另修了 R2 泄漏**（见 §7.2） |
+     docs/plans/HANDOFF-2026-09-21-actions-performance-wave0-1.md:338:    docs/plans/PRODUCT-L1-GOALS-2026-09-15.md                     (W1)
+     docs/plans/IMPL-PROMPTS-actions-performance-round.md:52:docs/plans/PRODUCT-L1-GOALS-2026-09-15.md:39 的非目标写「不复活 Action」、director「本轮不做」，
+     docs/plans/IMPL-PROMPTS-actions-performance-round.md:77:【文件归属】AGENTS.md、docs/plans/PRODUCT-L1-GOALS-2026-09-15.md、docs/architecture/action-packs-v0.md、
+     docs/plans/RESEARCH-actions-director-audit-2026-09-21.md:300:| `docs/plans/PRODUCT-L1-GOALS-2026-09-15.md:39` | 非目标：「**不复活 Action**」；director「**本轮不做**」 | director 在 `mods.json` 里 `enabled: true` |
+     docs/audit/2026-09-28-rc7/REPO-HYGIENE.md:35:| `/home/skystar/Live2D-Ai-product` | `mod/product-grade` | 1 | 有 1 份**唯一**未跟踪文档 `docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`，与 `-fe` 同名文件 **cmp 不同**（不是重复副本）⇒ 不删，交维护者裁决。 |
+== [B·裸名命中（活层）] PRODUCT-L1-GOALS-2026-09-15.md
+     docs/architecture/session-scope-l1.md:6:> **范围真源**：[PRODUCT-L1-GOALS-2026-09-15](../plans/PRODUCT-L1-GOALS-2026-09-15.md)。
+     docs/architecture/memory-mod-v0.md:9:> **版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`
+     docs/plans/ORCHESTRATOR-PROMPT-actions-performance-round.md:49:| **W1** 文档对齐 | `AGENTS.md`、`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`、`docs/README.md`（**director-rfc.md 归 W8**） |
+     docs/plans/HANDOFF-2026-09-21-actions-performance-wave0-1.md:124:| **W1** | `AGENTS.md`、`docs/README.md`、`docs/plans/PRODUCT-L1-GOALS-2026-09-15.md`、`docs/architecture/action-packs-v0.md`(§10) | 新增「动作与表演的**现行状态**（2026-09 实测）」五条事实+真源；`:112` / `:27` / `:137` / `:450` 的假断言改成带现状更正；GOALS `:6` / `:43` 加指针。**我另修了 R2 泄漏**（见 §7.2） |
+     docs/plans/HANDOFF-2026-09-21-actions-performance-wave0-1.md:338:    docs/plans/PRODUCT-L1-GOALS-2026-09-15.md                     (W1)
+     docs/plans/IMPL-PROMPTS-actions-performance-round.md:52:docs/plans/PRODUCT-L1-GOALS-2026-09-15.md:39 的非目标写「不复活 Action」、director「本轮不做」，
+     docs/plans/IMPL-PROMPTS-actions-performance-round.md:62:3. PRODUCT-L1-GOALS-2026-09-15.md：在 §5「非目标」的「不复活 Action」与 §2 表格 director 行后各加一句现状更正
+     docs/plans/IMPL-PROMPTS-actions-performance-round.md:77:【文件归属】AGENTS.md、docs/plans/PRODUCT-L1-GOALS-2026-09-15.md、docs/architecture/action-packs-v0.md、
+     docs/plans/L1-CLOSEOUT.md:9:> - **范围真源**：[PRODUCT-L1-GOALS-2026-09-15.md](PRODUCT-L1-GOALS-2026-09-15.md)。
+     docs/plans/L1-CLOSEOUT.md:350:- 范围真源：[PRODUCT-L1-GOALS-2026-09-15.md](PRODUCT-L1-GOALS-2026-09-15.md)
+     docs/plans/IGNITION-CHECKLIST-l1.md:9:> - **范围真源**：[PRODUCT-L1-GOALS-2026-09-15.md](PRODUCT-L1-GOALS-2026-09-15.md)。
+     docs/plans/IGNITION-CHECKLIST-l1.md:263:- 范围真源：[PRODUCT-L1-GOALS-2026-09-15.md](PRODUCT-L1-GOALS-2026-09-15.md)
+== [A·docs/plans/ 形态命中] Phase-0-notes-level3.md
+     docs/plans/PLAN-PHASE1.md:921:| `docs/plans/Phase-0-notes-level3.md` | 级3 差距矩阵，本规划 Part B 据此设计 |
+== [B·裸名命中（活层）] Phase-0-notes-level3.md
+     docs/plans/PLAN-PHASE1.md:921:| `docs/plans/Phase-0-notes-level3.md` | 级3 差距矩阵，本规划 Part B 据此设计 |
+     docs/plans/Phase-0-notes-refactor-level3.md:147:基于已有文档 `Phase-0-notes-level3.md` 和代码现状，明确三层级定义：
+== [B·裸名命中（活层）] Phase-0-notes.md
+     docs/README.md:187:- [Phase-0 notes](plans/Phase-0-notes.md)
+== [A·docs/plans/ 形态命中] RUST-REWRITE-RFC.md
+     docs/plans/branch-review-boundary-2026-08-31.md:28:   - 对应计划：`docs/plans/RUST-REWRITE-RFC.md`
+     docs/plans/RUST-REWRITE-RFC.md:145:docs/plans/RUST-REWRITE-RFC.md     # 本文档（记录 D1–D12）
+     docs/plans/node-d-py-asset-migration.md:5:> 对齐基准：`docs/plans/RUST-REWRITE-RFC.md` D1–D12（特别是 D3 Rust ≥ 95%、D6 LLM SSE、D7 TTS 统一 OpenAI-compatible、D9 6 动作+release 协议）、`crates/live2d-ai-core/src/action/mod.rs`（已落地的 6 动作枚举）、`docs/architecture/core-contracts.md` / `directory.md`。
+== [B·裸名命中（活层）] RUST-REWRITE-RFC.md
+     docs/plans/branch-review-boundary-2026-08-31.md:28:   - 对应计划：`docs/plans/RUST-REWRITE-RFC.md`
+     docs/plans/RUST-REWRITE-RFC.md:145:docs/plans/RUST-REWRITE-RFC.md     # 本文档（记录 D1–D12）
+     docs/plans/node-d-py-asset-migration.md:5:> 对齐基准：`docs/plans/RUST-REWRITE-RFC.md` D1–D12（特别是 D3 Rust ≥ 95%、D6 LLM SSE、D7 TTS 统一 OpenAI-compatible、D9 6 动作+release 协议）、`crates/live2d-ai-core/src/action/mod.rs`（已落地的 6 动作枚举）、`docs/architecture/core-contracts.md` / `directory.md`。
+     docs/README.md:178:- [**Rust 重建 RFC**](plans/RUST-REWRITE-RFC.md)
+== [B·裸名命中（活层）] STABILIZE-PRECHECK-RESULT.md
+     docs/plans/IGNITION-CHECKLIST-stabilize.md:14:> 下文 §2.2 第 15 行与 `STABILIZE-PRECHECK-RESULT.md` 里的 503 记录都是**当时的**。
+     docs/plans/IGNITION-CHECKLIST-stabilize.md:19:> [`STABILIZE-PRECHECK-RESULT.md`](STABILIZE-PRECHECK-RESULT.md)）与
+     docs/plans/IGNITION-CHECKLIST-stabilize.md:100:> [`STABILIZE-PRECHECK-RESULT.md`](STABILIZE-PRECHECK-RESULT.md) §3。
+     docs/plans/IGNITION-CHECKLIST-stabilize.md:163:[`STABILIZE-PRECHECK-RESULT.md`](STABILIZE-PRECHECK-RESULT.md)。
+     docs/plans/IGNITION-CHECKLIST-stabilize.md:319:- 预检结果（本轮实跑）：[`STABILIZE-PRECHECK-RESULT.md`](STABILIZE-PRECHECK-RESULT.md)
+     docs/plans/parallel-mods/STABILIZE-CLOSEOUT.md:80:完整逐项表：[`../STABILIZE-PRECHECK-RESULT.md`](../STABILIZE-PRECHECK-RESULT.md)。
+     docs/plans/parallel-mods/STABILIZE-CLOSEOUT.md:108:| 给审查 | [`../STABILIZE-PRECHECK-RESULT.md`](../STABILIZE-PRECHECK-RESULT.md) |
+     docs/README.md:151:  与实跑记录 [`STABILIZE-PRECHECK-RESULT.md`](plans/STABILIZE-PRECHECK-RESULT.md)
+== [A·docs/plans/ 形态命中] STAGE2-CLOSEOUT-plan-2026-09-24.md
+     docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md:136:- **计数差 1（192→193）**：维护者本轮新增的 `docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md`（未跟踪）；工作树内容零改动，worker「零写操作」成立。
+     docs/plans/STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md:8:> 裁决与现状真源：`docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md` §7。
+== [B·裸名命中（活层）] STAGE2-CLOSEOUT-plan-2026-09-24.md
+     docs/plans/STAGE3-single-driver-plan-2026-09-24.md:5:> 前置：阶段2 已收口（见 `STAGE2-CLOSEOUT-plan-2026-09-24.md` §7.7）。
+     docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md:136:- **计数差 1（192→193）**：维护者本轮新增的 `docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md`（未跟踪）；工作树内容零改动，worker「零写操作」成立。
+     docs/plans/STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md:8:> 裁决与现状真源：`docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md` §7。
+== [A·docs/plans/ 形态命中] STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md
+     docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md:165:`docs/plans/STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md`，维护者只交编排者一个入口。
+== [B·裸名命中（活层）] STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md
+     docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md:165:`docs/plans/STAGE2-CLOSEOUT2-worker-prompts-2026-09-24.md`，维护者只交编排者一个入口。
+== [A·docs/plans/ 形态命中] STAGE2-WAVE2-plan-2026-09-22.md
+     docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md:7:> 上一版范围冻结：`docs/plans/STAGE2-WAVE2-plan-2026-09-22.md`（含 §8 暂停裁决）。
+     docs/plans/STAGE2-WAVE2-plan-2026-09-22.md:109:阶段计划：/home/skystar/Live2D-Ai-l1/docs/plans/STAGE2-WAVE2-plan-2026-09-22.md
+== [B·裸名命中（活层）] STAGE2-WAVE2-plan-2026-09-22.md
+     docs/plans/STAGE2-CLOSEOUT-plan-2026-09-24.md:7:> 上一版范围冻结：`docs/plans/STAGE2-WAVE2-plan-2026-09-22.md`（含 §8 暂停裁决）。
+     docs/plans/STAGE2-WAVE2-plan-2026-09-22.md:109:阶段计划：/home/skystar/Live2D-Ai-l1/docs/plans/STAGE2-WAVE2-plan-2026-09-22.md
+== [B·裸名命中（活层）] STAGE3-CLOSEOUT-2026-09-26.md
+     docs/architecture/performance-protocol-v1.md:627:| 阶段3 收口（D14 / D20 纪律） | [STAGE3-CLOSEOUT-2026-09-26.md](../plans/STAGE3-CLOSEOUT-2026-09-26.md) |
+     docs/plans/STAGE4-plan-2026-09-26.md:6:> 前置：阶段3 已收口（[STAGE3-CLOSEOUT-2026-09-26.md](STAGE3-CLOSEOUT-2026-09-26.md)）。
+== [B·裸名命中（活层）] STAGE3-WORKER-PROMPTS-2026-09-24.md
+     docs/plans/STAGE3-CLOSEOUT-2026-09-26.md:4:> 范围/裁决真源：`STAGE3-single-driver-plan-2026-09-24.md`（D10–D13）；执行真源：`STAGE3-WORKER-PROMPTS-2026-09-24.md`。
+== [A·docs/plans/ 形态命中] STAGE3-single-driver-plan-2026-09-24.md
+     docs/plans/STAGE3-WORKER-PROMPTS-2026-09-24.md:5:> 范围与裁决真源：`docs/plans/STAGE3-single-driver-plan-2026-09-24.md`（D10–D13）。
+     docs/plans/STAGE3-WORKER-PROMPTS-2026-09-24.md:17:【先读】docs/plans/STAGE3-single-driver-plan-2026-09-24.md §1/§2/§3（现状与裁决 D10–D13）。
+     docs/plans/STAGE3-WORKER-PROMPTS-2026-09-24.md:55:【先读】docs/plans/STAGE3-single-driver-plan-2026-09-24.md §0-§2（裁决 D10/D11/D12 必须体现在文档里）。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:176:  3. docs/plans/STAGE3-single-driver-plan-2026-09-24.md §4（既有验收口径，可参考形式）。
+== [B·裸名命中（活层）] STAGE3-single-driver-plan-2026-09-24.md
+     docs/plans/STAGE3-CLOSEOUT-2026-09-26.md:4:> 范围/裁决真源：`STAGE3-single-driver-plan-2026-09-24.md`（D10–D13）；执行真源：`STAGE3-WORKER-PROMPTS-2026-09-24.md`。
+     docs/plans/STAGE3-WORKER-PROMPTS-2026-09-24.md:5:> 范围与裁决真源：`docs/plans/STAGE3-single-driver-plan-2026-09-24.md`（D10–D13）。
+     docs/plans/STAGE3-WORKER-PROMPTS-2026-09-24.md:17:【先读】docs/plans/STAGE3-single-driver-plan-2026-09-24.md §1/§2/§3（现状与裁决 D10–D13）。
+     docs/plans/STAGE3-WORKER-PROMPTS-2026-09-24.md:55:【先读】docs/plans/STAGE3-single-driver-plan-2026-09-24.md §0-§2（裁决 D10/D11/D12 必须体现在文档里）。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:176:  3. docs/plans/STAGE3-single-driver-plan-2026-09-24.md §4（既有验收口径，可参考形式）。
+== [A·docs/plans/ 形态命中] STAGE4-CLOSEOUT-2026-09-26.md
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:245:  docs/plans/STAGE4-CLOSEOUT-2026-09-26.md（新建收口报告）
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:254:4. 写收口报告 docs/plans/STAGE4-CLOSEOUT-2026-09-26.md：门禁双来源 + 负对照清单 + 残留。
+== [B·裸名命中（活层）] STAGE4-CLOSEOUT-2026-09-26.md
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:245:  docs/plans/STAGE4-CLOSEOUT-2026-09-26.md（新建收口报告）
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:254:4. 写收口报告 docs/plans/STAGE4-CLOSEOUT-2026-09-26.md：门禁双来源 + 负对照清单 + 残留。
+== [A·docs/plans/ 形态命中] STAGE4-WORKER-PROMPTS-2026-09-26.md
+     docs/plans/STAGE4-plan-2026-09-26.md:141:| **4a** | `docs/architecture/performance-protocol-v1.md`(新)、`docs/architecture/performance-layer-v0.md`、`docs/architecture/action-packs-v0.md`、`docs/architecture/director-mod-v0.md`、`docs/plans/STAGE4-plan-2026-09-26.md`(新)、`docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md`(新) | 已完成（零代码） |
+== [B·裸名命中（活层）] STAGE4-WORKER-PROMPTS-2026-09-26.md
+     docs/architecture/performance-protocol-v1.md:628:| 阶段4 计划 / worker 提示词 | [STAGE4-plan-2026-09-26.md](../plans/STAGE4-plan-2026-09-26.md) · [STAGE4-WORKER-PROMPTS-2026-09-26.md](../plans/STAGE4-WORKER-PROMPTS-2026-09-26.md) |
+     docs/plans/STAGE4-plan-2026-09-26.md:73:5. 新建本文件 + [STAGE4-WORKER-PROMPTS-2026-09-26.md](STAGE4-WORKER-PROMPTS-2026-09-26.md)。
+     docs/plans/STAGE4-plan-2026-09-26.md:141:| **4a** | `docs/architecture/performance-protocol-v1.md`(新)、`docs/architecture/performance-layer-v0.md`、`docs/architecture/action-packs-v0.md`、`docs/architecture/director-mod-v0.md`、`docs/plans/STAGE4-plan-2026-09-26.md`(新)、`docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md`(新) | 已完成（零代码） |
+== [A·docs/plans/ 形态命中] STAGE4-plan-2026-09-26.md
+     docs/plans/STAGE4-plan-2026-09-26.md:141:| **4a** | `docs/architecture/performance-protocol-v1.md`(新)、`docs/architecture/performance-layer-v0.md`、`docs/architecture/action-packs-v0.md`、`docs/architecture/director-mod-v0.md`、`docs/plans/STAGE4-plan-2026-09-26.md`(新)、`docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md`(新) | 已完成（零代码） |
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:28:  2. docs/plans/STAGE4-plan-2026-09-26.md §1/§2(4b)/§4.2/§4.6/§4.7（判据与负对照纪律）。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:104:  2. docs/plans/STAGE4-plan-2026-09-26.md §2(4c)/§3/§4.3/§4.6/§4.7。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:175:  2. docs/plans/STAGE4-plan-2026-09-26.md §2(4d)/§3/§4.4/§4.6/§4.7（D14 口径）。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:236:  4. docs/plans/STAGE4-plan-2026-09-26.md §2(4e)/§3/§4.5/§4.6/§4.7。
+== [B·裸名命中（活层）] STAGE4-plan-2026-09-26.md
+     docs/architecture/performance-protocol-v1.md:628:| 阶段4 计划 / worker 提示词 | [STAGE4-plan-2026-09-26.md](../plans/STAGE4-plan-2026-09-26.md) · [STAGE4-WORKER-PROMPTS-2026-09-26.md](../plans/STAGE4-WORKER-PROMPTS-2026-09-26.md) |
+     docs/plans/STAGE4-CLOSEOUT-2026-09-26.md:7:> · [STAGE4-plan-2026-09-26.md](STAGE4-plan-2026-09-26.md) §2(4e)/§3/§4.5/§4.6/§4.7。
+     docs/plans/STAGE4-plan-2026-09-26.md:141:| **4a** | `docs/architecture/performance-protocol-v1.md`(新)、`docs/architecture/performance-layer-v0.md`、`docs/architecture/action-packs-v0.md`、`docs/architecture/director-mod-v0.md`、`docs/plans/STAGE4-plan-2026-09-26.md`(新)、`docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md`(新) | 已完成（零代码） |
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:5:> （并行、文件零重叠，见 [STAGE4-plan-2026-09-26.md](STAGE4-plan-2026-09-26.md) §3）→
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:8:> 范围与判据真源：[STAGE4-plan-2026-09-26.md](STAGE4-plan-2026-09-26.md)（波次 4a–4e）
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:28:  2. docs/plans/STAGE4-plan-2026-09-26.md §1/§2(4b)/§4.2/§4.6/§4.7（判据与负对照纪律）。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:104:  2. docs/plans/STAGE4-plan-2026-09-26.md §2(4c)/§3/§4.3/§4.6/§4.7。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:175:  2. docs/plans/STAGE4-plan-2026-09-26.md §2(4d)/§3/§4.4/§4.6/§4.7（D14 口径）。
+     docs/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md:236:  4. docs/plans/STAGE4-plan-2026-09-26.md §2(4e)/§3/§4.5/§4.6/§4.7。
+== [A·docs/plans/ 形态命中] STAGE5-CLOSEOUT-2026-09-26.md
+     docs/plans/STAGE5-CLOSEOUT-2026-09-26.md:241:| `docs/plans/STAGE5-CLOSEOUT-2026-09-26.md` | 本文件 |
+     docs/plans/STAGE5-CLOSEOUT-2026-09-26.md:275:  ??  docs/plans/STAGE5-CLOSEOUT-2026-09-26.md                           W5c
+== [B·裸名命中（活层）] STAGE5-CLOSEOUT-2026-09-26.md
+     docs/plans/STAGE5-CLOSEOUT-2026-09-26.md:241:| `docs/plans/STAGE5-CLOSEOUT-2026-09-26.md` | 本文件 |
+     docs/plans/STAGE5-CLOSEOUT-2026-09-26.md:275:  ??  docs/plans/STAGE5-CLOSEOUT-2026-09-26.md                           W5c
+== [B·裸名命中（活层）] STAGE5-SCOPE-2026-09-26.md
+     docs/plans/STAGE5-CLOSEOUT-2026-09-26.md:8:> 范围真源：[STAGE5-SCOPE-2026-09-26.md](STAGE5-SCOPE-2026-09-26.md)（§1 D40–D43 / §2 A–D 与 E / §3 文件归属 / §4 版本待确认）。
+== [A·docs/plans/ 形态命中] branch-review-boundary-2026-08-31.md
+     docs/architecture/core-contracts.md:113:- 待裁决：`shared/persona.yaml` 的权威地位（见 `docs/plans/branch-review-boundary-2026-08-31.md`）。
+== [B·裸名命中（活层）] branch-review-boundary-2026-08-31.md
+     docs/architecture/core-contracts.md:113:- 待裁决：`shared/persona.yaml` 的权威地位（见 `docs/plans/branch-review-boundary-2026-08-31.md`）。
+== [A·docs/plans/ 形态命中] integrity-takeover-fix-plan-2026-09-07.md
+     docs/architecture/renderer-texture-tier-adr.md:5:> 关联：`docs/plans/integrity-takeover-fix-plan-2026-09-07.md` §4（渲染档位可行性）
+== [B·裸名命中（活层）] integrity-takeover-fix-plan-2026-09-07.md
+     docs/architecture/renderer-texture-tier-adr.md:5:> 关联：`docs/plans/integrity-takeover-fix-plan-2026-09-07.md` §4（渲染档位可行性）
+     docs/README.md:180:- [**接手修复与渲染档位计划（2026-09-07，S1/S2 完成）**](plans/integrity-takeover-fix-plan-2026-09-07.md)
+== [B·裸名命中（活层）] node-a-wiring-audit-brief.md
+     docs/README.md:181:- [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](plans/node-a-wiring-audit-brief.md)
+== [A·docs/plans/ 形态命中] node-c-c1-c11-formal-audit-2026-08-27.md
+     docs/verification/node-c-c5-static-frame-trace-2026-08-27.md:3:> **任务**：P1-1，验证 `docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
+     docs/verification/node-c-c5-static-frame-trace-2026-08-27.md:209:裁决源：`docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md` C5 节 87-98 行。
+     docs/verification/node-c-c7-llvmpipe-benchmark-2026-08-27.md:3:> **任务范围**：实施 `docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
+== [B·裸名命中（活层）] node-c-c1-c11-formal-audit-2026-08-27.md
+     docs/plans/node-c-render-platform-audit-brief.md:10:> [`node-c-c1-c11-formal-audit-2026-08-27.md`](node-c-c1-c11-formal-audit-2026-08-27.md)。
+     docs/verification/node-c-c5-static-frame-trace-2026-08-27.md:3:> **任务**：P1-1，验证 `docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
+     docs/verification/node-c-c5-static-frame-trace-2026-08-27.md:209:裁决源：`docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md` C5 节 87-98 行。
+     docs/verification/node-c-c7-llvmpipe-benchmark-2026-08-27.md:3:> **任务范围**：实施 `docs/plans/node-c-c1-c11-formal-audit-2026-08-27.md`
+== [A·docs/plans/ 形态命中] node-c-render-platform-audit-brief.md
+     docs/verification/node-c-manual-acceptance-checklist-draft.md:5:> 适用范围：`docs/plans/node-c-render-platform-audit-brief.md` 中需列入手动验收清单的 C10（拖动人工复验项）与 C11（托盘恢复链路）。本文件只起草操作步骤与判据，不做最终裁决。
+     docs/verification/node-c-location-recheck-2026-08-27.md:3:> 范围：仅核查 `docs/plans/node-c-render-platform-audit-brief.md`「现状事实」
+== [B·裸名命中（活层）] node-c-render-platform-audit-brief.md
+     docs/verification/node-c-manual-acceptance-checklist-draft.md:5:> 适用范围：`docs/plans/node-c-render-platform-audit-brief.md` 中需列入手动验收清单的 C10（拖动人工复验项）与 C11（托盘恢复链路）。本文件只起草操作步骤与判据，不做最终裁决。
+     docs/verification/node-c-location-recheck-2026-08-27.md:3:> 范围：仅核查 `docs/plans/node-c-render-platform-audit-brief.md`「现状事实」
+== [A·docs/plans/ 形态命中] node-d-api-contract-2026-08-28.md
+     docs/plans/branch-review-boundary-2026-08-31.md:60:| 计划文档 | `docs/plans/node-d-api-contract-2026-08-28.md`, `node-d-d3-rendering-route.md`, `node-d-py-asset-migration.md` |
+     docs/plans/IMPL-PROMPTS-key-single-source-and-settings-trim.md:188:   docs/plans/node-d-api-contract-2026-08-28.md 是历史计划，加一行「已被本次变更取代」即可，不重写。
+== [B·裸名命中（活层）] node-d-api-contract-2026-08-28.md
+     docs/plans/branch-review-boundary-2026-08-31.md:60:| 计划文档 | `docs/plans/node-d-api-contract-2026-08-28.md`, `node-d-d3-rendering-route.md`, `node-d-py-asset-migration.md` |
+     docs/plans/IMPL-PROMPTS-key-single-source-and-settings-trim.md:188:   docs/plans/node-d-api-contract-2026-08-28.md 是历史计划，加一行「已被本次变更取代」即可，不重写。
+== [A·docs/plans/ 形态命中] node-d-d3-rendering-route.md
+     docs/plans/node-d-api-contract-2026-08-28.md:529:   `docs/plans/node-d-d3-rendering-route.md`（**A 路线 — 浏览器直接渲染**）。
+== [B·裸名命中（活层）] node-d-d3-rendering-route.md
+     docs/plans/branch-review-boundary-2026-08-31.md:60:| 计划文档 | `docs/plans/node-d-api-contract-2026-08-28.md`, `node-d-d3-rendering-route.md`, `node-d-py-asset-migration.md` |
+     docs/plans/node-d-api-contract-2026-08-28.md:529:   `docs/plans/node-d-d3-rendering-route.md`（**A 路线 — 浏览器直接渲染**）。
+== [A·docs/plans/ 形态命中] node-d-py-asset-migration.md
+     docs/research/ui-design-control-surface-2026-09.md:112:`docs/plans/node-d-py-asset-migration.md` 的迁移表：
+     docs/research/ui-design-control-surface-2026-09.md:276:| 空闲 + LLM 调动作 | `Start{llm}` | 徽标「AI」+ 可选一句 `reason`（工具参数里有 `reason`：R3 保留 3 参数 `action/strength/reason`）【已验证·本仓库】`docs/plans/node-d-py-asset-migration.md` R3 |
+     docs/research/ui-design-control-surface-2026-09.md:1084:文档：`AGENTS.md`、`docs/plans/node-d-py-asset-migration.md`、`docs/research/idle-motion-tracking-and-director-2026-09.md`（相邻调研，仅引用不重复）。
+== [B·裸名命中（活层）] node-d-py-asset-migration.md
+     docs/plans/branch-review-boundary-2026-08-31.md:60:| 计划文档 | `docs/plans/node-d-api-contract-2026-08-28.md`, `node-d-d3-rendering-route.md`, `node-d-py-asset-migration.md` |
+     docs/research/ui-design-control-surface-2026-09.md:112:`docs/plans/node-d-py-asset-migration.md` 的迁移表：
+     docs/research/ui-design-control-surface-2026-09.md:276:| 空闲 + LLM 调动作 | `Start{llm}` | 徽标「AI」+ 可选一句 `reason`（工具参数里有 `reason`：R3 保留 3 参数 `action/strength/reason`）【已验证·本仓库】`docs/plans/node-d-py-asset-migration.md` R3 |
+     docs/research/ui-design-control-surface-2026-09.md:1084:文档：`AGENTS.md`、`docs/plans/node-d-py-asset-migration.md`、`docs/research/idle-motion-tracking-and-director-2026-09.md`（相邻调研，仅引用不重复）。
+== [A·docs/plans/ 形态命中] node-e-execution-plan.md
+     docs/legacy/AGENT.md:22:| `docs/plans/node-e-execution-plan.md` | Mod 系统（节点 E）执行计划 |
+== [B·裸名命中（活层）] node-e-execution-plan.md
+     docs/plans/node-f-execution-plan.md:3:> 接续 `node-e-execution-plan.md`（节点 E 已完成，tag `node-e-final`）。
+== [C·裸名命中（docs/legacy 历史层，信息性）] node-e-execution-plan.md
+     docs/legacy/AGENT.md:22:| `docs/plans/node-e-execution-plan.md` | Mod 系统（节点 E）执行计划 |
+== [A·docs/plans/ 形态命中] node-e-mod-system-plan.md
+     docs/plans/node-e-mod-adr-e0.md:4:> 关联：`docs/plans/node-e-mod-system-plan.md`（已退回修改，本文档为其修正版「边界裁决」）
+== [B·裸名命中（活层）] node-e-mod-system-plan.md
+     docs/plans/node-e-mod-adr-e0.md:4:> 关联：`docs/plans/node-e-mod-system-plan.md`（已退回修改，本文档为其修正版「边界裁决」）
+== [A·docs/plans/ 形态命中] node-f-execution-plan.md
+     docs/legacy/AGENT.md:23:| `docs/plans/node-f-execution-plan.md` | 核心链路收口 → 5 Mod 开箱即用（节点 F）|
+== [C·裸名命中（docs/legacy 历史层，信息性）] node-f-execution-plan.md
+     docs/legacy/AGENT.md:23:| `docs/plans/node-f-execution-plan.md` | 核心链路收口 → 5 Mod 开箱即用（节点 F）|
+== [A·docs/plans/ 形态命中] plan-task-extract-vision.md
+     docs/plans/test-task-extract-vision.md:5:> 设计依据: `docs/plans/plan-task-extract-vision.md`（§1.3 验收标准、§4/§5 接口定义、§6 文件清单）
+== [B·裸名命中（活层）] plan-task-extract-vision.md
+     docs/plans/plan-task-chat-tool-loop.md:645:| `plan-task-extract-vision.md` §1.2 | Vision 插件的 ToolDefinition 路径 Wave 2 启用（本设计是前置依赖） |
+     docs/plans/test-task-extract-vision.md:5:> 设计依据: `docs/plans/plan-task-extract-vision.md`（§1.3 验收标准、§4/§5 接口定义、§6 文件清单）
+     docs/plans/plan-task-plugin-agent-tools.md:60:这部分是 **core 侧改动**，建议作为本任务的**子任务 0**先行落地并单独验收（因为它是 vision 插件"Wave 2 待接入"能力和本插件共同的前置依赖，参见 `plan-task-extract-vision.md` §1.2 表格），再叠加 agent-tools 具体工具实现。
+== [B·裸名命中（活层）] plan-task-local-llm.md
+     docs/plans/plan-task-chat-tool-loop.md:646:| `plan-task-local-llm.md` §3.3 | LLMProvider 抽象（本设计的 `executeNonStreamingRequest` 复用 `provider.baseUrl`/`apiKey`） |
+== [A·docs/plans/ 形态命中] plan-task-model-config.md
+     docs/plans/plan-task-model-config.md:301:| `docs/plans/plan-task-model-config.md` | 本文档 |
+== [B·裸名命中（活层）] plan-task-model-config.md
+     docs/plans/plan-task-model-config.md:301:| `docs/plans/plan-task-model-config.md` | 本文档 |
+== [A·docs/plans/ 形态命中] plan-task-plugin-agent-tools.md
+     docs/plans/plan-task-chat-tool-loop.md:18:- `docs/plans/plan-task-plugin-agent-tools.md` §2.2：「子任务 0 — 扩展 ApiModels.kt + ChatService」
+== [B·裸名命中（活层）] plan-task-plugin-agent-tools.md
+     docs/plans/plan-task-chat-tool-loop.md:18:- `docs/plans/plan-task-plugin-agent-tools.md` §2.2：「子任务 0 — 扩展 ApiModels.kt + ChatService」
+     docs/plans/plan-task-chat-tool-loop.md:644:| `plan-task-plugin-agent-tools.md` §2.1-2.2 | 确认机制职责归属 + 子任务 0 范围（本设计覆盖子任务 0 全部内容） |
+== [A·docs/plans/ 形态命中] plan-task-plugin-architecture.md
+     docs/plans/plan-task-chat-tool-loop.md:17:- `docs/plans/plan-task-plugin-architecture.md` §7：「`ToolDefinition` 的请求/响应循环（工具调用）接入 `ChatService` ⏳ 未做」
+     docs/plans/test-task-plugin-skeletons.md:7:> 对应设计: `docs/plans/plugin-template.md`、`docs/plans/plan-task-plugin-architecture.md` §4 Wave 2
+     docs/plans/plan-task-plugin-agent-tools.md:51:`docs/plans/plan-task-plugin-architecture.md` §4.3 已明确记录：
+== [B·裸名命中（活层）] plan-task-plugin-architecture.md
+     docs/plans/plan-task-chat-tool-loop.md:17:- `docs/plans/plan-task-plugin-architecture.md` §7：「`ToolDefinition` 的请求/响应循环（工具调用）接入 `ChatService` ⏳ 未做」
+     docs/plans/plan-task-chat-tool-loop.md:643:| `plan-task-plugin-architecture.md` §3.3 | ChatService 重构要求（已部分完成，本设计补齐 tool loop） |
+     docs/plans/test-task-plugin-skeletons.md:7:> 对应设计: `docs/plans/plugin-template.md`、`docs/plans/plan-task-plugin-architecture.md` §4 Wave 2
+     docs/plans/plan-task-plugin-agent-tools.md:51:`docs/plans/plan-task-plugin-architecture.md` §4.3 已明确记录：
+== [A·docs/plans/ 形态命中] plan-task-plugin-memory.md
+     docs/plans/PLAN-PC-V1.md:211:- 记忆/知识已有设计文档 docs/plans/plan-task-plugin-memory.md，但只覆盖 Android。
+== [B·裸名命中（活层）] plan-task-plugin-memory.md
+     docs/plans/PLAN-PC-V1.md:211:- 记忆/知识已有设计文档 docs/plans/plan-task-plugin-memory.md，但只覆盖 Android。
+     docs/plans/plan-task-plugin-proactive.md:181:> 注：`afterReceive` 签名已按 `plan-task-plugin-memory.md` §4.2 的方案 A 扩展为带 `context` 参数——两个 Wave 2 功能任务都依赖这一处 SDK 改动，需协调好谁先落地（建议 `task-plugin-memory` 先做这处 SDK 改动，`task-plugin-proactive` 直接复用，避免冲突）。
+== [A·docs/plans/ 形态命中] plan-task-plugin-proactive.md
+     docs/plans/plan-v12-plan.md:574:基于已有骨架 `live2d-ai-plugin-proactive`（`docs/plans/plan-task-plugin-proactive.md` 详细设计），落地为可工作的主动陪伴插件：`WorkManager` 周期检查 → 时间感知 → `PluginHost.sendAssistantMessage()` 主动说话。
+     docs/plans/plan-v12-plan.md:578:已有完整设计文档 `docs/plans/plan-task-plugin-proactive.md`（约 300 行），核心组件：
+== [B·裸名命中（活层）] plan-task-plugin-proactive.md
+     docs/plans/plan-v12-plan.md:574:基于已有骨架 `live2d-ai-plugin-proactive`（`docs/plans/plan-task-plugin-proactive.md` 详细设计），落地为可工作的主动陪伴插件：`WorkManager` 周期检查 → 时间感知 → `PluginHost.sendAssistantMessage()` 主动说话。
+     docs/plans/plan-v12-plan.md:578:已有完整设计文档 `docs/plans/plan-task-plugin-proactive.md`（约 300 行），核心组件：
+     docs/plans/plan-v12-plan.md:615:| `live2d-ai-plugin-proactive/` 下多个文件 | **修改** | 按 plan-task-plugin-proactive.md 落地 |
+     docs/plans/plan-v12-plan.md:811:| 18 | `live2d-ai-plugin-proactive/` 下多个文件 | 6 | 按 plan-task-plugin-proactive.md 落地 |
+== [A·docs/plans/ 形态命中] plan-v12-plan.md
+     docs/plans/PLAN-PHASE1.md:925:| `docs/plans/plan-v12-plan.md` | V1.2 语音重塑，TtsProvider 接口已落地，本规划在此基础上扩展级3能力 |
+== [B·裸名命中（活层）] plan-v12-plan.md
+     docs/plans/PLAN-PHASE1.md:925:| `docs/plans/plan-v12-plan.md` | V1.2 语音重塑，TtsProvider 接口已落地，本规划在此基础上扩展级3能力 |
+== [A·docs/plans/ 形态命中] plan-verify-e2e.md
+     docs/plans/plan-task-ci.md:360:| R7 | **Gradle wrapper 缺失** | 历史出现过（详见 `docs/plans/plan-verify-e2e.md`） | CI 第一步检查 `gradlew` 文件存在性；如果缺失，用 `gradle wrapper --gradle-version 8.10` 生成 |
+     docs/plans/plan-verify-e2e.md:367:| `docs/plans/plan-verify-e2e.md` | 本文档 |
+== [B·裸名命中（活层）] plan-verify-e2e.md
+     docs/plans/plan-task-ci.md:360:| R7 | **Gradle wrapper 缺失** | 历史出现过（详见 `docs/plans/plan-verify-e2e.md`） | CI 第一步检查 `gradlew` 文件存在性；如果缺失，用 `gradle wrapper --gradle-version 8.10` 生成 |
+     docs/plans/plan-verify-e2e.md:367:| `docs/plans/plan-verify-e2e.md` | 本文档 |
+== [A·docs/plans/ 形态命中] plugin-template.md
+     docs/plans/test-task-plugin-skeletons.md:7:> 对应设计: `docs/plans/plugin-template.md`、`docs/plans/plan-task-plugin-architecture.md` §4 Wave 2
+     docs/plans/test-task-plugin-skeletons.md:70:逐文件比对 `docs/plans/plugin-template.md` 与三个模块的实际产出：
+     docs/plans/test-task-plugin-skeletons.md:105:3 `docs/plans/plugin-template.md` 把"骨架→功能→core 接入"的转换规则写成了文档化的硬规则（§7），后续功能任务的交接不依赖口头约定
+     docs/plans/plan-task-plugin-architecture.md:118:采用 MVP 策略：先按 `docs/plans/plugin-template.md` 交付**统一骨架**（三个 module 均可编译、无功能、无副作用），再分别排期功能实现任务。
+     docs/plans/plan-task-plugin-architecture.md:122:| `task-plugin-template` | 提炼 `docs/plans/plugin-template.md` 骨架模板（module 结构/build.gradle.kts/Plugin+Config+Test 代码模板/骨架→功能→接入 core 的转换规则） | ✅ 已交付 |
+     docs/plans/plan-task-plugin-agent-tools.md:192:这是本插件对"接缝在 core、逻辑在插件"模式的第三次复用（vision 的 `ScreenshotProvider`、memory/proactive 的 LLM 客户端接口、这里的通知桥接），说明该模式已经是本项目插件架构的**通用范式**，值得在 `docs/plans/plugin-template.md` 里补一条通用指导（见 §6）。
+     docs/plans/plan-task-plugin-agent-tools.md:255:## 6.1 补充：`docs/plans/plugin-template.md` 建议增补的通用范式
+== [B·裸名命中（活层）] plugin-template.md
+     docs/plans/test-task-plugin-skeletons.md:7:> 对应设计: `docs/plans/plugin-template.md`、`docs/plans/plan-task-plugin-architecture.md` §4 Wave 2
+     docs/plans/test-task-plugin-skeletons.md:70:逐文件比对 `docs/plans/plugin-template.md` 与三个模块的实际产出：
+     docs/plans/test-task-plugin-skeletons.md:105:3 `docs/plans/plugin-template.md` 把"骨架→功能→core 接入"的转换规则写成了文档化的硬规则（§7），后续功能任务的交接不依赖口头约定
+     docs/plans/plan-task-plugin-architecture.md:118:采用 MVP 策略：先按 `docs/plans/plugin-template.md` 交付**统一骨架**（三个 module 均可编译、无功能、无副作用），再分别排期功能实现任务。
+     docs/plans/plan-task-plugin-architecture.md:122:| `task-plugin-template` | 提炼 `docs/plans/plugin-template.md` 骨架模板（module 结构/build.gradle.kts/Plugin+Config+Test 代码模板/骨架→功能→接入 core 的转换规则） | ✅ 已交付 |
+     docs/plans/plan-task-plugin-agent-tools.md:192:这是本插件对"接缝在 core、逻辑在插件"模式的第三次复用（vision 的 `ScreenshotProvider`、memory/proactive 的 LLM 客户端接口、这里的通知桥接），说明该模式已经是本项目插件架构的**通用范式**，值得在 `docs/plans/plugin-template.md` 里补一条通用指导（见 §6）。
+     docs/plans/plan-task-plugin-agent-tools.md:255:## 6.1 补充：`docs/plans/plugin-template.md` 建议增补的通用范式
+     docs/plans/plan-task-plugin-agent-tools.md:257:本任务是第三次出现"插件定义接口、core 提供实现"模式（vision 的 `ScreenshotProvider`、memory/proactive 的 LLM 客户端、这里的 `NotificationReplyBridge`），建议在 `plugin-template.md` 新增一条通用指导：
+== [A·docs/plans/ 形态命中] post-launch-quality-roadmap.md
+     docs/legacy/PROGRESS.md:9:见 [docs/plans/post-launch-quality-roadmap.md](docs/plans/post-launch-quality-roadmap.md)。
+== [C·裸名命中（docs/legacy 历史层，信息性）] post-launch-quality-roadmap.md
+     docs/legacy/PROGRESS.md:9:见 [docs/plans/post-launch-quality-roadmap.md](docs/plans/post-launch-quality-roadmap.md)。
+== [A·docs/plans/ 形态命中] settings-fix-plan.md
+     docs/plans/settings-redesign-spec.md:5:> 前置权威审计：`Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md` + `docs/plans/settings-fix-plan.md`。
+== [B·裸名命中（活层）] settings-fix-plan.md
+     docs/plans/settings-redesign-spec.md:5:> 前置权威审计：`Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md` + `docs/plans/settings-fix-plan.md`。
+== [B·裸名命中（活层）] settings-redesign-spec.md
+     docs/plans/settings-fix-plan.md:5:> 状态：**PC 端已按 2026-08-20 重构落地**（详见 `settings-redesign-spec.md` 与本文件 §2.1 各问题项，PC 侧 P0/P1/P2 主链已修复+验证）；Android 部分按下方 P0/P1(Android) 继续推进。
+== [A·docs/plans/ 形态命中] test-task-plugin-skeletons.md
+     docs/plans/plan-task-plugin-memory.md:5:> 目标: 把骨架 `live2d-ai-plugin-memory`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备真实记忆能力的插件
+     docs/plans/plan-task-plugin-proactive.md:5:> 目标: 把骨架 `live2d-ai-plugin-proactive`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备"主动找用户说话"能力的插件
+     docs/plans/plan-task-plugin-agent-tools.md:5:> 目标: 把骨架 `live2d-ai-plugin-agent-tools`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为可操作手机的 `ToolDefinition` 集合
+== [B·裸名命中（活层）] test-task-plugin-skeletons.md
+     docs/plans/plan-task-plugin-memory.md:5:> 目标: 把骨架 `live2d-ai-plugin-memory`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备真实记忆能力的插件
+     docs/plans/plan-task-plugin-proactive.md:5:> 目标: 把骨架 `live2d-ai-plugin-proactive`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为具备"主动找用户说话"能力的插件
+     docs/plans/plan-task-plugin-agent-tools.md:5:> 目标: 把骨架 `live2d-ai-plugin-agent-tools`（`docs/plans/test-task-plugin-skeletons.md` 已验收）落地为可操作手机的 `ToolDefinition` 集合
+== [A·docs/plans/ 形态命中] ux-overhaul-plan.md
+     docs/plans/PLAN-PHASE1.md:922:| `docs/plans/ux-overhaul-plan.md` | UX 对标方案，本规划 Part C 降级落地（Wave 1 只做 P0） |
+== [B·裸名命中（活层）] ux-overhaul-plan.md
+     docs/plans/PLAN-PHASE1.md:922:| `docs/plans/ux-overhaul-plan.md` | UX 对标方案，本规划 Part C 降级落地（Wave 1 只做 P0） |
+== [A·docs/plans/ 形态命中] web-flutter-migration-and-loop-closure-plan.md
+     docs/plans/HANDOFF-2026-09-10.md:5:> `docs/plans/web-flutter-migration-and-loop-closure-plan.md`（总体计划）。
+     docs/plans/HANDOFF-2026-09-10-four-questions.md:145:- `docs/plans/web-flutter-migration-and-loop-closure-plan.md` §3.3 明确：方案 C1（Web 视觉升级、
+     docs/plans/PLAN-four-topics-2026-09-10.md:257:| 回退到 C1 | 删除 `shell/`，把精力投到 `/` 的视觉升级（`docs/plans/web-flutter-migration-and-loop-closure-plan.md` §3.3 原本推荐这条） |
+== [B·裸名命中（活层）] web-flutter-migration-and-loop-closure-plan.md
+     docs/plans/HANDOFF-2026-09-10.md:5:> `docs/plans/web-flutter-migration-and-loop-closure-plan.md`（总体计划）。
+     docs/plans/HANDOFF-2026-09-10-four-questions.md:145:- `docs/plans/web-flutter-migration-and-loop-closure-plan.md` §3.3 明确：方案 C1（Web 视觉升级、
+     docs/plans/PLAN-four-topics-2026-09-10.md:257:| 回退到 C1 | 删除 `shell/`，把精力投到 `/` 的视觉升级（`docs/plans/web-flutter-migration-and-loop-closure-plan.md` §3.3 原本推荐这条） |
+== [A·docs/plans/ 形态命中] web-ui-redo-plan.md
+     docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md:117:| 规格依据 | `docs/design/web-ui-spec-v2.md`（§3 舞台/外观 token）、`docs/plans/web-ui-redo-plan.md` |
+     docs/design/legacy/web-ui-redo-spec-st1-2.md:3:> 依据：`docs/plans/web-ui-redo-plan.md`（用户已审核，路线 A / 前端豁免 / 品牌蓝确认）。
+== [B·裸名命中（活层）] web-ui-redo-plan.md
+     docs/plans/HANDOFF-2026-09-08-render-tiers-doc-consistency.md:117:| 规格依据 | `docs/design/web-ui-spec-v2.md`（§3 舞台/外观 token）、`docs/plans/web-ui-redo-plan.md` |
+     docs/design/legacy/web-ui-redo-spec-st1-2.md:3:> 依据：`docs/plans/web-ui-redo-plan.md`（用户已审核，路线 A / 前端豁免 / 品牌蓝确认）。
+== [A·docs/plans/ 形态命中] wsl2-migration-plan.md
+     docs/architecture/linux-dev.md:3:> 平台轨迹（2026-08-19 用户定调，见 `docs/plans/wsl2-migration-plan.md`）：
+     docs/architecture/linux-dev.md:44:`docs/plans/wsl2-migration-plan.md` 的 Phase 0–2），也可在专用 CI 环境跑。
+     docs/plans/wsl2-migration-plan.md:185:4. 本文件（`docs/plans/wsl2-migration-plan.md`）执行后更新状态为「已落地 + 验证结果」。
+     docs/plans/wsl2-migration-plan.md:198:| `docs/plans/wsl2-migration-plan.md` | 新增 | 本计划 |
+     docs/audit/2026-08-19-code-audit-round.md:8:> **平台轨迹（2026-08-19 用户定调，见 `docs/plans/wsl2-migration-plan.md`）：**
+== [B·裸名命中（活层）] wsl2-migration-plan.md
+     docs/architecture/linux-dev.md:3:> 平台轨迹（2026-08-19 用户定调，见 `docs/plans/wsl2-migration-plan.md`）：
+     docs/architecture/linux-dev.md:44:`docs/plans/wsl2-migration-plan.md` 的 Phase 0–2），也可在专用 CI 环境跑。
+     docs/plans/wsl2-migration-plan.md:185:4. 本文件（`docs/plans/wsl2-migration-plan.md`）执行后更新状态为「已落地 + 验证结果」。
+     docs/plans/wsl2-migration-plan.md:198:| `docs/plans/wsl2-migration-plan.md` | 新增 | 本计划 |
+     docs/audit/2026-08-19-code-audit-round.md:8:> **平台轨迹（2026-08-19 用户定调，见 `docs/plans/wsl2-migration-plan.md`）：**
+---
+checked_names=94
+A_names_with_docsplans_ref=60   <- 验收判据（须 0）
+B_names_with_bare_ref_live=74   <- 信息性
+C_names_with_bare_ref_legacy=7 <- 信息性（历史层互引）
+PASS_A=no

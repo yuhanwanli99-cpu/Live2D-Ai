@@ -1,0 +1,228 @@
+########## W-VERIFY-2A 后端门禁（归档副本；CARGO_TARGET_DIR=/tmp/w2_verify_target）##########
+# 时间: 2026-10-01T23:14:41+08:00
+# BEFORE=d140604f (d140604f66ba0f2c47e0d159058ad5deeb92fbc1)  = checkpoint/pre-d1-dormant
+# AFTER =42ca9a37  (42ca9a375237e40045e2e9cb3b21cd090f72b422)
+# $ df -h / | tail -1
+/dev/sdd        147G  107G   33G  77% /
+# 其它 cargo 进程（应为空或 rust-debloat 的）
+
+########## A. AFTER 树 --list（先编译，后续复用）##########
+tests::walk_skips_excluded_hidden_dirs_and_symlinks: test
+
+27 tests, 0 benchmarks
+LIST_AFTER_PIPE=0
+
+########## B. AFTER 树：cargo test --workspace --all-targets（全量运行）##########
+test code_stats::tests::report_renders_markdown_with_gate_verdict ... ok
+test code_stats::tests::gate_evaluation_is_red_when_fixture_exceeds_a_zero_limit ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+TEST_PIPE=0
+
+########## C. AFTER 树：cargo test --doc --workspace ##########
+running 3 tests
+test crates/live2d-ai-runtime/src/conversation/mod.rs - conversation (line 46) - compile ... ok
+test crates/live2d-ai-runtime/src/lib.rs - (line 23) - compile ... ok
+test crates/live2d-ai-runtime/src/dialogue/mod.rs - dialogue (line 21) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.32s; merged doctests compilation took 0.31s
+DOC_PIPE=0
+
+########## D. AFTER 树：cargo fmt --all -- --check ##########
+FMT_EXIT=0
+
+########## E. AFTER 树：cargo clippy --workspace --all-targets -- -D warnings ##########
+    Checking live2d-ai-mod-template v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-mod-template)
+    Checking l2d-wasm-demo v0.2.0-rc.7 (/tmp/w2a_after/crates/l2d-wasm-demo)
+    Checking egui-winit v0.35.0
+    Checking xtask v0.2.0-rc.7 (/tmp/w2a_after/xtask)
+    Checking ayagami-render v0.1.0 (https://github.com/AyagamiDev/ayagami?rev=640ae4b10bad8def1adcacdada4f8241b484c169#640ae4b1)
+    Checking egui-wgpu v0.35.0
+    Checking l2d v0.2.0-rc.7 (/tmp/w2a_after/crates/l2d)
+    Checking ksni v0.3.6
+    Checking live2d-ai-desktop v0.2.0-rc.7 (/tmp/w2a_after/crates/live2d-ai-desktop)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.14s
+CLIPPY_PIPE=0
+
+########## F. AFTER 树：cargo run -p xtask -- code-stats ##########
+<!-- code-stats：`cargo run -p xtask -- code-stats` 生成；口径见文末 §5 -->
+## 代码体量与门禁快照（D0）
+
+- 仓库根：`/tmp/w2a_after`
+- 生成时间（UTC）：2026-10-01 15:16 UTC
+- 口径真源：`docs/plans/PLAN-debloat-and-closeout-2026-10-01.md` §2 / §5 D0
+- 行数口径：物理行数（`wc -l` 语义，末尾残行计 1）；超限门禁按文件总行数（含内联测试）
+
+### 1. 总量
+
+| 类别 | 文件数 | 行数 |
+|---|---:|---:|
+| Rust 生产（不含内联 `#[cfg(test)]`） | 239 | 67,310 |
+| Rust 内联测试（`#[cfg(test)]` 条目） | 110（含该块的文件） | 15,307 |
+| Rust 集成测试 / 示例 | 30 | 13,127 |
+| Rust 合计 | — | 95,744 |
+| Dart `lib` | 115 | 34,077 |
+| Dart `test` | 111 | 32,136 |
+| docs `*.md`（含 `docs/legacy/`） | 302 | 70,576 |
+
+### 2. 逐 crate（Rust + Cargo 依赖数）
+
+| crate | 生产 | 内联测试 | 集成/示例 | 合计 | `[dependencies]` |
+|---|---:|---:|---:|---:|---:|
+| `l2d` | 2,081 | 1,072 | 641 | 3,794 | 8 |
+| `l2d-wasm-demo` | 5,907 | 268 | 2,258 | 8,433 | 1 |
+| `live2d-ai-core` | 2,228 | 129 | 846 | 3,203 | 0 |
+| `live2d-ai-desktop` | 30,073 | 8,093 | 2,221 | 40,387 | 34 |
+| `live2d-ai-mod-director` | 3,412 | 411 | 840 | 4,663 | 4 |
+| `live2d-ai-mod-external-input` | 606 | 679 | 0 | 1,285 | 4 |
+| `live2d-ai-mod-memory` | 6,293 | 686 | 766 | 7,745 | 5 |
+| `live2d-ai-mod-persona` | 3,267 | 6 | 849 | 4,122 | 4 |
+| `live2d-ai-mod-system` | 1,165 | 287 | 0 | 1,452 | 2 |
+| `live2d-ai-mod-template` | 120 | 63 | 0 | 183 | 3 |
+| `live2d-ai-mod-voice-input` | 1,871 | 9 | 759 | 2,639 | 3 |
+| `live2d-ai-runtime` | 8,608 | 3,286 | 3,504 | 15,398 | 12 |
+| `xtask` | 1,679 | 318 | 443 | 2,440 | 0 |
+| **合计** | **67,310** | **15,307** | **13,127** | **95,744** | — |
+
+### 3. 超限清单
+
+#### 3.1 `crates/*/src` 生产 `.rs` > 1000 行（4 个，PLAN 目标 0）
+
+| 文件 | 总行数 | 其中内联测试 | 生产 |
+|---|---:|---:|---:|
+| `crates/live2d-ai-desktop/src/mod_registry.rs` | 1362 | 633 | 729 |
+| `crates/live2d-ai-desktop/src/web_api/chat_routes.rs` | 1086 | 562 | 524 |
+| `crates/live2d-ai-desktop/src/web_api/external_routes.rs` | 1062 | 636 | 426 |
+| `crates/live2d-ai-mod-persona/src/lib.rs` | 1004 | 6 | 998 |
+
+#### 3.2 `crates/*/src` 生产 `.rs` > 500 行（55 个，PLAN 目标 ≤15）
+
+| 文件 | 总行数 | 其中内联测试 | 生产 |
+|---|---:|---:|---:|
+| `crates/live2d-ai-desktop/src/mod_registry.rs` | 1362 | 633 | 729 |
+| `crates/live2d-ai-desktop/src/web_api/chat_routes.rs` | 1086 | 562 | 524 |
+| `crates/live2d-ai-desktop/src/web_api/external_routes.rs` | 1062 | 636 | 426 |
+| `crates/live2d-ai-mod-persona/src/lib.rs` | 1004 | 6 | 998 |
+| `crates/live2d-ai-runtime/src/settings/patch_tests.rs` | 992 | 0 | 992 |
+| `crates/live2d-ai-desktop/src/web_api/tests_ws.rs` | 971 | 560 | 411 |
+| `crates/l2d-wasm-demo/src/main.rs` | 962 | 0 | 962 |
+| `crates/live2d-ai-desktop/src/web_api/mods_routes.rs` | 957 | 457 | 500 |
+| `crates/l2d-wasm-demo/src/preset/field_runtime.rs` | 953 | 0 | 953 |
+| `crates/live2d-ai-desktop/src/supervisor.rs` | 950 | 134 | 816 |
+| `crates/live2d-ai-mod-persona/src/tests_e2e.rs` | 930 | 0 | 930 |
+| `crates/l2d-wasm-demo/src/preset/mod.rs` | 908 | 2 | 906 |
+| `crates/live2d-ai-mod-director/src/lib.rs` | 902 | 5 | 897 |
+| `crates/live2d-ai-mod-memory/src/lib.rs` | 895 | 20 | 875 |
+| `crates/live2d-ai-desktop/src/benchmark/runners_surface.rs` | 878 | 0 | 878 |
+| `crates/live2d-ai-runtime/src/performance/plan.rs` | 857 | 0 | 857 |
+| `crates/live2d-ai-mod-persona/src/tests.rs` | 849 | 849 | 0 |
+| `crates/live2d-ai-mod-external-input/src/lib.rs` | 847 | 472 | 375 |
+| `crates/live2d-ai-desktop/src/supervisor/tests_loop.rs` | 844 | 0 | 844 |
+| `crates/live2d-ai-mod-director/src/tests.rs` | 840 | 840 | 0 |
+| `crates/live2d-ai-runtime/src/settings.rs` | 826 | 793 | 33 |
+| `crates/live2d-ai-runtime/src/performance/tests.rs` | 798 | 798 | 0 |
+| `crates/live2d-ai-desktop/src/web_api/voice_routes_tests.rs` | 793 | 11 | 782 |
+| `crates/live2d-ai-runtime/src/settings/patch.rs` | 780 | 0 | 780 |
+| `crates/live2d-ai-runtime/src/settings/settings_tests.rs` | 772 | 0 | 772 |
+| `crates/live2d-ai-desktop/src/web_api/cli_entry.rs` | 769 | 93 | 676 |
+| `crates/live2d-ai-mod-memory/src/tests.rs` | 766 | 766 | 0 |
+| `crates/live2d-ai-mod-memory/src/summary_tests.rs` | 762 | 0 | 762 |
+| `crates/live2d-ai-mod-voice-input/src/tests.rs` | 759 | 759 | 0 |
+| `crates/l2d-wasm-demo/src/preset/tests/packs.rs` | 707 | 707 | 0 |
+| `crates/live2d-ai-desktop/src/web_api/settings_routes/tests.rs` | 685 | 685 | 0 |
+| `crates/live2d-ai-mod-director/src/tests_staging.rs` | 683 | 0 | 683 |
+| `crates/live2d-ai-desktop/src/supervisor/turn.rs` | 682 | 0 | 682 |
+| `crates/live2d-ai-desktop/src/session_scope.rs` | 675 | 319 | 356 |
+| `crates/live2d-ai-desktop/src/app/settings_ui.rs` | 661 | 85 | 576 |
+| `crates/live2d-ai-runtime/src/performance/client.rs` | 652 | 295 | 357 |
+| `crates/live2d-ai-mod-memory/src/commands_tests.rs` | 643 | 0 | 643 |
+| `crates/live2d-ai-mod-memory/src/store.rs` | 601 | 311 | 290 |
+| `crates/live2d-ai-desktop/src/web_api/mod.rs` | 592 | 505 | 87 |
+| `crates/live2d-ai-runtime/src/conversation/engine.rs` | 586 | 0 | 586 |
+| `crates/live2d-ai-mod-memory/src/strategy.rs` | 582 | 0 | 582 |
+| `crates/live2d-ai-mod-persona/src/tests_command.rs` | 573 | 0 | 573 |
+| `crates/l2d/src/asset/mod.rs` | 571 | 249 | 322 |
+| `crates/l2d-wasm-demo/src/web/surface/render.rs` | 551 | 0 | 551 |
+| `crates/live2d-ai-runtime/src/conversation/mod.rs` | 548 | 146 | 402 |
+| `crates/live2d-ai-desktop/src/app/frame.rs` | 545 | 0 | 545 |
+| `crates/live2d-ai-desktop/src/web_api/app_routes.rs` | 544 | 153 | 391 |
+| `crates/live2d-ai-desktop/src/platform/capabilities.rs` | 539 | 176 | 363 |
+| `crates/live2d-ai-desktop/src/app/tests.rs` | 538 | 538 | 0 |
+| `crates/live2d-ai-desktop/src/web_api/models_routes/tests_models_p1.rs` | 534 | 0 | 534 |
+| `crates/live2d-ai-runtime/src/llm.rs` | 530 | 204 | 326 |
+| `crates/live2d-ai-desktop/src/main.rs` | 519 | 76 | 443 |
+| `crates/live2d-ai-desktop/src/benchmark/mod.rs` | 517 | 233 | 284 |
+| `crates/live2d-ai-desktop/src/supervisor/tests_stall.rs` | 507 | 0 | 507 |
+| `crates/l2d/src/pose_stack.rs` | 503 | 243 | 260 |
+
+#### 3.3 Dart `lib` > 800 行（7 个，PLAN 目标 ≤2）
+
+| 文件 | 行数 |
+|---|---:|
+| `shell/flutter/lib/settings/sections/dev_tools_section.dart` | 2088 |
+| `shell/flutter/lib/settings/sections/appearance_background.dart` | 1556 |
+| `shell/flutter/lib/main.dart` | 1344 |
+| `shell/flutter/lib/settings/display_prefs.dart` | 1157 |
+| `shell/flutter/lib/app/app_shell.dart` | 998 |
+| `shell/flutter/lib/design/tokens.dart` | 950 |
+| `shell/flutter/lib/api/settings_models.dart` | 931 |
+
+#### 3.4 Dart `test` > 800 行（2 个，仅披露；D6 治理对象）
+
+| 文件 | 行数 |
+|---|---:|
+| `shell/flutter/test/display_prefs_test.dart` | 892 |
+| `shell/flutter/test/memory_panel_test.dart` | 852 |
+
+### 4. 产物体积（PLAN §2.5 / §D4 预算）
+
+| 产物 | 大小 | PLAN 预算 | 状态 |
+|---|---:|---:|---|
+| `shell/flutter/build/web` | 缺 | ≤ 35 MiB | 未构建 |
+| `crates/l2d-wasm-demo/dist` | 缺 | ≤ 4 MiB | 未构建 |
+
+### 5. 硬门禁（`--check`）
+
+| 门禁 | 当前值 | 上限（棘轮） | PLAN 目标 | 判定 |
+|---|---:|---:|---:|---|
+| `crates/*/src` `.rs` > 500 行的文件数（上限 58） | 55 | ≤ 58 | 15 | PASS |
+| Dart `lib` > 800 行的文件数（上限 7） | 7 | ≤ 7 | 2 | PASS |
+| `crates/*/src` `.rs` > 1000 行的文件数（上限 4） | 4 | ≤ 4 | 0 | PASS |
+| `live2d-ai-desktop` 顶层 `[dependencies]` 条数（上限 34） | 34 | ≤ 34 | 22 | PASS |
+
+- 判定范围（影响退出码）：全部（lines / over-1000 / deps）
+- 结论：PASS（未加 `--check`：门禁只作展示，不影响退出码）
+
+### 6. 口径与已知边界
+
+- Rust：`crates/*/**/*.rs` + `xtask/src/**/*.rs`；排除 `target/ build/ dist/ node_modules/ .venv/` 与隐藏目录，不跟随符号链接；
+- 「生产」= `src/` 内不属于 `#[cfg(test)]` 花括号配对条目的行；「内联测试」= 该条目（含属性行）；
+- 「集成测试 / 示例」= `crates/*/tests/**`、`crates/*/examples/**`，以及 `src/` 内 `tests/` 目录或 `tests.rs` 文件；
+- 超限门禁按**文件总行数**（含内联测试）计——与 PLAN §2.4 的 58 / 4 一致；
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+CODESTATS_PIPE=0
+
+########## G. AFTER 树：cargo check --target wasm32-unknown-unknown -p l2d-wasm-demo ##########
+...
+479 |     pub fn effective_now_ms(&self, wall_ms: f64) -> f64 {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: `l2d-wasm-demo` (bin "l2d-wasm-demo") generated 7 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.31s
+WASM_PIPE=0
+
+########## H. BEFORE 树 --list（复用同一 target 目录）##########
+tests::walk_skips_excluded_hidden_dirs_and_symlinks: test
+
+27 tests, 0 benchmarks
+LIST_BEFORE_PIPE=0
+
+DONE 2026-10-01T23:17:13+08:00

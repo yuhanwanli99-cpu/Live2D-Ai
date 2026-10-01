@@ -1,0 +1,54 @@
+########## 三条门禁逐条红向（真仓 + --max-* 压阈值；不写任何文件）##########
+# 时间: 2026-10-01T21:47:52+08:00  HEAD: 3a3b17d0
+
+$ cargo run -q -p xtask -- code-stats --check --only lines --max-src-rs-500 0
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+LINES_RED_EXIT=1
+
+$ cargo run -q -p xtask -- code-stats --check --only lines --max-dart-800 0
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+DART_RED_EXIT=1
+
+$ cargo run -q -p xtask -- code-stats --check --only deps --max-deps live2d-ai-desktop=10
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+DEPS_RED_EXIT=1
+
+$ cargo run -q -p xtask -- code-stats --check --only over-1000 --max-src-rs-1000 0
+- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；
+- 「缺」= 产物目录不存在（未构建）；不伪造体积。
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+OVER1000_RED_EXIT=1
+
+########## 绿向：默认棘轮 ##########
+$ cargo run -q -p xtask -- code-stats --check
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+GREEN_EXIT=0
+
+########## 反向绿：把阈值放宽到远超现状 ##########
+$ cargo run -q -p xtask -- code-stats --check --max-src-rs-500 999 --max-src-rs-1000 99 --max-dart-800 99 --max-deps live2d-ai-desktop=999
+
+- **披露**：仅被 `#[cfg(test)] mod x;` 引用的 `src/` 测试模块文件 `44` 个 / 17,599 行——它们住在 `src/`，上表按物理位置计入「生产」；严格口径下应从生产里扣除。
+- **已知偏差（与冻结基线同口径）**：无花括号的 `#[cfg(test)] mod x;` / `use ...;` 之后的行一律计为内联测试（PLAN §2 的手工脚本同口径，prod 相差 −0.29%）；对「测试模块声明在前、生产代码在后」的文件（典型 `live2d-ai-runtime/src/settings.rs`：826 行里 793 行被判为内联测试）会把生产算少。这是刻度口径，不是逐行语义判断。
+
+RELAXED_GREEN_EXIT=0

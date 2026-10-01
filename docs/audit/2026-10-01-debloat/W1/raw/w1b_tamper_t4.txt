@@ -1,0 +1,31 @@
+### T4 篡改（修正版）：把 state_pill 的空闲态 tone 改回 contentFaint
+$ flutter test test/content_contrast_test.dart
+00:00 +19: ④ 层级没被拉平：contentFaint 必须仍弱于 contentMuted 白 · faint(0.68) < muted(0.74)（用「两档同值」修对比度是不允许的）
+00:00 +20: ⑤ 接线侧：白主题输入框占位文字（真 ThemeData，不是令牌算术） hintStyle 压在白主题输入框填色上 ≥ 4.5，且用的是 contentMuted
+00:00 +21: ⑤ 接线侧：白主题输入框占位文字（真 ThemeData，不是令牌算术） 空闲相位标签（真实 `uiPhaseView(UiPhase.idle)` 的 tone）在相位胶囊上 ≥ 4.5
+00:00 +21 -1: ⑤ 接线侧：白主题输入框占位文字（真 ThemeData，不是令牌算术） 空闲相位标签（真实 `uiPhaseView(UiPhase.idle)` 的 tone）在相位胶囊上 ≥ 4.5 [E]
+  Expected: Color:<Color(alpha: 0.7400, red: 0.9255, green: 0.9294, blue: 0.9686, colorSpace: ColorSpace.sRGB)>
+    Actual: Color:<Color(alpha: 0.6800, red: 0.9255, green: 0.9294, blue: 0.9686, colorSpace: ColorSpace.sRGB)>
+  AppThemeId.black 的空闲态 tone 同时是**标签字色**，必须取「承载文字」那一档（`contentFaint` 的自注就是「仅装饰/图标，不得承载文字信息」）
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/content_contrast_test.dart 199:9               main.<fn>.<fn>
+  
+00:00 +21 -1: Some tests failed.
+
+Failing tests:
+  /tmp/w1b_t4/shell/flutter/test/content_contrast_test.dart: ⑤ 接线侧：白主题输入框占位文字（真 ThemeData，不是令牌算术） 空闲相位标签（真实 `uiPhaseView(UiPhase.idle)` 的 tone）在相位胶囊上 ≥ 4.5
+T4_EXIT=1
+
+### T4b：同一篡改下再跑钉子 11（白名单/文字判定）
+$ flutter test test/no_backdrop_filter_test.dart
+00:00 +12 -1: 导入守卫（规格 §11.1）：纯逻辑文件不许碰 Flutter/Web 被放行的那几个本地文件自己**零 import**（放宽不是后门）
+00:00 +13 -1: 导入守卫（规格 §11.1）：纯逻辑文件不许碰 Flutter/Web design/** 与 state/** 不许 import package:web
+00:00 +14 -1: 导入守卫（规格 §11.1）：纯逻辑文件不许碰 Flutter/Web `package:web` 只出现在真正需要 DOM 的地方（白名单）
+00:00 +15 -1: 性能：舞台必须被 RepaintBoundary 包住 `StageHost.build` 的返回值就是 RepaintBoundary（30 Hz 口型不拖累聊天列表）
+00:00 +16 -1: Some tests failed.
+
+Failing tests:
+  /tmp/w1b_t4/shell/flutter/test/no_backdrop_filter_test.dart: 钉子 11：`contentFaint` 不得承载文字 白名单对账：每处用法都必须是「非文字通道」，且逐条写明理由
+T4B_EXIT=1

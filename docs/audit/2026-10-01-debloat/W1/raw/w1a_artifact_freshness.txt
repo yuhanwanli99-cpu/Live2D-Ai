@@ -1,0 +1,11 @@
+### 产物新鲜度（W1-a 是否已重建 build/web）
+$ stat -c "%y %n" shell/flutter/build/web/main.dart.js
+2026-09-28 22:30:54.978027107 +0800  shell/flutter/build/web/main.dart.js
+$ find shell/flutter/lib -name "*.dart" -newer shell/flutter/build/web/main.dart.js | head
+shell/flutter/lib/app/shell_chat.dart
+shell/flutter/lib/chat/chat_controller.dart
+shell/flutter/lib/api/ws_client.dart
+shell/flutter/lib/api/ws_liveness.dart
+shell/flutter/lib/state/ui_state_tracker.dart
+
+=> 上面有输出 = 库源码比产物新 ⇒ /app/ 上跑的是旧代码，肉眼/浏览器验收看不到 W1-a 的效果

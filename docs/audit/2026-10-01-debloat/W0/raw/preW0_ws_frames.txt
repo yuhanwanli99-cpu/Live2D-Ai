@@ -1,0 +1,7 @@
+# WS 帧类型名快照（pre-W0，红线 1「只增不改」的比对基线）
+## 后端 crates/live2d-ai-desktop/src/web_api/ws/events.rs 字符串常量
+action_cue at code completed covers_upto_seq cues data epoch error event expression failed fatal field head hint hold id intensity llm message new_epoch nod now payload preset_id priority reasoning_delta runtime_status segments sentence_seq seq shutdown_ready smile stage status text text_delta text_fallback ts_ms ttl_ms turn_state type unknown voice_ended voice_started x y z 
+## 前端 shell/flutter/lib/api/ws_client.dart 里出现的帧名
+https shutdown_ready ws wss 
+## 后端帧名（json 顶层 type 值）grep 'type' 相关常量
+100:"text_delta" 113:"reasoning_delta" 126:"text_fallback" 147:"action_cue" 156:"runtime_status" 163:"runtime_status" 170:"runtime_status" 177:"runtime_status" 178:"shutdown_ready" 183:"error" 190:"error" 224:"action_cue" 292:"preset_id" 296:"action_cue" 298:"preset_id" 322:"action_cue" 326:"preset_id" 356:"action_cue" 362:"preset_id" 380:"preset_id" 73:"runtime_status" 81:"runtime_status" 92:"text_delta" 
