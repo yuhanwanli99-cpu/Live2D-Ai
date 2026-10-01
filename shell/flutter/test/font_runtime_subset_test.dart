@@ -26,12 +26,14 @@
 /// **运行期策略**（自托管兜底字体 / 引擎侧关回退 / 渲染前替换），不是再多一条扫描
 /// ——当前仓库 `fontFamilyFallback` 零命中 = 没有兜底，所以这几类只能真机验。
 ///
-/// # 另一条前提（属于 CI 接线，不在本文件能力内）
+/// # 另一条前提（CI 接线，**已由 task-17 补齐**）
 ///
 /// 本文件的 Rust 扫描要求「整仓检出」（读 `../../crates/`）。而
-/// `.github/workflows/flutter-checks.yml` 的 `paths:` 只匹配 `shell/flutter/**`
-/// ——**只改后端文案的 PR 不会触发这条门禁**，要等下一次前端改动才暴露。
-/// 真正补齐要把这条检查接进后端 CI（或把 `crates/**` 加进 paths）。
+/// `.github/workflows/flutter-checks.yml` 的 `paths:` 原本只匹配
+/// `shell/flutter/**` ⇒ **只改后端文案的 PR 不会触发这条门禁**，要等下一次前端
+/// 改动才暴露。**task-17（D0-fix）已把 `crates/*/src/**` 加进 paths**，这条缺口
+/// 闭合（`*` 通配连「新加 Mod crate」的那次 PR 也会触发）。若哪天那条 paths 被
+/// 删回去，本文件的扫描本身仍然有效，只是又退回「等下次前端改动」的触发时机。
 library;
 
 import 'dart:io';

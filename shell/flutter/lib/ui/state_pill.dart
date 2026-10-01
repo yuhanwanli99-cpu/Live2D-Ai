@@ -64,7 +64,16 @@ UiPhaseView uiPhaseView(
   UiPhase.idle => UiPhaseView(
     label: '空闲',
     icon: Icons.circle_outlined,
-    tone: colors.contentFaint,
+    // 2026-09-28（F-0006-2 / task-16）：`tone` **同时是标签字色**——本文件末尾
+    // 那段 `Text(view.label, style: …copyWith(color: view.tone))` 就是它。
+    // 所以取值必须落在「承载文字」那一档：`contentMuted` 的令牌自注正是
+    // 「承载文字信息的次要文本（≥ 12 px）」，四套主题合成后 ≥ 6.0:1。
+    //
+    // 为什么整颗胶囊一起改（而不是只拆字色）：图标 / 实心点 / 描边与标签本就
+    // 是**同一颗胶囊的三个通道**，拆成「图标用 faint、字用 muted」会让空闲态
+    // 出现两档弱色，读出「哪里不一致」而不是「安静」。空闲态的弱是靠
+    // `filledDot: false`（空心）+ `circle_outlined`（轮廓）表达的，不是靠低对比度。
+    tone: colors.contentMuted,
     filledDot: false,
   ),
   UiPhase.thinking => UiPhaseView(

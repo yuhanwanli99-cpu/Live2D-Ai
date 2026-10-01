@@ -31,6 +31,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/design/tokens.dart';
+import 'package:live2d_ai_shell/state/ui_phase.dart';
+import 'package:live2d_ai_shell/ui/state_pill.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// WCAG 相对对比度（与 `theme_palette_test.dart` / `tokens.dart` 同一算法）。
@@ -178,20 +180,34 @@ void main() {
       expect(ratio, closeTo(6.03, 0.02));
     });
 
-    test('空闲相位标签（contentFaint 当 tone）在相位胶囊上 ≥ 4.5', () {
-      // state_pill.dart:225 的胶囊底 = `tone.withValues(alpha: 0.10)` 压在 panel 上；
-      // 标签字色 = `tone`。这条把「令牌值」与「真实叠层」一起算了。
+    test('空闲相位标签（真实 `uiPhaseView(UiPhase.idle)` 的 tone）在相位胶囊上 ≥ 4.5', () {
+      // state_pill.dart 的胶囊底 = `tone.withValues(alpha: 0.10)` 压在 panel 上；
+      // 标签字色 = `tone`（**同一个 tone 走两个通道**）。
+      //
+      // 2026-09-28（task-16）：这条原来算的是 `colors.contentFaint`——而迁移之后
+      // 空闲态的 tone 已经不是它了。断言必须跟着**接线**走，否则它会继续绿着量
+      // 一个产品里已经不存在的组合（「测试绿着，界面是另一回事」正是本轮要治的病）。
       for (final AppThemeId id in AppThemeId.values) {
         final AppPalette p = AppPalette.of(id);
         final AppColors colors = colorsOf(id);
+        final UiPhaseView idle = uiPhaseView(
+          UiPhase.idle,
+          buildAppTheme(id).colorScheme,
+          colors,
+          p,
+        );
+        expect(
+          idle.tone,
+          colors.contentMuted,
+          reason:
+              '$id 的空闲态 tone 同时是**标签字色**，必须取「承载文字」那一档'
+              '（`contentFaint` 的自注就是「仅装饰/图标，不得承载文字信息」）',
+        );
         final Color pillBed = over(
-          colors.contentFaint.withValues(alpha: 0.10),
+          idle.tone.withValues(alpha: 0.10),
           p.surface,
         );
-        final double ratio = wcagContrast(
-          over(colors.contentFaint, pillBed),
-          pillBed,
-        );
+        final double ratio = wcagContrast(over(idle.tone, pillBed), pillBed);
         expect(
           ratio,
           greaterThanOrEqualTo(4.5),

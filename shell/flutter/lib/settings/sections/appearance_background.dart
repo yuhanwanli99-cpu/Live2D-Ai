@@ -771,7 +771,11 @@ class _MoreOptionsState extends State<_MoreOptions> {
                     child: Text(
                       widget.summary!,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: colors.contentFaint,
+                        // 2026-09-28（F-0006-2 / task-16）：这是**文字**，不是装饰。
+                        // `contentFaint` 的自注是「仅装饰/图标」，被当文字色用时
+                        // 白主题只有 3.96–4.07（< AA 4.5）。承载文字的次要文本取
+                        // `contentMuted`（四套主题合成后 ≥ 6.0）。
+                        color: colors.contentMuted,
                       ),
                     ),
                   ),
@@ -1140,7 +1144,8 @@ class _UsageBar extends StatelessWidget {
         Text(
           '上限 $kBackgroundMaxCount 项 / 单张 ${_size(kBackgroundImageMaxBytes)}',
           style: theme.textTheme.labelSmall?.copyWith(
-            color: colors.contentFaint,
+            // 与上面那条摘要同理（task-16）：这是**文字**（量程说明），不是装饰。
+            color: colors.contentMuted,
           ),
         ),
       ],
