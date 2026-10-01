@@ -29,50 +29,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// 剥掉注释与字符串（否则本文件自己的注释就会把断言判红）。
-String stripCommentsAndStrings(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          i += quote.length;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
+import 'support/source_scan.dart';
 
+/// 剥掉注释与字符串（否则本文件自己的注释就会把断言判红）。
+///
+/// 词法器在 `support/source_scan.dart`（W3-D3：8 份副本合并为 1 份）。
 String mainSource() =>
     stripCommentsAndStrings(File('lib/main.dart').readAsStringSync());
 

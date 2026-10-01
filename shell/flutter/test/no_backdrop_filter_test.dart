@@ -12,7 +12,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'design_tokens_test.dart' show stripCommentsAndStrings;
+import 'support/source_scan.dart';
 
 /// **文字样式的形参名**：出现在某个调用实参里 ⇒ 这段颜色最终喂给了文字。
 ///

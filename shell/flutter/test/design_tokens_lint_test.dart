@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'design_tokens_test.dart' show stripCommentsAndStrings;
+import 'support/source_scan.dart';
 
 /// 裸值扫描的**豁免面**（越小越难被侵蚀）。
 ///

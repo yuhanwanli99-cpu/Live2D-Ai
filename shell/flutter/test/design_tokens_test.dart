@@ -9,56 +9,18 @@ import 'package:live2d_ai_shell/design/typography.dart';
 import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/source_scan.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 扫描基础设施
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 剥掉注释与字符串字面量——**必须先剥再扫**，否则注释里提到的令牌名会被
-/// 当成引用（本文件自己的注释就大量提到它们）。
-String stripCommentsAndStrings(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          i += quote.length;
-          break;
-        }
-        i++;
-      }
-      out.write('S');
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
-
+// 剥掉注释与字符串字面量——**必须先剥再扫**，否则注释里提到的令牌名会被
+// 当成引用（本文件自己的注释就大量提到它们）。
+//
+// 词法器在 `support/source_scan.dart`（W3-D3：8 份副本合并为 1 份）。
+// 本文件里那份**曾经漂移**：它把字符串换成一个占位符 `S`，而另外 7 份是
+// 整段丢掉——漂移没有任何消费点依赖，合并时统一取严格版。
 /// 统计 `lib/**` 里对令牌的**真实引用**次数。
 ///
 /// # 为什么不能只数 `Family.name`（2026-09-11 修的假阴性）

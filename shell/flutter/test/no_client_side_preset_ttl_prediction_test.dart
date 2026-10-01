@@ -25,52 +25,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/source_scan.dart';
+
 /// 剥掉注释与字符串（否则本文件自己的注释、以及日志文案都会把自己判红）。
 ///
-/// 与 `motion_wiring_test.dart` 的同名函数逐字同源（源码扫描的先例）。
-String stripCommentsAndStrings(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          i += quote.length;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
-
+/// 词法器在 `support/source_scan.dart`（W3-D3：8 份副本合并为 1 份——
+/// 其中 `design_tokens_test.dart` 那份已经漂移成占位符 `S`）。
 /// 违规判定：同一文件同时含「本地计时器推演 preset 剩余时长」与 `applyPreset`。
 bool hasApplyPreset(String src) => RegExp(r'\bapplyPreset\b').hasMatch(src);
 

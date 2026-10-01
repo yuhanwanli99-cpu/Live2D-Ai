@@ -32,50 +32,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// 剥掉注释与字符串（沿用 test/motion_wiring_test.dart 的同名函数先例）。
-String stripCommentsAndStrings(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          i += quote.length;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
+import 'support/source_scan.dart';
 
+/// 剥掉注释与字符串（共享词法器：`support/source_scan.dart`，W3-D3 起唯一定义）。
 /// 取 [signature] 起那个方法的**函数体**源码（含最外层花括号）；找不到返回 null。
 String? methodBody(String src, String signature) {
   final int start = src.indexOf(signature);

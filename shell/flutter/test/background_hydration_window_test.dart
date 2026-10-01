@@ -34,7 +34,7 @@ import 'package:live2d_ai_shell/settings/display_prefs.dart';
 
 // 复用仓库既有的「剥掉注释与字符串字面量」工具（`diff` 里同款）：
 // 结构性守卫必须扫**代码**，否则注释里提一句旧实现就把它自己判红。
-import 'design_tokens_test.dart' show stripCommentsAndStrings;
+import 'support/source_scan.dart';
 
 /// A 的字节（水合开始前就在库里）。
 const String _aUrl = 'data:image/png;base64,AAAA';

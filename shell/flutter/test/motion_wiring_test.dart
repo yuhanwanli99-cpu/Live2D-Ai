@@ -26,50 +26,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/design/tokens.dart';
 
-/// 剥掉注释与字符串（否则本文件自己的注释就会把自己判红）。
-String stripCommentsAndStrings(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          i += quote.length;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
+import 'support/source_scan.dart';
 
+/// 剥掉注释与字符串（否则本文件自己的注释就会把自己判红）。
+///
+/// 这个词法器从前是本文件「先例」、被另外 7 个文件抄过；现在是共享定义：
+/// `support/source_scan.dart`（W3-D3）。
 /// 扫描 `lib/**`，返回「文件:行号: 内容」形式的命中。
 List<String> scanLib(RegExp pattern, {Set<String> exempt = const <String>{}}) {
   final List<String> hits = <String>[];

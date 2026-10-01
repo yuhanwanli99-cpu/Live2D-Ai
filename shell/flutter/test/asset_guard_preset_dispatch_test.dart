@@ -53,6 +53,8 @@ import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/source_scan.dart';
+
 /// 只记录发出去的帧（与 live2d_bridge_test.dart 同形；协议级断言用）。
 class _FakeTransport implements Live2DTransport {
   final StreamController<String> _controller =
@@ -73,52 +75,9 @@ class _FakeTransport implements Live2DTransport {
   void emit(String frame) => _controller.add(frame);
 }
 
-/// 剥掉注释与字符串（沿用 test/motion_wiring_test.dart 的同名函数先例）。
+/// 剥掉注释与字符串（共享词法器：`support/source_scan.dart`，W3-D3 起唯一定义）。
 ///
 /// 必须先剥字符串再做花括号配平，否则字符串里的花括号会把 [methodBody] 配错。
-String stripCommentsAndStrings(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          i += quote.length;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
-}
-
 /// 取 [signature] 起那个方法的**函数体**源码（含最外层花括号）；找不到返回 null。
 ///
 /// 先对参数表的圆括号配平（具名参数的 {} 不影响圆括号深度），再取随后的第一个
