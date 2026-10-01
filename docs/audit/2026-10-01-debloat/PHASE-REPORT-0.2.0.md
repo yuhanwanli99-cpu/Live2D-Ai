@@ -19,7 +19,7 @@ W2（D1 休眠资产两段式，**最大单项去臃肿**）、W3 的一部分�
 |---|---|---|---|---|
 | W0a | S0 文档整理 | ✅ | 94 份 plans → `docs/legacy/plans/`（`docs/plans` 顶层 118→**24**）+ 全仓改链 358 处 + AGENTS 单一化 + CHANGELOG 停用 + v0.3.0 作废节 | `W0/GROUNDING.md` |
 | W0b | D0 度量门禁 | ✅ | `xtask code-stats`（7 文件 ≤500 行）+ `--check` + CI 三条 `run:` | 同上（并抓出 `block_end` 缺陷，见 §6） |
-| W1-a…f | rc.8-a 正确性与诚实性 | ✅（f 见注） | 12 条审计条目（4 条 P1 + 8 条 P2/P3）红-绿闭环；测试 1378 → **1520** | `W1/GROUNDING.md` + `GROUNDING-1b.md` |
+| W1-a…f | rc.8-a 正确性与诚实性 | ✅ | 13 条审计条目（**5 条 P1** + 8 条 P2/P3）红-绿闭环；测试 1378 → **1524** | `W1/GROUNDING.md` + `GROUNDING-1b.md` |
 | W2-A | D1 第一段：删 3 个已归档 Mod crate | ✅ | 8 文件 / 3,039 行；退出测试 **64**（全落在被删 crate）；**主链集合差 = 0** | `W2/GROUNDING-2A.md` |
 | W2-B | D1 第二段：移出原生壳岛 + 连带集 | ✅ | 31 文件 ≈8,954 行；`desktop` 依赖 **34 → 25**；休眠岛行数**归零**；退出 111 条（100 ⊆ 被移出目录 + 11 条测已删对象，**leader 签署**） | 复核者报告待收（见 §9） |
 | W3-D3 | 重复消除 | ✅（部分） | `stripCommentsAndStrings` **8 份副本 → 1**（含「漂移实证」）+ 反复制门禁 | 未单独派复核（证据在 commit body） |
@@ -27,7 +27,9 @@ W2（D1 休眠资产两段式，**最大单项去臃肿**）、W3 的一部分�
 | W5-D6 | 测试治理 | ⛔ **未做** | 见 §8 | — |
 | W6 | 0.2.0 末版 | ✅ | 版本四处 → `0.2.0`；产物重建；`ignite.sh --check` 四项 ok；release note | 本报告 §3 |
 
-> 注：W1-f（`F-0001-1` 错误横幅「去设置」不开面板，**P1**）在 task-5 解锁前被阻塞，本轮**补派**并在 release note 里收口。
+> 注：W1-f（`F-0001-1`，**P1**）在 task-5 解锁前被阻塞，本轮**补派并已完成**（`389cb368`）；
+> 其实施者对 HANDOFF 处方有一处**有实测依据的偏离**（字面「同帧开面板」在 medium 浮层宿主下撞
+> `setState() during build` ⇒ 延到本帧之后），leader 已接受，详见 release note §7。
 
 ## 2. 门禁前后对照（leader 亲自复跑 / 复核者独立复跑）
 
@@ -39,7 +41,7 @@ W2（D1 休眠资产两段式，**最大单项去臃肿**）、W3 的一部分�
 | `cargo clippy --workspace --all-targets -D warnings` | 0 | **0** | ✅ |
 | `rust-ratio`（门槛 95%） | 97.3263% | **96.4132% PASS** | ✅（分母随删除变小，见 §6 口径） |
 | `flutter analyze` | 0 | **0** | ✅ |
-| `flutter test` | 1378 | **1520** | ✅ **+142**（只增不减） |
+| `flutter test` | 1378 | **1524** | ✅ **+146**（只增不减） |
 | `code-stats --check` | （工具不存在） | **四条全 PASS**（`>500` 48/48 · Dart 7/7 · `>1000` 4/4 · deps 25/25） | ✅ 新增门禁 |
 | `ignite.sh --check` | 四项 ok | **四项 ok** | ✅（本轮真起服务：`/` 302 → `/app/` · `/app/` 200 · 两份产物 0 gstatic） |
 | Rust 生产行数 | 67,806 | **60,388** | ✅ **−10.96%**（D1 两项 + D3；PLAN 目标 ≤54,000 未达，见 §8） |
@@ -170,6 +172,7 @@ tag：`checkpoint/pre-doc-archive` = `dde6b855` · `checkpoint/docs-archive-done
 | **D5** | docs 瘦身（69,733→≤45,000；`docs/plans` ≤25） | `docs/plans` **已达标（24）**；总行数未做 | **判据必须用「不含 `docs/audit/**`」那一行**（过程产物会持续增长：本轮实测同一窗口 +202 行）。归档不减少总行数，减量只能来自**真删/真合并** |
 | **D6** | 测试治理（假绿灯清零 + `>800` 测试拆分） | 本轮只顺手清了 1 条（`block_end` 的恒真 fixture） | 已知实例：`design_tokens_lint_test` 的硬编码豁免表、`pet_desktop_state_test.dart`/`admin_api_test.dart` 对已删 crate 的**假绿灯**（硬编码夹具，删 Rust 后仍绿，**不得**当覆盖证据）、`no_backdrop_filter_test` 的同行正则（**本轮已修**）；`_stripComments` ×2 同名不同义（`chat_bubble_labels_test.dart:223` 认识字符串 vs `director_observer_test.dart:95` 不认识但块注释可嵌套）需逐消费点判语义后再合并 |
 | 其他 | 17 个非 `.md` 文件的 `docs/plans/<归档名>` 注释残债；`rust-ratio` 把 `docs/audit/**/raw/*.rs` 计入第一方；`crates/live2d-ai-desktop/Cargo.toml` 注释已修 | — | 均可独立成小任务 |
+| **`F-0007-2`（P2）** | busy 分支「打断并重发」**只 `stop` 不 `send`**（错误横幅的第二个动作） | 不在本轮 12 条分派范围内（TRIAGE 里属「其余按序」） | 修 `lib/ui/error_actions.dart`；验收：真泵点「打断并重发」→ 断言**确实发出了新的一轮**（不是只停） |
 
 ## 9. 交接指针（下一轮一件事清单）
 
