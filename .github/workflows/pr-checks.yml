@@ -69,11 +69,12 @@ jobs:
         run: cargo run -p xtask -- rust-ratio
 
       # ── D0 体量与硬门禁（PLAN-debloat-and-closeout-2026-10-01.md §2 / §5 D0）──
-      # 三条 run 是**同一条命令的三个门禁分组**，阈值取**棘轮**＝立档现状
-      # （§2.4 的 58 / 4、§2.5 的 desktop 34、Dart >800 的 7）：只拦「新增超限」，
-      # 不因存量把 CI 判红。PLAN §5 的目标（>1000=0 / >500≤15 / Dart≤2 / desktop≤22）
+      # 三条 run 是**同一条命令的三个门禁分组**，阈值取棘轮＝**当前实测**
+      # （立档时 58/4/34/7；现棘轮 `>500`=48 / `>1000`=4 / Dart>800=7 / desktop deps=25），
+      # 真源见 `xtask/src/code_stats/mod.rs` 的 `RATCHET_*` 与「棘轮纪律」注释：
+      # 只拦「新增超限」，不因存量把 CI 判红。PLAN §5 的目标（>1000=0 / >500≤15 / Dart≤2 / desktop≤22）
       # 用 `cargo run -p xtask -- code-stats --check --strict-plan` 复核——现在仍是红的，
-      # D2/D4 拆完后收紧 xtask/src/code_stats/gates.rs 里的棘轮常量。
+      # D2/D4 拆完后收紧棘轮常量（常量本体在 `mod.rs`，`gates.rs` 只消费）。
       - name: Code size gate (crates/*/src .rs > 500 / Dart lib > 800)
         run: cargo run -p xtask -- code-stats --check --only lines
       - name: Code size gate (crates/*/src .rs > 1000；PLAN 目标 0、棘轮 4)
