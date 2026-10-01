@@ -18,9 +18,10 @@
 | 已**删除** Mod（local-llm / wallpaper / pet-desktop） | `docs/architecture/ARCHIVED-mods.md` | §1.4/§2.4/§3.1 删除记录（W2-A，2026-10-01）；**禁止挂回** |
 | TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |
-| 逐版发布说明 | `docs/releases/v0.2.0-rc.N.md` | 版本三处以源码为准 |
+| 逐版发布说明 | **`docs/releases/v0.2.0.md`（当前）**、`docs/releases/v0.2.0-rc.N.md`（历史） | 版本四处以源码为准 |
 | **当前执行计划（现在 + 未来）** | `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md` | 本文同级 |
-| **D1 休眠资产裁决 + 红线修订（W2）** | `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md` | 删/移边界、5 处主链触点、**红线修订 1/2**；`W2-A` 已执行（tag `checkpoint/pre-d1-dormant` = `d140604f`），`W2-B` 进行中 |
+| **D1 休眠资产裁决 + 红线修订（W2）** | `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md` | 删/移边界、5 处主链触点、**红线修订 1/2**；`W2-A` = `d140604f`、`W2-B` = `03765bd3`（**两段均已执行**，见下 §3「结构性变更」） |
+| **0.2.0 阶段报告（欠账 / 事故 / 口径更正）** | `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md` | 与发布说明互指；**未跟踪**（待裁决是否入库） |
 | 接手快照 | `docs/plans/HANDOFF-2026-09-28-rc7-and-whole-repo-audit.md` | |
 | 前端审计账本（封口） | `docs/audit/2026-09-28-frontend-nightly/` | 45 条为准 |
 | 全库审计账本 | `AUDIT-REPO/`（**未跟踪**） | 已 2,374M token，建议冻结 |
@@ -38,7 +39,7 @@
 
 ## 3. 现状盘点（2026-10-01 归档后实测）
 
-**测得时点 = 2026-10-01 15:21 UTC，工作树 @ `42ca9a37`（W2-A 之后）**（下次复算请重跑下面命令并更新此时间戳）
+**测得时点 = 2026-10-01 15:55 UTC，工作树 @ `1ef52013`（W2-B 之后）**（下次复算请重跑下面命令并更新此时间戳）
 **口径与复算命令**（「.md」只数文件；「行数」= 把命中文件全部 `cat` 后的行数；**含未跟踪**）：
 
 ```bash
@@ -58,18 +59,18 @@ find docs -name '*.md' -type f -not -path 'docs/audit/*' -exec cat {} + | wc -l 
 |---|---:|---:|---|
 | `docs/plans` | 41 | 8,916 | **顶层 24**（活文档）+ `parallel-mods/` 17 |
 | `docs/legacy` | 104 | 25,191 | 顶层 10 + **`plans/` 94（本波归档）** |
-| `docs/architecture` | 32 | 9,668 | W2-A 后新增删除/休眠记录 |
-| `docs/audit` | 54 | 6,712 | **审计过程产物，会持续增长**；含 09-28 封口账本 21 批 + `2026-10-01-debloat/`（W0/W1/W2 证据，**未跟踪 6**；复核者写入中 ⇒ 数值随时间增长） |
+| `docs/architecture` | 32 | 9,983 | W2-A 后新增删除/休眠记录 |
+| `docs/audit` | 55 | 6,894 | **审计过程产物，会持续增长**；含 09-28 封口账本 21 批 + `2026-10-01-debloat/`（W0/W1/W2 证据，**未跟踪 1**；复核者写入中 ⇒ 数值随时间增长） |
 | `docs/research` | 23 | 8,937 | |
-| `docs/verification` | 19 | 4,673 | 本轮新增 `v0.2.0-checklist.md`（肉眼验收勾选表，未跟踪 1） |
-| `docs/releases` | 14 | 2,375 | |
+| `docs/verification` | 19 | 4,678 | 本轮新增 `v0.2.0-checklist.md`（肉眼验收勾选表，未跟踪 1） |
+| `docs/releases` | 15 | 2,535 | |
 | `docs/design` | 8 | 3,302 | 含 `legacy/` 4 份旧 JS 规格 |
 | `docs/legal` | 3 | 45 | |
 | `docs/examples` | 2 | 465 | |
 | `docs/development` | 2 | 124 | |
 | `docs/screenshots` | 0 | 0 | |
-| `docs/` 顶层 `*.md` | 7 | 2,359 | 含**本文件**——改本表会使其漂移，故须连时点一起读 |
-| **docs 合计** | **309** | **72,767** | **tracked 302 + 未跟踪 7** |
+| `docs/` 顶层 `*.md` | 7 | 2,378 | 含**本文件**——改本表会使其漂移，故须连时点一起读 |
+| **docs 合计** | **312** | **73,448** | **tracked 310 + 未跟踪 2** |
 
 **本轮结构性变更（影响文档口径，与 docs 行数无关但必须知道）**：
 - **workspace members 16 → 13**：`live2d-ai-mod-local-llm`（DEPRECATED）、`live2d-ai-mod-wallpaper`（ARCHIVED）、
@@ -77,8 +78,12 @@ find docs -name '*.md' -type f -not -path 'docs/audit/*' -exec cat {} + | wc -l 
   还原点 tag **`checkpoint/pre-d1-dormant` = `d140604f`**；删除记录与恢复步骤见
   `docs/architecture/ARCHIVED-mods.md` §1.4 / §2.4 / §3.1；裁决与红线修订真源见
   `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md`。
-- 原生壳岛（`live2d-ai-desktop` 的 `app/`/`tray`/`repl`/`benchmark`/`model_smoke` 等）属 **W2-B（进行中）**，
-  完成后 `desktop` 依赖数应从 34 降到 ≤25（D4 目标 ≤22）。
+- 原生壳岛（`live2d-ai-desktop` 的 `app/`/`tray`/`repl`/`benchmark`/`model_smoke` + `backend/` + `adapter/`）已**移出**：
+  **W2-B = `03765bd3`**（31 文件 ≈8,954 行；**`desktop` 依赖 34 → 25**；**休眠岛行数归零**；退出 **111 条**测试
+  = 100 条 ⊆ 被移出目录 + 11 条测已删对象，leader 签署）。机械集合差：`cargo test --workspace --all-targets`
+  **1457 → 1302**（主链行为覆盖一条未少）。台账（111 条全名 + 恢复条件）：
+  `docs/architecture/ARCHIVED-native-shell.md`；两段合并的欠账/事故/口径更正：
+  `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md`。
 
 **D5 口径（必读）**：上表「docs 合计」**含 `docs/audit/**`**，而那是**审计过程产物**，只增不减
 （实证：`docs/audit/2026-10-01-debloat/GROUNDING.md` 一夜 **84 → 333 行**）。所以 D5 的
@@ -87,14 +92,15 @@ find docs -name '*.md' -type f -not -path 'docs/audit/*' -exec cat {} + | wc -l 
 
 | 口径 | 行数 | 复算 |
 |---|---:|---|
-| docs 全量（**含** `docs/audit/**`） | **72,767** | `find docs -name '*.md' -type f -exec cat {} + \| wc -l` |
-| docs 全量（**不含** `docs/audit/**`） | **66,055** | 上条加 `-not -path 'docs/audit/*'` |
-| 其中 `docs/audit/**` 自身 | **6,712** | 两条相减 |
+| docs 全量（**含** `docs/audit/**`） | **73,448** | `find docs -name '*.md' -type f -exec cat {} + \| wc -l` |
+| docs 全量（**不含** `docs/audit/**`） | **66,554** | 上条加 `-not -path 'docs/audit/*'` |
+| 其中 `docs/audit/**` 自身 | **6,894** | 两条相减 |
 
 > **归档不减少 docs 总行数**（只在 `docs/` 内移动 + 每份 +2 行 banner + 改链），
 > 所以 D5 的减量只能来自**真删 / 真合并**；归档只解决「活 / 历史混放」。
-> **判 D5 请以「不含 `docs/audit/**`」那一行为准**：`docs/audit/**` 是过程产物，本轮测期内它还在被复核者持续写入
-> （本次测量窗口内 +202 行、+1 份；同一现象见 `GROUNDING.md` 一夜 84 → 333 行）⇒「含 audit」只是**快照**。
+> **判 D5 请以「不含 `docs/audit/**`」那一行为准**：`docs/audit/**` 是过程产物，**入库后仍在增长**
+> （本轮两次快照：6,712 → 6,894 行 = **+182**；同一现象见 `GROUNDING.md` 一夜 84 → 333 行）
+> ⇒「含 audit」只是**快照**。
 
 > 归档前基线（复核者可对照）：顶层 `docs/plans/*.md` = **118**（跟踪 113 + 未跟踪 5），
 > docs 全量 `.md` = **303**（归档只在 `docs/` 内部移动，总量不变）。
@@ -108,7 +114,7 @@ find docs -name '*.md' -type f -not -path 'docs/audit/*' -exec cat {} + | wc -l 
 2. ~~**AGENTS.md 两份并存**（`-Ai` 旧版 vs `-fe`/main 新版）~~ → **已收口**：`-fe` 版为唯一真源，`-Ai` 副本在 `AGENTS.md` 首屏被标为过时历史副本；
 3. ~~`CHANGELOG.md` 停更，却仍被当版本线之一~~ → **已收口**：顶部停更头注写明版本真源 = `docs/releases/*.md`（最新一份）+ 代码版本三处；
 4. ~~`docs/releases/v0.3.0.md` 是未发布草案，与 0.2.0 线矛盾~~ → **已标作废**：顶部「历史草案，未发布」+ 收尾指向 `AGENTS.md` 首屏；
-5. ~~`-fe` 的 `docs/README.md` 改动、4 份 2026-10-01 新文档、2 份 09-28 文档、`AUDIT-REPO/`（未跟踪）**仍未提交**~~ → **已提交（2026-10-01）**：归档 = `b9eff54e`，doc-chore = `4285af8b`（本文件 + `docs/README.md` + 3 份 2026-10-01 新计划/提示词 + 2 份 09-28 文档 + 归档清单都在里面）。**当前仍未跟踪的两处**：`AUDIT-REPO/`（全库审计账本，**永不 `git add`**）与 `docs/audit/2026-10-01-debloat/`（本轮复核者证据 + D1 影响简报，**它入库要单独裁决**，别混进代码 commit）；另有本波新增的 `docs/verification/v0.2.0-checklist.md` 也待提交。
+5. ~~`-fe` 的 `docs/README.md` 改动、4 份 2026-10-01 新文档、2 份 09-28 文档、`AUDIT-REPO/`（未跟踪）**仍未提交**~~ → **已提交（2026-10-01）**：归档 = `b9eff54e`，doc-chore = `4285af8b`，复核证据账本 = **`c1717ba5`**（`docs/audit/2026-10-01-debloat/` 的 W0/W1/W2 GROUNDING + raw，共 67 份**已入库**）。**当前仍未跟踪的三处**：`AUDIT-REPO/`（全库审计账本，**永不 `git add`**）、`docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md`（0.2.0 阶段报告，待裁决）、`docs/releases/v0.2.0.md`（发布说明，待提交）。
 6. ~~全仓 111 个 `.md` 引用 `docs/plans/`，任何移动都必须同步改链~~ → **已改链**：94 个归档名共 **209 处**按各自文件位置改写为正确相对路径（其余补丁：出链重定位 42 ／ 可见文字 22 ／ 归档件内正文引用 78）；`docs/README.md` 相对链接 **105 条 missing=0**。
 
 
