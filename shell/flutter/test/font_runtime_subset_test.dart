@@ -26,6 +26,21 @@
 /// **运行期策略**（自托管兜底字体 / 引擎侧关回退 / 渲染前替换），不是再多一条扫描
 /// ——当前仓库 `fontFamilyFallback` 零命中 = 没有兜底，所以这几类只能真机验。
 ///
+/// # 纪律：扫描根必须**跨波次自适应**（2026-10-01，task-20 立）
+///
+/// 本文件的扫描根分两种语义，**别混**（实现在 [expandScanRoots]）：
+///
+/// - **通配根**（`../../crates/live2d-ai-mod-*/src`）：按**磁盘上实际存在**的目录
+///   展开 ⇒ 删 crate 自动消失、加 crate 自动纳入。**删/加 crate 时不要回来改清单**。
+/// - **点名根**（`../../crates/live2d-ai-runtime/src/conversation` 这类上屏面）：
+///   必须存在，不存在就红（那是「清单过期 / 上屏面被删改名」，该红得指名道姓）。
+///
+/// 为什么立这条：W2-A（`42ca9a37`）删掉 3 个已归档 Mod crate
+/// （`local-llm` / `wallpaper` / `pet-desktop`）后，本文件原来逐个点名的路径
+/// **因为目录消失而红**（`PathNotFoundException` + 「扫描根不存在」），红的原因
+/// 与真缺陷无关 —— 门禁一旦会这样误红，就会被当成噪音关掉。**看见「crate 被删」
+/// 造成的红，先想这里是不是该用通配根，而不是删断言**。
+///
 /// # 另一条前提（CI 接线，**已由 task-17 补齐**）
 ///
 /// 本文件的 Rust 扫描要求「整仓检出」（读 `../../crates/`）。而
@@ -138,21 +153,22 @@ const List<RuntimeTextSource> kRuntimeTextSources = <RuntimeTextSource>[
     origin: 'Mod 静态 `settings_spec` 的 label/description/placeholder（设置表单里上屏）',
     carrier: 'lib/settings/sections/dev_tools_section.dart::ModsSection',
     coverage: RuntimeCoverage.scanned,
-    // **逐个点名**而不是扫整个 `crates/`：只扫「文案真的会上屏」的那些 crate，
-    // 免得核心层的日志文案把这条门禁变成噪音（与「豁免面越小越难被侵蚀」同一条
-    // 取舍）。漏没漏有对账：`每个 live2d-ai-mod-*/src 都在覆盖面内` 那条测试——
-    // 新加 Mod crate 会让它对红，逼清单跟进。
+    // **只点名家族、不点名单个 crate**：`live2d-ai-mod-*/src` 里的 `*` 由
+    // [expandScanRoots] 按**磁盘上实际存在的目录**展开（2026-10-01，task-20）。
+    //
+    // 为什么必须动态（跨波次交互，W2-A `42ca9a37` 实测踩到）：原来逐个点名
+    // `live2d-ai-mod-local-llm/src` 这些路径——W2-A 删掉 3 个已归档 crate 之后，
+    // 门禁**因为目录消失而红**（`PathNotFoundException` + 「扫描根不存在」），
+    // 而不是因为真有缺字。删掉的 crate 自动消失、**新增的自动纳入**，
+    // 才配得上「门禁红 = 有真缺陷」。
+    //
+    // 为什么仍然只扫 Mod 家族（不是整个 `crates/*/src`）：核心层（`l2d` /
+    // `live2d-ai-core` / 运行时内部）的 tracing 文案**不上屏**，把它们扫进来
+    // 只会让日志里一个 emoji 红掉一条前端字体门禁——那正是「门禁被当成噪音
+    // 关掉」的成因。上屏面的取舍见 `backend.ws_error_frame` /
+    // `backend.settings_view` / `backend.web_api_json` 三条点名路径。
     scanRoots: <String>[
-      '../../crates/live2d-ai-mod-director/src',
-      '../../crates/live2d-ai-mod-external-input/src',
-      '../../crates/live2d-ai-mod-local-llm/src',
-      '../../crates/live2d-ai-mod-memory/src',
-      '../../crates/live2d-ai-mod-persona/src',
-      '../../crates/live2d-ai-mod-pet-desktop/src',
-      '../../crates/live2d-ai-mod-system/src',
-      '../../crates/live2d-ai-mod-template/src',
-      '../../crates/live2d-ai-mod-voice-input/src',
-      '../../crates/live2d-ai-mod-wallpaper/src',
+      '../../crates/live2d-ai-mod-*/src',
       '../../crates/live2d-ai-desktop/src/mod_registry.rs',
     ],
   ),
@@ -228,15 +244,85 @@ bool isRustTestSource(String path) {
 }
 
 /// 列出一个扫描根（文件或目录）下的**产品** Rust 源码。
+///
+/// 路径不存在时返回空表（**不抛**）：2026-10-01（task-20）之前这里会
+/// `PathNotFoundException`——目录一被删，门禁就红，而红的理由与真缺陷无关。
+/// 「根写错/根被删」这件事由调用方用 [expandScanRoots] 的 `missing` 判（**字面量
+/// 根**必须存在），**通配根**则按实际存在的目录展开——两种语义不能混。
 List<File> rustSourcesUnder(String root) {
-  if (FileSystemEntity.typeSync(root) == FileSystemEntityType.file) {
-    return <File>[File(root)];
-  }
+  final FileSystemEntityType type = FileSystemEntity.typeSync(root);
+  if (type == FileSystemEntityType.notFound) return const <File>[];
+  if (type == FileSystemEntityType.file) return <File>[File(root)];
   return Directory(root)
       .listSync(recursive: true)
       .whereType<File>()
       .where((File f) => f.path.endsWith('.rs') && !isRustTestSource(f.path))
       .toList();
+}
+
+/// 扫描根展开结果。
+class ExpandedRoots {
+  ExpandedRoots(this.resolved, this.missing);
+
+  /// 实际存在的路径（通配根按磁盘实况展开）。
+  final List<String> resolved;
+
+  /// **不含通配符却不存在**的条目：调用方必须判红（这是「根写错」的守卫）。
+  final List<String> missing;
+}
+
+/// 把 `scanRoots` 展开成实际存在的路径（**跨波次自适应的关键**）。
+///
+/// 语义（两条刻意分开，别混）：
+///
+/// - **含 `*`**：按文件系统展开。`../../crates/live2d-ai-mod-*/src` 会枚举
+///   `../../crates` 下所有匹配 `live2d-ai-mod-*` 的目录并补上 `/src`，只保留
+///   **实际存在**的。⇒ 新增 Mod crate 自动纳入、删除的 crate 自动消失：
+///   门禁不会因为「目录没了」而红（W2-A 删 3 个 crate 时正是这么红的）。
+/// - **不含 `*`**：必须存在，否则进 [missing]（点名的上屏面被删/改名 = 清单过期，
+///   该红，而且要红得指名道姓）。
+ExpandedRoots expandScanRoots(Iterable<String> patterns) {
+  final List<String> resolved = <String>[];
+  final List<String> missing = <String>[];
+  for (final String pattern in patterns) {
+    if (!pattern.contains('*')) {
+      if (FileSystemEntity.typeSync(pattern) == FileSystemEntityType.notFound) {
+        missing.add(pattern);
+      } else {
+        resolved.add(pattern);
+      }
+      continue;
+    }
+    final int star = pattern.indexOf('*');
+    final int slashBefore = pattern.lastIndexOf('/', star);
+    final int slashAfter = pattern.indexOf('/', star);
+    if (slashBefore < 0 || slashAfter < 0) {
+      missing.add(pattern); // 形态不对：只支持 `<dir>/*<片段>/<余下路径>`
+      continue;
+    }
+    final String base = pattern.substring(0, slashBefore);
+    final String prefix = pattern.substring(slashBefore + 1, star);
+    final String suffix = pattern.substring(star + 1);
+    if (FileSystemEntity.typeSync(base) == FileSystemEntityType.notFound) {
+      missing.add(pattern);
+      continue;
+    }
+    final List<String> matches =
+        Directory(base)
+            .listSync()
+            .whereType<Directory>()
+            .map((Directory d) => d.path)
+            .where((String p) => p.split('/').last.startsWith(prefix))
+            .map((String p) => '$p$suffix')
+            .where(
+              (String p) =>
+                  FileSystemEntity.typeSync(p) != FileSystemEntityType.notFound,
+            )
+            .toList()
+          ..sort();
+    resolved.addAll(matches);
+  }
+  return ExpandedRoots(resolved, missing);
 }
 
 /// 从 **Rust** 源码里抽出字符串字面量（跳过注释与字符字面量）。
@@ -414,12 +500,21 @@ let msg = "监听端口";
 
     test('真实后端源码里确实抽得到大量非 ASCII 字面量（防「零命中=通过」）', () {
       // 提取器坏了（例如把整文件当注释）会让扫描零样本→假绿。
+      //
+      // 阈值推导（2026-10-01，task-20 在 `a54a306f` 树上**重测**；W2-A/W2-B
+      // 删掉 3 个已归档 Mod crate 之后）：本门禁 4 条点名面 + Mod 家族通配根 =
+      // **85 个产品文件 / 4,380 条字面量 / 1,169 条非 ASCII**。
+      // 下限取实测的 ~45%（40 / 500）：足以在「通配根没展开 / 词法器塌成零」时红，
+      // 又不会因为再删一两个小 crate 而红（阈值与实测值都写在 reason 里）。
       int nonAscii = 0;
+      int files = 0;
       for (final RuntimeTextSource src in kRuntimeTextSources.where(
         (RuntimeTextSource s) => s.coverage == RuntimeCoverage.scanned,
       )) {
-        for (final String root in src.scanRoots) {
+        final ExpandedRoots roots = expandScanRoots(src.scanRoots);
+        for (final String root in roots.resolved) {
           for (final File f in rustSourcesUnder(root)) {
+            files++;
             for (final String lit in rustStringLiterals(
               f.readAsStringSync(),
             )) {
@@ -429,9 +524,18 @@ let msg = "监听端口";
         }
       }
       expect(
+        files,
+        greaterThan(40),
+        reason:
+            '只扫到 $files 个产品 Rust 文件 —— 通配根可能没展开/扫描面塌了'
+            '（a54a306f 实测 85，下限 40）',
+      );
+      expect(
         nonAscii,
-        greaterThan(200),
-        reason: '只抽到 $nonAscii 条非 ASCII 后端字面量 —— 词法器可能坏了',
+        greaterThan(500),
+        reason:
+            '只抽到 $nonAscii 条非 ASCII 后端字面量 —— 词法器可能坏了'
+            '（a54a306f 实测 1,169，下限 500）',
       );
     });
   });
@@ -485,11 +589,14 @@ let msg = "监听端口";
     });
 
     test('每个 `live2d-ai-mod-*/src` 都在覆盖面内（新 Mod crate 逃不掉）', () {
-      final Set<String> covered = <String>{
-        for (final RuntimeTextSource s in kRuntimeTextSources)
-          if (s.coverage == RuntimeCoverage.scanned)
-            for (final String root in s.scanRoots) root.replaceAll('//', '/'),
-      };
+      // 2026-10-01（task-20）改成「拿**展开后**的根去对账」：通配根
+      // `live2d-ai-mod-*/src` 展开出什么，就必须覆盖磁盘上每一个 Mod crate。
+      // 删 crate → 两边同时少（不红）；**新增** crate → 磁盘有、展开漏 → 红。
+      final Set<String> covered = <String>{};
+      for (final RuntimeTextSource s in kRuntimeTextSources) {
+        if (s.coverage != RuntimeCoverage.scanned) continue;
+        covered.addAll(expandScanRoots(s.scanRoots).resolved);
+      }
       final List<String> crates = Directory('../../crates')
           .listSync()
           .whereType<Directory>()
@@ -498,23 +605,26 @@ let msg = "监听端口";
             (String p) => p.split('/').last.startsWith('live2d-ai-mod-'),
           )
           .toList();
-      expect(crates, isNotEmpty, reason: '一个 Mod crate 都没找到，路径写错了');
+      // 一个 Mod crate 都没有时这条**不做非空断言**：W2-A 之后完全可能只剩
+      // 更少的 Mod（甚至有一天全删）——那条「红」不该由目录消失制造。
+      // 有则必须全被覆盖（这才是「新 crate 逃不掉」）。
       for (final String crate in crates) {
         final String src = '$crate/src';
         if (!Directory(src).existsSync()) continue;
-        // 归一化：`../../crates/x/src` 与 `crates/x/src` 都算覆盖。
-        final bool ok = covered.any(
-          (String root) => root.endsWith('${crate.replaceFirst('../', '')}/src'),
-        );
         expect(
-          ok,
+          covered.any((String root) => root.endsWith('/${crate.split('/').last}/src')),
           isTrue,
           reason:
               'Mod crate `$crate` 不在运行态来源清单的覆盖面内 —— 它的 '
-              '`settings_spec` 文案会上屏，缺字同样会拉 gstatic。请把它加进 '
-              'backend.mod_settings_spec 的 scanRoots（并在这里保持对账）。',
+              '`settings_spec` 文案会上屏，缺字同样会拉 gstatic。通配根 '
+              '`../../crates/live2d-ai-mod-*/src` 应当覆盖它（检查展开逻辑）。',
         );
       }
+      expect(
+        covered.where((String r) => r.contains('/live2d-ai-mod-')).length,
+        crates.where((String c) => Directory('$c/src').existsSync()).length,
+        reason: '展开结果与磁盘实况不一致（漏了或多算了 Mod crate）',
+      );
     });
 
     test('清单里点名了审计的三类运行态来源（模型输出 / 后端文案 / Mod 运行态值）', () {
@@ -537,17 +647,29 @@ let msg = "监听端口";
       expect(scanned, isNotEmpty, reason: '一条可扫来源都没有 = 覆盖面为零');
 
       for (final RuntimeTextSource src in scanned) {
-        for (final String root in src.scanRoots) {
+        final ExpandedRoots roots = expandScanRoots(src.scanRoots);
+        // **守卫 A**：点名的（不含通配符的）扫描根必须存在。通配根则按实际
+        // 存在的目录展开——「crate 被删」不该让门禁红（那是跨波次噪音），
+        // 「点名的上屏面被删/改名」才该红。
+        expect(
+          roots.missing,
+          isEmpty,
+          reason:
+              '${src.id} 的扫描根不存在：${roots.missing.join(', ')}。\n'
+              '前提是「整仓检出」——`flutter test` 的 CWD 是 `shell/flutter/`，'
+              '所以要能读到 `../../crates/`。单独拷 shell/flutter/ 跑测试会在这里红，'
+              '这是**刻意**的：宁可红，也不静默跳过一整族运行态来源。',
+        );
+        for (final String root in roots.resolved) {
+          final List<File> files = rustSourcesUnder(root);
+          // **守卫 B**：展开出来的每个根都必须真的有产品 Rust 源码。
+          // 否则「通配根写得不对」会静默退化成「少扫一族」——零命中=假绿。
           expect(
-            FileSystemEntity.typeSync(root),
-            isNot(FileSystemEntityType.notFound),
-            reason:
-                '${src.id} 的扫描根不存在：$root。\n'
-                '前提是「整仓检出」——`flutter test` 的 CWD 是 `shell/flutter/`，'
-                '所以要能读到 `../crates/`。单独拷 shell/flutter/ 跑测试会在这里红，'
-                '这是**刻意**的：宁可红，也不静默跳过一整族运行态来源。',
+            files,
+            isNotEmpty,
+            reason: '${src.id} 的扫描根 `$root` 展开后一个 .rs 都没有',
           );
-          for (final File f in rustSourcesUnder(root)) {
+          for (final File f in files) {
             for (final String lit in rustStringLiterals(
               f.readAsStringSync(),
             )) {
@@ -557,11 +679,16 @@ let msg = "监听端口";
         }
       }
 
-      // 非空性：扫描根写错 / 提取器坏了 → 零样本 → 「零命中=通过」的假绿。
+      // 非空性（阈值按 2026-10-01 的 `a54a306f` 树**重测**后推导；W2-A/W2-B 删掉
+      // 3 个已归档 Mod crate 使树变小，所以下限随之下调——但**绝不等于 0**）：
+      // 实测 **85 个产品文件 / 4,380 条字面量 / 1,169 条非 ASCII**；下限取
+      // ~45%（2,000 / 500），仍远高于「扫描面塌成空」的那一侧。
       expect(
         samples.length,
         greaterThan(2000),
-        reason: '只扫到 ${samples.length} 条后端字面量，扫描根可能写错了',
+        reason:
+            '只扫到 ${samples.length} 条后端字面量，扫描根可能写错了'
+            '（a54a306f 实测 4,380，下限 2,000）',
       );
       final int nonAscii = samples
           .where(
@@ -570,8 +697,10 @@ let msg = "监听端口";
           .length;
       expect(
         nonAscii,
-        greaterThan(400),
-        reason: '非 ASCII 后端字面量只有 $nonAscii 条 —— 提取器可能坏了',
+        greaterThan(500),
+        reason:
+            '非 ASCII 后端字面量只有 $nonAscii 条 —— 提取器可能坏了'
+            '（a54a306f 实测 1,169，下限 500）',
       );
 
       final Map<int, Set<String>> offenders = collectOffenders(samples, subsets);
@@ -663,6 +792,116 @@ let msg = "监听端口";
         isNotEmpty,
         reason: '同一段文本换成**运行态来源**就必须红 —— 这才是补齐的那一半',
       );
+    });
+
+    test('跨行 / 原始字符串里的子集外字符照样红（词法器不吃「多行」）', () {
+      // 用**三引号包住的 Rust 源码**做样本（真实文件里是 `r#"…"#` 原始字符串，
+      // 可以跨行）：多行字面量最容易让「按行抓字符串」的实现漏掉。
+      const String rustSourceWithRawString = r'''
+fn hint() -> &'static str {
+    r#"这一句里有 🎉 与 ▍
+（第二行也有 𠀀）
+"#
+}
+''';
+      final List<String> lits = rustStringLiterals(rustSourceWithRawString);
+      expect(lits, hasLength(1), reason: '跨行原始字符串要整段抽出来');
+      expect(lits.single, contains('🎉'));
+      final List<SubsetRanges> subsets = loadSubsets();
+      final Map<int, Set<String>> offenders = collectOffenders(
+        <(String, String)>[('backend.ws_error_frame', lits.single)],
+        subsets,
+      );
+      expect(
+        offenders.keys.toSet(),
+        containsAll(<int>{0x1F389, 0x258D, 0x20000}),
+        reason: '跨行字面量里的子集外字符必须被判红（不能只抓第一行）',
+      );
+      expect(offenders[0x1F389], contains('backend.ws_error_frame'));
+    });
+  });
+
+  group('⑧ 扫描根自适应（跨波次：删 crate 不红、加 crate 逃不掉）', () {
+    test('守卫 A：不含通配符的扫描根不存在 → 进 `missing`（调用方判红）', () {
+      final ExpandedRoots roots = expandScanRoots(<String>[
+        '../../crates/live2d-ai-mod-local-llm/src', // W2-A 已删
+      ]);
+      expect(roots.resolved, isEmpty);
+      expect(
+        roots.missing,
+        <String>['../../crates/live2d-ai-mod-local-llm/src'],
+        reason: '点名根被删/改名 = 清单过期，必须红得指名道姓',
+      );
+    });
+
+    test('守卫 A 的反面：存在的点名根进 `resolved`、不进 `missing`', () {
+      final ExpandedRoots roots = expandScanRoots(<String>[
+        '../../crates/live2d-ai-runtime/src/conversation',
+      ]);
+      expect(roots.missing, isEmpty);
+      expect(roots.resolved, <String>['../../crates/live2d-ai-runtime/src/conversation']);
+    });
+
+    test('通配根按磁盘实况展开：只返回**存在**的目录（删掉的 crate 自动消失）', () {
+      final ExpandedRoots roots = expandScanRoots(<String>[
+        '../../crates/live2d-ai-mod-*/src',
+      ]);
+      expect(roots.missing, isEmpty, reason: '基础目录存在 + 通配 → 不该算 missing');
+      expect(roots.resolved, isNotEmpty, reason: '一个 Mod crate 都没展开出来');
+      final List<String> crates = Directory('../../crates')
+          .listSync()
+          .whereType<Directory>()
+          .map((Directory d) => d.path)
+          .where((String p) => p.split('/').last.startsWith('live2d-ai-mod-'))
+          .where((String p) => Directory('$p/src').existsSync())
+          .map((String p) => p.split('/').last)
+          .toList()
+        ..sort();
+      final List<String> expanded = roots.resolved
+          .map((String p) => p.split('/')[p.split('/').length - 2])
+          .toList()
+        ..sort();
+      expect(
+        expanded,
+        crates,
+        reason: '展开结果必须与磁盘上的 Mod crate 集合逐一对应（不多不少）',
+      );
+      for (final String root in roots.resolved) {
+        expect(
+          Directory(root).existsSync(),
+          isTrue,
+          reason: '展开出来的根必须真的存在：$root',
+        );
+      }
+      // 已删除的三个 crate 不许再出现在展开结果里（这就是 W2-A 那次红的根因）。
+      for (final String gone in <String>[
+        'live2d-ai-mod-local-llm',
+        'live2d-ai-mod-wallpaper',
+        'live2d-ai-mod-pet-desktop',
+      ]) {
+        expect(
+          roots.resolved.any((String p) => p.contains(gone)),
+          isFalse,
+          reason: '$gone 已删除，展开结果里不该再有它的路径',
+        );
+      }
+    });
+
+    test('通配根的基础目录不存在 → 也进 `missing`（不是静默空表）', () {
+      final ExpandedRoots roots = expandScanRoots(<String>[
+        '../../crates/__no_such_family__/*/src',
+      ]);
+      expect(roots.resolved, isEmpty);
+      expect(roots.missing, hasLength(1));
+    });
+
+    test('真实清单里的点名根全部存在（否则 ⑥ 会以「清单过期」红）', () {
+      final List<String> missing = <String>[];
+      for (final RuntimeTextSource src in kRuntimeTextSources) {
+        if (src.coverage != RuntimeCoverage.scanned) continue;
+        missing.addAll(expandScanRoots(src.scanRoots).missing);
+      }
+      expect(missing, isEmpty);
     });
   });
 }
