@@ -3,6 +3,12 @@
 > 本文件是项目级通用说明，供任何 CLI agent（pi / Claude Code / Hermes 等）读取。
 > 状态：2026-09-10 重写——确立 **Rust 核心 + Flutter 前端** 双主导分层，
 > 前端/接口层自 `rust-ratio` 门禁中**显式豁免**（原版只描述 Rust 单主线）。
+> **2026-10-01 单一化：本文件是唯一现行真源。** 同名文件若出现在其它 worktree
+> （`/home/skystar/Live2D-Ai` 那份还在说「动作系统已拆除」）都是**过时的历史副本**，
+> **不要**按它写代码或文档；文档地图与生命周期三分见 `docs/DOC-MAP.md`。
+> **版本口径（0.2.0 线）**：现状 = `0.2.0-rc.7`；本轮（2026-10-01）做的是 **0.2.0 收口**——
+> S0 文档整理 → `rc.8-a` 正确性与诚实性 → `rc.8-b` 结构 → 0.2.0 末版，执行计划
+> `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md`。
 
 ## 项目背景
 
@@ -12,7 +18,7 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.2.0-rc.7`（正确性与诚实性：审计主发现 + 4 条假绿灯 + 仓库卫生，2026-09-28）**：
+- **当前版本 `0.2.0-rc.7`（0.2.0 线的现状；正确性与诚实性：审计主发现 + 4 条假绿灯 + 仓库卫生，2026-09-28）**：
   ① **审计主发现 `F-0005-2`（重建放大链，本轮最有价值的单点）**：`AppShell` 新增宿主状态代际
   `settingsRevision`、`AppShellState` 新增 `_settingsTick`（设置数据通知计数），两者与 `section`
   组成设置面板 `_pane()` 的**缓存键** —— 键不变就返回**同一个 widget 实例**，父级重建被
@@ -57,7 +63,7 @@
   仍不复活 **core** 动作通道）。
   **未 bump 版本、未 push**；
   主链皮肤（LLM/TTS/口型/Live2D）与 `l2d-wasm-demo` 一行未改。
-  收束见 `docs/plans/PRODUCT-GRADE-CLOSEOUT.md`。
+  收束见 `docs/legacy/plans/PRODUCT-GRADE-CLOSEOUT.md`。
 - **上一版本地集成 `mod/wave3`（Wave 3 七轨闭环，2026-09-14，未发布、不打 tag、版本仍 `0.2.0-rc.3`）**：
   把六个已注册 Mod 补到可日用闭环并把 director 从 RFC 推进到**最小骨架**：
   ① `voice-input`：`backend=mock|sidecar` 走明确分支（结构性不开 socket）、`locale` 真影响
@@ -212,7 +218,8 @@
 
 ## 工作区与点火纪律（WSL2 ↔ Windows，2026-09-12 定）
 
-核心开发**只在 WSL2**（`/home/skystar/Live2D-Ai`）；Windows 侧只承担**浏览器肉眼验收**。
+核心开发**只在 WSL2**（本轮工作树 `/home/skystar/Live2D-Ai-fe`；`/home/skystar/Live2D-Ai`
+是**死树**，只作只读参考、**不要在上面写文件**）；Windows 侧只承担**浏览器肉眼验收**。
 两边不做第二套真相，也不互相复制产物。
 
 | 角色 | 职责 |
@@ -228,7 +235,7 @@
   **不含 `gstatic.com/flutter-canvaskit`**（断网红线）。这三条只有真起过一次服务才验得到，
   单元测试覆盖不了托管层与产物内容。
 
-详细分工与验收：`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md` §3。
+详细分工与验收：`docs/legacy/plans/PLAN-rc2-second-baseline-2026-09-12.md` §3。
 
 ## 开发约定
 
@@ -549,8 +556,8 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   pytest 22 passed/1 skipped；两个 sidecar 自检 70 项 + 16 断言 OK；
   **真点火**（本机 DeepSeek + CosyVoice，18099）两轮对话：memory 2 写 1 命中、director 2 决策、
   persona 导入→还原→再启用、`command` 失败态（404/409/503/400/403）全部符合契约。
-  收束：[`docs/plans/PRODUCT-GRADE-CLOSEOUT.md`](docs/plans/PRODUCT-GRADE-CLOSEOUT.md)；
-  点火：[`docs/plans/IGNITION-CHECKLIST-product-grade.md`](docs/plans/IGNITION-CHECKLIST-product-grade.md)。
+  收束：[`docs/legacy/plans/PRODUCT-GRADE-CLOSEOUT.md`](docs/legacy/plans/PRODUCT-GRADE-CLOSEOUT.md)；
+  点火：[`docs/legacy/plans/IGNITION-CHECKLIST-product-grade.md`](docs/legacy/plans/IGNITION-CHECKLIST-product-grade.md)。
   **未 bump / 未 push / 未打 tag**；主链皮肤与 `l2d-wasm-demo` 一行未改。
 
 - **2026-09-14（Wave 3 七轨闭环，本地 `mod/wave3`，**未发布 / 无版本变更**）：**真源 `mod/wave2` @ `1e789cb6`
@@ -768,7 +775,7 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   flutter analyze 无问题 + **813** 测试通过（含无头浏览器验收补丁）；`ignite.sh --check` 四项全 ok；
   `verify_core_chain.py`（长思考提问）**18 跳全过**。
   发布说明（含点火记录与已知问题）：`docs/releases/v0.1.0-rc.2.md`；
-  **接手入口**：`docs/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`
+  **接手入口**：`docs/legacy/plans/HANDOFF-2026-09-13-rc2-second-baseline.md`
   （一分钟上手 / 门禁数字 / 交付态实测 / 推到 rc.3 的事 / 本轮新踩的七个坑）。
 - **2026-09-11（v0.1.0-rc.1，核心链路基线）**：用户验收通过 → **交接落盘 + 标注基线**，
   随后裁决「**旧版本代码可只存在本地，仓库可以洗一下**」。本版：
@@ -785,7 +792,7 @@ rc.3 裁决（计划 §5，**选项 B**）：**本轮不 feature-gate**。理由
   60 MB 调试 APK 与 **Live2D 模型二进制**不再公开（与本项目「模型不捆绑分发」的立场
   原本自相矛盾；公开 `.git` 256 MB vs 产品树 19.7 MB）；旧代码只存在本地。
   发布说明：`docs/releases/v0.1.0-rc.1.md`；基线逐环：`docs/architecture/core-chain-baseline.md`；
-  交接：`docs/plans/HANDOFF-2026-09-11-core-chain-baseline.md`。
+  交接：`docs/legacy/plans/HANDOFF-2026-09-11-core-chain-baseline.md`。
   门禁：cargo **765** 通过、clippy 0 warning、rust-ratio **96.95%** PASS；
   flutter analyze 无问题、flutter test **778** 通过；`scripts/verify_core_chain.py` **17 跳全过**。
 - **2026-09-11（v0.5.1 追加）**：用户报「后端出错无具体错误代码 + 改动提示词就崩 +

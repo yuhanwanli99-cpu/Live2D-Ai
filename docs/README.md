@@ -1,6 +1,9 @@
 # Live2D-Ai 文档索引
 
 > 本文档把 `docs/` 按用途分目录，避免所有文件堆在顶层。
+>
+> **文档地图 / 生命周期三分 / 归档规则见 [DOC-MAP.md](DOC-MAP.md)（2026-10-01 立）**；
+> **当前执行计划（0.2.0 收口 + 去臃肿）见 [PLAN-debloat-and-closeout-2026-10-01.md](plans/PLAN-debloat-and-closeout-2026-10-01.md)**。
 
 ## 架构与契约（当前）
 
@@ -101,6 +104,37 @@
 
 ## 规划
 
+> **2026-10-01 归档**：94 份已收口的计划已移入 `legacy/plans/`（每份顶部一行「历史，勿当现网」）。
+> 本节里链接写成 `legacy/plans/…` 的条目**都是历史留证**；活文档留在 `plans/`（顶层 **24** 份）。
+> 归档规则 / 保留清单 / 回滚方式见 [DOC-MAP.md](DOC-MAP.md) §2/§4。
+
+- [**执行计划（2026-10-01）：0.2.0 收口 + 去臃肿 / 债务清零**](plans/PLAN-debloat-and-closeout-2026-10-01.md)
+  ——**口径**：项目太大太臃肿，技术/工程债要收、代码精简与优化排上日程。**现在**：S0 文档整理 →
+  rc.8-a 正确性与诚实性（9 条 P1）→ rc.8-b 结构 → 0.2.0 末版；**随后**：去臃肿 D0–D6
+  （度量门禁 / 休眠裁决 / 结构拆分 / 重复消除 / 依赖瘦身 / 文档瘦身 / 测试治理）。
+  目标：Rust 生产 −20%、>1000 行文件归零、休眠代码归零、`desktop` 依赖 34→≤22、`docs/plans` 115→≤25
+  （**2026-10-01 归档后顶层 = 24，已达标**）。
+  含**体量实测基线**（Rust 67,806 / Dart 33,476 / docs 69,733，2026-10-01 立档口径；
+  **归档后复算见 [DOC-MAP.md §3](DOC-MAP.md)**）与**不可牺牲的红线清单**。
+- [**文档地图与生命周期（2026-10-01）**](DOC-MAP.md)
+  ——「这个问题看哪份文档」真源地图 + 活/历史/作废**三分** + 命名规范 + 归档规则与
+  **94 份候选（2026-10-01 已执行，顶层 118 → 24）**；
+  **新会话先看这份**，可避免 `-Ai` 旧 doctrine 与 `-fe` 现行口径混淆。
+- [**开工提示词 · 主 leader（2026-10-01）：0.2.0 收口 + 去臃肿**](plans/ORCHESTRATOR-PROMPT-debloat-round-2026-10-01.md)
+  ——**把本文件整块粘贴给 team 的主 leader**：角色边界（编排/复核/提交，不写业务码）/ 环境事实 /
+  波次表（文件零重叠）/ 派发模板 / 公共前置 / **红线 8 条** / 验收协议（红-绿 + 非实施者复核 + 判别力自证）/
+  **6 项必须停下问维护者的裁决项** / 提交与 tag 规范 / 磁盘纪律。
+- [**实现提示词 · 去臃肿轮（2026-10-01）：W-S0 / W-D0 / W-R8a-1…5 / W-D1…D6 / W-VERIFY**](plans/IMPL-PROMPTS-debloat-round-2026-10-01.md)
+  ——每个 worker 一块：文件归属 / 必做 / 禁做 / **验收测试（planner 指定）** / 证据 / 回报；
+  含「planner 拥有测试规格、worker 实现、verifier 确认」的所有权说明。
+- [**交接说明（2026-09-28 晚）：rc.5/rc.6/rc.7 已收口 —— 下一步 rc.8 + 全代码库审计**](plans/HANDOFF-2026-09-28-rc7-and-whole-repo-audit.md)
+  ——**接手先读这份**：一分钟上手（HEAD `932ea5d4` / tag rc.1–rc.7 / 门禁 1457 · 1378）/
+  本轮只读复核的独立核验结果 / **必须修的 6 条文档债** / 待裁决 4 件 / rc.8-a·rc.8-b 波次 /
+  `--ff-only` 合流路径 / 未验收的肉眼 8 项 / 6 个已知坑
+- [**全代码库只读审计提示词（长跑版 · 弱模型可用，2026-09-28）**](plans/AUDIT-PROMPT-whole-repo-2026-09-28.md)
+  ——整块粘贴给审计进程：范围含 `crates/**`（291 文件 / 97.5k 行，**此前从未被系统审计**）+
+  `shell/flutter/**` + scripts/CI；账本 `AUDIT-REPO/`（未跟踪）；小批次 · 机械队列 · 键值块产出（不用表格）/
+  红线 K–R / 已知已登记清单（45 条前端发现 + Mod 侧 S1–S6 等）/ 五阶段永动队列 / 对抗日
 - [**动作 / 表情 / 导演链路调研（4 项症状 → 根因 → 下一轮任务，2026-09-21）**](plans/RESEARCH-actions-director-audit-2026-09-21.md)
   ——**本轮 W1–W11 的调研真源**：4 项症状的 `file:line` 根因、幅度死区量化表、与 `director-rfc.md`
   的 RFC 冲突表（§3.2）与脱轨清单（§3.4）；口径裁决在 §3.6–§3.8；**§8 目标链路 / §9 时间轴对齐 / §10 输出契约与字段分解是维护者已确认的规格**。⚠ **§3.4 的 D1 与由 R2 推出的
@@ -113,51 +147,51 @@
   ——每块自带公共前置（门禁 / 硬约束 / 回报格式），供 worker 整块粘贴（**本轮任务真源**）
 - [**交接说明（2026-09-21）：动作 / 表情 / 导演链路 —— 已冻结裁决 + Wave 0/1 验收 + 未完成工作**](plans/HANDOFF-2026-09-21-actions-performance-round.md)
   ——**接手先读这份**：一分钟上手 / 不得翻案的裁决清单 / 门禁基线 / W7–W11 与 flaky、TTS 缺口 / 现状快照
-- [**点火验收清单（产品级加强波次 / `mod/product-grade`）：给用户在 Windows 上照单勾选**](plans/IGNITION-CHECKLIST-product-grade.md)
+- [**点火验收清单（产品级加强波次 / `mod/product-grade`）：给用户在 Windows 上照单勾选**](legacy/plans/IGNITION-CHECKLIST-product-grade.md)
   ——注册面 **5 个 Mod**（wallpaper / pet-desktop 已封存）/ 机器预检 / 人机验收（含五个 Mod 的产品级可见项）/ 通过标准 / 签名栏；
   配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表；`--fsm` 五 Mod 矩阵）
-- [**产品级加强波次收束报告**](plans/PRODUCT-GRADE-CLOSEOUT.md)
+- [**产品级加强波次收束报告**](legacy/plans/PRODUCT-GRADE-CLOSEOUT.md)
   ——封存结果（FACTORIES 7 → 5）/ 五个 Mod 的产品级达成 / 门禁数字 / 最短体验路径（版本仍 `0.2.0-rc.3`，未 bump）
-- [点火验收清单（stabilize，**已被取代**）](plans/IGNITION-CHECKLIST-stabilize.md)
+- [点火验收清单（stabilize，**已被取代**）](legacy/plans/IGNITION-CHECKLIST-stabilize.md)
   ——前置（含 **TTS 未起时的预期**）/ 机器预检 / 十步人机验收（操作·期望·失败先看哪）/ 通过标准 / 签名栏；
   配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表）
-  与实跑记录 [`STABILIZE-PRECHECK-RESULT.md`](plans/STABILIZE-PRECHECK-RESULT.md)
+  与实跑记录 [`STABILIZE-PRECHECK-RESULT.md`](legacy/plans/STABILIZE-PRECHECK-RESULT.md)
   （Wave 3 之后的**稳定化小修**：修「前端 Mod 管理启停恒 415」，见
   [`STABILIZE-CLOSEOUT.md`](plans/parallel-mods/STABILIZE-CLOSEOUT.md)；版本仍 `0.2.0-rc.3`）
 - [**Wave 3 收束报告：七个已注册 Mod 的日常闭环（2026-09-14，未发布 / 无版本变更）**](plans/parallel-mods/WAVE3-CLOSEOUT-2026-09-14.md)
   ——每轨 tip / 闭环证据 / 未决 / `v0.2.0-rc.3` §8 逐条处置 / 与将来 rc.4 的差距；
   协议见 [`PARALLEL-WAVE3-2026-09-14.md`](plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md)
   （基座 `ModEventTopic::TurnEnded`；`AVAILABLE_MOD_FACTORIES` 6 → 7，版本仍 `0.2.0-rc.3`）
-- [**交接说明（2026-09-13）：rc.2 第二基线 —— 动作层删到底 + 模型闭环 + `.env` 密钥真源 + 推理模型思考**](plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
+- [**交接说明（2026-09-13）：rc.2 第二基线 —— 动作层删到底 + 模型闭环 + `.env` 密钥真源 + 推理模型思考**](legacy/plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
   ——**接手先读本文**：一分钟上手、13 个提交的清单、门禁数字、交付态实测（含无头浏览器七项证据）、
   故意推到 rc.3 的事、下一轮建议顺序，以及**本轮新踩的七个坑**
   （「语义树不是像素」「自检与链路抢资源 → 自检说谎」「推理模型的思考与 max_tokens 共享」
   「正文上屏的闸门是 SentenceVoiced」「别用 taskkill /IM chrome.exe」…）
-- [交接说明（2026-09-11 晚）：核心链路基线 —— 工具/动作拆除 + 音频走媒体元素 + 三个真缺陷](plans/HANDOFF-2026-09-11-core-chain-baseline.md)
+- [交接说明（2026-09-11 晚）：核心链路基线 —— 工具/动作拆除 + 音频走媒体元素 + 三个真缺陷](legacy/plans/HANDOFF-2026-09-11-core-chain-baseline.md)
   ——rc.1 的接手入口（平台与音频那一层仍然有效）：LLM 工具/动作系统为何整体拆除、
   音频为何从 Web Audio 改走 `<audio>`+WAV、三个真缺陷的根因、**七个必须知道的坑**
 - [基线说明：核心链路（2026-09-11）](architecture/core-chain-baseline.md)
   ——链路逐环与出处、已移出链路的、刻意保留的、一键验证与真机点火看哪七项证据
-- [**交接说明（2026-09-11）：前端重做 + 真机验收 + 错误可观测性（v0.4.13 → v0.5.1）**](plans/HANDOFF-2026-09-11.md)
+- [**交接说明（2026-09-11）：前端重做 + 真机验收 + 错误可观测性（v0.4.13 → v0.5.1）**](legacy/plans/HANDOFF-2026-09-11.md)
   ——同一日的前半段（前端重做与真机验收十二个 bug）；其 §12 的未提交清单**已完成**
-- [**交接说明（2026-09-10）：核心链路闭环 + 音频「很吵」修复**](plans/HANDOFF-2026-09-10.md)
+- [**交接说明（2026-09-10）：核心链路闭环 + 音频「很吵」修复**](legacy/plans/HANDOFF-2026-09-10.md)
   ——上一版交接（历史；运行环境与 9 条陷阱仍有参考价值）
-- [**前端加强计划：参考 Morrow 前端（2026-09-11，已完成）**](plans/PLAN-frontend-strengthening-2026-09-11.md)
+- [**前端加强计划：参考 Morrow 前端（2026-09-11，已完成）**](legacy/plans/PLAN-frontend-strengthening-2026-09-11.md)
   ——搬「观感机制」（材质插值 / 折叠面板 / 页面过渡 / 视觉审查工具），**不搬**其断点与时长
   散值、也不搬 `BackdropFilter` 玻璃；含逐文件复用判定、P0–P4 分期
-- [**音频路径方案：后端出 WAV、前端 `<audio>` 播放（2026-09-11，已实施）**](plans/PLAN-audio-wav-path-2026-09-11.md)
+- [**音频路径方案：后端出 WAV、前端 `<audio>` 播放（2026-09-11，已实施）**](legacy/plans/PLAN-audio-wav-path-2026-09-11.md)
   ——为何用 WAV 不用 mp3（本机 TTS 实测 `mp3`/`wav` 均 400）、为何媒体元素才吃站点级静音
-- [**点火计划：核心链路闭环 + 本地 Mod（2026-09-10，当前执行口径）**](plans/PLAN-ignition-core-loop-2026-09-10.md)
-- [**Rust 重建 RFC**](plans/RUST-REWRITE-RFC.md)
+- [**点火计划：核心链路闭环 + 本地 Mod（2026-09-10，当前执行口径）**](legacy/plans/PLAN-ignition-core-loop-2026-09-10.md)
+- [**Rust 重建 RFC**](legacy/plans/RUST-REWRITE-RFC.md)
 - [**未来路线图（2026-09，P0 滚项/外部验收/后续）**](plans/future-roadmap-2026-09.md)
-- [**接手修复与渲染档位计划（2026-09-07，S1/S2 完成）**](plans/integrity-takeover-fix-plan-2026-09-07.md)
-- [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](plans/node-a-wiring-audit-brief.md)
-- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，含本地 Melo TTS）**](plans/PLAN-V2-PC-LOCAL-TTS.md)
-- [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](plans/PLAN-V3-SOULLINK-PERFORMANCE.md)
-- [PLAN-V1.md（上一版 PC 计划，已被 V2 取代）](plans/PLAN-V1.md)
+- [**接手修复与渲染档位计划（2026-09-07，S1/S2 完成）**](legacy/plans/integrity-takeover-fix-plan-2026-09-07.md)
+- [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](legacy/plans/node-a-wiring-audit-brief.md)
+- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，含本地 Melo TTS）**](legacy/plans/PLAN-V2-PC-LOCAL-TTS.md)
+- [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](legacy/plans/PLAN-V3-SOULLINK-PERFORMANCE.md)
+- [PLAN-V1.md（上一版 PC 计划，已被 V2 取代）](legacy/plans/PLAN-V1.md)
 - [PLAN.md（Python/Android 双端时代的架构演进历史，已归档）](legacy/PLAN.md)
-- 历史计划：`plans/plan-*.md`、`plans/plan-task-*.md`、`plans/PLAN-PHASE1*.md`、`plans/PLAN-PC-V1~V4`、`plans/PLAN-V1-draft-2026-08-21.md`
-- [Phase-0 notes](plans/Phase-0-notes.md)
+- 历史计划（2026-10-01 已归档）：`legacy/plans/plan-*.md`、`legacy/plans/plan-task-*.md`、`legacy/plans/PLAN-PHASE1*.md`、`legacy/plans/PLAN-PC-V1~V4`、`legacy/plans/PLAN-V1-draft-2026-08-21.md`
+- [Phase-0 notes](legacy/plans/Phase-0-notes.md)
 
 ## 调研
 
@@ -183,7 +217,7 @@
 - [Rust Bakeoff 选型决策：Ayagami vs Mocari](verification/rust-bakeoff-decision.md)
   （实测报告：`verification/rust-bakeoff-ayagami.md` / `rust-bakeoff-mocari.md`）
 - 验收报告：`verification/acceptance-metrics-report*.md`
-- 测试任务：`plans/test-*.md`
+- 测试任务（2026-10-01 已归档）：`legacy/plans/test-*.md`
 
 ## 代码审计
 
@@ -208,4 +242,6 @@
 - [AGENTS.md](../AGENTS.md)（**AI/协作者入口，现行**）
 - 归档（Python/Android 双端时代，**勿当现网**）：[docs/legacy/](legacy/README.md)
   —— `HANDOVER.md` / `AGENT.md` / `PLAN.md` / `PROGRESS.md` /
-  `AUDIT.md` / `REFACTOR_*.md` 已搬进 `docs/legacy/`
+  `AUDIT.md` / `REFACTOR_*.md` 已搬进 `docs/legacy/`；
+  另 `legacy/plans/` 收 **94 份 2026-10-01 归档的计划**（清单：
+  [`legacy/plans-archive-candidates-2026-10-01.txt`](legacy/plans-archive-candidates-2026-10-01.txt)）

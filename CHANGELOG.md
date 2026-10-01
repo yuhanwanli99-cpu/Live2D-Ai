@@ -1,7 +1,9 @@
-<!-- CHANGELOG 停用声明（2026-09-28 编排者核实后加） -->
+<!-- CHANGELOG 停用声明（2026-09-28 编排者核实后加；2026-10-01 对齐版本真源口径） -->
 
 > ⚠ **本文件自 `v0.1.0-rc.4` 起停更，不再维护**（核实：全文件 `0.2.0` 命中 **0** 次）。
-> **不要**把它当作版本状态真源 —— **版本真源 = `AGENTS.md` 首屏「当前版本」+ `docs/releases/v0.2.0-rc.*.md` 发布说明**。
+> **不要**把它当作版本状态真源 —— **版本真源 = `docs/releases/*.md`（取最新一份发布说明）
+> + 代码版本三处**（`Cargo.toml` 的 workspace `version` · `shell/flutter/pubspec.yaml` ·
+> `README.md` / `README.zh-CN.md` 首屏）；`AGENTS.md` 首屏「当前版本」是同一条口径的入口。
 > 停更原因：0.2.0 线每版都有独立发布说明（含门禁原始数字与肉眼结论），再维护一份 CHANGELOG 只会产生第二真相。
 > 若将来要恢复：先决定「谁负责每版同步」，否则保持停用。
 
@@ -9,7 +11,7 @@
 
 > 同一 RC 线的**第四个基线**。完整发布说明见
 > [`docs/releases/v0.1.0-rc.4.md`](docs/releases/v0.1.0-rc.4.md)；
-> 范围真源见 [`PLAN-rc4-mod-product-chain-2026-09-13.md`](docs/plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
+> 范围真源见 [`PLAN-rc4-mod-product-chain-2026-09-13.md`](docs/legacy/plans/PLAN-rc4-mod-product-chain-2026-09-13.md)。
 > 口径：主链慎加收敛、Mod 可加、正式 Mod=Rust/C 为主、禁止唤醒 Action。
 
 ## 新增（Mod 产品链路）
@@ -58,7 +60,7 @@
 
 > 同一 RC 线的**第三个基线**。完整发布说明见
 > [`docs/releases/v0.1.0-rc.3.md`](docs/releases/v0.1.0-rc.3.md)；
-> 范围真源见 [`PLAN-rc3-structure-quality-2026-09-13.md`](docs/plans/PLAN-rc3-structure-quality-2026-09-13.md)。
+> 范围真源见 [`PLAN-rc3-structure-quality-2026-09-13.md`](docs/legacy/plans/PLAN-rc3-structure-quality-2026-09-13.md)。
 > 口径：可读性优先、**宁删勿加**、不做步骤 2。
 
 ## 新增（同拍契约的异常让位）
@@ -118,7 +120,7 @@
 
 > 同一 RC 线的**第二个基线**。完整发布说明见
 > [`docs/releases/v0.1.0-rc.2.md`](docs/releases/v0.1.0-rc.2.md)；
-> 范围真源见 [`docs/plans/PLAN-rc2-second-baseline-2026-09-12.md`](docs/plans/PLAN-rc2-second-baseline-2026-09-12.md) §0。
+> 范围真源见 [`docs/legacy/plans/PLAN-rc2-second-baseline-2026-09-12.md`](docs/legacy/plans/PLAN-rc2-second-baseline-2026-09-12.md) §0。
 > 口径：可读性与工程优雅优先、**宁删勿加**、不做步骤 2。
 
 ## 拆除（破坏性）
@@ -792,7 +794,7 @@ Morrow 的玻璃是 `BackdropFilter` + `ImageFilter.shader` 做逐像素折射�
 
 # 前端加强计划 P2（2026-09-11）— compact 设置改整页过渡 + 气泡渲染 Markdown
 
-> 续 P0/P1。依据 `docs/plans/PLAN-frontend-strengthening-2026-09-11.md`。
+> 续 P0/P1。依据 `docs/legacy/plans/PLAN-frontend-strengthening-2026-09-11.md`。
 > 门禁：`flutter analyze` 无问题；`flutter test` **703 通过 0 失败**（P1 收尾时 657）。
 
 ## 1. compact 设置：从「抽屉 + 浮层」两步跳改成**整页过渡**（P2-1）
@@ -873,7 +875,7 @@ Morrow 的玻璃是 `BackdropFilter` + `ImageFilter.shader` 做逐像素折射�
 
 # 前端加强计划 P0 + P1（2026-09-11）— 先修尺子，再把 4 档动效令牌真的接上线
 
-> 依据 `docs/plans/PLAN-frontend-strengthening-2026-09-11.md`（参考 Morrow 前端）。
+> 依据 `docs/legacy/plans/PLAN-frontend-strengthening-2026-09-11.md`（参考 Morrow 前端）。
 > 这一轮**只动 Flutter 前端**，Rust 侧零改动。P0 + P1 已完成，P2–P4 待做。
 > 门禁：`flutter analyze` 无问题；`flutter test` **657 通过 0 失败**（起点 627）。
 
@@ -2210,7 +2212,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
   `POST /v1/voices/register`；`live2d-ai.toml.example` 与
   `docs/architecture/cosyvoice3-tts-integration.md` 已按实测更正。
 - **仓库治理**：`.gitignore` 新增 `/mods.json`（运行时产物）；`shell/`（Flutter 前端）首次入库。
-- **审计**：`docs/plans/HANDOFF-2026-09-10-four-questions.md` —— 渲染亮度 / UI 增强 / TTS 速率 /
+- **审计**：`docs/legacy/plans/HANDOFF-2026-09-10-four-questions.md` —— 渲染亮度 / UI 增强 / TTS 速率 /
   口型驱动四议题的实测结论与复现命令（含口型证据图 `docs/verification/assets/mouth_compare.png`）。
 - **门禁**：`cargo test --workspace --all-targets` 全绿；`cargo fmt --all -- --check` 干净；
   `rust-ratio` 95.4692% PASS。
@@ -2238,7 +2240,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 
 - **发布前测试增强**（节点 B 复审遗留三条，全部补齐）：新增 `supervisor/tests_stall.rs`——`stop_during_tts_in_flight_yields_no_completion_and_reopens`（TTS 在飞 stop ⇒ 零 TurnCompleted/Drained + 第二轮正常收口且请求体无被停轮历史）、`stop_during_pending_pcm_pump_advances_epoch_without_completion`（Stage B 泵驻留窗口 stop ⇒ 零收口事实 + 根推进 epoch=1）、`stall_timeout_fatal_terminates_after_5s_zero_progress`（StallProducer 永远 WouldBlock{0}+healthy ⇒ 5s 后 GenerationFinished{completed:false} + TurnCompleted{outcome_completed:false}）。support.rs 新增 `spawn_tts_mock_slow` / `StallProducer` 两个 helper。
 - **行数合规**：tests_fault.rs 524→338（迁出 stop_during_drain 至 tests_stall.rs）；turn.rs 547 / tests_stall.rs 530 在 ≤1000 豁免区间并头注技术理由（三宏与 run_one_turn 局部状态强绑定，抽函数必撞 biased select 借用冲突）。
-- **节点 C 前期准备**：`docs/plans/node-c-render-platform-audit-brief.md` 69→93 行——6 个定位点全部更新到拆分后位置（app.rs→app/ 目录：frame.rs:55-61 非阻塞 Poll / bootstrap.rs:66-71 request_adapter / surface.rs:5-8 契约注释等），新增「拆分后位置更新」对照表 + 「待裁决复核」标注；C1–C11 措辞未动。交叉验证证据落盘 `docs/verification/node-c-location-recheck-2026-08-27.md`（207 行，grep 证据+上下文+结论）。
+- **节点 C 前期准备**：`docs/legacy/plans/node-c-render-platform-audit-brief.md` 69→93 行——6 个定位点全部更新到拆分后位置（app.rs→app/ 目录：frame.rs:55-61 非阻塞 Poll / bootstrap.rs:66-71 request_adapter / surface.rs:5-8 契约注释等），新增「拆分后位置更新」对照表 + 「待裁决复核」标注；C1–C11 措辞未动。交叉验证证据落盘 `docs/verification/node-c-location-recheck-2026-08-27.md`（207 行，grep 证据+上下文+结论）。
 - **门禁**：workspace **318 passed / 0 failed**（×2 稳定，desktop 101）；fmt --all 干净；clippy 仅 PetUserEvent Tray 前缀豁免；无 >1000 行源文件。节点 C 的 C1–C11 裁决交由高级 AI 执行（另调）。
 
 ---
@@ -2278,7 +2280,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 - **性能量化基线（节点 C 输入）**：llvmpipe 软渲染 frame_time avg≈116ms / max≈144ms（当前 `render_to_view` 每帧阻塞 wait 的实测代价，非阻塞化改造前后须同法对比）。
 - **WASM demo 构建门禁 ✅**：安装 trunk 0.21.14 后 `trunk build --release` 通过，dist 产物验证落盘（index.html + JS glue 111KB + wasm 5.2MB）；源码要件此前已确认（`ModelPackage::from_memory_map` 内存构造、`BROWSER_WEBGPU | GL` 回退）。清单第 4 项收口。
 - **desktop crate README 更新**：修复滞后两个批次的能力叙述（「没有任何初始化路径/request_feature 默认拒绝」→「有代码路径 ≠ 运行时生效」口径）、架构清单补全 6 个模块、追加两轮冒烟验证记录。
-- **节点 C 审计交接文档前置**：`docs/plans/node-c-render-platform-audit-brief.md`——渲染热路径阻塞点已核实到行号（model_core.rs:176-179 wait_indefinitely；mod.rs:210 离屏合法阻塞；app.rs:942 壳路径已是非阻塞形态），C1–C11 裁决清单（API 拆分形状/异步失效映射/in-flight 上限/resize 时序/WASM poll 差异/benchmark 协议/平台承诺表终稿）。
+- **节点 C 审计交接文档前置**：`docs/legacy/plans/node-c-render-platform-audit-brief.md`——渲染热路径阻塞点已核实到行号（model_core.rs:176-179 wait_indefinitely；mod.rs:210 离屏合法阻塞；app.rs:942 壳路径已是非阻塞形态），C1–C11 裁决清单（API 拆分形状/异步失效映射/in-flight 上限/resize 时序/WASM poll 差异/benchmark 协议/平台承诺表终稿）。
 - 门禁：workspace clippy 复跑仅剩既有 PetUserEvent 前缀警告（该枚举为节点 A D4 重构对象）；release 全 workspace 构建另见下批记录。
 
 ---
@@ -2288,7 +2290,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 - **应用配置 `live2d-ai.toml`**（`live2d-ai-runtime::settings`，新模块）：`[llm]`/`[tts]`/`[persona]` 三段反序列化 → `resolve()` 产出 `LlmConfig`/`TtsConfig`/`ConversationConfig`；密钥不进文件——文件写环境变量**名**（`api_key_env`），运行时读取后包 `ApiSecret`（未设置/空串=不发 Authorization 头）；未知字段拒绝解析（防拼写错误静默失效）、段整体缺省回退默认、URL 与 env 名在 resolve 阶段按段名报错。新增依赖 `toml = "0.9"`。模板落盘根目录 `live2d-ai.toml.example`（经 `include_str!` 成为 `AppSettings::example_toml()`，模板本身有解析测试锁定）；`.gitignore` 屏蔽本机 `live2d-ai.toml`。
 - **终端 REPL 纯解析**（`live2d-ai-desktop/src/repl.rs`，新模块）：`parse_line` 一行文本 → `ReplCommand::{Say,Stop,Release,Quit,Unknown}`；空行/#注释忽略、命令大小写不敏感、`/exit`=`/quit` 别名、未知 `/` 词归 Unknown 由调用方提示；零 IO 零线程，接线留待最终接线批次。7 个表驱动测试全绿。
 - **desktop 基线修复**：复跑发现 `backend::tests::description_declares_pet_capabilities_and_runtime_gate` 失败——根因是描述文本漂移（`WINIT_WGPU_NOTES` 缺「静态声明 ≠ 运行时承诺」gate 口径行），测试正确；补第六行 gate 说明 + 契约 doc 注释，测试零改动。desktop 恢复 **80 passed / 0 failed**。
-- **高级节点 A 审计交接**：`docs/plans/node-a-wiring-audit-brief.md`——给接线前高级审计的完整交接文档：现状快照、关键契约速查（run_turn/EngineEvent/PlaybackHandle/PerformancePlayer/PetUserEvent 签名与行号）、14 个必须裁决问题（进程结构与所有权 D1-D5 / turn 生命周期与取消 D6-D9 / 动作口型仲裁 D10-D12 / REPL 与退出 D13-D14）、建议接线架构草案、审计输出格式。实现方将以裁决为唯一规则源开始接线。
+- **高级节点 A 审计交接**：`docs/legacy/plans/node-a-wiring-audit-brief.md`——给接线前高级审计的完整交接文档：现状快照、关键契约速查（run_turn/EngineEvent/PlaybackHandle/PerformancePlayer/PetUserEvent 签名与行号）、14 个必须裁决问题（进程结构与所有权 D1-D5 / turn 生命周期与取消 D6-D9 / 动作口型仲裁 D10-D12 / REPL 与退出 D13-D14）、建议接线架构草案、审计输出格式。实现方将以裁决为唯一规则源开始接线。
 
 ---
 
@@ -2365,7 +2367,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 # 实现计划定稿：表演引擎直接复用 soullink-emotion-sdk（2026-08-22）
 
 - 决策：能引包就不自己写。7 个 @soullink-emotion/* 包全部已发布 npm（MIT，0.1.0-beta.1），锁精确版本引入；维护=评估上游 release+diff 后 bump。
-- 落盘 docs/plans/PLAN-V3-SOULLINK-PERFORMANCE.md：复用清单 / 目标架构 / P0 Spike→P1 双跑开关→P2 默认切换退役→P3 插件扩展 四阶段（各含验收与回滚）/ 上游同步 SOP / 风险表 / 总验收口径。
+- 落盘 docs/legacy/plans/PLAN-V3-SOULLINK-PERFORMANCE.md：复用清单 / 目标架构 / P0 Spike→P1 双跑开关→P2 默认切换退役→P3 插件扩展 四阶段（各含验收与回滚）/ 上游同步 SOP / 风险表 / 总验收口径。
 - **硬原则入计划**：永不静默崩溃（失败必须可见+降级有出口）；用户侧 LLM+TTS 默认必配（设置界面承载），核心不为缺席场景造兜底——离线情绪分类器降为非核心可选插件。
 - **新增 §7**：N.E.K.O 借鉴映射（Smart-Turn/RNNoise+Silero/SLOP 口头禅治理进核心语音与文本打磨；proactive/记忆五层分层采纳）+ skill-loader 与 mcp-bridge 可行性评估（pi-agent 式前置插件）+ PluginHost 缺口诚实评估（缺后台服务注册接口，直播接入前置改造另列）。
 - **新增 §8 多 LLM 并行管线正式化**：现状已有 A 主对话脑/B 表演导演/D 记忆管家三角色在跑（C 心情导演为规则版）；对齐 PLAN-PC-V2 原三 LLM 设计与生态惯例（N.E.K.O 三服务器、soullink planner、VT-Orchestrator 等）。关键改造=P1 内 B 并行化（sentenceId 回填+迟到丢弃，TTS 不等导演）+ per-role 模型覆盖 + fallback 可见化；C 保持规则版（克制）。
@@ -2411,7 +2413,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 
 # 知识库/联网查询做实 + 记忆可视化 + 字幕声音同步（2026-08-22）
 
-> 参照同类项目 G:/git/Live2Dai 与本项目目标（docs/plans/PLAN-V2-PC-LOCAL-TTS.md）对齐：把"假实现"换成真实现，管理能力进设置中心。
+> 参照同类项目 G:/git/Live2Dai 与本项目目标（docs/legacy/plans/PLAN-V2-PC-LOCAL-TTS.md）对齐：把"假实现"换成真实现，管理能力进设置中心。
 
 - **联网查询做实（web-search stub→runtime）**：WebSearchPlugin 无 Key 走 DuckDuckGo HTML 检索（纯标准库、6s 超时、uddg 重定向还原、摘要去标签），配 TAVILY_API_KEY 自动升级 Tavily；任何失败可见降级（results=[]+error，不打断对话）。新增 REST POST /api/tools/web-search，设置中心「记忆」页可直接试搜。
 - **知识库做实（knowledge stub→runtime）**：KnowledgePlugin 本地文档库（KNOWLEDGE_DIR，默认 cache/knowledge，.md/.txt）；llm.before 按字符重叠检索 top-2 注入「[知识库检索] (来源: 文档名)」；REST GET/POST/DELETE /api/knowledge/documents；设置中心可视化增删。
@@ -2453,7 +2455,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 
 # 本地 Melo TTS Provider + REST 接口（2026-08-21 · PC 端本地 TTS 计划收口）
 
-> **范围**：仅 PC 端。执行口径 `docs/plans/PLAN-V2-PC-LOCAL-TTS.md`，Android 冻结不涉及。
+> **范围**：仅 PC 端。执行口径 `docs/legacy/plans/PLAN-V2-PC-LOCAL-TTS.md`，Android 冻结不涉及。
 
 ## 已落地
 - **Melo 引擎与配置**：`melo_tts.py` 对齐本地 API（ZH 优先、`spk2id` 解析、speed/sdp_ratio/noise_scale/noise_scale_w/format 全量传递与钳制）；`MeloTTSConfig` 补齐字段与中英文说明。
@@ -2705,8 +2707,8 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 
 # PC 设置中心重构：WSL2 断链修复 + 逻辑链全量重做 + UI 重设计（2026-08-20）
 
-> **范围**：仅 PC 端（open-llm-vtuber Web 设置中心）。权威规格：`docs/plans/settings-redesign-spec.md`；
-> 优先依据审计：`docs/plans/settings-fix-plan.md` + `Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`。
+> **范围**：仅 PC 端（open-llm-vtuber Web 设置中心）。权威规格：`docs/legacy/plans/settings-redesign-spec.md`；
+> 优先依据审计：`docs/legacy/plans/settings-fix-plan.md` + `Live2D-Ai-pc/open-llm-vtuber/SETTINGS_SYSTEM_AUDIT.md`。
 
 ## WSL2 迁移断链修复
 - **`Live2D-Ai-pc/start.sh`**：venv 查找优先级 修复（之前默认 `$HOME/Live2D-Ai/.venv` 在本机不存在 → 启动即退）：
@@ -2754,7 +2756,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 > - **更名 Live2D-Ai**：目录 `Live2D-Ai-Android` / `Live2D-Ai-pc`；Kotlin 包 `com.live2dai.android` → `com.live2d.ai.android`（含 JNI `Java_com_live2d_ai_android_*`、Gradle、清单）；标识符 `Live2Dai*` → `Live2DAi*`；文档/标题改为 `Live2D-Ai`。模块/产物 slug `live2dai-*` → `live2d-ai-*`。补充清理：文件名 `Live2DaiApp.kt`→`Live2DAiApp.kt`、`Live2DaiPlugin.kt`→`Live2DAiPlugin.kt`。
 > - **放弃原生 Windows**：移除 PC 端 Windows 启动入口 `Live2D-Ai-pc/start.ps1` / `启动Live2D-Ai.bat`；移除 Windows SAPI 专属依赖 `pyttsx3`（pyproject + requirements）；PC 端新增 **WSL2 主力启动脚本 `Live2D-Ai-pc/start.sh`**（含 venv + 核心依赖自检）。
 > - 保留不变（状态/配置兼容边界）：Android SharedPreferences 键 `live2dai_settings` / `live2dai_ui_mode` / `live2dai_interaction`、记忆库 `live2dai_memory.db`、localStorage 前缀 `live2dai.interaction.`、环境变量 `LIVE2DAI_*`。
-> - 文档：`docs/architecture/linux-dev.md`、`docs/plans/wsl2-migration-plan.md`（标记为已执行），PC README/AGENT 改为 WSL2 主力。
+> - 文档：`docs/architecture/linux-dev.md`、`docs/legacy/plans/wsl2-migration-plan.md`（标记为已执行），PC README/AGENT 改为 WSL2 主力。
 > - **WSL2 运行验证（2026-08-20）**：uv 装 Python 3.12.14 + venv，安装后端核心依赖后 `run_server.py` 在 WSL2 启动成功，persona/model 配置加载正常，`/`、`/api/config`、`/api/models`（返回 bai 模型）、`/api/persona` 均 HTTP 200。注：本代码版本无 `/health` 路由；默认 ASR（faster-whisper→torch）与 PC `live2d-models/`、Android `model_registry.json` 为可再生成/需拉取产物，冒烟阶段以 `asr_model: disabled` 验证。
 
 ---
@@ -2763,7 +2765,7 @@ LLM 会在句末附带 `\n\n`（段落符），因换行属于句读符而被并
 
 > 全量代码审计（PC + Android + 一致性）+ 低风险修复 + 仓库收尾（文档归档 / 清理 / 提交）。
 > **平台轨迹（同日定调）：PC 端主力迁移 WSL2，放弃 Windows 作为主力（Windows 降为遗留降级）**
-> ——`docs/plans/wsl2-migration-plan.md` 已据此更新，审计遗留项按 Linux/WSL2 优先级重排。
+> ——`docs/legacy/plans/wsl2-migration-plan.md` 已据此更新，审计遗留项按 Linux/WSL2 优先级重排。
 
 ## 审计基线（本次实跑）
 - PC renderer：`npx tsc --noEmit` 通过；Vitest 232/232 通过。
