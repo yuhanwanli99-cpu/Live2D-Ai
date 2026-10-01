@@ -1302,7 +1302,29 @@ class _ShellRootState extends State<ShellRoot> {
             _ui.errorMessage ?? _chat.error,
             // 顶部横幅（`_ui`）优先，所以它也优先提供码——两处都存了同一份。
             code: _ui.errorCode ?? _chat.errorCode,
-            onGoto: _gotoSection,
+            // F-0001-1（P1，2026-10-01 热补丁）：「去 LLM 设置 / 去语音合成设置」
+            // 过去只接 `_gotoSection`，而它**只换分区**——设置面板默认是**关着**
+            // 的，于是用户点下去什么都看不见 =「按钮失灵」。所以换完分区还要
+            // **真的把面板打开**（与快捷键那条同样的入口 `openSettings`）。
+            //
+            // **为什么多绕一层 `addPostFrameCallback`**（实测，不是保险起见）：
+            // 在**同一帧**里「换分区 + 开浮层」会撞框架断言
+            // `setState() or markNeedsBuild() called during build` ——
+            // `_gotoSection` 的 `setState` 让外壳重建时，
+            // `AppShell.didUpdateWidget`（`app_shell.dart:420`）会同步
+            // `sectionNotifier`，而 medium 上刚推入的浮层里那个
+            // `ValueListenableBuilder` 已经挂上并在监听它；它是 Overlay 下的
+            // **兄弟**、不是宿主的后代，所以这次通知不被允许（expanded 的
+            // 内联侧板不触发，因为它不是浮层路由）。
+            // 延到本帧之后：外壳先按新分区重建（那一刻还没有订阅者），再开面板。
+            onGoto: (SettingsSection next) {
+              _gotoSection(next);
+              WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+                unawaited(
+                  _shellKey.currentState?.openSettings() ?? Future<void>.value(),
+                );
+              });
+            },
             onStop: () => unawaited(_stopWithCancellation()),
             onSend: () => unawaited(_sendWithCancellation()),
           ),
