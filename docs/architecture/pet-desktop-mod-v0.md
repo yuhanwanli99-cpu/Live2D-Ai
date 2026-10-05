@@ -14,7 +14,8 @@
 > 代码：`crates/live2d-ai-mod-pet-desktop/src/lib.rs` + `tests/pet_desktop_state.rs`；
 > Flutter 消费面：`shell/flutter/lib/api/mods_api.dart`（`ModsApi.state`）+
 > `shell/flutter/lib/settings/sections/dev_tools_section.dart`（`_ModConfigTile`）+
-> `shell/flutter/test/pet_desktop_state_test.dart`。
+> `shell/flutter/test/pet_desktop_state_test.dart`（**2026-10-05 债轮 D6 已更名
+> `shell/flutter/test/mod_state_surface_test.dart`**，断言未变；下文保留历史名）。
 > 基线：`mod/w3-pet` @ `118bd435`（`0.2.0-rc.3` + Wave 3 基座）。
 
 ## 1. 定位

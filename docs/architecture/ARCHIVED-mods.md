@@ -193,6 +193,7 @@ window_reason_string_is_stable_and_ascii
 ```
 
 ⚠ **假绿灯提醒（不得当覆盖证据）**：`shell/flutter/test/pet_desktop_state_test.dart`
+（2026-10-05 债轮 D6 更名 `shell/flutter/test/mod_state_surface_test.dart`，断言内容未变）
 用**硬编码夹具**断言 `GET /api/v1/mods/pet-desktop/state` 的形状，它不经过 Rust 生产者，
 删除本 crate 后**仍然全绿**。它**不是**上述 17 条的等价断言，不许拿来当「行为已被其它断言覆盖」。
 

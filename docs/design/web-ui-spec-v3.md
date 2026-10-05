@@ -2084,8 +2084,12 @@ macOS 用 `meta`（⌘），其余用 `control`。**不要两个都绑**：在 W
 
 `live_region.dart` 的 1.5 s 播报间隔被「UI 动效时长只能取 AppDurations 的 4 档」
 拦下。它是**无障碍节奏**（听觉可读性下限），不是视觉过渡。
-⇒ `kProtocolTimingFiles` 改名 `kNamedTimingFiles` 并列出两个文件与各自理由
-（动作兜底时长表 / 播报间隔）。**继续逐个点名，不豁免目录。**
+⇒ 2026-10-05（债轮 D6）起，豁免形态是 **路径前缀 + 处数上限**
+（`kTimingExemptPrefixCaps`：`lib/state/live_region.dart` 上限 **1 处**），
+**不是**旧版 `kNamedTimingFiles` 那种「把文件名抄进名单」的整文件豁免——
+文件改名 / 搬家之后名单那条会**静默失效**，豁免死了没人发现
+（回归见 `design_tokens_lint_test.dart` 的「豁免面本身要小且有效」那组断言）。
+**继续逐个点名 + 配额，不豁免目录。**
 
 #### ⑦ 静态红线的归属
 

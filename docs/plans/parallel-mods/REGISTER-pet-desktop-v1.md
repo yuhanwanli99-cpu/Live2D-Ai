@@ -5,6 +5,12 @@
 > 范围真源：[`PARALLEL-WAVE3-2026-09-14.md`](PARALLEL-WAVE3-2026-09-14.md) §3 轨 D
 >（Wave 2 起点：[`PARALLEL-WAVE2-2026-09-14.md`](PARALLEL-WAVE2-2026-09-14.md) §3E）。
 > 设计与契约：[`../../architecture/pet-desktop-mod-v0.md`](../../architecture/pet-desktop-mod-v0.md)。
+>
+> ⚠ **2026-10-05 债轮备注（历史记录，勿照抄执行）**：下文里的
+> `crates/live2d-ai-mod-pet-desktop` 已不在册；Flutter 测试 `pet_desktop_state_test.dart`
+> 已更名 `shell/flutter/test/mod_state_surface_test.dart`；`dev_tools_section.dart` 的
+> 「运行态（只读）」通用块在在册 5 个 Mod 上不可达，已被同一轮删除；
+> 验收命令里的 `/home/skystar/Live2D-Ai-integrate/target` 等路径已不存在。
 
 ## 0. 一句话
 
