@@ -407,8 +407,13 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   而 `build/web/canvaskit/` 那份本地副本不被引用——**断网即白屏**。
   本项目是本地优先的桌宠，不允许依赖 Google CDN（`scripts/ignite.sh` 会探测并告警）。
 - **中文字体必须自托管**（`assets/fonts/`，Noto Sans SC 子集，OFL-1.1）。
-  Flutter Web 的 CanvasKit **取不到设备字体**，`fontFamilyFallback` 也不会命中系统字体——
-  缺字时引擎只会去 `fonts.gstatic.com` 下载，**断网即豆腐块**（有网时看不出来）。
+  Flutter Web 的 CanvasKit **取不到设备字体**，`fontFamilyFallback` 也不会命中系统字体。
+  **运行期字体回落已于 2026-10-06 结构性离线化**：自定义
+  `web/flutter_bootstrap.js` 用现代 `load({config})` → `initializeEngine(config)` API 把
+  `fontFallbackBaseUrl` 设成**同源相对路径** `font-fallback/`，并按预算镜像 5 个整族
+  （`web/font-fallback/`，21 文件 / 2.69 MiB）；缺字既不跨源也不会白屏，
+  **离线时子集外字形显示为豆腐块**是**明确接受的取舍**。设计与实测证据见
+  `docs/architecture/font-fallback-offline.md`；审计用 `scripts/font_fallback_mirror.sh --check`。
   不要删掉 `ThemeData.fontFamily`，也不要改用「系统字体回落」；回归在
   `test/theme_test.dart`（含 CJK 本地化后字体不被覆盖回 Roboto 的守卫）。
 - **界面文案里不得出现子集外的字符**（2026-09-11 定，真机点火抓到的缺陷）：
@@ -517,7 +522,10 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   `--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader`。38 项判定：**pass 29 / fail 3 / blocked 4 / manual-only 2**
   （冻结后 Lead 复跑 fail 6，其中 4 条经决定性实验判定为**探针裁剪截图伪影**、非产品回归）。
   **最有价值的实测**：界面自身文案走查 20 步 **0 次 gstatic**；注入子集外字符（`𠮷`/`🀄`/`𝄞`）**真的出网**
-  `fonts.gstatic.com`（notosansjp / notocoloremoji / notomusic）⇒ **已知缺口 #1 有了实测形态与复现**；
+  `fonts.gstatic.com`（notosansjp / notocoloremoji / notomusic）⇒ **已知缺口 #1 有了实测形态与复现**
+  （该缺口**已于 2026-10-06 轮结构性关闭**：同源 `fontFallbackBaseUrl = "font-fallback/"` + 5 个整族精选镜像
+  ⇒ 注入同一组字符跨源请求 **0**、同源 `notocoloremoji`/`notomusic` 200，见
+  `docs/architecture/font-fallback-offline.md`）；
   `useLocalCanvasKit:true` + 40 条请求全同源 ⇒ 主链**不会断网白屏**。
   ⑤ **仓库治理**：worktree 3 → **2**（移除 `-product`）、分支 12 → **11**、死树 `-Ai` 从 **136 脏项**冻结为 0 脏
   （改动 + 未跟踪全部保档到 `/home/skystar/backup-2026-10-05/`，`git apply --reverse --check` 逐字校验），
