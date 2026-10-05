@@ -116,7 +116,11 @@ class StatePill extends StatefulWidget {
   /// 紧凑模式（舞台角标用；聊天面板头用非紧凑）。
   final bool compact;
 
-  /// 点按（`error` 时打开详情）。
+  /// 点按时**要发生一件真事**；`null` = 这个胶囊不可点（不套 `InkWell`）。
+  ///
+  /// 2026-10-06（R4-T5）修正过时注释：旧文写「`error` 时打开详情」，但错误横幅的
+  /// 出路早已是「重发上一条用户消息」（`onRetryLast`），且**没有上一条可重发时组合根
+  /// 传 `null`** —— 胶囊随之不可点，而不是点了没反应（静默 no-op 是本仓反复抓到的形态）。
   final VoidCallback? onTap;
 
   @override
