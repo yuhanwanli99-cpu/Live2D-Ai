@@ -82,3 +82,26 @@ python3 /tmp/git-filter-repo --force \
 
 清洗后的历史已带 `v0.2.1-rc.1` 预发布：
 <https://github.com/yuhanwanli99-cpu/Live2D-Ai/releases/tag/v0.2.1-rc.1>
+
+## 8. 终局验证（两轮清洗之后，原始数字）
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 全 ref needle 扫描（本地） | 对每个 `for-each-ref` 跑 `git grep -F` | **0 / 0** |
+| **本地对象库**（含 unreachable/cruft） | `git cat-file --batch-all-objects` 全 blob 流式扫描 | **0 / 0**（7527 blobs） |
+| **远端全 ref 扫描** | `git clone https://github.com/…/Live2D-Ai.git` 后逐 ref `git grep -F` | **0 / 0**（192 提交，tip `b657824`） |
+| 该脚本在历史里 | `git log --all -- scripts/deploy_android.sh` | **空** |
+| 旧对象仍在库里？ | `git cat-file -e 71846bb7` | **gone** |
+
+**仍然残留（实测，非推测）**：
+
+```
+$ git fetch origin refs/pull/1/head:refs/r/pr1   # rc=0
+$ git ls-tree refs/r/pr1 -- scripts/deploy_android.sh
+100644 blob 71846bb7…  scripts/deploy_android.sh   # 口令就在这个 blob 里
+$ git fetch origin 2d4924473ecbb19eb4555fbe9a4e102b5074126d   # 旧 main，rc=0
+```
+
+⇒ **GitHub 仍在服务清洗前的对象**：`refs/pull/*` 服务端只读（`DELETE` 实测 **422**），旧 SHA 直取也成功。
+仓库方能做的只有三选一（都需维护者决策）：**GitHub Support 过期缓存 / 删库重建 / 转私有**；
+而**轮换那台手机的锁屏口令是唯一真正的修复**。
