@@ -1,0 +1,12 @@
+(node:92605) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+# CDP Chrome/153.0.8010.12 @ http://127.0.0.1:9222 / http://127.0.0.1:18080
+# HEAD 66798b11a10e412fe293f1a88ea205c00c5ca339
+
+## scenario audio
+[PASS] audio-a WS audio 帧有 start/end 边界且 sentence_seq 从 1 起严格递增 — audio 帧 131 条；start 1 个 / end 1 个；句子 [{"seq":1,"frames":131,"starts":1,"ends":1,"samples":62400}]；sentence_seq=[1]（严格从 1 递增=true）
+[PASS] audio-b 音频样本数 > 0（非静音分支） — 总样本数 62400（audio 帧载荷 131 条，逐帧 samples 见 audio/ws-frames.json）；服务端 muted 标记=false
+[PASS] audio-c 前端建了 <audio>（src=blob:、duration>0）且 currentTime 真的前进 — 页面上的 <audio> 元素 1 个；逐元素：[{"index":0,"blob":true,"duration":2.6,"firstAt":6017,"firstTime":0.041687,"lastAt":8021,"lastTime":1.884309,"deltaSec":1.843}]；末次快照=[{"src":"blob:http://127.0.0.1:18080/9d010d62-3fed-4c92-88ba-e4e8f6a4","blob":true,"duration":2.6,"currentTime":1.889738,"paused":false,"readyState":4,"muted":false,"volume":1}]
+
+# 合计 11 项，fail 0 项（来自 3 个场景结果文件）→ run.json
+exit=0
