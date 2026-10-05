@@ -8,9 +8,9 @@
 
 | # | 事项 | 现状 | 规格 / 判据 |
 | --- | --- | --- | --- |
-| **M1** | **轮换手机锁屏口令**（F-0616-01） | 树里已删净、扫描器已补这一类、台账已脱敏；但**历史提交**（含公开远端的 `v0.1.0-rc.1` 根提交）里那份原文还在 | 换掉那台手机的锁屏口令。要「从远端抹掉」必须**重写历史 + force-push**（本轮**未授权、未做**）；只改树不轮换 = 没修 |
-| **M2** | 维护者肉眼/听音清单 | `docs/verification/v0.2.0-checklist.md` 仍未勾；本轮把「真实音频链路」**自动化了**（WS 帧 + blob `<audio>` + `currentTime` 前进），可自动的部分不再需要人工 | 在 `http://127.0.0.1:18080/app/` 上逐条落勾；重点是**舞台像素级**、读屏器、真机 Windows |
-| **M3** | 舞台 WebGPU canvas 像素与拖动手柄 | 无头 swiftshader 下舞台区截图恒白 ⇒ 探针 `3d`/`6c-pixel`/`5g` 判 **manual-only**（**没算成 pass**） | 真机肉眼：四套主题的舞台底色 = 该套 `stage` 色；背景库拖动排序能改顺序 |
+| **M1** | **轮换手机锁屏口令**（F-0616-01，**唯一剩余动作**） | 树与**全部历史**都已清洗（`git filter-repo`：删路径 + 两个标识串替换；新旧 `main` 的**树哈希相同**）并已 force-push 到远端；但 **GitHub 托管的 `refs/pull/1/head` 与旧对象缓存**我们删不掉 | 换掉那台手机的锁屏口令（**这才是真正的修复**）；如需进一步过期旧对象，联系 GitHub Support |
+| ~~M2~~ | ~~维护者肉眼/听音清单~~ | **已关闭（2026-10-06）** | 维护者确认肉眼/听音验收通过，并指示删掉勾选表 ⇒ `docs/verification/v0.2.0-checklist.md` 已退役删除 |
+| ~~M3~~ | ~~舞台 WebGPU canvas 像素与拖动手柄~~ | **已关闭（2026-10-06）**（随 M2 一并由维护者肉眼确认） | 探针里那 4 项 `manual-only` **仍如实标注，没算成 pass** |
 
 ## P1 · 工程债（可立即开工）
 
@@ -42,5 +42,5 @@
 | --- | --- | --- |
 | **R1** | 移除死树 `-Ai` worktree | 已冻结为 0 脏、保档在 `/home/skystar/backup-2026-10-05/`；**本会话的 cwd 就是它**，故未删。命令：`git -C /home/skystar/Live2D-Ai-fe worktree remove --force /home/skystar/Live2D-Ai` + `git branch -d mod/persona-polish` |
 | **R2** | `dev/integrity` / `dev/node-p1-p2` 裁决 | bundle 已覆盖，可降级为档案 |
-| **R3** | 是否推 `origin`（N18） | 本地 `main` 领先 `origin/main` **128** 提交；历史口径「不推远端」，需维护者明确解除才推 |
+| **R3** | ~~是否推 `origin`（N18）~~ | **已完成（2026-10-06）**：维护者授权 ⇒ 历史清洗后 force-push `main`、重写后的远端 tag、删除残留分支 `mainline/1-core-baseline`；新 tag `v0.2.1-rc.1` 与 GitHub pre-release 已建 |
 | **R4** | Gitleaks（N19） | 本轮仍不补（多一个第三方 action = 多一条供应链面）；要补单独一轮 |

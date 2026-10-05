@@ -62,7 +62,7 @@ find docs -name '*.md' -type f -not -path 'docs/audit/*' -exec cat {} + | wc -l 
 | `docs/architecture` | 32 | 9,983 | W2-A 后新增删除/休眠记录 |
 | `docs/audit` | 55 | 6,897 | **审计过程产物，会持续增长**；含 09-28 封口账本 21 批 + `2026-10-01-debloat/`（W0/W1/W2 证据，**已全部入库**；复核者仍在写入 ⇒ 数值随时间增长） |
 | `docs/research` | 23 | 8,937 | |
-| `docs/verification` | 19 | 4,686 | 本轮新增 `v0.2.0-checklist.md`（肉眼验收勾选表） |
+| `docs/verification` | — | — | `v0.2.0-checklist.md` **已于 2026-10-06 退役删除**（维护者确认）；新增 `evidence-2026-10-06/` 浏览器验收证据 |
 | `docs/releases` | 15 | 2,535 | |
 | `docs/design` | 8 | 3,302 | 含 `legacy/` 4 份旧 JS 规格 |
 | `docs/legal` | 3 | 45 | |
