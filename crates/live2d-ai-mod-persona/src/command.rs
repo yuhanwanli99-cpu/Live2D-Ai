@@ -65,6 +65,8 @@ use live2d_ai_mod_system::{
     MAX_SESSION_ID_CHARS, SESSION_PROMPT_OWNER_PERSONA, sanitize_session_id,
 };
 
+use crate::card::{CardSource, check_card_json_size};
+
 use super::*;
 
 impl PersonaRuntime {

@@ -5,6 +5,8 @@
 //! 2. **坏输入** —— 坏 JSON / 文件不存在 / 路径是目录 / 超大 / PNG 截断
 //!    **一律显式失败**（`start` 返回 `Err`，主链提示词一个字不动），永不 panic。
 
+use std::path::{Path, PathBuf};
+
 use super::*;
 use std::sync::{Arc, Mutex};
 

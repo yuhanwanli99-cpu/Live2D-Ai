@@ -15,6 +15,7 @@
 //! 读的也是同一份。于是「主链一字未动」是**值断言**，不是计数断言。
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use live2d_ai_mod_memory::MEMORY_MARKER_BEGIN;

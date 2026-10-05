@@ -14,6 +14,7 @@
 //! 快照读的也是同一份（与 `tests_e2e.rs` 同款）——断言打在**值**上，
 //! 不是「被调了几次」。
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
