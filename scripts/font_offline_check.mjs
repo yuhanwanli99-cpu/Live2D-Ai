@@ -8,10 +8,16 @@
  *   引擎的字体回落**不产生任何跨源请求**，且命中的是**同源** font-fallback/**。
  *
  * 用法：
- *   node scripts/font_offline_check.mjs
- *   PROBE_CDP=http://127.0.0.1:9222 \
- *   FONT_CHECK_URL=http://127.0.0.1:18099/app/ \
- *   node scripts/font_offline_check.mjs
+ *   # ① 造副本（只读复制 build/web + 本仓 web/font-fallback，并用本仓模板生成副本
+ *   #    的 flutter_bootstrap.js；不改仓库里 Lead 独占的 build/web）
+ *   node scripts/font_offline_check.mjs --prepare-copy /tmp/font-check-web
+ *   # ② 起静态站（副本放在 <dir>/app，base href="/app/" 与线上一致）
+ *   python3 -m http.server 18099 --bind 127.0.0.1 --directory /tmp/font-check-web
+ *   # ③ 验证据（浏览器锁必须独占）
+ *   flock /tmp/l2d-browser.lock -c \
+ *     'FONT_CHECK_URL=http://127.0.0.1:18099/app/ node scripts/font_offline_check.mjs'
+ *
+ *   不传 --prepare-copy 时默认验：FONT_CHECK_URL（默认 http://127.0.0.1:18080/app/）
  *
  * 环境变量：
  *   PROBE_CDP         CDP 端点，默认 http://127.0.0.1:9222
@@ -26,7 +32,11 @@
  * - 阳性对照（脚本故意跨源请求一次）单独标注，**不计入断言窗口**——它证明的是
  *   「探测器本身看得见跨源请求」，否则 external=0 可能是探测器瞎了。
  */
-import { writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const CDP_HTTP = process.env.PROBE_CDP || 'http://127.0.0.1:9222';
 const CHECK_URL = process.env.FONT_CHECK_URL || 'http://127.0.0.1:18080/app/';
@@ -147,6 +157,64 @@ class Page {
     }
   }
   async close() { await this.browser.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {}); }
+}
+
+// ─────────────── --prepare-copy：在 /tmp 副本上复现「构建产物 + 本仓模板」 ───────────────
+// 不改仓库里 Lead 独占的 build/web：只**只读复制**到 <dir>/app，并用本仓模板
+// 模拟 flutter_tools 的 token 替换生成副本的 flutter_bootstrap.js。
+// 放在 <dir>/app 下是为了让 index.html 的 <base href="/app/"> 与线上一致
+// （相对路径 font-fallback/ 的解析因此被真验到）。
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+function prepareCopy(dest) {
+  const buildWeb = join(REPO, 'shell/flutter/build/web');
+  const webDir = join(REPO, 'shell/flutter/web');
+  const tplPath = join(webDir, 'flutter_bootstrap.js');
+  const mirror = join(webDir, 'font-fallback');
+  for (const p of [join(buildWeb, 'index.html'), tplPath, join(mirror, 'MANIFEST.txt')]) {
+    try { readFileSync(p); } catch { console.error('缺少输入：' + p); process.exit(2); }
+  }
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(join(dest, 'app'), { recursive: true });
+  cpSync(buildWeb, join(dest, 'app'), { recursive: true });
+  cpSync(mirror, join(dest, 'app', 'font-fallback'), { recursive: true });
+  const tpl = readFileSync(tplPath, 'utf8');
+  const flutterJs = readFileSync(join(buildWeb, 'flutter.js'), 'utf8');
+  const existing = readFileSync(join(buildWeb, 'flutter_bootstrap.js'), 'utf8');
+  const m = /if \(!window\._flutter\)[\s\S]*?_flutter\.buildConfig = \{[\s\S]*?\};/.exec(existing);
+  if (!m) { console.error('build/web/flutter_bootstrap.js 里找不到 buildConfig 块'); process.exit(2); }
+  const tokens = ['{{flutter_js}}', '{{flutter_build_config}}', '{{flutter_service_worker_version}}'];
+  const tokenCounts = {};
+  for (const t of tokens) tokenCounts[t] = tpl.split(t).length - 1;
+  if (tokens.some((t) => tokenCounts[t] !== 1)) {
+    console.error('占位符在模板里出现次数不是各 1（注释里也不许写字面量）：' + JSON.stringify(tokenCounts));
+    process.exit(2);
+  }
+  const out = tpl
+    .replace('{{flutter_js}}', () => flutterJs)
+    .replace('{{flutter_build_config}}', () => m[0])
+    .replace('{{flutter_service_worker_version}}', () => '"0"');
+  const bootPath = join(dest, 'app', 'flutter_bootstrap.js');
+  writeFileSync(bootPath, out);
+  execFileSync(process.execPath, ['--check', bootPath], { stdio: 'inherit' });
+  const indexHtml = readFileSync(join(dest, 'app', 'index.html'), 'utf8');
+  console.log(JSON.stringify({
+    dest,
+    appDir: join(dest, 'app'),
+    tokenCounts,
+    bootstrapBytes: out.length,
+    bootstrapSha256: createHash('sha256').update(out).digest('hex'),
+    leftoverTokens: tokens.filter((t) => out.includes(t)),
+    hasFontFallbackBaseUrl: /fontFallbackBaseUrl:\s*'font-fallback\/'/.test(out),
+    indexBaseHref: (/<base href="([^"]*)"/.exec(indexHtml) || [])[1] || null,
+  }, null, 2));
+}
+
+if (process.argv[2] === '--prepare-copy') {
+  const dest = process.argv[3];
+  if (!dest) { console.error('用法：node scripts/font_offline_check.mjs --prepare-copy <dir>'); process.exit(2); }
+  prepareCopy(dest);
+  process.exit(0);
 }
 
 // ───────────────────────────── 主流程 ─────────────────────────────

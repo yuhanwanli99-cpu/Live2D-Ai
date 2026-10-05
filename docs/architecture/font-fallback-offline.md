@@ -183,22 +183,31 @@ RESULT: PASS
 `web/` → `build/web/` 的递归复制）由 Lead 的构建验证。运行期行为在**副本**上验：
 
 ```bash
-# 1) 只读复制当前产物 → /tmp/font-check-web/app/（放在 app/ 下，
-#    这样 base href="/app/" 与线上完全一致，相对路径解析也被真验到）
-rm -rf /tmp/font-check-web && mkdir -p /tmp/font-check-web/app
-cp -r shell/flutter/build/web/. /tmp/font-check-web/app/
-cp -r shell/flutter/web/font-fallback /tmp/font-check-web/app/font-fallback
+# 1) 造副本：只读复制 build/web → <dir>/app（放在 app/ 下，让 <base href="/app/"> 与线上
+#    一致 ⇒ 相对路径 font-fallback/ 的解析被真验到），复制 web/font-fallback，
+#    再用**本仓模板**模拟 flutter_tools 的 token 替换生成副本的 bootstrap
+#    （断言：每个占位符在模板里恰好出现 1 次、替换后无残留、node --check 通过）
+node scripts/font_offline_check.mjs --prepare-copy /tmp/font-check-web
 
-# 2) 用**本仓模板 + 现有产物**模拟 flutter_tools 的 token 替换，生成副本的 bootstrap
-#    （断言：每个占位符在模板里恰好出现 1 次；替换后无残留；node --check 通过）
-node /tmp/gen-bootstrap.mjs && node --check /tmp/font-check-web/app/flutter_bootstrap.js
-
-# 3) 静态站
+# 2) 静态站
 python3 -m http.server 18099 --bind 127.0.0.1 --directory /tmp/font-check-web
 
-# 4) 验证据
+# 3) 验证据（浏览器锁必须独占：本机只有一个无头 Chrome）
 flock /tmp/l2d-browser.lock -c \
   'FONT_CHECK_URL=http://127.0.0.1:18099/app/ node scripts/font_offline_check.mjs'
+```
+
+`--prepare-copy` 的自证输出（副本 bootstrap 与本次实测逐字节相同）：
+
+```json
+{
+  "tokenCounts": { "{{flutter_js}}": 1, "{{flutter_build_config}}": 1, "{{flutter_service_worker_version}}": 1 },
+  "bootstrapBytes": 14307,
+  "bootstrapSha256": "df104661f0addc6092a9d7bb75cc8b92c1a361dd090f5fed94deff09944f2015",
+  "leftoverTokens": [],
+  "hasFontFallbackBaseUrl": true,
+  "indexBaseHref": "/app/"
+}
 ```
 
 实测结果：`RESULT: PASS`（上面那张表），原始事件落 `/tmp/font-offline-check-copy.json`。
