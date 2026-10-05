@@ -5739,7 +5739,7 @@ file: scripts/deploy_android.sh:5
 摘录:
 > # 环境:
 > #   手机: 192.168.0.x:5555 (无线调试)
-> #   **锁屏密码: <REDACTED-DEVICE-PIN-2026-10-06>**
+> #   **锁屏密码: <5 位数字，2026-10-06 入库时已脱敏>**
 > #   uiauto控制器: F:\uiauto\uiautodev-desktop.exe
 
 调用链: `git ls-files --error-unmatch scripts/deploy_android.sh` ⇒ **入库**（在工作区与 git 里）⇒⇒
@@ -5766,7 +5766,7 @@ AGENTS.md：「**2026-09-11 起这两个归档的远端 ref 已删除，只在�
 建议: **三处，各一行/一处**：
 - **把 `check_public_secrets` 接进 `pr-checks.yml`**（AGENTS 那条「一张表，一套真相」要求的形状：
   在门禁表加一行「仓库公开密钥扫描 | `python3 scripts/check_public_secrets.py` | `pr-checks.yml` → `public-secrets`」）；
-- **把 `锁屏密码: <REDACTED-DEVICE-PIN-2026-10-06>` 从头注删掉**（改写成「锁屏密码见本机 `~/.config/l2d-ai/` 下的机读文件」或
+- **把 `锁屏密码: <5 位数字，已脱敏>` 从头注删掉**（改写成「锁屏密码见本机 `~/.config/l2d-ai/` 下的机读文件」或
   「由 `adb shell input text` 交互输入，不落盘」）⇒⇒ 与 AGENTS「**密钥真源 = `.env`**、**密钥不进 GET/日志/WS/导出**」
   **同一条纪律的设备侧版本**；
 - **把 `192.168.0.x:5555` 改成占位/参数**（脚本头注写「手机: `<serial>`（无线调试，默认按 `ANDROID_SERIAL` 读）」）。

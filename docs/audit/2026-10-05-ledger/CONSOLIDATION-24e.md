@@ -30,7 +30,7 @@
 - F-0049-01 侧：`check_public_secrets.py:5` 承诺「CI 额外会跑 Gitleaks」，
   `grep -rni gitleaks .github/ AGENTS.md` = **0**（本汇总实测）；
   `grep -rn check_public_secrets .github/` = **0**。
-- F-0616-01 侧：`deploy_android.sh:5` 含 `# 锁屏密码: <REDACTED-DEVICE-PIN-2026-10-06>`；
+- F-0616-01 侧：`deploy_android.sh:5` 含 `# 锁屏密码: <5 位数字，已脱敏>`；
   `SKIP_SUFFIXES`（`:32-37`）**无 `.sh`** ⇒ 即便脚本被跑，它也看不到 `.sh`。
 **同一个修复动作**：**把 `check_public_secrets.py` 接进任一 workflow**。
 **修复覆盖检查**：

@@ -75,7 +75,11 @@ PATTERNS = {
     "hardcoded numeric credential": re.compile(
         r"(?i)(?:password|passwd|pwd|pin|密码)\s*[:=：]\s*[\"']?\d{4,8}[\"']?(?!\d)"
     ),
-    "hardcoded credential (cjk)": re.compile(r"密码\s*[:：=]\s*(?![\$\{])\S{3,}"),
+    # 值必须**像凭据**（4–8 位数字，或引号里的字面量）：
+    # 文档里讨论「中文『密码:』」这种写法不该被判红（本轮实测过这个误报）。
+    "hardcoded credential (cjk)": re.compile(
+        r"密码\s*[:：=]\s*(?![\$\{])(?:\d{4,8}|[\"']{1}[^\"']{3,}[\"']{1})"
+    ),
 }
 PLACEHOLDERS = ("YOUR API KEY", "your key", "somethingelse", "${", "example")
 # 测试代码里的假密钥（sk-* 测试种子、INJECTED 注入样例等）是常规做法，跳过：
