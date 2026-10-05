@@ -1,0 +1,57 @@
+{
+  "theme": "black",
+  "stageHex": "000000",
+  "modelPixels": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/stage/stage.png",
+    "w": 1099,
+    "h": 848,
+    "crop": "full",
+    "pixels": 931952,
+    "channels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 1,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ],
+    "colors": [
+      {
+        "hex": "000000",
+        "share": 0,
+        "hits": 0,
+        "exact": 0,
+        "observed": null
+      }
+    ]
+  },
+  "canvasWhite": {
+    "diffFractionAfterForcingRed": 0,
+    "forcedRedDominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ],
+    "forcedRedChannels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    }
+  }
+}

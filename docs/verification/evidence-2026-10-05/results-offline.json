@@ -1,0 +1,14 @@
+{
+  "scenario": "offline",
+  "at": "2026-10-05T11:40:41.757Z",
+  "results": [
+    {
+      "id": "offline",
+      "title": "外部主机全拦截后应用仍可用（断网不白屏）",
+      "verdict": "fail",
+      "evidence": "被 blocked 的外部请求 0 条；请求里外部 URL 0 条；主题=black；主导色=[{\"hex\":\"ffffff\",\"share\":1}]（主导占比 1，<0.98 视为有真实绘制）；HUD=GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.6ms | sim 1/frame | bg: solid | preset: face",
+      "confidence": "medium",
+      "repro": "node scripts/browser_probe.mjs offline"
+    }
+  ]
+}

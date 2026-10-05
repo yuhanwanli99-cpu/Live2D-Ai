@@ -1,0 +1,38 @@
+{
+  "scenario": "net",
+  "at": "2026-10-05T11:32:21.507Z",
+  "results": [
+    {
+      "id": "1a",
+      "title": "加载 /app/ 后零外部源请求",
+      "verdict": "pass",
+      "evidence": "共 40 条请求，外部源 0 条；hosts=127.0.0.1:18080",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs net（原始事件见 net.json）"
+    },
+    {
+      "id": "1b",
+      "title": "CanvasKit 实际从同源 canvaskit/ 加载",
+      "verdict": "pass",
+      "evidence": "200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js | 200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm | 200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm | 200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "1c",
+      "title": "模型资产走本机静态路由且 200",
+      "verdict": "pass",
+      "evidence": "5 条：200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png | 200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "2",
+      "title": "控制台：渲染面自身日志 / 设计内 404 / 真错误 三者分开",
+      "verdict": "pass",
+      "evidence": "渲染面帧的 console.error 98 条（status() 的所有状态行都走 console.error）；设计内 404 1 条（http://127.0.0.1:18080/actions/field_map.json，可选覆盖表，回落内建默认）；未预期 4xx/5xx 0 条；WebGL CONTEXT_LOST_WEBGL 噪声 2 条（无头 swiftshader）；其余真错误 0 条：[]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs net（原始见 console.json / net.json）"
+    }
+  ]
+}

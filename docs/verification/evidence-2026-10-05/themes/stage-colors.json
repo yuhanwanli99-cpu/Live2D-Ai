@@ -1,0 +1,88 @@
+{
+  "rows": [
+    {
+      "wire": "black",
+      "stageRect": {
+        "x": 0,
+        "y": 52,
+        "w": 1099,
+        "h": 848
+      },
+      "expect": "000000",
+      "top": {
+        "hex": "ffffff",
+        "share": 1
+      },
+      "match": {
+        "hex": "000000",
+        "share": 0,
+        "hits": 0,
+        "exact": 0,
+        "observed": null
+      }
+    },
+    {
+      "wire": "white",
+      "stageRect": {
+        "x": 0,
+        "y": 52,
+        "w": 1099,
+        "h": 848
+      },
+      "expect": "ffffff",
+      "top": {
+        "hex": "ffffff",
+        "share": 1
+      },
+      "match": {
+        "hex": "ffffff",
+        "share": 1,
+        "hits": 931952,
+        "exact": 931952,
+        "observed": "ffffff"
+      }
+    },
+    {
+      "wire": "blue",
+      "stageRect": {
+        "x": 0,
+        "y": 52,
+        "w": 1099,
+        "h": 848
+      },
+      "expect": "061223",
+      "top": {
+        "hex": "ffffff",
+        "share": 1
+      },
+      "match": {
+        "hex": "061223",
+        "share": 0,
+        "hits": 0,
+        "exact": 0,
+        "observed": null
+      }
+    },
+    {
+      "wire": "gray",
+      "stageRect": {
+        "x": 0,
+        "y": 52,
+        "w": 1099,
+        "h": 848
+      },
+      "expect": "1c1c1f",
+      "top": {
+        "hex": "ffffff",
+        "share": 1
+      },
+      "match": {
+        "hex": "1c1c1f",
+        "share": 0,
+        "hits": 0,
+        "exact": 0,
+        "observed": null
+      }
+    }
+  ]
+}

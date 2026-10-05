@@ -1,0 +1,15 @@
+{
+  "shots": {
+    "cover": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/fit-cover.png",
+    "contain": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/fit-contain.png",
+    "stretch": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/fit-stretch.png",
+    "tile": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/fit-tile.png"
+  },
+  "diffs": {
+    "cover_vs_stretch": 0,
+    "cover_vs_tile": 0,
+    "contain_vs_stretch": 0,
+    "contain_vs_tile": 0,
+    "stretch_vs_tile": 0
+  }
+}

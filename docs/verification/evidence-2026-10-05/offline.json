@@ -1,0 +1,40 @@
+{
+  "externalUrls": [],
+  "failures": [
+    {
+      "errorText": "net::ERR_ABORTED",
+      "blockedReason": null
+    }
+  ],
+  "pixels": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/offline-blocked-external.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "full",
+    "pixels": 1296000,
+    "channels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 1,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ]
+  },
+  "hud": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.6ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.35 blO617"
+}

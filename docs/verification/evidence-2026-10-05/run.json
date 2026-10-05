@@ -1,0 +1,439 @@
+{
+  "aggregatedAt": "2026-10-05T12:04:58.081Z",
+  "cdp": "Chrome/153.0.8010.12",
+  "head": "fd2747eda408a0b7a5fccd3d6eab5a49cdc9e304",
+  "base": "http://127.0.0.1:18080",
+  "cdpUrl": "http://127.0.0.1:9222",
+  "scenarios": {
+    "api": {
+      "at": "2026-10-05T11:31:29.767Z",
+      "count": 4
+    },
+    "bg": {
+      "at": "2026-10-05T12:04:58.072Z",
+      "count": 7
+    },
+    "files": {
+      "at": "2026-10-05T11:31:29.417Z",
+      "count": 3
+    },
+    "fonts": {
+      "at": "2026-10-05T11:39:48.075Z",
+      "count": 3
+    },
+    "net": {
+      "at": "2026-10-05T11:32:21.507Z",
+      "count": 4
+    },
+    "offline": {
+      "at": "2026-10-05T11:40:41.757Z",
+      "count": 1
+    },
+    "render": {
+      "at": "2026-10-05T11:40:51.144Z",
+      "count": 2
+    },
+    "settings": {
+      "at": "2026-10-05T11:45:49.404Z",
+      "count": 4
+    },
+    "stage": {
+      "at": "2026-10-05T11:41:50.641Z",
+      "count": 4
+    },
+    "stagecolor": {
+      "at": "2026-10-05T11:45:18.169Z",
+      "count": 1
+    },
+    "themes": {
+      "at": "2026-10-05T11:50:03.479Z",
+      "count": 3
+    },
+    "ui": {
+      "at": "2026-10-05T11:45:30.441Z",
+      "count": 2
+    }
+  },
+  "results": [
+    {
+      "id": "api-a",
+      "title": "托管层：/ 302→/app/，/app/ 与三个入口文件 200",
+      "verdict": "pass",
+      "evidence": "root=302→http://127.0.0.1:18080/app/；app=200；index=200；main.dart.js=200 3289387B；bootstrap=200",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs api",
+      "scenario": "api",
+      "at": "2026-10-05T11:31:29.767Z"
+    },
+    {
+      "id": "api-b",
+      "title": "API 面 200 且不泄密钥（/api/v1/settings、/api/v1/env）",
+      "verdict": "pass",
+      "evidence": "app/status=200 capabilities=200 models=200 settings=200 mods=200 env=200；env body={\"keys\":[{\"section\":\"llm\",\"key\":\"DEEPSEEK_API_KEY\",\"set\":true}],\"env_file\":\"/home/skystar/Live2D-Ai-fe/.env\"}；密钥样式泄漏=false",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "api",
+      "at": "2026-10-05T11:31:29.767Z"
+    },
+    {
+      "id": "api-c",
+      "title": "模型 manifest 及它引用的每个资源可达（200）",
+      "verdict": "pass",
+      "evidence": "manifest=200 480B；引用 4 个，非 200 0",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "api",
+      "at": "2026-10-05T11:31:29.767Z"
+    },
+    {
+      "id": "api-d",
+      "title": "/render 渲染面资源可达（html + js + wasm）",
+      "verdict": "pass",
+      "evidence": "render=200；资源 2 个：[\"l2d-wasm-demo-dd042ea77650b295.js=200\",\"l2d-wasm-demo-dd042ea77650b295_bg.wasm=200\"]",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "api",
+      "at": "2026-10-05T11:31:29.767Z"
+    },
+    {
+      "id": "5a",
+      "title": "背景库选图 → 图真的上屏（红度像素级）",
+      "verdict": "fail",
+      "evidence": "壳区 redness：无图 0 → 有图 0（>20 判上屏）；通道均值 {\"r\":255,\"g\":255,\"b\":255}；裁剪=1100,52,1440,900",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs bg",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "5b",
+      "title": "刷新后背景仍在（偏好水合 + 回写不丢图）",
+      "verdict": "fail",
+      "evidence": "刷新后 redness=0；偏好里 backgrounds=[{\"kind\":\"image\",\"id\":\"bg6a2d74a9\"}]",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "5c",
+      "title": "清图后图真的消失（回到底色）",
+      "verdict": "pass",
+      "evidence": "清图后 redness=0（基线 0）",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "5d",
+      "title": "四档 fit 像素级可区分（cover/contain/stretch/tile）",
+      "verdict": "fail",
+      "evidence": "{\"cover_vs_stretch\":0,\"cover_vs_tile\":0,\"contain_vs_stretch\":0,\"contain_vs_tile\":0,\"stretch_vs_tile\":0}",
+      "confidence": "high",
+      "repro": "python3 …/png_stats.py bg/fit-cover.png --diff bg/fit-contain.png",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "5e",
+      "title": "壳背景轮播真的在换（间隔 5s，采样 4 次）",
+      "verdict": "pass",
+      "evidence": "[{\"i\":0,\"redness\":-30.31,\"channels\":{\"r\":19.79,\"g\":19.79,\"b\":80.41}},{\"i\":1,\"redness\":50.45,\"channels\":{\"r\":73.63,\"g\":19.79,\"b\":26.57}},{\"i\":2,\"redness\":50.45,\"channels\":{\"r\":73.63,\"g\":19.79,\"b\":26.57}},{\"i\":3,\"redness\":-30.31,\"channels\":{\"r\":19.79,\"g\":19.79,\"b\":80.41}}]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs bg",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "5f",
+      "title": "点缩略图预览：当前标记移到该张（可达 + 生效）",
+      "verdict": "pass",
+      "evidence": "点前「当前」=图片 1 · 0 KB · 当前；点后=图片 2 · 0 KB · 当前",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "5g",
+      "title": "拖动排序背景库（CDP 指针输入）",
+      "verdict": "manual-only",
+      "evidence": "{\"idsBefore\":[\"bg6a2d74a9\",\"bg23af30f5\"],\"idsAfter\":[\"bg6a2d74a9\",\"bg23af30f5\"],\"labels\":[\"图片 1 · 0 KB\",\"图片 2 · 0 KB · 当前\"]}；不成则需人工（ReorderableListView 的拖动手柄命中点未知，本脚本用行左侧 12px 起拖）",
+      "confidence": "low",
+      "repro": "",
+      "scenario": "bg",
+      "at": "2026-10-05T12:04:58.072Z"
+    },
+    {
+      "id": "F-0050-01a",
+      "title": "四个构建产物里 gstatic / 外部 URL 命中数",
+      "verdict": "pass",
+      "evidence": "index.html=0 main.dart.js=1 flutter_bootstrap.js=1 flutter.js=1 flutter_service_worker.js=0 version.json=0 manifest.json=0；externalUrls=[[\"index.html\",0],[\"main.dart.js\",0],[\"flutter_bootstrap.js\",0],[\"flutter.js\",0],[\"flutter_service_worker.js\",0],[\"version.json\",0],[\"manifest.json\",0]]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs files",
+      "scenario": "files",
+      "at": "2026-10-05T11:31:29.417Z"
+    },
+    {
+      "id": "F-0050-01b",
+      "title": "gstatic 字符串是否可达（bootstrap 的 CDN 分支）",
+      "verdict": "pass",
+      "evidence": "flutter_bootstrap.js 的 _flutter.buildConfig.useLocalCanvasKit=true；引擎 helper 形如 n.canvasKitBaseUrl ? … : (engineRevision && !useLocalCanvasKit ? \"https://www.gstatic.com/flutter-canvaskit/…\" : \"canvaskit\") ⇒ useLocalCanvasKit=true 时该分支恒不可达，实际 base 为同源 \"canvaskit\"",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "files",
+      "at": "2026-10-05T11:31:29.417Z"
+    },
+    {
+      "id": "8b",
+      "title": "前端产物新鲜度（main.dart.js 不早于最新的 lib/*.dart）",
+      "verdict": "pass",
+      "evidence": "main.dart.js=2026-10-05T11:20:31.924Z；最新 dart=2026-10-05T10:49:20.513Z shell/flutter/lib/settings/sections/dev_tools_section.dart；dart 文件 115 个",
+      "confidence": "high",
+      "repro": "PROBE 的 files 场景",
+      "scenario": "files",
+      "at": "2026-10-05T11:31:29.417Z"
+    },
+    {
+      "id": "F-fonts-03",
+      "title": "逐字符归因：哪些子集外字符会真的去 Google 拉字体",
+      "verdict": "fail",
+      "evidence": "U+20BB7→notosansjp | U+1F004→notocoloremoji | U+1D11E→notomusic | U+266A→无请求 | U+20AC→无请求 | U+416→无请求",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs fonts（逐字符原始见 fonts.json.perChar）",
+      "scenario": "fonts",
+      "at": "2026-10-05T11:39:48.075Z"
+    },
+    {
+      "id": "F-fonts-01",
+      "title": "完整 UI 走查（四主题 + 八分区 + 图案标签 + 会话列表 + 聊天输入的产品中文）全程 0 次 gstatic",
+      "verdict": "pass",
+      "evidence": "走查 20 步；出现 gstatic 的步：无；未命中节点的步 0 个：[]；阳性对照（脚本故意请求）gstatic 请求数=4 ⇒ 探测器本身能看见 gstatic",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs fonts（原始 steps 见 fonts.json）",
+      "scenario": "fonts",
+      "at": "2026-10-05T11:39:48.075Z"
+    },
+    {
+      "id": "F-fonts-02",
+      "title": "故意注入子集外字符是否触发运行期字体兜底（fonts.gstatic.com）",
+      "verdict": "fail",
+      "evidence": "输入 𠮷 🀄 𝄞 ♪ € Ж 后 gstatic 请求=[\"https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2\",\"https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2\",\"https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2\"]；DOM 输入框实测=\"中文界面文案测试：配色、舞台、口型、背景库、诊断𠮷🀄𝄞♪€Ж\"",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs fonts",
+      "scenario": "fonts",
+      "at": "2026-10-05T11:39:48.075Z"
+    },
+    {
+      "id": "1a",
+      "title": "加载 /app/ 后零外部源请求",
+      "verdict": "pass",
+      "evidence": "共 40 条请求，外部源 0 条；hosts=127.0.0.1:18080",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs net（原始事件见 net.json）",
+      "scenario": "net",
+      "at": "2026-10-05T11:32:21.507Z"
+    },
+    {
+      "id": "1b",
+      "title": "CanvasKit 实际从同源 canvaskit/ 加载",
+      "verdict": "pass",
+      "evidence": "200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js | 200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm | 200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm | 200 http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "net",
+      "at": "2026-10-05T11:32:21.507Z"
+    },
+    {
+      "id": "1c",
+      "title": "模型资产走本机静态路由且 200",
+      "verdict": "pass",
+      "evidence": "5 条：200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png | 200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "net",
+      "at": "2026-10-05T11:32:21.507Z"
+    },
+    {
+      "id": "2",
+      "title": "控制台：渲染面自身日志 / 设计内 404 / 真错误 三者分开",
+      "verdict": "pass",
+      "evidence": "渲染面帧的 console.error 98 条（status() 的所有状态行都走 console.error）；设计内 404 1 条（http://127.0.0.1:18080/actions/field_map.json，可选覆盖表，回落内建默认）；未预期 4xx/5xx 0 条；WebGL CONTEXT_LOST_WEBGL 噪声 2 条（无头 swiftshader）；其余真错误 0 条：[]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs net（原始见 console.json / net.json）",
+      "scenario": "net",
+      "at": "2026-10-05T11:32:21.507Z"
+    },
+    {
+      "id": "offline",
+      "title": "外部主机全拦截后应用仍可用（断网不白屏）",
+      "verdict": "fail",
+      "evidence": "被 blocked 的外部请求 0 条；请求里外部 URL 0 条；主题=black；主导色=[{\"hex\":\"ffffff\",\"share\":1}]（主导占比 1，<0.98 视为有真实绘制）；HUD=GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.6ms | sim 1/frame | bg: solid | preset: face",
+      "confidence": "medium",
+      "repro": "node scripts/browser_probe.mjs offline",
+      "scenario": "offline",
+      "at": "2026-10-05T11:40:41.757Z"
+    },
+    {
+      "id": "render-a",
+      "title": "不经过 Flutter 壳，直接打开 /render?hud=1 能跑起来",
+      "verdict": "pass",
+      "evidence": "HUD1=GPU: webgpu/WebGPU () | canvas 1440x900@1dpr(物理1440x900) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0 || HUD2=GPU: webgpu/WebGPU () | canvas 1440x900@1dpr(物理1440x900) | FPS 60.0 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs render",
+      "scenario": "render",
+      "at": "2026-10-05T11:40:51.144Z"
+    },
+    {
+      "id": "render-b",
+      "title": "渲染面自己加载模型（/render 直接跑时的 /models/ 请求）",
+      "verdict": "pass",
+      "evidence": "200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png | 200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "render",
+      "at": "2026-10-05T11:40:51.144Z"
+    },
+    {
+      "id": "7a",
+      "title": "语义树里存在「设置」入口（AppBar 文字按钮）",
+      "verdict": "pass",
+      "evidence": "{\"label\":null,\"text\":\"设置\",\"role\":\"button\",\"x\":1390,\"y\":14,\"w\":42,\"h\":24}",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs settings",
+      "scenario": "settings",
+      "at": "2026-10-05T11:45:49.404Z"
+    },
+    {
+      "id": "7b",
+      "title": "点「设置」后设置内容真的渲染出来（不是空壳）",
+      "verdict": "pass",
+      "evidence": "命中分区/字段 [\"配色\",\"外观\",\"舞台与口型\",\"背景库\",\"设置\"]；语义节点 132 个；样例 [\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"缩小一档\\n100%\\n100%\\n语音输入未启用：请先在「设置 → Mod 管理」启用 voice-input（启停后可能需重新点火）\\n此模式需联网：语音会送浏览器厂商云端识别（音频会出本机），结果再回本机后端。\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置\",\"状态：空闲\",\"实时通道：实时通道正常\",\"会话\",\"设置\"]",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "settings",
+      "at": "2026-10-05T11:45:49.404Z"
+    },
+    {
+      "id": "7c",
+      "title": "设置面板真的可交互（点「白」主题卡 → localStorage 的 theme 变化）",
+      "verdict": "pass",
+      "evidence": "theme：点击前=null（无落盘） → 点击后=white；节点={\"label\":null,\"text\":\"白，纯白舞台，近黑强调\",\"role\":\"button\",\"x\":851,\"y\":299,\"w\":132,\"h\":84}",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs settings",
+      "scenario": "settings",
+      "at": "2026-10-05T11:45:49.404Z"
+    },
+    {
+      "id": "7d",
+      "title": "设置面板滑条可拖动（拖「描边强度」→ edgeStrength 变化）",
+      "verdict": "pass",
+      "evidence": "edgeStrength 1 → 1.5（节点 {\"label\":\"描边强度\",\"text\":\"\",\"role\":null,\"x\":858,\"y\":541,\"w\":48,\"h\":48}；拖 +160px）",
+      "confidence": "medium",
+      "repro": "node scripts/browser_probe.mjs settings",
+      "scenario": "settings",
+      "at": "2026-10-05T11:45:49.404Z"
+    },
+    {
+      "id": "3d",
+      "title": "截图能否用来验证舞台像素（角色 / 底色）",
+      "verdict": "manual-only",
+      "evidence": "主题=black；舞台裁剪区主导色=[{\"hex\":\"ffffff\",\"share\":1}]；把 stageColor 强制改成 #ff0000 后与改动前的逐像素差异=0，强制后主导色=[{\"hex\":\"ffffff\",\"share\":1}] ⇒ 无头截图**拍不到 WebGPU canvas 内容**（恒为纯白），舞台像素级验收必须人工",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs stage（原始见 stage/stage-canvas-white-evidence.json）",
+      "scenario": "stage",
+      "at": "2026-10-05T11:41:50.641Z"
+    },
+    {
+      "id": "3a",
+      "title": "模型资产 HTTP 200（bai.model3.json 等）",
+      "verdict": "pass",
+      "evidence": "5 条：200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png | 200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "stage",
+      "at": "2026-10-05T11:41:50.641Z"
+    },
+    {
+      "id": "3b",
+      "title": "渲染面 HUD 有 GPU 行 + bg: 字段",
+      "verdict": "pass",
+      "evidence": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | cl",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "stage",
+      "at": "2026-10-05T11:41:50.641Z"
+    },
+    {
+      "id": "3c",
+      "title": "FPS 在推进（两次采样相隔 3s）",
+      "verdict": "pass",
+      "evidence": "fps1=60 fps2=60（HUD: GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face）",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "stage",
+      "at": "2026-10-05T11:41:50.641Z"
+    },
+    {
+      "id": "6c",
+      "title": "四套主题的舞台底色确实按协议下发（sync.stageColor）",
+      "verdict": "pass",
+      "evidence": "black: 期望 #000000 实发 [\"#000000\"] | white: 期望 #ffffff 实发 [\"#ffffff\"] | blue: 期望 #061223 实发 [\"#061223\"] | gray: 期望 #1c1c1f 实发 [\"#1c1c1f\"]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs stagecolor（原始帧见 stage-class/stagecolor.json）",
+      "scenario": "stagecolor",
+      "at": "2026-10-05T11:45:18.169Z"
+    },
+    {
+      "id": "6a",
+      "title": "四套配色经真实 UI 点击切换（读回 localStorage）",
+      "verdict": "pass",
+      "evidence": "{\"black\":\"black\",\"white\":\"white\",\"blue\":\"blue\",\"gray\":\"gray\"}",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs themes",
+      "scenario": "themes",
+      "at": "2026-10-05T11:50:03.479Z"
+    },
+    {
+      "id": "6b",
+      "title": "三级面在真实渲染像素里出现且级差 ≥0.03（用实测色算）",
+      "verdict": "pass",
+      "evidence": "12 条面带缺失 0 个（阈值 ≥50 像素命中）；最小级差=0.0317；逐套实测 observed={\"black\":{\"observed\":[\"11121b\",\"1d1e2a\",\"252634\"],\"deltas\":[0.0479,0.0319]},\"white\":{\"observed\":[\"f7f5f3\",\"edece9\",\"e1e0de\"],\"deltas\":[-0.0364,-0.0468]},\"blue\":{\"observed\":[\"161e30\",\"212a3f\",\"28324b\"],\"deltas\":[0.0471,0.0317]},\"gray\":{\"observed\":[\"282623\",\"353330\",\"3e3c38\"],\"deltas\":[0.051,0.035]}}",
+      "confidence": "high",
+      "repro": "python3 docs/verification/evidence-2026-10-05/png_stats.py themes/panel-white.png --colors 11121b,1d1e2a,252634,f7f5f3,edece9,e2e0de,161e30,212a3f,28324b,282623,353330,3e3c38 --tol 2",
+      "scenario": "themes",
+      "at": "2026-10-05T11:50:03.479Z"
+    },
+    {
+      "id": "6c-pixel",
+      "title": "四套主题的舞台底色在截图像素上是否等于该套 stage 色",
+      "verdict": "manual-only",
+      "evidence": "逐套：black 期望#000000 截图主导#ffffff | white 期望#ffffff 截图主导#ffffff | blue 期望#061223 截图主导#ffffff | gray 期望#1c1c1f 截图主导#ffffff ⇒ 舞台区截图恒为纯白（无头 WebGPU canvas 不进截图），像素判定不可用；等价协议证据见 6c（sync.stageColor）",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs themes（原始像素见 themes/stage-colors.json）",
+      "scenario": "themes",
+      "at": "2026-10-05T11:50:03.479Z"
+    },
+    {
+      "id": "4a",
+      "title": "Flutter 壳渲染容器存在（glass-pane + canvas + iframe）",
+      "verdict": "pass",
+      "evidence": "{\"title\":\"Live2D Ai\",\"canvasesDeep\":2,\"shadowHosts\":[\"flt-glass-pane\"],\"iframes\":[{\"src\":\"/render\",\"w\":1099,\"h\":848}],\"glassPane\":true,\"flutterView\":true,\"semanticsPlaceholder\":true,\"bodyChildren\":[\"flt-semantics-placeholder\",\"script\",\"p\",\"flt-announcement-host\",\"flutter-view\"],\"viewport\":{\"w\":1440,\"h\":900},\"dpr\":1,\"webgl2\":true,\"webgl\":false,\"ua\":\"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.3",
+      "confidence": "high",
+      "repro": "",
+      "scenario": "ui",
+      "at": "2026-10-05T11:45:30.441Z"
+    },
+    {
+      "id": "4b",
+      "title": "语义树（真实 DOM）里能找到壳控件",
+      "verdict": "pass",
+      "evidence": "语义节点 22 个（enableSemantics={\"how\":\"clicked\",\"count\":27}）；命中词 [\"设置\",\"输入\"]；样例 [\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听\",\"缩小一档\\n100%\\n100%\\n点击任意位置或按任意键以启用声音\\n语音输入未启用：请先在「设置 → Mod 管理」启用 voice-input（启停后可能需重新点火）\\n此模式需联网：语音会送浏览器厂商云端识别（音频会出本机），结果再回本机后端。\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置\",\"状态：空闲\",\"实时通道：实时通道正常\"]",
+      "confidence": "high",
+      "repro": "Flutter Web 语义树要 flt-semantics-placeholder 被点一下才建；本脚本已点",
+      "scenario": "ui",
+      "at": "2026-10-05T11:45:30.441Z"
+    }
+  ]
+}

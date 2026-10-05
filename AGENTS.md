@@ -258,6 +258,9 @@
 | 仓库根历史资产测试 | `python3 -m pytest tests/ -q` | `pr-checks.yml` → `root-py-tests` |
 | 端到端核心链（需活端点） | `python3 scripts/verify_core_chain.py --timeout 300` | `nightly.yml` → `core-chain-verify`（**仅当**配置仓库变量 `LIVE2D_AI_VERIFY_BASE_URL`） |
 | wasm 渲染面可编译 | `cargo check --target wasm32-unknown-unknown -p l2d-wasm-demo` | **暂无**（本地手动；wasm 改动必须 rebuild + 肉眼） |
+| 前端产物级离线门禁（构建 + 产物断言） | `cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn && cd ../.. && ./scripts/ignite.sh --check-dir shell/flutter/build/web` | `flutter-checks.yml` → `flutter-web-offline-artifacts` |
+| 前端真服务离线体检（托管层；与 `ignite.sh --check` 同一份判据） | `./scripts/ignite.sh --check`（对已启动服务；`scripts/ignition-precheck.sh` 的 A 段同源） | `nightly.yml` → `web-offline-serve-check` |
+| 仓库密钥扫描（红线 R：密钥不进仓库） | `python3 scripts/check_public_secrets.py` | `secret-scan.yml` → `public-secret-scan` |
 
 两条纪律：
 1. 端到端探针**只在有活端点时跑**，缺配置就明确跳过——绝不伪造绿灯
@@ -487,6 +490,44 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   路径即可（2026-09-11 修）。
 
 ## 变更历史
+
+- **2026-10-05（0.2.x 债轮：CI 红线门禁 + Rust 依赖与 Mod 密钥接缝 + Flutter 真 bug/假绿灯 + **首次真实浏览器验收** + 仓库治理）**：
+  主线口径未变（**不升版本号、不发 release**：维护者肉眼 13 项未做，版本号留到下一轮）。
+  ① **CI 三条红线门禁**（审计 F-0048-01 / F-0049-01 / F-0050-01）：新增 `scripts/lib/cdn_probe.sh` **单一真源**
+  （清单 + `cdn_judge` + `cdn_scan_http/dir`），`ignite.sh` 与 **同名缺陷的 `ignition-precheck.sh`** 都 source 同一份
+  （缺库 = exit 2，不静默跳过）；判据从「裸串 grep」改成**生效路径**（`flutter_bootstrap.js` 的
+  `useLocalCanvasKit` / 生效 `canvasKitBaseUrl`）+ **文件缺失判红**；新增 `--check-dir`（不需要服务）；
+  CI 侧新增 `flutter-web-offline-artifacts`（PR）、`web-offline-serve-check`（nightly，起真二进制 + 60s 轮询）、
+  以及 **`secret-scan.yml`**（另有：`check_public_secrets.py` 修掉与事实相反的 docstring、扫描面 292 → **937 文件**、
+  覆盖 `shell/` 与 `docs/`）。**对账本的一处如实纠正**：无标志坏构建里 `main.dart.js` **会**命中 1
+  ⇒ 账本猜「旧探针很可能仍 0 命中」不成立（结构缺口仍成立）。
+  ② **Rust 债**：D4 依赖 **25 → 22**（真删 `futures-util`/`serde_with`/`tokio-util` 三条 direct 边；
+  `xtask` 棘轮 **同 commit 收紧到 22**），**口径如实标注**：`tokio-util` 只去直边、仍在依赖树里（经 runtime）；
+  **F-0062-01**（保存 Mod 配置抹掉 secret ⇒ 注入端点静默退回不鉴权）修为宿主侧**按键合并 + secret 保留**
+  （声明 secret 的键**显式空串=删键**，非 secret 空串照存——与 `PUT /api/v1/env` 的「空=清除」刻意区分），
+  回归**遍历 `AVAILABLE_MOD_FACTORIES`** 覆盖全部在册 Mod + 端点级显式清除两条。
+  ③ **Flutter 债**：`F-0007-2`（busy「打断并重发」只 stop 不 send —— 实为**两层**：接线没接 `onSend`，
+  且 `_send` 读的是已 `clear()` 的输入框）→ 新增纯编排 `interruptAndResend` + `lastUserText()` + `send(echoUser:false)`；
+  `F-0034-01`（只改逐图样式时 `DisplayPrefs.sameAs` 早退 ⇒ 静默丢弃）→ 改 `!=` 且 `==`/`hashCode` 恢复对称；
+  **D6 假绿灯治理**：令牌/时长豁免**整文件名单 → 路径前缀 + 处数上限**（前缀零命中 = 死豁免判红）、
+  已删 crate 的硬编码夹具换成**读 `main.rs` 唯一真源的`registeredModIds()` 真断言**、`_stripComments` ×2 合并
+  并**修掉「不认识字符串」这个假绿灯方向的洞**、反复制门禁扩成 5 个定义唯一性表（零命中同样判红）。
+  ④ **首次真实浏览器验收跑通**（**推翻历史结论「本机无 Linux Chrome、无法从 WSL 驱动」**）：
+  `~/.cache/ms-playwright/chromium-1243`（Chrome for Testing 153）+ CDP + DSH browser MCP；渲染面需
+  `--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader`。38 项判定：**pass 29 / fail 3 / blocked 4 / manual-only 2**
+  （冻结后 Lead 复跑 fail 6，其中 4 条经决定性实验判定为**探针裁剪截图伪影**、非产品回归）。
+  **最有价值的实测**：界面自身文案走查 20 步 **0 次 gstatic**；注入子集外字符（`𠮷`/`🀄`/`𝄞`）**真的出网**
+  `fonts.gstatic.com`（notosansjp / notocoloremoji / notomusic）⇒ **已知缺口 #1 有了实测形态与复现**；
+  `useLocalCanvasKit:true` + 40 条请求全同源 ⇒ 主链**不会断网白屏**。
+  ⑤ **仓库治理**：worktree 3 → **2**（移除 `-product`）、分支 12 → **11**、死树 `-Ai` 从 **136 脏项**冻结为 0 脏
+  （改动 + 未跟踪全部保档到 `/home/skystar/backup-2026-10-05/`，`git apply --reverse --check` 逐字校验），
+  回收 **8.7 G**；唯一未被既有 bundle 覆盖的 `archive/full-history-2026-09-11` 已补 bundle（`bundle verify` = complete）。
+  ⑥ 门禁（冻结树实测）：cargo **1311/0** · doc 3 · fmt clean · clippy **0 warning** · rust-ratio **96.1382% PASS** ·
+  `code-stats --check` 四条 PASS（deps 棘轮 22）· flutter analyze 0 · flutter test **1564** ·
+  `ignite.sh --check` **四项 ok**（现扫 4 个产物文件）。
+  报告：`docs/audit/2026-10-05-debt-round/ROUND-REPORT-2026-10-05.md`（+ CI/Rust/Flutter/仓库卫生四份分报告）、
+  浏览器验收 `docs/verification/v0.2.1-browser-acceptance-2026-10-05.md`、
+  下一轮清单 `docs/plans/NEXT-ROUND-main-2026-10-05.md`。
 
 - **2026-09-28（v0.2.0-rc.7，正确性与诚实性：审计主发现 + 4 条假绿灯 + 仓库卫生）**：
   ① **`F-0005-2` 重建放大链**：`AppShell.settingsRevision` + `AppShellState._settingsTick` + `section`

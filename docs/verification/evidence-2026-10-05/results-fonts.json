@@ -1,0 +1,30 @@
+{
+  "scenario": "fonts",
+  "at": "2026-10-05T11:39:48.075Z",
+  "results": [
+    {
+      "id": "F-fonts-03",
+      "title": "逐字符归因：哪些子集外字符会真的去 Google 拉字体",
+      "verdict": "fail",
+      "evidence": "U+20BB7→notosansjp | U+1F004→notocoloremoji | U+1D11E→notomusic | U+266A→无请求 | U+20AC→无请求 | U+416→无请求",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs fonts（逐字符原始见 fonts.json.perChar）"
+    },
+    {
+      "id": "F-fonts-01",
+      "title": "完整 UI 走查（四主题 + 八分区 + 图案标签 + 会话列表 + 聊天输入的产品中文）全程 0 次 gstatic",
+      "verdict": "pass",
+      "evidence": "走查 20 步；出现 gstatic 的步：无；未命中节点的步 0 个：[]；阳性对照（脚本故意请求）gstatic 请求数=4 ⇒ 探测器本身能看见 gstatic",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs fonts（原始 steps 见 fonts.json）"
+    },
+    {
+      "id": "F-fonts-02",
+      "title": "故意注入子集外字符是否触发运行期字体兜底（fonts.gstatic.com）",
+      "verdict": "fail",
+      "evidence": "输入 𠮷 🀄 𝄞 ♪ € Ж 后 gstatic 请求=[\"https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2\",\"https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2\",\"https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2\"]；DOM 输入框实测=\"中文界面文案测试：配色、舞台、口型、背景库、诊断𠮷🀄𝄞♪€Ж\"",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs fonts"
+    }
+  ]
+}

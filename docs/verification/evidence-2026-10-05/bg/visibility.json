@@ -1,0 +1,156 @@
+{
+  "none": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/00-none.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "1100,52,1440,900",
+    "pixels": 288320,
+    "channels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 1,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ]
+  },
+  "red": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/01-red-cover.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "1100,52,1440,900",
+    "pixels": 288320,
+    "channels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 1,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ]
+  },
+  "red2": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/02-red-persist.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "1100,52,1440,900",
+    "pixels": 288320,
+    "channels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 1,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ]
+  },
+  "cleared": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-05/bg/03-cleared.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "1100,52,1440,900",
+    "pixels": 288320,
+    "channels": {
+      "r": 255,
+      "g": 255,
+      "b": 255
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 1,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 1
+      }
+    ]
+  },
+  "prefsAfter": {
+    "theme": "black",
+    "stageImage": null,
+    "backgrounds": [
+      {
+        "kind": "image",
+        "id": "bg6a2d74a9"
+      }
+    ],
+    "backgroundSource": 0,
+    "backgroundOpacity": 1,
+    "backgroundBlur": 0,
+    "backgroundScrim": 1,
+    "backgroundEnabled": true,
+    "imageFit": 0,
+    "imageAlign": 4,
+    "tileSize": 64,
+    "slideInterval": 0,
+    "slideRandom": false,
+    "uiTransparency": 0.5,
+    "stagePlaylist": [],
+    "scale": 1,
+    "mouthSensitivity": 1,
+    "lipSync": true,
+    "idleEnabled": true,
+    "muted": false,
+    "volume": 1,
+    "allowDragZoom": true,
+    "tier": 8192,
+    "edgeStrength": 1
+  },
+  "firstPaint": {
+    "none": null
+  }
+}
