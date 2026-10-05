@@ -106,7 +106,9 @@ class _ErrorHostState extends State<_ErrorHost> {
         );
       });
     },
-    onStop: () {},
+    // busy 的出路（这里用不到：本文件测的是 `onGoto` 那条），但签名的
+    // 组合回调必须给——见 `test/error_action_busy_resend_test.dart`。
+    onInterruptAndResend: () {},
     onSend: () {},
   );
 
@@ -262,14 +264,14 @@ void main() {
       File('lib/main.dart').readAsStringSync(),
     );
 
-    final String args = _balancedFrom(src, 'errorActionsFor(', '(', ')');
+    final String args = balancedFrom(src, 'errorActionsFor(', '(', ')');
     expect(
       args,
       contains('onGoto'),
       reason: '错误动作必须仍有「去设置」那条出路（规格 §6.6：失败必须有出路）',
     );
 
-    final String? onGotoBody = _closureBodyAfter(args, 'onGoto:');
+    final String? onGotoBody = closureBodyAfter(args, 'onGoto:');
     expect(
       onGotoBody,
       isNotNull,
@@ -285,62 +287,4 @@ void main() {
           '行为级那一半见本文件前三条。',
     );
   });
-}
-
-/// 取 [anchor] 处那个**平衡括号**包起来的整段（含括号本身）。
-///
-/// 用来把扫描范围收在**这一个调用**上，而不是 `whole file contains`
-/// （后者会让「文件里别处也调了 openSettings」冒充这条接线）。
-String _balancedFrom(String src, String anchor, String open, String close) {
-  final int at = src.indexOf(anchor);
-  if (at < 0) throw StateError('找不到 `$anchor`');
-  final int start = src.indexOf(open, at);
-  if (start < 0) throw StateError('`$anchor` 后面没有 `$open`');
-  final int end = _matchBracket(src, start, open, close);
-  if (end < 0) throw StateError('`$anchor` 的括号不平衡');
-  return src.substring(start, end + 1);
-}
-
-/// 取 [anchor]（形如 `onGoto:`）之后那个**闭包体** `{ … }`（含花括号本身）。
-///
-/// 支持 `(参数) { … }` 与 `() async { … }`；值不是闭包（例如裸 tear-off）返回 null。
-String? _closureBodyAfter(String src, String anchor) {
-  final int at = src.indexOf(anchor);
-  if (at < 0) return null;
-  int i = at + anchor.length;
-  while (i < src.length && _isSpace(src[i])) {
-    i++;
-  }
-  if (i < src.length && src[i] == '(') {
-    final int end = _matchBracket(src, i, '(', ')');
-    if (end < 0) return null;
-    i = end + 1;
-  }
-  while (i < src.length && _isSpace(src[i])) {
-    i++;
-  }
-  if (i < src.length && src.startsWith('async', i)) i += 'async'.length;
-  while (i < src.length && _isSpace(src[i])) {
-    i++;
-  }
-  if (i >= src.length || src[i] != '{') return null;
-  final int end = _matchBracket(src, i, '{', '}');
-  return end < 0 ? null : src.substring(i, end + 1);
-}
-
-bool _isSpace(String c) => c == ' ' || c == '\n' || c == '\r' || c == '\t';
-
-/// [open] 在 [start] 处的配对位置（下标）；不平衡返回 -1。
-int _matchBracket(String src, int start, String open, String close) {
-  int depth = 0;
-  for (int i = start; i < src.length; i++) {
-    final String c = src[i];
-    if (c == open) {
-      depth++;
-    } else if (c == close) {
-      depth--;
-      if (depth == 0) return i;
-    }
-  }
-  return -1;
 }

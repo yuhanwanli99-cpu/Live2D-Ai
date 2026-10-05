@@ -39,7 +39,28 @@ library;
 ///
 /// 传进来的应当是**未剥的原文**；返回文本里注释与字符串字面量都消失，
 /// 但**代码部分的换行一个不多一个不少**（行注释只吃掉行内内容）。
-String stripCommentsAndStrings(String src) {
+String stripCommentsAndStrings(String src) => _scan(src, keepStrings: false);
+
+/// 剥掉注释，**保留字符串字面量**（含引号）。
+///
+/// # 为什么需要第二档（2026-10-05，D6）
+///
+/// 两个消费点要断言的**就是字面量本身**：
+/// - `chat_bubble_labels_test.dart` 断言 `chat_controller.dart` 里不再出现
+///   `'本轮没有文字输出…'` 那句伪台词、且仍有 `'（生成失败）'`；
+/// - `director_observer_test.dart` 把「字符串里出现持久化名字」也当落盘信号。
+/// 它们过去各自带一份私有的 `_stripComments`（同名不同义：一份认识字符串、
+/// 一份不认识），两份都在 `test/` 下——正是反复制门禁要防的形态。
+/// 现在合并到这一处：**字符串认识**（更严：`'http://x'` 里的 `//` 不再被
+/// 当成注释起点，藏在字符串后半段的标识符不会被静默丢掉），块注释按 Dart
+/// 语义**可嵌套**。
+///
+/// 与 [stripCommentsAndStrings] 共用同一个扫描器（只是字面量留不留），
+/// 所以两档的注释语义逐字一致——不存在「同一件事两套解释」。
+String stripCommentsKeepStrings(String src) => _scan(src, keepStrings: true);
+
+/// 扫描器本体：剥注释；字符串按 [keepStrings] 决定留不留。
+String _scan(String src, {required bool keepStrings}) {
   final StringBuffer out = StringBuffer();
   int i = 0;
   while (i < src.length) {
@@ -47,8 +68,16 @@ String stripCommentsAndStrings(String src) {
     final bool rawString = c == 'r' && _opensRawString(src, i);
     if (c == "'" || c == '"' || rawString) {
       // raw 前缀（`r`）与字面量一起丢：它只在字面量里有意义，留着会让
-      // `RegExp(r)` 这种残渣看起来像代码。
-      i = _skipStringLiteral(src, rawString ? i + 1 : i, raw: rawString);
+      // `RegExp(r)` 这种残渣看起来像代码。（`keepStrings` 时整段照抄，
+      // 包括 `r` 前缀与两侧引号——消费点比的是字面量原文。）
+      final int literalStart = i;
+      final int end = _skipStringLiteral(
+        src,
+        rawString ? i + 1 : i,
+        raw: rawString,
+      );
+      if (keepStrings) out.write(src.substring(literalStart, end));
+      i = end;
       continue;
     }
     if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
@@ -58,11 +87,22 @@ String stripCommentsAndStrings(String src) {
       continue;
     }
     if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
+      // 块注释按 Dart 语义**可嵌套**（`director_observer_test.dart` 的私有版
+      // 一直这么做）。旧的严格版在第一个 `*/` 收尾，会把嵌套注释的尾部当成
+      // 源码——那是**假命中**的方向（本该零命中的门禁可能因此变红）。
+      int depth = 1;
       i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
+      while (i < src.length && depth > 0) {
+        if (src[i] == '/' && i + 1 < src.length && src[i + 1] == '*') {
+          depth++;
+          i += 2;
+        } else if (src[i] == '*' && i + 1 < src.length && src[i + 1] == '/') {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
       }
-      i += 2;
       continue;
     }
     out.write(c);
@@ -114,4 +154,66 @@ int _skipStringLiteral(String src, int start, {required bool raw}) {
     i++;
   }
   return src.length;
+}
+
+/// 取 [anchor] 处那个**平衡括号**包起来的整段（含括号本身）。
+///
+/// 用来把扫描范围收在**这一个调用**上，而不是 `whole file contains`
+/// （后者会让「文件里别处也调了同一个东西」冒充这条接线）。
+///
+/// 2026-10-05（D6）：从 `error_action_opens_settings_test.dart` 的私有实现
+/// 搬到这里——F-0007-2 的结构守卫要用同一份判据，抄一份就是又一次「同一件事
+/// 两套解释」（那条门禁见 `test/source_scan_test.dart`）。
+String balancedFrom(String src, String anchor, String open, String close) {
+  final int at = src.indexOf(anchor);
+  if (at < 0) throw StateError('找不到 `$anchor`');
+  final int start = src.indexOf(open, at);
+  if (start < 0) throw StateError('`$anchor` 后面没有 `$open`');
+  final int end = matchBracket(src, start, open, close);
+  if (end < 0) throw StateError('`$anchor` 的括号不平衡');
+  return src.substring(start, end + 1);
+}
+
+/// 取 [anchor]（形如 `onGoto:`）之后那个**闭包体** `{ … }`（含花括号本身）。
+///
+/// 支持 `(参数) { … }` 与 `() async { … }`；值不是闭包（例如裸 tear-off）返回 null。
+String? closureBodyAfter(String src, String anchor) {
+  final int at = src.indexOf(anchor);
+  if (at < 0) return null;
+  int i = at + anchor.length;
+  while (i < src.length && _isSpace(src[i])) {
+    i++;
+  }
+  if (i < src.length && src[i] == '(') {
+    final int end = matchBracket(src, i, '(', ')');
+    if (end < 0) return null;
+    i = end + 1;
+  }
+  while (i < src.length && _isSpace(src[i])) {
+    i++;
+  }
+  if (i < src.length && src.startsWith('async', i)) i += 'async'.length;
+  while (i < src.length && _isSpace(src[i])) {
+    i++;
+  }
+  if (i >= src.length || src[i] != '{') return null;
+  final int end = matchBracket(src, i, '{', '}');
+  return end < 0 ? null : src.substring(i, end + 1);
+}
+
+bool _isSpace(String c) => c == ' ' || c == '\n' || c == '\r' || c == '\t';
+
+/// [open] 在 [start] 处的配对位置（下标）；不平衡返回 -1。
+int matchBracket(String src, int start, String open, String close) {
+  int depth = 0;
+  for (int i = start; i < src.length; i++) {
+    final String c = src[i];
+    if (c == open) {
+      depth++;
+    } else if (c == close) {
+      depth--;
+      if (depth == 0) return i;
+    }
+  }
+  return -1;
 }

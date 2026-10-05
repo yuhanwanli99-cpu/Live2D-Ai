@@ -967,7 +967,19 @@ class DisplayPrefs {
     }
     if (backgrounds.length != other.backgrounds.length) return false;
     for (int i = 0; i < backgrounds.length; i++) {
-      if (!backgrounds[i].sameAs(other.backgrounds[i])) return false;
+      // **用 `!=`（含逐图样式），不要用 id-only 的 `sameAs`**（F-0034-01，
+      // 审计 2026-09-28；P2 在线缺陷）：
+      //
+      // `sameAs` 的语义是「**字节读回前后算同一项**」（只看 id）——那是给
+      // 水合去重用的，不是给「变了没有」用的。把它当通用判据会让「只改了
+      // 逐图铺法 / 不透明度 / 位置」被判成「什么都没变」⇒ `_updatePrefs` 的
+      // `if (next == widget.prefs) return;`（以及 `main.dart` 的 `_update`）
+      // **静默丢掉**这次编辑：界面不动、刷新还原，且没有任何错误。
+      //
+      // `BackgroundImage.==` 与 `hashCode` 都含 `id + opacity + fit + align`
+      // 且都不看 `dataUrl`，所以换用它既补上样式轴、又保持「字节没回来也
+      // 算同一项」，还让 `==` 与 `hashCode` 重新对称。
+      if (backgrounds[i] != other.backgrounds[i]) return false;
     }
     return _sameList(other.stagePlaylist, stagePlaylist);
   }

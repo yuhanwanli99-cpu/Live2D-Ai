@@ -14,19 +14,27 @@ import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/error_banner.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 全部夹具都是**真实抓包**（本机，2026-09-12 rc.2 形状）。
+import 'support/registered_mods.dart';
+
+/// 夹具的**形状**来自真实抓包（本机，2026-09-12 rc.2）。
 ///
-/// 2026-09-11 修订：`local-tts` 已从 Mod 系统移出（语音合成是核心链路），
-/// 所以 Mod 夹具改用 `local-llm` 承担「运行中」那条断言。字段形状不变。
-/// 2026-09-12 修订（rc.2）：`director` Mod 已删除（动作层裁决），夹具换成
+/// 2026-09-11 修订：`local-tts` 已从 Mod 系统移出（语音合成是核心链路）。
+/// 2026-09-12 修订（rc.2）：`director` Mod 当时已删除（动作层裁决），夹具换成
 /// `external-input`；capabilities 的 `schema_version` = 2，动作/上传/脚本五个
 /// 字段已从服务端与前端**同时**删除。
+///
+/// 2026-10-05 修订（D6）：夹具里那个 `local-llm` **已废除启动且 crate 已被
+/// 物理删除**（`ARCHIVED-mods.md` §3.1，W2-A）——留着它，这个文件在删 crate
+/// 之后**照样绿**（前端只解析 JSON），是 D6 点名的「已删 crate 硬编码夹具
+/// 假绿灯」。现在换成在册的 `director`，并由 `registeredModIds()`（读
+/// `main.rs` 的 `AVAILABLE_MOD_FACTORIES`，唯一真源）交叉核对：
+/// **crate 被删 / 改名就红**。
 const String kRealModelsJson = '{"models":[]}';
 
 const String kRealModsJson = '''
 {"mods":[{"api_version":1,"enabled":false,"id":"external-input","name":"外部输入",
 "status":"disabled","version":"0.1.0"},
-{"api_version":1,"enabled":true,"id":"local-llm","name":"本地大模型",
+{"api_version":1,"enabled":true,"id":"director","name":"导演",
 "status":"running","version":"0.1.0"}]}
 ''';
 
@@ -157,7 +165,7 @@ void main() {
   });
 
   group('ModsApi', () {
-    test('真实列表：夹具两个 Mod，状态文字两两可辨', () async {
+    test('夹具列表（两个**在册** Mod）：状态文字两两可辨', () async {
       final ModsApi api = ModsApi(
         base: 'http://x',
         client: MockClient((_) async => jsonResponse(kRealModsJson, 200)),
@@ -167,9 +175,22 @@ void main() {
       expect(mods[0].id, 'external-input');
       expect(mods[0].enabled, isFalse);
       expect(mods[0].statusLabel, '已停用');
-      expect(mods[1].id, 'local-llm');
+      expect(mods[1].id, 'director');
       expect(mods[1].isRunning, isTrue);
       expect(mods[1].statusLabel, '运行中');
+    });
+
+    test('夹具里的 Mod id 都在册（删 crate 就红，不是硬编码假绿灯）', () {
+      // D6：这个文件原先拿 `local-llm` 当夹具——那个 crate 被物理删除之后
+      // 它**照样绿**（前端只解析 JSON）。判据接回唯一真源：
+      // `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES`。
+      final Set<String> ids = registeredModIds();
+      expect(ids, isNotEmpty, reason: '真源一个 id 都没解出来 —— 这条门禁在空转（不是「后端没有 Mod」）');
+      expect(
+        ids,
+        containsAll(<String>['external-input', 'director']),
+        reason: '夹具指向了不在 `AVAILABLE_MOD_FACTORIES` 里的 Mod（已删 / 改名）',
+      );
     });
 
     test('未知 status 原样显示（**不谎报成功**）', () async {
@@ -206,11 +227,11 @@ void main() {
           return jsonResponse('{}', 200);
         }),
       );
-      await api.setEnabled('local-llm', true);
-      await api.setEnabled('local-llm', false);
+      await api.setEnabled('director', true);
+      await api.setEnabled('director', false);
       expect(paths, <String>[
-        '/api/v1/mods/local-llm/enable',
-        '/api/v1/mods/local-llm/disable',
+        '/api/v1/mods/director/enable',
+        '/api/v1/mods/director/disable',
       ]);
     });
   });

@@ -1325,7 +1325,12 @@ class _ShellRootState extends State<ShellRoot> {
                 );
               });
             },
-            onStop: () => unawaited(_stopWithCancellation()),
+            // busy 的出路是**两件事**（F-0007-2）：先打断在飞的那一轮，
+            // 再把那条消息重发出去。合成一份交给 `errorActionsFor`，
+            // 顺序与「两步都做」收在 `interruptAndResend` 里（VM 可测）。
+            onInterruptAndResend: () {
+              unawaited(_interruptAndResend());
+            },
             onSend: () => unawaited(_sendWithCancellation()),
           ),
           onDismissError: () {

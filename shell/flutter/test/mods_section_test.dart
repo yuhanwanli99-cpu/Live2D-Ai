@@ -17,11 +17,16 @@ import 'package:live2d_ai_shell/api/mods_api.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 真实契约形状：一个带 spec 的 Mod + 若干容错项（未知 kind / 空 select）。
+/// **合成**夹具：一个带 spec 的 Mod + 若干容错项（未知 kind / 空 select）。
+///
+/// 它**不对应任何在册 crate**（id 是 `demo-mod`）：本文件测的是
+/// `settings_spec` 的解析与渲染，与哪个 Mod 无关。原先这里写着 `demo-mod`
+/// ——那个 crate 已于 W2-A 物理删除，留着一个已删 id 会让人以为
+/// 「后端真的会回这个 Mod」（D6 要清的假绿灯形态）。
 const String kModsWithSpecJson = '''
-{"mods":[{"id":"local-llm","name":"本地大模型","version":"0.1.0",
+{"mods":[{"id":"demo-mod","name":"演示 Mod","version":"0.1.0",
 "api_version":1,"status":"running","enabled":true,"config":{"port":11434},
-"settings_spec":{"mod_id":"local-llm","title":"本地大模型","version":1,
+"settings_spec":{"mod_id":"demo-mod","title":"演示 Mod","version":1,
 "fields":[
  {"kind":"bool","key":"auto_start","label":"自动启动推理进程","default":true},
  {"kind":"string","key":"command","label":"推理进程命令","secret":false},
@@ -63,22 +68,23 @@ ModSettingField _field(
 );
 
 /// 本文件只测配置表单；运行态显式给一份空的 fake，避免 widget 在展开时走
-/// 兜底自建的 `ModsApi()`（Wave 3 D 轨新增的运行态读取）。真机路径由
-/// `pet_desktop_state_test.dart` 覆盖。
+/// 兜底自建的 `ModsApi()`（Wave 3 D 轨新增的运行态读取）。运行态那一面由
+/// `mod_state_surface_test.dart` 覆盖（2026-10-05 D6 改名：原
+/// `pet_desktop_state_test.dart` 的 pet-desktop 生产者已被物理删除）。
 Future<ModStateResult> _stubState(String id) async =>
     ModStateResult(id: id, enabled: true, state: const <String, Object?>{});
 
 ModInfo _modWithSpec() => ModInfo(
-  id: 'local-llm',
-  name: '本地大模型',
+  id: 'demo-mod',
+  name: '演示 Mod',
   version: '0.1.0',
   apiVersion: 1,
   enabled: true,
   status: 'running',
   config: const <String, Object?>{'port': 11434, 'auto_start': true},
   settingsSpec: ModSettingsSpec(
-    modId: 'local-llm',
-    title: '本地大模型',
+    modId: 'demo-mod',
+    title: '演示 Mod',
     version: 1,
     fields: <ModSettingField>[
       _field(ModFieldKind.bool, 'auto_start', '自动启动推理进程', defaultValue: true),
@@ -103,7 +109,7 @@ Widget _wrap(Widget child) => MaterialApp(
 );
 
 Future<void> _expandFirstMod(WidgetTester tester) async {
-  await tester.tap(find.text('本地大模型'));
+  await tester.tap(find.text('演示 Mod'));
   await tester.pumpAndSettle();
 }
 
@@ -126,8 +132,8 @@ void main() {
       final ModInfo m = (await api.list()).single;
       expect(m.config['port'], 11434);
       final ModSettingsSpec spec = m.settingsSpec!;
-      expect(spec.modId, 'local-llm');
-      expect(spec.title, '本地大模型');
+      expect(spec.modId, 'demo-mod');
+      expect(spec.title, '演示 Mod');
       expect(spec.version, 1);
       // 7 项里两项目无法渲染（未知 kind / 空 select）被跳过。
       expect(spec.fields.map((ModSettingField f) => f.key), <String>[
@@ -172,11 +178,11 @@ void main() {
         }),
       );
       final ModConfigResult result = await api.setConfig(
-        'local-llm',
+        'demo-mod',
         const <String, Object?>{'port': 12000},
       );
       expect(seen.method, 'POST');
-      expect(seen.url.path, '/api/v1/mods/local-llm/config');
+      expect(seen.url.path, '/api/v1/mods/demo-mod/config');
       // 服务端对 mutating 请求校验 Content-Type——缺了就是 415/403。
       expect(seen.headers['Content-Type'], contains('application/json'));
       final Map<String, Object?> body =
@@ -198,7 +204,7 @@ void main() {
         ),
       );
       final ModConfigResult result = await api.setConfig(
-        'local-llm',
+        'demo-mod',
         const <String, Object?>{'port': 1},
       );
       expect(result.restarted, isFalse);
@@ -216,7 +222,7 @@ void main() {
         ),
       );
       expect(
-        () => api.setConfig('local-llm', const <String, Object?>{}),
+        () => api.setConfig('demo-mod', const <String, Object?>{}),
         throwsA(
           isA<ApiException>().having(
             (ApiException e) => e.code,
@@ -267,7 +273,7 @@ void main() {
       await tester.enterText(portField, '12000');
       await _tapSave(tester);
 
-      expect(savedId, 'local-llm');
+      expect(savedId, 'demo-mod');
       expect(savedConfig!['port'], 12000);
       expect(savedConfig!['auto_start'], true);
       expect(savedConfig!['mode'], 'chat');

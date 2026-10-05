@@ -325,9 +325,17 @@ typedef ModStateLoader = Future<ModStateResult> Function(String id);
 
 /// `state_json().window.reason` 的稳定值：原生壳休眠、窗口未开。
 ///
-/// **必须逐字等于** Rust 侧 `WINDOW_REASON_NATIVE_SHELL_DORMANT`
-///（`live2d-ai-mod-pet-desktop`）；守卫在 `test/pet_desktop_state_test.dart`
-/// 与 Rust 的 `window_reason_string_is_stable_and_ascii`。
+/// # 跨语言那一半已经**冻结**（2026-10-05，D6 注释纠偏）
+///
+/// 它原本**必须逐字等于** Rust 侧 `WINDOW_REASON_NATIVE_SHELL_DORMANT`
+///（`live2d-ai-mod-pet-desktop`），由 Dart 侧的 `pet_desktop_state_test.dart`
+/// 与 Rust 的 `window_reason_string_is_stable_and_ascii` 两侧对守。
+/// 该 crate 已于 W2-A **物理删除**（`ARCHIVED-mods.md` §2.4）⇒ 跨语言守卫
+/// 随 crate 一起冻结在台账里，**不再有活的生产者**。
+///
+/// 常量本身留着：`window` 是**通用协议键**（任意 Mod 的 `state_json` 都可以
+/// 报它），`formatWindowState` 仍在产品路径上——由
+/// `test/mod_state_surface_test.dart` 按通用形态守。
 const String kWindowReasonNativeShellDormant = 'native_shell_dormant';
 
 /// 通用运行态字段的中文标签（**兜底表**）。

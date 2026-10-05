@@ -36,6 +36,29 @@ enum ChatRole {
   };
 }
 
+/// 会话里**最后一条用户消息**的正文（没有则 `null`）。
+///
+/// 用途单一：busy 的「打断并重发」要从这里取回正文（F-0007-2，审计 2026-09-28）。
+/// `_send` 在 POST **之前**就 `clear()` 了输入框，所以重发**不能**读输入框
+/// ——读它只会拿到空串，然后被 `send()` 的空文本早退静默吞掉，
+/// 于是按钮又退化成「只打断」（那正是本缺陷的现场）。
+///
+/// 从后往前找 `ChatRole.user`，而不是取 `messages.last`：busy 之后最后一条
+/// 是 assistant 的失败气泡（`⚠ 发送未被受理（服务端忙碌）`），把它当用户的话
+/// 重发出去就是**伪造一条用户消息**。
+///
+/// 纯函数（本文件零 web 依赖）：判据要在 VM 上测得到——`ChatController`
+/// 经 `ws_client.dart` 间接依赖 `package:web`，它里面的分支跑不到。
+String? lastUserText(List<ChatMessage> messages) {
+  for (int i = messages.length - 1; i >= 0; i--) {
+    final ChatMessage message = messages[i];
+    if (message.role != ChatRole.user) continue;
+    if (message.text.trim().isEmpty) continue;
+    return message.text;
+  }
+  return null;
+}
+
 /// 一条聊天消息（assistant 气泡可流式追加）。
 ///
 /// **可变**是刻意的：流式追加是每帧一次的高频操作，每条 delta 都重建一个

@@ -23,6 +23,8 @@ import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/settings/sections/director_observer_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/source_scan.dart';
+
 Widget _wrap(Widget child) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(body: SingleChildScrollView(child: child)),
@@ -91,38 +93,6 @@ Set<String> _identifiersOf(String source) =>
         .map((Match m) => m.group(0)!)
         .toSet();
 
-/// 去掉注释（**保留字符串字面量**：字符串里出现持久化名字同样是落盘信号）。
-String _stripComments(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    if (src.startsWith('//', i)) {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (src.startsWith('/*', i)) {
-      int depth = 1;
-      i += 2;
-      while (i < src.length && depth > 0) {
-        if (src.startsWith('/*', i)) {
-          depth++;
-          i += 2;
-        } else if (src.startsWith('*/', i)) {
-          depth--;
-          i += 2;
-        } else {
-          i++;
-        }
-      }
-      continue;
-    }
-    out.write(src[i]);
-    i++;
-  }
-  return out.toString();
-}
 
 void main() {
   setUp(() => DirectorObserverFeed.instance.clear());
@@ -389,7 +359,11 @@ void main() {
 
     test('两个观测面文件的标识符集合 ∩ 禁止集合 = 空', () {
       for (final String path in guardedFiles) {
-        final String source = _stripComments(File(path).readAsStringSync());
+        // 词法器只有一份（`support/source_scan.dart`，反复制门禁在
+        // `source_scan_test.dart`）；字符串保留是本消费点的语义。
+        final String source = stripCommentsKeepStrings(
+          File(path).readAsStringSync(),
+        );
         final Set<String> identifiers = _identifiersOf(source);
         final Set<String> forbiddenIds = <String>{
           for (final String name in forbidden) ...name.split('.'),

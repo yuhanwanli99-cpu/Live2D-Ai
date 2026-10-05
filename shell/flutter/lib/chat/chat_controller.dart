@@ -102,7 +102,12 @@ class ChatController extends ChangeNotifier {
   WsStatus get wsStatus => _wsStatus;
 
   /// 发送用户文本；成功则建流式 assistant 气泡，失败写入可见错误。
-  Future<void> send(String raw) async {
+  ///
+  /// [echoUser] = 是否把用户那条消息上屏（**默认是**）。传 `false` 只有一处
+  /// 调用者：busy 的「打断并重发」（[resendLastUserMessage]）——那条用户气泡
+  /// 已经在会话里了（`send()` 是**先上屏再 POST**），再补一条会让用户以为
+  /// 自己的话说了两遍。
+  Future<void> send(String raw, {bool echoUser = true}) async {
     // **清零必须在两个早退之前**（复核 F-V1-2，2026-10-01）：组合根
     //（`shell_chat._send`）在 `await send()` 之后**无条件**读
     // [sendFailedLocally]，所以早退路径（空文本 / 已有一轮在飞）读到的必须是
@@ -117,8 +122,10 @@ class ChatController extends ChangeNotifier {
     // **发送即保活**：服务端重启后旧连接会失效（POST 能成功但回复走 WS），
     // 这里主动确认连接，避免「发出去没回应」。（2026-09-10）
     ws.ensureConnected();
-    sessions.append(ChatMessage(role: ChatRole.user, text: text));
-    _persist();
+    if (echoUser) {
+      sessions.append(ChatMessage(role: ChatRole.user, text: text));
+      _persist();
+    }
     _streaming = true;
     _error = null;
     _errorCode = null;
@@ -133,8 +140,10 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
     try {
       // **L1 会话绑定**：把当前会话 id 一起发出去。服务端据此决定本轮
-      // system_prompt（persona / memory 都按会话写）。`append` 上面已经
-      // `ensureActive` 过，所以这里读到的就是这条消息所属的会话。
+      // system_prompt（persona / memory 都按会话写）。
+      // `echoUser: true` 时 `append` 上面已经 `ensureActive` 过，这里读到的
+      // 就是这条消息所属的会话；`echoUser: false`（重发）时正文本来就是从
+      // **活动会话**里取出来的，所以 `activeId` 同样非空。
       final ChatAccepted accepted = await api.sendChat(
         text,
         sessionId: sessions.activeId,
@@ -249,6 +258,31 @@ class ChatController extends ChangeNotifier {
       _error = '停止失败：$error';
       notifyListeners();
     }
+  }
+
+  /// 上一条用户消息的正文（没有则 `null`）——busy 的「重发」从它取正文。
+  ///
+  /// 判据在 [lastUserText]（纯函数，VM 可测）：输入框在 `_send` 里已经清空，
+  /// 所以「重发什么」只能从会话记录里读。
+  String? get lastUserMessageText => lastUserText(messages);
+
+  /// busy 的恢复出口（F-0007-2）：把**上一条用户消息**原样再发一次。
+  ///
+  /// 为什么不复用 `send(lastUserMessageText)` 直接发：那会**再上屏一条**
+  /// 用户气泡（见 `send` 的 `echoUser`）——用户的话已经在界面上，
+  /// 重发是「把那一句再说给服务端」，不是「用户又说了一遍」。
+  ///
+  /// 返回是否**真的发起了这一轮**：没有可重发的消息 / 已有一轮在飞 → `false`
+  /// （接线方据此决定要不要把相位置成「思考中」，见 `shell_chat._resendLastUserMessage`）。
+  ///
+  /// 服务端忙碌那一轮必须先被 `stop()` 打断，否则这里会再撞一个 busy——
+  /// 那个顺序由 `error_actions.interruptAndResend` 负责，本方法只做第二步。
+  Future<bool> resendLastUserMessage() async {
+    if (_streaming) return false;
+    final String? text = lastUserText(messages);
+    if (text == null || text.trim().isEmpty) return false;
+    await send(text, echoUser: false);
+    return true;
   }
 
   void clearError() {

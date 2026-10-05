@@ -33,7 +33,7 @@ import 'package:live2d_ai_shell/api/mods_api.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 本文件专用的 Mod id（与 `mods_section_test.dart` 的 `local-llm` 区分开，
+/// 本文件专用的 Mod id（与 `mods_section_test.dart` 的 `demo-mod` 区分开，
 /// 免得看日志时以为串了）。
 const String kModId = 'k6-mod';
 const String kModLabel = '六号实验 Mod';

@@ -18,6 +18,8 @@ import 'package:live2d_ai_shell/chat/chat_markdown.dart';
 import 'package:live2d_ai_shell/ui/message_bubble.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/source_scan.dart';
+
 Widget wrap(Widget child) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(body: ListView(children: <Widget>[child])),
@@ -79,10 +81,10 @@ void main() {
       // （行为断言在 `chat_controller` 里，那个文件依赖 package:web，
       //  VM 测试加载不了；用源码扫描补上。）
       //
-      // **先去注释再扫**（项目惯例，见 `design_tokens_test.dart`）：
-      // 那句话现在只作为「为什么删掉它」的说明留在注释里，那是有价值的记录，
-      // 不该被判红。
-      final String src = _stripComments(
+      // **先去注释再扫**（项目惯例，真正的实现只有一份：
+      // `support/source_scan.dart`）。字符串**保留**：下面两处 `contains`
+      // 比的正是字面量原文。
+      final String src = stripCommentsKeepStrings(
         File('lib/chat/chat_controller.dart').readAsStringSync(),
       );
       expect(
@@ -93,7 +95,7 @@ void main() {
     });
 
     test('失败仍然给一句话（「什么都没发生」才是最糟的反馈）', () {
-      final String src = _stripComments(
+      final String src = stripCommentsKeepStrings(
         File('lib/chat/chat_controller.dart').readAsStringSync(),
       );
       expect(src.contains('（生成失败）'), isTrue);
@@ -217,52 +219,4 @@ void main() {
       expect(hasChatMarkdown('这是**重点**'), isTrue);
     });
   });
-}
-
-/// 剥掉注释（字符串字面量保留——要断言的就是字面量）。
-String _stripComments(String src) {
-  final StringBuffer out = StringBuffer();
-  int i = 0;
-  while (i < src.length) {
-    final String c = src[i];
-    if (c == "'" || c == '"') {
-      final bool triple =
-          i + 2 < src.length && src[i + 1] == c && src[i + 2] == c;
-      final String quote = triple ? c + c + c : c;
-      out.write(quote);
-      i += quote.length;
-      while (i < src.length) {
-        if (src[i] == r'\') {
-          out.write(src.substring(i, i + 2));
-          i += 2;
-          continue;
-        }
-        if (src.startsWith(quote, i)) {
-          out.write(quote);
-          i += quote.length;
-          break;
-        }
-        out.write(src[i]);
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '/') {
-      while (i < src.length && src[i] != '\n') {
-        i++;
-      }
-      continue;
-    }
-    if (c == '/' && i + 1 < src.length && src[i + 1] == '*') {
-      i += 2;
-      while (i + 1 < src.length && !(src[i] == '*' && src[i + 1] == '/')) {
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out.write(c);
-    i++;
-  }
-  return out.toString();
 }

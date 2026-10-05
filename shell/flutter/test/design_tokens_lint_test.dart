@@ -6,12 +6,28 @@ import 'support/source_scan.dart';
 
 /// 裸值扫描的**豁免面**（越小越难被侵蚀）。
 ///
-/// 只有设计令牌自己的两个声明文件可以出现裸色值/裸字号/裸圆角——
+/// 只有设计令牌自己的声明处可以出现裸色值/裸字号/裸圆角——
 /// 它们是令牌的**定义处**，本来就该有具体数值。
-const Set<String> kTokenDeclarationFiles = <String>{
-  'lib/design/tokens.dart',
-  'lib/design/typography.dart',
-};
+///
+/// # 为什么是**路径前缀**而不是文件名名单（2026-10-05，D6）
+///
+/// 旧形态是 `Set<String> kTokenDeclarationFiles = {两个 .dart 全路径}`：
+/// 令牌一旦**搬迁 / 拆分**（例如把 `tokens.dart` 拆成 `tokens/colors.dart`
+/// + `tokens/space.dart`），下一个人的动作必然是「往名单里再加几行」——
+/// 而名单只会变长，没人会回来收窄它。前缀规则把这件事变成**一次判断**：
+/// 前缀说的是「这一类路径是令牌定义处」，新文件落在前缀下就自动正确。
+///
+/// 前缀**不是**目录豁免：`lib/design/` 整个目录仍然要扫（裸断点规则
+/// 只豁免 `lib/design/breakpoints.dart`，见下），所以「豁免面越小越难
+/// 被侵蚀」这条没有被放松。
+const List<String> kTokenDeclarationPrefixes = <String>[
+  'lib/design/tokens', // lib/design/tokens.dart 及将来 tokens/ 下的拆分
+  'lib/design/typography', // 同理
+];
+
+/// [path] 是不是令牌声明处（前缀匹配，见上）。
+bool isTokenDeclarationPath(String path) =>
+    kTokenDeclarationPrefixes.any(path.startsWith);
 
 /// 协议常量豁免：`lib/api/`、`lib/audio/`、`lib/live2d/` 里的
 /// `Duration(milliseconds:)` 是**协议参数**（WS 分片 20 ms、重连退避、
@@ -26,23 +42,38 @@ bool isProtocolDurationPath(String path) =>
     path.startsWith('lib/live2d/') ||
     path.startsWith('lib/data/');
 
-/// **逐个点名**的时长豁免文件（不是整个目录）。
+/// 时长豁免：**路径前缀 → 允许处数**（不是「把文件名抄进名单」）。
 ///
-/// 豁免面越小越难被侵蚀——所以只列具体文件，不列目录。
-/// 这里剩下的是「时序」但不是「UI 过渡时长」，所以不该逼它用 `AppDurations`
+/// 旧形态是 `Set<String> kNamedTimingFiles`（**整文件豁免**），它有两个毛病：
+/// 1. 同一个文件里**再加一处** UI 过渡时长（真该红的）不会有人知道；
+/// 2. 文件改名 / 搬家之后名单那条**静默失效**——豁免死了没人发现，
+///    与「从没写过」在源码里长得一模一样。
+///
+/// 现在两件事一起钉（2026-10-05，D6：改成路径前缀规则而不是加名单）：
+///
+/// - **前缀**（`startsWith` 匹配，key **不带扩展名**）：同一支派的新文件
+///   （`live_region_x.dart` 这类拆分）落在前缀下就自动正确，不需要有人
+///   回来「加名单」；
+/// - **处数上限**：豁免只覆盖「这里最多 N 处非 UI 时长」，加一处就要来改
+///   这个数并说明理由 ⇒ 豁免面不会悄悄长大。
+///
+/// 这里剩下的都是「时序」但不是「UI 过渡时长」，所以不该逼它用 `AppDurations`
 /// （那 4 档是为 hover/内容切换这类**交互过渡**定的）。
 ///
-/// 2026-09-11：原先还有一条 `lib/actions/action_dispatch.dart`（动作兜底时长表，
-/// 镜像渲染面 `choreography_total_ms`）。手动触发入口移出成品后它整条消失，
-/// 豁免面随之缩小——这正是「豁免表只能变小」该有的样子。
-const Set<String> kNamedTimingFiles = <String>{
-  // 读屏播报的最小间隔：`text_delta` 是毫秒级的，不节流会把读屏淹没。
+/// 2026-09-11 的历史：原先还有一条 `lib/actions/action_dispatch.dart`（动作兜底
+/// 时长表，镜像渲染面 `choreography_total_ms`）。手动触发入口移出成品后它整条
+/// 消失，豁免面随之缩小——这正是「豁免表只能变小」该有的样子。
+///
+/// 每个前缀必须**命中一个现存文件**（见 `豁免面本身要小且有效` 那组里的断言）：
+/// 零命中的前缀 = 死条目，等于给未来留了一个没人注意的放行位。
+const Map<String, int> kTimingExemptPrefixCaps = <String, int>{
+  // 读屏播报的最小间隔（1 处）：`text_delta` 是毫秒级的，不节流会把读屏淹没。
   // 这是**无障碍节奏**，是听觉可读性的下限，与视觉过渡无关。
-  'lib/state/live_region.dart',
-  // 语音识别会话结束后的重启防抖（Web Speech 静音会 onend，常驻监听要重启）。
-  // 这是**识别会话的时序策略**，不是 UI 过渡时长——AppDurations 那 4 档是给
-  // hover / 内容切换这类交互过渡定的，套在这里没有语义。
-  'lib/voice/voice_listen_controller.dart',
+  'lib/state/live_region': 1,
+  // 语音识别的三处（轻点阈值 / 会话重启防抖 / PTT 收尾）——识别会话与手势的
+  // 时序策略，不是 UI 过渡时长：AppDurations 那 4 档是给 hover / 内容切换
+  // 这类交互过渡定的，套在这里没有语义。
+  'lib/voice/voice_listen_controller': 3,
 };
 
 /// 一条扫描规则。
@@ -52,6 +83,7 @@ class Rule {
     required this.pattern,
     required this.why,
     this.exempt,
+    this.quotaCaps = const <String, int>{},
   });
 
   final String name;
@@ -60,10 +92,24 @@ class Rule {
   /// 命中即失败时给实现者看的解释。
   final String why;
 
-  /// 该路径是否豁免本规则。
+  /// 该路径是否豁免本规则（**整文件**豁免）。
   final bool Function(String path)? exempt;
 
+  /// **路径前缀 → 允许处数**的配额豁免（`startsWith` 匹配；缺省 = 不设配额）。
+  ///
+  /// 与 [exempt] 的区别：整文件豁免 = 「这个文件里的同类写法一律放行」；
+  /// 配额豁免 = 「**最多这么几处**」——加一处就必须来改这个数并写清理由。
+  final Map<String, int> quotaCaps;
+
   bool appliesTo(String path) => !(exempt?.call(path) ?? false);
+
+  /// [path] 的豁免配额；`-1` = 没有配额豁免（逐行判，命中即违规）。
+  int quotaFor(String path) {
+    for (final MapEntry<String, int> e in quotaCaps.entries) {
+      if (path.startsWith(e.key)) return e.value;
+    }
+    return -1;
+  }
 }
 
 final List<Rule> kRules = <Rule>[
@@ -80,20 +126,20 @@ final List<Rule> kRules = <Rule>[
     why:
         '颜色只能来自 ColorScheme 槽位或 AppPalette/AppColors'
         '（`Colors.transparent` 例外：它表示「不画」，不是配色）',
-    exempt: kTokenDeclarationFiles.contains,
+    exempt: isTokenDeclarationPath,
   ),
   Rule(
     name: '裸字号',
     pattern: RegExp(r'fontSize:'),
     why: '字号只能取 TextTheme 的 8 个槽位（见 AppFontSizes.registry）',
-    exempt: kTokenDeclarationFiles.contains,
+    exempt: isTokenDeclarationPath,
   ),
   Rule(
     name: '裸圆角',
     // `BorderRadius.circular(AppRadius.md)` 合法；只有数字字面量才拦。
     pattern: RegExp(r'BorderRadius\.circular\(\s*[0-9]'),
     why: '圆角只能取 AppRadius 的 6 档',
-    exempt: kTokenDeclarationFiles.contains,
+    exempt: isTokenDeclarationPath,
   ),
   Rule(
     name: '裸断点',
@@ -120,7 +166,7 @@ final List<Rule> kRules = <Rule>[
     why:
         '间距只能取 Space 的 9 档（4 px 网格）；1–2 px 的基线微调取 '
         'OpticalNudge——两者是不同的概念，别混',
-    exempt: kTokenDeclarationFiles.contains,
+    exempt: isTokenDeclarationPath,
   ),
   Rule(
     name: '协议时长混用',
@@ -128,9 +174,9 @@ final List<Rule> kRules = <Rule>[
     why: 'UI 动效时长只能取 AppDurations 的 4 档',
     // 协议目录 + 令牌声明文件（`AppDurations` 本身就是在那里定义的）。
     exempt: (String p) =>
-        isProtocolDurationPath(p) ||
-        kNamedTimingFiles.contains(p) ||
-        kTokenDeclarationFiles.contains(p),
+        isProtocolDurationPath(p) || isTokenDeclarationPath(p),
+    // 剩下的两处「时序但不是 UI 过渡」：**路径前缀 + 处数上限**（D6）。
+    quotaCaps: kTimingExemptPrefixCaps,
   ),
 ];
 
@@ -206,8 +252,26 @@ List<String> scanSource(Rule rule, String path, String source) {
       hits.add('$path:${i + 1}: ${lines[i].trim()}');
     }
   }
-  return hits;
+  // 配额豁免（D6）：前 `cap` 处放行，**多出来的一律算违规**——
+  // 这正是它比「整文件点名」强的地方（豁免面不许悄悄长大）。
+  final int cap = rule.quotaFor(path);
+  if (cap < 0) return hits;
+  return hits.length > cap ? hits.sublist(cap) : const <String>[];
 }
+
+/// 前缀 → 命中它的**现存** `lib/**` 文件（豁免前缀的存活检查）。
+///
+/// 为什么按磁盘实况展开而不是 `File(prefix).existsSync()`：前缀本身不是
+/// 一个路径（`lib/state/live_region` 少了扩展名），存在性只能由「有没有
+/// 文件落在它下面」回答——也顺带覆盖了 `lib/state/live_region.dart` 被
+/// 改名后的**死豁免**情形（零命中就红）。
+List<String> _filesUnder(String prefix) =>
+    Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .map((File f) => f.path.replaceAll(r'\', '/'))
+        .where((String p) => p.startsWith(prefix))
+        .toList();
 
 void main() {
   final List<File> sources = Directory('lib')
@@ -347,11 +411,25 @@ if (w >= 1280) return _wide();
   });
 
   group('豁免面本身要小且有效', () {
-    test('色值/字号/圆角的豁免恰好是两个令牌声明文件', () {
-      expect(kTokenDeclarationFiles.length, 2);
-      for (final String p in kTokenDeclarationFiles) {
-        expect(File(p).existsSync(), isTrue, reason: '豁免文件不存在：$p');
+    test('色值/字号/圆角的豁免恰好是两个令牌声明前缀，且每个都命中现存文件', () {
+      expect(kTokenDeclarationPrefixes.length, 2);
+      final List<String> files = Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map((File f) => f.path.replaceAll(r'\', '/'))
+          .toList();
+      for (final String prefix in kTokenDeclarationPrefixes) {
+        expect(
+          files.where((String p) => p.startsWith(prefix)),
+          isNotEmpty,
+          reason: '豁免前缀 $prefix 一个现存文件都没命中 —— 死豁免，删掉它',
+        );
       }
+      // 前缀不是目录豁免：同目录里的非令牌文件仍然要扫。
+      expect(isTokenDeclarationPath('lib/design/tokens.dart'), isTrue);
+      expect(isTokenDeclarationPath('lib/design/typography.dart'), isTrue);
+      expect(isTokenDeclarationPath('lib/design/breakpoints.dart'), isFalse);
+      expect(isTokenDeclarationPath('lib/design/motion.dart'), isFalse);
     });
 
     test('本文件不重复实现毛玻璃规则（归属 no_backdrop_filter_test.dart）', () {
@@ -368,6 +446,62 @@ if (w >= 1280) return _wide();
       // 2026-09-11 删除（前端加强计划 P0-1），反例改用仍然存在的 UI 文件。
       expect(isProtocolDurationPath('lib/ui/state_pill.dart'), isFalse);
       expect(isProtocolDurationPath('lib/design/tokens.dart'), isFalse);
+    });
+
+    test('时长豁免是**路径前缀 + 处数上限**，不是「把文件名抄进名单」（D6）', () {
+      final Rule timing = kRules.firstWhere((Rule r) => r.name == '协议时长混用');
+      // 前缀语义：同支派的新文件（拆分 / 加后缀）自动落在豁免里。
+      expect(timing.quotaFor('lib/state/live_region.dart'), 1);
+      expect(timing.quotaFor('lib/state/live_region_split.dart'), 1);
+      expect(timing.quotaFor('lib/state/other.dart'), -1);
+      expect(timing.quotaFor('lib/ui/state_pill.dart'), -1);
+      // 每个前缀必须命中一个**现存文件**：零命中 = 死豁免（防零命中空转）。
+      for (final String prefix in kTimingExemptPrefixCaps.keys) {
+        expect(
+          _filesUnder(prefix),
+          isNotEmpty,
+          reason: '豁免前缀 $prefix 一个现存文件都没命中 —— 死豁免，删掉它',
+        );
+      }
+      // 豁免面只许变小：总量写死在这里，改动就要先解释为什么。
+      expect(
+        kTimingExemptPrefixCaps.values.fold<int>(0, (int a, int b) => a + b),
+        4,
+      );
+    });
+
+    test('配额真的会拦：超出上限的那一处算违规（整文件豁免不会红）', () {
+      final Rule timing = kRules.firstWhere((Rule r) => r.name == '协议时长混用');
+      const String one = 'const a = Duration(milliseconds: 1);';
+      const String two =
+          'const a = Duration(milliseconds: 1);\n'
+          'const b = Duration(milliseconds: 2);';
+      expect(scanSource(timing, 'lib/state/live_region.dart', one), isEmpty);
+      expect(
+        scanSource(timing, 'lib/state/live_region.dart', two),
+        hasLength(1),
+        reason: '配额是 1：第二处必须报红 —— 豁免只覆盖「已登记的那一处」',
+      );
+      // 目录级豁免仍是整文件放行（协议目录不受配额影响）。
+      expect(scanSource(timing, 'lib/api/ws_client.dart', two), isEmpty);
+      // 配额内的前缀路径也不受协议目录影响。
+      expect(
+        scanSource(timing, 'lib/voice/voice_listen_controller.dart', two),
+        isEmpty,
+      );
+    });
+
+    test('真实文件都在配额内（现网零违规，上限就是当前处数）', () {
+      final Rule timing = kRules.firstWhere((Rule r) => r.name == '协议时长混用');
+      for (final String prefix in kTimingExemptPrefixCaps.keys) {
+        for (final String path in _filesUnder(prefix)) {
+          expect(
+            scanSource(timing, path, File(path).readAsStringSync()),
+            isEmpty,
+            reason: '$path 的时长处数超过了登记的配额（前缀 $prefix）',
+          );
+        }
+      }
     });
   });
 }

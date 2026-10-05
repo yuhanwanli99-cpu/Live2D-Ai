@@ -54,6 +54,40 @@ extension _ShellChatWiring on _ShellRootState {
     _syncLiveRegion();
   }
 
+  /// busy 的出路：**打断并重发**（F-0007-2，审计 2026-09-28）。
+  ///
+  /// 缺陷现场：按钮写着「打断并重发」，实现只接 `_stopWithCancellation()`
+  /// ——用户按下去只看到「已打断」，那条消息**并没有被重新发出去**，而这是
+  /// busy 场景**唯一**的恢复出口（此时相位已由 F-0007-1 的修复回落，界面
+  /// 不会再自己重试）。
+  ///
+  /// 顺序与「两步都要做」都是契约，收在 [interruptAndResend] 里（可在 VM
+  /// 上测）：`main.dart` 是 `package:web` 组合根，这里只接线。
+  Future<void> _interruptAndResend() => interruptAndResend(
+    stop: _stopWithCancellation,
+    resend: _resendLastUserMessage,
+  );
+
+  /// 把**上一条用户消息**原样重发一次（不新增第二条用户气泡）。
+  ///
+  /// 与 [_send] 的分工：那条路读输入框（用户刚打的字）；这条路读**会话记录**
+  /// ——busy 时 `_send` 早已 `clear()` 了输入框，走输入框只会空转。
+  ///
+  /// 相位的处理与 [_send] 同形（`markTurnAccepted` 在 await **之前**，
+  /// 失败按 `sendFailedLocally` 回落），否则会退回 F-0007-1 的幽灵态。
+  Future<void> _resendLastUserMessage() async {
+    // 已有一轮在飞：不抢（重发的前提是 stop 已经腾出 turn）。
+    if (_chat.streaming) return;
+    final String? text = _chat.lastUserMessageText;
+    // 没得重发：如实什么都不做（不伪造一轮）。
+    if (text == null || text.trim().isEmpty) return;
+    _cancelStageForTurnBoundary('new-message');
+    _ui.markTurnAccepted();
+    await _chat.resendLastUserMessage();
+    if (_chat.sendFailedLocally) _ui.markTurnFailed();
+    _syncLiveRegion();
+  }
+
   Future<void> _stop() async {
     await _chat.stop();
     _syncLiveRegion();
