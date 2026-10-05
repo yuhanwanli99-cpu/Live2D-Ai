@@ -1,0 +1,89 @@
+{
+  "theme": "black",
+  "stageHex": "000000",
+  "modelPixels": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/lead-final/stage/stage.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "0,52,1099,900",
+    "pixels": 931952,
+    "channels": {
+      "r": 254.4,
+      "g": 254.4,
+      "b": 254.41
+    },
+    "redness": 0,
+    "brightness": {
+      "mean": 0.9976,
+      "p10": 1,
+      "p50": 1,
+      "p90": 1
+    },
+    "chroma": {
+      "mean": 0.01,
+      "p50": 0,
+      "p90": 0
+    },
+    "dominant": [
+      {
+        "hex": "ffffff",
+        "share": 0.9953
+      },
+      {
+        "hex": "666666",
+        "share": 0.0029
+      },
+      {
+        "hex": "777777",
+        "share": 0.0004
+      },
+      {
+        "hex": "eeeeee",
+        "share": 0.0002
+      },
+      {
+        "hex": "bbbbbb",
+        "share": 0.0002
+      },
+      {
+        "hex": "999999",
+        "share": 0.0002
+      },
+      {
+        "hex": "888888",
+        "share": 0.0001
+      },
+      {
+        "hex": "dddddd",
+        "share": 0.0001
+      }
+    ],
+    "colors": [
+      {
+        "hex": "000000",
+        "share": 0,
+        "hits": 0,
+        "exact": 0,
+        "observed": null
+      }
+    ]
+  },
+  "canvasWhite": {
+    "diffFractionAfterForcingRed": 0,
+    "forcedRedDominant": [
+      {
+        "hex": "ffffff",
+        "share": 0.9953
+      },
+      {
+        "hex": "666666",
+        "share": 0.0029
+      }
+    ],
+    "forcedRedChannels": {
+      "r": 254.4,
+      "g": 254.4,
+      "b": 254.41
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "typed": {
+    "input": true,
+    "text": "请只回一句话，以句号结尾：今天天气不错。",
+    "sendNode": null,
+    "sendHow": "keydown-Enter"
+  },
+  "wsAtLoad": {
+    "opened": 1,
+    "url": "ws://127.0.0.1:18080/ws/state"
+  },
+  "final": [
+    {
+      "src": "blob:http://127.0.0.1:18080/f5d31777-9d54-4c7e-a98d-e98f9d24",
+      "blob": true,
+      "duration": 2.6,
+      "currentTime": 2.119569,
+      "paused": false,
+      "readyState": 4,
+      "muted": false,
+      "volume": 1
+    }
+  ],
+  "samples": [
+    {
+      "at": 2013,
+      "els": []
+    },
+    {
+      "at": 4017,
+      "els": []
+    },
+    {
+      "at": 6028,
+      "els": [
+        {
+          "src": "blob:http://127.0.0.1:18080/f5d31777-9d54-4c7e-a98d-e98f9d24",
+          "blob": true,
+          "duration": 2.6,
+          "currentTime": 0.281772,
+          "paused": false,
+          "readyState": 4,
+          "muted": false,
+          "volume": 1
+        }
+      ]
+    },
+    {
+      "at": 8039,
+      "els": [
+        {
+          "src": "blob:http://127.0.0.1:18080/f5d31777-9d54-4c7e-a98d-e98f9d24",
+          "blob": true,
+          "duration": 2.6,
+          "currentTime": 2.111104,
+          "paused": false,
+          "readyState": 4,
+          "muted": false,
+          "volume": 1
+        }
+      ]
+    }
+  ],
+  "progressed": [
+    {
+      "index": 0,
+      "blob": true,
+      "duration": 2.6,
+      "firstAt": 6028,
+      "firstTime": 0.281772,
+      "lastAt": 8039,
+      "lastTime": 2.111104,
+      "deltaSec": 1.829
+    }
+  ]
+}
