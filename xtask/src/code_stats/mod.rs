@@ -90,7 +90,21 @@ const RATCHET_DART_800: u64 = 7;
 /// `ksni` `url` 九条）。按 F-V0-9 纪律**同一 commit 收紧**——降了不收紧，回头
 /// 涨回去就拦不住。同 commit 一并把超限文件棘轮 `RATCHET_SRC_RS_500`
 /// 从 55 收紧到实测 48（两份复算证据见上一条注释）。
-const RATCHET_DESKTOP_DEPS: u64 = 25;
+///
+/// **已收紧到 22**（2026-10-05 债轮 W1-C / D4，同 commit）：25 → 22，真删三条
+/// direct 依赖边 —— `futures-util`（`StreamExt::next` → `reqwest` 的
+/// `Response::chunk`）、`serde_with`（`double_option` → crate 内 14 行同语义
+/// 实现，先例 `chat_routes.rs:430`）、`tokio-util`（改由 `live2d-ai-runtime`
+/// 转发 `CancellationToken`）。
+///
+/// **口径提示（不要误读）**：`tokio-util` 只去掉了 **direct edge**，该 crate
+/// 仍在构建图里（经 `live2d-ai-runtime`）；`code-stats` 计的是 **direct 依赖数**，
+/// 所以这一条**不等于**「依赖已完全消失」。要让传递依赖也消失必须改 runtime 的
+/// 取消 API（公开签名 + 30+ await 点），本轮判定「不做 + 理由」，见
+/// `docs/audit/2026-10-05-debt-round/RUST-DEBT-REPORT.md` §6.2。
+///
+/// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（22 ≤ 22 = PASS）。
+const RATCHET_DESKTOP_DEPS: u64 = 22;
 
 /// PLAN §5 量化目标（`--strict-plan`）。
 const PLAN_SRC_RS_500: u64 = 15;

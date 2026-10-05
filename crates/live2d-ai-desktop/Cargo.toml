@@ -23,10 +23,10 @@ tracing-appender = "0.2"
 # Web API DTO / mods.json / 错误响应序列化。
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# D-P0A 复审修复：settings_routes::PatchBody 用 serde_with::double_option
-# 区分段级三态（缺省 / null / 对象），与 runtime `SettingsPatch` 同语义；
-# 避免为单段字段维护两套手写反序列化器。
-serde_with = "3"
+# 2026-10-05（W1-C / D4）：`serde_with` 已移除——它在本 crate 只剩
+# `settings_routes::PatchBody` 的段级三态反序列化一处用处，现由本 crate 内的
+# 十余行 `double_option` 助手承担（逐字同语义，见 web_api/settings_routes/mod.rs）；
+# 不为一行反序列化挂一个直接依赖。runtime 侧仍用它自己的（未动）。
 # 音频输出第一批（RFC §4 批次 4 部分）：实际声卡回放链路。
 # cpal 0.18 MSRV 1.85 与工作区一致；Linux 后端经 ALSA（libasound2-dev）。
 # ringbuf 提供跨线程无锁 SPSC 环形缓冲（生产者入队 / 回调消费），
@@ -68,9 +68,11 @@ ringbuf = "0.5"
 # - current_thread runtime 跑在独立 OS 线程；
 # - `macros` 提供 select!（引擎事件/控制/排空观察的扇入）；
 # - `sync` 提供有界 Say 通道与引擎事件通道；
-# - tokio-util 复用 runtime crate 同款 CancellationToken 语义。
+# - 取消令牌（`CancellationToken`）经 `live2d_ai_runtime::CancellationToken`
+#   取用：本 crate **不再**直接依赖 `tokio-util`（2026-10-05 W1-C / D4）。
+#   令牌语义属于 runtime 的对话引擎（`run_turn` 的公开签名），消费方不该
+#   另挂一条同款依赖。crate 仍在构建图里（经 runtime），删掉的是这条多余直边。
 tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros"] }
-tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 # D2 HTTP 接线（节点 D 后端层，2026-08-28）：
 # - tiny_http 0.12（纯 Rust，无 TLS、零 async 运行时、循环回环绑定即用）：
 #   比 axum 省 5+ 传递依赖（hyper/tower-http/matchit 等），本场景仅 21 个端点
@@ -91,8 +93,9 @@ once_cell = { version = "1", default-features = false }
 #   runtime 的 `OpenAiClient::new` 不暴露 `from_parts`（私有字段），
 #   且默认构造的 reqwest::Client 无 timeout，故 test 端点走独立 client。
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
-# futures_util 仅 test 端点读 SSE chunked stream 用。
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# 2026-10-05（W1-C / D4）：`futures-util` 已移除——它在本 crate 只剩
+# `test_endpoints` 里读一次 SSE 流的一行 `StreamExt::next()`；reqwest 自带的
+# `Response::chunk()` 就是「取下一片」，语义相同，不再为此单独挂依赖。
 # WebSocket 桥（W2 任务，2026-08-29）：
 # - tungstenite 0.24 纯 Rust WS 实现（MIT/Apache-2.0，仓库根 LICENSE 双许可确认），
 #   `default-features = true` 仅启用 `handshake` 子集（不需要 TLS/async），

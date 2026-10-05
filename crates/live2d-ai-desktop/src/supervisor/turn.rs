@@ -35,12 +35,12 @@
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 use live2d_ai_core::{
     Effect as RootEffect, Event as RootEvent, GenerationOutcome, State as RootState,
 };
-use live2d_ai_runtime::{ConversationEngine, EngineEvent, TurnReport};
+// D4（2026-10-05）：取消令牌走 runtime 的公开面，本 crate 不再直接依赖 tokio-util。
+use live2d_ai_runtime::{CancellationToken, ConversationEngine, EngineEvent, TurnReport};
 
 use crate::app_event::{AppEvent, ConversationUiEvent, TurnStageTimings};
 use crate::audio::{PreparedPcm, TryEnqueue};

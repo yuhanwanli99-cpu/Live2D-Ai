@@ -458,11 +458,29 @@ impl ModRegistry {
         self.enable(id)
     }
 
-    #[allow(dead_code)]
-    #[rustfmt::skip]
-    pub fn reload_config(&mut self, id: &'static str, config: serde_json::Value) -> Result<(), ModError> {
-        let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
-        e.config = config;
+    /// 保存一份 Mod 配置（`POST /api/v1/mods/{id}/config` 的内核）。
+    ///
+    /// **合并，不是整份替换**（F-0062-01，2026-10-05）。必要性：`GET /api/v1/mods`
+    /// 对声明了 `secret=true` 的字段**脱敏**（值不进响应），前端表单因此拿不到
+    /// 密钥、提交里也就没有它；旧实现 `e.config = config` 是整份替换 ⇒ 保存任意
+    /// 一个普通字段都会把已存密钥抹掉，注入端点的鉴权**静默失效**，而界面回的是
+    /// 成功文案。规则逐条见 [`merge_mod_config`]。
+    ///
+    /// [`Self::enable_with_config`] 走同一条路径，所以 `POST …/enable` 带 config
+    /// 时同样不会抹密钥（同一处修复同时覆盖两个入口）。
+    pub fn reload_config(
+        &mut self,
+        id: &'static str,
+        config: serde_json::Value,
+    ) -> Result<(), ModError> {
+        // 先取 secret 键名（不可变借用在此结束），再取 entries 的可变借用。
+        let secret_keys = secret_keys_of(self.settings_specs.get(id));
+        let Some(e) = self.entries.get_mut(id) else {
+            return Err(ModError::Other(format!("Mod {id} 不在注册表")));
+        };
+        // 合并基准是**当前条目**的配置（= 内存里的既有值），不是 manifest 原文：
+        // 中途 enable/disable 过的键也一样在。
+        e.config = merge_mod_config(&e.config, &config, &secret_keys);
         self.persist_manifest(); // M1：config 也写回 mods.json。
         Ok(())
     }
@@ -694,6 +712,60 @@ fn parse_mod_config(manifest: &serde_json::Value, id: &'static str) -> (bool, se
     (enabled, config)
 }
 
+/// 一次 Mod 配置提交的**合并**规则（F-0062-01 修复，2026-10-05）。
+///
+/// # 规则（逐条可测）
+///
+/// 1. **按键合并**：提交里出现的键覆盖旧值；提交里**没有**的键保留旧值。
+///    前端从脱敏配置出发只渲染 spec 字段，spec 之外的既有键同样不该被顺手抹掉。
+/// 2. **secret 字段显式空串 = 清除**：`secret_keys`（= 该 Mod
+///    `settings_spec` 里 `secret=true` 的字段名）中的键若提交为 `""` / 纯空白，
+///    则从配置里**删除该键**（「空 = 没配」，与
+///    `live2d_ai_mod_external_input::token_from_config` 对空串的判定同口径）。
+///    这是**唯一**的删除语法：前端留空 = 不提交 = 保留；要清除就得显式发空串。
+/// 3. 非 secret 字段的空串**照存**：它只是这个字段的值，不是删除语法。
+///    ——与 `PUT /api/v1/env` 的「空值 = 清除该键」**刻意区分**：那条是密钥文件
+///    `.env` 的写入口，这里改的是 Mod 配置；两套语义不通用（把 env 的
+///    「空 = 清除」照搬过来，会让「清空一个普通文本框」变成删键）。
+pub fn merge_mod_config(
+    old: &serde_json::Value,
+    submitted: &serde_json::Value,
+    secret_keys: &[String],
+) -> serde_json::Value {
+    let mut merged = old.as_object().cloned().unwrap_or_default();
+    if let Some(obj) = submitted.as_object() {
+        for (key, value) in obj {
+            let blank_secret = secret_keys.iter().any(|k| k == key)
+                && value.as_str().is_some_and(|s| s.trim().is_empty());
+            if blank_secret {
+                merged.remove(key);
+            } else {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
+/// 从 `settings_spec` 取出 `secret=true` 的字段名（供 [`merge_mod_config`]）。
+///
+/// 用**静态** schema（`ModRegistry::new` 从 factory 预填，未启用也有），
+/// 所以停用的 Mod 保存配置时同样受保护。
+fn secret_keys_of(spec: Option<&ModSettingsSpec>) -> Vec<String> {
+    spec.map(|spec| {
+        spec.fields
+            .iter()
+            .filter_map(|field| match field {
+                ModSettingField::String {
+                    key, secret: true, ..
+                } => Some(key.clone()),
+                _ => None,
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 /// Host 端的 ModRegistrar 实现（借用到 registry 的共享存储）。
 struct HostRegistrar<'a> {
     mod_id: &'static str,
@@ -727,6 +799,10 @@ impl ModRegistrar for HostRegistrar<'_> {
     }
 }
 
+/// F-0062-01（2026-10-05）：保存 Mod 配置不抹 secret 的专项回归。
+/// 单列文件：本文件已超 code-stats 的 >1000 棘轮档，不该再被测试撑大。
+#[cfg(test)]
+mod tests_secret;
 #[cfg(test)]
 mod tests {
     use super::*;

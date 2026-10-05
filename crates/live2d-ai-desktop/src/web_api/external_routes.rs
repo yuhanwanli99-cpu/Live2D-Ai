@@ -690,6 +690,146 @@ mod tests {
         assert_eq!(resp.status_code(), StatusCode(401));
     }
 
+    /// **F-0062-01 端到端**：`POST /api/v1/mods/external-input/config` 只提交
+    /// 非 secret 字段（= 前端表单的形状：它从 GET 的**脱敏**配置出发，本来就
+    /// 拿不到 token）后，已存的 token 必须仍在 → 注入端点**继续**要 token。
+    ///
+    /// 守的是「界面回成功、鉴权却静默失效」：旧实现整份替换配置，保存一个普通
+    /// 字段就把 token 删了，端点悄悄从「要鉴权」退回「不鉴权」。
+    #[test]
+    fn mod_config_save_without_secret_keeps_endpoint_auth() {
+        let _guard = counter_lock(); // 401 会计 reject → 与计数回归串行。
+        let sec = crate::web_api::security::SecurityContext::new(18099, true);
+        let ctx = ctx_with_manifest(
+            sec,
+            &serde_json::json!({"mods":{"external-input":{
+                "enabled": true,
+                "config": {"token": "cfg-secret", "prefix": ""}
+            }}}),
+        );
+        // 保存：只带非 secret 字段（token 缺席）。
+        let saved = crate::web_api::mods_routes::handle_mods_route(
+            &ctx,
+            &method_post(),
+            "/api/v1/mods/external-input/config",
+            r#"{"config":{"prefix":"[弹幕] "}}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .expect("mods 路由应命中");
+        assert_eq!(saved.status_code(), StatusCode(200), "保存应成功");
+        // 1) 配置里 token 仍在、prefix 已更新。
+        let cfg = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .config("external-input")
+            .cloned()
+            .expect("external-input 在册");
+        assert_eq!(
+            live2d_ai_mod_external_input::token_from_config(&cfg),
+            Some("cfg-secret".to_string()),
+            "保存非 secret 字段不得抹掉已存密钥：{cfg}"
+        );
+        assert_eq!(cfg["prefix"], serde_json::json!("[弹幕] "));
+        // 2) 鉴权仍生效：不带 token 的注入请求 → 401（不是「静默放行」）。
+        let injected = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi"}"#),
+            &accept_inject,
+            &no_env_lookup,
+        )
+        .expect("external chat 路由应命中");
+        assert_eq!(
+            injected.status_code(),
+            StatusCode(401),
+            "密钥还在 ⇒ 端点必须继续要 token"
+        );
+    }
+
+    /// **F-0062-01（另一半，端到端）**：把**已声明 secret** 的键显式置空串 → 密钥
+    /// **真的被删**，注入端点随之回到「不鉴权」——**预期行为**，不是缺陷。与上一条
+    /// 「留空 = 保留」互为两个方向，缺一半就会被读成「密钥永远删不掉」。
+    #[test]
+    fn explicit_blank_config_clears_token_and_opens_the_token_gate() {
+        let _guard = counter_lock(); // 200 会计 accept → 与计数回归串行。
+        let ctx = ctx_with_manifest(
+            crate::web_api::security::SecurityContext::new(18099, true),
+            &serde_json::json!({"mods":{"external-input":{
+                "enabled": true, "config": {"token": "cfg-secret"}
+            }}}),
+        );
+        // 显式清除：只发 `""`（工具客户端 / curl 的删除语法）。
+        let saved = crate::web_api::mods_routes::handle_mods_route(
+            &ctx,
+            &method_post(),
+            "/api/v1/mods/external-input/config",
+            r#"{"config":{"token":""}}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .expect("mods 路由应命中");
+        assert_eq!(saved.status_code(), StatusCode(200), "保存应成功");
+        let cfg = ctx
+            .mod_registry
+            .lock()
+            .unwrap()
+            .config("external-input")
+            .cloned()
+            .unwrap();
+        assert!(
+            cfg.get("token").is_none(),
+            "显式空串应删除 secret 键：{cfg}"
+        );
+        // 闸门随之打开：不带 token 的请求不再 401（= 预期的「不鉴权」）。
+        let opened = handle_external_chat_with(
+            &ctx,
+            req(&method_post(), r#"{"text":"hi"}"#),
+            &accept_inject,
+            &no_env_lookup,
+        )
+        .expect("external chat 路由应命中");
+        assert_eq!(
+            opened.status_code(),
+            StatusCode(200),
+            "清除后端点应回「不鉴权」并放行"
+        );
+    }
+
+    /// **F-0062-01 / 语义边界**：**非** secret 键的显式空串**照存**（它是字段值，
+    /// 不是删除语法）——与 `PUT /api/v1/env` 的「空值 = 清除整键」刻意区分。
+    #[test]
+    fn blank_non_secret_string_is_stored_not_cleared() {
+        let ctx = ctx_with_manifest(
+            crate::web_api::security::SecurityContext::new(18099, true),
+            &serde_json::json!({"mods":{"external-input":{
+                "enabled": true,
+                "config": {"token": "cfg-secret", "text_template": "[T]{text}"}
+            }}}),
+        );
+        let saved = crate::web_api::mods_routes::handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/external-input/config",
+            r#"{"config":{"text_template":""}}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .expect("mods 路由应命中");
+        assert_eq!(saved.status_code(), StatusCode(200));
+        let reg = ctx.mod_registry.lock().unwrap();
+        let cfg = reg.config("external-input").unwrap();
+        assert_eq!(
+            cfg.get("text_template").and_then(|v| v.as_str()),
+            Some(""),
+            "非 secret 空串必须照存（不是删除）：{cfg}"
+        );
+        assert!(
+            cfg.get("token").is_some(),
+            "同一次保存不得顺手抹掉 secret：{cfg}"
+        );
+    }
+
     /// W6 回归（症状④ E5）：令牌**只写在 `.env`**（注入 lookup 有值、进程环境
     /// 没有）时也读得到；且既有优先级链不变：`.env`/env > Mod config > 不鉴权。
     #[test]

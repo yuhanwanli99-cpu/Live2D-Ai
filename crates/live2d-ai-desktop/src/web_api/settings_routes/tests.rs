@@ -153,6 +153,43 @@ fn patch_body_section_parsing() {
     assert!(body.llm.unwrap().is_none());
 }
 
+/// 段级三态在「D4 把 `serde_with` 换成 crate 内同语义助手」后仍必须成立：
+/// 段缺省 → `None`；段 `null` → `Some(None)`；段对象（含 `{}`）→ `Some(Some(..))`；
+/// 顶层 `dev_mode` 同款三态。
+#[test]
+fn patch_body_absent_section_is_none_and_null_is_some_none() {
+    // 段缺省：整份 body 里什么都没有。
+    let body = PatchBody::parse("{}").unwrap();
+    assert!(body.llm.is_none(), "段缺省不得被当成「清空」");
+    assert!(body.tts.is_none());
+    assert!(body.persona.is_none());
+    assert!(body.action.is_none());
+    assert!(body.dev_mode.is_none(), "dev_mode 缺省 = 不修改");
+
+    // 段对象（`{}`）= Some(Some(..))：空对象是「段级 no-op」，不是清空。
+    let body = PatchBody::parse(r#"{"tts":{}}"#).unwrap();
+    assert!(
+        body.tts.expect("tts 段在场").is_some(),
+        "`{{}}` 必须解析成 Some(Some(..))"
+    );
+    assert!(body.llm.is_none(), "只写了 tts，llm 仍必须是缺省");
+
+    // `dev_mode` 三态：值 / null / 缺省 三者互不相同。
+    assert_eq!(
+        PatchBody::parse(r#"{"dev_mode":false}"#).unwrap().dev_mode,
+        Some(Some(false))
+    );
+    assert_eq!(
+        PatchBody::parse(r#"{"dev_mode":null}"#).unwrap().dev_mode,
+        Some(None),
+        "显式 null = 显式关闭，不能与缺省塌缩成同一个值"
+    );
+    assert_eq!(
+        PatchBody::parse(r#"{"dev_mode":true}"#).unwrap().dev_mode,
+        Some(Some(true))
+    );
+}
+
 /// 「段在场但没写 `api_key_env`」**不是**清除——字段缺省 = 不修改。
 ///
 /// 这正是 P0-2 当年用 `clear_api_key` 想守的东西；P5 后由字段级三态本身

@@ -93,7 +93,8 @@ use url::Url;
 pub use audio::{AudioSpec, PcmS16LeDecoder, RmsMeter, SampleQueue, convert_spec};
 pub use config::{LlmConfig, TtsConfig};
 pub use conversation::{
-    ConversationConfig, ConversationEngine, EngineEvent, ErrorKind, TurnReport, TurnStatus,
+    CancellationToken, ConversationConfig, ConversationEngine, EngineEvent, ErrorKind, TurnReport,
+    TurnStatus,
 };
 pub use dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler, clean_for_tts};
 pub use error::{Error, Result};

@@ -45,10 +45,10 @@
 //!
 //! ```no_run
 //! use live2d_ai_runtime::{
-//!     ConversationConfig, ConversationEngine, EngineEvent, LlmConfig, OpenAiClient, TtsConfig,
+//!     CancellationToken, ConversationConfig, ConversationEngine, EngineEvent, LlmConfig,
+//!     OpenAiClient, TtsConfig,
 //! };
 //! use tokio::sync::mpsc;
-//! use tokio_util::sync::CancellationToken;
 //!
 //! # async fn demo() {
 //! let client = OpenAiClient::new(
@@ -100,6 +100,14 @@ mod queue;
 mod worker;
 
 pub use engine::ConversationEngine;
+/// 协作式取消令牌（`tokio-util` 的 `CancellationToken`）。
+///
+/// 它是 [`ConversationEngine::run_turn`] **公开签名的一部分**，因此由运行时
+/// 转发给调用方：消费方（如桌面 supervisor）只依赖 runtime 的公开面即可，
+/// **不要**在自己的 `Cargo.toml` 里再挂一条 `tokio-util`（2026-10-05
+/// W1-C / D4 依赖瘦身：删的是那条多余直边，不是把 crate 藏起来——令牌的
+/// 语义本来就归运行时）。
+pub use tokio_util::sync::CancellationToken;
 
 use std::time::Duration;
 

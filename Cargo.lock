@@ -1877,7 +1877,6 @@ name = "live2d-ai-desktop"
 version = "0.2.0"
 dependencies = [
  "cpal",
- "futures-util",
  "l2d",
  "live2d-ai-core",
  "live2d-ai-mod-director",
@@ -1893,10 +1892,8 @@ dependencies = [
  "ringbuf",
  "serde",
  "serde_json",
- "serde_with",
  "tiny_http",
  "tokio",
- "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

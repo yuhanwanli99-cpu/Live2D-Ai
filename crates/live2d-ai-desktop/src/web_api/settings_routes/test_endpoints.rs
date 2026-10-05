@@ -184,15 +184,16 @@ pub fn run_llm_test(current: &AppSettings, timeout_ms: Option<u32>) -> TestOutco
             req = req.bearer_auth(&k);
         }
         let fut = async move {
-            let resp = req.send().await.map_err(HttpTestError::Http)?;
+            let mut resp = req.send().await.map_err(HttpTestError::Http)?;
             let status = resp.status();
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
                 return Err(HttpTestError::Upstream { status, body });
             }
-            use futures_util::StreamExt;
-            let mut stream = resp.bytes_stream();
-            let _ = stream.next().await;
+            // 真读一片流（D4：不再为这一行引入 `futures-util`）——reqwest 自带的
+            // `Response::chunk()` 就是「取下一片」，与旧的 `StreamExt::next()`
+            // 同语义；结果同样忽略（本端点只判「流是否开得起来」，不做校验）。
+            let _ = resp.chunk().await;
             Ok(())
         };
         rt.block_on(fut)

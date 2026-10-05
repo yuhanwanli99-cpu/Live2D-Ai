@@ -657,6 +657,35 @@ mod tests {
         assert_eq!(missing.status_code(), StatusCode(404));
     }
 
+    /// **F-0062-01（路由层）**：POST `…/config` 省略声明的 secret 字段（= 前端从 GET
+    /// 的**脱敏**配置出发的形状）时**保留**旧密钥。显式清除（空串）见
+    /// `mod_registry::tests_secret`；端到端「密钥还在 ⇒ 端点仍 401」见
+    /// `external_routes::tests::mod_config_save_without_secret_keeps_endpoint_auth`。
+    #[test]
+    fn config_save_preserves_omitted_secret() {
+        let ctx = ctx_with_mod(serde_json::json!({
+            "mods": {"specmod": {"enabled": true, "config": {"on": true, "token": "SECRET", "path": "/x"}}}
+        }));
+        let resp = handle_mods_route(
+            &ctx,
+            &Method::Post,
+            "/api/v1/mods/specmod/config",
+            r#"{"config":{"path":"/y"}}"#,
+            Some("http://127.0.0.1:18099"),
+            Some("application/json"),
+        )
+        .unwrap();
+        assert_eq!(resp.status_code(), StatusCode(200));
+        let reg = ctx.mod_registry.lock().unwrap();
+        let cfg = reg.config("specmod").unwrap();
+        assert_eq!(
+            cfg["token"],
+            serde_json::json!("SECRET"),
+            "省略 secret 必须保留旧值：{cfg}"
+        );
+        assert_eq!(cfg["path"], serde_json::json!("/y"));
+    }
+
     /// 非本族路径 → None。
     #[test]
     fn non_mods_path_returns_none() {

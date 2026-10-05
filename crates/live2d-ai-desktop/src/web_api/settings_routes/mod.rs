@@ -47,6 +47,29 @@ use live2d_ai_runtime::settings::view::settings_to_view_with_keys_and_model;
 use crate::web_api::app_routes::json_response;
 use crate::web_api::dto::{ApplyStatus, ErrorDetail, ErrorResponse};
 
+/// `Option<Option<T>>` 的三态反序列化。
+///
+/// serde 默认把「字段缺省」与「显式 `null`」都塌缩成 `None`，HTTP 端就没法
+/// 表达「不修改 vs 主动清空」。本模块把它们拆开：
+/// - 字段缺省 → 由 `#[serde(default)]` 给出 `None`（**不调用**本函数）；
+/// - 显式 `null` → `Option::<T>::deserialize` 得 `None` → 包一层 `Some(None)`；
+/// - 显式值 → `Some(Some(v))`。
+///
+/// 语义与原先的 `serde_with::rust::double_option::deserialize` 逐字相同
+/// （2026-10-05 W1-C / D4：本 crate 只用到 deserialize 面，故不再为该 crate
+/// 挂直接依赖；runtime 的 `SettingsPatch` 仍走 serde_with，未动）。
+mod double_option {
+    use serde::Deserialize;
+
+    pub(super) fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Some)
+    }
+}
+
 /// `GET /api/v1/settings` 处理器。
 ///
 /// `lookup` 由 dispatch 层注入（生产路径 = `live2d_ai_runtime::secrets::lookup`），
@@ -77,37 +100,22 @@ pub fn handle_get(
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PatchBody {
     /// 见 [`SettingsPatch::llm`]。字段级 `api_key_env: null` = 清除绑定。
-    #[serde(
-        default,
-        deserialize_with = "::serde_with::rust::double_option::deserialize"
-    )]
+    #[serde(default, deserialize_with = "double_option::deserialize")]
     pub llm: Option<Option<live2d_ai_runtime::settings::patch::LlmPatch>>,
     /// 见 [`SettingsPatch::tts`]（同 `llm`）。
-    #[serde(
-        default,
-        deserialize_with = "::serde_with::rust::double_option::deserialize"
-    )]
+    #[serde(default, deserialize_with = "double_option::deserialize")]
     pub tts: Option<Option<live2d_ai_runtime::settings::patch::TtsPatch>>,
     /// 见 [`SettingsPatch::persona`]。
-    #[serde(
-        default,
-        deserialize_with = "::serde_with::rust::double_option::deserialize"
-    )]
+    #[serde(default, deserialize_with = "double_option::deserialize")]
     pub persona: Option<Option<live2d_ai_runtime::settings::patch::PersonaPatch>>,
     /// 见 [`SettingsPatch::action`]（2026-09-16，动作幅度倍率）。
-    #[serde(
-        default,
-        deserialize_with = "::serde_with::rust::double_option::deserialize"
-    )]
+    #[serde(default, deserialize_with = "double_option::deserialize")]
     pub action: Option<Option<live2d_ai_runtime::settings::patch::ActionPatch>>,
     /// W7 任务：顶层 dev_mode 三态补丁。语义同 SettingsPatch.dev_mode：
     /// - 缺省 = `None`（不修改）
     /// - `null` = `Some(None)`（显式关闭）
     /// - `true|false` = `Some(Some(b))`（显式设置）
-    #[serde(
-        default,
-        deserialize_with = "::serde_with::rust::double_option::deserialize"
-    )]
+    #[serde(default, deserialize_with = "double_option::deserialize")]
     pub dev_mode: Option<Option<bool>>,
 }
 
