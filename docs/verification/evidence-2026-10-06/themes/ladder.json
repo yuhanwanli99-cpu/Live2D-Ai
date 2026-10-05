@@ -1,0 +1,135 @@
+{
+  "bands": [
+    {
+      "hex": "11121b",
+      "share": 0.0003,
+      "hits": 368,
+      "exact": 368,
+      "observed": "11121b"
+    },
+    {
+      "hex": "1d1e2a",
+      "share": 0.0003,
+      "hits": 390,
+      "exact": 390,
+      "observed": "1d1e2a"
+    },
+    {
+      "hex": "252634",
+      "share": 0.0003,
+      "hits": 390,
+      "exact": 390,
+      "observed": "252634"
+    },
+    {
+      "hex": "f7f5f3",
+      "share": 0.2205,
+      "hits": 285750,
+      "exact": 283669,
+      "observed": "f7f5f3"
+    },
+    {
+      "hex": "edece9",
+      "share": 0.0086,
+      "hits": 11185,
+      "exact": 10630,
+      "observed": "edece9"
+    },
+    {
+      "hex": "e2e0de",
+      "share": 0.0247,
+      "hits": 31976,
+      "exact": 904,
+      "observed": "e1e0de"
+    },
+    {
+      "hex": "161e30",
+      "share": 0.0003,
+      "hits": 376,
+      "exact": 376,
+      "observed": "161e30"
+    },
+    {
+      "hex": "212a3f",
+      "share": 0.0003,
+      "hits": 390,
+      "exact": 390,
+      "observed": "212a3f"
+    },
+    {
+      "hex": "28324b",
+      "share": 0.0003,
+      "hits": 390,
+      "exact": 390,
+      "observed": "28324b"
+    },
+    {
+      "hex": "282623",
+      "share": 0.0003,
+      "hits": 395,
+      "exact": 382,
+      "observed": "282623"
+    },
+    {
+      "hex": "353330",
+      "share": 0.0003,
+      "hits": 393,
+      "exact": 390,
+      "observed": "353330"
+    },
+    {
+      "hex": "3e3c38",
+      "share": 0.0003,
+      "hits": 394,
+      "exact": 390,
+      "observed": "3e3c38"
+    }
+  ],
+  "missing": [],
+  "ladder": {
+    "black": {
+      "observed": [
+        "11121b",
+        "1d1e2a",
+        "252634"
+      ],
+      "deltas": [
+        0.0479,
+        0.0319
+      ]
+    },
+    "white": {
+      "observed": [
+        "f7f5f3",
+        "edece9",
+        "e1e0de"
+      ],
+      "deltas": [
+        -0.0364,
+        -0.0468
+      ]
+    },
+    "blue": {
+      "observed": [
+        "161e30",
+        "212a3f",
+        "28324b"
+      ],
+      "deltas": [
+        0.0471,
+        0.0317
+      ]
+    },
+    "gray": {
+      "observed": [
+        "282623",
+        "353330",
+        "3e3c38"
+      ],
+      "deltas": [
+        0.051,
+        0.035
+      ]
+    }
+  }
+}

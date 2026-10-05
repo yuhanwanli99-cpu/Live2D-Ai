@@ -1,0 +1,1182 @@
+{
+  "steps": [
+    {
+      "label": "01 首屏加载",
+      "gstatic": [],
+      "reqTotal": 39
+    },
+    {
+      "label": "02 设置面板打开",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "03 主题卡 black",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "03 主题卡 white",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "03 主题卡 blue",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "03 主题卡 gray",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 人设",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 模型库",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 LLM",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 语音合成",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 外观与互动",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 Mod",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 诊断",
+      "gstatic": [],
+      "reqTotal": 47
+    },
+    {
+      "label": "04 分区 开发模式",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "05 图案标签 渐变",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "05 图案标签 光晕",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "05 图案标签 网格",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "05 图案标签 斜纹",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "06 会话列表",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "07 输入产品中文文案（DOM 实测=\"中文界面文案测试：配色、舞台、口型、背景库、诊断\"）",
+      "gstatic": [],
+      "reqTotal": 49
+    },
+    {
+      "label": "08 输入子集外字符 𠮷 🀄 𝄞 ♪ € Ж（DOM 实测=\"中文界面文案测试：配色、舞台、口型、背景库、诊断𠮷🀄𝄞♪€Ж\"）",
+      "gstatic": [
+        "https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2",
+        "https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2",
+        "https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2"
+      ],
+      "reqTotal": 52
+    },
+    {
+      "label": "99 阳性对照：脚本故意请求 fonts.gstatic.com",
+      "gstatic": [
+        "https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2",
+        "https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2",
+        "https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2",
+        "https://fonts.gstatic.com/s/notosanssc/v1/__probe__.woff2"
+      ],
+      "reqTotal": 53
+    }
+  ],
+  "typed": {
+    "productDom": "中文界面文案测试：配色、舞台、口型、背景库、诊断",
+    "exoticDom": "中文界面文案测试：配色、舞台、口型、背景库、诊断𠮷🀄𝄞♪€Ж"
+  },
+  "perChar": [
+    {
+      "ch": "U+20BB7",
+      "char": "𠮷",
+      "dom": "𠮷",
+      "gstatic": [
+        "https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2"
+      ]
+    },
+    {
+      "ch": "U+1F004",
+      "char": "🀄",
+      "dom": "🀄",
+      "gstatic": [
+        "https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2"
+      ]
+    },
+    {
+      "ch": "U+1D11E",
+      "char": "𝄞",
+      "dom": "𝄞",
+      "gstatic": [
+        "https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2"
+      ]
+    },
+    {
+      "ch": "U+266A",
+      "char": "♪",
+      "dom": "♪",
+      "gstatic": []
+    },
+    {
+      "ch": "U+20AC",
+      "char": "€",
+      "dom": "€",
+      "gstatic": []
+    },
+    {
+      "ch": "U+416",
+      "char": "Ж",
+      "dom": "Ж",
+      "gstatic": []
+    }
+  ],
+  "outOfSubset": [
+    "𠮷",
+    "🀄",
+    "𝄞",
+    "♪",
+    "€",
+    "Ж"
+  ],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/favicon.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/settings",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/models",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/preset_labels.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/capabilities",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/env",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/logs",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods/director/state",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/logs",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notosanssc/v1/__probe__.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj756wwr4v0qHnANADNsISRDl2PRkiiWsg.1.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notocoloremoji/v32/Yq6P-KqIXTD0t4D9z1ESnKM3-HpFabsE4tq3luCC7p-aXxcn.4.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/notomusic/v20/pe0rMIiSN5pO63htf1sxItKQB9Zra1U.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    }
+  ],
+  "failures": []
+}

@@ -1,0 +1,38 @@
+{
+  "scenario": "api",
+  "at": "2026-10-05T13:12:14.536Z",
+  "results": [
+    {
+      "id": "api-a",
+      "title": "托管层：/ 302→/app/，/app/ 与三个入口文件 200",
+      "verdict": "pass",
+      "evidence": "root=302→http://127.0.0.1:18080/app/；app=200；index=200；main.dart.js=200 3289387B；bootstrap=200",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs api"
+    },
+    {
+      "id": "api-b",
+      "title": "API 面 200 且不泄密钥（/api/v1/settings、/api/v1/env）",
+      "verdict": "pass",
+      "evidence": "app/status=200 capabilities=200 models=200 settings=200 mods=200 env=200；env body={\"keys\":[{\"section\":\"llm\",\"key\":\"DEEPSEEK_API_KEY\",\"set\":true}],\"env_file\":\"/home/skystar/Live2D-Ai-fe/.env\"}；密钥样式泄漏=false",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "api-c",
+      "title": "模型 manifest 及它引用的每个资源可达（200）",
+      "verdict": "pass",
+      "evidence": "manifest=200 480B；引用 4 个，非 200 0",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "api-d",
+      "title": "/render 渲染面资源可达（html + js + wasm）",
+      "verdict": "pass",
+      "evidence": "render=200；资源 2 个：[\"l2d-wasm-demo-dd042ea77650b295.js=200\",\"l2d-wasm-demo-dd042ea77650b295_bg.wasm=200\"]",
+      "confidence": "high",
+      "repro": ""
+    }
+  ]
+}

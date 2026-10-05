@@ -1,0 +1,385 @@
+{
+  "none": {
+    "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/00-none.png",
+    "bytes": 51899,
+    "stats": {
+      "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/00-none.png",
+      "w": 1440,
+      "h": 900,
+      "crop": "1100,52,1440,900",
+      "pixels": 288320,
+      "channels": {
+        "r": 23.58,
+        "g": 23.58,
+        "b": 32.25
+      },
+      "redness": -4.33,
+      "brightness": {
+        "mean": 0.0949,
+        "p10": 0.0723,
+        "p50": 0.0723,
+        "p90": 0.0723
+      },
+      "chroma": {
+        "mean": 11.19,
+        "p50": 10,
+        "p90": 10
+      },
+      "dominant": [
+        {
+          "hex": "111111",
+          "share": 0.9237
+        },
+        {
+          "hex": "111122",
+          "share": 0.0285
+        },
+        {
+          "hex": "eeeeee",
+          "share": 0.0065
+        },
+        {
+          "hex": "aaaabb",
+          "share": 0.0028
+        },
+        {
+          "hex": "333344",
+          "share": 0.0025
+        },
+        {
+          "hex": "222233",
+          "share": 0.0023
+        },
+        {
+          "hex": "777788",
+          "share": 0.0022
+        },
+        {
+          "hex": "9999aa",
+          "share": 0.0021
+        }
+      ]
+    },
+    "blank": false
+  },
+  "red": {
+    "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/01-red-cover.png",
+    "bytes": 52243,
+    "stats": {
+      "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/01-red-cover.png",
+      "w": 1440,
+      "h": 900,
+      "crop": "1100,52,1440,900",
+      "pixels": 288320,
+      "channels": {
+        "r": 73.63,
+        "g": 19.79,
+        "b": 26.57
+      },
+      "redness": 50.45,
+      "brightness": {
+        "mean": 0.1244,
+        "p10": 0.1036,
+        "p50": 0.1036,
+        "p90": 0.1036
+      },
+      "chroma": {
+        "mean": 54.4,
+        "p50": 56,
+        "p90": 56
+      },
+      "dominant": [
+        {
+          "hex": "440011",
+          "share": 0.9229
+        },
+        {
+          "hex": "221122",
+          "share": 0.028
+        },
+        {
+          "hex": "eeeeee",
+          "share": 0.0065
+        },
+        {
+          "hex": "bbaaaa",
+          "share": 0.0025
+        },
+        {
+          "hex": "997788",
+          "share": 0.002
+        },
+        {
+          "hex": "bbaabb",
+          "share": 0.0019
+        },
+        {
+          "hex": "552233",
+          "share": 0.0019
+        },
+        {
+          "hex": "333344",
+          "share": 0.0016
+        }
+      ]
+    },
+    "blank": false
+  },
+  "red2": {
+    "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/02-red-persist.png",
+    "bytes": 52243,
+    "stats": {
+      "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/02-red-persist.png",
+      "w": 1440,
+      "h": 900,
+      "crop": "1100,52,1440,900",
+      "pixels": 288320,
+      "channels": {
+        "r": 73.63,
+        "g": 19.79,
+        "b": 26.57
+      },
+      "redness": 50.45,
+      "brightness": {
+        "mean": 0.1244,
+        "p10": 0.1036,
+        "p50": 0.1036,
+        "p90": 0.1036
+      },
+      "chroma": {
+        "mean": 54.4,
+        "p50": 56,
+        "p90": 56
+      },
+      "dominant": [
+        {
+          "hex": "440011",
+          "share": 0.9229
+        },
+        {
+          "hex": "221122",
+          "share": 0.028
+        },
+        {
+          "hex": "eeeeee",
+          "share": 0.0065
+        },
+        {
+          "hex": "bbaaaa",
+          "share": 0.0025
+        },
+        {
+          "hex": "997788",
+          "share": 0.002
+        },
+        {
+          "hex": "bbaabb",
+          "share": 0.0019
+        },
+        {
+          "hex": "552233",
+          "share": 0.0019
+        },
+        {
+          "hex": "333344",
+          "share": 0.0016
+        }
+      ]
+    },
+    "blank": false
+  },
+  "cleared": {
+    "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/03-cleared.png",
+    "bytes": 51899,
+    "stats": {
+      "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/bg/03-cleared.png",
+      "w": 1440,
+      "h": 900,
+      "crop": "1100,52,1440,900",
+      "pixels": 288320,
+      "channels": {
+        "r": 23.58,
+        "g": 23.58,
+        "b": 32.25
+      },
+      "redness": -4.33,
+      "brightness": {
+        "mean": 0.0949,
+        "p10": 0.0723,
+        "p50": 0.0723,
+        "p90": 0.0723
+      },
+      "chroma": {
+        "mean": 11.19,
+        "p50": 10,
+        "p90": 10
+      },
+      "dominant": [
+        {
+          "hex": "111111",
+          "share": 0.9237
+        },
+        {
+          "hex": "111122",
+          "share": 0.0285
+        },
+        {
+          "hex": "eeeeee",
+          "share": 0.0065
+        },
+        {
+          "hex": "aaaabb",
+          "share": 0.0028
+        },
+        {
+          "hex": "333344",
+          "share": 0.0025
+        },
+        {
+          "hex": "222233",
+          "share": 0.0023
+        },
+        {
+          "hex": "777788",
+          "share": 0.0022
+        },
+        {
+          "hex": "9999aa",
+          "share": 0.0021
+        }
+      ]
+    },
+    "blank": false
+  },
+  "injectedId": "bg6a2d74a9",
+  "prefsAfterSet": {
+    "backgroundSource": 0,
+    "backgroundEnabled": true,
+    "backgroundOpacity": 1,
+    "backgroundBlur": 0,
+    "backgroundScrim": 1,
+    "imageAlign": 4,
+    "slideInterval": 0,
+    "slideRandom": false,
+    "backgrounds": [
+      {
+        "kind": "image",
+        "id": "bg6a2d74a9"
+      }
+    ],
+    "imageFit": 0
+  },
+  "prefsAfter": {
+    "backgroundSource": 0,
+    "backgroundEnabled": true,
+    "backgroundOpacity": 1,
+    "backgroundBlur": 0,
+    "backgroundScrim": 1,
+    "imageAlign": 4,
+    "slideInterval": 0,
+    "slideRandom": false,
+    "backgrounds": [
+      {
+        "kind": "image",
+        "id": "bg6a2d74a9"
+      }
+    ],
+    "imageFit": 0
+  },
+  "idbKeysAfterSet": [
+    "bg6a2d74a9"
+  ],
+  "idbKeysAfterReload": [
+    "bg6a2d74a9"
+  ],
+  "idbKeysAfterClear": [],
+  "paints": {
+    "none": 584,
+    "red": 632,
+    "red2": 601,
+    "cleared": 581
+  },
+  "paintFull": {
+    "none": {
+      "paintedAfterMs": 584,
+      "dominant": {
+        "hex": "111111",
+        "share": 0.9237
+      },
+      "bytes": 51899,
+      "crop": "1100,52,1440,900",
+      "samples": [
+        {
+          "at": 584,
+          "bytes": 51899,
+          "dominant": {
+            "hex": "111111",
+            "share": 0.9237
+          },
+          "blank": false
+        }
+      ]
+    },
+    "red": {
+      "paintedAfterMs": 632,
+      "dominant": {
+        "hex": "440011",
+        "share": 0.9229
+      },
+      "bytes": 52243,
+      "crop": "1100,52,1440,900",
+      "samples": [
+        {
+          "at": 632,
+          "bytes": 52243,
+          "dominant": {
+            "hex": "440011",
+            "share": 0.9229
+          },
+          "blank": false
+        }
+      ]
+    },
+    "red2": {
+      "paintedAfterMs": 601,
+      "dominant": {
+        "hex": "440011",
+        "share": 0.9229
+      },
+      "bytes": 52243,
+      "crop": "1100,52,1440,900",
+      "samples": [
+        {
+          "at": 601,
+          "bytes": 52243,
+          "dominant": {
+            "hex": "440011",
+            "share": 0.9229
+          },
+          "blank": false
+        }
+      ]
+    },
+    "cleared": {
+      "paintedAfterMs": 581,
+      "dominant": {
+        "hex": "111111",
+        "share": 0.9237
+      },
+      "bytes": 51899,
+      "crop": "1100,52,1440,900",
+      "samples": [
+        {
+          "at": 581,
+          "bytes": 51899,
+          "dominant": {
+            "hex": "111111",
+            "share": 0.9237
+          },
+          "blank": false
+        }
+      ]
+    }
+  },
+  "note": "背景字节住在 IndexedDB（db live2d-ai / store backgrounds / key=id），localStorage 只留 id"
+}

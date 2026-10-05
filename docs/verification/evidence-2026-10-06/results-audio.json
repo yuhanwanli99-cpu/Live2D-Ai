@@ -1,0 +1,30 @@
+{
+  "scenario": "audio",
+  "at": "2026-10-05T13:01:57.556Z",
+  "results": [
+    {
+      "id": "audio-a",
+      "title": "WS audio 帧有 start/end 边界且 sentence_seq 从 1 起严格递增",
+      "verdict": "pass",
+      "evidence": "audio 帧 131 条；start 1 个 / end 1 个；句子 [{\"seq\":1,\"frames\":131,\"starts\":1,\"ends\":1,\"samples\":62400}]；sentence_seq=[1]（严格从 1 递增=true）",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs audio（原始帧见 audio/ws-frames.json）"
+    },
+    {
+      "id": "audio-b",
+      "title": "音频样本数 > 0（非静音分支）",
+      "verdict": "pass",
+      "evidence": "总样本数 62400（audio 帧载荷 131 条，逐帧 samples 见 audio/ws-frames.json）；服务端 muted 标记=false",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "audio-c",
+      "title": "前端建了 <audio>（src=blob:、duration>0）且 currentTime 真的前进",
+      "verdict": "pass",
+      "evidence": "页面上的 <audio> 元素 1 个；逐元素：[{\"index\":0,\"blob\":true,\"duration\":2.6,\"firstAt\":6017,\"firstTime\":0.041687,\"lastAt\":8021,\"lastTime\":1.884309,\"deltaSec\":1.843}]；末次快照=[{\"src\":\"blob:http://127.0.0.1:18080/9d010d62-3fed-4c92-88ba-e4e8f6a4\",\"blob\":true,\"duration\":2.6,\"currentTime\":1.889738,\"paused\":false,\"readyState\":4,\"muted\":false,\"volume\":1}]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs audio（原始见 audio/media-elements.json）"
+    }
+  ]
+}

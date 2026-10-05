@@ -1,0 +1,247 @@
+{
+  "title": "同一时刻「整页截图」与「带 clip 截图」的对照 —— clip 会回纯白帧",
+  "when": "2026-10-06",
+  "how": "node /tmp/clip_test.mjs（一次性诊断脚本；行为=对 /app/ 同一页面、同一时刻先后取整页帧与 340x848 clip 帧，再用 png_stats 统计）",
+  "page": {
+    "url": "http://127.0.0.1:18080/app/",
+    "viewport": "1440x900",
+    "theme": "默认黑（localStorage 未清，见每行 state/theme）"
+  },
+  "clip": {
+    "x": 1100,
+    "y": 52,
+    "width": 340,
+    "height": 848,
+    "scale": 1
+  },
+  "conclusion": [
+    "t=3000ms：整页帧 53131 B、主导色 000000 占 77%（有真实内容）；同一时刻 clip 帧 2434 B、100% ffffff（纯白）。",
+    "⇒ 带 clip 的 Page.captureScreenshot 在本环境走的是另一条捕获路径，会给全白帧；整页截图 + png_stats --crop 才是可判读的路径。",
+    "t>=6000ms：连整页帧也变成 5851 B / 100% ffffff ⇒ 还有第二个变量（见 screenshot-mode-matrix.json：captureBeyondViewport）。"
+  ],
+  "rows": [
+    {
+      "t": 1,
+      "fullErr": "Not attached to an active page",
+      "clipErr": "Not attached to an active page",
+      "fltGlass": false
+    },
+    {
+      "t": 3000,
+      "full": {
+        "b64len": 70844,
+        "bytes": 53131,
+        "dom": {
+          "hex": "000000",
+          "share": 0.7727
+        },
+        "cropShellDom": {
+          "hex": "111111",
+          "share": 0.9237
+        },
+        "cropShellCh": {
+          "r": 23.58,
+          "g": 23.58,
+          "b": 32.25
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    },
+    {
+      "t": 6001,
+      "full": {
+        "b64len": 7804,
+        "bytes": 5851,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellDom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellCh": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    },
+    {
+      "t": 9002,
+      "full": {
+        "b64len": 7804,
+        "bytes": 5851,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellDom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellCh": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    },
+    {
+      "t": 12001,
+      "full": {
+        "b64len": 7804,
+        "bytes": 5851,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellDom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellCh": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    },
+    {
+      "t": 16000,
+      "full": {
+        "b64len": 7804,
+        "bytes": 5851,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellDom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellCh": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    },
+    {
+      "t": 20001,
+      "full": {
+        "b64len": 7804,
+        "bytes": 5851,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellDom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellCh": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    },
+    {
+      "t": 25001,
+      "full": {
+        "b64len": 7804,
+        "bytes": 5851,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellDom": {
+          "hex": "ffffff",
+          "share": 1
+        },
+        "cropShellCh": {
+          "r": 255,
+          "g": 255,
+          "b": 255
+        }
+      },
+      "clip": {
+        "b64len": 3248,
+        "bytes": 2434,
+        "w": 340,
+        "h": 848,
+        "dom": {
+          "hex": "ffffff",
+          "share": 1
+        }
+      },
+      "fltGlass": true
+    }
+  ]
+}
