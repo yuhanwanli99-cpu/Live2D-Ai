@@ -1,6 +1,7 @@
 /// 设计 token：**纯逻辑、零 web 依赖**，可在 VM 上单测。
 ///
-/// 本文件与 `typography.dart` 是**全仓库仅有的两个允许出现裸色值/裸字号的
+/// 本文件族（`tokens.dart` + `tokens_material.dart` / `tokens_motion.dart`
+/// 两个 part）与 `typography.dart` 是**全仓库仅有的允许出现裸色值/裸字号的
 /// 源文件**——其余业务代码一律引用这里的令牌，由
 /// `test/design_tokens_lint_test.dart` 扫描守住（设计规格 §2.8.3）。
 ///
@@ -13,18 +14,29 @@
 /// | 依赖 `onSurface` 的叠色 | [AppColors]（`ThemeExtension`） | 由当前配色派生，比写死更耐换肤 |
 /// | 尺寸 / 时长 / 曲线 / 断点 | `const` 常量类 | 与主题无关 ⇒ 无插值需求，`lerp` 价值≈0 |
 ///
-/// # 行数豁免
+/// # 行数拆分（2026-10-06，R4-T2）
 ///
-/// 本文件超过 500 行，属**显式豁免（≤1000）**：它是四套配色的**唯一真源**，
-/// 每套 11 个颜色字段都要带「为什么是这个值」的取值理由；
-/// 拆成四个文件会让「四套必须同步改」这件事从一次编辑变成四处编辑——
-/// 而漏改一处正是本项目 P4「静默失效」要治的病。
+/// 原本单文件 **950 行**，超 500（豁免上限 1000）。现在 = 库（670 行）+ 两个
+/// part。库这一半仍是四套配色的**唯一真源**：每套 11 个颜色字段都要带
+/// 「为什么是这个值」的取值理由，拆开会让「四套必须同步改」从一次编辑变成
+/// 四处编辑——而漏改一处正是本项目 P4「静默失效」要治的病。
+///
+/// | 内容 | 去处 | 行数 |
+/// | --- | --- | --- |
+/// | 材质旋钮 / 浮起面阴影 / 间距 / 光学微调 / 圆角 | `tokens_material.dart` | 181 |
+/// | 语义节拍 / 动效时长 / 曲线 / 断点转发 / 舞台色串 | `tokens_motion.dart` | 106 |
+///
+/// 两个 part 仍是**令牌声明处**：lint 的豁免面是**路径前缀**
+/// `lib/design/tokens`，新文件自动落在豁免面内（不必往名单里加行）。
 library;
 
 import 'package:flutter/material.dart';
 
 import 'breakpoints.dart';
 import 'theme_id.dart';
+
+part 'tokens_material.dart';
+part 'tokens_motion.dart';
 
 /// 一套完整的配色（**四套之一**，见 [AppThemeId]）。
 ///
@@ -665,286 +677,3 @@ class AppColors extends ThemeExtension<AppColors> {
   );
 }
 
-/// **材质旋钮**（2026-09-27）：与配色**正交**的一小组缩放系数。
-///
-/// # 为什么单独一个类，而不是两个 `double` 参数
-///
-/// Dart 的可选参数列表**不能混用**（`[a]` 与 `{b}` 不能共存），
-/// 而 `buildAppTheme()` / `buildAppTheme(id)` 两种旧调用形式必须继续有效。
-/// 打包成一个对象既保住了旧调用，又让「配色轴」与「材质轴」在签名上就分开——
-/// 将来再加旋钮不会退化成第三、第四个散参数。
-///
-/// # 抄的是什么
-///
-/// Morrow 的 `VisualStyle.radiusScale`（`lib/appearance.dart:26`）证明了
-/// 「一个旋钮缩放整套圆角」比逐控件调整便宜得多，而本项目此前**对外观没有任何
-/// 表达**（除了 4 套配色）。抄的是这个**机制**，不是它的 7 种风格——
-/// 4 套配色 × 7 种风格 = 28 种组合的回归面，与「刻意不做功能堆砌」的裁决冲突。
-@immutable
-class AppMaterial {
-  const AppMaterial({
-    this.radiusScale = kFixedRadiusScale,
-    this.edgeStrength = 1.0,
-    this.uiTransparency = 0.0,
-  });
-
-  /// **圆角缩放系数 —— 固定值，不再是用户可调项**（2026-09-27 减法）。
-  ///
-  /// 用户口径：「本身 web 端无需繁杂设置」。所以滑杆与偏好字段都删了，
-  /// 只留**这一个数**作为全仓库圆角的唯一入口。
-  ///
-  /// 机制**没有删**：`AppColors.radius(token)` 仍然是所有表面的取圆角方式。
-  /// 保留它是因为它把「圆角从哪来」收在一个地方——将来若真要调，
-  /// 改这一个常数即可，而**不用**再去翻十几个 `BorderRadius.circular`。
-  final double radiusScale;
-
-  /// **界面**的透明程度（0 = 面板不透明，1 = 尽量透）。
-  ///
-  /// 与「背景图不透明度」是**两个轴**：那个调的是图，这个调的是面板。
-  /// 落地在 [AppColors.panelAlpha]（面板面的 alpha）。
-  final double uiTransparency;
-
-  /// **圆角缩放系数 —— 全仓库固定值**（2026-09-27 减法）。
-  ///
-  /// 用户口径：「本身 web 端无需繁杂设置」。所以「圆角幅度」滑杆与它的
-  /// 偏好字段都删了，只留这一个数作为**所有**圆角的唯一入口。
-  ///
-  /// 机制**没有删**：[AppColors.radius] 仍然是每一处表面的取圆角方式。
-  /// 留它的理由是把「圆角从哪来」收在一处——将来若真要调，改这一个常数，
-  /// 而不用去翻十几处 `BorderRadius.circular`。
-  static const double kFixedRadiusScale = 1.0;
-
-  /// `AppColors.hairline` 透明度的缩放系数。
-  ///
-  /// **不缩放**焦点环 / 危险描边：它们是可用性下限，不是审美旋钮。
-  final double edgeStrength;
-
-  /// 中性取值（两个旋钮都不动）＝**改动前的观感**。
-  static const AppMaterial neutral = AppMaterial();
-
-  // ⚠️ 这三个字段**每一个**都要出现在这里与 [hashCode] 里。
-  // 2026-09-27 漏了 `uiTransparency`：两个只有透明度不同的 AppMaterial 判为相等，
-  // 于是「只改界面透明」的那一次主题切换**不会被认成变化**。
-  // 漏字段不会报错、不会崩，只是那一次改动静默不生效——本项目 P4 的头号病。
-  @override
-  bool operator ==(Object other) =>
-      other is AppMaterial &&
-      other.radiusScale == radiusScale &&
-      other.edgeStrength == edgeStrength &&
-      other.uiTransparency == uiTransparency;
-
-  @override
-  int get hashCode => Object.hash(radiusScale, edgeStrength, uiTransparency);
-
-  @override
-  String toString() =>
-      'AppMaterial(radius: $radiusScale, edge: $edgeStrength, '
-      'uiTransparency: $uiTransparency)';
-}
-
-/// **浮起面的阴影**（2026-09-27）。
-///
-/// # 为什么是函数而不是 `const` 列表
-///
-/// 阴影颜色跟亮暗走（暗色用舞台底压暗、亮色用淡墨），所以它不是常数。
-/// 两条纪律：
-///
-/// 1. **只有我们自己构建的盒子能用它**（设置面板、会话抽屉…）。
-///    Material 的 `Card` / `Dialog` / `SnackBar` 拿的是 `elevation`，
-///    而 `Material` 把 elevation 直接交给引擎的 `Canvas::drawShadow`
-///    （`painting.dart:8408`）——形状算死、主题层改不了。
-///    那些控件**继续 elevation 0**，层级由 [AppPalette.raised] 那一档面差承担。
-/// 2. **只给一条、向下的软阴影**。有了三级面差，再叠多层阴影只会把画面做糊。
-List<BoxShadow> appRaisedShadow(AppPalette palette) => <BoxShadow>[
-  BoxShadow(
-    color: palette.dark
-        ? palette.stage.withValues(alpha: 0.55)
-        : palette.ink.withValues(alpha: 0.16),
-    offset: const Offset(0, 8),
-    blurRadius: 24,
-  ),
-];
-
-/// 间距：4 px 基准网格，9 档。
-abstract final class Space {
-  static const double s0 = 0;
-  static const double s1 = 4;
-  static const double s2 = 8;
-  static const double s3 = 12;
-  static const double s4 = 16;
-  static const double s5 = 20;
-  static const double s6 = 24;
-  static const double s7 = 32;
-  static const double s8 = 48;
-
-  /// 登记表（只服务测试）。
-  static const Map<String, double> registry = <String, double>{
-    's0': s0,
-    's1': s1,
-    's2': s2,
-    's3': s3,
-    's4': s4,
-    's5': s5,
-    's6': s6,
-    's7': s7,
-    's8': s8,
-  };
-}
-
-/// 光学微调：**把图标/光标与相邻文字的基线对齐**用的 1–2 px。
-///
-/// # 为什么单独一个概念，而不是塞进 `Space`（2026-09-11，P4-2）
-///
-/// `Space` 是「**元素之间**的间距」，4 px 基准网格，9 档。而这几个值是
-/// 「**同一个元素内部**视觉重心的微调」——例如让 16 px 的图标和 13 px 的
-/// 第一行文字看起来对齐，靠的是往上推 1–2 px。
-///
-/// 两者混在一起会有两个后果：
-/// 1. `Space` 的「4 px 网格」不再是可断言的（出现 1 和 2）；
-/// 2. 把 `top: 2` 改成 `Space.s1`（=4）会**真的改变观感**——
-///    那不是「归位到令牌」，是改设计。
-///
-/// 所以给它一个诚实的名字：它不在网格上，也不该在网格上。
-abstract final class OpticalNudge {
-  /// 1 px：图标与首行文字的基线微调。
-  static const double hair = 1;
-
-  /// 2 px：标签与内容的贴合间距、流式光标与正文的间隙。
-  static const double thin = 2;
-}
-
-/// 圆角：6 档，**档位两两不同值**。
-///
-/// 命名为 `AppRadius` 而非规格里的 `Radius`：`Radius` 是 `dart:ui` 的类，
-/// 且被 `package:flutter/material.dart` 导出（`Radius.circular()` 很常用）。
-/// 同名会让任何同时 import 两者的文件在引用 `Radius` 时**歧义报错**。
-/// 这是对规格的一处必要偏离，语义不变。
-abstract final class AppRadius {
-  static const double none = 0;
-  static const double xs = 4;
-  static const double sm = 8;
-  static const double md = 12;
-  static const double lg = 16;
-  static const double xl = 20;
-  static const double pill = 999;
-
-  /// 登记表（只服务测试）。
-  static const Map<String, double> registry = <String, double>{
-    'none': none,
-    'xs': xs,
-    'sm': sm,
-    'md': md,
-    'lg': lg,
-    'xl': xl,
-    'pill': pill,
-  };
-
-  // 刻意**不提供** `rMd` 这类便捷构造：`BorderRadius.circular(AppRadius.md)`
-  // 已经足够短，多一层包装只会多一份「声明了但没人用」的死令牌，
-  // 而且会让「令牌引用」的统计出现两套写法。
-}
-
-/// **语义节拍**：不属于「UI 过渡时长」那 4 档的单点节奏。
-///
-/// 为什么要单独一个家族，而不是塞进 [AppDurations]：
-/// [AppDurations] 的语义是「一次过渡有多快」（hover/pressed/内容切换），
-/// 而这里是「一个持续状态按什么节拍呼吸」。两者混在一起会让
-/// 「4 档」这个约束失去意义（规格 §2.7 的时长阶梯就是 4 档）。
-///
-/// 三者都是**跨组件共享**的：思考呼吸同时被 `StatePill` 与
-/// `StreamingIndicator` 用，如果各自写一个 `Duration(milliseconds: 1400)`，
-/// 改一处忘一处就会让两个指示器不同步（同类项目的经典病）。
-abstract final class AppRhythms {
-  /// 思考态的呼吸周期（规格 §6.3：1.4 s）。
-  ///
-  /// 取值理由：慢到不像「加载转圈」（那会制造焦虑），快到一眼看出是活的。
-  static const Duration thinkingBreath = Duration(milliseconds: 1400);
-
-  /// 「瞬时状态」的保持时长：`已打断`、`已复制` 这类**就地确认**共用一档。
-  ///
-  /// 长到人眼能读完那几个字，短到不会和下一轮重叠。
-  ///
-  /// **刻意只有一档**（2026-09-11，P2-3）：下面那条关于「流式三点周期」的
-  /// 说明同样适用于这里——两个**同值**令牌只会制造「改一处忘一处」的机会。
-  /// 「已复制」与「已打断」确实不是同一件事，但它们要的是**同一个时长**，
-  /// 那就该是同一个令牌：令牌的粒度是**数值语义**，不是文案语义。
-  static const Duration interruptedHold = Duration(milliseconds: 1200);
-
-  /// 悬停提示出现前的等待（`Tooltip.waitDuration`）。
-  ///
-  /// 为什么是「节奏」而不是 `AppDurations` 里的一档：那 4 档的语义是
-  /// **一次过渡有多快**，而这是**等多久才开始**。两者混在一起会让
-  /// 「4 档」这个约束失去意义。
-  ///
-  /// 取值理由：400 ms 是桌面端悬停提示的常见量级——短到不觉得迟钝，
-  /// 长到鼠标划过时不至于一路弹提示。
-  static const Duration hintDelay = Duration(milliseconds: 400);
-
-  // 刻意**没有**单独的「流式三点周期」：三点跑动与呼吸光表达的是同一件事
-  // （思考中），共用 [thinkingBreath] 让两个指示器**同频**——看起来是有意为之，
-  // 而不是各跑各的。两个同值令牌只会制造「改一处忘一处」的机会。
-
-  /// 登记表（只服务测试）。
-  static const Map<String, Duration> registry = <String, Duration>{
-    'thinkingBreath': thinkingBreath,
-    'interruptedHold': interruptedHold,
-    'hintDelay': hintDelay,
-  };
-}
-
-/// 动效时长：4 档，全部具名。
-abstract final class AppDurations {
-  /// hover / pressed / 开关 / 徽标切换。
-  static const Duration fast = Duration(milliseconds: 120);
-
-  /// 内容切换、消息渐入、横幅滑入。
-  static const Duration base = Duration(milliseconds: 200);
-
-  /// 模态 / sheet 入场。
-  static const Duration slow = Duration(milliseconds: 320);
-
-  /// **仅此一处**长动画：启动揭示。
-  static const Duration reveal = Duration(milliseconds: 600);
-
-  /// 登记表（只服务测试）。
-  static const Map<String, Duration> registry = <String, Duration>{
-    'fast': fast,
-    'base': base,
-    'slow': slow,
-    'reveal': reveal,
-  };
-}
-
-/// 动效曲线：**只允许两条**。
-abstract final class Motion {
-  /// 入场 / 出场（快出慢收）。AIRI 与 Nexus 独立收敛到同一条，属跨项目验证值。
-  static const Cubic enter = Cubic(0.16, 1.0, 0.3, 1.0);
-
-  /// 状态过渡、颜色/尺寸变化、开关。
-  static const Curve state = Curves.easeInOutCubic;
-
-  /// 登记表：曲线没有可枚举数值，登记名字。
-  static const List<String> names = <String>['enter', 'state'];
-}
-
-/// 阈值令牌（转发 [Breakpoints]，让「引用侧枚举」能统一按 `Breakpoints.` 统计）。
-abstract final class BreakpointTokens {
-  static const double mediumMin = Breakpoints.mediumMin;
-  static const double expandedMin = Breakpoints.expandedMin;
-}
-
-/// 任意颜色 → 舞台底要的 CSS 十六进制串（`#rrggbb`）。
-///
-/// # 为什么提到顶层（2026-09-11，P1-3）
-///
-/// 舞台底在**主题切换**时要跟着 UI 一起**插值**（否则界面在 200 ms 里渐变、
-/// iframe 已经跳到终色，看起来像「舞台先闪了一下」）。插值意味着中途会产生
-/// 一堆**中间色**，它们也要拼成同样的串格式——拼法一旦有第二个实现就会漂移，
-/// 而渲染面是**严格校验**这个串的（格式不对就静默回落到默认色，
-/// 表现为「主题切了但舞台没变」）。
-///
-/// 所以拼法只有这一处，[AppPalette.stageCss] 也走它。
-///
-/// 只取 RGB：舞台底是不透明纯色（有测试守着 `alpha == 1`）。
-String stageColorCss(Color color) =>
-    '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';

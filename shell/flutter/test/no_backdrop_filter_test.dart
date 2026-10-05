@@ -71,7 +71,9 @@ const Map<String, String> kFaintDecorationHosts = <String, String>{
       '底部浮层的拖拽把手色（dragHandleColor，装饰）',
   'lib/ui/theme.dart::resolveWith<Color?>':
       '开关**关闭态**的拇指色（SwitchTheme 的 WidgetStateProperty，非文字元件）',
-  'lib/settings/sections/appearance_background.dart::Icon':
+  // 2026-10-06（R4-T2）：背景域拆成三个 part，`_LibraryRow` 现在住在
+  // `appearance_background_library.dart` —— 锚点跟着搬家，判据不变。
+  'lib/settings/sections/appearance_background_library.dart::Icon':
       '背景库行首的拖拽手柄图标（Icon 的 color）',
   'lib/settings/sections/dev_tools_section.dart::Icon':
       '模型库空态的占位图标（Icon 的 color）',

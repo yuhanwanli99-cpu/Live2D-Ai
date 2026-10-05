@@ -12,7 +12,10 @@
 ///
 /// - `modId` 必须与 `ModDescriptor.id` 逐字一致；
 /// - `stateLabels` 把该 Mod 的运行态字段翻成中文（未知 key 仍然不隐藏）；
-/// - `build` 返回 null = 这个 Mod 不需要额外面板（只靠配置表单 + 运行态）。
+/// - `build` 返回 null = 这个 Mod 不需要额外面板（只靠配置表单）；
+/// - **注册了面板 = 运行态由该面板承担**：宿主不再渲染通用「运行态（只读）」
+///   兜底块——那张块只服务**没有**专用面板的 Mod（2026-10-06 裁决，
+///   见 `sections/dev_tools_section.dart` 的 `_stateBlock` 头注）。
 library;
 
 import 'package:flutter/widgets.dart';
@@ -96,13 +99,6 @@ abstract class ModPanel {
   /// 各 Mod 面板本来就是这个 Mod 的呈现所有者（见本文件头注的文件边界）。
   /// 没有它，语音输入那一屏会把 sidecar 路径 / ASR 命令 / 令牌全摊在主区。
   Set<String> get advancedKeys => const <String>{};
-
-  /// 是否在配置表单下面显示**通用运行态块**（「运行态（只读）」那一节）。
-  ///
-  /// 缺省 true（所有旧 Mod 观感不变）。面板自己有更合适的呈现时置 false——
-  /// 导演就是这样：通用块会把十几个键（含 presets: 8 项 之类）全铺出来，
-  /// 而用户要的只是「本轮选中了哪条预设」。
-  bool get showRuntimeState => true;
 
   /// 产品面板本体；返回 null = 不需要额外面板。
   Widget? build(BuildContext context, ModPanelContext ctx);

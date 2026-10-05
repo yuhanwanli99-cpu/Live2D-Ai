@@ -13,8 +13,9 @@
 ///   与「最近决策（旧到新）」列表重复，且用户要的是**结论**不是中间量；
 /// - 最近 N 条列表：`latest` 一条就是本轮结论，历史留在 Rust 侧日志里。
 ///
-/// 通用「运行态（只读）」块也整块关掉（`showRuntimeState => false`），
-/// 否则十几个键（含 `presets: 8 项`）会把这一屏淹没。
+/// 通用「运行态（只读）」兜底块不需要再手工关：2026-10-06 起它**只服务没有
+/// 专用面板的 Mod**，本面板在册即由自己承担运行态（含 `stateError` 面）；
+/// 当初关它的理由照旧成立——十几个键（含 `presets: 8 项`）会把这一屏淹没。
 ///
 /// # 与表演层的关系（2026-09-23 改口径，必读）
 ///
@@ -140,10 +141,6 @@ class DirectorPanel extends ModPanel {
 
   @override
   String get modId => 'director';
-
-  /// 通用运行态块**不渲染**：本面板自己讲结论（见文件头注）。
-  @override
-  bool get showRuntimeState => false;
 
   @override
   Map<String, String> get stateLabels => const <String, String>{

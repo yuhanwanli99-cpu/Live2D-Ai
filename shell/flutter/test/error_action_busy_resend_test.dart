@@ -87,7 +87,7 @@ class _BusyHostState extends State<_BusyHost> {
           // 生产接线同形：一份组合回调（见 `main.dart`）。
           onInterruptAndResend: () =>
               unawaited(interruptAndResend(stop: _stop, resend: _resend)),
-          onSend: () {},
+          onResendLast: () {},
         ),
       ),
     ),
@@ -131,7 +131,7 @@ void main() {
         code: 'busy',
         onGoto: (SettingsSection _) {},
         onInterruptAndResend: () => hits++,
-        onSend: () {},
+        onResendLast: () {},
       );
       expect(actions, hasLength(1));
       expect(actions.single.label, '打断并重发');
@@ -145,7 +145,7 @@ void main() {
         '服务端忙碌（busy），请等本轮收口',
         onGoto: (SettingsSection _) {},
         onInterruptAndResend: () => hits++,
-        onSend: () {},
+        onResendLast: () {},
       );
       expect(actions.single.label, '打断并重发');
       actions.single.onPressed();
@@ -158,14 +158,14 @@ void main() {
         code: 'llm_upstream_401',
         onGoto: (SettingsSection _) {},
         onInterruptAndResend: () {},
-        onSend: () {},
+        onResendLast: () {},
       );
       expect(llm.single.label, '去 LLM 设置');
       final List<ErrorAction> retry = errorActionsFor(
         '网络错误',
         onGoto: (SettingsSection _) {},
         onInterruptAndResend: () {},
-        onSend: () {},
+        onResendLast: () {},
       );
       expect(retry.single.label, '重试');
     });

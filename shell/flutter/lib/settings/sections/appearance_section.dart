@@ -47,6 +47,8 @@ import '../../ui/theme.dart';
 import '../../ui/theme_picker.dart';
 
 part 'appearance_background.dart';
+part 'appearance_background_library.dart';
+part 'appearance_background_style.dart';
 
 class AppearanceSection extends StatelessWidget {
   const AppearanceSection({

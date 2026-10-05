@@ -30,13 +30,15 @@ import 'package:live2d_ai_shell/ui/background_logic.dart';
 import 'package:live2d_ai_shell/ui/shell_backdrop.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
-/// 外观分区的源码 = 主文件 + 它的 part（背景域，2026-09-28 抽出去的那个）。
+import 'support/dart_library.dart';
+
+/// 外观分区的源码 = 库文件 + 它 `part` 进来的每个文件。
 ///
 /// 抽取是「只搬不改」：这些源码扫描断言关心的是「外观分区里有没有这个东西」，
-/// 所以扫描面取并集——抽取前后断言强度不变。
+/// 所以扫描面取**并集**——抽取前后断言强度不变。2026-10-06（R4-T2）起改用
+/// [readLibrarySource]：背景域从 1 个 part 变成 3 个，手写相加必漏。
 String appearanceSectionSource() =>
-    File('lib/settings/sections/appearance_section.dart').readAsStringSync() +
-    File('lib/settings/sections/appearance_background.dart').readAsStringSync();
+    readLibrarySource('lib/settings/sections/appearance_section.dart');
 
 void main() {
   group('铺法：UI 暴露的每一档，渲染结果必须不同', () {
@@ -230,8 +232,9 @@ void main() {
   group('2026-09-27 减法：删掉的字段不许复活', () {
     // 这几条是被用户口径删掉的（web 端无需繁杂设置 / 舞台跟着换直接删）。
     // 留一条「不许复活」的断言，是因为「重新加回去」是这类减法最常见的回退。
-    final String prefs = File('lib/settings/display_prefs.dart')
-        .readAsStringSync();
+    // 库 + parts：`display_prefs` 2026-10-06 拆成 codec / derived / playlist
+    // 三个 part，只扫库文件会让这条「不许复活」守卫静默失效。
+    final String prefs = readLibrarySource('lib/settings/display_prefs.dart');
     for (final String dead in <String>[
       'radiusScale', // 圆角幅度 → 固定为 AppMaterial.kFixedRadiusScale
       'stageFollowsSlide', // 舞台跟着换 → 整条删除

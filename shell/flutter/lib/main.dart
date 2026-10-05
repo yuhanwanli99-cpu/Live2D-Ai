@@ -1331,7 +1331,13 @@ class _ShellRootState extends State<ShellRoot> {
             onInterruptAndResend: () {
               unawaited(_interruptAndResend());
             },
-            onSend: () => unawaited(_sendWithCancellation()),
+            // 无码兜底「重试」= **重发上一条用户消息**（2026-10-06 裁决）：
+            // 旧实现接的 _sendWithCancellation 读输入框，而一次失败之后输入框
+            // 早已被 send() 清空 ⇒ 按下去毫无反应（静默 no-op）。没有上一条
+            // 可重发时传 null，让按钮**不出现**（errorActionsFor 里那条）。
+            onResendLast: _chat.lastUserMessageText == null
+                ? null
+                : () => unawaited(_resendLastUserMessage()),
           ),
           onDismissError: () {
             _ui.clearError();

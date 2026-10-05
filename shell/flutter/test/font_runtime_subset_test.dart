@@ -151,7 +151,8 @@ const List<RuntimeTextSource> kRuntimeTextSources = <RuntimeTextSource>[
   RuntimeTextSource(
     id: 'backend.mod_settings_spec',
     origin: 'Mod 静态 `settings_spec` 的 label/description/placeholder（设置表单里上屏）',
-    carrier: 'lib/settings/sections/dev_tools_section.dart::ModsSection',
+    // 2026-10-06（R4-T2）：`ModsSection` 随 part 拆分搬到 dev_tools_mods.dart。
+    carrier: 'lib/settings/sections/dev_tools_mods.dart::ModsSection',
     coverage: RuntimeCoverage.scanned,
     // **只点名家族、不点名单个 crate**：`live2d-ai-mod-*/src` 里的 `*` 由
     // [expandScanRoots] 按**磁盘上实际存在的目录**展开（2026-10-01，task-20）。

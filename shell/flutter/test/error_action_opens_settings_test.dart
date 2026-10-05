@@ -109,7 +109,7 @@ class _ErrorHostState extends State<_ErrorHost> {
     // busy 的出路（这里用不到：本文件测的是 `onGoto` 那条），但签名的
     // 组合回调必须给——见 `test/error_action_busy_resend_test.dart`。
     onInterruptAndResend: () {},
-    onSend: () {},
+    onResendLast: () {},
   );
 
   @override

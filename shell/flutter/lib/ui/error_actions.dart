@@ -52,12 +52,16 @@ Future<void> interruptAndResend({
 /// [onInterruptAndResend] 而不是「一个 onStop」：busy 的出路是**两件事**
 /// （F-0007-2）。类型是 `void Function()`（与其它动作一致，UI 层不等它），
 /// 真正的按序实现在 [interruptAndResend]。
+///
+/// [onResendLast] 是无码兜底「重试」的出口（2026-10-06 裁决）：
+/// **重发上一条用户消息**，不读输入框。为 null = 没有上一条可重发，
+/// 那时按钮**不出现**（不摆一条按下去什么都不做的假出路）。
 List<ErrorAction> errorActionsFor(
   String? message, {
   String? code,
   required void Function(SettingsSection section) onGoto,
   required void Function() onInterruptAndResend,
-  required void Function() onSend,
+  required void Function()? onResendLast,
 }) {
   if (message == null && code == null) return const <ErrorAction>[];
   ErrorAction goto(SettingsSection section, String label) => ErrorAction(
@@ -88,5 +92,15 @@ List<ErrorAction> errorActionsFor(
   if (message.contains('no_supervisor') || message.contains('未就绪')) {
     return <ErrorAction>[goto(SettingsSection.llm, '去 LLM 设置')];
   }
-  return <ErrorAction>[ErrorAction(label: '重试', onPressed: onSend)];
+  // 无码兜底（2026-10-06 裁决）：**重试 = 重发上一条用户消息**，不读输入框。
+  //
+  // 旧实现接的是组合根的 `_send()`——那条路读**输入框**，而一次失败之后
+  // 输入框早已被 `send()` 清空（发送是「先上屏、再 POST」）⇒ 按钮
+  // 「看得见、按下去毫无反应」的**静默 no-op**（比没有按钮更坏：用户会以为
+  // 链路又坏了）。现在走 `ChatController.resendLastUserMessage` 那条真源
+  // （与 busy 的「打断并重发」第二步同一条路）。
+  //
+  // 没有上一条可重发时调用方传 `null`：按钮**不出现**，不摆假出路。
+  if (onResendLast == null) return const <ErrorAction>[];
+  return <ErrorAction>[ErrorAction(label: '重试', onPressed: onResendLast)];
 }

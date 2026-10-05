@@ -26,6 +26,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,7 +38,9 @@ import 'package:live2d_ai_shell/api/mods_api.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
 import 'support/registered_mods.dart';
+import 'support/source_scan.dart';
 
 http.Response jsonResponse(String body, int status) => http.Response.bytes(
   utf8.encode(body),
@@ -443,6 +446,44 @@ void main() {
       expect(find.textContaining('运行态暂时读不到'), findsOneWidget);
       expect(find.textContaining('state_unavailable'), findsOneWidget);
       expect(find.text('运行态（只读）'), findsOneWidget);
+    });
+  });
+
+  group('通用运行态兜底面：有专用面板就不渲染（2026-10-06 裁决，R4-T2 / T2-B2）', () {
+    // 契约：那块「运行态（只读）」是**没有专用面板**的 Mod 的兜底面；
+    // 在册 5 个 Mod 各有面板，运行态（含 `stateError`）由面板自己承担。
+    // 上面三条 widget 用例打的是**无面板**的合成 Mod（`demo-mod`）——
+    // 所以它们断言「块在」，与本组契约不矛盾。
+    test('宿主判据改成「没有专用面板才渲染」', () {
+      // 库 + parts：`_stateBlock` 随 `_ModConfigTileState` 住在
+      // `dev_tools_mod_config.dart`，只扫库文件就看不到这条判据。
+      final String src = stripCommentsAndStrings(
+        readLibrarySource('lib/settings/sections/dev_tools_section.dart'),
+      );
+      expect(
+        src,
+        contains('if (modPanelFor(widget.mod.id) != null) {'),
+        reason: '有专用面板 ⇒ 通用运行态块不渲染（旧判据是 showRuntimeState == false）',
+      );
+    });
+
+    test('死旗标 `showRuntimeState` 不许复活（整棵 lib/）', () {
+      final List<String> hits = <String>[
+        for (final File f in Directory('lib')
+            .listSync(recursive: true)
+            .whereType<File>())
+          if (f.path.endsWith('.dart') &&
+              f.readAsStringSync().contains('showRuntimeState'))
+            f.path,
+      ];
+      expect(
+        hits,
+        isEmpty,
+        reason:
+            '2026-10-06 起「有面板就不渲染通用块」是**结构性判据**，不需要每张面板'
+            '再挂一个开关：任何一处的 showRuntimeState 都是没人读的死旗标。'
+            '命中：$hits',
+      );
     });
   });
 }

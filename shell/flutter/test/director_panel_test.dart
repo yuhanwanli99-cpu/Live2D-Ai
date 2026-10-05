@@ -321,7 +321,8 @@ void main() {
 
       expect(find.text('本轮预设'), findsOneWidget);
       expect(find.text(kDirectorPresetNotice), findsOneWidget);
-      // 通用运行态块整块不渲染（showRuntimeState=false）。
+      // 通用运行态兜底块整块不渲染：有专用面板的 Mod 由面板自己承担运行态
+      // （2026-10-06 裁决；判据改成「没有专用面板才渲染」，showRuntimeState 已删）。
       expect(find.text('运行态（只读）'), findsNothing);
       expect(find.text('刷新运行态'), findsNothing);
     });
