@@ -4,6 +4,12 @@
 > 差异：① 范围从 `shell/flutter/**` 扩到**全代码库**（Rust 是重点，且此前**从未被系统审计过**）；
 > ② 按**弱模型 / 免费模型**的上下文与自觉性设计（小批次、机械队列、模板化产出、引用优先、禁止长推理）；
 > ③ 账本改用 `AUDIT-REPO/`，避免与已入库的前端账本 `docs/audit/2026-09-28-frontend-nightly/` 混淆。
+> ⚠ **2026-10-06 备注（后加，勿与下面冲突）**：审计已结束，台账**已入库**到
+> [`docs/audit/2026-10-05-ledger/`](../audit/2026-10-05-ledger/)（N8 处置）。
+> 下文凡是「`AUDIT-REPO/` 未跟踪，永不 `git add`」的说法只对**当时的审计运行**有效，
+> 现在一律读作 `docs/audit/2026-10-05-ledger/`；该目录的 `README.md` 记了归档理由、
+> 已关闭与仍未关闭的 P1 清单。
+>
 > **配套**：`docs/plans/HANDOFF-2026-09-28-rc7-and-whole-repo-audit.md`（接手状态）。
 
 ---
@@ -28,7 +34,7 @@
 |---|---|
 | 工作树 | `/home/skystar/Live2D-Ai-fe`（分支 `feat/frontend-redesign`，基线提交 `932ea5d4` 或其后） |
 | 主审范围 | `crates/**`（Rust，**重点**）、`shell/flutter/**`、`xtask/**`、`scripts/**`、`tests/**`（根 py 测试）、`shared/**`、`verification/**`、`.github/workflows/**` |
-| 台账落盘 | `AUDIT-REPO/`（工作树根下，**未跟踪**；永不 `git add`） |
+| 台账落盘 | ~~`AUDIT-REPO/`（工作树根下，**未跟踪**；永不 `git add`）~~ → **已入库 `docs/audit/2026-10-05-ledger/`**（2026-10-06，见文件头备注） |
 | **禁止审计的树** | `/home/skystar/Live2D-Ai`（`mod/persona-polish`，2026-09-14 旧基线，落后 84+ 提交，136 项脏改动）——**一行都不要审** |
 | 只读引用（可读，不算批次文件） | `AGENTS.md`、`docs/architecture/*`、`docs/plans/TRIAGE-0.2.0-audit-45-2026-09-28.md`、`docs/audit/2026-09-28-frontend-nightly/**`（前端既有账本，**只读、不得回写**） |
 | 排除清单（不审、不计入批次文件数） | `target/`、`build/`、`.dart_tool/`、`dist/`、`*.g.dart`、`*.freezed.dart`、`assets/models/**`、`assets/fonts/*.woff2`、`*.ranges.txt`、`docs/design/assets/**`、任何生成物/覆盖率报告/lock 文件 |
