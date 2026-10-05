@@ -2,10 +2,17 @@
 
 ## 为什么在这里
 
-Flutter Web（CanvasKit）**没有系统字体回落**：遇到未打包的字形会去
-`https://fonts.gstatic.com/` 下载 Noto。于是断网时中文变豆腐块——
-而本项目是**本地优先的桌宠**，不允许依赖 Google CDN（配套修复见
-`CHANGELOG.md` 的 v0.4.4：CanvasKit 已本地化）。
+Flutter Web（CanvasKit）**没有系统字体回落**：遇到未打包的字形会去下载 Noto。
+本目录的自托管子集负责**常用中文与 UI 字形**（断网也不缺）；引擎的**运行期回落**
+则由本轮改造改成**同源**：`shell/flutter/web/flutter_bootstrap.js` 把
+`fontFallbackBaseUrl` 设为相对路径 `font-fallback/`，镜像内容在
+`shell/flutter/web/font-fallback/`（5 个整族 / 21 文件 / 2.69 MiB，含 emoji、
+符号、乐谱、数学符号）。
+
+**未镜像的字族在离线时显示为豆腐块**——这是**明确接受的取舍**（失败也失败在同源：
+不跨源、不静默出网、不白屏）。设计与证据见
+`docs/architecture/font-fallback-offline.md`；审计用
+`scripts/font_fallback_mirror.sh --check`。
 
 ## 这两个文件是什么
 
