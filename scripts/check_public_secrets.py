@@ -59,6 +59,23 @@ PATTERNS = {
     "GitHub token": re.compile(r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b"),
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    # 2026-10-06（审计 F-0616-01）：上面四条都只认「云服务商的密钥形状」，于是
+    # scripts/deploy_android.sh 里写死的**个人设备锁屏密码**（一个 5 位数字，形如
+    # 「口令变量 = 字面量」）与同一行的中文写法，既不在扫描面、也不在任何 CI
+    # workflow 里，却随 v0.1.0-rc.1 的根提交进了公开历史。下面三条补的就是这一类：
+    # **自己发明口令的赋值**（不是云厂商 key 形状）。文字口令与纯数字口令分开认；
+    # 中文「密码[:：=]」单列一条（\b 对 CJK 不成立）。
+    # 前缀刻意**不加** \b：PHONE_PASSWORD 这类写法里 `_` 与 `P` 之间没有词边界，
+    # 加了 \b 就会漏掉最常见的那种命名（正是本次真凭据的写法）。
+    # 误报控制：$ / { 开头（环境变量、模板占位）与 PLACEHOLDERS 一律跳过；
+    # 实测在全部 tracked 文件上只命中那条真凭据（0 误报）。
+    "hardcoded credential (quoted)": re.compile(
+        r"(?i)(?:password|passwd|passphrase|pwd|pin)\s*[:=]\s*[\"'](?![\s\"']*[\$\{<])[^\"']{3,}[\"']"
+    ),
+    "hardcoded numeric credential": re.compile(
+        r"(?i)(?:password|passwd|pwd|pin|密码)\s*[:=：]\s*[\"']?\d{4,8}[\"']?(?!\d)"
+    ),
+    "hardcoded credential (cjk)": re.compile(r"密码\s*[:：=]\s*(?![\$\{])\S{3,}"),
 }
 PLACEHOLDERS = ("YOUR API KEY", "your key", "somethingelse", "${", "example")
 # 测试代码里的假密钥（sk-* 测试种子、INJECTED 注入样例等）是常规做法，跳过：
