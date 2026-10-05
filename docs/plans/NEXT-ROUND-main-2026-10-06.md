@@ -8,7 +8,7 @@
 
 | # | 事项 | 现状 | 规格 / 判据 |
 | --- | --- | --- | --- |
-| **M1** | **轮换手机锁屏口令**（F-0616-01，**唯一剩余动作**） | 树与**全部历史**都已清洗（`git filter-repo`：删路径 + 两个标识串替换；新旧 `main` 的**树哈希相同**）并已 force-push 到远端；但 **GitHub 托管的 `refs/pull/1/head` 与旧对象缓存**我们删不掉 | 换掉那台手机的锁屏口令（**这才是真正的修复**）；如需进一步过期旧对象，联系 GitHub Support |
+| ~~M1~~ | ~~轮换手机锁屏口令~~ | **已关闭（2026-10-06 夜）**：维护者已轮换那台手机的锁屏口令 ⇒ 远端残留 blob 里的口令**已失效**（残留本身仍在，见 §4 与 [`../audit/2026-10-06-purge/PURGE-RECORD.md`](../audit/2026-10-06-purge/PURGE-RECORD.md)） | 无。要彻底过期旧对象只剩 GitHub Support（非必需） |
 | ~~M2~~ | ~~维护者肉眼/听音清单~~ | **已关闭（2026-10-06）** | 维护者确认肉眼/听音验收通过，并指示删掉勾选表 ⇒ `docs/verification/v0.2.0-checklist.md` 已退役删除 |
 | ~~M3~~ | ~~舞台 WebGPU canvas 像素与拖动手柄~~ | **已关闭（2026-10-06）**（随 M2 一并由维护者肉眼确认） | 探针里那 4 项 `manual-only` **仍如实标注，没算成 pass** |
 
@@ -44,3 +44,29 @@
 | **R2** | `dev/integrity` / `dev/node-p1-p2` 裁决 | bundle 已覆盖，可降级为档案 |
 | **R3** | ~~是否推 `origin`（N18）~~ | **已完成（2026-10-06）**：维护者授权 ⇒ 历史清洗后 force-push `main`、重写后的远端 tag、删除残留分支 `mainline/1-core-baseline`；新 tag `v0.2.1-rc.1` 与 GitHub pre-release 已建 |
 | **R4** | Gitleaks（N19） | 本轮仍不补（多一个第三方 action = 多一条供应链面）；要补单独一轮 |
+
+---
+
+## 4 · 2026-10-06 夜（清洗收尾轮）：新增待办
+
+### 4.1 已关闭 / 已处置（本轮）
+
+- **M1 关闭**：维护者**已轮换那台手机的锁屏口令**。远端 `refs/pull/1/head`（`44da2a4c`）里那个 blob 中的口令**已失效** ⇒ 从「P0 泄密」降级为「技术残留、历史垃圾」（`refs/pull/*` 服务端只读，`DELETE` = 422）。
+- **GitHub 凭据**：维护者已删除其 token；本地 `gh` 里那把凭据经 `gh auth status` 判定 **invalid**，本轮据维护者指示执行 `gh auth logout` 从 `~/.config/gh/hosts.yml` 移除（现为 `{}`，`oauth_token` 计数 0）。另查：`~/.git-credentials` 不存在、环境无 `GH_TOKEN`/`GITHUB_TOKEN`、remote URL 无水印式内嵌凭据。
+- **清洗备份退役**：`backup-2026-10-06/pre-purge-all-refs.bundle`（**132 448 444 B**，`sha256 c499f8631fadddfc0d30be03c8e882e98e5bcfb2624e429ede0eead1af66a7be`）**已删除**；同目录仅保留 `refs-before.txt`。
+
+### 4.2 新增待办
+
+| # | 事项 | 判据 / 备注 |
+| --- | --- | --- |
+| **R5** | **本地提交待推**：本轮收口文档是本地提交（workspace 无新 token） | `git rev-list --count origin/main..main` 回 0；新 token 就绪后 `git push origin main` |
+| **R6** | **文档收口四项** ① `AGENTS.md` 首屏「当前版本 `0.2.0`」与树（`0.2.1-rc.1`）不一致；② `archive/action-layer-p6` 被 10+ 处引用（`AGENTS.md` / `CHANGELOG.md` / `README.md` / `README.zh-CN.md` / `docs/architecture/core-chain-baseline.md` / `crates/live2d-ai-desktop/src/main.rs`）但**本地与远端都没有该分支**；③ 本轮清单 R3 的措辞「已删除残留分支 `mainline/1-core-baseline`」**与实际不符**：远端此刻仍有 `refs/heads/mainline/1-core-baseline = b58b223`；④ 上一轮台账已入库，指向它的旧路径写法要收口 | 逐条 `git grep` + `git ls-remote` 复核 |
+| **R7** | **分支清理（13 条非 main）** | 0 领先、可删 5 条：`feat/frontend-redesign`（28 落后／0 领先；它 = 远端 tag `v0.2.0` 的提交 `a3f2717`，**删了不丢东西**）· `chore/debt-round-2026-10-05`(24/0) · `mainline/1-core-baseline`(187/0) · `pr-1`(188/0) · `mod/persona-polish`(151/0)。保留待裁决：`archive/action-trigger-p5`(193/356) · `archive/full-history-2026-09-11`(193/374) · `android-archive`(193/1) · `dev/integrity`(193/300) · `dev/node-p1-p2`(193/243) · `backup-local-main-before-force`(193/215) · `feature/node-d-d3-d4`(193/215) · `refactor/elegance`(193/215) | `git rev-list --left-right --count main...<b>` 右值为 0 |
+| **R8** | **清洗前历史的本地副本仍在**（口令已失效 ⇒ 价值为零，纯占盘）：`backup-2026-10-05/archive-full-history-2026-09-11.bundle`（114 MB，**实测仍含清洗前链**：其 tip `5e455ad6` 在清洗后的库里 `git cat-file -t` 报 fatal，本地重写后同名分支 tip 为 `90e0fac9`）· `Live2D-Ai-LEGACY-FULL-HISTORY.bundle`(114 MB) · `Live2D-Ai-PY-LEGACY.bundle`(100 MB) · `Live2D-Ai-baseline-28de52cf.bundle`(114 MB) · `Live2D-Ai-baseline-incremental.bundle`(13 MB) · `redesign-backup-2026-09-27.tar.gz`(6.8 MB) · `backups/dsh-data-backup-20260821.tar.gz`(134 MB) | 维护者决定删或留；**删前确认已不需要回滚**（`05` 那份是当前唯一的清洗前回滚路径） |
+
+### 4.3 审计安排（本轮已定，规程入库）
+
+- 规程：[`AUDIT-PROMPT-whole-repo-2026-10-06.md`](AUDIT-PROMPT-whole-repo-2026-10-06.md)（v3.2；工作树外另存 `/home/skystar/audit-prompt-2026-10-06.md`）。锁 `main` @ `6be9984` 或其后 1–2 个 docs 提交。
+- **第一优先 = 前端设置 + Mod 面**（维护者 2026-10-06 指定）：`Phase 0` 九批（`P0-1` `display_prefs` 字段真源 → 控制器/骨架 → 外观 → dev_tools → Mod 面板 → 主链设置 → 契约面 → 后端对照面 → 设置测试质量），配 **§7.1 用户侧审视**七问 + **设置项三方对账**（死字段 / 假旋钮 / 隐藏开关）。
+- 台账 `AUDIT-REPO/`（未跟踪，永不 `git add`），批次从 **`BATCH-1001`** 起（上一轮已占用 0001–0927）。
+- Rust 主线顺延 `Phase 1` 第 1 项 = `crates/live2d-ai-runtime/**`（上一轮台账恰在此停住）。

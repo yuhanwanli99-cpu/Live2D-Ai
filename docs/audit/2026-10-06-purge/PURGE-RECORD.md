@@ -105,3 +105,12 @@ $ git fetch origin 2d4924473ecbb19eb4555fbe9a4e102b5074126d   # 旧 main，rc=0
 ⇒ **GitHub 仍在服务清洗前的对象**：`refs/pull/*` 服务端只读（`DELETE` 实测 **422**），旧 SHA 直取也成功。
 仓库方能做的只有三选一（都需维护者决策）：**GitHub Support 过期缓存 / 删库重建 / 转私有**；
 而**轮换那台手机的锁屏口令是唯一真正的修复**。
+
+## 9. 收尾（2026-10-06 夜）
+
+§5 / §8 的技术结论**未变**（远端 `refs/pull/1/head` 与旧对象缓存仍在，服务端只读）；变的是**口令本身已失效**这一层：
+
+1. **维护者已轮换那台手机的锁屏口令** ⇒ 远端残留 blob 里的值不可用，残留降级为历史垃圾（F-0616-01 收口）。
+2. **清洗备份退役**：`/home/skystar/backup-2026-10-06/pre-purge-all-refs.bundle` 已删除。删除前记录：`132 448 444` 字节、`sha256 c499f8631fadddfc0d30be03c8e882e98e5bcfb2624e429ede0eead1af66a7be`；同目录保留 `refs-before.txt`（清洗前 ref 清单）。
+3. **凭据清理**：维护者已删除其 GitHub token；本地唯一凭据（`~/.config/gh/hosts.yml`）经 `gh auth status` 判定 **invalid**，已 `gh auth logout` 移除（现为 `{}`，`oauth_token` 计数 0）。
+4. **清洗前历史的本地副本仍在**（口令已失效 ⇒ 价值为零）：`backup-2026-10-05/archive-full-history-2026-09-11.bundle`（114 MB，实测其 tip `5e455ad6` 不在清洗后的对象库里 = 确为清洗前链）等，清单见 [`../../plans/NEXT-ROUND-main-2026-10-06.md`](../../plans/NEXT-ROUND-main-2026-10-06.md) §4.2 R8。
