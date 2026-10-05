@@ -1,7 +1,7 @@
 {
-  "aggregatedAt": "2026-10-05T13:35:32.431Z",
+  "aggregatedAt": "2026-10-05T13:38:23.689Z",
   "cdp": "Chrome/153.0.8010.12",
-  "head": "3cba0b2f42b14b6b4aa835dc81ef52b438d79f63",
+  "head": "2774c90ed40f6a8fc5466fd1c2b24461269cb43b",
   "base": "http://127.0.0.1:18080",
   "cdpUrl": "http://127.0.0.1:9222",
   "scenarios": {
@@ -18,7 +18,7 @@
       "count": 7
     },
     "files": {
-      "at": "2026-10-05T13:24:38.629Z",
+      "at": "2026-10-05T13:38:23.688Z",
       "count": 3
     },
     "fonts": {
@@ -207,7 +207,7 @@
       "confidence": "high",
       "repro": "node scripts/browser_probe.mjs files",
       "scenario": "files",
-      "at": "2026-10-05T13:24:38.629Z"
+      "at": "2026-10-05T13:38:23.688Z"
     },
     {
       "id": "F-0050-01b",
@@ -217,17 +217,17 @@
       "confidence": "high",
       "repro": "",
       "scenario": "files",
-      "at": "2026-10-05T13:24:38.629Z"
+      "at": "2026-10-05T13:38:23.688Z"
     },
     {
       "id": "8b",
       "title": "前端产物新鲜度（main.dart.js 不早于最新的 lib/*.dart）",
       "verdict": "pass",
-      "evidence": "main.dart.js=2026-10-05T13:22:56.779Z；最新 dart=2026-10-05T12:55:34.091Z shell/flutter/lib/ui/state_pill.dart；dart 文件 126 个",
+      "evidence": "main.dart.js=2026-10-05T13:38:21.574Z；最新 dart=2026-10-05T13:37:04.095Z shell/flutter/lib/ui/state_pill.dart；dart 文件 126 个",
       "confidence": "high",
       "repro": "PROBE 的 files 场景",
       "scenario": "files",
-      "at": "2026-10-05T13:24:38.629Z"
+      "at": "2026-10-05T13:38:23.688Z"
     },
     {
       "id": "F-fonts-03",

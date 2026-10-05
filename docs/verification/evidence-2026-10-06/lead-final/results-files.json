@@ -1,6 +1,6 @@
 {
   "scenario": "files",
-  "at": "2026-10-05T13:24:38.629Z",
+  "at": "2026-10-05T13:38:23.688Z",
   "results": [
     {
       "id": "F-0050-01a",
@@ -22,7 +22,7 @@
       "id": "8b",
       "title": "前端产物新鲜度（main.dart.js 不早于最新的 lib/*.dart）",
       "verdict": "pass",
-      "evidence": "main.dart.js=2026-10-05T13:22:56.779Z；最新 dart=2026-10-05T12:55:34.091Z shell/flutter/lib/ui/state_pill.dart；dart 文件 126 个",
+      "evidence": "main.dart.js=2026-10-05T13:38:21.574Z；最新 dart=2026-10-05T13:37:04.095Z shell/flutter/lib/ui/state_pill.dart；dart 文件 126 个",
       "confidence": "high",
       "repro": "PROBE 的 files 场景"
     }
