@@ -155,6 +155,21 @@ AUDIT-REPO/CONSOLIDATION-NN.md  每 6 批一次的对账（见 §12.3）
 
 若 `AUDIT-REPO/` 不存在：建目录 + 上述骨架，用**不超过 20 分钟**做仓库地图（§10 Phase 1 顺序表照抄），写入 `STATE.md`，然后开 `BATCH-1001`。
 
+### 2.1 A/B 双跑（两个模型同时审同一棵树）—— 若本次是双跑，必须遵守
+
+两边的**判据、边界、Phase 0 顺序完全相同**（否则结果不可比），只有下列隔离规则不同：
+
+- **账本隔离**：A = `AUDIT-REPO/`，B = `AUDIT-REPO-B/`。**互不读写对方的目录**（独立复现才有对比价值）；知道对方存在只在 `STATE.md` 记一行。
+- **编号隔离**：A = `BATCH-1001+` / `F-1NNN-NN`；B = `BATCH-2001+` / `F-2NNN-NN`。
+- **临时文件隔离**：A = `/tmp/a1-*`，B = `/tmp/b2-*`；只读浏览器取证（9222）是共享资源 ⇒ 用前先 `flock /tmp/l2d-browser.lock`。
+- **双跑对账产出**：每批关闭时向**自己的** `SUMMARY.tsv`（一行一批，追加）写：
+
+```
+批次号<TAB>主题<TAB>文件数<TAB>P0<TAB>P1<TAB>P2<TAB>P3<TAB>硬发现数<TAB>候选池数
+```
+
+  人类用 `diff AUDIT-REPO/SUMMARY.tsv AUDIT-REPO-B/SUMMARY.tsv` 就能看出两个模型的覆盖面与强度差异——**这是双跑唯一的额外要求**。
+
 ---
 
 ## 3. 批次强度（小、整、机械）
