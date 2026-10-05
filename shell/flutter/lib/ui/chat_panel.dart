@@ -93,7 +93,10 @@ class ChatPanel extends StatelessWidget {
   /// 会话列表入口（只有 compact 传；非 compact 的入口在 AppBar）。
   final VoidCallback? onOpenSessions;
 
-  /// 最后一条失败消息的重试。
+  /// 失败气泡的「重试」= **重发上一条用户消息**。
+  ///
+  /// **null = 没有上一条可重发 ⇒ 按钮不出现**（`MessageBubble` 只在非空时
+  /// 画那颗按钮）——不摆按下去没反应的假出路（2026-10-06 裁决 R4-T5）。
   final VoidCallback? onRetryLast;
 
   /// 节流后的播报文本（转给流式气泡的 `liveRegion`）。
@@ -240,6 +243,8 @@ class ChatPanel extends StatelessWidget {
                             visible[visible.length - 1 - index];
                         return MessageBubble(
                           message: m,
+                          // 失败占位气泡才给「重试」；回调为 null（没有上一条
+                          // 可重发）时 `MessageBubble` 整颗按钮都不画。
                           onRetry: m.isPlaceholder ? onRetryLast : null,
                           // 只给**最后一条**（正在流式的那个）挂播报；
                           // 历史消息传 null，否则读屏会把整段历史重念一遍。

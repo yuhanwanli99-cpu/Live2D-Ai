@@ -1343,7 +1343,12 @@ class _ShellRootState extends State<ShellRoot> {
             _ui.clearError();
             _chat.clearError();
           },
-          onRetryLast: () => unawaited(_sendWithCancellation()),
+          // 「重试」= **重发上一条用户消息**（2026-10-06 裁决，R4-T5）：旧形态接
+          // `_sendWithCancellation`（读输入框），而一次失败之后输入框已被
+          // `send()` 清空 ⇒ 按下去毫无反应（静默 no-op）。没有上一条可重发时
+          // 传 **null**：状态胶囊不可点、失败气泡不出按钮——两条消费路径都
+          // 不摆假出路（判据同 `onResendLast` 那一处，是同一份真源）。
+          onRetryLast: _chat.lastUserMessageText == null ? null : () => unawaited(_resendLastUserMessage()),
           sections: visibleSections(),
           // 打开设置**就要**加载（不能只靠「换分区」顺带触发，
           // 否则 expanded/medium 直接点「设置」是个空壳）。

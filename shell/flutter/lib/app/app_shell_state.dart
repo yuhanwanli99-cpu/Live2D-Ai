@@ -445,6 +445,11 @@ class AppShellState extends State<AppShell> {
                 StatePill(
                   phase: widget.phase,
                   compact: true,
+                  // 胶囊的「出路」= 出错时重发上一条用户消息。组合根在
+                  // **没有上一条可重发**时给的就是 null ⇒ 这里传 null ⇒
+                  // 胶囊**不可点**（Semantics 也不带 button 角色），而且它的
+                  // 标签只说状态（「出错」），从不承诺点按会重发——
+                  // **不许把静默 no-op 换个地方**（2026-10-06 裁决 R4-T5）。
                   onTap: widget.error == null ? null : widget.onRetryLast,
                 ),
                 const SizedBox(width: Space.s2),

@@ -5,15 +5,21 @@
 /// 已经不在计划里，任何迟到的 apply 都是空操作。
 ///
 /// 顺序与「四步都发生」由 `StageCancellation`（纯逻辑）钉住；接线在 main.dart
-/// （`package:web` 加载不了）用源码扫描钉住，先例见 `action_scales_wiring_test.dart`。
+/// （`package:web` 加载不了）用**源码扫描**钉住，先例见 `action_scales_wiring_test.dart`。
+///
+/// 2026-10-06（R4-T5，D6）：接线那半从「钉字面量」改成「钉**语义**」——旧写法把
+/// `onRetryLast: … _sendWithCancellation()` 这个**静默 no-op 形态**锁成了契约
+/// （测试替缺陷站岗）。现在只断言「出口接的是哪条路」「那条路有没有先取消」，
+/// 不认任何具体写法；注释一律剥掉，防止本文件自己的注释骗过断言。
 library;
-
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/api/ws_frame.dart';
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/stage_cancel.dart';
+
+import 'support/dart_library.dart';
+import 'support/source_scan.dart';
 
 void main() {
   test('stop_and_new_message_clear_action_expression_and_pending_tts', () async {
@@ -74,8 +80,14 @@ void main() {
     );
   });
 
-  test('接线（源码扫描）：发送 / 停止 / 重试都先走取消入口', () {
-    final String main = File('lib/main.dart').readAsStringSync();
+  test('接线（语义级）：停止 / 发送 / 重试三条出口都先走取消入口', () {
+    // 库 + parts（`main.dart` 的四个 part 一起扫）；字符串留着，注释剥掉。
+    final String main = stripCommentsKeepStrings(
+      readLibrarySource('lib/main.dart'),
+    );
+    final String shellChat = stripCommentsAndStrings(
+      readLibrarySource('lib/app/shell_chat.dart'),
+    );
     expect(
       main.contains('onStop: () => unawaited(_stopWithCancellation())'),
       isTrue,
@@ -86,10 +98,23 @@ void main() {
       isTrue,
       reason: '新消息必须先取消',
     );
+    // 「重试」= **重发上一条用户消息**（2026-10-06 裁决 R4-T5）：只钉它接在哪条
+    // 路上，不钉写法——旧写法（读输入框的 `_sendWithCancellation`）正是缺陷。
     expect(
-      main.contains('onRetryLast: () => unawaited(_sendWithCancellation())'),
-      isTrue,
-      reason: '重试也是新消息',
+      _argLine(main, 'onRetryLast:'),
+      contains('_resendLastUserMessage'),
+      reason: '重试 = 重发上一条用户消息',
+    );
+    expect(
+      _argLine(main, 'onRetryLast:'),
+      isNot(contains('_sendWithCancellation')),
+      reason: '旧形态读输入框 ⇒ 失败之后按下去毫无反应（静默 no-op）',
+    );
+    // 而「重发」这条路**自己**必须先取消——这才是本文件要守的纪律。
+    expect(
+      _functionBody(shellChat, 'Future<void> _resendLastUserMessage() async'),
+      contains('_cancelStageForTurnBoundary'),
+      reason: '重发也是新消息 ⇒ 必须先取消上一轮编排（与发送同一条纪律）',
     );
     expect(
       main.contains('_stageCancellation = StageCancellation('),
@@ -118,4 +143,24 @@ void main() {
       reason: '语音注入也是新消息，必须先取消',
     );
   });
+}
+
+/// `anchor`（形如 `onRetryLast:`）之后**同一行**的文本。
+///
+/// 只用来判「这条出口接的是哪条路」，不比对整段字面量——见文件头注。
+String _argLine(String src, String anchor) {
+  final int at = src.indexOf(anchor);
+  expect(at, greaterThanOrEqualTo(0), reason: '找不到 `$anchor` 接线');
+  final int end = src.indexOf('\n', at);
+  return src.substring(at, end < 0 ? src.length : end);
+}
+
+/// 取 [signature] 那个函数的**函数体**（含花括号）。
+String _functionBody(String src, String signature) {
+  final int at = src.indexOf(signature);
+  expect(at, greaterThanOrEqualTo(0), reason: '找不到 `$signature`');
+  final int brace = src.indexOf('{', at);
+  final int end = matchBracket(src, brace, '{', '}');
+  expect(end, greaterThan(brace), reason: '`$signature` 的花括号不平衡');
+  return src.substring(brace, end + 1);
 }
