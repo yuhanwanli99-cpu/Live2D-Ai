@@ -82,8 +82,24 @@ const SKIPPED_DIR_NAMES: [&str; 5] = ["target", "build", "dist", "node_modules",
 /// （`platform/capabilities.rs` 539→409、`src/main.rs` 519→315）。
 /// 中间态曾记为 55（W2-A 收口值）；本段按 F-V0-9 把交接栏要求的收紧做完。
 /// 复算证据：`cargo run -p xtask -- code-stats --check --only lines`（48 ≤ 48 = PASS）。
-const RATCHET_SRC_RS_500: u64 = 48;
-const RATCHET_SRC_RS_1000: u64 = 4;
+/// **已收紧到 44**（2026-10-05 债轮 R4-T1，同批）：48 → 44。拆小 4 个 >1000 文件后，
+/// 它们整体退出 >500 档（拆出的每个文件都 <500，含搬出来的测试——先例
+/// `tests_models_*`）：`mod_registry.rs` 1438、`web_api/external_routes.rs` 1202、
+/// `web_api/chat_routes.rs` 1086、`mod-persona/src/lib.rs` 1004。
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check`（44 ≤ 44 = PASS）。
+const RATCHET_SRC_RS_500: u64 = 44;
+/// **已收紧到 0**（2026-10-05 债轮 R4-T1，同批）：4 → 0，PLAN §5 目标达成
+/// （`--strict-plan` 这一项从此不再是「合规欠账」）。四个文件的去向：
+/// `mod_registry/{registry,events,tests_*}.rs`、
+/// `web_api/{external_routes,chat_routes}_tests_*.rs` + `chat_routes/baseline.rs`、
+/// `mod-persona/{card,runtime,factory}.rs`；对外路径与 `#[test]` 条数均未变。
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check`（0 ≤ 0 = PASS）。
+///
+/// **交接说明（诚实栏）**：计数下降在 `c3d79772`（Rust 拆分，只带 crates/**），
+/// 本常量收紧在其后的独立 commit —— 这是 Lead 对**共享文件**的串行化裁决：
+/// 同一文件里 flutter-split 还要收紧 Dart 棘轮，两个 worker 不同时写它。
+/// 分差只有一次提交，且 `c3d79772` 的 message 里写明了实测值（44 / 0）。
+const RATCHET_SRC_RS_1000: u64 = 0;
 const RATCHET_DART_800: u64 = 7;
 /// 2026-10-01（W2-B / D1 第二段）：原生壳岛移出后实测 **25**（34 → 25，真删
 /// `wgpu` `winit` `pollster` `egui` `egui-winit` `egui-wgpu` `raw-window-handle`
