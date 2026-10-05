@@ -1561,8 +1561,12 @@ async function main() {
     console.log('# 汇总 ' + agg.total + ' 项，fail ' + agg.fail + ' 项，来自 ' + agg.scenarios + ' 个场景');
     return;
   }
+  // 2026-10-06（Lead 收尾发现）：旧实现写成 `which.includes('all') ? [固定 12 项] : which`，
+  // 于是文档推荐的 `all,audio` 会**静默丢掉 audio**，而汇总照样打印「fail 0」——
+  // 那是「假绿灯」的典型形态（覆盖被悄悄缩小）。改成「all 展开 + 显式追加的额外场景」。
+  const ALL_SCENARIOS = ['files', 'api', 'net', 'fonts', 'offline', 'render', 'stage', 'stagecolor', 'ui', 'settings', 'themes', 'bg'];
   const list = which.includes('all')
-    ? ['files', 'api', 'net', 'fonts', 'offline', 'render', 'stage', 'stagecolor', 'ui', 'settings', 'themes', 'bg']
+    ? [...ALL_SCENARIOS, ...which.filter((n) => n !== 'all' && !ALL_SCENARIOS.includes(n))]
     : which;
   if (which.includes('all') && !which.includes('audio')) console.log('# 注：audio 场景需要活端点（LLM+TTS），不在 all 里；要跑：node scripts/browser_probe.mjs audio');
   const ver = await (await fetch(CDP_HTTP + '/json/version')).json();

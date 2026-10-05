@@ -1,0 +1,73 @@
+{
+  "shots": {
+    "cover": {
+      "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/lead-final/bg/fit-cover.png",
+      "bytes": 52310,
+      "dominant": [
+        {
+          "hex": "004411",
+          "share": 0.4423
+        },
+        {
+          "hex": "440044",
+          "share": 0.4417
+        }
+      ]
+    },
+    "contain": {
+      "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/lead-final/bg/fit-contain.png",
+      "bytes": 52155,
+      "dominant": [
+        {
+          "hex": "000011",
+          "share": 0.9227
+        },
+        {
+          "hex": "111122",
+          "share": 0.0284
+        }
+      ]
+    },
+    "stretch": {
+      "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/lead-final/bg/fit-stretch.png",
+      "bytes": 52200,
+      "dominant": [
+        {
+          "hex": "440044",
+          "share": 0.4582
+        },
+        {
+          "hex": "004411",
+          "share": 0.4576
+        }
+      ]
+    },
+    "tile": {
+      "path": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/lead-final/bg/fit-tile.png",
+      "bytes": 52421,
+      "dominant": [
+        {
+          "hex": "004411",
+          "share": 0.4801
+        },
+        {
+          "hex": "440044",
+          "share": 0.436
+        }
+      ]
+    }
+  },
+  "diffs": {
+    "cover_vs_stretch": 0.0079,
+    "cover_vs_tile": 0.1534,
+    "contain_vs_stretch": 0.2621,
+    "contain_vs_tile": 0.2712,
+    "stretch_vs_tile": 0.1466
+  },
+  "shellRedness": {
+    "cover": -2.95,
+    "contain": -3.39,
+    "stretch": -2.95,
+    "tile": -4.59
+  }
+}

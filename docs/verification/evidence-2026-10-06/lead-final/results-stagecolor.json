@@ -1,0 +1,14 @@
+{
+  "scenario": "stagecolor",
+  "at": "2026-10-05T13:29:16.142Z",
+  "results": [
+    {
+      "id": "6c",
+      "title": "四套主题的舞台底色确实按协议下发（sync.stageColor）",
+      "verdict": "pass",
+      "evidence": "black: 期望 #000000 实发 [\"#000000\"] | white: 期望 #ffffff 实发 [\"#ffffff\"] | blue: 期望 #061223 实发 [\"#061223\"] | gray: 期望 #1c1c1f 实发 [\"#1c1c1f\"]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs stagecolor（原始帧见 stage-class/stagecolor.json）"
+    }
+  ]
+}

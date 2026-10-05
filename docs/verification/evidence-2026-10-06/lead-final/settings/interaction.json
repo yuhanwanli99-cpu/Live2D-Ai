@@ -1,0 +1,29 @@
+{
+  "interacted": {
+    "kind": "theme-card",
+    "before": null,
+    "after": "white",
+    "node": {
+      "label": null,
+      "text": "白，纯白舞台，近黑强调",
+      "role": "button",
+      "x": 851,
+      "y": 299,
+      "w": 132,
+      "h": 84
+    }
+  },
+  "slider": {
+    "node": {
+      "label": "描边强度",
+      "text": "",
+      "role": null,
+      "x": 858,
+      "y": 541,
+      "w": 48,
+      "h": 48
+    },
+    "beforeEdge": 1,
+    "afterEdge": 1.5
+  }
+}

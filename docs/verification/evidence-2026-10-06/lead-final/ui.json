@@ -1,0 +1,239 @@
+{
+  "dom": {
+    "title": "Live2D Ai",
+    "canvasesDeep": 2,
+    "shadowHosts": [
+      "flt-glass-pane"
+    ],
+    "iframes": [
+      {
+        "src": "/render",
+        "w": 1099,
+        "h": 848
+      }
+    ],
+    "glassPane": true,
+    "flutterView": true,
+    "semanticsPlaceholder": true,
+    "bodyChildren": [
+      "flt-semantics-placeholder",
+      "script",
+      "p",
+      "flt-announcement-host",
+      "flutter-view"
+    ],
+    "viewport": {
+      "w": 1440,
+      "h": 900
+    },
+    "dpr": 1,
+    "webgl2": true,
+    "webgl": false,
+    "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36"
+  },
+  "semantics": {
+    "how": "clicked",
+    "count": 27
+  },
+  "nodes": [
+    {
+      "label": null,
+      "text": "Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听",
+      "role": null,
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "label": null,
+      "text": "Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听",
+      "role": null,
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "label": null,
+      "text": "Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听",
+      "role": null,
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "label": null,
+      "text": "Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听",
+      "role": null,
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "label": "缩小一档\n100%\n100%\n点击任意位置或按任意键以启用声音\n语音输入未启用：请先在「设置 → Mod 管理」启用 voice-input（启停后可能需重新点火）\n此模式需联网：语音会送浏览器厂商云端识别（音频会出本机），结果再回本机后端。",
+      "text": "Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台缩小放大复位说点什么吧回复会一边生成一边上屏，语音按句完整播放。静音启用声音听",
+      "role": "group",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "label": null,
+      "text": "Live2D Ai状态：空闲实时通道：实时通道正常会话设置",
+      "role": null,
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 52
+    },
+    {
+      "label": null,
+      "text": "状态：空闲",
+      "role": null,
+      "x": 1201,
+      "y": 16,
+      "w": 64,
+      "h": 20
+    },
+    {
+      "label": null,
+      "text": "实时通道：实时通道正常",
+      "role": null,
+      "x": 1281,
+      "y": 17,
+      "w": 59,
+      "h": 18
+    },
+    {
+      "label": null,
+      "text": "会话",
+      "role": "button",
+      "x": 1348,
+      "y": 14,
+      "w": 42,
+      "h": 24
+    },
+    {
+      "label": null,
+      "text": "设置",
+      "role": "button",
+      "x": 1390,
+      "y": 14,
+      "w": 42,
+      "h": 24
+    },
+    {
+      "label": null,
+      "text": "Live2D 舞台",
+      "role": null,
+      "x": 0,
+      "y": 52,
+      "w": 1099,
+      "h": 848
+    },
+    {
+      "label": null,
+      "text": "缩小",
+      "role": "button",
+      "x": 905,
+      "y": 864,
+      "w": 42,
+      "h": 24
+    },
+    {
+      "label": null,
+      "text": "放大",
+      "role": "button",
+      "x": 999,
+      "y": 864,
+      "w": 42,
+      "h": 24
+    },
+    {
+      "label": null,
+      "text": "复位",
+      "role": "button",
+      "x": 1041,
+      "y": 864,
+      "w": 42,
+      "h": 24
+    },
+    {
+      "label": null,
+      "text": "说点什么吧回复会一边生成一边上屏，语音按句完整播放。",
+      "role": "group",
+      "x": 1124,
+      "y": 318,
+      "w": 292,
+      "h": 110
+    },
+    {
+      "label": null,
+      "text": "说点什么吧",
+      "role": null,
+      "x": 1235,
+      "y": 370,
+      "w": 70,
+      "h": 20
+    },
+    {
+      "label": null,
+      "text": "回复会一边生成一边上屏，语音按句完整播放。",
+      "role": null,
+      "x": 1140,
+      "y": 394,
+      "w": 260,
+      "h": 18
+    },
+    {
+      "label": "主音量",
+      "text": "",
+      "role": null,
+      "x": 1306,
+      "y": 686,
+      "w": 48,
+      "h": 48
+    },
+    {
+      "label": null,
+      "text": "静音",
+      "role": "button",
+      "x": 1390,
+      "y": 698,
+      "w": 42,
+      "h": 24
+    },
+    {
+      "label": null,
+      "text": "启用声音",
+      "role": "button",
+      "x": 1112,
+      "y": 740,
+      "w": 92,
+      "h": 24
+    },
+    {
+      "label": "点按开始听：说「小可爱 ……」；按住说话（不要求唤醒词）",
+      "text": "听",
+      "role": null,
+      "x": 1112,
+      "y": 856,
+      "w": 44,
+      "h": 32
+    },
+    {
+      "label": null,
+      "text": "听",
+      "role": "button",
+      "x": 1112,
+      "y": 856,
+      "w": 44,
+      "h": 32
+    }
+  ],
+  "htmlLen": 11742
+}

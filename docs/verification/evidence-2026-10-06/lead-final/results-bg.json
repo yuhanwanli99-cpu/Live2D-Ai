@@ -1,0 +1,62 @@
+{
+  "scenario": "bg",
+  "at": "2026-10-05T13:32:18.502Z",
+  "results": [
+    {
+      "id": "5a",
+      "title": "背景库选图 → 图真的上屏（红度像素级）",
+      "verdict": "pass",
+      "evidence": "壳区 redness：无图 -4.33 → 有图 50.45（阈值 >20）；通道均值 {\"r\":73.63,\"g\":19.79,\"b\":26.57}；裁剪=1100,52,1440,900；偏好 backgrounds=[{\"kind\":\"image\",\"id\":\"bg6a2d74a9\"}]；IndexedDB 键=[\"bg6a2d74a9\"]；waitForPaint（带原始依据）none=610ms / 1 次采样；red=603ms / 1 次采样",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs bg（原始像素见 bg/visibility.json）"
+    },
+    {
+      "id": "5b",
+      "title": "刷新后背景仍在（真字节库水合，不是靠 localStorage 里的 dataUrl）",
+      "verdict": "pass",
+      "evidence": "刷新后 redness=50.45（阈值 >20）；偏好里 backgrounds=[{\"kind\":\"image\",\"id\":\"bg6a2d74a9\"}]；IndexedDB 键（与 redness 同一时刻）= [\"bg6a2d74a9\"]；清图后 IndexedDB 键=[]；waitForPaint red2=610ms / 1 次采样",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "5c",
+      "title": "清图后图真的消失（回到底色）",
+      "verdict": "pass",
+      "evidence": "清图后 redness=-4.33（阈值 <8；基线 -4.33）；waitForPaint cleared=600ms / 1 次采样",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "5d",
+      "title": "四档 fit 像素级可区分（cover/contain/stretch/tile）",
+      "verdict": "pass",
+      "evidence": "整页逐像素差异（>=0.005 判可区分）：{\"cover_vs_stretch\":0.0079,\"cover_vs_tile\":0.1534,\"contain_vs_stretch\":0.2621,\"contain_vs_tile\":0.2712,\"stretch_vs_tile\":0.1466}",
+      "confidence": "high",
+      "repro": "python3 …/png_stats.py bg/fit-cover.png --diff bg/fit-contain.png"
+    },
+    {
+      "id": "5e",
+      "title": "壳背景轮播真的在换（间隔 5s，采样 4 次）",
+      "verdict": "pass",
+      "evidence": "[{\"i\":0,\"redness\":50.45,\"channels\":{\"r\":73.63,\"g\":19.79,\"b\":26.57},\"bytes\":52243,\"blank\":false},{\"i\":1,\"redness\":-30.31,\"channels\":{\"r\":19.79,\"g\":19.79,\"b\":80.41},\"bytes\":52266,\"blank\":false},{\"i\":2,\"redness\":50.45,\"channels\":{\"r\":73.63,\"g\":19.79,\"b\":26.57},\"bytes\":52243,\"blank\":false},{\"i\":3,\"redness\":-30.31,\"channels\":{\"r\":19.79,\"g\":19.79,\"b\":80.41},\"bytes\":52266,\"blank\":false}]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs bg"
+    },
+    {
+      "id": "5f",
+      "title": "点缩略图预览：当前标记移到该张（可达 + 生效）",
+      "verdict": "pass",
+      "evidence": "点前「当前」=图片 1 · 0 KB · 当前；点后=图片 2 · 0 KB · 当前",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "5g",
+      "title": "拖动排序背景库（CDP 指针输入）",
+      "verdict": "manual-only",
+      "evidence": "{\"idsBefore\":[\"bg6a2d74a9\",\"bg23af30f5\"],\"idsAfter\":[\"bg6a2d74a9\",\"bg23af30f5\"],\"labels\":[\"图片 1 · 0 KB\",\"图片 2 · 0 KB · 当前\"]}；不成则需人工（ReorderableListView 的拖动手柄命中点未知，本脚本用行左侧 12px 起拖）",
+      "confidence": "low",
+      "repro": ""
+    }
+  ]
+}
