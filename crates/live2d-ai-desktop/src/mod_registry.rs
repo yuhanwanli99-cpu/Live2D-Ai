@@ -174,6 +174,11 @@ pub struct ModRegistry {
     manifest_path: Option<std::path::PathBuf>,
 }
 
+// 文件拆分（2026-10-05 债轮 R4-T1）：本文件只留类型、常量与模块头注；
+// `impl ModRegistry` 在 `registry`，事件管道（sink / worker / manifest 解析）在
+// `events`。内联 `mod tests` 拆成 `tests_support`（脚手架）+ `tests_lifecycle`
+// + `tests_host` 三个场景文件，外加既有的 `tests_secret`——搬出去的每一份都必须
+// <500 行，否则 >500 棘轮会变红（先例 `models_routes/tests_models_*`）。
 mod events;
 mod registry;
 
@@ -186,7 +191,7 @@ mod tests_host;
 #[cfg(test)]
 mod tests_lifecycle;
 /// F-0062-01（2026-10-05）：保存 Mod 配置不抹 secret 的专项回归。
-/// 单列文件：本文件已超 code-stats 的 >1000 棘轮档，不该再被测试撑大。
+/// 单列文件：与生命周期 / HostChannels 场景分开，便于按缺陷追（先例 `tests_models_*`）。
 #[cfg(test)]
 mod tests_secret;
 #[cfg(test)]
