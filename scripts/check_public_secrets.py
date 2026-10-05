@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
 """Conservative secret-pattern scan for the current repository's tracked tree.
 
-Rust 重构后只扫描 Rust workspace（crates/, xtask/）+ 顶层配置/脚本/测试，跳过
-二进制、压缩包、锁文件。GitHub CI 额外会跑 Gitleaks 覆盖完整历史。
+扫描面（tracked tree，用 git ls-files 枚举）：Rust workspace（crates/、xtask/、
+shared/、tests/、scripts/）、前端（shell/**，含 Dart）、文档（docs/**）与 CI 配置
+（.github/**），外加 INCLUDED_TOP_FILES 里的顶层文件；SKIP_SUFFIXES 跳过二进制、
+压缩包、字体与锁文件。
+
+门禁位置：.github/workflows/secret-scan.yml —— 每个 PR 与 push main 都跑，
+**没有 paths 过滤**（密钥可能落在 docs/**、.github/**、shell/**）。
+本地等价命令：python3 scripts/check_public_secrets.py
+
+**没有 Gitleaks**：本仓不存在任何 Gitleaks 配置，也没有覆盖完整历史的密钥扫描；
+本脚本是红线「密钥不进仓库」目前在 CI 里的**唯一**自动化门禁。它的扫描面是
+git ls-files 的**当前树**，历史提交不在其中。（2026-10-05 审计 F-0049-01：原先此处
+写「GitHub CI 额外会跑 Gitleaks 覆盖完整历史」——那句话**不成立**，已删除。）
+
+豁免是**行级**的（TEST_LINE_MARKERS / PLACEHOLDERS），刻意偏宽：测试里的假密钥
+种子（sk-…-INJECTED 之类）必须不误报，否则门禁会因为噪声被关掉。代价是**与豁免
+标记同一行的真密钥会被跳过**——这是已知取舍，收紧它属于另一条改动。
 """
 from __future__ import annotations
 
@@ -11,13 +26,18 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# 仅扫描源码相关前缀；构建产物/锁文件/历史档案目录不在扫描范围。
+# 仅扫描源码/文档/CI 相关前缀；构建产物（被 gitignore，不在 tracked tree）与
+# 锁文件不扫。2026-10-05（F-0049-01）：补 shell/**（Dart）、docs/**、.github/** ——
+# 此前这三处**不在扫描面内**，一个 sk-… 粘进 .dart 或文档可以静默进仓库。
 INCLUDED_PREFIXES = (
     "crates/",
     "xtask/",
     "shared/",
     "tests/",
     "scripts/",
+    "shell/",
+    "docs/",
+    ".github/",
 )
 # 顶层文档/Markdown/CI 配置等。
 INCLUDED_TOP_FILES = {

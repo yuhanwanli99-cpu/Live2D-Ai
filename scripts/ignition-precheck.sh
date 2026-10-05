@@ -28,6 +28,14 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# 离线红线判据的唯一真源（与 scripts/ignite.sh 共用）。缺文件 = 预检不可信 ⇒ 直接退。
+CDN_PROBE_LIB="$ROOT_DIR/scripts/lib/cdn_probe.sh"
+if [ ! -f "$CDN_PROBE_LIB" ]; then
+  echo "    [FAIL] 缺少 $CDN_PROBE_LIB —— 离线红线判据不可用（不静默跳过）" >&2
+  exit 2
+fi
+. "$CDN_PROBE_LIB"
+
 PORT=18080
 TOKEN="${EXTERNAL_INPUT_TOKEN:-}"
 RUN_FSM=0
@@ -131,15 +139,24 @@ check "GET / Location" "/app/" "$root_loc"
 app_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/app/" 2>/dev/null || echo 000)
 if [ "$app_code" = "200" ]; then
   record PASS "GET /app/ → 200" "200" "200"
-  for f in index.html main.dart.js; do
+  # 离线红线：清单与判定取自 scripts/lib/cdn_probe.sh（唯一真源，与 ignite.sh 共用）。
+  # 每个探针文件都必须 HTTP 200（**缺失 = 红**，不静默跳过）；内容按类别判 ——
+  # loader 里那段 !useLocalCanvasKit 的**未走分支**裸串**不判红**（正确构建里恒在），
+  # 判的是生效的 canvasKitBaseUrl / useLocalCanvasKit 标志。
+  for spec in $CDN_PROBE_SPEC; do
+    IFS=':' read -r f kind <<<"$spec"
     fc=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$BASE/app/$f" 2>/dev/null || echo 000)
-    check "GET /app/$f" "200" "$fc"
+    if [ "$fc" != "200" ]; then
+      record FAIL "GET /app/$f（离线探针文件）" "200" "$fc（探针文件缺失 = 红，不静默跳过）"
+      continue
+    fi
+    body=$(curl -s --max-time 15 "$BASE/app/$f" 2>/dev/null || true)
+    if out=$(cdn_judge "/app/$f" "$kind" "$body"); then
+      record PASS "/app/$f 离线判定（$kind）" "通过离线红线" "$(printf '%s' "$out" | tail -1 | sed 's/^ *//')"
+    else
+      record FAIL "/app/$f 离线判定（$kind）" "通过离线红线" "$(printf '%s' "$out" | sed 's/^ *//' | tr '\n' ' ' | cut -c1-140)"
+    fi
   done
-  if curl -s --max-time 15 "$BASE/app/main.dart.js" 2>/dev/null | grep -q 'gstatic\.com/flutter-canvaskit'; then
-    record FAIL "main.dart.js 不依赖 Google CDN" "无 gstatic" "发现 gstatic（断网白屏）"
-  else
-    record PASS "main.dart.js 不依赖 Google CDN" "无 gstatic" "无 gstatic"
-  fi
 else
   record SKIP "GET /app/ → 200" "200" "$app_code（Flutter 产物缺失？ignite.sh --build）"
 fi

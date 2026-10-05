@@ -12,6 +12,7 @@
 #   ./scripts/ignite.sh --build         # 先构建 Rust + Flutter Web 再启动
 #   ./scripts/ignite.sh --port 18100    # 指定端口（默认 18080）
 #   ./scripts/ignite.sh --check [--port N]  # 只对**已启动**的服务做点火体检，不自启
+#   ./scripts/ignite.sh --check-dir DIR     # 只对**构建产物目录**做离线体检（不需要服务；CI 用）
 #
 # 说明：本地 LLM/TTS 由你自己提供（任何 OpenAI 兼容实现），本脚本只做探测与提示，
 #       不会下载模型、不会启动推理进程。两个本地 Mod 也会在后台自动探活。
@@ -45,13 +46,17 @@ fi
 PORT=18080
 DO_BUILD=0
 DO_CHECK=0
+DO_CHECK_DIR=""
+DO_CHECK_DIR_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --build) DO_BUILD=1 ;;
     --check) DO_CHECK=1 ;;
+    --check-dir) shift; DO_CHECK_DIR_SET=1; DO_CHECK_DIR="${1:-}" ;;
+    --check-dir=*) DO_CHECK_DIR="${1#*=}" ;;
     --port) shift; PORT="${1:-18080}" ;;
     --port=*) PORT="${1#*=}" ;;
-    -h|--help) sed -n "2,17p" "$0"; exit 0 ;;
+    -h|--help) sed -n "2,18p" "$0"; exit 0 ;;
     *) echo "[warn] 未知参数：$1" ;;
   esac
   shift || true
@@ -62,6 +67,17 @@ done
 # 产物不引用 Google CDN 的 CanvasKit。断言写在脚本里，是因为这三条都只有
 # 「真的起过一次服务」才验得到——单元测试覆盖不到托管层与产物内容。
 # 不自启服务（否则端口冲突时的失败会伪装成「探针失败」）。
+# ---- CDN 探针判据（唯一真源）------------------------------------------------
+# 清单与判定都在 scripts/lib/cdn_probe.sh —— 与 scripts/ignition-precheck.sh
+# **共用同一份**。不要在本地再抄一份（F-0050-01：错误探针被复制到两处）。
+CDN_PROBE_LIB="$PWD/scripts/lib/cdn_probe.sh"
+if [ ! -f "$CDN_PROBE_LIB" ]; then
+  echo "[error] 缺少 $CDN_PROBE_LIB —— 离线红线判据不可用（判红，不静默跳过）"
+  exit 2
+fi
+# shellcheck source=scripts/lib/cdn_probe.sh
+. "$CDN_PROBE_LIB"
+
 if [ "$DO_CHECK" = "1" ]; then
   base="http://127.0.0.1:${PORT}"
   fail=0
@@ -86,19 +102,8 @@ if [ "$DO_CHECK" = "1" ]; then
   fi
 
   # CDN 依赖只看**服务实际吐出的字节**（与浏览器拿到的一致），不看本地文件。
-  for f in index.html main.dart.js; do
-    fcode=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$base/app/$f" 2>/dev/null || echo 000)
-    if [ "$fcode" != "200" ]; then
-      echo "    [FAIL] GET /app/$f 期望 200，实得 $fcode"
-      fail=1
-    elif curl -s --max-time 15 "$base/app/$f" 2>/dev/null | grep -q 'gstatic\.com/flutter-canvaskit'; then
-      echo "    [FAIL] /app/$f 仍引用 Google CDN 的 CanvasKit —— 断网会白屏"
-      echo "           重新构建：cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn"
-      fail=1
-    else
-      echo "    [ok]   /app/$f 不依赖 Google CDN"
-    fi
-  done
+  # 探针清单与判定在下方 CDN_PROBE_SPEC / cdn_scan_http（**唯一真源**）。
+  cdn_scan_http "$base" || fail=1
 
   if [ "$fail" = "0" ]; then
     echo "==> 体检通过（Windows 浏览器打开 ${base}/app/ 做最后一步肉眼看/听）"
@@ -106,6 +111,23 @@ if [ "$DO_CHECK" = "1" ]; then
     echo "==> 体检失败：见上面的 [FAIL]"
   fi
   exit "$fail"
+fi
+
+# ---- 0b) 产物离线体检（--check-dir）：只看构建产物目录，不需要服务 --------
+# 给 CI 用：flutter build web --no-web-resources-cdn 之后直接判产物。
+# 红线 K 的失效面在**构建期**，这一层就能抓住；--check 那层再多验托管层。
+if [ "$DO_CHECK_DIR_SET" = "1" ]; then
+  if [ -z "$DO_CHECK_DIR" ]; then
+    echo "[error] --check-dir 需要一个目录参数"
+    exit 2
+  fi
+  echo "==> 产物离线体检：$DO_CHECK_DIR（--check-dir；不需要服务）"
+  if cdn_scan_dir "$DO_CHECK_DIR"; then
+    echo "==> 产物体检通过（未发现 Google CDN CanvasKit 依赖）"
+    exit 0
+  fi
+  echo "==> 产物体检失败：见上面的 [FAIL]"
+  exit 1
 fi
 
 echo "==> Live2D-Ai 点火检查"

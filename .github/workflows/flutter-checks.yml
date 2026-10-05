@@ -60,3 +60,45 @@ jobs:
       - name: Test
         working-directory: shell/flutter
         run: flutter test
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: 前端**产物级**离线门禁（审计 F-0048-01 / F-0050-01）
+  #
+  # 红线 K（离线优先）：--no-web-resources-cdn 是**唯一**决定 CanvasKit 是否指向
+  # www.gstatic.com 的开关。缺省构建会把浏览器对 CanvasKit 的请求打到 Google CDN，
+  # 而 build/web/canvaskit/ 那份本地副本不被引用 ⇒ **断网即白屏**（本地优先的桌宠
+  # 不允许依赖 Google CDN）。
+  #
+  # 补洞前的状态：5 个 workflow 穷举下来零 flutter build、零产物 grep（F-0048-01），
+  # 而唯一会 grep 产物的 ignite.sh --check 又探错了文件（F-0050-01：index.html /
+  # main.dart.js 对 CDN 串命中 0，真正的决策在 flutter_bootstrap.js）。
+  # 本 job 让「漏开关」在 CI 里当场变红；探针清单与判定在 scripts/ignite.sh 的
+  # CDN_PROBE_SPEC / cdn_judge（**唯一真源**，--check 与 --check-dir 共用）。
+  # ────────────────────────────────────────────────────────────────────────────
+  flutter-web-offline-artifacts:
+    name: Flutter Web Offline Artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter (stable) + cache
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: shell/flutter
+        run: flutter pub get
+
+      # 与 AGENTS.md / ignite.sh 同一口径：必须带 --no-web-resources-cdn。
+      - name: "Build Flutter web (offline: no web resources CDN)"
+        working-directory: shell/flutter
+        run: flutter build web --release --base-href /app/ --no-web-resources-cdn
+
+      # 产物级断言：探针文件缺失 = 红（F-0050-01 的教训：静默跳过 = 假绿）。
+      - name: Offline artifact gate (no Google CDN CanvasKit)
+        run: ./scripts/ignite.sh --check-dir shell/flutter/build/web

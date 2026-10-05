@@ -131,3 +131,87 @@ jobs:
           echo "- **Date**: $(date -u)" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Commit**: ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Trigger**: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 4: 前端产物「构建 → 起真服务 → ignite.sh --check」（审计 F-0048-01）
+  #
+  # 与 flutter-checks.yml 的产物级门禁互补：那条检查**文件**，这条检查**服务实吐
+  # 字节**（curl 到的 HTTP 200 + 内容），把「托管层」也纳入验证。放 nightly 而不是
+  # PR 门禁：它要编 live2d-ai-desktop（含 cpal/ALSA），耗时与系统依赖都不适合每个 PR。
+  #
+  # CI 里没有 LLM/TTS 端点 —— 服务以**缺省配置**起（不配 toml/.env、无模型库）。
+  # 2026-10-05 本地以「空 cwd + 缺省配置 + 真二进制」实测：/app/ 首轮即 200，
+  # ignite.sh --check 四项全绿。起不来就**失败**（打印服务日志），不伪造绿灯。
+  #
+  # 未在真 runner 上验证的一点：ubuntu-latest 是否自带 libasound2-dev。这里先探测、
+  # 缺了才装（避免 build-upload.yml 里那个无条件 apt 步骤的反复 exit 100 形态）。
+  # ────────────────────────────────────────────────────────────────────────────
+  web-offline-serve-check:
+    name: Web Offline Serve Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter (stable) + cache
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: shell/flutter
+        run: flutter pub get
+
+      - name: "Build Flutter web (offline: no web resources CDN)"
+        working-directory: shell/flutter
+        run: flutter build web --release --base-href /app/ --no-web-resources-cdn
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          profile: minimal
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # cpal 在 Linux 经 ALSA：先探测，缺了才装。
+      - name: Ensure ALSA dev headers (cpal/ALSA on Linux)
+        run: |
+          if pkg-config --modversion alsa >/dev/null 2>&1; then
+            echo "libasound2-dev 已在 runner 上，跳过 apt"
+          else
+            sudo apt-get -o Acquire::Retries=3 update
+            sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends libasound2-dev pkg-config
+          fi
+
+      - name: Build desktop server binary
+        run: cargo build -p live2d-ai-desktop
+
+      - name: Start server (default config, loopback)
+        env:
+          LIVE2D_AI_FLUTTER_WEB_DIR: ${{ github.workspace }}/shell/flutter/build/web
+          LIVE2D_AI_MUTE_AUDIO: "1"
+        run: |
+          ./target/debug/live2d-ai-desktop --web --http-port 18080 > /tmp/serve.log 2>&1 &
+          up=0
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:18080/app/ || true)
+            if [ "$code" = "200" ]; then up=1; echo "服务在第 $i 秒就绪"; break; fi
+            sleep 1
+          done
+          if [ "$up" != "1" ]; then
+            echo "::error::服务 60s 内未就绪（/app/ 非 200）"
+            tail -80 /tmp/serve.log
+            exit 1
+          fi
+
+      # 真服务体检：/ → 302 /app/、/app/ → 200、四类产物文件离线判定。
+      - name: Ignition check (hosting + offline red line)
+        run: ./scripts/ignite.sh --check --port 18080
+
+      - name: Server log (always)
+        if: always()
+        run: tail -120 /tmp/serve.log
