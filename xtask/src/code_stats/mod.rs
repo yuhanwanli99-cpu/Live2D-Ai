@@ -100,7 +100,34 @@ const RATCHET_SRC_RS_500: u64 = 44;
 /// 同一文件里 flutter-split 还要收紧 Dart 棘轮，两个 worker 不同时写它。
 /// 分差只有一次提交，且 `c3d79772` 的 message 里写明了实测值（44 / 0）。
 const RATCHET_SRC_RS_1000: u64 = 0;
-const RATCHET_DART_800: u64 = 7;
+/// `shell/flutter/lib` 里 > 800 行的 `.dart` 文件数（Dart 侧的体量门禁）。
+///
+/// 立档 **7**（PLAN §2.4 的 D0 体量基线：dev_tools_section 2096 /
+/// appearance_background 1556 / main 1405 / display_prefs 1169 / app_shell 998 /
+/// design/tokens 950 / api/settings_models 931）。
+///
+/// **已收紧到 2**（2026-10-05 债轮 R4-T2，同批）：7 → 2，PLAN §5 的 ≤2 达成
+/// （`--strict-plan` 这一项从此不再是「合规欠账」）。五个文件的去向：
+/// `dev_tools_section.dart` 2109 → 441 + `dev_tools_{mods,mod_config,diagnostics,
+/// developer}.dart`；`appearance_background.dart` 1552 → 724 +
+/// `appearance_background_{library,style}.dart`；`tokens.dart` 950 → 670 +
+/// `tokens_{material,motion}.dart`；`settings_models.dart` 931 → 439 +
+/// `settings_models_{patch,result}.dart`；`app_shell.dart` 998 → 367 +
+/// `app_shell_state.dart`。全部走 `part`/`part of`（继承库的 import，零可见性
+/// 改动）；**类体不能跨 part**，所以切割线只落在顶层类边界。
+///
+/// 剩下 2 个是**如实留债**，不是没看见：`main.dart` 1411（17 条源码扫描守卫
+/// 直接读它，重排会让守卫失效——先改守卫再拆，属于下一轮）；
+/// `display_prefs.dart` 1169（`DisplayPrefs` 是**单个 972 行的类**，类体不能跨
+/// part，就地只余「类分解」——行为相邻，不属「只搬不改」这一轮）。
+///
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check`（2 ≤ 2 = PASS）。
+///
+/// **交接说明（诚实栏）**：Dart 计数下降在其前的独立 commit `47992f82`
+/// （只带 `shell/flutter/{lib,test}`，message 里写明实测值 2）；本常量收紧在其后
+/// 的独立 commit —— 与 `RATCHET_SRC_RS_*` 同属 Lead 对**共享文件**的串行化裁决
+/// （同一文件里 R4-T1 与 R4-T2 不同时写）。分差只有一次提交。
+const RATCHET_DART_800: u64 = 2;
 /// 2026-10-01（W2-B / D1 第二段）：原生壳岛移出后实测 **25**（34 → 25，真删
 /// `wgpu` `winit` `pollster` `egui` `egui-winit` `egui-wgpu` `raw-window-handle`
 /// `ksni` `url` 九条）。按 F-V0-9 纪律**同一 commit 收紧**——降了不收紧，回头
