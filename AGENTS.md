@@ -519,8 +519,13 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   被队友回源码证伪**（`showRuntimeState` 缺省 `true`）⇒ 改判为**契约反转**：该块 = **没有专用面板的 Mod 的兜底面**，删掉死旗标 `showRuntimeState`。
   ⑥ **安全 P1（F-0616-01）**：`scripts/deploy_android.sh` 自 **v0.1.0-rc.1 根提交**起就在公开远端，头注/默认值写死**手机锁屏口令**。
   删脚本；`check_public_secrets.py` 补「文字口令 / 纯数字口令 / 中文『密码:』」三类模式（旧四条只认云厂商 key 形状）；台账摘录**脱敏**；
-  中文模式收紧到「值必须像凭据」（起因是实测误报）。扫描面 **2022 个 tracked 文件 0 命中**。**历史里的原文仍在** ⇒ 只有重写历史 +
-  force-push 才能从远端抹掉，**轮换口令才是真正的修复**（未授权，本轮未动历史）。
+  中文模式收紧到「值必须像凭据」（起因是实测误报）。扫描面 **2022 个 tracked 文件 0 命中**。
+  **维护者随后授权并给出令牌 ⇒ 同日执行历史清洗并推送**：`git filter-repo` 从**全部 573 个提交**删除该路径 + 替换两个标识串；
+  新旧 `main` 的**树哈希相同**（只动历史）、逐 ref 比对 100 个 ref **0 处意外**、两个 needle 0 命中；随后 force-push `main` 与
+  `mainline/1-core-baseline`、重写 6 个远端 tag、新增 `v0.2.0`/`v0.2.1-rc.1`。执行记录
+  `docs/audit/2026-10-06-purge/PURGE-RECORD.md`（含独立验证 `PURGE-VERIFY.md`）。**仍残留**：GitHub 托管的
+  `refs/pull/1/head` 与旧对象缓存**我们删不掉** ⇒ **轮换手机锁屏口令才是真正的修复**（维护者动作）。同日发布
+  **`v0.2.1-rc.1`**（GitHub pre-release，说明见 `docs/releases/v0.2.1-rc.1.md`）。
   ⑦ **仓库治理**：审计台账 952 文件从工作树根未跟踪的 `AUDIT-REPO/` 并入 `docs/audit/2026-10-05-ledger/`（附 README：归档理由、
   已关闭条目、**仍未关闭的 6 条 P1**、已撤回 5 条）；`web-ui-spec-v3.md` 的豁免口径改为现行的「路径前缀 + 处数上限」；三处历史文档补更名注记。
   ⑧ **门禁（终局实测）**：cargo **1311/0** · doc **3** · fmt clean · clippy **0** · rust-ratio **96.0927%** PASS · code-stats PASS
