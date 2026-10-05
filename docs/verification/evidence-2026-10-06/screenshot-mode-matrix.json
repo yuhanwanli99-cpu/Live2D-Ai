@@ -1,0 +1,215 @@
+{
+  "title": "截图模式矩阵 —— captureBeyondViewport 是「不拿空白帧」的开关",
+  "when": "2026-10-06",
+  "how": "node /tmp/mode_test.mjs（一次性诊断脚本；Page.bringToFront + 同一页面连续 8 次采样，每次同刻跑 4 种截图参数）",
+  "page": {
+    "url": "http://127.0.0.1:18080/app/",
+    "viewport": "1440x900"
+  },
+  "modes": {
+    "A_plain": "{format:'png'}（本次改动前的写法）",
+    "B_beyond": "{format:'png', captureBeyondViewport:true}",
+    "C_view": "{format:'png', fromSurface:false}",
+    "D_clipBeyond": "{format:'png', captureBeyondViewport:true, clip:{1100,52,340,848}}"
+  },
+  "conclusion": [
+    "A_plain 在 8 次采样里出现 1 次 100% 纯白（5851 B），其余 51899 B（真画面）。",
+    "B_beyond / C_view 8/8 都是 51899 B 真画面（主导色 ffffff 71.57% = 舞台 iframe 面积，其余是壳）。",
+    "D_clipBeyond 8/8 都是 34484 B 真内容（主导色 111111 92.37% = 壳的聊天面板列）⇒ 只要带 captureBeyondViewport，clip 也能拿到内容；但本探针仍统一改成「整页帧 + png_stats --crop」，少一个变量。",
+    "⇒ 采用 SHOT_PARAMS = {format:'png', captureBeyondViewport:true}，且不再传 clip。"
+  ],
+  "rows": [
+    {
+      "t": 3000,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 1,
+        "bytes": 5851
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 5605,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 8001,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 10428,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 14001,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 18001,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 23001,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    },
+    {
+      "t": 28000,
+      "state": "{\"vis\":\"visible\",\"focus\":true,\"glass\":true,\"html\":4017,\"theme\":null}",
+      "A_plain": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "B_beyond": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "C_view": {
+        "hex": "ffffff",
+        "share": 0.7157,
+        "bytes": 51899
+      },
+      "D_clipBeyond": {
+        "hex": "111111",
+        "share": 0.9237,
+        "bytes": 34484
+      }
+    }
+  ]
+}

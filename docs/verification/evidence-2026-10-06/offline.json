@@ -1,0 +1,84 @@
+{
+  "externalUrls": [],
+  "failures": [],
+  "pixelsShell": {
+    "file": "/home/skystar/Live2D-Ai-fe/docs/verification/evidence-2026-10-06/offline-blocked-external.png",
+    "w": 1440,
+    "h": 900,
+    "crop": "1100,52,1440,900",
+    "pixels": 288320,
+    "channels": {
+      "r": 23.58,
+      "g": 23.58,
+      "b": 32.25
+    },
+    "redness": -4.33,
+    "brightness": {
+      "mean": 0.0949,
+      "p10": 0.0723,
+      "p50": 0.0723,
+      "p90": 0.0723
+    },
+    "chroma": {
+      "mean": 11.19,
+      "p50": 10,
+      "p90": 10
+    },
+    "dominant": [
+      {
+        "hex": "111111",
+        "share": 0.9237
+      },
+      {
+        "hex": "111122",
+        "share": 0.0285
+      },
+      {
+        "hex": "eeeeee",
+        "share": 0.0065
+      },
+      {
+        "hex": "aaaabb",
+        "share": 0.0028
+      },
+      {
+        "hex": "333344",
+        "share": 0.0025
+      },
+      {
+        "hex": "222233",
+        "share": 0.0023
+      },
+      {
+        "hex": "777788",
+        "share": 0.0022
+      },
+      {
+        "hex": "9999aa",
+        "share": 0.0021
+      }
+    ]
+  },
+  "shotBytes": 51899,
+  "paint": {
+    "paintedAfterMs": 604,
+    "dominant": {
+      "hex": "111111",
+      "share": 0.9237
+    },
+    "bytes": 51899,
+    "crop": "1100,52,1440,900",
+    "samples": [
+      {
+        "at": 603,
+        "bytes": 51899,
+        "dominant": {
+          "hex": "111111",
+          "share": 0.9237
+        },
+        "blank": false
+      }
+    ]
+  },
+  "hud": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 48.3 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.58 blO567"
+}

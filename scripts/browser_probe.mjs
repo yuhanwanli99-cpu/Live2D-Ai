@@ -7,31 +7,63 @@
  *   scenario 逗号分隔，可选项见 SCENARIOS
  *
  * 幂等、可一键重跑：每个 scenario 自建 page（Target.createTarget → 用完 close），
- * 不改仓库任何源码，只写 docs/verification/evidence-2026-10-05/**。
+ * 不改仓库任何源码，只写 docs/verification/evidence-2026-10-06/**。
  * 环境变量覆盖：PROBE_BASE / PROBE_CDP / PROBE_OUT。
  *
  * 设计纪律：
  * - 只写证据，不"顺手修"页面；页面里跑的全是真实浏览器行为。
  * - 断不了言的写 manual-only，不写 pass（本项目教训：自检说谎比没有自检更坏）。
  * - 每个 scenario 的原始事件（网络 / 控制台）落 JSON，判定字符串落在 run.json。
+ * - **截图纪律**（2026-10-06 实测修正，见 SHOT_PARAMS 头注）：一律整页截图
+ *   （带 captureBeyondViewport），**不传 clip**，裁剪交给 png_stats 的 --crop。
+ *   拿到「整帧单色平帧（纯白等）」= 无头合成器的空白帧 ⇒ 该条判 **blocked（环境）**，
+ *   **不得**降级成产品 fail。
+ * - 背景注入走**真字节库**（IndexedDB，产品 schema），不是往 localStorage 塞 dataUrl
+ *   （v0.2.0 水合只认 id，塞 dataUrl 会被水合按「旧档搬运 + 剪枝」的时序吃掉）。
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
-const OUT = process.env.PROBE_OUT || join(ROOT, 'docs/verification/evidence-2026-10-05');
+const OUT = process.env.PROBE_OUT || join(ROOT, 'docs/verification/evidence-2026-10-06');
 const BASE = process.env.PROBE_BASE || 'http://127.0.0.1:18080';
 const CDP_HTTP = process.env.PROBE_CDP || 'http://127.0.0.1:9222';
 const APP = BASE + '/app/';
 const VW = 1440, VH = 900;
+// ── 截图参数（判据真源；2026-10-06 实测，原始矩阵见 evidence-2026-10-06/screenshot-mode-matrix.json）──
+//
+// **两条都实测过；缺任一条都会拿到「全白帧」，而全白帧不是产品状态。**
+//
+// 1. captureBeyondViewport: true —— 同一时刻、同一页面，本环境下不带它时
+//    Page.captureScreenshot 可能回一整帧纯白（实测 5851 B / 100% ffffff），
+//    带上它则是真画面（51899 B；主导色 ffffff 71.6% 恰好是舞台 iframe 那块
+//    WebGPU canvas，其余 28% 是壳）。它把「回放合成器上一帧」换成「强制重新光栅化」，
+//    无头 swiftshader 下前者会给空白帧。
+// 2. **不传 clip** —— 实测在「整页截图有内容」的同一时刻（t=3000ms），带 clip 的
+//    截图仍是 100% 纯白（340x848 全白，2434 B），而整页帧是内容帧（53131 B，
+//    主导色 000000 77%）。clip 走的是另一条裁剪捕获路径。所以裁剪一律在
+//    拿到整页帧之后用 png_stats.py --crop 做（脚本里的 py([shot,'--crop',...])）。
+const SHOT_PARAMS = { format: 'png', captureBeyondViewport: true };
+// 壳那一半（**不含**舞台 iframe）：舞台 canvas 在无头截图里恒为纯白，
+// 背景 / 主题只能在这一半上量。x 1100..1440 = 聊天面板列，y 52..900。
+const SHELL_CROP = '1100,52,1440,900';
 const PREFS_KEY = 'live2d-ai.display-prefs';
-const PNG_STATS = join(OUT, 'png_stats.py');
+// 像素统计器：优先用**本轮证据目录**里的那份（自包含），没有就回落到
+// docs/verification/evidence-2026-10-05/png_stats.py（零依赖 stdlib 脚本，
+// 两处是同一份；10-05 那份**不属于本轮写权限**，所以只读、不改）。
+const PNG_STATS = (() => {
+  const local = join(OUT, 'png_stats.py');
+  if (existsSync(local)) return local;
+  const shared = join(ROOT, 'docs/verification/evidence-2026-10-05/png_stats.py');
+  if (existsSync(shared)) return shared;
+  throw new Error('找不到 png_stats.py：' + OUT + ' 与 ' + shared + ' 都没有');
+})();
 
-for (const d of ['', 'bg', 'themes', 'stage', 'ui', 'fonts', 'settings', 'stage-class']) mkdirSync(join(OUT, d), { recursive: true });
+for (const d of ['', 'bg', 'themes', 'stage', 'ui', 'fonts', 'settings', 'stage-class', 'audio']) mkdirSync(join(OUT, d), { recursive: true });
 
 // ───────────────────────────── 结果记录 ─────────────────────────────
 const RESULTS = [];
@@ -42,6 +74,126 @@ function rec(id, title, verdict, evidence, confidence = 'high', repro = '') {
 }
 function save(name, obj) { writeFileSync(join(OUT, name), JSON.stringify(obj, null, 2)); }
 function py(args) { return JSON.parse(execFileSync('python3', [PNG_STATS, ...args, '--json'], { encoding: 'utf8' })); }
+
+// ─────────────────── 截图「可判读性」判据（唯一真源） ───────────────────
+/** 整帧是不是**单色平帧**：主导色占比 > 99.9%。这种帧没有任何信息量。 */
+function flatFrame(st) { return !!(st && st.dominant && st.dominant[0] && st.dominant[0].share > 0.999); }
+/** 整帧 100% 纯白：本环境「无头合成器空白帧」的签名。
+ *
+ * 为什么纯白就是空白帧而不是产品状态：本探针的判据场景都在**默认黑主题**下取像素
+ *（loadApp({clear:true}) 清掉偏好后 theme 回落 black），壳区不可能 100% 纯白；
+ * 而实测在「同一时刻整页帧有内容」时，带 clip 的捕获偏偏回的就是 100% 纯白
+ *（见 SHOT_PARAMS 头注 2）。所以「壳区 100% 纯白平帧」= 这一枪不可判读
+ * ⇒ 判 **blocked（环境）**，不是产品缺陷。
+ *
+ * 注意：白主题下壳区本来就白，但那是**主题判据**（themes 场景用 12 条面带量），
+ * 不走这条；这条只在默认黑主题的截图上用。 */
+function blankWhite(st) { return flatFrame(st) && st.dominant[0].hex === 'ffffff'; }
+/** 一次像素统计：整页截图 → 进程内裁剪（不依赖 CDP clip）。 */
+async function shotStats(page, name, crop = null) {
+  const p = await page.shot(name);
+  const st = crop ? py([p, '--crop', crop]) : py([p]);
+  return { path: p, bytes: statSync(p).size, stats: st, blank: blankWhite(st) };
+}
+
+/** 一张背景图的 id —— 与 Dart 的 backgroundIdOf **同算法**（djb2 变体，
+ * h = (h*33 + codeUnit) mod (2^31-1)，初值 5381，输出 'bg' + 8 位十六进制）。
+ * 真源：shell/flutter/lib/design/background_item.dart 的 backgroundFingerprint。
+ * 为什么必须一致：id 同时是 IndexedDB 的键与偏好里的身份；不一致就会被水合
+ * 当成「两个不同的项」，或留下读不回来的孤儿记录。 */
+function backgroundIdOf(dataUrl) {
+  let h = 5381;
+  for (let i = 0; i < dataUrl.length; i++) h = (h * 33 + dataUrl.charCodeAt(i)) % 0x7fffffff;
+  return 'bg' + h.toString(16).padStart(8, '0');
+}
+
+/** 在每个新文档里记录 WebSocket 帧（目标 B 的 WS 判据）。
+ *
+ * **只留投影**：audio 帧记 start/end/sentence_seq/样本数，正文帧记字符数，
+ * error 帧记 code/stage/message。整段 base64 PCM **不进记录**（几 MB 会把
+ * 页面和证据 JSON 一起撑爆）。帧 schema 真源：
+ * crates/live2d-ai-desktop/src/web_api/ws/audio.rs（{"type":"audio","data":{...}}）。
+ *
+ * 用 patch 构造函数而不是 Network.webSocketFrameReceived 的理由：前者一定拿到
+ * **文本原文**（Network 域的 payload 在大帧上可能给不完整数据），且与页面同栈。
+ * 代价是必须在页面任何脚本之前注入 —— spyWs() 走
+ * Page.addScriptToEvaluateOnNewDocument，即在真正 loadApp 之前。 */
+const WS_NL = String.fromCharCode(10);
+const WS_SPY_SOURCE = [
+  '(function () {',
+  "  window.__ws = { opened: 0, url: null, frames: [], closes: [], errors: [] };",
+  "  var Orig = window.WebSocket;",
+  "  function Spy(url, protocols) {",
+  "    var ws = protocols === undefined ? new Orig(url) : new Orig(url, protocols);",
+  "    window.__ws.opened += 1; window.__ws.url = String(url);",
+  "    ws.addEventListener('message', function (ev) {",
+  "      var d = String(ev.data); var rec = { len: d.length };",
+  "      try {",
+  "        var j = JSON.parse(d); var x = j.data || {}; rec.type = j.type;",
+  "        if (j.type === 'audio') {",
+  "          var chars = (typeof x.audio === 'string') ? x.audio.length : -1;",
+  "          var bytes = 0;",
+  "          if (chars > 0) { try { bytes = atob(x.audio).length; } catch (e) { bytes = -1; } }",
+  "          rec.audioChars = chars; rec.audioBytes = bytes; rec.samples = bytes > 0 ? bytes / 2 : 0;",
+  "          rec.start = x.start === true; rec.end = x.end === true;",
+  "          rec.sentence_seq = (typeof x.sentence_seq === 'number') ? x.sentence_seq : null;",
+  "          rec.sample_rate = x.sample_rate || null; rec.slice_ms = x.slice_ms || null;",
+  "          rec.volume = (typeof x.volume === 'number') ? x.volume : null; rec.muted = x.muted === true;",
+  "        } else if (j.type === 'error') {",
+  "          rec.error = { code: x.code, stage: x.stage, message: String(x.message || '').slice(0, 200), fatal: x.fatal === true };",
+  "        } else if (j.type === 'text_delta' || j.type === 'reasoning_delta' || j.type === 'text_fallback' || j.type === 'text') {",
+  "          rec.textChars = (typeof x.text === 'string') ? x.text.length : -1;",
+  "        }",
+  "      } catch (e) { rec.raw = d.slice(0, 160); }",
+  "      window.__ws.frames.push(rec);",
+  "    });",
+  "    ws.addEventListener('close', function () { window.__ws.closes.push(Date.now()); });",
+  "    ws.addEventListener('error', function () { window.__ws.errors.push(Date.now()); });",
+  "    return ws;",
+  "  }",
+  "  Spy.prototype = Orig.prototype;",
+  "  var K = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];",
+  "  for (var i = 0; i < K.length; i++) Spy[K[i]] = Orig[K[i]];",
+  "  window.WebSocket = Spy;",
+  "})();",
+].join(WS_NL);
+
+/** 把一次会话的 WS 音频帧**归并成句子**（纯函数，给判定与证据共用）。
+ *
+ * 为什么按 sentence_seq 归并而不是整体计数：task 书上那条老缺陷正是
+ * 「0 个 start、N 个 end」——总数看不出这种事，只有**逐句**才看得出。 */
+function summarizeAudioFrames(frames) {
+  const audio = frames.filter((f) => f && f.type === 'audio');
+  const bySeq = new Map();
+  for (const f of audio) {
+    const seq = f.sentence_seq === null || f.sentence_seq === undefined ? 'null' : f.sentence_seq;
+    if (!bySeq.has(seq)) bySeq.set(seq, { seq, frames: 0, starts: 0, ends: 0, samples: 0, maxVolume: 0, muted: false });
+    const g = bySeq.get(seq);
+    g.frames += 1;
+    if (f.start) g.starts += 1;
+    if (f.end) g.ends += 1;
+    g.samples += f.samples || 0;
+    if (typeof f.volume === 'number' && f.volume > g.maxVolume) g.maxVolume = f.volume;
+    if (f.muted) g.muted = true;
+  }
+  const sentences = [...bySeq.values()].sort((a, b) => String(a.seq).localeCompare(String(b.seq), 'en', { numeric: true }));
+  const seqs = sentences.map((s) => s.seq).filter((s) => s !== 'null');
+  const numeric = seqs.map(Number).filter((n) => Number.isFinite(n));
+  const strictlyIncreasingFrom1 = numeric.length > 0 && numeric[0] === 1 &&
+    numeric.every((n, i) => i === 0 || n > numeric[i - 1]);
+  return {
+    audioFrames: audio.length,
+    sentences,
+    totalStarts: audio.filter((f) => f.start).length,
+    totalEnds: audio.filter((f) => f.end).length,
+    totalSamples: audio.reduce((a, f) => a + (f.samples || 0), 0),
+    anyMuted: audio.some((f) => f.muted === true),
+    seqs, strictlyIncreasingFrom1,
+    everySentenceOneStartOneEnd: sentences.length > 0 && sentences.every((s) => s.starts === 1 && s.ends === 1),
+    otherTypes: [...new Set(frames.map((f) => f.type || 'raw'))],
+  };
+}
+
 
 // ───────────────────────────── 小工具 ─────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -181,31 +333,44 @@ class Page {
     if (r.exceptionDetails) throw new Error('page eval 抛错：' + r.exceptionDetails.text + ' ' + ((r.exceptionDetails.exception || {}).description || ''));
     return r.result.value;
   }
+  /** **整页**截图（不带 clip，见 SHOT_PARAMS 头注）。opts 保留只为兼容旧调用点，
+   *  **不再**接受 clip —— 带 clip 的捕获在本环境会稳定回纯白帧。裁剪请用 png_stats --crop。 */
   async shot(name, opts = {}) {
-    const params = { format: 'png' };
-    if (opts.clip) params.clip = { ...opts.clip, scale: 1 };
-    const r = await this.send('Page.captureScreenshot', params);
+    if (opts.clip) throw new Error('shot() 不再支持 clip（见 SHOT_PARAMS 头注）：请用 png_stats --crop');
+    const r = await this.send('Page.captureScreenshot', SHOT_PARAMS);
     const p = join(OUT, name);
     writeFileSync(p, Buffer.from(r.data, 'base64'));
     return p;
   }
-  /** 等「真的画出来了」：无头 swiftshader 下**首张截图可能是纯白**
-   * （实测：同一页面在 16s 后才拍到内容，之前 4 张全白）。
-   * 用一个小裁剪反复截图 + 纯 stdlib 像素统计判定，最多等 40s。 */
-  async waitForPaint(timeoutMs = 40000, clip = { x: 1100, y: 52, width: 340, height: 848 }) {
+  /** 等「真的画出来了」。
+   *
+   * 判据：**整页**截图（captureBeyondViewport）→ png_stats `--crop` 取壳区 →
+   * 不是「100% 纯白平帧」（见 blankWhite）。最多等 timeoutMs。
+   *
+   * 返回 {paintedAfterMs, dominant, bytes, crop, samples}；一直判不出来时
+   * paintedAfterMs = null 并带 why —— 调用方据此判 **blocked（环境）**，
+   * 不是产品 fail（task-7 目标 A2 的硬要求）。*/
+  async waitForPaint(timeoutMs = 40000, crop = SHELL_CROP) {
+    const samples = [];
     const t0 = Date.now();
     while (Date.now() - t0 < timeoutMs) {
       try {
-        const r = await this.send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } });
-        writeFileSync('/tmp/probe-paint.png', Buffer.from(r.data, 'base64'));
-        const st = py(['/tmp/probe-paint.png']);
-        if (!(st.dominant[0].hex === 'ffffff' && st.dominant[0].share > 0.999)) {
-          return { paintedAfterMs: Date.now() - t0, dominant: st.dominant[0] };
+        const r = await this.send('Page.captureScreenshot', SHOT_PARAMS);
+        const buf = Buffer.from(r.data, 'base64');
+        writeFileSync('/tmp/probe-paint.png', buf);
+        const st = py(['/tmp/probe-paint.png', '--crop', crop]);
+        const white = blankWhite(st);
+        samples.push({ at: Date.now() - t0, bytes: buf.length, dominant: st.dominant[0], blank: white });
+        if (!white) {
+          return { paintedAfterMs: Date.now() - t0, dominant: st.dominant[0], bytes: buf.length, crop, samples };
         }
-      } catch { /* 截图期间导航 */ }
+      } catch (e) { samples.push({ at: Date.now() - t0, error: String(e.message).slice(0, 120) }); }
       await sleep(1500);
     }
-    return { paintedAfterMs: null, dominant: null };
+    return {
+      paintedAfterMs: null, dominant: null, bytes: null, crop, samples,
+      why: timeoutMs + ' ms 内整页截图在壳区(' + crop + ')始终是 100% 纯白平帧（无头合成器空白帧）',
+    };
   }
   async waitFor(expr, timeoutMs = 30000, label = expr) {
     const t0 = Date.now();
@@ -226,6 +391,14 @@ class Page {
     await this.send('Page.addScriptToEvaluateOnNewDocument', {
       source: "window.__msgs = []; var _add = window.addEventListener; window.addEventListener = function (t, f, o) { if (t === 'message') { _add.call(window, 'message', function (ev) { try { window.__msgs.push(String(ev.data)); } catch (e) {} }); } return _add.call(this, t, f, o); };",
     });
+  }
+  /** 在建页之前注入 WS 帧记录器（见 WS_SPY_SOURCE 头注）。 */
+  async spyWs() {
+    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: WS_SPY_SOURCE });
+  }
+  /** 读 WS 记录器（需要先 spyWs 且页面已加载过）。 */
+  wsFrames() {
+    return this.evaluate('window.__ws || null');
   }
   /** 读 iframe 收到的帧（需要先 spyFrames）。 */
   frames() {
@@ -249,13 +422,71 @@ class Page {
     await sleep(opts.settleMs === undefined ? 6000 : opts.settleMs);
     this.lastPaint = await this.waitForPaint();
   }
+  /** 写偏好并重载。
+   *
+   * **背景库走真字节库**（task-7 目标 A3）：patch.backgrounds 里的 dataUrl 会被
+   * 写进 IndexedDB（产品 schema），localStorage 里只留 {kind:'image', id} ——
+   * 与产品「导入图片」之后落盘的样子**逐字段一致**。为什么不能只往 localStorage
+   * 塞 dataUrl：v0.2.0 的水合会认 id 不认 dataUrl（DisplayPrefs.toJson 只写 id），
+   * 而注入与产品水合谁先跑不确定，旧写法读回 dataUrl=null（len:0）就是这么来的。 */
   async setPrefs(patch) {
     const raw = await this.evaluate('localStorage.getItem(' + J(PREFS_KEY) + ')');
     const cur = raw ? JSON.parse(raw) : {};
-    await this.evaluate('localStorage.setItem(' + J(PREFS_KEY) + ',' + J(J({ ...cur, ...patch })) + ')');
+    const next = { ...cur, ...patch };
+    if (Array.isArray(patch.backgrounds)) next.backgrounds = await this.storeBackgroundBytes(patch.backgrounds);
+    await this.evaluate('localStorage.setItem(' + J(PREFS_KEY) + ',' + J(J(next)) + ')');
     await this.reload();
     await sleep(4000);
     this.lastPaint = await this.waitForPaint();
+  }
+  /** 把 [{kind:'image', dataUrl}] 写进 IndexedDB 字节库，返回偏好该留的 id-only 清单。
+   *
+   * schema 真源：shell/flutter/lib/data/background_store_web.dart
+   *   db = 'live2d-ai'（version 1），store = 'backgrounds'（**out-of-line key**），
+   *   key = 背景 id（bg + 8 位十六进制），value = dataURL 字符串。
+   * id 由内容算：backgroundIdOf() 与 Dart 的 backgroundFingerprint 同算法
+   *   （djb2：h = (h*33 + codeUnit) mod (2^31-1)，初值 5381）。
+   * 若不是图片项 / 没有 dataUrl，则**原样保留**（只当搬运工，不替产品做判断）。 */
+  async storeBackgroundBytes(items) {
+    const plan = items
+      .filter((it) => it && it.kind === 'image' && typeof it.dataUrl === 'string' && it.dataUrl.length > 0)
+      .map((it) => ({ id: it.id || backgroundIdOf(it.dataUrl), dataUrl: it.dataUrl }));
+    if (!plan.length) return items;
+    const ids = await this.evaluate(
+      '(async () => {' +
+      '  const plan = ' + J(plan) + ';' +
+      "  const db = await new Promise((res, rej) => { const req = indexedDB.open('live2d-ai', 1);" +
+      "    req.onupgradeneeded = () => { const d = req.result; if (!d.objectStoreNames.contains('backgrounds')) d.createObjectStore('backgrounds'); };" +
+      '    req.onsuccess = () => res(req.result); req.onerror = () => rej(new Error(\'idb open error\')); req.onblocked = () => rej(new Error(\'idb open blocked\')); });' +
+      "  const out = await new Promise((res, rej) => { const tx = db.transaction(['backgrounds'], 'readwrite'); const s = tx.objectStore('backgrounds');" +
+      '    for (const p of plan) s.put(p.dataUrl, p.id);' +
+      "    tx.oncomplete = () => res(plan.map((p) => p.id)); tx.onabort = () => rej(new Error('tx abort')); tx.onerror = () => rej(new Error('tx error')); });" +
+      '  db.close(); return out; })()');
+    let k = 0;
+    return items.map((it) => {
+      if (it && it.kind === 'image' && typeof it.dataUrl === 'string' && it.dataUrl.length > 0) {
+        const id = ids[k++] || backgroundIdOf(it.dataUrl);
+        const out = { kind: 'image', id };
+        for (const f of ['opacity', 'fit', 'align']) if (it[f] !== undefined) out[f] = it[f];
+        return out;
+      }
+      return it;
+    });
+  }
+  /** 字节库里现有哪些 id（证明字节真的落进了 IndexedDB，而不是只写在偏好里）。 */
+  async idbKeys() {
+    return this.evaluate(
+      '(async () => {' +
+      "  const db = await new Promise((res, rej) => { const req = indexedDB.open('live2d-ai', 1);" +
+      "    req.onupgradeneeded = () => { const d = req.result; if (!d.objectStoreNames.contains('backgrounds')) d.createObjectStore('backgrounds'); };" +
+      '    req.onsuccess = () => res(req.result); req.onerror = () => rej(new Error(\'idb open error\')); });' +
+      "  const keys = await new Promise((res, rej) => { const tx = db.transaction(['backgrounds'], 'readonly'); const s = tx.objectStore('backgrounds');" +
+      "    const r = s.getAllKeys(); r.onsuccess = () => res(r.result); r.onerror = () => rej(new Error('keys error')); });" +
+      '  db.close(); return keys; })()');
+  }
+  /** 页面上真实存在的媒体元素（目标 B 的「前端真的建了 <audio> 并播放」判据）。 */
+  audioElements() {
+    return this.evaluate("[...document.querySelectorAll('audio')].map(function (a) { var s = a.currentSrc || a.src || ''; return { src: s.slice(0, 60), blob: s.indexOf('blob:') === 0, duration: a.duration, currentTime: a.currentTime, paused: a.paused, readyState: a.readyState, muted: a.muted, volume: a.volume }; })");
   }
   async wipePrefs() {
     await this.evaluate('localStorage.clear()');
@@ -412,7 +643,19 @@ async function scenarioNet(browser) {
     await page.shot('shell-after-load.png');
     const urls = page.net.requests.map((r) => r.url);
     const ext = externalUrls(urls);
-    save('net.json', { requests: page.net.requests, responses: page.net.responses, failures: page.net.failures, console: page.console, exceptions: page.exceptions, logs: page.logs });
+    // 跨源请求按 host 分类（**只打印，不当判据**）：R4-T4 正在改字体回落
+    // （web/flutter_bootstrap.js），落地后这条应当变成「0 条跨源」；
+    // 最终判定由 Lead 在全量重建后跑，这里只如实给出分类与原始 URL。
+    const appOrigin = new URL(APP).origin;
+    const crossOrigin = page.net.requests.filter((r) => { try { return new URL(r.url).origin !== appOrigin; } catch { return false; } });
+    const crossByHost = {};
+    for (const r of crossOrigin) { const h = hostOf(r.url); crossByHost[h] = (crossByHost[h] || 0) + 1; }
+    save('net-crossorigin.json', { appOrigin, count: crossOrigin.length, byHost: crossByHost, urls: crossOrigin.map((r) => r.url) });
+    save('net.json', { requests: page.net.requests, responses: page.net.responses, failures: page.net.failures, console: page.console, exceptions: page.exceptions, logs: page.logs, crossOriginByHost: crossByHost });
+    rec('1d', '跨源请求按 host 分类（只打印，不当判据）', 'manual-only',
+      crossOrigin.length === 0 ? '0 条跨源请求（同源清单：' + [...new Set(urls.map(hostOf))].join(',') + '）'
+        : crossOrigin.length + ' 条：' + JSON.stringify(crossByHost),
+      'high', 'node scripts/browser_probe.mjs net（原始见 net-crossorigin.json）');
     rec('1a', '加载 /app/ 后零外部源请求', ext.length === 0 ? 'pass' : 'fail',
       '共 ' + urls.length + ' 条请求，外部源 ' + ext.length + ' 条' + (ext.length ? '：' + ext.join(', ') : '') +
       '；hosts=' + [...new Set(urls.map(hostOf))].join(','), 'high',
@@ -463,20 +706,34 @@ async function scenarioOffline(browser) {
     await page.send('Network.setBlockedURLs', { urls: ['*://*.gstatic.com/*', '*://*.googleapis.com/*', '*://*.google.com/*', '*://*.gstatic.cn/*', '*://*.googletagmanager.com/*'] });
     page.recording = true;
     await page.loadApp({ clear: true, settleMs: 10000 });
-    const shot = await page.shot('offline-blocked-external.png');
-    const st = py([shot]);
+    // 整页截图 + 进程内裁剪（不带 clip）；壳区像素才是「有没有画出来」的判据。
+    const shot = await shotStats(page, 'offline-blocked-external.png', SHELL_CROP);
+    const st = shot.stats;
     const shotStage = await page.shot('stage/offline-stage.png');
     const ext = externalUrls(page.net.requests.map((r) => r.url));
     const blocked = page.net.failures.filter((f) => f.blockedReason);
     const hudText = await page.hud();
-    save('offline.json', { externalUrls: ext, failures: page.net.failures, pixels: st, hud: hudText });
-    // 「有没有真的画出来」的判据：单一主导色的占比不接近 1（纯色/白屏 ⇒ 无 UI）。
+    save('offline.json', { externalUrls: ext, failures: page.net.failures, pixelsShell: st, shotBytes: shot.bytes, paint: page.lastPaint, hud: hudText });
+    // 「有没有真的画出来」的判据：壳区主导色的占比不接近 1（纯色/白屏 ⇒ 无 UI）。
     const drawn = 1 - st.dominant[0].share > 0.02;
     const theme = (await page.prefsNow() || {}).theme || 'black';
-    rec('offline', '外部主机全拦截后应用仍可用（断网不白屏）', ext.length === 0 && drawn ? 'pass' : 'fail',
+    // 判据不可用时**判 blocked（环境）**，不判 fail（task-7 目标 A2）：
+    // 100% 纯白平帧 = 无头合成器空白帧，它说明不了产品好坏。
+    // 「不可判读」= 本次判据用的那张帧是 100% 纯白平帧。它**就是** waitForPaint()
+    // 返回 null 的同一个判据（同一个 blankWhite()，同一条 SHELL_CROP），所以
+    // waitForPaint() 判不出来的场景在这里必然也判不出来 ⇒ 判 blocked（环境），
+    // 并把 waitForPaint 的原始依据（采样次数 / 字节数 / why）打进证据。
+    const unusable = shot.blank;
+    const paintWhy = page.lastPaint && page.lastPaint.why ? page.lastPaint.why : null;
+    const verdict = unusable ? 'blocked' : (ext.length === 0 && drawn ? 'pass' : 'fail');
+    rec('offline', '外部主机全拦截后应用仍可用（断网不白屏）', verdict,
+      (unusable ? '【环境不可判读】壳区截图是 100% 纯白平帧（' + shot.bytes + ' B），无头合成器没给内容帧；' : '') +
       '被 blocked 的外部请求 ' + blocked.length + ' 条；请求里外部 URL ' + ext.length + ' 条；主题=' + theme +
-      '；主导色=' + JSON.stringify(st.dominant.slice(0, 3)) + '（主导占比 ' + st.dominant[0].share + '，<0.98 视为有真实绘制）；HUD=' + String(hudText).slice(0, 120),
-      drawn ? 'high' : 'medium', 'node scripts/browser_probe.mjs offline');
+      '；壳区主导色=' + JSON.stringify(st.dominant.slice(0, 3)) + '（主导占比 ' + st.dominant[0].share + '，<0.98 视为有真实绘制）' +
+      '；截图字节=' + shot.bytes +
+      '；waitForPaint=' + (page.lastPaint ? (page.lastPaint.paintedAfterMs === null ? 'null（判不出）' : page.lastPaint.paintedAfterMs + ' ms') : 'n/a') +
+      '（采样 ' + (page.lastPaint && page.lastPaint.samples ? page.lastPaint.samples.length : 0) + ' 次' + (paintWhy ? '；why=' + paintWhy : '') + '）；HUD=' + String(hudText).slice(0, 120),
+      unusable ? 'low' : (drawn ? 'high' : 'medium'), 'node scripts/browser_probe.mjs offline');
   } finally { page.recording = false; await page.close(); }
 }
 
@@ -490,19 +747,22 @@ async function scenarioStage(browser) {
     await sleep(3000);
     const h2 = await page.hud();
     const models = page.net.responses.filter((r) => /\/models\//.test(r.url)).map((r) => r.status + ' ' + r.url);
-    const shot = rect && rect.w > 50
-      ? await page.shot('stage/stage.png', { clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h } })
-      : await page.shot('stage/stage.png');
-    let st = null; try { st = py([shot]); } catch (e) { st = { error: String(e.message) }; }
+    // 整页截图 + **进程内裁剪**（不带 clip，见 SHOT_PARAMS 头注）。
+    const stageCrop = rect && rect.w > 50
+      ? [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h].map((v) => Math.round(v)).join(',')
+      : null;
+    const shot = await page.shot('stage/stage.png');
+    const cropArgs = stageCrop ? ['--crop', stageCrop] : [];
+    let st = null; try { st = py([shot, ...cropArgs]); } catch (e) { st = { error: String(e.message) }; }
     // 「模型有没有真的画出来」：默认主题的舞台底色是 #000000，
     // 所以舞台裁剪区里**非纯黑像素的占比**就是角色的可见面积。
     const prefs0 = await page.prefsNow();
     const theme0 = (prefs0 && prefs0.theme) || 'black';
     const stageHex = (PALETTE[theme0] || PALETTE.black).stage;
     let modelPix = null;
-    try { modelPix = py([shot, '--colors', stageHex]); } catch (e) { modelPix = { error: String(e.message) }; }
+    try { modelPix = py([shot, ...cropArgs, '--colors', stageHex]); } catch (e) { modelPix = { error: String(e.message) }; }
     const shotFull = await page.shot('stage/shell-with-stage.png');
-    save('stage.json', { rect, hud1: h1, hud2: h2, modelResponses: models, pixelsStage: st, modelPixels: modelPix, stageShot: shot, fullShot: shotFull });
+    save('stage.json', { rect, stageCrop, hud1: h1, hud2: h2, modelResponses: models, pixelsStage: st, modelPixels: modelPix, stageShot: shot, fullShot: shotFull });
     // 舞台像素级验收在本环境**做不到**，而且必须当场证明它做不到（不许默认通过）：
     // 强制把 stageColor 改成 #ff0000，若截图仍与之前逐像素相同 ⇒ canvas 内容
     // 根本没进截图（本环境实测正是如此）。
@@ -511,9 +771,9 @@ async function scenarioStage(browser) {
       try {
         await page.evaluate("document.querySelector('iframe').contentWindow.postMessage(JSON.stringify({version:1,type:'sync',payload:{stageColor:'#ff0000'}}), '*')");
         await sleep(1500);
-        const shotRed = await page.shot('stage/stage-forced-red.png', { clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h } });
+        const shotRed = await page.shot('stage/stage-forced-red.png');
         const d = py([shot, '--diff', shotRed]).diff.fraction;
-        const redStats = py([shotRed]);
+        const redStats = py([shotRed, ...cropArgs]);
         canvasWhite = { diffFractionAfterForcingRed: d, forcedRedDominant: redStats.dominant.slice(0, 2), forcedRedChannels: redStats.channels };
       } catch (e) { canvasWhite = { error: String(e.message) }; }
     }
@@ -567,9 +827,6 @@ const PALETTE = {
   gray: { stage: '1c1c1f', bands: ['282623', '353330', '3e3c38'] },
 };
 const THEME_UI = [['black', '黑，'], ['white', '白，'], ['blue', '蓝，'], ['gray', '灰，']];
-// 壳那一半（**不含**舞台 iframe 区域）：舞台 canvas 在无头截图里恒为纯白，
-// 背景只能在这一半上量。x 1100..1440 = 聊天面板列，y 52..900。
-const SHELL_CROP = '1100,52,1440,900';
 const ALL_BANDS = Object.values(PALETTE).flatMap((p) => p.bands);
 const perceived = (hex) => {
   const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
@@ -726,66 +983,140 @@ async function scenarioBg(browser) {
   const page = await Page.create(browser);
   const base = { backgroundSource: 0, backgroundEnabled: true, backgroundOpacity: 1.0, backgroundBlur: 0.0, backgroundScrim: 1, imageAlign: 4, slideInterval: 0, slideRandom: false };
   try {
+    // ── 判据阈值（唯一真源；数字与来由都在这里，不要散落到 evidence 字符串里）──
+    //
+    // REDNESS_ON / REDNESS_OFF 量的都是**壳区**（SHELL_CROP）的 redness：
+    //   redness = 逐像素 (R - (G+B)/2) 的均值（png_stats.py 的 channels/redness）。
+    // 取值依据（2026-10-06 实测，原始数字见 bg/visibility.json）：
+    //   · 无图基线（黑主题，clear 后默认）：redness = -4.33
+    //   · 背景库一张纯红 64x64 图 cover 铺满壳区：redness = 50.45
+    //   · 纯蓝图（轮播第 2 张）：redness = -30.31
+    //   · 同一页面重复采样是**逐像素相同**的（bg/carousel-0 与 -2 的 bytes 都是 52243）
+    //     ⇒ 该量的噪声远小于 1 个点。
+    // REDNESS_ON = 20 的来由：= 实测红信号的 40%（20 / 50.45），比基线高 24.3 个点。
+    //   留这么大余量是因为壳区还有圆角/抗锯齿/半透明面板在稀释红色；反过来说，
+    //   图只铺到壳区**一半**时 redness ≈ (50.45 - (-4.33))/2 + (-4.33) = 23.1，仍 > 20
+    //   ⇒ 阈值不会把「部分铺到」误判成没上屏。
+    // REDNESS_OFF = 8 的来由：清图后必须回到基线附近，取「基线 + 12 个点」为上限；
+    //   实测清图后 = -4.33（与基线一毫不差）。
+    const REDNESS_ON = 20;
+    const REDNESS_OFF = 8;
+    // 两张不同 fit 的**整页帧**至少要有 0.5% 的像素不同才算「可区分」：
+    // 0.5% × 1440×900 = 6480 px，远高于 PNG 编解码噪声（同图重拍 diff = 0，实测），
+    // 又远低于四档铺法实际差出来的比例（stretch/tile 的差别在整幅图上是一半以上）。
+    const DIFF_MIN = 0.005;
+    const pending = (list) => list.filter((x) => x.blank).map((x) => x.path.replace(OUT + '/', '') + '=' + x.bytes + 'B');
+    // waitForPaint() 的**原始依据**逐步留档（每步的采样次数 / 字节数 / why）：
+    // 它返回 null（40s 全窗口都判成 100% 纯白平帧）与「某张截图是 blankWhite」用的是
+    // **同一个函数**，所以两条判据同源；这里把依据打出来，便于事后复核为什么判 blocked。
+    const paints = {};
+    const paintFull = {};
+    const paintBrief = (k) => {
+      const p = paintFull[k];
+      if (!p) return 'n/a';
+      return (p.paintedAfterMs === null ? 'null（判不出）' : p.paintedAfterMs + 'ms') + ' / ' + (p.samples ? p.samples.length : 0) + ' 次采样' +
+        (p.why ? ' / why=' + p.why : '');
+    };
+
     // 00 基线（无图）
     await page.loadApp({ clear: true, settleMs: 7000 });
-    const none = await page.shot('bg/00-none.png');
-    const stNone = py([none, '--crop', SHELL_CROP]);
-    // 01 背景库一张红图 → 可见
+    const none = await shotStats(page, 'bg/00-none.png', SHELL_CROP);
+    paints.none = page.lastPaint && page.lastPaint.paintedAfterMs;
+    paintFull.none = page.lastPaint;
+    // 01 背景库一张红图 → 可见。**字节写进真字节库**（IndexedDB，产品 schema），
+    //    偏好里只留 {kind:'image', id} —— 与产品「导入图片」之后落盘的样子一致。
     await page.setPrefs({ ...base, backgrounds: [{ kind: 'image', dataUrl: IMG.red }], imageFit: 0 });
-    const red = await page.shot('bg/01-red-cover.png');
-    const stRed = py([red, '--crop', SHELL_CROP]);
-    // 02 刷新后仍在（含 IndexedDB 水合后的偏好回写）
+    const red = await shotStats(page, 'bg/01-red-cover.png', SHELL_CROP);
+    paints.red = page.lastPaint && page.lastPaint.paintedAfterMs;
+    paintFull.red = page.lastPaint;
+    const prefsAfterSet = await page.prefsNow();
+    const idbKeysAfterSet = await page.idbKeys().catch((e) => ['ERR:' + e.message]);
+    // 02 刷新后仍在（水合从字节库补字节；读不回来就会看不到图）
     await page.setPrefs({});
-    const red2 = await page.shot('bg/02-red-persist.png');
-    const stRed2 = py([red2, '--crop', SHELL_CROP]);
+    const red2 = await shotStats(page, 'bg/02-red-persist.png', SHELL_CROP);
+    paints.red2 = page.lastPaint && page.lastPaint.paintedAfterMs;
+    paintFull.red2 = page.lastPaint;
     const prefsAfter = await page.prefsNow();
+    const idbKeysAfterReload = await page.idbKeys().catch((e) => ['ERR:' + e.message]);
     // 03 清图
     await page.setPrefs({ backgrounds: [] });
-    const cleared = await page.shot('bg/03-cleared.png');
-    const stCleared = py([cleared, '--crop', SHELL_CROP]);
-    save('bg/visibility.json', { none: stNone, red: stRed, red2: stRed2, cleared: stCleared, prefsAfter, firstPaint: { none: page.lastPaint && page.lastPaint.paintedAfterMs } });
+    const cleared = await shotStats(page, 'bg/03-cleared.png', SHELL_CROP);
+    paints.cleared = page.lastPaint && page.lastPaint.paintedAfterMs;
+    paintFull.cleared = page.lastPaint;
+    const idbKeysAfterClear = await page.idbKeys().catch((e) => ['ERR:' + e.message]);
+    save('bg/visibility.json', {
+      none, red, red2, cleared,
+      injectedId: backgroundIdOf(IMG.red),
+      prefsAfterSet, prefsAfter, idbKeysAfterSet, idbKeysAfterReload, idbKeysAfterClear,
+      paints, paintFull,
+      note: '背景字节住在 IndexedDB（db live2d-ai / store backgrounds / key=id），localStorage 只留 id',
+    });
+    const b5a = pending([none, red]);
+    const b5b = pending([red2]);
+    const b5c = pending([cleared]);
     rec('5a', '背景库选图 → 图真的上屏（红度像素级）',
-      stRed.redness > 20 ? 'pass' : 'fail',
-      '壳区 redness：无图 ' + stNone.redness + ' → 有图 ' + stRed.redness + '（>20 判上屏）；通道均值 ' +
-      JSON.stringify(stRed.channels) + '；裁剪=' + SHELL_CROP, 'high',
-      'node scripts/browser_probe.mjs bg');
-    rec('5b', '刷新后背景仍在（偏好水合 + 回写不丢图）',
-      stRed2.redness > 20 ? 'pass' : 'fail',
-      '刷新后 redness=' + stRed2.redness + '；偏好里 backgrounds=' + JSON.stringify((prefsAfter || {}).backgrounds), 'high');
+      b5a.length ? 'blocked' : (red.stats.redness > REDNESS_ON ? 'pass' : 'fail'),
+      (b5a.length ? '【环境不可判读】空白帧：' + b5a.join('、') + '；' : '') +
+      '壳区 redness：无图 ' + none.stats.redness + ' → 有图 ' + red.stats.redness + '（阈值 >' + REDNESS_ON + '）；通道均值 ' +
+      JSON.stringify(red.stats.channels) + '；裁剪=' + SHELL_CROP +
+      '；偏好 backgrounds=' + JSON.stringify((prefsAfterSet || {}).backgrounds) +
+      '；IndexedDB 键=' + JSON.stringify(idbKeysAfterSet) +
+      '；waitForPaint（带原始依据）none=' + paintBrief('none') + '；red=' + paintBrief('red'),
+      b5a.length ? 'low' : 'high', 'node scripts/browser_probe.mjs bg（原始像素见 bg/visibility.json）');
+    rec('5b', '刷新后背景仍在（真字节库水合，不是靠 localStorage 里的 dataUrl）',
+      b5b.length ? 'blocked' : (red2.stats.redness > REDNESS_ON ? 'pass' : 'fail'),
+      (b5b.length ? '【环境不可判读】空白帧：' + b5b.join('、') + '；' : '') +
+      '刷新后 redness=' + red2.stats.redness + '（阈值 >' + REDNESS_ON + '）；偏好里 backgrounds=' +
+      JSON.stringify((prefsAfter || {}).backgrounds) + '；IndexedDB 键（与 redness 同一时刻）= ' + JSON.stringify(idbKeysAfterReload) +
+      '；清图后 IndexedDB 键=' + JSON.stringify(idbKeysAfterClear) +
+      '；waitForPaint red2=' + paintBrief('red2'),
+      b5b.length ? 'low' : 'high');
     rec('5c', '清图后图真的消失（回到底色）',
-      stCleared.redness < 8 ? 'pass' : 'fail',
-      '清图后 redness=' + stCleared.redness + '（基线 ' + stNone.redness + '）', 'high');
-    // 04 四档 fit：同一张非方形图，四张截图必须互不相同
+      b5c.length ? 'blocked' : (cleared.stats.redness < REDNESS_OFF ? 'pass' : 'fail'),
+      (b5c.length ? '【环境不可判读】空白帧：' + b5c.join('、') + '；' : '') +
+      '清图后 redness=' + cleared.stats.redness + '（阈值 <' + REDNESS_OFF + '；基线 ' + none.stats.redness + '）' +
+      '；waitForPaint cleared=' + paintBrief('cleared'),
+      b5c.length ? 'low' : 'high');
+    // 04 四档 fit：同一张非方形图，四张**整页**截图必须互不相同
     const fitShots = {};
     for (const fit of [0, 1, 2, 3]) {
       const name = ['cover', 'contain', 'stretch', 'tile'][fit];
       await page.setPrefs({ ...base, backgrounds: [{ kind: 'image', dataUrl: IMG.tall }], imageFit: fit, tileSize: 64 });
-      fitShots[name] = await page.shot('bg/fit-' + name + '.png');
+      fitShots[name] = await shotStats(page, 'bg/fit-' + name + '.png', SHELL_CROP);
     }
     const diffs = {};
     for (const a of ['cover', 'contain', 'stretch']) {
       for (const b of ['contain', 'stretch', 'tile']) {
         if (a >= b) continue;
-        diffs[a + '_vs_' + b] = py([fitShots[a], '--diff', fitShots[b]]).diff.fraction;
+        diffs[a + '_vs_' + b] = py([fitShots[a].path, '--diff', fitShots[b].path]).diff.fraction;
       }
     }
-    save('bg/fits.json', { shots: fitShots, diffs });
-    const allDiff = Object.values(diffs).every((d) => d > 0.005);
-    rec('5d', '四档 fit 像素级可区分（cover/contain/stretch/tile）', allDiff ? 'pass' : 'fail',
-      JSON.stringify(diffs), 'high', 'python3 …/png_stats.py bg/fit-cover.png --diff bg/fit-contain.png');
-    // 05 壳背景轮播：slideInterval=5 + 两张图，采样三次
+    save('bg/fits.json', {
+      shots: Object.fromEntries(Object.entries(fitShots).map(([k, v]) => [k, { path: v.path, bytes: v.bytes, dominant: v.stats.dominant.slice(0, 2) }])),
+      diffs, shellRedness: Object.fromEntries(Object.entries(fitShots).map(([k, v]) => [k, v.stats.redness])),
+    });
+    const allDiff = Object.values(diffs).every((d) => d > DIFF_MIN);
+    const b5d = pending(Object.values(fitShots));
+    rec('5d', '四档 fit 像素级可区分（cover/contain/stretch/tile）',
+      b5d.length ? 'blocked' : (allDiff ? 'pass' : 'fail'),
+      (b5d.length ? '【环境不可判读】空白帧：' + b5d.join('、') + '；' : '') +
+      '整页逐像素差异（>=' + DIFF_MIN + ' 判可区分）：' + JSON.stringify(diffs), b5d.length ? 'low' : 'high',
+      'python3 …/png_stats.py bg/fit-cover.png --diff bg/fit-contain.png');
+    // 05 壳背景轮播：slideInterval=5 + 两张图，采样 4 次
     await page.setPrefs({ ...base, backgrounds: [{ kind: 'image', dataUrl: IMG.red }, { kind: 'image', dataUrl: IMG.blue }], slideInterval: 5 });
     const samples = [];
     for (let i = 0; i < 4; i++) {
-      const p = await page.shot('bg/carousel-' + i + '.png');
-      const s = py([p, '--crop', SHELL_CROP]);
-      samples.push({ i, redness: s.redness, channels: s.channels });
+      const s = await shotStats(page, 'bg/carousel-' + i + '.png', SHELL_CROP);
+      samples.push({ i, redness: s.stats.redness, channels: s.stats.channels, bytes: s.bytes, blank: s.blank });
       await sleep(4000);
     }
     save('bg/carousel.json', { samples });
-    const sawRed = samples.some((s) => s.redness > 20), sawBlue = samples.some((s) => s.redness < -5);
-    rec('5e', '壳背景轮播真的在换（间隔 5s，采样 4 次）', sawRed && sawBlue ? 'pass' : 'fail',
-      JSON.stringify(samples), 'high', 'node scripts/browser_probe.mjs bg');
+    const sawRed = samples.some((s) => s.redness > REDNESS_ON), sawBlue = samples.some((s) => s.redness < -REDNESS_OFF);
+    const b5e = samples.filter((s) => s.blank).map((s) => 'carousel-' + s.i + '=' + s.bytes + 'B');
+    rec('5e', '壳背景轮播真的在换（间隔 5s，采样 4 次）',
+      b5e.length ? 'blocked' : (sawRed && sawBlue ? 'pass' : 'fail'),
+      (b5e.length ? '【环境不可判读】空白帧：' + b5e.join('、') + '；' : '') + JSON.stringify(samples),
+      b5e.length ? 'low' : 'high', 'node scripts/browser_probe.mjs bg');
     // 06 预览 + 拖动排序（UI 路径）
     await page.setPrefs({ ...base, backgrounds: [{ kind: 'image', dataUrl: IMG.red }, { kind: 'image', dataUrl: IMG.blue }], slideInterval: 0, imageFit: 0 });
     const before = await page.prefsNow();
@@ -1085,10 +1416,141 @@ async function scenarioStageColor(browser) {
     'high', 'node scripts/browser_probe.mjs stagecolor（原始帧见 stage-class/stagecolor.json）');
 }
 
+// ───────────── 目标 B：真实音频链路（LLM → TTS → WS audio 帧 → <audio> 播放） ─────────────
+/** 一轮对话的提示词：**只要一句话**，且以句号收尾 ——
+ * 分句器按真实句读切，一句话 ⇒ 一个 sentence_seq ⇒ 边界断言最干净。 */
+const AUDIO_PROMPT = '请只回一句话，以句号结尾：今天天气不错。';
+/** 等音频链路的预算（毫秒）：LLM 首字 + TTS 合成（本机 CosyVoice 实测 5.4s/句）留足。 */
+const AUDIO_WAIT_MS = 90000;
+
+/** 真实音频链路验收（task-7 目标 B）。四条判据，每条都给原始数字：
+ *
+ *   a. WS 有 `audio` 帧，且**每句**恰好一个 `start` + 一个 `end`，
+ *      `sentence_seq` 从 1 起严格递增（老缺陷正是「0 个 start、N 个 end」）；
+ *   b. 非静音分支：`audio` 帧解出的样本数 > 0，且没有 `muted:true` 的帧；
+ *   c. 前端真的建了媒体元素：`<audio>` 的 src 是 `blob:` 且 duration > 0；
+ *   d. 真的在播：同一个元素的 currentTime 在采样窗口里前进 > 0.2s。
+ *
+ * 四条里任何一条拿不到**证据**（TTS 不可用 / 服务端 mute / 前端没建元素），
+ * 该条一律判 **blocked** 并写清原因，**不许**写成 pass。
+ * 判据真源：crates/live2d-ai-desktop/src/web_api/ws/audio.rs（帧 schema）、
+ * shell/flutter/lib/audio/audio_player.dart（blob + <audio>）。 */
+async function scenarioAudio(browser) {
+  const page = await Page.create(browser);
+  try {
+    await page.spyWs();
+    await page.loadApp({ clear: true, settleMs: 8000 });
+    const wsLoaded = await page.wsFrames();
+    // 真实 UI：点进输入框 → 打一句话 → 点「发送」（真指针事件 = 也给了页面用户激活，
+    // 否则 <audio>.play() 会被 autoplay 策略拦下，那时判 blocked 而不是 fail）。
+    let input = await page.waitForChatInput(8000);
+    if (!input) { await page.click(VW - 160, VH - 30); input = await page.waitForChatInput(20000); }
+    const typed = { input: !!input, text: null, sendNode: null, sendHow: null };
+    if (input) {
+      await page.click(input.x + Math.min(80, input.w / 2), input.y + input.h / 2);
+      await page.send('Input.insertText', { text: AUDIO_PROMPT });
+      await sleep(1200);
+      typed.text = await page.typedText();
+      await page.enableSemantics();
+      const nodes = await page.semantics();
+      const btn = nodes.filter((n) => T(n).includes('发送')).sort((a, b) => a.w * a.h - b.w * b.h)[0] || null;
+      typed.sendNode = btn;
+      if (btn) {
+        typed.sendHow = 'click-语义节点';
+        await page.click(btn.x + btn.w / 2, btn.y + btn.h / 2);
+      } else {
+        typed.sendHow = 'keydown-Enter';
+        await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+      }
+    }
+    // 采样：直到「见过句尾 end」且「currentTime 前进过」，或超时。
+    const timeline = [];
+    const elSamples = [];
+    const t0 = Date.now();
+    let sawEnd = false, advanced = false;
+    while (Date.now() - t0 < AUDIO_WAIT_MS) {
+      await sleep(2000);
+      const snap = await page.wsFrames();
+      const fr = (snap && snap.frames) || [];
+      const s = summarizeAudioFrames(fr);
+      const els = await page.audioElements().catch(() => []);
+      elSamples.push({ at: Date.now() - t0, els });
+      timeline.push({
+        at: Date.now() - t0, frames: fr.length, audioFrames: s.audioFrames,
+        starts: s.totalStarts, ends: s.totalEnds, samples: s.totalSamples,
+        sentences: s.sentences.map((g) => g.seq + ':' + g.starts + 'start/' + g.ends + 'end/' + g.samples + 'smp'),
+        elements: els.length, elapsedSec: els.map((e) => e.currentTime),
+        errs: fr.filter((f) => f.type === 'error').map((f) => f.error).slice(-2),
+      });
+      if (s.totalEnds > 0) sawEnd = true;
+      for (let i = 0; i < els.length; i++) {
+        const rows = elSamples.filter((x) => x.els[i]).map((x) => x.els[i].currentTime);
+        if (rows.length > 1 && Math.max(...rows) - Math.min(...rows) > 0.2) advanced = true;
+      }
+      if (sawEnd && advanced) break;
+    }
+    const snap = await page.wsFrames();
+    const frames = (snap && snap.frames) || [];
+    const sum = summarizeAudioFrames(frames);
+    const errs = frames.filter((f) => f.type === 'error').map((f) => f.error);
+    const els = await page.audioElements().catch(() => []);
+    // 逐元素（下标即身份）看 currentTime：只看到 >0 可能只是静态值，必须看**前进量**。
+    const progressed = [];
+    for (let i = 0; i < els.length; i++) {
+      const rows = elSamples.filter((x) => x.els[i]).map((x) => ({ at: x.at, t: x.els[i].currentTime, dur: x.els[i].duration, blob: x.els[i].blob === true }));
+      if (!rows.length) continue;
+      progressed.push({
+        index: i, blob: rows.some((r) => r.blob),
+        duration: rows[rows.length - 1].dur,
+        firstAt: rows[0].at, firstTime: rows[0].t, lastAt: rows[rows.length - 1].at, lastTime: rows[rows.length - 1].t,
+        deltaSec: +(rows[rows.length - 1].t - rows[0].t).toFixed(3),
+      });
+    }
+    save('audio/ws-frames.json', {
+      wsUrl: snap && snap.url, socketsOpened: snap && snap.opened, framesTotal: frames.length,
+      audioFrames: frames.filter((f) => f.type === 'audio'), errors: errs,
+      otherTypes: sum.otherTypes, summary: sum, timeline,
+    });
+    save('audio/media-elements.json', { typed, wsAtLoad: wsLoaded && { opened: wsLoaded.opened, url: wsLoaded.url }, final: els, samples: elSamples, progressed });
+    const ttsErrs = errs.filter((e) => e && (e.stage === 'tts' || /^tts_/.test(String(e.code))));
+    const why = sum.audioFrames === 0
+      ? (errs.length ? 'WS error 帧：' + JSON.stringify(errs.slice(0, 3)) : '整轮没有 audio 帧（LLM/TTS 没产出，或这一轮没发出去）')
+      : null;
+    // a. 句界
+    const aOk = sum.audioFrames > 0 && sum.everySentenceOneStartOneEnd && sum.strictlyIncreasingFrom1;
+    rec('audio-a', 'WS audio 帧有 start/end 边界且 sentence_seq 从 1 起严格递增',
+      aOk ? 'pass' : (sum.audioFrames === 0 ? 'blocked' : 'fail'),
+      'audio 帧 ' + sum.audioFrames + ' 条；start ' + sum.totalStarts + ' 个 / end ' + sum.totalEnds + ' 个；' +
+      '句子 ' + JSON.stringify(sum.sentences.map((g) => ({ seq: g.seq, frames: g.frames, starts: g.starts, ends: g.ends, samples: g.samples }))) +
+      '；sentence_seq=' + JSON.stringify(sum.seqs) + '（严格从 1 递增=' + sum.strictlyIncreasingFrom1 + '）' +
+      (why ? '；原因：' + why : ''),
+      sum.audioFrames === 0 ? 'low' : 'high', 'node scripts/browser_probe.mjs audio（原始帧见 audio/ws-frames.json）');
+    // b. 样本数 / 静音
+    rec('audio-b', '音频样本数 > 0（非静音分支）',
+      sum.totalSamples > 0 && !sum.anyMuted ? 'pass' : 'blocked',
+      '总样本数 ' + sum.totalSamples + '（audio 帧载荷 ' + sum.audioFrames + ' 条，逐帧 samples 见 audio/ws-frames.json）；' +
+      '服务端 muted 标记=' + sum.anyMuted + (ttsErrs.length ? '；TTS 错误帧=' + JSON.stringify(ttsErrs.slice(0, 2)) : '') +
+      (sum.anyMuted ? '；服务端 mute（LIVE2D_AI_MUTE_AUDIO=1）⇒ 样本被零填充，属 blocked 而不是 fail' : ''),
+      sum.totalSamples > 0 ? 'high' : 'low');
+    // c/d. 媒体元素 + 播放前进
+    const mediaOk = progressed.some((p) => p.duration > 0 && p.deltaSec > 0.2);
+    rec('audio-c', '前端建了 <audio>（src=blob:、duration>0）且 currentTime 真的前进',
+      mediaOk ? 'pass' : 'blocked',
+      '页面上的 <audio> 元素 ' + els.length + ' 个；逐元素：' + JSON.stringify(progressed) +
+      '；末次快照=' + JSON.stringify(els.slice(0, 2)) +
+      (mediaOk ? '' : '；没观察到「blob src + duration>0 + currentTime 前进 >0.2s」（无头 autoplay 策略 / 没建元素 / 还没播到）⇒ blocked'),
+      mediaOk ? 'high' : 'low', 'node scripts/browser_probe.mjs audio（原始见 audio/media-elements.json）');
+  } finally { await page.close(); }
+}
+
 const SCENARIOS = {
   files: scenarioFiles, api: scenarioApi, fonts: scenarioFonts, stagecolor: scenarioStageColor, net: scenarioNet, offline: scenarioOffline,
   render: scenarioRender, stage: scenarioStage, ui: scenarioUi,
   settings: scenarioSettings, themes: scenarioThemes, bg: scenarioBg,
+  // audio **不进 `all`**：它要活端点（LLM + 本机 TTS）并会真的发一轮对话 ——
+  // 与 AGENTS「端到端探针只在有活端点时跑，缺配置就明确跳过」是同一条纪律。
+  // 要跑就显式：node scripts/browser_probe.mjs audio（或 all,audio）。
+  audio: scenarioAudio,
 };
 
 async function main() {
@@ -1102,6 +1564,7 @@ async function main() {
   const list = which.includes('all')
     ? ['files', 'api', 'net', 'fonts', 'offline', 'render', 'stage', 'stagecolor', 'ui', 'settings', 'themes', 'bg']
     : which;
+  if (which.includes('all') && !which.includes('audio')) console.log('# 注：audio 场景需要活端点（LLM+TTS），不在 all 里；要跑：node scripts/browser_probe.mjs audio');
   const ver = await (await fetch(CDP_HTTP + '/json/version')).json();
   const head = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   console.log('# CDP ' + ver.Browser + ' @ ' + CDP_HTTP + ' / ' + BASE);

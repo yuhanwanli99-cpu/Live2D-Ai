@@ -1,0 +1,38 @@
+{
+  "scenario": "stage",
+  "at": "2026-10-05T13:16:00.365Z",
+  "results": [
+    {
+      "id": "3d",
+      "title": "截图能否用来验证舞台像素（角色 / 底色）",
+      "verdict": "manual-only",
+      "evidence": "主题=black；舞台裁剪区主导色=[{\"hex\":\"ffffff\",\"share\":0.9953},{\"hex\":\"666666\",\"share\":0.0029}]；把 stageColor 强制改成 #ff0000 后与改动前的逐像素差异=0，强制后主导色=[{\"hex\":\"ffffff\",\"share\":0.9953},{\"hex\":\"666666\",\"share\":0.0029}] ⇒ 无头截图**拍不到 WebGPU canvas 内容**（恒为纯白），舞台像素级验收必须人工",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs stage（原始见 stage/stage-canvas-white-evidence.json）"
+    },
+    {
+      "id": "3a",
+      "title": "模型资产 HTTP 200（bai.model3.json 等）",
+      "verdict": "pass",
+      "evidence": "5 条：200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png | 200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "3b",
+      "title": "渲染面 HUD 有 GPU 行 + bg: 字段",
+      "verdict": "pass",
+      "evidence": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.1 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | cl",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "3c",
+      "title": "FPS 在推进（两次采样相隔 3s）",
+      "verdict": "pass",
+      "evidence": "fps1=59.9 fps2=60.1（HUD: GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.1 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face）",
+      "confidence": "high",
+      "repro": ""
+    }
+  ]
+}

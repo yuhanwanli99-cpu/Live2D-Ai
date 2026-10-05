@@ -1,0 +1,94 @@
+{
+  "endpoints": {
+    "root": {
+      "status": 302,
+      "redirect": "http://127.0.0.1:18080/app/",
+      "bytes": 0
+    },
+    "app": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 704
+    },
+    "index": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 704
+    },
+    "mainJs": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 3289387
+    },
+    "bootstrap": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 13118
+    },
+    "status": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 753
+    },
+    "capabilities": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 138
+    },
+    "models": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 321
+    },
+    "settings": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 567
+    },
+    "mods": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 8267
+    },
+    "env": {
+      "status": 200,
+      "redirect": "",
+      "bytes": 109
+    }
+  },
+  "envBody": "{\"keys\":[{\"section\":\"llm\",\"key\":\"DEEPSEEK_API_KEY\",\"set\":true}],\"env_file\":\"/home/skystar/Live2D-Ai-fe/.env\"}",
+  "modelRefs": [
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "status": 200,
+      "bytes": 9064128
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "status": 200,
+      "bytes": 3996527
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "status": 200,
+      "bytes": 76203
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "status": 200,
+      "bytes": 21291
+    }
+  ],
+  "renderAssets": [
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "status": 200,
+      "bytes": 118993
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "status": 200,
+      "bytes": 5484191
+    }
+  ]
+}

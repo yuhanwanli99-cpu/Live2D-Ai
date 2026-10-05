@@ -1,0 +1,70 @@
+{
+  "hudOk": true,
+  "hud1": "GPU: webgpu/WebGPU () | canvas 1440x900@1dpr(物理1440x900) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=0/7 [fps] | idle: b0.35 blO1250",
+  "hud2": "GPU: webgpu/WebGPU () | canvas 1440x900@1dpr(物理1440x900) | FPS 59.9 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=0/10 [fps] | idle: b0.35 blO683",
+  "modelResponses": [
+    "200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+    "200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+    "200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+    "200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+    "200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3"
+  ],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:18080/render?hud=1",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/favicon.ico",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    }
+  ],
+  "failures": []
+}

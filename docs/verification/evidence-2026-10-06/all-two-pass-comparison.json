@@ -1,0 +1,344 @@
+{
+  "title": "browser_probe.mjs all 连跑两次的逐条对照（同一脚本 sha256）",
+  "script": "scripts/browser_probe.mjs",
+  "scriptSha256": "e57bcf4a62b20466292875cecf6f102868721c48eaf42b8bafd816073ad3e9c6",
+  "service": "http://127.0.0.1:18080",
+  "cdp": "http://127.0.0.1:9222",
+  "pass1": {
+    "file": "run-all-pass1.json",
+    "aggregatedAt": "2026-10-05T13:12:06.015Z",
+    "verdicts": {
+      "pass": 35,
+      "manual-only": 4,
+      "fail": 3
+    }
+  },
+  "pass2": {
+    "file": "run-all-pass2.json",
+    "aggregatedAt": "2026-10-05T13:19:50.732Z",
+    "verdicts": {
+      "pass": 35,
+      "manual-only": 4,
+      "fail": 3
+    }
+  },
+  "comparedIds": [
+    "1a",
+    "1b",
+    "1c",
+    "1d",
+    "2",
+    "3a",
+    "3b",
+    "3c",
+    "3d",
+    "4a",
+    "4b",
+    "5a",
+    "5b",
+    "5c",
+    "5d",
+    "5e",
+    "5f",
+    "5g",
+    "6a",
+    "6b",
+    "6c",
+    "6c-pixel",
+    "7a",
+    "7b",
+    "7c",
+    "7d",
+    "8b",
+    "F-0050-01a",
+    "F-0050-01b",
+    "F-fonts-01",
+    "F-fonts-02",
+    "F-fonts-03",
+    "api-a",
+    "api-b",
+    "api-c",
+    "api-d",
+    "offline",
+    "render-a",
+    "render-b"
+  ],
+  "mismatchedIds": [],
+  "identical": true,
+  "rows": [
+    {
+      "id": "1a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "net",
+      "same": true
+    },
+    {
+      "id": "1b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "net",
+      "same": true
+    },
+    {
+      "id": "1c",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "net",
+      "same": true
+    },
+    {
+      "id": "1d",
+      "s1": "manual-only",
+      "s2": "manual-only",
+      "scenario": "net",
+      "same": true
+    },
+    {
+      "id": "2",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "net",
+      "same": true
+    },
+    {
+      "id": "3a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "stage",
+      "same": true
+    },
+    {
+      "id": "3b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "stage",
+      "same": true
+    },
+    {
+      "id": "3c",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "stage",
+      "same": true
+    },
+    {
+      "id": "3d",
+      "s1": "manual-only",
+      "s2": "manual-only",
+      "scenario": "stage",
+      "same": true
+    },
+    {
+      "id": "4a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "ui",
+      "same": true
+    },
+    {
+      "id": "4b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "ui",
+      "same": true
+    },
+    {
+      "id": "5a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "5b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "5c",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "5d",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "5e",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "5f",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "5g",
+      "s1": "manual-only",
+      "s2": "manual-only",
+      "scenario": "bg",
+      "same": true
+    },
+    {
+      "id": "6a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "themes",
+      "same": true
+    },
+    {
+      "id": "6b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "themes",
+      "same": true
+    },
+    {
+      "id": "6c",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "stagecolor",
+      "same": true
+    },
+    {
+      "id": "6c-pixel",
+      "s1": "manual-only",
+      "s2": "manual-only",
+      "scenario": "themes",
+      "same": true
+    },
+    {
+      "id": "7a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "settings",
+      "same": true
+    },
+    {
+      "id": "7b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "settings",
+      "same": true
+    },
+    {
+      "id": "7c",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "settings",
+      "same": true
+    },
+    {
+      "id": "7d",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "settings",
+      "same": true
+    },
+    {
+      "id": "8b",
+      "s1": "fail",
+      "s2": "fail",
+      "scenario": "files",
+      "same": true
+    },
+    {
+      "id": "F-0050-01a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "files",
+      "same": true
+    },
+    {
+      "id": "F-0050-01b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "files",
+      "same": true
+    },
+    {
+      "id": "F-fonts-01",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "fonts",
+      "same": true
+    },
+    {
+      "id": "F-fonts-02",
+      "s1": "fail",
+      "s2": "fail",
+      "scenario": "fonts",
+      "same": true
+    },
+    {
+      "id": "F-fonts-03",
+      "s1": "fail",
+      "s2": "fail",
+      "scenario": "fonts",
+      "same": true
+    },
+    {
+      "id": "api-a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "api",
+      "same": true
+    },
+    {
+      "id": "api-b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "api",
+      "same": true
+    },
+    {
+      "id": "api-c",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "api",
+      "same": true
+    },
+    {
+      "id": "api-d",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "api",
+      "same": true
+    },
+    {
+      "id": "offline",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "offline",
+      "same": true
+    },
+    {
+      "id": "render-a",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "render",
+      "same": true
+    },
+    {
+      "id": "render-b",
+      "s1": "pass",
+      "s2": "pass",
+      "scenario": "render",
+      "same": true
+    }
+  ],
+  "note": "对比排除 audio 场景的结果（audio 需要活端点，本轮单独跑过一次；它的 results-audio.json 仍在目录里，故两次 run.json 都把它聚合进来，两次内容一致）。"
+}
