@@ -496,6 +496,38 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
 
 ## 变更历史
 
+- **2026-10-06（补齐轮：**字体回落结构性离线化** + 结构硬指标达标 + **真实音频链路首次验收** + 安全类 P1 收口 + 审计台账入库）**：
+  主线契约（LLM→TTS→口型→Live2D、舞台背景绘制语义、`clean_for_tts`、`[action]`、`stage-clock`、`IdleState`）**一行未改**；
+  **仍不升版本号、不发 release**（维护者肉眼清单未勾完，版本号不跑在验收前面）。详见
+  `docs/audit/2026-10-06-gaps-round/ROUND-REPORT.md` 与 `docs/plans/NEXT-ROUND-main-2026-10-06.md`。
+  ① **字体回落结构性离线化（N1 裁决：不接受「仅子集外字符出网」）**：新增自定义 `shell/flutter/web/flutter_bootstrap.js`，
+  用**现代** `initializeEngine({fontFallbackBaseUrl:"font-fallback/"})`（相对路径、换 base-href 不失效；**不用**已 deprecated 的
+  `window.flutterConfiguration`）；镜像 5 个**整族** 21 个 woff2（emoji/符号2/符号/音乐/数学，2.69 MiB）到 `web/font-fallback/`，
+  附 `MANIFEST.txt`（sha256/bytes）+ `OFL.txt` + `README.md`。工具：`scripts/font_fallback_mirror.sh`（`--check` **不联网**，
+  「清单 == 磁盘 == 引擎表全集」，不许半族）与 `scripts/font_offline_check.mjs`（零依赖 CDP + **阳性对照**）。
+  **实测（重建产物 + 线上 18080）**：注入 `𠮷`/`🀄`/`𝄞` ⇒ 跨源请求 **0/0**，同源 `notocoloremoji` 200、`notomusic` 200、
+  `notosansjp` 404 ⇒ 豆腐块（**明确接受的取舍**；CJK 五族约 11.9 MiB 未镜像，升级路径见下一轮 F4）。
+  ② **结构硬指标（D2/N5）**：Rust `src` `.rs >1000` **4 → 0**、`>500` **48 → 44**；Dart `lib >800` **7 → 2**（= PLAN 目标，
+  `main.dart` 1411 / `display_prefs.dart` 1169 如实留债并写进 `xtask` 留债栏）。配方沉淀：搬测试出 `src` 必须**每份 <500 行**否则
+  `>500` 计数凭空上涨；Dart `part` **类体不能跨 part**，切割线只落顶层类边界（做了逐字节回环对账）。
+  ③ **探针判据修复（N4）**：两个根因实测钉死——带 `clip` 的 `captureScreenshot` **稳定回全白**；不带 `captureBeyondViewport`
+  的整页帧**间歇全白**（8 次 1 次）。修法：整页 + `captureBeyondViewport` + **全脚本禁止 clip**；「不可判读帧」判 **blocked（环境）**
+  而不是产品 fail；背景注入改 **IndexedDB 真字节**（db `live2d-ai`/store `backgrounds`/key=id，id 与 Dart `backgroundFingerprint` 同算法）。
+  ④ **真实音频链路首次验收**（上一轮 TTS 停机只能记 blocked）：131 条 audio 帧、`sentence_seq` 从 1 起严格递增、start 1/end 1、
+  62400 样本（2.6 s @24 kHz）、`muted=false`、页面 `<audio>` `blob:` + `duration=2.6` + `currentTime` 前进 1.83 s。
+  ⑤ **产品语义**：无 code 的「重试」= **重发上一条用户消息**（无上一条 ⇒ 按钮不出现）；**原判「运行态（只读）块在在册 Mod 上不可达」
+  被队友回源码证伪**（`showRuntimeState` 缺省 `true`）⇒ 改判为**契约反转**：该块 = **没有专用面板的 Mod 的兜底面**，删掉死旗标 `showRuntimeState`。
+  ⑥ **安全 P1（F-0616-01）**：`scripts/deploy_android.sh` 自 **v0.1.0-rc.1 根提交**起就在公开远端，头注/默认值写死**手机锁屏口令**。
+  删脚本；`check_public_secrets.py` 补「文字口令 / 纯数字口令 / 中文『密码:』」三类模式（旧四条只认云厂商 key 形状）；台账摘录**脱敏**；
+  中文模式收紧到「值必须像凭据」（起因是实测误报）。扫描面 **2022 个 tracked 文件 0 命中**。**历史里的原文仍在** ⇒ 只有重写历史 +
+  force-push 才能从远端抹掉，**轮换口令才是真正的修复**（未授权，本轮未动历史）。
+  ⑦ **仓库治理**：审计台账 952 文件从工作树根未跟踪的 `AUDIT-REPO/` 并入 `docs/audit/2026-10-05-ledger/`（附 README：归档理由、
+  已关闭条目、**仍未关闭的 6 条 P1**、已撤回 5 条）；`web-ui-spec-v3.md` 的豁免口径改为现行的「路径前缀 + 处数上限」；三处历史文档补更名注记。
+  ⑧ **门禁（终局实测）**：cargo **1311/0** · doc **3** · fmt clean · clippy **0** · rust-ratio **96.0927%** PASS · code-stats PASS
+  （**44/44 · 0/0 · 2/2 · 22/22**）· flutter analyze **0 issue** · flutter test **1580** · pytest 22/1skip · 秘密扫描 2022 文件 ok ·
+  `ignite.sh --check` **6/6** · `browser_probe.mjs all` **42 项：pass 38 · manual-only 4 · fail 0**（含音频 3/3）。
+  ⑨ **本轮自抓的假绿灯**：`browser_probe.mjs all,audio` **静默丢掉 audio**（注释却推荐这么跑，汇总照样印「fail 0」）—— 已修；
+  `stage_cancel_test.dart` 用源码字符串**钉住旧的静默 no-op**（已改语义断言）。
 - **2026-10-05（0.2.x 债轮：CI 红线门禁 + Rust 依赖与 Mod 密钥接缝 + Flutter 真 bug/假绿灯 + **首次真实浏览器验收** + 仓库治理）**：
   主线口径未变（**不升版本号、不发 release**：维护者肉眼 13 项未做，版本号留到下一轮）。
   ① **CI 三条红线门禁**（审计 F-0048-01 / F-0049-01 / F-0050-01）：新增 `scripts/lib/cdn_probe.sh` **单一真源**
