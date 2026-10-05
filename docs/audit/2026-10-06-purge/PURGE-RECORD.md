@@ -18,7 +18,7 @@ git show-ref > /home/skystar/backup-2026-10-06/refs-before.txt
 
 # 替换表（/tmp/purge-replacements.txt；此处写脱敏后的形态）
 #   <5 位数字口令>      ==> <REDACTED-DEVICE-PIN-2026-10-06>
-#   192.168.0.x      ==> 192.168.0.x
+#   <局域网 IP>        ==> 192.168.0.x
 
 python3 /tmp/git-filter-repo --force \
   --invert-paths --path scripts/deploy_android.sh \
@@ -26,7 +26,7 @@ python3 /tmp/git-filter-repo --force \
 ```
 
 - `--invert-paths --path scripts/deploy_android.sh`：**从全部历史删除该路径**（不只是改内容）；
-- `--replace-text`：把两个标识串在**所有 blob** 里替换（含台账里对它的引用）；
+- `--replace-text`：把两个标识串（5 位数字口令 / 局域网 IP）在**所有 blob** 里替换（含台账里对它的引用）；本文件按脱敏形态书写，不写原文；
 - filter-repo 会移除 `origin` remote（防误推），推送前需重新 `git remote add`。
 
 ## 3. 结果（原始数字）
