@@ -92,6 +92,9 @@ node scripts/browser_probe.mjs summary
   （两次运行前后各取一次，完全一致）。
 - **逐条对照**：两次共 **39 个非 audio 条目，判定**0 处不同**（`all-two-pass-comparison.json`）。
   （42 项里含 3 条 audio 结果，是上一节单独跑的那一轮被 run.json 聚合进来的；两次内容一致，对比时已排除。）
+- 两次运行的**完整控制台原文**：[`probe-all-pass1.log.txt`](probe-all-pass1.log.txt) / [`probe-all-pass2.log.txt`](probe-all-pass2.log.txt)；
+  音频那一轮的原文：[`probe-audio.log.txt`](probe-audio.log.txt)。
+  （文件名带 `.txt` 是因为仓库 `.gitignore` 第 28 行忽略 `*.log`，而这份原文要入库当证据。）
 - **两次的 3 条 fail 是同 3 条，且都与 task-7 无关**：
   - `8b` 前端产物新鲜度 —— 其他 teammate 正在改 `lib/*.dart`，产物由 Lead 独占重建；
   - `F-fonts-02` / `F-fonts-03` —— 字体运行期回落，由 **R4-T4** 修（`web/flutter_bootstrap.js`），本轮未落地。
