@@ -8,6 +8,11 @@
 > `/home/skystar/Live2D-Ai`（分支 `main`）**——旧分支 `mod/persona-polish` @ `88342ce`
 > 与它那份「3 个 Mod / 0.2.0-rc.1」的教义一并退役。同名 `AGENTS.md` 若出现在别处都是
 > 过时副本，**不要**按它写代码或文档；文档地图与生命周期三分见 `docs/DOC-MAP.md`。
+> **文档取回（2026-10-06 E8 文档减量）**：只具历史留证价值的文档（`docs/legacy/**`、
+> `docs/design/legacy/**`、2026-08「节点 C」/原生壳验证系列、12 份已收口计划，共 **139 份 / 31,509 行**）已
+> **移出工作树**——信息量一点没少：git 历史逐字保留，逐份取回方式见
+> [`docs/REMOVED-docs-index-2026-10-06.md`](docs/REMOVED-docs-index-2026-10-06.md)。
+> 本文历史段落里对它们的路径引用**刻意保留原样**（改历史引用 = 篡改记录）。
 > **版本口径（现行，2026-10-06 复核）**：现状 = **`0.2.1-rc.1`**（`Cargo.toml` 的
 > `version = "0.2.1-rc.1"`、tag `v0.2.1-rc.1`、发布说明 `docs/releases/v0.2.1-rc.1.md`）。
 > 再往前的 **0.2.0 收口 + 去臃肿第一轮**（2026-10-01 起：S0 文档整理 → `rc.8-a` 正确性与诚实性
@@ -264,6 +269,7 @@
 | 格式 | `cargo fmt --all -- --check` | 同上 |
 | Clippy（全目标、0 warning） | `cargo clippy --workspace --all-targets -- -D warnings` | 同上 |
 | Rust 占比 ≥95% | `cargo run -p xtask -- rust-ratio` | 同上（`Rust ratio (>= 95%)`） |
+| **docs 行数预算**（`docs/**/*.md` **不含** `docs/audit/**` ≤ 45,000 行；E8 / E14 起为机器门禁） | `cargo run -p xtask -- code-stats --check --only docs` | `pr-checks.yml` → `Rust Build & Test`（**Docs budget**） |
 | MSRV 1.92 可编译 | 手动（可选） | `pr-checks.yml` → `msrv-check`（仅 `cargo check`） |
 | 前端静态检查 + 测试 | `cd shell/flutter && flutter analyze && flutter test` | `flutter-checks.yml`（`paths: shell/flutter/**`） |
 | 仓库根历史资产测试 | `python3 -m pytest tests/ -q` | `pr-checks.yml` → `root-py-tests` |
@@ -271,7 +277,7 @@
 | wasm 渲染面可编译 | `cargo check --target wasm32-unknown-unknown -p l2d-wasm-demo` | **暂无**（本地手动；wasm 改动必须 rebuild + 肉眼） |
 | 前端产物级离线门禁（构建 + 产物断言） | `cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn && cd ../.. && ./scripts/ignite.sh --check-dir shell/flutter/build/web` | `flutter-checks.yml` → `flutter-web-offline-artifacts` |
 | **前端产物预算门禁**（清减 + 四条判据；E4 / E13） | `./scripts/prune_web_artifacts.sh --check`（对 `shell/flutter/build/web`；先跑上面那条构建） | `flutter-checks.yml` → `flutter-web-offline-artifacts`（**Artifact budget gate**：构建 → `prune` → `--check` → `ignite.sh --check-dir`） |
-| 前端真服务离线体检（托管层；与 `ignite.sh --check` 同一份判据） | `./scripts/ignite.sh --check`（对已启动服务；`scripts/ignition-precheck.sh` 的 A 段同源） | `nightly.yml` → `web-offline-serve-check` |
+| 前端真服务离线体检（托管层；与 `ignite.sh --check` 同一份判据） | `./scripts/ignite.sh --check`（对已启动服务；`scripts/ignition-precheck.sh` 的 A 段同源） | `nightly.yml` → `web-offline-serve-check`（**E16 起**：先 `prune_web_artifacts.sh` → `--check`，与 PR 路径同一份产物形态） |
 | 仓库密钥扫描（红线 R：密钥不进仓库） | `python3 scripts/check_public_secrets.py` | `secret-scan.yml` → `public-secret-scan` |
 
 两条纪律：
@@ -507,6 +513,40 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   路径即可（2026-09-11 修）。
 
 ## 变更历史
+
+- **2026-10-06 夜（第四轮：E8 文档减量 + E15/E16 收口；E14 按维护者裁决关闭）**：
+  维护者指示「**E8 分析修改和文档维护**」「**E14 按下不做**」，并要判断 E15 / E16 —— 判断是
+  **两条都做**（都是低成本、且属「门禁自己有没有洞」那一类），本轮已做完。
+  ① **E8 达成（两条 PLAN §5 判据双双达标）**：docs（**不含 `docs/audit/**`**）**70,762 → 39,273 行**
+  （预算 45,000，余量 **5,727**）；`docs/plans` 顶层 **33 → 21**（判据 ≤25）。做法 = **移出工作树**
+  **139 文件 / 31,509 行**：`docs/legacy/**` 108 份（Python/Android 时代 + 2026-10-01 归档的 94 份计划）、
+  `docs/design/legacy/**` 9 份（旧 JS 规格）、2026-08「节点 C」/原生壳验证 10 份（其子系统已于
+  W2-B/D1 物理移出）、**已收口计划 12 份**（0.2.0 seal/closeout 提示词、09-21/09-22/09-27 交接、
+  09-28 旧审计提示词、10-05 NEXT-ROUND）。**逐份登记**进
+  [`docs/REMOVED-docs-index-2026-10-06.md`](docs/REMOVED-docs-index-2026-10-06.md)（含
+  `git show 42c5825:<路径>` 逐字取回命令）。**活文档改链、历史文档刻意保留死链**（改历史引用 = 篡改记录）；
+  `DOC-MAP` §2/§3/§4 按新口径重写（「历史留证 = 移出工作树」，不再搬 `docs/legacy/`）。
+  ② **E8 的机器门禁（此前只有人眼）**：`xtask code_stats` 新增门禁组 **`docs`** ——
+  `DOCS_BUDGET_LINES = PLAN_DOCS_LINES = 45_000`，判**不含 `docs/audit/**`** 的行数；
+  `collect.rs` 一次扫描同时出「含 / 不含 audit」两数（报告 §1 两行都打印），
+  `--only docs` 可单独选中，并**单独接进 `pr-checks.yml`**——原来那三条 `--only lines/over-1000/deps`
+  都不含 docs，不接就等于「门禁只存在于本地」。
+  **红-绿自证**：常量临时改 `30_000` → `FAIL docs-lines：当前 39257 ＞ 上限 30000（当时值）` / **exit 1**；复原 → **PASS / exit 0**。
+  另加单测 `docs_budget_gate_excludes_audit_and_is_two_way`（含「audit 行**不得**计入预算」的判别力断言），
+  `cargo test -p xtask` **27 → 28 passed**。
+  ③ **E15（守门自身的洞）已修**：`test/dart_library_guard_test.dart` 判据③ 的**整文件豁免**
+  （`if (src.contains('listSync(recursive: true)')) continue;`）改成**逐调用点白名单** `varReadExemptions`
+  （4 条，各带必填 reason），并加两条自证：白名单必须**恰好命中一个**真实调用点（失准 / 零命中 / 无理由 ⇒ 红）；
+  文件必须仍有机械锚点（目录遍历，或一个**不声明 part** 的 `lib/*.dart` 字面量）⇒ 锚点消失即红。
+  **红-绿三向自证**：删一条豁免 → 点名判红；插一条假豁免 → 「命中 0 次」判红；锚点恒假 → 四条全红；复原 → **3 passed / exit 0**。
+  ④ **E16 已修**：`nightly.yml` 的 `web-offline-serve-check` 在构建后、起服务前补 `prune_web_artifacts.sh`
+  → `--check` —— 与 PR 路径**同一份产物形态 + 同一份四条判据**（此前 nightly 绿 ≠ 用户拿到的产物绿）。
+  本机复跑 prune / `--check` 各 **exit 0**（死重 0 / 红线 9 项 / 29.38 MiB ≤ 35 / 预算不漂移）；**真 runner 首跑仍受 E7 阻塞**。
+  ⑤ **E14 = 维护者裁决「不做」**（**已裁决关闭**，不是没做完）：dist **仅披露** ——
+  `WASM_DIST_BUDGET_MIB`（4.2 MiB）由 `code-stats` 如实打印「超预算」，不纳入 CI 构建、不设门禁。
+  ⑥ **仍未关**：**E7 CI 真 runner 首跑**（无 token / 无 runner；本轮新增的两条 CI 步骤同样**未在真 runner 验证**，
+  如实登记）；**推送**（`No anonymous write access`，需 token）。**边界登记（不是 bug）**：
+  历史文档里的 `docs/legacy/…` 引用**故意不修**（§1 规则），看到死链即「写于移出之前」的信号。
 
 - **2026-10-06 夜（第二轮团队 / 0.2 工程债清算；Lead 统一提交）**：
   维护者裁决「**继续清理工程债务，清完就是 0.2 时代的任务**」，并同时明确：**E8 文档减量本轮不动**、
@@ -767,7 +807,7 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   `ignite.sh --check` **四项 ok**（现扫 4 个产物文件）。
   报告：`docs/audit/2026-10-05-debt-round/ROUND-REPORT-2026-10-05.md`（+ CI/Rust/Flutter/仓库卫生四份分报告）、
   浏览器验收 `docs/verification/v0.2.1-browser-acceptance-2026-10-05.md`、
-  下一轮清单 `docs/plans/NEXT-ROUND-main-2026-10-05.md`。
+  下一轮清单 `docs/plans/NEXT-ROUND-main-2026-10-06.md`（10-05 版已被取代、移出工作树）。
 
 - **2026-09-28（v0.2.0-rc.7，正确性与诚实性：审计主发现 + 4 条假绿灯 + 仓库卫生）**：
   ① **`F-0005-2` 重建放大链**：`AppShell.settingsRevision` + `AppShellState._settingsTick` + `section`
@@ -842,8 +882,9 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   pytest 22 passed/1 skipped；两个 sidecar 自检 70 项 + 16 断言 OK；
   **真点火**（本机 DeepSeek + CosyVoice，18099）两轮对话：memory 2 写 1 命中、director 2 决策、
   persona 导入→还原→再启用、`command` 失败态（404/409/503/400/403）全部符合契约。
-  收束：[`docs/legacy/plans/PRODUCT-GRADE-CLOSEOUT.md`](docs/legacy/plans/PRODUCT-GRADE-CLOSEOUT.md)；
-  点火：[`docs/legacy/plans/IGNITION-CHECKLIST-product-grade.md`](docs/legacy/plans/IGNITION-CHECKLIST-product-grade.md)。
+  收束：`docs/legacy/plans/PRODUCT-GRADE-CLOSEOUT.md`；
+  点火：`docs/legacy/plans/IGNITION-CHECKLIST-product-grade.md`
+  （两份**均已移出工作树**，取回见 [`docs/REMOVED-docs-index-2026-10-06.md`](docs/REMOVED-docs-index-2026-10-06.md)）。
   **未 bump / 未 push / 未打 tag**；主链皮肤与 `l2d-wasm-demo` 一行未改。
 
 - **2026-09-14（Wave 3 七轨闭环，本地 `mod/wave3`，**未发布 / 无版本变更**）：**真源 `mod/wave2` @ `1e789cb6`

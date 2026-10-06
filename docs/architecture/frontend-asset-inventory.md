@@ -2,6 +2,8 @@
 
 > **任务**：0.2.0 封口路线 Stage A 的 A1（资产守护网）。
 > **范围真源**：docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md §3（资产清单 A1–A8 +
+> （该计划已于 2026-10-06 的 E8 文档减量中移出工作树，取回见
+> [已移出工作树的文档索引](../REMOVED-docs-index-2026-10-06.md)）
 > 守护红线 + §3.3 冲突热点）、docs/architecture/performance-protocol-v1.md。
 > **工作树**：/home/skystar/Live2D-Ai-fe @ feat/frontend-redesign @ e4f139a8（= main = v0.2.0-rc.4，**未重放**）。
 > **本文件只新增文档与测试；lib/** 与既有测试文件一行未改。**

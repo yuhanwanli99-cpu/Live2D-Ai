@@ -1,6 +1,6 @@
 # Linux（WSL2）环境定位：PC 端主力
 
-> 平台轨迹（2026-08-19 用户定调，见 `../legacy/plans/wsl2-migration-plan.md`）：
+> 平台轨迹（2026-08-19 用户定调，见 `../legacy/plans/wsl2-migration-plan.md`——该文件**已移出工作树**，取回见 [文档索引](../REMOVED-docs-index-2026-10-06.md)）：
 > **PC 端主力迁移到 WSL2（开发 + 运行 + CI），原生 Windows 已放弃**。
 > （Windows 启动入口已移除；仓库已迁移至 WSL2 原生盘并按 `Live2D-Ai` 更名。）
 > 双端结构：Android（手机/Compose）+ PC（WSL2/Linux 原生运行 Open-LLM-VTuber）。
@@ -41,7 +41,7 @@ python scripts/verify_all.py
 - root pytest
 
 PC 的 Open-LLM-VTuber 依赖较重（torch/onnxruntime），以 WSL2 原生盘上的独立 venv 运行（见
-`../legacy/plans/wsl2-migration-plan.md` 的 Phase 0–2），也可在专用 CI 环境跑。
+`../legacy/plans/wsl2-migration-plan.md`（已移出工作树）的 Phase 0–2），也可在专用 CI 环境跑。
 
 ## 目录约定
 

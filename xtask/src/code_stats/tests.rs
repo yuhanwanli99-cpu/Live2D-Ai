@@ -93,9 +93,10 @@ fn fixture(tag: &str) -> TempTree {
     tree.write_lines("shell/flutter/lib/big.dart", 801, "//");
     tree.write_lines("shell/flutter/test/main_test.dart", 12, "//");
     tree.write_lines("shell/flutter/test/huge_test.dart", 901, "//");
-    // docs（含 legacy）。
+    // docs（含 legacy；audit 是过程产物，**不进预算**）。
     tree.write("docs/a.md", "# a\n# b\n");
     tree.write("docs/legacy/b.md", "# c\n");
+    tree.write("docs/audit/ledger.md", "# 1\n# 2\n# 3\n# 4\n");
     tree
 }
 
@@ -213,8 +214,13 @@ fn collect_dart_and_docs_and_missing_artifacts_per_fixture() {
     assert_eq!(stats.dart_test_files, 2);
     assert_eq!(stats.dart_test_lines, 12 + 901);
 
-    assert_eq!(stats.docs_files, 2);
-    assert_eq!(stats.docs_lines, 3);
+    assert_eq!(stats.docs_files, 3);
+    assert_eq!(stats.docs_lines, 7);
+    // 预算判定对象 = 不含 docs/audit/**（3 = a.md 2 + legacy/b.md 1）。
+    assert_eq!(stats.docs_audit_files, 1);
+    assert_eq!(stats.docs_audit_lines, 4);
+    assert_eq!(stats.docs_worktree_files, 2);
+    assert_eq!(stats.docs_worktree_lines, 3);
 
     // 产物目录不存在 → 记「缺」，不猜体积。
     assert_eq!(stats.artifacts.len(), 2);
@@ -261,6 +267,64 @@ fn dependencies_count_ignores_target_and_dev_sections() {
         count_dependencies_in("[dependencies]\n# a = \"1\"\na = \"1\" # 行尾注释\n"),
         1
     );
+}
+
+/// docs 预算门禁：**判的是不含 `docs/audit/**` 的行数**，且红绿双向可分。
+///
+/// 判别力：fixture 的 `docs/audit/ledger.md` 有 4 行。若把 audit 计进预算，
+/// 「上限 3」会 FAIL（7 > 3 或 3+4=7）——下面的绿例正是靠这一点把实现钉住。
+#[test]
+fn docs_budget_gate_excludes_audit_and_is_two_way() {
+    let tree = fixture("docs-budget");
+    let stats = collect(&tree.root).expect("scan fixture");
+    assert_eq!(stats.docs_worktree_lines, 3);
+    assert!(stats.docs_audit_lines > 0, "fixture 必须含 audit 样本");
+
+    // 红：预算 2 < 实测 3（不含 audit）→ FAIL、退出码 1。
+    let red = Options {
+        check: true,
+        gates: vec![Gate::Docs],
+        limits: Limits {
+            docs_lines: 2,
+            ..Limits::ratchet()
+        },
+        ..Options::default()
+    };
+    let results = evaluate(&stats, &red);
+    let docs = results
+        .iter()
+        .find(|result| result.group == Gate::Docs)
+        .expect("docs gate present");
+    assert_eq!(docs.actual, 3, "审计台账不得计入预算");
+    assert!(!docs.pass);
+    assert_eq!(
+        exit_code(&results, true),
+        ExitCode::from(EXIT_BELOW_THRESHOLD)
+    );
+
+    // 绿：预算放到 3 = 实测 → PASS。若实现把 audit 也算进去，这条必红。
+    let green = Options {
+        limits: Limits {
+            docs_lines: 3,
+            ..Limits::ratchet()
+        },
+        ..red
+    };
+    let results = evaluate(&stats, &green);
+    assert_eq!(exit_code(&results, true), ExitCode::from(EXIT_PASS));
+    // 未选中 docs 组时，同一条 FAIL 不参与退出码（这里选 deps：fixture 的依赖数在限内，
+    // 若 docs 组仍参与判定，就会因为 docs_lines = 0 而变红）。
+    let others = Options {
+        check: true,
+        gates: vec![Gate::Deps],
+        limits: Limits {
+            docs_lines: 0,
+            ..Limits::ratchet()
+        },
+        ..Options::default()
+    };
+    let results = evaluate(&stats, &others);
+    assert_eq!(exit_code(&results, true), ExitCode::from(EXIT_PASS));
 }
 
 #[test]
@@ -326,6 +390,7 @@ fn gate_evaluation_covers_lines_and_deps() {
             dart_over_800: 0,
             desktop_deps: 0,
             src_rs_over_1000: 0,
+            ..Limits::ratchet()
         },
         ..Options::default()
     };

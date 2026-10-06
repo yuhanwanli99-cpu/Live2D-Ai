@@ -3,7 +3,7 @@
 > **状态**：本轮（L1 产品化波次）新增的**最小宿主能力**。它不改变主链皮肤
 > （LLM/TTS/口型/Live2D 一行未动），只在「本轮请求用哪段 system_prompt」上
 > 加了一层**按会话取值**的覆盖。
-> **范围真源**：[PRODUCT-L1-GOALS-2026-09-15](../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md)。
+> **范围真源**：`../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md`（**已移出工作树**，取回见 [文档索引](../REMOVED-docs-index-2026-10-06.md)）。
 
 ---
 

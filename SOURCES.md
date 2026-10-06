@@ -1,7 +1,7 @@
 # SOURCES.md — 来源纪律与许可边界
 
 > 用途：任何第三方代码进入本仓库源码树**之前**，必须先在本文件登记
-> （来源、许可证、版本/commit、目的），经确认后再引入（RFC `docs/legacy/plans/RUST-REWRITE-RFC.md` §5 / D4）。
+> （来源、许可证、版本/commit、目的），经确认后再引入（RFC `docs/legacy/plans/RUST-REWRITE-RFC.md` §5 / D4；该 RFC 与本节其余 `docs/legacy/**` 引用**已移出工作树**，取回见 [`docs/REMOVED-docs-index-2026-10-06.md`](docs/REMOVED-docs-index-2026-10-06.md)）。
 > 引入动作发生时，在「已引入」一节补记 fork/pin 的固定 commit 与引入位置；
 > 未登记即引入视为违规。
 

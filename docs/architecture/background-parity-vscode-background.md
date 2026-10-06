@@ -9,7 +9,10 @@
 > `shell/flutter/lib/settings/display_prefs.dart`、`shell/flutter/lib/ui/shell_backdrop.dart`、
 > `shell/flutter/lib/design/background_item.dart`、`shell/flutter/lib/app/shell_prefs.dart`。
 > **范围真源**：`docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md` §5（§5.1 参考模型 / §5.2 差距表 / §5.3 短期目标）、
-> `docs/plans/IMPL-PROMPTS-0.2.0-seal-2026-09-27.md` §B1–B4。
+> `docs/plans/IMPL-PROMPTS-0.2.0-seal-2026-09-27.md` §B1–B4
+> ——**这两份（及本文下文引用的 `ORCHESTRATOR-PROMPT-0.2.0-closeout-2026-09-28.md`）已于 2026-10-06
+> 的 E8 文档减量中移出工作树**，正文引用**按原样保留**（不改历史），取回见
+> [已移出工作树的文档索引](../REMOVED-docs-index-2026-10-06.md)。
 > **改动史**：B4 时**只新增文档**（不改代码、不改任何既有文件，`docs/README.md` 索引原留给 Stage C · C1）；
 > **2026-09-28 R6-c** 按任务回填 §0 / §5.2 / §5.3 / §6 / §7 并同步 `docs/README.md` 索引（§7.2 第 3 条关闭）。
 > **两波都未改任何代码。**

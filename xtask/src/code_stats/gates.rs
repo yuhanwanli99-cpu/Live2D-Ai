@@ -1,4 +1,4 @@
-//! 硬门禁：棘轮阈值、四条门禁的判定与退出码。
+//! 硬门禁：棘轮阈值、五条门禁的判定与退出码。
 
 use std::process::ExitCode;
 
@@ -18,6 +18,8 @@ pub enum Gate {
     Over1000,
     /// `live2d-ai-desktop` 依赖计数（PLAN 目标 ≤ 22）。
     Deps,
+    /// docs 行数（`docs/**/*.md` **不含** `docs/audit/**`，PLAN §5 目标 ≤ 45,000）。
+    Docs,
 }
 
 impl Gate {
@@ -26,6 +28,7 @@ impl Gate {
             "lines" | "行数" => Some(Gate::Lines),
             "over-1000" | "over1000" => Some(Gate::Over1000),
             "deps" | "依赖" => Some(Gate::Deps),
+            "docs" | "文档" => Some(Gate::Docs),
             _ => None,
         }
     }
@@ -36,12 +39,13 @@ impl Gate {
             Gate::Lines => "lines",
             Gate::Over1000 => "over-1000",
             Gate::Deps => "deps",
+            Gate::Docs => "docs",
         }
     }
 
     /// `--only` 未指定时的全集。
     pub fn all() -> Vec<Self> {
-        vec![Gate::Lines, Gate::Over1000, Gate::Deps]
+        vec![Gate::Lines, Gate::Over1000, Gate::Deps, Gate::Docs]
     }
 }
 
@@ -52,6 +56,8 @@ pub struct Limits {
     pub src_rs_over_1000: u64,
     pub dart_over_800: u64,
     pub desktop_deps: u64,
+    /// docs 行数预算（不含 `docs/audit/**`）。
+    pub docs_lines: u64,
 }
 
 impl Limits {
@@ -66,6 +72,7 @@ impl Limits {
             src_rs_over_1000: RATCHET_SRC_RS_1000,
             dart_over_800: RATCHET_DART_800,
             desktop_deps: RATCHET_DESKTOP_DEPS,
+            docs_lines: DOCS_BUDGET_LINES,
         }
     }
 
@@ -76,6 +83,7 @@ impl Limits {
             src_rs_over_1000: PLAN_SRC_RS_1000,
             dart_over_800: PLAN_DART_800,
             desktop_deps: PLAN_DESKTOP_DEPS,
+            docs_lines: PLAN_DOCS_LINES,
         }
     }
 }
@@ -97,7 +105,7 @@ pub struct GateResult {
 
 // ── 门禁判定 ──────────────────────────────────────────────────────────────────
 
-/// 计算四条门禁的当前值与判定；`--only` 选中的才参与退出码。
+/// 计算五条门禁的当前值与判定；`--only` 选中的才参与退出码。
 pub fn evaluate(stats: &CodeStats, opts: &Options) -> Vec<GateResult> {
     let selected = |group: Gate| opts.gates.is_empty() || opts.gates.contains(&group);
     let desktop_deps = stats
@@ -169,10 +177,21 @@ pub fn evaluate(stats: &CodeStats, opts: &Options) -> Vec<GateResult> {
             opts.limits.desktop_deps,
             PLAN_DESKTOP_DEPS,
         ),
+        gate(
+            "docs-lines",
+            Gate::Docs,
+            format!(
+                "`docs/**/*.md` 不含 `docs/audit/**` 的行数（预算 {}）",
+                opts.limits.docs_lines
+            ),
+            stats.docs_worktree_lines,
+            opts.limits.docs_lines,
+            PLAN_DOCS_LINES,
+        ),
     ]
 }
 
-/// 四条的 console 汇总（CI 日志末尾一眼看到结论）。
+/// 五条的 console 汇总（CI 日志末尾一眼看到结论）。
 pub fn exit_code(results: &[GateResult], check: bool) -> ExitCode {
     if !check {
         return ExitCode::from(EXIT_PASS);

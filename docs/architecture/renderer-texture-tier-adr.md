@@ -2,7 +2,7 @@
 
 > 状态：**接口已落地、真机验收仍属外部**，2026-09
 > 分支：`dev/integrity`
-> 关联：`../legacy/plans/integrity-takeover-fix-plan-2026-09-07.md` §4（渲染档位可行性）
+> 关联：`../legacy/plans/integrity-takeover-fix-plan-2026-09-07.md`（已移出工作树，见 [文档索引](../REMOVED-docs-index-2026-10-06.md)）§4（渲染档位可行性）
 > 本 ADR 定义「纹理档位」如何落在离屏渲染 target 尺寸与设备 limits 上。**当前环境（llvmpipe
 > 软渲染、无独立 GPU）不做真机验收**；代码/接口是可门禁交付的，16384 档的真机可用性见 §6。
 > 面向平台定位：不引入复杂上层——配乐最小、走既有 `Renderer`/`OffscreenRenderer`/wasm `stage-config`

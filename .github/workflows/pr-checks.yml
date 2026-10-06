@@ -81,6 +81,11 @@ jobs:
         run: cargo run -p xtask -- code-stats --check --only over-1000
       - name: Cargo dependency budget (live2d-ai-desktop ≤ 34；PLAN 目标 22)
         run: cargo run -p xtask -- code-stats --check --only deps
+      # E8（2026-10-06）：docs 行数预算（PLAN §5 目标 45,000，判**不含 docs/audit/**
+      # 的口径）。**必须单独列这一步**：上面的 --only lines/over-1000/deps 都不是 docs 组，
+      # 缺了它这条预算就只是本地命令、不是门禁（与 E17 那条「没有东西在守它」同源）。
+      - name: Docs budget (docs/**/*.md 不含 docs/audit/** ≤ 45,000 行)
+        run: cargo run -p xtask -- code-stats --check --only docs
 
   # ────────────────────────────────────────────────────────────────────────────
   # Job A2: MSRV check（workspace 声明 rust-version=1.92——egui 0.35 下限；

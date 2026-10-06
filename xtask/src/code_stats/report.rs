@@ -89,9 +89,21 @@ fn write_totals(out: &mut String, stats: &CodeStats) {
     );
     let _ = writeln!(
         out,
-        "| docs `*.md`（含 `docs/legacy/`） | {} | {} |",
+        "| docs `*.md`（含 `docs/audit/**`） | {} | {} |",
         stats.docs_files,
         thousands(stats.docs_lines)
+    );
+    let _ = writeln!(
+        out,
+        "| docs `*.md`（**不含** `docs/audit/**`，预算判定对象） | {} | {} |",
+        stats.docs_worktree_files,
+        thousands(stats.docs_worktree_lines)
+    );
+    let _ = writeln!(
+        out,
+        "| └ 其中 `docs/audit/**`（过程产物，只增不减） | {} | {} |",
+        stats.docs_audit_files,
+        thousands(stats.docs_audit_lines)
     );
     let _ = writeln!(out);
 }
@@ -337,6 +349,11 @@ fn write_methodology(out: &mut String, stats: &CodeStats, opts: &Options) {
         "- 依赖数 = 顶层 `[dependencies]` 键数（不含 `[target.*.dependencies]` / dev / build）；"
     );
     let _ = writeln!(out, "- 「缺」= 产物目录不存在（未构建）；不伪造体积。");
+    let _ = writeln!(
+        out,
+        "- **docs 预算口径**：`DOCS_BUDGET_LINES` = {}（PLAN §5 目标）判的是**不含 `docs/audit/**`** 的行数；`docs/audit/` 是审计过程产物、只增不减，计入会掩盖真实减量（真源 `docs/DOC-MAP.md` §3）；逼近预算时的正解是**移出工作树**（`docs/REMOVED-docs-index-2026-10-06.md`），不是调大预算。",
+        thousands(DOCS_BUDGET_LINES)
+    );
     let _ = writeln!(out);
     let test_module_lines: u64 = stats.test_module_files.iter().map(|f| f.total).sum();
     let _ = writeln!(

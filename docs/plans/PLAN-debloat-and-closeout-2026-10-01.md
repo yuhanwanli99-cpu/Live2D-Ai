@@ -1,6 +1,6 @@
 # PLAN · 0.2.0 收口 + 去臃肿（2026-10-01）
 
-> 立档 **2026-10-01** · 状态：**活** · 上一版计划：`docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md`
+> 立档 **2026-10-01** · 状态：**活** · 上一版计划：`docs/plans/PLAN-0.2.0-seal-and-cleanup-2026-09-27.md`（已于 2026-10-06 移出工作树，见 [`REMOVED-docs-index`](../REMOVED-docs-index-2026-10-06.md)）
 > **口径（维护者 2026-10-01）**：项目太大太臃肿，**技术 / 工程债要收，代码精简与优化排上日程**。
 > 本文承接 09-27 计划的收口部分，并**新增"去臃肿（Debloat）"专线**；冲突时本文为准。
 
@@ -102,6 +102,11 @@
 - [ ] `AGENTS.md` 单一化（以 `-fe` 版为底），消除 `-Ai` 旧 doctrine 的残留引用
 - [ ] `CHANGELOG.md` 去留裁决；`docs/releases/v0.3.0.md` 标"历史草案，未发布"
 
+> **2026-10-06 复核**：上面四项均已执行（归档 `b9eff54e` / 完成点 `4285af8b`、AGENTS 单一化、
+> `CHANGELOG.md` 停更头注、`v0.3.0.md` 标作废）。**新增一条**：2026-10-06（E8 文档减量）把
+> `docs/legacy/` 整目录**移出工作树**——归档只解决「活 / 历史混放」，不减行数；取回见
+> [`docs/REMOVED-docs-index-2026-10-06.md`](../REMOVED-docs-index-2026-10-06.md)。
+
 **判据**：`grep` 归档名在 `docs/plans/` 场景下为 0；`docs/README.md` 无断链；AGENTS 只剩一份。
 
 ### S1 · `rc.8-a` 正确性与诚实性（**先修后删**）
@@ -171,7 +176,12 @@ cd /home/skystar/Live2D-Ai-fe && git checkout main && git merge --ff-only feat/f
 ### D5 · 文档瘦身
 
 - 归档 94 份；`docs` 69,733 → **≤45,000**；`docs/plans` 115 → **≤25**。
-- **判据**：`DOC-MAP.md` `3 复算。
+- **判据**：`DOC-MAP.md` §3 复算。
+- **✅ 2026-10-06 达标（E8 文档减量）**：docs **不含 `docs/audit/**`** = **39,273 ≤ 45,000**（余量 5,727）；
+  `docs/plans` 顶层 = **21 ≤ 25**。做法 = **移出工作树 139 文件 / 31,509 行**（不是搬运、不是压缩），
+  逐份登记 + `git show` 取回见 [`docs/REMOVED-docs-index-2026-10-06.md`](../REMOVED-docs-index-2026-10-06.md)。
+  **并已变成机器判据**：`cargo run -p xtask -- code-stats --check --only docs`（门禁组 `docs`，判**不含 audit**），
+  单独接进 `pr-checks.yml`。**增长纪律**：逼近预算时按 `DOC-MAP` §4「移出四步」处理，**不是**调大常量。
 
 ### D6 · 测试治理（**不砍覆盖，砍重复与假绿灯**）
 
@@ -190,8 +200,8 @@ cd /home/skystar/Live2D-Ai-fe && git checkout main && git merge --ff-only feat/f
 | Dart `>800` | 7 | **≤2** |
 | 休眠/封存 | 11,153 | **0 或显式冻结** |
 | `desktop` 依赖 | 34 | **≤22** |
-| `docs/plans` | 115 | **≤25** |
-| docs 总行数 | 69,733 | **≤45,000** |
+| `docs/plans` | 115 | **≤25**（**2026-10-06 已达：21**） |
+| docs 总行数 | 69,733 | **≤45,000**（**2026-10-06 已达：39,273**，不含 `docs/audit/**`） |
 | 测试条数 | 1460 / 1281 | **不减** |
 
 ## 6. 未来（Beyond 0.2.0）

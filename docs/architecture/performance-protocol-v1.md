@@ -624,8 +624,9 @@ D22–D26 不在原 O 表内，是维护者复核契约时发现的**跨层接�
 | 会话作用域 / 会话 id 闸 | [session-scope-l1.md](session-scope-l1.md) |
 | TTS 是核心链路（端点唯一权威） | [tts-is-core.md](tts-is-core.md) |
 | 裁决原文（§8–§10.7） | [RESEARCH-actions-director-audit-2026-09-21.md](../plans/RESEARCH-actions-director-audit-2026-09-21.md) |
-| 阶段3 收口（D14 / D20 纪律） | [STAGE3-CLOSEOUT-2026-09-26.md](../legacy/plans/STAGE3-CLOSEOUT-2026-09-26.md) |
-| 阶段4 计划 / worker 提示词 | [STAGE4-plan-2026-09-26.md](../legacy/plans/STAGE4-plan-2026-09-26.md) · [STAGE4-WORKER-PROMPTS-2026-09-26.md](../legacy/plans/STAGE4-WORKER-PROMPTS-2026-09-26.md) |
+| 阶段3 收口（D14 / D20 纪律） | `../legacy/plans/STAGE3-CLOSEOUT-2026-09-26.md`（已移出工作树） |
+| 阶段4 计划 / worker 提示词 | `../legacy/plans/STAGE4-plan-2026-09-26.md` · `STAGE4-WORKER-PROMPTS-2026-09-26.md`（同上） |
+| 上述「已移出工作树」各份的取回方式 | [文档索引](../REMOVED-docs-index-2026-10-06.md) |
 
 **实现侧单一真源（v1 落地时更新）**：
 

@@ -6,7 +6,7 @@
 > 注入**按会话分桶**（`sessions/<id>.memory.jsonl` + 会话级 `system_prompt` 覆盖，
 > §14）；`state_json` 新增 `session_scoped` / `active_session` / `bucket_path`；
 > 面板新增记忆列表（查看 / 编辑 / 删除）+ 导入一条 + 会话降级文案。
-> **版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。`../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md`
+> **版本仍 `0.2.0-rc.3`**（不 bump / 不 tag）。`../legacy/plans/PRODUCT-L1-GOALS-2026-09-15.md`（已移出工作树，取回见 [文档索引](../REMOVED-docs-index-2026-10-06.md)）
 > §3（被动 + 主动）与 §4（验收句式）是本轮范围真源。
 >
 > **2026-09-20（P1-5 补齐：真摘要，本波）**：`summary_*` 那组钩子**真的接了 LLM**

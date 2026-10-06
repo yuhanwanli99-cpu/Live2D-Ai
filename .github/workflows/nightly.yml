@@ -145,6 +145,11 @@ jobs:
   #
   # 未在真 runner 上验证的一点：ubuntu-latest 是否自带 libasound2-dev。这里先探测、
   # 缺了才装（避免 build-upload.yml 里那个无条件 apt 步骤的反复 exit 100 形态）。
+  #
+  # **E16（2026-10-06）：产物形态与 PR 路径对齐。** 从前这个 job 直接把**未清减**的
+  # build/web 喂给托管层测试 —— 于是 nightly 绿 ≠ 用户拿到的产物绿（PR 路径是
+  # 构建 → prune → --check → 托管层）。现在这里也先 prune 再 --check（四条判据：
+  # 死重 0 / 红线文件齐全 / ≤ 预算 / 与 xtask 预算不漂移），再起服务。
   # ────────────────────────────────────────────────────────────────────────────
   web-offline-serve-check:
     name: Web Offline Serve Check
@@ -168,6 +173,14 @@ jobs:
       - name: "Build Flutter web (offline: no web resources CDN)"
         working-directory: shell/flutter
         run: flutter build web --release --base-href /app/ --no-web-resources-cdn
+
+      # E16：与 flutter-checks.yml 的 flutter-web-offline-artifacts 同一份形态与同一份判据
+      # （脚本幂等；--check 只读）。这样 nightly 验的就是用户实际会拿到的产物。
+      - name: Prune web artifacts (dead-weight removal)
+        run: ./scripts/prune_web_artifacts.sh
+
+      - name: Artifact budget gate (prune --check, 4 criteria)
+        run: ./scripts/prune_web_artifacts.sh --check
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable

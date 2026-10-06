@@ -123,11 +123,26 @@ pub fn collect(root: &Path) -> io::Result<CodeStats> {
     stats.dart_test_lines = test.lines;
     stats.dart_test_over_800 = test.over;
 
+    // docs：总量 + 「不含 docs/audit/**」的减量账（判据对象）。一次扫描两数，避免漂移。
     let docs = collect_files(&root.join("docs"), "md")?;
     stats.docs_files = docs.len() as u64;
-    stats.docs_lines = docs.iter().try_fold(0_u64, |acc, path| {
-        Ok::<u64, io::Error>(acc + physical_lines(&fs::read_to_string(path)?))
-    })?;
+    let mut docs_total = 0_u64;
+    let mut audit_files = 0_u64;
+    let mut audit_total = 0_u64;
+    for path in &docs {
+        let lines = physical_lines(&fs::read_to_string(path)?);
+        docs_total += lines;
+        let rel = path.strip_prefix(root).unwrap_or(path.as_path());
+        if rel.starts_with("docs/audit/") {
+            audit_files += 1;
+            audit_total += lines;
+        }
+    }
+    stats.docs_lines = docs_total;
+    stats.docs_audit_files = audit_files;
+    stats.docs_audit_lines = audit_total;
+    stats.docs_worktree_files = stats.docs_files - audit_files;
+    stats.docs_worktree_lines = docs_total - audit_total;
 
     for (rel, budget) in [
         (FLUTTER_WEB_DIST, FLUTTER_WEB_BUDGET_MIB),

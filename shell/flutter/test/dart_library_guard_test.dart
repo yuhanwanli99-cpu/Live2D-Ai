@@ -19,6 +19,12 @@
 /// 修法统一走 test/support/dart_library.dart 的 readLibrarySource()
 /// （库 + 它的 parts，深度优先、去重）。本门禁保证**下次再加 part 时不会有人漏**。
 ///
+/// **E15（2026-10-06）：豁免从「整文件放行」收紧为「逐调用点 + 豁免自证」。**
+/// 旧写法只要文件里出现一次目录遍历就 `continue`，**全文所有**变量路径读取点一起免检
+/// （`no_backdrop_filter_test.dart` 的直读点就是这么溜过去的）。现在见文件末尾的
+/// `varReadExemptions`：逐调用点登记 + 必须写理由 + 文件里必须仍有机械锚点
+/// （遍历 / 非 part 库字面量），否则**豁免自身判红**。
+///
 /// **已知盲区（如实标注）**：把 part 库的路径装进变量、再经变量读到读取点，
 /// 若同文件里不出现该库的字面量路径，静态上判不出来。当前 test/ 无此写法。
 library;
@@ -111,6 +117,9 @@ void main() {
     );
     final Set<String> libs = partDeclaringLibraries();
     final List<String> offenders = <String>[];
+    // 调用点 key → 出现次数（判「豁免是否失准」）与 → 所在文件源码（判锚点是否还在）。
+    final Map<String, int> siteCounts = <String, int>{};
+    final Map<String, String> siteSources = <String, String>{};
     int scanned = 0;
     for (final File e in testSources()) {
       if (e.path.endsWith('support/dart_library.dart')) continue; // 唯一实现点
@@ -121,23 +130,100 @@ void main() {
         offenders.add('$rel -> 定义了按路径读源码的辅助函数');
         continue;
       }
-      if (!varRead.hasMatch(src)) continue;
-      // 目录递归遍历天然覆盖 part（no_backdrop_filter_test / design_tokens_lint_test
-      // / director_observer_test 三处的形状就是遍历或硬编码清单，都不是漏扫）。
-      if (src.contains('listSync(recursive: true)')) continue;
-      if (libs.any((String lib) => src.contains("'$lib'"))) {
-        offenders.add('$rel -> 变量路径读取 + 出现 part 库字面量路径');
+      // 逐个**调用点**收集（E15：不再整文件放行）。
+      for (final RegExpMatch m in varRead.allMatches(src)) {
+        final String key = _callSiteKey(rel, m.group(0)!);
+        siteCounts[key] = (siteCounts[key] ?? 0) + 1;
+        siteSources[key] = src;
+      }
+    }
+    // 判定一：白名单**失准**也要红 —— 每条豁免必须恰好命中一个真实调用点。
+    final List<String> staleExemptions = <String>[];
+    for (final VarReadExemption c in varReadExemptions) {
+      final int hits = siteCounts[c.key] ?? 0;
+      if (hits != 1) {
+        staleExemptions.add('${c.key}（命中 $hits 次）');
+      } else if (c.reason.trim().isEmpty) {
+        staleExemptions.add('${c.key}（没写理由）');
+      } else if (!_stillJustified(siteSources[c.key]!, libs)) {
+        staleExemptions.add('${c.key}（文件里已找不到遍历 / 非 part 库字面量）');
+      }
+    }
+    // 判定二：**未豁免**的调用点，若所在文件出现 part 库字面量路径 ⇒ 判红。
+    for (final String key in siteCounts.keys) {
+      if (varReadExemptions.any((VarReadExemption c) => c.key == key)) continue;
+      if (libs.any((String lib) => siteSources[key]!.contains("'$lib'"))) {
+        offenders.add('$key -> 变量路径读取 + 出现 part 库字面量路径');
       }
     }
     // 防零命中空转：扫到的文件太少 = 路径写错了。
     expect(scanned, greaterThan(30), reason: '扫到的测试文件太少，门禁在空转');
+    expect(
+      staleExemptions,
+      isEmpty,
+      reason:
+          '这些豁免已经对不上真实调用点，或者文件里已找不到当初放行的依据 —— '
+          '等于凭空放行。删掉它、或者把依据补回来。当前：'
+          '${staleExemptions.join(' | ')}',
+    );
     expect(
       offenders,
       isEmpty,
       reason:
           '路径经变量的读取，静态上判不出被读的是不是「声明了 part 的库」——'
           '今天读 main.dart，明天就可能读另一个。改用 support/dart_library.dart 的'
-          'readLibrarySource(...)。当前命中：${offenders.join(' | ')}',
+          'readLibrarySource(...)；确属遍历 / 硬编码清单的，逐调用点登记进'
+          'varReadExemptions 并写明理由。当前命中：${offenders.join(' | ')}',
     );
   });
 }
+
+/// 逐个**调用点**的豁免（E15：不是整文件豁免）。
+class VarReadExemption {
+  const VarReadExemption(this.key, this.reason);
+
+  /// `<相对仓库根的 posix 路径> :: <折叠空白后的调用表达式>`（行号不进 key：挪行不算改语义）。
+  final String key;
+
+  /// 为什么这个调用点不算漏扫（**必填**，空字符串判红）。
+  final String reason;
+}
+
+/// 调用点 key：文件 + 折叠空白后的匹配文本。
+String _callSiteKey(String rel, String expr) =>
+    '$rel :: ${expr.replaceAll(RegExp(r"\s+"), ' ').trim()}';
+
+/// 豁免**仍有依据**的机械锚点（必要条件，不是充分条件；充分性靠 [VarReadExemption.reason]
+/// 供人复核）：文件里仍有目录递归遍历，或仍有一个**不声明 part** 的 `lib/...dart` 字面量。
+bool _stillJustified(String src, Set<String> libs) {
+  if (src.contains('listSync(recursive: true)')) return true;
+  return RegExp(r"'(lib/[^']+\.dart)'")
+      .allMatches(src)
+      .any((RegExpMatch m) => !libs.contains(m.group(1)!));
+}
+
+/// 当前的四条豁免（每条都必须仍然对得上一个真实调用点，否则判红）。
+///
+/// 事实核对（2026-10-06 实测，`libs` = 声明 part 的库）：
+/// - `lib/ui/shell_backdrop.dart`、`lib/live2d/render_events.dart`、
+///   `lib/settings/sections/director_observer_section.dart` **都不声明 part**；
+/// - `no_backdrop_filter_test.dart:586` 读的是 `zeroDependencyLocals` 里的本地文件路径；
+/// - `design_tokens_lint_test.dart:499` 的路径来自 `_filesUnder(prefix)` 目录遍历。
+const List<VarReadExemption> varReadExemptions = <VarReadExemption>[
+  VarReadExemption(
+    'test/no_backdrop_filter_test.dart :: File(blurExceptionFile).readAsStringSync()',
+    'blurExceptionFile = lib/ui/shell_backdrop.dart（不声明 part）⇒ 读整文件就是读整个库',
+  ),
+  VarReadExemption(
+    'test/no_backdrop_filter_test.dart :: File(path).readAsStringSync()',
+    'path 由 zeroDependencyLocals 的本地文件路径拼成（lib/settings/ 下、不声明 part 的纯逻辑文件）',
+  ),
+  VarReadExemption(
+    'test/director_observer_test.dart :: File(path).readAsStringSync()',
+    'path 取自硬编码 guardedFiles（render_events.dart / director_observer_section.dart，均不声明 part）',
+  ),
+  VarReadExemption(
+    'test/design_tokens_lint_test.dart :: File(path).readAsStringSync()',
+    'path 来自 _filesUnder(prefix) 的目录递归遍历（遍历天然覆盖 part）',
+  ),
+];

@@ -72,7 +72,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--only" | "--gate" => {
                 let (value, used) = take_value("--only")?;
                 let gate = Gate::parse(value.trim()).ok_or_else(|| {
-                    format!("--only 只认 lines / over-1000 / deps，得到 `{value}`")
+                    format!("--only 只认 lines / over-1000 / deps / docs，得到 `{value}`")
                 })?;
                 if !opts.gates.contains(&gate) {
                     opts.gates.push(gate);
@@ -114,6 +114,9 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
         src_rs_over_1000: over_1000.unwrap_or(base.src_rs_over_1000),
         dart_over_800: dart_800.unwrap_or(base.dart_over_800),
         desktop_deps: desktop_deps.unwrap_or(base.desktop_deps),
+        // docs 预算没有 --max-docs 旗标（它是**预算**、不是棘轮计数，本轮不加旋钮）：
+        // --strict-plan 时随 base 走 Limits::plan()，否则随 base = opts.limits。
+        docs_lines: base.docs_lines,
     };
     Ok(opts)
 }

@@ -123,9 +123,10 @@
 
 ## 规划
 
-> **2026-10-01 归档**：94 份已收口的计划已移入 `legacy/plans/`（每份顶部一行「历史，勿当现网」）。
-> 本节里链接写成 `legacy/plans/…` 的条目**都是历史留证**；活文档留在 `plans/`（顶层 **24** 份）。
-> 归档规则 / 保留清单 / 回滚方式见 [DOC-MAP.md](DOC-MAP.md) §2/§4。
+> **2026-10-06（E8 文档减量）**：2026-10-01 归档进 `legacy/plans/` 的 94 份计划 + Python/Android
+> 时代文档，连同 12 份已收口计划共 **139 份 / 31,509 行**，已**移出工作树**——归档只解决「活 / 历史混放」，不减行数；
+> 行数只能靠**真删**。它们**逐字保存在 git 历史里**，取回方式见
+> [已移出工作树的文档索引](REMOVED-docs-index-2026-10-06.md)；生命周期规则见 [DOC-MAP.md](DOC-MAP.md) §2。
 
 - [**执行计划（2026-10-01）：0.2.0 收口 + 去臃肿 / 债务清零**](plans/PLAN-debloat-and-closeout-2026-10-01.md)
   ——**口径**：项目太大太臃肿，技术/工程债要收、代码精简与优化排上日程。**现在**：S0 文档整理 →
@@ -175,51 +176,11 @@
   ——每块自带公共前置（门禁 / 硬约束 / 回报格式），供 worker 整块粘贴（**本轮任务真源**）
 - [**交接说明（2026-09-21）：动作 / 表情 / 导演链路 —— 已冻结裁决 + Wave 0/1 验收 + 未完成工作**](plans/HANDOFF-2026-09-21-actions-performance-round.md)
   ——**接手先读这份**：一分钟上手 / 不得翻案的裁决清单 / 门禁基线 / W7–W11 与 flaky、TTS 缺口 / 现状快照
-- [**点火验收清单（产品级加强波次 / `mod/product-grade`）：给用户在 Windows 上照单勾选**](legacy/plans/IGNITION-CHECKLIST-product-grade.md)
-  ——注册面 **5 个 Mod**（wallpaper / pet-desktop 已封存）/ 机器预检 / 人机验收（含五个 Mod 的产品级可见项）/ 通过标准 / 签名栏；
-  配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表；`--fsm` 五 Mod 矩阵）
-- [**产品级加强波次收束报告**](legacy/plans/PRODUCT-GRADE-CLOSEOUT.md)
-  ——封存结果（FACTORIES 7 → 5）/ 五个 Mod 的产品级达成 / 门禁数字 / 最短体验路径（版本仍 `0.2.0-rc.3`，未 bump）
-- [点火验收清单（stabilize，**已被取代**）](legacy/plans/IGNITION-CHECKLIST-stabilize.md)
-  ——前置（含 **TTS 未起时的预期**）/ 机器预检 / 十步人机验收（操作·期望·失败先看哪）/ 通过标准 / 签名栏；
-  配套脚本 [`scripts/ignition-precheck.sh`](../scripts/ignition-precheck.sh)（PASS/FAIL/SKIP 表）
-  与实跑记录 [`STABILIZE-PRECHECK-RESULT.md`](legacy/plans/STABILIZE-PRECHECK-RESULT.md)
-  （Wave 3 之后的**稳定化小修**：修「前端 Mod 管理启停恒 415」，见
-  [`STABILIZE-CLOSEOUT.md`](plans/parallel-mods/STABILIZE-CLOSEOUT.md)；版本仍 `0.2.0-rc.3`）
-- [**Wave 3 收束报告：七个已注册 Mod 的日常闭环（2026-09-14，未发布 / 无版本变更）**](plans/parallel-mods/WAVE3-CLOSEOUT-2026-09-14.md)
-  ——每轨 tip / 闭环证据 / 未决 / `v0.2.0-rc.3` §8 逐条处置 / 与将来 rc.4 的差距；
-  协议见 [`PARALLEL-WAVE3-2026-09-14.md`](plans/parallel-mods/PARALLEL-WAVE3-2026-09-14.md)
-  （基座 `ModEventTopic::TurnEnded`；`AVAILABLE_MOD_FACTORIES` 6 → 7，版本仍 `0.2.0-rc.3`）
-- [**交接说明（2026-09-13）：rc.2 第二基线 —— 动作层删到底 + 模型闭环 + `.env` 密钥真源 + 推理模型思考**](legacy/plans/HANDOFF-2026-09-13-rc2-second-baseline.md)
-  ——**接手先读本文**：一分钟上手、13 个提交的清单、门禁数字、交付态实测（含无头浏览器七项证据）、
-  故意推到 rc.3 的事、下一轮建议顺序，以及**本轮新踩的七个坑**
-  （「语义树不是像素」「自检与链路抢资源 → 自检说谎」「推理模型的思考与 max_tokens 共享」
-  「正文上屏的闸门是 SentenceVoiced」「别用 taskkill /IM chrome.exe」…）
-- [交接说明（2026-09-11 晚）：核心链路基线 —— 工具/动作拆除 + 音频走媒体元素 + 三个真缺陷](legacy/plans/HANDOFF-2026-09-11-core-chain-baseline.md)
-  ——rc.1 的接手入口（平台与音频那一层仍然有效）：LLM 工具/动作系统为何整体拆除、
-  音频为何从 Web Audio 改走 `<audio>`+WAV、三个真缺陷的根因、**七个必须知道的坑**
-- [基线说明：核心链路（2026-09-11）](architecture/core-chain-baseline.md)
-  ——链路逐环与出处、已移出链路的、刻意保留的、一键验证与真机点火看哪七项证据
-- [**交接说明（2026-09-11）：前端重做 + 真机验收 + 错误可观测性（v0.4.13 → v0.5.1）**](legacy/plans/HANDOFF-2026-09-11.md)
-  ——同一日的前半段（前端重做与真机验收十二个 bug）；其 §12 的未提交清单**已完成**
-- [**交接说明（2026-09-10）：核心链路闭环 + 音频「很吵」修复**](legacy/plans/HANDOFF-2026-09-10.md)
-  ——上一版交接（历史；运行环境与 9 条陷阱仍有参考价值）
-- [**前端加强计划：参考 Morrow 前端（2026-09-11，已完成）**](legacy/plans/PLAN-frontend-strengthening-2026-09-11.md)
-  ——搬「观感机制」（材质插值 / 折叠面板 / 页面过渡 / 视觉审查工具），**不搬**其断点与时长
-  散值、也不搬 `BackdropFilter` 玻璃；含逐文件复用判定、P0–P4 分期
-- [**音频路径方案：后端出 WAV、前端 `<audio>` 播放（2026-09-11，已实施）**](legacy/plans/PLAN-audio-wav-path-2026-09-11.md)
-  ——为何用 WAV 不用 mp3（本机 TTS 实测 `mp3`/`wav` 均 400）、为何媒体元素才吃站点级静音
-- [**点火计划：核心链路闭环 + 本地 Mod（2026-09-10，当前执行口径）**](legacy/plans/PLAN-ignition-core-loop-2026-09-10.md)
-- [**Rust 重建 RFC**](legacy/plans/RUST-REWRITE-RFC.md)
-- [**未来路线图（2026-09，P0 滚项/外部验收/后续）**](plans/future-roadmap-2026-09.md)
-- [**接手修复与渲染档位计划（2026-09-07，S1/S2 完成）**](legacy/plans/integrity-takeover-fix-plan-2026-09-07.md)
-- [**节点 A 接线前审计交接（高级 Agent 裁决用，2026-08-26）**](legacy/plans/node-a-wiring-audit-brief.md)
-- [**PLAN-V2-PC-LOCAL-TTS.md（v1 完成计划，仅 PC 端，含本地 Melo TTS）**](legacy/plans/PLAN-V2-PC-LOCAL-TTS.md)
-- [**PLAN-V3-SOULLINK-PERFORMANCE.md（表演引擎复用实现计划：直接引 MIT 包，少写代码）**](legacy/plans/PLAN-V3-SOULLINK-PERFORMANCE.md)
-- [PLAN-V1.md（上一版 PC 计划，已被 V2 取代）](legacy/plans/PLAN-V1.md)
-- [PLAN.md（Python/Android 双端时代的架构演进历史，已归档）](legacy/PLAN.md)
-- 历史计划（2026-10-01 已归档）：`legacy/plans/plan-*.md`、`legacy/plans/plan-task-*.md`、`legacy/plans/PLAN-PHASE1*.md`、`legacy/plans/PLAN-PC-V1~V4`、`legacy/plans/PLAN-V1-draft-2026-08-21.md`
-- [Phase-0 notes](legacy/plans/Phase-0-notes.md)
+- **历史计划与交接（Python/Android 双端时代 + 2026-08~09 已收口轮次）**
+  ——含 2026-10-01 归档的 **94 份计划**、`mod/product-grade` / `mod/wave3` / stabilize 的收束报告与
+  点火验收清单、rc.2 第二基线交接、前端加强计划、Rust 重建 RFC、节点 A 接线前交接等。
+  **2026-10-06（E8 文档减量）起全部移出工作树**：不再占工作树行数，内容逐字保存在 git 历史里，
+  逐份取回方式见 [已移出工作树的文档索引](REMOVED-docs-index-2026-10-06.md)。
 
 ## 调研
 
@@ -249,9 +210,8 @@
 - [冒烟测试清单](verification/smoke-checklist.md)
 - [桌面端验证](verification/verification-win.md)
 - [Rust Bakeoff 选型决策：Ayagami vs Mocari](verification/rust-bakeoff-decision.md)
-  （实测报告：`verification/rust-bakeoff-ayagami.md` / `rust-bakeoff-mocari.md`）
+  （实测报告：`verification/rust-bakeoff-ayagami.md`；未被选中候选 **mocari** 的 891 行报告已移出工作树）
 - 验收报告：`verification/acceptance-metrics-report*.md`
-- 测试任务（2026-10-01 已归档）：`legacy/plans/test-*.md`
 
 ## 代码审计
 
@@ -274,8 +234,7 @@
 - [README.md](../README.md)
 - [CHANGELOG.md](../CHANGELOG.md)
 - [AGENTS.md](../AGENTS.md)（**AI/协作者入口，现行**）
-- 归档（Python/Android 双端时代，**勿当现网**）：[docs/legacy/](legacy/README.md)
-  —— `HANDOVER.md` / `AGENT.md` / `PLAN.md` / `PROGRESS.md` /
-  `AUDIT.md` / `REFACTOR_*.md` 已搬进 `docs/legacy/`；
-  另 `legacy/plans/` 收 **94 份 2026-10-01 归档的计划**（清单：
-  [`legacy/plans-archive-candidates-2026-10-01.txt`](legacy/plans-archive-candidates-2026-10-01.txt)）
+- 归档（Python/Android 双端时代 + 94 份已收口计划，**勿当现网**）：**已移出工作树**
+  ——`HANDOVER.md` / `AGENT.md` / `PLAN.md` / `PROGRESS.md` / `AUDIT.md` / `REFACTOR_*.md` 与
+  `legacy/plans/` 全部在内（共 139 份 / 31,509 行）；取回见
+  [已移出工作树的文档索引](REMOVED-docs-index-2026-10-06.md)

@@ -2,7 +2,7 @@
 
 > 状态：**方案纸，未实施**。写面 `docs/plans/**`；本文件不改任何源码、不改任何产物。
 > 上游：[HANDOFF-2026-10-06-e1-e5-debt-round.md](HANDOFF-2026-10-06-e1-e5-debt-round.md) §6 第 2 条（E4 **待裁决**）·
-> [NEXT-ROUND-main-2026-10-05.md](NEXT-ROUND-main-2026-10-05.md) §N9「产物预算要么达成、要么**明文改预算 + 理由**」·
+> `NEXT-ROUND-main-2026-10-05.md` §N9「产物预算要么达成、要么**明文改预算 + 理由**」（该清单已被 10-06 版取代、移出工作树）·
 > [PLAN-debloat-and-closeout-2026-10-01.md](PLAN-debloat-and-closeout-2026-10-01.md) §D4 第 168 行
 > **所有数字都来自实际命令输出**（见 §6）；凡未实测的一律标注「未实测」。
 

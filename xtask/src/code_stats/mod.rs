@@ -23,6 +23,8 @@
 //! - **docs**＝`docs/**/*.md`（含 `docs/legacy/`），**也含 `docs/audit/**`**——2026-10-05 台账
 //!   已入库（1,014 份 / 75,148 行），按本口径 **归档不减总量**；
 //! - **docs 减量账口径**：PLAN §5 的「docs ≤45,000 行」按**不含 `docs/audit/**`** 判定
+//!   （2026-10-06 E8 起是**机器判据**：门禁组 `docs`，见 `DOCS_BUDGET_LINES`；
+//!   报告 §1 同时打印含 / 不含 audit 两个数，避免「含 audit」掩盖真实减量）
 //!   （2026-10-06 夜 T1 实测：全部 **1,279 份 / 143,270 行**；不含 audit **265 份 / 68,122 行**；
 //!   audit 自身 **1,014 份 / 75,148 行** ⇒ 不含 audit 口径**仍未达标**，超 23,122 行）。
 //!   复算脚本按同一物理行口径（`\n` 计数 + 末尾残行计 1），143,270 与本工具输出逐位一致；
@@ -170,6 +172,25 @@ const PLAN_SRC_RS_500: u64 = 15;
 const PLAN_SRC_RS_1000: u64 = 0;
 const PLAN_DART_800: u64 = 2;
 const PLAN_DESKTOP_DEPS: u64 = 22;
+/// PLAN §5 的 docs 预算（`docs ≤ 45,000 行`）。
+///
+/// **口径 = 不含 `docs/audit/**`**（真源 `docs/DOC-MAP.md` §3「D5 口径」）：
+/// `docs/audit/` 是审计**过程产物**、入库后只增不减（2026-10-06 实测 1,014 份 / 75,154 行），
+/// 计入它会把「文档减量」这件事本身掩盖掉。
+const PLAN_DOCS_LINES: u64 = 45_000;
+/// docs 行数预算（**当前接受值 = PLAN 目标**，与产物预算同一套「预算 + 内/超」口径）。
+///
+/// # 为什么这里不需要「重新评审条件」
+///
+/// 与 `WASM_DIST_BUDGET_MIB` 不同：那条的 PLAN 数字是**未实测的估计值**，所以重定过；
+/// 这一条是 2026-10-06 E8 文档减量**实测达标**的（70,762 → 39,251 行，余量 ~5.7k），
+/// 预算与 PLAN 目标一致 ⇒ 不区分「PLAN 目标」与「接受值」。
+///
+/// **增长纪律（不要放宽常量）**：docs 逼近预算时的正解是按
+/// `docs/DOC-MAP.md` §4「移出四步」把只具历史留证价值的文档移出工作树
+/// （git 历史逐字保留 + 登记 `REMOVED-docs-index` + 活文档改链），
+/// **不是**把 45,000 调大。真源：`docs/REMOVED-docs-index-2026-10-06.md`。
+const DOCS_BUDGET_LINES: u64 = PLAN_DOCS_LINES;
 
 /// 依赖预算点名的 crate（PLAN §2.5 / §D4）。
 const DESKTOP_CRATE: &str = "live2d-ai-desktop";
@@ -304,9 +325,15 @@ pub struct CodeStats {
     pub dart_lib_over_800: Vec<(String, u64)>,
     /// `shell/flutter/test` 内 > 800 行的 dart 文件（仅披露，降序）。
     pub dart_test_over_800: Vec<(String, u64)>,
-    /// `docs/**/*.md`。
+    /// `docs/**/*.md`（含 `docs/audit/**`）。
     pub docs_files: u64,
     pub docs_lines: u64,
+    /// `docs/audit/**/*.md`（过程产物，不计入预算，仅披露）。
+    pub docs_audit_files: u64,
+    pub docs_audit_lines: u64,
+    /// `docs/**/*.md` **不含** `docs/audit/**`（= docs 预算的判定对象）。
+    pub docs_worktree_files: u64,
+    pub docs_worktree_lines: u64,
     /// 产物体积（缺失即 `None`）。
     pub artifacts: Vec<Artifact>,
     /// Rust 三桶合计（冗余保存，便于报告与断言）。
@@ -369,4 +396,4 @@ pub fn run(args: &[String]) -> Result<ExitCode, String> {
 }
 
 /// 供 `print_help` 使用的一行用法。
-pub const USAGE: &str = "code-stats [--check] [--only <lines|over-1000|deps>]... [--strict-plan] [--quiet] [--verbose] [--max-* <n>]";
+pub const USAGE: &str = "code-stats [--check] [--only <lines|over-1000|deps|docs>]... [--strict-plan] [--quiet] [--verbose] [--max-* <n>]";
