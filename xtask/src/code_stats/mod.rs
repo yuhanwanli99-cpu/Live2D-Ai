@@ -20,7 +20,12 @@
 //!   （AGENTS.md「源码 ≤500 行」约束的是文件本身，不是文件的「生产段」）；
 //! - **Dart**＝`shell/flutter/lib/**/*.dart` 与 `shell/flutter/test/**/*.dart`（不含 `build/`、
 //!   `.dart_tool/`）；
-//! - **docs**＝`docs/**/*.md`（含 `docs/legacy/`）；
+//! - **docs**＝`docs/**/*.md`（含 `docs/legacy/`），**也含 `docs/audit/**`**——2026-10-05 台账
+//!   已入库（1,014 份 / 75,148 行），按本口径 **归档不减总量**；
+//! - **docs 减量账口径**：PLAN §5 的「docs ≤45,000 行」按**不含 `docs/audit/**`** 判定
+//!   （2026-10-06 夜 T1 实测：全部 **1,279 份 / 143,270 行**；不含 audit **265 份 / 68,122 行**；
+//!   audit 自身 **1,014 份 / 75,148 行** ⇒ 不含 audit 口径**仍未达标**，超 23,122 行）。
+//!   复算脚本按同一物理行口径（`\n` 计数 + 末尾残行计 1），143,270 与本工具输出逐位一致；
 //! - **依赖数**＝每个 crate `Cargo.toml` 顶层 `[dependencies]` 的键数——**不含**
 //!   `[target.*.dependencies]` / `[dev-dependencies]` / `[build-dependencies]`
 //!   （与 §2.5 的 `desktop 34 · runtime 12 · l2d 8` 对齐）；
@@ -116,18 +121,27 @@ const RATCHET_SRC_RS_1000: u64 = 0;
 /// `app_shell_state.dart`。全部走 `part`/`part of`（继承库的 import，零可见性
 /// 改动）；**类体不能跨 part**，所以切割线只落在顶层类边界。
 ///
-/// 剩下 2 个是**如实留债**，不是没看见：`main.dart` 1411（17 条源码扫描守卫
-/// 直接读它，重排会让守卫失效——先改守卫再拆，属于下一轮）；
-/// `display_prefs.dart` 1169（`DisplayPrefs` 是**单个 972 行的类**，类体不能跨
-/// part，就地只余「类分解」——行为相邻，不属「只搬不改」这一轮）。
+/// 剩下 **1** 个是**如实留债**，不是没看见：`display_prefs.dart` 1169
+/// （`DisplayPrefs` 是**单个 972 行的类**，类体不能跨 part，就地只余「类分解」——
+/// 行为相邻，不属「只搬不改」这一轮；见 E2）。
+/// **`main.dart` 已于 2026-10-06 夜 E1-b 拆完：1417 → 657 行**（新增 5 个 part；
+/// 20 处源码扫描守卫先改走 `test/support/dart_library.dart` 的 `readLibrarySource()`（见 AGENTS.md 变更历史），
+/// 再加门禁 `test/dart_library_guard_test.dart`）——上一版这里写的「2 个 / main.dart 1411」
+/// 是拆前的状态；当前实测 Dart `lib >800` = **1**（`cargo run -q -p xtask -- code-stats --check`）。
 ///
-/// 复算证据：`cargo run -q -p xtask -- code-stats --check`（2 ≤ 2 = PASS）。
+/// **再收紧到 1**（2026-10-06 夜：E1-b 拆分 + T1 收尾补做）：依据是本文档开头的棘轮纪律——
+/// 「让计数下降的 commit 必须把常量同 commit 收紧到实测值」。E1-b（`main.dart` 1417 → 657、
+/// Dart `>800` 2 → 1）当时欠了这一步，本轮补齐：**2 → 1**，与实测 1 相符。
+/// 剩下的 1 = `display_prefs.dart` 1169（E2 待裁决的**类分解**），**当前无下调空间** ⇒
+/// 本常量已是只降不升的下限，只有 E2 做完才可能再降到 0。
+///
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check`（1 ≤ 1 = PASS）。
 ///
 /// **交接说明（诚实栏）**：Dart 计数下降在其前的独立 commit `47992f82`
 /// （只带 `shell/flutter/{lib,test}`，message 里写明实测值 2）；本常量收紧在其后
 /// 的独立 commit —— 与 `RATCHET_SRC_RS_*` 同属 Lead 对**共享文件**的串行化裁决
 /// （同一文件里 R4-T1 与 R4-T2 不同时写）。分差只有一次提交。
-const RATCHET_DART_800: u64 = 2;
+const RATCHET_DART_800: u64 = 1;
 /// 2026-10-01（W2-B / D1 第二段）：原生壳岛移出后实测 **25**（34 → 25，真删
 /// `wgpu` `winit` `pollster` `egui` `egui-winit` `egui-wgpu` `raw-window-handle`
 /// `ksni` `url` 九条）。按 F-V0-9 纪律**同一 commit 收紧**——降了不收紧，回头
