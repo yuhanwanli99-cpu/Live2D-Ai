@@ -177,7 +177,7 @@ cd /home/skystar/Live2D-Ai-fe && git checkout main && git merge --ff-only feat/f
 
 - 归档 94 份；`docs` 69,733 → **≤45,000**；`docs/plans` 115 → **≤25**。
 - **判据**：`DOC-MAP.md` §3 复算。
-- **✅ 2026-10-06 达标（E8 文档减量）**：docs **不含 `docs/audit/**`** = **39,273 ≤ 45,000**（余量 5,727）；
+- **✅ 2026-10-06 达标（E8 文档减量，落盘提交 `7918974`）**：docs **不含 `docs/audit/**`** = **39,273 ≤ 45,000**（余量 5,727）；
   `docs/plans` 顶层 = **21 ≤ 25**。做法 = **移出工作树 139 文件 / 31,509 行**（不是搬运、不是压缩），
   逐份登记 + `git show` 取回见 [`docs/REMOVED-docs-index-2026-10-06.md`](../REMOVED-docs-index-2026-10-06.md)。
   **并已变成机器判据**：`cargo run -p xtask -- code-stats --check --only docs`（门禁组 `docs`，判**不含 audit**），
@@ -200,8 +200,8 @@ cd /home/skystar/Live2D-Ai-fe && git checkout main && git merge --ff-only feat/f
 | Dart `>800` | 7 | **≤2** |
 | 休眠/封存 | 11,153 | **0 或显式冻结** |
 | `desktop` 依赖 | 34 | **≤22** |
-| `docs/plans` | 115 | **≤25**（**2026-10-06 已达：21**） |
-| docs 总行数 | 69,733 | **≤45,000**（**2026-10-06 已达：39,273**，不含 `docs/audit/**`） |
+| `docs/plans` | 115 | **≤25**（**2026-10-06 已达：21 → 现 22**） |
+| docs 总行数 | 69,733 | **≤45,000**（**2026-10-06 已达：39,273**＠`7918974`，不含 `docs/audit/**`；此后随新文档上升） |
 | 测试条数 | 1460 / 1281 | **不减** |
 
 ## 6. 未来（Beyond 0.2.0）

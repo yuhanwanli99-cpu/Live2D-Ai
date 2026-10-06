@@ -41,7 +41,7 @@
 
 ## 3. 现状盘点（**2026-10-06 E8 之后**实测）
 
-**测得时点 = 2026-10-06，工作树 @ `main`（E8 文档减量已落盘）**（下次复算请重跑下面命令并更新此时间戳）
+**测得时点 = 2026-10-06，工作树 @ `main`（E8 落盘 + 本轮交接文件）**（下次复算请重跑下面命令并更新此时间戳）
 **口径与复算命令**（「.md」只数文件；「行数」= 把命中文件全部 `cat` 后的行数；含未跟踪）：
 
 ```bash
@@ -57,7 +57,7 @@ ls docs/plans/*.md | wc -l                                                      
 | 目录 | .md（盘上） | 行数 | 备注 |
 |---|---:|---:|---|
 | `docs/architecture` | 35 | 10,517 | 契约真源 |
-| `docs/plans` | 38 | 8,428 | **顶层 21（判据 ≤25 ✓）** + `parallel-mods/` 17 |
+| `docs/plans` | 39 | 8,539 | **顶层 22（判据 ≤25 ✓）** + `parallel-mods/` 17 |
 | `docs/research` | 23 | 8,937 | 调研（结论仍被引用，本轮未动） |
 | `docs/verification` | 13 | 3,060 | E9 证据目录 + 门禁基线 |
 | `docs/releases` | 16 | 2,679 | |
@@ -73,8 +73,8 @@ ls docs/plans/*.md | wc -l                                                      
 
 | 口径 | 行数 | 判据 |
 |---|---:|---|
-| docs 全量（**含** `docs/audit/**`） | **114,411** | 只作快照披露 |
-| docs 全量（**不含** `docs/audit/**`） | **39,273** | **PLAN §5 的 `≤45,000` 以这条为准 → PASS（余量 5,727）** |
+| docs 全量（**含** `docs/audit/**`） | **114,523** | 只作快照披露（同上：会随新文档上升） |
+| docs 全量（**不含** `docs/audit/**`） | **39,385** | **PLAN §5 的 `≤45,000` 以这条为准 → PASS（余量 5,615）**（下同：数字随新文档上升，**以 `--only docs` 实时值为准**） |
 | 其中 `docs/audit/**` 自身 | **75,154** | 不计入预算 |
 
 > **两个口径差 6 行（别当成矛盾）**：　`find | cat | wc -l`（本文件 §3 的目录行）数**换行符**；xtask `physical_lines`（**预算判据**）把**无末尾换行的残行也算 1 行**。
@@ -85,6 +85,7 @@ ls docs/plans/*.md | wc -l                                                      
 > 2026-10-01 那轮「94 份计划 → `docs/legacy/plans/`」把顶层压到 24，但**总行数一行没减**；
 > 2026-10-06 E8 把只具历史留证价值的 **139 份 / 31,509 行**移出工作树，
 > 才真正把「不含 audit」从 **70,762 → 39,273**（移出 31,509 行；其余为活文档改写净额 **+20**）。
+> **该 39,273 是 E8 落盘提交 `7918974` 的值**；之后每加一份活文档都会让它上升（本轮交接文件 +111 行即为一例）。
 
 **E8 移出清单与取回**：[REMOVED-docs-index-2026-10-06.md](REMOVED-docs-index-2026-10-06.md)
 （`docs/legacy/**` 108 份、`docs/design/legacy/**` 9 份、2026-08「节点 C」/原生壳验证 10 份、
@@ -114,10 +115,10 @@ ls docs/plans/*.md | wc -l                                                      
 4. **历史文档不改链**（`CHANGELOG.md` · `releases/*` · 已收口 `plans/*` · `research/*` · `verification/*`）——
    保留原样是**刻意**的：死链 = 「这份文档写于移出之前」的信号。
 
-**保留在 `docs/plans/` 的 21 份（2026-10-06 实测）**：
+**保留在 `docs/plans/` 的 22 份（2026-10-06 实测）**：
 `AUDIT-PROMPT-whole-repo-2026-10-06` · `AUDIT-PROMPT-whole-repo-2026-10-06-B` · `DECISION-artifact-budget-2026-10-06` ·
 `DECISION-display-prefs-2026-10-06` · `HANDOFF-2026-09-28-rc7-and-whole-repo-audit` ·
-`HANDOFF-2026-10-06-e1-e5-debt-round` · `HANDOFF-2026-10-06-team-round` · `HANDOFF-2026-10-06-team-round-2` ·
+`HANDOFF-2026-10-06-e1-e5-debt-round` · `HANDOFF-2026-10-06-team-round` · `HANDOFF-2026-10-06-e8-docs-and-guards-round` · `HANDOFF-2026-10-06-team-round-2` ·
 `IMPL-PROMPTS-actions-performance-round` · `IMPL-PROMPTS-debloat-round-2026-10-01` ·
 `NEXT-ROUND-main-2026-10-06` · `ORCHESTRATOR-PROMPT-actions-performance-round` ·
 `ORCHESTRATOR-PROMPT-debloat-round-2026-10-01` · `PLAN-actions-voice-memory-2026-09-15` ·
