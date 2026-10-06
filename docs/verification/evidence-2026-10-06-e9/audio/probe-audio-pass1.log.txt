@@ -1,0 +1,11 @@
+(node:190513) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+# CDP Chrome/153.0.8010.12 @ http://127.0.0.1:9222 / http://127.0.0.1:18080
+# HEAD cc68f061d7b45645fa0937296c1f9a29ac0e0376
+
+## scenario audio
+[PASS] audio-a WS audio 帧有 start/end 边界且 sentence_seq 从 1 起严格递增 — audio 帧 102 条；start 1 个 / end 1 个；句子 [{"seq":1,"frames":102,"starts":1,"ends":1,"samples":48960}]；sentence_seq=[1]（严格从 1 递增=true）
+[PASS] audio-b 音频样本数 > 0（非静音分支） — 总样本数 48960（audio 帧载荷 102 条，逐帧 samples 见 audio/ws-frames.json）；服务端 muted 标记=false
+[PASS] audio-c 前端建了 <audio>（src=blob:、duration>0）且 currentTime 真的前进 — 三路证据：① DOM 轮询 12 次（间隔 500ms）→ [{"id":"id:1","samples":3,"blob":true,"duration":2.04,"firstAt":5151,"lastAt":6174,"firstTime":0,"lastTime":0.324005,"deltaSec":0.324}]；② 页内媒体记录器 8 条事件（play() 1 次、removed 0 次）→ [{"id":"id:1","samples":8,"blob":true,"duration":2.04,"firstAt":27973,"lastAt":28893,"firstTime":0,"lastTime":0.128645,"deltaSec":0.129}]；③ CDP Media 域 1 条属性事件 / 9 条播放器事件 → []；末次 DOM 快照 1 个元素=[{"probeId":1,"src":"blob:http://127.0.0.1:18080/68c2f302-6974-4f3b-98a0-62938551","blob":true,"duration":2.04,"currentTime":0.335127,"paused":false,"readyState":4,"muted":false,"volume":1}]；audio 帧载荷 97920 B（48960 样本）；判据：blob+duration>0 且前进 >0.2s，前进来源=DOM/页内记录器
+
+# 合计 43 项，fail 0 项（来自 13 个场景结果文件）→ run.json

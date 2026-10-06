@@ -1,0 +1,334 @@
+{
+  "cmd": "node scripts/browser_probe.mjs themebase",
+  "at": "2026-10-06T12:42:36.087Z",
+  "crop": "1100,52,1440,900",
+  "perThemeSamples": 3,
+  "redSignalSamples": 1,
+  "samples": 16,
+  "byTheme": {
+    "black": {
+      "samples": [
+        {
+          "i": 0,
+          "hex": "111111",
+          "share": 0.9237,
+          "redness": -4.33,
+          "channels": {
+            "r": 23.58,
+            "g": 23.58,
+            "b": 32.25
+          },
+          "brightnessMean": 0.0949,
+          "chromaMean": 11.19,
+          "bytes": 51899,
+          "blankKind": null
+        },
+        {
+          "i": 1,
+          "hex": "111111",
+          "share": 0.9237,
+          "redness": -4.33,
+          "channels": {
+            "r": 23.58,
+            "g": 23.58,
+            "b": 32.25
+          },
+          "brightnessMean": 0.0949,
+          "chromaMean": 11.19,
+          "bytes": 51899,
+          "blankKind": null
+        },
+        {
+          "i": 2,
+          "hex": "111111",
+          "share": 0.9237,
+          "redness": -4.33,
+          "channels": {
+            "r": 23.58,
+            "g": 23.58,
+            "b": 32.25
+          },
+          "brightnessMean": 0.0949,
+          "chromaMean": 11.19,
+          "bytes": 51899,
+          "blankKind": null
+        }
+      ],
+      "redSignal": {
+        "hex": "440011",
+        "share": 0.9229,
+        "redness": 50.45,
+        "channels": {
+          "r": 73.63,
+          "g": 19.79,
+          "b": 26.57
+        },
+        "bytes": 52243,
+        "blankKind": null
+      }
+    },
+    "white": {
+      "samples": [
+        {
+          "i": 0,
+          "hex": "ffffff",
+          "share": 0.9243,
+          "redness": 3.72,
+          "channels": {
+            "r": 242.84,
+            "g": 240.22,
+            "b": 238.02
+          },
+          "brightnessMean": 0.9436,
+          "chromaMean": 4.86,
+          "bytes": 51037,
+          "blankKind": null
+        },
+        {
+          "i": 1,
+          "hex": "ffffff",
+          "share": 0.9243,
+          "redness": 3.72,
+          "channels": {
+            "r": 242.84,
+            "g": 240.22,
+            "b": 238.02
+          },
+          "brightnessMean": 0.9436,
+          "chromaMean": 4.86,
+          "bytes": 51037,
+          "blankKind": null
+        },
+        {
+          "i": 2,
+          "hex": "ffffff",
+          "share": 0.9243,
+          "redness": 3.72,
+          "channels": {
+            "r": 242.84,
+            "g": 240.22,
+            "b": 238.02
+          },
+          "brightnessMean": 0.9436,
+          "chromaMean": 4.86,
+          "bytes": 51037,
+          "blankKind": null
+        }
+      ],
+      "redSignal": {
+        "hex": "ffbbbb",
+        "share": 0.9278,
+        "redness": 57.24,
+        "channels": {
+          "r": 244.73,
+          "g": 188.12,
+          "b": 186.87
+        },
+        "bytes": 50278,
+        "blankKind": null
+      }
+    },
+    "blue": {
+      "samples": [
+        {
+          "i": 0,
+          "hex": "111133",
+          "share": 0.9228,
+          "redness": -16.76,
+          "channels": {
+            "r": 27.02,
+            "g": 34.58,
+            "b": 52.96
+          },
+          "brightnessMean": 0.1345,
+          "chromaMean": 28.06,
+          "bytes": 51933,
+          "blankKind": null
+        },
+        {
+          "i": 1,
+          "hex": "111133",
+          "share": 0.9228,
+          "redness": -16.76,
+          "channels": {
+            "r": 27.02,
+            "g": 34.58,
+            "b": 52.96
+          },
+          "brightnessMean": 0.1345,
+          "chromaMean": 28.06,
+          "bytes": 51933,
+          "blankKind": null
+        },
+        {
+          "i": 2,
+          "hex": "111133",
+          "share": 0.9228,
+          "redness": -16.76,
+          "channels": {
+            "r": 27.02,
+            "g": 34.58,
+            "b": 52.96
+          },
+          "brightnessMean": 0.1345,
+          "chromaMean": 28.06,
+          "bytes": 51933,
+          "blankKind": null
+        }
+      ],
+      "redSignal": {
+        "hex": "441122",
+        "share": 0.9235,
+        "redness": 40.88,
+        "channels": {
+          "r": 76.15,
+          "g": 27.96,
+          "b": 42.58
+        },
+        "bytes": 51878,
+        "blankKind": null
+      }
+    },
+    "gray": {
+      "samples": [
+        {
+          "i": 0,
+          "hex": "222222",
+          "share": 0.9235,
+          "redness": 4.47,
+          "channels": {
+            "r": 45.89,
+            "g": 43.02,
+            "b": 39.83
+          },
+          "brightnessMean": 0.1702,
+          "chromaMean": 6.15,
+          "bytes": 51699,
+          "blankKind": null
+        },
+        {
+          "i": 1,
+          "hex": "222222",
+          "share": 0.9235,
+          "redness": 4.47,
+          "channels": {
+            "r": 45.89,
+            "g": 43.02,
+            "b": 39.83
+          },
+          "brightnessMean": 0.1702,
+          "chromaMean": 6.15,
+          "bytes": 51699,
+          "blankKind": null
+        },
+        {
+          "i": 2,
+          "hex": "222222",
+          "share": 0.9235,
+          "redness": 4.47,
+          "channels": {
+            "r": 45.89,
+            "g": 43.02,
+            "b": 39.83
+          },
+          "brightnessMean": 0.1702,
+          "chromaMean": 6.15,
+          "bytes": 51699,
+          "blankKind": null
+        }
+      ],
+      "redSignal": {
+        "hex": "551111",
+        "share": 0.9227,
+        "redness": 57.33,
+        "channels": {
+          "r": 91.21,
+          "g": 35.46,
+          "b": 32.3
+        },
+        "bytes": 51711,
+        "blankKind": null
+      }
+    }
+  },
+  "suggest": {
+    "black": {
+      "shellHex": "111111/111111/111111",
+      "shellShare": 0.9237,
+      "redness": -4.33,
+      "redSignal": 50.45,
+      "maxShare": 0.9437,
+      "blankHex": "ffffff",
+      "shellHexEqualsBlank": false,
+      "rednessOn": 17.58,
+      "rednessOff": 7.67
+    },
+    "white": {
+      "shellHex": "ffffff/ffffff/ffffff",
+      "shellShare": 0.9243,
+      "redness": 3.72,
+      "redSignal": 57.24,
+      "maxShare": 0.9443,
+      "blankHex": "ffffff",
+      "shellHexEqualsBlank": true,
+      "rednessOn": 25.13,
+      "rednessOff": 15.72
+    },
+    "blue": {
+      "shellHex": "111133/111133/111133",
+      "shellShare": 0.9228,
+      "redness": -16.76,
+      "redSignal": 40.88,
+      "maxShare": 0.9428,
+      "blankHex": "ffffff",
+      "shellHexEqualsBlank": false,
+      "rednessOn": 6.3,
+      "rednessOff": -4.76
+    },
+    "gray": {
+      "shellHex": "222222/222222/222222",
+      "shellShare": 0.9235,
+      "redness": 4.47,
+      "redSignal": 57.33,
+      "maxShare": 0.9435,
+      "blankHex": "ffffff",
+      "shellHexEqualsBlank": false,
+      "rednessOn": 25.61,
+      "rednessOff": 16.47
+    }
+  },
+  "currentTable": {
+    "black": {
+      "shellHex": "111111",
+      "shellShare": 0.9237,
+      "redness": -4.33,
+      "redSignal": 50.45,
+      "maxShare": 0.9437,
+      "blankHex": "ffffff"
+    },
+    "white": {
+      "shellHex": "ffffff",
+      "shellShare": 0.9243,
+      "redness": 3.72,
+      "redSignal": 57.24,
+      "maxShare": 0.9443,
+      "blankHex": "ffffff"
+    },
+    "blue": {
+      "shellHex": "111133",
+      "shellShare": 0.9228,
+      "redness": -16.76,
+      "redSignal": 40.88,
+      "maxShare": 0.9428,
+      "blankHex": "ffffff"
+    },
+    "gray": {
+      "shellHex": "222222",
+      "shellShare": 0.9235,
+      "redness": 4.47,
+      "redSignal": 57.33,
+      "maxShare": 0.9435,
+      "blankHex": "ffffff"
+    }
+  }
+}

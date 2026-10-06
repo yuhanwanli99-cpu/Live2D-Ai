@@ -5,6 +5,9 @@
  * 入口（唯一）：
  *   node scripts/browser_probe.mjs [scenario]         # 默认 all
  *   scenario 逗号分隔，可选项见 SCENARIOS
+ *   node scripts/browser_probe.mjs themebase          # 重钉四主题像素阈值（E9-②，约 3–4 分钟）
+ *   node scripts/browser_probe.mjs mediaspy           # 媒体记录器受控自证（E9-①，约 40 秒）
+ *   node scripts/browser_probe.mjs audio              # 真实音频链路（要活端点 LLM+TTS）
  *
  * 幂等、可一键重跑：每个 scenario 自建 page（Target.createTarget → 用完 close），
  * 不改仓库任何源码，只写 docs/verification/evidence-2026-10-06/**。
@@ -14,6 +17,13 @@
  * - 只写证据，不"顺手修"页面；页面里跑的全是真实浏览器行为。
  * - 断不了言的写 manual-only，不写 pass（本项目教训：自检说谎比没有自检更坏）。
  * - 每个 scenario 的原始事件（网络 / 控制台）落 JSON，判定字符串落在 run.json。
+ * - **像素阈值按主题取**（2026-10-06 E9-②）：壳区/红度/平帧这三类判据全部走 SHELL_BASE
+ *   四主题实测表（见其头注），没有一个数字是「只在黑主题上量过」的全局常量；
+ *   重新标定：`node scripts/browser_probe.mjs themebase`（原始样本落
+ *   themes/shell-baselines.json），每次 `all` 的 themes 场景还会用真实像素复核一遍（6d）。
+ * - **audio-c 三路取证**（2026-10-06 E9-①）：DOM 轮询（500ms，按页内自增 id 归并）+
+ *   页内媒体记录器（AUDIO_SPY_SOURCE，timeupdate ≈4 次/秒）+ CDP Media 域；
+ *   旧实现只有 2s 轮询且按数组下标认元素 ⇒「2 次里 1 次 blocked」。
  * - **截图纪律**（2026-10-06 实测修正，见 SHOT_PARAMS 头注）：一律整页截图
  *   （带 captureBeyondViewport），**不传 clip**，裁剪交给 png_stats 的 --crop。
  *   拿到「整帧单色平帧（纯白等）」= 无头合成器的空白帧 ⇒ 该条判 **blocked（环境）**，
@@ -22,12 +32,17 @@
  *   （v0.2.0 水合只认 id，塞 dataUrl 会被水合按「旧档搬运 + 剪枝」的时序吃掉）。
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// 探针**自报版本**：把脚本自己的 sha256 打进每一份日志/证据（2026-10-06 E9 加）。
+// 为什么：本轮验收是「同一个脚本连跑两次逐条一致」，而日志里原来只有 HEAD；
+// 事后没法证明两次跑的是**同一份脚本**（脚本改了、日志看不出来）。
+const PROBE_SHA256 = createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex');
 const ROOT = join(HERE, '..');
 const OUT = process.env.PROBE_OUT || join(ROOT, 'docs/verification/evidence-2026-10-06');
 const BASE = process.env.PROBE_BASE || 'http://127.0.0.1:18080';
@@ -76,24 +91,103 @@ function save(name, obj) { writeFileSync(join(OUT, name), JSON.stringify(obj, nu
 function py(args) { return JSON.parse(execFileSync('python3', [PNG_STATS, ...args, '--json'], { encoding: 'utf8' })); }
 
 // ─────────────────── 截图「可判读性」判据（唯一真源） ───────────────────
-/** 整帧是不是**单色平帧**：主导色占比 > 99.9%。这种帧没有任何信息量。 */
-function flatFrame(st) { return !!(st && st.dominant && st.dominant[0] && st.dominant[0].share > 0.999); }
-/** 整帧 100% 纯白：本环境「无头合成器空白帧」的签名。
+/** 整帧是不是**单色平帧**：主导色占比 ≥ 99.9%。这种帧没有任何信息量。 */
+const FLAT_SHARE = 0.999;
+function flatFrame(st) { return !!(st && st.dominant && st.dominant[0] && st.dominant[0].share >= FLAT_SHARE); }
+
+// ─── 四主题壳区像素基线（判据真源；E9-②）───────────────────────────────
+//
+// **为什么需要这张表**：2026-10-06 之前的判据只有一组**全局**阈值，而每一个都
+// 是在**默认黑主题**（`loadApp({clear:true})` 后 theme 回落 black）上量的：
+//   · `blankWhite()` 靠「壳区不可能 100% 纯白」⇒ 白主题下壳区**本来就白**，
+//     这条判据的成立前提在白主题下不成立；
+//   · `scenarioOffline` 的 `1 - dominant.share > 0.02`（= 要求主导色 <98%）；
+//   · `scenarioBg` 的 `REDNESS_ON=20 / REDNESS_OFF=8`：红度基线 -4.33 是黑主题的，
+//     换成白/蓝/灰主题，同一个绝对阈值就不再是「基线上方 24 个点」。
+// 于是「换主题跑」时会得到**不是产品状态的东西**（假红/假绿都可能）。
+//
+// 本表的**每一个数字**都由 `node scripts/browser_probe.mjs themebase` 实测得到，
+// 原始样本落 `themes/shell-baselines.json`（含逐次采样的 dominant/share/redness/
+// channels 与 sample 数）。取样方式：整页截图（captureBeyondViewport）→ 进程内裁
+// `SHELL_CROP`（x1100..1440 / y52..900，= 聊天面板列，**不含**舞台 iframe）→
+// png_stats.py。样本量见 `SHELL_BASE_SRC.samples`。
+//
+// 字段语义：
+//   shellHex / shellShare —— 该主题下**无背景图**时壳区的主导色与占比（判「有没有
+//     真的画出来」的基线；`maxShare` = 实测占比 + 余量，超过它说明这一帧平得
+//     不正常，不能用「主导占比」这一条判「画没画」）。
+//   redness —— 该主题下壳区红度 = 逐像素 (R-(G+B)/2) 均值（无背景图基线）。
+//   redSignal —— **同一主题下**铺一张纯红 64x64 图（cover）后的红度实测值：
+//     阈值必须相对**本主题自己的信号**取，而不是抄黑主题的绝对值。
+//   blankHex —— 无头合成器「空白帧」的签名色。实测四主题**都是 ffffff**
+//     （空帧是合成器输出，与主题无关）；但**只有当它不等于本主题 shellHex 时**
+//     才能只靠颜色判「不可判读」——见 blankFrame()。
+const BLANK_HEX = 'ffffff';
+const SHELL_BASE_SRC = {
+  cmd: 'node scripts/browser_probe.mjs themebase',
+  samples: 16, // 4 主题 ×（3 次无背景 + 1 次红图）
+  measuredAt: '2026-10-06（HEAD cc68f061；Chrome/153.0.8010.12 headless + swiftshader WebGPU，服务 127.0.0.1:18080）',
+  raw: 'docs/verification/evidence-2026-10-06-e9/themes/shell-baselines.json',
+  noise: '同主题 3 次采样逐字段相同（share/redness 精确到小数点后 2 位一致），截图字节也相同（black 3×51899 B / white 3×51037 B / blue 3×51933 B / gray 3×51699 B）⇒ 这两个量的噪声 < 0.01，比任何阈值余量小一个数量级',
+};
+// 四主题实测值（每个数字都有原始样本，见 SHELL_BASE_SRC.raw）：
+//   theme  shellHex  shellShare  redness  redSignal  maxShare  blankHex
+//   black  111111    0.9237      -4.33    50.45      0.9437    ffffff
+//   white  ffffff    0.9243       3.72    57.24      0.9443    ffffff
+//   blue   111133    0.9228     -16.76    40.88      0.9428    ffffff
+//   gray   222222    0.9235       4.47    57.33      0.9435    ffffff
+// maxShare = 实测 share + 0.02（余量 = 实测噪声的 2 倍以上，又远小于「白屏/未绘制」
+// 时 share→1」的差距）。
+// ⚠ **white 主题的 shellHex == blankHex == ffffff**（实测：白主题壳区主导色确实是纯白，
+// 但占比只有 0.9243，剩下的 7.6% 是文字/描边等非白像素）⇒ 白主题下「整帧单色平帧且
+// 平色为 ffffff」既可能是合成器空帧、也可能是「产品真的只画了纯白」——颜色不足以区分，
+// blankFrame() 因此返回 'unknown'（调用方判 blocked（环境），不许猜方向）。
+const SHELL_BASE = {
+  black: { shellHex: '111111', shellShare: 0.9237, redness: -4.33, redSignal: 50.45, maxShare: 0.9437, blankHex: BLANK_HEX },
+  white: { shellHex: 'ffffff', shellShare: 0.9243, redness: 3.72, redSignal: 57.24, maxShare: 0.9443, blankHex: BLANK_HEX },
+  blue: { shellHex: '111133', shellShare: 0.9228, redness: -16.76, redSignal: 40.88, maxShare: 0.9428, blankHex: BLANK_HEX },
+  gray: { shellHex: '222222', shellShare: 0.9235, redness: 4.47, redSignal: 57.33, maxShare: 0.9435, blankHex: BLANK_HEX },
+};
+const THEME_WIRES = ['black', 'white', 'blue', 'gray'];
+/** 从 DisplayPrefs（或 null）取生效主题；未知/缺失 = 产品缺省 black。 */
+function themeWireOf(prefs) { const t = prefs && prefs.theme; return THEME_WIRES.includes(t) ? t : 'black'; }
+/** 该主题的像素基线；未知主题回落 black（并保持可判读，不抛错）。 */
+function shellBaseOf(wire) { return SHELL_BASE[wire] || SHELL_BASE.black; }
+/** 该主题下的红度阈值：ON = 本主题实测红信号的 40%，OFF = 本主题基线 + 12 点。
+ *  40% 的来由沿用 2026-10-06 黑主题实测（20 / 50.45 = 39.6%）：壳区还有圆角 /
+ *  抗锯齿 / 半透明面板在稀释红色，阈值取信号的四成留足余量，而图只铺一半时
+ *  （黑主题实测 ≈23.1）仍高于阈值。OFF 的 12 点是黑主题实测「清图后与基线一毫不差」
+ *  之上留的余量。两个增量都按**主题各自**的实测基线/信号重算，不抄绝对值。 */
+function rednessOn(wire) { const b = shellBaseOf(wire); return Math.round((b.redness + 0.4 * (b.redSignal - b.redness)) * 100) / 100; }
+function rednessOff(wire) { const b = shellBaseOf(wire); return Math.round((b.redness + 12) * 100) / 100; }
+
+/** 这一帧能不能判读（= 是不是无头合成器的空白帧？）。
  *
- * 为什么纯白就是空白帧而不是产品状态：本探针的判据场景都在**默认黑主题**下取像素
- *（loadApp({clear:true}) 清掉偏好后 theme 回落 black），壳区不可能 100% 纯白；
- * 而实测在「同一时刻整页帧有内容」时，带 clip 的捕获偏偏回的就是 100% 纯白
- *（见 SHOT_PARAMS 头注 2）。所以「壳区 100% 纯白平帧」= 这一枪不可判读
- * ⇒ 判 **blocked（环境）**，不是产品缺陷。
+ * 判据 = **整帧单色平帧**（share ≥ FLAT_SHARE）**且**平色 == 本环境空白帧签名色。
+ * 为什么要跟主题挂钩：白主题下壳区**本来就接近纯白**，所以颜色这一条在白主题上
+ * 只有在「本主题实测 shellHex ≠ 签名色」时才可单独成立；若某主题的实测基线色**就是**
+ * ffffff，颜色不足以区分「产品白屏」与「合成器空帧」⇒ 返回 'unknown'（调用方判
+ * blocked（环境），**不许**猜成 pass 或 fail）。
  *
- * 注意：白主题下壳区本来就白，但那是**主题判据**（themes 场景用 12 条面带量），
- * 不走这条；这条只在默认黑主题的截图上用。 */
-function blankWhite(st) { return flatFrame(st) && st.dominant[0].hex === 'ffffff'; }
-/** 一次像素统计：整页截图 → 进程内裁剪（不依赖 CDP clip）。 */
+ * 返回 'blank' | 'unknown' | null。 */
+function blankFrame(st, wire = 'black') {
+  if (!flatFrame(st)) return null;
+  const hex = st.dominant[0].hex;
+  const base = shellBaseOf(wire);
+  if (hex !== base.blankHex) return null;
+  if (base.shellHex === base.blankHex) return 'unknown';
+  return 'blank';
+}
+/** 兼容旧调用点：只问「是不是不可判读」（blank/unknown 都算不可判读）。 */
+function blankWhite(st, wire = 'black') { return blankFrame(st, wire) !== null; }
+/** 一次像素统计：整页截图 → 进程内裁剪（不依赖 CDP clip）。
+ *
+ * 主题**自动取自页面当前偏好**（E9-②）：调用点不再需要、也不允许硬编码黑主题。 */
 async function shotStats(page, name, crop = null) {
   const p = await page.shot(name);
   const st = crop ? py([p, '--crop', crop]) : py([p]);
-  return { path: p, bytes: statSync(p).size, stats: st, blank: blankWhite(st) };
+  const wire = themeWireOf(await page.prefsNow().catch(() => null));
+  return { path: p, bytes: statSync(p).size, stats: st, blank: blankWhite(st, wire), wire, blankKind: blankFrame(st, wire) };
 }
 
 /** 一张背景图的 id —— 与 Dart 的 backgroundIdOf **同算法**（djb2 变体，
@@ -158,6 +252,93 @@ const WS_SPY_SOURCE = [
   "})();",
 ].join(WS_NL);
 
+/** 媒体元素生命周期 / 播放位置记录器（audio-c 的稳健化，E9-①）。
+ *
+ * **为什么不能只靠定时轮询 `document.querySelectorAll('audio')`**（旧实现）：
+ *   · 轮询间隔 2s，而本机 TTS 一句才 2.6s ⇒ 元素建了又销毁时可能**一次都没被采到**
+ *     （这正是「2 次里 1 次 blocked」的来源）；
+ *   · 旧实现按**数组下标**当元素身份，元素重建后下标会移位 ⇒ 前进量算在错误的元素上。
+ *
+ * 现在在建页之前注入本记录器：patch `HTMLMediaElement.prototype.play`，并在 document 上
+ * 以 capture 监听媒体事件（loadedmetadata/play/playing/timeupdate/ended/error/emptied…）+
+ * MutationObserver 记「被移除」，每条事件留 {at, kind, id, src, blob, duration, currentTime,
+ * paused, readyState, muted, ended}。`timeupdate` 播放时约 4 次/秒 ⇒ 就算元素随后被销毁，
+ * 已经记进 `window.__audio.events` 的前进轨迹也还在（身份 = 我们打的自增 id，不是下标）。
+ * 整段事件上限 4000 条（超出丢最老的 2000）——播放位置是标量，不需要无限留。 */
+const AUDIO_SPY_SOURCE = [
+  '(function () {',
+  '  window.__audio = { events: [], plays: [], removed: [], errors: [], ids: 0 };',
+  '  function idOf(el) { if (!el.__probeAudioId) { window.__audio.ids += 1; el.__probeAudioId = window.__audio.ids; } return el.__probeAudioId; }',
+  '  function snap(kind, el) {',
+  '    try {',
+  '      var src = String(el.currentSrc || el.src || "");',
+  '      window.__audio.events.push({ at: Math.round(performance.now()), kind: kind, id: idOf(el),',
+  '        src: src.slice(0, 80), blob: src.indexOf("blob:") === 0, duration: el.duration,',
+  '        currentTime: el.currentTime, paused: el.paused, readyState: el.readyState,',
+  '        muted: el.muted, volume: el.volume, ended: el.ended });',
+  '      if (window.__audio.events.length > 4000) window.__audio.events.splice(0, 2000);',
+  '    } catch (e) { window.__audio.errors.push(String(e)); }',
+  '  }',
+  '  var P = window.HTMLMediaElement && window.HTMLMediaElement.prototype;',
+  '  if (P && P.play) {',
+  '    var origPlay = P.play;',
+  '    P.play = function () {',
+  '      var el = this; snap("play()", el);',
+  '      var r = origPlay.apply(this, arguments);',
+  '      var rec = { at: Math.round(performance.now()), id: idOf(el), rejected: null };',
+  '      if (r && r.catch) r.catch(function (e) { rec.rejected = String((e && e.name) || e); });',
+  '      window.__audio.plays.push(rec);',
+  '      return r;',
+  '    };',
+  '  }',
+  '  if (P && P.pause) { var origPause = P.pause; P.pause = function () { snap("pause()", this); return origPause.apply(this, arguments); }; }',
+  '  var KINDS = ["loadedmetadata", "loadeddata", "canplay", "play", "playing", "timeupdate", "ended", "error", "stalled", "suspend", "emptied", "abort", "volumechange"];',
+  '  for (var i = 0; i < KINDS.length; i++) {',
+  '    (function (k) { document.addEventListener(k, function (ev) { var t = ev.target; if (t && t.tagName === "AUDIO") snap(k, t); }, true); })(KINDS[i]);',
+  '  }',
+  '  function watchRemovals() {',
+  '    try {',
+  '      var mo = new MutationObserver(function (muts) {',
+  '        for (var i = 0; i < muts.length; i++) { var ns = muts[i].removedNodes;',
+  '          for (var j = 0; j < ns.length; j++) { var n = ns[j]; if (n && n.tagName === "AUDIO") { snap("removed", n); window.__audio.removed.push({ at: Math.round(performance.now()), id: idOf(n), currentTime: n.currentTime, duration: n.duration }); } } }',
+  '      });',
+  '      mo.observe(document.documentElement, { childList: true, subtree: true });',
+  '    } catch (e) { window.__audio.errors.push("MO:" + String(e)); }',
+  '  }',
+  '  if (document.documentElement) watchRemovals(); else document.addEventListener("DOMContentLoaded", watchRemovals);',
+  '})();',
+].join(WS_NL);
+
+/** 把「媒体时间线」按**元素身份**归并出每次播放的位置前进量（纯函数）。
+ *
+ * 输入：任意来源的事件数组（页内 spy 的 `window.__audio.events` / DOM 轮询快照 / CDP
+ * Media 域事件都先归一化成同一形状）。身份优先用 `id`（页内自增 id），没有才回落下标。
+ * 输出按 id 分组：`deltaSec` = 该 id 上 currentTime 的 max−min（>0.2s 才算真的在播），
+ * `blob` = 是否见过 blob: 源，`duration` = 见过的最大 duration，`samples` = 该 id 的样本数。 */
+function progressByMediaId(events) {
+  const byId = new Map();
+  for (const e of events || []) {
+    if (!e) continue;
+    const key = e.id === undefined || e.id === null ? 'idx:' + e.index : 'id:' + e.id;
+    if (!byId.has(key)) byId.set(key, { id: key, samples: 0, blob: false, duration: null, times: [], firstAt: null, lastAt: null });
+    const g = byId.get(key);
+    g.samples += 1;
+    if (e.blob === true) g.blob = true;
+    const dur = typeof e.duration === 'number' && isFinite(e.duration) ? e.duration : null;
+    if (dur !== null && (g.duration === null || dur > g.duration)) g.duration = dur;
+    const t = typeof e.currentTime === 'number' && isFinite(e.currentTime) ? e.currentTime : null;
+    if (t !== null) {
+      g.times.push(t);
+      if (g.firstAt === null) g.firstAt = e.at;
+      g.lastAt = e.at;
+    }
+  }
+  return [...byId.values()].filter((g) => g.times.length > 0).map((g) => ({
+    id: g.id, samples: g.samples, blob: g.blob, duration: g.duration,
+    firstAt: g.firstAt, lastAt: g.lastAt, firstTime: g.times[0], lastTime: g.times[g.times.length - 1],
+    deltaSec: +(Math.max(...g.times) - Math.min(...g.times)).toFixed(3),
+  }));
+}
 /** 把一次会话的 WS 音频帧**归并成句子**（纯函数，给判定与证据共用）。
  *
  * 为什么按 sentence_seq 归并而不是整体计数：task 书上那条老缺陷正是
@@ -345,31 +526,37 @@ class Page {
   /** 等「真的画出来了」。
    *
    * 判据：**整页**截图（captureBeyondViewport）→ png_stats `--crop` 取壳区 →
-   * 不是「100% 纯白平帧」（见 blankWhite）。最多等 timeoutMs。
+   * 不是「不可判读帧」（见 blankFrame，按**页面当前主题**判定）。最多等 timeoutMs。
    *
-   * 返回 {paintedAfterMs, dominant, bytes, crop, samples}；一直判不出来时
-   * paintedAfterMs = null 并带 why —— 调用方据此判 **blocked（环境）**，
-   * 不是产品 fail（task-7 目标 A2 的硬要求）。*/
+   * 主题从 `prefsNow()` 现取（E9-②）：调用点不再需要、也不允许假设黑主题。
+   *
+   * 返回 {paintedAfterMs, dominant, bytes, crop, samples, wire}；一直判不出来时
+   * paintedAfterMs = null 并带 why（含主题与实测到的平色 / 字节数 / 采样次数）——
+   * 调用方据此判 **blocked（环境）**，不是产品 fail（task-7 目标 A2 的硬要求）。*/
   async waitForPaint(timeoutMs = 40000, crop = SHELL_CROP) {
     const samples = [];
     const t0 = Date.now();
+    const wire = themeWireOf(await this.prefsNow().catch(() => null));
     while (Date.now() - t0 < timeoutMs) {
       try {
         const r = await this.send('Page.captureScreenshot', SHOT_PARAMS);
         const buf = Buffer.from(r.data, 'base64');
         writeFileSync('/tmp/probe-paint.png', buf);
         const st = py(['/tmp/probe-paint.png', '--crop', crop]);
-        const white = blankWhite(st);
-        samples.push({ at: Date.now() - t0, bytes: buf.length, dominant: st.dominant[0], blank: white });
-        if (!white) {
-          return { paintedAfterMs: Date.now() - t0, dominant: st.dominant[0], bytes: buf.length, crop, samples };
+        const kind = blankFrame(st, wire);
+        samples.push({ at: Date.now() - t0, bytes: buf.length, dominant: st.dominant[0], blank: kind !== null, blankKind: kind });
+        if (kind === null) {
+          return { paintedAfterMs: Date.now() - t0, dominant: st.dominant[0], bytes: buf.length, crop, samples, wire };
         }
       } catch (e) { samples.push({ at: Date.now() - t0, error: String(e.message).slice(0, 120) }); }
       await sleep(1500);
     }
+    const last = samples.length ? samples[samples.length - 1] : null;
     return {
-      paintedAfterMs: null, dominant: null, bytes: null, crop, samples,
-      why: timeoutMs + ' ms 内整页截图在壳区(' + crop + ')始终是 100% 纯白平帧（无头合成器空白帧）',
+      paintedAfterMs: null, dominant: null, bytes: null, crop, samples, wire,
+      why: timeoutMs + ' ms 内整页截图在壳区(' + crop + ')始终不可判读：主题=' + wire +
+        '，本主题基线色=' + shellBaseOf(wire).shellHex + '，空白帧签名色=' + BLANK_HEX +
+        '，末次采样=' + (last ? JSON.stringify(last) : 'n/a') + '（无头合成器空白帧）',
     };
   }
   async waitFor(expr, timeoutMs = 30000, label = expr) {
@@ -395,6 +582,14 @@ class Page {
   /** 在建页之前注入 WS 帧记录器（见 WS_SPY_SOURCE 头注）。 */
   async spyWs() {
     await this.send('Page.addScriptToEvaluateOnNewDocument', { source: WS_SPY_SOURCE });
+  }
+  /** 在建页之前注入媒体元素记录器（见 AUDIO_SPY_SOURCE 头注）。 */
+  async spyAudio() {
+    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: AUDIO_SPY_SOURCE });
+  }
+  /** 读媒体记录器（需要先 spyAudio 且页面已加载过）。 */
+  audioSpy() {
+    return this.evaluate('window.__audio || null');
   }
   /** 读 WS 记录器（需要先 spyWs 且页面已加载过）。 */
   wsFrames() {
@@ -486,7 +681,7 @@ class Page {
   }
   /** 页面上真实存在的媒体元素（目标 B 的「前端真的建了 <audio> 并播放」判据）。 */
   audioElements() {
-    return this.evaluate("[...document.querySelectorAll('audio')].map(function (a) { var s = a.currentSrc || a.src || ''; return { src: s.slice(0, 60), blob: s.indexOf('blob:') === 0, duration: a.duration, currentTime: a.currentTime, paused: a.paused, readyState: a.readyState, muted: a.muted, volume: a.volume }; })");
+    return this.evaluate("[...document.querySelectorAll('audio')].map(function (a) { var s = a.currentSrc || a.src || ''; return { probeId: a.__probeAudioId || null, src: s.slice(0, 60), blob: s.indexOf('blob:') === 0, duration: a.duration, currentTime: a.currentTime, paused: a.paused, readyState: a.readyState, muted: a.muted, volume: a.volume }; })");
   }
   async wipePrefs() {
     await this.evaluate('localStorage.clear()');
@@ -714,9 +909,14 @@ async function scenarioOffline(browser) {
     const blocked = page.net.failures.filter((f) => f.blockedReason);
     const hudText = await page.hud();
     save('offline.json', { externalUrls: ext, failures: page.net.failures, pixelsShell: st, shotBytes: shot.bytes, paint: page.lastPaint, hud: hudText });
-    // 「有没有真的画出来」的判据：壳区主导色的占比不接近 1（纯色/白屏 ⇒ 无 UI）。
-    const drawn = 1 - st.dominant[0].share > 0.02;
-    const theme = (await page.prefsNow() || {}).theme || 'black';
+    // 「有没有真的画出来」的判据：壳区主导色占比**不超过该主题自己的上限**。
+    // E9-②：老实现写死 `1 - share > 0.02`（= 要求主导色 <98%），而 0.98 只在
+    // **黑主题**上量过（实测主导色 111111 占 0.9237）；四主题各自的上限在
+    // SHELL_BASE 表里，由 themebase 场景逐个主题实测得到（来源见表头注）。
+    const prefs = await page.prefsNow();
+    const theme = themeWireOf(prefs);
+    const maxShare = shellBaseOf(theme).maxShare;
+    const drawn = st.dominant[0].share <= maxShare;
     // 判据不可用时**判 blocked（环境）**，不判 fail（task-7 目标 A2）：
     // 100% 纯白平帧 = 无头合成器空白帧，它说明不了产品好坏。
     // 「不可判读」= 本次判据用的那张帧是 100% 纯白平帧。它**就是** waitForPaint()
@@ -727,9 +927,9 @@ async function scenarioOffline(browser) {
     const paintWhy = page.lastPaint && page.lastPaint.why ? page.lastPaint.why : null;
     const verdict = unusable ? 'blocked' : (ext.length === 0 && drawn ? 'pass' : 'fail');
     rec('offline', '外部主机全拦截后应用仍可用（断网不白屏）', verdict,
-      (unusable ? '【环境不可判读】壳区截图是 100% 纯白平帧（' + shot.bytes + ' B），无头合成器没给内容帧；' : '') +
+      (unusable ? '【环境不可判读】壳区截图是平帧且平色==' + BLANK_HEX + '（' + shot.bytes + ' B，kind=' + shot.blankKind + '，主题=' + shot.wire + '），无头合成器没给内容帧；' : '') +
       '被 blocked 的外部请求 ' + blocked.length + ' 条；请求里外部 URL ' + ext.length + ' 条；主题=' + theme +
-      '；壳区主导色=' + JSON.stringify(st.dominant.slice(0, 3)) + '（主导占比 ' + st.dominant[0].share + '，<0.98 视为有真实绘制）' +
+      '；壳区主导色=' + JSON.stringify(st.dominant.slice(0, 3)) + '（主导占比 ' + st.dominant[0].share + '，本主题 ' + theme + ' 的上限 ' + maxShare + '；来源 SHELL_BASE/' + SHELL_BASE_SRC.cmd + '）' +
       '；截图字节=' + shot.bytes +
       '；waitForPaint=' + (page.lastPaint ? (page.lastPaint.paintedAfterMs === null ? 'null（判不出）' : page.lastPaint.paintedAfterMs + ' ms') : 'n/a') +
       '（采样 ' + (page.lastPaint && page.lastPaint.samples ? page.lastPaint.samples.length : 0) + ' 次' + (paintWhy ? '；why=' + paintWhy : '') + '）；HUD=' + String(hudText).slice(0, 120),
@@ -954,11 +1154,20 @@ async function scenarioThemes(browser) {
   const page2 = await Page.create(browser);
   try {
     const rows = [];
+    const shellRows = [];
     await page2.loadApp({ clear: true, settleMs: 8000 });
     for (const wire of Object.keys(PALETTE)) {
       await page2.setPrefs({ theme: wire });
       const rect = await page2.stageRect();
       const full = await page2.shot('themes/stage-' + wire + '.png');
+      // E9-②：同一张整页帧再裁一次壳区，就是该主题的像素基线复核样本
+      // （不额外截图、不额外 reload）。阈值复核见下面的 6d。
+      const shellSt = py([full, '--crop', SHELL_CROP]);
+      shellRows.push({
+        wire, hex: shellSt.dominant[0].hex, share: shellSt.dominant[0].share, redness: shellSt.redness,
+        channels: shellSt.channels, bytes: statSync(full).size,
+        expected: shellBaseOf(wire), blankKind: blankFrame(shellSt, wire),
+      });
       let st = null;
       if (rect && rect.w > 50) {
         const crop = [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h].map((v) => Math.round(v)).join(',');
@@ -969,6 +1178,22 @@ async function scenarioThemes(browser) {
       rows.push({ wire, stageRect: rect, expect: PALETTE[wire].stage, top: st.dominant[0], match: st.colors[0] });
     }
     save('themes/stage-colors.json', { rows });
+    // 6d：每次 `all` 都拿真实像素复核 SHELL_BASE（阈值不是一次性抄完就完事）。
+    // 判据：实测主导占比 ≤ 本主题 maxShare（超出说明这一帧平得不像产品）；
+    //       实测红度与表里的基线相差 ≤ 3 个点（实测噪声 < 1 点，见 SHELL_BASE 头注）。
+    // 复核用的是同一张整页帧的另一个裁剪，所以样本数与主题数相等（4）。
+    save('themes/shell-baselines-live.json', { at: new Date().toISOString(), crop: SHELL_CROP, rows: shellRows });
+    const drift = shellRows.map((r) => ({
+      wire: r.wire, share: r.share, maxShare: r.expected.maxShare, shareOk: r.share <= r.expected.maxShare,
+      redness: r.redness, baseRedness: r.expected.redness, rednessDelta: Math.round((r.redness - r.expected.redness) * 100) / 100,
+      rednessOk: Math.abs(r.redness - r.expected.redness) <= 3, shellHex: r.hex, expectHex: r.expected.shellHex,
+      blankKind: r.blankKind,
+    }));
+    const driftBad = drift.filter((d) => !d.shareOk || !d.rednessOk);
+    rec('6d', '四主题壳区像素基线复核（阈值来源：themebase 实测，判据见 SHELL_BASE 头注）',
+      driftBad.length ? 'fail' : 'pass',
+      '逐主题：' + JSON.stringify(drift) + '；不合格 ' + driftBad.length + ' 个；原始样本见 themes/shell-baselines-live.json（4 次采样，每主题 1 次；完整 3+1 标定见 themebase 场景）',
+      driftBad.length ? 'medium' : 'high', 'node scripts/browser_probe.mjs themes（标定：themebase）');
     // 舞台那一块的截图像素在本环境恒为白（见 stage 场景 3d 的当场证明），
     // 所以这条只能给数据、不能给判定；协议级判定在 stagecolor 场景（6c）。
     const ok = rows.every((r) => r.match.hits > 1000 && r.top.hex === r.expect);
@@ -987,20 +1212,19 @@ async function scenarioBg(browser) {
     //
     // REDNESS_ON / REDNESS_OFF 量的都是**壳区**（SHELL_CROP）的 redness：
     //   redness = 逐像素 (R - (G+B)/2) 的均值（png_stats.py 的 channels/redness）。
-    // 取值依据（2026-10-06 实测，原始数字见 bg/visibility.json）：
-    //   · 无图基线（黑主题，clear 后默认）：redness = -4.33
-    //   · 背景库一张纯红 64x64 图 cover 铺满壳区：redness = 50.45
-    //   · 纯蓝图（轮播第 2 张）：redness = -30.31
-    //   · 同一页面重复采样是**逐像素相同**的（bg/carousel-0 与 -2 的 bytes 都是 52243）
-    //     ⇒ 该量的噪声远小于 1 个点。
-    // REDNESS_ON = 20 的来由：= 实测红信号的 40%（20 / 50.45），比基线高 24.3 个点。
-    //   留这么大余量是因为壳区还有圆角/抗锯齿/半透明面板在稀释红色；反过来说，
-    //   图只铺到壳区**一半**时 redness ≈ (50.45 - (-4.33))/2 + (-4.33) = 23.1，仍 > 20
-    //   ⇒ 阈值不会把「部分铺到」误判成没上屏。
-    // REDNESS_OFF = 8 的来由：清图后必须回到基线附近，取「基线 + 12 个点」为上限；
-    //   实测清图后 = -4.33（与基线一毫不差）。
-    const REDNESS_ON = 20;
-    const REDNESS_OFF = 8;
+    //
+    // E9-② 之前这里是**两个绝对常量**（ON=20 / OFF=8），而它们只在**默认黑主题**
+    // 上量过：无图基线 -4.33、纯红图 cover 50.45、纯蓝图 -30.31（2026-10-06 实测，
+    // 原始数字见 bg/visibility.json；同一页面重复采样逐像素相同——bg/carousel-0 与
+    // -2 的 bytes 都是 52243 ⇒ 该量噪声远小于 1 个点）。换成别套主题跑，同一个绝对
+    // 阈值就不再是「基线上方多少点」。现在两个阈值都由**本主题自己的实测基线/信号**
+    // 算出（rednessOn / rednessOff；公式与四主题实测来源见 SHELL_BASE 表头注）：
+    //   ON  = 本主题基线 + 40% × (本主题红信号 − 本主题基线)
+    //         （黑主题实测：-4.33 + 0.4×54.78 = 17.58… 取 40% 的理由：壳区还有圆角/
+    //          抗锯齿/半透明面板在稀释红色；图只铺到壳区一半时黑主题实测≈23.1 > 阈值）；
+    //   OFF = 本主题基线 + 12 点（黑主题实测清图后 = -4.33，与基线一毫不差）。
+    // 本场景固定跑在**默认黑主题**（loadApp({clear:true})），所以下面的取值与旧常量
+    // 同量级；改主题时阈值跟着走，而不是继续抄黑主题的数。
     // 两张不同 fit 的**整页帧**至少要有 0.5% 的像素不同才算「可区分」：
     // 0.5% × 1440×900 = 6480 px，远高于 PNG 编解码噪声（同图重拍 diff = 0，实测），
     // 又远低于四档铺法实际差出来的比例（stretch/tile 的差别在整幅图上是一半以上）。
@@ -1020,6 +1244,9 @@ async function scenarioBg(browser) {
 
     // 00 基线（无图）
     await page.loadApp({ clear: true, settleMs: 7000 });
+    const bgWire = themeWireOf(await page.prefsNow().catch(() => null));
+    const REDNESS_ON = rednessOn(bgWire);
+    const REDNESS_OFF = rednessOff(bgWire);    // （阈值必须在页面加载后取：主题是**页面的**当前偏好，不是全局常量。）
     const none = await shotStats(page, 'bg/00-none.png', SHELL_CROP);
     paints.none = page.lastPaint && page.lastPaint.paintedAfterMs;
     paintFull.none = page.lastPaint;
@@ -1416,6 +1643,145 @@ async function scenarioStageColor(browser) {
     'high', 'node scripts/browser_probe.mjs stagecolor（原始帧见 stage-class/stagecolor.json）');
 }
 
+// ───────── 媒体记录器受控自证（E9-① 的机制证明；不依赖 LLM/TTS） ─────────
+/** 为什么需要这条：audio-c 的失败形态是「媒体元素已销毁 / 还没建」，而它在真链路上
+ * **不可控**——跑十次未必撞上一次。这里把那两种形态**人为构造出来**，并配一个阴性对照：
+ *
+ *   ① 页面里现场造一个 `<audio>`，src = 真 WAV blob（24kHz / 1.2s / 正弦，脚本内合成），
+ *      `muted=true, volume=0` 后 `play()`；
+ *   ② 播 ~700ms 后**把它从 DOM 移除**（旧实现的唯一证据源就此消失）；
+ *   ③ 断言 A（记录器侧）：`window.__audio.events` 里该 id 仍有 blob=true / duration>0 /
+ *      currentTime 前进 >0.2s 的轨迹；
+ *      断言 B（DOM 侧）：移除后 `document.querySelectorAll('audio')` 数不到它；
+ *      对照（无记录器的新页面）：同样注入 + 移除 ⇒ 证据**丢失**（证明上面那条不是白给）。
+ *
+ * 判据方向说明：对照条「证据丢失」= pass（证明测量有区分度），若对照页**也**能保住
+ * 证据，说明本自证没测到东西 ⇒ 判 fail（假绿灯）。 */
+async function scenarioMediaSpy(browser) {
+  const page = await Page.create(browser);
+  const synth = (tag) =>
+    '(async () => {' +
+    '  const el = document.createElement("audio"); el.id = "' + tag + '";' +
+    '  const sr = 24000, n = Math.round(sr * 1.2);' +
+    '  const buf = new ArrayBuffer(44 + n * 2); const dv = new DataView(buf);' +
+    '  const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };' +
+    '  w(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt ");' +
+    '  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);' +
+    '  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);' +
+    '  w(36, "data"); dv.setUint32(40, n * 2, true);' +
+    '  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.round(12000 * Math.sin(i / 20)), true);' +
+    '  el.src = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));' +
+    '  el.muted = true; el.volume = 0;' +
+    '  document.body.appendChild(el);' +
+    '  let playErr = null; try { await el.play(); } catch (e) { playErr = String((e && e.name) || e); }' +
+    '  return { duration: el.duration, readyState: el.readyState, playErr };' +
+    '})()';
+  const runPhase = async (p, tag) => {
+    await p.loadApp({ clear: true, settleMs: 5000 });
+    const inj = await p.evaluate(synth(tag));
+    await sleep(700);
+    const domBefore = await p.audioElements();
+    const removal = await p.evaluate('(function () { var el = document.getElementById("' + tag + '"); var t = el ? el.currentTime : null; if (el) el.remove(); return { timeBeforeRemove: t, stillInDom: !!document.getElementById("' + tag + '") }; })()');
+    await sleep(700);
+    const domAfter = await p.audioElements().catch(() => []);
+    const spy = await p.audioSpy().catch(() => null);
+    return { tag, inj, domBefore, removal, domAfter, spy, progress: progressByMediaId((spy && spy.events) || []) };
+  };
+  try {
+    await page.spyAudio();
+    const withSpy = await runPhase(page, '__probe_selftest_spy');
+    await page.close();
+    const page2 = await Page.create(browser);
+    let control;
+    try { control = await runPhase(page2, '__probe_selftest_ctl'); } finally { await page2.close(); }
+    save('audio/media-spy-selftest.json', { withSpy, control });
+    const good = withSpy.progress.filter((p) => p.blob && p.duration > 0 && p.deltaSec > 0.2);
+    const domLost = withSpy.domAfter.length === 0;
+    rec('mediaspy-a', '元素从 DOM 移除后，页内记录器仍保住 currentTime 前进量（>0.2s）',
+      good.length > 0 && domLost ? 'pass' : 'fail',
+      '注入 duration=' + withSpy.inj.duration + 's readyState=' + withSpy.inj.readyState + ' playErr=' + withSpy.inj.playErr +
+      '；移除前 DOM 看到 ' + withSpy.domBefore.length + ' 个 / 移除后 ' + withSpy.domAfter.length + ' 个（移除时 currentTime=' + withSpy.removal.timeBeforeRemove + '）' +
+      '；记录器 events=' + ((withSpy.spy && withSpy.spy.events) || []).length + ' 条，前进量=' + JSON.stringify(good),
+      good.length > 0 ? 'high' : 'low', 'node scripts/browser_probe.mjs mediaspy');
+    const ctlProgress = control.progress.filter((p) => p.blob && p.duration > 0 && p.deltaSec > 0.2);
+    rec('mediaspy-b', '阴性对照：不注入记录器时，元素移除后证据确实丢失（证明上一条不是白给）',
+      ctlProgress.length === 0 && control.domAfter.length === 0 ? 'pass' : 'fail',
+      '对照页无记录器（window.__audio=' + JSON.stringify(control.spy) + '）；移除后 DOM 看到 ' + control.domAfter.length + ' 个元素、可用前进量 ' + JSON.stringify(ctlProgress) +
+      ' ⇒ ' + (ctlProgress.length === 0 ? '证据确实丢失（旧实现的 blocked 形态）' : '对照页也拿到了前进量 ⇒ 本自证无区分度'),
+      ctlProgress.length === 0 ? 'high' : 'low', 'node scripts/browser_probe.mjs mediaspy');
+  } catch (e) {
+    rec('mediaspy-a', '媒体记录器受控自证', 'blocked', '脚本异常：' + e.message, 'low');
+  }
+}
+// ───────── 四主题壳区像素基线（E9-② 的阈值来源；可重跑标定） ─────────
+/** 逐主题实测壳区像素基线 —— SHELL_BASE 表里**每一个数字**的来源。
+ *
+ * 为什么必须实测而不是估算：主题不同 ⇒ 壳区底色不同 ⇒「主导色占比」与「红度」
+ * 两个量的基线都不同；拿黑主题的绝对值当四主题通用阈值正是 E9-② 那条缺陷。
+ *
+ * 取样方式（可复现，命令见 SHELL_BASE_SRC.cmd）：
+ *   · 每主题 **3 次**「无背景图」采样（每次之间 sleep 1.5s），记 dominant/share/
+ *     redness/channels/brightness/chroma/截图字节；
+ *   · 每主题 **1 次**铺纯红 64×64 图（imageFit=0 cover）采样 = 该主题的红信号
+ *     （阈值只能相对**本主题自己的信号**取）；
+ *   · 全部落在壳区裁剪 SHELL_CROP（x1100..1440 / y52..900 = 聊天面板列，不含舞台
+ *     iframe），整页截图 + png_stats 进程内裁剪。
+ *
+ * 产物：themes/shell-baselines.json（原始样本，含 sample 数）。
+ * 打印的「建议值」只供人复核后写进 SHELL_BASE —— 脚本**不自动改源码**
+ * （阈值是人读数据后钉下来的，脚本替人做判断就是另一种自证）。 */
+async function scenarioThemeBaseline(browser) {
+  const page = await Page.create(browser);
+  const byTheme = {};
+  let sampleCount = 0;
+  try {
+    await page.loadApp({ clear: true, settleMs: 7000 });
+    for (const wire of THEME_WIRES) {
+      await page.setPrefs({ theme: wire, backgrounds: [] });
+      const samples = [];
+      for (let i = 0; i < 3; i++) {
+        const s = await shotStats(page, 'themes/base-' + wire + '-' + i + '.png', SHELL_CROP);
+        samples.push({ i, hex: s.stats.dominant[0].hex, share: s.stats.dominant[0].share, redness: s.stats.redness, channels: s.stats.channels, brightnessMean: s.stats.brightness.mean, chromaMean: s.stats.chroma.mean, bytes: s.bytes, blankKind: s.blankKind });
+        sampleCount += 1;
+        await sleep(1500);
+      }
+      await page.setPrefs({ theme: wire, backgroundSource: 0, backgroundEnabled: true, backgroundOpacity: 1.0, backgroundBlur: 0.0, backgroundScrim: 1, imageAlign: 4, imageFit: 0, backgrounds: [{ kind: 'image', dataUrl: IMG.red }] });
+      const red = await shotStats(page, 'themes/base-' + wire + '-red.png', SHELL_CROP);
+      sampleCount += 1;
+      byTheme[wire] = {
+        samples,
+        redSignal: { hex: red.stats.dominant[0].hex, share: red.stats.dominant[0].share, redness: red.stats.redness, channels: red.stats.channels, bytes: red.bytes, blankKind: red.blankKind },
+      };
+      await page.setPrefs({ theme: wire, backgrounds: [] });
+    }
+  } finally { await page.close(); }
+  const suggest = {};
+  for (const wire of THEME_WIRES) {
+    const t = byTheme[wire];
+    if (!t || !t.samples.length) { suggest[wire] = null; continue; }
+    const baseRedness = Math.min(...t.samples.map((s) => s.redness));
+    const maxShare = Math.max(...t.samples.map((s) => s.share));
+    suggest[wire] = {
+      shellHex: t.samples.map((s) => s.hex).join('/'),
+      shellShare: maxShare,
+      redness: baseRedness,
+      redSignal: t.redSignal.redness,
+      maxShare: Math.round((maxShare + 0.02) * 10000) / 10000,
+      blankHex: BLANK_HEX,
+      shellHexEqualsBlank: t.samples.every((s) => s.hex === BLANK_HEX) || t.samples.some((s) => s.hex === BLANK_HEX),
+      rednessOn: rednessOn(wire),
+      rednessOff: rednessOff(wire),
+    };
+  }
+  save('themes/shell-baselines.json', {
+    cmd: SHELL_BASE_SRC.cmd, at: new Date().toISOString(), crop: SHELL_CROP, perThemeSamples: 3, redSignalSamples: 1,
+    samples: sampleCount, byTheme, suggest, currentTable: SHELL_BASE,
+  });
+  const blocked = THEME_WIRES.filter((w) => !byTheme[w] || !byTheme[w].samples.length);
+  rec('6d-base', '四主题壳区像素基线实测（SHELL_BASE 阈值的来源）', blocked.length ? 'blocked' : 'pass',
+    '采样 ' + sampleCount + ' 次（每主题 3 次无背景 + 1 次红图）；建议值=' + JSON.stringify(suggest) +
+    '；原始见 themes/shell-baselines.json', blocked.length ? 'low' : 'high', SHELL_BASE_SRC.cmd);
+}
 // ───────────── 目标 B：真实音频链路（LLM → TTS → WS audio 帧 → <audio> 播放） ─────────────
 /** 一轮对话的提示词：**只要一句话**，且以句号收尾 ——
  * 分句器按真实句读切，一句话 ⇒ 一个 sentence_seq ⇒ 边界断言最干净。 */
@@ -1437,8 +1803,29 @@ const AUDIO_WAIT_MS = 90000;
  * shell/flutter/lib/audio/audio_player.dart（blob + <audio>）。 */
 async function scenarioAudio(browser) {
   const page = await Page.create(browser);
+  // 三路媒体证据的容器（E9-①）。CDP Media 域是**第三路**：它看的是播放器属性，
+  // 与 DOM 是否存在无关，所以元素已销毁时它仍可能给出 currentTime 前进量。
+  const mediaEvents = [];
+  let mediaPlayerEvents = 0;
+  let mediaEnableErr = null;
   try {
     await page.spyWs();
+    await page.spyAudio();
+    try {
+      await page.send('Media.enable');
+      browser.on('Media.playerPropertiesChanged', (m) => {
+        if (m.sessionId !== page.sessionId) return;
+        const num = (v) => { const n = parseFloat(String(v)); return Number.isFinite(n) ? n : null; };
+        const props = {};
+        for (const p of (m.params.properties || [])) props[p.name] = p.value;
+        mediaEvents.push({
+          at: Date.now(), id: 'media:' + m.params.playerId,
+          currentTime: num(props.kCurrentTime), duration: num(props.kDuration),
+          paused: props.kPaused === undefined ? null : String(props.kPaused), blob: null,
+        });
+      });
+      browser.on('Media.playerEventsAdded', (m) => { if (m.sessionId === page.sessionId) mediaPlayerEvents += (m.params.events || []).length; });
+    } catch (e) { mediaEnableErr = String(e.message || e); }
     await page.loadApp({ clear: true, settleMs: 8000 });
     const wsLoaded = await page.wsFrames();
     // 真实 UI：点进输入框 → 打一句话 → 点「发送」（真指针事件 = 也给了页面用户激活，
@@ -1463,30 +1850,39 @@ async function scenarioAudio(browser) {
         await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
       }
     }
-    // 采样：直到「见过句尾 end」且「currentTime 前进过」，或超时。
+    // 采样（E9-① 稳健化）：**三路独立证据**同时记，任一路给出「blob 源 + duration>0 +
+    // currentTime 前进 >0.2s」即可判 pass：
+    //   A. DOM 轮询快照 —— 旧路径，间隔 2000ms → **500ms**，并按页内自增 id 归并（不再用下标）；
+    //   B. 页内媒体记录器（AUDIO_SPY_SOURCE）—— timeupdate ≈4 次/秒，元素被销毁也不丢事件；
+    //   C. CDP Media 域 —— 播放器属性，与 DOM 无关。
+    // 旧实现只有 A、间隔 2s、按下标认元素 ⇒ 「2 次里 1 次 blocked（元素已销毁/还没建）」。
     const timeline = [];
     const elSamples = [];
+    const POLL_MS = 500;
     const t0 = Date.now();
     let sawEnd = false, advanced = false;
+    const domProgressOf = () => progressByMediaId(elSamples.flatMap((x) =>
+      x.els.map((e, i) => ({ ...e, at: x.at, id: e.probeId === null ? undefined : e.probeId, index: i }))));
     while (Date.now() - t0 < AUDIO_WAIT_MS) {
-      await sleep(2000);
+      await sleep(POLL_MS);
       const snap = await page.wsFrames();
       const fr = (snap && snap.frames) || [];
       const s = summarizeAudioFrames(fr);
       const els = await page.audioElements().catch(() => []);
       elSamples.push({ at: Date.now() - t0, els });
+      const spyNow = await page.audioSpy().catch(() => null);
+      const spyProgressNow = progressByMediaId((spyNow && spyNow.events) || []);
       timeline.push({
         at: Date.now() - t0, frames: fr.length, audioFrames: s.audioFrames,
         starts: s.totalStarts, ends: s.totalEnds, samples: s.totalSamples,
         sentences: s.sentences.map((g) => g.seq + ':' + g.starts + 'start/' + g.ends + 'end/' + g.samples + 'smp'),
         elements: els.length, elapsedSec: els.map((e) => e.currentTime),
+        spyEvents: ((spyNow && spyNow.events) || []).length, spyDeltaSec: spyProgressNow.map((p) => p.deltaSec),
+        mediaEvents: mediaEvents.length, mediaDeltaSec: progressByMediaId(mediaEvents).map((p) => p.deltaSec),
         errs: fr.filter((f) => f.type === 'error').map((f) => f.error).slice(-2),
       });
       if (s.totalEnds > 0) sawEnd = true;
-      for (let i = 0; i < els.length; i++) {
-        const rows = elSamples.filter((x) => x.els[i]).map((x) => x.els[i].currentTime);
-        if (rows.length > 1 && Math.max(...rows) - Math.min(...rows) > 0.2) advanced = true;
-      }
+      if ([...spyProgressNow, ...domProgressOf()].some((p) => p.blob && p.duration > 0 && p.deltaSec > 0.2)) advanced = true;
       if (sawEnd && advanced) break;
     }
     const snap = await page.wsFrames();
@@ -1494,24 +1890,34 @@ async function scenarioAudio(browser) {
     const sum = summarizeAudioFrames(frames);
     const errs = frames.filter((f) => f.type === 'error').map((f) => f.error);
     const els = await page.audioElements().catch(() => []);
-    // 逐元素（下标即身份）看 currentTime：只看到 >0 可能只是静态值，必须看**前进量**。
-    const progressed = [];
-    for (let i = 0; i < els.length; i++) {
-      const rows = elSamples.filter((x) => x.els[i]).map((x) => ({ at: x.at, t: x.els[i].currentTime, dur: x.els[i].duration, blob: x.els[i].blob === true }));
-      if (!rows.length) continue;
-      progressed.push({
-        index: i, blob: rows.some((r) => r.blob),
-        duration: rows[rows.length - 1].dur,
-        firstAt: rows[0].at, firstTime: rows[0].t, lastAt: rows[rows.length - 1].at, lastTime: rows[rows.length - 1].t,
-        deltaSec: +(rows[rows.length - 1].t - rows[0].t).toFixed(3),
-      });
-    }
+    const spy = await page.audioSpy().catch(() => null);
+    const spyEvents = (spy && spy.events) || [];
+    // 三路各自按**元素身份**归并（页内自增 id 优先，没有才回落下标）。
+    const domProgress = domProgressOf();
+    const spyProgress = progressByMediaId(spyEvents);
+    const mediaProgress = progressByMediaId(mediaEvents);
+    // blob 源 + duration 这两条只能由看得到元素的 DOM / 页内记录器给（Media 域不给 src）；
+    // 「有没有真的在播」（前进量）三路都算 —— Media 域在这里是**独立佐证**。
+    const withBlob = [...domProgress, ...spyProgress].filter((p) => p.blob && p.duration > 0);
+    const progressed = withBlob;
+    const advancedInPlayback = withBlob.some((p) => p.deltaSec > 0.2);
+    const advancedInMedia = mediaProgress.some((p) => p.deltaSec > 0.2);
+    const mediaOk = withBlob.length > 0 && (advancedInPlayback || advancedInMedia);
+    const mediaWhy = withBlob.length === 0
+      ? '三路都没拿到「blob: 源 + duration>0」的元素证据（DOM 轮询 ' + elSamples.length + ' 次 × ' + POLL_MS + 'ms；页内媒体事件 ' + spyEvents.length + ' 条；CDP Media 事件 ' + mediaEvents.length + ' 条' + (mediaEnableErr ? '，Media.enable 失败：' + mediaEnableErr : '') + '）'
+      : (!mediaOk ? '拿到了 blob 元素但没有一路看到 currentTime 前进 >0.2s（页内媒体事件 ' + spyEvents.length + ' 条；CDP Media 事件 ' + mediaEvents.length + ' 条）' : null);
     save('audio/ws-frames.json', {
       wsUrl: snap && snap.url, socketsOpened: snap && snap.opened, framesTotal: frames.length,
       audioFrames: frames.filter((f) => f.type === 'audio'), errors: errs,
       otherTypes: sum.otherTypes, summary: sum, timeline,
     });
-    save('audio/media-elements.json', { typed, wsAtLoad: wsLoaded && { opened: wsLoaded.opened, url: wsLoaded.url }, final: els, samples: elSamples, progressed });
+    save('audio/media-elements.json', {
+      typed, wsAtLoad: wsLoaded && { opened: wsLoaded.opened, url: wsLoaded.url }, final: els, samples: elSamples,
+      progressed, progresses: { dom: domProgress, spy: spyProgress, media: mediaProgress },
+      poll: { intervalMs: POLL_MS, samples: elSamples.length },
+      spy: { enabled: !!spy, ids: spy && spy.ids, events: spyEvents.length, plays: (spy && spy.plays) || [], removed: (spy && spy.removed) || [], errors: (spy && spy.errors) || [] },
+      media: { enableErr: mediaEnableErr, playerEvents: mediaPlayerEvents, events: mediaEvents.length },
+    });
     const ttsErrs = errs.filter((e) => e && (e.stage === 'tts' || /^tts_/.test(String(e.code))));
     const why = sum.audioFrames === 0
       ? (errs.length ? 'WS error 帧：' + JSON.stringify(errs.slice(0, 3)) : '整轮没有 audio 帧（LLM/TTS 没产出，或这一轮没发出去）')
@@ -1532,13 +1938,15 @@ async function scenarioAudio(browser) {
       '服务端 muted 标记=' + sum.anyMuted + (ttsErrs.length ? '；TTS 错误帧=' + JSON.stringify(ttsErrs.slice(0, 2)) : '') +
       (sum.anyMuted ? '；服务端 mute（LIVE2D_AI_MUTE_AUDIO=1）⇒ 样本被零填充，属 blocked 而不是 fail' : ''),
       sum.totalSamples > 0 ? 'high' : 'low');
-    // c/d. 媒体元素 + 播放前进
-    const mediaOk = progressed.some((p) => p.duration > 0 && p.deltaSec > 0.2);
+    // c/d. 媒体元素 + 播放前进（三路证据；blocked 时必须带采样数 / 字节数 / why）
     rec('audio-c', '前端建了 <audio>（src=blob:、duration>0）且 currentTime 真的前进',
       mediaOk ? 'pass' : 'blocked',
-      '页面上的 <audio> 元素 ' + els.length + ' 个；逐元素：' + JSON.stringify(progressed) +
-      '；末次快照=' + JSON.stringify(els.slice(0, 2)) +
-      (mediaOk ? '' : '；没观察到「blob src + duration>0 + currentTime 前进 >0.2s」（无头 autoplay 策略 / 没建元素 / 还没播到）⇒ blocked'),
+      '三路证据：① DOM 轮询 ' + elSamples.length + ' 次（间隔 ' + POLL_MS + 'ms）→ ' + JSON.stringify(domProgress) +
+      '；② 页内媒体记录器 ' + spyEvents.length + ' 条事件（play() ' + ((spy && spy.plays) || []).length + ' 次、removed ' + ((spy && spy.removed) || []).length + ' 次）→ ' + JSON.stringify(spyProgress) +
+      '；③ CDP Media 域 ' + mediaEvents.length + ' 条属性事件 / ' + mediaPlayerEvents + ' 条播放器事件 → ' + JSON.stringify(mediaProgress) +
+      '；末次 DOM 快照 ' + els.length + ' 个元素=' + JSON.stringify(els.slice(0, 2)) +
+      '；audio 帧载荷 ' + (sum.totalSamples * 2) + ' B（' + sum.totalSamples + ' 样本）' +
+      (mediaOk ? '；判据：blob+duration>0 且前进 >0.2s，前进来源=' + (advancedInPlayback ? 'DOM/页内记录器' : 'CDP Media 域') : '；why=' + mediaWhy),
       mediaOk ? 'high' : 'low', 'node scripts/browser_probe.mjs audio（原始见 audio/media-elements.json）');
   } finally { await page.close(); }
 }
@@ -1551,6 +1959,12 @@ const SCENARIOS = {
   // 与 AGENTS「端到端探针只在有活端点时跑，缺配置就明确跳过」是同一条纪律。
   // 要跑就显式：node scripts/browser_probe.mjs audio（或 all,audio）。
   audio: scenarioAudio,
+  // themebase **不进 `all`**：它是阈值标定场景（4 主题 ×(3+1) 次 reload，约 3–4 分钟），
+  // 只在「要重新钉 SHELL_BASE」或复核阈值时显式跑：node scripts/browser_probe.mjs themebase
+  themebase: scenarioThemeBaseline,
+  // mediaspy **不进 `all`**：它是 E9-① 的受控自证（人工构造「元素被移除」形态），
+  // 要跑就显式：node scripts/browser_probe.mjs mediaspy
+  mediaspy: scenarioMediaSpy,
 };
 
 async function main() {
@@ -1573,6 +1987,7 @@ async function main() {
   const head = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   console.log('# CDP ' + ver.Browser + ' @ ' + CDP_HTTP + ' / ' + BASE);
   console.log('# HEAD ' + head);
+  console.log('# PROBE sha256 ' + PROBE_SHA256 + '（scripts/browser_probe.mjs 自身）');
   for (const name of list) {
     const fn = SCENARIOS[name];
     if (!fn) { console.log('!! 未实现场景 ' + name); continue; }
@@ -1584,7 +1999,7 @@ async function main() {
     // 每个场景单独落一份结果：这样「只重跑某个场景」不会把别的场景的证据抹掉。
     save('results-' + name + '.json', { scenario: name, at: new Date().toISOString(), results: RESULTS.slice(start) });
   }
-  const agg = await aggregate({ cdp: ver.Browser, head, base: BASE, cdpUrl: CDP_HTTP });
+  const agg = await aggregate({ cdp: ver.Browser, head, probeSha256: PROBE_SHA256, base: BASE, cdpUrl: CDP_HTTP });
   console.log('\n# 合计 ' + agg.total + ' 项，fail ' + agg.fail + ' 项（来自 ' + agg.scenarios + ' 个场景结果文件）→ run.json');
 }
 

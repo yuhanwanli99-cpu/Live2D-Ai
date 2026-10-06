@@ -1,0 +1,167 @@
+{
+  "typed": {
+    "input": true,
+    "text": "请只回一句话，以句号结尾：今天天气不错。",
+    "sendNode": null,
+    "sendHow": "keydown-Enter"
+  },
+  "wsAtLoad": {
+    "opened": 1,
+    "url": "ws://127.0.0.1:18080/ws/state"
+  },
+  "final": [
+    {
+      "probeId": 1,
+      "src": "blob:http://127.0.0.1:18080/05b74adb-b6da-47ce-baa7-ee89790f",
+      "blob": true,
+      "duration": 2.04,
+      "currentTime": 0.593141,
+      "paused": false,
+      "readyState": 4,
+      "muted": false,
+      "volume": 1
+    }
+  ],
+  "samples": [
+    {
+      "at": 507,
+      "els": []
+    },
+    {
+      "at": 1011,
+      "els": []
+    },
+    {
+      "at": 1536,
+      "els": []
+    },
+    {
+      "at": 2044,
+      "els": []
+    },
+    {
+      "at": 2552,
+      "els": []
+    },
+    {
+      "at": 3057,
+      "els": []
+    },
+    {
+      "at": 3576,
+      "els": []
+    },
+    {
+      "at": 4089,
+      "els": []
+    },
+    {
+      "at": 4594,
+      "els": [
+        {
+          "probeId": 1,
+          "src": "blob:http://127.0.0.1:18080/05b74adb-b6da-47ce-baa7-ee89790f",
+          "blob": true,
+          "duration": 2.04,
+          "currentTime": 0.078182,
+          "paused": false,
+          "readyState": 4,
+          "muted": false,
+          "volume": 1
+        }
+      ]
+    },
+    {
+      "at": 5107,
+      "els": [
+        {
+          "probeId": 1,
+          "src": "blob:http://127.0.0.1:18080/05b74adb-b6da-47ce-baa7-ee89790f",
+          "blob": true,
+          "duration": 2.04,
+          "currentTime": 0.588369,
+          "paused": false,
+          "readyState": 4,
+          "muted": false,
+          "volume": 1
+        }
+      ]
+    }
+  ],
+  "progressed": [
+    {
+      "id": "id:1",
+      "samples": 2,
+      "blob": true,
+      "duration": 2.04,
+      "firstAt": 4594,
+      "lastAt": 5107,
+      "firstTime": 0.078182,
+      "lastTime": 0.588369,
+      "deltaSec": 0.51
+    },
+    {
+      "id": "id:1",
+      "samples": 9,
+      "blob": true,
+      "duration": 2.04,
+      "firstAt": 26563,
+      "lastAt": 27165,
+      "firstTime": 0,
+      "lastTime": 0.420468,
+      "deltaSec": 0.42
+    }
+  ],
+  "progresses": {
+    "dom": [
+      {
+        "id": "id:1",
+        "samples": 2,
+        "blob": true,
+        "duration": 2.04,
+        "firstAt": 4594,
+        "lastAt": 5107,
+        "firstTime": 0.078182,
+        "lastTime": 0.588369,
+        "deltaSec": 0.51
+      }
+    ],
+    "spy": [
+      {
+        "id": "id:1",
+        "samples": 9,
+        "blob": true,
+        "duration": 2.04,
+        "firstAt": 26563,
+        "lastAt": 27165,
+        "firstTime": 0,
+        "lastTime": 0.420468,
+        "deltaSec": 0.42
+      }
+    ],
+    "media": []
+  },
+  "poll": {
+    "intervalMs": 500,
+    "samples": 10
+  },
+  "spy": {
+    "enabled": true,
+    "ids": 1,
+    "events": 9,
+    "plays": [
+      {
+        "at": 26563,
+        "id": 1,
+        "rejected": null
+      }
+    ],
+    "removed": [],
+    "errors": []
+  },
+  "media": {
+    "enableErr": null,
+    "playerEvents": 0,
+    "events": 0
+  }
+}

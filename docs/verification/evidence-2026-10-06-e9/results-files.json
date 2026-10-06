@@ -1,0 +1,30 @@
+{
+  "scenario": "files",
+  "at": "2026-10-06T13:12:02.782Z",
+  "results": [
+    {
+      "id": "F-0050-01a",
+      "title": "四个构建产物里 gstatic / 外部 URL 命中数",
+      "verdict": "pass",
+      "evidence": "index.html=0 main.dart.js=1 flutter_bootstrap.js=2 flutter.js=1 flutter_service_worker.js=0 version.json=0 manifest.json=0；externalUrls=[[\"index.html\",0],[\"main.dart.js\",0],[\"flutter_bootstrap.js\",0],[\"flutter.js\",0],[\"flutter_service_worker.js\",0],[\"version.json\",0],[\"manifest.json\",0]]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs files"
+    },
+    {
+      "id": "F-0050-01b",
+      "title": "gstatic 字符串是否可达（bootstrap 的 CDN 分支）",
+      "verdict": "pass",
+      "evidence": "flutter_bootstrap.js 的 _flutter.buildConfig.useLocalCanvasKit=true；引擎 helper 形如 n.canvasKitBaseUrl ? … : (engineRevision && !useLocalCanvasKit ? \"https://www.gstatic.com/flutter-canvaskit/…\" : \"canvaskit\") ⇒ useLocalCanvasKit=true 时该分支恒不可达，实际 base 为同源 \"canvaskit\"",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "8b",
+      "title": "前端产物新鲜度（main.dart.js 不早于最新的 lib/*.dart）",
+      "verdict": "pass",
+      "evidence": "main.dart.js=2026-10-06T12:36:38.677Z；最新 dart=2026-10-06T11:40:22.892Z shell/flutter/lib/app/shell_lifecycle_wiring.dart；dart 文件 131 个",
+      "confidence": "high",
+      "repro": "PROBE 的 files 场景"
+    }
+  ]
+}

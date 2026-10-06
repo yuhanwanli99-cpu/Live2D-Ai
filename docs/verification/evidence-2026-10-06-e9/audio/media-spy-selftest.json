@@ -1,0 +1,258 @@
+{
+  "withSpy": {
+    "tag": "__probe_selftest_spy",
+    "inj": {
+      "duration": 1.2,
+      "readyState": 4,
+      "playErr": null
+    },
+    "domBefore": [
+      {
+        "probeId": 1,
+        "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5",
+        "blob": true,
+        "duration": 1.2,
+        "currentTime": 0.660019,
+        "paused": false,
+        "readyState": 4,
+        "muted": true,
+        "volume": 0
+      }
+    ],
+    "removal": {
+      "timeBeforeRemove": 0.663667,
+      "stillInDom": false
+    },
+    "domAfter": [],
+    "spy": {
+      "events": [
+        {
+          "at": 6754,
+          "kind": "play()",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": null,
+          "currentTime": 0,
+          "paused": true,
+          "readyState": 0,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6755,
+          "kind": "volumechange",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": null,
+          "currentTime": 0,
+          "paused": false,
+          "readyState": 0,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6755,
+          "kind": "volumechange",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": null,
+          "currentTime": 0,
+          "paused": false,
+          "readyState": 0,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6762,
+          "kind": "play",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": null,
+          "currentTime": 0,
+          "paused": false,
+          "readyState": 0,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6767,
+          "kind": "loadedmetadata",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0,
+          "paused": false,
+          "readyState": 1,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6767,
+          "kind": "suspend",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.000113,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6767,
+          "kind": "loadeddata",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.00013,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6767,
+          "kind": "canplay",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.000146,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 6767,
+          "kind": "playing",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.000152,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 7020,
+          "kind": "timeupdate",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.209855,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 7285,
+          "kind": "timeupdate",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.475487,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        },
+        {
+          "at": 7474,
+          "kind": "removed",
+          "id": 1,
+          "src": "blob:http://127.0.0.1:18080/0dd59f11-d6b3-4d64-9c4c-8bacb7d5bb9f",
+          "blob": true,
+          "duration": 1.2,
+          "currentTime": 0.664068,
+          "paused": false,
+          "readyState": 4,
+          "muted": true,
+          "volume": 0,
+          "ended": false
+        }
+      ],
+      "plays": [
+        {
+          "at": 6754,
+          "id": 1,
+          "rejected": null
+        }
+      ],
+      "removed": [
+        {
+          "at": 7474,
+          "id": 1,
+          "currentTime": 0.664068,
+          "duration": 1.2
+        }
+      ],
+      "errors": [],
+      "ids": 1
+    },
+    "progress": [
+      {
+        "id": "id:1",
+        "samples": 12,
+        "blob": true,
+        "duration": 1.2,
+        "firstAt": 6754,
+        "lastAt": 7474,
+        "firstTime": 0,
+        "lastTime": 0.664068,
+        "deltaSec": 0.664
+      }
+    ]
+  },
+  "control": {
+    "tag": "__probe_selftest_ctl",
+    "inj": {
+      "duration": 1.2,
+      "readyState": 4,
+      "playErr": null
+    },
+    "domBefore": [
+      {
+        "probeId": null,
+        "src": "blob:http://127.0.0.1:18080/1f281ac2-1cdc-40a8-b5ee-6db7905a",
+        "blob": true,
+        "duration": 1.2,
+        "currentTime": 0.66109,
+        "paused": false,
+        "readyState": 4,
+        "muted": true,
+        "volume": 0
+      }
+    ],
+    "removal": {
+      "timeBeforeRemove": 0.66295,
+      "stillInDom": false
+    },
+    "domAfter": [],
+    "spy": null,
+    "progress": []
+  }
+}

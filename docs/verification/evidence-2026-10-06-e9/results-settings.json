@@ -1,0 +1,38 @@
+{
+  "scenario": "settings",
+  "at": "2026-10-06T13:17:08.782Z",
+  "results": [
+    {
+      "id": "7a",
+      "title": "语义树里存在「设置」入口（AppBar 文字按钮）",
+      "verdict": "pass",
+      "evidence": "{\"label\":null,\"text\":\"设置\",\"role\":\"button\",\"x\":1390,\"y\":14,\"w\":42,\"h\":24}",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs settings"
+    },
+    {
+      "id": "7b",
+      "title": "点「设置」后设置内容真的渲染出来（不是空壳）",
+      "verdict": "pass",
+      "evidence": "命中分区/字段 [\"配色\",\"外观\",\"舞台与口型\",\"背景库\",\"设置\"]；语义节点 132 个；样例 [\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置Live2D 舞台，正在显示 bai关闭设置外观配色与材质。只影响本机显示，选完立刻生效，不需要保存。配色纯黑舞台，冷白强调黑，纯黑舞台，冷白强调白，纯白舞台，近黑强调蓝，深蓝舞台，\",\"缩小一档\\n100%\\n100%\\n语音输入未启用：请先在「设置 → Mod 管理」启用 voice-input（启停后可能需重新点火）\\n此模式需联网：语音会送浏览器厂商云端识别（音频会出本机），结果再回本机后端。\",\"Live2D Ai状态：空闲实时通道：实时通道正常会话设置\",\"状态：空闲\",\"实时通道：实时通道正常\",\"会话\",\"设置\"]",
+      "confidence": "high",
+      "repro": ""
+    },
+    {
+      "id": "7c",
+      "title": "设置面板真的可交互（点「白」主题卡 → localStorage 的 theme 变化）",
+      "verdict": "pass",
+      "evidence": "theme：点击前=null（无落盘） → 点击后=white；节点={\"label\":null,\"text\":\"白，纯白舞台，近黑强调\",\"role\":\"button\",\"x\":851,\"y\":299,\"w\":132,\"h\":84}",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs settings"
+    },
+    {
+      "id": "7d",
+      "title": "设置面板滑条可拖动（拖「描边强度」→ edgeStrength 变化）",
+      "verdict": "pass",
+      "evidence": "edgeStrength 1 → 1.5（节点 {\"label\":\"描边强度\",\"text\":\"\",\"role\":null,\"x\":858,\"y\":541,\"w\":48,\"h\":48}；拖 +160px）",
+      "confidence": "medium",
+      "repro": "node scripts/browser_probe.mjs settings"
+    }
+  ]
+}

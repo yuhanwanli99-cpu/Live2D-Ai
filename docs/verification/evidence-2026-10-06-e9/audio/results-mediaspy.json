@@ -1,0 +1,22 @@
+{
+  "scenario": "mediaspy",
+  "at": "2026-10-06T13:03:51.096Z",
+  "results": [
+    {
+      "id": "mediaspy-a",
+      "title": "元素从 DOM 移除后，页内记录器仍保住 currentTime 前进量（>0.2s）",
+      "verdict": "pass",
+      "evidence": "注入 duration=1.2s readyState=4 playErr=null；移除前 DOM 看到 1 个 / 移除后 0 个（移除时 currentTime=0.663667）；记录器 events=12 条，前进量=[{\"id\":\"id:1\",\"samples\":12,\"blob\":true,\"duration\":1.2,\"firstAt\":6754,\"lastAt\":7474,\"firstTime\":0,\"lastTime\":0.664068,\"deltaSec\":0.664}]",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs mediaspy"
+    },
+    {
+      "id": "mediaspy-b",
+      "title": "阴性对照：不注入记录器时，元素移除后证据确实丢失（证明上一条不是白给）",
+      "verdict": "pass",
+      "evidence": "对照页无记录器（window.__audio=null）；移除后 DOM 看到 0 个元素、可用前进量 [] ⇒ 证据确实丢失（旧实现的 blocked 形态）",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs mediaspy"
+    }
+  ]
+}

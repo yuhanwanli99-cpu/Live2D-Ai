@@ -1,0 +1,36 @@
+{
+  "rows": [
+    {
+      "wire": "black",
+      "expect": "#000000",
+      "sent": [
+        "#000000"
+      ],
+      "frames": 3
+    },
+    {
+      "wire": "white",
+      "expect": "#ffffff",
+      "sent": [
+        "#ffffff"
+      ],
+      "frames": 3
+    },
+    {
+      "wire": "blue",
+      "expect": "#061223",
+      "sent": [
+        "#061223"
+      ],
+      "frames": 3
+    },
+    {
+      "wire": "gray",
+      "expect": "#1c1c1f",
+      "sent": [
+        "#1c1c1f"
+      ],
+      "frames": 3
+    }
+  ]
+}

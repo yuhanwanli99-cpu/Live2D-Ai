@@ -1,0 +1,14 @@
+{
+  "scenario": "themebase",
+  "at": "2026-10-06T12:42:36.088Z",
+  "results": [
+    {
+      "id": "6d-base",
+      "title": "四主题壳区像素基线实测（SHELL_BASE 阈值的来源）",
+      "verdict": "pass",
+      "evidence": "采样 16 次（每主题 3 次无背景 + 1 次红图）；建议值={\"black\":{\"shellHex\":\"111111/111111/111111\",\"shellShare\":0.9237,\"redness\":-4.33,\"redSignal\":50.45,\"maxShare\":0.9437,\"blankHex\":\"ffffff\",\"shellHexEqualsBlank\":false,\"rednessOn\":17.58,\"rednessOff\":7.67},\"white\":{\"shellHex\":\"ffffff/ffffff/ffffff\",\"shellShare\":0.9243,\"redness\":3.72,\"redSignal\":57.24,\"maxShare\":0.9443,\"blankHex\":\"ffffff\",\"shellHexEqualsBlank\":true,\"rednessOn\":25.13,\"rednessOff\":15.72},\"blue\":{\"shellHex\":\"111133/111133/111133\",\"shellShare\":0.9228,\"redness\":-16.76,\"redSignal\":40.88,\"maxShare\":0.9428,\"blankHex\":\"ffffff\",\"shellHexEqualsBlank\":false,\"rednessOn\":6.3,\"rednessOff\":-4.76},\"gray\":{\"shellHex\":\"222222/222222/222222\",\"shellShare\":0.9235,\"redness\":4.47,\"redSignal\":57.33,\"maxShare\":0.9435,\"blankHex\":\"ffffff\",\"shellHexEqualsBlank\":false,\"rednessOn\":25.61,\"rednessOff\":16.47}}；原始见 themes/shell-baselines.json",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs themebase"
+    }
+  ]
+}

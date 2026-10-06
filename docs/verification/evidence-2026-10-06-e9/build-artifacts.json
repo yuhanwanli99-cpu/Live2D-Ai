@@ -1,0 +1,62 @@
+{
+  "dir": "/home/skystar/Live2D-Ai/shell/flutter/build/web",
+  "rows": [
+    {
+      "file": "index.html",
+      "exists": true,
+      "bytes": 682,
+      "gstaticHits": 0,
+      "externalUrls": [],
+      "sample": ""
+    },
+    {
+      "file": "main.dart.js",
+      "exists": true,
+      "bytes": 3290723,
+      "gstaticHits": 1,
+      "externalUrls": [],
+      "sample": "return s==null?\"https://fonts.gstatic.com/s/\":s}}"
+    },
+    {
+      "file": "flutter_bootstrap.js",
+      "exists": true,
+      "bytes": 14411,
+      "gstaticHits": 2,
+      "externalUrls": [],
+      "sample": "seUrl:e.engineRevision&&!e.useLocalCanvasKit?W(\"https://www.gstatic.com/flutter-canvaskit\",e.engineRevision):\"canvaskit\"}var g="
+    },
+    {
+      "file": "flutter.js",
+      "exists": true,
+      "bytes": 12136,
+      "gstaticHits": 1,
+      "externalUrls": [],
+      "sample": "seUrl:e.engineRevision&&!e.useLocalCanvasKit?W(\"https://www.gstatic.com/flutter-canvaskit\",e.engineRevision):\"canvaskit\"}var g="
+    },
+    {
+      "file": "flutter_service_worker.js",
+      "exists": true,
+      "bytes": 784,
+      "gstaticHits": 0,
+      "externalUrls": [],
+      "sample": ""
+    },
+    {
+      "file": "version.json",
+      "exists": true,
+      "bytes": 106,
+      "gstaticHits": 0,
+      "externalUrls": [],
+      "sample": ""
+    },
+    {
+      "file": "manifest.json",
+      "exists": true,
+      "bytes": 929,
+      "gstaticHits": 0,
+      "externalUrls": [],
+      "sample": ""
+    }
+  ],
+  "useLocalCanvasKit": "true"
+}

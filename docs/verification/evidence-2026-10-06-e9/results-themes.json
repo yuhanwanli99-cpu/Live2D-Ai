@@ -1,0 +1,38 @@
+{
+  "scenario": "themes",
+  "at": "2026-10-06T13:18:06.860Z",
+  "results": [
+    {
+      "id": "6a",
+      "title": "四套配色经真实 UI 点击切换（读回 localStorage）",
+      "verdict": "pass",
+      "evidence": "{\"black\":\"black\",\"white\":\"white\",\"blue\":\"blue\",\"gray\":\"gray\"}",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs themes"
+    },
+    {
+      "id": "6b",
+      "title": "三级面在真实渲染像素里出现且级差 ≥0.03（用实测色算）",
+      "verdict": "pass",
+      "evidence": "12 条面带缺失 0 个（阈值 ≥50 像素命中）；最小级差=0.0317；逐套实测 observed={\"black\":{\"observed\":[\"11121b\",\"1d1e2a\",\"252634\"],\"deltas\":[0.0479,0.0319]},\"white\":{\"observed\":[\"f7f5f3\",\"edece9\",\"e1e0de\"],\"deltas\":[-0.0364,-0.0468]},\"blue\":{\"observed\":[\"161e30\",\"212a3f\",\"28324b\"],\"deltas\":[0.0471,0.0317]},\"gray\":{\"observed\":[\"282623\",\"353330\",\"3e3c38\"],\"deltas\":[0.051,0.035]}}",
+      "confidence": "high",
+      "repro": "python3 docs/verification/evidence-2026-10-05/png_stats.py themes/panel-white.png --colors 11121b,1d1e2a,252634,f7f5f3,edece9,e2e0de,161e30,212a3f,28324b,282623,353330,3e3c38 --tol 2"
+    },
+    {
+      "id": "6d",
+      "title": "四主题壳区像素基线复核（阈值来源：themebase 实测，判据见 SHELL_BASE 头注）",
+      "verdict": "pass",
+      "evidence": "逐主题：[{\"wire\":\"black\",\"share\":0.9237,\"maxShare\":0.9437,\"shareOk\":true,\"redness\":-4.33,\"baseRedness\":-4.33,\"rednessDelta\":0,\"rednessOk\":true,\"shellHex\":\"111111\",\"expectHex\":\"111111\",\"blankKind\":null},{\"wire\":\"white\",\"share\":0.9243,\"maxShare\":0.9443,\"shareOk\":true,\"redness\":3.72,\"baseRedness\":3.72,\"rednessDelta\":0,\"rednessOk\":true,\"shellHex\":\"ffffff\",\"expectHex\":\"ffffff\",\"blankKind\":null},{\"wire\":\"blue\",\"share\":0.9228,\"maxShare\":0.9428,\"shareOk\":true,\"redness\":-16.76,\"baseRedness\":-16.76,\"rednessDelta\":0,\"rednessOk\":true,\"shellHex\":\"111133\",\"expectHex\":\"111133\",\"blankKind\":null},{\"wire\":\"gray\",\"share\":0.9235,\"maxShare\":0.9435,\"shareOk\":true,\"redness\":4.47,\"baseRedness\":4.47,\"rednessDelta\":0,\"rednessOk\":true,\"shellHex\":\"222222\",\"expectHex\":\"222222\",\"blankKind\":null}]；不合格 0 个；原始样本见 themes/shell-baselines-live.json（4 次采样，每主题 1 次；完整 3+1 标定见 themebase 场景）",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs themes（标定：themebase）"
+    },
+    {
+      "id": "6c-pixel",
+      "title": "四套主题的舞台底色在截图像素上是否等于该套 stage 色",
+      "verdict": "manual-only",
+      "evidence": "逐套：black 期望#000000 截图主导#ffffff | white 期望#ffffff 截图主导#ffffff | blue 期望#061223 截图主导#ffffff | gray 期望#1c1c1f 截图主导#ffffff ⇒ 舞台区截图恒为纯白（无头 WebGPU canvas 不进截图），像素判定不可用；等价协议证据见 6c（sync.stageColor）",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs themes（原始像素见 themes/stage-colors.json）"
+    }
+  ]
+}

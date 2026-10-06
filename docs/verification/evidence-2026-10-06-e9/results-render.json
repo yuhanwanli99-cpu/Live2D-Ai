@@ -1,0 +1,22 @@
+{
+  "scenario": "render",
+  "at": "2026-10-06T13:15:27.660Z",
+  "results": [
+    {
+      "id": "render-a",
+      "title": "不经过 Flutter 壳，直接打开 /render?hud=1 能跑起来",
+      "verdict": "pass",
+      "evidence": "HUD1=GPU: webgpu/WebGPU () | canvas 1440x900@1dpr(物理1440x900) | FPS 60.0 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0 || HUD2=GPU: webgpu/WebGPU () | canvas 1440x900@1dpr(物理1440x900) | FPS 60.0 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0",
+      "confidence": "high",
+      "repro": "node scripts/browser_probe.mjs render"
+    },
+    {
+      "id": "render-b",
+      "title": "渲染面自己加载模型（/render 直接跑时的 /models/ 请求）",
+      "verdict": "pass",
+      "evidence": "200 http://127.0.0.1:18080/models/bai/runtime/bai.model3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png | 200 http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json | 200 http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "confidence": "high",
+      "repro": ""
+    }
+  ]
+}

@@ -1,0 +1,441 @@
+{
+  "at": "2026-10-06T13:19:50.292Z",
+  "probeSha256": "302dc9cfa18b558e5e753d980e7261264546a33a1331b41b8fd4c6a8d6953b74",
+  "sameProbeHash": true,
+  "sameHead": true,
+  "pass1": {
+    "total": 40,
+    "counts": {
+      "pass": 36,
+      "manual-only": 4
+    },
+    "aggregatedAt": "2026-10-06T13:11:56.730Z",
+    "head": "cc68f061d7b45645fa0937296c1f9a29ac0e0376"
+  },
+  "pass2": {
+    "total": 40,
+    "counts": {
+      "pass": 36,
+      "manual-only": 4
+    },
+    "aggregatedAt": "2026-10-06T13:19:41.206Z",
+    "head": "cc68f061d7b45645fa0937296c1f9a29ac0e0376"
+  },
+  "verdictDiff": [],
+  "evidenceDiffIds": [
+    "5a",
+    "5b",
+    "5c",
+    "offline",
+    "render-a",
+    "3b",
+    "3c"
+  ],
+  "tokenDiffs": [
+    {
+      "id": "5a",
+      "onlyPass1": [
+        "waitForPaint（带原始依据）none=590ms",
+        "red=629ms"
+      ],
+      "onlyPass2": [
+        "waitForPaint（带原始依据）none=610ms",
+        "red=622ms"
+      ],
+      "class": "timing/fps"
+    },
+    {
+      "id": "5b",
+      "onlyPass1": [
+        "red2=627ms"
+      ],
+      "onlyPass2": [
+        "red2=620ms"
+      ],
+      "class": "timing/fps"
+    },
+    {
+      "id": "5c",
+      "onlyPass1": [
+        "cleared=604ms"
+      ],
+      "onlyPass2": [
+        "cleared=599ms"
+      ],
+      "class": "timing/fps"
+    },
+    {
+      "id": "offline",
+      "onlyPass1": [
+        "waitForPaint=611",
+        "48.4",
+        "2.9ms"
+      ],
+      "onlyPass2": [
+        "waitForPaint=602",
+        "47.9",
+        "3.0ms"
+      ],
+      "class": "timing/fps"
+    },
+    {
+      "id": "render-a",
+      "onlyPass1": [
+        "60.7",
+        "2.6ms"
+      ],
+      "onlyPass2": [],
+      "class": "timing/fps"
+    },
+    {
+      "id": "3b",
+      "onlyPass1": [
+        "60.2",
+        "2.6ms"
+      ],
+      "onlyPass2": [
+        "60.0",
+        "3.0ms"
+      ],
+      "class": "timing/fps"
+    },
+    {
+      "id": "3c",
+      "onlyPass1": [
+        "fps1=60",
+        "fps2=60.2（HUD:",
+        "60.2",
+        "2.6ms"
+      ],
+      "onlyPass2": [
+        "fps1=60.1",
+        "fps2=60（HUD:",
+        "60.0",
+        "3.0ms"
+      ],
+      "class": "timing/fps"
+    }
+  ],
+  "rows": [
+    {
+      "id": "api-a",
+      "title": "托管层：/ 302→/app/，/app/ 与三个入口文件 200",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "api-b",
+      "title": "API 面 200 且不泄密钥（/api/v1/settings、/api/v1/env）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "api-c",
+      "title": "模型 manifest 及它引用的每个资源可达（200）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "api-d",
+      "title": "/render 渲染面资源可达（html + js + wasm）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "5a",
+      "title": "背景库选图 → 图真的上屏（红度像素级）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "5b",
+      "title": "刷新后背景仍在（真字节库水合，不是靠 localStorage 里的 dataUrl）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "5c",
+      "title": "清图后图真的消失（回到底色）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "5d",
+      "title": "四档 fit 像素级可区分（cover/contain/stretch/tile）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "5e",
+      "title": "壳背景轮播真的在换（间隔 5s，采样 4 次）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "5f",
+      "title": "点缩略图预览：当前标记移到该张（可达 + 生效）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "5g",
+      "title": "拖动排序背景库（CDP 指针输入）",
+      "pass1": "manual-only",
+      "pass2": "manual-only",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "F-0050-01a",
+      "title": "四个构建产物里 gstatic / 外部 URL 命中数",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "F-0050-01b",
+      "title": "gstatic 字符串是否可达（bootstrap 的 CDN 分支）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "8b",
+      "title": "前端产物新鲜度（main.dart.js 不早于最新的 lib/*.dart）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "F-fonts-03",
+      "title": "逐字符归因：哪些子集外字符会真的去 Google 拉字体",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "F-fonts-01",
+      "title": "完整 UI 走查（四主题 + 八分区 + 图案标签 + 会话列表 + 聊天输入的产品中文）全程 0 次 gstatic",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "F-fonts-02",
+      "title": "故意注入子集外字符是否触发运行期字体兜底（fonts.gstatic.com）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "1d",
+      "title": "跨源请求按 host 分类（只打印，不当判据）",
+      "pass1": "manual-only",
+      "pass2": "manual-only",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "1a",
+      "title": "加载 /app/ 后零外部源请求",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "1b",
+      "title": "CanvasKit 实际从同源 canvaskit/ 加载",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "1c",
+      "title": "模型资产走本机静态路由且 200",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "2",
+      "title": "控制台：渲染面自身日志 / 设计内 404 / 真错误 三者分开",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "offline",
+      "title": "外部主机全拦截后应用仍可用（断网不白屏）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "render-a",
+      "title": "不经过 Flutter 壳，直接打开 /render?hud=1 能跑起来",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "render-b",
+      "title": "渲染面自己加载模型（/render 直接跑时的 /models/ 请求）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "7a",
+      "title": "语义树里存在「设置」入口（AppBar 文字按钮）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "7b",
+      "title": "点「设置」后设置内容真的渲染出来（不是空壳）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "7c",
+      "title": "设置面板真的可交互（点「白」主题卡 → localStorage 的 theme 变化）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "7d",
+      "title": "设置面板滑条可拖动（拖「描边强度」→ edgeStrength 变化）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "3d",
+      "title": "截图能否用来验证舞台像素（角色 / 底色）",
+      "pass1": "manual-only",
+      "pass2": "manual-only",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "3a",
+      "title": "模型资产 HTTP 200（bai.model3.json 等）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "3b",
+      "title": "渲染面 HUD 有 GPU 行 + bg: 字段",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "3c",
+      "title": "FPS 在推进（两次采样相隔 3s）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": false
+    },
+    {
+      "id": "6c",
+      "title": "四套主题的舞台底色确实按协议下发（sync.stageColor）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "6a",
+      "title": "四套配色经真实 UI 点击切换（读回 localStorage）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "6b",
+      "title": "三级面在真实渲染像素里出现且级差 ≥0.03（用实测色算）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "6d",
+      "title": "四主题壳区像素基线复核（阈值来源：themebase 实测，判据见 SHELL_BASE 头注）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "6c-pixel",
+      "title": "四套主题的舞台底色在截图像素上是否等于该套 stage 色",
+      "pass1": "manual-only",
+      "pass2": "manual-only",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "4a",
+      "title": "Flutter 壳渲染容器存在（glass-pane + canvas + iframe）",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    },
+    {
+      "id": "4b",
+      "title": "语义树（真实 DOM）里能找到壳控件",
+      "pass1": "pass",
+      "pass2": "pass",
+      "verdictSame": true,
+      "evidenceSame": true
+    }
+  ]
+}

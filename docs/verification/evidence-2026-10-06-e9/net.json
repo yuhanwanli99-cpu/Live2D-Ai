@@ -1,0 +1,589 @@
+{
+  "requests": [
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "method": "GET",
+      "type": "Manifest"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/favicon.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "method": "GET",
+      "type": "Other"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "method": "GET",
+      "type": "Document"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "method": "GET",
+      "type": "Script"
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "method": "GET",
+      "type": "Fetch"
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "method": "GET",
+      "type": "Fetch"
+    }
+  ],
+  "responses": [
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "status": 200,
+      "mime": "text/html",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "status": 200,
+      "mime": "image/png",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "status": 200,
+      "mime": "application/wasm",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "status": 200,
+      "mime": "font/ttf",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "status": 200,
+      "mime": "font/otf",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "status": 200,
+      "mime": "font/woff2",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "status": 200,
+      "mime": "font/woff2",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/",
+      "status": 200,
+      "mime": "text/html",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/manifest.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/favicon.png",
+      "status": 200,
+      "mime": "image/png",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/icons/Icon-192.png",
+      "status": 200,
+      "mime": "image/png",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/canvaskit/chromium/canvaskit.wasm",
+      "status": 200,
+      "mime": "application/wasm",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/main.dart.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/FontManifest.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/MaterialIcons-Regular.otf",
+      "status": 200,
+      "mime": "font/otf",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/fonts/fallback/Roboto-Regular.ttf",
+      "status": 200,
+      "mime": "font/ttf",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Regular.woff2",
+      "status": 200,
+      "mime": "font/woff2",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/app/assets/assets/fonts/NotoSansSC-AiSubset-Bold.woff2",
+      "status": 200,
+      "mime": "font/woff2",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/app/status",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/api/v1/mods",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/render",
+      "status": 200,
+      "mime": "text/html",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "status": 200,
+      "mime": "application/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295_bg.wasm",
+      "status": 200,
+      "mime": "application/wasm",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.model3.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.16384/texture_00_4096.png",
+      "status": 200,
+      "mime": "image/png",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.physics3.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.cdi3.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/models/bai/runtime/bai.moc3",
+      "status": 200,
+      "mime": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/presets.json",
+      "status": 200,
+      "mime": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:18080/actions/field_map.json",
+      "status": 404,
+      "mime": "application/json",
+      "fromDiskCache": false
+    }
+  ],
+  "failures": [],
+  "console": [
+    {
+      "level": "debug",
+      "text": "Injecting <script> tag. Using callback.",
+      "frame": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "renderer": false
+    },
+    {
+      "level": "debug",
+      "text": "Injecting <script> tag. Using callback.",
+      "frame": "http://127.0.0.1:18080/app/flutter_bootstrap.js",
+      "renderer": false
+    },
+    {
+      "level": "error",
+      "text": "正在解析 ?model= 参数…",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "正在加载模型清单 /models/bai/runtime/bai.model3.json …",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "正在按 manifest 引用拉取资源…",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "已加载 /models/bai/runtime/bai.model3.json（model3 v3）：moc3=`bai.moc3`，纹理 1 张，physics=bai.physics3.json，cdi=bai.cdi3.json；版本=4.2.0，v0 支持=是\n正在初始化 GPU（WebGPU，不可用时回退 WebGL2）…",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "已加载 /models/bai/runtime/bai.model3.json（model3 v3）：moc3=`bai.moc3`，纹理 1 张，physics=bai.physics3.json，cdi=bai.cdi3.json；版本=4.2.0，v0 支持=是\n动作预设表：9 条（外置 /actions/presets.json）\n字段映射覆盖表未加载（HTTP 404），用内建默认表\nGPU: webgpu/WebGPU ()；画布 缓冲 1099x848 / CSS 1099x848 @dpr 1\n开始渲染循环（固定 dt 0.016666668s / 60Hz 步进）。",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 0.0 | cpu 3.6ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.62 blO433",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 35.9 | cpu 3.1ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.64 blO950",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.2 | cpu 2.9ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.55 blO1467",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 59.9 | cpu 2.9ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.41 blO1983",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.1 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.35 blO2500",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 59.9 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.41 blC33",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.1 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.54 blO250",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.64 blO767",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.62 blO1283",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.50 blO1800",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.8ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.38 blO2317",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.36 blO2833",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.45 blO3350",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.7ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.59 blP117",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    },
+    {
+      "level": "error",
+      "text": "GPU: webgpu/WebGPU () | canvas 1099x848@1dpr(物理1099x848) | FPS 60.0 | cpu 2.9ms | sim 1/frame | bg: solid | preset: face=- gesture=- face_intensity=- | scale h0.75/b0.80/e1.00 | fields: body: - head: - expression: - | clock: wall | stage: scale=1.00 off=(+0.00,+0.00) msg=3/3 [stage-bg] | idle: b0.65 blO383",
+      "frame": "http://127.0.0.1:18080/render/l2d-wasm-demo-dd042ea77650b295.js",
+      "renderer": true
+    }
+  ],
+  "exceptions": [],
+  "logs": [
+    {
+      "level": "error",
+      "source": "network",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "level": "warning",
+      "source": "rendering",
+      "text": "WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost"
+    },
+    {
+      "level": "warning",
+      "source": "rendering",
+      "text": "WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost"
+    }
+  ],
+  "crossOriginByHost": {}
+}

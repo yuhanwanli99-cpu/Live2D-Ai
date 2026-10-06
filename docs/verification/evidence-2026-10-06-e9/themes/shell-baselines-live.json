@@ -1,0 +1,90 @@
+{
+  "at": "2026-10-06T13:18:06.858Z",
+  "crop": "1100,52,1440,900",
+  "rows": [
+    {
+      "wire": "black",
+      "hex": "111111",
+      "share": 0.9237,
+      "redness": -4.33,
+      "channels": {
+        "r": 23.58,
+        "g": 23.58,
+        "b": 32.25
+      },
+      "bytes": 51899,
+      "expected": {
+        "shellHex": "111111",
+        "shellShare": 0.9237,
+        "redness": -4.33,
+        "redSignal": 50.45,
+        "maxShare": 0.9437,
+        "blankHex": "ffffff"
+      },
+      "blankKind": null
+    },
+    {
+      "wire": "white",
+      "hex": "ffffff",
+      "share": 0.9243,
+      "redness": 3.72,
+      "channels": {
+        "r": 242.84,
+        "g": 240.22,
+        "b": 238.02
+      },
+      "bytes": 51037,
+      "expected": {
+        "shellHex": "ffffff",
+        "shellShare": 0.9243,
+        "redness": 3.72,
+        "redSignal": 57.24,
+        "maxShare": 0.9443,
+        "blankHex": "ffffff"
+      },
+      "blankKind": null
+    },
+    {
+      "wire": "blue",
+      "hex": "111133",
+      "share": 0.9228,
+      "redness": -16.76,
+      "channels": {
+        "r": 27.02,
+        "g": 34.58,
+        "b": 52.96
+      },
+      "bytes": 51933,
+      "expected": {
+        "shellHex": "111133",
+        "shellShare": 0.9228,
+        "redness": -16.76,
+        "redSignal": 40.88,
+        "maxShare": 0.9428,
+        "blankHex": "ffffff"
+      },
+      "blankKind": null
+    },
+    {
+      "wire": "gray",
+      "hex": "222222",
+      "share": 0.9235,
+      "redness": 4.47,
+      "channels": {
+        "r": 45.89,
+        "g": 43.02,
+        "b": 39.83
+      },
+      "bytes": 51699,
+      "expected": {
+        "shellHex": "222222",
+        "shellShare": 0.9235,
+        "redness": 4.47,
+        "redSignal": 57.33,
+        "maxShare": 0.9435,
+        "blankHex": "ffffff"
+      },
+      "blankKind": null
+    }
+  ]
+}
