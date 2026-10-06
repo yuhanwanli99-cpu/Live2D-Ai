@@ -210,7 +210,7 @@ fn write_over_limit(out: &mut String, stats: &CodeStats) {
 fn write_artifacts(out: &mut String, stats: &CodeStats) {
     let _ = writeln!(out, "### 4. 产物体积（PLAN §2.5 / §D4 预算）");
     let _ = writeln!(out);
-    let _ = writeln!(out, "| 产物 | 大小 | PLAN 预算 | 状态 |");
+    let _ = writeln!(out, "| 产物 | 大小 | 预算 | 状态 |");
     let _ = writeln!(out, "|---|---:|---:|---|");
     for artifact in &stats.artifacts {
         match artifact.bytes {
@@ -241,6 +241,14 @@ fn write_artifacts(out: &mut String, stats: &CodeStats) {
         }
     }
     let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "预算口径（不要混读）：`FLUTTER_WEB_BUDGET_MIB` 仍是 PLAN §D4 目标（47M → ≤35M）；\
+         `WASM_DIST_BUDGET_MIB` 已按 2026-10-06 实测重定为 **4.2 MiB**（**当前接受值**，\
+         不是 PLAN 目标：本机无 `wasm-opt` ⇒ 真减未实测、不估数）。\
+         上表「超预算」是如实打印，`--strict-plan` 也不会因此变绿；\
+         真源 `docs/architecture/artifact-budget.md`。"
+    );
 }
 
 fn write_gates(out: &mut String, stats: &CodeStats, opts: &Options) {
