@@ -24,7 +24,7 @@
 | **0.2.0 阶段报告（欠账 / 事故 / 口径更正）** | `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md` | 与发布说明互指；**已入库**（`e8da68c0`，与发布说明同一次提交） |
 | 接手快照 | `docs/plans/HANDOFF-2026-09-28-rc7-and-whole-repo-audit.md` | |
 | 前端审计账本（封口） | `docs/audit/2026-09-28-frontend-nightly/` | 45 条为准 |
-| 全库审计账本 | `AUDIT-REPO/`（**未跟踪**） | 已 2,374M token，建议冻结 |
+| 全库审计账本 | `docs/audit/2026-10-05-ledger/`（**已入库**，2026-10-06） | 旧 `AUDIT-REPO/`（未跟踪）已并入此目录（1,014 份 `.md`）；树外参考副本 `/home/skystar/audit-ref-2026-10-06/`（不再运行） |
 | 依赖 / 许可 / 出处 | `docs/architecture/dependencies.md`、`SOURCES.md`、`CREDITS.md` | |
 | 部署 | `docs/headless-deploy.md` | |
 | 历史（Python / Android 时代） | `docs/legacy/` | **勿当现网** |
@@ -115,6 +115,7 @@ find docs -name '*.md' -type f -not -path 'docs/audit/*' -exec cat {} + | wc -l 
 3. ~~`CHANGELOG.md` 停更，却仍被当版本线之一~~ → **已收口**：顶部停更头注写明版本真源 = `docs/releases/*.md`（最新一份）+ 代码版本三处；
 4. ~~`docs/releases/v0.3.0.md` 是未发布草案，与 0.2.0 线矛盾~~ → **已标作废**：顶部「历史草案，未发布」+ 收尾指向 `AGENTS.md` 首屏；
 5. ~~`-fe` 的 `docs/README.md` 改动、4 份 2026-10-01 新文档、2 份 09-28 文档、`AUDIT-REPO/`（未跟踪）**仍未提交**~~ → **已提交（2026-10-01）**：归档 = `b9eff54e`，doc-chore = `4285af8b`，复核证据账本 = **`c1717ba5`**（`docs/audit/2026-10-01-debloat/` 的 W0/W1/W2 GROUNDING + raw，67 份），发布说明 + 阶段报告 + 文档指针/计数 = **`e8da68c0`**。**当前仍未跟踪的只剩一处**：`AUDIT-REPO/`（全库审计账本，**永不 `git add`**）。
+   **复核注（2026-10-06 夜）**：该账本**已入库**为 `docs/audit/2026-10-05-ledger/`（1,014 份 `.md`，`docs/**/*.md` 总量因此到 1,279 份 / 143,270 行），工作树根**不再有**未跟踪的 `AUDIT-REPO/`；条目 5 的「只剩一处未跟踪」至此作废。新 run 的落盘目录仍用树根未跟踪的 `AUDIT-REPO/`，但**规程里写的 `-fe` 工作树路径已过期**（该 worktree 已删除，唯一工作树 = `/home/skystar/Live2D-Ai`）。
 6. ~~全仓 111 个 `.md` 引用 `docs/plans/`，任何移动都必须同步改链~~ → **已改链**：94 个归档名共 **209 处**按各自文件位置改写为正确相对路径（其余补丁：出链重定位 42 ／ 可见文字 22 ／ 归档件内正文引用 78）；`docs/README.md` 相对链接 **105 条 missing=0**。
 
 

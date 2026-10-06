@@ -129,7 +129,10 @@
   与 supervisor 的 `action_rx` 分支（**唯一**能把 `RootEvent::Action` 送进 core reducer 的路径）
   删除；`HostChannels.trigger_action` / `parse_action_id` 删除（`ModServices.action_tx` 保留为
   Mod API 契约，但注入固定休眠 sender）。
-  归档：分支 `archive/action-layer-p6`。护栏：工厂数必须 = 3、动作请求必须不被接受。
+  归档：分支 `archive/action-layer-p6`（**2026-10-06 复核：该分支已不存在**——本地 / 远端 /
+  历史 bundle 的 heads 里都没有它；被删内容可从 `main` 历史取回：
+  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`）。
+  护栏：工厂数必须 = 3、动作请求必须不被接受。
 - **渲染面编舞删除**（`l2d-wasm-demo`）：`action-state` 接收器 + `CHOREOGRAPHY` 关键帧表 +
   `action_frames`/`blend`/`choreography_total_ms` + `param_scale.rs`（`surface.rs` 1721 → 1169 行）。
   **待机生命体征（`IdleState` 呼吸/眨眼）一行未动。**

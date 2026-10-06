@@ -211,7 +211,7 @@ powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name
 | 归档 | 内容 |
 |---|---|
 | tag `v0.1.0-rc.2` | 本轮全部成果（含三个补丁） |
-| 分支 `archive/action-layer-p6` | M1 之前的状态（动作层完整存在）；`git show archive/action-layer-p6:crates/live2d-ai-mod-director/src/lib.rs` 可回看被删的 director |
+| 分支 `archive/action-layer-p6` | M1 之前的状态（动作层完整存在）；`git show archive/action-layer-p6:crates/live2d-ai-mod-director/src/lib.rs` 可回看被删的 director。**2026-10-06 复核：该分支已不存在**（本地 / 远端 / 历史 bundle 均无；原命令报 `fatal: invalid object name`）——等价取回 `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs` |
 | `archive/action-trigger-p5` / `py-legacy` / `android-archive` | 更早的归档（远端 ref 已删，只在维护者本地） |
 | `docs/design/legacy/` | 旧 JS 前端预览（改名 `-oldjs`，标注「勿当现网」） |
 

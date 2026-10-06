@@ -37,7 +37,11 @@ mod platform;
 ///
 /// 2026-09-12（rc.2）：director Mod 已删除——它唯一的职责是**驱动序列**，
 /// 而动作在产品路径上不存在（见 `docs/architecture/core-chain-baseline.md` §3.3）。
-/// 归档点在分支 `archive/action-layer-p6`。**不要再挂回去**：
+/// 归档分支 `archive/action-layer-p6` **已不存在**（2026-10-06 复核：本地 / 远端 /
+/// 历史 bundle 的 heads 里都没有该 ref）——被删内容从 `main` 自己的历史取回：
+/// `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`（director）、
+/// `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`（渲染面编舞）。
+/// **不要再挂回去**：
 /// 下方 `mod_count_is_five` 是防回归断言。
 ///
 /// 2026-09-14（0.2.0-rc.1）：**local-llm 已废除启动**（移出本表）——本地推理进程

@@ -124,6 +124,8 @@
 0. **先归档再删**：开 `archive/action-layer-p6` 分支（或 tag）冻结现状——
    与 `archive/action-trigger-p5` / `py-legacy` / `android-archive` 的先例一致。
    **删除类 PR 合并前必须有归档点**，否则这是仓库第一次不可回滚的大删除。
+   （**2026-10-06 复核：该归档分支现已不存在**——本地 / 远端 / 历史 bundle 的 heads 均无；
+   等价取回 `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。）
 1. **摘 director**（最便宜，3 处）：根 `Cargo.toml:15` members、`desktop/Cargo.toml:48`、`main.rs:57` FACTORY。
    顺带加一条**防回归断言**：注册表工厂数 = 3（防止再挂回去）。
 2. **capabilities 去广告**：`dto.rs` 删 `actions` / `action_sources` / `strength_levels` /

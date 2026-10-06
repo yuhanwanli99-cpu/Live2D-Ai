@@ -54,7 +54,7 @@
 
 | 决定 | 内容 | 锚点 |
 | --- | --- | --- |
-| Wave 2 只交文档 → **Wave 3 已建 crate（骨架）** | Wave 2 无 `crates/live2d-ai-mod-director/`（旧 crate 已于 `0.1.0-rc.2` 删除，归档分支 `archive/action-layer-p6`）；Wave 3 G 轨新建**最小骨架**（纯函数决策 + 状态面，**零投递**） | [`director-mod-v0.md`](director-mod-v0.md)、[`directory.md`](directory.md) |
+| Wave 2 只交文档 → **Wave 3 已建 crate（骨架）** | Wave 2 无 `crates/live2d-ai-mod-director/`（旧 crate 已于 `0.1.0-rc.2` 删除；归档分支 `archive/action-layer-p6` **已不存在**，2026-10-06 复核，取回 `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`）；Wave 3 G 轨新建**最小骨架**（纯函数决策 + 状态面，**零投递**） | [`director-mod-v0.md`](director-mod-v0.md)、[`directory.md`](directory.md) |
 | **本轨不注册**（主 agent 收束时注册，**缺省停用**） | G 轨不碰 `AVAILABLE_MOD_FACTORIES` / `mod_count_*` / `mod_factory_ids_match_expected`；收束时 6 → 7 | §8（Wave 3 修订）；Wave 3 §3G |
 | 动作只是**槽位占位**；骨架**连槽位都不实现** | 槽位是本文档里的**命名契约**，不是通道、不是 crate、不是注册表项；骨架的 `state_json` 不含 `slots` / `emitted` | §3.2、[`core-chain-baseline.md`](core-chain-baseline.md) §3.1 |
 | `action_tx` 保持休眠 | 不复活、不接线、不实现动作库 | §4 |
@@ -285,7 +285,8 @@ pub fn derive(text: &str, lexicon: Lexicon) -> Decision;
 不是现状；现状见 [`director-mod-v0.md`](director-mod-v0.md) §4。
 
 **为什么不干脆定义一套完整动作库？** 因为那正是 rc.2 删掉的东西
-（`archive/action-layer-p6`），且「实现动作库」是本题红线。槽位的价值在于
+（归档分支 `archive/action-layer-p6` **已不存在**，2026-10-06 复核；取回
+`git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`），且「实现动作库」是本题红线。槽位的价值在于
 **先固定词汇、不让实现自行发明协议**；代价是它现在什么都不驱动——这一点明文写出来，
 而不是留给读者猜。
 

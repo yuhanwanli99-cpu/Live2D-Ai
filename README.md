@@ -38,11 +38,21 @@ It does **not** ship or bind any character, skin, or model. You import your own 
   [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md). The
   user-facing stage/shell background (`DisplayPrefs`) is **kept** — it is not the
   wallpaper Mod.
-- `local-llm` is **no longer started** (removed from the registry in `0.2.0-rc.1`;
-  the crate stays in-tree, deprecated). The action-driving `director` crate was removed
-  in `0.1.0-rc.2` (archived on `archive/action-layer-p6`); the `director` registered
-  today is the **zero-delivery** Wave 3 skeleton
-  (contract: `docs/architecture/director-rfc.md`).
+- `local-llm` is **no longer started** (removed from the registry in `0.2.0-rc.1`; the
+  crate itself was deleted on 2026-10-01 and now only exists in tag
+  `checkpoint/pre-d1-dormant`). The action-driving `director` crate was removed in
+  `0.1.0-rc.2`; its archive branch `archive/action-layer-p6` **no longer exists**
+  (re-verified 2026-10-06: not local, not on the remote, not in the historical
+  bundles) — recover the deleted sources from `main`'s own history:
+  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`.
+- The `director` registered today (2026-09-14, same name, different job) **does drive
+  the stage**: its rule layer maps **user input** to an action preset and broadcasts the
+  per-sentence WS `action_cue` (the only stage driver; a neutral turn emits the
+  `preset_id=="none"` revoke sentinel). `latest.preset_id` is panel-read-only (the
+  front-end pull-to-drive channel was retired, D12); the async second LLM (priority 40)
+  is **off by default** and its real HTTP client is wired (`staging_http.rs`).
+  Contract: `docs/architecture/director-rfc.md`; current status: `AGENTS.md`
+  §「动作与表演的现行状态（2026-09 实测）」.
 - Voice input: a local ASR **sidecar** (any process you run) POSTs transcripts to
   `POST /api/v1/voice/transcript`; no ASR runtime is linked into the binary.
 - Mod failure disables that Mod only; the core loop keeps running.

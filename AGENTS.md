@@ -8,9 +8,11 @@
 > `/home/skystar/Live2D-Ai`（分支 `main`）**——旧分支 `mod/persona-polish` @ `88342ce`
 > 与它那份「3 个 Mod / 0.2.0-rc.1」的教义一并退役。同名 `AGENTS.md` 若出现在别处都是
 > 过时副本，**不要**按它写代码或文档；文档地图与生命周期三分见 `docs/DOC-MAP.md`。
-> **版本口径（0.2.0 线）**：现状 = `0.2.0-rc.7`；本轮（2026-10-01）做的是 **0.2.0 收口**——
-> S0 文档整理 → `rc.8-a` 正确性与诚实性 → `rc.8-b` 结构 → 0.2.0 末版，执行计划
-> `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md`。
+> **版本口径（现行，2026-10-06 复核）**：现状 = **`0.2.1-rc.1`**（`Cargo.toml` 的
+> `version = "0.2.1-rc.1"`、tag `v0.2.1-rc.1`、发布说明 `docs/releases/v0.2.1-rc.1.md`）。
+> 再往前的 **0.2.0 收口 + 去臃肿第一轮**（2026-10-01 起：S0 文档整理 → `rc.8-a` 正确性与诚实性
+> → `rc.8-b` 结构 → 0.2.0 末版，计划书 `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md`）
+> 与下面 rc.7 的记录都是**历史**——`0.2.0-rc.7` 不是现状。
 
 ## 项目背景
 
@@ -20,7 +22,7 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **当前版本 `0.2.0`（0.2.0 收口 + 去臃肿第一轮；发布说明 `docs/releases/v0.2.0.md`）**：
+- **上一版 `0.2.0`（0.2.0 收口 + 去臃肿第一轮；发布说明 `docs/releases/v0.2.0.md`；现行版本 `0.2.1-rc.1` 见本节首段）**：
   下面 ①–④ 是**沿用 rc.7「正确性与诚实性」那一轮**的详细记录（0.2.0 本轮的收口/去臃肿内容见发布说明）：
   ① **审计主发现 `F-0005-2`（重建放大链，本轮最有价值的单点）**：`AppShell` 新增宿主状态代际
   `settingsRevision`、`AppShellState` 新增 `_settingsTick`（设置数据通知计数），两者与 `section`
@@ -174,15 +176,22 @@
   `docs/architecture/mod-product-chain.md`（与旧 `plugin-sdk.md` 冲突时以它为准）；
   **许可与分发边界**见 `docs/architecture/mod-community-license.md`。
   **rc.2 那个「动作序列唯一驱动方」的 director 已于 `0.1.0-rc.2` 删除**
-  （归档在分支 `archive/action-layer-p6`）——静态注册的工厂数由 `main.rs` 的
+  （归档分支 `archive/action-layer-p6` **已不存在**——2026-10-06 复核：`git branch --list` 空、
+  `git tag --list` 无、`git ls-remote --heads origin` 只回 `main` 与 `mainline/1-core-baseline`、
+  四个历史 bundle 的 heads 里也没有；被删内容从 **`main` 自己的历史**取回：
+  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs` = 395 行、
+  `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs` = 1721 行）——静态注册的工厂数由 `main.rs` 的
   `mod_count_is_five` 断言守住（产品级加强波次起恰为 **5**），**core 的 `action_tx` /
   `RootEvent::Action` 驱动通道不要再挂回去**（渲染面 `preset` 协议 + director 的 `action_cue`
   是现行路径，不在此禁令内，见 §「动作与表演的现行状态（2026-09 实测）」）。
   Wave 3（2026-09-14）新增的 `live2d-ai-mod-director` 是**同名不同职责**的
   决策骨架（`docs/architecture/director-mod-v0.md`），已注册但缺省停用。
   **2026-09-16（P1-3）更新**：它订阅新的 `ModEventTopic::SentenceReady`，规则推导
-  常开兜底（priority 10），可按配置启用**异步第二路 LLM**（priority 40，**默认关**；
-  真实 HTTP 客户端尚未接线）产出按句 plan，经新 host 能力 `ModServices.cues`
+  常开兜底（priority 10），可按配置启用**异步第二路 LLM**（priority 40，**默认关**）产出按句 plan；
+  该二路的**真实 HTTP 客户端已于 P1-4（2026-09-19）接线**——
+  `crates/live2d-ai-mod-director/src/staging_http.rs`（reqwest blocking + rustls，
+  `POST {staging_base_url}/chat/completions` 非流式、失败静默回落规则层；`staging_*` 独立配置，
+  不读 `[llm]`）。产出经 host 能力 `ModServices.cues`
   广播 WS `action_cue`（缺省忽略 = 兼容）；`action_tx` / `apply_settings` 的
   **零调用红线未放松**。
 - **TTS 不是 Mod**（2026-09-11 用户裁决）：语音合成是**核心链路**
@@ -314,9 +323,9 @@
 | --- | --- | --- |
 | `live2d-ai-core` 的 `action/` + `performance/` | **休眠保留**（类型 / reducer / capability gate 原样） | 只有先重新论证 `core-chain-baseline.md` §3.2 的三条理由 + `lib.rs` 第 4/6 条不变量之后 |
 | `ModServices.action_tx`（仍属 Mod API 契约） | **休眠**：host 注入固定 sender，请求只留一行 debug 日志并返回 `false` | 同上；**不得**在 `mod_registry.rs` 里私自接回真通道 |
-| `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档在 `archive/action-layer-p6` |
+| `live2d-ai-mod-director`（动作序列的唯一驱动方） | **已删除** | 归档分支 `archive/action-layer-p6` **已不存在**（2026-10-06 复核，见上文）；取回：`git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs` |
 | `live2d-ai-mod-director`（2026-09-14 重加的**决策/按句 cue**版） | **已接线**（不再休眠）：规则层产 WS `action_cue`（**唯一驱动舞台**，中性轮给 `preset_id=="none"` 撤销哨兵），经前端转发到渲染面 `preset` 协议**会驱动动作**；`latest.preset_id` **仅面板只读**（前端拉取驱动已退役，D12）；只是**不经 core reducer**（`action_tx` 仍休眠） | 见下文 §「动作与表演的现行状态（2026-09 实测）」③ |
-| 渲染面（`l2d-wasm-demo`）的编舞残件 | **已删除**（`action-state` 接收器 + `surface.rs` 编舞） | 归档在 `archive/action-layer-p6`；恢复必须 wasm 重建 + 肉眼验收 |
+| 渲染面（`l2d-wasm-demo`）的编舞残件 | **已删除**（`action-state` 接收器 + `surface.rs` 编舞） | 归档分支 `archive/action-layer-p6` 已不存在（同上）；取回：`git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`（1721 行）；恢复必须 wasm 重建 + 肉眼验收 |
 | **待机生命体征**（`IdleState` 呼吸/眨眼/微表情） | **必须保留**——与动作系统是两套机制，只共用 override 层 | 无（它一直在产品里，删动作时**绝不要**连带删它） |
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
@@ -909,7 +918,8 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   supervisor 的 `action_rx` 分支删除（那是**唯一**能把 `RootEvent::Action` 送进 core
   reducer 的路径）、`HostChannels.trigger_action` 删除（`ModServices.action_tx` 保留为
   Mod API 契约，但注入固定休眠 sender）、渲染面 `action-state` 接收器 + 编舞表删除
-  （`surface.rs` 1721 → 1169）。**待机生命体征一行未动。**归档：`archive/action-layer-p6`。
+  （`surface.rs` 1721 → 1169）。**待机生命体征一行未动。**归档：分支 `archive/action-layer-p6`
+  （**2026-10-06 复核：该分支已不存在**；取回 `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`）。
   ② **capabilities 去广告**：删 `actions`/`action_sources`/`strength_levels`/
   `model_upload_supported`/`script_invoke_supported`（后两个是假广告），`schema_version` → 2。
   ③ **模型库闭环**：新增 `web_api/model_root.rs` 定为**唯一模型根**

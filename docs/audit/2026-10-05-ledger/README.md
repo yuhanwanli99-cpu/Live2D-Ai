@@ -17,6 +17,20 @@
 
 **路径变更**：本目录内的历史文本若写 `AUDIT-REPO/xxx`，指的就是本目录下的 `xxx`。
 
+**历史引用刻意不改（2026-10-06 夜 T1 加注）**：本目录内的 `archive/action-layer-p6` 等引用是
+**审计当时的证据原文**——改台账 = 篡改证据，所以**一条都不动**（现状 11 处）。**现行口径**一律以
+[`AGENTS.md`](../../../AGENTS.md) 与 [`docs/architecture/`](../../architecture/) 为准：该归档分支
+**已不存在**（本地 / 远端 / 历史 bundle 均无），被删内容可从 `main` 历史取回
+（`git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs` 等）。
+
+**口径更正（2026-10-06 夜 T1 复核）**：上面第 2 条理由里「`docs/audit/**` 在文档减量门禁里
+**被显式排除**（`xtask code-stats` 的 D5 口径）」**与实测不符**——`code-stats` 的 docs 行是
+`docs/**/*.md`（含 `docs/legacy/`）**且不排除 `docs/audit/`**，实测 **1,279 份 / 143,270 行**，
+其中本目录 **1,014 份 / 75,148 行**（复算与工具输出逐位一致）。「排除」只存在于**减量账的判定线**：
+PLAN §5 的「docs ≤45,000 行」按**不含 `docs/audit/**`** 判定（不含 audit = 265 份 / 68,122 行，
+仍未达标），见 [`docs/plans/NEXT-ROUND-main-2026-10-06.md`](../../plans/NEXT-ROUND-main-2026-10-06.md) 的 E8 行。
+**入库本身不触发任何棘轮门禁**（四条棘轮 = Rust `>500` / `>1000` / Dart `>800` / deps）。
+
 ## 目录结构
 
 | 文件 | 作用 |

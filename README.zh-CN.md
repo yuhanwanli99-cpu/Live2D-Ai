@@ -29,16 +29,25 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）：运行时 enable / disable / restart。
 - 已编译进二进制的 Mod（**5 个注册**）：`external-input`、`persona`、`voice-input`、
-  `memory`、`director`。**缺省只启用 `external-input`**，其余四个
-  都要手动开（`memory` 会写 `persona.system_prompt`，必须由用户明确打开；
-  `director` 是**零投递**骨架：只写决策日志与状态面，不驱动动作）。
+  `memory`、`director`。**缺省只启用 `external-input`**（编译期
+  `cli_entry::default_mods_manifest` 只收录它），其余四个都要手动开
+  （`memory` 会写 `persona.system_prompt`，必须由用户明确打开）。
+- `director`（2026-09-14 起的**决策/按句 cue**版）：规则层按**用户输入**判情绪 / 意图选动作包，
+  经 host `ModServices.cues` 广播 WS `action_cue`（**唯一驱动舞台**；中性轮发
+  `preset_id=="none"` 撤销哨兵），本机 `mods.json` 启用后**确实驱动动作**；
+  `latest.preset_id` 仅供面板只读（前端拉取驱动的通道已退役，D12）。异步第二路 LLM
+  （priority 40）**默认关**，其真实 HTTP 客户端已接线（`staging_http.rs`）。
+  现状真源：`AGENTS.md` §「动作与表演的现行状态（2026-09 实测）」③。
 - `wallpaper` 与 `pet-desktop` **已封存（ARCHIVED，本波不做）**：**不再注册、不再
-  编译进 binary**；crate 暂留 workspace（仍可编译、可跑自身测试），**禁止挂回**。
+  编译进 binary**；crate 已于 2026-10-01 **物理删除**（只存在于 tag
+  `checkpoint/pre-d1-dormant`），**禁止挂回**。
   理由与恢复条件见 [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md)。
   用户手动的舞台/壳背景能力（`DisplayPrefs`）**保留**——与被封存的 wallpaper **Mod** 是两回事。
-- `local-llm` **已废除启动**（`0.2.0-rc.1` 移出注册表；crate 暂留仓库并标 DEPRECATED）。
-  rc.2 删除的那个**动作驱动** director 仍在归档分支 `archive/action-layer-p6`；
-  Wave 3 新增的是同名**零投递**最小骨架。
+- `local-llm` **已废除启动**（`0.2.0-rc.1` 移出注册表；crate 已于 2026-10-01 删除）。
+  rc.2 删除的那个**动作驱动** director 的归档分支 `archive/action-layer-p6` **已不存在**
+  （2026-10-06 复核：本地 / 远端 / 历史 bundle 里都没有）；被删内容可从 `main` 历史取回：
+  `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。现在的 `director` 是
+  2026-09-14 同名**不同职责**的决策 / 按句 cue 版（见上一条）。
 - 语音输入：本机 ASR **sidecar**（你自己起的进程）把转写 POST 到
   `POST /api/v1/voice/transcript`；**ASR 不进 binary**。
 - Mod 失败仅 disable 自身，主链路继续。

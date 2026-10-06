@@ -103,7 +103,7 @@ disable / config 是**运行时开关**，不是加载器：
 ## 8. 非目标（rc.4 明文）
 
 - 动态 `.so` / 热插拔下载市场；
-- 恢复 Action / director / 编舞 / LLM tools（归档在分支 `archive/action-layer-p6`）；
+- 恢复 Action / director / 编舞 / LLM tools（旧实现在 `0.1.0-rc.2` / M1.5 已删；归档分支 `archive/action-layer-p6` **已不存在**，2026-10-06 复核。取回：director `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`、渲染面编舞 `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`）；
 - 会话记忆后端、双 LLM「是否朗读」分轨；
 - 为主链增加「应用内预设提示词」——DeepSeek **API** 无此能力，RP 质量由 Mod 自己拼
   system / 首轮文本负责。

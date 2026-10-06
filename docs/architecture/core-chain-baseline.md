@@ -125,7 +125,7 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 
 | 层级 | 状态 | 位置 |
 |---|---|---|
-| `live2d-ai-mod-director`（**动作序列**的唯一驱动方，rc.2 版） | **已删除** | 归档在分支 `archive/action-layer-p6`；Wave 3 的 `director` 是**同名不同职责的最小骨架**——**当时（2026-09-14）零投递、不驱动动作**（骨架期历史事实；现状见下方「现状更正」） |
+| `live2d-ai-mod-director`（**动作序列**的唯一驱动方，rc.2 版） | **已删除** | 归档分支 `archive/action-layer-p6` **已不存在**（2026-10-06 复核：本地 / 远端 / 历史 bundle 都没有该 ref）；取回 `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`；Wave 3 的 `director` 是**同名不同职责的最小骨架**——**当时（2026-09-14）零投递、不驱动动作**（骨架期历史事实；现状见下方「现状更正」） |
 | `SupervisorHandle::trigger_action` + supervisor 的 `action_rx` select 分支 | **已删除** | 那是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现 |
 | `HostChannels.trigger_action`（`ActionRequest → core` 的 host 映射） | **已删除** | `mod_registry.rs`；`ModServices.action_tx` 仍在（Mod API 契约），但注入的是**固定休眠 sender**：请求只留一行 debug 日志、返回 `false` |
 | core 动作子系统（类型 + reducer + capability gate） | **保留、休眠** | `crates/live2d-ai-core/src/action/`、`/performance/` |
@@ -165,7 +165,7 @@ Terminal{Completed}                           TextFallback ──► WS text_fal
 | `web/surface.rs` | `BridgeState.action`、`ActiveAction`、`ACTION_PARAM_IDS`、`Keyframe`、`CHOREOGRAPHY` 六动作关键帧表、`str_eq`、`choreography_total_ms`、`blend`、`action_frames`、`semantic_frames`、`final_override` 写入/清除块，以及 8 条编舞回归测试 |
 | `param_scale.rs`（整文件） | 语义域 → 模型域换算——它的**唯一**调用点就是 `action_frames`，删编舞后即成孤儿 |
 
-`surface.rs` 1721 → **1169** 行（-32%）；归档在分支 `archive/action-layer-p6`。
+`surface.rs` 1721 → **1169** 行（-32%）；归档分支 `archive/action-layer-p6` **已不存在**（2026-10-06 复核）；取回 `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`（1721 行）。
 
 **原判断是「不删」，这里为什么推翻**（原文的三条理由逐条回应）：
 

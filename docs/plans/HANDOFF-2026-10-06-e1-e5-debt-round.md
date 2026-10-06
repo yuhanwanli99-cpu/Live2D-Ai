@@ -97,6 +97,8 @@ cd shell/flutter && export PATH="$HOME/flutter/bin:$PATH" && flutter analyze && 
 5. **R2 / R6 / R7 / R8 仓库收尾**：5 条 0 领先分支可删（`feat/frontend-redesign` / `chore/debt-round-2026-10-05` /
    `mainline/1-core-baseline` / `pr-1` / `mod/persona-polish`）；`archive/action-layer-p6` 被 10+ 处引用但本地与远端都没有；
    清洗前 bundle（~600 MB）删留待定。
+   **2026-10-06 夜 T1 收口**：5 条分支的**本地**副本已删（远端 `mainline/1-core-baseline` 仍在，需 token）；
+   `archive/action-layer-p6` 的引用已按事实改写并给出等价取回命令（见 `NEXT-ROUND-main-2026-10-06.md` 的 R6 行）。
 6. **E7 CI 首跑**（需 GitHub runner；nightly 是否缺 `libasound2-dev` 未验证）。
 7. **功能线**：`F1` 正文帧带 `sentence_seq`（朗读高亮，全项目唯一「不做就永远做不出来」的一条，要改后端 WS 契约、只增不改）；
    `F2` 会话记忆后端 / 动作选型（真源 `PLAN-actions-voice-memory-2026-09-15.md`）；`F3` 舞台图解码状态帧 / capabilities 发现；

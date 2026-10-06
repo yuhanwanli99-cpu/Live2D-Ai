@@ -109,7 +109,7 @@ W1: cargo test → 1394/0（我求和确认）    rust-ratio → 97.1830% PASS
 | 未取证② | W2 的 T3 表在浏览器里的肉眼观感（默认摆幅变小：look 头 16.5°→9.0°、身 9.8°→3.12°） | **用户肉眼** | 这是 (i) 方案的**已接受代价**，需用户确认「变小之后是否还够看」 |
 
 ### 4.1 记录在案、**有意不改**的
-- `mod-product-chain.md:106` 的「恢复 Action / director / 编舞」非目标：该句明确限定在归档分支 `archive/action-layer-p6`，语句成立 ⇒ **不改**。
+- `mod-product-chain.md:106` 的「恢复 Action / director / 编舞」非目标：该句明确限定在归档分支 `archive/action-layer-p6`，语句成立 ⇒ **不改**。**2026-10-06 夜复核（T1）**：该分支本地 / 远端 / 历史 bundle 均已不存在 ⇒ 「语句成立」的前提消失，`mod-product-chain.md:106` 已按事实改写（保留「非目标」本身 + 给出等价取回命令）；本行裁决随之作废。
 - `core-chain-baseline.md:143` / `directory.md:64`：保留为**带「当时」限定的历史句** + 现状更正 ⇒ 不改。
 - W5 的两处小取舍（已记录未改）：被删的 `join_endpoint` 副本对 `base` 做 `trim()`，runtime 那份靠 URL 解析器吃空白（仅病态空白 base 有差异）；两个 Mod 未收敛到 runtime（会改掉它们各自的错误口径与空 base 特判）。
 - `dev_tools_section.dart` 未拆（**1792 行**）：块内标为可选，且拆分与 W7 冲突 ⇒ 记未决。

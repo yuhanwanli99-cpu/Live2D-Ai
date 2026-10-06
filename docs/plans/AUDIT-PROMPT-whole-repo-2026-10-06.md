@@ -21,7 +21,8 @@
 13. **生产文件与测试文件分队列**：v2 只说「测试文件只在审测试质量批次里读」，等于没定义。现在明确两条队列，因为**假绿灯只能从测试批次里抓**。
 14. **验收判据从「有没有发现」改成「有没有行为证据」**：每条 P0/P1 必须四件套（调用链 / 摘录 / 反证 / 可只读复现的验证命令），并显式区分「我读到的」与「我推断的（标未核实 → 置信 ≤ 中）」。
 15. **审查顺序改为「前端设置与 Mod 面优先」（维护者 2026-10-06 指定）**：新增 **Phase 0**（`shell/flutter/lib/settings/**` + Mod 面板 + 对应后端设置/Mod 路由 + 设置测试），并新增 **§7.1 用户侧审视**（一等维度）——判据是「这个参数用户能理解吗 / 有真实用户故事吗 / 默认值有据吗 / 会不会静默失效或回不去」，专门抓**令人费解的参数**与**产品路径上不存在的额外功能实现**。Rust 主线顺延为 Phase 1。
-16. **本规程已入库**：`docs/plans/AUDIT-PROMPT-whole-repo-2026-10-06.md`（工作树外另存一份 `/home/skystar/audit-prompt-2026-10-06.md`）。**HEAD 容忍**：收口文档是本地提交，HEAD 允许是 `6be9984` 之后的 1–2 个 docs 提交——`git log -1` 与示例不同**不算异常**，写进 STATE「外部事实」区即可继续。
+16. **本规程已入库**：`docs/plans/AUDIT-PROMPT-whole-repo-2026-10-06.md`（工作树外另存一份 `/home/skystar/audit-prompt-2026-10-06.md`）。**HEAD 容忍**：收口文档是本地提交，HEAD 允许是 `6be9984` 之后的若干 docs 提交——`git log -1` 与示例不同**不算异常**，写进 STATE「外部事实」区即可继续。
+17. **2026-10-06 夜修订（工作树单一化 + 台账入库）**：linked worktree `Live2D-Ai-fe` 已**删除**，**唯一工作树 = `/home/skystar/Live2D-Ai`**（上面第 2 / 10 / 11 条与 §0 里所有 `-fe` 路径一律按此替换；「死树 `/home/skystar/Live2D-Ai`」的陷阱指控同时作废——§0.2 已整体改判）。旧台账 `AUDIT-REPO/` 已**入库**为 `docs/audit/2026-10-05-ledger/`（1,014 份 `.md`，新 run 编号仍从 `BATCH-1001` 起，别与 0001–0927 撞车）。
 
 ## 给人看：已知的远端残留（本轮实测，写死在提示词里，别让审计去联网查）
 
@@ -46,18 +47,18 @@
 
 | 项 | 值 |
 | --- | --- |
-| 工作树 | `/home/skystar/Live2D-Ai-fe` · 分支 **`main`** · 基线 **`6be9984`**（v0.2.1-rc.1）+ 2026-10-06 夜文档收口提交；**HEAD 允许是其后的提交** |
+| 工作树 | **`/home/skystar/Live2D-Ai`**（2026-10-06 夜起**唯一**工作树；linked worktree `Live2D-Ai-fe` 已删除，`cd` 它会失败）· 分支 **`main`** · 基线 **`6be9984`**（v0.2.1-rc.1）+ 2026-10-06 夜文档收口提交；**HEAD 允许是其后的提交**（实测当时 = `36937df`） |
 | 主审范围 | `crates/**`（Rust，**重点**）、`shell/flutter/**`、`xtask/**`、`scripts/**`、`tests/**`、`shared/**`、`verification/**`、`.github/workflows/**` |
-| 台账落盘 | `AUDIT-REPO/`（**-fe 工作树根下**，未跟踪；**永不 `git add`**） |
-| 禁止审计的树 | `/home/skystar/Live2D-Ai`（`mod/persona-polish` @ `88342ce`，**0 脏**，2026-09-14 旧基线，落后 main 151 个提交）——**一行都不要审** |
+| 台账落盘 | `AUDIT-REPO/`（**`/home/skystar/Live2D-Ai` 树根下**，未跟踪；**永不 `git add`**）。**上一轮台账已入库**为 `docs/audit/2026-10-05-ledger/`（1,014 份 `.md`）——那是只读引用，别往里写 |
+| 禁止审计的树 | ~~`/home/skystar/Live2D-Ai`（`mod/persona-polish` @ `88342ce` 死树）~~ **2026-10-06 夜作废**：该路径**就是唯一工作树、就是审计对象**；旧分支 `mod/persona-polish` @ `88342ce` 仍在本地可解析但**不是工作树**（不进队列、别 checkout） |
 | 只读引用（可读，**不计入批次文件数**） | `AGENTS.md`、`docs/architecture/**`、`docs/audit/2026-09-28-frontend-nightly/**`、`docs/audit/2026-10-05-ledger/**`、`docs/plans/TRIAGE-0.2.0-audit-45-2026-09-28.md`、`docs/plans/NEXT-ROUND-main-2026-10-06.md` |
 | 排除清单（不审、不计入批次文件数） | `target/`、`build/`、`.dart_tool/`、`dist/`、`.git/`、`*.g.dart`、`*.freezed.dart`、`assets/models/**`、`assets/fonts/*.woff2`、`*.ranges.txt`、`docs/design/assets/**`、任何生成物 / 覆盖率报告 / lock 文件 |
 
 ### 0.1 开工第一件事（只读）
 
 ```bash
-cd /home/skystar/Live2D-Ai-fe            # 若你的 cwd 是 /home/skystar/Live2D-Ai，那是死树，立刻 cd 过来
-git log -1 --format='%h %ci %s'          # 期望：6be9984 或其后 1–2 个 docs 提交（见上方「HEAD 容忍」）
+cd /home/skystar/Live2D-Ai             # 唯一工作树（-fe 已于 2026-10-06 夜删除，别 cd 它）
+git log -1 --format='%h %ci %s'          # 期望：6be9984 或其后的 docs 提交（实测 36937df；见上方「HEAD 容忍」）
 git branch --show-current                # 期望：main
 git status --porcelain | head            # 期望：空（之后你自己的 AUDIT-REPO/ 会变成唯一的 ?? 行，那是允许的）
 ```
@@ -66,13 +67,17 @@ git status --porcelain | head            # 期望：空（之后你自己的 AUD
 - **不要切分支**（禁止一切 git 写操作）。
 - **不要审 `feat/frontend-redesign`**：它落后 main 28 个提交、领先 0，是一棵更旧的树。
 
-### 0.2 死树陷阱（务必读）
+### 0.2 工作树已单一化（**2026-10-06 夜整体改判**，务必读）
 
-`/home/skystar/Live2D-Ai` 是本会话的 cwd，也是**另一棵工作树**。它的 `AGENTS.md` 与 `-fe` 的差 **509 行**，上面写着「3 个 Mod」「当前版本 0.2.0-rc.1」「Mod 纪元第一基线」——**那是 2026-09-14 的旧教义**。
+> **本节旧文整体作废**：linked worktree `Live2D-Ai-fe` **已被删除**，`/home/skystar/Live2D-Ai`
+> 就是**唯一工作树、也是唯一审计对象**。下面保留改判说明，避免读到一半按旧规则跑。
 
-- 运行环境可能已经把**死树的 `AGENTS.md` 自动注入你的上下文**（工作区指令）。**若它与 `-fe/AGENTS.md` 冲突，一律以 `-fe` 工作树内的文件为准。**
-- 反过来：`-fe/AGENTS.md` 自己也有旧值（首屏写「当前版本 `0.2.0`」，实际 `Cargo.toml` 是 `0.2.1-rc.1`）。这类**文档 vs 树** 不一致是要报的（等级看有没有行为后果），但**不要**把它当成「死树的错」。
-- 判据一律回树：版本 = `Cargo.toml` + `shell/flutter/pubspec.yaml` + `README*`；Mod 集合 = `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES`。
+- ~~`/home/skystar/Live2D-Ai` 是死树、`-fe/AGENTS.md` 才准~~ → **作废**。现在只有一棵树：
+  `/home/skystar/Live2D-Ai`（分支 `main`）；任何 `-fe` 路径都会 `cd` 失败。
+- 运行环境注入的 `AGENTS.md` **就是本工作树的 `AGENTS.md`**，是**唯一现行真源**（2026-10-06 夜首屏版本口径已修正为 `0.2.1-rc.1`）。
+- **文档 vs 树不一致仍是有效发现**（等级看有没有行为后果）：判据一律回树——版本 = `Cargo.toml`
+  （`version = "0.2.1-rc.1"`）+ `shell/flutter/pubspec.yaml`（`0.2.1-rc.1+14`）+ `README*`；
+  Mod 集合 = `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES`。
 
 ### 0.3 规模参考（2026-10-06 实测；**会腐烂，以你 `git ls-files` 的实测为准**）
 
@@ -200,7 +205,7 @@ AUDIT-REPO/CONSOLIDATION-NN.md  每 6 批一次的对账（见 §12.3）
 ### 3.3 队列必须机械生成（防止编造路径）
 
 ```bash
-cd /home/skystar/Live2D-Ai-fe
+cd /home/skystar/Live2D-Ai             # 唯一工作树（-fe 已删）
 mkdir -p AUDIT-REPO
 git ls-files crates                | grep '\.rs$'   | sort > AUDIT-REPO/QUEUE-rust.tsv       # 期望 248
 git ls-files shell/flutter/lib     | grep '\.dart$' | sort > AUDIT-REPO/QUEUE-dart-lib.tsv   # 期望 126
@@ -355,7 +360,7 @@ Rust 侧：把 `#[test]` 名与被测行为对照；找「只测纯函数不测�
 **机械武器：设置项三方对账**（先跑再读，防止凭印象下结论）
 
 ```bash
-cd /home/skystar/Live2D-Ai-fe
+cd /home/skystar/Live2D-Ai             # 唯一工作树（-fe 已删）
 # 1) 抽出 DisplayPrefs 字段清单（解析方式自定，目标是拿到字段名）
 git grep -nE '^ +(final|bool|int|double|String|List<[^>]+>|[A-Z][A-Za-z]+)\?? +[a-z][A-Za-z0-9_]*' -- shell/flutter/lib/settings/display_prefs.dart
 # 2) 每个字段在 lib 里还有几处引用（= 只有 1 处 = 只有定义处）
@@ -477,7 +482,7 @@ A→J 每条一个批次，**全仓一条轴**（用 `git grep` 拉出候选，�
 
 - `git grep -nE '\b[0-9a-f]{7,40}\b' -- '*.md' 'docs/**' 'scripts/**'`：文档 / 脚本里的短 SHA 是否**已断链**（`git cat-file -t <sha>` 是否 fatal）；注释里的旧 SHA 不致命，**操作指令里的旧 SHA 是 P2/P1**；
 - `git grep -n 'deploy_android'`：还有没有**操作型文档**教人运行已删除的 `scripts/deploy_android.sh`（历史叙事 / 台账里的出现不算）；
-- 「文档 vs 树」批量对账：AGENTS / README / `docs/architecture/**` 里的**版本号、Mod 集合、门禁命令、文件路径**与树是否一致（例：`-fe/AGENTS.md` 首屏写 0.2.0，实际 0.2.1-rc.1；`archive/action-layer-p6` 被 10+ 处引用但**本地不存在该分支**）；
+- 「文档 vs 树」批量对账：AGENTS / README / `docs/architecture/**` 里的**版本号、Mod 集合、门禁命令、文件路径**与树是否一致（例：`AGENTS.md` 首屏版本口径曾写 `0.2.0` 而树是 `0.2.1-rc.1`——**2026-10-06 夜 T1 已修正**；`archive/action-layer-p6` 被 10+ 处引用但**本地与远端都没有该分支**，T1 已按事实改写并给出等价取回命令）；
 - `.gitignore` 覆盖检查：本机运行态（`mods.json`、`memory.jsonl`、日志、选中模型、备份 bundle）是否都被忽略；有没有**该忽略却没忽略**的（会导致下一次清洗）/ **该跟踪却被忽略**的（新机器拉下来就跑不起来）；
 - `scripts/check_public_secrets.py` 的**模式可否被绕过**（新增的「文字口令 / 纯数字口令 / 中文『密码:』」三类模式的边界；它扫的是跟踪文件还是工作树；二进制 / 未跟踪文件是否在扫描面内）。
 
@@ -538,8 +543,8 @@ A→J 每条一个批次，**全仓一条轴**（用 `git grep` 拉出候选，�
 ## 14. 现在执行
 
 ```bash
-# 1) 确认在 -fe 且在 main（若不在，写 STATE.md 未核实区后继续，不要切分支）
-cd /home/skystar/Live2D-Ai-fe
+# 1) 确认在唯一工作树且在 main（若不在，写 STATE.md 未核实区后继续，不要切分支）
+cd /home/skystar/Live2D-Ai
 git log -1 --format='%h %ci %s'; git branch --show-current; git status --porcelain | head
 
 # 2) 若无 AUDIT-REPO/：初始化骨架（§2）+ 生成队列（§3.3）

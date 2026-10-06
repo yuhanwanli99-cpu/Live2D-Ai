@@ -61,7 +61,7 @@ crates/live2d-ai-mod-pet-desktop/    ⛔ 已删除（2026-10-01 W2-A/D1）：桌
 crates/live2d-ai-mod-local-llm/      ⛔ 已删除（2026-10-01 W2-A/D1）：本地推理探测 Mod（0.2.0-rc.1 废除启动后删除，tag checkpoint/pre-d1-dormant）
 ```
 `crates/live2d-ai-mod-director/`（**动作编排** Mod）已于 `0.1.0-rc.2` **删除**——它是**当时（0.1.0-rc.2）**
-动作序列的唯一驱动方，**当时代码里动作不在产品路径上**；归档在分支 `archive/action-layer-p6`。
+动作序列的唯一驱动方，**当时代码里动作不在产品路径上**；归档分支 `archive/action-layer-p6` **已不存在**（2026-10-06 复核），取回 `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs`。
 **2026-09-21 现状更正**：动作包经渲染面 `preset` 协议在产品路径上**存在**（只是不经 core reducer）；
 详见 `AGENTS.md`「动作与表演的现行状态（2026-09 实测）」。
 Wave 3（2026-09-14）新增了一个**同名但不同职责**的 `live2d-ai-mod-director` **最小骨架**：

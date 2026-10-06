@@ -36,7 +36,7 @@
 ## 1. 非目标
 
 - 动态 `.so` / 热插拔下载市场
-- 恢复 Action / director / 编舞 / LLM tools（归档在 `archive/action-layer-p6`）
+- 恢复 Action / director / 编舞 / LLM tools（归档在 `archive/action-layer-p6`；**2026-10-06 复核：该分支已不存在**，取回命令见 `docs/architecture/mod-product-chain.md` §8 同条）
 - 双 LLM「是否朗读」、Dialogue Brain 分轨（**长期**，§10）
 - 会话记忆后端、pet-desktop/external-input **产品化堆砌**
 - 把 DeepSeek **应用内** Expert 模式体验原样搬进主链（见 §2）
