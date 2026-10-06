@@ -272,7 +272,7 @@ fn dispatch_chat_wrong_method_returns_405() {
 /// - respond_and_log( 恰好 **7** 次 = 1 处定义 + 6 处调用（四条 API 前置路由
 ///   chat / external / voice / mods + WS Origin 拒绝 + WS 方法/路径错）；
 /// - 直接 request.respond( 恰好 **4** 次 = 1 处（respond_and_log 体内）
-///   + 3 处**白名单**：两处静态资产（/render、/models、/app 这类纯读盘请求，
+///   另有 3 处**白名单**：两处静态资产（/render、/models、/app 这类纯读盘请求，
 ///   逐文件记 info 只会把日志淹掉，刻意不记）与 dispatch 之后那一处
 ///   （它已由 dispatch::log_request_outcome 记过）。
 ///
