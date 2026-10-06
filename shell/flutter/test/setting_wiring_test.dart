@@ -215,7 +215,10 @@ void main() {
       for (final MapEntry<String, String> e in fields.entries) {
         final List<String> readers = <String>[
           for (final MapEntry<String, String> f in lib.entries)
-            if (!f.key.contains('display_prefs.dart') &&
+            // 排除**整个**偏好库（库 + 它的 part）：2026-10-06 拆 part 后
+            // 只排除 display_prefs.dart 会把 5 个 part 里的定义当成「外部读者」，
+            // 于是一个只写不读的死字段也能骗过这条守卫。
+            if (!f.key.contains('display_prefs') &&
                 !f.key.contains('/settings/sections/') &&
                 RegExp('\\b${e.key}\\b').hasMatch(f.value))
               f.key,

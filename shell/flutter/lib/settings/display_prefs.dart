@@ -2,94 +2,42 @@
 ///
 /// 单独成文件的理由：这些值会被持久化（localStorage）并在启动时反序列化，
 /// 「非法/缺失/越界输入回落到什么」是必须能回归的算术，不该埋在 UI 里。
-/// 持久化本身在 `app/browser_io.dart` 做（那里才允许 `package:web`）。
+/// 持久化本身在 app/browser_io.dart 做（那里才允许 package:web）。
 ///
-/// # 行数（**超出豁免带**，拆分归 Stage C3）
+/// # 行数（2026-10-06 拆 part 后）
 ///
-/// 本文件在本轮（Stage B · B-a）之后约 1160 行，**超过「源码 ≤500 行、
-/// 豁免 ≤1000 行」那条线**。这不是本轮才超的：rc.5 时已是 1002 行
-/// （`docs/releases/v0.2.0-rc.5.md` §9.4 已把拆分登记为 Stage C3），
-/// 本轮只加不减。写在这里是**如实**，不是豁免申请。
+/// 本文件拆分前是 1169 行（rc.5 起就超过「源码 ≤500 行、豁免 ≤1000 行」那条线，
+/// 登记为 Stage C3）。2026-10-06 按 docs/plans/DECISION-display-prefs-2026-10-06.md
+/// 的 **B2** 方案拆成「同库 part + extension 外搬方法」（与 E1-b 拆 main.dart 同款配方）：
+///
+/// | part | 内容 |
+/// | --- | --- |
+/// | display_prefs_playlist.dart | 顶层常量 / 字节算术 / 轮播列表增删排序 |
+/// | display_prefs_codec.dart | toJson / fromJson 与读入宽容（坏值也永不抛） |
+/// | display_prefs_derived.dart | effective* / hasBackground* 派生判据 |
+/// | display_prefs_limits.dart | clamp* 区间夹持 + 字节预算 |
+/// | display_prefs_copy.dart | copyWith |
+///
+/// 搬迁是**逐字**的（剪贴 + extension 头），只补了 extension 作用域必需的
+/// DisplayPrefs.xxx 类静态限定符。下列成员**刻意留在类里**：
+///
+/// - 24 个字段、const 构造、全部 static const（Dart 规定**类体不能跨 part**；
+///   且 198 处调用点读的是 DisplayPrefs.defaultXxx 这类类静态）；
+/// - == / hashCode / toString：它们是 Object 成员，写进 extension 会
+///   **静默失效**（extension 只在静态类型没有该成员时才生效）；
+/// - 一行转发包装：保住既有静态调用点的公共名字。
+///
+/// 落盘 24 键的全集守卫见 test/display_prefs_persist_keys_test.dart。
 library;
 
 import '../design/background_item.dart';
 import '../design/theme_id.dart';
 
-/// 背景库最多几项。
-///
-/// 8 是内存与观感的折中：每一项的字节都常驻内存（base64 字符串 + 轮播时
-/// 解码出的位图），8 张 4 MB 的图约 64 MB，再多就开始影响启动与切图。
-const int kBackgroundMaxCount = 8;
-
-/// **单张**背景图的字节上限（24 MB，按**解码后**的字节算，不是 base64 字符）。
-///
-/// # 为什么还有上限，而 2026-09-27 之前是 390 KB
-///
-/// 之前那个数（`kBackgroundImageMaxChars = 400000`）不是安全边际，
-/// 是**事故**：它让「选一张 1080p 照片」永远失败——实测 3 张图一张都存不进去。
-///
-/// 现在的 24 MB 不是配额保护（配额在 IndexedDB 那里，量大得多），
-/// 而是**防手抖**：有人把一个 200 MB 的 TIFF 拖进来，base64 之后
-/// 字符串本身就能把标签页的内存吃穿，那会拖垮整个应用而不只是背景。
-/// 24 MB 已经远大于任何真实壁纸。
-const int kBackgroundImageMaxBytes = 24 * 1024 * 1024;
-
-/// 背景库字节占用（**解码后**的字节；图案零成本）。
-int backgroundBytesOf(BackgroundItem item) {
-  if (item is! BackgroundImage) return 0;
-  final String? url = item.dataUrl;
-  if (url == null) return 0;
-  // base64：4 个字符 = 3 个字节。整数运算（不 import dart:convert），
-  // 免得这个纯逻辑文件多一条依赖。
-  final int comma = url.indexOf(',');
-  final int payload = comma >= 0 ? url.length - comma - 1 : url.length;
-  return (payload / 4 * 3).floor();
-}
-
-/// dataURL 大致折成多少字节（**纯算术，可 VM 单测**）。
-int dataUrlBytes(String dataUrl) {
-  final int comma = dataUrl.indexOf(',');
-  final int payload = comma >= 0 ? dataUrl.length - comma - 1 : dataUrl.length;
-  return (payload / 4 * 3).floor();
-}
-
-
-/// 舞台背景图 dataURL 的**长度上限**（字符数，不是字节）。
-///
-/// 取值理由：localStorage 的常见配额是 **5 MB / 源**，而 dataURL 是 base64
-/// （比原始字节大 33%），且它会被塞进偏好记录一起写。留 ~1.5 M 字符
-/// （约 1.1 MB 原始数据）给背景图，剩下的余量给其余偏好与将来新增字段——
-/// 一旦超配额，**整份偏好都写不进去**（不只是背景图），那会连带丢掉主题、
-/// 音量、口型设置，代价远大于「一张图没记住」。
-///
-/// 超限不是错误：**本次会话照常生效**，只是不写盘（UI 会如实说明）。
-/// 下游裁剪（canvas 缩放）没有做——它需要浏览器 canvas，属于不可测代码，
-/// 这一轮刻意不引入（见 `docs/verification/flutter-shell-manifest-checklist.md`）。
-const int kStageImageMaxChars = 1500000;
-
-/// 壳背景图 dataURL 的长度上限。
-///
-/// **与 [kStageImageMaxChars] 同一个预算**：壳背景与舞台背景写在**同一条**
-/// localStorage 记录里，给两份独立上限只会让「整份偏好都写不进去」更容易发生。
-/// 所以这里只是给壳背景一个可读的别名，**不是第二套配额**。
-const int kShellImageMaxChars = kStageImageMaxChars;
-
-/// 舞台背景轮播列表（用户手动维护）的**项数上限**。
-///
-/// 16 张的理由见 [kStagePlaylistMaxChars]——真正的上限是**总字符预算**，
-/// 这一条只挡住「项数无界」。
-const int kStagePlaylistMaxItems = 16;
-
-/// 轮播列表的**总长上限**（所有项字符数之和）。
-///
-/// # 为什么必须单独有一条（2026-09-14，Wave 2 硬约束）
-///
-/// localStorage 是**一条记录**存整份 `DisplayPrefs`（`jsonEncode(prefs.toJson())`）。
-/// rc.5 的教训是：**一旦超配额，整份偏好都写不进去**——不只是列表，连主题、
-/// 音量、口型设置一起丢。所以列表既要有单张上限（每项按
-/// [kStageImageMaxChars] 校验），也要有**总长上限**：超出时保留前面的、
-/// 丢掉放不下的，并在界面上如实说明「已达上限」，而不是悄悄把整份设置写坏。
-const int kStagePlaylistMaxChars = kStageImageMaxChars;
+part 'display_prefs_playlist.dart';
+part 'display_prefs_codec.dart';
+part 'display_prefs_derived.dart';
+part 'display_prefs_limits.dart';
+part 'display_prefs_copy.dart';
 
 /// 舞台显示偏好。
 class DisplayPrefs {
@@ -475,293 +423,6 @@ class DisplayPrefs {
   static const double minMouthSensitivity = 0.2;
   static const double maxMouthSensitivity = 3.0;
 
-  DisplayPrefs copyWith({
-    AppThemeId? theme,
-    // 刻意**不能**用 `copyWith()` 把背景图设成「还是原值」——清除走
-    // `clearStageImage: true`，这样 `copyWith()` 不会因为「参数缺省 = null」
-    // 而把「设成 null（清除）」和「不改」混成同一件事。
-    String? stageImage,
-    bool clearStageImage = false,
-    List<BackgroundItem>? backgrounds,
-    int? backgroundSource,
-    double? backgroundOpacity,
-    double? backgroundBlur,
-    int? backgroundScrim,
-    bool? backgroundEnabled,
-    int? imageFit,
-    int? imageAlign,
-    double? tileSize,
-    int? slideInterval,
-    bool? slideRandom,
-    double? uiTransparency,
-    List<String>? stagePlaylist,
-    double? scale,
-    double? mouthSensitivity,
-    bool? lipSync,
-    bool? idleEnabled,
-    bool? muted,
-    double? volume,
-    bool? allowDragZoom,
-    int? tier,
-    double? edgeStrength,
-  }) {
-    return DisplayPrefs(
-      theme: theme ?? this.theme,
-      stageImage: clearStageImage ? null : (stageImage ?? this.stageImage),
-      backgrounds: backgrounds ?? this.backgrounds,
-      backgroundSource: backgroundSource ?? this.backgroundSource,
-      backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
-      backgroundBlur: backgroundBlur ?? this.backgroundBlur,
-      backgroundScrim: backgroundScrim ?? this.backgroundScrim,
-      backgroundEnabled: backgroundEnabled ?? this.backgroundEnabled,
-      imageFit: imageFit ?? this.imageFit,
-      imageAlign: imageAlign ?? this.imageAlign,
-      tileSize: tileSize ?? this.tileSize,
-      slideInterval: slideInterval ?? this.slideInterval,
-      slideRandom: slideRandom ?? this.slideRandom,
-      uiTransparency: uiTransparency ?? this.uiTransparency,
-      stagePlaylist: stagePlaylist ?? this.stagePlaylist,
-      scale: scale ?? this.scale,
-      mouthSensitivity: mouthSensitivity ?? this.mouthSensitivity,
-      lipSync: lipSync ?? this.lipSync,
-      idleEnabled: idleEnabled ?? this.idleEnabled,
-      muted: muted ?? this.muted,
-      volume: volume ?? this.volume,
-      allowDragZoom: allowDragZoom ?? this.allowDragZoom,
-      tier: tier ?? this.tier,
-      edgeStrength: edgeStrength ?? this.edgeStrength,
-    );
-  }
-
-  /// 序列化（写入 localStorage）。
-  Map<String, Object?> toJson() => <String, Object?>{
-    'theme': theme.wire,
-    'stageImage': stageImage,
-    'backgrounds': <Object?>[
-      for (final BackgroundItem b in backgrounds) b.toJson(),
-    ],
-    'backgroundSource': backgroundSource,
-    'backgroundOpacity': backgroundOpacity,
-    'backgroundBlur': backgroundBlur,
-    'backgroundScrim': backgroundScrim,
-    'backgroundEnabled': backgroundEnabled,
-    'imageFit': imageFit,
-    'imageAlign': imageAlign,
-    'tileSize': tileSize,
-    'slideInterval': slideInterval,
-    'slideRandom': slideRandom,
-    'uiTransparency': uiTransparency,
-    'stagePlaylist': stagePlaylist,
-    'scale': scale,
-    'mouthSensitivity': mouthSensitivity,
-    'lipSync': lipSync,
-    'idleEnabled': idleEnabled,
-    'muted': muted,
-    'volume': volume,
-    'allowDragZoom': allowDragZoom,
-    'tier': tier,
-    'edgeStrength': edgeStrength,
-  };
-
-  /// 反序列化：**永不抛异常**。
-  ///
-  /// 缺字段 / 类型不符 / 非有限数 / 越界值一律回落到默认值或夹到区间内——
-  /// 一份坏的存储不该让舞台无法渲染（这正是单测覆盖的部分）。
-  factory DisplayPrefs.fromJson(Map<String, Object?>? json) {
-    if (json == null) return const DisplayPrefs();
-    return DisplayPrefs(
-      // 旧存档没有这个字段 → 用默认（黑），不是「假装用户选过白」。
-      theme: AppThemeId.fromWire(json['theme']),
-      // 坏值（非字符串 / 超限）一律当作「没有背景图」，**不抛**：
-      // 一份被外部塞大的存储不该让舞台渲染不出来。
-      stageImage: _readImage(json['stageImage'], kStageImageMaxChars),
-      backgrounds: readBackgrounds(json),
-      backgroundSource: _readBackgroundSource(json),
-      backgroundOpacity: clampBackgroundOpacity(
-        _readDouble(json['backgroundOpacity'], defaultBackgroundOpacity),
-      ),
-      backgroundBlur: clampBackgroundBlur(
-        _readDouble(json['backgroundBlur'], defaultBackgroundBlur),
-      ),
-      backgroundScrim: _clampInt(
-        _readInt(json['backgroundScrim'], defaultBackgroundScrim),
-        minBackgroundScrim,
-        maxBackgroundScrim,
-        defaultBackgroundScrim,
-      ),
-      // 旧档没有这个键 → `true`（迁移默认：老用户界面不变）。
-      backgroundEnabled: _readBool(json['backgroundEnabled'], true),
-      // 上界 3（Stage B 扩档）：旧档里的 2/3 现在是**合法档**，不再是坏值。
-      imageFit: _clampInt(
-        _readInt(json['imageFit'], defaultImageFit),
-        0,
-        maxImageFit,
-        defaultImageFit,
-      ),
-      imageAlign: _clampInt(
-        _readInt(json['imageAlign'], defaultImageAlign),
-        0,
-        maxImageAlign,
-        defaultImageAlign,
-      ),
-      tileSize: clampTileSize(_readDouble(json['tileSize'], defaultTileSize)),
-      // DEC-1：**端点夹持**（0 仍＝关），不是「越界回落默认」——
-      // 回落 0 会把用户开着的轮播静默关掉（详见 [clampSlideInterval]）。
-      slideInterval: clampSlideInterval(
-        _readInt(json['slideInterval'], defaultSlideInterval),
-      ),
-      slideRandom: _readBool(json['slideRandom'], false),
-      uiTransparency: clampUiTransparency(
-        _readDouble(json['uiTransparency'], defaultUiTransparency),
-      ),
-      stagePlaylist: readStagePlaylist(json['stagePlaylist']),
-      scale: clampScale(_readDouble(json['scale'], defaultScale)),
-      mouthSensitivity: clampMouthSensitivity(
-        _readDouble(json['mouthSensitivity'], defaultMouthSensitivity),
-      ),
-      lipSync: _readBool(json['lipSync'], true),
-      idleEnabled: _readBool(json['idleEnabled'], true),
-      muted: _readBool(json['muted'], false),
-      volume: clampVolume(_readDouble(json['volume'], defaultVolume)),
-      // 旧存档没有这两个字段 → 用新默认值（不是 false/0）。
-      allowDragZoom: _readBool(json['allowDragZoom'], true),
-      tier: clampTier(_readInt(json['tier'], defaultTier)),
-      // 旧存档没有这两个字段 → 默认 1.0（不是「假装用户调过」）。
-      edgeStrength: clampEdgeStrength(
-        _readDouble(json['edgeStrength'], defaultEdgeStrength),
-      ),
-    );
-  }
-
-  /// 读「壳画哪一张」，**含旧字段迁移**。
-  ///
-  /// 旧形态的 `syncShellStageBg` 是「壳跟随舞台」，默认 `true`。迁移规则：
-  ///
-  /// - **确实有一张舞台图**（`stageImage != null`）→ 迁到「舞台那张」，
-  ///   老用户**看到的界面一个像素都不变**；
-  /// - **没有舞台图**（绝大多数用户，包括把图加进背景库的那些）→ 迁到
-  ///   「背景库」，也就是新默认。
-  ///
-  /// 写成「读旧键」而不是「改旧键的默认值」：改默认值会让「显式设过 true」
-  /// 和「从没设过」分不开，而那正是本缺陷的成因。
-  static int _readBackgroundSource(Map<String, Object?> json) {
-    final Object? stored = json['backgroundSource'];
-    if (stored is int) {
-      return stored == backgroundSourceStageImage
-          ? backgroundSourceStageImage
-          : backgroundSourceLibrary;
-    }
-    final bool legacySync = _readBool(json['syncShellStageBg'], false);
-    final String? stage = _readImage(json['stageImage'], kStageImageMaxChars);
-    return legacySync && stage != null
-        ? backgroundSourceStageImage
-        : backgroundSourceLibrary;
-  }
-
-  /// 壳当前**实际会画**的那一项（判据只有这一处）。
-  ///
-  /// 渲染层不再自己判来源——判据散到两处就会出现「设置说用背景库、
-  /// 画的不是背景库」这类不一致。
-  BackgroundItem? get effectiveBackground {
-    if (backgroundSource == backgroundSourceStageImage) {
-      final String? stage = stageImage;
-      // 舞台那张的 id 是**固定**的：它不走字节库（走渲染面 `stage-bg` 协议），
-      // 用一个常量 id 而不是内容哈希，免得每帧重算一张几 MB 的哈希。
-      return stage == null
-          ? null
-          : BackgroundImage(id: kStageImageItemId, dataUrl: stage);
-    }
-    if (backgrounds.isEmpty) return null;
-    return backgrounds[_clampIndex(0, backgrounds.length - 1)];
-  }
-
-  /// 壳当前会画的**下标**（来源是背景库时才有意义）。
-  int get effectiveBackgroundIndex =>
-      backgroundSource == backgroundSourceLibrary
-      ? _clampIndex(0, backgrounds.length - 1)
-      : 0;
-
-  /// 当前项**是不是一张图片**（图案不算）。
-  ///
-  /// 「铺法 / 位置」这两个控件只对图片有意义：图案是 `CustomPainter`
-  /// 画满整块，没有「原图尺寸」可裁可留边。UI 按它决定显不显示那两项。
-  bool get currentItemIsImage => effectiveBackground is BackgroundImage;
-
-  /// 有没有东西**真的画得出来**（**唯一判据**，全仓库只此一处）。
-  ///
-  /// # 为什么判据是这三个而不是两个条件
-  ///
-  /// 2026-09-27 之前这里只有 `opacity > 0 && effectiveBackground != null`，
-  /// 而渲染层（`AppShell`）**另写了一份**判据，两份还不一样：
-  /// 那边多了一条 `opacity < 1`。于是：
-  ///
-  /// - 滑杆推到 100% 的那一刻，设置页的说明还写着「聊天面板会跟着透」，
-  ///   实际面板已经退回不透明 —— **界面在骗人**（P4）；
-  /// - 任何新写的代码都得先回答「我该信哪一个」。
-  ///
-  /// 现在只剩这一个函数，渲染层传自己的当前项进来（它知道轮播索引）。
-  /// 加上 [backgroundEnabled]：DEC-4 的全局开关在这里收口——
-  /// 关掉开关后，所有「有没有背景」的判断（脚手架底让不让、聊天面板透不透）
-  /// 都跟着回到「没有背景」那一态，不必每个调用点各写一遍。
-  ///
-  /// 不透明度读的是 [effectiveImageOpacity]（逐图 ?? 全局）：某一项显式覆盖过
-  /// 不透明度时，判据必须与渲染层**看同一个值**，否则又会出现「设置说有背景、
-  /// 画面按没有」。全局 0 而这一项覆盖成 > 0 ⇒ 照画（用户的明确指令优先）。
-  bool hasBackgroundAt(BackgroundItem? item) =>
-      backgroundEnabled &&
-      item != null &&
-      item.isRenderable &&
-      effectiveImageOpacity(item, backgroundOpacity) > 0;
-
-  /// 逐图覆盖 ?? 全局：**不透明度**（唯一解析点）。
-  ///
-  /// 渲染层（`ShellBackdrop`）与 [hasBackgroundAt] 都读它——判据与画面共用
-  /// 一个解析，才不会出现两套。图案没有逐图样式 ⇒ 一律回落全局。
-  static double effectiveImageOpacity(BackgroundItem? item, double global) =>
-      (item is BackgroundImage ? item.opacity : null) ?? global;
-
-  /// 逐图覆盖 ?? 全局：**铺法**（唯一解析点）。
-  static int effectiveImageFit(BackgroundItem? item, int global) =>
-      (item is BackgroundImage ? item.fit : null) ?? global;
-
-  /// 逐图覆盖 ?? 全局：**位置**（唯一解析点）。
-  static int effectiveImageAlign(BackgroundItem? item, int global) =>
-      (item is BackgroundImage ? item.align : null) ?? global;
-
-  /// 本偏好自己那一项有没有背景（[effectiveBackground] 版本）。
-  bool get hasBackground => hasBackgroundAt(effectiveBackground);
-
-  static int _clampIndex(int index, int max) =>
-      max < 0 ? 0 : index.clamp(0, max);
-
-  /// 读背景库：数量超了截断、坏项直接丢、**永不抛**。
-  ///
-  /// **逐项的大小上限已经不在这里**（2026-09-27）：字节住 IndexedDB，
-  /// 偏好里只剩 id，本地已经没什么可超的了。留下的只有「最多几项」。
-  ///
-  /// 顺带做**旧字段迁移**：`shellImage`（2026-09-14 rc.5 的单张 `String?`）
-  /// → 单元素列表。写回时**不再**写 `shellImage`，所以这是一次性迁移。
-  static List<BackgroundItem> readBackgrounds(Map<String, Object?> json) {
-    final List<BackgroundItem> out = <BackgroundItem>[];
-    final Object? raw = json['backgrounds'];
-    if (raw is List) {
-      for (final Object? entry in raw) {
-        if (out.length >= kBackgroundMaxCount) break;
-        final BackgroundItem? item = BackgroundItem.fromJson(entry);
-        if (item == null) continue;
-        out.add(item);
-      }
-      return List<BackgroundItem>.unmodifiable(out);
-    }
-    final String? legacy = _readImage(json['shellImage'], kLegacyImageMaxChars);
-    return legacy == null
-        ? const <BackgroundItem>[]
-        : <BackgroundItem>[
-            // id 同样由内容算 ⇒ 这张图与背景库里同一张图会被认成同一项。
-            BackgroundImage(id: backgroundIdOf(legacy), dataUrl: legacy),
-          ];
-  }
-
   /// 读**旧**单张字段时的字符上限。
   ///
   /// 为什么还有它：旧档里的 base64 已经在那里了，判据只能是它的长度。
@@ -769,174 +430,62 @@ class DisplayPrefs {
   /// 新的导入路径完全不读它（见 [kBackgroundImageMaxBytes]）。
   static const int kLegacyImageMaxChars = 400000;
 
-  /// 背景库当前的**字节占用**（只有画得出来的图片算，图案零成本）。
-  ///
-  /// 2026-09-27 之前这里叫 `backgroundsChars`，算的是 base64 字符数，
-  /// 用来对照 localStorage 的配额。现在它**不控制任何上限**——
-  /// 配额在 IndexedDB 那里，浏览器说了算。它现在只用来**显示**占用。
-  static int backgroundsBytes(List<BackgroundItem> items) {
-    int total = 0;
-    for (final BackgroundItem item in items) {
-      total += backgroundBytesOf(item);
-    }
-    return total;
-  }
+  // ── 静态 API 面：本体在 part 的 extension 里；这些一行转发只为保住既有
+  //    调用点与公共名字（lib 既有静态调用 + test 多处 + 常量读取都不动）。 ──
 
-  /// 这一项**能不能加进来**（数量上限 + 单张体积上限）。**纯函数**。
-  ///
-  /// 刻意**没有**「总预算」这一关：字节不再与偏好共用配额，
-  /// 总量由浏览器按磁盘剩余空间判（真满了 [BackgroundStore.put] 会返回
-  /// `false`，那时才如实告诉用户）。在前端**猜**一个总上限，
-  /// 只会把「还早得很」误报成「加不进去了」。
+  /// 反序列化：**永不抛异常**。本体在 display_prefs_codec.dart 的
+  /// [DisplayPrefsCodec.decode]（保留 factory 形状 ⇒ 既有调用点不变）。
+  factory DisplayPrefs.fromJson(Map<String, Object?>? json) =>
+      DisplayPrefsCodec.decode(json);
+
+  /// 背景库读取。本体：[DisplayPrefsCodec.readBackgrounds]。
+  static List<BackgroundItem> readBackgrounds(Map<String, Object?> json) =>
+      DisplayPrefsCodec.readBackgrounds(json);
+
+  /// 轮播列表读取。本体：[DisplayPrefsCodec.readStagePlaylist]。
+  static List<String> readStagePlaylist(Object? raw) =>
+      DisplayPrefsCodec.readStagePlaylist(raw);
+
+  /// 逐图覆盖 ?? 全局：不透明度。本体：[DisplayPrefsDerived.effectiveImageOpacity]。
+  static double effectiveImageOpacity(BackgroundItem? item, double global) =>
+      DisplayPrefsDerived.effectiveImageOpacity(item, global);
+
+  /// 逐图覆盖 ?? 全局：铺法。本体：[DisplayPrefsDerived.effectiveImageFit]。
+  static int effectiveImageFit(BackgroundItem? item, int global) =>
+      DisplayPrefsDerived.effectiveImageFit(item, global);
+
+  /// 逐图覆盖 ?? 全局：位置。本体：[DisplayPrefsDerived.effectiveImageAlign]。
+  static int effectiveImageAlign(BackgroundItem? item, int global) =>
+      DisplayPrefsDerived.effectiveImageAlign(item, global);
+
+  /// 背景库字节占用。本体：[DisplayPrefsLimits.backgroundsBytes]。
+  static int backgroundsBytes(List<BackgroundItem> items) =>
+      DisplayPrefsLimits.backgroundsBytes(items);
+
+  /// 这一项能不能加进来。本体：[DisplayPrefsLimits.canAddBackground]。
   static bool canAddBackground(
     List<BackgroundItem> current,
     BackgroundItem item,
-  ) {
-    if (current.length >= kBackgroundMaxCount) return false;
-    if (item is! BackgroundImage) return true;
-    return backgroundBytesOf(item) <= kBackgroundImageMaxBytes;
-  }
+  ) => DisplayPrefsLimits.canAddBackground(current, item);
 
-  /// 背景不透明度夹到区间；非有限数回落默认。
-  static double clampBackgroundOpacity(double value) {
-    if (!value.isFinite) return defaultBackgroundOpacity;
-    return value.clamp(minBackgroundOpacity, maxBackgroundOpacity);
-  }
-
-  /// 界面透明度夹到 `[0, 1]`；非有限数回落默认（不透明）。
-  static double clampUiTransparency(double value) {
-    if (!value.isFinite) return defaultUiTransparency;
-    return value.clamp(0.0, maxUiTransparency);
-  }
-
-  /// 背景模糊夹到 `[0, maxBackgroundBlur]`；非有限数回落默认（不模糊）。
-  static double clampBackgroundBlur(double value) {
-    if (!value.isFinite) return defaultBackgroundBlur;
-    return value.clamp(0.0, maxBackgroundBlur);
-  }
-
-  /// 平铺贴片边长夹到 `[minTileSize, maxTileSize]`；非有限数回落默认。
-  ///
-  /// 这里用**端点夹持**（与 scale / volume 同一条纪律）：它是数值区间，
-  /// 端点没有枚举语义，夹到端点永远比「静默换一个值」更接近用户意图。
-  static double clampTileSize(double value) {
-    if (!value.isFinite) return defaultTileSize;
-    return value.clamp(minTileSize, maxTileSize);
-  }
-
-  /// 整数夹到区间；越界回落**默认值**（而不是区间端点）。
-  ///
-  /// 为什么不是端点：`scrim` 的 0 是 `auto`、1 是「无」，把一个坏值夹到 1
-  /// 会把用户的背景变得不可读；回落默认才是「不知道就按默认来」。
-  ///
-  /// **本轮不动它**（DEC-1 明确）：要端点夹持的字段用 [_clampIntToRange]。
-  static int _clampInt(int value, int min, int max, int fallback) {
-    if (value < min || value > max) return fallback;
-    return value;
-  }
-
-  /// 整数**端点夹持**（DEC-1 新增；与 [_clampInt] 并列、语义不同）。
-  ///
-  /// 为什么另开一个而不是改 [_clampInt]：那个函数的「越界回落默认」是
-  /// `scrim` 的语义，改掉会把用户的背景变得不可读。
-  static int _clampIntToRange(int value, int min, int max) {
-    if (value < min) return min;
-    if (value > max) return max;
-    return value;
-  }
-
-  /// 轮播间隔的**端点夹持**（DEC-1；rc.5 §9.1 那条未决项的落地）。
-  ///
-  /// 规则：`0` 仍＝**关**（定时器不启动）；其余一律夹进 `[5, 300]`。
-  ///
-  /// | 存 | 0 | 1 | 2 | 4 | 5 | 30 | 300 | 301 | 3600 | 99999 | 负数 |
-  /// | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-  /// | 读 | 0 | 5 | 5 | 5 | 5 | 30 | 300 | 300 | 300 | 300 | 5 |
-  ///
-  /// # 为什么不沿用「越界回落默认」
-  ///
-  /// `slideInterval` 是**数值区间**（像 scale / volume），而它的默认值恰好是
-  /// `0 = 关`：越界回落默认 = **把用户开着的轮播静默关掉**（rc.5 §9.1）。
-  /// 夹到端点则是「继续开着，只是间隔落回合法区间」，符合用户意图。
-  ///
-  /// 负数也夹到 5（而不是 0）：存储里出现负数只可能是坏值，把它解释成
-  /// 「关掉用户开着的东西」比「用一个合法间隔继续开着」更武断。这一条是
-  /// DEC-1「<5 → 5」的**字面执行**，不是自行裁决。
-  static int clampSlideInterval(int value) {
-    if (value == 0) return 0;
-    return _clampIntToRange(
-      value,
-      minSlideIntervalSeconds,
-      maxSlideIntervalSeconds,
-    );
-  }
-
-  /// 缩放夹到 `[minScale, maxScale]`；非有限值回落默认。
-  static double clampScale(double value) {
-    if (!value.isFinite) return defaultScale;
-    return value.clamp(minScale, maxScale);
-  }
-
-  /// 口型灵敏度夹到 `[minMouthSensitivity, maxMouthSensitivity]`；非有限值回落默认。
-  static double clampMouthSensitivity(double value) {
-    if (!value.isFinite) return defaultMouthSensitivity;
-    return value.clamp(minMouthSensitivity, maxMouthSensitivity);
-  }
-
-  /// 主音量夹到 `[minVolume, maxVolume]`；非有限值回落默认（满音量）。
-  static double clampVolume(double value) {
-    if (!value.isFinite) return defaultVolume;
-    return value.clamp(minVolume, maxVolume);
-  }
-
-  /// 描边强度夹到区间；非有限值回落默认（不缩放）。
-  static double clampEdgeStrength(double value) {
-    if (!value.isFinite) return defaultEdgeStrength;
-    return value.clamp(minEdgeStrength, maxEdgeStrength);
-  }
-
-  static double _readDouble(Object? raw, double fallback) {
-    if (raw is num) {
-      final value = raw.toDouble();
-      if (value.isFinite) return value;
-    }
-    return fallback;
-  }
-
-  static bool _readBool(Object? raw, bool fallback) =>
-      raw is bool ? raw : fallback;
-
-  /// 读背景图：非字符串 / 空串 / 超过 [maxChars] 都当作没有。
-  static String? _readImage(Object? raw, int maxChars) {
-    if (raw is! String || raw.isEmpty) return null;
-    if (raw.length > maxChars) return null;
-    return raw;
-  }
-
-  /// 读轮播列表：**逐项宽容**，超出预算的部分保留前面的、丢掉放不下的。
-  ///
-  /// 规则（三条预算各自独立生效，坏值只丢自己那一项）：
-  /// 1. 非 `List` → 空列表；项非字符串 / 空串 / 单项超 [kStageImageMaxChars] → 丢该项；
-  /// 2. 项数达到 [kStagePlaylistMaxItems] → 停止（后面的丢掉）；
-  /// 3. 累计字符数会把总长推过 [kStagePlaylistMaxChars] → 停止（同上）。
-  static List<String> readStagePlaylist(Object? raw) {
-    if (raw is! List) return const <String>[];
-    final List<String> out = <String>[];
-    int total = 0;
-    for (final Object? item in raw) {
-      if (out.length >= kStagePlaylistMaxItems) break;
-      if (item is! String || item.isEmpty) continue;
-      if (item.length > kStageImageMaxChars) continue;
-      if (total + item.length > kStagePlaylistMaxChars) break;
-      out.add(item);
-      total += item.length;
-    }
-    return out;
-  }
-
-  /// 读 int（非数字回落默认）。
-  static int _readInt(Object? raw, int fallback) =>
-      raw is num ? raw.toInt() : fallback;
+  /// 区间夹持与读入校验的九个 clamp。本体都在 display_prefs_limits.dart。
+  static double clampBackgroundOpacity(double value) =>
+      DisplayPrefsLimits.clampBackgroundOpacity(value);
+  static double clampUiTransparency(double value) =>
+      DisplayPrefsLimits.clampUiTransparency(value);
+  static double clampBackgroundBlur(double value) =>
+      DisplayPrefsLimits.clampBackgroundBlur(value);
+  static double clampTileSize(double value) =>
+      DisplayPrefsLimits.clampTileSize(value);
+  static int clampSlideInterval(int value) =>
+      DisplayPrefsLimits.clampSlideInterval(value);
+  static double clampScale(double value) => DisplayPrefsLimits.clampScale(value);
+  static double clampMouthSensitivity(double value) =>
+      DisplayPrefsLimits.clampMouthSensitivity(value);
+  static double clampVolume(double value) =>
+      DisplayPrefsLimits.clampVolume(value);
+  static double clampEdgeStrength(double value) =>
+      DisplayPrefsLimits.clampEdgeStrength(value);
 
   @override
   bool operator ==(Object other) {
@@ -1030,140 +579,5 @@ class DisplayPrefs {
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
       'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier, '
       'edgeStrength: $edgeStrength)';
-}
 
-/// 把档位夹到 [DisplayPrefs.tiers] 里的**最近合法值**。
-///
-/// 不是简单把区间夹住：`10000` 落在 8192 与 16384 之间，夹成区间边界会得到
-/// 一个渲染面根本不认识的档位。取最近合法档位才是「宽容但正确」。
-int clampTier(int value) {
-  int best = DisplayPrefs.tiers.first;
-  int bestDistance = (value - best).abs();
-  for (final int tier in DisplayPrefs.tiers) {
-    final int distance = (value - tier).abs();
-    if (distance < bestDistance) {
-      best = tier;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
-/// 两个列表是否逐项相等（不引 Flutter 的 foundation 库，
-/// 保持本文件「纯 Dart、VM 可测」的定位）。
-bool _sameList(List<String> a, List<String> b) {
-  if (identical(a, b)) return true;
-  if (a.length != b.length) return false;
-  for (int i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
-/// 「加入轮播」的结果：**新列表 + 是否加进去了 + 没加的原因**。
-///
-/// 原因用稳定字符串（不是给人看的完整句子）：UI 只负责把原因翻译成一句
-/// 可读文案，纯逻辑测试直接断言原因——文案会改，原因不该跟着改。
-class StagePlaylistAppendResult {
-  const StagePlaylistAppendResult({
-    required this.playlist,
-    required this.added,
-    required this.reason,
-  });
-
-  /// 返回的列表（成功时是 `current + [dataUrl]`；失败时**原样返回** `current`——
-  /// 绝不「悄悄膨胀」）。
-  final List<String> playlist;
-
-  /// 是否真的加进去了。
-  final bool added;
-
-  /// `added` / `empty` / `item_too_large` / `limit_reached` / `budget_exceeded`。
-  final String reason;
-}
-
-/// 把一张图追加进轮播列表（纯函数；三条预算逐条把关）。
-///
-/// 超限时**不修改**列表并给出原因——调用方据此给用户一句可读反馈，
-/// 而不是让列表无界膨胀到把整份偏好写坏（见 [kStagePlaylistMaxChars]）。
-StagePlaylistAppendResult appendToStagePlaylist(
-  List<String> current,
-  String? dataUrl,
-) {
-  if (dataUrl == null || dataUrl.isEmpty) {
-    return StagePlaylistAppendResult(
-      playlist: current,
-      added: false,
-      reason: 'empty',
-    );
-  }
-  if (dataUrl.length > kStageImageMaxChars) {
-    return StagePlaylistAppendResult(
-      playlist: current,
-      added: false,
-      reason: 'item_too_large',
-    );
-  }
-  if (current.length >= kStagePlaylistMaxItems) {
-    return StagePlaylistAppendResult(
-      playlist: current,
-      added: false,
-      reason: 'limit_reached',
-    );
-  }
-  int total = 0;
-  for (final String item in current) {
-    total += item.length;
-  }
-  if (total + dataUrl.length > kStagePlaylistMaxChars) {
-    return StagePlaylistAppendResult(
-      playlist: current,
-      added: false,
-      reason: 'budget_exceeded',
-    );
-  }
-  return StagePlaylistAppendResult(
-    playlist: <String>[...current, dataUrl],
-    added: true,
-    reason: 'added',
-  );
-}
-
-/// 第 [index] 张在列表里的下标；找不到（含 [stageImage] 为 null）→ `-1`。
-///
-/// UI 用它把「当前舞台那张」标出来。判据是**数据相等**（同一份 dataURL）：
-/// 列表可以被删除 / 重排，用数据比对才不会在编辑列表后指错人。
-int stagePlaylistIndexOf(List<String> playlist, String? stageImage) {
-  if (stageImage == null) return -1;
-  for (int i = 0; i < playlist.length; i++) {
-    if (playlist[i] == stageImage) return i;
-  }
-  return -1;
-}
-
-/// 删除第 [index] 张（Wave 3）。
-///
-/// - 越界（负数 / `>= length`）→ **原样返回**入参（不抛、不猜）；
-/// - 成功 → 返回**新列表**（不改入参；删除只会让总长变小，三条预算不会被破坏）；
-/// - 不动 [DisplayPrefs.stageImage]：删除当前张不会清空舞台——用户看到的那张
-///   仍然在屏幕上，是否还在列表里由调用方决定。
-List<String> removeStagePlaylistAt(List<String> current, int index) {
-  if (index < 0 || index >= current.length) return current;
-  return <String>[...current]..removeAt(index);
-}
-
-/// 把第 [from] 张移到 [to]（都是 0-based 下标，闭区间）。
-///
-/// - 越界（`from` / `to` 不在 `0..length`）/ `from == to` → **原样返回**入参；
-/// - 成功 → 返回**重排后的新列表**（项集合与项数都不变，所以三条预算不受影响）。
-///
-/// 「上移」= `moveStagePlaylist(list, i, i - 1)`，「下移」= `(list, i, i + 1)`。
-List<String> moveStagePlaylist(List<String> current, int from, int to) {
-  if (from < 0 || from >= current.length) return current;
-  if (to < 0 || to >= current.length) return current;
-  if (from == to) return current;
-  final List<String> out = <String>[...current];
-  final String item = out.removeAt(from);
-  out.insert(to, item);
-  return out;
 }

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -427,8 +426,10 @@ void _p4NewFieldsTests() {
       // 圆角由 `AppMaterial.kFixedRadiusScale` 固定，不经偏好，所以三处都没有它：
       // ① 序列化；② 偏好类本身；③ 设置界面里的滑杆。
       expect(p.toJson().containsKey('radiusScale'), isFalse);
+      // 库 + 它的全部 part（2026-10-06 拆 part 后，只读库文件会漏掉
+      // codec/derived/limits/copy/playlist 五个 part：那正是 E1-a 修过的漏扫形状）。
       expect(
-        File('lib/settings/display_prefs.dart').readAsStringSync(),
+        readLibrarySource('lib/settings/display_prefs.dart'),
         isNot(contains('radiusScale')),
       );
       expect(

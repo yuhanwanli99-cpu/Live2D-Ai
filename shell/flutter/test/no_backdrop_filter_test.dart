@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// **文字样式的形参名**：出现在某个调用实参里 ⇒ 这段颜色最终喂给了文字。
@@ -540,7 +541,10 @@ const String note = 'style: contentFaint';
 
     test('这三个文件只 import dart:*（或零依赖的本地文件）', () {
       for (final String path in pureDartOnly) {
-        final String source = File(path).readAsStringSync();
+        // 库 + 它的全部 part：`display_prefs.dart` 2026-10-06 拆了 5 个 part，
+        // 只读库文件就少扫 5 个文件的 import（part 文件本身不许有 import，
+        // 所以扫描面取并集在语义上只更强、不放宽）。
+        final String source = readLibrarySource(path);
         final List<String> imports = RegExp(
           r"^import .*$",
           multiLine: true,
