@@ -26,6 +26,7 @@ on:
     paths:
       - "shell/flutter/**"
       - "crates/*/src/**"
+      - "scripts/prune_web_artifacts.sh"
       - ".github/workflows/flutter-checks.yml"
   workflow_dispatch:
 
@@ -74,6 +75,14 @@ jobs:
   # main.dart.js 对 CDN 串命中 0，真正的决策在 flutter_bootstrap.js）。
   # 本 job 让「漏开关」在 CI 里当场变红；探针清单与判定在 scripts/ignite.sh 的
   # CDN_PROBE_SPEC / cdn_judge（**唯一真源**，--check 与 --check-dir 共用）。
+  #
+  # 2026-10-06（W2 / E4 真减 + E13 门禁化）本 job 再加一步**产物预算门禁**：
+  #   flutter build web 会把引擎缓存里的整套 CanvasKit（skwasm* / wimp* / *.symbols）
+  #   原样拷回 ⇒ 手删产物下一次构建就悄悄反弹。所以真减必须是**构建后步骤**：
+  #   scripts/prune_web_artifacts.sh 删死重，--check 断言「死重为 0 + 红线文件齐全
+  #   （chromium/ 与 base canvaskit 必须保留）+ 目录 ≤ 35 MiB（与 xtask 的
+  #   FLUTTER_WEB_BUDGET_MIB 漂移比对）」。顺序：构建 → 清减 → --check → 离线产物体检，
+  #   让离线体检验的正是**最终会被托管的那棵树**。
   # ────────────────────────────────────────────────────────────────────────────
   flutter-web-offline-artifacts:
     name: Flutter Web Offline Artifacts
@@ -98,6 +107,14 @@ jobs:
       - name: "Build Flutter web (offline: no web resources CDN)"
         working-directory: shell/flutter
         run: flutter build web --release --base-href /app/ --no-web-resources-cdn
+
+      # 产物预算门禁（E13）：先清减，再断言。顺序 = 构建 → 清减 → --check → 离线体检。
+      # --check 不改文件；残留 / 红线缺失 / 超预算 / 预算判据漂移 任一条都判红。
+      - name: Prune dead engine variants (symbols / skwasm / wimp)
+        run: ./scripts/prune_web_artifacts.sh
+
+      - name: Artifact budget gate (build/web <= 35 MiB, red lines intact)
+        run: ./scripts/prune_web_artifacts.sh --check
 
       # 产物级断言：探针文件缺失 = 红（F-0050-01 的教训：静默跳过 = 假绿）。
       - name: Offline artifact gate (no Google CDN CanvasKit)
