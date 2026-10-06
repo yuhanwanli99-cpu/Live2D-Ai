@@ -42,9 +42,10 @@
 //! `RouteId::Commands` 不再存在；`/api/v1/commands*` 现在落回
 //! `RouteId::NotImplemented`（501），与其它未实现前缀一致。
 
+use std::io::Cursor;
 use std::sync::Arc;
 
-use tiny_http::{Method, Server};
+use tiny_http::{Method, Request, Response, Server};
 
 use live2d_ai_runtime::AppSettings;
 
@@ -442,6 +443,29 @@ pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http:
 /// **D-P0B**：WS 升级前由 `check_request_origin` 校验 Origin；HTTP
 /// mutating 端点 dispatch 前在 [`dispatch_with_security`] 做 Origin + CT
 /// 校验。
+/// 前置分支的统一出口：**先记分级日志，再 respond**（F-0001-01）。
+///
+/// 四条前置路由（chat session / external chat / voice transcript / mods）与
+/// WS 前门（Origin 拒绝 / 方法错）都在 dispatch **之前**返回。从前它们直接
+/// respond + continue，于是 dispatch 末尾那条请求级日志对它们一行都不留 ——
+/// 「没能形成响应的失败」更是完全不可见，而 AGENTS.md 明令禁止
+/// 「新增只 println! 的错误路径 / 排障时一片空白」。
+///
+/// 分级判据**复用** dispatch 的那一份（>=500 error / >=400 warn / mutating
+/// 成功 info / 其余 debug）：同一件事只允许一套解释。
+///
+/// 路由标签用前置路由自己的稳定名（如 "external.chat"），与响应体 endpoint 字段同源。
+fn respond_and_log(
+    request: Request,
+    method: &Method,
+    path: &str,
+    route: &str,
+    resp: Response<Cursor<Vec<u8>>>,
+) {
+    dispatch::log_request_outcome(method, path, route, &resp);
+    let _ = request.respond(resp);
+}
+
 pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
     for mut request in server.incoming_requests() {
         let method = request.method().clone();
@@ -454,10 +478,13 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
                 // **D-P0B**：Origin 校验**先于** handle_ws_request——这样
                 // 403 响应能落盘到客户端（handle_ws_request 内部 consume
                 // request 后 caller 无法再 respond）。
-                if let Err(resp) =
-                    crate::web_api::ws::check_request_origin(&request, ctx.security.port)
-                {
-                    let _ = request.respond(resp);
+                // 先绑成变量再判：若把调用直接放进 `if let` 的 scrutinee，
+                // 对 request 的借用会活进成功分支，后面就无法把它 move 给
+                // respond_and_log（Rust 2024 的 if-let 临时值规则）。
+                let origin_check =
+                    crate::web_api::ws::check_request_origin(&request, ctx.security.port);
+                if let Err(resp) = origin_check {
+                    respond_and_log(request, &method, &path, "ws.origin_reject", resp);
                     continue;
                 }
                 let bc = ctx.broadcaster.clone();
@@ -471,7 +498,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
                 }
             } else {
                 let resp = crate::web_api::ws::ws_method_or_path_error(&method, &path);
-                let _ = request.respond(resp);
+                respond_and_log(request, &method, &path, "ws.method_or_path", resp);
             }
             continue;
         }
@@ -507,7 +534,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             origin.as_deref(),
             content_type.as_deref(),
         ) {
-            let _ = request.respond(resp);
+            respond_and_log(request, &method, &path, "chat.session", resp);
             continue;
         }
         // 节点 E5-T3：外部文本注入端点（POST /api/v1/external/chat → say →
@@ -522,7 +549,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             content_type.as_deref(),
             auth_header.as_deref(),
         ) {
-            let _ = request.respond(resp);
+            respond_and_log(request, &method, &path, "external.chat", resp);
             continue;
         }
         // Wave 2 A 轨（2026-09-14）：语音转写注入端点
@@ -538,7 +565,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             content_type.as_deref(),
             auth_header.as_deref(),
         ) {
-            let _ = request.respond(resp);
+            respond_and_log(request, &method, &path, "voice.transcript", resp);
             continue;
         }
         // 节点 E5-T3（2026-08-30）：Mod 管理路由（GET /api/v1/mods +
@@ -552,7 +579,7 @@ pub fn run_request_loop(server: tiny_http::Server, ctx: ServerContext) {
             origin.as_deref(),
             content_type.as_deref(),
         ) {
-            let _ = request.respond(resp);
+            respond_and_log(request, &method, &path, "mods", resp);
             continue;
         }
 

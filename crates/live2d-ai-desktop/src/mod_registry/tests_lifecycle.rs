@@ -220,3 +220,44 @@ fn static_settings_spec_available_when_disabled() {
         "未启用也要有 schema（factory 静态提供）"
     );
 }
+
+/// F-0013-01 / F-0644-01：手写的「当前不存在的 Mod id」与其它顶层键不得被写回抹掉。
+///
+/// 文档明确邀请用户手写 mods.json（docs/external-input.md 的启用 / 停用两处），
+/// 而旧 persist_manifest 整份从「在册 factory」重建 ⇒ 第一次配置保存就**静默**
+/// 抹掉那些键。这里先在磁盘上放一份带未知 id 的文件，再触发一次写回，逐键核对。
+#[test]
+fn persist_manifest_preserves_unknown_ids_and_top_level_keys() {
+    let dir = std::env::temp_dir().join(format!("l2d-mod-test-unknown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("mods.json");
+    std::fs::write(
+        &path,
+        r#"{"schema":"hand-written","mods":{"test":{"enabled":false},"future-mod":{"enabled":true,"config":{"x":1}}}}"#,
+    )
+    .unwrap();
+
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut reg = ModRegistry::new(FACTORIES, &on_disk).with_manifest_path(path.clone());
+    reg.enable("test").unwrap(); // 触发一次原子写回
+
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        v["mods"]["test"]["enabled"], true,
+        "在册 id 必须被更新: {v}"
+    );
+    assert_eq!(
+        v["mods"]["future-mod"]["enabled"], true,
+        "当前不存在的 Mod id 不得被抹掉: {v}"
+    );
+    assert_eq!(
+        v["mods"]["future-mod"]["config"]["x"], 1,
+        "未知 id 的 config 也要原样保留: {v}"
+    );
+    assert_eq!(v["schema"], "hand-written", "其它顶层键不得被抹掉: {v}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -39,6 +39,30 @@ impl ModRegistry {
                 settings_specs.insert(factory.descriptor().id, spec);
             }
         }
+        // F-0644-01：文件里当前不存在的 Mod id 从前是**静默**丢弃的——用户按文档
+        // 手写 mods.json 后完全不知道自己写的键被忽略了。启动时点名列一次；
+        // 这些键本身在写回时会被原样保留（见 persist_manifest）。
+        let known: std::collections::BTreeSet<&str> =
+            factories.iter().map(|f| f.descriptor().id).collect();
+        let unknown: Vec<String> = manifest
+            .get("mods")
+            .and_then(|m| m.as_object())
+            .map(|m| {
+                m.keys()
+                    .filter(|k| !known.contains(k.as_str()))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !unknown.is_empty() {
+            tracing::warn!(
+                target: "mod",
+                ids = ?unknown,
+                "mods.json 里有 {} 个当前不存在的 Mod id：本次启动忽略它们，但写回时会原样保留（不再抹掉）",
+                unknown.len()
+            );
+        }
+
         let dropped = Arc::clone(&dropped_events);
         let runtimes_for_worker = runtimes.clone();
         let worker_join = std::thread::Builder::new()
@@ -59,6 +83,7 @@ impl ModRegistry {
             runtimes,
             host: None,
             manifest_path: None,
+            raw_manifest: manifest.clone(),
         }
     }
 
@@ -82,14 +107,41 @@ impl ModRegistry {
         let Some(path) = self.manifest_path.as_deref() else {
             return;
         };
-        let mut mods = serde_json::Map::new();
+        // F-0013-01 / F-0644-01：以**磁盘当前内容**为基底（读不到 / 坏 JSON 时退回
+        // 构造时那份原始文档），**只覆写**本进程真正拥有的 id。
+        //
+        // 从前的实现整份重建 {"mods": {...}}，于是用户按文档手写的「当前不存在的
+        // Mod id」与其它顶层键，会在第一次写回时被静默抹掉——那是数据丢失，
+        // 不是清理（docs/external-input.md 两处明确邀请用户改这个文件）。
+        let mut root = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .filter(serde_json::Value::is_object)
+            .unwrap_or_else(|| self.raw_manifest.clone());
+        if !root.is_object() {
+            root = serde_json::Value::Object(serde_json::Map::new());
+        }
+        let root_obj = root.as_object_mut().expect("刚刚保证是对象");
+        if !root_obj
+            .get("mods")
+            .is_some_and(serde_json::Value::is_object)
+        {
+            root_obj.insert(
+                "mods".to_string(),
+                serde_json::Value::Object(serde_json::Map::new()),
+            );
+        }
+        let mods = root_obj
+            .get_mut("mods")
+            .and_then(|v| v.as_object_mut())
+            .expect("刚刚保证是对象");
         for (id, e) in &self.entries {
             mods.insert(
                 (*id).to_string(),
                 serde_json::json!({ "enabled": e.enabled, "config": e.config }),
             );
         }
-        let doc = serde_json::json!({ "mods": mods });
+        let doc = root;
         let text = match serde_json::to_string_pretty(&doc) {
             Ok(t) => t,
             Err(e) => {

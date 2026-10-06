@@ -172,6 +172,13 @@ pub struct ModRegistry {
     host: Option<HostChannels>,                      // P0-3 HostChannels（action + say 真实回路）。
     /// `mods.json` 路径（rc.4 M1）；未注入 = 纯内存（单测）。
     manifest_path: Option<std::path::PathBuf>,
+    /// 构造时拿到的**原始** mods.json 文档（F-0013-01 / F-0644-01）。
+    ///
+    /// `persist_manifest` 以「磁盘当前内容（读不到时退回这份）」为基底，**只覆写**
+    /// 在册 id：文件里当前不存在的 Mod id 与其它顶层键原样保留。文档明确邀请
+    /// 用户手写 mods.json（docs/external-input.md 的启用/停用两处），从前的整份
+    /// 重建会在第一次写回时把那些键静默抹掉——那是数据丢失，不是清理。
+    raw_manifest: serde_json::Value,
 }
 
 // 文件拆分（2026-10-05 债轮 R4-T1）：本文件只留类型、常量与模块头注；

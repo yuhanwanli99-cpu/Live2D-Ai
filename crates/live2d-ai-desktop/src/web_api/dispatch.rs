@@ -214,7 +214,7 @@ pub fn dispatch_with_security(
         RouteId::NotImplemented => not_implemented_response(route.as_str()),
         RouteId::NotFound => not_found_response(path),
     };
-    log_request_outcome(method, path, route, &resp);
+    log_request_outcome(method, path, route.as_str(), &resp);
     resp
 }
 
@@ -238,14 +238,21 @@ pub fn dispatch_with_security(
 ///
 /// 路径/方法/路由/状态码全是非敏感字段；**不记录请求体**（设置补丁里含提示词、
 /// 端点地址等用户内容，且没有任何诊断问题需要它）。
-fn log_request_outcome(
+///
+/// # 为什么是 pub(super) 且收字符串路由
+///
+/// F-0001-01：四条**前置路由**（chat session / external chat / voice transcript /
+/// mods，见 mod.rs 的 run_request_loop）在 dispatch **之前**就返回，从前自己
+/// respond 且**一行日志都不留**。现在它们与 WS 前门一起走 mod.rs 的
+/// respond_and_log，而分级判据**只有这一份**（同一件事不允许两套解释）。
+/// 前置路由没有 RouteId，故路由标签收成 &str；dispatch 侧传 route.as_str()。
+pub(super) fn log_request_outcome(
     method: &Method,
     path: &str,
-    route: RouteId,
+    route: &str,
     resp: &Response<Cursor<Vec<u8>>>,
 ) {
     let status = resp.status_code().0;
-    let route = route.as_str();
     if status >= 500 {
         tracing::error!(%method, path, route, status, "请求处理失败");
     } else if status >= 400 {

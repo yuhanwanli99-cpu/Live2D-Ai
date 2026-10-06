@@ -36,6 +36,15 @@ pub struct FileWatcher {
 /// 静默分叉（详见 `StatusContext::refresh_from_disk` 的说明）。
 pub type PostReloadHook = Box<dyn Fn() + Send>;
 
+/// **惰性** supervisor 来源：每次外部修改发生时**现取**当前句柄。
+///
+/// 为什么不是直接持 `Arc<SupervisorHandle>`：第一次运行（`live2d-ai.toml` 尚不存在）
+/// 时槽位是空的——而用户正是在这个窗口里建配置、写 `.env`。以前干脆不装 watcher，
+/// 于是这个窗口里改 `.env` 要等下次启动才生效，且没有任何提示（F-0002-01）。
+/// 改成「装 watcher + 事件发生时现取」之后，槽位稍后被 PATCH 路径动态装配
+/// （`SupervisorSlot::ensure_after_patch`）也能被同一条监听看见。
+pub type SupervisorSource = Box<dyn Fn() -> Option<Arc<SupervisorHandle>> + Send + 'static>;
+
 impl FileWatcher {
     /// 监听 `config_path`（及同目录 `.env`）的外部修改，检测到变更时调用
     /// `supervisor.reload()`。
@@ -45,7 +54,7 @@ impl FileWatcher {
     /// `None` = 只 reload。
     pub fn watch_config(
         config_path: impl AsRef<Path>,
-        supervisor: Arc<SupervisorHandle>,
+        supervisor: SupervisorSource,
         debounce_ms: u64,
         post_reload: Option<PostReloadHook>,
     ) -> Result<Self, String> {
@@ -90,7 +99,7 @@ impl FileWatcher {
     fn run(
         watch_dir: PathBuf,
         targets: Vec<std::ffi::OsString>,
-        supervisor: Arc<SupervisorHandle>,
+        supervisor: SupervisorSource,
         stop_flag: Arc<AtomicBool>,
         debounce_ms: u64,
         post_reload: Option<PostReloadHook>,
@@ -142,14 +151,7 @@ impl FileWatcher {
                     // 超时：检查是否需要触发 reload。
                     if pending {
                         pending = false;
-                        tracing::info!("配置文件外部修改 detected，触发 supervisor reload");
-                        supervisor.reload();
-                        // **快照也要刷新**（2026-09-11 修）：只 reload client 会让
-                        // `GET /api/v1/settings` 与磁盘分叉，且用户手改的值会在
-                        // 下一次界面「保存」时被旧快照覆盖回去。
-                        if let Some(hook) = &post_reload {
-                            hook();
-                        }
+                        on_config_changed(&supervisor, post_reload.as_ref());
                         // 防抖：等待期间忽略新事件。
                         std::thread::sleep(debounce);
                         // 清空可能累积的事件。
@@ -164,11 +166,75 @@ impl FileWatcher {
     }
 }
 
+/// 外部修改被接受后要做的动作（从 `run` 的事件循环里抽出来，**可单测**）。
+///
+/// 返回是否真的触发了 reload：
+/// - 槽位里有 supervisor → `reload()` + 返回 `true`；
+/// - **首跑窗口**（配置刚建、supervisor 还没装配）→ 只刷新快照并返回 `false`
+///   （F-0002-01：以前这种情况下 watcher 压根没装，改 `.env` 要等下次启动）。
+fn on_config_changed(supervisor: &SupervisorSource, post_reload: Option<&PostReloadHook>) -> bool {
+    let reloaded = match supervisor() {
+        Some(sup) => {
+            tracing::info!("配置文件外部修改 detected，触发 supervisor reload");
+            sup.reload();
+            true
+        }
+        None => {
+            tracing::info!(
+                "配置文件外部修改 detected，但当前没有 supervisor（首次配置窗口）——快照照常刷新，reload 待下次启动"
+            );
+            false
+        }
+    };
+    // **快照也要刷新**（2026-09-11 修）：只 reload client 会让
+    // `GET /api/v1/settings` 与磁盘分叉，且用户手改的值会在下一次界面
+    // 「保存」时被旧快照覆盖回去。没有 supervisor 时这一步**照样要做**——
+    // 首跑窗口里改的 `.env` 至少必须立刻进快照（F-0002-01）。
+    if let Some(hook) = post_reload {
+        hook();
+    }
+    reloaded
+}
+
 impl Drop for FileWatcher {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicU64;
+
+    /// F-0002-01：**首跑窗口**（槽位空）下，外部修改仍必须刷新快照，只是不 reload。
+    ///
+    /// 这条测试就是那个缺陷的守门人：把 `on_config_changed` 改回「没有 supervisor
+    /// 就整个跳过」（= 旧行为：干脆不装 watcher），它必须变红。
+    ///
+    /// 有 supervisor 的那条分支这里**不重复**覆盖：它只是「调一次
+    /// `SupervisorHandle::reload`」，reload 语义的回归在
+    /// `supervisor/tests_reload.rs`；本文件新增的契约只有「空槽位也要刷新快照」。
+    #[test]
+    fn on_config_changed_without_supervisor_still_refreshes_snapshots() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let calls_in_hook = Arc::clone(&calls);
+        let source: SupervisorSource = Box::new(|| None);
+        let hook: PostReloadHook = Box::new(move || {
+            calls_in_hook.fetch_add(1, Ordering::SeqCst);
+        });
+
+        assert!(
+            !on_config_changed(&source, Some(&hook)),
+            "没有 supervisor 时不得报告「已 reload」"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "首跑窗口也必须刷新设置/密钥快照（F-0002-01 的修复点）"
+        );
     }
 }

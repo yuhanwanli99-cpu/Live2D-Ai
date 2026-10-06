@@ -264,3 +264,34 @@ fn dispatch_chat_wrong_method_returns_405() {
     let resp = dispatch(&ctx, &Method::Get, "/api/v1/chat", "");
     assert_eq!(resp.status_code().0, 405);
 }
+/// F-0001-01 守卫：**前置路由必须走 respond_and_log**（不得自己 request.respond）。
+///
+/// 判据是 mod.rs **生产段**里的调用形状，不是「提到过这个名字」：注释先剥掉
+/// （本仓习惯把「为什么」写进注释，不剥会被自己的说明文字判红）。
+///
+/// - respond_and_log( 恰好 **7** 次 = 1 处定义 + 6 处调用（四条 API 前置路由
+///   chat / external / voice / mods + WS Origin 拒绝 + WS 方法/路径错）；
+/// - 直接 request.respond( 恰好 **4** 次 = 1 处（respond_and_log 体内）
+///   + 3 处**白名单**：两处静态资产（/render、/models、/app 这类纯读盘请求，
+///   逐文件记 info 只会把日志淹掉，刻意不记）与 dispatch 之后那一处
+///   （它已由 dispatch::log_request_outcome 记过）。
+///
+/// **零命中同样判红**：那说明判据与源码形状脱节，门禁在空转。
+#[test]
+fn pre_dispatch_responses_go_through_respond_and_log() {
+    let code: String = include_str!("mod.rs")
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let calls = code.matches("respond_and_log(").count();
+    let direct = code.matches("request.respond(").count();
+    assert!(
+        calls == 7,
+        "respond_and_log 的调用形状变了：期望 7（1 定义 + 6 调用）；新增一条前置路由就把它一起改大 —— 直接 request.respond 会让响应绕过 dispatch 的分级日志（F-0001-01）。当前={calls}"
+    );
+    assert!(
+        direct == 4,
+        "直接 request.respond 的数量变了：期望 4（respond_and_log 体内 1 + 静态资产 2 + dispatch 之后 1）。当前={direct}"
+    );
+}

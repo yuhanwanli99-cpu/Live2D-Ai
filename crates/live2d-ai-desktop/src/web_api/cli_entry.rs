@@ -331,12 +331,20 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     //
     // 2026-09-12（rc.2）：`.env` 也在监视集里——密钥真源被手改后必须生效，
     // 否则「改完 key 还是 401」会以另一种形式回来。所以钩子里**同时**刷新密钥快照。
-    let _file_watcher = if let Some(sup) = &supervisor_opt {
+    // F-0002-01（2026-10-06）：**无条件安装**。以前只在 supervisor 装配成功时才装，
+    // 于是「第一次运行（live2d-ai.toml 尚不存在）」这个窗口里改 `.env` 要等下次启动
+    // 才生效，而且没有任何提示——可首跑窗口正是用户建配置、写 key 的那一步。
+    // 现在 watcher **惰性**从槽位现取 supervisor：首跑时槽位为空 → 只刷新快照；
+    // 之后经 PATCH 动态装配（SupervisorSlot::ensure_after_patch）也能被同一条监听看见。
+    let _file_watcher = {
         let status_for_watch = ctx.status_ctx.clone();
         let path_for_watch = config_path.clone();
+        let ctx_for_watch = ctx.clone();
+        let supervisor_source: crate::web_api::file_watcher::SupervisorSource =
+            Box::new(move || ctx_for_watch.try_get_supervisor());
         match crate::web_api::file_watcher::FileWatcher::watch_config(
             &config_path,
-            Arc::clone(sup),
+            supervisor_source,
             500, // 500ms 防抖
             Some(Box::new(move || {
                 if status_for_watch.refresh_from_disk(&path_for_watch) {
@@ -357,8 +365,6 @@ pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
                 None
             }
         }
-    } else {
-        None
     };
 
     match start_server(ctx.clone(), port) {

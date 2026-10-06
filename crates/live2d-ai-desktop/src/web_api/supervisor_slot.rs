@@ -156,6 +156,15 @@ impl SupervisorSlot {
     pub fn take(&self) -> Option<Arc<SupervisorHandle>> {
         self.inner.write().ok().and_then(|mut g| g.take())
     }
+
+    /// **测试专用**：交出内部锁的 Arc，让测试能对**这把锁本身**注入毒化。
+    ///
+    /// F-0002-02：旧测试毒化的是一个类型完全不同的新建锁，与槽位无关 ⇒
+    /// 断言恒真。生产代码不得使用。
+    #[cfg(test)]
+    fn inner_arc(&self) -> Arc<RwLock<Option<Arc<SupervisorHandle>>>> {
+        Arc::clone(&self.inner)
+    }
 }
 
 impl Default for SupervisorSlot {
@@ -168,41 +177,61 @@ impl Default for SupervisorSlot {
 mod tests {
     use super::*;
 
-    /// 槽位基础：空 → set → try_get → take。
+    /// 槽位基础：空 → set → try_get → take → 二次 take = None。
+    ///
+    /// 2026-10-06（F-0002-02）：旧实现只断言「新槽位空 / 空槽位 take=None」——
+    /// 测试名承诺的 set / try_get / take 三条**一条都没验**。现在真走一遍。
     #[test]
     fn slot_lifecycle_set_get_take() {
-        // 真实 handle 需要 `spawn_supervisor`；本测试不验证 reload 行为，
-        // 只验证「槽位读写 / 拿走 / 二次拿走 = None」的 API 契约。
         let slot = SupervisorSlot::new();
         assert!(slot.try_get().is_none(), "新槽位应空");
         assert!(slot.take().is_none(), "空槽位 take = None");
+
+        let handle = test_handle();
+        slot.set(Arc::clone(&handle));
+        let got = slot.try_get().expect("set 之后 try_get 必须借出");
+        assert!(
+            Arc::ptr_eq(&got, &handle),
+            "try_get 借出的必须是同一个 handle"
+        );
+
+        let taken = slot.take().expect("take 必须取走 set 进去的那个");
+        assert!(
+            Arc::ptr_eq(&taken, &handle),
+            "take 出来的必须是同一个 handle"
+        );
+        assert!(slot.try_get().is_none(), "take 之后槽位回到空");
+        assert!(slot.take().is_none(), "二次 take = None");
     }
 
-    /// 锁毒化降级：模拟毒化后 `try_get` 不崩盘。
+    /// 锁毒化降级：毒化**槽位自己的锁**后，读 / 写 / 拿都不得 panic。
+    ///
+    /// 2026-10-06（F-0002-02）：旧测试构造的是一个 RwLock<Option<Arc<()>>> 且
+    /// 毒化它，然后 SupervisorSlot::new() 造了一把**全新未毒化**的锁 —— 断言
+    /// 「try_get 返回 None」与毒化无关（把 try_get 改成 unlocked() 同样绿）。
+    /// 现在先钉住「这把锁真的被毒化了」，再验降级语义（读=None、写=no-op）。
     #[test]
-    fn slot_poisoned_does_not_panic() {
-        use std::sync::{Arc, RwLock};
-        // 构造一个被毒化的 RwLock，等价模拟锁被 panic 持有。
-        let inner: Arc<RwLock<Option<Arc<()>>>> = Arc::new(RwLock::new(None));
-        let inner_clone = Arc::clone(&inner);
+    fn slot_poisoned_degrades_without_panic() {
+        let slot = SupervisorSlot::new();
+        let inner = slot.inner_arc();
         let _ = std::thread::spawn(move || {
-            let _guard = inner_clone.write().unwrap();
-            panic!("故意 panic 毒化 RwLock");
+            let _guard = inner.write().expect("fresh lock");
+            panic!("故意 panic：毒化 SupervisorSlot 自己的锁");
         })
         .join();
-        // 此时 inner 是 poisoned。SupervisorSlot::new() 走自己的 RwLock
-        // 与测试构造的 inner 无关——本测试仅确认 API 自身对毒化容错。
-        let slot = SupervisorSlot::new();
-        // try_get 走 .ok().and_then(...)：毒化时 lock() 返回 Err，
-        // 被 .ok() 转 Option，and_then 收尾 → None。**不** panic。
-        assert!(slot.try_get().is_none());
-        // set 同理容错。
-        slot.set(test_handle());
-        // 之后 take 也应返回 None（set 走了写锁失败；take 也走写锁失败）。
-        // 此处**不**断言 set/take 的副作用（毒化时确实降级为 no-op）。
-        let _ = slot.take();
-    }
+        assert!(
+            slot.inner_arc().is_poisoned(),
+            "前提不成立：这把锁没被毒化，后面的断言就是空转"
+        );
 
+        assert!(
+            slot.try_get().is_none(),
+            "毒化时读路径降级为 None，不 panic"
+        );
+        slot.set(test_handle()); // 毒化时写路径 = no-op（不得 panic）
+        assert!(slot.try_get().is_none(), "毒化时 set 是 no-op：读仍为 None");
+        assert!(slot.take().is_none(), "毒化时 take = None，不 panic");
+    }
     /// 测试专用 helper：构造一个 fake `SupervisorHandle`（绕过真实
     /// `spawn_supervisor`，仅用于槽位 API 边界检查）。
     ///
