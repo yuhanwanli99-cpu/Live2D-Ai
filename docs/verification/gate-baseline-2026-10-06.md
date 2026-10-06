@@ -536,3 +536,353 @@ EXIT=0
 日志可见 `Checking live2d-ai-desktop` 的**真重检**下通过。§0/§5 的 BLOCKED 在最终树上确认关闭。
 未做：真浏览器探针（`scripts/browser_probe.mjs`，属 T2 面且需浏览器锁，T5 清单未要求）、
 `ignite.sh --check` / wasm check（同上，未在此清单内）。
+
+---
+
+## 9. V1 第二轮终局独立复验（E2 / E12 / E4 / E13 最终树）
+
+> **本次验的是：提交 `834a4c67883c42f34c1b2a7b7e31178e8f87c5d8` + 起跑前工作树 0 改动。**
+> 与 §1–§8 并存不覆盖（§1–§7 = T4 @`36937df`/`cc68f06`；§8 = T5 @`43e465e`）。
+> 全程 `flock /tmp/l2d-heavy.lock` 串行；原始日志在 `/tmp/v1-gates/`；**未起浏览器**。
+
+### 9.1 起跑前快照（冻结声明）
+
+```text
+$ git log --oneline -3
+834a4c6 feat(scripts): E4 前端产物真减（−20.18 MiB）+ E13 预算变真门禁 + CI 接线
+83c89e1 fix(xtask): Dart 棘轮 1 → 0 + wasm dist 预算按实测重定为 4.2 MiB + 报告口径不再自称 PLAN
+2790a2c refactor(flutter): E2 display_prefs 1169 → 583 行（5 个同库 part）+ E12 24 键落盘守卫
+
+$ git rev-parse HEAD         -> 834a4c67883c42f34c1b2a7b7e31178e8f87c5d8
+$ git status --porcelain     -> 零行（wc -l = 0）
+$ git diff --stat            -> 空
+$ grep RATCHET_DART_800 xtask/src/code_stats/mod.rs -> 146:const RATCHET_DART_800: u64 = 0;
+```
+
+### 9.2 全套门禁（11 条，全部 exit 0）
+
+| 门禁 | exit | 原始结果 |
+|---|---:|---|
+| `cargo fmt --all -- --check` | 0 | 日志 0 字节 |
+| `cargo test --workspace --all-targets` | 0 | **1315 passed / 0 failed** |
+| `cargo test --doc --workspace` | 0 | **3 passed** |
+| `cargo clippy --workspace --all-targets -- -D warnings`（**强制重检**） | 0 | `Checking live2d-ai-desktop` + `Checking xtask`，3.66s，0 warning |
+| `cargo run -p xtask -- rust-ratio` | 0 | **96.1064%（87057 / 90584）PASS** |
+| `cargo run -p xtask -- code-stats --check` | 0 | 四条 PASS（见 9.3） |
+| `cd shell/flutter && flutter analyze` | 0 | `No issues found! (ran in 2.2s)` |
+| `cd shell/flutter && flutter test` | 0 | **`00:41 +1613: All tests passed!`** |
+| `python3 -m pytest tests/ -q` | 0 | `22 passed, 1 skipped in 0.10s` |
+| `python3 scripts/check_public_secrets.py` | 0 | `repo secret-pattern scan: ok (2146 files scanned)` |
+
+**强制重检证据**（先清包再 clippy，不是缓存短路）：
+
+```text
+$ cargo clean -p live2d-ai-desktop -p xtask
+     Removed 3033 files, 1.4GiB total
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking live2d-ai-desktop v0.2.1-rc.1 (/home/skystar/Live2D-Ai/crates/live2d-ai-desktop)
+    Checking xtask v0.2.1-rc.1 (/home/skystar/Live2D-Ai/xtask)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.66s
+EXIT=0
+```
+
+### 9.3 本轮六条具体判据（逐条独立核）
+
+**① Dart 棘轮 == 0，code-stats 行显示 `0 ≤ 0`** ✅
+
+```text
+$ grep -n 'RATCHET_DART_800' xtask/src/code_stats/mod.rs
+146:const RATCHET_DART_800: u64 = 0;
+| Dart `lib` > 800 行的文件数（上限 0） | 0 | ≤ 0 | 2 | PASS |
+（章节：#### 3.3 Dart `lib` > 800 行（0 个，PLAN 目标 ≤2））
+```
+
+**② build/web ≤35 MiB 且 `prune_web_artifacts.sh --check` exit 0** ✅
+
+```text
+| `shell/flutter/build/web` | 29.4 MiB（30804686 B） | ≤ 35 MiB | 在预算内 |
+$ ./scripts/prune_web_artifacts.sh --check
+    [ok]   死重清单 0 项（*.symbols / skwasm* / wimp*）
+    [ok]   红线文件齐全（9 项，含 chromium/ 与 base canvaskit）
+    [ok]   目录体积 30804686 B = 29.38 MiB ≤ 35 MiB（54 个文件）
+==> 通过
+EXIT=0
+```
+
+**③ 反向自证（我自己的红绿）：注入 1 MiB `*.symbols` → 红 → 删 → 绿** ✅
+
+```text
+# 注入（放在 脚本实际扫描的 canvaskit/ 下）
+$ head -c 1048576 /dev/zero > shell/flutter/build/web/canvaskit/v1-proof.symbols
+$ ./scripts/prune_web_artifacts.sh --check
+    [FAIL] 死重残留（应被清减）：
+           canvaskit/v1-proof.symbols (1048576 B)
+           [ok]   目录体积 31853262 B = 30.38 MiB ≤ 35 MiB（55 个文件）
+==> 失败：见上面的 [FAIL]
+EXIT=1
+# 删除（先 readlink -f 核对绝对路径，再 rm -f 该路径）
+$ rm -f -- /home/skystar/Live2D-Ai/shell/flutter/build/web/canvaskit/v1-proof.symbols
+$ ./scripts/prune_web_artifacts.sh --check
+    [ok]   死重清单 0 项（*.symbols / skwasm* / wimp*）
+==> 通过
+EXIT=0
+```
+
+**④ `display_prefs` 行数与 `flutter test` 计数** ✅
+
+```text
+583 shell/flutter/lib/settings/display_prefs.dart          （库，<800）
+225 display_prefs_codec.dart / 225 display_prefs_playlist.dart / 149 display_prefs_limits.dart
+ 91 display_prefs_derived.dart /  71 display_prefs_copy.dart（5 个 part 全部 <800）
+合计 1344 行 —— `flutter test` = +1613 ≥ 1583 + 30 ✅（E12 新文件 30 条断言）
+```
+
+**⑤ E12 守卫反向自证：删 toJson 一个键 → 红 → `git checkout --` 复原 → 绿** ✅
+
+改坏（`shell/flutter/lib/settings/display_prefs_codec.dart`）：
+
+```diff
+     'tier': tier,
+-    'edgeStrength': edgeStrength,
+   };
+```
+
+红（`flutter test test/display_prefs_persist_keys_test.dart`，**exit 1 / +28 -2**）：
+
+```text
+  Expected: true
+    Actual: <false>
+  键 edgeStrength 没有出现在 toJson() 里——这个字段改了不会落盘
+  test/display_prefs_persist_keys_test.dart 208:9
+00:00 +28 -2: Some tests failed.
+Failing tests:
+  …: 落盘 24 键全集（E12） toJson 的键集合 == 手写全集（少一个 / 多一个 / 改名都红）
+  …: 落盘 24 键全集（E12） 键 edgeStrength 落到 JSON 且能原样读回（其余 23 键不变）
+```
+
+复原：`git checkout -- shell/flutter/lib/settings/display_prefs_codec.dart`（本任务唯一一次写仓库文件），
+即刻 `git diff --stat -- <该文件>` = **空**。
+绿（重跑，**exit 0 / +30**）：`00:00 +30: All tests passed!`
+
+**⑥ CI 接线：YAML 可解析 + 步骤顺序 = 构建 → prune → --check → ignite --check-dir** ✅
+
+```text
+$ python3 -c "import yaml; d=yaml.safe_load(open('.github/workflows/flutter-checks.yml')); print(list(d['jobs']))"
+['flutter-analyze-test', 'flutter-web-offline-artifacts']
+
+job: flutter-web-offline-artifacts 的步骤顺序（yaml 解析后逐条打印）：
+0 Checkout code
+1 Setup Flutter (stable) + cache
+2 Resolve dependencies                 -> flutter pub get
+3 Build Flutter web (offline: no web resources CDN) -> flutter build web --release --base-href /app/ --no-web-resources-cdn
+4 Prune dead engine variants (symbols / skwasm / wimp) -> ./scripts/prune_web_artifacts.sh
+5 Artifact budget gate (build/web <= 35 MiB, red lines intact) -> ./scripts/prune_web_artifacts.sh --check
+6 Offline artifact gate (no Google CDN CanvasKit) -> ./scripts/ignite.sh --check-dir shell/flutter/build/web
+```
+
+顺序与 AGENTS.md / 脚本头注声明的「构建 → 清减 → --check → 离线体检验最终树」**一致**。
+
+### 9.4 我自己额外抓到的两个问题（不在任务清单里，但属"守卫静默失效"类）
+
+**发现 A（真问题）：`prune_web_artifacts.sh` 的"预算判据漂移"检查现在是 `[warn]`、永远不会 FAIL。**
+
+第 4 条判据本意是「本脚本的 35 MiB 与 `xtask` 的 `FLUTTER_WEB_BUDGET_MIB` 不一致就判红」，
+但 `83c89e1` 把该常量从 `u64` 改成了新的 `Mib` 单位类型，而脚本的正则仍是旧的 `u64` 形状：
+
+```text
+xtask/src/code_stats/mod.rs:180:  const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(35.0);
+scripts/prune_web_artifacts.sh:130:  sed -n 's/.*FLUTTER_WEB_BUDGET_MIB:[[:space:]]*u64[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+
+$ 用脚本原样的 sed 跑一遍现在的 mod.rs  ->  无输出（零命中）
+$ ./scripts/prune_web_artifacts.sh --check
+    [warn] 读不到 …/xtask/src/code_stats/mod.rs 的 FLUTTER_WEB_BUDGET_MIB（不影响本门禁）
+```
+
+⇒ 今天两处**恰好都是 35**，但**没有任何东西在守它**；把 xtask 侧改成 40 或脚本侧改成 30，
+`--check` 仍然 `==> 通过`。**这就是"守卫静默失效"**（与本轮 T4 抓的 clippy 假绿同类）。
+**修法建议**（未执行，写面限制）：把 `xtask_budget_mib` 改成匹配 `Mib(\([0-9.]*\))`（或直接 grep 整行再解析小数），
+并加一条自证；CI 里那一行注释仍写着「与 xtask 的 FLUTTER_WEB_BUDGET_MIB 漂移比对」——**名不副实**。
+
+**发现 B（作用域边界，如实登记）：死重扫描面是 `build/web/canvaskit/**`，不是整个 `build/web/`。**
+
+`kill_list()` 的两个 `find` 都以 `$DIR/canvaskit` 为根。实测：
+
+```text
+$ head -c 1024 /dev/zero > shell/flutter/build/web/v1-proof-root.symbols   # 放在 build/web 根
+$ ./scripts/prune_web_artifacts.sh --check
+    [ok]   死重清单 0 项（*.symbols / skwasm* / wimp*）                     # 没抓到
+EXIT=0
+（该探针文件随后已删除，最终 --check 仍 EXIT=0）
+```
+
+这**不是 bug**（Flutter 引擎只会把 `*.symbols` 拷进 `canvaskit/`，脚本头注也写明了清单来源），
+但它解释了任务书「往 build/web 放一个 `*.symbols`」这句话的**歧义**：放在根目录**不会**变红，
+必须放进 `canvaskit/` 才是判据射程。我两条都跑了，红绿以 `canvaskit/` 那条为准。
+
+### 9.5 与 §8（T5 @43e465e）的逐条对账
+
+| 项 | T5 §8 @43e465e | V1 §9 @834a4c6 | 变化原因 |
+|---|---|---|---|
+| cargo test | 1315 / 0 | **1315 / 0** | 无新 Rust 测试 |
+| doc | 3 | **3** | 同 |
+| clippy | 绿（强制重检） | **绿（强制重检，clean 两个包）** | 同（本轮 clean 面更大） |
+| rust-ratio | 96.1024%（86964/90591 口径 90491） | **96.1064%（87057/90584）** | 新增/搬迁 Dart 不影响；Rust 侧行数与分母变化 |
+| code-stats Dart 棘轮 | **1 / ≤1** | **0 / ≤0** | `83c89e1` 再收紧一格 |
+| build/web | 49.6 MiB（超预算）→ §8 时未清减 | **29.4 MiB 在预算内** | `834a4c6` E4 真减 |
+| flutter test | 1583 | **1613** | `2790a2c` E12 新增 30 条 |
+| pytest | 22 passed / 1 skipped | **22 passed / 1 skipped** | 同 |
+| 密钥扫描 | 2137 files ok | **2146 files ok** | 新增文件（脚本/文档/测试） |
+| wasm dist 预算 | — | **5.3 MiB > 4.2 MiB「超预算」**（如实打印） | `83c89e1` 重定接受值；**未在本轮真减** |
+
+### 9.6 冻结性的如实说明（同 §8.7 的情形再次出现）
+
+起跑前 0 改动成立；运行窗口内/后 Lead 又落了**非代码**改动：
+
+```text
+2026-10-06 22:02:06  AGENTS.md                                  （+本轮变更历史）
+2026-10-06 22:02:25  docs/plans/HANDOFF-2026-10-06-team-round-2.md（新建）
+2026-10-06 22:03:01  docs/plans/NEXT-ROUND-main-2026-10-06.md    （改动）
+（我的窗口：22:01:35 – 22:02:50，另加两次反向自证到 22:05 左右）
+```
+
+`git status --porcelain -- 'crates/**' 'shell/**' 'xtask/**' 'scripts/**' 'assets/**' 'tests/**'` = **空**
+⇒ 测试对象一字未变；§8.7 已实证**没有任何测试把 AGENTS.md 当输入文件读**（12 处命中全是注释），
+故 §9 的数字按「**代码语义 == 834a4c6**」成立。**我自己的写（`display_prefs_codec.dart`）已 100% 复原**：
+`git diff --stat -- shell/flutter/lib/settings/display_prefs_codec.dart` = 空。
+
+### 9.7 结论与未做
+
+**结论：11/11 门禁全绿；六条具体判据全部成立（①②④⑥ 直接核 + ③⑤ 我自己的红绿自证）；
+另独立抓到两个"守卫静默失效/作用域"级问题（发现 A 需修，发现 B 属边界登记）。**
+
+未做（如实标注，均不在 task-9 清单内）：
+
+- 真浏览器验证 / `browser_probe.mjs` —— 任务明令不起浏览器（已由 artifact-trim 做过，属它写面）；
+- `./scripts/ignite.sh --check-dir shell/flutter/build/web` —— 未跑（属产物托管面；本任务只要求核 CI 步骤顺序）；
+- wasm `dist` 真减 / `wasm-opt` —— 本机 absent，本轮未做（`83c89e1` 已如实登记为"超预算"）；
+- E7 CI 真 runner 首跑、`git push` —— 无 token / 无 runner，**仍 blocked**（不属本任务）。
+
+### 9.8 V2 复核：prune 预算漂移判据修复（`5e8193e`）
+
+> Lead 的修复 = 提交 `5e8193e`（`scripts/prune_web_artifacts.sh`）：`xtask_budget_mib` **同时认**
+> `Mib(35.0)` 与旧 `u64 = 35` 两种形状；**解析不到判 FAIL**（不再 `[warn]`）；比对改 **awk 数值比较**
+> （避免 `35.0` vs `35` 字符串比较假红）。**本节验的是：`5e8193e` + 起跑前 `scripts`/`xtask` 无改动**
+> （当时 `git status --porcelain -- scripts xtask` = 空）。**只跑脚本，未起浏览器**；日志 `/tmp/v1-gates/`。
+
+**修复后的解析器（源码，`scripts/prune_web_artifacts.sh:128-138`）**
+
+```text
+sed -n \
+  -e 's/.*FLUTTER_WEB_BUDGET_MIB[^=]*=[[:space:]]*Mib([[:space:]]*\([0-9][0-9.]*\)[[:space:]]*).*/\1/p' \
+  -e 's/.*FLUTTER_WEB_BUDGET_MIB[^=]*=[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*;.*/\1/p' \
+  "$XTASK_MOD" | head -1
+调用方（:200-211）：XB 为空 ⇒ [FAIL] 解析不到…⇒ FAIL=1；否则 awk -v a -v b 'BEGIN{exit !(a==b)}' 数值比对。
+```
+
+#### ① 未篡改 → exit 0 ✅
+
+```text
+$ ./scripts/prune_web_artifacts.sh --check
+    [ok]   死重清单 0 项（*.symbols / skwasm* / wimp*）
+    [ok]   红线文件齐全（9 项，含 chromium/ 与 base canvaskit）
+    [ok]   目录体积 30804686 B = 29.38 MiB ≤ 35 MiB（54 个文件）
+    [ok]   预算与 xtask FLUTTER_WEB_BUDGET_MIB 一致（35.0 MiB）      <-- V1 时这里是 [warn]
+==> 通过
+EXIT=0
+```
+
+**这一行就是"修复生效"的直接证据**：V1 时同一位置是 `[warn] 读不到 …`，现在真的读到了 `35.0`；
+且脚本的 `BUDGET_MIB=35`（整数）与 xtask 的 `35.0` **数值相等即通过** ⇒ **不存在 35.0 vs 35 的假红**。
+
+#### ② 反向自证（我自己的红绿）：xtask 常量改 `Mib(40.0)` → 红 → 复原 → 绿 ✅
+
+```diff
+-const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(35.0);
++const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(40.0);
+```
+
+```text
+$ ./scripts/prune_web_artifacts.sh --check
+    [ok]   死重清单 0 项（*.symbols / skwasm* / wimp*）
+    [ok]   红线文件齐全（9 项，含 chromium/ 与 base canvaskit）
+    [ok]   目录体积 30804686 B = 29.38 MiB ≤ 35 MiB（54 个文件）
+    [FAIL] 预算判据漂移：xtask=40.0 MiB vs 本脚本=35 MiB
+           两处必须同值（改预算要同时改 xtask/src/code_stats/mod.rs 与本脚本并写明理由）
+==> 失败：见上面的 [FAIL]
+EXIT=1
+
+$ git checkout -- xtask/src/code_stats/mod.rs
+$ git diff --stat -- xtask/src/code_stats/mod.rs    -> 空
+$ git status --porcelain -- scripts xtask           -> 零行
+$ ./scripts/prune_web_artifacts.sh --check | tail -1
+==> 通过
+EXIT=0
+```
+
+#### ③ 解析失败路径：常量改成解析不到的形状 → **必须 FAIL，不得再 `[warn]`** ✅
+
+改坏（模拟"改名 → 解析器跟不上了"这一真实漂移场景）：
+
+```diff
+-const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(35.0);
++const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(FLUTTER_WEB_BUDGET_DEFAULT);
+```
+
+```text
+$ ./scripts/prune_web_artifacts.sh --check
+    [ok]   死重清单 0 项（*.symbols / skwasm* / wimp*）
+    [ok]   红线文件齐全（9 项，含 chromium/ 与 base canvaskit）
+    [ok]   目录体积 30804686 B = 29.38 MiB ≤ 35 MiB（54 个文件）
+    [FAIL] 解析不到 …/xtask/src/code_stats/mod.rs 的 FLUTTER_WEB_BUDGET_MIB ⇒ 漂移比对无法执行
+           这不是「跳过」：解析不到常量 = 守卫已静默失效（改常量形状必须同步这里的解析）
+==> 失败：见上面的 [FAIL]
+EXIT=1
+
+$ grep -c '\[warn\]' 该次输出  -> 0        # V1 的软失败形态【已消失】
+$ grep -c '\[FAIL\]' 该次输出 -> 2
+
+$ git checkout -- xtask/src/code_stats/mod.rs
+$ git diff --stat -- xtask/src/code_stats/mod.rs    -> 空
+$ ./scripts/prune_web_artifacts.sh --check | tail -1
+==> 通过      （EXIT=0）
+```
+
+#### ④ 收尾：`scripts` / `xtask` 干净 ✅
+
+```text
+$ git status --porcelain -- scripts xtask
+（零行）
+```
+
+#### 额外（我加的第三条探针）：旧 `u64` 形状兼容分支确实活着 ✅
+
+修复声称"同时认旧形状"，但那是一条否则不会被任何现有用法走到的分支，所以我单独走了它：
+
+```diff
+-const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(35.0);
++const FLUTTER_WEB_BUDGET_MIB: u64 = 35;
+```
+
+```text
+$ ./scripts/prune_web_artifacts.sh --check | tail -3
+    [ok]   目录体积 30804686 B = 29.38 MiB ≤ 35 MiB（54 个文件）
+    [ok]   预算与 xtask FLUTTER_WEB_BUDGET_MIB 一致（35 MiB）
+==> 通过
+EXIT=0
+（随后 git checkout -- 复原；scripts/xtask 仍零改动）
+```
+
+#### 关于 §9.4 发现 B 的定性（按 Lead 口径更正）
+
+**发现 B 只是边界登记，不是 bug**：`kill_list()` 的两个 `find` 以 `$DIR/canvaskit` 为根是**刻意且语义正确**的
+——Flutter 引擎只会把 `*.symbols` / `skwasm*` / `wimp*` 拷进 `canvaskit/`，脚本头注也把清单来源写明了；
+放在 `build/web` 根目录的 `*.symbols` 抓不到**不影响任何真实产物的清减**。V1 记录它的价值仅在于**说明任务书
+「往 build/web 放一个 `*.symbols`」这句措辞有歧义**（必须放进 `canvaskit/` 才是判据射程）。此处按 Lead 口径
+更正定性，**不要求任何代码改动**。
+
+#### 9.8 结论
+
+**修复成立**：① 未篡改 exit 0；② `Mib(40.0)` → `[FAIL] 预算判据漂移` exit 1 → 复原 exit 0；
+③ 解析不到 → `[FAIL] 解析不到…` exit 1 且 `[warn]` 计数 **0**（软失败已消失）→ 复原 exit 0；
+④ 结束时 `git status --porcelain -- scripts xtask` **零行**；额外验了旧 `u64` 形状分支仍活。
+V1 §9.4 发现 A（`[warn]` 永久软失败）**关闭**；发现 B 按上文更正为**边界登记、非 bug**。

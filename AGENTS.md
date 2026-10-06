@@ -270,6 +270,7 @@
 | 端到端核心链（需活端点） | `python3 scripts/verify_core_chain.py --timeout 300` | `nightly.yml` → `core-chain-verify`（**仅当**配置仓库变量 `LIVE2D_AI_VERIFY_BASE_URL`） |
 | wasm 渲染面可编译 | `cargo check --target wasm32-unknown-unknown -p l2d-wasm-demo` | **暂无**（本地手动；wasm 改动必须 rebuild + 肉眼） |
 | 前端产物级离线门禁（构建 + 产物断言） | `cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn && cd ../.. && ./scripts/ignite.sh --check-dir shell/flutter/build/web` | `flutter-checks.yml` → `flutter-web-offline-artifacts` |
+| **前端产物预算门禁**（清减 + 四条判据；E4 / E13） | `./scripts/prune_web_artifacts.sh --check`（对 `shell/flutter/build/web`；先跑上面那条构建） | `flutter-checks.yml` → `flutter-web-offline-artifacts`（**Artifact budget gate**：构建 → `prune` → `--check` → `ignite.sh --check-dir`） |
 | 前端真服务离线体检（托管层；与 `ignite.sh --check` 同一份判据） | `./scripts/ignite.sh --check`（对已启动服务；`scripts/ignition-precheck.sh` 的 A 段同源） | `nightly.yml` → `web-offline-serve-check` |
 | 仓库密钥扫描（红线 R：密钥不进仓库） | `python3 scripts/check_public_secrets.py` | `secret-scan.yml` → `public-secret-scan` |
 
@@ -507,6 +508,74 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
 
 ## 变更历史
 
+- **2026-10-06 夜（第二轮团队 / 0.2 工程债清算；Lead 统一提交）**：
+  维护者裁决「**继续清理工程债务，清完就是 0.2 时代的任务**」，并同时明确：**E8 文档减量本轮不动**、
+  **R8 清洗前备份全部删除**、**E2/E4 按决策纸的推荐方案执行**。三个提交：`2790a2c`（E2 + E12）·
+  `83c89e1`（棘轮归零 + dist 预算重定 + 报告口径）· `834a4c6`（E4 + E13 + CI 接线）。
+  ① **E2（`2790a2c`）**：`display_prefs.dart` **1169 → 583 行**；新增 5 个**同库 part**
+  （playlist 225 / codec 225 / limits 149 / derived 91 / copy 71，全部 <800）⇒ Dart `lib >800` 计数
+  **1 → 0**。24 字段 / const 构造 / static const / `==` / `hashCode` / `toString` **留在类里**；
+  静态 API 面只做 **19 行转发**，调用点**零改动**；搬迁用**逐字非循环自证**（剥掉 75 处
+  `DisplayPrefs.` 限定符后，原始 **25 段**逐字出现）。守卫升级：`display_prefs_test.dart:431` 与
+  `no_backdrop_filter_test.dart:543` 改走 `readLibrarySource()`（红-绿自证）；顺带修
+  `setting_wiring_test` 的过滤条件——原判据把 5 个新 part 当**外部读者**，死字段能骗过它。
+  ② **E12（同 `2790a2c`，此前零覆盖）**：新增 `shell/flutter/test/display_prefs_persist_keys_test.dart`
+  **30 条断言** —— `toJson` 键集合 == 手写 24 键全集 == const 构造字段集合；24 键逐个**非默认值往返**
+  + `==`/`hashCode` 对称；未知键忽略；旧键迁移。`flutter test` **1583 → 1613**。
+  ③ **棘轮归零（`83c89e1`）**：`RATCHET_DART_800` **1 → 0**（与拆分同一次改动，依棘轮纪律）。
+  ④ **dist 预算重定（同 `83c89e1`）**：`WASM_DIST_BUDGET_MIB` **4 → 4.2**，并从 `u64` 改成新的
+  **`Mib` 单位类型**（允许小数、按字节精确）。理由：PLAN 的「4」是**未实测的估计值**——实测 dist
+  **5.35 MiB**、剥 `name` 段后 **≈4.11 MiB** 仍超 4，而本机**无 wasm-opt / wasm-strip** ⇒ 真减
+  **未实测、不估数**、本轮不改 wasm 构建。故把它重定为「**当前接受值**」并写明**重新评审条件**
+  （`wasm-opt` 可用时回到 ≤4 MiB）。报告口径：`report.rs` 表头「PLAN 预算」→「**预算**」，表后加说明
+  区分 PLAN 目标与实测重定的接受值，并写明「超预算」是**如实打印**、`--strict-plan` **不会**因此变绿。
+  ⑤ **E4 + E13（`834a4c6`）**：新增 **`scripts/prune_web_artifacts.sh`（234 行）** 删 6×`*.symbols` +
+  `skwasm*`/`skwasm_heavy*`/`wimp*` 共 **12 项** ⇒ `build/web` **51 964 234 B（49.56 MiB / 66 文件）
+  → 30 804 686 B（29.38 MiB / 54 文件）**；`--check` 四条判据（死重 0 / 红线文件齐全 / ≤35 MiB /
+  与 `xtask` 预算不漂移）。**`chromium/` 必须保留**：真实 Network 实测 `chromium/canvaskit.wasm`
+  **200 ×4**、死重 **0 请求**——既有调研说「`chromium/` 是无用副本」**是错的**，照删会白屏。CI 接线：
+  `flutter-checks.yml` 的 `flutter-web-offline-artifacts` job = 构建 → prune → `--check` →
+  `ignite --check-dir`。真验证：`ignite --check-dir` **四条 ok**；起服务 + CDP 连跑两次，
+  `browser_probe net` 两次 **5 项 fail 0**、独立断言 **ASSERT_FAIL=0**、未预期 **404 = 0**
+  （唯一 404 是设计内的 `/actions/field_map.json`）、控制台**真错误 []**；**反向自证 3 条**
+  （放回 `*.symbols` / 加 6 MiB 文件 / 移走 `chromium/canvaskit.wasm` 各自判红）。新增
+  `docs/architecture/artifact-budget.md`。
+  ⑥ **R8 已执行（Lead）**：删除 **6 项**清洗前历史副本（`Live2D-Ai-LEGACY-FULL-HISTORY.bundle`
+  114 930 748 B · `Live2D-Ai-PY-LEGACY.bundle` 100 919 311 B · `Live2D-Ai-baseline-28de52cf.bundle`
+  114 731 556 B · `Live2D-Ai-baseline-incremental.bundle` 13 211 521 B ·
+  `backup-2026-10-05/archive-full-history-2026-09-11.bundle` 114 771 476 B ·
+  `redesign-backup-2026-09-27.tar.gz` 6 799 153 B），删前**逐项 `stat` 核对绝对路径**，
+  实测释放 **465 391 616 B ≈ 443.8 MiB**。**未删**：`Live2D-Ai-ANDROID-ARCHIVE.bundle`（748 KB，R8 清单未含）、
+  `backup-2026-10-05/` 其余三件、`backup-2026-10-06/refs-before.txt`、
+  `/home/skystar/backups/dsh-data-backup-20260821.tar.gz`（128 MB，实测内容是 `.dsh/` **DSH 自身数据**、
+  非仓库历史 ⇒ 不属 R8 范围，需维护者另行决定）。
+  ⑦ **E10 复核**：`scripts/font_fallback_mirror.sh --check` **PASS**（21 文件 / 2 815 292 B，
+  清单 == 磁盘 == 引擎表全集）。
+  ⑧ **R7 收尾**：余 **8 条**分支各自都有**独有提交**（`git rev-list --left-right --count main...<b>`
+  右值 **1…374**）⇒ **全部保留**，本轮不再删。
+  ⑨ **仍未关（如实区分，不要读成「工程债已清空」）**：**E7 CI 真 runner 首跑**仍 **blocked**
+  （无 token / 无 runner）；**推送**仍失败（`No anonymous write access`，本机现测
+  `git rev-list --count origin/main..main` = **14**）；**E8 文档减量**按裁决**本轮不动**
+  （不含 audit **68 122 行**，PLAN ≤45 000 仍超 **23 122 行**）；**dist 无机器守门**（全仓 workflow 无
+  `trunk build`）；**新残项**：`test/dart_library_guard_test.dart` 判据③ 对含 `listSync(recursive:true)`
+  的**整文件豁免**——本轮实测它**掩盖了** `no_backdrop_filter_test` 的直读点（prefs-split 如实上报并
+  **仍升级了该处**）；nightly 的 `web-offline-serve-check` 仍构建**未清减**产物（不判体积）。
+  ⑩ **交接**：本轮落盘 [`docs/plans/HANDOFF-2026-10-06-team-round-2.md`](docs/plans/HANDOFF-2026-10-06-team-round-2.md)
+  （一分钟上手 / 三个提交 / 各轨实测数字 / **仍未关清单** / 本轮 4 个坑 / 文档指针）；
+  **V1 终局复验**结果只留指针：
+  [`docs/verification/gate-baseline-2026-10-06.md`](docs/verification/gate-baseline-2026-10-06.md) **§9**
+  ——本条**不替它下结论**。
+  ⑪ **V1 独立复核抓到一条「静默失效」并已修（`5e8193e`）**（V1 报告 §9.4）：`83c89e1` 把
+  `FLUTTER_WEB_BUDGET_MIB` 从 `u64` 改成新的 `Mib(35.0)` 类型后，`scripts/prune_web_artifacts.sh`
+  第 4 条判据「预算判据漂移」的 `sed` 仍按**旧的 `u64` 形状**匹配 ⇒ **零命中** ⇒ 走 `[warn]`
+  ⇒ **永不 FAIL**（两处当时恰好都是 35，但**没有任何东西在守它**）。修法：解析**同时认两种形状**、
+  **解析不到直接判 FAIL**（不再是 `warn`）、比对改 **awk 数值比较**。**红绿自证**：未篡改 **exit 0**；
+  把 `xtask` 常量临时改成 `Mib(40.0)` → **`[FAIL] 预算判据漂移` / exit 1**；复原 → **exit 0**。
+  **V2 独立复验**结果只留指针：[`docs/verification/gate-baseline-2026-10-06.md`](docs/verification/gate-baseline-2026-10-06.md)
+  **§9.8**（落盘后以其实际标题为准）。**边界登记（不是 bug）**：死重扫描面是 `build/web/canvaskit/**`
+  （`kill_list()` 的两个 `find` 都以 `$DIR/canvaskit` 为根），放在 `build/web` **根目录**的
+  `*.symbols` **抓不到**（V1 实测 exit 0）；Flutter 引擎只会把 `*.symbols` 拷进 `canvaskit/`、
+  脚本头注也写了清单来源 ⇒ **语义正确**，只是任务书措辞有歧义。
 - **2026-10-06 夜（团队轮：冻结基线独立复核 + 文档漂移收口 + E9 探针 + E2/E4 决策；Lead 统一提交）**：
   维护者「开始派团队处理」后，Lead 把上一轮 40 项未提交改动**冻成 3 个提交**（`65c42f3` Rust 债 /
   `b0b0365` Dart 拆分 / `36937df` 文档），再派 4 名队友：T1 文档漂移收口 · T2 E9 探针稳健性 ·
