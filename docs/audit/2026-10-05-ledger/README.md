@@ -42,16 +42,34 @@
 `scripts/check_public_secrets.py` 补了「文字口令 / 纯数字口令 / 中文『密码:』」三类模式。
 **历史提交仍含那个口令，只有重写历史 + force-push 才可能从远端抹掉；口令轮换才是真正的修复。**
 
-## 仍未关闭的 P1（下一轮候选，回源码再核）
+**2026-10-06 夜（E5 清债轮）关闭**：`F-0002-02`（`supervisor_slot` 两条假绿灯 → 真回归：生命周期真走
+set/try_get/take；毒化测试改为毒化**槽位自己的锁**并先断言 `is_poisoned()`）· `F-0006-03`（`mods_routes` 5 处
+`.expect("poisoned")` → 统一 `lock_registry()` 的 `into_inner()`，与 external/voice 同口径；回归「毒化后列表路由仍 200」）·
+`F-0013-01` + `F-0644-01`（`persist_manifest` 改为**以磁盘当前内容为基底、只覆写在册 id**：用户按文档手写的未知 Mod id
+与其它顶层键不再被静默抹掉；启动时 `warn!` 点名未知 id）· `F-0002-01`（`file_watcher` 收惰性 `SupervisorSource` 并
+**无条件安装**：首跑窗口改 `.env` 至少立刻进快照，reload 待下次启动）。四条都做了「破坏实现 → 断言变红」的双向自证；
+细则见 `AGENTS.md` 变更历史「2026-10-06 夜（第二轮）」；本批还把被顶到 1009 行的 `mods_routes.rs` 拆成
+`mods_routes_tests.rs` + `mods_routes_tests_support.rs`（`>1000` 棘轮复位）。
 
-| ID | 一句话 | 落点 |
-| --- | --- | --- |
-| `F-0001-01` | 前置路由四族（chat/external/voice/mods）**零落盘错误日志**（机制存活，但措辞需收窄：`dispatch.rs:62` 是**先路由**） | `web_api/{chat,external,voice,mods}_routes.rs` |
-| `F-0002-01` | 首次配置路径下 `file_watcher` **永久不装**（无配置文件 → 无 supervisor → 无 watcher） | `cli_entry.rs:119` 起 |
-| `F-0002-02` | `SupervisorSlot` 生命周期与锁毒化降级两条契约**没有真回归**（假绿灯） | `web_api/supervisor_slot.rs` |
-| `F-0006-03` | 同一把 `mod_registry` 锁两种相反处理；**Mod 工厂代码在锁内执行**，一次 panic 永久打死 HTTP 面 | `web_api/mods_routes.rs:163` |
-| `F-0013-01` | 未知 Mod id 静默丢失（与 `F-0644-01` 同族；文档叫用户手写 `mods.json`） | `mod_registry.rs` |
-| `F-0644-01` | `mods.json` 里当前不存在的 Mod id 被**静默**丢弃，用户无任何提示 | `mod_registry.rs:188 / :688` |
+**2026-10-06 夜（第三轮）关闭 `F-0001-01`**（台账最后一条 P1）：四条**前置路由**（chat session / external chat /
+voice transcript / mods）与 WS 前门从前直接 `request.respond + continue`，**绕过了 dispatch 的请求级日志**
+⇒「没能形成响应的失败」零记录。修法：新增 `web_api::mod::respond_and_log`（**复用** dispatch 的同一份分级判据，
+`log_request_outcome` 收成 `pub(super)` + 字符串路由标签），**6 处**（四条 API 前置路由 + WS Origin 拒绝 +
+WS 方法/路径错）统一走它；两处静态资产（`/render`、`/models`、`/app`）与 dispatch 之后那一处**刻意白名单**
+（前者逐文件记 info 会淹掉日志，后者已由 dispatch 记过）。新增守卫
+`tests_mod::pre_dispatch_responses_go_through_respond_and_log`（判据 = mod.rs 生产段的**调用形状**：
+`respond_and_log(` 恰好 7 次、直接 `request.respond(` 恰好 4 次，**零命中同样判红**），并做了
+「把 mods 路由改回直发 → 断言变红」的双向自证。
+
+## 仍未关闭的 P1：**0 条**（2026-10-06 夜清空）
+
+六条全部关闭（逐条见上「关闭状态」）。**口径三条**：
+
+1. 这张表清空 ≠ 台账没有价值——它仍是**方法学与已撤回线索**的真源（`FINDINGS.md` 的撤回首、
+   `CONSOLIDATION-*` 的根因簇、`KNOWN-LOSSES.md` 的已知盲区、`METHODOLOGY.md` 的判据）；
+2. **新的 P1 一律先写进 `FINDINGS.md`**（带调用链 / 摘录 / 反证 / 回源码复核命令），不要再往历史表里补条目；
+3. 「关闭」在本台账的口径 = **回源码复核 + 有能变红的回归**，不是「改了一行」。本轮六条都做了
+   「破坏实现 → 断言变红 → 恢复 → 断言变绿」的双向自证。
 
 **已撤回，不要再当线索追**：`F-0020-01`、`F-0030-01`、`F-0040-01`、`F-0046-01`、`F-0637-01`
 （撤回理由都在 `FINDINGS.md` 各自的段首，含 `B0273`/`B0275`/`B0598` 等批号）。

@@ -3,9 +3,11 @@
 > 本文件是项目级通用说明，供任何 CLI agent（pi / Claude Code / Hermes 等）读取。
 > 状态：2026-09-10 重写——确立 **Rust 核心 + Flutter 前端** 双主导分层，
 > 前端/接口层自 `rust-ratio` 门禁中**显式豁免**（原版只描述 Rust 单主线）。
-> **2026-10-01 单一化：本文件是唯一现行真源。** 同名文件若出现在其它 worktree
-> （`/home/skystar/Live2D-Ai` 那份还在说「动作系统已拆除」）都是**过时的历史副本**，
-> **不要**按它写代码或文档；文档地图与生命周期三分见 `docs/DOC-MAP.md`。
+> **2026-10-01 单一化：本文件是唯一现行真源。**
+> **2026-10-06 工作树单一化**：linked worktree `Live2D-Ai-fe` 已删除，**唯一工作树 =
+> `/home/skystar/Live2D-Ai`（分支 `main`）**——旧分支 `mod/persona-polish` @ `88342ce`
+> 与它那份「3 个 Mod / 0.2.0-rc.1」的教义一并退役。同名 `AGENTS.md` 若出现在别处都是
+> 过时副本，**不要**按它写代码或文档；文档地图与生命周期三分见 `docs/DOC-MAP.md`。
 > **版本口径（0.2.0 线）**：现状 = `0.2.0-rc.7`；本轮（2026-10-01）做的是 **0.2.0 收口**——
 > S0 文档整理 → `rc.8-a` 正确性与诚实性 → `rc.8-b` 结构 → 0.2.0 末版，执行计划
 > `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md`。
@@ -220,8 +222,8 @@
 
 ## 工作区与点火纪律（WSL2 ↔ Windows，2026-09-12 定）
 
-核心开发**只在 WSL2**（本轮工作树 `/home/skystar/Live2D-Ai-fe`；`/home/skystar/Live2D-Ai`
-是**死树**，只作只读参考、**不要在上面写文件**）；Windows 侧只承担**浏览器肉眼验收**。
+核心开发**只在 WSL2**（**唯一工作树 `/home/skystar/Live2D-Ai`**，分支 `main`；
+2026-10-06 已把 `Live2D-Ai-fe` 这个 linked worktree 合并回本树并删除）；Windows 侧只承担**浏览器肉眼验收**。
 两边不做第二套真相，也不互相复制产物。
 
 | 角色 | 职责 |
@@ -495,6 +497,71 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   路径即可（2026-09-11 修）。
 
 ## 变更历史
+
+- **2026-10-06 夜（第三轮：台账最后一条 P1 `F-0001-01` + E6/E10 复核；只本地改动，未提交）**：
+  ① **F-0001-01（前置路由零日志，P1）**：四条前置路由（chat session / external chat / voice transcript / mods）
+  与 WS 前门从前直接 `request.respond + continue`，**绕过 dispatch 的请求级日志** ⇒「没能形成响应的
+  失败」零记录（AGENTS.md 明令禁止的「排障时一片空白」）。现在新增 `web_api::mod::respond_and_log`：
+  **复用** dispatch 的同一份分级判据（`log_request_outcome` 收成 `pub(super)` + 字符串路由标签——
+  前置路由没有 RouteId），**6 处**统一走它（四条 API 前置路由 + WS Origin 拒绝 + WS 方法/路径错）；
+  静态资产（`/render` / `/models` / `/app`）与 dispatch 之后那一处**刻意白名单**
+  （前者逐文件记 info 会淹掉日志；后者已由 dispatch 记过）。守卫
+  `tests_mod::pre_dispatch_responses_go_through_respond_and_log`：判据 = mod.rs **生产段**的调用形状
+  （`respond_and_log(` 恰 7 次、直接 `request.respond(` 恰 4 次，**零命中同样判红**），并做了
+  「mods 路由改回直发 → 断言变红 → 恢复 → 变绿」的双向自证。
+  **台账「仍未关闭的 P1」由此清空（6 → 0）**。
+  ② **E6 复核关闭**：`F-0184-01`（「stripCommentsAndStrings 在 test/ 下有 8 份副本」）是 W3-D3 合并
+  **之前**的旧状态——现状**只有一个定义点**（`test/support/source_scan.dart`）+ 反复制门禁
+  `test/source_scan_test.dart` 20 条全过（含零命中判红）。NEXT-ROUND 该行已勾掉。
+  ③ **E10 复核**：`scripts/font_fallback_mirror.sh --check` **PASS**（清单 == 磁盘 == 引擎表全集，
+  21 文件 / 2 815 292 B，逐文件 sha256/bytes 相符）。红 = 升级 Flutter 时该重跑生成脚本的信号，不是 bug。
+  ④ 门禁（本树实测）：cargo **1315 / 0** · doc 3 · fmt clean · clippy **0 warning** ·
+  rust-ratio **96.1016% PASS** · `code-stats --check` 四条 **PASS**（44/44 · 0/0 · 1/2 · 22/22）·
+  flutter analyze 0 · flutter test **1583**。
+  ⑤ **交接**：本轮收尾落盘 [`docs/plans/HANDOFF-2026-10-06-e1-e5-debt-round.md`](docs/plans/HANDOFF-2026-10-06-e1-e5-debt-round.md)
+  （一分钟上手 / 未提交改动清单 / 下一轮顺序 / **待维护者裁决的 E2 与 E4** / 本轮 8 个坑 / 交接检查清单）。
+- **2026-10-06 夜（第二轮：E5 台账 P1 清债 —— 假绿灯 / 锁口径 / 数据保留 / 首跑窗口；只本地改动，未提交）**：
+  台账 `docs/audit/2026-10-05-ledger/` 的 6 条未关 P1 里清掉 4 条（5 个 ID），每条都做了「回源码复核 + 破坏即红」的双向自证：
+  ① **F-0002-02（假绿灯，P1）**：`supervisor_slot.rs` 的 `slot_lifecycle_set_get_take` 只断言「新槽位空 / 空槽位 take=None」——
+  测试名承诺的 set / try_get / take 一条没验；毒化测试更毒化的是一个**类型不同、与槽位无关**的新建锁，断言恒真。
+  现在：生命周期真走 `set → try_get（同一 handle）→ take → 二次 take=None`；毒化测试先 `is_poisoned()` 钉住前提，
+  再验降级语义（读=None、写=no-op、take=None），并新增 `#[cfg(test)] inner_arc()` 让测试能毒化**槽位自己的锁**。
+  ② **F-0006-03（锁口径，P1）**：`mods_routes.rs` 有 **5 处** `.expect("mod_registry mutex poisoned")`，而同仓
+  `external_routes` / `voice_routes` 对**同一把锁**用 `poisoned.into_inner()`（不 panic）。裸 `expect` 的 panic 落在
+  `run_request_loop`（无 `catch_unwind` 的 accept 循环）上 ⇒ 一次 Mod 侧 panic **永久打死 HTTP 面**。现统一为
+  `lock_registry(ctx)` 单一定义（5 处改调用），并新增回归「毒化同一把锁后 `handle_mods_list` 仍回 200」。
+  ③ **F-0013-01 / F-0644-01（静默丢数据，P1）**：`persist_manifest` 整份从「在册 factory」重建 ⇒ 用户按文档
+  （`docs/external-input.md` 两处明确邀请手改）写进 `mods.json` 的**当前不存在的 Mod id** 与其它顶层键，
+  第一次配置保存就被**静默抹掉**。现在以**磁盘当前内容**为基底（读不到 / 坏 JSON 退回构造时那份），只覆写在册 id；
+  启动时 `tracing::warn!` 点名未知 id（新增 `raw_manifest` 字段）；回归逐键核对未知 id / 其 config / 顶层键都还在。
+  ④ **F-0002-01（首跑窗口，P1）**：`file_watcher` 只在 supervisor 装配成功时才装 ⇒ 第一次运行（`live2d-ai.toml` 尚不存在）
+  这个窗口里改 `.env` 要等下次启动才生效且无提示——而首跑窗口**正是**用户建配置、写 key 的那一步。现在 `FileWatcher`
+  收 **`SupervisorSource`（惰性现取）** 并**无条件安装**：槽位空时仍刷新设置 / 密钥快照，只把 reload 留到下次启动；
+  之后经 PATCH 动态装配也能被同一条监听看见。回归 `on_config_changed_without_supervisor_still_refreshes_snapshots`。
+  ⑤ **顺带修掉的棘轮**：本批改动把 `mods_routes.rs` 顶到 **1009 行**（`>1000` 门禁 0→1 FAIL）⇒ 按既有配方把内联测试拆成
+  `mods_routes_tests.rs`(360) + `mods_routes_tests_support.rs`(158)（`#[path]` 兄弟文件，先例 `external_routes_tests_*`），
+  生产文件回到 508 行，`>500` 计数不变。
+  ⑥ 门禁（本树实测）：cargo **1314 / 0**（基线 1311 + 新回归）· doc 3 · fmt clean · clippy **0 warning** ·
+  rust-ratio **96.0981% PASS** · `code-stats --check` 四条 **PASS**（44/44 · **0/0** · 1/2 · 22/22）· flutter analyze 0 · flutter test **1583**。
+  ⑦ **仍未关**：`F-0001-01`（`web_api/{chat,external,voice,mods}` 四个**前置路由** `respond + continue` 绕过 dispatch 的
+  请求级日志 ⇒ 无响应失败零记录）——修法已定（`respond_and_log` 包装 + 四路统一 + 源码守卫），留到下一批。
+
+- **2026-10-06 夜（工作树单一化 + E1：守卫不得静默漏扫 + `main.dart` 拆分；只本地改动，未 bump 版本、未提交）**：
+  ① **工作树单一化**：删除 linked worktree `Live2D-Ai-fe`，**唯一工作树 = `/home/skystar/Live2D-Ai`（`main` @ `08338f3`）**；
+  31 G `target/` 与前端产物迁入本树（免一次全量编译），运行态（`.env` / `mods.json` / `sessions/` / wasm `dist/`）以 `-fe` 为准并入；
+  A/B 审计台账（`AUDIT-REPO/`、`AUDIT-REPO-B/`）按维护者指示**不再运行、仅作参考**，整份保运到树外 `/home/skystar/audit-ref-2026-10-06/`；
+  旧分支 `mod/persona-polish` @ `88342ce` 退役。
+  ② **E1-a 守卫不得静默漏扫**：`main.dart` 有 4 个 `part`，而 `test/` 里 **20 处**源码扫描守卫只读库文件本身
+  （14 处 `File('lib/main.dart')`、`display_prefs_test` 手写拼接漏 3 个 part 中的 2 个、`setting_wiring_test._codeOf('lib/app/app_shell.dart')` 漏 `app_shell_state.dart`、
+  `action_scales_wiring_test.readLib` 把路径交给变量）⇒ 全部改走 `test/support/dart_library.dart` 的 `readLibrarySource()`；
+  新增门禁 `test/dart_library_guard_test.dart`（3 条：part 库不得被字面量直读 / 不得有「按路径读源码」的辅助函数 / 不得「变量路径 + part 库字面量」；
+  目录递归遍历是唯一豁免），**红-绿双向自证**已做；盲区（路径经变量且同文件无该库字面量）如实写进文件头注。
+  ③ **E1-b `main.dart` 1417 → 657 行**：新增 5 个 part（`shell_cue_voice_wiring` / `shell_background_scale_wiring` /
+  `shell_section_wiring` / `shell_app_root` / `shell_lifecycle_wiring`），**逐字搬迁**（未重写一行业务代码）；
+  part 里的 extension 不能调 `setState`（`@protected`）⇒ 新增**唯一**重建桥 `_rebuild()`（14 处调用改桥，头注写明「不要另开第二条」）；
+  `initState` / `didUpdateWidget` / `dispose` 只留 `super.*` + 一次委托，本体进 part。Dart `lib >800` **2 → 1**（只剩 `display_prefs.dart` = E2）。
+  ④ 门禁（本树实测）：`cargo test --workspace --all-targets` **exit 0** · `flutter analyze` **0 issue** ·
+  `flutter test` **1583 通过 / 0 失败**（基线 1580 + 新门禁 3）· `code-stats --check` 四条 **PASS**（`>500` 44/44 · `>1000` 0/0 · Dart `>800` **1/2** · deps 22/22）。
 
 - **2026-10-06（补齐轮：**字体回落结构性离线化** + 结构硬指标达标 + **真实音频链路首次验收** + 安全类 P1 收口 + 审计台账入库）**：
   主线契约（LLM→TTS→口型→Live2D、舞台背景绘制语义、`clean_for_tts`、`[action]`、`stage-clock`、`IdleState`）**一行未改**；
