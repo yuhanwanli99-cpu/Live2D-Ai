@@ -44,6 +44,7 @@ import 'package:live2d_ai_shell/settings/sections/appearance_section.dart';
 import 'package:live2d_ai_shell/settings/settings_sections.dart';
 import 'package:live2d_ai_shell/state/ui_phase.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+import 'support/dart_library.dart';
 
 /// 1×1 透明 PNG 的 dataURL（**真图**，别用假 base64——这里会真的过 Image.memory）。
 const String _onePixelPng =
@@ -223,7 +224,7 @@ void main() {
 
   group('F-0001-2：预览跳转与运行时索引同步（接线面）', () {
     test('（源码扫描）_jumpBackground 真的推给轮播控制器，且不新增任何帧', () {
-      final String src = File('lib/main.dart').readAsStringSync();
+      final String src = readLibrarySource('lib/main.dart');
       final int start = src.indexOf('void _jumpBackground(');
       expect(start, greaterThan(-1), reason: '找不到 _jumpBackground');
       final int end = src.indexOf('\n  }', start);
@@ -254,7 +255,7 @@ void main() {
     });
 
     test('（源码扫描）syncSlideshow 把运行时索引夹回控制器的范围', () {
-      final String src = File('lib/main.dart').readAsStringSync();
+      final String src = readLibrarySource('lib/main.dart');
       final int start = src.indexOf('void syncSlideshow(');
       expect(start, greaterThan(-1));
       final int end = src.indexOf('\n  }', start);

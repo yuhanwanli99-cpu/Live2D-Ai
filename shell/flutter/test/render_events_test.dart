@@ -20,6 +20,7 @@ import 'package:live2d_ai_shell/api/ws_frame.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
 import 'package:live2d_ai_shell/live2d/render_events.dart';
+import 'support/dart_library.dart';
 
 class _FakeTransport implements Live2DTransport {
   final StreamController<String> _controller =
@@ -131,7 +132,7 @@ void main() {
       reason: '舞台必须订阅渲染面事件流（不订阅 = ack 永远到不了日志）',
     );
     expect(stage.contains('widget.onRenderEvent?.call(event)'), isTrue);
-    final String main = File('lib/main.dart').readAsStringSync();
+    final String main = readLibrarySource('lib/main.dart');
     expect(
       main.contains('onRenderEvent: _directorLog.add'),
       isTrue,

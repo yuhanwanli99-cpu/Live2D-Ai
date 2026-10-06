@@ -9,6 +9,7 @@ import 'package:live2d_ai_shell/audio/sentence_assembler.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
+import 'support/dart_library.dart';
 
 /// 只记录发出去的帧（与 `live2d_bridge_test.dart` 同形；协议级断言用）。
 class _FakeTransport implements Live2DTransport {
@@ -278,7 +279,7 @@ void main() {
 
       // 通道 A 的接线在 main.dart（VM 加载不了 → 源码扫描，先例见
       // test/action_scales_wiring_test.dart）。
-      final String main = File('lib/main.dart').readAsStringSync();
+      final String main = readLibrarySource('lib/main.dart');
       expect(main.contains('ActionCueEvent'), isTrue);
       expect(
         main.contains('_directorCues.replace(event.cues)'),

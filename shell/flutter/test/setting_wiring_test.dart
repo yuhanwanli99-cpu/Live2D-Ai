@@ -414,8 +414,7 @@ void main() {
 /// 而本项目的习惯正是**把被删掉的东西连同它的死因一起写进注释**
 ///（那是这个仓库最值钱的部分）。不去注释的话，
 /// 「我们记得为什么删掉它」会被误判成「它还在」。
-String _codeOf(String path) => File(path)
-    .readAsStringSync()
+String _codeOf(String path) => readLibrarySource(path)
     .split('\n')
     .where((String line) => !line.trimLeft().startsWith('//'))
     .join('\n');

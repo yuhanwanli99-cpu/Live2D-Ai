@@ -32,7 +32,6 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,6 +42,7 @@ import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
 import 'package:live2d_ai_shell/ui/stage_host.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 class _FakeTransport implements Live2DTransport {
@@ -232,7 +232,7 @@ void main() {
 
   group('结构守卫：main.dart 的三处接线（VM 里 main.dart 加载不了）', () {
     final String source = stripCommentsAndStrings(
-      File('lib/main.dart').readAsStringSync(),
+      readLibrarySource('lib/main.dart'),
     );
 
     test('字段 / onProgress 回调 / 传下去 —— 三处同时在，且旧写法已不在', () {

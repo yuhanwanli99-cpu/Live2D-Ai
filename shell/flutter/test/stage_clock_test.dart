@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/audio/stage_clock.dart';
 import 'package:live2d_ai_shell/live2d/live2d_bridge.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
+import 'support/dart_library.dart';
 
 class _FakeTransport implements Live2DTransport {
   final StreamController<String> _controller =
@@ -117,7 +118,7 @@ void main() {
       isTrue,
       reason: 'AudioPlayer 必须暴露采样流',
     );
-    final String main = File('lib/main.dart').readAsStringSync();
+    final String main = readLibrarySource('lib/main.dart');
     expect(main.contains('_audio.stageClock.listen('), isTrue);
     expect(main.contains('sendStageClock('), isTrue);
     final String stage = File(

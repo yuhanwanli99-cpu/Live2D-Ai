@@ -53,6 +53,7 @@ import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/live2d_transport.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// 只记录发出去的帧（与 live2d_bridge_test.dart 同形；协议级断言用）。
@@ -124,7 +125,7 @@ void main() {
     File('lib/live2d/live2d_stage.dart').readAsStringSync(),
   );
   final String mainSource = stripCommentsAndStrings(
-    File('lib/main.dart').readAsStringSync(),
+    readLibrarySource('lib/main.dart'),
   );
 
   group('结构守卫：preset 下发链每一环都在（行为在 VM 下不可达，见文件头注）', () {

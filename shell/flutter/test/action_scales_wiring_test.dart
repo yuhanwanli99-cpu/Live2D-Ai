@@ -22,7 +22,6 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +38,8 @@ import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart' show SliderField;
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
+
 /// 与 `assets/actions/preset_labels.json` 同形的**假表**：故意与
 /// `kExpressionPresetIds` 不对齐，用来证明「表优先、常量只兜底」。
 const PresetLabelTable _table = PresetLabelTable(<String, PresetLabel>{
@@ -50,7 +51,7 @@ const PresetLabelTable _table = PresetLabelTable(<String, PresetLabel>{
 });
 
 /// 读一份 `lib/**` 源码（`flutter test` 的工作目录 = 包根）。
-String readLib(String rel) => File(rel).readAsStringSync();
+String readLib(String rel) => readLibrarySource(rel);
 
 /// 一份「产品值」载荷（与服务端出厂默认同口径）。
 const Map<String, double> _product = <String, double>{

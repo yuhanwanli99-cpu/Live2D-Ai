@@ -30,10 +30,9 @@
 /// 自证用例会先红。
 library;
 
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// 剥掉注释与字符串（共享词法器：`support/source_scan.dart`，W3-D3 起唯一定义）。
@@ -51,7 +50,7 @@ final RegExp kDirectorCueCallSite = RegExp(
 
 void main() {
   final String mainSource = stripCommentsAndStrings(
-    File('lib/main.dart').readAsStringSync(),
+    readLibrarySource('lib/main.dart'),
   );
 
   test('结构：main.dart 把 _applyDirectorCueForSeq **调用**订到音频按句流上', () {

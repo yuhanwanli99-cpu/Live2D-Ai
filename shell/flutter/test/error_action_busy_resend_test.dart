@@ -34,6 +34,7 @@ import 'package:live2d_ai_shell/ui/error_actions.dart';
 import 'package:live2d_ai_shell/ui/error_banner.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// 与 `main.dart` / `shell_chat.dart` 的 busy 接线**同形**的宿主。
@@ -255,7 +256,7 @@ void main() {
 
     test('main.dart：busy 的出路接的是组合回调，不是裸 stop', () {
       final String src = stripCommentsAndStrings(
-        File('lib/main.dart').readAsStringSync(),
+        readLibrarySource('lib/main.dart'),
       );
       final String args = balancedFrom(src, 'errorActionsFor(', '(', ')');
       expect(args, contains('onInterruptAndResend:'));

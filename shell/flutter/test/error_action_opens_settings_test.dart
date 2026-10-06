@@ -36,7 +36,6 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +52,7 @@ import 'package:live2d_ai_shell/ui/error_actions.dart';
 import 'package:live2d_ai_shell/ui/error_banner.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// 侧板里那个折叠容器。
@@ -261,7 +261,7 @@ void main() {
 
   test('结构：main.dart 的错误动作 onGoto 回调体内调了 openSettings()', () {
     final String src = stripCommentsAndStrings(
-      File('lib/main.dart').readAsStringSync(),
+      readLibrarySource('lib/main.dart'),
     );
 
     final String args = balancedFrom(src, 'errorActionsFor(', '(', ')');

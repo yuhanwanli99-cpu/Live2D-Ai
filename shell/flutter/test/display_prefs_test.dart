@@ -7,6 +7,8 @@ import 'package:live2d_ai_shell/design/background_item.dart';
 import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
 
+import 'support/dart_library.dart';
+
 /// 外观分区的源码 = 主文件 + 它的 part。
 ///
 /// 2026-09-28（Stage B · R6-b 第 0 步）：背景域被**原样抽取**到
@@ -14,8 +16,7 @@ import 'package:live2d_ai_shell/settings/display_prefs.dart';
 /// 这两条源码扫描断言关心的是「外观分区里有没有读这个字段」，不是「它在哪个
 /// 文件里」——所以扫描面取**并集**，抽取前后断言强度不变。
 String appearanceSectionSource() =>
-    File('lib/settings/sections/appearance_section.dart').readAsStringSync() +
-    File('lib/settings/sections/appearance_background.dart').readAsStringSync();
+    readLibrarySource('lib/settings/sections/appearance_section.dart');
 
 void main() {
   group('DisplayPrefs 默认值', () {
@@ -394,8 +395,7 @@ void _p4NewFieldsTests() {
   // ───────────────────────────────────────────────────────────────────────────
   group('P0-3：滑杆区间与 clamp 共用同一组常量', () {
     test('appearance_section 的滑杆不写字面量区间', () {
-      final String src = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+      final String src = readLibrarySource('lib/settings/sections/appearance_section.dart');
       // ⚠️ 字面量里的 `.` **必须转义**：不转的话 `3.0` 会匹配 `300`
       //（`.` 是通配符），这条守卫就会在「合法地写了 300」时误报。
       for (final String literal in <String>['0.5', '2.0', '0.2', '3.0']) {
@@ -409,8 +409,7 @@ void _p4NewFieldsTests() {
     });
 
     test('滑杆确实读了那四个常量（防「删掉字面量但也没接上」）', () {
-      final String src = File('lib/settings/sections/appearance_section.dart')
-          .readAsStringSync();
+      final String src = readLibrarySource('lib/settings/sections/appearance_section.dart');
       for (final String name in <String>[
         'DisplayPrefs.minScale',
         'DisplayPrefs.maxScale',
@@ -433,8 +432,7 @@ void _p4NewFieldsTests() {
         isNot(contains('radiusScale')),
       );
       expect(
-        File('lib/settings/sections/appearance_section.dart')
-            .readAsStringSync(),
+        readLibrarySource('lib/settings/sections/appearance_section.dart'),
         isNot(contains("label: '圆角幅度'")),
       );
     });

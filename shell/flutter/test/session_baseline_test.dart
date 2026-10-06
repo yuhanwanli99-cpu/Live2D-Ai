@@ -12,7 +12,6 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -22,6 +21,7 @@ import 'package:live2d_ai_shell/api/ws_frame.dart';
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/session_baseline.dart';
 import 'package:live2d_ai_shell/live2d/stage_cancel.dart';
+import 'support/dart_library.dart';
 
 /// host 的 D31 取消信号原文（真实形状，见 `chat_routes.rs` 的
 /// `return_to_session_baseline`：既有 action_cue 帧 + `baseline`/`reason`）。
@@ -284,7 +284,7 @@ void main() {
   });
 
   test('wiring（源码扫描）：两路交付都接进 baseline 应用', () {
-    final String main = File('lib/main.dart').readAsStringSync();
+    final String main = readLibrarySource('lib/main.dart');
     expect(
       main.contains('onSessionBaseline: _onSessionBaselineDelivered'),
       isTrue,

@@ -23,7 +23,6 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -34,6 +33,7 @@ import 'package:live2d_ai_shell/settings/display_prefs.dart';
 
 // 复用仓库既有的「剥掉注释与字符串字面量」工具（`diff` 里同款）：
 // 结构性守卫必须扫**代码**，否则注释里提一句旧实现就把它自己判红。
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// A 的字节（水合开始前就在库里）。
@@ -232,7 +232,7 @@ void main() {
     // 扫的是**调用形状**（不是某一行字），而且先**剥掉注释与字符串**——
     // 否则注释里提一句旧实现就会把守卫自己判红。改坏接线断言就红。
     final String src = stripCommentsAndStrings(
-      File('lib/main.dart').readAsStringSync(),
+      readLibrarySource('lib/main.dart'),
     );
 
     test('F-0002-2：_store 一开始就是真库（不是 MemoryBackgroundStore 占位）', () {

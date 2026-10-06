@@ -21,7 +21,6 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +30,7 @@ import 'package:live2d_ai_shell/ui/error_actions.dart';
 import 'package:live2d_ai_shell/ui/error_banner.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// 与生产接线**同形**的宿主：`input` = 输入框当前内容（失败后为空串），
@@ -182,7 +182,7 @@ void main() {
   group('结构守卫：把行为级那一半钉回生产接线（main.dart）', () {
     String mainArgs() {
       final String src = stripCommentsAndStrings(
-        File('lib/main.dart').readAsStringSync(),
+        readLibrarySource('lib/main.dart'),
       );
       return balancedFrom(src, 'errorActionsFor(', '(', ')');
     }

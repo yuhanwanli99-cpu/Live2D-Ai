@@ -29,13 +29,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 /// 剥掉注释与字符串（否则本文件自己的注释就会把断言判红）。
 ///
 /// 词法器在 `support/source_scan.dart`（W3-D3：8 份副本合并为 1 份）。
 String mainSource() =>
-    stripCommentsAndStrings(File('lib/main.dart').readAsStringSync());
+    stripCommentsAndStrings(readLibrarySource('lib/main.dart'));
 
 void main() {
   group('P2-2：切分区只有一条路', () {
