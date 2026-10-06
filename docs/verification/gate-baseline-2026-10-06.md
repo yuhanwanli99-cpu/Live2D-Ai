@@ -341,6 +341,24 @@ $ git diff --stat -- shell/flutter/test/setting_wiring_test.dart crates/live2d-a
 - **边界**：`cargo clean` 后的全新全量 clippy 未跑（§4.1 已标注）；`flutter test` 是**全量**跑（+1583），不是只跑新门禁。
 - **口径如实**：§2 的 1315 / 1583 等数字是"跑出来的"，不是"接文档抄的"；唯一不一致处已单列，没有被摊平进"全绿"。
 
+## 6. 原始日志（会话内留档）
+
+| 文件 | 内容 |
+|---|---|
+| `/tmp/t4-gates/test-all.log` | cargo test 全量（104 KB） |
+| `/tmp/t4-gates/test-doc.log` | doc tests |
+| `/tmp/t4-gates/fmt.log` | fmt（空 = clean） |
+| `/tmp/t4-gates/clippy.log` · `clippy-rerun.log` | **clippy 红 ×2（逐字相同）** |
+| `/tmp/t4-gates/clippy-no-all-targets.log` | 诊断：不带 `--all-targets` 时 exit 0 |
+| `/tmp/t4-gates/clippy-keepgoing.log` | `--keep-going` 全量：仅 desktop 一个 crate 报错 |
+| `/tmp/t4-gates/clippy-after-fix.log` · `clippy-after-fix.exit` | **cc68f06 复检：exit 0**（0.20s、0 条 Checking = 全缓存命中，见 §7） |
+| `/tmp/t4-gates/rust-ratio.log` · `code-stats.log` | xtask 两条 |
+| `/tmp/t4-gates/flutter-analyze.log` · `flutter-test.log` | flutter 两条（+1583） |
+| `/tmp/t4-gates/red-dart.log` · `green-dart.log` | Dart 守卫红/绿 |
+| `/tmp/t4-gates/red-rust.log` · `green-rust.log` | Rust 守卫红/绿 |
+
+> `/tmp` 是会话临时目录；若需长期留证，请 Lead 决定是否转存到 `docs/verification/evidence-2026-10-06/`（不在本任务写面内，未动）。
+
 ## 7. 复检：cc68f06 之后 clippy 真绿（Lead 指派单条复验）
 
 > Lead 已修：提交 `cc68f06` 把 `tests_mod.rs:275` 的 `+ 3 处…` 改成 `另有 3 处…`（消除 markdown 把 `+`
@@ -376,20 +394,145 @@ EXIT=0
 
 **结论：clippy 门禁在 cc68f06 上 PASS（exit 0）。§0 与 §5 的 BLOCKED 项由此关闭。**
 
-## 6. 原始日志（会话内留档）
 
-| 文件 | 内容 |
-|---|---|
-| `/tmp/t4-gates/test-all.log` | cargo test 全量（104 KB） |
-| `/tmp/t4-gates/test-doc.log` | doc tests |
-| `/tmp/t4-gates/fmt.log` | fmt（空 = clean） |
-| `/tmp/t4-gates/clippy.log` · `clippy-rerun.log` | **clippy 红 ×2（逐字相同）** |
-| `/tmp/t4-gates/clippy-no-all-targets.log` | 诊断：不带 `--all-targets` 时 exit 0 |
-| `/tmp/t4-gates/clippy-keepgoing.log` | `--keep-going` 全量：仅 desktop 一个 crate 报错 |
-| `/tmp/t4-gates/clippy-after-fix.log` · `clippy-after-fix.exit` | **cc68f06 复检：exit 0**（0.20s、0 条 Checking = 全缓存命中，见 §7） |
-| `/tmp/t4-gates/rust-ratio.log` · `code-stats.log` | xtask 两条 |
-| `/tmp/t4-gates/flutter-analyze.log` · `flutter-test.log` | flutter 两条（+1583） |
-| `/tmp/t4-gates/red-dart.log` · `green-dart.log` | Dart 守卫红/绿 |
-| `/tmp/t4-gates/red-rust.log` · `green-rust.log` | Rust 守卫红/绿 |
+---
 
-> `/tmp` 是会话临时目录；若需长期留证，请 Lead 决定是否转存到 `docs/verification/evidence-2026-10-06/`（不在本任务写面内，未动）。
+## 8. T5 终局独立复验（所有写者停止后的最终树）
+
+> **本次验的是：提交 `43e465eb34ccc2fdd21a6749f78c20f723562077` + 工作树 0 改动。**
+> （Lead 发话「所有写者已停止、工作树已冻结」后开跑；下文的起跑前快照即证据。）
+> 与 §1–§7 的 T4 记录**并存不覆盖**：§1–§7 验的是 `36937df` / `cc68f06`，本节验 `43e465e`。全程
+> `flock /tmp/l2d-heavy.lock` 串行，原始日志在 `/tmp/t5-gates/`。
+
+### 8.1 起跑前快照（冻结声明）
+
+```text
+$ git rev-parse HEAD
+43e465eb34ccc2fdd21a6749f78c20f723562077
+
+$ git status --porcelain
+（零行）
+$ git status --porcelain | wc -l
+0
+
+$ git diff --stat
+（空）
+
+$ grep -n 'RATCHET_DART_800' xtask/src/code_stats/mod.rs
+144:const RATCHET_DART_800: u64 = 1;
+
+$ stat -c '%y %n' shell/flutter/build/web/main.dart.js
+2026-10-06 20:36:38.677891492 +0800 shell/flutter/build/web/main.dart.js   # probe-robustness 重建产物（本轮）
+```
+
+### 8.2 门禁逐条（11 条，全部 exit 0）
+
+| 门禁 | exit | 原始结果 |
+|---|---:|---|
+| `cargo fmt --all -- --check` | 0 | 日志 0 字节（无 diff） |
+| `cargo test --workspace --all-targets` | 0 | **1315 passed / 0 failed**（22 个 test target 汇总） |
+| `cargo test --doc --workspace` | 0 | **3 passed / 0 failed** |
+| `cargo clippy --workspace --all-targets -- -D warnings`（强制重检，见 8.3） | 0 | **真重检 live2d-ai-desktop + xtask**，3.65s 完成，0 warning |
+| `cargo run -p xtask -- rust-ratio` | 0 | **96.1024%（86964 / 90491）PASS**（门槛 95%） |
+| `cargo run -p xtask -- code-stats --check` | 0 | 四条 PASS；**Dart 行 = `1 | ≤ 1 | 2 | PASS`**（棘轮已收紧，见 8.4） |
+| `cd shell/flutter && flutter analyze` | 0 | `No issues found! (ran in 3.6s)` |
+| `cd shell/flutter && flutter test` | 0 | **`00:38 +1583: All tests passed!`** |
+| `python3 -m pytest tests/ -q` | 0 | `22 passed, 1 skipped in 0.11s` |
+| `python3 scripts/check_public_secrets.py` | 0 | `repo secret-pattern scan: ok (2137 files scanned)` |
+
+原始片段：
+
+```text
+$ grep -E '^test result:' test-all.log | awk '{p+=$4; f+=$6} END {print "passed="p" failed="f}'
+passed=1315 failed=0
+
+$ tail -1 flutter-test.log
+00:38 +1583: All tests passed!
+
+$ grep -E '结论|Rust\(rs\)|门槛' rust-ratio.log
+Rust(rs) 占比: 96.1024%（86964 / 90491 物理行）
+门槛        : 95.0000%
+结论        : PASS — 达到或高于门槛
+
+$ code-stats 硬门禁四行
+| crates/*/src .rs > 500 行的文件数（上限 44）        | 44 | ≤ 44 | 15 | PASS |
+| Dart lib > 800 行的文件数（上限 1）                |  1 | ≤  1 |  2 | PASS |
+| crates/*/src .rs > 1000 行的文件数（上限 0）       |  0 | ≤  0 |  0 | PASS |
+| live2d-ai-desktop 顶层 [dependencies] 条数（上限 22）| 22 | ≤ 22 | 22 | PASS |
+- 结论：PASS —— 判定范围内无超限；退出码 0
+```
+
+### 8.3 clippy 强制重检（**不依赖缓存**，Lead 指派的必查项 ③）
+
+**做法**：先 `cargo clean -p live2d-ai-desktop`（清掉该包的产物），再跑全量 clippy；判据是日志里
+**必须出现 `Checking live2d-ai-desktop`**。
+
+```text
+$ cargo clean -p live2d-ai-desktop
+     Removed 5564 files, 9.9GiB total
+
+$ cargo clippy --workspace --all-targets -- -D warnings
+    Checking live2d-ai-desktop v0.2.1-rc.1 (/home/skystar/Live2D-Ai/crates/live2d-ai-desktop)
+    Checking xtask v0.2.1-rc.1 (/home/skystar/Live2D-Ai/xtask)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.65s
+EXIT=0
+```
+
+**读法**：`Checking live2d-ai-desktop` 出现 = 该 crate（含 `cfg(test)` 的 `--all-targets`）**真的被重新检查过**，
+不是 §7 那种 0.20s 短路；`Checking xtask` 同理（xtask 源码也变过）。两条都 0 warning ⇒
+**修复在非纯缓存路径下成立**。（`cargo clean -p` 只动 `target/`，不碰工作树、不碰 `.git`。）
+
+### 8.4 棘轮收紧的核对（Lead 指派的必查项 ②）
+
+`f5210f3` 把 `RATCHET_DART_800` 由 2 收到 1（`grep` 实测 `= 1`）。code-stats 输出：
+
+```text
+| Dart `lib` > 800 行的文件数（上限 1） | 1 | ≤ 1 | 2 | PASS |
+```
+
+显示的是 **上限 1**（不是 2）⇒ **我跑的就是最终树**，Lead 提的「若仍显示 2 说明跑错树」的告警未触发。
+当前唯一超 800 行的 Dart lib 文件 = `display_prefs.dart`（= 待裁决的 E2）。
+
+### 8.5 前端产物新鲜度（必查项 ④）
+
+`shell/flutter/build/web/main.dart.js` mtime = **2026-10-06 20:36:38**（probe-robustness 本轮重建）。
+本次 T5 **没有重建产物**（只跑了 `flutter analyze` / `flutter test`，两者都不写 `build/web`），
+故产物新鲜度沿用其 mtime 判定，未另行核对内容。
+
+### 8.6 与 T4（`36937df`）的差异——逐条
+
+| 项 | T4 @36937df | T5 @43e465e | 说明 |
+|---|---|---|---|
+| cargo test | 1315 / 0 | **1315 / 0** | 相同（本轮新增的是文档/探针，无新 Rust 测试） |
+| doc | 3 | **3** | 相同 |
+| clippy | **红（2 error）** | **绿（exit 0，强制重检）** | 由 `cc68f06` 修掉 |
+| rust-ratio | 96.1016%（86946/90473） | **96.1024%（86964/90491）** | 分母/分子小幅上涨（探针脚本 + 文档轮次带来的 `.rs`/注释），仍 PASS |
+| code-stats Dart 棘轮 | 1/2 | **1/1** | `f5210f3` 同 commit 收紧常量（欠账已补） |
+| flutter test | 1583 | **1583** | 相同 |
+| pytest / 密钥扫描 | 未跑 | **22 passed/1 skipped · 2137 files ok** | T5 补齐 |
+
+### 8.7 冻结性的一个如实修正（跑动期间树又被写了）
+
+起跑前 0 改动**成立**；但在我的运行窗口内，Lead 又落了两个**非代码**改动：
+
+```text
+2026-10-06 21:22:58  AGENTS.md                                        （+50 行，变更历史本轮段落）
+2026-10-06 21:23:20  docs/plans/HANDOFF-2026-10-06-team-round.md      （新建）
+（我的窗口：21:22:10 – 21:23:22）
+```
+
+**影响判定（我自己核的，不转述）**：
+
+- `git status --porcelain -- 'crates/**' 'shell/**' 'xtask/**' 'scripts/**' 'assets/**'` = **空**
+  ⇒ **测试对象一个字节都没变**；
+- 有没有测试**读 AGENTS.md 内容**？我全仓 grep（`shell/flutter/test` / `crates` / `tests`）：
+  命中 **12 处，全部是注释/文档注释里的文字引用**（如「AGENTS.md 行数纪律」），
+  **没有任何测试把它当输入文件读**；`docs/plans` 的 1 处命中同样是注释 ⇒ **无竞态**。
+- 故 §8.2 的数字仍按「**代码语义 == 43e465e**」成立；这条差异只影响"整树字节冻结"的说法，不影响门禁结论。
+
+### 8.8 结论
+
+**11/11 门禁全绿（exit 0）**，其中 clippy 是在 `cargo clean -p live2d-ai-desktop` 之后、
+日志可见 `Checking live2d-ai-desktop` 的**真重检**下通过。§0/§5 的 BLOCKED 在最终树上确认关闭。
+未做：真浏览器探针（`scripts/browser_probe.mjs`，属 T2 面且需浏览器锁，T5 清单未要求）、
+`ignite.sh --check` / wasm check（同上，未在此清单内）。

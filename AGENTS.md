@@ -507,6 +507,56 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
 
 ## 变更历史
 
+- **2026-10-06 夜（团队轮：冻结基线独立复核 + 文档漂移收口 + E9 探针 + E2/E4 决策；Lead 统一提交）**：
+  维护者「开始派团队处理」后，Lead 把上一轮 40 项未提交改动**冻成 3 个提交**（`65c42f3` Rust 债 /
+  `b0b0365` Dart 拆分 / `36937df` 文档），再派 4 名队友：T1 文档漂移收口 · T2 E9 探针稳健性 ·
+  T3 E2/E4 决策论证 · T4 冻结基线独立复核；另有 T5 终局复验（见 ⑨）。
+  ① **本轮最有价值的单点（T4）：冻结基线并非全绿 —— clippy 真红**：在 `36937df` 上
+  `cargo clippy --workspace --all-targets -- -D warnings` **红 2 条** `doc_lazy_continuation`
+  （`crates/live2d-ai-desktop/src/web_api/tests_mod.rs:276/277`：第 275 行以「+」起头被 markdown 当成
+  新列表项，续行 3 空格不够）；而**只在不带 `--all-targets` 的 clippy 下不报** ⇒ 上一轮交接里那句
+  「clippy 0 warning」正是**这个口径（+ 缓存）造成的假绿**。修复 = `cc68f06`（「+ 」→「另有 」，
+  **纯注释、语义零变化**），T4 复检 **EXIT=0**。这是「**不许伪造绿灯**」在本轮的实例：**门禁命令
+  一个字都不能省**，改注释也算改代码。
+  ② **T1 文档漂移收口（`37f94ec`）**：R6 四条 —— 版本口径 `0.2.0`/`rc.7` → 现行 **`0.2.1-rc.1`**；
+  `archive/action-layer-p6` 的 10+ 处引用按「**分支已不存在**」改写（本地 / 远端 / 4 个历史 bundle
+  的 heads 均无）并给出**等价取回命令**（`git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs` /
+  `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs`）；R3 的「已删除 `mainline/1-core-baseline`」
+  更正为「本地已删、远端 `b58b223` 仍在」；旧账本路径统一到 `docs/audit/2026-10-05-ledger/`。
+  新复核三条 —— `README.zh-CN.md` 的 director「零投递…不驱动动作」过期、
+  AGENTS.md 的「真实 HTTP 客户端尚未接线」过期（P1-4 `staging_http.rs` 已接线）、`xtask` 留债栏
+  `main.dart 1411` 过期（实际 **657**）。另：台账历史引用加注「**刻意不改**，改台账 = 篡改证据」；
+  `docs/plans/AUDIT-PROMPT-whole-repo-2026-10-06.md` 里指向已删除 `-fe` 树的路径整体改判。
+  ③ **Dart 棘轮同 commit 收紧（`f5210f3`）**：`RATCHET_DART_800` **2 → 1**（补 E1-b 欠的那一步：
+  让计数下降的 commit 必须同 commit 收紧常量，否则「涨回 2 仍绿」）。`cargo test -p xtask` **27 passed**、
+  `code-stats --check` Dart 行 **1 ≤ 1 PASS**。
+  ④ **E8 文档减量账（T1 实测）**：`docs/**/*.md` 全部 **1,279 份 / 143,270 行**；**不含 `docs/audit/**`
+  = 265 份 / 68,122 行**；`docs/audit/` 自身 **1,014 份 / 75,148 行**。结论：`xtask code-stats` 的 docs 行
+  **不排除** audit ⇒「归档不减总量」成立；PLAN §5 的「docs ≤45,000」按不含 audit **仍未达标**（超 23,122 行）。
+  ⑤ **T2 E9 探针稳健性（`7d53def`）**：`audio-c` 改**三路取证**（DOM 2000→500 ms + 页内自增 id +
+  页内媒体记录器 + CDP `Media` 域）⇒ 真实链路两轮 `audio-a/b/c` **全 pass、0 blocked**；四主题像素阈值
+  **各自标定**（`themebase` 16 次实测：ON = 基线 + 40%×(红信号−基线)、OFF = 基线 + 12、
+  `maxShare` = share + 0.02）；`all` 同一 HEAD / 同一脚本哈希连跑两遍：**各 40 项 pass 36 ·
+  manual-only 4 · fail 0 · blocked 0，判定 0 处不同**；`8b` 新鲜度重建后真绿；离线产物门禁
+  `ignite.sh --check-dir` 四条 ok；受控自证 `mediaspy`（含阴性对照）。证据
+  `docs/verification/evidence-2026-10-06-e9/`。
+  ⑥ **T3 E2/E4 决策论证（`43e465e`，两份方案纸）**：**E2** 推荐 **B2**（同库 `part` + extension 外搬，
+  可 1 → 0；A 类分解暂不做）——关键事实：**24 键落盘全集零测试覆盖**；**E4** `build/web` 走**真减**
+  （删 `*.symbols` + `skwasm*`/`wimp*`，**−20.18 MiB → 29.38 MiB**，`chromium/` 必须保留），
+  `dist` 只靠剥 `name` 段**仍超预算 0.115 MiB**，`wasm-opt` 本机 absent ⇒ **不估数**。
+  两者**均待维护者裁决**。
+  ⑦ **仓库**：Lead 删除 5 条 0 领先本地分支（`feat/frontend-redesign` / `chore/debt-round-2026-10-05` /
+  `mainline/1-core-baseline` / `pr-1` / `mod/persona-polish`，删前 `git rev-list --left-right --count`
+  右值均 0，用 `git branch -d`）；`git push origin main` **失败**（remote 回
+  `No anonymous write access.` / `fatal: Authentication failed`，**无 token**）。
+  ⑧ 门禁（**在 `36937df` 上由 T4 自跑**）：cargo **1315 / 0** · doc **3** · fmt clean ·
+  rust-ratio **96.1016% PASS** · `code-stats --check` 四条 **PASS**（Dart 行在 `f5210f3` 后为 **1 ≤ 1**）·
+  flutter analyze **0** · flutter test **1583**；唯一例外 = ① 的 clippy（`cc68f06` 后 **EXIT=0**）。
+  ⑨ **交接**：本轮落盘 [`docs/plans/HANDOFF-2026-10-06-team-round.md`](docs/plans/HANDOFF-2026-10-06-team-round.md)
+  （一分钟上手 / 三块交付 / **待维护者裁决四项**：E2 · E4 · R8 · 推送 token / 本轮 6 个坑 / 文档指针）。
+  **T5 终局复验**（独立复核）的结果只留指针：
+  [`docs/verification/gate-baseline-2026-10-06.md`](docs/verification/gate-baseline-2026-10-06.md) 的 T5 章
+  （§8，落盘后以其实际标题为准）——本条**不替它下结论**。
 - **2026-10-06 夜（第三轮：台账最后一条 P1 `F-0001-01` + E6/E10 复核；只本地改动，未提交）**：
   ① **F-0001-01（前置路由零日志，P1）**：四条前置路由（chat session / external chat / voice transcript / mods）
   与 WS 前门从前直接 `request.respond + continue`，**绕过 dispatch 的请求级日志** ⇒「没能形成响应的

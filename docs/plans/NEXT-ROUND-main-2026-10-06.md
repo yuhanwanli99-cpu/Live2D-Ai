@@ -1,8 +1,10 @@
 # 下一轮清单（**在 main 上开工**）· 2026-10-06 补齐轮交接
 
-> **接手先读**：[`HANDOFF-2026-10-06-e1-e5-debt-round.md`](HANDOFF-2026-10-06-e1-e5-debt-round.md)
-> （2026-10-06 夜：工作树单一化 + E1 拆分 + **台账 6 条 P1 全清**；含未提交改动清单、门禁数字、
-> 待维护者裁决的两件事（E2 / E4）与本轮踩到的 8 个坑）。
+> **接手先读**：[`HANDOFF-2026-10-06-team-round.md`](HANDOFF-2026-10-06-team-round.md)
+> （2026-10-06 夜**团队轮**：冻结基线独立复核（**clippy 真红**）+ 文档漂移收口 + E9 探针 + E2/E4 决策论证；
+> 含一分钟上手、8 个提交、各轨实测数字、**待维护者裁决四项**、本轮 6 个坑）。
+> 上一份（工作树单一化 + E1 拆分 + 台账 6 条 P1 全清）：
+> [`HANDOFF-2026-10-06-e1-e5-debt-round.md`](HANDOFF-2026-10-06-e1-e5-debt-round.md)。
 >
 > 本轮报告：[`../audit/2026-10-06-gaps-round/ROUND-REPORT.md`](../audit/2026-10-06-gaps-round/ROUND-REPORT.md)。
 > 本文只写**没做完的**，每条给「现状 / 可执行规格 / 验收判据」。纪律不变：回源码复核（行号会腐烂）、
@@ -20,16 +22,19 @@
 
 | # | 事项 | 现状 / 规格 | 判据 |
 | --- | --- | --- | --- |
-| **E1** | `main.dart` 1411 行拆分 | **17 条源码扫描守卫直接读 `lib/main.dart`**。先按本轮建好的 `test/support/dart_library.dart`（库 + parts 并集读取）把守卫升级，再按顶层类边界 `part` 拆 | `flutter analyze` 0 issue、`flutter test` 只增不减、Dart >800 再降；守卫不得改判据 |
-| **E2** | `display_prefs.dart` 1169 行 | `DisplayPrefs` 是**单个 972 行类**，类体不能跨 `part` ⇒ 只能做**类分解**（这是「改」不是「搬」，要单独论证行为等价） | 同上 + 逐字段变更检测回归（`display_prefs_style_change_detection_test` 系列）全绿 |
-| **E3** | `>500` 棘轮顶格 | Rust `>500` 现为 **44/44**（本轮从 48 收紧） | **新增任何 >500 行的 src 文件必须同 commit 拆掉**，否则 `code-stats --check` 直接红 |
-| **E4** | 产物预算 | `build/web` **50 MiB**（预算 35）· `dist` **5.4 MiB**（预算 4）。新增项：字体镜像 **2.7 MiB**（离线红线的代价）；`canvaskit` 占了产物大头 | 二选一：真减（如按需裁剪 canvaskit 变体）或**明文改预算 + 理由**并写进 `xtask` 报告口径 |
+| ~~**E1**~~ | ~~`main.dart` 1411 行拆分~~ | **已完成（提交 `b0b0365`）**：20 处源码扫描守卫改走 `test/support/dart_library.dart` 的 `readLibrarySource()`；`main.dart` **1417 → 657 行**（5 个 part）；新增门禁 `test/dart_library_guard_test.dart`（破坏即红自证见 T4 报告 §4.2） | — |
+| **E2** | `display_prefs.dart` 1169 行 | **论证已完成（T3，提交 `43e465e`）**：推荐 **B2**（同库 `part` + extension 外搬，**可 1 → 0**；A 类分解暂不做）。**新发现：24 键落盘全集零测试覆盖**（真源 [`DECISION-display-prefs-2026-10-06.md`](DECISION-display-prefs-2026-10-06.md)，亦见 **E12**） | **待维护者裁决**（全做 / 只做低风险 / 不拆 + 棘轮停 1；见 [`HANDOFF-2026-10-06-team-round.md`](HANDOFF-2026-10-06-team-round.md) §4）；任一方案落地须补**逐字段序列化回归** |
+| **E3** | `>500` 棘轮顶格 | Rust `>500` 现为 **44/44**；**Dart `>800` 棘轮已于 2026-10-06 夜同 commit 收紧 `2 → 1`（提交 `f5210f3`，实测 1）** | **新增任何 >500 行的 src 文件必须同 commit 拆掉**；**任何让计数下降的改动必须同 commit 收紧常量**，否则 `code-stats --check` 直接红（见 HANDOFF 坑 2） |
+| **E4** | 产物预算 | **论证已完成（T3，提交 `43e465e`）**：`build/web` 走**真减**（删 `*.symbols` + `skwasm*`/`wimp*`，**−20.18 MiB → 29.38 MiB**；`chromium/` 必须保留）；`dist` 只靠剥 `name` 段**仍超预算 0.115 MiB**；`wasm-opt` 本机 absent ⇒ **不估数** | **待维护者裁决**：真减脚本化 or 明文重定预算 + 理由并写进 `xtask` 报告口径（见 [`DECISION-artifact-budget-2026-10-06.md`](DECISION-artifact-budget-2026-10-06.md) 与 **E13**） |
 | **E5** | ~~台账仍未关闭的 6 条 P1~~ | **已完成（2026-10-06 夜）**：六条全关（细节与红-绿自证见 [`AGENTS.md`](../../AGENTS.md) 变更历史「2026-10-06 夜（第二轮 / 第三轮）」与台账 README 的「关闭状态」）。**仍未关闭的 P1 = 0 条** | — |
 | **E6** | ~~D6 假绿灯续（`F-0184-01`）~~ | **已核实关闭（2026-10-06 夜）**：`stripCommentsAndStrings` 全仓**只剩一个定义点**（`test/support/source_scan.dart`），`test/source_scan_test.dart` 的反复制门禁（含零命中判红）**20 条全过**。NEXT-ROUND 原文的「8 份副本」是 W3-D3 合并前的旧状态 | — |
 | **E7** | CI 在真 runner 上首跑 | 本机无 runner；nightly 的 `cargo build` 是否缺 `libasound2-dev` 未验证 | 首次 nightly 原始日志；红则修 |
 | **E8** | 文档减量账 | **口径已复核（2026-10-06 夜 · T1）**：`xtask code-stats` 的 docs 行 = `docs/**/*.md`（含 `docs/legacy/`），**不排除 `docs/audit/`** ⇒ 台账入库的 1,014 份 / 75,148 行**全部计入总量**（「归档不减总量」成立）。实测（`cargo run -p xtask -- code-stats`）：**全部 1,279 份 / 143,270 行**；**不含 `docs/audit/**` = 265 份 / 68,122 行**；`docs/audit/` 自身 = 1,014 份 / 75,148 行。PLAN §5 的目标（docs ≤45,000 行、`docs/plans` ≤25 份）按**不含 audit** 口径**仍未达标**：68,122 超 23,122 行；`docs/plans` 现 **46** 份（`docs/legacy/plans` 另有 94 份） | 复算：`cargo run -p xtask -- code-stats`；「不含 audit」行用同口径脚本（`\n` 计数 + 末尾残行计 1）复算——两条数已对上（143,270 与 xtask 逐位一致） |
-| **E9** | 探针稳健性 | ① `audio-c` 2 次里 1 次 blocked（媒体元素已销毁/还没建）；② 像素阈值只对**默认黑主题**成立 | ① 加宽采样窗口或用 `Media` 域事件；② 四主题各自给阈值并写清来源 |
-| **E10** | Flutter 升级漂移 | **已实测（2026-10-06 夜）**：`scripts/font_fallback_mirror.sh --check` 当前 **PASS**（清单 == 磁盘 == 引擎表全集，21 文件 / 2 815 292 B，逐文件 sha256 相符）。**红 = 该重跑生成脚本**的信号，不是 bug；升级 Flutter 的那一轮必须跑它——本行保留为常驻提醒 |
+| ~~**E9**~~ | ~~探针稳健性~~ | **已完成（T2，提交 `7d53def`）**：① `audio-c` 改**三路取证**（DOM 2000→500 ms + 页内自增 id + 页内媒体记录器 + CDP `Media` 域）⇒ 真实链路两轮全 pass、0 blocked；② 四主题阈值**各自标定**（`themebase` 16 次实测：ON = 基线 + 40%×(红信号−基线)、OFF = 基线 + 12、`maxShare` = share + 0.02）。`all` 同一 HEAD / 同一脚本哈希连跑两遍：各 **40 项 pass 36 · manual-only 4 · fail 0 · blocked 0**、判定 0 处不同 | 证据 [`docs/verification/evidence-2026-10-06-e9/`](../verification/evidence-2026-10-06-e9/README.md)；`8b` 新鲜度重建后真绿；`ignite.sh --check-dir` 四条 ok |
+| **E10** | Flutter 升级漂移 | **已实测（2026-10-06 夜）**：`scripts/font_fallback_mirror.sh --check` 当前 **PASS**（清单 == 磁盘 == 引擎表全集，21 文件 / 2 815 292 B，逐文件 sha256 相符） | 升级 Flutter 的那一轮**必须**跑它；**红 = 该重跑生成脚本**的信号，不是 bug——本行保留为常驻提醒 |
+| **E11** | **clippy 口径假绿（新，已修）** | **`36937df` 上 `cargo clippy --workspace --all-targets -- -D warnings` 真红 2 条** `doc_lazy_continuation`（`crates/live2d-ai-desktop/src/web_api/tests_mod.rs:276/277`）；**不带 `--all-targets` 不报** ⇒ 上一轮交接的「clippy 0 warning」是**假绿**。修复 = `cc68f06`（「+ 」→「另有 」，纯注释），T4 复检 **EXIT=0** | 常驻纪律：门禁命令**必须**带 `--all-targets`；**改注释也算改代码**（见 HANDOFF 坑 1） |
+| **E12** | **E2 的 24 键落盘全集零测试覆盖（新发现）** | T3 实测（`43e465e`）：`DisplayPrefs` 的 **24 键落盘集合没有任何测试覆盖** ⇒ 改字段 / `copyWith` / 序列化都可能**静默漂移** | E2 任一方案落地时补**逐字段序列化回归**；即使裁决「不拆」，这一条也应单列补 |
+| **E13** | **产物预算无门禁（新发现）** | `build/web` / `dist` 的体积只出现在 `xtask code-stats` 的**报告文字**里；`--check` 四条棘轮（Rust `>500` / Rust `>1000` / Dart `>800` / deps）**不含体积** ⇒ **涨了不红** | 二选一：把体积纳入 `code-stats --check`（新棘轮），或**明文声明**「预算仅披露、不设门禁」并写进 `xtask` 报告口径 |
 
 ## P2 · 功能（本轮未碰）
 
@@ -63,7 +68,7 @@
 
 | # | 事项 | 判据 / 备注 |
 | --- | --- | --- |
-| **R5** | **本地提交待推**：本轮收口文档是本地提交（workspace 无新 token） | `git rev-list --count origin/main..main` 回 0；新 token 就绪后 `git push origin main` |
+| **R5** | **本地提交待推**（2026-10-06 夜实测：`git push origin main` **失败**，remote 回 `No anonymous write access.` / `fatal: Authentication failed` ⇒ **无 token**） | `git rev-list --count origin/main..main` 回 0；新 token 就绪后 `git push origin main` |
 | **R6** | **文档收口四项** ① `AGENTS.md` 首屏「当前版本 `0.2.0`」与树（`0.2.1-rc.1`）不一致；② `archive/action-layer-p6` 被 10+ 处引用（`AGENTS.md` / `CHANGELOG.md` / `README.md` / `README.zh-CN.md` / `docs/architecture/core-chain-baseline.md` / `crates/live2d-ai-desktop/src/main.rs`）但**本地与远端都没有该分支**（T1 已按「分支已不存在」改写写面内全部引用，并给出等价取回命令 `git show 98469df^:…` / `git show ef9f428^:…`；`CHANGELOG.md` 与 `crates/**` 不在 T1 写面，留给 Lead）；③ 本轮清单 R3 的措辞「已删除残留分支 `mainline/1-core-baseline`」**与实际不符**：远端此刻仍有 `refs/heads/mainline/1-core-baseline = b58b223`；④ 上一轮台账已入库，指向它的旧路径写法要收口 | 逐条 `git grep` + `git ls-remote` 复核 —— **已收口（2026-10-06 夜 · T1）**：① 版本口径改 `0.2.1-rc.1`（`Cargo.toml` `version` + tag 实测）、`0.2.0` 降为「上一版」；② 写面内 `archive/action-layer-p6` 引用全部改写（`.md` 侧，含 `docs/architecture/**` 与两份 README）+ 等价取回命令；③ 见 R3 行的措辞更正；④ 旧账本路径统一到 `docs/audit/2026-10-05-ledger/`（`docs/DOC-MAP.md` / `docs/README.md` / §4.3） |
 | **R7** | **分支清理（13 条非 main）** | **5/13 已完成（2026-10-06 夜，Lead）**：0 领先的 5 条已用 `git branch -d` 删除 —— `feat/frontend-redesign`（28 落后／0 领先；它 = 远端 tag `v0.2.0` 的提交 `a3f2717`，**删了不丢东西**）· `chore/debt-round-2026-10-05`(24/0) · `mainline/1-core-baseline`(187/0，本地；远端 ref 仍在) · `pr-1`(188/0) · `mod/persona-polish`(151/0)；本地现余 **8** 条非 main。保留待裁决：`archive/action-trigger-p5`(193/356) · `archive/full-history-2026-09-11`(193/374) · `android-archive`(193/1) · `dev/integrity`(193/300) · `dev/node-p1-p2`(193/243) · `backup-local-main-before-force`(193/215) · `feature/node-d-d3-d4`(193/215) · `refactor/elegance`(193/215)；判定：`git rev-list --left-right --count main...<b>` 右值为 0 |
 | **R8** | **清洗前历史的本地副本仍在**（口令已失效 ⇒ 价值为零，纯占盘）：`backup-2026-10-05/archive-full-history-2026-09-11.bundle`（114 MB，**实测仍含清洗前链**：其 tip `5e455ad6` 在清洗后的库里 `git cat-file -t` 报 fatal，本地重写后同名分支 tip 为 `90e0fac9`）· `Live2D-Ai-LEGACY-FULL-HISTORY.bundle`(114 MB) · `Live2D-Ai-PY-LEGACY.bundle`(100 MB) · `Live2D-Ai-baseline-28de52cf.bundle`(114 MB) · `Live2D-Ai-baseline-incremental.bundle`(13 MB) · `redesign-backup-2026-09-27.tar.gz`(6.8 MB) · `backups/dsh-data-backup-20260821.tar.gz`(134 MB) | 维护者决定删或留；**删前确认已不需要回滚**（`05` 那份是当前唯一的清洗前回滚路径） |
