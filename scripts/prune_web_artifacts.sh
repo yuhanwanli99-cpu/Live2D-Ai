@@ -127,7 +127,14 @@ mib() { awk -v b="$1" 'BEGIN{printf "%.2f", b/1048576}'; }
 # xtask 二进制**（DECISION §2.2 第 3 点：独立探针）。两处不一致 = 判据漂移 ⇒ 判红。
 xtask_budget_mib() {
   [ -f "$XTASK_MOD" ] || return 0
-  sed -n 's/.*FLUTTER_WEB_BUDGET_MIB:[[:space:]]*u64[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$XTASK_MOD" | head -1
+  # 现形态：`const FLUTTER_WEB_BUDGET_MIB: Mib = Mib(35.0);`（2026-10-06 W1 起预算类型是 Mib）
+  # 旧形态（历史兼容）：`const FLUTTER_WEB_BUDGET_MIB: u64 = 35;`
+  # 两种形状都认；**认不出来时调用方判红**（见下方 [FAIL]）——V1 实测过只按 u64 匹配会
+  # 退化成永久 [warn]，即「守卫静默失效」。
+  sed -n \
+    -e 's/.*FLUTTER_WEB_BUDGET_MIB[^=]*=[[:space:]]*Mib([[:space:]]*\([0-9][0-9.]*\)[[:space:]]*).*/\1/p' \
+    -e 's/.*FLUTTER_WEB_BUDGET_MIB[^=]*=[[:space:]]*\([0-9][0-9.]*\)[[:space:]]*;.*/\1/p' \
+    "$XTASK_MOD" | head -1
 }
 
 if [ ! -d "$DIR" ]; then
@@ -192,8 +199,10 @@ if [ "$MODE" = "check" ]; then
 
   XB="$(xtask_budget_mib)"
   if [ -z "$XB" ]; then
-    echo "    [warn] 读不到 $XTASK_MOD 的 FLUTTER_WEB_BUDGET_MIB（不影响本门禁）"
-  elif [ "$XB" != "$BUDGET_MIB" ]; then
+    echo "    [FAIL] 解析不到 $XTASK_MOD 的 FLUTTER_WEB_BUDGET_MIB ⇒ 漂移比对无法执行"
+    echo "           这不是「跳过」：解析不到常量 = 守卫已静默失效（改常量形状必须同步这里的解析）"
+    FAIL=1
+  elif ! awk -v a="$XB" -v b="$BUDGET_MIB" 'BEGIN { exit !(a == b) }'; then
     echo "    [FAIL] 预算判据漂移：xtask=$XB MiB vs 本脚本=$BUDGET_MIB MiB"
     echo "           两处必须同值（改预算要同时改 xtask/src/code_stats/mod.rs 与本脚本并写明理由）"
     FAIL=1
