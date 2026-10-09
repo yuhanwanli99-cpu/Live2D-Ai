@@ -89,10 +89,7 @@ cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
 ### 常用 CLI
 ```bash
 --web [--http-port P]   # Web UI（主入口）
---chat                  # 终端对话闭环
---model-smoke [P]       # 渲染冒烟
 --audio-smoke           # 音频冒烟
---benchmark [P]         # 渲染 benchmark
 ```
 
 ### 点火（WSL2 → Windows 浏览器）
@@ -155,6 +152,6 @@ crates/
 - **项目自有代码：** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project  
   可选商业许可：[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)
 - **第三方：** 见 [NOTICE](NOTICE)、[CREDITS.md](CREDITS.md)
-- **Live2D 模型 / 贴图：** 不受 AGPL 覆盖；须合法取得并自行导入。本仓库**不**再分发 `.moc3` 与贴图二进制。范围说明：[LICENSE-SCOPE.md](LICENSE-SCOPE.md)
+- **Live2D 模型 / 贴图：** 不受 AGPL 覆盖；须合法取得并自行导入。出厂白模型**渲染必需的那几份已跟踪**（`bai.moc3`、`texture_00_4096.png`），条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)——**不是**作者授权再分发。范围说明：[LICENSE-SCOPE.md](LICENSE-SCOPE.md)
 
 渲染栈使用开源 Ayagami，而非 Live2D Inc. 的专有 Cubism Core SDK。若你自行加入第三方 Cubism 二进制，它们仍受 Live2D EULA 约束，且不属于本项目许可范围。

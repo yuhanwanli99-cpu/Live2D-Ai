@@ -264,11 +264,15 @@ pub fn build_status(
         uptime_s,
         config_path: ctx.config_path.clone(),
         active_model_id,
+        // 2026-10-09：这里的两个数**读 `[tts]`**（出声链路的真实规格），
+        // 不再回播放侧的调度常量 24000——那只是「没配音频时按多少赫兹理解」，
+        // 把它显示成「当前语音采样率」就是在说一件用户以为的事
+        //（本地出声是 44100）。常量本身留着，口径见 audio/spec.rs。
         audio: dto::AudioStatus {
             backend: "none",
             available: false,
-            sample_rate: live2d_ai_runtime::AudioSpec::DEFAULT_SAMPLE_RATE,
-            channels: live2d_ai_runtime::AudioSpec::DEFAULT_CHANNELS,
+            sample_rate: settings.tts.sample_rate,
+            channels: settings.tts.channels,
         },
         llm: dto::llm_status_from(settings, env_lookup),
         tts: dto::tts_status_from(settings, env_lookup),

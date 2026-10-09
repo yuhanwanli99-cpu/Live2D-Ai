@@ -35,9 +35,9 @@ It ships one **white (bai) model** so a fresh clone renders out of the box; the 
   be turned on deliberately).
 - `local-tts` (CosyVoice3) is **sealed — not registered**; the crate stays in the tree
   but must **not** be re-registered until it is adapted.
-- `wallpaper` and `pet-desktop` are **ARCHIVED** (this wave): **not registered and not
-  compiled into the binary**; the crates stay in the workspace (still compiling and
-  testable) and must **not** be re-registered. See
+- `wallpaper` and `pet-desktop` are **ARCHIVED**: **not registered and not compiled
+  into the binary**; the crates were **physically deleted on 2026-10-01** and now only
+  exist in tag `checkpoint/pre-d1-dormant`. They must **not** be re-registered. See
   [`docs/architecture/ARCHIVED-mods.md`](docs/architecture/ARCHIVED-mods.md). The
   user-facing stage/shell background (`DisplayPrefs`) is **kept** — it is not the
   wallpaper Mod.
@@ -177,6 +177,6 @@ Docs index: [docs/README.md](./docs/README.md)
 - **Project code:** [AGPL-3.0-only](LICENSE) © 2026 Sakura Motion Project  
   Optional proprietary terms: [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)
 - **Third-party:** see [NOTICE](NOTICE) and [CREDITS.md](CREDITS.md)
-- **Live2D models / textures:** not covered by AGPL; obtain and import lawfully. This repo does **not** redistribute `.moc3` or texture binaries. Scope notes: [LICENSE-SCOPE.md](LICENSE-SCOPE.md)
+- **Live2D models / textures:** not covered by AGPL; obtain and import lawfully. The **white model's few required files are tracked** (`bai.moc3`, `texture_00_4096.png`); the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Scope notes: [LICENSE-SCOPE.md](LICENSE-SCOPE.md)
 
 Render stack uses open-source Ayagami — not Live2D Inc.’s proprietary Cubism Core SDK. If you add third-party Cubism binaries yourself, those stay under Live2D’s own EULA and are never part of this project’s license.

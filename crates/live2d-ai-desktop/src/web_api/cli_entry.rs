@@ -47,6 +47,11 @@ pub const EXIT_ENVIRONMENT: u8 = 3;
 pub fn run_web_mode(port: u16, dev_mode_cli: bool) -> u8 {
     println!("web: 启动 HTTP 控制平面，监听 127.0.0.1:{port}（loopback；D1 §2 P0-3）");
 
+    // 2026-10-09：**只有真服务进程**允许「必须重启」时自重启（起一个同 argv 的
+    // 替身再退出）。测试 / 库调用不 arm —— 否则 `current_exe()` 会拉起测试
+    // 二进制自己（见 `web_api::restart` 头注）。
+    crate::web_api::restart::arm();
+
     // 配置文件路径：复用 supervisor 装配时的逻辑（cwd 查找，缺失则默认）。
     let config_path = config_path_for_web();
     println!("web: 配置文件路径 {config_path}");

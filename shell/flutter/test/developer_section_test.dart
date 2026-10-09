@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart'
     show kDefaultExpressionIntensity, kDefaultPresetIntensity, PresetStatus;
+import 'package:live2d_ai_shell/settings/mods/director_debug_panels.dart';
 import 'package:live2d_ai_shell/settings/preset_labels.dart';
 import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart' show ToggleField;
@@ -73,18 +74,19 @@ void _armStatus(
   );
 }
 
-DeveloperSection _section({
+/// 2026-10-09：这两块（表情调试 / 动作调试 + 临时幅度）已从核心「开发模式」页
+/// 搬到「扩展 → 导演」卡片的下级块。本文件直接挂 [DebugPanels] 测它的行为；
+/// 「它只出现在导演卡片、且只在 devMode 里」由下面的结构断言与
+/// `action_scales_wiring_test` 的 director 面板用例守着。
+Widget _section({
   PresetApply? onApplyPreset,
   PresetLabelTable labels = _labels,
   DebugClock? clock,
   ValueListenable<PresetStatus?>? status,
   bool devMode = true,
-}) => DeveloperSection(
-  devMode: devMode,
-  onDevModeChanged: (_) {},
-  forcedByLaunchFlag: false,
-  presetLabels: labels,
-  presetStatus: status,
+}) => DebugPanels(
+  labels: labels,
+  status: status,
   clock: clock,
   onApplyPreset: onApplyPreset,
 );
@@ -135,28 +137,39 @@ void main() {
     expect(changed, isTrue, reason: '非强制时点一下必须真的改状态');
   });
 
-  testWidgets('开发模式页两块都在（表情调试 / 动作调试）；关掉就都不在', (
+  testWidgets('2026-10-09：两块调试**不在**核心开发模式页上（只在导演卡片下级）', (
     WidgetTester tester,
   ) async {
-    // 2026-10-08：这三块是**已有**能力，本轮只钉住「别在改产品面时顺手丢掉」。
-    // 2026-10-09：「导演可观测」已搬到「扩展 → 导演」卡片下级（见
-    // director_observer_test / director_panel_test），开发模式页只剩这两块。
+    // 能力没删：它们搬到「扩展 → 导演」卡片（settings/mods/director_debug_panels.dart），
+    // 仍只在开发者模式里显示。这里钉两件事：
+    // ① 核心「开发模式」页（DeveloperSection）两种 devMode 下都不画它们；
+    // ② 组件本身还在、两块的标题都在。
     const List<String> titles = <String>['表情调试', '动作调试'];
+
+    for (final bool dev in <bool>[true, false]) {
+      await tester.pumpWidget(
+        _wrap(
+          DeveloperSection(
+            devMode: dev,
+            onDevModeChanged: (_) {},
+            forcedByLaunchFlag: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final String title in titles) {
+        expect(
+          find.text(title),
+          findsNothing,
+          reason: 'devMode=$dev：核心开发模式页只剩开关与诊断，不该有「$title」',
+        );
+      }
+    }
 
     await tester.pumpWidget(_wrap(_section(devMode: true)));
     await tester.pumpAndSettle();
     for (final String title in titles) {
-      expect(find.text(title), findsOneWidget, reason: '开发模式页缺少「$title」');
-    }
-
-    await tester.pumpWidget(_wrap(_section(devMode: false)));
-    await tester.pumpAndSettle();
-    for (final String title in titles) {
-      expect(
-        find.text(title),
-        findsNothing,
-        reason: 'devMode=false 时不该有「$title」（渐进披露的第二层）',
-      );
+      expect(find.text(title), findsOneWidget, reason: '导演卡片那块缺少「$title」');
     }
   });
 

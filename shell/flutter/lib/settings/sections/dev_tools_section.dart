@@ -22,7 +22,6 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -30,13 +29,9 @@ import '../../api/api_client.dart';
 import '../../api/diagnostics_api.dart';
 import '../../api/models_api.dart';
 import '../../api/mods_api.dart';
-import '../../api/settings_models.dart';
 import '../../design/tokens.dart';
-import '../../live2d/live2d_stage.dart'
-    show PresetStatus, kDefaultExpressionIntensity, kDefaultPresetIntensity;
 import '../mods/mod_panel.dart';
 import '../mods/mod_panels.dart';
-import '../preset_labels.dart';
 import '../../ui/emphasized_text.dart';
 import '../../ui/field_row.dart';
 import '../../ui/section_header.dart';

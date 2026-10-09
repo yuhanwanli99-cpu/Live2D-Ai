@@ -33,6 +33,11 @@
 pub mod patch;
 #[cfg(test)]
 mod patch_tests;
+/// 2026-10-09：`[tts]` 语音来源二选一（local / cloud）的回归**单列**——
+/// `patch_tests` 已贴着「`crates/*/src > 1000 行`」棘轮（上限 0）。
+#[cfg(test)]
+#[path = "settings/patch_tts_mode_tests.rs"]
+mod patch_tts_mode_tests;
 #[cfg(test)]
 mod settings_tests;
 pub mod view;
@@ -202,10 +207,47 @@ impl LlmSettings {
     }
 }
 
+/// 语音来源二选一（`[tts].mode`，2026-10-09）。
+///
+/// **缺省 `Local`**：出声走仓库自带的 MeloTTS 垫片（`127.0.0.1:8091`），
+/// 音色 / 格式 / 采样率 / 声道由设置保存写死（普通层不给改端口）。
+/// `Cloud`：地址 / 音色 / 模型名 / 密钥由用户自己填，本项目**不预填厂商**、
+/// **不带 Key**。
+///
+/// 切换走同一次「保存并应用」；失败就是这一轮没生效（错误码照旧），
+/// **不自动改回另一个**。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TtsMode {
+    /// 本地（缺省）。
+    #[default]
+    Local,
+    /// 云端。
+    Cloud,
+}
+
+impl TtsMode {
+    /// 稳定值（写进 `[tts].mode`，也是 HTTP patch 的取值）。
+    pub const LOCAL: &'static str = "local";
+    /// 见 [Self::LOCAL]。
+    pub const CLOUD: &'static str = "cloud";
+
+    /// 稳定字符串。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => Self::LOCAL,
+            Self::Cloud => Self::CLOUD,
+        }
+    }
+}
+
 /// `[tts]` 段：OpenAI-compatible `/audio/speech` 上游。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TtsSettings {
+    /// 语音来源（本地 / 云端）。缺省 `local`——出厂就是仓库自带的 MeloTTS 垫片。
+    #[serde(default)]
+    pub mode: TtsMode,
     /// 服务基址。**出厂缺省 = 仓库自带的 MeloTTS 垫片**（见
     /// [`DEFAULT_TTS_BASE_URL`]）：本地 TTS 不是 Mod，出声端点唯一权威仍是这一段。
     #[serde(default = "default_tts_base_url")]
@@ -274,9 +316,29 @@ fn default_channels() -> u16 {
     AudioSpec::DEFAULT_CHANNELS
 }
 
+/// 本地模式的**冻结字段**（2026-10-09）：切到「本地」时由设置保存写进 `[tts]`。
+///
+/// 三条口径：端口固定 `127.0.0.1:8091`（普通层不给改）、音色 `ZH`、
+/// 裸 PCM / 44100 / 单声道、**无密钥**。这是核心链路（不是 Mod）——
+/// `local-tts-melo` 只负责把进程拉起来（`tts-is-core.md`）。
+///
+/// **不**碰 [`AudioSpec::DEFAULT_SAMPLE_RATE`]（那是没配音频时的调度常量，
+/// 与「出厂 `[tts]` 那一行写什么」是两个口径）。
+pub fn apply_local_tts_defaults(tts: &mut TtsSettings) {
+    tts.mode = TtsMode::Local;
+    tts.base_url = DEFAULT_TTS_BASE_URL.to_string();
+    tts.model = None;
+    tts.voice = DEFAULT_TTS_VOICE.to_string();
+    tts.response_format = default_response_format();
+    tts.api_key_env = None;
+    tts.sample_rate = DEFAULT_TTS_SAMPLE_RATE;
+    tts.channels = AudioSpec::DEFAULT_CHANNELS;
+}
+
 impl Default for TtsSettings {
     fn default() -> Self {
         Self {
+            mode: TtsMode::default(),
             base_url: default_tts_base_url(),
             model: None,
             voice: default_voice(),

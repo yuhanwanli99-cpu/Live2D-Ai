@@ -18,10 +18,14 @@
 ///   见 `sections/dev_tools_section.dart` 的 `_stateBlock` 头注）。
 library;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 
 import '../../api/mods_api.dart';
 import '../../api/settings_models.dart';
+import '../../live2d/live2d_stage.dart' show PresetStatus;
+import '../preset_labels.dart';
+import 'director_debug_panels.dart' show DebugClock, PresetApply, PresetScaleApply;
 
 /// director 卡片里「动作幅度」旋钮的接线（2026-10-09 从「外观与互动」搬来）。
 ///
@@ -79,6 +83,51 @@ class ActionScalesWiring {
   final bool modelOverrideFailed;
 }
 
+/// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09）。
+///
+/// 三块从核心「开发模式」页整块搬来（`settings/mods/director_debug_panels.dart`），
+/// **数据与口径一字未改**：预设帧仍由前端直发渲染面（不经后端 / LLM），临时幅度
+/// 仍只发渲染面、不落盘；`action_tx` 仍未接（`core-chain-baseline.md` §3.3）。
+///
+/// 为什么用一个对象挂在 [ModPanelContext] 上：面板是共享只读面，宿主只接线一次，
+/// 面板自己取字段——与 [ActionScalesWiring] 同一条边界。
+class DirectorDebugWiring {
+  const DirectorDebugWiring({
+    this.onApplyPreset,
+    this.status,
+    this.productScales,
+    this.pinnedScales,
+    this.onApplyScales,
+    this.onClearScales,
+    this.labels = PresetLabelTable.empty,
+    this.clock,
+  });
+
+  /// 直发一条预设（none = 归零）。为空时按钮禁用（不假装能点）。
+  final PresetApply? onApplyPreset;
+
+  /// 舞台的本地预设状态（`Live2DStageState.presetStatus`）。
+  final ValueListenable<PresetStatus?>? status;
+
+  /// 服务端**产品设置**里的动作幅度（显示 + 作为「恢复」目标）。
+  final ActionSettingsView? productScales;
+
+  /// 当前**临时幅度覆盖**（ActionScalesSyncer.pinned；null = 没有）。只读、不落盘。
+  final Map<String, double>? pinnedScales;
+
+  /// 临时幅度覆盖（**不落盘**，只发渲染面）；产品设置才是真源。
+  final PresetScaleApply? onApplyScales;
+
+  /// 清掉临时覆盖并**强制**写回产品值。
+  final VoidCallback? onClearScales;
+
+  /// 预设 id → 中文展示名（读 `assets/actions/preset_labels.json`）。
+  final PresetLabelTable labels;
+
+  /// 可注入时钟（表情到点计时用）；null = `DateTime.now`。
+  final DebugClock? clock;
+}
+
 /// 选一个**角色卡文件**的读取器（由组合根注入；见 `persona_panel.dart`）。
 ///
 /// 为什么类型声明在这一层：`ModPanelContext` 要把它交给 persona 面板，而
@@ -105,6 +154,7 @@ class ModPanelContext {
     this.devMode = false,
     this.pickCardFile,
     this.actionScales,
+    this.directorDebug,
   });
 
   /// 当前 Mod 的列表项（含 `enabled` / `config` / `settings_spec`）。
@@ -167,6 +217,11 @@ class ModPanelContext {
   /// 为什么住这里而不是面板自己取：面板不碰网络、不碰组合根，只画；
   /// 数据与回调由宿主（shell_settings.dart → ModsSection → 卡片）透传。
   final ActionScalesWiring? actionScales;
+
+  /// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（只有 director 面板消费；
+  /// null = 不渲染那块）。2026-10-09 从核心「开发模式」页整块搬来，仍只在
+  /// [devMode] 为真时渲染。
+  final DirectorDebugWiring? directorDebug;
 }
 
 /// 一个 Mod 的产品面板。

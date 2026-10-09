@@ -447,10 +447,13 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         if !st.hud.due() {
             return;
         }
-        // canvas CSS 尺寸 × DPR cap = 物理尺寸。
+        // canvas CSS 尺寸 × DPR cap **× 档位渲染比例** = 物理尺寸。
+        // 2026-10-09：比例那一项必须印出来——否则「物理尺寸 > CSS×dpr」会
+        // 被读成 bug，而它正是三档看起来不同的原因（超采样）。
         let css_w = st.canvas.client_width().max(0);
         let css_h = st.canvas.client_height().max(0);
         let dpr = st.window.device_pixel_ratio().clamp(1.0, DPR_CAP);
+        let tier_scale = st.bridge.tier.render_scale();
         let (phys_w, phys_h) = (st.config.width, st.config.height);
         let adapter_line = st
             .hud
@@ -529,7 +532,7 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {fields_diag} | {stage_diag} | {idle_diag}",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr x{tier_scale:.2}(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {fields_diag} | {stage_diag} | {idle_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,

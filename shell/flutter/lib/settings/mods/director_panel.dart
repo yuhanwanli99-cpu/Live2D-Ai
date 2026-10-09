@@ -11,6 +11,9 @@
 ///    ActionScalesSyncer；**不写进 director 的 mods.json、不接回 action_tx**。
 /// 3. **导演可观测四栏**（原「开发模式 → 导演可观测」，2026-10-09 搬到这里
 ///    作为下级块）：devMode 为假时整块不渲染（组件自己也短路一次）。
+/// 4. **表情调试 / 动作调试 / 临时幅度覆盖**（2026-10-09 从核心「开发模式」页
+///    整块搬来，见 `director_debug_panels.dart` 头注）：同样只在 devMode 为真时
+///    渲染；预设帧仍由前端直发渲染面，**不接 action_tx**。
 ///
 /// # 拿掉了什么（2026-10-08，本轮不变）
 ///
@@ -33,6 +36,7 @@ import '../../ui/section_header.dart';
 import '../../ui/theme.dart';
 import '../preset_labels.dart';
 import '../sections/director_observer_section.dart';
+import 'director_debug_panels.dart';
 import 'mod_panel.dart';
 
 part 'director_action_scales.dart';
@@ -132,6 +136,7 @@ class DirectorPanel extends ModPanel {
   @override
   Widget? build(BuildContext context, ModPanelContext ctx) {
     final ActionScalesWiring? scales = ctx.actionScales;
+    final DirectorDebugWiring? debug = ctx.directorDebug;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -147,6 +152,22 @@ class DirectorPanel extends ModPanel {
         if (scales != null) DirectorActionScalesBlock(wiring: scales),
         // 导演可观测四栏：**只在开发模式里**渲染（组件自己也短路一次）。
         if (ctx.devMode) const DirectorObserverSection(),
+        // 表情调试 / 动作调试 / 临时幅度（2026-10-09 从核心开发模式页搬来）：
+        // 同样只在开发模式里渲染；宿主没接线时整块不画。
+        if (ctx.devMode && debug != null) ...<Widget>[
+          const Divider(),
+          const SectionHeader(title: '手动调试'),
+          DebugPanels(
+            onApplyPreset: debug.onApplyPreset,
+            status: debug.status,
+            productScales: debug.productScales,
+            pinnedScales: debug.pinnedScales,
+            onApplyScales: debug.onApplyScales,
+            onClearScales: debug.onClearScales,
+            labels: debug.labels,
+            clock: debug.clock,
+          ),
+        ],
       ],
     );
   }

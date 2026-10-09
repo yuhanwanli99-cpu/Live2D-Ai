@@ -79,7 +79,9 @@ fn config_save_preserves_omitted_secret() {
         Some("application/json"),
     )
     .unwrap();
-    assert_eq!(resp.status_code(), StatusCode(200));
+    // 2026-10-09：config 的**写配置**仍然同步（纯内存 + 原子写），只有随后的
+    // restart 异步 —— 所以这里立刻读 registry 就能看到新配置，状态码是 202。
+    assert_eq!(resp.status_code(), StatusCode(202));
     let reg = ctx.mod_registry.lock().unwrap();
     let cfg = reg.config("specmod").unwrap();
     assert_eq!(
@@ -141,10 +143,17 @@ fn bodyless_enable_disable_skip_content_type_check() {
         let path = format!("/api/v1/mods/specmod/{action}");
         let resp = handle_mods_route(&ctx, &Method::Post, &path, "", origin, None)
             .expect("mods 路由应命中");
+        // 2026-10-09：生命周期动作改成**异步**（不堵接受循环），所以回 202 +
+        // pending；本条的判据仍是「**不能是 415**」——旧实现在这里无条件要
+        // Content-Type。
         assert_eq!(
             resp.status_code(),
-            StatusCode(200),
-            "无 body 的 {action} 必须 200（旧实现会 415）"
+            StatusCode(202),
+            "无 body 的 {action} 必须 202（旧实现会 415）"
+        );
+        assert!(
+            body_string(resp).contains("\"pending\":true"),
+            "异步受理必须如实回 pending=true（不把「还在启动」写成成功）"
         );
     }
 }
@@ -355,5 +364,68 @@ fn poisoned_registry_lock_degrades_instead_of_panicking() {
     assert!(
         resp.status_code().0 == 200,
         "毒化后仍应给出 200 快照；panic 或 5xx 都说明降级失效"
+    );
+}
+
+/// **2026-10-09（计划书 §4）**：enable 立刻回 202 + pending=true，真正的启动
+/// 在后台线程里跑完 → 状态面自己变成 running。
+///
+/// 把 spawn_mod_op 改回同步调用、或把回执写成 200「已启用」，这条就变红。
+#[test]
+fn enable_is_accepted_then_settles_in_background() {
+    let ctx = ctx_with_mod(serde_json::json!({
+        "mods": {"specmod": {"enabled": false, "config": {}}}
+    }));
+    let resp = handle_mods_route(
+        &ctx,
+        &Method::Post,
+        "/api/v1/mods/specmod/enable",
+        "",
+        Some("http://127.0.0.1:18099"),
+        None,
+    )
+    .expect("mods 路由应命中");
+    assert_eq!(
+        resp.status_code(),
+        StatusCode(202),
+        "受理态必须是 202（不是 200「已启用」）"
+    );
+    assert!(body_string(resp).contains("pending"));
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let running = {
+            let reg = ctx.mod_registry.lock().unwrap();
+            reg.list()
+                .iter()
+                .any(|(d, st, en)| d.id == "specmod" && *en && st.as_str() == "running")
+        };
+        if running {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "enable 没有在 5s 内落到 running（后台线程没跑完？）"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// 列表带 last_error：失败原因（含脚本输出）必须能到界面上。
+#[test]
+fn mods_list_carries_last_error() {
+    let ctx = ctx_with_mod(serde_json::json!({
+        "mods": {"specmod": {"enabled": true, "config": {}}}
+    }));
+    {
+        let mut reg = ctx.mod_registry.lock().unwrap();
+        // 直接制造一次失败态（与「立刻退出 = Failed」同一条落点）。
+        reg.mark_failed_for_tests("specmod", "脚本说：权重缺失");
+    }
+    let body = body_string(handle_mods_list(&ctx));
+    assert!(body.contains("last_error"), "列表应带 last_error: {body}");
+    assert!(
+        body.contains("脚本说：权重缺失"),
+        "失败原因必须在列表里: {body}"
     );
 }

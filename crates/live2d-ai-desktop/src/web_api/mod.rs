@@ -81,6 +81,9 @@ pub mod models_routes;
 pub mod mods_routes;
 /// 通用 JSON 错误响应 helper（D-P0B 拆分承载，2026-08-29）。
 pub(crate) mod responses;
+/// 设置保存「必须重启」时的**自重启**落点（2026-10-09）：
+/// 起一个同 argv 的替身 + 退出本进程，**只重启 18080 上这一个服务**。
+pub mod restart;
 /// 本地 Web 安全边界（D-P0B，2026-08-29）。
 pub mod security;
 pub mod settings_routes;
@@ -398,6 +401,41 @@ impl ServerContext {
     pub fn take_supervisor_for_reclaim(&self) -> Option<Arc<SupervisorHandle>> {
         self.supervisor_slot.take()
     }
+
+    /// 语音模式 → 本地引擎去留（2026-10-09）。
+    ///
+    /// - `[tts].mode == local` → **幂等**启用 `local-tts-melo`：已启用就
+    ///   什么都不做（**已有子进程就不再起一个**）；
+    /// - `= cloud` → 停掉 `local-tts-melo`（未启用则 no-op）。
+    ///
+    /// 跑在**后台线程**：停/起子进程都要等（起还要等一个「立刻退出」观察窗），
+    /// 而 PATCH 的响应不该被它拖住（计划书 §4）。失败只记日志——本次保存的
+    /// 成败由 `apply_status` 与 Mod 状态面各自如实上报，不在这里改判。
+    pub fn reconcile_local_tts_mod(&self) {
+        use live2d_ai_runtime::settings::TtsMode;
+        let mode = self.status_ctx.settings_snapshot().tts.mode;
+        let registry = Arc::clone(&self.mod_registry);
+        std::thread::spawn(move || {
+            let mut reg = match registry.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let id: &'static str = "local-tts-melo";
+            let result = match mode {
+                TtsMode::Local => reg.ensure_enabled(id),
+                TtsMode::Cloud => reg.ensure_disabled(id),
+            };
+            match result {
+                Ok(true) => {
+                    tracing::info!(target: "mod", mode = mode.as_str(), mod_id = id, "语音模式变更：已调整本地引擎");
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(target: "mod", mode = mode.as_str(), mod_id = id, "语音模式变更时调整本地引擎失败：{e}");
+                }
+            }
+        });
+    }
 }
 
 /// PATCH 写盘后 supervisor 装载/重载状态在 dispatch 层转发（详见
@@ -416,10 +454,30 @@ pub use crate::web_api::dto::ApplyStatus;
 /// 端口"的麻烦。
 pub fn start_server(ctx: ServerContext, port: u16) -> std::io::Result<tiny_http::ListenAddr> {
     let addr = format!("127.0.0.1:{port}");
+    // 2026-10-09：自重启的替身由父进程起，父进程要 `exit` 之后端口才空出来，
+    // 所以替身带 [`restart::RESTART_WAIT_ENV`] 重试绑定。**没有这个变量时
+    // 行为一字不变**（bind 失败立刻 Err）——「端口被别的程序占了」不会被
+    // 这里掩饰成慢启动。
+    let wait_ms: u64 = std::env::var(restart::RESTART_WAIT_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(wait_ms);
     #[allow(clippy::io_other_error)]
-    let server = Server::http(&addr).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("绑定 {addr} 失败: {e}"))
-    })?;
+    let server = loop {
+        match Server::http(&addr) {
+            Ok(server) => break server,
+            Err(e) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("绑定 {addr} 失败: {e}"),
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    };
     let bound = server.server_addr();
     eprintln!("web-api: 已监听 127.0.0.1:{port}");
 

@@ -23,6 +23,7 @@ fn sample() -> AppSettings {
             show_reasoning: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
+            mode: live2d_ai_runtime::settings::TtsMode::Cloud,
             base_url: "http://127.0.0.1:8000/v1".into(),
             model: Some("tts-1".into()),
             voice: "alloy".into(),

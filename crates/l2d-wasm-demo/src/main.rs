@@ -95,6 +95,7 @@ mod web {
 
     use surface::{
         FrameSlot, SharedState, adapter_info, canvas_css_metrics, init_gpu, install_resize_handler,
+        sync_canvas_size,
     };
 
     /// 缺省模型清单 URL：约定宿主在 `/models/<...>` 暴露用户合法持有的皮套
@@ -692,6 +693,11 @@ mod web {
                     let mut st = handler_state.borrow_mut();
                     st.bridge.msg_applied += 1;
                 }
+                // 2026-10-09：档位（tier）改的是**画布位图尺寸**，而它只在
+                // resize 事件或 500ms 兜底定时器里重算 ⇒ 切换档位会「等半秒
+                // 才生效」。这里在同一条消息里立刻对齐（尺寸没变时是 no-op，
+                // 其余 stage-config 字段不受影响）。
+                let _ = sync_canvas_size(&handler_state);
                 if let Some(win) = web_sys::window() {
                     let ack = serde_json::json!({
                         "type": "stage-ack",

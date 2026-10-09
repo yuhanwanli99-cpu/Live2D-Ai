@@ -43,6 +43,10 @@ api_key_env = "DEEPSEEK_API_KEY"
 # 它**只拉起进程**——不写这一段、不探活、不改地址。
 # CosyVoice3 引擎已封存、未注册（crate 与 engine/ 仍在树上，未适配前不要挂回）。
 [tts]
+# 语音来源二选一（2026-10-09）：local = 仓库自带的 MeloTTS 垫片（缺省，这一组的
+# 字段由设置保存写死、普通层不给改端口）；cloud = 你自己填的 OpenAI 兼容端点
+# （地址 / 音色 / 模型名 / 密钥，本项目不预填厂商、不带 Key）。
+mode = "local"
 base_url = "http://127.0.0.1:8091/v1"
 # 音色 = melo/weights/config.json 里 spk2id 的键（这份 config 只有 ZH）
 voice = "ZH"

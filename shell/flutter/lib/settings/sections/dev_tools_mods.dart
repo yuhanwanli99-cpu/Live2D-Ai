@@ -18,6 +18,7 @@ class ModsSection extends StatelessWidget {
     this.onCommand,
     this.pickCardFile,
     this.actionScales,
+    this.directorDebug,
     super.key,
   });
 
@@ -58,6 +59,10 @@ class ModsSection extends StatelessWidget {
   /// 动作幅度旋钮的接线（2026-10-09）：只有 director 面板消费它；
   /// null = 不渲染那块（宿主还没接线 / 纯 widget 测试）。
   final ActionScalesWiring? actionScales;
+
+  /// 导演卡片里「表情调试 / 动作调试 / 临时幅度」的接线（2026-10-09 从核心
+  /// 「开发模式」页搬来）；同样只有 director 面板消费，null = 不渲染那块。
+  final DirectorDebugWiring? directorDebug;
 
   final Future<void> Function(String id, bool enabled)? onToggle;
 
@@ -151,6 +156,7 @@ class ModsSection extends StatelessWidget {
                 onCommand: onCommand,
                 pickCardFile: pickCardFile,
                 actionScales: actionScales,
+                directorDebug: directorDebug,
               ),
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
@@ -236,6 +242,7 @@ class _ModConfigTile extends StatefulWidget {
     this.onCommand,
     this.pickCardFile,
     this.actionScales,
+    this.directorDebug,
     super.key,
   });
 
@@ -255,6 +262,9 @@ class _ModConfigTile extends StatefulWidget {
 
   /// 见 [ModsSection.actionScales]：透传给 ModPanelContext。
   final ActionScalesWiring? actionScales;
+
+  /// 见 [ModsSection.directorDebug]：透传给 ModPanelContext。
+  final DirectorDebugWiring? directorDebug;
 
   @override
   State<_ModConfigTile> createState() => _ModConfigTileState();

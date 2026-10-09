@@ -188,6 +188,8 @@ pub struct ModRegistry {
 // <500 行，否则 >500 棘轮会变红（先例 `models_routes/tests_models_*`）。
 mod events;
 mod registry;
+/// 2026-10-09：语音模式对本地引擎的去留 + 自重启前的收尾（见文件头注）。
+mod tts_mode;
 
 // 事件管道拆到 `events` 后，`crate::mod_registry::mod_event_sink` /
 // `merge_mod_config` 的既有调用点（`supervisor` / `web_api`）路径不变。

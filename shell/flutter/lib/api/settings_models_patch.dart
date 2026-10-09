@@ -39,22 +39,39 @@ class LlmSettingsPatch {
 /// TTS 段补丁（字段级三态）。
 class TtsSettingsPatch {
   const TtsSettingsPatch({
+    this.mode,
     this.baseUrl,
     this.model,
     this.voice,
+    this.apiKeyEnv,
     this.sampleRate,
     this.channels,
   });
 
+  /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。
+  ///
+  /// 服务端这一项是**普通可选值**（不是三态）：缺键 = 不动；给了值就切换。
+  /// 切 `local` 会覆盖同一次补丁里的地址/音色/采样率（端口固定）；
+  /// 切 `cloud` 要求同一次补丁给出非空地址与音色。
+  final String? mode;
+
   final Tri<String>? baseUrl;
   final Tri<String>? model;
   final Tri<String>? voice;
+
+  /// 密钥**变量名**的三态（值住 `.env`，永不经过这里）。
+  ///
+  /// 为什么云端要显式绑一次：没有变量名就没有「保存密钥」的输入框，用户填不进
+  /// Key（本地模式不带密钥，由服务端在切 `local` 时清掉绑定）。
+  final Tri<String>? apiKeyEnv;
   final Tri<int>? sampleRate;
   final Tri<int>? channels;
 
   Map<String, Object?> toJson() {
     final Map<String, Object?> out = <String, Object?>{};
+    if (mode != null) out['mode'] = mode;
     putTri<String>(out, 'base_url', baseUrl);
+    putTri<String>(out, 'api_key_env', apiKeyEnv);
     putTri<String>(out, 'model', model);
     putTri<String>(out, 'voice', voice);
     putTri<int>(out, 'sample_rate', sampleRate);

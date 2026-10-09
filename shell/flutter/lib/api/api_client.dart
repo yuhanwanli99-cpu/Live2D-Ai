@@ -171,6 +171,27 @@ class ApiClient {
     return _decodeObject(response.body);
   }
 
+  /// 等到服务端**重新可用**（2026-10-09：设置保存的「必须重启」路径）。
+  ///
+  /// 服务端在自重启（只重启 18080 上这个进程）期间会短暂拒连；这里轮询
+  /// `GET /api/v1/app/status` 直到它应答为止。返回 `true` = 已应答；
+  /// `false` = 窗口内一直没应答（**不谎报成功**，调用方自己决定怎么办）。
+  ///
+  /// 它住 `lib/api/` 是因为这两条时长是**协议时序**（自重启的等待窗口），
+  /// 不是 UI 过渡时长（见 test/design_tokens_lint_test.dart 的豁免口径）。
+  Future<bool> waitUntilReachable({int attempts = 60}) async {
+    for (int i = 0; i < attempts; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      try {
+        await fetchStatus();
+        return true;
+      } on ApiException {
+        // 还没起来：继续等。
+      }
+    }
+    return false;
+  }
+
   /// `GET /api/v1/settings` → 服务端权威设置。
   ///
   /// **密钥永不下发**：只回 `has_api_key` 布尔（治理红线，见 AGENTS.md）。

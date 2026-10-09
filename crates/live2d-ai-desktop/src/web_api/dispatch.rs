@@ -126,8 +126,14 @@ pub fn dispatch_with_security(
             // 这样 PATCH 响应体与「真实生效路径」一一对应，前端按状态显示
             // 正确文案（避免「已热重载」与「实际 503」错位）。
             let config_path = ctx.status_ctx.config_path.clone();
-            let hook: Box<dyn Fn() -> ApplyStatus> =
-                Box::new(|| ctx.ensure_supervisor_after_patch());
+            // 2026-10-09：hook 的返回值同时是「这一步要不要自重启」的判据，
+            // 所以先落进一个 Cell（handler 只会同步调它一次）。
+            let apply_status = std::cell::Cell::new(ApplyStatus::NoSupervisor);
+            let hook: Box<dyn Fn() -> ApplyStatus> = Box::new(|| {
+                let status = ctx.ensure_supervisor_after_patch();
+                apply_status.set(status);
+                status
+            });
             // 阶段5 D40：PATCH 响应也带当前模型 id（保存后前端不丢模型名）。
             let active_model_id = crate::web_api::models_routes::active_model_id(&ctx.models);
             let resp = handle_patch(
@@ -149,6 +155,27 @@ pub fn dispatch_with_security(
                 // 「两条更新路径各写一份」而语义漂移。
                 if ctx.status_ctx.refresh_from_disk(&config_path) {
                     tracing::debug!(path = %config_path, "PATCH 后已刷新设置快照");
+                }
+                // 2026-10-09 §2：语音模式决定本地引擎去留（local = 幂等启用
+                // local-tts-melo；cloud = 停掉它）。后台线程，不拖住这次响应。
+                ctx.reconcile_local_tts_mod();
+                // 2026-10-09 §3：「必须重启」不再是「请自行重新点火」——
+                // 只重启**本进程**（18080 上的 live2d-ai-desktop），前端据此
+                // 等它回来再刷新 /app/。
+                // **只在真服务进程里**自重启（见 `restart::arm`）：测试进程
+                // 走到这条分支时不许 spawn 自己，否则会无限自我复制。
+                if apply_status.get() == ApplyStatus::RestartRequired
+                    && crate::web_api::restart::is_armed()
+                {
+                    let registry = ctx.mod_registry.clone();
+                    crate::web_api::restart::spawn_replacement_after(
+                        std::time::Duration::from_millis(400),
+                        move || {
+                            if let Ok(mut reg) = registry.lock() {
+                                reg.shutdown_all();
+                            }
+                        },
+                    );
                 }
                 // 注意：apply_status 已在 hook 内计算并写入 resp body；此处
                 // 不再调 `request_reload`（hook 内部已处理动态装配 + reload）。

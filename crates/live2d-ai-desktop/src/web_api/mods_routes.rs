@@ -229,9 +229,12 @@ pub fn handle_mods_route(
         });
     }
 
-    // "config" action：提前处理（需要解析 body + 可能二次锁定 registry）。
+    // "config" action：**reload_config 仍然同步**（纯内存 + 一次原子写盘，
+    // 毫秒级），只有随后的 restart 挪到后台线程——restart 会 stop + start，
+    // 而 start 里那个「立刻退出」观察窗（以及首次建 venv）会拖住 tiny_http
+    // 唯一的接受循环（2026-10-09 计划书 §4）。
     if action == "config" {
-        // POST /api/v1/mods/{id}/config：body 必须 `{"config":{...}}`。
+        // POST /api/v1/mods/{id}/config：body 必须 {"config":{...}}。
         let parsed = match serde_json::from_str::<serde_json::Value>(body) {
             Ok(v) => v,
             Err(e) => {
@@ -257,23 +260,9 @@ pub fn handle_mods_route(
         match reload_result {
             Ok(()) => {
                 if enabled {
-                    // 立即 restart 使 config 生效。
-                    let mut reg2 = lock_registry(ctx);
-                    match reg2.restart(id_static) {
-                        Ok(()) => {
-                            return Some(ok_response(
-                                StatusCode(200),
-                                r#"{"ok":true,"restarted":true}"#,
-                            ));
-                        }
-                        Err(e) => {
-                            return Some(json_error(
-                                StatusCode(409),
-                                "mod_error",
-                                format!("reload 成功但 restart 失败：{e}"),
-                            ));
-                        }
-                    }
+                    // 配置已落内存 + 落盘；restart 交后台，立刻回执。
+                    spawn_mod_op(ctx, id_static, ModOp::Restart);
+                    return Some(accepted_response());
                 }
                 return Some(ok_response(
                     StatusCode(200),
@@ -293,19 +282,32 @@ pub fn handle_mods_route(
         }
     }
 
-    let result = match action {
+    // enable / disable / restart：**全部异步**。
+    //
+    // 这三条都会碰 Mod 的生命周期（start_one / shutdown），而 local-tts 的
+    // start 还要等一个「立刻退出」观察窗、首次甚至要装依赖。从前它们跑在
+    // tiny_http 的单线程接受循环里 ⇒ 这段时间整个页面都不应答。现在：同步只做
+    // **存在性**判定（快），动作丢后台线程，立刻回 202 + pending=true ——
+    // **不把「还在启动」写成成功**：前端据此轮询 GET /api/v1/mods，看到
+    // running / failed 才下结论；失败时 last_error 带脚本输出。
+    let known = registry.contains(id_static);
+    drop(registry);
+    if !known {
+        return Some(json_error(
+            StatusCode(404),
+            "not_found",
+            format!("Mod {id} 不在注册表"),
+        ));
+    }
+    let op = match action {
         "enable" => {
-            // body 可选 `{"config":{...}}`。
+            // body 可选 {"config":{...}}。
             let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
-            match parsed.as_ref().and_then(|v| v.get("config")) {
-                Some(config) => registry.enable_with_config(id_static, config.clone()),
-                None => registry.enable(id_static),
-            }
+            ModOp::Enable(parsed.as_ref().and_then(|v| v.get("config")).cloned())
         }
-        "disable" => registry.disable(id_static),
-        "restart" => registry.restart(id_static),
+        "disable" => ModOp::Disable,
+        "restart" => ModOp::Restart,
         _ => {
-            drop(registry);
             return Some(json_error(
                 StatusCode(404),
                 "not_found",
@@ -313,20 +315,48 @@ pub fn handle_mods_route(
             ));
         }
     };
-    drop(registry);
+    spawn_mod_op(ctx, id_static, op);
+    Some(accepted_response())
+}
 
-    match result {
-        Ok(()) => Some(ok_response(StatusCode(200), r#"{"ok":true}"#)),
-        Err(live2d_ai_mod_system::ModError::Other(_)) => {
-            // registry.enable/disable/restart 返回 ModError::Other 表示 id 不存在。
-            Some(json_error(
-                StatusCode(404),
-                "not_found",
-                format!("Mod {id} 不在注册表"),
-            ))
+/// 一条要在**后台线程**里跑的 Mod 生命周期动作（2026-10-09）。
+enum ModOp {
+    /// enable，可带一份 config（= 先 reload_config 再 enable）。
+    Enable(Option<serde_json::Value>),
+    Disable,
+    Restart,
+}
+
+/// 把一条 Mod 生命周期动作丢进后台线程，**不阻塞接受循环**。
+///
+/// 结果落在 ModRegistry 自己的状态机里（Starting → Running / Failed），
+/// 失败原因在 last_error；本函数只额外留一行日志（否则「点了没反应」在
+/// 排障时一片空白）。锁毒化照旧降级（into_inner），不 panic。
+fn spawn_mod_op(ctx: &ServerContext, id: &'static str, op: ModOp) {
+    let registry = std::sync::Arc::clone(&ctx.mod_registry);
+    std::thread::spawn(move || {
+        let mut reg = match registry.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let result = match op {
+            ModOp::Enable(Some(config)) => reg.enable_with_config(id, config),
+            ModOp::Enable(None) => reg.enable(id),
+            ModOp::Disable => reg.disable(id),
+            ModOp::Restart => reg.restart(id),
+        };
+        if let Err(e) = result {
+            tracing::warn!(target: "mod", mod_id = id, "后台 Mod 操作失败：{e}");
         }
-        Err(e) => Some(json_error(StatusCode(409), "mod_error", e.to_string())),
-    }
+    });
+}
+
+/// 202 Accepted + pending=true：动作已受理、**还没生效**。
+///
+/// 刻意不是 200「成功」：enable 只是把 Mod 标成 Starting 并丢进后台，
+/// 它到底起没起来要等轮询 GET /api/v1/mods。
+fn accepted_response() -> Response<Cursor<Vec<u8>>> {
+    ok_response(StatusCode(202), r#"{"ok":true,"pending":true}"#)
 }
 
 /// 取 `mod_registry` 锁：**锁毒化不 panic**。
@@ -366,6 +396,10 @@ fn handle_mods_list(ctx: &ServerContext) -> Response<Cursor<Vec<u8>>> {
                 "version": desc.version,
                 "api_version": desc.api_version,
                 "status": status.as_str(),
+                // 2026-10-09：失败原因**带出来**（含脚本 stderr 的尾巴）。
+                // 只给 status="failed" 的话，用户看不到脚本到底说了什么，
+                // 而「立刻退出 = Failed」的整条口径就是为了让他看到那句话。
+                "last_error": registry.last_error(desc.id),
                 "enabled": enabled,
                 "config": redacted_config(&config, spec),
                 "settings_spec": spec.map(spec_json).unwrap_or(serde_json::Value::Null),

@@ -8,7 +8,8 @@
 //! WebGPU 下结构性不可达。舞台底色与背景图现在**画进 framebuffer**
 //! （见 `background.rs`），因此不再需要动后端顺序——恢复 WebGPU 优先。
 //! - [`backend_label`] / [`adapter_info`]：实际后端与 adapter 信息（HUD 观测用）。
-//! - [`canvas_pixel_size`]：CSS 尺寸 × DPR 钳制 → 物理画布尺寸（含档位上限）。
+//! - [`canvas_pixel_size`]：CSS 尺寸 × DPR 钳制 × **档位渲染比例** →
+//!   物理画布尺寸（再按档位侧边保比上钳）。
 
 use std::sync::Arc;
 
@@ -141,14 +142,23 @@ pub(crate) fn adapter_info(adapter: &wgpu::Adapter) -> (wgpu::Backend, String, b
 /// **档位钳制**（ADR §3.3）：`tier.side()` 作为物理画布目标侧边的**上限**，
 /// 实际尺寸 = `min(clamp 后的值, tier.side())`，避免超大离屏 target 超 sampler
 /// 上限/显存预算而失败。默认档位 [`RenderTier::DEFAULT`] 不影响既有 1.5 cap。
+///
+/// **2026-10-09：档位还要真的改变绘制分辨率。** 只有上钳时，普通窗口的物理
+/// 画布（约 1000–2000 px）远小于 4096 ⇒ 三档钳完**一模一样**，界面上看起来
+/// 「渲染档位失效」。现在把 [`RenderTier::render_scale`] 乘进 DPR：画布位图
+/// 比 CSS 显示盒更大，浏览器下采样回显示盒（超采样）——三档肉眼可分。
+/// 分配量 = 显示盒 × 比例，**不会**为字面 16384 分配一张 1 GiB 纹理；
+/// `side()` 仍然是最后一道保比上钳（大窗口 + 高档位时的显存兜底）。
 pub(crate) const DPR_CAP: f64 = 1.5;
 pub(crate) fn canvas_pixel_size(
     canvas: &HtmlCanvasElement,
     window: &Window,
     tier: RenderTier,
 ) -> (u32, u32) {
-    // 钳 dpr 到 [1, DPR_CAP]，保证最小 1 倍（HiDPI 缩放也得有下限）。
-    let dpr = window.device_pixel_ratio().clamp(1.0, DPR_CAP);
+    // 钳 dpr 到 [1, DPR_CAP]，保证最小 1 倍（HiDPI 缩放也得有下限）；
+    // 再乘档位的渲染比例（1.0 / 1.5 / 2.0）——这一项是三档在这台屏幕上
+    // 「看得出差别」的唯一来源。
+    let dpr = window.device_pixel_ratio().clamp(1.0, DPR_CAP) * tier.render_scale();
     let css_w = canvas.client_width().max(0) as f64;
     let css_h = canvas.client_height().max(0) as f64;
     let width = ((css_w * dpr).round() as u32).max(1);

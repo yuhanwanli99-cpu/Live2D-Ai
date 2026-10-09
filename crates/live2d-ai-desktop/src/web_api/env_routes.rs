@@ -199,6 +199,7 @@ mod tests {
                 show_reasoning: None,
             },
             tts: TtsSettings {
+                mode: live2d_ai_runtime::settings::TtsMode::Cloud,
                 base_url: String::new(),
                 model: None,
                 voice: "v".into(),

@@ -212,8 +212,30 @@ extension _ShellAdminWiring on _ShellRootState {
     _busyId = id;
     _refresh();
     try {
-      await _modsApi.setEnabled(id, enabled);
+      final ModToggleResult accepted = await _modsApi.setEnabled(id, enabled);
       if (!mounted) return;
+      if (accepted.pending) {
+        // 2026-10-09：服务端**受理**了但还没生效（生命周期动作在后台线程跑，
+        // 不堵接受循环）。这里如实显示「正在启动…」，并轮询到有结论为止——
+        // **绝不把「还在启动」写成成功**。
+        _adminMessage = '正在${enabled ? '启用' : '停用'} $id…';
+        _refresh();
+        final ModInfo? settled = await _modsApi.awaitSettled(id);
+        if (!mounted) return;
+        _busyId = null;
+        if (settled == null) {
+          _adminMessage = '$id 还没给出结果（可稍后回「扩展」看它的状态）';
+        } else if (settled.status == 'failed') {
+          _adminMessage =
+              '$id ${enabled ? '启用' : '停用'}失败：${settled.lastError ?? '服务端没给原因'}';
+        } else {
+          _adminMessage = '${enabled ? '已启用' : '已停用'} $id';
+        }
+        _refresh();
+        _notifyModChanged(_adminMessage!);
+        await _loadAdmin();
+        return;
+      }
       _busyId = null;
       _adminMessage = '${enabled ? '已启用' : '已停用'} $id';
       _refresh();

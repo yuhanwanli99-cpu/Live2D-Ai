@@ -32,9 +32,9 @@ import 'package:live2d_ai_shell/live2d/action_scales_sync.dart';
 import 'package:live2d_ai_shell/live2d/live2d_stage.dart';
 import 'package:live2d_ai_shell/live2d/preset_status.dart';
 import 'package:live2d_ai_shell/live2d/render_events.dart';
+import 'package:live2d_ai_shell/settings/mods/director_debug_panels.dart';
 import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
 import 'package:live2d_ai_shell/settings/preset_labels.dart';
-import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart' show SliderField;
 import 'package:live2d_ai_shell/ui/theme.dart';
 
@@ -336,11 +336,11 @@ void main() {
     testWidgets('A①（2026-10-09）：叠加基础表情不再挂控件说明', (WidgetTester tester) async {
       await tester.pumpWidget(
         _wrap(
-          DeveloperSection(
-            devMode: true,
-            onDevModeChanged: (bool _) {},
-            forcedByLaunchFlag: false,
-            presetLabels: _table,
+          // 2026-10-09：这两块已从核心「开发模式」页搬到「扩展 → 导演」卡片，
+          // 这里直接挂那块面板本身（行为口径一字未改）。
+          DebugPanels(
+            onApplyPreset: (String _, double _) {},
+            labels: _table,
           ),
         ),
       );

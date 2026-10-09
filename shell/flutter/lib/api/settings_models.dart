@@ -153,6 +153,21 @@ class LlmSettingsView {
   }
 }
 
+/// 语音来源的稳定值（与 Rust `TtsMode::as_str` 逐字一致）。
+const String kTtsModeLocal = 'local';
+
+/// 见 [kTtsModeLocal]。
+const String kTtsModeCloud = 'cloud';
+
+/// 空间本地引擎的**固定**地址（普通层不给改端口）。
+const String kTtsLocalBaseUrl = 'http://127.0.0.1:8091/v1';
+
+/// 云端模式的缺省密钥变量名（值住 `.env`，由「保存密钥」写入）。
+///
+/// 本地模式**不带密钥**（`api_key_env = null`）；云端由用户点亮这个绑定后
+/// 才能填值——界面不预填任何厂商、也不预置 Key。
+const String kTtsCloudKeyEnv = 'LIVE2D_AI_TTS_API_KEY';
+
 /// `GET /api/v1/settings` 的 TTS 段。
 class TtsSettingsView {
   const TtsSettingsView({
@@ -162,7 +177,12 @@ class TtsSettingsView {
     required this.hasApiKey,
     required this.sampleRate,
     required this.channels,
+    this.mode = kTtsModeLocal,
   });
+
+  /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。缺省按**本地**理解：
+  /// 老服务端 / 字段缺失时不能把界面拨到云端（那是另一套配置）。
+  final String mode;
 
   final String baseUrl;
 
@@ -177,7 +197,9 @@ class TtsSettingsView {
 
   factory TtsSettingsView.fromJson(Map<String, Object?>? json) {
     final Map<String, Object?> j = json ?? const <String, Object?>{};
+    final String rawMode = _str(j['mode']);
     return TtsSettingsView(
+      mode: rawMode.isEmpty ? kTtsModeLocal : rawMode,
       baseUrl: _str(j['base_url']),
       model: j['model'] is String ? j['model']! as String : null,
       voice: _str(j['voice']),

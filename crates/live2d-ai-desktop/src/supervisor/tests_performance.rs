@@ -74,6 +74,7 @@ fn write_performance_config(
             ..Default::default()
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
+            mode: live2d_ai_runtime::settings::TtsMode::Cloud,
             base_url: tts_base.to_string(),
             voice: "alloy".to_string(),
             ..Default::default()

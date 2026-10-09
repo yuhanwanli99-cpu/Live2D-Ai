@@ -89,6 +89,7 @@ fn write_settings_with_tts(path: &std::path::Path, llm_base_url: &str, tts_base_
             show_reasoning: None,
         },
         tts: live2d_ai_runtime::settings::TtsSettings {
+            mode: live2d_ai_runtime::settings::TtsMode::Cloud,
             base_url: tts_base_url.to_string(),
             model: None,
             voice: "alloy".to_string(),

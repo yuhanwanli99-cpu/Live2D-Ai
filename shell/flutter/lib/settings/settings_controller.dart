@@ -51,9 +51,14 @@ class SettingsDraft {
   DraftField<bool>? llmShowReasoning;
 
   // ── TTS ──
+  /// 语音来源（`local` / `cloud`，2026-10-09）。null = 没动。
+  String? ttsMode;
   String? ttsBaseUrl;
   String? ttsModel;
   String? ttsVoice;
+
+  /// 密钥**变量名**的草稿（只有「切到云端且本机还没绑定」时会被设一次）。
+  Tri<String>? ttsApiKeyEnv;
   int? ttsSampleRate;
   int? ttsChannels;
 
@@ -107,10 +112,18 @@ class SettingsDraft {
   }
 
   TtsSettingsPatch? _ttsPatch() {
+    // model 是可选字段：草稿里显式空串 = **清除**（`null`），不是「设成空串」——
+    // 后者会让请求体带一个空的 model 字段。
+    final String? model = ttsModel;
+    final Tri<String>? modelTri = model == null
+        ? null
+        : (model.trim().isEmpty ? Tri.clear<String>() : Tri.set(model));
     final TtsSettingsPatch patch = TtsSettingsPatch(
+      mode: ttsMode,
       baseUrl: _tri(ttsBaseUrl),
-      model: _tri(ttsModel),
+      model: modelTri,
       voice: _tri(ttsVoice),
+      apiKeyEnv: ttsApiKeyEnv,
       sampleRate: ttsSampleRate == null ? null : Tri.set(ttsSampleRate!),
       channels: ttsChannels == null ? null : Tri.set(ttsChannels!),
     );
@@ -147,9 +160,11 @@ class SettingsDraft {
     llmModel = null;
     llmMaxTokens = null;
     llmShowReasoning = null;
+    ttsMode = null;
     ttsBaseUrl = null;
     ttsModel = null;
     ttsVoice = null;
+    ttsApiKeyEnv = null;
     ttsSampleRate = null;
     ttsChannels = null;
     personaSystemPrompt = null;
@@ -186,9 +201,11 @@ extension SaveOutcomeMessage on SaveOutcome {
   /// 给用户看的一句话。**按 `apply_status` 分流**——不区分就会
   /// 「提示已热重载但实际 503」。
   String get message => switch (this) {
-    SaveOutcome.savedApplied => '已保存并生效',
-    SaveOutcome.savedRestartRequired => '已保存，需重启生效',
-    SaveOutcome.savedQueued => '已保存，正在生效',
+    // 2026-10-09：保存已经是**一步**——写盘 + 热重载 / 重启 18080 上的服务，
+    // 然后页面自动重新加载。文案不再停在「请自行重新点火」。
+    SaveOutcome.savedApplied => '已保存并生效，页面将重新加载',
+    SaveOutcome.savedRestartRequired => '已保存；服务端正在重启，页面将重新加载',
+    SaveOutcome.savedQueued => '已保存，正在生效，页面将重新加载',
     SaveOutcome.savedNoSupervisor => '已保存，配置将在下次启动后生效',
     SaveOutcome.noChange => '没有变化',
     SaveOutcome.failed => '保存失败',
@@ -376,6 +393,7 @@ class SettingsController extends ChangeNotifier {
         when value == remote.llm.showReasoning) {
       _draft.llmShowReasoning = null;
     }
+    if (_draft.ttsMode == remote.tts.mode) _draft.ttsMode = null;
     if (_draft.ttsBaseUrl == remote.tts.baseUrl) _draft.ttsBaseUrl = null;
     if (_draft.ttsModel == remote.tts.model) _draft.ttsModel = null;
     if (_draft.ttsVoice == remote.tts.voice) _draft.ttsVoice = null;

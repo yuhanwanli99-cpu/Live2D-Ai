@@ -23,5 +23,6 @@ pub(crate) use gpu::{adapter_info, init_gpu};
 pub(crate) use idle::IdleState;
 pub(crate) use input::{BridgeState, normalize_stage_color};
 pub(crate) use render::{
-    FrameSlot, FrameState, HudState, SharedState, canvas_css_metrics, install_resize_handler, tick,
+    FrameSlot, FrameState, HudState, SharedState, canvas_css_metrics, install_resize_handler,
+    sync_canvas_size, tick,
 };

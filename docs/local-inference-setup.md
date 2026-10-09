@@ -43,8 +43,8 @@
 > `response_format = pcm` / `sample_rate = 44100`；**CosyVoice3（id `local-tts`）已封存**——
 > 移出注册表、开机不拉起。下面那些指向 8080 / `skystar` / 24000 的旧 curl 只作历史记录。
 >
-> 另注：本文写作时的 TTS 例子是 kokoroi-rs；当前默认面向 **CosyVoice 3** 的
-> OpenAI 兼容层（见 `docs/architecture/cosyvoice3-tts-integration.md`）。
+> 另注：本文写作时的 TTS 例子是 kokoroi-rs；**出厂本地出声是 MeloTTS**（`local-tts-melo`）。
+> CosyVoice 3 的 OpenAI 兼容层仍留在树上，但已封存（`docs/architecture/cosyvoice3-tts-integration.md`）。
 
 > 用户实测卡在「没有 TTS，所以无法验证口型/出声」。
 > 本文档以**照抄即可执行**的命令为导向，带领你从零搭建本地 LLM + TTS 推理服务，

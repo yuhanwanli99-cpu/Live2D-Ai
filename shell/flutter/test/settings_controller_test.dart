@@ -213,9 +213,15 @@ void main() {
     for (final (String wire, SaveOutcome expected, String message) in <
       (String, SaveOutcome, String)
     >[
-      ('applied', SaveOutcome.savedApplied, '已保存并生效'),
-      ('restart_required', SaveOutcome.savedRestartRequired, '已保存，需重启生效'),
-      ('queued', SaveOutcome.savedQueued, '已保存，正在生效'),
+      // 2026-10-09：保存已经是**一步**（写盘 + 热重载/自重启 + 页面重新加载），
+      // 所以文案不再停在「请自行重新点火」，而是说清「接下来会发生什么」。
+      ('applied', SaveOutcome.savedApplied, '已保存并生效，页面将重新加载'),
+      (
+        'restart_required',
+        SaveOutcome.savedRestartRequired,
+        '已保存；服务端正在重启，页面将重新加载',
+      ),
+      ('queued', SaveOutcome.savedQueued, '已保存，正在生效，页面将重新加载'),
       ('no_supervisor', SaveOutcome.savedNoSupervisor, '已保存，配置将在下次启动后生效'),
     ]) {
       test('apply_status=$wire → $message', () async {
@@ -326,7 +332,7 @@ void main() {
     test('成功结局不吃 error 参数（避免「已保存并生效：xxx」这种怪句子）', () {
       expect(
         SaveOutcome.savedApplied.messageWith(error: 'HTTP 500 boom'),
-        '已保存并生效',
+        '已保存并生效，页面将重新加载',
       );
       expect(SaveOutcome.failed.messageWith(), '保存失败');
       expect(SaveOutcome.failed.messageWith(error: '   '), '保存失败');

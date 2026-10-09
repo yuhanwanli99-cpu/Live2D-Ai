@@ -27,8 +27,8 @@ If you download Cubism binaries yourself for experiments, they remain under Live
 ## 3. Models and media
 
 - Live2D model binaries (`.moc3`, textures, etc.) are **not** covered by this project’s AGPL.
-- `assets/models/*` is gitignored except placeholders / README — **no public redistribution** of raw model files via this repo.
-- Obtain models from their authors and import locally. See [assets/models/README.md](assets/models/README.md).
+- This project’s code license does **not** cover models. The tracked files are only the few the renderer needs for the white model (`bai.moc3`, `texture_00_4096.png`), shipped with the disclaimer and 24-hour deletion note in [assets/models/bai/MODEL_LICENSE.md](assets/models/bai/MODEL_LICENSE.md).
+- `texture_00.png`, `bai.vtube.json` and `items_pinned_to_model.json` are still **not** in the repo. Obtain any other model from its author and import locally. See [assets/models/README.md](assets/models/README.md).
 
 ## 4. Secrets and local config
 
@@ -37,4 +37,4 @@ If you download Cubism binaries yourself for experiments, they remain under Live
 
 ## 5. Public tree expectations
 
-Public source should include project code + docs needed to build the Rust baseline, and must **exclude** proprietary Cubism Core binaries, model originals, secrets, and local absolute-path machine state.
+Public source should include project code + docs needed to build the Rust baseline, and must **exclude** proprietary Cubism Core binaries, model originals (only the few tracked white-model files required to render are included), secrets, and local absolute-path machine state.

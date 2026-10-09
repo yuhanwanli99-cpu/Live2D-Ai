@@ -92,6 +92,15 @@ void saveChatSessions(ChatSessionStore store) {
   }
 }
 
+/// **重新加载本页**（`/app/`）。
+///
+/// 2026-10-09：设置保存做成一步之后，服务端已经用上新值——而页面上那几份
+/// 「服务端真相」都是加载时取的快照，不刷新就会停在旧值。这里做的是**同源
+/// 整页重载**（不是改 `location.href`），所以不产生一条新的历史记录。
+void reloadAppPage() {
+  web.window.location.reload();
+}
+
 /// 让用户挑一张本地图片，读成 **dataURL**（组合根专有：需要 `package:web`）。
 ///
 /// 用 `FileReader.readAsDataURL` 而不是自己拼 base64：它按文件的真实 MIME

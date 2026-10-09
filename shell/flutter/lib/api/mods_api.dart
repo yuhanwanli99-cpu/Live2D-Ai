@@ -150,6 +150,18 @@ class ModSettingsSpec {
   }
 }
 
+/// `POST /api/v1/mods/{id}/{enable,disable}` 的受理结果（2026-10-09）。
+class ModToggleResult {
+  const ModToggleResult({required this.ok, this.pending = false});
+
+  /// 服务端是否受理了这次动作（`ok != false`）。
+  final bool ok;
+
+  /// **受理了但还没生效**（服务端回 202）：真正的结论要轮询
+  /// [ModsApi.awaitSettled]。界面上这时必须显示「正在启动…」。
+  final bool pending;
+}
+
 /// `POST /api/v1/mods/{id}/config` 的结果。
 ///
 /// 服务端回 `{"ok":true,"restarted":true}` 或 `{"ok":true,"enabled":false}`。
@@ -224,6 +236,7 @@ class ModInfo {
     required this.status,
     this.config = const <String, Object?>{},
     this.settingsSpec,
+    this.lastError,
   });
 
   final String id;
@@ -242,6 +255,12 @@ class ModInfo {
 
   /// 自描述表单；**旧 Mod 为 null**（面板只显示开关）。
   final ModSettingsSpec? settingsSpec;
+
+  /// 最近一次失败的**原始文案**（可能含脚本 stderr 的尾巴）；正常时为 null。
+  ///
+  /// 服务端在 `GET /api/v1/mods` 的每一项里带 `last_error`（2026-10-09）——
+  /// 只给 `status: "failed"` 的话，用户看不到脚本到底说了什么。
+  final String? lastError;
 
   /// 是否正在运行。
   bool get isRunning => status == 'running';
@@ -268,6 +287,9 @@ class ModInfo {
     status: _str(json['status']),
     config: _obj(json['config']) ?? const <String, Object?>{},
     settingsSpec: ModSettingsSpec.fromJson(_obj(json['settings_spec'])),
+    lastError: json['last_error'] is String && (json['last_error']! as String).isNotEmpty
+        ? json['last_error']! as String
+        : null,
   );
 }
 
@@ -297,7 +319,11 @@ class ModsApi {
   }
 
   /// `POST /api/v1/mods/{id}/{action}`；`action` ∈ `enable` / `disable`。
-  Future<void> setEnabled(String id, bool enabled) async {
+  ///
+  /// **2026-10-09**：服务端把生命周期动作挪到后台线程（不堵 tiny_http 的接受
+  /// 循环），所以回的是 `202 + {"ok":true,"pending":true}`——受理 ≠ 生效。
+  /// 200（旧服务端 / 已经生效）与 202 都算受理成功，差别在 [ModToggleResult.pending]。
+  Future<ModToggleResult> setEnabled(String id, bool enabled) async {
     final http.Response response = await _guard(
       () => _client.post(
         _uri(
@@ -305,7 +331,38 @@ class ModsApi {
         ),
       ),
     );
-    if (response.statusCode != 200) throw _error(response);
+    if (response.statusCode != 200 && response.statusCode != 202) {
+      throw _error(response);
+    }
+    final Map<String, Object?> body = _decode(response.body);
+    return ModToggleResult(
+      ok: body['ok'] != false,
+      pending: response.statusCode == 202 || body['pending'] == true,
+    );
+  }
+
+  /// 轮询到某个 Mod **不再处于「启动中」**为止（2026-10-09）。
+  ///
+  /// 异步受理之后，enable / disable / restart 的结论只在后台线程跑完时才落到
+  /// `running` / `failed` / `disabled`。这里等到有结论或超时；**超时返回
+  /// null**——调用方必须如实说「还没有结果」，不许把「还在启动」写成成功。
+  ///
+  /// 住 `lib/api/` 是因为这两条时长是**协议时序**（受理轮询），不是 UI 过渡
+  /// 时长（见 test/design_tokens_lint_test.dart 的豁免口径）。
+  Future<ModInfo?> awaitSettled(String id, {int attempts = 80}) async {
+    for (int i = 0; i < attempts; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      final List<ModInfo> mods = await list();
+      ModInfo? found;
+      for (final ModInfo m in mods) {
+        if (m.id == id) {
+          found = m;
+          break;
+        }
+      }
+      if (found != null && found.status != 'starting') return found;
+    }
+    return null;
   }
 
   /// `POST /api/v1/mods/{id}/config`，body `{"config": {…}}`。

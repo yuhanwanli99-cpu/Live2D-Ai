@@ -603,6 +603,9 @@ class _ModConfigTileState extends State<_ModConfigTile> {
         pickCardFile: widget.pickCardFile,
         // 2026-10-09：动作幅度旋钮随这条上下文进 director 卡片。
         actionScales: widget.actionScales,
+        // 2026-10-09：表情/动作调试 + 临时幅度（原核心「开发模式」页那块）
+        // 也随这条上下文进 director 卡片。
+        directorDebug: widget.directorDebug,
       ),
     );
     return built ?? const SizedBox.shrink();

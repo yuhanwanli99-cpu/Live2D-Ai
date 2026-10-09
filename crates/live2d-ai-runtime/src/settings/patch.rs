@@ -69,7 +69,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ActionModelOverride, ActionSettings, AppSettings, clamp_action_scale, is_valid_model_id,
+    ActionModelOverride, ActionSettings, AppSettings, TtsMode, TtsSettings,
+    apply_local_tts_defaults, clamp_action_scale, is_valid_model_id,
 };
 
 // `serde_with::rust::double_option` 的 deserialize/serialize 函数；
@@ -181,6 +182,13 @@ pub struct LlmPatch {
 /// TTS 段字段级三态补丁。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TtsPatch {
+    /// 语音来源三态（2026-10-09）：缺省 = 不改；显式 `"local"` / `"cloud"` = 切换。
+    ///
+    /// 切到 `local` 会**覆盖**同一次补丁里的地址 / 音色 / 格式 / 采样率 / 声道 /
+    /// 密钥绑定（普通层不给改端口）；切到 `cloud` 要求同一次补丁里给出非空
+    /// 地址与音色，否则整体 `Err`（400），**不静默改回另一个**。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<super::TtsMode>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -483,29 +491,12 @@ pub fn apply_patch(
     if let Some(tts_outer) = &patch.tts {
         match tts_outer {
             None => {
-                if !next.tts.base_url.is_empty() {
-                    next.tts.base_url = String::new();
-                    changed = true;
-                }
-                if next.tts.model.is_some() {
-                    next.tts.model = None;
-                    changed = true;
-                }
-                if next.tts.voice != "alloy" {
-                    next.tts.voice = "alloy".to_string();
-                    changed = true;
-                }
-                if next.tts.api_key_env.is_some() {
-                    next.tts.api_key_env = None;
-                    changed = true;
-                }
-                let spec = crate::audio::AudioSpec::default();
-                if next.tts.sample_rate != spec.sample_rate() {
-                    next.tts.sample_rate = spec.sample_rate();
-                    changed = true;
-                }
-                if next.tts.channels != spec.channels() {
-                    next.tts.channels = spec.channels();
+                // 整段清空 = 回到**出厂形态**（2026-10-09）：出厂就是本地 MeloTTS
+                // （8091 / ZH / pcm / 44100 / 单声道 / 无密钥），不再是 OpenAI 的
+                // 「alloy + 24 kHz」——那个组合如今谁都不认。
+                let before = next.tts.clone();
+                next.tts = TtsSettings::default();
+                if next.tts != before {
                     changed = true;
                 }
             }
@@ -559,6 +550,38 @@ pub fn apply_patch(
                     if next.tts.channels != new {
                         next.tts.channels = new;
                         changed = true;
+                    }
+                }
+                // 语音来源切换（2026-10-09）：**排在各字段之后**——
+                // 「本地」会覆盖同一次补丁里的地址/音色/格式/采样率/声道/密钥绑定
+                // （普通层不能改端口）；「云端」要求同一次补丁填好地址与音色，
+                // 否则整体 Err（400），**不静默改回另一个**。
+                if let Some(mode) = fields.mode {
+                    match mode {
+                        TtsMode::Local => {
+                            let before = next.tts.clone();
+                            apply_local_tts_defaults(&mut next.tts);
+                            if next.tts != before {
+                                changed = true;
+                            }
+                        }
+                        TtsMode::Cloud => {
+                            if next.tts.base_url.trim().is_empty() {
+                                return Err(
+                                    "云端模式需要填写服务地址（tts.base_url）；本次保存未生效"
+                                        .to_string(),
+                                );
+                            }
+                            if next.tts.voice.trim().is_empty() {
+                                return Err(
+                                    "云端模式需要填写音色（tts.voice）；本次保存未生效".to_string()
+                                );
+                            }
+                            if next.tts.mode != TtsMode::Cloud {
+                                next.tts.mode = TtsMode::Cloud;
+                                changed = true;
+                            }
+                        }
                     }
                 }
             }

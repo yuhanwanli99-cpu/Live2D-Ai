@@ -78,6 +78,8 @@ pub struct LlmView {
 /// 视图中的 TTS 段。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TtsView {
+    /// 语音来源（`"local"` / `"cloud"`，2026-10-09）。前端据此选中二选一。
+    pub mode: String,
     pub base_url: String,
     pub model: Option<String>,
     pub voice: String,
@@ -162,6 +164,7 @@ impl From<&LlmSettings> for LlmView {
 impl From<&TtsSettings> for TtsView {
     fn from(s: &TtsSettings) -> Self {
         Self {
+            mode: s.mode.as_str().to_string(),
             base_url: s.base_url.clone(),
             model: s.model.clone(),
             voice: s.voice.clone(),

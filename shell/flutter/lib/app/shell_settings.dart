@@ -47,8 +47,27 @@ extension _ShellSettingsWiring on _ShellRootState {
       // 诊断面板里的 dev_mode 与日志都读服务端状态，不刷新就会停在上一次。
       unawaited(_loadAppStatus());
       unawaited(_loadLogs());
+      // 2026-10-09 §3：保存是**一步**——写盘 + 热重载 / 自重启都已在服务端做完，
+      // 最后把页面重新加载，让界面读到新快照（不再弹「请自行重新点火」）。
+      unawaited(_reloadPageAfterSave(outcome));
     }
     return outcome;
+  }
+
+  /// 保存成功后的**最后一步：重新加载 `/app/`**。
+  ///
+  /// - 热重载类：等一档动效时长（让 SnackBar 先露个脸）就刷新；
+  /// - 「需重启」类：服务端正在重启 18080 上这个进程，**等它回来**再刷新
+  ///   （最多约 15 秒；超时也刷新——刷出来的会是「连不上」的如实状态，
+  ///   而不是一个停在旧值的界面）。
+  Future<void> _reloadPageAfterSave(SaveOutcome outcome) async {
+    if (outcome == SaveOutcome.savedRestartRequired) {
+      await _api.waitUntilReachable();
+    } else {
+      await Future<void>.delayed(AppDurations.reveal);
+    }
+    if (!mounted) return;
+    reloadAppPage();
   }
 
   // ── 本模型动作幅度覆盖：直接 PATCH（阶段5 D40，2026-09-26） ──
@@ -396,6 +415,39 @@ extension _ShellSettingsWiring on _ShellRootState {
             modelOverrideMessage: _modelOverrideMessage,
             modelOverrideFailed: _modelOverrideFailed,
           ),
+          // 表情调试 / 动作调试 / 临时幅度（2026-10-09 从核心「开发模式」页
+          // 整块搬到导演卡片）：数据与回调一字未改，仍只在开发者模式里渲染。
+          directorDebug: DirectorDebugWiring(
+            // 展示名读共享表（不在 Dart 手写中文）。
+            labels: _presetLabels,
+            // P0-3：动作调试——前端直发 preset 帧到渲染面（不经后端 / LLM）。
+            onApplyPreset: (String id, double intensity) => unawaited(
+              _stageKey.currentState?.applyPreset(
+                    id,
+                    source: 'debug',
+                    intensity: intensity,
+                  ) ??
+                  Future<void>.value(),
+            ),
+            status: _stageKey.currentState?.presetStatus,
+            productScales: view.action,
+            // D2：把 syncer 里的**显式 pin** 只读传进面板（没有就是 null）。
+            pinnedScales: _actionScalesSyncer.pinned,
+            onApplyScales: (double head, double body, double expression) {
+              _actionScalesSyncer.pin(<String, double>{
+                'head': head,
+                'body': body,
+                'expression': expression,
+              });
+              // 让舞台重挂后的自愈值跟着变成临时值。
+              _refresh();
+            },
+            // 「恢复产品设置」：清掉临时覆盖并**强制**写回产品值。
+            onClearScales: () {
+              _actionScalesSyncer.clearPin(_actionScalesPayload);
+              _refresh();
+            },
+          ),
         );
       case SettingsSection.developer:
         // 开关值 = **三态显示**：启动参数强制 > 草稿 > 已保存。
@@ -418,37 +470,10 @@ extension _ShellSettingsWiring on _ShellRootState {
           // 已含 --dev-mode 的覆盖）是 on，而**落盘设置**是 off——那就只可能是
           // 启动参数压着，界面里关不掉。
           forcedByLaunchFlag: forcedByLaunch,
-          // 展示名读共享表（不在 Dart 手写中文）。
-          presetLabels: _presetLabels,
-          // P0-3：动作调试——前端直发 preset 帧到渲染面（不经后端 / LLM）。
-          onApplyPreset: (String id, double intensity) => unawaited(
-            _stageKey.currentState?.applyPreset(
-                  id,
-                  source: 'debug',
-                  intensity: intensity,
-                ) ??
-                Future<void>.value(),
-          ),
-          presetStatus: _stageKey.currentState?.presetStatus,
-          productScales: view.action,
-          // D2：把 syncer 里的**显式 pin** 只读传进面板（没有就是 null）。
-          pinnedScales: _actionScalesSyncer.pinned,
-          onApplyScales: (double head, double body, double expression) {
-            _actionScalesSyncer.pin(<String, double>{
-              'head': head,
-              'body': body,
-              'expression': expression,
-            });
-            // 让舞台重挂后的自愈值跟着变成临时值。
-            _refresh();
-          },
-          // 「恢复产品设置」：清掉临时覆盖并**强制**写回产品值。
-          onClearScales: () {
-            _actionScalesSyncer.clearPin(_actionScalesPayload);
-            _refresh();
-          },
           // 诊断（2026-10-09）：一级「诊断」取消后收进这一页，
           // 只有 devMode 为真时 DeveloperSection 才画它。
+          // 表情/动作调试与临时幅度**已搬到**「扩展 → 导演」卡片（见下面的
+          // directorDebug）——这一页只剩开关与诊断。
           diagnostics: DiagnosticsSection(
             status: _status,
             capabilities: _capabilities,

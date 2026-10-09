@@ -32,7 +32,9 @@ fn mod_config_save_without_secret_keeps_endpoint_auth() {
         Some("application/json"),
     )
     .expect("mods 路由应命中");
-    assert_eq!(saved.status_code(), StatusCode(200), "保存应成功");
+    // 2026-10-09：配置**写盘同步完成**，但紧随其后的 Mod restart 挪到后台
+    // （不堵接受循环）⇒ 受理态是 202。配置本身已经落内存（下面立刻就读到了）。
+    assert_eq!(saved.status_code(), StatusCode(202), "保存应被受理");
     // 1) 配置里 token 仍在、prefix 已更新。
     let cfg = ctx
         .mod_registry
@@ -84,7 +86,11 @@ fn explicit_blank_config_clears_token_and_opens_the_token_gate() {
         Some("application/json"),
     )
     .expect("mods 路由应命中");
-    assert_eq!(saved.status_code(), StatusCode(200), "保存应成功");
+    assert_eq!(
+        saved.status_code(),
+        StatusCode(202),
+        "保存应被受理（restart 在后台）"
+    );
     let cfg = ctx
         .mod_registry
         .lock()
@@ -131,7 +137,7 @@ fn blank_non_secret_string_is_stored_not_cleared() {
         Some("application/json"),
     )
     .expect("mods 路由应命中");
-    assert_eq!(saved.status_code(), StatusCode(200));
+    assert_eq!(saved.status_code(), StatusCode(202));
     let reg = ctx.mod_registry.lock().unwrap();
     let cfg = reg.config("external-input").unwrap();
     assert_eq!(
