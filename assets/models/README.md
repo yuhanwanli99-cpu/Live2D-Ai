@@ -1,13 +1,16 @@
 # Live2D 模型资产目录
 
-> **不入库声明**：本目录下的 Live2D 模型二进制资源（`.moc3`、`.cdi3.json`、`.model3.json`、纹理 `.png` 等）
-> **未获原作者明确授予公开 Git 仓库再分发的权利**，因此本仓库的 `.gitignore` 已将 `assets/models/*` 排除在版本控制之外。
-> 本目录仅作为本地运行的占位说明，请按需自行获取并放置模型文件。
+> **出厂与条约**：渲染白（Bai）模型**必需**的文件已随仓库分发——`MODEL_LICENSE.md`、
+> `runtime/bai.model3.json`、`runtime/bai.moc3`、`runtime/bai.cdi3.json`、
+> `runtime/bai.physics3.json`、`runtime/bai.16384/texture_00_4096.png`。
+> 条约是作者的使用条约（**不是**作者授权再分发），全文见 `bai/MODEL_LICENSE.md`。
+> 未被 `model3` 引用的 `runtime/bai.16384/texture_00.png` 与 Cubism/VTube 工程残留
+> （`bai.vtube.json`、`items_pinned_to_model.json`）**仍不入库**。
 
 ## 当前使用
 
 Rust 主线默认采用 **白 (Bai)** 模型作为 v0 唯一锚定档位（参见 `crates/l2d/tests/bai_asset.rs` 与 `crates/live2d-ai-desktop/src/cli.rs`）。
-请将 Bai 模型按下列结构放置到本目录：
+出厂即带下列结构（\* = 仍不入库，需自行放置）：
 
 ```
 assets/models/bai/
@@ -17,10 +20,10 @@ assets/models/bai/
     ├── bai.model3.json
     ├── bai.cdi3.json
     ├── bai.physics3.json
-    ├── bai.vtube.json
-    ├── items_pinned_to_model.json
+    ├── bai.vtube.json              *
+    ├── items_pinned_to_model.json  *
     └── bai.16384/
-        ├── texture_00.png
+        ├── texture_00.png          *
         └── texture_00_4096.png
 ```
 
@@ -28,7 +31,7 @@ assets/models/bai/
 
 - 原视频与作者使用条约：<https://www.bilibili.com/video/BV1NqNFejEeE/>
 - 使用条约全文见 `bai/MODEL_LICENSE.md`（用户导入时随模型分发）。
-- **仓库内不捆绑模型文件**，请从作者渠道合法取得并自行导入。
+- 渲染必需文件已随仓库分发（见上）；`texture_00.png`、`bai.vtube.json`、`items_pinned_to_model.json` 仍不入库，请从作者渠道合法取得后自行放置。
 
 ## 历史来源
 

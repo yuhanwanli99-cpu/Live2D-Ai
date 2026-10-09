@@ -6,7 +6,7 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
 **文本 → LLM（纯对话）→ TTS → 口型 → Live2D 渲染 + Web UI**
 
-**不捆绑、不绑定**任何角色、皮套或模型；模型由你合法取得后自行导入。外部输入、语音输入、会话记忆、导演序列等增强能力走 Mod，失败只关掉该 Mod，不影响主链路。
+**不绑定**任何单一模型；出厂带白模型（条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)，**不是**作者授权再分发），其余模型由你合法取得后自行导入。外部输入、语音输入、会话记忆、导演序列等增强能力走 Mod，失败只关掉该 Mod，不影响主链路。
 
 > English (default): [README.md](./README.md)
 
@@ -28,10 +28,13 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
 ### Mod
 - trait 注册中心（`live2d-ai-mod-system`）：运行时 enable / disable / restart。
-- 已编译进二进制的 Mod（**5 个注册**）：`external-input`、`persona`、`voice-input`、
-  `memory`、`director`。**缺省只启用 `external-input`**（编译期
-  `cli_entry::default_mods_manifest` 只收录它），其余四个都要手动开
+- 已编译进二进制的 Mod（**6 个注册**）：`external-input`、`persona`、`voice-input`、
+  `memory`、`director`、`local-tts-melo`。**缺省启用 `external-input` 与
+  `local-tts-melo`**（后者开机拉起仓库内 MeloTTS；见编译期
+  `cli_entry::default_mods_manifest`），其余四个都要手动开
   （`memory` 会写 `persona.system_prompt`，必须由用户明确打开）。
+- `local-tts`（CosyVoice3）**已封存、未注册**：crate 与 `engine/` 留在树上（可编译可测），
+  **未适配前不要挂回**。
 - `director`（2026-09-14 起的**决策/按句 cue**版）：规则层按**用户输入**判情绪 / 意图选动作包，
   经 host `ModServices.cues` 广播 WS `action_cue`（**唯一驱动舞台**；中性轮发
   `preset_id=="none"` 撤销哨兵），本机 `mods.json` 启用后**确实驱动动作**；
@@ -68,12 +71,20 @@ Live2D-Ai 只打磨一条核心链路，其余能力放在 Mod 边界之后：
 
 ```bash
 cp live2d-ai.toml.example live2d-ai.toml   # OpenAI 兼容 LLM/TTS
-cargo build --release
-./target/release/live2d-ai-desktop --web --http-port 18080
-# 浏览器打开 http://localhost:18080/
+(cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn)
+./scripts/prune_web_artifacts.sh
+./scripts/prune_web_artifacts.sh --check
+./scripts/ignite.sh --build
 ```
 
-Live2D 模型请放到本地 `assets/models/`（见 `assets/models/README.md`）。该目录下的模型二进制**不会**进入 git。
+`flutter` 是 `~/flutter` 里的 Flutter SDK（`scripts/ignite.sh` 会把 `$HOME/flutter/bin` 放进 `PATH`）。
+`./scripts/ignite.sh --build` 编的是**调试版后端**并启动；`shell/flutter/build/web/index.html`
+已存在时**不会重编 Flutter**，所以第一行必须先跑。最后一行会 `exec` 进服务、不退出——
+另开终端跑 `./scripts/ignite.sh --check`，浏览器打开 <http://127.0.0.1:18080/app/>。
+
+出厂带白（bai）模型，克隆后即可渲染——资产说明见 [`assets/models/README.md`](assets/models/README.md)，
+条约见 [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md)
+（作者条约，**不是**授权再分发）。
 
 ### 常用 CLI
 ```bash
@@ -88,9 +99,20 @@ Live2D 模型请放到本地 `assets/models/`（见 `assets/models/README.md`）
 
 **开发与「服务进程」都在 WSL2 侧**；Windows 只负责开浏览器（不跑二进制、不编 Flutter）。
 
+标准构建 + 启动（仓库根执行，顺序不可换）：
+
 ```bash
-./scripts/ignite.sh            # 预检 + 启动，默认端口 18080
-./scripts/ignite.sh --build    # 先重建 Rust + Flutter Web 再启动
+(cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn)
+./scripts/prune_web_artifacts.sh
+./scripts/prune_web_artifacts.sh --check
+./scripts/ignite.sh --build
+```
+
+`flutter` 是 `~/flutter` 里的 SDK。`./scripts/ignite.sh --build` 编的是**调试版后端**并启动；
+`shell/flutter/build/web/index.html` 已存在时**不会重编 Flutter**——所以第一行必须先跑。
+最后一行 `exec` 进服务、不退出；另开终端做点火体检：
+
+```bash
 ./scripts/ignite.sh --check    # 对**已启动**的服务做点火体检
 ```
 

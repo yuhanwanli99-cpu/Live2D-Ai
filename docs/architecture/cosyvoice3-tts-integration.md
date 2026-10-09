@@ -3,6 +3,10 @@
 > 状态：**接入能力已就绪；本机不部署**（用户裁决）。
 > 选定模型：[FunAudioLLM / Fun-CosyVoice3-0.5B-2512](https://github.com/FunAudioLLM/CosyVoice)。
 > 本文只描述「怎么接进来」，不含部署步骤的执行。
+> **2026-10-09 现行**：该引擎的 Mod 入口（id `local-tts`）**已封存**——移出
+> `AVAILABLE_MOD_FACTORIES`、缺省 manifest 不收录；出厂出声走 **MeloTTS**
+> （`local-tts-melo`，`127.0.0.1:8091`），**不走这里**。本文正文的部署步骤与 curl
+> 只作「怎么接进来」的记录。
 
 ---
 

@@ -6,7 +6,7 @@ Live2D-Ai wires a single core loop and keeps everything else behind a Mod bounda
 
 **text → LLM (chat only) → TTS → lip-sync → Live2D render + Web UI**
 
-It does **not** ship or bind any character, skin, or model. You import your own lawfully obtained Live2D assets. Complex extras (external input, persona, voice input, session memory, …) are optional Mods that fail independently of the core loop.
+It ships one **white (bai) model** so a fresh clone renders out of the box; the terms in [`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) apply and are **not** an author authorization to redistribute. Import any other Live2D assets yourself, lawfully. Complex extras (external input, persona, voice input, session memory, …) are optional Mods that fail independently of the core loop.
 
 > Chinese: [README.zh-CN.md](./README.zh-CN.md)
 
@@ -28,10 +28,13 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ### Mods
 - Trait registry (`live2d-ai-mod-system`): enable / disable / restart at runtime.
-- Mods compiled into the binary (**5 registered**): `external-input`, `persona`,
-  `voice-input`, `memory`, `director`. **Only `external-input` is enabled by default**;
-  the other four are opt-in (`memory` writes `persona.system_prompt`, so it must be
-  turned on deliberately).
+- Mods compiled into the binary (**6 registered**): `external-input`, `persona`,
+  `voice-input`, `memory`, `director`, `local-tts-melo`. **`external-input` and
+  `local-tts-melo` are enabled by default** (the latter launches the bundled MeloTTS on
+  boot); the other four are opt-in (`memory` writes `persona.system_prompt`, so it must
+  be turned on deliberately).
+- `local-tts` (CosyVoice3) is **sealed — not registered**; the crate stays in the tree
+  but must **not** be re-registered until it is adapted.
 - `wallpaper` and `pet-desktop` are **ARCHIVED** (this wave): **not registered and not
   compiled into the binary**; the crates stay in the workspace (still compiling and
   testable) and must **not** be re-registered. See
@@ -75,12 +78,22 @@ It does **not** ship or bind any character, skin, or model. You import your own 
 
 ```bash
 cp live2d-ai.toml.example live2d-ai.toml   # OpenAI-compatible LLM/TTS
-cargo build --release
-./target/release/live2d-ai-desktop --web --http-port 18080
-# open http://localhost:18080/
+(cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn)
+./scripts/prune_web_artifacts.sh
+./scripts/prune_web_artifacts.sh --check
+./scripts/ignite.sh --build
 ```
 
-Put Live2D model files under `assets/models/` locally (see `assets/models/README.md`). Nothing under that path is shipped in git.
+`flutter` is the Flutter SDK in `~/flutter` (`scripts/ignite.sh` puts `$HOME/flutter/bin` on `PATH`).
+`./scripts/ignite.sh --build` builds the **debug backend** and starts it; it does **not** rebuild Flutter
+when `shell/flutter/build/web/index.html` already exists, so the first line must come first. The server
+`exec`s and does not exit — run `./scripts/ignite.sh --check` from another terminal, then open
+<http://127.0.0.1:18080/app/>.
+
+The white (**bai**) model ships with the repo, so a fresh clone renders out of the box — see
+[`assets/models/README.md`](assets/models/README.md), terms in
+[`assets/models/bai/MODEL_LICENSE.md`](assets/models/bai/MODEL_LICENSE.md) (the author's terms, **not** a
+redistribution authorization).
 
 ### Useful CLI modes
 
@@ -107,9 +120,21 @@ the dormancy ledger is in [AGENTS.md](./AGENTS.md).
 Development and the **server process** live in WSL2; Windows only opens a browser
 (no binaries, no Flutter builds on the Windows side).
 
+Standard build + start (from the repo root; order matters):
+
 ```bash
-./scripts/ignite.sh            # preflight + serve on port 18080
-./scripts/ignite.sh --build    # also rebuild Rust + Flutter Web first
+(cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn)
+./scripts/prune_web_artifacts.sh
+./scripts/prune_web_artifacts.sh --check
+./scripts/ignite.sh --build
+```
+
+`flutter` is the SDK in `~/flutter`. `./scripts/ignite.sh --build` builds the **debug backend** and
+starts it; it does **not** rebuild Flutter when `shell/flutter/build/web/index.html` already exists —
+hence line 1 first. The last line `exec`s into the server and does not exit; probe it from another
+terminal:
+
+```bash
 ./scripts/ignite.sh --check    # health-probe an already running server
 ```
 

@@ -123,5 +123,6 @@
 | CosyVoice3 | `id local-tts` **已封存**：移出 `AVAILABLE_MOD_FACTORIES`，缺省 manifest 不收录，开机不拉起。crate 与 `engine/` **保留在树上**（可编译可测），**还要适配，未适配前不要挂回** |
 | 工厂数 | 6（`external-input` / `persona` / `voice-input` / `memory` / `director` / `local-tts-melo`），`main.rs::mod_count_is_six` 守住 |
 | 子进程立刻非 0 退出 | `start` 返回 `Err`、Mod 状态 `Failed`，**错误里带脚本印出的原因**（子进程 stderr 的尾巴）——不许显示「已启用」而其实没在听端口；退出码 0 同样算失败 |
+| stderr | 立刻退出要能带上**脚本印出的原因** ⇒ 子进程 stderr 从 `inherit` 改为**接管道 + 专用读线程读干并同时透传到宿主终端**（§6 那句「禁止管道」是上一态，不改）。红线与理由见 `crates/live2d-ai-mod-local-tts/src/child.rs` 头注 |
 | 不许碰的 | 起落 Mod **仍然不写 `[tts]` 的任何键**：`[tts]` 的唯一写入者是「语音合成」设置页（`PATCH /api/v1/settings`）与用户手改 `live2d-ai.toml` |
 | BERT | 中文推理要的 `bert-base-multilingual-uncased` **不入库**；缺它就是失败（错误里逐字写缺的是它），不静默下载完还声称开箱 |

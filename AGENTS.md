@@ -24,10 +24,11 @@
 - 文档索引见 `docs/README.md`；核心契约与目录约定见 `docs/architecture/core-contracts.md`
   与 `docs/architecture/directory.md`。
 - 定位：**通用人形皮套 AI 接入一体化平台**——AI + Live2D 人形皮套的通用接入与应用层，
-  **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
+  **不绑定任何单一模型**（出厂带白模型，条约见 `assets/models/bai/MODEL_LICENSE.md`，
+  不是作者授权再分发），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **上一版 `0.2.0`（0.2.0 收口 + 去臃肿第一轮；发布说明 `docs/releases/v0.2.0.md`；现行版本 `0.2.2` 见本节首段）**：
+- **上一版 `0.2.0`（0.2.0 收口 + 去臃肿第一轮；发布说明 `docs/releases/v0.2.0.md`；现行版本 `0.2.3-rc.1` 见本节首段）**：
   下面 ①–④ 是**沿用 rc.7「正确性与诚实性」那一轮**的详细记录（0.2.0 本轮的收口/去臃肿内容见发布说明）：
   ① **审计主发现 `F-0005-2`（重建放大链，本轮最有价值的单点）**：`AppShell` 新增宿主状态代际
   `settingsRevision`、`AppShellState` 新增 `_settingsTick`（设置数据通知计数），两者与 `section`
@@ -166,12 +167,15 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  **现行 6 个注册 Mod**（external-input / persona / voice-input / memory / director / local-tts）
+  **现行 6 个注册 Mod**（external-input / persona / voice-input / memory / director / local-tts-melo）
   为 workspace crate；
-  **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
-  `cli_entry::default_mods_manifest`），其余五个缺省停用（`memory` 会写
+  **缺省启用 `external-input` 与 `local-tts-melo`**（直播弹幕/礼物经 sidecar 注入；MeloTTS 由
+  `local-tts-melo` 开机拉起仓库内 `melo/start.sh`，见 `cli_entry::default_mods_manifest`），
+  其余四个缺省停用（`memory` 会写
   `persona.system_prompt`，必须由用户明确打开；`director` 是**决策 + 按句 cue**骨架，异步第二路 LLM 默认关；
-  `local-tts`（2026-10-09「两类 TTS」加的第六个）**只拉起外部进程**，不写 `[tts]`、不探活、不改出声地址）。
+  `local-tts-melo` **只拉起外部进程**，不写 `[tts]`、不探活、不改出声地址；
+  `local-tts`（界面名 `本地tts_CosyVoice3-0.5B`）**已封存、移出注册表**，crate 与 `engine/` 留在树上，
+  **未适配前不要挂回**）。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 已于
   **2026-10-01 W2-A/D1 删除**，只存在于 tag `checkpoint/pre-d1-dormant`，**禁止挂回**）。
   **`wallpaper` / `pet-desktop` 已于产品级加强波次封存（ARCHIVED），并于
@@ -248,6 +252,20 @@
 | **Windows** | 只做两件事：开浏览器点 `http://127.0.0.1:18080/app/`；把看/听的结论写回。**不跑二进制、不编 Flutter** |
 | **产物** | 单一真源 = WSL 的 `shell/flutter/build/web`。`LIVE2D_AI_FLUTTER_WEB_DIR` 一律写 **WSL 路径**；**不要**引入 Windows UNC 路径写法（`\\wsl.localhost\…`）——只有「哪天真的在 Windows 上跑二进制」才需要，那不在本计划内 |
 
+- **标准构建 + 启动**（仓库根执行，顺序不可换；两份 README 与本文件标注的是同一条）：
+
+  ```bash
+  (cd shell/flutter && flutter build web --release --base-href /app/ --no-web-resources-cdn)
+  ./scripts/prune_web_artifacts.sh
+  ./scripts/prune_web_artifacts.sh --check
+  ./scripts/ignite.sh --build
+  ```
+
+  `flutter` = Flutter SDK 在 `~/flutter`（`ignite.sh` 把 `$HOME/flutter/bin` 放进 `PATH`）；
+  `./scripts/ignite.sh --build` 编的是**调试版后端**并启动，**在
+  `shell/flutter/build/web/index.html` 已存在时不会重编 Flutter**，所以第一行必须先跑；
+  它会 `exec` 进服务、不退出——起来后另开终端跑 `./scripts/ignite.sh --check`，
+  浏览器只开 `http://127.0.0.1:18080/app/`。
 - `scripts/ignite.sh` 会把 `LIVE2D_AI_FLUTTER_WEB_DIR` 锚定成仓库内绝对路径，
   所以「cwd 不对 → `/app/` 503」不该再出现；503 响应体现在会**列出实际找过的每个路径**。
 - **点火体检**：服务跑起来后另开一个终端跑 `./scripts/ignite.sh --check`，断言
