@@ -84,7 +84,9 @@ http.Response jsonResponse(String body, int status) => http.Response.bytes(
       jsonEncode(<String, Object?>{
         'persisted': true,
         'apply_status': 'applied',
-        'settings': jsonDecode(getJson(head: head, body: bodyScale, expr: expr)),
+        'settings': jsonDecode(
+          getJson(head: head, body: bodyScale, expr: expr),
+        ),
       }),
       200,
     );
@@ -126,6 +128,43 @@ void main() {
       expect(v!.headScale, 0.75, reason: '没动 head 就用磁盘值');
       expect(v.bodyScale, 0.4, reason: '正在拖 body -> 即时预览');
       expect(v.expressionScale, 1.0);
+    });
+
+    test('滑条显示：全局草稿压过磁盘，没动的键保持磁盘值', () {
+      final ActionSettingsView shown = displayActionScales(
+        remote: remote,
+        draftHead: 1.4,
+      );
+      expect(shown.headScale, 1.4, reason: '正在拖的头必须停在滑条上');
+      expect(shown.bodyScale, 0.80);
+      expect(shown.expressionScale, 1.0);
+    });
+
+    test('滑条显示：本模型还没回读的键压过磁盘覆盖，未动的键仍回落', () {
+      const ActionSettingsView withOverride = ActionSettingsView(
+        headScale: 0.75,
+        bodyScale: 0.80,
+        expressionScale: 1.0,
+        activeModelId: 'bai',
+        models: <String, ActionModelOverrideView>{
+          'bai': ActionModelOverrideView(
+            headScale: 1.2,
+            bodyScale: null,
+            expressionScale: null,
+          ),
+        },
+      );
+      final ActionSettingsView shown = displayActionScales(
+        remote: withOverride,
+        pendingModelId: 'bai',
+        pendingKeys: const <String, double>{'head_scale': 1.6},
+      );
+      expect(shown.effectiveForActiveModel.headScale, 1.6);
+      expect(
+        shown.effectiveForActiveModel.bodyScale,
+        0.80,
+        reason: '没在拖的身体仍回落全局，不能被临时值钉死',
+      );
     });
 
     test('载荷三键齐全且都是有限数（渲染面契约）', () {
@@ -252,9 +291,7 @@ void main() {
       );
 
       // 拖动滑条：只改草稿（与 `AppearanceSection.onHeadScaleChanged` 同一条路）。
-      controller.edit(
-        (SettingsDraft d) => d.actionHeadScale = 2.0,
-      );
+      controller.edit((SettingsDraft d) => d.actionHeadScale = 2.0);
       expect(controller.dirty, isTrue, reason: '拖动 = 有未保存改动');
       expect(
         effectiveActionScales(

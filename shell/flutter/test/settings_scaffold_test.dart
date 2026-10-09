@@ -20,8 +20,9 @@ SettingsScaffold build({
   ValueChanged<SettingsSection>? onSelect,
   VoidCallback? onClose,
 }) => SettingsScaffold(
-  sections: visibleSections(),
-  selected: SettingsSection.llm,
+  // 本文件测的是脚手架本身（导航 / 底部操作条），用全量分区（含诊断）。
+  sections: visibleSections(devMode: true),
+  selected: SettingsSection.service,
   onSelect: onSelect ?? (_) {},
   onClose: onClose,
   dirty: dirty,
@@ -111,19 +112,19 @@ void main() {
   });
 
   group('分区导航', () {
-    testWidgets('每个分区一个 chip（8 个，含「开发模式」——它不再被藏起来）', (
+    testWidgets('每个分区一个 chip（7 个，含「开发模式」——它不再被藏起来）', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(wrap(build()));
-      expect(find.byType(ChoiceChip), findsNWidgets(8));
+      expect(find.byType(ChoiceChip), findsNWidgets(7));
       expect(find.text('开发模式'), findsOneWidget);
     });
 
     testWidgets('点 chip 上报分区', (WidgetTester tester) async {
       final List<SettingsSection> picked = <SettingsSection>[];
       await tester.pumpWidget(wrap(build(onSelect: picked.add)));
-      await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
-      expect(picked, <SettingsSection>[SettingsSection.tts]);
+      await tester.tap(find.widgetWithText(ChoiceChip, '模型服务'));
+      expect(picked, <SettingsSection>[SettingsSection.service]);
     });
 
     testWidgets('有 onClose 时显示关闭按钮并回调', (WidgetTester tester) async {
@@ -135,8 +136,35 @@ void main() {
 
     testWidgets('分区标题与说明来自枚举（单点真相）', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(build()));
-      expect(find.text('LLM'), findsWidgets);
-      expect(find.text('对话模型的服务地址、模型名与密钥'), findsOneWidget);
+      expect(find.text('模型服务'), findsWidgets);
+      // 2026-10-09：分区说明改成一句短的中文（不再是「服务地址、模型名和密钥」）。
+      expect(find.text('语言模型与语音合成'), findsOneWidget);
+      // 产品面上不出现「LLM」「TTS」这些内部名。
+      expect(find.text('LLM'), findsNothing);
+      expect(find.text('TTS'), findsNothing);
+    });
+
+    testWidgets('没开开发者模式：导航里没有「诊断」，但「开发模式」还在', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: SettingsScaffold(
+              sections: visibleSections(),
+              selected: SettingsSection.persona,
+              onSelect: (_) {},
+              child: const Text('PANE'),
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      expect(find.widgetWithText(ChoiceChip, '诊断'), findsNothing);
+      expect(find.widgetWithText(ChoiceChip, '开发模式'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, '模型服务'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, '扩展'), findsOneWidget);
     });
   });
 }

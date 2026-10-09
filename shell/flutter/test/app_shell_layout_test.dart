@@ -48,6 +48,7 @@ class _ShellHost extends StatefulWidget {
     this.onRetryStage,
     this.onEnsureSectionLoaded,
     this.settingsChanges = const NeverNotifies(),
+    this.devMode = false,
   });
 
   final UiPhase phase;
@@ -59,6 +60,7 @@ class _ShellHost extends StatefulWidget {
   final ValueChanged<SettingsSection>? onSectionChanged;
   final VoidCallback? onEnsureSectionLoaded;
   final Listenable settingsChanges;
+  final bool devMode;
 
   /// 默认 `ready`：**不是** `loading`。
   ///
@@ -101,6 +103,7 @@ class _ShellHostState extends State<_ShellHost> {
     },
     onEnsureSectionLoaded: widget.onEnsureSectionLoaded,
     settingsChanges: widget.settingsChanges,
+    devMode: widget.devMode,
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         Text('PANE:${s.label}'),
   );
@@ -109,7 +112,7 @@ class _ShellHostState extends State<_ShellHost> {
 Widget shellUnderTest({
   UiPhase phase = UiPhase.idle,
   WsStatus ws = WsStatus.connected,
-  SettingsSection section = SettingsSection.appearance,
+  SettingsSection section = SettingsSection.theme,
   List<SettingsSection>? sections,
   ValueChanged<SettingsSection>? onSectionChanged,
   VoidCallback? onEnsureSectionLoaded,
@@ -118,13 +121,16 @@ Widget shellUnderTest({
   double volume = 0.8,
   Live2DBridgePhase stagePhase = Live2DBridgePhase.ready,
   VoidCallback? onRetryStage,
+  bool devMode = false,
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: _ShellHost(
     phase: phase,
     ws: ws,
     initialSection: section,
-    sections: sections ?? visibleSections(),
+    // 缺省给**全量**分区（含诊断）：本文件的布局断言历史上都按 8 项写的，
+    // 而「没开开发者模式时不出现诊断」由下面那条专门的用例守。
+    sections: sections ?? visibleSections(devMode: true),
     muted: muted,
     volume: volume,
     onSectionChanged: onSectionChanged,
@@ -132,6 +138,7 @@ Widget shellUnderTest({
     settingsChanges: settingsChanges,
     stagePhase: stagePhase,
     onRetryStage: onRetryStage,
+    devMode: devMode,
   ),
 );
 
@@ -145,7 +152,7 @@ Future<void> pumpShell(
   double width = 1400,
   UiPhase phase = UiPhase.idle,
   WsStatus ws = WsStatus.connected,
-  SettingsSection section = SettingsSection.appearance,
+  SettingsSection section = SettingsSection.theme,
   List<SettingsSection>? sections,
   ValueChanged<SettingsSection>? onSectionChanged,
   VoidCallback? onEnsureSectionLoaded,
@@ -270,13 +277,48 @@ void main() {
         shellUnderTest(ws: WsStatus.disconnected, phase: UiPhase.offline),
       );
       await tester.pump();
-      expect(find.textContaining('后端未连接'), findsWidgets);
-      expect(find.textContaining('点此重试'), findsOneWidget);
+      expect(find.text('没连上（重连中）· 点此重试'), findsOneWidget);
+      expect(find.textContaining('后端未连接'), findsNothing);
+    });
+
+    testWidgets('开发者模式打开后，离线横幅改回「后端未连接」', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        shellUnderTest(
+          ws: WsStatus.disconnected,
+          phase: UiPhase.offline,
+          devMode: true,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('后端未连接（重连中）· 点此重试'), findsOneWidget);
+      expect(find.text('没连上'), findsOneWidget, reason: '状态胶囊仍写没连上');
     });
 
     testWidgets('已连接时没有离线横幅', (WidgetTester tester) async {
       await pumpShell(tester);
       expect(find.textContaining('点此重试'), findsNothing);
+    });
+
+    testWidgets('没开开发者模式：导航里没有「诊断」，但有「开发模式」「对话」「扩展」', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        shellUnderTest(sections: visibleSections()),
+      );
+      await tester.pump();
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(ChoiceChip, '诊断'), findsNothing);
+      for (final String label in <String>['开发模式', '模型服务', '扩展']) {
+        expect(
+          find.widgetWithText(ChoiceChip, label),
+          findsOneWidget,
+          reason: '$label 必须在导航里',
+        );
+      }
     });
 
     testWidgets('音频条常驻（三种断点都在），且静音时不改音量数值', (WidgetTester tester) async {
@@ -313,7 +355,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(InlineSettingsDock), findsOneWidget);
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
       // 内联侧板宽度是唯一定义点。
       expect(
         tester.getSize(find.byType(InlineSettingsDock)).width,
@@ -338,7 +380,7 @@ void main() {
         reason: '关闭 = 折叠到 0，不是从树里拿掉',
       );
       // 内容还在树里（这正是「再打开时滚动位置还在」的来源）。
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
     });
 
     testWidgets('medium 点「设置」→ 底部浮层（不开内联侧板）', (WidgetTester tester) async {
@@ -349,19 +391,19 @@ void main() {
 
       expect(find.byType(InlineSettingsDock), findsNothing);
       // 浮层里是同一个 SettingsScaffold → 同一个内容构建器。
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
     });
 
     testWidgets('medium 浮层里换分区，浮层不关（就地换内容）', (WidgetTester tester) async {
       await pumpShell(tester, width: 1000);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
+      await tester.tap(find.widgetWithText(ChoiceChip, '模型服务'));
       await tester.pumpAndSettle();
-      expect(find.text('PANE:语音合成'), findsOneWidget);
-      expect(find.text('PANE:外观与互动'), findsNothing);
+      expect(find.text('PANE:模型服务'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsNothing);
     });
 
     // ── 2026-09-11（P2-1）：compact 改成**页内整页过渡** ──
@@ -382,7 +424,7 @@ void main() {
       // 一次到位：没有抽屉（`ListTile`），也没有底部浮层（`BottomSheet`）。
       expect(find.byType(ListTile), findsNothing, reason: '还有抽屉 = 还是两步跳');
       expect(find.byType(BottomSheet), findsNothing, reason: '还是浮层 = 还是两步跳');
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
     });
 
     testWidgets('compact 列出**全部**可见分区（一个都不少）', (WidgetTester tester) async {
@@ -415,16 +457,17 @@ void main() {
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
+      // 2026-10-09：一级「诊断」取消 ⇒ 换成仍然存在的「模型服务」chip。
       await tester.dragUntilVisible(
-        find.widgetWithText(ChoiceChip, '诊断'),
+        find.widgetWithText(ChoiceChip, '模型服务'),
         find.byType(SingleChildScrollView).first,
         const Offset(-120, 0),
       );
-      await tester.tap(find.widgetWithText(ChoiceChip, '诊断'));
+      await tester.tap(find.widgetWithText(ChoiceChip, '模型服务'));
       await tester.pumpAndSettle();
 
-      expect(find.text('PANE:诊断'), findsOneWidget);
-      expect(find.text('PANE:外观与互动'), findsNothing);
+      expect(find.text('PANE:模型服务'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsNothing);
       // 还在设置页上（不是「选完就关」）。
       expect(find.byType(PageCrossFade), findsOneWidget);
     });
@@ -435,7 +478,7 @@ void main() {
       await pumpShell(tester, width: 500);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
@@ -443,7 +486,7 @@ void main() {
       expect(find.byType(PageCrossFade), findsOneWidget);
       // 注意 `skipOffstage: false`：这一页现在**就是** offstage 的，
       // 默认的 finder 会跳过它（那正是「找得到 / 找不到」在这里不可用的原因）。
-      final Finder hiddenPane = find.text('PANE:外观与互动', skipOffstage: false);
+      final Finder hiddenPane = find.text('PANE:主题', skipOffstage: false);
       expect(hiddenPane, findsOneWidget, reason: '关掉设置把设置页卸载了 —— 保活没了');
       expect(
         tester
@@ -471,7 +514,7 @@ void main() {
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       expect(picked, isEmpty, reason: '打开面板不是「换分区」');
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
     });
 
     testWidgets('点内联侧板里的分区 chip 上报 onSectionChanged', (
@@ -491,9 +534,9 @@ void main() {
       await pumpShell(tester, width: 1000, onSectionChanged: picked.add);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
+      await tester.tap(find.widgetWithText(ChoiceChip, '模型服务'));
       await tester.pumpAndSettle();
-      expect(picked, contains(SettingsSection.tts));
+      expect(picked, contains(SettingsSection.service));
     });
   });
 
@@ -540,14 +583,14 @@ void main() {
   group('「开发模式」分区**恒在**（否则 dev_mode 在界面上打不开）', () {
     // 2026-09-11 修：过去 dev_mode 关时这个分区被藏起来，而唯一能打开
     // dev_mode 的开关就在它里面 —— 死循环，只有 curl 能开。
-    testWidgets('设置面板里 8 个分区都在，含「开发模式」', (WidgetTester tester) async {
+    testWidgets('设置面板里 7 个分区都在，含「开发模式」', (WidgetTester tester) async {
       await pumpShell(tester, width: 1400);
       // 分区导航现在只有面板里那一行 chip（rail 已删）。
       //
       // 2026-09-11（P1-1）：侧板改成「折叠而不是卸载」之后，chip **一直在树里**
       // ——所以「面板没打开」的判据是**折到 0 宽 + 不进焦点序**，
       // 而不是「找不到」。后者已经不可能成立了（那正是保活的代价）。
-      expect(find.byType(ChoiceChip), findsNWidgets(8));
+      expect(find.byType(ChoiceChip), findsNWidgets(7));
       expect(tester.getSize(dockPanel()).width, lessThan(1));
       expect(
         Focus.of(tester.element(find.byType(ChoiceChip).first)).canRequestFocus,
@@ -556,9 +599,10 @@ void main() {
       );
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.byType(ChoiceChip), findsNWidgets(8));
+      expect(find.byType(ChoiceChip), findsNWidgets(7));
       expect(find.widgetWithText(ChoiceChip, '开发模式'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, '诊断'), findsOneWidget);
+      // 一级「诊断」已取消（2026-10-09）——它不再是一个 chip。
+      expect(find.widgetWithText(ChoiceChip, '诊断'), findsNothing);
     });
   });
   // ─────────────────────────────────────────────────────────────
@@ -604,7 +648,7 @@ void main() {
 
         // compact 额外走一层抽屉：选分区。
         if (Breakpoints.sizeClassOf(entry.value).isCompact) {
-          await tester.tap(find.text(SettingsSection.appearance.label).last);
+          await tester.tap(find.text(SettingsSection.theme.label).last);
           await tester.pumpAndSettle();
         }
         expect(h.loads, isNotEmpty, reason: '打开设置却没让宿主加载 → 用户看到的就是「读不到服务端设置」');

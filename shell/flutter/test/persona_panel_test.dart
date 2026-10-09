@@ -1,11 +1,13 @@
-
-/// persona 面板（产品级加强波次）：粘贴/导入路径、状态提示、与 memory 的共存文案。
+/// persona 回归（2026-10-08 二次口径：导入回到扩展卡片）。
 ///
-/// 契约来自 `crates/live2d-ai-mod-persona/src/command.rs`（两条命令 + `state_json`）
-/// 与 `lib/settings/mods/persona_panel.dart`。
+/// # 这一版守什么
 ///
-/// 这里**不打网络**：`ModPanelContext.onCommand` 是注入的，测试给 fake 即可覆盖
-/// 「点导入 → 送了什么 → 显示了什么」。文件选择同理（`pickCardFile` 注入）。
+/// ① 扩展区的 persona 卡片**重新承担角色卡导入**：粘贴 JSON、PNG 选择、
+///    导入并生效 / 导入为全局人设 / 清除当前会话的卡 / 清除全局导入卡；
+/// ② 命令与入参逐字符合契约表（`import_card` / `clear_import` + session_id）；
+/// ③ 8 个配置键经 [ModPanel.hiddenKeys] 整体不渲染，**也不收进「高级」**；
+/// ④ 「人设」页只剩系统提示词 + 记住几轮——导入入口**只有一处**；
+/// ⑤ 纯函数（来源 / 格式 / 作用域 / 失败态）仍供双方使用。
 library;
 
 import 'package:flutter/material.dart';
@@ -13,10 +15,66 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/mods_api.dart';
+import 'package:live2d_ai_shell/api/settings_models.dart';
 import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
 import 'package:live2d_ai_shell/settings/mods/mod_panels.dart';
 import 'package:live2d_ai_shell/settings/mods/persona_panel.dart';
+import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
+import 'package:live2d_ai_shell/settings/sections/persona_section.dart';
+import 'package:live2d_ai_shell/settings/settings_controller.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+
+import 'support/dart_library.dart';
+
+/// 与 Rust `persona_settings_spec()` **逐键对应**的 8 个字段。
+ModSettingsSpec personaSpec() => const ModSettingsSpec(
+  modId: 'persona',
+  title: '角色卡',
+  version: 1,
+  fields: <ModSettingField>[
+    ModSettingField(
+      kind: ModFieldKind.string,
+      key: 'card_path',
+      label: '角色卡文件路径（.json / 内嵌 chara 的 .png）',
+    ),
+    ModSettingField(
+      kind: ModFieldKind.string,
+      key: 'card_json',
+      label: '角色卡 JSON 文本（与路径二选一，优先）',
+    ),
+    ModSettingField(
+      kind: ModFieldKind.bool,
+      key: 'include_discipline',
+      label: '附加对话纪律模板',
+      defaultValue: true,
+    ),
+    ModSettingField(
+      kind: ModFieldKind.bool,
+      key: 'say_first_mes',
+      label: '启用时朗读开场白',
+    ),
+    ModSettingField(
+      kind: ModFieldKind.string,
+      key: 'name',
+      label: '覆盖：名称',
+    ),
+    ModSettingField(
+      kind: ModFieldKind.string,
+      key: 'description',
+      label: '覆盖：描述',
+    ),
+    ModSettingField(
+      kind: ModFieldKind.string,
+      key: 'personality',
+      label: '覆盖：性格',
+    ),
+    ModSettingField(
+      kind: ModFieldKind.string,
+      key: 'scenario',
+      label: '覆盖：场景',
+    ),
+  ],
+);
 
 ModInfo _personaMod({bool enabled = true, String status = 'running'}) => ModInfo(
   id: 'persona',
@@ -26,55 +84,70 @@ ModInfo _personaMod({bool enabled = true, String status = 'running'}) => ModInfo
   enabled: enabled,
   status: status,
   config: const <String, Object?>{},
+  settingsSpec: personaSpec(),
 );
-
-Future<ModCommandResult> _okCommand(
-  String command, [
-  Map<String, Object?> args = const <String, Object?>{},
-]) async => const ModCommandResult(ok: true);
 
 ModPanelContext _ctx({
-  ModInfo? mod,
-  Map<String, Object?>? state,
-  bool stateLoading = false,
-  String? stateError,
-  Future<ModCommandResult> Function(String, [Map<String, Object?>])? onCommand,
+  bool enabled = true,
+  String status = 'running',
   String? activeSessionId,
-  ValueChanged<String>? onModChanged,
+  Map<String, Object?>? state,
+  PersonaCardFilePicker? pickCardFile,
+  Future<ModCommandResult> Function(String command, Map<String, Object?> args)?
+  onCommand,
 }) => ModPanelContext(
-  mod: mod ?? _personaMod(),
+  mod: _personaMod(enabled: enabled, status: status),
   state: state,
-  stateLoading: stateLoading,
-  stateError: stateError,
-  onRefreshState: () async {},
-  onCommand: onCommand ?? _okCommand,
+  stateLoading: false,
+  stateError: null,
   activeSessionId: activeSessionId,
-  onModChanged: onModChanged,
+  pickCardFile: pickCardFile,
+  onRefreshState: () async {},
+  onCommand:
+      (String command, [Map<String, Object?> args = const <String, Object?>{}]) async =>
+          onCommand == null
+          ? const ModCommandResult(ok: true)
+          : onCommand(command, args),
 );
 
-Widget _host(PersonaPanel panel, ModPanelContext ctx) => MaterialApp(
+Widget _wrap(Widget child) => MaterialApp(
   theme: buildAppTheme(),
-  home: Scaffold(
-    body: SingleChildScrollView(
-      child: Builder(builder: (BuildContext c) => panel.build(c, ctx)!),
+  home: Scaffold(body: SingleChildScrollView(child: child)),
+);
+
+/// 真泵**扩展卡片**（通用表单 + 产品面板）——导入回归的主断言面。
+Widget _panelCard({
+  String? activeSessionId = 's-1',
+  Map<String, Object?>? state,
+  PersonaCardFilePicker? pickCardFile,
+  Future<ModCommandResult> Function(String id, String command, Map<String, Object?> args)?
+  onCommand,
+}) => _wrap(
+  ModsSection(
+    mods: <ModInfo>[_personaMod()],
+    loading: false,
+    activeSessionId: activeSessionId,
+    pickCardFile: pickCardFile,
+    onCommand: onCommand,
+    onLoadState: (String id) async => ModStateResult(
+      id: id,
+      enabled: true,
+      state: state ?? const <String, Object?>{},
     ),
   ),
 );
 
-/// 一个永远「用户选好了某张 PNG」的注入读取器。
-PersonaCardFilePicker _picker([String url = 'data:image/png;base64,AAAA']) =>
-    () async => (dataUrl: url, error: null);
-
-Future<void> _tap(WidgetTester tester, String label) async {
-  final Finder target = find.text(label);
-  await tester.ensureVisible(target);
-  await tester.pumpAndSettle();
-  await tester.tap(target);
-  await tester.pumpAndSettle();
-}
+/// 扩展卡片里**一个都不许出现**的旧文案（上一版把这张卡片掏空时的遗留）。
+const List<String> kBannedOnPersonaCard = <String>[
+  'persona.system_prompt',
+  '后写覆盖、不做仲裁',
+  'command_unavailable',
+  '503',
+  '高级',
+];
 
 void main() {
-  group('面板注册与标签', () {
+  group('① 注册表与标签', () {
     test('注册表里的 persona 面板就是 PersonaPanel，运行态字段都有中文标签', () {
       expect(modPanelFor('persona'), isA<PersonaPanel>());
       final Map<String, String> labels = const PersonaPanel().stateLabels;
@@ -103,7 +176,7 @@ void main() {
     });
   });
 
-  group('纯函数：稳定取值 → 中文', () {
+  group('② 纯函数：稳定取值 → 中文', () {
     test('personaCardSourceLabel 覆盖全部取值，未知值不崩', () {
       expect(personaCardSourceLabel('imported'), '界面导入');
       expect(personaCardSourceLabel('config_json'), '配置 card_json');
@@ -120,6 +193,12 @@ void main() {
       expect(personaCardFormatLabel(''), '未知');
     });
 
+    test('personaScopeLabel', () {
+      expect(personaScopeLabel('session'), contains('只对当前会话生效'));
+      expect(personaScopeLabel('global'), contains('所有会话'));
+      expect(personaScopeLabel('?'), '未知');
+    });
+
     test('personaStatusIsFailed 同时认 failed 与 error（否则失败提示永不出现）', () {
       expect(personaStatusIsFailed('failed'), isTrue);
       expect(personaStatusIsFailed('error'), isTrue);
@@ -128,522 +207,356 @@ void main() {
     });
   });
 
-  group('渲染：导入区、基线说明、与 memory 的共存提示', () {
-    testWidgets('粘贴框 / 三个动作 / 基线说明 / 共存提示都在', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        _host(PersonaPanel(pickCardFile: _picker()), _ctx()),
-      );
-
-      expect(find.text('粘贴角色卡 JSON（主路径）'), findsOneWidget);
-      expect(find.text('导入并生效'), findsOneWidget);
-      expect(find.text('导入为全局人设（所有会话）'), findsOneWidget);
-      expect(find.text('选择 PNG 角色卡文件'), findsOneWidget);
-      expect(find.text('清除全局导入卡'), findsOneWidget);
-      // 基线语义必须说清（「打开开关即生效 / 关闭就还原」）。
-      expect(find.textContaining('关闭开关会还原成主链基线'), findsOneWidget);
-      // 与 memory 的共存策略（last-writer-wins）必须上屏。
-      // persona.system_prompt 在「全局行为说明」与「共存提示」两处都要出现。
-      expect(find.textContaining('persona.system_prompt'), findsWidgets);
-      expect(find.textContaining('后写覆盖、不做仲裁'), findsOneWidget);
-      expect(find.textContaining('别同时开'), findsOneWidget);
-    });
-
-    testWidgets('停用：导入按钮禁用 + 说清为什么要先开开关', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        _host(
-          PersonaPanel(pickCardFile: _picker()),
-          _ctx(mod: _personaMod(enabled: false)),
-        ),
-      );
-
-      final FilledButton import = tester.widget<FilledButton>(
-        find.ancestor(
-          of: find.text('导入并生效'),
-          matching: find.byType(FilledButton),
-        ),
-      );
-      expect(import.onPressed, isNull, reason: '停用时不该假装能导入');
-      final OutlinedButton pick = tester.widget<OutlinedButton>(
-        find.ancestor(
-          of: find.text('选择 PNG 角色卡文件'),
-          matching: find.byType(OutlinedButton),
-        ),
-      );
-      expect(pick.onPressed, isNull);
-      expect(find.textContaining('先打开上面的开关再导入'), findsOneWidget);
-      expect(find.textContaining('command_unavailable'), findsOneWidget);
-    });
-
-    testWidgets('没注入文件读取器时：不摆按不动的按钮，只说明粘贴是主路径', (
+  group('③ 卡片：一句话 + 导入区（旧排障词一个都不在）', () {
+    testWidgets('那句话与四个入口上屏；未启用 / 失败态同样只有这一套', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(_host(const PersonaPanel(), _ctx()));
-      expect(find.text('选择 PNG 角色卡文件'), findsNothing);
-      expect(find.textContaining('没有接文件选择入口'), findsOneWidget);
-      expect(find.textContaining('粘贴是主路径'), findsOneWidget);
-      // 粘贴这条路必须照常可用。
-      expect(find.text('导入并生效'), findsOneWidget);
-    });
-
-    testWidgets('status=failed / error：可处置提示 + 日志指引；running 时没有', (
-      WidgetTester tester,
-    ) async {
-      for (final String status in <String>['failed', 'error']) {
+      for (final ({bool enabled, String status}) c in <({bool enabled, String status})>[
+        (enabled: true, status: 'running'),
+        (enabled: false, status: 'disabled'),
+        (enabled: true, status: 'failed'),
+      ]) {
         await tester.pumpWidget(
-          _host(const PersonaPanel(), _ctx(mod: _personaMod(status: status))),
+          _wrap(
+            Builder(
+              builder: (BuildContext context) =>
+                  const PersonaPanel().build(
+                    context,
+                    _ctx(
+                      enabled: c.enabled,
+                      status: c.status,
+                      activeSessionId: 's-1',
+                    ),
+                  )!,
+            ),
+          ),
         );
+        await tester.pumpAndSettle();
         expect(
-          find.textContaining('角色卡没被接受，修好再打开开关'),
+          find.text(kPersonaTakeoverNotice),
           findsOneWidget,
-          reason: 'status=$status 必须给出可处置提示',
+          reason: 'enabled=${c.enabled} status=${c.status}',
         );
-        expect(find.textContaining('mod: persona'), findsOneWidget);
+        expect(find.text('导入并生效'), findsOneWidget);
+        expect(find.text('导入为全局人设'), findsOneWidget);
+        expect(find.text('清除当前会话的卡'), findsOneWidget);
+        expect(find.text('清除全局导入卡'), findsOneWidget);
+        for (final String banned in kBannedOnPersonaCard) {
+          expect(
+            find.textContaining(banned),
+            findsNothing,
+            reason: '卡片上不得出现「$banned」',
+          );
+        }
       }
-
-      await tester.pumpWidget(
-        _host(const PersonaPanel(), _ctx(mod: _personaMod())),
-      );
-      expect(find.textContaining('角色卡没被接受'), findsNothing);
     });
 
-    testWidgets('运行态：有卡时报来源与名称，没卡时说明保持基线', (
+    testWidgets('运行态有卡名 → 一句话写「当前卡」与作用域；没有就不画', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            state: const <String, Object?>{
-              'ready': true,
-              'card_name': 'NEKO',
-              'card_format': 'v2',
-              'card_source': 'imported',
-            },
+        _wrap(
+          Builder(
+            builder: (BuildContext context) => const PersonaPanel().build(
+              context,
+              _ctx(
+                activeSessionId: 's-1',
+                state: const <String, Object?>{
+                  'card_name': 'NEKO',
+                  'scope': 'session',
+                },
+              ),
+            )!,
           ),
         ),
       );
-      expect(find.textContaining('当前全局角色卡：NEKO'), findsOneWidget);
-      expect(find.textContaining('V2 卡'), findsOneWidget);
-      expect(find.textContaining('来源：界面导入'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('当前卡：「NEKO」'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('只对当前会话生效'), findsOneWidget);
 
       await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            state: const <String, Object?>{
-              'ready': false,
-              'card_source': 'none',
-              'card_name': '',
-            },
+        _wrap(
+          Builder(
+            builder: (BuildContext context) => const PersonaPanel().build(
+              context,
+              _ctx(
+                activeSessionId: 's-1',
+                state: const <String, Object?>{'ready': true},
+              ),
+            )!,
           ),
         ),
       );
-      expect(find.textContaining('当前没有生效的角色卡'), findsOneWidget);
-    });
-
-    testWidgets('运行态读不到时如实说（不冒充「没有卡」）', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(stateError: '运行态暂时读不到（未启用 / worker 正忙，503 state_unavailable）'),
-        ),
-      );
-      expect(find.textContaining('state_unavailable'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('当前卡'), findsNothing);
     });
   });
 
-  group('导入路径', () {
-    testWidgets('粘贴 JSON → import_card(card_json, session_id) 并显示卡名', (
+  group('④ 8 个配置键不渲染，也不进「高级」', () {
+    test('hiddenKeys 恰好是那 8 个', () {
+      const PersonaPanel panel = PersonaPanel();
+      expect(panel.modId, 'persona');
+      expect(panel.hiddenKeys, <String>{
+        'card_path',
+        'card_json',
+        'include_discipline',
+        'say_first_mes',
+        'name',
+        'description',
+        'personality',
+        'scenario',
+      });
+      expect(panel.hiddenKeys.length, 8);
+      expect(panel.advancedKeys, isEmpty);
+      expect(panel.devKeys, isEmpty);
+    });
+
+    testWidgets('真泵卡片：8 个 label 与「高级」都不上屏，启用开关仍在', (
       WidgetTester tester,
     ) async {
-      String? seenCommand;
-      Map<String, Object?>? seenArgs;
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              seenCommand = command;
-              seenArgs = args;
-              return const ModCommandResult(
-                ok: true,
-                result: <String, Object?>{
-                  'scope': 'session',
-                  'session_id': 'A',
-                  'card_name': 'NEKO',
-                  'card_format': 'v2',
-                },
-              );
-            },
-          ),
-        ),
-      );
+      await tester.pumpWidget(_panelCard());
+      await tester.tap(find.text('角色卡'));
+      await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
-      await _tap(tester, '导入并生效');
+      for (final ModSettingField f in personaSpec().fields) {
+        expect(find.text(f.label), findsNothing, reason: '${f.key} 不得上屏');
+      }
+      expect(find.text('高级'), findsNothing);
+      expect(find.byType(Switch), findsOneWidget);
+      expect(find.text(kPersonaTakeoverNotice), findsOneWidget);
+    });
+  });
 
-      expect(seenCommand, 'import_card');
-      expect(seenArgs!['card_json'], '{"name":"NEKO"}');
-      expect(
-        seenArgs!['session_id'],
-        'A',
-        reason: '「导入并生效」必须绑定当前会话，不许走全局',
-      );
-      expect(find.textContaining('已导入「NEKO」'), findsOneWidget);
-      expect(find.textContaining('并绑定到会话 A'), findsOneWidget);
-      expect(find.textContaining('V2 卡'), findsWidgets);
+  group('⑤ 扩展卡片是唯一入口（命令与入参逐字符合契约）', () {
+    late List<(String, Map<String, Object?>)> sent;
+
+    setUp(() => sent = <(String, Map<String, Object?>)>[]);
+
+    Future<ModCommandResult> Function(String, String, Map<String, Object?>)
+    recorder([ModCommandResult? result]) =>
+        (String id, String command, Map<String, Object?> args) async {
+          sent.add((command, args));
+          return result ?? const ModCommandResult(ok: true);
+        };
+
+    Future<void> expand(WidgetTester tester, Widget card) async {
+      await tester.pumpWidget(card);
+      await tester.tap(find.text('角色卡'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapButton(WidgetTester tester, String label) async {
+      final Finder target = find.text(label);
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('四个入口都在，没注入读取器时没有 PNG 按钮', (WidgetTester tester) async {
+      await expand(tester, _panelCard());
+      expect(find.widgetWithText(FilledButton, '导入并生效'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '导入为全局人设'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, '清除当前会话的卡'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, '清除全局导入卡'), findsOneWidget);
+      expect(find.text('选择 PNG 角色卡文件'), findsNothing);
+      expect(find.byKey(const Key('persona-card-json')), findsOneWidget);
     });
 
-    testWidgets('空粘贴不发命令，就地提示', (WidgetTester tester) async {
-      bool called = false;
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              called = true;
-              return const ModCommandResult(ok: true);
-            },
-          ),
+    testWidgets('注入 PNG 读取器后按钮出现', (WidgetTester tester) async {
+      await expand(
+        tester,
+        _panelCard(
+          pickCardFile: () async =>
+              (dataUrl: 'data:image/png;base64,AAAA', error: null),
         ),
       );
-      await _tap(tester, '导入并生效');
-      expect(called, isFalse, reason: '空输入不该发命令');
-      expect(find.textContaining('先粘贴角色卡 JSON'), findsOneWidget);
+      expect(find.text('选择 PNG 角色卡文件'), findsOneWidget);
     });
 
-    testWidgets('导入失败：原因 + 错误码一起上屏', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              throw const ApiException(
-                'command_failed',
-                'card_json 不是可识别的角色卡 JSON',
-                status: 409,
-              );
-            },
-          ),
-        ),
-      );
-      await tester.enterText(find.byType(TextField), '{ not json');
-      await _tap(tester, '导入并生效');
-
-      expect(find.textContaining('不是可识别的角色卡'), findsOneWidget);
-      expect(find.textContaining('command_failed'), findsOneWidget);
-      expect(find.textContaining('已导入'), findsNothing, reason: '失败不得显示成功文案');
-    });
-
-    testWidgets('503：告诉用户先开开关，并带上码', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              throw const ApiException('command_unavailable', '未启用或正忙', status: 503);
-            },
-          ),
-        ),
-      );
-      await tester.enterText(find.byType(TextField), '{"name":"X"}');
-      await _tap(tester, '导入并生效');
-
-      expect(find.textContaining('先打开上面的开关再试'), findsOneWidget);
-      expect(find.textContaining('command_unavailable'), findsOneWidget);
-    });
-
-    testWidgets('清除全局导入卡 → clear_import（不传 session_id），并如实报结果', (
+    testWidgets('粘贴 JSON + 「导入并生效」→ import_card 带 session_id', (
       WidgetTester tester,
     ) async {
-      String? seenCommand;
-      Map<String, Object?>? seenArgs;
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              seenCommand = command;
-              seenArgs = args;
-              return const ModCommandResult(
-                ok: true,
-                result: <String, Object?>{
-                  'scope': 'global',
-                  'cleared': true,
-                  'card_source': 'none',
-                },
-              );
-            },
+      await expand(tester, _panelCard(onCommand: recorder()));
+      await tester.enterText(
+        find.byKey(const Key('persona-card-json')),
+        '{"name":"NEKO"}',
+      );
+      await tapButton(tester, '导入并生效');
+      expect(sent.single.$1, 'import_card');
+      expect(sent.single.$2['card_json'], '{"name":"NEKO"}');
+      expect(sent.single.$2['session_id'], 's-1');
+    });
+
+    testWidgets('「清除当前会话的卡」→ clear_import 带 session_id', (
+      WidgetTester tester,
+    ) async {
+      await expand(
+        tester,
+        _panelCard(
+          onCommand: recorder(
+            const ModCommandResult(
+              ok: true,
+              result: <String, Object?>{
+                'scope': 'session',
+                'session_id': 's-1',
+                'cleared': true,
+              },
+            ),
           ),
         ),
       );
-      await _tap(tester, '清除全局导入卡');
-      expect(seenCommand, 'clear_import');
-      expect(seenArgs!.containsKey('session_id'), isFalse, reason: '全局清除不该带会话');
+      await tapButton(tester, '清除当前会话的卡');
+      expect(sent.single.$1, 'clear_import');
+      expect(sent.single.$2['session_id'], 's-1');
+      expect(find.textContaining('已清除会话 s-1 的角色卡'), findsOneWidget);
+    });
+
+    testWidgets('「清除全局导入卡」→ clear_import **不带** session_id', (
+      WidgetTester tester,
+    ) async {
+      await expand(
+        tester,
+        _panelCard(
+          onCommand: recorder(
+            const ModCommandResult(
+              ok: true,
+              result: <String, Object?>{
+                'scope': 'global',
+                'cleared': true,
+                'card_source': 'none',
+              },
+            ),
+          ),
+        ),
+      );
+      await tapButton(tester, '清除全局导入卡');
+      expect(sent.single.$1, 'clear_import');
+      expect(sent.single.$2.containsKey('session_id'), isFalse);
       expect(find.textContaining('已清除全局导入卡'), findsOneWidget);
     });
-  });
 
-  group('文件选择（注入 fake，零 DOM）', () {
-    testWidgets('选到 PNG → data_base64 收到完整 dataURL（前缀由 Mod 剥）', (
+    testWidgets('没有活动会话：会话相关的两个按钮禁用，全局清除仍可点', (
       WidgetTester tester,
     ) async {
-      Map<String, Object?>? seenArgs;
-      await tester.pumpWidget(
-        _host(
-          PersonaPanel(pickCardFile: _picker()),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              seenArgs = args;
-              return const ModCommandResult(ok: true, result: <String, Object?>{});
-            },
-          ),
-        ),
-      );
-      await _tap(tester, '选择 PNG 角色卡文件');
-      expect(seenArgs!['data_base64'], 'data:image/png;base64,AAAA');
-      expect(find.textContaining('已导入这张卡'), findsOneWidget);
-    });
-
-    testWidgets('读文件失败：如实说，不发命令', (WidgetTester tester) async {
-      bool called = false;
-      await tester.pumpWidget(
-        _host(
-          PersonaPanel(
-            pickCardFile: () async => (dataUrl: null, error: '读取图片失败（文件可能已被移动）'),
-          ),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              called = true;
-              return const ModCommandResult(ok: true);
-            },
-          ),
-        ),
-      );
-      await _tap(tester, '选择 PNG 角色卡文件');
-      expect(called, isFalse);
-      expect(find.textContaining('读取图片失败'), findsOneWidget);
-    });
-
-    testWidgets('取消选择：不弹任何东西', (WidgetTester tester) async {
-      bool called = false;
-      await tester.pumpWidget(
-        _host(
-          PersonaPanel(pickCardFile: () async => (dataUrl: null, error: null)),
-          _ctx(
-            activeSessionId: 'A',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              called = true;
-              return const ModCommandResult(ok: true);
-            },
-          ),
-        ),
-      );
-      await _tap(tester, '选择 PNG 角色卡文件');
-      expect(called, isFalse);
-      expect(find.textContaining('失败'), findsNothing, reason: '取消不是失败');
-    });
-  });
-
-  group('L1 会话绑定（2026-09-15）', () {
-    testWidgets('activeSessionId=null：降级语义上屏，「导入并生效」不可点，全局按钮可点', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(_host(const PersonaPanel(), _ctx()));
-
-      expect(find.textContaining('还没有会话'), findsOneWidget);
-      expect(find.textContaining('先发一条消息'), findsOneWidget);
-      expect(find.textContaining('导入为全局人设'), findsWidgets);
-
-      final FilledButton sessionImport = tester.widget<FilledButton>(
-        find.ancestor(
-          of: find.text('导入并生效'),
-          matching: find.byType(FilledButton),
-        ),
+      await expand(tester, _panelCard(activeSessionId: null));
+      expect(
+        tester
+            .widget<TextButton>(
+              find.widgetWithText(TextButton, '清除当前会话的卡'),
+            )
+            .onPressed,
+        isNull,
       );
       expect(
-        sessionImport.onPressed,
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, '清除全局导入卡'))
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '导入并生效'))
+            .onPressed,
         isNull,
         reason: '没有会话时不许偷偷走全局：按钮必须禁用',
       );
-
-      final OutlinedButton globalImport = tester.widget<OutlinedButton>(
-        find.ancestor(
-          of: find.text('导入为全局人设（所有会话）'),
-          matching: find.byType(OutlinedButton),
-        ),
-      );
-      expect(globalImport.onPressed, isNotNull, reason: '全局按钮是显式的降级出口');
     });
 
-    testWidgets('有 activeSessionId：会话说明 + 运行态「已绑定 N 个会话」上屏', (
+    testWidgets('清除失败：错误句带错误码（用户拿码去日志里搜）', (WidgetTester tester) async {
+      await expand(
+        tester,
+        _panelCard(
+          onCommand: (String id, String command, Map<String, Object?> args) async {
+            throw const ApiException(
+              'command_unavailable',
+              '未启用或正忙',
+              status: 503,
+            );
+          },
+        ),
+      );
+      await tapButton(tester, '清除全局导入卡');
+      expect(find.textContaining('清除角色卡失败：persona 没在运行'), findsOneWidget);
+      expect(find.textContaining('先在卡片标题行打开它'), findsOneWidget);
+      expect(find.textContaining('（503 command_unavailable）'), findsOneWidget);
+    });
+
+    testWidgets('注入 PNG 读取器后按钮出现，走同一条 import_card 通道', (
+      WidgetTester tester,
+    ) async {
+      await expand(
+        tester,
+        _panelCard(
+          onCommand: recorder(),
+          pickCardFile: () async =>
+              (dataUrl: 'data:image/png;base64,AAAA', error: null),
+        ),
+      );
+      await tapButton(tester, '选择 PNG 角色卡文件');
+      expect(sent.single.$1, 'import_card');
+      expect(sent.single.$2['data_base64'], 'data:image/png;base64,AAAA');
+      expect(sent.single.$2['session_id'], 's-1');
+    });
+  });
+
+  group('⑥ 人设页只剩主链两项（导入入口唯一）', () {
+    late SettingsController controller;
+
+    setUp(() {
+      controller = SettingsController(
+        api: ApiClient(base: 'http://127.0.0.1:18080'),
+      );
+    });
+
+    testWidgets('找不到「导入并生效」「选择 PNG 角色卡文件」「粘贴角色卡 JSON」', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 's-42',
-            state: const <String, Object?>{
-              'ready': false,
-              'sessions': <String>['s-42', 's-43'],
-              'session_bound': true,
-              'active_session': 's-42',
-              'scope': 'session',
-            },
+        _wrap(
+          PersonaSection(
+            controller: controller,
+            view: SettingsView.fromJson(const <String, Object?>{}),
+            devMode: false,
           ),
         ),
       );
-
-      expect(find.textContaining('当前会话 s-42'), findsOneWidget);
-      expect(find.textContaining('只对它生效'), findsOneWidget);
-      expect(find.textContaining('已绑定 2 个会话'), findsOneWidget);
-      expect(find.textContaining('会话绑定（只对当前会话生效）'), findsOneWidget);
-      // ready=false 但有会话绑定：不许说「当前没有生效的角色卡」骗人。
-      expect(find.textContaining('当前全局人设保持主链基线'), findsOneWidget);
+      await tester.pumpAndSettle();
+      for (final String banned in <String>[
+        '导入并生效',
+        '导入为全局人设',
+        '选择 PNG 角色卡文件',
+        '粘贴角色卡 JSON',
+        '清除当前会话的卡',
+        '清除全局导入卡',
+        '角色卡导入',
+      ]) {
+        expect(
+          find.textContaining(banned),
+          findsNothing,
+          reason: '人设页不得再有「$banned」（导入属扩展）',
+        );
+      }
+      expect(find.text('系统提示词'), findsOneWidget);
+      expect(find.text('记住几轮对话'), findsOneWidget);
     });
 
-    testWidgets('点「导入并生效」→ args 里的 session_id 等于 activeSessionId', (
-      WidgetTester tester,
-    ) async {
-      Map<String, Object?>? seenArgs;
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 's-42',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              seenArgs = args;
-              return const ModCommandResult(
-                ok: true,
-                result: <String, Object?>{
-                  'scope': 'session',
-                  'session_id': 's-42',
-                  'card_name': 'NEKO',
-                  'card_format': 'v2',
-                },
-              );
-            },
-          ),
-        ),
+    test('人设页源码里不再引 package:web / 卡命令通道', () {
+      final String src = readLibrarySource(
+        'lib/settings/sections/persona_section.dart',
       );
-
-      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
-      await _tap(tester, '导入并生效');
-      expect(seenArgs!['session_id'], 's-42');
-    });
-
-    testWidgets('全局按钮不传 session_id，且成功文案说明写的是全局主链', (
-      WidgetTester tester,
-    ) async {
-      Map<String, Object?>? seenArgs;
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 's-42',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              seenArgs = args;
-              return const ModCommandResult(
-                ok: true,
-                result: <String, Object?>{
-                  'scope': 'global',
-                  'card_name': 'NEKO',
-                  'card_format': 'v2',
-                },
-              );
-            },
-          ),
-        ),
-      );
-
-      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
-      await _tap(tester, '导入为全局人设（所有会话）');
-      expect(seenArgs!.containsKey('session_id'), isFalse);
-      expect(find.textContaining('并写回全局主链'), findsOneWidget);
-    });
-
-    testWidgets('成功动作调 notifyChanged（带会话），失败不调', (WidgetTester tester) async {
-      final List<String> changes = <String>[];
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 's-42',
-            onModChanged: changes.add,
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              return const ModCommandResult(
-                ok: true,
-                result: <String, Object?>{
-                  'scope': 'session',
-                  'session_id': 's-42',
-                  'card_name': 'NEKO',
-                  'card_format': 'v2',
-                },
-              );
-            },
-          ),
-        ),
-      );
-      await tester.enterText(find.byType(TextField), '{"name":"NEKO"}');
-      await _tap(tester, '导入并生效');
-      expect(changes, <String>['已导入角色卡并绑定到会话 s-42']);
-
-      changes.clear();
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 's-42',
-            onModChanged: changes.add,
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              throw const ApiException('command_failed', 'card_json 不是可识别的角色卡 JSON', status: 409);
-            },
-          ),
-        ),
-      );
-      await tester.enterText(find.byType(TextField), '{bad');
-      await _tap(tester, '导入并生效');
-      expect(changes, isEmpty, reason: '失败不得弹「已变更」提示');
-      expect(find.textContaining('command_failed'), findsOneWidget);
-    });
-
-    testWidgets('清除当前会话的卡：只清这个会话，文案带会话 id', (
-      WidgetTester tester,
-    ) async {
-      String? seenCommand;
-      Map<String, Object?>? seenArgs;
-      await tester.pumpWidget(
-        _host(
-          const PersonaPanel(),
-          _ctx(
-            activeSessionId: 's-42',
-            onCommand: (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
-              seenCommand = command;
-              seenArgs = args;
-              return const ModCommandResult(
-                ok: true,
-                result: <String, Object?>{
-                  'scope': 'session',
-                  'session_id': 's-42',
-                  'cleared': true,
-                },
-              );
-            },
-          ),
-        ),
-      );
-      await _tap(tester, '清除当前会话的卡');
-      expect(seenCommand, 'clear_import');
-      expect(seenArgs!['session_id'], 's-42');
-      expect(find.textContaining('已清除会话 s-42 的角色卡'), findsOneWidget);
+      for (final String banned in <String>[
+        'browser_io.dart',
+        'PersonaImportCommand',
+        'import_card',
+        'clear_import',
+        'pickCardFile',
+      ]) {
+        expect(src.contains(banned), isFalse, reason: '人设页源码不得含「$banned」');
+      }
     });
   });
 }

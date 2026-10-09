@@ -48,15 +48,18 @@ void main() {
       expect(find.byIcon(Icons.volume_mute_outlined), findsNothing);
     });
 
-    testWidgets('服务端徽标写「服务端静音中」并点出环境变量名', (WidgetTester tester) async {
+    testWidgets('服务端徽标写「服务端静音中」，但**不**点出环境变量名（2026-10-08）', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(wrap(buildBar(serverMuted: true).widget));
       expect(find.textContaining('服务端静音中'), findsOneWidget);
-      expect(
-        find.textContaining('LIVE2D_AI_MUTE_AUDIO=1'),
-        findsOneWidget,
-        reason: '不写变量名，用户不知道去哪关',
-      );
       expect(find.textContaining('任何客户端都听不到'), findsOneWidget);
+      // 产品面上不出现启动参数名；「去哪关」由开发模式里的「服务端静音」行承担。
+      expect(
+        find.textContaining('LIVE2D_AI_MUTE_AUDIO'),
+        findsNothing,
+        reason: '启动参数名是开发者面的东西，不该出现在聊天栏徽标上',
+      );
     });
 
     testWidgets('服务端静音**不是**开关：没有可点的控件', (WidgetTester tester) async {

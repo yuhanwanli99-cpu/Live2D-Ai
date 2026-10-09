@@ -171,6 +171,9 @@ impl StagingClient for OpenAiStagingClient {
         let timeout = Duration::from_millis(timeout_ms.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS));
         // 请求体**只有** system + user 两条消息：不给它理由带上思考，也没有
         // reasoning_content 字段（见模块头注）。
+        //
+        // 2026-10-08：**显式关思考**——DeepSeek 官方 Chat Completions 的思考
+        // 缺省是开的，不写字段等于让上游继续想（二路要的是一份 JSON）。
         let body = serde_json::json!({
             "model": self.model,
             "messages": [
@@ -179,6 +182,7 @@ impl StagingClient for OpenAiStagingClient {
             ],
             "stream": false,
             "temperature": 0,
+            "thinking": {"type": "disabled"},
             "max_tokens": MAX_TOKENS,
         });
         let mut request = self
@@ -306,6 +310,10 @@ mod tests {
             "密钥必须进 Authorization 头：{raw}"
         );
         assert!(raw.contains("\"stream\":false"), "非流式：{raw}");
+        assert!(
+            raw.contains("\"thinking\":{\"type\":\"disabled\"}"),
+            "二路请求体必须显式关思考（缺省 = 上游继续想）：{raw}"
+        );
         assert!(raw.contains("\"model\":\"director-model\""));
         assert!(
             !raw.contains("reasoning") && !raw.contains("SECRET_THOUGHT"),

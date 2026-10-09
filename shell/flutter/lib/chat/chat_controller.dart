@@ -10,6 +10,8 @@ export 'chat_message.dart';
 import '../api/ws_client.dart';
 import '../audio/audio_player.dart';
 import '../audio/epoch_gate.dart';
+import '../audio/stage_clock.dart';
+import 'spoken_highlight.dart';
 import 'turn_liveness.dart';
 
 /// 聊天状态：消息列表 + 流式拼接 + turn 状态 + 错误提示。
@@ -38,12 +40,30 @@ class ChatController extends ChangeNotifier {
         }
         notifyListeners();
       }),
+      // 朗读高亮：句号与舞台时钟两路都来自 `AudioPlayer`（**同一份**），
+      // 这里只做原样转发——不另做时钟，也不自己用标点切正文。
+      audio.sentenceStarts.listen(_highlight.sentenceStarted),
+      audio.stageClock.listen(
+        (StageClockSample s) => _highlight.onStageClock(playing: s.playing),
+      ),
     ]);
+    // 高亮状态自己住在 `spoken_highlight.dart`；这里把它并进本控制器的通知面，
+    // 壳里那条 `ListenableBuilder(listenable: _chat)` 就能把高亮重建出来。
+    _highlight.addListener(notifyListeners);
   }
 
   final ApiClient api;
   final WsClient ws;
   final AudioPlayer audio;
+
+  /// 朗读高亮的**状态**（当前播放的句号）——见 `chat/spoken_highlight.dart`。
+  ///
+  /// 不在本文件里存状态：这个文件已接近 800 行上限，而高亮判据与状态都
+  /// 是可独立单测的纯逻辑。这里只做薄转发。
+  final SpokenHighlightController _highlight = SpokenHighlightController();
+
+  /// 当前正在播放的句号（`sentence_seq`，与音频帧同一个数）；`null` = 不高亮。
+  int? get playingSentenceSeq => _highlight.playingSeq;
 
   final List<StreamSubscription<Object?>> _subscriptions =
       <StreamSubscription<Object?>>[];
@@ -85,7 +105,7 @@ class ChatController extends ChangeNotifier {
   /// 最近一次错误的**机器码**（`llm_upstream_401` / `tts_transport` …）。
   ///
   /// 与 [error] 的关系：`error` 是给人看的一行（码 + 说明 + 提示），本字段是
-  /// 给代码分支用的锚点——错误横幅据此决定「下一步」按钮是「去 LLM 设置」
+  /// 给代码分支用的锚点——错误横幅据此决定「下一步」按钮是「去对话设置」
   /// 还是「去语音合成设置」，**不去解析显示文案**（文案会改，码是契约）。
   String? _errorCode;
 
@@ -129,6 +149,10 @@ class ChatController extends ChangeNotifier {
     _streaming = true;
     _error = null;
     _errorCode = null;
+    // **换轮即灭高亮**：`sentence_seq` 每轮从 1 起，旧气泡的朗读标记必须
+    // 立即作废，否则新一轮的 1 号会让上一轮那条同号 span 一起亮。
+    _clearSpoken();
+    _highlight.clear();
     // **先建气泡、再发请求**（2026-09-23，用户报「LLM 故障时对话无反应」）：
     // 服务端可能在 HTTP 应答**之前**就跑完本轮并广播 `error` / `turn_state`
     //（快失败：401、连接被拒、上游秒回 5xx）。旧顺序把气泡建在 await 之后——
@@ -180,6 +204,9 @@ class ChatController extends ChangeNotifier {
     // `UiStateTracker` 回落相位——这一轮不会有收口帧，不回落就永久停在
     // 「思考中 / 停止本轮」（审计 F-0007-1）。
     _sendFailedLocally = true;
+    // 本地失败 = 本轮不会有音频：高亮就地灭，朗读标记一并作废。
+    _highlight.clear();
+    _clearSpoken();
     if (identical(_assistant, bubble)) {
       bubble.streaming = false;
       if (bubble.text.trim().isEmpty) {
@@ -234,6 +261,9 @@ class ChatController extends ChangeNotifier {
     _streaming = true;
     _error = null;
     _errorCode = null;
+    // 语音 / 外部注入也是一轮：同 send()，换轮即灭高亮。
+    _clearSpoken();
+    _highlight.clear();
     notifyListeners();
     return true;
   }
@@ -298,8 +328,15 @@ class ChatController extends ChangeNotifier {
       case ActionCueEvent():
       case UnknownWsEvent():
         break;
-      case TextDeltaEvent(:final text, :final completed, :final epoch):
-        if (text != null && text.isNotEmpty) _appendDelta(text, epoch);
+      case TextDeltaEvent(
+          :final text,
+          :final completed,
+          :final epoch,
+          :final sentenceSeq,
+        ):
+        if (text != null && text.isNotEmpty) {
+          _appendDelta(text, epoch, sentenceSeq);
+        }
         // 收口信号必须属于当前轮：迟到的旧轮 completed 帧会收掉刚开始的新一轮；
         // 没有在飞的一轮时（空闲）也不该被一帧迟到的 completed 收口。
         if (completed != null && _turnInFlight && _belongsToCurrentTurn(epoch)) {
@@ -332,6 +369,9 @@ class ChatController extends ChangeNotifier {
         if (mustInterruptAudio(event)) {
           _audioEpoch = null;
           audio.interrupt();
+          // 音频被抢占 = 这一句不响了：高亮就地灭（舞台时钟也会报 playing:false，
+          // 这里显式一次，不依赖那条流的时序）。
+          _highlight.clear();
           // **同一件事对「文字」也成立**（2026-09-11 追加）：`new_epoch` 的
           // 语义是「上一轮作废」，而停止**不发 `turn_state`**——所以当停止是
           // **别的客户端**发起的（本机开了两个页面时很常见），本客户端那一轮
@@ -390,9 +430,12 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  void _appendDelta(String text, int? epoch) {
+  void _appendDelta(String text, int? epoch, int? sentenceSeq) {
     var bubble = _assistant;
     if (bubble == null) {
+      // 服务端主动开口 = 新一轮：旧气泡的朗读标记同样立即作废（见 send）。
+      _clearSpoken();
+      _highlight.clear();
       bubble = ChatMessage(role: ChatRole.assistant, epoch: epoch, streaming: true);
       // 走到这里说明「没经过 send() 就收到了 delta」（例如服务端主动开口）。
       // 仍然追加到**当时**的活动会话；之后用户切走也不会把它带走——
@@ -400,6 +443,9 @@ class ChatController extends ChangeNotifier {
       sessions.append(bubble);
     }
     bubble.text += text;
+    if (sentenceSeq != null) {
+      bubble.spoken.add(SpokenSpan(seq: sentenceSeq, text: text));
+    }
     _assistant = bubble;
     _streaming = true;
     notifyListeners();
@@ -499,6 +545,9 @@ class ChatController extends ChangeNotifier {
     // 失败/停止的轮次**不**收尾：那半截本来就没合成完，播出来就是断句，而
     // 契约是「宁可晚开口，不可中途断」。
     if (!failed && !stopped) audio.flush();
+    // 失败 / 停止的轮次没有「后续音频」，高亮就地灭。**正常收口不清**：最后
+    // 几句可能还在播，提前灭了就是「话没说完高亮先没了」。
+    if (failed || stopped) _highlight.clear();
     final bubble = _assistant;
     if (bubble != null) {
       bubble.streaming = false;
@@ -636,6 +685,9 @@ class ChatController extends ChangeNotifier {
     if (bubble != null) bubble.streaming = false;
     _assistant = null;
     _streaming = false;
+    // 切会话 / 作废本轮：高亮**不许跨会话**留到新气泡上。
+    _highlight.clear();
+    _clearSpoken();
   }
 
   /// **外部原因**导致进行中的一轮必须就地收口（并留一句话说清原因）。
@@ -666,7 +718,20 @@ class ChatController extends ChangeNotifier {
     _streaming = false;
     _error = message;
     _errorCode = code;
+    _highlight.clear();
+    _clearSpoken();
     _persist();
+  }
+
+  /// 清掉所有已上屏句子的朗读标记。
+  ///
+  /// 高亮只在**当轮播放**时有意义，而 `sentence_seq` 每轮从 1 起——不清的话，
+  /// 新一轮的 1 号会让上一轮那条同号 span 一起亮。span 列表本来就不落盘，
+  /// 清它不丢任何持久信息。
+  void _clearSpoken() {
+    for (final ChatMessage message in sessions.messages) {
+      message.spoken.clear();
+    }
   }
 
   void _persist() {
@@ -679,6 +744,7 @@ class ChatController extends ChangeNotifier {
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
+    _highlight.dispose();
     super.dispose();
   }
 }

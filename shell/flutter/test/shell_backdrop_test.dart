@@ -182,7 +182,7 @@ Widget _host(
     baseColor: AppPalette.of(prefs.theme).stage,
     item: item,
     opacity: opacity ?? prefs.backgroundOpacity,
-    scrim: scrim ?? prefs.backgroundScrim,
+    scrim: scrim ?? DisplayPrefs.defaultBackgroundScrim,
     patternColors: patternColors,
     child: const Text('子树'),
   ),

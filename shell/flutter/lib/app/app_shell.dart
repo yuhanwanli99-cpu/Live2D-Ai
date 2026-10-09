@@ -80,7 +80,6 @@ import '../ui/chat_panel.dart';
 import '../ui/connection_badge.dart';
 import '../chat/chat_session.dart';
 import '../ui/error_banner.dart';
-import '../ui/glass_rim.dart';
 import '../ui/inline_notice.dart';
 import '../ui/session_sheet.dart';
 import '../ui/settings_scaffold.dart';
@@ -104,6 +103,7 @@ class AppShell extends StatefulWidget {
     required this.phase,
     required this.wsStatus,
     required this.messages,
+    this.playingSentenceSeq,
     required this.input,
     required this.onSend,
     required this.onStop,
@@ -120,7 +120,7 @@ class AppShell extends StatefulWidget {
     this.onEnsureSectionLoaded,
     this.settingsChanges = const NeverNotifies(),
     this.settingsRevision = 0,
-    this.section = SettingsSection.appearance,
+    this.section = SettingsSection.theme,
     this.onSectionChanged,
     this.modRestartNotice,
     this.onDismissModRestart,
@@ -143,6 +143,9 @@ class AppShell extends StatefulWidget {
     this.stageCorner,
     this.sessions = const <ChatSession>[],
     this.activeSessionId,
+    this.sessionsListenable,
+    this.readSessions,
+    this.readActiveSessionId,
     this.onNewSession,
     this.onSelectSession,
     this.onRenameSession,
@@ -159,11 +162,7 @@ class AppShell extends StatefulWidget {
     this.listenStatus,
     this.listenError,
     this.onToggleListen,
-    this.onPressStart,
-    this.onPressRelease,
-    this.pttActive = false,
     this.listenNote,
-    this.listenBlockedReason,
     super.key,
   });
 
@@ -174,6 +173,13 @@ class AppShell extends StatefulWidget {
   final WsStatus wsStatus;
 
   final List<ChatMessage> messages;
+
+  /// **当前正在播放的句号**（`sentence_seq`）；`null` = 没有朗读高亮。
+  ///
+  /// 外壳只做转手：真源是 `ChatController.playingSentenceSeq`（它把
+  /// `AudioPlayer` 的两条流原样转进 `SpokenHighlightController`）。
+  final int? playingSentenceSeq;
+
   final TextEditingController input;
   final VoidCallback onSend;
   final VoidCallback onStop;
@@ -225,19 +231,11 @@ class AppShell extends StatefulWidget {
   final String? listenStatus;
   final String? listenError;
 
-  /// 点按「听」：常驻唤醒开 / 关。
+  /// 点「听」：开始 / 结束一次听写（定稿进输入框；2026-10-08）。
   final VoidCallback? onToggleListen;
-
-  /// 按住说话（PTT）开始 / 结束（P0-4）。
-  final VoidCallback? onPressStart;
-  final VoidCallback? onPressRelease;
-  final bool pttActive;
 
   /// 一行诚实说明（Web Speech 需联网、音频出本机）。
   final String? listenNote;
-
-  /// 「听」根本不可用的**常驻**原因（如 voice-input Mod 未启用）。
-  final String? listenBlockedReason;
 
   /// L1 基座：Mod 变更后的统一「需重新点火 / 重启后生效」提示。
   ///
@@ -326,10 +324,24 @@ class AppShell extends StatefulWidget {
   final Widget? stageCorner;
 
   /// 会话列表（已按最近使用排序）。空 = 还没建过会话。
+  ///
+  /// ⚠️ 这是**打开会话浮层那一刻**的快照。浮层刷新走
+  /// [sessionsListenable] + [readSessions]（见 `ui/session_sheet.dart`）——
+  /// 删一行之后浮层里的那份副本不会自己更新。
   final List<ChatSession> sessions;
 
-  /// 当前会话 id（`null` = 没有）。
+  /// 当前会话 id（`null` = 没有）。同上：打开那一刻的快照。
   final String? activeSessionId;
+
+  /// 会话存储的变更通知（`ChatController`）。
+  ///
+  /// 浮层在**自己的 builder 里**订阅它：`showModalBottomSheet` 的 builder 只跑
+  /// 一次，不订阅就会出现「删掉一行、行还在」（2026-10-08 修）。
+  final Listenable? sessionsListenable;
+
+  /// 读**此刻**的会话列表 / 当前 id（浮层每次 build 都重新读）。
+  final List<ChatSession> Function()? readSessions;
+  final String? Function()? readActiveSessionId;
 
   final VoidCallback? onNewSession;
   final ValueChanged<String>? onSelectSession;

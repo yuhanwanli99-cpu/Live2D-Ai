@@ -315,7 +315,7 @@ void main() {
 
       expect(find.byType(StatePill), findsOneWidget, reason: '状态胶囊本身要还在');
       expect(
-        find.text('思考中'),
+        find.text('正在回复'),
         findsOneWidget,
         reason: '静态图标 ≠ 把状态藏起来：色 / 形 / 字三个通道都还得在',
       );

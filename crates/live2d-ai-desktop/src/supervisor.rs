@@ -1,8 +1,10 @@
 //! 最终接线中枢 [`spawn_supervisor`]：把「终端输入 → LLM → TTS → PCM → 声卡
 //! → 动作/口型事实回报」串成真实闭环（节点 A 步骤 8 批准范围）。
 //!
-//! **行数豁免（≤1000 头注）**：F6-T2 接线（WS 音频广播）新增 thread-local
-//! 载体 `AUDIO_CB` + `spawn_supervisor_with_audio`，当前 577 行（≤1000）。
+//! **行数（AGENTS.md「源码 ≤500 行，豁免 ≤1000 需头注理由」）**：F6-T2 接线
+//! （WS 音频广播）新增 thread-local 载体 `AUDIO_CB` + `spawn_supervisor_with_audio`。
+//! T8（2026-10-07）把表演层装配面整体迁到 `supervisor/performance_wiring.rs`，
+//! 本文件回到 1000 行以内（`code_stats` 的 `over-1000` 棘轮是 0）。
 //!
 //! # 进程结构与所有权（D1/D2/D3 裁决落地）
 //!
@@ -85,7 +87,8 @@ pub(crate) fn root_apply(root: &mut RootState, event: RootEvent) -> Vec<RootEffe
     live2d_ai_core::apply(root, event)
 }
 use live2d_ai_mod_system::ModEventTopic;
-use live2d_ai_runtime::performance::{PerformanceRuntime, PerformanceStats, RuleFallback};
+use live2d_ai_runtime::cleaning::SentenceCleaner;
+use live2d_ai_runtime::performance::{PerformanceRuntime, PerformanceStats};
 use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, OpenAiClient};
 
 /// 表演层计数槽：**当前**运行时的 `Arc<PerformanceStats>`（换运行时即换表）。
@@ -98,8 +101,12 @@ pub type PerformanceStatsSlot = Arc<std::sync::Mutex<Option<Arc<PerformanceStats
 use crate::app_event::{AppEvent, ConversationUiEvent};
 use crate::session_scope::SessionScopeStore;
 
+mod dialogue_history;
 mod handlers;
+mod performance_wiring;
 mod turn;
+
+pub use performance_wiring::{build_performance_runtime, load_director_takeover};
 
 /// 动作自然完成事实：**携带产生它的原始业务 epoch**（B-P0-5 裁决）。
 ///
@@ -354,35 +361,6 @@ thread_local! {
     static MOD_EVENT_CB: std::cell::RefCell<Option<ModEventSink>> = const { std::cell::RefCell::new(None) };
 }
 
-/// 从 `[performance]` 段装配表演层运行时（**唯一装配点**；启动与热重载共用）。
-///
-/// - `enabled=false` → `None`（引擎走既有流式路径，行为逐字一致）；
-/// - 开了但缺端点 → 仍返回运行时（`enabled()==false`）：每轮走确定性回退
-///   （`speak=clean_for_tts(原文)` + 规则 cue），degraded 进日志与状态面；
-/// - **能力集 = director 的 `accepted_preset_ids()`**（= 主 allowlist；旧 id 已删除，
-///   不在能力集里）、**规则回退 = director 的 `rule_cues_for_text`**（同一张映射表的
-///   单一真源，不在这里再抄一份）。
-pub fn build_performance_runtime(
-    settings: &live2d_ai_runtime::settings::PerformanceSettings,
-) -> Option<Arc<PerformanceRuntime>> {
-    let allow: Vec<String> = live2d_ai_mod_director::presets::accepted_preset_ids();
-    let rule: RuleFallback =
-        Arc::new(|text: &str| live2d_ai_mod_director::presets::rule_cues_for_text(text));
-    let setup = live2d_ai_runtime::performance::assemble(settings, allow, Some(rule));
-    if let Some(note) = setup.note.as_deref() {
-        tracing::warn!(note, "表演层开了但没接上：每轮回退到确定性规则层");
-    }
-    if let Some(rt) = setup.runtime.as_ref() {
-        tracing::info!(
-            client = rt.client_kind(),
-            mode = rt.mode().as_str(),
-            allow_len = rt.allow().len(),
-            "表演层已装配（主模型不负责表演；表演层每轮 JSON）"
-        );
-    }
-    setup.runtime
-}
-
 /// 从磁盘最新配置构造新的 [`OpenAiClient`] + [`ConversationConfig`]（热重载核心）。
 ///
 /// **不**触碰 [`ConversationEngine::history`]（旧 engine 跨重建保留历史不现实——
@@ -400,6 +378,7 @@ fn rebuild_engine_from_config(
         OpenAiClient,
         ConversationConfig,
         Option<Arc<PerformanceRuntime>>,
+        Option<Arc<SentenceCleaner>>,
     ),
     String,
 > {
@@ -413,9 +392,32 @@ fn rebuild_engine_from_config(
     // 3) 构造新 client。
     let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())
         .map_err(|e| format!("构建 LLM/TTS 客户端失败: {e}"))?;
-    // 表演层与本文件其余部分同一份配置解析（[performance] 段）。
-    let performance = build_performance_runtime(&resolved.performance);
-    Ok((client, resolved.conversation, performance))
+    // 表演层（T8；2026-10-08 起显式 opt-in）：开关 = `[performance].enabled`；
+    // 导演启用时端点按 `staging_*` 两项共用 `takeover_of` 判定（两项都空 = 复用
+    // 对话模型），导演未启用时用 `[performance]` 自己的 base_url/model。
+    let director = load_director_takeover(config_path);
+    let performance = build_performance_runtime(&settings.llm, &resolved.performance, &director);
+    // 二路按句清洗（2026-10-08）：与一路同一份 base_url / model / key；
+    // `resolved.llm.clean_tts` 由 `AppSettings::resolve` 置 true（产品默认）。
+    let cleaner = build_sentence_cleaner(&client);
+    Ok((client, resolved.conversation, performance, cleaner))
+}
+
+/// 二路清洗装配（唯一装配点；启动与热重载共用）。
+///
+/// 端点 / 模型 / 密钥**全部来自一路**（`client.llm()`）——模型定死同一份，
+/// 不再给用户第二个下拉框。`clean_tts == false`（`LlmConfig::new` 的便捷构造）
+/// → `None`：主链保持既有行为（上屏 == 送 TTS == `clean_for_tts(句)`）。
+fn build_sentence_cleaner(client: &OpenAiClient) -> Option<Arc<SentenceCleaner>> {
+    let cleaner = SentenceCleaner::from_llm(client.llm());
+    if !cleaner.enabled() {
+        return None;
+    }
+    tracing::info!(
+        model = cleaner.model(),
+        "二路按句清洗已装配（与一路同一份端点；请求体显式关思考）"
+    );
+    Some(Arc::new(cleaner))
 }
 
 /// 应用 Reload：从最新配置重建 engine；失败保留旧 engine。
@@ -433,6 +435,7 @@ fn apply_reload(
     config_path: Option<&str>,
     reload_pending: Option<&std::sync::atomic::AtomicBool>,
     performance_stats: &PerformanceStatsSlot,
+    histories: &mut dialogue_history::DialogueHistories,
     emit: &Emit,
 ) {
     // 消费标志：仅在需要应用时才清。失败路径不重置——保留以便下次再试。
@@ -447,11 +450,15 @@ fn apply_reload(
         return;
     };
     match rebuild_engine_from_config(path, emit) {
-        Ok((new_client, new_conversation, performance)) => {
-            // 表演层与引擎同一份配置解析：热重载后说话人 / cue 源一起换。
+        Ok((new_client, new_conversation, performance, cleaner)) => {
+            // 表演层 / 二路清洗与引擎同一份配置解析：热重载后说话人、cue 源、
+            // 清洗模型一起换。
             let mut new_engine = ConversationEngine::new(new_client, new_conversation);
             new_engine.set_performance(performance.clone());
+            new_engine.set_cleaner(cleaner);
             *engine = new_engine;
+            // 新引擎是空历史。分桶必须一起丢掉，否则下一轮会把旧桶装回去。
+            histories.clear();
             if let Ok(mut slot) = performance_stats.lock() {
                 *slot = performance.map(|rt| rt.stats());
             }
@@ -629,15 +636,24 @@ async fn run_forever(
     // 能力集显式注入（附带发现 #5）：Bai 支持全部六动作；默认空集会导致
     // 一切 Play 被 capability gate 拒绝——那必须是装配错误而不是静默行为。
     root.action.capabilities = capabilities;
+    // 二路按句清洗（2026-10-08）：要在把 client 移进引擎**之前**装配。
+    // 端点 = 一路的 `[llm]`（同一份 base_url / model / key）；`clean_tts` 由
+    // settings 解析置 true。测试 / 手工装配用 `LlmConfig::new` → clean_tts=false
+    // → 这里 `None`，主链保持既有行为。
+    let cleaner = build_sentence_cleaner(&client);
     let mut engine = ConversationEngine::new(client, conversation);
-    // ---- 表演层装配（2026-09-22）----
-    // 从 [performance] 段（磁盘）装配；**默认关**。config_path 为 None
-    // （测试 / 无配置装配）时不装配——与「从来没有本段」逐字一致。
-    // 主模型只写剧情正文；表演层每轮收齐原文后交回一份 JSON（speak + cues）。
+    engine.set_cleaner(cleaner);
+    // ---- 表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
+    // 开关 = `[performance].enabled`（缺省 false → 主链走二路按句清洗）；
+    // 显式打开后，端点按 `staging_*` 两项共用判定（导演启用时）或 `[performance]`
+    // 自己的 base_url/model（导演未启用）。
+    // config_path 为 None（测试 / 无配置装配）时不装配——与「从来没有表演层」逐字一致。
     if let Some(path) = config_path.as_deref()
         && let Ok(settings) = AppSettings::load_from_path(path)
     {
-        let performance = build_performance_runtime(&settings.performance);
+        let director = load_director_takeover(path);
+        let performance =
+            build_performance_runtime(&settings.llm, &settings.performance, &director);
         engine.set_performance(performance.clone());
         if let Ok(mut slot) = performance_stats.lock() {
             *slot = performance.map(|rt| rt.stats());
@@ -645,6 +661,7 @@ async fn run_forever(
     }
     let mut next_turn_id: u64 = 0;
     let mut quitting = false;
+    let mut histories = dialogue_history::DialogueHistories::default();
 
     while !quitting {
         // ---- 空闲态：受理输入与控制。此时到达的「动作自然完成」事实属于迟到，
@@ -661,6 +678,7 @@ async fn run_forever(
                         config_path.as_deref(),
                         Some(reload_pending.as_ref()),
                         &performance_stats,
+                        &mut histories,
                         &emit,
                     );
                 }
@@ -736,6 +754,9 @@ async fn run_forever(
                     engine.set_system_prompt_override(
                         session_scopes.prompt_for(session.as_deref()),
                     );
+                    // 对话历史按会话换桶。人设槽已经按会话决议；历史此前是
+                    // 进程里的一份，换会话会把上一会话的轮次喂进模型。
+                    histories.install(&mut engine, session.as_deref());
                     // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
                     // 同步写；UserSubmitted 不动 epoch（root 现状保持），但
                     // 仍把当前值同步给镜像以覆盖 boot 时 0。
@@ -806,6 +827,7 @@ async fn run_forever(
                         config_path.as_deref(),
                         Some(reload_pending.as_ref()),
                         &performance_stats,
+                        &mut histories,
                         &emit,
                     );
                 }
@@ -832,6 +854,7 @@ mod tests_mod_projections {
         let ev = AppEvent::Conversation(ConversationUiEvent::TextDelta {
             epoch: 3,
             ts_ms: 42,
+            sentence_seq: 1,
             text: "你好".to_string(),
         });
         assert_eq!(
@@ -876,60 +899,6 @@ mod tests_mod_projections {
     }
 }
 
-/// 表演层装配（2026-09-22）：关闸 / 缺端点 / 配齐三态 + 能力集单一真源。
-#[cfg(test)]
-mod tests_performance_assembly {
-    use super::*;
-    use live2d_ai_runtime::settings::PerformanceSettings;
-
-    #[test]
-    fn disabled_is_none_and_partial_config_is_degraded_and_wired_is_openai() {
-        // 默认关 → 不装配（引擎走既有流式路径，行为逐字一致）。
-        assert!(build_performance_runtime(&PerformanceSettings::default()).is_none());
-
-        // 开了但缺端点 → 仍装配（每轮确定性回退），degraded 可见。
-        let partial = PerformanceSettings {
-            enabled: true,
-            ..PerformanceSettings::default()
-        };
-        let rt = build_performance_runtime(&partial).expect("开了闸就要有运行时");
-        assert!(!rt.enabled(), "缺端点不得真发 HTTP");
-        assert_eq!(rt.client_kind(), "disabled");
-
-        // 配齐 → 真客户端；能力集就是 director 的可接受集合（单一真源）。
-        let wired = PerformanceSettings {
-            enabled: true,
-            base_url: "http://127.0.0.1:11434/v1".to_string(),
-            model: "qwen2.5:7b".to_string(),
-            ..PerformanceSettings::default()
-        };
-        let rt = build_performance_runtime(&wired).expect("配齐必须装配");
-        assert!(rt.enabled());
-        assert_eq!(rt.client_kind(), "openai");
-        assert_eq!(
-            rt.allow(),
-            live2d_ai_mod_director::presets::accepted_preset_ids(),
-            "能力集必须来自 accepted_preset_ids（= 主 allowlist），不得在别处再抄一份"
-        );
-        // 旧 id 已删除：能力集里不得有任何主 allowlist 之外的 id。
-        let allow_def = live2d_ai_mod_director::presets::PRESET_IDS;
-        assert!(
-            !rt.allow()
-                .iter()
-                .any(|id| !allow_def.contains(&id.as_str())),
-            "旧 id 不得再进能力集：{:?}",
-            rt.allow()
-        );
-        // 主 allowlist 项必须在。
-        for id in ["none", "smile", "unhappy", "surprised", "nod", "shake"] {
-            assert!(
-                rt.allow().iter().any(|x| x == id),
-                "主 allowlist 的 {id} 必须在能力集里"
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod support;
 // Wave 3（2026-09-21）：助手侧正文事件，单列守住「测试文件 ≤800 行」。
@@ -952,6 +921,8 @@ mod tests_stall;
 #[cfg(test)]
 mod tests_performance;
 // P1WS-1：真实 LLM 流式文本透传（text_delta emit）+ epoch 镜像单元测试。
+#[cfg(test)]
+mod tests_dialogue_history;
 #[cfg(test)]
 mod tests_stream;
 #[cfg(test)]

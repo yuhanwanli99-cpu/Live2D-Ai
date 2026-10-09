@@ -79,7 +79,7 @@ class _ShellHost extends StatefulWidget {
 }
 
 class _ShellHostState extends State<_ShellHost> {
-  SettingsSection section = SettingsSection.appearance;
+  SettingsSection section = SettingsSection.theme;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -309,20 +309,20 @@ void main() {
         tester,
         confirm: () async => leave,
       );
-      await tester.tap(find.text('LLM'));
+      await tester.tap(find.text('模型服务'));
       await tester.pumpAndSettle();
       expect(
         tester.widget<AppShell>(find.byType(AppShell)).section,
-        SettingsSection.appearance,
+        SettingsSection.theme,
         reason: '用户选择留下 → 不换分区',
       );
 
       leave = true;
-      await tester.tap(find.text('LLM'));
+      await tester.tap(find.text('模型服务'));
       await tester.pumpAndSettle();
       expect(
         tester.widget<AppShell>(find.byType(AppShell)).section,
-        SettingsSection.llm,
+        SettingsSection.service,
       );
     });
   });

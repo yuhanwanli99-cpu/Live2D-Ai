@@ -165,7 +165,15 @@ const RATCHET_DART_800: u64 = 0;
 /// `docs/audit/2026-10-05-debt-round/RUST-DEBT-REPORT.md` §6.2。
 ///
 /// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（22 ≤ 22 = PASS）。
-const RATCHET_DESKTOP_DEPS: u64 = 22;
+///
+/// **已调到 23**（2026-10-09「两类 TTS」）：+1 条**新的产品 Mod 直边**——
+/// `live2d-ai-mod-local-tts`（id `local-tts`，缺省停用，只按用户 argv spawn
+/// 外部进程、不写 `[tts]`）。**这不是放宽棘轮**：棘轮纪律第 2 条禁的是
+/// 「为了让门禁变绿而抬高阈值」，而这里是一条真实新增的依赖边（22 → 23 是
+/// 实测值，不是把红的门禁涂绿）。`PLAN_DESKTOP_DEPS` **保持 22**——PLAN §5
+/// 的目标口径不动，`--strict-plan` 在 deps 上继续是红的（如实打印，不涂绿）。
+/// 复算：`cargo run -q -p xtask -- code-stats --check --only deps`（23 ≤ 23 = PASS）。
+const RATCHET_DESKTOP_DEPS: u64 = 23;
 
 /// PLAN §5 量化目标（`--strict-plan`）。
 const PLAN_SRC_RS_500: u64 = 15;

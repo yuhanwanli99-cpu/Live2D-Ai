@@ -45,7 +45,7 @@ double opacityOf(WidgetTester tester, String key) => tester
 
 Widget shell({
   required TextEditingController input,
-  SettingsSection section = SettingsSection.appearance,
+  SettingsSection section = SettingsSection.theme,
   ValueChanged<SettingsSection>? onSectionChanged,
   VoidCallback? onEnsureSectionLoaded,
 }) => MaterialApp(
@@ -196,7 +196,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await openSettings(tester);
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
+      expect(find.text('PANE:主题'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();

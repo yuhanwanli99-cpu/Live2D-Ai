@@ -1,0 +1,32 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "bai.moc3",
+		"Textures": [
+			"bai.16384/texture_00_4096.png"
+		],
+		"Physics": "bai.physics3.json",
+		"DisplayInfo": "bai.cdi3.json"
+	},
+	"Layout": {
+		"center_x": 0.0,
+		"center_y": -0.07,
+		"width": 0.56,
+		"height": 0.56
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		}
+	]
+}

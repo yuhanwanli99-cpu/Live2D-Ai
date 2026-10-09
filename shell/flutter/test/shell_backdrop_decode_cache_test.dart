@@ -49,7 +49,7 @@ Widget _host({
       baseColor: AppPalette.of(prefs.theme).stage,
       item: item,
       opacity: opacity ?? prefs.backgroundOpacity,
-      fit: fit ?? prefs.imageFit,
+      fit: fit ?? DisplayPrefs.defaultImageFit,
       child: const Text('子树'),
     ),
   );

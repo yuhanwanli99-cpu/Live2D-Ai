@@ -68,12 +68,14 @@ VoiceListenController make({
   String wake = '小可爱',
   Future<String> Function()? loader,
   void Function(String)? onBusy,
+  void Function(String)? onDictation,
 }) {
   return VoiceListenController(
     recognizer: recognizer,
     send: (sender ?? FakeSender()).call,
     loadWakePhrase: loader ?? () async => wake,
     onBusyResult: onBusy,
+    onDictation: onDictation,
     restartDelay: Duration.zero,
     // 测试不等最后定稿窗口（生产 300ms）。
     pttFinalizeDelay: Duration.zero,
@@ -409,7 +411,6 @@ void main() {
       expect(containsWakePhrase('任何话', ''), isFalse);
       expect(wakeBody('任何话', ''), '');
     });
-
     test('句首锚定：中间出现唤醒词不命中（P0-4）', () {
       expect(containsWakePhrase('我昨天说小可爱好看', '小可爱'), isFalse);
       expect(containsWakePhrase('  小可爱 你好', '小可爱'), isTrue);
@@ -417,4 +418,107 @@ void main() {
       expect(wakeBody('我昨天说小可爱好看', '小可爱'), '');
     });
   });
+
+  group('appendVoiceText：定稿写进输入框的口径（纯函数）', () {
+    test('空串 = 输入框不动（「没听清」走这条路）', () {
+      expect(appendVoiceText('已有的话', ''), '已有的话');
+      expect(appendVoiceText('已有的话', '   '), '已有的话');
+      expect(appendVoiceText('', ''), '');
+    });
+
+    test('输入框空 → 就是定稿本身（去掉首尾空白）', () {
+      expect(appendVoiceText('', '  明天几点开会 '), '明天几点开会');
+      expect(appendVoiceText('   ', '明天几点开会'), '明天几点开会');
+    });
+
+    test('输入框已有文字 → 接在后面，中间补一个空格', () {
+      expect(appendVoiceText('前半句', '后半句'), '前半句 后半句');
+      expect(appendVoiceText('前半句 ', ' 后半句'), '前半句  后半句');
+    });
+  });
+
+  group('产品听写：点一下开始、再点一下结束（2026-10-08）', () {
+    test('第一次点开始录音；第二次点结束，定稿交给宿主；全程不打语音端点', () async {
+      final FakeRecognizer r = FakeRecognizer();
+      final FakeSender s = FakeSender();
+      final List<String> handed = <String>[];
+      final VoiceListenController c = make(
+        recognizer: r,
+        sender: s,
+        onDictation: handed.add,
+      );
+
+      await c.toggleDictation();
+      expect(c.dictating, isTrue);
+      expect(c.listening, isTrue, reason: '按钮据此变「停」');
+      expect(c.statusLine, '正在听，说完再点一次');
+      expect(r.startCalls, 1);
+
+      r.onResult(const SpeechResult(transcript: '明天几点开会', isFinal: true));
+      await Future<void>.delayed(Duration.zero);
+      expect(handed, isEmpty, reason: '还没点「停」就不该交稿');
+
+      await c.toggleDictation();
+      expect(c.dictating, isFalse);
+      expect(c.listening, isFalse);
+      expect(handed, <String>['明天几点开会']);
+      expect(c.error, isNull);
+      expect(s.sent, isEmpty, reason: '听写路径**不打** /api/v1/voice/transcript');
+      expect(s.pttFlags, isEmpty);
+    });
+
+    test('多条定稿拼成一段（不丢中间结果）', () async {
+      final FakeRecognizer r = FakeRecognizer();
+      final List<String> handed = <String>[];
+      final VoiceListenController c = make(recognizer: r, onDictation: handed.add);
+      await c.startDictation();
+      r.onResult(const SpeechResult(transcript: '把灯', isFinal: true));
+      r.onResult(const SpeechResult(transcript: '打开', isFinal: true));
+      await c.stopDictation();
+      expect(handed, <String>['把灯打开']);
+    });
+
+    test('空定稿：宿主收到空串，控制器写「没听清，再点一次说」', () async {
+      final FakeRecognizer r = FakeRecognizer();
+      final List<String> handed = <String>[];
+      final VoiceListenController c = make(recognizer: r, onDictation: handed.add);
+      await c.startDictation();
+      await c.stopDictation();
+      expect(handed, <String>[''], reason: '成功与失败都走同一个回调');
+      expect(c.error, '没听清，再点一次说');
+      expect(c.dictating, isFalse);
+    });
+
+    test('角色正在播报：不允许开始，就地写「角色在说话，说完再听」，不开麦', () async {
+      final FakeRecognizer r = FakeRecognizer();
+      final VoiceListenController c = make(recognizer: r);
+      await c.suspendForPlayback();
+      await c.startDictation();
+      expect(c.dictating, isFalse);
+      expect(r.startCalls, 0, reason: '播报期间不许开麦');
+      expect(c.error, '角色在说话，说完再听');
+    });
+
+    test('已在录音时开始播报：停掉识别，已听到的字仍交给宿主', () async {
+      final FakeRecognizer r = FakeRecognizer();
+      final List<String> handed = <String>[];
+      final VoiceListenController c = make(recognizer: r, onDictation: handed.add);
+      await c.startDictation();
+      r.onResult(const SpeechResult(transcript: '已经说了一半', isFinal: true));
+      await Future<void>.delayed(Duration.zero);
+
+      await c.suspendForPlayback();
+      expect(c.dictating, isFalse);
+      expect(handed, <String>['已经说了一半'], reason: '播报开始不该把听到的字吞掉');
+      expect(c.listening, isFalse);
+    });
+
+    test('不支持语音识别：给可读错误，不进 dictating', () async {
+      final VoiceListenController c = make(recognizer: null);
+      await c.toggleDictation();
+      expect(c.dictating, isFalse);
+      expect(c.error, contains('没有语音识别'));
+    });
+  });
 }
+

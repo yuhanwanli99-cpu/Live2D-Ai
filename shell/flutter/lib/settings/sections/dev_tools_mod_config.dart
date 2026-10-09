@@ -49,14 +49,37 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   Set<String> get _advancedKeys =>
       modPanelFor(widget.mod.id)?.advancedKeys ?? const <String>{};
 
+  /// 面板声明的「**产品面完全不渲染**」key（2026-10-08；见 [ModPanel.hiddenKeys]）。
+  ///
+  /// 它们**不进**_plainFields、也**不进**「高级」——用户看不懂的旋钮不该以任何
+  /// 形式出现在产品界面上（键本身仍被解析，既有值由 [_buildConfig] 原样带走）。
+  Set<String> get _hiddenKeys =>
+      modPanelFor(widget.mod.id)?.hiddenKeys ?? const <String>{};
+
+  /// 面板声明的「**只在开发模式里画**」key（见 [ModPanel.devKeys]）。
+  Set<String> get _devKeys =>
+      modPanelFor(widget.mod.id)?.devKeys ?? const <String>{};
+
+  /// 这一次渲染**真正不画**的 key 集合：
+  ///
+  /// ```text
+  /// effectiveHidden = hiddenKeys ∪ (devMode ? ∅ : devKeys)
+  /// ```
+  ///
+  /// 渲染（[_plainFields] / [_advancedFields]）与保存（[_buildConfig]）
+  /// 读的是**同一份**判据——只改渲染不改保存，会把没画出来的键写成默认值。
+  Set<String> get _effectiveHidden => widget.devMode
+      ? _hiddenKeys
+      : <String>{..._hiddenKeys, ..._devKeys};
+
   List<ModSettingField> get _plainFields => <ModSettingField>[
     for (final ModSettingField f in _spec.fields)
-      if (!_advancedKeys.contains(f.key)) f,
+      if (!_advancedKeys.contains(f.key) && !_effectiveHidden.contains(f.key)) f,
   ];
 
   List<ModSettingField> get _advancedFields => <ModSettingField>[
     for (final ModSettingField f in _spec.fields)
-      if (_advancedKeys.contains(f.key)) f,
+      if (_advancedKeys.contains(f.key) && !_effectiveHidden.contains(f.key)) f,
   ];
 
   /// 「高级」折叠：默认收起。旧的平铺观感只在**没有**高级字段时保持。
@@ -251,11 +274,19 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   ///
   /// 从服务端已有 config 出发、只覆盖本 Mod 在 spec 里声明的字段：
   /// spec 之外的既有键（未来扩展）不该被一次「保存」顺手抹掉。
+  ///
+  /// **面板声明为隐藏的键原样不写**（2026-10-08，见 [ModPanel.hiddenKeys]）：
+  /// 它们不在界面上，用户没机会改；写回只会把「当前值」再写一遍（或把 spec
+  /// 默认值灌进 `mods.json`）。跳过 = 磁盘上那份严格不变。
+  ///
+  /// 判据是 [_effectiveHidden]（不是只看 `hiddenKeys`）：开发模式关着时
+  /// `devKeys` 同样没画出来，保存时也必须原样带走。
   Map<String, Object?> _buildConfig() {
     final Map<String, Object?> next = Map<String, Object?>.of(
       widget.mod.config,
     );
     for (final ModSettingField f in _spec.fields) {
+      if (_effectiveHidden.contains(f.key)) continue;
       // secret 留空 = 「不修改」：服务端不回值，发空串会把已存的密钥清掉。
       if (f.kind == ModFieldKind.string &&
           f.secret &&
@@ -331,9 +362,12 @@ class _ModConfigTileState extends State<_ModConfigTile> {
     }
   }
 
+  /// 成功文案（2026-10-09 口径）：只说「配置生效 / 未启用」，
+  /// **不写「进程已启动」**——`restarted` 是服务端的自述，前端看不到子进程，
+  /// 声称进程起来了就是把推断当事实。
   String _okMessage(ModConfigResult r) {
-    if (r.restarted) return '已保存，服务端已重启';
-    if (r.enabled == false) return '已保存，Mod 已停用';
+    if (r.restarted) return '已保存并生效';
+    if (r.enabled == false) return '已保存，未启用';
     return '已保存';
   }
 
@@ -401,7 +435,10 @@ class _ModConfigTileState extends State<_ModConfigTile> {
       // 头部复用 AdminRow：标题/副标题/状态徽标与无 spec 的 Mod 完全一致。
       title: AdminRow(
         title: m.name.isEmpty ? m.id : m.name,
-        subtitle: '${m.id} · v${m.version} · api v${m.apiVersion}',
+        // 副标题只在开发者模式画（2026-10-08）；空串 = 整行不画。
+        subtitle: widget.devMode
+            ? '${m.id} · v${m.version} · api v${m.apiVersion}'
+            : '',
         badges: <String>[m.statusLabel],
         trailing: Switch(
           value: m.enabled,
@@ -435,7 +472,11 @@ class _ModConfigTileState extends State<_ModConfigTile> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.save_outlined, size: 16),
-            label: Text(_saving ? '保存中…' : '保存'),
+            // 2026-10-09「两类 TTS」：这个按钮是**所有 Mod 共用**的，它的语义是
+            // 「保存配置并让改动生效」（服务端在已启用时 restart）。旧的「保存」
+            // 让人以为写完文件就完了——`local-tts` 的 `on_apply` 正是只在这一次
+            // 真的拉起进程。忙碌文案保持「保存中…」。
+            label: Text(_saving ? '保存中…' : '保存并应用'),
           ),
         ),
         if (_message != null)
@@ -557,6 +598,11 @@ class _ModConfigTileState extends State<_ModConfigTile> {
         // L1 会话绑定 + 统一重启提示：面板拿到活动会话与变更通知回调。
         activeSessionId: widget.activeSessionId,
         onModChanged: widget.onModChanged,
+        // 开发模式与卡文件读取器：与副标题同一个开关，一次传下来。
+        devMode: widget.devMode,
+        pickCardFile: widget.pickCardFile,
+        // 2026-10-09：动作幅度旋钮随这条上下文进 director 卡片。
+        actionScales: widget.actionScales,
       ),
     );
     return built ?? const SizedBox.shrink();
@@ -570,6 +616,12 @@ class _ModConfigTileState extends State<_ModConfigTile> {
     String command, [
     Map<String, Object?> args = const <String, Object?>{},
   ]) async {
+    final ModCommandSender? send = widget.onCommand;
+    if (send != null) {
+      final ModCommandResult result = await send(widget.mod.id, command, args);
+      unawaited(_loadState());
+      return result;
+    }
     final ModsApi api = _ownedApi ??= ModsApi();
     final ModCommandResult result = await api.command(
       widget.mod.id,
@@ -581,6 +633,13 @@ class _ModConfigTileState extends State<_ModConfigTile> {
   }
 
   Widget _field(ModSettingField f) {
+    // 2026-10-09：三级功能介绍全删（含面板声明的 fieldHelp——那条呈现口子
+    // 已随之退役，ModPanel.fieldHelp 恒为空）。**只有两个例外**：
+    //   1. 密钥输入的「留空表示不修改（服务端不回传密钥）」——那是操作规则；
+    //   2. 带 min/max 的数字项只留一行范围（数从 spec 上的上下限抄）。
+    final String? range = (f.min != null && f.max != null)
+        ? '${_trimNumber(f.min!)}-${_trimNumber(f.max!)}'
+        : null;
     switch (f.kind) {
       case ModFieldKind.bool:
         return ToggleField(
@@ -595,6 +654,7 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           icon: f.secret ? Icons.key_outlined : Icons.text_fields,
           value: _stringValue(f),
           obscure: f.secret,
+          // secret 那行有它自己的固定说明（「留空 = 不修改」）。
           description: f.secret ? '留空表示不修改（服务端不回传密钥）' : null,
           onChanged: (String v) => _edit(f.key, v),
         );
@@ -603,7 +663,8 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           label: f.label,
           icon: Icons.tag,
           value: _intValue(f),
-          // 尊重 spec 的 min/max：`NumberField` 对越界输入**不回调**。
+          description: range,
+          // 尊重 spec 的 min/max：NumberField 对越界输入**不回调**。
           min: f.min?.toInt(),
           max: f.max?.toInt(),
           onChanged: (int v) => _edit(f.key, v),
@@ -620,6 +681,13 @@ class _ModConfigTileState extends State<_ModConfigTile> {
           onChanged: (String v) => _edit(f.key, v),
         );
     }
+  }
+
+  /// 数字项的 min-max 文案：整数不拖小数点。
+  static String _trimNumber(num value) {
+    final double d = value.toDouble();
+    if (d == d.roundToDouble() && d.abs() < 1e15) return d.toInt().toString();
+    return d.toString();
   }
 }
 

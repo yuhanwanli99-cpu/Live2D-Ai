@@ -4,7 +4,7 @@
 /// # 根因
 ///
 /// 错误动作的 `onGoto` 接的是 `_gotoSection`，而它只负责「**换分区**」——
-/// 默认态下面板是**关着**的。于是点「去 LLM 设置」时分区确实换了，但用户
+/// 默认态下面板是**关着**的。于是点「去对话设置」时分区确实换了，但用户
 /// 面前的设置面板仍然关着，读到的就是「按钮失灵」（TRIAGE §1 第 23 行）。
 /// 修法（HANDOFF §4 Step 0）：换完分区之后**真的把面板打开**。
 ///
@@ -67,9 +67,9 @@ Finder dockPanel() => find.descendant(
 
 /// 面板里那个分区内容的文本。
 ///
-/// **从枚举取值、不写字面量**：`SettingsSection.llm.label` 是 `'LLM'`，而它对应
-/// 分区在界面里的标题是「对话模型」——写死标题会得到一条「面板其实开了、但断言
-/// 找不到」的假红。
+/// **从枚举取值、不写字面量**：分区标题的唯一真源是 `SettingsSection.label`
+///（2026-10-08 起 `llm` 这一项叫「对话」）——写死标题会得到一条「面板其实开了、
+/// 但断言找不到」的假红。
 String paneTextOf(SettingsSection section) => 'PANE:${section.label}';
 
 /// 与 `main.dart` 的错误动作接线**同形**的宿主（受控分区 + 真 `AppShell`）。
@@ -87,7 +87,9 @@ class _ErrorHostState extends State<_ErrorHost> {
   late SettingsSection _section = widget.initialSection;
 
   /// `main.dart:1128-1138` 的同形实现（含**那条早退**）。
-  void _gotoSection(SettingsSection next) {
+  /// 与生产同形：第二个参数是「页内定位到哪一组」（2026-10-09 起
+  /// 「去语音合成设置」用它落到「模型服务」页的语音组）。
+  void _gotoSection(SettingsSection next, {String? group}) {
     if (next == _section) return;
     setState(() => _section = next);
   }
@@ -96,8 +98,8 @@ class _ErrorHostState extends State<_ErrorHost> {
   List<ErrorAction> get _errorActions => errorActionsFor(
     '上游返回 401（错误详情见诊断日志）',
     code: 'llm_upstream_401',
-    onGoto: (SettingsSection next) {
-      _gotoSection(next);
+    onGoto: (SettingsSection next, String? group) {
+      _gotoSection(next, group: group);
       // ← F-0001-1 的那一步。**延到本帧之后**（原因见文件头注第 2 条：
       //   同一帧里「换分区 + 开浮层」会撞 `markNeedsBuild during build`）。
       WidgetsBinding.instance.addPostFrameCallback((Duration _) {
@@ -153,7 +155,7 @@ Future<void> _pumpHost(
   WidgetTester tester, {
   required GlobalKey<AppShellState> shellKey,
   required double width,
-  SettingsSection initialSection = SettingsSection.appearance,
+  SettingsSection initialSection = SettingsSection.theme,
 }) async {
   await tester.binding.setSurfaceSize(Size(width, 800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -170,9 +172,9 @@ Future<void> _pumpHost(
   await tester.pump();
 }
 
-/// 点错误横幅的「去 LLM 设置」，并让「换分区」与「打开面板」两帧都跑完。
+/// 点错误横幅的「去对话设置」，并让「换分区」与「打开面板」两帧都跑完。
 Future<void> _tapErrorAction(WidgetTester tester) async {
-  await tester.tap(find.text('去 LLM 设置'));
+  await tester.tap(find.text('去对话设置'));
   await tester.pumpAndSettle();
 }
 
@@ -181,7 +183,7 @@ void main() {
   // 行为级（真 AppShell + 真 errorActionsFor）
   // ─────────────────────────────────────────────────────────────────────
 
-  testWidgets('expanded：关闭态点「去 LLM 设置」→ 内联侧板真的展开并停在 LLM', (
+  testWidgets('expanded：关闭态点「去对话设置」→ 内联侧板真的展开并停在 LLM', (
     WidgetTester tester,
   ) async {
     final GlobalKey<AppShellState> shellKey = GlobalKey<AppShellState>();
@@ -201,10 +203,10 @@ void main() {
       greaterThanOrEqualTo(NavMetrics.paneWidth),
       reason: '修复前：点「去设置」面板完全不展开（默认态就是关着的）',
     );
-    expect(find.text(paneTextOf(SettingsSection.llm)), findsOneWidget);
+    expect(find.text(paneTextOf(SettingsSection.service)), findsOneWidget);
   });
 
-  testWidgets('medium：关闭态点「去 LLM 设置」→ 浮层真的打开并停在 LLM', (
+  testWidgets('medium：关闭态点「去对话设置」→ 浮层真的打开并停在 LLM', (
     WidgetTester tester,
   ) async {
     final GlobalKey<AppShellState> shellKey = GlobalKey<AppShellState>();
@@ -212,17 +214,17 @@ void main() {
 
     // 前提：面板关着 → 面板内容不在树上（medium 是浮层宿主）。
     expect(
-      find.text(paneTextOf(SettingsSection.llm)),
+      find.text(paneTextOf(SettingsSection.service)),
       findsNothing,
       reason: '前提：设置面板是关着的',
     );
-    expect(find.text('去 LLM 设置'), findsOneWidget, reason: '前提：错误横幅给出了那条出路');
+    expect(find.text('去对话设置'), findsOneWidget, reason: '前提：错误横幅给出了那条出路');
 
     await _tapErrorAction(tester);
 
     // F-0001-1：**面板被打开**（find 到面板内容），而不是「函数被调用」。
     expect(
-      find.text(paneTextOf(SettingsSection.llm)),
+      find.text(paneTextOf(SettingsSection.service)),
       findsOneWidget,
       reason: '修复前：分区换了但面板没开 ⇒ 用户看到「点了没反应」',
     );
@@ -238,10 +240,10 @@ void main() {
       tester,
       shellKey: shellKey,
       width: 1000,
-      initialSection: SettingsSection.llm,
+      initialSection: SettingsSection.service,
     );
     expect(
-      find.text(paneTextOf(SettingsSection.llm)),
+      find.text(paneTextOf(SettingsSection.service)),
       findsNothing,
       reason: '前提：面板仍关着',
     );
@@ -249,7 +251,7 @@ void main() {
     await _tapErrorAction(tester);
 
     expect(
-      find.text(paneTextOf(SettingsSection.llm)),
+      find.text(paneTextOf(SettingsSection.service)),
       findsOneWidget,
       reason: '早退路径同样必须把面板打开——所以那一步必须写在 `_gotoSection` **之外**',
     );
@@ -282,7 +284,7 @@ void main() {
       RegExp(r'openSettings\s*\(').hasMatch(onGotoBody!),
       isTrue,
       reason: 'F-0001-1：换分区之后必须真的把设置面板打开，'
-          '否则面板关闭态（默认态）下点「去 LLM 设置」= 点了没反应。'
+          '否则面板关闭态（默认态）下点「去对话设置」= 点了没反应。'
           '类型 = 结构（main.dart 在 VM 下 import 不了），'
           '行为级那一半见本文件前三条。',
     );

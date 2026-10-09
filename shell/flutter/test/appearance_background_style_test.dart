@@ -1,6 +1,9 @@
-/// 背景域的**样式面**回归：四档铺法 + tileSize（§5.3 第 1 条）、
-/// 逐图样式覆盖（§5.3 第 2 条 / DEC-5 的 UI 侧）、
-/// 滑杆「停手才落盘」（交接项 9a）、批量删除按**身份**（F-0003-3）。
+/// 背景域的**样式面**回归。
+///
+/// 2026-10-07 外观卡片简化之后，四档铺法 / 平铺贴片 / 描边强度 / 逐图样式
+/// 都不再是用户旋钮（负向断言在本文件顶部那组），剩下的三条是**仍在产品里的
+/// 行为**：滑杆「停手才落盘」（交接项 9a）、批量删除按**身份**（F-0003-3），
+/// 以及已删控件的缺席断言。
 library;
 
 import 'package:flutter/material.dart';
@@ -13,6 +16,9 @@ import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/settings/sections/appearance_section.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
+
+import 'support/dart_library.dart';
+import 'support/source_scan.dart';
 
 const String _png =
     'data:image/png;base64,'
@@ -69,7 +75,7 @@ class _HostState extends State<_Host> {
           index: 0,
           current: widget.current,
           hydrating: false,
-          child: AppearanceSection(
+          child: ThemeSection(
             prefs: prefs,
             onPrefsChanged: (DisplayPrefs next) {
               setState(() => prefs = next);
@@ -81,15 +87,12 @@ class _HostState extends State<_Host> {
             onRemoveBackgrounds: widget.onRemoveMany,
             onReorderBackground: (int _, int _) {},
             onPreviewBackground: (int _) {},
-            onAddPattern: (int _) {},
           ),
         ),
       ),
     ),
   );
 }
-
-Finder _rich(String needle) => find.textContaining(needle, findRichText: true);
 
 /// 把测试视口拉高。
 ///
@@ -109,193 +112,29 @@ Finder _sliderOf(String label) => find.descendant(
 );
 
 void main() {
-  group('§5.3 第 1 条：四档铺法 + tileSize', () {
-    testWidgets('选到「平铺」→ 出现贴片滑杆，且值 = prefs.tileSize', (
-      WidgetTester tester,
-    ) async {
+  group('2026-10-07 外观收口：铺法 / 描边强度 / 逐图样式控件都不在界面上', () {
+    test('外观源码里没有「描边强度 / 铺法（图） / 平铺贴片」（注释不算）', () {
+      final String code = stripCommentsKeepStrings(
+        readLibrarySource('lib/settings/sections/appearance_section.dart'),
+      );
+      for (final String gone in <String>['描边强度', '铺法（图）', '平铺贴片']) {
+        expect(code, isNot(contains(gone)), reason: '$gone 已删除');
+      }
+    });
+
+    testWidgets('泵出来的树上也没有这些控件', (WidgetTester tester) async {
       _tall(tester);
+      final BackgroundItem item = _img('a', url: _png);
       final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[_img('a', url: _png)],
-        imageFit: DisplayPrefs.fitTile,
-        tileSize: 96,
+        backgrounds: <BackgroundItem>[item],
       );
       await tester.pumpWidget(
         _Host(initial: prefs, current: prefs.effectiveBackground),
       );
       await tester.pump();
-
-      expect(find.text('平铺贴片'), findsOneWidget);
-      expect(
-        tester.widget<Slider>(_sliderOf('平铺贴片')).value,
-        96.0,
-        reason: '滑杆一开始就要显示 prefs.tileSize，不能是别的默认值',
-      );
-      expect(find.byKey(kBackgroundAlignPadKey), findsNothing);
-    });
-
-    testWidgets('其余三档都不出现贴片滑杆', (WidgetTester tester) async {
-      for (final int fit in <int>[
-        DisplayPrefs.fitCover,
-        DisplayPrefs.fitContain,
-        DisplayPrefs.fitStretch,
-      ]) {
-        final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-          backgrounds: <BackgroundItem>[_img('a', url: _png)],
-          imageFit: fit,
-        );
-        await tester.pumpWidget(
-          _Host(initial: prefs, current: prefs.effectiveBackground),
-        );
-        await tester.pump();
-        expect(
-          find.text('平铺贴片'),
-          findsNothing,
-          reason:
-              '${DisplayPrefs.fitName(fit)} 档不该出现贴片滑杆（它只对 tile 有效）',
-        );
+      for (final String gone in <String>['描边强度', '铺法（图）', '平铺贴片']) {
+        expect(find.text(gone), findsNothing, reason: '$gone 不该在界面上');
       }
-    });
-
-    testWidgets('逐档点一遍：每档都真的能切过去（四档全可达）', (
-      WidgetTester tester,
-    ) async {
-      _tall(tester);
-      final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[_img('a', url: _png)],
-      );
-      final List<DisplayPrefs> seen = <DisplayPrefs>[];
-      await tester.pumpWidget(
-        _Host(
-          initial: prefs,
-          current: prefs.effectiveBackground,
-          onPrefs: seen.add,
-        ),
-      );
-      await tester.pump();
-      for (final MapEntry<int, String> e in const <int, String>{
-        DisplayPrefs.fitContain: '完整',
-        DisplayPrefs.fitStretch: '拉伸',
-        DisplayPrefs.fitTile: '平铺',
-        DisplayPrefs.fitCover: '铺满',
-      }.entries) {
-        await tester.tap(find.text(e.value));
-        await tester.pump();
-        expect(seen.last.imageFit, e.key, reason: '点这一档必须上报它自己的值');
-      }
-    });
-  });
-
-  group('§5.3 第 2 条 / DEC-5：逐图样式覆盖', () {
-    testWidgets('「跟随全局」是显式状态：设过 → 单独设置；清掉 → 回落全局', (
-      WidgetTester tester,
-    ) async {
-      _tall(tester);
-      final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[_img('a', url: _png)],
-        imageFit: DisplayPrefs.fitCover,
-        imageAlign: 4,
-      );
-      final List<DisplayPrefs> seen = <DisplayPrefs>[];
-      await tester.pumpWidget(
-        _Host(
-          initial: prefs,
-          current: prefs.effectiveBackground,
-          onPrefs: seen.add,
-        ),
-      );
-      await tester.pump();
-
-      // 打开这一行的「样式」折叠区。
-      await tester.tap(find.text('样式'));
-      await tester.pump();
-      expect(
-        _rich('铺法：跟随全局（cover）'),
-        findsOneWidget,
-        reason: '没设过就用**文字**说「跟随全局」，不是拿数字冒充',
-      );
-      expect(_rich('位置：跟随全局'), findsOneWidget);
-      expect(_rich('不透明度：跟随全局'), findsOneWidget);
-
-      // 「单独设置」→ 拿全局值写成一个显式覆盖。
-      await tester.tap(find.byKey(const ValueKey<String>('bg-style-set-fit')));
-      await tester.pump();
-      final BackgroundImage afterSet =
-          seen.last.backgrounds.single as BackgroundImage;
-      expect(afterSet.fit, DisplayPrefs.fitCover, reason: '显式覆盖 = 当前的全局值');
-      expect(afterSet.dataUrl, _png, reason: 'dataUrl 必须原样带走');
-      expect(
-        _rich('铺法：单独设置'),
-        findsOneWidget,
-        reason: '设过之后状态要变成「单独设置」',
-      );
-
-      // 全局改成拉伸：这一项**不受影响**（它有自己的值）。
-      expect(
-        DisplayPrefs.effectiveImageFit(afterSet, DisplayPrefs.fitStretch),
-        DisplayPrefs.fitCover,
-        reason: '设了逐图值之后全局改动不影响该项',
-      );
-
-      // 「改回跟随全局」→ fit 回到 null。
-      await tester.tap(find.byKey(const ValueKey<String>('bg-style-clear-fit')));
-      await tester.pump();
-      final BackgroundImage afterClear =
-          seen.last.backgrounds.single as BackgroundImage;
-      expect(afterClear.fit, isNull);
-      expect(afterClear.dataUrl, _png);
-      expect(
-        DisplayPrefs.effectiveImageFit(afterClear, DisplayPrefs.fitStretch),
-        DisplayPrefs.fitStretch,
-        reason: '清掉逐图值之后回落全局',
-      );
-      expect(_rich('铺法：跟随全局（cover）'), findsOneWidget);
-    });
-
-    testWidgets('清一项不影响另外两项（只清一项是逐图编辑器的硬要求）', (
-      WidgetTester tester,
-    ) async {
-      _tall(tester);
-      final BackgroundImage item = _img(
-        'a',
-        url: _png,
-        opacity: 0.33,
-        fit: DisplayPrefs.fitTile,
-        align: 8,
-      );
-      final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[item],
-      );
-      final List<DisplayPrefs> seen = <DisplayPrefs>[];
-      await tester.pumpWidget(
-        _Host(initial: prefs, current: item, onPrefs: seen.add),
-      );
-      await tester.pump();
-      await tester.tap(find.text('样式'));
-      await tester.pump();
-      expect(_rich('铺法：单独设置'), findsOneWidget);
-      expect(_rich('位置：单独设置'), findsOneWidget);
-      expect(_rich('不透明度：单独设置'), findsOneWidget);
-
-      await tester.tap(find.byKey(const ValueKey<String>('bg-style-clear-fit')));
-      await tester.pump();
-      final BackgroundImage next =
-          seen.last.backgrounds.single as BackgroundImage;
-      expect(next.fit, isNull, reason: '这一项被清掉了');
-      expect(next.opacity, 0.33, reason: '另外两项必须原样');
-      expect(next.align, 8, reason: '另外两项必须原样');
-    });
-
-    test('逐图值参与「哪一项算有背景」的判据（全局 0 但这一项覆盖 > 0 照画）', () {
-      final BackgroundImage item = _img('a', url: _png, opacity: 0.2);
-      final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[item],
-        backgroundOpacity: 0,
-      );
-      expect(
-        prefs.hasBackgroundAt(item),
-        isTrue,
-        reason: '全局 0 而这一项显式覆盖成 0.2 ⇒ 照画（用户明确指令优先）',
-      );
     });
   });
 
@@ -370,48 +209,39 @@ void main() {
       );
     });
 
-    testWidgets('本地偏好型滑杆都走同一条约定（不许漏一个）', (
+    testWidgets('仍在外观区的本地偏好型滑杆都走同一条约定（不许漏一个）', (
       WidgetTester tester,
     ) async {
       _tall(tester);
       final DisplayPrefs prefs = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[_img('a', url: _png)],
-        imageFit: DisplayPrefs.fitTile,
+        // 轮播间隔只在库 >= 2 项且 slideInterval > 0 时出现。
+        backgrounds: <BackgroundItem>[
+          _img('a', url: _png),
+          _img('b', url: _png2),
+        ],
         slideInterval: 30,
       );
       await tester.pumpWidget(
         _Host(initial: prefs, current: prefs.effectiveBackground),
       );
       await tester.pump();
-      // 外观区里这几个「本地偏好型」滑杆的落点都是 _updatePrefs
+      // 这几个「本地偏好型」滑杆的落点都是 _updatePrefs
       // （整份 jsonEncode + setItem + 下发渲染面），必须都包在提交层里。
       for (final String label in <String>[
-        '描边强度',
         '不透明度（图）',
         '透明程度（界面）',
-        '平铺贴片',
         '轮播间隔',
       ]) {
         final Finder field = find.ancestor(
           of: find.text(label),
           matching: find.byType(SliderField),
         );
-        expect(field, findsOneWidget, reason: '找不到滑杆');
+        expect(field, findsOneWidget, reason: '找不到滑杆 $label');
         expect(
           find.descendant(of: field, matching: find.byType(Slider)),
           findsOneWidget,
         );
       }
-      // 模糊折在「更多外观」里：展开之后同样要在。
-      await tester.tap(find.text('更多外观'));
-      await tester.pump();
-      expect(
-        find.ancestor(
-          of: find.text('模糊（图）'),
-          matching: find.byType(SliderField),
-        ),
-        findsOneWidget,
-      );
     });
   });
 

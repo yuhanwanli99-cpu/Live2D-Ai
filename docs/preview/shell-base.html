@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>皮套底座界面预览</title>
+<!--
+  评审用静态稿，不是正在跑的 /app/。
+  颜色抄自 shell/flutter/lib/design/tokens.dart 的四套 AppPalette。
+  文案对齐 2026-10-08 底座计划落地后的界面。
+  单文件、无外链。改完用浏览器直接打开即可。
+  改某一屏：找 <section data-screen="...">。改配色：改 :root 与 [data-theme]。
+-->
+<style>
+  :root {
+    --stage: #000000;
+    --surface: #11121b;
+    --alt: #1d1e2a;
+    --raised: #252634;
+    --ink: #ecedf7;
+    --muted: rgba(236, 237, 247, 0.74);
+    --faint: rgba(236, 237, 247, 0.68);
+    --line: rgba(236, 237, 247, 0.12);
+    --accent: #e8e8ec;
+    --on-accent: #17171a;
+    --danger: #ff6b6b;
+    --ok: #3dd68c;
+    --warn: #f5a524;
+    --radius: 12px;
+    --font: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  [data-theme="white"] {
+    --stage: #ffffff; --surface: #f7f5f3; --alt: #edece9; --raised: #e2e0de;
+    --ink: #242423; --muted: rgba(36, 36, 35, 0.74); --faint: rgba(36, 36, 35, 0.68);
+    --line: rgba(36, 36, 35, 0.10); --accent: #17171a; --on-accent: #f7f5f3;
+    --danger: #c0392b; --ok: #146b3e; --warn: #8a5a00;
+  }
+  [data-theme="blue"] {
+    --stage: #061223; --surface: #161e30; --alt: #212a3f; --raised: #28324b;
+    --ink: #e5ebf8; --muted: rgba(229, 235, 248, 0.74); --faint: rgba(229, 235, 248, 0.68);
+    --line: rgba(229, 235, 248, 0.12); --accent: #4d8dff; --on-accent: #061223;
+    --danger: #ff7b7b; --ok: #3dd68c; --warn: #f5c24c;
+  }
+  [data-theme="gray"] {
+    --stage: #1c1c1f; --surface: #282623; --alt: #353330; --raised: #3e3c38;
+    --ink: #eceae8; --muted: rgba(236, 234, 232, 0.74); --faint: rgba(236, 234, 232, 0.68);
+    --line: rgba(236, 234, 232, 0.12); --accent: #d8d8de; --on-accent: #1c1c1f;
+    --danger: #ff8080; --ok: #4fd79a; --warn: #f0ae3c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: var(--font);
+    background: var(--stage);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .app { min-height: 100%; display: flex; flex-direction: column; }
+  .top {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 600; margin-right: 8px; }
+  .note { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  .chip, .btn, .btn-quiet, .send {
+    border: 1px solid var(--line); background: var(--alt); color: var(--ink);
+    border-radius: 999px; padding: 4px 12px;
+  }
+  .chip[aria-pressed="true"], .nav button[aria-current="true"] {
+    background: var(--accent); color: var(--on-accent); border-color: transparent;
+  }
+  .layout { flex: 1; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 420px); min-height: 0; }
+  .stage {
+    background: var(--stage); display: flex; align-items: flex-end; justify-content: center;
+    padding: 16px; position: relative;
+  }
+  .stage-mark { color: var(--faint); font-size: 13px; position: absolute; top: 12px; left: 14px; }
+  .figure {
+    width: 180px; height: 280px; border: 1px solid var(--line); border-radius: 90px 90px 16px 16px;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 16px;
+    color: var(--faint); background: transparent;
+  }
+  .side {
+    background: var(--surface); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .nav { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .nav button { border: 0; background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; }
+  .pane { padding: 14px; overflow: auto; display: none; }
+  .pane.active { display: block; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .desc { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+  .card {
+    background: var(--raised); border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
+  }
+  .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .switch { width: 36px; height: 20px; border-radius: 999px; border: 0; background: var(--alt); position: relative; }
+  .switch[aria-pressed="true"] { background: var(--ok); }
+  .switch i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); display: block; }
+  .switch[aria-pressed="true"] i { left: 18px; }
+  label.field { display: block; margin: 8px 0; }
+  label.field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type="text"], input[type="number"], textarea {
+    width: 100%; background: var(--alt); border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+  }
+  .help { color: var(--faint); font-size: 12px; margin-top: 4px; }
+  .notice { background: var(--alt); border-radius: 8px; padding: 8px 10px; color: var(--muted); font-size: 13px; }
+  .msgs { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .bubble { max-width: 90%; padding: 8px 10px; border-radius: 10px; background: var(--alt); }
+  .bubble.user { align-self: flex-end; background: var(--raised); }
+  .composer { border-top: 1px solid var(--line); padding: 10px; display: flex; gap: 8px; align-items: flex-end; }
+  .composer textarea { min-height: 40px; resize: vertical; }
+  .send { border-radius: 50%; width: 40px; height: 40px; padding: 0; background: var(--accent); color: var(--on-accent); border: 0; }
+  .listen[data-on="1"] { background: var(--danger); color: #fff; border-color: transparent; }
+  .status { font-size: 12px; color: var(--warn); min-height: 1.2em; padding: 0 12px; }
+  .sheet {
+    display: none; position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    width: min(480px, calc(100% - 24px)); background: var(--raised); border-radius: 16px;
+    padding: 12px; box-shadow: none; border: 1px solid var(--line); z-index: 2;
+  }
+  .sheet.open { display: block; }
+  .session { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .session.current { font-weight: 600; }
+  .btn-quiet { background: transparent; }
+  .danger { color: var(--danger); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .dev-only { display: none; }
+  body.dev .dev-only { display: block; }
+  .counters { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .preset { display: flex; flex-wrap: wrap; gap: 6px; }
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+    .stage { min-height: 220px; }
+    .side { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body data-theme="black">
+<div class="app">
+  <header class="top">
+    <div class="brand">皮套</div>
+    <span class="note">静态预览。不是正在跑的服务。</span>
+    <div class="spacer"></div>
+    <button class="chip" data-theme-btn="black" aria-pressed="true">黑</button>
+    <button class="chip" data-theme-btn="white">白</button>
+    <button class="chip" data-theme-btn="blue">蓝</button>
+    <button class="chip" data-theme-btn="gray">灰</button>
+    <button class="chip" id="dev" aria-pressed="false">开发模式</button>
+  </header>
+  <div class="layout">
+    <div class="stage" id="stage">
+      <div class="stage-mark">舞台 · 纯色</div>
+      <div class="figure">皮套</div>
+    </div>
+    <aside class="side">
+      <nav class="nav" id="nav">
+        <button data-go="chat" aria-current="true">聊天</button>
+        <button data-go="persona">人设</button>
+        <button data-go="llm">对话</button>
+        <button data-go="tts">语音合成</button>
+        <button data-go="look">外观与互动</button>
+        <button data-go="mods">扩展</button>
+        <button data-go="diagnostics" class="dev-only">诊断</button>
+        <button data-go="developer">开发模式</button>
+      </nav>
+
+      <section class="pane active" data-screen="chat">
+        <div class="msgs" id="msgs">
+          <div class="bubble user">今天想出去走走。</div>
+          <div class="bubble">好啊。你想去哪边？</div>
+        </div>
+        <div class="status" id="listen-status"></div>
+        <div class="composer">
+          <button class="btn" id="sessions-open">会话</button>
+          <button class="btn listen" id="listen" data-on="0">听</button>
+          <textarea id="input" rows="2" placeholder="写一句，或点听"></textarea>
+          <button class="send" id="send" aria-label="发送">↑</button>
+        </div>
+      </section>
+
+      <section class="pane" data-screen="persona">
+        <h2>角色怎么说话</h2>
+        <p class="desc">这段话每轮都会先交给模型。</p>
+        <label class="field"><span>系统提示词</span>
+          <textarea rows="5">你是一个说话干脆的朋友。不要用颜文字。</textarea>
+          <div class="help">留空 = 没有额外人设。写得越具体，角色越按这段话说话</div>
+        </label>
+        <label class="field"><span>记住几轮对话</span>
+          <input type="number" value="8" min="0" max="200">
+          <div class="help">0 = 不记得刚才的对话。一轮 = 你一句、角色一句。每个会话分开记。</div>
+        </label>
+      </section>
+
+      <section class="pane" data-screen="llm">
+        <h2>对话模型</h2>
+        <p class="desc">对话用 DeepSeek。地址和密钥要换的话在这里改。</p>
+        <label class="field"><span>服务地址</span>
+          <input type="text" value="https://api.deepseek.com/v1">
+          <div class="help">尾部 / 可省略；请求固定发到 /chat/completions</div>
+        </label>
+        <label class="field"><span>模型名</span>
+          <input type="text" value="deepseek-flash">
+        </label>
+        <label class="field"><span>输出 token 上限</span>
+          <input type="number" value="4096">
+        </label>
+        <div class="card row"><span>思考</span><button class="switch" aria-pressed="false" data-switch><i></i></button></div>
+        <p class="help">默认关闭。打开后模型会先想再答</p>
+        <label class="field"><span>密钥</span>
+          <input type="text" placeholder="写进本机，界面不回显">
+        </label>
+      </section>
+
+      <section class="pane" data-screen="tts">
+        <h2>语音合成</h2>
+        <p class="desc">角色出声用的服务和音色。</p>
+        <label class="field"><span>服务地址</span><input type="text" value=""></label>
+        <label class="field"><span>音色</span><input type="text" value=""></label>
+        <p class="help">出声是默认的。要安静，用聊天栏的静音。</p>
+      </section>
+
+      <section class="pane" data-screen="look">
+        <h2>外观与互动</h2>
+        <p class="desc">配色在顶栏。舞台是纯色，没有内置图案。</p>
+        <div class="card">
+          <strong>背景</strong>
+          <p class="desc">放你自己的图；当前这一项同时铺在舞台和壳上，库里没有图时回到纯色。</p>
+          <button class="btn">添加一张图</button>
+        </div>
+        <label class="field"><span>音量</span><input type="text" value="80%" readonly></label>
+        <div class="card row"><span>静音</span><button class="switch" aria-pressed="false" data-switch><i></i></button></div>
+      </section>
+
+      <section class="pane" data-screen="mods">
+        <h2>扩展</h2>
+        <p class="desc">额外能力的开关</p>
+
+        <article class="card">
+          <div class="row"><strong>导演</strong><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          <p class="notice">打开后，说话时会带上表情和轻微的头、颈动作。</p>
+        </article>
+
+        <article class="card">
+          <div class="row"><strong>人设</strong><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          <p class="notice">打开后，用导入的角色卡说话。关掉会回到「人设」里写的提示词。</p>
+          <label class="field"><span>粘贴角色卡 JSON</span>
+            <textarea rows="3" placeholder="把 .json 卡整段粘到这里"></textarea>
+          </label>
+          <div class="actions">
+            <button class="btn">导入并生效</button>
+            <button class="btn">导入为全局人设</button>
+            <button class="btn">选择 PNG 角色卡文件</button>
+            <button class="btn-quiet">清除当前会话的卡</button>
+            <button class="btn-quiet">清除全局导入卡</button>
+          </div>
+          <p class="help">当前卡：「林夏」· 会话绑定（只对当前会话生效）</p>
+        </article>
+
+        <article class="card">
+          <div class="row"><strong>外部事件</strong><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          <p class="notice">打开后，直播间的弹幕和礼物会说给角色听。</p>
+          <label class="field"><span>端口（只作提示）</span>
+            <input type="number" value="18080">
+            <div class="help">服务实际听哪个端口不由这项决定</div>
+          </label>
+          <label class="field"><span>令牌</span>
+            <input type="text" placeholder="留空则只接受本机">
+            <div class="help">直播工具要带的口令。留空则只接受本机</div>
+          </label>
+          <label class="field"><span>弹幕怎么说给角色</span>
+            <input type="text" value="{text}">
+            <div class="help">{text} 会换成弹幕或礼物原文</div>
+          </label>
+          <label class="field"><span>每条前面加的字</span>
+            <input type="text" value="[弹幕] ">
+            <div class="help">加在每条前面</div>
+          </label>
+          <div class="dev-only">
+            <label class="field"><span>试一句弹幕</span><input type="text" id="probe" value="主播好"></label>
+            <div class="actions"><button class="btn" id="probe-send">发送这条测试</button></div>
+            <p class="help" id="probe-result"></p>
+            <div class="counters">
+              <span>已接受 2</span><span>已拒绝 0</span><span>忙碌拒绝 0</span><span>礼物 v2 兜底 0</span>
+            </div>
+            <div class="actions"><button class="btn-quiet">计数清零</button></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="row"><strong>语音输入</strong><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          <p class="notice">点聊天栏的「听」。说完再点一次，字会出现在输入框里。</p>
+          <div class="dev-only">
+            <label class="field"><span>唤醒词</span><input type="text" value="小可爱"></label>
+            <div class="card row"><span>按住说话</span><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="row"><strong>记忆</strong><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          <div class="card row"><span>聊天时用上这些记忆</span><button class="switch" aria-pressed="true" data-switch><i></i></button></div>
+          <p class="help">关掉后仍会记住，但不会塞进角色的提示词。</p>
+          <p class="notice" id="mem-error" hidden>读取记忆列表失败。可以再刷新。</p>
+          <ul id="mem-list">
+            <li>喜欢喝茶，不喜欢太甜。</li>
+            <li>周末通常在家。</li>
+          </ul>
+          <div class="actions">
+            <button class="btn" id="mem-refresh">刷新</button>
+            <button class="btn" id="mem-fail">模拟读取失败</button>
+          </div>
+          <div class="dev-only">
+            <label class="field"><span>每轮注入条数</span><input type="number" value="3"></label>
+            <label class="field"><span>条数上限</span><input type="number" value="200"></label>
+          </div>
+        </article>
+      </section>
+
+      <section class="pane" data-screen="diagnostics">
+        <h2>诊断</h2>
+        <p class="desc">连接和日志。只在开发模式打开后出现。</p>
+        <div class="card">连接：已连接</div>
+        <div class="card">日志只读。这里不写请求正文。</div>
+      </section>
+
+      <section class="pane" data-screen="developer">
+        <h2>开发模式</h2>
+        <p class="desc">开关在这一页。关掉之后诊断从导航消失，表情调试也收起。</p>
+        <div class="card row">
+          <span>开发模式</span>
+          <button class="switch" id="dev-page" aria-pressed="false"><i></i></button>
+        </div>
+        <div class="dev-only">
+          <div class="card">
+            <strong>表情调试</strong>
+            <div class="preset" style="margin-top:8px">
+              <button class="btn" data-face="微笑">微笑</button>
+              <button class="btn" data-face="不高兴">不高兴</button>
+              <button class="btn" data-face="惊讶">惊讶</button>
+              <button class="btn" data-face="思考">思考</button>
+              <button class="btn-quiet" data-face="">归零</button>
+            </div>
+            <p class="help" id="face-read">当前：无</p>
+          </div>
+          <div class="card">
+            <strong>动作调试</strong>
+            <div class="preset" style="margin-top:8px">
+              <button class="btn" data-motion="点头">点头</button>
+              <button class="btn" data-motion="摇头">摇头</button>
+              <button class="btn" data-motion="看左">看左</button>
+              <button class="btn" data-motion="看右">看右</button>
+            </div>
+            <p class="help" id="motion-read">当前：无</p>
+          </div>
+          <div class="card">
+            <strong>导演可观测</strong>
+            <p class="desc">决策参数、事件流、传参对照、送去合成的文本。只读，不落盘。</p>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="row">
+    <strong>会话</strong>
+    <button class="btn" id="session-new">新建</button>
+  </div>
+  <p class="desc">这些会话只是本机记录，不是模型记忆。</p>
+  <div id="session-list"></div>
+  <div class="actions"><button class="btn-quiet" id="sheet-close">关闭</button></div>
+</div>
+
+<script>
+(function () {
+  var body = document.body;
+  var sessions = [
+    { id: "a", title: "周末出门", current: true },
+    { id: "b", title: "晚间闲聊", current: false }
+  ];
+
+  function show(name) {
+    document.querySelectorAll(".pane").forEach(function (pane) {
+      pane.classList.toggle("active", pane.getAttribute("data-screen") === name);
+    });
+    document.querySelectorAll("#nav button").forEach(function (btn) {
+      btn.setAttribute("aria-current", btn.getAttribute("data-go") === name ? "true" : "false");
+    });
+  }
+
+  document.getElementById("nav").addEventListener("click", function (event) {
+    var btn = event.target.closest("button");
+    if (!btn) return;
+    show(btn.getAttribute("data-go"));
+  });
+
+  function setTheme(name) {
+    body.setAttribute("data-theme", name);
+    document.querySelectorAll("[data-theme-btn]").forEach(function (btn) {
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-theme-btn") === name ? "true" : "false");
+    });
+  }
+  document.querySelectorAll("[data-theme-btn]").forEach(function (btn) {
+    btn.addEventListener("click", function () { setTheme(btn.getAttribute("data-theme-btn")); });
+  });
+
+  function setDev(on) {
+    body.classList.toggle("dev", on);
+    document.getElementById("dev").setAttribute("aria-pressed", on ? "true" : "false");
+    document.getElementById("dev-page").setAttribute("aria-pressed", on ? "true" : "false");
+    if (!on && document.querySelector('.pane[data-screen="diagnostics"].active')) show("persona");
+  }
+  document.getElementById("dev").addEventListener("click", function () {
+    setDev(!body.classList.contains("dev"));
+  });
+  document.getElementById("dev-page").addEventListener("click", function () {
+    setDev(!body.classList.contains("dev"));
+  });
+
+  document.querySelectorAll("[data-switch]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      btn.setAttribute("aria-pressed", btn.getAttribute("aria-pressed") === "true" ? "false" : "true");
+    });
+  });
+
+  var listen = document.getElementById("listen");
+  var input = document.getElementById("input");
+  var listenStatus = document.getElementById("listen-status");
+  listen.addEventListener("click", function () {
+    if (listen.getAttribute("data-on") === "1") {
+      listen.setAttribute("data-on", "0");
+      listen.textContent = "听";
+      var spoken = "明天几点开会";
+      var prev = input.value.replace(/\s+$/, "");
+      input.value = prev ? prev + " " + spoken : spoken;
+      listenStatus.textContent = "";
+    } else {
+      listen.setAttribute("data-on", "1");
+      listen.textContent = "停";
+      listenStatus.textContent = "正在听，说完再点一次";
+    }
+  });
+
+  document.getElementById("send").addEventListener("click", function () {
+    var text = input.value.trim();
+    if (!text) return;
+    var box = document.getElementById("msgs");
+    var mine = document.createElement("div");
+    mine.className = "bubble user";
+    mine.textContent = text;
+    box.appendChild(mine);
+    input.value = "";
+    box.scrollTop = box.scrollHeight;
+  });
+
+  function renderSessions() {
+    var list = document.getElementById("session-list");
+    list.replaceChildren();
+    sessions.forEach(function (session) {
+      var row = document.createElement("div");
+      row.className = "session" + (session.current ? " current" : "");
+      var name = document.createElement("span");
+      name.textContent = session.title;
+      var del = document.createElement("button");
+      del.className = "btn-quiet danger";
+      del.textContent = "删除";
+      del.addEventListener("click", function () {
+        var wasCurrent = session.current;
+        sessions = sessions.filter(function (item) { return item.id !== session.id; });
+        if (wasCurrent && sessions.length) sessions[0].current = true;
+        renderSessions();
+      });
+      row.appendChild(name);
+      row.appendChild(del);
+      list.appendChild(row);
+    });
+    if (!sessions.length) {
+      var empty = document.createElement("p");
+      empty.className = "desc";
+      empty.textContent = "没有会话了。";
+      list.appendChild(empty);
+    }
+  }
+  document.getElementById("sessions-open").addEventListener("click", function () {
+    renderSessions();
+    document.getElementById("sheet").classList.add("open");
+  });
+  document.getElementById("sheet-close").addEventListener("click", function () {
+    document.getElementById("sheet").classList.remove("open");
+  });
+  document.getElementById("session-new").addEventListener("click", function () {
+    sessions.forEach(function (item) { item.current = false; });
+    sessions.unshift({ id: String(Date.now()), title: "新会话", current: true });
+    renderSessions();
+  });
+
+  document.getElementById("mem-fail").addEventListener("click", function () {
+    document.getElementById("mem-error").hidden = false;
+    document.getElementById("mem-list").replaceChildren();
+  });
+  document.getElementById("mem-refresh").addEventListener("click", function () {
+    document.getElementById("mem-error").hidden = true;
+    var list = document.getElementById("mem-list");
+    list.replaceChildren();
+    ["喜欢喝茶，不喜欢太甜。", "周末通常在家。"].forEach(function (text) {
+      var li = document.createElement("li");
+      li.textContent = text;
+      list.appendChild(li);
+    });
+  });
+
+  document.getElementById("probe-send").addEventListener("click", function () {
+    var text = document.getElementById("probe").value.trim() || "主播好";
+    document.getElementById("probe-result").textContent = "已交给角色：「[弹幕] " + text + "」";
+  });
+
+  document.querySelectorAll("[data-face]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var name = btn.getAttribute("data-face");
+      document.getElementById("face-read").textContent = name ? "当前：" + name : "当前：无";
+    });
+  });
+  document.querySelectorAll("[data-motion]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.getElementById("motion-read").textContent = "当前：" + btn.getAttribute("data-motion");
+    });
+  });
+})();
+</script>
+</body>
+</html>

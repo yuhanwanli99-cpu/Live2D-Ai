@@ -81,7 +81,7 @@ class _ChatDrivenShell extends StatefulWidget {
 }
 
 class _ChatDrivenShellState extends State<_ChatDrivenShell> {
-  SettingsSection section = SettingsSection.appearance;
+  SettingsSection section = SettingsSection.theme;
 
   /// 宿主状态代际：**只在宿主自己重建时**前进（与 `main.dart` 同形）。
   ///
@@ -247,7 +247,7 @@ void main() {
       sectionBuilder: (BuildContext context, SettingsSection s) =>
           Text('PANE:${s.label}'),
     );
-    expect(find.text('PANE:外观与互动'), findsOneWidget, reason: '折叠态也该在树里');
+    expect(find.text('PANE:主题'), findsOneWidget, reason: '折叠态也该在树里');
 
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
@@ -257,10 +257,10 @@ void main() {
       reason: '点了设置但侧板没展开',
     );
 
-    await tester.tap(find.widgetWithText(ChoiceChip, '语音合成'));
+    await tester.tap(find.widgetWithText(ChoiceChip, '模型服务'));
     await tester.pumpAndSettle();
     expect(
-      find.text('PANE:语音合成'),
+      find.text('PANE:模型服务'),
       findsOneWidget,
       reason: '切分区不生效 —— 缓存把面板冻在旧分区上了',
     );
@@ -282,7 +282,7 @@ void main() {
         loaded ? 'READY:${s.label}' : 'LOADING:${s.label}',
       ),
     );
-    expect(find.text('LOADING:外观与互动'), findsOneWidget);
+    expect(find.text('LOADING:主题'), findsOneWidget);
 
     // 模拟「设置数据回来了」（真实的 SettingsController 每次 notify 都走这里）。
     loaded = true;
@@ -290,7 +290,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('READY:外观与互动'),
+      find.text('READY:主题'),
       findsOneWidget,
       reason: '设置数据回来了，分区内容却没重建 —— 面板会永远停在「加载中」/旧值上',
     );

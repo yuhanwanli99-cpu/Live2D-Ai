@@ -84,7 +84,7 @@ class _BusyHostState extends State<_BusyHost> {
         actions: errorActionsFor(
           '发送未被受理（服务端忙碌）',
           code: 'busy',
-          onGoto: (SettingsSection _) {},
+          onGoto: (SettingsSection _, String? _) {},
           // 生产接线同形：一份组合回调（见 `main.dart`）。
           onInterruptAndResend: () =>
               unawaited(interruptAndResend(stop: _stop, resend: _resend)),
@@ -130,7 +130,7 @@ void main() {
       final List<ErrorAction> actions = errorActionsFor(
         '上游忙',
         code: 'busy',
-        onGoto: (SettingsSection _) {},
+        onGoto: (SettingsSection _, String? _) {},
         onInterruptAndResend: () => hits++,
         onResendLast: () {},
       );
@@ -144,7 +144,7 @@ void main() {
       int hits = 0;
       final List<ErrorAction> actions = errorActionsFor(
         '服务端忙碌（busy），请等本轮收口',
-        onGoto: (SettingsSection _) {},
+        onGoto: (SettingsSection _, String? _) {},
         onInterruptAndResend: () => hits++,
         onResendLast: () {},
       );
@@ -157,14 +157,14 @@ void main() {
       final List<ErrorAction> llm = errorActionsFor(
         null,
         code: 'llm_upstream_401',
-        onGoto: (SettingsSection _) {},
+        onGoto: (SettingsSection _, String? _) {},
         onInterruptAndResend: () {},
         onResendLast: () {},
       );
-      expect(llm.single.label, '去 LLM 设置');
+      expect(llm.single.label, '去对话设置');
       final List<ErrorAction> retry = errorActionsFor(
         '网络错误',
-        onGoto: (SettingsSection _) {},
+        onGoto: (SettingsSection _, String? _) {},
         onInterruptAndResend: () {},
         onResendLast: () {},
       );

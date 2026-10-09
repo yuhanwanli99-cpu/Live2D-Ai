@@ -22,6 +22,7 @@ use super::events::{send_event, send_terminal};
 use super::queue::{PushOutcome, push_job};
 use super::worker::{TtsJob, TtsWorkerCtx, WorkerExit, tts_worker};
 use crate::OpenAiClient;
+use crate::cleaning::SentenceCleaner;
 use crate::dialogue::{DialogueAssembler, DialogueEvent, SentenceAssembler};
 use crate::llm::{ChatMessage, LlmEvent};
 use crate::performance::PerformanceRuntime;
@@ -54,6 +55,18 @@ pub struct ConversationEngine {
     ///   `enabled()==false`——每轮走确定性回退（`clean_for_tts(原文)` + 规则 cue），
     ///   degraded 在状态面可见。
     pub(super) performance: Option<Arc<PerformanceRuntime>>,
+    /// **二路按句清洗**（2026-10-08）。
+    ///
+    /// - `None`（缺省）= 不跑二路：上屏与送 TTS 都是 `clean_for_tts(句)`
+    ///   （既有行为，逐字一致——所有既有测试与「手工装配」都走这条）；
+    /// - `Some` 且 `enabled()`：每句原文先交给二路拿 `{display, speech}`，
+    ///   `display` 上屏、`speech` 送 TTS（**两个不同的字符串，同一个
+    ///   sentence_seq**）。二路失败 / 超时 / 坏 JSON / `display` 不是原文切片
+    ///   → 这一句两份都用原文。
+    ///
+    /// 生产路径由 host 用 [SentenceCleaner::from_llm] 注入（`[llm]` 同一份
+    /// base_url / model / key）；这里只消费它，不再自己造客户端。
+    pub(super) cleaner: Option<Arc<SentenceCleaner>>,
 }
 
 impl ConversationEngine {
@@ -65,12 +78,21 @@ impl ConversationEngine {
             history: VecDeque::new(),
             system_prompt_override: None,
             performance: None,
+            cleaner: None,
         }
     }
 
     /// 注入表演层运行时（host 装配点；`None` = 关闸）。
     pub fn set_performance(&mut self, performance: Option<Arc<PerformanceRuntime>>) {
         self.performance = performance;
+    }
+
+    /// 注入二路按句清洗（host 装配点；`None` = 不跑二路）。
+    ///
+    /// 与 [Self::set_performance] 相互独立：清洗只作用在**流式主链**的每句文本上，
+    /// 表演层那份整段 JSON 仍按自己的路径走。
+    pub fn set_cleaner(&mut self, cleaner: Option<Arc<SentenceCleaner>>) {
+        self.cleaner = cleaner;
     }
 
     /// 表演层是否**可能**接管本轮（`Some` 即接管：含 enabled=false 的降级运行时）。
@@ -117,6 +139,26 @@ impl ConversationEngine {
     /// 清空历史。
     pub fn clear_history(&mut self) {
         self.history.clear();
+    }
+
+    /// 取走当前装入的历史，留下空桶。宿主按会话换桶时用。
+    pub fn take_history(&mut self) -> VecDeque<(String, String)> {
+        std::mem::take(&mut self.history)
+    }
+
+    /// 装入一份历史，并按当前 `max_history_pairs` 裁剪。
+    ///
+    /// `0` 表示永不保留：装入的内容直接丢掉，请求体里不会出现旧轮次。
+    pub fn replace_history(&mut self, mut history: VecDeque<(String, String)>) {
+        let cap = self.config.max_history_pairs;
+        if cap == 0 {
+            history.clear();
+        } else {
+            while history.len() > cap {
+                history.pop_front();
+            }
+        }
+        self.history = history;
     }
 
     /// 组装本轮消息：[system?] + 历史 + 当前输入。
@@ -194,6 +236,8 @@ impl ConversationEngine {
         let messages = self.build_messages(user_text);
         // 表演层运行时快照：`Some` = 本轮由表演层决定 speak/cues（收齐原文后再切句）。
         let performance = self.performance.clone();
+        // 二路清洗快照（`None` / disabled = 不跑二路，上屏与送 TTS 同源）。
+        let cleaner = self.cleaner.clone();
         let mut assembler = DialogueAssembler::new(self.config.sentence_max_chars);
         let mut assistant_text = String::new();
         let mut sentence_seq: u64 = 0;
@@ -316,25 +360,29 @@ impl ConversationEngine {
                 for dialogue in dialogues {
                     match dialogue {
                         DialogueEvent::SentenceReady { text } => {
-                            // **确定性清洗**（主链，2026-09-21）：切句之后、送 TTS 之前
-                            // 唯一一次清洗（纯函数 dialogue::clean_for_tts）。
-                            //
-                            // 策略**写死**（见 conversation/mod.rs 的 SentenceReady 契约）：
-                            // 送 TTS 的文本 = 上屏的文本 = 这一份清洗产物
-                            //（SentenceReady == TtsJob.text == SentenceVoiced.text）。
-                            // 回灌 LLM 的历史（commit_completed_turn）仍用**原文**，
-                            // 模型上下文不受清洗影响。
-                            let cleaned = crate::dialogue::clean_for_tts(&text);
-                            // 清洗后为空 = 整句都是动作描写 / Markdown 标记：没有可说的
-                            // 内容。**空串不得发给 TTS**——那会被上游回 400 input 为空，
-                            // 而 TTS 错误是 fatal，会把整轮判失败。它照常走既有的
-                            // **静音句**路径（worker 见 trim 为空即不发 HTTP，
-                            // 见 worker.rs；回归 whitespace_only_sentence_...），
-                            // 因此「空串」永远不会到达上游。
+                            // **一份原文、两份文本**（2026-10-08）：
+                            // - 上屏 = `display`（二路交回的原文切片；不跑二路时 =
+                            //   `clean_for_tts(句)`）；
+                            // - 送 TTS = `speech`（二路交回的可念文本；失败 / 不跑二路时
+                            //   与 display 同源）。
+                            // 两者共用**同一个 `sentence_seq`**——气泡与音频仍按一个号
+                            // 对齐。回灌 LLM 的历史（commit_completed_turn）始终用**原文**。
                             sentence_seq += 1;
+                            let Some((display, speech)) =
+                                sentence_texts(cleaner.as_ref(), &text, &cancel).await
+                            else {
+                                // 二路清洗期间被取消：安静收场（Cancelled）。
+                                cancelled = true;
+                                break 'llm;
+                            };
+                            // `speech` 为空 = 整句都是动作描写 / emoji：没有可说的内容。
+                            // **空串不得发给 TTS**——那会被上游回 400 input 为空，而 TTS
+                            // 错误是 fatal，会把整轮判失败。它照常走既有的**静音句**路径
+                            //（worker 见 trim 为空即不发 HTTP，见 worker.rs；
+                            // 回归 whitespace_only_sentence_...），因此空串永远到不了上游。
+                            //
                             // P1-2（2026-09-16）：**送 TTS 之前**的锚点——异步导演按
-                            // sentence_seq 对齐；它只能读这份清洗产物，不能改
-                            //（送 TTS 的是同一个字符串）。
+                            // sentence_seq 对齐；它只能读这份文本，不能改。
                             let delivered = send_event(
                                 &event_tx,
                                 &cancel,
@@ -342,7 +390,7 @@ impl ConversationEngine {
                                     epoch,
                                     ts_ms: now_ms(),
                                     sentence_seq,
-                                    text: cleaned.clone(),
+                                    text: display.clone(),
                                 },
                             )
                             .await;
@@ -356,7 +404,8 @@ impl ConversationEngine {
                                 self.config.queue_push_timeout,
                                 TtsJob {
                                     sentence_seq,
-                                    text: cleaned,
+                                    text: speech,
+                                    display,
                                 },
                             )
                             .await
@@ -487,7 +536,9 @@ impl ConversationEngine {
                         self.config.queue_push_timeout,
                         TtsJob {
                             sentence_seq,
-                            text: cleaned,
+                            text: cleaned.clone(),
+                            // 表演层路径（整段 JSON）不做二路清洗：上屏 == 送 TTS。
+                            display: cleaned,
                         },
                     )
                     .await
@@ -583,4 +634,33 @@ impl ConversationEngine {
             assistant_text,
         }
     }
+}
+
+/// 一句原文 → **两份文本**（`(display, speech)`）；`None` = 期间被取消。
+///
+/// 三条口径（2026-10-08，见 `crate::cleaning` 与 `conversation/mod.rs` 的契约）：
+/// 1. 不跑二路 / 二路 disabled → 上屏与送 TTS 都是 `clean_for_tts(原文)`
+///    （既有行为逐字不变）；
+/// 2. 二路可用 → 交给它；失败 / 超时 / 坏 JSON / `display` 不是原文切片由
+///    [SentenceCleaner::clean] 收敛成「两份都用原文」；
+/// 3. 清洗是**逐句、同步**的：这一句拿到结果之前不读下一条 token——不是延迟
+///    优化，而是「这一句的提交必须发生在下一句原文出现之前」的可观测顺序。
+async fn sentence_texts(
+    cleaner: Option<&Arc<SentenceCleaner>>,
+    raw: &str,
+    cancel: &CancellationToken,
+) -> Option<(String, String)> {
+    // 句首/句尾空白由分句器保证已 trim；`clean_for_tts` 仍做幂等兜底。
+    let legacy = || {
+        let cleaned = crate::dialogue::clean_for_tts(raw);
+        (cleaned.clone(), cleaned)
+    };
+    let Some(cleaner) = cleaner.filter(|c| c.enabled()) else {
+        return Some(legacy());
+    };
+    let cleaned = tokio::select! {
+        _ = cancel.cancelled() => return None,
+        cleaned = cleaner.clean(raw) => cleaned,
+    };
+    Some((cleaned.display, cleaned.speech))
 }

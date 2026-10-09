@@ -14,6 +14,12 @@
 /// `sameAs` 本身是对的——它的语义是「字节读回前后算同一项」（水合去重），
 /// 不是通用判等。本文件把两件事分开钉：
 ///
+/// 2026-10-07 外观卡片简化：逐图样式**不再有界面入口、也不再落盘**
+/// （`BackgroundImage.toJson` 只有 kind + id，`fromJson` 忽略三个样式键）。
+/// 但 `BackgroundImage.==` / `DisplayPrefs.==` 仍然看得见项上的样式字段
+/// ——那条聚合判据留在下面，接缝那组改成用**仍在的字段（轮播开关）**
+/// 驱动真 `AppearanceSection`，避免 F-0034-01 那道闸门的回归整段消失。
+///
 /// - **聚合层**：`DisplayPrefs.==` 必须看见逐图样式（F-0034-01）；
 /// - **sameAs 语义**：同 id 但样式不同仍算「同一项」——**有意为之**，
 ///   别再当通用判据用（F-0074-01）。
@@ -38,6 +44,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:live2d_ai_shell/design/background_item.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
 import 'package:live2d_ai_shell/settings/sections/appearance_section.dart';
+import 'package:live2d_ai_shell/ui/field_row.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// 1×1 真 PNG 的 dataURL（会真的过 `isRenderable` 与 `Image.memory`）。
@@ -99,7 +106,7 @@ class _GateHostState extends State<_GateHost> {
           index: 0,
           current: prefs.effectiveBackground,
           hydrating: false,
-          child: AppearanceSection(
+          child: ThemeSection(
             prefs: prefs,
             onPrefsChanged: _onChanged,
             onPickShellImage: () {},
@@ -107,7 +114,6 @@ class _GateHostState extends State<_GateHost> {
             onRemoveBackground: (int _) {},
             onReorderBackground: (int _, int _) {},
             onPreviewBackground: (int _) {},
-            onAddPattern: (int _) {},
           ),
         ),
       ),
@@ -228,76 +234,91 @@ void main() {
   });
 
   group('变更检测接缝（真泵 AppearanceSection + 与生产同形的闸门）', () {
-    testWidgets('只改一张图的铺法 → 偏好确实变化，且写成 JSON 再读回来仍在', (
+    testWidgets('改「轮播」开关 → 偏好确实变化，且写成 JSON 再读回来仍在', (
       WidgetTester tester,
     ) async {
       _tall(tester);
       final GlobalKey<_GateHostState> key = GlobalKey<_GateHostState>();
+      // 轮播开关只在库 >= 2 项时出现（2026-10-07 的产品口径）。
       final DisplayPrefs initial = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[_img('a', url: _png)],
-        imageFit: DisplayPrefs.fitCover,
+        backgrounds: <BackgroundItem>[
+          _img('a', url: _png),
+          _img('b', url: _png),
+        ],
       );
       await tester.pumpWidget(_GateHost(key: key, initial: initial));
       await tester.pump();
       expect(key.currentState!.saved, isEmpty, reason: '前提：还什么都没改');
 
-      // 逐图样式折叠区 → 「单独设置」铺法（只动这一项，不换图）。
-      await tester.tap(find.text('样式'));
+      final Finder toggle = find.descendant(
+        of: find.widgetWithText(ToggleField, '轮播'),
+        matching: find.byType(Switch),
+      );
+      expect(toggle, findsOneWidget, reason: '库有 2 项 ⇒ 必须有「轮播」开关');
+      await tester.ensureVisible(toggle);
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey<String>('bg-style-set-fit')));
+      await tester.tap(toggle);
       await tester.pump();
 
       expect(
         key.currentState!.saved,
         isNotEmpty,
         reason:
-            'F-0034-01 的现场：旧实现里 `next == prefs` 为真（sameAs 只看 id）'
-            '⇒ 这道闸直接 return，用户改了样式而界面 / 存储 / 渲染面一处都没动',
+            'F-0034-01 的现场：这道闸若把这次编辑判成「没变」就直接 return，'
+            '用户改了而界面 / 存储 / 渲染面一处都没动',
       );
 
-      // ① 偏好确实变了：这张图有了显式覆盖（= 点下去那一刻的全局值）。
+      // ① 偏好确实变了：轮播打开 = 30 秒间隔。
       final DisplayPrefs next = key.currentState!.saved.single;
-      final BackgroundImage item = next.backgrounds.single as BackgroundImage;
-      expect(item.fit, DisplayPrefs.fitCover);
-      expect(item.dataUrl, _png, reason: 'dataUrl 原样带走（只改样式，不换图）');
+      expect(next.slideInterval, 30);
 
-      // ② 持久化：写进 JSON 再读回来，样式还在（这就是「刷新还原」的反面）。
+      // ② 持久化：写进 JSON 再读回来，值还在（这就是「刷新还原」的反面）。
       final DisplayPrefs round = DisplayPrefs.fromJson(next.toJson());
-      expect(
-        (round.backgrounds.single as BackgroundImage).fit,
-        DisplayPrefs.fitCover,
-      );
+      expect(round.slideInterval, 30);
       expect(round, next, reason: '往返之后仍然是「同一份偏好」');
     });
 
-    testWidgets('再改回去（清掉逐图值）同样算「变了」，不是第二次被吞', (WidgetTester tester) async {
+    testWidgets('库只有 1 项时没有「轮播」开关（控件跟着库大小走）', (
+      WidgetTester tester,
+    ) async {
       _tall(tester);
-      final GlobalKey<_GateHostState> key = GlobalKey<_GateHostState>();
       final DisplayPrefs initial = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[
-          _img('a', url: _png, fit: DisplayPrefs.fitContain),
-        ],
-        imageFit: DisplayPrefs.fitCover,
+        backgrounds: <BackgroundItem>[_img('a', url: _png)],
       );
-      await tester.pumpWidget(_GateHost(key: key, initial: initial));
+      await tester.pumpWidget(
+        _GateHost(key: GlobalKey<_GateHostState>(), initial: initial),
+      );
       await tester.pump();
+      expect(find.widgetWithText(ToggleField, '轮播'), findsNothing);
+    });
+  });
 
-      await tester.tap(find.text('样式'));
-      await tester.pump();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('bg-style-clear-fit')),
+  group('逐图样式覆盖不再落盘（2026-10-07 外观收口）', () {
+    test('BackgroundImage.toJson 只有 kind + id（dataUrl / 样式都不写）', () {
+      final BackgroundImage styled = _img(
+        'a',
+        url: _png,
+        opacity: 0.3,
+        fit: DisplayPrefs.fitTile,
+        align: 8,
       );
-      await tester.pump();
+      expect(styled.toJson().keys.toSet(), <String>{'kind', 'id'});
+      expect(styled.toJson().containsKey('dataUrl'), isFalse);
+    });
 
-      expect(key.currentState!.saved, hasLength(1));
-      final BackgroundImage item =
-          key.currentState!.saved.single.backgrounds.single as BackgroundImage;
-      expect(item.fit, isNull, reason: '清掉逐图值 = 回落全局');
-      expect(item.dataUrl, _png);
-      expect(
-        DisplayPrefs.effectiveImageFit(item, DisplayPrefs.fitCover),
-        DisplayPrefs.fitCover,
-      );
+    test('fromJson 忽略 opacity / fit / align（旧的逐图键不再有字段可接）', () {
+      final BackgroundImage? back = BackgroundImage.fromJson(<Object?, Object?>{
+        'kind': 'image',
+        'id': 'a',
+        'opacity': 0.3,
+        'fit': DisplayPrefs.fitTile,
+        'align': 8,
+      });
+      expect(back, isNotNull);
+      expect(back!.opacity, isNull);
+      expect(back.fit, isNull);
+      expect(back.align, isNull);
+      expect(back.id, 'a');
     });
   });
 }

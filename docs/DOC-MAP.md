@@ -8,18 +8,20 @@
 
 | 我想知道 | 看这份 | 备注 |
 |---|---|---|
-| 项目定位 / 分层 / 红线 / 门禁 | `AGENTS.md`（**-fe 版**） | ⚠ 有两份，旧份在 `-Ai` worktree（说「动作系统已拆除」），**不要用** |
+| 项目定位 / 分层 / 红线 / 门禁 | `AGENTS.md`（仓库根，唯一真源） | 工作树只有 `/home/skystar/Live2D-Ai` |
 | 核心契约 / 目录约定 | `docs/architecture/core-contracts.md`、`directory.md` | |
 | 主链逐环与出处 | `docs/architecture/core-chain-baseline.md` | |
 | 表演协议 v1（动作 / cue / preset） | `docs/architecture/performance-protocol-v1.md` | 唯一真源 |
+| AI-Vtuber 对照（导演层讨论） | `docs/research/调研结果-AI-Vtuber对照-2026-10-07.md` | 2026-10-07；只借鉴行为，不复制 GPL 源码 |
+| 导演层同类对照（N.E.K.O. + 12 项目） | `docs/research/调研结果-导演层同类对照-2026-10-07.md` | 2026-10-07；N.E.K.O. 快照 `a3c82b5a`；判据/证据纪律见文内 |
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |
 | 语音转写 | `docs/voice-input.md` | |
 | Mod 产品链路 / 许可 | `docs/architecture/mod-product-chain.md`、`mod-community-license.md` | |
 | 已**删除** Mod（local-llm / wallpaper / pet-desktop） | `docs/architecture/ARCHIVED-mods.md` | §1.4/§2.4/§3.1 删除记录（W2-A，2026-10-01）；**禁止挂回** |
 | TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |
-| 逐版发布说明 | **`docs/releases/v0.2.0.md`（当前）**、`docs/releases/v0.2.0-rc.N.md`（历史） | 版本四处以源码为准 |
-| **当前执行计划（现在 + 未来）** | `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md` | 本文同级 |
+| 逐版发布说明 | **`docs/releases/v0.2.2.md`（当前）**、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
+| **当前执行计划** | `docs/plans/TASKS-2026-10-07.md` | 去臃肿计划已做完（本文同级） |
 | **D1 休眠资产裁决 + 红线修订（W2）** | `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md` | 删/移边界、5 处主链触点、**红线修订 1/2**；`W2-A` = `d140604f`、`W2-B` = `03765bd3`（**两段均已执行**，见下 §3「结构性变更」） |
 | **0.2.0 阶段报告（欠账 / 事故 / 口径更正）** | `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md` | 与发布说明互指；**已入库**（`e8da68c0`，与发布说明同一次提交） |
 | 接手快照 | `docs/plans/HANDOFF-2026-09-28-rc7-and-whole-repo-audit.md` | |

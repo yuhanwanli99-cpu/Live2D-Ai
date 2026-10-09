@@ -84,6 +84,8 @@ mod tests {
             model: "qwen2.5:7b".to_string(),
             api_key: Some(ApiSecret::new(SECRET)),
             max_tokens: 0,
+            thinking: false,
+            clean_tts: false,
         };
         let dbg = format!("{cfg:?}");
         assert!(dbg.contains("ApiSecret(REDACTED)"), "got: {dbg}");

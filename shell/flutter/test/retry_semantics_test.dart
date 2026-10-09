@@ -63,7 +63,7 @@ class _PillHost extends StatelessWidget {
     onVolumeChanged: (_) {},
     onMutedChanged: (_) {},
     sections: visibleSections(),
-    section: SettingsSection.appearance,
+    section: SettingsSection.theme,
     onSectionChanged: (_) {},
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         const SizedBox.shrink(),
@@ -95,11 +95,8 @@ Future<void> _pumpPill(
   await tester.pump();
 }
 
-ChatMessage _failedBubble() => ChatMessage(
-  role: ChatRole.assistant,
-  text: '（生成失败）',
-  failed: true,
-);
+ChatMessage _failedBubble() =>
+    ChatMessage(role: ChatRole.assistant, text: '（生成失败）', failed: true);
 
 Future<void> _pumpBubble(WidgetTester tester, {VoidCallback? onRetry}) async {
   await tester.pumpWidget(
@@ -113,10 +110,25 @@ Future<void> _pumpBubble(WidgetTester tester, {VoidCallback? onRetry}) async {
   await tester.pump();
 }
 
-/// `anchor` 之后同一行的文本（判「这条接线接的是哪条路」，不比对整段字面量）。
+/// `anchor` 起到这条实参结束（配平后的逗号）为止。
+///
+/// 判「这条接线接的是哪条路」，不比对整段字面量。`dart format` 会把
+/// 三元表达式折行，所以不能只看锚点那一行。
 String _argLine(String src, String anchor) {
   final int at = src.indexOf(anchor);
   expect(at, greaterThanOrEqualTo(0), reason: '找不到 `$anchor` 接线');
+  var depth = 0;
+  for (var i = at; i < src.length; i++) {
+    final String c = src[i];
+    if (c == '(' || c == '[' || c == '{') {
+      depth++;
+    } else if (c == ')' || c == ']' || c == '}') {
+      if (depth == 0) break;
+      depth--;
+    } else if (c == ',' && depth == 0) {
+      return src.substring(at, i);
+    }
+  }
   final int end = src.indexOf('\n', at);
   return src.substring(at, end < 0 ? src.length : end);
 }
@@ -126,11 +138,7 @@ void main() {
     testWidgets('有 error 但没有上一条可重发 → 胶囊不可点', (WidgetTester tester) async {
       await _pumpPill(tester, error: '网络错误', onRetryLast: null);
       final StatePill pill = tester.widget<StatePill>(find.byType(StatePill));
-      expect(
-        pill.onTap,
-        isNull,
-        reason: '组合根没有可重发对象时给的就是 null ⇒ 胶囊这一层必须不可点',
-      );
+      expect(pill.onTap, isNull, reason: '组合根没有可重发对象时给的就是 null ⇒ 胶囊这一层必须不可点');
       expect(
         find.descendant(
           of: find.byType(StatePill),
@@ -161,11 +169,7 @@ void main() {
   group('失败气泡：「重试」只在真的有事可做时才出现', () {
     testWidgets('onRetry == null → 按钮不出现', (WidgetTester tester) async {
       await _pumpBubble(tester, onRetry: null);
-      expect(
-        find.text('重试'),
-        findsNothing,
-        reason: '没有上一条可重发 ⇒ 不摆一颗按下去没反应的按钮',
-      );
+      expect(find.text('重试'), findsNothing, reason: '没有上一条可重发 ⇒ 不摆一颗按下去没反应的按钮');
     });
 
     testWidgets('onRetry 非空 → 按钮出现且点了真的调到', (WidgetTester tester) async {
@@ -185,7 +189,11 @@ void main() {
       );
       final String line = _argLine(code, 'onRetryLast:');
       expect(line, contains('lastUserMessageText'), reason: '判据 = 有没有上一条');
-      expect(line, contains('_resendLastUserMessage'), reason: '重试 = 重发上一条用户消息');
+      expect(
+        line,
+        contains('_resendLastUserMessage'),
+        reason: '重试 = 重发上一条用户消息',
+      );
       expect(line, contains('? null'), reason: '不可重发 ⇒ 传 null（按钮/点按都不出现）');
       expect(
         line,

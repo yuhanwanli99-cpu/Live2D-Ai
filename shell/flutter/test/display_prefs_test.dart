@@ -7,6 +7,7 @@ import 'package:live2d_ai_shell/design/theme_id.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
 
 import 'support/dart_library.dart';
+import 'support/source_scan.dart';
 
 /// 外观分区的源码 = 主文件 + 它的 part。
 ///
@@ -323,60 +324,136 @@ void _p4NewFieldsTests() {
     });
   });
 
-  group('舞台背景图（2026-09-11：用户自定义展台图，与纯色底叠放）', () {
+  group('舞台投影：舞台图 = 背景库当前项经 stageProjectionUrl 投影（2026-10-07 收成一张）', () {
     const String tiny = 'data:image/png;base64,iVBORw0KGgo=';
+    final String oversized = 'data:image/png;base64,${'A' * kStageImageMaxChars}';
 
-    test('默认没有背景图（默认是纯色舞台）', () {
-      expect(const DisplayPrefs().stageImage, isNull);
+    test('默认没有背景（默认是纯色舞台，投影是 null）', () {
+      const DisplayPrefs p = DisplayPrefs();
+      expect(p.backgrounds, isEmpty);
+      expect(DisplayPrefs.stageProjectionUrl(p, 0), isNull);
     });
 
-    test('写进 JSON 再读回来', () {
-      final DisplayPrefs p = const DisplayPrefs().copyWith(stageImage: tiny);
-      expect(DisplayPrefs.fromJson(p.toJson()).stageImage, tiny);
+    test('空库 + 合法 stageImage data URL → 收成库的第一项，投影就是它', () {
+      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
+        'stageImage': tiny,
+      });
+      expect(p.backgrounds, hasLength(1));
+      expect(DisplayPrefs.stageProjectionUrl(p, 0), tiny);
     });
 
-    test('clearStageImage 是**独立**开关：不用它就无法把图设回 null', () {
-      final DisplayPrefs withImage = const DisplayPrefs().copyWith(
-        stageImage: tiny,
-      );
-      // 只传 `stageImage: null` 应该**什么都不改**（否则「不改」与「清除」
-      // 会被同一个缺省值混成同一件事）。
-      expect(withImage.copyWith(stageImage: null).stageImage, tiny);
-      expect(withImage.copyWith(clearStageImage: true).stageImage, isNull);
+    test('库已有一项时，JSON 里的 stageImage 不插入', () {
+      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
+        'backgrounds': <Object?>[
+          <String, Object?>{'kind': 'image', 'dataUrl': tiny},
+        ],
+        'stageImage': 'data:image/png;base64,OTHER',
+      });
+      expect(p.backgrounds, hasLength(1));
+      expect(DisplayPrefs.stageProjectionUrl(p, 0), tiny);
     });
 
-    test('换主题不会顺手清掉背景图（两个字段正交）', () {
-      final DisplayPrefs p = const DisplayPrefs().copyWith(stageImage: tiny);
-      expect(p.copyWith(theme: AppThemeId.blue).stageImage, tiny);
-    });
-
-    test('超限的图**读不进来**（写不进去的存储不该在读取时装作有）', () {
-      final Map<String, Object?> json = const DisplayPrefs().toJson()
-        ..['stageImage'] = 'x' * (kStageImageMaxChars + 1);
-      expect(DisplayPrefs.fromJson(json).stageImage, isNull);
-    });
-
-    test('刚好等于上限的图**读得进来**（边界是闭区间）', () {
-      final String atLimit = 'x' * kStageImageMaxChars;
-      final Map<String, Object?> json = const DisplayPrefs().toJson()
-        ..['stageImage'] = atLimit;
-      expect(DisplayPrefs.fromJson(json).stageImage, atLimit);
-    });
-
-    test('坏值（数字 / 空串 / null）→ 没有背景图，不抛', () {
-      for (final Object? bad in <Object?>[3, '', null, <String>[], true]) {
-        final Map<String, Object?> json = const DisplayPrefs().toJson()
-          ..['stageImage'] = bad;
-        expect(DisplayPrefs.fromJson(json).stageImage, isNull);
+    test('超限 / 空串 / 非 data URL 的 stageImage 都不进库（不抛）', () {
+      for (final Object? bad in <Object?>[
+        oversized,
+        '',
+        null,
+        3,
+        <String>[],
+        true,
+        'not a data url',
+      ]) {
+        expect(
+          DisplayPrefs.fromJson(<String, Object?>{'stageImage': bad}).backgrounds,
+          isEmpty,
+          reason: '$bad 不该被收成库项',
+        );
       }
     });
 
-    test('背景图参与 == / hashCode（否则换图不会下发到渲染面）', () {
-      const DisplayPrefs none = DisplayPrefs();
-      final DisplayPrefs withImage = none.copyWith(stageImage: tiny);
-      expect(withImage == none, isFalse);
-      expect(withImage.hashCode == none.hashCode, isFalse);
-      expect(withImage.copyWith(clearStageImage: true) == none, isTrue);
+    test('投影判据：合法 → 该 URL；关背景 / 空库 / 图案 / 无字节 / 非 data URL / 超限 → null', () {
+      const String ok = 'data:image/png;base64,AAA';
+      final DisplayPrefs okPrefs = const DisplayPrefs().copyWith(
+        backgrounds: <BackgroundItem>[
+          const BackgroundImage(id: 'a', dataUrl: ok),
+        ],
+      );
+      expect(DisplayPrefs.stageProjectionUrl(okPrefs, 0), ok);
+
+      expect(
+        DisplayPrefs.stageProjectionUrl(
+          okPrefs.copyWith(backgroundEnabled: false),
+          0,
+        ),
+        isNull,
+        reason: '关掉背景开关，舞台就该回到纯色',
+      );
+      expect(DisplayPrefs.stageProjectionUrl(const DisplayPrefs(), 0), isNull);
+      expect(
+        DisplayPrefs.stageProjectionUrl(
+          const DisplayPrefs().copyWith(
+            backgrounds: <BackgroundItem>[
+              const BackgroundPattern(BackgroundPatternId.grid),
+            ],
+          ),
+          0,
+        ),
+        isNull,
+        reason: '图案不进舞台（舞台是渲染面的一帧图，画不出 Flutter 图案）',
+      );
+      expect(
+        DisplayPrefs.stageProjectionUrl(
+          const DisplayPrefs().copyWith(
+            backgrounds: <BackgroundItem>[const BackgroundImage(id: 'a')],
+          ),
+          0,
+        ),
+        isNull,
+        reason: '字节还没读回来 → 没有 URL 可投影',
+      );
+      expect(
+        DisplayPrefs.stageProjectionUrl(
+          const DisplayPrefs().copyWith(
+            backgrounds: <BackgroundItem>[
+              const BackgroundImage(id: 'bad', dataUrl: 'x'),
+            ],
+          ),
+          0,
+        ),
+        isNull,
+      );
+      expect(
+        DisplayPrefs.stageProjectionUrl(
+          const DisplayPrefs().copyWith(
+            backgrounds: <BackgroundItem>[
+              BackgroundImage(id: 'big', dataUrl: oversized),
+            ],
+          ),
+          0,
+        ),
+        isNull,
+        reason: '壳画得出来，但塞不进舞台一帧（超 kStageImageMaxChars）',
+      );
+    });
+
+    test('索引越界夹到端点（不抛）', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(
+        backgrounds: <BackgroundItem>[
+          const BackgroundImage(id: 'a', dataUrl: 'data:image/png;base64,AAA'),
+          const BackgroundImage(id: 'b', dataUrl: 'data:image/png;base64,BBB'),
+        ],
+      );
+      expect(DisplayPrefs.stageProjectionUrl(p, -3), 'data:image/png;base64,AAA');
+      expect(DisplayPrefs.stageProjectionUrl(p, 99), 'data:image/png;base64,BBB');
+    });
+
+    test('换主题不会顺手清掉背景（两个字段正交）', () {
+      final DisplayPrefs p = const DisplayPrefs().copyWith(
+        backgrounds: <BackgroundItem>[
+          const BackgroundImage(id: 'a', dataUrl: tiny),
+        ],
+      );
+      expect(p.copyWith(theme: AppThemeId.blue).backgrounds, hasLength(1));
     });
   });
 
@@ -393,8 +470,9 @@ void _p4NewFieldsTests() {
   // 这条测试直接扫源码，钉死滑杆不许再写字面量。
   // ───────────────────────────────────────────────────────────────────────────
   group('P0-3：滑杆区间与 clamp 共用同一组常量', () {
-    test('appearance_section 的滑杆不写字面量区间', () {
-      final String src = readLibrarySource('lib/settings/sections/appearance_section.dart');
+    test('motion_section 的滑杆不写字面量区间', () {
+      // 2026-10-09：舞台与口型的滑杆从「外观与互动」搬到「Live2D 动作」页。
+      final String src = readLibrarySource('lib/settings/sections/motion_section.dart');
       // ⚠️ 字面量里的 `.` **必须转义**：不转的话 `3.0` 会匹配 `300`
       //（`.` 是通配符），这条守卫就会在「合法地写了 300」时误报。
       for (final String literal in <String>['0.5', '2.0', '0.2', '3.0']) {
@@ -408,7 +486,7 @@ void _p4NewFieldsTests() {
     });
 
     test('滑杆确实读了那四个常量（防「删掉字面量但也没接上」）', () {
-      final String src = readLibrarySource('lib/settings/sections/appearance_section.dart');
+      final String src = readLibrarySource('lib/settings/sections/motion_section.dart');
       for (final String name in <String>[
         'DisplayPrefs.minScale',
         'DisplayPrefs.maxScale',
@@ -438,32 +516,28 @@ void _p4NewFieldsTests() {
       );
     });
 
-    test('描边强度：默认 1.0，越界夹到区间', () {
-      const DisplayPrefs p = DisplayPrefs();
-      expect(p.edgeStrength, DisplayPrefs.defaultEdgeStrength);
-      expect(p.edgeStrength, 1.0);
-      expect(DisplayPrefs.clampEdgeStrength(double.nan), 1.0);
-      expect(DisplayPrefs.clampEdgeStrength(0), DisplayPrefs.minEdgeStrength);
-      expect(DisplayPrefs.clampEdgeStrength(99), DisplayPrefs.maxEdgeStrength);
-    });
-
-    test('描边强度写进 JSON 再读回来，且参与 ==', () {
-      final DisplayPrefs p = const DisplayPrefs().copyWith(edgeStrength: 1.3);
+    test('描边强度不再是偏好：整个偏好面都不许再出现这个字段', () {
       expect(
-        DisplayPrefs.fromJson(p.toJson()).edgeStrength,
-        closeTo(1.3, 1e-9),
+        const DisplayPrefs().toJson().containsKey('edgeStrength'),
+        isFalse,
       );
-      expect(p, isNot(const DisplayPrefs()));
+      // 库 + 它的全部 part（注释先剥掉：codec 头注里那句「旧键 …」是在
+      // 记录死因，不是字段复活）。
+      expect(
+        stripCommentsAndStrings(
+          readLibrarySource('lib/settings/display_prefs.dart'),
+        ),
+        isNot(contains('edgeStrength')),
+      );
     });
 
-    test('外观分区读的是同一组常量（不写死区间）', () {
-      final String src = appearanceSectionSource();
-      for (final String name in <String>[
-        'DisplayPrefs.minEdgeStrength',
-        'DisplayPrefs.maxEdgeStrength',
-      ]) {
-        expect(src.contains(name), isTrue, reason: '滑杆没有读 $name');
-      }
+    test('外观源码里没有「描边强度」这个控件（旋钮已删，不许加回来）', () {
+      final String code = stripCommentsKeepStrings(appearanceSectionSource());
+      expect(
+        code,
+        isNot(contains('描边强度')),
+        reason: '发丝线固定 0.12 / 0.10，不再有用户旋钮',
+      );
     });
   });
 
@@ -475,30 +549,50 @@ void _p4NewFieldsTests() {
       const DisplayPrefs p = DisplayPrefs();
       expect(p.backgrounds, isEmpty);
       expect(p.hasBackground, isFalse);
-      expect(p.backgroundSource, DisplayPrefs.backgroundSourceLibrary);
       expect(p.backgroundOpacity, DisplayPrefs.defaultBackgroundOpacity);
       // 默认 1.0：用户亲手挑的图就该是看到的图（0.15 是 rc.5 装饰底纹的遗留值）。
       expect(p.backgroundOpacity, 1.0);
-      expect(p.backgroundBlur, 0.0);
-      expect(p.backgroundScrim, DisplayPrefs.defaultBackgroundScrim);
-      expect(p.imageFit, DisplayPrefs.defaultImageFit);
-      expect(p.imageAlign, DisplayPrefs.defaultImageAlign);
+      expect(p.backgroundEnabled, isTrue);
+      expect(p.slideInterval, 0);
       expect(p.slideRandom, isFalse);
+      // 空库 ⇒ 舞台没有可投影的东西。
+      expect(DisplayPrefs.stageProjectionUrl(p, 0), isNull);
     });
 
     test('写入再读回，**顺序**必须原样保留（轮播按序）', () {
       final DisplayPrefs p = const DisplayPrefs().copyWith(
         backgrounds: <BackgroundItem>[
           BackgroundImage(id: 'tiny', dataUrl: tiny),
-          BackgroundPattern(BackgroundPatternId.grid),
+          BackgroundImage(id: 'mid', dataUrl: tiny),
           BackgroundImage(id: 'big', dataUrl: big),
         ],
       );
       final DisplayPrefs back = DisplayPrefs.fromJson(p.toJson());
       expect(back.backgrounds.length, 3);
       expect(back.backgrounds[0], const BackgroundImage(id: 'tiny', dataUrl: tiny));
-      expect(back.backgrounds[1].kind, 'pattern');
+      expect(back.backgrounds[1], const BackgroundImage(id: 'mid', dataUrl: tiny));
       expect(back.backgrounds[2], BackgroundImage(id: 'big', dataUrl: big));
+    });
+
+    test('内置图案读回即丢，且**不写回**（壳与舞台不再画它们）', () {
+      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
+        'backgrounds': <Object?>[
+          <String, Object?>{
+            'kind': 'pattern',
+            'id': BackgroundPatternId.gradient,
+          },
+          <String, Object?>{'kind': 'image', 'dataUrl': tiny},
+          <String, Object?>{'kind': 'pattern', 'id': BackgroundPatternId.grid},
+        ],
+      });
+      expect(p.backgrounds.length, 1, reason: '图案项不该读进背景库');
+      expect(p.backgrounds.single, isA<BackgroundImage>());
+      final String dumped = jsonEncode(p.toJson());
+      expect(
+        dumped.contains('pattern'),
+        isFalse,
+        reason: '丢掉之后又被写回 = 下次启动还得再丢一次',
+      );
     });
 
     test('旧存档的 shellImage（单张）迁移成一项', () {
@@ -515,22 +609,18 @@ void _p4NewFieldsTests() {
       expect(p.toJson().containsKey('shellImage'), isFalse);
     });
 
-    test('坏项被丢弃且**不抛**（非 map / 未知 kind / 图案 id 非法）', () {
+    test('坏项被丢弃且**不抛**（非 map / 未知 kind / 图案项整体丢）', () {
       final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
         'backgrounds': <Object?>[
           'not a map',
           <String, Object?>{'kind': 'nope'},
           <String, Object?>{'kind': 'image'}, // 缺 dataUrl
           <String, Object?>{'kind': 'image', 'dataUrl': 42},
-          <String, Object?>{'kind': 'pattern', 'id': 999},
+          <String, Object?>{'kind': 'pattern', 'id': 999}, // 图案 id 非法
           <String, Object?>{'kind': 'pattern', 'id': BackgroundPatternId.glow},
         ],
       });
-      expect(p.backgrounds.length, 1);
-      expect(
-        p.backgrounds.first,
-        const BackgroundPattern(BackgroundPatternId.glow),
-      );
+      expect(p.backgrounds, isEmpty);
     });
 
     test('清单里只有 id 也读得回来（字节在 IndexedDB，不在偏好里）', () {
@@ -541,10 +631,7 @@ void _p4NewFieldsTests() {
           <String, Object?>{'kind': 'image', 'id': 'bg0000001'},
           <String, Object?>{'kind': 'image', 'id': 'bg0000002'},
           for (int i = 0; i < kBackgroundMaxCount + 3; i++)
-            <String, Object?>{
-              'kind': 'pattern',
-              'id': BackgroundPatternId.grid,
-            },
+            <String, Object?>{'kind': 'image', 'id': 'bg900000$i'},
         ],
       });
       // 两张图都留着（**没有**逐项大小上限了），但项数仍然截断。
@@ -636,33 +723,29 @@ void _p4NewFieldsTests() {
       );
     });
 
-    test('越界 / 非有限数一律 clamp 到区间（模糊不许变负）', () {
-      expect(DisplayPrefs.clampBackgroundBlur(double.nan), 0.0);
-      expect(DisplayPrefs.clampBackgroundBlur(-5), 0.0);
-      expect(
-        DisplayPrefs.clampBackgroundBlur(99),
-        DisplayPrefs.maxBackgroundBlur,
-      );
+    test('不透明度越界 / 非有限数一律 clamp 到区间', () {
       // 非有限数（含 ±Infinity）一律回落默认，与 clampVolume 等同一条纪律。
       expect(
         DisplayPrefs.clampBackgroundOpacity(double.infinity),
         DisplayPrefs.defaultBackgroundOpacity,
       );
-      expect(DisplayPrefs.clampBackgroundOpacity(-1), 0.0);
+      expect(
+        DisplayPrefs.clampBackgroundOpacity(double.nan),
+        DisplayPrefs.defaultBackgroundOpacity,
+      );
+      expect(DisplayPrefs.clampBackgroundOpacity(-5), 0.0);
+      expect(DisplayPrefs.clampBackgroundOpacity(99), 1.0);
     });
 
-    test('枚举字段越界**回落默认**而不是夹到端点', () {
-      // 端点有语义（0=auto / 1=无），把坏值夹到 1 会让背景不可读。
-      // **不含 slideInterval**：DEC-1（2026-09-28）把它改成了端点夹持，
-      // 回归在 `display_prefs_background_fit_test.dart` 的 DEC-1 组。
+    test('已删的样式键（遮罩 / 对齐 / 铺法）读入时被忽略，不把别的字段读坏', () {
+      // 2026-10-07：产品路径固定「铺满 / 居中 / 遮罩自动」，
+      // 这三个键不再有任何字段可接。
       final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
         'backgroundScrim': 99,
         'imageAlign': -3,
         'imageFit': 42,
       });
-      expect(p.backgroundScrim, DisplayPrefs.defaultBackgroundScrim);
-      expect(p.imageAlign, DisplayPrefs.defaultImageAlign);
-      expect(p.imageFit, DisplayPrefs.defaultImageFit);
+      expect(p, const DisplayPrefs());
     });
 
     test('背景库参与 == / hashCode（改一张图会被判成「变了」）', () {
@@ -706,22 +789,45 @@ void _p4NewFieldsTests() {
       expect(DisplayPrefs.fitName(999), 'cover');
     });
 
-    test('外观分区真的接上了新的旋钮（不写死区间）', () {
+    test('外观分区真的接上了仍在的旋钮（不写死区间）', () {
       final String src = appearanceSectionSource();
       for (final String name in <String>[
-        // 可见控件
-        'prefs.backgroundScrim',
-        'prefs.imageFit',
+        // 可见控件：背景库「不透明度（图）」+ 块底部的「透明程度（界面）」。
+        'prefs.backgroundOpacity',
         'prefs.uiTransparency',
         'DisplayPrefs.minBackgroundOpacity',
         'DisplayPrefs.maxBackgroundOpacity',
         'DisplayPrefs.maxUiTransparency',
-        'DisplayPrefs.backgroundSourceLibrary',
-        // 折叠/条件显示的控件
+        // 库 >= 2 项才出现的轮播控件。
         'DisplayPrefs.minSlideIntervalSeconds',
         'DisplayPrefs.maxSlideIntervalSeconds',
       ]) {
         expect(src.contains(name), isTrue, reason: '设置里没有读 $name');
+      }
+      // 2026-10-09：三级功能介绍全删 ⇒ 原来那句「放你自己的图…」（内含「同时铺在
+      // 舞台和壳上」）**不在界面上了**。语义没有消失：它仍由
+      // `effectiveShellImage`「壳与舞台共用一份真相」在代码层保证，
+      // 而不是靠界面上的一句话。
+      expect(
+        src.contains('放你自己的图；当前这一项同时铺在舞台和壳上，库里没有图时回到纯色。'),
+        isFalse,
+        reason: '控件说明已删（2026-10-09 全口径）；语义由 effectiveShellImage 守',
+      );
+      expect(
+        src.contains('选了内置图案时'),
+        isFalse,
+        reason: '内置图案已下线，这句说明不得回潮',
+      );
+    });
+
+    test('已删的控件文案不再出现在外观源码里（注释不算）', () {
+      final String code = stripCommentsKeepStrings(appearanceSectionSource());
+      for (final String gone in <String>['描边强度', '舞台单图轮播', '铺法（图）']) {
+        expect(
+          code,
+          isNot(contains(gone)),
+          reason: '$gone 已在 2026-10-07 的外观收口里删除，不许长回来',
+        );
       }
     });
 
@@ -774,16 +880,12 @@ void _p4NewFieldsTests() {
     });
   });
 
-  group('背景来源（2026-09-27 修：加了图却什么都没变）', () {
-    test('缺省来源 = 背景库（新用户加了图就能看见）', () {
-      const DisplayPrefs p = DisplayPrefs();
-      expect(p.backgroundSource, DisplayPrefs.backgroundSourceLibrary);
-      expect(DisplayPrefs.backgroundSourceLibrary, 0);
-    });
+  group('「有没有背景」与舞台投影（2026-10-07：来源概念删除，只剩背景库一张）', () {
+    const String tiny = 'data:image/png;base64,iVBORw0KGgo=';
 
-    test('**库里非空 = 一定有东西要画**（这条就是本缺陷的守门人）', () {
-      // 原缺陷：`syncShellStageBg` 默认 true 时，壳去读从没设过的
-      // `stageImage` → null → 用户加进背景库的 3 张图一张都不显示。
+    test('**库里非空 = 一定有东西要画**（这条就是「加了图却什么都没变」的守门人）', () {
+      // 原缺陷：壳去读从没设过的 stageImage → null → 用户加进背景库的图
+      // 一张都不显示。现在「有没有背景」只看背景库的当前项 + 开关 + 不透明度。
       final DisplayPrefs p = const DisplayPrefs().copyWith(
         backgrounds: <BackgroundItem>[
           const BackgroundImage(id: 'a', dataUrl: 'data:image/png;base64,AAA'),
@@ -796,10 +898,9 @@ void _p4NewFieldsTests() {
 
     test('只有真把不透明度调到 0 才「没有背景」', () {
       final DisplayPrefs p = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[const BackgroundImage(
-          id: 'x',
-          dataUrl: 'data:image/png;base64,AAA',
-        )],
+        backgrounds: <BackgroundItem>[
+          const BackgroundImage(id: 'x', dataUrl: 'data:image/png;base64,AAA'),
+        ],
       );
       expect(p.hasBackground, isTrue);
       expect(
@@ -809,83 +910,52 @@ void _p4NewFieldsTests() {
       );
     });
 
-    test('来源 = 舞台那张时，才轮到 stageImage 说话', () {
-      final DisplayPrefs lib = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[const BackgroundImage(id: 'lib', dataUrl: 'lib')],
-        stageImage: 'stage',
-      );
-      final DisplayPrefs stage = lib.copyWith(
-        backgroundSource: DisplayPrefs.backgroundSourceStageImage,
-      );
-      expect(lib.effectiveBackground, const BackgroundImage(id: 'lib', dataUrl: 'lib'));
-      // 「舞台那张」用固定 id：它不走字节库（走渲染面 `stage-bg` 协议），
-      // 用内容哈希只会让每帧都对一张几 MB 的 dataURL 重算一遍。
-      expect(
-        stage.effectiveBackground,
-        const BackgroundImage(
-          id: DisplayPrefs.kStageImageItemId,
-          dataUrl: 'stage',
-        ),
-      );
-    });
-
-    test('来源 = 舞台那张但从没设过图 → 没有背景（而不是回退去画库）', () {
+    test('图案：壳画得出来（hasBackground 真），但舞台不投影（回纯色）', () {
       final DisplayPrefs p = const DisplayPrefs().copyWith(
-        backgrounds: <BackgroundItem>[const BackgroundImage(id: 'lib', dataUrl: 'lib')],
-        backgroundSource: DisplayPrefs.backgroundSourceStageImage,
-      );
-      expect(p.effectiveBackground, isNull);
-      expect(p.hasBackground, isFalse);
-    });
-
-    test('旧存档迁移：设过舞台图的老用户**界面不变**', () {
-      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
-        'syncShellStageBg': true,
-        'stageImage': 'data:image/png;base64,AAA',
-      });
-      expect(
-        p.backgroundSource,
-        DisplayPrefs.backgroundSourceStageImage,
-        reason: '「壳跟随舞台」的老用户看到的界面必须一个像素都不变',
-      );
-    });
-
-    test('旧存档迁移：只加过背景库图的（绝大多数）→ 迁到背景库', () {
-      // 这正是本缺陷现场：syncShellStageBg 默认 true，stageImage 为 null。
-      final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
-        'syncShellStageBg': true,
-        'backgrounds': <Object?>[
-          <String, Object?>{
-            'kind': 'image',
-            'dataUrl': 'data:image/png;base64,AAA',
-          },
-          <String, Object?>{
-            'kind': 'image',
-            'dataUrl': 'data:image/png;base64,BBB',
-          },
+        backgrounds: <BackgroundItem>[
+          const BackgroundPattern(BackgroundPatternId.gradient),
         ],
-      });
-      expect(p.backgroundSource, DisplayPrefs.backgroundSourceLibrary);
-      expect(p.hasBackground, isTrue, reason: '迁移后这 3 张图立刻可见');
+      );
+      expect(p.hasBackground, isTrue);
+      expect(DisplayPrefs.stageProjectionUrl(p, 0), isNull);
     });
 
-    test('旧的 syncShellStageBg 键不再被写回（迁移只发生一次）', () {
+    test('超限的 data URL 不投影（壳可以画，但塞不进舞台一帧）', () {
+      final String oversized =
+          'data:image/png;base64,${'A' * kStageImageMaxChars}';
+      final DisplayPrefs p = const DisplayPrefs().copyWith(
+        backgrounds: <BackgroundItem>[
+          BackgroundImage(id: 'big', dataUrl: oversized),
+        ],
+      );
+      // 形态合法 ⇒ 壳那一侧仍然算「有背景」。
+      expect(p.hasBackground, isTrue);
+      expect(DisplayPrefs.stageProjectionUrl(p, 0), isNull);
+    });
+
+    test('关掉全局开关：不画图、也不投影，但不动用户调好的不透明度', () {
+      const DisplayPrefs off = DisplayPrefs(
+        backgroundEnabled: false,
+        backgrounds: <BackgroundItem>[
+          BackgroundImage(id: 'a', dataUrl: tiny),
+        ],
+      );
+      expect(off.hasBackground, isFalse);
+      expect(DisplayPrefs.stageProjectionUrl(off, 0), isNull);
+      expect(off.backgroundOpacity, DisplayPrefs.defaultBackgroundOpacity);
+      expect(off.effectiveBackground, isNotNull, reason: '项还在，只是不画');
+    });
+
+    test('旧键 stageImage / shellImage / syncShellStageBg 都不再是「来源」', () {
       final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
         'syncShellStageBg': true,
-        'stageImage': 'data:image/png;base64,AAA',
+        'stageImage': tiny,
       });
+      // 迁移语义：stageImage 收进库里的第一项，然后一切按「背景库」走。
+      expect(p.backgrounds, hasLength(1));
+      expect(p.hasBackground, isTrue);
+      expect(p.toJson().containsKey('backgroundSource'), isFalse);
       expect(p.toJson().containsKey('syncShellStageBg'), isFalse);
-      expect(p.toJson().containsKey('backgroundSource'), isTrue);
-    });
-
-    test('来源字段参与 == / hashCode', () {
-      final DisplayPrefs base = const DisplayPrefs();
-      expect(
-        base.copyWith(
-          backgroundSource: DisplayPrefs.backgroundSourceStageImage,
-        ),
-        isNot(base),
-      );
     });
   });
 }

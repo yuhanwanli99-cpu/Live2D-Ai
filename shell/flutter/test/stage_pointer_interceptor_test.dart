@@ -54,7 +54,7 @@ Widget _shell({
     onVolumeChanged: (_) {},
     onMutedChanged: (_) {},
     sections: visibleSections(),
-    section: SettingsSection.appearance,
+    section: SettingsSection.theme,
     onSectionChanged: (_) {},
     sectionBuilder: (BuildContext context, SettingsSection s) =>
         Text('PANE:${s.label}'),
@@ -148,15 +148,15 @@ void main() {
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       expect(find.byType(InlineSettingsDock), findsOneWidget);
-      expectIntercepted(find.text('PANE:外观与互动'), '内联侧板内容');
+      expectIntercepted(find.text('PANE:主题'), '内联侧板内容');
     });
 
     testWidgets('medium 底部浮层有垫层', (WidgetTester tester) async {
       await _pump(tester, width: 1000);
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
-      expect(find.text('PANE:外观与互动'), findsOneWidget);
-      expectIntercepted(find.text('PANE:外观与互动'), '底部浮层内容');
+      expect(find.text('PANE:主题'), findsOneWidget);
+      expectIntercepted(find.text('PANE:主题'), '底部浮层内容');
     });
 
     testWidgets('compact 整页设置有垫层（2026-09-11 P2-1：不再是抽屉）', (
@@ -166,7 +166,7 @@ void main() {
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       expect(find.byType(ListTile), findsNothing, reason: '抽屉已经不在成品里了');
-      expectIntercepted(find.text('PANE:外观与互动'), 'compact 整页设置');
+      expectIntercepted(find.text('PANE:主题'), 'compact 整页设置');
     });
   });
 }

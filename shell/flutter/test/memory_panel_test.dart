@@ -1,8 +1,8 @@
-/// `memory` 产品面板（产品级加强波次 + L1 主动管理面）的 Flutter 回归。
+/// `memory` 产品面板（2026-10-08 人话版）的 Flutter 回归。
 ///
-/// 覆盖：概览渲染、「记忆列表」两条上屏、导入/编辑/删除的 onCommand args、
-/// 删除二次确认、`activeSessionId == null` 的全局桶降级文案、清空、
-/// 带码失败文案、会话说明与「同轮生效」提示。
+/// 覆盖：概览只剩条数、「记忆列表」两条上屏、导入/编辑/删除的 onCommand args、
+/// 删除二次确认、`activeSessionId == null` 的降级文案、清空、带码失败文案、
+/// 「压缩过的记忆」块（有正文才画）、11 个 hiddenKeys。
 ///
 /// 契约真源：`crates/live2d-ai-mod-memory/src/commands.rs`（命令 args/返回）
 /// + `src/lib.rs` 的 `state_json` + `docs/architecture/memory-mod-v0.md`。
@@ -16,6 +16,7 @@ import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/mods_api.dart';
 import 'package:live2d_ai_shell/settings/mods/memory_panel.dart';
 import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
+import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 /// 与 Rust `memory_settings_spec()` 同形的四字段 schema（**没有**第二个 enabled）。
@@ -46,7 +47,8 @@ ModSettingsSpec memorySpec() => ModSettingsSpec(
     const ModSettingField(
       kind: ModFieldKind.bool,
       key: 'enabled_injection',
-      label: '把检索结果注入本轮提示词',
+      // 2026-10-08：与 Rust `memory_settings_spec()` 的 label 逐字一致。
+      label: '聊天时用上这些记忆',
       defaultValue: true,
     ),
   ],
@@ -166,32 +168,31 @@ void main() {
       expect(memoryCountText('12'), '—');
     });
 
-    test('memorySummaryLine：五项齐全，缺项显示 —', () {
-      final String line = memorySummaryLine(memoryState());
-      expect(line, contains('记忆条数 12 条'));
-      expect(line, contains('累计命中 17 次'));
-      expect(line, contains('注入 4 轮'));
-      expect(line, contains('已淘汰 2 条'));
-      expect(line, contains('上轮命中 2 条'));
-      final String empty = memorySummaryLine(null);
-      expect(empty, contains('记忆条数 — 条'));
-      expect(empty, contains('上轮命中 — 条'));
+    test('memorySummaryLine：只说「记住了 N 条」，缺项显示 —（不假装是 0）', () {
+      expect(memorySummaryLine(memoryState()), '记住了 12 条');
+      expect(memorySummaryLine(null), '记住了 — 条');
+      // 2026-10-08：命中 / 注入 / 淘汰 / 上轮命中 不再上屏。
+      for (final String banned in <String>['命中', '注入', '淘汰']) {
+        expect(memorySummaryLine(memoryState()).contains(banned), isFalse);
+      }
     });
 
-    test('memoryBucketNotice：null 说清全局桶降级；有会话说清只影响该会话', () {
+    test('memoryBucketNotice：没有对话说清「先放一起」，有对话说「只看这次」；不出现「桶」', () {
       final String fallback = memoryBucketNotice(null);
-      expect(fallback, contains('还没有会话'));
-      expect(fallback, contains('全局桶'));
-      expect(fallback, contains('与所有会话共享'));
-      expect(fallback, contains('发一条消息'));
+      expect(
+        fallback,
+        '还没有对话。记住的内容先放到一起，开始聊天后再按这次对话分开。',
+      );
       final String scoped = memoryBucketNotice('  s-1  ');
-      expect(scoped, contains('当前会话桶：s-1'));
-      expect(scoped, contains('只影响这个会话'));
-      expect(fallback, isNot(contains('当前会话桶')));
+      expect(scoped, '只看这次对话记住的内容。');
+      for (final String banned in <String>['桶', '全局桶']) {
+        expect(fallback.contains(banned), isFalse, reason: '不得出现「$banned」');
+        expect(scoped.contains(banned), isFalse, reason: '不得出现「$banned」');
+      }
     });
 
 
-    test('memorySummaryState / version / text：非对象与空正文都按「没有」处理', () {
+    test('memorySummaryState / text：非对象与空正文都按「没有」处理', () {
       expect(memorySummaryState(null), isNull);
       expect(
         memorySummaryState(const <String, Object?>{'summary': 'x'}),
@@ -204,56 +205,15 @@ void main() {
         },
       );
       expect(s, isNotNull);
-      expect(memorySummaryVersion(s!), 2);
-      expect(memorySummaryText(s), '用户喜欢薄荷。');
+      expect(memorySummaryText(s!), '用户喜欢薄荷。');
       expect(
         memorySummaryText(const <String, Object?>{'text': '   '}),
         isNull,
         reason: '空摘要按「没有」处理（失败 = 无摘要）',
       );
-      expect(memorySummaryVersion(const <String, Object?>{}), 0, reason: '缺键 = 0 版');
-    });
-
-    test('memorySummaryStatusLine：未启用 / 无摘要 / 有摘要 / 失败原因四种口径', () {
-      final String off = memorySummaryStatusLine(
-        const <String, Object?>{'enabled': false},
-      );
-      expect(off, contains('未启用'));
-      expect(off, contains('summary_base_url'));
-      final String none = memorySummaryStatusLine(
-        const <String, Object?>{
-          'enabled': true,
-          'version': 0,
-          'bucket_ratio': 0.82,
-          'pending': true,
-        },
-      );
-      expect(none, contains('还没有摘要'));
-      expect(none, contains('82%'));
-      expect(none, contains('正在后台生成'));
-      final String some = memorySummaryStatusLine(
-        const <String, Object?>{
-          'enabled': true,
-          'version': 3,
-          'covers_upto': 12,
-          'bucket_ratio': 0.9,
-          'last_error': '摘要请求失败（client=openai）',
-        },
-      );
-      expect(some, contains('v3'));
-      expect(some, contains('12'));
-      expect(some, contains('90%'));
-      expect(some, contains('上次失败'), reason: '失败必须可见，不能静默');
-    });
-
-    test('memorySummaryHint：说清保留最近几轮 + 回滚不删原文', () {
-      final String hint = memorySummaryHint(
-        const <String, Object?>{'kept_recent': 4, 'note': '未配 key'},
-      );
-      expect(hint, contains('最近 4 轮'));
-      expect(hint, contains('回滚'));
-      expect(hint, contains('原文一条没删'));
-      expect(hint, contains('未配 key'));
+      // 2026-10-08：版本号 / 状态行 / 口径说明随「回滚 + 版本」那一块一起删除
+      //（面板只画正文）。这三条断言随之删除——留着一个没人渲染的格式化函数
+      // 只会让人以为那块 UI 还在。
     });
     test('memoryCommandArgs：没有会话就不带 session_id，有就 trim 后带上', () {
       expect(memoryCommandArgs().containsKey('session_id'), isFalse);
@@ -332,18 +292,23 @@ void main() {
     });
   });
 
-  group('运行态渲染：条数 / 命中 / 注入 / 淘汰 / 上轮命中', () {
-    testWidgets('五项计数都上屏（文字，不靠颜色）', (WidgetTester tester) async {
+  group('运行态渲染：只剩「记住了 N 条」', () {
+    testWidgets('条数上屏；命中 / 注入 / 淘汰 / 上轮命中 一个都不在', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(panelWidget(panelContext(state: memoryState()))),
       );
       await tester.pumpAndSettle();
       expect(find.text('记忆概览'), findsOneWidget);
-      expect(find.textContaining('记忆条数 12 条'), findsOneWidget);
-      expect(find.textContaining('累计命中 17 次'), findsOneWidget);
-      expect(find.textContaining('注入 4 轮'), findsOneWidget);
-      expect(find.textContaining('已淘汰 2 条'), findsOneWidget);
-      expect(find.textContaining('上轮命中 2 条'), findsOneWidget);
+      expect(find.textContaining('记住了 12 条'), findsOneWidget);
+      for (final String banned in <String>['累计命中', '注入', '已淘汰', '上轮命中', '记忆条数']) {
+        expect(
+          find.textContaining(banned),
+          findsNothing,
+          reason: '产品面上不得出现「$banned」',
+        );
+      }
     });
 
     testWidgets('读取中 / 读取失败都如实说，失败带错误码', (WidgetTester tester) async {
@@ -423,10 +388,11 @@ void main() {
         isFalse,
         reason: '没有会话就不该带 session_id（落到全局桶）',
       );
-      expect(find.textContaining('还没有会话'), findsOneWidget);
-      expect(find.textContaining('全局桶'), findsOneWidget);
-      expect(find.textContaining('与所有会话共享'), findsOneWidget);
-      expect(find.textContaining('这个桶里还没有记忆'), findsOneWidget);
+      expect(find.textContaining('还没有对话'), findsOneWidget);
+      expect(find.textContaining('先放到一起'), findsOneWidget);
+      expect(find.textContaining('按这次对话分开'), findsOneWidget);
+      expect(find.textContaining('还没有记住任何内容'), findsOneWidget);
+      expect(find.textContaining('桶'), findsNothing, reason: '产品面上不出现「桶」');
     });
 
     testWidgets('list 失败：显示带码文案，不谎报有记录', (WidgetTester tester) async {
@@ -721,13 +687,12 @@ void main() {
       expect(button.onPressed, isNull, reason: '未启用就不该假装能清空');
       expect(find.textContaining('Mod 未启用'), findsOneWidget);
       // 未启用时列表也没有记录、导入按钮禁用。
-      expect(find.textContaining('这个桶里还没有记忆'), findsOneWidget);
+      expect(find.textContaining('还没有记住任何内容'), findsOneWidget);
     });
   });
 
-
-  group('真摘要：状态 + 回滚按钮（P1-5）', () {
-    testWidgets('有摘要时显示版本/正文，回滚按钮可点并走 summary_rollback', (
+  group('压缩过的记忆：只有正文时才画（P1-5 的瘦身版）', () {
+    testWidgets('有正文：标题 + 正文上屏；版本号 / 回滚按钮 / 「注入」都不在', (
       WidgetTester tester,
     ) async {
       final List<RecordedCall> calls = <RecordedCall>[];
@@ -751,42 +716,27 @@ void main() {
             panelContext(
               state: state,
               activeSessionId: 'session-a',
-              onCommand: recordingHandler(
-                calls,
-                reply: const ModCommandResult(
-                  ok: true,
-                  result: <String, Object?>{
-                    'version': 1,
-                    'rolled_back': <String, Object?>{
-                      'version': 2,
-                      'covers_upto': 9,
-                      'text': '用户喜欢薄荷，且自称星梦。',
-                    },
-                  },
-                ),
-              ),
+              onCommand: recordingHandler(calls),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('v2'), findsWidgets);
+
+      expect(find.text('压缩过的记忆'), findsOneWidget);
       expect(find.textContaining('用户喜欢薄荷'), findsWidgets);
-      final TextButton rollback = tester.widget<TextButton>(
-        find.byKey(const Key('memory-summary-rollback-button')),
-      );
-      expect(rollback.onPressed, isNotNull, reason: '有版本才能回滚');
-      await tester.tap(find.byKey(const Key('memory-summary-rollback-button')));
-      await tester.pumpAndSettle();
+      // 版本号 / 覆盖位点 / 桶占比 / 回滚按钮整块不再上屏。
+      expect(find.textContaining('v2'), findsNothing);
+      expect(find.textContaining('90%'), findsNothing);
+      expect(find.byKey(const Key('memory-summary-rollback-button')), findsNothing);
+      expect(find.textContaining('回滚'), findsNothing);
       expect(
-        calls.where((RecordedCall c) => c.command == 'summary_rollback').length,
-        1,
+        calls.where((RecordedCall c) => c.command == 'summary_rollback'),
+        isEmpty,
       );
-      expect(calls[1].args['session_id'], 'session-a');
-      expect(find.textContaining('已回滚'), findsWidgets);
     });
 
-    testWidgets('没有摘要时回滚按钮禁用；未启用整块仍可见（如实说）', (
+    testWidgets('有摘要对象但没有正文：整块不画（空摘要 = 没有）', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -796,22 +746,18 @@ void main() {
               state: <String, Object?>{
                 ...memoryState(),
                 'summary': <String, Object?>{
-                  'enabled': false,
-                  'version': 0,
-                  'pending': false,
+                  'enabled': true,
+                  'version': 3,
+                  'covers_upto': 12,
+                  'text': '   ',
                 },
               },
-              onCommand: recordingHandler(<RecordedCall>[]),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('未启用'), findsWidgets);
-      final TextButton rollback = tester.widget<TextButton>(
-        find.byKey(const Key('memory-summary-rollback-button')),
-      );
-      expect(rollback.onPressed, isNull, reason: '没有版本就不该假装能回滚');
+      expect(find.text('压缩过的记忆'), findsNothing);
     });
 
     testWidgets('state 里没有 summary 键：整块不渲染（旧服务端兼容）', (
@@ -821,32 +767,177 @@ void main() {
         _wrap(panelWidget(panelContext(state: memoryState()))),
       );
       await tester.pumpAndSettle();
+      expect(find.text('压缩过的记忆'), findsNothing);
       expect(find.text('记忆摘要'), findsNothing);
       expect(find.byKey(const Key('memory-summary-rollback-button')), findsNothing);
     });
   });
-  group('说明文案（瘦身版）：一句话说清边界，不塞契约全文', () {
-    testWidgets('注入开关说明它与 Mod 启停是两件事', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        _wrap(panelWidget(panelContext(state: memoryState()))),
-      );
-      await tester.pumpAndSettle();
-      expect(find.textContaining('注入开关'), findsOneWidget);
-      expect(find.textContaining('Mod 启停是两件事'), findsOneWidget);
-    });
 
-    testWidgets('会话下按来源槽叠加，且不再复述文档 / 长契约', (
+  group('说明文案（2026-10-08）：不再有协议说明', () {
+    testWidgets('面板上没有「注入开关 / Mod 启停是两件事 / 来源槽叠加」这类长文', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         _wrap(panelWidget(panelContext(state: memoryState()))),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('来源槽叠加'), findsOneWidget);
-      // 长文已移出面板：文档路径与逐条验收步骤不再上屏。
-      expect(find.textContaining(kMemoryDocPath), findsNothing);
-      expect(find.textContaining('第 12 / 13 节'), findsNothing);
-      expect(find.textContaining('只对下一轮生效'), findsNothing);
+      for (final String banned in <String>[
+        '注入开关',
+        'Mod 启停是两件事',
+        '来源槽叠加',
+        kMemoryDocPath,
+        '只对下一轮生效',
+      ]) {
+        expect(
+          find.textContaining(banned),
+          findsNothing,
+          reason: '产品面上不得出现「$banned」',
+        );
+      }
+    });
+
+    testWidgets('hiddenKeys 只留 store_path；其余 10 个进 devKeys（都不进「高级」）', (
+      WidgetTester tester,
+    ) async {
+      const MemoryPanel panel = MemoryPanel();
+      expect(panel.hiddenKeys, <String>{'store_path'});
+      expect(panel.devKeys, <String>{
+        'top_k',
+        'max_records',
+        'summary_enabled',
+        'summary_base_url',
+        'summary_model',
+        'summary_api_key_env',
+        'summary_timeout_ms',
+        'summary_ratio',
+        'summary_cooldown_turns',
+        'summary_keep_recent_turns',
+      });
+      expect(panel.devKeys.length, 10);
+      expect(panel.advancedKeys, isEmpty);
+      // 2026-10-09：fieldHelp 已退役（三级功能介绍全删）。
+      expect(panel.fieldHelp, isEmpty);
+    });
+
+    testWidgets('真泵卡片（产品面）：只留「聊天时用上这些记忆」一个键', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ModsSection(
+                mods: <ModInfo>[memoryMod()],
+                loading: false,
+                onLoadState: (String id) async => ModStateResult(
+                  id: id,
+                  enabled: true,
+                  state: const <String, Object?>{},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('本地记忆'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('聊天时用上这些记忆'), findsOneWidget);
+      expect(
+        find.text('关掉后仍会记住，但不会塞进角色的提示词。'),
+        findsNothing,
+        reason: '旧 fieldHelp 说明不得再上屏（2026-10-09 全删）',
+      );
+      for (final ModSettingField f in memorySpec().fields) {
+        if (f.key == 'enabled_injection') continue;
+        expect(find.text(f.label), findsNothing, reason: '${f.key} 不得上屏');
+      }
+      expect(find.text('高级'), findsNothing);
+      // 两个 Switch：卡片标题行的启用开关 + 「聊天时用上这些记忆」。
+      expect(find.byType(Switch), findsNWidgets(2));
+    });
+
+    testWidgets('开发模式：store_path 仍不画，其余 10 个 devKeys 全部上屏', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ModsSection(
+                mods: <ModInfo>[memoryMod()],
+                loading: false,
+                devMode: true,
+                onLoadState: (String id) async => ModStateResult(
+                  id: id,
+                  enabled: true,
+                  state: const <String, Object?>{},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('本地记忆'));
+      await tester.pumpAndSettle();
+
+      // spec 里的 top_k / max_records 在开发模式里画出来。
+      expect(find.text('每轮注入条数'), findsOneWidget);
+      expect(find.text('条数上限'), findsOneWidget);
+      // store_path 仍是 hiddenKeys：开发模式也不画。
+      expect(find.text('记忆库路径'), findsNothing);
+      expect(find.text('高级'), findsNothing);
+    });
+  });
+
+  group('刷新锁（2026-10-08）：list 失败后「刷新」仍可点', () {
+    testWidgets('读取失败：留下错误、刷新按钮可点、写操作仍锁住', (
+      WidgetTester tester,
+    ) async {
+      final List<String> commands = <String>[];
+      await tester.pumpWidget(
+        _wrap(
+          panelWidget(
+            panelContext(
+              activeSessionId: 'session-a',
+              onCommand:
+                  (String command, [Map<String, Object?> args = const <String, Object?>{}]) async {
+                commands.add(command);
+                if (command == 'list') {
+                  throw const ApiException('command_unavailable', '忙', status: 503);
+                }
+                return const ModCommandResult(ok: true);
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('读取记忆列表失败'), findsOneWidget);
+
+      final TextButton refresh = tester.widget<TextButton>(
+        find.byKey(const Key('memory-refresh-button')),
+      );
+      expect(
+        refresh.onPressed,
+        isNotNull,
+        reason: '列表读失败后没有出路 —— 刷新必须仍然可点',
+      );
+      // 写操作仍要求「快照 == 当前会话」：这一次失败没有改快照，所以行不存在，
+      // 但导入按钮必须看得到且不被取数窗口额外锁死。
+      expect(find.byKey(const Key('memory-import-button')), findsOneWidget);
+
+      final int before = commands.where((String c) => c == 'list').length;
+      await tester.tap(find.byKey(const Key('memory-refresh-button')));
+      await tester.pumpAndSettle();
+      expect(
+        commands.where((String c) => c == 'list').length,
+        greaterThan(before),
+        reason: '点了刷新却没再发 list',
+      );
     });
   });
 }
+

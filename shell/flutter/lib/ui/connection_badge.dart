@@ -42,7 +42,7 @@ class ConnectionBadge extends StatelessWidget {
     };
 
     final Widget content = Semantics(
-      label: '实时通道：${status.description}',
+      label: '连接：${status.description}',
       button: status.isProblem && onRetry != null,
       excludeSemantics: true,
       child: Row(
@@ -65,15 +65,38 @@ class ConnectionBadge extends StatelessWidget {
   }
 }
 
+/// 离线横幅的那一句。
+///
+/// 平时跟状态胶囊同一句「没连上」。开发者模式打开后才用排障说法
+/// 「后端未连接」。括号里的短标签（未连接 / 连接中 / …）两种情况都留着。
+String offlineBannerText(
+  WsStatus status, {
+  required bool devMode,
+  required bool canRetry,
+}) {
+  final String lead = devMode ? '后端未连接' : '没连上';
+  final String body = '$lead（${status.label}）';
+  if (!canRetry) return body;
+  return '$body· 点此重试';
+}
+
 /// 舞台顶部的离线横幅（规格 §6.3 的 `offline` 行）。
 ///
 /// 与 [ConnectionBadge] 的分工：徽标是**常驻小字**，横幅是**首次明显提示**。
 /// 两者都在，不是重复——横幅会消失，徽标不会。
 class OfflineBanner extends StatelessWidget {
-  const OfflineBanner({required this.status, this.onRetry, super.key});
+  const OfflineBanner({
+    required this.status,
+    this.onRetry,
+    this.devMode = false,
+    super.key,
+  });
 
   final WsStatus status;
   final VoidCallback? onRetry;
+
+  /// 开发者模式。开着时横幅写「后端未连接」，关掉时写「没连上」。
+  final bool devMode;
 
   @override
   Widget build(BuildContext context) {
@@ -110,9 +133,11 @@ class OfflineBanner extends StatelessWidget {
               Expanded(
                 child: Text(
                   // 文案里要有**下一步动作**，不能只报告事实。
-                  onRetry == null
-                      ? '后端未连接（${status.label}）'
-                      : '后端未连接（${status.label}）· 点此重试',
+                  offlineBannerText(
+                    status,
+                    devMode: devMode,
+                    canRetry: onRetry != null,
+                  ),
                   style: text.bodySmall?.copyWith(
                     color: appPaletteOf(context).danger,
                   ),

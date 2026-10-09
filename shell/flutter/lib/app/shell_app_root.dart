@@ -113,17 +113,11 @@ class _Live2DShellAppState extends State<Live2DShellApp> {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Live2D Ai',
     debugShowCheckedModeBanner: false,
-    // 外观两轴：配色（AppThemeId）+ 材质（描边强度 / 界面透明）。
-    // 圆角幅度是**固定值**，不是偏好。
-    // 都只走本地偏好、不需要保存按钮（用户是为了「看着舒服」才调的）。
+    // 外观：配色（AppThemeId）+ 界面透明。描边与圆角是固定值。
+    // 都只走本地偏好、不需要保存按钮。
     theme: buildAppTheme(
       _prefs.theme,
-      AppMaterial(
-        // 圆角幅度是固定值（2026-09-27 减法：从偏好里去掉了滑杆），
-        // 所以这里不传 —— 默认就是 `AppMaterial.kFixedRadiusScale`。
-        edgeStrength: _prefs.edgeStrength,
-        uiTransparency: _prefs.uiTransparency,
-      ),
+      AppMaterial(uiTransparency: _prefs.uiTransparency),
     ),
     home: ShellRoot(
       prefs: _prefs,

@@ -135,6 +135,31 @@ void main() {
     expect(changed, isTrue, reason: '非强制时点一下必须真的改状态');
   });
 
+  testWidgets('开发模式页两块都在（表情调试 / 动作调试）；关掉就都不在', (
+    WidgetTester tester,
+  ) async {
+    // 2026-10-08：这三块是**已有**能力，本轮只钉住「别在改产品面时顺手丢掉」。
+    // 2026-10-09：「导演可观测」已搬到「扩展 → 导演」卡片下级（见
+    // director_observer_test / director_panel_test），开发模式页只剩这两块。
+    const List<String> titles = <String>['表情调试', '动作调试'];
+
+    await tester.pumpWidget(_wrap(_section(devMode: true)));
+    await tester.pumpAndSettle();
+    for (final String title in titles) {
+      expect(find.text(title), findsOneWidget, reason: '开发模式页缺少「$title」');
+    }
+
+    await tester.pumpWidget(_wrap(_section(devMode: false)));
+    await tester.pumpAndSettle();
+    for (final String title in titles) {
+      expect(
+        find.text(title),
+        findsNothing,
+        reason: 'devMode=false 时不该有「$title」（渐进披露的第二层）',
+      );
+    }
+  });
+
   testWidgets('表情调试：基础表情强度缺省 1.0，点表情只发 Face 预设', (WidgetTester tester) async {
     final List<(String, double)> calls = <(String, double)>[];
     await tester.pumpWidget(
@@ -263,7 +288,10 @@ void main() {
     ]);
   });
 
-  testWidgets('表情到点后：UI 显示「无（已到点）」，点手势不再重发它', (WidgetTester tester) async {
+  /// 2026-10-09：原来还断言那行「当前基础表情：无（已到点）」——它是控件说明，
+  /// 随「三级功能介绍全删」一起删了。这里改成**纯行为**断言（到点即视为 none，
+  /// 点手势不得把演完的老脸重新点亮 / 续期），判据落在调用序列上，不落在文案上。
+  testWidgets('表情到点后：点手势不再重发它（行为断言，不看文案）', (WidgetTester tester) async {
     final List<(String, double)> calls = <(String, double)>[];
     DateTime now = DateTime(2026, 1, 1, 12);
     final ValueNotifier<PresetStatus?> status = ValueNotifier<PresetStatus?>(null);
@@ -292,17 +320,11 @@ void main() {
     expect(calls, <(String, double)>[('smile', kDefaultExpressionIntensity)]);
     _armStatus(status, 'smile', now);
     await tester.pump();
-    expect(find.textContaining('当前基础表情：微笑（smile）'), findsOneWidget);
 
-    // 到点（渲染面同口径 ttl）：UI 必须改口，不再声称在演。
+    // 到点（渲染面同口径 ttl）：行为上等于 none。
     calls.clear();
     now = now.add(_expressionTtl);
     await tester.pump(_expressionTtl);
-    expect(
-      find.textContaining('当前基础表情：无（已到点）'),
-      findsOneWidget,
-      reason: '到点后 UI 不得再显示上一条表情名（不谎报状态）',
-    );
 
     // 到点后点手势：不得把已经演完的那张老脸重新点亮 / 续期。
     final Finder nod = _presetButton(_labels, 'nod');
@@ -350,6 +372,43 @@ void main() {
       find.textContaining('预设标签表未加载'),
       findsNWidgets(2),
       reason: '表情、动作两块都要如实说明取不到表',
+    );
+  });
+
+  testWidgets('诊断只在开发模式里渲染（2026-10-09：一级「诊断」取消后收进这一页）', (
+    WidgetTester tester,
+  ) async {
+    // 传入的是一整块**已经带数据的**诊断面；本页只决定画不画。
+    const Widget diagnostics = Text('DIAG-PROBE');
+
+    await tester.pumpWidget(
+      _wrap(
+        DeveloperSection(
+          devMode: false,
+          onDevModeChanged: (_) {},
+          forcedByLaunchFlag: false,
+          diagnostics: diagnostics,
+        ),
+      ),
+    );
+    expect(find.text('DIAG-PROBE'), findsNothing, reason: 'devMode=false 时诊断整块不在语义树');
+    expect(find.text('导演可观测'), findsNothing);
+
+    await tester.pumpWidget(
+      _wrap(
+        DeveloperSection(
+          devMode: true,
+          onDevModeChanged: (_) {},
+          forcedByLaunchFlag: false,
+          diagnostics: diagnostics,
+        ),
+      ),
+    );
+    expect(find.text('DIAG-PROBE'), findsOneWidget);
+    expect(
+      find.text('导演可观测'),
+      findsNothing,
+      reason: '导演可观测住在「扩展 → 导演」卡片下级，核心链的开发模式页不再出现它',
     );
   });
 }

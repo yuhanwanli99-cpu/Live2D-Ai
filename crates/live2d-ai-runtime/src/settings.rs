@@ -206,26 +206,31 @@ impl LlmSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TtsSettings {
-    /// 服务基址。
-    #[serde(default)]
+    /// 服务基址。**出厂缺省 = 仓库自带的 MeloTTS 垫片**（见
+    /// [`DEFAULT_TTS_BASE_URL`]）：本地 TTS 不是 Mod，出声端点唯一权威仍是这一段。
+    #[serde(default = "default_tts_base_url")]
     pub base_url: String,
     /// 可选模型名；省略时请求体不带 `model` 字段。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// 音色（请求体 `voice` 字段）。
+    /// 音色（请求体 `voice` 字段）。**出厂缺省 `ZH`** =
+    /// `melo/weights/config.json` 里 `spk2id` 的键。
     #[serde(default = "default_voice")]
     pub voice: String,
-    /// 返回格式：`"pcm"`（默认，裸 s16le 流式）或 `"wav"`（RIFF 容器，一次性解析）。
+    /// 返回格式：`"pcm"`（出厂默认，裸 s16le 流式）或 `"wav"`（RIFF 容器，一次性解析）。
     ///
-    /// 2026-09-10：CosyVoice 3 的 OpenAI 兼容层（如 CosyVoice3-API）默认返回
-    /// WAV，故此处需填 `"wav"`；其余保持默认 `"pcm"`。
+    /// 缺省随出厂端点（MeloTTS 垫片回 s16le 裸流）取 `"pcm"`。换了返回 WAV 的
+    /// 服务端才需要写 `"wav"`——填错要么被 400 拒绝，要么按错容器解出杂音。
     #[serde(default = "default_response_format")]
     pub response_format: String,
     /// 可选：存放 API key 的环境变量名。省略 = 不鉴权。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
-    /// 返回 PCM 流采样率；默认 24 kHz（[`AudioSpec::DEFAULT_SAMPLE_RATE`]）。
+    /// 返回 PCM 流采样率；**出厂缺省 44.1 kHz**（[`DEFAULT_TTS_SAMPLE_RATE`] =
+    /// `melo/weights/config.json` 的 `sampling_rate`）。
     /// 注意：默认值不能靠 `u32::default()`（那是 0），必须显式指定函数。
+    /// 它与 [`AudioSpec::DEFAULT_SAMPLE_RATE`]（播放侧 24 kHz）**是两个口径**：
+    /// 改这里不动播放默认，改播放默认也不动出厂 TTS 配置。
     #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
     /// 返回 PCM 流声道数；默认单声道。
@@ -233,8 +238,28 @@ pub struct TtsSettings {
     pub channels: u16,
 }
 
+/// 出厂 TTS 服务地址（2026-10-09）：仓库自带的 MeloTTS 垫片。
+///
+/// 这是**开箱出声**的那一条：`local-tts-melo` Mod 随应用拉起 `melo/start.sh`
+/// （缺省监听 8091），这一段指向它。Mod **不写**这一段（`tts-is-core.md`）——
+/// 它只是恰好与缺省一致；用户改了地址或换了端点，链路照样跟着 `[tts]` 走。
+pub const DEFAULT_TTS_BASE_URL: &str = "http://127.0.0.1:8091/v1";
+
+/// 出厂音色：`melo/weights/config.json` 里 `spk2id` 的键（本例只有 `ZH`）。
+pub const DEFAULT_TTS_VOICE: &str = "ZH";
+
+/// 出厂 TTS 采样率 = `melo/weights/config.json` 的 `sampling_rate`。
+///
+/// **与播放侧 `AudioSpec::DEFAULT_SAMPLE_RATE`（24 kHz）是两个口径**：那个是
+/// 「没有配置时音频调度按多少赫兹理解」，这个是「出厂 `[tts]` 那一行写什么」。
+pub const DEFAULT_TTS_SAMPLE_RATE: u32 = 44_100;
+
+fn default_tts_base_url() -> String {
+    DEFAULT_TTS_BASE_URL.to_string()
+}
+
 fn default_voice() -> String {
-    "alloy".to_string()
+    DEFAULT_TTS_VOICE.to_string()
 }
 
 fn default_response_format() -> String {
@@ -242,7 +267,7 @@ fn default_response_format() -> String {
 }
 
 fn default_sample_rate() -> u32 {
-    AudioSpec::DEFAULT_SAMPLE_RATE
+    DEFAULT_TTS_SAMPLE_RATE
 }
 
 fn default_channels() -> u16 {
@@ -252,13 +277,13 @@ fn default_channels() -> u16 {
 impl Default for TtsSettings {
     fn default() -> Self {
         Self {
-            base_url: String::new(),
+            base_url: default_tts_base_url(),
             model: None,
             voice: default_voice(),
             response_format: default_response_format(),
             api_key_env: None,
-            sample_rate: AudioSpec::DEFAULT_SAMPLE_RATE,
-            channels: AudioSpec::DEFAULT_CHANNELS,
+            sample_rate: default_sample_rate(),
+            channels: default_channels(),
         }
     }
 }
@@ -642,6 +667,10 @@ impl AppSettings {
                 model: self.llm.model.clone(),
                 api_key: llm_key,
                 max_tokens: self.llm.effective_max_tokens(),
+                // 2026-10-08：请求体默认关思考；用户用「思考」开关打开时发 enabled。
+                thinking: self.llm.effective_show_reasoning(),
+                // 2026-10-08：**产品默认开**二路按句清洗（模型与一路同一份）。
+                clean_tts: true,
             },
             tts: TtsConfig {
                 base_url: self.tts.base_url.clone(),

@@ -69,7 +69,11 @@ fn out(spec: &'static PresetSpec, p: f64, i: f32, want: &str) -> f32 {
 #[test]
 fn builtin_ids_match_the_main_allowlist() {
     let ids: Vec<&str> = PRESETS.iter().map(|p| p.id).collect();
-    assert_eq!(ids.len(), 9, "内建 fallback = 主 allowlist（9 条包）");
+    assert_eq!(
+        ids.len(),
+        12,
+        "内建 fallback = 主 allowlist（T9 起 12 条包：9 + thinking / look_up / look_down）"
+    );
     for id in ["smile", "unhappy", "surprised", "nod", "shake"] {
         assert!(preset(id).is_some(), "{id} 应可查");
     }
@@ -178,7 +182,8 @@ fn removed_v2_ids() -> Vec<String> {
         ("deny", "_shake_strong"),
         ("bow", "_slight"),
         ("shy", "_look_down"),
-        ("look", "_up"),
+        // ("look", "_up") 已于 T9（2026-10-07）**重新启用为正式包名**
+        // （look_up = 抬头看）——它不再是「已删除的旧 id」，故从本清单移除。
         ("ponder", "_tilt"),
     ]
     .iter()

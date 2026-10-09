@@ -29,6 +29,12 @@ import 'support/registered_mods.dart';
 /// 假绿灯」。现在换成在册的 `director`，并由 `registeredModIds()`（读
 /// `main.rs` 的 `AVAILABLE_MOD_FACTORIES`，唯一真源）交叉核对：
 /// **crate 被删 / 改名就红**。
+///
+/// 2026-10-09「两类 TTS」：本轮重新注册进 `AVAILABLE_MOD_FACTORIES` 的是 `local-tts`
+/// ——一个**只拉起外部进程**的 Mod（缺省停用），它**不写** `[tts]`：出声端点仍
+/// 只由「语音合成」设置页（`PATCH /api/v1/settings`，`live2d-ai.toml` 的 `[tts]`）
+/// 决定。夹具 JSON **不为此扩成全量名单**（本文件的判据是「夹具 id 在册」，不是
+/// 「列出全部在册 Mod」；全量那份在 `mod_state_surface_test.dart`）。
 const String kRealModelsJson = '{"models":[]}';
 
 const String kRealModsJson = '''

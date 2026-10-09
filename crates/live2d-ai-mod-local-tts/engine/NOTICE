@@ -1,0 +1,29 @@
+Live2D-Ai — CosyVoice3 引擎的第三方声明（crates/live2d-ai-mod-local-tts/engine/）
+
+本目录**不分发** CosyVoice 的源码。这里只有：
+  - LICENSE：CosyVoice 的 Apache License 2.0 原文（逐字副本）；
+  - 本 NOTICE；
+  - MODEL-CARD.md：模型出处、修订号与许可证；
+  - download.sh / start.sh / serve.py：把「下权重 + 起服务」串起来的**薄封装**。
+
+CosyVoice
+  来源   https://github.com/FunAudioLLM/CosyVoice
+  修订号 074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc（2026-05-25）
+  许可   Apache License 2.0（见同目录 LICENSE）
+
+模型权重
+  模型   FunAudioLLM/Fun-CosyVoice3-0.5B-2512
+  出处   https://huggingface.co/FunAudioLLM/Fun-CosyVoice3-0.5B-2512
+  修订号 29e01c4e8d000f4bcd70751be16fa94bf3d85a18
+  许可   apache-2.0（2026-10-09 逐字核对模型卡）
+  权重**不进 git、不进 LFS**：由 download.sh 下到本 crate 的 weights/（.gitignore），
+  或在运行时按同一条路径读取。再分发权重时必须随包带上上面的许可证、模型卡链接
+  与修订号，且不得把改动过的权重写成官方原件。
+
+修改声明（Apache-2.0 §4(b)）
+  Live2D-Ai 对 CosyVoice 源码**未做任何修改**。download.sh 按上面的修订号做
+  一份干净的 checkout。将来若改了，必须在此处逐一列明被改动的文件与改动内容。
+
+Matcha-TTS（CosyVoice 的第三方依赖）
+  许可 MIT。**本仓库没有拷贝它的任何文件**，因此这里不附它的版权声明：
+  它属于运行时下载的那份 CosyVoice 源码树，其自带声明随该树一起落在仓库外。

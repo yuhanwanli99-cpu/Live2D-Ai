@@ -45,6 +45,15 @@
       "aligned": true,
       "note": "瞪眼 + 挑眉 + 微张嘴 + 小幅后仰。合并了旧版动作包的后仰位移。"
     },
+    "thinking": {
+      "zh": "思考",
+      "en": "Thinking",
+      "channel": "expression",
+      "canonical": null,
+      "source": "本项目扩展（T9 问句补丁 2026-10-07）",
+      "aligned": false,
+      "note": "问句补丁的表情：垂眼 / 眉下压 / 抿嘴，另带小幅歪头（AngleZ 6 + BodyAngleZ 2）。字段通道只抄五官五行，头角留给 preset_id 通道，避免两路叠加。"
+    },
     "nod": {
       "zh": "点头",
       "en": "Nod",
@@ -80,6 +89,24 @@
       "source": "本项目扩展",
       "aligned": false,
       "note": "头 + 身向右看。"
+    },
+    "look_up": {
+      "zh": "向上看",
+      "en": "Look Up",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展（T9 2026-10-07）",
+      "aligned": false,
+      "note": "抬头看：主轴 Y（+12 / 身 +3.9），次轴 X（+2.7 / 身 +0.8）。与 nod（Y 为负）分开。"
+    },
+    "look_down": {
+      "zh": "向下看",
+      "en": "Look Down",
+      "channel": "motion",
+      "canonical": null,
+      "source": "本项目扩展（T9 2026-10-07）",
+      "aligned": false,
+      "note": "低头看：look_up 的镜像（全轴取负）。"
     },
     "tilt_left": {
       "zh": "左歪头",

@@ -13,8 +13,8 @@
 > **移出工作树**——信息量一点没少：git 历史逐字保留，逐份取回方式见
 > [`docs/REMOVED-docs-index-2026-10-06.md`](docs/REMOVED-docs-index-2026-10-06.md)。
 > 本文历史段落里对它们的路径引用**刻意保留原样**（改历史引用 = 篡改记录）。
-> **版本口径（现行，2026-10-06 复核）**：现状 = **`0.2.1-rc.1`**（`Cargo.toml` 的
-> `version = "0.2.1-rc.1"`、tag `v0.2.1-rc.1`、发布说明 `docs/releases/v0.2.1-rc.1.md`）。
+> **版本口径（现行，2026-10-09）**：现状 = **`0.2.3-rc.1`**（`Cargo.toml` 的
+> `version = "0.2.3-rc.1"`、发布说明 `docs/releases/v0.2.3-rc.1.md`）。tag `v0.2.3-rc.1` 与本提交一起推 `origin`（开箱版：白模型入库 / MeloTTS 缺省拉起 / CosyVoice3 封存 / 不带 LLM Key）。
 > 再往前的 **0.2.0 收口 + 去臃肿第一轮**（2026-10-01 起：S0 文档整理 → `rc.8-a` 正确性与诚实性
 > → `rc.8-b` 结构 → 0.2.0 末版，计划书 `docs/plans/PLAN-debloat-and-closeout-2026-10-01.md`）
 > 与下面 rc.7 的记录都是**历史**——`0.2.0-rc.7` 不是现状。
@@ -27,7 +27,7 @@
   **不绑定任何单一模型**（模型由用户合法导入，`assets/models/` 不捆绑二进制），
   **不做复杂上层**（实现保持最小）。验证「文本 → LLM（纯对话，无工具）→ TTS → 驱动口型
   → Live2D 皮套渲染 + 前端 UI」闭环。
-- **上一版 `0.2.0`（0.2.0 收口 + 去臃肿第一轮；发布说明 `docs/releases/v0.2.0.md`；现行版本 `0.2.1-rc.1` 见本节首段）**：
+- **上一版 `0.2.0`（0.2.0 收口 + 去臃肿第一轮；发布说明 `docs/releases/v0.2.0.md`；现行版本 `0.2.2` 见本节首段）**：
   下面 ①–④ 是**沿用 rc.7「正确性与诚实性」那一轮**的详细记录（0.2.0 本轮的收口/去臃肿内容见发布说明）：
   ① **审计主发现 `F-0005-2`（重建放大链，本轮最有价值的单点）**：`AppShell` 新增宿主状态代际
   `settingsRevision`、`AppShellState` 新增 `_settingsTick`（设置数据通知计数），两者与 `section`
@@ -166,11 +166,12 @@
   **2026-09-11 起这两个归档的远端 ref 已删除，只在维护者本地保留**——公开历史重新起算
   （`main` 成为单个根提交），见 `docs/releases/v0.1.0-rc.1.md`「历史重置」。
 - 增强能力通过 **Mod 边界**隔离：`live2d-ai-mod-system` trait 注册中心，
-  **现行 5 个注册 Mod**（external-input / persona / voice-input / memory / director）
+  **现行 6 个注册 Mod**（external-input / persona / voice-input / memory / director / local-tts）
   为 workspace crate；
   **缺省只启用 `external-input`**（直播弹幕/礼物经 sidecar 注入，见
-  `cli_entry::default_mods_manifest`），其余四个缺省停用（`memory` 会写
-  `persona.system_prompt`，必须由用户明确打开；`director` 是**决策 + 按句 cue**骨架，异步第二路 LLM 默认关）。
+  `cli_entry::default_mods_manifest`），其余五个缺省停用（`memory` 会写
+  `persona.system_prompt`，必须由用户明确打开；`director` 是**决策 + 按句 cue**骨架，异步第二路 LLM 默认关；
+  `local-tts`（2026-10-09「两类 TTS」加的第六个）**只拉起外部进程**，不写 `[tts]`、不探活、不改出声地址）。
   **`local-llm` 已于 `0.2.0-rc.1` 废除启动**（移出注册表；crate 已于
   **2026-10-01 W2-A/D1 删除**，只存在于 tag `checkpoint/pre-d1-dormant`，**禁止挂回**）。
   **`wallpaper` / `pet-desktop` 已于产品级加强波次封存（ARCHIVED），并于
@@ -186,7 +187,8 @@
   四个历史 bundle 的 heads 里也没有；被删内容从 **`main` 自己的历史**取回：
   `git show 98469df^:crates/live2d-ai-mod-director/src/lib.rs` = 395 行、
   `git show ef9f428^:crates/l2d-wasm-demo/src/web/surface.rs` = 1721 行）——静态注册的工厂数由 `main.rs` 的
-  `mod_count_is_five` 断言守住（产品级加强波次起恰为 **5**），**core 的 `action_tx` /
+  `mod_count_is_six` 断言守住（产品级加强波次起为 5；2026-10-09「两类 TTS」加入
+  第六个——**只拉起进程**的 `local-tts`——后恰为 **6**），**core 的 `action_tx` /
   `RootEvent::Action` 驱动通道不要再挂回去**（渲染面 `preset` 协议 + director 的 `action_cue`
   是现行路径，不在此禁令内，见 §「动作与表演的现行状态（2026-09 实测）」）。
   Wave 3（2026-09-14）新增的 `live2d-ai-mod-director` 是**同名不同职责**的
@@ -337,7 +339,8 @@
 
 为什么不能「顺手接回去」：一个 `live2d_perform_action` 工具 + 空 system prompt 会让模型
 **只调工具、不说话**，产出「正常完成但一个字都没有」的回合（§3.1 当场复现过）。
-护栏是两条断言：`main.rs::mod_count_is_five`（工厂数不得因动作 Mod 增加）与
+护栏是两条断言：`main.rs::mod_count_is_six`（工厂数不得因动作 Mod 增加；第六个是
+2026-10-09 加的**只拉起进程**的 `local-tts`）与
 `mod_registry::tests::action_request_is_dormant_not_delivered`（动作请求必须不被接受）。
 
 ### 动作与表演的**现行状态**（2026-09 实测）
@@ -348,8 +351,8 @@
 
 | # | 现行事实 | 真源（树上可查） |
 | --- | --- | --- |
-| ① | **动作包（表情 / 手势）经 `preset` 帧直接驱动渲染面参数，不经 core reducer**：共 9 条包 `smile` / `unhappy` / `surprised` / `nod` / `shake` / `look_left` / `look_right` / `tilt_left` / `tilt_right`（另有 `none` 撤销哨兵）；渲染面 `PresetRuntime` 收 v1 协议 `preset` 消息 → `PresetCommand::Apply / Revoke / Ignore`，按 `PresetSlot::Face` / `Gesture` 两槽写参数，到点按槽撤销 | `assets/actions/presets.json`、`assets/actions/preset_labels.json`、`crates/l2d-wasm-demo/src/preset/mod.rs`（`handle` / `apply_frame`）、`crates/l2d-wasm-demo/src/preset/table.rs`（解析期红线）、`crates/l2d-wasm-demo/src/main.rs`（`"preset" =>` 分支）、`shell/flutter/lib/live2d/live2d_stage.dart`（`applyPreset`） |
-| ② | **`[action]` 幅度倍率存在**：`head_scale=0.75` / `body_scale=1.4` / `expression_scale=1.0`，运行期参与 `最终值 = 表值 × 包络 × 通道倍率` 并按通道钳位（`ParamAngle*` ≤30 / `ParamBodyAngle*` ≤10 / 五官 ≤4）；Flutter「外观与互动」有滑条 | `live2d-ai.toml` 的 `[action]` 段、`live2d-ai.toml.example` 的 `[action]` 段、`crates/live2d-ai-runtime/src/settings.rs`（`ActionSettings`）、`crates/l2d-wasm-demo/src/preset/scales.rs`（`PresetScales::from_parts`）、`crates/l2d-wasm-demo/src/main.rs`（`set_scales`） |
+| ① | **动作包（表情 / 手势）经 `preset` 帧直接驱动渲染面参数，不经 core reducer**：共 12 条包 `smile` / `unhappy` / `surprised` / `thinking` / `nod` / `shake` / `look_left` / `look_right` / `look_up` / `look_down` / `tilt_left` / `tilt_right`（另有 `none` 撤销哨兵；`thinking` / `look_up` / `look_down` 由 T9 追加，2026-10-07）；渲染面 `PresetRuntime` 收 v1 协议 `preset` 消息 → `PresetCommand::Apply / Revoke / Ignore`，按 `PresetSlot::Face` / `Gesture` 两槽写参数，到点按槽撤销 | `assets/actions/presets.json`、`assets/actions/preset_labels.json`、`crates/l2d-wasm-demo/src/preset/mod.rs`（`handle` / `apply_frame`）、`crates/l2d-wasm-demo/src/preset/table.rs`（解析期红线）、`crates/l2d-wasm-demo/src/main.rs`（`"preset" =>` 分支）、`shell/flutter/lib/live2d/live2d_stage.dart`（`applyPreset`） |
+| ② | **`[action]` 幅度倍率存在**：`head_scale=0.75` / `body_scale=1.4` / `expression_scale=1.0`，运行期参与 `最终值 = 表值 × 包络 × 通道倍率` 并按通道钳位（`ParamAngle*` ≤30 / `ParamBodyAngle*` ≤10 / 五官 ≤4）；Flutter 的滑条在**导演卡片**（设置 → 扩展 → 导演；2026-10-09 从「外观与互动」搬到它的下级块，数据/接口未变） | `live2d-ai.toml` 的 `[action]` 段、`live2d-ai.toml.example` 的 `[action]` 段、`crates/live2d-ai-runtime/src/settings.rs`（`ActionSettings`）、`crates/l2d-wasm-demo/src/preset/scales.rs`（`PresetScales::from_parts`）、`crates/l2d-wasm-demo/src/main.rs`（`set_scales`） |
 | ③ | **director Mod 已接线，唯一驱动是 `action_cue`**：规则层按用户输入判 emotion / intent → 选包；`cues` 经 host `ModServices.cues` 广播 WS `action_cue`（`cues[].preset_id=="none"` = 该句音频开始时撤销两槽；中性轮也给这条撤销哨兵，D10）。`latest.preset_id` 经 `GET /api/v1/mods/director/state` **仅供面板只读**——前端拉取它驱动舞台的通道**已退役**（D12；Dart `_applyDirectorPreset` / `DirectorPresetGate` 已删，驱动走 `_applyDirectorCueForSeq`）。**本工作树**运行配置 `mods.json` 里 `director.enabled = true`（该文件未入库、属本机配置，见 `.gitignore`）；**编译期** `cli_entry::default_mods_manifest` 仍只收录 `external-input`——「缺省启用」指前者，两者是不同的真源，不要混写 | `crates/live2d-ai-mod-director/src/lib.rs`（`latest.preset_id`、`emit_cues`）、`crates/live2d-ai-mod-director/src/presets.rs`（`PRESET_IDS` 单一真源）、`mods.json`、`crates/live2d-ai-desktop/src/web_api/cli_entry.rs`（`default_mods_manifest`）、`crates/live2d-ai-desktop/src/web_api/mods_routes.rs`（`{id}/state`）、`shell/flutter/lib/main.dart`（`_applyDirectorCueForSeq`） |
 | ④ | **`[performance]` 段存在但缺省关**：`enabled = false`；打开后是主链（引擎内）的**第二个 LLM 端点**，每轮交回 `{"speak":…,"cues":[…]}`。它与 Mod `staging_*` 是**两个可选提供者、都默认关、职责重叠**；**谁的 `speak` 能力该保留**未定（RESEARCH §3.7 Q1，**不裁决**，此处仅登记待定） | `live2d-ai.toml` 的 `[performance]` 段、`live2d-ai.toml.example` 的 `[performance]` 段、`crates/live2d-ai-runtime/src/performance/`（`client.rs` / `mod.rs` / `plan.rs` / `prompt.rs`）、`crates/live2d-ai-runtime/src/conversation/engine.rs`（`perf.resolve(...)`）、`docs/architecture/performance-layer-v0.md` |
 | ⑤ | **core 的 action / performance 子系统仍无驱动方**：动作包走的是渲染面参数层（①②），**不经 core reducer**；`ModServices.action_tx` 仍是休眠 sender，`supervisor` 侧注入 `RootEvent::Action` 的分支已在 rc.2 删除 | `crates/live2d-ai-core/src/action/`、`crates/live2d-ai-core/src/performance/`、`crates/live2d-ai-core/src/lib.rs`（不变量 4/6）、`crates/live2d-ai-desktop/src/mod_registry.rs`（`action_tx` 休眠 + `action_request_is_dormant_not_delivered`）、`crates/live2d-ai-desktop/src/supervisor.rs`（rc.2 删除注入分支的注释） |
@@ -370,6 +373,8 @@
 >   **已被维护者明确否定**（见 `docs/plans/RESEARCH-actions-director-audit-2026-09-21.md` §3.7 / §3.8 与
 >   `docs/plans/ORCHESTRATOR-PROMPT-actions-performance-round.md` §8）——**不得再作为口径或架构建议引用**。
 >   本段改写由编排者在 W0 收口时执行，理由见本轮交付报告「未做 / 需维护者过目」一节。
+
+**2026-10-07 追加（T9，维护者当轮裁决）**：接管之后，表演层可以读主模型原文里的问句，给这一句补一次歪头和一张思考表情。问句只认 `？` / `?`。这不是把整段回复拿去打五类情绪，也不把标签写进台词。上一段仍然禁止：整篇情绪分类、随机选表情、表情跨轮常驻、照 N.E.K.O 重做一套情绪模型。计划书 `docs/plans/PROMPT-director-expression-2026-10-07.md`。
 
 ### 导演可观测（2026-09-26 阶段5 定）
 

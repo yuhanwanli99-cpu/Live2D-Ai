@@ -438,13 +438,11 @@ class AppColors extends ThemeExtension<AppColors> {
   /// 描边，在白色主题上同样 12% 的黑几乎看不见，反之亦然。所以
   /// [glassScrim] 这类**遮罩**也跟着 [palette] 的亮暗走。
   ///
-  /// [edgeStrength]（2026-09-27）：用户的「描边强度」偏好，**只乘 [hairline]**。
-  /// 不乘 [hoverWash]（那是填充不是描边）、不乘 [focusRing] / 语义色
-  /// ——后两者是可用性下限，审美旋钮不该动它们。
+  /// 发丝线透明度固定：暗色 0.12、亮色 0.10。不乘用户旋钮。
+  /// 焦点环与悬停洗色也不跟这条线走。
   factory AppColors.of(
     ColorScheme scheme,
     AppPalette palette, {
-    double edgeStrength = 1.0,
     AppMaterial material = AppMaterial.neutral,
   }) {
     final Color on = scheme.onSurface;
@@ -453,7 +451,7 @@ class AppColors extends ThemeExtension<AppColors> {
     final Color veil = dark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
     return AppColors(
       // dark 下用 1 px 描边表达层级，而不是投影。
-      hairline: on.withValues(alpha: (dark ? 0.12 : 0.10) * edgeStrength),
+      hairline: on.withValues(alpha: dark ? 0.12 : 0.10),
       hoverWash: on.withValues(alpha: dark ? 0.06 : 0.04),
       glassScrim: veil.withValues(alpha: dark ? 0.60 : 0.72),
       glassBarrier: veil.withValues(alpha: dark ? 0.32 : 0.40),
@@ -463,7 +461,8 @@ class AppColors extends ThemeExtension<AppColors> {
       contentFaint: on.withValues(alpha: 0.68),
       // 键盘焦点环**必须不透明**（对比度要可测）。
       focusRing: scheme.primary,
-      // 玻璃边缘高光的**基色**（见 `GlassRim`）。用 `ink` 而不是写死白：
+      // 玻璃边缘高光的**基色**（原 `GlassRim` 用；2026-10-08 起暂无消费点，
+      // 登记在 `design_tokens_test.dart` 的未接线台账里）。用 `ink` 而不是写死白：
       // 暗主题的墨色是近白（亮边），亮主题的墨色是近黑（暗边）——
       // 这正是「玻璃边缘拾取环境光」的物理直觉，也是四套主题下
       // **同一段代码都看得见**的原因。写死白色会在白色主题上完全消失。
@@ -518,7 +517,7 @@ class AppColors extends ThemeExtension<AppColors> {
   /// 键盘焦点环。
   final Color focusRing;
 
-  /// 玻璃边缘高光的基色（`GlassRim` 用；**只描边、不铺底**）。
+  /// 玻璃边缘高光的基色（原 `GlassRim` 用；**只描边、不铺底**）。
   ///
   /// 刻意不是写死的白色：白色主题上白边等于没有边。取当前主题的墨色，
   /// 亮主题自动变成一道深色细边——观感上仍然是「一圈边缘」，但看得见。

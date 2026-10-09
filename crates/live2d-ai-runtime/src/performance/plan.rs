@@ -8,7 +8,7 @@
 //! {
 //!   "segments": ["嗯……", "我想到了。"],     // 只能切分主模型原文，逐字不变（V1）
 //!   "cues": [
-//!     { "field": "body", "x": 0.0, "y": 0.3, "intensity": 1, "at": "now",   "hold": true },
+//!     { "field": "head", "x": 0.0, "y": 0.3, "z": 0.2, "intensity": 1, "at": "now", "hold": true },
 //!     { "field": "expression", "id": "thinking", "intensity": 1, "at": "seg:2", "hold": false }
 //!   ]
 //! }
@@ -17,8 +17,9 @@
 //! - **segments**：原文的**切分方案**（不是上屏字符串）。核心不变量：
 //!   segments.concat() == 主模型原文（逐码点）——不等 = **整份失败**
 //!   （performance_plan_segments_not_partition）。空原文 → segments: []。
-//! - **cues**：三族表演字段 body / head / expression；同类按 add 合成、
-//!   立即生效不排队。[] = 本轮不动（不是撤销）。
+//! - **cues**：两族表演字段 head / expression（**body 已停用**，T8：交上来就丢该条
+//!   并 warn）；同类按 add 合成、立即生效不排队。[] = 本轮不动（不是撤销）。
+//!   头的 x/y/z 落在现有头部角（ParamAngle*），颈随之转动——**没有新参数**。
 //! - **speak**：v0 旧字段，**保留可解析（弃用，V11）**；只有 segments 缺席时走
 //!   旧路径。与 segments 同现 → **segments 优先、speak 忽略 + warn**（O1）。
 //! - **未知顶层键一律丢弃**（宽容）。
@@ -28,8 +29,24 @@
 //! - 坏 JSON / 顶层不是对象 / 缺 segments（且无 speak）/ 类型不对 / 词表外 field /
 //!   at 非法 / 越界锚点 / 超条数 / 超长 / **拼接不等于原文** → **整份失败** → 引擎回退；
 //! - 轴值越界 / intensity 越界 / ttl_ms 越界 → **钳位**（不是失败）；
-//! - body/expression 给 z、id 给非 expression → **丢该键 + warn**；
-//! - 未知表情 id → **丢该条 cue + warn**（§2.4 #16；整份失败会连带丢语音）。
+//! - expression 给 z/x/y、id 给非 expression → **丢该键 + warn**；
+//! - **field=body → 丢该条 cue + warn**（T8 起只演头与表情；整份失败会连带丢语音，
+//!   代价不对等，所以是丢条而不是失败）；
+//! - 未知表情 id → **丢该条 cue + warn**（§2.4 #16；整份失败会连带丢语音）；
+//! - **expression 的 id 只认表情槽**（[EXPRESSION_PRESET_IDS] = smile / unhappy /
+//!   surprised / thinking，外加撤销哨兵 none）：手势 id（nod / tilt_left / look_up …）
+//!   填进 expression → **丢该条 cue + warn**（T9；整份仍成功——表情表只有脸，
+//!   手势 id 交上来在渲染面本来也会被丢掉）。
+//!
+//! # 问句补丁（T9，2026-10-07）
+//!
+//! 校验**成功之后**，[apply_question_patch](super::question::apply_question_patch)
+//! 用本地词典给「第一处问句所在的那一段」补一次歪头
+//! （head x=0 y=0.12 z=0.45 intensity=2 1800ms）与思考
+//! （expression id=thinking intensity=2 2600ms），两样都锚在该段音频开始。
+//! 该段上模型交来的 head / expression **换成词典值**；别的段原样保留；
+//! segments 一个字不改、不加标签、不随机、不跨轮常驻。没有问号（只认 ？ / ?）
+//! 就什么都不补。legacy speak 路径不补。
 //!
 //! # 为什么 schema 写在代码里
 //!
@@ -40,8 +57,10 @@
 //! # 行数说明（AGENTS.md 豁免）
 //!
 //! 本文件 > 500 行：v1 schema / 严格校验 / 三字段 cue / wire 投影与 v0 legacy
-//! 兼容面同住一处（schema 与校验器**必须同源**）。按「豁免 ≤ 1000 需头注理由」保留
-//! 单文件——4b 授权文件不含新路径，拆文件会被 C1 判为越权。
+//! 兼容面同住一处（schema 与校验器**必须同源**），按「豁免 ≤ 1000 需头注理由」保留。
+//! 2026-10-07（T9）：问句词典拆去同目录的 question.rs（那里是那套值的单一真源），
+//! 本文件因此回到 1000 行以内——上文那句「拆文件会被 C1 判为越权」是 4b 那一轮
+//! 的授权边界记录，T9 的拆分不在它的约束范围。
 //!
 //! # v1 cue 的 wire 投影（B9 / V11 / D27）
 //!
@@ -56,6 +75,8 @@
 //!（[action_cue_payload]），前端→渲染面的 `preset` 消息按 D30 单独透传。
 
 use serde_json::{Map, Value, json};
+
+use super::question::apply_question_patch;
 
 /// 一份 plan 里 cue 的条数上限（防模型灌爆）。
 pub const MAX_CUES: usize = 16;
@@ -90,6 +111,22 @@ pub const DEFAULT_TTL_MS_EXPRESSION: u64 = 2_600;
 /// 「表演层覆盖规则层」的既有抬升口径；数字写在这里而不是从 Mod 引，避免
 /// runtime 反向依赖 Mod crate。
 pub const PRIORITY_PERFORMANCE: u8 = 40;
+
+/// **expression 字段的 id 能力集**（表情表只有脸，V3 / T9）。
+///
+/// 手势 id（nod / shake / look_* / tilt_*）**不得**出现在 expression 上：
+/// 交上来一律丢该条 + warn（整份仍成功），因为渲染面的表情表只有五官。
+/// none 是撤销哨兵，由校验器与 schema 单独补，不在本表里。
+///
+/// 数字写在这里而不是从 Mod crate 引（理由同 [PRIORITY_PERFORMANCE]）：director
+/// 的 preset_slot(id) == Face（去掉 none）必须与这一份**逐项相等**，回归
+/// presets::tests::expression_slot_matches_the_performance_field_map 钉住。
+pub const EXPRESSION_PRESET_IDS: &[&str] = &["smile", "unhappy", "surprised", "thinking"];
+
+/// 该 id 是否是 expression 字段可用的表情 id（none 另算）。
+pub fn is_expression_preset(id: &str) -> bool {
+    EXPRESSION_PRESET_IDS.contains(&id)
+}
 
 /// 三族表演字段（V2 / V3）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,6 +328,11 @@ pub enum PlanWarning {
         /// 第几条 cue（0 基）。
         index: usize,
     },
+    /// `field=body` 已停用 → 丢该条 cue（T8；**不整份失败**）。
+    BodyNotAllowed {
+        /// 第几条 cue（0 基）。
+        index: usize,
+    },
     /// 未知表情 id → 丢该条 cue（§2.4 #16）。
     ExpressionUnknownId {
         /// 第几条 cue（0 基）。
@@ -308,6 +350,7 @@ impl PlanWarning {
             Self::AxisNotAllowed { .. } | Self::IdNotAllowed { .. } => {
                 "performance_axis_not_allowed"
             }
+            Self::BodyNotAllowed { .. } => "performance_plan_body_not_allowed",
             Self::ExpressionUnknownId { .. } => "performance_expression_unknown_id",
         }
     }
@@ -322,8 +365,13 @@ impl PlanWarning {
             Self::IdNotAllowed { index } => {
                 format!("第 {index} 条 cue 的 id 只对 expression 有效：已丢弃该键")
             }
+            Self::BodyNotAllowed { index } => {
+                format!("第 {index} 条 cue 的 field=body 已停用（只演头与表情）：已丢弃该条")
+            }
             Self::ExpressionUnknownId { index, id } => {
-                format!("第 {index} 条 cue 的 expression id={id} 不在能力集内：已丢弃该条")
+                format!(
+                    "第 {index} 条 cue 的 expression id={id} 不是表情槽 id（或不在能力集内）：已丢弃该条"
+                )
             }
         }
     }
@@ -496,7 +544,8 @@ pub fn parse_plan(raw: &str, allow: &[String], source: &str) -> Result<Performan
         }
         return parse_legacy(object, allow);
     }
-    parse_v1(object, allow, source)
+    // 校验**成功之后**才补问句（T9）：失败路径一个字都不补，legacy 路径不走这里。
+    Ok(apply_question_patch(parse_v1(object, allow, source)?))
 }
 
 /// v0 legacy 路径：speak + 按句 preset cue。
@@ -621,9 +670,14 @@ fn parse_v1(
     for (index, cue) in cue_list.iter().enumerate() {
         let cue = cue.as_object().ok_or(PlanError::CueNotObject(index))?;
         let field = match cue.get("field").and_then(Value::as_str) {
-            Some("body") => CueField::Body,
             Some("head") => CueField::Head,
             Some("expression") => CueField::Expression,
+            // 2026-10-07（T8）：`body` 停用（只演头与表情）。丢该条 + warn，
+            // **不整份失败**——整份失败会连带丢掉本轮语音分段，代价远大于少一条身段。
+            Some("body") => {
+                warnings.push(PlanWarning::BodyNotAllowed { index });
+                continue;
+            }
             Some(other) => {
                 return Err(PlanError::UnknownField {
                     index,
@@ -688,7 +742,9 @@ fn parse_v1(
         };
         let id = if field == CueField::Expression {
             let id = id.ok_or(PlanError::CueField { index, field: "id" })?;
-            if id != "none" && !allow.iter().any(|a| a == &id) {
+            // T9：能力集 ∩ **表情槽**。手势 id 填进 expression 同样落这一条
+            // （丢该条 + warn，整份仍成功）——表情表只有脸，写了也会被渲染面丢掉。
+            if id != "none" && !(is_expression_preset(&id) && allow.iter().any(|a| a == &id)) {
                 warnings.push(PlanWarning::ExpressionUnknownId { index, id });
                 continue;
             }
@@ -785,7 +841,13 @@ fn parse_anchor(raw: &str, seg_count: u64) -> Option<CueAnchor> {
 ///
 /// 由本文件的常量拼出——边界就是校验器认的那一份（单一真源）。
 pub fn json_schema_strict(allow: &[String]) -> Value {
-    let mut expression_ids: Vec<Value> = allow.iter().map(|id| json!(id)).collect();
+    // T9：schema 的 expression enum **只留表情槽的 id**（能力集 ∩ 表情槽）+ none。
+    // 手势 id 不进 enum——它进了 enum 就等于邀请模型把它填到 id 上。
+    let mut expression_ids: Vec<Value> = allow
+        .iter()
+        .filter(|id| is_expression_preset(id))
+        .map(|id| json!(id))
+        .collect();
     expression_ids.push(json!("none"));
     json!({
         "type": "object",
@@ -815,7 +877,8 @@ pub fn json_schema_strict(allow: &[String]) -> Value {
                     "properties": {
                         "field": {
                             "type": "string",
-                            "enum": ["body", "head", "expression"]
+                            "description": "只演头与表情；body 已停用（交上来会被丢掉）。",
+                            "enum": ["head", "expression"]
                         },
                         "x": { "type": "number", "minimum": AXIS_MIN, "maximum": AXIS_MAX },
                         "y": { "type": "number", "minimum": AXIS_MIN, "maximum": AXIS_MAX },

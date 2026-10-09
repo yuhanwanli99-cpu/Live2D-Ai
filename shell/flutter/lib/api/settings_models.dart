@@ -385,10 +385,14 @@ ActionSettingsView? effectiveActionScales({
   double? draftBody,
   double? draftExpression,
 }) {
-  if (remote == null && draftHead == null && draftBody == null && draftExpression == null) {
+  if (remote == null &&
+      draftHead == null &&
+      draftBody == null &&
+      draftExpression == null) {
     return null;
   }
-  final ActionSettingsView base = remote ??
+  final ActionSettingsView base =
+      remote ??
       const ActionSettingsView(
         headScale: ActionSettingsView.defaultHeadScale,
         bodyScale: ActionSettingsView.defaultBodyScale,
@@ -398,6 +402,68 @@ ActionSettingsView? effectiveActionScales({
     headScale: draftHead ?? base.headScale,
     bodyScale: draftBody ?? base.bodyScale,
     expressionScale: draftExpression ?? base.expressionScale,
+  );
+}
+
+/// 动作幅度滑条上该显示的数。
+///
+/// 全局三键：草稿压过磁盘。不这么做的话，拖动只改了草稿和舞台，
+/// 滑条仍绑着磁盘值，手指一动滑块就弹回去。
+/// 本模型覆盖：防抖窗口里还没回读完的键压过磁盘上的覆盖，键名是
+/// `head_scale` / `body_scale` / `expression_scale`。
+ActionSettingsView displayActionScales({
+  required ActionSettingsView remote,
+  double? draftHead,
+  double? draftBody,
+  double? draftExpression,
+  String? pendingModelId,
+  Map<String, double> pendingKeys = const <String, double>{},
+}) {
+  final double head = draftHead ?? remote.headScale;
+  final double body = draftBody ?? remote.bodyScale;
+  final double expression = draftExpression ?? remote.expressionScale;
+  final String? pendingId = pendingModelId;
+  final bool pendingHere =
+      pendingId != null &&
+      pendingId.isNotEmpty &&
+      pendingId == remote.activeModelId &&
+      pendingKeys.isNotEmpty;
+  if (!pendingHere) {
+    return ActionSettingsView(
+      headScale: head,
+      bodyScale: body,
+      expressionScale: expression,
+      activeModelId: remote.activeModelId,
+      models: remote.models,
+    );
+  }
+  final String id = pendingId;
+  final ActionModelOverrideView existing =
+      remote.models[id] ??
+      const ActionModelOverrideView(
+        headScale: null,
+        bodyScale: null,
+        expressionScale: null,
+      );
+  final Map<String, ActionModelOverrideView> models =
+      Map<String, ActionModelOverrideView>.of(remote.models);
+  models[id] = ActionModelOverrideView(
+    headScale: pendingKeys.containsKey('head_scale')
+        ? pendingKeys['head_scale']
+        : existing.headScale,
+    bodyScale: pendingKeys.containsKey('body_scale')
+        ? pendingKeys['body_scale']
+        : existing.bodyScale,
+    expressionScale: pendingKeys.containsKey('expression_scale')
+        ? pendingKeys['expression_scale']
+        : existing.expressionScale,
+  );
+  return ActionSettingsView(
+    headScale: head,
+    bodyScale: body,
+    expressionScale: expression,
+    activeModelId: remote.activeModelId,
+    models: models,
   );
 }
 
@@ -436,4 +502,3 @@ class SettingsView {
     );
   }
 }
-

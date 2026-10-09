@@ -264,3 +264,54 @@ fn hud_fields_diag_is_readable() {
     assert!(line.contains("expr:smile[1]"), "{line}");
     assert!(line.contains("clock: Wall"), "{line}");
 }
+
+// ─────────────────────────────────────────── T9 问句补丁的表情（字段通道）
+
+/// **T9（2026-10-07）**：问句补丁用的 thinking 在**字段通道**只写五官五行——
+/// 头角（AngleZ / BodyAngleZ）留在预设包里走 preset_id 通道，口型只归 TTS。
+#[test]
+fn thinking_expression_writes_facial_channels_only() {
+    let map = FieldMap::builtin();
+    let targets = map
+        .expression_targets("thinking")
+        .expect("T9：内建字段表必须有 thinking");
+    let params: Vec<&str> = targets.iter().map(|t| t.param.as_str()).collect();
+    assert_eq!(
+        params,
+        vec![
+            "ParamMouthForm",
+            "ParamEyeLOpen",
+            "ParamEyeROpen",
+            "ParamBrowLY",
+            "ParamBrowRY",
+        ],
+        "thinking 的字段表只抄五官五行（头角在包里，字段通道的歪头由 head.z 负责）"
+    );
+    assert!(!params.contains(&"ParamMouthOpenY"), "口型只归 TTS");
+
+    let mut rt = runtime();
+    let mut sink = FieldSink::default();
+    rt.accept_cue(
+        FieldCue {
+            id: Some("thinking".to_string()),
+            ..cue(Field::Expression, 1, 1)
+        },
+        1_000.0,
+    );
+    let out = rt.frame(1_000.0, &mut sink);
+    assert_eq!(out.writes.len(), 5, "五行五官各写一条：{:?}", out.writes);
+    for w in &out.writes {
+        assert!(
+            FACIAL_PARAMS.contains(&w.param.as_str()),
+            "thinking 不得写五官之外的通道：{}",
+            w.param
+        );
+        assert!(w.param != "ParamMouthOpenY", "导演 cue 不得写口型");
+    }
+    for forbidden in ["ParamMouthOpenY", "ParamAngleZ", "ParamBodyAngleZ"] {
+        assert!(
+            sink.get(forbidden).is_none(),
+            "thinking 抢写了 {forbidden}（字段通道红线）"
+        );
+    }
+}

@@ -80,3 +80,48 @@
 （探活 + 写 base_url），理论上也该一起收编。**本轮只动 TTS**——
 用户只裁了这一条。这处不对称是**已知的**，不是遗漏；
 若要统一，应该一次把「端点自动发现」整体从 Mod 里拿掉，而不是再拆一半。
+## 6. 2026-10-09 追加：「本地拉起」可以回到 Mod 里，但**不许碰端点**
+
+> **本节是追加**：第 1–5 节写的是 2026-09-11 的裁决与当时的实现，**一字不改**
+> （那时被删的 `local-tts` 会「探活 → 改写 `base_url`」，删它是对的）。本轮新增的
+> crate 复用了同一个 id / 显示名，职责收窄到一条：**拉起进程**。
+
+维护者口径（2026-10-09）：允许一个**不改端点**的拉起 Mod。逐条：
+
+| 项 | 本轮口径 |
+| --- | --- |
+| 出声地址 | 仍然只有 `live2d-ai.toml` 的 `[tts]`；「语音合成」设置页是它**唯一**的写入者 |
+| 新 Mod | `crates/live2d-ai-mod-local-tts`（**同一个 crate 两个工厂**）：id `local-tts`（界面名 `本地tts_CosyVoice3-0.5B`）与 id `local-tts-melo`（`本地tts_MeloTTS`）。两者都**缺省停用**，都不进 `cli_entry::default_mods_manifest`；工厂数 6 → **7**（`main.rs::mod_count_is_seven`） |
+| 它做什么 | 只按 `argv`（`program` = argv0 + `args_json` = JSON 字符串数组）`spawn` 一个外部进程。2026-10-09 起 `program` **留空 = 仓库内引擎脚本**（`engine/start.sh` / `melo/start.sh`，编译期锚定），不再等于「没有可执行文件」 |
+| 它**不做**什么 | 不写 `[tts]` 的任何一个键（含 `ModServices.apply_settings`，调用次数**恒为 0**）；不探活；不改请求地址；停用它之后链路继续请求已经配好的地址 |
+| 拉起时机 | `launch_mode`：`with_app`（**缺省**，键缺失也用它；Mod 已启用时 Boot / Enable / Apply / 命令 `launch` 都拉起）/ `on_apply`（只在「保存并应用」与命令 `launch` 时拉起）；**非法值在 `create` 返回 `Err`**，不折成缺省 |
+| spawn 前预检 | 脚本不在 / 权重不在 / 解释器不在 → `start` 返回 `Err`（宿主标 `Failed`）。权重由 `engine/download.sh`（CosyVoice3，落 `weights/`，进 `.gitignore`）或 Git LFS（MeloTTS 的 `checkpoint.pth`）提供；**不重试、不回落仓库外的 `3-start.sh`、不改出声地址** |
+| 进程形态 | `stdin=null`、`stdout` / `stderr` = inherit（**禁止管道**——没人读会把子进程堵死）；**禁止 `sh -c`**，逐参数传；`workdir` 非空才设 `current_dir`，不创建目录 |
+| 挂掉时（维护者原话：「不管」） | spawn 失败 → `start` 返回 `Err` → 宿主现有路径把它标成 `ModStatus::Failed`；不重试、不换地址、不写看门狗、退出后不自动拉起、不把 `Err` 记完日志再返回 `Ok` |
+| 状态面 | `state_json` 只用**非阻塞** `try_wait` 报 `pid` / `child_running` / `exit_code`；`try_wait` 自身出错 → 错误字符串进 `wait_error`，且**不**在快照里再 spawn、不改 `[tts]`、不把失败改写成「在跑」 |
+| 停止失败 | `shutdown` 把子进程句柄**放回**运行时结构再返回该 `Err`；宿主 `disable` 因此把 runtime 放回槽位、不写 `enabled=false`、不写 `mods.json`；`restart` 也就不再 `start`（避免孤儿进程与双份进程） |
+| 老 crate 那种做法 | 「探活再改写 `base_url`」**不恢复**——第 1–5 节的理由一条都没变 |
+
+用户把地址指向本机、对面没有进程时，这一次合成请求按**现有错误帧**失败。
+本轮不加新的失败通路，也不自动改走云端。
+
+实现与单测在 `crates/live2d-ai-mod-local-tts/`；启动原因
+（`StartCause { Boot, Enable, Apply }`）在 `live2d-ai-mod-system`，宿主接线在
+`crates/live2d-ai-desktop/src/mod_registry/registry.rs`；前端把配置按钮文案改成
+「保存并应用」（成功文案「已保存并生效」/「已保存，未启用」，且成功的配置保存
+不再挂「需重新点火」常驻条）。
+
+## 7. 2026-10-09（0.2.3-rc.1）现行口径：出厂出声是 MeloTTS；CosyVoice3 封存、未注册
+
+> 本节是**现行句**。上面 §6 写的是同一轮稍早的状态（两个引擎都缺省停用、工厂数 7），
+> 已被本轮取代，**保留不动**（历史段落不改）。
+
+| 项 | 现行（0.2.3-rc.1） |
+| --- | --- |
+| 出厂出声 | `local-tts-melo`（界面名 `本地tts_MeloTTS`）：`cli_entry::default_mods_manifest` 收录，`enabled: true` + `launch_mode: with_app` —— 开机拉起仓库内 `melo/start.sh`（缺省监听 127.0.0.1:8091） |
+| 出厂 `[tts]` | `base_url = http://127.0.0.1:8091/v1`、`voice = ZH`、`response_format = pcm`、`sample_rate = 44100`、`channels = 1`、**不设密钥**（代码缺省与 `live2d-ai.toml.example` 同步） |
+| CosyVoice3 | `id local-tts` **已封存**：移出 `AVAILABLE_MOD_FACTORIES`，缺省 manifest 不收录，开机不拉起。crate 与 `engine/` **保留在树上**（可编译可测），**还要适配，未适配前不要挂回** |
+| 工厂数 | 6（`external-input` / `persona` / `voice-input` / `memory` / `director` / `local-tts-melo`），`main.rs::mod_count_is_six` 守住 |
+| 子进程立刻非 0 退出 | `start` 返回 `Err`、Mod 状态 `Failed`，**错误里带脚本印出的原因**（子进程 stderr 的尾巴）——不许显示「已启用」而其实没在听端口；退出码 0 同样算失败 |
+| 不许碰的 | 起落 Mod **仍然不写 `[tts]` 的任何键**：`[tts]` 的唯一写入者是「语音合成」设置页（`PATCH /api/v1/settings`）与用户手改 `live2d-ai.toml` |
+| BERT | 中文推理要的 `bert-base-multilingual-uncased` **不入库**；缺它就是失败（错误里逐字写缺的是它），不静默下载完还声称开箱 |

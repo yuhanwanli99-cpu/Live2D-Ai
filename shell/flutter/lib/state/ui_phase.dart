@@ -27,7 +27,10 @@ enum UiPhase {
   /// 空闲。
   idle,
 
-  /// 思考中（本轮已受理、还没开始出声）。
+  /// 正在回复（本轮已受理、还没开始出声）。
+  ///
+  /// 2026-10-08：从「思考中」改名。这个相位说的是**这一轮开始了、还没出声**，
+  /// 与设置里的「思考」（是否生成 reasoning）是两件事，同名会让人以为是它。
   thinking,
 
   /// 说话中（收到 `voice_started`、未收到 `voice_ended`）。
@@ -41,9 +44,9 @@ enum UiPhase {
 
   /// 界面上给人看的短标签。
   String get label => switch (this) {
-    UiPhase.offline => '后端未连接',
+    UiPhase.offline => '没连上',
     UiPhase.idle => '空闲',
-    UiPhase.thinking => '思考中',
+    UiPhase.thinking => '正在回复',
     UiPhase.speaking => '说话中',
     UiPhase.interrupted => '已打断',
     UiPhase.error => '出错',

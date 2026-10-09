@@ -262,8 +262,10 @@ class _ServerMutedBadge extends StatelessWidget {
                 const SizedBox(width: Space.s1),
                 Expanded(
                   child: Text(
-                    // 逐字照抄 §7.2；把环境变量名写出来，用户才知道去哪关。
-                    '服务端静音中（LIVE2D_AI_MUTE_AUDIO=1）——服务端没有发出声音'
+                    // 2026-10-08：不再把启动参数名（LIVE2D_AI_MUTE_AUDIO）写在
+                    // 产品面上——用户在这里无事可做；「去哪关」由开发模式里的
+                    // 「服务端静音」只读行承担。状态本身照说（静音是真的）。
+                    '服务端静音中——服务端没有发出声音'
                     '（任何客户端都听不到，需在启动参数里关闭）',
                     style: text.labelSmall?.copyWith(
                       color: appPaletteOf(context).warning,

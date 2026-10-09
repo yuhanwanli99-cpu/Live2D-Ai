@@ -38,27 +38,26 @@ String memoryCountText(Object? value) {
   return '—';
 }
 
-/// 运行态摘要一行：条数 / 命中 / 注入 / 淘汰 / 上轮命中。纯函数，可单测。
+/// 运行态摘要一行：**只留条数**（2026-10-08）。纯函数，可单测。
+///
+/// 从前这一行把 hits / injects / evicted / last_hits 全摊开——那些是检索内部
+/// 计数，用户既看不懂也不处置得了。用户要知道的只有「记住了多少」。
+/// 缺 `records`（还没读到）时照旧显示 `—`，不假装是 0。
 String memorySummaryLine(Map<String, Object?>? state) {
   final Map<String, Object?> s = state ?? const <String, Object?>{};
-  return '记忆条数 ${memoryCountText(s['records'])} 条'
-      ' · 累计命中 ${memoryCountText(s['hits'])} 次'
-      ' · 注入 ${memoryCountText(s['injects'])} 轮'
-      ' · 已淘汰 ${memoryCountText(s['evicted'])} 条'
-      ' · 上轮命中 ${memoryCountText(s['last_hits'])} 条';
+  return '记住了 ${memoryCountText(s['records'])} 条';
 }
 
-/// 桶的说明（有会话 = 会话桶；没有 = 全局桶降级）。纯函数，可单测。
+/// 记忆放在哪的说明（2026-10-08：说人话，不出现「桶」）。纯函数，可单测。
 ///
-/// `activeSessionId == null` 时必须**说清降级**，不能假装绑好了——这是
-/// L1 验收句「还没有会话：记忆会落到全局桶（与所有会话共享）」的 UI 落点。
+/// `activeSessionId == null` 时必须**说清降级**，不能假装绑好了：这时记的东西
+/// 先汇总在一起，等有会话了再按会话分开。
 String memoryBucketNotice(String? activeSessionId) {
   final String id = activeSessionId?.trim() ?? '';
   if (id.isEmpty) {
-    return '还没有会话：记忆会落到全局桶（与所有会话共享）。'
-        '发一条消息后，面板会切到该会话自己的桶。';
+    return '还没有对话。记住的内容先放到一起，开始聊天后再按这次对话分开。';
   }
-  return '当前会话桶：$id（只影响这个会话）。切换会话后，面板显示的是另一个桶。';
+  return '只看这次对话记住的内容。';
 }
 
 /// 一条记录的展示文本：压平空白 + 截断（面板不把整段糊上来）。纯函数，可单测。
@@ -105,13 +104,13 @@ Map<String, Object?> memoryCommandArgs({
 String memoryCommandErrorMessage(ApiException e, String action) {
   switch (e.code) {
     case 'command_unavailable':
-      return '$action失败（503 command_unavailable：Mod 未启用或正忙），可稍后重试';
+      return '$action失败：Mod 未启用或正忙，可稍后重试（503 command_unavailable）';
     case 'unsupported_command':
-      return '$action失败（409 unsupported_command）：服务端这个版本不认识这条命令';
+      return '$action失败：服务端这个版本不认识这条命令（409 unsupported_command）';
     case 'command_failed':
-      return '$action失败（409 command_failed）：${e.message}';
+      return '$action失败：${e.message}（409 command_failed）';
     case 'not_found':
-      return '$action失败（404 not_found）：这个 Mod 不在服务端注册表';
+      return '$action失败：这个 Mod 不在服务端注册表（404 not_found）';
     default:
       return '$action失败：$e';
   }
@@ -136,10 +135,6 @@ Map<String, Object?>? memoryParseObject(Object? raw) {
 Map<String, Object?>? memorySummaryState(Map<String, Object?>? state) =>
     memoryParseObject(state == null ? null : state['summary']);
 
-/// 当前生效摘要版本号（0 = 无摘要）。纯函数，可单测。
-int memorySummaryVersion(Map<String, Object?> summary) =>
-    (summary['version'] as num?)?.toInt() ?? 0;
-
 /// 摘要正文（空 / 缺失 -> null：空摘要按「没有」处理）。纯函数，可单测。
 String? memorySummaryText(Map<String, Object?> summary) {
   final Object? raw = summary['text'];
@@ -148,41 +143,38 @@ String? memorySummaryText(Map<String, Object?> summary) {
   return trimmed.isEmpty ? null : trimmed;
 }
 
-/// 摘要状态一行：版本 / 覆盖位点 / 桶占比 / 冷却。纯函数，可单测。
-String memorySummaryStatusLine(Map<String, Object?> summary) {
-  if (summary['enabled'] != true) {
-    return '未启用（缺省关闭；需要 summary_base_url 与 summary_model）';
-  }
-  final int version = memorySummaryVersion(summary);
-  final String pending = summary['pending'] == true ? '正在后台生成…' : '空闲';
-  final Object? ratio = summary['bucket_ratio'];
-  final String pct = ratio is num ? '${(ratio * 100).round()}%' : '—';
-  final String error = summary['last_error'] is String
-      ? ' · 上次失败：${summary['last_error']}'
-      : '';
-  if (version == 0) {
-    return '还没有摘要（$pending；桶内原文占注入预算 $pct）$error';
-  }
-  return '当前 v$version · 压缩了前 ${memoryCountText(summary['covers_upto'])} 条原文'
-      ' · 桶内原文占注入预算 $pct · $pending$error';
-}
-
-/// 一句话口径：摘要从哪来、怎么回滚。纯函数，可单测。
-String memorySummaryHint(Map<String, Object?> summary) {
-  final String note = summary['note'] is String &&
-          (summary['note']! as String).trim().isNotEmpty
-      ? '（${summary['note']}）'
-      : '';
-  final String kept = memoryCountText(summary['kept_recent']);
-  return '桶内原文超过注入预算的阈值后，会在后台把更早的历史压成一段摘要，'
-      '最近 $kept 轮保持原文$note。回滚只丢当前这版摘要——原文一条没删，'
-      '被它覆盖的原文会重新参与检索。';
-}
 class MemoryPanel extends ModPanel {
   const MemoryPanel();
 
   @override
   String get modId => 'memory';
+
+  /// `store_path`：产品界面**一个都不画**（也不收进「高级」）——库放哪是部署细节。
+  ///
+  /// 键仍被解析，`mods.json` 里已有的值保存时原样带走
+  ///（见 `dev_tools_mod_config.dart` 的 `_buildConfig`）。
+  @override
+  Set<String> get hiddenKeys => const <String>{'store_path'};
+
+  /// 其余 10 个键：**开发模式才画**（产品面不画、保存时原样带走）。
+  ///
+  /// 与 `memory_settings_spec()` 逐键对应，**一个不漏**：检索条数 / 条数上限
+  /// + 摘要子系统的 8 项。它们是调参与排障旋钮，不是产品面该摆的开关。
+  @override
+  Set<String> get devKeys => const <String>{
+    'top_k',
+    'max_records',
+    'summary_enabled',
+    'summary_base_url',
+    'summary_model',
+    'summary_api_key_env',
+    'summary_timeout_ms',
+    'summary_ratio',
+    'summary_cooldown_turns',
+    'summary_keep_recent_turns',
+  };
+
+  // 2026-10-09：fieldHelp 已退役（三级功能介绍全删）。
 
   @override
   Map<String, String> get stateLabels => const <String, String>{
@@ -266,13 +258,16 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     // 再为新桶取数。取数期间 `_recordsSessionId` 仍是旧桶 ⇒ [_bucketStale]
     // 为真 ⇒ 按钮失效；新桶的响应落地后一切复原。
     if (oldWidget.ctx.activeSessionId != widget.ctx.activeSessionId) {
+      // **只改字段**（didUpdateWidget 之后框架本来就会重建一次，这里 setState
+      // 是多余的，还会在「父级 build 期间」留下一次额外标记）。
       _records = const <Map<String, Object?>>[];
       _total = null;
       _bucket = null;
       _listError = null;
       _listLoading = true;
       _message = null;
-      unawaited(_refreshList());
+      // 取数走 `initial: true`：它**不在 await 之前** setState，响应落地才更新。
+      unawaited(_refreshList(initial: true));
     }
   }
 
@@ -485,53 +480,35 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     );
   }
 
+  /// 「压缩过的记忆」块（2026-10-08 瘦身）：**有正文才画**，只画标题 + 正文。
+  ///
+  /// 拿掉了版本号、覆盖位点、桶占比、冷却状态与「回滚上一版摘要」——那一整块
+  /// 是摘要子系统的内部状态，用户唯一会用的是「看看它压成了什么」，回滚则属于
+  /// 排障（保留在 Mod 命令通道里，面板不摆按钮）。没有摘要就不画这块。
   Widget _summarySection(BuildContext context, ModPanelContext ctx) {
     final ThemeData theme = Theme.of(context);
     final AppColors colors = appColorsOf(context);
-    final TextStyle? muted = theme.textTheme.bodySmall?.copyWith(
-      color: colors.contentMuted,
-    );
     final Map<String, Object?>? summary = memorySummaryState(ctx.state);
     if (summary == null) return const SizedBox.shrink();
-    final int version = memorySummaryVersion(summary);
-    // 切桶取数窗口里一律不准动（F-0004-1）：下面那几行可能还是旧桶的
-    // 记录 id，而 `ctx` 已经改成新会话了 —— 放行就是跨桶写。
-    final bool canAct = ctx.enabled && !_busy && !_bucketStale;
+    final String? body = memorySummaryText(summary);
+    if (body == null) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text('记忆摘要', style: theme.textTheme.titleSmall),
+        Text('压缩过的记忆', style: theme.textTheme.titleSmall),
         const SizedBox(height: Space.s1),
-        Text(memorySummaryStatusLine(summary), style: theme.textTheme.bodySmall),
-        const SizedBox(height: Space.s1),
-        Text(memorySummaryHint(summary), style: muted),
-        if (memorySummaryText(summary) != null) ...<Widget>[
-          const SizedBox(height: Space.s1),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(Space.s1),
-            decoration: BoxDecoration(
-              border: Border.all(color: colors.hairline),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: Text(
-              memorySummaryText(summary)!,
-              style: theme.textTheme.bodySmall,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-            ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(Space.s1),
+          decoration: BoxDecoration(
+            border: Border.all(color: colors.hairline),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
           ),
-        ],
-        const SizedBox(height: Space.s1),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            key: const Key('memory-summary-rollback-button'),
-            onPressed: canAct && version > 0
-                ? () => unawaited(_rollbackSummary())
-                : null,
-            icon: const Icon(Icons.undo, size: 16),
-            label: const Text('回滚上一版摘要'),
+          child: Text(
+            body,
+            style: theme.textTheme.bodySmall,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
         const SizedBox(height: Space.s3),
@@ -539,25 +516,6 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     );
   }
 
-  /// summary_rollback：失败走统一的带码文案（不谎报成功）。
-  Future<void> _rollbackSummary() async {
-    await _send(
-      '回滚摘要',
-      'summary_rollback',
-      memoryCommandArgs(sessionId: _recordsSessionId),
-      (ModCommandResult result) {
-        final Map<String, Object?>? info = memoryParseObject(
-          result.result['rolled_back'],
-        );
-        final int droppedVersion = (info?['version'] as num?)?.toInt() ?? 0;
-        final int now = (result.result['version'] as num?)?.toInt() ?? 0;
-        return now == 0
-            ? '已回滚，丢弃 v$droppedVersion：现在没有摘要，注入回到原文命中'
-                '（原文一条没删）'
-            : '已回滚，丢弃 v$droppedVersion：当前生效 v$now';
-      },
-    );
-  }
   Widget _recordRow(
     BuildContext context,
     ModPanelContext ctx,
@@ -610,7 +568,12 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
     );
     // 切桶取数窗口里一律不准动（F-0004-1）：下面那几行可能还是旧桶的
     // 记录 id，而 `ctx` 已经改成新会话了 —— 放行就是跨桶写。
-    final bool canAct = ctx.enabled && !_busy && !_bucketStale;
+    //
+    // 「刷新」**不看** `_bucketStale`（2026-10-08）：它的职责正是把当前桶的
+    // 列表拉回来，锁上它等于「切桶失败后没有出路」；`list` 失败后也必须仍
+    // 可点。导入 / 编辑 / 删除 / 清空才需要「快照 == 当前会话且不在读取中」。
+    final bool canRefresh = ctx.enabled && !_busy;
+    final bool canAct = ctx.enabled && !_busy && !_bucketStale && !_listLoading;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -632,14 +595,6 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
           dense: true,
         ),
         const SizedBox(height: Space.s2),
-        // 一句话说清边界（用户裁决：不要把契约全文塞进面板）。
-        // 「注入开关」只决定拼不拼；它不是 Mod 启停。会话绑定下记忆与人设
-        // 按来源槽叠加、互不覆盖；只有全局人设是后写覆盖。
-        Text(
-          '注入开关只决定要不要把命中的记忆拼进本轮提示词（关掉后记忆照记）；'
-          '它与 Mod 启停是两件事。会话绑定下记忆与人设按来源槽叠加、互不覆盖。',
-          style: muted,
-        ),
         const SizedBox(height: Space.s3),
 
         // ---- 主动管理：导入一条 ----
@@ -655,7 +610,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
                 maxLines: 2,
                 enabled: canAct,
                 decoration: const InputDecoration(
-                  hintText: '要记住的一句话（会落到上面的桶）',
+                  hintText: '要记住的一句话',
                   isDense: true,
                   border: OutlineInputBorder(),
                 ),
@@ -681,7 +636,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
             const Spacer(),
             TextButton.icon(
               key: const Key('memory-refresh-button'),
-              onPressed: canAct ? () => unawaited(_refreshList()) : null,
+              onPressed: canRefresh ? () => unawaited(_refreshList()) : null,
               icon: const Icon(Icons.refresh, size: 16),
               label: const Text('刷新'),
             ),
@@ -697,7 +652,7 @@ class _MemoryPanelBodyState extends State<_MemoryPanelBody> {
         else if (_listError != null)
           InlineNotice(message: _listError!, dense: true)
         else if (_records.isEmpty)
-          Text('这个桶里还没有记忆——上面导入一条，或先聊一句。', style: muted)
+          Text('还没有记住任何内容——上面导入一条，或先聊一句。', style: muted)
         else
           ..._records.map(
             (Map<String, Object?> record) => _recordRow(context, ctx, record),

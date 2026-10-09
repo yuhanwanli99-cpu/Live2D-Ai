@@ -469,6 +469,7 @@ mod ws_unit_tests {
         assert_eq!(v["type"], "text_delta");
         assert_eq!(v["data"]["epoch"], 4);
         assert_eq!(v["data"]["completed"], true);
+        assert!(v["data"].get("sentence_seq").is_none(), "完成锚点不带句号");
     }
 
     /// 2026-09-13：思考（`reasoning_content`）投影成**独立**帧类型
@@ -509,6 +510,7 @@ mod ws_unit_tests {
         let text = AppEvent::Conversation(ConversationUiEvent::TextDelta {
             epoch: 1,
             ts_ms: 2,
+            sentence_seq: 1,
             text: "正文".to_string(),
         });
         let err = AppEvent::Error(crate::app_event::AppErrorEvent {
@@ -614,12 +616,14 @@ mod ws_unit_tests {
         let ev = AppEvent::Conversation(ConversationUiEvent::TextDelta {
             epoch: 7,
             ts_ms: 123,
+            sentence_seq: 2,
             text: "你好".to_string(),
         });
         let v = app_event_to_ws_frame(&ev).expect("must map");
         assert_eq!(v["type"], "text_delta");
         assert_eq!(v["data"]["epoch"], 7);
         assert_eq!(v["data"]["ts_ms"], 123);
+        assert_eq!(v["data"]["sentence_seq"], 2);
         assert_eq!(v["data"]["text"], "你好");
         // 兼容兜底：text_delta 帧**不**带 completed（仅 GenerationFinished
         // 路径有；前端在 text_delta 命中 + 后续 turn_state 到达时收口）。
@@ -634,6 +638,7 @@ mod ws_unit_tests {
         let ev = AppEvent::Conversation(ConversationUiEvent::TextDelta {
             epoch: 0,
             ts_ms: 0,
+            sentence_seq: 1,
             text: String::new(),
         });
         let v = app_event_to_ws_frame(&ev).expect("must map");

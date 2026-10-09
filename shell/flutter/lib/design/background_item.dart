@@ -152,12 +152,8 @@ enum BackgroundImageState {
 /// 它们住在项上而不是另开一张表，是因为与「哪一项」同生命周期——
 /// 删除、排序、轮播都只动一个列表。
 ///
-/// **三项都会落盘**（`toJson` 只写非 null 的那几个）。所以从字节库补回字节时
-/// 必须**原样保留**（`copyWith(dataUrl: …)`）：直接 new 一个
-/// `BackgroundImage(id: …)` 会把用户调过的逐图样式静默清空。
-///
-/// 合法区间见 [BackgroundStyleRange]；越界的读入值一律当「没设过」（回落全局），
-/// 而不是回落「默认档」——后者会凭空改变观感（全局 contain + 坏值 ≠ cover）。
+/// 2026-10-07 起这三项不再落盘：`fromJson` 忽略旧键，`toJson` 不写它们。
+/// 字段留在类上，水合仍用 `copyWith(dataUrl:)` 补字节。产品路径上它们保持 null。
 /// 一张导入的图片：**身份 + 字节**。
 ///
 /// # 为什么是「一个 id + 可选的字节」，而不是「一段 dataURL」
@@ -294,71 +290,23 @@ final class BackgroundImage extends BackgroundItem {
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': 'image',
     'id': id,
-    // 只写**设过**的那几项：null 写进去是噪音，读回来还是 null。
-    if (opacity != null) 'opacity': opacity,
-    if (fit != null) 'fit': fit,
-    if (align != null) 'align': align,
   };
 
   static BackgroundImage? fromJson(Map<Object?, Object?> raw) {
-    // 逐图样式：**坏值 = 没设过**（回落全局），而不是回落「默认档」。
-    // 理由：全局值才是这一项没覆盖时用户看到的样子；把坏值塞回默认档会让
-    // 「全局 contain + 这一项坏值」变成 cover，凭空改变观感。
-    final double? styleOpacity = _readStyleOpacity(raw['opacity']);
-    final int? styleFit = _readStyleInt(
-      raw['fit'],
-      BackgroundStyleRange.minFit,
-      BackgroundStyleRange.maxFit,
-    );
-    final int? styleAlign = _readStyleInt(
-      raw['align'],
-      BackgroundStyleRange.minAlign,
-      BackgroundStyleRange.maxAlign,
-    );
+    // 逐图 opacity / fit / align：旧键忽略。铺法与遮罩已固定，不再按项覆盖。
     final Object? rawId = raw['id'];
     if (rawId is String && rawId.isNotEmpty) {
-      return BackgroundImage(
-        id: rawId,
-        dataUrl: _legacyBytes(raw),
-        opacity: styleOpacity,
-        fit: styleFit,
-        align: styleAlign,
-      );
+      return BackgroundImage(id: rawId, dataUrl: _legacyBytes(raw));
     }
-    // 旧档：只有 dataUrl。id 由内容算 ⇒ 同一张图前后一致。
     final String? url = _legacyBytes(raw);
     if (url == null) return null;
-    return BackgroundImage(
-      id: backgroundIdOf(url),
-      dataUrl: url,
-      opacity: styleOpacity,
-      fit: styleFit,
-      align: styleAlign,
-    );
+    return BackgroundImage(id: backgroundIdOf(url), dataUrl: url);
   }
 
   /// 旧档里那一段（可能不存在 / 不合法）。
   static String? _legacyBytes(Map<Object?, Object?> raw) {
     final Object? url = raw['dataUrl'];
     return url is String && url.isNotEmpty ? url : null;
-  }
-
-  /// 读逐图不透明度：非数字 / 非有限 / 越界一律当「没设过」。
-  static double? _readStyleOpacity(Object? raw) {
-    if (raw is! num) return null;
-    final double value = raw.toDouble();
-    if (!value.isFinite) return null;
-    if (value < BackgroundStyleRange.minOpacity ||
-        value > BackgroundStyleRange.maxOpacity) {
-      return null;
-    }
-    return value;
-  }
-
-  /// 读逐图枚举覆盖：非 int / 越界一律当「没设过」。
-  static int? _readStyleInt(Object? raw, int min, int max) {
-    if (raw is! int) return null;
-    return (raw < min || raw > max) ? null : raw;
   }
 
   @override

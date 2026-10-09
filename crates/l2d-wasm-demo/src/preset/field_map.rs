@@ -210,6 +210,19 @@ impl FieldMap {
                     ],
                 },
                 ExpressionEntry {
+                    // T9（2026-10-07）：问句补丁的思考表情。**只抄五官五行**——
+                    // 预设包里的 AngleZ / BodyAngleZ 走 preset_id 通道；字段通道的
+                    // 歪头由补丁的 head.z 负责，避免两路叠加。
+                    id: "thinking".to_string(),
+                    targets: vec![
+                        target("ParamMouthForm", 0.0),
+                        target("ParamEyeLOpen", 0.55),
+                        target("ParamEyeROpen", 0.55),
+                        target("ParamBrowLY", -0.45),
+                        target("ParamBrowRY", -0.45),
+                    ],
+                },
+                ExpressionEntry {
                     id: "surprised".to_string(),
                     targets: vec![
                         target("ParamEyeLOpen", 1.26),

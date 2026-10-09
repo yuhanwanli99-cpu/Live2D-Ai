@@ -31,6 +31,7 @@ pub mod registry;
 pub mod services;
 pub mod session;
 pub mod settings;
+pub mod start_cause;
 pub mod status;
 pub mod topics;
 
@@ -48,6 +49,7 @@ pub use session::{
     compose_session_prompt, owner_merge_rank, sanitize_session_id,
 };
 pub use settings::{ModSettingField, ModSettingsSpec, SelectOption};
+pub use start_cause::{StartCause, set_start_cause, start_cause};
 pub use status::ModStatus;
 pub use topics::ModEventTopic;
 

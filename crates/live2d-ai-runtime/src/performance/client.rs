@@ -94,6 +94,10 @@ pub trait PerformanceClient: Send + Sync + fmt::Debug {
     fn enabled(&self) -> bool;
     /// 客户端种类（状态面可观察）：`"disabled"` / `"openai"` / `"injected"`。
     fn kind(&self) -> &'static str;
+    /// 该客户端会用的模型名（装配测试 / 排障；缺省空串 = 不知道）。
+    fn model(&self) -> &str {
+        ""
+    }
     /// 是否已解析出一把 API key（**布尔可以出门，值不可以**）。
     fn has_api_key(&self) -> bool;
     /// 非流式补全；`None` = 失败 / 超时 / 未配置（调用方静默回退）。
@@ -248,6 +252,11 @@ impl OpenAiPerformanceClient {
     }
 
     /// 组装请求体；`structured` 决定带不带 response_format。
+    ///
+    /// **思考恒关**（2026-10-08）：二路要的是一份短 JSON，不是推理过程；
+    /// DeepSeek 官方 Chat Completions 的思考缺省是**开**的，所以必须显式发
+    /// `thinking: {"type": "disabled"}`——不写字段等于让上游继续想。
+    /// `temperature` 与思考模式互不生效，不靠它关思考。
     fn build_body(&self, system: &str, user: &str, structured: bool) -> Value {
         let mut body = json!({
             "model": self.model,
@@ -257,6 +266,7 @@ impl OpenAiPerformanceClient {
             ],
             "stream": false,
             "temperature": 0,
+            "thinking": {"type": "disabled"},
             "max_tokens": MAX_TOKENS,
         });
         if structured {
@@ -303,6 +313,10 @@ impl PerformanceClient for OpenAiPerformanceClient {
 
     fn kind(&self) -> &'static str {
         "openai"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
     }
 
     fn has_api_key(&self) -> bool {
@@ -504,6 +518,10 @@ mod wire_tests {
             "{raw}"
         );
         assert!(raw.contains("\"stream\":false"), "{raw}");
+        assert!(
+            raw.contains("\"thinking\":{\"type\":\"disabled\"}"),
+            "二路请求体必须显式关思考（缺省 = 上游继续想）：{raw}"
+        );
         assert!(raw.contains("\"model\":\"director-model\""), "{raw}");
         assert!(raw.contains("\"json_schema\""), "{raw}");
         assert!(raw.contains("\"strict\":true"), "{raw}");
@@ -548,6 +566,13 @@ mod wire_tests {
         assert_eq!(raws.len(), 2, "auto 必须先 json_schema 再 prompt");
         assert!(raws[0].contains("\"response_format\""));
         assert!(!raws[1].contains("\"response_format\""));
+        // 降级重发同样带关思考（两条路都不能漏）。
+        for raw in &raws {
+            assert!(
+                raw.contains("\"thinking\":{\"type\":\"disabled\"}"),
+                "{raw}"
+            );
+        }
         assert!(
             raws[1].contains("只输出 JSON"),
             "降级请求要带 JSON-only system"

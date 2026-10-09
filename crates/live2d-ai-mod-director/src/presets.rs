@@ -2,11 +2,12 @@
 //!
 //! # 范围（严格按任务书）
 //!
-//! v3（2026-09-23）把「包」收成两族、主 allowlist 精简到 9 条：
+//! v3（2026-09-23）把「包」收成两族；T9（2026-10-07）加上 `thinking` /
+//! `look_up` / `look_down`，主 allowlist 12 条：
 //! - **表情包**（expression）：`smile` / `unhappy`（intensity morph sad→angry）/
-//!   `surprised`；
+//!   `surprised` / `thinking`（T9，2026-10-07）；
 //! - **手势包**（motion）：`nod` / `shake` / `look_left` / `look_right` /
-//!   `tilt_left` / `tilt_right`。
+//!   `tilt_left` / `tilt_right` / `look_up` / `look_down`（T9）。
 //!
 //! 具体参数写在外置 `assets/actions/presets.json` 里，本表只持 **id 契约**
 //! （allowlist + 面板选项 + 二路能力集三处共用同一个常量）。v2 的旧 id 已于
@@ -34,10 +35,13 @@ pub const PRESET_IDS: &[&str] = &[
     "smile",
     "unhappy",
     "surprised",
+    "thinking",
     "nod",
     "shake",
     "look_left",
     "look_right",
+    "look_up",
+    "look_down",
     "tilt_left",
     "tilt_right",
 ];
@@ -54,9 +58,8 @@ pub enum PresetSlot {
 /// 该 id 的槽位（未知 id → [`PresetSlot::Face`]，也就是「按表情处理」）。
 pub fn preset_slot(id: &str) -> PresetSlot {
     match id {
-        "nod" | "shake" | "look_left" | "look_right" | "tilt_left" | "tilt_right" => {
-            PresetSlot::Gesture
-        }
+        "nod" | "shake" | "look_left" | "look_right" | "tilt_left" | "tilt_right" | "look_up"
+        | "look_down" => PresetSlot::Gesture,
         _ => PresetSlot::Face,
     }
 }
@@ -229,15 +232,29 @@ pub fn preset_options() -> Vec<String> {
 /// - 用 [crate::decision::derive]（词表打分）+ 缺省映射表，经
 ///   [PresetTable::resolve_slots] 给出**手势 + 表情**（v3 允许同轮双槽）；
 /// - **只给第 1 句**（规则不按句对齐——那是表演层的职责）；
-/// - 选不出（中性闲聊 / 焦虑 / 告别缺省 none）→ 空表。
+/// - 选不出（中性闲聊 / 焦虑 / 告别缺省 none）→ 空表；
+/// - **T9（2026-10-07）**：正文含 ？ / ? 时，还空着的槽补默认值——手势槽空 →
+///   tilt_left，表情槽空 → thinking（已有的问候点头 / 情绪脸优先，不被问号挤掉）。
+///   问句判据与 runtime 的问句补丁**共用同一份**（has_question_mark，只认 ？/?），
+///   所以这里补出来的两条与表演层的问句补丁是同一对 id。
 ///
 /// 单一真源说明：预设 id 集合与映射表都住本 crate（[`PRESET_IDS`] /
 /// [`PresetTable::default`]），表演层通过 host 注入的闭包调用它。
 pub fn rule_cues_for_text(text: &str) -> Vec<live2d_ai_runtime::performance::PerformanceCue> {
     let decision = crate::decision::derive(text, crate::DEFAULT_LEXICON);
-    PresetTable::default()
-        .resolve_slots(decision.emotion, decision.intent)
-        .into_iter()
+    let table = PresetTable::default();
+    let mut ids = table.resolve_slots(decision.emotion, decision.intent);
+    // T9：问句补默认值（只补空槽；已有的手势 / 表情一律留着）。判据与
+    // runtime 的问句补丁同源，表情 id 也直接引那边那一个常量。
+    if live2d_ai_runtime::performance::has_question_mark(text) {
+        if !ids.iter().any(|id| preset_slot(id) == PresetSlot::Gesture) {
+            ids.push("tilt_left");
+        }
+        if !ids.iter().any(|id| preset_slot(id) == PresetSlot::Face) {
+            ids.push(live2d_ai_runtime::performance::QUESTION_EXPRESSION_ID);
+        }
+    }
+    ids.into_iter()
         .map(|id| live2d_ai_runtime::performance::PerformanceCue {
             sentence_seq: 1,
             preset_id: id.to_string(),
@@ -414,7 +431,8 @@ mod tests {
             ("deny", "_shake_strong"),
             ("bow", "_slight"),
             ("shy", "_look_down"),
-            ("look", "_up"),
+            // ("look", "_up") 已于 T9（2026-10-07）**重新启用为正式包名**
+            // （look_up = 抬头看）——它不再是「已删除的旧 id」，故从本清单移除。
             ("ponder", "_tilt"),
         ]
         .iter()

@@ -50,44 +50,13 @@ extension DisplayPrefsLimits on DisplayPrefs {
     return value.clamp(DisplayPrefs.minBackgroundOpacity, DisplayPrefs.maxBackgroundOpacity);
   }
 
-  /// 界面透明度夹到 `[0, 1]`；非有限数回落默认（不透明）。
+  /// 界面透明度夹到 `[0, 1]`；非有限数回落默认。
   static double clampUiTransparency(double value) {
     if (!value.isFinite) return DisplayPrefs.defaultUiTransparency;
     return value.clamp(0.0, DisplayPrefs.maxUiTransparency);
   }
 
-  /// 背景模糊夹到 `[0, DisplayPrefs.maxBackgroundBlur]`；非有限数回落默认（不模糊）。
-  static double clampBackgroundBlur(double value) {
-    if (!value.isFinite) return DisplayPrefs.defaultBackgroundBlur;
-    return value.clamp(0.0, DisplayPrefs.maxBackgroundBlur);
-  }
-
-  /// 平铺贴片边长夹到 `[DisplayPrefs.minTileSize, DisplayPrefs.maxTileSize]`；非有限数回落默认。
-  ///
-  /// 这里用**端点夹持**（与 scale / volume 同一条纪律）：它是数值区间，
-  /// 端点没有枚举语义，夹到端点永远比「静默换一个值」更接近用户意图。
-  static double clampTileSize(double value) {
-    if (!value.isFinite) return DisplayPrefs.defaultTileSize;
-    return value.clamp(DisplayPrefs.minTileSize, DisplayPrefs.maxTileSize);
-  }
-
-
-
-  /// 整数夹到区间；越界回落**默认值**（而不是区间端点）。
-  ///
-  /// 为什么不是端点：`scrim` 的 0 是 `auto`、1 是「无」，把一个坏值夹到 1
-  /// 会把用户的背景变得不可读；回落默认才是「不知道就按默认来」。
-  ///
-  /// **本轮不动它**（DEC-1 明确）：要端点夹持的字段用 [_clampIntToRange]。
-  static int _clampInt(int value, int min, int max, int fallback) {
-    if (value < min || value > max) return fallback;
-    return value;
-  }
-
-  /// 整数**端点夹持**（DEC-1 新增；与 [_clampInt] 并列、语义不同）。
-  ///
-  /// 为什么另开一个而不是改 [_clampInt]：那个函数的「越界回落默认」是
-  /// `scrim` 的语义，改掉会把用户的背景变得不可读。
+  /// 整数端点夹持（DEC-1）。`slideInterval` 用它：越界回落 0 会把轮播关掉。
   static int _clampIntToRange(int value, int min, int max) {
     if (value < min) return min;
     if (value > max) return max;
@@ -138,12 +107,6 @@ extension DisplayPrefsLimits on DisplayPrefs {
   static double clampVolume(double value) {
     if (!value.isFinite) return DisplayPrefs.defaultVolume;
     return value.clamp(DisplayPrefs.minVolume, DisplayPrefs.maxVolume);
-  }
-
-  /// 描边强度夹到区间；非有限值回落默认（不缩放）。
-  static double clampEdgeStrength(double value) {
-    if (!value.isFinite) return DisplayPrefs.defaultEdgeStrength;
-    return value.clamp(DisplayPrefs.minEdgeStrength, DisplayPrefs.maxEdgeStrength);
   }
 
 }

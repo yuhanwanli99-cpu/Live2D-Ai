@@ -49,7 +49,7 @@ class _Host extends StatefulWidget {
 }
 
 class _HostState extends State<_Host> {
-  SettingsSection section = SettingsSection.appearance;
+  SettingsSection section = SettingsSection.theme;
 
   /// 消息列表（测试用：`bump` 会往里塞消息，触发外壳重建）。
   final List<ChatMessage> messages = <ChatMessage>[];
@@ -121,7 +121,7 @@ void main() {
       expect(inits, 1);
     });
 
-    testWidgets('**切换 8 个分区** → 仍是同一个舞台实例', (WidgetTester tester) async {
+    testWidgets('**切换 7 个分区** → 仍是同一个舞台实例', (WidgetTester tester) async {
       final int inits = await runScenario(
         tester,
         actions: (WidgetTester t) async {
@@ -247,7 +247,8 @@ void main() {
       await tester.pumpWidget(build(WsStatus.disconnected));
       await tester.pumpAndSettle();
       expect(inits, 1, reason: '断线只是加一层横幅，不能重建 iframe');
-      expect(find.textContaining('后端未连接'), findsWidgets);
+      expect(find.text('没连上（重连中）· 点此重试'), findsOneWidget);
+      expect(find.textContaining('后端未连接'), findsNothing);
     });
   });
 

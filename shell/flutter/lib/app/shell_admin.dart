@@ -19,6 +19,13 @@ extension _ShellAdminWiring on _ShellRootState {
       final bool dev = status['dev_mode'] == true;
       if (mounted && dev != _devMode) {
         _devMode = dev;
+        // 2026-10-09：一级「诊断」已取消（内容收进「开发模式」页，且只在
+        // devMode 为真时渲染）⇒ **没有任何一级分区会随 dev_mode 消失**，
+        // 「关掉开关后把人挪回去」这条分支没有对象了，随之删除。
+        // 「开发模式」这一项始终可见（它是打开 dev_mode 的唯一入口）。
+        //
+        // 仍然只经 [_gotoSection] 换分区（唯一入口）：它清一次性结果，
+        // transient_results_test 用源码扫描钉住「只有一处写 _section」。
         _refresh();
       }
     } catch (_) {
@@ -234,9 +241,20 @@ extension _ShellAdminWiring on _ShellRootState {
     if (!mounted) return result;
     _adminMessage = result.ok ? '$id 配置已保存' : '$id 配置保存失败';
     _refresh();
-    // L1 基座：关键配置变更同样走统一提示（服务端 `restarted` 只是它的自述，
-    // 界面统一口径是「需重新点火/重启后生效」）。
-    if (result.ok) _notifyModChanged(_adminMessage!);
+    // 2026-10-09（两类 TTS）：**成功的配置保存不再走 `_notifyModChanged`**。
+    // 服务端在已启用时已经 restart 过这个 Mod（按钮就叫「保存并应用」），界面
+    // 再挂一条「需重新点火 / 重启后生效」的常驻条就是**谎报**——用户刚按的
+    // 那一下就是让它生效。启停开关（`_toggleMod`）仍然通知：那是真的需要重新
+    // 点火才生效的运行行为变更。
+    //
+    // 配置可能顺带改了别的段（例如 `[action]` 幅度），而设置草稿是另一份真源：
+    // **草稿不脏**时才重取一次。`load()` 会丢掉草稿，脏的时候跳过（用户正在
+    // 输入的东西不能因为保存了一次 Mod 配置就被抹掉）。
+    if (!_settings.dirty) {
+      await _settings.load();
+      if (!mounted) return result;
+      _refresh();
+    }
     // 重新取一次列表：让界面回填服务端归一化后的 config（卡片据此刷新草稿）。
     await _loadAdmin();
     return result;

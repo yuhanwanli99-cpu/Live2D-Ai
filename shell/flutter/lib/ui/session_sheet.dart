@@ -31,10 +31,20 @@ import 'theme.dart';
 const String kSessionsAreLocalNote = '这些会话只是本机记录，不是模型记忆（每轮只把当前这句发给模型）。';
 
 /// 打开会话浮层。
+///
+/// # 为什么读的是回调 + [Listenable]，不是一份快照（2026-10-08 修）
+///
+/// `showModalBottomSheet` 的 builder **只跑一次**：从前把 `sessions.byRecency`
+/// 与 `activeId` 抄进闭包，`ChatSessionStore.delete` 改了 store 也通知不了浮层
+/// ——于是「删掉一行，行还在」（新建 / 重命名开着浮层时同样是旧的）。
+///
+/// 现在 builder 内部包一层 [ListenableBuilder]：每次 store 变动都重跑 builder，
+/// 且每次都**现读** [sessionsOf] / [activeIdOf]。删掉的行立刻消失，浮层不关。
 Future<void> showSessionSheet({
   required BuildContext context,
-  required List<ChatSession> sessions,
-  required String? activeId,
+  required Listenable listenable,
+  required List<ChatSession> Function() sessionsOf,
+  required String? Function() activeIdOf,
   required VoidCallback onNew,
   required ValueChanged<String> onSelect,
   required void Function(String id, String title) onRename,
@@ -49,18 +59,21 @@ Future<void> showSessionSheet({
   ),
   // 浮层压在舞台下半部 ⇒ 必须垫指针垫层，否则整列条目点不着
   //（与设置抽屉同一处根因，见 `StagePointerInterceptor` 头注）。
-  builder: (BuildContext sheetContext) => StagePointerInterceptor(
-    child: SafeArea(
-      child: SessionSheet(
-        sessions: sessions,
-        activeId: activeId,
-        onNew: onNew,
-        onSelect: onSelect,
-        onRename: onRename,
-        onDelete: onDelete,
-        // 用**浮层自己的** context 关掉自己（与设置浮层同一条理由：
-        // 用外壳的 context 去 maybePop 依赖「浮层恰好是栈顶」这个巧合）。
-        onClose: () => Navigator.of(sheetContext).pop(),
+  builder: (BuildContext sheetContext) => ListenableBuilder(
+    listenable: listenable,
+    builder: (BuildContext context, Widget? _) => StagePointerInterceptor(
+      child: SafeArea(
+        child: SessionSheet(
+          sessions: sessionsOf(),
+          activeId: activeIdOf(),
+          onNew: onNew,
+          onSelect: onSelect,
+          onRename: onRename,
+          onDelete: onDelete,
+          // 用**浮层自己的** context 关掉自己（与设置浮层同一条理由：
+          // 用外壳的 context 去 maybePop 依赖「浮层恰好是栈顶」这个巧合）。
+          onClose: () => Navigator.of(sheetContext).pop(),
+        ),
       ),
     ),
   ),

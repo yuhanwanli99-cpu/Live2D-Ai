@@ -85,7 +85,8 @@ void main() {
       tracker.markTurnAccepted();
       await tester.pump();
       expect(tracker.phase, UiPhase.thinking);
-      expect(find.text('思考中'), findsOneWidget);
+      // 2026-10-08：相位标签从「思考中」改成「正在回复」（它不是思考开关）。
+      expect(find.text('正在回复'), findsOneWidget);
       expect(find.byTooltip('停止本轮'), findsOneWidget);
       expect(find.byTooltip('发送（Enter）'), findsNothing);
 
@@ -98,7 +99,7 @@ void main() {
         UiPhase.idle,
         reason: '修复前恒为 thinking：没有任何帧会到达，相位就永久卡在「思考中」',
       );
-      expect(find.text('思考中'), findsNothing);
+      expect(find.text('正在回复'), findsNothing);
       expect(find.text('空闲'), findsOneWidget);
       expect(
         find.byTooltip('停止本轮'),

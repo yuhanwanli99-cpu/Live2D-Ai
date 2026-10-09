@@ -82,7 +82,7 @@ class _Host extends StatefulWidget {
 }
 
 class _HostState extends State<_Host> {
-  SettingsSection section = SettingsSection.appearance;
+  SettingsSection section = SettingsSection.theme;
 
   @override
   Widget build(BuildContext context) => AppShell(
@@ -226,7 +226,7 @@ void main() {
             // 读屏：`ExcludeSemantics` 会把整棵子树从语义树里摘掉，
             // 所以正确的判据是「**找不到**它的标签」，不是「它被标成 hidden」。
             expect(
-              find.bySemanticsLabel(RegExp('外观与互动')),
+              find.bySemanticsLabel(RegExp('主题')),
               findsNothing,
               reason: '收起的面板仍会被读屏念到（ExcludeSemantics 没生效）',
             );
@@ -237,12 +237,12 @@ void main() {
             // 在 `ExcludeFocus` 的层叠下语义不直观，点得着才是用户要的。
             await t.tap(find.text('设置'));
             await t.pumpAndSettle();
-            expect(find.bySemanticsLabel(RegExp('外观与互动')), findsWidgets);
+            expect(find.bySemanticsLabel(RegExp('主题')), findsWidgets);
 
-            await t.tap(find.widgetWithText(ChoiceChip, '语音合成'));
+            await t.tap(find.widgetWithText(ChoiceChip, '模型服务'));
             await t.pumpAndSettle();
             expect(
-              find.text('语音合成 第 0 行'),
+              find.text('模型服务 第 0 行'),
               findsOneWidget,
               reason: '展开后分区 chip 点不动 —— 保活做成了永久禁用',
             );

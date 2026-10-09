@@ -56,7 +56,7 @@ disable / config 是**运行时开关**，不是加载器：
   （schema，无则为 `null`）；`settings_spec.fields[].kind` ∈ `bool/string/number/select`。
   `secret=true` 的字段值**永不出现在 GET**；另有 `GET /api/v1/mods/{id}/config` 单读。
 
-## 5. 现行 Mod（产品级加强波次起：5 个注册 + 2 个封存 + 1 个废除）
+## 5. 现行 Mod（2026-10-09 0.2.3-rc.1 起：6 个注册 + 3 个封存 + 1 个废除）
 
 | id | 缺省 | 语言 | 说明 |
 | --- | --- | --- | --- |
@@ -65,11 +65,15 @@ disable / config 是**运行时开关**，不是加载器：
 | `voice-input` | off | Rust | 语音输入（Wave 2 A 轨 / 0.2.0-rc.3）：`POST /api/v1/voice/transcript` → `clean_transcript` → `say` **已接线**；ASR 本体在 sidecar（Rust 侧不开 socket、不做 IPC），契约见 [voice-input.md](../voice-input.md)，示例见 [docs/examples/voice-sidecar](../examples/voice-sidecar/README.md)，接线清单见 [REGISTER-voice-sidecar-v1](../plans/parallel-mods/REGISTER-voice-sidecar-v1.md) |
 | `memory` | off | Rust | 会话记忆 v0（Wave 2 C 轨 / 0.2.0-rc.3）：本地 JSONL + 词元重叠检索 top-k → 写会话注入槽（有会话）或 `apply_settings` 写全局 `persona.system_prompt`（无会话降级）；**同轮生效**（2026-09-15 起，见 memory-mod-v0.md §2）。全局路径与 persona 仍是 last-writer-wins，见 [memory-mod-v0.md](memory-mod-v0.md) |
 | `director` | off | Rust | 导演（Wave 3 G 轨 2026-09-14 建**最小骨架**，2026-09-21 已接线）：订阅 `TurnPrompt` + `TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策（纯函数、词表驱动），只写日志与 `state_json`；**`action_tx` 休眠、不写 `live2d-ai.toml` 仍成立**；**现状**另产 `latest.preset_id`（只读状态面，供面板展示）+ 按句 `action_cue`（`ModServices.cues` → WS `action_cue`，驱动舞台）。口径：**导演是一个 AI、属产品本体、不做架构搬迁**，输入 = **用户输入**（R1），谁的 `speak` 能力保留**未定、不裁决**；见 [director-mod-v0.md](director-mod-v0.md) |
+| ~~`local-tts`~~ | — | Rust | **已封存（2026-10-09，0.2.3-rc.1）**：CosyVoice3 引擎（界面名 `本地tts_CosyVoice3-0.5B`）**已移出 `AVAILABLE_MOD_FACTORIES`**——引擎脚本与权重布局**还要适配**，**未适配前不要挂回**。crate 与 `engine/` 仍在树上（可编译可测），crate 头注已写封存口径。**出厂出声的不是它** |
+| `local-tts-melo` | **on** | Rust | MeloTTS 中文**拉起**（2026-10-09；**0.2.3-rc.1 起缺省启用**）：与已封存的 `local-tts` **同一个 crate**（不新增 desktop 依赖边），薄封装收成 OpenAI 兼容 `POST /audio/speech`（s16le pcm），声明地址 `http://127.0.0.1:8091/v1`（**不占 8080**），`launch_mode = with_app`、缺省程序 = 仓库内 `melo/start.sh`。**不写 `[tts]` 的任何键**——出厂 `[tts]` 只是恰好指向它（见 [tts-is-core.md](tts-is-core.md) 文末）。权重 `config.json`（普通 git）+ `checkpoint.pth`（Git LFS）；`.bert` 不入库，`.venv` 与 venv 安装都不入库 |
 | ~~`wallpaper`~~ | — | Rust | **已删除（2026-10-01 W2-A/D1）**：移出 `AVAILABLE_MOD_FACTORIES`（2026-09-14 封存）后，crate 已于 2026-10-01 **物理删除**（tag `checkpoint/pre-d1-dormant`），**禁止挂回**。用户手动的舞台/壳背景能力（`DisplayPrefs`）**不受影响**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
 | ~~`pet-desktop`~~ | — | Rust | **已删除（2026-10-01 W2-A/D1）**：移出 `AVAILABLE_MOD_FACTORIES`（2026-09-14 封存）；本波**不做真窗/应用级桌宠**，crate 已于 2026-10-01 物理删除，**禁止挂回**。见 [ARCHIVED-mods.md](ARCHIVED-mods.md) |
 | ~~`local-llm`~~ | — | Rust | **已删除**（0.2.0-rc.1 废除启动 → 2026-10-01 W2-A/D1 物理删除）：移出 `AVAILABLE_MOD_FACTORIES`，**禁止挂回** |
 
-数量由 `main.rs::mod_count_is_five` 守住（Wave 3 的 7 → 产品级加强波次的 **5**）。
+数量由 `main.rs::mod_count_is_six` 守住（Wave 3 的 7 → 产品级加强波次的 5 →
+2026-10-09「两类 TTS」的 6 → 7 → **0.2.3-rc.1 封存 CosyVoice3 后回到 6**；
+出厂**唯一缺省启用**的拉起 Mod 是 `local-tts-melo`）。
 `live2d-ai-mod-template` 是**模板 crate**，不注册进 `AVAILABLE_MOD_FACTORIES`。
 封存口径（原因 / 没有连坐删掉什么 / 恢复条件）见 [ARCHIVED-mods.md](ARCHIVED-mods.md)。
 

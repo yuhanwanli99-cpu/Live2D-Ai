@@ -82,26 +82,25 @@ pub fn external_input_settings_spec() -> ModSettingsSpec {
         fields: vec![
             ModSettingField::Number {
                 key: "listen_port".to_string(),
-                label: "监听端口（提示；实际端口见 live2d-ai.toml [web].port）".to_string(),
+                label: "端口（只作提示）".to_string(),
                 min: 1024.0,
                 max: 65535.0,
             },
             ModSettingField::String {
                 key: "token".to_string(),
-                label: "访问令牌（空 = 回落到 env EXTERNAL_INPUT_TOKEN；都空 = 仅本机不鉴权）"
-                    .to_string(),
+                label: "令牌".to_string(),
                 secret: true,
                 default: None,
             },
             ModSettingField::String {
                 key: "text_template".to_string(),
-                label: "文本模板（{text} = 外部文本；空 = 原样）".to_string(),
+                label: "弹幕怎么说给角色".to_string(),
                 secret: false,
                 default: None,
             },
             ModSettingField::String {
                 key: "prefix".to_string(),
-                label: "前缀（拼在模板结果之前，如「[弹幕] 」）".to_string(),
+                label: "每条前面加的字".to_string(),
                 secret: false,
                 default: None,
             },

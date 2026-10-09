@@ -147,7 +147,7 @@ Future<void> _expand(WidgetTester tester, String title) async {
 }
 
 Future<void> _tapSave(WidgetTester tester) async {
-  final Finder save = find.text('保存');
+  final Finder save = find.text('保存并应用');
   await tester.ensureVisible(save);
   await tester.pumpAndSettle();
   await tester.tap(save);
@@ -178,6 +178,11 @@ void main() {
           'voice-input',
           'memory',
           'director',
+          // 2026-10-09（0.2.3-rc.1）：工厂面回到 6 个——CosyVoice3 的 `local-tts`
+          // **已封存移出**（不再断言它在册；挂回会在这里露出来）。
+          // 出厂出声的是同一个 crate 的第二个引擎 `local-tts-melo`；
+          // 它的 id 推不出来（见 kExtraFactoryIds）——所以这里必须点名断言。
+          'local-tts-melo',
         ]),
         reason: '`AVAILABLE_MOD_FACTORIES` 变了（删 / 改 Mod）就必须在这里看见',
       );

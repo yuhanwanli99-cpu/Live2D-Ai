@@ -171,6 +171,8 @@ pub const SHAKE_CYCLES: f64 = 2.0;
 pub const EXPRESSION_MS: f64 = 2_600.0;
 /// 短动作时长（毫秒）。
 pub const MOTION_MS: f64 = 900.0;
+/// 抬头 / 低头看包时长（T9，2026-10-07；主轴是 Y 的整段位移，比 nod 稍长）。
+pub const LOOK_MS: f64 = 1_100.0;
 
 /// `id:"none"`：立即撤销当前预设通道（P0-1 新语义）。
 pub const REVOKE_ID: &str = "none";
@@ -187,10 +189,13 @@ pub const PRESET_IDS: &[&str] = &[
     "smile",
     "unhappy",
     "surprised",
+    "thinking",
     "nod",
     "shake",
     "look_left",
     "look_right",
+    "look_up",
+    "look_down",
     "tilt_left",
     "tilt_right",
 ];
@@ -284,6 +289,24 @@ pub const PRESETS: &[PresetSpec] = &[
             ("ParamBodyAngleX", -1.0),
         ],
     },
+    PresetSpec {
+        id: "thinking",
+        kind: PresetKind::Expression,
+        duration_ms: EXPRESSION_MS,
+        wave: MotionWave::Single,
+        morph: None,
+        // T9（2026-10-07）：五官（抿嘴 / 半垂眼 / 眉下压）+ 小幅歪头。
+        // 字段通道只抄五官五行（field_map.rs），头角留给 preset_id 通道。
+        params: &[
+            ("ParamMouthForm", 0.0),
+            ("ParamEyeLOpen", 0.55),
+            ("ParamEyeROpen", 0.55),
+            ("ParamBrowLY", -0.45),
+            ("ParamBrowRY", -0.45),
+            ("ParamAngleZ", 6.0),
+            ("ParamBodyAngleZ", 2.0),
+        ],
+    },
     // ---- 短动作（motion）：头 + 半身随动，方向保守但肉眼明显 ----
     PresetSpec {
         id: "nod",
@@ -334,6 +357,34 @@ pub const PRESETS: &[PresetSpec] = &[
             ("ParamAngleZ", -2.7),
             ("ParamBodyAngleX", -3.9),
             ("ParamBodyAngleZ", -0.8),
+        ],
+        wave: MotionWave::Single,
+        morph: None,
+    },
+    PresetSpec {
+        id: "look_up",
+        kind: PresetKind::Motion,
+        duration_ms: LOOK_MS,
+        // T9：主轴 Y（头 +12 / 身 +3.9，表内身/头 = 0.325），次轴 X 保持小比例。
+        params: &[
+            ("ParamAngleY", 12.0),
+            ("ParamBodyAngleY", 3.9),
+            ("ParamAngleX", 2.7),
+            ("ParamBodyAngleX", 0.8),
+        ],
+        wave: MotionWave::Single,
+        morph: None,
+    },
+    PresetSpec {
+        id: "look_down",
+        kind: PresetKind::Motion,
+        duration_ms: LOOK_MS,
+        // T9：look_up 的镜像（全轴取负）。
+        params: &[
+            ("ParamAngleY", -12.0),
+            ("ParamBodyAngleY", -3.9),
+            ("ParamAngleX", -2.7),
+            ("ParamBodyAngleX", -0.8),
         ],
         wave: MotionWave::Single,
         morph: None,

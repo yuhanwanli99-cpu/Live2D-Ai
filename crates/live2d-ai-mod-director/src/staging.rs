@@ -59,6 +59,52 @@ impl StagingClient for DisabledStaging {
     }
 }
 
+/// 二路端点**接管判定**（2026-10-07 T8）：host 的 `build_performance_runtime` 与本 Mod
+/// 的 `should_fire_async` 共用这一份规则——同一份配置不允许出现两种解释。
+///
+/// | `staging_base_url` | `staging_model` | 结果 |
+/// | --- | --- | --- |
+/// | 空 | 空 | [Takeover::ReuseConversation]：主链复用对话模型 |
+/// | 有 | 有 | [Takeover::Own]：主链改用这里填的端点 |
+/// | 只填一项 | 只填一项 | [Takeover::Incomplete]：**不接管**，保持直送 |
+///
+/// `staging_enabled` **不是**第二道总闸：它只决定本 Mod 自己的异步 HTTP，
+/// 不参与接管判定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Takeover {
+    /// 两项都空：复用对话模型（主 LLM 的 base_url / 模型名 / 密钥变量名）。
+    ReuseConversation,
+    /// 两项都有：用二路自己的端点（`staging_api_key_env` 空则仍用主 LLM 的密钥变量名）。
+    Own,
+    /// 只填了一项：不接管，保持直送。
+    Incomplete,
+}
+
+impl Takeover {
+    /// 主链是否已接管（`Incomplete` = 没接上）。
+    pub fn active(self) -> bool {
+        !matches!(self, Self::Incomplete)
+    }
+
+    /// 稳定字符串（`state_json.staging.takeover.source`）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ReuseConversation => "conversation",
+            Self::Own => "own",
+            Self::Incomplete => "none",
+        }
+    }
+}
+
+/// 判定（**唯一实现**；host 与 Mod 两侧都调它，不各写一份 `is_empty` 比较）。
+pub fn takeover_of(base_url: &str, model: &str) -> Takeover {
+    match (base_url.trim().is_empty(), model.trim().is_empty()) {
+        (true, true) => Takeover::ReuseConversation,
+        (false, false) => Takeover::Own,
+        _ => Takeover::Incomplete,
+    }
+}
+
 /// 装配结果：客户端 + 「开了二路但没接上」的原因（可观察 degraded）。
 pub struct StagingSetup {
     /// 真正注入运行时的客户端。

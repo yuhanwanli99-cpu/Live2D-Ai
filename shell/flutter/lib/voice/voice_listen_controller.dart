@@ -1,13 +1,23 @@
-/// 主页语音的**控制器**：常驻唤醒 + 按住说话（PTT）共用一套识别器（纯 Dart、可注入）。
+/// 主页语音的**控制器**：产品路径（听写）与旧的常驻 / PTT 共用一套识别器
+/// （纯 Dart、可注入）。
 ///
-/// # 一个按钮、三种用法（P0-4）
+/// # 产品路径 = 点一下、再点一下（2026-10-08）
 ///
-/// - **点按**（<150ms，由 UI 判定）→ [toggle]：常驻唤醒开/关；
-/// - **按住** → [pressStart] / [pressRelease]：PTT，松手提交，**不要求唤醒词**；
+/// - **点「听」** → [startDictation]：开始录音；
+/// - **再点「停」** → [stopDictation]：把定稿**交给宿主**（[onDictation]），
+///   由宿主放进输入框。**不打** `/api/v1/voice/transcript`，也**不自动发送**。
+///
+/// 「交给宿主」的成功与失败走**同一个**回调（[onDictation]，空串 = 没听清）：
+/// 面板/聊天栏据此决定「写进输入框」还是「提示再点一次」。
+///
+/// # 旧路径仍在（但不再接到聊天栏）
+///
+/// - [toggle] / [start]：常驻唤醒开/关；
+/// - [pressStart] / [pressRelease]：PTT，松手提交，**不要求唤醒词**；
 /// - **播报期间** → [suspendForPlayback] / [resumeAfterPlayback]：暂停听
 ///   （AI 自己的声音 / 环境人声会误触发，回声消除不够）。
 ///
-/// # 一份真相在服务端
+/// # 一份真相在服务端（旧路径）
 ///
 /// 前端本地匹配只决定「要不要发」；真正的门控是 Rust 的
 /// `live2d_ai_mod_voice_input::gate::evaluate_mode`：
@@ -60,7 +70,9 @@ typedef VoiceModEnabledLoader = Future<bool> Function();
 const String kVoiceModDisabledMessage =
     '语音输入未启用：请先在「设置 → Mod 管理」启用 voice-input（启停后可能需重新点火）';
 
-/// 识别结果落回宿主的回调（busy 时把正文交回输入框，让用户改字重发）。
+/// 识别结果落回宿主的回调（busy / 听写定稿都把正文交回输入框）。
+///
+/// 听写路径**成功与失败都调它**：空串 = 没听清（宿主不动输入框）。
 typedef VoiceResultSink = void Function(String text);
 
 class VoiceListenController extends ChangeNotifier {
@@ -70,6 +82,7 @@ class VoiceListenController extends ChangeNotifier {
     required WakePhraseLoader loadWakePhrase,
     VoiceModEnabledLoader? loadModEnabled,
     this.onBusyResult,
+    this.onDictation,
     this.restartDelay = const Duration(milliseconds: 500),
     this.wakeWindow = const Duration(seconds: 8),
     this.pttFinalizeDelay = const Duration(milliseconds: 300),
@@ -88,6 +101,12 @@ class VoiceListenController extends ChangeNotifier {
   /// 主链忙（`200 ok:false`）时把识别到的正文交回宿主（落输入框）。
   final VoiceResultSink? onBusyResult;
 
+  /// **产品听写路径的定稿**：成功与失败（空串）都走它。
+  ///
+  /// 宿主把它写进输入框；空串时宿主什么都不做（控制器已经写了
+  /// 「没听清，再点一次说」）。
+  final VoiceResultSink? onDictation;
+
   /// 一次识别会话结束后的重启延迟（防抖：避免 `onEnd` 立刻重启打转）。
   final Duration restartDelay;
 
@@ -103,6 +122,8 @@ class VoiceListenController extends ChangeNotifier {
   bool _continuous = false;
   bool _recognizing = false;
   bool _ptt = false;
+  /// 产品听写（点「听」→ 点「停」）是否正在录音。
+  bool _dictating = false;
   bool _suspended = false;
   bool _disposed = false;
   bool _sending = false;
@@ -113,6 +134,8 @@ class VoiceListenController extends ChangeNotifier {
   String _body = '';
   /// PTT 期间累积的正文。
   String _pttBody = '';
+  /// 听写期间累积的定稿正文。
+  String _dictationBody = '';
   String _interim = '';
   String? _error;
   String? _lastSent;
@@ -122,8 +145,11 @@ class VoiceListenController extends ChangeNotifier {
   /// 这个构建是否有语音识别能力（VM / 不支持的浏览器 → false）。
   bool get supported => _recognizer != null;
 
-  /// 常驻唤醒是否打开（按钮的「听 / 停」态）。
-  bool get listening => _continuous;
+  /// 按钮的「听 / 停」态：常驻唤醒**或**产品听写正在进行。
+  bool get listening => _continuous || _dictating;
+
+  /// 产品听写是否正在录音。
+  bool get dictating => _dictating;
 
   /// PTT 是否正在按住。
   bool get pttActive => _ptt;
@@ -139,6 +165,7 @@ class VoiceListenController extends ChangeNotifier {
 
   /// 按钮旁那一行状态（没有活动会话时为 null，不占位）。
   String? get statusLine {
+    if (_dictating) return '正在听，说完再点一次';
     if (_ptt) {
       return _interim.isEmpty ? '按住说话：说完松手发送…' : '听到：「$_interim」';
     }
@@ -151,9 +178,74 @@ class VoiceListenController extends ChangeNotifier {
     return '在听：说「$_wakePhrase ……」';
   }
 
+  // ───────────────────────────────────────────────── 产品听写（点按两态）
+
+  /// 产品「听」按钮：没在录就开录，正在录就结束并把定稿交给宿主。
+  Future<void> toggleDictation() =>
+      _dictating ? stopDictation() : startDictation();
+
+  /// 开始一次听写。
+  ///
+  /// - **角色正在播报时不允许开始**：就地写「角色在说话，说完再听」，不开麦；
+  /// - 这条路径**不打语音端点**，所以不做「Mod 未启用」预检
+  ///   （那道的意义是别让用户白说一遍 403，而这里根本不发请求）。
+  Future<void> startDictation() async {
+    if (_disposed || _dictating) return;
+    final SpeechRecognizer? recognizer = _recognizer;
+    if (recognizer == null) {
+      _error = '这个构建没有语音识别（需要桌面版 Chrome / Edge）';
+      _safeNotify();
+      return;
+    }
+    if (_suspended) {
+      _error = '角色在说话，说完再听';
+      _safeNotify();
+      return;
+    }
+    _error = null;
+    _lastSent = null;
+    _disarm();
+    _interim = '';
+    _dictationBody = '';
+    _dictating = true;
+    _safeNotify();
+    await _begin(recognizer);
+  }
+
+  /// 结束听写：等一小段最后定稿，然后把定稿交给宿主（成功与失败都走同一个回调）。
+  Future<void> stopDictation() async {
+    if (!_dictating) return;
+    _recognizing = false;
+    await _recognizer?.stop();
+    // 与 PTT 同一条理由：Web Speech 的 `stop()` 不保证立刻交稿，
+    // 而 `abort()` 会丢结果——等一小段再用已收到的正文。
+    if (pttFinalizeDelay > Duration.zero) {
+      await Future<void>.delayed(pttFinalizeDelay);
+    }
+    _finishDictation();
+  }
+
+  /// 收尾：算定稿、写文案、交给宿主。可重入安全（`_dictating` 已经是 false 就返回）。
+  void _finishDictation() {
+    if (!_dictating) return;
+    _dictating = false;
+    _interim = '';
+    final String body = _dictationBody.trim();
+    _dictationBody = '';
+    if (body.isEmpty) {
+      _error = '没听清，再点一次说';
+    } else {
+      _error = null;
+      _lastSent = body;
+    }
+    // **成功和失败都走它**：宿主拿空串就什么都不做（输入框不动）。
+    onDictation?.call(body);
+    _safeNotify();
+  }
+
   // ─────────────────────────────────────────────────────── 常驻（点按）
 
-  /// 开始 / 停止「听」（常驻唤醒）。
+  /// 开始 / 停止「听」（常驻唤醒）。**产品聊天栏已不再接它**（2026-10-08）。
   Future<void> toggle() => _continuous ? stop() : start();
 
   /// 开始常驻听。
@@ -187,10 +279,12 @@ class VoiceListenController extends ChangeNotifier {
 
   /// 主动停止（用户按「停止听」）。
   Future<void> stop() async {
-    if (!_continuous && !_recognizing && !_ptt) return;
+    if (!_continuous && !_recognizing && !_ptt && !_dictating) return;
     _continuous = false;
     _ptt = false;
     _pttBody = '';
+    _dictating = false;
+    _dictationBody = '';
     _restartTimer?.cancel();
     _restartTimer = null;
     _disarm();
@@ -267,6 +361,13 @@ class VoiceListenController extends ChangeNotifier {
     _restartTimer = null;
     _disarm();
     _interim = '';
+    if (_dictating) {
+      // 播报开始时**停掉听写**，但已经听到的字仍要落到输入框（2026-10-08）。
+      _recognizing = false;
+      await _recognizer?.stop();
+      _finishDictation();
+      return;
+    }
     if (_recognizing && !_ptt) {
       _recognizing = false;
       await _recognizer?.stop();
@@ -316,7 +417,7 @@ class VoiceListenController extends ChangeNotifier {
 
   Future<void> _begin(SpeechRecognizer recognizer) async {
     if (_disposed || _suspended) return;
-    if (!_continuous && !_ptt) return;
+    if (!_continuous && !_ptt && !_dictating) return;
     _recognizing = true;
     await recognizer.start(
       lang: 'zh-CN',
@@ -327,7 +428,7 @@ class VoiceListenController extends ChangeNotifier {
   }
 
   void _onResult(SpeechResult result) {
-    if (!_recognizing && !_ptt) return;
+    if (!_recognizing && !_ptt && !_dictating) return;
     if (!result.isFinal) {
       _interim = result.transcript;
       _safeNotify();
@@ -335,6 +436,12 @@ class VoiceListenController extends ChangeNotifier {
     }
     _interim = '';
     final String transcript = result.transcript;
+    if (_dictating) {
+      // 听写：所有定稿都算正文（不看唤醒词——这条路径根本不打端点）。
+      _dictationBody = '$_dictationBody$transcript'.trim();
+      _safeNotify();
+      return;
+    }
     if (_ptt) {
       // PTT：所有定稿都算正文（不要求唤醒词）；服务端跳过唤醒匹配。
       _pttBody = '$_pttBody$transcript'.trim();
@@ -432,6 +539,13 @@ class VoiceListenController extends ChangeNotifier {
       _restartTimer?.cancel();
       _restartTimer = null;
       _disarm();
+      // 听写被识别器判死：听到多少交多少（失败也走宿主的那个回调）。
+      if (_dictating) {
+        final String heard = _dictationBody.trim();
+        _dictating = false;
+        _dictationBody = '';
+        if (heard.isNotEmpty) onDictation?.call(heard);
+      }
     }
     _safeNotify();
   }
@@ -461,6 +575,17 @@ class VoiceListenController extends ChangeNotifier {
     unawaited(_recognizer?.dispose());
     super.dispose();
   }
+}
+
+/// 把一次听写定稿接到输入框已有文字的后面（**中间补一个空格**）。纯函数，可单测。
+///
+/// - [incoming] trim 后为空 → **原样返回** [existing]（输入框不动）；
+/// - [existing] trim 后为空 → 就是 trim 过的 [incoming]；
+/// - 否则 = `existing + ' ' + incoming`（光标由调用方落到末尾）。
+String appendVoiceText(String existing, String incoming) {
+  final String body = incoming.trim();
+  if (body.isEmpty) return existing;
+  return existing.trim().isEmpty ? body : '$existing $body';
 }
 
 /// 文本是否**以**唤醒词开头（忽略前导空白、空白差异、大小写）。纯函数，可单测。

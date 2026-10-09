@@ -8,19 +8,19 @@ import 'director_panel.dart';
 import 'external_input_panel.dart';
 import 'memory_panel.dart';
 import 'mod_panel.dart';
-import 'persona_card_picker.dart';
 import 'persona_panel.dart';
 import 'voice_input_panel.dart';
 
-/// 全部产品面板（顺序即「Mod 管理」里的渲染顺序无关——面板跟着各自的 Mod 卡片）。
-/// 非 const：persona 的卡文件选择器由条件导入分派（Web 真实文件对话框 / VM stub），
-/// 函数 tear-off 在不同目标上是不同的常量，故这里用 @@final@@。
-final List<ModPanel> kModPanels = <ModPanel>[
-  const ExternalInputPanel(),
-  PersonaPanel(pickCardFile: pickPersonaCardFile),
-  const VoiceInputPanel(),
-  const MemoryPanel(),
-  const DirectorPanel(),
+/// 全部产品面板（顺序即「扩展」区里的渲染顺序无关——面板跟着各自的 Mod 卡片）。
+///
+/// 2026-10-08：persona 的卡文件选择器已随两套入口合并移到「人设」分区，面板本身
+/// 不再拿函数 tear-off，于是这里可以（也应当）是 const。
+const List<ModPanel> kModPanels = <ModPanel>[
+  ExternalInputPanel(),
+  PersonaPanel(),
+  VoiceInputPanel(),
+  MemoryPanel(),
+  DirectorPanel(),
 ];
 
 /// 按 id 找面板；没有专用面板的 Mod 返回 null。

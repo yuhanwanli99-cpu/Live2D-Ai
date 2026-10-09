@@ -1,6 +1,10 @@
-//! **表演层端到端冒烟（mock 表演层，2026-09-22）**：
-//! 真实 \`[performance]\` 配置段 → \`build_performance_runtime\` 装配 → 引擎接线 →
-//! \`AppEvent::Conversation(ActionCue)\` + 送 TTS 的文本 == 表演层的 speak。
+//! **表演层端到端冒烟（mock 表演层，2026-09-22；2026-10-08 起显式 opt-in）**：
+//! 真实 \`[performance]\` 配置段（\`enabled = true\`）→ \`build_performance_runtime\`
+//! 装配 → 引擎接线 → \`AppEvent::Conversation(ActionCue)\` + 送 TTS 的文本 == 表演层的
+//! speak。
+//!
+//! 缺省（\`enabled = false\`）时主链走**二路按句清洗**，表演层整段 JSON 不参与
+//! ——那条路的回归在 \`live2d-ai-runtime/tests/conversation_engine_cleaning.rs\`。
 //!
 //! 为什么单列：runtime 的内联测试证明了引擎语义，desktop 的装配单测证明了配置解析，
 //! 但「写一份带 [performance] 的 live2d-ai.toml → supervisor 起来 → 真的发一次
@@ -20,6 +24,35 @@ use super::support::{
     Collector, spawn_llm_mock, spawn_llm_mock_status, spawn_performance_mock,
     spawn_tts_mock_recording, wait_for,
 };
+
+/// **二路清洗的装配回归**（2026-10-08）：`LlmConfig::new` 的便捷构造
+/// （`clean_tts = false`）不装配；生产路径（`settings::resolve` 置 true）装配，
+/// 且模型名与端点就是**一路那一份**（不再有第二个用户旋钮）。
+#[test]
+fn sentence_cleaner_is_wired_only_when_clean_tts_is_on() {
+    let tts = || TtsConfig::new("http://127.0.0.1:9/v1", "alloy");
+    let off = OpenAiClient::new(
+        LlmConfig::new("http://127.0.0.1:9/v1", "deepseek-flash"),
+        tts(),
+    )
+    .expect("client");
+    assert!(
+        crate::supervisor::build_sentence_cleaner(&off).is_none(),
+        "clean_tts=false（便捷构造）必须不跑二路，保持既有行为"
+    );
+
+    let mut llm = LlmConfig::new("http://127.0.0.1:9/v1", "deepseek-flash");
+    llm.clean_tts = true;
+    let on = OpenAiClient::new(llm, tts()).expect("client");
+    let cleaner =
+        crate::supervisor::build_sentence_cleaner(&on).expect("clean_tts=true 必须装配二路清洗");
+    assert!(cleaner.enabled());
+    assert_eq!(
+        cleaner.model(),
+        "deepseek-flash",
+        "二路模型 = 一路模型（同一份，没有第二个下拉框）"
+    );
+}
 
 fn canned_sse() -> String {
     "data: {\"choices\":[{\"delta\":{\"content\":\"（挥手）你好呀。\"}}]}\n\n\
@@ -50,20 +83,44 @@ fn write_performance_config(
             max_history_pairs: 0,
         },
         performance: live2d_ai_runtime::settings::PerformanceSettings {
+            // 2026-10-08：整段表演层是**显式 opt-in**（`[performance].enabled`）。
+            // 这里必须写 true，否则主链走「二路按句清洗」而不是表演层的 speak。
             enabled: true,
-            base_url: performance_base.to_string(),
-            model: "perf-model".to_string(),
             ..Default::default()
         },
         ..AppSettings::default()
     };
     std::fs::write(path, settings.to_toml_string()).expect("写测试配置");
+    // T8（2026-10-08 起需 `[performance].enabled = true`）：表演层装配读**同目录**
+    // `mods.json` 的 `mods.director`。这里两项都填 → 主链改用这个自有端点
+    // （`staging_model` 必须与下面断言一致）。
+    let mods = serde_json::json!({
+        "mods": {
+            "director": {
+                "enabled": true,
+                "config": {
+                    "staging_base_url": performance_base,
+                    "staging_model": "perf-model"
+                }
+            }
+        }
+    });
+    let mods_path = path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("mods.json");
+    std::fs::write(mods_path, mods.to_string()).expect("写测试 mods.json");
 }
 
 /// 表演层成功路径：speak 进 TTS；cues 进 ActionCue；json_schema 真发出去。
 #[test]
 fn performance_layer_end_to_end_drives_speak_and_cues() {
-    let tmp = std::env::temp_dir().join(format!("live2d_ai_perf_e2e_{}.toml", std::process::id()));
+    // 每个用例独占一个目录：`live2d-ai.toml` 与同目录 `mods.json` 必须成对，
+    // 且两个用例并发跑，不能共用 temp_dir 根下的同一个 mods.json。
+    let dir = std::env::temp_dir().join(format!("live2d_ai_perf_e2e_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let tmp = dir.join("live2d-ai.toml");
     let llm_bodies: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
     let llm_base = spawn_llm_mock(llm_bodies, canned_sse());
     let tts_inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -169,20 +226,21 @@ fn performance_layer_end_to_end_drives_speak_and_cues() {
         .collect();
     assert_eq!(cues, [(1, "nod".to_string())]);
 
-    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// **P0-1b（2026-09-23）**：表演层开着、但**主模型失败**时，本轮必须直接以
-/// failed 收口——既不调表演层（llm_failed 短路），也不干等一份永远来不了的 JSON。
+/// **P0-1b（2026-09-23）**：表演层（T8 起由导演 `staging_*` 接管装配）开着、但
+/// **主模型失败**时，本轮必须直接以 failed 收口——既不调表演层（llm_failed 短路），
+/// 也不干等一份永远来不了的 JSON。
 ///
 /// 反向证据链：error 帧带码 + TurnCompleted{failed} + 表演层 mock 一个请求都没收到
 /// + 没有 ActionCue。
 #[test]
 fn performance_layer_is_skipped_when_the_main_model_fails() {
-    let tmp = std::env::temp_dir().join(format!(
-        "live2d_ai_perf_llmfail_{}.toml",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("live2d_ai_perf_llmfail_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let tmp = dir.join("live2d-ai.toml");
     let llm_base = spawn_llm_mock_status(401, r#"{"error":{"message":"Authentication Fails"}}"#);
     let tts_inputs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let tts_base = spawn_tts_mock_recording(tts_inputs.clone());
@@ -251,5 +309,5 @@ fn performance_layer_is_skipped_when_the_main_model_fails() {
         "失败轮不得发出任何 action_cue"
     );
 
-    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_dir_all(&dir);
 }

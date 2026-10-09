@@ -182,7 +182,8 @@ void main() {
       await tester.pumpWidget(_host(notifier));
       await tester.pumpAndSettle();
       expect(find.text('A 的记忆一'), findsOneWidget);
-      expect(find.textContaining('会话桶：$kBucketA'), findsOneWidget);
+      // 2026-10-08：说明改成人话（不再出现「桶」/ 会话 id）。
+      expect(find.text('只看这次对话记住的内容。'), findsOneWidget);
 
       await _switchBucket(tester, notifier, fake, kBucketB);
 

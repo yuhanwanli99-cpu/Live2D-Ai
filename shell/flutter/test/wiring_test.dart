@@ -23,7 +23,8 @@ import 'package:live2d_ai_shell/ui/theme.dart';
 /// 3. `PersonaSection.onImport` **声明了却从没被调用** —— 角色卡导入
 ///    （P4 的差异化功能）在界面上没有按钮。
 ///    （2026-09-13 M5.1：角色卡导入整条迁到标准 Mod，这条守卫与函数一起删除；
-///    历史上它抓到的正是「控件声明了却没画」这类静默失效。）
+///    2026-10-07 T6：导入入口按管理员口径**接回人设页**，于是下面那组断言
+///    改成「两个导入按钮真的在、且语义分得开」——历史教训不变。）
 ///
 /// 三者都**编译通过、测试全绿**——因为没有测试问「它被用上了吗」。
 /// 这个文件就是那个问题。
@@ -84,63 +85,114 @@ void main() {
         isTrue,
       );
     });
+
+    // 2026-10-08：角色卡导入属**扩展**——通道由组合根接到扩展卡片
+    // （`ModsSection.onCommand` + `pickCardFile` + `activeSessionId`），
+    // 人设页不再有任何导入回调。这里守的是「适配器真的接上了」，
+    // 而不是「控件画出来了」——后者正是本文件第 3 条历史教训的坑。
+    test('角色卡导入通道由组合根接到扩展卡片（persona + 会话 + 文件选择器）', () {
+      final String wiring = File(
+        'lib/app/shell_settings.dart',
+      ).readAsStringSync();
+      expect(wiring, contains('ModsSection('));
+      expect(
+        wiring,
+        contains('pickCardFile: pickPersonaCardFile'),
+        reason: 'PNG 卡文件选择器必须仍然只从组合根注入',
+      );
+      expect(
+        wiring,
+        contains('activeSessionId: _chat.sessions.activeId'),
+        reason: '会话作用域默认落在用户正看着的那个会话上',
+      );
+      expect(
+        wiring.contains('onImportCard'),
+        isFalse,
+        reason: '人设页不再有命令通道（导入回到扩展卡片一处）',
+      );
+    });
   });
 
-  group('PersonaSection：主链只剩系统提示词（M5.1）', () {
+  group('PersonaSection：只剩主链两项（导入回到扩展卡片）', () {
+    late _StubController controller;
+
+    setUp(() {
+      controller = _StubController();
+    });
+
     Widget wrap(Widget child) => MaterialApp(
       theme: buildAppTheme(),
       home: Scaffold(body: SingleChildScrollView(child: child)),
     );
 
-    /// 最小可渲染的设置控制器（只要 `loaded` 为真、`draft` 可用即可）。
+    /// 最小可渲染的设置视图（只要 `persona` 段可用即可）。
     SettingsView emptyView() =>
         SettingsView.fromJson(const <String, Object?>{});
 
-    testWidgets('只画系统提示词；卡字段与导入按钮都不在了', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        wrap(
-          PersonaSection(
-            controller: _StubController(),
-            view: emptyView(),
-            devMode: false,
-          ),
-        ),
-      );
-      expect(find.text('系统提示词（system_prompt）'), findsOneWidget);
-      // 酒馆卡字段与导入 UI 已迁到标准 Mod，主链分区里不该再有它们。
+    Widget section({bool devMode = false}) => wrap(
+      PersonaSection(
+        controller: controller,
+        view: emptyView(),
+        devMode: devMode,
+      ),
+    );
+
+    testWidgets('两个字段在；导入控件一个都不在', (WidgetTester tester) async {
+      await tester.pumpWidget(section());
+      expect(find.text('系统提示词'), findsOneWidget);
+      expect(find.text('记住几轮对话'), findsOneWidget);
+      // 酒馆卡字段已迁到标准 Mod，主链分区里不该再把它们画回来。
       for (final String gone in <String>['名称', '描述', '性格', '场景', '开场白']) {
         expect(find.text(gone), findsNothing, reason: '$gone 不该还在主链人设分区');
       }
-      expect(find.textContaining('选择角色卡文件'), findsNothing);
+      // 2026-10-08：导入 / 清除 / 粘贴框全部搬回扩展卡片。
+      for (final String gone in <String>[
+        '导入并生效',
+        '导入为全局人设',
+        '选择 PNG 角色卡文件',
+        '粘贴角色卡 JSON',
+        '清除当前会话的卡',
+        '清除全局导入卡',
+      ]) {
+        expect(
+          find.textContaining(gone),
+          findsNothing,
+          reason: '人设页不得再有「$gone」',
+        );
+      }
     });
 
-    testWidgets('历史轮数只在 devMode 出现（会话基建，不是主可见项）', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        wrap(
-          PersonaSection(
-            controller: _StubController(),
-            view: emptyView(),
-            devMode: false,
-          ),
-        ),
-      );
-      expect(find.text('历史轮数上限'), findsNothing);
+    testWidgets('记住几轮对话始终可见；开发模式也不再写配置键名（2026-10-09 全删）', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(section());
+      expect(find.text('记住几轮对话'), findsOneWidget);
+      expect(find.textContaining('max_history_pairs'), findsNothing);
 
-      await tester.pumpWidget(
-        wrap(
-          PersonaSection(
-            controller: _StubController(),
-            view: emptyView(),
-            devMode: true,
-          ),
-        ),
-      );
-      expect(find.text('历史轮数上限'), findsOneWidget);
+      await tester.pumpWidget(section(devMode: true));
+      expect(find.text('记住几轮对话'), findsOneWidget);
+      // 控件说明（原来是 devMode 下的「写进配置的键是 max_history_pairs」）已删。
+      expect(find.textContaining('max_history_pairs'), findsNothing);
     });
   });
+
 }
 
-/// 只满足渲染需要的桩：**不碰网络**（`PersonaSection` 只读 `draft`）。
+/// 只满足渲染与「有没有回读设置」的桩：**不碰网络**。
 class _StubController extends SettingsController {
   _StubController() : super(api: ApiClient());
+
+  /// `load()` 被调用了几次（T6：只有全局导入 + 草稿干净才该回读）。
+  int loadCalls = 0;
+
+  /// 测试用的 dirty 覆盖（真实现要 `_remote != null` 才可能 dirty）。
+  bool dirtyOverride = false;
+
+  @override
+  bool get dirty => dirtyOverride;
+
+  @override
+  Future<void> load() async {
+    loadCalls++;
+  }
 }

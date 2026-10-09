@@ -71,7 +71,7 @@ class _RetryHostState extends State<_RetryHost> {
         message: '网络错误',
         actions: errorActionsFor(
           '网络错误',
-          onGoto: (SettingsSection _) {},
+          onGoto: (SettingsSection _, String? _) {},
           onInterruptAndResend: () {},
           onResendLast: widget.lastUser.trim().isEmpty
               ? null

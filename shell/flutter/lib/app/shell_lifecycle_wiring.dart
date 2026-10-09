@@ -35,8 +35,11 @@ extension _ShellLifecycleWiring on _ShellRootState {
       loadWakePhrase: _loadWakePhrase,
       // Mod 未启用 → 先给红字（不要等 403 回来）。
       loadModEnabled: _voiceInputModEnabled,
-      // busy 不排队：把识别到的正文落回输入框，让用户改字重发（P0-4）。
-      onBusyResult: _onVoiceBusyResult,
+      // 两条路都落到同一段「写进输入框」：
+      // - busy 不排队，正文交回输入框让用户改字重发；
+      // - 产品听写的定稿（成功与失败都走它）。
+      onBusyResult: _onVoiceResult,
+      onDictation: _onVoiceResult,
     );
     _settings = SettingsController(api: _api);
     // 动作幅度的**即时预览**（2026-09-16 修）：三滑条改的是设置草稿，

@@ -35,7 +35,6 @@ import '../../design/tokens.dart';
 import '../../live2d/live2d_stage.dart'
     show PresetStatus, kDefaultExpressionIntensity, kDefaultPresetIntensity;
 import '../mods/mod_panel.dart';
-import 'director_observer_section.dart';
 import '../mods/mod_panels.dart';
 import '../preset_labels.dart';
 import '../../ui/emphasized_text.dart';
@@ -53,13 +52,16 @@ part 'dev_tools_developer.dart';
 class AdminRow extends StatelessWidget {
   const AdminRow({
     required this.title,
-    required this.subtitle,
+    this.subtitle = '',
     this.badges = const <String>[],
     this.trailing,
     super.key,
   });
 
   final String title;
+
+  /// 副标题。**空串 = 整行不画**（2026-10-08：ID · 版本 · 协议版本只在
+  /// 开发者模式里显示；产品面只剩卡片名与启用开关）。
   final String subtitle;
 
   /// 文字徽标（**不靠颜色表意**）。
@@ -80,13 +82,15 @@ class AdminRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(title, style: theme.textTheme.titleSmall),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.contentMuted,
+                if (subtitle.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.contentMuted,
+                    ),
                   ),
-                ),
+                ],
                 if (badges.isNotEmpty) ...<Widget>[
                   const SizedBox(height: Space.s1),
                   Wrap(
@@ -199,10 +203,7 @@ class ModelsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SectionHeader(
-          title: '模型库',
-          description: '模型由你合法导入，本仓库不捆绑任何模型二进制。',
-        ),
+        const SectionHeader(title: '模型库'),
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s2),
@@ -226,9 +227,9 @@ class ModelsSection extends StatelessWidget {
           const AdminEmpty(
             icon: Icons.view_in_ar_outlined,
             title: '还没有导入模型',
-            hint:
-                '把模型放到 assets/models/<id>/ 下，然后在下面填目录名导入。'
-                '列表为空是正常的——项目刻意不捆绑模型。',
+            // 2026-10-08：不再写 assets/models/<id>/ 这种仓库内路径（用户看不懂，
+            // 也不该背目录约定）。空态只说下一步做什么。
+            hint: '在下面填皮套的文件夹名。仓库不自带皮套。',
           )
         else
           for (final ModelInfo m in models)
@@ -237,10 +238,12 @@ class ModelsSection extends StatelessWidget {
               subtitle:
                   '${m.id} · v${m.version} · ${m.humanSize} · '
                   '${m.textureCount} 张贴图',
+              // 徽章 2026-10-08：只剩「当前激活」是用户要看的；
+              // 「含物理」「有显示配置」是模型工程属性（开发者排障用）。
               badges: <String>[
                 if (m.active) '当前激活',
-                if (m.hasPhysics) '含物理',
-                if (m.hasDisplayInfo) '有显示配置',
+                if (devMode && m.hasPhysics) '含物理',
+                if (devMode && m.hasDisplayInfo) '有显示配置',
               ],
               trailing: m.active
                   ? null
@@ -373,6 +376,14 @@ const Map<String, String> kModStateLabels = <String, String>{
   'opacity': '不透明度',
   'voice_active': '语音活跃',
   'window': '窗口',
+  // 2026-10-09「两类 TTS」：拉起进程类 Mod（`local-tts`）的通用字段。
+  // 它没有专用面板，这几行就是用户在「扩展」里看到的**唯一**标题。
+  'pid': '进程号',
+  'child_running': '子进程在跑',
+  'exit_code': '退出码',
+  'base_url': '声明地址',
+  'launch_mode': '拉起方式',
+  'wait_error': '等待错误',
 };
 
 /// 某 Mod 的标签表 = 该 Mod 面板声明的标签（在前）+ 通用兜底表。

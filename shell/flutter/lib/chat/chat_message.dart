@@ -59,6 +59,14 @@ String? lastUserText(List<ChatMessage> messages) {
   return null;
 }
 
+/// 一句已上屏的正文。`seq` 与正在播放的音频句号是同一个数。
+class SpokenSpan {
+  SpokenSpan({required this.seq, required this.text});
+
+  final int seq;
+  final String text;
+}
+
 /// 一条聊天消息（assistant 气泡可流式追加）。
 ///
 /// **可变**是刻意的：流式追加是每帧一次的高频操作，每条 delta 都重建一个
@@ -98,6 +106,12 @@ class ChatMessage {
   /// 代价说清楚：**刷新页面后旧气泡不再有思考**。这是刻意的取舍，不是遗漏。
   /// 要改成持久化，需要同时给会话存档加体积上限（否则长会话会顶穿配额）。
   String reasoning;
+
+  /// 本轮已上屏的句子（`text_delta` 的 `sentence_seq` + 该句正文）。
+  ///
+  /// 与 [reasoning] 一样**不落盘**：刷新后气泡只剩拼接好的 [text]，跟读高亮
+  /// 只在当轮播放时有意义。序号来自服务端，不要用标点把 [text] 再切一遍。
+  final List<SpokenSpan> spoken = <SpokenSpan>[];
 
   /// 这一轮的正文是**失败兜底**（`text_fallback` 帧）来的：真实生成、
   /// 但没有语音收尾（rc.3 N0，2026-09-13）。

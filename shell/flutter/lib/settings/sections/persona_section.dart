@@ -1,14 +1,17 @@
-/// 「人设」分区（M5.1，2026-09-13）：主链只剩**系统提示词**。
+/// 「模型对话」分区（原「人设」，2026-10-09 只改显示名）。
 ///
-/// # 为什么这里变得这么小
+/// # 这里有什么
 ///
-/// 酒馆（SillyTavern）角色卡（name / description / personality / scenario /
-/// first）与它的导入 UI 已从**主链迁出**——那属于扩展能力，按项目裁定走 Mod
-/// 边界（标准 Mod `live2d-ai-mod-persona`）。主链只保留服务端 `[persona]`
-/// 真正会用的两项：`system_prompt` 与 `max_history_pairs`。
+/// 主链服务端 [persona] 真正会用的两项：**系统提示词**与**记住几轮**。
+/// 角色卡（酒馆卡）导入是 **persona 扩展**的能力，入口在「扩展」分区的
+/// persona 卡片（settings/mods/persona_panel.dart）——那一份命令与入参
+/// 就是契约真源。
 ///
-/// 历史轮数是**会话基建**（不是人设），所以放开发者区；主可见项只有
-/// 系统提示词一项。**不内置任何预设人设**（用户明确要求）。
+/// # 2026-10-09 本轮
+///
+/// 导航 label 与页标题都用「模型对话」这四个字；枚举值仍是
+/// SettingsSection.persona（跳转 / byIndex(0) 不变）。控件下面那些
+/// 功能介绍全删，只留控件名、placeholder 与数字项的 min-max 范围。
 library;
 
 import 'package:flutter/material.dart';
@@ -39,35 +42,29 @@ class PersonaSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SectionHeader(
-          title: '系统提示词',
-          description:
-              '主链人设只有系统提示词与历史轮数。'
-              '酒馆角色卡现在是 Mod（去「Mod」分区配置），不再内嵌主链。',
-        ),
+        const SectionHeader(title: '模型对话'),
         TextFieldRow(
-          label: '系统提示词（system_prompt）',
+          label: '系统提示词',
           icon: Icons.terminal_outlined,
           value: effString(d.personaSystemPrompt, p.systemPrompt),
           multiline: true,
           maxLines: 6,
-          description: '默认留空。改它容易把角色说崩',
           onChanged: (String v) => controller.edit((SettingsDraft draft) {
             draft.personaSystemPrompt = v;
           }),
         ),
-        if (devMode)
-          NumberField(
-            label: '历史轮数上限',
-            icon: Icons.history,
-            value: effInt(d.personaMaxHistoryPairs, p.maxHistoryPairs),
-            min: 0,
-            max: 200,
-            description: '0 = 不带历史。调大会显著增加延迟与费用',
-            onChanged: (int v) => controller.edit((SettingsDraft draft) {
-              draft.personaMaxHistoryPairs = v;
-            }),
-          ),
+        NumberField(
+          label: '记住几轮对话',
+          icon: Icons.history,
+          value: effInt(d.personaMaxHistoryPairs, p.maxHistoryPairs),
+          min: 0,
+          max: 200,
+          // 数字项只留一行范围（数从控件上抄，不改夹持）。
+          description: '0-200',
+          onChanged: (int v) => controller.edit((SettingsDraft draft) {
+            draft.personaMaxHistoryPairs = v;
+          }),
+        ),
       ],
     );
   }

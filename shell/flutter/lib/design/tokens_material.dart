@@ -19,7 +19,6 @@ part of 'tokens.dart';
 class AppMaterial {
   const AppMaterial({
     this.radiusScale = kFixedRadiusScale,
-    this.edgeStrength = 1.0,
     this.uiTransparency = 0.0,
   });
 
@@ -49,32 +48,23 @@ class AppMaterial {
   /// 而不用去翻十几处 `BorderRadius.circular`。
   static const double kFixedRadiusScale = 1.0;
 
-  /// `AppColors.hairline` 透明度的缩放系数。
-  ///
-  /// **不缩放**焦点环 / 危险描边：它们是可用性下限，不是审美旋钮。
-  final double edgeStrength;
-
-  /// 中性取值（两个旋钮都不动）＝**改动前的观感**。
+  /// 中性取值＝**改动前的观感**。
   static const AppMaterial neutral = AppMaterial();
 
-  // ⚠️ 这三个字段**每一个**都要出现在这里与 [hashCode] 里。
-  // 2026-09-27 漏了 `uiTransparency`：两个只有透明度不同的 AppMaterial 判为相等，
-  // 于是「只改界面透明」的那一次主题切换**不会被认成变化**。
-  // 漏字段不会报错、不会崩，只是那一次改动静默不生效——本项目 P4 的头号病。
+  // 两个字段都要出现在这里与 [hashCode] 里。漏字段不会报错，
+  // 只是「只改界面透明」被判成没变，主题不会刷新。
   @override
   bool operator ==(Object other) =>
       other is AppMaterial &&
       other.radiusScale == radiusScale &&
-      other.edgeStrength == edgeStrength &&
       other.uiTransparency == uiTransparency;
 
   @override
-  int get hashCode => Object.hash(radiusScale, edgeStrength, uiTransparency);
+  int get hashCode => Object.hash(radiusScale, uiTransparency);
 
   @override
   String toString() =>
-      'AppMaterial(radius: $radiusScale, edge: $edgeStrength, '
-      'uiTransparency: $uiTransparency)';
+      'AppMaterial(radius: $radiusScale, uiTransparency: $uiTransparency)';
 }
 
 /// **浮起面的阴影**（2026-09-27）。

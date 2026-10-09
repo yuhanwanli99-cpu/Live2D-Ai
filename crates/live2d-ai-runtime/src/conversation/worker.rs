@@ -18,10 +18,18 @@ use crate::OpenAiClient;
 use crate::audio::{AudioSpec, PcmS16LeDecoder};
 
 /// 内部：送进 TTS worker 的任务。
+///
+/// **两份文本**（2026-10-08）：
+/// - `text` = 送去**合成**的文本（二路交回的可念文本；空 = 静音句，不发 HTTP）；
+/// - `display` = 这一句**上屏**的文本（二路交回的原文切片 / 失败时的原文）。
+///
+/// `SentenceVoiced.text` 取的是 `display`：文字与声音同拍，且上屏保留
+/// emoji / 颜文字 / 括号里的动作描写。
 #[derive(Debug)]
 pub(super) struct TtsJob {
     pub(super) sentence_seq: u64,
     pub(super) text: String,
+    pub(super) display: String,
 }
 
 /// TTS worker 的不可变上下文。
@@ -240,7 +248,8 @@ async fn emit_sentence_voiced(ctx: &TtsWorkerCtx, job: &TtsJob) -> bool {
             epoch: ctx.epoch,
             ts_ms: ctx.turn_started.elapsed().as_millis() as u64,
             sentence_seq: job.sentence_seq,
-            text: job.text.clone(),
+            // **上屏文本**（不是送去合成的那一份）：见 [TtsJob]。
+            text: job.display.clone(),
         },
     )
     .await

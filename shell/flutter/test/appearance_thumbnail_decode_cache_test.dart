@@ -46,7 +46,7 @@ Widget _library(DisplayPrefs prefs) => MaterialApp(
         index: 0,
         current: prefs.effectiveBackground,
         hydrating: false,
-        child: AppearanceSection(
+        child: ThemeSection(
           prefs: prefs,
           onPrefsChanged: (DisplayPrefs _) {},
           onPickShellImage: () {},
@@ -55,7 +55,6 @@ Widget _library(DisplayPrefs prefs) => MaterialApp(
           onRemoveBackgrounds: (List<int> _) {},
           onReorderBackground: (int _, int _) {},
           onPreviewBackground: (int _) {},
-          onAddPattern: (int _) {},
         ),
       ),
     ),

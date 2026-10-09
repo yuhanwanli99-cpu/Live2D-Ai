@@ -201,5 +201,11 @@ mod tests_lifecycle;
 /// 单列文件：与生命周期 / HostChannels 场景分开，便于按缺陷追（先例 `tests_models_*`）。
 #[cfg(test)]
 mod tests_secret;
+/// 2026-10-09：`StartCause`（Boot / Enable / Apply）接线回归。
+/// 单列文件：它守的是**宿主调用栈**上的接线，与生命周期 / HostChannels 场景分开；
+/// 挂法与 `web_api/mods_routes.rs` 末尾同一先例（`#[path]` 兄弟文件）。
+#[cfg(test)]
+#[path = "mod_registry/tests_start_cause.rs"]
+mod tests_start_cause;
 #[cfg(test)]
 mod tests_support;

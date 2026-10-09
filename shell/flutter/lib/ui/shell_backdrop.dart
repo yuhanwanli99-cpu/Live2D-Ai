@@ -4,8 +4,8 @@
 ///
 /// 舞台背景走渲染面协议 `stage-bg`（iframe 里的 canvas 自己画）；
 /// 壳背景是 **Flutter 自己画的**（聊天 / 侧栏背后那片区域）。
-/// 两者画的是同一张还是两张**由 [DisplayPrefs.backgroundSource] 决定**，
-/// 但**管道完全不同**——不要因为「看起来是同一张图」就把它们合成一条路。
+/// 壳画背景库。当前这一项由宿主用 [DisplayPrefs.stageProjectionUrl] 投影到 `stage-bg`。
+/// 两条管道仍然分开：图案和超限大图只画在壳上，舞台回到纯色。
 ///
 /// # 这一版多了什么（2026-09-28 · Stage B · B-a）
 ///
@@ -157,7 +157,7 @@ class ShellBackdrop extends StatelessWidget {
   /// 平铺（[fit] = `DisplayPrefs.fitTile`）的**贴片边长**（逻辑像素）；
   /// 其余三档不读它。
   ///
-  /// ⚠️ 调用点必须传 `prefs.tileSize`（`app/app_shell.dart`）。
+  /// 产品路径传 [DisplayPrefs.defaultTileSize]。平铺档不再暴露给用户。
   final double tileSize;
 
   /// 模糊半径（px）。**不做补间**——动高斯半径是实测出来的性能回归

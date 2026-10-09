@@ -131,7 +131,9 @@ const String kWsDroppedMidTurnCode = 'ws_dropped_mid_turn';
 /// **同一句话同时用于两处**（错误横幅 + 会话里的系统行）：横幅是暂时的，
 /// 而历史是长久的——只写横幅的话，用户刷新之后只会看到「一条没有回复的
 /// 消息」，又回到了「与坏了无法区分」那个坑。
-const String kWsDroppedMidTurnMessage = '本轮回复未收到（实时通道断开）';
+// 2026-10-08：措辞与连接徽标 / 状态说明统一成「连接」——同一件事在界面上
+// 只有一套词（徽标、胶囊、这条消息都指同一条链路）。
+const String kWsDroppedMidTurnMessage = '本轮回复未收到（连接断开）';
 
 /// 失败轮的正文是**兜底**来的时，气泡上的说明行（rc.3 N0，2026-09-13）。
 ///

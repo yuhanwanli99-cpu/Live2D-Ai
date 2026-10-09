@@ -6,6 +6,8 @@
 
 use super::events::{HostRegistrar, event_worker_loop, parse_mod_config, secret_keys_of};
 use super::*;
+// 启动原因（2026-10-09）：`local-tts` 按它决定要不要 spawn。
+use live2d_ai_mod_system::{StartCause, set_start_cause};
 
 impl ModRegistry {
     /// 用 AVAILABLE_MOD_FACTORIES + manifest 初始化（起 worker）。
@@ -183,6 +185,8 @@ impl ModRegistry {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
+            // 开机启动：`on_apply` 的 Mod（local-tts）**不得**在这里 spawn。
+            set_start_cause(StartCause::Boot);
             self.start_one(id);
         }
     }
@@ -303,29 +307,54 @@ impl ModRegistry {
         })
     }
 
+    /// 用户按下启用开关 → 启动原因恒为 [`StartCause::Enable`]。
     #[rustfmt::skip]
     pub fn enable(&mut self, id: &'static str) -> Result<(), ModError> {
+        self.enable_caused(id, StartCause::Enable)
+    }
+
+    /// `enable` 的内核：`cause` 由调用方给定。
+    ///
+    /// 分开的理由只有一条：`restart` 成功停掉旧实例之后要以 `Apply` 启动，
+    /// 而**公开** `enable` 必须始终是 `Enable`（`enable_with_config` 也走它）。
+    #[rustfmt::skip]
+    fn enable_caused(&mut self, id: &'static str, cause: StartCause) -> Result<(), ModError> {
         let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
         e.enabled = true;
         e.status = ModStatus::Starting;
+        set_start_cause(cause);
         self.start_one(id);
         self.persist_manifest(); // M1：写回 mods.json，重启状态不丢。
         Ok(())
     }
 
+    /// 停用：`shutdown` 失败时**不吞**——把 runtime 放回槽位并返回 `Err`。
+    ///
+    /// 旧实现是 `let _ = rt.shutdown()`：失败后 runtime 被丢掉，子进程成了没人
+    /// `wait` 的孤儿，而 `enabled` 照样被写成 `false`（下次启用会**再拉一个**）。
+    /// 现在失败路径什么都不改：`enabled` 仍为 true、不写 `mods.json`、runtime 还在。
     #[rustfmt::skip]
     pub fn disable(&mut self, id: &'static str) -> Result<(), ModError> {
         let Some(e) = self.entries.get_mut(id) else { return Err(ModError::Other(format!("Mod {id} 不在注册表"))); };
-        if let Some(mut rt) = self.runtimes.get(id).and_then(|s| s.lock().unwrap().take()) { let _ = rt.shutdown(); }
+        if let Some(mut rt) = self.runtimes.get(id).and_then(|s| s.lock().unwrap().take())
+            && let Err(err) = rt.shutdown()
+        {
+            if let Some(slot) = self.runtimes.get(id) { *slot.lock().unwrap() = Some(rt); }
+            return Err(err);
+        }
         e.enabled = false;
         e.status = ModStatus::Disabled;
         self.persist_manifest(); // M1：写回 mods.json。
         Ok(())
     }
 
+    /// 保存并应用：先停，**成功停掉之后**再以 `Apply` 启动。
+    ///
+    /// `disable` 失败（停不掉）时直接返回 `Err` ⇒ 这里不会走到 `start`：
+    /// 「停不掉还硬起一个」正是孤儿进程与双份进程的来源。
     pub fn restart(&mut self, id: &'static str) -> Result<(), ModError> {
         self.disable(id)?;
-        self.enable(id)
+        self.enable_caused(id, StartCause::Apply)
     }
 
     /// enable 前注入 config（存在时先 reload_config 再 enable）。

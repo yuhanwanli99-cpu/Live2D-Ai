@@ -30,6 +30,14 @@
 > 理由与后果见 `docs/architecture/tts-is-core.md`。
 > `local-llm` 仍然是一个 Mod，本文 LLM 相关部分继续有效。
 >
+> **2026-10-09 追加**：`local-tts` 这个名字作为**新 Mod**
+> （`crates/live2d-ai-mod-local-tts`，**缺省停用**）回到注册表，但职责只剩一条：
+> 按用户给的 argv **拉起外部进程**。它**不探活**、**不写 `base_url`**、不碰 `[tts]`
+> 的任何键——出声端点仍然只由 `live2d-ai.toml` 的 `[tts]` 决定（见
+> `docs/architecture/tts-is-core.md` 文末新节）。所以上面那句
+> 「`local-tts` 探测到服务就绪后写 base_url」**仍然不成立**，正文里那些旧 curl
+> 也只作历史记录。
+>
 > 另注：本文写作时的 TTS 例子是 kokoroi-rs；当前默认面向 **CosyVoice 3** 的
 > OpenAI 兼容层（见 `docs/architecture/cosyvoice3-tts-integration.md`）。
 

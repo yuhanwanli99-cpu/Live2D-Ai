@@ -162,7 +162,7 @@ void main() {
       );
     });
 
-    testWidgets('分区导航是**文字 chip**，没有图标 avatar（8 个中文标签自带辨识度）', (
+    testWidgets('分区导航是**文字 chip**，没有图标 avatar（7 个中文标签自带辨识度）', (
       WidgetTester tester,
     ) async {
       // 2026-09-11：左侧 rail 已删（用户裁决「把左边的这些设置一级选项去掉
@@ -173,22 +173,23 @@ void main() {
       await tester.pumpWidget(
         wrap(
           SettingsScaffold(
-            sections: visibleSections(),
-            selected: SettingsSection.appearance,
+            // 全量分区：本组测的是 chip 的视觉，不是 dev 过滤。
+            sections: visibleSections(devMode: true),
+            selected: SettingsSection.theme,
             onSelect: (_) => picked++,
             child: const Text('PANE'),
           ),
         ),
       );
-      expect(find.byType(ChoiceChip), findsNWidgets(8));
-      for (final SettingsSection s in visibleSections()) {
+      expect(find.byType(ChoiceChip), findsNWidgets(7));
+      for (final SettingsSection s in visibleSections(devMode: true)) {
         final ChoiceChip chip = tester.widget<ChoiceChip>(
           find.widgetWithText(ChoiceChip, s.label),
         );
         expect(chip.avatar, isNull, reason: '用户裁决「尽量少用图片用文字做按钮」');
       }
-      // 8 个分区都能点。
-      await tester.tap(find.text('诊断'));
+      // 7 个分区都能点。
+      await tester.tap(find.text('模型服务'));
       expect(picked, 1);
     });
 
@@ -209,8 +210,8 @@ void main() {
       await tester.pumpWidget(
         wrap(
           SettingsScaffold(
-            sections: visibleSections(),
-            selected: SettingsSection.appearance,
+            sections: visibleSections(devMode: true),
+            selected: SettingsSection.theme,
             onSelect: (_) {},
             child: const SizedBox.shrink(),
           ),

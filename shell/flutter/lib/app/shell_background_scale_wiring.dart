@@ -4,11 +4,7 @@ extension _ShellBackgroundScaleWiring on _ShellRootState {
   void syncSlideshow(DisplayPrefs prefs) {
     _slideshow
       ..setLibrary(
-        // 同步开着时壳画的是舞台那张，背景库不参与 → 长度按 0 处理，
-        // 轮播自然不会启动（`setLibrary` + `start` 的双重保险）。
-        length: prefs.backgroundSource == DisplayPrefs.backgroundSourceLibrary
-            ? prefs.backgrounds.length
-            : 0,
+        length: prefs.backgrounds.length,
         randomOrder: prefs.slideRandom,
       )
       ..start(prefs.slideInterval, onAdvance: _onBackgroundAdvance);
@@ -37,17 +33,17 @@ extension _ShellBackgroundScaleWiring on _ShellRootState {
     // 把用户刚预览的那张无端切走。`jumpTo` 自带区间夹持、库为空时是
     // 空操作；它**不碰**偏好、不发任何帧（预览是纯运行时动作）。
     _slideshow.jumpTo(index);
+    _lastSentStageBg = DisplayPrefs.stageProjectionUrl(widget.prefs, index);
     _rebuild(() => _backgroundIndex = index);
   }
 
   /// 轮播前进一步。
   ///
-  /// **只换壳的图，一个字节都不往渲染面发**——「舞台跟着换」这个开关在
-  /// 2026-09-27 的减法里被删掉了：它每换一张就要让 wasm 重新解码一次，
-  /// 而舞台背景与壳背景本来就是**两个独立的东西**（一个走渲染面 framebuffer，
-  /// 一个由 Flutter 自己画），让它们联动只是省一次手动操作，代价是持续的开销。
+  /// 只改运行时索引。外壳重建时把当前库项投影进 `Live2DStage.stageImage`，
+  /// 由舞台自己补发。图案和超限图投影为 null，舞台回到纯色，壳仍画该项。
   void _onBackgroundAdvance(int index) {
     if (!mounted) return;
+    _lastSentStageBg = DisplayPrefs.stageProjectionUrl(widget.prefs, index);
     _rebuild(() => _backgroundIndex = index);
   }
 

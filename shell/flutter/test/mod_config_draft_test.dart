@@ -178,7 +178,7 @@ Future<void> _type(WidgetTester tester, String from, String to) async {
 }
 
 Future<void> _save(WidgetTester tester) async {
-  final Finder save = find.text('保存');
+  final Finder save = find.text('保存并应用');
   await tester.ensureVisible(save);
   await tester.pumpAndSettle();
   await tester.tap(save);

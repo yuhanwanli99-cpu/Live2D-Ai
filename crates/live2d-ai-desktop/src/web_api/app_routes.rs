@@ -419,13 +419,25 @@ mod tests {
         let st = build_status(&ctx, &AppSettings::default(), &env_no_keys, String::new());
         assert_eq!(st.config_path, "/tmp/cfg.toml");
         assert!(!st.llm.configured);
-        assert!(!st.tts.configured);
+        // 2026-10-09（0.2.3-rc.1）：出厂 `[tts]` **有**端点（仓库自带的
+        // MeloTTS 垫片，`settings::DEFAULT_TTS_BASE_URL`）——所以 TTS 不再
+        // 「未配置」，这正是开箱出声的一半；LLM 仍要用户自己配端点与 Key。
+        assert!(
+            st.tts.configured,
+            "缺省 [tts] 指本机 8091 的 MeloTTS 垫片，应当 configured"
+        );
         assert!(!st.llm.has_api_key);
         assert!(!st.tts.has_api_key);
         // P0-1：JSON 序列化结果不含任何 env 变量名。
         let json = serde_json::to_string(&st).unwrap();
         assert!(!json.contains("api_key_env"));
         assert!(!json.contains("LIVE2D_AI_LLM"));
+
+        // **显式**清空 `[tts].base_url` 才是「未配置」（空句路径）。
+        let mut blank = AppSettings::default();
+        blank.tts.base_url = String::new();
+        let st_blank = build_status(&ctx, &blank, &env_no_keys, String::new());
+        assert!(!st_blank.tts.configured, "空 base_url = 未配置");
     }
 
     #[test]

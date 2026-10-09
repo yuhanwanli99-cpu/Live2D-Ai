@@ -38,11 +38,14 @@
 pub mod client;
 pub mod plan;
 pub mod prompt;
+pub mod question;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_golden;
+#[cfg(test)]
+mod tests_question;
 
 use std::fmt;
 use std::sync::Arc;
@@ -56,11 +59,18 @@ pub use client::{
 };
 pub use plan::{
     AXIS_MAX, AXIS_MIN, CueAnchor, CueField, DEFAULT_TTL_MS_BODY, DEFAULT_TTL_MS_EXPRESSION,
-    DEFAULT_TTL_MS_HEAD, FieldCue, MAX_CUES, MAX_INTENSITY, MAX_SEGMENT_CHARS, MAX_SEGMENTS,
-    MAX_SPEAK_CHARS, MAX_TTL_MS, MIN_INTENSITY, MIN_TTL_MS, PRIORITY_PERFORMANCE, PerformanceCue,
-    PerformancePlan, PlanError, PlanWarning, action_cue_payload, json_schema_strict, parse_plan,
+    DEFAULT_TTL_MS_HEAD, EXPRESSION_PRESET_IDS, FieldCue, MAX_CUES, MAX_INTENSITY,
+    MAX_SEGMENT_CHARS, MAX_SEGMENTS, MAX_SPEAK_CHARS, MAX_TTL_MS, MIN_INTENSITY, MIN_TTL_MS,
+    PRIORITY_PERFORMANCE, PerformanceCue, PerformancePlan, PlanError, PlanWarning,
+    action_cue_payload, is_expression_preset, json_schema_strict, parse_plan,
 };
 pub use prompt::{build_user_prompt, strip_code_fence};
+// T9 问句补丁：常量 / 判据 / 纯函数住 question.rs（plan.rs 拆出，见那里的头注）。
+pub use question::{
+    QUESTION_EXPRESSION_ID, QUESTION_EXPRESSION_TTL_MS, QUESTION_HEAD_TTL_MS, QUESTION_HEAD_X,
+    QUESTION_HEAD_Y, QUESTION_HEAD_Z, QUESTION_INTENSITY, QUESTION_MARKS, apply_question_patch,
+    first_question_segment, has_question_mark,
+};
 
 /// host 注入的**规则回退**：正文 → 规则 cue（单一真源 = director 的纯函数）。
 pub type RuleFallback = Arc<dyn Fn(&str) -> Vec<PerformanceCue> + Send + Sync>;
@@ -224,6 +234,7 @@ impl fmt::Debug for PerformanceRuntime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PerformanceRuntime")
             .field("client", &self.client.kind())
+            .field("model", &self.client.model())
             .field("enabled", &self.client.enabled())
             .field("allow_len", &self.allow.len())
             .field("timeout_ms", &self.timeout_ms)
@@ -266,6 +277,11 @@ impl PerformanceRuntime {
     /// 客户端种类（状态面）。
     pub fn client_kind(&self) -> &'static str {
         self.client.kind()
+    }
+
+    /// 表演层会用的模型名（装配测试 / 排障；`Disabled` 时为空串）。
+    pub fn model(&self) -> &str {
+        self.client.model()
     }
 
     /// structured 策略（状态面）。

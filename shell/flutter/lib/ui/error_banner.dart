@@ -6,7 +6,7 @@
 ///    这是同类项目最一致的缺陷之一（Nexus / OLV-Web）【调研 survey §8 缺陷 17】。
 ///    所以这里用 `dangerSurface` 底 + `dangerBorder` 描边 + 图标 + 可点动作。
 /// 2. **失败要有「下一步」**：`429 busy` 给「打断并重发」、`503 no_supervisor`
-///    给「去 LLM 设置」、`network_error` 给「重试」。只报告不给出路的错误提示
+///    给「去对话设置」、`network_error` 给「重试」。只报告不给出路的错误提示
 ///    会让用户停在原地。
 ///
 /// # 2026-09-11（P1-5）：本组件只剩「接口」，外形交给 `InlineNotice`

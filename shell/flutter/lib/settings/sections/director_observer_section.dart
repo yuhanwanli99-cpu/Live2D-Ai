@@ -15,7 +15,8 @@
 ///
 /// | 栏 | 来源 |
 /// | --- | --- |
-/// | A 决策参数 | 服务端导演运行态端点（逐键对上 state_json） |
+/// | A 词表记录 | 服务端导演运行态端点（逐键对上 state_json）——**只是词表账本，
+/// 不代表现在的表情**（2026-10-08 改标题） |
 /// | B 事件流 | 前端已收 WS 帧 + 渲染面 ack（环形缓冲上限 200，按 type 过滤） |
 /// | C 传参对照 | 左「请求」= 前端 preset；右「生效」= 渲染面 ack 最终值 |
 /// | D 送 TTS 文本 | 左 = 前端已收 text_delta；右 = 日志端点 sentence_ready |
@@ -281,11 +282,7 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const SectionHeader(
-              title: '导演可观测',
-              description: '四栏只读观测：A 决策参数 / B 事件流 / C 传参对照 / '
-                  'D 送 TTS 文本。只住内存，**不落盘**。',
-            ),
+            const SectionHeader(title: '导演可观测'),
             _decisionBlock(theme),
             _eventsBlock(theme),
             _overrideBlock(theme),
@@ -328,7 +325,7 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
         Row(
           children: <Widget>[
             Expanded(
-              child: Text('A 决策参数', style: theme.textTheme.titleSmall),
+              child: Text('词表记录', style: theme.textTheme.titleSmall),
             ),
             TextButton.icon(
               onPressed: _stateLoading ? null : () => unawaited(_loadState()),
@@ -338,7 +335,8 @@ class _DirectorObserverSectionState extends State<DirectorObserverSection> {
           ],
         ),
         Text(
-          '来源 = 服务端导演运行态端点（GET /api/v1/mods/{id}/state，id=$kDirectorObserverModId；键名与 state_json 逐字一致）',
+          '来源 = 服务端导演运行态端点（GET /api/v1/mods/{id}/state，id=$kDirectorObserverModId；键名与 state_json 逐字一致）。'
+          '这张表不决定现在的表情——它只是词表账本（情绪/意图 → 预设 id 的映射与计数）。',
           style: muted,
         ),
         if (_stateLoading)

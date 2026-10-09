@@ -43,10 +43,7 @@ class DiagnosticsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SectionHeader(
-          title: '诊断',
-          description: '当前连接、代次与能力快照。**只读**——这里没有会改状态的按钮。',
-        ),
+        const SectionHeader(title: '诊断'),
         ReadonlyField(label: '实时通道', icon: Icons.cable, text: wsStatusLabel),
         ReadonlyField(
           label: '激活模型',
@@ -57,7 +54,6 @@ class DiagnosticsSection extends StatelessWidget {
           label: '当前代次（epoch）',
           icon: Icons.tag,
           text: '${status['current_epoch'] ?? 0}',
-          description: '服务端推进 epoch = 上一轮作废（停止 / 抢占）',
         ),
         ReadonlyField(
           label: '服务端版本',
@@ -72,7 +68,6 @@ class DiagnosticsSection extends StatelessWidget {
           text:
               '${(status['audio'] as Map<String, Object?>?)?['backend'] ?? '未知'}'
               '（sample_rate=${(status['audio'] as Map<String, Object?>?)?['sample_rate'] ?? '?'}）',
-          description: 'Web 模式下音频单源是**浏览器**，服务端没有声卡是预期的',
         ),
         ReadonlyField(
           label: 'LLM / TTS 配置',
@@ -100,10 +95,7 @@ class DiagnosticsSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: Space.s3),
-        const SectionHeader(
-          title: '日志',
-          description: '需要先打开「开发模式」；只读最后一屏，不做实时跟随。',
-        ),
+        const SectionHeader(title: '日志'),
         if (logsError != null)
           Text(
             logsError!,

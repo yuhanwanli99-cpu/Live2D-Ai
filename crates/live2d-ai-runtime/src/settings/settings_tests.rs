@@ -77,8 +77,20 @@ fn minimal_file_falls_back_to_defaults() {
         .resolve_with(|_| None)
         .expect("resolve");
 
-    assert_eq!(resolved.tts.voice, "alloy");
-    assert_eq!(resolved.tts.spec, AudioSpec::default());
+    // 2026-10-09（0.2.3-rc.1）：只写 base_url 时，其余键取**出厂缺省** ——
+    // 音色 ZH、pcm、44.1 kHz 单声道（= 仓库自带 MeloTTS 垫片的
+    // melo/weights/config.json 口径），不再是 OpenAI 的 "alloy" / 24 kHz。
+    assert_eq!(resolved.tts.voice, crate::settings::DEFAULT_TTS_VOICE);
+    assert_eq!(resolved.tts.voice, "ZH");
+    assert_eq!(
+        resolved.tts.spec,
+        AudioSpec::new(crate::settings::DEFAULT_TTS_SAMPLE_RATE, 1).expect("非零")
+    );
+    assert_ne!(
+        resolved.tts.spec,
+        AudioSpec::default(),
+        "出厂 TTS 采样率（44.1k）与播放侧默认（24k）是两个口径"
+    );
     assert!(resolved.llm.api_key.is_none() && resolved.tts.api_key.is_none());
     // persona 缺省：不发 system 消息、不保留历史。
     assert_eq!(resolved.conversation.system_prompt, "");
@@ -99,15 +111,34 @@ fn unknown_field_is_rejected_not_silently_ignored() {
 
 #[test]
 fn missing_tts_section_is_allowed_but_bad_url_still_errors() {
-    // 段整体缺省是合法 TOML（容器级 default 兜底）。
-    // **2026-09-10**：TTS 选型未定 —— `[tts]` 缺失 / 空 base_url 是**合法**状态
-    // （引擎走空句路径：只出文本、不合成音频）；但非空非法 URL 仍然报错。
+    // 段整体缺省是合法 TOML（容器级 default 兜底）；非空非法 URL 仍然报错。
+    // **2026-10-09（0.2.3-rc.1）**：出厂 `[tts]` 不再是「空」——缺段时用
+    // `TtsSettings::default()`，它指向仓库自带的 MeloTTS 垫片
+    // （8091 / ZH / pcm / 44100 / 单声道 / 无密钥），所以**开箱就有声**。
     let no_tts = "[llm]\nbase_url = \"http://a/v1\"\nmodel = \"m\"\n";
     let resolved = AppSettings::from_toml_str(no_tts)
         .expect("段缺省可解析")
         .resolve_with(|_| None)
-        .expect("TTS 未配置应可解析（空句路径）");
-    assert!(!resolved.tts.is_configured(), "空 base_url = 未配置");
+        .expect("TTS 缺段应可解析（用出厂缺省）");
+    assert!(
+        resolved.tts.is_configured(),
+        "缺段 = 用出厂缺省（MeloTTS 垫片），不再是「未配置」"
+    );
+    assert_eq!(resolved.tts.base_url, crate::settings::DEFAULT_TTS_BASE_URL);
+    assert_eq!(resolved.tts.voice, crate::settings::DEFAULT_TTS_VOICE);
+    assert_eq!(
+        resolved.tts.spec.sample_rate(),
+        crate::settings::DEFAULT_TTS_SAMPLE_RATE
+    );
+    assert_eq!(resolved.tts.spec.channels(), 1);
+
+    // **显式**写空 base_url 才是「本轮不接 TTS」（引擎走空句路径，不报错）。
+    let blank_tts = "[llm]\nbase_url = \"http://a/v1\"\nmodel = \"m\"\n\n[tts]\nbase_url = \"\"\n";
+    let blank = AppSettings::from_toml_str(blank_tts)
+        .expect("空 base_url 可解析")
+        .resolve_with(|_| None)
+        .expect("空 base_url = 空句路径，不是错误");
+    assert!(!blank.tts.is_configured(), "显式空 base_url = 未配置");
 
     let bad_url =
         "[llm]\nbase_url = \"not a url\"\nmodel = \"m\"\n\n[tts]\nbase_url = \"http://b\"\n";

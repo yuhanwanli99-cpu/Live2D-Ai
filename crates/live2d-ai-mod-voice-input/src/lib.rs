@@ -21,7 +21,7 @@
 //!
 //! # 边界
 //!
-//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（`mod_count_is_five`，
+//! - **注册面**：已装配进 `AVAILABLE_MOD_FACTORIES`（计数断言 `mod_count_is_six`，
 //!   **缺省停用**；启停唯一真源 = manifest `enabled`，`default_mods_manifest` 未收录）；
 //!   handler 复用本 crate 的 [`prepare_transcript`]（=`clean_transcript` +
 //!   [`normalize_for_locale`]，**不重写**），契约见 `docs/voice-input.md`。
@@ -156,13 +156,15 @@ pub fn voice_input_settings_spec() -> ModSettingsSpec {
         fields: vec![
             ModSettingField::String {
                 key: "wake_phrase".to_string(),
-                label: "唤醒词（听到它才开始听；留空 = 关闭语音总闸）".to_string(),
+                // 2026-10-08：标签只留「唤醒词」；「听到它才开始听 / 留空 = 关闸」
+                // 由前端那句说明承担（ModPanel.fieldHelp），不在产品面出现内部名。
+                label: "唤醒词".to_string(),
                 secret: false,
                 default: Some(gate::DEFAULT_WAKE_PHRASE.to_string()),
             },
             ModSettingField::Bool {
                 key: "manual_enabled".to_string(),
-                label: "手动闸（关 = 不收任何转写）".to_string(),
+                label: "按住说话".to_string(),
                 default: true,
             },
             ModSettingField::Select {

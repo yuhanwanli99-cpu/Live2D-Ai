@@ -36,7 +36,14 @@ fn shipped_presets_json_parses_clean_and_matches_builtin_ids() {
         MotionWave::Oscillate { cycles } => assert!((cycles - SHAKE_CYCLES).abs() < 1e-9),
         other => panic!("shake 必须是 oscillate：{other:?}"),
     }
-    for id in ["nod", "shake", "look_left", "look_right"] {
+    for id in [
+        "nod",
+        "shake",
+        "look_left",
+        "look_right",
+        "look_up",
+        "look_down",
+    ] {
         assert!(
             table
                 .get(id)
@@ -205,6 +212,45 @@ fn shipped_presets_json_carries_the_calibrated_amplitudes() {
         close(val(id, "ParamAngleX"), 12.0 * sign, id);
         close(val(id, "ParamBodyAngleX"), 3.9 * sign, id);
     }
+    // T9：抬头 / 低头看——主轴 Y ±12 / 身 ±3.9，次轴 X ±2.7 / 身 ±0.8。
+    for (id, sign) in [("look_up", 1.0f32), ("look_down", -1.0f32)] {
+        close(val(id, "ParamAngleY"), 12.0 * sign, id);
+        close(val(id, "ParamBodyAngleY"), 3.9 * sign, id);
+        close(val(id, "ParamAngleX"), 2.7 * sign, id);
+        close(val(id, "ParamBodyAngleX"), 0.8 * sign, id);
+    }
+    // T9：thinking 的五官五行（与 field_map.rs 的内建表情逐值一致）+ 小幅歪头。
+    close(
+        val("thinking", "ParamMouthForm"),
+        0.0,
+        "thinking ParamMouthForm",
+    );
+    close(
+        val("thinking", "ParamEyeLOpen"),
+        0.55,
+        "thinking ParamEyeLOpen",
+    );
+    close(
+        val("thinking", "ParamEyeROpen"),
+        0.55,
+        "thinking ParamEyeROpen",
+    );
+    close(
+        val("thinking", "ParamBrowLY"),
+        -0.45,
+        "thinking ParamBrowLY",
+    );
+    close(
+        val("thinking", "ParamBrowRY"),
+        -0.45,
+        "thinking ParamBrowRY",
+    );
+    close(val("thinking", "ParamAngleZ"), 6.0, "thinking ParamAngleZ");
+    close(
+        val("thinking", "ParamBodyAngleZ"),
+        2.0,
+        "thinking ParamBodyAngleZ",
+    );
     for (id, sign) in [("tilt_left", 1.0f32), ("tilt_right", -1.0f32)] {
         close(val(id, "ParamAngleZ"), 12.0 * sign, id);
         close(val(id, "ParamBodyAngleZ"), 3.9 * sign, id);
@@ -259,6 +305,8 @@ fn shipped_presets_json_carries_the_calibrated_amplitudes() {
         "shake",
         "look_left",
         "look_right",
+        "look_up",
+        "look_down",
         "tilt_left",
         "tilt_right",
     ] {

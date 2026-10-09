@@ -9,15 +9,24 @@
 ///
 /// 修法不是把名单从 Dart 抄一份到 Dart，而是把判据接回**唯一真源**：
 /// `crates/live2d-ai-desktop/src/main.rs` 的 `AVAILABLE_MOD_FACTORIES`
-///（那也正是 Rust 侧 `mod_count_is_five` 守着的表）。crate 删了 / 改名了 /
+///（那也正是 Rust 侧 `mod_count_is_six` 守着的表）。crate 删了 / 改名了 /
 /// 工厂 id 变了 ⇒ 引用它的夹具立刻红，而不是继续绿着骗人。
 ///
 /// # 已知边界（诚实记录）
 ///
 /// 工厂 id 是由「crate 名去前缀 + `_`→`-`」推出来的（`live2d_ai_mod_voice_input`
-/// → `voice-input`）——它**不是**解析 `FACTORY.id`（那要跑 Rust）。在册的五个
-/// crate 名与 id 目前逐一对得上；若哪天不等了，这条门禁会**报红**（而不是
-/// 静默放过），届时把映射写明确即可。
+/// → `voice-input`、`live2d_ai_mod_local_tts` → `local-tts`）——它**不是**解析
+/// `FACTORY.id`（那要跑 Rust）。
+///
+/// # 2026-10-09：第二个工厂推不出来，只能**显式登记**
+///
+/// `live2d_ai_mod_local_tts` 导出**两个**工厂（CosyVoice3 与 MeloTTS），
+/// 第二个的 id 是 `local-tts-melo`——同一个 crate，**机械推导不出这个 id**。
+/// 所以下面加一份显式映射，并由 `mod_state_surface_test` 断言它**真的被解出来**
+/// （否则这条门禁会漏掉一个在册工厂而继续绿——正是本文件要防的静默失效）。
+///
+/// **2026-10-09（0.2.3-rc.1）**：CosyVoice3 的 `::FACTORY` 已移出静态注册表
+/// （封存，见该 crate 头注），映射里只剩 `::MELO_FACTORY`。
 library;
 
 import 'dart:io';
@@ -26,6 +35,15 @@ import 'source_scan.dart';
 
 /// Rust 静态注册表的位置（相对 `shell/flutter` 的工作目录）。
 const String kModFactoriesSource = '../../crates/live2d-ai-desktop/src/main.rs';
+
+/// **机械推导之外的显式登记**：键是 `crate::工厂名`，值是它真正的 descriptor.id。
+///
+/// 只有「同一个 crate 导出多个工厂 / id 与 crate 名不同源」时才需要写在这里；
+/// 写进来就必须同时把 id 加进 `mod_state_surface_test` 的 containsAll，否则
+/// 漏注册一个工厂也可能继续绿。
+const Map<String, String> kExtraFactoryIds = <String, String>{
+  'live2d_ai_mod_local_tts::MELO_FACTORY': 'local-tts-melo',
+};
 
 /// 已编译进二进制、**当前真的在册**的 Mod id 集合。
 ///
@@ -50,9 +68,17 @@ Set<String> registeredModIds({String source = kModFactoriesSource}) {
   final String body = src.substring(start, end + 1);
   final Set<String> ids = <String>{};
   for (final RegExpMatch m in RegExp(
-    r'live2d_ai_mod_([a-z0-9_]+)::FACTORY',
+    r'live2d_ai_mod_([a-z0-9_]+)::([A-Z_]+)',
   ).allMatches(body)) {
-    ids.add(m.group(1)!.replaceAll('_', '-'));
+    final String crate = m.group(1)!;
+    final String factory = m.group(2)!;
+    final String? explicit = kExtraFactoryIds['live2d_ai_mod_$crate::$factory'];
+    if (explicit != null) {
+      ids.add(explicit);
+      continue;
+    }
+    // 其余工厂一律按「crate 名 → id」推导（`::FACTORY` 是唯一约定）。
+    if (factory == 'FACTORY') ids.add(crate.replaceAll('_', '-'));
   }
   return ids;
 }

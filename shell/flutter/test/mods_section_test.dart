@@ -115,7 +115,9 @@ Future<void> _expandFirstMod(WidgetTester tester) async {
 
 /// 保存按钮在展开表单的最下面，800x600 的视口里通常在折叠线以下。
 Future<void> _tapSave(WidgetTester tester) async {
-  final Finder save = find.text('保存');
+  // 2026-10-09：配置按钮是「保存并应用」（保存 = 让改动生效）；
+  // `find.text` 是精确匹配，所以这里必须跟着改。
+  final Finder save = find.text('保存并应用');
   await tester.ensureVisible(save);
   await tester.pumpAndSettle();
   await tester.tap(save);
@@ -368,7 +370,7 @@ void main() {
       await _expandFirstMod(tester);
       final OutlinedButton button = tester.widget<OutlinedButton>(
         find.ancestor(
-          of: find.text('保存'),
+          of: find.text('保存并应用'),
           matching: find.byType(OutlinedButton),
         ),
       );
@@ -396,7 +398,88 @@ void main() {
       );
       expect(find.text('旧 Mod'), findsOneWidget);
       expect(find.byType(Switch), findsOneWidget);
-      expect(find.text('保存'), findsNothing);
+      expect(find.text('保存并应用'), findsNothing);
+    });
+  });
+
+  group('隐藏键（2026-10-08）：产品面不渲染，但磁盘上的值一个不丢', () {
+    /// 导演形状的 Mod（id = `director` → `modPanelFor` 命中 `DirectorPanel`，
+    /// 它声明了 8 个 `hiddenKeys`）。
+    ModInfo directorMod() => ModInfo(
+      id: 'director',
+      name: '导演',
+      version: '0.1.0',
+      apiVersion: 1,
+      enabled: true,
+      status: 'running',
+      config: const <String, Object?>{
+        'preset_happy': 'nod',
+        'staging_base_url': 'http://kept/v1',
+        'staging_timeout_ms': 2500,
+      },
+      settingsSpec: ModSettingsSpec(
+        modId: 'director',
+        title: '导演',
+        version: 2,
+        fields: <ModSettingField>[
+          _field(
+            ModFieldKind.select,
+            'preset_happy',
+            '开心 → 动作',
+            defaultValue: 'smile',
+            options: const <ModSelectOption>[
+              ModSelectOption(value: 'none', label: '不投递'),
+            ],
+          ),
+          _field(
+            ModFieldKind.string,
+            'staging_base_url',
+            '二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）',
+          ),
+          _field(
+            ModFieldKind.number,
+            'staging_timeout_ms',
+            '二路超时（毫秒，100~5000）',
+            min: 100,
+            max: 5000,
+          ),
+        ],
+      ),
+    );
+
+    testWidgets('隐藏键一个都不上屏（也不进「高级」）；保存不带它们，既有值原样保留', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? saved;
+      await tester.pumpWidget(
+        _wrap(
+          ModsSection(
+            mods: <ModInfo>[directorMod()],
+            loading: false,
+            onLoadState: _stubState,
+            onSaveConfig: (String id, Map<String, Object?> config) async {
+              saved = config;
+              return const ModConfigResult(ok: true);
+            },
+          ),
+        ),
+      );
+      await tester.tap(find.text('导演'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('开心 → 动作'), findsNothing);
+      expect(
+        find.text('二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）'),
+        findsNothing,
+      );
+      expect(find.text('二路超时（毫秒，100~5000）'), findsNothing);
+      expect(find.text('高级'), findsNothing, reason: '隐藏键不得被收进「高级」折叠');
+
+      await _tapSave(tester);
+      expect(saved, isNotNull);
+      expect(saved!['preset_happy'], 'nod', reason: '隐藏键的值不得被 spec 默认值覆盖');
+      expect(saved!['staging_base_url'], 'http://kept/v1');
+      expect(saved!['staging_timeout_ms'], 2500);
     });
   });
 }

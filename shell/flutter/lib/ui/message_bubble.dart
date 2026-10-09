@@ -24,6 +24,7 @@ import 'package:flutter/services.dart';
 
 import '../chat/chat_markdown.dart';
 import '../chat/chat_message.dart';
+import '../chat/spoken_highlight.dart';
 import '../chat/turn_liveness.dart';
 import '../design/tokens.dart';
 import 'soft_motion.dart';
@@ -34,10 +35,18 @@ class MessageBubble extends StatelessWidget {
     required this.message,
     this.onRetry,
     this.announcement,
+    this.highlightSeq,
     super.key,
   });
 
   final ChatMessage message;
+
+  /// **当前正在播放的句号**（`sentence_seq`，与音频帧同一个数）；`null` = 不高亮。
+  ///
+  /// 句号由 `ChatController.playingSentenceSeq` 沿壳一路传下来；**高亮哪一段**
+  /// 由纯函数 [spokenHighlight] 在这条消息自己的 [ChatMessage.spoken] 上算——
+  /// 气泡不自己切正文（切了就会与服务端的句边界说两套话）。
+  final int? highlightSeq;
 
   /// 失败态下的「重试」；`null` 时不显示。
   final VoidCallback? onRetry;
@@ -67,6 +76,14 @@ class MessageBubble extends StatelessWidget {
 
     final bool isUser = message.role == ChatRole.user;
     final bool failed = message.isPlaceholder;
+
+    // 朗读高亮：只在助手气泡上、且拼接正文与气泡正文逐字对齐时才成立
+    //（中间夹过没有 sentence_seq 的 delta 时宁可不高亮，也不高亮错字）。
+    final SpokenHighlight? highlight =
+        message.role == ChatRole.assistant &&
+            highlightFitsText(message.text, message.spoken)
+        ? spokenHighlight(message.spoken, highlightSeq)
+        : null;
 
     // ── 完全空的一条：**整个不画**（2026-09-28，F-0005-3）──
     //
@@ -235,6 +252,7 @@ class MessageBubble extends StatelessWidget {
                                   child: _MessageBody(
                                     text: placeholderOnly ? '…' : message.text,
                                     color: foreground,
+                                    highlight: highlight,
                                   ),
                                 ),
                               ),
@@ -473,23 +491,40 @@ class _SystemRow extends StatelessWidget {
   }
 }
 
-/// 正文：有记号就走 Markdown，没有就当纯文本。
+/// 正文：有记号就走 Markdown，没有就当纯文本；正在朗读的那一段加底色 + 加粗。
 ///
 /// 走捷径那条不是微优化：`SelectableText` 与 `SelectableText.rich` 在选择
 /// 与复制行为上并不完全一致（后者会把 span 边界带进选区），纯文本消息
-/// 没有任何理由付这个代价。
+/// 没有任何理由付这个代价。**高亮时例外**——底色只能用 span 表达，所以
+/// 「正在朗读」的那几秒一律走 rich（读起来仍然逐字一致）。
 class _MessageBody extends StatelessWidget {
-  const _MessageBody({required this.text, required this.color});
+  const _MessageBody({
+    required this.text,
+    required this.color,
+    this.highlight,
+  });
 
   final String text;
   final Color color;
+
+  /// 正在朗读的那一段（**拼接正文坐标**，由 [spokenHighlight] 算好）。
+  final SpokenHighlight? highlight;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final TextStyle? base = theme.textTheme.bodyMedium?.copyWith(color: color);
 
-    if (!hasChatMarkdown(text)) {
+    // 坐标越界 / 空区间一律当「没有高亮」——渲染层不替判据兜底猜位置。
+    final SpokenHighlight? mark =
+        highlight != null &&
+            highlight!.start >= 0 &&
+            highlight!.start < highlight!.end &&
+            highlight!.end <= text.length
+        ? highlight
+        : null;
+
+    if (mark == null && !hasChatMarkdown(text)) {
       return SelectableText(text, style: base);
     }
 
@@ -497,25 +532,61 @@ class _MessageBody extends StatelessWidget {
     // 的语义槽位），不新造颜色。浅色主题下它也自动是深一档的灰。
     final Color codeBackground = theme.colorScheme.surfaceContainerHighest;
 
-    TextSpan spanOf(MdSpan span) {
+    // 朗读高亮的底色：现有令牌 `accent` 的淡底 + 加粗，**不新造颜色**。
+    // 加粗是第二条通道：底色在四套主题上的感知强度不同，字重不会。
+    final AppPalette palette = appPaletteOf(context);
+    final TextStyle markStyle = (base ?? const TextStyle()).copyWith(
+      backgroundColor: palette.accent.withValues(
+        alpha: palette.dark ? 0.22 : 0.16,
+      ),
+      fontWeight: FontWeight.w600,
+    );
+
+    TextSpan spanOf(MdSpan span, {required bool marked}) {
+      TextStyle? style;
       if (span.code) {
-        return TextSpan(
-          text: span.text,
-          style: (base ?? const TextStyle()).copyWith(
-            fontFamily: 'monospace',
-            backgroundColor: codeBackground,
-          ),
+        style = (base ?? const TextStyle()).copyWith(
+          fontFamily: 'monospace',
+          backgroundColor: codeBackground,
+        );
+      } else if (span.bold) {
+        style = (base ?? const TextStyle()).merge(
+          const TextStyle(fontWeight: FontWeight.w600),
         );
       }
-      if (span.bold) {
-        return TextSpan(
-          text: span.text,
-          style: (base ?? const TextStyle()).merge(
-            const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        );
+      if (marked) {
+        style = (style ?? base ?? const TextStyle()).merge(markStyle);
       }
-      return TextSpan(text: span.text);
+      // 没有记号、也没被高亮的 span 保持 `style == null`（继承根 style）——
+      // 与加入高亮之前逐字一致，现有断言读的就是这条。
+      return style == null
+          ? TextSpan(text: span.text)
+          : TextSpan(text: span.text, style: style);
+    }
+
+    if (mark != null) {
+      // 按**原文**切成三段（前 / 高亮 / 后），每段照常解释 Markdown。
+      // 段之间**不插换行**：只有同一段内部的块边界才需要换行符——否则
+      // 一句话中间会被硬生生折成两行。落单的记号跨在切点上时原样留着
+      //（`chat_markdown.dart` 的「宁可少认，不可吞字」在这里同样成立）。
+      final List<InlineSpan> children = <InlineSpan>[];
+      void addSlice(String slice, {required bool marked}) {
+        final List<MdBlock> blocks = parseChatMarkdown(slice);
+        for (int b = 0; b < blocks.length; b++) {
+          // 只补**段内**的块边界（b > 0）：段与段之间不插换行，否则一句
+          // 话会在切点处被折成两行。
+          if (b > 0) children.add(const TextSpan(text: '\n'));
+          if (blocks[b].bullet) children.add(const TextSpan(text: '· '));
+          for (final MdSpan span in blocks[b].spans) {
+            children.add(spanOf(span, marked: marked));
+          }
+        }
+      }
+
+      addSlice(text.substring(0, mark.start), marked: false);
+      addSlice(text.substring(mark.start, mark.end), marked: true);
+      addSlice(text.substring(mark.end), marked: false);
+      return SelectableText.rich(TextSpan(children: children), style: base);
     }
 
     final List<MdBlock> blocks = parseChatMarkdown(text);
@@ -525,7 +596,7 @@ class _MessageBody extends StatelessWidget {
           for (int b = 0; b < blocks.length; b++) ...<InlineSpan>[
             if (b > 0) const TextSpan(text: '\n'),
             if (blocks[b].bullet) const TextSpan(text: '· '),
-            for (final MdSpan span in blocks[b].spans) spanOf(span),
+            for (final MdSpan span in blocks[b].spans) spanOf(span, marked: false),
           ],
         ],
       ),

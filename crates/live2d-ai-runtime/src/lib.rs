@@ -73,6 +73,8 @@
 //! 实现（无锁/无线程）。
 
 pub mod audio;
+/// 二路按句清洗（2026-10-08）：一句原文 → `{display, speech}`（模型与一路同一份）。
+pub mod cleaning;
 pub mod config;
 pub mod conversation;
 pub mod dialogue;
@@ -91,6 +93,7 @@ pub mod tts;
 use url::Url;
 
 pub use audio::{AudioSpec, PcmS16LeDecoder, RmsMeter, SampleQueue, convert_spec};
+pub use cleaning::{CleanedSentence, SentenceCleaner};
 pub use config::{LlmConfig, TtsConfig};
 pub use conversation::{
     CancellationToken, ConversationConfig, ConversationEngine, EngineEvent, ErrorKind, TurnReport,

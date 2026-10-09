@@ -68,7 +68,9 @@
 
 ## 版本与发布
 
-- [**v0.2.1-rc.1 — 工程债清零（结构 / 离线 / 安全）+ 首次真实浏览器全量验收**（当前）](releases/v0.2.1-rc.1.md)
+- [**v0.2.3-rc.1 — 开箱即用：白模型 / MeloTTS / CosyVoice3 封存 / 不带 Key**（当前）](releases/v0.2.3-rc.1.md)
+  ——白模型进仓库（克隆后舞台直接渲染）；`local-tts-melo` 缺省启用（`with_app`）；出厂 `[tts]` 指向 `127.0.0.1:8091/v1`；CosyVoice3 移出注册表并封存；仓库不带 LLM Key。
+- [v0.2.1-rc.1 — 工程债清零（结构 / 离线 / 安全）+ 首次真实浏览器全量验收](releases/v0.2.1-rc.1.md)
   ——字体回落**结构性离线化**（注入子集外字符跨源请求 **0/0**；未镜像字族离线 = 豆腐块，取舍写明）＋结构硬指标
   （Rust `>1000` **4 → 0**、Dart `>800` **7 → 2** = PLAN 目标）＋探针判据修复与**首次真实音频链路验收**
   （131 audio 帧 / start 1 · end 1 / blob `<audio>` `currentTime` 前进 1.83 s）＋CI 三红线门禁与依赖 **25 → 22**
@@ -184,6 +186,11 @@
 
 ## 调研
 
+- [**导演层同类对照：N.E.K.O. 与 12 个项目（2026-10-07，导演层讨论）**](research/调研结果-导演层同类对照-2026-10-07.md)
+  ——N.E.K.O. 是「独立小模型给**角色回复**贴 5 情绪 + 回合收尾触发」；多数同类走主 LLM 内联标签；
+  成熟的只有仲裁层（VTS P0–P5 / Cubism priority / Warudo layer）。含本仓 `0.2.2` 导演对照与「可借鉴 / 不抄」清单
+- [**AI-Vtuber（Ikaros-521）对照：差异与可借鉴（2026-10-07，导演层讨论）**](research/调研结果-AI-Vtuber对照-2026-10-07.md)
+  ——对方没有情绪导演；Live2D 页是静态样例，身体靠外挂程序吃音频 URL。可借鉴的是事件种类、插队准入和短窗口收束，都放在进 `TurnPrompt` 之前
 - [竞品对比](research/benchmark-neko-vs-neurosama.md)
 - [N.E.K.O UI 对标与「最小高级感」缺口清单](research/neko-ui-alignment-and-gaps.md)
 - [Live2D 半身动作/情绪表演开源检索：nanlingyin 系 + soullink-emotion-sdk 深读](research/live2d-halfbody-motion-research.md)
@@ -192,6 +199,10 @@
 - [Neuro-sama 架构](research/NeuroSama-architecture-research.md)
 - [N.E.K.O / Live2D 调研](research/NEURO_LIVE2D_RESEARCH.md)
 - [TTS 调研](research/tts-research-report.md)
+- [**TTS 选型再评估：8 GB 笔记本上的显存账（2026-10-08）**](research/tts-vram-selection-2026-10-08.md)
+  ——实测 CosyVoice 3 常驻 4.7 GB / 峰值 5.2 GB、桌面侧 2.1–2.7 GB、TTFA 2.0–9.8 s（验收线 ≤1 s）；给出止血项、CosyVoice2-0.5B 主线与 0 显存（CPU / 云端）两档
+- [**本地 TTS 显存与「本地 TTS Mod」对话记录（2026-10-08）**](research/tts-engine-mod-conversation-2026-10-08.md)
+  ——维护者口径：Mod 只做「注册 + 拉起外挂 TTS + 暴露 API + TTS 选择里多一个本地选项」，TTS 端点也可走云端；含与 `tts-is-core.md` 现行裁决的接缝与待裁决项，只记录不实施
 - [Flutter × Live2D 开源实现调研（2026-09，渲染面/消息桥/许可）](research/flutter-live2d-implementations-2026-09.md)
 - [许可报告](research/license-report.md)
 

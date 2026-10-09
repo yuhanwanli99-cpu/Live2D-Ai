@@ -118,11 +118,35 @@ struct WireMessage<'a> {
     content: &'a str,
 }
 
+/// 思考开关的**线上形态**：DeepSeek 官方 Chat Completions 用
+/// `{"type": "disabled" | "enabled"}`（OpenAI 兼容体，2026-10-08）。
+///
+/// **缺省必须显式发 `disabled`**：官方文档写明思考缺省是**开**的
+///（`effort` 缺省 `high`），不写这个字段等于让上游继续想。`temperature`
+/// 与思考模式互相不生效，不能靠它关思考，也不要用 Anthropic 的
+/// `reasoning.effort`。
+#[derive(Serialize)]
+struct ThinkingField {
+    /// 线上键名就是 `type`（`r#type` 只是 Rust 关键字逃逸）。
+    r#type: &'static str,
+}
+
+impl ThinkingField {
+    /// `true` → `enabled`；`false`（缺省）→ `disabled`。
+    const fn of(enabled: bool) -> Self {
+        Self {
+            r#type: if enabled { "enabled" } else { "disabled" },
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ChatRequestBody<'a> {
     model: &'a str,
     messages: Vec<WireMessage<'a>>,
     stream: bool,
+    /// **思考模式**（`thinking.type`）。字段**恒定出现**：缺省发 `disabled`。
+    thinking: ThinkingField,
     /// 输出 token 上限。**0 = 不限制**（字段整体省略，沿用服务端默认）。
     ///
     /// 这是「控制回复长度」的**机制**——不靠提示词求模型守规矩，
@@ -137,10 +161,15 @@ fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 
+/// 组装一路（对话）请求体。
+///
+/// `thinking_enabled` 来自 `llm.show_reasoning`（`LlmConfig::thinking`）：
+/// **缺省 false → 线上发 `thinking.type = "disabled"`**（2026-10-08）。
 fn chat_request_body<'a>(
     model: &'a str,
     messages: &'a [ChatMessage],
     max_tokens: u32,
+    thinking_enabled: bool,
 ) -> ChatRequestBody<'a> {
     ChatRequestBody {
         model,
@@ -153,6 +182,7 @@ fn chat_request_body<'a>(
             .collect(),
         // 固定 stream=true：唯一路径就是 SSE 增量流。
         stream: true,
+        thinking: ThinkingField::of(thinking_enabled),
         max_tokens,
     }
 }
@@ -300,6 +330,7 @@ impl crate::OpenAiClient {
             &self.llm.model,
             messages,
             self.llm.max_tokens,
+            self.llm.thinking,
         ));
         if let Some(key) = &self.llm.api_key {
             request = request.bearer_auth(key.expose_secret());
@@ -389,7 +420,7 @@ mod tests {
     #[test]
     fn wire_request_shape_is_openai_compatible() {
         let messages = [ChatMessage::system("sys"), ChatMessage::user("hi")];
-        let body = chat_request_body("qwen2.5:7b", &messages, 0);
+        let body = chat_request_body("qwen2.5:7b", &messages, 0, false);
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["model"], "qwen2.5:7b");
         assert_eq!(json["stream"], true);
@@ -412,7 +443,8 @@ mod tests {
         ];
         // 覆盖有/无 max_tokens 两条序列化分支，tools 在两种情况下都不得出现。
         for max_tokens in [0u32, 512] {
-            let json = serde_json::to_value(chat_request_body("m", &messages, max_tokens)).unwrap();
+            let json =
+                serde_json::to_value(chat_request_body("m", &messages, max_tokens, false)).unwrap();
             assert!(
                 json.get("tools").is_none(),
                 "LLM 请求体不得含 tools 键（max_tokens={max_tokens}），got: {json}"
@@ -431,16 +463,53 @@ mod tests {
     fn wire_request_omits_max_tokens_only_when_unlimited() {
         let messages = [ChatMessage::user("hi")];
 
-        let unlimited = chat_request_body("m", &messages, 0);
+        let unlimited = chat_request_body("m", &messages, 0, false);
         let json = serde_json::to_value(&unlimited).unwrap();
         assert!(
             json.get("max_tokens").is_none(),
             "0 = 不限制 → 必须省略字段，got: {json}"
         );
 
-        let capped = chat_request_body("m", &messages, 512);
+        let capped = chat_request_body("m", &messages, 512, false);
         let json = serde_json::to_value(&capped).unwrap();
         assert_eq!(json["max_tokens"], 512);
+    }
+
+    /// **思考缺省关闭的线上契约（2026-10-08）**：请求体必须**显式**带
+    /// `thinking: {"type": "disabled"}`。
+    ///
+    /// 为什么不能省这个字段：DeepSeek 官方 Chat Completions 的思考缺省是**开**的
+    ///（`effort` 缺省 `high`）——不写字段 = 上游继续想。`temperature` 与思考
+    /// 模式互不生效，也不得改用 Anthropic 的 `reasoning.effort`。
+    #[test]
+    fn chat_request_body_disables_thinking_by_default() {
+        let messages = [ChatMessage::user("hi")];
+        let json = serde_json::to_value(chat_request_body("deepseek-flash", &messages, 0, false))
+            .expect("序列化");
+        assert_eq!(
+            json["thinking"]["type"], "disabled",
+            "缺省必须显式关思考（不写字段 = 上游继续想）：{json}"
+        );
+        assert_eq!(json["model"], "deepseek-flash");
+        // 只认官方 `thinking.type`：不得出现 Anthropic 的 reasoning.effort。
+        assert!(json.get("reasoning").is_none(), "got: {json}");
+        assert!(json["thinking"].get("effort").is_none(), "got: {json}");
+    }
+
+    /// 用户把「思考」开关打开时，**同一个请求体**改成 `thinking.type == "enabled"`。
+    ///
+    /// 这是「开关同时管请求与上屏」的另一半：关 = 上游不生成、界面自然没有；
+    /// 开 = 上游生成、折叠区才可能有内容。
+    #[test]
+    fn chat_request_body_enables_thinking_when_the_switch_is_on() {
+        let messages = [ChatMessage::system("sys"), ChatMessage::user("hi")];
+        let off = serde_json::to_value(chat_request_body("m", &messages, 512, false)).unwrap();
+        let on = serde_json::to_value(chat_request_body("m", &messages, 512, true)).unwrap();
+        assert_eq!(off["thinking"]["type"], "disabled");
+        assert_eq!(on["thinking"]["type"], "enabled");
+        // 其余字段一字不变（开关只动思考）。
+        assert_eq!(off["messages"], on["messages"]);
+        assert_eq!(off["max_tokens"], on["max_tokens"]);
     }
 
     // ApiSecret 在此模块的使用点：仅作为 bearer_auth 输入（见集成测试的 Authorization 断言）。

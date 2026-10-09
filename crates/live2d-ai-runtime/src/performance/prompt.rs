@@ -8,8 +8,15 @@
 //!   响应再经 [strip_code_fence] 剥掉围栏——**仍然必须过
 //!   [crate::performance::plan::parse_plan] 同一个校验器**（宽容的是围栏，不是契约）。
 //!
+//! # 口径（2026-10-07 T8：直送原文，只演头与表情）
+//!
+//! 送进 TTS 的文本由**主模型原文定死**：表演层只把原文切段（segments 拼回必须逐字
+//! 等于原文），**不改字、不删句、不拒答、不加声明，也不做内容审查**。cue 只留
+//! head / expression 两族（`field=body` 交上来会被校验器丢掉并 warn）；
+//! 头部的 x/y/z 直接落在现有头部角（ParamAngle*），颈随之转动——**没有新参数**。
+//!
 //! 红线（协议 §5.1）：这两个提示词**不得**出现任何 Param… 参数名——模型只写
-//! 归一化语义字段（body / head / expression + 轴值），参数名到映射表为止。
+//! 归一化语义字段（head / expression + 轴值），参数名到映射表为止。
 //! 回归 performance_prompt_never_contains_param_names 扫本文件常量与 schema。
 //! 这两个提示词也**不得**出现在主模型路径上。主模型（酒馆式角色扮演）只拿
 //! 人设 + 剧情/记忆注入，不暴露任何工具、不要求任何 JSON / 舞台指示。
@@ -18,13 +25,14 @@
 pub const SYSTEM_STRUCTURED: &str = "你是 Live2D 皮套的表演导演。你会读到本轮用户输入与主模型写好的原文，\
 你只做两件事。第一，把原文切成若干段 segments：只能切分，绝不能改写、缩写、\
 增删字词或调整顺序；把所有段按顺序拼起来必须与原文逐字完全相同（含标点与空白）；\
-原文为空就给空数组。第二，给若干条表演 cue：field 取 body（半身摆动/倾斜）、\
-head（点头/摇头/歪头）、expression（只写五官）；body 与 head 可选归一化轴值 \
-x/y（-1..1），head 另可给 z（歪头倾斜），expression 用 id 指定表情面板项（none 表示撤销）；\
+原文为空就给空数组。第二，给若干条表演 cue，field 只能取 head（点头/摇头/歪头，\
+颈部随之转动）或 expression（只写五官）；head 可选归一化轴值 x/y（-1..1），\
+另可给 z（歪头倾斜）；expression 用 id 指定表情面板项（none 表示撤销）；\
 intensity 取 1（轻微）/2（中）/3（强）；at 取 now（立即）或 seg:N（第 N 段音频开始，\
 N 从 1 起、不超过段数）或 after_prev（上一条做完后）；hold 为 true 表示保持到下次指令、\
-false 表示按 ttl_ms（可选，默认 body/head 900、expression 2600 毫秒）到点回落。\
-只做表演，不改变剧情立场，不添加原文没有的事实。";
+false 表示按 ttl_ms（可选，默认 head 900、expression 2600 毫秒）到点回落。\
+不写身体/手臂动作（field=body 会被丢弃）。不改写原文一个字、不删句、不拒答、\
+不加声明，也不做任何内容审查。";
 
 /// 表演层 system（prompt 路）：在角色之外**写死输出契约**。
 ///
@@ -32,13 +40,14 @@ false 表示按 ttl_ms（可选，默认 body/head 900、expression 2600 毫秒�
 /// + tool_choice=auto**（那是「赌模型愿不愿意调工具」，缺席时整轮没有表演）。
 pub const SYSTEM_JSON_ONLY: &str = "你是 Live2D 皮套的表演导演。你会读到本轮用户输入与主模型写好的原文。\
 只输出 JSON，不要解释、不要 Markdown 围栏、不要多余字段。\
-格式必须是：{\"segments\": [字符串, ...], \"cues\": [{\"field\": \"body|head|expression\", \
+格式必须是：{\"segments\": [字符串, ...], \"cues\": [{\"field\": \"head|expression\", \
 \"x\": 数字?, \"y\": 数字?, \"z\": 数字?, \"id\": 字符串?, \"intensity\": 整数, \
 \"at\": \"now|seg:N|after_prev\", \"hold\": true|false, \"ttl_ms\": 整数?}]}。\
 segments 只能切分原文，逐字不变，全部按顺序拼接必须与原文完全相同；原文为空给空数组。\
-cues 为空数组表示本轮不做动作。body/head 用 x/y（可选 z 仅 head，取值 -1..1）；\
+cues 为空数组表示本轮不做动作。head 用 x/y（可选 z，取值 -1..1，颈部随之转动）；\
 expression 必须给 id（面板项，none 表示撤销）。intensity 取 1/2/3；\
-at 的 seg:N 从 1 起且不超过段数；hold=true 表示保持到下次指令，false 按 ttl_ms 到点回落。";
+at 的 seg:N 从 1 起且不超过段数；hold=true 表示保持到下次指令，false 按 ttl_ms 到点回落。\
+不改写原文、不删句、不拒答、不加声明，也不做内容审查；field=body 会被丢弃。";
 
 /// 组装 user 消息：本轮用户输入 + 主模型原文 + 能力集。
 ///
@@ -46,7 +55,8 @@ at 的 seg:N 从 1 起且不超过段数；hold=true 表示保持到下次指令
 pub fn build_user_prompt(user_text: &str, assistant_text: &str, allow: &[String]) -> String {
     format!(
         "【用户】{user_text}\n【主模型原文】{assistant_text}\n【能力集】{}\n\
-【切分纪律】segments 只能切分上面的主模型原文：逐字不变，拼接后必须与原文完全相同。",
+【切分纪律】segments 只能切分上面的主模型原文：逐字不变，拼接后必须与原文完全相同；\
+不改写、不删句、不加声明、不做内容审查。",
         allow.join(", ")
     )
 }

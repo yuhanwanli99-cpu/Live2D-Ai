@@ -51,6 +51,8 @@ pub const MAX_SCALE: f32 = 2.2;
 //   head 主轴 `ParamAngleX/Y/Z` = 12.0 → 2.375（Single：nod / look_* / tilt_*）/ 2.558（shake，含 0.9285）
 //   body 主轴 `ParamBodyAngleX/Y/Z` = 3.9 → 2.436（Single）/ 2.623（shake）
 //   五官 `ParamEyeLOpen/ROpen`（surprised）= 1.26 → 3.016
+//   T9：look_up / look_down 主轴同为 12.0 / 3.9（死区同上）；thinking 的
+//   `ParamAngleZ` = 6 → 4.75、`ParamBodyAngleZ` = 2 → 4.75、五官最大 0.55 → 6.909。
 // 全部 > MAX_SCALE(2.2)：**滑条全行程有效**。
 //
 // ⚠ **两个旋钮同时拉满**（intensity = 3 且 scale = 2.2）：**普通包会钳位，morph 包不会**。
@@ -68,9 +70,12 @@ pub const MAX_SCALE: f32 = 2.2;
 //   | smile | ParamAngleY / ParamBodyAngleY | 39.6 / 13.2 | 30 / 10 |
 //   | surprised | ParamEyeLOpen / ParamEyeROpen / ParamBrowLY / ParamBrowRY | 8.316 / 5.28 | 4 |
 //   | surprised | ParamAngleY / ParamBodyAngleY | 33.0 / 13.2 | 30 / 10 |
+//   | thinking（T9，小幅歪头包） | ParamAngleZ / ParamBodyAngleZ | 39.6 / 13.2 | 30 / 10 |
+//   | look_up / look_down（T9，主轴 ×1.0） | ParamAngleY / ParamBodyAngleY | 79.2 / 25.74 | 30 / 10 |
 // **不钳位**（同一口径下的反向读数）：全部手势次轴（shake Z 13.5、look Z 17.8、tilt X 19.8、
 // 身次轴 ≤5.3）；smile 的 Brow（3.3）与 AngleZ（13.2）；surprised 的 MouthForm（1.32）、
-// AngleX（19.8）、BodyAngleX（6.6）；**unhappy 全部通道**（最大 6.6）。
+// AngleX（19.8）、BodyAngleX（6.6）；**unhappy 全部通道**（最大 6.6）；T9 的
+// look_up / look_down 次轴 X（17.82 / 5.28）与 thinking 五官（0 / 3.63 / 2.97）。
 // 同一张表也写在 `assets/actions/presets.json` 的 `_doc`；`docs/architecture/action-packs-v0.md`
 // 的副本由 W1/W8 在动作文档里对齐（本文件是数值真源）。
 

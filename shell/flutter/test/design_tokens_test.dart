@@ -178,6 +178,15 @@ const Set<String> kNotYetWired = <String>{
   // 2026-09-11（P1-2）：`AppDurations.reveal` 已接到 `StartupReveal`
   // （`lib/ui/soft_motion.dart`）——外壳首帧淡入一次，把舞台 iframe 的
   // 空白首帧挡在背后。4 档时长至此**全部接线**。
+  //
+  // ── 玻璃边缘高光的两个叠色（**2026-10-08 回填，不是漏删**） ──
+  //
+  // `GlassRim` 已从三处外壳拿掉并删除（计划书明令「不要换成另一圈渐变或
+  // 阴影」）。它唯一消费的两个令牌因此**暂时**没有产品面消费点：
+  // `glassBarrier`（描边冷色）与 `rimHighlight`（描边基色）。
+  // 如实登记，等下一次真正用到时按「只减不增」删掉。
+  'AppColors.glassBarrier',
+  'AppColors.rimHighlight',
 };
 
 void main() {
@@ -429,15 +438,39 @@ void main() {
       expect(b.toString(), contains('0.8'));
     });
 
-    test('三个字段都出现在 toString 里', () {
-      const AppMaterial m = AppMaterial(
-        radiusScale: 1.2,
-        edgeStrength: 0.7,
-        uiTransparency: 0.4,
-      );
+    test('两个字段都出现在 toString 里（只有 radiusScale 与 uiTransparency）', () {
+      const AppMaterial m = AppMaterial(radiusScale: 1.2, uiTransparency: 0.4);
       expect(m.toString(), contains('1.2'));
-      expect(m.toString(), contains('0.7'));
       expect(m.toString(), contains('0.4'));
+      // 2026-10-07 减法：`edgeStrength`（描边强度）已整个删除——它不再是
+      // AppMaterial 的字段，更不该出现在排障输出里。
+      expect(AppMaterial.neutral.toString(), isNot(contains('edgeStrength')));
+    });
+  });
+
+  group('发丝线固定：暗色 0.12 / 浅色 0.10（不乘任何强度旋钮）', () {
+    test('四套配色逐个对账（读主题扩展上的 hairline）', () {
+      for (final AppThemeId id in AppThemeId.values) {
+        final AppPalette palette = AppPalette.of(id);
+        final AppColors colors = buildAppTheme(id).extension<AppColors>()!;
+        final String tone = palette.dark ? '暗色' : '亮色';
+        final double want = palette.dark ? 0.12 : 0.10;
+        expect(
+          colors.hairline.a,
+          closeTo(want, 1e-9),
+          reason:
+              '$id（$tone）的发丝线 alpha 必须是固定的 $want；'
+              '它曾经乘过用户的「描边强度」旋钮，那条旋钮已删',
+        );
+      }
+    });
+
+    test('暗 / 亮两档都确实存在，不是一条恒定值冒充两档', () {
+      final Set<double> alphas = <double>{
+        for (final AppThemeId id in AppThemeId.values)
+          buildAppTheme(id).extension<AppColors>()!.hairline.a,
+      };
+      expect(alphas, <double>{0.12, 0.10});
     });
   });
 }

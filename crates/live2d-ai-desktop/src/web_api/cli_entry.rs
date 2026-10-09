@@ -647,7 +647,11 @@ pub fn mods_path_for_web() -> std::path::PathBuf {
 /// LLM 端点由 `live2d-ai.toml` 的 `[llm]` 显式配置（`base_url` 缺省
 /// 指向 OpenAI 兼容服务）。crate 暂留仓库但不再注册、不再编译进 binary。
 ///
-/// # 为什么缺省里**没有** TTS（2026-09-11 用户裁决）
+/// 2026-10-09（0.2.3-rc.1「开箱即用」）：**缺省启用 `local-tts-melo`**
+/// （`launch_mode = with_app`）——仓库自带 MeloTTS 中文权重，克隆后开机就能出声；
+/// 它的程序是仓库内脚本，Mod 本身仍**不写 [tts]**（见下）。
+///
+/// # 为什么缺省里**没有** TTS **Mod**（2026-09-11 用户裁决）
 ///
 /// 语音合成是**核心链路**（LLM → TTS → 口型），不是可选扩展。
 /// 它的端点唯一权威来源是 `live2d-ai.toml` 的 `[tts]` 段
@@ -657,7 +661,16 @@ pub fn mods_path_for_web() -> std::path::PathBuf {
 fn default_mods_manifest() -> serde_json::Value {
     serde_json::json!({
         "mods": {
-            "external-input": { "enabled": true, "config": {} }
+            "external-input": { "enabled": true, "config": {} },
+            // 2026-10-09（0.2.3-rc.1「开箱即用」）：出厂出声的那一个。
+            // `with_app` = 随应用开机（Boot）就 spawn；缺省程序 = 仓库内
+            // `crates/live2d-ai-mod-local-tts/melo/start.sh`，权重在
+            // `melo/weights/`（config.json 普通入库，checkpoint.pth 走 Git LFS）。
+            // 它**不写 [tts] 的任何键**：出声端点仍只由 `live2d-ai.toml` 的 [tts] 决定。
+            "local-tts-melo": {
+                "enabled": true,
+                "config": { "launch_mode": "with_app" }
+            }
         }
     })
 }
@@ -729,18 +742,30 @@ mod tests {
         assert_eq!(EXIT_ENVIRONMENT, 3);
     }
 
-    /// 0.2.0-rc.1：无 `mods.json` 时内建缺省**只启用 `external-input`**。
+    /// 0.2.0-rc.1 起：无 `mods.json` 时内建缺省启用外部注入。
+    /// **2026-10-09（0.2.3-rc.1「开箱即用」）起：同时启用 `local-tts-melo`**
+    /// （`with_app`，开机拉起仓库自带的 MeloTTS）。
     ///
-    /// 三条断言各守一件事：
+    /// 断言各守一件事：
     /// 1. 外部注入（直播弹幕刚需）开箱可用；
-    /// 2. `local-llm` 不再出现在缺省（废除启动，别再加回来）；
-    /// 3. TTS 仍是核心链路（`live2d-ai.toml` 的 `[tts]`），不以 Mod 形式出现。
+    /// 2. 本地 TTS 开箱出声 —— `local-tts-melo` 在缺省 manifest 里且 `with_app`；
+    /// 3. CosyVoice3（id `local-tts`）**已封存移出注册表**，不得再进缺省；
+    /// 4. `local-llm` 不再出现在缺省（废除启动，别再加回来）；
+    /// 5. 其余四个 Mod 仍缺省停用。
     #[test]
-    fn default_mods_manifest_enables_external_input_only() {
+    fn default_mods_manifest_enables_external_input_and_melo() {
         let m = default_mods_manifest();
         assert_eq!(
             m["mods"]["external-input"]["enabled"], true,
             "external-input 应默认启用（直播弹幕/礼物注入）"
+        );
+        assert_eq!(
+            m["mods"]["local-tts-melo"]["enabled"], true,
+            "local-tts-melo 应默认启用：仓库自带 MeloTTS 权重，克隆后开机就能出声"
+        );
+        assert_eq!(
+            m["mods"]["local-tts-melo"]["config"]["launch_mode"], "with_app",
+            "local-tts-melo 必须是 with_app（开机拉起），不是 on_apply（只在保存并应用时拉起）"
         );
         assert!(
             m["mods"].get("local-llm").is_none(),
@@ -748,7 +773,7 @@ mod tests {
         );
         assert!(
             m["mods"].get("local-tts").is_none(),
-            "TTS 是核心链路（live2d-ai.toml 的 [tts]），不该再以 Mod 形式出现"
+            "CosyVoice3（local-tts）已封存移出注册表（0.2.3-rc.1），不得进缺省 manifest"
         );
         // 0.2.0-rc.2：Wave 1 的 voice-input / wallpaper 只注册、**缺省停用**。
         assert!(

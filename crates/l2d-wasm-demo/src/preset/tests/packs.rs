@@ -441,6 +441,8 @@ fn all_tables() -> Vec<(&'static str, Vec<&'static PresetSpec>)> {
 pub(super) fn main_axis_pair(id: &str) -> Option<(&'static str, &'static str)> {
     match id {
         "nod" => Some(("ParamAngleY", "ParamBodyAngleY")),
+        // T9：look_up / look_down 的主轴是 Y（与 nod 同轴、方向相反）。
+        "look_up" | "look_down" => Some(("ParamAngleY", "ParamBodyAngleY")),
         "shake" | "look_left" | "look_right" => Some(("ParamAngleX", "ParamBodyAngleX")),
         "tilt_left" | "tilt_right" => Some(("ParamAngleZ", "ParamBodyAngleZ")),
         _ => None,
@@ -572,7 +574,10 @@ fn gesture_main_axis_body_head_ratio_returns_to_the_design_window() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 12, "两表 × 6 条手势包都该被覆盖");
+    assert_eq!(
+        checked, 16,
+        "两表 × 8 条手势包（T9 起含 look_up / look_down）都该被覆盖"
+    );
 }
 
 /// 逐通道打印 T1（表值 / 峰值 / 出厂值 / 上限 / 死区起点），并断言
@@ -660,6 +665,13 @@ fn both_knobs_at_max_clamp_only_the_documented_combinations() {
         ("tilt_left", "ParamBodyAngleZ"),
         ("tilt_right", "ParamAngleZ"),
         ("tilt_right", "ParamBodyAngleZ"),
+        // T9：thinking 的小幅歪头（预设包唯一新增的表情包，钳位只在头/身）
+        ("thinking", "ParamAngleZ"),
+        ("thinking", "ParamBodyAngleZ"),
+        ("look_up", "ParamAngleY"),
+        ("look_up", "ParamBodyAngleY"),
+        ("look_down", "ParamAngleY"),
+        ("look_down", "ParamBodyAngleY"),
         ("smile", "ParamMouthForm"),
         ("smile", "ParamEyeLSmile"),
         ("smile", "ParamEyeRSmile"),

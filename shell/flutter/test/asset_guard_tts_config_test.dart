@@ -96,9 +96,14 @@ void main() {
     await _pump(tester, controller: _controller(), view: _view(model: null));
 
     expect(
-      find.widgetWithText(TextFieldRow, '服务地址（base_url）'),
+      find.widgetWithText(TextFieldRow, '服务地址'),
       findsOneWidget,
-      reason: 'TTS base_url 是唯一权威配置（TTS 不是 Mod）',
+      reason: 'TTS 服务地址是唯一权威配置面（产品面上不带协议名）',
+    );
+    expect(
+      find.textContaining('base_url'),
+      findsNothing,
+      reason: '2026-10-08：产品面上不出现 base_url（标签与说明都不带）',
     );
     expect(find.widgetWithText(TextFieldRow, '音色（voice）'), findsOneWidget);
     expect(find.widgetWithText(TextFieldRow, '模型名（可空）'), findsOneWidget);
@@ -113,9 +118,21 @@ void main() {
     expect(find.textContaining('未绑定密钥'), findsOneWidget);
   });
 
-  testWidgets('A5：服务端静音是**只读观测值**，分区里没有第二个开关', (
+  testWidgets('A5：服务端静音只在开发者模式里画（2026-10-08）', (
     WidgetTester tester,
   ) async {
+    // 没开开发者模式：整行不画——它的正文要点出 LIVE2D_AI_MUTE_AUDIO。
+    await _pump(
+      tester,
+      controller: _controller(),
+      view: _view(),
+      devMode: false,
+      serverMuted: true,
+    );
+    expect(find.widgetWithText(ReadonlyField, '服务端静音'), findsNothing);
+    expect(find.textContaining('LIVE2D_AI_MUTE_AUDIO'), findsNothing);
+
+    // 打开开发者模式：原样出现（能力没删，只是挪进第二层）。
     await _pump(
       tester,
       controller: _controller(),
@@ -163,11 +180,10 @@ void main() {
       find.byType(FieldActionRow),
     );
     expect(row.actionLabel, '测试连接');
-    expect(
-      row.description ?? '',
-      contains('不合成'),
-      reason: '2026-09-13 收紧：自检只探连通，不再真合成一次',
-    );
+    // 2026-10-09：控件说明全删 ⇒ 这一行不再挂 description。
+    // 「自检只探连通、不合成」仍成立——它是**行为**（本用例下面的回调断言 + 服务端
+    // 侧的 /models 探针），不再靠界面文案表达。
+    expect(row.description, isNull, reason: '三级功能介绍已删（说明不再当契约）');
     expect(find.textContaining('试听'), findsNothing);
 
     // 配置面比 600px 高的测试视口长，先滚到按钮再点（不是「点不着还硬点」）。
@@ -185,7 +201,7 @@ void main() {
     await _pump(tester, controller: controller, view: _view());
 
     await tester.enterText(
-      _fieldOf('服务地址（base_url）'),
+      _fieldOf('服务地址'),
       'http://127.0.0.1:9999/v1',
     );
     await tester.enterText(_fieldOf('音色（voice）'), 'nova');

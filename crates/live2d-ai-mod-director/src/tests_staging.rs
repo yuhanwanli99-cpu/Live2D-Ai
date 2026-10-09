@@ -407,16 +407,18 @@ fn neutral_turn_emits_exactly_one_none_cue() {
 
 #[test]
 fn staging_failure_is_identical_to_no_staging() {
+    // T8：**只填一项**（这里只有 base_url）= 不接管，注入的客户端才会真的被调用；
+    // 两项都空会被接管判定挡住（见 takeover_reusing_conversation_model_suppresses）。
     let (services_a, cues_a) = services_with_cues();
     let mut with_fail = runtime_with_staging(
         services_a,
-        serde_json::json!({"staging_enabled": true}),
+        serde_json::json!({"staging_enabled": true, "staging_base_url": "http://127.0.0.1:59999/v1"}),
         Box::new(FailingStaging),
     );
     let (services_b, cues_b) = services_with_cues();
     let mut without = runtime_with_staging(
         services_b,
-        serde_json::json!({"staging_enabled": true}),
+        serde_json::json!({"staging_enabled": true, "staging_base_url": "http://127.0.0.1:59999/v1"}),
         Box::new(crate::DisabledStaging),
     );
     for rt in [&mut with_fail, &mut without] {
@@ -444,6 +446,7 @@ fn staging_throttle_first_sentence_interval_and_cap() {
         services,
         serde_json::json!({
             "staging_enabled": true,
+            "staging_base_url": "http://127.0.0.1:59999/v1",
             "staging_min_interval_ms": 1200,
             "staging_max_per_turn": 3,
         }),
@@ -542,7 +545,7 @@ fn staging_async_plan_reaches_cue_sink_with_async_priority() {
     );
     let mut rt = runtime_with_staging(
         services,
-        serde_json::json!({"staging_enabled": true, "staging_max_per_turn": 3}),
+        serde_json::json!({"staging_enabled": true, "staging_max_per_turn": 3, "staging_base_url": "http://127.0.0.1:59999/v1"}),
         Box::new(staging),
     );
     rt.on_event(ModEventTopic::TurnPrompt, "你好呀").unwrap();
@@ -574,13 +577,13 @@ fn staging_epoch_mismatch_is_rule_only_and_leaves_arbiter_clean() {
     );
     let mut with_stale = runtime_with_staging(
         services,
-        serde_json::json!({"staging_enabled": true}),
+        serde_json::json!({"staging_enabled": true, "staging_base_url": "http://127.0.0.1:59999/v1"}),
         Box::new(stale),
     );
     let (services_ref, cues_ref) = services_with_cues();
     let mut rule_only = runtime_with_staging(
         services_ref,
-        serde_json::json!({"staging_enabled": true}),
+        serde_json::json!({"staging_enabled": true, "staging_base_url": "http://127.0.0.1:59999/v1"}),
         Box::new(crate::DisabledStaging),
     );
     for rt in [&mut with_stale, &mut rule_only] {
@@ -633,6 +636,10 @@ fn factory_create_assembles_staging_client_from_config() {
     assert_eq!(state["staging"]["client"], "disabled");
     assert_eq!(state["staging"]["enabled"], false);
     assert_eq!(state["staging"]["degraded"], false, "没开闸不算 degraded");
+    // T8：两项都空 = 主链复用对话模型（与 `staging_enabled` 无关）。
+    assert_eq!(state["staging"]["takeover"]["active"], true);
+    assert_eq!(state["staging"]["takeover"]["source"], "conversation");
+    assert_eq!(state["staging"]["takeover"]["model"], "");
 
     let (services, _spies) = spy_services();
     let mut no_endpoint = DirectorFactory
@@ -653,6 +660,9 @@ fn factory_create_assembles_staging_client_from_config() {
         "degraded 原因要能直接读出来: {}",
         state["staging"]["note"]
     );
+    // 这里 degraded 说的是**本 Mod 自己的**客户端；主链仍按两项都空复用对话模型。
+    assert_eq!(state["staging"]["takeover"]["active"], true);
+    assert_eq!(state["staging"]["takeover"]["source"], "conversation");
 
     let (services, _spies) = spy_services();
     let mut configured = DirectorFactory
@@ -672,6 +682,10 @@ fn factory_create_assembles_staging_client_from_config() {
     assert_eq!(state["staging"]["enabled"], true);
     assert_eq!(state["staging"]["degraded"], false);
     assert_eq!(state["staging"]["model"], "qwen2.5:7b");
+    // T8：两项都填 = 主链改用这个自有端点（`staging_enabled` 不是总闸）。
+    assert_eq!(state["staging"]["takeover"]["active"], true);
+    assert_eq!(state["staging"]["takeover"]["source"], "own");
+    assert_eq!(state["staging"]["takeover"]["model"], "qwen2.5:7b");
     assert_eq!(
         state["staging"]["api_key_set"], false,
         "只回布尔；未设置的变量名不得变成真"
@@ -680,4 +694,104 @@ fn factory_create_assembles_staging_client_from_config() {
         state["staging"]["async_failures"], 0,
         "没触发过 = 没发过请求"
     );
+}
+
+// ---------------------------------------------------------------- T8（2026-10-07）：接管
+
+/// **T8**：两项都有 = 主链接管 → 本 Mod 自己的 HTTP 一次都不发（`STAGING_SYSTEM` 不发出），
+/// 规则层 cue 照常；`state_json.staging.takeover` 写清来源与模型名。
+#[test]
+fn own_endpoint_takes_over_and_suppresses_the_mod_http() {
+    let (services, cues) = services_with_cues();
+    let staging = MockStaging::replying(r#"{"epoch":0,"covers_upto_seq":1,"cues":[]}"#);
+    let calls = Arc::clone(&staging.calls);
+    let mut rt = runtime_with_staging(
+        services,
+        serde_json::json!({"staging_enabled": true, "staging_base_url": "http://127.0.0.1:59999/v1", "staging_model": "director-own"}),
+        Box::new(staging),
+    );
+    rt.on_event(ModEventTopic::TurnPrompt, "你好呀").unwrap();
+    sentence(&mut rt, 0, 1, 0);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "接管后不得发自己的第二路 HTTP"
+    );
+    let state = rt.state_json().unwrap();
+    assert_eq!(state["staging"]["takeover"]["active"], true);
+    assert_eq!(state["staging"]["takeover"]["source"], "own");
+    assert_eq!(state["staging"]["takeover"]["model"], "director-own");
+    assert_eq!(state["staging"]["async_plans"], 0);
+    let got = cues.lock().expect("cue lock").clone();
+    assert_eq!(got.len(), 1, "规则层 cue 必须照常 emit: {got:?}");
+    assert_eq!(got[0]["cues"][0]["priority"], PRIORITY_RULE);
+}
+
+/// **T8**：两项都空 = 复用对话模型 → 同样不发自己的 HTTP；中性轮撤销哨兵照旧。
+#[test]
+fn empty_pair_reuses_conversation_model_and_suppresses_the_mod_http() {
+    let (services, cues) = services_with_cues();
+    let staging = MockStaging::replying(r#"{"epoch":0,"covers_upto_seq":1,"cues":[]}"#);
+    let calls = Arc::clone(&staging.calls);
+    let mut rt = runtime_with_staging(
+        services,
+        serde_json::json!({"staging_enabled": true}),
+        Box::new(staging),
+    );
+    rt.on_event(ModEventTopic::TurnPrompt, "嗯").unwrap();
+    sentence(&mut rt, 0, 1, 0);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "接管后不得发自己的第二路 HTTP"
+    );
+    let state = rt.state_json().unwrap();
+    assert_eq!(state["staging"]["takeover"]["active"], true);
+    assert_eq!(state["staging"]["takeover"]["source"], "conversation");
+    assert_eq!(state["staging"]["takeover"]["model"], "");
+    let got = cues.lock().expect("cue lock").clone();
+    assert_eq!(got.len(), 1, "中性轮的规则撤销哨兵照旧: {got:?}");
+    assert_eq!(got[0]["cues"][0]["preset_id"], crate::PRESET_NONE);
+}
+
+/// **T8**：只填一项 = 不接管（`source=none`）→ 注入的客户端照旧被调用，行为与今天一致。
+#[test]
+fn incomplete_pair_does_not_take_over_and_keeps_todays_behavior() {
+    let (services, _cues) = services_with_cues();
+    let staging = MockStaging::replying(
+        r#"{"epoch":0,"covers_upto_seq":1,"cues":[{"sentence_seq":1,"preset_id":"nod"}]}"#,
+    );
+    let calls = Arc::clone(&staging.calls);
+    let mut rt = runtime_with_staging(
+        services,
+        serde_json::json!({"staging_enabled": true, "staging_base_url": "http://127.0.0.1:59999/v1"}),
+        Box::new(staging),
+    );
+    rt.on_event(ModEventTopic::TurnPrompt, "你好呀").unwrap();
+    sentence(&mut rt, 0, 1, 0);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "没接管就必须保持今天的行为"
+    );
+    let state = rt.state_json().unwrap();
+    assert_eq!(state["staging"]["takeover"]["active"], false);
+    assert_eq!(state["staging"]["takeover"]["source"], "none");
+    assert_eq!(state["staging"]["async_plans"], 1);
+}
+
+/// **T8**：接管判定表（host `build_performance_runtime` 与 Mod 共用同一份规则）。
+#[test]
+fn takeover_table_is_the_single_source() {
+    use crate::staging::{Takeover, takeover_of};
+    assert_eq!(takeover_of("", ""), Takeover::ReuseConversation);
+    assert_eq!(takeover_of("  ", "\t"), Takeover::ReuseConversation);
+    assert_eq!(takeover_of("http://x/v1", "m"), Takeover::Own);
+    assert_eq!(takeover_of("http://x/v1", ""), Takeover::Incomplete);
+    assert_eq!(takeover_of("", "m"), Takeover::Incomplete);
+    assert!(Takeover::ReuseConversation.active() && Takeover::Own.active());
+    assert!(!Takeover::Incomplete.active());
+    assert_eq!(Takeover::ReuseConversation.as_str(), "conversation");
+    assert_eq!(Takeover::Own.as_str(), "own");
+    assert_eq!(Takeover::Incomplete.as_str(), "none");
 }

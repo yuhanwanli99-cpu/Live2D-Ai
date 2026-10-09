@@ -63,6 +63,11 @@ live2d-ai-mod-memory = { path = "../live2d-ai-mod-memory" }
 # Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 +
 # state_json，**零投递**）。**缺省停用**；注册由集成 PR（本波主 agent）一次改到位。
 live2d-ai-mod-director = { path = "../live2d-ai-mod-director" }
+# 2026-10-09「两类 TTS」：本地拉起 Mod（id `local-tts`，**缺省停用**）。
+# 它只 spawn 用户给的 argv；`[tts]` 的唯一写入者仍是「语音合成」设置页。
+# 这是一条**新的产品 Mod 直边** ⇒ 同一次改动把 xtask 的
+# `RATCHET_DESKTOP_DEPS` 22 → 23（`PLAN_DESKTOP_DEPS` 保持 22）。
+live2d-ai-mod-local-tts = { path = "../live2d-ai-mod-local-tts" }
 ringbuf = "0.5"
 # supervisor 的异步设施。
 # - current_thread runtime 跑在独立 OS 线程；

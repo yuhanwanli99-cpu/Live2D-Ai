@@ -117,10 +117,22 @@ Live2D-Ai-debug*.apk
 
 # 前端编译产物（spoq-fix：出仓，构建时生成）
 
-# Live2D 模型二进制资产（未获作者公开再分发授权，不入库；仅保留目录与说明）
+# Live2D 模型二进制资产：除白模型（bai）外仍不入库（只保留目录与说明）。
+# 白模型按维护者 2026-10-09 裁决随仓库分发——作者条约并未写明公开再分发，
+# 边界 / 免责 / 「权利人要求后 24 小时内从 main 移除」见
+# assets/models/bai/MODEL_LICENSE.md「本仓库的特殊说明」。
 assets/models/*
 !assets/models/README.md
 !assets/models/.gitkeep
+# 白模型（bai）：为 bai/ 开目录例外，只放行渲染必需的运行时文件 + 条约。
+# 写法刻意是「目录例外 + 逐项排除」，不是「通配再 ! 回填」：! 回填会让
+# `git check-ignore -v` 对**已放行**的文件也打出一行，而验收要求这两个静默
+#（bai.moc3 / texture_00_4096.png 必须「没有输出」= 不匹配任何规则）。
+!assets/models/bai
+# 未被 bai.model3.json 引用 / 非运行时：继续不入库（当前树里就这几个）。
+assets/models/bai/runtime/bai.16384/texture_00.png
+assets/models/bai/runtime/bai.vtube.json
+assets/models/bai/runtime/items_pinned_to_model.json
 
 # 运行时/agent 状态与产物（spoq-fix 出仓）
 .pi-glla/
@@ -160,3 +172,7 @@ nohup.out
 
 # memory Mod 根目录遗留的运行时产物（本机运行态，勿入库；正式桶在 /sessions/）
 /memory.jsonl
+
+# local-tts（CosyVoice3）权重：由 crates/live2d-ai-mod-local-tts/engine/download.sh 下载
+# （数 GB；GitHub 单文件上限 100MB，本仓库没有覆盖它的 LFS 规则；禁止 git add）
+/crates/live2d-ai-mod-local-tts/weights/

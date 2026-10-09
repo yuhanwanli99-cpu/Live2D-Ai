@@ -95,12 +95,19 @@ pub fn app_event_to_ws_frame(event: &AppEvent) -> Option<Value> {
                 "completed": completed,
             }));
         }
-        AppEvent::Conversation(ConversationUiEvent::TextDelta { epoch, ts_ms, text }) => {
-            // 真实 LLM 流式文本投影。前端按 epoch 追加到气泡 body。
+        AppEvent::Conversation(ConversationUiEvent::TextDelta {
+            epoch,
+            ts_ms,
+            sentence_seq,
+            text,
+        }) => {
+            // 一句一单元的上屏正文。`sentence_seq` 与音频帧同源；完成锚点
+            // （上面的 GenerationFinished）不带这个字段。
             frame.set_type("text_delta");
             frame.set_data(serde_json::json!({
                 "epoch": epoch,
                 "ts_ms": ts_ms,
+                "sentence_seq": sentence_seq,
                 "text": text,
             }));
         }

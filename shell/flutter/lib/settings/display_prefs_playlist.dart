@@ -105,17 +105,6 @@ int clampTier(int value) {
   return best;
 }
 
-/// 两个列表是否逐项相等（不引 Flutter 的 foundation 库，
-/// 保持本文件「纯 Dart、VM 可测」的定位）。
-bool _sameList(List<String> a, List<String> b) {
-  if (identical(a, b)) return true;
-  if (a.length != b.length) return false;
-  for (int i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
 /// 「加入轮播」的结果：**新列表 + 是否加进去了 + 没加的原因**。
 ///
 /// 原因用稳定字符串（不是给人看的完整句子）：UI 只负责把原因翻译成一句
@@ -201,7 +190,7 @@ int stagePlaylistIndexOf(List<String> playlist, String? stageImage) {
 ///
 /// - 越界（负数 / `>= length`）→ **原样返回**入参（不抛、不猜）；
 /// - 成功 → 返回**新列表**（不改入参；删除只会让总长变小，三条预算不会被破坏）；
-/// - 不动 [DisplayPrefs.stageImage]：删除当前张不会清空舞台——用户看到的那张
+/// - 这个纯函数不再改偏好：舞台图来自背景库的当前项，不来自这份旧列表。
 ///   仍然在屏幕上，是否还在列表里由调用方决定。
 List<String> removeStagePlaylistAt(List<String> current, int index) {
   if (index < 0 || index >= current.length) return current;

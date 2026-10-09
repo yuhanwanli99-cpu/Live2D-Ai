@@ -4,6 +4,7 @@ class ModsSection extends StatelessWidget {
   const ModsSection({
     required this.mods,
     required this.loading,
+    this.devMode = false,
     this.error,
     this.onToggle,
     this.onSaveConfig,
@@ -14,11 +15,18 @@ class ModsSection extends StatelessWidget {
     this.onDismissRestart,
     this.activeSessionId,
     this.onModChanged,
+    this.onCommand,
+    this.pickCardFile,
+    this.actionScales,
     super.key,
   });
 
   final List<ModInfo> mods;
   final bool loading;
+
+  /// 开发者模式：只决定卡片上**多不多一行** ID · 版本 · 协议版本
+  ///（2026-10-08）。启用开关、卡片名与产品面板与它无关。
+  final bool devMode;
   final String? error;
 
   /// 统一的「需重新点火 / 重启后生效」提示（L1 基座）。
@@ -36,6 +44,21 @@ class ModsSection extends StatelessWidget {
 
   /// 面板动作成功后的统一通知（宿主据此弹重启提示）。
   final ValueChanged<String>? onModChanged;
+
+  /// 注入给各 Mod 面板的**一次性命令**通道（`POST /api/v1/mods/{id}/command`）。
+  ///
+  /// 为 null 时卡片自己造一个同源 `ModsApi()`（理由同 `onLoadState`）。
+  /// 它让 widget 测试能像别的面板测试那样注入 fake，从而断言「点了什么 →
+  /// 送了什么」而不碰网络（persona 的导入回归就靠它）。
+  final ModCommandSender? onCommand;
+
+  /// 角色卡文件读取器（组合根注入；透传给需要它的面板）。
+  final PersonaCardFilePicker? pickCardFile;
+
+  /// 动作幅度旋钮的接线（2026-10-09）：只有 director 面板消费它；
+  /// null = 不渲染那块（宿主还没接线 / 纯 widget 测试）。
+  final ActionScalesWiring? actionScales;
+
   final Future<void> Function(String id, bool enabled)? onToggle;
 
   /// 保存某个 Mod 的配置（`POST /api/v1/mods/{id}/config`）。
@@ -62,12 +85,9 @@ class ModsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SectionHeader(
-          title: 'Mod',
-          description:
-              '扩展能力走 Mod 边界隔离，默认全部停用。'
-              '核心只提供接口，不把功能堆进来。',
-        ),
+        // 标题跟导航枚举走（2026-10-08：`SettingsSection.mods.label` = 「扩展」）。
+        // 底层仍是 Mod 边界，但那是架构词，不该当分区标题。
+        const SectionHeader(title: '扩展'),
         // L1 基座：统一的「需重新点火 / 重启后生效」提示。常驻在本分区顶部，
         // 直到用户主动关掉——它回答的是「我重启了没有」，只有用户知道答案。
         if (restartNotice != null)
@@ -103,7 +123,9 @@ class ModsSection extends StatelessWidget {
             if (m.settingsSpec == null || m.settingsSpec!.fields.isEmpty)
               AdminRow(
                 title: m.name.isEmpty ? m.id : m.name,
-                subtitle: '${m.id} · v${m.version} · api v${m.apiVersion}',
+                subtitle: devMode
+                    ? '${m.id} · v${m.version} · api v${m.apiVersion}'
+                    : '',
                 // **状态用文字**（「运行中」/「已停用」），不靠颜色。
                 badges: <String>[m.statusLabel],
                 trailing: Switch(
@@ -119,12 +141,16 @@ class ModsSection extends StatelessWidget {
                 // 顺序）时，Element 复用会把 A 的草稿画到 B 身上。
                 key: ValueKey<String>(m.id),
                 mod: m,
+                devMode: devMode,
                 busy: busyId != null,
                 onToggle: onToggle,
                 onSaveConfig: onSaveConfig,
                 onLoadState: onLoadState,
                 activeSessionId: activeSessionId,
                 onModChanged: onModChanged,
+                onCommand: onCommand,
+                pickCardFile: pickCardFile,
+                actionScales: actionScales,
               ),
         if (onReload != null) ...<Widget>[
           const SizedBox(height: Space.s3),
@@ -141,6 +167,17 @@ class ModsSection extends StatelessWidget {
     );
   }
 }
+
+/// 发一条 Mod 命令（`POST /api/v1/mods/{id}/command`）。
+///
+/// 与 [ModStateLoader] 同款：宿主接线一次，widget 测试注入 fake 即可覆盖
+/// 「点了什么 → 送了什么 → 显示了什么」，面板自己不认识 base URL。
+typedef ModCommandSender =
+    Future<ModCommandResult> Function(
+      String id,
+      String command,
+      Map<String, Object?> args,
+    );
 
 /// 两个 config 的**内容**是否相同（键集 + 值递归比较）。
 ///
@@ -189,16 +226,23 @@ bool _sameValue(Object? a, Object? b) {
 class _ModConfigTile extends StatefulWidget {
   const _ModConfigTile({
     required this.mod,
+    required this.devMode,
     required this.busy,
     required this.onToggle,
     required this.onSaveConfig,
     required this.onLoadState,
     this.activeSessionId,
     this.onModChanged,
+    this.onCommand,
+    this.pickCardFile,
+    this.actionScales,
     super.key,
   });
 
   final ModInfo mod;
+
+  /// 见 [ModsSection.devMode]：只决定卡片副标题画不画。
+  final bool devMode;
   final bool busy;
   final Future<void> Function(String id, bool enabled)? onToggle;
   final Future<ModConfigResult> Function(String id, Map<String, Object?> config)?
@@ -206,6 +250,11 @@ class _ModConfigTile extends StatefulWidget {
   final ModStateLoader? onLoadState;
   final String? activeSessionId;
   final ValueChanged<String>? onModChanged;
+  final ModCommandSender? onCommand;
+  final PersonaCardFilePicker? pickCardFile;
+
+  /// 见 [ModsSection.actionScales]：透传给 ModPanelContext。
+  final ActionScalesWiring? actionScales;
 
   @override
   State<_ModConfigTile> createState() => _ModConfigTileState();

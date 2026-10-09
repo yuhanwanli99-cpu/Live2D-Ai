@@ -63,8 +63,8 @@ extension _ShellSectionWiring on _ShellRootState {
   /// # 为什么必须走这一个入口（2026-09-11，P2-2）
   ///
   /// 过去有两个地方各自 `setState(() => _section = …)`：分区 chip（这里）
-  /// 与错误横幅的「去 LLM 设置 / 去语音合成设置」按钮。于是**内联结果**
-  /// （`_llmTest` / `_ttsTest` / `_adminMessage` / `_stageImageMessage`）
+  /// 与错误横幅的「去对话设置 / 去语音合成设置」按钮。于是**内联结果**
+  /// （`_llmTest` / `_ttsTest` / `_adminMessage` / `_shellImageMessage`）
   /// 会一直挂在 State 上：用户测出「失败：401」，
   /// 修好配置、切到别的分区、再回来——**那句失效的结论还在**，
   /// 而它描述的已经是上一套配置了。
@@ -72,13 +72,17 @@ extension _ShellSectionWiring on _ShellRootState {
   /// 现在切分区**先清掉这些一次性结果**，并且用 [_resultEpoch] 把
   /// 「切走之后才回来的响应」也丢掉（否则那个迟到的结果会落在用户已经
   /// 离开的分区上，看起来像是刚测的）。
-  void _gotoSection(SettingsSection next) {
-    if (next == _section) return;
+  void _gotoSection(SettingsSection next, {String? group}) {
+    // 同一分区 + 没指定组 = 真的没动（保留旧行为）；指定了组则要重新定位，
+    // 否则「人已经停在模型服务页，再点一次去语音合成设置」会毫无反应。
+    if (next == _section && group == null) return;
     // 离开「外观与互动」前把待发的本模型覆盖落下：用户拖完立刻切分区，
     // 不能把那一次改动留在防抖窗口里丢掉。
     _modelOverrideCoalescer.flush();
     _rebuild(() {
       _section = next;
+      // 页内定位（2026-10-09）：只有「模型服务」页有组值。
+      _settingsGroupFocus = group;
       _clearTransientResults();
     });
     unawaited(_ensureSettingsLoaded());
@@ -117,8 +121,6 @@ extension _ShellSectionWiring on _ShellRootState {
     _ttsTest = null;
     _ttsTesting = false;
     _adminMessage = null;
-    _stageImageMessage = null;
-    _stageImageFailed = false;
     _shellImageMessage = null;
     _shellImageFailed = false;
     _modelOverrideMessage = null;

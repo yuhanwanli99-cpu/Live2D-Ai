@@ -94,7 +94,8 @@ void main() {
       expect(
         sent.any((Map<String, double> m) => m['head'] == 0.75),
         isFalse,
-        reason: '改主题后临时值仍在：force 补发只能重发当前有效值（临时覆盖），'
+        reason:
+            '改主题后临时值仍在：force 补发只能重发当前有效值（临时覆盖），'
             '不得把产品 0.75 写下去',
       );
       expect(
@@ -168,15 +169,14 @@ void main() {
       expect(cleared, isTrue, reason: '「恢复产品设置」必须让宿主清掉临时覆盖');
     });
 
-    testWidgets('iframe 重建（重挂）后幅度不会退回渲染面出厂默认', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('iframe 重建（重挂）后幅度不会退回渲染面出厂默认', (WidgetTester tester) async {
       // ① 构造点真的传了（RESEARCH §2.3 的死参数由此接上）。
       final String main = readLib('lib/main.dart');
       expect(
         main.contains('actionScales: _stageActionScales'),
         isTrue,
-        reason: 'main.dart 的 Live2DStage(...) 必须传当前有效幅度；'
+        reason:
+            'main.dart 的 Live2DStage(...) 必须传当前有效幅度；'
             '不传 = _attach / didUpdateWidget 两条自愈通路退回 null（= 出厂默认）',
       );
       final String prefs = readLib('lib/app/shell_prefs.dart');
@@ -187,7 +187,9 @@ void main() {
       );
 
       // ② 值本身：设置还没加载（product=null）时，有临时覆盖就不能是 null。
-      final ActionScalesSyncer syncer = ActionScalesSyncer((Map<String, double> _) {});
+      final ActionScalesSyncer syncer = ActionScalesSyncer(
+        (Map<String, double> _) {},
+      );
       syncer.pin(_temp);
       final Map<String, double>? snapshot = syncer.active(null);
       expect(snapshot, isNotNull, reason: '有临时覆盖时快照不得为 null');
@@ -195,7 +197,10 @@ void main() {
       // 挂载 → 换 key 重挂（新 State，等价 retry / iframe 重建）。
       await tester.pumpWidget(
         _wrapStage(
-          Live2DStage(key: const ValueKey<String>('g1'), actionScales: snapshot),
+          Live2DStage(
+            key: const ValueKey<String>('g1'),
+            actionScales: snapshot,
+          ),
         ),
       );
       expect(
@@ -204,7 +209,10 @@ void main() {
       );
       await tester.pumpWidget(
         _wrapStage(
-          Live2DStage(key: const ValueKey<String>('g2'), actionScales: snapshot),
+          Live2DStage(
+            key: const ValueKey<String>('g2'),
+            actionScales: snapshot,
+          ),
         ),
       );
       expect(
@@ -246,11 +254,7 @@ void main() {
           async.elapse(const Duration(milliseconds: 5));
         }
         async.elapse(kActionScalesDebounce);
-        expect(
-          sent,
-          hasLength(2),
-          reason: '临时覆盖期间产品/草稿值不得重复下发（否则临时值会被冲掉）',
-        );
+        expect(sent, hasLength(2), reason: '临时覆盖期间产品/草稿值不得重复下发（否则临时值会被冲掉）');
         syncer.dispose();
       });
     });
@@ -270,7 +274,6 @@ void main() {
       expect(directorPresetText('bogus'), '短动作（bogus）');
       expect(isExpressionChannel('unhappy'), isTrue);
       expect(isExpressionChannel('wink'), isFalse);
-
     });
 
     test('B②：面板到点时长来自渲染面 ack（O3 默认），前端不再跑本地计时器', () {
@@ -282,11 +285,7 @@ void main() {
       PresetStatusUpdate applied(String field, {String? id, int? ttlMs}) {
         final RenderEvent e = parseRenderEvent(
           'preset-applied',
-          <String, Object?>{
-            'field': field,
-            'id': ?id,
-            'ttl_ms': ?ttlMs,
-          },
+          <String, Object?>{'field': field, 'id': ?id, 'ttl_ms': ?ttlMs},
         )!;
         return presetStatusUpdateFor(e, now);
       }
@@ -334,9 +333,7 @@ void main() {
       // applyPreset 即红）由 no_client_side_preset_ttl_prediction_test.dart 守。
     });
 
-    testWidgets('A①：叠加基础表情开关写明会「重新起算（2.6s 重新计时）」', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('A①（2026-10-09）：叠加基础表情不再挂控件说明', (WidgetTester tester) async {
       await tester.pumpWidget(
         _wrap(
           DeveloperSection(
@@ -347,25 +344,47 @@ void main() {
           ),
         ),
       );
+      // 2026-10-09：三级功能介绍全删。开关的**行为**没变（仍会重新下发 Face 槽），
+      // 只是不再把行为写进一行说明里——所以这里断言那行不在，并钉住控件名还在。
       expect(
-        find.textContaining('每次点手势都会把当前基础表情重新起算（2.6s 重新计时）'),
-        findsOneWidget,
-        reason: '开关的实际行为是重新下发 Face 槽 = 表情重新起算，文案必须写实',
+        find.textContaining('重新起算'),
+        findsNothing,
+        reason: '控件说明已删；行为由 developer_section_test 的行为断言守',
       );
-      expect(find.textContaining('缺省关'), findsOneWidget);
+      expect(find.text('叠加基础表情'), findsOneWidget);
     });
 
-    test('C③：director 面板写明「表演层主路由 / staging 回退」', () {
-      expect(kDirectorLegacyNotice, contains('表演层是主路由'));
-      expect(kDirectorLegacyNotice, contains('staging_* 是回退'));
-      // 两句必须保留的锚点（既有 copy 门禁也钉着它们）。
-      expect(kDirectorLegacyNotice, contains('此处 staging_* 仅兼容旧配置'));
-      expect(kDirectorLegacyNotice, contains('设置 → LLM → 表演层'));
-      expect(kDirectorLegacyNotice, contains('SentenceReady'));
+    test('C③：director 面板只剩一句人话（分段送 TTS / 接管 / 直送 全部下架）', () {
+      expect(kDirectorTakeoverNotice, '打开后，说话时会带上表情和轻微的头、颈动作。');
+      for (final String banned in <String>[
+        '分段送 TTS',
+        '不改原文',
+        '留空',
+        '两项都填',
+        '只填一项',
+        '接管',
+      ]) {
+        expect(
+          kDirectorTakeoverNotice.contains(banned),
+          isFalse,
+          reason: '产品面上不得再出现「$banned」（2026-10-08 口径）',
+        );
+      }
+      // staging_* 仍是**可解析**的配置键，但已从产品面整体消失（hiddenKeys）。
+      expect(
+        readLib('lib/settings/mods/director_panel.dart').contains('staging_base_url'),
+        isTrue,
+        reason: 'staging_* 仍是配置键：必须显式声明为「产品面不渲染」',
+      );
       expect(
         readLib('lib/settings/mods/director_panel.dart').contains('遗留回退旁路'),
         isFalse,
         reason: '旧口径「遗留回退旁路 / 不是产品主路径」必须改掉',
+      );
+      expect(
+        readLib('lib/settings/mods/director_panel.dart').contains('【遗留】'),
+        isFalse,
+        reason: '界面里不得再有【遗留】',
       );
     });
   });
@@ -459,9 +478,7 @@ void main() {
       );
     });
 
-    testWidgets('点「恢复产品设置」：宿主这一帧没重建，滑条也必须回产品值', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('点「恢复产品设置」：宿主这一帧没重建，滑条也必须回产品值', (WidgetTester tester) async {
       // 浮层宿主（medium 底部浮层）不会因外壳 setState 重跑 builder：
       // 面板必须**立刻**自己把滑条播回产品值，不能等宿主下一次重建。
       bool cleared = false;
@@ -519,11 +536,11 @@ void main() {
         },
       );
       syncer.syncNow(global, force: true);
-      expect(
-        sent.single,
-        <String, double>{'head': 1.2, 'body': 0.80, 'expression': 1.0},
-        reason: '只有 head 被覆盖，body/expression 必须逐键回落全局',
-      );
+      expect(sent.single, <String, double>{
+        'head': 1.2,
+        'body': 0.80,
+        'expression': 1.0,
+      }, reason: '只有 head 被覆盖，body/expression 必须逐键回落全局');
       expect(syncer.active(global)!['head'], 1.2, reason: 'active() 同口径');
 
       // 构造点接线（main.dart 在 VM 里加载不了 → 源码扫描，同类先例见上）。
@@ -584,23 +601,17 @@ void main() {
       final SettingsPatch patch = SettingsPatch(
         action: ActionSettingsPatch(
           models: <String, ActionModelOverridePatch?>{
-            'bai': ActionModelOverridePatch(
-              headScale: TriSet<double>(1.2),
-            ),
+            'bai': ActionModelOverridePatch(headScale: TriSet<double>(1.2)),
           },
         ),
       );
-      expect(
-        jsonDecode(jsonEncode(patch.toJson())),
-        <String, Object?>{
-          'action': <String, Object?>{
-            'models': <String, Object?>{
-              'bai': <String, Object?>{'head_scale': 1.2},
-            },
+      expect(jsonDecode(jsonEncode(patch.toJson())), <String, Object?>{
+        'action': <String, Object?>{
+          'models': <String, Object?>{
+            'bai': <String, Object?>{'head_scale': 1.2},
           },
         },
-        reason: '只写给出的键：body/expression 不给 = 不覆盖（逐键回落）',
-      );
+      }, reason: '只写给出的键：body/expression 不给 = 不覆盖（逐键回落）');
 
       // 往返：服务端 GET 回 active_model_id + models（三键恒出现，null = 未覆盖）。
       final SettingsView v = SettingsView.fromJson(<String, Object?>{
@@ -631,15 +642,11 @@ void main() {
           models: <String, ActionModelOverridePatch?>{'bai': null},
         ),
       );
-      expect(
-        jsonDecode(jsonEncode(patch.toJson())),
-        <String, Object?>{
-          'action': <String, Object?>{
-            'models': <String, Object?>{'bai': null},
-          },
+      expect(jsonDecode(jsonEncode(patch.toJson())), <String, Object?>{
+        'action': <String, Object?>{
+          'models': <String, Object?>{'bai': null},
         },
-        reason: '必须是显式 null（删除该模型覆盖），不是省略、也不是空对象',
-      );
+      }, reason: '必须是显式 null（删除该模型覆盖），不是省略、也不是空对象');
 
       // 删掉覆盖后 syncer 回全局。
       final List<Map<String, double>> sent = <Map<String, double>>[];
@@ -661,7 +668,7 @@ void main() {
       syncer.dispose();
 
       // UI 上「恢复跟随全局」按钮触发该回调（widget 级在
-      // test/appearance_section_test.dart；这里钉住宿主接线）。
+      // test/director_action_scales_test.dart；这里钉住宿主接线）。
       expect(
         readLib('lib/app/shell_settings.dart').contains('_clearModelOverride'),
         isTrue,
@@ -671,11 +678,11 @@ void main() {
 
     test('⑤ 合并防抖：连续 onChanged 只落 1 次 PATCH，且只发被改过的键', () {
       fakeAsync((FakeAsync async) {
-        final List<({String id, ActionModelOverridePatch patch})> flushed =
-            <({String id, ActionModelOverridePatch patch})>[];
+        final List<({String id, ActionModelOverridePatch patch, int epoch})>
+        flushed = <({String id, ActionModelOverridePatch patch, int epoch})>[];
         final ModelOverrideCoalescer coalescer = ModelOverrideCoalescer(
-          onFlush: (String id, ActionModelOverridePatch patch) =>
-              flushed.add((id: id, patch: patch)),
+          onFlush: (String id, ActionModelOverridePatch patch, int epoch) =>
+              flushed.add((id: id, patch: patch, epoch: epoch)),
         );
 
         // 一次拖动：20 次 head onChanged + 末尾一次 body，都在同一窗口内。
@@ -690,11 +697,10 @@ void main() {
         expect(flushed, hasLength(1), reason: '一次拖动只落一次 PATCH');
         expect(flushed.single.id, 'bai');
         final Map<String, Object?> body = flushed.single.patch.toJson();
-        expect(
-          body.keys.toSet(),
-          <String>{'head_scale', 'body_scale'},
-          reason: '只发被改过的键；expression 必须保持「未覆盖」而逐键回落全局',
-        );
+        expect(body.keys.toSet(), <String>{
+          'head_scale',
+          'body_scale',
+        }, reason: '只发被改过的键；expression 必须保持「未覆盖」而逐键回落全局');
         expect(body.containsKey('expression_scale'), isFalse);
         expect(body['head_scale'], closeTo(0.90, 1e-9), reason: '发最后一帧的值');
 
@@ -709,9 +715,28 @@ void main() {
 
         // cancel：恢复跟随全局 / 开启覆盖前必须丢掉待发键（防迟到 PATCH 写回）。
         coalescer.record('hiyori', headScale: 0.6);
+        expect(coalescer.latchedKeys['head_scale'], closeTo(0.6, 1e-9));
+        final int pendingEpoch = coalescer.epoch;
         coalescer.cancel('hiyori');
+        expect(coalescer.latchedKeys, isEmpty, reason: '取消后滑条不再挂着临时值');
+        coalescer.acknowledge(pendingEpoch);
         async.elapse(kModelOverrideDebounce * 3);
         expect(flushed, hasLength(3), reason: 'cancel 后不得再发');
+
+        // 回读代际：又拖过一帧之后，旧回读不能把新位置清掉。
+        coalescer.record('bai', headScale: 1.1);
+        async.elapse(kModelOverrideDebounce);
+        final int sentEpoch = flushed.last.epoch;
+        expect(coalescer.latchedKeys['head_scale'], closeTo(1.1, 1e-9));
+        coalescer.record('bai', headScale: 1.3);
+        coalescer.acknowledge(sentEpoch);
+        expect(
+          coalescer.latchedKeys['head_scale'],
+          closeTo(1.3, 1e-9),
+          reason: '旧回读的代际对不上，新拖动还留在滑条上',
+        );
+        coalescer.acknowledge(coalescer.epoch);
+        expect(coalescer.latchedKeys, isEmpty);
         coalescer.dispose();
       });
 
@@ -721,6 +746,11 @@ void main() {
         settings.contains('_modelOverrideCoalescer.record('),
         isTrue,
         reason: 'onChanged → coalescer.record；直接 PATCH 会把拖动打成几十次写盘',
+      );
+      expect(
+        settings.contains('displayActionScales('),
+        isTrue,
+        reason: '滑条必须显示草稿和还没回读的覆盖，不能只绑磁盘值',
       );
       final String main = readLib('lib/main.dart');
       expect(

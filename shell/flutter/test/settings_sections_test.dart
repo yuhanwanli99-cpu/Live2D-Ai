@@ -5,8 +5,8 @@ import 'package:live2d_ai_shell/settings/settings_sections.dart';
 
 void main() {
   group('分区声明：单点真相（规格 §4.0 / 钉子 12）', () {
-    test('恰好 8 个分区', () {
-      expect(SettingsSection.values, hasLength(8));
+    test('恰好 7 个分区（2026-10-09：一级从 8 项收成 7 项）', () {
+      expect(SettingsSection.values, hasLength(7));
     });
 
     test('**每项都有非空的 label 与 description**（用户不该先学会黑话）', () {
@@ -15,7 +15,7 @@ void main() {
         expect(
           s.description.trim(),
           isNotEmpty,
-          reason: '${s.name} 缺 description —— AIRI 的教训是每项都要一句人话说明',
+          reason: '${s.name} 缺 description —— 每项都要一句短的人话',
         );
       }
     });
@@ -45,26 +45,23 @@ void main() {
       }
     });
 
-    test('图标两两不同（导航里靠形状区分 8 项）', () {
+    test('图标两两不同（导航里靠形状区分 7 项）', () {
       final Set<IconData> icons = SettingsSection.values
           .map((SettingsSection s) => s.icon)
           .toSet();
-      expect(icons, hasLength(8));
+      expect(icons, hasLength(7));
     });
 
-    test('顺序 = 声明顺序：角色 → 能力 → 外观与互动 → 扩展/诊断/开发', () {
+    test('顺序 = 声明顺序（2026-10-09 起固定为这 7 项）', () {
       expect(
         SettingsSection.values.map((SettingsSection s) => s.name),
         <String>[
           'persona',
           'models',
-          'llm',
-          'tts',
-          // 2026-09-11：动作子系统移除时这里由 `actions` 改名为 `appearance`
-          // （label「外观与互动」不变）。索引位置保持不变，改的是名字。
-          'appearance',
+          'service',
+          'theme',
+          'motion',
           'mods',
-          'diagnostics',
           'developer',
         ],
       );
@@ -78,31 +75,79 @@ void main() {
   });
 
   group('byIndex：越界回落第一个，**不抛**', () {
-    test('合法索引', () {
+    test('合法索引（0 仍是 persona，最后一项是 developer）', () {
       expect(SettingsSection.byIndex(0), SettingsSection.persona);
-      expect(SettingsSection.byIndex(7), SettingsSection.developer);
+      expect(SettingsSection.byIndex(6), SettingsSection.developer);
     });
 
     test('越界（导航状态不该能让页面崩）', () {
       expect(SettingsSection.byIndex(-1), SettingsSection.persona);
-      expect(SettingsSection.byIndex(8), SettingsSection.persona);
+      expect(SettingsSection.byIndex(7), SettingsSection.persona);
       expect(SettingsSection.byIndex(9999), SettingsSection.persona);
     });
   });
 
-  group('分区清单**恒定**（dev_mode 不再藏分区）', () {
-    // 2026-09-11 修：过去 dev_mode 关时「开发模式」分区被过滤掉，
-    // 而唯一能打开 dev_mode 的开关**就在那个分区里** —— 于是它在界面上
-    // 永远打不开（只有 curl / `--dev-mode` 能开）。死循环。
-    test('无论 dev_mode 如何，8 个分区都在（含「开发模式」）', () {
-      final List<SettingsSection> sections = visibleSections();
-      expect(sections, hasLength(8));
-      expect(sections, contains(SettingsSection.developer));
-      expect(sections, SettingsSection.values);
+  group('2026-10-09：标题与说明的口径', () {
+    test('persona 的显示名是「模型对话」（枚举值不改）', () {
+      expect(SettingsSection.persona.label, '模型对话');
+      expect(SettingsSection.persona.description, '系统提示词与记住的轮数');
+      expect(SettingsSection.persona.description.contains('人设'), isFalse);
+      expect(SettingsSection.persona.description.contains('模型对话'), isFalse);
     });
 
-    test('顺序 = 枚举声明顺序（不重排）', () {
-      expect(visibleSections(), SettingsSection.values);
+    test('原「对话」+「语音合成」合成「模型服务」', () {
+      expect(SettingsSection.service.label, '模型服务');
+      expect(SettingsSection.service.description.contains('TTS'), isFalse);
+      expect(SettingsSection.service.description.contains('LLM'), isFalse);
+      final List<String> names = SettingsSection.values
+          .map((SettingsSection s) => s.name)
+          .toList();
+      expect(names.contains('llm'), isFalse);
+      expect(names.contains('tts'), isFalse);
+    });
+
+    test('原「外观与互动」拆成「主题」+「Live2D 动作」', () {
+      expect(SettingsSection.theme.label, '主题');
+      expect(SettingsSection.theme.description, '配色与背景');
+      expect(SettingsSection.motion.label, 'Live2D 动作');
+      final List<String> names = SettingsSection.values
+          .map((SettingsSection s) => s.name)
+          .toList();
+      expect(names.contains('appearance'), isFalse);
+    });
+
+    test('一级「诊断」取消：内容收进开发模式页', () {
+      final List<String> names = SettingsSection.values
+          .map((SettingsSection s) => s.name)
+          .toList();
+      expect(names.contains('diagnostics'), isFalse);
+    });
+
+    test('Mod → 「扩展」', () {
+      expect(SettingsSection.mods.label, '扩展');
+      expect(SettingsSection.mods.description.contains('Mod'), isFalse);
+    });
+  });
+
+  group('可见分区：**没有任何一级会随 devMode 消失**', () {
+    test('两个 devMode 下都是同一份 7 项', () {
+      final List<SettingsSection> off = visibleSections();
+      final List<SettingsSection> on = visibleSections(devMode: true);
+      expect(off, hasLength(7));
+      expect(on, hasLength(7));
+      expect(off, SettingsSection.values);
+      expect(on, SettingsSection.values);
+      expect(visibleSections(devMode: false), visibleSections());
+    });
+
+    test('「开发模式」永远在（藏了它就再也打不开）', () {
+      for (final bool dev in <bool>[false, true]) {
+        expect(
+          visibleSections(devMode: dev),
+          contains(SettingsSection.developer),
+          reason: 'devMode=$dev',
+        );
+      }
     });
 
     test('返回的是**不可变**列表（防调用方顺手改全局顺序）', () {
@@ -110,16 +155,9 @@ void main() {
         () => visibleSections().add(SettingsSection.persona),
         throwsUnsupportedError,
       );
-    });
-
-    test('不再有 isDevOnly 这个「藏分区」的口子', () {
-      // 保留这条断言是为了说明：要藏的是**分区内的字段**，不是分区。
-      // 哪天有人想加回来，先读 `visibleSections` 的头注。
       expect(
-        SettingsSection.values.where(
-          (SettingsSection s) => s.name == 'developer',
-        ),
-        hasLength(1),
+        () => visibleSections(devMode: true).add(SettingsSection.persona),
+        throwsUnsupportedError,
       );
     });
   });

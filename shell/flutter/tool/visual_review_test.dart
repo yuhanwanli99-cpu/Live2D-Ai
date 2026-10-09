@@ -98,7 +98,7 @@ Widget _shellFor(AppThemeId theme, TextEditingController input) => MaterialApp(
     onVolumeChanged: (_) {},
     onMutedChanged: (_) {},
     sections: visibleSections(),
-    section: SettingsSection.appearance,
+    section: SettingsSection.theme,
     onSectionChanged: (_) {},
     sectionBuilder: (BuildContext context, SettingsSection s) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,

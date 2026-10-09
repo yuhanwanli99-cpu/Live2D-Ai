@@ -86,6 +86,7 @@ void main() {
       expect(e.epoch, 0);
       expect(e.text, '好呀，那我就说两句话啦。\n\n', reason: '换行必须原样保留');
       expect(e.completed, isNull, reason: '这一支没有 completed 字段');
+      expect(e.sentenceSeq, isNull, reason: '2026-09-10 的实抓没有句号，缺字段保持 null');
     });
 
     test('text_delta：完成锚点没有 text，只有 completed', () {
@@ -93,6 +94,15 @@ void main() {
           parseWsFrame(kRealTextDeltaAnchor)! as TextDeltaEvent;
       expect(e.text, isNull, reason: '锚点帧不带正文——不能把 null 当空串写进气泡');
       expect(e.completed, isFalse);
+      expect(e.sentenceSeq, isNull, reason: '完成锚点不带句号');
+    });
+
+    test('text_delta：sentence_seq 与音频帧同源', () {
+      final TextDeltaEvent e = parseWsFrame(
+        '{"type":"text_delta","data":{"epoch":2,"ts_ms":10,"sentence_seq":3,"text":"第二句。"}}',
+      )! as TextDeltaEvent;
+      expect(e.sentenceSeq, 3);
+      expect(e.text, '第二句。');
     });
 
     test('turn_state：completed / failed 两种 status 都进来', () {

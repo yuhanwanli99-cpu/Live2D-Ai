@@ -50,8 +50,25 @@
 //!   **默认关**：没配端点 / `staging_enabled=false` → 仍 `DisabledStaging`，
 //!   行为与「默认关」逐字一致（降级原因进 `state_json.staging.degraded/note`）。
 //!   失败 / 超时 / 坏 JSON → 静默回退规则。它只产出按句 cue，**不改**送 TTS 的
-//!   文本（导演是备注，不是誊写员）；
+//!   文本（导演是备注，不是誊写员）。**T8 起**：主链一旦接管（见下节），它恒不发；
 //! - **不写别人的字段**：不碰 `persona.system_prompt`、不碰壁纸偏好、不碰 `[tts]`。
+//!
+//! # T8 接管（2026-10-07）：送 TTS 的原文由主链分段
+//!
+//! 送进 TTS 的文本由**主模型原文定死**（直送）：导演不改字、不删句、不拒答、
+//! 不加声明，也不做内容审查。导演 Mod **启用后**，host 的
+//! `build_performance_runtime` 按本 Mod 的 `staging_*` 装配主链表演层：
+//!
+//! | `staging_base_url` | `staging_model` | 主链行为 |
+//! | --- | --- | --- |
+//! | 空 | 空 | 复用对话模型（同一 base_url / 模型名 / 密钥变量名） |
+//! | 有 | 有 | 改用二路端点（`staging_api_key_env` 空则仍用主 LLM 的密钥变量名） |
+//! | 只填一项 | 只填一项 | **不接管**，保持直送 |
+//!
+//! 接管成功时本 Mod 的 `should_fire_async()` **恒 false**（`STAGING_SYSTEM` 不再发出），
+//! 只保留规则层 cue；失败 / 超时 / 坏 JSON 由主链退回边流边送（原文一个字不丢）。
+//! 判定真源 = [`staging::takeover_of`]（host 与 Mod 共用；`staging_enabled` 不是总闸）。
+//! 开关只在**进程加载 / 热重载**时读取：改启停或改 `staging_*` 都要重载才生效。
 //!
 //! # 状态面（`ModRuntime::state_json` → `GET /api/v1/mods/director/state`）
 //!
@@ -100,7 +117,8 @@
 //!     "max_per_turn": 3,
 //!     "fires_this_turn": 0,
 //!     "async_plans": 0,
-//!     "async_failures": 0
+//!     "async_failures": 0,
+//!     "takeover": { "active": true, "source": "conversation", "model": "" }
 //!   }
 //! }
 //! ```
@@ -156,7 +174,7 @@ pub use plan::{
     PRIORITY_RULE, parse_plan,
 };
 pub use presets::{PRESET_IDS, PRESET_NONE, PresetTable};
-pub use staging::{DisabledStaging, StagingClient, StagingSetup};
+pub use staging::{DisabledStaging, StagingClient, StagingSetup, Takeover};
 
 use live2d_ai_mod_system::*;
 
@@ -293,36 +311,36 @@ pub fn director_settings_spec() -> ModSettingsSpec {
             // 只开了 staging_enabled 还不够——必须再配 base_url + model，
             // 否则仍走规则层（state_json.staging.degraded 为 true，可观察）。
             //
-            // 2026-09-22：表演层（`[performance]`，runtime 主链）已是**表演主路由**；
-            // 这 5 个 `staging_*` 是**遗留回退旁路**。label 一律带「【遗留】」——
-            // 不然表单看起来像「要开表演得先配这里」，用户会以为两套大脑在抢 cue。
+            // 2026-10-07（T8）：这 5 个 `staging_*` **不再是「遗留回退旁路」**——导演启用后，
+            // 主链表演层就用这里（两项都填）或对话模型（两项都空）把原文分段送 TTS；
+            // 只填一项 = 不接管，保持直送。label 里不得再出现「【遗留】」/「日常用表演层」。
             ModSettingField::Bool {
                 key: "staging_enabled".to_string(),
-                label: "【遗留】二路 LLM（日常用表演层；未配端点则仅规则）".to_string(),
+                label: "二路 LLM 异步 cue（不是接管开关；接管后本项不再发请求）".to_string(),
                 default: false,
             },
             ModSettingField::String {
                 key: "staging_base_url".to_string(),
-                label: "【遗留】二路端点 base_url（如 http://127.0.0.1:11434/v1；空=仅规则）"
+                label: "二路端点 base_url（留空则用对话模型；如 http://127.0.0.1:11434/v1）"
                     .to_string(),
                 secret: false,
                 default: None,
             },
             ModSettingField::String {
                 key: "staging_model".to_string(),
-                label: "【遗留】二路模型名（空=仅规则）".to_string(),
+                label: "二路模型名（留空则用对话模型）".to_string(),
                 secret: false,
                 default: None,
             },
             ModSettingField::String {
                 key: "staging_api_key_env".to_string(),
-                label: "【遗留】二路密钥变量名（.env 里的名字；空=不鉴权）".to_string(),
+                label: "二路密钥变量名（.env 里的名字；留空则用对话模型的密钥）".to_string(),
                 secret: false,
                 default: None,
             },
             ModSettingField::Number {
                 key: "staging_timeout_ms".to_string(),
-                label: "【遗留】二路超时（毫秒，100~5000）".to_string(),
+                label: "二路超时（毫秒，100~5000）".to_string(),
                 min: 100.0,
                 max: 5_000.0,
             },
@@ -499,6 +517,13 @@ impl DirectorRuntime {
         &self.config
     }
 
+    /// 本次加载的二路**接管判定**（T8；与 host `build_performance_runtime` 同一份规则）。
+    ///
+    /// 两项都空 = 复用对话模型；两项都有 = 用二路端点；只填一项 = 不接管（保持直送）。
+    pub fn takeover(&self) -> staging::Takeover {
+        staging::takeover_of(&self.config.staging_base_url, &self.config.staging_model)
+    }
+
     /// 决策账本（只读）。
     pub fn ledger(&self) -> &DecisionLedger {
         &self.ledger
@@ -563,6 +588,14 @@ impl DirectorRuntime {
 
     /// 是否该触发异步第二路（节流：首句 + 间隔 + 每轮上限）。
     fn should_fire_async(&self, ts_ms: u64, sentence_seq: u64) -> bool {
+        // 2026-10-07（T8）：主链一旦接管（两项都空 = 复用对话模型；两项都有 = 用二路
+        // 端点），本 Mod 绝不再发自己的第二路 HTTP——否则同一轮会有两份 cue。
+        // `staging_enabled` 不参与这个判定（它不是第二道总闸）。
+        // **刻意只看配置、不看「host 是否已重载」**：Mod 注册表与 supervisor 热重载
+        // 不是一个时钟，用 host 标志会在两者错拍时放出两份 cue（宁可先按规则层跑）。
+        if self.takeover().active() {
+            return false;
+        }
         if !self.config.staging_enabled || !self.staging.enabled() {
             return false;
         }
@@ -665,6 +698,24 @@ impl ModRuntime for DirectorRuntime {
             self.config.emotion_lexicon.as_str(),
             self.ledger.capacity()
         ));
+        // 2026-10-07（T8）：把「谁把原文送进 TTS」说清楚——接管后本 Mod 只出规则 cue，
+        // 不再发自己的第二路 HTTP（否则同一轮会出两份 cue）。
+        let takeover = self.takeover();
+        if takeover.active() {
+            self.services.logger.info(&format!(
+                "director 已交棒主链表演层（source={}, model={}）：原文分段 + 头/表情 cue 由主链负责；本 Mod 不再发自己的第二路 HTTP，只出规则 cue",
+                takeover.as_str(),
+                if takeover == staging::Takeover::Own {
+                    self.config.staging_model.as_str()
+                } else {
+                    "对话模型"
+                }
+            ));
+        } else {
+            self.services.logger.info(
+                "director 未接管（staging_base_url / staging_model 只填了一项）：仍直送原文，规则层照旧",
+            );
+        }
         // P1-4：把二路的**真实状态**说清楚——「开了」不等于「会发 HTTP」。
         if self.config.staging_enabled {
             match self.staging_note.as_deref() {
@@ -780,6 +831,7 @@ impl ModRuntime for DirectorRuntime {
     ///
     /// 纯内存读取：不写盘、不加锁等待、不发网络请求（host 在 web_api 线程调用）。
     fn state_json(&mut self) -> Option<serde_json::Value> {
+        let takeover = self.takeover();
         let mut value = self.ledger.state_json();
         if let Some(object) = value.as_object_mut() {
             object.insert(
@@ -808,6 +860,17 @@ impl ModRuntime for DirectorRuntime {
                     "fires_this_turn": self.fires_this_turn,
                     "async_plans": self.async_plans,
                     "async_failures": self.async_failures,
+                    // T8：主链接管状态（两项都空 = 复用对话模型；两项都有 = 自有端点）。
+                    // 面板据此显示「已接管 / 没接上」；接管时本 Mod 不发自己的 HTTP。
+                    "takeover": {
+                        "active": takeover.active(),
+                        "source": takeover.as_str(),
+                        "model": if takeover == staging::Takeover::Own {
+                            self.config.staging_model.clone()
+                        } else {
+                            String::new()
+                        },
+                    },
                 }),
             );
             object.insert(
@@ -892,7 +955,8 @@ impl ModFactory for DirectorFactory {
     }
 }
 
-/// 工厂单例（**已**注册进 `AVAILABLE_MOD_FACTORIES`，当前注册面共 5 个；缺省停用）。
+/// 工厂单例（**已**注册进 `AVAILABLE_MOD_FACTORIES`，2026-10-09 起注册面共 **6** 个；
+/// **缺省停用**）。
 pub const FACTORY: DirectorFactory = DirectorFactory;
 
 #[cfg(test)]
@@ -900,3 +964,6 @@ mod tests;
 // P1-3 / P1-4 的句子锚点 + 二路回归单独成文件（AGENTS「测试文件 ≤800 行」）。
 #[cfg(test)]
 mod tests_staging;
+// T9（2026-10-07）问句补丁的两条回归单独成文件（同上：presets.rs 回到 500 行以内）。
+#[cfg(test)]
+mod tests_question;

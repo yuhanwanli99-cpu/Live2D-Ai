@@ -178,16 +178,27 @@ extension _ShellCueVoiceWiring on _ShellRootState {
     }
   }
 
-  /// 主链忙时，把识别到的正文**落回输入框**（不排队、不静默丢弃）。
+  /// 一条语音正文**唯一**的落点：写进输入框（不排队、不静默丢弃）。
   ///
-  /// 不 `setState`：`TextEditingController` 自己会通知输入框重建，这里只改值。
-  void _onVoiceBusyResult(String text) {
-    if (!mounted || text.trim().isEmpty) return;
+  /// - **产品听写的定稿**（成功与失败都走它；空串 = 没听清 → 什么都不做，
+  ///   控制器已经写了「没听清，再点一次说」）；
+  /// - 主链忙时把识别到的正文交回输入框，让用户改字重发。
+  ///
+  /// 输入框里已有文字时**接在后面**（中间补一个空格），光标落到末尾；
+  /// 不 `setState`——`TextEditingController` 自己会通知输入框重建。
+  void _writeVoiceTextToInput(String text) {
+    if (!mounted) return;
+    // 拼接口径收在纯函数里（`appendVoiceText`，有单测）：空串 = 输入框不动。
+    final String next = appendVoiceText(_input.text, text);
+    if (next == _input.text) return;
     _input.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
+      text: next,
+      selection: TextSelection.collapsed(offset: next.length),
     );
   }
+
+  /// [VoiceListenController] 的两条结果回调（busy / 听写定稿）共用它。
+  void _onVoiceResult(String text) => _writeVoiceTextToInput(text);
 
   /// voice-input Mod 是否启用（「听」按钮预检；读失败 → `true` 不误拦）。
   ///

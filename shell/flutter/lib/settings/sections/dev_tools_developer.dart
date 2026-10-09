@@ -13,6 +13,7 @@ class DeveloperSection extends StatelessWidget {
     this.onClearScales,
     this.presetLabels = PresetLabelTable.empty,
     this.clock,
+    this.diagnostics,
     super.key,
   });
 
@@ -55,6 +56,13 @@ class DeveloperSection extends StatelessWidget {
   /// 把「到点后 UI 回到『无（已到点）』、点手势不再重发」钉死（W3 验收）。
   final DebugClock? clock;
 
+  /// **诊断面**（2026-10-09：一级「诊断」取消，内容收进这一页）。
+  ///
+  /// 传的是**已经带着数据构造好的** DiagnosticsSection（宿主在
+  /// shell_settings.dart 里装好）；本页只决定**画不画**——devMode 为真才画。
+  /// 这样开发模式页拿到的是同一份诊断组件，不是复制出来的一套。
+  final Widget? diagnostics;
+
   /// 是否由启动参数（`--dev-mode`）强制开启。
   ///
   /// **不谎报成功**：强制开启时开关要显示为「已由启动参数开启」且不可关，
@@ -66,21 +74,17 @@ class DeveloperSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SectionHeader(
-          title: '开发模式',
-          description: '打开后才显示高级参数、日志与诊断细节（渐进披露的第二层）。',
-        ),
+        const SectionHeader(title: '开发模式'),
         ToggleField(
           label: '开发者模式',
           icon: Icons.terminal_outlined,
           value: devMode,
           enabled: !forcedByLaunchFlag,
+          // 2026-10-09：控件下面的功能介绍全删，只留一条**操作规则**——
+          // 启动参数强制开启时不能谎报可关（这是事实，不是介绍）。
           description: forcedByLaunchFlag
               ? '当前由启动参数强制开启，无法在界面里关闭'
-              // 文案必须与**实际行为**一致（2026-09-11 修）：分区本身**不再**
-              // 随 dev_mode 隐藏——藏起来就没人能再打开它。
-              : '关闭后各分区里的「开发者选项」与诊断细节一起隐藏；'
-                    '**本分区始终可见**，否则就再也打不开它了',
+              : null,
           onChanged: onDevModeChanged,
         ),
         // P0-3：动作调试**只在开发模式显示**（产品面不放调试按钮）。
@@ -96,11 +100,14 @@ class DeveloperSection extends StatelessWidget {
             labels: presetLabels,
             clock: clock,
           ),
-          // ── 导演可观测（阶段5 W5a，D40–D43）────────────────────────────
-          // 四栏只读观测（A 决策参数 / B 事件流 / C 传参对照 / D 送 TTS 文本）。
-          // **只在 devMode 下渲染**——off 时整块不在语义树（本 if 块一起消失）。
-          // 数据经单例 DirectorObserverFeed 注入（不改 shell_settings.dart）。
-          const DirectorObserverSection(),
+          // ── 诊断（2026-10-09：一级「诊断」取消，收进这里）──────────────
+          // DiagnosticsSection 只在 devMode 为真时渲染（本 if 块一起消失）。
+          // 导演可观测四栏**已搬到**「扩展 → 导演」卡片下级
+          // （settings/mods/director_panel.dart）；核心链的开发模式页不再出现它。
+          if (diagnostics != null) ...<Widget>[
+            const Divider(),
+            diagnostics!,
+          ],
         ],
       ],
     );
@@ -237,11 +244,9 @@ class _DebugPanelsState extends State<DebugPanels> {
     return _expressionId != 'none' && until != null && _now().isBefore(until);
   }
 
-  /// 是否已到点（到点后 UI 说「无（已到点）」、叠加不再认它）。
-  bool get _expressionExpired {
-    final DateTime? until = _expressionExpiresAt;
-    return _expressionId != 'none' && until != null && !_now().isBefore(until);
-  }
+  // 2026-10-09：「是否已到点」的**文案投影**（原来那行「无（已到点）」）随
+  // 控件说明一起删了；判据本体仍是 [_expressionLive]——到点即等于 none，
+  // 叠加与重发都不再认它（回归见 developer_section_test）。
 
   /// 叠加 / 展示用的**有效**表情 id：到点后就是 none（不叠加、不重发）。
   String get _liveExpressionId => _expressionLive ? _expressionId : 'none';
@@ -451,23 +456,11 @@ class _DebugPanelsState extends State<DebugPanels> {
     final bool sweepingGesture = _gestureSweepTimer != null;
     final List<String> expressionIds = _expressionIds;
     final List<String> gestureIds = _gestureIds;
-    // 到点后**不再声称在演**（无（已到点））；还没拿到渲染面回执时按「刚下发」
-    // 显示，不谎报「已到点」。
-    final String baseExpression = _expressionId == 'none'
-        ? '无（none）'
-        : (_expressionExpired
-              ? '无（已到点）'
-              : widget.labels.display(_expressionId));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         // ── 表情调试（只发 Face 槽） ──
-        SectionHeader(
-          title: '表情调试',
-          description: '只发 Face 槽：点一条表情包即可确认基础表情强度'
-              '（约 2.6s 保持，到点自动撤）。'
-              '这里只列标签表里 channel=expression 的包，不混手势。',
-        ),
+        const SectionHeader(title: '表情调试'),
         SliderField(
           label: '基础表情强度',
           icon: Icons.mood,
@@ -477,6 +470,7 @@ class _DebugPanelsState extends State<DebugPanels> {
           divisions: 10,
           percentage: false,
           suffix: ' 倍',
+          description: '0.5-3.0',
           enabled: _enabled,
           onChanged: (double v) => setState(() => _faceIntensity = v),
         ),
@@ -527,11 +521,7 @@ class _DebugPanelsState extends State<DebugPanels> {
         ),
         const Divider(),
         // ── 动作调试（只发 Gesture 槽，可叠加基础表情） ──
-        const SectionHeader(
-          title: '动作调试',
-          description: '只发 Gesture 槽：手势约 0.9–1.0s 起落（标签表里 '
-              'channel=motion 的包），带动半身，摇头是左右多周期。',
-        ),
+        const SectionHeader(title: '动作调试'),
         SliderField(
           label: '动作强度',
           icon: Icons.face_retouching_natural,
@@ -541,6 +531,7 @@ class _DebugPanelsState extends State<DebugPanels> {
           divisions: 10,
           percentage: false,
           suffix: ' 倍',
+          description: '0.5-3.0',
           enabled: _enabled,
           onChanged: (double v) => setState(() => _actionIntensity = v),
         ),
@@ -549,11 +540,6 @@ class _DebugPanelsState extends State<DebugPanels> {
           icon: Icons.layers_outlined,
           value: _overlayFace,
           enabled: _enabled,
-          description: '当前基础表情：$baseExpression，强度 '
-              '${_faceIntensity.toStringAsFixed(1)} 倍。'
-              '**缺省关**；打开后，只要基础表情**仍在有效期内**，'
-              '每次点手势都会把当前基础表情**重新起算**（2.6s 重新计时）——'
-              '到点后不再叠加，也不会重发。',
           onChanged: (bool v) => setState(() => _overlayFace = v),
         ),
         if (gestureIds.isEmpty)
@@ -611,7 +597,7 @@ class _DebugPanelsState extends State<DebugPanels> {
           Text('临时幅度覆盖', style: theme.textTheme.labelLarge),
           const SizedBox(height: Space.s1),
           // 两态明示：有临时覆盖时把「面板滑条 = 渲染面有效值」说清，
-          // 免得用户看到滑条与「外观与互动」里的产品值不同却不知道为什么。
+          // 免得用户看到滑条与导演卡片里的产品值不同却不知道为什么。
           if (_hasPin) ...[
             EmphasizedText(
               '**临时覆盖生效中**（不落盘，点「恢复产品设置」清除）：'
@@ -623,7 +609,7 @@ class _DebugPanelsState extends State<DebugPanels> {
           EmphasizedText(
             '优先级（W7，2026-09-23 起）：**临时覆盖 > 草稿 > 磁盘值**。'
             '「应用到渲染面（临时）」后这份临时值一直生效（**不落盘**，'
-            '刷新页面即失效）；拖动「外观与互动 → 动作幅度」的草稿、切换主题、'
+            '刷新页面即失效）；拖动「扩展 → 导演卡片 → 动作幅度」的草稿、切换主题、'
             '调音量都**不会**再冲掉它——只有点「恢复产品设置」才清掉临时覆盖'
             '并把产品值写回舞台。',
             style: muted,

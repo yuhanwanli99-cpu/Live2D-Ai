@@ -12,6 +12,9 @@ import 'package:live2d_ai_shell/settings/sections/dev_tools_section.dart';
 import 'package:live2d_ai_shell/ui/restart_notice.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
+import 'support/source_scan.dart';
+
 void main() {
   group('文案', () {
     test('完整提示必须同时给出「重新点火」「重启」与可执行入口', () {
@@ -79,6 +82,42 @@ void main() {
         ),
       );
       expect(find.textContaining('重新点火'), findsNothing);
+    });
+  });
+
+  group('源码守卫（2026-10-09）：配置保存不再挂常驻提示，启停仍然挂', () {
+    /// 判据必须落在**函数体**上。只查「整库有没有 `_notifyModChanged`」是
+    /// 恒真的（启停那条路径也用它）；从调用点（`onSaveConfig: _saveModConfig`）
+    /// 起切同样恒真。所以下面每条断言都带非平凡守卫。
+    test('_saveModConfig 体内没有 _notifyModChanged，_toggleMod 体内仍有', () {
+      final String src = stripCommentsKeepStrings(
+        readLibrarySource('lib/main.dart'),
+      );
+      expect(
+        src.contains('_notifyModChanged'),
+        isTrue,
+        reason: '整库都没有这个词 ⇒ 下面的「没有」是空转（不是「已移除」）',
+      );
+
+      final String? saveBody = closureBodyAfter(src, '_saveModConfig');
+      final String? toggleBody = closureBodyAfter(src, '_toggleMod');
+      expect(saveBody, isNotNull, reason: '切不出 _saveModConfig 的函数体');
+      expect(toggleBody, isNotNull, reason: '切不出 _toggleMod 的函数体');
+
+      // 非平凡守卫：切出来的确实是对应那一个函数（各认它自己调的 API）。
+      expect(saveBody!, contains('_modsApi.setConfig'));
+      expect(toggleBody!, contains('_modsApi.setEnabled'));
+
+      expect(
+        saveBody.contains('_notifyModChanged'),
+        isFalse,
+        reason: '保存配置成功不该挂「需重新点火」常驻条（服务端已经 restart 过）',
+      );
+      expect(
+        toggleBody.contains('_notifyModChanged'),
+        isTrue,
+        reason: '启停是真的运行行为变更，必须继续挂常驻条',
+      );
     });
   });
 }

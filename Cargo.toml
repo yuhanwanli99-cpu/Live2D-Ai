@@ -23,6 +23,9 @@ members = [
     # Wave 3 G 轨（2026-09-14）：导演最小骨架（正文 → 情绪/意图/TTS 建议；只记日志 + state_json，
     # 不投递）。**收束时由主 agent** 注册进 FACTORIES（6 → 7），缺省停用。
     "crates/live2d-ai-mod-director",
+    # 2026-10-09「两类 TTS」：本地拉起 Mod（id `local-tts`）。**只**按用户 argv
+    # spawn 外部进程；缺省停用、不写 `[tts]`、不改出声地址。
+    "crates/live2d-ai-mod-local-tts",
     "xtask",
 ]
 
@@ -80,7 +83,7 @@ members = [
 # `segment-ended`、会话 baseline（D22–D39）。
 # ③ 阶段5：dev_mode「导演可观测」四栏 + 单模型动作强度 `[action.models.<id>]`（D40–D48）。
 # 既有帧/字段一律不删（V11）。发布说明见 `docs/releases/v0.2.0-rc.4.md`。
-version = "0.2.1-rc.1"
+version = "0.2.3-rc.1"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

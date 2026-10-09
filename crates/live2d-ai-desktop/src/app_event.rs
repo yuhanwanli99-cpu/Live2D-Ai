@@ -202,7 +202,9 @@ pub enum ConversationUiEvent {
         epoch: u64,
         /// 引擎记录的产生时刻（相对本轮起点的毫秒数；可观测性用途）。
         ts_ms: u64,
-        /// 文本增量片段（来自 LLM stream chunk；未做切句假设）。
+        /// 句子序号，与 `SentenceVoiced` / 音频帧 `sentence_seq` 同源（从 1 起）。
+        sentence_seq: u64,
+        /// 该句完整文本（与送 TTS 的那一句逐字相同）。
         text: String,
     },
     /// **正文兜底**：失败轮把已经生成的正文整段交给 UI（rc.3 N0，2026-09-13）。

@@ -59,27 +59,37 @@ Future<void> interruptAndResend({
 List<ErrorAction> errorActionsFor(
   String? message, {
   String? code,
-  required void Function(SettingsSection section) onGoto,
+  required void Function(SettingsSection section, String? group) onGoto,
   required void Function() onInterruptAndResend,
   required void Function()? onResendLast,
 }) {
   if (message == null && code == null) return const <ErrorAction>[];
-  ErrorAction goto(SettingsSection section, String label) => ErrorAction(
-    label: label,
-    // 走唯一入口：切分区会清掉一次性结果（P2-2）。
-    onPressed: () => onGoto(section),
-  );
+  // group = 落地到页内哪一组（null = 只换分区）。走唯一入口，切分区会清掉
+  // 一次性结果（P2-2）。
+  ErrorAction goto(SettingsSection section, String label, {String? group}) =>
+      ErrorAction(
+        label: label,
+        onPressed: () => onGoto(section, group),
+      );
   ErrorAction busy() => ErrorAction(
     label: '打断并重发',
     // **两件事**：打断 + 重发（见 [interruptAndResend]）。
     onPressed: onInterruptAndResend,
   );
   if (code != null) {
+    // 2026-10-09：一级「对话」「语音合成」合并成一级「模型服务」。
+    // 两条出路都去这一页；语音那条多带一个组值，落到语音合成那一组。
     if (code.startsWith('llm_') || code == 'no_supervisor') {
-      return <ErrorAction>[goto(SettingsSection.llm, '去 LLM 设置')];
+      return <ErrorAction>[goto(SettingsSection.service, '去对话设置')];
     }
     if (code.startsWith('tts_') || code.startsWith('decode_')) {
-      return <ErrorAction>[goto(SettingsSection.tts, '去语音合成设置')];
+      return <ErrorAction>[
+        goto(
+          SettingsSection.service,
+          '去语音合成设置',
+          group: kServiceVoiceGroup,
+        ),
+      ];
     }
     if (code == 'busy') {
       return <ErrorAction>[busy()];
@@ -90,7 +100,7 @@ List<ErrorAction> errorActionsFor(
     return <ErrorAction>[busy()];
   }
   if (message.contains('no_supervisor') || message.contains('未就绪')) {
-    return <ErrorAction>[goto(SettingsSection.llm, '去 LLM 设置')];
+    return <ErrorAction>[goto(SettingsSection.service, '去对话设置')];
   }
   // 无码兜底（2026-10-06 裁决）：**重试 = 重发上一条用户消息**，不读输入框。
   //

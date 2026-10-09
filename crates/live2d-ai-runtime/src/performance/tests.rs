@@ -127,7 +127,7 @@ fn illegal_samples_fail_as_a_whole() {
             "performance_plan_unknown_field",
         ),
         (
-            r#"{"segments":["嗯"],"cues":[{"field":"body","intensity":1,"at":"now"}]}"#,
+            r#"{"segments":["嗯"],"cues":[{"field":"head","intensity":1,"at":"now"}]}"#,
             "performance_plan_cue_field",
         ),
         (
@@ -135,7 +135,7 @@ fn illegal_samples_fail_as_a_whole() {
             "performance_plan_cue_field",
         ),
         (
-            r#"{"segments":["嗯"],"cues":[{"field":"body","intensity":1,"at":"now","hold":true,"x":"大"}]}"#,
+            r#"{"segments":["嗯"],"cues":[{"field":"head","intensity":1,"at":"now","hold":true,"x":"大"}]}"#,
             "performance_plan_cue_field",
         ),
     ];
@@ -166,7 +166,7 @@ fn illegal_samples_fail_as_a_whole() {
         "performance_plan_too_many_cues"
     );
     let many_v1 = (0..=MAX_CUES)
-        .map(|_| r#"{"field":"body","intensity":1,"at":"now","hold":true}"#)
+        .map(|_| r#"{"field":"head","intensity":1,"at":"now","hold":true}"#)
         .collect::<Vec<_>>()
         .join(",");
     let raw_v1 = format!(r#"{{"segments":["a"],"cues":[{many_v1}]}}"#);
@@ -317,33 +317,56 @@ fn segments_count_and_chars_limits_fail_as_a_whole() {
     );
 }
 
-/// §2.4 #11/#12/#13：body 给 z 丢键 + warn；轴越界钳位；intensity 越界钳位。
+/// T8：`field=body` 丢该条 + warn（**不整份失败**）；顺带钉住轴越界钳位与强度钳位。
 #[test]
-fn body_z_is_dropped_and_axis_out_of_range_clamps() {
+fn body_cue_is_dropped_with_warning_and_axis_rules_still_hold() {
     let plan = parse_plan(
         r#"{"segments":["好。"],"cues":[
             {"field":"body","x":1.7,"y":-9.0,"z":0.5,"intensity":9,"at":"now","hold":false},
-            {"field":"head","z":0.5,"intensity":2,"at":"now","hold":true}
+            {"field":"head","x":1.7,"y":-9.0,"z":0.5,"intensity":9,"at":"now","hold":true}
         ]}"#,
         &allow(),
         "好。",
     )
-    .expect("合法（丢键 + 钳位，不整份失败）");
+    .expect("body 丢条不是整份失败；越界只钳位");
+    assert_eq!(plan.cues.len(), 1, "body 必须丢掉该条：{:?}", plan.warnings);
     assert!(
         plan.warnings
             .iter()
-            .any(|w| matches!(w, PlanWarning::AxisNotAllowed { key: "z", .. })),
-        "body.z 必须 warn：{:?}",
+            .any(|w| matches!(w, PlanWarning::BodyNotAllowed { index: 0 })),
+        "body 必须 warn：{:?}",
         plan.warnings
     );
-    let body = plan.cues[0].to_json();
-    assert_eq!(body["x"], AXIS_MAX, "越界轴值钳位到上界");
-    assert_eq!(body["y"], AXIS_MIN, "越界轴值钳位到下界");
-    assert!(body.get("z").is_none(), "body 的 z 必须被丢弃");
-    assert_eq!(body["intensity"], MAX_INTENSITY, "intensity 钳位");
-    let head = plan.cues[1].to_json();
-    assert_eq!(head["z"], 0.5, "head 的 z 保留");
+    let head = plan.cues[0].to_json();
+    assert_eq!(head["field"], "head");
+    assert_eq!(head["x"], AXIS_MAX, "越界轴值钳位到上界");
+    assert_eq!(head["y"], AXIS_MIN, "越界轴值钳位到下界");
+    assert_eq!(head["z"], 0.5, "head 的 z 保留（颈随头一起转）");
+    assert_eq!(head["intensity"], MAX_INTENSITY, "intensity 钳位");
     assert_eq!(head["preset_id"], "head", "非 expression 用字段名占位");
+    assert_eq!(head["seq"], 2, "丢条不重排 cue 序号（按 plan 内位置）");
+
+    // 轴键裁剪仍要覆盖：expression 不接受 x/y/z（丢键 + warn，不失败）。
+    let plan = parse_plan(
+        r#"{"segments":["好。"],"cues":[{"field":"expression","id":"smile","x":0.5,"y":0.5,"z":0.5,"intensity":1,"at":"now","hold":true}]}"#,
+        &allow(),
+        "好。",
+    )
+    .expect("丢键不失败");
+    assert_eq!(plan.cues.len(), 1);
+    assert_eq!(
+        plan.warnings
+            .iter()
+            .filter(|w| matches!(w, PlanWarning::AxisNotAllowed { .. }))
+            .count(),
+        3,
+        "x/y/z 三个键都要 warn：{:?}",
+        plan.warnings
+    );
+    let face = plan.cues[0].to_json();
+    for key in ["x", "y", "z"] {
+        assert!(face.get(key).is_none(), "expression 的 {key} 必须被丢弃");
+    }
 }
 
 /// §2.4 #16：未知表情 id 只丢该条 cue + warn（其余照演）。
@@ -376,8 +399,8 @@ fn after_prev_degrades_to_now_when_prev_holds() {
     // 上一条 hold=true → 退化。
     let plan = parse_plan(
         r#"{"segments":["一","二","三"],"cues":[
-            {"field":"body","x":0.1,"intensity":1,"at":"now","hold":true},
-            {"field":"head","y":0.2,"intensity":1,"at":"after_prev","hold":false}
+            {"field":"head","x":0.1,"intensity":1,"at":"now","hold":true},
+            {"field":"expression","id":"smile","intensity":1,"at":"after_prev","hold":false}
         ]}"#,
         &allow(),
         source,
@@ -389,8 +412,8 @@ fn after_prev_degrades_to_now_when_prev_holds() {
     // 上一条 hold=false → 保留 after_prev。
     let plan = parse_plan(
         r#"{"segments":["一","二","三"],"cues":[
-            {"field":"body","x":0.1,"intensity":1,"at":"seg:2","hold":false},
-            {"field":"head","y":0.2,"intensity":1,"at":"after_prev","hold":false}
+            {"field":"head","x":0.1,"intensity":1,"at":"seg:2","hold":false},
+            {"field":"expression","id":"smile","intensity":1,"at":"after_prev","hold":false}
         ]}"#,
         &allow(),
         source,
@@ -461,7 +484,8 @@ fn schema_and_validator_share_the_same_bounds() {
     );
     assert_eq!(
         cue["properties"]["field"]["enum"],
-        serde_json::json!(["body", "head", "expression"])
+        serde_json::json!(["head", "expression"]),
+        "T8：body 已停用，schema 不得再邀请它"
     );
     assert_eq!(cue["properties"]["intensity"]["minimum"], MIN_INTENSITY);
     assert_eq!(cue["properties"]["intensity"]["maximum"], MAX_INTENSITY);
@@ -476,13 +500,32 @@ fn schema_and_validator_share_the_same_bounds() {
         serde_json::json!(["string", "null"])
     );
     let ids = cue["properties"]["id"]["enum"].as_array().expect("id enum");
-    assert!(ids.contains(&serde_json::json!("none")));
+    assert!(ids.contains(&serde_json::json!("none")), "none 是撤销哨兵");
+    // T9：enum = 能力集 ∩ **表情槽**——手势 id（本测试的 nod）不得出现。
     for id in allow() {
-        assert!(ids.contains(&serde_json::json!(id)), "id enum 必须含 {id}");
+        assert_eq!(
+            ids.contains(&serde_json::json!(id)),
+            EXPRESSION_PRESET_IDS.contains(&id.as_str()),
+            "expression enum 必须只留表情槽：{id}"
+        );
     }
+    // 校验器与 schema 同一组：能力集里的手势 id 填进 expression 也要丢条（不失败）。
+    let dropped = parse_plan(
+        r#"{"segments":["一"],"cues":[{"field":"expression","id":"nod","intensity":1,"at":"now","hold":false}]}"#,
+        &allow(),
+        "一",
+    )
+    .expect("丢条不是整份失败");
+    assert!(dropped.cues.is_empty(), "手势 id 不得当表情用");
+    assert!(
+        dropped
+            .warnings
+            .iter()
+            .any(|w| w.code() == "performance_expression_unknown_id")
+    );
     // 校验器用的是**同一组常量**：每一条越界都落在常量边界上。
     let plan = parse_plan(
-        r#"{"segments":["一"],"cues":[{"field":"body","x":9.0,"intensity":99,"at":"now","hold":false,"ttl_ms":999999}]}"#,
+        r#"{"segments":["一"],"cues":[{"field":"head","x":9.0,"intensity":99,"at":"now","hold":false,"ttl_ms":999999}]}"#,
         &allow(),
         "一",
     )

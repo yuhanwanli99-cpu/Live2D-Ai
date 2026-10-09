@@ -1,5 +1,5 @@
 {
-  "_doc": "Live2D-Ai 动作**包**表（v3，2026-09-23：表情包 + 手势包；2026-09-24 幅值重标定）。用户可改：改幅值/周期/时长不需要重编 Rust，重开页面即生效。规则：id 稳定契约；kind=expression|motion；**每个表情包 = 五官通道（ParamMouthForm/ParamEye*/ParamBrow*）+ 小幅 Angle/Body 位移**（头为主、身约头的 1/3，头 ≤12、身 ≤4，忌 ±24 的抽帧大姿态）；手势包（nod/shake/look_*/tilt_*）主轴表值 = 头 12.0 / 身 3.9（表内身/头 = 0.3250、出厂后 ≈ 0.3467，设计口径 [0.30,0.50]），次轴保持原比例（shake/look 的 Z、tilt 的 X），解析期上限头 ≤30 / 身 ≤10。intensity（0..3）是一等公民：普通包按「表值 × 峰值系数 × intensity × 通道倍率 → clamp_to_channel」缩放五官+头身；带 morph 的包（unhappy）在 low/high 两极之间按 intensity 插值。出厂倍率 head 0.75 / body 0.80 / expression 1.0，倍率滑条量程 [0.2, 2.2]；运行期上限（clamp_to_channel）：头 30 / 身 10 / 五官 4（12/4 是解析期 pack_limit，不是运行期上限）。标定口径：**每个旋钮独立走满都不触上限**（留 5% 余量）——①出厂组合 |表值×峰值×出厂倍率| ≤ 上限×0.60；②scale 走满 |表值×峰值×2.2| ≤ 上限×0.95；③intensity 走满 |表值×峰值×3×出厂倍率| ≤ 上限×0.95。峰值系数：Single = 1.0；shake 的 Oscillate(cycles=2) = 0.9285（回归实测）。两个旋钮**同时**拉满（intensity=3 且 scale=2.2）：普通包会钳位，morph 包（unhappy）不会（intensity=3 直接取 high 极、不乘 3）。会钳位的组合：手势主轴 ParamAngleX/Y/Z（nod/shake 需 73.5、look/tilt 需 79.2，钳 30）与 ParamBodyAngleX/Z（需 23.9~25.7，钳 10）、smile 的 MouthForm/EyeLSmile/EyeRSmile（6.6，钳 4）与 AngleY/BodyAngleY（39.6/13.2，钳 30/10）、surprised 的 EyeOpen(8.316)/Brow(5.28) 钳 4 与 AngleY/BodyAngleY（33.0/13.2，钳 30/10）；手势次轴、smile 的 Brow/AngleZ、surprised 的 MouthForm/AngleX/BodyAngleX、unhappy 全部通道都不钳。旧版（v2）id 已在 2026-09-23 整体删除：收到旧 id 即视为未知 id → 静默 Ignore（不动任何参数）。未知通道会被丢弃并在 HUD/状态栏告警。内建 PRESETS 只是 fallback（与主 allowlist 同集合），外置表是产品实际能力。",
+  "_doc": "Live2D-Ai 动作**包**表（v3，2026-09-23：表情包 + 手势包；2026-09-24 幅值重标定）。用户可改：改幅值/周期/时长不需要重编 Rust，重开页面即生效。规则：id 稳定契约；kind=expression|motion；**每个表情包 = 五官通道（ParamMouthForm/ParamEye*/ParamBrow*）+ 小幅 Angle/Body 位移**（头为主、身约头的 1/3，头 ≤12、身 ≤4，忌 ±24 的抽帧大姿态）；手势包（nod/shake/look_*/tilt_*）主轴表值 = 头 12.0 / 身 3.9（表内身/头 = 0.3250、出厂后 ≈ 0.3467，设计口径 [0.30,0.50]），次轴保持原比例（shake/look 的 Z、tilt 的 X），解析期上限头 ≤30 / 身 ≤10。intensity（0..3）是一等公民：普通包按「表值 × 峰值系数 × intensity × 通道倍率 → clamp_to_channel」缩放五官+头身；带 morph 的包（unhappy）在 low/high 两极之间按 intensity 插值。出厂倍率 head 0.75 / body 0.80 / expression 1.0，倍率滑条量程 [0.2, 2.2]；运行期上限（clamp_to_channel）：头 30 / 身 10 / 五官 4（12/4 是解析期 pack_limit，不是运行期上限）。标定口径：**每个旋钮独立走满都不触上限**（留 5% 余量）——①出厂组合 |表值×峰值×出厂倍率| ≤ 上限×0.60；②scale 走满 |表值×峰值×2.2| ≤ 上限×0.95；③intensity 走满 |表值×峰值×3×出厂倍率| ≤ 上限×0.95。峰值系数：Single = 1.0；shake 的 Oscillate(cycles=2) = 0.9285（回归实测）。两个旋钮**同时**拉满（intensity=3 且 scale=2.2）：普通包会钳位，morph 包（unhappy）不会（intensity=3 直接取 high 极、不乘 3）。会钳位的组合：手势主轴 ParamAngleX/Y/Z（nod/shake 需 73.5、look/tilt 需 79.2，钳 30）与 ParamBodyAngleX/Z（需 23.9~25.7，钳 10）、smile 的 MouthForm/EyeLSmile/EyeRSmile（6.6，钳 4）与 AngleY/BodyAngleY（39.6/13.2，钳 30/10）、surprised 的 EyeOpen(8.316)/Brow(5.28) 钳 4 与 AngleY/BodyAngleY（33.0/13.2，钳 30/10）；手势次轴、smile 的 Brow/AngleZ、surprised 的 MouthForm/AngleX/BodyAngleX、unhappy 全部通道都不钳。旧版（v2）id 已在 2026-09-23 整体删除：收到旧 id 即视为未知 id → 静默 Ignore（不动任何参数）。未知通道会被丢弃并在 HUD/状态栏告警。内建 PRESETS 只是 fallback（与主 allowlist 同集合），外置表是产品实际能力。2026-10-07（T9）新增三条包：thinking（expression，2600ms，五官 MouthForm 0 / 双眼 Open 0.55 / 双眉 Y -0.45，另带小幅 AngleZ 6 + BodyAngleZ 2，身/头 = 0.333）；look_up / look_down（motion，wave=single，1100ms，主轴 Y ±12 / 身 ±3.9，次轴 X ±2.7 / 身 ±0.8）。两旋钮同时拉满时**新增加的**钳位组合：thinking 的 ParamAngleZ（6×3×2.2 = 39.6，钳 30）与 ParamBodyAngleZ（2×3×2.2 = 13.2，钳 10）；look_up / look_down 的 ParamAngleY（12×3×2.2 = 79.2，钳 30）与 ParamBodyAngleY（3.9×3×2.2 = 25.74，钳 10）——两者的次轴 X（±17.82 / ±5.28）与 thinking 的五官（0 / 3.63 / 2.97）都不钳。",
   "version": 3,
   "presets": [
     {
@@ -178,6 +178,41 @@
       ]
     },
     {
+      "id": "thinking",
+      "kind": "expression",
+      "duration_ms": 2600,
+      "params": [
+        {
+          "id": "ParamMouthForm",
+          "value": 0
+        },
+        {
+          "id": "ParamEyeLOpen",
+          "value": 0.55
+        },
+        {
+          "id": "ParamEyeROpen",
+          "value": 0.55
+        },
+        {
+          "id": "ParamBrowLY",
+          "value": -0.45
+        },
+        {
+          "id": "ParamBrowRY",
+          "value": -0.45
+        },
+        {
+          "id": "ParamAngleZ",
+          "value": 6
+        },
+        {
+          "id": "ParamBodyAngleZ",
+          "value": 2
+        }
+      ]
+    },
+    {
       "id": "nod",
       "kind": "motion",
       "duration_ms": 900,
@@ -262,6 +297,54 @@
         },
         {
           "id": "ParamBodyAngleZ",
+          "value": -0.8
+        }
+      ]
+    },
+    {
+      "id": "look_up",
+      "kind": "motion",
+      "duration_ms": 1100,
+      "wave": "single",
+      "params": [
+        {
+          "id": "ParamAngleY",
+          "value": 12
+        },
+        {
+          "id": "ParamBodyAngleY",
+          "value": 3.9
+        },
+        {
+          "id": "ParamAngleX",
+          "value": 2.7
+        },
+        {
+          "id": "ParamBodyAngleX",
+          "value": 0.8
+        }
+      ]
+    },
+    {
+      "id": "look_down",
+      "kind": "motion",
+      "duration_ms": 1100,
+      "wave": "single",
+      "params": [
+        {
+          "id": "ParamAngleY",
+          "value": -12
+        },
+        {
+          "id": "ParamBodyAngleY",
+          "value": -3.9
+        },
+        {
+          "id": "ParamAngleX",
+          "value": -2.7
+        },
+        {
+          "id": "ParamBodyAngleX",
           "value": -0.8
         }
       ]

@@ -1,100 +1,20 @@
 part of 'appearance_section.dart';
 
-class _MoreOptions extends StatefulWidget {
-  const _MoreOptions({
-    required this.title,
-    required this.children,
-    this.summary,
-  });
-
-  final String title;
-  final String? summary;
-  final List<Widget> children;
-
-  @override
-  State<_MoreOptions> createState() => _MoreOptionsState();
-}
-
-class _MoreOptionsState extends State<_MoreOptions> {
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        InkWell(
-          onTap: () => setState(() => _open = !_open),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Space.s1,
-              vertical: Space.s1,
-            ),
-            child: Row(
-              children: <Widget>[
-                Icon(
-                  _open ? Icons.expand_less : Icons.expand_more,
-                  size: 16,
-                  color: colors.contentMuted,
-                ),
-                const SizedBox(width: Space.s1),
-                Text(widget.title, style: theme.textTheme.labelLarge),
-                const SizedBox(width: Space.s2),
-                if (!_open && widget.summary != null)
-                  Expanded(
-                    child: Text(
-                      widget.summary!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        // 2026-09-28（F-0006-2 / task-16）：这是**文字**，不是装饰。
-                        // `contentFaint` 的自注是「仅装饰/图标」，被当文字色用时
-                        // 白主题只有 3.96–4.07（< AA 4.5）。承载文字的次要文本取
-                        // `contentMuted`（四套主题合成后 ≥ 6.0）。
-                        color: colors.contentMuted,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        if (_open)
-          Padding(
-            padding: const EdgeInsets.only(top: Space.s2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: widget.children,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 /// 未接上排序回调时的占位（空实现，不抛）。
 void _noopReorder(int oldIndex, int newIndex) {}
 
 class _LibraryManager extends StatefulWidget {
   const _LibraryManager({
     required this.items,
-    required this.prefs,
     required this.palette,
     this.currentIdentity,
     required this.onReorder,
     required this.onRemove,
     required this.onRemoveMany,
     required this.onPreview,
-    this.onItemChanged,
   });
 
   final List<BackgroundItem> items;
-
-  /// 全局值（逐图样式的「跟随全局」要显示它）。
-  final DisplayPrefs prefs;
 
   final AppPalette palette;
 
@@ -105,9 +25,6 @@ class _LibraryManager extends StatefulWidget {
   final ValueChanged<int>? onRemove;
   final ValueChanged<List<int>>? onRemoveMany;
   final ValueChanged<int>? onPreview;
-
-  /// 某一项的逐图样式被改了（下标 + 新项）。
-  final void Function(int index, BackgroundImage next)? onItemChanged;
 
   @override
   State<_LibraryManager> createState() => _LibraryManagerState();
@@ -120,9 +37,6 @@ class _LibraryManagerState extends State<_LibraryManager> {
   /// 点「删除所选」时旧实现删的是**现在第 0 位那一项**（用户没勾的那张）。
   /// 身份跟着项走，重排不改变「谁被选中」。
   final Set<String> _selected = <String>{};
-
-  /// 展开了「样式」的那几项（身份）——与选中一样是本地 UI 状态，不落盘。
-  final Set<String> _expanded = <String>{};
 
   /// 管理模式：**显式开关**（D1）。
   ///
@@ -141,7 +55,6 @@ class _LibraryManagerState extends State<_LibraryManager> {
       for (final BackgroundItem it in widget.items) backgroundItemIdentity(it),
     };
     _selected.removeWhere((String id) => !live.contains(id));
-    _expanded.removeWhere((String id) => !live.contains(id));
   }
 
   /// 勾选 / 取消勾选某一项（按身份）。
@@ -198,7 +111,7 @@ class _LibraryManagerState extends State<_LibraryManager> {
           Padding(
             padding: const EdgeInsets.only(bottom: Space.s1),
             child: Text(
-              '管理模式：点一行勾选，可批量删除；点「样式」单独调这一张。'
+              '管理模式：点一行勾选，可批量删除。'
               '点「完成」回到「点一下预览这一张」。',
               style: theme.textTheme.labelSmall?.copyWith(
                 color: colors.contentMuted,
@@ -225,21 +138,12 @@ class _LibraryManagerState extends State<_LibraryManager> {
               key: ValueKey<String>('lib-$identity-$index'),
               index: index,
               item: row,
-              prefs: widget.prefs,
               palette: widget.palette,
               selected: _selected.contains(identity),
               managing: _managing,
               current: identity == widget.currentIdentity,
-              styleExpanded: _expanded.contains(identity),
               onTap: () => _tap(index),
               onToggle: () => _toggle(identity),
-              onToggleStyle: () => setState(() {
-                if (!_expanded.remove(identity)) _expanded.add(identity);
-              }),
-              onStyleChanged: widget.onItemChanged == null
-                  ? null
-                  : (BackgroundImage next) =>
-                        widget.onItemChanged!(index, next),
               onRemove: widget.onRemove == null
                   ? null
                   : () => widget.onRemove!(index),
@@ -308,74 +212,6 @@ class _LibraryManagerState extends State<_LibraryManager> {
   );
 }
 
-/// 逐图样式的一行（§5.3 第 2 条）。
-///
-/// 「跟随全局」是**显式状态**：跟随中显示全局值 + 一个「单独设置」按钮；设过
-/// 之后显示控件 + 一个「改回跟随全局」按钮。不用 0 / -1 之类的 magic 值冒充
-/// 「没设过」——那会让「跟随全局」与「显式设成 0」不可区分。
-///
-/// 按 field 生成的 key 是给测试用的（文案会改，键位不会）。
-class _StyleOverrideRow extends StatelessWidget {
-  const _StyleOverrideRow({
-    required this.field,
-    required this.label,
-    required this.following,
-    required this.globalText,
-    required this.onSet,
-    required this.onClear,
-    required this.child,
-  });
-
-  final String field;
-  final String label;
-  final bool following;
-  final String globalText;
-  final VoidCallback onSet;
-  final VoidCallback onClear;
-  final Widget child;
-
-  static Key statusKey(String field) =>
-      ValueKey<String>('bg-style-status-$field');
-  static Key setKey(String field) => ValueKey<String>('bg-style-set-$field');
-  static Key clearKey(String field) => ValueKey<String>('bg-style-clear-$field');
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final AppColors colors = appColorsOf(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: Space.s1),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  following ? '$label：跟随全局（$globalText）' : '$label：单独设置',
-                  key: statusKey(field),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: following
-                        ? colors.contentMuted
-                        : theme.colorScheme.primary,
-                  ),
-                ),
-              ),
-              TextButton(
-                key: following ? setKey(field) : clearKey(field),
-                onPressed: following ? onSet : onClear,
-                child: Text(following ? '单独设置' : '改回跟随全局'),
-              ),
-            ],
-          ),
-          if (!following) child,
-        ],
-      ),
-    );
-  }
-}
-
 /// 占用条：**明说**「占了多少」。
 ///
 /// # 为什么它不再是一根进度条（2026-09-27）
@@ -431,50 +267,35 @@ class _UsageBar extends StatelessWidget {
   }
 }
 
-/// 库里的一行（缩略图 + 名字 + 勾选 + 拖动手柄 + 移除 + 逐图样式）。
+/// 库里的一行（缩略图 + 名字 + 勾选 + 拖动手柄 + 移除）。
 ///
-/// 三个「不许静默」的细节：
-/// - **当前**那一项标出来（外壳按运行时索引给，DEC-6）；
-/// - 字节形态坏的项**明说画不出来**（DEC-5 的 UI 侧），不静默给个空块；
-/// - 「样式」按钮只在图片上出现（图案由 CustomPainter 画，没有逐图样式）。
+/// 当前那一项标出来。字节形态坏的项明说画不出来。
 class _LibraryRow extends StatelessWidget {
   const _LibraryRow({
     required super.key,
     required this.index,
     required this.item,
-    required this.prefs,
     required this.palette,
     required this.selected,
     required this.managing,
     required this.current,
-    required this.styleExpanded,
     required this.onTap,
     required this.onToggle,
-    required this.onToggleStyle,
-    required this.onStyleChanged,
     required this.onRemove,
     required this.dragHandle,
   });
 
   final int index;
   final BackgroundItem item;
-  final DisplayPrefs prefs;
   final AppPalette palette;
   final bool selected;
   final bool managing;
 
-  /// 这一项就是**此刻画面上**的那一项。
+  /// 这一项就是此刻画面上的那一项。
   final bool current;
-
-  /// 「样式」折叠区是否展开。
-  final bool styleExpanded;
 
   final VoidCallback onTap;
   final VoidCallback onToggle;
-  final VoidCallback onToggleStyle;
-
-  /// 逐图样式变了（null = 宿主没接线，不显示编辑区）。
-  final ValueChanged<BackgroundImage>? onStyleChanged;
 
   final VoidCallback? onRemove;
   final Widget? dragHandle;
@@ -485,7 +306,6 @@ class _LibraryRow extends StatelessWidget {
     final AppColors colors = appColorsOf(context);
     final BackgroundItem row = item;
     final BackgroundImage? image = row is BackgroundImage ? row : null;
-    final ValueChanged<BackgroundImage>? styleChanged = onStyleChanged;
     return Padding(
       padding: const EdgeInsets.only(bottom: Space.s1),
       child: Material(
@@ -543,11 +363,6 @@ class _LibraryRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (image != null && styleChanged != null)
-                      TextButton(
-                        onPressed: onToggleStyle,
-                        child: Text(styleExpanded ? '收起样式' : '样式'),
-                      ),
                     if (onRemove != null)
                       IconButton(
                         onPressed: onRemove,
@@ -580,12 +395,6 @@ class _LibraryRow extends StatelessWidget {
               _RowNotice(
                 '这一项的字节还在读回（水合中）——读完才会出现在画面上。',
                 tone: colors.contentMuted,
-              ),
-            if (image != null && styleExpanded && styleChanged != null)
-              _ItemStyleEditor(
-                item: image,
-                prefs: prefs,
-                onChanged: styleChanged,
               ),
           ],
         ),

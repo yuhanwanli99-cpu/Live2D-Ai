@@ -21,6 +21,21 @@ pub struct LlmConfig {
     /// 已由 [`crate::settings::LlmSettings::effective_max_tokens`] 解析过默认值，
     /// 所以这里拿到的是**最终生效值**。
     pub max_tokens: u32,
+    /// **思考模式**（2026-10-08）：`true` → 请求体带
+    /// `thinking: {"type": "enabled"}`；`false`（缺省）→ `"disabled"`。
+    ///
+    /// 与 [`crate::settings::LlmSettings::show_reasoning`] 是**同一个开关**：
+    /// 关 = 上游不生成思考（界面自然也没有）；开 = 上游生成、气泡的思考折叠区
+    /// 才可能有内容。**不是**延迟课题。
+    pub thinking: bool,
+    /// **二路按句清洗**（2026-10-08）：`true` = 这一路的对话模型同时充当
+    /// 「把每句原文清洗成 `{display, speech}`」的二路模型（base_url / model /
+    /// key 与一路同一份）。
+    ///
+    /// [`LlmConfig::new`] 缺省 `false`：测试 / 便捷构造保持既有行为
+    /// （上屏 == 送 TTS == `clean_for_tts(句)`）；生产路径由
+    /// [`crate::settings::AppSettings::resolve`] 置 `true`。
+    pub clean_tts: bool,
 }
 
 impl LlmConfig {
@@ -32,6 +47,10 @@ impl LlmConfig {
             api_key: None,
             // 测试/便捷构造默认不限制；生产路径由 settings 解析注入。
             max_tokens: 0,
+            // 便捷构造（测试 / 手工装配）缺省关思考、不跑二路清洗；
+            // 生产路径由 settings 解析注入（见 [`crate::settings::AppSettings::resolve`]）。
+            thinking: false,
+            clean_tts: false,
         }
     }
 

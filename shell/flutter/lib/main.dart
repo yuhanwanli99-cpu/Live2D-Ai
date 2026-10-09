@@ -82,13 +82,15 @@ import 'live2d/render_events.dart';
 import 'live2d/session_baseline.dart';
 import 'live2d/stage_cancel.dart';
 import 'settings/display_prefs.dart';
+import 'settings/mods/mod_panel.dart';
+import 'settings/mods/persona_card_picker.dart';
 import 'settings/preset_labels.dart';
 import 'settings/sections/appearance_section.dart';
 import 'settings/sections/dev_tools_section.dart';
 import 'settings/sections/director_observer_section.dart';
-import 'settings/sections/llm_section.dart';
+import 'settings/sections/motion_section.dart';
 import 'settings/sections/persona_section.dart';
-import 'settings/sections/tts_section.dart';
+import 'settings/sections/service_section.dart';
 import 'settings/settings_controller.dart';
 import 'settings/settings_sections.dart';
 import 'state/live_region.dart';
@@ -189,7 +191,14 @@ class _ShellRootState extends State<ShellRoot> {
   final DirectorCuePlan _directorCues = DirectorCuePlan();
 
   /// 当前设置分区（受控；外壳只上报意图）。
-  SettingsSection _section = SettingsSection.appearance;
+  SettingsSection _section = SettingsSection.theme;
+
+  /// 进设置分区时要**定位到的页内组**（2026-10-09）。
+  ///
+  /// 目前只有「去语音合成设置」用它：目标是「模型服务」页的语音组，
+  /// 靠 kServiceVoiceGroup 值 + 该组的 GlobalKey（不靠滚动碰运气）。
+  /// null = 只换分区、不定位。
+  String? _settingsGroupFocus;
 
   /// 设置面板内容的**宿主状态代际**（F-0005-2，审计 45 条 · rc.7 A 组）。
   ///
@@ -252,29 +261,34 @@ class _ShellRootState extends State<ShellRoot> {
 
   /// **统一的 Mod 变更 → 重新点火/重启提示**（L1 基座，2026-09-15）。
   ///
-  /// 由三类动作写入：Mod 启停（`_toggleMod`）、Mod 配置保存（`_saveModConfig`）、
-  /// 以及各 Mod 产品面板自己的动作（导入角色卡 / 导入或清空记忆 / 改语音闸）。
+  /// 由**两类**动作写入：Mod 启停（`_toggleMod`）与各 Mod 产品面板自己的动作
+  /// （导入角色卡 / 导入或清空记忆 / 改语音闸）。
+  ///
+  /// **配置保存（`_saveModConfig`）不在其中**（2026-10-09「两类 TTS」）：那条路径
+  /// 的按钮是「保存并应用」，服务端已经 restart 过该 Mod，再挂一条「需重新点火」
+  /// 的常驻提示等于让用户去做一件刚刚已经做完的事。
   /// 文案与处置入口的唯一来源是 `ui/restart_notice.dart`——不要在调用点各写一份。
   String? _modRestartNotice;
+
   /// 连通性自检的结果：**服务端 `ok` + 文案**（`FieldTestResult`）。
   ///
   /// 2026-10-01（审计 F-0012-1）：这里过去只存一行 `String`，成败由
   /// `llm_section` / `tts_section` 从那行文案里猜（`contains('ok'|'ms'|'毫秒')`）。
   /// 现在 `o.ok` 与文案一起落进结构体——**成败只有一个真源**，而且成功那条
   /// 终于有渲染槽（F-0003-2：过去成功时界面毫无反应）。
-  FieldTestResult? _llmTest;   bool _llmTesting = false;
-  FieldTestResult? _ttsTest;   bool _ttsTesting = false;
-  /// 舞台背景图的提示（选图与其它通道的失败原因完全不同）。
-  String? _stageImageMessage;
-  bool _stageImageFailed = false;
+  FieldTestResult? _llmTest;
+  bool _llmTesting = false;
+  FieldTestResult? _ttsTest;
+  bool _ttsTesting = false;
 
-  /// 壳背景图的提示（2026-09-14，rc.5）：与舞台那条**分开**，
-  /// 否则在壳那行选完图会在舞台那行冒出一句话。
-  String? _shellImageMessage; bool _shellImageFailed = false;
+  /// 背景库选图 / 清图的提示。
+  String? _shellImageMessage;
+  bool _shellImageFailed = false;
 
   /// 「本模型覆盖」直接 PATCH 的结果（阶段5 D40）：与全局草稿那套无关，
   /// 因为覆盖不经设置草稿（见 shell_settings.dart 的接线）。
-  String? _modelOverrideMessage; bool _modelOverrideFailed = false;
+  String? _modelOverrideMessage;
+  bool _modelOverrideFailed = false;
 
   bool _copied = false;
   bool _settingsLoadedOnce = false;
@@ -306,6 +320,11 @@ class _ShellRootState extends State<ShellRoot> {
   /// 且只发用户真动过的键（未动的键保持「未覆盖」）。
   late final ModelOverrideCoalescer _modelOverrideCoalescer =
       ModelOverrideCoalescer(onFlush: _flushModelOverride);
+
+  /// 本模型覆盖开关的即时意图。`null` = 跟服务端。
+  ///
+  /// 开关是受控的：不记这一下，拨完会弹回旧状态，直到 PATCH 回读结束。
+  bool? _modelOverrideIntent;
 
   /// 覆盖 PATCH 的**串行**队列。
   ///
@@ -460,7 +479,10 @@ class _ShellRootState extends State<ShellRoot> {
             stageColor: appPaletteOf(context).stageCss,
             // 背景图也是**舞台状态**：传进来后，一旦 iframe 重建（首帧 / retry）
             // 舞台自己就能补发，不再依赖「恰好有另一次偏好变更」。
-            stageImage: widget.prefs.stageImage,
+            stageImage: DisplayPrefs.stageProjectionUrl(
+              widget.prefs,
+              _backgroundIndex,
+            ),
             // 动作幅度（W7，2026-09-23 收口）：**唯一取值口** = syncer 的
             // `active()`（临时覆盖 > 草稿 > 磁盘值）。传它不是「先保存才生效」
             // 那一版——它由防抖监听器实时重算，传进来只为 iframe 重建 / 重挂后
@@ -504,6 +526,8 @@ class _ShellRootState extends State<ShellRoot> {
           // 9b：水合中把背景库的写操作禁掉——读回窗口里的写会与读回结果打架。
           backgroundHydrating: widget.backgroundHydrating,
           messages: _chat.messages,
+          // 朗读高亮：正在播放的句号（与音频帧同一个数；null = 不高亮）。
+          playingSentenceSeq: _chat.playingSentenceSeq,
           input: _input,
           onSend: () => unawaited(_sendWithCancellation()),
           onStop: () => unawaited(_stopWithCancellation()),
@@ -524,17 +548,11 @@ class _ShellRootState extends State<ShellRoot> {
           listening: _voiceListen.listening,
           listenStatus: _voiceListen.statusLine,
           listenError: _voiceListen.error,
-          onToggleListen: () => unawaited(_voiceListen.toggle()),
-          // P0-4：一个按钮三态——点按 = 常驻开/关，按住 = PTT（松手提交）。
-          pttActive: _voiceListen.pttActive,
-          onPressStart: () => unawaited(_voiceListen.pressStart()),
-          onPressRelease: () => unawaited(_voiceListen.pressRelease()),
+          // 2026-10-08：产品路径 = 点一下开录、再点一下结束，定稿进输入框
+          //（不打语音端点、不自动发送；不再有 PTT，也不再常驻等唤醒词）。
+          onToggleListen: () => unawaited(_voiceListen.toggleDictation()),
           // 诚实性：Web Speech 是云端识别、需联网、音频会出本机。
           listenNote: _voiceListen.supported ? kVoiceWebSpeechNote : null,
-          // B1（L1）：Mod 未启用时**常驻红字**，不要等用户说完才由 403 回来说。
-          listenBlockedReason: _voiceInputEnabled == false
-              ? kVoiceModDisabledMessage
-              : null,
           // L1 基座：Mod 变更后的统一提示（聊天区顶部常驻，可关）。
           modRestartNotice: _modRestartNotice,
           onDismissModRestart: _dismissModRestart,
@@ -543,7 +561,7 @@ class _ShellRootState extends State<ShellRoot> {
             _ui.errorMessage ?? _chat.error,
             // 顶部横幅（`_ui`）优先，所以它也优先提供码——两处都存了同一份。
             code: _ui.errorCode ?? _chat.errorCode,
-            // F-0001-1（P1，2026-10-01 热补丁）：「去 LLM 设置 / 去语音合成设置」
+            // F-0001-1（P1，2026-10-01 热补丁）：「去对话设置 / 去语音合成设置」
             // 过去只接 `_gotoSection`，而它**只换分区**——设置面板默认是**关着**
             // 的，于是用户点下去什么都看不见 =「按钮失灵」。所以换完分区还要
             // **真的把面板打开**（与快捷键那条同样的入口 `openSettings`）。
@@ -558,11 +576,12 @@ class _ShellRootState extends State<ShellRoot> {
             // **兄弟**、不是宿主的后代，所以这次通知不被允许（expanded 的
             // 内联侧板不触发，因为它不是浮层路由）。
             // 延到本帧之后：外壳先按新分区重建（那一刻还没有订阅者），再开面板。
-            onGoto: (SettingsSection next) {
-              _gotoSection(next);
+            onGoto: (SettingsSection next, String? group) {
+              _gotoSection(next, group: group);
               WidgetsBinding.instance.addPostFrameCallback((Duration _) {
                 unawaited(
-                  _shellKey.currentState?.openSettings() ?? Future<void>.value(),
+                  _shellKey.currentState?.openSettings() ??
+                      Future<void>.value(),
                 );
               });
             },
@@ -589,8 +608,12 @@ class _ShellRootState extends State<ShellRoot> {
           // `send()` 清空 ⇒ 按下去毫无反应（静默 no-op）。没有上一条可重发时
           // 传 **null**：状态胶囊不可点、失败气泡不出按钮——两条消费路径都
           // 不摆假出路（判据同 `onResendLast` 那一处，是同一份真源）。
-          onRetryLast: _chat.lastUserMessageText == null ? null : () => unawaited(_resendLastUserMessage()),
-          sections: visibleSections(),
+          onRetryLast: _chat.lastUserMessageText == null
+              ? null
+              : () => unawaited(_resendLastUserMessage()),
+          // 2026-10-08：没开开发者模式时导航里没有「诊断」整项；
+          // 「开发模式」自己永远在（它是打开它的唯一入口）。
+          sections: visibleSections(devMode: _devMode),
           // 打开设置**就要**加载（不能只靠「换分区」顺带触发，
           // 否则 expanded/medium 直接点「设置」是个空壳）。
           onEnsureSectionLoaded: () => unawaited(_ensureSettingsLoaded()),
@@ -617,6 +640,11 @@ class _ShellRootState extends State<ShellRoot> {
           // ── 多会话（P-会话：**本地记录**，模型记忆待实现） ──
           sessions: _chat.sessions.byRecency,
           activeSessionId: _chat.sessions.activeId,
+          // 浮层要在**自己的 builder 里**读此刻的列表 / 当前 id：
+          // 只传快照会让「删掉一行，行还在」（见 ui/session_sheet.dart）。
+          sessionsListenable: _chat,
+          readSessions: () => _chat.sessions.byRecency,
+          readActiveSessionId: () => _chat.sessions.activeId,
           onNewSession: _chat.newSession,
           onSelectSession: _chat.selectSession,
           onRenameSession: _chat.renameSession,

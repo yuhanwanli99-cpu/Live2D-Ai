@@ -31,6 +31,7 @@ import 'package:live2d_ai_shell/ui/shell_backdrop.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 import 'support/dart_library.dart';
+import 'support/source_scan.dart';
 
 /// 外观分区的源码 = 库文件 + 它 `part` 进来的每个文件。
 ///
@@ -41,87 +42,20 @@ String appearanceSectionSource() =>
     readLibrarySource('lib/settings/sections/appearance_section.dart');
 
 void main() {
-  group('铺法：UI 暴露的每一档，渲染结果必须不同', () {
-    // 只截「铺法」那一个 `SegmentedField` 的 options 块。
-    //
-    // 直接读 UI 源码（复写一份到测试里就会漂），但**不能扫全文**——
-    // 扫全文会把「遮罩四档」「渲染档位 4K/8K/16K」一起吃进来。
-    //
-    // 2026-09-28（Stage B §5.3 第 1 条）：铺法从两档扩到**四档**，选项值改读
-    // `DisplayPrefs.fit*` 常量（**唯一真源**，不再写死 0/1）——所以这里比对的是
-    // 常量名。「每一档渲染结果真的不同」由
-    // `display_prefs_background_fit_test.dart` 的四条 boxFitFor 断言守着。
-    String exposedFitOptions() {
-      final String ui = appearanceSectionSource();
-      final int start = ui.indexOf("label: '铺法（图）'");
-      expect(start, greaterThan(-1), reason: 'UI 里找不到「铺法」这个控件');
-      final int end = ui.indexOf('onChanged:', start);
-      expect(end, greaterThan(start), reason: '「铺法」控件没有 onChanged');
-      return ui.substring(start, end);
-    }
-
-    test('UI 暴露 cover / contain / stretch / tile **四档**铺法', () {
-      final String options = exposedFitOptions();
-      for (final String name in <String>[
-        'DisplayPrefs.fitCover',
-        'DisplayPrefs.fitContain',
-        'DisplayPrefs.fitStretch',
-        'DisplayPrefs.fitTile',
-      ]) {
-        expect(
-          options.contains(name),
-          isTrue,
-          reason: '$name 没有在「铺法」控件里暴露——四档缺一档就是「按了没区别」',
-        );
-      }
-    });
-
-    test('平铺贴片滑杆只在 tile 档出现，区间读常量（不写死 16 / 256）', () {
-      final String ui = appearanceSectionSource();
-      expect(
-        ui.contains('effectiveFit == DisplayPrefs.fitTile'),
-        isTrue,
-        reason: '贴片滑杆必须被 tile 档 gate 住（否则 cover 下它是个假控件）',
-      );
-      expect(ui.contains('DisplayPrefs.minTileSize'), isTrue);
-      expect(ui.contains('DisplayPrefs.maxTileSize'), isTrue);
-    });
-
-    test('存储里出现越界档位（4 / 42 / -1）→ 回落默认 0；上界是 3', () {
-      // 2026-09-28（Stage B · B-a）：上界由 1 放到 3（stretch / tile 落地），
-      // 所以 2 / 3 **不再是坏值**——那条迁移回归在
-      // `display_prefs_background_fit_test.dart`（「旧档里的 2 / 3 由『坏值』
-      // 变成合法档」）。区间外的值仍走 `_clampInt` 的「越界回落默认」。
-      for (final Object? raw in <Object?>[4, 42, -1]) {
-        expect(
-          DisplayPrefs.fromJson(<String, Object?>{'imageFit': raw}).imageFit,
-          DisplayPrefs.defaultImageFit,
-          reason: '$raw 在 [0, 3] 之外，必须回落默认',
-        );
-      }
-      expect(DisplayPrefs.maxImageFit, 3);
-    });
-
+  group('铺法 / 遮罩 / 位置：渲染函数仍在，界面旋钮已删（2026-10-07）', () {
     test('boxFitFor 的四档给出**不同**的结果', () {
       expect(boxFitFor(0), BoxFit.cover);
       expect(boxFitFor(1), BoxFit.contain);
       expect(boxFitFor(2), BoxFit.fill);
       expect(boxFitFor(3), BoxFit.none);
       expect(
-        <BoxFit>{
-          boxFitFor(0),
-          boxFitFor(1),
-          boxFitFor(2),
-          boxFitFor(3),
-        }.length,
+        <BoxFit>{boxFitFor(0), boxFitFor(1), boxFitFor(2), boxFitFor(3)}.length,
         4,
         reason: '有档位落到同一条渲染路径上就是「按了没区别」',
       );
     });
-  });
 
-  group('遮罩：4 档必须两两不同（否则有「按了没区别」的档）', () {
-    test('自动 / 无 / 轻 / 重 给出四个不同的强度', () {
+    test('scrimAlphaFor 四档两两不同（自动 / 无 / 轻 / 重）', () {
       final Map<int, double> seen = <int, double>{
         for (final int level in <int>[0, 1, 2, 3])
           level: scrimAlphaFor(imageOpacity: 0.6, level: level),
@@ -147,8 +81,20 @@ void main() {
       );
     });
 
-    test('UI 暴露的遮罩档位与 `ScrimLevel` 一一对应', () {
-      final String ui = appearanceSectionSource();
+    test('alignmentFor 九档给出 9 个不同的对齐', () {
+      final Set<Alignment> seen = <Alignment>{
+        for (int i = 0; i < 9; i++) alignmentFor(i),
+      };
+      expect(seen.length, 9);
+    });
+
+    test('界面里不再有铺法 / 遮罩档 / 位置垫这些控件（注释不算）', () {
+      final String ui = stripCommentsKeepStrings(appearanceSectionSource());
+      expect(
+        ui.contains('铺法（图）'),
+        isFalse,
+        reason: '四档铺法是渲染面能力，不再是用户旋钮',
+      );
       for (final int level in <int>[
         ScrimLevel.auto,
         ScrimLevel.none,
@@ -157,35 +103,16 @@ void main() {
       ]) {
         expect(
           ui.contains('FieldOption<int>(value: $level,'),
-          isTrue,
-          reason: '遮罩档 $level 没有在 UI 里暴露',
+          isFalse,
+          reason: '遮罩档 $level 不该再出现在设置里',
         );
       }
-    });
-  });
-
-  group('九宫格位置：只在「完整」铺法下暴露（DEC-7a）', () {
-    test('位置垫只被 contain 这一档 gate 住（条件与注释原来正好相反）', () {
-      final String ui = appearanceSectionSource();
       expect(
-        ui.contains('if (effectiveFit == DisplayPrefs.fitContain)'),
-        isTrue,
-        reason: '位置垫必须**只在** effectiveFit == contain 时出现：'
-            'cover / stretch / tile 三档都把整块铺满，对齐没有可见效果',
-      );
-      expect(
-        ui.contains('if (prefs.imageFit != 1)'),
+        ui.contains('bg-align-pad'),
         isFalse,
-        reason: '旧条件（!= 1）与它上面那句注释正好相反——DEC-7a 的裁决是'
-            '**对齐注释**，不是改注释；这条断言防止它长回来',
+        reason: '位置垫（kBackgroundAlignPadKey 的键值）已删',
       );
-    });
-
-    test('九宫格的 9 档给出 9 个不同的对齐', () {
-      final Set<Alignment> seen = <Alignment>{
-        for (int i = 0; i < 9; i++) alignmentFor(i),
-      };
-      expect(seen.length, 9);
+      expect(ui.contains('kBackgroundAlignPadKey'), isFalse);
     });
   });
 
@@ -194,15 +121,9 @@ void main() {
       // 这是 grep 层面的「有没有人读」，与上面的「读到之后有没有区别」互补。
       const Map<String, String> fields = <String, String>{
         'backgroundOpacity': 'image layer opacity',
-        'backgroundBlur': 'ImageFiltered',
-        'backgroundScrim': 'scrim level',
-        'imageFit': 'BoxFit',
-        'imageAlign': 'Alignment',
         'slideInterval': 'timer period',
         'slideRandom': 'random order',
-        'backgroundSource': 'which list to draw',
         'uiTransparency': 'panelAlpha',
-        'edgeStrength': 'hairline alpha',
       };
       final Map<String, String> lib = <String, String>{
         for (final File f
@@ -250,6 +171,29 @@ void main() {
           reason:
               '$dead 已在 2026-09-27 的减法里删掉；'
               '要加回来先说清它解决了什么问题',
+        );
+      });
+    }
+
+    /// 2026-10-07 外观卡片简化删掉的字段：构造函数里不得再声明它们。
+    for (final String dead in <String>[
+      'edgeStrength',
+      'imageFit',
+      'imageAlign',
+      'tileSize',
+      'backgroundBlur',
+      'backgroundScrim',
+      'backgroundSource',
+      'stageImage',
+      'stagePlaylist',
+    ]) {
+      test('已删字段 `this.$dead` 不许出现在偏好构造函数里', () {
+        expect(
+          prefs.contains('this.$dead'),
+          isFalse,
+          reason:
+              '$dead 已在 2026-10-07 的外观收口里删除：'
+              '产品路径固定铺满 / 居中 / 不模糊 / 遮罩自动，舞台图 = 背景库投影',
         );
       });
     }

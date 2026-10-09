@@ -105,8 +105,10 @@ class AppShellState extends State<AppShell> {
   /// 不新开 overlay——理由见 `ui/session_sheet.dart` 的头注。
   Future<void> openSessions() => showSessionSheet(
     context: context,
-    sessions: widget.sessions,
-    activeId: widget.activeSessionId,
+    // 宿主没接 listenable / 读回调时（旧测试、孤立泵）回落打开那一刻的快照。
+    listenable: widget.sessionsListenable ?? const NeverNotifies(),
+    sessionsOf: widget.readSessions ?? () => widget.sessions,
+    activeIdOf: widget.readActiveSessionId ?? () => widget.activeSessionId,
     onNew: () => widget.onNewSession?.call(),
     onSelect: (String id) => widget.onSelectSession?.call(id),
     onRename: (String id, String title) =>
@@ -237,20 +239,8 @@ class AppShellState extends State<AppShell> {
         ),
   );
 
-  /// 当前要画的那一项。
-  ///
-  /// 判据只在这里一处：渲染层（[ShellBackdrop]）不自己判来源——散到两处
-  /// 就会出现「设置说用背景库、画的却是舞台那张」（或反过来）。
-  ///
-  /// ⚠️ **判据顺序不能反**（2026-09-27 修）：先看 [DisplayPrefs.effectiveBackground]
-  /// （它已经处理了「来源 = 舞台那张」），只有当来源确实是背景库时才用
-  /// 运行时的轮播索引。之前写成「库非空就一律用库」，于是把来源切到
-  /// 「舞台那张」时，界面写着「背景库里的不参与渲染」而实际仍在画库 ——
-  /// **控件说一套、画面做一套**。
+  /// 当前要画的那一项：背景库里轮播索引指向的项。
   BackgroundItem? get _currentBackground {
-    if (widget.prefs.backgroundSource != DisplayPrefs.backgroundSourceLibrary) {
-      return widget.prefs.effectiveBackground;
-    }
     final List<BackgroundItem> items = widget.prefs.backgrounds;
     if (items.isEmpty) return null;
     return items[widget.backgroundIndex.clamp(0, items.length - 1)];
@@ -364,6 +354,7 @@ class AppShellState extends State<AppShell> {
                           child: OfflineBanner(
                             status: widget.wsStatus,
                             onRetry: widget.onRetryConnection,
+                            devMode: widget.devMode,
                           ),
                         ),
                       ),
@@ -511,13 +502,12 @@ class AppShellState extends State<AppShell> {
             // 都不依赖 R6-b 之后对本文件的改动（DEC-6 传运行时索引等）。
             enabled: widget.prefs.backgroundEnabled,
             opacity: widget.prefs.backgroundOpacity,
-            // 平铺贴片边长（R6-a 加的两行传参之二）：只对 fit = tile 生效，
-            // 其余三档不读它。
-            tileSize: widget.prefs.tileSize,
-            fit: widget.prefs.imageFit,
-            align: widget.prefs.imageAlign,
-            blur: widget.prefs.backgroundBlur,
-            scrim: widget.prefs.backgroundScrim,
+            // 铺满、居中、不模糊、遮罩自动。这些不再是用户旋钮。
+            tileSize: DisplayPrefs.defaultTileSize,
+            fit: DisplayPrefs.fitCover,
+            align: DisplayPrefs.defaultImageAlign,
+            blur: DisplayPrefs.defaultBackgroundBlur,
+            scrim: DisplayPrefs.defaultBackgroundScrim,
             uiTransparency: widget.prefs.uiTransparency,
             patternColors: _currentBackground is BackgroundPattern
                 ? patternColorsFor(
@@ -552,15 +542,9 @@ class AppShellState extends State<AppShell> {
     child: SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(Space.s2),
-        // 整页设置也带一圈边缘高光（P3-1）——它同样压在舞台上。
-        child: GlassRim(
-          borderRadius: BorderRadius.circular(
-            appColorsOf(context).radius(AppRadius.lg),
-          ),
-          child: _settingsSurface(
-            onClose: () => unawaited(closeSettings()),
-            narrow: true,
-          ),
+        child: _settingsSurface(
+          onClose: () => unawaited(closeSettings()),
+          narrow: true,
         ),
       ),
     ),
@@ -587,6 +571,8 @@ class AppShellState extends State<AppShell> {
     onOpenSessions: compact ? () => unawaited(openSessions()) : null,
     onRetryLast: widget.onRetryLast,
     announcement: widget.announcement,
+    // 朗读高亮（纯转发；判据与状态都在 chat/ 那一层）。
+    playingSentenceSeq: widget.playingSentenceSeq,
     // 「有背景时才让面板留一点透」——判据与壳根是同一个派生，避免两处不一致。
     backdropVisible: _hasBackground,
     listenSupported: widget.listenSupported,
@@ -594,11 +580,7 @@ class AppShellState extends State<AppShell> {
     listenStatus: widget.listenStatus,
     listenError: widget.listenError,
     onToggleListen: widget.onToggleListen,
-    onPressStart: widget.onPressStart,
-    onPressRelease: widget.onPressRelease,
-    pttActive: widget.pttActive,
     listenNote: widget.listenNote,
-    listenBlockedReason: widget.listenBlockedReason,
   ),
   );
 

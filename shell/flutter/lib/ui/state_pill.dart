@@ -56,7 +56,7 @@ UiPhaseView uiPhaseView(
   AppPalette palette,
 ) => switch (phase) {
   UiPhase.offline => UiPhaseView(
-    label: '后端未连接',
+    label: '没连上',
     icon: Icons.cloud_off,
     tone: palette.danger,
     filledDot: true,
@@ -77,7 +77,9 @@ UiPhaseView uiPhaseView(
     filledDot: false,
   ),
   UiPhase.thinking => UiPhaseView(
-    label: '思考中',
+    // 与 `ui_phase.dart` 的 `UiPhase.thinking.label` **逐字相同**（两处都改，
+    // 2026-10-08）：这个相位是「这轮已开始、还没出声」，不是设置里的「思考」。
+    label: '正在回复',
     icon: Icons.psychology_outlined,
     tone: palette.warning,
     filledDot: false,

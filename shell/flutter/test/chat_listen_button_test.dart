@@ -1,10 +1,11 @@
-/// 聊天主界面「听」按钮回归（L1 常态语音检测的**产品主路径**）。
+/// 聊天主界面「听」按钮回归（2026-10-08：点一下开始、再点一下结束）。
 ///
 /// 契约：
-/// - 常驻：四态（不支持 / 未在听 / 在听 / 失败）下按钮都在；
+/// - 未在听 → 「听」且可点；正在听 → 「停」且可点；
 /// - 不支持 / 未接线 → 禁用（不摆一个按不动的入口）；
-/// - 在听时按钮变「停」，状态行说明唤醒词；
-/// - 失败时按钮旁**可读**显示（不弹 toast）。
+/// - 状态行说明「正在听，说完再点一次」（定稿进输入框）；
+/// - 失败时按钮旁**可读**显示（不弹 toast）；
+/// - **不再有按住说话（PTT）**：长按不触发第二套动作，也没有「松」这一态。
 library;
 
 import 'package:flutter/material.dart';
@@ -25,14 +26,10 @@ Widget _wrap(Widget child) => MaterialApp(
 ChatPanel _panel({
   bool listenSupported = true,
   bool listening = false,
-  bool pttActive = false,
   String? listenStatus,
   String? listenError,
   String? listenNote,
-  String? listenBlockedReason,
   VoidCallback? onToggleListen,
-  VoidCallback? onPressStart,
-  VoidCallback? onPressRelease,
 }) => ChatPanel(
   messages: const <ChatMessage>[],
   phase: UiPhase.idle,
@@ -49,21 +46,16 @@ ChatPanel _panel({
   listenStatus: listenStatus,
   listenError: listenError,
   listenNote: listenNote,
-  listenBlockedReason: listenBlockedReason,
-  pttActive: pttActive,
   onToggleListen: onToggleListen ?? () {},
-  onPressStart: onPressStart,
-  onPressRelease: onPressRelease,
 );
 
 void main() {
-  testWidgets('常驻：默认（未在听）显示「听」且可点', (WidgetTester tester) async {
+  testWidgets('默认（未在听）显示「听」且可点', (WidgetTester tester) async {
     int taps = 0;
     await tester.pumpWidget(_wrap(_panel(onToggleListen: () => taps++)));
     final Finder button = find.widgetWithText(OutlinedButton, '听');
     expect(button, findsOneWidget);
-    // 点在外层 GestureDetector 的落点上（按钮被 AbsorbPointer 包住，不自己收指针）。
-    await tester.tapAt(tester.getCenter(button));
+    await tester.tap(button);
     expect(taps, 1);
   });
 
@@ -75,13 +67,37 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
-  testWidgets('在听：按钮变「停」，状态行报出唤醒词', (WidgetTester tester) async {
+  testWidgets('正在听：按钮变「停」，状态行写「正在听，说完再点一次」', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
-      _wrap(_panel(listening: true, listenStatus: '在听：说「小可爱 ……」')),
+      _wrap(_panel(listening: true, listenStatus: '正在听，说完再点一次')),
     );
     expect(find.widgetWithText(FilledButton, '停'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, '听'), findsNothing);
-    expect(find.textContaining('小可爱'), findsOneWidget);
+    expect(find.textContaining('正在听，说完再点一次'), findsOneWidget);
+    // 「停」也是可点的（再点一下才结束）。
+    final FilledButton button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '停'),
+    );
+    expect(button.onPressed, isNotNull);
+  });
+
+  testWidgets('只有点按一种用法：长按不触发第二套（PTT 已下线）', (
+    WidgetTester tester,
+  ) async {
+    int toggles = 0;
+    await tester.pumpWidget(_wrap(_panel(onToggleListen: () => toggles++)));
+    final Finder button = find.widgetWithText(OutlinedButton, '听');
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(button),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(toggles, 0, reason: '按住不再有任何立即动作');
+    await gesture.up();
+    await tester.pump();
+    expect(toggles, 1, reason: '松手就是那一次点按');
+    expect(find.text('松'), findsNothing, reason: '「松」这一态已随 PTT 下线');
   });
 
   testWidgets('失败：按钮旁可读错误（无需点开任何东西）', (WidgetTester tester) async {
@@ -91,64 +107,16 @@ void main() {
     expect(find.textContaining('麦克风权限被拒绝'), findsOneWidget);
   });
 
-  testWidgets('按住 ≥ 阈值触发 PTT；点按仍走常驻开关', (WidgetTester tester) async {
-    int toggles = 0;
-    int starts = 0;
-    int releases = 0;
-    await tester.pumpWidget(
-      _wrap(
-        _panel(
-          onToggleListen: () => toggles++,
-          onPressStart: () => starts++,
-          onPressRelease: () => releases++,
-        ),
-      ),
-    );
-    final Finder button = find.widgetWithText(OutlinedButton, '听');
-    // 点按 → 常驻开关（点在外层 GestureDetector 的落点上）。
-    await tester.tapAt(tester.getCenter(button));
-    expect(toggles, 1);
-    expect(starts, 0);
-
-    // 按住 ≥ 阈值 → PTT start；松手 → release。
-    // 时序：手势竞技场（可滚动列表）会让 onTapDown 延迟到 kPressTimeout
-    // （约 100ms），之后才是我们的 [kVoiceTapThreshold]——所以一次等过去。
-    final TestGesture gesture = await tester.startGesture(tester.getCenter(button));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(starts, 1, reason: '越过阈值即进入 PTT');
-    expect(toggles, 1, reason: '按住不应触发点按');
-    await gesture.up();
-    await tester.pump();
-    expect(releases, 1);
+  testWidgets('没听清：控制器那句话上屏（按钮旁，不弹 toast）', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_wrap(_panel(listenError: '没听清，再点一次说')));
+    expect(find.textContaining('没听清，再点一次说'), findsOneWidget);
   });
 
-  testWidgets('PTT 进行中按钮显示「松」', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _wrap(_panel(pttActive: true, onPressStart: () {}, onPressRelease: () {})),
-    );
-    expect(find.widgetWithText(FilledButton, '松'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, '听'), findsNothing);
-  });
-
-  testWidgets('Mod 未启用：主界面常驻红字（不是只说「识别了」）', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        _panel(listenBlockedReason: '语音输入未启用：请先启用 voice-input'),
-      ),
-    );
-    expect(find.textContaining('voice-input'), findsOneWidget);
-    final Text hint = tester.widget<Text>(
-      find.textContaining('voice-input'),
-    );
-    // 常驻原因必须是**错误色**，与普通状态行区分开。
-    expect(
-      hint.style?.color,
-      buildAppTheme().colorScheme.error,
-      reason: '「根本不可用」要用错误色，否则看起来像普通状态',
-    );
-  });
-
-  testWidgets('诚实说明：Web Speech 需联网 / 音频出本机（listenNote）', (WidgetTester tester) async {
+  testWidgets('诚实说明：Web Speech 需联网 / 音频出本机（listenNote）', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(_wrap(_panel(listenNote: kVoiceWebSpeechNote)));
     expect(find.textContaining('需联网'), findsOneWidget);
     expect(find.textContaining('音频会出本机'), findsOneWidget);

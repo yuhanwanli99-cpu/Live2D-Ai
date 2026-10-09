@@ -27,7 +27,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
-import 'glass_rim.dart';
 import 'theme.dart';
 
 class StageCornerControls extends StatelessWidget {
@@ -49,54 +48,49 @@ class StageCornerControls extends StatelessWidget {
     final AppColors colors = appColorsOf(context);
     return Padding(
       padding: const EdgeInsets.all(Space.s3),
-      // 舞台角标是**最小的一块玻璃**：一圈跟随指针的边缘高光就够了
-      // （P3-1）。它压在 iframe 上，所以只能画描边——不能模糊也不能采样。
-      child: GlassRim(
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.glassScrim,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(color: colors.hairline),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Space.s1),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                _ZoomTextButton(
-                  label: '缩小',
-                  tooltip: '缩小一档',
-                  onPressed: () => onZoom('out'),
-                ),
-                SizedBox(
-                  width: 52,
-                  child: Text(
-                    // ack 之前不显示数值（**不猜**）。
-                    scaleFromAck == null
-                        ? '—'
-                        : '${(scaleFromAck! * 100).round()}%',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.contentMuted,
-                      fontFeatures: const <FontFeature>[
-                        FontFeature.tabularFigures(),
-                      ],
-                    ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.glassScrim,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: colors.hairline),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.s1),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _ZoomTextButton(
+                label: '缩小',
+                tooltip: '缩小一档',
+                onPressed: () => onZoom('out'),
+              ),
+              SizedBox(
+                width: 52,
+                child: Text(
+                  // ack 之前不显示数值（**不猜**）。
+                  scaleFromAck == null
+                      ? '—'
+                      : '${(scaleFromAck! * 100).round()}%',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.contentMuted,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
                   ),
                 ),
-                _ZoomTextButton(
-                  label: '放大',
-                  tooltip: '放大一档',
-                  onPressed: () => onZoom('in'),
-                ),
-                _ZoomTextButton(
-                  label: '复位',
-                  tooltip: '复位缩放与位置',
-                  onPressed: () => onZoom('reset'),
-                ),
-              ],
-            ),
+              ),
+              _ZoomTextButton(
+                label: '放大',
+                tooltip: '放大一档',
+                onPressed: () => onZoom('in'),
+              ),
+              _ZoomTextButton(
+                label: '复位',
+                tooltip: '复位缩放与位置',
+                onPressed: () => onZoom('reset'),
+              ),
+            ],
           ),
         ),
       ),

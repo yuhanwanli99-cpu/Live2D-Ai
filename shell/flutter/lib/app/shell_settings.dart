@@ -72,14 +72,13 @@ extension _ShellSettingsWiring on _ShellRootState {
   Future<void> _patchActionModels(
     Map<String, ActionModelOverridePatch?> models, {
     required String okMessage,
+    required int epoch,
   }) {
     final Future<void> next = _modelOverrideChain.then(
-      (void _) => _patchActionModelsNow(models, okMessage: okMessage),
+      (void _) =>
+          _patchActionModelsNow(models, okMessage: okMessage, epoch: epoch),
     );
-    _modelOverrideChain = next.then<void>(
-      (void _) {},
-      onError: (Object _) {},
-    );
+    _modelOverrideChain = next.then<void>((void _) {}, onError: (Object _) {});
     return next;
   }
 
@@ -92,6 +91,7 @@ extension _ShellSettingsWiring on _ShellRootState {
   Future<void> _patchActionModelsNow(
     Map<String, ActionModelOverridePatch?> models, {
     required String okMessage,
+    required int epoch,
   }) async {
     try {
       await _api.patchSettings(
@@ -99,6 +99,8 @@ extension _ShellSettingsWiring on _ShellRootState {
       );
     } on ApiException catch (e) {
       if (!mounted) return;
+      _modelOverrideCoalescer.acknowledge(epoch);
+      _modelOverrideIntent = null;
       _modelOverrideMessage = '本模型覆盖保存失败：${e.message}';
       _modelOverrideFailed = true;
       _refresh();
@@ -107,17 +109,25 @@ extension _ShellSettingsWiring on _ShellRootState {
     if (!mounted) return;
     await _settings.load();
     if (!mounted) return;
+    // 回读之后再放开临时值：滑条改绑磁盘上的新数，不会先弹回旧数。
+    _modelOverrideCoalescer.acknowledge(epoch);
+    _modelOverrideIntent = null;
     _modelOverrideMessage = okMessage;
     _modelOverrideFailed = false;
     _refresh();
   }
 
   /// 合并防抖器的到点回调：把「模型 id + 只含被改键的补丁」交给串行 PATCH。
-  void _flushModelOverride(String modelId, ActionModelOverridePatch patch) {
+  void _flushModelOverride(
+    String modelId,
+    ActionModelOverridePatch patch,
+    int epoch,
+  ) {
     unawaited(
       _patchActionModels(
         <String, ActionModelOverridePatch?>{modelId: patch},
         okMessage: '已保存本模型覆盖（$modelId）',
+        epoch: epoch,
       ),
     );
   }
@@ -138,6 +148,8 @@ extension _ShellSettingsWiring on _ShellRootState {
       bodyScale: bodyScale,
       expressionScale: expressionScale,
     );
+    // 滑条读的是临时值。不重建的话，手指在动、滑块停在磁盘旧值上。
+    _refresh();
   }
 
   /// 开启「本模型覆盖」：**先取消防抖**，再用当前**有效**三键建初始覆盖。
@@ -158,6 +170,7 @@ extension _ShellSettingsWiring on _ShellRootState {
         ),
       },
       okMessage: '已开启本模型覆盖（$modelId）',
+      epoch: _modelOverrideCoalescer.epoch,
     );
   }
 
@@ -171,6 +184,7 @@ extension _ShellSettingsWiring on _ShellRootState {
     return _patchActionModels(
       <String, ActionModelOverridePatch?>{modelId: null},
       okMessage: '已恢复跟随全局（$modelId 的覆盖已删除）',
+      epoch: _modelOverrideCoalescer.epoch,
     );
   }
 
@@ -197,7 +211,17 @@ extension _ShellSettingsWiring on _ShellRootState {
     }
   }
 
-  /// 分区内容构建器：8 个分区各自的 pane。
+  /// 分区内容构建器：**7 个**分区各自的 pane（2026-10-09 一级 8 → 7）。
+  ///
+  /// | 分区 | pane |
+  /// | --- | --- |
+  /// | persona（模型对话） | PersonaSection |
+  /// | models（模型库） | ModelsSection |
+  /// | service（模型服务） | ServiceSection（语言模型 / 语音合成两张卡） |
+  /// | theme（主题） | ThemeSection（配色 + 背景） |
+  /// | motion（Live2D 动作） | MotionSection（舞台与口型 + 互动） |
+  /// | mods（扩展） | ModsSection（+ 动作幅度旋钮接给 director 卡片） |
+  /// | developer（开发模式） | DeveloperSection（+ 诊断，仅 devMode 渲染） |
   Widget _buildSection(BuildContext context, SettingsSection section) {
     // 未加载出来时先显示骨架，而不是一个空面板让人以为坏了。
     if (!_settings.loaded && _settings.loading) {
@@ -231,7 +255,8 @@ extension _ShellSettingsWiring on _ShellRootState {
 
     switch (section) {
       case SettingsSection.persona:
-        // M5.1：主链只剩系统提示词；角色卡导入已迁到标准 Mod，这里没有接线。
+        // 显示名是「模型对话」；主链只剩系统提示词 + 记住几轮。
+        // 角色卡导入属**扩展**，入口在「扩展」分区的 persona 卡片。
         return PersonaSection(
           controller: _settings,
           view: view,
@@ -249,100 +274,74 @@ extension _ShellSettingsWiring on _ShellRootState {
           onImport: _importModel,
           onReload: _loadAdmin,
         );
-      case SettingsSection.llm:
-        return LlmSection(
-          controller: _settings,
-          view: view,
-          devMode: _devMode,
-          envKey: _envStatus.forSection('llm'),
-          envFile: _envStatus.envFile,
-          onSaveKey: _saveEnvKey,
-          onTest: _testLlm,
-          testResult: _llmTest,
-          testing: _llmTesting,
-        );
-      case SettingsSection.tts:
-        return TtsSection(
+      case SettingsSection.service:
+        // 原一级「对话」+ 原一级「语音合成」合成这一页：两段字段的逻辑
+        // 仍住在 llm_section.dart / tts_section.dart（**没有第二套**）。
+        // focusGroup 是错误横幅「去语音合成设置」带来的页内定位值。
+        return ServiceSection(
           controller: _settings,
           view: view,
           devMode: _devMode,
           serverMuted: _serverMuted,
-          envKey: _envStatus.forSection('tts'),
+          llmEnvKey: _envStatus.forSection('llm'),
+          ttsEnvKey: _envStatus.forSection('tts'),
           envFile: _envStatus.envFile,
           onSaveKey: _saveEnvKey,
-          onTest: _testTts,
-          testResult: _ttsTest,
-          testing: _ttsTesting,
+          onTestLlm: _testLlm,
+          onTestTts: _testTts,
+          llmTestResult: _llmTest,
+          ttsTestResult: _ttsTest,
+          llmTesting: _llmTesting,
+          ttsTesting: _ttsTesting,
+          focusGroup: _settingsGroupFocus,
         );
-      case SettingsSection.appearance:
-        // 本模型覆盖（阶段5 D40）：模型 id 取服务端权威字段
-        // （顶层 active_model_id → action.activeModelId）；覆盖表来自
-        // action.models。「有没有覆盖」= 这个模型是否在表里。
-        final ActionSettingsView actionView = view.action;
-        final String activeModelId = actionView.activeModelId;
-        final bool hasModelOverride =
-            activeModelId.isNotEmpty &&
-            actionView.models[activeModelId] != null;
-        return AppearanceSection(
+      case SettingsSection.theme:
+        // 只拿原「外观」那一组：配色 + 背景（纯本地 DisplayPrefs）。
+        return ThemeSection(
           prefs: widget.prefs,
           onPrefsChanged: _updatePrefs,
           devMode: _devMode,
-          onPickStageImage: () => unawaited(_pickStageImage()),
-          onClearStageImage: _clearStageImage,
-          // 轮播列表的最小操作（列表由用户手动维护、只存本机）。
-          onAddToPlaylist: _addStageImageToPlaylist,
-          onClearPlaylist: _clearStagePlaylist,
-          stageImageMessage: _stageImageMessage,
-          stageImageFailed: _stageImageFailed,
-          // 2026-09-14（rc.5）：壳全局背景（同步开时与舞台共用同一张图）。
           onPickShellImage: () => unawaited(_pickShellImage()),
           onClearShellImage: _clearShellImage,
           onRemoveBackground: _removeBackground,
           onRemoveBackgrounds: _removeBackgrounds,
           onReorderBackground: _reorderBackground,
           onPreviewBackground: _previewBackground,
-          onAddPattern: _addPattern,
           shellImageMessage: _shellImageMessage,
           shellImageFailed: _shellImageFailed,
-          // 动作幅度（2026-09-16）：服务端产品设置，改的是设置草稿，
-          // 点「保存」才写盘；渲染面在草稿保存 / 设置加载后由 main.dart 下发。
-          action: actionView,
-          onHeadScaleChanged: (double v) => _settings.edit(
-            (SettingsDraft d) => d.actionHeadScale = v,
-          ),
-          onBodyScaleChanged: (double v) => _settings.edit(
-            (SettingsDraft d) => d.actionBodyScale = v,
-          ),
-          onExpressionScaleChanged: (double v) => _settings.edit(
-            (SettingsDraft d) => d.actionExpressionScale = v,
-          ),
-          // 本模型覆盖：开关值 = 是否有覆盖；开 = 用当前有效值建初始覆盖，
-          // 关 = 删除 = 「恢复跟随全局」。三条滑条只在覆盖开启时接管。
-          modelOverrideEnabled: hasModelOverride,
-          onModelOverrideEnabledChanged: (bool on) => unawaited(
-            on
-                ? _seedModelOverride(
-                    activeModelId,
-                    actionView.effectiveForActiveModel,
-                  )
-                : _clearModelOverride(activeModelId),
-          ),
-          onModelHeadScaleChanged: (double v) =>
-              _patchModelOverride(activeModelId, headScale: v),
-          onModelBodyScaleChanged: (double v) =>
-              _patchModelOverride(activeModelId, bodyScale: v),
-          onModelExpressionScaleChanged: (double v) =>
-              _patchModelOverride(activeModelId, expressionScale: v),
-          onResetModelOverride: hasModelOverride
-              ? () => unawaited(_clearModelOverride(activeModelId))
-              : null,
-          modelOverrideMessage: _modelOverrideMessage,
-          modelOverrideFailed: _modelOverrideFailed,
+        );
+      case SettingsSection.motion:
+        // 舞台与口型 + 允许拖动与缩放；动作幅度**不在这里**（见 mods 分支）。
+        return MotionSection(
+          prefs: widget.prefs,
+          onPrefsChanged: _updatePrefs,
+          devMode: _devMode,
         );
       case SettingsSection.mods:
+        // 动作幅度（2026-10-09 从「外观与互动」搬到导演卡片）：模型 id 取服务端
+        // 权威字段（顶层 active_model_id → action.activeModelId）；覆盖表来自
+        // action.models。「有没有覆盖」= 这个模型是否在表里。
+        //
+        // 滑条显示草稿和还没回读完的本模型覆盖。磁盘值只作兜底。
+        final ActionSettingsView actionView = view.action;
+        final String activeModelId = actionView.activeModelId;
+        final bool hasModelOverride =
+            activeModelId.isNotEmpty &&
+            actionView.models[activeModelId] != null;
+        final bool overrideOn = _modelOverrideIntent ?? hasModelOverride;
+        final ActionSettingsView shownAction = displayActionScales(
+          remote: actionView,
+          draftHead: _settings.draft.actionHeadScale,
+          draftBody: _settings.draft.actionBodyScale,
+          draftExpression: _settings.draft.actionExpressionScale,
+          pendingModelId: _modelOverrideCoalescer.latchedModelId,
+          pendingKeys: _modelOverrideCoalescer.latchedKeys,
+        );
         return ModsSection(
           mods: _mods,
           loading: _adminLoading,
+          // 只决定卡片副标题（ID · 版本 · 协议版本）画不画（2026-10-08）。
+          devMode: _devMode,
           error: _adminError,
           busyId: _busyId,
           onToggle: _toggleMod,
@@ -354,26 +353,56 @@ extension _ShellSettingsWiring on _ShellRootState {
           onDismissRestart: _dismissModRestart,
           activeSessionId: _chat.sessions.activeId,
           onModChanged: _notifyModChanged,
-        );
-      case SettingsSection.diagnostics:
-        return DiagnosticsSection(
-          status: _status,
-          capabilities: _capabilities,
-          wsStatusLabel: _ui.wsStatus.description,
-          logs: _logs,
-          logsError: _logsError,
-          devMode: _devMode,
-          copied: _copied,
-          onReload: _loadAdmin,
-          onCopy: _copyDiagnostics,
+          // 角色卡文件选择器：与 persona 面板同一份组合根注入。
+          pickCardFile: pickPersonaCardFile,
+          // 动作幅度：数据仍是 [action] / [action.models.<id>]，仍走现有 PATCH
+          // 与 ActionScalesSyncer；**不写进 director 的 mods.json**。
+          actionScales: ActionScalesWiring(
+            action: shownAction,
+            modelOverrideEnabled: overrideOn,
+            onHeadScaleChanged: (double v) =>
+                _settings.edit((SettingsDraft d) => d.actionHeadScale = v),
+            onBodyScaleChanged: (double v) =>
+                _settings.edit((SettingsDraft d) => d.actionBodyScale = v),
+            onExpressionScaleChanged: (double v) =>
+                _settings.edit((SettingsDraft d) => d.actionExpressionScale = v),
+            // 开关值 = 是否有覆盖；开 = 用当前有效值建初始覆盖，
+            // 关 = 删除 = 「恢复跟随全局」。三条滑条只在覆盖开启时接管。
+            onModelOverrideEnabledChanged: (bool on) {
+              _modelOverrideIntent = on;
+              _refresh();
+              unawaited(
+                on
+                    ? _seedModelOverride(
+                        activeModelId,
+                        shownAction.effectiveForActiveModel,
+                      )
+                    : _clearModelOverride(activeModelId),
+              );
+            },
+            onModelHeadScaleChanged: (double v) =>
+                _patchModelOverride(activeModelId, headScale: v),
+            onModelBodyScaleChanged: (double v) =>
+                _patchModelOverride(activeModelId, bodyScale: v),
+            onModelExpressionScaleChanged: (double v) =>
+                _patchModelOverride(activeModelId, expressionScale: v),
+            onResetModelOverride: overrideOn
+                ? () {
+                    _modelOverrideIntent = false;
+                    _refresh();
+                    unawaited(_clearModelOverride(activeModelId));
+                  }
+                : null,
+            modelOverrideMessage: _modelOverrideMessage,
+            modelOverrideFailed: _modelOverrideFailed,
+          ),
         );
       case SettingsSection.developer:
         // 开关值 = **三态显示**：启动参数强制 > 草稿 > 已保存。
         //
-        // 过去直接显示 `_devMode`（服务端生效值），于是「关掉开关」在界面上
-        // **没有任何可见变化**——开关弹回 on、只多一个「未保存」徽标，
-        // 用户以为点了没反应。现在草稿优先，关掉立刻看得见；保存成功后
-        // `_loadAppStatus` 把生效态刷新，草稿清空，两者合一。
+        // 过去直接显示服务端生效值，于是「关掉开关」在界面上没有任何可见变化
+        // ——开关弹回 on、只多一个「未保存」徽标，用户以为点了没反应。
+        // 现在草稿优先，关掉立刻看得见；保存成功后重新取生效态，草稿清空。
         final bool forcedByLaunch = _devMode && !view.devMode;
         final bool shownDevMode = forcedByLaunch
             ? true
@@ -385,17 +414,13 @@ extension _ShellSettingsWiring on _ShellRootState {
               _settings.edit((SettingsDraft d) => d.devMode = v),
           // 启动参数强制开启时**不谎报可关**（rc.3 N3，2026-09-13 接线）。
           //
-          // 判据：**有效** dev_mode（`GET /api/v1/app/status` 的 `dev_mode`，
-          // 已含 `--dev-mode` 的覆盖）是 on，而**落盘设置**是 off——那就只可能是
+          // 判据：**有效** dev_mode（GET /api/v1/app/status 的 dev_mode，
+          // 已含 --dev-mode 的覆盖）是 on，而**落盘设置**是 off——那就只可能是
           // 启动参数压着，界面里关不掉。
-          //
-          // 旧实现写死 `false`：开关看起来能关，关完服务端还是 on
-          // （「看起来关了、其实没关」）。两者都由既有字段推出，**没有新增协议字段**。
           forcedByLaunchFlag: forcedByLaunch,
           // 展示名读共享表（不在 Dart 手写中文）。
           presetLabels: _presetLabels,
           // P0-3：动作调试——前端直发 preset 帧到渲染面（不经后端 / LLM）。
-          // L1（2026-09-16）：把调试面板滑条的强度一起透传（渲染面钳 [0,3]）。
           onApplyPreset: (String id, double intensity) => unawaited(
             _stageKey.currentState?.applyPreset(
                   id,
@@ -405,16 +430,8 @@ extension _ShellSettingsWiring on _ShellRootState {
                 Future<void>.value(),
           ),
           presetStatus: _stageKey.currentState?.presetStatus,
-          // 2026-09-16：调试面板可显示 + **临时**覆盖三项幅度倍率
-          // （产品设置是真源；这里不落盘，只发渲染面）。
-          //
-          // W7（2026-09-23）：临时覆盖是 **syncer 的显式状态**，不再直发
-          // `stage.sync(actionScales: …)`——那一版不更新 `_sent`，与产品值
-          // 互相冲掉（RESEARCH §2.4）。下发只有一个出口：`ActionScalesSyncer`。
           productScales: view.action,
-          // D2：把 syncer 里的**显式 pin** 只读传进面板（没有就是 null）——
-          // 面板滑条按 `pin ?? 产品值` 播种，离开 Developer 分区再回来时
-          // 显示的仍是渲染面正在用的那组临时值，而不是产品值（T4 实测）。
+          // D2：把 syncer 里的**显式 pin** 只读传进面板（没有就是 null）。
           pinnedScales: _actionScalesSyncer.pinned,
           onApplyScales: (double head, double body, double expression) {
             _actionScalesSyncer.pin(<String, double>{
@@ -422,15 +439,27 @@ extension _ShellSettingsWiring on _ShellRootState {
               'body': body,
               'expression': expression,
             });
-            // 让 `Live2DStage.actionScales`（重挂后的自愈值）跟着变成临时值。
+            // 让舞台重挂后的自愈值跟着变成临时值。
             _refresh();
           },
-          // 「恢复产品设置」：清掉临时覆盖并**强制**写回产品值
-          // （临时值可能恰好等于产品值，去重会挡住普通下发——见 syncer.clearPin）。
+          // 「恢复产品设置」：清掉临时覆盖并**强制**写回产品值。
           onClearScales: () {
             _actionScalesSyncer.clearPin(_actionScalesPayload);
             _refresh();
           },
+          // 诊断（2026-10-09）：一级「诊断」取消后收进这一页，
+          // 只有 devMode 为真时 DeveloperSection 才画它。
+          diagnostics: DiagnosticsSection(
+            status: _status,
+            capabilities: _capabilities,
+            wsStatusLabel: _ui.wsStatus.description,
+            logs: _logs,
+            logsError: _logsError,
+            devMode: _devMode,
+            copied: _copied,
+            onReload: _loadAdmin,
+            onCopy: _copyDiagnostics,
+          ),
         );
     }
   }

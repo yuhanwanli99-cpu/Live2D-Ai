@@ -193,8 +193,12 @@ class ModelOverrideCoalescer {
     this.window = kModelOverrideDebounce,
   });
 
-  /// 到点 / 主动刷新时交付「模型 id + 只含被改键的三态补丁」。
-  final void Function(String modelId, ActionModelOverridePatch patch) onFlush;
+  /// 到点 / 主动刷新时交付「模型 id + 只含被改键的三态补丁 + 这一帧的代际」。
+  ///
+  /// 代际交给宿主：回读完成后 [acknowledge] 同一个数，滑条才放开「还没写回」
+  /// 的显示。中途又拖过一帧时，旧回读的代际对不上，不会把新位置清掉。
+  final void Function(String modelId, ActionModelOverridePatch patch, int epoch)
+  onFlush;
 
   /// 防抖窗口。
   final Duration window;
@@ -202,6 +206,24 @@ class ModelOverrideCoalescer {
   String? _modelId;
   final Map<String, double> _keys = <String, double>{};
   Timer? _timer;
+
+  /// 滑条上还要显示、但服务端回读还没追上的键。
+  ///
+  /// [flush] 把待发键交出去之后这里**留着**：清早了，滑条会在回读完成前
+  /// 弹回旧值。回读完成后由宿主 [acknowledge]。
+  String? _latchedModel;
+  final Map<String, double> _latched = <String, double>{};
+  int _epoch = 0;
+
+  /// 当前还显示在滑条上的模型（没有则 `null`）。
+  String? get latchedModelId => _latchedModel;
+
+  /// 还没被回读盖掉的键（`head_scale` / `body_scale` / `expression_scale`）。
+  Map<String, double> get latchedKeys =>
+      Map<String, double>.unmodifiable(_latched);
+
+  /// 代际。每次 [record] / [cancel] 加一，用来认出过期的回读。
+  int get epoch => _epoch;
 
   /// 是否有未到点的待发键（测试 / 排障用）。
   bool get hasPending => _modelId != null && _keys.isNotEmpty;
@@ -221,12 +243,33 @@ class ModelOverrideCoalescer {
   }) {
     if (modelId.isEmpty) return;
     if (_modelId != null && _modelId != modelId) flush();
+    if (_latchedModel != null && _latchedModel != modelId) {
+      _latched.clear();
+    }
+    _latchedModel = modelId;
+    _epoch++;
     _modelId = modelId;
-    if (headScale != null) _keys['head_scale'] = headScale;
-    if (bodyScale != null) _keys['body_scale'] = bodyScale;
-    if (expressionScale != null) _keys['expression_scale'] = expressionScale;
+    if (headScale != null) {
+      _keys['head_scale'] = headScale;
+      _latched['head_scale'] = headScale;
+    }
+    if (bodyScale != null) {
+      _keys['body_scale'] = bodyScale;
+      _latched['body_scale'] = bodyScale;
+    }
+    if (expressionScale != null) {
+      _keys['expression_scale'] = expressionScale;
+      _latched['expression_scale'] = expressionScale;
+    }
     _timer?.cancel();
     _timer = Timer(window, flush);
+  }
+
+  /// 回读完成。代际还是这一帧才清掉滑条上的临时值；已经又拖过则留着。
+  void acknowledge(int epoch) {
+    if (epoch != _epoch) return;
+    _latchedModel = null;
+    _latched.clear();
   }
 
   /// 立刻交付待发键（定时器到点 / 离开分区 / 关闭前）。
@@ -251,20 +294,31 @@ class ModelOverrideCoalescer {
             ? null
             : TriSet<double>(keys['expression_scale']!),
       ),
+      epoch,
     );
   }
 
-  /// 丢掉未到点的待发键。
+  /// 丢掉未到点的待发键，并清掉滑条上还挂着的临时值。
   ///
-  /// [modelId] 不为 null 时只在该模型正是待发模型时才丢——
+  /// [modelId] 不为 null 时，只在该模型正是待发模型或临时显示的模型时才丢。
   /// 「恢复跟随全局 / 开启覆盖」必须先取消，否则迟到的 PATCH 会把
-  /// 刚删掉的覆盖又写回来。
+  /// 刚删掉的覆盖又写回来。代际一并加一，让已经发出去的那一帧回读
+  /// 不能再把滑条清回旧位置之后的新拖动。
   void cancel([String? modelId]) {
-    if (modelId != null && _modelId != modelId) return;
-    _timer?.cancel();
-    _timer = null;
-    _modelId = null;
-    _keys.clear();
+    final bool keysMatch = modelId == null || _modelId == modelId;
+    final bool latchMatch = modelId == null || _latchedModel == modelId;
+    if (!keysMatch && !latchMatch) return;
+    if (keysMatch) {
+      _timer?.cancel();
+      _timer = null;
+      _modelId = null;
+      _keys.clear();
+    }
+    if (latchMatch) {
+      _epoch++;
+      _latchedModel = null;
+      _latched.clear();
+    }
   }
 
   /// 释放（宿主 dispose）。等价 [cancel]。
@@ -321,4 +375,3 @@ class SettingsPatch {
   /// 是否什么都没改（调用方可据此跳过网络请求）。
   bool get isEmpty => toJson().isEmpty;
 }
-

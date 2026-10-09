@@ -4,8 +4,11 @@
 ///
 /// 审计临时复现（只读源 `zz_audit_tmp_test.dart`）的 **D 组**按行为搬进正式测试：
 /// 背景库管理面板（`_LibraryManager`）此前**没有任何 widget 级回归**——
-/// 点缩略图 / 勾选 / 批量删 / 移除 / 加图案 / 铺法的显隐全靠肉眼看，
+/// 点缩略图 / 勾选 / 批量删 / 移除 / 铺法的显隐全靠肉眼看，
 /// 而这类接线坏掉时不报错，只是「看得见、点不着」。
+///
+/// 2026-10-08：内置图案（渐变 / 光晕 / 网格 / 斜纹）整体下线——**入口与
+/// 读回都没有了**，本文件据此把「加图案」那条换成「图案入口整体不在」。
 ///
 /// # 仍未裁决的（**不在这里写断言**）
 ///
@@ -39,12 +42,11 @@ Widget _pane({
   ValueChanged<int>? onPreview,
   ValueChanged<int>? onRemove,
   ValueChanged<List<int>>? onRemoveMany,
-  ValueChanged<int>? onAddPattern,
 }) => MaterialApp(
   theme: buildAppTheme(),
   home: Scaffold(
     body: SingleChildScrollView(
-      child: AppearanceSection(
+      child: ThemeSection(
         prefs: prefs,
         onPrefsChanged: (DisplayPrefs _) {},
         onPickShellImage: () {},
@@ -53,7 +55,6 @@ Widget _pane({
         onRemoveBackgrounds: onRemoveMany,
         onReorderBackground: (int _, int _) {},
         onPreviewBackground: onPreview,
-        onAddPattern: onAddPattern,
       ),
     ),
   ),
@@ -134,7 +135,7 @@ void main() {
       _pane(
         prefs: const DisplayPrefs(
           backgrounds: <BackgroundItem>[
-            BackgroundPattern(BackgroundPatternId.grid),
+            BackgroundImage(id: 'i1', dataUrl: _img),
             BackgroundImage(id: 'i2', dataUrl: _img2),
           ],
         ),
@@ -147,53 +148,53 @@ void main() {
     expect(removed, <int>[1], reason: '× 必须指到它所在的那一行');
   });
 
-  testWidgets('内置图案 chip 上报图案 id（不是下标）', (WidgetTester tester) async {
-    final List<int> added = <int>[];
-    await tester.pumpWidget(
-      _pane(prefs: const DisplayPrefs(), onAddPattern: added.add),
-    );
-    await tester.pump();
-    await tester.tap(find.widgetWithText(ActionChip, '网格'));
-    await tester.pump();
-    expect(added, <int>[BackgroundPatternId.grid]);
-  });
-
-  testWidgets('「铺法（图）」只在当前项是**图片**时出现（图案时收起）', (
+  testWidgets('内置图案入口整体下线：渐变 / 光晕 / 网格 / 斜纹都不在', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      _pane(
-        prefs: const DisplayPrefs(
-          backgrounds: <BackgroundItem>[
-            BackgroundImage(id: 'i1', dataUrl: _img),
-          ],
-        ),
-      ),
-    );
+    await tester.pumpWidget(_pane(prefs: const DisplayPrefs()));
     await tester.pump();
-    expect(find.text('铺法（图）'), findsOneWidget);
-
-    await tester.pumpWidget(
-      _pane(
-        prefs: const DisplayPrefs(
-          backgrounds: <BackgroundItem>[
-            BackgroundPattern(BackgroundPatternId.grid),
-          ],
-        ),
-      ),
-    );
-    await tester.pump();
+    for (final String banned in <String>['渐变', '光晕', '网格', '斜纹']) {
+      expect(
+        find.textContaining(banned),
+        findsNothing,
+        reason: '背景区不得再出现内置图案「$banned」（2026-10-08）',
+      );
+    }
     expect(
-      find.text('铺法（图）'),
+      find.byType(ActionChip),
       findsNothing,
-      reason: '图案由 CustomPainter 画满整块，没有「原图尺寸」可裁可留边',
+      reason: '内置图案那一排 ActionChip 已删',
     );
+    // 2026-10-09：三级功能介绍全删 ⇒ 原来那句「放你自己的图…」也不在界面上了
+    //（它曾用来证明「说明句只谈自己的图和纯色」；现在改成断言这句话不在）。
+    expect(find.textContaining('放你自己的图'), findsNothing);
+    expect(find.textContaining('选了内置图案时'), findsNothing);
   });
 
-  testWidgets('按钮跟着**来源**走：来源=舞台那张时不出现「添加图片」', (
+  testWidgets('已删的铺法 / 舞台图控件在界面上找不到（图片 / 图案都一样）', (
     WidgetTester tester,
   ) async {
-    // 来源=背景库：库的入口是「添加图片 / 清空背景库」。
+    for (final BackgroundItem item in <BackgroundItem>[
+      const BackgroundImage(id: 'i1', dataUrl: _img),
+      const BackgroundPattern(BackgroundPatternId.grid),
+    ]) {
+      await tester.pumpWidget(
+        _pane(prefs: DisplayPrefs(backgrounds: <BackgroundItem>[item])),
+      );
+      await tester.pump();
+      expect(
+        find.text('铺法（图）'),
+        findsNothing,
+        reason: '四档铺法是渲染面能力，不再是用户旋钮（2026-10-07）',
+      );
+      expect(find.text('换一张'), findsNothing);
+      expect(find.text('清除舞台背景图'), findsNothing);
+    }
+  });
+
+  testWidgets('有库时仍有「添加图片」；「换一张 / 清除舞台背景图」不再存在', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
       _pane(
         prefs: const DisplayPrefs(
@@ -205,23 +206,12 @@ void main() {
     );
     await tester.pump();
     expect(find.text('添加图片'), findsOneWidget);
-
-    // 来源=舞台那张：库整个不渲染，按钮换成「换一张 / 清除舞台背景图」。
-    await tester.pumpWidget(
-      _pane(
-        prefs: const DisplayPrefs(
-          stageImage: _img,
-          backgroundSource: DisplayPrefs.backgroundSourceStageImage,
-          backgrounds: <BackgroundItem>[
-            BackgroundImage(id: 'i1', dataUrl: _img),
-          ],
-        ),
-      ),
+    expect(
+      find.text('换一张'),
+      findsNothing,
+      reason: '舞台图 = 背景库当前项的投影，没有第二份「换一张」入口',
     );
-    await tester.pump();
-    expect(find.text('添加图片'), findsNothing, reason: '不存在「点了没反应」的按钮');
-    expect(find.text('换一张'), findsOneWidget);
-    expect(find.text('清除舞台背景图'), findsOneWidget);
-    expect(find.textContaining('图片 1'), findsNothing, reason: '库里那一张不参与渲染');
+    expect(find.text('清除舞台背景图'), findsNothing);
+    expect(find.textContaining('图片 1'), findsOneWidget);
   });
 }

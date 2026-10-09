@@ -28,3 +28,8 @@
 *.zip binary
 *.moc3 binary
 *.jsonl binary
+
+# MeloTTS 中文 checkpoint（约 208MB，> GitHub 100MB 单文件上限）：只加这一条 LFS。
+# CosyVoice 那份数 GB 权重**不进 LFS、不进 git**（见 .gitignore）。
+# config.json 是普通 git 文件，不走 LFS。
+crates/live2d-ai-mod-local-tts/melo/weights/checkpoint.pth filter=lfs diff=lfs merge=lfs -text

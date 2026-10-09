@@ -370,8 +370,11 @@ void main() {
                   onPressed: () {
                     showSessionSheet(
                       context: context,
-                      sessions: const <ChatSession>[],
-                      activeId: null,
+                      // 浮层现在在**自己的 builder 里**订阅 store、并现读这两个
+                      // 回调（见 `ui/session_sheet.dart`）。
+                      listenable: ValueNotifier<int>(0),
+                      sessionsOf: () => const <ChatSession>[],
+                      activeIdOf: () => null,
                       onNew: () {},
                       onSelect: (_) {},
                       onRename: (_, _) {},

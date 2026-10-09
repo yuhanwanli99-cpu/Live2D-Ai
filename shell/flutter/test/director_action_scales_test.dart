@@ -1,11 +1,14 @@
-/// W5e（阶段5 D40）：外观与互动 →「动作幅度」的**本模型覆盖** UI 回归。
+/// 动作幅度三条 + 「本模型覆盖」的 widget 回归（2026-10-09 搬到导演卡片）。
 ///
-/// 覆盖四条最容易悄悄坏掉的接线：
-/// 1. `active_model_id` 为空时**如实说「未识别当前模型」并禁用开关**；
-/// 2. 覆盖**关闭**时三条滑条仍是全局值、仍走草稿回调（旧语义不动）；
-/// 3. 覆盖**开启**时三条滑条是逐键 `override[key] ?? global[key]` 的有效值，
-///    且只触发本模型回调（不会误写全局草稿）；
-/// 4. 「恢复跟随全局」只在覆盖开启时可点，点了触发删除回调。
+/// 原文件名 appearance_section_test.dart；搬迁后被测对象是
+/// DirectorActionScalesBlock（挂 settings/mods/director_panel.dart），
+/// 布局容器从「外观与互动」页换成了导演卡片，**滑条路由判据一字未改**：
+/// 1. active_model_id 为空时**如实说「未识别当前模型」并禁用开关**；
+/// 2. 覆盖**关闭**时三条滑条仍是全局值、仍走草稿回调；
+/// 3. 覆盖**开启**时三条滑条是逐键 override[key] ?? global[key] 的有效值，
+///    且只触发本模型回调；
+/// 4. 「恢复跟随全局」只在覆盖开启时可点，点了触发删除回调；
+/// 5. **新增守卫**：动作幅度不在「主题」「Live2D 动作」两页上。
 library;
 
 import 'package:flutter/material.dart';
@@ -13,7 +16,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/api/settings_models.dart';
 import 'package:live2d_ai_shell/settings/display_prefs.dart';
+import 'package:live2d_ai_shell/settings/mods/director_panel.dart';
+import 'package:live2d_ai_shell/settings/mods/mod_panel.dart';
 import 'package:live2d_ai_shell/settings/sections/appearance_section.dart';
+import 'package:live2d_ai_shell/settings/sections/motion_section.dart';
 import 'package:live2d_ai_shell/ui/field_row.dart' show SliderField, ToggleField;
 import 'package:live2d_ai_shell/ui/theme.dart';
 
@@ -22,7 +28,6 @@ Widget _wrap(Widget child) => MaterialApp(
   home: Scaffold(body: SingleChildScrollView(child: child)),
 );
 
-/// 三条滑条共用一个标签集（覆盖开关只切换它们的**语义**，不新增滑条）。
 double _sliderValue(WidgetTester tester, String label) =>
     tester.widget<SliderField>(find.widgetWithText(SliderField, label)).value;
 
@@ -37,7 +42,7 @@ void _drive(WidgetTester tester, String label, double value) {
   slider.onChanged!(value);
 }
 
-Widget _section({
+Widget _block({
   required ActionSettingsView action,
   bool modelOverrideEnabled = false,
   ValueChanged<bool>? onEnabled,
@@ -48,19 +53,19 @@ Widget _section({
   ValueChanged<double>? onModelBody,
   ValueChanged<double>? onModelExpression,
   VoidCallback? onReset,
-}) => AppearanceSection(
-  prefs: const DisplayPrefs(),
-  onPrefsChanged: (DisplayPrefs _) {},
-  action: action,
-  onHeadScaleChanged: onGlobalHead,
-  onBodyScaleChanged: onGlobalBody,
-  onExpressionScaleChanged: onGlobalExpression,
-  modelOverrideEnabled: modelOverrideEnabled,
-  onModelOverrideEnabledChanged: onEnabled,
-  onModelHeadScaleChanged: onModelHead,
-  onModelBodyScaleChanged: onModelBody,
-  onModelExpressionScaleChanged: onModelExpression,
-  onResetModelOverride: onReset,
+}) => DirectorActionScalesBlock(
+  wiring: ActionScalesWiring(
+    action: action,
+    modelOverrideEnabled: modelOverrideEnabled,
+    onHeadScaleChanged: onGlobalHead,
+    onBodyScaleChanged: onGlobalBody,
+    onExpressionScaleChanged: onGlobalExpression,
+    onModelOverrideEnabledChanged: onEnabled,
+    onModelHeadScaleChanged: onModelHead,
+    onModelBodyScaleChanged: onModelBody,
+    onModelExpressionScaleChanged: onModelExpression,
+    onResetModelOverride: onReset,
+  ),
 );
 
 const ActionSettingsView _globalBai = ActionSettingsView(
@@ -89,7 +94,7 @@ void main() {
   testWidgets('未识别当前模型：如实写 + 开关禁用（不假装能开）', (WidgetTester tester) async {
     await tester.pumpWidget(
       _wrap(
-        _section(
+        _block(
           action: const ActionSettingsView(
             headScale: 0.75,
             bodyScale: 0.80,
@@ -114,7 +119,7 @@ void main() {
     final List<double> modelHeads = <double>[];
     await tester.pumpWidget(
       _wrap(
-        _section(
+        _block(
           action: _globalBai,
           onGlobalHead: globalHeads.add,
           onModelHead: modelHeads.add,
@@ -133,7 +138,7 @@ void main() {
     final List<double> modelHeads = <double>[];
     await tester.pumpWidget(
       _wrap(
-        _section(
+        _block(
           action: _baiHeadOnly,
           modelOverrideEnabled: true,
           onGlobalHead: globalHeads.add,
@@ -153,7 +158,7 @@ void main() {
     int resets = 0;
     await tester.pumpWidget(
       _wrap(
-        _section(
+        _block(
           action: _baiHeadOnly,
           modelOverrideEnabled: true,
           onReset: () => resets++,
@@ -162,17 +167,13 @@ void main() {
     );
     final Finder button = find.widgetWithText(TextButton, '恢复跟随全局');
     expect(tester.widget<TextButton>(button).onPressed, isNotNull);
-    // 面板在滚动画布里，按钮在首屏之外——先滚到可见再点（同 W7b 的先例）。
     await tester.ensureVisible(button);
     await tester.pumpAndSettle();
     await tester.tap(button);
     await tester.pump();
     expect(resets, 1, reason: '按钮必须触发宿主的删除覆盖回调');
 
-    // 没有覆盖（关闭态）：按钮在，但禁用——不是点了没反应。
-    await tester.pumpWidget(
-      _wrap(_section(action: _globalBai, onReset: null)),
-    );
+    await tester.pumpWidget(_wrap(_block(action: _globalBai, onReset: null)));
     expect(
       tester
           .widget<TextButton>(find.widgetWithText(TextButton, '恢复跟随全局'))
@@ -185,7 +186,7 @@ void main() {
     final List<bool> toggles = <bool>[];
     await tester.pumpWidget(
       _wrap(
-        _section(
+        _block(
           action: _baiHeadOnly,
           modelOverrideEnabled: true,
           onEnabled: toggles.add,
@@ -199,5 +200,38 @@ void main() {
     );
     sw.onChanged!(false);
     expect(toggles, <bool>[false]);
+  });
+
+  group('守卫：动作幅度**不在**「主题」「Live2D 动作」两页上', () {
+    testWidgets('主题页只有配色与背景', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          ThemeSection(
+            prefs: const DisplayPrefs(),
+            onPrefsChanged: (DisplayPrefs _) {},
+          ),
+        ),
+      );
+      for (final String gone in <String>['头部摆幅', '身体摆幅', '表情幅度', '本模型覆盖']) {
+        expect(find.text(gone), findsNothing, reason: '$gone 不得出现在主题页');
+      }
+      expect(find.text('配色与背景'), findsOneWidget);
+    });
+
+    testWidgets('Live2D 动作页只有舞台与口型 + 互动', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          MotionSection(
+            prefs: const DisplayPrefs(),
+            onPrefsChanged: (DisplayPrefs _) {},
+          ),
+        ),
+      );
+      for (final String gone in <String>['头部摆幅', '身体摆幅', '表情幅度', '本模型覆盖']) {
+        expect(find.text(gone), findsNothing, reason: '$gone 不得出现在动作页');
+      }
+      expect(find.text('舞台与口型'), findsOneWidget);
+      expect(find.text('互动'), findsOneWidget);
+    });
   });
 }

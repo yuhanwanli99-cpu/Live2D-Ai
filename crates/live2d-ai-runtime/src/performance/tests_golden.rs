@@ -54,18 +54,18 @@ fn golden_action_cue_frames_are_unchanged_after_envelope_removal() {
     );
     // v1：field 无轴。
     assert_golden(
-        r#"{"at":"now","field":"body","hold":false,"intensity":1,"preset_id":"body","priority":40,"sentence_seq":1,"seq":1,"ttl_ms":900}"#,
+        r#"{"at":"now","field":"head","hold":false,"intensity":1,"preset_id":"head","priority":40,"sentence_seq":1,"seq":1,"ttl_ms":900}"#,
         cue_frame(
-            r#"{"segments":["好。"],"cues":[{"field":"body","intensity":1,"at":"now","hold":false}]}"#,
+            r#"{"segments":["好。"],"cues":[{"field":"head","intensity":1,"at":"now","hold":false}]}"#,
             "好。",
             0,
         ),
     );
-    // v1：body + x/y。
+    // v1：head + x/y。
     assert_golden(
-        r#"{"at":"seg:2","field":"body","hold":false,"intensity":2,"preset_id":"body","priority":40,"sentence_seq":2,"seq":1,"ttl_ms":1200,"x":0.25,"y":-0.5}"#,
+        r#"{"at":"seg:2","field":"head","hold":false,"intensity":2,"preset_id":"head","priority":40,"sentence_seq":2,"seq":1,"ttl_ms":1200,"x":0.25,"y":-0.5}"#,
         cue_frame(
-            r#"{"segments":["一","二"],"cues":[{"field":"body","x":0.25,"y":-0.5,"intensity":2,"at":"seg:2","hold":false,"ttl_ms":1200}]}"#,
+            r#"{"segments":["一","二"],"cues":[{"field":"head","x":0.25,"y":-0.5,"intensity":2,"at":"seg:2","hold":false,"ttl_ms":1200}]}"#,
             "一二",
             0,
         ),
@@ -98,23 +98,23 @@ fn golden_action_cue_frames_are_unchanged_after_envelope_removal() {
         ),
     );
     // v1：after_prev 链（两条都钉：at 保留 / 锚段不变）。
-    let chained = r#"{"segments":["一","二","三"],"cues":[{"field":"body","x":0.1,"intensity":1,"at":"seg:2","hold":false},{"field":"head","y":0.2,"intensity":1,"at":"after_prev","hold":false}]}"#;
+    let chained = r#"{"segments":["一","二","三"],"cues":[{"field":"head","x":0.1,"intensity":1,"at":"seg:2","hold":false},{"field":"expression","id":"smile","intensity":1,"at":"after_prev","hold":false}]}"#;
     assert_golden(
-        r#"{"at":"seg:2","field":"body","hold":false,"intensity":1,"preset_id":"body","priority":40,"sentence_seq":2,"seq":1,"ttl_ms":900,"x":0.1}"#,
+        r#"{"at":"seg:2","field":"head","hold":false,"intensity":1,"preset_id":"head","priority":40,"sentence_seq":2,"seq":1,"ttl_ms":900,"x":0.1}"#,
         cue_frame(chained, "一二三", 0),
     );
     assert_golden(
-        r#"{"at":"after_prev","field":"head","hold":false,"intensity":1,"preset_id":"head","priority":40,"sentence_seq":2,"seq":2,"ttl_ms":900,"y":0.2}"#,
+        r#"{"at":"after_prev","field":"expression","hold":false,"id":"smile","intensity":1,"preset_id":"smile","priority":40,"sentence_seq":2,"seq":2,"ttl_ms":2600}"#,
         cue_frame(chained, "一二三", 1),
     );
     // v1：after_prev 遇 hold 退化为 now。
-    let degraded = r#"{"segments":["一","二","三"],"cues":[{"field":"body","x":0.1,"intensity":1,"at":"now","hold":true},{"field":"head","y":0.2,"intensity":1,"at":"after_prev","hold":false}]}"#;
+    let degraded = r#"{"segments":["一","二","三"],"cues":[{"field":"head","x":0.1,"intensity":1,"at":"now","hold":true},{"field":"expression","id":"smile","intensity":1,"at":"after_prev","hold":false}]}"#;
     assert_golden(
-        r#"{"at":"now","field":"body","hold":true,"intensity":1,"preset_id":"body","priority":40,"sentence_seq":1,"seq":1,"ttl_ms":900,"x":0.1}"#,
+        r#"{"at":"now","field":"head","hold":true,"intensity":1,"preset_id":"head","priority":40,"sentence_seq":1,"seq":1,"ttl_ms":900,"x":0.1}"#,
         cue_frame(degraded, "一二三", 0),
     );
     assert_golden(
-        r#"{"at":"now","field":"head","hold":false,"intensity":1,"preset_id":"head","priority":40,"sentence_seq":1,"seq":2,"ttl_ms":900,"y":0.2}"#,
+        r#"{"at":"now","field":"expression","hold":false,"id":"smile","intensity":1,"preset_id":"smile","priority":40,"sentence_seq":1,"seq":2,"ttl_ms":2600}"#,
         cue_frame(degraded, "一二三", 1),
     );
     // 整帧 payload（action_cue.data 形态）。
@@ -136,7 +136,7 @@ fn golden_action_cue_frames_are_unchanged_after_envelope_removal() {
 fn v1_cue_preset_id_never_carries_control_chars_or_json() {
     let plan = parse_plan(
         r#"{"segments":["一","二"],"cues":[
-            {"field":"body","x":0.25,"intensity":2,"at":"seg:2","hold":false},
+            {"field":"head","x":0.25,"intensity":2,"at":"seg:2","hold":false},
             {"field":"head","z":0.5,"intensity":1,"at":"now","hold":true},
             {"field":"expression","id":"smile","intensity":1,"at":"now","hold":false}
         ]}"#,
@@ -145,7 +145,7 @@ fn v1_cue_preset_id_never_carries_control_chars_or_json() {
     )
     .expect("合法");
     assert_eq!(plan.cues.len(), 3);
-    for (cue, want) in plan.cues.iter().zip(["body", "head", "smile"]) {
+    for (cue, want) in plan.cues.iter().zip(["head", "head", "smile"]) {
         assert_eq!(cue.preset_id, want, "preset_id 只承载语义 id");
         assert!(
             !cue.preset_id.contains('\u{1}'),

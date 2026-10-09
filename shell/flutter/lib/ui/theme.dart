@@ -52,8 +52,8 @@ const String kAppFontFamily = 'NotoSansSC';
 ///
 /// 覆写清单是「组件真的会读到、且读错会看得见」的那些——
 /// 不是把 30 个槽位全部重写（那样 `fromSeed` 就白跑了）。
-/// [material] 是**材质旋钮**（圆角幅度 / 描边强度），与配色**正交**：
-/// 换配色不改变圆角，调圆角也不改颜色。2026-09-27 新增。
+/// [material] 是界面透明度（圆角与描边已固定），与配色分开：
+/// 换配色不改变圆角。2026-09-27 新增，2026-10-07 去掉描边旋钮。
 ///
 /// 用一个对象而不是再加两个位置参数：Dart 的可选参数列表**不能混用**
 /// （`[a]` 与 `{b}` 不能共存），而 `buildAppTheme()` / `buildAppTheme(id)`
@@ -101,12 +101,7 @@ ThemeData buildAppTheme([
     fontFamily: kAppFontFamily,
     extensions: <ThemeExtension<dynamic>>[
       palette,
-      AppColors.of(
-        scheme,
-        palette,
-        edgeStrength: material.edgeStrength,
-        material: material,
-      ),
+      AppColors.of(scheme, palette, material: material),
     ],
   );
   return buildAppComponents(
@@ -141,12 +136,7 @@ ThemeData buildAppComponents(
   AppMaterial material = AppMaterial.neutral,
 }) {
   final ColorScheme scheme = base.colorScheme;
-  final AppColors colors = AppColors.of(
-    scheme,
-    palette,
-    edgeStrength: material.edgeStrength,
-    material: material,
-  );
+  final AppColors colors = AppColors.of(scheme, palette, material: material);
   final TextTheme text = base.textTheme;
 
   /// 圆角令牌 × 用户的「圆角幅度」（2026-09-27）。

@@ -321,6 +321,14 @@ fn preset_select_labels_come_from_the_shared_table() {
     assert!(checked >= crate::PRESET_IDS.len(), "至少要覆盖全部预设 id");
 }
 
+/// **这 8 个键仍是解析真源**（`mods.json` 里已写的值一个不丢），但**产品界面
+/// 不再渲染它们**：2026-10-08 起 `DirectorPanel.hiddenKeys` 声明这 8 个 key
+/// 「产品面不渲染、也不收进高级」。
+///
+/// 「产品卡片上找不到这些字符串」那条断言在 Flutter 侧（Rust 看不到界面）：
+/// `shell/flutter/test/performance_layer_copy_test.dart` 真泵 ModsSection 并断言
+/// 8 个 label 一个都不上屏。这里继续钉 **spec 本身**（键集合 + 预设选项表），
+/// 那是解析与开发者面的事实。
 #[test]
 fn settings_spec_has_no_enabled_and_matches_static_spec() {
     let spec = director_settings_spec();
@@ -347,23 +355,42 @@ fn settings_spec_has_no_enabled_and_matches_static_spec() {
         !keys.contains(&"enabled"),
         "启停唯一真源是 manifest，schema 里不得有第二个 enabled"
     );
-    // 2026-09-22：`staging_*` 是**遗留回退旁路**（表演主路由是 `[performance]`）。
-    // 每个 staging 字段的 label 必须带「【遗留】」，免得表单文案回潮成产品主路径。
+    // 2026-10-07（T8）：`staging_*` **不再是遗留回退旁路**——导演启用后主链就用它
+    // （两项都填）或对话模型（两项都空）把原文分段送 TTS。旧口径不得回潮。
+    let label_of = |key: &str| -> String {
+        spec.fields
+            .iter()
+            .find(|field| field.key() == key)
+            .map(|field| match field {
+                ModSettingField::Bool { label, .. }
+                | ModSettingField::String { label, .. }
+                | ModSettingField::Number { label, .. }
+                | ModSettingField::Select { label, .. } => label.clone(),
+            })
+            .unwrap_or_else(|| panic!("schema 里没有 {key}"))
+    };
     for field in &spec.fields {
         if !field.key().starts_with("staging_") {
             continue;
         }
-        let label = match field {
-            ModSettingField::Bool { label, .. }
-            | ModSettingField::String { label, .. }
-            | ModSettingField::Number { label, .. }
-            | ModSettingField::Select { label, .. } => label,
-        };
+        let label = label_of(field.key());
         assert!(
-            label.contains("【遗留】"),
-            "staging 字段 {field:?} 的 label 缺「【遗留】」标记"
+            !label.contains("【遗留】") && !label.contains("日常用表演层"),
+            "staging 字段 {field:?} 的 label 仍是旧口径：{label}"
         );
     }
+    // 口径表：「两项都空 = 复用对话模型」——地址与模型名必须把这件事写出来。
+    for key in ["staging_base_url", "staging_model"] {
+        let label = label_of(key);
+        assert!(
+            label.contains("留空") && label.contains("对话模型"),
+            "{key} 的 label 必须写明「留空则用对话模型」：{label}"
+        );
+    }
+    assert!(
+        label_of("staging_api_key_env").contains("对话模型"),
+        "密钥变量名也要说明留空时用对话模型的密钥"
+    );
     // 每个预设字段都要带**真缺省**（不是第一个选项 none），否则表单会用
     // none 覆盖掉内置映射表（「点一次保存就没动作了」）。
     let expected = crate::presets::PresetTable::default();

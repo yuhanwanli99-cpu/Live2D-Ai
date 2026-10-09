@@ -21,13 +21,13 @@
 /// 搬迁是**逐字**的（剪贴 + extension 头），只补了 extension 作用域必需的
 /// DisplayPrefs.xxx 类静态限定符。下列成员**刻意留在类里**：
 ///
-/// - 24 个字段、const 构造、全部 static const（Dart 规定**类体不能跨 part**；
+/// - 15 个字段、const 构造、全部 static const（Dart 规定**类体不能跨 part**；
 ///   且 198 处调用点读的是 DisplayPrefs.defaultXxx 这类类静态）；
 /// - == / hashCode / toString：它们是 Object 成员，写进 extension 会
 ///   **静默失效**（extension 只在静态类型没有该成员时才生效）；
 /// - 一行转发包装：保住既有静态调用点的公共名字。
 ///
-/// 落盘 24 键的全集守卫见 test/display_prefs_persist_keys_test.dart。
+/// 落盘 15 键的全集守卫见 test/display_prefs_persist_keys_test.dart。
 library;
 
 import '../design/background_item.dart';
@@ -43,20 +43,12 @@ part 'display_prefs_copy.dart';
 class DisplayPrefs {
   const DisplayPrefs({
     this.theme = AppThemeId.fallback,
-    this.stageImage,
     this.backgrounds = const <BackgroundItem>[],
-    this.backgroundSource = backgroundSourceLibrary,
     this.backgroundOpacity = defaultBackgroundOpacity,
-    this.backgroundBlur = defaultBackgroundBlur,
-    this.backgroundScrim = defaultBackgroundScrim,
     this.backgroundEnabled = defaultBackgroundEnabled,
-    this.imageFit = defaultImageFit,
-    this.imageAlign = defaultImageAlign,
-    this.tileSize = defaultTileSize,
     this.slideInterval = defaultSlideInterval,
     this.slideRandom = false,
     this.uiTransparency = defaultUiTransparency,
-    this.stagePlaylist = const <String>[],
     this.scale = defaultScale,
     this.mouthSensitivity = defaultMouthSensitivity,
     this.lipSync = true,
@@ -65,7 +57,6 @@ class DisplayPrefs {
     this.volume = defaultVolume,
     this.allowDragZoom = true,
     this.tier = defaultTier,
-    this.edgeStrength = defaultEdgeStrength,
   });
 
   /// 配色主题（黑/白/蓝/灰，默认黑）。
@@ -78,15 +69,7 @@ class DisplayPrefs {
   /// 与 `[tts]` 那种「核心链路配置」是两个世界的东西。
   final AppThemeId theme;
 
-  /// 舞台背景图 dataURL（单张，走渲染面协议 `stage-bg`）。
-  ///
-  /// `null` = 不用背景图，只有纯色底。**只影响舞台**，与 [backgrounds] 无关。
-  ///
-  /// 超过 [kStageImageMaxChars] 的图**不进这里**（会毁掉整份偏好的写入），
-  /// 那种情况只在会话内生效。
-  final String? stageImage;
-
-  /// **背景库**：有序的一串「图 / 内置图案」，壳根铺它，轮播按它走。
+  /// **背景库**：有序的一串「图 / 内置图案」。壳画它，当前这一张同时投影到舞台。
   ///
   /// 2026-09-27 从「单张 `shellImage`」升级而来。判别联合
   /// （`BackgroundImage` / `BackgroundPattern`）而不是两个平行数组——
@@ -95,24 +78,6 @@ class DisplayPrefs {
   /// 空列表 = 没有背景，壳就是纯色面（与本轮之前「没选图」的观感一致）。
   final List<BackgroundItem> backgrounds;
 
-  /// **壳画哪一张**：背景库，还是舞台那张单图。
-  ///
-  /// # 为什么换掉 `syncShellStageBg`（2026-09-27 修一个真缺陷）
-  ///
-  /// 原来的形态是「壳跟随舞台」，默认 `true`。于是：
-  ///
-  /// - 用户去**背景库**加图 → 壳却去读 [stageImage]（从没设过 → `null`）
-  ///   → **加了 3 张图，界面一点变化都没有**；
-  /// - 而 UI 在那个状态下**把图库藏起来、只留「添加图片」按钮**，
-  ///   点下去还会提示「已加进背景库」——**一个必然无效的按钮**。
-  ///
-  /// 那是本项目 P4 明令禁止的「静默失效」。修法不是加提示，而是**把默认
-  /// 换过来**：背景库是唯一真相，舞台那张图降级成一个**可选来源**。
-  ///
-  /// 铺法 / 位置 / 透明度 / 模糊 / 遮罩 / 过渡在**两种来源下都生效**——
-  /// 它们是渲染参数，不是图片来源。
-  final int backgroundSource;
-
   /// 背景不透明度。
   ///
   /// # 默认为什么是 `1.0` 而不是过去的 `0.15`（2026-09-27 改）
@@ -120,40 +85,16 @@ class DisplayPrefs {
   /// 0.15 是 rc.5 那个「壳全局背景固定 0.15」的遗留值，它服务的是
   /// **一张装饰性底纹**，不是「用户亲手挑的一张照片」。
   /// 用户加了图却只看到 15% 的淡影 —— 那正是「做了和没做一样」。
-  /// 现在的默认是「你选的图，就是你看到的图」；**需要压暗时拉「遮罩」**，
-  /// 那才是管可读性的那个旋钮。
+  /// 现在的默认是「你选的图，就是你看到的图」。需要压暗时拉低不透明度。
   ///
-  /// 区间到 `1.0`：0 = 完全不画背景（回到纯色面）——**除非**某一项自己
-  /// 覆盖过不透明度（`BackgroundImage.opacity`）：那是对「这一项」的明确
-  /// 指令，优先于全局（见 [effectiveImageOpacity]）。
+  /// 区间到 `1.0`：0 = 完全不画背景（回到纯色面）。
   final double backgroundOpacity;
-
-  /// 背景模糊半径（px）。
-  ///
-  /// 只作用在**壳自己画的背景**上（舞台是 `<iframe>` 平台视图，模糊不到）。
-  /// 0–8：这个量级上背景仍然认得出是「一张图」，再大就只是色块。
-  final double backgroundBlur;
-
-  /// 可读性遮罩档位（`0=auto` / `1=无` / `2=轻` / `3=重`）。
-  final int backgroundScrim;
 
   /// **全局背景开关**（DEC-4）：`false` = 不画图，只留底色。
   ///
   /// 与 [backgroundOpacity] = 0 的区别是**可逆**：关掉开关不动用户的透明度
   /// 设置，重新打开就是他原来看到的样子。
   final bool backgroundEnabled;
-
-  /// 图片铺法（`0=cover` / `1=contain` / `2=stretch` / `3=tile`）。
-  final int imageFit;
-
-  /// 图片位置（3×3 九宫格索引，`0=左上` … `4=居中` … `8=右下`）。
-  final int imageAlign;
-
-  /// 平铺的贴片边长（逻辑像素；**只对 [imageFit] = 3 有效**）。
-  ///
-  /// 为什么放在全局而不是逐图：逐图覆盖只做 opacity / fit / align 三项
-  /// （parity §6 的短期目标），贴片大小是「铺法参数」，跟着 [imageFit] 走。
-  final double tileSize;
 
   /// 轮播间隔（秒；`0` = 不轮播）。
   final int slideInterval;
@@ -186,18 +127,6 @@ class DisplayPrefs {
   /// `ChatPanel.backdropVisible`）：背后是纯色底，把面板做半透
   /// 只会让整块界面发灰，而不是「透出背景」。
   final double uiTransparency;
-
-  /// 舞台背景轮播列表（用户手动维护，dataURL，缺省空）。
-  ///
-  /// 图列表住在这里——与 [stageImage] 同一条 localStorage 记录、同一份长度
-  /// 预算（[kStageImageMaxChars] / [kStagePlaylistMaxChars]）。用户在「外观与
-  /// 互动」里增删 / 排序；当前舞台那张仍是 [stageImage]，两者数据相等时由
-  /// [stagePlaylistIndexOf] 标出来。
-  ///
-  /// 列表为空是**合法状态**（就是「没有轮播图」）。三项预算：每项 ≤
-  /// [kStageImageMaxChars]、总长 ≤ [kStagePlaylistMaxChars]、
-  /// 项数 ≤ [kStagePlaylistMaxItems]。
-  final List<String> stagePlaylist;
 
   /// 模型缩放（渲染面 `stage-config.scale`，同区间）。
   final double scale;
@@ -244,31 +173,13 @@ class DisplayPrefs {
   /// （规格 §4.1.5 的 A 组把它列为 dev）。
   final int tier;
 
-  /// **描边强度**（2026-09-27）：`AppColors.hairline` 透明度的缩放系数。
-  ///
-  /// 默认 `1.0`。调低会让界面更「轻」（发丝线几乎消失，靠三级面差分层）；
-  /// 调高适合大屏 / 亮度高的显示器。
-  ///
-  /// **不参与**的：焦点环（`focusRing`）与危险描边（`dangerBorder`）直出
-  /// `accent` / `danger`，不走 `hairline`——它们是可用性下限，
-  /// 不是审美旋钮（见 `theme_palette_test` 的对比度断言）。
-  final double edgeStrength;
-
   /// 默认档位。
   static const int defaultTier = 8192;
 
   /// 合法档位（**唯一真源**，下拉/分段与 clamp 都读它）。
   static const List<int> tiers = <int>[4096, 8192, 16384];
 
-  /// 描边强度：默认值与区间。
-  ///
-  /// 下限不是 0：全 0 时发丝线**完全消失**，界面只剩色块没有边界——
-  /// 那不是「更轻的界面」，是坏掉的界面。0.4 保留刚好可辨的一线。
-  static const double defaultEdgeStrength = 1.0;
-  static const double minEdgeStrength = 0.4;
-  static const double maxEdgeStrength = 1.5;
-
-  // ── 背景系统（2026-09-27）──
+  // ── 背景系统（2026-09-27；2026-10-07 收成背景库一张）──
 
   /// 背景不透明度：默认值与区间。
   ///
@@ -353,19 +264,6 @@ class DisplayPrefs {
   static const int minSlideIntervalSeconds = 5;
   static const int maxSlideIntervalSeconds = 300;
 
-  /// 壳画**背景库**（默认，唯一真相）。
-  static const int backgroundSourceLibrary = 0;
-
-  /// 壳画**舞台那张单图**（rc.5 兼容形态：一张图，壳与舞台共用）。
-  static const int backgroundSourceStageImage = 1;
-
-  /// 「舞台那张」在背景库语义下的固定 id。
-  ///
-  /// 那一项**不存字节库**（它走渲染面 `stage-bg` 协议，且随偏好落盘），
-  /// 所以 id 不参与任何字节库操作——固定值就够，且省掉每帧对一张
-  /// 几 MB 的 dataURL 做哈希。
-  static const String kStageImageItemId = 'bgstage';
-
   /// 界面透明度：默认值与区间。
   static const double defaultUiTransparency = 0.5;
   static const double minUiTransparency = 0.0;
@@ -374,8 +272,7 @@ class DisplayPrefs {
   /// 面板不透明度的**下界**（`uiTransparency = 1` 时取到它）。
   ///
   /// 为什么要下界而不是 0：0 意味着面板完全消失，聊天文字直接落在图上——
-  /// 那不是「更透的界面」，是坏掉的界面。这条与
-  /// `minEdgeStrength`（发丝线不许归零）是同一条纪律。
+  /// 那不是「更透的界面」，是坏掉的界面。发丝线的透明度同样固定，不归零。
   static const double minPanelAlpha = 0.55;
 
   /// 九宫格位置 → 对齐（**纯函数，可 VM 单测**）。
@@ -442,9 +339,13 @@ class DisplayPrefs {
   static List<BackgroundItem> readBackgrounds(Map<String, Object?> json) =>
       DisplayPrefsCodec.readBackgrounds(json);
 
-  /// 轮播列表读取。本体：[DisplayPrefsCodec.readStagePlaylist]。
+  /// 旧轮播列表读取（字段已不落盘；纯函数留给仍在测的列表算术）。
   static List<String> readStagePlaylist(Object? raw) =>
       DisplayPrefsCodec.readStagePlaylist(raw);
+
+  /// 当前库项投影到舞台的 data URL。图案、空库、关闭、超限 → null。
+  static String? stageProjectionUrl(DisplayPrefs prefs, int index) =>
+      DisplayPrefsDerived.stageProjectionUrl(prefs, index);
 
   /// 逐图覆盖 ?? 全局：不透明度。本体：[DisplayPrefsDerived.effectiveImageOpacity]。
   static double effectiveImageOpacity(BackgroundItem? item, double global) =>
@@ -468,15 +369,11 @@ class DisplayPrefs {
     BackgroundItem item,
   ) => DisplayPrefsLimits.canAddBackground(current, item);
 
-  /// 区间夹持与读入校验的九个 clamp。本体都在 display_prefs_limits.dart。
+  /// 区间夹持。本体都在 display_prefs_limits.dart。
   static double clampBackgroundOpacity(double value) =>
       DisplayPrefsLimits.clampBackgroundOpacity(value);
   static double clampUiTransparency(double value) =>
       DisplayPrefsLimits.clampUiTransparency(value);
-  static double clampBackgroundBlur(double value) =>
-      DisplayPrefsLimits.clampBackgroundBlur(value);
-  static double clampTileSize(double value) =>
-      DisplayPrefsLimits.clampTileSize(value);
   static int clampSlideInterval(int value) =>
       DisplayPrefsLimits.clampSlideInterval(value);
   static double clampScale(double value) => DisplayPrefsLimits.clampScale(value);
@@ -484,22 +381,13 @@ class DisplayPrefs {
       DisplayPrefsLimits.clampMouthSensitivity(value);
   static double clampVolume(double value) =>
       DisplayPrefsLimits.clampVolume(value);
-  static double clampEdgeStrength(double value) =>
-      DisplayPrefsLimits.clampEdgeStrength(value);
 
   @override
   bool operator ==(Object other) {
     if (other is! DisplayPrefs) return false;
     if (other.theme != theme ||
-        other.stageImage != stageImage ||
-        other.backgroundSource != backgroundSource ||
         other.backgroundEnabled != backgroundEnabled ||
         other.backgroundOpacity != backgroundOpacity ||
-        other.backgroundBlur != backgroundBlur ||
-        other.backgroundScrim != backgroundScrim ||
-        other.imageFit != imageFit ||
-        other.imageAlign != imageAlign ||
-        other.tileSize != tileSize ||
         other.slideInterval != slideInterval ||
         other.slideRandom != slideRandom ||
         other.uiTransparency != uiTransparency ||
@@ -510,48 +398,28 @@ class DisplayPrefs {
         other.muted != muted ||
         other.volume != volume ||
         other.allowDragZoom != allowDragZoom ||
-        other.tier != tier ||
-        other.edgeStrength != edgeStrength) {
+        other.tier != tier) {
       return false;
     }
     if (backgrounds.length != other.backgrounds.length) return false;
     for (int i = 0; i < backgrounds.length; i++) {
-      // **用 `!=`（含逐图样式），不要用 id-only 的 `sameAs`**（F-0034-01，
-      // 审计 2026-09-28；P2 在线缺陷）：
-      //
-      // `sameAs` 的语义是「**字节读回前后算同一项**」（只看 id）——那是给
-      // 水合去重用的，不是给「变了没有」用的。把它当通用判据会让「只改了
-      // 逐图铺法 / 不透明度 / 位置」被判成「什么都没变」⇒ `_updatePrefs` 的
-      // `if (next == widget.prefs) return;`（以及 `main.dart` 的 `_update`）
-      // **静默丢掉**这次编辑：界面不动、刷新还原，且没有任何错误。
-      //
-      // `BackgroundImage.==` 与 `hashCode` 都含 `id + opacity + fit + align`
-      // 且都不看 `dataUrl`，所以换用它既补上样式轴、又保持「字节没回来也
-      // 算同一项」，还让 `==` 与 `hashCode` 重新对称。
+      // 用 `!=`，不用 id-only 的 `sameAs`（F-0034-01）：只看 id 会把
+      // 换了字节身份以外的编辑判成没变，`_updatePrefs` 会静默丢掉。
       if (backgrounds[i] != other.backgrounds[i]) return false;
     }
-    return _sameList(other.stagePlaylist, stagePlaylist);
+    return true;
   }
 
   @override
   int get hashCode => Object.hash(
-    Object.hashAll(<Object?>[
-      theme,
-      stageImage,
-      backgroundSource,
-      backgroundOpacity,
-      backgroundBlur,
-      backgroundScrim,
-      imageFit,
-      imageAlign,
-      Object.hashAll(stagePlaylist),
-    ]),
-    Object.hashAll(<Object?>[
-      slideInterval,
-      slideRandom,
-      tileSize,
-      backgroundEnabled,
-      uiTransparency,
+    theme,
+    Object.hashAll(backgrounds),
+    backgroundOpacity,
+    backgroundEnabled,
+    slideInterval,
+    slideRandom,
+    uiTransparency,
+    Object.hash(
       scale,
       mouthSensitivity,
       lipSync,
@@ -560,24 +428,17 @@ class DisplayPrefs {
       volume,
       allowDragZoom,
       tier,
-      edgeStrength,
-      ...backgrounds,
-    ]),
+    ),
   );
 
   @override
   String toString() =>
-      'DisplayPrefs(theme: ${theme.wire}, stageImage: ${stageImage?.length ?? 0} chars, '
-      'playlist: ${stagePlaylist.length} items, '
+      'DisplayPrefs(theme: ${theme.wire}, '
       'backgrounds: ${backgrounds.length} 项 / ${backgroundsBytes(backgrounds)} bytes, '
-      'source: $backgroundSource, enabled: $backgroundEnabled, '
-      'opacity: $backgroundOpacity, blur: $backgroundBlur, '
-      'scrim: $backgroundScrim, fit: $imageFit, align: $imageAlign, '
-      'tileSize: $tileSize, '
+      'enabled: $backgroundEnabled, opacity: $backgroundOpacity, '
       'slide: ${slideInterval}s/${slideRandom ? 'random' : 'order'}, '
-      'scale: $scale, mouth: $mouthSensitivity, '
+      'uiTransparency: $uiTransparency, scale: $scale, mouth: $mouthSensitivity, '
       'lipSync: $lipSync, idle: $idleEnabled, muted: $muted, '
-      'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier, '
-      'edgeStrength: $edgeStrength)';
+      'volume: $volume, allowDragZoom: $allowDragZoom, tier: $tier)';
 
 }

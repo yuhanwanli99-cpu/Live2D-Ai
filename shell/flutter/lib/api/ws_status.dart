@@ -38,11 +38,11 @@ enum WsStatus {
 
   /// 读屏/诊断用的一句话。
   String get description => switch (this) {
-    WsStatus.idle => '实时通道尚未建立',
-    WsStatus.connecting => '正在建立实时通道',
-    WsStatus.connected => '实时通道正常',
-    WsStatus.disconnected => '实时通道断开，正在自动重连',
-    WsStatus.closed => '实时通道已关闭（页面即将释放）',
+    WsStatus.idle => '连接尚未建立',
+    WsStatus.connecting => '正在建立连接',
+    WsStatus.connected => '连接正常',
+    WsStatus.disconnected => '连接断开，正在自动重连',
+    WsStatus.closed => '连接已关闭（页面即将释放）',
   };
 
   /// 是否「能用」：只有连上才算。

@@ -72,6 +72,7 @@ class TextDeltaEvent extends WsEvent {
     this.epoch,
     this.text,
     this.completed,
+    this.sentenceSeq,
     super.seq,
     super.ts,
   });
@@ -79,6 +80,9 @@ class TextDeltaEvent extends WsEvent {
   final int? epoch;
   final String? text;
   final bool? completed;
+
+  /// 与音频帧 `sentence_seq` 同源（从 1 起）。完成锚点与旧服务端没有这个字段。
+  final int? sentenceSeq;
 }
 
 /// `reasoning_delta`：推理模型的**思考**增量（2026-09-13）。
@@ -449,6 +453,7 @@ WsEvent? parseWsFrame(String raw) {
         epoch: _intOrNull(data['epoch']),
         text: _str(data['text']),
         completed: data['completed'] is bool ? data['completed'] as bool : null,
+        sentenceSeq: _intOrNull(data['sentence_seq']),
         seq: seq,
         ts: ts,
       );

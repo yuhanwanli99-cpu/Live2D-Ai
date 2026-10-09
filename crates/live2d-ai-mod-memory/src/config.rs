@@ -224,7 +224,8 @@ pub fn memory_settings_spec() -> ModSettingsSpec {
             },
             ModSettingField::Bool {
                 key: "enabled_injection".to_string(),
-                label: "把检索结果注入本轮提示词（关掉则只记不注入）".to_string(),
+                // 2026-10-08：产品面说人话（说明由前端 ModPanel.fieldHelp 给）。
+                label: "聊天时用上这些记忆".to_string(),
                 default: true,
             },
             ModSettingField::Bool {

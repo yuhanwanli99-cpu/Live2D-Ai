@@ -2,9 +2,11 @@
 ///
 /// # 被修掉的是什么
 ///
-/// 四个「一次性结果」挂在 `MainApp` 的 State 上：
-/// `_llmTest` / `_ttsTest` / `_adminMessage` / `_stageImageMessage`
-/// （2026-09-13 M5.1：`_importMessage` 随角色卡导入迁出主链而删除）。
+/// 几个「一次性结果」挂在 `MainApp` 的 State 上：
+/// `_llmTest` / `_ttsTest` / `_adminMessage` / `_shellImageMessage`
+/// / `_modelOverrideMessage`（2026-09-13 M5.1：`_importMessage` 随角色卡导入
+/// 迁出主链而删除；2026-10-07：舞台那张图的 `_stageImageMessage` 随舞台图
+/// 收成背景库投影而删除，壳背景库的结果行 `_shellImageMessage` 仍在）。
 /// 它们过去只在**下一次同类操作**时才被覆盖，
 /// 切分区不重置。于是：用户测出「失败：401」→ 修好配置 → 切走 → 切回来，
 /// **那句失效的结论还在**，而它描述的已经是上一套配置了。
@@ -68,16 +70,18 @@ void main() {
         isTrue,
         reason: '_gotoSection 没有清一次性结果',
       );
+      // 2026-10-09：早退多了一个条件——带 group（页内定位）时即使同分区也要
+      // 走一次重建，否则「人已停在模型服务页、再点去语音合成设置」毫无反应。
       expect(
-        body.contains('if (next == _section) return;'),
+        body.contains('if (next == _section && group == null) return;'),
         isTrue,
-        reason: '同一个分区之间来回点不该白清一次结果',
+        reason: '同一个分区之间来回点不该白清一次结果（除非带页内定位）',
       );
     });
   });
 
-  group('P2-2：四个一次性结果全在清理范围内', () {
-    test('清的就是这四个（不是只清了一两个）', () {
+  group('P2-2：一次性结果全在清理范围内', () {
+    test('清的就是源码里真实清掉的那几个（不是只清了一两个）', () {
       final String src = mainSource();
       final int start = src.indexOf('void _clearTransientResults()');
       expect(start, greaterThan(0));
@@ -86,7 +90,11 @@ void main() {
         '_llmTest',
         '_ttsTest',
         '_adminMessage',
-        '_stageImageMessage',
+        // 2026-10-07：外观卡片简化之后，舞台图那一份结果位
+        // （`_stageImageMessage` / `_stageImageFailed`）已从 main.dart 删除；
+        // 壳背景库那一份仍在清理清单里。
+        '_shellImageMessage',
+        '_modelOverrideMessage',
       ]) {
         expect(
           body.contains('$field = null'),
@@ -98,10 +106,19 @@ void main() {
       for (final String flag in <String>[
         '_llmTesting',
         '_ttsTesting',
-        '_stageImageFailed',
+        '_shellImageFailed',
+        '_modelOverrideFailed',
       ]) {
         expect(body.contains('$flag = false'), isTrue, reason: '$flag 没有复位');
       }
+      // 「不再有」那一半：舞台图那两份结果位已经随舞台图收口删掉，
+      // 不许它们再长回来冒充清理面。
+      expect(
+        body.contains('_stageImageMessage'),
+        isFalse,
+        reason: '舞台图收成背景库投影之后，它已从 main.dart 删除',
+      );
+      expect(body.contains('_stageImageFailed'), isFalse);
     });
 
     test('**在途的**异步结果也会作废（`_resultEpoch` 对账）', () {

@@ -30,39 +30,35 @@ import 'package:live2d_ai_shell/ui/shell_backdrop.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
 void main() {
-  group('fit 扩四档：旧档里的 2 / 3 由「坏值」变成合法档', () {
-    test('存量 imageFit = 2（拉伸）原样读回，不再回落 0', () {
-      expect(
-        DisplayPrefs.fromJson(<String, Object?>{'imageFit': 2}).imageFit,
-        2,
-        reason: '2 = stretch 现在是合法档；回落 0 会把用户的「拉伸」静默改成「铺满」',
-      );
-    });
-
-    test('存量 imageFit = 3（平铺）原样读回，不再回落 0', () {
-      expect(
-        DisplayPrefs.fromJson(<String, Object?>{'imageFit': 3}).imageFit,
-        3,
-        reason: '3 = tile 现在是合法档',
-      );
-    });
-
-    test('上界是 3：4 / 42 / -1 / 非数字仍然回落默认 0', () {
-      for (final Object? bad in <Object?>[4, 42, -1, 'stretch', null]) {
+  group('已删的铺法键：imageFit 读入被忽略（2026-10-07 收成固定「铺满」）', () {
+    test('存量 imageFit（含 0/1/2/3/42/非数字）一律不接——没有任何字段读它', () {
+      for (final Object? raw in <Object?>[
+        DisplayPrefs.fitCover,
+        DisplayPrefs.fitContain,
+        DisplayPrefs.fitStretch,
+        DisplayPrefs.fitTile,
+        4,
+        42,
+        -1,
+        'stretch',
+        null,
+        3.5,
+      ]) {
         expect(
-          DisplayPrefs.fromJson(<String, Object?>{'imageFit': bad}).imageFit,
-          DisplayPrefs.defaultImageFit,
-          reason: '$bad 在 [0, 3] 之外（或不是 int），必须回落默认',
+          DisplayPrefs.fromJson(<String, Object?>{'imageFit': raw}),
+          const DisplayPrefs(),
+          reason: 'imageFit 已从落盘面删除：$raw 不该改到任何字段',
         );
       }
-      expect(DisplayPrefs.maxImageFit, 3);
-      expect(DisplayPrefs.defaultImageFit, 0);
-      // _readInt 对 num 的**截断**是既有语义（所有 int 字段共用），本轮不动：
-      // 3.5 落到 3，不是回落 0——那是「宽容读入」，与本轮的迁移语义无关。
-      expect(
-        DisplayPrefs.fromJson(<String, Object?>{'imageFit': 3.5}).imageFit,
-        3,
-      );
+    });
+
+    test('渲染函数与常量仍在（四档铺法是**渲染面**能力，不是用户旋钮）', () {
+      expect(DisplayPrefs.maxImageFit, DisplayPrefs.fitTile);
+      expect(DisplayPrefs.defaultImageFit, DisplayPrefs.fitCover);
+      expect(boxFitFor(DisplayPrefs.fitCover), BoxFit.cover);
+      expect(boxFitFor(DisplayPrefs.fitContain), BoxFit.contain);
+      expect(boxFitFor(DisplayPrefs.fitStretch), BoxFit.fill);
+      expect(boxFitFor(DisplayPrefs.fitTile), BoxFit.none);
     });
   });
 
@@ -108,13 +104,12 @@ void main() {
       expect(DisplayPrefs.fromJson(const <String, Object?>{}).slideInterval, 0);
     });
 
-    test('_clampInt 的语义没被动过：scrim / align 越界仍回落默认', () {
+    test('已删的 scrim / align 键读入被忽略（DEC-1 只管 slideInterval）', () {
       final DisplayPrefs p = DisplayPrefs.fromJson(<String, Object?>{
         'backgroundScrim': 99,
         'imageAlign': -3,
       });
-      expect(p.backgroundScrim, DisplayPrefs.defaultBackgroundScrim);
-      expect(p.imageAlign, DisplayPrefs.defaultImageAlign);
+      expect(p, const DisplayPrefs());
     });
   });
 
@@ -334,36 +329,29 @@ void main() {
       expect(hydrated.hashCode, full.hashCode);
     });
 
-    test('往返保住**四个落盘字段**；dataUrl 刻意不落盘（读回是 null）', () {
+    test('往返只保住 kind + id：dataUrl 与逐图样式都不落盘（2026-10-07）', () {
       final BackgroundImage back = BackgroundImage.fromJson(full.toJson())!;
       expect(back.id, 'bg1');
-      expect(back.opacity, 0.4);
-      expect(back.fit, 2);
-      expect(back.align, 7);
+      expect(back.opacity, isNull, reason: '逐图不透明度不再落盘');
+      expect(back.fit, isNull, reason: '逐图铺法不再落盘');
+      expect(back.align, isNull, reason: '逐图位置不再落盘');
       expect(
         back.dataUrl,
         isNull,
         reason: '写了 dataURL 就等于把图又塞回 localStorage，整个搬库白做',
       );
-      expect(back, full, reason: '== 不看 dataUrl ⇒ 水合前后仍是同一项');
     });
 
-    test('toJson 只写**设过**的样式（null 不落盘、dataUrl 永不落盘）', () {
+    test('toJson 只有 kind + id（dataUrl / 逐图样式都不写）', () {
       expect(
         const BackgroundImage(id: 'a').toJson().keys.toSet(),
         <String>{'kind', 'id'},
       );
-      expect(
-        full.toJson().keys.toSet(),
-        <String>{'kind', 'id', 'opacity', 'fit', 'align'},
-      );
-      expect(
-        const BackgroundImage(id: 'a').toJson().containsKey('dataUrl'),
-        isFalse,
-      );
+      expect(full.toJson().keys.toSet(), <String>{'kind', 'id'});
+      expect(full.toJson().containsKey('dataUrl'), isFalse);
     });
 
-    test('fromJson 的坏样式 = 没设过（回落全局），不抛', () {
+    test('fromJson 忽略旧的逐图样式键（**合法值也忽略**，不是夹到区间）', () {
       final BackgroundImage? item = BackgroundImage.fromJson(<Object?, Object?>{
         'kind': 'image',
         'id': 'a',
@@ -372,27 +360,33 @@ void main() {
         'align': -1,
       });
       expect(item, isNotNull);
-      expect(item!.opacity, isNull, reason: '越界的不透明度当「没设过」，不是夹到 1');
+      expect(item!.opacity, isNull);
       expect(item.fit, isNull);
       expect(item.align, isNull);
-      final BackgroundImage? weird = BackgroundImage.fromJson(<Object?, Object?>{
-        'kind': 'image',
-        'id': 'b',
-        'opacity': 'solid',
-        'fit': 'cover',
-      });
-      expect(weird!.opacity, isNull);
-      expect(weird.fit, isNull);
+
+      final BackgroundImage? styled = BackgroundImage.fromJson(
+        <Object?, Object?>{
+          'kind': 'image',
+          'id': 'b',
+          'opacity': 0.3,
+          'fit': DisplayPrefs.fitTile,
+          'align': 8,
+        },
+      );
+      expect(styled!.opacity, isNull);
+      expect(styled.fit, isNull);
+      expect(styled.align, isNull);
     });
 
-    test('旧档（只有 dataUrl、没有 id）也能带上逐图样式', () {
+    test('旧档（只有 dataUrl、没有 id）算出 id，样式键同样忽略', () {
       final BackgroundImage? item = BackgroundImage.fromJson(<Object?, Object?>{
         'kind': 'image',
         'dataUrl': 'data:image/png;base64,AAA',
         'fit': 3,
       });
       expect(item!.id, backgroundIdOf('data:image/png;base64,AAA'));
-      expect(item.fit, 3);
+      expect(item.dataUrl, 'data:image/png;base64,AAA');
+      expect(item.fit, isNull);
     });
 
     test('copyWith(dataUrl:) 之后三个样式字段逐字不变（R6-a2 水合的硬要求）', () {
@@ -495,34 +489,22 @@ void main() {
     });
   });
 
-  group('tileSize：只对 tile 有效', () {
-    test('默认 64、区间 [16, 256]；非有限数回落默认', () {
+  group('tileSize 不再是偏好：壳固定用 defaultTileSize 常量', () {
+    test('常量仍在（壳的平铺贴片边长、区间与渲染函数都保留）', () {
       expect(DisplayPrefs.defaultTileSize, 64.0);
       expect(DisplayPrefs.minTileSize, 16.0);
       expect(DisplayPrefs.maxTileSize, 256.0);
-      expect(DisplayPrefs.clampTileSize(double.nan), 64.0);
-      expect(DisplayPrefs.clampTileSize(double.infinity), 64.0);
-      expect(DisplayPrefs.clampTileSize(-5), 16.0);
-      expect(DisplayPrefs.clampTileSize(9999), 256.0);
     });
 
-    test('写进 JSON 再读回来；越界夹到端点；参与 == / hashCode', () {
-      const DisplayPrefs big = DisplayPrefs(tileSize: 200);
-      expect(DisplayPrefs.fromJson(big.toJson()).tileSize, 200.0);
-      expect(
-        DisplayPrefs.fromJson(<String, Object?>{'tileSize': 8}).tileSize,
-        16.0,
-      );
-      expect(
-        DisplayPrefs.fromJson(<String, Object?>{'tileSize': 9999}).tileSize,
-        256.0,
-      );
-      expect(
-        DisplayPrefs.fromJson(<String, Object?>{'tileSize': 'wide'}).tileSize,
-        64.0,
-      );
-      expect(big, isNot(const DisplayPrefs()));
-      expect(big.hashCode, isNot(const DisplayPrefs().hashCode));
+    test('旧 tileSize 键读入被忽略，写回不再产生它', () {
+      for (final Object? raw in <Object?>[200, 8, 9999, 'wide']) {
+        expect(
+          DisplayPrefs.fromJson(<String, Object?>{'tileSize': raw}),
+          const DisplayPrefs(),
+          reason: 'tileSize 已从落盘面删除：$raw 不该改到任何字段',
+        );
+      }
+      expect(const DisplayPrefs().toJson().containsKey('tileSize'), isFalse);
     });
 
     test('tileScaleFor：一块贴片的宽度 = tileSize（退化输入不抛）', () {
@@ -534,9 +516,19 @@ void main() {
       expect(tileScaleFor(640, double.nan), 1.0);
     });
 
-    testWidgets('app_shell 把 prefs.tileSize 传给 ShellBackdrop', (WidgetTester tester) async {
-      await _pumpAppShell(tester, const DisplayPrefs(tileSize: 24));
-      expect(_shellBackdrop(tester).tileSize, 24.0);
+    testWidgets('app_shell 传的是**常量**（铺满 / 居中 / 不模糊 / 遮罩自动）', (
+      WidgetTester tester,
+    ) async {
+      await _pumpAppShell(tester, const DisplayPrefs());
+      final ShellBackdrop backdrop = _shellBackdrop(tester);
+      expect(
+        backdrop.tileSize,
+        DisplayPrefs.defaultTileSize,
+        reason: '外壳不再读偏好字段：平铺边长由常量给',
+      );
+      expect(backdrop.fit, DisplayPrefs.fitCover);
+      expect(backdrop.align, DisplayPrefs.defaultImageAlign);
+      expect(backdrop.scrim, DisplayPrefs.defaultBackgroundScrim);
     });
   });
 
@@ -584,10 +576,10 @@ Widget _host({
     item: item,
     enabled: enabled ?? prefs.backgroundEnabled,
     opacity: opacity ?? prefs.backgroundOpacity,
-    fit: fit ?? prefs.imageFit,
-    align: align ?? prefs.imageAlign,
-    tileSize: tileSize ?? prefs.tileSize,
-    scrim: scrim ?? prefs.backgroundScrim,
+    fit: fit ?? DisplayPrefs.defaultImageFit,
+    align: align ?? DisplayPrefs.defaultImageAlign,
+    tileSize: tileSize ?? DisplayPrefs.defaultTileSize,
+    scrim: scrim ?? DisplayPrefs.defaultBackgroundScrim,
     child: const Text('子树'),
   ),
 );

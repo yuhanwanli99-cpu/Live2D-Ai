@@ -117,10 +117,17 @@ fn sentence_voiced_emits_text_delta_but_raw_deltas_do_not() {
         "每句恰好一次上屏（一句一单元），实际 {}",
         text_deltas.len()
     );
-    if let ConversationUiEvent::TextDelta { epoch, ts_ms, text } = text_deltas[0] {
+    if let ConversationUiEvent::TextDelta {
+        epoch,
+        ts_ms,
+        sentence_seq,
+        text,
+    } = text_deltas[0]
+    {
         assert_eq!(*epoch, 5);
         // ts_ms 必须是**合成完成**时刻，不是 LLM 产生时刻。
         assert_eq!(*ts_ms, 900, "上屏时刻应取 SentenceVoiced 的 ts_ms");
+        assert_eq!(*sentence_seq, 1, "上屏句号与 SentenceVoiced 同源");
         assert_eq!(text, "你好，世", "整句文本逐字无损");
     } else {
         panic!("should be TextDelta");
@@ -180,9 +187,16 @@ fn sentence_voiced_zero_ts_ms_is_preserved() {
             _ => None,
         })
         .expect("TextDelta event emitted");
-    if let ConversationUiEvent::TextDelta { epoch, ts_ms, text } = td {
+    if let ConversationUiEvent::TextDelta {
+        epoch,
+        ts_ms,
+        sentence_seq,
+        text,
+    } = td
+    {
         assert_eq!(epoch, 0);
         assert_eq!(ts_ms, 0, "ts_ms 0 边界保留");
+        assert_eq!(sentence_seq, 1);
         assert_eq!(text, "x");
     } else {
         panic!("not TextDelta");

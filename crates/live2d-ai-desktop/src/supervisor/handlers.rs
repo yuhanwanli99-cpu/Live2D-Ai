@@ -109,17 +109,22 @@ pub(crate) fn handle_engine_event(
             });
         }
         EngineEvent::SentenceVoiced {
-            epoch, ts_ms, text, ..
+            epoch,
+            ts_ms,
+            sentence_seq,
+            text,
         } => {
             // P1WS-1 语义保留：真实 text payload 透传给 UI/WS。
             // - 不变 core reducer（只走 emit）；
             // - 不变 TurnCompleted/双闩锁语义（文本不触发任何 root 事件）；
             // - `epoch` 来自引擎事件本身（与 `ev_epoch(&ev)` 一致），便于
             //   前端按 epoch 分组气泡；
-            // - `ts_ms` 保留供节点 D 链路耗时可视化（ws 投影可选携带）。
+            // - `ts_ms` 保留供节点 D 链路耗时可视化（ws 投影可选携带）；
+            // - `sentence_seq` 与该句音频帧同源，前端用来跟读，不另编号。
             emit(AppEvent::Conversation(ConversationUiEvent::TextDelta {
                 epoch: *epoch,
                 ts_ms: *ts_ms,
+                sentence_seq: *sentence_seq,
                 text: text.clone(),
             }));
         }

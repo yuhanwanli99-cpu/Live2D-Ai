@@ -2,8 +2,8 @@
 #
 # 用法：
 #   cp live2d-ai.toml.example live2d-ai.toml
-# 然后按需修改。所有段与字段都有默认值：本轮最小可用配置只需
-# [llm] base_url/model（TTS 选型待定，见下方 [tts] 注释）。
+# 然后按需修改。所有段与字段都有默认值：出厂 [llm] 指 DeepSeek 官方、
+# [tts] 指仓库自带的 MeloTTS 垫片，照抄即可用——只差你自己的 API Key。
 #
 # 安全边界：
 #   API Key 不写进本文件——在 api_key_env 写环境变量**名**，
@@ -13,11 +13,19 @@
 
 [llm]
 # OpenAI-compatible 服务基址（尾部 / 可省略），请求路径 <base_url>/chat/completions
-base_url = "http://127.0.0.1:11434/v1"
+#
+# 2026-10-08：**模型定死 DeepSeek 官方 V4.1 Flash**（请求体 model 字符串
+# `deepseek-flash`，见 https://api-docs.deepseek.com/news/news260910）。
+# 同一路的模型也用来做「二路按句清洗」（把 emoji / 动作描写从送 TTS 的文本里
+# 去掉，上屏仍用原文），所以缺省就是它；界面上没有模型下拉框。
+base_url = "https://api.deepseek.com/v1"
 # 模型名（原样进入请求体 model 字段）
-model = "qwen2.5:7b"
-# 存放 API key 的环境变量名；本地无鉴权服务直接删除此行
-# api_key_env = "LIVE2D_AI_LLM_API_KEY"
+model = "deepseek-flash"
+# 存放 API key 的环境变量名。**仓库不提供、也不提交任何 LLM Key**：
+# 值住 `.env`（本机文件，不进 git），出厂为空 = 不发送 Authorization 头；
+# 没有 Key 时链路照旧按上游 401 报错（错误码不变）。删掉本行 = 该端点不鉴权。
+# 到 DeepSeek 申请自己的 Key，填到 设置 → 模型服务 → 语言模型 → 密钥。
+api_key_env = "DEEPSEEK_API_KEY"
 # 输出 token 上限。省略 = 服务端默认（当前 4096）；显式 0 = 不限制（省略请求体字段）。
 # 2026-09-13 实测：推理模型（如 deepseek-flash）的**思考与正文共用这份预算**。
 # 上限太小时，长思考的提问会把正文挤成空或半句——而半句切不出完整句，
@@ -26,30 +34,28 @@ model = "qwen2.5:7b"
 # 注意下限陷阱：调太小会把句子截断在半句，那就是「断句」——本项目明确不接受。
 # max_tokens = 4096
 
-# CosyVoice 3（2026-09-10 选定）—— OpenAI 兼容层。
+# TTS **不是 Mod**，是核心链路（LLM → TTS → 口型）：这一段是出声端点的**唯一**
+# 权威来源。论证见 docs/architecture/tts-is-core.md。
 #
-# 推荐形态：社区 CosyVoice3-API（:8080），一条命令起服务：
-#   docker run -d --gpus all --shm-size=2g -p 8080:8080 \
-#     ghcr.io/hsiang-han/cosyvoice3-api:latest
-# CosyVoice3 **没有内置音色**，必须先注册一个克隆音色（zero-shot，需参考音频）。
-# 端点以**实际部署**为准——先探明再写配置（2026-09-10 实测本机部署）：
-#   curl -s http://127.0.0.1:8080/openapi.json     # 列出真实路径
-#   curl -s http://127.0.0.1:8080/v1/audio/voices  # 列出已注册音色 id
+# 出厂端点 = 仓库自带的 MeloTTS 中文垫片（crates/live2d-ai-mod-local-tts/melo）。
+# 缺省启用的 Mod `local-tts-melo` 会随应用把 melo/start.sh 拉起来，缺省监听
+# 127.0.0.1:8091；第一次启用时按 tag v0.1.2 建 melo/.venv 并装 MeloTTS。
+# 它**只拉起进程**——不写这一段、不探活、不改地址。
+# CosyVoice3 引擎已封存、未注册（crate 与 engine/ 仍在树上，未适配前不要挂回）。
 [tts]
-base_url = "http://127.0.0.1:8080/v1"
-# 已注册的克隆音色 id（上一步列出的 id 之一）
-voice = "my_voice"
+base_url = "http://127.0.0.1:8091/v1"
+# 音色 = melo/weights/config.json 里 spk2id 的键（这份 config 只有 ZH）
+voice = "ZH"
 # 响应格式。**必须与服务端实际返回一致**（填错会被 400 拒绝，或按错容器解析出杂音）：
-#   "pcm" = 裸 s16le 交错流（CosyVoice3-API 实测只支持这个）
+#   "pcm" = 裸 s16le 交错流（MeloTTS 垫片走这个）
 #   "wav" = RIFF 容器（服务端返回 WAV 时用；本项目会整段缓冲后再解析）
-# 2026-09-10 实测：本机 CosyVoice3-API 对 wav/mp3/opus/flac 一律 400，只有 pcm 可用。
 response_format = "pcm"
-# CosyVoice3 输出 24 kHz 单声道
-sample_rate = 24000
+# MeloTTS 中文这份 config 的 sampling_rate = 44100
+sample_rate = 44100
 channels = 1
-# 可选：模型名 / 密钥环境变量名
-# model = "cosyvoice3"
-# api_key_env = "LIVE2D_AI_TTS_API_KEY"
+# 本地垫片不鉴权：**不设 api_key_env**（出厂不带 TTS 密钥）。
+# 可选模型名（垫片忽略它）
+# model = "melotts-zh"
 
 [persona]
 # 固定注入每轮的 system 提示；空串或整段省略 = 不发 system 消息。
@@ -98,7 +104,12 @@ expression_scale = 1.0
 # expression_scale = 1.0
 
 [performance]
-# 表演层（导演 / 大脑，2026-09-22）——**默认关**。
+# 整段表演层（导演 / 大脑，2026-09-22）——**默认关**。
+#
+# 2026-10-08 改口径：它是**显式 opt-in** 的整段路径（开关就是本段的 enabled）。
+# 产品缺省（enabled=false）走**二路按句清洗**：主链边流边切句，一句闭合就交给
+# 同一个对话模型拿 {"display","speech"}，立刻送 TTS——**不等整段回复收齐**。
+# 打开本段才会用下面这份 JSON 的 speak/segments 决定本轮 TTS / 上屏。
 #
 # 分工（用户 2026-09-22 敲定）：
 #   主模型 = 酒馆式角色扮演 + 上下文/记忆注入；**不暴露任何工具**；

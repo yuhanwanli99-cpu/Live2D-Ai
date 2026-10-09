@@ -22,63 +22,63 @@ import 'support/dart_library.dart';
 import 'support/source_scan.dart';
 
 void main() {
-  test('stop_and_new_message_clear_action_expression_and_pending_tts', () async {
-    // 计划里先放一条真 cue：取消必须把它清掉。
-    final DirectorCuePlan plan = DirectorCuePlan();
-    plan.replace(<ActionCue>[
-      const ActionCue(
-        sentenceSeq: 2,
-        presetId: 'nod',
-        intensity: 2,
-        ttlMs: 900,
-        priority: 0,
-      ),
-    ]);
-    expect(plan.length, 1);
+  test(
+    'stop_and_new_message_clear_action_expression_and_pending_tts',
+    () async {
+      // 计划里先放一条真 cue：取消必须把它清掉。
+      final DirectorCuePlan plan = DirectorCuePlan();
+      plan.replace(<ActionCue>[
+        const ActionCue(
+          sentenceSeq: 2,
+          presetId: 'nod',
+          intensity: 2,
+          ttlMs: 900,
+          priority: 0,
+        ),
+      ]);
+      expect(plan.length, 1);
 
-    final List<String> calls = <String>[];
-    final StageCancellation canceller = StageCancellation(
-      clearCuePlan: (String reason) {
-        plan.replace(const <ActionCue>[]);
-        calls.add('clear-cue-plan:$reason');
-      },
-      revokeStage: (String reason) => calls.add('revoke-stage:$reason'),
-      dropPendingAudio: (String reason) =>
-          calls.add('drop-pending-audio:$reason'),
-      returnToBaseline: (String reason) =>
-          calls.add('return-to-baseline:$reason'),
-    );
+      final List<String> calls = <String>[];
+      final StageCancellation canceller = StageCancellation(
+        clearCuePlan: (String reason) {
+          plan.replace(const <ActionCue>[]);
+          calls.add('clear-cue-plan:$reason');
+        },
+        revokeStage: (String reason) => calls.add('revoke-stage:$reason'),
+        dropPendingAudio: (String reason) =>
+            calls.add('drop-pending-audio:$reason'),
+        returnToBaseline: (String reason) =>
+            calls.add('return-to-baseline:$reason'),
+      );
 
-    // ① 停止键。
-    canceller.cancel('stop');
-    expect(calls, <String>[
-      'clear-cue-plan:stop',
-      'revoke-stage:stop',
-      'drop-pending-audio:stop',
-      'return-to-baseline:stop',
-    ], reason: '四步都要发生，且顺序固定');
-    expect(plan.length, 0, reason: '清动作');
+      // ① 停止键。
+      canceller.cancel('stop');
+      expect(calls, <String>[
+        'clear-cue-plan:stop',
+        'revoke-stage:stop',
+        'drop-pending-audio:stop',
+        'return-to-baseline:stop',
+      ], reason: '四步都要发生，且顺序固定');
+      expect(plan.length, 0, reason: '清动作');
 
-    // ② **不补帧**：计划已清，该句再「开始播放」也不得 apply 任何 cue。
-    int applied = 0;
-    await plan.applyForSeq(2, (ActionCue cue) async {
-      applied += 1;
-    });
-    expect(applied, 0, reason: '取消后不补帧：旧 cue 不得被重放');
+      // ② **不补帧**：计划已清，该句再「开始播放」也不得 apply 任何 cue。
+      int applied = 0;
+      await plan.applyForSeq(2, (ActionCue cue) async {
+        applied += 1;
+      });
+      expect(applied, 0, reason: '取消后不补帧：旧 cue 不得被重放');
 
-    // ③ 新用户消息：同一套四步（不是只清音频）。
-    canceller.cancel('new-message');
-    expect(canceller.cancelCount, 2);
-    expect(
-      calls.where((String c) => c.endsWith(':new-message')),
-      <String>[
+      // ③ 新用户消息：同一套四步（不是只清音频）。
+      canceller.cancel('new-message');
+      expect(canceller.cancelCount, 2);
+      expect(calls.where((String c) => c.endsWith(':new-message')), <String>[
         'clear-cue-plan:new-message',
         'revoke-stage:new-message',
         'drop-pending-audio:new-message',
         'return-to-baseline:new-message',
-      ],
-    );
-  });
+      ]);
+    },
+  );
 
   test('接线（语义级）：停止 / 发送 / 重试三条出口都先走取消入口', () {
     // 库 + parts（`main.dart` 的四个 part 一起扫）；字符串留着，注释剥掉。
@@ -145,12 +145,25 @@ void main() {
   });
 }
 
-/// `anchor`（形如 `onRetryLast:`）之后**同一行**的文本。
+/// `anchor`（形如 `onRetryLast:`）起到这条实参结束（配平后的逗号）为止。
 ///
-/// 只用来判「这条出口接的是哪条路」，不比对整段字面量——见文件头注。
+/// `dart format` 会把三元表达式折行。判据仍是「这条出口接的是哪条路」，
+/// 不要求写在同一行，也不比对整段字面量——见文件头注。
 String _argLine(String src, String anchor) {
   final int at = src.indexOf(anchor);
   expect(at, greaterThanOrEqualTo(0), reason: '找不到 `$anchor` 接线');
+  var depth = 0;
+  for (var i = at; i < src.length; i++) {
+    final String c = src[i];
+    if (c == '(' || c == '[' || c == '{') {
+      depth++;
+    } else if (c == ')' || c == ']' || c == '}') {
+      if (depth == 0) break;
+      depth--;
+    } else if (c == ',' && depth == 0) {
+      return src.substring(at, i);
+    }
+  }
   final int end = src.indexOf('\n', at);
   return src.substring(at, end < 0 ? src.length : end);
 }
