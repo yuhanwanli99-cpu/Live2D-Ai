@@ -22,36 +22,121 @@ extension _ShellSettingsWiring on _ShellRootState {
     ]);
   }
 
-  /// 「保存」：走 `SettingsController`，文案由 `apply_status` 决定。
+  /// 「保存并重载」：**服务端草稿 + 本机偏好草稿**一起保存，然后**只刷新一次**。
   ///
-  /// 返回 [SaveOutcome]：确认框的「保存并离开」据此决定**是否真的离开**
-  /// （失败留在弹窗里，见 `showConfirmDiscardDialog`）。
-  Future<SaveOutcome> _saveSettings() async {
-    final SaveOutcome outcome = await _settings.save();
-    if (!mounted) return outcome;
+  /// 顺序：
+  /// 1. 有服务端草稿 → 现有保存（写盘 + 热重载；需要时只重启 18080）；
+  /// 2. 有本机偏好草稿 → 写入本机存储（`widget.onPrefsChanged`）；
+  /// 3. 两样都成功 → 刷新一次 `/app/`。**只改了本机偏好时不重启 18080**。
+  ///
+  /// 任一步失败：**不刷新**，草稿保留，返回 [SaveOutcome.failed] 让确认框留下。
+  /// 返回 [SaveOutcome]：确认框的「保存并离开」据此决定是否真的离开。
+  Future<SaveOutcome> _saveAll() async {
+    if (_savingAll) return SaveOutcome.failed;
+    _savingAll = true;
+    _prefsSaveError = null;
     _refresh();
+    SaveOutcome outcome = SaveOutcome.savedApplied;
+    try {
+      // 1. 服务端草稿（现有链路一字未改）。
+      if (_settings.dirty) {
+        outcome = await _settings.save();
+        if (outcome == SaveOutcome.failed) {
+          if (!mounted) return outcome;
+          _refresh();
+          _showSaveSnack(outcome);
+          return outcome;
+        }
+      }
+      // 2. 本机偏好草稿 → 落盘。
+      if (_prefsDirty) {
+        final DisplayPrefs draft = _prefsDraft!;
+        final bool saved = widget.onPrefsChanged(draft);
+        if (!saved) {
+          _prefsSaveError =
+              '偏好没能写入本机存储（无痕模式 / 存储被禁 / 配额满）——草稿保留，未落盘。';
+          if (!mounted) return SaveOutcome.failed;
+          _refresh();
+          _showSaveSnack(SaveOutcome.failed);
+          return SaveOutcome.failed;
+        }
+        // 落盘成功：提交背景字节改动（删被移除项的字节）、清草稿、同步音频。
+        _commitPrefsDraft();
+        _audio.muted = draft.muted;
+        _audio.volume = draft.volume;
+        if (!mounted) return outcome;
+        _rebuild(() => _prefsDraft = null);
+        _bumpPrefsRevision();
+        if (!outcome.isSuccess) outcome = SaveOutcome.savedApplied;
+      }
+      if (!mounted) return outcome;
+      _refresh();
+      _showSaveSnack(outcome);
+      if (outcome.isSuccess || outcome == SaveOutcome.noChange) {
+        // 保存成功就刷新生效态（dev_mode / 日志读服务端状态）。
+        unawaited(_loadAppStatus());
+        unawaited(_loadLogs());
+        // **只在这一处**刷新页面——服务端草稿 + 本机偏好草稿两样都已落定。
+        unawaited(_reloadPageAfterSave(outcome));
+      }
+      return outcome;
+    } finally {
+      if (mounted) {
+        _rebuild(() => _savingAll = false);
+      } else {
+        _savingAll = false;
+      }
+    }
+  }
+
+  /// 保存结果 SnackBar（失败时把 `code：message` 一起上屏）。
+  void _showSaveSnack(SaveOutcome outcome) {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       SnackBar(
-        // 失败时把服务端给的 `code：message` 一起上屏（`messageWith`）——
-        // 只显示「保存失败」等同于「没有错误代码」（用户 2026-09-11 报）。
-        content: Text(outcome.messageWith(error: _settings.error)),
+        content: Text(
+          outcome.messageWith(error: _prefsSaveError ?? _settings.error),
+        ),
         backgroundColor: outcome.needsAttention
             ? appPaletteOf(context).warning
             : null,
       ),
     );
-    if (outcome.isSuccess) {
-      // **保存成功就刷新生效态**：dev_mode 的开关（草稿 vs 已保存 vs --dev-mode）、
-      // 诊断面板里的 dev_mode 与日志都读服务端状态，不刷新就会停在上一次。
-      unawaited(_loadAppStatus());
-      unawaited(_loadLogs());
-      // 2026-10-09 §3：保存是**一步**——写盘 + 热重载 / 自重启都已在服务端做完，
-      // 最后把页面重新加载，让界面读到新快照（不再弹「请自行重新点火」）。
-      unawaited(_reloadPageAfterSave(outcome));
+  }
+
+  /// 放弃**两份**草稿：服务端草稿 + 本机偏好草稿（含删掉本次新加的背景图字节）。
+  void _discardAllDrafts() {
+    _settings.discard();
+    _discardPrefsDraft();
+  }
+
+  /// 丢掉本机偏好草稿，回到已保存那份。
+  ///
+  /// 顺带删掉「本次草稿新加、还没写进已保存偏好」的背景图字节；被移除项的
+  /// 字节**不删**（它们仍在已保存偏好里，删了就是静默丢数据）。
+  void _discardPrefsDraft() {
+    if (_prefsDraft == null) return;
+    for (final String id in _draftAddedBgIds) {
+      unawaited(forgetBackground(widget.store, id));
     }
-    return outcome;
+    _draftAddedBgIds.clear();
+    _draftRemovedBgIds.clear();
+    _prefsSaveError = null;
+    _rebuild(() => _prefsDraft = null);
+    _bumpPrefsRevision();
+    // 舞台 / 音频本来就吃已保存那份，从未被草稿改过；补一次下发只为让桥在
+    // 草稿期间可能发生的外部变动（如重挂）后自愈。
+    _applyPrefs();
+  }
+
+  /// 提交本机偏好草稿的背景字节改动（保存成功后调用）：删掉被移除项的字节。
+  void _commitPrefsDraft() {
+    for (final String id in _draftRemovedBgIds) {
+      unawaited(forgetBackground(widget.store, id));
+    }
+    _draftAddedBgIds.clear();
+    _draftRemovedBgIds.clear();
   }
 
   /// 保存成功后的**最后一步：重新加载 `/app/`**。
@@ -209,22 +294,25 @@ extension _ShellSettingsWiring on _ShellRootState {
 
   /// 未保存改动的确认框。**三处拦截共用**（换分区 / 关设置 / 关浮层）。
   ///
-  /// 统一走 `SettingsController.confirmLeave`：它负责「放弃 → 立刻清草稿」，
-  /// 于是三处拦截与弹窗三按钮只有一套语义（过去「放弃改动」只关窗不清草稿，
-  /// 用户会看到「未保存」一直挂着）。
+  /// 2026-10-10：判据从「服务端草稿脏」扩成「**任一**草稿脏」（服务端 + 本机
+  /// 偏好）。「保存并离开」走 [_saveAll]（两份草稿一起保存并刷新）；
+  /// 「放弃改动」丢掉两份草稿（本机偏好回到已保存那份、删掉本次新加的背景图）。
   Future<bool> _confirmDiscard() async {
-    if (!_settings.dirty) return true;
+    if (!_anyDraftDirty) return true;
     // 防重入：Esc 连按 / 同时从两个入口进来时，不叠第二个弹窗。
     if (_confirmingLeave) return false;
     _confirmingLeave = true;
     try {
-      return await _settings.confirmLeave(
-        () => showConfirmDiscardDialog(
-          context,
-          onSave: _saveSettings,
-          errorOf: () => _settings.error,
-        ),
+      final bool leave = await showConfirmDiscardDialog(
+        context,
+        onSave: _saveAll,
+        errorOf: () => _prefsSaveError ?? _settings.error,
       );
+      if (leave) {
+        _settings.discard();
+        _discardPrefsDraft();
+      }
+      return leave;
     } finally {
       _confirmingLeave = false;
     }
@@ -238,7 +326,7 @@ extension _ShellSettingsWiring on _ShellRootState {
   /// | models（模型库） | ModelsSection |
   /// | service（模型服务） | ServiceSection（语言模型 / 语音合成两张卡） |
   /// | theme（主题） | ThemeSection（配色 + 背景） |
-  /// | motion（Live2D 动作） | MotionSection（舞台与口型 + 互动） |
+  /// | motion（Live2D 设置） | MotionSection（舞台与口型 + 渲染档位 + 互动） |
   /// | mods（扩展） | ModsSection（+ 动作幅度旋钮接给 director 卡片） |
   /// | developer（开发模式） | DeveloperSection（+ 诊断，仅 devMode 渲染） |
   Widget _buildSection(BuildContext context, SettingsSection section) {
@@ -315,9 +403,9 @@ extension _ShellSettingsWiring on _ShellRootState {
           focusGroup: _settingsGroupFocus,
         );
       case SettingsSection.theme:
-        // 只拿原「外观」那一组：配色 + 背景（纯本地 DisplayPrefs）。
+        // 只拿原「外观」那一组：配色 + 背景（纯本地 DisplayPrefs 草稿）。
         return ThemeSection(
-          prefs: widget.prefs,
+          prefs: _shownPrefs,
           onPrefsChanged: _updatePrefs,
           devMode: _devMode,
           onPickShellImage: () => unawaited(_pickShellImage()),
@@ -330,11 +418,10 @@ extension _ShellSettingsWiring on _ShellRootState {
           shellImageFailed: _shellImageFailed,
         );
       case SettingsSection.motion:
-        // 舞台与口型 + 允许拖动与缩放；动作幅度**不在这里**（见 mods 分支）。
+        // 舞台与口型 + 允许拖动与缩放 + 渲染档位；动作幅度**不在这里**（见 mods 分支）。
         return MotionSection(
-          prefs: widget.prefs,
+          prefs: _shownPrefs,
           onPrefsChanged: _updatePrefs,
-          devMode: _devMode,
         );
       case SettingsSection.mods:
         // 动作幅度（2026-10-09 从「外观与互动」搬到导演卡片）：模型 id 取服务端

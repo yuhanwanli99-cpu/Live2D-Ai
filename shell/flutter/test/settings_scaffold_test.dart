@@ -39,7 +39,7 @@ void main() {
     testWidgets('不 dirty 时既没有「未保存」也没有操作条', (WidgetTester tester) async {
       await tester.pumpWidget(wrap(build()));
       expect(find.text('未保存'), findsNothing);
-      expect(find.text('保存'), findsNothing);
+      expect(find.text('保存并重载'), findsNothing);
       expect(find.text('放弃'), findsNothing);
       expect(find.text('PANE'), findsOneWidget);
     });
@@ -49,7 +49,7 @@ void main() {
         wrap(build(dirty: true, onSave: () {}, onDiscard: () {})),
       );
       expect(find.text('未保存'), findsOneWidget);
-      expect(find.text('保存'), findsOneWidget);
+      expect(find.text('保存并重载'), findsOneWidget);
       expect(find.text('放弃'), findsOneWidget);
     });
 
@@ -65,19 +65,19 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('保存'));
+      await tester.tap(find.text('保存并重载'));
       await tester.tap(find.text('放弃'));
       expect(saved, 1);
       expect(discarded, 1);
     });
 
-    testWidgets('saving 时两个按钮都禁用且文案变「保存中…」（防重复提交）', (
+    testWidgets('saving 时两个按钮都禁用且文案变「保存并重载中…」（防重复提交）', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         wrap(build(dirty: true, saving: true, onSave: () {}, onDiscard: () {})),
       );
-      expect(find.text('保存中…'), findsOneWidget);
+      expect(find.text('保存并重载中…'), findsOneWidget);
       final FilledButton save = tester.widget<FilledButton>(
         find.byType(FilledButton),
       );
@@ -94,7 +94,7 @@ void main() {
       await tester.pumpWidget(wrap(build(status: '已保存并生效')));
       expect(find.text('已保存并生效'), findsOneWidget);
       // 没有改动时不显示保存/放弃按钮，但结果要留着让用户看到。
-      expect(find.text('保存'), findsNothing);
+      expect(find.text('保存并重载'), findsNothing);
     });
 
     testWidgets('需重启的文案也走这里（用户必须知道没生效）', (WidgetTester tester) async {

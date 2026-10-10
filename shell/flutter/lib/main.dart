@@ -210,6 +210,45 @@ class _ShellRootState extends State<ShellRoot> {
   /// 分区内容」的唯一判据——它不前进，外壳那些高频重建就不会带上那棵子树。
   int _settingsRevision = 0;
 
+  // ── 本机偏好草稿（2026-10-10）──
+  //
+  // 本机偏好（主题 / 背景 / 缩放 / 口型 / 待机 / 渲染档位 / 拖动 / 音量 / 静音）
+  // 的改动先进这里：界面显示新值，但**不**落盘、**不**下发舞台、**不**改正在
+  // 播放的音量。只有「保存并重载」才 `widget.onPrefsChanged` 落盘并刷新 `/app/`。
+  // 已保存的那份（`widget.prefs`）继续驱动当前舞台与音频。
+
+  /// 本机显示偏好草稿。`null` = 无草稿（界面显示已保存那份）。
+  DisplayPrefs? _prefsDraft;
+
+  /// 当前该在**界面**上显示的偏好（草稿优先，否则已保存那份）。
+  DisplayPrefs get _shownPrefs => _prefsDraft ?? widget.prefs;
+
+  /// 本机偏好草稿与已保存那份不同。
+  bool get _prefsDirty => _prefsDraft != null && _prefsDraft != widget.prefs;
+
+  /// 服务端草稿或本机偏好草稿**任一**有改动 ⇒ 底部出现「保存并重载」。
+  bool get _anyDraftDirty => _settings.dirty || _prefsDirty;
+
+  /// 「保存并重载」进行中（服务端草稿 + 本机偏好草稿一起保存）。
+  bool _savingAll = false;
+
+  /// 本机偏好草稿保存失败的理由（上屏用；成功后清空）。
+  String? _prefsSaveError;
+
+  /// 本次草稿**新加进背景库、尚未写进已保存偏好**的图 id（放弃 / 失败时删字节）。
+  final Set<String> _draftAddedBgIds = <String>{};
+
+  /// 本次草稿**从背景库移除、但字节还没真删**的图 id（保存成功时才删）。
+  final Set<String> _draftRemovedBgIds = <String>{};
+
+  /// 本机偏好草稿的**变更通知**（浮层宿主据此重建设置面——见 `AppShell.prefsChanges`）。
+  ///
+  /// 只前不进（记的是代际计数，不是草稿内容）。与 `_settingsTick` 在浮层里
+  /// 合流：任一有改动都让「未保存」Pill 与「保存并重载」按钮及时更新。
+  final ValueNotifier<int> _prefsRevision = ValueNotifier<int>(0);
+
+  void _bumpPrefsRevision() => _prefsRevision.value++;
+
   /// 服务端静音观测值（WS `audio.muted`，**只读**）。
   bool _serverMuted = false;
 
@@ -532,13 +571,15 @@ class _ShellRootState extends State<ShellRoot> {
           onSend: () => unawaited(_sendWithCancellation()),
           onStop: () => unawaited(_stopWithCancellation()),
           onRetryConnection: _ws.ensureConnected,
-          volume: widget.prefs.volume,
-          muted: widget.prefs.muted,
+          volume: _shownPrefs.volume,
+          muted: _shownPrefs.muted,
+          // **从草稿起稿**（不是 `widget.prefs`）：否则拖音量 / 点静音会把用户
+          // 已经改过的其它本机草稿（档位、主题、背景…）整份冲掉——只留音量一项。
           onVolumeChanged: (double v) => _updatePrefs(
-            widget.prefs.copyWith(volume: DisplayPrefs.clampVolume(v)),
+            _shownPrefs.copyWith(volume: DisplayPrefs.clampVolume(v)),
           ),
           onMutedChanged: (bool m) =>
-              _updatePrefs(widget.prefs.copyWith(muted: m)),
+              _updatePrefs(_shownPrefs.copyWith(muted: m)),
           serverMuted: _serverMuted,
           audioUnlocked: _audio.unlocked,
           onEnableSound: _audio.unlock,
@@ -620,20 +661,26 @@ class _ShellRootState extends State<ShellRoot> {
           // 浮层内容必须订阅设置数据：`showModalBottomSheet` 的 builder
           // 只跑一次，不订阅的话「加载中」的转圈会一直转下去。
           settingsChanges: _settings,
+          // 本机偏好草稿的变更通知（浮层宿主重建 +「未保存」/按钮可见性）。
+          prefsChanges: _prefsRevision,
           settingsRevision: _settingsRevision,
           section: _section,
           onSectionChanged: _onSectionChanged,
           sectionBuilder: _buildSection,
           devMode: _devMode,
-          // ── 设置草稿的生命周期（外壳只呈现与拦截，状态在 SettingsController） ──
-          settingsDirty: _settings.dirty,
-          settingsSaving: _settings.saving,
-          settingsStatus: _settings.error ?? _settings.lastOutcome?.message,
+          // ── 设置草稿的生命周期（外壳只呈现与拦截，状态在宿主 + SettingsController） ──
+          // 2026-10-10：dirty / 保存都**合并**服务端草稿与本机偏好草稿——任一有
+          // 改动就要出现「保存并重载」，一次刷新把两者都落定。
+          settingsDirty: _anyDraftDirty,
+          settingsSaving: _settings.saving || _savingAll,
+          settingsStatus:
+              _prefsSaveError ?? _settings.error ?? _settings.lastOutcome?.message,
           settingsStatusIsError:
+              _prefsSaveError != null ||
               _settings.error != null ||
               _settings.lastOutcome == SaveOutcome.failed,
-          onSaveSettings: () => unawaited(_saveSettings()),
-          onDiscardSettings: _settings.discard,
+          onSaveSettings: () => unawaited(_saveAll()),
+          onDiscardSettings: _discardAllDrafts,
           confirmDiscard: _confirmDiscard,
           // ── 舞台浮标：只剩缩放三键（原文件 `action_toolbar.dart` 已按实际内容
           //    改名为 `ui/stage_corner_controls.dart`；动作工具条早已移出成品） ──

@@ -175,3 +175,48 @@ fn bai_renders_256px_with_deterministic_hash_and_toleranced_geometry() {
         })
     ));
 }
+
+/// **待机开关跨 `load_model` 存活（回归）**：`ModelRendererCore::load_model` 会整份
+/// 替换 `PoseStack`，新栈的 `idle_enabled` 缺省为 `true`。若不把旧值抄过去，
+/// 「待机小动作」关闭会在 ready 后异步换模型（`/app/` 打开、换模型同路径）
+/// 被悄悄拨回开——表现为眨眼停着、头的 ±3° 又回来。
+#[test]
+fn idle_switch_survives_model_reload() {
+    let Some(model3) = bai_model3_path() else {
+        println!("SKIP: 未找到 Bai 真实资产 `{BAI_MODEL3}`（门控跳过）");
+        return;
+    };
+    let loaded = LoadedModel::resolve(ModelPackage::load(&model3).expect("load")).expect("resolve");
+
+    let mut renderer = match OffscreenRenderer::new(64, 64) {
+        Ok(r) => r,
+        Err(l2d::renderer::RenderError::NoGpuBackend(notes)) => {
+            println!("SKIP: 无可用 headless GPU 后端（{notes}）");
+            return;
+        }
+        Err(e) => panic!("离屏渲染器创建失败: {e}"),
+    };
+
+    // 加载前关待机 → 首次 load_model 后必须仍是关。
+    renderer.core().set_idle_enabled(false);
+    renderer.load_model(&loaded).expect("首次加载");
+    assert!(
+        !renderer.core().stack().idle_enabled(),
+        "首次 load_model 后待机开关被丢回缺省 true"
+    );
+
+    // 换模型走同一条 load_model → 仍关。
+    renderer.load_model(&loaded).expect("换模型");
+    assert!(
+        !renderer.core().stack().idle_enabled(),
+        "换模型后待机开关被丢回缺省 true"
+    );
+
+    // 反向：打开后换模型仍开（开关是双向存活，不是恒 false）。
+    renderer.core().set_idle_enabled(true);
+    renderer.load_model(&loaded).expect("再换模型");
+    assert!(
+        renderer.core().stack().idle_enabled(),
+        "打开后换模型开关被丢"
+    );
+}

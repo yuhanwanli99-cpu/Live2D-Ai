@@ -142,25 +142,20 @@ extension _ShellPrefsWiring on _ShellRootState {
     syncSlideshow(prefs);
   }
 
-  /// 偏好变更：更新内存 + 落盘 + 立即下发。
+  /// 偏好变更：**只进草稿**（2026-10-10）。
   ///
-  /// 这是**纯本机偏好变更的落点**：主题 / 缩放 / 口型 / 音量 / 静音 / 背景图
-  /// 与舞台背景轮播列表都经过这里，改完立刻 `saveDisplayPrefs` 并下发渲染面。
+  /// 这是本机偏好变更的唯一落点：主题 / 缩放 / 口型 / 音量 / 静音 / 背景图
+  /// 与舞台背景轮播列表、渲染档位都经过这里。改动**不落盘、不下发舞台、
+  /// 不改正在播放的音量**——界面显示草稿值（`_shownPrefs`），已保存的那份
+  /// （`widget.prefs`）继续驱动当前舞台与音频。只有「保存并重载」才真正落盘
+  /// 并刷新 `/app/`（见 `_saveAll` / `_discardAllDrafts`）。
   void _updatePrefs(DisplayPrefs next) {
-    if (next == widget.prefs) return;
-    // 落盘结果要接住：写失败（无痕 / 配额满 / 存储被禁）过去是**静默**的，
-    // 用户看到「已应用」却在刷新后丢失（rc.3 §9.1 候选原因 1）。
-    final bool saved = widget.onPrefsChanged(next);
-    if (!saved) {
-      _shellImageMessage =
-          '偏好没能写入本机存储（无痕模式 / 存储被禁 / 配额满）——本次会话有效，刷新会丢。';
-      _shellImageFailed = true;
-    }
-    // 静音与音量是纯本机输出设置，不经渲染面——直接作用于 AudioPlayer。
-    _audio.muted = next.muted;
-    _audio.volume = next.volume;
-    // 传 `next` 而不是让它去读 `widget.prefs`（那还是旧值）。
-    _applyPrefs(next);
+    if (next == _shownPrefs) return;
+    // 改回与原值相同 ⇒ 撤回草稿（「点开又改回去」不该一直显示未保存）。
+    final DisplayPrefs? draft = next == widget.prefs ? null : next;
+    _rebuild(() => _prefsDraft = draft);
+    // 通知浮层宿主重建（内联宿主本就随 `_rebuild` 重建；浮层 builder 只跑一次）。
+    _bumpPrefsRevision();
   }
 
   /// 选一张图进背景库。
@@ -179,7 +174,8 @@ extension _ShellPrefsWiring on _ShellRootState {
       return;
     }
     // 偏好在 await 之前重新读：选图对话框可能开了几秒，期间别的偏好可能已变。
-    final DisplayPrefs prefs = widget.prefs;
+    // 读**草稿**（`_shownPrefs`）：本机偏好改动是草稿优先的。
+    final DisplayPrefs prefs = _shownPrefs;
     final int bytes = dataUrlBytes(dataUrl);
     if (bytes > kBackgroundImageMaxBytes) {
       _setImageMessage(
@@ -219,7 +215,10 @@ extension _ShellPrefsWiring on _ShellRootState {
       );
       return;
     }
-    final DisplayPrefs after = widget.prefs;
+    // 记下「本次草稿新加的 id」：放弃 / 保存失败时要删掉这些字节（否则成了
+    // 没有清单项指向的孤儿）。保存成功则清空这份记账。
+    _draftAddedBgIds.add(id);
+    final DisplayPrefs after = _shownPrefs;
     _updatePrefs(
       after.copyWith(
         backgrounds: <BackgroundItem>[...after.backgrounds, item],
@@ -246,16 +245,14 @@ extension _ShellPrefsWiring on _ShellRootState {
 
   Future<void> _pickShellImage() => _pickImage();
 
-  /// 清空背景库，并忘掉 IndexedDB 里的字节。
+  /// 清空背景库，并（在保存成功后）忘掉 IndexedDB 里的字节。
   void _clearShellImage() {
-    final DisplayPrefs prefs = widget.prefs;
+    final DisplayPrefs prefs = _shownPrefs;
     for (final BackgroundItem item in prefs.backgrounds) {
-      if (item is BackgroundImage) {
-        unawaited(forgetBackground(widget.store, item.id));
-      }
+      _forget(item);
     }
     _updatePrefs(prefs.copyWith(backgrounds: const <BackgroundItem>[]));
-    _setImageMessage(text: '已清空背景库，壳与舞台回到主题底色', failed: false);
+    _setImageMessage(text: '已清空背景库，保存并重载后壳与舞台回到主题底色', failed: false);
   }
 
   /// 从背景库移除第 N 项。
@@ -263,7 +260,7 @@ extension _ShellPrefsWiring on _ShellRootState {
   /// 越界**静默忽略**而不是抛：那是从 UI 事件来的下标，
   /// 而库长度可能在一次重建里变过。
   void _removeBackground(int index) {
-    final DisplayPrefs prefs = widget.prefs;
+    final DisplayPrefs prefs = _shownPrefs;
     final List<BackgroundItem> items = prefs.backgrounds;
     if (index < 0 || index >= items.length) return;
     final BackgroundItem dropped = items[index];
@@ -271,13 +268,21 @@ extension _ShellPrefsWiring on _ShellRootState {
       ..removeAt(index);
     _forget(dropped);
     _updatePrefs(prefs.copyWith(backgrounds: next));
-    _setImageMessage(text: '已移除，剩 ${next.length} 项', failed: false);
+    _setImageMessage(text: '已移除，剩 ${next.length} 项（保存并重载后生效）', failed: false);
   }
 
   /// 删一项的**字节**（清单与字节必须同进同退，否则磁盘上留孤儿）。
+  ///
+  /// 2026-10-10 起**草稿化**：不在移除的当刻删字节，避免「删了又放弃」把
+  /// 已保存那张图的字节误删。分类：
+  /// - 这一项是**本次草稿新加**的（还没进已保存偏好）→ 立刻删字节；
+  /// - 否则 → 记进 [_draftRemovedBgIds]，**保存成功时**才删（放弃则保留）。
   void _forget(BackgroundItem item) {
-    if (item is BackgroundImage) {
+    if (item is! BackgroundImage) return;
+    if (_draftAddedBgIds.remove(item.id)) {
       unawaited(forgetBackground(widget.store, item.id));
+    } else {
+      _draftRemovedBgIds.add(item.id);
     }
   }
 
@@ -289,13 +294,13 @@ extension _ShellPrefsWiring on _ShellRootState {
   /// 所以这里**绝不能再减 1**——老实现多减一次的表现是
   /// 「向下拖早一格、**向下拖一格完全没反应**」（P0-3）。
   void _reorderBackground(int oldIndex, int newIndex) {
-    final DisplayPrefs prefs = widget.prefs;
+    final DisplayPrefs prefs = _shownPrefs;
     final List<BackgroundItem> next = reorderBackgroundItems(
       prefs.backgrounds,
       oldIndex,
       newIndex,
     );
-    // 纯函数在「什么都不用做」时返回同一个实例，据此跳过写盘。
+    // 纯函数在「什么都不用做」时返回同一个实例，据此跳过。
     if (identical(next, prefs.backgrounds)) return;
     _updatePrefs(prefs.copyWith(backgrounds: next));
   }
@@ -305,7 +310,7 @@ extension _ShellPrefsWiring on _ShellRootState {
   /// 先收集项再统一删：边删边按下标取会跳过元素
   /// （删掉 index 2 之后，原来的 index 3 变成了 2）。
   void _removeBackgrounds(List<int> indices) {
-    final DisplayPrefs prefs = widget.prefs;
+    final DisplayPrefs prefs = _shownPrefs;
     final List<BackgroundItem> items = prefs.backgrounds;
     final Set<int> drop = <int>{
       for (final int i in indices)
@@ -321,7 +326,7 @@ extension _ShellPrefsWiring on _ShellRootState {
     }
     _updatePrefs(prefs.copyWith(backgrounds: next));
     _setImageMessage(
-      text: '已删除 ${drop.length} 项，剩 ${next.length} 项',
+      text: '已删除 ${drop.length} 项，剩 ${next.length} 项（保存并重载后生效）',
       failed: false,
     );
   }

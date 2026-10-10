@@ -173,6 +173,11 @@ nohup.out
 # memory Mod 根目录遗留的运行时产物（本机运行态，勿入库；正式桶在 /sessions/）
 /memory.jsonl
 
+# MeloTTS 安装产物（本机生成，勿入库）：按 tag v0.1.2 克隆的第三方源码 + HF 缓存
+# （bert-base-multilingual-uncased 不入库，落在 .cache 里当 HF_HOME）
+/crates/live2d-ai-mod-local-tts/melo/.src/
+/crates/live2d-ai-mod-local-tts/melo/.cache/
+
 # local-tts（CosyVoice3）权重：由 crates/live2d-ai-mod-local-tts/engine/download.sh 下载
 # （数 GB；GitHub 单文件上限 100MB，本仓库没有覆盖它的 LFS 规则；禁止 git add）
 /crates/live2d-ai-mod-local-tts/weights/

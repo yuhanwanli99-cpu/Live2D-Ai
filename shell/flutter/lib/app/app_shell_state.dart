@@ -31,11 +31,21 @@ class AppShellState extends State<AppShell> {
 
   Listenable? _settingsChangesSeen;
 
+  /// 已订阅的本机偏好草稿通知（2026-10-10）。
+  Listenable? _prefsChangesSeen;
+
   void _subscribeSettingsChanges() {
-    if (identical(_settingsChangesSeen, widget.settingsChanges)) return;
-    _settingsChangesSeen?.removeListener(_onSettingsChanges);
-    _settingsChangesSeen = widget.settingsChanges;
-    widget.settingsChanges.addListener(_onSettingsChanges);
+    if (!identical(_settingsChangesSeen, widget.settingsChanges)) {
+      _settingsChangesSeen?.removeListener(_onSettingsChanges);
+      _settingsChangesSeen = widget.settingsChanges;
+      widget.settingsChanges.addListener(_onSettingsChanges);
+    }
+    // 本机偏好草稿也走同一条代际：浮层 builder 只跑一次，不订阅就更新不了。
+    if (!identical(_prefsChangesSeen, widget.prefsChanges)) {
+      _prefsChangesSeen?.removeListener(_onSettingsChanges);
+      _prefsChangesSeen = widget.prefsChanges;
+      widget.prefsChanges?.addListener(_onSettingsChanges);
+    }
   }
 
   void _onSettingsChanges() => _settingsTick.value++;
@@ -65,6 +75,7 @@ class AppShellState extends State<AppShell> {
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKey);
     _settingsChangesSeen?.removeListener(_onSettingsChanges);
+    _prefsChangesSeen?.removeListener(_onSettingsChanges);
     _settingsTick.dispose();
     sectionNotifier.dispose();
     super.dispose();
@@ -200,7 +211,13 @@ class AppShellState extends State<AppShell> {
     required VoidCallback onClose,
     bool narrow = false,
   }) => ListenableBuilder(
-    listenable: widget.settingsChanges,
+    // 数据（服务端）+ 设置数据代际 `_settingsTick`（服务端与本机偏好**都**让它
+    // 前进）：后者是浮层宿主更新「未保存」Pill / 保存按钮可见性的唯一信号——
+    // 外层 `settingsChanges` 只覆盖服务端数据，本机偏好草稿不走它。
+    listenable: Listenable.merge(<Listenable>[
+      widget.settingsChanges,
+      _settingsTick,
+    ]),
     builder: (BuildContext context, Widget? _) =>
         ValueListenableBuilder<SettingsSection>(
           valueListenable: sectionNotifier,
@@ -359,6 +376,23 @@ class AppShellState extends State<AppShell> {
                         ),
                       ),
                     ),
+                    // 舞台浮标：**压在舞台之上**，不占布局、不挤舞台宽度。
+                    // 压着 iframe 就必须垫指针垫层，否则四键全点不着。
+                    //
+                    // ⚠️ 顺序：**在内联侧板之前**（expanded 的缩放三键 `right:0,
+                    // bottom:0` 正好落在侧板底栏那一角）。放在侧板之后就变成
+                    // 「缩放三键盖住底部『保存并重载』」——按钮看得见、点不着。
+                    // 放在侧板之前，侧板张开时压住那一角（缩放键暂时被遮），
+                    // 收起时侧板折成 0 宽，缩放键照常可见可点。medium / compact
+                    // 没有内联侧板，顺序无影响。
+                    if (widget.stageCorner != null)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: StagePointerInterceptor(
+                          child: widget.stageCorner!,
+                        ),
+                      ),
                     // 内联侧板**常驻在树里**（`expanded` 只折宽度，不卸载）：
                     // 关掉再打开时滚动位置、分区草稿、内联测试结果都还在。
                     // 见 `InlineSettingsDock` 与 `CollapsiblePanel` 的头注。
@@ -370,16 +404,6 @@ class AppShellState extends State<AppShell> {
                           child: _settingsSurface(
                             onClose: () => unawaited(closeSettings()),
                           ),
-                        ),
-                      ),
-                    // 舞台浮标：**压在舞台之上**，不占布局、不挤舞台宽度。
-                    // 压着 iframe 就必须垫指针垫层，否则四键全点不着。
-                    if (widget.stageCorner != null)
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: StagePointerInterceptor(
-                          child: widget.stageCorner!,
                         ),
                       ),
                   ],

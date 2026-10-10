@@ -275,7 +275,8 @@ mod web {
         status(&format!(
             "{summary}\n正在初始化 GPU（WebGPU，不可用时回退 WebGL2）…"
         ));
-        let (gpu, adapter, surface_obj, config) = init_gpu(&window, &canvas).await?;
+        let (gpu, adapter, surface_obj, config, adapter_max_dim) =
+            init_gpu(&window, &canvas).await?;
 
         let mut core =
             ModelRendererCore::new(gpu.clone()).map_err(|e| format!("渲染核心创建失败：{e}"))?;
@@ -308,6 +309,10 @@ mod web {
             bridge: surface::BridgeState::default(),
             idle,
             last_layout_transform: layout_transform,
+            adapter_max_dim,
+            // 运行期重配 surface 时要 `&Adapter`（`get_default_config`）；这里
+            // 克隆一份进共享态，`adapter` 本身留给下面的 adapter_info 快照。
+            adapter: adapter.clone(),
         }));
         install_resize_handler(&state);
 
@@ -463,6 +468,9 @@ mod web {
                         }
                         if let Some(id) = payload.get("idleEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.idle_enabled = id;
+                            // 同一个布尔也交给姿态栈：false 时 idle 层停写呼吸
+                            // 正弦与 ParamAngleZ 的 ±3° 摆头（见 pose_stack.rs）。
+                            st.core.set_idle_enabled(id);
                         }
                         if let Some(ck) = payload.get("clickEnabled").and_then(|x| x.as_bool()) {
                             st.bridge.click_enabled = ck;

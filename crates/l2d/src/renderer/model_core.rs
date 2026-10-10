@@ -77,6 +77,12 @@ impl ModelRendererCore {
         self.stack.clear_override_parameter(id)
     }
 
+    /// 待机开关（默认 `true`）：转发给 [`PoseStack::set_idle_enabled`]。
+    /// false 时 idle 层停写呼吸正弦与 `ParamAngleZ` 的 ±3° 摆头。
+    pub fn set_idle_enabled(&mut self, enabled: bool) {
+        self.stack.set_idle_enabled(enabled);
+    }
+
     /// 加载绑定的 [`LoadedModel`]（纹理/物理取自同一包——错配在类型层面不可能）。
     ///
     /// 变换 = Layout 构图框 × 整画布映射（逻辑变换，aspect 修正渲染时叠加）；
@@ -88,8 +94,13 @@ impl ModelRendererCore {
             .load_model(loaded.handle().shared(), &texrefs)
             .map_err(|e| RenderError::Renderer(e.to_string()))?;
 
+        // 换模型会整份替换姿态栈——新栈缺省 `idle_enabled = true`。把旧栈的
+        // 待机开关抄过去，否则「待机小动作」关闭会被重新开模型（`/render` ready
+        // 后异步 load-model / 换模型）悄悄拨回开，表现为眨眼停着、头的 ±3° 又回来。
+        let idle_enabled = self.stack.idle_enabled();
         self.stack = PoseStack::from_loaded_model(loaded)
             .map_err(|e| RenderError::PhysicsJson(e.to_string()))?;
+        self.stack.set_idle_enabled(idle_enabled);
         self.transform = layout_transform(loaded);
 
         // 确定性初始姿态：先同步一次合成结果（含物理 settle 输出）。

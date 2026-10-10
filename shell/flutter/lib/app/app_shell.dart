@@ -119,6 +119,7 @@ class AppShell extends StatefulWidget {
     required this.sectionBuilder,
     this.onEnsureSectionLoaded,
     this.settingsChanges = const NeverNotifies(),
+    this.prefsChanges,
     this.settingsRevision = 0,
     this.section = SettingsSection.theme,
     this.onSectionChanged,
@@ -275,6 +276,14 @@ class AppShell extends StatefulWidget {
   ///
   /// 传进来的应该是 `SettingsController`（它本来就是 `ChangeNotifier`）。
   final Listenable settingsChanges;
+
+  /// **本机偏好草稿**变化的通知（2026-10-10）。
+  ///
+  /// 与 [settingsChanges] 同一条路、同一个坑：medium / compact 的浮层 builder
+  /// 只跑一次，若不订阅它，改本机偏好（主题 / 缩放 / 档位…）时浮层里的滑条
+  /// 与「保存并重载」按钮都不会更新。expanded 的内联侧板靠外壳 `setState`
+  /// 重建，本来就覆盖；这里是为**浮层宿主**补上同一条通知。
+  final Listenable? prefsChanges;
 
   /// 设置面板内容所依赖的**宿主状态代际**（F-0005-2，审计 45 条 · rc.7 A 组）。
   ///

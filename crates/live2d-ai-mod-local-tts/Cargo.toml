@@ -11,5 +11,10 @@ authors.workspace = true
 live2d-ai-mod-system = { path = "../live2d-ai-mod-system" }
 serde_json = "1"
 
+# 仅 Linux：给 spawn 出的长驻子进程装 PR_SET_PDEATHSIG，让它的生命周期与主程序
+# 一致（父进程被 SIGKILL 时内核兜底收掉子进程，避免 melo 变成占端口的孤儿）。
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [lints]
 workspace = true

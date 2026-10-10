@@ -262,7 +262,7 @@ class SettingsScaffold extends StatelessWidget {
                           const SizedBox(width: Space.s2),
                           FilledButton(
                             onPressed: saving ? null : onSave,
-                            child: Text(saving ? '保存中…' : '保存'),
+                            child: Text(saving ? '保存并重载中…' : '保存并重载'),
                           ),
                         ],
                       ],

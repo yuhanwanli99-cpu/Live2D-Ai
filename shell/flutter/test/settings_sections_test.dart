@@ -106,10 +106,10 @@ void main() {
       expect(names.contains('tts'), isFalse);
     });
 
-    test('原「外观与互动」拆成「主题」+「Live2D 动作」', () {
+    test('原「外观与互动」拆成「主题」+「Live2D 设置」', () {
       expect(SettingsSection.theme.label, '主题');
       expect(SettingsSection.theme.description, '配色与背景');
-      expect(SettingsSection.motion.label, 'Live2D 动作');
+      expect(SettingsSection.motion.label, 'Live2D 设置');
       final List<String> names = SettingsSection.values
           .map((SettingsSection s) => s.name)
           .toList();

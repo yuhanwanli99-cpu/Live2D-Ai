@@ -14,7 +14,7 @@
 /// | 2 | 模型库 | 控件不动 |
 /// | 3 | 模型服务 | 原「对话」+ 原「语音合成」合成一项；页内两组（语言模型 / 语音合成） |
 /// | 4 | 主题 | 从「外观与互动」拆出：配色 + 背景 |
-/// | 5 | Live2D 动作 | 舞台与口型 + 允许拖动与缩放 |
+/// | 5 | Live2D 设置（枚举仍是 motion） | 舞台与口型 + 允许拖动与缩放 + 渲染档位 |
 /// | 6 | 扩展 | 不动入口（导演卡片多收了两块） |
 /// | 7 | 开发模式 | 开关仍在这一项；诊断内容收进来 |
 ///
@@ -51,7 +51,8 @@ enum SettingsSection {
   service('模型服务', '语言模型与语音合成', Icons.hub_outlined),
   // 原 appearance（「外观与互动」）拆成 theme + motion 两项。
   theme('主题', '配色与背景', Icons.tune),
-  motion('Live2D 动作', '舞台与口型、拖动缩放', Icons.accessibility_new),
+  // 2026-10-10：显示名由「Live2D 动作」改为「Live2D 设置」（枚举值不改）。
+  motion('Live2D 设置', '舞台与口型、拖动缩放', Icons.accessibility_new),
   mods('扩展', '额外能力的开关', Icons.extension_outlined),
   developer('开发模式', '高级参数与开发者工具', Icons.terminal_outlined);
 

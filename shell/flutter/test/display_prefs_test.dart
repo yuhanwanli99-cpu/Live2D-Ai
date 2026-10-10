@@ -210,10 +210,10 @@ void main() {
 
 void _p4NewFieldsTests() {
   group('P4 新增字段：allowDragZoom 与 tier', () {
-    test('默认值：允许拖动缩放 = true，档位 = 8192', () {
+    test('默认值：允许拖动缩放 = true，档位 = 4096', () {
       const DisplayPrefs p = DisplayPrefs();
       expect(p.allowDragZoom, isTrue, reason: '保持既有手感，默认允许');
-      expect(p.tier, 8192);
+      expect(p.tier, 4096);
       expect(DisplayPrefs.tiers, <int>[4096, 8192, 16384]);
     });
 
@@ -240,7 +240,7 @@ void _p4NewFieldsTests() {
         DisplayPrefs.fromJson(<String, Object?>{'tier': 10000}).tier,
         8192,
       );
-      expect(DisplayPrefs.fromJson(<String, Object?>{'tier': 'x'}).tier, 8192);
+      expect(DisplayPrefs.fromJson(<String, Object?>{'tier': 'x'}).tier, 4096);
     });
 
     test('copyWith 能单独改这两个字段，且互不影响', () {
@@ -266,12 +266,12 @@ void _p4NewFieldsTests() {
     test('== 与 hashCode 覆盖了新字段（漏了就会「改了不生效」）', () {
       const DisplayPrefs base = DisplayPrefs();
       expect(base == base.copyWith(allowDragZoom: false), isFalse);
-      expect(base == base.copyWith(tier: 4096), isFalse);
+      expect(base == base.copyWith(tier: 8192), isFalse);
       expect(
         base.copyWith(allowDragZoom: false).hashCode == base.hashCode,
         isFalse,
       );
-      expect(base.copyWith(tier: 4096).hashCode == base.hashCode, isFalse);
+      expect(base.copyWith(tier: 8192).hashCode == base.hashCode, isFalse);
       expect(base == base.copyWith(), isTrue);
     });
   });

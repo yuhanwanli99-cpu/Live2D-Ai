@@ -153,14 +153,15 @@ extension _ShellLifecycleWiring on _ShellRootState {
   }
 
   void _didUpdateShell(ShellRoot oldWidget) {
-    // 启动时字节回来，可能摘掉「字节已经不在」的孤儿项 ⇒ 库长度变了。
-    // 轮播的对表只在偏好**提交**时做，而那次提交发生在 `ShellRoot` 之外
-    // （应用根的 `setState`），所以这里必须补一次，否则定时器会拿着
-    // 旧长度数到不存在的第 N 项。
-    if (oldWidget.prefs.backgrounds.length !=
-        widget.prefs.backgrounds.length) {
-      syncSlideshow(widget.prefs);
-    }
+    if (oldWidget.prefs == widget.prefs) return;
+    // 已保存那份变了（保存成功 / 水合回填背景库）：它才是舞台与音频的真源，
+    // 重新下发一次；轮播也重新对表（库长度 / 随机 / 间隔可能都变了）。
+    //
+    // 刻意**不**在这里清 `_prefsDraft`：保存成功由 `_saveAll` 自己清；水合回填
+    // 只动背景域，用户在水合窗口里攒下的偏好草稿必须保留（与 F-0013-1 同一条
+    // 教训：窗口期的改动不能被整份旧值回滚）。
+    _applyPrefs();
+    syncSlideshow(widget.prefs);
   }
 
   void _disposeShell() {
@@ -178,6 +179,7 @@ extension _ShellLifecycleWiring on _ShellRootState {
     _slideshow.dispose();
     _live.dispose();
     _settings.dispose();
+    _prefsRevision.dispose();
     _modelsApi.dispose();
     _envApi.dispose();
     _modsApi.dispose();

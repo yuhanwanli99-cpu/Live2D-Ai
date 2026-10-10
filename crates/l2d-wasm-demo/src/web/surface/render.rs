@@ -13,7 +13,7 @@ use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{HtmlCanvasElement, Window};
 
 use super::background::BackgroundRenderer;
-use super::gpu::{DPR_CAP, canvas_pixel_size};
+use super::gpu::{DPR_CAP, negotiate_surface};
 use super::idle::{self, IdleState};
 use super::input::{BridgeState, apply_bridge_effects};
 use crate::stage_bg;
@@ -50,6 +50,12 @@ pub(crate) struct FrameState {
     /// rAF 时间戳到达时累加 real_dt，直到累积 >= FIXED_DT_60HZ 再消费一次
     /// core.update，避免 240Hz 时物理/姿态模拟跑到 4× 速度。
     pub(crate) last_layout_transform: Affine2,
+    /// adapter 的 `max_texture_dimension_2d`（2026-10-10）：档位边长超过它时
+    /// 逐级回落（16384→8192→4096）。init 时快照一次。
+    pub(crate) adapter_max_dim: u32,
+    /// 协商用 adapter（运行期重配 surface 需要它；`get_default_config` 要吃
+    /// `&Adapter`）。init 后不再用于别的用途。
+    pub(crate) adapter: wgpu::Adapter,
 }
 
 /// 运行时性能 HUD 统计态。
@@ -206,13 +212,30 @@ pub(crate) fn install_resize_handler(state: &SharedState) {
 /// 返回是否发生了重配。
 pub(crate) fn sync_canvas_size(state: &SharedState) -> bool {
     let mut st = state.borrow_mut();
-    let (width, height) = canvas_pixel_size(&st.canvas, &st.window, st.bridge.tier);
-    if (width, height) == (st.config.width, st.config.height) {
+    let (format, alpha_mode) = (st.config.format, st.config.alpha_mode);
+    let current = Some((st.config.width, st.config.height));
+    // 档位 = 画布最长边；超过 adapter 上限 / 申请不到 / 该尺寸申请失败时逐级
+    // 回落（16384→8192→4096→CSS×DPR）。全部失败返回 None ⇒ 保留原 config。
+    let Some((config, changed)) = negotiate_surface(
+        &st.surface,
+        &st.adapter,
+        st.gpu.device(),
+        &st.canvas,
+        &st.window,
+        st.bridge.tier,
+        st.adapter_max_dim,
+        format,
+        alpha_mode,
+        current,
+    ) else {
+        return false;
+    };
+    if !changed {
+        // 尺寸未变（候选与当前一致）：不做无谓的 configure。
         return false;
     }
-    st.config.width = width;
-    st.config.height = height;
-    st.surface.configure(st.gpu.device(), &st.config);
+    let (width, height) = (config.width, config.height);
+    st.config = config;
     if let Err(e) = st.core.set_viewport(width, height) {
         status(&format!("resize 失败：{e}"));
     }
@@ -447,14 +470,14 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         if !st.hud.due() {
             return;
         }
-        // canvas CSS 尺寸 × DPR cap **× 档位渲染比例** = 物理尺寸。
-        // 2026-10-09：比例那一项必须印出来——否则「物理尺寸 > CSS×dpr」会
-        // 被读成 bug，而它正是三档看起来不同的原因（超采样）。
+        // canvas CSS 尺寸 × DPR cap = 显示盒参考。
+        // 2026-10-10：档位 = 画布**最长边**，物理尺寸不再乘渲染比例；这里印
+        // 实际分到的物理尺寸 + 最长边，作为「档位到底生效到几 K」的直接证据。
         let css_w = st.canvas.client_width().max(0);
         let css_h = st.canvas.client_height().max(0);
         let dpr = st.window.device_pixel_ratio().clamp(1.0, DPR_CAP);
-        let tier_scale = st.bridge.tier.render_scale();
         let (phys_w, phys_h) = (st.config.width, st.config.height);
+        let longest_edge = phys_w.max(phys_h);
         let adapter_line = st
             .hud
             .adapter_line
@@ -532,13 +555,14 @@ pub(crate) fn write_hud_if_due(state: &SharedState) {
         (
             true,
             format!(
-                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr x{tier_scale:.2}(物理{phys_w}x{phys_h}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {fields_diag} | {stage_diag} | {idle_diag}",
+                "GPU: {adapter_line} | canvas {css_w}x{css_h}@{dpr}dpr (物理{phys_w}x{phys_h} 最长边{longest_edge}) | FPS {fps:.1} | cpu {cpu:.1}ms | sim {sim}/frame | {bg_diag} | {preset_diag} | {fields_diag} | {stage_diag} | {idle_diag}",
                 adapter_line = adapter_line,
                 css_w = css_w,
                 css_h = css_h,
                 dpr = dpr,
                 phys_w = phys_w,
                 phys_h = phys_h,
+                longest_edge = longest_edge,
                 fps = st.hud.last_fps,
                 cpu = cpu_ms,
                 sim = st.hud.last_sim_steps,

@@ -1,19 +1,20 @@
-//! 离屏渲染 target 的离散档位（纹理分辨率上限）。
+//! 离屏渲染 target 的离散档位（**画布最长边**目标分辨率）。
 //!
-//! 离屏渲染 target 按 [`RenderTier::side`] 设定；native 路径把
-//! `max_texture_dimension_2d` 按档位构造以支持高档；wasm 路径受浏览器上限约束，
-//! 用 `tier.side()` 作为目标侧边上钳，实际取 `min(tier.side(), canvas_pixel_size)`。
+//! # 2026-10-10：档位 = 画布**最长边**（不是渲染比例，也不是上钳）
+//!
+//! 前三档（4K / 8K / 16K）的最长边就是 [`RenderTier::side`]（4096 / 8192 /
+//! 16384），另一边按舞台宽高比跟着走（**不撑成正方形**）。native 路径把
+//! `max_texture_dimension_2d` 按档位构造以支持高档。
+//!
+//! 2026-10-09 曾用一条 `render_scale()`（1.0 / 1.5 / 2.0）乘在「CSS × DPR」上，
+//! 让普通窗口也能看出三档差别；**该比例已于 2026-10-10 删除**——它让「档位」
+//! 名不副实（8K 实际只画到显示盒的 1.5 倍）。现在档位说的就是最长边。
+//!
+//! wasm 路径受浏览器/适配器上限约束：实际可达的边长由 `adapter
+//! max_texture_dimension_2d` 决定，申请不到就 16384→8192→4096 逐级回落
+//! （见 `l2d-wasm-demo` 的 `web/surface/gpu.rs`）。
 //!
 //! 关联 ADR：`docs/architecture/renderer-texture-tier-adr.md`（§3 接口冻结）。
-//!
-//! # 2026-10-09：档位还要改变**实际绘制分辨率**，不只是上限
-//!
-//! 原语义里 `side()` 只是**上钳**，而普通窗口的物理画布远小于 4096
-//!（约 1000–2000 px）⇒ 三档钳完一模一样，界面上看起来「失效」。
-//! 现在多一条 [`RenderTier::render_scale`]：**渲染比例**乘在
-//! 「CSS 尺寸 × DPR」之后，画布位图因此比显示盒更大，浏览器下采样回 CSS 盒
-//! （超采样）——三档在这台屏幕上肉眼可分，且**不会**为字面 16384 分配一张
-//! 1 GiB 纹理（分配量 = 显示盒 × 比例，`side()` 仍作最后一道上钳）。
 
 /// 离屏渲染 target 的离散档位（RGBA8 单张 ≈ 4096:64MB / 8192:256MB / 16384:1GB）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,24 +44,6 @@ impl RenderTier {
         self.side()
     }
 
-    /// **渲染比例**（2026-10-09）：画布位图 = CSS 尺寸 × DPR 钳制 × 本比例。
-    ///
-    /// 三条取值刻意是「1.0 / 1.5 / 2.0」而不是「4096 / 8192 / 16384」：
-    /// 后者要求为档位本身分配一张对应边长的纹理（16384² RGBA8 ≈ 1 GiB），
-    /// 而这是**本地优先的桌宠**，普通窗口根本用不到。超采样比例足够让三档
-    /// 在本机屏幕上肉眼可分（画布位图 1.0× / 1.5× / 2.0×，浏览器下采样回
-    /// CSS 显示盒），分配量随窗口大小走，不随档位标称值走。
-    ///
-    /// 与 [`Self::side`] 的关系：先乘比例，再按 `side()` 对最长边做保比上钳
-    ///（大窗口 + 高档位时的显存兜底）。
-    pub fn render_scale(self) -> f64 {
-        match self {
-            Self::Tier4096 => 1.0,
-            Self::Tier8192 => 1.5,
-            Self::Tier16384 => 2.0,
-        }
-    }
-
     /// 从侧边像素数解析档位（4096/8192/16384）；非法值返回 `None`。
     pub fn from_side(side: u32) -> Option<Self> {
         match side {
@@ -69,6 +52,17 @@ impl RenderTier {
             16384 => Some(Self::Tier16384),
             _ => None,
         }
+    }
+
+    /// 在 adapter `max_texture_dimension_2d` 约束下可用的**最高档位**。
+    ///
+    /// 从本档开始逐级向下找（本档 → 8192 → 4096）；`max_dim` 连 4096 都放不下
+    /// 时返回 `None`（wasm 侧据此退回「CSS × DPR」兜底）。**不向上抬**——
+    /// 用户选 8K 就最多给 8K，即使 adapter 能到 16384。
+    pub fn highest_within(self, max_dim: u32) -> Option<Self> {
+        [self, Self::Tier8192, Self::Tier4096]
+            .into_iter()
+            .find(|t| t.side() <= max_dim)
     }
 }
 
@@ -100,19 +94,15 @@ mod tests {
         }
     }
 
-    /// 三档的渲染比例必须**两两不同**（否则界面上三档看起来一样 = 失效）。
+    /// 三档的最长边必须**两两不同**（否则界面上三档看起来一样 = 失效）。
     #[test]
-    fn render_scale_is_strictly_increasing() {
-        assert_eq!(RenderTier::Tier4096.render_scale(), 1.0);
-        assert_eq!(RenderTier::Tier8192.render_scale(), 1.5);
-        assert_eq!(RenderTier::Tier16384.render_scale(), 2.0);
+    fn sides_are_strictly_increasing() {
         assert!(
-            RenderTier::Tier4096.render_scale() < RenderTier::Tier8192.render_scale()
-                && RenderTier::Tier8192.render_scale() < RenderTier::Tier16384.render_scale(),
-            "比例必须严格递增，否则普通窗口上三档画出来一样"
+            RenderTier::Tier4096.side() < RenderTier::Tier8192.side()
+                && RenderTier::Tier8192.side() < RenderTier::Tier16384.side(),
+            "最长边必须严格递增，否则三档画出来一样"
         );
-        // 比例是「小倍数」，不是档位标称边长——16384 档不是 16384 倍。
-        assert!(RenderTier::Tier16384.render_scale() <= 2.0);
+        assert_eq!(RenderTier::Tier16384.side(), 16384);
     }
 
     #[test]
@@ -122,5 +112,34 @@ mod tests {
         assert_eq!(RenderTier::from_side(16384), Some(RenderTier::Tier16384));
         assert_eq!(RenderTier::from_side(2048), None);
         assert_eq!(RenderTier::from_side(0), None);
+    }
+
+    /// adapter 上限回落：够就原样、不够就逐级降、连 4096 都没有就 `None`；
+    /// **绝不向上抬**（选 8K 不会被 adapter 的 16K 抬成 16K）。
+    #[test]
+    fn highest_within_falls_back_and_never_upgrades() {
+        assert_eq!(
+            RenderTier::Tier16384.highest_within(16384),
+            Some(RenderTier::Tier16384)
+        );
+        assert_eq!(
+            RenderTier::Tier16384.highest_within(8192),
+            Some(RenderTier::Tier8192),
+            "16K 申请不到应降到 8K"
+        );
+        assert_eq!(
+            RenderTier::Tier16384.highest_within(4096),
+            Some(RenderTier::Tier4096)
+        );
+        assert_eq!(RenderTier::Tier16384.highest_within(2048), None);
+        // 选 8K：即使 adapter 报 16K，也停在 8K（不向上抬）。
+        assert_eq!(
+            RenderTier::Tier8192.highest_within(16384),
+            Some(RenderTier::Tier8192)
+        );
+        assert_eq!(
+            RenderTier::Tier4096.highest_within(16384),
+            Some(RenderTier::Tier4096)
+        );
     }
 }

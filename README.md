@@ -1,6 +1,6 @@
 # Live2D-Ai
 
-**v0.2.3-rc.2** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
+**v0.2.4-rc.1** — a minimal, general-purpose **Live2D avatar ↔ AI dialogue** platform.
 
 Live2D-Ai wires a single core loop and keeps everything else behind a Mod boundary:
 

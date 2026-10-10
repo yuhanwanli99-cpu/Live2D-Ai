@@ -1,8 +1,11 @@
-/// 「Live2D 动作」页（2026-10-09 从「外观与互动」拆出）。
+/// 「Live2D 设置」页（2026-10-09 从「外观与互动」拆出；2026-10-10 改名）。
 ///
 /// 只拿两组：**舞台与口型**（模型缩放、口型灵敏度、口型同步、待机小动作、
-/// 开发者档位）与**互动**（允许拖动与缩放）。全是纯本地 DisplayPrefs，
-/// 不需要草稿，也没有保存按钮——拖滑杆时就想看到舞台反应。
+/// 渲染档位）与**互动**（允许拖动与缩放）。全是纯本地 DisplayPrefs。
+///
+/// 2026-10-10：本机偏好改动**先进草稿**（不再即时落盘 / 下发）——界面滑条显示
+/// 新值，点「保存并重载」才写本机存储并刷新。渲染档位（4K/8K/16K）也**不再
+/// 包在开发者模式里**。
 ///
 /// **不在这里**：动作幅度三条与「本模型覆盖」（搬到导演卡片
 /// settings/mods/director_panel.dart）；配色与背景（留在「主题」页）。
@@ -19,14 +22,12 @@ class MotionSection extends StatelessWidget {
   const MotionSection({
     required this.prefs,
     required this.onPrefsChanged,
-    this.devMode = false,
     super.key,
   });
 
-  /// 本地显示偏好（纯本地，localStorage，**不走设置草稿**）。
+  /// 本机显示偏好**草稿**（本页只读草稿值、只改草稿；保存并重载才生效）。
   final DisplayPrefs prefs;
   final ValueChanged<DisplayPrefs> onPrefsChanged;
-  final bool devMode;
 
   @override
   Widget build(BuildContext context) {
@@ -76,18 +77,19 @@ class MotionSection extends StatelessWidget {
                 onChanged: (bool v) =>
                     onPrefsChanged(prefs.copyWith(idleEnabled: v)),
               ),
-              if (devMode)
-                SegmentedField<int>(
-                  label: '渲染档位',
-                  icon: Icons.speed,
-                  value: prefs.tier,
-                  options: const <FieldOption<int>>[
-                    FieldOption<int>(value: 4096, label: '4K'),
-                    FieldOption<int>(value: 8192, label: '8K'),
-                    FieldOption<int>(value: 16384, label: '16K'),
-                  ],
-                  onChanged: (int v) => onPrefsChanged(prefs.copyWith(tier: v)),
-                ),
+              // 渲染档位 = 画布**最长边**（4096 / 8192 / 16384）。不再包在
+              // 开发者模式里：它是用户可选的画质/性能权衡（2026-10-10）。
+              SegmentedField<int>(
+                label: '渲染档位',
+                icon: Icons.speed,
+                value: prefs.tier,
+                options: const <FieldOption<int>>[
+                  FieldOption<int>(value: 4096, label: '4K'),
+                  FieldOption<int>(value: 8192, label: '8K'),
+                  FieldOption<int>(value: 16384, label: '16K'),
+                ],
+                onChanged: (int v) => onPrefsChanged(prefs.copyWith(tier: v)),
+              ),
             ],
           ),
         ),

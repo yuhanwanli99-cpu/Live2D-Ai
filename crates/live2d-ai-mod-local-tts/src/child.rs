@@ -72,6 +72,44 @@ pub struct SpawnRequest {
 /// 可注入的 spawner（单测注入假实现，不 exec 真进程）。
 pub type Spawner = Box<dyn Fn(&SpawnRequest) -> std::io::Result<Box<dyn ChildProcess>> + Send>;
 
+/// 让子进程的**生命周期与主程序一致**：父进程一消失，内核就把 `SIGKILL` 发给它。
+///
+/// # 为什么需要（真实来历，2026-10-10）
+///
+/// MeloTTS / CosyVoice 是本 Mod spawn 的**外部长驻进程**。桌面端若被 `SIGKILL`
+/// 或被强杀（不经过 `shutdown()` 的路径），子进程会被 reparent 到 init 继续
+/// 占着端口；下一次点火时新进程绑定失败、主链对着卡死的旧进程发请求
+/// （本机实测：8091 上残留旧 melo → 新 melo `Address already in use` 立即退出
+/// → `tts_upstream_502`）。`shutdown()` 的 `kill()` 只在父进程**能**优雅收尾时
+/// 有效；`PR_SET_PDEATHSIG` 由内核兜底「父死 → 子收 SIGKILL」，不依赖那一刻。
+///
+/// # 边界（逐条）
+///
+/// - 只作用于**被 exec 的这一个进程**：`PDEATHSIG` **不被 fork 继承**
+///   （`start.sh` 里为装依赖 fork 出的孙进程不会误伤），但**跨 `execve` 保留**
+///   （`exec python serve.py` 之后依然生效）——正是我们要的「长驻那个进程」。
+/// - 父进程在 `fork` 之后、`prctl` 之前若已退出，信号不会再投递（竞态）；
+///   此处补一次 `getppid()`：已变成 1（被 init 收养）就主动报错退出，不留孤儿。
+/// - 仅 Linux 编译：本项目的进程宿主是 WSL2/Linux，Windows 侧只跑浏览器。
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)] // 全仓唯一一处 unsafe：prctl(PDEATHSIG) 没有安全封装，见上说明。
+fn arm_parent_death_signal(cmd: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: `pre_exec` 在 fork 之后、exec 之前运行于**子进程**内。闭包只调用
+    // async-signal-safe 的 `prctl` 与 `getppid`：不分配内存、不加锁、不做 IO。
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::getppid() == 1 {
+                return Err(std::io::Error::other("父进程在装上 PDEATHSIG 之前已退出"));
+            }
+            Ok(())
+        });
+    }
+}
+
 /// 生产实现：`std::process::Command`，逐参数、无 shell、stderr 接管道并读干。
 pub fn real_spawn(req: &SpawnRequest) -> std::io::Result<Box<dyn ChildProcess>> {
     let Some((program, args)) = req.argv.split_first() else {
@@ -88,6 +126,9 @@ pub fn real_spawn(req: &SpawnRequest) -> std::io::Result<Box<dyn ChildProcess>> 
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::inherit());
     cmd.stderr(std::process::Stdio::piped());
+    // 生命周期 = 主程序：父进程一没，内核就把这个子进程 SIGKILL 掉（见函数头注）。
+    #[cfg(target_os = "linux")]
+    arm_parent_death_signal(&mut cmd);
     let mut child = cmd.spawn()?;
     let tail: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let reader = child.stderr.take().map(|err| {

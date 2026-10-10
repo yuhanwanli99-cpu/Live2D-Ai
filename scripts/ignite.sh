@@ -43,6 +43,13 @@ if [ -f .env ]; then
   echo "==> 已导出 .env 到进程环境（Rust 侧也直接读 .env）：$(grep -oE "^[A-Z_]+=" .env | tr -d "=" | tr "\n" " ")"
 fi
 
+# loopback 一律不经代理：本机 LLM / TTS（127.0.0.1:8091 等）不该被丢给 http_proxy。
+# 本机实测：环境里 `no_proxy=…,127.*` 这个 **glob 对 reqwest 无效**（它只认字面量），
+# 于是连不上 127.0.0.1:1 的用例被代理回成 502、本机 8091 的请求也可能绕道代理。
+# 这里补上**字面量**（幂等：已有则原样带上），代理继续只管外网。
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost,::1"
+export no_proxy="${no_proxy:+$no_proxy,}127.0.0.1,localhost,::1"
+
 PORT=18080
 DO_BUILD=0
 DO_CHECK=0
@@ -219,6 +226,25 @@ if [ "$DO_BUILD" = "1" ] || [ ! -x "target/debug/live2d-ai-desktop" ]; then
 fi
 
 pkill -f "live2d-ai-desktop --web" 2>/dev/null || true
+sleep 0.5
+
+# 本地 TTS 子进程（MeloTTS / CosyVoice3）是**外部长驻进程**，由桌面端 spawn。
+# 桌面端被 **SIGKILL/强杀**（不走 shutdown()）时，它们会被 reparent 成孤儿并继续
+# 占着端口 —— 本机实测：8091 上残留旧 melo → 新 melo 绑定 `Address already in use`
+# 立即退出 → 主链对着卡死的旧进程发请求得到 `tts_upstream_502`。
+#
+# 新代码已给 spawn 出的子进程装 `PR_SET_PDEATHSIG`（父死即内核收掉，见
+# `crates/live2d-ai-mod-local-tts/src/child.rs`）；但**升级之前**留下的孤儿还在，
+# 这里按**仓库内路径**精确点名清掉（只认本仓的 melo/serve.py 与 engine/，
+# 不碰其它进程），使生命周期与刚修好的口径一致。
+for pat in "crates/live2d-ai-mod-local-tts/melo/serve.py" \
+           "crates/live2d-ai-mod-local-tts/engine/"; do
+  stale="$(pgrep -f "$PWD/$pat" 2>/dev/null | tr '\n' ' ' || true)"
+  if [ -n "${stale// /}" ]; then
+    echo "[warn] 清理残留的本地 TTS 子进程（旧桌面被强杀留下的孤儿）：$pat → pid ${stale}"
+    pkill -f "$PWD/$pat" 2>/dev/null || true
+  fi
+done
 sleep 0.5
 
 echo

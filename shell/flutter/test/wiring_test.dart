@@ -9,6 +9,8 @@ import 'package:live2d_ai_shell/settings/settings_controller.dart';
 import 'package:live2d_ai_shell/settings/sections/persona_section.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
+import 'support/dart_library.dart';
+
 /// **接线守卫**：盯住「代码写好了但没人用」这一类静默失效。
 ///
 /// # 为什么需要这个文件（有真实来历）
@@ -48,6 +50,38 @@ void main() {
     }
     return false;
   }
+
+  // 2026-10-10：本机偏好**草稿化**之后，凡是「改一个字段」的回调都必须从
+  // 草稿（`_shownPrefs`）起稿。从已保存的 `widget.prefs` 起稿会把用户在这一轮
+  // 里已经改过的其它草稿字段整份冲掉——实测「拨到 16K 再拖音量」→ 档位回 4K；
+  // 「先静音再拖音量」→ 静音被清。这是纯接线缺陷，只有真机/源码守得住。
+  group('本机偏好草稿：音量 / 静音从草稿起稿', () {
+    test('onVolumeChanged / onMutedChanged 从 _shownPrefs.copyWith 起，不得用 widget.prefs', () {
+      // `main.dart` 声明了多个 `part` ⇒ 必须走 readLibrarySource（读并集），
+      // 否则 `dart_library_guard_test` 判红，且扫描会漏掉 part 里的接线。
+      final String src = readLibrarySource('lib/main.dart');
+      for (final String key in <String>['onVolumeChanged:', 'onMutedChanged:']) {
+        final int i = src.indexOf(key);
+        expect(i, greaterThanOrEqualTo(0), reason: '$key 必须仍在组合根接线');
+        final String snippet = src.substring(
+          i,
+          (i + 180).clamp(0, src.length),
+        );
+        expect(
+          snippet.contains('_shownPrefs.copyWith'),
+          isTrue,
+          reason:
+              '$key 必须从草稿起稿（_shownPrefs.copyWith），否则会把用户已改过的'
+              '其它本机草稿（档位 / 主题 / 背景…）整份冲掉',
+        );
+        expect(
+          snippet.contains('widget.prefs.copyWith'),
+          isFalse,
+          reason: '$key 不得从已保存的 widget.prefs 起稿（会冲掉草稿）',
+        );
+      }
+    });
+  });
 
   group('必须被接线的构造（点名，每个都写清后果）', () {
     test('`StageHost` 被外壳用上（否则舞台语义与加载/错误覆盖层全部失效）', () {

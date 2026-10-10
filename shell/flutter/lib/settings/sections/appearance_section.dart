@@ -1,7 +1,8 @@
 /// 「主题」页（2026-10-09 从「外观与互动」拆出）。
 ///
-/// 只有一组：**配色 + 背景**（全是纯本地 DisplayPrefs，不需要草稿，
-/// 也不走保存按钮）。舞台与口型、允许拖动与缩放搬到 motion_section.dart；
+/// 只有一组：**配色 + 背景**（纯本地 DisplayPrefs）。2026-10-10 起本机偏好
+/// **先进草稿**：本页改的是草稿值，点「保存并重载」才落盘并刷新。
+/// 舞台与口型、渲染档位、允许拖动与缩放搬到 motion_section.dart；
 /// 动作幅度三条与本模型覆盖搬到 settings/mods/director_panel.dart。
 ///
 /// # 文件名与类名（如实记录，避免下一个人以为拿错了）
@@ -55,7 +56,7 @@ class ThemeSection extends StatelessWidget {
     super.key,
   });
 
-  /// 本地显示偏好（纯本地，localStorage，**不走设置草稿**）。
+  /// 本机显示偏好**草稿**（本页只读草稿值、只改草稿；保存并重载才生效）。
   final DisplayPrefs prefs;
   final ValueChanged<DisplayPrefs> onPrefsChanged;
 

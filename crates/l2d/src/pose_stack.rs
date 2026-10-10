@@ -13,7 +13,7 @@
 //! | base | 模型清单默认值（空层，缺省即默认） | 0（最低） |
 //! | idle | 内建待机驱动（呼吸正弦 / 摆头），每帧整体重算 | 1 |
 //! | input | [`PoseStack::set_parameter`]，[`PoseStack::clear_parameter`] 可撤销 | 2 |
-//! | physics | 物理引擎输出（消费 idle+input 作为输入信号） | 3 |
+//! | physics | 物理引擎输出（消费 idle+input+final_override 作为输入信号） | 3 |
 //! | final_override | [`PoseStack::override_parameter`]，最高优先级覆盖 | 4 |
 //!
 //! 物理引擎是唯一的**有状态层**：其工作姿态跨帧保留上一帧输出
@@ -77,6 +77,9 @@ pub struct PoseStack {
     breath_key: pose::Key<'static>,
     angle_key: pose::Key<'static>,
     has_angle_z: bool,
+    /// idle 开关（默认 true）：false 时 **idle 层整体停写**——不写呼吸正弦，
+    /// 也不写 `ParamAngleZ` 的 ±3° 摆头。`IdleState` / `apply_idle_life` 共用同一开关。
+    idle_enabled: bool,
     elapsed: f32,
 }
 
@@ -99,6 +102,7 @@ impl PoseStack {
             breath_key: pose::Key::param(BREATH_PARAM),
             angle_key: pose::Key::param(ANGLE_Z_PARAM),
             has_angle_z,
+            idle_enabled: true,
             elapsed: 0.0,
         }
     }
@@ -138,6 +142,17 @@ impl PoseStack {
     /// 已推进的模拟时间（秒）。
     pub fn elapsed(&self) -> f32 {
         self.elapsed
+    }
+
+    /// 待机开关（默认 `true`）。false 时下一帧起 idle 层不再写呼吸正弦与
+    /// `ParamAngleZ` 的 ±3° 摆头（与前端「待机小动作」同开关）。
+    pub fn set_idle_enabled(&mut self, enabled: bool) {
+        self.idle_enabled = enabled;
+    }
+
+    /// 当前待机开关。
+    pub fn idle_enabled(&self) -> bool {
+        self.idle_enabled
     }
 
     /// 向 **input 层**写入参数（优先级高于 idle、低于 physics/final_override）。
@@ -182,23 +197,31 @@ impl PoseStack {
         self.elapsed += dt;
 
         // ---- idle 层：每帧从零重算（独立层，不再被其他层的历史值污染）----
+        // `idle_enabled == false` 时整层停写：呼吸/摆头都回到 base 默认值。
         let mut idle = pose::Pose::with_map(Arc::clone(&self.map));
-        if let Some((min, max)) = self.breath_range {
-            let v = ((time / 2.0 * std::f32::consts::PI).cos() / -2.0 + 0.5) * (max - min) + min;
-            idle.set(&self.breath_key, v);
-        }
-        if self.has_angle_z {
-            // P3.1 修复：i32 截断会让正弦在峰值（导数≈0）处连续多帧停在同
-            // 一整数再跳变——表现为"摆到最左/最右卡一下"。改为连续 f32；
-            // 幅度 15°→3°（轻微摇晃，py 版生命体征同级），周期放慢一倍。
-            let wave = (time * std::f32::consts::PI / 2.0).sin() * 3.0;
-            idle.set(&self.angle_key, wave);
+        if self.idle_enabled {
+            if let Some((min, max)) = self.breath_range {
+                let v =
+                    ((time / 2.0 * std::f32::consts::PI).cos() / -2.0 + 0.5) * (max - min) + min;
+                idle.set(&self.breath_key, v);
+            }
+            if self.has_angle_z {
+                // P3.1 修复：i32 截断会让正弦在峰值（导数≈0）处连续多帧停在同
+                // 一整数再跳变——表现为"摆到最左/最右卡一下"。改为连续 f32；
+                // 幅度 15°→3°（轻微摇晃，py 版生命体征同级），周期放慢一倍。
+                let wave = (time * std::f32::consts::PI / 2.0).sin() * 3.0;
+                idle.set(&self.angle_key, wave);
+            }
         }
 
-        // ---- physics 层：工作姿态 ← 上帧输出 ⊕ 本帧信号（idle+input）----
+        // ---- physics 层：工作姿态 ← 上帧输出 ⊕ 本帧信号（idle+input+final_override）----
+        // final_override 也进物理输入（同一参数上它最后写、即赢），于是导演写在
+        // `ParamAngleZ` 上的歪头会带动物理——头发/被物理带动的身体跟着这一下，
+        // 而不是继续 idle 层的 ±3°。新 cue 晚一帧进物理（tick 顺序不变）。
         if let Some(engine) = self.engine.as_mut() {
             let mut signal = idle.clone();
             signal.update(&self.input);
+            signal.update(&self.final_override);
             // 引擎在 work 上就地步进：输入参数读取 signal 刷新后的值，
             // 被驱动参数继承上帧输出保证连续性。
             self.physics_work.update(&signal);
@@ -254,6 +277,7 @@ impl fmt::Debug for PoseStack {
             .field("elapsed", &self.elapsed)
             .field("breath", &self.breath_range.is_some())
             .field("angle_z", &self.has_angle_z)
+            .field("idle_enabled", &self.idle_enabled)
             .finish_non_exhaustive()
     }
 }
@@ -499,5 +523,127 @@ mod tests {
         stack.override_parameter("ParamHairFront", -4.0);
         assert_eq!(stack.get_parameter("ParamHairFront"), Some(-4.0));
         assert!(stack.clear_override_parameter("ParamHairFront"));
+    }
+
+    /// **待机开关（回归）**：关掉 idle 后连续 `update`，呼吸与 `ParamAngleZ`
+    /// 都回到 base 默认值（不再写呼吸正弦、不再摆 ±3°）。
+    #[test]
+    fn idle_disabled_freezes_breath_and_angle_z_at_default() {
+        let mut stack = PoseStack::from_pose_map(synthetic_map(true, true));
+        assert!(stack.idle_enabled(), "缺省应为开");
+        stack.set_idle_enabled(false);
+        assert!(!stack.idle_enabled());
+        for _ in 0..30 {
+            stack.update(FIXED_DT_60HZ).unwrap();
+            assert_eq!(
+                stack.get_parameter(ANGLE_Z_PARAM),
+                Some(0.0),
+                "关待机后 ParamAngleZ 必须保持默认"
+            );
+            assert_eq!(
+                stack.get_parameter(BREATH_PARAM),
+                Some(0.0),
+                "关待机后 ParamBreath 必须保持默认"
+            );
+        }
+    }
+
+    /// **待机开关（回归）**：开着时会离开默认——否则上一条断言可能是在测一个
+    /// 从来不动的参数（假绿灯）。
+    #[test]
+    fn idle_enabled_moves_angle_z_off_default() {
+        let mut stack = PoseStack::from_pose_map(synthetic_map(true, true));
+        let mut left_default = false;
+        for _ in 0..60 {
+            stack.update(FIXED_DT_60HZ).unwrap();
+            if stack.get_parameter(ANGLE_Z_PARAM) != Some(0.0) {
+                left_default = true;
+                break;
+            }
+        }
+        assert!(left_default, "开待机时 ParamAngleZ 应离开默认");
+    }
+
+    /// **物理跟导演（回归）**：`final_override` 上的 `ParamAngleZ` 进物理输入，
+    /// 且同一参数上 `final_override` 赢过 idle 的 ±3°。
+    ///
+    /// 合成物理：`ParamAngleZ`（Angle 输入）→ 单摆锤 → `ParamHairFront`（输出）。
+    #[test]
+    fn final_override_angle_z_reaches_physics_and_outranks_idle() {
+        fn phys_stack() -> PoseStack {
+            let mut map = pose::PoseMap::new();
+            for (i, (id, min, max)) in [
+                (ANGLE_Z_PARAM, -30.0_f32, 30.0_f32),
+                ("ParamHairFront", -10.0, 10.0),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                map.add(Descriptor {
+                    key: pose::Key::from_param(id.to_owned()),
+                    uid: i as u64 + 1,
+                    name: None,
+                    min,
+                    max,
+                    default: 0.0,
+                });
+            }
+            let mut stack = PoseStack::from_pose_map(Arc::new(map));
+            stack
+                .attach_physics_json(SYNTHETIC_PHYSICS_JSON.as_bytes())
+                .expect("合成 physics3.json 应可解析");
+            stack
+        }
+
+        // 对照：关待机、无 override → 物理输入恒为默认 0，头发不被动。
+        let mut cold = phys_stack();
+        cold.set_idle_enabled(false);
+        for _ in 0..120 {
+            cold.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(
+            cold.get_parameter("ParamHairFront"),
+            Some(0.0),
+            "无输入时物理不该动（证明下一步的位移来自 final_override）"
+        );
+
+        // 关待机 + override `ParamAngleZ=30`：物理输入只能来自 final_override，
+        // 头发被带着走（若 final_override 不进物理，输入恒为默认 0，头发不会动）。
+        let mut off = phys_stack();
+        off.set_idle_enabled(false);
+        off.override_parameter(ANGLE_Z_PARAM, 30.0);
+        for _ in 0..120 {
+            off.update(FIXED_DT_60HZ).unwrap();
+        }
+        let driven = off.get_parameter("ParamHairFront").unwrap();
+        assert!(
+            (driven - 0.0).abs() > 1e-3,
+            "final_override 上的 ParamAngleZ 必须进物理输入：{driven}"
+        );
+
+        // 开待机 + 同样的 override：override 赢过 ±3°，物理输出应与关待机逐帧一致。
+        //
+        // **判据必须避开物理角度归一化的钳位干扰**：归一化上限是 10，若两侧都用
+        // 30，30±3 都会被钳成同一个值，即使 idle 顶掉 override 也看不出差别
+        // （原实现的漏洞）。这里改用**落在 [-10,10] 内**的 5.0：idle 的 ±3 也在
+        // 量程内、不会被钳。若 idle 赢，开待机的物理输入会是时变的 ±3 正弦，输出
+        // 与关待机的常量 5.0 **不可能逐位相等**；只有 override 真赢（两侧输入都是
+        // 常量 5.0）才相等。
+        let mut off_small = phys_stack();
+        off_small.set_idle_enabled(false);
+        off_small.override_parameter(ANGLE_Z_PARAM, 5.0);
+        for _ in 0..120 {
+            off_small.update(FIXED_DT_60HZ).unwrap();
+        }
+        let mut on = phys_stack();
+        on.override_parameter(ANGLE_Z_PARAM, 5.0);
+        for _ in 0..120 {
+            on.update(FIXED_DT_60HZ).unwrap();
+        }
+        assert_eq!(
+            on.get_parameter("ParamHairFront").unwrap(),
+            off_small.get_parameter("ParamHairFront").unwrap(),
+            "final_override（5.0，未触钳位）应赢过 idle 的 ±3°：两条轨迹必须逐位相等"
+        );
     }
 }
