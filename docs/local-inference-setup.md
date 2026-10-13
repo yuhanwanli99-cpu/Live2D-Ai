@@ -134,6 +134,8 @@ curl http://172.22.80.1:11434/api/tags
 
 #### local-llm Mod 配置
 
+> **2026-10-12**：`local-llm` 这个 Mod 和 crate 已于 2026-10-01 物理删除，只留在 tag `checkpoint/pre-d1-dormant`，禁止挂回。下面关于探活和端口转发的段落是删除前的记录，不能再当配置步骤。现在只写 `live2d-ai.toml` 的 `[llm]` 与 `[tts]`。
+
 **重要**：`local-llm` Mod 的探活逻辑**固定使用 `127.0.0.1`**（见
 `crates/live2d-ai-mod-local-llm/src/lib.rs` 行 258），不能配置主机 IP。
 这意味着：
@@ -276,7 +278,7 @@ base_url = "http://127.0.0.1:8000/v1"
 voice = "af_heart"
 
 [persona]
-system_prompt = "你是桌面上的 Live2D 桌宠。用简短、口语化的中文回答。"
+system_prompt = "你是一张 Live2D 皮套背后的对话角色。用简短、口语化的中文回答。"
 max_history_pairs = 2
 ```
 

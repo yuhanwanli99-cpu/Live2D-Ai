@@ -6,7 +6,7 @@
 //! `--no-web-resources-cdn` **不是可选项**：缺省构建会把 CanvasKit 指向
 //! `https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，而本机
 //! `build/web/canvaskit/` 那份 37 MB 副本根本不被引用——于是**断网即白屏**。
-//! 本项目是本地优先的桌宠，不允许依赖 Google CDN。
+//! 本项目是本地优先的皮套接入服务，不允许依赖 Google CDN。
 //!
 //! # 为什么必须同源
 //! Flutter 端用 `HtmlElementView` 内嵌 `/render` iframe，并以

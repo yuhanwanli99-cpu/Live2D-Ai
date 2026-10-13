@@ -62,7 +62,7 @@ flutter build web --release --base-href /app/ --no-web-resources-cdn
 **必须带 `--no-web-resources-cdn`**：不加时 Flutter 会把 CanvasKit 指向
 `https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，而产物里那份
 `canvaskit/`（约 37 MB）**根本不被引用**——结果是**断网白屏**。
-本项目是本地优先的桌宠，不允许依赖 Google CDN。（`scripts/ignite.sh` 启动时会探测
+本项目是本地优先的皮套接入服务，不允许依赖 Google CDN。（`scripts/ignite.sh` 启动时会探测
 产物是否仍引用该 CDN 并告警。）
 
 ## 3. 如何被 Rust 以 `/app/` 托管

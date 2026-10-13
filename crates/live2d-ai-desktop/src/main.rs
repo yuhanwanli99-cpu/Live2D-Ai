@@ -62,6 +62,8 @@ mod platform;
 /// 数字 6 → 7，**同样缺省停用**（`cli_entry::default_mods_manifest` 未收录）。
 /// 与 rc.2 删除的那个 director 不同：它**不驱动动作序列**，见
 /// `docs/architecture/director-mod-v0.md` 与 `docs/architecture/director-rfc.md` §8。
+/// 现状（2026-10-12）：「零投递 / 不驱动动作」只描述 2026-09-14 骨架当时。现行舞台
+/// 驱动是 `ModServices.cues` → WS `action_cue`。`action_tx` 仍然休眠。
 /// 2026-09-14（产品级加强波次，未 bump 版本）：**封存 `wallpaper` + `pet-desktop`**
 /// ——两者移出本表，数字 7 → **5**，并标 ARCHIVED，**禁止挂回**；理由与恢复条件见
 /// `docs/architecture/ARCHIVED-mods.md`。用户手动的舞台/壳背景能力（`DisplayPrefs`）
@@ -79,6 +81,7 @@ pub static AVAILABLE_MOD_FACTORIES: &[&dyn live2d_ai_mod_system::ModFactory] = &
     &live2d_ai_mod_memory::FACTORY,
     // Wave 3（2026-09-14）：导演最小骨架（Wave 3 从 RFC 推进一格）。缺省停用；
     // **零投递**——只订阅 TurnPrompt/TurnEnded、只产决策日志与 state_json。
+    // 现状（2026-10-12）：「零投递 / 不驱动动作」只描述 2026-09-14 骨架当时。现行舞台驱动是 `ModServices.cues` → WS `action_cue`。`action_tx` 仍然休眠。
     &live2d_ai_mod_director::FACTORY,
     // 2026-10-09（0.2.3-rc.1「开箱即用」）：本地拉起 Mod —— id `local-tts-melo`，
     // 界面名 `本地tts_MeloTTS`，缺省程序 = 仓库内 melo/start.sh，声明地址 8091。

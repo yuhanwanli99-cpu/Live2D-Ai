@@ -37,7 +37,9 @@
 //!
 //! - 桌面侧把 `RootEvent::Action` 送进 reducer 的**唯一**通道已整体删除
 //!   （`SupervisorHandle::trigger_action` + supervisor 的 `action_rx` 分支）；
-//! - 动作序列的唯一驱动方 `live2d-ai-mod-director` 已删除；
+//! - rc.2 那个**动作序列** director 已删除；
+//! - 2026-09-14 起的同名 Mod 还在注册表里：它用 `action_cue` 驱动舞台，不调用
+//!   `action_tx`。core 的 `action/` 与 `performance/` 仍然没有驱动方；
 //! - `ModServices.action_tx` 仍在（Mod API 契约），但 host 注入的是**固定休眠
 //!   sender**：请求只留一行 debug 日志并返回 `false`。
 //!

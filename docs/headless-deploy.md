@@ -78,10 +78,11 @@ Headless 部署时，服务端 `cpal` 输出设备通常不可用（服务器无
 
 1. **不要**尝试启动本地声卡输出（默认 dry-run 已处理）。
 2. **必须**设置 `LIVE2D_AI_WS_AUDIO=1`，让 TTS 音频通过 WebSocket
-   广播到浏览器，浏览器使用 Web Audio API 播放。
+   广播到浏览器，浏览器把一句 PCM 封成 WAV，用 `<audio>` 播放。
 
 浏览器端收到音频帧的数据格式为 base64 编码的 `s16le` PCM（采样率/声道
-从 `AudioSpec` 透传），由前端 `/static/app.js` 中的播放器消费。
+从 `AudioSpec` 透传），由 Flutter `shell/flutter/lib/audio/audio_player.dart` 消费。
+`/static/app.js` 已于 2026-09-11 删除。
 
 ---
 
@@ -101,9 +102,9 @@ Termux 下为 `"android"`。
 | Live2D 模型渲染 (`/render`) | ✅ (浏览器) | 通过 Web WASM，在浏览器端渲染。 |
 
 > **架构隔离确认**：`winit`/`wgpu`/`ksni` 仅在 `backend/`、`app/`、`tray/`
-> 等模块中初始化，且**只在 `--pet-mode`/`--model-smoke`/`--window-smoke`/`
-> --chat`(桌宠模式) 等 GUI 模式下被调用**。`--web` 模式从不触达这些模块，
-> 因此 `cargo build` 在 Termux/Android target 上不受 GUI 链路影响。
+> 等模块中初始化。这些原生模块和 `--chat`、`--pet-mode`、`--window-smoke`、
+> `--model-smoke` 已于 2026-10-01 移出构建（见 `docs/architecture/ARCHIVED-native-shell.md`）。
+> 现行入口只有 `--web`，因此 `cargo build` 在 Termux/Android target 上不受 GUI 链路影响。
 
 ### 3.2 部署选项
 
@@ -157,7 +158,7 @@ cargo build --release --target aarch64-linux-android -p live2d-ai-desktop
 #### 选项 C：cargo-apk（不推荐）
 
 `cargo-apk` 用于构建 Android APK，需要 Gradle + Android SDK，
-本工程**不是 Android 应用**（AGPL 桌宠服务器，无 Android UI），
+本工程**不是 Android 应用**（本地皮套接入服务，无 Android UI），
 因此不适用。
 
 ### 3.3 Termux 网络访问
@@ -197,7 +198,7 @@ http://<host>:18080/
 - **Live2D 模型渲染**：通过 `/render` 路径的 WASM 渲染页面，浏览器端
   `l2d-wasm-demo` 负责模型加载 + 实时动画。
 - **TTS 音频播放**：当 `LIVE2D_AI_WS_AUDIO=1` 时，浏览器订阅
-  `/ws/runtime` WebSocket，收到音频帧后通过 Web Audio API 播放。
+  `/ws/runtime` WebSocket，收到音频帧后通过 `<audio>` + WAV 播放。
 - **对话**：`POST /api/v1/chat` → LLM → TTS → WS 音频广播 → 浏
   览器播放 → Live2D 口型/表情动画同步。
 
@@ -210,14 +211,14 @@ http://<host>:18080/
 | Web API (HTTP) | ✅ | `--web` 提供完整 REST 接口 |
 | WebSocket 事件流 | ✅ | `/ws/runtime` / `/ws/state` |
 | Live2D 模型渲染 | ✅ (浏览器) | WASM `/render`，非服务端 wgpu |
-| TTS 音频播放 | ✅ (浏览器) | `LIVE2D_AI_WS_AUDIO=1` +浏览器 Web Audio |
+| TTS 音频播放 | ✅ (浏览器) | `LIVE2D_AI_WS_AUDIO=1` + 浏览器 `<audio>` + WAV |
 | 本地声卡输出 | ❌ | Headless 无 ALSA/Pulse，dry-run |
-| 桌面窗口壳 | ❌ | P2 F4/G1 才提供，依赖 winit+wgpu |
+| 桌面窗口壳 | ❌ | 已于 2026-10-01 删除，不是待做项 |
 | 系统托盘 | ❌ | ksni 在 headless/Android 不可用 |
-| 桌宠点击穿透 | ❌ | 依赖窗口管理器 |
+| 窗口点击穿透 | 不在产品路径 | 随原生壳删除 |
 
 > **P2 G2 (本次任务)** 仅要求 headless 运行能力 + Termux 支持。
-> 桌面窗口壳 (F4/G1) 仍需图形环境，属于 P3 阶段。
+> 桌面窗口壳已于 2026-10-01 删除，不是后续阶段。见 `docs/architecture/ARCHIVED-native-shell.md`。
 
 ---
 

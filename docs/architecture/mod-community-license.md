@@ -76,13 +76,15 @@ Mod 与 host 编进**同一个 binary**。这正是分发面必须看许可的�
 | `voice-input` | off | AGPL-3.0-only | 官方包内 |
 | `memory` | off | AGPL-3.0-only | 官方包内 |
 | `director` | off | AGPL-3.0-only | 官方包内 |
-| ~~`wallpaper`~~ | — | AGPL-3.0-only | **已封存（ARCHIVED）**（移出注册面；crate 暂留仓库） |
-| ~~`pet-desktop`~~ | — | AGPL-3.0-only | **已封存（ARCHIVED）**（移出注册面；crate 暂留仓库） |
-| ~~`local-llm`~~ | — | AGPL-3.0-only | **已废除启动**（移出注册面；crate 暂留仓库） |
+| `local-tts-melo` | **on** | AGPL-3.0-only | 官方包内 |
+| ~~`wallpaper`~~ | — | AGPL-3.0-only | **已封存（ARCHIVED）**（移出注册面；crate 已于 2026-10-01 物理删除） |
+| ~~`pet-desktop`~~ | — | AGPL-3.0-only | **已封存（ARCHIVED）**（移出注册面；crate 已于 2026-10-01 物理删除） |
+| ~~`local-llm`~~ | — | AGPL-3.0-only | **已废除启动**（移出注册面；crate 已于 2026-10-01 物理删除） |
 | `live2d-ai-mod-template` | — | AGPL-3.0-only | 模板 crate，**不**注册 |
 
-封存口径见 [ARCHIVED-mods.md](ARCHIVED-mods.md)；注册面现为 5 个工厂
-（`main.rs::mod_count_is_five`）。
+封存口径见 [ARCHIVED-mods.md](ARCHIVED-mods.md)；注册面现为 **6** 个工厂
+（`main.rs::mod_count_is_six`）：上表五个加上缺省启用的 `local-tts-melo`
+（只拉起外部进程，不写 `[tts]`）。
 
 ---
 

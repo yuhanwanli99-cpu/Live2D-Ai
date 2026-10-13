@@ -1,5 +1,7 @@
 # 点火自测清单：核心链路闭环（2026-09-10）
 
+> **2026-10-13 作废**：本文是 2026-09-10 的点火记录。出厂 TTS 现为 Melo `127.0.0.1:8091`；播放走 `<audio>` + WAV；桌宠窗口已删除。现行点火看 `scripts/ignite.sh` 与 `docs/releases/v0.2.4-rc.1.md`。下文保留作当时记录。
+
 > 本轮范围：**Flutter 前端 + Rust 后端**，闭环「文本 → LLM（OpenAI 标准接口）→ TTS → 音频 → 口型 → Live2D 渲染」。
 > **TTS 已上线**：CosyVoice 兼容服务在 `127.0.0.1:8080`（`[tts] response_format="pcm"`, `voice="skystar"`, 24 kHz）。
 > LLM：DeepSeek `deepseek-flash`，密钥由 `DEEPSEEK_API_KEY`（见 `./.env`）注入 —— **必须用 `scripts/ignite.sh` 启动**，

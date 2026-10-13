@@ -1,5 +1,7 @@
 # Live2D-Ai 核心契约与架构边界（Rust 重构版）
 
+> **2026-10-12 作废**：本文停在 2026-09-10。下面这些已经不在产品路径：winit 窗口、egui 设置面板、cpal 声卡、`SupervisorHandle::trigger_action`、命令必须进 core 仲裁。现行入口是 `--web` + Flutter `/app/` + wasm `/render`。架构真源改看 `core-chain-baseline.md` 与 `directory.md`。下文保留作历史，不要按它改代码。
+
 > 状态：2026-09-10 增补「双主导分层」与前端层豁免（原版 2026-08-31 只描述 Rust 单主线；
 > 更早版本描述 Android/Python 双端，已归档，见 `ANDROID_ARCHIVE_POINTER.md` 与 tag `py-legacy`）。
 > 目标：把核心闭环的稳定接口固定下来，让后续扩展、可观测性、Web 集成都有可依赖的边界。

@@ -15,7 +15,7 @@ Flutter Web 的 CanvasKit **取不到设备字体**，`fontFamilyFallback` 也�
 https://fonts.gstatic.com/s/      # 引擎 configuration.dart 的 fontFallbackBaseUrl 默认值
 ```
 
-对一个**本地优先**的桌宠，这条默认值有三个问题：
+对一个**本地优先**的皮套接入服务，这条默认值有三个问题：
 
 1. **断网即豆腐块**——回落根本拿不到字体；
 2. **静默出网**——哪怕只显示一个 emoji 也会连 Google（隐私 + 可用性）；

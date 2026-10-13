@@ -446,7 +446,7 @@ rc.3（2026-09-13）曾裁「**不 feature-gate**，休眠保留」；**2026-10-
   **`--no-web-resources-cdn` 不是可选项**：缺省构建把 CanvasKit 指向
   `https://www.gstatic.com/flutter-canvaskit/<engineRevision>/`，
   而 `build/web/canvaskit/` 那份本地副本不被引用——**断网即白屏**。
-  本项目是本地优先的桌宠，不允许依赖 Google CDN（`scripts/ignite.sh` 会探测并告警）。
+  本项目是本地优先的皮套接入服务，不允许依赖 Google CDN（`scripts/ignite.sh` 会探测并告警）。
 - **中文字体必须自托管**（`assets/fonts/`，Noto Sans SC 子集，OFL-1.1）。
   Flutter Web 的 CanvasKit **取不到设备字体**，`fontFamilyFallback` 也不会命中系统字体。
   **运行期字体回落已于 2026-10-06 结构性离线化**：自定义

@@ -26,7 +26,7 @@ const String kAppFontFamily = 'NotoSansSC';
 ///
 /// Flutter Web 的 CanvasKit **取不到设备字体**，`fontFamilyFallback` 也不会命中
 /// 系统字体：遇到未打包的字形，引擎只会去 `https://fonts.gstatic.com/` 下载 Noto。
-/// 对一个**本地优先的桌宠**，那等于「断网即豆腐块」。
+/// 对一个**本地优先的皮套接入服务**，那等于「断网即豆腐块」。
 /// 所以中文字体打包在 `assets/fonts/`（子集见该目录的 README）。
 ///
 /// 注：`ThemeData.fontFamily` 会经 `TextTheme.apply(fontFamily:)` 覆盖掉
