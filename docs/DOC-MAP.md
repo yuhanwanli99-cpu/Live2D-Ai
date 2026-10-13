@@ -14,6 +14,11 @@
 | 表演协议 v1（动作 / cue / preset） | `docs/architecture/performance-protocol-v1.md` | 唯一真源 |
 | AI-Vtuber 对照（导演层讨论） | `docs/research/调研结果-AI-Vtuber对照-2026-10-07.md` | 2026-10-07；只借鉴行为，不复制 GPL 源码 |
 | 导演层同类对照（N.E.K.O. + 12 项目） | `docs/research/调研结果-导演层同类对照-2026-10-07.md` | 2026-10-07；N.E.K.O. 快照 `a3c82b5a`；判据/证据纪律见文内 |
+| 本项目工程 / 底座定位评估 | `docs/research/评估-底座定位-Grok-2026-10-12.md` | **权威稿**：Grok 4.7，2026-10-12 22:48 CST。并行稿 `评估-底座定位与工程质量-2026-10-12.md`（deepseek-v4.1-flash，同日 22:45）冲突时改并行稿。**非契约真源** |
+| 底座身份收口执行单 | `docs/plans/PROMPT-identity-base-2026-10-12.md` | 2026-10-12 已验收通过，改动未提交。不含 Q1、换皮、版本号 |
+| 身份收口余项执行单 | `docs/plans/PROMPT-base-followup-2026-10-13.md` | 已验收。§5 停止执行，由收口计划取代 |
+| **当前执行计划：0.2 时代收口** | `docs/plans/PLAN-0.2-closeout-2026-10-13.md` | 范围真源。工作单是 `PROMPT-0.2-closeout-2026-10-13.md`（T1–T23） |
+| 底座一致性索引（已有测试点名） | `docs/architecture/base-conformance.md` | 索引，非契约真源；协议仍以 `performance-protocol-v1.md` / `core-chain-baseline.md` 为准 |
 | 外部输入（弹幕 / 礼物） | `docs/external-input.md` | B 站抓取在 Win sidecar，不在主仓 |
 | 语音转写 | `docs/voice-input.md` | |
 | Mod 产品链路 / 许可 | `docs/architecture/mod-product-chain.md`、`mod-community-license.md` | |
@@ -21,7 +26,7 @@
 | TTS 是核心（不是 Mod） | `docs/architecture/tts-is-core.md` | |
 | 渲染算法 / 纹理档位 | `docs/architecture/renderer-*.md`、`mask-*.md` | |
 | 逐版发布说明 | **`docs/releases/v0.2.4-rc.1.md`（当前）**、`v0.2.3-rc.2.md`、`v0.2.3-rc.1.md`、`v0.2.2.md`、`v0.2.1-rc.1.md`、`docs/releases/v0.2.0*.md`（更早） | 版本四处以源码为准 |
-| **当前执行计划** | `docs/plans/TASKS-2026-10-07.md` | 去臃肿计划已做完（本文同级） |
+| 2026-10-07 任务账（历史） | `docs/plans/TASKS-2026-10-07.md` | T1–T9 记录。现行计划看上一行收口计划 |
 | **D1 休眠资产裁决 + 红线修订（W2）** | `docs/audit/2026-10-01-debloat/W2/D1-IMPACT-BRIEF.md` | 删/移边界、5 处主链触点、**红线修订 1/2**；`W2-A` = `d140604f`、`W2-B` = `03765bd3`（**两段均已执行**，见下 §3「结构性变更」） |
 | **0.2.0 阶段报告（欠账 / 事故 / 口径更正）** | `docs/audit/2026-10-01-debloat/PHASE-REPORT-0.2.0.md` | 与发布说明互指；**已入库**（`e8da68c0`，与发布说明同一次提交） |
 | 接手快照 | `docs/plans/HANDOFF-2026-09-28-rc7-and-whole-repo-audit.md` | |

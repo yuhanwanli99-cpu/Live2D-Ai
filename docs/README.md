@@ -26,10 +26,12 @@
 - [外部文字接入接口契约（历史：已归档 Python 实现，勿当现网）](architecture/external-text-input.md)
 - [可观测性 / 健康自检](architecture/observability.md)
 - [依赖与许可清单](architecture/dependencies.md)
+- [**底座一致性索引（已有测试点名）**](architecture/base-conformance.md)
+  ——索引，非契约真源：只列已存在的测试名与其钉住的事实（口型 dB 映射、姿态分层、cue 不写口型、句界归引擎）；协议仍以 `performance-protocol-v1.md` 与 `core-chain-baseline.md` 为准
 - [**Mod 产品链路**](architecture/mod-product-chain.md)
 - [**已封存 Mod 台账（ARCHIVED：wallpaper / pet-desktop）**](architecture/ARCHIVED-mods.md)
-  ——与 `local-llm` 的 DEPRECATED 同口径：**不再注册、不再编译进 binary**；crate 暂留 workspace
-  可编译可测，**禁止挂回**；含恢复条件与理由
+  ——与 `local-llm` 的 DEPRECATED 同口径：**不再注册、不再编译进 binary**；crate 已于 2026-10-01 物理删除，
+  只在 tag `checkpoint/pre-d1-dormant`，**禁止挂回**；含恢复条件与理由
 - [**语音转写契约：`POST /api/v1/voice/transcript`（0.2.0-rc.3）**](voice-input.md)
   ——语音 → 文本 → `clean_transcript` → `say`；**ASR 本体在 sidecar**（`docs/examples/voice-sidecar/`，Win/本机进程），Rust 侧只收已转写文本
 - [**会话记忆 Mod v0（0.2.0-rc.3，缺省停用；产品级加强波次补 `records`/`clear`）**](architecture/memory-mod-v0.md)
@@ -40,7 +42,8 @@
   ——**不再注册、不再编译进 binary**；用户手动的舞台/壳背景（`DisplayPrefs` / `stage-bg`）
   **保留**，与被封存的 wallpaper **Mod** 是两回事；理由见 [已封存 Mod 台账](architecture/ARCHIVED-mods.md)
 - [桌宠窗口 Mod v0（**已封存 ARCHIVED**，本波不做）](architecture/pet-desktop-mod-v0.md)
-  ——**不再注册、不再编译进 binary**；crate 暂留 workspace，**禁止挂回**；理由见
+  ——**不再注册、不再编译进 binary**；crate 已于 2026-10-01 物理删除，只在 tag `checkpoint/pre-d1-dormant`，**禁止挂回**；
+  用户手动的舞台/壳背景（`DisplayPrefs`）仍在，与这个已删 Mod 不是一件事；理由见
   [已封存 Mod 台账](architecture/ARCHIVED-mods.md)
 - [**背景透传：相对 `shalldie/vscode-background` v3.1.0 的偏离说明**](architecture/background-parity-vscode-background.md)
   ——**机制采纳**（分区 × 有序图列表 × 渲染参数），**实现不采纳**（不改宿主 `workbench.html`、
@@ -49,7 +52,7 @@
   §7 是 **DEC-1…DEC-7 裁决结果**与实施波次（DEC-3 壳内子区域＝不做）
 - [**Mod 社区许可与注册边界（0.2.0-rc.1）**](architecture/mod-community-license.md)
   ——注册面开放、分发面 AGPL 兼容；闭源走商业许可/私用；**无「闭源可进默认包」承诺**
-- [**导演（director）最小骨架（Wave 3：已注册、缺省停用、零投递）**](architecture/director-mod-v0.md)
+- [**导演（director）最小骨架（Wave 3：已注册、缺省停用；启用后以 `action_cue` 驱动舞台）**](architecture/director-mod-v0.md)
   ——只读 `TurnPrompt`/`TurnEnded` → 确定性 `{emotion,intent,suggested_tts}` 决策，只写日志 + `state_json`。
   **现状更正（2026-09-21）**：Wave 3 时写的「**不投递**任何动作 / TTS 参数」**已变更**——编译期
   `default_mods_manifest` 仍不收录它（**缺省停用**成立）；本工作树运行配置 `mods.json` 里启用后，
@@ -127,6 +130,13 @@
 
 ## 规划
 
+- [**执行单：0.2 时代收口（2026-10-13）**](plans/PROMPT-0.2-closeout-2026-10-13.md)
+  ——交给工作 agent 的 T1–T23。范围在 [收口计划](plans/PLAN-0.2-closeout-2026-10-13.md)：导演开启后同一次按句清洗带动作，依据是一路原文；出厂不设人设；版本 `0.2.5-rc.1`
+- [**执行单：底座身份收口（2026-10-12）**](plans/PROMPT-identity-base-2026-10-12.md)
+  ——只改活文档里的「桌宠」身份句、已删 crate 仍写成「还在仓库」的索引，以及「导演已删除 / 零投递」会被当成现状的注释。不裁决说话权，不改行为，不升版本。已验收通过，改动未提交
+- [**执行单：身份收口余项（2026-10-13）**](plans/PROMPT-base-followup-2026-10-13.md)
+  ——补索引里句界与切句拆开、`headless-deploy` 的 Web Audio 与「窗口壳是 P3」、两处活注释里的桌宠身份。已验收。其 §5 停止执行，后续看 0.2 时代收口计划
+
 > **2026-10-06（E8 文档减量）**：2026-10-01 归档进 `legacy/plans/` 的 94 份计划 + Python/Android
 > 时代文档，连同 12 份已收口计划共 **139 份 / 31,509 行**，已**移出工作树**——归档只解决「活 / 历史混放」，不减行数；
 > 行数只能靠**真删**。它们**逐字保存在 git 历史里**，取回方式见
@@ -188,6 +198,9 @@
 
 ## 调研
 
+- [**底座定位评估（权威稿，2026-10-12）**](research/评估-底座定位-Grok-2026-10-12.md)
+  ——Grok 4.7，22:48 CST。现行闭环是对话、整句 TTS、口型、皮套渲染；表演还没有单一写入者；桌宠是已删除的分化。
+  并行稿 [评估-底座定位与工程质量-2026-10-12.md](research/评估-底座定位与工程质量-2026-10-12.md) 冲突时以权威稿为准
 - [**导演层同类对照：N.E.K.O. 与 12 个项目（2026-10-07，导演层讨论）**](research/调研结果-导演层同类对照-2026-10-07.md)
   ——N.E.K.O. 是「独立小模型给**角色回复**贴 5 情绪 + 回合收尾触发」；多数同类走主 LLM 内联标签；
   成熟的只有仲裁层（VTS P0–P5 / Cubism priority / Warudo layer）。含本仓 `0.2.2` 导演对照与「可借鉴 / 不抄」清单
