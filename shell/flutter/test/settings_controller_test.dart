@@ -15,7 +15,7 @@ const String kGetJson = '''
 "has_api_key":true,"max_tokens":512},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0},
+"persona":{"system_prompt":"","max_history_pairs":0},
 "dev_mode":false}
 ''';
 
@@ -94,7 +94,7 @@ void main() {
       expect(t.controller.remote!.llm.model, 'deepseek-flash');
       expect(t.controller.remote!.llm.maxTokens, 512);
       expect(t.controller.remote!.tts.voice, 'skystar');
-      expect(t.controller.remote!.persona.systemPrompt, isNotEmpty);
+      expect(t.controller.remote!.persona.systemPrompt, isEmpty);
       expect(t.controller.dirty, isFalse);
       expect(t.controller.error, isNull);
     });

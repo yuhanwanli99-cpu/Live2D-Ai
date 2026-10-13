@@ -278,7 +278,7 @@ base_url = "http://127.0.0.1:8000/v1"
 voice = "af_heart"
 
 [persona]
-system_prompt = "你是一张 Live2D 皮套背后的对话角色。用简短、口语化的中文回答。"
+system_prompt = ""
 max_history_pairs = 2
 ```
 

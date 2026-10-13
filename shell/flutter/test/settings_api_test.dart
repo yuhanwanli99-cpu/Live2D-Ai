@@ -8,13 +8,13 @@ import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/settings_models.dart';
 
 /// **真实抓包**的 `GET /api/v1/settings` 响应（本机 v0.4.5，2026-09-10）。
-/// 只把 `system_prompt` 截短，其余逐字来自服务端。
+/// 只把 `system_prompt` 置空（出厂不设人设），其余逐字来自服务端。
 const String kRealSettingsJson = '''
 {"llm":{"base_url":"https://api.deepseek.com/v1","model":"deepseek-flash",
 "has_api_key":true},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0},
+"persona":{"system_prompt":"","max_history_pairs":0},
 "dev_mode":false}
 ''';
 
@@ -24,7 +24,7 @@ const String kRealPatchResponseJson = '''
 "model":"deepseek-flash","has_api_key":true},
 "tts":{"base_url":"http://127.0.0.1:8080/v1","model":null,"voice":"skystar",
 "has_api_key":false,"sample_rate":24000,"channels":1},
-"persona":{"system_prompt":"你是桌面上的 Live2D 桌宠。","max_history_pairs":0},
+"persona":{"system_prompt":"","max_history_pairs":0},
 "dev_mode":false}}
 ''';
 
@@ -315,7 +315,7 @@ void main() {
       expect(v.tts.hasApiKey, isFalse);
       expect(v.tts.sampleRate, 24000);
       expect(v.tts.channels, 1);
-      expect(v.persona.systemPrompt, isNotEmpty);
+      expect(v.persona.systemPrompt, isEmpty);
       expect(v.persona.maxHistoryPairs, 0);
       expect(v.devMode, isFalse);
     });
