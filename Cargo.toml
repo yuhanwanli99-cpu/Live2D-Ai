@@ -91,7 +91,13 @@ members = [
 # ④ 渲染档位 = 画布**最长边**（4096/8192/16384，不撑正方形）+ 运行期逐级降级；
 # ⑤ spawn 出的本地 TTS 子进程装 `PR_SET_PDEATHSIG`（父死即收）+ ignite 预检清残留孤儿。
 # 发布说明见 `docs/releases/v0.2.4-rc.1.md`。
-version = "0.2.4-rc.1"
+#
+# 2026-10-13（0.2.4-rc.1 → 0.2.5-rc.1「导演开启时按句清洗并按原文出动作」）：
+# ① 动作门 = 导演启用且 `staging_*` 两项都空 / 都有：按句清洗的**同一次**响应带 `cues`，
+# 依据是**这一句一路原文**；失败（超时 / 坏 JSON）回退按句规则表，输入同样是这一句原文。
+# ② 出厂不设人设（`system_prompt` 为空；`shared/persona.yaml` 删除；`live2d-ai-mod-persona` 保留）。
+# ③ `[performance].enabled` 仍缺省 false，不与按句路径双写。发布说明见 `docs/releases/v0.2.5-rc.1.md`。
+version = "0.2.5-rc.1"
 edition = "2024"
 # 2026-08-26 修正：1.85 → 1.87——wgpu 29（ayagami-render 底座同大版本）的 MSRV 为
 # 1.87，1.85 低于依赖实际下限；wasm 演示 crate 同样按此下限声明。

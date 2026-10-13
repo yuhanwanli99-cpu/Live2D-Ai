@@ -192,10 +192,15 @@ pub(crate) async fn run_one_turn(
 
     let (event_tx, mut event_rx) =
         mpsc::channel::<EngineEvent>(engine.config().tts_queue_capacity.max(4) + 8);
-    // 表演层开着时，`SentenceReady` 不再转给 director Mod（那一轮的 cue 归表演层
-    // JSON；两套 cue 同时到前端会互相整份覆盖）。在这里先算好：下面 `gen_fut`
-    // 会独占借用 engine，循环里读不到它的配置。
-    let forward_sentence_ready_to_mods = !engine.performance_enabled();
+    // 表演层开着、**或动作门开着**时，`SentenceReady` 不再转给 director Mod
+    //（那一轮的 cue 归表演层 JSON / 按句清洗那一次响应；两套 cue 同时到前端会互相
+    // 整份覆盖）。在这里先算好：下面 `gen_fut` 会独占借用 engine，循环里读不到它的配置。
+    // T16（2026-10-13）：判据收进 `should_forward_sentence_ready`（纯函数，可单测）；
+    // 动作门开着时不转，所以 `director/src/lib.rs` 无需改。
+    let forward_sentence_ready_to_mods = super::performance_wiring::should_forward_sentence_ready(
+        engine.performance_enabled(),
+        engine.motion_enabled(),
+    );
 
     // ================= 阶段 A：生成 + 即时 PCM 泵（engine 独占借用作用域） ======
     struct GenOut {

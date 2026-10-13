@@ -106,7 +106,10 @@ mod handlers;
 mod performance_wiring;
 mod turn;
 
-pub use performance_wiring::{build_performance_runtime, load_director_takeover};
+pub use performance_wiring::{
+    CleanEndpoint, DirectorTakeover, build_performance_runtime, clean_endpoint,
+    load_director_takeover, motion_on,
+};
 
 /// 动作自然完成事实：**携带产生它的原始业务 epoch**（B-P0-5 裁决）。
 ///
@@ -379,6 +382,7 @@ fn rebuild_engine_from_config(
         ConversationConfig,
         Option<Arc<PerformanceRuntime>>,
         Option<Arc<SentenceCleaner>>,
+        DirectorTakeover,
     ),
     String,
 > {
@@ -397,10 +401,29 @@ fn rebuild_engine_from_config(
     // 对话模型），导演未启用时用 `[performance]` 自己的 base_url/model。
     let director = load_director_takeover(config_path);
     let performance = build_performance_runtime(&settings.llm, &resolved.performance, &director);
-    // 二路按句清洗（2026-10-08）：与一路同一份 base_url / model / key；
+    // 二路按句清洗（2026-10-08；2026-10-13 起动作门可改用 staging 端点）：
     // `resolved.llm.clean_tts` 由 `AppSettings::resolve` 置 true（产品默认）。
-    let cleaner = build_sentence_cleaner(&client);
-    Ok((client, resolved.conversation, performance, cleaner))
+    let cleaner = build_sentence_cleaner(&client, &director);
+    Ok((
+        client,
+        resolved.conversation,
+        performance,
+        cleaner,
+        director,
+    ))
+}
+
+/// 按句规则回退闭包（单一真源 = director 的 `rule_cues_for_sentence`）。
+///
+/// **只在动作门开着时**注入：实参是这一句一路原文 + 句号，绝不接用户句。
+fn sentence_rule_for(
+    director: &DirectorTakeover,
+) -> Option<live2d_ai_runtime::cleaning::SentenceRuleFallback> {
+    motion_on(director).then(|| {
+        live2d_ai_runtime::cleaning::SentenceRuleFallback::new(|text: &str, seq: u64| {
+            live2d_ai_mod_director::presets::rule_cues_for_sentence(text, seq)
+        })
+    })
 }
 
 /// 二路清洗装配（唯一装配点；启动与热重载共用）。
@@ -408,14 +431,49 @@ fn rebuild_engine_from_config(
 /// 端点 / 模型 / 密钥**全部来自一路**（`client.llm()`）——模型定死同一份，
 /// 不再给用户第二个下拉框。`clean_tts == false`（`LlmConfig::new` 的便捷构造）
 /// → `None`：主链保持既有行为（上屏 == 送 TTS == `clean_for_tts(句)`）。
-fn build_sentence_cleaner(client: &OpenAiClient) -> Option<Arc<SentenceCleaner>> {
-    let cleaner = SentenceCleaner::from_llm(client.llm());
+fn build_sentence_cleaner(
+    client: &OpenAiClient,
+    director: &DirectorTakeover,
+) -> Option<Arc<SentenceCleaner>> {
+    let llm = client.llm();
+    let motion = motion_on(director);
+    let allowed = || live2d_ai_mod_director::presets::accepted_preset_ids();
+    let cleaner = match clean_endpoint(director) {
+        // 动作门 Own：这一次按句清洗改用 staging 端点。密钥变量名空则复用主 LLM
+        // 的**已解析**密钥；否则经 `secrets::lookup`（永不落日志）。
+        CleanEndpoint::Staging => {
+            let key = if director.staging_api_key_env.is_empty() {
+                llm.api_key.clone()
+            } else {
+                live2d_ai_runtime::secrets::lookup(director.staging_api_key_env.trim())
+                    .map(live2d_ai_runtime::ApiSecret::from)
+            };
+            SentenceCleaner::from_parts(
+                &director.staging_base_url,
+                &director.staging_model,
+                key,
+                live2d_ai_runtime::cleaning::CLEAN_TIMEOUT_MS,
+                motion,
+                allowed(),
+            )
+        }
+        // 复用对话模型（或动作门没开）：端点仍是主 LLM。
+        CleanEndpoint::Conversation => {
+            let base = SentenceCleaner::from_llm(llm);
+            if motion {
+                base.with_motion(allowed())
+            } else {
+                base
+            }
+        }
+    };
     if !cleaner.enabled() {
         return None;
     }
     tracing::info!(
         model = cleaner.model(),
-        "二路按句清洗已装配（与一路同一份端点；请求体显式关思考）"
+        motion = cleaner.motion(),
+        "二路按句清洗已装配（动作门；请求体显式关思考）"
     );
     Some(Arc::new(cleaner))
 }
@@ -450,12 +508,14 @@ fn apply_reload(
         return;
     };
     match rebuild_engine_from_config(path, emit) {
-        Ok((new_client, new_conversation, performance, cleaner)) => {
+        Ok((new_client, new_conversation, performance, cleaner, director)) => {
             // 表演层 / 二路清洗与引擎同一份配置解析：热重载后说话人、cue 源、
             // 清洗模型一起换。
             let mut new_engine = ConversationEngine::new(new_client, new_conversation);
             new_engine.set_performance(performance.clone());
             new_engine.set_cleaner(cleaner);
+            new_engine.set_motion(motion_on(&director));
+            new_engine.set_sentence_rule(sentence_rule_for(&director));
             *engine = new_engine;
             // 新引擎是空历史。分桶必须一起丢掉，否则下一轮会把旧桶装回去。
             histories.clear();
@@ -636,13 +696,21 @@ async fn run_forever(
     // 能力集显式注入（附带发现 #5）：Bai 支持全部六动作；默认空集会导致
     // 一切 Play 被 capability gate 拒绝——那必须是装配错误而不是静默行为。
     root.action.capabilities = capabilities;
-    // 二路按句清洗（2026-10-08）：要在把 client 移进引擎**之前**装配。
-    // 端点 = 一路的 `[llm]`（同一份 base_url / model / key）；`clean_tts` 由
-    // settings 解析置 true。测试 / 手工装配用 `LlmConfig::new` → clean_tts=false
-    // → 这里 `None`，主链保持既有行为。
-    let cleaner = build_sentence_cleaner(&client);
+    // 导演接管输入（mods.json）先读一次：二路清洗的端点（动作门 Own 改用 staging）
+    // 与动作门开关都从这里来。config_path 为 None（测试 / 无配置装配）→ 缺省未启用。
+    let director = config_path
+        .as_deref()
+        .map(load_director_takeover)
+        .unwrap_or_default();
+    // 二路按句清洗（2026-10-08；2026-10-13 起动作门可改用 staging 端点）：要在把
+    // client 移进引擎**之前**装配。测试 / 手工装配用 `LlmConfig::new` →
+    // clean_tts=false → 这里 `None`，主链保持既有行为。
+    let cleaner = build_sentence_cleaner(&client, &director);
     let mut engine = ConversationEngine::new(client, conversation);
     engine.set_cleaner(cleaner);
+    // 动作门（T14）：开着时按句清洗带 cues，失败回退按句规则表。
+    engine.set_motion(motion_on(&director));
+    engine.set_sentence_rule(sentence_rule_for(&director));
     // ---- 表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
     // 开关 = `[performance].enabled`（缺省 false → 主链走二路按句清洗）；
     // 显式打开后，端点按 `staging_*` 两项共用判定（导演启用时）或 `[performance]`
@@ -651,7 +719,6 @@ async fn run_forever(
     if let Some(path) = config_path.as_deref()
         && let Ok(settings) = AppSettings::load_from_path(path)
     {
-        let director = load_director_takeover(path);
         let performance =
             build_performance_runtime(&settings.llm, &settings.performance, &director);
         engine.set_performance(performance.clone());

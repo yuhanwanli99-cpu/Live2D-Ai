@@ -67,6 +67,11 @@ pub struct ConversationEngine {
     /// 生产路径由 host 用 [SentenceCleaner::from_llm] 注入（`[llm]` 同一份
     /// base_url / model / key）；这里只消费它，不再自己造客户端。
     pub(super) cleaner: Option<Arc<SentenceCleaner>>,
+    /// **动作门**（T14，2026-10-13）：导演启用且 `staging_*` 两项都空 / 都有时开。
+    /// 开着时按句清洗的那一次响应带 `cues`，失败回退按句规则表。
+    pub(super) motion: bool,
+    /// 按句规则回退（`motion` 开着且模型失败时用；单一真源 = director）。
+    pub(super) sentence_rule: Option<crate::cleaning::SentenceRuleFallback>,
 }
 
 impl ConversationEngine {
@@ -79,7 +84,24 @@ impl ConversationEngine {
             system_prompt_override: None,
             performance: None,
             cleaner: None,
+            motion: false,
+            sentence_rule: None,
         }
+    }
+
+    /// 注入**动作门**（T14）：开着时按句清洗带 `cues`，并可按句规则回退。
+    pub fn set_motion(&mut self, on: bool) {
+        self.motion = on;
+    }
+
+    /// 注入**按句规则回退**（单一真源 = director 的 `rule_cues_for_sentence`）。
+    pub fn set_sentence_rule(&mut self, rule: Option<crate::cleaning::SentenceRuleFallback>) {
+        self.sentence_rule = rule;
+    }
+
+    /// 动作门是否开着（supervisor 用它决定要不要把 `SentenceReady` 转给 Mod）。
+    pub fn motion_enabled(&self) -> bool {
+        self.motion
     }
 
     /// 注入表演层运行时（host 装配点；`None` = 关闸）。
@@ -238,6 +260,9 @@ impl ConversationEngine {
         let performance = self.performance.clone();
         // 二路清洗快照（`None` / disabled = 不跑二路，上屏与送 TTS 同源）。
         let cleaner = self.cleaner.clone();
+        // 动作门快照（T14）：按句清洗那一次响应带 cues；失败回退按句规则表。
+        let motion = self.motion;
+        let sentence_rule = self.sentence_rule.clone();
         let mut assembler = DialogueAssembler::new(self.config.sentence_max_chars);
         let mut assistant_text = String::new();
         let mut sentence_seq: u64 = 0;
@@ -368,13 +393,39 @@ impl ConversationEngine {
                             // 两者共用**同一个 `sentence_seq`**——气泡与音频仍按一个号
                             // 对齐。回灌 LLM 的历史（commit_completed_turn）始终用**原文**。
                             sentence_seq += 1;
-                            let Some((display, speech)) =
-                                sentence_texts(cleaner.as_ref(), &text, &cancel).await
+                            let Some((display, speech, cues)) = sentence_texts(
+                                cleaner.as_ref(),
+                                &text,
+                                sentence_seq,
+                                motion,
+                                sentence_rule.as_ref(),
+                                &cancel,
+                            )
+                            .await
                             else {
                                 // 二路清洗期间被取消：安静收场（Cancelled）。
                                 cancelled = true;
                                 break 'llm;
                             };
+                            // 动作门开着：cue **先于**该句音频（SentenceReady）发出，
+                            // `covers_upto_seq` 盖住这一句。空表不发（中性句不动）。
+                            if motion && !cues.is_empty() {
+                                let delivered = send_event(
+                                    &event_tx,
+                                    &cancel,
+                                    EngineEvent::ActionCue {
+                                        epoch,
+                                        ts_ms: now_ms(),
+                                        covers_upto_seq: sentence_seq,
+                                        cues: cues.clone(),
+                                    },
+                                )
+                                .await;
+                                if !delivered {
+                                    tx_closed = true;
+                                    break 'llm;
+                                }
+                            }
                             // `speech` 为空 = 整句都是动作描写 / emoji：没有可说的内容。
                             // **空串不得发给 TTS**——那会被上游回 400 input 为空，而 TTS
                             // 错误是 fatal，会把整轮判失败。它照常走既有的**静音句**路径
@@ -636,7 +687,10 @@ impl ConversationEngine {
     }
 }
 
-/// 一句原文 → **两份文本**（`(display, speech)`）；`None` = 期间被取消。
+/// 一句原文 → **两份文本 + 这一句的 cue**（`(display, speech, cues)`）；`None` = 期间被取消。
+///
+/// `cues` 只在动作门（`motion`）开着时非空：模型给了 `cues` 就用模型的（可空 = 这一句不动），
+/// 模型失败 / 未解析才回退 [`rule`]（**实参只能是这一句一路原文**）。
 ///
 /// 三条口径（2026-10-08，见 `crate::cleaning` 与 `conversation/mod.rs` 的契约）：
 /// 1. 不跑二路 / 二路 disabled → 上屏与送 TTS 都是 `clean_for_tts(原文)`
@@ -648,19 +702,37 @@ impl ConversationEngine {
 async fn sentence_texts(
     cleaner: Option<&Arc<SentenceCleaner>>,
     raw: &str,
+    sentence_seq: u64,
+    motion: bool,
+    rule: Option<&crate::cleaning::SentenceRuleFallback>,
     cancel: &CancellationToken,
-) -> Option<(String, String)> {
-    // 句首/句尾空白由分句器保证已 trim；`clean_for_tts` 仍做幂等兜底。
-    let legacy = || {
-        let cleaned = crate::dialogue::clean_for_tts(raw);
-        (cleaned.clone(), cleaned)
+) -> Option<(String, String, Vec<crate::performance::PerformanceCue>)> {
+    // 动作门开着时的按句规则回退：**只用这一句一路原文**（`raw`），不看用户句。
+    let fallback = |raw: &str| -> Vec<crate::performance::PerformanceCue> {
+        if motion {
+            rule.map(|r| r.call(raw, sentence_seq)).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
     };
+    // 句首/句尾空白由分句器保证已 trim；`clean_for_tts` 仍做幂等兜底。
     let Some(cleaner) = cleaner.filter(|c| c.enabled()) else {
-        return Some(legacy());
+        let cleaned = crate::dialogue::clean_for_tts(raw);
+        let cues = fallback(raw);
+        return Some((cleaned.clone(), cleaned, cues));
     };
     let cleaned = tokio::select! {
         _ = cancel.cancelled() => return None,
         cleaned = cleaner.clean(raw) => cleaned,
     };
-    Some((cleaned.display, cleaned.speech))
+    // 成功解析（含空 `cues` = 这一句不动）用模型 cues；失败 / 未解析才回退规则。
+    let cues = if motion {
+        match &cleaned.cue_ids {
+            Some(ids) => crate::cleaning::cues_from_ids(ids, sentence_seq),
+            None => fallback(raw),
+        }
+    } else {
+        Vec::new()
+    };
+    Some((cleaned.display, cleaned.speech, cues))
 }

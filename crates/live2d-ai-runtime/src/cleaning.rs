@@ -26,14 +26,47 @@
 //! 这里不做任何延迟优化 / 探针 / 重试：关思考是开关，不是延迟课题。
 
 use std::fmt;
+use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::config::LlmConfig;
+use crate::performance::PerformanceCue;
 use crate::performance::client::{
     DisabledPerformance, OpenAiPerformanceClient, PerformanceClient, StructuredMode,
 };
 use crate::performance::prompt::strip_code_fence;
+use crate::secret::ApiSecret;
+
+/// host 注入的**按句规则回退**：这一句原文 + 句号 → 规则 cue。
+///
+/// 单一真源 = director 的 `rule_cues_for_sentence`（crate 依赖方向决定只能注入）。
+/// **调用实参只能是这一句一路原文**，不得是用户输入。
+///
+/// 用 newtype 而不是裸 `Arc<dyn Fn>`：`ConversationEngine` 派生 `Debug`，而
+/// `dyn Fn` 不实现 `Debug`——这里手写一份只打占位符的 `Debug`。
+type SentenceRuleFn = Arc<dyn Fn(&str, u64) -> Vec<PerformanceCue> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct SentenceRuleFallback(SentenceRuleFn);
+
+impl SentenceRuleFallback {
+    /// 包装一个纯函数闭包。
+    pub fn new(f: impl Fn(&str, u64) -> Vec<PerformanceCue> + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+
+    /// 用**这一句一路原文** + 句号求规则 cue。
+    pub fn call(&self, text: &str, sentence_seq: u64) -> Vec<PerformanceCue> {
+        (self.0)(text, sentence_seq)
+    }
+}
+
+impl fmt::Debug for SentenceRuleFallback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SentenceRuleFallback")
+    }
+}
 
 /// 单句清洗的超时（毫秒）。
 ///
@@ -52,6 +85,26 @@ speech：拿去语音合成的文本——删掉 emoji、颜文字与括号里�
 但**不要改写**剩下的台词。\
 不要新增、删改或翻译台词内容，不要输出 Markdown 代码块。";
 
+/// 动作门开着时的二路 system 提示：两字段契约照旧，另加**这一句**的可选 `cues`。
+///
+/// `cues` 只根据用户消息里的**这一句原文**选预设 id（不跨句、不看上下文）；
+/// 能力集由调用方注入（= director 的主 allowlist）。提示词不写死 id 列表。
+pub fn motion_system_prompt(allowed: &[String]) -> String {
+    format!(
+        "你是台词清洗器。用户给你一句台词原文，你只输出一份 JSON，不要输出其它任何字。\
+JSON 形状固定为 {{\"display\": \"...\", \"speech\": \"...\", \"cues\": [\"<id>\", ...]}}。\
+display：这一句原文里要显示给用户看的连续片段，必须能在原文里按原样、按顺序找到\
+（通常就是整句原文，emoji、颜文字、括号里的动作描写都留着）。\
+speech：拿去语音合成的文本——删掉 emoji、颜文字与括号里的动作描写，\
+但**不要改写**剩下的台词。\
+cues：只根据用户给你的这一句原文，从下面这组 id 里选 0~2 个动作预设，\
+不要根据别的句子或上下文，选不出就给空数组 []：{}。\
+不要在 display 或 speech 里写任何表情标签。\
+不要新增、删改或翻译台词内容，不要输出 Markdown 代码块。",
+        allowed.join(", ")
+    )
+}
+
 /// 一句的**两份文本**（二路交回的成功结果）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CleanedSentence {
@@ -59,22 +112,45 @@ pub struct CleanedSentence {
     pub display: String,
     /// 送 TTS 的文本（可为空 = 静音句）。
     pub speech: String,
+    /// 动作门开着时 = 模型给的有效 preset_id（可空 = 这一句不动）；
+    /// 关着 / 未跑 / 失败 = `None`（动作门下由调用方回退规则表）。
+    pub cue_ids: Option<Vec<String>>,
 }
 
 impl CleanedSentence {
-    /// 失败 / 未接二路：上屏与送 TTS 都用原文。
+    /// 失败 / 未接二路：上屏与送 TTS 都用原文（`cue_ids = None` = 未解析）。
     pub fn raw(sentence: &str) -> Self {
         Self {
             display: sentence.to_string(),
             speech: sentence.to_string(),
+            cue_ids: None,
         }
     }
+}
+
+/// 把**已校验**的 preset id 组装成 legacy cue（T12：host 填默认值）。
+///
+/// `field = None`（legacy 路径）、`hold` 不设；intensity=1、ttl_ms=2000。
+pub fn cues_from_ids(ids: &[String], sentence_seq: u64) -> Vec<PerformanceCue> {
+    ids.iter()
+        .map(|id| PerformanceCue {
+            sentence_seq,
+            preset_id: id.clone(),
+            intensity: 1,
+            ttl_ms: 2_000,
+            ..Default::default()
+        })
+        .collect()
 }
 
 /// 二路清洗运行时（引擎注入；缺省 [DisabledPerformance] = 不跑二路）。
 pub struct SentenceCleaner {
     client: Box<dyn PerformanceClient>,
     timeout_ms: u64,
+    /// **动作门**（T11，缺省关）：开着时这一次请求的 JSON 多要一份可选 `cues`。
+    motion: bool,
+    /// cue 的 preset id 能力集（动作门下用于校验模型给回的 id）。
+    allowed: Vec<String>,
 }
 
 impl fmt::Debug for SentenceCleaner {
@@ -84,6 +160,7 @@ impl fmt::Debug for SentenceCleaner {
             .field("model", &self.client.model())
             .field("enabled", &self.client.enabled())
             .field("timeout_ms", &self.timeout_ms)
+            .field("motion", &self.motion)
             .finish()
     }
 }
@@ -91,7 +168,12 @@ impl fmt::Debug for SentenceCleaner {
 impl SentenceCleaner {
     /// 注入式构造（测试 / 未来 host 替身）。
     pub fn new(client: Box<dyn PerformanceClient>, timeout_ms: u64) -> Self {
-        Self { client, timeout_ms }
+        Self {
+            client,
+            timeout_ms,
+            motion: false,
+            allowed: Vec::new(),
+        }
     }
 
     /// 不跑二路：`enabled() == false`，引擎走既有的确定性清洗。
@@ -107,30 +189,74 @@ impl SentenceCleaner {
         if !llm.clean_tts {
             return Self::disabled();
         }
-        match OpenAiPerformanceClient::with_api_key(
+        Self::from_parts(
             &llm.base_url,
             &llm.model,
             llm.api_key.clone(),
             CLEAN_TIMEOUT_MS,
+            false,
+            Vec::new(),
+        )
+    }
+
+    /// 从**显式端点**构造（动作门 `Own`：这一次按句清洗改用 staging 端点）。
+    ///
+    /// `motion` = 动作门是否开着（开着则请求体多要一份可选 `cues`）；
+    /// `allowed` = cue 的 preset id 能力集（= director 主 allowlist）。
+    pub fn from_parts(
+        base_url: &str,
+        model: &str,
+        api_key: Option<ApiSecret>,
+        timeout_ms: u64,
+        motion: bool,
+        allowed: Vec<String>,
+    ) -> Self {
+        match OpenAiPerformanceClient::with_api_key(
+            base_url,
+            model,
+            api_key,
+            timeout_ms,
             // 纯文本 JSON 契约：不带 response_format（上游不保证支持 json_schema）。
             StructuredMode::Prompt,
             &[],
         ) {
-            Ok(client) => Self::new(Box::new(client), CLEAN_TIMEOUT_MS),
+            Ok(client) => Self {
+                client: Box::new(client),
+                timeout_ms,
+                motion,
+                allowed,
+            },
             Err(reason) => {
                 tracing::warn!(
                     target: "cleaning",
                     code = "clean_client_unavailable",
                     "{reason}（二路清洗不启用：这一轮的上屏与送 TTS 都走原文）"
                 );
-                Self::disabled()
+                Self {
+                    client: Box::new(DisabledPerformance),
+                    timeout_ms,
+                    motion,
+                    allowed,
+                }
             }
         }
+    }
+
+    /// 打开**动作开关**（解析可选 `cues`），能力集 = 主 allowlist。
+    pub fn with_motion(mut self, allowed: Vec<String>) -> Self {
+        self.motion = true;
+        self.allowed = allowed;
+        self
     }
 
     /// 二路是否可用（不可用时引擎走既有的确定性清洗）。
     pub fn enabled(&self) -> bool {
         self.client.enabled()
+    }
+
+    /// 动作门是否开着（解析 `cues`）。
+    pub fn motion(&self) -> bool {
+        self.motion
     }
 
     /// 二路会用的模型名（排障 / 状态面）。
@@ -144,11 +270,14 @@ impl SentenceCleaner {
             return CleanedSentence::raw(sentence);
         }
         let user = build_user_prompt(sentence);
-        let reply = match self
-            .client
-            .request(CLEAN_SYSTEM_PROMPT, &user, self.timeout_ms)
-            .await
-        {
+        // 动作门关着 → 旧提示词 / 旧两字段解析（既有测试逐字不变）；
+        // 开着 → 同一次请求多要一份可选 `cues`（T11）。
+        let system = if self.motion {
+            motion_system_prompt(&self.allowed)
+        } else {
+            CLEAN_SYSTEM_PROMPT.to_string()
+        };
+        let reply = match self.client.request(&system, &user, self.timeout_ms).await {
             Some(reply) => reply,
             None => {
                 tracing::warn!(
@@ -161,7 +290,7 @@ impl SentenceCleaner {
         };
         // 剥代码围栏是**宽容解析**，契约不变：仍必须过同一份校验（切片 + 字段）。
         let raw = strip_code_fence(&reply.raw);
-        match parse_cleaned(&raw, sentence) {
+        match parse_cleaned(&raw, sentence, self.motion, &self.allowed) {
             Some(cleaned) => cleaned,
             None => {
                 tracing::warn!(
@@ -186,140 +315,45 @@ pub fn build_user_prompt(sentence: &str) -> String {
 /// 1. 是合法 JSON 对象；
 /// 2. `display` 与 `speech` 都是字符串（`speech` 可为空串）；
 /// 3. `display` 非空，且是原文的**连续切片**（`sentence.contains(display)`）。
-pub fn parse_cleaned(raw: &str, sentence: &str) -> Option<CleanedSentence> {
+pub fn parse_cleaned(
+    raw: &str,
+    sentence: &str,
+    motion: bool,
+    allowed: &[String],
+) -> Option<CleanedSentence> {
     let value: Value = serde_json::from_str(raw.trim()).ok()?;
     let display = value.get("display")?.as_str()?;
     let speech = value.get("speech")?.as_str()?;
     if display.is_empty() || !sentence.contains(display) {
         return None;
     }
+    // 动作门关着 → 旧两字段契约（忽略 `cues`，`cue_ids = None`）；
+    // 开着 → 解析可选 `cues`（缺字段 / 空数组 = 这一句不动，是**成功**）。
+    let cue_ids = motion.then(|| parse_cue_ids(value.get("cues"), allowed));
     Some(CleanedSentence {
         display: display.to_string(),
         speech: speech.to_string(),
+        cue_ids,
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::performance::client::{PerformanceFuture, PerformanceReply};
-
-    /// 固定回一份 raw 的测试替身（`reply=None` = 请求失败）。
-    #[derive(Debug)]
-    struct StubCleaner {
-        reply: Option<String>,
-    }
-
-    impl PerformanceClient for StubCleaner {
-        fn enabled(&self) -> bool {
-            true
-        }
-        fn kind(&self) -> &'static str {
-            "injected"
-        }
-        fn has_api_key(&self) -> bool {
-            false
-        }
-        fn request<'a>(
-            &'a self,
-            _system: &'a str,
-            _user: &'a str,
-            _timeout_ms: u64,
-        ) -> PerformanceFuture<'a, Option<PerformanceReply>> {
-            let reply = self.reply.clone().map(|raw| PerformanceReply {
-                raw,
-                structured: false,
-            });
-            Box::pin(async move { reply })
-        }
-    }
-
-    /// **计划口径的那份假响应**：TTS 文本 `你好`、上屏文本 `你好😄`。
-    #[tokio::test]
-    async fn accepted_plan_splits_display_and_speech() {
-        let cleaner = SentenceCleaner::new(
-            Box::new(StubCleaner {
-                reply: Some(r#"{"display":"你好😄","speech":"你好"}"#.to_string()),
-            }),
-            CLEAN_TIMEOUT_MS,
-        );
-        let cleaned = cleaner.clean("你好😄").await;
-        assert_eq!(cleaned.speech, "你好", "送 TTS 的必须只有可念文本");
-        assert_eq!(cleaned.display, "你好😄", "上屏必须保留 emoji");
-    }
-
-    /// 空 `speech` = 这一句不发 TTS（引擎侧走静音句），上屏照旧。
-    #[tokio::test]
-    async fn empty_speech_is_kept_and_display_survives() {
-        let cleaner = SentenceCleaner::new(
-            Box::new(StubCleaner {
-                reply: Some(r#"{"display":"（挥手）","speech":""}"#.to_string()),
-            }),
-            CLEAN_TIMEOUT_MS,
-        );
-        let cleaned = cleaner.clean("（挥手）").await;
-        assert_eq!(cleaned.speech, "");
-        assert_eq!(cleaned.display, "（挥手）");
-    }
-
-    /// `display` 不是原文切片 → 整句作废，改送原文（上屏也是原文）。
-    #[tokio::test]
-    async fn display_must_be_a_contiguous_slice_of_the_sentence() {
-        let cleaner = SentenceCleaner::new(
-            Box::new(StubCleaner {
-                reply: Some(r#"{"display":"你好啊","speech":"你好啊"}"#.to_string()),
-            }),
-            CLEAN_TIMEOUT_MS,
-        );
-        let cleaned = cleaner.clean("你好😄").await;
-        assert_eq!(
-            cleaned,
-            CleanedSentence::raw("你好😄"),
-            "不是切片就要整句作废"
-        );
-    }
-
-    /// 请求失败 / 坏 JSON / 缺字段 → 一律原文（**不新写正则去猜**）。
-    #[tokio::test]
-    async fn failures_fall_back_to_the_raw_sentence() {
-        for reply in [
-            None,
-            Some("这不是 JSON".to_string()),
-            Some(r#"{"display":"你好"}"#.to_string()),
-            Some(r#"{"speech":"你好"}"#.to_string()),
-            Some(r#"{"display":"","speech":"你好"}"#.to_string()),
-        ] {
-            let cleaner = SentenceCleaner::new(
-                Box::new(StubCleaner {
-                    reply: reply.clone(),
-                }),
-                CLEAN_TIMEOUT_MS,
-            );
-            let cleaned = cleaner.clean("你好😄（挥手）").await;
-            assert_eq!(
-                cleaned,
-                CleanedSentence::raw("你好😄（挥手）"),
-                "reply={reply:?}"
-            );
-        }
-    }
-
-    /// 没接二路（disabled）→ 引擎走既有路径：`enabled() == false`。
-    #[test]
-    fn disabled_cleaner_is_off_and_from_llm_respects_the_flag() {
-        assert!(!SentenceCleaner::disabled().enabled());
-        let mut llm = LlmConfig::new("https://api.deepseek.com/v1", "deepseek-flash");
-        assert!(
-            !SentenceCleaner::from_llm(&llm).enabled(),
-            "clean_tts=false"
-        );
-        llm.clean_tts = true;
-        let on = SentenceCleaner::from_llm(&llm);
-        assert!(on.enabled());
-        assert_eq!(on.model(), "deepseek-flash");
-        // 端点非法也不失败：转 disabled（回原文）。
-        let mut bad = LlmConfig::new("", "deepseek-flash");
-        bad.clean_tts = true;
-        assert!(!SentenceCleaner::from_llm(&bad).enabled());
-    }
+/// 解析 `cues`：元素只收 `preset_id`（字符串，或 `{"preset_id": "..."}`），
+/// 且必须属于能力集，否则丢掉该条。空 / 缺字段 → 空表（这一句不动）。
+fn parse_cue_ids(cues: Option<&Value>, allowed: &[String]) -> Vec<String> {
+    let Some(items) = cues.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            item.as_str()
+                .or_else(|| item.get("preset_id").and_then(Value::as_str))
+        })
+        .filter(|id| allowed.iter().any(|a| a.as_str() == *id))
+        .map(str::to_string)
+        .collect()
 }
+
+#[cfg(test)]
+#[path = "cleaning_tests.rs"]
+mod tests;
