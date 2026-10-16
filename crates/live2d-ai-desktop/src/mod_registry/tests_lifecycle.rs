@@ -261,3 +261,137 @@ fn persist_manifest_preserves_unknown_ids_and_top_level_keys() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ------------------------------------------------- S-003 / S-006（2026-10-16）
+
+/// S-003：`mods.json` 写盘失败**不得**被吞成成功。
+///
+/// 从前 `persist_manifest` 是 best-effort（只记 error 日志、返回 `()`），于是
+/// 磁盘满 / 只读目录时 HTTP 200 + 界面「已启用」，而磁盘上什么都没变。
+#[test]
+fn enable_reports_a_failed_manifest_write() {
+    let dir = std::env::temp_dir().join(format!("l2d-mod-s003-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // 让**父路径是个普通文件**：create_dir_all 必失败 ⇒ 写盘必失败。
+    let blocker = dir.join("not-a-dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let path = blocker.join("mods.json");
+
+    let mut reg = ModRegistry::new(FACTORIES, &serde_json::json!({})).with_manifest_path(path);
+    let err = reg
+        .enable("test")
+        .expect_err("写盘失败必须上抛，不许回 Ok（那正是界面写「已启用」的来源）");
+    assert!(err.to_string().contains("mods.json"), "got {err}");
+    assert!(
+        err.to_string().contains("重启后会回到磁盘上的旧值"),
+        "文案要说明后果：{err}"
+    );
+    // 内存里确实启用了（这一进程是真的），但状态机必须报 Failed，界面才不会说成功。
+    let (_, status, enabled) = reg.list()[0].clone();
+    assert!(enabled, "内存里确实启用了");
+    assert!(
+        matches!(status, ModStatus::Failed { .. }),
+        "写盘失败必须把状态标 Failed，got {status:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// S-006：丢掉的事件要**计数**，并且能在**现有** state_json 面读到。
+///
+/// 从前 `dropped_events` 从不自增、getter 是 `#[allow(dead_code)]`——「这一轮少了
+/// 注入」在界面与 HTTP 上都看不出来。
+#[test]
+fn dropped_events_are_counted_and_visible_in_state_json() {
+    let (tx, gate) = std::sync::mpsc::channel();
+    *STALL_GATE.lock().unwrap() = Some(gate);
+    let mut reg = ModRegistry::new(
+        STALL_FACTORIES,
+        &serde_json::json!({"mods":{"stall":{"enabled":true}}}),
+    );
+    reg.start_all();
+    assert_eq!(reg.dropped_events(), 0, "还没丢过");
+
+    // 第一条事件把 worker 卡在闸门上（它只卡第一条）；随后的事件把容量 256 的
+    // 队列填满，再往后每条都 `try_send` 失败 = 真丢弃。
+    let mut dropped = 0u64;
+    for _ in 0..400 {
+        if !reg.dispatch_event(ModEventTopic::TurnStarted, "{}", None) {
+            dropped += 1;
+        }
+    }
+    assert!(dropped > 0, "填满之后必须开始丢弃");
+    assert_eq!(reg.dropped_events(), dropped, "计数必须与实际丢弃条数一致");
+
+    // 放行 worker，让它把积压的队列排完，再读**现有** state_json。
+    tx.send(()).unwrap();
+    let mut state = None;
+    for _ in 0..200 {
+        state = reg.runtime_state("stall");
+        if state.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let state = state.expect("worker 排空后 state_json 必须可读");
+    assert_eq!(
+        state["dropped_events"],
+        serde_json::json!(dropped),
+        "现有 state_json 面必须带出丢弃计数：{state}"
+    );
+    assert_eq!(state["test_state"], serde_json::json!("ready"));
+}
+
+/// worker 卡住用的闸门（[`StallingMod`] 在 `create` 时取走接收端）。
+static STALL_GATE: Mutex<Option<std::sync::mpsc::Receiver<()>>> = Mutex::new(None);
+
+struct StallingMod;
+impl ModFactory for StallingMod {
+    fn descriptor(&self) -> &'static ModDescriptor {
+        static D: ModDescriptor = ModDescriptor {
+            id: "stall",
+            name: "Stall",
+            version: "0.1.0",
+            api_version: 1,
+        };
+        &D
+    }
+    fn create(
+        &self,
+        _: ModServices,
+        _: serde_json::Value,
+    ) -> Result<Box<dyn ModRuntime>, ModError> {
+        let gate = STALL_GATE
+            .lock()
+            .unwrap()
+            .take()
+            .expect("测试要先往 STALL_GATE 里放接收端");
+        Ok(Box::new(StallingRuntime {
+            gate: Some(gate),
+            state: serde_json::json!({"test_state": "ready"}),
+        }))
+    }
+}
+
+struct StallingRuntime {
+    /// **只卡第一条**：卡住之后测试才有机会把队列填满。
+    gate: Option<std::sync::mpsc::Receiver<()>>,
+    state: serde_json::Value,
+}
+
+impl ModRuntime for StallingRuntime {
+    fn start(&mut self, _: &mut dyn ModRegistrar) -> Result<(), ModError> {
+        Ok(())
+    }
+    fn on_event(&mut self, _: ModEventTopic, _: &str) -> Result<(), ModError> {
+        if let Some(gate) = self.gate.take() {
+            let _ = gate.recv();
+        }
+        Ok(())
+    }
+    fn state_json(&mut self) -> Option<serde_json::Value> {
+        Some(self.state.clone())
+    }
+}
+
+static STALL_FACTORIES: &[&dyn ModFactory] = &[&StallingMod];

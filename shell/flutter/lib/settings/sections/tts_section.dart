@@ -71,7 +71,7 @@ class TtsSection extends StatelessWidget {
   final String? envFile;
 
   /// 保存密钥（PUT /api/v1/env）。
-  final Future<void> Function(String key, String value)? onSaveKey;
+  final Future<EnvWriteResult> Function(String key, String value)? onSaveKey;
 
   /// 服务端静音观测值（WS audio.muted，**只读**）。
   final bool serverMuted;

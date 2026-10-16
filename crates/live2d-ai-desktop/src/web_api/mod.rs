@@ -63,6 +63,9 @@ pub mod dto;
 /// 密钥真源端点（rc.2 2026-09-12）：`GET /api/v1/env` +
 /// `PUT /api/v1/env`。**永不回显密钥值**，写盘走 `.env` + 热重载。
 pub mod env_routes;
+/// `env_routes` 的单元测试（自 `env_routes.rs` 拆出：>500 行棘轮，2026-10-16）。
+#[cfg(test)]
+mod env_routes_tests;
 /// 外部文本注入端点（节点 E5-T3）：`POST /api/v1/external/chat → say →
 /// 主链路`。静态前置路由（见 `run_request_loop` E5-T3 判定点）。
 pub mod external_routes;

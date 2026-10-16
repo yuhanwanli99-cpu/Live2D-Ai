@@ -187,6 +187,7 @@ pub struct ModRegistry {
 // + `tests_host` 三个场景文件，外加既有的 `tests_secret`——搬出去的每一份都必须
 // <500 行，否则 >500 棘轮会变红（先例 `models_routes/tests_models_*`）。
 mod events;
+mod persist;
 mod registry;
 /// 2026-10-09：语音模式对本地引擎的去留 + 自重启前的收尾（见文件头注）。
 mod tts_mode;

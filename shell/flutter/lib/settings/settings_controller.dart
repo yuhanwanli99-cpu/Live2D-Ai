@@ -190,6 +190,9 @@ enum SaveOutcome {
   /// 真的写了盘，但没有 supervisor（下次启动生效）。
   savedNoSupervisor,
 
+  /// 真的写了盘，但**热重载失败**——引擎仍在用旧配置（S-001）。
+  savedReloadFailed,
+
   /// 服务端认为**没有变化**（`persisted: false`）。
   noChange,
 
@@ -207,6 +210,9 @@ extension SaveOutcomeMessage on SaveOutcome {
     SaveOutcome.savedRestartRequired => '已保存；服务端正在重启，页面将重新加载',
     SaveOutcome.savedQueued => '已保存，正在生效，页面将重新加载',
     SaveOutcome.savedNoSupervisor => '已保存，配置将在下次启动后生效',
+    // S-001：**两件事分开说**——文件写上了（已保存），引擎没装上（仍用旧配置）。
+    // 不许再写「已保存并生效」：那正是这条缺陷的用户面。
+    SaveOutcome.savedReloadFailed => '已保存；引擎仍用旧配置，修好后重新保存或重启服务',
     SaveOutcome.noChange => '没有变化',
     SaveOutcome.failed => '保存失败',
   };
@@ -230,12 +236,15 @@ extension SaveOutcomeMessage on SaveOutcome {
       this == SaveOutcome.savedApplied ||
       this == SaveOutcome.savedRestartRequired ||
       this == SaveOutcome.savedQueued ||
-      this == SaveOutcome.savedNoSupervisor;
+      this == SaveOutcome.savedNoSupervisor ||
+      // 文件真的写上了，只是引擎没装上：对「保存并离开」而言仍是保存成功。
+      this == SaveOutcome.savedReloadFailed;
 
   /// 是否该用 `warning` 色（写盘成功但没生效）。
   bool get needsAttention =>
       this == SaveOutcome.savedRestartRequired ||
       this == SaveOutcome.savedNoSupervisor ||
+      this == SaveOutcome.savedReloadFailed ||
       this == SaveOutcome.failed;
 }
 
@@ -318,6 +327,7 @@ class SettingsController extends ChangeNotifier {
               ApplyStatus.restartRequired => SaveOutcome.savedRestartRequired,
               ApplyStatus.queued => SaveOutcome.savedQueued,
               ApplyStatus.noSupervisor => SaveOutcome.savedNoSupervisor,
+              ApplyStatus.reloadFailed => SaveOutcome.savedReloadFailed,
               // 旧服务端 / 未识别：**不谎报已生效**，按「需重启」处理更保守。
               ApplyStatus.unknown => SaveOutcome.savedRestartRequired,
             };

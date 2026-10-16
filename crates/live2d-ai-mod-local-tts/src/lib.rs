@@ -272,10 +272,13 @@ impl LocalTtsRuntime {
         }
     }
 
-    /// 停掉并收尸。停止失败 → **把句柄放回**再返回 Err（宿主据此回滚）。
+    /// 停掉并收尸。**任一步失败都把句柄放回**再返回 Err（宿主据此回滚）。
     ///
-    /// 继续沿用既有实现：本轮**不**新写一种「wait 失败就把句柄丢掉、对外却像
-    /// 停干净了」的路径（计划书对该边界的口径见 FINDINGS.md S-000）。
+    /// 2026-10-16（FINDINGS.md S-000）：`stop()` 失败一直是这样；`wait()` 失败
+    /// 从前走 `?`，局部 `child` 被 drop ⇒ 句柄永久消失，而下一次 `disable`
+    /// 见到 `child == None` 就当「已经停干净」，回 200「已停用」——子进程被杀
+    /// 却没人收尸。现在 `wait()` 失败与 `stop()` 失败同一条：句柄放回，
+    /// 下一次停用仍会去停同一个句柄，停不干净就继续报错。
     fn stop_child(&mut self) -> Result<(), ModError> {
         let Some(mut child) = self.child.take() else {
             return Ok(());
@@ -287,9 +290,13 @@ impl LocalTtsRuntime {
                 self.descriptor.id
             )));
         }
-        child.wait().map_err(|e| {
-            ModError::Other(format!("等待 {} 的进程退出失败：{e}", self.descriptor.id))
-        })?;
+        if let Err(e) = child.wait() {
+            self.child = Some(child);
+            return Err(ModError::Other(format!(
+                "等待 {} 的进程退出失败：{e}",
+                self.descriptor.id
+            )));
+        }
         Ok(())
     }
 

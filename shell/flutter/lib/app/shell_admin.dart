@@ -102,24 +102,27 @@ extension _ShellAdminWiring on _ShellRootState {
     }
   }
 
-  /// 保存一个密钥到 `.env`（`PUT /api/v1/env`），写完**立即生效**。
+  /// 保存一个密钥到 `.env`（`PUT /api/v1/env`）。
   ///
-  /// 契约（rc.2）：`.env` 是唯一密钥真源；后端写完刷新快照 + 重建 LLM/TTS client，
-  /// 所以这里不需要（也不该）提示「重启」或「重跑 ignite.sh」。
+  /// 契约（rc.2）：`.env` 是唯一密钥真源；后端写完刷新快照 + 重建 LLM/TTS client。
+  /// **但「写盘成功」与「引擎装上」是两件事**（S-002，2026-10-16）：能不能立即生效
+  /// 由服务端回的 `apply_status` 说了算，所以这里把 [EnvWriteResult] 原样交回给
+  /// `EnvKeyField`——它按状态分两句说，不再写死「立即生效」。
   ///
   /// 值**只在参数里出现**：不写进 state、不进日志、不回显。保存后重读一次
   /// `GET /api/v1/env` 只为刷新「已设置/未设置」这个布尔。
-  Future<void> _saveEnvKey(String key, String value) async {
-    await _envApi.write(key, value);
-    if (!mounted) return;
+  Future<EnvWriteResult> _saveEnvKey(String key, String value) async {
+    final EnvWriteResult result = await _envApi.write(key, value);
+    if (!mounted) return result;
     try {
       final EnvStatus env = await _envApi.list();
-      if (!mounted) return;
+      if (!mounted) return result;
       _envStatus = env;
       _refresh();
     } on ApiException {
       // 写成功了但读状态失败：不动现有状态（`EnvKeyField` 自己的提示仍然准确）。
     }
+    return result;
   }
 
   Future<void> _loadLogs() async {

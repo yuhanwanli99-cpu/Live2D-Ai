@@ -52,7 +52,7 @@ class LlmSection extends StatelessWidget {
   final String? envFile;
 
   /// 保存密钥（PUT /api/v1/env）；null = 不可写（未加载/无键名）。
-  final Future<void> Function(String key, String value)? onSaveKey;
+  final Future<EnvWriteResult> Function(String key, String value)? onSaveKey;
 
   /// 连通性自检（POST /api/v1/settings/test/llm）。
   final Future<void> Function()? onTest;

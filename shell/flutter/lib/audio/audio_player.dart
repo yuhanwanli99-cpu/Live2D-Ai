@@ -350,11 +350,19 @@ class AudioPlayer {
             _setUnlocked(true);
           })
           .catchError((Object _) {
-            // autoplay 被拒 / 元素不可播：**不崩、不吞队列**——界面重新显示
-            // 「点击任意位置或按任意键以启用声音」，用户下一次手势时 [unlock] 会
-            // 重试这一句（它还在队首，blob URL 也还在，没有泄漏）。
             if (_disposed || item.released) return;
-            _setUnlocked(false);
+            // S-005（2026-10-16）：`play()` 被拒有**两种**原因，不许混为一谈：
+            // ① 自动播放策略（`element.error == null`）——用户还没做出手势，
+            //    界面确实该显示「点击任意位置或按任意键以启用声音」，而且
+            //    [unlock] 会重试这一句（它还在队首，blob URL 也还在，无泄漏）；
+            // ② 这一句音频本身坏了（解码 / 格式不支持，`element.error != null`）
+            //    ——那是**这一句**的问题，不是「你没有启用声音」：按下那个按钮
+            //    也修不回来。跳过它（`_finish`），队列照常继续。
+            if (element.error != null) {
+              _finish(item);
+            } else {
+              _setUnlocked(false);
+            }
           });
     } catch (_) {
       // 同步抛（媒体后端整个不可用）：跳过这一句，别卡住后面的。
@@ -367,8 +375,12 @@ class AudioPlayer {
   void _onEnded(_Playback item) => _finish(item);
 
   /// DOM `error`：解码/加载失败（坏 WAV、blob 被回收）。跳过这一句，链条不断。
+  ///
+  /// **S-005（2026-10-16）：这里不许碰解锁状态。** 从前它调 `_setUnlocked(false)`
+  /// ——一句音频解码失败，界面就改成「点击任意位置或按任意键以启用声音」+
+  /// 「启用声音」按钮：把「这一句坏了」讲成「你还没启用声音」，而按那个按钮
+  /// 也修不回来（这句已经被 release 了）。坏的那一句**照样跳过**（`_finish`）。
   void _onError(_Playback item) {
-    if (!_disposed) _setUnlocked(false);
     _finish(item);
   }
 

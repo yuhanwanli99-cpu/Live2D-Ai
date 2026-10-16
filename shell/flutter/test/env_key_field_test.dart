@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:live2d_ai_shell/api/env_api.dart';
+import 'package:live2d_ai_shell/api/settings_models.dart';
 import 'package:live2d_ai_shell/settings/sections/env_key_field.dart';
 import 'package:live2d_ai_shell/ui/theme.dart';
 
@@ -25,7 +26,8 @@ void main() {
             key: 'DEEPSEEK_API_KEY',
             set: true,
           ),
-          onSave: (String k, String v) async {},
+          onSave: (String k, String v) async =>
+              const EnvWriteResult(set: false),
         ),
       ),
     );
@@ -48,7 +50,13 @@ void main() {
             key: 'DEEPSEEK_API_KEY',
             set: false,
           ),
-          onSave: (String k, String v) async => saved.add((k, v)),
+          onSave: (String k, String v) async {
+            saved.add((k, v));
+            return const EnvWriteResult(
+              set: true,
+              applyStatus: ApplyStatus.applied,
+            );
+          },
         ),
       ),
     );
@@ -59,6 +67,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(saved, <(String, String)>[('DEEPSEEK_API_KEY', 'sk-abc')]);
+    // 真装上了（apply_status=applied）才配这句话。
+    expect(find.textContaining('立即生效'), findsOneWidget);
     expect(
       tester.widget<TextField>(find.byType(TextField)).controller?.text,
       isEmpty,
@@ -77,7 +87,13 @@ void main() {
             key: 'DEEPSEEK_API_KEY',
             set: true,
           ),
-          onSave: (String k, String v) async => saved.add((k, v)),
+          onSave: (String k, String v) async {
+            saved.add((k, v));
+            return const EnvWriteResult(
+              set: true,
+              applyStatus: ApplyStatus.applied,
+            );
+          },
         ),
       ),
     );
@@ -100,6 +116,40 @@ void main() {
     await tester.tap(find.text('保存密钥'));
     await tester.pumpAndSettle();
     expect(find.textContaining('保存失败'), findsOneWidget);
+  });
+
+  /// S-002（2026-10-16）：**写盘成功 ≠ 引擎装上**。
+  ///
+  /// 密钥落进 `.env` 是一件事，supervisor 有没有重建 LLM/TTS client 是另一件。
+  /// 从前界面无论后端回什么都没变，一律写死「**立即生效**（不用重启）」。
+  testWidgets('引擎没装上：不写「立即生效」，两件事分开说', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        EnvKeyField(
+          sectionLabel: '对话模型',
+          status: const EnvKey(section: 'llm', key: 'K', set: false),
+          onSave: (String k, String v) async => const EnvWriteResult(
+            set: true,
+            applyStatus: ApplyStatus.restartRequired,
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), 'sk-x');
+    await tester.tap(find.text('保存密钥'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('立即生效'),
+      findsNothing,
+      reason: '写盘成功不等于已生效',
+    );
+    expect(find.textContaining('已写入 K'), findsOneWidget);
+    expect(
+      find.textContaining('重启服务'),
+      findsOneWidget,
+      reason: '写进去了、引擎没装上，要分开说',
+    );
   });
 
   testWidgets('配置里没声明键名 → 说明「未绑定」而不是给一个假输入框', (WidgetTester tester) async {

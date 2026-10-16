@@ -210,10 +210,19 @@ pub enum ApplyStatus {
     /// 写盘成功，但 supervisor 无法动态创建（如 LLM/TTS 配置不全）；
     /// 需要重启进程或修复配置后重启。前端文案：「已保存，需重启生效」。
     RestartRequired,
-    /// reload 已排队但尚未同步生效（异步生效中）。当前实现下
-    /// 装配/重建均在请求线程内完成，**实际不会产生 Queued**；保留作
-    /// 未来异步 reload 路径。
+    /// reload 已排队但尚未同步生效（异步生效中）。
+    ///
+    /// 2026-10-16（S-001）：**真的会产生**了——保存时若 supervisor 正在跑一轮，
+    /// 热重载会延后到该轮收口（`reload_pending` 兜底），此时同步拿不到结果，
+    /// 只能如实回「排队中」，**不得**说已生效。
     Queued,
+    /// **热重载失败**（S-001，2026-10-16）：`.env` / `live2d-ai.toml` 已经写上磁盘，
+    /// 但引擎没能用上新配置——它**仍在用旧配置**跑。
+    ///
+    /// 与 [`ApplyStatus::RestartRequired`] 刻意分开：那边是「配置不全，重启后自己
+    /// 装配」，会触发服务端自重启；这边问题在配置本身，**不**触发自重启（重启解决
+    /// 不了，还会把正在工作的旧引擎丢掉）。前端文案：「已保存；引擎仍用旧配置」。
+    ReloadFailed,
     /// 写盘成功但无 supervisor（如 dev-only 控制平面 / 关闭 chat 引擎
     /// 模式）；reload 路径 no-op。前端文案：「已保存，配置将在下次重启后生效」。
     NoSupervisor,
@@ -227,6 +236,7 @@ impl ApplyStatus {
             Self::Applied => "applied",
             Self::RestartRequired => "restart_required",
             Self::Queued => "queued",
+            Self::ReloadFailed => "reload_failed",
             Self::NoSupervisor => "no_supervisor",
         }
     }

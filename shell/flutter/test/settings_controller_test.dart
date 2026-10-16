@@ -223,6 +223,13 @@ void main() {
       ),
       ('queued', SaveOutcome.savedQueued, '已保存，正在生效，页面将重新加载'),
       ('no_supervisor', SaveOutcome.savedNoSupervisor, '已保存，配置将在下次启动后生效'),
+      // S-001（2026-10-16）：写盘成功但引擎没装上——**不许**说「已保存并生效」，
+      // 两件事要分开说。
+      (
+        'reload_failed',
+        SaveOutcome.savedReloadFailed,
+        '已保存；引擎仍用旧配置，修好后重新保存或重启服务',
+      ),
     ]) {
       test('apply_status=$wire → $message', () async {
         final t = build(

@@ -95,82 +95,6 @@ impl ModRegistry {
         self
     }
 
-    /// 原子写回 `mods.json`（rc.4 M1）。
-    ///
-    /// 写入内容 = **当前全部注册 Mod** 的 `enabled` + `config`（含未启用者，
-    /// 否则重新启用另一个 Mod 会把前一个的状态丢掉）。
-    ///
-    /// - 未注入路径（单测 / 纯内存）→ no-op；
-    /// - 复用 `live2d-ai-runtime` 的 `plan_atomic_write`（tmp + fdatasync + rename，
-    ///   与 `live2d-ai.toml` 同一条原子写纪律）；
-    /// - **best-effort**：内存状态已变更，磁盘失败只记 `error` 日志并继续——
-    ///   HTTP 不该因为磁盘只读就谎报「操作失败」（用户会看到开关没动）。
-    fn persist_manifest(&self) {
-        let Some(path) = self.manifest_path.as_deref() else {
-            return;
-        };
-        // F-0013-01 / F-0644-01：以**磁盘当前内容**为基底（读不到 / 坏 JSON 时退回
-        // 构造时那份原始文档），**只覆写**本进程真正拥有的 id。
-        //
-        // 从前的实现整份重建 {"mods": {...}}，于是用户按文档手写的「当前不存在的
-        // Mod id」与其它顶层键，会在第一次写回时被静默抹掉——那是数据丢失，
-        // 不是清理（docs/external-input.md 两处明确邀请用户改这个文件）。
-        let mut root = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .filter(serde_json::Value::is_object)
-            .unwrap_or_else(|| self.raw_manifest.clone());
-        if !root.is_object() {
-            root = serde_json::Value::Object(serde_json::Map::new());
-        }
-        let root_obj = root.as_object_mut().expect("刚刚保证是对象");
-        if !root_obj
-            .get("mods")
-            .is_some_and(serde_json::Value::is_object)
-        {
-            root_obj.insert(
-                "mods".to_string(),
-                serde_json::Value::Object(serde_json::Map::new()),
-            );
-        }
-        let mods = root_obj
-            .get_mut("mods")
-            .and_then(|v| v.as_object_mut())
-            .expect("刚刚保证是对象");
-        for (id, e) in &self.entries {
-            mods.insert(
-                (*id).to_string(),
-                serde_json::json!({ "enabled": e.enabled, "config": e.config }),
-            );
-        }
-        let doc = root;
-        let text = match serde_json::to_string_pretty(&doc) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::error!(target: "mod", "mods.json 序列化失败: {e}");
-                return;
-            }
-        };
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-            && let Err(e) = std::fs::create_dir_all(parent)
-        {
-            tracing::error!(target: "mod", path = %path.display(), "mods.json 目录创建失败: {e}");
-            return;
-        }
-        match live2d_ai_runtime::settings::patch::plan_atomic_write(path, &text) {
-            Ok(tmp) => {
-                if let Err(e) = std::fs::rename(&tmp, path) {
-                    let _ = std::fs::remove_file(&tmp);
-                    tracing::error!(target: "mod", path = %path.display(), "mods.json rename 失败: {e}");
-                }
-            }
-            Err(e) => {
-                tracing::error!(target: "mod", path = %path.display(), "mods.json 写盘失败: {e}");
-            }
-        }
-    }
-
     /// 注入 HostChannels（builder；cli_entry 链式调用）。
     /// Host 固定映射 Mod action → SemanticAction::LlmTool 优先级档。
     pub fn with_host_channels(mut self, host: HostChannels) -> Self {
@@ -324,7 +248,17 @@ impl ModRegistry {
         e.status = ModStatus::Starting;
         set_start_cause(cause);
         self.start_one(id);
-        self.persist_manifest(); // M1：写回 mods.json，重启状态不丢。
+        // M1：写回 mods.json，重启状态不丢。**S-003**：写盘失败不许吞——
+        // 内存里已经启用了（这一进程是真的），但持久化没成，必须让调用方拿到
+        // Err（HTTP 409 / 后台 op 把状态标 Failed，界面不写「已启用」）。
+        if let Err(err) = self.persist_manifest() {
+            let msg = format!("Mod {id} 已启用，但 {err}");
+            if let Some(e) = self.entries.get_mut(id) {
+                e.status = ModStatus::Failed { message: msg.clone() };
+                e.last_error = Some(msg.clone());
+            }
+            return Err(ModError::Other(msg));
+        }
         Ok(())
     }
 
@@ -344,7 +278,16 @@ impl ModRegistry {
         }
         e.enabled = false;
         e.status = ModStatus::Disabled;
-        self.persist_manifest(); // M1：写回 mods.json。
+        // S-003：同上——停用是**真的**（进程里已经停了），但写盘失败要让调用方
+        // 拿到 Err，界面不写「已停用」，也不会以为「重启后还是停用」。
+        if let Err(err) = self.persist_manifest() {
+            let msg = format!("Mod {id} 已停用，但 {err}");
+            if let Some(e) = self.entries.get_mut(id) {
+                e.status = ModStatus::Failed { message: msg.clone() };
+                e.last_error = Some(msg.clone());
+            }
+            return Err(ModError::Other(msg));
+        }
         Ok(())
     }
 
@@ -395,7 +338,9 @@ impl ModRegistry {
         // 合并基准是**当前条目**的配置（= 内存里的既有值），不是 manifest 原文：
         // 中途 enable/disable 过的键也一样在。
         e.config = merge_mod_config(&e.config, &config, &secret_keys);
-        self.persist_manifest(); // M1：config 也写回 mods.json。
+        // M1：config 也写回 mods.json。S-003：写盘失败上抛（配置已进内存，
+        // 但重启后会回退——调用方据此回 409，界面不写「已保存」）。
+        self.persist_manifest()?;
         Ok(())
     }
 
@@ -431,10 +376,22 @@ impl ModRegistry {
     ///
     /// 刻意用 `try_lock`：web_api 线程**绝不**为一个可选 Mod 的状态等锁——
     /// 那会让「看一眼桌宠状态」把整个 HTTP 请求循环卡在 Mod worker 上。
+    ///
+    /// **S-006（2026-10-16）**：返回值里**额外**带一个 `dropped_events`——宿主
+    /// 丢掉 / worker 跳过的事件条数（registry 级，不是本 Mod 私有字段）。跑在
+    /// 这一层而不是改各 Mod 的 `state_json`：没新增路由、没新增 WS 帧，Mod 的
+    /// 快照一字未改（合并只发生在对象形态的快照上）。
     pub fn runtime_state(&self, id: &str) -> Option<serde_json::Value> {
         let slot = self.runtimes.get(id)?;
         let mut guard = slot.try_lock().ok()?;
-        guard.as_mut()?.state_json()
+        let mut state = guard.as_mut()?.state_json()?;
+        if let Some(obj) = state.as_object_mut() {
+            obj.insert(
+                "dropped_events".to_string(),
+                serde_json::Value::Number(self.dropped_events().into()),
+            );
+        }
+        Some(state)
     }
 
     /// **一次性命令**（产品级加强波次）：把用户按下按钮的动作转达给 Mod runtime。

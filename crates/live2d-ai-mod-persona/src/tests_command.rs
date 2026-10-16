@@ -572,3 +572,40 @@ fn unknown_command_is_unsupported_not_a_failure() {
         "err = {err:?}"
     );
 }
+
+// ------------------------------------------------------------ S-004（2026-10-16）
+
+/// S-004：停用时「还原主链」写回失败**不得**报「已停用」。
+///
+/// 从前：`logger.error(...)` 之后照常 `registered = false; Ok(())` —— 宿主回 200
+/// 「已停用」，而主链上仍挂着导入卡的人设，且下一次 enable 会以为「没什么要还原」。
+#[test]
+fn rejected_shutdown_reports_error_and_keeps_the_baseline() {
+    let dir = TempDir::new("s004-shutdown-rejected");
+    let chain = new_chain("BASE");
+    let gate = Arc::new(AtomicBool::new(true));
+    let mut rt = runtime(
+        &dir,
+        &chain,
+        serde_json::json!({"card_json": CARD_V2, "include_discipline": false}),
+        gate.clone(),
+    );
+    rt.start(&mut MockRegistrar::default()).expect("接管成功");
+    assert_eq!(prompt(&chain), NEKO_WITHOUT_DISCIPLINE, "卡已写回主链");
+
+    // 磁盘不可写：还原这一步必失败。
+    gate.store(false, Ordering::SeqCst);
+    let err = rt
+        .shutdown()
+        .expect_err("还原失败必须 Err（界面不许写「已停用」）");
+    assert!(err.to_string().contains("还原主链"), "got {err}");
+
+    // 可观察后果：待还原的基线**没有被吞掉**——再停一次仍然报同一个失败。
+    // （这也是「`registered` 没被清掉」的可观察面：状态没被当成「已经还干净了」。）
+    assert!(rt.shutdown().is_err(), "第一次失败不得把待还原的状态丢掉");
+    assert_eq!(
+        prompt(&chain),
+        NEKO_WITHOUT_DISCIPLINE,
+        "主链上仍挂着卡的人设——如实，不假装还原过"
+    );
+}

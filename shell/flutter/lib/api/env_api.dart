@@ -4,7 +4,8 @@
 ///
 /// - `GET /api/v1/env` → 配置里声明的键名 + **是否已设置**（**永不返回值**）；
 /// - `PUT /api/v1/env` → 写 `.env` 的单个键（`{"key","value"}`），写完热重载，
-///   响应只回 `{key, set}`。
+///   响应回 `{key, set, apply_status}`（2026-10-16，FINDINGS S-002）：**写盘成功
+///   不等于引擎装上**，[EnvWriteResult] 把两件事分开带回给界面。
 ///
 /// # 为什么前端可以写密钥了
 ///
@@ -21,6 +22,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'api_client.dart';
+import 'settings_models.dart';
 
 /// 一个键的状态（**没有 value 字段，这是刻意的**）。
 class EnvKey {
@@ -60,6 +62,27 @@ class EnvStatus {
   }
 }
 
+/// `PUT /api/v1/env` 的结果：**写盘**与**是否装上**是两件事。
+///
+/// `set` 说的是 `.env` 里现在有没有这个键；`applyStatus` 说的是 supervisor
+/// 有没有真的重建/热重载 LLM/TTS client。**只有 `applied` 才等于「立即生效」**。
+class EnvWriteResult {
+  const EnvWriteResult({required this.set, this.applyStatus = ApplyStatus.unknown});
+
+  /// 写完之后该键是否已设置（空值写入 = 删除 = `false`）。
+  final bool set;
+
+  /// 热重载状态（缺字段 = 旧服务端 → [ApplyStatus.unknown]，**不静默当成已生效**）。
+  final ApplyStatus applyStatus;
+
+  factory EnvWriteResult.fromJson(Map<String, Object?> json) => EnvWriteResult(
+    set: json['set'] == true,
+    applyStatus: ApplyStatus.fromWire(
+      json['apply_status'] is String ? json['apply_status']! as String : null,
+    ),
+  );
+}
+
 class EnvApi {
   EnvApi({String? base, http.Client? client})
     : _base = _normalize(base ?? const String.fromEnvironment('API_BASE')),
@@ -90,8 +113,10 @@ class EnvApi {
     );
   }
 
-  /// `PUT /api/v1/env`：写入（空值 = 删除该键）。返回写完之后的「是否已设置」。
-  Future<bool> write(String key, String value) async {
+  /// `PUT /api/v1/env`：写入（空值 = 删除该键）。
+  ///
+  /// 返回值同时带「写完是否已设置」与「引擎有没有装上」（见 [EnvWriteResult]）。
+  Future<EnvWriteResult> write(String key, String value) async {
     final http.Response response = await _guard(
       () => _client.put(
         _uri(),
@@ -100,7 +125,7 @@ class EnvApi {
       ),
     );
     if (response.statusCode != 200) throw _error(response);
-    return _decode(response.body)['set'] == true;
+    return EnvWriteResult.fromJson(_decode(response.body));
   }
 
   Future<http.Response> _guard(Future<http.Response> Function() run) async {

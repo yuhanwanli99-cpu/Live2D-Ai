@@ -56,12 +56,19 @@ impl ModRegistry {
         session: Option<&str>,
         ack: Option<std::sync::mpsc::SyncSender<()>>,
     ) -> bool {
-        self.event_tx
+        let queued = self
+            .event_tx
             .try_send((topic, payload.to_string(), session.map(str::to_string), ack))
-            .is_ok()
+            .is_ok();
+        if !queued {
+            // S-006（2026-10-16）：从前这里只返回 false，计数**从不自增**——
+            // 「这一轮少了注入」在界面与 HTTP 上都看不出来（FINDINGS.md S-006）。
+            self.dropped_events.fetch_add(1, Ordering::Relaxed);
+        }
+        queued
     }
 
-    #[allow(dead_code)]
+    /// 被丢掉 / 被 worker 跳过的事件条数（S-006：`runtime_state` 把它并进快照）。
     pub fn dropped_events(&self) -> u64 {
         self.dropped_events.load(Ordering::Relaxed)
     }
@@ -115,6 +122,10 @@ pub fn mod_event_sink(registry: Arc<Mutex<ModRegistry>>) -> crate::supervisor::M
 pub(super) fn event_worker_loop(
     event_rx: std::sync::mpsc::Receiver<EventMsg>,
     runtimes: BTreeMap<&'static str, SharedRuntime>,
+    // S-006（2026-10-16）：形参**刻意**保持不使用。worker 里的两种 skip
+    //（host 持锁 / 该 Mod 未启用）是**正常过滤**，不是「事件被丢」——按 per-Mod
+    // 累加会让计数随在册 Mod 数膨胀（6 个在册、2 个启用 ⇒ 每条事件 +4），
+    // 那是个骗人的数。真正的丢弃只有一处：`send_event` 的 `try_send` 失败。
     _dropped: Arc<AtomicU64>,
 ) {
     while let Ok((topic, payload, session, ack)) = event_rx.recv() {

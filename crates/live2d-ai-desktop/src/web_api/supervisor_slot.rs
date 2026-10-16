@@ -49,6 +49,13 @@ use crate::web_api::app_routes::StatusContext;
 use crate::web_api::dto::ApplyStatus;
 use crate::web_api::ws;
 
+/// 等热重载结果的上限（S-001，2026-10-16）。
+///
+/// 空闲态的热重载只是「读一次 toml + 建一个 reqwest client」，毫秒级；250ms
+/// 足够覆盖它，又不至于把单线程的 HTTP 请求循环占住太久。**超时 = 没等到**，
+/// 按 `Queued` 如实回报（已排队 ≠ 已生效）。
+const RELOAD_REPORT_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// Supervisor 运行时槽位。`Clone` 廉价（`Arc` clone，所有内部 handler
 /// 都持同一份槽位）。
 #[derive(Clone)]
@@ -84,8 +91,10 @@ impl SupervisorSlot {
     /// supervisor。
     ///
     /// 行为：
-    /// 1. **槽位非空** → 已存在 supervisor：触发 `reload()`，返回
-    ///    [`ApplyStatus::Applied`]（与原「已热重载」语义一致）；
+    /// 1. **槽位非空** → 已存在 supervisor：触发 `reload()` 并**等它的结果**
+    ///    （S-001，2026-10-16）——成功 = [`ApplyStatus::Applied`]（与原语义一致）；
+    ///    失败 = [`ApplyStatus::ReloadFailed`]（引擎仍是旧配置）；在飞一轮没等到
+    ///    结果 = [`ApplyStatus::Queued`]（已排队，不是已生效）；
     /// 2. **槽位空 + 配置可解析** → 调用
     ///    `cli_entry::build_web_supervisor` 动态创建；成功 → 注入槽位
     ///    + 注入 epoch 读源到 `status_ctx`：返回 [`ApplyStatus::Applied`]；
@@ -106,9 +115,20 @@ impl SupervisorSlot {
         mod_registry: std::sync::Arc<std::sync::Mutex<crate::mod_registry::ModRegistry>>,
     ) -> ApplyStatus {
         if let Some(existing) = self.try_get() {
-            // 已存在：reload 触发热重载（同原语义）。
-            existing.reload();
-            return ApplyStatus::Applied;
+            // S-001（2026-10-16）：从前这里无条件 `reload(); return Applied`——
+            // 「槽位非空」被当成了「装上了」。热重载失败时引擎仍在用旧配置，
+            // 界面却写「已保存并生效」（FINDINGS.md S-001）。现在按**真实结果**回报：
+            // 成功路径（Applied）一字未改，失败/延后各有诚实的取值。
+            return match existing.reload_reported(RELOAD_REPORT_WAIT) {
+                Some(Ok(())) => ApplyStatus::Applied,
+                Some(Err(e)) => {
+                    tracing::warn!(error = %e, "热重载失败：这次保存没有生效（界面按未生效回报）");
+                    ApplyStatus::ReloadFailed
+                }
+                // 在飞一轮：reload 会延后到该轮收口（既有 reload_pending 兜底）。
+                // 没拿到结果就不许说已生效。
+                None => ApplyStatus::Queued,
+            };
         }
         // 槽位空：动态装配。**Mod 事件桥（d2）**：动态装配路径的 supervisor
         // 直接捕获 `mod_registry`。sink 与启动路径**共用同一个工厂**
@@ -232,6 +252,70 @@ mod tests {
         assert!(slot.try_get().is_none(), "毒化时 set 是 no-op：读仍为 None");
         assert!(slot.take().is_none(), "毒化时 take = None，不 panic");
     }
+    /// S-001（2026-10-16）：「保存成功」与「引擎装上」是两件事。
+    ///
+    /// 热重载失败时 `ensure_after_patch` **不得**回 `Applied`——那正是界面写
+    /// 「已保存并生效」的唯一来源。这里用一份语法错的配置走真实的失败路径。
+    #[test]
+    fn ensure_after_patch_reports_a_failed_reload() {
+        let path = std::env::temp_dir().join(format!("l2d-slot-s001-{}.toml", std::process::id()));
+        std::fs::write(&path, "llm = [这不是 toml").expect("写坏配置");
+        let path_str = path.to_string_lossy().into_owned();
+
+        let slot = SupervisorSlot::new();
+        let handle = test_handle_at(&path_str);
+        // 先同步等一次，确认 supervisor 线程已经进了空闲 select——
+        // 否则下面那次 250ms 的等待量的是「线程起没起来」，不是本次断言。
+        let warm = handle.reload_reported(std::time::Duration::from_secs(5));
+        assert!(
+            matches!(warm, Some(Err(_))),
+            "坏配置必须回报失败，got {warm:?}"
+        );
+        slot.set(handle);
+
+        let status = slot.ensure_after_patch(
+            &path_str,
+            ws::Broadcaster::new(),
+            Arc::new(StatusContext::new(
+                live2d_ai_runtime::AppSettings::default(),
+                path_str.clone(),
+                None,
+            )),
+            Arc::new(std::sync::Mutex::new(
+                crate::mod_registry::ModRegistry::new(NO_MODS, &serde_json::json!({})),
+            )),
+        );
+        assert_eq!(
+            status,
+            ApplyStatus::ReloadFailed,
+            "热重载失败必须如实回报：引擎仍是旧配置"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 空工厂表（本测试只需要一个能构造的 `ModRegistry`，不启用任何 Mod）。
+    static NO_MODS: &[&dyn live2d_ai_mod_system::ModFactory] = &[];
+
+    /// 指到 `config_path` 的真实 supervisor（与 [`test_handle`] 同形，只多一个路径）。
+    fn test_handle_at(config_path: &str) -> Arc<SupervisorHandle> {
+        let client = live2d_ai_runtime::OpenAiClient::new(
+            live2d_ai_runtime::LlmConfig::new("http://127.0.0.1:1/v1", "m"),
+            live2d_ai_runtime::TtsConfig::new("http://127.0.0.1:2/v1", "alloy"),
+        )
+        .expect("client");
+        Arc::new(crate::supervisor::spawn_supervisor(
+            crate::supervisor::SupervisorConfig {
+                client,
+                conversation: live2d_ai_runtime::ConversationConfig::new("人设"),
+                capabilities: live2d_ai_core::ModelCapabilities::all(),
+                audio: None,
+                config_path: Some(config_path.to_string()),
+                mod_events: None,
+            },
+            |_ev| {},
+        ))
+    }
+
     /// 测试专用 helper：构造一个 fake `SupervisorHandle`（绕过真实
     /// `spawn_supervisor`，仅用于槽位 API 边界检查）。
     ///

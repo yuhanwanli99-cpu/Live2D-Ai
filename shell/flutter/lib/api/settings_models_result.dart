@@ -78,6 +78,12 @@ enum ApplyStatus {
   /// 写盘成功但**没有** supervisor（dev-only 控制平面 / 关掉了对话引擎）。
   noSupervisor('no_supervisor'),
 
+  /// 写盘成功，但**热重载失败**：引擎仍在用旧配置（S-001，2026-10-16）。
+  ///
+  /// 与 [restartRequired] 刻意分开：那边是「配置不全，服务端会自己重启再装」，
+  /// 这边问题在配置本身，**不**重启（重启解决不了，还会丢掉正在工作的旧引擎）。
+  reloadFailed('reload_failed'),
+
   /// 未识别取值（协议新增而前端还旧）。**不静默当成 applied**。
   unknown('unknown');
 

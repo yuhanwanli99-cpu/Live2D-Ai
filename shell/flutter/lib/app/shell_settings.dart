@@ -159,8 +159,13 @@ extension _ShellSettingsWiring on _ShellRootState {
   /// - 热重载类：等一档动效时长（让 SnackBar 先露个脸）就刷新；
   /// - 「需重启」类：服务端正在重启 18080 上这个进程，**等它回来**再刷新
   ///   （最多约 15 秒；超时也刷新——刷出来的会是「连不上」的如实状态，
-  ///   而不是一个停在旧值的界面）。
+  ///   而不是一个停在旧值的界面）；
+  /// - 「热重载失败」类（S-001，2026-10-16）：**不刷新**——写盘成功但引擎没
+  ///   装上，刷新会把这条提示和草稿现场一起抹掉；用户要能看见它并就地重试。
   Future<void> _reloadPageAfterSave(SaveOutcome outcome) async {
+    if (outcome == SaveOutcome.savedReloadFailed) {
+      return;
+    }
     if (outcome == SaveOutcome.savedRestartRequired) {
       await _api.waitUntilReachable();
     } else {

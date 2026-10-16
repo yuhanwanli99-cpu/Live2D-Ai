@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 
 import 'package:live2d_ai_shell/api/api_client.dart';
 import 'package:live2d_ai_shell/api/env_api.dart';
+import 'package:live2d_ai_shell/api/settings_models.dart';
 
 http.Response _json(String body, int status) => http.Response(
   body,
@@ -58,8 +59,10 @@ void main() {
           return _json('{"key":"DEEPSEEK_API_KEY","set":true}', 200);
         }),
       );
-      final bool set = await api.write('DEEPSEEK_API_KEY', 'sk-abc');
-      expect(set, isTrue);
+      final EnvWriteResult result = await api.write('DEEPSEEK_API_KEY', 'sk-abc');
+      expect(result.set, isTrue);
+      // 旧服务端没有 apply_status 字段 → unknown：**不静默当成已生效**。
+      expect(result.applyStatus, ApplyStatus.unknown);
       expect(seen.method, 'PUT');
       expect(seen.url.path, '/api/v1/env');
       expect(seen.headers['Content-Type'], contains('application/json'));
@@ -74,7 +77,24 @@ void main() {
         base: 'http://x',
         client: MockClient((_) async => _json('{"key":"K","set":false}', 200)),
       );
-      expect(await api.write('K', ''), isFalse);
+      expect((await api.write('K', '')).set, isFalse);
+    });
+
+    /// S-002（2026-10-16）：**写盘成功 ≠ 引擎装上**——状态原样带回界面。
+    test('apply_status 原样带回来（写盘成功不等于已生效）', () async {
+      final EnvApi api = EnvApi(
+        base: 'http://x',
+        client: MockClient(
+          (_) async => _json(
+            '{"key":"K","set":true,"apply_status":"restart_required"}',
+            200,
+          ),
+        ),
+      );
+      final EnvWriteResult r = await api.write('K', 'sk');
+      expect(r.set, isTrue);
+      expect(r.applyStatus, ApplyStatus.restartRequired);
+      expect(r.applyStatus.isLive, isFalse, reason: '只有 applied 才算已生效');
     });
 
     test('后端拒绝时抛 ApiException（带服务端 code）', () async {

@@ -418,20 +418,30 @@ impl ModRuntime for PersonaRuntime {
                 .info("persona 已清除自己的会话角色卡槽（停用即还原；不动别的来源）");
         }
         // 把基线写回主链——「禁用 Mod → 回到仅主链 system_prompt」。
-        if let Some(base) = self.base_prompt.take() {
+        //
+        // S-004（2026-10-16）：这里从前是「失败只记一行日志，然后照常
+        // `registered = false; Ok(())`」——宿主回 200「已停用」，而主链上仍挂着
+        // 导入卡的人设，且下一次 enable 会以为「没什么要还原」。现在：
+        // ① 失败返回 Err（宿主 → 409，开关与徽标都不改）；
+        // ② 基线**不吞**（成功才清），重试仍能还回去；
+        // ③ `registered` 保持 true（本次停用不成立）。
+        if let Some(base) = self.base_prompt.clone() {
             let ok = self
                 .services
                 .apply_settings
                 .apply(serde_json::json!({"persona": {"system_prompt": base}}));
-            if ok {
-                self.services
-                    .logger
-                    .info("persona 已还原主链原 system_prompt");
-            } else {
-                self.services
-                    .logger
-                    .error("persona 还原主链 system_prompt 失败（apply_settings 返回 false）");
+            if !ok {
+                let message = format!(
+                    "persona 还原主链 system_prompt 失败（{} 不可写？）：主链仍挂着导入卡的人设，本次停用不成立",
+                    self.services.config_path.trim()
+                );
+                self.services.logger.error(&message);
+                return Err(ModError::Other(message));
             }
+            self.base_prompt = None;
+            self.services
+                .logger
+                .info("persona 已还原主链原 system_prompt");
         }
         self.registered = false;
         self.services.logger.info("persona Mod 已关闭");

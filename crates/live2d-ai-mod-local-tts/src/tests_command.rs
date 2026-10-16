@@ -96,6 +96,45 @@ fn shutdown_keeps_the_handle_when_stop_fails() {
     assert_eq!(log.with_state(|s| s.waits), 0, "停止失败不该接着 wait");
 }
 
+/// FINDINGS.md S-000（2026-10-16）：`wait()` 失败与 `stop()` 失败同一条口径。
+///
+/// 旧实现里 `wait()` 走 `?`，局部 `child` 被 drop ⇒ 宿主槽位里的 runtime
+/// `self.child` 变成 `None`；用户再点一次停用，`shutdown()` 见 `None` 就回
+/// `Ok(())` ⇒ `ModRegistry::disable` 回 200「已停用」，而子进程已被 kill、
+/// 没人收尸。修完两条断言一起钉：句柄放回，且**下一次停用仍报同一个错**。
+#[test]
+fn shutdown_keeps_the_handle_when_wait_fails_and_a_second_stop_still_errors() {
+    let log = Arc::new(SpawnerLog::default());
+    let (mut rt, _) = runtime_with(
+        serde_json::json!({ "program": "/bin/echo", "launch_mode": "with_app" }),
+        StartCause::Boot,
+        &log,
+    );
+    start(&mut rt).unwrap();
+    log.with_state(|s| s.wait_error = true);
+
+    let err = rt.shutdown().expect_err("收尸失败必须返回 Err（不许吞）");
+    assert!(err.to_string().contains("wait 失败"), "got {err}");
+    let snap = rt.state_json().unwrap();
+    assert_eq!(
+        snap["pid"],
+        serde_json::json!(4242),
+        "句柄必须放回运行时结构：下一次停用还要靠它收尸"
+    );
+    assert_eq!(
+        snap["child_running"],
+        serde_json::json!(false),
+        "已经被 kill，如实说不在跑（真相是「没收到尸」）"
+    );
+
+    // 第二次停用（FINDINGS 里「再点一次」那一步）：不得因为句柄没了就当停干净。
+    let err2 = rt
+        .shutdown()
+        .expect_err("第二次停用不得回 Ok——那会让 disable 回 200「已停用」");
+    assert!(err2.to_string().contains("wait 失败"), "got {err2}");
+    assert_eq!(log.with_state(|s| s.stops), 2, "第二次必须真去停同一个句柄");
+    assert_eq!(log.with_state(|s| s.waits), 2, "也不能跳过收尸");
+}
 // ─────────────────────────────────────────────────────────── 快照
 
 #[test]

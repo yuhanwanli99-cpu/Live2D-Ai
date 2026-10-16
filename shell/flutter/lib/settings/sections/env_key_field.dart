@@ -7,7 +7,7 @@
 ///
 /// # 与其它字段的区别（安全边界）
 ///
-/// - 值**只往上走**：`PUT /api/v1/env`，响应只回 `{key, set}`；
+/// - 值**只往上走**：`PUT /api/v1/env`，响应回 `{key, set, apply_status}`；
 /// - **没有回显**：本控件不持有、不请求、不显示当前值，只显示「已设置/未设置」；
 /// - 输入框是 `obscureText`，并且**每次保存后立即清空**（不留明文在内存里等 GC）。
 ///
@@ -18,6 +18,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../api/env_api.dart';
+import '../../api/settings_models.dart';
 import '../../design/tokens.dart';
 import '../../ui/field_row.dart';
 import '../../ui/theme.dart';
@@ -38,7 +39,10 @@ class EnvKeyField extends StatefulWidget {
   final EnvKey? status;
 
   /// 保存回调：`(key, value)`。空值 = 删除。
-  final Future<void> Function(String key, String value)? onSave;
+  ///
+  /// 返回**写盘结果**（[EnvWriteResult]）而不只是 `void`：界面要按 `applyStatus`
+  /// 分两句说（S-002）——写进 `.env` 是一件事，引擎装上没有是另一件事。
+  final Future<EnvWriteResult> Function(String key, String value)? onSave;
 
   /// 排障提示（`.env` 路径），只在需要时显示。
   final String? debugHint;
@@ -60,7 +64,7 @@ class _EnvKeyFieldState extends State<EnvKeyField> {
 
   Future<void> _save() async {
     final EnvKey? status = widget.status;
-    final Future<void> Function(String, String)? save = widget.onSave;
+    final Future<EnvWriteResult> Function(String, String)? save = widget.onSave;
     if (status == null || save == null) return;
     final String value = _value.text.trim();
     setState(() {
@@ -68,15 +72,13 @@ class _EnvKeyFieldState extends State<EnvKeyField> {
       _message = null;
     });
     try {
-      await save(status.key, value);
+      final EnvWriteResult result = await save(status.key, value);
       if (!mounted) return;
       setState(() {
         _saving = false;
         // 立刻清掉明文：它已经写进 .env，没有理由继续留在输入框里。
         _value.clear();
-        _message = value.isEmpty
-            ? '已清除 ${status.key}'
-            : '已写入 ${status.key}，**立即生效**（不用重启）';
+        _message = _writeMessage(status.key, value.isEmpty, result.applyStatus);
       });
     } catch (error) {
       if (!mounted) return;
@@ -85,6 +87,27 @@ class _EnvKeyFieldState extends State<EnvKeyField> {
         _message = '保存失败：$error';
       });
     }
+  }
+
+  /// 写盘与生效**分开说**（S-002）：只有 `applied` 才配「立即生效」。
+  ///
+  /// 从前无论后端能不能装上，这里都写死「**立即生效**（不用重启）」——
+  /// 密钥落进了 `.env`、链路却还拿着旧 client 时，这句话是假的。
+  static String _writeMessage(String key, bool cleared, ApplyStatus apply) {
+    final String wrote = cleared ? '已清除 $key' : '已写入 $key';
+    if (apply == ApplyStatus.applied) {
+      return cleared ? wrote : '$wrote，**立即生效**（不用重启）';
+    }
+    final String note = switch (apply) {
+      ApplyStatus.applied => '',
+      ApplyStatus.restartRequired => '引擎没装上这份改动，需要重启服务后才生效',
+      // S-001（2026-10-16）：热重载失败——写盘成功、引擎**仍是旧配置**。
+      ApplyStatus.reloadFailed => '引擎没能用上这份改动，仍是旧配置',
+      ApplyStatus.queued => '正在生效中',
+      ApplyStatus.noSupervisor => '当前没有对话引擎，下次启动后生效',
+      ApplyStatus.unknown => '无法确认是否已生效，必要时重启服务',
+    };
+    return '$wrote；$note';
   }
 
   @override

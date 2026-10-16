@@ -94,7 +94,20 @@ const SKIPPED_DIR_NAMES: [&str; 5] = ["target", "build", "dist", "node_modules",
 /// `tests_models_*`）：`mod_registry.rs` 1438、`web_api/external_routes.rs` 1202、
 /// `web_api/chat_routes.rs` 1086、`mod-persona/src/lib.rs` 1004。
 /// 复算证据：`cargo run -q -p xtask -- code-stats --check`（44 ≤ 44 = PASS）。
-const RATCHET_SRC_RS_500: u64 = 44;
+///
+/// **已收紧到 43**（2026-10-16 D3，同 commit）：44 → 43。
+/// `supervisor.rs` 从 1000 行拆出 `supervisor/{run,reload,spawn}.rs`，退出 >500 档。
+/// 提交时实测：父 492、run 272、reload 208、spawn 170，每份 ≤500。
+/// S-001 的回话口加在搬家之后，所以大于刚搬完时的 461/263/193/162。
+///
+/// **已收紧到 42**（2026-10-16 D5，同 commit）：43 → 42。
+/// `conversation/engine.rs` 778 行拆成 `engine.rs` 236、`engine/run.rs` 493、
+/// `engine/sentence.rs` 73，退出 >500 档。同批把本批会越过 500 的两处拆开
+/// （HEAD 上它们都还 ≤500）：`mod_registry/registry.rs` 488 → 445 + `persist.rs` 100；
+/// `web_api/env_routes.rs` 381 → 218 + `env_routes_tests.rs` 298。
+/// `supervisor/tests_reload.rs` 仍是 486，相对 HEAD 无 diff。分句 / TTS / 口型未改行为。
+/// 复算证据：`cargo run -q -p xtask -- code-stats --check --only lines`（42 ≤ 42 = PASS）。
+const RATCHET_SRC_RS_500: u64 = 42;
 /// **已收紧到 0**（2026-10-05 债轮 R4-T1，同批）：4 → 0，PLAN §5 目标达成
 /// （`--strict-plan` 这一项从此不再是「合规欠账」）。四个文件的去向：
 /// `mod_registry/{registry,events,tests_*}.rs`、

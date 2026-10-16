@@ -37,16 +37,16 @@ fn sentence_cleaner_is_wired_only_when_clean_tts_is_on() {
     )
     .expect("client");
     // 动作门关（缺省 director）= 端点仍是主 LLM，测的就是 clean_tts 这一个开关。
-    let director = crate::supervisor::DirectorTakeover::default();
+    let director = super::performance_wiring::DirectorTakeover::default();
     assert!(
-        crate::supervisor::build_sentence_cleaner(&off, &director).is_none(),
+        super::reload::build_sentence_cleaner(&off, &director).is_none(),
         "clean_tts=false（便捷构造）必须不跑二路，保持既有行为"
     );
 
     let mut llm = LlmConfig::new("http://127.0.0.1:9/v1", "deepseek-flash");
     llm.clean_tts = true;
     let on = OpenAiClient::new(llm, tts()).expect("client");
-    let cleaner = crate::supervisor::build_sentence_cleaner(&on, &director)
+    let cleaner = super::reload::build_sentence_cleaner(&on, &director)
         .expect("clean_tts=true 必须装配二路清洗");
     assert!(cleaner.enabled());
     assert_eq!(

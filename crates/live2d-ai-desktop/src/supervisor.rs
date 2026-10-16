@@ -87,9 +87,8 @@ pub(crate) fn root_apply(root: &mut RootState, event: RootEvent) -> Vec<RootEffe
     live2d_ai_core::apply(root, event)
 }
 use live2d_ai_mod_system::ModEventTopic;
-use live2d_ai_runtime::cleaning::SentenceCleaner;
-use live2d_ai_runtime::performance::{PerformanceRuntime, PerformanceStats};
-use live2d_ai_runtime::{AppSettings, ConversationConfig, ConversationEngine, OpenAiClient};
+use live2d_ai_runtime::performance::PerformanceStats;
+use live2d_ai_runtime::{ConversationConfig, OpenAiClient};
 
 /// 表演层计数槽：**当前**运行时的 `Arc<PerformanceStats>`（换运行时即换表）。
 ///
@@ -104,12 +103,15 @@ use crate::session_scope::SessionScopeStore;
 mod dialogue_history;
 mod handlers;
 mod performance_wiring;
+mod reload;
+mod run;
+mod spawn;
 mod turn;
 
-pub use performance_wiring::{
-    CleanEndpoint, DirectorTakeover, build_performance_runtime, clean_endpoint,
-    load_director_takeover, motion_on,
-};
+// 2026-10-16（D3）：以下四项搬家后**原样再导出**——`crate::supervisor::X` 与
+// `handlers.rs` 的 `super::AUDIO_CB` / `super::MOD_EVENT_CB` 路径不变。
+pub(crate) use spawn::{AUDIO_CB, AudioCb, MOD_EVENT_CB};
+pub use spawn::{ModEventSink, spawn_supervisor, spawn_supervisor_with_audio};
 
 /// 动作自然完成事实：**携带产生它的原始业务 epoch**（B-P0-5 裁决）。
 ///
@@ -212,6 +214,13 @@ pub struct SupervisorHandle {
     /// 表演层计数槽（2026-09-22）：`GET /api/v1/app/status` 的
     /// `performance` 块从这里读「成功几轮 / 回退几轮 / 最近原因码」。
     performance_stats: PerformanceStatsSlot,
+    /// 热重载结果的**回话槽**（S-001，2026-10-16）。
+    ///
+    /// `reload()` 一直是「发出去就不管」：supervisor 线程里那次 reload 成功还是
+    /// 失败，PATCH 端看不到，于是界面永远写「已保存并生效」。这里放一个一次性
+    /// 回话口：谁真正执行了 reload（空闲态 select 或 turn 收口后的兜底），谁就
+    /// 把结果 `try_send` 回来。**没有等待者时是 None**（巡检/手改 toml 那条路）。
+    reload_ack: Arc<std::sync::Mutex<Option<ReloadAck>>>,
 }
 
 impl SupervisorHandle {
@@ -304,6 +313,26 @@ impl SupervisorHandle {
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
+    /// 请求热重载**并等它的结果**（S-001，2026-10-16）。
+    ///
+    /// 与 [`SupervisorHandle::reload`] 只差一条：这里装一个一次性回话口，
+    /// 拿回「引擎到底装上没有」——不拿回结果就没法诚实地说「已生效」。
+    ///
+    /// - `Some(Ok(()))` = supervisor 在空闲态把新配置装配好了；
+    /// - `Some(Err(e))` = 装配失败（解析不过 / client 构造失败）：引擎**仍是旧配置**；
+    /// - `None` = `wait` 内没等到：正在跑一轮，reload 按既有语义延后到该轮收口
+    ///   （`reload_pending` 兜底）——**不得**当成已生效。
+    ///
+    /// `wait` 必须有界：HTTP 请求循环是单线程的，等太久等于把整个 API 占住。
+    pub fn reload_reported(&self, wait: std::time::Duration) -> Option<Result<(), String>> {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
+        if let Ok(mut slot) = self.reload_ack.lock() {
+            *slot = Some(tx);
+        }
+        self.reload();
+        rx.recv_timeout(wait).ok()
+    }
+
     /// 回收 supervisor 线程（shutdown handshake 完成后近乎即时返回）。
     pub fn join(mut self) {
         if let Some(h) = self.join.take() {
@@ -331,321 +360,23 @@ impl SupervisorHandle {
 
 type Emit = Arc<dyn Fn(AppEvent) + Send + Sync>;
 
-/// host→Mod 事件投递回调（`SupervisorConfig.mod_events`）。
+/// 热重载结果的**一次性回话口**（S-001，2026-10-16）。
 ///
-/// 由 supervisor 在 turn 生命周期点调用（`dispatch_event` 非阻塞，满则丢弃），
-/// 不携带密钥；payload 为 turn/action/voice 等非敏感字符串。引入 Type alias
-/// 以消解 clippy「very complex type」告警。
-/// 第三个参数是**会话 id**（L1 基座）：`Some(id)` = 该事件属于某会话；
-/// `None` = 调用方没带会话。Mod 侧经 `ModRuntime::on_scoped_event` 收到它。
-pub type ModEventSink = Arc<dyn Fn(ModEventTopic, &str, Option<&str>) + Send + Sync>;
+/// 用 `std::sync::mpsc` 而不是 tokio：等待方是同步的 HTTP 请求线程，
+/// 只有 `recv_timeout` 才谈得上「有界等待」。容量 1（结果只有一个）。
+pub type ReloadAck = std::sync::mpsc::SyncSender<Result<(), String>>;
 
-/// 音频帧广播回调的线程局部载体。
+/// 把这次热重载的结果回给等待者（S-001）。
 ///
-/// F6-T2 接线（WS 音频广播）：**PCM 绝不经 AppEvent**（见本模块头注），因此
-/// 不能走 `emit` 闭包。为把 `emit_audio` 植入 `handle_engine_event`（其签名由
-/// `turn.rs`/test 共享，不能改动）之内，`spawn_supervisor_impl` 在**子线程入
-/// 口**把回调存入本线程局部；`handlers::handle_engine_event` 在 `AudioChunk`
-/// 分支读取之。生产装配（cli_entry）在 `LIVE2D_AI_WS_AUDIO=1` 时传入 Some，否则
-/// 传 None——默认行为与 `emit` 分支一致（关闭 WS 音频，仅 cpal 播放）。
-/// 末尾三个参数是**句子边界**：`sentence_seq` / `first_chunk` / `final_chunk`
-/// （2026-09-11 新增）。WS 帧的 `start`/`end` 必须按**句**给出——见
-/// [`crate::web_api::ws::build_audio_frames`]。
-pub(crate) type AudioCb =
-    dyn Fn(u64, &[f32], live2d_ai_runtime::AudioSpec, u64, bool, bool) + Send + Sync;
-thread_local! {
-    static AUDIO_CB: std::cell::RefCell<Option<Arc<AudioCb>>> = const { std::cell::RefCell::new(None) };
-    /// P1-2（2026-09-16）：Mod 事件桥的线程局部载体。
-    ///
-    /// `handlers::handle_engine_event` 在 `EngineEvent::SentenceReady` 分支读它，
-    /// 把「该句即将送 TTS」投给 Mod（导演按句投 cue）。**非阻塞**（dispatch_event
-    /// 是 try_send）：主链绝不等待导演。与 AUDIO_CB 同款：签名由 turn.rs/test
-    /// 共享，不能改，所以走线程局部而不是加参数。
-    static MOD_EVENT_CB: std::cell::RefCell<Option<ModEventSink>> = const { std::cell::RefCell::new(None) };
-}
-
-/// 从磁盘最新配置构造新的 [`OpenAiClient`] + [`ConversationConfig`]（热重载核心）。
-///
-/// **不**触碰 [`ConversationEngine::history`]（旧 engine 跨重建保留历史不现实——
-/// `ConversationEngine` 是持 client 的；新 engine 从空历史开始，旧 engine 直接 drop，
-/// 已 `commit_completed_turn` 写入的内容**不会**跨 reload 保留——这是公开的语义）。
-///
-/// 失败路径（文件 IO / TOML 解析 / `base_url` 非法 / env 解析 / reqwest 构造）
-/// 全部以 [`String`] 形式回传，**不**修改调用方的旧 engine（保留旧配置继续运行）。
-#[allow(clippy::type_complexity)]
-fn rebuild_engine_from_config(
-    config_path: &str,
-    _emit: &Emit,
-) -> Result<
-    (
-        OpenAiClient,
-        ConversationConfig,
-        Option<Arc<PerformanceRuntime>>,
-        Option<Arc<SentenceCleaner>>,
-        DirectorTakeover,
-    ),
-    String,
-> {
-    // 1) 读盘 + 解析。
-    let settings =
-        AppSettings::load_from_path(config_path).map_err(|e| format!("读取/解析配置失败: {e}"))?;
-    // 2) 解析环境变量（用生产 lookup，与 chat 装配同语义）。
-    let resolved = settings
-        .resolve_with(live2d_ai_runtime::secrets::lookup)
-        .map_err(|e| format!("配置解析失败（URL/环境变量名）: {e}"))?;
-    // 3) 构造新 client。
-    let client = OpenAiClient::new(resolved.llm.clone(), resolved.tts.clone())
-        .map_err(|e| format!("构建 LLM/TTS 客户端失败: {e}"))?;
-    // 表演层（T8；2026-10-08 起显式 opt-in）：开关 = `[performance].enabled`；
-    // 导演启用时端点按 `staging_*` 两项共用 `takeover_of` 判定（两项都空 = 复用
-    // 对话模型），导演未启用时用 `[performance]` 自己的 base_url/model。
-    let director = load_director_takeover(config_path);
-    let performance = build_performance_runtime(&settings.llm, &resolved.performance, &director);
-    // 二路按句清洗（2026-10-08；2026-10-13 起动作门可改用 staging 端点）：
-    // `resolved.llm.clean_tts` 由 `AppSettings::resolve` 置 true（产品默认）。
-    let cleaner = build_sentence_cleaner(&client, &director);
-    Ok((
-        client,
-        resolved.conversation,
-        performance,
-        cleaner,
-        director,
-    ))
-}
-
-/// 按句规则回退闭包（单一真源 = director 的 `rule_cues_for_sentence`）。
-///
-/// **只在动作门开着时**注入：实参是这一句一路原文 + 句号，绝不接用户句。
-fn sentence_rule_for(
-    director: &DirectorTakeover,
-) -> Option<live2d_ai_runtime::cleaning::SentenceRuleFallback> {
-    motion_on(director).then(|| {
-        live2d_ai_runtime::cleaning::SentenceRuleFallback::new(|text: &str, seq: u64| {
-            live2d_ai_mod_director::presets::rule_cues_for_sentence(text, seq)
-        })
-    })
-}
-
-/// 二路清洗装配（唯一装配点；启动与热重载共用）。
-///
-/// 端点 / 模型 / 密钥**全部来自一路**（`client.llm()`）——模型定死同一份，
-/// 不再给用户第二个下拉框。`clean_tts == false`（`LlmConfig::new` 的便捷构造）
-/// → `None`：主链保持既有行为（上屏 == 送 TTS == `clean_for_tts(句)`）。
-fn build_sentence_cleaner(
-    client: &OpenAiClient,
-    director: &DirectorTakeover,
-) -> Option<Arc<SentenceCleaner>> {
-    let llm = client.llm();
-    let motion = motion_on(director);
-    let allowed = || live2d_ai_mod_director::presets::accepted_preset_ids();
-    // 表演倾向（2026-10-13 执行单 T3）：真源 = director 的 `motion_bias`，两条派生值。
-    let motion_bias = director.motion_bias.to_runtime_bias(&allowed().join(", "));
-    let cleaner = match clean_endpoint(director) {
-        // 动作门 Own：这一次按句清洗改用 staging 端点。密钥变量名空则复用主 LLM
-        // 的**已解析**密钥；否则经 `secrets::lookup`（永不落日志）。
-        CleanEndpoint::Staging => {
-            let key = if director.staging_api_key_env.is_empty() {
-                llm.api_key.clone()
-            } else {
-                live2d_ai_runtime::secrets::lookup(director.staging_api_key_env.trim())
-                    .map(live2d_ai_runtime::ApiSecret::from)
-            };
-            SentenceCleaner::from_parts(
-                &director.staging_base_url,
-                &director.staging_model,
-                key,
-                live2d_ai_runtime::cleaning::CLEAN_TIMEOUT_MS,
-                motion,
-                allowed(),
-            )
-            .with_bias(motion_bias)
-        }
-        // 复用对话模型（或动作门没开）：端点仍是主 LLM。
-        CleanEndpoint::Conversation => {
-            let base = SentenceCleaner::from_llm(llm);
-            if motion {
-                base.with_motion(allowed(), motion_bias)
-            } else {
-                base
-            }
-        }
-    };
-    if !cleaner.enabled() {
-        return None;
-    }
-    tracing::info!(
-        model = cleaner.model(),
-        motion = cleaner.motion(),
-        bias = director.motion_bias.as_str(),
-        "二路按句清洗已装配（动作门；请求体显式关思考）"
-    );
-    Some(Arc::new(cleaner))
-}
-
-/// 应用 Reload：从最新配置重建 engine；失败保留旧 engine。
-///
-/// 抽成独立函数供两处复用：
-/// 1. `run_forever` 空闲态 select 直接处理（无 in-flight turn 时）；
-/// 2. `run_one_turn` 收口后兜底（处理在飞期间积压的 Reload）。
-///
-/// `config_path: None` 时静默 no-op（web 模式 / 测试装配）。
-///
-/// `reload_pending: Some(&AtomicBool)` 时**消费**标志：成功读置 false；
-/// 读置 false 后**才**执行 rebuild（避免在 idle select 之外做无谓 IO）。
-fn apply_reload(
-    engine: &mut ConversationEngine,
-    config_path: Option<&str>,
-    reload_pending: Option<&std::sync::atomic::AtomicBool>,
-    performance_stats: &PerformanceStatsSlot,
-    histories: &mut dialogue_history::DialogueHistories,
-    emit: &Emit,
+/// 没有等待者（`None`）= 手改 toml / 巡检路径，no-op；等待者已经走了
+/// （超时返回 Queued）= `try_send` 失败，同样丢弃。**绝不阻塞** supervisor 线程。
+pub(crate) fn reply_reload(
+    ack: &Arc<std::sync::Mutex<Option<ReloadAck>>>,
+    outcome: &Result<(), String>,
 ) {
-    // 消费标志：仅在需要应用时才清。失败路径不重置——保留以便下次再试。
-    let should_apply = reload_pending
-        .map(|f| f.swap(false, std::sync::atomic::Ordering::SeqCst))
-        .unwrap_or(true);
-    if !should_apply {
-        return;
-    }
-    let Some(path) = config_path else {
-        tracing::debug!("Reload 收到但 config_path 未设置（web 模式 / 测试），no-op");
-        return;
-    };
-    match rebuild_engine_from_config(path, emit) {
-        Ok((new_client, new_conversation, performance, cleaner, director)) => {
-            // 表演层 / 二路清洗与引擎同一份配置解析：热重载后说话人、cue 源、
-            // 清洗模型一起换。
-            let mut new_engine = ConversationEngine::new(new_client, new_conversation);
-            new_engine.set_performance(performance.clone());
-            new_engine.set_cleaner(cleaner);
-            new_engine.set_motion(motion_on(&director));
-            new_engine.set_sentence_rule(sentence_rule_for(&director));
-            *engine = new_engine;
-            // 新引擎是空历史。分桶必须一起丢掉，否则下一轮会把旧桶装回去。
-            histories.clear();
-            if let Ok(mut slot) = performance_stats.lock() {
-                *slot = performance.map(|rt| rt.stats());
-            }
-            tracing::info!(path, "热重载成功：已重建 LLM/TTS client（含表演层）");
-        }
-        Err(e) => {
-            // 失败回退：旧 engine 不动；前端可由日志/事件
-            // 显示「保存失败，仍用旧配置」。进程继续运行。
-            // 标志已被清——但 PATCH 端拿不到错误返回（web 模式仅 HTTP
-            // 200 + 状态：旧值 GET 仍可见），必要时 PATCH 端发 Reload
-            // 之前可先做 server-side validate。
-            tracing::error!(error = %e, path, "热重载失败：保留旧配置继续运行");
-        }
-    }
-}
-
-/// 启动 supervisor：独立 OS 线程 + 独立 Tokio current-thread runtime（D1）。
-///
-/// **向后兼容**：保持原 2-arg 签名 ——不设置 `emit_audio`（默认 `None`，
-/// 仅 cpal 播放）。F6-T2 接线需 WS 音频广播时，用
-/// [`spawn_supervisor_with_audio`]（传入 `Some` 闭包）。
-pub fn spawn_supervisor(
-    config: SupervisorConfig,
-    emit: impl Fn(AppEvent) + Send + Sync + 'static,
-) -> SupervisorHandle {
-    spawn_supervisor_impl(config, emit, None)
-}
-
-/// 启动 supervisor（带 WS 音频广播回调）——F6-T2 接线。
-///
-/// `emit_audio` 为 `Some` 时，PCM 经 cpal 播放的同时被推送到 WS 广播
-/// （`Broadcaster::broadcast_audio_frames`）；为 `None` 时仅 cpal 播放
-/// （等价于 [`spawn_supervisor`]）。双声问题消解见 `cli_entry::build_web_supervisor`
-/// 文档 ——默认闭 `LIVE2D_AI_WS_AUDIO=1` 时才开启。
-pub fn spawn_supervisor_with_audio(
-    config: SupervisorConfig,
-    emit: impl Fn(AppEvent) + Send + Sync + 'static,
-    emit_audio: Arc<AudioCb>,
-) -> SupervisorHandle {
-    spawn_supervisor_impl(config, emit, Some(emit_audio))
-}
-
-/// 共享子线程入口：`emit_audio` 以 `Option<Arc<…>>` 传入。
-/// 子线程入口安装线程局部回调，供 `handlers::handle_engine_event` 在
-/// `AudioChunk` 分支读取（PCM 绝不经 AppEvent，详见本模块头注）。
-fn spawn_supervisor_impl(
-    config: SupervisorConfig,
-    emit: impl Fn(AppEvent) + Send + Sync + 'static,
-    emit_audio: Option<Arc<AudioCb>>,
-) -> SupervisorHandle {
-    let (say_tx, say_rx) = mpsc::channel(1);
-    let (control_tx, control_rx) = mpsc::unbounded_channel();
-    let (finish_tx, finish_rx) = mpsc::unbounded_channel();
-    let reload_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    // L1 基座：会话作用域表。**supervisor 线程与 handle 共享同一个 Arc**——
-    // HTTP/mod 侧写、supervisor 每轮读，因此「切会话立刻生效（下一轮）」。
-    let session_scopes = SessionScopeStore::new();
-    let session_scopes_for_thread = session_scopes.clone();
-    // P1WS-1：当前 epoch 镜像（外部 HTTP/Status 端读这里）；启动时 = 0
-    // （与 `RootState::default().epoch.get()` 一致）。
-    let current_epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    // 表演层计数槽（2026-09-22）：supervisor 线程写（装配 / 热重载），
-    // handle 读（`GET /api/v1/app/status`）。
-    let performance_stats: PerformanceStatsSlot = Arc::new(std::sync::Mutex::new(None));
-    let performance_stats_for_thread = Arc::clone(&performance_stats);
-
-    let emit: Emit = Arc::new(emit);
-    // **Mod 事件桥（d2）**：包裹 AppEvent 发射——转发给 AppEvent 消费端的
-    // 同时，把 `AppEvent::Conversation` 三变体投影为对应 `ModEventTopic`
-    // 投递给 Mod worker（`dispatch_event` 非阻塞，满则丢弃）。`mod_events`
-    // 为 `Option<Arc<F>>`，测试/无 Mod 时传 None（包裹闭包内 no-op）。
-    let mod_events_for_emit = config.mod_events.clone();
-    let emit: Emit = Arc::new(move |ev: AppEvent| {
-        emit(ev.clone());
-        if let Some(f) = &mod_events_for_emit
-            && let Some((topic, payload)) = project_conversation_to_mod(&ev)
-        {
-            // 会话无关的投影（TextDelta / VoiceStarted / VoiceEnded）不带会话：
-            // 它们描述的是「这一轮正在发生什么」，而轮次与会话的绑定在
-            // TurnStarted/TurnPrompt/TurnEnded 三条上已经给全了。
-            f(topic, &payload, None);
-        }
-    });
-    let mod_events_for_thread = config.mod_events.clone();
-    let mod_events_for_tls = config.mod_events.clone();
-    let reload_pending_for_thread = Arc::clone(&reload_pending);
-    let current_epoch_for_thread = Arc::clone(&current_epoch);
-    let join = std::thread::Builder::new()
-        .name("l2d-supervisor".to_owned())
-        .spawn(move || {
-            // F6-T2：在子线程入口安装线程局部音频回调，供 handlers::handle_engine_event
-            // 在 AudioChunk 分支读取。线程退出时该线程局部随线程灭亡，无需显式清理。
-            AUDIO_CB.with(|cell| *cell.borrow_mut() = emit_audio);
-            // P1-2：安装 Mod 事件桥线程局部（SentenceReady 用）。
-            MOD_EVENT_CB.with(|cell| *cell.borrow_mut() = mod_events_for_tls);
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("supervisor runtime");
-            rt.block_on(run_forever(
-                config,
-                say_rx,
-                control_rx,
-                finish_rx,
-                reload_pending_for_thread,
-                current_epoch_for_thread,
-                emit,
-                mod_events_for_thread,
-                session_scopes_for_thread,
-                performance_stats_for_thread,
-            ));
-        })
-        .expect("启动 supervisor 线程");
-
-    SupervisorHandle {
-        say_tx,
-        control_tx,
-        finish_tx,
-        join: Some(join),
-        reload_pending,
-        current_epoch,
-        session_scopes,
-        performance_stats,
+    let taken = ack.lock().ok().and_then(|mut slot| slot.take());
+    if let Some(tx) = taken {
+        let _ = tx.try_send(outcome.clone());
     }
 }
 
@@ -672,245 +403,6 @@ fn project_conversation_to_mod(ev: &AppEvent) -> Option<(ModEventTopic, String)>
         }
         _ => None,
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_forever(
-    config: SupervisorConfig,
-    mut say_rx: mpsc::Receiver<SayRequest>,
-    mut control_rx: mpsc::UnboundedReceiver<ControlCommand>,
-    mut finish_rx: mpsc::UnboundedReceiver<ActionFinishedFact>,
-    reload_pending: Arc<std::sync::atomic::AtomicBool>,
-    current_epoch: Arc<std::sync::atomic::AtomicU64>,
-    emit: Emit,
-    mod_events: Option<ModEventSink>,
-    session_scopes: SessionScopeStore,
-    performance_stats: PerformanceStatsSlot,
-) {
-    let SupervisorConfig {
-        client,
-        conversation,
-        capabilities,
-        mut audio,
-        config_path,
-        mod_events: _,
-    } = config;
-
-    let mut root = RootState::default();
-    // 能力集显式注入（附带发现 #5）：Bai 支持全部六动作；默认空集会导致
-    // 一切 Play 被 capability gate 拒绝——那必须是装配错误而不是静默行为。
-    root.action.capabilities = capabilities;
-    // 导演接管输入（mods.json）先读一次：二路清洗的端点（动作门 Own 改用 staging）
-    // 与动作门开关都从这里来。config_path 为 None（测试 / 无配置装配）→ 缺省未启用。
-    let director = config_path
-        .as_deref()
-        .map(load_director_takeover)
-        .unwrap_or_default();
-    // 二路按句清洗（2026-10-08；2026-10-13 起动作门可改用 staging 端点）：要在把
-    // client 移进引擎**之前**装配。测试 / 手工装配用 `LlmConfig::new` →
-    // clean_tts=false → 这里 `None`，主链保持既有行为。
-    let cleaner = build_sentence_cleaner(&client, &director);
-    let mut engine = ConversationEngine::new(client, conversation);
-    engine.set_cleaner(cleaner);
-    // 动作门（T14）：开着时按句清洗带 cues，失败回退按句规则表。
-    engine.set_motion(motion_on(&director));
-    engine.set_sentence_rule(sentence_rule_for(&director));
-    // ---- 表演层装配（T8，2026-10-07；2026-10-08 起显式 opt-in）----
-    // 开关 = `[performance].enabled`（缺省 false → 主链走二路按句清洗）；
-    // 显式打开后，端点按 `staging_*` 两项共用判定（导演启用时）或 `[performance]`
-    // 自己的 base_url/model（导演未启用）。
-    // config_path 为 None（测试 / 无配置装配）时不装配——与「从来没有表演层」逐字一致。
-    if let Some(path) = config_path.as_deref()
-        && let Ok(settings) = AppSettings::load_from_path(path)
-    {
-        let performance =
-            build_performance_runtime(&settings.llm, &settings.performance, &director);
-        engine.set_performance(performance.clone());
-        if let Ok(mut slot) = performance_stats.lock() {
-            *slot = performance.map(|rt| rt.stats());
-        }
-    }
-    let mut next_turn_id: u64 = 0;
-    let mut quitting = false;
-    let mut histories = dialogue_history::DialogueHistories::default();
-
-    while !quitting {
-        // ---- 空闲态：受理输入与控制。此时到达的「动作自然完成」事实属于迟到，
-        // 直接交给 core 权威闸门产出确定性丢弃（状态不变），保持单一事实路径。
-        tokio::select! {
-            ctrl = control_rx.recv() => match ctrl {
-                Some(ControlCommand::Quit) | None => quitting = true,
-                Some(ControlCommand::Stop) => {}
-                Some(ControlCommand::Reload) => {
-                    // 热重载：仅在空闲态（`run_one_turn` 不在飞）处理；
-                    // 失败保留旧 client 继续运行，旧 engine 不会被破坏。
-                    apply_reload(
-                        &mut engine,
-                        config_path.as_deref(),
-                        Some(reload_pending.as_ref()),
-                        &performance_stats,
-                        &mut histories,
-                        &emit,
-                    );
-                }
-            },
-            fact = finish_rx.recv() => {
-                if let Some(fact) = fact {
-                    // **Mod 事件桥（d2）**：动作自然完成 → `ActionFinished`。
-                    // payload = 动作协议名（`ActionId::name()`）。
-                    // 2026-09-12：树内已无消费者（director Mod 已删除）——话题保留，
-                    // 因为它是 Mod API 的一部分；**不代表**有任何东西在驱动动作。
-                    if let Some(f) = &mod_events {
-                        // 动作事实与「哪一轮」绑定，而轮次已随事件流带过会话；
-                        // 这里不需要重复携带（动作在产品路径上本就休眠）。
-                        f(ModEventTopic::ActionFinished, fact.action.action.name(), None);
-                    }
-                    // B-P0-5（关键）：使用**事实自带的原始 epoch**原样上报；
-                    // 重盖当前值会让跨代复用的迟到完成误伤新代次的同名动作。
-                    let effects = root_apply(&mut root, RootEvent::ActionPlaybackFinished {
-                        epoch: fact.epoch.into(),
-                        action: fact.action,
-                    });
-                    handlers::forward_effects(root.epoch.get(), &effects, audio.as_deref(), &emit);
-                }
-            }
-            // 2026-09-12（rc.2）：原「Mod 边界 / 外部触发」的 `action_rx` 分支已删除——
-            // 它是**唯一**会把 `RootEvent::Action` 送进 core reducer 的实现，而动作在
-            // 产品路径上不存在（`core-chain-baseline.md` §3.3）；core 的 action/performance
-            // 子系统仍保留但**无驱动方**（待机生命体征 `IdleState` 是另一套机制）。
-            request = say_rx.recv() => match request {
-                Some(request) => {
-                    let SayRequest { text, session } = request;
-                    next_turn_id += 1;
-                    let cur_epoch = root.epoch;
-                    let epoch = cur_epoch.get();
-                    // **Mod 事件桥（d2）**：新 turn 提交 → `TurnStarted`。
-                    // payload = 当前 turn id（话题保留给 Mod；树内无消费者）。
-                    if let Some(f) = &mod_events {
-                        f(
-                            ModEventTopic::TurnStarted,
-                            &next_turn_id.to_string(),
-                            session.as_deref(),
-                        );
-                        // **Wave 2**：紧随其后把**本轮输入正文**交给 Mod。
-                        // `TurnStarted` 的 payload 只是序号，记忆 / 导演类 Mod 需要
-                        // 正文才能检索 / 判情绪（见 `topics.rs::TurnPrompt` 头注）。
-                        //
-                        // **L1**：第三条参数是本轮会话 id；memory 用它分桶，
-                        // persona 用它决定「这张卡属于哪个会话」。
-                        //
-                        // **同轮生效（2026-09-15）**：这一行必须在下面那行
-                        // `set_system_prompt_override` **之前**。sink 对
-                        // `TurnPrompt` 走同步投递（`mod_event_sink` →
-                        // `dispatch_event_and_flush`），所以走到下一行时 Mod 写的
-                        // 会话注入槽（memory 的 MEMORY 块 / persona 的卡）一定已经
-                        // 落表——本轮请求体就带得上它。
-                        // 旧实现把这一行放在 `set_system_prompt_override` 之后，
-                        // 于是注入只能等下一轮（`dispatch_event` 是 try_send，
-                        // 哪个线程先跑到读表点是竞态）。
-                        f(ModEventTopic::TurnPrompt, &text, session.as_deref());
-                    }
-                    // 本轮输入正文先于任何 text_delta 给前端（执行单 2026-10-14 §3）。
-                    handlers::emit_user_line(&emit, epoch, &text);
-
-                    // **L1 会话绑定**：本轮 system_prompt 的**唯一**决议点。
-                    //
-                    // 每轮都重新决议（而不是在切会话时改一次）：
-                    // - 热重载会整体重建引擎，覆盖槽随之清空——每轮 set 天然自愈；
-                    // - 会话表按 owner 分槽（set_owned），每轮重读保证看到最新值；
-                    // - 上面刚投递过 `TurnPrompt`（同步），所以本行读到的是
-                    //   **本轮的** memory / persona 写入，不是上一轮的残留。
-                    //
-                    // 表里没有该会话 → None → 引擎回落配置里的全局
-                    // `persona.system_prompt`（降级语义，见 session_scope 头注）。
-                    engine.set_system_prompt_override(
-                        session_scopes.prompt_for(session.as_deref()),
-                    );
-                    // 对话历史按会话换桶（前为进程一份，换会话会串上一会话轮次）。
-                    histories.install(&mut engine, session.as_deref());
-                    // P1WS-1：开轮前镜像 epoch。Stop 事务推进 epoch 后会再次
-                    // 同步写；UserSubmitted 不动 epoch（root 现状保持），但
-                    // 仍把当前值同步给镜像以覆盖 boot 时 0。
-                    current_epoch.store(epoch, std::sync::atomic::Ordering::Release);
-                    root_apply(&mut root, RootEvent::UserSubmitted {
-                        epoch: cur_epoch,
-                        turn_id: next_turn_id.into(),
-                        sentence_id: 1.into(),
-                        text: String::new(), // 载荷不参与规则；正文走引擎请求体
-                    });
-                    let close = turn::run_one_turn(
-                        &mut root, &mut engine, &mut audio, &mut say_rx, &mut control_rx,
-                        &mut finish_rx, current_epoch.as_ref(), next_turn_id, epoch, text,
-                        &mut quitting, &emit,
-                    )
-                    .await;
-                    // **Wave 3（2026-09-21）**：助手侧正文 → AssistantReplied。
-                    //
-                    // 这是「记忆摘要含助手侧」的唯一入口（见 topics.rs 该主题头注）：
-                    // TurnPrompt 只有用户话、SentenceReady 是按句锚点，记忆类 Mod
-                    // 需要一个「一轮的助手侧正文」。**投递非阻塞**（mod_event_sink
-                    // 只对 TurnPrompt 走 dispatch_event_and_flush），慢 / 失败的
-                    // Mod 绝不阻塞主链；正文先做**确定性清洗**，交给 Mod 的是上屏
-                    // 口径（与送 TTS 同源）。
-                    if let Some(f) = &mod_events
-                        && !close.assistant_text.trim().is_empty()
-                    {
-                        let display =
-                            live2d_ai_runtime::clean_for_tts(&close.assistant_text);
-                        if !display.is_empty() {
-                            let payload = serde_json::json!({
-                                "turn": next_turn_id,
-                                "role": "assistant",
-                                "text": display,
-                                "interrupted": close.interrupted,
-                            })
-                            .to_string();
-                            f(
-                                ModEventTopic::AssistantReplied,
-                                &payload,
-                                session.as_deref(),
-                            );
-                        }
-                    }
-                    // **Wave 3**：本轮收口 → `TurnEnded`（payload = turn id）。
-                    // 发点在 `run_one_turn` 返回之后，**无论**该轮是正常收口还是
-                    // `TurnStatus::Failed`——语义是「这一轮结束了」，不是「成功」。
-                    // 与 `TurnPrompt` **不同**：TurnEnded 是轮末，它的语义本来就是
-                    // 「为下一轮准备」——这里做的 `apply_settings` 对下一轮生效。
-                    // （TurnPrompt 的会话注入是**同轮**生效，见上面的注释。）
-                    if let Some(f) = &mod_events {
-                        f(
-                            ModEventTopic::TurnEnded,
-                            &next_turn_id.to_string(),
-                            session.as_deref(),
-                        );
-                    }
-                    // 兜底：「在飞 turn 中到达的 Reload」走原子标志
-                    // [`SupervisorHandle::reload_pending`]，turn.rs no-op
-                    // channel 消息但**不清标志**。turn 收口后统一消费。
-                    // **不 drain control_rx**：turn 内到达的 Quit/Stop 已在
-                    // turn.rs select 内处理（quitting=true / do_stop），
-                    // turn 收尾后仍积压的命令由外层空闲态 select 自然消费
-                    // （删除旧的无条件 `while try_recv().is_ok(){}` drain——
-                    // 它会吞掉恰好落在收尾边界的 Quit，导致应用不退出）。
-                    apply_reload(
-                        &mut engine,
-                        config_path.as_deref(),
-                        Some(reload_pending.as_ref()),
-                        &performance_stats,
-                        &mut histories,
-                        &emit,
-                    );
-                }
-                None => quitting = true,
-            },
-        }
-    }
-
-    // ---- 关机收尾：先释放声卡（Drop 即停流），再通知主线程可以退出。
-    tracing::info!("supervisor 已完成停机清理");
-    drop(audio);
-    emit(AppEvent::ShutdownReady);
 }
 
 // ---------------------------------------------------------------- 闭环集成测试

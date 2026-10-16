@@ -734,8 +734,9 @@ fn rejected_apply_fails_explicitly_and_leaves_no_baseline() {
         !dir.path().join(BASE_STATE_FILE).exists(),
         "写盘失败不得落基线快照"
     );
-    // 还原路径同理：即便硬走到 shutdown 也只记日志，不 panic、不谎报。
-    assert!(rt.shutdown().is_ok());
+    // 还原路径同理：硬走到 shutdown 也必须**如实失败**（S-004，2026-10-16）——
+    // 写回不了主链就不是「已停用」，从前那句 `is_ok()` 正是界面写「已停用」的来源。
+    assert!(rt.shutdown().is_err());
 }
 
 /// 开场白只在**真的接管了主链**之后才念。

@@ -64,7 +64,7 @@ class ServiceSection extends StatefulWidget {
   final String? envFile;
 
   /// 保存密钥（PUT /api/v1/env）。
-  final Future<void> Function(String key, String value)? onSaveKey;
+  final Future<EnvWriteResult> Function(String key, String value)? onSaveKey;
 
   /// 两个连通性自检。
   final Future<void> Function()? onTestLlm;

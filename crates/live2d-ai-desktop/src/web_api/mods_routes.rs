@@ -255,6 +255,10 @@ pub fn handle_mods_route(
             ));
         };
         let enabled = registry.is_enabled(id_static);
+        // S-003（2026-10-16）：存在性判定挪到**调用前**。从前 404 与「写盘失败」
+        // 都走 `ModError::Other`，一律回 404 not_found——于是磁盘满 / 只读目录时
+        // 用户看到的是「Mod 不存在」。现在 404 只留给真的不在册。
+        let known = registry.contains(id_static);
         let reload_result = registry.reload_config(id_static, config.clone());
         drop(registry);
         match reload_result {
@@ -285,7 +289,7 @@ pub fn handle_mods_route(
                     r#"{"ok":true,"enabled":false}"#,
                 ));
             }
-            Err(live2d_ai_mod_system::ModError::Other(_)) => {
+            Err(live2d_ai_mod_system::ModError::Other(_)) if !known => {
                 return Some(json_error(
                     StatusCode(404),
                     "not_found",
